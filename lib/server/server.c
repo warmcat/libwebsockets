@@ -802,251 +802,6 @@ int lws_clean_url(char *p)
 	return 0;
 }
 
-static int
-lws_server_init_wsi_for_ws(struct lws *wsi)
-{
-	int n;
-
-	lwsi_set_state(wsi, LRS_ESTABLISHED);
-	lws_restart_ws_ping_pong_timer(wsi);
-
-	/*
-	 * create the frame buffer for this connection according to the
-	 * size mentioned in the protocol definition.  If 0 there, use
-	 * a big default for compatibility
-	 */
-
-	n = (int)wsi->protocol->rx_buffer_size;
-	if (!n)
-		n = wsi->context->pt_serv_buf_size;
-	n += LWS_PRE;
-	wsi->ws->rx_ubuf = lws_malloc(n + 4 /* 0x0000ffff zlib */, "rx_ubuf");
-	if (!wsi->ws->rx_ubuf) {
-		lwsl_err("Out of Mem allocating rx buffer %d\n", n);
-		return 1;
-	}
-	wsi->ws->rx_ubuf_alloc = n;
-	lwsl_debug("Allocating RX buffer %d\n", n);
-
-#if LWS_POSIX && !defined(LWS_WITH_ESP32)
-	if (!wsi->parent_carries_io &&
-	    !wsi->h2_stream_carries_ws)
-		if (setsockopt(wsi->desc.sockfd, SOL_SOCKET, SO_SNDBUF,
-		       (const char *)&n, sizeof n)) {
-			lwsl_warn("Failed to set SNDBUF to %d", n);
-			return 1;
-		}
-#endif
-
-	/* notify user code that we're ready to roll */
-
-	if (wsi->protocol->callback)
-		if (wsi->protocol->callback(wsi, LWS_CALLBACK_ESTABLISHED,
-					    wsi->user_space,
-#ifdef LWS_WITH_TLS
-					    wsi->ssl,
-#else
-					    NULL,
-#endif
-					    wsi->h2_stream_carries_ws))
-			return 1;
-
-	lwsl_debug("ws established\n");
-
-	return 0;
-}
-
-static int
-lws_process_ws_upgrade(struct lws *wsi)
-{
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
-	char protocol_list[128], protocol_name[64], *p;
-	int protocol_len, hit, n = 0, non_space_char_found = 0;
-
-	if (!wsi->protocol)
-		lwsl_err("NULL protocol at lws_read\n");
-
-	/*
-	 * It's either websocket or h2->websocket
-	 *
-	 * Select the first protocol we support from the list
-	 * the client sent us.
-	 *
-	 * Copy it to remove header fragmentation
-	 */
-
-	if (lws_hdr_copy(wsi, protocol_list, sizeof(protocol_list) - 1,
-			 WSI_TOKEN_PROTOCOL) < 0) {
-		lwsl_err("protocol list too long");
-		return 1;
-	}
-
-	protocol_len = lws_hdr_total_length(wsi, WSI_TOKEN_PROTOCOL);
-	protocol_list[protocol_len] = '\0';
-	p = protocol_list;
-	hit = 0;
-
-	while (*p && !hit) {
-		n = 0;
-		non_space_char_found = 0;
-		while (n < (int)sizeof(protocol_name) - 1 &&
-		       *p && *p != ',') {
-			/* ignore leading spaces */
-			if (!non_space_char_found && *p == ' ') {
-				n++;
-				continue;
-			}
-			non_space_char_found = 1;
-			protocol_name[n++] = *p++;
-		}
-		protocol_name[n] = '\0';
-		if (*p)
-			p++;
-
-		lwsl_debug("checking %s\n", protocol_name);
-
-		n = 0;
-		while (wsi->vhost->protocols[n].callback) {
-			lwsl_debug("try %s\n",
-				  wsi->vhost->protocols[n].name);
-
-			if (wsi->vhost->protocols[n].name &&
-			    !strcmp(wsi->vhost->protocols[n].name,
-				    protocol_name)) {
-				wsi->protocol = &wsi->vhost->protocols[n];
-				hit = 1;
-				break;
-			}
-
-			n++;
-		}
-	}
-
-	/* we didn't find a protocol he wanted? */
-
-	if (!hit) {
-		if (lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL)) {
-			lwsl_notice("No protocol from \"%s\" supported\n",
-				 protocol_list);
-			return 1;
-		}
-		/*
-		 * some clients only have one protocol and
-		 * do not send the protocol list header...
-		 * allow it and match to the vhost's default
-		 * protocol (which itself defaults to zero)
-		 */
-		lwsl_info("defaulting to prot handler %d\n",
-			wsi->vhost->default_protocol_index);
-		n = wsi->vhost->default_protocol_index;
-		wsi->protocol = &wsi->vhost->protocols[
-			      (int)wsi->vhost->default_protocol_index];
-	}
-
-	/* allocate the ws struct for the wsi */
-	wsi->ws = lws_zalloc(sizeof(*wsi->ws), "ws struct");
-	if (!wsi->ws) {
-		lwsl_notice("OOM\n");
-		return 1;
-	}
-
-	if (lws_hdr_total_length(wsi, WSI_TOKEN_VERSION))
-		wsi->ws->ietf_spec_revision =
-			       atoi(lws_hdr_simple_ptr(wsi, WSI_TOKEN_VERSION));
-
-	/* allocate wsi->user storage */
-	if (lws_ensure_user_space(wsi)) {
-		lwsl_notice("problem with user space\n");
-		return 1;
-	}
-
-	/*
-	 * Give the user code a chance to study the request and
-	 * have the opportunity to deny it
-	 */
-	if ((wsi->protocol->callback)(wsi,
-			LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION,
-			wsi->user_space,
-		      lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL), 0)) {
-		lwsl_warn("User code denied connection\n");
-		return 1;
-	}
-
-	/*
-	 * Perform the handshake according to the protocol version the
-	 * client announced
-	 */
-
-	switch (wsi->ws->ietf_spec_revision) {
-	default:
-		lwsl_notice("Unknown client spec version %d\n",
-			  wsi->ws->ietf_spec_revision);
-		wsi->ws->ietf_spec_revision = 13;
-		//return 1;
-		/* fallthru */
-	case 13:
-#if defined(LWS_WITH_HTTP2)
-		if (wsi->h2_stream_carries_ws) {
-			if (lws_h2_ws_handshake(wsi)) {
-				lwsl_notice("h2 ws handshake failed\n");
-				return 1;
-			}
-		} else
-#endif
-		{
-			lwsl_parser("lws_parse calling handshake_04\n");
-			if (handshake_0405(wsi->context, wsi)) {
-				lwsl_notice("hs0405 has failed the connection\n");
-				return 1;
-			}
-		}
-		break;
-	}
-
-	lws_same_vh_protocol_insert(wsi, n);
-
-	/*
-	 * We are upgrading to ws, so http/1.1 + h2 and keepalive + pipelined
-	 * header considerations about keeping the ah around no longer apply.
-	 *
-	 * However it's common for the first ws protocol data to have been
-	 * coalesced with the browser upgrade request and to already be in the
-	 * ah rx buffer.
-	 */
-
-	lwsl_debug("%s: %p: inheriting ws ah (rxpos:%d, rxlen:%d)\n",
-		  __func__, wsi, wsi->ah->rxpos, wsi->ah->rxlen);
-	lws_pt_lock(pt, __func__);
-
-	if (wsi->h2_stream_carries_ws)
-		lws_role_transition(wsi, LWSI_ROLE_WS2_SERVER, LRS_ESTABLISHED,
-				    &wire_ops_ws);
-	else
-		lws_role_transition(wsi, LWSI_ROLE_WS1_SERVER, LRS_ESTABLISHED,
-				    &wire_ops_ws);
-	/*
-	 * Because rxpos/rxlen shows something in the ah, we will get
-	 * service guaranteed next time around the event loop
-	 */
-
-	lws_pt_unlock(pt);
-
-	lws_server_init_wsi_for_ws(wsi);
-	lwsl_parser("accepted v%02d connection\n", wsi->ws->ietf_spec_revision);
-
-	/* !!! drop ah unreservedly after ESTABLISHED */
-	if (wsi->ah->rxpos == wsi->ah->rxlen) {
-		lwsl_info("%s: %p: dropping ah on ws upgrade\n", __func__, wsi);
-		lws_header_table_force_to_detachable_state(wsi);
-		lws_header_table_detach(wsi, 1);
-	} else
-		lwsl_info("%s: %p: unable to drop ah at ws upgrade %d vs %d\n",
-			    __func__, wsi, wsi->ah->rxpos, wsi->ah->rxlen);
-
-	return 0;
-}
-
-
 static const unsigned char methods[] = {
 	WSI_TOKEN_GET_URI,
 	WSI_TOKEN_POST_URI,
@@ -1103,9 +858,6 @@ lws_http_action(struct lws *wsi)
 	unsigned int n;
 	char http_version_str[10];
 	char http_conn_str[20];
-#if defined(LWS_WITH_HTTP2)
-	char *p;
-#endif
 	int http_version_len;
 	char *uri_ptr = NULL, *s;
 	int uri_len = 0, meth;
@@ -1128,36 +880,15 @@ lws_http_action(struct lws *wsi)
 	lwsl_info("Method: '%s' (%d), request for '%s'\n", method_names[meth],
 		  meth, uri_ptr);
 
-#if defined(LWS_WITH_HTTP2)
-		/*
-		 * with H2 there's also a way to upgrade a stream to something
-		 * else... :method is CONNECT and :protocol says the name of
-		 * the new protocol we want to carry.  We have to have sent a
-		 * SETTINGS saying that we support it though.
-		 */
-		p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_METHOD);
-		if (wsi->vhost->set.s[H2SET_ENABLE_CONNECT_PROTOCOL] &&
-		    wsi->http2_substream && p && !strcmp(p, "CONNECT")) {
-			p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_COLON_PROTOCOL);
-			if (p && !strcmp(p, "websocket")) {
-				struct lws *nwsi = lws_get_network_wsi(wsi);
-
-				wsi->vhost->conn_stats.ws_upg++;
-				lwsl_info("Upgrade h2 to ws\n");
-				wsi->h2_stream_carries_ws = 1;
-				nwsi->ws_over_h2_count++;
-				if (lws_process_ws_upgrade(wsi))
-					goto bail_nuke_ah;
-
-				if (nwsi->ws_over_h2_count == 1)
-					lws_set_timeout(nwsi, NO_PENDING_TIMEOUT, 0);
-
-				lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
-				lwsl_info("Upgraded h2 to ws OK\n");
-				return 0;
-			}
+	if (wsi->pops && wsi->pops->check_upgrades)
+		switch (wsi->pops->check_upgrades(wsi)) {
+		case LWS_UPG_RET_DONE:
+			return 0;
+		case LWS_UPG_RET_CONTINUE:
+			break;
+		case LWS_UPG_RET_BAIL:
+			goto bail_nuke_ah;
 		}
-#endif
 
 	if (lws_ensure_user_space(wsi))
 		goto bail_nuke_ah;
@@ -2684,7 +2415,7 @@ lws_interpret_incoming_packet(struct lws *wsi, unsigned char **buf, size_t len)
 		}
 
 		if (wsi->ws->rx_draining_ext) {
-			m = lws_rx_sm(wsi, 0);
+			m = lws_ws_rx_sm(wsi, 0);
 			if (m < 0)
 				return -1;
 			continue;
@@ -2706,7 +2437,7 @@ lws_interpret_incoming_packet(struct lws *wsi, unsigned char **buf, size_t len)
 		}
 
 		/* process the byte */
-		m = lws_rx_sm(wsi, *(*buf)++);
+		m = lws_ws_rx_sm(wsi, *(*buf)++);
 		if (m < 0)
 			return -1;
 		len--;

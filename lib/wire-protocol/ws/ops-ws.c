@@ -21,6 +21,1319 @@
 
 #include <private-libwebsockets.h>
 
+#define LWS_CPYAPP(ptr, str) { strcpy(ptr, str); ptr += strlen(str); }
+
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+static int
+lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
+{
+	struct lws_context *context = wsi->context;
+	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+	char ext_name[64], *args, *end = (*p) + budget - 1;
+	const struct lws_ext_options *opts, *po;
+	const struct lws_extension *ext;
+	struct lws_ext_option_arg oa;
+	int n, m, more = 1;
+	int ext_count = 0;
+	char ignore;
+	char *c;
+
+	/*
+	 * Figure out which extensions the client has that we want to
+	 * enable on this connection, and give him back the list
+	 */
+	if (!lws_hdr_total_length(wsi, WSI_TOKEN_EXTENSIONS))
+		return 0;
+
+	/*
+	 * break down the list of client extensions
+	 * and go through them
+	 */
+
+	if (lws_hdr_copy(wsi, (char *)pt->serv_buf, context->pt_serv_buf_size,
+			 WSI_TOKEN_EXTENSIONS) < 0)
+		return 1;
+
+	c = (char *)pt->serv_buf;
+	lwsl_parser("WSI_TOKEN_EXTENSIONS = '%s'\n", c);
+	wsi->count_act_ext = 0;
+	ignore = 0;
+	n = 0;
+	args = NULL;
+
+	/*
+	 * We may get a simple request
+	 *
+	 * Sec-WebSocket-Extensions: permessage-deflate
+	 *
+	 * or an elaborated one with requested options
+	 *
+	 * Sec-WebSocket-Extensions: permessage-deflate; \
+	 *			     server_no_context_takeover; \
+	 *			     client_no_context_takeover
+	 */
+
+	while (more) {
+
+		if (*c && (*c != ',' && *c != '\t')) {
+			if (*c == ';') {
+				ignore = 1;
+				args = c + 1;
+			}
+			if (ignore || *c == ' ') {
+				c++;
+				continue;
+			}
+			ext_name[n] = *c++;
+			if (n < (int)sizeof(ext_name) - 1)
+				n++;
+			continue;
+		}
+		ext_name[n] = '\0';
+
+		ignore = 0;
+		if (!*c)
+			more = 0;
+		else {
+			c++;
+			if (!n)
+				continue;
+		}
+
+		while (args && *args && *args == ' ')
+			args++;
+
+		/* check a client's extension against our support */
+
+		ext = wsi->vhost->extensions;
+
+		while (ext && ext->callback) {
+
+			if (strcmp(ext_name, ext->name)) {
+				ext++;
+				continue;
+			}
+
+			/*
+			 * oh, we do support this one he asked for... but let's
+			 * confirm he only gave it once
+			 */
+			for (m = 0; m < wsi->count_act_ext; m++)
+				if (wsi->active_extensions[m] == ext) {
+					lwsl_info("extension mentioned twice\n");
+					return 1; /* shenanigans */
+				}
+
+			/*
+			 * ask user code if it's OK to apply it on this
+			 * particular connection + protocol
+			 */
+			m = (wsi->protocol->callback)(wsi,
+				LWS_CALLBACK_CONFIRM_EXTENSION_OKAY,
+				wsi->user_space, ext_name, 0);
+
+			/*
+			 * zero return from callback means go ahead and allow
+			 * the extension, it's what we get if the callback is
+			 * unhandled
+			 */
+			if (m) {
+				ext++;
+				continue;
+			}
+
+			/* apply it */
+
+			ext_count++;
+
+			/* instantiate the extension on this conn */
+
+			wsi->active_extensions[wsi->count_act_ext] = ext;
+
+			/* allow him to construct his context */
+
+			if (ext->callback(lws_get_context(wsi), ext, wsi,
+					  LWS_EXT_CB_CONSTRUCT,
+					  (void *)&wsi->act_ext_user[
+					                    wsi->count_act_ext],
+					  (void *)&opts, 0)) {
+				lwsl_info("ext %s failed construction\n",
+					    ext_name);
+				ext_count--;
+				ext++;
+
+				continue;
+			}
+
+			if (ext_count > 1)
+				*(*p)++ = ',';
+			else
+				LWS_CPYAPP(*p,
+					  "\x0d\x0aSec-WebSocket-Extensions: ");
+			*p += lws_snprintf(*p, (end - *p), "%s", ext_name);
+
+			/*
+			 *  go through the options trying to apply the
+			 * recognized ones
+			 */
+
+			lwsl_debug("ext args %s", args);
+
+			while (args && *args && *args != ',') {
+				while (*args == ' ')
+					args++;
+				po = opts;
+				while (po->name) {
+					/* only support arg-less options... */
+					if (po->type != EXTARG_NONE ||
+					    strncmp(args, po->name,
+						    strlen(po->name))) {
+						po++;
+						continue;
+					}
+					oa.option_name = NULL;
+					oa.option_index = (int)(po - opts);
+					oa.start = NULL;
+					lwsl_debug("setting %s\n", po->name);
+					if (!ext->callback(
+						lws_get_context(wsi), ext, wsi,
+							  LWS_EXT_CB_OPTION_SET,
+							  wsi->act_ext_user[
+								 wsi->count_act_ext],
+							  &oa, (end - *p))) {
+
+						*p += lws_snprintf(*p, (end - *p),
+							"; %s", po->name);
+						lwsl_debug("adding option %s\n",
+								po->name);
+					}
+					po++;
+				}
+				while (*args && *args != ',' && *args != ';')
+					args++;
+			}
+
+			wsi->count_act_ext++;
+			lwsl_parser("cnt_act_ext <- %d\n", wsi->count_act_ext);
+
+			ext++;
+		}
+
+		n = 0;
+		args = NULL;
+	}
+
+	return 0;
+}
+#endif
+
+
+/*
+ * client-parser.c: lws_client_rx_sm() needs to be roughly kept in
+ *   sync with changes here, esp related to ext draining
+ */
+
+int
+lws_ws_rx_sm(struct lws *wsi, unsigned char c)
+{
+	int callback_action = LWS_CALLBACK_RECEIVE;
+	int ret = 0, rx_draining_ext = 0;
+	struct lws_tokens eff_buf;
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+	int n;
+#endif
+
+	eff_buf.token = NULL;
+	eff_buf.token_len = 0;
+	if (wsi->socket_is_permanently_unusable)
+		return -1;
+
+	switch (wsi->lws_rx_parse_state) {
+	case LWS_RXPS_NEW:
+		if (wsi->ws->rx_draining_ext) {
+			eff_buf.token = NULL;
+			eff_buf.token_len = 0;
+			lws_remove_wsi_from_draining_ext_list(wsi);
+			rx_draining_ext = 1;
+			lwsl_debug("%s: doing draining flow\n", __func__);
+
+			goto drain_extension;
+		}
+		switch (wsi->ws->ietf_spec_revision) {
+		case 13:
+			/*
+			 * no prepended frame key any more
+			 */
+			wsi->ws->all_zero_nonce = 1;
+			goto handle_first;
+
+		default:
+			lwsl_warn("lws_ws_rx_sm: unknown spec version %d\n",
+				  wsi->ws->ietf_spec_revision);
+			break;
+		}
+		break;
+	case LWS_RXPS_04_mask_1:
+		wsi->ws->mask[1] = c;
+		if (c)
+			wsi->ws->all_zero_nonce = 0;
+		wsi->lws_rx_parse_state = LWS_RXPS_04_mask_2;
+		break;
+	case LWS_RXPS_04_mask_2:
+		wsi->ws->mask[2] = c;
+		if (c)
+			wsi->ws->all_zero_nonce = 0;
+		wsi->lws_rx_parse_state = LWS_RXPS_04_mask_3;
+		break;
+	case LWS_RXPS_04_mask_3:
+		wsi->ws->mask[3] = c;
+		if (c)
+			wsi->ws->all_zero_nonce = 0;
+
+		/*
+		 * start from the zero'th byte in the XOR key buffer since
+		 * this is the start of a frame with a new key
+		 */
+
+		wsi->ws->mask_idx = 0;
+
+		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_1;
+		break;
+
+	/*
+	 *  04 logical framing from the spec (all this is masked when incoming
+	 *  and has to be unmasked)
+	 *
+	 * We ignore the possibility of extension data because we don't
+	 * negotiate any extensions at the moment.
+	 *
+	 *    0                   1                   2                   3
+	 *    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+	 *   +-+-+-+-+-------+-+-------------+-------------------------------+
+	 *   |F|R|R|R| opcode|R| Payload len |    Extended payload length    |
+	 *   |I|S|S|S|  (4)  |S|     (7)     |             (16/63)           |
+	 *   |N|V|V|V|       |V|             |   (if payload len==126/127)   |
+	 *   | |1|2|3|       |4|             |                               |
+	 *   +-+-+-+-+-------+-+-------------+ - - - - - - - - - - - - - - - +
+	 *   |     Extended payload length continued, if payload len == 127  |
+	 *   + - - - - - - - - - - - - - - - +-------------------------------+
+	 *   |                               |         Extension data        |
+	 *   +-------------------------------+ - - - - - - - - - - - - - - - +
+	 *   :                                                               :
+	 *   +---------------------------------------------------------------+
+	 *   :                       Application data                        :
+	 *   +---------------------------------------------------------------+
+	 *
+	 *  We pass payload through to userland as soon as we get it, ignoring
+	 *  FIN.  It's up to userland to buffer it up if it wants to see a
+	 *  whole unfragmented block of the original size (which may be up to
+	 *  2^63 long!)
+	 */
+
+	case LWS_RXPS_04_FRAME_HDR_1:
+handle_first:
+
+		wsi->ws->opcode = c & 0xf;
+		wsi->ws->rsv = c & 0x70;
+		wsi->ws->final = !!((c >> 7) & 1);
+
+		switch (wsi->ws->opcode) {
+		case LWSWSOPC_TEXT_FRAME:
+		case LWSWSOPC_BINARY_FRAME:
+			wsi->ws->rsv_first_msg = (c & 0x70);
+			wsi->ws->frame_is_binary =
+			     wsi->ws->opcode == LWSWSOPC_BINARY_FRAME;
+			wsi->ws->first_fragment = 1;
+			break;
+		case 3:
+		case 4:
+		case 5:
+		case 6:
+		case 7:
+		case 0xb:
+		case 0xc:
+		case 0xd:
+		case 0xe:
+		case 0xf:
+			lwsl_info("illegal opcode\n");
+			return -1;
+		}
+		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN;
+		break;
+
+	case LWS_RXPS_04_FRAME_HDR_LEN:
+
+		wsi->ws->this_frame_masked = !!(c & 0x80);
+
+		switch (c & 0x7f) {
+		case 126:
+			/* control frames are not allowed to have big lengths */
+			if (wsi->ws->opcode & 8)
+				goto illegal_ctl_length;
+
+			wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN16_2;
+			break;
+		case 127:
+			/* control frames are not allowed to have big lengths */
+			if (wsi->ws->opcode & 8)
+				goto illegal_ctl_length;
+
+			wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_8;
+			break;
+		default:
+			wsi->ws->rx_packet_length = c & 0x7f;
+			if (wsi->ws->this_frame_masked)
+				wsi->lws_rx_parse_state =
+						LWS_RXPS_07_COLLECT_FRAME_KEY_1;
+			else
+				if (wsi->ws->rx_packet_length)
+					wsi->lws_rx_parse_state =
+					LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
+				else {
+					wsi->lws_rx_parse_state = LWS_RXPS_NEW;
+					goto spill;
+				}
+			break;
+		}
+		break;
+
+	case LWS_RXPS_04_FRAME_HDR_LEN16_2:
+		wsi->ws->rx_packet_length = c << 8;
+		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN16_1;
+		break;
+
+	case LWS_RXPS_04_FRAME_HDR_LEN16_1:
+		wsi->ws->rx_packet_length |= c;
+		if (wsi->ws->this_frame_masked)
+			wsi->lws_rx_parse_state =
+					LWS_RXPS_07_COLLECT_FRAME_KEY_1;
+		else
+			wsi->lws_rx_parse_state =
+				LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
+		break;
+
+	case LWS_RXPS_04_FRAME_HDR_LEN64_8:
+		if (c & 0x80) {
+			lwsl_warn("b63 of length must be zero\n");
+			/* kill the connection */
+			return -1;
+		}
+#if defined __LP64__
+		wsi->ws->rx_packet_length = ((size_t)c) << 56;
+#else
+		wsi->ws->rx_packet_length = 0;
+#endif
+		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_7;
+		break;
+
+	case LWS_RXPS_04_FRAME_HDR_LEN64_7:
+#if defined __LP64__
+		wsi->ws->rx_packet_length |= ((size_t)c) << 48;
+#endif
+		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_6;
+		break;
+
+	case LWS_RXPS_04_FRAME_HDR_LEN64_6:
+#if defined __LP64__
+		wsi->ws->rx_packet_length |= ((size_t)c) << 40;
+#endif
+		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_5;
+		break;
+
+	case LWS_RXPS_04_FRAME_HDR_LEN64_5:
+#if defined __LP64__
+		wsi->ws->rx_packet_length |= ((size_t)c) << 32;
+#endif
+		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_4;
+		break;
+
+	case LWS_RXPS_04_FRAME_HDR_LEN64_4:
+		wsi->ws->rx_packet_length |= ((size_t)c) << 24;
+		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_3;
+		break;
+
+	case LWS_RXPS_04_FRAME_HDR_LEN64_3:
+		wsi->ws->rx_packet_length |= ((size_t)c) << 16;
+		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_2;
+		break;
+
+	case LWS_RXPS_04_FRAME_HDR_LEN64_2:
+		wsi->ws->rx_packet_length |= ((size_t)c) << 8;
+		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_1;
+		break;
+
+	case LWS_RXPS_04_FRAME_HDR_LEN64_1:
+		wsi->ws->rx_packet_length |= ((size_t)c);
+		if (wsi->ws->this_frame_masked)
+			wsi->lws_rx_parse_state =
+					LWS_RXPS_07_COLLECT_FRAME_KEY_1;
+		else
+			wsi->lws_rx_parse_state =
+				LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
+		break;
+
+	case LWS_RXPS_07_COLLECT_FRAME_KEY_1:
+		wsi->ws->mask[0] = c;
+		if (c)
+			wsi->ws->all_zero_nonce = 0;
+		wsi->lws_rx_parse_state = LWS_RXPS_07_COLLECT_FRAME_KEY_2;
+		break;
+
+	case LWS_RXPS_07_COLLECT_FRAME_KEY_2:
+		wsi->ws->mask[1] = c;
+		if (c)
+			wsi->ws->all_zero_nonce = 0;
+		wsi->lws_rx_parse_state = LWS_RXPS_07_COLLECT_FRAME_KEY_3;
+		break;
+
+	case LWS_RXPS_07_COLLECT_FRAME_KEY_3:
+		wsi->ws->mask[2] = c;
+		if (c)
+			wsi->ws->all_zero_nonce = 0;
+		wsi->lws_rx_parse_state = LWS_RXPS_07_COLLECT_FRAME_KEY_4;
+		break;
+
+	case LWS_RXPS_07_COLLECT_FRAME_KEY_4:
+		wsi->ws->mask[3] = c;
+		if (c)
+			wsi->ws->all_zero_nonce = 0;
+		wsi->lws_rx_parse_state =
+					LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
+		wsi->ws->mask_idx = 0;
+		if (wsi->ws->rx_packet_length == 0) {
+			wsi->lws_rx_parse_state = LWS_RXPS_NEW;
+			goto spill;
+		}
+		break;
+
+
+	case LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED:
+		assert(wsi->ws->rx_ubuf);
+
+		if (wsi->ws->rx_draining_ext)
+			goto drain_extension;
+
+		if (wsi->ws->rx_ubuf_head + LWS_PRE >=
+		    wsi->ws->rx_ubuf_alloc) {
+			lwsl_err("Attempted overflow \n");
+			return -1;
+		}
+		if (wsi->ws->all_zero_nonce)
+			wsi->ws->rx_ubuf[LWS_PRE +
+					 (wsi->ws->rx_ubuf_head++)] = c;
+		else
+			wsi->ws->rx_ubuf[LWS_PRE +
+			       (wsi->ws->rx_ubuf_head++)] =
+				   c ^ wsi->ws->mask[
+					    (wsi->ws->mask_idx++) & 3];
+
+		if (--wsi->ws->rx_packet_length == 0) {
+			/* spill because we have the whole frame */
+			wsi->lws_rx_parse_state = LWS_RXPS_NEW;
+			goto spill;
+		}
+
+		/*
+		 * if there's no protocol max frame size given, we are
+		 * supposed to default to context->pt_serv_buf_size
+		 */
+		if (!wsi->protocol->rx_buffer_size &&
+		    wsi->ws->rx_ubuf_head != wsi->context->pt_serv_buf_size)
+			break;
+
+		if (wsi->protocol->rx_buffer_size &&
+		    wsi->ws->rx_ubuf_head != wsi->protocol->rx_buffer_size)
+			break;
+
+		/* spill because we filled our rx buffer */
+spill:
+		/*
+		 * is this frame a control packet we should take care of at this
+		 * layer?  If so service it and hide it from the user callback
+		 */
+
+		lwsl_parser("spill on %s\n", wsi->protocol->name);
+
+		switch (wsi->ws->opcode) {
+		case LWSWSOPC_CLOSE:
+
+			/* is this an acknowledgment of our close? */
+			if (lwsi_state(wsi) == LRS_AWAITING_CLOSE_ACK) {
+				/*
+				 * fine he has told us he is closing too, let's
+				 * finish our close
+				 */
+				lwsl_parser("seen client close ack\n");
+				return -1;
+			}
+			if (lwsi_state(wsi) == LRS_RETURNED_CLOSE)
+				/* if he sends us 2 CLOSE, kill him */
+				return -1;
+
+			if (lws_partial_buffered(wsi)) {
+				/*
+				 * if we're in the middle of something,
+				 * we can't do a normal close response and
+				 * have to just close our end.
+				 */
+				wsi->socket_is_permanently_unusable = 1;
+				lwsl_parser("Closing on peer close due to Pending tx\n");
+				return -1;
+			}
+
+			if (user_callback_handle_rxflow(
+					wsi->protocol->callback, wsi,
+					LWS_CALLBACK_WS_PEER_INITIATED_CLOSE,
+					wsi->user_space,
+					&wsi->ws->rx_ubuf[LWS_PRE],
+					wsi->ws->rx_ubuf_head))
+				return -1;
+
+			lwsl_parser("server sees client close packet\n");
+			lwsi_set_state(wsi, LRS_RETURNED_CLOSE);
+			/* deal with the close packet contents as a PONG */
+			wsi->ws->payload_is_close = 1;
+			goto process_as_ping;
+
+		case LWSWSOPC_PING:
+			lwsl_info("received %d byte ping, sending pong\n",
+						 wsi->ws->rx_ubuf_head);
+
+			if (wsi->ws->ping_pending_flag) {
+				/*
+				 * there is already a pending ping payload
+				 * we should just log and drop
+				 */
+				lwsl_parser("DROP PING since one pending\n");
+				goto ping_drop;
+			}
+process_as_ping:
+			/* control packets can only be < 128 bytes long */
+			if (wsi->ws->rx_ubuf_head > 128 - 3) {
+				lwsl_parser("DROP PING payload too large\n");
+				goto ping_drop;
+			}
+
+			/* stash the pong payload */
+			memcpy(wsi->ws->ping_payload_buf + LWS_PRE,
+			       &wsi->ws->rx_ubuf[LWS_PRE],
+				wsi->ws->rx_ubuf_head);
+
+			wsi->ws->ping_payload_len = wsi->ws->rx_ubuf_head;
+			wsi->ws->ping_pending_flag = 1;
+
+			/* get it sent as soon as possible */
+			lws_callback_on_writable(wsi);
+ping_drop:
+			wsi->ws->rx_ubuf_head = 0;
+			return 0;
+
+		case LWSWSOPC_PONG:
+			lwsl_info("received pong\n");
+			lwsl_hexdump(&wsi->ws->rx_ubuf[LWS_PRE],
+			             wsi->ws->rx_ubuf_head);
+
+			if (wsi->pending_timeout ==
+				       PENDING_TIMEOUT_WS_PONG_CHECK_GET_PONG) {
+				lwsl_info("received expected PONG on wsi %p\n",
+						wsi);
+				lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+			}
+
+			/* issue it */
+			callback_action = LWS_CALLBACK_RECEIVE_PONG;
+			break;
+
+		case LWSWSOPC_TEXT_FRAME:
+		case LWSWSOPC_BINARY_FRAME:
+		case LWSWSOPC_CONTINUATION:
+			break;
+
+		default:
+			lwsl_parser("passing opc %x up to exts\n",
+				    wsi->ws->opcode);
+			/*
+			 * It's something special we can't understand here.
+			 * Pass the payload up to the extension's parsing
+			 * state machine.
+			 */
+
+			eff_buf.token = &wsi->ws->rx_ubuf[LWS_PRE];
+			eff_buf.token_len = wsi->ws->rx_ubuf_head;
+
+			if (lws_ext_cb_active(wsi,
+					      LWS_EXT_CB_EXTENDED_PAYLOAD_RX,
+					      &eff_buf, 0) <= 0)
+				/* not handle or fail */
+				lwsl_ext("ext opc opcode 0x%x unknown\n",
+					 wsi->ws->opcode);
+
+			wsi->ws->rx_ubuf_head = 0;
+			return 0;
+		}
+
+		/*
+		 * No it's real payload, pass it up to the user callback.
+		 * It's nicely buffered with the pre-padding taken care of
+		 * so it can be sent straight out again using lws_write
+		 */
+
+		eff_buf.token = &wsi->ws->rx_ubuf[LWS_PRE];
+		eff_buf.token_len = wsi->ws->rx_ubuf_head;
+
+		if (wsi->ws->opcode == LWSWSOPC_PONG && !eff_buf.token_len)
+			goto already_done;
+
+drain_extension:
+		lwsl_ext("%s: passing %d to ext\n", __func__, eff_buf.token_len);
+
+		if (lwsi_state(wsi) == LRS_RETURNED_CLOSE ||
+		    lwsi_state(wsi) == LRS_AWAITING_CLOSE_ACK)
+			goto already_done;
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+		n = lws_ext_cb_active(wsi, LWS_EXT_CB_PAYLOAD_RX, &eff_buf, 0);
+#endif
+		/*
+		 * eff_buf may be pointing somewhere completely different now,
+		 * it's the output
+		 */
+		wsi->ws->first_fragment = 0;
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+		if (n < 0) {
+			/*
+			 * we may rely on this to get RX, just drop connection
+			 */
+			wsi->socket_is_permanently_unusable = 1;
+			return -1;
+		}
+#endif
+		if (rx_draining_ext && eff_buf.token_len == 0)
+			goto already_done;
+
+		if (
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+		    n &&
+#endif
+		    eff_buf.token_len)
+			/* extension had more... main loop will come back */
+			lws_add_wsi_to_draining_ext_list(wsi);
+		else
+			lws_remove_wsi_from_draining_ext_list(wsi);
+
+		if (eff_buf.token_len > 0 ||
+		    callback_action == LWS_CALLBACK_RECEIVE_PONG) {
+			eff_buf.token[eff_buf.token_len] = '\0';
+
+			if (wsi->protocol->callback) {
+				if (callback_action == LWS_CALLBACK_RECEIVE_PONG)
+					lwsl_info("Doing pong callback\n");
+
+				ret = user_callback_handle_rxflow(
+						wsi->protocol->callback,
+						wsi, (enum lws_callback_reasons)
+						     callback_action,
+						wsi->user_space,
+						eff_buf.token,
+						eff_buf.token_len);
+			}
+			else
+				lwsl_err("No callback on payload spill!\n");
+		}
+
+already_done:
+		wsi->ws->rx_ubuf_head = 0;
+		break;
+	}
+
+	return ret;
+
+illegal_ctl_length:
+
+	lwsl_warn("Control frame with xtended length is illegal\n");
+	/* kill the connection */
+	return -1;
+}
+
+LWS_VISIBLE size_t
+lws_remaining_packet_payload(struct lws *wsi)
+{
+	return wsi->ws->rx_packet_length;
+}
+
+LWS_VISIBLE int lws_frame_is_binary(struct lws *wsi)
+{
+	return wsi->ws->frame_is_binary;
+}
+
+void
+lws_add_wsi_to_draining_ext_list(struct lws *wsi)
+{
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+
+	if (wsi->ws->rx_draining_ext)
+		return;
+
+	lwsl_ext("%s: RX EXT DRAINING: Adding to list\n", __func__);
+
+	wsi->ws->rx_draining_ext = 1;
+	wsi->ws->rx_draining_ext_list = pt->rx_draining_ext_list;
+	pt->rx_draining_ext_list = wsi;
+}
+
+void
+lws_remove_wsi_from_draining_ext_list(struct lws *wsi)
+{
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws **w = &pt->rx_draining_ext_list;
+
+	if (!wsi->ws->rx_draining_ext)
+		return;
+
+	lwsl_ext("%s: RX EXT DRAINING: Removing from list\n", __func__);
+
+	wsi->ws->rx_draining_ext = 0;
+
+	/* remove us from context draining ext list */
+	while (*w) {
+		if (*w == wsi) {
+			/* if us, point it instead to who we were pointing to */
+			*w = wsi->ws->rx_draining_ext_list;
+			break;
+		}
+		w = &((*w)->ws->rx_draining_ext_list);
+	}
+	wsi->ws->rx_draining_ext_list = NULL;
+}
+
+LWS_EXTERN void
+lws_restart_ws_ping_pong_timer(struct lws *wsi)
+{
+	if (!wsi->context->ws_ping_pong_interval ||
+	    !lwsi_role_ws(wsi))
+		return;
+
+	wsi->ws->time_next_ping_check = (time_t)lws_now_secs();
+}
+
+static int
+lws_0405_frame_mask_generate(struct lws *wsi)
+{
+	int n;
+	/* fetch the per-frame nonce */
+
+	n = lws_get_random(lws_get_context(wsi), wsi->ws->mask, 4);
+	if (n != 4) {
+		lwsl_parser("Unable to read from random device %s %d\n",
+			    SYSTEM_RANDOM_FILEPATH, n);
+		return 1;
+	}
+
+	/* start masking from first byte of masking key buffer */
+	wsi->ws->mask_idx = 0;
+
+	return 0;
+}
+
+/* Once we reach LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED, we know how much
+ * to expect in that state and can deal with it in bulk more efficiently.
+ */
+
+int
+lws_payload_until_length_exhausted(struct lws *wsi, unsigned char **buf,
+				   size_t *len)
+{
+	unsigned char *buffer = *buf, mask[4];
+	int buffer_size, n;
+	unsigned int avail;
+	char *rx_ubuf;
+
+	if (wsi->protocol->rx_buffer_size)
+		buffer_size = (int)wsi->protocol->rx_buffer_size;
+	else
+		buffer_size = wsi->context->pt_serv_buf_size;
+	avail = buffer_size - wsi->ws->rx_ubuf_head;
+
+	/* do not consume more than we should */
+	if (avail > wsi->ws->rx_packet_length)
+		avail = (unsigned int)wsi->ws->rx_packet_length;
+
+	/* do not consume more than what is in the buffer */
+	if (avail > *len)
+		avail = (unsigned int)(*len);
+
+	/* we want to leave 1 byte for the parser to handle properly */
+	if (avail <= 1)
+		return 0;
+
+	avail--;
+	rx_ubuf = wsi->ws->rx_ubuf + LWS_PRE + wsi->ws->rx_ubuf_head;
+	if (wsi->ws->all_zero_nonce)
+		memcpy(rx_ubuf, buffer, avail);
+	else {
+
+		for (n = 0; n < 4; n++)
+			mask[n] = wsi->ws->mask[(wsi->ws->mask_idx + n) & 3];
+
+		/* deal with 4-byte chunks using unwrapped loop */
+		n = avail >> 2;
+		while (n--) {
+			*(rx_ubuf++) = *(buffer++) ^ mask[0];
+			*(rx_ubuf++) = *(buffer++) ^ mask[1];
+			*(rx_ubuf++) = *(buffer++) ^ mask[2];
+			*(rx_ubuf++) = *(buffer++) ^ mask[3];
+		}
+		/* and the remaining bytes bytewise */
+		for (n = 0; n < (int)(avail & 3); n++)
+			*(rx_ubuf++) = *(buffer++) ^ mask[n];
+
+		wsi->ws->mask_idx = (wsi->ws->mask_idx + avail) & 3;
+	}
+
+	(*buf) += avail;
+	wsi->ws->rx_ubuf_head += avail;
+	wsi->ws->rx_packet_length -= avail;
+	*len -= avail;
+
+	return avail;
+}
+
+
+int
+lws_server_init_wsi_for_ws(struct lws *wsi)
+{
+	int n;
+
+	lwsi_set_state(wsi, LRS_ESTABLISHED);
+	lws_restart_ws_ping_pong_timer(wsi);
+
+	/*
+	 * create the frame buffer for this connection according to the
+	 * size mentioned in the protocol definition.  If 0 there, use
+	 * a big default for compatibility
+	 */
+
+	n = (int)wsi->protocol->rx_buffer_size;
+	if (!n)
+		n = wsi->context->pt_serv_buf_size;
+	n += LWS_PRE;
+	wsi->ws->rx_ubuf = lws_malloc(n + 4 /* 0x0000ffff zlib */, "rx_ubuf");
+	if (!wsi->ws->rx_ubuf) {
+		lwsl_err("Out of Mem allocating rx buffer %d\n", n);
+		return 1;
+	}
+	wsi->ws->rx_ubuf_alloc = n;
+	lwsl_debug("Allocating RX buffer %d\n", n);
+
+#if LWS_POSIX && !defined(LWS_WITH_ESP32)
+	if (!wsi->parent_carries_io &&
+	    !wsi->h2_stream_carries_ws)
+		if (setsockopt(wsi->desc.sockfd, SOL_SOCKET, SO_SNDBUF,
+		       (const char *)&n, sizeof n)) {
+			lwsl_warn("Failed to set SNDBUF to %d", n);
+			return 1;
+		}
+#endif
+
+	/* notify user code that we're ready to roll */
+
+	if (wsi->protocol->callback)
+		if (wsi->protocol->callback(wsi, LWS_CALLBACK_ESTABLISHED,
+					    wsi->user_space,
+#ifdef LWS_WITH_TLS
+					    wsi->ssl,
+#else
+					    NULL,
+#endif
+					    wsi->h2_stream_carries_ws))
+			return 1;
+
+	lwsl_debug("ws established\n");
+
+	return 0;
+}
+
+static int
+handshake_0405(struct lws_context *context, struct lws *wsi)
+{
+	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+	struct lws_process_html_args args;
+	unsigned char hash[20];
+	int n, accept_len;
+	char *response;
+	char *p;
+
+	if (!lws_hdr_total_length(wsi, WSI_TOKEN_HOST) ||
+	    !lws_hdr_total_length(wsi, WSI_TOKEN_KEY)) {
+		lwsl_info("handshake_04 missing pieces\n");
+		/* completed header processing, but missing some bits */
+		goto bail;
+	}
+
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_KEY) >= MAX_WEBSOCKET_04_KEY_LEN) {
+		lwsl_warn("Client key too long %d\n", MAX_WEBSOCKET_04_KEY_LEN);
+		goto bail;
+	}
+
+	/*
+	 * since key length is restricted above (currently 128), cannot
+	 * overflow
+	 */
+	n = sprintf((char *)pt->serv_buf,
+		    "%s258EAFA5-E914-47DA-95CA-C5AB0DC85B11",
+		    lws_hdr_simple_ptr(wsi, WSI_TOKEN_KEY));
+
+	lws_SHA1(pt->serv_buf, n, hash);
+
+	accept_len = lws_b64_encode_string((char *)hash, 20,
+			(char *)pt->serv_buf, context->pt_serv_buf_size);
+	if (accept_len < 0) {
+		lwsl_warn("Base64 encoded hash too long\n");
+		goto bail;
+	}
+
+	/* allocate the per-connection user memory (if any) */
+	if (lws_ensure_user_space(wsi))
+		goto bail;
+
+	/* create the response packet */
+
+	/* make a buffer big enough for everything */
+
+	response = (char *)pt->serv_buf + MAX_WEBSOCKET_04_KEY_LEN + LWS_PRE;
+	p = response;
+	LWS_CPYAPP(p, "HTTP/1.1 101 Switching Protocols\x0d\x0a"
+		      "Upgrade: WebSocket\x0d\x0a"
+		      "Connection: Upgrade\x0d\x0a"
+		      "Sec-WebSocket-Accept: ");
+	strcpy(p, (char *)pt->serv_buf);
+	p += accept_len;
+
+	/* we can only return the protocol header if:
+	 *  - one came in, and ... */
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_PROTOCOL) &&
+	    /*  - it is not an empty string */
+	    wsi->protocol->name &&
+	    wsi->protocol->name[0]) {
+		LWS_CPYAPP(p, "\x0d\x0aSec-WebSocket-Protocol: ");
+		p += lws_snprintf(p, 128, "%s", wsi->protocol->name);
+	}
+
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+	/*
+	 * Figure out which extensions the client has that we want to
+	 * enable on this connection, and give him back the list.
+	 *
+	 * Give him a limited write bugdet
+	 */
+	if (lws_extension_server_handshake(wsi, &p, 192))
+		goto bail;
+#endif
+	LWS_CPYAPP(p, "\x0d\x0a");
+
+	args.p = p;
+	args.max_len = lws_ptr_diff((char *)pt->serv_buf +
+				    context->pt_serv_buf_size, p);
+	if (user_callback_handle_rxflow(wsi->protocol->callback, wsi,
+					LWS_CALLBACK_ADD_HEADERS,
+					wsi->user_space, &args, 0))
+		goto bail;
+
+	p = args.p;
+
+	/* end of response packet */
+
+	LWS_CPYAPP(p, "\x0d\x0a");
+
+	if (!lws_any_extension_handled(wsi, LWS_EXT_CB_HANDSHAKE_REPLY_TX,
+				       response, p - response)) {
+
+		/* okay send the handshake response accepting the connection */
+
+		lwsl_parser("issuing resp pkt %d len\n",
+			    lws_ptr_diff(p, response));
+#if defined(DEBUG)
+		fwrite(response, 1,  p - response, stderr);
+#endif
+		n = lws_write(wsi, (unsigned char *)response, p - response,
+			      LWS_WRITE_HTTP_HEADERS);
+		if (n != (p - response)) {
+			lwsl_info("handshake_0405: ERROR writing to socket %d\n", n);
+			goto bail;
+		}
+
+	}
+
+	/* alright clean up and set ourselves into established state */
+
+	lwsi_set_state(wsi, LRS_ESTABLISHED);
+	wsi->lws_rx_parse_state = LWS_RXPS_NEW;
+
+	{
+		const char * uri_ptr =
+			lws_hdr_simple_ptr(wsi, WSI_TOKEN_GET_URI);
+		int uri_len = lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI);
+		const struct lws_http_mount *hit =
+			lws_find_mount(wsi, uri_ptr, uri_len);
+		if (hit && hit->cgienv &&
+		    wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP_PMO,
+			wsi->user_space, (void *)hit->cgienv, 0))
+			return 1;
+	}
+
+	return 0;
+
+
+bail:
+	/* caller will free up his parsing allocations */
+	return -1;
+}
+
+
+int
+lws_process_ws_upgrade(struct lws *wsi)
+{
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	char protocol_list[128], protocol_name[64], *p;
+	int protocol_len, hit, n = 0, non_space_char_found = 0;
+
+	if (!wsi->protocol)
+		lwsl_err("NULL protocol at lws_read\n");
+
+	/*
+	 * It's either websocket or h2->websocket
+	 *
+	 * Select the first protocol we support from the list
+	 * the client sent us.
+	 *
+	 * Copy it to remove header fragmentation
+	 */
+
+	if (lws_hdr_copy(wsi, protocol_list, sizeof(protocol_list) - 1,
+			 WSI_TOKEN_PROTOCOL) < 0) {
+		lwsl_err("protocol list too long");
+		return 1;
+	}
+
+	protocol_len = lws_hdr_total_length(wsi, WSI_TOKEN_PROTOCOL);
+	protocol_list[protocol_len] = '\0';
+	p = protocol_list;
+	hit = 0;
+
+	while (*p && !hit) {
+		n = 0;
+		non_space_char_found = 0;
+		while (n < (int)sizeof(protocol_name) - 1 &&
+		       *p && *p != ',') {
+			/* ignore leading spaces */
+			if (!non_space_char_found && *p == ' ') {
+				n++;
+				continue;
+			}
+			non_space_char_found = 1;
+			protocol_name[n++] = *p++;
+		}
+		protocol_name[n] = '\0';
+		if (*p)
+			p++;
+
+		lwsl_debug("checking %s\n", protocol_name);
+
+		n = 0;
+		while (wsi->vhost->protocols[n].callback) {
+			lwsl_debug("try %s\n",
+				  wsi->vhost->protocols[n].name);
+
+			if (wsi->vhost->protocols[n].name &&
+			    !strcmp(wsi->vhost->protocols[n].name,
+				    protocol_name)) {
+				wsi->protocol = &wsi->vhost->protocols[n];
+				hit = 1;
+				break;
+			}
+
+			n++;
+		}
+	}
+
+	/* we didn't find a protocol he wanted? */
+
+	if (!hit) {
+		if (lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL)) {
+			lwsl_notice("No protocol from \"%s\" supported\n",
+				 protocol_list);
+			return 1;
+		}
+		/*
+		 * some clients only have one protocol and
+		 * do not send the protocol list header...
+		 * allow it and match to the vhost's default
+		 * protocol (which itself defaults to zero)
+		 */
+		lwsl_info("defaulting to prot handler %d\n",
+			wsi->vhost->default_protocol_index);
+		n = wsi->vhost->default_protocol_index;
+		wsi->protocol = &wsi->vhost->protocols[
+			      (int)wsi->vhost->default_protocol_index];
+	}
+
+	/* allocate the ws struct for the wsi */
+	wsi->ws = lws_zalloc(sizeof(*wsi->ws), "ws struct");
+	if (!wsi->ws) {
+		lwsl_notice("OOM\n");
+		return 1;
+	}
+
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_VERSION))
+		wsi->ws->ietf_spec_revision =
+			       atoi(lws_hdr_simple_ptr(wsi, WSI_TOKEN_VERSION));
+
+	/* allocate wsi->user storage */
+	if (lws_ensure_user_space(wsi)) {
+		lwsl_notice("problem with user space\n");
+		return 1;
+	}
+
+	/*
+	 * Give the user code a chance to study the request and
+	 * have the opportunity to deny it
+	 */
+	if ((wsi->protocol->callback)(wsi,
+			LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION,
+			wsi->user_space,
+		      lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL), 0)) {
+		lwsl_warn("User code denied connection\n");
+		return 1;
+	}
+
+	/*
+	 * Perform the handshake according to the protocol version the
+	 * client announced
+	 */
+
+	switch (wsi->ws->ietf_spec_revision) {
+	default:
+		lwsl_notice("Unknown client spec version %d\n",
+			  wsi->ws->ietf_spec_revision);
+		wsi->ws->ietf_spec_revision = 13;
+		//return 1;
+		/* fallthru */
+	case 13:
+#if defined(LWS_WITH_HTTP2)
+		if (wsi->h2_stream_carries_ws) {
+			if (lws_h2_ws_handshake(wsi)) {
+				lwsl_notice("h2 ws handshake failed\n");
+				return 1;
+			}
+		} else
+#endif
+		{
+			lwsl_parser("lws_parse calling handshake_04\n");
+			if (handshake_0405(wsi->context, wsi)) {
+				lwsl_notice("hs0405 has failed the connection\n");
+				return 1;
+			}
+		}
+		break;
+	}
+
+	lws_same_vh_protocol_insert(wsi, n);
+
+	/*
+	 * We are upgrading to ws, so http/1.1 + h2 and keepalive + pipelined
+	 * header considerations about keeping the ah around no longer apply.
+	 *
+	 * However it's common for the first ws protocol data to have been
+	 * coalesced with the browser upgrade request and to already be in the
+	 * ah rx buffer.
+	 */
+
+	lwsl_debug("%s: %p: inheriting ws ah (rxpos:%d, rxlen:%d)\n",
+		  __func__, wsi, wsi->ah->rxpos, wsi->ah->rxlen);
+	lws_pt_lock(pt, __func__);
+
+	if (wsi->h2_stream_carries_ws)
+		lws_role_transition(wsi, LWSI_ROLE_WS2_SERVER, LRS_ESTABLISHED,
+				    &wire_ops_ws);
+	else
+		lws_role_transition(wsi, LWSI_ROLE_WS1_SERVER, LRS_ESTABLISHED,
+				    &wire_ops_ws);
+	/*
+	 * Because rxpos/rxlen shows something in the ah, we will get
+	 * service guaranteed next time around the event loop
+	 */
+
+	lws_pt_unlock(pt);
+
+	lws_server_init_wsi_for_ws(wsi);
+	lwsl_parser("accepted v%02d connection\n", wsi->ws->ietf_spec_revision);
+
+	/* !!! drop ah unreservedly after ESTABLISHED */
+	if (wsi->ah->rxpos == wsi->ah->rxlen) {
+		lwsl_info("%s: %p: dropping ah on ws upgrade\n", __func__, wsi);
+		lws_header_table_force_to_detachable_state(wsi);
+		lws_header_table_detach(wsi, 1);
+	} else
+		lwsl_info("%s: %p: unable to drop ah at ws upgrade %d vs %d\n",
+			    __func__, wsi, wsi->ah->rxpos, wsi->ah->rxlen);
+
+	return 0;
+}
+
+LWS_VISIBLE int
+lws_is_final_fragment(struct lws *wsi)
+{
+       lwsl_info("%s: final %d, rx pk length %ld, draining %ld\n", __func__,
+			wsi->ws->final, (long)wsi->ws->rx_packet_length,
+			(long)wsi->ws->rx_draining_ext);
+	return wsi->ws->final && !wsi->ws->rx_packet_length &&
+	       !wsi->ws->rx_draining_ext;
+}
+
+LWS_VISIBLE int
+lws_is_first_fragment(struct lws *wsi)
+{
+	return wsi->ws->first_fragment;
+}
+
+LWS_VISIBLE unsigned char
+lws_get_reserved_bits(struct lws *wsi)
+{
+	return wsi->ws->rsv;
+}
+
+LWS_VISIBLE LWS_EXTERN int
+lws_get_close_length(struct lws *wsi)
+{
+	return wsi->ws->close_in_ping_buffer_len;
+}
+
+LWS_VISIBLE LWS_EXTERN unsigned char *
+lws_get_close_payload(struct lws *wsi)
+{
+	return &wsi->ws->ping_payload_buf[LWS_PRE];
+}
+
+LWS_VISIBLE LWS_EXTERN void
+lws_close_reason(struct lws *wsi, enum lws_close_status status,
+		 unsigned char *buf, size_t len)
+{
+	unsigned char *p, *start;
+	int budget = sizeof(wsi->ws->ping_payload_buf) - LWS_PRE;
+
+	assert(lwsi_role_ws(wsi));
+
+	start = p = &wsi->ws->ping_payload_buf[LWS_PRE];
+
+	*p++ = (((int)status) >> 8) & 0xff;
+	*p++ = ((int)status) & 0xff;
+
+	if (buf)
+		while (len-- && p < start + budget)
+			*p++ = *buf++;
+
+	wsi->ws->close_in_ping_buffer_len = lws_ptr_diff(p, start);
+}
+
 static int
 lws_is_ws_with_ext(struct lws *wsi)
 {
@@ -141,7 +1454,7 @@ wops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
 				n = 0;
 		} else
 #endif
-			n = lws_rx_sm(wsi, 0);
+			n = lws_ws_rx_sm(wsi, 0);
 
 		return LWS_HPI_RET_HANDLED;
 	}
@@ -651,9 +1964,415 @@ wops_periodic_checks_ws(struct lws_context *context, int tsi, time_t now)
 	return 0;
 }
 
+static int
+wops_service_flag_pending_ws(struct lws_context *context, int tsi)
+{
+	struct lws_context_per_thread *pt = &context->pt[tsi];
+	struct lws *wsi;
+	int forced = 0;
+
+	/* POLLIN faking (the pt lock is taken by the parent) */
+
+	/*
+	 * 1) For all guys with already-available ext data to drain, if they are
+	 * not flowcontrolled, fake their POLLIN status
+	 */
+	wsi = pt->rx_draining_ext_list;
+	while (wsi) {
+		pt->fds[wsi->position_in_fds_table].revents |=
+			pt->fds[wsi->position_in_fds_table].events & LWS_POLLIN;
+		if (pt->fds[wsi->position_in_fds_table].revents & LWS_POLLIN)
+			forced = 1;
+
+		wsi = wsi->ws->rx_draining_ext_list;
+	}
+
+	return forced;
+}
+
+static int
+wops_close_via_role_protocol_ws(struct lws *wsi, enum lws_close_status reason)
+{
+	if (!wsi->ws->close_in_ping_buffer_len && /* already a reason */
+	     (reason == LWS_CLOSE_STATUS_NOSTATUS ||
+	      reason == LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY))
+		return 0;
+
+	lwsl_debug("%s: sending close indication...\n", __func__);
+
+	/* if no prepared close reason, use 1000 and no aux data */
+
+	if (!wsi->ws->close_in_ping_buffer_len) {
+		wsi->ws->close_in_ping_buffer_len = 2;
+		wsi->ws->ping_payload_buf[LWS_PRE] = (reason >> 8) & 0xff;
+		wsi->ws->ping_payload_buf[LWS_PRE + 1] = reason & 0xff;
+	}
+
+	wsi->waiting_to_send_close_frame = 1;
+	lwsi_set_state(wsi, LRS_WAITING_TO_SEND_CLOSE);
+	__lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_SEND, 5);
+	lws_callback_on_writable(wsi);
+
+	return 1;
+}
+
+static int
+wops_close_role_ws(struct lws_context_per_thread *pt, struct lws *wsi)
+{
+	if (wsi->ws->rx_draining_ext) {
+		struct lws **w = &pt->rx_draining_ext_list;
+
+		wsi->ws->rx_draining_ext = 0;
+		/* remove us from context draining ext list */
+		while (*w) {
+			if (*w == wsi) {
+				*w = wsi->ws->rx_draining_ext_list;
+				break;
+			}
+			w = &((*w)->ws->rx_draining_ext_list);
+		}
+		wsi->ws->rx_draining_ext_list = NULL;
+	}
+
+	if (wsi->ws->tx_draining_ext) {
+		struct lws **w = &pt->tx_draining_ext_list;
+
+		wsi->ws->tx_draining_ext = 0;
+		/* remove us from context draining ext list */
+		while (*w) {
+			if (*w == wsi) {
+				*w = wsi->ws->tx_draining_ext_list;
+				break;
+			}
+			w = &((*w)->ws->tx_draining_ext_list);
+		}
+		wsi->ws->tx_draining_ext_list = NULL;
+	}
+	lws_free_set_NULL(wsi->ws->rx_ubuf);
+
+	if (wsi->trunc_alloc)
+		/* not going to be completed... nuke it */
+		lws_free_set_NULL(wsi->trunc_alloc);
+
+	wsi->ws->ping_payload_len = 0;
+	wsi->ws->ping_pending_flag = 0;
+
+	return 0;
+}
+
+static int
+wops_write_role_protocol_ws(struct lws *wsi, unsigned char *buf, size_t len,
+			    enum lws_write_protocol *wp)
+{
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	int masked7 = lwsi_role_client(wsi);
+	unsigned char is_masked_bit = 0;
+	unsigned char *dropmask = NULL;
+	struct lws_tokens eff_buf;
+	size_t orig_len = len;
+	int pre = 0, n;
+
+	if (wsi->ws && wsi->ws->tx_draining_ext) {
+		/* remove us from the list */
+		struct lws **w = &pt->tx_draining_ext_list;
+
+		wsi->ws->tx_draining_ext = 0;
+		/* remove us from context draining ext list */
+		while (*w) {
+			if (*w == wsi) {
+				*w = wsi->ws->tx_draining_ext_list;
+				break;
+			}
+			w = &((*w)->ws->tx_draining_ext_list);
+		}
+		wsi->ws->tx_draining_ext_list = NULL;
+		*wp = (wsi->ws->tx_draining_stashed_wp & 0xc0) |
+				LWS_WRITE_CONTINUATION;
+
+		lwsl_ext("FORCED draining wp to 0x%02X\n", *wp);
+	}
+
+	lws_restart_ws_ping_pong_timer(wsi);
+
+	if (((*wp) & 0x1f) == LWS_WRITE_HTTP ||
+	    ((*wp) & 0x1f) == LWS_WRITE_HTTP_FINAL ||
+	    ((*wp) & 0x1f) == LWS_WRITE_HTTP_HEADERS_CONTINUATION ||
+	    ((*wp) & 0x1f) == LWS_WRITE_HTTP_HEADERS)
+		goto send_raw;
+
+
+
+	/* if we are continuing a frame that already had its header done */
+
+	if (wsi->ws->inside_frame) {
+		lwsl_debug("INSIDE FRAME\n");
+		goto do_more_inside_frame;
+	}
+
+	wsi->ws->clean_buffer = 1;
+
+	/*
+	 * give a chance to the extensions to modify payload
+	 * the extension may decide to produce unlimited payload erratically
+	 * (eg, compression extension), so we require only that if he produces
+	 * something, it will be a complete fragment of the length known at
+	 * the time (just the fragment length known), and if he has
+	 * more we will come back next time he is writeable and allow him to
+	 * produce more fragments until he's drained.
+	 *
+	 * This allows what is sent each time it is writeable to be limited to
+	 * a size that can be sent without partial sends or blocking, allows
+	 * interleaving of control frames and other connection service.
+	 */
+	eff_buf.token = (char *)buf;
+	eff_buf.token_len = (int)len;
+
+	switch ((int)*wp) {
+	case LWS_WRITE_PING:
+	case LWS_WRITE_PONG:
+	case LWS_WRITE_CLOSE:
+		break;
+	default:
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+		lwsl_debug("LWS_EXT_CB_PAYLOAD_TX\n");
+		n = lws_ext_cb_active(wsi, LWS_EXT_CB_PAYLOAD_TX, &eff_buf, *wp);
+		if (n < 0)
+			return -1;
+
+		if (n && eff_buf.token_len) {
+			lwsl_debug("drain len %d\n", (int)eff_buf.token_len);
+			/* extension requires further draining */
+			wsi->ws->tx_draining_ext = 1;
+			wsi->ws->tx_draining_ext_list =
+					pt->tx_draining_ext_list;
+			pt->tx_draining_ext_list = wsi;
+			/* we must come back to do more */
+			lws_callback_on_writable(wsi);
+			/*
+			 * keep a copy of the write type for the overall
+			 * action that has provoked generation of these
+			 * fragments, so the last guy can use its FIN state.
+			 */
+			wsi->ws->tx_draining_stashed_wp = *wp;
+			/* this is definitely not actually the last fragment
+			 * because the extension asserted he has more coming
+			 * So make sure this intermediate one doesn't go out
+			 * with a FIN.
+			 */
+			*wp |= LWS_WRITE_NO_FIN;
+		}
+#endif
+		if (eff_buf.token_len && wsi->ws->stashed_write_pending) {
+			wsi->ws->stashed_write_pending = 0;
+			*wp = ((*wp) & 0xc0) | (int)wsi->ws->stashed_write_type;
+		}
+	}
+
+	/*
+	 * an extension did something we need to keep... for example, if
+	 * compression extension, it has already updated its state according
+	 * to this being issued
+	 */
+	if ((char *)buf != eff_buf.token) {
+		/*
+		 * ext might eat it, but not have anything to issue yet.
+		 * In that case we have to follow his lead, but stash and
+		 * replace the write type that was lost here the first time.
+		 */
+		if (len && !eff_buf.token_len) {
+			if (!wsi->ws->stashed_write_pending)
+				wsi->ws->stashed_write_type = (char)(*wp) & 0x3f;
+			wsi->ws->stashed_write_pending = 1;
+			return (int)len;
+		}
+		/*
+		 * extension recreated it:
+		 * need to buffer this if not all sent
+		 */
+		wsi->ws->clean_buffer = 0;
+	}
+
+	buf = (unsigned char *)eff_buf.token;
+	len = eff_buf.token_len;
+
+	if (!buf) {
+		lwsl_err("null buf (%d)\n", (int)len);
+		return -1;
+	}
+
+	switch (wsi->ws->ietf_spec_revision) {
+	case 13:
+		if (masked7) {
+			pre += 4;
+			dropmask = &buf[0 - pre];
+			is_masked_bit = 0x80;
+		}
+
+		switch ((*wp) & 0xf) {
+		case LWS_WRITE_TEXT:
+			n = LWSWSOPC_TEXT_FRAME;
+			break;
+		case LWS_WRITE_BINARY:
+			n = LWSWSOPC_BINARY_FRAME;
+			break;
+		case LWS_WRITE_CONTINUATION:
+			n = LWSWSOPC_CONTINUATION;
+			break;
+
+		case LWS_WRITE_CLOSE:
+			n = LWSWSOPC_CLOSE;
+			break;
+		case LWS_WRITE_PING:
+			n = LWSWSOPC_PING;
+			break;
+		case LWS_WRITE_PONG:
+			n = LWSWSOPC_PONG;
+			break;
+		default:
+			lwsl_warn("lws_write: unknown write opc / wp\n");
+			return -1;
+		}
+
+		if (!((*wp) & LWS_WRITE_NO_FIN))
+			n |= 1 << 7;
+
+		if (len < 126) {
+			pre += 2;
+			buf[-pre] = n;
+			buf[-pre + 1] = (unsigned char)(len | is_masked_bit);
+		} else {
+			if (len < 65536) {
+				pre += 4;
+				buf[-pre] = n;
+				buf[-pre + 1] = 126 | is_masked_bit;
+				buf[-pre + 2] = (unsigned char)(len >> 8);
+				buf[-pre + 3] = (unsigned char)len;
+			} else {
+				pre += 10;
+				buf[-pre] = n;
+				buf[-pre + 1] = 127 | is_masked_bit;
+#if defined __LP64__
+					buf[-pre + 2] = (len >> 56) & 0x7f;
+					buf[-pre + 3] = len >> 48;
+					buf[-pre + 4] = len >> 40;
+					buf[-pre + 5] = len >> 32;
+#else
+					buf[-pre + 2] = 0;
+					buf[-pre + 3] = 0;
+					buf[-pre + 4] = 0;
+					buf[-pre + 5] = 0;
+#endif
+				buf[-pre + 6] = (unsigned char)(len >> 24);
+				buf[-pre + 7] = (unsigned char)(len >> 16);
+				buf[-pre + 8] = (unsigned char)(len >> 8);
+				buf[-pre + 9] = (unsigned char)len;
+			}
+		}
+		break;
+	}
+
+do_more_inside_frame:
+
+	/*
+	 * Deal with masking if we are in client -> server direction and
+	 * the wp demands it
+	 */
+
+	if (masked7) {
+		if (!wsi->ws->inside_frame)
+			if (lws_0405_frame_mask_generate(wsi)) {
+				lwsl_err("frame mask generation failed\n");
+				return -1;
+			}
+
+		/*
+		 * in v7, just mask the payload
+		 */
+		if (dropmask) { /* never set if already inside frame */
+			for (n = 4; n < (int)len + 4; n++)
+				dropmask[n] = dropmask[n] ^ wsi->ws->mask[
+					(wsi->ws->mask_idx++) & 3];
+
+			/* copy the frame nonce into place */
+			memcpy(dropmask, wsi->ws->mask, 4);
+		}
+	}
+
+	if (lwsi_role_h2_ENCAPSULATION(wsi)) {
+		struct lws *encap = lws_get_network_wsi(wsi);
+
+		assert(encap != wsi);
+		return encap->pops->write_role_protocol(wsi, buf - pre,
+							len + pre, wp);
+	}
+
+	switch ((*wp) & 0x1f) {
+	case LWS_WRITE_TEXT:
+	case LWS_WRITE_BINARY:
+	case LWS_WRITE_CONTINUATION:
+		if (!wsi->h2_stream_carries_ws) {
+
+			/*
+			 * give any active extensions a chance to munge the
+			 * buffer before send.  We pass in a pointer to an
+			 * lws_tokens struct prepared with the default buffer
+			 * and content length that's in there.  Rather than
+			 * rewrite the default buffer, extensions that expect
+			 * to grow the buffer can adapt .token to point to their
+			 * own per-connection buffer in the extension user
+			 * allocation.  By default with no extensions or no
+			 * extension callback handling, just the normal input
+			 * buffer is used then so it is efficient.
+			 *
+			 * callback returns 1 in case it wants to spill more
+			 * buffers
+			 *
+			 * This takes care of holding the buffer if send is
+			 * incomplete, ie, if wsi->ws->clean_buffer is 0
+			 * (meaning an extension meddled with the buffer).  If
+			 * wsi->ws->clean_buffer is 1, it will instead return
+			 * to the user code how much OF THE USER BUFFER was
+			 * consumed.
+			 */
+
+			n = lws_issue_raw_ext_access(wsi, buf - pre, len + pre);
+			wsi->ws->inside_frame = 1;
+			if (n <= 0)
+				return n;
+
+			if (n == (int)len + pre) {
+				/* everything in the buffer was handled
+				 * (or rebuffered...) */
+				wsi->ws->inside_frame = 0;
+				return (int)orig_len;
+			}
+
+			/*
+			 * it is how many bytes of user buffer got sent... may
+			 * be < orig_len in which case callback when writable
+			 * has already been arranged and user code can call
+			 * lws_write() again with the rest later.
+			 */
+
+			return n - pre;
+		}
+		break;
+	default:
+		break;
+	}
+
+send_raw:
+	return lws_issue_raw(wsi, (unsigned char *)buf - pre, len + pre);
+}
+
 struct lws_protocol_ops wire_ops_ws = {
 	"ws",
 	wops_handle_POLLIN_ws,
 	wops_handle_POLLOUT_ws,
-	wops_periodic_checks_ws
+	wops_periodic_checks_ws,
+	wops_service_flag_pending_ws,
+	wops_close_via_role_protocol_ws,
+	wops_close_role_ws,
+	wops_write_role_protocol_ws,
+	NULL
 };

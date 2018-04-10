@@ -151,5 +151,10 @@ struct lws_protocol_ops wire_ops_listen = {
 	"listen",
 	wops_handle_POLLIN_listen,
 	wops_handle_POLLOUT_listen,
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	NULL,
 	NULL
 };

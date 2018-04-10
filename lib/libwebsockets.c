@@ -750,29 +750,9 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 	 * LRS_AWAITING_CLOSE_ACK and will skip doing this a second time.
 	 */
 
-	if (lwsi_role_ws_PRE_CLOSE(wsi) &&
-	    (wsi->ws->close_in_ping_buffer_len || /* already a reason */
-	     (reason != LWS_CLOSE_STATUS_NOSTATUS &&
-	     (reason != LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY)))) {
-		lwsl_debug("sending close indication...\n");
-
-		/* if no prepared close reason, use 1000 and no aux data */
-		if (!wsi->ws->close_in_ping_buffer_len) {
-			wsi->ws->close_in_ping_buffer_len = 2;
-			wsi->ws->ping_payload_buf[LWS_PRE] =
-                               (reason >> 8) & 0xff;
-			wsi->ws->ping_payload_buf[LWS_PRE + 1] =
-				reason & 0xff;
-		}
-
-		lwsl_debug("waiting for chance to send close\n");
-		wsi->waiting_to_send_close_frame = 1;
-		lwsi_set_state(wsi, LRS_WAITING_TO_SEND_CLOSE);
-		__lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_SEND, 5);
-		lws_callback_on_writable(wsi);
-
+	if (wsi->pops->close_via_role_protocol &&
+	    wsi->pops->close_via_role_protocol(wsi, reason))
 		return;
-	}
 
 just_kill_connection:
 
@@ -980,46 +960,8 @@ just_kill_connection:
 	lwsi_set_state(wsi, LRS_DEAD_SOCKET);
 	lws_free_set_NULL(wsi->rxflow_buffer);
 
-	if (lwsi_role_ws_PRE_CLOSE(wsi) || lwsi_role_ws(wsi)) {
-
-		if (wsi->ws->rx_draining_ext) {
-			struct lws **w = &pt->rx_draining_ext_list;
-
-			wsi->ws->rx_draining_ext = 0;
-			/* remove us from context draining ext list */
-			while (*w) {
-				if (*w == wsi) {
-					*w = wsi->ws->rx_draining_ext_list;
-					break;
-				}
-				w = &((*w)->ws->rx_draining_ext_list);
-			}
-			wsi->ws->rx_draining_ext_list = NULL;
-		}
-
-		if (wsi->ws->tx_draining_ext) {
-			struct lws **w = &pt->tx_draining_ext_list;
-
-			wsi->ws->tx_draining_ext = 0;
-			/* remove us from context draining ext list */
-			while (*w) {
-				if (*w == wsi) {
-					*w = wsi->ws->tx_draining_ext_list;
-					break;
-				}
-				w = &((*w)->ws->tx_draining_ext_list);
-			}
-			wsi->ws->tx_draining_ext_list = NULL;
-		}
-		lws_free_set_NULL(wsi->ws->rx_ubuf);
-
-		if (wsi->trunc_alloc)
-			/* not going to be completed... nuke it */
-			lws_free_set_NULL(wsi->trunc_alloc);
-
-		wsi->ws->ping_payload_len = 0;
-		wsi->ws->ping_pending_flag = 0;
-	}
+	if (wsi->pops->close_role)
+	    wsi->pops->close_role(pt, wsi);
 
 	/* tell the user it's all over for this guy */
 
@@ -1960,27 +1902,6 @@ lws_get_protocol(struct lws *wsi)
 	return wsi->protocol;
 }
 
-LWS_VISIBLE int
-lws_is_final_fragment(struct lws *wsi)
-{
-       lwsl_info("%s: final %d, rx pk length %ld, draining %ld\n", __func__,
-			wsi->ws->final, (long)wsi->ws->rx_packet_length,
-			(long)wsi->ws->rx_draining_ext);
-	return wsi->ws->final && !wsi->ws->rx_packet_length &&
-	       !wsi->ws->rx_draining_ext;
-}
-
-LWS_VISIBLE int
-lws_is_first_fragment(struct lws *wsi)
-{
-	return wsi->ws->first_fragment;
-}
-
-LWS_VISIBLE unsigned char
-lws_get_reserved_bits(struct lws *wsi)
-{
-	return wsi->ws->rsv;
-}
 
 int
 lws_ensure_user_space(struct lws *wsi)
@@ -2325,38 +2246,6 @@ lws_clear_child_pending_on_writable(struct lws *wsi)
 	wsi->parent_pending_cb_on_writable = 0;
 }
 
-LWS_VISIBLE LWS_EXTERN int
-lws_get_close_length(struct lws *wsi)
-{
-	return wsi->ws->close_in_ping_buffer_len;
-}
-
-LWS_VISIBLE LWS_EXTERN unsigned char *
-lws_get_close_payload(struct lws *wsi)
-{
-	return &wsi->ws->ping_payload_buf[LWS_PRE];
-}
-
-LWS_VISIBLE LWS_EXTERN void
-lws_close_reason(struct lws *wsi, enum lws_close_status status,
-		 unsigned char *buf, size_t len)
-{
-	unsigned char *p, *start;
-	int budget = sizeof(wsi->ws->ping_payload_buf) - LWS_PRE;
-
-	assert(lwsi_role_ws(wsi));
-
-	start = p = &wsi->ws->ping_payload_buf[LWS_PRE];
-
-	*p++ = (((int)status) >> 8) & 0xff;
-	*p++ = ((int)status) & 0xff;
-
-	if (buf)
-		while (len-- && p < start + budget)
-			*p++ = *buf++;
-
-	wsi->ws->close_in_ping_buffer_len = lws_ptr_diff(p, start);
-}
 
 LWS_EXTERN int
 __lws_rx_flow_control(struct lws *wsi)
@@ -2829,15 +2718,7 @@ bail:
 
 #endif
 
-LWS_EXTERN void
-lws_restart_ws_ping_pong_timer(struct lws *wsi)
-{
-	if (!wsi->context->ws_ping_pong_interval ||
-	    !lwsi_role_ws(wsi))
-		return;
 
-	wsi->ws->time_next_ping_check = (time_t)lws_now_secs();
-}
 
 static const char *hex = "0123456789ABCDEF";
 

@@ -881,8 +881,7 @@ endif()
 if (NOT LWS_WITHOUT_SERVER)
 	list(APPEND SOURCES
 		lib/server/server.c
-		lib/server/lws-spa.c
-		lib/server/server-handshake.c)
+		lib/server/lws-spa.c)
 endif()
 
 if (NOT LWS_WITHOUT_EXTENSIONS)

@@ -47,7 +47,7 @@ lws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 				m = lws_client_rx_sm(wsi, 0);
 			else
 #endif
-				m = lws_rx_sm(wsi, 0);
+				m = lws_ws_rx_sm(wsi, 0);
 			if (m < 0)
 				return -1;
 			continue;

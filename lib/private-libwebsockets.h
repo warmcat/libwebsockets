@@ -674,6 +674,12 @@ struct lws_protocol_ops {
 			     struct lws_pollfd *pollfd);
 	int (*handle_POLLOUT)(struct lws *wsi);
 	int (*periodic_checks)(struct lws_context *context, int tsi, time_t now);
+	int (*service_flag_pending)(struct lws_context *context, int tsi);
+	int (*close_via_role_protocol)(struct lws *wsi, enum lws_close_status reason);
+	int (*close_role)(struct lws_context_per_thread *pt, struct lws *wsi);
+	int (*write_role_protocol)(struct lws *wsi, unsigned char *buf, size_t len,
+				   enum lws_write_protocol *wp);
+	int (*check_upgrades)(struct lws *wsi);
 };
 
 extern struct lws_protocol_ops wire_ops_h1, wire_ops_h2, wire_ops_raw,
@@ -688,6 +694,10 @@ enum {
 	LWS_HPI_RET_DIE,
 	LWS_HPI_RET_HANDLED,
 	LWS_HPI_RET_CLOSE_HANDLED,
+
+	LWS_UPG_RET_DONE,
+	LWS_UPG_RET_CONTINUE,
+	LWS_UPG_RET_BAIL
 };
 
 enum http_version {
@@ -2344,7 +2354,7 @@ LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_client_interpret_server_handshake(struct lws *wsi);
 
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
-lws_rx_sm(struct lws *wsi, unsigned char c);
+lws_ws_rx_sm(struct lws *wsi, unsigned char c);
 
 LWS_EXTERN int
 lws_payload_until_length_exhausted(struct lws *wsi, unsigned char **buf, size_t *len);
@@ -2472,8 +2482,6 @@ int lws_context_init_server(struct lws_context_creation_info *info,
 			    struct lws_vhost *vhost);
 LWS_EXTERN struct lws_vhost *
 lws_select_vhost(struct lws_context *context, int port, const char *servername);
-LWS_EXTERN int
-handshake_0405(struct lws_context *context, struct lws *wsi);
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_interpret_incoming_packet(struct lws *wsi, unsigned char **buf, size_t len);
 LWS_EXTERN void
@@ -2979,6 +2987,10 @@ int
 lws_callback_as_writeable(struct lws *wsi);
 int
 lws_read_or_use_preamble(struct lws_context_per_thread *pt, struct lws *wsi);
+int
+lws_process_ws_upgrade(struct lws *wsi);
+int
+lws_server_init_wsi_for_ws(struct lws *wsi);
 #ifdef __cplusplus
 };
 #endif

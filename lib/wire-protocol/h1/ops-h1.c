@@ -637,9 +637,67 @@ int wops_handle_POLLOUT_h1(struct lws *wsi)
 	return LWS_HP_RET_BAIL_OK;
 }
 
+static int
+wops_service_flag_pending_h1(struct lws_context *context, int tsi)
+{
+	struct lws_context_per_thread *pt = &context->pt[tsi];
+	struct allocated_headers *ah;
+	int forced = 0;
+
+	/* POLLIN faking (the pt lock is taken by the parent) */
+
+	/*
+	 * 3) For any wsi who have an ah with pending RX who did not
+	 * complete their current headers, and are not flowcontrolled,
+	 * fake their POLLIN status so they will be able to drain the
+	 * rx buffered in the ah
+	 */
+	ah = pt->ah_list;
+	while (ah) {
+		if ((ah->rxpos != ah->rxlen &&
+		    !ah->wsi->hdr_parsing_completed) || ah->wsi->preamble_rx) {
+			pt->fds[ah->wsi->position_in_fds_table].revents |=
+				pt->fds[ah->wsi->position_in_fds_table].events &
+					LWS_POLLIN;
+			if (pt->fds[ah->wsi->position_in_fds_table].revents &
+			    LWS_POLLIN) {
+				forced = 1;
+				break;
+			}
+		}
+		ah = ah->next;
+	}
+
+	return forced;
+}
+
+static int
+wops_write_role_protocol_h1(struct lws *wsi, unsigned char *buf, size_t len,
+			    enum lws_write_protocol *wp)
+{
+#if 0
+	/* if not in a state to send stuff, then just send nothing */
+
+	if ((lwsi_state(wsi) != LRS_RETURNED_CLOSE &&
+	     lwsi_state(wsi) != LRS_WAITING_TO_SEND_CLOSE &&
+	     lwsi_state(wsi) != LRS_AWAITING_CLOSE_ACK)) {
+		//assert(0);
+		lwsl_debug("binning %d %d\n", lwsi_state(wsi), *wp);
+		return 0;
+	}
+#endif
+
+	return lws_issue_raw(wsi, (unsigned char *)buf, len);
+}
+
 struct lws_protocol_ops wire_ops_h1 = {
 	"h1",
 	wops_handle_POLLIN_h1,
 	wops_handle_POLLOUT_h1,
+	NULL,
+	wops_service_flag_pending_h1,
+	NULL,
+	NULL,
+	wops_write_role_protocol_h1,
 	NULL
 };

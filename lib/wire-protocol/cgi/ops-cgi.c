@@ -79,5 +79,9 @@ struct lws_protocol_ops wire_ops_cgi = {
 	"cgi",
 	wops_handle_POLLIN_cgi,
 	wops_handle_POLLOUT_cgi,
-	wops_periodic_checks_cgi
+	wops_periodic_checks_cgi,
+	NULL,
+	NULL,
+	NULL,
+	NULL
 };

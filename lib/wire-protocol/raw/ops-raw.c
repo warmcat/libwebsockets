@@ -164,5 +164,6 @@ struct lws_protocol_ops wire_ops_raw = {
 	"raw",
 	wops_handle_POLLIN_raw,
 	wops_handle_POLLOUT_raw,
+	NULL,
 	NULL
 };

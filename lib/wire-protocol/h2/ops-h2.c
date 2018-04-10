@@ -355,9 +355,173 @@ int wops_handle_POLLOUT_h2(struct lws *wsi)
 	return LWS_HP_RET_USER_SERVICE;
 }
 
+static int
+wops_service_flag_pending_h2(struct lws_context *context, int tsi)
+{
+	/* h1 will deal with this if both h1 and h2 enabled */
+
+#if !defined(LWS_ROLE_H1)
+	struct lws_context_per_thread *pt = &context->pt[tsi];
+	struct allocated_headers *ah;
+	int forced = 0;
+
+	/* POLLIN faking (the pt lock is taken by the parent) */
+
+	/*
+	 * 3) For any wsi who have an ah with pending RX who did not
+	 * complete their current headers, and are not flowcontrolled,
+	 * fake their POLLIN status so they will be able to drain the
+	 * rx buffered in the ah
+	 */
+	ah = pt->ah_list;
+	while (ah) {
+		if ((ah->rxpos != ah->rxlen &&
+		    !ah->wsi->hdr_parsing_completed) || ah->wsi->preamble_rx) {
+			pt->fds[ah->wsi->position_in_fds_table].revents |=
+				pt->fds[ah->wsi->position_in_fds_table].events &
+					LWS_POLLIN;
+			if (pt->fds[ah->wsi->position_in_fds_table].revents &
+			    LWS_POLLIN) {
+				forced = 1;
+				break;
+			}
+		}
+		ah = ah->next;
+	}
+
+	return forced;
+#else
+	return 0;
+#endif
+}
+
+static int
+wops_write_role_protocol_h2(struct lws *wsi, unsigned char *buf, size_t len,
+			    enum lws_write_protocol *wp)
+{
+	unsigned char flags = 0;
+	int n;
+
+	/* if not in a state to send stuff, then just send nothing */
+
+	if (!lwsi_role_ws(wsi) &&
+	    ((*wp) & 0x1f) != LWS_WRITE_HTTP &&
+	    ((*wp) & 0x1f) != LWS_WRITE_HTTP_FINAL &&
+	    ((*wp) & 0x1f) != LWS_WRITE_HTTP_HEADERS_CONTINUATION &&
+	    ((*wp) & 0x1f) != LWS_WRITE_HTTP_HEADERS &&
+	    ((lwsi_state(wsi) != LRS_RETURNED_CLOSE &&
+	      lwsi_state(wsi) != LRS_WAITING_TO_SEND_CLOSE &&
+	      lwsi_state(wsi) != LRS_AWAITING_CLOSE_ACK) ||
+	     ((*wp) & 0x1f) != LWS_WRITE_CLOSE)) {
+		//assert(0);
+		lwsl_notice("binning wsistate 0x%x %d\n", wsi->wsistate, *wp);
+		return 0;
+	}
+
+	/*
+	 * ws-over-h2 also ends up here after the ws framing applied
+	 */
+
+	n = LWS_H2_FRAME_TYPE_DATA;
+	if ((*wp & 0x1f) == LWS_WRITE_HTTP_HEADERS) {
+		n = LWS_H2_FRAME_TYPE_HEADERS;
+		if (!((*wp) & LWS_WRITE_NO_FIN))
+			flags = LWS_H2_FLAG_END_HEADERS;
+		if (wsi->h2.send_END_STREAM ||
+		    ((*wp) & LWS_WRITE_H2_STREAM_END)) {
+			flags |= LWS_H2_FLAG_END_STREAM;
+			wsi->h2.send_END_STREAM = 1;
+		}
+	}
+
+	if ((*wp & 0x1f) == LWS_WRITE_HTTP_HEADERS_CONTINUATION) {
+		n = LWS_H2_FRAME_TYPE_CONTINUATION;
+		if (!((*wp) & LWS_WRITE_NO_FIN))
+			flags = LWS_H2_FLAG_END_HEADERS;
+		if (wsi->h2.send_END_STREAM ||
+		    ((*wp) & LWS_WRITE_H2_STREAM_END)) {
+			flags |= LWS_H2_FLAG_END_STREAM;
+			wsi->h2.send_END_STREAM = 1;
+		}
+	}
+
+	if (((*wp & 0x1f) == LWS_WRITE_HTTP ||
+	     (*wp & 0x1f) == LWS_WRITE_HTTP_FINAL) &&
+	    wsi->http.tx_content_length) {
+		wsi->http.tx_content_remain -= len;
+		lwsl_info("%s: wsi %p: tx_content_remain = %llu\n",
+			  __func__, wsi,
+			  (unsigned long long)wsi->http.tx_content_remain);
+		if (!wsi->http.tx_content_remain) {
+			lwsl_info("%s: selecting final write mode\n",
+				  __func__);
+			*wp = LWS_WRITE_HTTP_FINAL;
+		}
+	}
+
+	if ((*wp & 0x1f) == LWS_WRITE_HTTP_FINAL ||
+	    ((*wp) & LWS_WRITE_H2_STREAM_END)) {
+	    //lws_get_network_wsi(wsi)->h2.END_STREAM) {
+		lwsl_info("%s: setting END_STREAM\n", __func__);
+		flags |= LWS_H2_FLAG_END_STREAM;
+		wsi->h2.send_END_STREAM = 1;
+	}
+
+	return lws_h2_frame_write(wsi, n, flags, wsi->h2.my_sid,
+				  (int)len, buf);
+}
+
+static int
+wops_check_upgrades_h2(struct lws *wsi)
+{
+#if defined(LWS_ROLE_WS)
+	struct lws *nwsi;
+	char *p;
+
+	/*
+	 * with H2 there's also a way to upgrade a stream to something
+	 * else... :method is CONNECT and :protocol says the name of
+	 * the new protocol we want to carry.  We have to have sent a
+	 * SETTINGS saying that we support it though.
+	 */
+	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_METHOD);
+	if (!wsi->vhost->set.s[H2SET_ENABLE_CONNECT_PROTOCOL] ||
+	    !wsi->http2_substream || !p || strcmp(p, "CONNECT"))
+		return LWS_UPG_RET_CONTINUE;
+
+	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_COLON_PROTOCOL);
+	if (!p || strcmp(p, "websocket"))
+		return LWS_UPG_RET_CONTINUE;
+
+	nwsi = lws_get_network_wsi(wsi);
+
+	wsi->vhost->conn_stats.ws_upg++;
+	lwsl_info("Upgrade h2 to ws\n");
+	wsi->h2_stream_carries_ws = 1;
+	nwsi->ws_over_h2_count++;
+	if (lws_process_ws_upgrade(wsi))
+		return LWS_UPG_RET_BAIL;
+
+	if (nwsi->ws_over_h2_count == 1)
+		lws_set_timeout(nwsi, NO_PENDING_TIMEOUT, 0);
+
+	lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+	lwsl_info("Upgraded h2 to ws OK\n");
+
+	return LWS_UPG_RET_DONE;
+#else
+	return LWS_UPG_RET_CONTINUE;
+#endif
+}
+
 struct lws_protocol_ops wire_ops_h2 = {
 	"h2",
 	wops_handle_POLLIN_h2,
 	wops_handle_POLLOUT_h2,
-	NULL
+	NULL,
+	wops_service_flag_pending_h2,
+	NULL,
+	NULL,
+	wops_write_role_protocol_h2,
+	wops_check_upgrades_h2,
 };

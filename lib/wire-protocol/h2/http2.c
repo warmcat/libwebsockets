@@ -187,6 +187,7 @@ lws_wsi_server_new(struct lws_vhost *vh, struct lws *parent_wsi,
 	wsi->seen_nonpseudoheader = 0;
 
 	wsi->h2.parent_wsi = parent_wsi;
+	wsi->pops = parent_wsi->pops;
 	/* new guy's sibling is whoever was the first child before */
 	wsi->h2.sibling_list = parent_wsi->h2.child_list;
 	/* first child is now the new guy */

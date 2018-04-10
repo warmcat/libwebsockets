@@ -401,7 +401,7 @@ int
 lws_service_flag_pending(struct lws_context *context, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
-	struct allocated_headers *ah;
+
 #if defined(LWS_WITH_TLS)
 	struct lws *wsi_next;
 #endif
@@ -410,22 +410,9 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 
 	lws_pt_lock(pt, __func__);
 
-	/* POLLIN faking */
-
-	/*
-	 * 1) For all guys with already-available ext data to drain, if they are
-	 * not flowcontrolled, fake their POLLIN status
-	 */
-	wsi = pt->rx_draining_ext_list;
-	while (wsi) {
-		pt->fds[wsi->position_in_fds_table].revents |=
-			pt->fds[wsi->position_in_fds_table].events & LWS_POLLIN;
-		if (pt->fds[wsi->position_in_fds_table].revents & LWS_POLLIN) {
-			forced = 1;
-			break;
-		}
-		wsi = wsi->ws->rx_draining_ext_list;
-	}
+#if defined(LWS_ROLE_WS)
+	forced |= wire_ops_ws.service_flag_pending(context, tsi);
+#endif
 
 #if defined(LWS_WITH_TLS)
 	/*
@@ -453,27 +440,14 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 		wsi = wsi_next;
 	}
 #endif
-	/*
-	 * 3) For any wsi who have an ah with pending RX who did not
-	 * complete their current headers, and are not flowcontrolled,
-	 * fake their POLLIN status so they will be able to drain the
-	 * rx buffered in the ah
-	 */
-	ah = pt->ah_list;
-	while (ah) {
-		if ((ah->rxpos != ah->rxlen &&
-		    !ah->wsi->hdr_parsing_completed) || ah->wsi->preamble_rx) {
-			pt->fds[ah->wsi->position_in_fds_table].revents |=
-				pt->fds[ah->wsi->position_in_fds_table].events &
-					LWS_POLLIN;
-			if (pt->fds[ah->wsi->position_in_fds_table].revents &
-			    LWS_POLLIN) {
-				forced = 1;
-				break;
-			}
-		}
-		ah = ah->next;
-	}
+
+#if defined(LWS_ROLE_H1)
+	forced |= wire_ops_h1.service_flag_pending(context, tsi);
+#else /* they do the same thing... only need one or the other if h1 and h2 */
+#if defined(LWS_ROLE_H2)
+	forced |= wire_ops_h2.service_flag_pending(context, tsi);
+#endif
+#endif
 
 	lws_pt_unlock(pt);
 
