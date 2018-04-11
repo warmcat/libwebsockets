@@ -35,7 +35,6 @@
 #include <time.h>
 
 #define COUNT 8
-//#define STAGGERED_CONNECTIONS
 
 struct user {
 	int index;
@@ -136,36 +135,15 @@ unsigned long long us(void)
 }
 
 static void
-lws_try_client_connection(struct lws_context *context, int m)
+lws_try_client_connection(struct lws_client_connect_info *i, int m)
 {
-	struct lws_client_connect_info i;
+	i->path = "/";
 
-	memset(&i, 0, sizeof i); /* otherwise uninitialized garbage */
-	i.context = context;
-
-#if 0
-	i.port = 7681;
-	i.address = "localhost";
-#else
-	i.port = 443;
-	i.address = "warmcat.com";
-#endif
-	i.path = "/";
-	i.host = i.address;
-	i.origin = i.address;
-	i.ssl_connection = LCCSCF_PIPELINE | /* enables h1 or h2 connection sharing */
-			   // LCCSCF_NOT_H2 | /* forces http/1 */
-			   LCCSCF_ALLOW_SELFSIGNED | /* allow selfsigned cert */
-			   LCCSCF_USE_SSL;
-	i.method = "GET";
-
-	i.protocol = protocols[0].name;
-
-	i.pwsi = &client_wsi[m];
+	i->pwsi = &client_wsi[m];
 	user[m].index = m;
-	i.userdata = &user[m];
+	i->userdata = &user[m];
 
-	if (!lws_client_connect_via_info(&i)) {
+	if (!lws_client_connect_via_info(i)) {
 		failed++;
 		if (++completed == COUNT) {
 			lwsl_user("Done: failed: %d\n", failed);
@@ -175,27 +153,45 @@ lws_try_client_connection(struct lws_context *context, int m)
 		lwsl_user("started connection %d\n", m);
 }
 
+static int commandline_option(int argc, char **argv, const char *val)
+{
+	int n = strlen(val);
+
+	while (--argc > 0) {
+		if (!strncmp(argv[argc], val, n))
+			return argc;
+	}
+
+	return 0;
+}
+
 int main(int argc, char **argv)
 {
 	struct lws_context_creation_info info;
+	struct lws_client_connect_info i;
 	struct lws_context *context;
-	unsigned long long start
-#if defined(STAGGERED_CONNECTIONS)
-	, next
-#endif
-	;
-	int n = 0, m;
+	unsigned long long start, next;
+	int n = 0, m, staggered = 0, logs =
+		LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE
+		/* for LLL_ verbosity above NOTICE to be built into lws,
+		 * lws must have been configured and built with
+		 * -DCMAKE_BUILD_TYPE=DEBUG instead of =RELEASE */
+		/* | LLL_INFO */ /* | LLL_PARSER */ /* | LLL_HEADER */
+		/* | LLL_EXT */ /* | LLL_CLIENT */ /* | LLL_LATENCY */
+		/* | LLL_DEBUG */;
 
 	signal(SIGINT, sigint_handler);
-	lws_set_log_level(LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE
-			/* for LLL_ verbosity above NOTICE to be built into lws,
-			 * lws must have been configured and built with
-			 * -DCMAKE_BUILD_TYPE=DEBUG instead of =RELEASE */
-			/* | LLL_INFO */ /* | LLL_PARSER */ /* | LLL_HEADER */
-			/* | LLL_EXT */ /* | LLL_CLIENT */ /* | LLL_LATENCY */
-			/* | LLL_DEBUG */, NULL);
 
-	lwsl_user("LWS minimal http client\n");
+	memset(&i, 0, sizeof i); /* otherwise uninitialized garbage */
+
+	staggered = !!commandline_option(argc, argv, "-s");
+	m = commandline_option(argc, argv, "-d");
+	if (m && m + 1 < argc)
+		logs = atoi(argv[m + 1]);
+
+	lws_set_log_level(logs, NULL);
+	lwsl_user("LWS minimal http client [-s (staggered)] [-p (pipeline)]\n");
+	lwsl_user("	[--h1 (http/1 only)] [-l (localhost)]\n");
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
@@ -218,43 +214,67 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-#if !defined(STAGGERED_CONNECTIONS)
-	/*
-	 * just pile on all the connections at once, testing the queueing
-	 */
-	for (m = 0; m < (int)LWS_ARRAY_SIZE(client_wsi); m++)
-		lws_try_client_connection(context, m);
-#else
-	next =
-#endif
-	start = us();
+	i.context = context;
+	i.ssl_connection = LCCSCF_USE_SSL;
+
+	/* enables h1 or h2 connection sharing */
+	if (commandline_option(argc, argv, "-p"))
+		i.ssl_connection |= LCCSCF_PIPELINE;
+
+	/* force h1 even if h2 available */
+	if (commandline_option(argc, argv, "--h1"))
+		i.ssl_connection |= LCCSCF_NOT_H2;
+
+	if (commandline_option(argc, argv, "-l")) {
+		i.port = 7681;
+		i.address = "localhost";
+		i.ssl_connection |= LCCSCF_ALLOW_SELFSIGNED;
+	} else {
+		i.port = 443;
+		i.address = "warmcat.com";
+	}
+
+	i.host = i.address;
+	i.origin = i.address;
+	i.method = "GET";
+	i.protocol = protocols[0].name;
+
+	if (!staggered)
+		/*
+		 * just pile on all the connections at once, testing the
+		 * pipeline queueing before the first is connected
+		 */
+		for (m = 0; m < (int)LWS_ARRAY_SIZE(client_wsi); m++)
+			lws_try_client_connection(&i, m);
+
+	next = start = us();
 	m = 0;
 	while (n >= 0 && !interrupted) {
 
-#if defined(STAGGERED_CONNECTIONS)
-		/*
-		 * open the connections at 100ms intervals, with the last
-		 * one being after 1s, testing queueing, and direct H2 stream
-		 * addition stability
-		 */
-		if (us() > next && m < (int)LWS_ARRAY_SIZE(client_wsi)) {
+		if (staggered) {
+			/*
+			 * open the connections at 100ms intervals, with the
+			 * last one being after 1s, testing both queueing, and
+			 * direct H2 stream addition stability
+			 */
+			if (us() > next && m < (int)LWS_ARRAY_SIZE(client_wsi)) {
 
-			lws_try_client_connection(context, m++);
+				lws_try_client_connection(&i, m++);
 
-			if (m == (int)LWS_ARRAY_SIZE(client_wsi) - 1)
-				next = us() + 1000000;
-			else
-				next = us() + 100000;
+				if (m == (int)LWS_ARRAY_SIZE(client_wsi) - 1)
+					next = us() + 1000000;
+				else
+					next = us() + 100000;
+			}
 		}
-#endif
 
-		n = lws_service(context, 1000);
+		n = lws_service(context, 100);
 	}
 
 	lwsl_user("Duration: %lldms\n", (us() - start) / 1000);
-
 	lws_context_destroy(context);
-	lwsl_user("Completed\n");
 
-	return 0;
+	lwsl_user("Exiting with %d\n", failed || completed != COUNT);
+
+	return failed || completed != COUNT;
 }

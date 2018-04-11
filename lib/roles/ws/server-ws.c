@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2013 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2018 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -19,7 +19,7 @@
  *  MA  02110-1301  USA
  */
 
-#include "private-libwebsockets.h"
+#include <private-libwebsockets.h>
 
 #define LWS_CPYAPP(ptr, str) { strcpy(ptr, str); ptr += strlen(str); }
 
@@ -226,6 +226,199 @@ lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 	return 0;
 }
 #endif
+
+
+
+int
+lws_process_ws_upgrade(struct lws *wsi)
+{
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	char protocol_list[128], protocol_name[64], *p;
+	int protocol_len, hit, n = 0, non_space_char_found = 0;
+
+	if (!wsi->protocol)
+		lwsl_err("NULL protocol at lws_read\n");
+
+	/*
+	 * It's either websocket or h2->websocket
+	 *
+	 * Select the first protocol we support from the list
+	 * the client sent us.
+	 *
+	 * Copy it to remove header fragmentation
+	 */
+
+	if (lws_hdr_copy(wsi, protocol_list, sizeof(protocol_list) - 1,
+			 WSI_TOKEN_PROTOCOL) < 0) {
+		lwsl_err("protocol list too long");
+		return 1;
+	}
+
+	protocol_len = lws_hdr_total_length(wsi, WSI_TOKEN_PROTOCOL);
+	protocol_list[protocol_len] = '\0';
+	p = protocol_list;
+	hit = 0;
+
+	while (*p && !hit) {
+		n = 0;
+		non_space_char_found = 0;
+		while (n < (int)sizeof(protocol_name) - 1 &&
+		       *p && *p != ',') {
+			/* ignore leading spaces */
+			if (!non_space_char_found && *p == ' ') {
+				n++;
+				continue;
+			}
+			non_space_char_found = 1;
+			protocol_name[n++] = *p++;
+		}
+		protocol_name[n] = '\0';
+		if (*p)
+			p++;
+
+		lwsl_debug("checking %s\n", protocol_name);
+
+		n = 0;
+		while (wsi->vhost->protocols[n].callback) {
+			lwsl_debug("try %s\n",
+				  wsi->vhost->protocols[n].name);
+
+			if (wsi->vhost->protocols[n].name &&
+			    !strcmp(wsi->vhost->protocols[n].name,
+				    protocol_name)) {
+				wsi->protocol = &wsi->vhost->protocols[n];
+				hit = 1;
+				break;
+			}
+
+			n++;
+		}
+	}
+
+	/* we didn't find a protocol he wanted? */
+
+	if (!hit) {
+		if (lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL)) {
+			lwsl_notice("No protocol from \"%s\" supported\n",
+				 protocol_list);
+			return 1;
+		}
+		/*
+		 * some clients only have one protocol and
+		 * do not send the protocol list header...
+		 * allow it and match to the vhost's default
+		 * protocol (which itself defaults to zero)
+		 */
+		lwsl_info("defaulting to prot handler %d\n",
+			wsi->vhost->default_protocol_index);
+		n = wsi->vhost->default_protocol_index;
+		wsi->protocol = &wsi->vhost->protocols[
+			      (int)wsi->vhost->default_protocol_index];
+	}
+
+	/* allocate the ws struct for the wsi */
+	wsi->ws = lws_zalloc(sizeof(*wsi->ws), "ws struct");
+	if (!wsi->ws) {
+		lwsl_notice("OOM\n");
+		return 1;
+	}
+
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_VERSION))
+		wsi->ws->ietf_spec_revision =
+			       atoi(lws_hdr_simple_ptr(wsi, WSI_TOKEN_VERSION));
+
+	/* allocate wsi->user storage */
+	if (lws_ensure_user_space(wsi)) {
+		lwsl_notice("problem with user space\n");
+		return 1;
+	}
+
+	/*
+	 * Give the user code a chance to study the request and
+	 * have the opportunity to deny it
+	 */
+	if ((wsi->protocol->callback)(wsi,
+			LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION,
+			wsi->user_space,
+		      lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL), 0)) {
+		lwsl_warn("User code denied connection\n");
+		return 1;
+	}
+
+	/*
+	 * Perform the handshake according to the protocol version the
+	 * client announced
+	 */
+
+	switch (wsi->ws->ietf_spec_revision) {
+	default:
+		lwsl_notice("Unknown client spec version %d\n",
+			  wsi->ws->ietf_spec_revision);
+		wsi->ws->ietf_spec_revision = 13;
+		//return 1;
+		/* fallthru */
+	case 13:
+#if defined(LWS_WITH_HTTP2)
+		if (wsi->h2_stream_carries_ws) {
+			if (lws_h2_ws_handshake(wsi)) {
+				lwsl_notice("h2 ws handshake failed\n");
+				return 1;
+			}
+		} else
+#endif
+		{
+			lwsl_parser("lws_parse calling handshake_04\n");
+			if (handshake_0405(wsi->context, wsi)) {
+				lwsl_notice("hs0405 has failed the connection\n");
+				return 1;
+			}
+		}
+		break;
+	}
+
+	lws_same_vh_protocol_insert(wsi, n);
+
+	/*
+	 * We are upgrading to ws, so http/1.1 + h2 and keepalive + pipelined
+	 * header considerations about keeping the ah around no longer apply.
+	 *
+	 * However it's common for the first ws protocol data to have been
+	 * coalesced with the browser upgrade request and to already be in the
+	 * ah rx buffer.
+	 */
+
+	lwsl_debug("%s: %p: inheriting ws ah (rxpos:%d, rxlen:%d)\n",
+		  __func__, wsi, wsi->ah->rxpos, wsi->ah->rxlen);
+	lws_pt_lock(pt, __func__);
+
+	if (wsi->h2_stream_carries_ws)
+		lws_role_transition(wsi, LWSIFR_SERVER | LWSIFR_P_ENCAP_H2,
+				    LRS_ESTABLISHED, &role_ops_ws);
+	else
+		lws_role_transition(wsi, LWSIFR_SERVER, LRS_ESTABLISHED,
+				    &role_ops_ws);
+	/*
+	 * Because rxpos/rxlen shows something in the ah, we will get
+	 * service guaranteed next time around the event loop
+	 */
+
+	lws_pt_unlock(pt);
+
+	lws_server_init_wsi_for_ws(wsi);
+	lwsl_parser("accepted v%02d connection\n", wsi->ws->ietf_spec_revision);
+
+	/* !!! drop ah unreservedly after ESTABLISHED */
+	if (wsi->ah->rxpos == wsi->ah->rxlen) {
+		lwsl_info("%s: %p: dropping ah on ws upgrade\n", __func__, wsi);
+		lws_header_table_force_to_detachable_state(wsi);
+		lws_header_table_detach(wsi, 1);
+	} else
+		lwsl_info("%s: %p: unable to drop ah at ws upgrade %d vs %d\n",
+			    __func__, wsi, wsi->ah->rxpos, wsi->ah->rxlen);
+
+	return 0;
+}
+
 int
 handshake_0405(struct lws_context *context, struct lws *wsi)
 {
@@ -238,7 +431,7 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 
 	if (!lws_hdr_total_length(wsi, WSI_TOKEN_HOST) ||
 	    !lws_hdr_total_length(wsi, WSI_TOKEN_KEY)) {
-		lwsl_parser("handshake_04 missing pieces\n");
+		lwsl_info("handshake_04 missing pieces\n");
 		/* completed header processing, but missing some bits */
 		goto bail;
 	}
@@ -328,10 +521,10 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 #if defined(DEBUG)
 		fwrite(response, 1,  p - response, stderr);
 #endif
-		n = lws_write(wsi, (unsigned char *)response,
-			      p - response, LWS_WRITE_HTTP_HEADERS);
+		n = lws_write(wsi, (unsigned char *)response, p - response,
+			      LWS_WRITE_HTTP_HEADERS);
 		if (n != (p - response)) {
-			lwsl_debug("handshake_0405: ERROR writing to socket\n");
+			lwsl_info("%s: ERROR writing to socket %d\n", __func__, n);
 			goto bail;
 		}
 
@@ -362,3 +555,67 @@ bail:
 	return -1;
 }
 
+
+int
+lws_interpret_incoming_packet(struct lws *wsi, unsigned char **buf, size_t len)
+{
+	int m;
+
+	lwsl_parser("%s: received %d byte packet\n", __func__, (int)len);
+
+	/* let the rx protocol state machine have as much as it needs */
+
+	while (len) {
+		/*
+		 * we were accepting input but now we stopped doing so
+		 */
+		if (wsi->rxflow_bitmap) {
+			lws_rxflow_cache(wsi, *buf, 0, (int)len);
+			lwsl_parser("%s: cached %ld\n", __func__, (long)len);
+			return 1;
+		}
+
+		if (wsi->ws->rx_draining_ext) {
+			m = lws_ws_rx_sm(wsi, 0);
+			if (m < 0)
+				return -1;
+			continue;
+		}
+
+		/* account for what we're using in rxflow buffer */
+		if (wsi->rxflow_buffer) {
+			wsi->rxflow_pos++;
+			if (wsi->rxflow_pos > wsi->rxflow_len)
+				assert(0);
+		}
+
+		/* consume payload bytes efficiently */
+		if (wsi->lws_rx_parse_state ==
+		    LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED) {
+			m = lws_payload_until_length_exhausted(wsi, buf, &len);
+			if (wsi->rxflow_buffer)
+				wsi->rxflow_pos += m;
+		}
+
+		/* process the byte */
+		m = lws_ws_rx_sm(wsi, *(*buf)++);
+		if (m < 0)
+			return -1;
+		len--;
+
+		if (wsi->rxflow_buffer && wsi->rxflow_pos == wsi->rxflow_len) {
+			lwsl_debug("%s: %p flow buf: drained\n", __func__, wsi);
+			lws_free_set_NULL(wsi->rxflow_buffer);
+			/* having drained the rxflow buffer, can rearm POLLIN */
+#ifdef LWS_NO_SERVER
+			m =
+#endif
+			__lws_rx_flow_control(wsi);
+			/* m ignored, needed for NO_SERVER case */
+		}
+	}
+
+	lwsl_parser("%s: exit with %d unused\n", __func__, (int)len);
+
+	return 0;
+}

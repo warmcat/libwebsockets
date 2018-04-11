@@ -22,7 +22,7 @@
 #include "private-libwebsockets.h"
 
 /*
- * parsers.c: lws_rx_sm() needs to be roughly kept in
+ * parsers.c: lws_ws_rx_sm() needs to be roughly kept in
  *   sync with changes here, esp related to ext draining
  */
 

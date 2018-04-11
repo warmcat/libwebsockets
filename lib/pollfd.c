@@ -172,9 +172,7 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 	 *       ... and the service thread is waiting ...
 	 *         then cancel it to force a restart with our changed events
 	 */
-#if LWS_POSIX
 	pa_events = pa->prev_events != pa->events;
-#endif
 
 	if (pa_events) {
 		if (lws_plat_change_pollfd(context, wsi, pfd)) {
@@ -264,11 +262,7 @@ __insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 	wsi->position_in_fds_table = pt->fds_count;
 
 	pt->fds[wsi->position_in_fds_table].fd = wsi->desc.sockfd;
-#if LWS_POSIX
 	pt->fds[wsi->position_in_fds_table].events = LWS_POLLIN;
-#else
-	pt->fds[wsi->position_in_fds_table].events = 0;
-#endif
 	pa.events = pt->fds[pt->fds_count].events;
 
 	lws_plat_insert_socket_into_fds(context, wsi);
@@ -422,10 +416,6 @@ LWS_VISIBLE int
 lws_callback_on_writable(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt;
-#ifdef LWS_WITH_HTTP2
-	struct lws *network_wsi, *wsi2;
-	int already;
-#endif
 	int n;
 
 	if (lwsi_state(wsi) == LRS_SHUTDOWN)
@@ -461,65 +451,12 @@ lws_callback_on_writable(struct lws *wsi)
 	}
 #endif
 
-#ifdef LWS_WITH_HTTP2
-	lwsl_info("%s: %p (role/state 0x%x)\n", __func__, wsi, wsi->wsistate);
 
-	if (!lwsi_role_h2(wsi))
-		goto network_sock;
-
-	if (wsi->h2.requested_POLLOUT
-#if !defined(LWS_NO_CLIENT)
-			&& !wsi->client_h2_alpn
-#endif
-	) {
-		lwsl_info("already pending writable\n");
-		return 1;
+	if (wsi->role_ops->callback_on_writable) {
+		if (wsi->role_ops->callback_on_writable(wsi))
+			return 1;
+		wsi = lws_get_network_wsi(wsi);
 	}
-
-	/* is this for DATA or for control messages? */
-	if (wsi->upgraded_to_http2 && !wsi->h2.h2n->pps &&
-	    !lws_h2_tx_cr_get(wsi)) {
-		/*
-		 * other side is not able to cope with us sending DATA
-		 * anything so no matter if we have POLLOUT on our side if it's
-		 * DATA we want to send.
-		 *
-		 * Delay waiting for our POLLOUT until peer indicates he has
-		 * space for more using tx window command in http2 layer
-		 */
-		lwsl_notice("%s: %p: skint (%d)\n", __func__, wsi,
-			    wsi->h2.tx_cr);
-		wsi->h2.skint = 1;
-		return 0;
-	}
-
-	wsi->h2.skint = 0;
-	network_wsi = lws_get_network_wsi(wsi);
-	already = network_wsi->h2.requested_POLLOUT;
-
-	/* mark everybody above him as requesting pollout */
-
-	wsi2 = wsi;
-	while (wsi2) {
-		wsi2->h2.requested_POLLOUT = 1;
-		lwsl_info("mark %p pending writable\n", wsi2);
-		wsi2 = wsi2->h2.parent_wsi;
-	}
-
-	/* for network action, act only on the network wsi */
-
-	wsi = network_wsi;
-	if (already && !wsi->client_h2_alpn
-#if !defined(LWS_NO_CLIENT)
-			&& !wsi->client_h2_substream
-#endif
-			)
-		return 1;
-network_sock:
-#endif
-
-	if (lws_ext_cb_active(wsi, LWS_EXT_CB_REQUEST_ON_WRITEABLE, NULL, 0))
-		return 1;
 
 	if (wsi->position_in_fds_table < 0) {
 		lwsl_debug("%s: failed to find socket %d\n", __func__,

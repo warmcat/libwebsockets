@@ -63,7 +63,7 @@ extern int count_pollfds;
 extern volatile int force_exit;
 extern struct lws_context *context;
 extern char *resource_path;
-#if defined(LWS_OPENSSL_SUPPORT) && defined(LWS_HAVE_SSL_CTX_set1_param)
+#if defined(LWS_WITH_TLS) && defined(LWS_HAVE_SSL_CTX_set1_param)
 extern char crl_path[1024];
 #endif
 

@@ -187,6 +187,7 @@ lws_wsi_server_new(struct lws_vhost *vh, struct lws *parent_wsi,
 	wsi->seen_nonpseudoheader = 0;
 
 	wsi->h2.parent_wsi = parent_wsi;
+	wsi->role_ops = parent_wsi->role_ops;
 	/* new guy's sibling is whoever was the first child before */
 	wsi->h2.sibling_list = parent_wsi->h2.child_list;
 	/* first child is now the new guy */
@@ -258,8 +259,8 @@ lws_wsi_h2_adopt(struct lws *parent_wsi, struct lws *wsi)
 	if (lws_ensure_user_space(wsi))
 		goto bail1;
 
-	lwsi_set_role(wsi, LWSI_ROLE_H2_CLIENT);
-	lwsi_set_state(wsi, LRS_H2_WAITING_TO_SEND_HEADERS);
+	lws_role_transition(wsi, LWSIFR_CLIENT, LRS_H2_WAITING_TO_SEND_HEADERS,
+			    &role_ops_h2);
 
 	lws_callback_on_writable(wsi);
 
@@ -290,8 +291,8 @@ int lws_h2_issue_preface(struct lws *wsi)
 		(int)strlen(preface))
 		return 1;
 
-	lwsi_set_role(wsi, LWSI_ROLE_H2_CLIENT);
-	lwsi_set_state(wsi, LRS_H2_WAITING_TO_SEND_HEADERS);
+	lws_role_transition(wsi, LWSIFR_CLIENT, LRS_H2_WAITING_TO_SEND_HEADERS,
+			    &role_ops_h2);
 
 	h2n->count = 0;
 	wsi->h2.tx_cr = 65535;
@@ -1090,6 +1091,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 			if (w->h2.my_sid < h2n->sid &&
 			    w->h2.h2_state == LWS_H2_STATE_IDLE)
 				lws_close_free_wsi(w, 0, "h2 sid close");
+			assert(w->h2.sibling_list != w);
 		} lws_end_foreach_ll(w, h2.sibling_list);
 
 
@@ -1200,11 +1202,13 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 			assert(lws_h2_wsi_from_id(wsi, 1) == h2n->swsi);
 
-			lwsi_set_role(wsi, LWSI_ROLE_H2_CLIENT);
-			lwsi_set_state(wsi, LRS_H2_WAITING_TO_SEND_HEADERS);
+			lws_role_transition(wsi, LWSIFR_CLIENT,
+					    LRS_H2_WAITING_TO_SEND_HEADERS,
+					    &role_ops_h2);
 
-			lwsi_set_role(h2n->swsi, LWSI_ROLE_H2_CLIENT);
-			lwsi_set_state(h2n->swsi, LRS_H2_WAITING_TO_SEND_HEADERS);
+			lws_role_transition(h2n->swsi, LWSIFR_CLIENT,
+					    LRS_H2_WAITING_TO_SEND_HEADERS,
+					    &role_ops_h2);
 
 			/* pass on the initial headers to SID 1 */
 			h2n->swsi->ah = wsi->ah;
@@ -1772,17 +1776,21 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 					 * more waiting leave it for next time around
 					 */
 
-					n = lws_read(h2n->swsi, in - 1, n);
+					n = lws_read_h1(h2n->swsi, in - 1, n);
 					h2n->swsi->outer_will_close = 0;
 					/*
-					 * can return 0 in POST body with content len
-					 * exhausted somehow.
+					 * can return 0 in POST body with
+					 * content len exhausted somehow.
 					 */
 					if (n <= 0) {
+						lwsl_debug("%s: lws_read_h1 told %d %d / %d\n",
+							__func__, n, h2n->count, h2n->length);
 						in += h2n->length - h2n->count;
 						h2n->inside = h2n->length;
 						h2n->count = h2n->length - 1;
-						lwsl_debug("%s: lws_read told %d\n", __func__, n);
+
+						if (n < 0)
+							goto already_closed_swsi;
 						goto close_swsi_and_return;
 					}
 
@@ -1944,6 +1952,7 @@ close_swsi_and_return:
 	h2n->frame_state = 0;
 	h2n->count = 0;
 
+already_closed_swsi:
 	*inused = in - oldin;
 
 	return 2;
@@ -2108,3 +2117,84 @@ lws_h2_ws_handshake(struct lws *wsi)
 
 	return 0;
 }
+
+int
+lws_read_h2(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
+{
+	unsigned char *oldbuf = buf;
+	lws_filepos_t body_chunk_len;
+	int m;
+
+	// lwsl_notice("%s: h2 path: wsistate 0x%x len %d\n", __func__,
+	//		wsi->wsistate, (int)len);
+
+	/*
+	 * wsi here is always the network connection wsi, not a stream
+	 * wsi.  Once we unpicked the framing we will find the right
+	 * swsi and make it the target of the frame.
+	 *
+	 * If it's ws over h2, the nwsi will get us here to do the h2
+	 * processing, and that will call us back with the swsi +
+	 * ESTABLISHED state for the inner payload, handled in a later
+	 * case.
+	 */
+	while (len) {
+		/*
+		 * we were accepting input but now we stopped doing so
+		 */
+		if (lws_is_flowcontrolled(wsi)) {
+			lws_rxflow_cache(wsi, buf, 0, (int)len);
+			buf += len;
+			break;
+		}
+
+		/*
+		 * lws_h2_parser() may send something; when it gets the
+		 * whole frame, it will want to perform some action
+		 * involving a reply.  But we may be in a partial send
+		 * situation on the network wsi...
+		 *
+		 * Even though we may be in a partial send and unable to
+		 * send anything new, we still have to parse the network
+		 * wsi in order to gain tx credit to send, which is
+		 * potentially necessary to clear the old partial send.
+		 *
+		 * ALL network wsi-specific frames are sent by PPS
+		 * already, these are sent as a priority on the writable
+		 * handler, and so respect partial sends.  The only
+		 * problem is when a stream wsi wants to send an, eg,
+		 * reply headers frame in response to the parsing
+		 * we will do now... the *stream wsi* must stall in a
+		 * different state until it is able to do so from a
+		 * priority on the WRITABLE callback, same way that
+		 * file transfers operate.
+		 */
+
+		m = lws_h2_parser(wsi, buf, len, &body_chunk_len);
+		if (m && m != 2) {
+			lwsl_debug("%s: http2_parser bailed\n", __func__);
+			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
+					   "lws_read_h2 bail");
+
+			return -1;
+		}
+		if (m == 2) {
+			/* swsi has been closed */
+			buf += body_chunk_len;
+			len -= body_chunk_len;
+			break;
+		}
+
+		/* account for what we're using in rxflow buffer */
+		if (wsi->rxflow_buffer) {
+			wsi->rxflow_pos += (int)body_chunk_len;
+			assert(wsi->rxflow_pos <= wsi->rxflow_len);
+		}
+
+		buf += body_chunk_len;
+		len -= body_chunk_len;
+	}
+
+	return lws_ptr_diff(buf, oldbuf);
+}
+

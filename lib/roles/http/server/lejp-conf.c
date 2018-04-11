@@ -349,7 +349,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 
 		a->info->protocols = a->protocols;
 		a->info->extensions = a->extensions;
-#ifdef LWS_OPENSSL_SUPPORT
+#if defined(LWS_WITH_TLS)
 		a->info->client_ssl_cipher_list = "ECDHE-ECDSA-AES256-GCM-SHA384:"
 			"ECDHE-RSA-AES256-GCM-SHA384:"
 			"DHE-RSA-AES256-GCM-SHA384:"
@@ -449,7 +449,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		}
 		a->any_vhosts = 1;
 
-#ifdef LWS_OPENSSL_SUPPORT
+#if defined(LWS_WITH_TLS)
 		if (a->enable_client_ssl) {
 			const char *cert_filepath = a->info->client_ssl_cert_filepath;
 			const char *private_key_filepath = a->info->client_ssl_private_key_filepath;
@@ -593,7 +593,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 	case LEJPVP_KEEPALIVE_TIMEOUT:
 		a->info->keepalive_timeout = atoi(ctx->buf);
 		return 0;
-#ifdef LWS_OPENSSL_SUPPORT
+#if defined(LWS_WITH_TLS)
 	case LEJPVP_CLIENT_CIPHERS:
 		a->info->client_ssl_cipher_list = a->p;
 		break;
@@ -673,7 +673,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 	case LEJPVP_ENABLE_CLIENT_SSL:
 		a->enable_client_ssl = arg_to_bool(ctx->buf);
 		return 0;
-#ifdef LWS_OPENSSL_SUPPORT
+#if defined(LWS_WITH_TLS)
 	case LEJPVP_CLIENT_SSL_KEY:
 		a->info->client_ssl_private_key_filepath = a->p;
 		break;

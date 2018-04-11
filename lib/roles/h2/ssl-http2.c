@@ -50,7 +50,7 @@
 #include "private-libwebsockets.h"
 
 #if !defined(LWS_NO_SERVER)
-#if defined(LWS_OPENSSL_SUPPORT)
+#if defined(LWS_WITH_TLS)
 
 #if defined(LWS_WITH_MBEDTLS) || (defined(OPENSSL_VERSION_NUMBER) && \
 				  OPENSSL_VERSION_NUMBER >= 0x10002000L)
@@ -132,7 +132,8 @@ int lws_h2_configure_if_upgraded(struct lws *wsi)
 
 	ah = wsi->ah;
 
-	lws_role_transition(wsi, LWSI_ROLE_H2_SERVER, LRS_H2_AWAIT_PREFACE);
+	lws_role_transition(wsi, LWSIFR_SERVER, LRS_H2_AWAIT_PREFACE,
+			    &role_ops_h2);
 
 	/* http2 union member has http union struct at start */
 	wsi->ah = ah;

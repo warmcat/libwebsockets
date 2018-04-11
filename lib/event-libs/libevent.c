@@ -174,7 +174,7 @@ lws_libevent_accept(struct lws *new_wsi, lws_sock_file_fd_type desc)
 	// Initialize the event
 	pt = &context->pt[(int)new_wsi->tsi];
 
-	if (lwsi_role(new_wsi) == LWSI_ROLE_RAW_FILE)
+	if (new_wsi->role_ops == role_ops_raw_file)
 		fd = desc.filefd;
 	else
 		fd = desc.sockfd;

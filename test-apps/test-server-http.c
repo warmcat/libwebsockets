@@ -34,7 +34,7 @@
  *				using this protocol, including the sender
  */
 
-#if defined(LWS_OPENSSL_SUPPORT) && defined(LWS_HAVE_SSL_CTX_set1_param)
+#if defined(LWS_WITH_TLS) && defined(LWS_HAVE_SSL_CTX_set1_param)
 /* location of the certificate revocation list */
 extern char crl_path[1024];
 #endif
@@ -230,7 +230,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			goto try_to_reuse;
 		}
 
-#if !defined(LWS_NO_CLIENT) && defined(LWS_OPENSSL_SUPPORT)
+#if !defined(LWS_NO_CLIENT) && defined(LWS_WITH_TLS)
 		if (!strncmp(in, "/proxytest", 10)) {
 			struct lws_client_connect_info i;
 			char *rootpath = "/git/";
@@ -773,7 +773,7 @@ bail:
 
 		break;
 
-#if defined(LWS_OPENSSL_SUPPORT) && !defined(LWS_WITH_MBEDTLS)
+#if defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS)
 	case LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION:
 		/* Verify the client certificate */
 		if (!len || (SSL_get_verify_result((SSL*)in) != X509_V_OK)) {

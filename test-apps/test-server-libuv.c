@@ -33,7 +33,7 @@ struct lws_plat_file_ops fops_plat;
 #define LOCAL_RESOURCE_PATH INSTALL_DATADIR"/libwebsockets-test-server"
 char *resource_path = LOCAL_RESOURCE_PATH;
 
-#if defined(LWS_OPENSSL_SUPPORT) && defined(LWS_HAVE_SSL_CTX_set1_param)
+#if defined(LWS_WITH_TLS) && defined(LWS_HAVE_SSL_CTX_set1_param)
 char crl_path[1024] = "";
 #endif
 

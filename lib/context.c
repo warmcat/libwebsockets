@@ -50,70 +50,6 @@ static const char * const mount_protocols[] = {
 	"callback://"
 };
 
-#if defined(LWS_WITH_HTTP2)
-/*
- * These are the standardized defaults.
- * Override what actually goes in the vhost settings in platform or user code.
- * Leave these alone because they are used to determine "what is different
- * from the protocol defaults".
- */
-const struct http2_settings lws_h2_defaults = { {
-	1,
-	/* H2SET_HEADER_TABLE_SIZE */			4096,
-	/* *** This controls how many entries in the dynamic table ***
-	 * Allows the sender to inform the remote endpoint of the maximum
-	 * size of the header compression table used to decode header
-	 * blocks, in octets.  The encoder can select any size equal to or
-	 * less than this value by using signaling specific to the header
-	 * compression format inside a header block (see [COMPRESSION]).
-	 * The initial value is 4,096 octets.
-	 */
-	/* H2SET_ENABLE_PUSH */				   1,
-	/* H2SET_MAX_CONCURRENT_STREAMS */	  0x7fffffff,
-	/* H2SET_INITIAL_WINDOW_SIZE */		       65535,
-	/* H2SET_MAX_FRAME_SIZE */		       16384,
-	/* H2SET_MAX_HEADER_LIST_SIZE */	  0x7fffffff,
-	/*< This advisory setting informs a peer of the maximum size of
-	 * header list that the sender is prepared to accept, in octets.
-	 * The value is based on the uncompressed size of header fields,
-	 * including the length of the name and value in octets plus an
-	 * overhead of 32 octets for each header field.
-	 */
-	/* H2SET_RESERVED7 */				   0,
-	/* H2SET_ENABLE_CONNECT_PROTOCOL */		   0,
-}};
-
-/* these are the "lws defaults"... they can be overridden in plat */
-
-const struct http2_settings lws_h2_stock_settings = { {
-	1,
-	/* H2SET_HEADER_TABLE_SIZE */			65536, /* ffox */
-	/* *** This controls how many entries in the dynamic table ***
-	 * Allows the sender to inform the remote endpoint of the maximum
-	 * size of the header compression table used to decode header
-	 * blocks, in octets.  The encoder can select any size equal to or
-	 * less than this value by using signaling specific to the header
-	 * compression format inside a header block (see [COMPRESSION]).
-	 * The initial value is 4,096 octets.
-	 *
-	 * Can't pass h2spec with less than 4096 here...
-	 */
-	/* H2SET_ENABLE_PUSH */				   1,
-	/* H2SET_MAX_CONCURRENT_STREAMS */		  24,
-	/* H2SET_INITIAL_WINDOW_SIZE */		       65535,
-	/* H2SET_MAX_FRAME_SIZE */		       16384,
-	/* H2SET_MAX_HEADER_LIST_SIZE */	        4096,
-	/*< This advisory setting informs a peer of the maximum size of
-	 * header list that the sender is prepared to accept, in octets.
-	 * The value is based on the uncompressed size of header fields,
-	 * including the length of the name and value in octets plus an
-	 * overhead of 32 octets for each header field.
-	 */
-	/* H2SET_RESERVED7 */				   0,
-	/* H2SET_ENABLE_CONNECT_PROTOCOL */		   1,
-}};
-#endif
-
 LWS_VISIBLE void *
 lws_protocol_vh_priv_zalloc(struct lws_vhost *vhost,
 			    const struct lws_protocols *prot, int size)
@@ -265,7 +201,7 @@ lws_protocol_init(struct lws_context *context)
 				pvo = pvo1->options;
 			}
 
-#if defined(LWS_OPENSSL_SUPPORT)
+#if defined(LWS_WITH_TLS)
 			any |= !!vh->ssl_ctx;
 #endif
 
@@ -617,10 +553,11 @@ lws_create_vhost(struct lws_context *context,
 	vh->pvo = info->pvo;
 	vh->headers = info->headers;
 	vh->user = info->user;
-	if (!info->h2_rx_scratch_size)
-		vh->h2_rx_scratch_size = LWS_H2_RX_SCRATCH_SIZE;
-	else
-		vh->h2_rx_scratch_size = info->h2_rx_scratch_size;
+
+#if defined(LWS_ROLE_H2)
+	role_ops_h2.init_vhost(vh, info);
+#endif
+
 	vh->ssl_info_event_mask = info->ssl_info_event_mask;
 	if (info->keepalive_timeout)
 		vh->keepalive_timeout = info->keepalive_timeout;
@@ -632,7 +569,7 @@ lws_create_vhost(struct lws_context *context,
 	else
 		vh->timeout_secs_ah_idle = 10;
 
-#ifdef LWS_OPENSSL_SUPPORT
+#if defined(LWS_WITH_TLS)
 	if (info->ecdh_curve)
 		lws_strncpy(vh->ecdh_curve, info->ecdh_curve,
 			    sizeof(vh->ecdh_curve));
@@ -966,7 +903,7 @@ lws_create_event_pipes(struct lws_context *context)
 			return 1;
 		}
 		wsi->context = context;
-		lwsi_set_role(wsi, LWSI_ROLE_EVENT_PIPE);
+		lws_role_transition(wsi, 0, LRS_UNCONNECTED, &role_ops_pipe);
 		wsi->protocol = NULL;
 		wsi->tsi = n;
 		wsi->vhost = NULL;
@@ -1023,7 +960,7 @@ lws_create_context(struct lws_context_creation_info *info)
 #if defined(GCC_VER)
 	lwsl_info("Compiled with  %s\n", GCC_VER);
 #endif
-#if LWS_POSIX
+
 #ifdef LWS_WITH_IPV6
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DISABLE_IPV6))
 		lwsl_info("IPV6 compiled in and enabled\n");
@@ -1036,7 +973,6 @@ lws_create_context(struct lws_context_creation_info *info)
 	lws_feature_status_libev(info);
 	lws_feature_status_libuv(info);
 #endif
-#endif
 	lwsl_info(" LWS_DEF_HEADER_LEN    : %u\n", LWS_DEF_HEADER_LEN);
 	lwsl_info(" LWS_MAX_PROTOCOLS     : %u\n", LWS_MAX_PROTOCOLS);
 	lwsl_info(" LWS_MAX_SMP           : %u\n", LWS_MAX_SMP);
@@ -1044,9 +980,7 @@ lws_create_context(struct lws_context_creation_info *info)
 #if defined(LWS_WITH_STATS)
 	lwsl_info(" LWS_WITH_STATS        : on\n");
 #endif
-#if LWS_POSIX
 	lwsl_info(" SYSTEM_RANDOM_FILEPATH: '%s'\n", SYSTEM_RANDOM_FILEPATH);
-#endif
 #if defined(LWS_WITH_HTTP2)
 	lwsl_info(" HTTP2 support         : available\n");
 #else
@@ -1065,8 +999,8 @@ lws_create_context(struct lws_context_creation_info *info)
 	else
 		context->pt_serv_buf_size = 4096;
 
-#if defined(LWS_WITH_HTTP2)
-	context->set = lws_h2_stock_settings;
+#if defined(LWS_ROLE_H2)
+	role_ops_h2.init_context(context, info);
 #endif
 
 #if LWS_MAX_SMP > 1

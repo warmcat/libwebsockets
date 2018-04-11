@@ -39,8 +39,6 @@ extern "C" {
  * CARE: everything using cmake defines needs to be below here
  */
 
-#define LWS_POSIX 1
-
 #if defined(LWS_HAS_INTPTR_T)
 #include <stdint.h>
 #define lws_intptr_t intptr_t
@@ -180,7 +178,7 @@ typedef unsigned long long lws_intptr_t;
 #endif
 #endif
 
-#ifdef LWS_OPENSSL_SUPPORT
+#if defined(LWS_WITH_TLS)
 
 #ifdef USE_WOLFSSL
 #ifdef USE_OLD_CYASSL
@@ -1648,7 +1646,7 @@ struct lws_vhost;
  */
 ///@{
 
-#ifdef LWS_OPENSSL_SUPPORT
+#if defined(LWS_WITH_TLS)
 
 #if defined(LWS_WITH_MBEDTLS)
 #include <mbedtls/sha1.h>
@@ -2808,7 +2806,7 @@ struct lws_context_creation_info {
 	int ka_interval;
 	/**< CONTEXT: if ka_time was nonzero, how long to wait before each ka_probes
 	 * attempt */
-#if defined(LWS_OPENSSL_SUPPORT) && !defined(LWS_WITH_MBEDTLS)
+#if defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS)
 	SSL_CTX *provided_client_ssl_ctx;
 	/**< CONTEXT: If non-null, swap out libwebsockets ssl
 	  * implementation for the one provided by provided_ssl_ctx.
@@ -5931,14 +5929,6 @@ lws_get_close_payload(struct lws *wsi);
 LWS_VISIBLE LWS_EXTERN
 struct lws *lws_get_network_wsi(struct lws *wsi);
 
-/*
- * \deprecated DEPRECATED Note: this is not normally needed as a user api.
- * It's provided in case it is
- * useful when integrating with other app poll loop service code.
- */
-LWS_VISIBLE LWS_EXTERN int
-lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len);
-
 /**
  * lws_set_allocator() - custom allocator support
  *
@@ -6047,7 +6037,7 @@ struct lws_wifi_scan { /* generic wlan scan item */
 	uint8_t authmode;
 };
 
-#if defined(LWS_OPENSSL_SUPPORT) && !defined(LWS_WITH_MBEDTLS)
+#if defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS)
 /**
  * lws_get_ssl() - Return wsi's SSL context structure
  * \param wsi:	websocket connection

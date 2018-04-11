@@ -429,7 +429,7 @@ lws_libuv_accept(struct lws *wsi, lws_sock_file_fd_type desc)
 		return;
 
 	wsi->w_read.context = context;
-	if (lwsi_role(wsi) == LWSI_ROLE_RAW_FILE || wsi->event_pipe)
+	if (wsi->role_ops == &role_ops_raw_file || wsi->event_pipe)
 		uv_poll_init(pt->io_loop_uv, &wsi->w_read.uv_watcher,
 			     (int)(long long)desc.filefd);
 	else
@@ -543,8 +543,7 @@ lws_libuv_closewsi(uv_handle_t* handle)
 	 * We get called back here for every wsi that closes
 	 */
 
-	if (lwsi_role(wsi) == LWSI_ROLE_LISTEN_SOCKET &&
-	    wsi->context->deprecated) {
+	if (wsi->role_ops == &role_ops_listen && wsi->context->deprecated) {
 		lspd = 1;
 		context->deprecation_pending_listen_close_count--;
 		if (!context->deprecation_pending_listen_close_count)
@@ -637,6 +636,13 @@ lws_libuv_stop(struct lws_context *context)
 void
 lws_libuv_closehandle(struct lws *wsi)
 {
+	if (wsi->told_event_loop_closed) {
+		assert(0);
+		return;
+	}
+
+	wsi->told_event_loop_closed = 1;
+
 	/* required to defer actual deletion until libuv has processed it */
 	uv_close((uv_handle_t*)&wsi->w_read.uv_watcher, lws_libuv_closewsi);
 }

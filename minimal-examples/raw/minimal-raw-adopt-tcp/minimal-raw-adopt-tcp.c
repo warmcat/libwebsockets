@@ -111,7 +111,7 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-	info.port = 7681;
+	info.port = CONTEXT_PORT_NO_LISTEN_SERVER;
 	info.protocols = protocols;
 
 	vhost = lws_create_vhost(context, &info);

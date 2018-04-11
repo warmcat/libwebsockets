@@ -196,6 +196,18 @@ if(GIT_EXECUTABLE)
 	message("Git commit hash: ${LWS_BUILD_HASH}")
 endif()
 
+# translate old functionality enables to set up ROLE enables so nothing changes
+
+set(LWS_ROLE_H1 1)
+set(LWS_ROLE_WS 1)
+set(LWS_ROLE_RAW 1)
+if (LWS_WITH_HTTP2)
+	set(LWS_ROLE_H2 1)
+endif()
+if (LWS_WITH_CGI)
+	set(LWS_ROLE_CGI 1)
+endif()
+
 if (LWS_WITH_HTTP2 AND LWS_WITHOUT_SERVER)
 	message(FATAL_ERROR "HTTP2 can only be used with server at the moment")
 endif()
@@ -449,8 +461,10 @@ else()
 	set(LWS_OPENSSL_CLIENT_CERTS /etc/pki/tls/certs/ CACHE PATH "Client SSL certificate directory")
 endif()
 
-if (LWS_WITH_SSL)
+# LWS_OPENSSL_SUPPORT deprecated... use LWS_WITH_TLS
+if (LWS_WITH_SSL OR LWS_WITH_MBEDTLS)
 	set(LWS_OPENSSL_SUPPORT 1)
+	set(LWS_WITH_TLS 1)
 endif()
 
 if (LWS_SSL_CLIENT_USE_OS_CA_CERTS)
@@ -673,37 +687,70 @@ set(HDR_PUBLIC
 
 set(SOURCES
 	lib/misc/base64-decode.c
-	lib/handshake.c
 	lib/libwebsockets.c
 	lib/service.c
 	lib/pollfd.c
 	lib/output.c
-	lib/server/parsers.c
+	lib/roles/http/server/parsers.c
 	lib/context.c
 	lib/alloc.c
-	lib/header.c
+	lib/roles/http/header.c
+	lib/roles/pipe/ops-pipe.c
 	lib/misc/lws-ring.c)
 
-if (LWS_WITH_CGI)
+if (LWS_ROLE_H1)
 	list(APPEND SOURCES
-		lib/server/cgi.c)
+		lib/roles/h1/ops-h1.c)
+	if (NOT LWS_WITHOUT_CLIENT)
+		list(APPEND SOURCES
+			lib/roles/h1/client-h1.c)
+	endif()
+endif()
+
+if (LWS_ROLE_WS)
+	list(APPEND SOURCES
+		lib/roles/ws/ops-ws.c)
+	if (NOT LWS_WITHOUT_CLIENT)
+		list(APPEND SOURCES
+			lib/roles/ws/client-ws.c
+			lib/roles/ws/client-parser.c)
+	endif()
+	if (NOT LWS_WITHOUT_SERVER)
+		list(APPEND SOURCES
+			lib/roles/ws/server-ws.c)
+	endif()
+endif()
+
+if (LWS_ROLE_RAW)
+	list(APPEND SOURCES
+		lib/roles/raw/ops-raw.c)
+endif()
+
+if (LWS_ROLE_CGI)
+	list(APPEND SOURCES
+		lib/roles/cgi/cgi-server.c
+		lib/roles/cgi/ops-cgi.c)
 endif()
 
 if (LWS_WITH_ACCESS_LOG)
 	list(APPEND SOURCES
-		lib/server/access-log.c)
+		lib/roles/http/server/access-log.c)
 endif()
 
 if (LWS_WITH_PEER_LIMITS)
 	list(APPEND SOURCES
-		lib/server/peer-limits.c)
+		lib/misc/peer-limits.c)
 endif()
 
 if (NOT LWS_WITHOUT_CLIENT)
 	list(APPEND SOURCES
-		lib/client/client.c
-		lib/client/client-handshake.c
-		lib/client/client-parser.c)
+		lib/roles/http/client/client.c
+		lib/roles/http/client/client-handshake.c)
+endif()
+
+if (NOT LWS_WITHOUT_SERVER)
+	list(APPEND SOURCES
+		lib/roles/listen/ops-listen.c)
 endif()
 
 if (LWS_WITH_MBEDTLS)
@@ -785,7 +832,7 @@ if (LWS_WITH_SSL)
 		
 	if (NOT LWS_WITHOUT_SERVER)
 		list(APPEND SOURCES
-			lib/server/ssl-server.c)
+			lib/tls/tls-server.c)
 		if (LWS_WITH_MBEDTLS)
 			list(APPEND SOURCES
 				lib/tls/mbedtls/mbedtls-server.c)
@@ -796,7 +843,7 @@ if (LWS_WITH_SSL)
 	endif()
 	if (NOT LWS_WITHOUT_CLIENT)
 		list(APPEND SOURCES
-		lib/client/ssl-client.c)
+			lib/tls/tls-client.c)
 		if (LWS_WITH_MBEDTLS)
 			list(APPEND SOURCES
 				lib/tls/mbedtls/mbedtls-client.c)
@@ -815,9 +862,10 @@ endif()
 
 if (LWS_WITH_HTTP2 AND NOT LWS_WITHOUT_SERVER)
 	list(APPEND SOURCES
-		lib/http2/http2.c
-		lib/http2/hpack.c
-		lib/http2/ssl-http2.c)
+		lib/roles/h2/http2.c
+		lib/roles/h2/hpack.c
+		lib/roles/h2/ssl-http2.c
+		lib/roles/h2/ops-h2.c)
 endif()
 # select the active platform files
 
@@ -843,22 +891,21 @@ endif()
 
 if (NOT LWS_WITHOUT_SERVER)
 	list(APPEND SOURCES
-		lib/server/server.c
-		lib/server/lws-spa.c
-		lib/server/server-handshake.c)
+		lib/roles/http/server/server.c
+		lib/roles/http/server/lws-spa.c)
 endif()
 
 if (NOT LWS_WITHOUT_EXTENSIONS)
 	list(APPEND HDR_PRIVATE
-		lib/ext/extension-permessage-deflate.h)
+		lib/roles/ws/ext/extension-permessage-deflate.h)
 	list(APPEND SOURCES
-		lib/ext/extension.c
-		lib/ext/extension-permessage-deflate.c)
+		lib/roles/ws/ext/extension.c
+		lib/roles/ws/ext/extension-permessage-deflate.c)
 endif()
 
 if (LWS_WITH_HTTP_PROXY)
 	list(APPEND SOURCES
-		lib/server/rewrite.c)
+		lib/roles/http/server/rewrite.c)
 endif()
 
 if (LWS_WITH_LIBEV)
@@ -882,7 +929,7 @@ if (LWS_WITH_LEJP)
 endif()	
 if (LWS_WITH_LEJP_CONF)
 		list(APPEND SOURCES
-			"lib/server/lejp-conf.c"
+			"lib/roles/http/server/lejp-conf.c"
 		)
 endif()
 
@@ -893,13 +940,13 @@ endif()
 
 if (LWS_WITH_RANGES)
 	list(APPEND SOURCES
-		lib/server/ranges.c)
+		lib/roles/http/server/ranges.c)
 endif()
 
 if (LWS_WITH_ZIP_FOPS)
        if (LWS_WITH_ZLIB)
                list(APPEND SOURCES
-                       lib/server/fops-zip.c)
+                       lib/roles/http/server/fops-zip.c)
        else()
                message(FATAL_ERROR "Pre-zipped file support (LWS_WITH_ZIP_FOPS) requires ZLIB (LWS_WITH_ZLIB)")
        endif()
@@ -930,7 +977,7 @@ else()
 	# Unix.
 	if (NOT LWS_WITHOUT_DAEMONIZE)
 		list(APPEND SOURCES
-			lib/server/daemonize.c)
+			lib/misc/daemonize.c)
 	endif()
 endif()
 

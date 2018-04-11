@@ -46,7 +46,7 @@ uv_timer_t timeout_watcher;
 #define LOCAL_RESOURCE_PATH INSTALL_DATADIR"/libwebsockets-test-server"
 char *resource_path = LOCAL_RESOURCE_PATH;
 
-#if defined(LWS_OPENSSL_SUPPORT) && defined(LWS_HAVE_SSL_CTX_set1_param)
+#if defined(LWS_WITH_TLS) && defined(LWS_HAVE_SSL_CTX_set1_param)
 char crl_path[1024] = "";
 #endif
 
@@ -296,7 +296,7 @@ static const struct option options[] = {
 	{ "ssl-cert",  required_argument,	NULL, 'C' },
 	{ "ssl-key",  required_argument,	NULL, 'K' },
 	{ "ssl-ca",  required_argument,		NULL, 'A' },
-#if defined(LWS_OPENSSL_SUPPORT)
+#if defined(LWS_WITH_TLS)
 	{ "ssl-verify-client",  no_argument,		NULL, 'v' },
 #if defined(LWS_HAVE_SSL_CTX_set1_param)
 	{ "ssl-crl",  required_argument,		NULL, 'R' },
@@ -363,7 +363,7 @@ int main(int argc, char **argv)
 			use_ssl = 1;
 			break;
 		case 'S':
-#if defined(LWS_OPENSSL_SUPPORT) && !defined(LWS_WITH_MBEDTLS)
+#if defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS)
 			info.ssl_info_event_mask |= SSL_CB_ALERT;
 #endif
 			break;
@@ -390,7 +390,7 @@ int main(int argc, char **argv)
 		case 'A':
 			lws_strncpy(ca_path, optarg, sizeof(ca_path));
 			break;
-#if defined(LWS_OPENSSL_SUPPORT)
+#if defined(LWS_WITH_TLS)
 		case 'v':
 			use_ssl = 1;
 			opts |= LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT;

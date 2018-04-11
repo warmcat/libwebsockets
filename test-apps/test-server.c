@@ -37,7 +37,7 @@ struct lws_plat_file_ops fops_plat;
 /* http server gets files from this path */
 #define LOCAL_RESOURCE_PATH INSTALL_DATADIR"/libwebsockets-test-server"
 char *resource_path = LOCAL_RESOURCE_PATH;
-#if defined(LWS_OPENSSL_SUPPORT) && defined(LWS_HAVE_SSL_CTX_set1_param)
+#if defined(LWS_WITH_TLS) && defined(LWS_HAVE_SSL_CTX_set1_param)
 char crl_path[1024] = "";
 #endif
 
@@ -211,7 +211,7 @@ static struct option options[] = {
 	{ "ssl-cert",  required_argument,	NULL, 'C' },
 	{ "ssl-key",  required_argument,	NULL, 'K' },
 	{ "ssl-ca",  required_argument,		NULL, 'A' },
-#if defined(LWS_OPENSSL_SUPPORT)
+#if defined(LWS_WITH_TLS)
 	{ "ssl-verify-client",	no_argument,		NULL, 'v' },
 #if defined(LWS_HAVE_SSL_CTX_set1_param)
 	{ "ssl-crl",  required_argument,		NULL, 'R' },
@@ -339,7 +339,7 @@ int main(int argc, char **argv)
 			pp_secs = atoi(optarg);
 			lwsl_notice("Setting pingpong interval to %d\n", pp_secs);
 			break;
-#if defined(LWS_OPENSSL_SUPPORT)
+#if defined(LWS_WITH_TLS)
 		case 'v':
 			use_ssl = 1;
 			opts |= LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT;
@@ -475,7 +475,7 @@ int main(int argc, char **argv)
 
 	info.port++;
 
-#if !defined(LWS_NO_CLIENT) && defined(LWS_OPENSSL_SUPPORT)
+#if !defined(LWS_NO_CLIENT) && defined(LWS_WITH_TLS)
 	lws_init_vhost_client_ssl(&info, vhost);
 #endif
 
