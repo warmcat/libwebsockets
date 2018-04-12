@@ -39,6 +39,7 @@ static const char * const paths_global[] = {
 	"global.timeout-secs",
 	"global.reject-service-keywords[].*",
 	"global.reject-service-keywords[]",
+	"global.default-alpn",
 };
 
 enum lejp_global_paths {
@@ -51,7 +52,8 @@ enum lejp_global_paths {
 	LWJPGP_PINGPONG_SECS,
 	LWJPGP_TIMEOUT_SECS,
 	LWJPGP_REJECT_SERVICE_KEYWORDS_NAME,
-	LWJPGP_REJECT_SERVICE_KEYWORDS
+	LWJPGP_REJECT_SERVICE_KEYWORDS,
+	LWJPGP_DEFAULT_ALPN,
 };
 
 static const char * const paths_vhosts[] = {
@@ -102,6 +104,7 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].client-cert-required",
 	"vhosts[].ignore-missing-cert",
 	"vhosts[].error-document-404",
+	"vhosts[].alpn",
 };
 
 enum lejp_vhost_paths {
@@ -152,6 +155,7 @@ enum lejp_vhost_paths {
 	LEJPVP_FLAG_CLIENT_CERT_REQUIRED,
 	LEJPVP_IGNORE_MISSING_CERT,
 	LEJPVP_ERROR_DOCUMENT_404,
+	LEJPVP_ALPN,
 };
 
 static const char * const parser_errs[] = {
@@ -289,6 +293,10 @@ lejp_globals_cb(struct lejp_ctx *ctx, char reason)
 	case LWJPGP_TIMEOUT_SECS:
 		a->info->timeout_secs = atoi(ctx->buf);
 		return 0;
+
+	case LWJPGP_DEFAULT_ALPN:
+		a->info->alpn = a->p;
+		break;
 
 	default:
 		return 0;
@@ -731,6 +739,10 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 	case LEJPVP_SSL_OPTION_CLEAR:
 		a->info->ssl_options_clear |= atol(ctx->buf);
 		return 0;
+
+	case LEJPVP_ALPN:
+		a->info->alpn = a->p;
+		break;
 
 	default:
 		return 0;

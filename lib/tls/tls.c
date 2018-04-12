@@ -478,3 +478,37 @@ lws_gate_accepts(struct lws_context *context, int on)
 
 	return 0;
 }
+
+/* comma-separated alpn list, like "h2,http/1.1" to openssl alpn format */
+
+int
+lws_alpn_comma_to_openssl(const char *comma, uint8_t *os, int len)
+{
+	uint8_t *oos = os, *plen = NULL;
+
+	while (*comma && len > 1) {
+		if (!plen && *comma == ' ') {
+			comma++;
+			continue;
+		}
+		if (!plen) {
+			plen = os++;
+			len--;
+		}
+
+		if (*comma == ',') {
+			*plen = lws_ptr_diff(os, plen + 1);
+			plen = NULL;
+			comma++;
+		} else {
+			*os++ = *comma++;
+			len--;
+		}
+	}
+
+	if (plen)
+		*plen = lws_ptr_diff(os, plen + 1);
+
+	return lws_ptr_diff(os, oos);
+}
+

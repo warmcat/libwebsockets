@@ -572,7 +572,7 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 			return n;
 		if (lwsi_state(wsi) != LRS_SSL_INIT)
 			if (lws_server_socket_service_ssl(wsi, LWS_SOCK_INVALID))
-				return LWS_HPI_RET_DIE;
+				return LWS_HPI_RET_CLOSE_HANDLED;
 
 		return LWS_HPI_RET_HANDLED;
 	}
@@ -694,8 +694,29 @@ rops_write_role_protocol_h1(struct lws *wsi, unsigned char *buf, size_t len,
 	return lws_issue_raw(wsi, (unsigned char *)buf, len);
 }
 
+static int
+rops_alpn_negotiated_h1(struct lws *wsi, const char *alpn)
+{
+	lwsl_debug("%s: client %d\n", __func__, lwsi_role_client(wsi));
+#if !defined(LWS_NO_CLIENT)
+	if (lwsi_role_client(wsi)) {
+		/*
+		 * If alpn asserts it is http/1.1, server support for KA is
+		 * mandatory.
+		 *
+		 * Knowing this lets us proceed with sending pipelined headers
+		 * before we received the first response headers.
+		 */
+		wsi->keepalive_active = 1;
+	}
+#endif
+
+	return 0;
+}
+
 struct lws_role_ops role_ops_h1 = {
-	"h1",
+	/* role name */			"h1",
+	/* alpn id */			"http/1.1",
 	/* check_upgrades */		NULL,
 	/* init_context */		NULL,
 	/* init_vhost */		NULL,
@@ -709,6 +730,7 @@ struct lws_role_ops role_ops_h1 = {
 	/* write_role_protocol */	rops_write_role_protocol_h1,
 	/* rxflow_cache */		NULL,
 	/* encapsulation_parent */	NULL,
+	/* alpn_negotiated */		rops_alpn_negotiated_h1,
 	/* close_via_role_protocol */	NULL,
 	/* close_role */		NULL,
 	/* close_kill_connection */	NULL,

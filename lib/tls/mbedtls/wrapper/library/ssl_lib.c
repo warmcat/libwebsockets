@@ -1648,8 +1648,8 @@ void *SSL_CTX_get_ex_data(const SSL_CTX *ctx, int idx)
  */
 
 struct alpn_ctx {
-	unsigned char *data;
-	unsigned short len;
+	unsigned char data[23];
+	unsigned char len;
 };
 
 static void
@@ -1673,6 +1673,9 @@ _openssl_alpn_to_mbedtls(struct alpn_ctx *ac, char ***palpn_protos)
 		if (!len)
 			break;
 	}
+
+	if (!len)
+		count++;
 
 	if (!count)
 		return;
@@ -1704,6 +1707,12 @@ _openssl_alpn_to_mbedtls(struct alpn_ctx *ac, char ***palpn_protos)
 		alpn_protos[count] = (char *)q;
 		if (!len)
 			break;
+	}
+	if (!len) {
+		*q++ = '\0';
+		count++;
+		len = *p++;
+		alpn_protos[count] = (char *)q;
 	}
 	alpn_protos[count] = NULL; /* last pointer ends list with NULL */
 }

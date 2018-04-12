@@ -181,11 +181,13 @@ handle_truncated_send:
 	wsi->trunc_len = (unsigned int)(real_len - n);
 	memcpy(wsi->trunc_alloc, buf + n, real_len - n);
 
+#if !defined(LWS_WITH_ESP32)
 	if (lws_wsi_is_udp(wsi)) {
 		/* stash original destination for fulfilling UDP partials */
 		wsi->udp->sa_pending = wsi->udp->sa;
 		wsi->udp->salen_pending = wsi->udp->salen;
 	}
+#endif
 
 	/* since something buffered, force it to get another chance to send */
 	lws_callback_on_writable(wsi);
@@ -488,14 +490,16 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 {
 	struct lws_context *context = wsi->context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	int n;
+	int n = 0;
 
 	lws_stats_atomic_bump(context, pt, LWSSTATS_C_API_READ, 1);
 
 	if (lws_wsi_is_udp(wsi)) {
+#if !defined(LWS_WITH_ESP32)
 		wsi->udp->salen = sizeof(wsi->udp->sa);
 		n = recvfrom(wsi->desc.sockfd, (char *)buf, len, 0,
 			     &wsi->udp->sa, &wsi->udp->salen);
+#endif
 	} else
 		n = recv(wsi->desc.sockfd, (char *)buf, len, 0);
 
@@ -523,10 +527,12 @@ lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 	int n = 0;
 
 	if (lws_wsi_is_udp(wsi)) {
+#if !defined(LWS_WITH_ESP32)
 		if (wsi->trunc_len)
 			n = sendto(wsi->desc.sockfd, buf, len, 0, &wsi->udp->sa_pending, wsi->udp->salen_pending);
 		else
 			n = sendto(wsi->desc.sockfd, buf, len, 0, &wsi->udp->sa, wsi->udp->salen);
+#endif
 	} else
 		n = send(wsi->desc.sockfd, (char *)buf, len, MSG_NOSIGNAL);
 //	lwsl_info("%s: sent len %d result %d", __func__, len, n);

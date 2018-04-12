@@ -69,24 +69,26 @@ sigint_handler(int sig)
 	interrupted = 1;
 }
 
-int main(int argc, char **argv)
+int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	struct lws_client_connect_info i;
 	struct lws_context *context;
-	int n = 0;
+	const char *p;
+	int n = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE
+		/* for LLL_ verbosity above NOTICE to be built into lws, lws
+		 * must have been configured with -DCMAKE_BUILD_TYPE=DEBUG
+		 * instead of =RELEASE */
+		/* | LLL_INFO */ /* | LLL_PARSER */ /* | LLL_HEADER */
+		/* | LLL_EXT */ /* | LLL_CLIENT */ /* | LLL_LATENCY */
+		/* | LLL_DEBUG */;
 
 	signal(SIGINT, sigint_handler);
+	if ((p = lws_cmdline_option(argc, argv, "-d")))
+		logs = atoi(p);
 
-	lws_set_log_level(LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE
-			/* for LLL_ verbosity above NOTICE to be built into lws,
-			 * lws must have been configured and built with
-			 * -DCMAKE_BUILD_TYPE=DEBUG instead of =RELEASE */
-			/* | LLL_INFO */ /* | LLL_PARSER */ /* | LLL_HEADER */
-			/* | LLL_EXT */ /* | LLL_CLIENT */ /* | LLL_LATENCY */
-			/* | LLL_DEBUG */, NULL);
-
-	lwsl_user("LWS minimal ws client rx\n");
+	lws_set_log_level(logs, NULL);
+	lwsl_user("LWS minimal ws client rx [-d <logs>] [--h2]\n");
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
@@ -108,22 +110,25 @@ int main(int argc, char **argv)
 
 	memset(&i, 0, sizeof i); /* otherwise uninitialized garbage */
 	i.context = context;
-
 	i.port = 443;
 	i.address = "libwebsockets.org";
 	i.path = "/";
 	i.host = i.address;
 	i.origin = i.address;
 	i.ssl_connection = LCCSCF_USE_SSL;
-
 	i.protocol = protocols[0].name; /* "dumb-increment-protocol" */
 	i.pwsi = &client_wsi;
+
+	if (lws_cmdline_option(argc, argv, "--h2"))
+		i.alpn = "h2";
+
 	lws_client_connect_via_info(&i);
 
 	while (n >= 0 && client_wsi && !interrupted)
 		n = lws_service(context, 1000);
 
 	lws_context_destroy(context);
+
 	lwsl_user("Completed\n");
 
 	return 0;

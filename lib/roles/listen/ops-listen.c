@@ -129,9 +129,11 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 			/* already closed cleanly as necessary */
 			return LWS_HPI_RET_DIE;
 
-		if (lws_server_socket_service_ssl(cwsi, accept_fd))
+		if (lws_server_socket_service_ssl(cwsi, accept_fd)) {
 			lws_close_free_wsi(cwsi, LWS_CLOSE_STATUS_NOSTATUS,
 					   "listen svc fail");
+			return LWS_HPI_RET_DIE;
+		}
 
 		lwsl_info("%s: new wsi %p: wsistate 0x%x, role_ops %s\n",
 			    __func__, cwsi, cwsi->wsistate, cwsi->role_ops->name);
@@ -148,7 +150,8 @@ int rops_handle_POLLOUT_listen(struct lws *wsi)
 }
 
 struct lws_role_ops role_ops_listen = {
-	"listen",
+	/* role name */			"listen",
+	/* alpn id */			NULL,
 	/* check_upgrades */		NULL,
 	/* init_context */		NULL,
 	/* init_vhost */		NULL,
@@ -162,6 +165,7 @@ struct lws_role_ops role_ops_listen = {
 	/* write_role_protocol */	NULL,
 	/* rxflow_cache */		NULL,
 	/* encapsulation_parent */	NULL,
+	/* alpn_negotiated */		NULL,
 	/* close_via_role_protocol */	NULL,
 	/* close_role */		NULL,
 	/* close_kill_connection */	NULL,

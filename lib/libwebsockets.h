@@ -2998,6 +2998,13 @@ struct lws_context_creation_info {
 	/**< VHOST: If non-NULL, when asked to serve a non-existent file,
 	 *          lws attempts to server this url path instead.  Eg,
 	 *          "/404.html" */
+	const char *alpn;
+	/**< CONTEXT: If non-NULL, default list of advertised alpn, comma-
+	 *	      separated
+	 *
+	 *     VHOST: If non-NULL, per-vhost list of advertised alpn, comma-
+	 *	      separated
+	 */
 	unsigned int h2_rx_scratch_size;
 	/**< VHOST: size of the rx scratch buffer for each stream.  0 =
 	 *	    default (512 bytes).  This affects the RX chunk size
@@ -3404,7 +3411,6 @@ enum lws_client_connect_ssl_connection_flags {
 	LCCSCF_ALLOW_SELFSIGNED			= (1 << 1),
 	LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK	= (1 << 2),
 	LCCSCF_ALLOW_EXPIRED			= (1 << 3),
-	LCCSCF_NOT_H2				= (1 << 4),
 
 	LCCSCF_PIPELINE				= (1 << 16),
 		/**< Serialize / pipeline multiple client connections
@@ -3486,6 +3492,12 @@ struct lws_client_connect_info {
 	 * The below is to ensure later library versions with new
 	 * members added above will see 0 (default) even if the app
 	 * was not built against the newer headers.
+	 */
+	const char *alpn;
+	/* NULL: allow lws default ALPN list, from vhost if present or from
+	 *       list of roles built into lws
+	 * non-NULL: require one from provided comma-separated list of alpn
+	 *           tokens
 	 */
 
 	void *_unused[4]; /**< dummy */
@@ -4088,6 +4100,7 @@ enum lws_token_indexes {
 	_WSI_TOKEN_CLIENT_ORIGIN,
 	_WSI_TOKEN_CLIENT_METHOD,
 	_WSI_TOKEN_CLIENT_IFACE,
+	_WSI_TOKEN_CLIENT_ALPN,
 
 	/* always last real token index*/
 	WSI_TOKEN_COUNT,
@@ -4670,6 +4683,11 @@ LWS_VISIBLE LWS_EXTERN void
 lws_libuv_static_refcount_del(uv_handle_t *);
 
 #endif /* LWS_WITH_LIBUV */
+
+#if defined(LWS_WITH_ESP32)
+#define lws_libuv_static_refcount_add(_a, _b)
+#define lws_libuv_static_refcount_del NULL
+#endif
 ///@}
 
 /*! \defgroup event libevent helpers
@@ -5365,6 +5383,7 @@ typedef union {
 	lws_filefd_type filefd;
 } lws_sock_file_fd_type;
 
+#if !defined(LWS_WITH_ESP32)
 struct lws_udp {
 	struct sockaddr sa;
 	socklen_t salen;
@@ -5372,6 +5391,7 @@ struct lws_udp {
 	struct sockaddr sa_pending;
 	socklen_t salen_pending;
 };
+#endif
 
 /*
 * lws_adopt_descriptor_vhost() - adopt foreign socket or file descriptor
@@ -5518,12 +5538,12 @@ lws_get_peer_addresses(struct lws *wsi, lws_sockfd_type fd, char *name,
  */
 LWS_VISIBLE LWS_EXTERN const char *
 lws_get_peer_simple(struct lws *wsi, char *name, int namelen);
-#if !defined(LWS_WITH_ESP32)
+
 
 #define LWS_ITOSA_NOT_EXIST -1
 #define LWS_ITOSA_NOT_USABLE -2
 #define LWS_ITOSA_USABLE 0
-
+#if !defined(LWS_WITH_ESP32)
 /**
  * lws_interface_to_sa() - Convert interface name or IP to sockaddr struct
  *
@@ -5809,6 +5829,25 @@ lws_set_wsi_user(struct lws *wsi, void *user);
 LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_parse_uri(char *p, const char **prot, const char **ads, int *port,
 	      const char **path);
+/**
+ * lws_cmdline_option():	simple commandline parser
+ *
+ * \param argc:		count of argument strings
+ * \param argv:		argument strings
+ * \param val:		string to find
+ *
+ * Returns NULL if the string \p val is not found in the arguments.
+ *
+ * If it is found, then it returns a pointer to the next character after \p val.
+ * So if \p val is "-d", then for the commandlines "myapp -d15" and
+ * "myapp -d 15", in both cases the return will point to the "15".
+ *
+ * In the case there is no argument, like "myapp -d", the return will
+ * either point to the '\\0' at the end of -d, or to the start of the
+ * next argument, ie, will be non-NULL.
+ */
+LWS_VISIBLE LWS_EXTERN const char *
+lws_cmdline_option(int argc, const char **argv, const char *val);
 
 /**
  * lws_now_secs(): return seconds since 1970-1-1

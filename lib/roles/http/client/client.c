@@ -342,12 +342,7 @@ start_ws_handshake:
 			 * So this is it, we are an h2 master client connection
 			 * now, not an h1 client connection.
 			 */
-			lwsl_info("client connection upgraded to h2\n");
-			lws_h2_configure_if_upgraded(wsi);
-
-			lws_role_transition(wsi, LWSIFR_CLIENT,
-					    LRS_H2_CLIENT_SEND_SETTINGS,
-					    &role_ops_h2);
+			lws_tls_server_conn_alpn(wsi);
 
 			/* send the H2 preface to legitimize the connection */
 			if (lws_h2_issue_preface(wsi)) {

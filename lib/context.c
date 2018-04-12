@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2017 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2018 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -25,6 +25,22 @@
 #define LWS_BUILD_HASH "unknown-build-hash"
 #endif
 
+#if defined(LWS_WITH_TLS)
+static const struct lws_role_ops * available_roles[] = {
+#if defined(LWS_ROLE_H2)
+	&role_ops_h2,
+#endif
+#if defined(LWS_ROLE_H1)
+	&role_ops_h1,
+#endif
+#if defined(LWS_ROLE_WS)
+	&role_ops_ws,
+#endif
+};
+
+static char alpn_discovered[32];
+#endif
+
 static const char *library_version = LWS_LIBRARY_VERSION " " LWS_BUILD_HASH;
 
 /**
@@ -38,6 +54,25 @@ LWS_VISIBLE const char *
 lws_get_library_version(void)
 {
 	return library_version;
+}
+
+int
+lws_role_call_alpn_negotiated(struct lws *wsi, const char *alpn)
+{
+#if defined(LWS_WITH_TLS)
+	int n;
+
+	if (!alpn)
+		return 0;
+
+	lwsl_info("%s: '%s'\n", __func__, alpn);
+
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(available_roles); n++)
+		if (!strcmp(available_roles[n]->alpn, alpn) &&
+		     available_roles[n]->alpn_negotiated)
+			return available_roles[n]->alpn_negotiated(wsi, alpn);
+#endif
+	return 0;
 }
 
 static const char * const mount_protocols[] = {
@@ -553,6 +588,7 @@ lws_create_vhost(struct lws_context *context,
 	vh->pvo = info->pvo;
 	vh->headers = info->headers;
 	vh->user = info->user;
+	vh->alpn = info->alpn;
 
 #if defined(LWS_ROLE_H2)
 	role_ops_h2.init_vhost(vh, info);
@@ -1080,6 +1116,28 @@ lws_create_context(struct lws_context_creation_info *info)
 	context->token_limits = info->token_limits;
 
 	context->options = info->options;
+
+#if defined(LWS_WITH_TLS)
+	if (info->alpn)
+		context->alpn_default = info->alpn;
+	else {
+		char *p = alpn_discovered, first = 1;
+
+		for (n = 0; n < (int)LWS_ARRAY_SIZE(available_roles); n++) {
+			if (available_roles[n]->alpn) {
+				if (!first)
+					*p++ = ',';
+				p += lws_snprintf(p, alpn_discovered +
+						sizeof(alpn_discovered) - 2 - p,
+					    "%s", available_roles[n]->alpn);
+				first = 0;
+			}
+		}
+		context->alpn_default = alpn_discovered;
+	}
+
+	lwsl_info("Default ALPN advertisment: %s\n", context->alpn_default);
+#endif
 
 	if (info->timeout_secs)
 		context->timeout_secs = info->timeout_secs;

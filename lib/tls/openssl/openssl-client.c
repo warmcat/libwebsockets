@@ -86,14 +86,6 @@ OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 }
 #endif
 
-#if defined(LWS_HAVE_SSL_set_alpn_protos) && defined(LWS_HAVE_SSL_get0_alpn_selected)
-static const unsigned char client_alpn_protocols[] = {
-#if defined(LWS_WITH_HTTP2)
-	2, 'h', '2',
-#endif
-	8, 'h', 't', 't', 'p', '/', '1', '.', '1'
-};
-#endif
 
 int
 lws_ssl_client_bio_create(struct lws *wsi)
@@ -102,9 +94,11 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	X509_VERIFY_PARAM *param;
 #endif
 	char hostname[128], *p;
-#if defined(LWS_HAVE_SSL_set_alpn_protos) && defined(LWS_HAVE_SSL_get0_alpn_selected)
-	const unsigned char *plist = client_alpn_protocols;
-	int n = sizeof(client_alpn_protocols);
+#if defined(LWS_HAVE_SSL_set_alpn_protos) && \
+    defined(LWS_HAVE_SSL_get0_alpn_selected)
+	uint8_t openssl_alpn[40];
+	const char *alpn_comma = wsi->context->alpn_default;
+	int n;
 #endif
 
 	if (lws_hdr_copy(wsi, hostname, sizeof(hostname),
@@ -134,17 +128,6 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		lws_ssl_elaborate_error();
 		return -1;
 	}
-
-#if defined(LWS_HAVE_SSL_set_alpn_protos) && \
-    defined(LWS_HAVE_SSL_get0_alpn_selected)
-#if defined(LWS_WITH_HTTP2)
-	if (wsi->use_ssl & LCCSCF_NOT_H2) {
-		plist += 3;
-		n -= 3;
-	}
-#endif
-	SSL_set_alpn_protos(wsi->ssl, plist, n);
-#endif
 
 #if defined (LWS_HAVE_SSL_SET_INFO_CALLBACK)
 	if (wsi->vhost->ssl_info_event_mask)
@@ -221,6 +204,23 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	BIO_set_nbio(wsi->client_bio, 1); /* nonblocking */
 #endif
 
+#if defined(LWS_HAVE_SSL_set_alpn_protos) && \
+    defined(LWS_HAVE_SSL_get0_alpn_selected)
+	if (wsi->vhost->alpn)
+		alpn_comma = wsi->vhost->alpn;
+
+	if (lws_hdr_copy(wsi, hostname, sizeof(hostname),
+			 _WSI_TOKEN_CLIENT_ALPN) > 0)
+		alpn_comma = hostname;
+
+	lwsl_info("client conn using alpn list '%s'\n", alpn_comma);
+
+	n = lws_alpn_comma_to_openssl(alpn_comma, openssl_alpn,
+				      sizeof(openssl_alpn) - 1);
+
+	SSL_set_alpn_protos(wsi->ssl, openssl_alpn, n);
+#endif
+
 	SSL_set_ex_data(wsi->ssl, openssl_websocket_private_data_index, wsi);
 
 	return 0;
@@ -244,24 +244,10 @@ lws_tls_client_connect(struct lws *wsi)
 			len = sizeof(a) - 1;
 		memcpy(a, (const char *)prot, len);
 		a[len] = '\0';
-#if !defined(LWS_NO_CLIENT)
-		if (prot && !strcmp(a, "h2")) {
-			lwsl_info("%s: upgraded to H2\n", __func__);
-			wsi->client_h2_alpn = 1;
-		}
-#endif
-		if (prot && !strcmp(a, "http/1.1"))
-			/*
-			 * If alpn asserts it is http/1.1, KA is mandatory.
-			 *
-			 * Knowing this lets us proceed with sending
-			 * pipelined headers before we received the first
-			 * response headers.
-			 */
-			wsi->keepalive_active = 1;
 
-		lwsl_info("client connect OK\n");
+		lws_role_call_alpn_negotiated(wsi, (const char *)a);
 #endif
+		lwsl_info("client connect OK\n");
 		return LWS_SSL_CAPABLE_DONE;
 	}
 

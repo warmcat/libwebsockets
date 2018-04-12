@@ -1847,7 +1847,8 @@ rops_callback_on_writable_ws(struct lws *wsi)
 }
 
 struct lws_role_ops role_ops_ws = {
-	"ws",
+	/* role name */			"ws",
+	/* alpn id */			NULL,
 	/* check_upgrades */		NULL,
 	/* init_context */		NULL,
 	/* init_vhost */		NULL,
@@ -1861,6 +1862,7 @@ struct lws_role_ops role_ops_ws = {
 	/* write_role_protocol */	rops_write_role_protocol_ws,
 	/* rxflow_cache */		NULL,
 	/* encapsulation_parent */	NULL,
+	/* alpn_negotiated */		NULL,
 	/* close_via_role_protocol */	rops_close_via_role_protocol_ws,
 	/* close_role */		rops_close_role_ws,
 	/* close_kill_connection */	rops_close_kill_connection_ws,

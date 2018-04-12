@@ -614,6 +614,7 @@ void lwsi_set_state(struct lws *wsi, lws_wsi_state_t lrs);
 struct lws_context_per_thread;
 struct lws_role_ops {
 	const char *name;
+	const char *alpn;
 	/*
 	 * After http headers have parsed, this is the last chance for a role
 	 * to upgrade the connection to something else using the headers.
@@ -651,6 +652,9 @@ struct lws_role_ops {
 			    int len);
 	/* get encapsulation parent */
 	struct lws * (*encapsulation_parent)(struct lws *wsi);
+
+	/* role-specific destructor */
+	int (*alpn_negotiated)(struct lws *wsi, const char *alpn);
 
 	/* chance for the role to handle close in the protocol */
 	int (*close_via_role_protocol)(struct lws *wsi,
@@ -693,9 +697,9 @@ enum {
 	LWS_HP_RET_BAIL_DIE,
 	LWS_HP_RET_USER_SERVICE,
 
-	LWS_HPI_RET_DIE,
-	LWS_HPI_RET_HANDLED,
-	LWS_HPI_RET_CLOSE_HANDLED,
+	LWS_HPI_RET_DIE,		/* we closed it */
+	LWS_HPI_RET_HANDLED,		/* no probs */
+	LWS_HPI_RET_CLOSE_HANDLED,	/* close it for us */
 
 	LWS_UPG_RET_DONE,
 	LWS_UPG_RET_CONTINUE,
@@ -1071,6 +1075,11 @@ struct lws_timed_vh_protocol {
 
 struct lws_tls_ss_pieces;
 
+struct alpn_ctx {
+	uint8_t data[23];
+	uint8_t len;
+};
+
 struct lws_vhost {
 	char http_proxy_address[128];
 	char proxy_basic_auth_token[128];
@@ -1110,11 +1119,13 @@ struct lws_vhost {
 	struct lws_dll_lws dll_active_client_conns;
 #endif
 	const char *error_document_404;
+	const char *alpn;
 #if defined(LWS_WITH_TLS)
 	lws_tls_ctx *ssl_ctx;
 	lws_tls_ctx *ssl_client_ctx;
 	struct lws_tls_ss_pieces *ss; /* for acme tls certs */
 	char ecdh_curve[16];
+	struct alpn_ctx alpn_ctx;
 #endif
 #if defined(LWS_WITH_MBEDTLS)
 	lws_tls_x509 *x509_client_CA;
@@ -1262,6 +1273,7 @@ struct lws_context {
 	void *user_space;
 	const char *server_string;
 	const struct lws_protocol_vhost_options *reject_service_keywords;
+	const char *alpn_default;
 	lws_reload_func deprecation_cb;
 
 #if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
@@ -1527,6 +1539,7 @@ struct client_info_stash {
 	char *protocol;
 	char *method;
 	char *iface;
+	char *alpn;
 };
 #endif
 
@@ -2406,8 +2419,6 @@ LWS_EXTERN int
 lws_add_http2_header_status(struct lws *wsi,
 			    unsigned int code, unsigned char **p,
 			    unsigned char *end);
-LWS_EXTERN int
-lws_h2_configure_if_upgraded(struct lws *wsi);
 LWS_EXTERN void
 lws_hpack_destroy_dynamic_header(struct lws *wsi);
 LWS_EXTERN int
@@ -2435,8 +2446,6 @@ int
 lws_handle_POLLOUT_event_h2(struct lws *wsi);
 int
 lws_read_h2(struct lws *wsi, unsigned char *buf, lws_filepos_t len);
-#else
-#define lws_h2_configure_if_upgraded(x)
 #endif
 
 LWS_EXTERN int
@@ -2511,7 +2520,7 @@ LWS_EXTERN void lwsl_emit_stderr(int level, const char *line);
 #define LWS_SSL_ENABLED(context) (0)
 #define lws_context_init_server_ssl(_a, _b) (0)
 #define lws_ssl_destroy(_a)
-#define lws_context_init_http2_ssl(_a)
+#define lws_context_init_alpn(_a)
 #define lws_ssl_capable_read lws_ssl_capable_read_no_ssl
 #define lws_ssl_capable_write lws_ssl_capable_write_no_ssl
 #define lws_ssl_pending lws_ssl_pending_no_ssl
@@ -2533,6 +2542,8 @@ enum lws_tls_extant {
 	LWS_TLS_EXTANT_YES,
 	LWS_TLS_EXTANT_ALTERNATIVE
 };
+LWS_EXTERN void
+lws_context_init_alpn(struct lws_vhost *vhost);
 LWS_EXTERN enum lws_tls_extant
 lws_tls_use_any_upgrade_check_extant(const char *name);
 LWS_EXTERN int openssl_websocket_private_data_index;
@@ -2641,16 +2652,8 @@ LWS_EXTERN lws_tls_ctx *
 lws_tls_ctx_from_wsi(struct lws *wsi);
 LWS_EXTERN int
 lws_ssl_get_error(struct lws *wsi, int n);
-
+#endif
 /* HTTP2-related */
-
-#ifdef LWS_WITH_HTTP2
-LWS_EXTERN void
-lws_context_init_http2_ssl(struct lws_vhost *vhost);
-#else
-#define lws_context_init_http2_ssl(_a)
-#endif
-#endif
 
 #if LWS_MAX_SMP > 1
 
@@ -3002,6 +3005,13 @@ int
 lws_client_ws_upgrade(struct lws *wsi, const char **cce);
 int
 lws_create_client_ws_object(struct lws_client_connect_info *i, struct lws *wsi);
+int
+lws_alpn_comma_to_openssl(const char *comma, uint8_t *os, int len);
+int
+lws_role_call_alpn_negotiated(struct lws *wsi, const char *alpn);
+int
+lws_tls_server_conn_alpn(struct lws *wsi);
+
 #ifdef __cplusplus
 };
 #endif

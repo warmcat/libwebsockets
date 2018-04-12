@@ -151,7 +151,8 @@ rops_handle_POLLIN_raw_file(struct lws_context_per_thread *pt, struct lws *wsi,
 
 
 struct lws_role_ops role_ops_raw_skt = {
-	"raw-skt",
+	/* role name */			"raw-skt",
+	/* alpn id */			NULL,
 	/* check_upgrades */		NULL,
 	/* init_context */		NULL,
 	/* init_vhost */		NULL,
@@ -165,6 +166,7 @@ struct lws_role_ops role_ops_raw_skt = {
 	/* write_role_protocol */	NULL,
 	/* rxflow_cache */		NULL,
 	/* encapsulation_parent */	NULL,
+	/* alpn_negotiated */		NULL,
 	/* close_via_role_protocol */	NULL,
 	/* close_role */		NULL,
 	/* close_kill_connection */	NULL,
@@ -176,7 +178,8 @@ struct lws_role_ops role_ops_raw_skt = {
 
 
 struct lws_role_ops role_ops_raw_file = {
-	"raw-file",
+	/* role name */			"raw-file",
+	/* alpn id */			NULL,
 	/* check_upgrades */		NULL,
 	/* init_context */		NULL,
 	/* init_vhost */		NULL,
@@ -190,6 +193,7 @@ struct lws_role_ops role_ops_raw_file = {
 	/* write_role_protocol */	NULL,
 	/* rxflow_cache */		NULL,
 	/* encapsulation_parent */	NULL,
+	/* alpn_negotiated */		NULL,
 	/* close_via_role_protocol */	NULL,
 	/* close_role */		NULL,
 	/* close_kill_connection */	NULL,

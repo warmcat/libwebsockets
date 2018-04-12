@@ -153,24 +153,13 @@ lws_try_client_connection(struct lws_client_connect_info *i, int m)
 		lwsl_user("started connection %d\n", m);
 }
 
-static int commandline_option(int argc, char **argv, const char *val)
-{
-	int n = strlen(val);
-
-	while (--argc > 0) {
-		if (!strncmp(argv[argc], val, n))
-			return argc;
-	}
-
-	return 0;
-}
-
-int main(int argc, char **argv)
+int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	struct lws_client_connect_info i;
 	struct lws_context *context;
 	unsigned long long start, next;
+	const char *p;
 	int n = 0, m, staggered = 0, logs =
 		LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE
 		/* for LLL_ verbosity above NOTICE to be built into lws,
@@ -184,14 +173,13 @@ int main(int argc, char **argv)
 
 	memset(&i, 0, sizeof i); /* otherwise uninitialized garbage */
 
-	staggered = !!commandline_option(argc, argv, "-s");
-	m = commandline_option(argc, argv, "-d");
-	if (m && m + 1 < argc)
-		logs = atoi(argv[m + 1]);
+	staggered = !!lws_cmdline_option(argc, argv, "-s");
+	if ((p = lws_cmdline_option(argc, argv, "-d")))
+		logs = atoi(p);
 
 	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS minimal http client [-s (staggered)] [-p (pipeline)]\n");
-	lwsl_user("	[--h1 (http/1 only)] [-l (localhost)]\n");
+	lwsl_user("	[--h1 (http/1 only)] [-l (localhost)] [-d <logs>]\n");
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
@@ -218,14 +206,14 @@ int main(int argc, char **argv)
 	i.ssl_connection = LCCSCF_USE_SSL;
 
 	/* enables h1 or h2 connection sharing */
-	if (commandline_option(argc, argv, "-p"))
+	if (lws_cmdline_option(argc, argv, "-p"))
 		i.ssl_connection |= LCCSCF_PIPELINE;
 
 	/* force h1 even if h2 available */
-	if (commandline_option(argc, argv, "--h1"))
-		i.ssl_connection |= LCCSCF_NOT_H2;
+	if (lws_cmdline_option(argc, argv, "--h1"))
+		i.alpn = "http/1.1";
 
-	if (commandline_option(argc, argv, "-l")) {
+	if (lws_cmdline_option(argc, argv, "-l")) {
 		i.port = 7681;
 		i.address = "localhost";
 		i.ssl_connection |= LCCSCF_ALLOW_SELFSIGNED;

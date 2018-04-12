@@ -27,29 +27,13 @@ OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 	return 0;
 }
 
-struct alpn_ctx {
-	unsigned char *data;
-	unsigned short len;
-};
-
-static struct alpn_ctx protos = { (unsigned char *)
-#if defined(LWS_WITH_HTTP2)
-				   "\x02h2"
-#endif
-				  "\x08http/1.1", 3 +
-#if defined(LWS_WITH_HTTP2)
-				  3 +
-#endif
-				  9 };
-
-static struct alpn_ctx protos_h1 = { (unsigned char *)"\x08http/1.1", 3 + 9 };
-
 int
 lws_ssl_client_bio_create(struct lws *wsi)
 {
-	struct alpn_ctx *apro = &protos;
 	X509_VERIFY_PARAM *param;
 	char hostname[128], *p;
+	const char *alpn_comma = wsi->context->alpn_default;
+	struct alpn_ctx protos;
 
 	if (lws_hdr_copy(wsi, hostname, sizeof(hostname),
 			 _WSI_TOKEN_CLIENT_HOST) <= 0) {
@@ -75,11 +59,6 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	if (!wsi->ssl)
 		return -1;
 
-	if (wsi->use_ssl & LCCSCF_NOT_H2)
-		apro = &protos_h1;
-
-	SSL_set_alpn_select_cb(wsi->ssl, apro);
-
 	if (wsi->vhost->ssl_info_event_mask)
 		SSL_set_info_callback(wsi->ssl, lws_ssl_info_callback);
 
@@ -90,6 +69,22 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	//				X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
 		X509_VERIFY_PARAM_set1_host(param, hostname, 0);
 	}
+
+	if (wsi->vhost->alpn)
+		alpn_comma = wsi->vhost->alpn;
+
+	if (lws_hdr_copy(wsi, hostname, sizeof(hostname),
+			 _WSI_TOKEN_CLIENT_ALPN) > 0)
+		alpn_comma = hostname;
+
+	lwsl_info("%s: %p: client conn sending ALPN list '%s'\n",
+		  __func__, wsi, alpn_comma);
+
+	protos.len = lws_alpn_comma_to_openssl(alpn_comma, protos.data,
+					       sizeof(protos.data) - 1);
+
+	/* with mbedtls, protos is not pointed to after exit from this call */
+	SSL_set_alpn_select_cb(wsi->ssl, &protos);
 
 	/*
 	 * use server name indication (SNI), if supported,
@@ -117,20 +112,8 @@ lws_tls_client_connect(struct lws *wsi)
 
 	if (n == 1) {
 		SSL_get0_alpn_selected(wsi->ssl, &prot, &len);
-#if !defined(LWS_NO_CLIENT)
-		if (prot && !strcmp((char *)prot, "h2"))
-			wsi->client_h2_alpn = 1;
-#endif
-		if (prot && !strcmp((char *)prot, "http/1.1"))
-			/*
-			 * If alpn asserts it is http/1.1, KA is mandatory.
-			 *
-			 * Knowing this lets us proceed with sending
-			 * pipelined headers before we received the first
-			 * response headers.
-			 */
-			wsi->keepalive_active = 1;
-
+		lws_role_call_alpn_negotiated(wsi, (const char *)prot);
+		lwsl_info("client connect OK\n");
 		return LWS_SSL_CAPABLE_DONE;
 	}
 

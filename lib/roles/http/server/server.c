@@ -729,6 +729,7 @@ lws_find_string_in_file(const char *filename, const char *string, int stringlen)
 
 	return hit;
 }
+#endif
 
 static int
 lws_unauthorised_basic_auth(struct lws *wsi)
@@ -761,8 +762,6 @@ lws_unauthorised_basic_auth(struct lws *wsi)
 	return lws_http_transaction_completed(wsi);
 
 }
-
-#endif
 
 int lws_clean_url(char *p)
 {
@@ -1887,13 +1886,14 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 	if (type & LWS_ADOPT_SOCKET) { /* socket desc */
 		lwsl_debug("%s: new wsi %p, sockfd %d\n", __func__, new_wsi,
 			   (int)(lws_intptr_t)fd.sockfd);
-
+#if !defined(LWS_WITH_ESP32)
 		if (type & LWS_ADOPT_FLAG_UDP)
 			/*
 			 * these can be >128 bytes, so just alloc for UDP
 			 */
 			new_wsi->udp = lws_malloc(sizeof(*new_wsi->udp),
 						     "udp struct");
+#endif
 
 		if (type & LWS_ADOPT_HTTP)
 			/* the transport is accepted...

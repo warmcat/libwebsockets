@@ -76,7 +76,8 @@ rops_periodic_checks_cgi(struct lws_context *context, int tsi, time_t now)
 }
 
 struct lws_role_ops role_ops_cgi = {
-	"cgi",
+	/* role name */			"cgi",
+	/* alpn id */			NULL,
 	/* check_upgrades */		NULL,
 	/* init_context */		NULL,
 	/* init_vhost */		NULL,
@@ -90,6 +91,7 @@ struct lws_role_ops role_ops_cgi = {
 	/* write_role_protocol */	NULL,
 	/* rxflow_cache */		NULL,
 	/* encapsulation_parent */	NULL,
+	/* alpn_negotiated */		NULL,
 	/* close_via_role_protocol */	NULL,
 	/* close_role */		NULL,
 	/* close_kill_connection */	NULL,

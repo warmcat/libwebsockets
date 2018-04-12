@@ -864,7 +864,6 @@ if (LWS_WITH_HTTP2 AND NOT LWS_WITHOUT_SERVER)
 	list(APPEND SOURCES
 		lib/roles/h2/http2.c
 		lib/roles/h2/hpack.c
-		lib/roles/h2/ssl-http2.c
 		lib/roles/h2/ops-h2.c)
 endif()
 # select the active platform files

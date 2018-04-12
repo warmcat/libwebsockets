@@ -55,7 +55,8 @@ rops_handle_POLLIN_pipe(struct lws_context_per_thread *pt, struct lws *wsi,
 }
 
 struct lws_role_ops role_ops_pipe = {
-	"pipe",
+	/* role name */			"pipe",
+	/* alpn id */			NULL,
 	/* check_upgrades */		NULL,
 	/* init_context */		NULL,
 	/* init_vhost */		NULL,
@@ -69,6 +70,7 @@ struct lws_role_ops role_ops_pipe = {
 	/* write_role_protocol */	NULL,
 	/* rxflow_cache */		NULL,
 	/* encapsulation_parent */	NULL,
+	/* alpn_negotiated */		NULL,
 	/* close_via_role_protocol */	NULL,
 	/* close_role */		NULL,
 	/* close_kill_connection */	NULL,

@@ -1056,8 +1056,54 @@ rops_encapsulation_parent_h2(struct lws *wsi)
 	return NULL;
 }
 
+static int
+rops_alpn_negotiated_h2(struct lws *wsi, const char *alpn)
+{
+	struct allocated_headers *ah;
+
+	lwsl_debug("%s: client %d\n", __func__, lwsi_role_client(wsi));
+#if !defined(LWS_NO_CLIENT)
+	if (lwsi_role_client(wsi)) {
+		lwsl_info("%s: upgraded to H2\n", __func__);
+		wsi->client_h2_alpn = 1;
+	}
+#endif
+
+		wsi->upgraded_to_http2 = 1;
+		wsi->vhost->conn_stats.h2_alpn++;
+
+		/* adopt the header info */
+
+		ah = wsi->ah;
+
+		lws_role_transition(wsi, LWSIFR_SERVER, LRS_H2_AWAIT_PREFACE,
+				    &role_ops_h2);
+
+		/* http2 union member has http union struct at start */
+		wsi->ah = ah;
+
+		if (!wsi->h2.h2n)
+			wsi->h2.h2n = lws_zalloc(sizeof(*wsi->h2.h2n), "h2n");
+		if (!wsi->h2.h2n)
+			return 1;
+
+		lws_h2_init(wsi);
+
+		/* HTTP2 union */
+
+		lws_hpack_dynamic_size(wsi,
+				       wsi->h2.h2n->set.s[H2SET_HEADER_TABLE_SIZE]);
+		wsi->h2.tx_cr = 65535;
+
+		lwsl_info("%s: wsi %p: configured for h2\n", __func__, wsi);
+
+
+	return 0;
+}
+
 struct lws_role_ops role_ops_h2 = {
-	"h2",
+	/* role name */			"h2",
+	/* alpn id */			"h2",
 	/* check_upgrades */		rops_check_upgrades_h2,
 	/* init_context */		rops_init_context_h2,
 	/* init_vhost */		rops_init_vhost_h2,
@@ -1071,6 +1117,7 @@ struct lws_role_ops role_ops_h2 = {
 	/* write_role_protocol */	rops_write_role_protocol_h2,
 	/* rxflow_cache */		rops_rxflow_cache_h2,
 	/* encapsulation_parent */	rops_encapsulation_parent_h2,
+	/* alpn_negotiated */		rops_alpn_negotiated_h2,
 	/* close_via_role_protocol */	NULL,
 	/* close_role */		NULL,
 	/* close_kill_connection */	rops_close_kill_connection_h2,

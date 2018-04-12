@@ -84,8 +84,8 @@ lws_client_connect_2(struct lws *wsi)
 		if (w != wsi && w->client_hostname_copy &&
 		    !strcmp(adsin, w->client_hostname_copy) &&
 #if defined(LWS_WITH_TLS)
-		    (wsi->use_ssl & (LCCSCF_NOT_H2 | LCCSCF_USE_SSL)) ==
-		     (w->use_ssl & (LCCSCF_NOT_H2 | LCCSCF_USE_SSL)) &&
+		    (wsi->use_ssl & LCCSCF_USE_SSL) ==
+		     (w->use_ssl & LCCSCF_USE_SSL) &&
 #endif
 		    wsi->c_port == w->c_port) {
 
@@ -403,7 +403,7 @@ create_new_conn:
 		sa46.sa4.sin_port = htons(port);
 		n = sizeof(struct sockaddr);
 	}
-lwsl_notice("%s: CONNECT\n", __func__);
+
 	if (connect(wsi->desc.sockfd, (const struct sockaddr *)&sa46, n) == -1 ||
 	    LWS_ERRNO == LWS_EISCONN) {
 		if (LWS_ERRNO == LWS_EALREADY ||
@@ -595,7 +595,7 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 		 const char *path, const char *host)
 {
 	char origin[300] = "", protocol[300] = "", method[32] = "",
-	     iface[16] = "", *p;
+	     iface[16] = "", alpn[32], *p;
 	struct lws *wsi = *pwsi;
 
 	if (wsi->redirects == 3) {
@@ -618,7 +618,11 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 
 	p = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_IFACE);
 	if (p)
-		lws_strncpy(method, p, sizeof(iface));
+		lws_strncpy(iface, p, sizeof(iface));
+
+	p = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_ALPN);
+	if (p)
+		lws_strncpy(alpn, p, sizeof(alpn));
 
 	lwsl_info("redirect ads='%s', port=%d, path='%s', ssl = %d\n",
 		   address, port, path, ssl);
@@ -686,6 +690,10 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	if (iface[0])
 		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_IFACE,
 					  iface))
+			return NULL;
+	if (alpn[0])
+		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_ALPN,
+					  alpn))
 			return NULL;
 
 	origin[0] = '/';
@@ -850,6 +858,7 @@ lws_client_stash_destroy(struct lws *wsi)
 	lws_free_set_NULL(wsi->stash->protocol);
 	lws_free_set_NULL(wsi->stash->method);
 	lws_free_set_NULL(wsi->stash->iface);
+	lws_free_set_NULL(wsi->stash->alpn);
 
 	lws_free_set_NULL(wsi->stash);
 }
@@ -946,9 +955,6 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 
 #if defined(LWS_WITH_TLS)
 	wsi->use_ssl = i->ssl_connection;
-
-	if (!i->method) /* !!! disallow ws for h2 right now */
-		wsi->use_ssl |= LCCSCF_NOT_H2;
 #else
 	if (i->ssl_connection & LCCSCF_USE_SSL) {
 		lwsl_err("libwebsockets not configured for ssl\n");
@@ -995,6 +1001,26 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 		if (!wsi->stash->iface)
 			goto bail1;
 	}
+	 /*
+	  * For ws, default to http/1.1 only.  If i->alpn is set, defer to
+	  * whatever he has set in there (eg, "h2").
+	  *
+	  * The problem is he has to commit to h2 before he can find out if the
+	  * server has the SETTINGS for ws-over-h2 enabled; if not then ws is
+	  * not possible on that connection.  So we only try it if he
+	  * assertively said to use h2 alpn.
+	  */
+	if (!i->method && !i->alpn) {
+		wsi->stash->alpn = lws_strdup("http/1.1");
+		if (!wsi->stash->alpn)
+			goto bail1;
+	} else
+		if (i->alpn) {
+			wsi->stash->alpn = lws_strdup(i->alpn);
+			if (!wsi->stash->alpn)
+				goto bail1;
+		}
+
 	if (i->pwsi)
 		*i->pwsi = wsi;
 
@@ -1049,13 +1075,12 @@ lws_client_connect_via_info2(struct lws *wsi)
 
 	/*
 	 * we're not necessarily in a position to action these right away,
-	 * stash them... we only need during connect phase so u.hdr is fine
+	 * stash them... we only need during connect phase so into a temp
+	 * allocated stash
 	 */
 	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS,
 				  stash->address))
 		goto bail1;
-
-	/* these only need u.hdr lifetime as well */
 
 	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_URI, stash->path))
 		goto bail1;
@@ -1082,6 +1107,10 @@ lws_client_connect_via_info2(struct lws *wsi)
 	if (stash->iface)
 		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_IFACE,
 					  stash->iface))
+			goto bail1;
+	if (stash->alpn)
+		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_ALPN,
+					  stash->alpn))
 			goto bail1;
 
 #if defined(LWS_WITH_SOCKS5)
