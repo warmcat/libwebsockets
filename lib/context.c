@@ -559,9 +559,6 @@ lws_create_vhost(struct lws_context *context,
 		vh->name = info->vhost_name;
 
 	vh->error_document_404 = info->error_document_404;
-	if (info->error_document_404 &&
-	    info->error_document_404[0] == '/')
-		vh->error_document_404 = info->error_document_404 + 1;
 
 	if (info->options & LWS_SERVER_OPTION_ONLY_RAW)
 		lwsl_info("%s set to only support RAW\n", vh->name);

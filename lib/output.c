@@ -49,7 +49,7 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 			 wsi, wsi->vhost->name, wsi->protocol->name,
 			 wsi->role_ops->name,
 			 (unsigned long)len);
-		assert(0);
+		// assert(0);
 
 		return -1;
 	}

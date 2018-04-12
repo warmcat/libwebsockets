@@ -481,7 +481,8 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 		wsi->http.fop_fd = fops->LWS_FOP_OPEN(wsi->context->fops,
 							path, vpath, &fflags);
 		if (!wsi->http.fop_fd) {
-			lwsl_info("Unable to open '%s': errno %d\n", path, errno);
+			lwsl_info("%s: Unable to open '%s': errno %d\n",
+				  __func__, path, errno);
 
 			return -1;
 		}
@@ -2150,9 +2151,11 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 		wsi->http.fop_fd = fops->LWS_FOP_OPEN(wsi->context->fops,
 							file, vpath, &fflags);
 		if (!wsi->http.fop_fd) {
-			lwsl_info("Unable to open: '%s': errno %d\n", file, errno);
-
-			return -1;
+			lwsl_info("%s: Unable to open: '%s': errno %d\n",
+				  __func__, file, errno);
+			if (lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, NULL))
+						return -1;
+			return !wsi->http2_substream;
 		}
 	}
 	wsi->http.filelen = lws_vfs_get_length(wsi->http.fop_fd);
