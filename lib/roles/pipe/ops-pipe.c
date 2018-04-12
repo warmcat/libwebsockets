@@ -26,7 +26,7 @@ rops_handle_POLLIN_pipe(struct lws_context_per_thread *pt, struct lws *wsi,
 			struct lws_pollfd *pollfd)
 {
 #if !defined(WIN32) && !defined(_WIN32)
-	char s[10];
+	char s[100];
 	int n;
 
 	/*

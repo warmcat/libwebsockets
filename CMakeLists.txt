@@ -567,6 +567,7 @@ include(CheckIncludeFile)
 include(CheckIncludeFiles)
 include(CheckLibraryExists)
 include(CheckTypeSize)
+include(CheckCSourceCompiles)
 
 if (LWS_WITHOUT_BUILTIN_SHA1)
 	set(LWS_SHA1_USE_OPENSSL_NAME 1)
@@ -1359,6 +1360,11 @@ else()
 CHECK_FUNCTION_EXISTS(TLS_client_method LWS_HAVE_TLS_CLIENT_METHOD)
 CHECK_FUNCTION_EXISTS(TLSv1_2_client_method LWS_HAVE_TLSV1_2_CLIENT_METHOD)
 endif()
+
+# ideally we want to use pipe2()
+
+CHECK_C_SOURCE_COMPILES("#define _GNU_SOURCE\n#include <unistd.h>\nint main(void) {int fd[2];\n return pipe2(fd, 0);\n}\n" LWS_HAVE_PIPE2)
+
 set(CMAKE_REQUIRED_LIBRARIES ${temp})
 # Generate the lws_config.h that includes all the public compilation settings.
 configure_file(

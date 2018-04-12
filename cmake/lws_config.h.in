@@ -164,6 +164,8 @@
 
 #cmakedefine LWS_HAVE_MALLOC_H
 
+#cmakedefine LWS_HAVE_PIPE2
+
 /* OpenSSL various APIs */
 
 #cmakedefine LWS_HAVE_TLS_CLIENT_METHOD

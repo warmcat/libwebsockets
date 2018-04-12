@@ -19,6 +19,7 @@
  *  MA  02110-1301  USA
  */
 
+#define _GNU_SOURCE
 #include "private-libwebsockets.h"
 
 #include <pwd.h>
@@ -40,7 +41,11 @@ lws_plat_pipe_create(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 
+#if defined(LWS_HAVE_PIPE2)
+	return pipe2(pt->dummy_pipe_fds, O_NONBLOCK);
+#else
 	return pipe(pt->dummy_pipe_fds);
+#endif
 }
 
 int
