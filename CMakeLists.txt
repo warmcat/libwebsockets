@@ -998,7 +998,7 @@ if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX OR (CMAKE_C_COMPILER_ID 
 	    set (GCOV_FLAGS "-fprofile-arcs -ftest-coverage -O0")
     endif()
     if (UNIX AND NOT LWS_WITH_ESP32)
-	    set(CMAKE_C_FLAGS "-O0 -Wall -Wsign-compare -Wignored-qualifiers -Wtype-limits -Wuninitialized -Werror ${VISIBILITY_FLAG} -Wundef ${GCOV_FLAGS} ${CMAKE_C_FLAGS}" )
+	    set(CMAKE_C_FLAGS "-O3 -Wall -Wsign-compare -Wignored-qualifiers -Wtype-limits -Wuninitialized -Werror ${VISIBILITY_FLAG} -Wundef ${GCOV_FLAGS} ${CMAKE_C_FLAGS}" )
     else()
 	    set(CMAKE_C_FLAGS "-Wall -Wsign-compare -Wignored-qualifiers -Wtype-limits -Wuninitialized -Werror ${VISIBILITY_FLAG} ${GCOV_FLAGS} ${CMAKE_C_FLAGS}" )
     endif()
