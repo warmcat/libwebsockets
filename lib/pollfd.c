@@ -377,7 +377,7 @@ __lws_change_pollfd(struct lws *wsi, int _and, int _or)
 
 	if (!wsi || (!wsi->protocol && !wsi->event_pipe) ||
 	    wsi->position_in_fds_table < 0)
-		return 1;
+		return 0;
 
 	context = lws_get_context(wsi);
 	if (!context)

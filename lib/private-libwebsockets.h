@@ -524,7 +524,7 @@ enum lwsi_role {
 #define lwsi_role(wsi) (wsi->wsistate & LWSI_ROLE_MASK)
 #if !defined (_DEBUG)
 #define lwsi_set_role(wsi, role) wsi->wsistate = \
-			(wsi->wsistate & (~LWSI_ROLE_MASK)) | role
+				(wsi->wsistate & (~LWSI_ROLE_MASK)) | role
 #else
 void lwsi_set_role(struct lws *wsi, lws_wsi_state_t role);
 #endif
@@ -959,6 +959,7 @@ struct lws_context_per_thread {
 	struct lws *tx_draining_ext_list;
 	struct lws_dll_lws dll_head_timeout;
 	struct lws_dll_lws dll_head_hrtimer;
+	struct lws_dll_lws dll_head_rxflow;
 #if defined(LWS_WITH_LIBUV) || defined(LWS_WITH_LIBEVENT)
 	struct lws_context *context;
 #endif
@@ -2018,6 +2019,15 @@ struct lws_access_log {
 };
 #endif
 
+struct lws_buflist {
+	struct lws_buflist *next;
+
+	size_t len;
+	size_t pos;
+
+	uint8_t buf[1]; /* true length of this is set by the oversize malloc */
+};
+
 #define lws_wsi_is_udp(___wsi) (!!___wsi->udp)
 
 struct lws {
@@ -2056,6 +2066,7 @@ struct lws {
 
 	struct lws_dll_lws dll_timeout;
 	struct lws_dll_lws dll_hrtimer;
+	struct lws_dll_lws dll_rxflow;
 #if defined(LWS_WITH_PEER_LIMITS)
 	struct lws_peer *peer;
 #endif
@@ -2072,8 +2083,9 @@ struct lws {
 #endif
 	void *user_space;
 	void *opaque_parent_data;
-	/* rxflow handling */
-	unsigned char *rxflow_buffer;
+
+	struct lws_buflist *buflist_rxflow;
+
 	/* truncated send handling */
 	unsigned char *trunc_alloc; /* non-NULL means buffering in progress */
 
@@ -2112,8 +2124,6 @@ struct lws {
 
 	/* ints */
 	int position_in_fds_table;
-	uint32_t rxflow_len;
-	uint32_t rxflow_pos;
 	uint32_t preamble_rx_len;
 	unsigned int trunc_alloc_len; /* size of malloc */
 	unsigned int trunc_offset; /* where we are in terms of spilling */

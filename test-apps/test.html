@@ -845,7 +845,7 @@ function ev_mousemove (ev) {
 		clearTimeout(lm_timer);
 		pending = "";
 	} else
-		lm_timer = setTimeout(lm_timer_handler, 30);
+		lm_timer = setTimeout(lm_timer_handler, 1);
 
 	last_x = x;
 	last_y = y;

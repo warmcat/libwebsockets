@@ -93,7 +93,7 @@ __lws_free_wsi(struct lws *wsi)
 	    wsi->user_space && !wsi->user_space_externally_allocated)
 		lws_free(wsi->user_space);
 
-	lws_free_set_NULL(wsi->rxflow_buffer);
+	lws_buflist_destroy_all_segments(&wsi->buflist_rxflow);
 	lws_free_set_NULL(wsi->trunc_alloc);
 	lws_free_set_NULL(wsi->ws);
 	lws_free_set_NULL(wsi->udp);
@@ -842,6 +842,10 @@ just_kill_connection:
 	__lws_remove_from_timeout_list(wsi);
 	lws_dll_lws_remove(&wsi->dll_hrtimer);
 
+	/* don't repeat event loop stuff */
+	if (wsi->told_event_loop_closed)
+		return;
+
 	/* checking return redundant since we anyway close */
 	if (wsi->desc.sockfd != LWS_SOCK_INVALID)
 		__remove_wsi_socket_from_fds(wsi);
@@ -849,7 +853,8 @@ just_kill_connection:
 		lws_same_vh_protocol_remove(wsi);
 
 	lwsi_set_state(wsi, LRS_DEAD_SOCKET);
-	lws_free_set_NULL(wsi->rxflow_buffer);
+	lws_buflist_destroy_all_segments(&wsi->buflist_rxflow);
+	lws_dll_lws_remove(&wsi->dll_rxflow);
 
 	if (wsi->role_ops->close_role)
 	    wsi->role_ops->close_role(pt, wsi);
@@ -951,6 +956,114 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *ca
 	__lws_close_free_wsi(wsi, reason, caller);
 	lws_pt_unlock(pt);
 }
+
+/* lws_buflist */
+
+int
+lws_buflist_append_segment(struct lws_buflist **head, uint8_t *buf, size_t len)
+{
+	int first = !*head;
+	void *p;
+
+	assert(buf);
+	assert(len);
+
+	/* append at the tail */
+	while (*head)
+		head = &((*head)->next);
+
+	lwsl_info("%s: len %u\n", __func__, (uint32_t)len);
+
+	*head = (struct lws_buflist *)
+			lws_malloc(sizeof(**head) + len, __func__);
+	if (!*head) {
+		lwsl_err("%s: OOM\n", __func__);
+		return -1;
+	}
+
+	(*head)->len = len;
+	(*head)->pos = 0;
+	(*head)->next = NULL;
+
+	p = (void *)(*head)->buf;
+	memcpy(p, buf, len);
+
+	return first; /* returns 1 if first segment just created */
+}
+
+static int
+lws_buflist_destroy_segment(struct lws_buflist **head)
+{
+	struct lws_buflist *old = *head;
+
+	assert(*head);
+	*head = (*head)->next;
+	lws_free(old);
+
+	return !*head; /* returns 1 if last segment just destroyed */
+}
+
+void
+lws_buflist_destroy_all_segments(struct lws_buflist **head)
+{
+	struct lws_buflist *p = *head, *p1;
+
+	while (p) {
+		p1 = p->next;
+		lws_free(p);
+		p = p1;
+	}
+
+	*head = NULL;
+}
+
+size_t
+lws_buflist_next_segment_len(struct lws_buflist **head, uint8_t **buf)
+{
+	if (!*head) {
+		if (buf)
+			*buf = NULL;
+
+		return 0;
+	}
+
+	if (!(*head)->len && (*head)->next)
+		lws_buflist_destroy_segment(head);
+
+	if (!*head) {
+		if (buf)
+			*buf = NULL;
+
+		return 0;
+	}
+
+	assert((*head)->pos < (*head)->len);
+
+	if (buf)
+		*buf = (*head)->buf + (*head)->pos;
+
+	return (*head)->len - (*head)->pos;
+}
+
+int
+lws_buflist_use_segment(struct lws_buflist **head, size_t len)
+{
+	assert(*head);
+	assert(len);
+
+	assert((*head)->pos + len <= (*head)->len);
+
+	(*head)->pos += len;
+	if ((*head)->pos == (*head)->len)
+		lws_buflist_destroy_segment(head);
+
+	if (!*head)
+		return 0;
+
+	return (*head)->len;
+}
+
+/* ... */
 
 LWS_VISIBLE LWS_EXTERN const char *
 lws_get_urlarg_by_name(struct lws *wsi, const char *name, char *buf, int len)
@@ -1485,6 +1598,11 @@ lws_rx_flow_control(struct lws *wsi, int _enable)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	int en = _enable;
+
+	// h2 ignores rx flow control atm
+	if (lwsi_role_h2(wsi) || wsi->http2_substream ||
+	    lwsi_role_h2_ENCAPSULATION(wsi))
+		return 0; // !!!
 
 	lwsl_info("%s: %p 0x%x\n", __func__, wsi, _enable);
 
@@ -2103,6 +2221,11 @@ __lws_rx_flow_control(struct lws *wsi)
 {
 	struct lws *wsic = wsi->child_list;
 
+	// h2 ignores rx flow control atm
+	if (lwsi_role_h2(wsi) || wsi->http2_substream ||
+	    lwsi_role_h2_ENCAPSULATION(wsi))
+		return 0; // !!!
+
 	/* if he has children, do those if they were changed */
 	while (wsic) {
 		if (wsic->rxflow_change_to & LWS_RXFLOW_PENDING_CHANGE)
@@ -2116,13 +2239,13 @@ __lws_rx_flow_control(struct lws *wsi)
 		return 0;
 
 	/* stuff is still buffered, not ready to really accept new input */
-	if (wsi->rxflow_buffer) {
+	if (lws_buflist_next_segment_len(&wsi->buflist_rxflow, NULL)) {
 		/* get ourselves called back to deal with stashed buffer */
 		lws_callback_on_writable(wsi);
 		return 0;
 	}
 
-	/* pending is cleared, we can change rxflow state */
+	/* now the pending is cleared, we can change rxflow state */
 
 	wsi->rxflow_change_to &= ~LWS_RXFLOW_PENDING_CHANGE;
 

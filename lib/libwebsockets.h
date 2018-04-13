@@ -2380,8 +2380,8 @@ struct lws_protocols {
 	 * be able to consume it all without having to return to the event
 	 * loop.  That is supported in lws.
 	 *
-	 * If .tx_packet_size is 0, this also controls how much may be sent at once
-	 * for backwards compatibility.
+	 * If .tx_packet_size is 0, this also controls how much may be sent at
+	 * once for backwards compatibility.
 	 */
 	unsigned int id;
 	/**< ignored by lws, but useful to contain user information bound
@@ -5723,6 +5723,60 @@ lws_dll_lws_remove(struct lws_dll_lws *_a)
 		___it = ___tmp; \
 	} \
 }
+
+struct lws_buflist;
+
+/**
+ * lws_buflist_append_segment(): add buffer to buflist at head
+ *
+ * \param head: list head
+ * \param buf: buffer to stash
+ * \param len: length of buffer to stash
+ *
+ * Returns -1 on OOM, 1 if this was the first segment on the list, and 0 if
+ * it was a subsequent segment.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_buflist_append_segment(struct lws_buflist **head, uint8_t *buf, size_t len);
+/**
+ * lws_buflist_next_segment_len(): number of bytes left in current segment
+ *
+ * \param head: list head
+ * \param buf: if non-NULL, *buf is written with the address of the start of
+ *		the remaining data in the segment
+ *
+ * Returns the number of bytes left in the current segment.  0 indicates
+ * that the buflist is empty (there are no segments on the buflist).
+ */
+LWS_VISIBLE LWS_EXTERN size_t
+lws_buflist_next_segment_len(struct lws_buflist **head, uint8_t **buf);
+/**
+ * lws_buflist_use_segment(): remove len bytes from the current segment
+ *
+ * \param head: list head
+ * \param len: number of bytes to mark as used
+ *
+ * If len is less than the remaining length of the current segment, the position
+ * in the current segment is simply advanced and it returns.
+ *
+ * If len uses up the remaining length of the current segment, then the segment
+ * is deleted and the list head moves to the next segment if any.
+ *
+ * Returns the number of bytes left in the current segment.  0 indicates
+ * that the buflist is empty (there are no segments on the buflist).
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_buflist_use_segment(struct lws_buflist **head, size_t len);
+/**
+ * lws_buflist_destroy_all_segments(): free all segments on the list
+ *
+ * \param head: list head
+ *
+ * This frees everything on the list unconditionally.  *head is always
+ * NULL after this.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_buflist_destroy_all_segments(struct lws_buflist **head);
 
 /**
  * lws_ptr_diff(): helper to report distance between pointers as an int

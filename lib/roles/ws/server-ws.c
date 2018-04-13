@@ -559,7 +559,7 @@ bail:
 int
 lws_interpret_incoming_packet(struct lws *wsi, unsigned char **buf, size_t len)
 {
-	int m;
+	int m, draining_flow = 0;
 
 	lwsl_parser("%s: received %d byte packet\n", __func__, (int)len);
 
@@ -572,6 +572,7 @@ lws_interpret_incoming_packet(struct lws *wsi, unsigned char **buf, size_t len)
 		if (wsi->rxflow_bitmap) {
 			lws_rxflow_cache(wsi, *buf, 0, (int)len);
 			lwsl_parser("%s: cached %ld\n", __func__, (long)len);
+			buf += len; /* stashing it is taking care of it */
 			return 1;
 		}
 
@@ -583,18 +584,21 @@ lws_interpret_incoming_packet(struct lws *wsi, unsigned char **buf, size_t len)
 		}
 
 		/* account for what we're using in rxflow buffer */
-		if (wsi->rxflow_buffer) {
-			wsi->rxflow_pos++;
-			if (wsi->rxflow_pos > wsi->rxflow_len)
-				assert(0);
+		if (lws_buflist_next_segment_len(&wsi->buflist_rxflow, NULL)) {
+			draining_flow = 1;
+			if (!lws_buflist_use_segment(&wsi->buflist_rxflow, 1))
+				lws_dll_lws_remove(&wsi->dll_rxflow);
 		}
 
 		/* consume payload bytes efficiently */
 		if (wsi->lws_rx_parse_state ==
 		    LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED) {
 			m = lws_payload_until_length_exhausted(wsi, buf, &len);
-			if (wsi->rxflow_buffer)
-				wsi->rxflow_pos += m;
+			if (lws_buflist_next_segment_len(&wsi->buflist_rxflow, NULL)) {
+				draining_flow = 1;
+				if (!lws_buflist_use_segment(&wsi->buflist_rxflow, m))
+					lws_dll_lws_remove(&wsi->dll_rxflow);
+			}
 		}
 
 		/* process the byte */
@@ -603,9 +607,10 @@ lws_interpret_incoming_packet(struct lws *wsi, unsigned char **buf, size_t len)
 			return -1;
 		len--;
 
-		if (wsi->rxflow_buffer && wsi->rxflow_pos == wsi->rxflow_len) {
+		if (draining_flow && /* were draining, now nothing left */
+		    !lws_buflist_next_segment_len(&wsi->buflist_rxflow, NULL)) {
 			lwsl_debug("%s: %p flow buf: drained\n", __func__, wsi);
-			lws_free_set_NULL(wsi->rxflow_buffer);
+
 			/* having drained the rxflow buffer, can rearm POLLIN */
 #ifdef LWS_NO_SERVER
 			m =

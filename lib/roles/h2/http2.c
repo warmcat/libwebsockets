@@ -2186,10 +2186,9 @@ lws_read_h2(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 		}
 
 		/* account for what we're using in rxflow buffer */
-		if (wsi->rxflow_buffer) {
-			wsi->rxflow_pos += (int)body_chunk_len;
-			assert(wsi->rxflow_pos <= wsi->rxflow_len);
-		}
+		if (lws_buflist_next_segment_len(&wsi->buflist_rxflow, NULL) &&
+		    !lws_buflist_use_segment(&wsi->buflist_rxflow, body_chunk_len))
+			lws_dll_lws_remove(&wsi->dll_rxflow);
 
 		buf += body_chunk_len;
 		len -= body_chunk_len;

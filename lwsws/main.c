@@ -121,6 +121,7 @@ context_creation(void)
 
 	info.external_baggage_free_on_destroy = config_strings;
 	info.max_http_header_pool = 1024;
+	info.pt_serv_buf_size = 8192;
 	info.options = opts | LWS_SERVER_OPTION_VALIDATE_UTF8 |
 			      LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 			      LWS_SERVER_OPTION_LIBUV;

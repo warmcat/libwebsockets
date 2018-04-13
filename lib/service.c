@@ -277,37 +277,36 @@ __lws_service_timeout_check(struct lws *wsi, time_t sec)
 
 int lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len)
 {
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	uint8_t *buffered;
+	size_t blen;
+	int ret = 0, m;
+
 	if (wsi->role_ops->rxflow_cache)
 		if (wsi->role_ops->rxflow_cache(wsi, buf, n, len))
 			return 0;
 
 	/* his RX is flowcontrolled, don't send remaining now */
-	if (wsi->rxflow_buffer) {
-		if (buf >= wsi->rxflow_buffer &&
-		    &buf[len - 1] < &wsi->rxflow_buffer[wsi->rxflow_len]) {
+	blen = lws_buflist_next_segment_len(&wsi->buflist_rxflow, &buffered);
+	if (blen) {
+		if (buf >= buffered && buf + len <= buffered + blen) {
 			/* rxflow while we were spilling prev rxflow */
 			lwsl_info("%s: staying in rxflow buf\n", __func__);
-			return 1;
-		} else {
-			lwsl_err("%s: conflicting rxflow buf, "
-				 "current %p len %d, new %p len %d\n", __func__,
-				 wsi->rxflow_buffer, wsi->rxflow_len, buf, len);
-			assert(0);
+
 			return 1;
 		}
+		ret = 1;
 	}
 
 	/* a new rxflow, buffer it and warn caller */
-	lwsl_info("%s: new rxflow input buffer len %d\n", __func__, len - n);
-	wsi->rxflow_buffer = lws_malloc(len - n, "rxflow buf");
-	if (!wsi->rxflow_buffer)
+
+	m = lws_buflist_append_segment(&wsi->buflist_rxflow, buf + n, len - n);
+	if (m < 0)
 		return -1;
+	if (m)
+		lws_dll_lws_add_front(&wsi->dll_rxflow, &pt->dll_head_rxflow);
 
-	wsi->rxflow_len = len - n;
-	wsi->rxflow_pos = 0;
-	memcpy(wsi->rxflow_buffer, buf + n, len - n);
-
-	return 0;
+	return ret;
 }
 
 /* this is used by the platform service code to stop us waiting for network

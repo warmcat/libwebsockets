@@ -175,14 +175,10 @@ rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 	/* 3: RX Flowcontrol buffer / h2 rx scratch needs to be drained
 	 */
 
-	if (wsi->rxflow_buffer) {
-		lwsl_info("draining rxflow (len %d)\n",
-			wsi->rxflow_len - wsi->rxflow_pos);
-		assert(wsi->rxflow_pos < wsi->rxflow_len);
-		/* well, drain it */
-		eff_buf.token = (char *)wsi->rxflow_buffer +
-					wsi->rxflow_pos;
-		eff_buf.token_len = wsi->rxflow_len - wsi->rxflow_pos;
+	eff_buf.token_len = lws_buflist_next_segment_len(&wsi->buflist_rxflow,
+						(uint8_t **)&eff_buf.token);
+	if (eff_buf.token_len) {
+		lwsl_info("draining rxflow (len %d)\n", eff_buf.token_len);
 		draining_flow = 1;
 		goto drain;
 	}
@@ -359,10 +355,9 @@ drain:
 		goto read;
 	}
 
-	if (draining_flow && wsi->rxflow_buffer &&
-	    wsi->rxflow_pos == wsi->rxflow_len) {
+	if (draining_flow && /* were draining, now nothing left */
+	    !lws_buflist_next_segment_len(&wsi->buflist_rxflow, NULL)) {
 		lwsl_info("%s: %p flow buf: drained\n", __func__, wsi);
-		lws_free_set_NULL(wsi->rxflow_buffer);
 		/* having drained the rxflow buffer, can rearm POLLIN */
 #ifdef LWS_NO_SERVER
 		n =
@@ -766,21 +761,41 @@ rops_callback_on_writable_h2(struct lws *wsi)
 	return 0;
 }
 
+static void
+lws_h2_dump_waiting_children(struct lws *wsi)
+{
+#if defined(_DEBUG)
+	lwsl_info("%s: %p: children waiting for POLLOUT service:\n",
+		  __func__, wsi);
+
+	wsi = wsi->h2.child_list;
+	while (wsi) {
+		if (wsi->h2.requested_POLLOUT)
+			lwsl_info("  * %p %s\n", wsi, wsi->protocol->name);
+		else
+			lwsl_info("    %p %s\n", wsi, wsi->protocol->name);
+
+		wsi = wsi->h2.sibling_list;
+	}
+#endif
+}
+
+/*
+ * we are the 'network wsi' for potentially many muxed child wsi with
+ * no network connection of their own, who have to use us for all their
+ * network actions.  So we use a round-robin scheme to share out the
+ * POLLOUT notifications to our children.
+ *
+ * But because any child could exhaust the socket's ability to take
+ * writes, we can only let one child get notified each time.
+ *
+ * In addition children may be closed / deleted / added between POLLOUT
+ * notifications, so we can't hold pointers
+ */
+
 static int
 rops_perform_user_POLLOUT_h2(struct lws *wsi)
 {
-	/*
-	 * we are the 'network wsi' for potentially many muxed child wsi with
-	 * no network connection of their own, who have to use us for all their
-	 * network actions.  So we use a round-robin scheme to share out the
-	 * POLLOUT notifications to our children.
-	 *
-	 * But because any child could exhaust the socket's ability to take
-	 * writes, we can only let one child get notified each time.
-	 *
-	 * In addition children may be closed / deleted / added between POLLOUT
-	 * notifications, so we can't hold pointers
-	 */
 	struct lws **wsi2, *wsi2a;
 	int write_type = LWS_WRITE_PONG, n;
 
@@ -792,16 +807,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 		return 0;
 	}
 
-	lwsl_info("%s: %p: children waiting for POLLOUT service:\n", __func__, wsi);
-	wsi2a = wsi->h2.child_list;
-	while (wsi2a) {
-		if (wsi2a->h2.requested_POLLOUT)
-			lwsl_info("  * %p %s\n", wsi2a, wsi2a->protocol->name);
-		else
-			lwsl_info("    %p %s\n", wsi2a, wsi2a->protocol->name);
-
-		wsi2a = wsi2a->h2.sibling_list;
-	}
+	lws_h2_dump_waiting_children(wsi);
 
 	wsi2 = &wsi->h2.child_list;
 	if (!*wsi2)
@@ -842,7 +848,8 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 		}
 
 		w->h2.requested_POLLOUT = 0;
-		lwsl_info("%s: child %p (state %d)\n", __func__, w, lwsi_state(w));
+		lwsl_info("%s: child %p (wsistate 0x%x)\n", __func__, w,
+			  w->wsistate);
 
 		/* if we arrived here, even by looping, we checked choked */
 		w->could_have_pending = 0;
@@ -855,7 +862,8 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 				         strlen(w->h2.pending_status_body +
 					        LWS_PRE), LWS_WRITE_HTTP_FINAL);
 			lws_free_set_NULL(w->h2.pending_status_body);
-			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS, "h2 end stream 1");
+			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
+					   "h2 end stream 1");
 			wa = &wsi->h2.child_list;
 			goto next_child;
 		}
@@ -892,7 +900,8 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			 */
 			if (n || w->h2.send_END_STREAM) {
 				lwsl_info("closing stream after h2 action\n");
-				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS, "h2 end stream");
+				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
+						   "h2 end stream");
 				wa = &wsi->h2.child_list;
 			}
 
@@ -918,7 +927,8 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			 */
 			if (n < 0 || w->h2.send_END_STREAM) {
 				lwsl_debug("Closing POLLOUT child %p\n", w);
-				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS, "h2 end stream file");
+				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
+						   "h2 end stream file");
 				wa = &wsi->h2.child_list;
 				goto next_child;
 			}
@@ -944,14 +954,16 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			if (n >= 0) {
 				lwsi_set_state(w, LRS_AWAITING_CLOSE_ACK);
 				lws_set_timeout(w, PENDING_TIMEOUT_CLOSE_ACK, 5);
-				lwsl_debug("sent close indication, awaiting ack\n");
+				lwsl_debug("sent close frame, awaiting ack\n");
 			}
 
 			goto next_child;
 		}
 
-		/* Acknowledge receipt of peer's notification he closed,
-		 * then logically close ourself */
+		/*
+		 * Acknowledge receipt of peer's notification he closed,
+		 * then logically close ourself
+		 */
 
 		if ((lwsi_role_ws(w) && w->ws->ping_pending_flag) ||
 		    (lwsi_state(w) == LRS_RETURNED_CLOSE &&
@@ -969,11 +981,12 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			/* well he is sent, mark him done */
 			w->ws->ping_pending_flag = 0;
 			if (w->ws->payload_is_close) {
-				/* oh... a close frame was it... then we are done */
+				/* oh... a close frame... then we are done */
 				lwsl_debug("Acknowledged peer's close packet\n");
 				w->ws->payload_is_close = 0;
 				lwsi_set_state(w, LRS_RETURNED_CLOSE);
-				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS, "returned close packet");
+				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
+						   "returned close packet");
 				wa = &wsi->h2.child_list;
 				goto next_child;
 			}
@@ -986,8 +999,10 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 		}
 
 		if (lws_callback_as_writeable(w)) {
-			lwsl_info("Closing POLLOUT child (end stream %d)\n", w->h2.send_END_STREAM);
-			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS, "h2 pollout handle");
+			lwsl_info("Closing POLLOUT child (end stream %d)\n",
+				  w->h2.send_END_STREAM);
+			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
+					   "h2 pollout handle");
 			wa = &wsi->h2.child_list;
 		} else
 			 if (w->h2.send_END_STREAM)
@@ -997,18 +1012,7 @@ next_child:
 		wsi2 = wa;
 	} while (wsi2 && *wsi2 && !lws_send_pipe_choked(wsi));
 
-	lwsl_info("%s: %p: children waiting for POLLOUT service: %p\n",
-		  __func__, wsi, wsi->h2.child_list);
-	wsi2a = wsi->h2.child_list;
-	while (wsi2a) {
-		if (wsi2a->h2.requested_POLLOUT)
-			lwsl_debug("  * %p\n", wsi2a);
-		else
-			lwsl_debug("    %p\n", wsi2a);
-
-		wsi2a = wsi2a->h2.sibling_list;
-	}
-
+	// lws_h2_dump_waiting_children(wsi);
 
 	wsi2a = wsi->h2.child_list;
 	while (wsi2a) {

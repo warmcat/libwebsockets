@@ -941,14 +941,10 @@ rops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
 	/* 3: RX Flowcontrol buffer / h2 rx scratch needs to be drained
 	 */
 
-	if (wsi->rxflow_buffer) {
-		lwsl_info("draining rxflow (len %d)\n",
-			wsi->rxflow_len - wsi->rxflow_pos);
-		assert(wsi->rxflow_pos < wsi->rxflow_len);
-		/* well, drain it */
-		eff_buf.token = (char *)wsi->rxflow_buffer +
-					wsi->rxflow_pos;
-		eff_buf.token_len = wsi->rxflow_len - wsi->rxflow_pos;
+	eff_buf.token_len = lws_buflist_next_segment_len(&wsi->buflist_rxflow,
+						(uint8_t **)&eff_buf.token);
+	if (eff_buf.token_len) {
+		lwsl_info("draining rxflow (len %d)\n", eff_buf.token_len);
 		draining_flow = 1;
 		goto drain;
 	}
@@ -1145,10 +1141,9 @@ drain:
 		goto read;
 	}
 
-	if (draining_flow && wsi->rxflow_buffer &&
-	    wsi->rxflow_pos == wsi->rxflow_len) {
+	if (draining_flow && /* were draining, now nothing left */
+	    !lws_buflist_next_segment_len(&wsi->buflist_rxflow, NULL)) {
 		lwsl_info("%s: %p flow buf: drained\n", __func__, wsi);
-		lws_free_set_NULL(wsi->rxflow_buffer);
 		/* having drained the rxflow buffer, can rearm POLLIN */
 #ifdef LWS_NO_SERVER
 		n =
