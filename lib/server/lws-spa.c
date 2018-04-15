@@ -240,12 +240,13 @@ retry_as_first:
 				n = 0;
 				if (!s->boundary_real_crlf)
 					n = 2;
-
-				memcpy(s->out + s->pos, s->mime_boundary + n,
-				       s->mp - n);
-				s->pos += s->mp;
-				s->mp = 0;
-				goto retry_as_first;
+				if (s->mp >= n) {
+					memcpy(s->out + s->pos,
+					       s->mime_boundary + n, s->mp - n);
+					s->pos += s->mp;
+					s->mp = 0;
+					goto retry_as_first;
+				}
 			}
 
 			s->out[s->pos++] = *in;
