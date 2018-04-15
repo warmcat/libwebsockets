@@ -75,28 +75,32 @@ static void lws_uv_walk_cb(uv_handle_t *handle, void *arg)
 	uv_close(handle, lws_uv_close_cb);
 }
 
-int main(int argc, char **argv)
+int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	uv_timer_t timer_outer;
 	uv_loop_t loop;
+	const char *p;
+	int logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE
+			/* for LLL_ verbosity above NOTICE to be built into lws,
+			 * lws must have been configured and built with
+			 * -DCMAKE_BUILD_TYPE=DEBUG instead of =RELEASE */
+			/* | LLL_INFO */ /* | LLL_PARSER */ /* | LLL_HEADER */
+			/* | LLL_EXT */ /* | LLL_CLIENT */ /* | LLL_LATENCY */
+			/* | LLL_DEBUG */;
+
+	if ((p = lws_cmdline_option(argc, argv, "-d")))
+		logs = atoi(p);
+
+	lws_set_log_level(logs, NULL);
+	lwsl_user("LWS minimal http server libuv + foreign loop |"
+		  " visit http://localhost:7681\n");
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	info.port = 7681;
 	info.mounts = &mount;
 	info.error_document_404 = "/404.html";
 	info.options = LWS_SERVER_OPTION_LIBUV;
-
-	lws_set_log_level(LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE
-			/* for LLL_ verbosity above NOTICE to be built into lws,
-			 * lws must have been configured and built with
-			 * -DCMAKE_BUILD_TYPE=DEBUG instead of =RELEASE */
-			/* | LLL_INFO */ /* | LLL_PARSER */ /* | LLL_HEADER */
-			/* | LLL_EXT */ /* | LLL_CLIENT */ /* | LLL_LATENCY */
-			/* | LLL_DEBUG */, NULL);
-
-	lwsl_user("LWS minimal http server libuv + foreign loop |"
-		  " visit http://localhost:7681\n");
 
 	uv_loop_init(&loop);
 

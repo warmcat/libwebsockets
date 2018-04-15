@@ -17,7 +17,7 @@
 #include <string.h>
 #include <signal.h>
 
-static int interrupted;
+static int interrupted, bad = 1, status;
 static struct lws *client_wsi;
 
 struct pss {
@@ -48,8 +48,8 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	/* ...callbacks related to receiving the result... */
 
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
-		lwsl_user("LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP: response %d\n",
-				lws_http_client_http_response(wsi));
+		status = lws_http_client_http_response(wsi);
+		lwsl_user("Connected with server response: %d\n", status);
 		break;
 
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
@@ -67,6 +67,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
 		lwsl_user("LWS_CALLBACK_COMPLETED_CLIENT_HTTP\n");
 		client_wsi = NULL;
+		bad = status != 200;
 		break;
 
 	/* ...callbacks related to generating the POST... */
@@ -182,23 +183,29 @@ sigint_handler(int sig)
 	interrupted = 1;
 }
 
-int main(int argc, char **argv)
+int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	struct lws_client_connect_info i;
 	struct lws_context *context;
-	int n = 0;
+	const char *p;
+	int n = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE
+		   /*
+		    * For LLL_ verbosity above NOTICE to be built into lws,
+		    * lws must have been configured and built with
+		    * -DCMAKE_BUILD_TYPE=DEBUG instead of =RELEASE
+		    *
+		    * | LLL_INFO   | LLL_PARSER  | LLL_HEADER | LLL_EXT |
+		    *   LLL_CLIENT | LLL_LATENCY | LLL_DEBUG
+		    */ ;
 
 	signal(SIGINT, sigint_handler);
-	lws_set_log_level(LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE
-			/* for LLL_ verbosity above NOTICE to be built into lws,
-			 * lws must have been configured and built with
-			 * -DCMAKE_BUILD_TYPE=DEBUG instead of =RELEASE */
-			/* | LLL_INFO */ /* | LLL_PARSER */ /* | LLL_HEADER */
-			/* | LLL_EXT */ /* | LLL_CLIENT */ /* | LLL_LATENCY */
-			/* | LLL_DEBUG */, NULL);
 
-	lwsl_user("LWS minimal http client - POST\n");
+	if ((p = lws_cmdline_option(argc, argv, "-d")))
+		logs = atoi(p);
+
+	lws_set_log_level(logs, NULL);
+	lwsl_user("LWS minimal http client - POST [-d<verbosity>] [-l] [--h1]\n");
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
@@ -221,14 +228,26 @@ int main(int argc, char **argv)
 
 	memset(&i, 0, sizeof i); /* otherwise uninitialized garbage */
 	i.context = context;
+	i.ssl_connection = LCCSCF_USE_SSL;
 
-	i.port = 443;
-	i.address = "libwebsockets.org";
-	i.path = "/testserver/formtest";
-	i.ssl_connection = /* LCCSCF_NOT_H2 | */ LCCSCF_USE_SSL;
+	if (lws_cmdline_option(argc, argv, "-l")) {
+		i.port = 7681;
+		i.address = "localhost";
+		i.ssl_connection |= LCCSCF_ALLOW_SELFSIGNED;
+		i.path = "/formtest";
+	} else {
+		i.port = 443;
+		i.address = "libwebsockets.org";
+		i.path = "/testserver/formtest";
+	}
+
 	i.host = i.address;
 	i.origin = i.address;
 	i.method = "POST";
+
+	/* force h1 even if h2 available */
+	if (lws_cmdline_option(argc, argv, "--h1"))
+		i.alpn = "http/1.1";
 
 	i.protocol = protocols[0].name;
 	i.pwsi = &client_wsi;
@@ -238,7 +257,7 @@ int main(int argc, char **argv)
 		n = lws_service(context, 1000);
 
 	lws_context_destroy(context);
-	lwsl_user("Completed\n");
+	lwsl_user("Completed: %s\n", bad ? "failed" : "OK");
 
-	return 0;
+	return bad;
 }

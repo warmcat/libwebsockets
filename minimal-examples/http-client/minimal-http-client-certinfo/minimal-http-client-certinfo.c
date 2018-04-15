@@ -16,7 +16,7 @@
 #include <string.h>
 #include <signal.h>
 
-static int interrupted;
+static int interrupted, bad = 1, status;
 static struct lws *client_wsi;
 
 static int
@@ -37,8 +37,8 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
-		lwsl_notice("lws_http_client_http_response %d\n",
-				lws_http_client_http_response(wsi));
+		status = lws_http_client_http_response(wsi);
+		lwsl_notice("lws_http_client_http_response %d\n", status);
 
 		if (!lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_COMMON_NAME,
 					    ci, sizeof(buf) - sizeof(*ci)))
@@ -97,6 +97,8 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
 		lwsl_user("LWS_CALLBACK_COMPLETED_CLIENT_HTTP\n");
 		client_wsi = NULL;
+		bad = status != 200;
+		lws_cancel_service(lws_get_context(wsi)); /* abort poll wait */
 		break;
 
 	default:
@@ -122,22 +124,13 @@ sigint_handler(int sig)
 	interrupted = 1;
 }
 
-static int findswitch(int argc, char **argv, const char *val)
-{
-	while (--argc > 0) {
-		if (!strcmp(argv[argc], val))
-			return argc;
-	}
-
-	return 0;
-}
-
-int main(int argc, char **argv)
+int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	struct lws_client_connect_info i;
 	struct lws_context *context;
-	int logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE
+	const char *p;
+	int n = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE
 		   /*
 		    * For LLL_ verbosity above NOTICE to be built into lws,
 		    * lws must have been configured and built with
@@ -146,16 +139,14 @@ int main(int argc, char **argv)
 		    * | LLL_INFO   | LLL_PARSER  | LLL_HEADER | LLL_EXT |
 		    *   LLL_CLIENT | LLL_LATENCY | LLL_DEBUG
 		    */ ;
-	int n = 0, m;
 
 	signal(SIGINT, sigint_handler);
-	/* you can set the log level on commandline with, eg, -d 15 */
-	m = findswitch(argc, argv, "-d");
-	if (m && m + 1 < argc)
-		logs = atoi(argv[m + 1]);
+
+	if ((p = lws_cmdline_option(argc, argv, "-d")))
+		logs = atoi(p);
 
 	lws_set_log_level(logs, NULL);
-	lwsl_user("LWS minimal http client\n");
+	lwsl_user("LWS minimal http client [<-d <verbosity>] [-l] [--h1]\n");
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
@@ -178,13 +169,24 @@ int main(int argc, char **argv)
 
 	memset(&i, 0, sizeof i); /* otherwise uninitialized garbage */
 	i.context = context;
+	i.ssl_connection = LCCSCF_USE_SSL;
 
-	i.port = 443;
-	i.address = "warmcat.com";
+	if (lws_cmdline_option(argc, argv, "-l")) {
+		i.port = 7681;
+		i.address = "localhost";
+		i.ssl_connection |= LCCSCF_ALLOW_SELFSIGNED;
+	} else {
+		i.port = 443;
+		i.address = "warmcat.com";
+	}
 	i.path = "/";
 	i.host = i.address;
 	i.origin = i.address;
-	i.ssl_connection = /* LCCSCF_NOT_H2 | */ LCCSCF_USE_SSL;
+
+	/* force h1 even if h2 available */
+	if (lws_cmdline_option(argc, argv, "--h1"))
+		i.alpn = "http/1.1";
+
 	i.method = "GET";
 
 	i.protocol = protocols[0].name;
@@ -195,7 +197,7 @@ int main(int argc, char **argv)
 		n = lws_service(context, 1000);
 
 	lws_context_destroy(context);
-	lwsl_user("Completed\n");
+	lwsl_user("Completed: %s\n", bad ? "failed" : "OK");
 
-	return 0;
+	return bad;
 }

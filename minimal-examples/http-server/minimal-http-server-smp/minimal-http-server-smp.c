@@ -64,12 +64,25 @@ void sigint_handler(int sig)
 	lws_cancel_service(context);
 }
 
-int main(int argc, char **argv)
+int main(int argc, const char **argv)
 {
 	pthread_t pthread_service[COUNT_THREADS];
 	struct lws_context_creation_info info;
 	void *retval;
-	int n = 0;
+	const char *p;
+	int n = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE
+			/* for LLL_ verbosity above NOTICE to be built into lws,
+			 * lws must have been configured and built with
+			 * -DCMAKE_BUILD_TYPE=DEBUG instead of =RELEASE */
+			/* | LLL_INFO */ /* | LLL_PARSER */ /* | LLL_HEADER */
+			/* | LLL_EXT */ /* | LLL_CLIENT */ /* | LLL_LATENCY */
+			/* | LLL_DEBUG */;
+
+	if ((p = lws_cmdline_option(argc, argv, "-d")))
+		logs = atoi(p);
+
+	lws_set_log_level(logs, NULL);
+	lwsl_user("LWS minimal http server SMP | visit http://127.0.0.1:7681\n");
 
 	signal(SIGINT, sigint_handler);
 
@@ -78,16 +91,6 @@ int main(int argc, char **argv)
 	info.mounts = &mount;
 	// info.max_http_header_pool = 10;
 	info.count_threads = COUNT_THREADS;
-
-	lws_set_log_level(LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE
-			/* for LLL_ verbosity above NOTICE to be built into lws,
-			 * lws must have been configured and built with
-			 * -DCMAKE_BUILD_TYPE=DEBUG instead of =RELEASE */
-			/* | LLL_INFO */ /* | LLL_PARSER */ /* | LLL_HEADER */
-			/* | LLL_EXT */ /* | LLL_CLIENT */ /* | LLL_LATENCY */
-			/* | LLL_DEBUG */, NULL);
-
-	lwsl_user("LWS minimal http server SMP | visit http://127.0.0.1:7681\n");
 
 	context = lws_create_context(&info);
 	if (!context) {

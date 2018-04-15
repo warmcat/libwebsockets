@@ -8,19 +8,19 @@
  *
  * This demonstrates the a minimal http client using lws.
  *
- * It visits https://warmcat.com/?fakeparam=<2KB> and receives the html page there.  You
- * can dump the page data by changing the #if 0 below.
+ * It visits https://warmcat.com/?fakeparam=<2KB> and receives the html
+ * page there.  You can dump the page data by changing the #if 0 below.
  */
 
 #include <libwebsockets.h>
 #include <string.h>
 #include <signal.h>
 
-static int interrupted;
+static int interrupted, bad = 1, status;
 static struct lws *client_wsi;
 
 static const char * const uri =
-	"/index.html?fakeparam="
+	"/?fakeparam="
 	"00000000000000000000000000000000000000000000000000"
 	"00000000000000000000000000000000000000000000000000"
 	"00000000000000000000000000000000000000000000000000"
@@ -76,6 +76,11 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		client_wsi = NULL;
 		break;
 
+	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
+		status = lws_http_client_http_response(wsi);
+		lwsl_user("Connected with server response: %d\n", status);
+		break;
+
 	/* chunks of chunked content, with header removed */
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
 		lwsl_user("RECEIVE_CLIENT_HTTP_READ: read %d\n", (int)len);
@@ -106,6 +111,8 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
 		client_wsi = NULL;
+		bad = status != 200;
+		lws_cancel_service(lws_get_context(wsi)); /* abort poll wait */
 		break;
 
 	default:
@@ -131,23 +138,26 @@ sigint_handler(int sig)
 	interrupted = 1;
 }
 
-int main(int argc, char **argv)
+int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	struct lws_client_connect_info i;
 	struct lws_context *context;
-	int n = 0;
-
-	signal(SIGINT, sigint_handler);
-	lws_set_log_level(LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE
+	const char *p;
+	int n = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE
 			/* for LLL_ verbosity above NOTICE to be built into lws,
 			 * lws must have been configured and built with
 			 * -DCMAKE_BUILD_TYPE=DEBUG instead of =RELEASE */
 			/* | LLL_INFO */ /* | LLL_PARSER */ /* | LLL_HEADER */
 			/* | LLL_EXT */ /* | LLL_CLIENT */ /* | LLL_LATENCY */
-			/* | LLL_DEBUG */, NULL);
+			/* | LLL_DEBUG */;
 
-	lwsl_user("LWS minimal http client hugeurl\n");
+	if ((p = lws_cmdline_option(argc, argv, "-d")))
+		logs = atoi(p);
+
+	signal(SIGINT, sigint_handler);
+	lws_set_log_level(logs, NULL);
+	lwsl_user("LWS minimal http client hugeurl [-d <verbosity> [-l]\n");
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
@@ -170,24 +180,30 @@ int main(int argc, char **argv)
 
 	memset(&i, 0, sizeof i); /* otherwise uninitialized garbage */
 	i.context = context;
+	i.ssl_connection = LCCSCF_USE_SSL;
 
-	i.port = 443;
-	i.address = "warmcat.com";
+	if (lws_cmdline_option(argc, argv, "-l")) {
+		i.port = 7681;
+		i.address = "localhost";
+		i.ssl_connection |= LCCSCF_ALLOW_SELFSIGNED;
+	} else {
+		i.port = 443;
+		i.address = "warmcat.com";
+	}
 	i.path = uri;
 	i.host = i.address;
 	i.origin = i.address;
-	i.ssl_connection = 1;
 	i.method = "GET";
-
 	i.protocol = protocols[0].name;
 	i.pwsi = &client_wsi;
+
 	lws_client_connect_via_info(&i);
 
 	while (n >= 0 && client_wsi && !interrupted)
 		n = lws_service(context, 1000);
 
 	lws_context_destroy(context);
-	lwsl_user("Completed\n");
+	lwsl_user("Completed: %s\n", bad? "failed": "OK");
 
-	return 0;
+	return bad;
 }

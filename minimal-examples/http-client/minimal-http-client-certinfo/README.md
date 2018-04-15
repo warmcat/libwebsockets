@@ -3,14 +3,6 @@
 This demonstrates how to dump information from the peer
 certificate largely independent of the tls backend.
 
-## build
-
-```
- $ cmake . && make
-```
-
-## usage
-
 The application goes to https://warmcat.com and receives the page data.
 
 Before receiving the page it dumps information on the server's cert.
@@ -19,6 +11,20 @@ This works independently of the tls backend being OpenSSL or mbedTLS.
 
 However the public keys cannot be compared between the two tls
 backends, since they produce different representations.
+
+## build
+
+```
+ $ cmake . && make
+```
+
+## usage
+
+Commandline option|Meaning
+---|---
+-d <loglevel>|Debug verbosity in decimal, eg, -d15
+-l| Connect to https://localhost:7681 and accept selfsigned cert
+--h1|Specify http/1.1 only using ALPN, rejects h2 even if server supports it
 
 ```
  $ ./lws-minimal-http-client-certinfo

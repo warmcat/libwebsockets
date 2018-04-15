@@ -87,23 +87,27 @@ void sigint_handler(int sig)
 	interrupted = 1;
 }
 
-static int findswitch(int argc, char **argv, const char *val)
-{
-	while (--argc > 0) {
-		if (!strcmp(argv[argc], val))
-			return 1;
-	}
-
-	return 0;
-}
-
-int main(int argc, char **argv)
+int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	struct lws_context *context;
-	int n = 0;
+	const char *p;
+	int n = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE
+			/* for LLL_ verbosity above NOTICE to be built into lws,
+			 * lws must have been configured and built with
+			 * -DCMAKE_BUILD_TYPE=DEBUG instead of =RELEASE */
+			/* | LLL_INFO */ /* | LLL_PARSER */ /* | LLL_HEADER */
+			/* | LLL_EXT */ /* | LLL_CLIENT */ /* | LLL_LATENCY */
+			/* | LLL_DEBUG */;
 
 	signal(SIGINT, sigint_handler);
+
+	if ((p = lws_cmdline_option(argc, argv, "-d")))
+		logs = atoi(p);
+
+	lws_set_log_level(logs, NULL);
+	lwsl_user("LWS minimal ws server + permessage-deflate | visit http://localhost:7681\n");
+	lwsl_user("   %s [-n (no exts)] [-c (compressible)]\n", argv[0]);
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	info.port = 7681;
@@ -111,24 +115,14 @@ int main(int argc, char **argv)
 	info.protocols = protocols;
 	info.pvo = &pvo;
 
-	if (!findswitch(argc, argv, "-n"))
+	if (!lws_cmdline_option(argc, argv, "-n"))
 		info.extensions = extensions;
 
-	if (!findswitch(argc, argv, "-c"))
+	if (!lws_cmdline_option(argc, argv, "-c"))
 		options |= 1;
 
 	info.pt_serv_buf_size = 32 * 1024;
 
-	lws_set_log_level(LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE
-			/* for LLL_ verbosity above NOTICE to be built into lws,
-			 * lws must have been configured and built with
-			 * -DCMAKE_BUILD_TYPE=DEBUG instead of =RELEASE */
-			/* | LLL_INFO */ /* | LLL_PARSER */ /* | LLL_HEADER */
-			/* | LLL_EXT */ /* | LLL_CLIENT */ /* | LLL_LATENCY */
-			/* | LLL_DEBUG */, NULL);
-
-	lwsl_user("LWS minimal ws server + permessage-deflate | visit http://localhost:7681\n");
-	lwsl_user("   %s [-n (no exts)] [-c (compressible)]\n", argv[0]);
 	context = lws_create_context(&info);
 	if (!context) {
 		lwsl_err("lws init failed\n");

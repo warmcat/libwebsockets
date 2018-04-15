@@ -230,7 +230,7 @@ int main(int argc, const char **argv)
 	if (!staggered)
 		/*
 		 * just pile on all the connections at once, testing the
-		 * pipeline queueing before the first is connected
+		 * pipeline queuing before the first is connected
 		 */
 		for (m = 0; m < (int)LWS_ARRAY_SIZE(client_wsi); m++)
 			lws_try_client_connection(&i, m);
@@ -242,7 +242,7 @@ int main(int argc, const char **argv)
 		if (staggered) {
 			/*
 			 * open the connections at 100ms intervals, with the
-			 * last one being after 1s, testing both queueing, and
+			 * last one being after 1s, testing both queuing, and
 			 * direct H2 stream addition stability
 			 */
 			if (us() > next && m < (int)LWS_ARRAY_SIZE(client_wsi)) {
