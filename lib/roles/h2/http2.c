@@ -1992,8 +1992,8 @@ fail:
 int
 lws_h2_client_handshake(struct lws *wsi)
 {
-	uint8_t buf[LWS_PRE + 1024], *start = &buf[LWS_PRE],
-		*p = start, *end = &buf[sizeof(buf) - 1];
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	uint8_t *buf, *start, *p, *end;
 	char *meth = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD),
 	     *uri = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI);
 	struct lws *nwsi = lws_get_network_wsi(wsi);
@@ -2031,6 +2031,9 @@ lws_h2_client_handshake(struct lws *wsi)
 	wsi->h2.peer_tx_cr_est += pps->u.update_window.credit;
 	lws_pps_schedule(wsi, pps);
 
+	p = start = buf = pt->serv_buf + LWS_PRE;
+	end = start + wsi->context->pt_serv_buf_size - LWS_PRE - 1;
+
 	/* it's time for us to send our client stream headers */
 
 	if (!meth)
@@ -2039,38 +2042,39 @@ lws_h2_client_handshake(struct lws *wsi)
 	if (lws_add_http_header_by_token(wsi,
 				WSI_TOKEN_HTTP_COLON_METHOD,
 				(unsigned char *)meth,
-				strlen(meth), &p, end))
-		return -1;
+				(int)strlen(meth), &p, end))
+		goto fail_length;
 
 	if (lws_add_http_header_by_token(wsi,
 				WSI_TOKEN_HTTP_COLON_SCHEME,
 				(unsigned char *)"http", 4,
 				&p, end))
-		return -1;
+		goto fail_length;
 
 	if (lws_add_http_header_by_token(wsi,
 				WSI_TOKEN_HTTP_COLON_PATH,
 				(unsigned char *)uri,
 				lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_URI),
 				&p, end))
-		return -1;
+		goto fail_length;
 
 	if (lws_add_http_header_by_token(wsi,
 				WSI_TOKEN_HTTP_COLON_AUTHORITY,
-				(unsigned char *)lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_ORIGIN),
+				(unsigned char *)lws_hdr_simple_ptr(wsi,
+						_WSI_TOKEN_CLIENT_ORIGIN),
 				lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_ORIGIN),
 				&p, end))
-		return -1;
+		goto fail_length;
 
 	/* give userland a chance to append, eg, cookies */
 
 	if (wsi->protocol->callback(wsi,
 				LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER,
 				wsi->user_space, &p, (end - p) - 12))
-		return -1;
+		goto fail_length;
 
 	if (lws_finalize_http_header(wsi, &p, end))
-		return -1;
+		goto fail_length;
 
 	n = lws_write(wsi, start, p - start,
 		      LWS_WRITE_HTTP_HEADERS);
@@ -2084,6 +2088,11 @@ lws_h2_client_handshake(struct lws *wsi)
 	lwsi_set_state(wsi, LRS_ESTABLISHED);
 
 	return 0;
+
+fail_length:
+	lwsl_err("Client hdrs too long: extend context info.pt_serv_buf_size\n");
+
+	return -1;
 }
 
 int

@@ -107,6 +107,22 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 		break;
 
+	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+		if (u && client_wsi[u->index]) {
+			/*
+			 * If it completed normally, it will have been set to
+			 * NULL then already.  So we are dealing with an
+			 * abnormal, failing, close
+			 */
+			client_wsi[u->index] = NULL;
+			failed++;
+			if (++completed == COUNT) {
+				lwsl_err("Done: failed: %d\n", failed);
+				interrupted = 1;
+			}
+		}
+		break;
+
 	default:
 		break;
 	}
@@ -185,7 +201,7 @@ int main(int argc, const char **argv)
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.port = CONTEXT_PORT_NO_LISTEN; /* we do not run any server */
 	info.protocols = protocols;
-	info.max_http_header_pool = 16;
+	info.max_http_header_pool = 20;
 	info.h2_rx_scratch_size = 4096; /* trade h2 stream rx memory for speed */
 
 #if defined(LWS_WITH_MBEDTLS)

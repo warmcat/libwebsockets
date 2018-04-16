@@ -359,7 +359,7 @@ lws_libuv_static_refcount_add(uv_handle_t *h, struct lws_context *context)
 LWS_VISIBLE void
 lws_libuv_static_refcount_del(uv_handle_t *h)
 {
-	return lws_uv_close_cb_sa(h);
+	lws_uv_close_cb_sa(h);
 }
 
 

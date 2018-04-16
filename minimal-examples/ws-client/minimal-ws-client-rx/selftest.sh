@@ -18,16 +18,8 @@
 
 . $5/selftests-library.sh
 
-COUNT_TESTS=4
+COUNT_TESTS=1
 
-dotest $1 $2 warmcat
-dotest $1 $2 warmcat-h1 --h1
+dotest $1 $2 warmcat -t
 
-spawn "" $5/http-server/minimal-http-server-tls $1/lws-minimal-http-server-tls
-dotest $1 $2 localhost -l
-spawn $SPID $5/http-server/minimal-http-server-tls $1/lws-minimal-http-server-tls
-dotest $1 $2 localhost-h1 -l --h1
-
-kill $SPID 2>/dev/null
-wait $SPID 2>/dev/null
 exit $FAILS

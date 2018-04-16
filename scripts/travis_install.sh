@@ -6,6 +6,11 @@ if [ "$TRAVIS_OS_NAME" == "linux" ];
 then
 	sudo apt-get update -qq
 
+	if [ "$LWS_METHOD" == "lwsws" ];
+	then
+		sudo apt-get install -y -qq realpath;
+	fi
+
 	if [ "$LWS_METHOD" == "libev" ];
 	then
 		sudo apt-get install -y -qq libev-dev;
@@ -14,6 +19,7 @@ then
 	if [ "$LWS_METHOD" == "libuv" -o "$LWS_METHOD" == "lwsws" ];
 	then
 		sudo apt-get install -y -qq libuv-dev;
+#libuv1 libuv1-dev;
 	fi
 
 fi

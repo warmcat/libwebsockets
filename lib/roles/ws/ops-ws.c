@@ -941,7 +941,7 @@ rops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
 	/* 3: RX Flowcontrol buffer / h2 rx scratch needs to be drained
 	 */
 
-	eff_buf.token_len = lws_buflist_next_segment_len(&wsi->buflist_rxflow,
+	eff_buf.token_len = (int)lws_buflist_next_segment_len(&wsi->buflist_rxflow,
 						(uint8_t **)&eff_buf.token);
 	if (eff_buf.token_len) {
 		lwsl_info("draining rxflow (len %d)\n", eff_buf.token_len);

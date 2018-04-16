@@ -115,6 +115,12 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		lws_cancel_service(lws_get_context(wsi)); /* abort poll wait */
 		break;
 
+	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+		client_wsi = NULL;
+		bad = status != 200;
+		lws_cancel_service(lws_get_context(wsi)); /* abort poll wait */
+		break;
+
 	default:
 		break;
 	}
@@ -157,7 +163,7 @@ int main(int argc, const char **argv)
 
 	signal(SIGINT, sigint_handler);
 	lws_set_log_level(logs, NULL);
-	lwsl_user("LWS minimal http client hugeurl [-d <verbosity> [-l]\n");
+	lwsl_user("LWS minimal http client hugeurl [-d <verbosity>] [-l] [--h1]\n");
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
@@ -190,6 +196,10 @@ int main(int argc, const char **argv)
 		i.port = 443;
 		i.address = "warmcat.com";
 	}
+
+	if (lws_cmdline_option(argc, argv, "--h1"))
+		i.alpn = "http/1.1";
+
 	i.path = uri;
 	i.host = i.address;
 	i.origin = i.address;

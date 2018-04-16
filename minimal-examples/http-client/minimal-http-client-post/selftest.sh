@@ -18,30 +18,16 @@
 
 . $5/selftests-library.sh
 
-COUNT_TESTS=6
+COUNT_TESTS=4
 
 dotest $1 $2 warmcat
 dotest $1 $2 warmcat-h1 --h1
 
-spawn "" $5/http-server/minimal-http-server-tls $1/lws-minimal-http-server-tls
+spawn "" $5 $1/libwebsockets-test-server -s
 dotest $1 $2 localhost -l
-spawn $SPID $5/http-server/minimal-http-server-tls $1/lws-minimal-http-server-tls
+spawn $SPID $5 $1/libwebsockets-test-server -s
 dotest $1 $2 localhost-h1 -l --h1
+
 kill $SPID 2>/dev/null
 wait $SPID 2>/dev/null
-
-
-if [ -z "$TRAVIS_OS_NAME" ] ; then
-	SPID=""
-	spawn "" $5/http-server/minimal-http-server-libuv $1/lws-minimal-http-server-libuv -s
-	dotest $1 $2 localhost-suv -l
-	spawn $SPID $5/http-server/minimal-http-server-libuv $1/lws-minimal-http-server-libuv -s
-	dotest $1 $2 localhost-suv-h1 -l --h1
-
-	kill $SPID 2>/dev/null
-	wait $SPID 2>/dev/null
-fi
-
 exit $FAILS
-
-

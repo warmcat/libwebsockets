@@ -419,8 +419,8 @@ lws_service_do_ripe_rxflow(struct lws_context_per_thread *pt)
 				   pt->dll_head_rxflow.next) {
 		struct lws *wsi = lws_container_of(d, struct lws, dll_rxflow);
 
-		pfd.events = POLLIN;
-		pfd.revents = POLLIN;
+		pfd.events = LWS_POLLIN;
+		pfd.revents = LWS_POLLIN;
 		pfd.fd = -1;
 
 		lwsl_debug("%s: rxflow processing: %p 0x%x\n", __func__, wsi,

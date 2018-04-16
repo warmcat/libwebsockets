@@ -18,7 +18,7 @@
 #include <string.h>
 #include <signal.h>
 
-static int interrupted;
+static int interrupted, rx_seen, test;
 static struct lws *client_wsi;
 
 static int
@@ -40,6 +40,9 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_CLIENT_RECEIVE:
 		lwsl_user("RX: %s\n", (const char *)in);
+		rx_seen++;
+		if (test && rx_seen == 10)
+			interrupted = 1;
 		break;
 
 	case LWS_CALLBACK_CLIENT_CLOSED:
@@ -87,8 +90,10 @@ int main(int argc, const char **argv)
 	if ((p = lws_cmdline_option(argc, argv, "-d")))
 		logs = atoi(p);
 
+	test = !!lws_cmdline_option(argc, argv, "-t");
+
 	lws_set_log_level(logs, NULL);
-	lwsl_user("LWS minimal ws client rx [-d <logs>] [--h2]\n");
+	lwsl_user("LWS minimal ws client rx [-d <logs>] [--h2] [-t (test)]\n");
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
@@ -129,7 +134,7 @@ int main(int argc, const char **argv)
 
 	lws_context_destroy(context);
 
-	lwsl_user("Completed\n");
+	lwsl_user("Completed %s\n", rx_seen > 10 ? "OK" : "Failed");
 
-	return 0;
+	return rx_seen > 10;
 }

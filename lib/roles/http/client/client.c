@@ -937,7 +937,7 @@ bail2:
 	if (wsi->protocol) {
 		n = 0;
 		if (cce)
-			n = strlen(cce);
+			n = (int)strlen(cce);
 		wsi->protocol->callback(wsi,
 				LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
 				wsi->user_space, (void *)cce,

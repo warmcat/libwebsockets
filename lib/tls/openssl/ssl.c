@@ -619,7 +619,7 @@ lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 			return -1;
 		}
 
-		buf->ns.len = klen;
+		buf->ns.len = (int)klen;
 		memcpy(buf->ns.name, tmp, klen);
 		OPENSSL_free(tmp);
 

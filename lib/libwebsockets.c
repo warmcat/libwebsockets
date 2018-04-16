@@ -1060,7 +1060,7 @@ lws_buflist_use_segment(struct lws_buflist **head, size_t len)
 	if (!*head)
 		return 0;
 
-	return (*head)->len - (*head)->pos;
+	return (int)((*head)->len - (*head)->pos);
 }
 
 /* ... */
@@ -2671,7 +2671,7 @@ lws_create_adopt_udp(struct lws_vhost *vhost, int port, int flags,
 	}
 
 	if ((flags & LWS_CAUDP_BIND) &&
-	    bind(sock.sockfd, rp->ai_addr, rp->ai_addrlen) ==-1) {
+	    bind(sock.sockfd, rp->ai_addr, rp->ai_addrlen) == -1) {
 		lwsl_err("%s: bind failed\n", __func__);
 		goto bail2;
 	}
@@ -2683,7 +2683,7 @@ lws_create_adopt_udp(struct lws_vhost *vhost, int port, int flags,
 
 bail2:
 	if (!wsi)
-		close(sock.sockfd);
+		close((int)sock.sockfd);
 bail1:
 	freeaddrinfo(r);
 
@@ -2951,7 +2951,7 @@ lws_sum_stats(const struct lws_context *ctx, struct lws_conn_stats *cs)
 const char *
 lws_cmdline_option(int argc, const char **argv, const char *val)
 {
-	int n = strlen(val), c = argc;
+	int n = (int)strlen(val), c = argc;
 
 	while (--c > 0)
 		if (!strncmp(argv[c], val, n)) {

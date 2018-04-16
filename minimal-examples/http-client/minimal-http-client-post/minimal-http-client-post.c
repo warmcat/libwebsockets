@@ -45,6 +45,12 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		client_wsi = NULL;
 		break;
 
+	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+		client_wsi = NULL;
+		bad = status != 200;
+		lws_cancel_service(lws_get_context(wsi)); /* abort poll wait */
+		break;
+
 	/* ...callbacks related to receiving the result... */
 
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:

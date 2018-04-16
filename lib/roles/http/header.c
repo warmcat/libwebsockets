@@ -145,7 +145,7 @@ lws_add_http_common_headers(struct lws *wsi, unsigned int code,
 		return 1;
 	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE,
 		    			(unsigned char *)content_type,
-		    			strlen(content_type), p, end))
+		    			(int)strlen(content_type), p, end))
 		return 1;
 	if (lws_add_http_header_content_length(wsi, content_len, p, end))
 		return 1;
@@ -280,7 +280,7 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 		/* we should do a redirect, and do the 404 there */
 		if (lws_http_redirect(wsi, HTTP_STATUS_FOUND,
 				       (uint8_t *)wsi->vhost->error_document_404,
-				       strlen(wsi->vhost->error_document_404),
+				       (int)strlen(wsi->vhost->error_document_404),
 				       &p, end) > 0)
 			return 0;
 

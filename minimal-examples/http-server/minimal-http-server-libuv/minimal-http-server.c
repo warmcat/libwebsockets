@@ -71,13 +71,18 @@ int main(int argc, const char **argv)
 		logs = atoi(p);
 
 	lws_set_log_level(logs, NULL);
-	lwsl_user("LWS minimal http server libuv | visit http://localhost:7681\n");
+	lwsl_user("LWS minimal http server libuv [-s (ssl)] | visit http://localhost:7681\n");
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	info.port = 7681;
 	info.mounts = &mount;
 	info.error_document_404 = "/404.html";
-	info.options = LWS_SERVER_OPTION_LIBUV;
+	if (lws_cmdline_option(argc, argv, "-s")) {
+		info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+		info.ssl_cert_filepath = "localhost-100y.cert";
+		info.ssl_private_key_filepath = "localhost-100y.key";
+	}
+	info.options |= LWS_SERVER_OPTION_LIBUV;
 
 	context = lws_create_context(&info);
 	if (!context) {
