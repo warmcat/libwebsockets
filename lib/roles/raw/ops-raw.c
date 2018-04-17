@@ -25,7 +25,8 @@ static int
 rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 			   struct lws_pollfd *pollfd)
 {
-	int len, n;
+	struct lws_tokens ebuf;
+	int n, buffered;
 
 	/* pending truncated sends have uber priority */
 
@@ -50,21 +51,33 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 	    !(wsi->favoured_pollin &&
 	      (pollfd->revents & pollfd->events & LWS_POLLOUT))) {
 
-		len = lws_read_or_use_preamble(pt, wsi);
-		if (len < 0)
-			goto fail;
-
-		if (!len)
+		buffered = lws_buflist_aware_read(pt, wsi, &ebuf);
+		switch (ebuf.len) {
+		case 0:
+			lwsl_info("%s: read 0 len a\n",
+				   __func__);
+			wsi->seen_zero_length_recv = 1;
+			lws_change_pollfd(wsi, LWS_POLLIN, 0);
 			goto try_pollout;
+			//goto fail;
+
+		case LWS_SSL_CAPABLE_ERROR:
+			goto fail;
+		case LWS_SSL_CAPABLE_MORE_SERVICE:
+			goto try_pollout;
+		}
 
 		n = user_callback_handle_rxflow(wsi->protocol->callback,
 						wsi, LWS_CALLBACK_RAW_RX,
-						wsi->user_space, pt->serv_buf,
-						len);
+						wsi->user_space, ebuf.token,
+						ebuf.len);
 		if (n < 0) {
 			lwsl_info("LWS_CALLBACK_RAW_RX_fail\n");
 			goto fail;
 		}
+
+		if (lws_buflist_aware_consume(wsi, &ebuf, ebuf.len, buffered))
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	} else
 		if (wsi->favoured_pollin &&
 		    (pollfd->revents & pollfd->events & LWS_POLLOUT))
@@ -114,7 +127,7 @@ try_pollout:
 fail:
 	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "raw svc fail");
 
-	return LWS_HPI_RET_CLOSE_HANDLED;
+	return LWS_HPI_RET_PLEASE_CLOSE_ME;
 }
 
 
@@ -128,10 +141,10 @@ rops_handle_POLLIN_raw_file(struct lws_context_per_thread *pt, struct lws *wsi,
 		n = lws_callback_as_writeable(wsi);
 		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
 			lwsl_info("failed at set pollfd\n");
-			return LWS_HPI_RET_DIE;
+			return LWS_HPI_RET_WSI_ALREADY_DIED;
 		}
 		if (n)
-			return LWS_HPI_RET_CLOSE_HANDLED;
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
 
 	if (pollfd->revents & LWS_POLLIN) {
@@ -139,12 +152,12 @@ rops_handle_POLLIN_raw_file(struct lws_context_per_thread *pt, struct lws *wsi,
 						wsi, LWS_CALLBACK_RAW_RX_FILE,
 						wsi->user_space, NULL, 0)) {
 			lwsl_debug("raw rx callback closed it\n");
-			return LWS_HPI_RET_CLOSE_HANDLED;
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}
 	}
 
 	if (pollfd->revents & LWS_POLLHUP)
-		return LWS_HPI_RET_CLOSE_HANDLED;
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
 	return LWS_HPI_RET_HANDLED;
 }
@@ -164,7 +177,6 @@ struct lws_role_ops role_ops_raw_skt = {
 	/* callback_on_writable */	NULL,
 	/* tx_credit */			NULL,
 	/* write_role_protocol */	NULL,
-	/* rxflow_cache */		NULL,
 	/* encapsulation_parent */	NULL,
 	/* alpn_negotiated */		NULL,
 	/* close_via_role_protocol */	NULL,
@@ -191,7 +203,6 @@ struct lws_role_ops role_ops_raw_file = {
 	/* callback_on_writable */	NULL,
 	/* tx_credit */			NULL,
 	/* write_role_protocol */	NULL,
-	/* rxflow_cache */		NULL,
 	/* encapsulation_parent */	NULL,
 	/* alpn_negotiated */		NULL,
 	/* close_via_role_protocol */	NULL,

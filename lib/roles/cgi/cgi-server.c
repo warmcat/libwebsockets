@@ -368,8 +368,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 	 * Actually having made the env, as a cgi we don't need the ah
 	 * any more
 	 */
-	if (script_uri_path_len >= 0 &&
-	    lws_header_table_is_in_detachable_state(wsi))
+	if (script_uri_path_len >= 0)
 		lws_header_table_detach(wsi, 0);
 
 	/* we are ready with the redirection pipes... run the thing */

@@ -34,7 +34,7 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	int m;
 #endif
 
-	// lwsl_hexdump_notice(buf, len);
+	// lwsl_hexdump_err(buf, len);
 
 	/*
 	 * Detect if we got called twice without going through the

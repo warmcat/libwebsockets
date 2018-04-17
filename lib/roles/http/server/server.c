@@ -1324,19 +1324,40 @@ deal_body:
 			   (long long)wsi->http.rx_content_length,
 			   wsi->upgraded_to_http2, wsi->http2_substream);
 		if (wsi->http.rx_content_length > 0) {
+			struct lws_tokens ebuf;
+			int m;
+
 			lwsi_set_state(wsi, LRS_BODY);
 			lwsl_info("%s: %p: LRS_BODY state set (0x%x)\n",
 				    __func__, wsi, wsi->wsistate);
 			wsi->http.rx_content_remain =
 					wsi->http.rx_content_length;
+
+			/*
+			 * At this point we have transitioned from deferred
+			 * action to expecting BODY on the stream wsi, if it's
+			 * in a bundle like h2.  So if the stream wsi has its
+			 * own buflist, we need to deal with that first.
+			 */
+
+			while (1) {
+				ebuf.len = lws_buflist_next_segment_len(
+						&wsi->buflist, (uint8_t **)&ebuf.token);
+				if (!ebuf.len)
+					break;
+				lwsl_notice("%s: consuming %d\n", __func__, (int)ebuf.len);
+				m = lws_read_h1(wsi, (uint8_t *)ebuf.token, ebuf.len);
+				if (m < 0)
+					return -1;
+
+				lws_buflist_aware_consume(wsi, &ebuf, m, 1);
+			}
 		}
 	}
 
 	return 0;
 
 bail_nuke_ah:
-	/* we're closing, losing some rx is OK */
-	lws_header_table_force_to_detachable_state(wsi);
 	lws_header_table_detach(wsi, 1);
 
 	return 1;
@@ -1400,7 +1421,6 @@ raw_transition:
 						wsi->user_space, NULL, 0))
 					goto bail_nuke_ah;
 
-				lws_header_table_force_to_detachable_state(wsi);
 				lws_role_transition(wsi, 0, LRS_ESTABLISHED,
 						    &role_ops_raw_skt);
 				lws_header_table_detach(wsi, 1);
@@ -1598,8 +1618,6 @@ upgrade_ws:
 
 bail_nuke_ah:
 	/* drop the header info */
-	/* we're closing, losing some rx is OK */
-	lws_header_table_force_to_detachable_state(wsi);
 	lws_header_table_detach(wsi, 1);
 
 	return 1;
@@ -1688,8 +1706,7 @@ lws_http_transaction_completed(struct lws *wsi)
 	int n = NO_PENDING_TIMEOUT;
 
 	lwsl_info("%s: wsi %p\n", __func__, wsi);
-	if (wsi->ah)
-		lwsl_info("ah attached, pos %d, len %d\n", wsi->ah->rxpos, wsi->ah->rxlen);
+
 	lws_access_log(wsi);
 
 	if (!wsi->hdr_parsing_completed) {
@@ -1744,8 +1761,9 @@ lws_http_transaction_completed(struct lws *wsi)
 	 * reset the existing header table and keep it.
 	 */
 	if (wsi->ah) {
-		if (wsi->ah->rxpos == wsi->ah->rxlen && !wsi->preamble_rx) {
-			lws_header_table_force_to_detachable_state(wsi);
+		// lws_buflist_describe(&wsi->buflist, wsi);
+		if (!lws_buflist_next_segment_len(&wsi->buflist, NULL)) {
+			lwsl_debug("%s: nothing in buflist so detaching ah\n", __func__);
 			lws_header_table_detach(wsi, 1);
 #ifdef LWS_WITH_TLS
 			/*
@@ -1764,6 +1782,7 @@ lws_http_transaction_completed(struct lws *wsi)
 			}
 #endif
 		} else {
+			lwsl_debug("%s: resetting and keeping ah as more pipeline stuff available\n", __func__);
 			lws_header_table_reset(wsi, 0);
 			/*
 			 * If we kept the ah, we should restrict the amount
@@ -1780,7 +1799,7 @@ lws_http_transaction_completed(struct lws *wsi)
 
 		lwsi_set_state(wsi, LRS_ESTABLISHED);
 	} else
-		if (wsi->preamble_rx)
+		if (lws_buflist_next_segment_len(&wsi->buflist, NULL))
 			if (lws_header_table_attach(wsi, 0))
 				lwsl_debug("acquired ah\n");
 
@@ -2025,7 +2044,6 @@ static struct lws*
 adopt_socket_readbuf(struct lws *wsi, const char *readbuf, size_t len)
 {
 	struct lws_context_per_thread *pt;
-	struct allocated_headers *ah;
 	struct lws_pollfd *pfd;
 
 	if (!wsi)
@@ -2034,10 +2052,8 @@ adopt_socket_readbuf(struct lws *wsi, const char *readbuf, size_t len)
 	if (!readbuf || len == 0)
 		return wsi;
 
-	if (len > sizeof(ah->rx)) {
-		lwsl_err("%s: rx in too big\n", __func__);
+	if (lws_buflist_append_segment(&wsi->buflist, (const uint8_t *)readbuf, len) < 0)
 		goto bail;
-	}
 
 	/*
 	 * we can't process the initial read data until we can attach an ah.
@@ -2050,10 +2066,6 @@ adopt_socket_readbuf(struct lws *wsi, const char *readbuf, size_t len)
 	 * the ah.
 	 */
 	if (wsi->ah || !lws_header_table_attach(wsi, 0)) {
-		ah = wsi->ah;
-		memcpy(ah->rx, readbuf, len);
-		ah->rxpos = 0;
-		ah->rxlen = (int16_t)len;
 
 		lwsl_notice("%s: calling service on readbuf ah\n", __func__);
 		pt = &wsi->context->pt[(int)wsi->tsi];
@@ -2073,20 +2085,6 @@ adopt_socket_readbuf(struct lws *wsi, const char *readbuf, size_t len)
 		return wsi;
 	}
 	lwsl_err("%s: deferring handling ah\n", __func__);
-	/*
-	 * hum if no ah came, we are on the wait list and must defer
-	 * dealing with this until the ah arrives.
-	 *
-	 * later successful lws_header_table_attach() will apply the
-	 * below to the rx buffer (via lws_header_table_reset()).
-	 */
-	wsi->preamble_rx = lws_malloc(len, "preamble_rx");
-	if (!wsi->preamble_rx) {
-		lwsl_err("OOM\n");
-		goto bail;
-	}
-	memcpy(wsi->preamble_rx, readbuf, len);
-	wsi->preamble_rx_len = (int)len;
 
 	return wsi;
 

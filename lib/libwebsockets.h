@@ -2247,7 +2247,7 @@ struct lws_ext_option_arg {
  *		change the data, eg, decompress it.  user is pointing to the
  *		extension's private connection context data, in is pointing
  *		to an lws_tokens struct, it consists of a char * pointer called
- *		token, and an int called token_len.  At entry, these are
+ *		token, and an int called len.  At entry, these are
  *		set to point to the received buffer and set to the content
  *		length.  If the extension will grow the content, it should use
  *		a new buffer allocated in its private user context data and
@@ -3005,10 +3005,6 @@ struct lws_context_creation_info {
 	 *     VHOST: If non-NULL, per-vhost list of advertised alpn, comma-
 	 *	      separated
 	 */
-	unsigned int h2_rx_scratch_size;
-	/**< VHOST: size of the rx scratch buffer for each stream.  0 =
-	 *	    default (512 bytes).  This affects the RX chunk size
-	 *	    at the callback. */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
@@ -3981,12 +3977,12 @@ lws_chunked_html_process(struct lws_process_html_args *args,
 /** struct lws_tokens
  * you need these to look at headers that have been parsed if using the
  * LWS_CALLBACK_FILTER_CONNECTION callback.  If a header from the enum
- * list below is absent, .token = NULL and token_len = 0.  Otherwise .token
- * points to .token_len chars containing that header content.
+ * list below is absent, .token = NULL and len = 0.  Otherwise .token
+ * points to .len chars containing that header content.
  */
 struct lws_tokens {
 	char *token; /**< pointer to start of the token */
-	int token_len; /**< length of the token's value */
+	int len; /**< length of the token's value */
 };
 
 /* enum lws_token_indexes
@@ -5749,7 +5745,8 @@ struct lws_buflist;
  * it was a subsequent segment.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_buflist_append_segment(struct lws_buflist **head, uint8_t *buf, size_t len);
+lws_buflist_append_segment(struct lws_buflist **head, const uint8_t *buf,
+			   size_t len);
 /**
  * lws_buflist_next_segment_len(): number of bytes left in current segment
  *
@@ -5789,6 +5786,9 @@ lws_buflist_use_segment(struct lws_buflist **head, size_t len);
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_buflist_destroy_all_segments(struct lws_buflist **head);
+
+void
+lws_buflist_describe(struct lws_buflist **head, void *id);
 
 /**
  * lws_ptr_diff(): helper to report distance between pointers as an int

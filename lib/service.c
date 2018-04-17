@@ -285,12 +285,8 @@ int lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len)
 	size_t blen;
 	int ret = 0, m;
 
-	if (wsi->role_ops->rxflow_cache)
-		if (wsi->role_ops->rxflow_cache(wsi, buf, n, len))
-			return 0;
-
 	/* his RX is flowcontrolled, don't send remaining now */
-	blen = lws_buflist_next_segment_len(&wsi->buflist_rxflow, &buffered);
+	blen = lws_buflist_next_segment_len(&wsi->buflist, &buffered);
 	if (blen) {
 		if (buf >= buffered && buf + len <= buffered + blen) {
 			/* rxflow while we were spilling prev rxflow */
@@ -303,13 +299,13 @@ int lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len)
 
 	/* a new rxflow, buffer it and warn caller */
 
-	m = lws_buflist_append_segment(&wsi->buflist_rxflow, buf + n, len - n);
+	m = lws_buflist_append_segment(&wsi->buflist, buf + n, len - n);
 
 	if (m < 0)
 		return -1;
 	if (m) {
 		lwsl_debug("%s: added %p to rxflow list\n", __func__, wsi);
-		lws_dll_lws_add_front(&wsi->dll_rxflow, &pt->dll_head_rxflow);
+		lws_dll_lws_add_front(&wsi->dll_buflist, &pt->dll_head_buflist);
 	}
 
 	return ret;
@@ -323,7 +319,6 @@ LWS_VISIBLE LWS_EXTERN int
 lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
-	struct allocated_headers *ah;
 
 	/* Figure out if we really want to wait in poll()
 	 * We only need to wait if really nothing already to do and we have
@@ -342,62 +337,70 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 	}
 #endif
 
-	/* 3) if any ah has pending rx, do not wait in poll */
-	ah = pt->ah_list;
-	while (ah) {
-		if (ah->rxpos != ah->rxlen || (ah->wsi && ah->wsi->preamble_rx)) {
-			if (!ah->wsi) {
-				assert(0);
-			}
-			// lwsl_debug("ah pending force\n");
+	/* 3) If there is any wsi with rxflow buffered and in a state to process
+	 *    it, we should not wait in poll
+	 */
+
+	lws_start_foreach_dll(struct lws_dll_lws *, d, pt->dll_head_buflist.next) {
+		struct lws *wsi = lws_container_of(d, struct lws, dll_buflist);
+
+		if (lwsi_state(wsi) != LRS_DEFERRING_ACTION)
 			return 0;
-		}
-		ah = ah->next;
-	}
+
+	} lws_end_foreach_dll(d);
 
 	return timeout_ms;
 }
 
 
 int
-lws_read_or_use_preamble(struct lws_context_per_thread *pt, struct lws *wsi)
+lws_buflist_aware_read(struct lws_context_per_thread *pt, struct lws *wsi,
+		       struct lws_tokens *ebuf)
 {
-	int len;
+	ebuf->len = lws_buflist_next_segment_len(&wsi->buflist,
+						 (uint8_t **)&ebuf->token);
+	if (!ebuf->len) {
+		ebuf->token = (char *)pt->serv_buf;
+		ebuf->len = lws_ssl_capable_read(wsi, pt->serv_buf,
+					wsi->context->pt_serv_buf_size);
 
-	if (wsi->preamble_rx && wsi->preamble_rx_len) {
-		memcpy(pt->serv_buf, wsi->preamble_rx, wsi->preamble_rx_len);
-		lws_free_set_NULL(wsi->preamble_rx);
-		len = wsi->preamble_rx_len;
-		lwsl_debug("bringing %d out of stash\n", wsi->preamble_rx_len);
-		wsi->preamble_rx_len = 0;
+		// if (ebuf->len > 0)
+		//	lwsl_hexdump_notice(ebuf->token, ebuf->len);
 
-		return len;
+		return 0; /* fresh */
 	}
 
-	/*
-	 * ... in the case of pipelined HTTP, this may be
-	 * POST data followed by next headers...
-	 */
+	return 1; /* buffered */
+}
 
-	len = lws_ssl_capable_read(wsi, pt->serv_buf,
-				   wsi->context->pt_serv_buf_size);
-	lwsl_debug("%s: wsi %p read %d (wsistate 0x%x)\n",
-			__func__, wsi, len, wsi->wsistate);
-	switch (len) {
-	case 0:
-		lwsl_info("%s: read 0 len b\n", __func__);
+int
+lws_buflist_aware_consume(struct lws *wsi, struct lws_tokens *ebuf, int used,
+			  int buffered)
+{
+	int m;
 
-		/* fallthru */
-	case LWS_SSL_CAPABLE_ERROR:
-		return -1;
-	case LWS_SSL_CAPABLE_MORE_SERVICE:
+
+	if (used && buffered) {
+		m = lws_buflist_use_segment(&wsi->buflist, used);
+		lwsl_info("%s: draining rxflow: used %d, next %d\n",
+			    __func__, used, m);
+		if (m)
+			return 0;
+
+		lwsl_notice("%s: removed %p from dll_buflist\n", __func__, wsi);
+		lws_dll_lws_remove(&wsi->dll_buflist);
+
 		return 0;
 	}
 
-	if (len < 0) /* coverity */
-		return -1;
+	/* any remainder goes on the buflist */
 
-	return len;
+	if (used != ebuf->len &&
+	    lws_buflist_append_segment(&wsi->buflist, (uint8_t *)ebuf->token +
+					    used, ebuf->len - used) < 0)
+		return 1; /* OOM */
+
+	return 0;
 }
 
 void
@@ -405,7 +408,7 @@ lws_service_do_ripe_rxflow(struct lws_context_per_thread *pt)
 {
 	struct lws_pollfd pfd;
 
-	if (!pt->dll_head_rxflow.next)
+	if (!pt->dll_head_buflist.next)
 		return;
 
 	/*
@@ -416,8 +419,8 @@ lws_service_do_ripe_rxflow(struct lws_context_per_thread *pt)
 	lws_pt_lock(pt, __func__);
 
 	lws_start_foreach_dll_safe(struct lws_dll_lws *, d, d1,
-				   pt->dll_head_rxflow.next) {
-		struct lws *wsi = lws_container_of(d, struct lws, dll_rxflow);
+				   pt->dll_head_buflist.next) {
+		struct lws *wsi = lws_container_of(d, struct lws, dll_buflist);
 
 		pfd.events = LWS_POLLIN;
 		pfd.revents = LWS_POLLIN;
@@ -429,7 +432,7 @@ lws_service_do_ripe_rxflow(struct lws_context_per_thread *pt)
 		if (!lws_is_flowcontrolled(wsi) &&
 		    lwsi_state(wsi) != LRS_DEFERRING_ACTION &&
 		    (wsi->role_ops->handle_POLLIN)(pt, wsi, &pfd) ==
-						   LWS_HPI_RET_CLOSE_HANDLED)
+						   LWS_HPI_RET_PLEASE_CLOSE_ME)
 			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
 					   "close_and_handled");
 
@@ -461,8 +464,8 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 	 *    it, we should not wait in poll
 	 */
 
-	lws_start_foreach_dll(struct lws_dll_lws *, d, pt->dll_head_rxflow.next) {
-		struct lws *wsi = lws_container_of(d, struct lws, dll_rxflow);
+	lws_start_foreach_dll(struct lws_dll_lws *, d, pt->dll_head_buflist.next) {
+		struct lws *wsi = lws_container_of(d, struct lws, dll_buflist);
 
 		if (lwsi_state(wsi) != LRS_DEFERRING_ACTION) {
 			forced = 1;
@@ -499,14 +502,6 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 
 		wsi = wsi_next;
 	}
-#endif
-
-#if defined(LWS_ROLE_H1)
-	forced |= role_ops_h1.service_flag_pending(context, tsi);
-#else /* they do the same thing... only need one or the other if h1 and h2 */
-#if defined(LWS_ROLE_H2)
-	forced |= role_ops_h2.service_flag_pending(context, tsi);
-#endif
 #endif
 
 	lws_pt_unlock(pt);
@@ -653,9 +648,8 @@ lws_service_periodic_checks(struct lws_context *context,
 #endif
 		lwsl_notice("ah excessive hold: wsi %p\n"
 			    "  peer address: %s\n"
-			    "  ah rxpos %u, rxlen %u, pos %u\n",
-			    wsi, buf, ah->rxpos, ah->rxlen,
-			    ah->pos);
+			    "  ah pos %u\n",
+			    wsi, buf, ah->pos);
 		buf[0] = '\0';
 		m = 0;
 		do {
@@ -682,8 +676,6 @@ lws_service_periodic_checks(struct lws_context *context,
 		} while (1);
 
 		/* explicitly detach the ah */
-
-		lws_header_table_force_to_detachable_state(wsi);
 		lws_header_table_detach(wsi, 0);
 
 		/* ... and then drop the connection */
@@ -859,11 +851,11 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	//	    wsi->wsistate);
 
 	switch ((wsi->role_ops->handle_POLLIN)(pt, wsi, pollfd)) {
-	case LWS_HPI_RET_DIE:
+	case LWS_HPI_RET_WSI_ALREADY_DIED:
 		return 1;
 	case LWS_HPI_RET_HANDLED:
 		break;
-	case LWS_HPI_RET_CLOSE_HANDLED:
+	case LWS_HPI_RET_PLEASE_CLOSE_ME:
 close_and_handled:
 		lwsl_debug("%p: Close and handled\n", wsi);
 		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,

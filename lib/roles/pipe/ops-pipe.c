@@ -37,7 +37,7 @@ rops_handle_POLLIN_pipe(struct lws_context_per_thread *pt, struct lws *wsi,
 	n = read(wsi->desc.sockfd, s, sizeof(s));
 	(void)n;
 	if (n < 0)
-		return LWS_HPI_RET_CLOSE_HANDLED;
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 #endif
 	/*
 	 * the poll() wait, or the event loop for libuv etc is a
@@ -48,7 +48,7 @@ rops_handle_POLLIN_pipe(struct lws_context_per_thread *pt, struct lws *wsi,
 	if (lws_broadcast(wsi->context, LWS_CALLBACK_EVENT_WAIT_CANCELLED,
 			  NULL, 0)) {
 		lwsl_info("closed in event cancel\n");
-		return LWS_HPI_RET_CLOSE_HANDLED;
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
 
 	return LWS_HPI_RET_HANDLED;
@@ -68,7 +68,6 @@ struct lws_role_ops role_ops_pipe = {
 	/* callback_on_writable */	NULL,
 	/* tx_credit */			NULL,
 	/* write_role_protocol */	NULL,
-	/* rxflow_cache */		NULL,
 	/* encapsulation_parent */	NULL,
 	/* alpn_negotiated */		NULL,
 	/* close_via_role_protocol */	NULL,

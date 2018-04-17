@@ -202,7 +202,6 @@ int main(int argc, const char **argv)
 	info.port = CONTEXT_PORT_NO_LISTEN; /* we do not run any server */
 	info.protocols = protocols;
 	info.max_http_header_pool = 20;
-	info.h2_rx_scratch_size = 4096; /* trade h2 stream rx memory for speed */
 
 #if defined(LWS_WITH_MBEDTLS)
 	/*

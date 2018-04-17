@@ -647,9 +647,6 @@ struct lws_role_ops {
 	int (*write_role_protocol)(struct lws *wsi, unsigned char *buf,
 				   size_t len, enum lws_write_protocol *wp);
 
-	/* cache rx due to rx flow control */
-	int (*rxflow_cache)(struct lws *wsi, unsigned char *buf, int n,
-			    int len);
 	/* get encapsulation parent */
 	struct lws * (*encapsulation_parent)(struct lws *wsi);
 
@@ -685,6 +682,11 @@ extern struct lws_role_ops role_ops_h1,       role_ops_h2,   role_ops_raw_skt,
 
 #define lwsi_role_ws(wsi) (wsi->role_ops == &role_ops_ws)
 #define lwsi_role_h1(wsi) (wsi->role_ops == &role_ops_h1)
+#if defined(LWS_ROLE_CGI)
+#define lwsi_role_cgi(wsi) (wsi->role_ops == &role_ops_cgi)
+#else
+#define lwsi_role_cgi(wsi) (0)
+#endif
 #if defined(LWS_ROLE_H2)
 #define lwsi_role_h2(wsi) (wsi->role_ops == &role_ops_h2)
 #else
@@ -697,9 +699,9 @@ enum {
 	LWS_HP_RET_BAIL_DIE,
 	LWS_HP_RET_USER_SERVICE,
 
-	LWS_HPI_RET_DIE,		/* we closed it */
+	LWS_HPI_RET_WSI_ALREADY_DIED,		/* we closed it */
 	LWS_HPI_RET_HANDLED,		/* no probs */
-	LWS_HPI_RET_CLOSE_HANDLED,	/* close it for us */
+	LWS_HPI_RET_PLEASE_CLOSE_ME,	/* close it for us */
 
 	LWS_UPG_RET_DONE,
 	LWS_UPG_RET_CONTINUE,
@@ -913,11 +915,7 @@ struct allocated_headers {
 	 * the actual header data gets dumped as it comes in, into data[]
 	 */
 	uint8_t frag_index[WSI_TOKEN_COUNT];
-#if defined(LWS_WITH_ESP32)
-	uint8_t rx[256];
-#else
-	uint8_t rx[2048];
-#endif
+
 #ifndef LWS_NO_CLIENT
 	char initial_handshake_hash_base64[30];
 #endif
@@ -927,8 +925,6 @@ struct allocated_headers {
 	uint32_t current_token_limit;
 	int hdr_token_idx;
 
-	int16_t rxpos;
-	int16_t rxlen;
 	int16_t lextable_pos;
 
 	uint8_t in_use;
@@ -959,7 +955,7 @@ struct lws_context_per_thread {
 	struct lws *tx_draining_ext_list;
 	struct lws_dll_lws dll_head_timeout;
 	struct lws_dll_lws dll_head_hrtimer;
-	struct lws_dll_lws dll_head_rxflow; /* guys with pending rxflow */
+	struct lws_dll_lws dll_head_buflist; /* guys with pending rxflow */
 #if defined(LWS_WITH_LIBUV) || defined(LWS_WITH_LIBEVENT)
 	struct lws_context *context;
 #endif
@@ -1139,7 +1135,6 @@ struct lws_vhost {
 
 	int listen_port;
 	unsigned int http_proxy_port;
-	unsigned int h2_rx_scratch_size;
 #if defined(LWS_WITH_SOCKS5)
 	unsigned int socks_proxy_port;
 #endif
@@ -1815,7 +1810,6 @@ struct lws_h2_netconn {
 	char goaway_str[32]; /* for rx */
 	struct lws *swsi;
 	struct lws_h2_protocol_send *pps; /* linked list */
-	char *rx_scratch;
 
 	enum http2_hpack_state hpack;
 	enum http2_hpack_type hpack_type;
@@ -1847,9 +1841,6 @@ struct lws_h2_netconn {
 	uint32_t goaway_last_sid;
 	uint32_t goaway_err;
 	uint32_t hpack_hdr_len;
-
-	uint32_t rx_scratch_pos;
-	uint32_t rx_scratch_len;
 
 	uint16_t hpack_pos;
 
@@ -2066,7 +2057,7 @@ struct lws {
 
 	struct lws_dll_lws dll_timeout;
 	struct lws_dll_lws dll_hrtimer;
-	struct lws_dll_lws dll_rxflow; /* guys with pending rxflow */
+	struct lws_dll_lws dll_buflist; /* guys with pending rxflow */
 
 #if defined(LWS_WITH_PEER_LIMITS)
 	struct lws_peer *peer;
@@ -2074,7 +2065,6 @@ struct lws {
 	struct allocated_headers *ah;
 	struct lws *ah_wait_list;
 	struct lws_udp *udp;
-	unsigned char *preamble_rx;
 #ifndef LWS_NO_CLIENT
 	struct client_info_stash *stash;
 	char *client_hostname_copy;
@@ -2085,7 +2075,7 @@ struct lws {
 	void *user_space;
 	void *opaque_parent_data;
 
-	struct lws_buflist *buflist_rxflow;
+	struct lws_buflist *buflist;
 
 	/* truncated send handling */
 	unsigned char *trunc_alloc; /* non-NULL means buffering in progress */
@@ -2125,7 +2115,6 @@ struct lws {
 
 	/* ints */
 	int position_in_fds_table;
-	uint32_t preamble_rx_len;
 	unsigned int trunc_alloc_len; /* size of malloc */
 	unsigned int trunc_offset; /* where we are in terms of spilling */
 	unsigned int trunc_len; /* how much is buffered */
@@ -2485,11 +2474,6 @@ void
 _lws_header_table_reset(struct allocated_headers *ah);
 void
 __lws_header_table_reset(struct lws *wsi, int autoservice);
-
-void
-lws_header_table_force_to_detachable_state(struct lws *wsi);
-int
-lws_header_table_is_in_detachable_state(struct lws *wsi);
 
 LWS_EXTERN char * LWS_WARN_UNUSED_RESULT
 lws_hdr_simple_ptr(struct lws *wsi, enum lws_token_indexes h);
@@ -3006,7 +2990,11 @@ lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len);
 int
 lws_callback_as_writeable(struct lws *wsi);
 int
-lws_read_or_use_preamble(struct lws_context_per_thread *pt, struct lws *wsi);
+lws_buflist_aware_read(struct lws_context_per_thread *pt, struct lws *wsi,
+		       struct lws_tokens *ebuf);
+int
+lws_buflist_aware_consume(struct lws *wsi, struct lws_tokens *ebuf, int used,
+			  int buffered);
 int
 lws_process_ws_upgrade(struct lws *wsi);
 int

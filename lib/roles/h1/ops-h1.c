@@ -117,7 +117,8 @@ lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 
 	case LRS_BODY:
 http_postbody:
-		//lwsl_notice("http post body\n");
+		lwsl_notice("%s: http post body: remain %d\n", __func__,
+			    (int)wsi->http.rx_content_remain);
 		while (len && wsi->http.rx_content_remain) {
 			/* Copy as much as possible, up to the limit of:
 			 * what we have in the read buffer (len)
@@ -178,7 +179,8 @@ postbody_completion:
 			if (!wsi->cgi)
 #endif
 			{
-				lwsl_info("HTTP_BODY_COMPLETION: %p (%s)\n", wsi, wsi->protocol->name);
+				lwsl_info("HTTP_BODY_COMPLETION: %p (%s)\n",
+					  wsi, wsi->protocol->name);
 				n = wsi->protocol->callback(wsi,
 					LWS_CALLBACK_HTTP_BODY_COMPLETION,
 					wsi->user_space, NULL, 0);
@@ -256,8 +258,8 @@ int
 lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
-	struct allocated_headers *ah;
-	int n, len;
+	struct lws_tokens ebuf;
+	int n, buffered;
 
 	if (lwsi_state(wsi) == LRS_DEFERRING_ACTION)
 		goto try_pollout;
@@ -268,11 +270,12 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 		goto try_pollout;
 
 	/*
-	 * If we previously just did POLLIN when IN and OUT were
-	 * signalled (because POLLIN processing may have used up
-	 * the POLLOUT), don't let that happen twice in a row...
-	 * next time we see the situation favour POLLOUT
+	 * If we previously just did POLLIN when IN and OUT were signaled
+	 * (because POLLIN processing may have used up the POLLOUT), don't let
+	 * that happen twice in a row... next time we see the situation favour
+	 * POLLOUT
 	 */
+
 	if (wsi->favoured_pollin &&
 	    (pollfd->revents & pollfd->events & LWS_POLLOUT)) {
 		// lwsl_notice("favouring pollout\n");
@@ -284,6 +287,7 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 	 * We haven't processed that the tunnel is set up yet, so
 	 * defer reading
 	 */
+
 	if (lwsi_state(wsi) == LRS_SSL_ACK_PENDING)
 		return LWS_HPI_RET_HANDLED;
 
@@ -291,158 +295,89 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 
 	if ((lwsi_state(wsi) == LRS_ESTABLISHED ||
 	     lwsi_state(wsi) == LRS_ISSUING_FILE ||
-	     lwsi_state(wsi) == LRS_HEADERS)) {
-		if (!wsi->ah) {
-			/* no autoservice beacuse we will do it next */
-			if (lws_header_table_attach(wsi, 0)) {
-				lwsl_info("wsi %p: ah get fail\n", wsi);
-				goto try_pollout;
-			}
-		}
-		ah = wsi->ah;
-
-		assert(ah->rxpos <= ah->rxlen);
-		/* if nothing in ah rx buffer, get some fresh rx */
-		if (ah->rxpos == ah->rxlen) {
-
-			if (wsi->preamble_rx) {
-				memcpy(ah->rx, wsi->preamble_rx, wsi->preamble_rx_len);
-				lws_free_set_NULL(wsi->preamble_rx);
-				ah->rxlen = wsi->preamble_rx_len;
-				wsi->preamble_rx_len = 0;
-			} else {
-				ah->rxlen = lws_ssl_capable_read(wsi, ah->rx,
-					   sizeof(ah->rx));
-			}
-
-			ah->rxpos = 0;
-			switch (ah->rxlen) {
-			case 0:
-				lwsl_info("%s: read 0 len a\n",
-					   __func__);
-				wsi->seen_zero_length_recv = 1;
-				lws_change_pollfd(wsi, LWS_POLLIN, 0);
-				 goto try_pollout;
-				//goto fail;
-
-			case LWS_SSL_CAPABLE_ERROR:
-				goto fail;
-			case LWS_SSL_CAPABLE_MORE_SERVICE:
-				ah->rxlen = ah->rxpos = 0;
-				goto try_pollout;
-			}
+	     lwsi_state(wsi) == LRS_HEADERS ||
+	     lwsi_state(wsi) == LRS_BODY)) {
+		if (!wsi->ah &&
+		    lws_header_table_attach(wsi, 0)) {
+			lwsl_info("wsi %p: ah get fail\n", wsi);
+			goto try_pollout;
 		}
 
-		if (!(ah->rxpos != ah->rxlen && ah->rxlen)) {
-			lwsl_err("%s: assert: rxpos %d, rxlen %d\n",
-				 __func__, ah->rxpos, ah->rxlen);
+		buffered = lws_buflist_aware_read(pt, wsi, &ebuf);
+		switch (ebuf.len) {
+		case 0:
+			lwsl_info("%s: read 0 len a\n",
+				   __func__);
+			wsi->seen_zero_length_recv = 1;
+			lws_change_pollfd(wsi, LWS_POLLIN, 0);
+			goto try_pollout;
+			//goto fail;
 
-			assert(0);
+		case LWS_SSL_CAPABLE_ERROR:
+			goto fail;
+		case LWS_SSL_CAPABLE_MORE_SERVICE:
+			goto try_pollout;
 		}
 
 		/* just ignore incoming if waiting for close */
-		if (lwsi_state(wsi) == LRS_FLUSHING_BEFORE_CLOSE ||
-		    lwsi_state(wsi) == LRS_ISSUING_FILE)
+		if (lwsi_state(wsi) == LRS_FLUSHING_BEFORE_CLOSE) {
+			lwsl_notice("%s: just ignoring\n", __func__);
 			goto try_pollout;
+		}
+
+		if (lwsi_state(wsi) == LRS_ISSUING_FILE) {
+			// lwsl_notice("stashing: wsi %p: bd %d\n", wsi, buffered);
+			if (lws_buflist_aware_consume(wsi, &ebuf, 0, buffered))
+				return LWS_HPI_RET_PLEASE_CLOSE_ME;
+
+			goto try_pollout;
+		}
 
 		/*
-		 * otherwise give it to whoever wants it
-		 * according to the connection state
+		 * Otherwise give it to whoever wants it according to the
+		 * connection state
 		 */
 #if defined(LWS_ROLE_H2)
 		if (lwsi_role_h2(wsi) && lwsi_state(wsi) != LRS_BODY)
-			n = lws_read_h2(wsi, ah->rx + ah->rxpos,
-					ah->rxlen - ah->rxpos);
+			n = lws_read_h2(wsi, (uint8_t *)ebuf.token, ebuf.len);
 		else
 #endif
-			n = lws_read_h1(wsi, ah->rx + ah->rxpos,
-					ah->rxlen - ah->rxpos);
+			n = lws_read_h1(wsi, (uint8_t *)ebuf.token, ebuf.len);
 		if (n < 0) /* we closed wsi */
-			return LWS_HPI_RET_DIE;
+			return LWS_HPI_RET_WSI_ALREADY_DIED;
 
-		if (!wsi->ah)
-			return LWS_HPI_RET_HANDLED;
-		if (wsi->ah->rxlen)
-			 wsi->ah->rxpos += n;
+		lwsl_debug("%s: consumed %d\n", __func__, n);
 
-		lwsl_debug("%s: wsi %p: ah read rxpos %d, rxlen %d\n",
-			   __func__, wsi, wsi->ah->rxpos,
-			   wsi->ah->rxlen);
+		if (lws_buflist_aware_consume(wsi, &ebuf, n, buffered))
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
-		if (lws_header_table_is_in_detachable_state(wsi) &&
-		    (wsi->role_ops == &role_ops_raw_skt ||
-		     wsi->role_ops == &role_ops_raw_file)) // ???
-			lws_header_table_detach(wsi, 1);
+		/*
+		 * during the parsing our role changed to something non-http,
+		 * so the ah has no further meaning
+		 */
 
-		/* during the parsing we upgraded to ws */
-
-		if (wsi->ah && wsi->ah->rxpos == wsi->ah->rxlen &&
-		    lwsi_role_ws(wsi)) {
-			lwsl_info("%s: %p: dropping ah on ws post-upgrade\n",
-				  __func__, wsi);
-			lws_header_table_force_to_detachable_state(wsi);
+		if (wsi->ah &&
+		    !lwsi_role_h1(wsi) &&
+		    !lwsi_role_h2(wsi) &&
+		    !lwsi_role_cgi(wsi))
 			lws_header_table_detach(wsi, 0);
-		}
-
-		return LWS_HPI_RET_HANDLED;
-	}
-
-	len = lws_read_or_use_preamble(pt, wsi);
-	if (len < 0)
-		goto fail;
-
-	if (!len)
-		goto try_pollout;
-
-	/* just ignore incoming if waiting for close */
-	if (lwsi_state(wsi) != LRS_FLUSHING_BEFORE_CLOSE &&
-	    lwsi_state(wsi) != LRS_ISSUING_FILE) {
-		/*
-		 * this may want to send
-		 * (via HTTP callback for example)
-		 *
-		 * returns number of bytes used
-		 */
-#if defined(LWS_ROLE_H2)
-		if (lwsi_role_h2(wsi) && lwsi_state(wsi) != LRS_BODY)
-			n = lws_read_h2(wsi, pt->serv_buf, len);
-		else
-#endif
-			n = lws_read_h1(wsi, pt->serv_buf, len);
-		if (n < 0) /* we closed wsi */
-			return LWS_HPI_RET_DIE;
-
-		if (n != len) {
-			if (wsi->preamble_rx) {
-				lwsl_err("DISCARDING %d (ah %p)\n", len - n, wsi->ah);
-
-				goto fail;
-			}
-			assert(n < len);
-			wsi->preamble_rx = lws_malloc(len - n, "preamble_rx");
-			if (!wsi->preamble_rx) {
-				lwsl_err("OOM\n");
-				goto fail;
-			}
-			memcpy(wsi->preamble_rx, pt->serv_buf + n, len - n);
-			wsi->preamble_rx_len = (int)len - n;
-			lwsl_debug("stashed %d\n", (int)wsi->preamble_rx_len);
-		}
 
 		/*
-		 *  he may have used up the
-		 * writability above, if we will defer POLLOUT
-		 * processing in favour of POLLIN, note it
+		 * He may have used up the writability above, if we will defer
+		 * POLLOUT processing in favour of POLLIN, note it
 		 */
+
 		if (pollfd->revents & LWS_POLLOUT)
 			wsi->favoured_pollin = 1;
+
 		return LWS_HPI_RET_HANDLED;
 	}
+
 	/*
-	 *  he may have used up the
-	 * writability above, if we will defer POLLOUT
+	 * He may have used up the writability above, if we will defer POLLOUT
 	 * processing in favour of POLLIN, note it
 	 */
+
 	if (pollfd->revents & LWS_POLLOUT)
 		wsi->favoured_pollin = 1;
 
@@ -463,12 +398,8 @@ try_pollout:
 	wsi->could_have_pending = 0;
 
 	if (lwsi_state(wsi) == LRS_DEFERRING_ACTION) {
-		lwsl_debug("%s: LRS_DEFERRING_ACTION now writable\n",
-			   __func__);
+		lwsl_debug("%s: LRS_DEFERRING_ACTION now writable\n", __func__);
 
-		if (wsi->ah)
-			lwsl_debug("     existing ah rxpos %d / rxlen %d\n",
-			   wsi->ah->rxpos, wsi->ah->rxlen);
 		lwsi_set_state(wsi, LRS_ESTABLISHED);
 		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
 			lwsl_info("failed at set pollfd\n");
@@ -496,9 +427,9 @@ try_pollout:
 		}
 #endif
 
-		n = user_callback_handle_rxflow(wsi->protocol->callback,
-				wsi, LWS_CALLBACK_HTTP_WRITEABLE,
-				wsi->user_space, NULL, 0);
+		n = user_callback_handle_rxflow(wsi->protocol->callback, wsi,
+						LWS_CALLBACK_HTTP_WRITEABLE,
+						wsi->user_space, NULL, 0);
 		if (n < 0) {
 			lwsl_info("writeable_fail\n");
 			goto fail;
@@ -523,7 +454,7 @@ try_pollout:
 fail:
 	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "server socket svc fail");
 
-	return LWS_HPI_RET_DIE;
+	return LWS_HPI_RET_WSI_ALREADY_DIED;
 }
 
 static int
@@ -537,7 +468,7 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 #ifdef LWS_WITH_CGI
 	if (wsi->cgi && (pollfd->revents & LWS_POLLOUT)) {
 		if (lws_handle_POLLOUT_event(wsi, pollfd))
-			return LWS_HPI_RET_CLOSE_HANDLED;
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
 		return LWS_HPI_RET_HANDLED;
 	}
@@ -572,7 +503,7 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 			return n;
 		if (lwsi_state(wsi) != LRS_SSL_INIT)
 			if (lws_server_socket_service_ssl(wsi, LWS_SOCK_INVALID))
-				return LWS_HPI_RET_CLOSE_HANDLED;
+				return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
 		return LWS_HPI_RET_HANDLED;
 	}
@@ -606,7 +537,7 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 				wsi, LWS_CALLBACK_RECEIVE_CLIENT_HTTP,
 				wsi->user_space, NULL, 0)) {
 			lwsl_info("RECEIVE_CLIENT_HTTP closed it\n");
-			return LWS_HPI_RET_CLOSE_HANDLED;
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}
 
 		return LWS_HPI_RET_HANDLED;
@@ -620,11 +551,11 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 	if ((pollfd->revents & LWS_POLLOUT) &&
 	    lws_handle_POLLOUT_event(wsi, pollfd)) {
 		lwsl_debug("POLLOUT event closed it\n");
-		return LWS_HPI_RET_CLOSE_HANDLED;
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
 
 	if (lws_client_socket_service(wsi, pollfd, NULL))
-		return LWS_HPI_RET_DIE;
+		return LWS_HPI_RET_WSI_ALREADY_DIED;
 #endif
 
 	return LWS_HPI_RET_HANDLED;
@@ -639,40 +570,6 @@ int rops_handle_POLLOUT_h1(struct lws *wsi)
 		return LWS_HP_RET_USER_SERVICE;
 
 	return LWS_HP_RET_BAIL_OK;
-}
-
-static int
-rops_service_flag_pending_h1(struct lws_context *context, int tsi)
-{
-	struct lws_context_per_thread *pt = &context->pt[tsi];
-	struct allocated_headers *ah;
-	int forced = 0;
-
-	/* POLLIN faking (the pt lock is taken by the parent) */
-
-	/*
-	 * 3) For any wsi who have an ah with pending RX who did not
-	 * complete their current headers, and are not flowcontrolled,
-	 * fake their POLLIN status so they will be able to drain the
-	 * rx buffered in the ah
-	 */
-	ah = pt->ah_list;
-	while (ah) {
-		if ((ah->rxpos != ah->rxlen &&
-		    !ah->wsi->hdr_parsing_completed) || ah->wsi->preamble_rx) {
-			pt->fds[ah->wsi->position_in_fds_table].revents |=
-				pt->fds[ah->wsi->position_in_fds_table].events &
-					LWS_POLLIN;
-			if (pt->fds[ah->wsi->position_in_fds_table].revents &
-			    LWS_POLLIN) {
-				forced = 1;
-				break;
-			}
-		}
-		ah = ah->next;
-	}
-
-	return forced;
 }
 
 static int
@@ -721,14 +618,13 @@ struct lws_role_ops role_ops_h1 = {
 	/* init_context */		NULL,
 	/* init_vhost */		NULL,
 	/* periodic_checks */		NULL,
-	/* service_flag_pending */	rops_service_flag_pending_h1,
+	/* service_flag_pending */	NULL,
 	/* handle_POLLIN */		rops_handle_POLLIN_h1,
 	/* handle_POLLOUT */		rops_handle_POLLOUT_h1,
 	/* perform_user_POLLOUT */	NULL,
 	/* callback_on_writable */	NULL,
 	/* tx_credit */			NULL,
 	/* write_role_protocol */	rops_write_role_protocol_h1,
-	/* rxflow_cache */		NULL,
 	/* encapsulation_parent */	NULL,
 	/* alpn_negotiated */		rops_alpn_negotiated_h1,
 	/* close_via_role_protocol */	NULL,

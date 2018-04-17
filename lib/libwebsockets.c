@@ -93,15 +93,13 @@ __lws_free_wsi(struct lws *wsi)
 	    wsi->user_space && !wsi->user_space_externally_allocated)
 		lws_free(wsi->user_space);
 
-	lws_buflist_destroy_all_segments(&wsi->buflist_rxflow);
+	lws_buflist_destroy_all_segments(&wsi->buflist);
 	lws_free_set_NULL(wsi->trunc_alloc);
 	lws_free_set_NULL(wsi->ws);
 	lws_free_set_NULL(wsi->udp);
 
 	/* we may not have an ah, but may be on the waiting list... */
 	lwsl_info("ah det due to close\n");
-	/* we're closing, losing some rx is OK */
-	lws_header_table_force_to_detachable_state(wsi);
 	__lws_header_table_detach(wsi, 0);
 
 	if (wsi->vhost && wsi->vhost->lserv_wsi == wsi)
@@ -536,7 +534,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 	struct lws_context_per_thread *pt;
 	struct lws *wsi1, *wsi2;
 	struct lws_context *context;
-	struct lws_tokens eff_buf;
+	struct lws_tokens ebuf;
 	int n, m;
 
 	lwsl_info("%s: %p: caller: %s\n", __func__, wsi, caller);
@@ -545,9 +543,6 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 		return;
 
 	lws_access_log(wsi);
-
-	/* we're closing, losing some rx is OK */
-	lws_header_table_force_to_detachable_state(wsi);
 
 	context = wsi->context;
 	pt = &context->pt[(int)wsi->tsi];
@@ -706,13 +701,13 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 	 * if there are problems with send, just nuke the connection
 	 */
 	do {
-		eff_buf.token = NULL;
-		eff_buf.token_len = 0;
+		ebuf.token = NULL;
+		ebuf.len = 0;
 
 		/* show every extension the new incoming data */
 
 		m = lws_ext_cb_active(wsi,
-			  LWS_EXT_CB_FLUSH_PENDING_TX, &eff_buf, 0);
+			  LWS_EXT_CB_FLUSH_PENDING_TX, &ebuf, 0);
 		if (m < 0) {
 			lwsl_ext("Extension reports fatal error\n");
 			goto just_kill_connection;
@@ -720,10 +715,10 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 
 		/* assuming they left us something to send, send it */
 
-		if (eff_buf.token_len)
-			if (lws_issue_raw(wsi, (unsigned char *)eff_buf.token,
-					  eff_buf.token_len) !=
-			    eff_buf.token_len) {
+		if (ebuf.len)
+			if (lws_issue_raw(wsi, (unsigned char *)ebuf.token,
+					  ebuf.len) !=
+			    ebuf.len) {
 				lwsl_debug("close: ext spill failed\n");
 				goto just_kill_connection;
 			}
@@ -856,8 +851,8 @@ just_kill_connection:
 		lws_same_vh_protocol_remove(wsi);
 
 	lwsi_set_state(wsi, LRS_DEAD_SOCKET);
-	lws_buflist_destroy_all_segments(&wsi->buflist_rxflow);
-	lws_dll_lws_remove(&wsi->dll_rxflow);
+	lws_buflist_destroy_all_segments(&wsi->buflist);
+	lws_dll_lws_remove(&wsi->dll_buflist);
 
 	if (wsi->role_ops->close_role)
 	    wsi->role_ops->close_role(pt, wsi);
@@ -963,7 +958,8 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *ca
 /* lws_buflist */
 
 int
-lws_buflist_append_segment(struct lws_buflist **head, uint8_t *buf, size_t len)
+lws_buflist_append_segment(struct lws_buflist **head, const uint8_t *buf,
+			   size_t len)
 {
 	int first = !*head;
 	void *p = *head;
@@ -1064,6 +1060,24 @@ lws_buflist_use_segment(struct lws_buflist **head, size_t len)
 		return 0;
 
 	return (int)((*head)->len - (*head)->pos);
+}
+
+void
+lws_buflist_describe(struct lws_buflist **head, void *id)
+{
+	int n = 0;
+
+	if (*head == NULL)
+		lwsl_notice("%p: buflist empty\n", id);
+
+	while (*head) {
+		lwsl_notice("%p: %d: %llu / %llu (%llu left)\n", id, n,
+			    (unsigned long long)(*head)->pos,
+			    (unsigned long long)(*head)->len,
+			    (unsigned long long)(*head)->len - (*head)->pos);
+		head = &((*head)->next);
+		n++;
+	}
 }
 
 /* ... */
@@ -2242,7 +2256,7 @@ __lws_rx_flow_control(struct lws *wsi)
 		return 0;
 
 	/* stuff is still buffered, not ready to really accept new input */
-	if (lws_buflist_next_segment_len(&wsi->buflist_rxflow, NULL)) {
+	if (lws_buflist_next_segment_len(&wsi->buflist, NULL)) {
 		/* get ourselves called back to deal with stashed buffer */
 		lws_callback_on_writable(wsi);
 		return 0;

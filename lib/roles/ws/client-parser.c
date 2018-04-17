@@ -31,13 +31,13 @@ int lws_client_rx_sm(struct lws *wsi, unsigned char c)
 	int callback_action = LWS_CALLBACK_CLIENT_RECEIVE;
 	int handled, n, m, rx_draining_ext = 0;
 	unsigned short close_code;
-	struct lws_tokens eff_buf;
+	struct lws_tokens ebuf;
 	unsigned char *pp;
 
 	if (wsi->ws->rx_draining_ext) {
 		assert(!c);
-		eff_buf.token = NULL;
-		eff_buf.token_len = 0;
+		ebuf.token = NULL;
+		ebuf.len = 0;
 		lws_remove_wsi_from_draining_ext_list(wsi);
 		rx_draining_ext = 1;
 		lwsl_debug("%s: doing draining flow\n", __func__);
@@ -476,12 +476,12 @@ ping_drop:
 			 * state machine.
 			 */
 
-			eff_buf.token = &wsi->ws->rx_ubuf[LWS_PRE];
-			eff_buf.token_len = wsi->ws->rx_ubuf_head;
+			ebuf.token = &wsi->ws->rx_ubuf[LWS_PRE];
+			ebuf.len = wsi->ws->rx_ubuf_head;
 
 			if (lws_ext_cb_active(wsi,
 				LWS_EXT_CB_EXTENDED_PAYLOAD_RX,
-					&eff_buf, 0) <= 0) {
+					&ebuf, 0) <= 0) {
 				/* not handled or failed */
 				lwsl_ext("Unhandled ext opc 0x%x\n",
 					 wsi->ws->opcode);
@@ -501,17 +501,17 @@ ping_drop:
 		if (handled)
 			goto already_done;
 
-		eff_buf.token = &wsi->ws->rx_ubuf[LWS_PRE];
-		eff_buf.token_len = wsi->ws->rx_ubuf_head;
+		ebuf.token = &wsi->ws->rx_ubuf[LWS_PRE];
+		ebuf.len = wsi->ws->rx_ubuf_head;
 
-		if (wsi->ws->opcode == LWSWSOPC_PONG && !eff_buf.token_len)
+		if (wsi->ws->opcode == LWSWSOPC_PONG && !ebuf.len)
 			goto already_done;
 
 drain_extension:
 #if !defined(LWS_WITHOUT_EXTENSIONS)
-		lwsl_ext("%s: passing %d to ext\n", __func__, eff_buf.token_len);
+		lwsl_ext("%s: passing %d to ext\n", __func__, ebuf.len);
 
-		n = lws_ext_cb_active(wsi, LWS_EXT_CB_PAYLOAD_RX, &eff_buf, 0);
+		n = lws_ext_cb_active(wsi, LWS_EXT_CB_PAYLOAD_RX, &ebuf, 0);
 		lwsl_ext("Ext RX returned %d\n", n);
 		if (n < 0) {
 			wsi->socket_is_permanently_unusable = 1;
@@ -520,17 +520,17 @@ drain_extension:
 #else
 		n = 0;
 #endif
-		lwsl_ext("post inflate eff_buf len %d\n", eff_buf.token_len);
+		lwsl_ext("post inflate ebuf len %d\n", ebuf.len);
 
-		if (rx_draining_ext && !eff_buf.token_len) {
+		if (rx_draining_ext && !ebuf.len) {
 			lwsl_debug("   --- ending drain on 0 read result\n");
 			goto already_done;
 		}
 
 		if (wsi->ws->check_utf8 && !wsi->ws->defeat_check_utf8) {
 			if (lws_check_utf8(&wsi->ws->utf8,
-					   (unsigned char *)eff_buf.token,
-					   eff_buf.token_len))
+					   (unsigned char *)ebuf.token,
+					   ebuf.len))
 				goto utf8_fail;
 
 			/* we are ending partway through utf-8 character? */
@@ -543,14 +543,14 @@ utf8_fail:
 			}
 		}
 
-		if (eff_buf.token_len < 0 &&
+		if (ebuf.len < 0 &&
 		    callback_action != LWS_CALLBACK_CLIENT_RECEIVE_PONG)
 			goto already_done;
 
-		if (!eff_buf.token)
+		if (!ebuf.token)
 			goto already_done;
 
-		eff_buf.token[eff_buf.token_len] = '\0';
+		ebuf.token[ebuf.len] = '\0';
 
 		if (!wsi->protocol->callback)
 			goto already_done;
@@ -563,7 +563,7 @@ utf8_fail:
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 				n &&
 #endif
-				eff_buf.token_len)
+				ebuf.len)
 			/* extension had more... main loop will come back
 			 * we want callback to be done with this set, if so,
 			 * because lws_is_final() hides it was final until the
@@ -580,7 +580,7 @@ utf8_fail:
 
 		m = wsi->protocol->callback(wsi,
 			(enum lws_callback_reasons)callback_action,
-			wsi->user_space, eff_buf.token, eff_buf.token_len);
+			wsi->user_space, ebuf.token, ebuf.len);
 
 		/* if user code wants to close, let caller know */
 		if (m)

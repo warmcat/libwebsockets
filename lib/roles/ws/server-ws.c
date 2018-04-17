@@ -387,8 +387,6 @@ lws_process_ws_upgrade(struct lws *wsi)
 	 * ah rx buffer.
 	 */
 
-	lwsl_debug("%s: %p: inheriting ws ah (rxpos:%d, rxlen:%d)\n",
-		  __func__, wsi, wsi->ah->rxpos, wsi->ah->rxlen);
 	lws_pt_lock(pt, __func__);
 
 	if (wsi->h2_stream_carries_ws)
@@ -397,24 +395,14 @@ lws_process_ws_upgrade(struct lws *wsi)
 	else
 		lws_role_transition(wsi, LWSIFR_SERVER, LRS_ESTABLISHED,
 				    &role_ops_ws);
-	/*
-	 * Because rxpos/rxlen shows something in the ah, we will get
-	 * service guaranteed next time around the event loop
-	 */
 
 	lws_pt_unlock(pt);
 
 	lws_server_init_wsi_for_ws(wsi);
 	lwsl_parser("accepted v%02d connection\n", wsi->ws->ietf_spec_revision);
 
-	/* !!! drop ah unreservedly after ESTABLISHED */
-	if (wsi->ah->rxpos == wsi->ah->rxlen) {
-		lwsl_info("%s: %p: dropping ah on ws upgrade\n", __func__, wsi);
-		lws_header_table_force_to_detachable_state(wsi);
-		lws_header_table_detach(wsi, 1);
-	} else
-		lwsl_info("%s: %p: unable to drop ah at ws upgrade %d vs %d\n",
-			    __func__, wsi, wsi->ah->rxpos, wsi->ah->rxlen);
+	lwsl_info("%s: %p: dropping ah on ws upgrade\n", __func__, wsi);
+	lws_header_table_detach(wsi, 1);
 
 	return 0;
 }
@@ -560,7 +548,7 @@ lws_interpret_incoming_packet(struct lws *wsi, unsigned char **buf, size_t len)
 {
 	int m, draining_flow = 0;
 
-	if (lws_buflist_next_segment_len(&wsi->buflist_rxflow, NULL))
+	if (lws_buflist_next_segment_len(&wsi->buflist, NULL))
 		draining_flow = 1;
 
 	lwsl_parser("%s: received %d byte packet\n", __func__, (int)len);
@@ -590,8 +578,8 @@ lws_interpret_incoming_packet(struct lws *wsi, unsigned char **buf, size_t len)
 		    LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED) {
 			m = lws_payload_until_length_exhausted(wsi, buf, &len);
 			if (draining_flow &&
-			    !lws_buflist_use_segment(&wsi->buflist_rxflow, m))
-				lws_dll_lws_remove(&wsi->dll_rxflow);
+			    !lws_buflist_use_segment(&wsi->buflist, m))
+				lws_dll_lws_remove(&wsi->dll_buflist);
 		}
 
 		/* process the byte */
@@ -602,8 +590,8 @@ lws_interpret_incoming_packet(struct lws *wsi, unsigned char **buf, size_t len)
 
 		/* account for what we're using in rxflow buffer */
 		if (draining_flow &&
-		    !lws_buflist_use_segment(&wsi->buflist_rxflow, 1)) {
-				lws_dll_lws_remove(&wsi->dll_rxflow);
+		    !lws_buflist_use_segment(&wsi->buflist, 1)) {
+				lws_dll_lws_remove(&wsi->dll_buflist);
 
 			lwsl_debug("%s: %p flow buf: drained\n", __func__, wsi);
 

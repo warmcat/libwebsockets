@@ -111,30 +111,19 @@ __lws_header_table_reset(struct lws *wsi, int autoservice)
 
 	time(&ah->assigned);
 
-	/*
-	 * if we inherited pending rx (from socket adoption deferred
-	 * processing), apply and free it.
-	 */
-	if (wsi->preamble_rx) {
-		memcpy(ah->rx, wsi->preamble_rx, wsi->preamble_rx_len);
-		ah->rxlen = wsi->preamble_rx_len;
-		lws_free_set_NULL(wsi->preamble_rx);
-		wsi->preamble_rx_len = 0;
-		ah->rxpos = 0;
+	if (lws_buflist_next_segment_len(&wsi->buflist, NULL) &&
+	    autoservice) {
+		lwsl_debug("%s: service on readbuf ah\n", __func__);
 
-		if (autoservice) {
-			lwsl_debug("%s: service on readbuf ah\n", __func__);
-
-			pt = &wsi->context->pt[(int)wsi->tsi];
-			/*
-			 * Unlike a normal connect, we have the headers already
-			 * (or the first part of them anyway)
-			 */
-			pfd = &pt->fds[wsi->position_in_fds_table];
-			pfd->revents |= LWS_POLLIN;
-			lwsl_err("%s: calling service\n", __func__);
-			lws_service_fd_tsi(wsi->context, pfd, wsi->tsi);
-		}
+		pt = &wsi->context->pt[(int)wsi->tsi];
+		/*
+		 * Unlike a normal connect, we have the headers already
+		 * (or the first part of them anyway)
+		 */
+		pfd = &pt->fds[wsi->position_in_fds_table];
+		pfd->revents |= LWS_POLLIN;
+		lwsl_err("%s: calling service\n", __func__);
+		lws_service_fd_tsi(wsi->context, pfd, wsi->tsi);
 	}
 }
 
@@ -262,11 +251,6 @@ lws_header_table_attach(struct lws *wsi, int autoservice)
 		  (void *)wsi, (void *)wsi->ah, pt->ah_count_in_use);
 
 reset:
-
-	/* and reset the rx state */
-	wsi->ah->rxpos = 0;
-	wsi->ah->rxlen = 0;
-
 	__lws_header_table_reset(wsi, autoservice);
 
 	lws_pt_unlock(pt);
@@ -288,24 +272,6 @@ bail:
 	return 1;
 }
 
-void
-lws_header_table_force_to_detachable_state(struct lws *wsi)
-{
-	if (wsi->ah) {
-		wsi->ah->rxpos = -1;
-		wsi->ah->rxlen = -1;
-		wsi->hdr_parsing_completed = 1;
-	}
-}
-
-int
-lws_header_table_is_in_detachable_state(struct lws *wsi)
-{
-	struct allocated_headers *ah = wsi->ah;
-
-	return ah && ah->rxpos == ah->rxlen && wsi->hdr_parsing_completed;
-}
-
 int __lws_header_table_detach(struct lws *wsi, int autoservice)
 {
 	struct lws_context *context = wsi->context;
@@ -324,19 +290,6 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 		  (void *)wsi, (void *)ah, wsi->tsi,
 		  pt->ah_count_in_use);
 
-	if (wsi->preamble_rx) {
-		lws_free_set_NULL(wsi->preamble_rx);
-		wsi->preamble_rx_len = 0;
-	}
-
-	/* may not be detached while he still has unprocessed rx */
-	if (!lws_header_table_is_in_detachable_state(wsi)) {
-		lwsl_err("%s: %p: CANNOT DETACH rxpos:%d, rxlen:%d, "
-			 "wsi->hdr_parsing_completed = %d\n", __func__, wsi,
-			 ah->rxpos, ah->rxlen, wsi->hdr_parsing_completed);
-		return 0;
-	}
-
 	/* we did have an ah attached */
 	time(&now);
 	if (ah->assigned && now - ah->assigned > 3) {
@@ -344,11 +297,10 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 		 * we're detaching the ah, but it was held an
 		 * unreasonably long time
 		 */
-		lwsl_debug("%s: wsi %p: ah held %ds, "
-			    "ah.rxpos %d, ah.rxlen %d, role/state 0x%x 0x%x,"
+		lwsl_debug("%s: wsi %p: ah held %ds, role/state 0x%x 0x%x,"
 			    "\n", __func__, wsi,
 			    (int)(now - ah->assigned),
-			    ah->rxpos, ah->rxlen, lwsi_role(wsi), lwsi_state(wsi));
+			    lwsi_role(wsi), lwsi_state(wsi));
 	}
 
 	ah->assigned = 0;
@@ -403,9 +355,6 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 	wsi->ah = ah;
 	ah->wsi = wsi; /* new owner */
 
-	/* and reset the rx state */
-	ah->rxpos = 0;
-	ah->rxlen = 0;
 	__lws_header_table_reset(wsi, autoservice);
 #if defined(LWS_WITH_PEER_LIMITS)
 	if (wsi->peer)

@@ -40,7 +40,7 @@ rops_handle_POLLIN_cgi(struct lws_context_per_thread *pt, struct lws *wsi,
 	if (wsi->cgi_channel == LWS_STDIN &&
 	    lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
 		lwsl_info("failed at set pollfd\n");
-		return LWS_HPI_RET_DIE;
+		return LWS_HPI_RET_WSI_ALREADY_DIED;
 	}
 
 	args.ch = wsi->cgi_channel;
@@ -89,7 +89,6 @@ struct lws_role_ops role_ops_cgi = {
 	/* callback_on_writable */	NULL,
 	/* tx_credit */			NULL,
 	/* write_role_protocol */	NULL,
-	/* rxflow_cache */		NULL,
 	/* encapsulation_parent */	NULL,
 	/* alpn_negotiated */		NULL,
 	/* close_via_role_protocol */	NULL,

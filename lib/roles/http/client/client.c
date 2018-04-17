@@ -35,24 +35,16 @@ struct lws *
 lws_client_wsi_effective(struct lws *wsi)
 {
 	struct lws *wsi_eff = wsi;
+	struct lws_dll_lws *d;
 
 	if (!wsi->transaction_from_pipeline_queue ||
 	    !wsi->dll_client_transaction_queue_head.next)
 		return wsi;
 
-	/*
-	 * The head is the last queued transaction... so
-	 * the guy we are fulfilling here is the tail
-	 */
-
-	lws_vhost_lock(wsi->vhost);
-	lws_start_foreach_dll_safe(struct lws_dll_lws *, d, d1,
-				   wsi->dll_client_transaction_queue_head.next) {
-		if (d->next == NULL)
-			wsi_eff = lws_container_of(d, struct lws,
+	d = wsi->dll_client_transaction_queue_head.next;
+	if (d)
+		wsi_eff = lws_container_of(d, struct lws,
 					dll_client_transaction_queue);
-	} lws_end_foreach_dll_safe(d, d1);
-	lws_vhost_unlock(wsi->vhost);
 
 	return wsi_eff;
 }
@@ -103,6 +95,7 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 	if ((pollfd->revents & LWS_POLLOUT) &&
 	     wsi->keepalive_active &&
 	     wsi->dll_client_transaction_queue_head.next) {
+		int found = 0;
 
 		lwsl_debug("%s: pollout HANDSHAKE2\n", __func__);
 
@@ -113,6 +106,7 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 			struct lws *w = lws_container_of(d, struct lws,
 						  dll_client_transaction_queue);
 
+			lwsl_notice("%s: %p states 0x%x\n", __func__, w, w->wsistate);
 			if (lwsi_state(w) == LRS_H1C_ISSUE_HANDSHAKE2) {
 				/*
 				 * pollfd has the master sockfd in it... we
@@ -121,10 +115,14 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 				 */
 				lws_client_socket_service(w, pollfd, wsi);
 				lws_callback_on_writable(wsi);
+				found = 1;
 				break;
 			}
 		} lws_end_foreach_dll_safe(d, d1);
 		lws_vhost_unlock(wsi->vhost);
+
+		if (!found)
+			lwsl_err("%s: didn't find anything in HS2\n", __func__);
 
 		return 0;
 	}
@@ -375,7 +373,7 @@ start_ws_handshake:
 		lws_latency_pre(context, wsi);
 
 		w = lws_client_wsi_master(wsi);
-		lwsl_debug("%s: HANDSHAKE2: %p: sending headers on %p (wsistate 0x%x 0x%x)\n",
+		lwsl_info("%s: HANDSHAKE2: %p: sending headers on %p (wsistate 0x%x 0x%x)\n",
 				__func__, wsi, w, wsi->wsistate, w->wsistate);
 
 		n = lws_ssl_capable_write(w, (unsigned char *)sb, (int)(p - sb));
@@ -908,11 +906,9 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		 * queued on him can drop it now though.
 		 */
 
-		if (w != wsi) {
+		if (w != wsi)
 			/* free up parsing allocations for queued guy */
-			lws_header_table_force_to_detachable_state(w);
 			lws_header_table_detach(w, 0);
-		}
 
 		lwsl_info("%s: client connection up\n", __func__);
 
@@ -992,7 +988,6 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 					      wsi->user_space, NULL, 0))
 			return NULL;
 
-		lws_header_table_force_to_detachable_state(wsi);
 		lws_role_transition(wsi, 0, LRS_ESTABLISHED, &role_ops_raw_skt);
 		lws_header_table_detach(wsi, 1);
 

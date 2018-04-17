@@ -551,9 +551,6 @@ send_hs:
 	return wsi;
 
 oom4:
-	/* we're closing, losing some rx is OK */
-	lws_header_table_force_to_detachable_state(wsi);
-
 	if (lwsi_role_client(wsi) && lwsi_state_est(wsi)) {
 		wsi->protocol->callback(wsi,
 			LWS_CALLBACK_CLIENT_CONNECTION_ERROR,

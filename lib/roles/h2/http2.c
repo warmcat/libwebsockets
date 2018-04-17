@@ -1715,7 +1715,7 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 
 			case LWS_H2_FRAME_TYPE_DATA:
 
-				// lwsl_notice("%s: LWS_H2_FRAME_TYPE_DATA\n", __func__);
+				lwsl_notice("%s: LWS_H2_FRAME_TYPE_DATA\n", __func__);
 
 				/* let the network wsi live a bit longer if subs are active...
 				 * our frame may take a long time to chew through */
@@ -1724,6 +1724,9 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 
 				if (!h2n->swsi)
 					break;
+
+				if (lws_buflist_next_segment_len(&h2n->swsi->buflist, NULL))
+					lwsl_err("%s: substream has pending !!!\n", __func__);
 
 				if (lwsi_role_http(h2n->swsi) &&
 				    lwsi_state(h2n->swsi) == LRS_ESTABLISHED) {
@@ -1774,15 +1777,16 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 				} else {
 
 					if (lwsi_state(h2n->swsi) == LRS_DEFERRING_ACTION) {
+						lwsl_notice("appending because we are in LRS_DEFERRING_ACTION\n");
 						m = lws_buflist_append_segment(
-							&h2n->swsi->buflist_rxflow,
+							&h2n->swsi->buflist,
 								in - 1, n);
 						if (m < 0)
 							return -1;
 						if (m) {
 							struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 							lwsl_debug("%s: added %p to rxflow list\n", __func__, wsi);
-							lws_dll_lws_add_front(&h2n->swsi->dll_rxflow, &pt->dll_head_rxflow);
+							lws_dll_lws_add_front(&h2n->swsi->dll_buflist, &pt->dll_head_buflist);
 						}
 						in += n - 1;
 						h2n->inside += n;
@@ -1801,13 +1805,14 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 					 */
 
 					n = lws_read_h1(h2n->swsi, in - 1, n);
+					lwsl_notice("%s: lws_read_h1 %d\n", __func__, n);
 					h2n->swsi->outer_will_close = 0;
 					/*
 					 * can return 0 in POST body with
 					 * content len exhausted somehow.
 					 */
 					if (n < 0 ||
-					    (!n && !lws_buflist_next_segment_len(&wsi->buflist_rxflow, NULL))) {
+					    (!n && !lws_buflist_next_segment_len(&wsi->buflist, NULL))) {
 						lwsl_info("%s: lws_read_h1 told %d %d / %d\n",
 							__func__, n, h2n->count, h2n->length);
 						in += h2n->length - h2n->count;

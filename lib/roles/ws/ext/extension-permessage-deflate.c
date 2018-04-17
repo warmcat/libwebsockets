@@ -72,7 +72,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 {
 	struct lws_ext_pm_deflate_priv *priv =
 				     (struct lws_ext_pm_deflate_priv *)user;
-	struct lws_tokens *eff_buf = (struct lws_tokens *)in;
+	struct lws_tokens *ebuf = (struct lws_tokens *)in;
 	static unsigned char trail[] = { 0, 0, 0xff, 0xff };
 	int n, ret = 0, was_fin = 0, extra;
 	struct lws_ext_option_arg *oa;
@@ -175,13 +175,13 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 
 	case LWS_EXT_CB_PAYLOAD_RX:
 		lwsl_ext(" %s: LWS_EXT_CB_PAYLOAD_RX: in %d, existing in %d\n",
-			 __func__, eff_buf->token_len, priv->rx.avail_in);
+			 __func__, ebuf->len, priv->rx.avail_in);
 		if (!(wsi->ws->rsv_first_msg & 0x40))
 			return 0;
 
 #if 0
-		for (n = 0; n < eff_buf->token_len; n++) {
-			printf("%02X ", (unsigned char)eff_buf->token[n]);
+		for (n = 0; n < ebuf->len; n++) {
+			printf("%02X ", (unsigned char)ebuf->token[n]);
 			if ((n & 15) == 15)
 				printf("\n");
 		}
@@ -209,13 +209,13 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		 * rx buffer by the caller, so this assumption is safe while
 		 * we block new rx while draining the existing rx
 		 */
-		if (!priv->rx.avail_in && eff_buf->token &&
-		    eff_buf->token_len) {
-			priv->rx.next_in = (unsigned char *)eff_buf->token;
-			priv->rx.avail_in = eff_buf->token_len;
+		if (!priv->rx.avail_in && ebuf->token &&
+		    ebuf->len) {
+			priv->rx.next_in = (unsigned char *)ebuf->token;
+			priv->rx.avail_in = ebuf->len;
 		}
 		priv->rx.next_out = priv->buf_rx_inflated + LWS_PRE;
-		eff_buf->token = (char *)priv->rx.next_out;
+		ebuf->token = (char *)priv->rx.next_out;
 		priv->rx.avail_out = 1 << priv->args[PMD_RX_BUF_PWR2];
 
 		if (priv->rx_held_valid) {
@@ -307,13 +307,13 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 			priv->rx_held_valid = 1;
 		}
 
-		eff_buf->token_len = lws_ptr_diff(priv->rx.next_out,
-						  eff_buf->token);
-		priv->count_rx_between_fin += eff_buf->token_len;
+		ebuf->len = lws_ptr_diff(priv->rx.next_out,
+						  ebuf->token);
+		priv->count_rx_between_fin += ebuf->len;
 
 		lwsl_ext("  %s: RX leaving with new effbuff len %d, "
 			 "ret %d, rx.avail_in=%d, TOTAL RX since FIN %lu\n",
-			 __func__, eff_buf->token_len, priv->rx_held_valid,
+			 __func__, ebuf->len, priv->rx_held_valid,
 			 priv->rx.avail_in,
 			 (unsigned long)priv->count_rx_between_fin);
 
@@ -325,8 +325,8 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 			}
 		}
 #if 0
-		for (n = 0; n < eff_buf->token_len; n++)
-			putchar(eff_buf->token[n]);
+		for (n = 0; n < ebuf->len; n++)
+			putchar(ebuf->token[n]);
 		puts("\n");
 #endif
 
@@ -356,16 +356,16 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 			return -1;
 		}
 
-		if (eff_buf->token) {
-			lwsl_ext("%s: TX: eff_buf length %d\n", __func__,
-				 eff_buf->token_len);
-			priv->tx.next_in = (unsigned char *)eff_buf->token;
-			priv->tx.avail_in = eff_buf->token_len;
+		if (ebuf->token) {
+			lwsl_ext("%s: TX: ebuf length %d\n", __func__,
+				 ebuf->len);
+			priv->tx.next_in = (unsigned char *)ebuf->token;
+			priv->tx.avail_in = ebuf->len;
 		}
 
 #if 0
-		for (n = 0; n < eff_buf->token_len; n++) {
-			printf("%02X ", (unsigned char)eff_buf->token[n]);
+		for (n = 0; n < ebuf->len; n++) {
+			printf("%02X ", (unsigned char)ebuf->token[n]);
 			if ((n & 15) == 15)
 				printf("\n");
 		}
@@ -373,7 +373,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 #endif
 
 		priv->tx.next_out = priv->buf_tx_deflated + LWS_PRE + 5;
-		eff_buf->token = (char *)priv->tx.next_out;
+		ebuf->token = (char *)priv->tx.next_out;
 		priv->tx.avail_out = 1 << priv->args[PMD_TX_BUF_PWR2];
 
 		n = deflate(&priv->tx, Z_SYNC_FLUSH);
@@ -395,18 +395,18 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 				 * place the pending trailer 00 00 FF FF, just
 				 * the 1 byte of live data
 				 */
-				*(--eff_buf->token) = priv->tx_held[0];
+				*(--ebuf->token) = priv->tx_held[0];
 			else {
 				/* he generated data, prepend whole pending */
-				eff_buf->token -= 5;
+				ebuf->token -= 5;
 				for (n = 0; n < 5; n++)
-					eff_buf->token[n] = priv->tx_held[n];
+					ebuf->token[n] = priv->tx_held[n];
 
 			}
 		}
 		priv->compressed_out = 1;
-		eff_buf->token_len = lws_ptr_diff(priv->tx.next_out,
-						  eff_buf->token);
+		ebuf->len = lws_ptr_diff(priv->tx.next_out,
+						  ebuf->token);
 
 		/*
 		 * we must announce in our returncode now if there is more
@@ -431,15 +431,15 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 
 		extra = !!(len & LWS_WRITE_NO_FIN) || !priv->tx.avail_out;
 
-		if (eff_buf->token_len >= 4 + extra) {
+		if (ebuf->len >= 4 + extra) {
 			lwsl_ext("tx held %d\n", 4 + extra);
 			priv->tx_held_valid = extra;
 			for (n = 3 + extra; n >= 0; n--)
 				priv->tx_held[n] = *(--priv->tx.next_out);
-			eff_buf->token_len -= 4 + extra;
+			ebuf->len -= 4 + extra;
 		}
 		lwsl_ext("  TX rewritten with new effbuff len %d, ret %d\n",
-			 eff_buf->token_len, !priv->tx.avail_out);
+			 ebuf->len, !priv->tx.avail_out);
 
 		return !priv->tx.avail_out; /* 1 == have more tx pending */
 
@@ -448,27 +448,27 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 			break;
 		priv->compressed_out = 0;
 
-		if ((*(eff_buf->token) & 0x80) &&
+		if ((*(ebuf->token) & 0x80) &&
 		    priv->args[PMD_CLIENT_NO_CONTEXT_TAKEOVER]) {
 			lwsl_debug("PMD_CLIENT_NO_CONTEXT_TAKEOVER\n");
 			(void)deflateEnd(&priv->tx);
 			priv->tx_init = 0;
 		}
 
-		n = *(eff_buf->token) & 15;
+		n = *(ebuf->token) & 15;
 		/* set RSV1, but not on CONTINUATION */
 		if (n == LWSWSOPC_TEXT_FRAME || n == LWSWSOPC_BINARY_FRAME)
-			*eff_buf->token |= 0x40;
+			*ebuf->token |= 0x40;
 #if 0
-		for (n = 0; n < eff_buf->token_len; n++) {
-			printf("%02X ", (unsigned char)eff_buf->token[n]);
+		for (n = 0; n < ebuf->len; n++) {
+			printf("%02X ", (unsigned char)ebuf->token[n]);
 			if ((n & 15) == 15)
 				puts("\n");
 		}
 		puts("\n");
 #endif
 		lwsl_ext("%s: tx opcode 0x%02X\n", __func__,
-			 (unsigned char)*eff_buf->token);
+			 (unsigned char)*ebuf->token);
 		break;
 
 	default:

@@ -437,6 +437,7 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
                 break;
 
 	case LWS_CALLBACK_HTTP_BODY:
+		lwsl_info("LWS_CALLBACK_HTTP_BODY: len %d\n", (int)len);
 		/* create the POST argument parser if not already existing */
 		if (!pss->spa) {
 			pss->spa = lws_spa_create(wsi, param_names,

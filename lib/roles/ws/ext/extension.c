@@ -214,11 +214,11 @@ int lws_ext_cb_all_exts(struct lws_context *context, struct lws *wsi,
 int
 lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len)
 {
-	struct lws_tokens eff_buf;
+	struct lws_tokens ebuf;
 	int ret, m, n = 0;
 
-	eff_buf.token = (char *)buf;
-	eff_buf.token_len = (int)len;
+	ebuf.token = (char *)buf;
+	ebuf.len = (int)len;
 
 	/*
 	 * while we have original buf to spill ourselves, or extensions report
@@ -234,13 +234,13 @@ lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len)
 
 		/* show every extension the new incoming data */
 		m = lws_ext_cb_active(wsi,
-			       LWS_EXT_CB_PACKET_TX_PRESEND, &eff_buf, 0);
+			       LWS_EXT_CB_PACKET_TX_PRESEND, &ebuf, 0);
 		if (m < 0)
 			return -1;
 		if (m) /* handled */
 			ret = 1;
 
-		if ((char *)buf != eff_buf.token)
+		if ((char *)buf != ebuf.token)
 			/*
 			 * extension recreated it:
 			 * need to buffer this if not all sent
@@ -249,9 +249,9 @@ lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len)
 
 		/* assuming they left us something to send, send it */
 
-		if (eff_buf.token_len) {
-			n = lws_issue_raw(wsi, (unsigned char *)eff_buf.token,
-							    eff_buf.token_len);
+		if (ebuf.len) {
+			n = lws_issue_raw(wsi, (unsigned char *)ebuf.token,
+							    ebuf.len);
 			if (n < 0) {
 				lwsl_info("closing from ext access\n");
 				return -1;
@@ -271,8 +271,8 @@ lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len)
 
 		/* we used up what we had */
 
-		eff_buf.token = NULL;
-		eff_buf.token_len = 0;
+		ebuf.token = NULL;
+		ebuf.len = 0;
 
 		/*
 		 * Did that leave the pipe choked?

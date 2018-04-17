@@ -83,20 +83,24 @@ const struct http2_settings lws_h2_stock_settings = { {
 	/* H2SET_ENABLE_CONNECT_PROTOCOL */		   1,
 }};
 
+/*
+ * The wsi at this level is the network wsi
+ */
+
 static int
 rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 		       struct lws_pollfd *pollfd)
 {
-	struct lws_tokens eff_buf;
+	struct lws_tokens ebuf;
 	unsigned int pending = 0;
-	char draining_flow = 0;
+	char buffered = 0;
 	struct lws *wsi1;
 	int n, m;
 
 #ifdef LWS_WITH_CGI
 	if (wsi->cgi && (pollfd->revents & LWS_POLLOUT)) {
 		if (lws_handle_POLLOUT_event(wsi, pollfd))
-			return LWS_HPI_RET_CLOSE_HANDLED;
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
 		return LWS_HPI_RET_HANDLED;
 	}
@@ -111,7 +115,7 @@ rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 	 */
 	if (lwsi_state(wsi) == LRS_PRE_WS_SERVING_ACCEPT) {
 		wsi->socket_is_permanently_unusable = 1;
-		return LWS_HPI_RET_CLOSE_HANDLED;
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
 
 	if (lwsi_state(wsi) == LRS_WAITING_CONNECT) {
@@ -119,12 +123,12 @@ rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 		if ((pollfd->revents & LWS_POLLOUT) &&
 		    lws_handle_POLLOUT_event(wsi, pollfd)) {
 			lwsl_debug("POLLOUT event closed it\n");
-			return LWS_HPI_RET_CLOSE_HANDLED;
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}
 
 		n = lws_client_socket_service(wsi, pollfd, NULL);
 		if (n)
-			return LWS_HPI_RET_DIE;
+			return LWS_HPI_RET_WSI_ALREADY_DIED;
 #endif
 		return LWS_HPI_RET_HANDLED;
 	}
@@ -139,7 +143,7 @@ rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 		/* the write failed... it's had it */
 		wsi->socket_is_permanently_unusable = 1;
 
-		return LWS_HPI_RET_CLOSE_HANDLED;
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
 
 	if (lwsi_state(wsi) == LRS_RETURNED_CLOSE ||
@@ -155,18 +159,11 @@ rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 			wsi->ws->tx_draining_ext = 0;
 	}
 
-#if 0 /* not so for h2 */
-	if (lws_is_flowcontrolled(wsi))
-		/* We cannot deal with any kind of new RX because we are
-		 * RX-flowcontrolled.
-		 */
-		return LWS_HPI_RET_HANDLED;
-#endif
-
 	if (wsi->http2_substream || wsi->upgraded_to_http2) {
 		wsi1 = lws_get_network_wsi(wsi);
 		if (wsi1 && wsi1->trunc_len)
-			/* We cannot deal with any kind of new RX
+			/*
+			 * We cannot deal with any kind of new RX
 			 * because we are dealing with a partial send
 			 * (new RX may trigger new http_action() that
 			 * expect to be able to send)
@@ -174,108 +171,47 @@ rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 			return LWS_HPI_RET_HANDLED;
 	}
 
-	/* 3: RX Flowcontrol buffer / h2 rx scratch needs to be drained
-	 */
+read:
+	/* 3: network wsi buflist needs to be drained */
 
-	eff_buf.token_len = (int)lws_buflist_next_segment_len(&wsi->buflist_rxflow,
-						(uint8_t **)&eff_buf.token);
-	if (eff_buf.token_len) {
-		lwsl_info("draining rxflow (len %d)\n", eff_buf.token_len);
-		draining_flow = 1;
+	// lws_buflist_describe(&wsi->buflist, wsi);
+
+	ebuf.len = (int)lws_buflist_next_segment_len(&wsi->buflist,
+						(uint8_t **)&ebuf.token);
+	if (ebuf.len) {
+		lwsl_info("draining buflist (len %d)\n", ebuf.len);
+		buffered = 1;
 		goto drain;
 	}
 
-	if (wsi->upgraded_to_http2) {
-		struct lws_h2_netconn *h2n = wsi->h2.h2n;
-
-		if (h2n->rx_scratch_len) {
-			lwsl_info("%s: %p: h2 rx pos = %d len = %d\n",
-				  __func__, wsi, h2n->rx_scratch_pos,
-				  h2n->rx_scratch_len);
-			eff_buf.token = (char *)h2n->rx_scratch +
-					h2n->rx_scratch_pos;
-			eff_buf.token_len = h2n->rx_scratch_len;
-
-			h2n->rx_scratch_len = 0;
-			goto drain;
-		}
-	}
-
-	/* 4: any incoming (or ah-stashed incoming rx) data ready?
-	 * notice if rx flow going off raced poll(), rx flow wins
-	 */
-
-	if (!(pollfd->revents & pollfd->events & LWS_POLLIN))
+	if (!lws_ssl_pending(wsi) &&
+	    !(pollfd->revents & pollfd->events & LWS_POLLIN))
 		return LWS_HPI_RET_HANDLED;
 
-read:
-	if (lws_is_flowcontrolled(wsi)) {
-		lwsl_info("%s: %p should be rxflow (bm 0x%x)..\n",
-			    __func__, wsi, wsi->rxflow_bitmap);
-		return LWS_HPI_RET_HANDLED;
-	}
+	if (!(lwsi_role_client(wsi) &&
+	      (lwsi_state(wsi) != LRS_ESTABLISHED &&
+	       lwsi_state(wsi) != LRS_H2_WAITING_TO_SEND_HEADERS))) {
 
-	if (wsi->ah && wsi->ah->rxlen - wsi->ah->rxpos) {
-		lwsl_info("%s: %p: inherited ah rx %d\n", __func__,
-				wsi, wsi->ah->rxlen - wsi->ah->rxpos);
-		eff_buf.token_len = wsi->ah->rxlen - wsi->ah->rxpos;
-		eff_buf.token = (char *)wsi->ah->rx + wsi->ah->rxpos;
-	} else {
-		if (!(lwsi_role_client(wsi) &&
-		      (lwsi_state(wsi) != LRS_ESTABLISHED &&
-		       lwsi_state(wsi) != LRS_H2_WAITING_TO_SEND_HEADERS))) {
-			/*
-			 * extension may not consume everything
-			 * (eg, pmd may be constrained
-			 * as to what it can output...) has to go in
-			 * per-wsi rx buf area.
-			 * Otherwise in large temp serv_buf area.
-			 */
-
-			if (wsi->upgraded_to_http2) {
-				if (!wsi->h2.h2n->rx_scratch) {
-					wsi->h2.h2n->rx_scratch =
-						lws_malloc(
-						wsi->vhost->h2_rx_scratch_size,
-						 "h2 rx scratch");
-					if (!wsi->h2.h2n->rx_scratch)
-						return LWS_HPI_RET_CLOSE_HANDLED;
-				}
-				eff_buf.token = wsi->h2.h2n->rx_scratch;
-				eff_buf.token_len = wsi->vhost->h2_rx_scratch_size;
-			} else {
-				eff_buf.token = (char *)pt->serv_buf;
-				eff_buf.token_len =
-					     wsi->context->pt_serv_buf_size;
-
-				if ((unsigned int)eff_buf.token_len >
-					     wsi->context->pt_serv_buf_size)
-					eff_buf.token_len =
-					     wsi->context->pt_serv_buf_size;
-			}
-
-			if ((int)pending > eff_buf.token_len)
-				pending = eff_buf.token_len;
-
-			eff_buf.token_len = lws_ssl_capable_read(wsi,
-				(unsigned char *)eff_buf.token,
-				pending ? (int)pending :
-				eff_buf.token_len);
-			switch (eff_buf.token_len) {
-			case 0:
-				lwsl_info("%s: zero length read\n",
-					  __func__);
-				return LWS_HPI_RET_CLOSE_HANDLED;
-			case LWS_SSL_CAPABLE_MORE_SERVICE:
-				lwsl_info("SSL Capable more service\n");
-				return LWS_HPI_RET_HANDLED;
-			case LWS_SSL_CAPABLE_ERROR:
-				lwsl_info("%s: LWS_SSL_CAPABLE_ERROR\n",
-						__func__);
-				return LWS_HPI_RET_CLOSE_HANDLED;
-			}
-			// lwsl_notice("Actual RX %d\n", eff_buf.token_len);
+		ebuf.token = (char *)pt->serv_buf;
+		ebuf.len = lws_ssl_capable_read(wsi,
+					(unsigned char *)ebuf.token,
+					wsi->context->pt_serv_buf_size);
+		switch (ebuf.len) {
+		case 0:
+			lwsl_info("%s: zero length read\n",
+				  __func__);
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
+		case LWS_SSL_CAPABLE_MORE_SERVICE:
+			lwsl_info("SSL Capable more service\n");
+			return LWS_HPI_RET_HANDLED;
+		case LWS_SSL_CAPABLE_ERROR:
+			lwsl_info("%s: LWS_SSL_CAPABLE_ERROR\n",
+					__func__);
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}
+
+		// lwsl_notice("Actual RX %d\n", ebuf.len);
+		// lwsl_hexdump_notice(ebuf.token, 64);
 	}
 
 drain:
@@ -305,7 +241,7 @@ drain:
 				wsi, LWS_CALLBACK_RECEIVE_CLIENT_HTTP,
 				wsi->user_space, NULL, 0)) {
 			lwsl_info("RECEIVE_CLIENT_HTTP closed it\n");
-			return LWS_HPI_RET_CLOSE_HANDLED;
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}
 
 		return LWS_HPI_RET_HANDLED;
@@ -314,64 +250,58 @@ drain:
 
 	/* service incoming data */
 
-	if (eff_buf.token_len) {
-		if (lwsi_role_h2(wsi) && lwsi_state(wsi) != LRS_BODY)
-			n = lws_read_h2(wsi, (unsigned char *)eff_buf.token,
-				     eff_buf.token_len);
-		else
-			n = lws_read_h1(wsi, (unsigned char *)eff_buf.token,
-				     eff_buf.token_len);
+	if (ebuf.len) {
+		n = 0;
+		if (lwsi_role_h2(wsi) && lwsi_state(wsi) != LRS_BODY) {
+			n = lws_read_h2(wsi, (unsigned char *)ebuf.token,
+				     ebuf.len);
+			// lwsl_notice("h2 n = %d\n", n);
+		} else {
+			n = lws_read_h1(wsi, (unsigned char *)ebuf.token,
+				     ebuf.len);
+			// lwsl_notice("h1 n = %d\n", n);
+		}
 
 		if (n < 0) {
 			/* we closed wsi */
 			n = 0;
-			return LWS_HPI_RET_DIE;
+			return LWS_HPI_RET_WSI_ALREADY_DIED;
 		}
 
-		if (draining_flow) {
-			m = lws_buflist_use_segment(&wsi->buflist_rxflow, n);
+		if (buffered) {
+			m = lws_buflist_use_segment(&wsi->buflist, n);
 			lwsl_info("%s: draining rxflow: used %d, next %d\n",
-				  __func__, n, m);
+				    __func__, n, m);
 			if (!m) {
-				lwsl_notice("%s: removed wsi %p from rxflow list\n",
+				lwsl_notice("%s: removed %p from dll_buflist\n",
 					    __func__, wsi);
-				lws_dll_lws_remove(&wsi->dll_rxflow);
+				lws_dll_lws_remove(&wsi->dll_buflist);
 			}
-		}
+		} else
+			if (n != ebuf.len &&
+			    lws_buflist_append_segment(&wsi->buflist,
+						(uint8_t *)ebuf.token + n,
+						ebuf.len - n) < 0)
+				return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
 
-	eff_buf.token = NULL;
-	eff_buf.token_len = 0;
+	// lws_buflist_describe(&wsi->buflist, wsi);
 
 	if (wsi->ah
 #if !defined(LWS_NO_CLIENT)
 			&& !wsi->client_h2_alpn
 #endif
-			) {
-		lwsl_info("%s: %p: detaching ah\n", __func__, wsi);
-		lws_header_table_force_to_detachable_state(wsi);
+			)
 		lws_header_table_detach(wsi, 0);
-	}
 
 	pending = lws_ssl_pending(wsi);
 	if (pending) {
 		pending = pending > wsi->context->pt_serv_buf_size ?
 				wsi->context->pt_serv_buf_size : pending;
+		lwsl_err("going around\n");
 		goto read;
 	}
 
-	if (draining_flow && /* were draining, now nothing left */
-	    !lws_buflist_next_segment_len(&wsi->buflist_rxflow, NULL)) {
-		lwsl_info("%s: %p flow buf: drained\n", __func__, wsi);
-		/* having drained the rxflow buffer, can rearm POLLIN */
-#ifdef LWS_NO_SERVER
-		n =
-#endif
-		__lws_rx_flow_control(wsi);
-		/* n ignored, needed for NO_SERVER case */
-	}
-
-	/* n = 0 */
 	return LWS_HPI_RET_HANDLED;
 }
 
@@ -416,50 +346,6 @@ int rops_handle_POLLOUT_h2(struct lws *wsi)
 		return LWS_HP_RET_USER_SERVICE;
 
 	return LWS_HP_RET_USER_SERVICE;
-}
-
-static int
-rops_service_flag_pending_h2(struct lws_context *context, int tsi)
-{
-	/* h1 will deal with this if both h1 and h2 enabled */
-
-#if !defined(LWS_ROLE_H1)
-	struct lws_context_per_thread *pt = &context->pt[tsi];
-	struct allocated_headers *ah;
-	int forced = 0;
-#endif
-
-	/* POLLIN faking (the pt lock is taken by the parent) */
-
-
-
-#if !defined(LWS_ROLE_H1)
-	/*
-	 * 3) For any wsi who have an ah with pending RX who did not
-	 * complete their current headers, and are not flowcontrolled,
-	 * fake their POLLIN status so they will be able to drain the
-	 * rx buffered in the ah
-	 */
-	ah = pt->ah_list;
-	while (ah) {
-		if ((ah->rxpos != ah->rxlen &&
-		    !ah->wsi->hdr_parsing_completed) || ah->wsi->preamble_rx) {
-			pt->fds[ah->wsi->position_in_fds_table].revents |=
-				pt->fds[ah->wsi->position_in_fds_table].events &
-					LWS_POLLIN;
-			if (pt->fds[ah->wsi->position_in_fds_table].revents &
-			    LWS_POLLIN) {
-				forced = 1;
-				break;
-			}
-		}
-		ah = ah->next;
-	}
-
-	return forced;
-#else
-	return 0;
-#endif
 }
 
 static int
@@ -585,11 +471,6 @@ static int
 rops_init_vhost_h2(struct lws_vhost *vh,
 		   struct lws_context_creation_info *info)
 {
-	if (!info->h2_rx_scratch_size)
-		vh->h2_rx_scratch_size = LWS_H2_RX_SCRATCH_SIZE;
-	else
-		vh->h2_rx_scratch_size = info->h2_rx_scratch_size;
-
 	return 0;
 }
 
@@ -707,10 +588,6 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 			__lws_set_timeout(nwsi,
 				PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE, 31);
 	}
-
-	if (wsi->upgraded_to_http2 && wsi->h2.h2n &&
-	    wsi->h2.h2n->rx_scratch)
-		lws_free_set_NULL(wsi->h2.h2n->rx_scratch);
 
 	return 0;
 }
@@ -1086,31 +963,6 @@ next_child:
 	return 0;
 }
 
-static int
-rops_rxflow_cache_h2(struct lws *wsi, unsigned char *buf, int n, int len)
-{
-	struct lws_h2_netconn *h2n;
-
-	if (!wsi->upgraded_to_http2)
-		return 0; /* parent interprets as continue */
-
-	h2n = wsi->h2.h2n;
-
-	assert(h2n->rx_scratch);
-	buf += n;
-	len -= n;
-	assert ((char *)buf >= (char *)h2n->rx_scratch &&
-		(char *)&buf[len] <=
-		    (char *)&h2n->rx_scratch[wsi->vhost->h2_rx_scratch_size]);
-
-	h2n->rx_scratch_pos = lws_ptr_diff(buf, h2n->rx_scratch);
-	h2n->rx_scratch_len = len;
-
-	lwsl_info("%s: %p: pausing h2 rx_scratch\n", __func__, wsi);
-
-	return 1; /* parent interprets as return 0 */
-}
-
 static struct lws *
 rops_encapsulation_parent_h2(struct lws *wsi)
 {
@@ -1172,14 +1024,13 @@ struct lws_role_ops role_ops_h2 = {
 	/* init_context */		rops_init_context_h2,
 	/* init_vhost */		rops_init_vhost_h2,
 	/* periodic_checks */		NULL,
-	/* service_flag_pending */	rops_service_flag_pending_h2,
+	/* service_flag_pending */	NULL,
 	/* handle_POLLIN */		rops_handle_POLLIN_h2,
 	/* handle_POLLOUT */		rops_handle_POLLOUT_h2,
 	/* perform_user_POLLOUT */	rops_perform_user_POLLOUT_h2,
 	/* callback_on_writable */	rops_callback_on_writable_h2,
 	/* tx_credit */			rops_tx_credit_h2,
 	/* write_role_protocol */	rops_write_role_protocol_h2,
-	/* rxflow_cache */		rops_rxflow_cache_h2,
 	/* encapsulation_parent */	rops_encapsulation_parent_h2,
 	/* alpn_negotiated */		rops_alpn_negotiated_h2,
 	/* close_via_role_protocol */	NULL,
