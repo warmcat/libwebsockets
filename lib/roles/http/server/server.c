@@ -1718,6 +1718,7 @@ lws_http_transaction_completed(struct lws *wsi)
 	 * until we can verify POLLOUT.  The part of this that confirms POLLOUT
 	 * with no partials is in lws_server_socket_service() below.
 	 */
+	lwsl_debug("%s: setting DEF_ACT from 0x%x\n", __func__, wsi->wsistate);
 	lwsi_set_state(wsi, LRS_DEFERRING_ACTION);
 	wsi->http.tx_content_length = 0;
 	wsi->http.tx_content_remain = 0;

@@ -422,9 +422,9 @@ start_ws_handshake:
 
 	case LRS_ISSUE_HTTP_BODY:
 		if (wsi->client_http_body_pending) {
-			lws_set_timeout(wsi,
-					PENDING_TIMEOUT_CLIENT_ISSUE_PAYLOAD,
-					context->timeout_secs);
+			//lws_set_timeout(wsi,
+			//		PENDING_TIMEOUT_CLIENT_ISSUE_PAYLOAD,
+			//		context->timeout_secs);
 			/* user code must ask for writable callback */
 			break;
 		}
@@ -658,13 +658,17 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		/* we are being an http client...
 		 */
 #if defined(LWS_ROLE_H2)
-		if (wsi->client_h2_alpn)
+		if (wsi->client_h2_alpn || wsi->client_h2_substream) {
+			lwsl_debug("%s: %p: transitioning to h2 client\n", __func__, wsi);
 			lws_role_transition(wsi, LWSIFR_CLIENT,
 					    LRS_ESTABLISHED, &role_ops_h2);
-		else
+		} else
 #endif
+		{
+			lwsl_debug("%s: %p: transitioning to h1 client\n", __func__, wsi);
 			lws_role_transition(wsi, LWSIFR_CLIENT,
 					    LRS_ESTABLISHED, &role_ops_h1);
+		}
 
 		wsi->ah = ah;
 		ah->http_response = 0;

@@ -136,11 +136,12 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	if (pollfd) {
 		int eff = vwsi->leave_pollout_active;
 
-		if (!eff)
+		if (!eff) {
 			if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
 				lwsl_info("failed at set pollfd\n");
 				goto bail_die;
 			}
+		}
 
 		vwsi->handling_pollout = 0;
 
@@ -162,7 +163,9 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 
 	if (lwsi_role_client(wsi) &&
 	    !wsi->hdr_parsing_completed &&
-	     lwsi_state(wsi) != LRS_H2_WAITING_TO_SEND_HEADERS)
+	     lwsi_state(wsi) != LRS_H2_WAITING_TO_SEND_HEADERS &&
+	     lwsi_state(wsi) != LRS_ISSUE_HTTP_BODY
+	     )
 		goto bail_ok;
 
 
@@ -301,10 +304,13 @@ int lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len)
 	/* a new rxflow, buffer it and warn caller */
 
 	m = lws_buflist_append_segment(&wsi->buflist_rxflow, buf + n, len - n);
+
 	if (m < 0)
 		return -1;
-	if (m)
+	if (m) {
+		lwsl_debug("%s: added %p to rxflow list\n", __func__, wsi);
 		lws_dll_lws_add_front(&wsi->dll_rxflow, &pt->dll_head_rxflow);
+	}
 
 	return ret;
 }
@@ -394,6 +400,43 @@ lws_read_or_use_preamble(struct lws_context_per_thread *pt, struct lws *wsi)
 	return len;
 }
 
+void
+lws_service_do_ripe_rxflow(struct lws_context_per_thread *pt)
+{
+	struct lws_pollfd pfd;
+
+	if (!pt->dll_head_rxflow.next)
+		return;
+
+	/*
+	 * service all guys with pending rxflow that reached a state they can
+	 * accept the pending data
+	 */
+
+	lws_pt_lock(pt, __func__);
+
+	lws_start_foreach_dll_safe(struct lws_dll_lws *, d, d1,
+				   pt->dll_head_rxflow.next) {
+		struct lws *wsi = lws_container_of(d, struct lws, dll_rxflow);
+
+		pfd.events = POLLIN;
+		pfd.revents = POLLIN;
+		pfd.fd = -1;
+
+		lwsl_debug("%s: rxflow processing: %p 0x%x\n", __func__, wsi,
+			    wsi->wsistate);
+
+		if (!lws_is_flowcontrolled(wsi) &&
+		    lwsi_state(wsi) != LRS_DEFERRING_ACTION &&
+		    (wsi->role_ops->handle_POLLIN)(pt, wsi, &pfd) ==
+						   LWS_HPI_RET_CLOSE_HANDLED)
+			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
+					   "close_and_handled");
+
+	} lws_end_foreach_dll_safe(d, d1);
+
+	lws_pt_unlock(pt);
+}
 
 /*
  * guys that need POLLIN service again without waiting for network action
@@ -412,6 +455,20 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 	int forced = 0;
 
 	lws_pt_lock(pt, __func__);
+
+	/*
+	 * 1) If there is any wsi with rxflow buffered and in a state to process
+	 *    it, we should not wait in poll
+	 */
+
+	lws_start_foreach_dll(struct lws_dll_lws *, d, pt->dll_head_rxflow.next) {
+		struct lws *wsi = lws_container_of(d, struct lws, dll_rxflow);
+
+		if (lwsi_state(wsi) != LRS_DEFERRING_ACTION) {
+			forced = 1;
+			break;
+		}
+	} lws_end_foreach_dll(d);
 
 #if defined(LWS_ROLE_WS)
 	forced |= role_ops_ws.service_flag_pending(context, tsi);

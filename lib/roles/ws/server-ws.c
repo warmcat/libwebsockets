@@ -549,7 +549,6 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 
 	return 0;
 
-
 bail:
 	/* caller will free up his parsing allocations */
 	return -1;
@@ -560,6 +559,9 @@ int
 lws_interpret_incoming_packet(struct lws *wsi, unsigned char **buf, size_t len)
 {
 	int m, draining_flow = 0;
+
+	if (lws_buflist_next_segment_len(&wsi->buflist_rxflow, NULL))
+		draining_flow = 1;
 
 	lwsl_parser("%s: received %d byte packet\n", __func__, (int)len);
 
@@ -583,22 +585,13 @@ lws_interpret_incoming_packet(struct lws *wsi, unsigned char **buf, size_t len)
 			continue;
 		}
 
-		/* account for what we're using in rxflow buffer */
-		if (lws_buflist_next_segment_len(&wsi->buflist_rxflow, NULL)) {
-			draining_flow = 1;
-			if (!lws_buflist_use_segment(&wsi->buflist_rxflow, 1))
-				lws_dll_lws_remove(&wsi->dll_rxflow);
-		}
-
 		/* consume payload bytes efficiently */
 		if (wsi->lws_rx_parse_state ==
 		    LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED) {
 			m = lws_payload_until_length_exhausted(wsi, buf, &len);
-			if (lws_buflist_next_segment_len(&wsi->buflist_rxflow, NULL)) {
-				draining_flow = 1;
-				if (!lws_buflist_use_segment(&wsi->buflist_rxflow, m))
-					lws_dll_lws_remove(&wsi->dll_rxflow);
-			}
+			if (draining_flow &&
+			    !lws_buflist_use_segment(&wsi->buflist_rxflow, m))
+				lws_dll_lws_remove(&wsi->dll_rxflow);
 		}
 
 		/* process the byte */
@@ -607,8 +600,11 @@ lws_interpret_incoming_packet(struct lws *wsi, unsigned char **buf, size_t len)
 			return -1;
 		len--;
 
-		if (draining_flow && /* were draining, now nothing left */
-		    !lws_buflist_next_segment_len(&wsi->buflist_rxflow, NULL)) {
+		/* account for what we're using in rxflow buffer */
+		if (draining_flow &&
+		    !lws_buflist_use_segment(&wsi->buflist_rxflow, 1)) {
+				lws_dll_lws_remove(&wsi->dll_rxflow);
+
 			lwsl_debug("%s: %p flow buf: drained\n", __func__, wsi);
 
 			/* having drained the rxflow buffer, can rearm POLLIN */

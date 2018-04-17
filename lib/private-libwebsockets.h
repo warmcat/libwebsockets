@@ -959,7 +959,7 @@ struct lws_context_per_thread {
 	struct lws *tx_draining_ext_list;
 	struct lws_dll_lws dll_head_timeout;
 	struct lws_dll_lws dll_head_hrtimer;
-	struct lws_dll_lws dll_head_rxflow;
+	struct lws_dll_lws dll_head_rxflow; /* guys with pending rxflow */
 #if defined(LWS_WITH_LIBUV) || defined(LWS_WITH_LIBEVENT)
 	struct lws_context *context;
 #endif
@@ -2066,7 +2066,8 @@ struct lws {
 
 	struct lws_dll_lws dll_timeout;
 	struct lws_dll_lws dll_hrtimer;
-	struct lws_dll_lws dll_rxflow;
+	struct lws_dll_lws dll_rxflow; /* guys with pending rxflow */
+
 #if defined(LWS_WITH_PEER_LIMITS)
 	struct lws_peer *peer;
 #endif
@@ -2235,6 +2236,9 @@ struct lws {
 };
 
 #define lws_is_flowcontrolled(w) (!!(wsi->rxflow_bitmap))
+
+void
+lws_service_do_ripe_rxflow(struct lws_context_per_thread *pt);
 
 LWS_EXTERN int log_level;
 

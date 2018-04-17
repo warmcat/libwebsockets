@@ -59,6 +59,8 @@ lws_uv_idle(uv_idle_t *handle
 					struct lws_context_per_thread, uv_idle);
 	lws_usec_t us;
 
+	lws_service_do_ripe_rxflow(pt);
+
 	/*
 	 * is there anybody with pending stuff that needs service forcing?
 	 */

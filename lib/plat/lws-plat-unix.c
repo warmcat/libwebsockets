@@ -266,6 +266,8 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	if (!pt->rx_draining_ext_list && !n) /* poll timeout */ {
 #endif
 		lws_service_fd_tsi(context, NULL, tsi);
+		lws_service_do_ripe_rxflow(pt);
+
 		return 0;
 	}
 
@@ -295,6 +297,8 @@ faked_service:
 		if (m)
 			n--;
 	}
+
+	lws_service_do_ripe_rxflow(pt);
 
 	return 0;
 }

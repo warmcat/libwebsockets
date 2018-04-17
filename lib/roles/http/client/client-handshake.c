@@ -109,6 +109,7 @@ lws_client_connect_2(struct lws *wsi)
 				lwsl_info("%s: just join h2 directly\n",
 						__func__);
 
+				wsi->client_h2_alpn = 1;
 				lws_wsi_h2_adopt(w, wsi);
 				lws_vhost_unlock(wsi->vhost);
 

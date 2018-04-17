@@ -54,8 +54,10 @@ lws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 		}
 		/* account for what we're using in rxflow buffer */
 		if (lws_buflist_next_segment_len(&wsi->buflist_rxflow, NULL) &&
-		    !lws_buflist_use_segment(&wsi->buflist_rxflow, 1))
+		    !lws_buflist_use_segment(&wsi->buflist_rxflow, 1)) {
+			lwsl_debug("%s: removed wsi %p from rxflow list\n", __func__, wsi);
 			lws_dll_lws_remove(&wsi->dll_rxflow);
+		}
 
 		if (lws_client_rx_sm(wsi, *(*buf)++)) {
 			lwsl_debug("client_rx_sm exited\n");

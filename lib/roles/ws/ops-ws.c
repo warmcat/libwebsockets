@@ -1093,13 +1093,6 @@ drain:
 		/* service incoming data */
 
 		if (eff_buf.token_len) {
-			/*
-			 * if draining from rxflow buffer, not
-			 * critical to track what was used since at the
-			 * use it bumps wsi->rxflow_pos.  If we come
-			 * around again it will pick up from where it
-			 * left off.
-			 */
 #if defined(LWS_ROLE_H2)
 			if (lwsi_role_h2(wsi) && lwsi_state(wsi) != LRS_BODY)
 				n = lws_read_h2(wsi, (unsigned char *)eff_buf.token,
@@ -1113,6 +1106,14 @@ drain:
 				/* we closed wsi */
 				n = 0;
 				return LWS_HPI_RET_DIE;
+			}
+			if (draining_flow) {
+				m = lws_buflist_use_segment(&wsi->buflist_rxflow, n);
+				lwsl_debug("%s: draining rxflow: used %d, next %d\n", __func__, n, m);
+				if (!m) {
+					lwsl_notice("%s: removed wsi %p from rxflow list\n", __func__, wsi);
+					lws_dll_lws_remove(&wsi->dll_rxflow);
+				}
 			}
 		}
 

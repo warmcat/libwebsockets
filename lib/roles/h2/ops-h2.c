@@ -91,7 +91,7 @@ rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 	unsigned int pending = 0;
 	char draining_flow = 0;
 	struct lws *wsi1;
-	int n;
+	int n, m;
 
 #ifdef LWS_WITH_CGI
 	if (wsi->cgi && (pollfd->revents & LWS_POLLOUT)) {
@@ -155,11 +155,13 @@ rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 			wsi->ws->tx_draining_ext = 0;
 	}
 
+#if 0 /* not so for h2 */
 	if (lws_is_flowcontrolled(wsi))
 		/* We cannot deal with any kind of new RX because we are
 		 * RX-flowcontrolled.
 		 */
 		return LWS_HPI_RET_HANDLED;
+#endif
 
 	if (wsi->http2_substream || wsi->upgraded_to_http2) {
 		wsi1 = lws_get_network_wsi(wsi);
@@ -313,14 +315,6 @@ drain:
 	/* service incoming data */
 
 	if (eff_buf.token_len) {
-		/*
-		 * if draining from rxflow buffer, not
-		 * critical to track what was used since at the
-		 * use it bumps wsi->rxflow_pos.  If we come
-		 * around again it will pick up from where it
-		 * left off.
-		 */
-
 		if (lwsi_role_h2(wsi) && lwsi_state(wsi) != LRS_BODY)
 			n = lws_read_h2(wsi, (unsigned char *)eff_buf.token,
 				     eff_buf.token_len);
@@ -332,6 +326,17 @@ drain:
 			/* we closed wsi */
 			n = 0;
 			return LWS_HPI_RET_DIE;
+		}
+
+		if (draining_flow) {
+			m = lws_buflist_use_segment(&wsi->buflist_rxflow, n);
+			lwsl_info("%s: draining rxflow: used %d, next %d\n",
+				  __func__, n, m);
+			if (!m) {
+				lwsl_notice("%s: removed wsi %p from rxflow list\n",
+					    __func__, wsi);
+				lws_dll_lws_remove(&wsi->dll_rxflow);
+			}
 		}
 	}
 
@@ -386,6 +391,10 @@ int rops_handle_POLLOUT_h2(struct lws *wsi)
 #endif
 			) && wsi->h2.h2n->pps) {
 		lwsl_info("servicing pps\n");
+		/*
+		 * this is called on the network connection, but may close
+		 * substreams... that may affect callers
+		 */
 		if (lws_h2_do_pps_send(wsi)) {
 			wsi->socket_is_permanently_unusable = 1;
 			return LWS_HP_RET_BAIL_DIE;
@@ -418,9 +427,13 @@ rops_service_flag_pending_h2(struct lws_context *context, int tsi)
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	struct allocated_headers *ah;
 	int forced = 0;
+#endif
 
 	/* POLLIN faking (the pt lock is taken by the parent) */
 
+
+
+#if !defined(LWS_ROLE_H1)
 	/*
 	 * 3) For any wsi who have an ah with pending RX who did not
 	 * complete their current headers, and are not flowcontrolled,
@@ -621,7 +634,8 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 			  wsi->h2.parent_wsi);
 		lws_start_foreach_llp(struct lws **, w,
 				      wsi->h2.parent_wsi->h2.child_list) {
-			lwsl_info("   \\---- child %p\n", *w);
+			lwsl_info("   \\---- child %s %p\n",
+				  (*w)->role_ops ? (*w)->role_ops->name : "?", *w);
 		} lws_end_foreach_llp(w, h2.sibling_list);
 	}
 
@@ -632,7 +646,9 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 			lwsl_info(" parent %p: closing children: list:\n", wsi);
 			lws_start_foreach_llp(struct lws **, w,
 					      wsi->h2.child_list) {
-				lwsl_info("   \\---- child %p\n", *w);
+				lwsl_info("   \\---- child %s %p\n",
+					  (*w)->role_ops ? (*w)->role_ops->name : "?",
+					  *w);
 			} lws_end_foreach_llp(w, h2.sibling_list);
 			/* trigger closing of all of our http2 children first */
 			lws_start_foreach_llp(struct lws **, w,
@@ -652,6 +668,7 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 	if (wsi->upgraded_to_http2) {
 		/* remove pps */
 		struct lws_h2_protocol_send *w = wsi->h2.h2n->pps, *w1;
+
 		while (w) {
 			w1 = w->next;
 			free(w);
@@ -770,14 +787,55 @@ lws_h2_dump_waiting_children(struct lws *wsi)
 
 	wsi = wsi->h2.child_list;
 	while (wsi) {
-		if (wsi->h2.requested_POLLOUT)
-			lwsl_info("  * %p %s\n", wsi, wsi->protocol->name);
-		else
-			lwsl_info("    %p %s\n", wsi, wsi->protocol->name);
+		lwsl_info("  %c %p %s %s\n",
+			  wsi->h2.requested_POLLOUT ? '*' : ' ',
+			  wsi, wsi->role_ops->name, wsi->protocol->name);
 
 		wsi = wsi->h2.sibling_list;
 	}
 #endif
+}
+
+static int
+lws_h2_bind_for_post_before_action(struct lws *wsi)
+{
+	const char *p;
+
+	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_METHOD);
+	if (!strcmp(p, "POST")) {
+		const struct lws_protocols *pp;
+		const char *name;
+		const struct lws_http_mount *hit =
+				lws_find_mount(wsi,
+					lws_hdr_simple_ptr(wsi,
+					    WSI_TOKEN_HTTP_COLON_PATH),
+					lws_hdr_total_length(wsi,
+					    WSI_TOKEN_HTTP_COLON_PATH));
+
+		lwsl_debug("%s: %s: hit %p: %s\n", __func__,
+			    lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_PATH),
+			    hit, hit ? hit->origin : "null");
+		if (hit) {
+			name = hit->origin;
+			if (hit->protocol)
+				name = hit->protocol;
+
+			pp = lws_vhost_name_to_protocol(wsi->vhost, name);
+			if (!pp) {
+				lwsl_err("Unable to find plugin '%s'\n", name);
+				return 1;
+			}
+
+			if (lws_bind_protocol(wsi, pp))
+				return 1;
+		}
+
+		lwsl_notice("%s: setting LRS_BODY from 0x%x (%s)\n", __func__,
+			    wsi->wsistate, wsi->protocol->name);
+		lwsi_set_state(wsi, LRS_BODY);
+	}
+
+	return 0;
 }
 
 /*
@@ -885,6 +943,8 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			 */
 
 			lwsi_set_state(w, LRS_ESTABLISHED);
+
+			lws_h2_bind_for_post_before_action(w);
 
 			lwsl_info("  h2 action start...\n");
 			n = lws_http_action(w);

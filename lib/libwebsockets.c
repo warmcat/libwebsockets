@@ -963,7 +963,7 @@ int
 lws_buflist_append_segment(struct lws_buflist **head, uint8_t *buf, size_t len)
 {
 	int first = !*head;
-	void *p;
+	void *p = *head;
 
 	assert(buf);
 	assert(len);
@@ -972,7 +972,7 @@ lws_buflist_append_segment(struct lws_buflist **head, uint8_t *buf, size_t len)
 	while (*head)
 		head = &((*head)->next);
 
-	lwsl_info("%s: len %u\n", __func__, (uint32_t)len);
+	lwsl_info("%s: len %u first %d %p\n", __func__, (uint32_t)len, first, p);
 
 	*head = (struct lws_buflist *)
 			lws_malloc(sizeof(**head) + len, __func__);
@@ -1060,7 +1060,7 @@ lws_buflist_use_segment(struct lws_buflist **head, size_t len)
 	if (!*head)
 		return 0;
 
-	return (*head)->len;
+	return (*head)->len - (*head)->pos;
 }
 
 /* ... */

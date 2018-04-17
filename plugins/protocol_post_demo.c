@@ -139,7 +139,7 @@ callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
-		lwsl_debug("LWS_CALLBACK_HTTP_BODY_COMPLETION\n");
+		lwsl_debug("LWS_CALLBACK_HTTP_BODY_COMPLETION: %p\n", wsi);
 		/* call to inform no more payload data coming */
 		lws_spa_finalize(pss->spa);
 
@@ -194,12 +194,14 @@ callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
-		if (!pss->result_len)
+		if (!pss->result_len) {
+			lwsl_debug("nothing in result_len\n");
 			break;
+		}
 		lwsl_debug("LWS_CALLBACK_HTTP_WRITEABLE: sending %d\n",
 			   pss->result_len);
 		n = lws_write(wsi, (unsigned char *)pss->result + LWS_PRE,
-			      pss->result_len, LWS_WRITE_HTTP);
+			      pss->result_len, LWS_WRITE_HTTP_FINAL);
 		if (n < 0)
 			return 1;
 		goto try_to_reuse;

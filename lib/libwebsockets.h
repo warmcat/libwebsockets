@@ -5724,6 +5724,16 @@ lws_dll_lws_remove(struct lws_dll_lws *_a)
 	} \
 }
 
+#define lws_start_foreach_dll(___type, ___it, ___start) \
+{ \
+	___type ___it = ___start; \
+	while (___it) {
+
+#define lws_end_foreach_dll(___it) \
+		___it = (___it)->next; \
+	} \
+}
+
 struct lws_buflist;
 
 /**

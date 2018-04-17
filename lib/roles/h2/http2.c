@@ -597,6 +597,8 @@ static void lws_h2_set_bin(struct lws *wsi, int n, unsigned char *buf)
 	*buf = wsi->h2.h2n->set.s[n];
 }
 
+/* we get called on the network connection */
+
 int lws_h2_do_pps_send(struct lws *wsi)
 {
 	struct lws_h2_netconn *h2n = wsi->h2.h2n;
@@ -743,8 +745,10 @@ int lws_h2_do_pps_send(struct lws *wsi)
 			goto bail;
 		}
 		cwsi = lws_h2_wsi_from_id(wsi, pps->u.rs.sid);
-		if (cwsi)
+		if (cwsi) {
+			lwsl_debug("%s: closing cwsi %p %s %s (wsi %p)\n", __func__, cwsi, cwsi->role_ops->name, cwsi->protocol->name, wsi);
 			lws_close_free_wsi(cwsi, 0, "reset stream");
+		}
 		break;
 
 	case LWS_H2_PPS_UPDATE_WINDOW:
@@ -1399,13 +1403,13 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			}
 		}
 
+		wsi->vhost->conn_stats.h2_trans++;
 		p = lws_hdr_simple_ptr(h2n->swsi, WSI_TOKEN_HTTP_COLON_METHOD);
 		if (!strcmp(p, "POST"))
 			h2n->swsi->ah->frag_index[WSI_TOKEN_POST_URI] =
 				h2n->swsi->ah->frag_index[WSI_TOKEN_HTTP_COLON_PATH];
 
-		wsi->vhost->conn_stats.h2_trans++;
-
+		lwsl_debug("%s: setting DEF_ACT from 0x%x\n", __func__, h2n->swsi->wsistate);
 		lwsi_set_state(h2n->swsi, LRS_DEFERRING_ACTION);
 		lws_callback_on_writable(h2n->swsi);
 		break;
@@ -1769,6 +1773,26 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 					break;
 				} else {
 
+					if (lwsi_state(h2n->swsi) == LRS_DEFERRING_ACTION) {
+						m = lws_buflist_append_segment(
+							&h2n->swsi->buflist_rxflow,
+								in - 1, n);
+						if (m < 0)
+							return -1;
+						if (m) {
+							struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+							lwsl_debug("%s: added %p to rxflow list\n", __func__, wsi);
+							lws_dll_lws_add_front(&h2n->swsi->dll_rxflow, &pt->dll_head_rxflow);
+						}
+						in += n - 1;
+						h2n->inside += n;
+						h2n->count += n - 1;
+						inlen -= n - 1;
+
+						lwsl_debug("%s: deferred %d\n", __func__, n);
+						goto do_windows;
+					}
+
 					h2n->swsi->outer_will_close = 1;
 					/*
 					 * choose the length for this go so that we end at
@@ -1782,8 +1806,9 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 					 * can return 0 in POST body with
 					 * content len exhausted somehow.
 					 */
-					if (n <= 0) {
-						lwsl_debug("%s: lws_read_h1 told %d %d / %d\n",
+					if (n < 0 ||
+					    (!n && !lws_buflist_next_segment_len(&wsi->buflist_rxflow, NULL))) {
+						lwsl_info("%s: lws_read_h1 told %d %d / %d\n",
 							__func__, n, h2n->count, h2n->length);
 						in += h2n->length - h2n->count;
 						h2n->inside = h2n->length;
@@ -1800,6 +1825,7 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 					h2n->count += n - 1;
 				}
 
+do_windows:
 				/* account for both network and stream wsi windows */
 
 				wsi->h2.peer_tx_cr_est -= n;
@@ -2172,7 +2198,7 @@ lws_read_h2(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 
 		m = lws_h2_parser(wsi, buf, len, &body_chunk_len);
 		if (m && m != 2) {
-			lwsl_debug("%s: http2_parser bailed\n", __func__);
+			lwsl_debug("%s: http2_parser bailed: %d\n", __func__, m);
 			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
 					   "lws_read_h2 bail");
 
@@ -2184,11 +2210,6 @@ lws_read_h2(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 			len -= body_chunk_len;
 			break;
 		}
-
-		/* account for what we're using in rxflow buffer */
-		if (lws_buflist_next_segment_len(&wsi->buflist_rxflow, NULL) &&
-		    !lws_buflist_use_segment(&wsi->buflist_rxflow, body_chunk_len))
-			lws_dll_lws_remove(&wsi->dll_rxflow);
 
 		buf += body_chunk_len;
 		len -= body_chunk_len;
