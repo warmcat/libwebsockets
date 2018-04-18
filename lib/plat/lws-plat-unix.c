@@ -348,6 +348,14 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, int fd)
 		 */
 #else
 		/* set the keepalive conditions we want on it too */
+
+#if defined(LWS_HAVE_TCP_USER_TIMEOUT)
+		optval = 1000 * (vhost->ka_time +
+				 (vhost->ka_interval * vhost->ka_probes));
+		if (setsockopt(fd, IPPROTO_TCP, TCP_USER_TIMEOUT,
+			       (const void *)&optval, optlen) < 0)
+			return 1;
+#endif
 		optval = vhost->ka_time;
 		if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE,
 			       (const void *)&optval, optlen) < 0)
