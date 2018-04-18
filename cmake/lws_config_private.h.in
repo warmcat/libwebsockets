@@ -87,6 +87,8 @@
 /* Define to 1 if you have the <unistd.h> header file. */
 #cmakedefine LWS_HAVE_UNISTD_H
 
+#cmakedefine LWS_HAVE_TCP_USER_TIMEOUT
+
 /* Define to 1 if you have the `vfork' function. */
 #cmakedefine LWS_HAVE_VFORK
 
