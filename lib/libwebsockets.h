@@ -4520,7 +4520,7 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 		       const char *html_body);
 
 /**
- * lws_http_redirect() - write http redirect into buffer
+ * lws_http_redirect() - write http redirect out on wsi
  *
  * \param wsi:	websocket connection
  * \param code:	HTTP response code (eg, 301)
@@ -4528,6 +4528,8 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
  * \param len:	length of loc
  * \param p:	pointer current position in buffer (updated as we write)
  * \param end:	pointer to end of buffer
+ *
+ * Returns amount written, or < 0 indicating fatal write failure.
  */
 LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_http_redirect(struct lws *wsi, int code, const unsigned char *loc, int len,
