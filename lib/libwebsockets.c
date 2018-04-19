@@ -321,7 +321,8 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 
 #if defined(LWS_WITH_HTTP2)
 
-	if (wsi->u.h2.parent_wsi) {
+	if ((wsi->upgraded_to_http2 || wsi->http2_substream) &&
+	    wsi->u.h2.parent_wsi) {
 		lwsl_info(" wsi: %p, his parent %p: siblings:\n", wsi, wsi->u.h2.parent_wsi);
 		lws_start_foreach_llp(struct lws **, w, wsi->u.h2.parent_wsi->u.h2.child_list) {
 			lwsl_info("   \\---- child %p\n", *w);
@@ -342,6 +343,7 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 				/* disconnect from siblings */
 				wsi2 = (*w)->u.h2.sibling_list;
 				(*w)->u.h2.sibling_list = NULL;
+				(*w)->u.h2.parent_wsi = NULL;
 				(*w)->socket_is_permanently_unusable = 1;
 				lws_close_free_wsi(*w, reason);
 				*w = wsi2;
@@ -445,6 +447,12 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason)
 			LWS_CALLBACK_CLOSED_HTTP, wsi->user_space, NULL, 0);
 		wsi->told_user_closed = 1;
 	}
+
+	if (wsi->state == LWSS_DEAD_SOCKET) {
+		wsi->state_pre_close = wsi->state;
+		return;
+	}
+
 	if (wsi->socket_is_permanently_unusable ||
 	    reason == LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY ||
 	    wsi->state == LWSS_SHUTDOWN)
