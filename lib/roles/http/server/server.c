@@ -696,7 +696,7 @@ lws_find_string_in_file(const char *filename, const char *string, int stringlen)
 	fd = open(filename, O_RDONLY);
 	if (fd < 0) {
 		lwsl_err("can't open auth file: %s\n", filename);
-		return 1;
+		return 0;
 	}
 
 	while (1) {
@@ -1097,7 +1097,7 @@ lws_http_action(struct lws *wsi)
 			return lws_unauthorised_basic_auth(wsi);
 		}
 
-		lwsl_notice("basic auth accepted\n");
+		lwsl_info("basic auth accepted\n");
 
 		/* accept the auth */
 	}
