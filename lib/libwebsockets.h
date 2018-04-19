@@ -4307,6 +4307,8 @@ LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_finalize_write_http_header(struct lws *wsi, unsigned char *start,
 			       unsigned char **p, unsigned char *end);
 
+#define LWS_ILLEGAL_HTTP_CONTENT_LEN ((lws_filepos_t)-1ll)
+
 /**
  * lws_add_http_common_headers() - Helper preparing common http headers
  *
@@ -4326,6 +4328,9 @@ lws_finalize_write_http_header(struct lws *wsi, unsigned char *start,
  * This helper just calls public apis to simplify adding headers that are
  * commonly needed.  If it doesn't fit your case, or you want to add additional
  * headers just call the public apis directly yourself for what you want.
+ *
+ * You can miss out the content length header by providing the constant
+ * LWS_ILLEGAL_HTTP_CONTENT_LEN for the content_len.
  *
  * It does not call lws_finalize_http_header(), to allow you to add further
  * headers after calling this.  You will need to call that yourself at the end.
