@@ -641,6 +641,9 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 	    wsi->http.fop_fd != NULL)
 		lws_vfs_file_close(&wsi->http.fop_fd);
 
+	if (lwsi_state(wsi) == LRS_DEAD_SOCKET)
+		return;
+
 	if (wsi->socket_is_permanently_unusable ||
 	    reason == LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY ||
 	    lwsi_state(wsi) == LRS_SHUTDOWN)

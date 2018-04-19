@@ -868,6 +868,16 @@ close_and_handled:
 		lwsl_debug("%p: Close and handled\n", wsi);
 		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
 				   "close_and_handled");
+#if defined(_DEBUG)
+		/*
+		 * confirm close has no problem being called again while
+		 * it waits for libuv service to complete the first async
+		 * close
+		 */
+		if (LWS_LIBUV_ENABLED(context))
+			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
+					   "close_and_handled uv repeat test");
+#endif
 		/*
 		 * pollfd may point to something else after the close
 		 * due to pollfd swapping scheme on delete on some platforms
