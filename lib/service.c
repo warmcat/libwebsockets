@@ -324,10 +324,11 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 	 * We only need to wait if really nothing already to do and we have
 	 * to wait for something from network
 	 */
-
+#if defined(LWS_ROLE_WS)
 	/* 1) if we know we are draining rx ext, do not wait in poll */
 	if (pt->rx_draining_ext_list)
 		return 0;
+#endif
 
 #if defined(LWS_WITH_TLS)
 	/* 2) if we know we have non-network pending data, do not wait in poll */
@@ -460,7 +461,7 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 	lws_pt_lock(pt, __func__);
 
 	/*
-	 * 1) If there is any wsi with rxflow buffered and in a state to process
+	 * 1) If there is any wsi with a buflist and in a state to process
 	 *    it, we should not wait in poll
 	 */
 
