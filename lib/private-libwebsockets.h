@@ -332,7 +332,7 @@ extern "C" {
 #define LWS_MAX_PROTOCOLS 5
 #endif
 #ifndef LWS_MAX_EXTENSIONS_ACTIVE
-#define LWS_MAX_EXTENSIONS_ACTIVE 2
+#define LWS_MAX_EXTENSIONS_ACTIVE 1
 #endif
 #ifndef LWS_MAX_EXT_OFFERS
 #define LWS_MAX_EXT_OFFERS 8
@@ -491,7 +491,7 @@ enum lwsi_state {
 
 	LRS_WAITING_TO_SEND_CLOSE		= LWSIFS_POCB | 24,
 	LRS_RETURNED_CLOSE			= LWSIFS_POCB | 25,
-	LRS_AWAITING_CLOSE_ACK			= 26,
+	LRS_AWAITING_CLOSE_ACK			= LWSIFS_POCB | 26,
 	LRS_FLUSHING_BEFORE_CLOSE		= LWSIFS_POCB | 27,
 	LRS_SHUTDOWN				= 28,
 
@@ -1480,6 +1480,7 @@ struct lws {
 	unsigned int told_user_closed:1;
 	unsigned int told_event_loop_closed:1;
 	unsigned int waiting_to_send_close_frame:1;
+	unsigned int close_needs_ack:1;
 	unsigned int ipv6:1;
 	unsigned int parent_carries_io:1;
 	unsigned int parent_pending_cb_on_writable:1;
@@ -1611,7 +1612,7 @@ lws_latency(struct lws_context *context, struct lws *wsi, const char *action,
 #endif
 
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
-lws_client_rx_sm(struct lws *wsi, unsigned char c);
+lws_ws_client_rx_sm(struct lws *wsi, unsigned char c);
 
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_parse(struct lws *wsi, unsigned char *buf, int *len);
@@ -1696,10 +1697,7 @@ LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_client_interpret_server_handshake(struct lws *wsi);
 
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
-lws_ws_rx_sm(struct lws *wsi, unsigned char c);
-
-LWS_EXTERN int
-lws_payload_until_length_exhausted(struct lws *wsi, unsigned char **buf, size_t *len);
+lws_ws_rx_sm(struct lws *wsi, char already_processed, unsigned char c);
 
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len);
@@ -1755,13 +1753,13 @@ lws_change_pollfd(struct lws *wsi, int _and, int _or);
  LWS_EXTERN struct lws_vhost *
  lws_select_vhost(struct lws_context *context, int port, const char *servername);
  LWS_EXTERN int LWS_WARN_UNUSED_RESULT
- lws_interpret_incoming_packet(struct lws *wsi, unsigned char **buf, size_t len);
+ lws_parse_ws(struct lws *wsi, unsigned char **buf, size_t len);
  LWS_EXTERN void
  lws_server_get_canonical_hostname(struct lws_context *context,
 				  struct lws_context_creation_info *info);
 #else
  #define lws_context_init_server(_a, _b) (0)
- #define lws_interpret_incoming_packet(_a, _b, _c) (0)
+ #define lws_parse_ws(_a, _b, _c) (0)
  #define lws_server_get_canonical_hostname(_a, _b)
 #endif
 
@@ -1939,13 +1937,10 @@ lws_http_transaction_completed_client(struct lws *wsi);
 #if !defined(LWS_WITH_TLS)
 	#define lws_context_init_client_ssl(_a, _b) (0)
 #endif
-LWS_EXTERN int LWS_WARN_UNUSED_RESULT
-lws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len);
 LWS_EXTERN void
 lws_decode_ssl_error(void);
 #else
 #define lws_context_init_client_ssl(_a, _b) (0)
-#define lws_handshake_client(_a, _b, _c) (0)
 #endif
 
 LWS_EXTERN int
@@ -2149,6 +2144,9 @@ int
 lws_role_call_alpn_negotiated(struct lws *wsi, const char *alpn);
 int
 lws_tls_server_conn_alpn(struct lws *wsi);
+
+int
+lws_ws_client_rx_sm_block(struct lws *wsi, unsigned char **buf, size_t len);
 
 #ifdef __cplusplus
 };

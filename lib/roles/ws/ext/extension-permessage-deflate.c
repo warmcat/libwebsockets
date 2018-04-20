@@ -82,6 +82,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		oa = in;
 		if (!oa->option_name)
 			break;
+		lwsl_ext("%s: named option set: %s\n", __func__, oa->option_name);
 		for (n = 0; n < (int)ARRAY_SIZE(lws_ext_pm_deflate_options); n++)
 			if (!strcmp(lws_ext_pm_deflate_options[n].name,
 				    oa->option_name))
@@ -95,8 +96,8 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 
 	case LWS_EXT_CB_OPTION_SET:
 		oa = in;
-		lwsl_notice("%s: option set: idx %d, %s, len %d\n", __func__,
-			  oa->option_index, oa->start, oa->len);
+		lwsl_ext("%s: option set: idx %d, %s, len %d\n", __func__,
+			 oa->option_index, oa->start, oa->len);
 		if (oa->start)
 			priv->args[oa->option_index] = atoi(oa->start);
 		else
@@ -179,14 +180,8 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		if (!(wsi->ws->rsv_first_msg & 0x40))
 			return 0;
 
-#if 0
-		for (n = 0; n < ebuf->len; n++) {
-			printf("%02X ", (unsigned char)ebuf->token[n]);
-			if ((n & 15) == 15)
-				printf("\n");
-		}
-		printf("\n");
-#endif
+		// lwsl_hexdump_debug(ebuf->token, ebuf->len);
+
 		if (!priv->rx_init)
 			if (inflateInit2(&priv->rx,
 			     -priv->args[PMD_SERVER_MAX_WINDOW_BITS]) != Z_OK) {
@@ -250,7 +245,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		case Z_STREAM_ERROR:
 		case Z_DATA_ERROR:
 		case Z_MEM_ERROR:
-			lwsl_info("zlib error inflate %d: %s\n",
+			lwsl_notice("zlib error inflate %d: %s\n",
 				  n, priv->rx.msg);
 			return -1;
 		}
@@ -320,15 +315,13 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		if (was_fin) {
 			priv->count_rx_between_fin = 0;
 			if (priv->args[PMD_SERVER_NO_CONTEXT_TAKEOVER]) {
+				lwsl_ext("PMD_SERVER_NO_CONTEXT_TAKEOVER\n");
 				(void)inflateEnd(&priv->rx);
 				priv->rx_init = 0;
 			}
 		}
-#if 0
-		for (n = 0; n < ebuf->len; n++)
-			putchar(ebuf->token[n]);
-		puts("\n");
-#endif
+
+		// lwsl_hexdump_debug(ebuf->token, ebuf->len);
 
 		return priv->rx_held_valid;
 

@@ -20,7 +20,7 @@ function check {
 		echo "(killed it) *******"
 		exit 1
 	fi
-	dd if=$LOG bs=1 skip=$LEN 2>/dev/null
+	#dd if=$LOG bs=1 skip=$LEN 2>/dev/null
 
 	if [ "$1" = "default" ] ; then
 		diff /tmp/lwscap $INSTALLED/../share/libwebsockets-test-server/test.html > /dev/null
@@ -107,7 +107,7 @@ function check {
 
 rm -rf $LOG
 killall libwebsockets-test-server 2>/dev/null
-libwebsockets-test-server -d1023 2>> $LOG &
+libwebsockets-test-server -d15 2>> $LOG >/dev/null &
 CPID=$!
 
 echo "Started server on PID $CPID"
@@ -546,13 +546,13 @@ for i in \
 
 R=`rm -f /tmp/lwscap ; echo -n -e "GET $i HTTP/1.0\r\n\r\n" | nc localhost 7681 2>/dev/null >/tmp/lwscap; head -n1 /tmp/lwscap| cut -d' ' -f2`
 
-cat /tmp/lwscap | head -n1
-echo ==== $R
+#cat /tmp/lwscap | head -n1
+#echo ==== $R
 
 
 if [ "$R" != "403" ]; then
 	U=`cat $LOG | grep lws_http_serve | tail -n 1 | cut -d':' -f6 | cut -d' ' -f2`
-	echo $U
+#	echo $U
 	echo "- \"$i\" -> $R \"$U\"" >>/tmp/results
 else
 	echo "- \"$i\" -> $R" >>/tmp/results

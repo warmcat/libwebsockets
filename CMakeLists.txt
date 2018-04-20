@@ -69,7 +69,6 @@ option(LWS_WITHOUT_TESTAPPS "Don't build the libwebsocket-test-apps" OFF)
 option(LWS_WITHOUT_TEST_SERVER "Don't build the test server" OFF)
 option(LWS_WITHOUT_TEST_SERVER_EXTPOLL "Don't build the test server version that uses external poll" OFF)
 option(LWS_WITHOUT_TEST_PING "Don't build the ping test application" OFF)
-option(LWS_WITHOUT_TEST_ECHO "Don't build the echo test application" OFF)
 option(LWS_WITHOUT_TEST_CLIENT "Don't build the client test application" OFF)
 option(LWS_WITHOUT_TEST_FRAGGLE "Don't build the ping test application" OFF)
 #
@@ -702,10 +701,6 @@ set(SOURCES
 if (LWS_ROLE_H1)
 	list(APPEND SOURCES
 		lib/roles/h1/ops-h1.c)
-	if (NOT LWS_WITHOUT_CLIENT)
-		list(APPEND SOURCES
-			lib/roles/h1/client-h1.c)
-	endif()
 endif()
 
 if (LWS_ROLE_WS)
@@ -997,8 +992,15 @@ if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX OR (CMAKE_C_COMPILER_ID 
     if (LWS_WITH_GCOV)
 	    set (GCOV_FLAGS "-fprofile-arcs -ftest-coverage -O0")
     endif()
+
+    if (CMAKE_BUILD_TYPE MATCHES "DEBUG")
+	set(CMAKE_C_FLAGS "-O0" ${CMAKE_C_FLAGS})
+    else()
+	set(CMAKE_C_FLAGS "-O3" ${CMAKE_C_FLAGS})
+    endif()
+
     if (UNIX AND NOT LWS_WITH_ESP32)
-	    set(CMAKE_C_FLAGS "-O3 -Wall -Wsign-compare -Wignored-qualifiers -Wtype-limits -Wuninitialized -Werror ${VISIBILITY_FLAG} -Wundef ${GCOV_FLAGS} ${CMAKE_C_FLAGS}" )
+	    set(CMAKE_C_FLAGS "-Wall -Wsign-compare -Wignored-qualifiers -Wtype-limits -Wuninitialized -Werror ${VISIBILITY_FLAG} -Wundef ${GCOV_FLAGS} ${CMAKE_C_FLAGS}" )
     else()
 	    set(CMAKE_C_FLAGS "-Wall -Wsign-compare -Wignored-qualifiers -Wtype-limits -Wuninitialized -Werror ${VISIBILITY_FLAG} ${GCOV_FLAGS} ${CMAKE_C_FLAGS}" )
     endif()
@@ -1731,12 +1733,6 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 		if (NOT LWS_WITHOUT_TEST_PING AND NOT LWS_WITHOUT_SERVER AND NOT LWS_WITHOUT_CLIENT)
 			create_test_app(test-ping "test-apps/test-ping.c" "" "" "" "" "")
 		endif()
-		#
-		# test-echo
-		#
-		if (NOT LWS_WITHOUT_TEST_ECHO AND NOT LWS_WITHOUT_SERVER AND NOT LWS_WITHOUT_CLIENT)
-			create_test_app(test-echo "test-apps/test-echo.c" "" "" "" "" "")
-		endif()
 
 	endif(NOT LWS_WITHOUT_CLIENT)
 	
@@ -2160,7 +2156,6 @@ message(" LWS_WITHOUT_TESTAPPS = ${LWS_WITHOUT_TESTAPPS}")
 message(" LWS_WITHOUT_TEST_SERVER = ${LWS_WITHOUT_TEST_SERVER}")
 message(" LWS_WITHOUT_TEST_SERVER_EXTPOLL = ${LWS_WITHOUT_TEST_SERVER_EXTPOLL}")
 message(" LWS_WITHOUT_TEST_PING = ${LWS_WITHOUT_TEST_PING}")
-message(" LWS_WITHOUT_TEST_ECHO = ${LWS_WITHOUT_TEST_ECHO}")
 message(" LWS_WITHOUT_TEST_CLIENT = ${LWS_WITHOUT_TEST_CLIENT}")
 message(" LWS_WITHOUT_TEST_FRAGGLE = ${LWS_WITHOUT_TEST_FRAGGLE}")
 message(" LWS_WITHOUT_EXTENSIONS = ${LWS_WITHOUT_EXTENSIONS}")

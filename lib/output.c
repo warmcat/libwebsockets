@@ -30,9 +30,6 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	size_t real_len = len;
 	unsigned int n;
-#if !defined(LWS_WITHOUT_EXTENSIONS)
-	int m;
-#endif
 
 	// lwsl_hexdump_err(buf, len);
 
@@ -74,15 +71,7 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 
 		return -1;
 	}
-#if !defined(LWS_WITHOUT_EXTENSIONS)
-	m = lws_ext_cb_active(wsi, LWS_EXT_CB_PACKET_TX_DO_SEND, &buf, (int)len);
-	if (m < 0)
-		return -1;
-	if (m) /* handled */ {
-		n = m;
-		goto handle_truncated_send;
-	}
-#endif
+
 	if (!wsi->http2_substream && !lws_socket_is_valid(wsi->desc.sockfd))
 		lwsl_warn("** error invalid sock but expected to send\n");
 
@@ -120,9 +109,7 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 		n = 0;
 		break;
 	}
-#if !defined(LWS_WITHOUT_EXTENSIONS)
-handle_truncated_send:
-#endif
+
 	/*
 	 * we were already handling a truncated send?
 	 */
@@ -238,251 +225,6 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 		return lws_issue_raw(wsi, buf, len);
 
 	return wsi->role_ops->write_role_protocol(wsi, buf, len, &wp);
-}
-
-LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
-{
-	struct lws_context *context = wsi->context;
-	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	struct lws_process_html_args args;
-	lws_filepos_t amount, poss;
-	unsigned char *p, *pstart;
-#if defined(LWS_WITH_RANGES)
-	unsigned char finished = 0;
-#endif
-	int n, m;
-
-	lwsl_debug("wsi->http2_substream %d\n", wsi->http2_substream);
-
-	do {
-
-		if (wsi->trunc_len) {
-			if (lws_issue_raw(wsi, wsi->trunc_alloc +
-					  wsi->trunc_offset,
-					  wsi->trunc_len) < 0) {
-				lwsl_info("%s: closing\n", __func__);
-				goto file_had_it;
-			}
-			break;
-		}
-
-		if (wsi->http.filepos == wsi->http.filelen)
-			goto all_sent;
-
-		n = 0;
-
-		pstart = pt->serv_buf + LWS_H2_FRAME_HEADER_LENGTH;
-
-		p = pstart;
-
-#if defined(LWS_WITH_RANGES)
-		if (wsi->http.range.count_ranges && !wsi->http.range.inside) {
-
-			lwsl_notice("%s: doing range start %llu\n", __func__,
-				    wsi->http.range.start);
-
-			if ((long long)lws_vfs_file_seek_cur(wsi->http.fop_fd,
-						   wsi->http.range.start -
-						   wsi->http.filepos) < 0)
-				goto file_had_it;
-
-			wsi->http.filepos = wsi->http.range.start;
-
-			if (wsi->http.range.count_ranges > 1) {
-				n =  lws_snprintf((char *)p,
-						context->pt_serv_buf_size -
-						LWS_H2_FRAME_HEADER_LENGTH,
-					"_lws\x0d\x0a"
-					"Content-Type: %s\x0d\x0a"
-					"Content-Range: bytes %llu-%llu/%llu\x0d\x0a"
-					"\x0d\x0a",
-					wsi->http.multipart_content_type,
-					wsi->http.range.start,
-					wsi->http.range.end,
-					wsi->http.range.extent);
-				p += n;
-			}
-
-			wsi->http.range.budget = wsi->http.range.end -
-						   wsi->http.range.start + 1;
-			wsi->http.range.inside = 1;
-		}
-#endif
-
-		poss = context->pt_serv_buf_size - n - LWS_H2_FRAME_HEADER_LENGTH;
-
-		if (wsi->http.tx_content_length)
-			if (poss > wsi->http.tx_content_remain)
-				poss = wsi->http.tx_content_remain;
-
-		/*
-		 * if there is a hint about how much we will do well to send at
-		 * one time, restrict ourselves to only trying to send that.
-		 */
-		if (wsi->protocol->tx_packet_size &&
-		    poss > wsi->protocol->tx_packet_size)
-			poss = wsi->protocol->tx_packet_size;
-
-		if (wsi->role_ops->tx_credit) {
-			lws_filepos_t txc = wsi->role_ops->tx_credit(wsi);
-
-			if (!txc) {
-				lwsl_info("%s: came here with no tx credit\n",
-						__func__);
-				return 0;
-			}
-			if (txc < poss)
-				poss = txc;
-
-			/*
-			 * consumption of the actual payload amount sent will be
-			 * handled when the role data frame is sent
-			 */
-		}
-
-#if defined(LWS_WITH_RANGES)
-		if (wsi->http.range.count_ranges) {
-			if (wsi->http.range.count_ranges > 1)
-				poss -= 7; /* allow for final boundary */
-			if (poss > wsi->http.range.budget)
-				poss = wsi->http.range.budget;
-		}
-#endif
-		if (wsi->sending_chunked) {
-			/* we need to drop the chunk size in here */
-			p += 10;
-			/* allow for the chunk to grow by 128 in translation */
-			poss -= 10 + 128;
-		}
-
-		if (lws_vfs_file_read(wsi->http.fop_fd, &amount, p, poss) < 0)
-			goto file_had_it; /* caller will close */
-
-		if (wsi->sending_chunked)
-			n = (int)amount;
-		else
-			n = lws_ptr_diff(p, pstart) + (int)amount;
-
-		lwsl_debug("%s: sending %d\n", __func__, n);
-
-		if (n) {
-			lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
-					context->timeout_secs);
-
-			if (wsi->interpreting) {
-				args.p = (char *)p;
-				args.len = n;
-				args.max_len = (unsigned int)poss + 128;
-				args.final = wsi->http.filepos + n ==
-					     wsi->http.filelen;
-				args.chunked = wsi->sending_chunked;
-				if (user_callback_handle_rxflow(
-				     wsi->vhost->protocols[
-				     (int)wsi->protocol_interpret_idx].callback,
-				     wsi, LWS_CALLBACK_PROCESS_HTML,
-				     wsi->user_space, &args, 0) < 0)
-					goto file_had_it;
-				n = args.len;
-				p = (unsigned char *)args.p;
-			} else
-				p = pstart;
-
-#if defined(LWS_WITH_RANGES)
-			if (wsi->http.range.send_ctr + 1 ==
-				wsi->http.range.count_ranges && // last range
-			    wsi->http.range.count_ranges > 1 && // was 2+ ranges (ie, multipart)
-			    wsi->http.range.budget - amount == 0) {// final part
-				n += lws_snprintf((char *)pstart + n, 6,
-					"_lws\x0d\x0a"); // append trailing boundary
-				lwsl_debug("added trailing boundary\n");
-			}
-#endif
-			m = lws_write(wsi, p, n,
-				      wsi->http.filepos + amount == wsi->http.filelen ?
-					LWS_WRITE_HTTP_FINAL :
-					LWS_WRITE_HTTP
-				);
-			if (m < 0)
-				goto file_had_it;
-
-			wsi->http.filepos += amount;
-
-#if defined(LWS_WITH_RANGES)
-			if (wsi->http.range.count_ranges >= 1) {
-				wsi->http.range.budget -= amount;
-				if (wsi->http.range.budget == 0) {
-					lwsl_notice("range budget exhausted\n");
-					wsi->http.range.inside = 0;
-					wsi->http.range.send_ctr++;
-
-					if (lws_ranges_next(&wsi->http.range) < 1) {
-						finished = 1;
-						goto all_sent;
-					}
-				}
-			}
-#endif
-
-			if (m != n) {
-				/* adjust for what was not sent */
-				if (lws_vfs_file_seek_cur(wsi->http.fop_fd,
-							   m - n) ==
-							     (lws_fileofs_t)-1)
-					goto file_had_it;
-			}
-		}
-
-all_sent:
-		if ((!wsi->trunc_len && wsi->http.filepos >= wsi->http.filelen)
-#if defined(LWS_WITH_RANGES)
-		    || finished)
-#else
-		)
-#endif
-		     {
-			lwsi_set_state(wsi, LRS_ESTABLISHED);
-			/* we might be in keepalive, so close it off here */
-			lws_vfs_file_close(&wsi->http.fop_fd);
-			
-			lwsl_debug("file completed\n");
-
-			if (wsi->protocol->callback &&
-			    user_callback_handle_rxflow(wsi->protocol->callback,
-					    	    	wsi, LWS_CALLBACK_HTTP_FILE_COMPLETION,
-					    	    	wsi->user_space, NULL,
-					    	    	0) < 0) {
-					/*
-					 * For http/1.x, the choices from
-					 * transaction_completed are either
-					 * 0 to use the connection for pipelined
-					 * or nonzero to hang it up.
-					 *
-					 * However for http/2. while we are
-					 * still interested in hanging up the
-					 * nwsi if there was a network-level
-					 * fatal error, simply completing the
-					 * transaction is a matter of the stream
-					 * state, not the root connection at the
-					 * network level
-					 */
-					if (wsi->http2_substream)
-						return 1;
-					else
-						return -1;
-				}
-
-			return 1;  /* >0 indicates completed */
-		}
-	} while (0); // while (!lws_send_pipe_choked(wsi))
-
-	lws_callback_on_writable(wsi);
-
-	return 0; /* indicates further processing must be done */
-
-file_had_it:
-	lws_vfs_file_close(&wsi->http.fop_fd);
-
-	return -1;
 }
 
 LWS_VISIBLE int

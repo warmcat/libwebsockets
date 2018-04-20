@@ -534,8 +534,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 	struct lws_context_per_thread *pt;
 	struct lws *wsi1, *wsi2;
 	struct lws_context *context;
-	struct lws_tokens ebuf;
-	int n, m;
+	int n;
 
 	lwsl_info("%s: %p: caller: %s\n", __func__, wsi, caller);
 
@@ -651,6 +650,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 	/* we tried the polite way... */
 	case LRS_WAITING_TO_SEND_CLOSE:
 	case LRS_AWAITING_CLOSE_ACK:
+	case LRS_RETURNED_CLOSE:
 		goto just_kill_connection;
 
 	case LRS_FLUSHING_BEFORE_CLOSE:
@@ -684,45 +684,6 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 			wsi->protocol_bind_balance = 0;
 		}
 	}
-
-	/*
-	 * are his extensions okay with him closing?  Eg he might be a mux
-	 * parent and just his ch1 aspect is closing?
-	 */
-
-	if (lws_ext_cb_active(wsi, LWS_EXT_CB_CHECK_OK_TO_REALLY_CLOSE,
-			      NULL, 0) > 0) {
-		lwsl_ext("extension vetoed close\n");
-		return;
-	}
-
-	/*
-	 * flush any tx pending from extensions, since we may send close packet
-	 * if there are problems with send, just nuke the connection
-	 */
-	do {
-		ebuf.token = NULL;
-		ebuf.len = 0;
-
-		/* show every extension the new incoming data */
-
-		m = lws_ext_cb_active(wsi,
-			  LWS_EXT_CB_FLUSH_PENDING_TX, &ebuf, 0);
-		if (m < 0) {
-			lwsl_ext("Extension reports fatal error\n");
-			goto just_kill_connection;
-		}
-
-		/* assuming they left us something to send, send it */
-
-		if (ebuf.len)
-			if (lws_issue_raw(wsi, (unsigned char *)ebuf.token,
-					  ebuf.len) !=
-			    ebuf.len) {
-				lwsl_debug("close: ext spill failed\n");
-				goto just_kill_connection;
-			}
-	} while (m);
 
 	/*
 	 * signal we are closing, lws_write will
@@ -865,6 +826,8 @@ just_kill_connection:
 
 		if (!wsi->protocol)
 			pro = &wsi->vhost->protocols[0];
+		//lwsl_notice("%s: est %d told %d cbin %d %s\n", __func__, lwsi_state_est_PRE_CLOSE(wsi), !wsi->told_user_closed,
+		//		wsi->role_ops->close_cb[lwsi_role_server(wsi)], pro->name);
 		pro->callback(wsi,
 			      wsi->role_ops->close_cb[lwsi_role_server(wsi)],
 			      wsi->user_space, NULL, 0);
@@ -875,13 +838,6 @@ just_kill_connection:
 
 	if (lws_ext_cb_active(wsi, LWS_EXT_CB_DESTROY, NULL, 0) < 0)
 		lwsl_warn("extension destruction failed\n");
-	/*
-	 * inform all extensions in case they tracked this guy out of band
-	 * even though not active on him specifically
-	 */
-	if (lws_ext_cb_all_exts(context, wsi,
-		       LWS_EXT_CB_DESTROY_ANY_WSI_CLOSING, NULL, 0) < 0)
-		lwsl_warn("ext destroy wsi failed\n");
 
 async_close:
 	wsi->socket_is_permanently_unusable = 1;
@@ -1049,7 +1005,6 @@ lws_buflist_use_segment(struct lws_buflist **head, size_t len)
 {
 	assert(*head);
 	assert(len);
-
 	assert((*head)->pos + len <= (*head)->len);
 
 	(*head)->pos += len;
@@ -2063,6 +2018,12 @@ lwsl_hexdump_level(int hexdump_level, const void *vbuf, size_t len)
 	char *p;
 
 	if (!lwsl_visible(hexdump_level))
+		return;
+
+	if (!len)
+		return;
+
+	if (!vbuf)
 		return;
 
 	_lws_log(hexdump_level, "\n");

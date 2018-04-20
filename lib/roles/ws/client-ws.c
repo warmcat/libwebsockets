@@ -99,14 +99,7 @@ lws_generate_client_ws_handshake(struct lws *wsi, char *p)
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	ext = wsi->vhost->extensions;
 	while (ext && ext->callback) {
-		n = lws_ext_cb_all_exts(wsi->context, wsi,
-			   LWS_EXT_CB_CHECK_OK_TO_PROPOSE_EXTENSION,
-			   (char *)ext->name, 0);
-		if (n) { /* an extension vetos us */
-			lwsl_ext("ext %s vetoed\n", (char *)ext->name);
-			ext++;
-			continue;
-		}
+
 		n = wsi->vhost->protocols[0].callback(wsi,
 			LWS_CALLBACK_CLIENT_CONFIRM_EXTENSION_SUPPORTED,
 				wsi->user_space, (char *)ext->name, 0);
@@ -172,7 +165,6 @@ lws_client_ws_upgrade(struct lws *wsi, const char **cce)
 	const char *c, *a;
 	char ignore;
 	int more = 1;
-	void *v;
 #endif
 
 	if (wsi->client_h2_substream) {/* !!! client ws-over-h2 not there yet */
@@ -575,24 +567,6 @@ check_accept:
 		*cce = "HS: Rejected at CLIENT_ESTABLISHED";
 		goto bail3;
 	}
-#if !defined(LWS_WITHOUT_EXTENSIONS)
-	/*
-	 * inform all extensions, not just active ones since they
-	 * already know
-	 */
-	ext = wsi->vhost->extensions;
-
-	while (ext && ext->callback) {
-		v = NULL;
-		for (n = 0; n < wsi->count_act_ext; n++)
-			if (wsi->active_extensions[n] == ext)
-				v = wsi->act_ext_user[n];
-
-		ext->callback(context, ext, wsi,
-			  LWS_EXT_CB_ANY_WSI_ESTABLISHED, v, NULL, 0);
-		ext++;
-	}
-#endif
 
 	return 0;
 

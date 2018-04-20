@@ -2185,6 +2185,7 @@ lws_read_h2(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 		if (lws_is_flowcontrolled(wsi)) {
 			lws_rxflow_cache(wsi, buf, 0, (int)len);
 			buf += len;
+			len = 0;
 			break;
 		}
 

@@ -198,21 +198,23 @@ read:
 					wsi->context->pt_serv_buf_size);
 		switch (ebuf.len) {
 		case 0:
-			lwsl_info("%s: zero length read\n",
-				  __func__);
+			lwsl_info("%s: zero length read\n", __func__);
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		case LWS_SSL_CAPABLE_MORE_SERVICE:
 			lwsl_info("SSL Capable more service\n");
 			return LWS_HPI_RET_HANDLED;
 		case LWS_SSL_CAPABLE_ERROR:
-			lwsl_info("%s: LWS_SSL_CAPABLE_ERROR\n",
-					__func__);
+			lwsl_info("%s: LWS_SSL_CAPABLE_ERROR\n", __func__);
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}
 
-		// lwsl_notice("Actual RX %d\n", ebuf.len);
-		// lwsl_hexdump_notice(ebuf.token, 64);
+		// lwsl_notice("%s: Actual RX %d\n", __func__, ebuf.len);
+		// if (ebuf.len > 0)
+		//	lwsl_hexdump_notice(ebuf.token, ebuf.len);
 	}
+
+	if (ebuf.len < 0)
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
 drain:
 #ifndef LWS_NO_CLIENT
@@ -254,11 +256,11 @@ drain:
 		n = 0;
 		if (lwsi_role_h2(wsi) && lwsi_state(wsi) != LRS_BODY) {
 			n = lws_read_h2(wsi, (unsigned char *)ebuf.token,
-				     ebuf.len);
+				        ebuf.len);
 			// lwsl_notice("h2 n = %d\n", n);
 		} else {
 			n = lws_read_h1(wsi, (unsigned char *)ebuf.token,
-				     ebuf.len);
+				        ebuf.len);
 			// lwsl_notice("h1 n = %d\n", n);
 		}
 
@@ -296,8 +298,6 @@ drain:
 
 	pending = lws_ssl_pending(wsi);
 	if (pending) {
-		pending = pending > wsi->context->pt_serv_buf_size ?
-				wsi->context->pt_serv_buf_size : pending;
 		lwsl_err("going around\n");
 		goto read;
 	}

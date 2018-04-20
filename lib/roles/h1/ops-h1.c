@@ -25,6 +25,54 @@
 #define min(a, b) ((a) < (b) ? (a) : (b))
 #endif
 
+#if !defined(LWS_NO_CLIENT)
+static int
+lws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
+{
+	int m;
+
+	if ((lwsi_state(wsi) != LRS_WAITING_PROXY_REPLY) &&
+	    (lwsi_state(wsi) != LRS_H1C_ISSUE_HANDSHAKE) &&
+	    (lwsi_state(wsi) != LRS_WAITING_SERVER_REPLY) &&
+	    !lwsi_role_client(wsi))
+		return 0;
+
+	// lwsl_notice("%s: hs client gets %d in\n", __func__, (int)len);
+
+	while (len) {
+		/*
+		 * we were accepting input but now we stopped doing so
+		 */
+		if (lws_is_flowcontrolled(wsi)) {
+			//lwsl_notice("%s: caching %ld\n", __func__, (long)len);
+			lws_rxflow_cache(wsi, *buf, 0, (int)len);
+			*buf += len;
+			return 0;
+		}
+		if (wsi->ws->rx_draining_ext) {
+			//lwsl_notice("%s: draining ext\n", __func__);
+			if (lwsi_role_client(wsi))
+				m = lws_ws_client_rx_sm(wsi, 0);
+			else
+				m = lws_ws_rx_sm(wsi, 0, 0);
+			if (m < 0)
+				return -1;
+			continue;
+		}
+		/* caller will account for buflist usage */
+
+		if (lws_ws_client_rx_sm(wsi, *(*buf)++)) {
+			lwsl_notice("%s: client_rx_sm exited, DROPPING %d\n",
+				    __func__, (int)len);
+			return -1;
+		}
+		len--;
+	}
+	// lwsl_notice("%s: finished with %ld\n", __func__, (long)len);
+
+	return 0;
+}
+#endif
 
 /*
  * We have to take care about parsing because the headers may be split
@@ -67,10 +115,10 @@ lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 			assert(0);
 		}
 		lwsl_parser("issuing %d bytes to parser\n", (int)len);
-
+#if !defined(LWS_NO_CLIENT)
 		if (lws_handshake_client(wsi, &buf, (size_t)len))
 			goto bail;
-
+#endif
 		last_char = buf;
 		if (lws_handshake_server(wsi, &buf, (size_t)len))
 			/* Handshake indicates this session is done. */
@@ -200,19 +248,22 @@ postbody_completion:
 	case LRS_SHUTDOWN:
 
 ws_mode:
-
+#if !defined(LWS_NO_CLIENT)
+		// lwsl_notice("%s: ws_mode\n", __func__);
 		if (lws_handshake_client(wsi, &buf, (size_t)len))
 			goto bail;
+#endif
 #if defined(LWS_ROLE_WS)
 		if (lwsi_role_ws(wsi) && lwsi_role_server(wsi) &&
 			/*
 			 * for h2 we are on the swsi
 			 */
-		    lws_interpret_incoming_packet(wsi, &buf, (size_t)len) < 0) {
-			lwsl_info("interpret_incoming_packet bailed\n");
+		    lws_parse_ws(wsi, &buf, (size_t)len) < 0) {
+			lwsl_info("%s: lws_parse_ws bailed\n", __func__);
 			goto bail;
 		}
 #endif
+		// lwsl_notice("%s: ws_mode: buf moved on by %d\n", __func__, lws_ptr_diff(buf, oldbuf));
 		break;
 
 	case LRS_DEFERRING_ACTION:
@@ -253,8 +304,8 @@ bail:
 
 	return -1;
 }
-
-int
+#if !defined(LWS_NO_SERVER)
+static int
 lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
@@ -456,6 +507,7 @@ fail:
 
 	return LWS_HPI_RET_WSI_ALREADY_DIED;
 }
+#endif
 
 static int
 rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,

@@ -26,7 +26,7 @@
  *   sync with changes here, esp related to ext draining
  */
 
-int lws_client_rx_sm(struct lws *wsi, unsigned char c)
+int lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 {
 	int callback_action = LWS_CALLBACK_CLIENT_RECEIVE;
 	int handled, n, m, rx_draining_ext = 0;
@@ -34,10 +34,12 @@ int lws_client_rx_sm(struct lws *wsi, unsigned char c)
 	struct lws_tokens ebuf;
 	unsigned char *pp;
 
+	ebuf.token = NULL;
+	ebuf.len = 0;
+
 	if (wsi->ws->rx_draining_ext) {
 		assert(!c);
-		ebuf.token = NULL;
-		ebuf.len = 0;
+
 		lws_remove_wsi_from_draining_ext_list(wsi);
 		rx_draining_ext = 1;
 		lwsl_debug("%s: doing draining flow\n", __func__);
@@ -65,17 +67,20 @@ int lws_client_rx_sm(struct lws *wsi, unsigned char c)
 					wsi->context->options,
 					LWS_SERVER_OPTION_VALIDATE_UTF8);
 				wsi->ws->utf8 = 0;
+				wsi->ws->first_fragment = 1;
 				break;
 			case LWSWSOPC_BINARY_FRAME:
 				wsi->ws->rsv_first_msg = (c & 0x70);
 				wsi->ws->check_utf8 = 0;
 				wsi->ws->continuation_possible = 1;
+				wsi->ws->first_fragment = 1;
 				break;
 			case LWSWSOPC_CONTINUATION:
 				if (!wsi->ws->continuation_possible) {
 					lwsl_info("disordered continuation\n");
 					return -1;
 				}
+				wsi->ws->first_fragment = 0;
 				break;
 			case LWSWSOPC_CLOSE:
 				wsi->ws->check_utf8 = 0;
@@ -164,15 +169,15 @@ int lws_client_rx_sm(struct lws *wsi, unsigned char c)
 			wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_8;
 			break;
 		default:
-			wsi->ws->rx_packet_length = c;
+			wsi->ws->rx_packet_length = c & 0x7f;
 			if (wsi->ws->this_frame_masked)
 				wsi->lws_rx_parse_state =
 						LWS_RXPS_07_COLLECT_FRAME_KEY_1;
 			else {
-				if (c)
+				if (wsi->ws->rx_packet_length) {
 					wsi->lws_rx_parse_state =
-					LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
-				else {
+					LWS_RXPS_WS_FRAME_PAYLOAD;
+				} else {
 					wsi->lws_rx_parse_state = LWS_RXPS_NEW;
 					goto spill;
 				}
@@ -193,7 +198,7 @@ int lws_client_rx_sm(struct lws *wsi, unsigned char c)
 		else {
 			if (wsi->ws->rx_packet_length)
 				wsi->lws_rx_parse_state =
-					LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
+					LWS_RXPS_WS_FRAME_PAYLOAD;
 			else {
 				wsi->lws_rx_parse_state = LWS_RXPS_NEW;
 				goto spill;
@@ -259,7 +264,7 @@ int lws_client_rx_sm(struct lws *wsi, unsigned char c)
 		else {
 			if (wsi->ws->rx_packet_length)
 				wsi->lws_rx_parse_state =
-					LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
+					LWS_RXPS_WS_FRAME_PAYLOAD;
 			else {
 				wsi->lws_rx_parse_state = LWS_RXPS_NEW;
 				goto spill;
@@ -295,14 +300,14 @@ int lws_client_rx_sm(struct lws *wsi, unsigned char c)
 
 		if (wsi->ws->rx_packet_length)
 			wsi->lws_rx_parse_state =
-					LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED;
+					LWS_RXPS_WS_FRAME_PAYLOAD;
 		else {
 			wsi->lws_rx_parse_state = LWS_RXPS_NEW;
 			goto spill;
 		}
 		break;
 
-	case LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED:
+	case LWS_RXPS_WS_FRAME_PAYLOAD:
 
 		assert(wsi->ws->rx_ubuf);
 
@@ -387,26 +392,19 @@ spill:
 					wsi->ws->rx_ubuf_head))
 				return -1;
 
-			if (lws_partial_buffered(wsi))
-				/*
-				 * if we're in the middle of something,
-				 * we can't do a normal close response and
-				 * have to just close our end.
-				 */
-				wsi->socket_is_permanently_unusable = 1;
-			else
-				/*
-				 * parrot the close packet payload back
-				 * we do not care about how it went, we are closing
-				 * immediately afterwards
-				 */
-				lws_write(wsi, (unsigned char *)
-					  &wsi->ws->rx_ubuf[LWS_PRE],
-					  wsi->ws->rx_ubuf_head,
-					  LWS_WRITE_CLOSE);
-			lwsi_set_state(wsi, LRS_RETURNED_CLOSE);
-			/* close the connection */
-			return -1;
+			memcpy(wsi->ws->ping_payload_buf + LWS_PRE, pp,
+			       wsi->ws->rx_ubuf_head);
+			wsi->ws->close_in_ping_buffer_len = wsi->ws->rx_ubuf_head;
+
+			lwsl_notice("%s: scheduling return close as ack\n", __func__);
+			__lws_change_pollfd(wsi, LWS_POLLIN, 0);
+			lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_SEND, 3);
+			wsi->waiting_to_send_close_frame = 1;
+			wsi->close_needs_ack = 0;
+			lwsi_set_state(wsi, LRS_WAITING_TO_SEND_CLOSE);
+			lws_callback_on_writable(wsi);
+			handled = 1;
+			break;
 
 		case LWSWSOPC_PING:
 			lwsl_info("received %d byte ping, sending pong\n",
@@ -467,30 +465,11 @@ ping_drop:
 			break;
 
 		default:
+			/* not handled or failed */
+			lwsl_ext("Unhandled ext opc 0x%x\n", wsi->ws->opcode);
+			wsi->ws->rx_ubuf_head = 0;
 
-			lwsl_parser("Reserved opc 0x%2X\n", wsi->ws->opcode);
-
-			/*
-			 * It's something special we can't understand here.
-			 * Pass the payload up to the extension's parsing
-			 * state machine.
-			 */
-
-			ebuf.token = &wsi->ws->rx_ubuf[LWS_PRE];
-			ebuf.len = wsi->ws->rx_ubuf_head;
-
-			if (lws_ext_cb_active(wsi,
-				LWS_EXT_CB_EXTENDED_PAYLOAD_RX,
-					&ebuf, 0) <= 0) {
-				/* not handled or failed */
-				lwsl_ext("Unhandled ext opc 0x%x\n",
-					 wsi->ws->opcode);
-				wsi->ws->rx_ubuf_head = 0;
-
-				return 0;
-			}
-			handled = 1;
-			break;
+			return -1;
 		}
 
 		/*
@@ -520,7 +499,7 @@ drain_extension:
 #else
 		n = 0;
 #endif
-		lwsl_ext("post inflate ebuf len %d\n", ebuf.len);
+		lwsl_notice("post inflate ebuf len %d\n", ebuf.len);
 
 		if (rx_draining_ext && !ebuf.len) {
 			lwsl_debug("   --- ending drain on 0 read result\n");
@@ -530,15 +509,24 @@ drain_extension:
 		if (wsi->ws->check_utf8 && !wsi->ws->defeat_check_utf8) {
 			if (lws_check_utf8(&wsi->ws->utf8,
 					   (unsigned char *)ebuf.token,
-					   ebuf.len))
+					   ebuf.len)) {
+				lws_close_reason(wsi,
+					LWS_CLOSE_STATUS_INVALID_PAYLOAD,
+					(uint8_t *)"bad utf8", 8);
 				goto utf8_fail;
+			}
 
 			/* we are ending partway through utf-8 character? */
 			if (!wsi->ws->rx_packet_length && wsi->ws->final &&
 			    wsi->ws->utf8 && !n) {
 				lwsl_info("FINAL utf8 error\n");
+				lws_close_reason(wsi,
+					LWS_CLOSE_STATUS_INVALID_PAYLOAD,
+					(uint8_t *)"partial utf8", 12);
 utf8_fail:
 				lwsl_info("utf8 error\n");
+				lwsl_hexdump_info(ebuf.token, ebuf.len);
+
 				return -1;
 			}
 		}
@@ -581,6 +569,11 @@ utf8_fail:
 		m = wsi->protocol->callback(wsi,
 			(enum lws_callback_reasons)callback_action,
 			wsi->user_space, ebuf.token, ebuf.len);
+
+		wsi->ws->first_fragment = 0;
+
+		// lwsl_notice("%s: bulk ws rx: input used %d, output %d\n",
+		//	__func__, wsi->ws->rx_ubuf_head, ebuf.len);
 
 		/* if user code wants to close, let caller know */
 		if (m)

@@ -593,7 +593,7 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 		 const char *path, const char *host)
 {
 	char origin[300] = "", protocol[300] = "", method[32] = "",
-	     iface[16] = "", alpn[32], *p;
+	     iface[16] = "", alpn[32] = "", *p;
 	struct lws *wsi = *pwsi;
 
 	if (wsi->redirects == 3) {

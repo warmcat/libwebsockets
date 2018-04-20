@@ -75,10 +75,14 @@ lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 
 	while (more) {
 
+		if (c >= (char *)pt->serv_buf + 255)
+			return -1;
+
 		if (*c && (*c != ',' && *c != '\t')) {
 			if (*c == ';') {
 				ignore = 1;
-				args = c + 1;
+				if (!args)
+					args = c + 1;
 			}
 			if (ignore || *c == ' ') {
 				c++;
@@ -173,11 +177,19 @@ lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 			*p += lws_snprintf(*p, (end - *p), "%s", ext_name);
 
 			/*
-			 *  go through the options trying to apply the
+			 * The client may send a bunch of different option
+			 * sets for the same extension, we are supposed to
+			 * pick one we like the look of.  The option sets are
+			 * separated by comma.
+			 *
+			 * Actually we just either accept the first one or
+			 * nothing.
+			 *
+			 * Go through the options trying to apply the
 			 * recognized ones
 			 */
 
-			lwsl_debug("ext args %s", args);
+			lwsl_info("ext args %s\n", args);
 
 			while (args && *args && *args != ',') {
 				while (*args == ' ')
@@ -194,9 +206,10 @@ lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 					oa.option_name = NULL;
 					oa.option_index = (int)(po - opts);
 					oa.start = NULL;
-					lwsl_debug("setting %s\n", po->name);
-					if (!ext->callback(
-						lws_get_context(wsi), ext, wsi,
+					oa.len = 0;
+					lwsl_info("setting '%s'\n", po->name);
+					if (!ext->callback(lws_get_context(wsi),
+							  ext, wsi,
 							  LWS_EXT_CB_OPTION_SET,
 							  wsi->act_ext_user[
 								 wsi->count_act_ext],
@@ -211,10 +224,16 @@ lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 				}
 				while (*args && *args != ',' && *args != ';')
 					args++;
+
+				if (*args == ';')
+					args++;
 			}
 
 			wsi->count_act_ext++;
 			lwsl_parser("cnt_act_ext <- %d\n", wsi->count_act_ext);
+
+			if (args && *args == ',')
+				more = 0;
 
 			ext++;
 		}
@@ -454,7 +473,7 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 
 	/* make a buffer big enough for everything */
 
-	response = (char *)pt->serv_buf + MAX_WEBSOCKET_04_KEY_LEN + LWS_PRE;
+	response = (char *)pt->serv_buf + MAX_WEBSOCKET_04_KEY_LEN + 256 + LWS_PRE;
 	p = response;
 	LWS_CPYAPP(p, "HTTP/1.1 101 Switching Protocols\x0d\x0a"
 		      "Upgrade: WebSocket\x0d\x0a"
@@ -499,23 +518,18 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 
 	LWS_CPYAPP(p, "\x0d\x0a");
 
-	if (!lws_any_extension_handled(wsi, LWS_EXT_CB_HANDSHAKE_REPLY_TX,
-				       response, p - response)) {
+	/* okay send the handshake response accepting the connection */
 
-		/* okay send the handshake response accepting the connection */
-
-		lwsl_parser("issuing resp pkt %d len\n",
-			    lws_ptr_diff(p, response));
+	lwsl_parser("issuing resp pkt %d len\n",
+		    lws_ptr_diff(p, response));
 #if defined(DEBUG)
-		fwrite(response, 1,  p - response, stderr);
+	fwrite(response, 1,  p - response, stderr);
 #endif
-		n = lws_write(wsi, (unsigned char *)response, p - response,
-			      LWS_WRITE_HTTP_HEADERS);
-		if (n != (p - response)) {
-			lwsl_info("%s: ERROR writing to socket %d\n", __func__, n);
-			goto bail;
-		}
-
+	n = lws_write(wsi, (unsigned char *)response, p - response,
+		      LWS_WRITE_HTTP_HEADERS);
+	if (n != (p - response)) {
+		lwsl_info("%s: ERROR writing to socket %d\n", __func__, n);
+		goto bail;
 	}
 
 	/* alright clean up and set ourselves into established state */
@@ -543,15 +557,200 @@ bail:
 }
 
 
-int
-lws_interpret_incoming_packet(struct lws *wsi, unsigned char **buf, size_t len)
+
+/*
+ * Once we reach LWS_RXPS_WS_FRAME_PAYLOAD, we know how much
+ * to expect in that state and can deal with it in bulk more efficiently.
+ */
+
+static int
+lws_ws_frame_rest_is_payload(struct lws *wsi, uint8_t **buf, size_t len)
 {
-	int m, draining_flow = 0;
+	uint8_t *buffer = *buf, mask[4];
+	struct lws_tokens ebuf;
+	unsigned int avail = len;
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+	unsigned int old_packet_length = (int)wsi->ws->rx_packet_length;
+#endif
+	int n = 0;
 
-	if (lws_buflist_next_segment_len(&wsi->buflist, NULL))
-		draining_flow = 1;
+	/*
+	 * With zlib, we can give it as much input as we like.  The pmd
+	 * extension will draw it down in chunks (default 1024).
+	 *
+	 * If we try to restrict how much we give it, because we must go
+	 * back to the event loop each time, we will drop the remainder...
+	 */
 
-	lwsl_parser("%s: received %d byte packet\n", __func__, (int)len);
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+	if (!wsi->count_act_ext)
+#endif
+	{
+		if (wsi->protocol->rx_buffer_size)
+			avail = (int)wsi->protocol->rx_buffer_size;
+		else
+			avail = wsi->context->pt_serv_buf_size;
+	}
+
+	/* do not consume more than we should */
+	if (avail > wsi->ws->rx_packet_length)
+		avail = (unsigned int)wsi->ws->rx_packet_length;
+
+	/* do not consume more than what is in the buffer */
+	if (avail > len)
+		avail = (unsigned int)len;
+
+	if (avail <= 0)
+		return 0;
+
+	ebuf.token = (char *)buffer;
+	ebuf.len = avail;
+
+	//lwsl_hexdump_notice(ebuf.token, ebuf.len);
+
+	if (!wsi->ws->all_zero_nonce) {
+
+		for (n = 0; n < 4; n++)
+			mask[n] = wsi->ws->mask[(wsi->ws->mask_idx + n) & 3];
+
+		/* deal with 4-byte chunks using unwrapped loop */
+		n = avail >> 2;
+		while (n--) {
+			*(buffer) = *(buffer) ^ mask[0];
+			buffer++;
+			*(buffer) = *(buffer) ^ mask[1];
+			buffer++;
+			*(buffer) = *(buffer) ^ mask[2];
+			buffer++;
+			*(buffer) = *(buffer) ^ mask[3];
+			buffer++;
+		}
+		/* and the remaining bytes bytewise */
+		for (n = 0; n < (int)(avail & 3); n++) {
+			*(buffer) = *(buffer) ^ mask[n];
+			buffer++;
+		}
+
+		wsi->ws->mask_idx = (wsi->ws->mask_idx + avail) & 3;
+	}
+
+	lwsl_info("%s: using %d of raw input (total %d on offer)\n", __func__,
+		    avail, (int)len);
+
+	(*buf) += avail;
+	len -= avail;
+
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+	n = lws_ext_cb_active(wsi, LWS_EXT_CB_PAYLOAD_RX, &ebuf, 0);
+	lwsl_info("%s: ext says %d / ebuf.len %d\n", __func__,  n, ebuf.len);
+#endif
+	/*
+	 * ebuf may be pointing somewhere completely different now,
+	 * it's the output
+	 */
+
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+	if (n < 0) {
+		/*
+		 * we may rely on this to get RX, just drop connection
+		 */
+		lwsl_notice("%s: LWS_EXT_CB_PAYLOAD_RX blew out\n", __func__);
+		wsi->socket_is_permanently_unusable = 1;
+		return -1;
+	}
+#endif
+
+	wsi->ws->rx_packet_length -= avail;
+
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+	/*
+	 * if we had an rx fragment right at the last compressed byte of the
+	 * message, we can get a zero length inflated output, where no prior
+	 * rx inflated output marked themselves with FIN, since there was
+	 * raw ws payload still to drain at that time.
+	 *
+	 * Then we need to generate a zero length ws rx that can be understood
+	 * as the message completion.
+	 */
+
+	if (!ebuf.len &&		      /* zero-length inflation output */
+	    !n &&		   /* nothing left to drain from the inflator */
+	    wsi->count_act_ext &&			  /* we are using pmd */
+	    old_packet_length &&	    /* we gave the inflator new input */
+	    !wsi->ws->rx_packet_length &&   /* raw ws packet payload all gone */
+	    wsi->ws->final &&		    /* the raw ws packet is a FIN guy */
+	    wsi->protocol->callback &&
+	    !wsi->wsistate_pre_close) {
+
+		if (user_callback_handle_rxflow(wsi->protocol->callback, wsi,
+						LWS_CALLBACK_RECEIVE,
+						wsi->user_space, NULL, 0))
+			return -1;
+
+		return avail;
+	}
+#endif
+
+	if (!ebuf.len)
+		return avail;
+
+	if (
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+	    n &&
+#endif
+	    ebuf.len)
+		/* extension had more... main loop will come back */
+		lws_add_wsi_to_draining_ext_list(wsi);
+	else
+		lws_remove_wsi_from_draining_ext_list(wsi);
+
+	if (wsi->ws->check_utf8 && !wsi->ws->defeat_check_utf8) {
+		if (lws_check_utf8(&wsi->ws->utf8,
+				   (unsigned char *)ebuf.token, ebuf.len)) {
+			lws_close_reason(wsi, LWS_CLOSE_STATUS_INVALID_PAYLOAD,
+					 (uint8_t *)"bad utf8", 8);
+			goto utf8_fail;
+		}
+
+		/* we are ending partway through utf-8 character? */
+		if (!wsi->ws->rx_packet_length && wsi->ws->final &&
+		    wsi->ws->utf8 && !n) {
+			lwsl_info("FINAL utf8 error\n");
+			lws_close_reason(wsi, LWS_CLOSE_STATUS_INVALID_PAYLOAD,
+					 (uint8_t *)"partial utf8", 12);
+
+utf8_fail:
+			lwsl_info("utf8 error\n");
+			lwsl_hexdump_info(ebuf.token, ebuf.len);
+
+			return -1;
+		}
+	}
+
+	if (wsi->protocol->callback && !wsi->wsistate_pre_close)
+		if (user_callback_handle_rxflow(wsi->protocol->callback, wsi,
+						LWS_CALLBACK_RECEIVE,
+						wsi->user_space,
+						ebuf.token, ebuf.len))
+			return -1;
+
+	wsi->ws->first_fragment = 0;
+
+	lwsl_info("%s: input used %d, output %d, rem len %d, rx_draining_ext %d\n",
+		  __func__, avail, ebuf.len, (int)len, wsi->ws->rx_draining_ext);
+
+	return avail; /* how much we used from the input */
+}
+
+
+int
+lws_parse_ws(struct lws *wsi, unsigned char **buf, size_t len)
+{
+	int m, bulk = 0;
+
+	lwsl_debug("%s: received %d byte packet\n", __func__, (int)len);
+
+	//lwsl_hexdump_notice(*buf, len);
 
 	/* let the rx protocol state machine have as much as it needs */
 
@@ -560,51 +759,73 @@ lws_interpret_incoming_packet(struct lws *wsi, unsigned char **buf, size_t len)
 		 * we were accepting input but now we stopped doing so
 		 */
 		if (wsi->rxflow_bitmap) {
+			lwsl_info("%s: doing rxflow\n", __func__);
 			lws_rxflow_cache(wsi, *buf, 0, (int)len);
 			lwsl_parser("%s: cached %ld\n", __func__, (long)len);
-			buf += len; /* stashing it is taking care of it */
+			*buf += len; /* stashing it is taking care of it */
 			return 1;
 		}
 
 		if (wsi->ws->rx_draining_ext) {
-			m = lws_ws_rx_sm(wsi, 0);
+			lwsl_debug("%s: draining rx ext\n", __func__);
+			m = lws_ws_rx_sm(wsi, ALREADY_PROCESSED_IGNORE_CHAR, 0);
 			if (m < 0)
 				return -1;
 			continue;
 		}
 
 		/* consume payload bytes efficiently */
-		if (wsi->lws_rx_parse_state ==
-		    LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED) {
-			m = lws_payload_until_length_exhausted(wsi, buf, &len);
-			if (draining_flow &&
-			    !lws_buflist_use_segment(&wsi->buflist, m))
-				lws_dll_lws_remove(&wsi->dll_buflist);
+		while (wsi->lws_rx_parse_state == LWS_RXPS_WS_FRAME_PAYLOAD &&
+				(wsi->ws->opcode == LWSWSOPC_TEXT_FRAME ||
+				 wsi->ws->opcode == LWSWSOPC_BINARY_FRAME ||
+				 wsi->ws->opcode == LWSWSOPC_CONTINUATION) &&
+		       len) {
+			uint8_t *bin = *buf;
+
+			bulk = 1;
+			m = lws_ws_frame_rest_is_payload(wsi, buf, len);
+			assert((int)lws_ptr_diff(*buf, bin) <= (int)len);
+			len -= lws_ptr_diff(*buf, bin);
+
+			if (!m) {
+
+				break;
+			}
+			if (m < 0) {
+				lwsl_info("%s: rest_is_payload bailed\n",
+					  __func__);
+				return -1;
+			}
 		}
 
-		/* process the byte */
-		m = lws_ws_rx_sm(wsi, *(*buf)++);
-		if (m < 0)
+		if (!bulk) {
+			/* process the byte */
+			m = lws_ws_rx_sm(wsi, 0, *(*buf)++);
+			len--;
+		} else {
+			/*
+			 * We already handled this byte in bulk, just deal
+			 * with the ramifications
+			 */
+			lwsl_debug("%s: coming out of bulk with len %d, "
+				   "wsi->ws->rx_draining_ext %d\n",
+				   __func__, (int)len,
+				   wsi->ws->rx_draining_ext);
+			m = lws_ws_rx_sm(wsi, ALREADY_PROCESSED_IGNORE_CHAR |
+					 ALREADY_PROCESSED_NO_CB, 0);
+		}
+
+		if (m < 0) {
+			lwsl_info("%s: lws_ws_rx_sm bailed %d\n", __func__,
+				  bulk);
+
 			return -1;
-		len--;
-
-		/* account for what we're using in rxflow buffer */
-		if (draining_flow &&
-		    !lws_buflist_use_segment(&wsi->buflist, 1)) {
-				lws_dll_lws_remove(&wsi->dll_buflist);
-
-			lwsl_debug("%s: %p flow buf: drained\n", __func__, wsi);
-
-			/* having drained the rxflow buffer, can rearm POLLIN */
-#ifdef LWS_NO_SERVER
-			m =
-#endif
-			__lws_rx_flow_control(wsi);
-			/* m ignored, needed for NO_SERVER case */
 		}
+
+		bulk = 0;
 	}
 
-	lwsl_parser("%s: exit with %d unused\n", __func__, (int)len);
+	lwsl_debug("%s: exit with %d unused\n", __func__, (int)len);
 
 	return 0;
 }

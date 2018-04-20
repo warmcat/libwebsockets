@@ -41,6 +41,8 @@ lws_callback_as_writeable(struct lws *wsi)
 	}
 #endif
 
+	assert(!(lwsi_role_ws(wsi) && wsi->ws->tx_draining_ext));
+
 	n = wsi->role_ops->writeable_cb[lwsi_role_server(wsi)];
 
 	m = user_callback_handle_rxflow(wsi->protocol->callback,
@@ -56,7 +58,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	volatile struct lws *vwsi = (volatile struct lws *)wsi;
 	int n;
 
-	lwsl_info("%s: %p\n", __func__, wsi);
+	//lwsl_notice("%s: %p\n", __func__, wsi);
 
 	vwsi->leave_pollout_active = 0;
 	vwsi->handling_pollout = 1;
@@ -221,13 +223,6 @@ __lws_service_timeout_check(struct lws *wsi, time_t sec)
 	(void)n;
 
 	/*
-	 * if extensions want in on it (eg, we are a mux parent)
-	 * give them a chance to service child timeouts
-	 */
-	if (lws_ext_cb_active(wsi, LWS_EXT_CB_1HZ, NULL, sec) < 0)
-		return 0;
-
-	/*
 	 * if we went beyond the allowed time, kill the
 	 * connection
 	 */
@@ -358,7 +353,7 @@ int
 lws_buflist_aware_read(struct lws_context_per_thread *pt, struct lws *wsi,
 		       struct lws_tokens *ebuf)
 {
-	ebuf->len = lws_buflist_next_segment_len(&wsi->buflist,
+	ebuf->len = (int)lws_buflist_next_segment_len(&wsi->buflist,
 						 (uint8_t **)&ebuf->token);
 	if (!ebuf->len) {
 		ebuf->token = (char *)pt->serv_buf;
@@ -388,7 +383,7 @@ lws_buflist_aware_consume(struct lws *wsi, struct lws_tokens *ebuf, int used,
 		if (m)
 			return 0;
 
-		lwsl_notice("%s: removed %p from dll_buflist\n", __func__, wsi);
+		lwsl_info("%s: removed %p from dll_buflist\n", __func__, wsi);
 		lws_dll_lws_remove(&wsi->dll_buflist);
 
 		return 0;

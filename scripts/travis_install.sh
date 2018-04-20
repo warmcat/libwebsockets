@@ -9,6 +9,11 @@ then
 	if [ "$LWS_METHOD" == "lwsws" ];
 	then
 		sudo apt-get install -y -qq realpath;
+		sudo apt-get remove python-six
+		sudo pip install six>=1.9
+		sudo pip install Twisted==16.0.0
+		sudo pip install pyopenssl>=0.14
+		sudo pip install autobahntestsuite
 	fi
 
 	if [ "$LWS_METHOD" == "libev" ];

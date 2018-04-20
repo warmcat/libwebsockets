@@ -345,6 +345,7 @@ lwsl_timestamp(int level, char *p, int len);
 #define lwsl_hexdump_warn(...) lwsl_hexdump_level(LLL_WARN, __VA_ARGS__)
 #define lwsl_hexdump_notice(...) lwsl_hexdump_level(LLL_NOTICE, __VA_ARGS__)
 #define lwsl_hexdump_info(...) lwsl_hexdump_level(LLL_INFO, __VA_ARGS__)
+#define lwsl_hexdump_debug(...) lwsl_hexdump_level(LLL_DEBUG, __VA_ARGS__)
 
 /**
  * lwsl_hexdump_level() - helper to hexdump a buffer at a selected debug level
@@ -2143,27 +2144,10 @@ lws_jws_base64_enc(const char *in, size_t in_len, char *out, size_t out_max);
  * add it at where specified so existing users are unaffected.
  */
 enum lws_extension_callback_reasons {
-	LWS_EXT_CB_SERVER_CONTEXT_CONSTRUCT		=  0,
-	LWS_EXT_CB_CLIENT_CONTEXT_CONSTRUCT		=  1,
-	LWS_EXT_CB_SERVER_CONTEXT_DESTRUCT		=  2,
-	LWS_EXT_CB_CLIENT_CONTEXT_DESTRUCT		=  3,
 	LWS_EXT_CB_CONSTRUCT				=  4,
 	LWS_EXT_CB_CLIENT_CONSTRUCT			=  5,
-	LWS_EXT_CB_CHECK_OK_TO_REALLY_CLOSE		=  6,
-	LWS_EXT_CB_CHECK_OK_TO_PROPOSE_EXTENSION	=  7,
 	LWS_EXT_CB_DESTROY				=  8,
-	LWS_EXT_CB_DESTROY_ANY_WSI_CLOSING		=  9,
-	LWS_EXT_CB_ANY_WSI_ESTABLISHED			= 10,
-	LWS_EXT_CB_PACKET_RX_PREPARSE			= 11,
 	LWS_EXT_CB_PACKET_TX_PRESEND			= 12,
-	LWS_EXT_CB_PACKET_TX_DO_SEND			= 13,
-	LWS_EXT_CB_HANDSHAKE_REPLY_TX			= 14,
-	LWS_EXT_CB_FLUSH_PENDING_TX			= 15,
-	LWS_EXT_CB_EXTENDED_PAYLOAD_RX			= 16,
-	LWS_EXT_CB_UNUSED1				= 17,
-	LWS_EXT_CB_1HZ					= 18,
-	LWS_EXT_CB_REQUEST_ON_WRITEABLE			= 19,
-	LWS_EXT_CB_IS_WRITEABLE				= 20,
 	LWS_EXT_CB_PAYLOAD_TX				= 21,
 	LWS_EXT_CB_PAYLOAD_RX				= 22,
 	LWS_EXT_CB_OPTION_DEFAULT			= 23,
@@ -2240,18 +2224,6 @@ struct lws_ext_option_arg {
  *		allocated in the user data (pointed to by user) before the
  *		user data is deleted.  This same callback is used whether you
  *		are in client or server instantiation context.
- *
- *	LWS_EXT_CB_PACKET_RX_PREPARSE: when this extension was active on
- *		a connection, and a packet of data arrived at the connection,
- *		it is passed to this callback to give the extension a chance to
- *		change the data, eg, decompress it.  user is pointing to the
- *		extension's private connection context data, in is pointing
- *		to an lws_tokens struct, it consists of a char * pointer called
- *		token, and an int called len.  At entry, these are
- *		set to point to the received buffer and set to the content
- *		length.  If the extension will grow the content, it should use
- *		a new buffer allocated in its private user context data and
- *		set the pointed-to lws_tokens members to point to its buffer.
  *
  *	LWS_EXT_CB_PACKET_TX_PRESEND: this works the same way as
  *		LWS_EXT_CB_PACKET_RX_PREPARSE above, except it gives the
@@ -2822,8 +2794,8 @@ struct lws_context_creation_info {
 	short max_http_header_pool;
 	/**< CONTEXT: The max number of connections with http headers that
 	 * can be processed simultaneously (the corresponding memory is
-	 * allocated for the lifetime of the context).  If the pool is
-	 * busy new incoming connections must wait for accept until one
+	 * allocated and deallocated dynamically as needed).  If the pool is
+	 * fully busy new incoming connections must wait for accept until one
 	 * becomes free. */
 
 	unsigned int count_threads;

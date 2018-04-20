@@ -1346,20 +1346,10 @@ lws_create_context(struct lws_context_creation_info *info)
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS))
 		lws_plat_drop_app_privileges(info);
 
-	/*
-	 * give all extensions a chance to create any per-context
-	 * allocations they need
-	 */
-	if (info->port != CONTEXT_PORT_NO_LISTEN) {
-		if (lws_ext_cb_all_exts(context, NULL,
-			LWS_EXT_CB_SERVER_CONTEXT_CONSTRUCT, NULL, 0) < 0)
-			goto bail;
-	} else
-		if (lws_ext_cb_all_exts(context, NULL,
-			LWS_EXT_CB_CLIENT_CONTEXT_CONSTRUCT, NULL, 0) < 0)
-			goto bail;
-
 	time(&context->last_cert_check_s);
+
+	/* expedite post-context init (eg, protocols) */
+	lws_cancel_service(context);
 
 #if defined(LWS_WITH_SELFTESTS)
 	lws_jws_selftest();
@@ -1746,17 +1736,6 @@ lws_context_destroy(struct lws_context *context)
 		}
 		lws_pt_mutex_destroy(pt);
 	}
-
-	/*
-	 * give all extensions a chance to clean up any per-context
-	 * allocations they might have made
-	 */
-
-	n = lws_ext_cb_all_exts(context, NULL,
-				LWS_EXT_CB_SERVER_CONTEXT_DESTRUCT, NULL, 0);
-
-	n = lws_ext_cb_all_exts(context, NULL,
-				LWS_EXT_CB_CLIENT_CONTEXT_DESTRUCT, NULL, 0);
 
 	/*
 	 * inform all the protocols that they are done and will have no more

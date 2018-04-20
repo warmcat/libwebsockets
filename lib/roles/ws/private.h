@@ -50,7 +50,7 @@ enum lws_rx_parse_state {
 	LWS_RXPS_07_COLLECT_FRAME_KEY_3,
 	LWS_RXPS_07_COLLECT_FRAME_KEY_4,
 
-	LWS_RXPS_PAYLOAD_UNTIL_LENGTH_EXHAUSTED
+	LWS_RXPS_WS_FRAME_PAYLOAD
 };
 
 enum lws_websocket_opcodes_07 {
@@ -69,6 +69,9 @@ enum lws_websocket_opcodes_07 {
 
 /* this is not usable directly by user code any more, lws_close_reason() */
 #define LWS_WRITE_CLOSE 4
+
+#define ALREADY_PROCESSED_IGNORE_CHAR 1
+#define ALREADY_PROCESSED_NO_CB 2
 
 struct _lws_websocket_related {
 	char *rx_ubuf;
@@ -113,6 +116,7 @@ struct _lws_websocket_related {
 	unsigned int tx_draining_ext:1;
 	unsigned int send_check_ping:1;
 	unsigned int first_fragment:1;
+	unsigned int peer_has_sent_close:1;
 };
 
 #if !defined(LWS_WITHOUT_EXTENSIONS)

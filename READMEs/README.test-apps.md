@@ -238,30 +238,6 @@ For those two options libuv is needed to support the protocol plugins, if
 that's not possible then the other variations with their own protocol code
 should be considered.
 
-
-@section echo Testing simple echo
-
-You can test against `echo.websockets.org` as a sanity test like
-this (the client connects to port `80` by default):
-
-```
-	$ libwebsockets-test-echo --client echo.websocket.org
-```
-
-This echo test is of limited use though because it doesn't
-negotiate any protocol.  You can run the same test app as a
-local server, by default on localhost:7681
-```
-	$ libwebsockets-test-echo
-```
-and do the echo test against the local echo server
-```
-	$ libwebsockets-test-echo --client localhost --port 7681
-```
-If you add the `--ssl` switch to both the client and server, you can also test
-with an encrypted link.
-
-
 @section tassl Testing SSL on the client side
 
 To test SSL/WSS client action, just run the client test with
@@ -436,37 +412,25 @@ treatment to the other app during that call.
 
 @section autobahn Autobahn Test Suite
 
-Lws can be tested against the autobahn websocket fuzzer.
+Lws can be tested against the autobahn websocket fuzzer in both client and
+server modes
 
 1) pip install autobahntestsuite
 
-2) wstest -m fuzzingserver
+2) From your build dir: cmake .. -DLWS_WITH_MINIMAL_EXAMPLES=1 && make
 
-3) Run tests like this
+3) ../scripts/autobahn-test.sh
 
-libwebsockets-test-echo --client localhost --port 9001 -u "/runCase?case=20&agent=libwebsockets" -v -d 65535 -n 1
+4) In a browser go to the directory you ran wstest in (eg, /projects/libwebsockets)
 
-(this runs test 20)
-
-4) In a browser, go here
-
-http://localhost:8080/test_browser.html
-
-fill in "libwebsockets" in "User Agent Identifier" and press "Update Reports (Manual)"
-
-5) In a browser go to the directory you ran wstest in (eg, /projects/libwebsockets)
-
-file:///projects/libwebsockets/reports/clients/index.html
+file:///projects/libwebsockets/build/reports/clients/index.html
 
 to see the results
 
 
 @section autobahnnotes Autobahn Test Notes
 
-1) Autobahn tests the user code + lws implementation.  So to get the same
-results, you need to follow test-echo.c in terms of user implementation.
-
-2) Two of the tests make no sense for Libwebsockets to support and we fail them.
+1) Two of the tests make no sense for Libwebsockets to support and we fail them.
 
  - Tests 2.10 + 2.11: sends multiple pings on one connection.  Lws policy is to
 only allow one active ping in flight on each connection, the rest are dropped.
@@ -474,5 +438,7 @@ The autobahn test itself admits this is not part of the standard, just someone's
 random opinion about how they think a ws server should act.  So we will fail
 this by design and it is no problem about RFC6455 compliance.
 
- 
+2) Currently two parts of autobahn are broken and we skip them
+
+https://github.com/crossbario/autobahn-testsuite/issues/71
  
