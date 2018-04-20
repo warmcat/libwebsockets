@@ -39,9 +39,6 @@ lws_context_init_server(struct lws_context_creation_info *info,
 			struct lws_vhost *vhost)
 {
 	int n, opt = 1, limit = 1;
-#if defined(__linux__) && defined(SO_REUSEPORT)
-	int n1;
-#endif
 	lws_sockfd_type sockfd;
 	struct lws_vhost *vh;
 	struct lws *wsi;
@@ -197,13 +194,12 @@ done_list:
 #endif
 
 #if defined(__linux__) && defined(SO_REUSEPORT)
-		n1 = lws_check_opt(vhost->options,
-				  LWS_SERVER_OPTION_ALLOW_LISTEN_SHARE);
 		/* keep coverity happy */
 #if LWS_MAX_SMP > 1
 		n = 1;
 #else
-		n = n1;
+		n = lws_check_opt(vhost->options,
+				  LWS_SERVER_OPTION_ALLOW_LISTEN_SHARE);
 #endif
 		if (n && vhost->context->count_threads > 1)
 			if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT,
