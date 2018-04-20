@@ -1490,7 +1490,7 @@ lws_set_proxy(struct lws_vhost *vhost, const char *proxy)
 	if (!strncmp(proxy, "http://", 7))
 		proxy += 7;
 
-	p = strchr(proxy, '@');
+	p = strrchr(proxy, '@');
 	if (p) { /* auth is around */
 
 		if ((unsigned int)(p - proxy) > sizeof(authstring) - 1)
@@ -1552,7 +1552,7 @@ lws_set_socks(struct lws_vhost *vhost, const char *socks)
 	vhost->socks_user[0] = '\0';
 	vhost->socks_password[0] = '\0';
 
-	p_at = strchr(socks, '@');
+	p_at = strrchr(socks, '@');
 	if (p_at) { /* auth is around */
 		if ((unsigned int)(p_at - socks) > (sizeof(user)
 			+ sizeof(password) - 2)) {
