@@ -41,6 +41,10 @@ struct http2_settings {
 	uint32_t s[H2SET_COUNT];
 };
 
+struct lws_vhost_role_h2 {
+	struct http2_settings set;
+};
+
 enum lws_h2_wellknown_frame_types {
 	LWS_H2_FRAME_TYPE_DATA,
 	LWS_H2_FRAME_TYPE_HEADERS,

@@ -131,7 +131,7 @@ lws_h2_new_pps(enum lws_h2_protocol_send_type type)
 
 void lws_h2_init(struct lws *wsi)
 {
-	wsi->h2.h2n->set = wsi->vhost->set;
+	wsi->h2.h2n->set = wsi->vhost->h2.set;
 }
 
 void
@@ -196,7 +196,7 @@ lws_wsi_server_new(struct lws_vhost *vh, struct lws *parent_wsi,
 
 	wsi->h2.my_priority = 16;
 	wsi->h2.tx_cr = nwsi->h2.h2n->set.s[H2SET_INITIAL_WINDOW_SIZE];
-	wsi->h2.peer_tx_cr_est = nwsi->vhost->set.s[H2SET_INITIAL_WINDOW_SIZE];
+	wsi->h2.peer_tx_cr_est = nwsi->vhost->h2.set.s[H2SET_INITIAL_WINDOW_SIZE];
 
 	lwsi_set_state(wsi, LRS_ESTABLISHED);
 	lwsi_set_role(wsi, lwsi_role(parent_wsi));
@@ -254,7 +254,7 @@ lws_wsi_h2_adopt(struct lws *parent_wsi, struct lws *wsi)
 
 	wsi->h2.my_priority = 16;
 	wsi->h2.tx_cr = nwsi->h2.h2n->set.s[H2SET_INITIAL_WINDOW_SIZE];
-	wsi->h2.peer_tx_cr_est = nwsi->vhost->set.s[H2SET_INITIAL_WINDOW_SIZE];
+	wsi->h2.peer_tx_cr_est = nwsi->vhost->h2.set.s[H2SET_INITIAL_WINDOW_SIZE];
 
 	if (lws_ensure_user_space(wsi))
 		goto bail1;
@@ -463,7 +463,7 @@ lws_h2_settings(struct lws *wsi, struct http2_settings *settings,
 
 			break;
 		case H2SET_MAX_FRAME_SIZE:
-			if (b < wsi->vhost->set.s[H2SET_MAX_FRAME_SIZE]) {
+			if (b < wsi->vhost->h2.set.s[H2SET_MAX_FRAME_SIZE]) {
 				lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR,
 					      "Frame size < initial");
 				return 1;

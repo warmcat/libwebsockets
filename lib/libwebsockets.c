@@ -2379,6 +2379,13 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 
 	return 0;
 }
+
+LWS_EXTERN int
+lws_set_extension_option(struct lws *wsi, const char *ext_name,
+			 const char *opt_name, const char *opt_val)
+{
+	return -1;
+}
 #endif
 
 LWS_EXTERN int
@@ -2893,16 +2900,6 @@ lws_pvo_search(const struct lws_protocol_vhost_options *pvo, const char *name)
 
 	return pvo;
 }
-
-#if defined(LWS_WITHOUT_EXTENSIONS)
-LWS_EXTERN int
-lws_set_extension_option(struct lws *wsi, const char *ext_name,
-			 const char *opt_name, const char *opt_val)
-{
-	return -1;
-}
-#endif
-
 
 void
 lws_sum_stats(const struct lws_context *ctx, struct lws_conn_stats *cs)

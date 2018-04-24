@@ -566,10 +566,10 @@ lws_create_vhost(struct lws_context *context,
 		lwsl_info("%s set to only support RAW\n", vh->name);
 
 #if defined(LWS_WITH_HTTP2)
-	vh->set = context->set;
+	vh->h2.set = context->set;
 	if (info->http2_settings[0])
 		for (n = 1; n < LWS_H2_SETTINGS_LEN; n++)
-			vh->set.s[n] = info->http2_settings[n];
+			vh->h2.set.s[n] = info->http2_settings[n];
 #endif
 
 	vh->iface = info->iface;
@@ -752,17 +752,17 @@ lws_create_vhost(struct lws_context *context,
 		 * give the vhost a unified list of extensions including the
 		 * ones that came from plugins
 		 */
-		vh->extensions = lws_zalloc(sizeof(struct lws_extension) *
+		vh->ws.extensions = lws_zalloc(sizeof(struct lws_extension) *
 				     (m + context->plugin_extension_count + 1),
 				     "extensions");
-		if (!vh->extensions)
+		if (!vh->ws.extensions)
 			return NULL;
 
-		memcpy((struct lws_extension *)vh->extensions, info->extensions,
+		memcpy((struct lws_extension *)vh->ws.extensions, info->extensions,
 		       sizeof(struct lws_extension) * m);
 		plugin = context->plugin_list;
 		while (plugin) {
-			memcpy((struct lws_extension *)&vh->extensions[m],
+			memcpy((struct lws_extension *)&vh->ws.extensions[m],
 				plugin->caps.extensions,
 			       sizeof(struct lws_extension) *
 			       plugin->caps.count_extensions);
@@ -771,7 +771,7 @@ lws_create_vhost(struct lws_context *context,
 		}
 	} else
 #endif
-		vh->extensions = info->extensions;
+		vh->ws.extensions = info->extensions;
 #endif
 
 	vh->listen_port = info->port;
@@ -1599,7 +1599,7 @@ lws_vhost_destroy2(struct lws_vhost *vh)
 #ifdef LWS_WITH_PLUGINS
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	if (context->plugin_extension_count)
-		lws_free((void *)vh->extensions);
+		lws_free((void *)vh->ws.extensions);
 #endif
 #endif
 #ifdef LWS_WITH_ACCESS_LOG

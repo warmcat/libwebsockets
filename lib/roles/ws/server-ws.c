@@ -56,7 +56,7 @@ lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 
 	c = (char *)pt->serv_buf;
 	lwsl_parser("WSI_TOKEN_EXTENSIONS = '%s'\n", c);
-	wsi->count_act_ext = 0;
+	wsi->ws->count_act_ext = 0;
 	ignore = 0;
 	n = 0;
 	args = NULL;
@@ -109,7 +109,7 @@ lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 
 		/* check a client's extension against our support */
 
-		ext = wsi->vhost->extensions;
+		ext = wsi->vhost->ws.extensions;
 
 		while (ext && ext->callback) {
 
@@ -122,8 +122,8 @@ lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 			 * oh, we do support this one he asked for... but let's
 			 * confirm he only gave it once
 			 */
-			for (m = 0; m < wsi->count_act_ext; m++)
-				if (wsi->active_extensions[m] == ext) {
+			for (m = 0; m < wsi->ws->count_act_ext; m++)
+				if (wsi->ws->active_extensions[m] == ext) {
 					lwsl_info("extension mentioned twice\n");
 					return 1; /* shenanigans */
 				}
@@ -152,14 +152,14 @@ lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 
 			/* instantiate the extension on this conn */
 
-			wsi->active_extensions[wsi->count_act_ext] = ext;
+			wsi->ws->active_extensions[wsi->ws->count_act_ext] = ext;
 
 			/* allow him to construct his context */
 
 			if (ext->callback(lws_get_context(wsi), ext, wsi,
 					  LWS_EXT_CB_CONSTRUCT,
-					  (void *)&wsi->act_ext_user[
-					                    wsi->count_act_ext],
+					  (void *)&wsi->ws->act_ext_user[
+					                wsi->ws->count_act_ext],
 					  (void *)&opts, 0)) {
 				lwsl_info("ext %s failed construction\n",
 					    ext_name);
@@ -211,8 +211,8 @@ lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 					if (!ext->callback(lws_get_context(wsi),
 							  ext, wsi,
 							  LWS_EXT_CB_OPTION_SET,
-							  wsi->act_ext_user[
-								 wsi->count_act_ext],
+							  wsi->ws->act_ext_user[
+								 wsi->ws->count_act_ext],
 							  &oa, (end - *p))) {
 
 						*p += lws_snprintf(*p, (end - *p),
@@ -229,8 +229,8 @@ lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 					args++;
 			}
 
-			wsi->count_act_ext++;
-			lwsl_parser("cnt_act_ext <- %d\n", wsi->count_act_ext);
+			wsi->ws->count_act_ext++;
+			lwsl_parser("cnt_act_ext <- %d\n", wsi->ws->count_act_ext);
 
 			if (args && *args == ',')
 				more = 0;
@@ -583,7 +583,7 @@ lws_ws_frame_rest_is_payload(struct lws *wsi, uint8_t **buf, size_t len)
 	 */
 
 #if !defined(LWS_WITHOUT_EXTENSIONS)
-	if (!wsi->count_act_ext)
+	if (!wsi->ws->count_act_ext)
 #endif
 	{
 		if (wsi->protocol->rx_buffer_size)
@@ -675,7 +675,7 @@ lws_ws_frame_rest_is_payload(struct lws *wsi, uint8_t **buf, size_t len)
 
 	if (!ebuf.len &&		      /* zero-length inflation output */
 	    !n &&		   /* nothing left to drain from the inflator */
-	    wsi->count_act_ext &&			  /* we are using pmd */
+	    wsi->ws->count_act_ext &&			  /* we are using pmd */
 	    old_packet_length &&	    /* we gave the inflator new input */
 	    !wsi->ws->rx_packet_length &&   /* raw ws packet payload all gone */
 	    wsi->ws->final &&		    /* the raw ws packet is a FIN guy */

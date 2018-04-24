@@ -205,7 +205,7 @@ handle_first:
 		if (wsi->ws->rsv &&
 		    (
 #if !defined(LWS_WITHOUT_EXTENSIONS)
-				    !wsi->count_act_ext ||
+				    !wsi->ws->count_act_ext ||
 #endif
 				    (wsi->ws->rsv & ~0x40))) {
 			lws_close_reason(wsi, LWS_CLOSE_STATUS_PROTOCOL_ERR,
@@ -859,7 +859,7 @@ lws_is_ws_with_ext(struct lws *wsi)
 #if defined(LWS_WITHOUT_EXTENSIONS)
 	return 0;
 #else
-	return lwsi_role_ws(wsi) && !!wsi->count_act_ext;
+	return lwsi_role_ws(wsi) && !!wsi->ws->count_act_ext;
 #endif
 }
 
@@ -1268,7 +1268,7 @@ int rops_handle_POLLOUT_ws(struct lws *wsi)
 	/* Priority 6: extensions
 	 */
 #if !defined(LWS_WITHOUT_EXTENSIONS)
-	if (!wsi->extension_data_pending)
+	if (!wsi->ws->extension_data_pending)
 		return LWS_HP_RET_USER_SERVICE;
 
 	/*
@@ -1353,7 +1353,7 @@ int rops_handle_POLLOUT_ws(struct lws *wsi)
 		return LWS_HP_RET_BAIL_OK;
 	}
 
-	wsi->extension_data_pending = 0;
+	wsi->ws->extension_data_pending = 0;
 #endif
 
 	return LWS_HP_RET_USER_SERVICE;

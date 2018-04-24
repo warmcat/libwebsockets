@@ -883,9 +883,14 @@ struct lws_vhost {
 #if LWS_MAX_SMP > 1
 	pthread_mutex_t lock;
 #endif
-#if defined(LWS_WITH_HTTP2)
-	struct http2_settings set;
+
+#if defined(LWS_ROLE_H2)
+	struct lws_vhost_role_h2 h2;
 #endif
+#if defined(LWS_ROLE_WS)
+	struct lws_vhost_role_ws ws;
+#endif
+
 #if defined(LWS_WITH_SOCKS5)
 	char socks_proxy_address[128];
 	char socks_user[96];
@@ -927,9 +932,7 @@ struct lws_vhost {
 #if defined(LWS_WITH_MBEDTLS)
 	lws_tls_x509 *x509_client_CA;
 #endif
-#if !defined(LWS_WITHOUT_EXTENSIONS)
-	const struct lws_extension *extensions;
-#endif
+
 	struct lws_timed_vh_protocol *timed_vh_protocol_list;
 	void *user;
 
@@ -1417,10 +1420,6 @@ struct lws {
 	/* truncated send handling */
 	unsigned char *trunc_alloc; /* non-NULL means buffering in progress */
 
-#if !defined(LWS_WITHOUT_EXTENSIONS)
-	const struct lws_extension *active_extensions[LWS_MAX_EXTENSIONS_ACTIVE];
-	void *act_ext_user[LWS_MAX_EXTENSIONS_ACTIVE];
-#endif
 #if defined(LWS_WITH_TLS)
 	lws_tls_conn *ssl;
 	lws_tls_bio *client_bio;
@@ -1513,9 +1512,7 @@ struct lws {
 #ifdef LWS_WITH_HTTP_PROXY
 	unsigned int perform_rewrite:1;
 #endif
-#if !defined(LWS_WITHOUT_EXTENSIONS)
-	unsigned int extension_data_pending:1;
-#endif
+
 #if defined(LWS_WITH_TLS)
 	unsigned int use_ssl;
 #endif
@@ -1532,9 +1529,6 @@ struct lws {
 	unsigned short pending_timeout_limit;
 
 	/* chars */
-#if !defined(LWS_WITHOUT_EXTENSIONS)
-	uint8_t count_act_ext;
-#endif
 
 	char lws_rx_parse_state; /* enum lws_rx_parse_state */
 	char rx_frame_type; /* enum lws_write_protocol */

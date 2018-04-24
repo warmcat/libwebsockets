@@ -594,12 +594,12 @@ lws_hpack_dynamic_size(struct lws *wsi, int size)
 	dyn = &nwsi->h2.h2n->hpack_dyn_table;
 	lwsl_info("%s: from %d to %d, lim %d\n", __func__,
 		  (int)dyn->num_entries, size,
-		  nwsi->vhost->set.s[H2SET_HEADER_TABLE_SIZE]);
+		  nwsi->vhost->h2.set.s[H2SET_HEADER_TABLE_SIZE]);
 
-	if (size > (int)nwsi->vhost->set.s[H2SET_HEADER_TABLE_SIZE]) {
+	if (size > (int)nwsi->vhost->h2.set.s[H2SET_HEADER_TABLE_SIZE]) {
 		lwsl_notice("rejecting hpack dyn size %u\n", size);
 //#if defined(LWS_WITH_ESP32)
-		size = nwsi->vhost->set.s[H2SET_HEADER_TABLE_SIZE];
+		size = nwsi->vhost->h2.set.s[H2SET_HEADER_TABLE_SIZE];
 //#else
 //		lws_h2_goaway(nwsi, H2_ERR_COMPRESSION_ERROR,
 //			"Asked for header table bigger than we told");

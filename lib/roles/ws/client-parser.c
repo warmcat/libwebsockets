@@ -106,7 +106,7 @@ int lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 			/* revisit if an extension wants them... */
 			if (
 #if !defined(LWS_WITHOUT_EXTENSIONS)
-				!wsi->count_act_ext &&
+				!wsi->ws->count_act_ext &&
 #endif
 				wsi->ws->rsv) {
 				lwsl_info("illegal rsv bits set\n");

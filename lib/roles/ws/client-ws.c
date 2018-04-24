@@ -97,7 +97,7 @@ lws_generate_client_ws_handshake(struct lws *wsi, char *p)
 	/* tell the server what extensions we could support */
 
 #if !defined(LWS_WITHOUT_EXTENSIONS)
-	ext = wsi->vhost->extensions;
+	ext = wsi->vhost->ws.extensions;
 	while (ext && ext->callback) {
 
 		n = wsi->vhost->protocols[0].callback(wsi,
@@ -399,7 +399,7 @@ check_extensions:
 		lwsl_notice("checking client ext %s\n", ext_name);
 
 		n = 0;
-		ext = wsi->vhost->extensions;
+		ext = wsi->vhost->ws.extensions;
 		while (ext && ext->callback) {
 			if (strcmp(ext_name, ext->name)) {
 				ext++;
@@ -411,13 +411,13 @@ check_extensions:
 
 			/* instantiate the extension on this conn */
 
-			wsi->active_extensions[wsi->count_act_ext] = ext;
+			wsi->ws->active_extensions[wsi->ws->count_act_ext] = ext;
 
 			/* allow him to construct his ext instance */
 
 			if (ext->callback(lws_get_context(wsi), ext, wsi,
 				   LWS_EXT_CB_CLIENT_CONSTRUCT,
-				   (void *)&wsi->act_ext_user[wsi->count_act_ext],
+				   (void *)&wsi->ws->act_ext_user[wsi->ws->count_act_ext],
 				   (void *)&opts, 0)) {
 				lwsl_info(" ext %s failed construction\n",
 					  ext_name);
@@ -439,8 +439,8 @@ check_extensions:
 			}
 
 			if (ext_name[0] &&
-			    lws_ext_parse_options(ext, wsi, wsi->act_ext_user[
-						  wsi->count_act_ext], opts, ext_name,
+			    lws_ext_parse_options(ext, wsi, wsi->ws->act_ext_user[
+						  wsi->ws->count_act_ext], opts, ext_name,
 						  (int)strlen(ext_name))) {
 				lwsl_err("%s: unable to parse user defaults '%s'",
 					 __func__, ext_name);
@@ -452,7 +452,7 @@ check_extensions:
 			 * give the extension the server options
 			 */
 			if (a && lws_ext_parse_options(ext, wsi,
-					wsi->act_ext_user[wsi->count_act_ext],
+					wsi->ws->act_ext_user[wsi->ws->count_act_ext],
 					opts, a, lws_ptr_diff(c, a))) {
 				lwsl_err("%s: unable to parse remote def '%s'",
 					 __func__, a);
@@ -462,7 +462,7 @@ check_extensions:
 
 			if (ext->callback(lws_get_context(wsi), ext, wsi,
 					LWS_EXT_CB_OPTION_CONFIRM,
-				      wsi->act_ext_user[wsi->count_act_ext],
+				      wsi->ws->act_ext_user[wsi->ws->count_act_ext],
 				      NULL, 0)) {
 				lwsl_err("%s: ext %s rejects server options %s",
 					 __func__, ext->name, a);
@@ -470,7 +470,7 @@ check_extensions:
 				goto bail2;
 			}
 
-			wsi->count_act_ext++;
+			wsi->ws->count_act_ext++;
 
 			ext++;
 		}

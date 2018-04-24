@@ -438,7 +438,7 @@ rops_check_upgrades_h2(struct lws *wsi)
 	 * SETTINGS saying that we support it though.
 	 */
 	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_METHOD);
-	if (!wsi->vhost->set.s[H2SET_ENABLE_CONNECT_PROTOCOL] ||
+	if (!wsi->vhost->h2.set.s[H2SET_ENABLE_CONNECT_PROTOCOL] ||
 	    !wsi->http2_substream || !p || strcmp(p, "CONNECT"))
 		return LWS_UPG_RET_CONTINUE;
 

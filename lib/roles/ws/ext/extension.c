@@ -163,18 +163,21 @@ int lws_ext_cb_active(struct lws *wsi, int reason, void *arg, int len)
 {
 	int n, m, handled = 0;
 
-	for (n = 0; n < wsi->count_act_ext; n++) {
-		m = wsi->active_extensions[n]->callback(lws_get_context(wsi),
-			wsi->active_extensions[n], wsi, reason,
-			wsi->act_ext_user[n], arg, len);
+	if (!wsi->ws)
+		return 0;
+
+	for (n = 0; n < wsi->ws->count_act_ext; n++) {
+		m = wsi->ws->active_extensions[n]->callback(lws_get_context(wsi),
+			wsi->ws->active_extensions[n], wsi, reason,
+			wsi->ws->act_ext_user[n], arg, len);
 		if (m < 0) {
 			lwsl_ext("Ext '%s' failed to handle callback %d!\n",
-				 wsi->active_extensions[n]->name, reason);
+				 wsi->ws->active_extensions[n]->name, reason);
 			return -1;
 		}
 		/* valgrind... */
 		if (reason == LWS_EXT_CB_DESTROY)
-			wsi->act_ext_user[n] = NULL;
+			wsi->ws->act_ext_user[n] = NULL;
 		if (m > handled)
 			handled = m;
 	}
@@ -188,17 +191,17 @@ int lws_ext_cb_all_exts(struct lws_context *context, struct lws *wsi,
 	int n = 0, m, handled = 0;
 	const struct lws_extension *ext;
 
-	if (!wsi || !wsi->vhost)
+	if (!wsi || !wsi->vhost || !wsi->ws)
 		return 0;
 
-	ext = wsi->vhost->extensions;
+	ext = wsi->vhost->ws.extensions;
 
 	while (ext && ext->callback && !handled) {
 		m = ext->callback(context, ext, wsi, reason,
 				  (void *)(lws_intptr_t)n, arg, len);
 		if (m < 0) {
 			lwsl_ext("Ext '%s' failed to handle callback %d!\n",
-				 wsi->active_extensions[n]->name, reason);
+				 wsi->ws->active_extensions[n]->name, reason);
 			return -1;
 		}
 		if (m)
@@ -290,7 +293,7 @@ lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len)
 		 * when he is ready to send and take care of it there
 		 */
 		lws_callback_on_writable(wsi);
-		wsi->extension_data_pending = 1;
+		wsi->ws->extension_data_pending = 1;
 		ret = 0;
 	}
 
@@ -304,15 +307,18 @@ lws_any_extension_handled(struct lws *wsi, enum lws_extension_callback_reasons r
 	struct lws_context *context = wsi->context;
 	int n, handled = 0;
 
+	if (!wsi->ws)
+		return 0;
+
 	/* maybe an extension will take care of it for us */
 
-	for (n = 0; n < wsi->count_act_ext && !handled; n++) {
-		if (!wsi->active_extensions[n]->callback)
+	for (n = 0; n < wsi->ws->count_act_ext && !handled; n++) {
+		if (!wsi->ws->active_extensions[n]->callback)
 			continue;
 
-		handled |= wsi->active_extensions[n]->callback(context,
-			wsi->active_extensions[n], wsi,
-			r, wsi->act_ext_user[n], v, len);
+		handled |= wsi->ws->active_extensions[n]->callback(context,
+			wsi->ws->active_extensions[n], wsi,
+			r, wsi->ws->act_ext_user[n], v, len);
 	}
 
 	return handled;
@@ -325,12 +331,15 @@ lws_set_extension_option(struct lws *wsi, const char *ext_name,
 	struct lws_ext_option_arg oa;
 	int idx = 0;
 
+	if (!wsi->ws)
+		return 0;
+
 	/* first identify if the ext is active on this wsi */
-	while (idx < wsi->count_act_ext &&
-	       strcmp(wsi->active_extensions[idx]->name, ext_name))
+	while (idx < wsi->ws->count_act_ext &&
+	       strcmp(wsi->ws->active_extensions[idx]->name, ext_name))
 		idx++;
 
-	if (idx == wsi->count_act_ext)
+	if (idx == wsi->ws->count_act_ext)
 		return -1; /* request ext not active on this wsi */
 
 	oa.option_name = opt_name;
@@ -338,7 +347,7 @@ lws_set_extension_option(struct lws *wsi, const char *ext_name,
 	oa.start = opt_val;
 	oa.len = 0;
 
-	return wsi->active_extensions[idx]->callback(
-			wsi->context, wsi->active_extensions[idx], wsi,
-			LWS_EXT_CB_NAMED_OPTION_SET, wsi->act_ext_user[idx], &oa, 0);
+	return wsi->ws->active_extensions[idx]->callback(
+			wsi->context, wsi->ws->active_extensions[idx], wsi,
+			LWS_EXT_CB_NAMED_OPTION_SET, wsi->ws->act_ext_user[idx], &oa, 0);
 }

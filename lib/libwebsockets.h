@@ -2264,16 +2264,6 @@ LWS_VISIBLE LWS_EXTERN int
 lws_set_extension_option(struct lws *wsi, const char *ext_name,
 			 const char *opt_name, const char *opt_val);
 
-#if !defined(LWS_WITHOUT_EXTENSIONS)
-/* lws_get_internal_extensions() - DEPRECATED
- *
- * \Deprecated There is no longer a set internal extensions table.  The table is provided
- * by user code along with application-specific settings.  See the test
- * client and server for how to do.
- */
-static LWS_INLINE LWS_WARN_DEPRECATED const struct lws_extension *
-lws_get_internal_extensions(void) { return NULL; }
-
 /**
  * lws_ext_parse_options() - deal with parsing negotiated extension options
  *
@@ -2288,7 +2278,6 @@ LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_ext_parse_options(const struct lws_extension *ext, struct lws *wsi,
 		       void *ext_user, const struct lws_ext_options *opts,
 		       const char *o, int len);
-#endif
 
 /** lws_extension_callback_pm_deflate() - extension for RFC7692
  *
