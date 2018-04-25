@@ -155,6 +155,7 @@ struct lws_role_ops role_ops_listen = {
 	/* check_upgrades */		NULL,
 	/* init_context */		NULL,
 	/* init_vhost */		NULL,
+	/* destroy_vhost */		NULL,
 	/* periodic_checks */		NULL,
 	/* service_flag_pending */	NULL,
 	/* handle_POLLIN */		rops_handle_POLLIN_listen,

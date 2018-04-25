@@ -95,7 +95,6 @@ __lws_free_wsi(struct lws *wsi)
 
 	lws_buflist_destroy_all_segments(&wsi->buflist);
 	lws_free_set_NULL(wsi->trunc_alloc);
-	lws_free_set_NULL(wsi->ws);
 	lws_free_set_NULL(wsi->udp);
 
 	/* we may not have an ah, but may be on the waiting list... */
@@ -833,11 +832,6 @@ just_kill_connection:
 			      wsi->user_space, NULL, 0);
 		wsi->told_user_closed = 1;
 	}
-
-	/* deallocate any active extension contexts */
-
-	if (lws_ext_cb_active(wsi, LWS_EXT_CB_DESTROY, NULL, 0) < 0)
-		lwsl_warn("extension destruction failed\n");
 
 async_close:
 	wsi->socket_is_permanently_unusable = 1;

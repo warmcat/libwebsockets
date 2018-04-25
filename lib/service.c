@@ -41,8 +41,6 @@ lws_callback_as_writeable(struct lws *wsi)
 	}
 #endif
 
-	assert(!(lwsi_role_ws(wsi) && wsi->ws->tx_draining_ext));
-
 	n = wsi->role_ops->writeable_cb[lwsi_role_server(wsi)];
 
 	m = user_callback_handle_rxflow(wsi->protocol->callback,
@@ -319,9 +317,9 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 	 * We only need to wait if really nothing already to do and we have
 	 * to wait for something from network
 	 */
-#if defined(LWS_ROLE_WS)
+#if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
 	/* 1) if we know we are draining rx ext, do not wait in poll */
-	if (pt->rx_draining_ext_list)
+	if (pt->ws.rx_draining_ext_list)
 		return 0;
 #endif
 

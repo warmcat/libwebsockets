@@ -66,9 +66,10 @@ char crl_path[1024] = "";
  */
 
 #define LWS_PLUGIN_STATIC
+#if defined(LWS_ROLE_WS)
 #include "../plugins/protocol_lws_mirror.c"
 #include "../plugins/protocol_lws_status.c"
-#include "../plugins/protocol_lws_meta.c"
+#endif
 
 /* singlethreaded version --> no locks */
 
@@ -122,6 +123,7 @@ static struct lws_protocols protocols[] = {
 		sizeof (struct per_session_data__http),	/* per_session_data_size */
 		0,			/* max frame size / rx buffer */
 	},
+#if defined(LWS_ROLE_WS)
 	{
 		"dumb-increment-protocol",
 		callback_dumb_increment,
@@ -133,8 +135,7 @@ static struct lws_protocols protocols[] = {
 	},
 	LWS_PLUGIN_PROTOCOL_MIRROR,
 	LWS_PLUGIN_PROTOCOL_LWS_STATUS,
-
-	LWS_PLUGIN_PROTOCOL_LWS_META,
+#endif
 	{ NULL, NULL, 0, 0 } /* terminator */
 };
 

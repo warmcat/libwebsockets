@@ -25,8 +25,7 @@
 #define LWS_BUILD_HASH "unknown-build-hash"
 #endif
 
-#if defined(LWS_WITH_TLS)
-static const struct lws_role_ops * available_roles[] = {
+const struct lws_role_ops * available_roles[] = {
 #if defined(LWS_ROLE_H2)
 	&role_ops_h2,
 #endif
@@ -36,8 +35,10 @@ static const struct lws_role_ops * available_roles[] = {
 #if defined(LWS_ROLE_WS)
 	&role_ops_ws,
 #endif
+	NULL
 };
 
+#if defined(LWS_WITH_TLS)
 static char alpn_discovered[32];
 #endif
 
@@ -60,17 +61,15 @@ int
 lws_role_call_alpn_negotiated(struct lws *wsi, const char *alpn)
 {
 #if defined(LWS_WITH_TLS)
-	int n;
-
 	if (!alpn)
 		return 0;
 
 	lwsl_info("%s: '%s'\n", __func__, alpn);
 
-	for (n = 0; n < (int)LWS_ARRAY_SIZE(available_roles); n++)
-		if (!strcmp(available_roles[n]->alpn, alpn) &&
-		     available_roles[n]->alpn_negotiated)
-			return available_roles[n]->alpn_negotiated(wsi, alpn);
+	LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar)
+		if (!strcmp(ar->alpn, alpn) && ar->alpn_negotiated)
+			return ar->alpn_negotiated(wsi, alpn);
+	LWS_FOR_EVERY_AVAILABLE_ROLE_END;
 #endif
 	return 0;
 }
@@ -565,13 +564,6 @@ lws_create_vhost(struct lws_context *context,
 	if (info->options & LWS_SERVER_OPTION_ONLY_RAW)
 		lwsl_info("%s set to only support RAW\n", vh->name);
 
-#if defined(LWS_WITH_HTTP2)
-	vh->h2.set = context->set;
-	if (info->http2_settings[0])
-		for (n = 1; n < LWS_H2_SETTINGS_LEN; n++)
-			vh->h2.set.s[n] = info->http2_settings[n];
-#endif
-
 	vh->iface = info->iface;
 #if !defined(LWS_WITH_ESP32) && \
     !defined(OPTEE_TA) && !defined(WIN32)
@@ -589,9 +581,11 @@ lws_create_vhost(struct lws_context *context,
 	vh->user = info->user;
 	vh->alpn = info->alpn;
 
-#if defined(LWS_ROLE_H2)
-	role_ops_h2.init_vhost(vh, info);
-#endif
+	LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar)
+		if (ar->init_vhost)
+			if (ar->init_vhost(vh, info))
+				return NULL;
+	LWS_FOR_EVERY_AVAILABLE_ROLE_END;
 
 	vh->ssl_info_event_mask = info->ssl_info_event_mask;
 	if (info->keepalive_timeout)
@@ -739,40 +733,6 @@ lws_create_vhost(struct lws_context *context,
 
 		mounts = mounts->mount_next;
 	}
-
-#if !defined(LWS_WITHOUT_EXTENSIONS)
-#ifdef LWS_WITH_PLUGINS
-	if (context->plugin_extension_count) {
-
-		m = 0;
-		while (info->extensions && info->extensions[m].callback)
-			m++;
-
-		/*
-		 * give the vhost a unified list of extensions including the
-		 * ones that came from plugins
-		 */
-		vh->ws.extensions = lws_zalloc(sizeof(struct lws_extension) *
-				     (m + context->plugin_extension_count + 1),
-				     "extensions");
-		if (!vh->ws.extensions)
-			return NULL;
-
-		memcpy((struct lws_extension *)vh->ws.extensions, info->extensions,
-		       sizeof(struct lws_extension) * m);
-		plugin = context->plugin_list;
-		while (plugin) {
-			memcpy((struct lws_extension *)&vh->ws.extensions[m],
-				plugin->caps.extensions,
-			       sizeof(struct lws_extension) *
-			       plugin->caps.count_extensions);
-			m += plugin->caps.count_extensions;
-			plugin = plugin->list;
-		}
-	} else
-#endif
-		vh->ws.extensions = info->extensions;
-#endif
 
 	vh->listen_port = info->port;
 	vh->http_proxy_port = 0;
@@ -1122,16 +1082,17 @@ lws_create_context(struct lws_context_creation_info *info)
 	else {
 		char *p = alpn_discovered, first = 1;
 
-		for (n = 0; n < (int)LWS_ARRAY_SIZE(available_roles); n++) {
-			if (available_roles[n]->alpn) {
+		LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar) {
+			if (ar->alpn) {
 				if (!first)
 					*p++ = ',';
 				p += lws_snprintf(p, alpn_discovered +
 						sizeof(alpn_discovered) - 2 - p,
-					    "%s", available_roles[n]->alpn);
+					    "%s", ar->alpn);
 				first = 0;
 			}
-		}
+		} LWS_FOR_EVERY_AVAILABLE_ROLE_END;
+
 		context->alpn_default = alpn_discovered;
 	}
 
@@ -1596,12 +1557,11 @@ lws_vhost_destroy2(struct lws_vhost *vh)
 			lws_free((void *)vh->protocols);
 	}
 
-#ifdef LWS_WITH_PLUGINS
-#if !defined(LWS_WITHOUT_EXTENSIONS)
-	if (context->plugin_extension_count)
-		lws_free((void *)vh->ws.extensions);
-#endif
-#endif
+	LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar)
+		if (ar->destroy_vhost)
+			ar->destroy_vhost(vh);
+	LWS_FOR_EVERY_AVAILABLE_ROLE_END;
+
 #ifdef LWS_WITH_ACCESS_LOG
 	if (vh->log_fd != (int)LWS_INVALID_FILE)
 		close(vh->log_fd);

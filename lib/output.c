@@ -249,7 +249,6 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 		if (wsi->vhost)
 			wsi->vhost->conn_stats.rx += n;
 		lws_stats_atomic_bump(context, pt, LWSSTATS_B_READ, n);
-		lws_restart_ws_ping_pong_timer(wsi);
 
 		return n;
 	}

@@ -1519,9 +1519,11 @@ raw_transition:
 			if (!strcasecmp(lws_hdr_simple_ptr(wsi,
 							   WSI_TOKEN_UPGRADE),
 					"websocket")) {
+#if defined(LWS_ROLE_WS)
 				wsi->vhost->conn_stats.ws_upg++;
 				lwsl_info("Upgrade to ws\n");
 				goto upgrade_ws;
+#endif
 			}
 #if defined(LWS_WITH_HTTP2)
 			if (!strcasecmp(lws_hdr_simple_ptr(wsi,
@@ -1601,13 +1603,13 @@ upgrade_h2c:
 
 		return 0;
 #endif
-
+#if defined(LWS_ROLE_WS)
 upgrade_ws:
 		if (lws_process_ws_upgrade(wsi))
 			goto bail_nuke_ah;
 
 		return 0;
-
+#endif
 	} /* while all chars are handled */
 
 	return 0;
@@ -1871,6 +1873,7 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
                        lwsl_notice("OOM trying to get user_space\n");
 			goto bail;
                }
+#if defined(LWS_ROLE_WS)
                if (type & LWS_ADOPT_WS_PARENTIO) {
 			new_wsi->desc.sockfd = LWS_SOCK_INVALID;
 			lwsl_debug("binding to %s\n", new_wsi->protocol->name);
@@ -1887,6 +1890,7 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 
 			return new_wsi;
                }
+#endif
 	} else
 		if (type & LWS_ADOPT_HTTP) {/* he will transition later */
 			new_wsi->protocol =

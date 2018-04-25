@@ -25,54 +25,6 @@
 #define min(a, b) ((a) < (b) ? (a) : (b))
 #endif
 
-#if !defined(LWS_NO_CLIENT)
-static int
-lws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
-{
-	int m;
-
-	if ((lwsi_state(wsi) != LRS_WAITING_PROXY_REPLY) &&
-	    (lwsi_state(wsi) != LRS_H1C_ISSUE_HANDSHAKE) &&
-	    (lwsi_state(wsi) != LRS_WAITING_SERVER_REPLY) &&
-	    !lwsi_role_client(wsi))
-		return 0;
-
-	// lwsl_notice("%s: hs client gets %d in\n", __func__, (int)len);
-
-	while (len) {
-		/*
-		 * we were accepting input but now we stopped doing so
-		 */
-		if (lws_is_flowcontrolled(wsi)) {
-			//lwsl_notice("%s: caching %ld\n", __func__, (long)len);
-			lws_rxflow_cache(wsi, *buf, 0, (int)len);
-			*buf += len;
-			return 0;
-		}
-		if (wsi->ws->rx_draining_ext) {
-			//lwsl_notice("%s: draining ext\n", __func__);
-			if (lwsi_role_client(wsi))
-				m = lws_ws_client_rx_sm(wsi, 0);
-			else
-				m = lws_ws_rx_sm(wsi, 0, 0);
-			if (m < 0)
-				return -1;
-			continue;
-		}
-		/* caller will account for buflist usage */
-
-		if (lws_ws_client_rx_sm(wsi, *(*buf)++)) {
-			lwsl_notice("%s: client_rx_sm exited, DROPPING %d\n",
-				    __func__, (int)len);
-			return -1;
-		}
-		len--;
-	}
-	// lwsl_notice("%s: finished with %ld\n", __func__, (long)len);
-
-	return 0;
-}
-#endif
 
 /*
  * We have to take care about parsing because the headers may be split
@@ -115,8 +67,8 @@ lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 			assert(0);
 		}
 		lwsl_parser("issuing %d bytes to parser\n", (int)len);
-#if !defined(LWS_NO_CLIENT)
-		if (lws_handshake_client(wsi, &buf, (size_t)len))
+#if defined(LWS_ROLE_WS) && !defined(LWS_NO_CLIENT)
+		if (lws_ws_handshake_client(wsi, &buf, (size_t)len))
 			goto bail;
 #endif
 		last_char = buf;
@@ -248,9 +200,9 @@ postbody_completion:
 	case LRS_SHUTDOWN:
 
 ws_mode:
-#if !defined(LWS_NO_CLIENT)
+#if !defined(LWS_NO_CLIENT) && defined(LWS_ROLE_WS)
 		// lwsl_notice("%s: ws_mode\n", __func__);
-		if (lws_handshake_client(wsi, &buf, (size_t)len))
+		if (lws_ws_handshake_client(wsi, &buf, (size_t)len))
 			goto bail;
 #endif
 #if defined(LWS_ROLE_WS)
@@ -263,7 +215,8 @@ ws_mode:
 			goto bail;
 		}
 #endif
-		// lwsl_notice("%s: ws_mode: buf moved on by %d\n", __func__, lws_ptr_diff(buf, oldbuf));
+		// lwsl_notice("%s: ws_mode: buf moved on by %d\n", __func__,
+		//	       lws_ptr_diff(buf, oldbuf));
 		break;
 
 	case LRS_DEFERRING_ACTION:
@@ -293,14 +246,20 @@ read_ok:
 
 bail:
 	/*
-	 * h2 / h2-ws calls us recursively in lws_read()->lws_h2_parser()->
-	 * lws_read() pattern, having stripped the h2 framing in the middle.
+	 * h2 / h2-ws calls us recursively in
+	 *
+	 * lws_read_h1()->
+	 *   lws_h2_parser()->
+	 *     lws_read_h1()
+	 *
+	 * pattern, having stripped the h2 framing in the middle.
 	 *
 	 * When taking down the whole connection, make sure that only the
 	 * outer lws_read() does the wsi close.
 	 */
 	if (!wsi->outer_will_close)
-		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "lws_read bail");
+		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
+				   "lws_read_h1 bail");
 
 	return -1;
 }
@@ -526,19 +485,6 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 	}
 #endif
 
-        if (lwsi_state(wsi) == LRS_RETURNED_CLOSE ||
-            lwsi_state(wsi) == LRS_WAITING_TO_SEND_CLOSE ||
-            lwsi_state(wsi) == LRS_AWAITING_CLOSE_ACK) {
-                /*
-                 * we stopped caring about anything except control
-                 * packets.  Force flow control off, defeat tx
-                 * draining.
-                 */
-                lws_rx_flow_control(wsi, 1);
-                if (wsi->ws)
-                        wsi->ws->tx_draining_ext = 0;
-        }
-
         if (lws_is_flowcontrolled(wsi))
                 /* We cannot deal with any kind of new RX because we are
                  * RX-flowcontrolled.
@@ -669,6 +615,7 @@ struct lws_role_ops role_ops_h1 = {
 	/* check_upgrades */		NULL,
 	/* init_context */		NULL,
 	/* init_vhost */		NULL,
+	/* destroy_vhost */		NULL,
 	/* periodic_checks */		NULL,
 	/* service_flag_pending */	NULL,
 	/* handle_POLLIN */		rops_handle_POLLIN_h1,

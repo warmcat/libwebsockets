@@ -13,8 +13,8 @@ The Travis build of lws done on every commit now runs
 
 Tests|Count|Explanation
 ---|---|---
-Build / Linux / gcc|12|-Wall -Werror
-Build / Mac / Clang|12|-Wall -Werror
+Build / Linux / gcc|13|-Wall -Werror
+Build / Mac / Clang|13|-Wall -Werror
 Build / Windows / MSVC|7|default
 Selftests|29|minimal examples built and run against each other and remote server
 attack.sh|225|Correctness, robustness and security tests for http parser

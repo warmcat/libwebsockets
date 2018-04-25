@@ -9,6 +9,8 @@ set(LWS_WITH_BUNDLED_ZLIB_DEFAULT OFF)
 if(WIN32)
 	set(LWS_WITH_BUNDLED_ZLIB_DEFAULT ON)
 endif()
+set(LWS_ROLE_H1 1)
+set(LWS_ROLE_RAW 1)
 
 #
 # Select features recommended for PC distro packaging
@@ -18,6 +20,7 @@ option(LWS_WITH_DISTRO_RECOMMENDED "Enable features recommended for distro packa
 #
 # Major individual features
 #
+option(LWS_ROLE_WS "Compile with support for websockets" ON)
 option(LWS_WITH_HTTP2 "Compile with server support for HTTP/2" OFF)
 option(LWS_WITH_LWSWS "Libwebsockets Webserver" OFF)
 option(LWS_WITH_CGI "Include CGI (spawn process with network-connected stdin/out/err) APIs" OFF)
@@ -70,7 +73,6 @@ option(LWS_WITHOUT_TEST_SERVER "Don't build the test server" OFF)
 option(LWS_WITHOUT_TEST_SERVER_EXTPOLL "Don't build the test server version that uses external poll" OFF)
 option(LWS_WITHOUT_TEST_PING "Don't build the ping test application" OFF)
 option(LWS_WITHOUT_TEST_CLIENT "Don't build the client test application" OFF)
-option(LWS_WITHOUT_TEST_FRAGGLE "Don't build the ping test application" OFF)
 #
 # Extensions (permessage-deflate)
 #
@@ -197,14 +199,15 @@ endif()
 
 # translate old functionality enables to set up ROLE enables so nothing changes
 
-set(LWS_ROLE_H1 1)
-set(LWS_ROLE_WS 1)
-set(LWS_ROLE_RAW 1)
 if (LWS_WITH_HTTP2)
 	set(LWS_ROLE_H2 1)
 endif()
 if (LWS_WITH_CGI)
 	set(LWS_ROLE_CGI 1)
+endif()
+
+if (NOT LWS_ROLE_WS)
+	set(LWS_WITHOUT_EXTENSIONS 1)
 endif()
 
 if (LWS_WITH_HTTP2 AND LWS_WITHOUT_SERVER)
@@ -709,7 +712,7 @@ if (LWS_ROLE_WS)
 	if (NOT LWS_WITHOUT_CLIENT)
 		list(APPEND SOURCES
 			lib/roles/ws/client-ws.c
-			lib/roles/ws/client-parser.c)
+			lib/roles/ws/client-parser-ws.c)
 	endif()
 	if (NOT LWS_WITHOUT_SERVER)
 		list(APPEND SOURCES
@@ -1592,15 +1595,6 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 					""
 					"")
 			endif()
-			if (UNIX AND NOT LWS_WITHOUT_SERVER AND NOT ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang")) AND LWS_HAVE_PTHREAD_H)
-				create_test_app(test-server-pthreads
-					"test-apps/test-server-pthreads.c"
-					"test-apps/test-server-http.c"
-					"test-apps/test-server-dumb-increment.c"
-					""
-					""
-					"")
-			endif()
 			if (NOT ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
 				AND LWS_WITH_LIBEV)
 				create_test_app(test-server-libev
@@ -1721,13 +1715,6 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 		endif()
 
 		#
-		# test-fraggle
-		#
-		if (NOT LWS_WITHOUT_TEST_FRAGGLE AND NOT LWS_WITHOUT_SERVER)
-			create_test_app(test-fraggle "test-apps/test-fraggle.c" "" "" "" "" "")
-		endif()
-
-		#
 		# test-ping
 		#
 		if (NOT LWS_WITHOUT_TEST_PING AND NOT LWS_WITHOUT_SERVER AND NOT LWS_WITHOUT_CLIENT)
@@ -1786,27 +1773,15 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 
 		endmacro()
 		
-
-		create_plugin(protocol_lws_meta ""
-			      "plugins/protocol_lws_meta.c" "" "")
+if (LWS_ROLE_WS)
 		create_plugin(protocol_dumb_increment ""
 			      "plugins/protocol_dumb_increment.c" "" "")
 		create_plugin(protocol_lws_mirror ""
 			      "plugins/protocol_lws_mirror.c" "" "")
 		create_plugin(protocol_lws_status ""
 			      "plugins/protocol_lws_status.c" "" "")
-		create_plugin(protocol_post_demo ""
-			      "plugins/protocol_post_demo.c" "" "")
 		create_plugin(protocol_lws_table_dirlisting ""
 			      "plugins/generic-table/protocol_table_dirlisting.c" "" "")
-if (LWS_WITH_SSL)
-		create_plugin(protocol_lws_ssh_base "plugins/ssh-base/include"
-			      "plugins/ssh-base/sshd.c;plugins/ssh-base/telnet.c;plugins/ssh-base/kex-25519.c" "plugins/ssh-base/crypto/chacha.c;plugins/ssh-base/crypto/ed25519.c;plugins/ssh-base/crypto/fe25519.c;plugins/ssh-base/crypto/ge25519.c;plugins/ssh-base/crypto/poly1305.c;plugins/ssh-base/crypto/sc25519.c;plugins/ssh-base/crypto/smult_curve25519_ref.c" "")
-		create_plugin(protocol_lws_sshd_demo "plugins/ssh-base/include" "plugins/protocol_lws_sshd_demo.c" "" "")
-
-		include_directories("${PROJECT_SOURCE_DIR}/plugins/ssh-base/include")
-endif()
-
 		if (NOT WIN32)
 			create_plugin(protocol_lws_raw_test ""
 			      "plugins/protocol_lws_raw_test.c" "" "")
@@ -1820,14 +1795,29 @@ endif()
 if (NOT LWS_WITHOUT_CLIENT)
 		create_plugin(protocol_client_loopback_test ""
                               "plugins/protocol_client_loopback_test.c" "" "")
-endif(NOT LWS_WITHOUT_CLIENT)
+endif()
+
+endif()
+
+		create_plugin(protocol_post_demo ""
+			      "plugins/protocol_post_demo.c" "" "")
+
+if (LWS_WITH_SSL)
+		create_plugin(protocol_lws_ssh_base "plugins/ssh-base/include"
+			      "plugins/ssh-base/sshd.c;plugins/ssh-base/telnet.c;plugins/ssh-base/kex-25519.c" "plugins/ssh-base/crypto/chacha.c;plugins/ssh-base/crypto/ed25519.c;plugins/ssh-base/crypto/fe25519.c;plugins/ssh-base/crypto/ge25519.c;plugins/ssh-base/crypto/poly1305.c;plugins/ssh-base/crypto/sc25519.c;plugins/ssh-base/crypto/smult_curve25519_ref.c" "")
+		create_plugin(protocol_lws_sshd_demo "plugins/ssh-base/include" "plugins/protocol_lws_sshd_demo.c" "" "")
+
+		include_directories("${PROJECT_SOURCE_DIR}/plugins/ssh-base/include")
+endif()
+
+
 
 if (LWS_WITH_ACME)
 		create_plugin(protocol_lws_acme_client ""
 			      "plugins/acme-client/protocol_lws_acme_client.c" "" "")
 endif()
 
-if (LWS_WITH_GENERIC_SESSIONS)
+if (LWS_WITH_GENERIC_SESSIONS AND LWS_ROLE_WS)
 	create_plugin(protocol_generic_sessions ""
                       "plugins/generic-sessions/protocol_generic_sessions.c"
 		      "plugins/generic-sessions/utils.c"
@@ -2157,7 +2147,6 @@ message(" LWS_WITHOUT_TEST_SERVER = ${LWS_WITHOUT_TEST_SERVER}")
 message(" LWS_WITHOUT_TEST_SERVER_EXTPOLL = ${LWS_WITHOUT_TEST_SERVER_EXTPOLL}")
 message(" LWS_WITHOUT_TEST_PING = ${LWS_WITHOUT_TEST_PING}")
 message(" LWS_WITHOUT_TEST_CLIENT = ${LWS_WITHOUT_TEST_CLIENT}")
-message(" LWS_WITHOUT_TEST_FRAGGLE = ${LWS_WITHOUT_TEST_FRAGGLE}")
 message(" LWS_WITHOUT_EXTENSIONS = ${LWS_WITHOUT_EXTENSIONS}")
 message(" LWS_WITH_LATENCY = ${LWS_WITH_LATENCY}")
 message(" LWS_WITHOUT_DAEMONIZE = ${LWS_WITHOUT_DAEMONIZE}")

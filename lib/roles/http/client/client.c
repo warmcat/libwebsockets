@@ -1027,9 +1027,10 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 				     lws_hdr_simple_ptr(wsi,
 						     _WSI_TOKEN_CLIENT_ORIGIN));
 	}
-
+#if defined(LWS_ROLE_WS)
 	if (wsi->do_ws)
 		p = lws_generate_client_ws_handshake(wsi, p);
+#endif
 
 	/* give userland a chance to append, eg, cookies */
 

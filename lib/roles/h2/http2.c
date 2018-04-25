@@ -1715,7 +1715,7 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 
 			case LWS_H2_FRAME_TYPE_DATA:
 
-				lwsl_notice("%s: LWS_H2_FRAME_TYPE_DATA\n", __func__);
+				lwsl_info("%s: LWS_H2_FRAME_TYPE_DATA\n", __func__);
 
 				/* let the network wsi live a bit longer if subs are active...
 				 * our frame may take a long time to chew through */
@@ -1805,7 +1805,7 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 					 */
 
 					n = lws_read_h1(h2n->swsi, in - 1, n);
-					lwsl_notice("%s: lws_read_h1 %d\n", __func__, n);
+					// lwsl_notice("%s: lws_read_h1 %d\n", __func__, n);
 					h2n->swsi->outer_will_close = 0;
 					/*
 					 * can return 0 in POST body with
@@ -1819,8 +1819,8 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 						h2n->inside = h2n->length;
 						h2n->count = h2n->length - 1;
 
-						if (n < 0)
-							goto already_closed_swsi;
+						//if (n < 0)
+						//	goto already_closed_swsi;
 						goto close_swsi_and_return;
 					}
 
@@ -1983,7 +1983,7 @@ close_swsi_and_return:
 	h2n->frame_state = 0;
 	h2n->count = 0;
 
-already_closed_swsi:
+// already_closed_swsi:
 	*inused = in - oldin;
 
 	return 2;
@@ -2144,7 +2144,7 @@ lws_h2_ws_handshake(struct lws *wsi)
 	 */
 
 	lwsi_set_state(wsi, LRS_ESTABLISHED);
-	wsi->lws_rx_parse_state = LWS_RXPS_NEW;
+	wsi->lws_rx_parse_state = 0; // ==LWS_RXPS_NEW;
 
 	uri_ptr = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_PATH);
 	n = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH);

@@ -527,12 +527,14 @@ struct lws_role_ops {
 	 * ws-over-h2 is upgraded from h2 like this.
 	 */
 	int (*check_upgrades)(struct lws *wsi);
-	/* role-specific context init during vhost creation */
+	/* role-specific context init during context creation */
 	int (*init_context)(struct lws_context *context,
 			    struct lws_context_creation_info *info);
 	/* role-specific per-vhost init during vhost creation */
 	int (*init_vhost)(struct lws_vhost *vh,
 			  struct lws_context_creation_info *info);
+	/* role-specific per-vhost destructor during vhost destroy */
+	int (*destroy_vhost)(struct lws_vhost *vh);
 	/* generic 1Hz callback for the role itself */
 	int (*periodic_checks)(struct lws_context *context, int tsi,
 			       time_t now);
@@ -582,8 +584,21 @@ struct lws_role_ops {
 	uint16_t close_cb[2];
 };
 
+/* null-terminated array of pointers to roles lws built with */
+extern const struct lws_role_ops *available_roles[];
+
+#define LWS_FOR_EVERY_AVAILABLE_ROLE_START(xx) { \
+		const struct lws_role_ops **ppxx = available_roles; \
+		while (*ppxx) { \
+			const struct lws_role_ops *xx = *ppxx++;
+
+#define LWS_FOR_EVERY_AVAILABLE_ROLE_END }}
+
+/* core roles */
 extern struct lws_role_ops role_ops_raw_skt, role_ops_raw_file, role_ops_listen,
 			   role_ops_pipe;
+
+/* bring in role private declarations */
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
  #include "roles/http/private.h"
@@ -767,9 +782,8 @@ struct lws_context_per_thread {
 #endif
 	struct lws_pollfd *fds;
 	volatile struct lws_foreign_thread_pollfd * volatile foreign_pfd_list;
-#if defined(LWS_ROLE_WS)
-	struct lws *rx_draining_ext_list;
-	struct lws *tx_draining_ext_list;
+#if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
+	struct lws_pt_role_ws ws;
 #endif
 	struct lws_dll_lws dll_head_timeout;
 	struct lws_dll_lws dll_head_hrtimer;
@@ -887,7 +901,7 @@ struct lws_vhost {
 #if defined(LWS_ROLE_H2)
 	struct lws_vhost_role_h2 h2;
 #endif
-#if defined(LWS_ROLE_WS)
+#if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
 	struct lws_vhost_role_ws ws;
 #endif
 
@@ -1368,6 +1382,9 @@ struct lws {
 #if defined(LWS_ROLE_H2)
 	struct _lws_h2_related h2;
 #endif
+#if defined(LWS_ROLE_WS)
+	struct _lws_websocket_related *ws; /* allocated if we upgrade to ws */
+#endif
 
 	/* lifetime members */
 
@@ -1388,7 +1405,7 @@ struct lws {
 	struct lws *parent; /* points to parent, if any */
 	struct lws *child_list; /* points to first child */
 	struct lws *sibling_list; /* subsequent children at same level */
-	struct _lws_websocket_related *ws; /* allocated if we upgrade to ws */
+
 #ifdef LWS_WITH_CGI
 	struct lws_cgi *cgi; /* wsi being cgi master have one of these */
 #endif

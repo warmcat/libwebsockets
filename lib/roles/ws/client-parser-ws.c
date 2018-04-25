@@ -37,6 +37,7 @@ int lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 	ebuf.token = NULL;
 	ebuf.len = 0;
 
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 	if (wsi->ws->rx_draining_ext) {
 		assert(!c);
 
@@ -46,6 +47,7 @@ int lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 
 		goto drain_extension;
 	}
+#endif
 
 	if (wsi->socket_is_permanently_unusable)
 		return -1;
@@ -310,10 +312,10 @@ int lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 	case LWS_RXPS_WS_FRAME_PAYLOAD:
 
 		assert(wsi->ws->rx_ubuf);
-
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 		if (wsi->ws->rx_draining_ext)
 			goto drain_extension;
-
+#endif
 		if (wsi->ws->this_frame_masked && !wsi->ws->all_zero_nonce)
 			c ^= wsi->ws->mask[(wsi->ws->mask_idx++) & 3];
 
@@ -486,8 +488,8 @@ ping_drop:
 		if (wsi->ws->opcode == LWSWSOPC_PONG && !ebuf.len)
 			goto already_done;
 
-drain_extension:
 #if !defined(LWS_WITHOUT_EXTENSIONS)
+drain_extension:
 		lwsl_ext("%s: passing %d to ext\n", __func__, ebuf.len);
 
 		n = lws_ext_cb_active(wsi, LWS_EXT_CB_PAYLOAD_RX, &ebuf, 0);
@@ -548,9 +550,9 @@ utf8_fail:
 
 		if (
 				/* coverity says dead code otherwise */
-#if !defined(LWS_WITHOUT_EXTENSIONS)
+//#if !defined(LWS_WITHOUT_EXTENSIONS)
 				n &&
-#endif
+//#endif
 				ebuf.len)
 			/* extension had more... main loop will come back
 			 * we want callback to be done with this set, if so,

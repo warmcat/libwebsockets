@@ -259,12 +259,16 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 
 	lws_pt_unlock(pt);
 
+	m = 0;
+
 #if defined(LWS_WITH_TLS)
-	if (!n && !pt->rx_draining_ext_list &&
-	    !lws_ssl_anybody_has_buffered_read_tsi(context, tsi)) {
-#else
-	if (!pt->rx_draining_ext_list && !n) /* poll timeout */ {
+	m |= !n && !lws_ssl_anybody_has_buffered_read_tsi(context, tsi);
 #endif
+#if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
+	m |= !n && !pt->ws.rx_draining_ext_list;
+#endif
+
+	if (m) {
 		lws_service_fd_tsi(context, NULL, tsi);
 		lws_service_do_ripe_rxflow(pt);
 

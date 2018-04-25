@@ -155,8 +155,10 @@ rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 		 * draining.
 		 */
 		lws_rx_flow_control(wsi, 1);
+#if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
 		if (wsi->ws)
 			wsi->ws->tx_draining_ext = 0;
+#endif
 	}
 
 	if (wsi->http2_substream || wsi->upgraded_to_http2) {
@@ -254,15 +256,12 @@ drain:
 
 	if (ebuf.len) {
 		n = 0;
-		if (lwsi_role_h2(wsi) && lwsi_state(wsi) != LRS_BODY) {
+		if (lwsi_role_h2(wsi) && lwsi_state(wsi) != LRS_BODY)
 			n = lws_read_h2(wsi, (unsigned char *)ebuf.token,
 				        ebuf.len);
-			// lwsl_notice("h2 n = %d\n", n);
-		} else {
+		else
 			n = lws_read_h1(wsi, (unsigned char *)ebuf.token,
 				        ebuf.len);
-			// lwsl_notice("h1 n = %d\n", n);
-		}
 
 		if (n < 0) {
 			/* we closed wsi */
@@ -352,20 +351,23 @@ static int
 rops_write_role_protocol_h2(struct lws *wsi, unsigned char *buf, size_t len,
 			    enum lws_write_protocol *wp)
 {
-	unsigned char flags = 0;
+	unsigned char flags = 0, base = (*wp) & 0x1f;
 	int n;
 
 	/* if not in a state to send stuff, then just send nothing */
 
 	if (!lwsi_role_ws(wsi) &&
-	    ((*wp) & 0x1f) != LWS_WRITE_HTTP &&
-	    ((*wp) & 0x1f) != LWS_WRITE_HTTP_FINAL &&
-	    ((*wp) & 0x1f) != LWS_WRITE_HTTP_HEADERS_CONTINUATION &&
-	    ((*wp) & 0x1f) != LWS_WRITE_HTTP_HEADERS &&
+	    base != LWS_WRITE_HTTP &&
+	    base != LWS_WRITE_HTTP_FINAL &&
+	    base != LWS_WRITE_HTTP_HEADERS_CONTINUATION &&
+	    base != LWS_WRITE_HTTP_HEADERS &&
 	    ((lwsi_state(wsi) != LRS_RETURNED_CLOSE &&
 	      lwsi_state(wsi) != LRS_WAITING_TO_SEND_CLOSE &&
-	      lwsi_state(wsi) != LRS_AWAITING_CLOSE_ACK) ||
-	     ((*wp) & 0x1f) != LWS_WRITE_CLOSE)) {
+	      lwsi_state(wsi) != LRS_AWAITING_CLOSE_ACK)
+#if defined(LWS_ROLE_WS)
+	   || base != LWS_WRITE_CLOSE
+#endif
+	)) {
 		//assert(0);
 		lwsl_notice("binning wsistate 0x%x %d\n", wsi->wsistate, *wp);
 		return 0;
@@ -376,7 +378,7 @@ rops_write_role_protocol_h2(struct lws *wsi, unsigned char *buf, size_t len,
 	 */
 
 	n = LWS_H2_FRAME_TYPE_DATA;
-	if ((*wp & 0x1f) == LWS_WRITE_HTTP_HEADERS) {
+	if (base == LWS_WRITE_HTTP_HEADERS) {
 		n = LWS_H2_FRAME_TYPE_HEADERS;
 		if (!((*wp) & LWS_WRITE_NO_FIN))
 			flags = LWS_H2_FLAG_END_HEADERS;
@@ -387,41 +389,35 @@ rops_write_role_protocol_h2(struct lws *wsi, unsigned char *buf, size_t len,
 		}
 	}
 
-	if ((*wp & 0x1f) == LWS_WRITE_HTTP_HEADERS_CONTINUATION) {
+	if (base == LWS_WRITE_HTTP_HEADERS_CONTINUATION) {
 		n = LWS_H2_FRAME_TYPE_CONTINUATION;
 		if (!((*wp) & LWS_WRITE_NO_FIN))
 			flags = LWS_H2_FLAG_END_HEADERS;
-		if (wsi->h2.send_END_STREAM ||
-		    ((*wp) & LWS_WRITE_H2_STREAM_END)) {
+		if (wsi->h2.send_END_STREAM || ((*wp) & LWS_WRITE_H2_STREAM_END)) {
 			flags |= LWS_H2_FLAG_END_STREAM;
 			wsi->h2.send_END_STREAM = 1;
 		}
 	}
 
-	if (((*wp & 0x1f) == LWS_WRITE_HTTP ||
-	     (*wp & 0x1f) == LWS_WRITE_HTTP_FINAL) &&
-	    wsi->http.tx_content_length) {
+	if ((base == LWS_WRITE_HTTP ||
+	     base == LWS_WRITE_HTTP_FINAL) &&
+	     wsi->http.tx_content_length) {
 		wsi->http.tx_content_remain -= len;
-		lwsl_info("%s: wsi %p: tx_content_remain = %llu\n",
-			  __func__, wsi,
+		lwsl_info("%s: wsi %p: tx_content_rem = %llu\n", __func__, wsi,
 			  (unsigned long long)wsi->http.tx_content_remain);
 		if (!wsi->http.tx_content_remain) {
-			lwsl_info("%s: selecting final write mode\n",
-				  __func__);
-			*wp = LWS_WRITE_HTTP_FINAL;
+			lwsl_info("%s: selecting final write mode\n", __func__);
+			base = *wp = LWS_WRITE_HTTP_FINAL;
 		}
 	}
 
-	if ((*wp & 0x1f) == LWS_WRITE_HTTP_FINAL ||
-	    ((*wp) & LWS_WRITE_H2_STREAM_END)) {
-	    //lws_get_network_wsi(wsi)->h2.END_STREAM) {
+	if (base == LWS_WRITE_HTTP_FINAL || ((*wp) & LWS_WRITE_H2_STREAM_END)) {
 		lwsl_info("%s: setting END_STREAM\n", __func__);
 		flags |= LWS_H2_FLAG_END_STREAM;
 		wsi->h2.send_END_STREAM = 1;
 	}
 
-	return lws_h2_frame_write(wsi, n, flags, wsi->h2.my_sid,
-				  (int)len, buf);
+	return lws_h2_frame_write(wsi, n, flags, wsi->h2.my_sid, (int)len, buf);
 }
 
 static int
@@ -471,6 +467,13 @@ static int
 rops_init_vhost_h2(struct lws_vhost *vh,
 		   struct lws_context_creation_info *info)
 {
+	int n;
+
+	vh->h2.set = vh->context->set;
+	if (info->http2_settings[0])
+		for (n = 1; n < LWS_H2_SETTINGS_LEN; n++)
+			vh->h2.set.s[n] = info->http2_settings[n];
+
 	return 0;
 }
 
@@ -510,7 +513,7 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 	if (wsi->http2_substream && wsi->h2_stream_carries_ws)
 		lws_h2_rst_stream(wsi, 0, "none");
 
-	if (wsi->h2.parent_wsi) {
+	if (wsi->h2.parent_wsi && lwsl_visible(LLL_INFO)) {
 		lwsl_info(" wsi: %p, his parent %p: siblings:\n", wsi,
 			  wsi->h2.parent_wsi);
 		lws_start_foreach_llp(struct lws **, w,
@@ -523,7 +526,7 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 	if (wsi->upgraded_to_http2 || wsi->http2_substream || wsi->client_h2_substream) {
 		lwsl_info("closing %p: parent %p\n", wsi, wsi->h2.parent_wsi);
 
-		if (wsi->h2.child_list) {
+		if (wsi->h2.child_list && lwsl_visible(LLL_INFO)) {
 			lwsl_info(" parent %p: closing children: list:\n", wsi);
 			lws_start_foreach_llp(struct lws **, w,
 					      wsi->h2.child_list) {
@@ -531,6 +534,8 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 					  (*w)->role_ops ? (*w)->role_ops->name : "?",
 					  *w);
 			} lws_end_foreach_llp(w, h2.sibling_list);
+		}
+		if (wsi->h2.child_list) {
 			/* trigger closing of all of our http2 children first */
 			lws_start_foreach_llp(struct lws **, w,
 					      wsi->h2.child_list) {
@@ -732,7 +737,10 @@ static int
 rops_perform_user_POLLOUT_h2(struct lws *wsi)
 {
 	struct lws **wsi2, *wsi2a;
-	int write_type = LWS_WRITE_PONG, n;
+#if defined(LWS_ROLE_WS)
+	int write_type = LWS_WRITE_PONG;
+#endif
+	int n;
 
 	wsi = lws_get_network_wsi(wsi);
 
@@ -880,9 +888,11 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			goto next_child;
 		}
 
+#if defined(LWS_ROLE_WS)
+
 		/* Notify peer that we decided to close */
 
-		if (lwsi_state(w) == LRS_WAITING_TO_SEND_CLOSE) {
+		if (lwsi_role_ws(w) && lwsi_state(w) == LRS_WAITING_TO_SEND_CLOSE) {
 			lwsl_debug("sending close packet\n");
 			w->waiting_to_send_close_frame = 0;
 			n = lws_write(w, &w->ws->ping_payload_buf[LWS_PRE],
@@ -934,7 +944,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			/* otherwise for PING, leave POLLOUT active either way */
 			goto next_child;
 		}
-
+#endif
 		if (lws_callback_as_writeable(w)) {
 			lwsl_info("Closing POLLOUT child (end stream %d)\n",
 				  w->h2.send_END_STREAM);
@@ -1023,6 +1033,7 @@ struct lws_role_ops role_ops_h2 = {
 	/* check_upgrades */		rops_check_upgrades_h2,
 	/* init_context */		rops_init_context_h2,
 	/* init_vhost */		rops_init_vhost_h2,
+	/* destroy_vhost */		NULL,
 	/* periodic_checks */		NULL,
 	/* service_flag_pending */	NULL,
 	/* handle_POLLIN */		rops_handle_POLLIN_h2,

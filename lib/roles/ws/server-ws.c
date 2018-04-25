@@ -736,8 +736,10 @@ utf8_fail:
 
 	wsi->ws->first_fragment = 0;
 
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 	lwsl_info("%s: input used %d, output %d, rem len %d, rx_draining_ext %d\n",
 		  __func__, avail, ebuf.len, (int)len, wsi->ws->rx_draining_ext);
+#endif
 
 	return avail; /* how much we used from the input */
 }
@@ -765,7 +767,7 @@ lws_parse_ws(struct lws *wsi, unsigned char **buf, size_t len)
 			*buf += len; /* stashing it is taking care of it */
 			return 1;
 		}
-
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 		if (wsi->ws->rx_draining_ext) {
 			lwsl_debug("%s: draining rx ext\n", __func__);
 			m = lws_ws_rx_sm(wsi, ALREADY_PROCESSED_IGNORE_CHAR, 0);
@@ -773,6 +775,7 @@ lws_parse_ws(struct lws *wsi, unsigned char **buf, size_t len)
 				return -1;
 			continue;
 		}
+#endif
 
 		/* consume payload bytes efficiently */
 		while (wsi->lws_rx_parse_state == LWS_RXPS_WS_FRAME_PAYLOAD &&
@@ -807,10 +810,12 @@ lws_parse_ws(struct lws *wsi, unsigned char **buf, size_t len)
 			 * We already handled this byte in bulk, just deal
 			 * with the ramifications
 			 */
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 			lwsl_debug("%s: coming out of bulk with len %d, "
 				   "wsi->ws->rx_draining_ext %d\n",
 				   __func__, (int)len,
 				   wsi->ws->rx_draining_ext);
+#endif
 			m = lws_ws_rx_sm(wsi, ALREADY_PROCESSED_IGNORE_CHAR |
 					 ALREADY_PROCESSED_NO_CB, 0);
 		}

@@ -73,20 +73,25 @@ enum lws_websocket_opcodes_07 {
 #define ALREADY_PROCESSED_IGNORE_CHAR 1
 #define ALREADY_PROCESSED_NO_CB 2
 
-struct lws_vhost_role_ws {
 #if !defined(LWS_WITHOUT_EXTENSIONS)
+struct lws_vhost_role_ws {
 	const struct lws_extension *extensions;
-#endif
 };
+
+struct lws_pt_role_ws {
+	struct lws *rx_draining_ext_list;
+	struct lws *tx_draining_ext_list;
+};
+#endif
 
 struct _lws_websocket_related {
 	char *rx_ubuf;
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	const struct lws_extension *active_extensions[LWS_MAX_EXTENSIONS_ACTIVE];
 	void *act_ext_user[LWS_MAX_EXTENSIONS_ACTIVE];
-#endif
 	struct lws *rx_draining_ext_list;
 	struct lws *tx_draining_ext_list;
+#endif
 	/* Also used for close content... control opcode == < 128 */
 	uint8_t ping_payload_buf[128 - 3 + LWS_PRE];
 	uint8_t mask[4];
@@ -120,19 +125,21 @@ struct _lws_websocket_related {
 	unsigned int owed_a_fin:1;
 	unsigned int check_utf8:1;
 	unsigned int defeat_check_utf8:1;
-	unsigned int pmce_compressed_message:1;
 	unsigned int stashed_write_pending:1;
-	unsigned int rx_draining_ext:1;
-	unsigned int tx_draining_ext:1;
 	unsigned int send_check_ping:1;
 	unsigned int first_fragment:1;
 	unsigned int peer_has_sent_close:1;
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	unsigned int extension_data_pending:1;
+	unsigned int rx_draining_ext:1;
+	unsigned int tx_draining_ext:1;
 
 	uint8_t count_act_ext;
 #endif
 };
+
+int
+lws_ws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len);
 
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 LWS_VISIBLE void

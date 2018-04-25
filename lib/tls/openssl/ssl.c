@@ -255,8 +255,6 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 	if (wsi->vhost)
 		wsi->vhost->conn_stats.rx += n;
 
-	lws_restart_ws_ping_pong_timer(wsi);
-
 	// lwsl_hexdump_err(buf, n);
 
 	/*

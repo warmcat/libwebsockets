@@ -218,10 +218,10 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	}
 
 #if defined(LWS_WITH_TLS)
-	if (!pt->rx_draining_ext_list &&
+	if (!pt->ws.rx_draining_ext_list &&
 	    !lws_ssl_anybody_has_buffered_read_tsi(context, tsi) && !n) {
 #else
-	if (!pt->rx_draining_ext_list && !n) /* poll timeout */ {
+	if (!pt->ws.rx_draining_ext_list && !n) /* poll timeout */ {
 #endif
 		lws_service_fd_tsi(context, NULL, tsi);
 		return 0;

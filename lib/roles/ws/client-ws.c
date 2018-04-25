@@ -61,6 +61,57 @@ lws_create_client_ws_object(struct lws_client_connect_info *i, struct lws *wsi)
 	return 0;
 }
 
+#if !defined(LWS_NO_CLIENT)
+int
+lws_ws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
+{
+	if ((lwsi_state(wsi) != LRS_WAITING_PROXY_REPLY) &&
+	    (lwsi_state(wsi) != LRS_H1C_ISSUE_HANDSHAKE) &&
+	    (lwsi_state(wsi) != LRS_WAITING_SERVER_REPLY) &&
+	    !lwsi_role_client(wsi))
+		return 0;
+
+	// lwsl_notice("%s: hs client gets %d in\n", __func__, (int)len);
+
+	while (len) {
+		/*
+		 * we were accepting input but now we stopped doing so
+		 */
+		if (lws_is_flowcontrolled(wsi)) {
+			//lwsl_notice("%s: caching %ld\n", __func__, (long)len);
+			lws_rxflow_cache(wsi, *buf, 0, (int)len);
+			*buf += len;
+			return 0;
+		}
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+		if (wsi->ws->rx_draining_ext) {
+			int m;
+
+			//lwsl_notice("%s: draining ext\n", __func__);
+			if (lwsi_role_client(wsi))
+				m = lws_ws_client_rx_sm(wsi, 0);
+			else
+				m = lws_ws_rx_sm(wsi, 0, 0);
+			if (m < 0)
+				return -1;
+			continue;
+		}
+#endif
+		/* caller will account for buflist usage */
+
+		if (lws_ws_client_rx_sm(wsi, *(*buf)++)) {
+			lwsl_notice("%s: client_rx_sm exited, DROPPING %d\n",
+				    __func__, (int)len);
+			return -1;
+		}
+		len--;
+	}
+	// lwsl_notice("%s: finished with %ld\n", __func__, (long)len);
+
+	return 0;
+}
+#endif
+
 char *
 lws_generate_client_ws_handshake(struct lws *wsi, char *p)
 {
