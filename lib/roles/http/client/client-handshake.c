@@ -59,7 +59,7 @@ lws_client_connect_2(struct lws *wsi)
 	/* we can only piggyback GET */
 
 	meth = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD);
-	if (meth && strcmp(meth, "GET"))
+	if (meth && strcmp(meth, "GET") && strcmp(meth, "POST"))
 		goto create_new_conn;
 
 	/* we only pipeline connections that said it was okay */
@@ -79,7 +79,8 @@ lws_client_connect_2(struct lws *wsi)
 		struct lws *w = lws_container_of(d, struct lws,
 						 dll_active_client_conns);
 
-		lwsl_debug("%s: check %s %s %d %d\n", __func__, adsin, w->client_hostname_copy, wsi->c_port, w->c_port);
+		lwsl_debug("%s: check %s %s %d %d\n", __func__, adsin,
+			   w->client_hostname_copy, wsi->c_port, w->c_port);
 
 		if (w != wsi && w->client_hostname_copy &&
 		    !strcmp(adsin, w->client_hostname_copy) &&
@@ -161,7 +162,7 @@ create_new_conn:
 	 * piggyback on our transaction queue
 	 */
 
-	if (meth && !strcmp(meth, "GET") &&
+	if (meth && (!strcmp(meth, "GET") || !strcmp(meth, "POST")) &&
 	    lws_dll_is_null(&wsi->dll_client_transaction_queue) &&
 	    lws_dll_is_null(&wsi->dll_active_client_conns)) {
 		lws_vhost_lock(wsi->vhost);

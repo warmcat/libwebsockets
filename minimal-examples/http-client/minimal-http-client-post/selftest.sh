@@ -18,15 +18,21 @@
 
 . $5/selftests-library.sh
 
-COUNT_TESTS=4
+COUNT_TESTS=8
 
 dotest $1 $2 warmcat
 dotest $1 $2 warmcat-h1 --h1
+dotest $1 $2 warmcat-m -m
+dotest $1 $2 warmcat-m-h1 -m --h1
 
 spawn "" $5 $1/libwebsockets-test-server -s
 dotest $1 $2 localhost -l
 spawn $SPID $5 $1/libwebsockets-test-server -s
 dotest $1 $2 localhost-h1 -l --h1
+spawn $SPID $5 $1/libwebsockets-test-server -s
+dotest $1 $2 localhost-m -l -m
+spawn $SPID $5 $1/libwebsockets-test-server -s
+dotest $1 $2 localhost-m-h1 -l -m --h1
 
 kill $SPID 2>/dev/null
 wait $SPID 2>/dev/null

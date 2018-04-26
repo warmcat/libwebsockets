@@ -13,16 +13,16 @@ The Travis build of lws done on every commit now runs
 
 Tests|Count|Explanation
 ---|---|---
-Build / Linux / gcc|13|-Wall -Werror
-Build / Mac / Clang|13|-Wall -Werror
+Build / Linux / gcc|13|-Wall -Werror cmake config variants
+Build / Mac / Clang|13|-Wall -Werror cmake config variants
 Build / Windows / MSVC|7|default
-Selftests|29|minimal examples built and run against each other and remote server
+Selftests|33|minimal examples built and run against each other and remote server
 attack.sh|225|Correctness, robustness and security tests for http parser
 Autobahn Server|480|Testing lws ws client, including permessage-deflate
 Autobahn Client|480|Testing lws ws server, including permaessage-deflate
 h2spec|146|Http/2 server compliance suite (in strict mode)
 
-The nearly 1,400 tests run on every commit take most of an hour to complete.
+The over 1,400 tests run on every commit take most of an hour to complete.
 If any problems are found, it breaks the travis build, generating an email.
 
 Current master passes all the tests and these new CI arrangements will help
