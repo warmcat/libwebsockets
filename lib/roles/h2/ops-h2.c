@@ -486,7 +486,7 @@ rops_init_context_h2(struct lws_context *context,
 	return 0;
 }
 
-static lws_filepos_t
+static lws_fileofs_t
 rops_tx_credit_h2(struct lws *wsi)
 {
 	return lws_h2_tx_cr_get(wsi);

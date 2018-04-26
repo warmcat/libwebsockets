@@ -5208,7 +5208,7 @@ lws_get_socket_fd(struct lws *wsi);
  * automatically, so this number reflects the situation at the peer or
  * intermediary dynamically.
  */
-LWS_VISIBLE LWS_EXTERN size_t
+LWS_VISIBLE LWS_EXTERN lws_fileofs_t
 lws_get_peer_write_allowance(struct lws *wsi);
 ///@}
 

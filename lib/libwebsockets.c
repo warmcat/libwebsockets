@@ -2084,13 +2084,10 @@ lws_partial_buffered(struct lws *wsi)
 	return !!wsi->trunc_len;
 }
 
-LWS_VISIBLE size_t
+LWS_VISIBLE lws_fileofs_t
 lws_get_peer_write_allowance(struct lws *wsi)
 {
-	if (wsi->role_ops->tx_credit)
-		return wsi->role_ops->tx_credit(wsi);
-
-	return -1;
+	return wsi->role_ops->tx_credit(wsi);
 }
 
 LWS_VISIBLE void

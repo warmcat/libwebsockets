@@ -550,7 +550,7 @@ struct lws_role_ops {
 	/* do effective callback on writeable */
 	int (*callback_on_writable)(struct lws *wsi);
 	/* connection-specific tx credit in bytes */
-	lws_filepos_t (*tx_credit)(struct lws *wsi);
+	lws_fileofs_t (*tx_credit)(struct lws *wsi);
 	/* role-specific write formatting */
 	int (*write_role_protocol)(struct lws *wsi, unsigned char *buf,
 				   size_t len, enum lws_write_protocol *wp);
