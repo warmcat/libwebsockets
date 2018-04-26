@@ -62,7 +62,11 @@ struct per_session_data__minimal_pmd_bulk {
 
 struct vhd_minimal_pmd_bulk {
         int *interrupted;
-	int *options;	/* b0 = 1: test compressible text, = 0: test uncompressible binary */
+        /*
+         * b0 = 1: test compressible text, = 0: test uncompressible binary
+         * b1 = 1: send as a single blob, = 0: send as fragments
+         */
+	int *options;
 };
 
 static uint64_t rng(uint64_t *r)
@@ -83,8 +87,8 @@ callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
         struct vhd_minimal_pmd_bulk *vhd = (struct vhd_minimal_pmd_bulk *)
                         lws_protocol_vh_priv_get(lws_get_vhost(wsi),
                                 lws_get_protocol(wsi));
-	uint8_t buf[LWS_PRE + MESSAGE_CHUNK_SIZE], *start = &buf[LWS_PRE], *p;
-	int n, m, flags, olen;
+	uint8_t buf[LWS_PRE + MESSAGE_SIZE], *start = &buf[LWS_PRE], *p;
+	int n, m, flags, olen, amount;
 
 	switch (reason) {
         case LWS_CALLBACK_PROTOCOL_INIT:
@@ -113,10 +117,16 @@ callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
 		if (pss->position_tx == MESSAGE_SIZE)
 			break;
 
+		amount = MESSAGE_CHUNK_SIZE;
+		if ((*vhd->options) & 2) {
+			amount = MESSAGE_SIZE;
+			lwsl_user("(writing as one blob of %d)\n", amount);
+		}
+
 		/* fill up one chunk's worth of message content */
 
 		p = start;
-		n = MESSAGE_CHUNK_SIZE;
+		n = amount;
 		if (n > MESSAGE_SIZE - pss->position_tx)
 			n = MESSAGE_SIZE - pss->position_tx;
 
@@ -149,6 +159,7 @@ callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
 
 		n = lws_ptr_diff(p, start);
 		m = lws_write(wsi, start, n, flags);
+		lwsl_user("LWS_CALLBACK_SERVER_WRITEABLE: wrote %d\n", n);
 		if (m < n) {
 			lwsl_err("ERROR %d writing ws\n", n);
 			return -1;

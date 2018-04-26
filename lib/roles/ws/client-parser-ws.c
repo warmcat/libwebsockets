@@ -398,7 +398,7 @@ spill:
 			       wsi->ws->rx_ubuf_head);
 			wsi->ws->close_in_ping_buffer_len = wsi->ws->rx_ubuf_head;
 
-			lwsl_notice("%s: scheduling return close as ack\n", __func__);
+			lwsl_info("%s: scheduling return close as ack\n", __func__);
 			__lws_change_pollfd(wsi, LWS_POLLIN, 0);
 			lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_SEND, 3);
 			wsi->waiting_to_send_close_frame = 1;

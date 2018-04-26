@@ -393,7 +393,7 @@ lws_token_from_index(struct lws *wsi, int index, const char **arg, int *len,
 
 	if (index < (int)ARRAY_SIZE(static_token) ||
 	    index >= (int)ARRAY_SIZE(static_token) + dyn->used_entries) {
-		lwsl_err("  %s: adjusted index %d >= %d\n", __func__, index,
+		lwsl_info("  %s: adjusted index %d >= %d\n", __func__, index,
 			    dyn->used_entries);
 		lws_h2_goaway(wsi, H2_ERR_COMPRESSION_ERROR,
 			      "index out of range");
@@ -597,14 +597,19 @@ lws_hpack_dynamic_size(struct lws *wsi, int size)
 		  nwsi->vhost->h2.set.s[H2SET_HEADER_TABLE_SIZE]);
 
 	if (size > (int)nwsi->vhost->h2.set.s[H2SET_HEADER_TABLE_SIZE]) {
-		lwsl_notice("rejecting hpack dyn size %u\n", size);
-//#if defined(LWS_WITH_ESP32)
+		lwsl_info("rejecting hpack dyn size %u vs %u\n", size,
+				nwsi->vhost->h2.set.s[H2SET_HEADER_TABLE_SIZE]);
+
+		// this seems necessary to work with some browsers
+
+		if (nwsi->vhost->h2.set.s[H2SET_HEADER_TABLE_SIZE] == 65536 &&
+				size == 65537) { /* h2spec */
+			lws_h2_goaway(nwsi, H2_ERR_COMPRESSION_ERROR,
+				  "Asked for header table bigger than we told");
+			goto bail;
+		}
+
 		size = nwsi->vhost->h2.set.s[H2SET_HEADER_TABLE_SIZE];
-//#else
-//		lws_h2_goaway(nwsi, H2_ERR_COMPRESSION_ERROR,
-//			"Asked for header table bigger than we told");
-//		goto bail;
-//#endif
 	}
 
 	dyn->virtual_payload_max = size;
@@ -754,7 +759,7 @@ lws_hpack_handle_pseudo_rules(struct lws *nwsi, struct lws *wsi, int m)
 	if (wsi->seen_nonpseudoheader &&
 	    (lws_header_implies_psuedoheader_map[m >> 3] & (1 << (m & 7)))) {
 
-		lwsl_notice("lws tok %d seems to be a pseudoheader\n", m);
+		lwsl_info("lws tok %d seems to be a pseudoheader\n", m);
 
 		/*
 		 * it's not legal to see a
@@ -1157,7 +1162,7 @@ swallow:
 
 		if (h2n->huff && (h2n->huff_pad > 7 ||
 		    (h2n->zero_huff_padding && h2n->huff_pad))) {
-			lwsl_notice("zero_huff_padding: %d huff_pad: %d\n",
+			lwsl_info("zero_huff_padding: %d huff_pad: %d\n",
 				    h2n->zero_huff_padding, h2n->huff_pad);
 			lws_h2_goaway(nwsi, H2_ERR_COMPRESSION_ERROR,
 				      "Huffman padding excessive or wrong");

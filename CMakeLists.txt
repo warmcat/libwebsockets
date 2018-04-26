@@ -952,8 +952,8 @@ endif()
 
 if (LWS_WITH_JWS)
 	list(APPEND SOURCES
-		lib/jws/jwk.c
-		lib/jws/jws.c)
+		lib/misc/jws/jwk.c
+		lib/misc/jws/jws.c)
 endif()
 
 # Add helper files for Windows.

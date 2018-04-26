@@ -107,7 +107,7 @@ int main(int argc, const char **argv)
 
 	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS minimal ws server + permessage-deflate | visit http://localhost:7681\n");
-	lwsl_user("   %s [-n (no exts)] [-c (compressible)]\n", argv[0]);
+	lwsl_user("   %s [-n (no exts)] [-c (compressible)] [-b (blob)]\n", argv[0]);
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	info.port = 7681;
@@ -118,8 +118,11 @@ int main(int argc, const char **argv)
 	if (!lws_cmdline_option(argc, argv, "-n"))
 		info.extensions = extensions;
 
-	if (!lws_cmdline_option(argc, argv, "-c"))
-		options |= 1;
+	if (lws_cmdline_option(argc, argv, "-c"))
+		options |= 1; /* send compressible text */
+
+	if (lws_cmdline_option(argc, argv, "-b"))
+		options |= 2; /* send in one giant blob */
 
 	info.pt_serv_buf_size = 32 * 1024;
 

@@ -2785,7 +2785,8 @@ struct lws_context_creation_info {
 	 * can be processed simultaneously (the corresponding memory is
 	 * allocated and deallocated dynamically as needed).  If the pool is
 	 * fully busy new incoming connections must wait for accept until one
-	 * becomes free. */
+	 * becomes free. 0 = allow as many ah as number of availble fds for
+	 * the process */
 
 	unsigned int count_threads;
 	/**< CONTEXT: how many contexts to create in an array, 0 = 1 */

@@ -32,10 +32,12 @@ const char * const method_names[] = {
  * return 0: all done
  *        1: nonfatal error
  *       <0: fatal error
+ *
+ *       REQUIRES CONTEXT LOCK HELD
  */
 
 int
-lws_context_init_server(struct lws_context_creation_info *info,
+_lws_context_init_server(struct lws_context_creation_info *info,
 			struct lws_vhost *vhost)
 {
 	int n, opt = 1, limit = 1;
@@ -82,7 +84,7 @@ lws_context_init_server(struct lws_context_creation_info *info,
 		is = lws_socket_bind(vhost, LWS_SOCK_INVALID, vhost->listen_port, vhost->iface);
 		lwsl_debug("initial if check says %d\n", is);
 deal:
-		lws_context_lock(vhost->context);
+
 		lws_start_foreach_llp(struct lws_vhost **, pv,
 				      vhost->context->no_listener_vhost_list) {
 			if (is >= LWS_ITOSA_USABLE && *pv == vhost) {
@@ -108,7 +110,6 @@ deal:
 		}
 
 done_list:
-		lws_context_unlock(vhost->context);
 
 		switch (is) {
 		default:

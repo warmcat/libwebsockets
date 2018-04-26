@@ -72,7 +72,6 @@ int main(int argc, const char **argv)
 	info.port = 7681;
 	info.mounts = &mount;
 	info.error_document_404 = "/404.html";
-	info.max_http_header_pool = 32;
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.ssl_cert_filepath = "localhost-100y.cert";
 	info.ssl_private_key_filepath = "localhost-100y.key";

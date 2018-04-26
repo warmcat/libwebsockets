@@ -829,7 +829,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		 * peer sent us something bigger than we told
 		 * it we would allow
 		 */
-		lwsl_notice("received oversize frame %d\n", h2n->length);
+		lwsl_info("received oversize frame %d\n", h2n->length);
 		lws_h2_goaway(wsi, H2_ERR_FRAME_SIZE_ERROR,
 			      "Peer ignored our frame size setting");
 		return 1;
@@ -842,7 +842,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 	else {
 		/* if it's data, either way no swsi means CLOSED state */
 		if (h2n->type == LWS_H2_FRAME_TYPE_DATA) {
-			if (h2n->sid <= h2n->highest_sid_opened) {
+			if (h2n->sid <= h2n->highest_sid_opened && wsi->client_h2_alpn) {
 				lwsl_notice("ignoring straggling data\n");
 				h2n->type = LWS_H2_FRAME_TYPE_COUNT; /* ie, IGNORE */
 			} else {
@@ -899,7 +899,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 	case LWS_H2_FRAME_TYPE_DATA:
 		lwsl_info("seen incoming LWS_H2_FRAME_TYPE_DATA start\n");
 		if (!h2n->sid) {
-			lwsl_notice("DATA: 0 sid\n");
+			lwsl_info("DATA: 0 sid\n");
 			lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR, "DATA 0 sid");
 			break;
 		}
@@ -909,6 +909,8 @@ lws_h2_parse_frame_header(struct lws *wsi)
 			lwsl_notice("DATA: NULL swsi\n");
 			break;
 		}
+
+		lwsl_info("DATA rx on state %d\n", h2n->swsi->h2.h2_state);
 
 		if (
 		    h2n->swsi->h2.h2_state == LWS_H2_STATE_HALF_CLOSED_REMOTE ||
@@ -975,6 +977,13 @@ lws_h2_parse_frame_header(struct lws *wsi)
 
 			if (h2n->type == LWS_H2_FRAME_TYPE_COUNT)
 				return 0;
+
+			if (wsi->upgraded_to_http2) {
+				pps = lws_h2_new_pps(LWS_H2_PPS_ACK_SETTINGS);
+				if (!pps)
+					return 1;
+				lws_pps_schedule(wsi, pps);
+			}
 			break;
 		}
 		/* came to us with ACK set... not allowed to have payload */
@@ -1021,6 +1030,12 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		lwsl_info("HEADERS: frame header: sid = %d\n", h2n->sid);
 		if (!h2n->sid) {
 			lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR, "sid 0");
+			return 1;
+		}
+
+		if (h2n->swsi && !h2n->swsi->h2.END_STREAM && h2n->swsi->h2.END_HEADERS &&
+				!(h2n->flags & LWS_H2_FLAG_END_STREAM)) {
+			lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR, "extra HEADERS together");
 			return 1;
 		}
 
@@ -1108,7 +1123,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		h2n->cont_exp = !(h2n->flags & LWS_H2_FLAG_END_HEADERS);
 		h2n->cont_exp_sid = h2n->sid;
 		h2n->cont_exp_headers = 1;
-		lws_header_table_reset(h2n->swsi, 0);
+	//	lws_header_table_reset(h2n->swsi, 0);
 
 update_end_headers:
 		/* no END_HEADERS means CONTINUATION must come */
@@ -1390,6 +1405,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 				      "Pseudoheader checks");
 			break;
 		}
+
 
 		if (lws_hdr_extant(h2n->swsi, WSI_TOKEN_TE)) {
 			n = lws_hdr_total_length(h2n->swsi, WSI_TOKEN_TE);
@@ -1726,7 +1742,7 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 					break;
 
 				if (lws_buflist_next_segment_len(&h2n->swsi->buflist, NULL))
-					lwsl_err("%s: substream has pending !!!\n", __func__);
+					lwsl_info("%s: substream has pending\n", __func__);
 
 				if (lwsi_role_http(h2n->swsi) &&
 				    lwsi_state(h2n->swsi) == LRS_ESTABLISHED) {
@@ -1777,7 +1793,7 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 				} else {
 
 					if (lwsi_state(h2n->swsi) == LRS_DEFERRING_ACTION) {
-						lwsl_notice("appending because we are in LRS_DEFERRING_ACTION\n");
+						// lwsl_notice("appending because we are in LRS_DEFERRING_ACTION\n");
 						m = lws_buflist_append_segment(
 							&h2n->swsi->buflist,
 								in - 1, n);

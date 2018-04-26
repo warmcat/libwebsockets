@@ -807,10 +807,14 @@ lws_create_vhost(struct lws_context *context,
 		lwsl_err("%s: lws_context_init_client_ssl failed\n", __func__);
 		goto bail1;
 	}
-	if (lws_context_init_server(info, vh) < 0) {
+	lws_context_lock(context);
+	n = _lws_context_init_server(info, vh);
+	lws_context_unlock(context);
+	if (n < 0) {
 		lwsl_err("init server failed\n");
 		goto bail1;
 	}
+
 
 	while (1) {
 		if (!(*vh1)) {
@@ -1120,7 +1124,7 @@ lws_create_context(struct lws_context_creation_info *info)
 	if (info->max_http_header_pool)
 		context->max_http_header_pool = info->max_http_header_pool;
 	else
-		context->max_http_header_pool = LWS_DEF_HEADER_POOL;
+		context->max_http_header_pool = context->max_fds;
 
 	/*
 	 * Allocate the per-thread storage for scratchpad buffers,

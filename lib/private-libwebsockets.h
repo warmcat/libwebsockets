@@ -1759,7 +1759,7 @@ LWS_EXTERN int
 lws_change_pollfd(struct lws *wsi, int _and, int _or);
 
 #ifndef LWS_NO_SERVER
- int lws_context_init_server(struct lws_context_creation_info *info,
+ int _lws_context_init_server(struct lws_context_creation_info *info,
 			    struct lws_vhost *vhost);
  LWS_EXTERN struct lws_vhost *
  lws_select_vhost(struct lws_context *context, int port, const char *servername);
@@ -1769,7 +1769,7 @@ lws_change_pollfd(struct lws *wsi, int _and, int _or);
  lws_server_get_canonical_hostname(struct lws_context *context,
 				  struct lws_context_creation_info *info);
 #else
- #define lws_context_init_server(_a, _b) (0)
+ #define _lws_context_init_server(_a, _b) (0)
  #define lws_parse_ws(_a, _b, _c) (0)
  #define lws_server_get_canonical_hostname(_a, _b)
 #endif

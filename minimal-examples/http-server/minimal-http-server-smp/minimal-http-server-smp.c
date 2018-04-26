@@ -89,8 +89,16 @@ int main(int argc, const char **argv)
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	info.port = 7681;
 	info.mounts = &mount;
-	// info.max_http_header_pool = 10;
-	info.count_threads = COUNT_THREADS;
+	if ((p = lws_cmdline_option(argc, argv, "-t")))
+		info.count_threads = atoi(p);
+	else
+		info.count_threads = COUNT_THREADS;
+
+	if (lws_cmdline_option(argc, argv, "-s")) {
+		info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+		info.ssl_cert_filepath = "localhost-100y.cert";
+		info.ssl_private_key_filepath = "localhost-100y.key";
+	}
 
 	context = lws_create_context(&info);
 	if (!context) {

@@ -742,7 +742,7 @@ lws_service_periodic_checks(struct lws_context *context,
 			      context->no_listener_vhost_list) {
 		struct lws_vhost *v = *pv;
 		lwsl_debug("deferred iface: checking if on vh %s\n", (*pv)->name);
-		if (lws_context_init_server(NULL, *pv) == 0) {
+		if (_lws_context_init_server(NULL, *pv) == 0) {
 			/* became happy */
 			lwsl_notice("vh %s: became connected\n", v->name);
 			*pv = v->no_listener_vhost_list;

@@ -297,7 +297,7 @@ drain:
 
 	pending = lws_ssl_pending(wsi);
 	if (pending) {
-		lwsl_err("going around\n");
+		// lwsl_info("going around\n");
 		goto read;
 	}
 
@@ -684,7 +684,7 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 	const char *p;
 
 	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_METHOD);
-	if (!strcmp(p, "POST")) {
+	if (p && !strcmp(p, "POST")) {
 		const struct lws_protocols *pp;
 		const char *name;
 		const struct lws_http_mount *hit =
@@ -704,7 +704,7 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 
 			pp = lws_vhost_name_to_protocol(wsi->vhost, name);
 			if (!pp) {
-				lwsl_err("Unable to find plugin '%s'\n", name);
+				lwsl_info("Unable to find protocol '%s'\n", name);
 				return 1;
 			}
 
@@ -712,7 +712,7 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 				return 1;
 		}
 
-		lwsl_notice("%s: setting LRS_BODY from 0x%x (%s)\n", __func__,
+		lwsl_info("%s: setting LRS_BODY from 0x%x (%s)\n", __func__,
 			    wsi->wsistate, wsi->protocol->name);
 		lwsi_set_state(wsi, LRS_BODY);
 	}

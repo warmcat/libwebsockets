@@ -228,7 +228,8 @@ ws_mode:
 
 	case LRS_DEAD_SOCKET:
 		lwsl_err("%s: Unhandled state LRS_DEAD_SOCKET\n", __func__);
-		assert(0);
+		goto bail;
+		// assert(0);
 		/* fallthru */
 
 	default:

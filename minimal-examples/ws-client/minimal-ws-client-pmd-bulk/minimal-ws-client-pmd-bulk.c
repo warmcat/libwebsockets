@@ -103,7 +103,7 @@ int main(int argc, const char **argv)
 		info.extensions = extensions;
 	info.pt_serv_buf_size = 32 * 1024;
 
-	if (!lws_cmdline_option(argc, argv, "-c"))
+	if (lws_cmdline_option(argc, argv, "-c"))
 		options |= 1;
 
 	context = lws_create_context(&info);
