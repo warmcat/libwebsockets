@@ -1749,7 +1749,7 @@ lws_http_transaction_completed(struct lws *wsi)
 	wsi->http.tx_content_remain = 0;
 	wsi->hdr_parsing_completed = 0;
 #ifdef LWS_WITH_ACCESS_LOG
-	wsi->access_log.sent = 0;
+	wsi->http.access_log.sent = 0;
 #endif
 
 	if (wsi->vhost->keepalive_timeout)
@@ -1905,12 +1905,15 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
                }
 #endif
 	} else
+#if defined(LWS_ROLE_H1)
 		if (type & LWS_ADOPT_HTTP) {/* he will transition later */
 			new_wsi->protocol =
 				&vh->protocols[vh->default_protocol_index];
 			new_wsi->role_ops = &role_ops_h1;
 		}
-		else { /* this is the only time he will transition */
+		else
+#endif
+		{ /* this is the only time he will transition */
 			lws_bind_protocol(new_wsi,
 				&vh->protocols[vh->raw_protocol_index]);
 			lws_role_transition(new_wsi, 0, LRS_ESTABLISHED,
@@ -1964,18 +1967,22 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 			else
 				lws_role_transition(new_wsi, 0, LRS_UNCONNECTED,
 						    &role_ops_raw_skt);
-		} else
+		}
+#if defined(LWS_ROLE_H1)
+		else
 			lws_role_transition(new_wsi, LWSIFR_SERVER,
 					    LRS_HEADERS, &role_ops_h1);
+#endif
 	} else {
 		/* SSL */
 		if (!(type & LWS_ADOPT_HTTP))
 			lws_role_transition(new_wsi, 0, LRS_SSL_INIT,
 					    &role_ops_raw_skt);
+#if defined(LWS_ROLE_H1)
 		else
 			lws_role_transition(new_wsi, LWSIFR_SERVER,
 					    LRS_SSL_INIT, &role_ops_h1);
-
+#endif
 		ssl = 1;
 	}
 

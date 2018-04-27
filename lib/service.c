@@ -96,7 +96,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	 * A cgi master's wire protocol remains h1 or h2.  He is just getting
 	 * his data from his child cgis.
 	 */
-	if (wsi->cgi) {
+	if (wsi->http.cgi) {
 		/* also one shot */
 		if (pollfd)
 			if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
@@ -236,6 +236,7 @@ __lws_service_timeout_check(struct lws *wsi, time_t sec)
 
 		/* no need to log normal idle keepalive timeout */
 		if (wsi->pending_timeout != PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE)
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 			lwsl_info("wsi %p: TIMEDOUT WAITING on %d "
 				  "(did hdr %d, ah %p, wl %d, pfd "
 				  "events %d) %llu vs %llu\n",
@@ -245,8 +246,12 @@ __lws_service_timeout_check(struct lws *wsi, time_t sec)
 				  (unsigned long long)sec,
 				  (unsigned long long)wsi->pending_timeout_limit);
 #if defined(LWS_WITH_CGI)
-		if (wsi->cgi)
-			lwsl_notice("CGI timeout: %s\n", wsi->cgi->summary);
+		if (wsi->http.cgi)
+			lwsl_notice("CGI timeout: %s\n", wsi->http.cgi->summary);
+#endif
+#else
+		lwsl_info("wsi %p: TIMEDOUT WAITING on %d ", (void *)wsi,
+			  wsi->pending_timeout);
 #endif
 
 		/*
@@ -509,14 +514,16 @@ lws_service_periodic_checks(struct lws_context *context,
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	lws_sockfd_type our_fd = 0, tmp_fd;
-	struct allocated_headers *ah;
 	struct lws *wsi;
 	int timed_out = 0;
 	time_t now;
 #if defined(LWS_WITH_TLS)
 	int n = 0;
 #endif
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+	struct allocated_headers *ah;
 	int m;
+#endif
 
 	if (!context->protocol_init_done)
 		if (lws_protocol_init(context))
@@ -608,6 +615,7 @@ lws_service_periodic_checks(struct lws_context *context,
 		}
 	} lws_end_foreach_dll_safe(d, d1);
 
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	/*
 	 * Phase 2: double-check active ah timeouts independent of wsi
 	 *	    timeout status
@@ -688,7 +696,7 @@ lws_service_periodic_checks(struct lws_context *context,
 
 		ah = pt->http.ah_list;
 	}
-
+#endif
 	lws_pt_unlock(pt);
 
 #if 0

@@ -101,8 +101,11 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	int n;
 #endif
 
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	if (lws_hdr_copy(wsi, hostname, sizeof(hostname),
-			 _WSI_TOKEN_CLIENT_HOST) <= 0) {
+			 _WSI_TOKEN_CLIENT_HOST) <= 0)
+#endif
+	{
 		lwsl_err("%s: Unable to get hostname\n", __func__);
 
 		return -1;
@@ -208,10 +211,11 @@ lws_ssl_client_bio_create(struct lws *wsi)
     defined(LWS_HAVE_SSL_get0_alpn_selected)
 	if (wsi->vhost->alpn)
 		alpn_comma = wsi->vhost->alpn;
-
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	if (lws_hdr_copy(wsi, hostname, sizeof(hostname),
 			 _WSI_TOKEN_CLIENT_ALPN) > 0)
 		alpn_comma = hostname;
+#endif
 
 	lwsl_info("client conn using alpn list '%s'\n", alpn_comma);
 

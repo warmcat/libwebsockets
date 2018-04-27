@@ -128,11 +128,11 @@ http_postbody:
 			wsi->http.rx_content_remain -= body_chunk_len;
 			len -= body_chunk_len;
 #ifdef LWS_WITH_CGI
-			if (wsi->cgi) {
+			if (wsi->http.cgi) {
 				struct lws_cgi_args args;
 
 				args.ch = LWS_STDIN;
-				args.stdwsi = &wsi->cgi->stdwsi[0];
+				args.stdwsi = &wsi->http.cgi->stdwsi[0];
 				args.data = buf;
 				args.len = body_chunk_len;
 
@@ -169,14 +169,14 @@ postbody_completion:
 			 * If we're running a cgi, we can't let him off the
 			 * hook just because he sent his POST data
 			 */
-			if (wsi->cgi)
+			if (wsi->http.cgi)
 				lws_set_timeout(wsi, PENDING_TIMEOUT_CGI,
 						wsi->context->timeout_secs);
 			else
 #endif
 			lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 #ifdef LWS_WITH_CGI
-			if (!wsi->cgi)
+			if (!wsi->http.cgi)
 #endif
 			{
 				lwsl_info("HTTP_BODY_COMPLETION: %p (%s)\n",
@@ -478,7 +478,7 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 //			wsi->wsistate, wsi->role_ops->name, pollfd->revents);
 
 #ifdef LWS_WITH_CGI
-	if (wsi->cgi && (pollfd->revents & LWS_POLLOUT)) {
+	if (wsi->http.cgi && (pollfd->revents & LWS_POLLOUT)) {
 		if (lws_handle_POLLOUT_event(wsi, pollfd))
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 

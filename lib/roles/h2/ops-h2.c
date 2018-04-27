@@ -98,7 +98,7 @@ rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 	int n, m;
 
 #ifdef LWS_WITH_CGI
-	if (wsi->cgi && (pollfd->revents & LWS_POLLOUT)) {
+	if (wsi->http.cgi && (pollfd->revents & LWS_POLLOUT)) {
 		if (lws_handle_POLLOUT_event(wsi, pollfd))
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 

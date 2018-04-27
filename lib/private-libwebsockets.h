@@ -1397,9 +1397,6 @@ struct lws {
 #if defined(LWS_WITH_LIBEV) || defined(LWS_WITH_LIBEVENT)
 	struct lws_io_watcher w_write;
 #endif
-#ifdef LWS_WITH_ACCESS_LOG
-	struct lws_access_log access_log;
-#endif
 
 	/* pointers */
 
@@ -1409,9 +1406,6 @@ struct lws {
 	struct lws *child_list; /* points to first child */
 	struct lws *sibling_list; /* subsequent children at same level */
 
-#ifdef LWS_WITH_CGI
-	struct lws_cgi *cgi; /* wsi being cgi master have one of these */
-#endif
 	const struct lws_protocols *protocol;
 	struct lws **same_vh_protocol_prev, *same_vh_protocol_next;
 
@@ -1678,8 +1672,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd);
 LWS_EXTERN struct lws *
 lws_client_connect_via_info2(struct lws *wsi);
 
-LWS_EXTERN int
-_lws_destroy_ah(struct lws_context_per_thread *pt, struct allocated_headers *ah);
+
 
 LWS_EXTERN void
 lws_client_stash_destroy(struct lws *wsi);
@@ -1733,8 +1726,7 @@ __lws_header_table_detach(struct lws *wsi, int autoservice);
 
 LWS_EXTERN void
 lws_header_table_reset(struct lws *wsi, int autoservice);
-void
-_lws_header_table_reset(struct allocated_headers *ah);
+
 void
 __lws_header_table_reset(struct lws *wsi, int autoservice);
 
@@ -2095,8 +2087,7 @@ __lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);
 int
 __lws_change_pollfd(struct lws *wsi, int _and, int _or);
 
-int
-lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len);
+
 int
 lws_callback_as_writeable(struct lws *wsi);
 int
@@ -2105,12 +2096,8 @@ lws_buflist_aware_read(struct lws_context_per_thread *pt, struct lws *wsi,
 int
 lws_buflist_aware_consume(struct lws *wsi, struct lws_tokens *ebuf, int used,
 			  int buffered);
-int
-lws_process_ws_upgrade(struct lws *wsi);
-int
-lws_server_init_wsi_for_ws(struct lws *wsi);
-int
-handshake_0405(struct lws_context *context, struct lws *wsi);
+
+
 char *
 lws_generate_client_ws_handshake(struct lws *wsi, char *p);
 int

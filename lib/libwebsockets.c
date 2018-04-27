@@ -74,16 +74,32 @@ void lwsi_set_state(struct lws *wsi, lws_wsi_state_t lrs)
 }
 #endif
 
+signed char char_to_hex(const char c)
+{
+	if (c >= '0' && c <= '9')
+		return c - '0';
+
+	if (c >= 'a' && c <= 'f')
+		return c - 'a' + 10;
+
+	if (c >= 'A' && c <= 'F')
+		return c - 'A' + 10;
+
+	return -1;
+}
+
 void
 __lws_free_wsi(struct lws *wsi)
 {
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	struct lws_context_per_thread *pt;
-	struct allocated_headers *ah;
+#endif
 
 	if (!wsi)
 		return;
-
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	pt = &wsi->context->pt[(int)wsi->tsi];
+#endif
 
 	/*
 	 * Protocol user data may be allocated either internally by lws
@@ -97,24 +113,29 @@ __lws_free_wsi(struct lws *wsi)
 	lws_free_set_NULL(wsi->trunc_alloc);
 	lws_free_set_NULL(wsi->udp);
 
+	if (wsi->vhost && wsi->vhost->lserv_wsi == wsi)
+		wsi->vhost->lserv_wsi = NULL;
+
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+
 	/* we may not have an ah, but may be on the waiting list... */
 	lwsl_info("ah det due to close\n");
 	__lws_header_table_detach(wsi, 0);
 
-	if (wsi->vhost && wsi->vhost->lserv_wsi == wsi)
-		wsi->vhost->lserv_wsi = NULL;
-
-	ah = pt->http.ah_list;
-	while (ah) {
-		if (ah->in_use && ah->wsi == wsi) {
-			lwsl_err("%s: ah leak: wsi %p\n", __func__, wsi);
-			ah->in_use = 0;
-			ah->wsi = NULL;
-			pt->http.ah_count_in_use--;
-			break;
+	{
+		struct allocated_headers *ah = pt->http.ah_list;
+		while (ah) {
+			if (ah->in_use && ah->wsi == wsi) {
+				lwsl_err("%s: ah leak: wsi %p\n", __func__, wsi);
+				ah->in_use = 0;
+				ah->wsi = NULL;
+				pt->http.ah_count_in_use--;
+				break;
+			}
+			ah = ah->next;
 		}
-		ah = ah->next;
 	}
+#endif
 
 #if defined(LWS_WITH_PEER_LIMITS)
 	lws_peer_track_wsi_close(wsi->context, wsi->peer);
@@ -606,20 +627,20 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 #ifdef LWS_WITH_CGI
 	if (wsi->role_ops == &role_ops_cgi) {
 		/* we are not a network connection, but a handler for CGI io */
-		if (wsi->parent && wsi->parent->cgi) {
+		if (wsi->parent && wsi->parent->http.cgi) {
 
 			if (wsi->cgi_channel == LWS_STDOUT)
 				lws_cgi_remove_and_kill(wsi->parent);
 
 			/* end the binding between us and master */
-			wsi->parent->cgi->stdwsi[(int)wsi->cgi_channel] = NULL;
+			wsi->parent->http.cgi->stdwsi[(int)wsi->cgi_channel] = NULL;
 		}
 		wsi->socket_is_permanently_unusable = 1;
 
 		goto just_kill_connection;
 	}
 
-	if (wsi->cgi)
+	if (wsi->http.cgi)
 		lws_cgi_remove_and_kill(wsi);
 #endif
 
@@ -631,10 +652,11 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 		wsi->socket_is_permanently_unusable = 1;
 		goto just_kill_connection;
 	}
-
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	if (lwsi_role_http(wsi) && lwsi_role_server(wsi) &&
 	    wsi->http.fop_fd != NULL)
 		lws_vfs_file_close(&wsi->http.fop_fd);
+#endif
 
 	if (lwsi_state(wsi) == LRS_DEAD_SOCKET)
 		return;
@@ -879,17 +901,17 @@ __lws_close_free_wsi_final(struct lws *wsi)
 						  wsi->user_space, NULL, 0);
 
 #ifdef LWS_WITH_CGI
-	if (wsi->cgi) {
+	if (wsi->http.cgi) {
 
 		for (n = 0; n < 3; n++) {
-			if (wsi->cgi->pipe_fds[n][!!(n == 0)] == 0)
+			if (wsi->http.cgi->pipe_fds[n][!!(n == 0)] == 0)
 				lwsl_err("ZERO FD IN CGI CLOSE");
 
-			if (wsi->cgi->pipe_fds[n][!!(n == 0)] >= 0)
-				close(wsi->cgi->pipe_fds[n][!!(n == 0)]);
+			if (wsi->http.cgi->pipe_fds[n][!!(n == 0)] >= 0)
+				close(wsi->http.cgi->pipe_fds[n][!!(n == 0)]);
 		}
 
-		lws_free(wsi->cgi);
+		lws_free(wsi->http.cgi);
 	}
 #endif
 
@@ -2882,7 +2904,7 @@ lws_strncpy(char *dest, const char *src, size_t size)
 LWS_VISIBLE LWS_EXTERN int
 lws_is_cgi(struct lws *wsi) {
 #ifdef LWS_WITH_CGI
-	return !!wsi->cgi;
+	return !!wsi->http.cgi;
 #else
 	return 0;
 #endif
@@ -2944,6 +2966,7 @@ lws_cmdline_option(int argc, const char **argv, const char *val)
 LWS_EXTERN int
 lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len)
 {
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	static const char * const prots[] = {
 		"http://",
 		"https://",
@@ -2953,6 +2976,7 @@ lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len)
 		">https://",
 		"callback://"
 	};
+#endif
 	char *orig = buf, *end = buf + len - 1, first = 1;
 	int n = 0;
 

@@ -215,7 +215,7 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 	lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_B_WRITE, len);
 
 #ifdef LWS_WITH_ACCESS_LOG
-	wsi->access_log.sent += len;
+	wsi->http.access_log.sent += len;
 #endif
 	if (wsi->vhost)
 		wsi->vhost->conn_stats.tx += len;

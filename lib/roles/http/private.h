@@ -182,6 +182,16 @@ struct lws_vhost_role_http {
 	unsigned int http_proxy_port;
 };
 
+#ifdef LWS_WITH_ACCESS_LOG
+struct lws_access_log {
+	char *header_log;
+	char *user_agent;
+	char *referrer;
+	unsigned long sent;
+	int response;
+};
+#endif
+
 struct _lws_http_mode_related {
 	struct lws *new_wsi_list;
 
@@ -198,6 +208,13 @@ struct _lws_http_mode_related {
 #if defined(LWS_WITH_RANGES)
 	struct lws_range_parsing range;
 	char multipart_content_type[64];
+#endif
+
+#ifdef LWS_WITH_ACCESS_LOG
+	struct lws_access_log access_log;
+#endif
+#ifdef LWS_WITH_CGI
+	struct lws_cgi *cgi; /* wsi being cgi master have one of these */
 #endif
 
 	enum http_version request_version;
@@ -230,15 +247,11 @@ enum lws_parse_urldecode_results {
 	LPUR_EXCESSIVE,
 };
 
-struct lws_rewrite;
+int
+lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len);
 
-#ifdef LWS_WITH_ACCESS_LOG
-struct lws_access_log {
-	char *header_log;
-	char *user_agent;
-	char *referrer;
-	unsigned long sent;
-	int response;
-};
-#endif
+void
+_lws_header_table_reset(struct allocated_headers *ah);
 
+LWS_EXTERN int
+_lws_destroy_ah(struct lws_context_per_thread *pt, struct allocated_headers *ah);

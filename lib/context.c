@@ -288,6 +288,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 #endif
 
 	switch (reason) {
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	case LWS_CALLBACK_HTTP:
 #ifndef LWS_NO_SERVER
 		if (lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, NULL))
@@ -315,7 +316,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 			if (!n)
 				lws_rx_flow_control(
-					wsi->cgi->stdwsi[LWS_STDOUT], 1);
+					wsi->http.cgi->stdwsi[LWS_STDOUT], 1);
 
 			if (wsi->reason_bf & LWS_CB_REASON_AUX_BF__CGI_HEADERS)
 				wsi->reason_bf &=
@@ -456,10 +457,10 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_CGI_TERMINATED:
 		lwsl_debug("LWS_CALLBACK_CGI_TERMINATED: %d %" PRIu64 "\n",
-				wsi->cgi->explicitly_chunked,
-				(uint64_t)wsi->cgi->content_length);
-		if (!wsi->cgi->explicitly_chunked &&
-		    !wsi->cgi->content_length) {
+				wsi->http.cgi->explicitly_chunked,
+				(uint64_t)wsi->http.cgi->content_length);
+		if (!wsi->http.cgi->explicitly_chunked &&
+		    !wsi->http.cgi->content_length) {
 			/* send terminating chunk */
 			lwsl_debug("LWS_CALLBACK_CGI_TERMINATED: ending\n");
 			wsi->reason_bf |= LWS_CB_REASON_AUX_BF__CGI_CHUNK_END;
@@ -481,7 +482,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 				    "sent %d only %d went", n, args->len);
 		return n;
 #endif
-
+#endif
 	case LWS_CALLBACK_SSL_INFO:
 		si = in;
 
@@ -1150,9 +1151,10 @@ lws_create_context(const struct lws_context_creation_info *info)
 		context->pt[n].context = context;
 #endif
 		context->pt[n].tid = n;
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 		context->pt[n].http.ah_list = NULL;
 		context->pt[n].http.ah_pool_length = 0;
-
+#endif
 		lws_pt_mutex_init(&context->pt[n]);
 	}
 
@@ -1220,7 +1222,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 		  (long)sizeof(struct lws_context),
 		  (long)context->count_threads,
 		  context->pt_serv_buf_size);
-
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	lwsl_info(" mem: http hdr rsvd:   %5lu B (%u thr x (%u + %lu) x %u))\n",
 		    (long)(context->max_http_header_data +
 		     sizeof(struct allocated_headers)) *
@@ -1229,6 +1231,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 		    context->max_http_header_data,
 		    (long)sizeof(struct allocated_headers),
 		    context->max_http_header_pool);
+#endif
 	n = sizeof(struct lws_pollfd) * context->count_threads *
 	    context->fd_limit_per_thread;
 	context->pt[0].fds = lws_zalloc(n, "fds table");
@@ -1723,8 +1726,10 @@ lws_context_destroy(struct lws_context *context)
 
 		lws_free_set_NULL(context->pt[n].serv_buf);
 
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 		while (pt->http.ah_list)
 			_lws_destroy_ah(pt, pt->http.ah_list);
+#endif
 	}
 	lws_plat_context_early_destroy(context);
 

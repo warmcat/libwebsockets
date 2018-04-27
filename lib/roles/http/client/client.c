@@ -84,10 +84,12 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 	char ebuf[128];
 #endif
 	const char *cce = NULL;
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+	ssize_t len = 0;
 	unsigned char c;
+#endif
 	char *sb = p;
 	int n = 0;
-	ssize_t len = 0;
 #if defined(LWS_WITH_SOCKS5)
 	char conn_mode = 0, pending_timeout = 0;
 #endif
@@ -404,11 +406,12 @@ start_ws_handshake:
 		if (lwsi_state(w) == LRS_IDLING) {
 			lwsi_set_state(w, LRS_WAITING_SERVER_REPLY);
 			w->hdr_parsing_completed = 0;
-
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 			w->http.ah->parser_state = WSI_TOKEN_NAME_PART;
 			w->http.ah->lextable_pos = 0;
 			/* If we're (re)starting on headers, need other implied init */
 			wsi->http.ah->ues = URIES_IDLE;
+#endif
 		}
 
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
@@ -427,9 +430,11 @@ start_ws_handshake:
 			break;
 		}
 client_http_body_sent:
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 		/* prepare ourselves to do the parsing */
 		wsi->http.ah->parser_state = WSI_TOKEN_NAME_PART;
 		wsi->http.ah->lextable_pos = 0;
+#endif
 		lwsi_set_state(wsi, LRS_WAITING_SERVER_REPLY);
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
 				context->timeout_secs);
@@ -452,6 +457,7 @@ client_http_body_sent:
 		if (!(pollfd->revents & LWS_POLLIN))
 			break;
 
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 		/* interpret the server response
 		 *
 		 *  HTTP/1.1 101 Switching Protocols
@@ -499,7 +505,7 @@ client_http_body_sent:
 		if (wsi->http.ah->parser_state != WSI_PARSING_COMPLETE)
 			break;
 
-
+#endif
 
 		/*
 		 * otherwise deal with the handshake.  If there's any
@@ -526,7 +532,7 @@ bail3:
 	return 0;
 }
 
-
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 
 int LWS_WARN_UNUSED_RESULT
 lws_http_transaction_completed_client(struct lws *wsi)
@@ -622,6 +628,7 @@ lws_http_client_http_response(struct lws *wsi)
 
 	return wsi->http.ah->http_response;
 }
+#endif
 #if defined(LWS_PLAT_OPTEE)
 char *
 strrchr(const char *s, int c)
@@ -638,6 +645,7 @@ strrchr(const char *s, int c)
 #define atoll atoi
 #endif
 
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 int
 lws_client_interpret_server_handshake(struct lws *wsi)
 {
@@ -663,9 +671,15 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		} else
 #endif
 		{
+#if defined(LWS_ROLE_H1)
+			{
 			lwsl_debug("%s: %p: transitioning to h1 client\n", __func__, wsi);
 			lws_role_transition(wsi, LWSIFR_CLIENT,
 					    LRS_ESTABLISHED, &role_ops_h1);
+			}
+#else
+			return -1;
+#endif
 		}
 
 		wsi->http.ah = ah;
@@ -826,7 +840,15 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 					/* go back to "trying to connect" state */
 					lws_role_transition(ww, LWSIFR_CLIENT,
 							    LRS_UNCONNECTED,
+#if defined(LWS_ROLE_H1)
 							    &role_ops_h1);
+#else
+#if defined (LWS_ROLE_H2)
+							    &role_ops_h2);
+#else
+							    &role_ops_raw);
+#endif
+#endif
 					ww->user_space = NULL;
 				} lws_end_foreach_dll_safe(d, d1);
 				lws_vhost_unlock(wsi->vhost);
@@ -948,7 +970,7 @@ bail2:
 
 	return 1;
 }
-
+#endif
 
 char *
 lws_generate_client_handshake(struct lws *wsi, char *pkt)
@@ -1044,6 +1066,8 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 
 	return p;
 }
+
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 
 LWS_VISIBLE int
 lws_http_client_read(struct lws *wsi, char **buf, int *len)
@@ -1195,3 +1219,5 @@ completed:
 
 	return 0;
 }
+
+#endif

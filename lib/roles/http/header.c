@@ -200,7 +200,7 @@ lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 	int n;
 
 #ifdef LWS_WITH_ACCESS_LOG
-	wsi->access_log.response = code;
+	wsi->http.access_log.response = code;
 #endif
 
 #ifdef LWS_WITH_HTTP2

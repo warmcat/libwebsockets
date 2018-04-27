@@ -28,16 +28,20 @@ lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
 struct lws *
 lws_client_connect_2(struct lws *wsi)
 {
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	struct lws_context *context = wsi->context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	const char *cce = "", *iface, *adsin, *meth;
+	const char *adsin;
 	struct lws *wsi_piggyback = NULL;
-	struct addrinfo *result;
 	struct lws_pollfd pfd;
 	ssize_t plen = 0;
+#endif
+	struct addrinfo *result;
 	const char *ads;
 	sockaddr46 sa46;
 	int n, port;
+	const char *cce = "", *iface;
+	const char *meth = NULL;
 #ifdef LWS_WITH_IPV6
 	char ipv6only = lws_check_opt(wsi->vhost->options,
 			LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY |
@@ -50,13 +54,14 @@ lws_client_connect_2(struct lws *wsi)
 
 	lwsl_client("%s: %p\n", __func__, wsi);
 
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	if (!wsi->http.ah) {
 		cce = "ah was NULL at cc2";
 		lwsl_err("%s\n", cce);
 		goto oom4;
 	}
 
-	/* we can only piggyback GET */
+	/* we can only piggyback GET or POST */
 
 	meth = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD);
 	if (meth && strcmp(meth, "GET") && strcmp(meth, "POST"))
@@ -142,6 +147,7 @@ lws_client_connect_2(struct lws *wsi)
 	lws_vhost_unlock(wsi->vhost);
 
 create_new_conn:
+#endif
 
 	/*
 	 * clients who will create their own fresh connection keep a copy of
@@ -176,6 +182,8 @@ create_new_conn:
 	 */
 	wsi->ipv6 = LWS_IPV6_ENABLED(wsi->vhost);
 
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+
 	/* Decide what it is we need to connect to:
 	 *
 	 * Priority 1: connect to http proxy */
@@ -195,6 +203,9 @@ create_new_conn:
 		plen += sprintf((char *)pt->serv_buf + plen, "\x0d\x0a");
 		ads = wsi->vhost->http.http_proxy_address;
 		port = wsi->vhost->http.http_proxy_port;
+#else
+		if (0) {
+#endif
 
 #if defined(LWS_WITH_SOCKS5)
 
@@ -328,7 +339,7 @@ create_new_conn:
 	if (!lws_socket_is_valid(wsi->desc.sockfd)) {
 
 #if defined(LWS_WITH_LIBUV)
-		if (LWS_LIBUV_ENABLED(context))
+		if (LWS_LIBUV_ENABLED(wsi->context))
 			if (lws_libuv_check_watcher_active(wsi)) {
 				lwsl_warn("Waiting for libuv watcher to close\n");
 				cce = "waiting for libuv watcher to close";
@@ -362,7 +373,7 @@ create_new_conn:
 		lws_libuv_accept(wsi, wsi->desc);
 		lws_libevent_accept(wsi, wsi->desc);
 
-		if (__insert_wsi_socket_into_fds(context, wsi)) {
+		if (__insert_wsi_socket_into_fds(wsi->context, wsi)) {
 			compatible_close(wsi->desc.sockfd);
 			cce = "insert wsi failed";
 			goto oom4;
@@ -444,6 +455,7 @@ create_new_conn:
 
 	lwsl_client("connected\n");
 
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	/* we are connected to server, or proxy */
 
 	/* http proxy */
@@ -475,6 +487,7 @@ create_new_conn:
 
 		return wsi;
 	}
+#endif
 #if defined(LWS_WITH_SOCKS5)
 	/* socks proxy */
 	else if (wsi->vhost->socks_proxy_port) {
@@ -494,8 +507,9 @@ create_new_conn:
 		return wsi;
 	}
 #endif
-
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 send_hs:
+
 	if (wsi_piggyback &&
 	    !lws_dll_is_null(&wsi->dll_client_transaction_queue)) {
 		/*
@@ -548,7 +562,7 @@ send_hs:
 		if (n) /* returns 1 on failure after closing wsi */
 			return NULL;
 	}
-
+#endif
 	return wsi;
 
 oom4:
@@ -562,7 +576,9 @@ oom4:
 	if (wsi->position_in_fds_table != -1)
 		goto failed1;
 	lws_remove_from_timeout_list(wsi);
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	lws_header_table_detach(wsi, 0);
+#endif
 	lws_client_stash_destroy(wsi);
 	lws_free_set_NULL(wsi->client_hostname_copy);
 	lws_free(wsi);
@@ -579,6 +595,8 @@ failed1:
 
 	return NULL;
 }
+
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 
 /**
  * lws_client_reset() - retarget a connected wsi to start over with a new connection (ie, redirect)
@@ -833,6 +851,8 @@ html_parser_cb(const hubbub_token *token, void *pw)
 }
 #endif
 
+#endif
+
 static char *
 lws_strdup(const char *s)
 {
@@ -891,7 +911,7 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 	/* assert the mode and union status (hdr) clearly */
 	lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED, &role_ops_h1);
 #else
-	lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED, &role_ops_raw);
+	lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED, &role_ops_raw_skt);
 #endif
 	wsi->desc.sockfd = LWS_SOCK_INVALID;
 
@@ -926,7 +946,12 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 	wsi->client_pipeline = !!(i->ssl_connection & LCCSCF_PIPELINE);
 
 	/* reasonable place to start */
-	lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED, &role_ops_h1);
+	lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED,
+#if defined(LWS_ROLE_H1)
+			&role_ops_h1);
+#else
+	&role_ops_raw_skt);
+#endif
 
 	/*
 	 * 1) for http[s] connection, allow protocol selection by name
@@ -1027,6 +1052,7 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 	if (i->pwsi)
 		*i->pwsi = wsi;
 
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	/* if we went on the waiting list, no probs just return the wsi
 	 * when we get the ah, now or later, he will call
 	 * lws_client_connect_via_info2() below.
@@ -1038,6 +1064,8 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 		 */
 		goto bail2;
 	}
+
+#endif
 
 	if (i->parent_wsi) {
 		lwsl_info("%s: created child %p of parent %p\n", __func__,
@@ -1060,8 +1088,9 @@ bail1:
 
 bail:
 	lws_free(wsi);
-
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 bail2:
+#endif
 	if (i->pwsi)
 		*i->pwsi = NULL;
 

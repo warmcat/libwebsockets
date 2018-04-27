@@ -199,7 +199,6 @@ if(GIT_EXECUTABLE)
 endif()
 
 # translate old functionality enables to set up ROLE enables so nothing changes
-
 if (LWS_WITH_HTTP2)
 	set(LWS_ROLE_H2 1)
 endif()
@@ -214,6 +213,8 @@ endif()
 if (LWS_WITH_HTTP2 AND LWS_WITHOUT_SERVER)
 	message(FATAL_ERROR "HTTP2 can only be used with server at the moment")
 endif()
+
+
 
 if (LWS_WITH_LWSWS)
  message(STATUS "LWS_WITH_LWSWS --> Enabling LWS_WITH_PLUGINS and LWS_WITH_LIBUV")
@@ -289,6 +290,40 @@ endif()
 if (LWS_WITHOUT_SERVER)
 set(LWS_WITH_LWSWS OFF)
 endif()
+
+
+# confirm H1 relationships
+
+if (NOT LWS_ROLE_H1 AND LWS_ROLE_H2)
+	message(FATAL_ERROR "H2 requires LWS_ROLE_H1")
+endif()
+
+if (NOT LWS_ROLE_H1 AND LWS_ROLE_WS)
+	message(FATAL_ERROR "WS requires LWS_ROLE_H1")
+endif()
+
+if (NOT LWS_ROLE_H1 AND LWS_ROLE_CGI)
+	message(FATAL_ERROR "CGI requires LWS_ROLE_H1")
+endif()
+
+# confirm HTTP relationships
+
+if (NOT LWS_ROLE_H1 AND NOT LWS_ROLE_H2 AND LWS_WITH_HTTP_PROXY)
+	message(FATAL_ERROR "LWS_WITH_LWSWS requires LWS_ROLE_H1")
+endif()
+
+if (NOT LWS_ROLE_H1 AND NOT LWS_ROLE_H2 AND LWS_WITH_HTTP_PROXY)
+	message(FATAL_ERROR "LWS_WITH_HTTP_PROXY requires LWS_ROLE_H1")
+endif()
+
+if (NOT LWS_ROLE_H1 AND NOT LWS_ROLE_H2 AND LWS_WITH_RANGES)
+	message(FATAL_ERROR "LWS_WITH_RANGES requires LWS_ROLE_H1")
+endif()
+
+if (NOT LWS_ROLE_H1 AND NOT LWS_ROLE_H2 AND LWS_WITH_ACCESS_LOG)
+	message(FATAL_ERROR "LWS_WITH_ACCESS_LOG requires LWS_ROLE_H1")
+endif()
+
 
 if (LWS_WITH_HTTP_PROXY AND (LWS_WITHOUT_CLIENT OR LWS_WITHOUT_SERVER))
 	message(FATAL_ERROR "You have to enable both client and server for http proxy")
@@ -695,12 +730,16 @@ set(SOURCES
 	lib/service.c
 	lib/pollfd.c
 	lib/output.c
-	lib/roles/http/server/parsers.c
 	lib/context.c
 	lib/alloc.c
-	lib/roles/http/header.c
 	lib/roles/pipe/ops-pipe.c
 	lib/misc/lws-ring.c)
+
+if (LWS_ROLE_H1 OR LWS_ROLE_H2)
+	list(APPEND SOURCES
+		lib/roles/http/header.c
+		lib/roles/http/server/parsers.c)
+endif()
 
 if (LWS_ROLE_H1)
 	list(APPEND SOURCES
@@ -888,13 +927,13 @@ else()
 	endif()
 endif()
 
-if (NOT LWS_WITHOUT_SERVER)
+if ((LWS_ROLE_H1 OR LWS_ROLE_H2) AND NOT LWS_WITHOUT_SERVER)
 	list(APPEND SOURCES
 		lib/roles/http/server/server.c
 		lib/roles/http/server/lws-spa.c)
 endif()
 
-if (NOT LWS_WITHOUT_EXTENSIONS)
+if (LWS_ROLE_WS AND NOT LWS_WITHOUT_EXTENSIONS)
 	list(APPEND HDR_PRIVATE
 		lib/roles/ws/ext/extension-permessage-deflate.h)
 	list(APPEND SOURCES
@@ -1481,7 +1520,7 @@ endif()
 # Test applications
 #
 set(TEST_APP_LIST)
-if (NOT LWS_WITHOUT_TESTAPPS)
+if ((LWS_ROLE_H1 OR LWS_ROLE_H2) AND NOT LWS_WITHOUT_TESTAPPS)
 	#
 	# Helper function for adding a test app.
 	#

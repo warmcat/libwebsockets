@@ -63,6 +63,7 @@ MACRO(require_lws_config reqconfig _val result)
 ENDMACRO()
 
 set(requirements 1)
+require_lws_config(LWS_ROLE_H1 1 requirements)
 require_lws_config(LWS_WITHOUT_SERVER 0 requirements)
 
 if (requirements)

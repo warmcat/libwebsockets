@@ -155,3 +155,10 @@ LWS_EXTERN int
 lws_ext_cb_all_exts(struct lws_context *context, struct lws *wsi, int reason,
 		    void *arg, int len);
 #endif
+
+int
+handshake_0405(struct lws_context *context, struct lws *wsi);
+int
+lws_process_ws_upgrade(struct lws *wsi);
+int
+lws_server_init_wsi_for_ws(struct lws *wsi);

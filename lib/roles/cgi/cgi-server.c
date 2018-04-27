@@ -121,15 +121,15 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 	 * give the master wsi a cgi struct
 	 */
 
-	wsi->cgi = lws_zalloc(sizeof(*wsi->cgi), "new cgi");
-	if (!wsi->cgi) {
+	wsi->http.cgi = lws_zalloc(sizeof(*wsi->http.cgi), "new cgi");
+	if (!wsi->http.cgi) {
 		lwsl_err("%s: OOM\n", __func__);
 		return -1;
 	}
 
-	wsi->cgi->response_code = HTTP_STATUS_OK;
+	wsi->http.cgi->response_code = HTTP_STATUS_OK;
 
-	cgi = wsi->cgi;
+	cgi = wsi->http.cgi;
 	cgi->wsi = wsi; /* set cgi's owning wsi */
 	sum = cgi->summary;
 	sumend = sum + strlen(cgi->summary) - 1;
@@ -187,7 +187,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 	wsi->hdr_state = LCHS_HEADER;
 
 	/* add us to the pt list of active cgis */
-	lwsl_debug("%s: adding cgi %p to list\n", __func__, wsi->cgi);
+	lwsl_debug("%s: adding cgi %p to list\n", __func__, wsi->http.cgi);
 	cgi->cgi_list = pt->http.cgi_list;
 	pt->http.cgi_list = cgi;
 
@@ -445,10 +445,10 @@ bail3:
 	pt->http.cgi_list = cgi->cgi_list;
 
 	while (--n >= 0)
-		__remove_wsi_socket_from_fds(wsi->cgi->stdwsi[n]);
+		__remove_wsi_socket_from_fds(wsi->http.cgi->stdwsi[n]);
 bail2:
 	for (n = 0; n < 3; n++)
-		if (wsi->cgi->stdwsi[n])
+		if (wsi->http.cgi->stdwsi[n])
 			__lws_free_wsi(cgi->stdwsi[n]);
 
 bail1:
@@ -459,7 +459,7 @@ bail1:
 			close(cgi->pipe_fds[n][1]);
 	}
 
-	lws_free_set_NULL(wsi->cgi);
+	lws_free_set_NULL(wsi->http.cgi);
 
 	lwsl_err("%s: failed\n", __func__);
 
@@ -491,7 +491,7 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 			*value = NULL;
 	char c, hrs;
 
-	if (!wsi->cgi)
+	if (!wsi->http.cgi)
 		return -1;
 
 	while (wsi->hdr_state != LHCS_PAYLOAD) {
@@ -502,13 +502,13 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 		switch (wsi->hdr_state) {
 		case LHCS_RESPONSE:
 			lwsl_debug("LHCS_RESPONSE: issuing response %d\n",
-				   wsi->cgi->response_code);
+				   wsi->http.cgi->response_code);
 			if (lws_add_http_header_status(wsi,
-						       wsi->cgi->response_code,
+						       wsi->http.cgi->response_code,
 						       &p, end))
 				return 1;
-			if (!wsi->cgi->explicitly_chunked &&
-			    !wsi->cgi->content_length &&
+			if (!wsi->http.cgi->explicitly_chunked &&
+			    !wsi->http.cgi->content_length &&
 				lws_add_http_header_by_token(wsi,
 					WSI_TOKEN_HTTP_TRANSFER_ENCODING,
 					(unsigned char *)"chunked", 7, &p, end))
@@ -524,8 +524,8 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 
 			/*
 			 * so we have a bunch of http/1 style ascii headers
-			 * starting from wsi->cgi->headers_buf through
-			 * wsi->cgi->headers_pos.  These are OK for http/1
+			 * starting from wsi->http.cgi->headers_buf through
+			 * wsi->http.cgi->headers_pos.  These are OK for http/1
 			 * connections, but they're no good for http/2 conns.
 			 *
 			 * Let's redo them at headers_pos forward using the
@@ -534,13 +534,13 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 			if (!wsi->http2_substream)
 				goto post_hpack_recode;
 
-			p = wsi->cgi->headers_start;
-			wsi->cgi->headers_start = wsi->cgi->headers_pos;
-			wsi->cgi->headers_dumped = wsi->cgi->headers_start;
+			p = wsi->http.cgi->headers_start;
+			wsi->http.cgi->headers_start = wsi->http.cgi->headers_pos;
+			wsi->http.cgi->headers_dumped = wsi->http.cgi->headers_start;
 			hrs = HR_NAME;
 			name = buf;
 
-			while (p < wsi->cgi->headers_start) {
+			while (p < wsi->http.cgi->headers_start) {
 				switch (hrs) {
 				case HR_NAME:
 					/*
@@ -582,7 +582,7 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 					/* fallthru */
 				case HR_CRLF:
 					if ((*p != '\x0a' && *p != '\x0d') ||
-					    p + 1 == wsi->cgi->headers_start) {
+					    p + 1 == wsi->http.cgi->headers_start) {
 						*name = '\0';
 						if ((strcmp((const char *)buf,
 							    "transfer-encoding")
@@ -592,8 +592,8 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 							if (
 					lws_add_http_header_by_name(wsi, buf,
 					(unsigned char *)value, name - value,
-					(unsigned char **)&wsi->cgi->headers_pos,
-					(unsigned char *)wsi->cgi->headers_end))
+					(unsigned char **)&wsi->http.cgi->headers_pos,
+					(unsigned char *)wsi->http.cgi->headers_end))
 								return 1;
 							hrs = HR_NAME;
 							name = buf;
@@ -607,8 +607,8 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 post_hpack_recode:
 			/* finalize cached headers before dumping them */
 			if (lws_finalize_http_header(wsi,
-				      (unsigned char **)&wsi->cgi->headers_pos,
-				      (unsigned char *)wsi->cgi->headers_end)) {
+				      (unsigned char **)&wsi->http.cgi->headers_pos,
+				      (unsigned char *)wsi->http.cgi->headers_end)) {
 
 				lwsl_notice("finalize failed\n");
 				return -1;
@@ -622,30 +622,30 @@ post_hpack_recode:
 
 		case LHCS_DUMP_HEADERS:
 
-			n = wsi->cgi->headers_pos - wsi->cgi->headers_dumped;
+			n = wsi->http.cgi->headers_pos - wsi->http.cgi->headers_dumped;
 			if (n > 512)
 				n = 512;
 
 			lwsl_debug("LHCS_DUMP_HEADERS: %d\n", n);
 
 			cmd = LWS_WRITE_HTTP_HEADERS_CONTINUATION;
-			if (wsi->cgi->headers_dumped + n !=
-			    wsi->cgi->headers_pos) {
+			if (wsi->http.cgi->headers_dumped + n !=
+			    wsi->http.cgi->headers_pos) {
 				lwsl_notice("adding no fin flag\n");
 				cmd |= LWS_WRITE_NO_FIN;
 			}
 
 			m = lws_write(wsi,
-				      (unsigned char *)wsi->cgi->headers_dumped,
+				      (unsigned char *)wsi->http.cgi->headers_dumped,
 				      n, cmd);
 			if (m < 0) {
 				lwsl_debug("%s: write says %d\n", __func__, m);
 				return -1;
 			}
-			wsi->cgi->headers_dumped += n;
-			if (wsi->cgi->headers_dumped == wsi->cgi->headers_pos) {
+			wsi->http.cgi->headers_dumped += n;
+			if (wsi->http.cgi->headers_dumped == wsi->http.cgi->headers_pos) {
 				wsi->hdr_state = LHCS_PAYLOAD;
-				lws_free_set_NULL(wsi->cgi->headers_buf);
+				lws_free_set_NULL(wsi->http.cgi->headers_buf);
 				lwsl_debug("freed cgi headers\n");
 			} else {
 				wsi->reason_bf |= LWS_CB_REASON_AUX_BF__CGI_HEADERS;
@@ -658,31 +658,31 @@ post_hpack_recode:
 			return 0;
 		}
 
-		if (!wsi->cgi->headers_buf) {
+		if (!wsi->http.cgi->headers_buf) {
 			/* if we don't already have a headers buf, cook one up */
 			n = 2048;
 			if (wsi->http2_substream)
 				n = 4096;
-			wsi->cgi->headers_buf = lws_malloc(n + LWS_PRE,
+			wsi->http.cgi->headers_buf = lws_malloc(n + LWS_PRE,
 							   "cgi hdr buf");
-			if (!wsi->cgi->headers_buf) {
+			if (!wsi->http.cgi->headers_buf) {
 				lwsl_err("OOM\n");
 				return -1;
 			}
 
 			lwsl_debug("allocated cgi hdrs\n");
-			wsi->cgi->headers_start = wsi->cgi->headers_buf + LWS_PRE;
-			wsi->cgi->headers_pos = wsi->cgi->headers_start;
-			wsi->cgi->headers_dumped = wsi->cgi->headers_pos;
-			wsi->cgi->headers_end = wsi->cgi->headers_buf + n - 1;
+			wsi->http.cgi->headers_start = wsi->http.cgi->headers_buf + LWS_PRE;
+			wsi->http.cgi->headers_pos = wsi->http.cgi->headers_start;
+			wsi->http.cgi->headers_dumped = wsi->http.cgi->headers_pos;
+			wsi->http.cgi->headers_end = wsi->http.cgi->headers_buf + n - 1;
 
 			for (n = 0; n < SIGNIFICANT_HDR_COUNT; n++) {
-				wsi->cgi->match[n] = 0;
-				wsi->cgi->lp = 0;
+				wsi->http.cgi->match[n] = 0;
+				wsi->http.cgi->lp = 0;
 			}
 		}
 
-		n = lws_get_socket_fd(wsi->cgi->stdwsi[LWS_STDOUT]);
+		n = lws_get_socket_fd(wsi->http.cgi->stdwsi[LWS_STDOUT]);
 		if (n < 0)
 			return -1;
 		n = read(n, &c, 1);
@@ -694,7 +694,7 @@ post_hpack_recode:
 			else
 				n = 0;
 
-			if (wsi->cgi->headers_pos >= wsi->cgi->headers_end - 4) {
+			if (wsi->http.cgi->headers_pos >= wsi->http.cgi->headers_end - 4) {
 				lwsl_notice("CGI hdrs > buf size\n");
 
 				return -1;
@@ -704,7 +704,7 @@ post_hpack_recode:
 			goto agin;
 
 		lwsl_debug("-- 0x%02X %c %d %d\n", (unsigned char)c, c,
-			   wsi->cgi->match[1], wsi->hdr_state);
+			   wsi->http.cgi->match[1], wsi->hdr_state);
 		if (!c)
 			return -1;
 		switch (wsi->hdr_state) {
@@ -715,64 +715,64 @@ post_hpack_recode:
 				 * significant headers with
 				 * numeric decimal payloads
 				 */
-				if (!significant_hdr[n][wsi->cgi->match[n]] &&
+				if (!significant_hdr[n][wsi->http.cgi->match[n]] &&
 				    (c >= '0' && c <= '9') &&
-				    wsi->cgi->lp < (int)sizeof(wsi->cgi->l) - 1) {
-					wsi->cgi->l[wsi->cgi->lp++] = c;
-					wsi->cgi->l[wsi->cgi->lp] = '\0';
+				    wsi->http.cgi->lp < (int)sizeof(wsi->http.cgi->l) - 1) {
+					wsi->http.cgi->l[wsi->http.cgi->lp++] = c;
+					wsi->http.cgi->l[wsi->http.cgi->lp] = '\0';
 					switch (n) {
 					case SIGNIFICANT_HDR_CONTENT_LENGTH:
-						wsi->cgi->content_length =
-							atoll(wsi->cgi->l);
+						wsi->http.cgi->content_length =
+							atoll(wsi->http.cgi->l);
 						break;
 					case SIGNIFICANT_HDR_STATUS:
-						wsi->cgi->response_code =
-							atol(wsi->cgi->l);
+						wsi->http.cgi->response_code =
+							atol(wsi->http.cgi->l);
 						lwsl_debug("Status set to %d\n",
-						   wsi->cgi->response_code);
+						   wsi->http.cgi->response_code);
 						break;
 					default:
 						break;
 					}
 				}
 				/* hits up to the NUL are sticky until next hdr */
-				if (significant_hdr[n][wsi->cgi->match[n]]) {
+				if (significant_hdr[n][wsi->http.cgi->match[n]]) {
 					if (tolower(c) ==
-					    significant_hdr[n][wsi->cgi->match[n]])
-						wsi->cgi->match[n]++;
+					    significant_hdr[n][wsi->http.cgi->match[n]])
+						wsi->http.cgi->match[n]++;
 					else
-						wsi->cgi->match[n] = 0;
+						wsi->http.cgi->match[n] = 0;
 				}
 			}
 
 			/* some cgi only send us \x0a for EOL */
 			if (c == '\x0a') {
 				wsi->hdr_state = LCHS_SINGLE_0A;
-				*wsi->cgi->headers_pos++ = '\x0d';
+				*wsi->http.cgi->headers_pos++ = '\x0d';
 			}
-			*wsi->cgi->headers_pos++ = c;
+			*wsi->http.cgi->headers_pos++ = c;
 			if (c == '\x0d')
 				wsi->hdr_state = LCHS_LF1;
 
 			if (wsi->hdr_state != LCHS_HEADER &&
 			    !significant_hdr[SIGNIFICANT_HDR_TRANSFER_ENCODING]
-				    [wsi->cgi->match[
+				    [wsi->http.cgi->match[
 					 SIGNIFICANT_HDR_TRANSFER_ENCODING]]) {
 				lwsl_debug("cgi produced chunked\n");
-				wsi->cgi->explicitly_chunked = 1;
+				wsi->http.cgi->explicitly_chunked = 1;
 			}
 
 			/* presence of Location: mandates 302 retcode */
 			if (wsi->hdr_state != LCHS_HEADER &&
 			    !significant_hdr[SIGNIFICANT_HDR_LOCATION][
-				     wsi->cgi->match[SIGNIFICANT_HDR_LOCATION]]) {
+				     wsi->http.cgi->match[SIGNIFICANT_HDR_LOCATION]]) {
 				lwsl_debug("CGI: Location hdr seen\n");
-				wsi->cgi->response_code = 302;
+				wsi->http.cgi->response_code = 302;
 			}
 
 			break;
 		case LCHS_LF1:
-			*wsi->cgi->headers_pos++ = c;
+			*wsi->http.cgi->headers_pos++ = c;
 			if (c == '\x0a') {
 				wsi->hdr_state = LCHS_CR2;
 				break;
@@ -790,8 +790,8 @@ post_hpack_recode:
 			}
 			wsi->hdr_state = LCHS_HEADER;
 			for (n = 0; n < SIGNIFICANT_HDR_COUNT; n++)
-				wsi->cgi->match[n] = 0;
-			wsi->cgi->lp = 0;
+				wsi->http.cgi->match[n] = 0;
+			wsi->http.cgi->lp = 0;
 			goto hdr;
 
 		case LCHS_LF2:
@@ -800,7 +800,7 @@ post_hpack_recode:
 			if (c == '\x0a') {
 				lwsl_debug("Content-Length: %lld\n",
 					(unsigned long long)
-					wsi->cgi->content_length);
+					wsi->http.cgi->content_length);
 				wsi->hdr_state = LHCS_RESPONSE;
 				/*
 				 * drop the \0xa ... finalize
@@ -812,11 +812,11 @@ post_hpack_recode:
 				/* we got \r\n\r[^\n]... unreasonable */
 				return -1;
 			/* we got \x0anext header, it's reasonable */
-			*wsi->cgi->headers_pos++ = c;
+			*wsi->http.cgi->headers_pos++ = c;
 			wsi->hdr_state = LCHS_HEADER;
 			for (n = 0; n < SIGNIFICANT_HDR_COUNT; n++)
-				wsi->cgi->match[n] = 0;
-			wsi->cgi->lp = 0;
+				wsi->http.cgi->match[n] = 0;
+			wsi->http.cgi->lp = 0;
 			break;
 		case LHCS_PAYLOAD:
 			break;
@@ -830,8 +830,8 @@ agin:
 
 	/* payload processing */
 
-	m = !wsi->cgi->explicitly_chunked && !wsi->cgi->content_length;
-	n = lws_get_socket_fd(wsi->cgi->stdwsi[LWS_STDOUT]);
+	m = !wsi->http.cgi->explicitly_chunked && !wsi->http.cgi->content_length;
+	n = lws_get_socket_fd(wsi->http.cgi->stdwsi[LWS_STDOUT]);
 	if (n < 0)
 		return -1;
 	n = read(n, start, sizeof(buf) - LWS_PRE -
@@ -852,7 +852,7 @@ agin:
 			n += m + 2;
 		}
 		cmd = LWS_WRITE_HTTP;
-		if (wsi->cgi->content_length_seen + n == wsi->cgi->content_length)
+		if (wsi->http.cgi->content_length_seen + n == wsi->http.cgi->content_length)
 			cmd = LWS_WRITE_HTTP_FINAL;
 		m = lws_write(wsi, (unsigned char *)start, n, cmd);
 		//lwsl_notice("write %d\n", m);
@@ -860,7 +860,7 @@ agin:
 			lwsl_debug("%s: stdout write says %d\n", __func__, m);
 			return -1;
 		}
-		wsi->cgi->content_length_seen += n;
+		wsi->http.cgi->content_length_seen += n;
 	} else {
 		if (wsi->cgi_stdout_zero_length) {
 			lwsl_debug("%s: stdout is POLLHUP'd\n", __func__);
@@ -882,20 +882,20 @@ lws_cgi_kill(struct lws *wsi)
 
 	lwsl_debug("%s: %p\n", __func__, wsi);
 
-	if (!wsi->cgi)
+	if (!wsi->http.cgi)
 		return 0;
 
-	if (wsi->cgi->pid > 0) {
-		n = waitpid(wsi->cgi->pid, &status, WNOHANG);
+	if (wsi->http.cgi->pid > 0) {
+		n = waitpid(wsi->http.cgi->pid, &status, WNOHANG);
 		if (n > 0) {
 			lwsl_debug("%s: PID %d reaped\n", __func__,
-				    wsi->cgi->pid);
+				    wsi->http.cgi->pid);
 			goto handled;
 		}
 		/* kill the process group */
-		n = kill(-wsi->cgi->pid, SIGTERM);
+		n = kill(-wsi->http.cgi->pid, SIGTERM);
 		lwsl_debug("%s: SIGTERM child PID %d says %d (errno %d)\n",
-			   __func__, wsi->cgi->pid, n, errno);
+			   __func__, wsi->http.cgi->pid, n, errno);
 		if (n < 0) {
 			/*
 			 * hum seen errno=3 when process is listed in ps,
@@ -903,28 +903,28 @@ lws_cgi_kill(struct lws *wsi)
 			 *
 			 * Direct these fallback attempt to the exact child
 			 */
-			n = kill(wsi->cgi->pid, SIGTERM);
+			n = kill(wsi->http.cgi->pid, SIGTERM);
 			if (n < 0) {
-				n = kill(wsi->cgi->pid, SIGPIPE);
+				n = kill(wsi->http.cgi->pid, SIGPIPE);
 				if (n < 0) {
-					n = kill(wsi->cgi->pid, SIGKILL);
+					n = kill(wsi->http.cgi->pid, SIGKILL);
 					if (n < 0)
 						lwsl_err("%s: SIGKILL PID %d "
 							 "failed errno %d "
 							 "(maybe zombie)\n",
 							 __func__,
-							 wsi->cgi->pid, errno);
+							 wsi->http.cgi->pid, errno);
 				}
 			}
 		}
 		/* He could be unkillable because he's a zombie */
 		n = 1;
 		while (n > 0) {
-			n = waitpid(-wsi->cgi->pid, &status, WNOHANG);
+			n = waitpid(-wsi->http.cgi->pid, &status, WNOHANG);
 			if (n > 0)
 				lwsl_debug("%s: reaped PID %d\n", __func__, n);
 			if (n <= 0) {
-				n = waitpid(wsi->cgi->pid, &status, WNOHANG);
+				n = waitpid(wsi->http.cgi->pid, &status, WNOHANG);
 				if (n > 0)
 					lwsl_debug("%s: reaped PID %d\n",
 						   __func__, n);
@@ -933,15 +933,15 @@ lws_cgi_kill(struct lws *wsi)
 	}
 
 handled:
-	args.stdwsi = &wsi->cgi->stdwsi[0];
+	args.stdwsi = &wsi->http.cgi->stdwsi[0];
 
-	if (wsi->cgi->pid != -1) {
+	if (wsi->http.cgi->pid != -1) {
 		n = user_callback_handle_rxflow(wsi->protocol->callback, wsi,
 						LWS_CALLBACK_CGI_TERMINATED,
 						wsi->user_space,
-						(void *)&args, wsi->cgi->pid);
-		wsi->cgi->pid = -1;
-		if (n && !wsi->cgi->being_closed)
+						(void *)&args, wsi->http.cgi->pid);
+		wsi->http.cgi->pid = -1;
+		if (n && !wsi->http.cgi->being_closed)
 			lws_close_free_wsi(wsi, 0, "lws_cgi_kill");
 	}
 
@@ -1085,10 +1085,10 @@ finish_him:
 LWS_VISIBLE LWS_EXTERN struct lws *
 lws_cgi_get_stdwsi(struct lws *wsi, enum lws_enum_stdinouterr ch)
 {
-	if (!wsi->cgi)
+	if (!wsi->http.cgi)
 		return NULL;
 
-	return wsi->cgi->stdwsi[ch];
+	return wsi->http.cgi->stdwsi[ch];
 }
 
 void
@@ -1098,20 +1098,20 @@ lws_cgi_remove_and_kill(struct lws *wsi)
 	struct lws_cgi **pcgi = &pt->http.cgi_list;
 
 	/* remove us from the cgi list */
-	lwsl_debug("%s: remove cgi %p from list\n", __func__, wsi->cgi);
+	lwsl_debug("%s: remove cgi %p from list\n", __func__, wsi->http.cgi);
 	while (*pcgi) {
-		if (*pcgi == wsi->cgi) {
+		if (*pcgi == wsi->http.cgi) {
 			/* drop us from the pt cgi list */
 			*pcgi = (*pcgi)->cgi_list;
 			break;
 		}
 		pcgi = &(*pcgi)->cgi_list;
 	}
-	if (wsi->cgi->headers_buf) {
+	if (wsi->http.cgi->headers_buf) {
 		lwsl_debug("close: freed cgi headers\n");
-		lws_free_set_NULL(wsi->cgi->headers_buf);
+		lws_free_set_NULL(wsi->http.cgi->headers_buf);
 	}
 	/* we have a cgi going, we must kill it */
-	wsi->cgi->being_closed = 1;
+	wsi->http.cgi->being_closed = 1;
 	lws_cgi_kill(wsi);
 }
