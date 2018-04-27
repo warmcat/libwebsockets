@@ -23,9 +23,21 @@
 
 #if defined(USE_WOLFSSL)
  #if defined(USE_OLD_CYASSL)
+  #if defined(_WIN32)
+   #include <IDE/WIN/user_settings.h>
+   #include <cyassl/ctaocrypt/settings.h>
+  #else
+   #include <cyassl/options.h>
+  #endif
   #include <cyassl/openssl/ssl.h>
   #include <cyassl/error-ssl.h>
  #else
+  #if defined(_WIN32)
+   #include <IDE/WIN/user_settings.h>
+   #include <wolfssl/wolfcrypt/settings.h>
+  #else
+   #include <wolfssl/options.h>
+  #endif
   #include <wolfssl/openssl/ssl.h>
   #include <wolfssl/error-ssl.h>
   #define OPENSSL_NO_TLSEXT

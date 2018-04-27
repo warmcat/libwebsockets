@@ -181,9 +181,17 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 		 * The passed memory-buffer cert image is in DER, and the
 		 * memory-buffer private key image is PEM.
 		 */
+#ifndef USE_WOLFSSL
 		if (SSL_CTX_use_certificate_ASN1(vhost->ssl_ctx,
 						 (int)len_mem_cert,
 						 (uint8_t *)mem_cert) != 1) {
+#else
+		if (wolfSSL_CTX_use_certificate_buffer(vhost->ssl_ctx,
+						 (uint8_t *)mem_cert,
+						 (int)len_mem_cert,
+						 WOLFSSL_FILETYPE_ASN1) != 1) {
+
+#endif
 			lwsl_err("Problem loading update cert\n");
 
 			return 1;
@@ -196,8 +204,13 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 
 			return 1;
 		}
+#ifndef USE_WOLFSSL
 		if (SSL_CTX_use_PrivateKey_ASN1(EVP_PKEY_RSA, vhost->ssl_ctx,
 						p, (long)(long long)flen) != 1) {
+#else
+		if (wolfSSL_CTX_use_PrivateKey_buffer(vhost->ssl_ctx,
+						p, flen, WOLFSSL_FILETYPE_ASN1) != 1) {
+#endif
 			lwsl_notice("unable to use memory privkey\n");
 
 			return 1;

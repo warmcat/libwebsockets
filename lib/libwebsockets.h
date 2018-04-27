@@ -182,9 +182,30 @@ typedef unsigned long long lws_intptr_t;
 
 #ifdef USE_WOLFSSL
 #ifdef USE_OLD_CYASSL
+#ifdef _WIN32
+/*
+ * Include user-controlled settings for windows from
+ * <wolfssl-root>/IDE/WIN/user_settings.h
+ */
+#include <IDE/WIN/user_settings.h>
+#include <cyassl/ctaocrypt/settings.h>
+#else
+#include <cyassl/options.h>
+#endif
 #include <cyassl/openssl/ssl.h>
 #include <cyassl/error-ssl.h>
+
 #else
+#ifdef _WIN32
+/*
+ * Include user-controlled settings for windows from
+ * <wolfssl-root>/IDE/WIN/user_settings.h
+ */
+#include <IDE/WIN/user_settings.h>
+#include <wolfssl/wolfcrypt/settings.h>
+#else
+#include <wolfssl/options.h>
+#endif
 #include <wolfssl/openssl/ssl.h>
 #include <wolfssl/error-ssl.h>
 #endif /* not USE_OLD_CYASSL */
