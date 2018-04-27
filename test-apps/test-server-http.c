@@ -162,7 +162,7 @@ file_upload_cb(void *data, const char *name, const char *filename,
 				return 1;
 
 			n = write((int)(long long)pss->post_fd, buf, len);
-			lwsl_notice("%s: write %d says %d\n", __func__, len, n);
+			lwsl_info("%s: write %d says %d\n", __func__, len, n);
 		}
 		if (state == LWS_UFS_CONTENT)
 			break;

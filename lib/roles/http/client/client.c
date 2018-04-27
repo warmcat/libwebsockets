@@ -51,15 +51,16 @@ lws_client_wsi_effective(struct lws *wsi)
 
 /*
  * return self or the guy we are queued under
+ *
+ * REQUIRES VHOST LOCK HELD
  */
 
-struct lws *
-lws_client_wsi_master(struct lws *wsi)
+static struct lws *
+_lws_client_wsi_master(struct lws *wsi)
 {
 	struct lws *wsi_eff = wsi;
 	struct lws_dll_lws *d;
 
-	lws_vhost_lock(wsi->vhost);
 	d = wsi->dll_client_transaction_queue.prev;
 	while (d) {
 		wsi_eff = lws_container_of(d, struct lws,
@@ -67,7 +68,6 @@ lws_client_wsi_master(struct lws *wsi)
 
 		d = d->prev;
 	}
-	lws_vhost_unlock(wsi->vhost);
 
 	return wsi_eff;
 }
@@ -372,7 +372,7 @@ start_ws_handshake:
 		/* send our request to the server */
 		lws_latency_pre(context, wsi);
 
-		w = lws_client_wsi_master(wsi);
+		w = _lws_client_wsi_master(wsi);
 		lwsl_info("%s: HANDSHAKE2: %p: sending headers on %p (wsistate 0x%x 0x%x)\n",
 				__func__, wsi, w, wsi->wsistate, w->wsistate);
 

@@ -556,25 +556,27 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 	 * if we have wsi in our transaction queue, if we are closing we
 	 * must go through and close all those first
 	 */
-	lws_vhost_lock(wsi->vhost);
-	lws_start_foreach_dll_safe(struct lws_dll_lws *, d, d1,
-				wsi->dll_client_transaction_queue_head.next) {
-		struct lws *w = lws_container_of(d, struct lws,
-						 dll_client_transaction_queue);
+	if (wsi->vhost) {
+		lws_vhost_lock(wsi->vhost);
+		lws_start_foreach_dll_safe(struct lws_dll_lws *, d, d1,
+					wsi->dll_client_transaction_queue_head.next) {
+			struct lws *w = lws_container_of(d, struct lws,
+							 dll_client_transaction_queue);
 
-		__lws_close_free_wsi(w, reason, "trans q leader closing");
-	} lws_end_foreach_dll_safe(d, d1);
+			__lws_close_free_wsi(w, reason, "trans q leader closing");
+		} lws_end_foreach_dll_safe(d, d1);
 
-	/*
-	 * !!! If we are closing, but we have pending pipelined transaction
-	 * results we already sent headers for, that's going to destroy sync
-	 * for HTTP/1 and leave H2 stream with no live swsi.
-	 *
-	 * However this is normal if we are being closed because the transaction
-	 * queue leader is closing.
-	 */
-	lws_dll_lws_remove(&wsi->dll_client_transaction_queue);
-	lws_vhost_unlock(wsi->vhost);
+		/*
+		 * !!! If we are closing, but we have pending pipelined transaction
+		 * results we already sent headers for, that's going to destroy sync
+		 * for HTTP/1 and leave H2 stream with no live swsi.
+		 *
+		 * However this is normal if we are being closed because the transaction
+		 * queue leader is closing.
+		 */
+		lws_dll_lws_remove(&wsi->dll_client_transaction_queue);
+		lws_vhost_unlock(wsi->vhost);
+	}
 #endif
 
 	/* if we have children, close them first */
