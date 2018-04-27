@@ -104,13 +104,13 @@ __lws_free_wsi(struct lws *wsi)
 	if (wsi->vhost && wsi->vhost->lserv_wsi == wsi)
 		wsi->vhost->lserv_wsi = NULL;
 
-	ah = pt->ah_list;
+	ah = pt->http.ah_list;
 	while (ah) {
 		if (ah->in_use && ah->wsi == wsi) {
 			lwsl_err("%s: ah leak: wsi %p\n", __func__, wsi);
 			ah->in_use = 0;
 			ah->wsi = NULL;
-			pt->ah_count_in_use--;
+			pt->http.ah_count_in_use--;
 			break;
 		}
 		ah = ah->next;
@@ -1740,24 +1740,25 @@ lws_set_proxy(struct lws_vhost *vhost, const char *proxy)
 	} else
 		vhost->proxy_basic_auth_token[0] = '\0';
 
-	lws_strncpy(vhost->http_proxy_address, proxy,
-		    sizeof(vhost->http_proxy_address));
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+	lws_strncpy(vhost->http.http_proxy_address, proxy,
+		    sizeof(vhost->http.http_proxy_address));
 
-	p = strchr(vhost->http_proxy_address, ':');
-	if (!p && !vhost->http_proxy_port) {
+	p = strchr(vhost->http.http_proxy_address, ':');
+	if (!p && !vhost->http.http_proxy_port) {
 		lwsl_err("http_proxy needs to be ads:port\n");
 
 		return -1;
 	} else {
 		if (p) {
 			*p = '\0';
-			vhost->http_proxy_port = atoi(p + 1);
+			vhost->http.http_proxy_port = atoi(p + 1);
 		}
 	}
 
-	lwsl_info(" Proxy %s:%u\n", vhost->http_proxy_address,
-			vhost->http_proxy_port);
-
+	lwsl_info(" Proxy %s:%u\n", vhost->http.http_proxy_address,
+			vhost->http.http_proxy_port);
+#endif
 	return 0;
 
 auth_too_long:
@@ -2991,9 +2992,9 @@ lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len)
 			vh->conn_stats.h2_alpn,
 			vh->conn_stats.h2_subs
 	);
-
-	if (vh->mount_list) {
-		const struct lws_http_mount *m = vh->mount_list;
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+	if (vh->http.mount_list) {
+		const struct lws_http_mount *m = vh->http.mount_list;
 
 		buf += lws_snprintf(buf, end - buf, ",\n \"mounts\":[");
 		while (m) {
@@ -3024,7 +3025,7 @@ lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len)
 		}
 		buf += lws_snprintf(buf, end - buf, "\n ]");
 	}
-
+#endif
 	if (vh->protocols) {
 		n = 0;
 		first = 1;
@@ -3117,8 +3118,8 @@ lws_json_dump_context(const struct lws_context *context, char *buf, int len,
 				"    \"ah_wait_list\":\"%d\"\n"
 				"    }",
 				pt->fds_count,
-				pt->ah_count_in_use,
-				pt->ah_wait_list_length);
+				pt->http.ah_count_in_use,
+				pt->http.ah_wait_list_length);
 	}
 
 	buf += lws_snprintf(buf, end - buf, "]");
@@ -3169,7 +3170,7 @@ lws_json_dump_context(const struct lws_context *context, char *buf, int len,
 #ifdef LWS_WITH_CGI
 	for (n = 0; n < context->count_threads; n++) {
 		pt = &context->pt[n];
-		pcgi = &pt->cgi_list;
+		pcgi = &pt->http.cgi_list;
 
 		while (*pcgi) {
 			pcgi = &(*pcgi)->cgi_list;
@@ -3343,17 +3344,17 @@ lws_stats_log_dump(struct lws_context *context)
 		lws_pt_lock(pt, __func__);
 
 		lwsl_notice("  AH in use / max:                  %d / %d\n",
-				pt->ah_count_in_use,
+				pt->http.ah_count_in_use,
 				context->max_http_header_pool);
 
-		wl = pt->ah_wait_list;
+		wl = pt->http.ah_wait_list;
 		while (wl) {
 			m++;
 			wl = wl->ah_wait_list;
 		}
 
 		lwsl_notice("  AH wait list count / actual:      %d / %d\n",
-				pt->ah_wait_list_length, m);
+				pt->http.ah_wait_list_length, m);
 
 		lws_pt_unlock(pt);
 	}
@@ -3384,9 +3385,13 @@ lws_stats_log_dump(struct lws_context *context)
 				if (!lws_plat_inet_ntop(df->af, df->addr, buf,
 							sizeof(buf) - 1))
 					strcpy(buf, "unknown");
-
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 				lwsl_notice("  peer %s: count wsi: %d, count ah: %d\n",
 					    buf, df->count_wsi, df->count_ah);
+#else
+				lwsl_notice("  peer %s: count wsi: %d\n",
+					    buf, df->count_wsi);
+#endif
 
 				if (!--m)
 					break;

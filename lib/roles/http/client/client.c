@@ -405,10 +405,10 @@ start_ws_handshake:
 			lwsi_set_state(w, LRS_WAITING_SERVER_REPLY);
 			w->hdr_parsing_completed = 0;
 
-			w->ah->parser_state = WSI_TOKEN_NAME_PART;
-			w->ah->lextable_pos = 0;
+			w->http.ah->parser_state = WSI_TOKEN_NAME_PART;
+			w->http.ah->lextable_pos = 0;
 			/* If we're (re)starting on headers, need other implied init */
-			wsi->ah->ues = URIES_IDLE;
+			wsi->http.ah->ues = URIES_IDLE;
 		}
 
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
@@ -428,8 +428,8 @@ start_ws_handshake:
 		}
 client_http_body_sent:
 		/* prepare ourselves to do the parsing */
-		wsi->ah->parser_state = WSI_TOKEN_NAME_PART;
-		wsi->ah->lextable_pos = 0;
+		wsi->http.ah->parser_state = WSI_TOKEN_NAME_PART;
+		wsi->http.ah->lextable_pos = 0;
 		lwsi_set_state(wsi, LRS_WAITING_SERVER_REPLY);
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
 				context->timeout_secs);
@@ -469,7 +469,7 @@ client_http_body_sent:
 		 * definitively ready from browser pov.
 		 */
 		len = 1;
-		while (wsi->ah->parser_state != WSI_PARSING_COMPLETE &&
+		while (wsi->http.ah->parser_state != WSI_PARSING_COMPLETE &&
 		       len > 0) {
 			int plen = 1;
 
@@ -496,7 +496,7 @@ client_http_body_sent:
 		 * libwebsocket timeout still active here too, so if parsing did
 		 * not complete just wait for next packet coming in this state
 		 */
-		if (wsi->ah->parser_state != WSI_PARSING_COMPLETE)
+		if (wsi->http.ah->parser_state != WSI_PARSING_COMPLETE)
 			break;
 
 
@@ -599,14 +599,14 @@ lws_http_transaction_completed_client(struct lws *wsi)
 	/* otherwise set ourselves up ready to go again */
 	lwsi_set_state(wsi, LRS_WAITING_SERVER_REPLY);
 
-	wsi->ah->parser_state = WSI_TOKEN_NAME_PART;
-	wsi->ah->lextable_pos = 0;
+	wsi->http.ah->parser_state = WSI_TOKEN_NAME_PART;
+	wsi->http.ah->lextable_pos = 0;
 
 	lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
 			wsi->context->timeout_secs);
 
 	/* If we're (re)starting on headers, need other implied init */
-	wsi->ah->ues = URIES_IDLE;
+	wsi->http.ah->ues = URIES_IDLE;
 
 	lwsl_info("%s: %p: new queued transaction as %p\n", __func__, wsi, wsi_eff);
 	lws_callback_on_writable(wsi);
@@ -617,10 +617,10 @@ lws_http_transaction_completed_client(struct lws *wsi)
 LWS_VISIBLE LWS_EXTERN unsigned int
 lws_http_client_http_response(struct lws *wsi)
 {
-	if (!wsi->ah)
+	if (!wsi->http.ah)
 		return 0;
 
-	return wsi->ah->http_response;
+	return wsi->http.ah->http_response;
 }
 #if defined(LWS_PLAT_OPTEE)
 char *
@@ -651,7 +651,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 
 	lws_client_stash_destroy(wsi);
 
-	ah = wsi->ah;
+	ah = wsi->http.ah;
 	if (!wsi->do_ws) {
 		/* we are being an http client...
 		 */
@@ -668,7 +668,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 					    LRS_ESTABLISHED, &role_ops_h1);
 		}
 
-		wsi->ah = ah;
+		wsi->http.ah = ah;
 		ah->http_response = 0;
 	}
 

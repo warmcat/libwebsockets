@@ -460,9 +460,11 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 	if (!wsi->vhost)
 		return -1;
 
-	if (wsi->vhost->error_document_404 &&
-	    !strcmp(uri, wsi->vhost->error_document_404))
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+	if (wsi->vhost->http.error_document_404 &&
+	    !strcmp(uri, wsi->vhost->http.error_document_404))
 		wsi->handling_404 = 1;
+#endif
 
 	lws_snprintf(path, sizeof(path) - 1, "%s/%s", origin, uri);
 
@@ -546,7 +548,7 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_IF_RANGE))
 		if (strcmp(sym, lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_IF_RANGE)))
 			/* differs - defeat Range: */
-			wsi->ah->frag_index[WSI_TOKEN_HTTP_RANGE] = 0;
+			wsi->http.ah->frag_index[WSI_TOKEN_HTTP_RANGE] = 0;
 
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_IF_NONE_MATCH)) {
 		/*
@@ -653,13 +655,14 @@ bail:
 	return -1;
 }
 
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 const struct lws_http_mount *
 lws_find_mount(struct lws *wsi, const char *uri_ptr, int uri_len)
 {
 	const struct lws_http_mount *hm, *hit = NULL;
 	int best = 0;
 
-	hm = wsi->vhost->mount_list;
+	hm = wsi->vhost->http.mount_list;
 	while (hm) {
 		if (uri_len >= hm->mountpoint_len &&
 		    !strncmp(uri_ptr, hm->mountpoint, hm->mountpoint_len) &&
@@ -684,6 +687,7 @@ lws_find_mount(struct lws *wsi, const char *uri_ptr, int uri_len)
 
 	return hit;
 }
+#endif
 
 #if !defined(LWS_WITH_ESP32)
 static int
@@ -1383,7 +1387,7 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 		assert(0);
 	}
 
-	if (!wsi->ah) {
+	if (!wsi->http.ah) {
 		lwsl_err("%s: assert: NULL ah\n", __func__);
 		assert(0);
 	}
@@ -1435,7 +1439,7 @@ raw_transition:
 			goto bail_nuke_ah;
 		}
 
-		if (wsi->ah->parser_state != WSI_PARSING_COMPLETE)
+		if (wsi->http.ah->parser_state != WSI_PARSING_COMPLETE)
 			continue;
 
 		lwsl_parser("%s: lws_parse sees parsing complete\n", __func__);
@@ -1550,7 +1554,7 @@ raw_transition:
 		wsi->http.fop_fd = NULL;
 
 		lwsl_debug("%s: wsi %p: ah %p\n", __func__, (void *)wsi,
-			   (void *)wsi->ah);
+			   (void *)wsi->http.ah);
 
 		n = lws_http_action(wsi);
 
@@ -1764,7 +1768,7 @@ lws_http_transaction_completed(struct lws *wsi)
 	 * that is already at least the start of another header set, simply
 	 * reset the existing header table and keep it.
 	 */
-	if (wsi->ah) {
+	if (wsi->http.ah) {
 		// lws_buflist_describe(&wsi->buflist, wsi);
 		if (!lws_buflist_next_segment_len(&wsi->buflist, NULL)) {
 			lwsl_debug("%s: nothing in buflist so detaching ah\n", __func__);
@@ -1798,8 +1802,8 @@ lws_http_transaction_completed(struct lws *wsi)
 					wsi->vhost->keepalive_timeout);
 		}
 		/* If we're (re)starting on headers, need other implied init */
-		if (wsi->ah)
-			wsi->ah->ues = URIES_IDLE;
+		if (wsi->http.ah)
+			wsi->http.ah->ues = URIES_IDLE;
 
 		lwsi_set_state(wsi, LRS_ESTABLISHED);
 	} else
@@ -2074,7 +2078,7 @@ adopt_socket_readbuf(struct lws *wsi, const char *readbuf, size_t len)
 	 * readbuf data to wsi or ah yet, and we will do it next if we get
 	 * the ah.
 	 */
-	if (wsi->ah || !lws_header_table_attach(wsi, 0)) {
+	if (wsi->http.ah || !lws_header_table_attach(wsi, 0)) {
 
 		lwsl_notice("%s: calling service on readbuf ah\n", __func__);
 		pt = &wsi->context->pt[(int)wsi->tsi];

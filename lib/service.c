@@ -240,8 +240,8 @@ __lws_service_timeout_check(struct lws *wsi, time_t sec)
 				  "(did hdr %d, ah %p, wl %d, pfd "
 				  "events %d) %llu vs %llu\n",
 				  (void *)wsi, wsi->pending_timeout,
-				  wsi->hdr_parsing_completed, wsi->ah,
-				  pt->ah_wait_list_length, n,
+				  wsi->hdr_parsing_completed, wsi->http.ah,
+				  pt->http.ah_wait_list_length, n,
 				  (unsigned long long)sec,
 				  (unsigned long long)wsi->pending_timeout_limit);
 #if defined(LWS_WITH_CGI)
@@ -613,7 +613,7 @@ lws_service_periodic_checks(struct lws_context *context,
 	 *	    timeout status
 	 */
 
-	ah = pt->ah_list;
+	ah = pt->http.ah_list;
 	while (ah) {
 		int len;
 		char buf[256];
@@ -686,7 +686,7 @@ lws_service_periodic_checks(struct lws_context *context,
 			__lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
 					     "excessive ah");
 
-		ah = pt->ah_list;
+		ah = pt->http.ah_list;
 	}
 
 	lws_pt_unlock(pt);

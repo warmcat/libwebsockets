@@ -158,12 +158,38 @@ LWS_EXTERN int
 lws_rewrite_parse(struct lws_rewrite *r, const unsigned char *in, int in_len);
 #endif
 
+struct lws_pt_role_http {
+	struct allocated_headers *ah_list;
+	struct lws *ah_wait_list;
+#ifdef LWS_WITH_CGI
+	struct lws_cgi *cgi_list;
+#endif
+	int ah_wait_list_length;
+	uint32_t ah_pool_length;
+
+	int ah_count_in_use;
+};
+
+struct lws_peer_role_http {
+	uint32_t count_ah;
+	uint32_t total_ah;
+};
+
+struct lws_vhost_role_http {
+	char http_proxy_address[128];
+	const struct lws_http_mount *mount_list;
+	const char *error_document_404;
+	unsigned int http_proxy_port;
+};
+
 struct _lws_http_mode_related {
 	struct lws *new_wsi_list;
 
 #if defined(LWS_WITH_HTTP_PROXY)
 	struct lws_rewrite *rw;
 #endif
+	struct allocated_headers *ah;
+	struct lws *ah_wait_list;
 
 	lws_filepos_t filepos;
 	lws_filepos_t filelen;

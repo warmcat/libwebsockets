@@ -560,7 +560,9 @@ lws_create_vhost(struct lws_context *context,
 	else
 		vh->name = info->vhost_name;
 
-	vh->error_document_404 = info->error_document_404;
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+	vh->http.error_document_404 = info->error_document_404;
+#endif
 
 	if (info->options & LWS_SERVER_OPTION_ONLY_RAW)
 		lwsl_info("%s set to only support RAW\n", vh->name);
@@ -684,8 +686,9 @@ lws_create_vhost(struct lws_context *context,
 	vh->same_vh_protocol_list = (struct lws **)
 			lws_zalloc(sizeof(struct lws *) * vh->count_protocols,
 				   "same vh list");
-
-	vh->mount_list = info->mounts;
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+	vh->http.mount_list = info->mounts;
+#endif
 
 #ifdef LWS_WITH_UNIX_SOCK
 	if (LWS_UNIX_SOCK_ENABLED(context)) {
@@ -736,22 +739,26 @@ lws_create_vhost(struct lws_context *context,
 	}
 
 	vh->listen_port = info->port;
-	vh->http_proxy_port = 0;
-	vh->http_proxy_address[0] = '\0';
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+	vh->http.http_proxy_port = 0;
+	vh->http.http_proxy_address[0] = '\0';
+#endif
 #if defined(LWS_WITH_SOCKS5)
 	vh->socks_proxy_port = 0;
 	vh->socks_proxy_address[0] = '\0';
 #endif
 
 	/* either use proxy from info, or try get it from env var */
-
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	/* http proxy */
 	if (info->http_proxy_address) {
 		/* override for backwards compatibility */
 		if (info->http_proxy_port)
-			vh->http_proxy_port = info->http_proxy_port;
+			vh->http.http_proxy_port = info->http_proxy_port;
 		lws_set_proxy(vh, info->http_proxy_address);
-	} else {
+	} else
+#endif
+	{
 #ifdef LWS_HAVE_GETENV
 		p = getenv("http_proxy");
 		if (p)
@@ -1143,8 +1150,8 @@ lws_create_context(const struct lws_context_creation_info *info)
 		context->pt[n].context = context;
 #endif
 		context->pt[n].tid = n;
-		context->pt[n].ah_list = NULL;
-		context->pt[n].ah_pool_length = 0;
+		context->pt[n].http.ah_list = NULL;
+		context->pt[n].http.ah_pool_length = 0;
 
 		lws_pt_mutex_init(&context->pt[n]);
 	}
@@ -1716,8 +1723,8 @@ lws_context_destroy(struct lws_context *context)
 
 		lws_free_set_NULL(context->pt[n].serv_buf);
 
-		while (pt->ah_list)
-			_lws_destroy_ah(pt, pt->ah_list);
+		while (pt->http.ah_list)
+			_lws_destroy_ah(pt, pt->http.ah_list);
 	}
 	lws_plat_context_early_destroy(context);
 

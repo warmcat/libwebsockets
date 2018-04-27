@@ -41,13 +41,13 @@ _lws_create_ah(struct lws_context_per_thread *pt, ah_data_idx_t data_size)
 
 		return NULL;
 	}
-	ah->next = pt->ah_list;
-	pt->ah_list = ah;
+	ah->next = pt->http.ah_list;
+	pt->http.ah_list = ah;
 	ah->data_length = data_size;
-	pt->ah_pool_length++;
+	pt->http.ah_pool_length++;
 
 	lwsl_info("%s: created ah %p (size %d): pool length %d\n", __func__,
-		    ah, (int)data_size, pt->ah_pool_length);
+		    ah, (int)data_size, pt->http.ah_pool_length);
 
 	return ah;
 }
@@ -55,12 +55,12 @@ _lws_create_ah(struct lws_context_per_thread *pt, ah_data_idx_t data_size)
 int
 _lws_destroy_ah(struct lws_context_per_thread *pt, struct allocated_headers *ah)
 {
-	lws_start_foreach_llp(struct allocated_headers **, a, pt->ah_list) {
+	lws_start_foreach_llp(struct allocated_headers **, a, pt->http.ah_list) {
 		if ((*a) == ah) {
 			*a = ah->next;
-			pt->ah_pool_length--;
+			pt->http.ah_pool_length--;
 			lwsl_info("%s: freed ah %p : pool length %d\n",
-				    __func__, ah, pt->ah_pool_length);
+				    __func__, ah, pt->http.ah_pool_length);
 			if (ah->data)
 				lws_free(ah->data);
 			lws_free(ah);
@@ -88,7 +88,7 @@ _lws_header_table_reset(struct allocated_headers *ah)
 void
 __lws_header_table_reset(struct lws *wsi, int autoservice)
 {
-	struct allocated_headers *ah = wsi->ah;
+	struct allocated_headers *ah = wsi->http.ah;
 	struct lws_context_per_thread *pt;
 	struct lws_pollfd *pfd;
 
@@ -144,18 +144,18 @@ _lws_header_ensure_we_are_on_waiting_list(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	struct lws_pollargs pa;
-	struct lws **pwsi = &pt->ah_wait_list;
+	struct lws **pwsi = &pt->http.ah_wait_list;
 
 	while (*pwsi) {
 		if (*pwsi == wsi)
 			return;
-		pwsi = &(*pwsi)->ah_wait_list;
+		pwsi = &(*pwsi)->http.ah_wait_list;
 	}
 
 	lwsl_info("%s: wsi: %p\n", __func__, wsi);
-	wsi->ah_wait_list = pt->ah_wait_list;
-	pt->ah_wait_list = wsi;
-	pt->ah_wait_list_length++;
+	wsi->http.ah_wait_list = pt->http.ah_wait_list;
+	pt->http.ah_wait_list = wsi;
+	pt->http.ah_wait_list_length++;
 
 	/* we cannot accept input then */
 
@@ -166,20 +166,20 @@ static int
 __lws_remove_from_ah_waiting_list(struct lws *wsi)
 {
         struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
-	struct lws **pwsi =&pt->ah_wait_list;
+	struct lws **pwsi =&pt->http.ah_wait_list;
 
 	while (*pwsi) {
 		if (*pwsi == wsi) {
 			lwsl_info("%s: wsi %p\n", __func__, wsi);
 			/* point prev guy to our next */
-			*pwsi = wsi->ah_wait_list;
+			*pwsi = wsi->http.ah_wait_list;
 			/* we shouldn't point anywhere now */
-			wsi->ah_wait_list = NULL;
-			pt->ah_wait_list_length--;
+			wsi->http.ah_wait_list = NULL;
+			pt->http.ah_wait_list_length--;
 
 			return 1;
 		}
-		pwsi = &(*pwsi)->ah_wait_list;
+		pwsi = &(*pwsi)->http.ah_wait_list;
 	}
 
 	return 0;
@@ -194,18 +194,18 @@ lws_header_table_attach(struct lws *wsi, int autoservice)
 	int n;
 
 	lwsl_info("%s: wsi %p: ah %p (tsi %d, count = %d) in\n", __func__,
-		  (void *)wsi, (void *)wsi->ah, wsi->tsi,
-		  pt->ah_count_in_use);
+		  (void *)wsi, (void *)wsi->http.ah, wsi->tsi,
+		  pt->http.ah_count_in_use);
 
 	lws_pt_lock(pt, __func__);
 
 	/* if we are already bound to one, just clear it down */
-	if (wsi->ah) {
+	if (wsi->http.ah) {
 		lwsl_info("%s: cleardown\n", __func__);
 		goto reset;
 	}
 
-	n = pt->ah_count_in_use == context->max_http_header_pool;
+	n = pt->http.ah_count_in_use == context->max_http_header_pool;
 #if defined(LWS_WITH_PEER_LIMITS)
 	if (!n) {
 		n = lws_peer_confirm_ah_attach_ok(context, wsi->peer);
@@ -229,26 +229,28 @@ lws_header_table_attach(struct lws *wsi, int autoservice)
 
 	__lws_remove_from_ah_waiting_list(wsi);
 
-	wsi->ah = _lws_create_ah(pt, context->max_http_header_data);
-	if (!wsi->ah) { /* we could not create an ah */
+	wsi->http.ah = _lws_create_ah(pt, context->max_http_header_data);
+	if (!wsi->http.ah) { /* we could not create an ah */
 		_lws_header_ensure_we_are_on_waiting_list(wsi);
 
 		goto bail;
 	}
 
-	wsi->ah->in_use = 1;
-	wsi->ah->wsi = wsi; /* mark our owner */
-	pt->ah_count_in_use++;
+	wsi->http.ah->in_use = 1;
+	wsi->http.ah->wsi = wsi; /* mark our owner */
+	pt->http.ah_count_in_use++;
 
-#if defined(LWS_WITH_PEER_LIMITS)
+#if defined(LWS_WITH_PEER_LIMITS) && (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2))
+	lws_context_lock(context); /* <====================================== */
 	if (wsi->peer)
-		wsi->peer->count_ah++;
+		wsi->peer->http.count_ah++;
+	lws_context_unlock(context); /* ====================================> */
 #endif
 
 	_lws_change_pollfd(wsi, 0, LWS_POLLIN, &pa);
 
 	lwsl_info("%s: did attach wsi %p: ah %p: count %d (on exit)\n", __func__,
-		  (void *)wsi, (void *)wsi->ah, pt->ah_count_in_use);
+		  (void *)wsi, (void *)wsi->http.ah, pt->http.ah_count_in_use);
 
 reset:
 	__lws_header_table_reset(wsi, autoservice);
@@ -275,7 +277,7 @@ bail:
 int __lws_header_table_detach(struct lws *wsi, int autoservice)
 {
 	struct lws_context *context = wsi->context;
-	struct allocated_headers *ah = wsi->ah;
+	struct allocated_headers *ah = wsi->http.ah;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	struct lws_pollargs pa;
 	struct lws **pwsi, **pwsi_eligible;
@@ -288,7 +290,7 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 
 	lwsl_info("%s: wsi %p: ah %p (tsi=%d, count = %d)\n", __func__,
 		  (void *)wsi, (void *)ah, wsi->tsi,
-		  pt->ah_count_in_use);
+		  pt->http.ah_count_in_use);
 
 	/* we did have an ah attached */
 	time(&now);
@@ -305,10 +307,10 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 	ah->assigned = 0;
 
 	/* if we think we're detaching one, there should be one in use */
-	assert(pt->ah_count_in_use > 0);
+	assert(pt->http.ah_count_in_use > 0);
 	/* and this specific one should have been in use */
 	assert(ah->in_use);
-	memset(&wsi->ah, 0, sizeof(wsi->ah));
+	memset(&wsi->http.ah, 0, sizeof(wsi->http.ah));
 
 #if defined(LWS_WITH_PEER_LIMITS)
 	if (ah->wsi)
@@ -316,7 +318,7 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 #endif
 	ah->wsi = NULL; /* no owner */
 
-	pwsi = &pt->ah_wait_list;
+	pwsi = &pt->http.ah_wait_list;
 
 	/* oh there is nobody on the waiting list... leave the ah unattached */
 	if (!*pwsi)
@@ -341,11 +343,11 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 		}
 #if defined(LWS_WITH_PEER_LIMITS)
 		else
-			if (!(*pwsi)->ah_wait_list)
+			if (!(*pwsi)->http.ah_wait_list)
 				lws_stats_atomic_bump(context, pt,
 					LWSSTATS_C_PEER_LIMIT_AH_DENIED, 1);
 #endif
-		pwsi = &(*pwsi)->ah_wait_list;
+		pwsi = &(*pwsi)->http.ah_wait_list;
 	}
 
 	if (!wsi) /* everybody waiting already has too many ah... */
@@ -353,14 +355,14 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 
 	lwsl_info("%s: last eligible wsi in wait list %p\n", __func__, wsi);
 
-	wsi->ah = ah;
+	wsi->http.ah = ah;
 	ah->wsi = wsi; /* new owner */
 
 	__lws_header_table_reset(wsi, autoservice);
-#if defined(LWS_WITH_PEER_LIMITS)
+#if defined(LWS_WITH_PEER_LIMITS) && (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2))
 	lws_context_lock(context); /* <====================================== */
 	if (wsi->peer)
-		wsi->peer->count_ah++;
+		wsi->peer->http.count_ah++;
 	lws_context_unlock(context); /* ====================================> */
 #endif
 
@@ -375,10 +377,10 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 	}
 
 	/* point prev guy to next guy in list instead */
-	*pwsi_eligible = wsi->ah_wait_list;
+	*pwsi_eligible = wsi->http.ah_wait_list;
 	/* the guy who got one is out of the list */
-	wsi->ah_wait_list = NULL;
-	pt->ah_wait_list_length--;
+	wsi->http.ah_wait_list = NULL;
+	pt->http.ah_wait_list_length--;
 
 #ifndef LWS_NO_CLIENT
 	if (lwsi_role_client(wsi) && lwsi_state(wsi) == LRS_UNCONNECTED) {
@@ -395,17 +397,17 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 	}
 #endif
 
-	assert(!!pt->ah_wait_list_length == !!(lws_intptr_t)pt->ah_wait_list);
+	assert(!!pt->http.ah_wait_list_length == !!(lws_intptr_t)pt->http.ah_wait_list);
 bail:
 	lwsl_info("%s: wsi %p: ah %p (tsi=%d, count = %d)\n", __func__,
-		  (void *)wsi, (void *)ah, pt->tid, pt->ah_count_in_use);
+		  (void *)wsi, (void *)ah, pt->tid, pt->http.ah_count_in_use);
 
 	return 0;
 
 nobody_usable_waiting:
 	lwsl_info("%s: nobody usable waiting\n", __func__);
 	_lws_destroy_ah(pt, ah);
-	pt->ah_count_in_use--;
+	pt->http.ah_count_in_use--;
 
 	goto bail;
 }
@@ -428,16 +430,16 @@ lws_hdr_fragment_length(struct lws *wsi, enum lws_token_indexes h, int frag_idx)
 {
 	int n;
 
-	if (!wsi->ah)
+	if (!wsi->http.ah)
 		return 0;
 
-	n = wsi->ah->frag_index[h];
+	n = wsi->http.ah->frag_index[h];
 	if (!n)
 		return 0;
 	do {
 		if (!frag_idx)
-			return wsi->ah->frags[n].len;
-		n = wsi->ah->frags[n].nfrag;
+			return wsi->http.ah->frags[n].len;
+		n = wsi->http.ah->frags[n].nfrag;
 	} while (frag_idx-- && n);
 
 	return 0;
@@ -448,15 +450,15 @@ LWS_VISIBLE int lws_hdr_total_length(struct lws *wsi, enum lws_token_indexes h)
 	int n;
 	int len = 0;
 
-	if (!wsi->ah)
+	if (!wsi->http.ah)
 		return 0;
 
-	n = wsi->ah->frag_index[h];
+	n = wsi->http.ah->frag_index[h];
 	if (!n)
 		return 0;
 	do {
-		len += wsi->ah->frags[n].len;
-		n = wsi->ah->frags[n].nfrag;
+		len += wsi->http.ah->frags[n].len;
+		n = wsi->http.ah->frags[n].nfrag;
 	} while (n);
 
 	return len;
@@ -468,29 +470,29 @@ LWS_VISIBLE int lws_hdr_copy_fragment(struct lws *wsi, char *dst, int len,
 	int n = 0;
 	int f;
 
-	if (!wsi->ah)
+	if (!wsi->http.ah)
 		return -1;
 
-	f = wsi->ah->frag_index[h];
+	f = wsi->http.ah->frag_index[h];
 
 	if (!f)
 		return -1;
 
 	while (n < frag_idx) {
-		f = wsi->ah->frags[f].nfrag;
+		f = wsi->http.ah->frags[f].nfrag;
 		if (!f)
 			return -1;
 		n++;
 	}
 
-	if (wsi->ah->frags[f].len >= len)
+	if (wsi->http.ah->frags[f].len >= len)
 		return -1;
 
-	memcpy(dst, wsi->ah->data + wsi->ah->frags[f].offset,
-	       wsi->ah->frags[f].len);
-	dst[wsi->ah->frags[f].len] = '\0';
+	memcpy(dst, wsi->http.ah->data + wsi->http.ah->frags[f].offset,
+	       wsi->http.ah->frags[f].len);
+	dst[wsi->http.ah->frags[f].len] = '\0';
 
-	return wsi->ah->frags[f].len;
+	return wsi->http.ah->frags[f].len;
 }
 
 LWS_VISIBLE int lws_hdr_copy(struct lws *wsi, char *dst, int len,
@@ -502,21 +504,21 @@ LWS_VISIBLE int lws_hdr_copy(struct lws *wsi, char *dst, int len,
 	if (toklen >= len)
 		return -1;
 
-	if (!wsi->ah)
+	if (!wsi->http.ah)
 		return -1;
 
-	n = wsi->ah->frag_index[h];
+	n = wsi->http.ah->frag_index[h];
 	if (!n)
 		return 0;
 
 	do {
-		if (wsi->ah->frags[n].len >= len)
+		if (wsi->http.ah->frags[n].len >= len)
 			return -1;
-		strncpy(dst, &wsi->ah->data[wsi->ah->frags[n].offset],
-		        wsi->ah->frags[n].len);
-		dst += wsi->ah->frags[n].len;
-		len -= wsi->ah->frags[n].len;
-		n = wsi->ah->frags[n].nfrag;
+		strncpy(dst, &wsi->http.ah->data[wsi->http.ah->frags[n].offset],
+		        wsi->http.ah->frags[n].len);
+		dst += wsi->http.ah->frags[n].len;
+		len -= wsi->http.ah->frags[n].len;
+		n = wsi->http.ah->frags[n].nfrag;
 	} while (n);
 	*dst = '\0';
 
@@ -527,21 +529,21 @@ char *lws_hdr_simple_ptr(struct lws *wsi, enum lws_token_indexes h)
 {
 	int n;
 
-	n = wsi->ah->frag_index[h];
+	n = wsi->http.ah->frag_index[h];
 	if (!n)
 		return NULL;
 
-	return wsi->ah->data + wsi->ah->frags[n].offset;
+	return wsi->http.ah->data + wsi->http.ah->frags[n].offset;
 }
 
 static int LWS_WARN_UNUSED_RESULT
 lws_pos_in_bounds(struct lws *wsi)
 {
-	if (wsi->ah->pos <
+	if (wsi->http.ah->pos <
 	    (unsigned int)wsi->context->max_http_header_data)
 		return 0;
 
-	if ((int)wsi->ah->pos == wsi->context->max_http_header_data) {
+	if ((int)wsi->http.ah->pos == wsi->context->max_http_header_data) {
 		lwsl_err("Ran out of header data space\n");
 		return 1;
 	}
@@ -550,7 +552,7 @@ lws_pos_in_bounds(struct lws *wsi)
 	 * with these tests everywhere, it should never be able to exceed
 	 * the limit, only meet it
 	 */
-	lwsl_err("%s: pos %d, limit %d\n", __func__, wsi->ah->pos,
+	lwsl_err("%s: pos %d, limit %d\n", __func__, wsi->http.ah->pos,
 		 wsi->context->max_http_header_data);
 	assert(0);
 
@@ -560,25 +562,25 @@ lws_pos_in_bounds(struct lws *wsi)
 int LWS_WARN_UNUSED_RESULT
 lws_hdr_simple_create(struct lws *wsi, enum lws_token_indexes h, const char *s)
 {
-	wsi->ah->nfrag++;
-	if (wsi->ah->nfrag == ARRAY_SIZE(wsi->ah->frags)) {
+	wsi->http.ah->nfrag++;
+	if (wsi->http.ah->nfrag == ARRAY_SIZE(wsi->http.ah->frags)) {
 		lwsl_warn("More hdr frags than we can deal with, dropping\n");
 		return -1;
 	}
 
-	wsi->ah->frag_index[h] = wsi->ah->nfrag;
+	wsi->http.ah->frag_index[h] = wsi->http.ah->nfrag;
 
-	wsi->ah->frags[wsi->ah->nfrag].offset = wsi->ah->pos;
-	wsi->ah->frags[wsi->ah->nfrag].len = 0;
-	wsi->ah->frags[wsi->ah->nfrag].nfrag = 0;
+	wsi->http.ah->frags[wsi->http.ah->nfrag].offset = wsi->http.ah->pos;
+	wsi->http.ah->frags[wsi->http.ah->nfrag].len = 0;
+	wsi->http.ah->frags[wsi->http.ah->nfrag].nfrag = 0;
 
 	do {
 		if (lws_pos_in_bounds(wsi))
 			return -1;
 
-		wsi->ah->data[wsi->ah->pos++] = *s;
+		wsi->http.ah->data[wsi->http.ah->pos++] = *s;
 		if (*s)
-			wsi->ah->frags[wsi->ah->nfrag].len++;
+			wsi->http.ah->frags[wsi->http.ah->nfrag].len++;
 	} while (*s++);
 
 	return 0;
@@ -606,27 +608,27 @@ issue_char(struct lws *wsi, unsigned char c)
 	if (lws_pos_in_bounds(wsi))
 		return -1;
 
-	frag_len = wsi->ah->frags[wsi->ah->nfrag].len;
+	frag_len = wsi->http.ah->frags[wsi->http.ah->nfrag].len;
 	/*
 	 * If we haven't hit the token limit, just copy the character into
 	 * the header
 	 */
-	if (frag_len < wsi->ah->current_token_limit) {
-		wsi->ah->data[wsi->ah->pos++] = c;
+	if (frag_len < wsi->http.ah->current_token_limit) {
+		wsi->http.ah->data[wsi->http.ah->pos++] = c;
 		if (c)
-			wsi->ah->frags[wsi->ah->nfrag].len++;
+			wsi->http.ah->frags[wsi->http.ah->nfrag].len++;
 		return 0;
 	}
 
 	/* Insert a null character when we *hit* the limit: */
-	if (frag_len == wsi->ah->current_token_limit) {
+	if (frag_len == wsi->http.ah->current_token_limit) {
 		if (lws_pos_in_bounds(wsi))
 			return -1;
 
-		wsi->ah->data[wsi->ah->pos++] = '\0';
+		wsi->http.ah->data[wsi->http.ah->pos++] = '\0';
 		lwsl_warn("header %i exceeds limit %d\n",
-			  wsi->ah->parser_state,
-			  wsi->ah->current_token_limit);
+			  wsi->http.ah->parser_state,
+			  wsi->http.ah->current_token_limit);
 	}
 
 	return 1;
@@ -635,7 +637,7 @@ issue_char(struct lws *wsi, unsigned char c)
 int
 lws_parse_urldecode(struct lws *wsi, uint8_t *_c)
 {
-	struct allocated_headers *ah = wsi->ah;
+	struct allocated_headers *ah = wsi->http.ah;
 	unsigned int enc = 0;
 	uint8_t c = *_c;
 
@@ -841,13 +843,13 @@ static const unsigned char methods[] = {
 int LWS_WARN_UNUSED_RESULT
 lws_parse(struct lws *wsi, unsigned char *buf, int *len)
 {
-	struct allocated_headers *ah = wsi->ah;
+	struct allocated_headers *ah = wsi->http.ah;
 	struct lws_context *context = wsi->context;
 	unsigned int n, m;
 	unsigned char c;
 	int r, pos;
 
-	assert(wsi->ah);
+	assert(wsi->http.ah);
 
 	do {
 		(*len)--;

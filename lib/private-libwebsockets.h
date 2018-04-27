@@ -779,25 +779,26 @@ struct lws_context_per_thread {
 #endif
 	struct lws_pollfd *fds;
 	volatile struct lws_foreign_thread_pollfd * volatile foreign_pfd_list;
+
 #if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
 	struct lws_pt_role_ws ws;
 #endif
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+	struct lws_pt_role_http http;
+#endif
+
 	struct lws_dll_lws dll_head_timeout;
 	struct lws_dll_lws dll_head_hrtimer;
 	struct lws_dll_lws dll_head_buflist; /* guys with pending rxflow */
 #if defined(LWS_WITH_LIBUV) || defined(LWS_WITH_LIBEVENT)
 	struct lws_context *context;
 #endif
-#ifdef LWS_WITH_CGI
-	struct lws_cgi *cgi_list;
-#endif
-	void *http_header_data;
-	struct allocated_headers *ah_list;
-	struct lws *ah_wait_list;
+
+
 #if defined(LWS_HAVE_PTHREAD_H)
 	const char *last_lock_reason;
 #endif
-	int ah_wait_list_length;
+
 #if defined(LWS_WITH_TLS)
 	struct lws *pending_read_list; /* linked list */
 #endif
@@ -837,9 +838,7 @@ struct lws_context_per_thread {
 	volatile unsigned char foreign_spinlock;
 
 	unsigned int fds_count;
-	uint32_t ah_pool_length;
 
-	short ah_count_in_use;
 	unsigned char tid;
 	unsigned char lock_depth;
 #if LWS_MAX_SMP > 1
@@ -889,7 +888,6 @@ struct alpn_ctx {
 };
 
 struct lws_vhost {
-	char http_proxy_address[128];
 	char proxy_basic_auth_token[128];
 #if LWS_MAX_SMP > 1
 	pthread_mutex_t lock;
@@ -897,6 +895,9 @@ struct lws_vhost {
 
 #if defined(LWS_ROLE_H2)
 	struct lws_vhost_role_h2 h2;
+#endif
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+	struct lws_vhost_role_http http;
 #endif
 #if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
 	struct lws_vhost_role_ws ws;
@@ -913,7 +914,7 @@ struct lws_vhost {
 	struct lws_conn_stats conn_stats;
 	struct lws_context *context;
 	struct lws_vhost *vhost_next;
-	const struct lws_http_mount *mount_list;
+
 	struct lws *lserv_wsi;
 	const char *name;
 	const char *iface;
@@ -931,7 +932,7 @@ struct lws_vhost {
 #if !defined(LWS_NO_CLIENT)
 	struct lws_dll_lws dll_active_client_conns;
 #endif
-	const char *error_document_404;
+
 	const char *alpn;
 #if defined(LWS_WITH_TLS)
 	lws_tls_ctx *ssl_ctx;
@@ -948,7 +949,7 @@ struct lws_vhost {
 	void *user;
 
 	int listen_port;
-	unsigned int http_proxy_port;
+
 #if defined(LWS_WITH_SOCKS5)
 	unsigned int socks_proxy_port;
 #endif
@@ -1005,10 +1006,11 @@ struct lws_peer {
 	uint8_t addr[32];
 	uint32_t hash;
 	uint32_t count_wsi;
-	uint32_t count_ah;
-
 	uint32_t total_wsi;
-	uint32_t total_ah;
+
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+	struct lws_peer_role_http http;
+#endif
 
 	uint8_t af;
 };
@@ -1420,8 +1422,7 @@ struct lws {
 #if defined(LWS_WITH_PEER_LIMITS)
 	struct lws_peer *peer;
 #endif
-	struct allocated_headers *ah;
-	struct lws *ah_wait_list;
+
 	struct lws_udp *udp;
 #ifndef LWS_NO_CLIENT
 	struct client_info_stash *stash;

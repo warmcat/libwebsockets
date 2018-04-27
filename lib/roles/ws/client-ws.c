@@ -194,8 +194,8 @@ lws_generate_client_ws_handshake(struct lws *wsi, char *p)
 	lws_SHA1((unsigned char *)buf, n, (unsigned char *)hash);
 
 	lws_b64_encode_string(hash, 20,
-		  wsi->ah->initial_handshake_hash_base64,
-		  sizeof(wsi->ah->initial_handshake_hash_base64));
+		  wsi->http.ah->initial_handshake_hash_base64,
+		  sizeof(wsi->http.ah->initial_handshake_hash_base64));
 
 	return p;
 }
@@ -225,18 +225,18 @@ lws_client_ws_upgrade(struct lws *wsi, const char **cce)
 		goto bail3;
 	}
 
-	if (wsi->ah->http_response == 401) {
+	if (wsi->http.ah->http_response == 401) {
 		lwsl_warn(
 		       "lws_client_handshake: got bad HTTP response '%d'\n",
-		       wsi->ah->http_response);
+		       wsi->http.ah->http_response);
 		*cce = "HS: ws upgrade unauthorized";
 		goto bail3;
 	}
 
-	if (wsi->ah->http_response != 101) {
+	if (wsi->http.ah->http_response != 101) {
 		lwsl_warn(
 		       "lws_client_handshake: got bad HTTP response '%d'\n",
-		       wsi->ah->http_response);
+		       wsi->http.ah->http_response);
 		*cce = "HS: ws upgrade response not 101";
 		goto bail3;
 	}
@@ -544,9 +544,9 @@ check_accept:
 	 */
 
 	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_ACCEPT);
-	if (strcmp(p, wsi->ah->initial_handshake_hash_base64)) {
+	if (strcmp(p, wsi->http.ah->initial_handshake_hash_base64)) {
 		lwsl_warn("lws_client_int_s_hs: accept '%s' wrong vs '%s'\n", p,
-				  wsi->ah->initial_handshake_hash_base64);
+				  wsi->http.ah->initial_handshake_hash_base64);
 		*cce = "HS: Accept hash wrong";
 		goto bail2;
 	}

@@ -50,7 +50,7 @@ lws_client_connect_2(struct lws *wsi)
 
 	lwsl_client("%s: %p\n", __func__, wsi);
 
-	if (!wsi->ah) {
+	if (!wsi->http.ah) {
 		cce = "ah was NULL at cc2";
 		lwsl_err("%s\n", cce);
 		goto oom4;
@@ -180,7 +180,7 @@ create_new_conn:
 	 *
 	 * Priority 1: connect to http proxy */
 
-	if (wsi->vhost->http_proxy_port) {
+	if (wsi->vhost->http.http_proxy_port) {
 		plen = sprintf((char *)pt->serv_buf,
 			"CONNECT %s:%u HTTP/1.0\x0d\x0a"
 			"User-agent: libwebsockets\x0d\x0a",
@@ -193,8 +193,8 @@ create_new_conn:
 					wsi->vhost->proxy_basic_auth_token);
 
 		plen += sprintf((char *)pt->serv_buf + plen, "\x0d\x0a");
-		ads = wsi->vhost->http_proxy_address;
-		port = wsi->vhost->http_proxy_port;
+		ads = wsi->vhost->http.http_proxy_address;
+		port = wsi->vhost->http.http_proxy_port;
 
 #if defined(LWS_WITH_SOCKS5)
 
@@ -447,7 +447,7 @@ create_new_conn:
 	/* we are connected to server, or proxy */
 
 	/* http proxy */
-	if (wsi->vhost->http_proxy_port) {
+	if (wsi->vhost->http.http_proxy_port) {
 
 		/*
 		 * OK from now on we talk via the proxy, so connect to that
@@ -456,9 +456,9 @@ create_new_conn:
 		 * leaving old string/frag there but unreferenced)
 		 */
 		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS,
-					  wsi->vhost->http_proxy_address))
+					  wsi->vhost->http.http_proxy_address))
 			goto failed;
-		wsi->c_port = wsi->vhost->http_proxy_port;
+		wsi->c_port = wsi->vhost->http.http_proxy_port;
 
 		n = send(wsi->desc.sockfd, (char *)pt->serv_buf, (int)plen,
 			 MSG_NOSIGNAL);
@@ -665,7 +665,7 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	wsi->pending_timeout = NO_PENDING_TIMEOUT;
 	wsi->c_port = port;
 	wsi->hdr_parsing_completed = 0;
-	_lws_header_table_reset(wsi->ah);
+	_lws_header_table_reset(wsi->http.ah);
 
 	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS, address))
 		return NULL;
@@ -887,8 +887,12 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 		goto bail;
 
 	wsi->context = i->context;
+#if defined(LWS_ROLE_H1)
 	/* assert the mode and union status (hdr) clearly */
 	lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED, &role_ops_h1);
+#else
+	lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED, &role_ops_raw);
+#endif
 	wsi->desc.sockfd = LWS_SOCK_INVALID;
 
 	/* 1) fill up the wsi with stuff from the connect_info as far as it

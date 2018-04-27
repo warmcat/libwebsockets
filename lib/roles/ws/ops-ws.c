@@ -1023,7 +1023,7 @@ read:
 		goto drain;
 	}
 
-	if (!(pollfd->revents & pollfd->events & LWS_POLLIN) && !wsi->ah)
+	if (!(pollfd->revents & pollfd->events & LWS_POLLIN) && !wsi->http.ah)
 		return LWS_HPI_RET_HANDLED;
 
 	if (lws_is_flowcontrolled(wsi)) {
@@ -1129,7 +1129,7 @@ drain:
 		ebuf.len = 0;
 	} while (m);
 
-	if (wsi->ah
+	if (wsi->http.ah
 #if !defined(LWS_NO_CLIENT)
 			&& !wsi->client_h2_alpn
 #endif

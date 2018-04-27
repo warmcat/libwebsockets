@@ -188,8 +188,8 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 
 	/* add us to the pt list of active cgis */
 	lwsl_debug("%s: adding cgi %p to list\n", __func__, wsi->cgi);
-	cgi->cgi_list = pt->cgi_list;
-	pt->cgi_list = cgi;
+	cgi->cgi_list = pt->http.cgi_list;
+	pt->http.cgi_list = cgi;
 
 	sum += lws_snprintf(sum, sumend - sum, "%s ", exec_array[0]);
 
@@ -199,7 +199,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 
 	if (lws_is_ssl(wsi))
 		env_array[n++] = "HTTPS=ON";
-	if (wsi->ah) {
+	if (wsi->http.ah) {
 		static const unsigned char meths[] = {
 			WSI_TOKEN_GET_URI,
 			WSI_TOKEN_POST_URI,
@@ -442,7 +442,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 
 bail3:
 	/* drop us from the pt cgi list */
-	pt->cgi_list = cgi->cgi_list;
+	pt->http.cgi_list = cgi->cgi_list;
 
 	while (--n >= 0)
 		__remove_wsi_socket_from_fds(wsi->cgi->stdwsi[n]);
@@ -961,7 +961,7 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 			continue;
 		lwsl_debug("%s: observed PID %d terminated\n", __func__, n);
 
-		pcgi = &pt->cgi_list;
+		pcgi = &pt->http.cgi_list;
 
 		/* check all the subprocesses on the cgi list */
 		while (*pcgi) {
@@ -1023,7 +1023,7 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 		}
 	}
 
-	pcgi = &pt->cgi_list;
+	pcgi = &pt->http.cgi_list;
 
 	/* check all the subprocesses on the cgi list */
 	while (*pcgi) {
@@ -1095,7 +1095,7 @@ void
 lws_cgi_remove_and_kill(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
-	struct lws_cgi **pcgi = &pt->cgi_list;
+	struct lws_cgi **pcgi = &pt->http.cgi_list;
 
 	/* remove us from the cgi list */
 	lwsl_debug("%s: remove cgi %p from list\n", __func__, wsi->cgi);

@@ -9,7 +9,7 @@ set(LWS_WITH_BUNDLED_ZLIB_DEFAULT OFF)
 if(WIN32)
 	set(LWS_WITH_BUNDLED_ZLIB_DEFAULT ON)
 endif()
-set(LWS_ROLE_H1 1)
+
 set(LWS_ROLE_RAW 1)
 
 #
@@ -20,6 +20,7 @@ option(LWS_WITH_DISTRO_RECOMMENDED "Enable features recommended for distro packa
 #
 # Major individual features
 #
+option(LWS_ROLE_H1 "Compile with support for http/1 (needed for ws)" ON)
 option(LWS_ROLE_WS "Compile with support for websockets" ON)
 option(LWS_WITH_HTTP2 "Compile with server support for HTTP/2" OFF)
 option(LWS_WITH_LWSWS "Libwebsockets Webserver" OFF)

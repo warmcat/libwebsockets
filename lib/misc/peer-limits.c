@@ -210,7 +210,11 @@ lws_peer_track_wsi_close(struct lws_context *context, struct lws_peer *peer)
 	assert(peer->count_wsi);
 	peer->count_wsi--;
 
-	if (!peer->count_wsi && !peer->count_ah) {
+	if (!peer->count_wsi
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+			&& !peer->http.count_ah
+#endif
+	) {
 		/*
 		 * in order that we can accumulate peer activity correctly
 		 * allowing for periods when the peer has no connections,
@@ -226,13 +230,14 @@ lws_peer_track_wsi_close(struct lws_context *context, struct lws_peer *peer)
 	lws_context_unlock(context); /* ====================================> */
 }
 
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 int
 lws_peer_confirm_ah_attach_ok(struct lws_context *context, struct lws_peer *peer)
 {
 	if (!peer)
 		return 0;
 
-	if (context->ip_limit_ah && peer->count_ah >= context->ip_limit_ah) {
+	if (context->ip_limit_ah && peer->http.count_ah >= context->ip_limit_ah) {
 		lwsl_info("peer reached ah limit %d, deferring\n",
 				context->ip_limit_ah);
 
@@ -249,8 +254,8 @@ lws_peer_track_ah_detach(struct lws_context *context, struct lws_peer *peer)
 		return;
 
 	lws_context_lock(context); /* <====================================== */
-	assert(peer->count_ah);
-	peer->count_ah--;
+	assert(peer->http.count_ah);
+	peer->http.count_ah--;
 	lws_context_unlock(context); /* ====================================> */
 }
-
+#endif

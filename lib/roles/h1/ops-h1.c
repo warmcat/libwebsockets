@@ -62,7 +62,7 @@ lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 		/* fallthru */
 
 	case LRS_HEADERS:
-		if (!wsi->ah) {
+		if (!wsi->http.ah) {
 			lwsl_err("%s: LRS_HEADERS: NULL ah\n", __func__);
 			assert(0);
 		}
@@ -308,7 +308,7 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 	     lwsi_state(wsi) == LRS_ISSUING_FILE ||
 	     lwsi_state(wsi) == LRS_HEADERS ||
 	     lwsi_state(wsi) == LRS_BODY)) {
-		if (!wsi->ah &&
+		if (!wsi->http.ah &&
 		    lws_header_table_attach(wsi, 0)) {
 			lwsl_info("wsi %p: ah get fail\n", wsi);
 			goto try_pollout;
@@ -367,7 +367,7 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 		 * so the ah has no further meaning
 		 */
 
-		if (wsi->ah &&
+		if (wsi->http.ah &&
 		    !lwsi_role_h1(wsi) &&
 		    !lwsi_role_h2(wsi) &&
 		    !lwsi_role_cgi(wsi))

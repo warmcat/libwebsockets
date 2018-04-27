@@ -288,7 +288,7 @@ drain:
 
 	// lws_buflist_describe(&wsi->buflist, wsi);
 
-	if (wsi->ah
+	if (wsi->http.ah
 #if !defined(LWS_NO_CLIENT)
 			&& !wsi->client_h2_alpn
 #endif
@@ -1000,13 +1000,13 @@ rops_alpn_negotiated_h2(struct lws *wsi, const char *alpn)
 
 		/* adopt the header info */
 
-		ah = wsi->ah;
+		ah = wsi->http.ah;
 
 		lws_role_transition(wsi, LWSIFR_SERVER, LRS_H2_AWAIT_PREFACE,
 				    &role_ops_h2);
 
 		/* http2 union member has http union struct at start */
-		wsi->ah = ah;
+		wsi->http.ah = ah;
 
 		if (!wsi->h2.h2n)
 			wsi->h2.h2n = lws_zalloc(sizeof(*wsi->h2.h2n), "h2n");
