@@ -935,31 +935,40 @@ int
 lws_buflist_append_segment(struct lws_buflist **head, const uint8_t *buf,
 			   size_t len)
 {
+	struct lws_buflist *nbuf;
 	int first = !*head;
 	void *p = *head;
+	int sanity = 1024;
 
 	assert(buf);
 	assert(len);
 
 	/* append at the tail */
-	while (*head)
+	while (*head) {
+		if (!--sanity || head == &((*head)->next)) {
+			lwsl_err("%s: corrupt list points to self\n", __func__);
+			return -1;
+		}
 		head = &((*head)->next);
+	}
 
 	lwsl_info("%s: len %u first %d %p\n", __func__, (uint32_t)len, first, p);
 
-	*head = (struct lws_buflist *)
+	nbuf = (struct lws_buflist *)
 			lws_malloc(sizeof(**head) + len, __func__);
-	if (!*head) {
+	if (!nbuf) {
 		lwsl_err("%s: OOM\n", __func__);
 		return -1;
 	}
 
-	(*head)->len = len;
-	(*head)->pos = 0;
-	(*head)->next = NULL;
+	nbuf->len = len;
+	nbuf->pos = 0;
+	nbuf->next = NULL;
 
-	p = (void *)(*head)->buf;
+	p = (void *)nbuf->buf;
 	memcpy(p, buf, len);
+
+	*head = nbuf;
 
 	return first; /* returns 1 if first segment just created */
 }
@@ -971,6 +980,7 @@ lws_buflist_destroy_segment(struct lws_buflist **head)
 
 	assert(*head);
 	*head = (*head)->next;
+	old->next = NULL;
 	lws_free(old);
 
 	return !*head; /* returns 1 if last segment just destroyed */
@@ -983,6 +993,7 @@ lws_buflist_destroy_all_segments(struct lws_buflist **head)
 
 	while (p) {
 		p1 = p->next;
+		p->next = NULL;
 		lws_free(p);
 		p = p1;
 	}
