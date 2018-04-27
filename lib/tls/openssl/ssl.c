@@ -348,9 +348,15 @@ lws_ssl_info_callback(const SSL *ssl, int where, int ret)
 	struct lws_context *context;
 	struct lws_ssl_info si;
 
+#ifndef USE_WOLFSSL
 	context = (struct lws_context *)SSL_CTX_get_ex_data(
 					SSL_get_SSL_CTX(ssl),
 					openssl_SSL_CTX_private_data_index);
+#else
+	context = (struct lws_context *)SSL_CTX_get_ex_data(
+					SSL_get_SSL_CTX((SSL*) ssl),
+					openssl_SSL_CTX_private_data_index);
+#endif
 	if (!context)
 		return;
 	wsi = wsi_from_fd(context, SSL_get_fd(ssl));
@@ -596,6 +602,7 @@ lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 
 	case LWS_TLS_CERT_INFO_OPAQUE_PUBLIC_KEY:
 	{
+#ifndef USE_WOLFSSL
 		size_t klen = i2d_X509_PUBKEY(X509_get_X509_PUBKEY(x509), NULL);
 		uint8_t *tmp, *ptmp;
 
@@ -621,7 +628,7 @@ lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 		buf->ns.len = (int)klen;
 		memcpy(buf->ns.name, tmp, klen);
 		OPENSSL_free(tmp);
-
+#endif
 		return 0;
 	}
 	default:
