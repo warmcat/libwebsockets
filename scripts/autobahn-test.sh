@@ -8,6 +8,11 @@
 # It will use the minimal echo client and server to run
 # autobahn ws tests as both client and server.
 
+echo
+echo "----------------------------------------------"
+echo "-------   tests: autobahn as client"
+echo
+
 set -u
 
 PARALLEL=8
@@ -137,6 +142,11 @@ else
 fi
 
 # 2) lws-as-server tests
+
+echo
+echo "----------------------------------------------"
+echo "-------   tests: autobahn as server"
+echo
 
 $SERV -p 9001 -d7 &
 wstest -m fuzzingclient

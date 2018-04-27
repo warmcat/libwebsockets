@@ -1,6 +1,13 @@
 #!/bin/bash
-
+#
 # run from the build subdir
+#
+
+echo
+echo "----------------------------------------------"
+echo "-------   tests: h2spec"
+echo
+
 
 if [ ! -e h2spec ] ; then
 	wget https://github.com/summerwind/h2spec/releases/download/v2.1.0/h2spec_linux_amd64.tar.gz &&\

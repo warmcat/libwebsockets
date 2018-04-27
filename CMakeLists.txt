@@ -1837,7 +1837,7 @@ if (LWS_WITH_GENERIC_SESSIONS AND LWS_ROLE_WS)
 		target_link_libraries(protocol_lws_messageboard sqlite3 )
 	endif(WIN32)
 
-endif(LWS_WITH_GENERIC_SESSIONS)
+endif(LWS_WITH_GENERIC_SESSIONS AND LWS_ROLE_WS)
 
 
 	endif(LWS_WITH_PLUGINS AND LWS_WITH_SHARED)

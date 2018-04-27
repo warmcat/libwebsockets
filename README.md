@@ -21,6 +21,7 @@ attack.sh|225|Correctness, robustness and security tests for http parser
 Autobahn Server|480|Testing lws ws client, including permessage-deflate
 Autobahn Client|480|Testing lws ws server, including permaessage-deflate
 h2spec|146|Http/2 server compliance suite (in strict mode)
+h2load|6|Http/2 server load tool (checks 10K / 100K in h1 and h2, at 1, 10, 100 concurrency)
 
 The over 1,400 tests run on every commit take most of an hour to complete.
 If any problems are found, it breaks the travis build, generating an email.

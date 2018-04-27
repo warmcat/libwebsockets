@@ -8,6 +8,11 @@
 #
 # build $ ../minimal-examples/selftests.sh
 
+echo
+echo "----------------------------------------------"
+echo "-------   tests: lws minimal example selftests"
+echo
+
 LOGGING_PATH=/tmp/logs
 
 

@@ -4,6 +4,11 @@
 #
 # Requires the library to have been built with cmake .. -DCMAKE_BUILD_TYPE=DEBUG
 
+echo
+echo "----------------------------------------------"
+echo "-------   tests: lws attack.sh"
+echo
+
 SERVER=127.0.0.1
 PORT=7681
 LOG=/tmp/lwslog
