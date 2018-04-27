@@ -834,12 +834,12 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		}
 
 #ifdef LWS_WITH_HTTP_PROXY
-		wsi->perform_rewrite = 0;
+		wsi->http.perform_rewrite = 0;
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE)) {
 			if (!strncmp(lws_hdr_simple_ptr(wsi,
 						WSI_TOKEN_HTTP_CONTENT_TYPE),
 						"text/html", 9))
-				wsi->perform_rewrite = 1;
+				wsi->http.perform_rewrite = 1;
 		}
 #endif
 
@@ -1144,8 +1144,8 @@ spin_chunks:
 
 #ifdef LWS_WITH_HTTP_PROXY
 	/* hubbub */
-	if (wsi->perform_rewrite)
-		lws_rewrite_parse(wsi->rw, (unsigned char *)*buf, n);
+	if (wsi->http.perform_rewrite)
+		lws_rewrite_parse(wsi->http.rw, (unsigned char *)*buf, n);
 	else
 #endif
 	{

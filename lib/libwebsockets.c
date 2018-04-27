@@ -789,9 +789,9 @@ just_kill_connection:
 		   wsi, wsi->desc.sockfd);
 	
 #ifdef LWS_WITH_HTTP_PROXY
-	if (wsi->rw) {
-		lws_rewrite_destroy(wsi->rw);
-		wsi->rw = NULL;
+	if (wsi->http.rw) {
+		lws_rewrite_destroy(wsi->http.rw);
+		wsi->http.rw = NULL;
 	}
 #endif
 	/*

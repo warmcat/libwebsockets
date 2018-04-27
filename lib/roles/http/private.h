@@ -22,6 +22,11 @@
  *  enabled
  */
 
+#if defined(LWS_WITH_HTTP_PROXY)
+  #include <hubbub/hubbub.h>
+  #include <hubbub/parser.h>
+ #endif
+
 #define lwsi_role_http(wsi) (lwsi_role_h1(wsi) || lwsi_role_h2(wsi))
 
 enum http_version {
@@ -127,8 +132,39 @@ struct allocated_headers {
 };
 
 
+
+#if defined(LWS_WITH_HTTP_PROXY)
+struct lws_rewrite {
+	hubbub_parser *parser;
+	hubbub_parser_optparams params;
+	const char *from, *to;
+	int from_len, to_len;
+	unsigned char *p, *end;
+	struct lws *wsi;
+};
+static LWS_INLINE int hstrcmp(hubbub_string *s, const char *p, int len)
+{
+	if ((int)s->len != len)
+		return 1;
+
+	return strncmp((const char *)s->ptr, p, len);
+}
+typedef hubbub_error (*hubbub_callback_t)(const hubbub_token *token, void *pw);
+LWS_EXTERN struct lws_rewrite *
+lws_rewrite_create(struct lws *wsi, hubbub_callback_t cb, const char *from, const char *to);
+LWS_EXTERN void
+lws_rewrite_destroy(struct lws_rewrite *r);
+LWS_EXTERN int
+lws_rewrite_parse(struct lws_rewrite *r, const unsigned char *in, int in_len);
+#endif
+
 struct _lws_http_mode_related {
 	struct lws *new_wsi_list;
+
+#if defined(LWS_WITH_HTTP_PROXY)
+	struct lws_rewrite *rw;
+#endif
+
 	lws_filepos_t filepos;
 	lws_filepos_t filelen;
 	lws_fop_fd_t fop_fd;
@@ -144,6 +180,10 @@ struct _lws_http_mode_related {
 	lws_filepos_t tx_content_remain;
 	lws_filepos_t rx_content_length;
 	lws_filepos_t rx_content_remain;
+
+#if defined(LWS_WITH_HTTP_PROXY)
+	unsigned int perform_rewrite:1;
+#endif
 };
 
 

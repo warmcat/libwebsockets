@@ -1044,7 +1044,7 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 	}
 #ifdef LWS_WITH_HTTP_PROXY
 	if (i->uri_replace_to)
-		wsi->rw = lws_rewrite_create(wsi, html_parser_cb,
+		wsi->http.rw = lws_rewrite_create(wsi, html_parser_cb,
 					     i->uri_replace_from,
 					     i->uri_replace_to);
 #endif

@@ -135,10 +135,7 @@
  #include <netdb.h>
  #include <signal.h>
  #include <sys/socket.h>
- #ifdef LWS_WITH_HTTP_PROXY
-  #include <hubbub/hubbub.h>
-  #include <hubbub/parser.h>
- #endif
+
  #if defined(LWS_BUILTIN_GETIFADDRS)
   #include "./misc/getifaddrs.h"
  #else
@@ -1386,6 +1383,10 @@ struct lws {
 	struct _lws_websocket_related *ws; /* allocated if we upgrade to ws */
 #endif
 
+	struct lws_role_ops *role_ops;
+	lws_wsi_state_t	wsistate;
+	lws_wsi_state_t wsistate_pre_close;
+
 	/* lifetime members */
 
 #if defined(LWS_WITH_LIBEV) || defined(LWS_WITH_LIBUV) || defined(LWS_WITH_LIBEVENT)
@@ -1442,13 +1443,12 @@ struct lws {
 	lws_tls_bio *client_bio;
 	struct lws *pending_read_list_prev, *pending_read_list_next;
 #endif
-#ifdef LWS_WITH_HTTP_PROXY
-	struct lws_rewrite *rw;
-#endif
+
 #ifdef LWS_LATENCY
 	unsigned long action_start;
 	unsigned long latency_start;
 #endif
+
 	lws_sock_file_fd_type desc; /* .filefd / .sockfd */
 #if defined(LWS_WITH_STATS)
 	uint64_t active_writable_req_us;
@@ -1457,14 +1457,10 @@ struct lws {
 #endif
 #endif
 
-	struct lws_role_ops *role_ops;
-
 	lws_usec_t pending_timer;
-
 	time_t pending_timeout_set;
 
-	lws_wsi_state_t	wsistate;
-	lws_wsi_state_t wsistate_pre_close;
+
 
 	/* ints */
 	int position_in_fds_table;
@@ -1526,18 +1522,13 @@ struct lws {
 	unsigned int client_h2_alpn:1;
 	unsigned int client_h2_substream:1;
 #endif
-#ifdef LWS_WITH_HTTP_PROXY
-	unsigned int perform_rewrite:1;
-#endif
 
 #if defined(LWS_WITH_TLS)
 	unsigned int use_ssl;
+	unsigned int redirect_to_https:1;
 #endif
 #ifdef _WIN32
 	unsigned int sock_send_blocking:1;
-#endif
-#if defined(LWS_WITH_TLS)
-	unsigned int redirect_to_https:1;
 #endif
 
 #ifndef LWS_NO_CLIENT
@@ -1912,30 +1903,6 @@ lws_tls_check_cert_lifetime(struct lws_vhost *vhost);
 
 int lws_jws_selftest(void);
 
-#ifdef LWS_WITH_HTTP_PROXY
-struct lws_rewrite {
-	hubbub_parser *parser;
-	hubbub_parser_optparams params;
-	const char *from, *to;
-	int from_len, to_len;
-	unsigned char *p, *end;
-	struct lws *wsi;
-};
-static LWS_INLINE int hstrcmp(hubbub_string *s, const char *p, int len)
-{
-	if ((int)s->len != len)
-		return 1;
-
-	return strncmp((const char *)s->ptr, p, len);
-}
-typedef hubbub_error (*hubbub_callback_t)(const hubbub_token *token, void *pw);
-LWS_EXTERN struct lws_rewrite *
-lws_rewrite_create(struct lws *wsi, hubbub_callback_t cb, const char *from, const char *to);
-LWS_EXTERN void
-lws_rewrite_destroy(struct lws_rewrite *r);
-LWS_EXTERN int
-lws_rewrite_parse(struct lws_rewrite *r, const unsigned char *in, int in_len);
-#endif
 
 #ifndef LWS_NO_CLIENT
 LWS_EXTERN int lws_client_socket_service(struct lws *wsi,
