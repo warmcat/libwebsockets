@@ -2686,7 +2686,11 @@ struct lws_context_creation_info {
 	/**< VHOST: Port to listen on. Use CONTEXT_PORT_NO_LISTEN to suppress
 	 * listening for a client. Use CONTEXT_PORT_NO_LISTEN_SERVER if you are
 	 * writing a server but you are using \ref sock-adopt instead of the
-	 * built-in listener */
+	 * built-in listener.
+	 *
+	 * You can also set port to 0, in which case the kernel will pick
+	 * a random port that is not already in use.  You can find out what
+	 * port the vhost is listening on using lws_get_vhost_listen_port() */
 	const char *iface;
 	/**< VHOST: NULL to bind the listen socket to all interfaces, or the
 	 * interface name, eg, "eth2"
@@ -5917,6 +5921,18 @@ lws_compare_time_t(struct lws_context *context, time_t t1, time_t t2);
  */
 LWS_VISIBLE LWS_EXTERN struct lws_context * LWS_WARN_UNUSED_RESULT
 lws_get_context(const struct lws *wsi);
+
+/**
+ * lws_get_vhost_listen_port - Find out the port number a vhost is listening on
+ *
+ * In the case you passed 0 for the port number at context creation time, you
+ * can discover the port number that was actually chosen for the vhost using
+ * this api.
+ *
+ * \param vhost:	Vhost to get listen port from
+ */
+LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
+lws_get_vhost_listen_port(struct lws_vhost *vhost);
 
 /**
  * lws_get_count_threads(): how many service threads the context uses

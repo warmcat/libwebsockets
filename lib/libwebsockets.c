@@ -2508,6 +2508,12 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 	return port;
 }
 
+LWS_VISIBLE LWS_EXTERN int
+lws_get_vhost_listen_port(struct lws_vhost *vhost)
+{
+	return vhost->listen_port;
+}
+
 #if defined(LWS_WITH_IPV6)
 LWS_EXTERN unsigned long
 lws_get_addr_scope(const char *ipaddr)
