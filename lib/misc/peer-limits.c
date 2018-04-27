@@ -248,7 +248,9 @@ lws_peer_track_ah_detach(struct lws_context *context, struct lws_peer *peer)
 	if (!peer)
 		return;
 
+	lws_context_lock(context); /* <====================================== */
 	assert(peer->count_ah);
 	peer->count_ah--;
+	lws_context_unlock(context); /* ====================================> */
 }
 

@@ -1644,10 +1644,13 @@ lws_get_idlest_tsi(struct lws_context *context)
 }
 
 struct lws *
-lws_create_new_server_wsi(struct lws_vhost *vhost)
+lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi)
 {
 	struct lws *new_wsi;
-	int n = lws_get_idlest_tsi(vhost->context);
+	int n = fixed_tsi;
+
+	if (n < 0)
+		n = lws_get_idlest_tsi(vhost->context);
 
 	if (n < 0) {
 		lwsl_err("no space for new conn\n");
@@ -1840,7 +1843,10 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 	}
 #endif
 
-	new_wsi = lws_create_new_server_wsi(vh);
+	n = -1;
+	if (parent)
+		n = parent->tsi;
+	new_wsi = lws_create_new_server_wsi(vh, n);
 	if (!new_wsi) {
 		if (type & LWS_ADOPT_SOCKET && !(type & LWS_ADOPT_WS_PARENTIO))
 			compatible_close(fd.sockfd);

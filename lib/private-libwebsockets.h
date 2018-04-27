@@ -1675,7 +1675,7 @@ lws_client_reset(struct lws **wsi, int ssl, const char *address, int port,
 		 const char *path, const char *host);
 
 LWS_EXTERN struct lws * LWS_WARN_UNUSED_RESULT
-lws_create_new_server_wsi(struct lws_vhost *vhost);
+lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi);
 
 LWS_EXTERN char * LWS_WARN_UNUSED_RESULT
 lws_generate_client_handshake(struct lws *wsi, char *pkt);

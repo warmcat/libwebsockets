@@ -175,7 +175,7 @@ lws_wsi_server_new(struct lws_vhost *vh, struct lws *parent_wsi,
 		lwsl_notice("reached concurrent stream limit\n");
 		return NULL;
 	}
-	wsi = lws_create_new_server_wsi(vh);
+	wsi = lws_create_new_server_wsi(vh, parent_wsi->tsi);
 	if (!wsi) {
 		lwsl_notice("new server wsi failed (vh %p)\n", vh);
 		return NULL;

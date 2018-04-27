@@ -298,8 +298,7 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 		 * unreasonably long time
 		 */
 		lwsl_debug("%s: wsi %p: ah held %ds, role/state 0x%x 0x%x,"
-			    "\n", __func__, wsi,
-			    (int)(now - ah->assigned),
+			    "\n", __func__, wsi, (int)(now - ah->assigned),
 			    lwsi_role(wsi), lwsi_state(wsi));
 	}
 
@@ -310,10 +309,12 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 	/* and this specific one should have been in use */
 	assert(ah->in_use);
 	memset(&wsi->ah, 0, sizeof(wsi->ah));
-	ah->wsi = NULL; /* no owner */
+
 #if defined(LWS_WITH_PEER_LIMITS)
-	lws_peer_track_ah_detach(context, wsi->peer);
+	if (ah->wsi)
+		lws_peer_track_ah_detach(context, wsi->peer);
 #endif
+	ah->wsi = NULL; /* no owner */
 
 	pwsi = &pt->ah_wait_list;
 
@@ -357,8 +358,10 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 
 	__lws_header_table_reset(wsi, autoservice);
 #if defined(LWS_WITH_PEER_LIMITS)
+	lws_context_lock(context); /* <====================================== */
 	if (wsi->peer)
 		wsi->peer->count_ah++;
+	lws_context_unlock(context); /* ====================================> */
 #endif
 
 	/* clients acquire the ah and then insert themselves in fds table... */
