@@ -362,7 +362,7 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd)
 }
 
 LWS_VISIBLE void
-lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
+lws_plat_drop_app_privileges(const struct lws_context_creation_info *info)
 {
 }
 
@@ -711,7 +711,7 @@ _lws_plat_file_write(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 
 LWS_VISIBLE int
 lws_plat_init(struct lws_context *context,
-		  struct lws_context_creation_info *info)
+	      const struct lws_context_creation_info *info)
 {
 	struct lws_context_per_thread *pt = &context->pt[0];
 	int i, n = context->count_threads;

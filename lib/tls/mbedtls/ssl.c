@@ -28,7 +28,7 @@ lws_ssl_elaborate_error(void)
 }
 
 int
-lws_context_init_ssl_library(struct lws_context_creation_info *info)
+lws_context_init_ssl_library(const struct lws_context_creation_info *info)
 {
 	lwsl_info(" Compiled with MbedTLS support\n");
 

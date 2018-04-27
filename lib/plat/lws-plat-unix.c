@@ -432,7 +432,7 @@ _lws_plat_apply_caps(int mode, cap_value_t *cv, int count)
 #endif
 
 LWS_VISIBLE void
-lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
+lws_plat_drop_app_privileges(const struct lws_context_creation_info *info)
 {
 #if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
 	int n;
@@ -891,7 +891,7 @@ _lws_plat_file_write(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 
 LWS_VISIBLE int
 lws_plat_init(struct lws_context *context,
-	      struct lws_context_creation_info *info)
+	      const struct lws_context_creation_info *info)
 {
 	int fd;
 

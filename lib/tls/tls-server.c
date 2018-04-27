@@ -95,7 +95,7 @@ lws_tls_server_conn_alpn(struct lws *wsi)
 }
 
 LWS_VISIBLE int
-lws_context_init_server_ssl(struct lws_context_creation_info *info,
+lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 			    struct lws_vhost *vhost)
 {
 	struct lws_context *context = vhost->context;
@@ -117,11 +117,11 @@ lws_context_init_server_ssl(struct lws_context_creation_info *info,
 	 * provides the vhost SSL_CTX * in the user parameter.
 	 */
 	if (info->ssl_cert_filepath)
-		info->options |= LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX;
+		vhost->options |= LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX;
 
 	if (info->port != CONTEXT_PORT_NO_LISTEN) {
 
-		vhost->use_ssl = lws_check_opt(info->options,
+		vhost->use_ssl = lws_check_opt(vhost->options,
 					LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX);
 
 		if (vhost->use_ssl && info->ssl_cipher_list)

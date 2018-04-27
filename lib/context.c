@@ -526,11 +526,12 @@ lws_vhost_destroy2(struct lws_vhost *vh);
 
 LWS_VISIBLE struct lws_vhost *
 lws_create_vhost(struct lws_context *context,
-		 struct lws_context_creation_info *info)
+		 const struct lws_context_creation_info *info)
 {
 	struct lws_vhost *vh = lws_zalloc(sizeof(*vh), "create vhost"),
 			 **vh1 = &context->vhost_list;
 	const struct lws_http_mount *mounts;
+	const struct lws_protocols *pcols = info->protocols;
 	const struct lws_protocol_vhost_options *pvo;
 #ifdef LWS_WITH_PLUGINS
 	struct lws_plugin *plugin = context->plugin_list;
@@ -550,8 +551,8 @@ lws_create_vhost(struct lws_context *context,
 	pthread_mutex_init(&vh->lock, NULL);
 #endif
 
-	if (!info->protocols)
-		info->protocols = &protocols_dummy[0];
+	if (!pcols)
+		pcols = &protocols_dummy[0];
 
 	vh->context = context;
 	if (!info->vhost_name)
@@ -571,7 +572,7 @@ lws_create_vhost(struct lws_context *context,
 #endif
 
 	for (vh->count_protocols = 0;
-	     info->protocols[vh->count_protocols].callback;
+	     pcols[vh->count_protocols].callback;
 	     vh->count_protocols++)
 		;
 
@@ -636,7 +637,7 @@ lws_create_vhost(struct lws_context *context,
 	}
 
 	m = vh->count_protocols;
-	memcpy(lwsp, info->protocols, sizeof(struct lws_protocols) * m);
+	memcpy(lwsp, pcols, sizeof(struct lws_protocols) * m);
 
 	/* for compatibility, all protocols enabled on vhost if only
 	 * the default vhost exists.  Otherwise only vhosts who ask
@@ -676,7 +677,7 @@ lws_create_vhost(struct lws_context *context,
 	    context->options & LWS_SERVER_OPTION_EXPLICIT_VHOSTS)
 		vh->protocols = lwsp;
 	else {
-		vh->protocols = info->protocols;
+		vh->protocols = pcols;
 		lws_free(lwsp);
 	}
 
@@ -942,7 +943,7 @@ lws_destroy_event_pipe(struct lws *wsi)
 }
 
 LWS_VISIBLE struct lws_context *
-lws_create_context(struct lws_context_creation_info *info)
+lws_create_context(const struct lws_context_creation_info *info)
 {
 	struct lws_context *context = NULL;
 	struct lws_plat_file_ops *prev;
@@ -1245,15 +1246,6 @@ lws_create_context(struct lws_context_creation_info *info)
 
 	if (lws_plat_init(context, info))
 		goto bail;
-
-#if defined(LWS_WITH_HTTP2)
-	/*
-	 * let the user code see what the platform default SETTINGS were, he
-	 * can modify them when he creates the vhosts.
-	 */
-	for (n = 1; n < LWS_H2_SETTINGS_LEN; n++)
-		info->http2_settings[n] = context->set.s[n];
-#endif
 
 	lws_context_init_ssl_library(info);
 

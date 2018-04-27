@@ -529,10 +529,10 @@ struct lws_role_ops {
 	int (*check_upgrades)(struct lws *wsi);
 	/* role-specific context init during context creation */
 	int (*init_context)(struct lws_context *context,
-			    struct lws_context_creation_info *info);
+			    const struct lws_context_creation_info *info);
 	/* role-specific per-vhost init during vhost creation */
 	int (*init_vhost)(struct lws_vhost *vh,
-			  struct lws_context_creation_info *info);
+			  const struct lws_context_creation_info *info);
 	/* role-specific per-vhost destructor during vhost destroy */
 	int (*destroy_vhost)(struct lws_vhost *vh);
 	/* generic 1Hz callback for the role itself */
@@ -1231,7 +1231,7 @@ lws_libev_destroyloop(struct lws_context *context, int tsi);
 LWS_EXTERN void
 lws_libev_run(const struct lws_context *context, int tsi);
 #define LWS_LIBEV_ENABLED(context) lws_check_opt(context->options, LWS_SERVER_OPTION_LIBEV)
-LWS_EXTERN void lws_feature_status_libev(struct lws_context_creation_info *info);
+LWS_EXTERN void lws_feature_status_libev(const struct lws_context_creation_info *info);
 #else
 #define lws_libev_accept(_a, _b) ((void) 0)
 #define lws_libev_io(_a, _b) ((void) 0)
@@ -1261,7 +1261,7 @@ lws_libuv_destroyloop(struct lws_context *context, int tsi);
 LWS_EXTERN int
 lws_uv_initvhost(struct lws_vhost* vh, struct lws*);
 #define LWS_LIBUV_ENABLED(context) lws_check_opt(context->options, LWS_SERVER_OPTION_LIBUV)
-LWS_EXTERN void lws_feature_status_libuv(struct lws_context_creation_info *info);
+LWS_EXTERN void lws_feature_status_libuv(const struct lws_context_creation_info *info);
 #else
 #define lws_libuv_accept(_a, _b) ((void) 0)
 #define lws_libuv_io(_a, _b) ((void) 0)
@@ -1759,15 +1759,15 @@ LWS_EXTERN int
 lws_change_pollfd(struct lws *wsi, int _and, int _or);
 
 #ifndef LWS_NO_SERVER
- int _lws_context_init_server(struct lws_context_creation_info *info,
-			    struct lws_vhost *vhost);
+ int _lws_context_init_server(const struct lws_context_creation_info *info,
+			      struct lws_vhost *vhost);
  LWS_EXTERN struct lws_vhost *
  lws_select_vhost(struct lws_context *context, int port, const char *servername);
  LWS_EXTERN int LWS_WARN_UNUSED_RESULT
  lws_parse_ws(struct lws *wsi, unsigned char **buf, size_t len);
  LWS_EXTERN void
  lws_server_get_canonical_hostname(struct lws_context *context,
-				  struct lws_context_creation_info *info);
+				   const struct lws_context_creation_info *info);
 #else
  #define _lws_context_init_server(_a, _b) (0)
  #define lws_parse_ws(_a, _b, _c) (0)
@@ -2055,9 +2055,9 @@ LWS_EXTERN LWS_VISIBLE int
 _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi);
 LWS_EXTERN int
 lws_plat_init(struct lws_context *context,
-	      struct lws_context_creation_info *info);
+	      const struct lws_context_creation_info *info);
 LWS_EXTERN void
-lws_plat_drop_app_privileges(struct lws_context_creation_info *info);
+lws_plat_drop_app_privileges(const struct lws_context_creation_info *info);
 LWS_EXTERN unsigned long long
 time_in_microseconds(void);
 LWS_EXTERN const char * LWS_WARN_UNUSED_RESULT

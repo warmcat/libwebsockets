@@ -86,7 +86,7 @@ lws_ssl_client_connect2(struct lws *wsi, char *errbuf, int len)
 }
 
 
-int lws_context_init_client_ssl(struct lws_context_creation_info *info,
+int lws_context_init_client_ssl(const struct lws_context_creation_info *info,
 				struct lws_vhost *vhost)
 {
 	const char *ca_filepath = info->ssl_ca_filepath;

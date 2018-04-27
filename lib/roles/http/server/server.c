@@ -37,8 +37,8 @@ const char * const method_names[] = {
  */
 
 int
-_lws_context_init_server(struct lws_context_creation_info *info,
-			struct lws_vhost *vhost)
+_lws_context_init_server(const struct lws_context_creation_info *info,
+			 struct lws_vhost *vhost)
 {
 	int n, opt = 1, limit = 1;
 	lws_sockfd_type sockfd;
@@ -271,6 +271,8 @@ done_list:
 #endif
 			lwsl_info(" Listening on port %d\n", vhost->listen_port);
         }
+
+	// info->port = vhost->listen_port;
 
 	return 0;
 
@@ -2588,7 +2590,7 @@ file_had_it:
 
 LWS_VISIBLE void
 lws_server_get_canonical_hostname(struct lws_context *context,
-				  struct lws_context_creation_info *info)
+				  const struct lws_context_creation_info *info)
 {
 	if (lws_check_opt(info->options,
 			LWS_SERVER_OPTION_SKIP_SERVER_CANONICAL_NAME))

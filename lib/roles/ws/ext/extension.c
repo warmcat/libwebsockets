@@ -3,7 +3,7 @@
 #include "extension-permessage-deflate.h"
 
 LWS_VISIBLE void
-lws_context_init_extensions(struct lws_context_creation_info *info,
+lws_context_init_extensions(const struct lws_context_creation_info *info,
 			    struct lws_context *context)
 {
 	lwsl_info(" LWS_MAX_EXTENSIONS_ACTIVE: %u\n", LWS_MAX_EXTENSIONS_ACTIVE);

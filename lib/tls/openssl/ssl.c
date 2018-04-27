@@ -103,7 +103,8 @@ lws_context_init_ssl_pem_passwd_cb(char * buf, int size, int rwflag,
 }
 
 void
-lws_ssl_bind_passphrase(SSL_CTX *ssl_ctx, struct lws_context_creation_info *info)
+lws_ssl_bind_passphrase(SSL_CTX *ssl_ctx,
+			const struct lws_context_creation_info *info)
 {
 	if (!info->ssl_private_key_password)
 		return;
@@ -117,7 +118,7 @@ lws_ssl_bind_passphrase(SSL_CTX *ssl_ctx, struct lws_context_creation_info *info
 }
 
 int
-lws_context_init_ssl_library(struct lws_context_creation_info *info)
+lws_context_init_ssl_library(const struct lws_context_creation_info *info)
 {
 #ifdef USE_WOLFSSL
 #ifdef USE_OLD_CYASSL

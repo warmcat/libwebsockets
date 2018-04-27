@@ -207,7 +207,7 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 }
 
 int
-lws_tls_server_vhost_backend_init(struct lws_context_creation_info *info,
+lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 				  struct lws_vhost *vhost, struct lws *wsi)
 {
 	const SSL_METHOD *method = TLS_server_method();

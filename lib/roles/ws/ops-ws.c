@@ -1894,7 +1894,8 @@ rops_callback_on_writable_ws(struct lws *wsi)
 }
 
 static int
-rops_init_vhost_ws(struct lws_vhost *vh, struct lws_context_creation_info *info)
+rops_init_vhost_ws(struct lws_vhost *vh,
+		   const struct lws_context_creation_info *info)
 {
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 #ifdef LWS_WITH_PLUGINS

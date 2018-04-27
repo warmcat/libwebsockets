@@ -2949,9 +2949,7 @@ struct lws_context_creation_info {
 	 *	      given here.
 	 */
 	uint32_t	http2_settings[7];
-	/**< CONTEXT: after context creation http2_settings[1] thru [6] have
-	 *	      been set to the lws platform default values.
-	 *   VHOST:   if http2_settings[0] is nonzero, the values given in
+	/**< VHOST:  if http2_settings[0] is nonzero, the values given in
 	 *	      http2_settings[1]..[6] are used instead of the lws
 	 *	      platform default values.
 	 *	      Just leave all at 0 if you don't care.
@@ -3014,7 +3012,7 @@ struct lws_context_creation_info {
  *	one place; they're all handled in the user callback.
  */
 LWS_VISIBLE LWS_EXTERN struct lws_context *
-lws_create_context(struct lws_context_creation_info *info);
+lws_create_context(const struct lws_context_creation_info *info);
 
 /**
  * lws_context_destroy() - Destroy the websocket context
@@ -3117,7 +3115,7 @@ struct lws_vhost;
  */
 LWS_VISIBLE LWS_EXTERN struct lws_vhost *
 lws_create_vhost(struct lws_context *context,
-		 struct lws_context_creation_info *info);
+		 const struct lws_context_creation_info *info);
 
 /**
  * lws_vhost_destroy() - Destroy a vhost (virtual server context)

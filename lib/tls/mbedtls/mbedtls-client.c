@@ -185,7 +185,7 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, int ebuf_len)
 
 int
 lws_tls_client_create_vhost_context(struct lws_vhost *vh,
-				    struct lws_context_creation_info *info,
+				    const struct lws_context_creation_info *info,
 				    const char *cipher_list,
 				    const char *ca_filepath,
 				    const char *cert_filepath,

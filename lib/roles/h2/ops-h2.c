@@ -465,7 +465,7 @@ rops_check_upgrades_h2(struct lws *wsi)
 
 static int
 rops_init_vhost_h2(struct lws_vhost *vh,
-		   struct lws_context_creation_info *info)
+		   const struct lws_context_creation_info *info)
 {
 	int n;
 
@@ -479,7 +479,7 @@ rops_init_vhost_h2(struct lws_vhost *vh,
 
 static int
 rops_init_context_h2(struct lws_context *context,
-		     struct lws_context_creation_info *info)
+		     const struct lws_context_creation_info *info)
 {
 	context->set = lws_h2_stock_settings;
 

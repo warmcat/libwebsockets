@@ -21,7 +21,7 @@
 
 #include "private-libwebsockets.h"
 
-void lws_feature_status_libevent(struct lws_context_creation_info *info)
+void lws_feature_status_libevent(const struct lws_context_creation_info *info)
 {
 	if (lws_check_opt(info->options, LWS_SERVER_OPTION_LIBEVENT))
 		lwsl_info("libevent support compiled in and enabled\n");

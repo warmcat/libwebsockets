@@ -23,7 +23,7 @@
 
 #include "private-libwebsockets.h"
 
-void lws_feature_status_libev(struct lws_context_creation_info *info)
+void lws_feature_status_libev(const struct lws_context_creation_info *info)
 {
 	if (lws_check_opt(info->options, LWS_SERVER_OPTION_LIBEV))
 		lwsl_info("libev support compiled in and enabled\n");

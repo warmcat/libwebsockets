@@ -91,7 +91,7 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, int len);
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_ssl_pending(struct lws *wsi);
 LWS_EXTERN int
-lws_context_init_ssl_library(struct lws_context_creation_info *info);
+lws_context_init_ssl_library(const struct lws_context_creation_info *info);
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_server_socket_service_ssl(struct lws *new_wsi, lws_sockfd_type accept_fd);
 LWS_EXTERN int
@@ -117,7 +117,8 @@ lws_ssl_anybody_has_buffered_read_tsi(struct lws_context *context, int tsi);
 LWS_EXTERN int
 lws_gate_accepts(struct lws_context *context, int on);
 LWS_EXTERN void
-lws_ssl_bind_passphrase(lws_tls_ctx *ssl_ctx, struct lws_context_creation_info *info);
+lws_ssl_bind_passphrase(lws_tls_ctx *ssl_ctx,
+			const struct lws_context_creation_info *info);
 LWS_EXTERN void
 lws_ssl_info_callback(const lws_tls_conn *ssl, int where, int ret);
 LWS_EXTERN int
@@ -140,8 +141,8 @@ lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
 
 #if !defined(LWS_NO_SERVER)
  LWS_EXTERN int
- lws_context_init_server_ssl(struct lws_context_creation_info *info,
-			    struct lws_vhost *vhost);
+ lws_context_init_server_ssl(const struct lws_context_creation_info *info,
+			     struct lws_vhost *vhost);
  void
  lws_tls_acme_sni_cert_destroy(struct lws_vhost *vhost);
 #else
@@ -161,7 +162,7 @@ lws_ssl_get_error_string(int status, int ret, char *buf, size_t len);
 LWS_EXTERN int
 lws_tls_server_client_cert_verify_config(struct lws_vhost *vh);
 LWS_EXTERN int
-lws_tls_server_vhost_backend_init(struct lws_context_creation_info *info,
+lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 				  struct lws_vhost *vhost, struct lws *wsi);
 LWS_EXTERN int
 lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd);
@@ -181,7 +182,7 @@ LWS_EXTERN int
 lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, int ebuf_len);
 LWS_EXTERN int
 lws_tls_client_create_vhost_context(struct lws_vhost *vh,
-				    struct lws_context_creation_info *info,
+				    const struct lws_context_creation_info *info,
 				    const char *cipher_list,
 				    const char *ca_filepath,
 				    const char *cert_filepath,
@@ -193,7 +194,7 @@ LWS_EXTERN int
 lws_ssl_get_error(struct lws *wsi, int n);
 
 LWS_EXTERN int
-lws_context_init_client_ssl(struct lws_context_creation_info *info,
+lws_context_init_client_ssl(const struct lws_context_creation_info *info,
 			    struct lws_vhost *vhost);
 
 LWS_EXTERN void

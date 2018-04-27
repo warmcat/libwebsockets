@@ -143,7 +143,7 @@ lws_ws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len);
 
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 LWS_VISIBLE void
-lws_context_init_extensions(struct lws_context_creation_info *info,
+lws_context_init_extensions(const struct lws_context_creation_info *info,
 			    struct lws_context *context);
 LWS_EXTERN int
 lws_any_extension_handled(struct lws *wsi, enum lws_extension_callback_reasons r,

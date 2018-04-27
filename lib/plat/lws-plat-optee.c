@@ -205,7 +205,7 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, int fd)
 }
 
 LWS_VISIBLE void
-lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
+lws_plat_drop_app_privileges(const struct lws_context_creation_info *info)
 {
 }
 
@@ -317,7 +317,7 @@ _lws_plat_file_write(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 
 LWS_VISIBLE int
 lws_plat_init(struct lws_context *context,
-	      struct lws_context_creation_info *info)
+	      const struct lws_context_creation_info *info)
 {
 	/* master context has the global fd lookup array */
 	context->lws_lookup = lws_zalloc(sizeof(struct lws *) *
