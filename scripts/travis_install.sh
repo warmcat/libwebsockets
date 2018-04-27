@@ -21,6 +21,16 @@ then
 		sudo update-ca-certificates
 	fi
 
+	if [ "$LWS_METHOD" == "smp" ];
+	then
+		sudo apt-get install -y -qq realpath libjemalloc1 libev4
+		wget https://libwebsockets.org/openssl-1.1.0-trusty.tar.bz2 -O/tmp/openssl.tar.bz2
+		cd /
+		sudo tar xf /tmp/openssl.tar.bz2
+		sudo ldconfig
+		sudo update-ca-certificates
+	fi
+
 	if [ "$LWS_METHOD" == "libev" ];
 	then
 		sudo apt-get install -y -qq libev-dev;
