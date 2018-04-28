@@ -415,7 +415,7 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, int fd)
 
 #if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
 static void
-_lws_plat_apply_caps(int mode, cap_value_t *cv, int count)
+_lws_plat_apply_caps(int mode, const cap_value_t *cv, int count)
 {
 	cap_t caps;
 
