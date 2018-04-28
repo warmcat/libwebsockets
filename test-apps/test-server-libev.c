@@ -1,7 +1,7 @@
 /*
  * libwebsockets-test-server - libwebsockets test implementation
  *
- * Copyright (C) 2011-2016 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2011-2018 Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
@@ -17,7 +17,10 @@
  * may be proprietary.  So unlike the library itself, they are licensed
  * Public Domain.
  */
-#include "test-server.h"
+#include <libwebsockets.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <getopt.h>
 
 int close_testing;
 int max_poll_elements;
@@ -35,67 +38,20 @@ char crl_path[1024] = "";
 #endif
 
 #define LWS_PLUGIN_STATIC
+#include "../plugins/protocol_dumb_increment.c"
 #include "../plugins/protocol_lws_mirror.c"
 #include "../plugins/protocol_lws_status.c"
-
-/* singlethreaded version --> no locks */
-
-void test_server_lock(int care)
-{
-}
-void test_server_unlock(int care)
-{
-}
-
-/*
- * This demo server shows how to use libwebsockets for one or more
- * websocket protocols in the same server
- *
- * It defines the following websocket protocols:
- *
- *  dumb-increment-protocol:  once the socket is opened, an incrementing
- *				ascii string is sent down it every 50ms.
- *				If you send "reset\n" on the websocket, then
- *				the incrementing number is reset to 0.
- *
- *  lws-mirror-protocol: copies any received packet to every connection also
- *				using this protocol, including the sender
- */
-
-enum demo_protocols {
-	/* always first */
-	PROTOCOL_HTTP = 0,
-
-	PROTOCOL_DUMB_INCREMENT,
-	PROTOCOL_LWS_MIRROR,
-	PROTOCOL_LWS_STATUS,
-
-	/* always last */
-	DEMO_PROTOCOL_COUNT
-};
+#include "../plugins/protocol_post_demo.c"
 
 /* list of supported protocols and callbacks */
 
 static struct lws_protocols protocols[] = {
 	/* first protocol must always be HTTP handler */
-
-	{
-		"http-only",		/* name */
-		callback_http,		/* callback */
-		sizeof (struct per_session_data__http),	/* per_session_data_size */
-		0,			/* max frame size / rx buffer */
-	},
-	{
-		"dumb-increment-protocol",
-		callback_dumb_increment,
-		sizeof(struct per_session_data__dumb_increment),
-		10, /* rx buf size must be >= permessage-deflate rx size
-		     * dumb-increment only sends very small packets, so we set
-		     * this accordingly.  If your protocol will send bigger
-		     * things, adjust this to match */
-	},
+	{ "http-only", lws_callback_http_dummy, 0, 0, },
+	LWS_PLUGIN_PROTOCOL_DUMB_INCREMENT,
 	LWS_PLUGIN_PROTOCOL_MIRROR,
 	LWS_PLUGIN_PROTOCOL_LWS_STATUS,
+	LWS_PLUGIN_PROTOCOL_POST_DEMO,
 	{ NULL, NULL, 0, 0 } /* terminator */
 };
 
@@ -105,12 +61,83 @@ static const struct lws_extension exts[] = {
 		lws_extension_callback_pm_deflate,
 		"permessage-deflate; client_no_context_takeover; client_max_window_bits"
 	},
-	{
-		"deflate-frame",
-		lws_extension_callback_pm_deflate,
-		"deflate_frame"
-	},
 	{ NULL, NULL, NULL /* terminator */ }
+};
+
+/*
+ * mount handlers for sections of the URL space
+ */
+
+static const struct lws_http_mount mount_ziptest = {
+	NULL,			/* linked-list pointer to next*/
+	"/ziptest",		/* mountpoint in URL namespace on this vhost */
+	LOCAL_RESOURCE_PATH"/candide.zip",	/* handler */
+	NULL,	/* default filename if none given */
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	0,
+	0,
+	0,
+	0,
+	0,
+	0,
+	LWSMPRO_FILE,	/* origin points to a callback */
+	8,			/* strlen("/ziptest"), ie length of the mountpoint */
+	NULL,
+
+	{ NULL, NULL } // sentinel
+};
+
+static const struct lws_http_mount mount_post = {
+	(struct lws_http_mount *)&mount_ziptest, /* linked-list pointer to next*/
+	"/formtest",		/* mountpoint in URL namespace on this vhost */
+	"protocol-post-demo",	/* handler */
+	NULL,	/* default filename if none given */
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	0,
+	0,
+	0,
+	0,
+	0,
+	0,
+	LWSMPRO_CALLBACK,	/* origin points to a callback */
+	9,			/* strlen("/formtest"), ie length of the mountpoint */
+	NULL,
+
+	{ NULL, NULL } // sentinel
+};
+
+/*
+ * mount a filesystem directory into the URL space at /
+ * point it to our /usr/share directory with our assets in
+ * stuff from here is autoserved by the library
+ */
+
+static const struct lws_http_mount mount = {
+	(struct lws_http_mount *)&mount_post,	/* linked-list pointer to next*/
+	"/",		/* mountpoint in URL namespace on this vhost */
+	LOCAL_RESOURCE_PATH, /* where to go on the filesystem for that */
+	"test.html",	/* default filename if none given */
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	0,
+	0,
+	0,
+	0,
+	0,
+	0,
+	LWSMPRO_FILE,	/* mount type is a directory in a filesystem */
+	1,		/* strlen("/"), ie length of the mountpoint */
+	NULL,
+
+	{ NULL, NULL } // sentinel
 };
 
 /* this shows how to override the lws file operations.  You don't need
@@ -148,13 +175,6 @@ void signal_cb(struct ev_loop *loop, struct ev_signal* watcher, int revents)
 	}
 }
 
-static void
-ev_timeout_cb (EV_P_ ev_timer *w, int revents)
-{
-	lws_callback_on_writable_all_protocol(context,
-					&protocols[PROTOCOL_DUMB_INCREMENT]);
-}
-
 static struct option options[] = {
 	{ "help",	no_argument,		NULL, 'h' },
 	{ "debug",	required_argument,	NULL, 'd' },
@@ -178,15 +198,11 @@ int main(int argc, char **argv)
 	struct lws_context_creation_info info;
 	char interface_name[128] = "";
 	const char *iface = NULL;
-	ev_timer timeout_watcher;
 	char cert_path[1024];
 	char key_path[1024];
 	int use_ssl = 0;
 	int opts = 0;
 	int n = 0;
-#ifndef _WIN32
-	int syslog_options = LOG_PID | LOG_PERROR;
-#endif
 #ifndef LWS_NO_DAEMONIZE
 	int daemonize = 0;
 #endif
@@ -264,12 +280,6 @@ int main(int argc, char **argv)
 		ev_signal_start(loop, &signals[n]);
 	}
 
-#ifndef _WIN32
-	/* we will only try to log things according to our debug_level */
-	setlogmask(LOG_UPTO (LOG_DEBUG));
-	openlog("lwsts", syslog_options, LOG_DAEMON);
-#endif
-
 	/* tell the library what debug level to emit and to send it to stderr */
 	lws_set_log_level(debug_level, NULL);
 
@@ -281,6 +291,7 @@ int main(int argc, char **argv)
 	info.iface = iface;
 	info.protocols = protocols;
 	info.extensions = exts;
+	info.mounts = &mount;
 
 	info.ssl_cert_filepath = NULL;
 	info.ssl_private_key_filepath = NULL;
@@ -325,17 +336,11 @@ int main(int argc, char **argv)
 	lws_get_fops(context)->open = test_server_fops_open;
 
 	lws_ev_initloop(context, loop, 0);
-
-	ev_timer_init(&timeout_watcher, ev_timeout_cb, 0.05, 0.05);
-	ev_timer_start(loop, &timeout_watcher);
 	ev_run(loop, 0);
 
 	lws_context_destroy(context);
-	lwsl_notice("libwebsockets-test-server exited cleanly\n");
 
-#ifndef _WIN32
-	closelog();
-#endif
+	lwsl_notice("libwebsockets-test-server exited cleanly\n");
 
 	return 0;
 }

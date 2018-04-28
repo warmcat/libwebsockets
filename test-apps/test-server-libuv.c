@@ -19,8 +19,10 @@
  *  MA  02110-1301  USA
  */
 
-#define DI_HANDLED_BY_PLUGIN
-#include "test-server.h"
+#include <libwebsockets.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <getopt.h>
 #include <uv.h>
 
 int close_testing;
@@ -51,50 +53,21 @@ void test_server_unlock(int care)
 #include "../plugins/protocol_dumb_increment.c"
 #include "../plugins/protocol_lws_mirror.c"
 #include "../plugins/protocol_lws_status.c"
+#include "../plugins/protocol_post_demo.c"
 #endif
 
-/*
- * This demo server shows how to use libwebsockets for one or more
- * websocket protocols in the same server
- *
- * It defines the following websocket protocols:
- *
- *  dumb-increment-protocol:  once the socket is opened, an incrementing
- *				ascii string is sent down it every 50ms.
- *				If you send "reset\n" on the websocket, then
- *				the incrementing number is reset to 0.
- *
- *  lws-mirror-protocol: copies any received packet to every connection also
- *				using this protocol, including the sender
- */
-
-enum demo_protocols {
-	/* always first */
-	PROTOCOL_HTTP = 0,
-
-	PROTOCOL_DUMB_INCREMENT,
-	PROTOCOL_LWS_MIRROR,
-	PROTOCOL_LWS_STATUS,
-
-	/* always last */
-	DEMO_PROTOCOL_COUNT
-};
 
 /* list of supported protocols and callbacks */
 
 static struct lws_protocols protocols[] = {
 	/* first protocol must always be HTTP handler */
 
-	{
-		"http-only",		/* name */
-		callback_http,		/* callback */
-		sizeof (struct per_session_data__http),	/* per_session_data_size */
-		0,			/* max frame size / rx buffer */
-	},
+	{ "http-only", lws_callback_http_dummy, 0, 0, },
 #if defined(LWS_ROLE_WS)
 	LWS_PLUGIN_PROTOCOL_DUMB_INCREMENT,
 	LWS_PLUGIN_PROTOCOL_MIRROR,
 	LWS_PLUGIN_PROTOCOL_LWS_STATUS,
+	LWS_PLUGIN_PROTOCOL_POST_DEMO,
 #endif
 	{ NULL, NULL, 0, 0 } /* terminator */
 };
@@ -105,11 +78,6 @@ static const struct lws_extension exts[] = {
 		"permessage-deflate",
 		lws_extension_callback_pm_deflate,
 		"permessage-deflate; client_no_context_takeover; client_max_window_bits"
-	},
-	{
-		"deflate-frame",
-		lws_extension_callback_pm_deflate,
-		"deflate_frame"
 	},
 	{ NULL, NULL, NULL /* terminator */ }
 };
@@ -129,6 +97,81 @@ void signal_cb(uv_signal_t *watcher, int signum)
 	lws_libuv_stop(context);
 }
 
+/*
+ * mount handlers for sections of the URL space
+ */
+
+static const struct lws_http_mount mount_ziptest = {
+	NULL,			/* linked-list pointer to next*/
+	"/ziptest",		/* mountpoint in URL namespace on this vhost */
+	LOCAL_RESOURCE_PATH"/candide.zip",	/* handler */
+	NULL,	/* default filename if none given */
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	0,
+	0,
+	0,
+	0,
+	0,
+	0,
+	LWSMPRO_FILE,	/* origin points to a callback */
+	8,			/* strlen("/ziptest"), ie length of the mountpoint */
+	NULL,
+
+	{ NULL, NULL } // sentinel
+};
+
+static const struct lws_http_mount mount_post = {
+	(struct lws_http_mount *)&mount_ziptest, /* linked-list pointer to next*/
+	"/formtest",		/* mountpoint in URL namespace on this vhost */
+	"protocol-post-demo",	/* handler */
+	NULL,	/* default filename if none given */
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	0,
+	0,
+	0,
+	0,
+	0,
+	0,
+	LWSMPRO_CALLBACK,	/* origin points to a callback */
+	9,			/* strlen("/formtest"), ie length of the mountpoint */
+	NULL,
+
+	{ NULL, NULL } // sentinel
+};
+
+/*
+ * mount a filesystem directory into the URL space at /
+ * point it to our /usr/share directory with our assets in
+ * stuff from here is autoserved by the library
+ */
+
+static const struct lws_http_mount mount = {
+	(struct lws_http_mount *)&mount_post,	/* linked-list pointer to next*/
+	"/",		/* mountpoint in URL namespace on this vhost */
+	LOCAL_RESOURCE_PATH, /* where to go on the filesystem for that */
+	"test.html",	/* default filename if none given */
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	0,
+	0,
+	0,
+	0,
+	0,
+	0,
+	LWSMPRO_FILE,	/* mount type is a directory in a filesystem */
+	1,		/* strlen("/"), ie length of the mountpoint */
+	NULL,
+
+	{ NULL, NULL } // sentinel
+};
 
 static struct option options[] = {
 	{ "help",	no_argument,		NULL, 'h' },
@@ -300,13 +343,14 @@ int main(int argc, char **argv)
 	lws_set_log_level(debug_level, NULL);
 
 	lwsl_notice("libwebsockets test server libuv - license LGPL2.1+SLE\n");
-	lwsl_notice("(C) Copyright 2010-2016 Andy Green <andy@warmcat.com>\n");
+	lwsl_notice("(C) Copyright 2010-2018 Andy Green <andy@warmcat.com>\n");
 
 	lwsl_info("Using resource path \"%s\"\n", resource_path);
 
 	info.iface = iface;
 	info.protocols = protocols;
 	info.extensions = exts;
+	info.mounts = &mount;
 
 	info.ssl_cert_filepath = NULL;
 	info.ssl_private_key_filepath = NULL;

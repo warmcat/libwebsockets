@@ -111,11 +111,6 @@ static const struct lws_extension exts[] = {
 		lws_extension_callback_pm_deflate,
 		"permessage-deflate"
 	},
-	{
-		"deflate-frame",
-		lws_extension_callback_pm_deflate,
-		"deflate_frame"
-	},
 	{ NULL, NULL, NULL /* terminator */ }
 };
 

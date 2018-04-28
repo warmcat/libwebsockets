@@ -1611,8 +1611,8 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2) AND NOT LWS_WITHOUT_TESTAPPS)
 		#
 		if (NOT LWS_WITHOUT_TEST_SERVER)
 			create_test_app(test-server "test-apps/test-server.c"
-				"test-apps/test-server-http.c"
-				"test-apps/test-server-dumb-increment.c"
+				""
+				""
 				""
 				""
 				"")
@@ -1640,8 +1640,8 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2) AND NOT LWS_WITHOUT_TESTAPPS)
 				AND LWS_WITH_LIBEV)
 				create_test_app(test-server-libev
 					"test-apps/test-server-libev.c"
-					"test-apps/test-server-http.c"
-					"test-apps/test-server-dumb-increment.c"
+					""
+					""
 					""
 					""
 					"")
@@ -1654,7 +1654,7 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2) AND NOT LWS_WITHOUT_TESTAPPS)
 				AND LWS_WITH_LIBUV)
 				create_test_app(test-server-libuv
 					"test-apps/test-server-libuv.c"
-					"test-apps/test-server-http.c"
+					""
 					""
 					""
 					""
@@ -1664,8 +1664,8 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2) AND NOT LWS_WITHOUT_TESTAPPS)
 				AND LWS_WITH_LIBEVENT)
 				create_test_app(test-server-libevent
 					"test-apps/test-server-libevent.c"
-					"test-apps/test-server-http.c"
-					"test-apps/test-server-dumb-increment.c"
+					""
+					""
 					""
 					""
 					"")
@@ -1676,9 +1676,10 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2) AND NOT LWS_WITHOUT_TESTAPPS)
 		# test-server-extpoll
 		#
 		if (NOT LWS_WITHOUT_TEST_SERVER_EXTPOLL)
-			create_test_app(test-server-extpoll "test-apps/test-server.c"
-				"test-apps/test-server-http.c"
-				"test-apps/test-server-dumb-increment.c"
+			create_test_app(test-server-extpoll
+				"test-apps/test-server.c"
+				""
+				""
 				""
 				""
 				"")
@@ -1753,13 +1754,6 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2) AND NOT LWS_WITHOUT_TESTAPPS)
 		#
 		if (NOT LWS_WITHOUT_TEST_CLIENT)
 			create_test_app(test-client "test-apps/test-client.c" "" "" "" "" "")
-		endif()
-
-		#
-		# test-ping
-		#
-		if (NOT LWS_WITHOUT_TEST_PING AND NOT LWS_WITHOUT_SERVER AND NOT LWS_WITHOUT_CLIENT)
-			create_test_app(test-ping "test-apps/test-ping.c" "" "" "" "" "")
 		endif()
 
 	endif(NOT LWS_WITHOUT_CLIENT)

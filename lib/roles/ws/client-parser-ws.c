@@ -501,7 +501,7 @@ drain_extension:
 #else
 		n = 0;
 #endif
-		lwsl_notice("post inflate ebuf len %d\n", ebuf.len);
+		lwsl_debug("post inflate ebuf len %d\n", ebuf.len);
 
 		if (rx_draining_ext && !ebuf.len) {
 			lwsl_debug("   --- ending drain on 0 read result\n");
