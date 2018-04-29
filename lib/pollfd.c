@@ -144,25 +144,22 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 		goto bail;
 	}
 
-	if (_and & LWS_POLLIN) {
-		lws_libev_io(wsi, LWS_EV_STOP | LWS_EV_READ);
-		lws_libuv_io(wsi, LWS_EV_STOP | LWS_EV_READ);
-		lws_libevent_io(wsi, LWS_EV_STOP | LWS_EV_READ);
-	}
-	if (_or & LWS_POLLIN) {
-		lws_libev_io(wsi, LWS_EV_START | LWS_EV_READ);
-		lws_libuv_io(wsi, LWS_EV_START | LWS_EV_READ);
-		lws_libevent_io(wsi, LWS_EV_START | LWS_EV_READ);
-	}
-	if (_and & LWS_POLLOUT) {
-		lws_libev_io(wsi, LWS_EV_STOP | LWS_EV_WRITE);
-		lws_libuv_io(wsi, LWS_EV_STOP | LWS_EV_WRITE);
-		lws_libevent_io(wsi, LWS_EV_STOP | LWS_EV_WRITE);
-	}
-	if (_or & LWS_POLLOUT) {
-		lws_libev_io(wsi, LWS_EV_START | LWS_EV_WRITE);
-		lws_libuv_io(wsi, LWS_EV_START | LWS_EV_WRITE);
-		lws_libevent_io(wsi, LWS_EV_START | LWS_EV_WRITE);
+	if (context->event_loop_ops->io) {
+		if (_and & LWS_POLLIN)
+			context->event_loop_ops->io(wsi,
+					LWS_EV_STOP | LWS_EV_READ);
+
+		if (_or & LWS_POLLIN)
+			context->event_loop_ops->io(wsi,
+					LWS_EV_START | LWS_EV_READ);
+
+		if (_and & LWS_POLLOUT)
+			context->event_loop_ops->io(wsi,
+					LWS_EV_STOP | LWS_EV_WRITE);
+
+		if (_or & LWS_POLLOUT)
+			context->event_loop_ops->io(wsi,
+					LWS_EV_START | LWS_EV_WRITE);
 	}
 
 	/*
@@ -319,10 +316,10 @@ __remove_wsi_socket_from_fds(struct lws *wsi)
 	/* the guy who is to be deleted's slot index in pt->fds */
 	m = wsi->position_in_fds_table;
 	
-	lws_libev_io(wsi, LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE |
-			  LWS_EV_PREPARE_DELETION);
-	lws_libuv_io(wsi, LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE |
-			  LWS_EV_PREPARE_DELETION);
+	if (context->event_loop_ops->io)
+		context->event_loop_ops->io(wsi,
+				  LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE |
+				  LWS_EV_PREPARE_DELETION);
 
 	lwsl_debug("%s: wsi=%p, sock=%d, fds pos=%d, end guy pos=%d, endfd=%d\n",
 		  __func__, wsi, wsi->desc.sockfd, wsi->position_in_fds_table,

@@ -198,6 +198,7 @@ int main(int argc, char **argv)
 	struct lws_context_creation_info info;
 	char interface_name[128] = "";
 	const char *iface = NULL;
+	void *foreign_loops[1];
 	char cert_path[1024];
 	char key_path[1024];
 	int use_ssl = 0;
@@ -319,6 +320,9 @@ int main(int argc, char **argv)
 	info.uid = -1;
 	info.options = opts | LWS_SERVER_OPTION_LIBEV;
 
+	foreign_loops[0] = &loop;
+	info.foreign_loops = foreign_loops;
+
 	context = lws_create_context(&info);
 	if (context == NULL) {
 		lwsl_err("libwebsocket init failed\n");
@@ -335,8 +339,7 @@ int main(int argc, char **argv)
 	/* override the active fops */
 	lws_get_fops(context)->open = test_server_fops_open;
 
-	lws_ev_initloop(context, loop, 0);
-	ev_run(loop, 0);
+	lws_service(context, 0);
 
 	lws_context_destroy(context);
 

@@ -176,9 +176,8 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	if (timeout_ms < 0)
 		goto faked_service;
 
-	lws_libev_run(context, tsi);
-	lws_libuv_run(context, tsi);
-	lws_libevent_run(context, tsi);
+	if (context->event_loop_ops->run_pt)
+		context->event_loop_ops->run_pt(context, tsi);
 
 	if (!context->service_tid_detected) {
 		struct lws _lws;
@@ -738,9 +737,8 @@ lws_plat_insert_socket_into_fds(struct lws_context *context, struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 
-	lws_libev_io(wsi, LWS_EV_START | LWS_EV_READ);
-	lws_libuv_io(wsi, LWS_EV_START | LWS_EV_READ);
-	lws_libevent_io(wsi, LWS_EV_START | LWS_EV_READ);
+	if (context->event_loop_ops->io)
+		context->event_loop_ops->io(wsi, LWS_EV_START | LWS_EV_READ);
 
 	pt->fds[pt->fds_count++].revents = 0;
 }
@@ -751,9 +749,9 @@ lws_plat_delete_socket_from_fds(struct lws_context *context,
 {
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 
-	lws_libev_io(wsi, LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE);
-	lws_libuv_io(wsi, LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE);
-	lws_libevent_io(wsi, LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE);
+	if (context->event_loop_ops->io)
+		context->event_loop_ops->io(wsi,
+				LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE);
 
 	pt->fds_count--;
 }
@@ -914,10 +912,6 @@ lws_plat_init(struct lws_context *context,
 			 SYSTEM_RANDOM_FILEPATH, context->fd_random);
 		return 1;
 	}
-
-	(void)lws_libev_init_fd_table(context);
-	(void)lws_libuv_init_fd_table(context);
-	(void)lws_libevent_init_fd_table(context);
 
 #ifdef LWS_WITH_PLUGINS
 	if (info->plugin_dirs)

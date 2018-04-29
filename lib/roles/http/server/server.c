@@ -37,7 +37,7 @@ const char * const method_names[] = {
  */
 
 int
-_lws_context_init_server(const struct lws_context_creation_info *info,
+_lws_vhost_init_server(const struct lws_context_creation_info *info,
 			 struct lws_vhost *vhost)
 {
 	int n, opt = 1, limit = 1;
@@ -240,10 +240,8 @@ done_list:
 		wsi->vhost = vhost;
 		wsi->listener = 1;
 
-#ifdef LWS_WITH_LIBUV
-		if (LWS_LIBUV_ENABLED(vhost->context))
-			lws_uv_initvhost(vhost, wsi);
-#endif
+		if (wsi->context->event_loop_ops->init_vhost_listen_wsi)
+			wsi->context->event_loop_ops->init_vhost_listen_wsi(wsi);
 
 		if (__insert_wsi_socket_into_fds(vhost->context, wsi)) {
 			lwsl_notice("inserting wsi socket into fds failed\n");
@@ -1353,7 +1351,8 @@ deal_body:
 				if (m < 0)
 					return -1;
 
-				lws_buflist_aware_consume(wsi, &ebuf, m, 1);
+				if (lws_buflist_aware_consume(wsi, &ebuf, m, 1))
+					return -1;
 			}
 		}
 	}
@@ -1988,9 +1987,8 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 
 	lwsl_debug("new wsi wsistate 0x%x\n", new_wsi->wsistate);
 
-	lws_libev_accept(new_wsi, new_wsi->desc);
-	lws_libuv_accept(new_wsi, new_wsi->desc);
-	lws_libevent_accept(new_wsi, new_wsi->desc);
+	if (context->event_loop_ops->accept)
+		context->event_loop_ops->accept(new_wsi);
 
 	if (!ssl) {
 		lws_pt_lock(pt, __func__);

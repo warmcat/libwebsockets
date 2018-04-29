@@ -1052,4 +1052,5 @@ struct lws_role_ops role_ops_h2 = {
 					  LWS_CALLBACK_HTTP_WRITEABLE },
 	/* close cb clnt, srv */	{ LWS_CALLBACK_CLOSED_CLIENT_HTTP,
 					  LWS_CALLBACK_CLOSED_HTTP },
+	/* file_handle */		0,
 };

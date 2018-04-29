@@ -82,8 +82,10 @@ static const struct lws_extension exts[] = {
 	{ NULL, NULL, NULL /* terminator */ }
 };
 
-void signal_cb(uv_signal_t *watcher, int signum)
+void signal_cb(void *handle, int signum)
 {
+	uv_signal_t *watcher = (uv_signal_t *)handle;
+
 	lwsl_err("Signal %d caught, exiting...\n", watcher->signum);
 	switch (watcher->signum) {
 	case SIGTERM:
@@ -94,7 +96,7 @@ void signal_cb(uv_signal_t *watcher, int signum)
 		abort();
 		break;
 	}
-	lws_libuv_stop(context);
+	lws_context_destroy(context);
 }
 
 /*
@@ -228,6 +230,11 @@ static void timer_close_cb(uv_handle_t *h)
 		    h, h->loop->active_handles);
 }
 
+static void walk_cb(uv_handle_t *h, void *arg)
+{
+	lwsl_err("%s: handle %p: type %d\n", __func__, h, h->type);
+}
+
 void outer_signal_cb(uv_signal_t *s, int signum)
 {
 	lwsl_notice("Foreign loop got signal %d\n", signum);
@@ -255,6 +262,7 @@ int main(int argc, char **argv)
 	const char *iface = NULL;
 	char cert_path[1024];
 	char key_path[1024];
+	void *foreign_loops[1];
 	int use_ssl = 0;
 	int opts = 0;
 	int n = 0;
@@ -351,6 +359,7 @@ int main(int argc, char **argv)
 	info.protocols = protocols;
 	info.extensions = exts;
 	info.mounts = &mount;
+	info.pcontext = &context;
 
 	info.ssl_cert_filepath = NULL;
 	info.ssl_private_key_filepath = NULL;
@@ -375,7 +384,6 @@ int main(int argc, char **argv)
 	}
 	info.gid = -1;
 	info.uid = -1;
-	info.max_http_header_pool = 16;
 	info.timeout_secs = 5;
 	info.options = opts | LWS_SERVER_OPTION_LIBUV;
 
@@ -403,32 +411,17 @@ int main(int argc, char **argv)
 		uv_run(&loop, UV_RUN_DEFAULT);
 
 		/* timer will stop loop and we will get here */
-	}
+
+		foreign_loops[0] = &loop;
+		info.foreign_loops = foreign_loops;
+	} else
+		info.signal_cb = signal_cb;
 #endif
 
 	context = lws_create_context(&info);
 	if (context == NULL) {
 		lwsl_err("libwebsocket init failed\n");
 		return -1;
-	}
-
-	lws_uv_sigint_cfg(context, 1, signal_cb);
-
-#if UV_VERSION_MAJOR > 0
-	if (foreign_libuv_loop) {
-		/* we have our own uv loop outside of lws */
-		lws_uv_initloop(context, &loop, 0);
-	} else
-#endif
-	{
-		/*
-		 * lws will create his own libuv loop in the context
-		 */
-		if (lws_uv_initloop(context, NULL, 0)) {
-			lwsl_err("lws_uv_initloop failed\n");
-
-			goto bail;
-		}
 	}
 
 #if UV_VERSION_MAJOR > 0
@@ -462,7 +455,6 @@ int main(int argc, char **argv)
 
 		/* detach lws */
 		lws_context_destroy(context);
-		lws_context_destroy2(context);
 
 		lwsl_notice("Please wait while the outer libuv test continues for 10s\n");
 
@@ -478,10 +470,13 @@ int main(int argc, char **argv)
 		 *          outside of lws */
 
 		uv_timer_stop(&timer_outer);
-		uv_timer_stop(&timer_test_cancel);
 		uv_close((uv_handle_t*)&timer_outer, timer_close_cb);
+		uv_timer_stop(&timer_test_cancel);
+		uv_close((uv_handle_t*)&timer_test_cancel, timer_close_cb);
+		uv_timer_stop(&timer_inner);
 		uv_close((uv_handle_t*)&timer_inner, timer_close_cb);
 		uv_signal_stop(&signal_outer);
+		uv_close((uv_handle_t*)&signal_outer, NULL);
 
 		e = 100;
 		while (e--)
@@ -490,17 +485,21 @@ int main(int argc, char **argv)
 		/* PHASE 2: close the UV loop itself */
 
 		e = uv_loop_close(&loop);
-		lwsl_notice("uv loop close rc %s\n",
-			    e ? uv_strerror(e) : "ok");
+		if (e) {
+			lwsl_notice("uv loop close rc %s\n", e ? uv_strerror(e) : "ok");
+
+			uv_walk(&loop, walk_cb, NULL);
+		}
 
 	} else
 #endif
 	{
-		lws_libuv_run(context, 0);
+		lws_service(context, 0);
 
-bail:
+		/*
+		 * we can't destroy the internal loops while they are running
+		 */
 		lws_context_destroy(context);
-		lws_context_destroy2(context);
 	}
 
 	lwsl_notice("libwebsockets-test-server exited cleanly\n");

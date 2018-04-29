@@ -199,16 +199,6 @@
 
 #include "libwebsockets.h"
 
-#if defined(LWS_WITH_LIBEV)
-#include "event-libs/libev/private.h"
-#endif
-#ifdef LWS_WITH_LIBUV
- #include "event-libs/libuv/private.h"
-#endif
-#if defined(LWS_WITH_LIBEVENT) && !defined(LWS_HIDE_LIBEVENT)
-#include "event-libs/libevent/private.h"
-#endif
-
 #if defined(LWS_WITH_TLS)
  #include "tls/private.h"
 #endif
@@ -381,6 +371,12 @@ enum lws_ssl_capable_status {
 #else
 #define lws_memory_barrier()
 #endif
+
+/*
+ *
+ *  ------ role ------
+ *
+ */
 
 typedef uint32_t lws_wsi_state_t;
 
@@ -579,6 +575,8 @@ struct lws_role_ops {
 	 * (just client applies if no concept of client or server)
 	 */
 	uint16_t close_cb[2];
+
+	unsigned int file_handle:1; /* role operates on files not sockets */
 };
 
 /* null-terminated array of pointers to roles lws built with */
@@ -640,6 +638,60 @@ enum {
 	LWS_UPG_RET_CONTINUE,
 	LWS_UPG_RET_BAIL
 };
+
+/*
+ *
+ *  ------ event_loop ops ------
+ *
+ */
+
+struct lws_event_loop_ops {
+	const char *name;
+	/* event loop-specific context init during context creation */
+	int (*init_context)(struct lws_context *context,
+			    const struct lws_context_creation_info *info);
+	/* called during lws_destroy_context */
+	int (*destroy_context1)(struct lws_context *context);
+	/* called during lws_destroy_context2 */
+	int (*destroy_context2)(struct lws_context *context);
+	/* init vhost listening wsi */
+	int (*init_vhost_listen_wsi)(struct lws *wsi);
+	/* init the event loop for a pt */
+	int (*init_pt)(struct lws_context *context, void *_loop, int tsi);
+	/* called at end of first phase of close_free_wsi()  */
+	int (*wsi_logical_close)(struct lws *wsi);
+	/* return nonzero if client connect not allowed  */
+	int (*check_client_connect_ok)(struct lws *wsi);
+	/* close handle manually  */
+	void (*close_handle_manually)(struct lws *wsi);
+	/* event loop accept processing  */
+	void (*accept)(struct lws *wsi);
+	/* control wsi active events  */
+	void (*io)(struct lws *wsi, int flags);
+	/* run the event loop for a pt */
+	void (*run_pt)(struct lws_context *context, int tsi);
+	/* called before pt is destroyed */
+	void (*destroy_pt)(struct lws_context *context, int tsi);
+	/* called just before wsi is freed  */
+	void (*destroy_wsi)(struct lws *wsi);
+
+	unsigned int periodic_events_available:1;
+};
+
+#if defined(LWS_WITH_POLL)
+#include "event-libs/poll/private.h"
+#endif
+#if defined(LWS_WITH_LIBEV)
+#include "event-libs/libev/private.h"
+#endif
+#if defined(LWS_WITH_LIBUV)
+#include "event-libs/libuv/private.h"
+#endif
+#if defined(LWS_WITH_LIBEVENT) && !defined(LWS_HIDE_LIBEVENT)
+#include "event-libs/libevent/private.h"
+#endif
+
+
 
 /* enums of socks version */
 enum socks_version {
@@ -1031,6 +1083,7 @@ struct lws_context {
 	time_t time_fixup;
 	const struct lws_plat_file_ops *fops;
 	struct lws_plat_file_ops fops_platform;
+	struct lws_context **pcontext_finalize;
 #if defined(LWS_WITH_HTTP2)
 	struct http2_settings set;
 #endif
@@ -1067,6 +1120,7 @@ struct lws_context {
 	const struct lws_protocol_vhost_options *reject_service_keywords;
 	const char *alpn_default;
 	lws_reload_func deprecation_cb;
+	void (*eventlib_signal_cb)(void *event_lib_handle, int signum);
 
 #if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
 	cap_value_t caps[4];
@@ -1082,6 +1136,9 @@ struct lws_context {
 #if defined(LWS_WITH_LIBEVENT)
 	struct lws_context_eventlibs_libevent event;
 #endif
+	struct lws_event_loop_ops *event_loop_ops;
+
+
 	char canonical_hostname[128];
 #ifdef LWS_LATENCY
 	unsigned long worst_latency;
@@ -1099,10 +1156,7 @@ struct lws_context {
 #endif
 
 	int max_fds;
-#if defined(LWS_WITH_LIBEV) || defined(LWS_WITH_LIBUV) || defined(LWS_WITH_LIBEVENT)
-	int use_event_loop_sigint;
 	int count_event_loop_static_asset_handles;
-#endif
 	int started_with_parent;
 	int uid, gid;
 
@@ -1129,8 +1183,9 @@ struct lws_context {
 	unsigned int requested_kill:1;
 	unsigned int protocol_init_done:1;
 	unsigned int ssl_gate_accepts:1;
-	unsigned int doing_protocol_init;
-	unsigned int done_protocol_destroy_cb;
+	unsigned int doing_protocol_init:1;
+	unsigned int done_protocol_destroy_cb:1;
+	unsigned int finalize_destroy_after_internal_loops_stopped:1;
 	/*
 	 * set to the Thread ID that's doing the service loop just before entry
 	 * to poll indicates service thread likely idling in poll()
@@ -1161,8 +1216,6 @@ LWS_EXTERN void
 __lws_close_free_wsi_final(struct lws *wsi);
 LWS_EXTERN void
 lws_libuv_closehandle(struct lws *wsi);
-LWS_EXTERN void
-lws_libuv_closehandle_manually(struct lws *wsi);
 LWS_EXTERN int
 lws_libuv_check_watcher_active(struct lws *wsi);
 
@@ -1194,11 +1247,6 @@ enum {
 };
 
 #if !defined(LWS_WITH_LIBEV)
-#define lws_libev_accept(_a, _b) ((void) 0)
-#define lws_libev_io(_a, _b) ((void) 0)
-#define lws_libev_init_fd_table(_a) (0)
-#define lws_libev_run(_a, _b) ((void) 0)
-#define lws_libev_destroyloop(_a, _b) ((void) 0)
 #define LWS_LIBEV_ENABLED(context) (0)
 #if !defined(LWS_WITH_ESP32)
 #define lws_feature_status_libev(_a) \
@@ -1209,11 +1257,6 @@ enum {
 #endif
 
 #if !defined(LWS_WITH_LIBUV)
-#define lws_libuv_accept(_a, _b) ((void) 0)
-#define lws_libuv_io(_a, _b) ((void) 0)
-#define lws_libuv_init_fd_table(_a) (0)
-#define lws_libuv_run(_a, _b) ((void) 0)
-#define lws_libuv_destroyloop(_a, _b) ((void) 0)
 #define LWS_LIBUV_ENABLED(context) (0)
 #if !defined(LWS_WITH_ESP32)
 #define lws_feature_status_libuv(_a) \
@@ -1224,11 +1267,6 @@ enum {
 #endif
 
 #if !defined(LWS_WITH_LIBEVENT)
-#define lws_libevent_accept(_a, _b) ((void) 0)
-#define lws_libevent_destroy(_a) ((void) 0)
-#define lws_libevent_io(_a, _b) ((void) 0)
-#define lws_libevent_init_fd_table(_a) (0)
-#define lws_libevent_run(_a, _b) ((void) 0)
 #define lws_libevent_destroyloop(_a, _b) ((void) 0)
 #define LWS_LIBEVENT_ENABLED(context) (0)
 #if !defined(LWS_WITH_ESP32)
@@ -1675,7 +1713,7 @@ LWS_EXTERN int
 lws_change_pollfd(struct lws *wsi, int _and, int _or);
 
 #ifndef LWS_NO_SERVER
- int _lws_context_init_server(const struct lws_context_creation_info *info,
+ int _lws_vhost_init_server(const struct lws_context_creation_info *info,
 			      struct lws_vhost *vhost);
  LWS_EXTERN struct lws_vhost *
  lws_select_vhost(struct lws_context *context, int port, const char *servername);
@@ -1685,7 +1723,7 @@ lws_change_pollfd(struct lws *wsi, int _and, int _or);
  lws_server_get_canonical_hostname(struct lws_context *context,
 				   const struct lws_context_creation_info *info);
 #else
- #define _lws_context_init_server(_a, _b) (0)
+ #define _lws_vhost_init_server(_a, _b) (0)
  #define lws_parse_ws(_a, _b, _c) (0)
  #define lws_server_get_canonical_hostname(_a, _b)
 #endif
@@ -2045,6 +2083,10 @@ lws_tls_server_conn_alpn(struct lws *wsi);
 
 int
 lws_ws_client_rx_sm_block(struct lws *wsi, unsigned char **buf, size_t len);
+void
+lws_destroy_event_pipe(struct lws *wsi);
+void
+lws_context_destroy2(struct lws_context *context);
 
 #ifdef __cplusplus
 };

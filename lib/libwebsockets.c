@@ -152,7 +152,8 @@ __lws_free_wsi(struct lws *wsi)
 #endif
 	__lws_remove_from_timeout_list(wsi);
 
-	lws_libevent_destroy(wsi);
+	if (wsi->context->event_loop_ops->destroy_wsi)
+		wsi->context->event_loop_ops->destroy_wsi(wsi);
 
 	wsi->context->count_wsi_allocated--;
 	lwsl_debug("%s: %p, remaining wsi %d\n", __func__, wsi,
@@ -796,11 +797,11 @@ just_kill_connection:
 		if (!wsi->socket_is_permanently_unusable &&
 		    lws_sockfd_valid(wsi->desc.sockfd) &&
 		    lwsi_state(wsi) != LRS_SHUTDOWN &&
-		    !LWS_LIBUV_ENABLED(context)) {
+		    context->event_loop_ops->periodic_events_available) {
 			__lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN);
 			lwsi_set_state(wsi, LRS_SHUTDOWN);
 			__lws_set_timeout(wsi, PENDING_TIMEOUT_SHUTDOWN_FLUSH,
-					context->timeout_secs);
+					  context->timeout_secs);
 
 			return;
 		}
@@ -860,24 +861,9 @@ just_kill_connection:
 async_close:
 	wsi->socket_is_permanently_unusable = 1;
 
-#ifdef LWS_WITH_LIBUV
-	if (!wsi->parent_carries_io && lws_sockfd_valid(wsi->desc.sockfd))
-		if (LWS_LIBUV_ENABLED(context)) {
-			if (wsi->listener) {
-				lwsl_debug("%s: stop listener poll\n", __func__);
-				uv_poll_stop(&wsi->w_read.uv.watcher);
-			}
-			lwsl_debug("%s: lws_libuv_closehandle: wsi %p\n",
-				   __func__, wsi);
-			/*
-			 * libuv has to do his own close handle processing
-			 * asynchronously
-			 */
-			lws_libuv_closehandle(wsi);
-
+	if (wsi->context->event_loop_ops->wsi_logical_close)
+		if (wsi->context->event_loop_ops->wsi_logical_close(wsi))
 			return;
-		}
-#endif
 
 	__lws_close_free_wsi_final(wsi);
 }

@@ -265,8 +265,10 @@ static const struct lws_protocol_vhost_options pvo = {
 	""
 };
 
-static void signal_cb(uv_signal_t *watcher, int signum)
+static void signal_cb(void *handle, int signum)
 {
+	uv_signal_t *watcher = (uv_signal_t *)handle;
+
 	lwsl_err("Signal %d caught, exiting...\n", watcher->signum);
 	switch (watcher->signum) {
 	case SIGTERM:
@@ -277,7 +279,7 @@ static void signal_cb(uv_signal_t *watcher, int signum)
 		abort();
 		break;
 	}
-	lws_libuv_stop(context);
+	lws_context_destroy(context);
 }
 
 static const struct option options[] = {
@@ -318,6 +320,7 @@ int main(int argc, char **argv)
 	char key_path[1024] = "";
 	char ca_path[1024] = "";
 	int uid = -1, gid = -1;
+	void *foreign_loops[1];
 	int use_ssl = 0;
 	uv_loop_t loop;
 	int opts = 0;
@@ -507,6 +510,10 @@ int main(int argc, char **argv)
 	 * our vhost
 	 */
 	info.pvo = &pvo;
+	info.signal_cb = signal_cb;
+
+	foreign_loops[0] = &loop;
+	info.foreign_loops = foreign_loops;
 
 	/*
 	 * Since we used LWS_SERVER_OPTION_EXPLICIT_VHOSTS, this only creates
@@ -534,19 +541,10 @@ int main(int argc, char **argv)
 	info.port++;
 #endif
 
-	/* libuv event loop */
-	lws_uv_sigint_cfg(context, 1, signal_cb);
-	if (lws_uv_initloop(context, &loop, 0)) {
-		lwsl_err("lws_uv_initloop failed\n");
-		goto bail;
-	}
+	lws_service(context, 0);
 
-	lws_libuv_run(context, 0);
-
-bail:
 	/* when we decided to exit the event loop */
 	lws_context_destroy(context);
-	lws_context_destroy2(context);
 
 
 #if defined(TEST_DYNAMIC_VHOST)

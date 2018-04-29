@@ -77,4 +77,5 @@ struct lws_role_ops role_ops_pipe = {
 	/* destroy_role */		NULL,
 	/* writeable cb clnt, srv */	{ 0, 0 },
 	/* close cb clnt, srv */	{ 0, 0 },
+	/* file_handle */		1,
 };

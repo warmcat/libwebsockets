@@ -750,7 +750,7 @@ lws_service_periodic_checks(struct lws_context *context,
 			      context->no_listener_vhost_list) {
 		struct lws_vhost *v = *pv;
 		lwsl_debug("deferred iface: checking if on vh %s\n", (*pv)->name);
-		if (_lws_context_init_server(NULL, *pv) == 0) {
+		if (_lws_vhost_init_server(NULL, *pv) == 0) {
 			/* became happy */
 			lwsl_notice("vh %s: became connected\n", v->name);
 			*pv = v->no_listener_vhost_list;
@@ -899,12 +899,24 @@ lws_service_fd(struct lws_context *context, struct lws_pollfd *pollfd)
 LWS_VISIBLE int
 lws_service(struct lws_context *context, int timeout_ms)
 {
+	if (context->event_loop_ops->run_pt) {
+		/* we are configured for an event loop */
+		context->event_loop_ops->run_pt(context, 0);
+
+		return 1;
+	}
 	return lws_plat_service(context, timeout_ms);
 }
 
 LWS_VISIBLE int
 lws_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
+	if (context->event_loop_ops->run_pt) {
+		/* we are configured for an event loop */
+		context->event_loop_ops->run_pt(context, tsi);
+
+		return 1;
+	}
+
 	return _lws_plat_service_tsi(context, timeout_ms, tsi);
 }
-

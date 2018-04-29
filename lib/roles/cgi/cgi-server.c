@@ -163,7 +163,9 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 	}
 
 	for (n = 0; n < 3; n++) {
-		lws_libuv_accept(cgi->stdwsi[n], cgi->stdwsi[n]->desc);
+		if (wsi->context->event_loop_ops->accept)
+			wsi->context->event_loop_ops->accept(cgi->stdwsi[n]);
+
 		if (__insert_wsi_socket_into_fds(wsi->context, cgi->stdwsi[n]))
 			goto bail3;
 		cgi->stdwsi[n]->parent = wsi;

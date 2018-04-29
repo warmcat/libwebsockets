@@ -6,7 +6,8 @@
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
  *
- * This demonstrates the most minimal http server you can make with lws.
+ * This demonstrates the most minimal http server you can make with lws using
+ * the libuv event loop.
  *
  * To keep it simple, it serves stuff from the subdirectory 
  * "./mount-origin" of the directory it was started in.
@@ -39,8 +40,10 @@ static const struct lws_http_mount mount = {
 	/* .basic_auth_login_file */	NULL,
 };
 
-void signal_cb(uv_signal_t *watcher, int signum)
+void signal_cb(void *handle, int signum)
 {
+	uv_signal_t *watcher = (uv_signal_t *)handle;
+
 	lwsl_notice("Signal %d caught, exiting...\n", watcher->signum);
 
 	switch (watcher->signum) {
@@ -52,7 +55,7 @@ void signal_cb(uv_signal_t *watcher, int signum)
 		abort();
 		break;
 	}
-	lws_libuv_stop(context);
+	lws_context_destroy(context);
 }
 
 int main(int argc, const char **argv)
@@ -83,6 +86,7 @@ int main(int argc, const char **argv)
 		info.ssl_private_key_filepath = "localhost-100y.key";
 	}
 	info.options |= LWS_SERVER_OPTION_LIBUV;
+	info.signal_cb = signal_cb;
 
 	context = lws_create_context(&info);
 	if (!context) {
@@ -90,19 +94,9 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
-	lws_uv_sigint_cfg(context, 1, signal_cb);
+	lws_service(context, 0);
 
-	if (lws_uv_initloop(context, NULL, 0)) {
-		lwsl_err("lws_uv_initloop failed\n");
-
-		goto bail;
-	}
-
-	lws_libuv_run(context, 0);
-
-bail:
 	lws_context_destroy(context);
-	lws_context_destroy2(context);
 
 	return 0;
 }

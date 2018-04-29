@@ -18,7 +18,7 @@
  *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
  *  MA  02110-1301  USA
  *
- *  This is included from private-libwebsockets.h if LWS_ROLE_WS
+ *  This is included from private-libwebsockets.h if LWS_WITH_LIBUV
  */
 
 #include <uv.h>
@@ -49,7 +49,6 @@ struct lws_pt_eventlibs_libuv {
 };
 
 struct lws_context_eventlibs_libuv {
-	uv_signal_cb sigint_cb;
 	uv_loop_t pu_loop;
 };
 
@@ -61,17 +60,11 @@ struct lws_signal_watcher_libuv {
 	uv_signal_t watcher;
 };
 
+#define LWS_LIBUV_ENABLED(context) lws_check_opt(context->options, \
+						 LWS_SERVER_OPTION_LIBUV)
+
+extern struct lws_event_loop_ops event_loop_ops_uv;
+
 LWS_EXTERN void
-lws_libuv_accept(struct lws *new_wsi, lws_sock_file_fd_type desc);
-LWS_EXTERN void
-lws_libuv_io(struct lws *wsi, int flags);
-LWS_EXTERN int
-lws_libuv_init_fd_table(struct lws_context *context);
-LWS_EXTERN void
-lws_libuv_run(const struct lws_context *context, int tsi);
-LWS_EXTERN void
-lws_libuv_destroyloop(struct lws_context *context, int tsi);
-LWS_EXTERN int
-lws_uv_initvhost(struct lws_vhost* vh, struct lws*);
-#define LWS_LIBUV_ENABLED(context) lws_check_opt(context->options, LWS_SERVER_OPTION_LIBUV)
-LWS_EXTERN void lws_feature_status_libuv(const struct lws_context_creation_info *info);
+lws_feature_status_libuv(const struct lws_context_creation_info *info);
+

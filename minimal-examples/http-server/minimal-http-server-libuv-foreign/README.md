@@ -3,7 +3,19 @@
 This demonstrates having lws take part in a libuv loop owned by
 something else, with its own objects running in the loop.
 
-Lws can join the loop, and clean up perfectly after itself.
+Lws can join the loop, and clean up perfectly after itself without
+leaving anything behind or making trouble in the larger loop, which
+does not need to stop during lws creation or destruction.
+
+First the foreign loop is created with a 1s timer, and runs alone for 5s.
+
+Then the lws context is created inside the timer callback and runs for 10s...
+during this period you can visit http://localhost:7681 for normal lws
+service using the foreign loop.
+
+After the 10s are up, the lws context is destroyed inside the foreign loop
+timer.  The foreign loop runs alone again for a further 5s and then
+exits itself.
 
 ## build
 

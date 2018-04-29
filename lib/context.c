@@ -817,7 +817,7 @@ lws_create_vhost(struct lws_context *context,
 		goto bail1;
 	}
 	lws_context_lock(context);
-	n = _lws_context_init_server(info, vh);
+	n = _lws_vhost_init_server(info, vh);
 	lws_context_unlock(context);
 	if (n < 0) {
 		lwsl_err("init server failed\n");
@@ -926,26 +926,34 @@ lws_create_event_pipes(struct lws_context *context)
 
 		context->pt[n].pipe_wsi = wsi;
 
-		lws_libuv_accept(wsi, wsi->desc);
-		lws_libev_accept(wsi, wsi->desc);
-		lws_libevent_accept(wsi, wsi->desc);
+		if (context->event_loop_ops->accept)
+			context->event_loop_ops->accept(wsi);
 
 		if (__insert_wsi_socket_into_fds(context, wsi))
 			return 1;
 
-		lws_change_pollfd(context->pt[n].pipe_wsi, 0, LWS_POLLIN);
+		//lws_change_pollfd(context->pt[n].pipe_wsi, 0, LWS_POLLIN);
 		context->count_wsi_allocated++;
 	}
 
 	return 0;
 }
 
-static void
+void
 lws_destroy_event_pipe(struct lws *wsi)
 {
-	lws_plat_pipe_close(wsi);
+	lwsl_info("%s\n", __func__);
 	__remove_wsi_socket_from_fds(wsi);
-	lws_libevent_destroy(wsi);
+
+	if (wsi->context->event_loop_ops->wsi_logical_close) {
+		wsi->context->event_loop_ops->wsi_logical_close(wsi);
+		lws_plat_pipe_close(wsi);
+		return;
+	}
+
+	if (wsi->context->event_loop_ops->destroy_wsi)
+		wsi->context->event_loop_ops->destroy_wsi(wsi);
+	lws_plat_pipe_close(wsi);
 	wsi->context->count_wsi_allocated--;
 	lws_free(wsi);
 }
@@ -1056,6 +1064,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 			info->external_baggage_free_on_destroy;
 
 	context->time_up = time(NULL);
+	context->pcontext_finalize = info->pcontext;
 
 	context->simultaneous_ssl_restriction =
 			info->simultaneous_ssl_restriction;
@@ -1088,6 +1097,40 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->token_limits = info->token_limits;
 
 	context->options = info->options;
+
+	/*
+	 * set the context event loops ops struct
+	 *
+	 * after this, all event_loop actions use the generic ops
+	 */
+
+#if defined(LWS_WITH_POLL)
+	context->event_loop_ops = &event_loop_ops_poll;
+#endif
+
+#if defined(LWS_WITH_LIBUV)
+	if (LWS_LIBUV_ENABLED(context)) {
+		context->event_loop_ops = &event_loop_ops_uv;
+	}
+#endif
+#if defined(LWS_WITH_LIBEV)
+	if (LWS_LIBEV_ENABLED(context)) {
+		context->event_loop_ops = &event_loop_ops_ev;
+	}
+#endif
+#if defined(LWS_WITH_LIBEVENT)
+	if (LWS_LIBEVENT_ENABLED(context)) {
+		context->event_loop_ops = &event_loop_ops_event;
+	}
+#endif
+
+	if (!context->event_loop_ops) {
+		lwsl_err("no event loop possible\n");
+
+		goto bail;
+	}
+
+	lwsl_info("Using event loop: %s\n", context->event_loop_ops->name);
 
 #if defined(LWS_WITH_TLS)
 	if (info->alpn)
@@ -1135,6 +1178,12 @@ lws_create_context(const struct lws_context_creation_info *info)
 	else
 		context->max_http_header_pool = context->max_fds;
 
+	if (info->fd_limit_per_thread)
+		context->fd_limit_per_thread = info->fd_limit_per_thread;
+	else
+		context->fd_limit_per_thread = context->max_fds /
+					       context->count_threads;
+
 	/*
 	 * Allocate the per-thread storage for scratchpad buffers,
 	 * and header data pool
@@ -1147,22 +1196,15 @@ lws_create_context(const struct lws_context_creation_info *info)
 			return NULL;
 		}
 
-#ifdef LWS_WITH_LIBUV
 		context->pt[n].context = context;
-#endif
 		context->pt[n].tid = n;
+
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 		context->pt[n].http.ah_list = NULL;
 		context->pt[n].http.ah_pool_length = 0;
 #endif
 		lws_pt_mutex_init(&context->pt[n]);
 	}
-
-	if (info->fd_limit_per_thread)
-		context->fd_limit_per_thread = info->fd_limit_per_thread;
-	else
-		context->fd_limit_per_thread = context->max_fds /
-					       context->count_threads;
 
 	lwsl_info(" Threads: %d each %d fds\n", context->count_threads,
 		    context->fd_limit_per_thread);
@@ -1172,24 +1214,6 @@ lws_create_context(const struct lws_context_creation_info *info)
 		return NULL;
 	}
 
-#ifdef LWS_WITH_LIBEV
-	if (LWS_LIBEV_ENABLED(context)) {
-		context->use_event_loop_sigint = 1;
-		context->ev.sigint_cb = &lws_ev_sigint_cb;
-	}
-#endif /* LWS_WITH_LIBEV */
-#ifdef LWS_WITH_LIBUV
-	if (LWS_LIBUV_ENABLED(context)) {
-		context->use_event_loop_sigint = 1;
-		context->uv.sigint_cb = &lws_uv_sigint_cb;
-	}
-#endif
-#ifdef LWS_WITH_LIBEVENT
-	if (LWS_LIBEVENT_ENABLED(context)) {
-		context->use_event_loop_sigint = 1;
-		context->event.sigint_cb = &lws_event_sigint_cb;
-	}
-#endif /* LWS_WITH_LIBEVENT */
 
 #if defined(LWS_WITH_PEER_LIMITS)
 	/* scale the peer hash table according to the max fds for the process,
@@ -1245,6 +1269,25 @@ lws_create_context(const struct lws_context_creation_info *info)
 	if (lws_plat_init(context, info))
 		goto bail;
 
+	if (context->event_loop_ops->init_context)
+		if (context->event_loop_ops->init_context(context, info))
+			goto bail;
+
+
+	if (context->event_loop_ops->init_pt)
+		for (n = 0; n < context->count_threads; n++) {
+			void *lp = NULL;
+
+			if (info->foreign_loops)
+				lp = info->foreign_loops[n];
+
+			if (context->event_loop_ops->init_pt(context, lp, n))
+				goto bail;
+		}
+
+	if (lws_create_event_pipes(context))
+		goto bail;
+
 	lws_context_init_ssl_library(info);
 
 	context->user_space = info->user;
@@ -1282,16 +1325,6 @@ lws_create_context(const struct lws_context_creation_info *info)
 	memcpy(context->caps, info->caps, sizeof(context->caps));
 	context->count_caps = info->count_caps;
 #endif
-
-	/*
-	 * The event libs handle doing this when their event loop starts,
-	 * if we are using the default poll() service, do it here
-	 */
-
-	if (!LWS_LIBEV_ENABLED(context) &&
-	    !LWS_LIBUV_ENABLED(context) &&
-	    !LWS_LIBEVENT_ENABLED(context) && lws_create_event_pipes(context))
-		goto bail;
 
 	/*
 	 * drop any root privs for this process
@@ -1364,10 +1397,6 @@ lws_context_is_deprecated(struct lws_context *context)
 {
 	return context->deprecated;
 }
-
-LWS_VISIBLE void
-lws_context_destroy2(struct lws_context *context);
-
 
 void
 lws_vhost_destroy1(struct lws_vhost *vh)
@@ -1540,16 +1569,10 @@ lws_vhost_destroy2(struct lws_vhost *vh)
 		lws_free(vh->protocol_vh_privs);
 	lws_ssl_SSL_CTX_destroy(vh);
 	lws_free(vh->same_vh_protocol_list);
-#ifdef LWS_WITH_PLUGINS
-	if (LWS_LIBUV_ENABLED(context)) {
-		if (context->plugin_list)
-			lws_free((void *)vh->protocols);
-	} else
-#endif
-	{
-		if (context->options & LWS_SERVER_OPTION_EXPLICIT_VHOSTS)
-			lws_free((void *)vh->protocols);
-	}
+
+	if (context->plugin_list ||
+	    (context->options & LWS_SERVER_OPTION_EXPLICIT_VHOSTS))
+		lws_free((void *)vh->protocols);
 
 	LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar)
 		if (ar->destroy_vhost)
@@ -1628,6 +1651,106 @@ lws_vhost_destroy(struct lws_vhost *vh)
 	vh->context->deferred_free_list = df;
 }
 
+/*
+ * When using an event loop, the context destruction is in three separate
+ * parts.  This is to cover both internal and foreign event loops cleanly.
+ *
+ *  - lws_context_destroy() simply starts a soft close of all wsi and
+ *     related allocations.  The event loop continues.
+ *
+ *     As the closes complete in the event loop, reference counting is used
+ *     to determine when everything is closed.  It then calls
+ *     lws_context_destroy2().
+ *
+ *  - lws_context_destroy2() cleans up the rest of the higher-level logical
+ *     lws pieces like vhosts.  If the loop was foreign, it then proceeds to
+ *     lws_context_destroy3().  If it the loop is internal, it stops the
+ *     internal loops and waits for lws_context_destroy() to be called again
+ *     outside the event loop (since we cannot destroy the loop from
+ *     within the loop).  That will cause lws_context_destroy3() to run
+ *     directly.
+ *
+ *  - lws_context_destroy3() destroys any internal event loops and then
+ *     destroys the context itself, setting what was info.pcontext to NULL.
+ */
+
+static void
+lws_context_destroy3(struct lws_context *context)
+{
+	struct lws_context **pcontext_finalize = context->pcontext_finalize;
+
+	lws_free(context);
+	lwsl_info("%s: ctx %p freed\n", __func__, context);
+
+	if (pcontext_finalize)
+		*pcontext_finalize = NULL;
+}
+
+void
+lws_context_destroy2(struct lws_context *context)
+{
+	struct lws_vhost *vh = NULL, *vh1;
+#if defined(LWS_WITH_PEER_LIMITS)
+	uint32_t n;
+#endif
+
+
+	lwsl_info("%s: ctx %p\n", __func__, context);
+
+	/*
+	 * free all the per-vhost allocations
+	 */
+
+	vh = context->vhost_list;
+	while (vh) {
+		vh1 = vh->vhost_next;
+		lws_vhost_destroy2(vh);
+		vh = vh1;
+	}
+
+	/* remove ourselves from the pending destruction list */
+
+	while (context->vhost_pending_destruction_list)
+		/* removes itself from list */
+		lws_vhost_destroy2(context->vhost_pending_destruction_list);
+
+
+	lws_stats_log_dump(context);
+
+	lws_ssl_context_destroy(context);
+	lws_plat_context_late_destroy(context);
+
+#if defined(LWS_WITH_PEER_LIMITS)
+	for (n = 0; n < context->pl_hash_elements; n++)	{
+		lws_start_foreach_llp(struct lws_peer **, peer,
+				      context->pl_hash_table[n]) {
+			struct lws_peer *df = *peer;
+			*peer = df->next;
+			lws_free(df);
+			continue;
+		} lws_end_foreach_llp(peer, next);
+	}
+	lws_free(context->pl_hash_table);
+#endif
+
+	if (context->external_baggage_free_on_destroy)
+		free(context->external_baggage_free_on_destroy);
+
+	lws_check_deferred_free(context, 1);
+
+#if LWS_MAX_SMP > 1
+	pthread_mutex_destroy(&context->lock);
+#endif
+
+	if (context->event_loop_ops->destroy_context2)
+		if (context->event_loop_ops->destroy_context2(context)) {
+			context->finalize_destroy_after_internal_loops_stopped = 1;
+			return;
+		}
+
+	lws_context_destroy3(context);
+}
+
 LWS_VISIBLE void
 lws_context_destroy(struct lws_context *context)
 {
@@ -1642,8 +1765,18 @@ lws_context_destroy(struct lws_context *context)
 		lwsl_notice("%s: ctx %p\n", __func__, context);
 		return;
 	}
+
+	if (context->finalize_destroy_after_internal_loops_stopped) {
+		if (context->event_loop_ops->destroy_context2)
+			context->event_loop_ops->destroy_context2(context);
+
+		lws_context_destroy3(context);
+
+		return;
+	}
+
 	if (context->being_destroyed1) {
-		lwsl_notice("%s: ctx %p: already being destroyed\n",
+		lwsl_info("%s: ctx %p: already being destroyed\n",
 			    __func__, context);
 		return;
 	}
@@ -1653,6 +1786,7 @@ lws_context_destroy(struct lws_context *context)
 	m = context->count_threads;
 	context->being_destroyed = 1;
 	context->being_destroyed1 = 1;
+	context->requested_kill = 1;
 
 	memset(&wsi, 0, sizeof(wsi));
 	wsi.context = context;
@@ -1708,9 +1842,8 @@ lws_context_destroy(struct lws_context *context)
 	for (n = 0; n < context->count_threads; n++) {
 		pt = &context->pt[n];
 
-		lws_libev_destroyloop(context, n);
-		lws_libuv_destroyloop(context, n);
-		lws_libevent_destroyloop(context, n);
+		if (context->event_loop_ops->destroy_pt)
+			context->event_loop_ops->destroy_pt(context, n);
 
 		lws_free_set_NULL(context->pt[n].serv_buf);
 
@@ -1721,84 +1854,14 @@ lws_context_destroy(struct lws_context *context)
 	}
 	lws_plat_context_early_destroy(context);
 
-#if defined(LWS_WITH_LIBUV)
-	if (LWS_LIBUV_ENABLED(context))
-		for (n = 0; n < context->count_threads; n++) {
-			pt = &context->pt[n];
-			if (!pt->event_loop_foreign) {
-#if UV_VERSION_MAJOR > 0
-				uv_loop_close(pt->uv.io_loop);
-#endif
-				lws_free_set_NULL(pt->uv.io_loop);
-			}
-		}
-#endif
-
 	if (context->pt[0].fds)
 		lws_free_set_NULL(context->pt[0].fds);
 
-	if (!LWS_LIBUV_ENABLED(context))
-		lws_context_destroy2(context);
-}
+	if (context->event_loop_ops->destroy_context1) {
+		context->event_loop_ops->destroy_context1(context);
 
-/*
- * call the second one after the event loop has been shut down cleanly
- */
-
-LWS_VISIBLE void
-lws_context_destroy2(struct lws_context *context)
-{
-	struct lws_vhost *vh = NULL, *vh1;
-#if defined(LWS_WITH_PEER_LIMITS)
-	uint32_t n;
-#endif
-
-	lwsl_info("%s: ctx %p\n", __func__, context);
-
-	/*
-	 * free all the per-vhost allocations
-	 */
-
-	vh = context->vhost_list;
-	while (vh) {
-		vh1 = vh->vhost_next;
-		lws_vhost_destroy2(vh);
-		vh = vh1;
+		return;
 	}
 
-	/* remove ourselves from the pending destruction list */
-
-	while (context->vhost_pending_destruction_list)
-		/* removes itself from list */
-		lws_vhost_destroy2(context->vhost_pending_destruction_list);
-
-
-	lws_stats_log_dump(context);
-
-	lws_ssl_context_destroy(context);
-	lws_plat_context_late_destroy(context);
-
-#if defined(LWS_WITH_PEER_LIMITS)
-	for (n = 0; n < context->pl_hash_elements; n++)	{
-		lws_start_foreach_llp(struct lws_peer **, peer,
-				      context->pl_hash_table[n]) {
-			struct lws_peer *df = *peer;
-			*peer = df->next;
-			lws_free(df);
-			continue;
-		} lws_end_foreach_llp(peer, next);
-	}
-	lws_free(context->pl_hash_table);
-#endif
-
-	if (context->external_baggage_free_on_destroy)
-		free(context->external_baggage_free_on_destroy);
-
-	lws_check_deferred_free(context, 1);
-
-#if LWS_MAX_SMP > 1
-       pthread_mutex_destroy(&context->lock);
-#endif
-
-	lws_free(context);
+	lws_context_destroy2(context);
 }

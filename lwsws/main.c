@@ -1,7 +1,7 @@
 /*
  * libwebsockets web server application
  *
- * Copyright (C) 2010-2017 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2018 Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
@@ -36,6 +36,7 @@
 #else
 #include <io.h>
 #include "gettimeofday.h"
+#include <uv.h>
 
 int fork(void)
 {
@@ -52,7 +53,7 @@ static struct lws_context *context;
 static char config_dir[128];
 static int opts = 0, do_reload = 1;
 static uv_loop_t loop;
-static uv_signal_t signal_outer;
+static uv_signal_t signal_outer[2];
 static int pids[32];
 void lwsl_emit_stderr(int level, const char *line);
 
@@ -101,7 +102,9 @@ void signal_cb(uv_signal_t *watcher, int signum)
 		break;
 	}
 	lwsl_err("Signal %d caught\n", watcher->signum);
-	lws_libuv_stop(context);
+	uv_signal_stop(watcher);
+	uv_signal_stop(&signal_outer[1]);
+	lws_context_destroy(context);
 }
 
 static int
@@ -110,6 +113,7 @@ context_creation(void)
 	int cs_len = LWSWS_CONFIG_STRING_SIZE - 1;
 	struct lws_context_creation_info info;
 	char *cs, *config_strings;
+	void *foreign_loops[1];
 
 	cs = config_strings = malloc(LWSWS_CONFIG_STRING_SIZE);
 	if (!config_strings) {
@@ -120,7 +124,6 @@ context_creation(void)
 	memset(&info, 0, sizeof(info));
 
 	info.external_baggage_free_on_destroy = config_strings;
-	info.max_http_header_pool = 1024;
 	info.pt_serv_buf_size = 8192;
 	info.options = opts | LWS_SERVER_OPTION_VALIDATE_UTF8 |
 			      LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
@@ -135,14 +138,15 @@ context_creation(void)
 	if (lwsws_get_config_globals(&info, config_dir, &cs, &cs_len))
 		goto init_failed;
 
+	foreign_loops[0] = &loop;
+	info.foreign_loops = foreign_loops;
+	info.pcontext = &context;
+
 	context = lws_create_context(&info);
 	if (context == NULL) {
 		lwsl_err("libwebsocket init failed\n");
 		goto init_failed;
 	}
-
-	lws_uv_sigint_cfg(context, 1, signal_cb);
-	lws_uv_initloop(context, &loop, 0);
 
 	/*
 	 * then create the vhosts... protocols are entirely coming from
@@ -151,8 +155,7 @@ context_creation(void)
 
 	info.extensions = exts;
 
-	if (lwsws_get_config_vhosts(context, &info, config_dir,
-				    &cs, &cs_len))
+	if (lwsws_get_config_vhosts(context, &info, config_dir, &cs, &cs_len))
 		return 1;
 
 	return 0;
@@ -190,6 +193,8 @@ reload_handler(int signum)
 	case SIGINT:
 	case SIGTERM:
 	case SIGKILL:
+		fprintf(stderr, "master process waiting 2s...\n");
+		sleep(2); /* give children a chance to deal with the signal */
 		fprintf(stderr, "killing service processes\n");
 		for (m = 0; m < (int)ARRAY_SIZE(pids); m++)
 			if (pids[m])
@@ -203,7 +208,7 @@ reload_handler(int signum)
 
 int main(int argc, char **argv)
 {
-	int n = 0, debug_level = 7;
+	int n = 0, budget = 100, debug_level = 7;
 #ifndef _WIN32
 	int m;
 	int status, syslog_options = LOG_PID | LOG_PERROR;
@@ -283,7 +288,7 @@ int main(int argc, char **argv)
 	lws_set_log_level(debug_level, lwsl_emit_syslog);
 
 	lwsl_notice("lwsws libwebsockets web server - license CC0 + LGPL2.1\n");
-	lwsl_notice("(C) Copyright 2010-2016 Andy Green <andy@warmcat.com>\n");
+	lwsl_notice("(C) Copyright 2010-2018 Andy Green <andy@warmcat.com>\n");
 
 #if (UV_VERSION_MAJOR > 0) // Travis...
 	uv_loop_init(&loop);
@@ -291,30 +296,31 @@ int main(int argc, char **argv)
 	fprintf(stderr, "Your libuv is too old!\n");
 	return 0;
 #endif
-	uv_signal_init(&loop, &signal_outer);
-	uv_signal_start(&signal_outer, signal_cb, SIGINT);
-	uv_signal_start(&signal_outer, signal_cb, SIGHUP);
+	uv_signal_init(&loop, &signal_outer[0]);
+	uv_signal_start(&signal_outer[0], signal_cb, SIGINT);
+	uv_signal_init(&loop, &signal_outer[1]);
+	uv_signal_start(&signal_outer[1], signal_cb, SIGHUP);
 
 	if (context_creation()) {
 		lwsl_err("Context creation failed\n");
 		return 1;
 	}
 
-	lws_libuv_run(context, 0);
+	lws_service(context, 0);
 
-	uv_signal_stop(&signal_outer);
+	lwsl_err("%s: closing\n", __func__);
+
+	for (n = 0; n < 2; n++) {
+		uv_signal_stop(&signal_outer[n]);
+		uv_close((uv_handle_t *)&signal_outer[n], NULL);
+	}
+
 	lws_context_destroy(context);
 
-#if (UV_VERSION_MAJOR > 0) // Travis...
-	lws_close_all_handles_in_loop(&loop);
-	n = 0;
-	while (n++ < 4096 && uv_loop_close(&loop))
-		uv_run(&loop, UV_RUN_NOWAIT);
-#endif
+	while ((n = uv_loop_close(&loop)) && --budget)
+		uv_run(&loop, UV_RUN_ONCE);
 
-	lws_context_destroy2(context);
-
-	fprintf(stderr, "lwsws exited cleanly\n");
+	fprintf(stderr, "lwsws exited cleanly: %d\n", n);
 
 #ifndef _WIN32
 	closelog();

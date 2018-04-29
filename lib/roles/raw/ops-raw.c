@@ -186,6 +186,7 @@ struct lws_role_ops role_ops_raw_skt = {
 	/* destroy_role */		NULL,
 	/* writeable cb clnt, srv */	{ LWS_CALLBACK_RAW_WRITEABLE, 0 },
 	/* close cb clnt, srv */	{ LWS_CALLBACK_RAW_CLOSE, 0 },
+	/* file_handle */		0,
 };
 
 
@@ -213,4 +214,5 @@ struct lws_role_ops role_ops_raw_file = {
 	/* destroy_role */		NULL,
 	/* writeable cb clnt, srv */	{ LWS_CALLBACK_RAW_WRITEABLE_FILE, 0 },
 	/* close cb clnt, srv */	{ LWS_CALLBACK_RAW_CLOSE_FILE, 0 },
+	/* file_handle */		1,
 };

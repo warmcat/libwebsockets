@@ -855,37 +855,6 @@ struct lws_context;
 /* needed even with extensions disabled for create context */
 struct lws_extension;
 
-/*! \defgroup lwsmeta lws-meta
- *
- * ##lws-meta protocol
- *
- * The protocol wraps other muxed connections inside one tcp connection.
- *
- * Commands are assigned from 0x41 up (so they are valid unicode)
- */
-///@{
-
-enum lws_meta_commands {
-	LWS_META_CMD_OPEN_SUBCHANNEL = 'A',
-	/**< Client requests to open new subchannel
-	 */
-	LWS_META_CMD_OPEN_RESULT,
-	/**< Result of client request to open new subchannel */
-	LWS_META_CMD_CLOSE_NOTIFY,
-	/**< Notification of subchannel closure */
-	LWS_META_CMD_CLOSE_RQ,
-	/**< client requests to close a subchannel */
-	LWS_META_CMD_WRITE,
-	/**< connection writes something to specific channel index */
-
-	/****** add new things just above ---^ ******/
-};
-
-/* channel numbers are transported offset by 0x20 so they are valid unicode */
-
-#define LWS_META_TRANSPORT_OFFSET 0x20
-
-///@}
 
 /*! \defgroup usercb User Callback
  *
@@ -2990,6 +2959,26 @@ struct lws_context_creation_info {
 	 *     VHOST: If non-NULL, per-vhost list of advertised alpn, comma-
 	 *	      separated
 	 */
+	void **foreign_loops;
+	/**< CONTEXT: This is ignored if the context is not being started with
+	 *		an event loop, ie, .options has a flag like
+	 *		LWS_SERVER_OPTION_LIBUV.
+	 *
+	 *		NULL indicates lws should start its own even loop for
+	 *		each service thread, and deal with closing the loops
+	 *		when the context is destroyed.
+	 *
+	 *		Non-NULL means it points to an array of external
+	 *		("foreign") event loops that are to be used in turn for
+	 *		each service thread.  In the default case of 1 service
+	 *		thread, it can just point to one foreign event loop.
+	 */
+	void (*signal_cb)(void *event_lib_handle, int signum);
+	/**< CONTEXT: NULL: default signal handling.  Otherwise this receives
+	 *		the signal handler callback.  event_lib_handle is the
+	 *		native event library signal handle, eg uv_signal_t *
+	 *		for libuv.
+	 */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
@@ -2997,6 +2986,12 @@ struct lws_context_creation_info {
 	 * The below is to ensure later library versions with new
 	 * members added above will see 0 (default) even if the app
 	 * was not built against the newer headers.
+	 */
+	struct lws_context **pcontext;
+	/**< CONTEXT: if non-NULL, at the end of context destroy processing,
+	 * the pointer pointed to by pcontext is written with NULL.  You can
+	 * use this to let foreign event loops know that lws context destruction
+	 * is fully completed.
 	 */
 
 	void *_unused[4]; /**< dummy */
@@ -3039,6 +3034,7 @@ struct lws_context_creation_info {
 LWS_VISIBLE LWS_EXTERN struct lws_context *
 lws_create_context(const struct lws_context_creation_info *info);
 
+
 /**
  * lws_context_destroy() - Destroy the websocket context
  * \param context:	Websocket context
@@ -3049,9 +3045,6 @@ lws_create_context(const struct lws_context_creation_info *info);
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_context_destroy(struct lws_context *context);
-
-LWS_VISIBLE LWS_EXTERN void
-lws_context_destroy2(struct lws_context *context);
 
 typedef int (*lws_reload_func)(void);
 
@@ -4591,30 +4584,6 @@ LWS_VISIBLE LWS_EXTERN int
 lws_plat_recommended_rsa_bits(void);
 ///@}
 
-/*! \defgroup ev libev helpers
- *
- * ##libev helpers
- *
- * APIs specific to libev event loop itegration
- */
-///@{
-
-#if defined(LWS_WITH_LIBEV)
-typedef void (lws_ev_signal_cb_t)(EV_P_ struct ev_signal *w, int revents);
-
-LWS_VISIBLE LWS_EXTERN int
-lws_ev_sigint_cfg(struct lws_context *context, int use_event_loop_sigint,
-		  lws_ev_signal_cb_t *cb);
-
-LWS_VISIBLE LWS_EXTERN int
-lws_ev_initloop(struct lws_context *context, struct ev_loop *loop, int tsi);
-
-LWS_VISIBLE LWS_EXTERN void
-lws_ev_sigint_cb(struct ev_loop *loop, struct ev_signal *watcher, int revents);
-#endif /* LWS_WITH_LIBEV */
-
-///@}
-
 /*! \defgroup uv libuv helpers
  *
  * ##libuv helpers
@@ -4623,33 +4592,8 @@ lws_ev_sigint_cb(struct ev_loop *loop, struct ev_signal *watcher, int revents);
  */
 ///@{
 #ifdef LWS_WITH_LIBUV
-LWS_VISIBLE LWS_EXTERN int
-lws_uv_sigint_cfg(struct lws_context *context, int use_uv_sigint,
-		  uv_signal_cb cb);
-
-LWS_VISIBLE LWS_EXTERN void
-lws_libuv_run(const struct lws_context *context, int tsi);
-
-LWS_VISIBLE LWS_EXTERN void
-lws_libuv_stop(struct lws_context *context);
-
-LWS_VISIBLE LWS_EXTERN void
-lws_libuv_stop_without_kill(const struct lws_context *context, int tsi);
-
-LWS_VISIBLE LWS_EXTERN int
-lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, int tsi);
-
-LWS_VISIBLE LWS_EXTERN uv_loop_t *
-lws_uv_getloop(struct lws_context *context, int tsi);
-
-LWS_VISIBLE LWS_EXTERN void
-lws_uv_sigint_cb(uv_signal_t *watcher, int signum);
-
-LWS_VISIBLE LWS_EXTERN void
-lws_close_all_handles_in_loop(uv_loop_t *loop);
-
 /*
- * Any direct libuv allocations in protocol handlers must participate in the
+ * Any direct libuv allocations in lws protocol handlers must participate in the
  * lws reference counting scheme.  Two apis are provided:
  *
  * - lws_libuv_static_refcount_add(handle, context) to mark the handle with
@@ -4658,11 +4602,15 @@ lws_close_all_handles_in_loop(uv_loop_t *loop);
  * - lws_libuv_static_refcount_del() which should be used as the close callback
  *   for your own libuv objects declared in the protocol scope.
  *
- * See the dumb increment plugin for an example of how to use them.
- *
  * Using the apis allows lws to detach itself from a libuv loop completely
  * cleanly and at the moment all of its libuv objects have completed close.
  */
+
+LWS_VISIBLE uv_loop_t *
+lws_uv_getloop(struct lws_context *context, int tsi);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_libuv_stop(struct lws_context *context);
 
 LWS_VISIBLE LWS_EXTERN void
 lws_libuv_static_refcount_add(uv_handle_t *, struct lws_context *context);
@@ -4678,32 +4626,6 @@ lws_libuv_static_refcount_del(uv_handle_t *);
 #endif
 ///@}
 
-/*! \defgroup event libevent helpers
- *
- * ##libevent helpers
- *
- * APIs specific to libevent event loop itegration
- */
-///@{
-
-#if defined(LWS_WITH_LIBEVENT) && !defined(LWS_HIDE_LIBEVENT)
-typedef void (lws_event_signal_cb_t) (evutil_socket_t sock_fd, short revents,
-		  void *ctx);
-
-LWS_VISIBLE LWS_EXTERN int
-lws_event_sigint_cfg(struct lws_context *context, int use_event_sigint,
-		  lws_event_signal_cb_t cb);
-
-LWS_VISIBLE LWS_EXTERN int
-lws_event_initloop(struct lws_context *context, struct event_base *loop,
-		  int tsi);
-
-LWS_VISIBLE LWS_EXTERN void
-lws_event_sigint_cb(evutil_socket_t sock_fd, short revents,
-		  void *ctx);
-#endif /* LWS_WITH_LIBEVENT */
-
-///@}
 
 /*! \defgroup timeout Connection timeouts
 

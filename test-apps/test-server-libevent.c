@@ -192,6 +192,7 @@ int main(int argc, char **argv)
 	struct event_base *event_base_loop = event_base_new();
 	struct lws_context_creation_info info;
 	char interface_name[128] = "";
+	void *foreign_loops[1];
 	const char *iface = NULL;
 	char cert_path[1024];
 	char key_path[1024];
@@ -273,7 +274,8 @@ int main(int argc, char **argv)
 #endif
 
 	for (n = 0; n < (int)ARRAY_SIZE(sigs); n++) {
-		signals[n] = evsignal_new(event_base_loop, sigs[n], signal_cb, event_base_loop);
+		signals[n] = evsignal_new(event_base_loop, sigs[n], signal_cb,
+					  event_base_loop);
 
 		evsignal_add(signals[n], NULL);
 	}
@@ -315,8 +317,10 @@ int main(int argc, char **argv)
 	}
 	info.gid = -1;
 	info.uid = -1;
-	info.max_http_header_pool = 1;
 	info.options = opts | LWS_SERVER_OPTION_LIBEVENT;
+
+	foreign_loops[0] = event_base_loop;
+	info.foreign_loops = foreign_loops;
 
 	context = lws_create_context(&info);
 	if (context == NULL) {
@@ -334,12 +338,10 @@ int main(int argc, char **argv)
 	/* override the active fops */
 	lws_get_fops(context)->open = test_server_fops_open;
 
-	// Don't use the default Signal Event Watcher & Handler
-	lws_event_sigint_cfg(context, 0, NULL);
-	// Initialize the LWS with libevent loop
-	lws_event_initloop(context, event_base_loop, 0);
-
 	event_base_dispatch(event_base_loop);
+
+	for (n = 0; n < (int)ARRAY_SIZE(sigs); n++)
+		event_free(signals[n]);
 
 	lws_context_destroy(context);
 

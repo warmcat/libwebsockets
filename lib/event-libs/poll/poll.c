@@ -18,33 +18,26 @@
  *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
  *  MA  02110-1301  USA
  *
- *  This is included from private-libwebsockets.h if LWS_WITH_LIBEV
+ *  This is included from private-libwebsockets.h if LWS_ROLE_WS
  */
 
-#include <ev.h>
+#include <private-libwebsockets.h>
 
-struct lws_pt_eventlibs_libev {
-	struct ev_loop *io_loop;
+struct lws_event_loop_ops event_loop_ops_poll = {
+	/* name */			"poll",
+	/* init_context */		NULL,
+	/* destroy_context1 */		NULL,
+	/* destroy_context2 */		NULL,
+	/* init_vhost_listen_wsi */	NULL,
+	/* init_pt */			NULL,
+	/* wsi_logical_close */		NULL,
+	/* check_client_connect_ok */	NULL,
+	/* close_handle_manually */	NULL,
+	/* accept */			NULL,
+	/* io */			NULL,
+	/* run */			NULL,
+	/* destroy_pt */		NULL,
+	/* destroy wsi */		NULL,
+
+	/* periodic_events_available */	1,
 };
-
-struct lws_io_watcher_libev {
-	ev_io watcher;
-};
-
-struct lws_signal_watcher_libev {
-	ev_signal watcher;
-};
-
-struct lws_context_eventlibs_libev {
-	int placeholder;
-};
-
-#define LWS_LIBEV_ENABLED(context) lws_check_opt(context->options, \
-					LWS_SERVER_OPTION_LIBEV)
-
-extern struct lws_event_loop_ops event_loop_ops_ev;
-
-LWS_EXTERN void
-lws_libev_run(const struct lws_context *context, int tsi);
-LWS_EXTERN void
-lws_feature_status_libev(const struct lws_context_creation_info *info);

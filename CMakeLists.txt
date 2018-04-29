@@ -11,6 +11,7 @@ if(WIN32)
 endif()
 
 set(LWS_ROLE_RAW 1)
+set(LWS_WITH_POLL 1)
 
 #
 # Select features recommended for PC distro packaging
@@ -947,9 +948,9 @@ if (LWS_WITH_HTTP_PROXY)
 		lib/roles/http/server/rewrite.c)
 endif()
 
-if (LWS_WITH_LIBEV)
+if (LWS_WITH_POLL)
 	list(APPEND SOURCES
-		lib/event-libs/libev/libev.c)
+		lib/event-libs/poll/poll.c)
 endif()
 
 if (LWS_WITH_LIBUV)
@@ -960,6 +961,11 @@ endif()
 if (LWS_WITH_LIBEVENT)
 	list(APPEND SOURCES
 		lib/event-libs/libevent/libevent.c)
+endif()
+
+if (LWS_WITH_LIBEV)
+	list(APPEND SOURCES
+		lib/event-libs/libev/libev.c)
 endif()
 
 if (LWS_WITH_LEJP)
