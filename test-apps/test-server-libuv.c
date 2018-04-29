@@ -215,9 +215,6 @@ int main(int argc, char **argv)
 	int use_ssl = 0;
 	int opts = 0;
 	int n = 0;
-#ifndef _WIN32
-	int syslog_options = LOG_PID | LOG_PERROR;
-#endif
 #ifndef LWS_NO_DAEMONIZE
 	int daemonize = 0;
 #endif
@@ -297,14 +294,10 @@ int main(int argc, char **argv)
 		return 1;
 	}
 #endif
-
-	/* we will only try to log things according to our debug_level */
-	setlogmask(LOG_UPTO (LOG_DEBUG));
-	openlog("lwsts", syslog_options, LOG_DAEMON);
 #endif
 
-	/* tell the library what debug level to emit and to send it to syslog */
-	lws_set_log_level(debug_level, lwsl_emit_syslog);
+	/* tell the library what debug level to emit and to send it to stderr */
+	lws_set_log_level(debug_level, NULL);
 
 	lwsl_notice("libwebsockets test server libuv - license LGPL2.1+SLE\n");
 	lwsl_notice("(C) Copyright 2010-2016 Andy Green <andy@warmcat.com>\n");

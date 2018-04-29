@@ -865,7 +865,7 @@ async_close:
 		if (LWS_LIBUV_ENABLED(context)) {
 			if (wsi->listener) {
 				lwsl_debug("%s: stop listener poll\n", __func__);
-				uv_poll_stop(&wsi->w_read.uv_watcher);
+				uv_poll_stop(&wsi->w_read.uv.watcher);
 			}
 			lwsl_debug("%s: lws_libuv_closehandle: wsi %p\n",
 				   __func__, wsi);

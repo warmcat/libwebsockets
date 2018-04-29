@@ -4603,7 +4603,7 @@ lws_plat_recommended_rsa_bits(void);
 typedef void (lws_ev_signal_cb_t)(EV_P_ struct ev_signal *w, int revents);
 
 LWS_VISIBLE LWS_EXTERN int
-lws_ev_sigint_cfg(struct lws_context *context, int use_ev_sigint,
+lws_ev_sigint_cfg(struct lws_context *context, int use_event_loop_sigint,
 		  lws_ev_signal_cb_t *cb);
 
 LWS_VISIBLE LWS_EXTERN int

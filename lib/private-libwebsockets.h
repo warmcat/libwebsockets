@@ -165,16 +165,6 @@
   #include <arpa/inet.h>
   #include <poll.h>
  #endif
- #if defined(LWS_WITH_LIBEV)
-  #include <ev.h>
- #endif
- #ifdef LWS_WITH_LIBUV
-  #include <uv.h>
- #endif
- #if defined(LWS_WITH_LIBEVENT) && !defined(LWS_HIDE_LIBEVENT)
-  #include <event2/event.h>
- #endif
-
  #ifndef LWS_NO_FORK
   #ifdef LWS_HAVE_SYS_PRCTL_H
    #include <sys/prctl.h>
@@ -208,6 +198,16 @@
 #endif
 
 #include "libwebsockets.h"
+
+#if defined(LWS_WITH_LIBEV)
+#include "event-libs/libev/private.h"
+#endif
+#ifdef LWS_WITH_LIBUV
+ #include "event-libs/libuv/private.h"
+#endif
+#if defined(LWS_WITH_LIBEVENT) && !defined(LWS_HIDE_LIBEVENT)
+#include "event-libs/libevent/private.h"
+#endif
 
 #if defined(LWS_WITH_TLS)
  #include "tls/private.h"
@@ -722,13 +722,13 @@ struct lws;
 
 struct lws_io_watcher {
 #ifdef LWS_WITH_LIBEV
-	ev_io ev_watcher;
+	struct lws_io_watcher_libev ev;
 #endif
 #ifdef LWS_WITH_LIBUV
-	uv_poll_t uv_watcher;
+	struct lws_io_watcher_libuv uv;
 #endif
 #ifdef LWS_WITH_LIBEVENT
-	struct event *event_watcher;
+	struct lws_io_watcher_libevent event;
 #endif
 	struct lws_context *context;
 
@@ -737,13 +737,13 @@ struct lws_io_watcher {
 
 struct lws_signal_watcher {
 #ifdef LWS_WITH_LIBEV
-	ev_signal ev_watcher;
+	struct lws_signal_watcher_libev ev;
 #endif
 #ifdef LWS_WITH_LIBUV
-	uv_signal_t uv_watcher;
+	struct lws_signal_watcher_libuv uv;
 #endif
 #ifdef LWS_WITH_LIBEVENT
-	struct event *event_watcher;
+	struct lws_signal_watcher_libevent event;
 #endif
 	struct lws_context *context;
 };
@@ -776,9 +776,36 @@ struct lws_context_per_thread {
 #if LWS_MAX_SMP > 1
 	pthread_mutex_t lock;
 	pthread_mutex_t lock_stats;
+	pthread_t lock_owner;
+	const char *last_lock_reason;
 #endif
+
+	struct lws_context *context;
+
+	/*
+	 * usable by anything in the service code, but only if the scope
+	 * does not last longer than the service action (since next service
+	 * of any socket can likewise use it and overwrite)
+	 */
+	unsigned char *serv_buf;
+
+	struct lws_dll_lws dll_head_timeout;
+	struct lws_dll_lws dll_head_hrtimer;
+	struct lws_dll_lws dll_head_buflist; /* guys with pending rxflow */
+
+#if defined(LWS_WITH_TLS)
+	struct lws *pending_read_list; /* linked list */
+#endif
+
 	struct lws_pollfd *fds;
 	volatile struct lws_foreign_thread_pollfd * volatile foreign_pfd_list;
+#ifdef _WIN32
+	WSAEVENT *events;
+#endif
+	lws_sockfd_type dummy_pipe_fds[2];
+	struct lws *pipe_wsi;
+
+	/* --- role based members --- */
 
 #if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
 	struct lws_pt_role_ws ws;
@@ -787,63 +814,35 @@ struct lws_context_per_thread {
 	struct lws_pt_role_http http;
 #endif
 
-	struct lws_dll_lws dll_head_timeout;
-	struct lws_dll_lws dll_head_hrtimer;
-	struct lws_dll_lws dll_head_buflist; /* guys with pending rxflow */
-#if defined(LWS_WITH_LIBUV) || defined(LWS_WITH_LIBEVENT)
-	struct lws_context *context;
-#endif
+	/* --- event library based members --- */
 
-
-#if defined(LWS_HAVE_PTHREAD_H)
-	const char *last_lock_reason;
-#endif
-
-#if defined(LWS_WITH_TLS)
-	struct lws *pending_read_list; /* linked list */
-#endif
 #if defined(LWS_WITH_LIBEV)
-	struct ev_loop *io_loop_ev;
+	struct lws_pt_eventlibs_libev ev;
 #endif
 #if defined(LWS_WITH_LIBUV)
-	uv_loop_t *io_loop_uv;
-	uv_signal_t signals[8];
-	uv_timer_t uv_timeout_watcher;
-	uv_timer_t uv_hrtimer;
-	uv_idle_t uv_idle;
+	struct lws_pt_eventlibs_libuv uv;
 #endif
 #if defined(LWS_WITH_LIBEVENT)
-	struct event_base *io_loop_event_base;
-#endif
-#if defined(LWS_WITH_LIBEV) || defined(LWS_WITH_LIBUV) || defined(LWS_WITH_LIBEVENT)
-	struct lws_signal_watcher w_sigint;
-	unsigned char ev_loop_foreign:1;
-	unsigned char event_loop_destroy_processing_done:1;
+	struct lws_pt_eventlibs_libevent event;
 #endif
 
-	unsigned long count_conns;
-	/*
-	 * usable by anything in the service code, but only if the scope
-	 * does not last longer than the service action (since next service
-	 * of any socket can likewise use it and overwrite)
-	 */
-	unsigned char *serv_buf;
-#ifdef _WIN32
-	WSAEVENT *events;
+#if defined(LWS_WITH_LIBEV) || defined(LWS_WITH_LIBUV) || defined(LWS_WITH_LIBEVENT)
+	struct lws_signal_watcher w_sigint;
 #endif
-	lws_sockfd_type dummy_pipe_fds[2];
-	struct lws *pipe_wsi;
+
+	/* --- */
+
+	unsigned long count_conns;
+	unsigned int fds_count;
 
 	volatile unsigned char inside_poll;
 	volatile unsigned char foreign_spinlock;
 
-	unsigned int fds_count;
-
 	unsigned char tid;
+
 	unsigned char lock_depth;
-#if LWS_MAX_SMP > 1
-	pthread_t lock_owner;
-#endif
+	unsigned char event_loop_foreign:1;
+	unsigned char event_loop_destroy_processing_done:1;
 };
 
 struct lws_conn_stats {
@@ -1016,25 +1015,6 @@ struct lws_peer {
 };
 #endif
 
-#if defined(LWS_WITH_LIBUV)
-/*
- * All "static" (per-pt or per-context) uv handles must
- *
- *  - have their .data set to point to the context
- *
- *  - contribute to context->uv_count_static_asset_handles
- *    counting
- */
-#define LWS_UV_REFCOUNT_STATIC_HANDLE_NEW(_x, _ctx) \
-		{ uv_handle_t *_uht = (uv_handle_t *)(_x); _uht->data = _ctx; \
-		_ctx->uv_count_static_asset_handles++; }
-#define LWS_UV_REFCOUNT_STATIC_HANDLE_TO_CONTEXT(_x) \
-		((struct lws_context *)((uv_handle_t *)((_x)->data)))
-#define LWS_UV_REFCOUNT_STATIC_HANDLE_DESTROYED(_x) \
-		(--(LWS_UV_REFCOUNT_STATIC_HANDLE_TO_CONTEXT(_x)-> \
-				uv_count_static_asset_handles))
-#endif
-
 /*
  * the rest is managed per-context, that includes
  *
@@ -1094,19 +1074,13 @@ struct lws_context {
 #endif
 
 #if defined(LWS_WITH_LIBEV)
-	lws_ev_signal_cb_t * lws_ev_sigint_cb;
+	struct lws_context_eventlibs_libev ev;
 #endif
 #if defined(LWS_WITH_LIBUV)
-	uv_signal_cb lws_uv_sigint_cb;
-	uv_loop_t pu_loop;
-	int uv_count_static_asset_handles;
+	struct lws_context_eventlibs_libuv uv;
 #endif
 #if defined(LWS_WITH_LIBEVENT)
-#if defined(LWS_HIDE_LIBEVENT)
-	void * lws_event_sigint_cb;
-#else
-	lws_event_signal_cb_t * lws_event_sigint_cb;
-#endif
+	struct lws_context_eventlibs_libevent event;
 #endif
 	char canonical_hostname[128];
 #ifdef LWS_LATENCY
@@ -1126,7 +1100,8 @@ struct lws_context {
 
 	int max_fds;
 #if defined(LWS_WITH_LIBEV) || defined(LWS_WITH_LIBUV) || defined(LWS_WITH_LIBEVENT)
-	int use_ev_sigint;
+	int use_event_loop_sigint;
+	int count_event_loop_static_asset_handles;
 #endif
 	int started_with_parent;
 	int uid, gid;
@@ -1218,20 +1193,7 @@ enum {
 	LWS_EV_PREPARE_DELETION = (1 << 31),
 };
 
-#if defined(LWS_WITH_LIBEV)
-LWS_EXTERN void
-lws_libev_accept(struct lws *new_wsi, lws_sock_file_fd_type desc);
-LWS_EXTERN void
-lws_libev_io(struct lws *wsi, int flags);
-LWS_EXTERN int
-lws_libev_init_fd_table(struct lws_context *context);
-LWS_EXTERN void
-lws_libev_destroyloop(struct lws_context *context, int tsi);
-LWS_EXTERN void
-lws_libev_run(const struct lws_context *context, int tsi);
-#define LWS_LIBEV_ENABLED(context) lws_check_opt(context->options, LWS_SERVER_OPTION_LIBEV)
-LWS_EXTERN void lws_feature_status_libev(const struct lws_context_creation_info *info);
-#else
+#if !defined(LWS_WITH_LIBEV)
 #define lws_libev_accept(_a, _b) ((void) 0)
 #define lws_libev_io(_a, _b) ((void) 0)
 #define lws_libev_init_fd_table(_a) (0)
@@ -1246,22 +1208,7 @@ LWS_EXTERN void lws_feature_status_libev(const struct lws_context_creation_info 
 #endif
 #endif
 
-#if defined(LWS_WITH_LIBUV)
-LWS_EXTERN void
-lws_libuv_accept(struct lws *new_wsi, lws_sock_file_fd_type desc);
-LWS_EXTERN void
-lws_libuv_io(struct lws *wsi, int flags);
-LWS_EXTERN int
-lws_libuv_init_fd_table(struct lws_context *context);
-LWS_EXTERN void
-lws_libuv_run(const struct lws_context *context, int tsi);
-LWS_EXTERN void
-lws_libuv_destroyloop(struct lws_context *context, int tsi);
-LWS_EXTERN int
-lws_uv_initvhost(struct lws_vhost* vh, struct lws*);
-#define LWS_LIBUV_ENABLED(context) lws_check_opt(context->options, LWS_SERVER_OPTION_LIBUV)
-LWS_EXTERN void lws_feature_status_libuv(const struct lws_context_creation_info *info);
-#else
+#if !defined(LWS_WITH_LIBUV)
 #define lws_libuv_accept(_a, _b) ((void) 0)
 #define lws_libuv_io(_a, _b) ((void) 0)
 #define lws_libuv_init_fd_table(_a) (0)
@@ -1276,22 +1223,7 @@ LWS_EXTERN void lws_feature_status_libuv(const struct lws_context_creation_info 
 #endif
 #endif
 
-#if defined(LWS_WITH_LIBEVENT)
-LWS_EXTERN void
-lws_libevent_accept(struct lws *new_wsi, lws_sock_file_fd_type desc);
-LWS_VISIBLE void
-lws_libevent_destroy(struct lws *wsi);
-LWS_EXTERN void
-lws_libevent_io(struct lws *wsi, int flags);
-LWS_EXTERN int
-lws_libevent_init_fd_table(struct lws_context *context);
-LWS_EXTERN void
-lws_libevent_destroyloop(struct lws_context *context, int tsi);
-LWS_EXTERN void
-lws_libevent_run(const struct lws_context *context, int tsi);
-#define LWS_LIBEVENT_ENABLED(context) lws_check_opt(context->options, LWS_SERVER_OPTION_LIBEVENT)
-LWS_EXTERN void lws_feature_status_libevent(struct lws_context_creation_info *info);
-#else
+#if !defined(LWS_WITH_LIBEVENT)
 #define lws_libevent_accept(_a, _b) ((void) 0)
 #define lws_libevent_destroy(_a) ((void) 0)
 #define lws_libevent_io(_a, _b) ((void) 0)

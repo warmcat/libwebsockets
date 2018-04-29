@@ -270,8 +270,8 @@ int main(int argc, char **argv)
 	openlog("lwsts", syslog_options, LOG_DAEMON);
 #endif
 
-	/* tell the library what debug level to emit and to send it to syslog */
-	lws_set_log_level(debug_level, lwsl_emit_syslog);
+	/* tell the library what debug level to emit and to send it to stderr */
+	lws_set_log_level(debug_level, NULL);
 
 	lwsl_notice("libwebsockets test server libev - license LGPL2.1+SLE\n");
 	lwsl_notice("(C) Copyright 2010-2018 Andy Green <andy@warmcat.com>\n");
@@ -306,7 +306,6 @@ int main(int argc, char **argv)
 	}
 	info.gid = -1;
 	info.uid = -1;
-	info.max_http_header_pool = 1;
 	info.options = opts | LWS_SERVER_OPTION_LIBEV;
 
 	context = lws_create_context(&info);

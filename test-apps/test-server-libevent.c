@@ -37,7 +37,6 @@ char crl_path[1024] = "";
 #define LWS_PLUGIN_STATIC
 #include "../plugins/protocol_lws_mirror.c"
 #include "../plugins/protocol_lws_status.c"
-#include "../plugins/protocol_lws_meta.c"
 
 /* singlethreaded version --> no locks */
 
@@ -69,7 +68,6 @@ enum demo_protocols {
 
 	PROTOCOL_DUMB_INCREMENT,
 	PROTOCOL_LWS_MIRROR,
-	PROTOCOL_LWS_META,
 
 	/* always last */
 	DEMO_PROTOCOL_COUNT
@@ -95,7 +93,6 @@ static struct lws_protocols protocols[] = {
 
 		LWS_PLUGIN_PROTOCOL_MIRROR,
 		LWS_PLUGIN_PROTOCOL_LWS_STATUS,
-		LWS_PLUGIN_PROTOCOL_LWS_META,
 		{ NULL, NULL, 0, 0 } /* terminator */
 };
 

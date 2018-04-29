@@ -1,0 +1,77 @@
+/*
+ * libwebsockets - small server side websockets and web server implementation
+ *
+ * Copyright (C) 2010 - 2018 Andy Green <andy@warmcat.com>
+ *
+ *  This library is free software; you can redistribute it and/or
+ *  modify it under the terms of the GNU Lesser General Public
+ *  License as published by the Free Software Foundation:
+ *  version 2.1 of the License.
+ *
+ *  This library is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ *  Lesser General Public License for more details.
+ *
+ *  You should have received a copy of the GNU Lesser General Public
+ *  License along with this library; if not, write to the Free Software
+ *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+ *  MA  02110-1301  USA
+ *
+ *  This is included from private-libwebsockets.h if LWS_ROLE_WS
+ */
+
+#include <uv.h>
+
+/*
+ * All "static" (per-pt or per-context) uv handles must
+ *
+ *  - have their .data set to point to the context
+ *
+ *  - contribute to context->uv_count_static_asset_handles
+ *    counting
+ */
+#define LWS_UV_REFCOUNT_STATIC_HANDLE_NEW(_x, _ctx) \
+		{ uv_handle_t *_uht = (uv_handle_t *)(_x); _uht->data = _ctx; \
+		_ctx->count_event_loop_static_asset_handles++; }
+#define LWS_UV_REFCOUNT_STATIC_HANDLE_TO_CONTEXT(_x) \
+		((struct lws_context *)((uv_handle_t *)((_x)->data)))
+#define LWS_UV_REFCOUNT_STATIC_HANDLE_DESTROYED(_x) \
+		(--(LWS_UV_REFCOUNT_STATIC_HANDLE_TO_CONTEXT(_x)-> \
+				count_event_loop_static_asset_handles))
+
+struct lws_pt_eventlibs_libuv {
+	uv_loop_t *io_loop;
+	uv_signal_t signals[8];
+	uv_timer_t timeout_watcher;
+	uv_timer_t hrtimer;
+	uv_idle_t idle;
+};
+
+struct lws_context_eventlibs_libuv {
+	uv_signal_cb sigint_cb;
+	uv_loop_t pu_loop;
+};
+
+struct lws_io_watcher_libuv {
+	uv_poll_t watcher;
+};
+
+struct lws_signal_watcher_libuv {
+	uv_signal_t watcher;
+};
+
+LWS_EXTERN void
+lws_libuv_accept(struct lws *new_wsi, lws_sock_file_fd_type desc);
+LWS_EXTERN void
+lws_libuv_io(struct lws *wsi, int flags);
+LWS_EXTERN int
+lws_libuv_init_fd_table(struct lws_context *context);
+LWS_EXTERN void
+lws_libuv_run(const struct lws_context *context, int tsi);
+LWS_EXTERN void
+lws_libuv_destroyloop(struct lws_context *context, int tsi);
+LWS_EXTERN int
+lws_uv_initvhost(struct lws_vhost* vh, struct lws*);
+#define LWS_LIBUV_ENABLED(context) lws_check_opt(context->options, LWS_SERVER_OPTION_LIBUV)
+LWS_EXTERN void lws_feature_status_libuv(const struct lws_context_creation_info *info);

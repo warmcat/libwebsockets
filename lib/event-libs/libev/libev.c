@@ -35,7 +35,7 @@ static void
 lws_accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents)
 {
 	struct lws_io_watcher *lws_io = lws_container_of(watcher,
-					struct lws_io_watcher, ev_watcher);
+					struct lws_io_watcher, ev.watcher);
 	struct lws_context *context = lws_io->context;
 	struct lws_pollfd eventfd;
 
@@ -65,14 +65,14 @@ lws_ev_sigint_cb(struct ev_loop *loop, struct ev_signal *watcher, int revents)
 }
 
 LWS_VISIBLE int
-lws_ev_sigint_cfg(struct lws_context *context, int use_ev_sigint,
+lws_ev_sigint_cfg(struct lws_context *context, int use_event_loop_sigint,
 		  lws_ev_signal_cb_t *cb)
 {
-	context->use_ev_sigint = use_ev_sigint;
+	context->use_event_loop_sigint = use_event_loop_sigint;
 	if (cb)
-		context->lws_ev_sigint_cb = cb;
+		context->ev.sigint_cb = cb;
 	else
-		context->lws_ev_sigint_cb = &lws_ev_sigint_cb;
+		context->ev.sigint_cb = &lws_ev_sigint_cb;
 
 	return 0;
 }
@@ -80,7 +80,7 @@ lws_ev_sigint_cfg(struct lws_context *context, int use_ev_sigint,
 LWS_VISIBLE int
 lws_ev_initloop(struct lws_context *context, struct ev_loop *loop, int tsi)
 {
-	struct ev_signal *w_sigint = &context->pt[tsi].w_sigint.ev_watcher;
+	struct ev_signal *w_sigint = &context->pt[tsi].w_sigint.ev.watcher;
 	struct lws_vhost *vh = context->vhost_list;
 	const char *backend_name;
 	int status = 0;
@@ -89,9 +89,9 @@ lws_ev_initloop(struct lws_context *context, struct ev_loop *loop, int tsi)
 	if (!loop)
 		loop = ev_loop_new(0);
 	else
-		context->pt[tsi].ev_loop_foreign = 1;
+		context->pt[tsi].event_loop_foreign = 1;
 
-	context->pt[tsi].io_loop_ev = loop;
+	context->pt[tsi].ev.io_loop = loop;
 
 	if (lws_create_event_pipes(context))
 		return -1;
@@ -105,17 +105,17 @@ lws_ev_initloop(struct lws_context *context, struct ev_loop *loop, int tsi)
 			vh->lserv_wsi->w_read.context = context;
 			vh->w_accept.context = context;
 
-			ev_io_init(&vh->w_accept.ev_watcher, lws_accept_cb,
+			ev_io_init(&vh->w_accept.ev.watcher, lws_accept_cb,
 				   vh->lserv_wsi->desc.sockfd, EV_READ);
-			ev_io_start(loop, &vh->w_accept.ev_watcher);
+			ev_io_start(loop, &vh->w_accept.ev.watcher);
 
 		}
 		vh = vh->vhost_next;
 	}
 
 	/* Register the signal watcher unless the user says not to */
-	if (context->use_ev_sigint) {
-		ev_signal_init(w_sigint, context->lws_ev_sigint_cb, SIGINT);
+	if (context->use_event_loop_sigint) {
+		ev_signal_init(w_sigint, context->ev.sigint_cb, SIGINT);
 		ev_signal_start(loop, w_sigint);
 	}
 
@@ -159,27 +159,27 @@ lws_libev_destroyloop(struct lws_context *context, int tsi)
 	if (!lws_check_opt(context->options, LWS_SERVER_OPTION_LIBEV))
 		return;
 
-	if (!pt->io_loop_ev)
+	if (!pt->ev.io_loop)
 		return;
 
 	while (vh) {
 		if (vh->lserv_wsi)
-			ev_io_stop(pt->io_loop_ev, &vh->w_accept.ev_watcher);
+			ev_io_stop(pt->ev.io_loop, &vh->w_accept.ev.watcher);
 		vh = vh->vhost_next;
 	}
-	if (context->use_ev_sigint)
-		ev_signal_stop(pt->io_loop_ev,
-		       &pt->w_sigint.ev_watcher);
-	if (!pt->ev_loop_foreign)
-		ev_loop_destroy(pt->io_loop_ev);
+	if (context->use_event_loop_sigint)
+		ev_signal_stop(pt->ev.io_loop,
+		       &pt->w_sigint.ev.watcher);
+	if (!pt->event_loop_foreign)
+		ev_loop_destroy(pt->ev.io_loop);
 }
 
 LWS_VISIBLE void
 lws_libev_accept(struct lws *new_wsi, lws_sock_file_fd_type desc)
 {
 	struct lws_context *context = lws_get_context(new_wsi);
-	struct ev_io *r = &new_wsi->w_read.ev_watcher;
-	struct ev_io *w = &new_wsi->w_write.ev_watcher;
+	struct ev_io *r = &new_wsi->w_read.ev.watcher;
+	struct ev_io *w = &new_wsi->w_write.ev.watcher;
 	int fd;
 
 	if (!LWS_LIBEV_ENABLED(context))
@@ -205,7 +205,7 @@ lws_libev_io(struct lws *wsi, int flags)
 	if (!LWS_LIBEV_ENABLED(context))
 		return;
 
-	if (!pt->io_loop_ev)
+	if (!pt->ev.io_loop)
 		return;
 
 	assert((flags & (LWS_EV_START | LWS_EV_STOP)) &&
@@ -213,14 +213,14 @@ lws_libev_io(struct lws *wsi, int flags)
 
 	if (flags & LWS_EV_START) {
 		if (flags & LWS_EV_WRITE)
-			ev_io_start(pt->io_loop_ev, &wsi->w_write.ev_watcher);
+			ev_io_start(pt->ev.io_loop, &wsi->w_write.ev.watcher);
 		if (flags & LWS_EV_READ)
-			ev_io_start(pt->io_loop_ev, &wsi->w_read.ev_watcher);
+			ev_io_start(pt->ev.io_loop, &wsi->w_read.ev.watcher);
 	} else {
 		if (flags & LWS_EV_WRITE)
-			ev_io_stop(pt->io_loop_ev, &wsi->w_write.ev_watcher);
+			ev_io_stop(pt->ev.io_loop, &wsi->w_write.ev.watcher);
 		if (flags & LWS_EV_READ)
-			ev_io_stop(pt->io_loop_ev, &wsi->w_read.ev_watcher);
+			ev_io_stop(pt->ev.io_loop, &wsi->w_read.ev.watcher);
 	}
 }
 
@@ -241,6 +241,6 @@ lws_libev_init_fd_table(struct lws_context *context)
 LWS_VISIBLE void
 lws_libev_run(const struct lws_context *context, int tsi)
 {
-	if (context->pt[tsi].io_loop_ev && LWS_LIBEV_ENABLED(context))
-		ev_run(context->pt[tsi].io_loop_ev, 0);
+	if (context->pt[tsi].ev.io_loop && LWS_LIBEV_ENABLED(context))
+		ev_run(context->pt[tsi].ev.io_loop, 0);
 }

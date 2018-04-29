@@ -949,17 +949,17 @@ endif()
 
 if (LWS_WITH_LIBEV)
 	list(APPEND SOURCES
-		lib/event-libs/libev.c)
+		lib/event-libs/libev/libev.c)
 endif()
 
 if (LWS_WITH_LIBUV)
 	list(APPEND SOURCES
-		lib/event-libs/libuv.c)
+		lib/event-libs/libuv/libuv.c)
 endif()
 
 if (LWS_WITH_LIBEVENT)
 	list(APPEND SOURCES
-		lib/event-libs/libevent.c)
+		lib/event-libs/libevent/libevent.c)
 endif()
 
 if (LWS_WITH_LEJP)

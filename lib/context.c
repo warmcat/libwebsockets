@@ -1173,34 +1173,22 @@ lws_create_context(const struct lws_context_creation_info *info)
 	}
 
 #ifdef LWS_WITH_LIBEV
-	/* (Issue #264) In order to *avoid breaking backwards compatibility*, we
-	 * enable libev mediated SIGINT handling with a default handler of
-	 * lws_sigint_cb. The handler can be overridden or disabled
-	 * by invoking lws_sigint_cfg after creating the context, but
-	 * before invoking lws_initloop:
-	 */
-	context->use_ev_sigint = 1;
-	context->lws_ev_sigint_cb = &lws_ev_sigint_cb;
+	if (LWS_LIBEV_ENABLED(context)) {
+		context->use_event_loop_sigint = 1;
+		context->ev.sigint_cb = &lws_ev_sigint_cb;
+	}
 #endif /* LWS_WITH_LIBEV */
 #ifdef LWS_WITH_LIBUV
-	/* (Issue #264) In order to *avoid breaking backwards compatibility*, we
-	 * enable libev mediated SIGINT handling with a default handler of
-	 * lws_sigint_cb. The handler can be overridden or disabled
-	 * by invoking lws_sigint_cfg after creating the context, but
-	 * before invoking lws_initloop:
-	 */
-	context->use_ev_sigint = 1;
-	context->lws_uv_sigint_cb = &lws_uv_sigint_cb;
+	if (LWS_LIBUV_ENABLED(context)) {
+		context->use_event_loop_sigint = 1;
+		context->uv.sigint_cb = &lws_uv_sigint_cb;
+	}
 #endif
 #ifdef LWS_WITH_LIBEVENT
-	/* (Issue #264) In order to *avoid breaking backwards compatibility*, we
-	 * enable libev mediated SIGINT handling with a default handler of
-	 * lws_sigint_cb. The handler can be overridden or disabled
-	 * by invoking lws_sigint_cfg after creating the context, but
-	 * before invoking lws_initloop:
-	 */
-	context->use_ev_sigint = 1;
-	context->lws_event_sigint_cb = &lws_event_sigint_cb;
+	if (LWS_LIBEVENT_ENABLED(context)) {
+		context->use_event_loop_sigint = 1;
+		context->event.sigint_cb = &lws_event_sigint_cb;
+	}
 #endif /* LWS_WITH_LIBEVENT */
 
 #if defined(LWS_WITH_PEER_LIMITS)
@@ -1737,11 +1725,11 @@ lws_context_destroy(struct lws_context *context)
 	if (LWS_LIBUV_ENABLED(context))
 		for (n = 0; n < context->count_threads; n++) {
 			pt = &context->pt[n];
-			if (!pt->ev_loop_foreign) {
+			if (!pt->event_loop_foreign) {
 #if UV_VERSION_MAJOR > 0
-				uv_loop_close(pt->io_loop_uv);
+				uv_loop_close(pt->uv.io_loop);
 #endif
-				lws_free_set_NULL(pt->io_loop_uv);
+				lws_free_set_NULL(pt->uv.io_loop);
 			}
 		}
 #endif

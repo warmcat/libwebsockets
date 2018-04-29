@@ -42,8 +42,8 @@ lws_event_cb(evutil_socket_t sock_fd, short revents, void *ctx)
 	/* !!! EV_CLOSED doesn't exist in libevent2 */
 	#if LIBEVENT_VERSION_NUMBER < 0x02000000
 	if (revents & EV_CLOSED) {
-		event_del(lws_io->event_watcher);
-		event_free(lws_io->event_watcher);
+		event_del(lws_io->event.watcher);
+		event_free(lws_io->event.watcher);
 		return;
 	}
 	#endif
@@ -68,19 +68,19 @@ lws_event_sigint_cb(evutil_socket_t sock_fd, short revents, void *ctx)
 {
 	struct lws_context_per_thread *pt = ctx;
 
-	if (!pt->ev_loop_foreign)
-		event_base_loopbreak(pt->io_loop_event_base);
+	if (!pt->event_loop_foreign)
+		event_base_loopbreak(pt->event.io_loop);
 }
 
 LWS_VISIBLE int
 lws_event_sigint_cfg(struct lws_context *context, int use_event_sigint,
 lws_event_signal_cb_t *cb)
 {
-	context->use_ev_sigint = use_event_sigint;
+	context->use_event_loop_sigint = use_event_sigint;
 	if (cb)
-		context->lws_event_sigint_cb = cb;
+		context->event.sigint_cb = cb;
 	else
-		context->lws_event_sigint_cb = &lws_event_sigint_cb;
+		context->event.sigint_cb = &lws_event_sigint_cb;
 
 	return 0;
 }
@@ -92,10 +92,10 @@ int tsi)
 	struct lws_vhost *vh = context->vhost_list;
 
 	if (!loop)
-		context->pt[tsi].io_loop_event_base = event_base_new();
+		context->pt[tsi].event.io_loop = event_base_new();
 	else {
-		context->pt[tsi].ev_loop_foreign = 1;
-		context->pt[tsi].io_loop_event_base = loop;
+		context->pt[tsi].event_loop_foreign = 1;
+		context->pt[tsi].event.io_loop = loop;
 	}
 
 	if (lws_create_event_pipes(context))
@@ -109,22 +109,22 @@ int tsi)
 	while (vh) {
 		if (vh->lserv_wsi) {
 			vh->lserv_wsi->w_read.context = context;
-			vh->lserv_wsi->w_read.event_watcher = event_new(
+			vh->lserv_wsi->w_read.event.watcher = event_new(
 					loop, vh->lserv_wsi->desc.sockfd,
 					(EV_READ | EV_PERSIST), lws_event_cb,
 					&vh->lserv_wsi->w_read);
-			event_add(vh->lserv_wsi->w_read.event_watcher, NULL);
+			event_add(vh->lserv_wsi->w_read.event.watcher, NULL);
 		}
 		vh = vh->vhost_next;
 	}
 
 	/* Register the signal watcher unless the user says not to */
-	if (!context->use_ev_sigint)
+	if (!context->use_event_loop_sigint)
 		return 0;
 
-	context->pt[tsi].w_sigint.event_watcher = evsignal_new(loop, SIGINT,
-			context->lws_event_sigint_cb, &context->pt[tsi]);
-	event_add(context->pt[tsi].w_sigint.event_watcher, NULL);
+	context->pt[tsi].w_sigint.event.watcher = evsignal_new(loop, SIGINT,
+			context->event.sigint_cb, &context->pt[tsi]);
+	event_add(context->pt[tsi].w_sigint.event.watcher, NULL);
 
 	return 0;
 }
@@ -138,7 +138,7 @@ lws_libevent_destroyloop(struct lws_context *context, int tsi)
 	if (!lws_check_opt(context->options, LWS_SERVER_OPTION_LIBEVENT))
 		return;
 
-	if (!pt->io_loop_event_base)
+	if (!pt->event.io_loop)
 		return;
 
 	/*
@@ -146,16 +146,16 @@ lws_libevent_destroyloop(struct lws_context *context, int tsi)
 	 */
 	while (vh) {
 		if (vh->lserv_wsi) {
-			event_free(vh->lserv_wsi->w_read.event_watcher);
-			vh->lserv_wsi->w_read.event_watcher = NULL;
+			event_free(vh->lserv_wsi->w_read.event.watcher);
+			vh->lserv_wsi->w_read.event.watcher = NULL;
 		}
 		vh = vh->vhost_next;
 	}
 
-	if (context->use_ev_sigint)
-		event_free(pt->w_sigint.event_watcher);
-	if (!pt->ev_loop_foreign)
-		event_base_free(pt->io_loop_event_base);
+	if (context->use_event_loop_sigint)
+		event_free(pt->w_sigint.event.watcher);
+	if (!pt->event_loop_foreign)
+		event_base_free(pt->event.io_loop);
 }
 
 LWS_VISIBLE void
@@ -174,14 +174,14 @@ lws_libevent_accept(struct lws *new_wsi, lws_sock_file_fd_type desc)
 	// Initialize the event
 	pt = &context->pt[(int)new_wsi->tsi];
 
-	if (new_wsi->role_ops == role_ops_raw_file)
+	if (new_wsi->role_ops == &role_ops_raw_file)
 		fd = desc.filefd;
 	else
 		fd = desc.sockfd;
 
-	new_wsi->w_read.event_watcher = event_new(pt->io_loop_event_base, fd,
+	new_wsi->w_read.event.watcher = event_new(pt->event.io_loop, fd,
 		(EV_READ | EV_PERSIST), lws_event_cb, &new_wsi->w_read);
-	new_wsi->w_write.event_watcher = event_new(pt->io_loop_event_base, fd,
+	new_wsi->w_write.event.watcher = event_new(pt->event.io_loop, fd,
 		(EV_WRITE | EV_PERSIST), lws_event_cb, &new_wsi->w_write);
 }
 
@@ -191,11 +191,11 @@ lws_libevent_destroy(struct lws *wsi)
 	if (!wsi)
 		return;
 
-	if(wsi->w_read.event_watcher)
-		event_free(wsi->w_read.event_watcher);
+	if(wsi->w_read.event.watcher)
+		event_free(wsi->w_read.event.watcher);
 
-	if(wsi->w_write.event_watcher)
-		event_free(wsi->w_write.event_watcher);
+	if(wsi->w_write.event.watcher)
+		event_free(wsi->w_write.event.watcher);
 }
 
 LWS_VISIBLE void
@@ -207,7 +207,7 @@ lws_libevent_io(struct lws *wsi, int flags)
 	if (!LWS_LIBEVENT_ENABLED(context))
 		return;
 
-	if (!pt->io_loop_event_base || context->being_destroyed)
+	if (!pt->event.io_loop || context->being_destroyed)
 		return;
 
 	assert((flags & (LWS_EV_START | LWS_EV_STOP)) &&
@@ -215,15 +215,15 @@ lws_libevent_io(struct lws *wsi, int flags)
 
 	if (flags & LWS_EV_START) {
 		if (flags & LWS_EV_WRITE)
-			event_add(wsi->w_write.event_watcher, NULL);
+			event_add(wsi->w_write.event.watcher, NULL);
 		if (flags & LWS_EV_READ)
-			event_add(wsi->w_read.event_watcher, NULL);
+			event_add(wsi->w_read.event.watcher, NULL);
 	} else {
 		if (flags & LWS_EV_WRITE)
-			event_del(wsi->w_write.event_watcher);
+			event_del(wsi->w_write.event.watcher);
 
 		if (flags & LWS_EV_READ)
-			event_del(wsi->w_read.event_watcher);
+			event_del(wsi->w_read.event.watcher);
 	}
 }
 
@@ -245,7 +245,7 @@ LWS_VISIBLE void
 lws_libevent_run(const struct lws_context *context, int tsi)
 {
 	/* Run / Dispatch the event_base loop */
-	if (context->pt[tsi].io_loop_event_base &&
+	if (context->pt[tsi].event.io_loop &&
 	    LWS_LIBEVENT_ENABLED(context))
-		event_base_dispatch(context->pt[tsi].io_loop_event_base);
+		event_base_dispatch(context->pt[tsi].event.io_loop);
 }
