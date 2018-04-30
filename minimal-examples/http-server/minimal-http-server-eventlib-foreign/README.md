@@ -1,4 +1,19 @@
-# lws minimal http server libuv foreign
+# lws minimal http server eventlib foreign
+
+Commandline option|Meaning
+---|---
+-d <loglevel>|Debug verbosity in decimal, eg, -d15
+--uv|Use the libuv event library (lws must have been configured with `-DLWS_WITH_LIBUV=1`)
+--event|Use the libevent library (lws must have been configured with `-DLWS_WITH_LIBEVENT=1`)
+--ev|Use the libev event library (lws must have been configured with `-DLWS_WITH_LIBEV=1`)
+
+Notice libevent and libev cannot coexist in the one library.  But all the other combinations are OK.
+
+ |libuv|libevent|libev
+---|---|---|---
+libuv|-|OK|OK
+libevent|OK|-|no
+libev|OK|no|-
 
 This demonstrates having lws take part in a libuv loop owned by
 something else, with its own objects running in the loop.

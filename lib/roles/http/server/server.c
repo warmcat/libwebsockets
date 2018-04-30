@@ -1342,7 +1342,7 @@ deal_body:
 			 */
 
 			while (1) {
-				ebuf.len = lws_buflist_next_segment_len(
+				ebuf.len = (int)lws_buflist_next_segment_len(
 						&wsi->buflist, (uint8_t **)&ebuf.token);
 				if (!ebuf.len)
 					break;

@@ -57,8 +57,6 @@ lws_plat_pipe_signal(struct lws *wsi)
 
 	n = write(pt->dummy_pipe_fds[1], &buf, 1);
 
-	lwsl_debug("%s: fd %d %d\n", __func__, pt->dummy_pipe_fds[1], n);
-
 	return n != 1;
 }
 

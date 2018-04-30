@@ -4606,7 +4606,7 @@ lws_plat_recommended_rsa_bits(void);
  * cleanly and at the moment all of its libuv objects have completed close.
  */
 
-LWS_VISIBLE uv_loop_t *
+LWS_VISIBLE LWS_EXTERN uv_loop_t *
 lws_uv_getloop(struct lws_context *context, int tsi);
 
 LWS_VISIBLE LWS_EXTERN void

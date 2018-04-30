@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <getopt.h>
+#include <signal.h>
 
 int close_testing;
 int max_poll_elements;

@@ -25,6 +25,7 @@
 
 struct lws_pt_eventlibs_libevent {
 	struct event_base *io_loop;
+	struct event *hrtimer;
 };
 
 struct lws_io_watcher_libevent {

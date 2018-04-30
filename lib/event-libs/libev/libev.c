@@ -177,9 +177,6 @@ elops_init_context_ev(struct lws_context *context,
 static void
 elops_accept_ev(struct lws *wsi)
 {
-	struct lws_context *context = lws_get_context(wsi);
-	struct ev_io *r = &wsi->w_read.ev.watcher;
-	struct ev_io *w = &wsi->w_write.ev.watcher;
 	int fd;
 
 	if (wsi->role_ops->file_handle)
@@ -187,10 +184,11 @@ elops_accept_ev(struct lws *wsi)
 	else
 		fd = wsi->desc.sockfd;
 
-	wsi->w_read.context = context;
-	wsi->w_write.context = context;
-	ev_io_init(r, lws_accept_cb, fd, EV_READ);
-	ev_io_init(w, lws_accept_cb, fd, EV_WRITE);
+	wsi->w_read.context = wsi->context;
+	wsi->w_write.context = wsi->context;
+
+	ev_io_init(&wsi->w_read.ev.watcher, lws_accept_cb, fd, EV_READ);
+	ev_io_init(&wsi->w_write.ev.watcher, lws_accept_cb, fd, EV_WRITE);
 }
 
 static void

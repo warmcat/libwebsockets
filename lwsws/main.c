@@ -316,9 +316,11 @@ int main(int argc, char **argv)
 	}
 
 	lws_context_destroy(context);
-
+	(void)budget;
+#if (UV_VERSION_MAJOR > 0) // Travis...
 	while ((n = uv_loop_close(&loop)) && --budget)
 		uv_run(&loop, UV_RUN_ONCE);
+#endif
 
 	fprintf(stderr, "lwsws exited cleanly: %d\n", n);
 

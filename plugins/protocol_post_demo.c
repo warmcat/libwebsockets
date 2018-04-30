@@ -68,6 +68,8 @@ file_upload_cb(void *data, const char *name, const char *filename,
 			(struct per_session_data__post_demo *)data;
 #if !defined(LWS_WITH_ESP32)
 	int n;
+
+	(void)n;
 #endif
 
 	switch (state) {
