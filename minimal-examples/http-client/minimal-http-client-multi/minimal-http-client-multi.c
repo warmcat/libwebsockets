@@ -94,7 +94,8 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		return 0; /* don't passthru */
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
-		lwsl_user("LWS_CALLBACK_COMPLETED_CLIENT_HTTP %d\n", u->index);
+		lwsl_user("LWS_CALLBACK_COMPLETED_CLIENT_HTTP %p: idx %d\n",
+			  wsi, u->index);
 		client_wsi[u->index] = NULL;
 		if (++completed == COUNT) {
 			if (!failed)
@@ -166,7 +167,7 @@ lws_try_client_connection(struct lws_client_connect_info *i, int m)
 			interrupted = 1;
 		}
 	} else
-		lwsl_user("started connection %d\n", m);
+		lwsl_user("started connection %p: idx %d\n", client_wsi[m], m);
 }
 
 int main(int argc, const char **argv)
@@ -201,7 +202,6 @@ int main(int argc, const char **argv)
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.port = CONTEXT_PORT_NO_LISTEN; /* we do not run any server */
 	info.protocols = protocols;
-	info.max_http_header_pool = 20;
 
 #if defined(LWS_WITH_MBEDTLS)
 	/*
@@ -237,6 +237,9 @@ int main(int argc, const char **argv)
 		i.address = "warmcat.com";
 	}
 
+	if ((p = lws_cmdline_option(argc, argv, "--port")))
+		i.port = atoi(p);
+
 	i.host = i.address;
 	i.origin = i.address;
 	i.method = "GET";
@@ -267,7 +270,7 @@ int main(int argc, const char **argv)
 				if (m == (int)LWS_ARRAY_SIZE(client_wsi) - 1)
 					next = us() + 1000000;
 				else
-					next = us() + 100000;
+					next = us() + 300000;
 			}
 		}
 

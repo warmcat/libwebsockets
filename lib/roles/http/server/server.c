@@ -1342,7 +1342,7 @@ deal_body:
 			 */
 
 			while (1) {
-				ebuf.len = lws_buflist_next_segment_len(
+				ebuf.len = (int)lws_buflist_next_segment_len(
 						&wsi->buflist, (uint8_t **)&ebuf.token);
 				if (!ebuf.len)
 					break;
@@ -1789,7 +1789,8 @@ lws_http_transaction_completed(struct lws *wsi)
 			}
 #endif
 		} else {
-			lwsl_debug("%s: resetting and keeping ah as more pipeline stuff available\n", __func__);
+			lwsl_debug("%s: resetting and keeping ah as pipeline\n",
+				   __func__);
 			lws_header_table_reset(wsi, 0);
 			/*
 			 * If we kept the ah, we should restrict the amount
@@ -1804,12 +1805,11 @@ lws_http_transaction_completed(struct lws *wsi)
 		if (wsi->http.ah)
 			wsi->http.ah->ues = URIES_IDLE;
 
-		lwsi_set_state(wsi, LRS_ESTABLISHED);
+		//lwsi_set_state(wsi, LRS_ESTABLISHED);
 	} else
 		if (lws_buflist_next_segment_len(&wsi->buflist, NULL))
 			if (lws_header_table_attach(wsi, 0))
 				lwsl_debug("acquired ah\n");
-
 
 	lwsl_info("%s: %p: keep-alive await new transaction\n", __func__, wsi);
 	lws_callback_on_writable(wsi);
@@ -2063,6 +2063,7 @@ adopt_socket_readbuf(struct lws *wsi, const char *readbuf, size_t len)
 {
 	struct lws_context_per_thread *pt;
 	struct lws_pollfd *pfd;
+	int n;
 
 	if (!wsi)
 		return NULL;
@@ -2070,8 +2071,13 @@ adopt_socket_readbuf(struct lws *wsi, const char *readbuf, size_t len)
 	if (!readbuf || len == 0)
 		return wsi;
 
-	if (lws_buflist_append_segment(&wsi->buflist, (const uint8_t *)readbuf, len) < 0)
+	pt = &wsi->context->pt[(int)wsi->tsi];
+
+	n = lws_buflist_append_segment(&wsi->buflist, (const uint8_t *)readbuf, len);
+	if (n < 0)
 		goto bail;
+	if (n)
+		lws_dll_lws_add_front(&wsi->dll_buflist, &pt->dll_head_buflist);
 
 	/*
 	 * we can't process the initial read data until we can attach an ah.
@@ -2086,7 +2092,6 @@ adopt_socket_readbuf(struct lws *wsi, const char *readbuf, size_t len)
 	if (wsi->http.ah || !lws_header_table_attach(wsi, 0)) {
 
 		lwsl_notice("%s: calling service on readbuf ah\n", __func__);
-		pt = &wsi->context->pt[(int)wsi->tsi];
 
 		/* unlike a normal connect, we have the headers already
 		 * (or the first part of them anyway).

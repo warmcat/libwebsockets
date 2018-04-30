@@ -351,33 +351,64 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 	return timeout_ms;
 }
 
-
+/*
+ * POLLIN said there is something... we must read it, and either use it; or
+ * if other material already in the buflist append it and return the buflist
+ * head material.
+ */
 int
 lws_buflist_aware_read(struct lws_context_per_thread *pt, struct lws *wsi,
 		       struct lws_tokens *ebuf)
 {
-	ebuf->len = (int)lws_buflist_next_segment_len(&wsi->buflist,
-						 (uint8_t **)&ebuf->token);
-	if (!ebuf->len) {
-		ebuf->token = (char *)pt->serv_buf;
-		ebuf->len = lws_ssl_capable_read(wsi, pt->serv_buf,
-					wsi->context->pt_serv_buf_size);
+	int n, prior = (int)lws_buflist_next_segment_len(&wsi->buflist, NULL);
 
-		// if (ebuf->len > 0)
-		//	lwsl_hexdump_notice(ebuf->token, ebuf->len);
+	ebuf->token = (char *)pt->serv_buf;
+	ebuf->len = lws_ssl_capable_read(wsi, pt->serv_buf,
+					 wsi->context->pt_serv_buf_size);
 
-		return 0; /* fresh */
+	if (ebuf->len == LWS_SSL_CAPABLE_MORE_SERVICE && prior)
+		goto get_from_buflist;
+
+	if (ebuf->len <= 0)
+		return 0;
+
+	/* nothing in buflist already?  Then just use what we read */
+
+	if (!prior)
+		return 0;
+
+	/* stash what we read */
+
+	n = lws_buflist_append_segment(&wsi->buflist, (uint8_t *)ebuf->token,
+				       ebuf->len);
+	if (n < 0)
+		return -1;
+	if (n) {
+		lwsl_debug("%s: added %p to rxflow list\n", __func__, wsi);
+		lws_dll_lws_add_front(&wsi->dll_buflist, &pt->dll_head_buflist);
 	}
 
-	return 1; /* buffered */
+	/* get the first buflist guy in line */
+
+get_from_buflist:
+
+	ebuf->len = (int)lws_buflist_next_segment_len(&wsi->buflist,
+						      (uint8_t **)&ebuf->token);
+
+	return 1; /* came from buflist */
 }
 
 int
 lws_buflist_aware_consume(struct lws *wsi, struct lws_tokens *ebuf, int used,
 			  int buffered)
 {
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	int m;
 
+	/* it's in the buflist; we didn't use any */
+
+	if (!used && buffered)
+		return 0;
 
 	if (used && buffered) {
 		m = lws_buflist_use_segment(&wsi->buflist, used);
@@ -394,10 +425,17 @@ lws_buflist_aware_consume(struct lws *wsi, struct lws_tokens *ebuf, int used,
 
 	/* any remainder goes on the buflist */
 
-	if (used != ebuf->len &&
-	    lws_buflist_append_segment(&wsi->buflist, (uint8_t *)ebuf->token +
-					    used, ebuf->len - used) < 0)
-		return 1; /* OOM */
+	if (used != ebuf->len) {
+		m = lws_buflist_append_segment(&wsi->buflist,
+					       (uint8_t *)ebuf->token + used,
+					       ebuf->len - used);
+		if (m < 0)
+			return 1; /* OOM */
+		if (m) {
+			lwsl_debug("%s: added %p to rxflow list\n", __func__, wsi);
+			lws_dll_lws_add_front(&wsi->dll_buflist, &pt->dll_head_buflist);
+		}
+	}
 
 	return 0;
 }

@@ -279,11 +279,19 @@ drain:
 				lws_dll_lws_remove(&wsi->dll_buflist);
 			}
 		} else
-			if (n != ebuf.len &&
-			    lws_buflist_append_segment(&wsi->buflist,
+			if (n != ebuf.len) {
+				m = lws_buflist_append_segment(&wsi->buflist,
 						(uint8_t *)ebuf.token + n,
-						ebuf.len - n) < 0)
-				return LWS_HPI_RET_PLEASE_CLOSE_ME;
+						ebuf.len - n);
+				if (m < 0)
+					return LWS_HPI_RET_PLEASE_CLOSE_ME;
+				if (m) {
+					lwsl_debug("%s: added %p to rxflow list\n",
+							__func__, wsi);
+					lws_dll_lws_add_front(&wsi->dll_buflist,
+							&pt->dll_head_buflist);
+				}
+			}
 	}
 
 	// lws_buflist_describe(&wsi->buflist, wsi);

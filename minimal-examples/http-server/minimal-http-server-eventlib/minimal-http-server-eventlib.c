@@ -1,13 +1,13 @@
 /*
- * lws-minimal-http-server-libuv
+ * lws-minimal-http-server-eventlib
  *
  * Copyright (C) 2018 Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
  *
- * This demonstrates the most minimal http server you can make with lws using
- * the libuv event loop.
+ * This demonstrates a minimal http[s] server that can work with any of the
+ * supported event loop backends, or the default poll() one.
  *
  * To keep it simple, it serves stuff from the subdirectory 
  * "./mount-origin" of the directory it was started in.
@@ -42,20 +42,20 @@ static const struct lws_http_mount mount = {
 
 void signal_cb(void *handle, int signum)
 {
-	uv_signal_t *watcher = (uv_signal_t *)handle;
-
-	lwsl_notice("Signal %d caught, exiting...\n", watcher->signum);
-
-	switch (watcher->signum) {
+	switch (signum) {
 	case SIGTERM:
 	case SIGINT:
 		break;
 	default:
-		signal(SIGABRT, SIG_DFL);
-		abort();
+		lwsl_err("%s: signal %d\n", __func__, signum);
 		break;
 	}
 	lws_context_destroy(context);
+}
+
+void sigint_handler(int sig)
+{
+	signal_cb(NULL, sig);
 }
 
 int main(int argc, const char **argv)
@@ -74,19 +74,32 @@ int main(int argc, const char **argv)
 		logs = atoi(p);
 
 	lws_set_log_level(logs, NULL);
-	lwsl_user("LWS minimal http server libuv [-s (ssl)] | visit http://localhost:7681\n");
+	lwsl_user("LWS minimal http server eventlib | visit http://localhost:7681\n");
+	lwsl_user(" [-s (ssl)] [--uv (libuv)] [--ev (libev)] [--event (libevent)]\n");
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	info.port = 7681;
 	info.mounts = &mount;
 	info.error_document_404 = "/404.html";
+	info.pcontext = &context;
+	info.signal_cb = signal_cb;
+
 	if (lws_cmdline_option(argc, argv, "-s")) {
 		info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 		info.ssl_cert_filepath = "localhost-100y.cert";
 		info.ssl_private_key_filepath = "localhost-100y.key";
 	}
-	info.options |= LWS_SERVER_OPTION_LIBUV;
-	info.signal_cb = signal_cb;
+
+	if (lws_cmdline_option(argc, argv, "--uv"))
+		info.options |= LWS_SERVER_OPTION_LIBUV;
+	else
+		if (lws_cmdline_option(argc, argv, "--event"))
+			info.options |= LWS_SERVER_OPTION_LIBEVENT;
+		else
+			if (lws_cmdline_option(argc, argv, "--ev"))
+				info.options |= LWS_SERVER_OPTION_LIBEV;
+			else
+				signal(SIGINT, sigint_handler);
 
 	context = lws_create_context(&info);
 	if (!context) {
@@ -94,8 +107,10 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
-	lws_service(context, 0);
+	while (!lws_service(context, 0))
+		;
 
+	lwsl_info("calling external context destroy\n");
 	lws_context_destroy(context);
 
 	return 0;

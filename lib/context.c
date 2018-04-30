@@ -1794,10 +1794,8 @@ lws_context_destroy(struct lws_context *context)
 	struct lws wsi;
 	int n, m;
 
-	if (!context) {
-		lwsl_notice("%s: ctx %p\n", __func__, context);
+	if (!context)
 		return;
-	}
 
 	if (context->finalize_destroy_after_internal_loops_stopped) {
 		if (context->event_loop_ops->destroy_context2)
@@ -1809,8 +1807,11 @@ lws_context_destroy(struct lws_context *context)
 	}
 
 	if (context->being_destroyed1) {
-		if (!context->being_destroyed2)
-			return lws_context_destroy2(context);
+		if (!context->being_destroyed2) {
+			lws_context_destroy2(context);
+
+			return;
+		}
 		lwsl_info("%s: ctx %p: already being destroyed\n",
 			    __func__, context);
 		return;

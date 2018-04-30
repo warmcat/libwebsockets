@@ -29,24 +29,26 @@ lws_client_http_body_pending(struct lws *wsi, int something_left_to_send)
 
 /*
  * return self, or queued client wsi we are acting on behalf of
+ *
+ * That is the TAIL of the queue (new queue elements are added at the HEAD)
  */
 
 struct lws *
 lws_client_wsi_effective(struct lws *wsi)
 {
-	struct lws *wsi_eff = wsi;
-	struct lws_dll_lws *d;
+	struct lws_dll_lws *tail = NULL;
 
 	if (!wsi->transaction_from_pipeline_queue ||
 	    !wsi->dll_client_transaction_queue_head.next)
 		return wsi;
 
-	d = wsi->dll_client_transaction_queue_head.next;
-	if (d)
-		wsi_eff = lws_container_of(d, struct lws,
-					dll_client_transaction_queue);
+	lws_start_foreach_dll_safe(struct lws_dll_lws *, d, d1,
+				   wsi->dll_client_transaction_queue_head.next) {
+		tail = d;
+	} lws_end_foreach_dll_safe(d, d1);
 
-	return wsi_eff;
+	return lws_container_of(tail, struct lws,
+				  dll_client_transaction_queue);
 }
 
 /*
@@ -97,34 +99,40 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 	if ((pollfd->revents & LWS_POLLOUT) &&
 	     wsi->keepalive_active &&
 	     wsi->dll_client_transaction_queue_head.next) {
-		int found = 0;
+		struct lws *wfound = NULL;
 
 		lwsl_debug("%s: pollout HANDSHAKE2\n", __func__);
 
-		/* we have a transaction queue that wants to pipeline */
+		/*
+		 * We have a transaction queued that wants to pipeline.
+		 *
+		 * We have to allow it to send headers strictly in the order
+		 * that it was queued, ie, tail-first.
+		 */
 		lws_vhost_lock(wsi->vhost);
 		lws_start_foreach_dll_safe(struct lws_dll_lws *, d, d1,
 					   wsi->dll_client_transaction_queue_head.next) {
 			struct lws *w = lws_container_of(d, struct lws,
 						  dll_client_transaction_queue);
 
-			lwsl_notice("%s: %p states 0x%x\n", __func__, w, w->wsistate);
-			if (lwsi_state(w) == LRS_H1C_ISSUE_HANDSHAKE2) {
-				/*
-				 * pollfd has the master sockfd in it... we
-				 * need to use that in HANDSHAKE2 to understand
-				 * which wsi to actually write on
-				 */
-				lws_client_socket_service(w, pollfd, wsi);
-				lws_callback_on_writable(wsi);
-				found = 1;
-				break;
-			}
+			lwsl_debug("%s: %p states 0x%x\n", __func__, w, w->wsistate);
+			if (lwsi_state(w) == LRS_H1C_ISSUE_HANDSHAKE2)
+				wfound = w;
 		} lws_end_foreach_dll_safe(d, d1);
-		lws_vhost_unlock(wsi->vhost);
 
-		if (!found)
-			lwsl_err("%s: didn't find anything in HS2\n", __func__);
+		if (wfound) {
+			/*
+			 * pollfd has the master sockfd in it... we
+			 * need to use that in HANDSHAKE2 to understand
+			 * which wsi to actually write on
+			 */
+			lws_client_socket_service(wfound, pollfd, wsi);
+			lws_callback_on_writable(wsi);
+		} else
+			lwsl_debug("%s: didn't find anything in txn q in HS2\n",
+							   __func__);
+
+		lws_vhost_unlock(wsi->vhost);
 
 		return 0;
 	}

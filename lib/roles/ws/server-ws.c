@@ -568,7 +568,7 @@ lws_ws_frame_rest_is_payload(struct lws *wsi, uint8_t **buf, size_t len)
 {
 	uint8_t *buffer = *buf, mask[4];
 	struct lws_tokens ebuf;
-	unsigned int avail = len;
+	unsigned int avail = (unsigned int)len;
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	unsigned int old_packet_length = (int)wsi->ws->rx_packet_length;
 #endif

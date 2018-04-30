@@ -14,7 +14,7 @@ else
 			sudo make install &&
 			../minimal-examples/selftests.sh &&
 			../scripts/h2spec.sh &&
-			../test-apps/attack.sh &&
+			../scripts/attack.sh &&
 			../scripts/h2load.sh &&
 			../scripts/autobahn-test.sh
 		else

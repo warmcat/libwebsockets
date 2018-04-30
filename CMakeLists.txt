@@ -1608,7 +1608,10 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2) AND NOT LWS_WITHOUT_TESTAPPS)
 		endif()
 	endif()
 
-
+	if (LWS_WITH_LIBEV)
+		# libev generates a big mess of warnings with gcc, maintainer claims gcc to blame
+		set_source_files_properties( lib/event-libs/libev/libev.c PROPERTIES COMPILE_FLAGS "-Wno-error" )
+	endif()
 
 
 	if (NOT LWS_WITHOUT_SERVER)
@@ -1651,9 +1654,8 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2) AND NOT LWS_WITHOUT_TESTAPPS)
 					""
 					""
 					"")
-				# libev generates a big mess of warnings with gcc, maintainers blame gcc
+				# libev generates a big mess of warnings with gcc, maintainer claims gcc to blame
 				set_source_files_properties( test-apps/test-server-libev.c PROPERTIES COMPILE_FLAGS "-Wno-error" )
-				set_source_files_properties( lib/event-libs/libev.c PROPERTIES COMPILE_FLAGS "-Wno-error" )
 
 			endif()
 			if (NOT ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
@@ -1671,7 +1673,7 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2) AND NOT LWS_WITHOUT_TESTAPPS)
 		#
 		# test-server-extpoll
 		#
-		if (NOT LWS_WITHOUT_TEST_SERVER_EXTPOLL)
+		if (NOT LWS_WITHOUT_TEST_SERVER_EXTPOLL AND NOT WIN32)
 			create_test_app(test-server-extpoll
 				"test-apps/test-server.c"
 				""
@@ -1889,7 +1891,7 @@ endif(LWS_WITH_GENERIC_SESSIONS AND LWS_ROLE_WS)
 			endforeach()
 		endif()
 	endif()
-endif(NOT LWS_WITHOUT_TESTAPPS)
+endif((LWS_ROLE_H1 OR LWS_ROLE_H2) AND NOT LWS_WITHOUT_TESTAPPS)
 
 if (LWS_WITH_LWSWS)
 		list(APPEND LWSWS_SRCS

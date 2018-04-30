@@ -79,6 +79,11 @@ dotest() {
 	if [ -e $2/$MYTEST/$T.result ] ; then
 		R=`cat $2/$MYTEST/$T.result`
 		cat $2/$MYTEST/$T.log | tail -n 3 > $2/$MYTEST/$T.time
+		if [ $R -ne 0 ] ; then
+			echo
+			cat $2/$MYTEST/$T.log
+			echo
+		fi
 	fi
 
 	feedback $MYTEST $R $T

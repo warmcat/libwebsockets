@@ -25,6 +25,7 @@
 
 struct lws_pt_eventlibs_libev {
 	struct ev_loop *io_loop;
+	struct ev_timer hrtimer;
 };
 
 struct lws_io_watcher_libev {

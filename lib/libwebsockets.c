@@ -574,13 +574,14 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 	 * must go through and close all those first
 	 */
 	if (wsi->vhost) {
-		lws_vhost_lock(wsi->vhost);
+		if ((int)reason != -1)
+			lws_vhost_lock(wsi->vhost);
 		lws_start_foreach_dll_safe(struct lws_dll_lws *, d, d1,
 					wsi->dll_client_transaction_queue_head.next) {
 			struct lws *w = lws_container_of(d, struct lws,
 							 dll_client_transaction_queue);
 
-			__lws_close_free_wsi(w, reason, "trans q leader closing");
+			__lws_close_free_wsi(w, -1, "trans q leader closing");
 		} lws_end_foreach_dll_safe(d, d1);
 
 		/*
@@ -592,7 +593,8 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 		 * queue leader is closing.
 		 */
 		lws_dll_lws_remove(&wsi->dll_client_transaction_queue);
-		lws_vhost_unlock(wsi->vhost);
+		if ((int)reason !=-1)
+			lws_vhost_unlock(wsi->vhost);
 	}
 #endif
 
@@ -1030,6 +1032,7 @@ lws_buflist_use_segment(struct lws_buflist **head, size_t len)
 void
 lws_buflist_describe(struct lws_buflist **head, void *id)
 {
+	struct lws_buflist *old;
 	int n = 0;
 
 	if (*head == NULL)
@@ -1040,7 +1043,12 @@ lws_buflist_describe(struct lws_buflist **head, void *id)
 			    (unsigned long long)(*head)->pos,
 			    (unsigned long long)(*head)->len,
 			    (unsigned long long)(*head)->len - (*head)->pos);
+		old = *head;
 		head = &((*head)->next);
+		if (*head == old) {
+			lwsl_err("%s: next points to self\n", __func__);
+			break;
+		}
 		n++;
 	}
 }

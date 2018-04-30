@@ -43,8 +43,6 @@ event libs, eg,
 ```
 #if defined(LWS_WITH_LIBUV)
  #include "event-libs/libuv/private.h"
-#else
- #define LWS_LIBUV_ENABLED(context) (0)
 #endif
 ```
 

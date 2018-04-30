@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <getopt.h>
+#include <signal.h>
 
 int close_testing;
 int max_poll_elements;
@@ -77,12 +78,69 @@ char crl_path[1024] = "";
 #include "../plugins/protocol_post_demo.c"
 #endif
 
+static int
+lws_callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
+		  void *in, size_t len)
+{
+	const unsigned char *c;
+	char buf[1024];
+	int n = 0, hlen;
+
+	switch (reason) {
+	case LWS_CALLBACK_HTTP:
+
+		/* non-mount-handled accesses will turn up here */
+
+		/* dump the headers */
+
+		do {
+			c = lws_token_to_string(n);
+			if (!c) {
+				n++;
+				continue;
+			}
+
+			hlen = lws_hdr_total_length(wsi, n);
+			if (!hlen || hlen > (int)sizeof(buf) - 1) {
+				n++;
+				continue;
+			}
+
+			lws_hdr_copy(wsi, buf, sizeof buf, n);
+			buf[sizeof(buf) - 1] = '\0';
+
+			fprintf(stderr, "    %s = %s\n", (char *)c, buf);
+			n++;
+		} while (c);
+
+		/* dump the individual URI Arg parameters */
+
+		n = 0;
+		while (lws_hdr_copy_fragment(wsi, buf, sizeof(buf),
+					     WSI_TOKEN_HTTP_URI_ARGS, n) > 0) {
+			lwsl_notice("URI Arg %d: %s\n", ++n, buf);
+		}
+
+		if (lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, NULL))
+			return -1;
+
+		if (lws_http_transaction_completed(wsi))
+			return -1;
+
+		return 0;
+	default:
+		break;
+	}
+
+	return lws_callback_http_dummy(wsi, reason, user, in, len);
+}
+
 /* list of supported protocols and callbacks */
 
 static struct lws_protocols protocols[] = {
 	/* first protocol must always be HTTP handler */
 
-	{ "http-only", lws_callback_http_dummy, 0, 0, },
+	{ "http-only", lws_callback_http, 0, 0, },
 #if defined(LWS_ROLE_WS)
 	LWS_PLUGIN_PROTOCOL_DUMB_INCREMENT,
 	LWS_PLUGIN_PROTOCOL_MIRROR,

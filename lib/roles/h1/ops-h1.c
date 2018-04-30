@@ -314,11 +314,17 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 			goto try_pollout;
 		}
 
+		/*
+		 * We got here because there was specifically POLLIN...
+		 * regardless of our buflist state, we need to get it,
+		 * and either use it, or append to the buflist and use
+		 * buflist head material.
+		 */
+
 		buffered = lws_buflist_aware_read(pt, wsi, &ebuf);
 		switch (ebuf.len) {
 		case 0:
-			lwsl_info("%s: read 0 len a\n",
-				   __func__);
+			lwsl_info("%s: read 0 len a\n", __func__);
 			wsi->seen_zero_length_recv = 1;
 			lws_change_pollfd(wsi, LWS_POLLIN, 0);
 			goto try_pollout;

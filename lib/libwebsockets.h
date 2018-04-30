@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2017 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2018 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -4606,7 +4606,7 @@ lws_plat_recommended_rsa_bits(void);
  * cleanly and at the moment all of its libuv objects have completed close.
  */
 
-LWS_VISIBLE uv_loop_t *
+LWS_VISIBLE LWS_EXTERN uv_loop_t *
 lws_uv_getloop(struct lws_context *context, int tsi);
 
 LWS_VISIBLE LWS_EXTERN void

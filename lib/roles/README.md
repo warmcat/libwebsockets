@@ -66,7 +66,7 @@ However when the declarations must be accessible to other things in lws build, e
 the role adds members to `struct lws` when enabled, they should be in the role
 directory in a file `private.h`.
 
-Search for "bring in role private declarations" in `./lib/private-libwebsockets.h
+Search for "bring in role private declarations" in `./lib/roles/private.h
 and add your private role file there following the style used for the other roles,
 eg,
 

@@ -123,10 +123,11 @@ lws_client_connect_2(struct lws *wsi)
 			}
 #endif
 
-			lwsl_info("applying %p to txn queue on %p (wsistate 0x%x)\n", wsi, w,
-				w->wsistate);
+			lwsl_info("applying %p to txn queue on %p (wsistate 0x%x)\n",
+				wsi, w, w->wsistate);
 			/*
 			 * ...let's add ourselves to his transaction queue...
+			 * we are adding ourselves at the HEAD
 			 */
 			lws_dll_lws_add_front(&wsi->dll_client_transaction_queue,
 				&w->dll_client_transaction_queue_head);
@@ -522,12 +523,15 @@ send_hs:
 		 * LRS_H1C_ISSUE_HANDSHAKE2, and let them write.
 		 *
 		 * If we are trying to do this too early, before the master
-		 * connection has written his own headers,
+		 * connection has written his own headers, then it will just
+		 * wait in the queue until it's possible to send them.
 		 */
 		lws_callback_on_writable(wsi_piggyback);
-		lwsl_info("wsi %p: waiting to send headers\n", wsi);
+		lwsl_info("%s: wsi %p: waiting to send headers (parent state %x)\n",
+			    __func__, wsi, lwsi_state(wsi_piggyback));
 	} else {
-		lwsl_info("wsi %p: client creating own connection\n", wsi);
+		lwsl_info("%s: wsi %p: client creating own connection\n",
+			    __func__, wsi);
 
 		/* we are making our own connection */
 		lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE);

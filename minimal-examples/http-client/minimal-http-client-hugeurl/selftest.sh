@@ -33,9 +33,9 @@ wait $SPID 2>/dev/null
 
 if [ -z "$TRAVIS_OS_NAME" ] ; then
 	SPID=""
-	spawn "" $5/http-server/minimal-http-server-libuv $1/lws-minimal-http-server-libuv -s
+	spawn "" $5/http-server/minimal-http-server-eventlib $1/lws-minimal-http-server-eventlib --uv -s
 	dotest $1 $2 localhost-suv -l
-	spawn $SPID $5/http-server/minimal-http-server-libuv $1/lws-minimal-http-server-libuv -s
+	spawn $SPID $5/http-server/minimal-http-server-eventlib $1/lws-minimal-http-server-eventlib --uv -s
 	dotest $1 $2 localhost-suv-h1 -l --h1
 
 	kill $SPID 2>/dev/null
