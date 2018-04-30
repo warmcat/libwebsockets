@@ -363,6 +363,9 @@ lws_get_mimetype(const char *file, const struct lws_http_mount *m)
 	if (!strcmp(&file[n - 3], ".js"))
 		return "text/javascript";
 
+	if (!strcmp(&file[n - 4], ".mjs"))
+		return "text/javascript";
+
 	if (!strcmp(&file[n - 4], ".png"))
 		return "image/png";
 
