@@ -275,11 +275,6 @@ __lws_set_timer_usecs(struct lws *wsi, lws_usec_t usecs)
 	struct lws *wsi1;
 	int bef = 0;
 
-	if (LWS_LIBEV_ENABLED(wsi->context))
-		lwsl_warn("%s: lws hrtimer not implemented for libev\n", __func__);
-	if (LWS_LIBEVENT_ENABLED(wsi->context))
-		lwsl_warn("%s: lws hrtimer not implemented for libevent\n", __func__);
-
 	lws_dll_lws_remove(&wsi->dll_hrtimer);
 
 	if (usecs == LWS_SET_TIMER_USEC_CANCEL)

@@ -1657,16 +1657,6 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2) AND NOT LWS_WITHOUT_TESTAPPS)
 
 			endif()
 			if (NOT ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
-				AND LWS_WITH_LIBUV)
-				create_test_app(test-server-libuv
-					"test-apps/test-server-libuv.c"
-					""
-					""
-					""
-					""
-					"")
-			endif()
-			if (NOT ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
 				AND LWS_WITH_LIBEVENT)
 				create_test_app(test-server-libevent
 					"test-apps/test-server-libevent.c"
@@ -1707,20 +1697,6 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2) AND NOT LWS_WITHOUT_TESTAPPS)
 			create_test_app(
 				test-lejp
 				"test-apps/test-lejp.c"
-				""
-				""
-				""
-				""
-				"")
-		endif()
-
-		#
-		# test-server-v2.0
-		#
-		if (LWS_WITH_PLUGINS)
-			create_test_app(
-				test-server-v2.0
-				"test-apps/test-server-v2.0.c"
 				""
 				""
 				""

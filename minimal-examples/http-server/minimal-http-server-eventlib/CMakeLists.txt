@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 2.8)
 include(CheckCSourceCompiles)
 
-set(SAMP lws-minimal-http-server-libuv)
-set(SRCS minimal-http-server-libuv.c)
+set(SAMP lws-minimal-http-server-eventlib)
+set(SRCS minimal-http-server-eventlib.c)
 
 # If we are being built as part of lws, confirm current build config supports
 # reqconfig, else skip building ourselves.
@@ -64,7 +64,6 @@ ENDMACRO()
 
 set(requirements 1)
 require_lws_config(LWS_ROLE_H1 1 requirements)
-require_lws_config(LWS_WITH_LIBUV 1 requirements)
 require_lws_config(LWS_WITHOUT_SERVER 0 requirements)
 
 if (requirements)

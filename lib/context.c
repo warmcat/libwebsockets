@@ -25,7 +25,7 @@
 #define LWS_BUILD_HASH "unknown-build-hash"
 #endif
 
-const struct lws_role_ops * available_roles[] = {
+const struct lws_role_ops *available_roles[] = {
 #if defined(LWS_ROLE_H2)
 	&role_ops_h2,
 #endif
@@ -34,6 +34,22 @@ const struct lws_role_ops * available_roles[] = {
 #endif
 #if defined(LWS_ROLE_WS)
 	&role_ops_ws,
+#endif
+	NULL
+};
+
+const struct lws_event_loop_ops *available_event_libs[] = {
+#if defined(LWS_WITH_POLL)
+	&event_loop_ops_poll,
+#endif
+#if defined(LWS_WITH_LIBUV)
+	&event_loop_ops_uv,
+#endif
+#if defined(LWS_WITH_LIBEVENT)
+	&event_loop_ops_event,
+#endif
+#if defined(LWS_WITH_LIBEV)
+	&event_loop_ops_ev,
 #endif
 	NULL
 };
@@ -985,10 +1001,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 #else
 	lwsl_info("IPV6 not compiled in\n");
 #endif
-#if !defined(LWS_PLAT_OPTEE) && !defined(LWS_PLAT_ESP32)
-	lws_feature_status_libev(info);
-	lws_feature_status_libuv(info);
-#endif
+
 	lwsl_info(" LWS_DEF_HEADER_LEN    : %u\n", LWS_DEF_HEADER_LEN);
 	lwsl_info(" LWS_MAX_PROTOCOLS     : %u\n", LWS_MAX_PROTOCOLS);
 	lwsl_info(" LWS_MAX_SMP           : %u\n", LWS_MAX_SMP);
@@ -1108,27 +1121,29 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->event_loop_ops = &event_loop_ops_poll;
 #endif
 
+	if (lws_check_opt(context->options, LWS_SERVER_OPTION_LIBUV))
 #if defined(LWS_WITH_LIBUV)
-	if (LWS_LIBUV_ENABLED(context)) {
 		context->event_loop_ops = &event_loop_ops_uv;
-	}
+#else
+		goto fail_event_libs;
 #endif
+
+	if (lws_check_opt(context->options, LWS_SERVER_OPTION_LIBEV))
 #if defined(LWS_WITH_LIBEV)
-	if (LWS_LIBEV_ENABLED(context)) {
 		context->event_loop_ops = &event_loop_ops_ev;
-	}
+#else
+		goto fail_event_libs;
 #endif
+
+	if (lws_check_opt(context->options, LWS_SERVER_OPTION_LIBEVENT))
 #if defined(LWS_WITH_LIBEVENT)
-	if (LWS_LIBEVENT_ENABLED(context)) {
 		context->event_loop_ops = &event_loop_ops_event;
-	}
+#else
+		goto fail_event_libs;
 #endif
 
-	if (!context->event_loop_ops) {
-		lwsl_err("no event loop possible\n");
-
-		goto bail;
-	}
+	if (!context->event_loop_ops)
+		goto fail_event_libs;
 
 	lwsl_info("Using event loop: %s\n", context->event_loop_ops->name);
 
@@ -1347,6 +1362,20 @@ lws_create_context(const struct lws_context_creation_info *info)
 
 bail:
 	lws_context_destroy(context);
+
+	return NULL;
+
+fail_event_libs:
+	lwsl_err("Requested event library support not configured, available:\n");
+	{
+		const struct lws_event_loop_ops **elops = available_event_libs;
+
+		while (*elops) {
+			lwsl_err("  - %s\n", (*elops)->name);
+			elops++;
+		}
+	}
+	lws_free(context);
 
 	return NULL;
 }
@@ -1694,8 +1723,12 @@ lws_context_destroy2(struct lws_context *context)
 	uint32_t n;
 #endif
 
-
 	lwsl_info("%s: ctx %p\n", __func__, context);
+
+	context->being_destroyed2 = 1;
+
+	if (context->pt[0].fds)
+		lws_free_set_NULL(context->pt[0].fds);
 
 	/*
 	 * free all the per-vhost allocations
@@ -1776,6 +1809,8 @@ lws_context_destroy(struct lws_context *context)
 	}
 
 	if (context->being_destroyed1) {
+		if (!context->being_destroyed2)
+			return lws_context_destroy2(context);
 		lwsl_info("%s: ctx %p: already being destroyed\n",
 			    __func__, context);
 		return;
@@ -1825,6 +1860,20 @@ lws_context_destroy(struct lws_context *context)
 		lws_pt_mutex_destroy(pt);
 	}
 
+	for (n = 0; n < context->count_threads; n++) {
+		pt = &context->pt[n];
+
+		if (context->event_loop_ops->destroy_pt)
+			context->event_loop_ops->destroy_pt(context, n);
+
+		lws_free_set_NULL(context->pt[n].serv_buf);
+
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+		while (pt->http.ah_list)
+			_lws_destroy_ah(pt, pt->http.ah_list);
+#endif
+	}
+
 	/*
 	 * inform all the protocols that they are done and will have no more
 	 * callbacks.
@@ -1839,23 +1888,8 @@ lws_context_destroy(struct lws_context *context)
 		vh = vhn;
 	}
 
-	for (n = 0; n < context->count_threads; n++) {
-		pt = &context->pt[n];
-
-		if (context->event_loop_ops->destroy_pt)
-			context->event_loop_ops->destroy_pt(context, n);
-
-		lws_free_set_NULL(context->pt[n].serv_buf);
-
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-		while (pt->http.ah_list)
-			_lws_destroy_ah(pt, pt->http.ah_list);
-#endif
-	}
 	lws_plat_context_early_destroy(context);
 
-	if (context->pt[0].fds)
-		lws_free_set_NULL(context->pt[0].fds);
 
 	if (context->event_loop_ops->destroy_context1) {
 		context->event_loop_ops->destroy_context1(context);

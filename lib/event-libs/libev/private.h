@@ -39,12 +39,4 @@ struct lws_context_eventlibs_libev {
 	int placeholder;
 };
 
-#define LWS_LIBEV_ENABLED(context) lws_check_opt(context->options, \
-					LWS_SERVER_OPTION_LIBEV)
-
 extern struct lws_event_loop_ops event_loop_ops_ev;
-
-LWS_EXTERN void
-lws_libev_run(const struct lws_context *context, int tsi);
-LWS_EXTERN void
-lws_feature_status_libev(const struct lws_context_creation_info *info);

@@ -2,11 +2,11 @@
 ---|---
 minimal-http-server-basicauth|Shows how to protect a mount using a password file and basic auth
 minimal-http-server-dynamic|Serves both static and dynamically generated http content
+minimal-http-server-eventlib-foreign|Demonstrates integrating lws with a foreign event library
+minimal-http-server-eventlib|Same as minimal-http-server but works with a supported event library
 minimal-http-server-form-get|Process a GET form
 minimal-http-server-form-post-file|Process a multipart POST form with file transfer
 minimal-http-server-form-post|Process a POST form (no file transfer)
-minimal-http-server-libuv-foreign|Same as minimal-http-server but lws uses a foreign libuv event loop
-minimal-http-server-libuv|Same as minimal-http-server but lws uses its own libuv event loop
 minimal-http-server-multivhost|Same as minimal-http-server but three different vhosts
 minimal-http-server-smp|Multiple service threads
 minimal-http-server-sse-ring|Server Side Events with ringbuffer and threaded event sources

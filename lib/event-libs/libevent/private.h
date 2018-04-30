@@ -39,11 +39,4 @@ struct lws_context_eventlibs_libevent {
 	int placeholder;
 };
 
-#define LWS_LIBEVENT_ENABLED(context) lws_check_opt(context->options, \
-				LWS_SERVER_OPTION_LIBEVENT)
-
 extern struct lws_event_loop_ops event_loop_ops_event;
-
-LWS_EXTERN void
-lws_feature_status_libevent(const struct lws_context_creation_info *info);
-

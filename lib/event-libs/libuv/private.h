@@ -49,7 +49,7 @@ struct lws_pt_eventlibs_libuv {
 };
 
 struct lws_context_eventlibs_libuv {
-	uv_loop_t pu_loop;
+	uv_loop_t loop;
 };
 
 struct lws_io_watcher_libuv {
@@ -60,11 +60,5 @@ struct lws_signal_watcher_libuv {
 	uv_signal_t watcher;
 };
 
-#define LWS_LIBUV_ENABLED(context) lws_check_opt(context->options, \
-						 LWS_SERVER_OPTION_LIBUV)
-
 extern struct lws_event_loop_ops event_loop_ops_uv;
-
-LWS_EXTERN void
-lws_feature_status_libuv(const struct lws_context_creation_info *info);
 

@@ -19,17 +19,7 @@
  *  MA  02110-1301  USA
  */
 
-#define LWS_HIDE_LIBEVENT
-
 #include "private-libwebsockets.h"
-
-void lws_feature_status_libev(const struct lws_context_creation_info *info)
-{
-	if (lws_check_opt(info->options, LWS_SERVER_OPTION_LIBEV))
-		lwsl_info("libev support compiled in and enabled\n");
-	else
-		lwsl_info("libev support compiled in but disabled\n");
-}
 
 static void
 lws_accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents)
@@ -81,10 +71,18 @@ elops_init_pt_ev(struct lws_context *context, void *_loop, int tsi)
 	int status = 0;
 	int backend;
 
+	lwsl_info("%s: loop %p\n", __func__, _loop);
+
 	if (!loop)
 		loop = ev_loop_new(0);
 	else
 		context->pt[tsi].event_loop_foreign = 1;
+
+	if (!loop) {
+		lwsl_err("%s: creating event base failed\n", __func__);
+
+		return -1;
+	}
 
 	context->pt[tsi].ev.io_loop = loop;
 
@@ -149,9 +147,6 @@ elops_destroy_pt_ev(struct lws_context *context, int tsi)
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	struct lws_vhost *vh = context->vhost_list;
 
-	if (!lws_check_opt(context->options, LWS_SERVER_OPTION_LIBEV))
-		return;
-
 	if (!pt->ev.io_loop)
 		return;
 
@@ -162,8 +157,7 @@ elops_destroy_pt_ev(struct lws_context *context, int tsi)
 	}
 	if (!pt->event_loop_foreign)
 		ev_signal_stop(pt->ev.io_loop, &pt->w_sigint.ev.watcher);
-	if (!pt->event_loop_foreign)
-		ev_loop_destroy(pt->ev.io_loop);
+
 }
 
 static int
@@ -226,16 +220,75 @@ elops_io_ev(struct lws *wsi, int flags)
 static void
 elops_run_pt_ev(struct lws_context *context, int tsi)
 {
-	if (context->pt[tsi].ev.io_loop && LWS_LIBEV_ENABLED(context))
+	if (context->pt[tsi].ev.io_loop)
 		ev_run(context->pt[tsi].ev.io_loop, 0);
+}
+
+static int
+elops_destroy_context2_ev(struct lws_context *context)
+{
+	struct lws_context_per_thread *pt;
+	int n, m, internal = 0;
+
+	lwsl_debug("%s\n", __func__);
+
+	for (n = 0; n < context->count_threads; n++) {
+		int budget = 1000;
+
+		pt = &context->pt[n];
+
+		/* only for internal loops... */
+
+		if (pt->event_loop_foreign || !pt->ev.io_loop)
+			continue;
+
+		internal = 1;
+		if (!context->finalize_destroy_after_internal_loops_stopped) {
+			ev_break(pt->ev.io_loop, EVBREAK_ONE);
+			continue;
+		}
+		while (budget-- &&
+		       (m = ev_run(pt->ev.io_loop, 0)))
+			;
+
+		ev_loop_destroy(pt->ev.io_loop);
+	}
+
+	return internal;
+}
+
+static int
+elops_init_vhost_listen_wsi_ev(struct lws *wsi)
+{
+	int fd;
+
+	if (!wsi) {
+		assert(0);
+		return 0;
+	}
+
+	wsi->w_read.context = wsi->context;
+	wsi->w_write.context = wsi->context;
+
+	if (wsi->role_ops->file_handle)
+		fd = wsi->desc.filefd;
+	else
+		fd = wsi->desc.sockfd;
+
+	ev_io_init(&wsi->w_read.ev.watcher, lws_accept_cb, fd, EV_READ);
+	ev_io_init(&wsi->w_write.ev.watcher, lws_accept_cb, fd, EV_WRITE);
+
+	elops_io_ev(wsi, LWS_EV_START | LWS_EV_READ);
+
+	return 0;
 }
 
 struct lws_event_loop_ops event_loop_ops_ev = {
 	/* name */			"libev",
 	/* init_context */		elops_init_context_ev,
 	/* destroy_context1 */		NULL,
-	/* destroy_context2 */		NULL,
-	/* init_vhost_listen_wsi */	NULL,
+	/* destroy_context2 */		elops_destroy_context2_ev,
+	/* init_vhost_listen_wsi */	elops_init_vhost_listen_wsi_ev,
 	/* init_pt */			elops_init_pt_ev,
 	/* wsi_logical_close */		NULL,
 	/* check_client_connect_ok */	NULL,

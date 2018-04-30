@@ -161,7 +161,7 @@ typedef unsigned long long lws_intptr_t;
 #include <uv-version.h>
 #endif
 #endif /* LWS_WITH_LIBUV */
-#if defined(LWS_WITH_LIBEVENT) && !defined(LWS_HIDE_LIBEVENT)
+#if defined(LWS_WITH_LIBEVENT)
 #include <event2/event.h>
 #endif /* LWS_WITH_LIBEVENT */
 
@@ -4608,9 +4608,6 @@ lws_plat_recommended_rsa_bits(void);
 
 LWS_VISIBLE uv_loop_t *
 lws_uv_getloop(struct lws_context *context, int tsi);
-
-LWS_VISIBLE LWS_EXTERN void
-lws_libuv_stop(struct lws_context *context);
 
 LWS_VISIBLE LWS_EXTERN void
 lws_libuv_static_refcount_add(uv_handle_t *, struct lws_context *context);

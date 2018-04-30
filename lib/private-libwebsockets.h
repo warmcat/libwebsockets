@@ -678,19 +678,23 @@ struct lws_event_loop_ops {
 	unsigned int periodic_events_available:1;
 };
 
+/* bring in event libs private declarations */
+
 #if defined(LWS_WITH_POLL)
 #include "event-libs/poll/private.h"
 #endif
-#if defined(LWS_WITH_LIBEV)
-#include "event-libs/libev/private.h"
-#endif
+
 #if defined(LWS_WITH_LIBUV)
 #include "event-libs/libuv/private.h"
 #endif
-#if defined(LWS_WITH_LIBEVENT) && !defined(LWS_HIDE_LIBEVENT)
+
+#if defined(LWS_WITH_LIBEVENT)
 #include "event-libs/libevent/private.h"
 #endif
 
+#if defined(LWS_WITH_LIBEV)
+#include "event-libs/libev/private.h"
+#endif
 
 
 /* enums of socks version */
@@ -1180,6 +1184,7 @@ struct lws_context {
 	unsigned int deprecated:1;
 	unsigned int being_destroyed:1;
 	unsigned int being_destroyed1:1;
+	unsigned int being_destroyed2:1;
 	unsigned int requested_kill:1;
 	unsigned int protocol_init_done:1;
 	unsigned int ssl_gate_accepts:1;
@@ -1245,37 +1250,6 @@ enum {
 
 	LWS_EV_PREPARE_DELETION = (1 << 31),
 };
-
-#if !defined(LWS_WITH_LIBEV)
-#define LWS_LIBEV_ENABLED(context) (0)
-#if !defined(LWS_WITH_ESP32)
-#define lws_feature_status_libev(_a) \
-			lwsl_info("libev support not compiled in\n")
-#else
-#define lws_feature_status_libev(_a)
-#endif
-#endif
-
-#if !defined(LWS_WITH_LIBUV)
-#define LWS_LIBUV_ENABLED(context) (0)
-#if !defined(LWS_WITH_ESP32)
-#define lws_feature_status_libuv(_a) \
-			lwsl_info("libuv support not compiled in\n")
-#else
-#define lws_feature_status_libuv(_a)
-#endif
-#endif
-
-#if !defined(LWS_WITH_LIBEVENT)
-#define lws_libevent_destroyloop(_a, _b) ((void) 0)
-#define LWS_LIBEVENT_ENABLED(context) (0)
-#if !defined(LWS_WITH_ESP32)
-#define lws_feature_status_libevent(_a) \
-			lwsl_info("libevent support not compiled in\n")
-#else
-#define lws_feature_status_libevent(_a)
-#endif
-#endif
 
 
 #if defined(LWS_WITH_ESP32)

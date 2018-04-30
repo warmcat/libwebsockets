@@ -21,15 +21,6 @@
 
 #include "private-libwebsockets.h"
 
-void
-lws_feature_status_libuv(const struct lws_context_creation_info *info)
-{
-	if (lws_check_opt(info->options, LWS_SERVER_OPTION_LIBUV))
-		lwsl_info("libuv support compiled in and enabled\n");
-	else
-		lwsl_info("libuv support compiled in but disabled\n");
-}
-
 static void
 lws_uv_hrtimer_cb(uv_timer_t *timer
 #if UV_VERSION_MAJOR == 0
@@ -140,7 +131,7 @@ lws_io_cb(uv_poll_t *watcher, int status, int revents)
  * wsi, and set a flag; when all the wsi closures are finalized then we
  * actually stop the libuv event loops.
  */
-LWS_VISIBLE LWS_EXTERN void
+static void
 lws_libuv_stop(struct lws_context *context)
 {
 	struct lws_context_per_thread *pt;
@@ -309,7 +300,7 @@ lws_close_all_handles_in_loop(uv_loop_t *loop)
 LWS_VISIBLE void
 lws_libuv_stop_without_kill(const struct lws_context *context, int tsi)
 {
-	if (context->pt[tsi].uv.io_loop && LWS_LIBUV_ENABLED(context))
+	if (context->pt[tsi].uv.io_loop)
 		uv_stop(context->pt[tsi].uv.io_loop);
 }
 
@@ -318,7 +309,7 @@ lws_libuv_stop_without_kill(const struct lws_context *context, int tsi)
 LWS_VISIBLE uv_loop_t *
 lws_uv_getloop(struct lws_context *context, int tsi)
 {
-	if (context->pt[tsi].uv.io_loop && LWS_LIBUV_ENABLED(context))
+	if (context->pt[tsi].uv.io_loop)
 		return context->pt[tsi].uv.io_loop;
 
 	return NULL;
@@ -364,14 +355,14 @@ lws_plat_plugins_init(struct lws_context *context, const char * const *d)
 	lib.errmsg = NULL;
 	lib.handle = NULL;
 
-	uv_loop_init(&context->uv.pu_loop);
+	uv_loop_init(&context->uv.loop);
 
 	lwsl_notice("  Plugins:\n");
 
 	while (d && *d) {
 
 		lwsl_notice("  Scanning %s\n", *d);
-		m =uv_fs_scandir(&context->uv.pu_loop, &req, *d, 0, NULL);
+		m =uv_fs_scandir(&context->uv.loop, &req, *d, 0, NULL);
 		if (m < 1) {
 			lwsl_err("Scandir on %s failed\n", *d);
 			return 1;
@@ -495,7 +486,7 @@ lws_plat_plugins_destroy(struct lws_context *context)
 
 	context->plugin_list = NULL;
 
-	while (uv_loop_close(&context->uv.pu_loop))
+	while (uv_loop_close(&context->uv.loop))
 		;
 
 	return 0;
@@ -709,7 +700,7 @@ elops_init_vhost_listen_wsi_uv(struct lws *wsi)
 static void
 elops_run_pt_uv(struct lws_context *context, int tsi)
 {
-	if (context->pt[tsi].uv.io_loop && LWS_LIBUV_ENABLED(context))
+	if (context->pt[tsi].uv.io_loop)
 		uv_run(context->pt[tsi].uv.io_loop, 0);
 }
 

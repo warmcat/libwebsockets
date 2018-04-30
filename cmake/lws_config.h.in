@@ -59,6 +59,8 @@
 #cmakedefine LWS_WITHOUT_SERVER
 #cmakedefine LWS_WITHOUT_CLIENT
 
+#cmakedefine LWS_WITH_POLL
+
 /* Enable libev io loop */
 #cmakedefine LWS_WITH_LIBEV
 

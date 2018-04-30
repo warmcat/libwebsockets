@@ -790,6 +790,9 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	struct lws *wsi;
 
+	if (!context || context->being_destroyed1)
+		return -1;
+
 	/* the socket we came to service timed out, nothing to do */
 	if (lws_service_periodic_checks(context, pollfd, tsi) || !pollfd)
 		return 0;
@@ -862,13 +865,13 @@ close_and_handled:
 		lwsl_debug("%p: Close and handled\n", wsi);
 		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
 				   "close_and_handled");
-#if defined(_DEBUG)
+#if defined(_DEBUG) && defined(LWS_WITH_LIBUV)
 		/*
 		 * confirm close has no problem being called again while
 		 * it waits for libuv service to complete the first async
 		 * close
 		 */
-		if (LWS_LIBUV_ENABLED(context))
+		if (context->event_loop_ops == &event_loop_ops_uv)
 			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
 					   "close_and_handled uv repeat test");
 #endif
