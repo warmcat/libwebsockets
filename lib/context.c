@@ -83,7 +83,7 @@ lws_role_call_alpn_negotiated(struct lws *wsi, const char *alpn)
 	lwsl_info("%s: '%s'\n", __func__, alpn);
 
 	LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar)
-		if (!strcmp(ar->alpn, alpn) && ar->alpn_negotiated)
+		if (ar->alpn && !strcmp(ar->alpn, alpn) && ar->alpn_negotiated)
 			return ar->alpn_negotiated(wsi, alpn);
 	LWS_FOR_EVERY_AVAILABLE_ROLE_END;
 #endif
