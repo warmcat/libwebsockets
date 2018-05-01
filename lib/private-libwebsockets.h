@@ -199,9 +199,7 @@
 
 #include "libwebsockets.h"
 
-#if defined(LWS_WITH_TLS)
- #include "tls/private.h"
-#endif
+#include "tls/private.h"
 
 #if defined(WIN32) || defined(_WIN32)
  #include <gettimeofday.h>
@@ -548,7 +546,7 @@ struct lws_context_per_thread {
 	struct lws_dll_lws dll_head_buflist; /* guys with pending rxflow */
 
 #if defined(LWS_WITH_TLS)
-	struct lws *pending_read_list; /* linked list */
+	struct lws_pt_tls tls;
 #endif
 
 	struct lws_pollfd *fds;
@@ -633,15 +631,11 @@ struct lws_timed_vh_protocol {
  *    SSL SNI -> wsi -> bind after SSL negotiation
  */
 
-struct lws_tls_ss_pieces;
-
-struct alpn_ctx {
-	uint8_t data[23];
-	uint8_t len;
-};
 
 struct lws_vhost {
+#if !defined(LWS_WITHOUT_CLIENT)
 	char proxy_basic_auth_token[128];
+#endif
 #if LWS_MAX_SMP > 1
 	pthread_mutex_t lock;
 #endif
@@ -671,8 +665,7 @@ struct lws_vhost {
 	struct lws *lserv_wsi;
 	const char *name;
 	const char *iface;
-	char *alloc_cert_path;
-	char *key_path;
+
 #if !defined(LWS_WITH_ESP32) && !defined(OPTEE_TA) && !defined(WIN32)
 	int bind_iface;
 #endif
@@ -686,16 +679,8 @@ struct lws_vhost {
 	struct lws_dll_lws dll_active_client_conns;
 #endif
 
-	const char *alpn;
 #if defined(LWS_WITH_TLS)
-	lws_tls_ctx *ssl_ctx;
-	lws_tls_ctx *ssl_client_ctx;
-	struct lws_tls_ss_pieces *ss; /* for acme tls certs */
-	char ecdh_curve[16];
-	struct alpn_ctx alpn_ctx;
-#endif
-#if defined(LWS_WITH_MBEDTLS)
-	lws_tls_x509 *x509_client_CA;
+	struct lws_vhost_tls tls;
 #endif
 
 	struct lws_timed_vh_protocol *timed_vh_protocol_list;
@@ -713,21 +698,13 @@ struct lws_vhost {
 	int ka_interval;
 	int keepalive_timeout;
 	int timeout_secs_ah_idle;
-	int ssl_info_event_mask;
+
 #ifdef LWS_WITH_ACCESS_LOG
 	int log_fd;
 #endif
 
-#if defined(LWS_WITH_TLS)
-	int use_ssl;
-	int allow_non_ssl_on_ssl_port;
-	unsigned int user_supplied_ssl_ctx:1;
-#endif
-
 	unsigned int created_vhost_protocols:1;
 	unsigned int being_destroyed:1;
-	unsigned int skipped_certs:1;
-	unsigned int acme_challenge:1;
 
 	unsigned char default_protocol_index;
 	unsigned char raw_protocol_index;
@@ -786,6 +763,9 @@ struct lws_context {
 	const struct lws_plat_file_ops *fops;
 	struct lws_plat_file_ops fops_platform;
 	struct lws_context **pcontext_finalize;
+
+	const struct lws_tls_ops *tls_ops;
+
 #if defined(LWS_WITH_HTTP2)
 	struct http2_settings set;
 #endif
@@ -818,9 +798,7 @@ struct lws_context {
 	void *external_baggage_free_on_destroy;
 	const struct lws_token_limits *token_limits;
 	void *user_space;
-	const char *server_string;
 	const struct lws_protocol_vhost_options *reject_service_keywords;
-	const char *alpn_default;
 	lws_reload_func deprecation_cb;
 	void (*eventlib_signal_cb)(void *event_lib_handle, int signum);
 
@@ -841,7 +819,13 @@ struct lws_context {
 	struct lws_event_loop_ops *event_loop_ops;
 
 
+#if defined(LWS_WITH_TLS)
+	struct lws_context_tls tls;
+#endif
+
 	char canonical_hostname[128];
+	const char *server_string;
+
 #ifdef LWS_LATENCY
 	unsigned long worst_latency;
 	char worst_latency_info[256];
@@ -885,7 +869,6 @@ struct lws_context {
 	unsigned int being_destroyed2:1;
 	unsigned int requested_kill:1;
 	unsigned int protocol_init_done:1;
-	unsigned int ssl_gate_accepts:1;
 	unsigned int doing_protocol_init:1;
 	unsigned int done_protocol_destroy_cb:1;
 	unsigned int finalize_destroy_after_internal_loops_stopped:1;
@@ -1014,6 +997,7 @@ struct lws_buflist {
 
 #define LWS_H2_FRAME_HEADER_LENGTH 9
 
+
 struct lws {
 	/* structs */
 
@@ -1027,7 +1011,7 @@ struct lws {
 	struct _lws_websocket_related *ws; /* allocated if we upgrade to ws */
 #endif
 
-	struct lws_role_ops *role_ops;
+	const struct lws_role_ops *role_ops;
 	lws_wsi_state_t	wsistate;
 	lws_wsi_state_t wsistate_pre_close;
 
@@ -1076,9 +1060,7 @@ struct lws {
 	unsigned char *trunc_alloc; /* non-NULL means buffering in progress */
 
 #if defined(LWS_WITH_TLS)
-	lws_tls_conn *ssl;
-	lws_tls_bio *client_bio;
-	struct lws *pending_read_list_prev, *pending_read_list_next;
+	struct lws_lws_tls tls;
 #endif
 
 #ifdef LWS_LATENCY
@@ -1096,8 +1078,6 @@ struct lws {
 
 	lws_usec_t pending_timer;
 	time_t pending_timeout_set;
-
-
 
 	/* ints */
 	int position_in_fds_table;
@@ -1160,10 +1140,6 @@ struct lws {
 	unsigned int client_h2_substream:1;
 #endif
 
-#if defined(LWS_WITH_TLS)
-	unsigned int use_ssl;
-	unsigned int redirect_to_https:1;
-#endif
 #ifdef _WIN32
 	unsigned int sock_send_blocking:1;
 #endif
@@ -1426,7 +1402,6 @@ LWS_EXTERN void lwsl_emit_stderr(int level, const char *line);
  #define lws_ssl_remove_wsi_from_buffered_list(_a)
  #define __lws_ssl_remove_wsi_from_buffered_list(_a)
  #define lws_context_init_ssl_library(_a)
- #define lws_ssl_anybody_has_buffered_read_tsi(_a, _b) (0)
  #define lws_tls_check_all_cert_lifetimes(_a)
  #define lws_tls_acme_sni_cert_destroy(_a)
 #endif

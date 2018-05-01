@@ -90,8 +90,8 @@ lws_client_connect_2(struct lws *wsi)
 		if (w != wsi && w->client_hostname_copy &&
 		    !strcmp(adsin, w->client_hostname_copy) &&
 #if defined(LWS_WITH_TLS)
-		    (wsi->use_ssl & LCCSCF_USE_SSL) ==
-		     (w->use_ssl & LCCSCF_USE_SSL) &&
+		    (wsi->tls.use_ssl & LCCSCF_USE_SSL) ==
+		     (w->tls.use_ssl & LCCSCF_USE_SSL) &&
 #endif
 		    wsi->c_port == w->c_port) {
 
@@ -658,7 +658,7 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	__remove_wsi_socket_from_fds(wsi);
 
 #if defined(LWS_WITH_TLS)
-	wsi->use_ssl = ssl;
+	wsi->tls.use_ssl = ssl;
 #else
 	if (ssl) {
 		lwsl_err("%s: not configured for ssl\n", __func__);
@@ -971,7 +971,7 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 				goto bail;
 
 #if defined(LWS_WITH_TLS)
-	wsi->use_ssl = i->ssl_connection;
+	wsi->tls.use_ssl = i->ssl_connection;
 #else
 	if (i->ssl_connection & LCCSCF_USE_SSL) {
 		lwsl_err("libwebsockets not configured for ssl\n");

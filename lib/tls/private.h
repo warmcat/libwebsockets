@@ -21,6 +21,8 @@
  *  This is included from private-libwebsockets.h if LWS_WITH_TLS
  */
 
+#if defined(LWS_WITH_TLS)
+
 #if defined(USE_WOLFSSL)
  #if defined(USE_OLD_CYASSL)
   #if defined(_WIN32)
@@ -79,18 +81,77 @@
  #endif /* not ESP32 */
 #endif /* not USE_WOLFSSL */
 
-typedef SSL lws_tls_conn;
-typedef SSL_CTX lws_tls_ctx;
-typedef BIO lws_tls_bio;
-typedef X509 lws_tls_x509;
-
-#define LWS_SSL_ENABLED(context) (context->use_ssl)
+#endif /* LWS_WITH_TLS */
 
 enum lws_tls_extant {
 	LWS_TLS_EXTANT_NO,
 	LWS_TLS_EXTANT_YES,
 	LWS_TLS_EXTANT_ALTERNATIVE
 };
+
+struct lws_context_per_thread;
+
+struct lws_tls_ops {
+	int (*fake_POLLIN_for_buffered)(struct lws_context_per_thread *pt);
+};
+
+#if defined(LWS_WITH_TLS)
+
+typedef SSL lws_tls_conn;
+typedef SSL_CTX lws_tls_ctx;
+typedef BIO lws_tls_bio;
+typedef X509 lws_tls_x509;
+
+
+#define LWS_SSL_ENABLED(context) (context->tls.use_ssl)
+
+extern const struct lws_tls_ops tls_ops_openssl, tls_ops_mbedtls;
+
+struct lws_context_tls {
+	char alpn_discovered[32];
+	const char *alpn_default;
+};
+
+struct lws_pt_tls {
+	struct lws *pending_read_list; /* linked list */
+};
+
+struct lws_tls_ss_pieces;
+
+struct alpn_ctx {
+	uint8_t data[23];
+	uint8_t len;
+};
+
+struct lws_vhost_tls {
+	lws_tls_ctx *ssl_ctx;
+	lws_tls_ctx *ssl_client_ctx;
+	const char *alpn;
+	struct lws_tls_ss_pieces *ss; /* for acme tls certs */
+	char *alloc_cert_path;
+	char *key_path;
+#if defined(LWS_WITH_MBEDTLS)
+	lws_tls_x509 *x509_client_CA;
+#endif
+	char ecdh_curve[16];
+	struct alpn_ctx alpn_ctx;
+
+	int use_ssl;
+	int allow_non_ssl_on_ssl_port;
+	int ssl_info_event_mask;
+
+	unsigned int user_supplied_ssl_ctx:1;
+	unsigned int skipped_certs:1;
+};
+
+struct lws_lws_tls {
+	lws_tls_conn *ssl;
+	lws_tls_bio *client_bio;
+	struct lws *pending_read_list_prev, *pending_read_list_next;
+	unsigned int use_ssl;
+	unsigned int redirect_to_https:1;
+};
+
 LWS_EXTERN void
 lws_context_init_alpn(struct lws_vhost *vhost);
 LWS_EXTERN enum lws_tls_extant
@@ -125,7 +186,7 @@ lws_ssl_client_connect2(struct lws *wsi, char *errbuf, int len);
 LWS_EXTERN void
 lws_ssl_elaborate_error(void);
 LWS_EXTERN int
-lws_ssl_anybody_has_buffered_read_tsi(struct lws_context *context, int tsi);
+lws_tls_fake_POLLIN_for_buffered(struct lws_context_per_thread *pt);
 LWS_EXTERN int
 lws_gate_accepts(struct lws_context *context, int on);
 LWS_EXTERN void
@@ -211,3 +272,8 @@ lws_context_init_client_ssl(const struct lws_context_creation_info *info,
 
 LWS_EXTERN void
 lws_ssl_info_callback(const lws_tls_conn *ssl, int where, int ret);
+
+int
+lws_tls_fake_POLLIN_for_buffered(struct lws_context_per_thread *pt);
+
+#endif

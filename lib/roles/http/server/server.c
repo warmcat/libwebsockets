@@ -952,7 +952,7 @@ lws_http_action(struct lws *wsi)
 	lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
 			wsi->context->timeout_secs);
 #ifdef LWS_WITH_TLS
-	if (wsi->redirect_to_https) {
+	if (wsi->tls.redirect_to_https) {
 		/*
 		 * we accepted http:// only so we could redirect to
 		 * https://, so issue the redirect.  Create the redirection
@@ -1681,7 +1681,7 @@ lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi)
 	new_wsi->hdr_parsing_completed = 0;
 
 #ifdef LWS_WITH_TLS
-	new_wsi->use_ssl = LWS_SSL_ENABLED(vhost);
+	new_wsi->tls.use_ssl = LWS_SSL_ENABLED(vhost);
 #endif
 
 	/*
@@ -1779,7 +1779,7 @@ lws_http_transaction_completed(struct lws *wsi)
 			 * SSL is scarce, drop this connection without waiting
 			 */
 
-			if (wsi->vhost->use_ssl &&
+			if (wsi->vhost->tls.use_ssl &&
 			    wsi->context->simultaneous_ssl_restriction &&
 			    wsi->context->simultaneous_ssl ==
 				   wsi->context->simultaneous_ssl_restriction) {

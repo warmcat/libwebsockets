@@ -115,14 +115,14 @@ int lws_context_init_client_ssl(const struct lws_context_creation_info *info,
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT))
 		return 0;
 
-	if (vhost->ssl_client_ctx)
+	if (vhost->tls.ssl_client_ctx)
 		return 0;
 
 	if (info->provided_client_ssl_ctx) {
 		/* use the provided OpenSSL context if given one */
-		vhost->ssl_client_ctx = info->provided_client_ssl_ctx;
+		vhost->tls.ssl_client_ctx = info->provided_client_ssl_ctx;
 		/* nothing for lib to delete */
-		vhost->user_supplied_ssl_ctx = 1;
+		vhost->tls.user_supplied_ssl_ctx = 1;
 
 		return 0;
 	}
@@ -144,7 +144,7 @@ int lws_context_init_client_ssl(const struct lws_context_creation_info *info,
 
 	vhost->protocols[0].callback(&wsi,
 			LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS,
-				       vhost->ssl_client_ctx, NULL, 0);
+				       vhost->tls.ssl_client_ctx, NULL, 0);
 
 	return 0;
 }

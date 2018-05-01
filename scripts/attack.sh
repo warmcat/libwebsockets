@@ -554,15 +554,17 @@ for i in \
 /a/w/../a \
 /path/to/dir/../other/dir \
 ; do
-
-R=`rm -f /tmp/lwscap ; echo -n -e "GET $i HTTP/1.0\r\n\r\n" | $LWS_NC --server $SERVER --port $PORT 2>/dev/null > /tmp/lwscap; head -n1 /tmp/lwscap| cut -d' ' -f2`
-
+LEN=`stat $LOG -c %s`
+rm -f /tmp/lwscap1
+echo -n -e "GET $i HTTP/1.0\r\n\r\n" | $LWS_NC --server $SERVER --port $PORT 2>/dev/null > /tmp/lwscap1
+R=`cat /tmp/lwscap1| head -n 1 | cut -d' ' -f 2`
 #cat $LOG
 #echo ==== $R
 
 
 if [ "$R" != "403" ]; then
-	U=`cat $LOG | grep Method: | tail -n 1 | cut -d"'" -f4 | sed "s|\\'||g"`
+	U=`dd if=$LOG bs=1 skip=$LEN 2>/dev/null| grep "Method:" | tr -s ' ' | cut -d"'" -f4`
+#dd if=$LOG bs=1 skip=$LEN 2>/dev/null
 	echo "- \"$i\" -> $R \"$U\"" >>/tmp/results
 else
 	echo "- \"$i\" -> $R" >>/tmp/results

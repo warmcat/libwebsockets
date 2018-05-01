@@ -51,7 +51,7 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 		 * another vhost may also have had POLLIN on his
 		 * listener this round and used it up already
 		 */
-		if (wsi->vhost->use_ssl &&
+		if (wsi->vhost->tls.use_ssl &&
 		    context->simultaneous_ssl_restriction &&
 		    context->simultaneous_ssl ==
 				  context->simultaneous_ssl_restriction)

@@ -15,6 +15,10 @@ echo
 
 LOGGING_PATH=/tmp/logs
 
+# for mebedtls, we need the CA certs in ./build where we run from
+
+cp ../minimal-examples/http-client/minimal-http-client-multi/warmcat.com.cer .
+cp ../minimal-examples/http-client/minimal-http-client-post/libwebsockets.org.cer .
 
 MINEX=`dirname $0`
 MINEX=`realpath $MINEX`

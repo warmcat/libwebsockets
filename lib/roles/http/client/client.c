@@ -309,13 +309,13 @@ start_ws_handshake:
 #if defined(LWS_WITH_TLS)
 		/* we can retry this... just cook the SSL BIO the first time */
 
-		if ((wsi->use_ssl & LCCSCF_USE_SSL) && !wsi->ssl &&
+		if ((wsi->tls.use_ssl & LCCSCF_USE_SSL) && !wsi->tls.ssl &&
 		    lws_ssl_client_bio_create(wsi) < 0) {
 			cce = "bio_create failed";
 			goto bail3;
 		}
 
-		if (wsi->use_ssl & LCCSCF_USE_SSL) {
+		if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
 			n = lws_ssl_client_connect1(wsi);
 			if (!n)
 				return 0;
@@ -324,13 +324,13 @@ start_ws_handshake:
 				goto bail3;
 			}
 		} else
-			wsi->ssl = NULL;
+			wsi->tls.ssl = NULL;
 
 		/* fallthru */
 
 	case LRS_WAITING_SSL:
 
-		if (wsi->use_ssl & LCCSCF_USE_SSL) {
+		if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
 			n = lws_ssl_client_connect2(wsi, ebuf, sizeof(ebuf));
 			if (!n)
 				return 0;
@@ -339,7 +339,7 @@ start_ws_handshake:
 				goto bail3;
 			}
 		} else
-			wsi->ssl = NULL;
+			wsi->tls.ssl = NULL;
 #endif
 #if defined (LWS_WITH_HTTP2)
 		if (wsi->client_h2_alpn) {
@@ -746,7 +746,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		/* Relative reference absolute path */
 		if (p[0] == '/') {
 #if defined(LWS_WITH_TLS)
-			ssl = wsi->use_ssl & LCCSCF_USE_SSL;
+			ssl = wsi->tls.use_ssl & LCCSCF_USE_SSL;
 #endif
 			ads = lws_hdr_simple_ptr(wsi,
 						 _WSI_TOKEN_CLIENT_PEER_ADDRESS);
@@ -769,7 +769,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			/* This doesn't try to calculate an absolute path,
 			 * that will be left to the server */
 #if defined(LWS_WITH_TLS)
-			ssl = wsi->use_ssl & LCCSCF_USE_SSL;
+			ssl = wsi->tls.use_ssl & LCCSCF_USE_SSL;
 #endif
 			ads = lws_hdr_simple_ptr(wsi,
 						 _WSI_TOKEN_CLIENT_PEER_ADDRESS);
@@ -787,7 +787,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		}
 
 #if defined(LWS_WITH_TLS)
-		if ((wsi->use_ssl & LCCSCF_USE_SSL) && !ssl) {
+		if ((wsi->tls.use_ssl & LCCSCF_USE_SSL) && !ssl) {
 			cce = "HS: Redirect attempted SSL downgrade";
 			goto bail3;
 		}

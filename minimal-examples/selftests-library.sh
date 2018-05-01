@@ -42,10 +42,12 @@ spawn() {
 		fi
 	fi
 
+	QQ=`pwd`
 	cd $SCRIPT_DIR
 	cd $2
 	$3 $4 $5 > $LOGPATH/$MYTEST/serverside.log 2> $LOGPATH/$MYTEST/serverside.log &
 	SPID=$!
+	cd $QQ
 	sleep 0.5s
 #	echo "launched prerequisite $SPID"
 }
@@ -80,6 +82,7 @@ dotest() {
 		R=`cat $2/$MYTEST/$T.result`
 		cat $2/$MYTEST/$T.log | tail -n 3 > $2/$MYTEST/$T.time
 		if [ $R -ne 0 ] ; then
+			pwd
 			echo
 			cat $2/$MYTEST/$T.log
 			echo

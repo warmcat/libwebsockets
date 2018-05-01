@@ -45,13 +45,13 @@ lws_ssl_destroy(struct lws_vhost *vhost)
 			   LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT))
 		return;
 
-	if (vhost->ssl_ctx)
-		SSL_CTX_free(vhost->ssl_ctx);
-	if (!vhost->user_supplied_ssl_ctx && vhost->ssl_client_ctx)
-		SSL_CTX_free(vhost->ssl_client_ctx);
+	if (vhost->tls.ssl_ctx)
+		SSL_CTX_free(vhost->tls.ssl_ctx);
+	if (!vhost->tls.user_supplied_ssl_ctx && vhost->tls.ssl_client_ctx)
+		SSL_CTX_free(vhost->tls.ssl_client_ctx);
 
-	if (vhost->x509_client_CA)
-		X509_free(vhost->x509_client_CA);
+	if (vhost->tls.x509_client_CA)
+		X509_free(vhost->tls.x509_client_CA);
 }
 
 LWS_VISIBLE int
@@ -61,13 +61,13 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	int n = 0, m;
 
-	if (!wsi->ssl)
+	if (!wsi->tls.ssl)
 		return lws_ssl_capable_read_no_ssl(wsi, buf, len);
 
 	lws_stats_atomic_bump(context, pt, LWSSTATS_C_API_READ, 1);
 
 	errno = 0;
-	n = SSL_read(wsi->ssl, buf, len);
+	n = SSL_read(wsi->tls.ssl, buf, len);
 #if defined(LWS_WITH_ESP32)
 	if (!n && errno == ENOTCONN) {
 		lwsl_debug("%p: SSL_read ENOTCONN\n", wsi);
@@ -95,18 +95,18 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 	}
 
 	if (n < 0) {
-		m = SSL_get_error(wsi->ssl, n);
+		m = SSL_get_error(wsi->tls.ssl, n);
 		lwsl_debug("%p: ssl err %d errno %d\n", wsi, m, errno);
 		if (m == SSL_ERROR_ZERO_RETURN ||
 		    m == SSL_ERROR_SYSCALL)
 			return LWS_SSL_CAPABLE_ERROR;
 
-		if (m == SSL_ERROR_WANT_READ || SSL_want_read(wsi->ssl)) {
+		if (m == SSL_ERROR_WANT_READ || SSL_want_read(wsi->tls.ssl)) {
 			lwsl_debug("%s: WANT_READ\n", __func__);
 			lwsl_debug("%p: LWS_SSL_CAPABLE_MORE_SERVICE\n", wsi);
 			return LWS_SSL_CAPABLE_MORE_SERVICE;
 		}
-		if (m == SSL_ERROR_WANT_WRITE || SSL_want_write(wsi->ssl)) {
+		if (m == SSL_ERROR_WANT_WRITE || SSL_want_write(wsi->tls.ssl)) {
 			lwsl_debug("%s: WANT_WRITE\n", __func__);
 			lwsl_debug("%p: LWS_SSL_CAPABLE_MORE_SERVICE\n", wsi);
 			return LWS_SSL_CAPABLE_MORE_SERVICE;
@@ -132,26 +132,26 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 	 */
 	if (n != len)
 		goto bail;
-	if (!wsi->ssl)
+	if (!wsi->tls.ssl)
 		goto bail;
 
-	if (!SSL_pending(wsi->ssl))
+	if (!SSL_pending(wsi->tls.ssl))
 		goto bail;
 
-	if (wsi->pending_read_list_next)
+	if (wsi->tls.pending_read_list_next)
 		return n;
-	if (wsi->pending_read_list_prev)
+	if (wsi->tls.pending_read_list_prev)
 		return n;
-	if (pt->pending_read_list == wsi)
+	if (pt->tls.pending_read_list == wsi)
 		return n;
 
 	/* add us to the linked list of guys with pending ssl */
-	if (pt->pending_read_list)
-		pt->pending_read_list->pending_read_list_prev = wsi;
+	if (pt->tls.pending_read_list)
+		pt->tls.pending_read_list->tls.pending_read_list_prev = wsi;
 
-	wsi->pending_read_list_next = pt->pending_read_list;
-	wsi->pending_read_list_prev = NULL;
-	pt->pending_read_list = wsi;
+	wsi->tls.pending_read_list_next = pt->tls.pending_read_list;
+	wsi->tls.pending_read_list_prev = NULL;
+	pt->tls.pending_read_list = wsi;
 
 	return n;
 bail:
@@ -163,10 +163,10 @@ bail:
 LWS_VISIBLE int
 lws_ssl_pending(struct lws *wsi)
 {
-	if (!wsi->ssl)
+	if (!wsi->tls.ssl)
 		return 0;
 
-	return SSL_pending(wsi->ssl);
+	return SSL_pending(wsi->tls.ssl);
 }
 
 LWS_VISIBLE int
@@ -174,22 +174,22 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, int len)
 {
 	int n, m;
 
-	if (!wsi->ssl)
+	if (!wsi->tls.ssl)
 		return lws_ssl_capable_write_no_ssl(wsi, buf, len);
 
-	n = SSL_write(wsi->ssl, buf, len);
+	n = SSL_write(wsi->tls.ssl, buf, len);
 	if (n > 0)
 		return n;
 
-	m = SSL_get_error(wsi->ssl, n);
+	m = SSL_get_error(wsi->tls.ssl, n);
 	if (m != SSL_ERROR_SYSCALL) {
-		if (m == SSL_ERROR_WANT_READ || SSL_want_read(wsi->ssl)) {
+		if (m == SSL_ERROR_WANT_READ || SSL_want_read(wsi->tls.ssl)) {
 			lwsl_notice("%s: want read\n", __func__);
 
 			return LWS_SSL_CAPABLE_MORE_SERVICE;
 		}
 
-		if (m == SSL_ERROR_WANT_WRITE || SSL_want_write(wsi->ssl)) {
+		if (m == SSL_ERROR_WANT_WRITE || SSL_want_write(wsi->tls.ssl)) {
 			lws_set_blocking_send(wsi);
 			lwsl_notice("%s: want write\n", __func__);
 
@@ -221,7 +221,7 @@ lws_ssl_info_callback(const SSL *ssl, int where, int ret)
 	if (!wsi)
 		return;
 
-	if (!(where & wsi->vhost->ssl_info_event_mask))
+	if (!(where & wsi->vhost->tls.ssl_info_event_mask))
 		return;
 
 	si.where = where;
@@ -239,23 +239,23 @@ lws_ssl_close(struct lws *wsi)
 {
 	lws_sockfd_type n;
 
-	if (!wsi->ssl)
+	if (!wsi->tls.ssl)
 		return 0; /* not handled */
 
 #if defined (LWS_HAVE_SSL_SET_INFO_CALLBACK)
 	/* kill ssl callbacks, becausse we will remove the fd from the
 	 * table linking it to the wsi
 	 */
-	if (wsi->vhost->ssl_info_event_mask)
-		SSL_set_info_callback(wsi->ssl, NULL);
+	if (wsi->vhost->tls.ssl_info_event_mask)
+		SSL_set_info_callback(wsi->tls.ssl, NULL);
 #endif
 
-	n = SSL_get_fd(wsi->ssl);
+	n = SSL_get_fd(wsi->tls.ssl);
 	if (!wsi->socket_is_permanently_unusable)
-		SSL_shutdown(wsi->ssl);
+		SSL_shutdown(wsi->tls.ssl);
 	compatible_close(n);
-	SSL_free(wsi->ssl);
-	wsi->ssl = NULL;
+	SSL_free(wsi->tls.ssl);
+	wsi->tls.ssl = NULL;
 
 	if (!lwsi_role_client(wsi) &&
 	    wsi->context->simultaneous_ssl_restriction &&
@@ -274,11 +274,11 @@ lws_ssl_close(struct lws *wsi)
 void
 lws_ssl_SSL_CTX_destroy(struct lws_vhost *vhost)
 {
-	if (vhost->ssl_ctx)
-		SSL_CTX_free(vhost->ssl_ctx);
+	if (vhost->tls.ssl_ctx)
+		SSL_CTX_free(vhost->tls.ssl_ctx);
 
-	if (!vhost->user_supplied_ssl_ctx && vhost->ssl_client_ctx)
-		SSL_CTX_free(vhost->ssl_client_ctx);
+	if (!vhost->tls.user_supplied_ssl_ctx && vhost->tls.ssl_client_ctx)
+		SSL_CTX_free(vhost->tls.ssl_client_ctx);
 #if defined(LWS_WITH_ACME)
 	lws_tls_acme_sni_cert_destroy(vhost);
 #endif
@@ -292,16 +292,16 @@ lws_ssl_context_destroy(struct lws_context *context)
 lws_tls_ctx *
 lws_tls_ctx_from_wsi(struct lws *wsi)
 {
-	if (!wsi->ssl)
+	if (!wsi->tls.ssl)
 		return NULL;
 
-	return SSL_get_SSL_CTX(wsi->ssl);
+	return SSL_get_SSL_CTX(wsi->tls.ssl);
 }
 
 enum lws_ssl_capable_status
 __lws_tls_shutdown(struct lws *wsi)
 {
-	int n = SSL_shutdown(wsi->ssl);
+	int n = SSL_shutdown(wsi->tls.ssl);
 
 	lwsl_debug("SSL_shutdown=%d for fd %d\n", n, wsi->desc.sockfd);
 
@@ -315,14 +315,14 @@ __lws_tls_shutdown(struct lws *wsi)
 		return LWS_SSL_CAPABLE_MORE_SERVICE;
 
 	default: /* fatal error, or WANT */
-		n = SSL_get_error(wsi->ssl, n);
+		n = SSL_get_error(wsi->tls.ssl, n);
 		if (n != SSL_ERROR_SYSCALL && n != SSL_ERROR_SSL) {
-			if (SSL_want_read(wsi->ssl)) {
+			if (SSL_want_read(wsi->tls.ssl)) {
 				lwsl_debug("(wants read)\n");
 				__lws_change_pollfd(wsi, 0, LWS_POLLIN);
 				return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
 			}
-			if (SSL_want_write(wsi->ssl)) {
+			if (SSL_want_write(wsi->tls.ssl)) {
 				lwsl_debug("(wants write)\n");
 				__lws_change_pollfd(wsi, 0, LWS_POLLOUT);
 				return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
@@ -466,7 +466,7 @@ LWS_VISIBLE LWS_EXTERN int
 lws_tls_vhost_cert_info(struct lws_vhost *vhost, enum lws_tls_cert_info type,
 		        union lws_tls_cert_info_results *buf, size_t len)
 {
-	mbedtls_x509_crt *x509 = ssl_ctx_get_mbedtls_x509_crt(vhost->ssl_ctx);
+	mbedtls_x509_crt *x509 = ssl_ctx_get_mbedtls_x509_crt(vhost->tls.ssl_ctx);
 
 	return lws_tls_mbedtls_cert_info(x509, type, buf, len);
 }
@@ -479,14 +479,14 @@ lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
 
 	wsi = lws_get_network_wsi(wsi);
 
-	x509 = ssl_get_peer_mbedtls_x509_crt(wsi->ssl);
+	x509 = ssl_get_peer_mbedtls_x509_crt(wsi->tls.ssl);
 
 	if (!x509)
 		return -1;
 
 	switch (type) {
 	case LWS_TLS_CERT_INFO_VERIFIED:
-		buf->verified = SSL_get_verify_result(wsi->ssl) == X509_V_OK;
+		buf->verified = SSL_get_verify_result(wsi->tls.ssl) == X509_V_OK;
 		return 0;
 	default:
 		return lws_tls_mbedtls_cert_info(x509, type, buf, len);
@@ -494,3 +494,14 @@ lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
 
 	return -1;
 }
+
+static int
+tops_fake_POLLIN_for_buffered_mbedtls(struct lws_context_per_thread *pt)
+{
+	return lws_tls_fake_POLLIN_for_buffered(pt);
+}
+
+const struct lws_tls_ops tls_ops_mbedtls = {
+	/* fake_POLLIN_for_buffered */	tops_fake_POLLIN_for_buffered_mbedtls,
+
+};

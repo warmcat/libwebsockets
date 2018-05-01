@@ -217,15 +217,21 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		}
 	}
 
-#if defined(LWS_WITH_TLS)
-	if (!pt->ws.rx_draining_ext_list &&
-	    !lws_ssl_anybody_has_buffered_read_tsi(context, tsi) && !n) {
-#else
-	if (!pt->ws.rx_draining_ext_list && !n) /* poll timeout */ {
+	m = 0;
+
+#if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
+	m |= !!pt->ws.rx_draining_ext_list;
 #endif
+
+	if (pt->context->tls_ops &&
+	    pt->context->tls_ops->fake_POLLIN_for_buffered)
+		m |= pt->context->tls_ops->fake_POLLIN_for_buffered(pt);
+
+	if (!m && !n) {
 		lws_service_fd_tsi(context, NULL, tsi);
 		return 0;
 	}
+
 
 faked_service:
 	m = lws_service_flag_pending(context, tsi);
@@ -1792,9 +1798,9 @@ lws_esp32_selfsigned(struct lws_vhost *vhost)
 	}
 
 	n = 0;
-	if (!nvs_get_blob(nvh, vhost->alloc_cert_path, NULL, &s))
+	if (!nvs_get_blob(nvh, vhost->tls.alloc_cert_path, NULL, &s))
 		n |= 1;
-	if (!nvs_get_blob(nvh, vhost->key_path, NULL, &s))
+	if (!nvs_get_blob(nvh, vhost->tls.key_path, NULL, &s))
 		n |= 2;
 
 	nvs_close(nvh);
@@ -2041,7 +2047,7 @@ lws_plat_write_cert(struct lws_vhost *vhost, int is_key, int fd, void *buf,
 	const char *name = vhost->alloc_cert_path;
 
 	if (is_key)
-		name = vhost->key_path;
+		name = vhost->tls.key_path;
 
 	return lws_plat_write_file(name, buf, len) < 0;
 }

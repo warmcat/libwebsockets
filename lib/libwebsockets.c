@@ -733,7 +733,7 @@ just_kill_connection:
 	    !wsi->socket_is_permanently_unusable) {
 
 #if defined(LWS_WITH_TLS)
-	if (lws_is_ssl(wsi) && wsi->ssl) {
+	if (lws_is_ssl(wsi) && wsi->tls.ssl) {
 		n = 0;
 		switch (__lws_tls_shutdown(wsi)) {
 		case LWS_SSL_CAPABLE_DONE:
@@ -1703,6 +1703,7 @@ int user_callback_handle_rxflow(lws_callback_function callback_function,
 	return n;
 }
 
+#if !defined(LWS_WITHOUT_CLIENT)
 LWS_VISIBLE int
 lws_set_proxy(struct lws_vhost *vhost, const char *proxy)
 {
@@ -1761,6 +1762,7 @@ auth_too_long:
 
 	return -1;
 }
+#endif
 
 #if defined(LWS_WITH_SOCKS5)
 LWS_VISIBLE int
@@ -2061,7 +2063,7 @@ LWS_VISIBLE int
 lws_is_ssl(struct lws *wsi)
 {
 #if defined(LWS_WITH_TLS)
-	return wsi->use_ssl & LCCSCF_USE_SSL;
+	return wsi->tls.use_ssl & LCCSCF_USE_SSL;
 #else
 	(void)wsi;
 	return 0;
@@ -2072,7 +2074,7 @@ lws_is_ssl(struct lws *wsi)
 LWS_VISIBLE lws_tls_conn*
 lws_get_ssl(struct lws *wsi)
 {
-	return wsi->ssl;
+	return wsi->tls.ssl;
 }
 #endif
 
@@ -2974,7 +2976,7 @@ lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len)
 			,
 			vh->name, vh->listen_port,
 #if defined(LWS_WITH_TLS)
-			vh->use_ssl & LCCSCF_USE_SSL,
+			vh->tls.use_ssl & LCCSCF_USE_SSL,
 #else
 			0,
 #endif
@@ -3304,10 +3306,9 @@ lws_stats_log_dump(struct lws_context *context)
 			(unsigned long long)(lws_stats_get(context,
 					LWSSTATS_MS_WRITABLE_DELAY) /
 			lws_stats_get(context, LWSSTATS_C_WRITEABLE_CB)));
-	lwsl_notice("Simultaneous SSL restriction:               %8d/%d/%d\n",
+	lwsl_notice("Simultaneous SSL restriction:               %8d/%d\n",
 			context->simultaneous_ssl,
-			context->simultaneous_ssl_restriction,
-			context->ssl_gate_accepts);
+			context->simultaneous_ssl_restriction);
 
 	lwsl_notice("Live wsi:                                   %8d\n",
 			context->count_wsi_allocated);

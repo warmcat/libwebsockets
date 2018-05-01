@@ -791,7 +791,7 @@ lws_server_init_wsi_for_ws(struct lws *wsi)
 		if (wsi->protocol->callback(wsi, LWS_CALLBACK_ESTABLISHED,
 					    wsi->user_space,
 #ifdef LWS_WITH_TLS
-					    wsi->ssl,
+					    wsi->tls.ssl,
 #else
 					    NULL,
 #endif

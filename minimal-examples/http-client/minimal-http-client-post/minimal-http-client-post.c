@@ -240,7 +240,8 @@ int main(int argc, const char **argv)
 	 * OpenSSL uses the system trust store.  mbedTLS has to be told which
 	 * CA to trust explicitly.
 	 */
-	info.client_ssl_ca_filepath = "./libwebsockets.org.cer";
+	if (!lws_cmdline_option(argc, argv, "-l"))
+		info.client_ssl_ca_filepath = "./libwebsockets.org.cer";
 #endif
 
 	context = lws_create_context(&info);

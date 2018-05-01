@@ -262,6 +262,10 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 
 		WSAResetEvent(pt->events[0]);
 
+		if (pt->context->tls_ops &&
+		    pt->context->tls_ops->fake_POLLIN_for_buffered)
+			pt->context->tls_ops->fake_POLLIN_for_buffered(pt);
+
 		for (eIdx = 0; eIdx < pt->fds_count; ++eIdx) {
 			if (WSAEnumNetworkEvents(pt->fds[eIdx].fd, 0,
 					&networkevents) == SOCKET_ERROR) {
@@ -302,7 +306,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	if (ev == WSA_WAIT_TIMEOUT)
 		lws_service_fd(context, NULL);
 
-	return 0;;
+	return 0;
 }
 
 LWS_VISIBLE int

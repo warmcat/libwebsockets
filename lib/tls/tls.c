@@ -21,24 +21,29 @@
 
 #include "private-libwebsockets.h"
 
-int
-lws_ssl_anybody_has_buffered_read_tsi(struct lws_context *context, int tsi)
-{
-	struct lws_context_per_thread *pt = &context->pt[tsi];
-	struct lws *wsi, *wsi_next;
+/*
+ * fakes POLLIN on all tls guys with buffered rx
+ *
+ * returns nonzero if any tls guys had POLLIN faked
+ */
 
-	wsi = pt->pending_read_list;
+int
+lws_tls_fake_POLLIN_for_buffered(struct lws_context_per_thread *pt)
+{
+	struct lws *wsi, *wsi_next;
+	int ret = 0;
+
+	wsi = pt->tls.pending_read_list;
 	while (wsi) {
-		wsi_next = wsi->pending_read_list_next;
+		wsi_next = wsi->tls.pending_read_list_next;
 		pt->fds[wsi->position_in_fds_table].revents |=
 			pt->fds[wsi->position_in_fds_table].events & LWS_POLLIN;
-		if (pt->fds[wsi->position_in_fds_table].revents & LWS_POLLIN)
-			return 1;
+		ret |= pt->fds[wsi->position_in_fds_table].revents & LWS_POLLIN;
 
 		wsi = wsi_next;
 	}
 
-	return 0;
+	return !!ret;
 }
 
 void
@@ -47,26 +52,26 @@ __lws_ssl_remove_wsi_from_buffered_list(struct lws *wsi)
 	struct lws_context *context = wsi->context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 
-	if (!wsi->pending_read_list_prev &&
-	    !wsi->pending_read_list_next &&
-	    pt->pending_read_list != wsi)
+	if (!wsi->tls.pending_read_list_prev &&
+	    !wsi->tls.pending_read_list_next &&
+	    pt->tls.pending_read_list != wsi)
 		/* we are not on the list */
 		return;
 
 	/* point previous guy's next to our next */
-	if (!wsi->pending_read_list_prev)
-		pt->pending_read_list = wsi->pending_read_list_next;
+	if (!wsi->tls.pending_read_list_prev)
+		pt->tls.pending_read_list = wsi->tls.pending_read_list_next;
 	else
-		wsi->pending_read_list_prev->pending_read_list_next =
-			wsi->pending_read_list_next;
+		wsi->tls.pending_read_list_prev->tls.pending_read_list_next =
+			wsi->tls.pending_read_list_next;
 
 	/* point next guy's previous to our previous */
-	if (wsi->pending_read_list_next)
-		wsi->pending_read_list_next->pending_read_list_prev =
-			wsi->pending_read_list_prev;
+	if (wsi->tls.pending_read_list_next)
+		wsi->tls.pending_read_list_next->tls.pending_read_list_prev =
+			wsi->tls.pending_read_list_prev;
 
-	wsi->pending_read_list_prev = NULL;
-	wsi->pending_read_list_next = NULL;
+	wsi->tls.pending_read_list_prev = NULL;
+	wsi->tls.pending_read_list_next = NULL;
 }
 
 void
@@ -238,7 +243,7 @@ lws_tls_check_cert_lifetime(struct lws_vhost *v)
 	struct lws_acme_cert_aging_args caa;
 	int n;
 
-	if (v->ssl_ctx && !v->skipped_certs) {
+	if (v->tls.ssl_ctx && !v->tls.skipped_certs) {
 
 		if (now < 1464083026) /* May 2016 */
 			/* our clock is wrong and we can't judge the certs */
@@ -410,7 +415,7 @@ lws_tls_generic_cert_checks(struct lws_vhost *vhost, const char *cert,
 	if ((n == LWS_TLS_EXTANT_NO || m == LWS_TLS_EXTANT_NO) &&
 	    (vhost->options & LWS_SERVER_OPTION_IGNORE_MISSING_CERT)) {
 		lwsl_notice("Ignoring missing %s or %s\n", cert, private_key);
-		vhost->skipped_certs = 1;
+		vhost->tls.skipped_certs = 1;
 
 		return LWS_TLS_EXTANT_NO;
 	}
@@ -439,14 +444,14 @@ lws_tls_cert_updated(struct lws_context *context, const char *certpath,
 
 	lws_start_foreach_ll(struct lws_vhost *, v, context->vhost_list) {
 		wsi.vhost = v;
-		if (v->alloc_cert_path && v->key_path &&
-		    !strcmp(v->alloc_cert_path, certpath) &&
-		    !strcmp(v->key_path, keypath)) {
+		if (v->tls.alloc_cert_path && v->tls.key_path &&
+		    !strcmp(v->tls.alloc_cert_path, certpath) &&
+		    !strcmp(v->tls.key_path, keypath)) {
 			lws_tls_server_certs_load(v, &wsi, certpath, keypath,
 						  mem_cert, len_mem_cert,
 						  mem_privkey, len_mem_privkey);
 
-			if (v->skipped_certs)
+			if (v->tls.skipped_certs)
 				lwsl_notice("%s: vhost %s: cert unset\n",
 					    __func__, v->name);
 		}
@@ -462,13 +467,13 @@ lws_gate_accepts(struct lws_context *context, int on)
 	struct lws_vhost *v = context->vhost_list;
 
 	lwsl_notice("%s: on = %d\n", __func__, on);
-	context->ssl_gate_accepts = !on;
+
 #if defined(LWS_WITH_STATS)
 	context->updated = 1;
 #endif
 
 	while (v) {
-		if (v->use_ssl && v->lserv_wsi &&
+		if (v->tls.use_ssl && v->lserv_wsi &&
 		    lws_change_pollfd(v->lserv_wsi, (LWS_POLLIN) * !on,
 				      (LWS_POLLIN) * on))
 			lwsl_notice("Unable to set accept POLLIN %d\n", on);

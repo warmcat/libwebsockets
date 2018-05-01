@@ -45,18 +45,18 @@ lws_context_init_alpn(struct lws_vhost *vhost)
 {
 #if defined(LWS_WITH_MBEDTLS) || (defined(OPENSSL_VERSION_NUMBER) && \
 				  OPENSSL_VERSION_NUMBER >= 0x10002000L)
-	const char *alpn_comma = vhost->context->alpn_default;
+	const char *alpn_comma = vhost->context->tls.alpn_default;
 
-	if (vhost->alpn)
-		alpn_comma = vhost->alpn;
+	if (vhost->tls.alpn)
+		alpn_comma = vhost->tls.alpn;
 
 	lwsl_info(" Server '%s' advertising ALPN: %s\n",
 		    vhost->name, alpn_comma);
-	vhost->alpn_ctx.len = lws_alpn_comma_to_openssl(alpn_comma,
-					vhost->alpn_ctx.data,
-					sizeof(vhost->alpn_ctx.data) - 1);
+	vhost->tls.alpn_ctx.len = lws_alpn_comma_to_openssl(alpn_comma,
+					vhost->tls.alpn_ctx.data,
+					sizeof(vhost->tls.alpn_ctx.data) - 1);
 
-	SSL_CTX_set_alpn_select_cb(vhost->ssl_ctx, alpn_cb, &vhost->alpn_ctx);
+	SSL_CTX_set_alpn_select_cb(vhost->tls.ssl_ctx, alpn_cb, &vhost->tls.alpn_ctx);
 #else
 	lwsl_err(
 		" HTTP2 / ALPN configured but not supported by OpenSSL 0x%lx\n",
@@ -73,7 +73,7 @@ lws_tls_server_conn_alpn(struct lws *wsi)
 	char cstr[10];
 	unsigned len;
 
-	SSL_get0_alpn_selected(wsi->ssl, &name, &len);
+	SSL_get0_alpn_selected(wsi->tls.ssl, &name, &len);
 	if (!len) {
 		lwsl_info("no ALPN upgrade\n");
 		return 0;
@@ -86,7 +86,7 @@ lws_tls_server_conn_alpn(struct lws *wsi)
 	cstr[len] = '\0';
 
 	lwsl_info("negotiated '%s' using ALPN\n", cstr);
-	wsi->use_ssl |= LCCSCF_USE_SSL;
+	wsi->tls.use_ssl |= LCCSCF_USE_SSL;
 
 	return lws_role_call_alpn_negotiated(wsi, (const char *)cstr);
 #endif // OPENSSL_VERSION_NUMBER >= 0x10002000L
@@ -103,7 +103,7 @@ lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 
 	if (!lws_check_opt(info->options,
 			   LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT)) {
-		vhost->use_ssl = 0;
+		vhost->tls.use_ssl = 0;
 
 		return 0;
 	}
@@ -121,14 +121,14 @@ lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 
 	if (info->port != CONTEXT_PORT_NO_LISTEN) {
 
-		vhost->use_ssl = lws_check_opt(vhost->options,
+		vhost->tls.use_ssl = lws_check_opt(vhost->options,
 					LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX);
 
-		if (vhost->use_ssl && info->ssl_cipher_list)
+		if (vhost->tls.use_ssl && info->ssl_cipher_list)
 			lwsl_notice(" SSL ciphers: '%s'\n",
 						info->ssl_cipher_list);
 
-		if (vhost->use_ssl)
+		if (vhost->tls.use_ssl)
 			lwsl_notice(" Using SSL mode\n");
 		else
 			lwsl_notice(" Using non-SSL mode\n");
@@ -149,13 +149,13 @@ lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 	if (lws_check_opt(info->options,
 			  LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT))
 		/* Normally SSL listener rejects non-ssl, optionally allow */
-		vhost->allow_non_ssl_on_ssl_port = 1;
+		vhost->tls.allow_non_ssl_on_ssl_port = 1;
 
 	/*
 	 * give user code a chance to load certs into the server
 	 * allowing it to verify incoming client certs
 	 */
-	if (vhost->use_ssl) {
+	if (vhost->tls.use_ssl) {
 		if (lws_tls_server_vhost_backend_init(info, vhost, &wsi))
 			return -1;
 
@@ -163,11 +163,11 @@ lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 
 		if (vhost->protocols[0].callback(&wsi,
 			    LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS,
-			    vhost->ssl_ctx, vhost, 0))
+			    vhost->tls.ssl_ctx, vhost, 0))
 			return -1;
 	}
 
-	if (vhost->use_ssl)
+	if (vhost->tls.use_ssl)
 		lws_context_init_alpn(vhost);
 
 	return 0;
@@ -190,7 +190,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 	switch (lwsi_state(wsi)) {
 	case LRS_SSL_INIT:
 
-		if (wsi->ssl)
+		if (wsi->tls.ssl)
 			lwsl_err("%s: leaking ssl\n", __func__);
 		if (accept_fd == LWS_SOCK_INVALID)
 			assert(0);
@@ -246,7 +246,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 
 		lws_latency_pre(context, wsi);
 
-		if (wsi->vhost->allow_non_ssl_on_ssl_port) {
+		if (wsi->vhost->tls.allow_non_ssl_on_ssl_port) {
 
 			n = recv(wsi->desc.sockfd, (char *)pt->serv_buf,
 				 context->pt_serv_buf_size, MSG_PEEK);
@@ -268,7 +268,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 				* connection and try to handle as a HTTP
 				* connection upgrade directly.
 				*/
-				wsi->use_ssl = 0;
+				wsi->tls.use_ssl = 0;
 
 				lws_tls_server_abort_connection(wsi);
 				/*
@@ -276,10 +276,10 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 				 * when ssl is enabled and normally
 				 * mandatory
 				 */
-				wsi->ssl = NULL;
+				wsi->tls.ssl = NULL;
 				if (lws_check_opt(context->options,
 				    LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS))
-					wsi->redirect_to_https = 1;
+					wsi->tls.redirect_to_https = 1;
 				lwsl_debug("accepted as non-ssl\n");
 				goto accepted;
 			}
@@ -351,8 +351,8 @@ accepted:
 		/* adapt our vhost to match the SNI SSL_CTX that was chosen */
 		vh = context->vhost_list;
 		while (vh) {
-			if (!vh->being_destroyed && wsi->ssl &&
-			    vh->ssl_ctx == lws_tls_ctx_from_wsi(wsi)) {
+			if (!vh->being_destroyed && wsi->tls.ssl &&
+			    vh->tls.ssl_ctx == lws_tls_ctx_from_wsi(wsi)) {
 				lwsl_info("setting wsi to vh %s\n", vh->name);
 				wsi->vhost = vh;
 				break;

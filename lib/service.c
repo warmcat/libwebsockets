@@ -328,13 +328,12 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 		return 0;
 #endif
 
-#if defined(LWS_WITH_TLS)
 	/* 2) if we know we have non-network pending data, do not wait in poll */
-	if (lws_ssl_anybody_has_buffered_read_tsi(context, tsi)) {
-		lwsl_info("ssl buffered read\n");
-		return 0;
-	}
-#endif
+
+	if (pt->context->tls_ops &&
+	    pt->context->tls_ops->fake_POLLIN_for_buffered)
+		if (pt->context->tls_ops->fake_POLLIN_for_buffered(pt))
+			return 0;
 
 	/* 3) If there is any wsi with rxflow buffered and in a state to process
 	 *    it, we should not wait in poll
@@ -521,9 +520,9 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 	 * service to use up the buffered incoming data, even though their
 	 * network socket may have nothing
 	 */
-	wsi = pt->pending_read_list;
+	wsi = pt->tls.pending_read_list;
 	while (wsi) {
-		wsi_next = wsi->pending_read_list_next;
+		wsi_next = wsi->tls.pending_read_list_next;
 		pt->fds[wsi->position_in_fds_table].revents |=
 			pt->fds[wsi->position_in_fds_table].events & LWS_POLLIN;
 		if (pt->fds[wsi->position_in_fds_table].revents & LWS_POLLIN) {
@@ -870,7 +869,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	}
 
 #if defined(LWS_WITH_TLS)
-	if (lwsi_state(wsi) == LRS_SHUTDOWN && lws_is_ssl(wsi) && wsi->ssl) {
+	if (lwsi_state(wsi) == LRS_SHUTDOWN && lws_is_ssl(wsi) && wsi->tls.ssl) {
 		switch (__lws_tls_shutdown(wsi)) {
 		case LWS_SSL_CAPABLE_DONE:
 		case LWS_SSL_CAPABLE_ERROR:

@@ -137,19 +137,20 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 			/* yes... come back again quickly */
 			timeout_ms = 0;
 	}
-#if 1
+
 	n = poll(pt->fds, pt->fds_count, timeout_ms);
 
-#if defined(LWS_WITH_TLS)
-	if (!pt->ws.rx_draining_ext_list &&
-	    !lws_ssl_anybody_has_buffered_read_tsi(context, tsi) && !n) {
-#else
-	if (!pt->ws.rx_draining_ext_list && !n) /* poll timeout */ {
-#endif
+	m = 0;
+
+	if (pt->context->tls_ops &&
+	    pt->context->tls_ops->fake_POLLIN_for_buffered)
+		m = pt->context->tls_ops->fake_POLLIN_for_buffered(pt);
+
+	if (/*!pt->ws.rx_draining_ext_list && */!m && !n) { /* nothing to do */
 		lws_service_fd_tsi(context, NULL, tsi);
 		return 0;
 	}
-#endif
+
 faked_service:
 	m = lws_service_flag_pending(context, tsi);
 	if (m)

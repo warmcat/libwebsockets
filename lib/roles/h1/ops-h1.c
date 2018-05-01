@@ -469,7 +469,6 @@ try_pollout:
 
 
 fail:
-lwsl_notice("%s: fail: closing\n", __func__);
 	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "server socket svc fail");
 
 	return LWS_HPI_RET_WSI_ALREADY_DIED;

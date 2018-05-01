@@ -33,6 +33,9 @@ extern "C" {
 #include <stdarg.h>
 #endif
 
+#include <string.h>
+#include <stdlib.h>
+
 #include "lws_config.h"
 
 /*

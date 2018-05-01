@@ -17,6 +17,7 @@
 #endif
 
 #include <string.h>
+#include <stdlib.h>
 
 /* one of these created for each message */
 

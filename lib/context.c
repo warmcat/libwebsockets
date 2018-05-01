@@ -54,10 +54,6 @@ const struct lws_event_loop_ops *available_event_libs[] = {
 	NULL
 };
 
-#if defined(LWS_WITH_TLS)
-static char alpn_discovered[32];
-#endif
-
 static const char *library_version = LWS_LIBRARY_VERSION " " LWS_BUILD_HASH;
 
 /**
@@ -252,7 +248,7 @@ lws_protocol_init(struct lws_context *context)
 			}
 
 #if defined(LWS_WITH_TLS)
-			any |= !!vh->ssl_ctx;
+			any |= !!vh->tls.ssl_ctx;
 #endif
 
 			/*
@@ -556,7 +552,7 @@ lws_create_vhost(struct lws_context *context,
 	struct lws_protocols *lwsp;
 	int m, f = !info->pvo;
 	char buf[20];
-#ifdef LWS_HAVE_GETENV
+#if !defined(LWS_WITHOUT_CLIENT) && defined(LWS_HAVE_GETENV)
 	char *p;
 #endif
 	int n;
@@ -599,7 +595,6 @@ lws_create_vhost(struct lws_context *context,
 	vh->pvo = info->pvo;
 	vh->headers = info->headers;
 	vh->user = info->user;
-	vh->alpn = info->alpn;
 
 	LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar)
 		if (ar->init_vhost)
@@ -607,7 +602,7 @@ lws_create_vhost(struct lws_context *context,
 				return NULL;
 	LWS_FOR_EVERY_AVAILABLE_ROLE_END;
 
-	vh->ssl_info_event_mask = info->ssl_info_event_mask;
+
 	if (info->keepalive_timeout)
 		vh->keepalive_timeout = info->keepalive_timeout;
 	else
@@ -619,10 +614,13 @@ lws_create_vhost(struct lws_context *context,
 		vh->timeout_secs_ah_idle = 10;
 
 #if defined(LWS_WITH_TLS)
+
+	vh->tls.alpn = info->alpn;
+	vh->tls.ssl_info_event_mask = info->ssl_info_event_mask;
+
 	if (info->ecdh_curve)
-		lws_strncpy(vh->ecdh_curve, info->ecdh_curve,
-			    sizeof(vh->ecdh_curve));
-#endif
+		lws_strncpy(vh->tls.ecdh_curve, info->ecdh_curve,
+			    sizeof(vh->tls.ecdh_curve));
 
 	/* carefully allocate and take a copy of cert + key paths if present */
 	n = 0;
@@ -632,16 +630,17 @@ lws_create_vhost(struct lws_context *context,
 		n += (int)strlen(info->ssl_private_key_filepath) + 1;
 
 	if (n) {
-		vh->key_path = vh->alloc_cert_path = lws_malloc(n, "vh paths");
+		vh->tls.key_path = vh->tls.alloc_cert_path = lws_malloc(n, "vh paths");
 		if (info->ssl_cert_filepath) {
 			n = (int)strlen(info->ssl_cert_filepath) + 1;
-			memcpy(vh->alloc_cert_path, info->ssl_cert_filepath, n);
-			vh->key_path += n;
+			memcpy(vh->tls.alloc_cert_path, info->ssl_cert_filepath, n);
+			vh->tls.key_path += n;
 		}
 		if (info->ssl_private_key_filepath)
-			memcpy(vh->key_path, info->ssl_private_key_filepath,
+			memcpy(vh->tls.key_path, info->ssl_private_key_filepath,
 			       strlen(info->ssl_private_key_filepath) + 1);
 	}
+#endif
 
 	/*
 	 * give the vhost a unified list of protocols including the
@@ -765,6 +764,7 @@ lws_create_vhost(struct lws_context *context,
 	vh->socks_proxy_address[0] = '\0';
 #endif
 
+#if !defined(LWS_WITHOUT_CLIENT)
 	/* either use proxy from info, or try get it from env var */
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	/* http proxy */
@@ -782,6 +782,7 @@ lws_create_vhost(struct lws_context *context,
 			lws_set_proxy(vh, p);
 #endif
 	}
+#endif
 #if defined(LWS_WITH_SOCKS5)
 	/* socks proxy */
 	if (info->socks_proxy_address) {
@@ -990,6 +991,8 @@ lws_create_context(const struct lws_context_creation_info *info)
 	struct rlimit rt;
 #endif
 
+
+
 	lwsl_info("Initial logging level %d\n", log_level);
 	lwsl_info("Libwebsockets version: %s\n", library_version);
 #if defined(GCC_VER)
@@ -1026,6 +1029,15 @@ lws_create_context(const struct lws_context_creation_info *info)
 		lwsl_err("No memory for websocket context\n");
 		return NULL;
 	}
+
+#if defined(LWS_WITH_TLS)
+#if defined(LWS_WITH_MBEDTLS)
+	context->tls_ops = &tls_ops_mbedtls;
+#else
+	context->tls_ops = &tls_ops_openssl;
+#endif
+#endif
+
 	if (info->pt_serv_buf_size)
 		context->pt_serv_buf_size = info->pt_serv_buf_size;
 	else
@@ -1152,25 +1164,26 @@ lws_create_context(const struct lws_context_creation_info *info)
 
 #if defined(LWS_WITH_TLS)
 	if (info->alpn)
-		context->alpn_default = info->alpn;
+		context->tls.alpn_default = info->alpn;
 	else {
-		char *p = alpn_discovered, first = 1;
+		char *p = context->tls.alpn_discovered, first = 1;
 
 		LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar) {
 			if (ar->alpn) {
 				if (!first)
 					*p++ = ',';
-				p += lws_snprintf(p, alpn_discovered +
-						sizeof(alpn_discovered) - 2 - p,
-					    "%s", ar->alpn);
+				p += lws_snprintf(p,
+					context->tls.alpn_discovered +
+					sizeof(context->tls.alpn_discovered) -
+					2 - p, "%s", ar->alpn);
 				first = 0;
 			}
 		} LWS_FOR_EVERY_AVAILABLE_ROLE_END;
 
-		context->alpn_default = alpn_discovered;
+		context->tls.alpn_default = context->tls.alpn_discovered;
 	}
 
-	lwsl_info("Default ALPN advertisment: %s\n", context->alpn_default);
+	lwsl_info("Default ALPN advertisment: %s\n", context->tls.alpn_default);
 #endif
 
 	if (info->timeout_secs)
@@ -1616,7 +1629,9 @@ lws_vhost_destroy2(struct lws_vhost *vh)
 		close(vh->log_fd);
 #endif
 
-	lws_free_set_NULL(vh->alloc_cert_path);
+#if defined (LWS_WITH_TLS)
+	lws_free_set_NULL(vh->tls.alloc_cert_path);
+#endif
 
 #if LWS_MAX_SMP > 1
        pthread_mutex_destroy(&vh->lock);
