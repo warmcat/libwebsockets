@@ -503,6 +503,26 @@ rops_tx_credit_h2(struct lws *wsi)
 static int
 rops_destroy_role_h2(struct lws *wsi)
 {
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct allocated_headers *ah;
+
+	/* we may not have an ah, but may be on the waiting list... */
+	lwsl_info("%s: ah det due to close\n", __func__);
+	__lws_header_table_detach(wsi, 0);
+
+	ah = pt->http.ah_list;
+
+	while (ah) {
+		if (ah->in_use && ah->wsi == wsi) {
+			lwsl_err("%s: ah leak: wsi %p\n", __func__, wsi);
+			ah->in_use = 0;
+			ah->wsi = NULL;
+			pt->http.ah_count_in_use--;
+			break;
+		}
+		ah = ah->next;
+	}
+
 	if (wsi->upgraded_to_http2 || wsi->http2_substream) {
 		lws_hpack_destroy_dynamic_header(wsi);
 

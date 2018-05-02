@@ -2,7 +2,11 @@
 #
 # attack the test server and try to make it fall over
 #
-# Requires the library to have been built with cmake .. -DCMAKE_BUILD_TYPE=DEBUG
+# Requires the library to have been built with
+#
+# cmake .. -DCMAKE_BUILD_TYPE=DEBUG -DLWS_WITH_MINIMAL_EXAMPLES=1
+#
+# run it from the build dir
 
 echo
 echo "----------------------------------------------"
@@ -19,6 +23,7 @@ INSTALLED=`dirname $A`
 SHAREDIR=$INSTALLED/../share/libwebsockets-test-server
 CORPUS=$SHAREDIR/test.html
 
+LWS_NC=./bin/lws-minimal-raw-netcat
 
 CPID=
 LEN=0
@@ -139,7 +144,7 @@ check
 echo
 echo "---- /cgi-bin/settingsjs?UPDATE_SETTINGS=1&Root_Channels_1_Channel_name_http_post=%3F&Root_Channels_1_Channel_location_http_post=%3F"
 rm -f /tmp/lwscap
-echo -n -e "GET /cgi-bin/settingsjs?UPDATE_SETTINGS=1&Root_Channels_1_Channel_name_http_post=%3F&Root_Channels_1_Channel_location_http_post=%3F HTTP/1.0\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo -n -e "GET /cgi-bin/settingsjs?UPDATE_SETTINGS=1&Root_Channels_1_Channel_name_http_post=%3F&Root_Channels_1_Channel_location_http_post=%3F HTTP/1.0\x0d\x0a\x0d\x0a" | $LWS_NC --server $SERVER --port $PORT 2>/dev/null | sed '1,/^\r$/d'> /tmp/lwscap
 cat /tmp/lwscap
 check 1 "UPDATE_SETTINGS=1"
 check 2 "Root_Channels_1_Channel_name_http_post=?"
@@ -149,14 +154,14 @@ check
 echo
 echo "---- ? processing (/cgi-bin/settings.js?key1=value1)"
 rm -f /tmp/lwscap
-echo -n -e "GET /cgi-bin/settings.js?key1=value1 HTTP/1.0\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo -n -e "GET /cgi-bin/settings.js?key1=value1 HTTP/1.0\x0d\x0a\x0d\x0a" | $LWS_NC --server $SERVER --port $PORT 2>/dev/null | sed '1,/^\r$/d'> /tmp/lwscap
 check 1 "key1=value1"
 check
 
 echo
 echo "---- ? processing (/t%3dest?key1%3d2=value1)"
 rm -f /tmp/lwscap
-echo -n -e "GET /t%3dest?key1%3d2=value1 HTTP/1.0\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo -n -e "GET /t%3dest?key1%3d2=value1 HTTP/1.0\x0d\x0a\x0d\x0a" | $LWS_NC --server $SERVER --port $PORT 2>/dev/null | sed '1,/^\r$/d'> /tmp/lwscap
 check 0 "/t=est"
 check 1 "key1_2=value1"
 check
@@ -164,46 +169,46 @@ check
 echo
 echo "---- ? processing (%2f%2e%2e%2f%2e./xxtest.html?arg=1)"
 rm -f /tmp/lwscap
-echo  -n -e "GET %2f%2e%2e%2f%2e./xxtest.html?arg=1 HTTP/1.0\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo  -n -e "GET %2f%2e%2e%2f%2e./xxtest.html?arg=1 HTTP/1.0\x0d\x0a\x0d\x0a" | $LWS_NC --server $SERVER --port $PORT 2>/dev/null | sed '1,/^\r$/d'> /tmp/lwscap
 check 1 "arg=1"
 check
 
 echo
 echo "---- ? processing (%2f%2e%2e%2f%2e./xxtest.html?arg=/../.)"
 rm -f /tmp/lwscap
-echo -n -e "GET %2f%2e%2e%2f%2e./xxtest.html?arg=/../. HTTP/1.0\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo -n -e "GET %2f%2e%2e%2f%2e./xxtest.html?arg=/../. HTTP/1.0\x0d\x0a\x0d\x0a" | $LWS_NC --server $SERVER --port $PORT 2>/dev/null | sed '1,/^\r$/d'> /tmp/lwscap
 check 1 "arg=/../."
 check
 
 echo
 echo "---- spam enough crap to not be GET"
-echo "not GET" | nc $SERVER $PORT
+echo "not GET" | $LWS_NC --server $SERVER --port $PORT 2>/dev/null > /tmp/lwscap
 check
 
 echo
 echo "---- spam more than the name buffer of crap"
-dd if=/dev/urandom bs=1 count=80 2>/dev/null | nc -i1 $SERVER $PORT
+dd if=/dev/urandom bs=1 count=80 2>/dev/null | $LWS_NC --server $SERVER --port $PORT 2>/dev/null > /tmp/lwscap
 check
 
 echo
 echo "---- spam 10MB of crap"
-dd if=/dev/urandom bs=1 count=655360 | nc -i1 $SERVER $PORT
+dd if=/dev/urandom bs=1 count=655360 | $LWS_NC --server $SERVER --port $PORT 2>/dev/null > /tmp/lwscap
 check
 
 echo
 echo "---- malformed URI"
 echo "GET nonsense................................................................................................................" \
-	| nc -i1 $SERVER $PORT
+	| $LWS_NC --server $SERVER --port $PORT 2>/dev/null > /tmp/lwscap
 check
 
 echo
 echo "---- missing URI"
-echo -n -e "GET HTTP/1.0\x0d\x0a\x0d\x0a" | nc -i1 $SERVER $PORT >/tmp/lwscap
+echo -n -e "GET HTTP/1.0\x0d\x0a\x0d\x0a" | $LWS_NC --server $SERVER --port $PORT 2>/dev/null >/tmp/lwscap
 check
 
 echo
 echo "---- repeated method"
-echo -n -e "GET blah HTTP/1.0\x0d\x0aGET blah HTTP/1.0\x0d\x0a\x0d\x0a" | nc $SERVER $PORT >/tmp/lwscap 
+echo -n -e "GET blah HTTP/1.0\x0d\x0aGET blah HTTP/1.0\x0d\x0a\x0d\x0a" | $LWS_NC --server $SERVER --port $PORT 2>/dev/null >/tmp/lwscap 
 check
 
 echo
@@ -225,7 +230,7 @@ echo -n -e "GET blah HTTP/1.0\x0d\x0a...........................................
  	"......................................................................................................................." \
  	"......................................................................................................................." \
  	"......................................................................................................................." \
- | nc -i1 $SERVER $PORT
+ | $LWS_NC --server $SERVER --port $PORT 2>/dev/null
 check
 
 echo
@@ -247,20 +252,20 @@ echo -n -e "GET ................................................................
  	"......................................................................................................................." \
  	"......................................................................................................................." \
  	"......................................................................................................................." \
- | nc -i1 $SERVER $PORT
+ | $LWS_NC --server $SERVER --port $PORT 2>/dev/null
 check
 
 echo
 echo "---- good request but http payload coming too (test.html served then forbidden)"
 echo -n -e "GET /test.html HTTP/1.1\x0d\x0a\x0d\x0aILLEGAL-PAYLOAD........................................" \
-	| cat - /dev/zero | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+	| $LWS_NC --server $SERVER --port $PORT 2>/dev/null | sed '1,/^\r$/d'> /tmp/lwscap
 check defaultplusforbidden
 check
 
 echo
 echo "---- nonexistent file"
 rm -f /tmp/lwscap
-echo -n -e "GET /nope HTTP/1.0\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo -n -e "GET /nope HTTP/1.0\x0d\x0a\x0d\x0a" | $LWS_NC --server $SERVER --port $PORT 2>/dev/null | sed '1,/^\r$/d'> /tmp/lwscap
 cat /tmp/lwscap
 check notfound
 check
@@ -268,63 +273,63 @@ check
 echo
 echo "---- relative uri path"
 rm -f /tmp/lwscap
-echo -n -e "GET nope HTTP/1.0\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo -n -e "GET nope HTTP/1.0\x0d\x0a\x0d\x0a" | $LWS_NC --server $SERVER --port $PORT 2>/dev/null | sed '1,/^\r$/d'> /tmp/lwscap
 check forbidden
 check
 
 echo
 echo "---- directory attack 1 (/../../../../etc/passwd should be /etc/passswd)"
 rm -f /tmp/lwscap
-echo -n -e "GET /../../../../etc/passwd HTTP/1.0\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo -n -e "GET /../../../../etc/passwd HTTP/1.0\x0d\x0a\x0d\x0a" | $LWS_NC --server $SERVER --port $PORT 2>/dev/null | sed '1,/^\r$/d'> /tmp/lwscap
 check notfound
 check
 
 echo
 echo "---- directory attack 2 (/../ should be /)"
 rm -f /tmp/lwscap
-echo -e -n "GET /../ HTTP/1.0\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo -e -n "GET /../ HTTP/1.0\x0d\x0a\x0d\x0a" | $LWS_NC --server $SERVER --port $PORT 2>/dev/null | sed '1,/^\r$/d'> /tmp/lwscap
 check default
 check
 
 echo
 echo "---- directory attack 3 (/./ should be /)"
 rm -f /tmp/lwscap
-echo -e -n "GET /./ HTTP/1.0\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo -e -n "GET /./ HTTP/1.0\x0d\x0a\x0d\x0a" | $LWS_NC --server $SERVER --port $PORT 2>/dev/null | sed '1,/^\r$/d'> /tmp/lwscap
 check default
 check
 
 echo
 echo "---- directory attack 4 (/blah/.. should be /)"
 rm -f /tmp/lwscap
-echo -e -n "GET /blah/.. HTTP/1.0\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo -e -n "GET /blah/.. HTTP/1.0\x0d\x0a\x0d\x0a" | $LWS_NC --server $SERVER --port $PORT 2>/dev/null | sed '1,/^\r$/d'> /tmp/lwscap
 check default
 check
 
 echo
 echo "---- directory attack 5 (/blah/../ should be /)"
 rm -f /tmp/lwscap
-echo -e -n "GET /blah/../ HTTP/1.0\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo -e -n "GET /blah/../ HTTP/1.0\x0d\x0a\x0d\x0a" | $LWS_NC --server $SERVER --port $PORT 2>/dev/null | sed '1,/^\r$/d'> /tmp/lwscap
 check default
 check
 
 echo
 echo "---- directory attack 6 (/blah/../. should be /)"
 rm -f /tmp/lwscap
-echo -e -n "GET /blah/../. HTTP/1.0\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo -e -n "GET /blah/../. HTTP/1.0\x0d\x0a\x0d\x0a" | $LWS_NC --server $SERVER --port $PORT 2>/dev/null | sed '1,/^\r$/d'> /tmp/lwscap
 check default
 check
 
 echo
 echo "---- directory attack 7 (/%2e%2e%2f../../../etc/passwd should be /etc/passswd)"
 rm -f /tmp/lwscap
-echo -e -n "GET /%2e%2e%2f../../../etc/passwd HTTP/1.0\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo -e -n "GET /%2e%2e%2f../../../etc/passwd HTTP/1.0\x0d\x0a\x0d\x0a" | $LWS_NC --server $SERVER --port $PORT 2>/dev/null | sed '1,/^\r$/d'> /tmp/lwscap
 check notfound
 check
 
 echo
 echo "---- directory attack 8 (%2f%2e%2e%2f%2e./.%2e/.%2e%2fetc/passwd should be /etc/passswd)"
 rm -f /tmp/lwscap
-echo -e -n "GET %2f%2e%2e%2f%2e./.%2e/.%2e%2fetc/passwd HTTP/1.0\x0d\x0a\x0d\x0a" | nc $SERVER $PORT | sed '1,/^\r$/d'> /tmp/lwscap
+echo -e -n "GET %2f%2e%2e%2f%2e./.%2e/.%2e%2fetc/passwd HTTP/1.0\x0d\x0a\x0d\x0a" | $LWS_NC --server $SERVER --port $PORT 2>/dev/null | sed '1,/^\r$/d'> /tmp/lwscap
 check notfound
 check
 
@@ -550,8 +555,9 @@ for i in \
 /path/to/dir/../other/dir \
 ; do
 
-R=`rm -f /tmp/lwscap ; echo -n -e "GET $i HTTP/1.0\r\n\r\n" | nc localhost 7681 2>/dev/null >/tmp/lwscap; head -n1 /tmp/lwscap| cut -d' ' -f2`
+R=`rm -f /tmp/lwscap ; echo -n -e "GET $i HTTP/1.0\r\n\r\n" | $LWS_NC --server $SERVER --port $PORT 2>/dev/null > /tmp/lwscap; head -n1 /tmp/lwscap| cut -d' ' -f2`
 
+#cat $LOG
 #echo ==== $R
 
 

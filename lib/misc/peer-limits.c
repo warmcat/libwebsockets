@@ -200,6 +200,26 @@ lws_peer_add_wsi(struct lws_context *context, struct lws_peer *peer,
 }
 
 void
+lws_peer_dump_from_wsi(struct lws *wsi)
+{
+	struct lws_peer *peer;
+
+	if (!wsi || !wsi->peer)
+		return;
+
+	peer = wsi->peer;
+
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+	lwsl_notice("%s: wsi %p: created %llu: wsi: %d/%d, ah %d/%d\n", __func__,
+			wsi, (unsigned long long)peer->time_created, peer->count_wsi, peer->total_wsi,
+			peer->http.count_ah, peer->http.total_ah);
+#else
+	lwsl_notice("%s: wsi %p: created %llu: wsi: %d/%d\n", __func__,
+			wsi, (unsigned long long)peer->time_created, peer->count_wsi, peer->total_wsi);
+#endif
+}
+
+void
 lws_peer_track_wsi_close(struct lws_context *context, struct lws_peer *peer)
 {
 	if (!peer)

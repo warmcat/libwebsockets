@@ -1729,7 +1729,7 @@ lws_http_transaction_completed(struct lws *wsi)
 		return 1;
 
 	if (wsi->http.connection_type != HTTP_CONNECTION_KEEP_ALIVE) {
-		lwsl_info("%s: %p: close connection\n", __func__, wsi);
+		lwsl_notice("%s: %p: close connection\n", __func__, wsi);
 		return 1;
 	}
 
@@ -1961,10 +1961,10 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 		/* non-SSL */
 		if (!(type & LWS_ADOPT_HTTP)) {
 			if (!(type & LWS_ADOPT_SOCKET))
-				lws_role_transition(new_wsi, 0, LRS_UNCONNECTED,
+				lws_role_transition(new_wsi, 0, LRS_ESTABLISHED,
 						    &role_ops_raw_file);
 			else
-				lws_role_transition(new_wsi, 0, LRS_UNCONNECTED,
+				lws_role_transition(new_wsi, 0, LRS_ESTABLISHED,
 						    &role_ops_raw_skt);
 		}
 #if defined(LWS_ROLE_H1)

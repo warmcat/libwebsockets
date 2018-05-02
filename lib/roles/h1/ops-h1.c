@@ -469,6 +469,7 @@ try_pollout:
 
 
 fail:
+lwsl_notice("%s: fail: closing\n", __func__);
 	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "server socket svc fail");
 
 	return LWS_HPI_RET_WSI_ALREADY_DIED;
@@ -616,6 +617,32 @@ rops_alpn_negotiated_h1(struct lws *wsi, const char *alpn)
 	return 0;
 }
 
+static int
+rops_destroy_role_h1(struct lws *wsi)
+{
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct allocated_headers *ah;
+
+	/* we may not have an ah, but may be on the waiting list... */
+	lwsl_info("%s: ah det due to close\n", __func__);
+	__lws_header_table_detach(wsi, 0);
+
+	 ah = pt->http.ah_list;
+
+	while (ah) {
+		if (ah->in_use && ah->wsi == wsi) {
+			lwsl_err("%s: ah leak: wsi %p\n", __func__, wsi);
+			ah->in_use = 0;
+			ah->wsi = NULL;
+			pt->http.ah_count_in_use--;
+			break;
+		}
+		ah = ah->next;
+	}
+
+	return 0;
+}
+
 struct lws_role_ops role_ops_h1 = {
 	/* role name */			"h1",
 	/* alpn id */			"http/1.1",
@@ -636,7 +663,7 @@ struct lws_role_ops role_ops_h1 = {
 	/* close_via_role_protocol */	NULL,
 	/* close_role */		NULL,
 	/* close_kill_connection */	NULL,
-	/* destroy_role */		NULL,
+	/* destroy_role */		rops_destroy_role_h1,
 	/* writeable cb clnt, srv */	{ LWS_CALLBACK_CLIENT_HTTP_WRITEABLE,
 					  LWS_CALLBACK_HTTP_WRITEABLE },
 	/* close cb clnt, srv */	{ LWS_CALLBACK_CLOSED_CLIENT_HTTP,

@@ -91,15 +91,8 @@ signed char char_to_hex(const char c)
 void
 __lws_free_wsi(struct lws *wsi)
 {
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-	struct lws_context_per_thread *pt;
-#endif
-
 	if (!wsi)
 		return;
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-	pt = &wsi->context->pt[(int)wsi->tsi];
-#endif
 
 	/*
 	 * Protocol user data may be allocated either internally by lws
@@ -116,34 +109,15 @@ __lws_free_wsi(struct lws *wsi)
 	if (wsi->vhost && wsi->vhost->lserv_wsi == wsi)
 		wsi->vhost->lserv_wsi = NULL;
 
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+	// lws_peer_dump_from_wsi(wsi);
 
-	/* we may not have an ah, but may be on the waiting list... */
-	lwsl_info("ah det due to close\n");
-	__lws_header_table_detach(wsi, 0);
-
-	{
-		struct allocated_headers *ah = pt->http.ah_list;
-		while (ah) {
-			if (ah->in_use && ah->wsi == wsi) {
-				lwsl_err("%s: ah leak: wsi %p\n", __func__, wsi);
-				ah->in_use = 0;
-				ah->wsi = NULL;
-				pt->http.ah_count_in_use--;
-				break;
-			}
-			ah = ah->next;
-		}
-	}
-#endif
+	if (wsi->role_ops->destroy_role)
+		wsi->role_ops->destroy_role(wsi);
 
 #if defined(LWS_WITH_PEER_LIMITS)
 	lws_peer_track_wsi_close(wsi->context, wsi->peer);
 	wsi->peer = NULL;
 #endif
-
-	if (wsi->role_ops->destroy_role)
-		wsi->role_ops->destroy_role(wsi);
 
 	/* since we will destroy the wsi, make absolutely sure now */
 
@@ -847,8 +821,7 @@ just_kill_connection:
 
 		if (!wsi->protocol)
 			pro = &wsi->vhost->protocols[0];
-		//lwsl_notice("%s: est %d told %d cbin %d %s\n", __func__, lwsi_state_est_PRE_CLOSE(wsi), !wsi->told_user_closed,
-		//		wsi->role_ops->close_cb[lwsi_role_server(wsi)], pro->name);
+
 		pro->callback(wsi,
 			      wsi->role_ops->close_cb[lwsi_role_server(wsi)],
 			      wsi->user_space, NULL, 0);

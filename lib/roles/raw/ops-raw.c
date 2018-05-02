@@ -54,12 +54,17 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 		buffered = lws_buflist_aware_read(pt, wsi, &ebuf);
 		switch (ebuf.len) {
 		case 0:
-			lwsl_info("%s: read 0 len a\n",
-				   __func__);
+			lwsl_info("%s: read 0 len\n", __func__);
 			wsi->seen_zero_length_recv = 1;
 			lws_change_pollfd(wsi, LWS_POLLIN, 0);
-			goto try_pollout;
-			//goto fail;
+
+			/*
+			 * we need to go to fail here, since it's the only
+			 * chance we get to understand that the socket has
+			 * closed
+			 */
+			// goto try_pollout;
+			goto fail;
 
 		case LWS_SSL_CAPABLE_ERROR:
 			goto fail;
@@ -127,7 +132,7 @@ try_pollout:
 fail:
 	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "raw svc fail");
 
-	return LWS_HPI_RET_PLEASE_CLOSE_ME;
+	return LWS_HPI_RET_WSI_ALREADY_DIED;
 }
 
 

@@ -897,6 +897,9 @@ lws_cancel_service(struct lws_context *context)
 	struct lws_context_per_thread *pt = &context->pt[0];
 	short m = context->count_threads;
 
+	if (context->being_destroyed1)
+		return;
+
 	lwsl_info("%s\n", __func__);
 
 	while (m--) {

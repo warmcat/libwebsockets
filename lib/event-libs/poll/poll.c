@@ -23,16 +23,10 @@
 
 #include <private-libwebsockets.h>
 
-static int
-elops_destroy_context1_poll(struct lws_context *context)
-{
-	return 1;
-}
-
 struct lws_event_loop_ops event_loop_ops_poll = {
 	/* name */			"poll",
 	/* init_context */		NULL,
-	/* destroy_context1 */		elops_destroy_context1_poll,
+	/* destroy_context1 */		NULL,
 	/* destroy_context2 */		NULL,
 	/* init_vhost_listen_wsi */	NULL,
 	/* init_pt */			NULL,

@@ -1715,6 +1715,8 @@ lws_get_or_create_peer(struct lws_vhost *vhost, lws_sockfd_type sockfd);
 void
 lws_peer_add_wsi(struct lws_context *context, struct lws_peer *peer,
 		 struct lws *wsi);
+void
+lws_peer_dump_from_wsi(struct lws *wsi);
 #endif
 
 

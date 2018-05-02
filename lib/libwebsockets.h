@@ -1527,7 +1527,10 @@ enum lws_callback_reasons {
 	/**< RAW mode file was adopted (equivalent to 'wsi created') */
 
 	LWS_CALLBACK_RAW_RX_FILE				= 64,
-	/**< RAW mode file has something to read */
+	/**< This is the indication the RAW mode file has something to read.
+	 *   This doesn't actually do the read of the file and len is always
+	 *   0... your code should do the read having been informed there is
+	 *   something to read now. */
 
 	LWS_CALLBACK_RAW_WRITEABLE_FILE				= 65,
 	/**< RAW mode file is writeable */
