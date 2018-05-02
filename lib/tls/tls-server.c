@@ -214,7 +214,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 			lws_gate_accepts(context, 0);
 
 #if defined(LWS_WITH_STATS)
-	context->updated = 1;
+		context->updated = 1;
 #endif
 		/*
 		 * we are not accepted yet, but we need to enter ourselves

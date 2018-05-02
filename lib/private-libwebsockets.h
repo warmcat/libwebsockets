@@ -757,7 +757,6 @@ struct lws_peer {
 struct lws_context {
 	time_t last_timeout_check_s;
 	time_t last_ws_ping_pong_check_s;
-	time_t last_cert_check_s;
 	time_t time_up;
 	time_t time_discontiguity;
 	time_t time_fixup;

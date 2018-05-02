@@ -3,6 +3,7 @@
 minimal-http-server-basicauth|Shows how to protect a mount using a password file and basic auth
 minimal-http-server-dynamic|Serves both static and dynamically generated http content
 minimal-http-server-eventlib-foreign|Demonstrates integrating lws with a foreign event library
+minimal-http-server-eventlib-demos|Using the demo plugins with event libraries
 minimal-http-server-eventlib|Same as minimal-http-server but works with a supported event library
 minimal-http-server-form-get|Process a GET form
 minimal-http-server-form-post-file|Process a multipart POST form with file transfer

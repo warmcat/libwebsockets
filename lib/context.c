@@ -1163,6 +1163,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	lwsl_info("Using event loop: %s\n", context->event_loop_ops->name);
 
 #if defined(LWS_WITH_TLS)
+	time(&context->tls.last_cert_check_s);
 	if (info->alpn)
 		context->tls.alpn_default = info->alpn;
 	else {
@@ -1364,8 +1365,6 @@ lws_create_context(const struct lws_context_creation_info *info)
 	 */
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS))
 		lws_plat_drop_app_privileges(info);
-
-	time(&context->last_cert_check_s);
 
 	/* expedite post-context init (eg, protocols) */
 	lws_cancel_service(context);
@@ -1729,6 +1728,22 @@ static void
 lws_context_destroy3(struct lws_context *context)
 {
 	struct lws_context **pcontext_finalize = context->pcontext_finalize;
+	struct lws_context_per_thread *pt;
+	int n;
+
+	for (n = 0; n < context->count_threads; n++) {
+		pt = &context->pt[n];
+
+		if (context->event_loop_ops->destroy_pt)
+			context->event_loop_ops->destroy_pt(context, n);
+
+		lws_free_set_NULL(context->pt[n].serv_buf);
+
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+		while (pt->http.ah_list)
+			_lws_destroy_ah(pt, pt->http.ah_list);
+#endif
+	}
 
 	lws_free(context);
 	lwsl_info("%s: ctx %p freed\n", __func__, context);
@@ -1746,8 +1761,9 @@ lws_context_destroy2(struct lws_context *context)
 {
 	struct lws_vhost *vh = NULL, *vh1;
 #if defined(LWS_WITH_PEER_LIMITS)
-	uint32_t n;
+	uint32_t nu;
 #endif
+	int n;
 
 	lwsl_info("%s: ctx %p\n", __func__, context);
 
@@ -1780,9 +1796,9 @@ lws_context_destroy2(struct lws_context *context)
 	lws_plat_context_late_destroy(context);
 
 #if defined(LWS_WITH_PEER_LIMITS)
-	for (n = 0; n < context->pl_hash_elements; n++)	{
+	for (nu = 0; nu < context->pl_hash_elements; nu++)	{
 		lws_start_foreach_llp(struct lws_peer **, peer,
-				      context->pl_hash_table[n]) {
+				      context->pl_hash_table[nu]) {
 			struct lws_peer *df = *peer;
 			*peer = df->next;
 			lws_free(df);
@@ -1806,6 +1822,11 @@ lws_context_destroy2(struct lws_context *context)
 			context->finalize_destroy_after_internal_loops_stopped = 1;
 			return;
 		}
+
+	if (!context->pt[0].event_loop_foreign)
+		for (n = 0; n < context->count_threads; n++)
+			if (context->pt[n].inside_service)
+				return;
 
 	lws_context_destroy3(context);
 }
@@ -1844,6 +1865,8 @@ lws_context_destroy(struct lws_context *context)
 		}
 		lwsl_info("%s: ctx %p: already being destroyed\n",
 			    __func__, context);
+
+		lws_context_destroy3(context);
 		return;
 	}
 
@@ -1891,20 +1914,6 @@ lws_context_destroy(struct lws_context *context)
 		lws_pt_mutex_destroy(pt);
 	}
 
-	for (n = 0; n < context->count_threads; n++) {
-		pt = &context->pt[n];
-
-		if (context->event_loop_ops->destroy_pt)
-			context->event_loop_ops->destroy_pt(context, n);
-
-		lws_free_set_NULL(context->pt[n].serv_buf);
-
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-		while (pt->http.ah_list)
-			_lws_destroy_ah(pt, pt->http.ah_list);
-#endif
-	}
-
 	/*
 	 * inform all the protocols that they are done and will have no more
 	 * callbacks.
@@ -1943,11 +1952,6 @@ lws_context_destroy(struct lws_context *context)
 
 		return;
 	}
-
-	if (!context->pt[0].event_loop_foreign)
-		for (n = 0; n < context->count_threads; n++)
-			if (context->pt[n].inside_service)
-				return;
 
 	lws_context_destroy2(context);
 }

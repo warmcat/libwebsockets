@@ -554,9 +554,6 @@ lws_service_periodic_checks(struct lws_context *context,
 	struct lws *wsi;
 	int timed_out = 0;
 	time_t now;
-#if defined(LWS_WITH_TLS)
-	int n = 0;
-#endif
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	struct allocated_headers *ah;
 	int m;
@@ -810,12 +807,10 @@ lws_service_periodic_checks(struct lws_context *context,
 	/*
 	 * Phase 6: check the remaining cert lifetime daily
 	 */
-#if defined(LWS_WITH_TLS)
-	n = lws_compare_time_t(context, now, context->last_cert_check_s);
-	if ((!context->last_cert_check_s || n > (24 * 60 * 60)) &&
-	    !lws_tls_check_all_cert_lifetimes(context))
-		context->last_cert_check_s = now;
-#endif
+
+	if (context->tls_ops &&
+	    context->tls_ops->periodic_housekeeping)
+		context->tls_ops->periodic_housekeeping(context, now);
 
 	return timed_out;
 }
@@ -869,7 +864,8 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	}
 
 #if defined(LWS_WITH_TLS)
-	if (lwsi_state(wsi) == LRS_SHUTDOWN && lws_is_ssl(wsi) && wsi->tls.ssl) {
+	if (lwsi_state(wsi) == LRS_SHUTDOWN &&
+	    lws_is_ssl(wsi) && wsi->tls.ssl) {
 		switch (__lws_tls_shutdown(wsi)) {
 		case LWS_SSL_CAPABLE_DONE:
 		case LWS_SSL_CAPABLE_ERROR:
@@ -926,6 +922,10 @@ close_and_handled:
 handled:
 #endif
 	pollfd->revents = 0;
+
+	lws_pt_lock(pt, __func__);
+	__lws_hrtimer_service(pt);
+	lws_pt_unlock(pt);
 
 	return 0;
 }

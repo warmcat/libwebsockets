@@ -93,6 +93,7 @@ struct lws_context_per_thread;
 
 struct lws_tls_ops {
 	int (*fake_POLLIN_for_buffered)(struct lws_context_per_thread *pt);
+	int (*periodic_housekeeping)(struct lws_context *context, time_t now);
 };
 
 #if defined(LWS_WITH_TLS)
@@ -110,6 +111,7 @@ extern const struct lws_tls_ops tls_ops_openssl, tls_ops_mbedtls;
 struct lws_context_tls {
 	char alpn_discovered[32];
 	const char *alpn_default;
+	time_t last_cert_check_s;
 };
 
 struct lws_pt_tls {

@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2017 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2018 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -22,12 +22,65 @@
 #include "private-libwebsockets.h"
 
 static void
+lws_ev_hrtimer_cb(struct ev_loop *loop, struct ev_timer *watcher, int revents)
+{
+	struct lws_context_per_thread *pt =
+			(struct lws_context_per_thread *)watcher->data;
+	lws_usec_t us;
+
+	lws_pt_lock(pt, __func__);
+	us =  __lws_hrtimer_service(pt);
+	if (us != LWS_HRTIMER_NOWAIT) {
+		ev_timer_set(&pt->ev.hrtimer, ((float)us) / 1000000.0, 0);
+		ev_timer_start(pt->ev.io_loop, &pt->ev.hrtimer);
+	}
+	lws_pt_unlock(pt);
+}
+
+static void
+lws_ev_idle_cb(struct ev_loop *loop, struct ev_idle *handle, int revents)
+{
+	struct lws_context_per_thread *pt = lws_container_of(handle,
+					struct lws_context_per_thread, ev.idle);
+	lws_usec_t us;
+
+	lws_service_do_ripe_rxflow(pt);
+
+	/*
+	 * is there anybody with pending stuff that needs service forcing?
+	 */
+	if (!lws_service_adjust_timeout(pt->context, 1, pt->tid)) {
+		/* -1 timeout means just do forced service */
+		_lws_plat_service_tsi(pt->context, -1, pt->tid);
+		/* still somebody left who wants forced service? */
+		if (!lws_service_adjust_timeout(pt->context, 1, pt->tid))
+			/* yes... come back again later */
+		return;
+	}
+
+	/* account for hrtimer */
+
+	lws_pt_lock(pt, __func__);
+	us =  __lws_hrtimer_service(pt);
+	if (us != LWS_HRTIMER_NOWAIT) {
+		ev_timer_set(&pt->ev.hrtimer, ((float)us) / 1000000.0, 0);
+		ev_timer_start(pt->ev.io_loop, &pt->ev.hrtimer);
+	}
+	lws_pt_unlock(pt);
+
+	/* there is nobody who needs service forcing, shut down idle */
+	ev_idle_stop(loop, handle);
+}
+
+static void
 lws_accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents)
 {
+	struct lws_context_per_thread *pt;
 	struct lws_io_watcher *lws_io = lws_container_of(watcher,
 					struct lws_io_watcher, ev.watcher);
 	struct lws_context *context = lws_io->context;
 	struct lws_pollfd eventfd;
+	struct lws *wsi;
 
 	if (revents & EV_ERROR)
 		return;
@@ -45,7 +98,12 @@ lws_accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents)
 		eventfd.revents |= LWS_POLLOUT;
 	}
 
-	lws_service_fd(context, &eventfd);
+	wsi = wsi_from_fd(context, watcher->fd);
+	pt = &context->pt[(int)wsi->tsi];
+
+	lws_service_fd_tsi(context, &eventfd, (int)wsi->tsi);
+
+	ev_idle_start(pt->ev.io_loop, &pt->ev.idle);
 }
 
 LWS_VISIBLE void
@@ -64,6 +122,7 @@ lws_ev_sigint_cb(struct ev_loop *loop, struct ev_signal *watcher, int revents)
 static int
 elops_init_pt_ev(struct lws_context *context, void *_loop, int tsi)
 {
+	struct lws_context_per_thread *pt = &context->pt[tsi];
 	struct ev_signal *w_sigint = &context->pt[tsi].w_sigint.ev.watcher;
 	struct lws_vhost *vh = context->vhost_list;
 	const char *backend_name;
@@ -84,7 +143,7 @@ elops_init_pt_ev(struct lws_context *context, void *_loop, int tsi)
 		return -1;
 	}
 
-	context->pt[tsi].ev.io_loop = loop;
+	pt->ev.io_loop = loop;
 
 	/*
 	 * Initialize the accept w_accept with all the listening sockets
@@ -138,6 +197,11 @@ elops_init_pt_ev(struct lws_context *context, void *_loop, int tsi)
 	lwsl_info(" libev backend: %s\n", backend_name);
 	(void)backend_name;
 
+	ev_timer_init(&pt->ev.hrtimer, lws_ev_hrtimer_cb, 0, 0);
+	pt->ev.hrtimer.data = pt;
+
+	ev_idle_init(&pt->ev.idle, lws_ev_idle_cb);
+
 	return status;
 }
 
@@ -147,17 +211,22 @@ elops_destroy_pt_ev(struct lws_context *context, int tsi)
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	struct lws_vhost *vh = context->vhost_list;
 
-	if (!pt->ev.io_loop)
-		return;
-
 	while (vh) {
 		if (vh->lserv_wsi)
 			ev_io_stop(pt->ev.io_loop, &vh->w_accept.ev.watcher);
 		vh = vh->vhost_next;
 	}
-	if (!pt->event_loop_foreign)
+
+	/* static assets */
+
+	ev_timer_stop(pt->ev.io_loop, &pt->ev.hrtimer);
+	ev_idle_stop(pt->ev.io_loop, &pt->ev.idle);
+
+	if (!pt->event_loop_foreign) {
 		ev_signal_stop(pt->ev.io_loop, &pt->w_sigint.ev.watcher);
 
+		ev_loop_destroy(pt->ev.io_loop);
+	}
 }
 
 static int
@@ -226,7 +295,7 @@ static int
 elops_destroy_context2_ev(struct lws_context *context)
 {
 	struct lws_context_per_thread *pt;
-	int n, m, internal = 0;
+	int n, m;
 
 	lwsl_debug("%s\n", __func__);
 
@@ -240,7 +309,6 @@ elops_destroy_context2_ev(struct lws_context *context)
 		if (pt->event_loop_foreign || !pt->ev.io_loop)
 			continue;
 
-		internal = 1;
 		if (!context->finalize_destroy_after_internal_loops_stopped) {
 			ev_break(pt->ev.io_loop, EVBREAK_ONE);
 			continue;
@@ -252,7 +320,7 @@ elops_destroy_context2_ev(struct lws_context *context)
 		ev_loop_destroy(pt->ev.io_loop);
 	}
 
-	return internal;
+	return 0;
 }
 
 static int
@@ -281,6 +349,15 @@ elops_init_vhost_listen_wsi_ev(struct lws *wsi)
 	return 0;
 }
 
+static void
+elops_destroy_wsi_ev(struct lws *wsi)
+{
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+
+	ev_io_stop(pt->ev.io_loop, &wsi->w_read.ev.watcher);
+	ev_io_stop(pt->ev.io_loop, &wsi->w_write.ev.watcher);
+}
+
 struct lws_event_loop_ops event_loop_ops_ev = {
 	/* name */			"libev",
 	/* init_context */		elops_init_context_ev,
@@ -295,7 +372,7 @@ struct lws_event_loop_ops event_loop_ops_ev = {
 	/* io */			elops_io_ev,
 	/* run_pt */			elops_run_pt_ev,
 	/* destroy_pt */		elops_destroy_pt_ev,
-	/* destroy wsi */		NULL,
+	/* destroy wsi */		elops_destroy_wsi_ev,
 
 	/* periodic_events_available */	0,
 };

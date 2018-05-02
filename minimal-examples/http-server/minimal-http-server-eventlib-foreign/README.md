@@ -41,8 +41,8 @@ exits itself.
 ## usage
 
 ```
- $ ./lws-minimal-http-server-libuv-foreign
-[2018/03/29 12:19:31:3480] USER: LWS minimal http server libuv + foreign loop | visit http://localhost:7681
+ $ ./lws-minimal-http-server-eventlib-foreign
+[2018/03/29 12:19:31:3480] USER: LWS minimal http server eventlib + foreign loop | visit http://localhost:7681
 [2018/03/29 12:19:31:3724] NOTICE: Creating Vhost 'default' port 7681, 1 protocols, IPv6 off
 [2018/03/29 12:19:31:3804] NOTICE:  Using foreign event loop...
 [2018/03/29 12:19:31:3938] USER: Foreign 1Hz timer

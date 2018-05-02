@@ -337,7 +337,7 @@ int main(int argc, const char **argv)
 		logs = atoi(p);
 
 	lws_set_log_level(logs, NULL);
-	lwsl_user("LWS minimal http server libuv + foreign loop |"
+	lwsl_user("LWS minimal http server eventlib + foreign loop |"
 		  " visit http://localhost:7681\n");
 
 	/*
@@ -383,8 +383,7 @@ int main(int argc, const char **argv)
 	lwsl_user("\n");
 	lwsl_user("  Finally close only the timer and signalhandler and\n");
 	lwsl_user("   exit the loop cleanly\n");
-
-	lwsl_notice("%s\n", info.ssl_cert_filepath);
+	lwsl_user("\n");
 
 	/* foreign loop specific startup and run */
 

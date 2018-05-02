@@ -24,6 +24,11 @@
 #include <uv.h>
 
 /*
+ * libuv's async destroy cb means that asking to close something doesn't mean
+ * you can destroy it or parent things until after the close completes.
+ *
+ * So we must reference-count creation and close completions with libuv.
+ *
  * All "static" (per-pt or per-context) uv handles must
  *
  *  - have their .data set to point to the context

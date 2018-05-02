@@ -1,6 +1,9 @@
-# lws minimal http server eventlib
+# lws minimal http server eventlib demos
 
-This demonstrates a minimal http server that can use any of the event libraries
+This demonstrates a slightly more complex demo that can use
+any of the event loops (it defaults to poll)
+
+It uses statically included plugins to provide the lws test server functions
 
 Commandline option|Meaning
 ---|---
@@ -18,8 +21,8 @@ Commandline option|Meaning
 ## usage
 
 ```
- $ ./lws-minimal-http-server-eventlib
-[2018/03/04 09:30:02:7986] USER: LWS minimal http server-eventlib | visit http://localhost:7681
+ $ ./lws-minimal-http-server-eventlib-demos
+[2018/03/04 09:30:02:7986] USER: LWS minimal http server-eventlib-demos | visit http://localhost:7681
 [2018/03/04 09:30:02:7986] NOTICE: Creating Vhost 'default' port 7681, 1 protocols, IPv6 on
 ```
 

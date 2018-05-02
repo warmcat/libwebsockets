@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2017 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2018 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -116,11 +116,7 @@ lws_io_cb(uv_poll_t *watcher, int status, int revents)
 			eventfd.revents |= LWS_POLLOUT;
 		}
 	}
-	lws_service_fd(context, &eventfd);
-
-	lws_pt_lock(pt, __func__);
-	__lws_hrtimer_service(pt);
-	lws_pt_unlock(pt);
+	lws_service_fd_tsi(context, &eventfd, wsi->tsi);
 
 	uv_idle_start(&pt->uv.idle, lws_uv_idle);
 }
@@ -526,7 +522,8 @@ elops_destroy_context1_uv(struct lws_context *context)
 						  UV_RUN_NOWAIT)))
 					;
 			if (m)
-				lwsl_err("%s: tsi %d: failed to close everything\n", __func__, n);
+				lwsl_err("%s: tsi %d: not all closed\n",
+					 __func__, n);
 
 		}
 	}
@@ -891,8 +888,9 @@ lws_libuv_closewsi(uv_handle_t* handle)
 			vh = vh->vhost_next;
 		}
 
-		if (context->pt[0].event_loop_foreign) {
-			lwsl_info("%s: calling lws_context_destroy2\n", __func__);
+		if (!context->count_event_loop_static_asset_handles &&
+		    context->pt[0].event_loop_foreign) {
+			lwsl_info("%s: call lws_context_destroy2\n", __func__);
 			lws_context_destroy2(context);
 		}
 	}

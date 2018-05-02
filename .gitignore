@@ -47,3 +47,5 @@ libwebsockets.pc
 build/
 *.swp
 doc
+/build2/
+/build3/
