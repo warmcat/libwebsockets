@@ -1721,6 +1721,10 @@ lws_vhost_destroy(struct lws_vhost *vh)
  *     destroys the context itself, setting what was info.pcontext to NULL.
  */
 
+/*
+ * destroy the actual context itself
+ */
+
 static void
 lws_context_destroy3(struct lws_context *context)
 {
@@ -1732,6 +1736,10 @@ lws_context_destroy3(struct lws_context *context)
 	if (pcontext_finalize)
 		*pcontext_finalize = NULL;
 }
+
+/*
+ * really start destroying things
+ */
 
 void
 lws_context_destroy2(struct lws_context *context)
@@ -1801,6 +1809,10 @@ lws_context_destroy2(struct lws_context *context)
 
 	lws_context_destroy3(context);
 }
+
+/*
+ * Begin the context takedown
+ */
 
 LWS_VISIBLE void
 lws_context_destroy(struct lws_context *context)
@@ -1909,12 +1921,33 @@ lws_context_destroy(struct lws_context *context)
 
 	lws_plat_context_early_destroy(context);
 
+	/*
+	 * We face two different needs depending if foreign loop or not.
+	 *
+	 * 1) If foreign loop, we really want to advance the destroy_context()
+	 *    past here, and block only for libuv-style async close completion.
+	 *
+	 * 2a) If poll, and we exited by ourselves and are calling a final
+	 *     destroy_context() outside of any service already, we want to
+	 *     advance all the way in one step.
+	 *
+	 * 2b) If poll, and we are reacting to a SIGINT, service thread(s) may
+	 *     be in poll wait or servicing.  We can't advance the
+	 *     destroy_context() to the point it's freeing things; we have to
+	 *     leave that for the final destroy_context() after the service
+	 *     thread(s) are finished calling for service.
+	 */
 
 	if (context->event_loop_ops->destroy_context1) {
 		context->event_loop_ops->destroy_context1(context);
 
 		return;
 	}
+
+	if (!context->pt[0].event_loop_foreign)
+		for (n = 0; n < context->count_threads; n++)
+			if (context->pt[n].inside_service)
+				return;
 
 	lws_context_destroy2(context);
 }

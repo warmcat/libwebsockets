@@ -939,24 +939,49 @@ lws_service_fd(struct lws_context *context, struct lws_pollfd *pollfd)
 LWS_VISIBLE int
 lws_service(struct lws_context *context, int timeout_ms)
 {
+	struct lws_context_per_thread *pt = &context->pt[0];
+	int n;
+
+	if (!context)
+		return 1;
+
+	pt->inside_service = 1;
+
 	if (context->event_loop_ops->run_pt) {
 		/* we are configured for an event loop */
 		context->event_loop_ops->run_pt(context, 0);
 
+		pt->inside_service = 0;
+
 		return 1;
 	}
-	return lws_plat_service(context, timeout_ms);
+	n = lws_plat_service(context, timeout_ms);
+
+	pt->inside_service = 0;
+
+	return n;
 }
 
 LWS_VISIBLE int
 lws_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
+	struct lws_context_per_thread *pt = &context->pt[tsi];
+	int n;
+
+	pt->inside_service = 1;
+
 	if (context->event_loop_ops->run_pt) {
 		/* we are configured for an event loop */
 		context->event_loop_ops->run_pt(context, tsi);
 
+		pt->inside_service = 0;
+
 		return 1;
 	}
 
-	return _lws_plat_service_tsi(context, timeout_ms, tsi);
+	n = _lws_plat_service_tsi(context, timeout_ms, tsi);
+
+	pt->inside_service = 0;
+
+	return n;
 }
