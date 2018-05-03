@@ -19,7 +19,7 @@
  *  MA  02110-1301  USA
  */
 
-#include <private-libwebsockets.h>
+#include <core/private.h>
 
 #ifndef min
 #define min(a, b) ((a) < (b) ? (a) : (b))

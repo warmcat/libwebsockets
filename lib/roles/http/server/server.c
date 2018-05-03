@@ -19,7 +19,7 @@
  *  MA  02110-1301  USA
  */
 
-#include "private-libwebsockets.h"
+#include "core/private.h"
 
 const char * const method_names[] = {
 	"GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE", "CONNECT", "HEAD",

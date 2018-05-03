@@ -1,4 +1,4 @@
-#include "private-libwebsockets.h"
+#include "core/private.h"
 
 #include "extension-permessage-deflate.h"
 

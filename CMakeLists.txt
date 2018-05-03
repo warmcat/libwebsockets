@@ -718,7 +718,7 @@ include_directories("${PROJECT_SOURCE_DIR}/lib")
 # Group headers and sources.
 # Some IDEs use this for nicer file structure.
 set(HDR_PRIVATE
-	lib/private-libwebsockets.h)
+	lib/core/private.h)
 
 set(HDR_PUBLIC
 	"${PROJECT_SOURCE_DIR}/lib/libwebsockets.h"
@@ -728,12 +728,12 @@ set(HDR_PUBLIC
 
 set(SOURCES
 	lib/misc/base64-decode.c
-	lib/libwebsockets.c
-	lib/service.c
-	lib/pollfd.c
-	lib/output.c
-	lib/context.c
-	lib/alloc.c
+	lib/core/libwebsockets.c
+	lib/core/service.c
+	lib/core/pollfd.c
+	lib/core/output.c
+	lib/core/context.c
+	lib/core/alloc.c
 	lib/roles/pipe/ops-pipe.c
 	lib/misc/lws-ring.c)
 
@@ -1639,29 +1639,6 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2) AND NOT LWS_WITHOUT_TESTAPPS)
 
 			if (UNIX)
 				create_test_app(test-fuzxy "test-apps/fuzxy.c"
-					""
-					""
-					""
-					""
-					"")
-			endif()
-			if (NOT ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
-				AND LWS_WITH_LIBEV)
-				create_test_app(test-server-libev
-					"test-apps/test-server-libev.c"
-					""
-					""
-					""
-					""
-					"")
-				# libev generates a big mess of warnings with gcc, maintainer claims gcc to blame
-				set_source_files_properties( test-apps/test-server-libev.c PROPERTIES COMPILE_FLAGS "-Wno-error" )
-
-			endif()
-			if (NOT ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
-				AND LWS_WITH_LIBEVENT)
-				create_test_app(test-server-libevent
-					"test-apps/test-server-libevent.c"
 					""
 					""
 					""

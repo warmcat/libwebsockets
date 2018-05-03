@@ -20,7 +20,7 @@
  */
 
 #define _GNU_SOURCE
-#include "private-libwebsockets.h"
+#include "core/private.h"
 
 #include <pwd.h>
 #include <grp.h>

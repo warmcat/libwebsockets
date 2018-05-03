@@ -19,7 +19,7 @@
  *  MA  02110-1301  USA
  */
 
-#include "private-libwebsockets.h"
+#include "core/private.h"
 
 /*
  * parsers.c: lws_ws_rx_sm() needs to be roughly kept in
@@ -29,10 +29,13 @@
 int lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 {
 	int callback_action = LWS_CALLBACK_CLIENT_RECEIVE;
-	int handled, n, m, rx_draining_ext = 0;
+	int handled, m;
 	unsigned short close_code;
 	struct lws_tokens ebuf;
 	unsigned char *pp;
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+	int rx_draining_ext = 0, n;
+#endif
 
 	ebuf.token = NULL;
 	ebuf.len = 0;
@@ -498,12 +501,14 @@ drain_extension:
 			wsi->socket_is_permanently_unusable = 1;
 			return -1;
 		}
-#else
-		n = 0;
 #endif
 		lwsl_debug("post inflate ebuf len %d\n", ebuf.len);
 
-		if (rx_draining_ext && !ebuf.len) {
+		if (
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+		    rx_draining_ext &&
+#endif
+		    !ebuf.len) {
 			lwsl_debug("   --- ending drain on 0 read result\n");
 			goto already_done;
 		}
@@ -520,7 +525,11 @@ drain_extension:
 
 			/* we are ending partway through utf-8 character? */
 			if (!wsi->ws->rx_packet_length && wsi->ws->final &&
-			    wsi->ws->utf8 && !n) {
+			    wsi->ws->utf8
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+			    && !n
+#endif
+			    ) {
 				lwsl_info("FINAL utf8 error\n");
 				lws_close_reason(wsi,
 					LWS_CLOSE_STATUS_INVALID_PAYLOAD,
@@ -550,9 +559,9 @@ utf8_fail:
 
 		if (
 				/* coverity says dead code otherwise */
-//#if !defined(LWS_WITHOUT_EXTENSIONS)
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 				n &&
-//#endif
+#endif
 				ebuf.len)
 			/* extension had more... main loop will come back
 			 * we want callback to be done with this set, if so,

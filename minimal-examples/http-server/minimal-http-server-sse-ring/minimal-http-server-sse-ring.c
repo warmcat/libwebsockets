@@ -120,7 +120,8 @@ wait_unlock:
 		pthread_mutex_unlock(&vhd->lock_ring); /* } ring lock ------- */
 
 wait:
-		usleep(100000 + (rand() & 0xfffff));
+		/* rand() would make more sense but coverity shrieks */
+		usleep(100000 + (time(NULL) & 0xffff));
 
 	} while (!vhd->finished);
 

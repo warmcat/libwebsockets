@@ -19,7 +19,7 @@
  *  MA  02110-1301  USA
  */
 
-#include "private-libwebsockets.h"
+#include "core/private.h"
 
 #ifndef LWS_BUILD_HASH
 #define LWS_BUILD_HASH "unknown-build-hash"

@@ -19,7 +19,7 @@
  *  MA  02110-1301  USA
  */
 
-#include "private-libwebsockets.h"
+#include "core/private.h"
 
 /* requires context->lock */
 static void

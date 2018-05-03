@@ -1,4 +1,4 @@
-#include "private-libwebsockets.h"
+#include "core/private.h"
 
 /*
  * included from libwebsockets.c for OPTEE builds

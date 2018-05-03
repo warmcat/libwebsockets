@@ -19,7 +19,7 @@
  *  MA  02110-1301  USA
  */
 
-#include "private-libwebsockets.h"
+#include "core/private.h"
 
 static void
 lws_uv_hrtimer_cb(uv_timer_t *timer
@@ -666,21 +666,18 @@ static int
 elops_init_vhost_listen_wsi_uv(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt;
-	struct lws_vhost *vh = wsi->vhost;
 	int n;
 
-	if (!wsi)
-		wsi = vh->lserv_wsi;
 	if (!wsi)
 		return 0;
 	if (wsi->w_read.context)
 		return 0;
 
-	pt = &vh->context->pt[(int)wsi->tsi];
+	pt = &wsi->context->pt[(int)wsi->tsi];
 	if (!pt->uv.io_loop)
 		return 0;
 
-	wsi->w_read.context = vh->context;
+	wsi->w_read.context = wsi->context;
 	n = uv_poll_init_socket(pt->uv.io_loop,
 				&wsi->w_read.uv.watcher, wsi->desc.sockfd);
 	if (n) {

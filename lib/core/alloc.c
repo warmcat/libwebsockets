@@ -1,4 +1,4 @@
-#include "private-libwebsockets.h"
+#include "core/private.h"
 
 #if defined(LWS_PLAT_OPTEE)
 

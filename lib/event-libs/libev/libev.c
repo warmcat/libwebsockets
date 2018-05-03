@@ -19,7 +19,7 @@
  *  MA  02110-1301  USA
  */
 
-#include "private-libwebsockets.h"
+#include "core/private.h"
 
 static void
 lws_ev_hrtimer_cb(struct ev_loop *loop, struct ev_timer *watcher, int revents)

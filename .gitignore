@@ -49,3 +49,4 @@ build/
 doc
 /build2/
 /build3/
+/cov-int/

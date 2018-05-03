@@ -19,7 +19,7 @@
  *  MA  02110-1301  USA
  */
 
-#include "private-libwebsockets.h"
+#include "core/private.h"
 
 static void
 lws_event_hrtimer_cb(int fd, short event, void *p)

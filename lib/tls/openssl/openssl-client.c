@@ -19,7 +19,7 @@
  *  MA  02110-1301  USA
  */
 
-#include "private-libwebsockets.h"
+#include "core/private.h"
 
 extern int openssl_websocket_private_data_index,
     openssl_SSL_CTX_private_data_index;

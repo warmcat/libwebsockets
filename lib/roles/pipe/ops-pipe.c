@@ -19,7 +19,7 @@
  *  MA  02110-1301  USA
  */
 
-#include <private-libwebsockets.h>
+#include <core/private.h>
 
 static int
 rops_handle_POLLIN_pipe(struct lws_context_per_thread *pt, struct lws *wsi,

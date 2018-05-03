@@ -22,7 +22,7 @@
 #include <unistd.h>
 #include <errno.h>
 
-#include "private-libwebsockets.h"
+#include "core/private.h"
 
 int pid_daemon;
 static char *lock_path;

@@ -19,7 +19,7 @@
  *  MA  02110-1301  USA
  */
 
-#include "private-libwebsockets.h"
+#include "core/private.h"
 
 int
 _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)

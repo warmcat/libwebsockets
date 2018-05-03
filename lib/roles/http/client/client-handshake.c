@@ -1,4 +1,4 @@
-#include "private-libwebsockets.h"
+#include "core/private.h"
 
 static int
 lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
@@ -78,7 +78,9 @@ lws_client_connect_2(struct lws *wsi)
 	 */
 
 	adsin = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS);
-	lws_vhost_lock(wsi->vhost);
+
+	lws_vhost_lock(wsi->vhost); /* ----------------------------------- { */
+
 	lws_start_foreach_dll_safe(struct lws_dll_lws *, d, d1,
 				   wsi->vhost->dll_active_client_conns.next) {
 		struct lws *w = lws_container_of(d, struct lws,
@@ -101,6 +103,7 @@ lws_client_connect_2(struct lws *wsi)
 			if (w->keepalive_rejected) {
 				lwsl_info("defeating pipelining due to no "
 					    "keepalive on server\n");
+				lws_vhost_unlock(wsi->vhost); /* } ---------- */
 				goto create_new_conn;
 			}
 #if defined (LWS_WITH_HTTP2)
@@ -117,7 +120,7 @@ lws_client_connect_2(struct lws *wsi)
 
 				wsi->client_h2_alpn = 1;
 				lws_wsi_h2_adopt(w, wsi);
-				lws_vhost_unlock(wsi->vhost);
+				lws_vhost_unlock(wsi->vhost); /* } ---------- */
 
 				return wsi;
 			}
@@ -140,12 +143,13 @@ lws_client_connect_2(struct lws *wsi)
 
 			wsi_piggyback = w;
 
-			lws_vhost_unlock(wsi->vhost);
+			lws_vhost_unlock(wsi->vhost); /* } ---------- */
 			goto send_hs;
 		}
 
 	} lws_end_foreach_dll_safe(d, d1);
-	lws_vhost_unlock(wsi->vhost);
+
+	lws_vhost_unlock(wsi->vhost); /* } ---------------------------------- */
 
 create_new_conn:
 #endif

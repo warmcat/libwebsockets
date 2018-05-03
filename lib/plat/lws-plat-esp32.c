@@ -19,7 +19,7 @@
  *  MA  02110-1301  USA
  */
 
-#include "private-libwebsockets.h"
+#include "core/private.h"
 #include "freertos/timers.h"
 #include <esp_attr.h>
 #include <esp_system.h>

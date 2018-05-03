@@ -20,7 +20,7 @@
  */
 
 
-#include "private-libwebsockets.h"
+#include "core/private.h"
 
 /*
  * bitmap of control messages that are valid to receive for each http2 state

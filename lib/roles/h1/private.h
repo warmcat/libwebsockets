@@ -18,7 +18,7 @@
  *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
  *  MA  02110-1301  USA
  *
- *  This is included from private-libwebsockets.h if LWS_ROLE_H1
+ *  This is included from core/private.h if LWS_ROLE_H1
  *
  *  Most of the h1 business is defined in the h1 / h2 common roles/http dir
  */

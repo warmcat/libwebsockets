@@ -18,7 +18,7 @@
  *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
  *  MA  02110-1301  USA
  *
- *  This is included from private-libwebsockets.h
+ *  This is included from core/private.h
  */
 
 struct lws_event_loop_ops {

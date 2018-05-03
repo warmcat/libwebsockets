@@ -18,7 +18,7 @@
  *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
  *  MA  02110-1301  USA
  *
- *  This is included from private-libwebsockets.h if LWS_ROLE_WS
+ *  This is included from core/private.h if LWS_ROLE_WS
  */
 
 extern struct lws_role_ops role_ops_cgi;

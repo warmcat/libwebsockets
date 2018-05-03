@@ -19,7 +19,7 @@
  *  MA  02110-1301  USA
  */
 
-#include <private-libwebsockets.h>
+#include <core/private.h>
 
 #define LWS_CPYAPP(ptr, str) { strcpy(ptr, str); ptr += strlen(str); }
 

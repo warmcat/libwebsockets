@@ -19,7 +19,7 @@
  *  MA  02110-1301  USA
  */
 
-#include <private-libwebsockets.h>
+#include <core/private.h>
 
 #define LWS_CPYAPP(ptr, str) { strcpy(ptr, str); ptr += strlen(str); }
 
@@ -32,12 +32,13 @@ int
 lws_ws_rx_sm(struct lws *wsi, char already_processed, unsigned char c)
 {
 	int callback_action = LWS_CALLBACK_RECEIVE;
-	int ret = 0, rx_draining_ext = 0;
+	int ret = 0;
 	unsigned short close_code;
 	struct lws_tokens ebuf;
 	unsigned char *pp;
 	int n = 0;
 #if !defined(LWS_WITHOUT_EXTENSIONS)
+	int rx_draining_ext = 0;
 	int lin;
 #endif
 
@@ -586,7 +587,11 @@ drain_extension:
 			return -1;
 		}
 #endif
-		if (rx_draining_ext && ebuf.len == 0)
+		if (
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+		    rx_draining_ext &&
+#endif
+		    ebuf.len == 0)
 			goto already_done;
 
 		if (

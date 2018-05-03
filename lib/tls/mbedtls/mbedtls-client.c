@@ -19,7 +19,7 @@
  *  MA  02110-1301  USA
  */
 
-#include "private-libwebsockets.h"
+#include "core/private.h"
 
 static int
 OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)

@@ -19,7 +19,7 @@
  *  MA  02110-1301  USA
  */
 
-#include "private-libwebsockets.h"
+#include "core/private.h"
 
 #ifdef LWS_HAVE_SYS_TYPES_H
 #include <sys/types.h>
@@ -672,8 +672,9 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 
 	if (!wsi->told_user_closed && lwsi_role_http(wsi) &&
 	    lwsi_role_server(wsi)) {
-		if (wsi->user_space && wsi->protocol_bind_balance) {
-			wsi->vhost->protocols->callback(wsi,
+		if (wsi->user_space && wsi->protocol &&
+		    wsi->protocol_bind_balance) {
+			wsi->protocol->callback(wsi,
 						LWS_CALLBACK_HTTP_DROP_PROTOCOL,
 					       wsi->user_space, NULL, 0);
 			wsi->protocol_bind_balance = 0;
@@ -2927,7 +2928,7 @@ lws_cmdline_option(int argc, const char **argv, const char *val)
 
 	while (--c > 0)
 		if (!strncmp(argv[c], val, n)) {
-			if (!*(argv[c] + n) && c != argc - 1)
+			if (!*(argv[c] + n) && c < argc - 1)
 				return argv[c + 1];
 
 			return argv[c] + n;

@@ -26,8 +26,14 @@
  #define  _GNU_SOURCE
 #endif
 
-#if defined(__COVERITY__)
- typedef struct { long double x, y; } _Float128;
+#if defined(__COVERITY__) && !defined(LWS_COVERITY_WORKAROUND)
+ #define LWS_COVERITY_WORKAROUND
+ typedef float _Float32;
+ typedef float _Float64;
+ typedef float _Float128;
+ typedef float _Float32x;
+ typedef float _Float64x;
+ typedef float _Float128x;
 #endif
 
 #ifdef LWS_HAVE_SYS_TYPES_H
@@ -1076,8 +1082,8 @@ struct lws {
 #endif
 #endif
 
-	lws_usec_t pending_timer;
-	time_t pending_timeout_set;
+	lws_usec_t pending_timer; /* hrtimer fires */
+	time_t pending_timeout_set; /* second-resolution timeout start */
 
 	/* ints */
 	int position_in_fds_table;
@@ -1443,7 +1449,7 @@ lws_pt_unlock(struct lws_context_per_thread *pt)
 		pt->lock_depth--;
 		return;
 	}
-	pt->last_lock_reason ="free";
+	pt->last_lock_reason = "free";
 	pt->lock_owner = 0;
 	//lwsl_notice("tid %d: unlock %s\n", pt->tid, pt->last_lock_reason);
 	pthread_mutex_unlock(&pt->lock);

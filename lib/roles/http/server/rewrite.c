@@ -1,4 +1,4 @@
-#include "private-libwebsockets.h"
+#include "core/private.h"
 
 
 LWS_EXTERN struct lws_rewrite *
