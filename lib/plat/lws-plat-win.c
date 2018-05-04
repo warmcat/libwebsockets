@@ -20,7 +20,7 @@ lws_plat_pipe_signal(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 
-	WSASetEvent(pt->events[0]);
+	WSASetEvent(pt->events[0]); /* trigger the cancel event */
 
 	return 0;
 }
@@ -46,9 +46,10 @@ time_in_microseconds()
 #endif
 
 	/*
-	 * As per Windows documentation for FILETIME, copy the resulting FILETIME structure to a
-	 * ULARGE_INTEGER structure using memcpy (using memcpy instead of direct assignment can
-	 * prevent alignment faults on 64-bit Windows).
+	 * As per Windows documentation for FILETIME, copy the resulting
+	 * FILETIME structure to a ULARGE_INTEGER structure using memcpy
+	 * (using memcpy instead of direct assignment can prevent alignment
+	 * faults on 64-bit Windows).
 	 */
 	memcpy(&datetime, &filetime, sizeof(datetime));
 
@@ -218,6 +219,9 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		return 0;
 	}
 
+	if (context->event_loop_ops->run_pt)
+		context->event_loop_ops->run_pt(context, tsi);
+
 	for (i = 0; i < pt->fds_count; ++i) {
 		pfd = &pt->fds[i];
 
@@ -254,6 +258,16 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		if (!lws_service_adjust_timeout(context, 1, pt->tid))
 			/* yes... come back again quickly */
 			timeout_ms = 0;
+	}
+
+	if (timeout_ms) {
+		lws_pt_lock(pt, __func__);
+		/* don't stay in poll wait longer than next hr timeout */
+		lws_usec_t t =  __lws_hrtimer_service(pt);
+
+		if ((lws_usec_t)timeout_ms * 1000 > t)
+			timeout_ms = (int)(t / 1000);
+		lws_pt_unlock(pt);
 	}
 
 	ev = WSAWaitForMultipleEvents(1, pt->events, FALSE, timeout_ms, FALSE);
@@ -738,7 +752,7 @@ lws_plat_init(struct lws_context *context,
 		}
 
 		pt->fds_count = 0;
-		pt->events[0] = WSACreateEvent();
+		pt->events[0] = WSACreateEvent(); /* the cancel event */
 
 		pt++;
 	}

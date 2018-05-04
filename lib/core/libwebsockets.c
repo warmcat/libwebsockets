@@ -2653,8 +2653,13 @@ lws_create_adopt_udp(struct lws_vhost *vhost, int port, int flags,
 		goto bail1;
 	}
 
-	if ((flags & LWS_CAUDP_BIND) &&
-	    bind(sock.sockfd, rp->ai_addr, rp->ai_addrlen) == -1) {
+	if ((flags & LWS_CAUDP_BIND) && bind(sock.sockfd, rp->ai_addr,
+#if defined(_WIN32)
+			    (int)rp->ai_addrlen
+#else
+			    rp->ai_addrlen
+#endif
+	   ) == -1) {
 		lwsl_err("%s: bind failed\n", __func__);
 		goto bail2;
 	}
