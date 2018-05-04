@@ -308,9 +308,9 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 	     lwsi_state(wsi) == LRS_ISSUING_FILE ||
 	     lwsi_state(wsi) == LRS_HEADERS ||
 	     lwsi_state(wsi) == LRS_BODY)) {
-		if (!wsi->http.ah &&
-		    lws_header_table_attach(wsi, 0)) {
-			lwsl_info("wsi %p: ah get fail\n", wsi);
+
+		if (!wsi->http.ah && lws_header_table_attach(wsi, 0)) {
+			lwsl_info("%s: wsi %p: ah not available\n", __func__, wsi);
 			goto try_pollout;
 		}
 
@@ -319,6 +319,9 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 		 * regardless of our buflist state, we need to get it,
 		 * and either use it, or append to the buflist and use
 		 * buflist head material.
+		 *
+		 * We will not notice a connection close until the buflist is
+		 * exhausted and we tried to do a read of some kind.
 		 */
 
 		buffered = lws_buflist_aware_read(pt, wsi, &ebuf);
@@ -327,8 +330,20 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 			lwsl_info("%s: read 0 len a\n", __func__);
 			wsi->seen_zero_length_recv = 1;
 			lws_change_pollfd(wsi, LWS_POLLIN, 0);
-			goto try_pollout;
-			//goto fail;
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+			/*
+			 * autobahn requires us to win the race between close
+			 * and draining the extensions
+			 */
+			if (wsi->ws &&
+			    (wsi->ws->rx_draining_ext || wsi->ws->tx_draining_ext))
+				goto try_pollout;
+#endif
+			/*
+			 * normally, we respond to close with logically closing
+			 * our side immediately
+			 */
+			goto fail;
 
 		case LWS_SSL_CAPABLE_ERROR:
 			goto fail;
@@ -469,7 +484,8 @@ try_pollout:
 
 
 fail:
-	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "server socket svc fail");
+	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
+			   "server socket svc fail");
 
 	return LWS_HPI_RET_WSI_ALREADY_DIED;
 }

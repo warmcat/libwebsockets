@@ -177,6 +177,10 @@ int main(int argc, const char **argv)
 	info.protocols = protocols;
 	info.mounts = &mount;
 
+	/* for testing ah queue, not useful in real world */
+	if (lws_cmdline_option(argc, argv, "--ah1"))
+		info.max_http_header_pool = 1;
+
 	context = lws_create_context(&info);
 	if (!context) {
 		lwsl_err("lws init failed\n");

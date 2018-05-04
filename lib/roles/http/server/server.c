@@ -330,8 +330,8 @@ lws_select_vhost(struct lws_context *context, int port, const char *servername)
 	vhost = context->vhost_list;
 	while (vhost) {
 		if (port == vhost->listen_port) {
-			lwsl_info("vhost match to %s based on port %d\n",
-					vhost->name, port);
+			lwsl_info("%s: vhost match to %s based on port %d\n",
+					__func__, vhost->name, port);
 			return vhost;
 		}
 		vhost = vhost->vhost_next;
@@ -991,6 +991,8 @@ lws_http_action(struct lws *wsi)
 		if (lws_bind_protocol(wsi, &wsi->vhost->protocols[0]))
 			return 1;
 
+		lwsi_set_state(wsi, LRS_DOING_TRANSACTION);
+
 		n = wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP,
 				    wsi->user_space, uri_ptr, uri_len);
 
@@ -1547,7 +1549,7 @@ raw_transition:
 
 		/* no upgrade ack... he remained as HTTP */
 
-		lwsl_info("No upgrade\n");
+		lwsl_info("%s: %p: No upgrade\n", __func__, wsi);
 
 		lwsi_set_state(wsi, LRS_ESTABLISHED);
 		wsi->http.fop_fd = NULL;
@@ -1742,7 +1744,8 @@ lws_http_transaction_completed(struct lws *wsi)
 	 * until we can verify POLLOUT.  The part of this that confirms POLLOUT
 	 * with no partials is in lws_server_socket_service() below.
 	 */
-	lwsl_debug("%s: setting DEF_ACT from 0x%x\n", __func__, wsi->wsistate);
+	lwsl_debug("%s: %p: setting DEF_ACT from 0x%x\n", __func__,
+		   wsi, wsi->wsistate);
 	lwsi_set_state(wsi, LRS_DEFERRING_ACTION);
 	wsi->http.tx_content_length = 0;
 	wsi->http.tx_content_remain = 0;
@@ -1770,7 +1773,8 @@ lws_http_transaction_completed(struct lws *wsi)
 	if (wsi->http.ah) {
 		// lws_buflist_describe(&wsi->buflist, wsi);
 		if (!lws_buflist_next_segment_len(&wsi->buflist, NULL)) {
-			lwsl_debug("%s: nothing in buflist so detaching ah\n", __func__);
+			lwsl_info("%s: %p: nothing in buflist so detaching ah\n",
+				  __func__, wsi);
 			lws_header_table_detach(wsi, 1);
 #ifdef LWS_WITH_TLS
 			/*
@@ -1789,8 +1793,8 @@ lws_http_transaction_completed(struct lws *wsi)
 			}
 #endif
 		} else {
-			lwsl_debug("%s: resetting and keeping ah as pipeline\n",
-				   __func__);
+			lwsl_info("%s: %p: resetting and keeping ah as pipeline\n",
+				  __func__, wsi);
 			lws_header_table_reset(wsi, 0);
 			/*
 			 * If we kept the ah, we should restrict the amount

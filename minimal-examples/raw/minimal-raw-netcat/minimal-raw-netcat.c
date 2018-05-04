@@ -31,6 +31,7 @@ static struct lws *raw_wsi, *stdin_wsi;
 static uint8_t buf[LWS_PRE + 4096];
 static int waiting, interrupted;
 static struct lws_context *context;
+static int us_wait_after_input_close = LWS_USEC_PER_SEC / 10;
 
 static int
 callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
@@ -50,7 +51,7 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 		/* stdin close, wait 1s then close the raw skt */
 		stdin_wsi = NULL; /* invalid now we close */
 		if (raw_wsi)
-			lws_set_timer_usecs(raw_wsi, LWS_USEC_PER_SEC / 10);
+			lws_set_timer_usecs(raw_wsi, us_wait_after_input_close);
 		else {
 			interrupted = 1;
 			lws_cancel_service(context);
@@ -153,7 +154,7 @@ int main(int argc, const char **argv)
 		logs = atoi(p);
 
 	lws_set_log_level(logs, NULL);
-	lwsl_user("LWS minimal raw netcat [--server ip] [--port port]\n");
+	lwsl_user("LWS minimal raw netcat [--server ip] [--port port] [-w ms]\n");
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
@@ -192,6 +193,9 @@ int main(int argc, const char **argv)
 
 	if ((p = lws_cmdline_option(argc, argv, "--server")))
 		server = p;
+
+	if ((p = lws_cmdline_option(argc, argv, "-w")))
+		us_wait_after_input_close = 1000 * atoi(p);
 
 	n = getaddrinfo(server, port, &h, &r);
 	if (n) {

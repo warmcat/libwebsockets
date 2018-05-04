@@ -81,6 +81,8 @@ _lws_header_table_reset(struct allocated_headers *ah)
 	ah->nfrag = 0;
 	ah->pos = 0;
 	ah->http_response = 0;
+	ah->parser_state = WSI_TOKEN_NAME_PART;
+	ah->lextable_pos = 0;
 }
 
 // doesn't scrub the ah rxbuffer by default, parent must do if needed
@@ -98,9 +100,6 @@ __lws_header_table_reset(struct lws *wsi, int autoservice)
 	assert(ah->wsi == wsi);
 
 	_lws_header_table_reset(ah);
-
-	ah->parser_state = WSI_TOKEN_NAME_PART;
-	ah->lextable_pos = 0;
 
 	/* since we will restart the ah, our new headers are not completed */
 	wsi->hdr_parsing_completed = 0;
@@ -353,7 +352,7 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 	if (!wsi) /* everybody waiting already has too many ah... */
 		goto nobody_usable_waiting;
 
-	lwsl_info("%s: last eligible wsi in wait list %p\n", __func__, wsi);
+	lwsl_info("%s: transferring ah to last eligible wsi in wait list %p (wsistate 0x%x)\n", __func__, wsi, wsi->wsistate);
 
 	wsi->http.ah = ah;
 	ah->wsi = wsi; /* new owner */

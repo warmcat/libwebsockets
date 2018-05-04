@@ -122,18 +122,27 @@ enum lwsi_state {
 	LRS_HEADERS				= 21,
 	LRS_BODY				= 22,
 	LRS_ESTABLISHED				= LWSIFS_POCB | 23,
+	/* we are established, but we have embarked on serving a single
+	 * transaction.  Other transaction input may be pending, but we will
+	 * not service it while we are busy dealing with the current
+	 * transaction.
+	 *
+	 * When we complete the current transaction, we would reset our state
+	 * back to ESTABLISHED and start to process the next transaction.
+	 */
+	LRS_DOING_TRANSACTION			= LWSIFS_POCB | 24,
 
 	/* Phase 6: finishing */
 
-	LRS_WAITING_TO_SEND_CLOSE		= LWSIFS_POCB | 24,
-	LRS_RETURNED_CLOSE			= LWSIFS_POCB | 25,
-	LRS_AWAITING_CLOSE_ACK			= LWSIFS_POCB | 26,
-	LRS_FLUSHING_BEFORE_CLOSE		= LWSIFS_POCB | 27,
-	LRS_SHUTDOWN				= 28,
+	LRS_WAITING_TO_SEND_CLOSE		= LWSIFS_POCB | 25,
+	LRS_RETURNED_CLOSE			= LWSIFS_POCB | 26,
+	LRS_AWAITING_CLOSE_ACK			= LWSIFS_POCB | 27,
+	LRS_FLUSHING_BEFORE_CLOSE		= LWSIFS_POCB | 28,
+	LRS_SHUTDOWN				= 29,
 
 	/* Phase 7: dead */
 
-	LRS_DEAD_SOCKET				= 29,
+	LRS_DEAD_SOCKET				= 30,
 
 	LRS_MASK				= 0xffff
 };
