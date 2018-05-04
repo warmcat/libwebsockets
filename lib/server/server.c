@@ -2317,8 +2317,19 @@ lws_server_socket_service(struct lws_context *context, struct lws *wsi,
 					lwsl_info("%s: read 0 len a\n", __func__);
 					wsi->seen_zero_length_recv = 1;
 					lws_change_pollfd(wsi, LWS_POLLIN, 0);
-					goto try_pollout;
-					/* fallthru */
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+					/*
+					 * autobahn requires us to win the race between close
+					 * and draining the extensions
+					 */
+					if (wsi->u.ws.rx_draining_ext || wsi->u.ws.tx_draining_ext)
+						goto try_pollout;
+#endif
+					/*
+					 * normally, we respond to close with logically closing
+					 * our side immediately
+					 */
+					goto fail;
 				case LWS_SSL_CAPABLE_ERROR:
 					goto fail;
 				case LWS_SSL_CAPABLE_MORE_SERVICE:
