@@ -390,6 +390,9 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 		return;
 	}
 
+	if (secs == LWS_TO_KILL_ASYNC)
+		secs = 0;
+
 	lws_pt_lock(pt, __func__);
 	__lws_set_timeout(wsi, reason, secs);
 	lws_pt_unlock(pt);
@@ -2932,12 +2935,14 @@ lws_cmdline_option(int argc, const char **argv, const char *val)
 	int n = (int)strlen(val), c = argc;
 
 	while (--c > 0) {
-		/* coverity treats unchecked argv as "tainted" */
-		if (!argv[c] || strlen(argv[c]) > 1024)
-			return NULL;
+
 		if (!strncmp(argv[c], val, n)) {
-			if (!*(argv[c] + n) && c < argc - 1)
+			if (!*(argv[c] + n) && c < argc - 1) {
+				/* coverity treats unchecked argv as "tainted" */
+				if (!argv[c + 1] || strlen(argv[c + 1]) > 1024)
+					return NULL;
 				return argv[c + 1];
+			}
 
 			return argv[c] + n;
 		}

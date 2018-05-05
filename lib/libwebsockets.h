@@ -4668,6 +4668,7 @@ enum pending_timeout {
 	PENDING_TIMEOUT_HOLDING_AH				= 25,
 	PENDING_TIMEOUT_UDP_IDLE				= 26,
 	PENDING_TIMEOUT_CLIENT_CONN_IDLE			= 27,
+	PENDING_TIMEOUT_LAGGING					= 28,
 
 	/****** add new things just above ---^ ******/
 
@@ -5542,6 +5543,13 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 	type it = &(start); \
 	while (*(it)) {
 
+#define lws_start_foreach_llp_safe(type, it, start, nxt)\
+{ \
+	type it = &(start); \
+	type next; \
+	while (*(it)) { \
+		next = &((*(it))->nxt); \
+
 /**
  * lws_end_foreach_llp(): linkedlist pointer iterator helper end
  *
@@ -5554,6 +5562,11 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 
 #define lws_end_foreach_llp(it, nxt) \
 		it = &(*(it))->nxt; \
+	} \
+}
+
+#define lws_end_foreach_llp_safe(it) \
+		it = next; \
 	} \
 }
 

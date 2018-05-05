@@ -111,8 +111,8 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 	lws_filepos_t flen;
 	long err;
 
-	if (!cert || !private_key) {
-		lwsl_notice("%s: no paths\n", __func__);
+	if ((!cert || !private_key) && (!mem_cert || !mem_privkey)) {
+		lwsl_notice("%s: no usable input\n", __func__);
 		return 0;
 	}
 

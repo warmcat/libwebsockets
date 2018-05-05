@@ -405,6 +405,9 @@ lws_tls_generic_cert_checks(struct lws_vhost *vhost, const char *cert,
 	 * parameter.
 	 */
 
+	if (!cert || !private_key)
+		return LWS_TLS_EXTANT_NO;
+
 	n = lws_tls_use_any_upgrade_check_extant(cert);
 	if (n == LWS_TLS_EXTANT_ALTERNATIVE)
 		return LWS_TLS_EXTANT_ALTERNATIVE;
