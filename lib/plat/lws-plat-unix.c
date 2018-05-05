@@ -239,7 +239,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 
 		next = ftp->next;
 		pfd = &vpt->fds[ftp->fd_index];
-		if (lws_sockfd_valid(pfd->fd)) {
+		if (lws_socket_is_valid(pfd->fd)) {
 			wsi = wsi_from_fd(context, pfd->fd);
 			if (wsi)
 				__lws_change_pollfd(wsi, ftp->_and, ftp->_or);

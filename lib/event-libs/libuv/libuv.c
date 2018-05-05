@@ -562,7 +562,7 @@ elops_destroy_context2_uv(struct lws_context *context)
 static int
 elops_wsi_logical_close_uv(struct lws *wsi)
 {
-	if (wsi->parent_carries_io || !lws_sockfd_valid(wsi->desc.sockfd))
+	if (wsi->parent_carries_io || !lws_socket_is_valid(wsi->desc.sockfd))
 		return 0;
 
 	if (wsi->listener || wsi->event_pipe) {

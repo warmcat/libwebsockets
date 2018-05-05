@@ -92,8 +92,8 @@
 
  #define compatible_close(fd) closesocket(fd)
  #define lws_set_blocking_send(wsi) wsi->sock_send_blocking = 1
- #define lws_socket_is_valid(x) (!!x)
  #define LWS_SOCK_INVALID (INVALID_SOCKET)
+
  #include <winsock2.h>
  #include <ws2tcpip.h>
  #include <windows.h>
@@ -189,7 +189,6 @@
 
  #define lws_set_blocking_send(wsi)
 
- #define lws_socket_is_valid(x) (x >= 0)
  #define LWS_SOCK_INVALID (-1)
 #endif /* not windows */
 
@@ -202,6 +201,9 @@
 #ifndef LWS_HAVE_STRERROR
  #define strerror(x) ""
 #endif
+
+
+#define lws_socket_is_valid(x) (x != LWS_SOCK_INVALID)
 
 #include "libwebsockets.h"
 
@@ -1069,11 +1071,6 @@ struct lws {
 	struct lws_lws_tls tls;
 #endif
 
-#ifdef LWS_LATENCY
-	unsigned long action_start;
-	unsigned long latency_start;
-#endif
-
 	lws_sock_file_fd_type desc; /* .filefd / .sockfd */
 #if defined(LWS_WITH_STATS)
 	uint64_t active_writable_req_us;
@@ -1085,7 +1082,13 @@ struct lws {
 	lws_usec_t pending_timer; /* hrtimer fires */
 	time_t pending_timeout_set; /* second-resolution timeout start */
 
+#ifdef LWS_LATENCY
+	unsigned long action_start;
+	unsigned long latency_start;
+#endif
+
 	/* ints */
+#define LWS_NO_FDS_POS (-1)
 	int position_in_fds_table;
 	unsigned int trunc_alloc_len; /* size of malloc */
 	unsigned int trunc_offset; /* where we are in terms of spilling */

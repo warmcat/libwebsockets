@@ -110,7 +110,8 @@ __lws_header_table_reset(struct lws *wsi, int autoservice)
 
 	time(&ah->assigned);
 
-	if (lws_buflist_next_segment_len(&wsi->buflist, NULL) &&
+	if (wsi->position_in_fds_table != LWS_NO_FDS_POS &&
+	    lws_buflist_next_segment_len(&wsi->buflist, NULL) &&
 	    autoservice) {
 		lwsl_debug("%s: service on readbuf ah\n", __func__);
 
@@ -366,7 +367,7 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 #endif
 
 	/* clients acquire the ah and then insert themselves in fds table... */
-	if (wsi->position_in_fds_table != -1) {
+	if (wsi->position_in_fds_table != LWS_NO_FDS_POS) {
 		lwsl_info("%s: Enabling %p POLLIN\n", __func__, wsi);
 
 		/* he has been stuck waiting for an ah, but now his wait is

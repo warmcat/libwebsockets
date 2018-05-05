@@ -577,7 +577,7 @@ oom4:
 		wsi->already_did_cce = 1;
 	}
 	/* take care that we might be inserted in fds already */
-	if (wsi->position_in_fds_table != -1)
+	if (wsi->position_in_fds_table != LWS_NO_FDS_POS)
 		goto failed1;
 	lws_remove_from_timeout_list(wsi);
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
@@ -923,7 +923,7 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 
 	wsi->user_space = NULL;
 	wsi->pending_timeout = NO_PENDING_TIMEOUT;
-	wsi->position_in_fds_table = -1;
+	wsi->position_in_fds_table = LWS_NO_FDS_POS;
 	wsi->c_port = i->port;
 	wsi->vhost = i->vhost;
 	if (!wsi->vhost)

@@ -33,7 +33,13 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 	struct lws_pollfd *pfd;
 	int sampled_tid, tid;
 
-	if (!wsi || wsi->position_in_fds_table < 0)
+	if (!wsi)
+		return 0;
+
+	assert(wsi->position_in_fds_table == LWS_NO_FDS_POS ||
+	       wsi->position_in_fds_table >= 0);
+
+	if (wsi->position_in_fds_table == LWS_NO_FDS_POS)
 		return 0;
 
 	if (((volatile struct lws *)wsi)->handling_pollout &&
@@ -60,8 +66,7 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 	context = wsi->context;
 	pt = &context->pt[(int)wsi->tsi];
 
-	assert(wsi->position_in_fds_table >= 0 &&
-	       wsi->position_in_fds_table < (int)pt->fds_count);
+	assert(wsi->position_in_fds_table < (int)pt->fds_count);
 
 #if !defined(LWS_WITH_LIBUV) && \
     !defined(LWS_WITH_LIBEV) && \
@@ -316,6 +321,10 @@ __remove_wsi_socket_from_fds(struct lws *wsi)
 	/* the guy who is to be deleted's slot index in pt->fds */
 	m = wsi->position_in_fds_table;
 	
+	/* these are the only valid possibilities for position_in_fds_table */
+	assert(m == LWS_NO_FDS_POS || (m >= 0 &&
+				       (unsigned int)m < pt->fds_count));
+
 	if (context->event_loop_ops->io)
 		context->event_loop_ops->io(wsi,
 				  LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE |
@@ -325,7 +334,7 @@ __remove_wsi_socket_from_fds(struct lws *wsi)
 		  __func__, wsi, wsi->desc.sockfd, wsi->position_in_fds_table,
 		  pt->fds_count, pt->fds[pt->fds_count].fd);
 
-	if (m != LWS_SOCK_INVALID) {
+	if (m != LWS_NO_FDS_POS) {
 
 		/* have the last guy take up the now vacant slot */
 		pt->fds[m] = pt->fds[pt->fds_count - 1];
@@ -335,16 +344,17 @@ __remove_wsi_socket_from_fds(struct lws *wsi)
 		/* end guy's "position in fds table" is now the deletion guy's old one */
 		end_wsi = wsi_from_fd(context, v);
 		if (!end_wsi) {
-			lwsl_err("no wsi found for fd %d at pos %d, pt->fds_count=%d\n",
-				(int)pt->fds[m].fd, m, pt->fds_count);
+			lwsl_err("no wsi for fd %d at pos %d, pt->fds_count=%d\n",
+				 (int)pt->fds[m].fd, m, pt->fds_count);
 			assert(0);
 		} else
 			end_wsi->position_in_fds_table = m;
 
 		/* deletion guy's lws_lookup entry needs nuking */
 		delete_from_fd(context, wsi->desc.sockfd);
+
 		/* removed wsi has no position any more */
-		wsi->position_in_fds_table = -1;
+		wsi->position_in_fds_table = LWS_NO_FDS_POS;
 	}
 
 	/* remove also from external POLL support via protocol 0 */
@@ -376,7 +386,7 @@ __lws_change_pollfd(struct lws *wsi, int _and, int _or)
 	int ret = 0;
 
 	if (!wsi || (!wsi->protocol && !wsi->event_pipe) ||
-	    wsi->position_in_fds_table < 0)
+	    wsi->position_in_fds_table == LWS_NO_FDS_POS)
 		return 0;
 
 	context = lws_get_context(wsi);
@@ -458,7 +468,7 @@ lws_callback_on_writable(struct lws *wsi)
 		wsi = lws_get_network_wsi(wsi);
 	}
 
-	if (wsi->position_in_fds_table < 0) {
+	if (wsi->position_in_fds_table == LWS_NO_FDS_POS) {
 		lwsl_debug("%s: failed to find socket %d\n", __func__,
 			   wsi->desc.sockfd);
 		return -1;

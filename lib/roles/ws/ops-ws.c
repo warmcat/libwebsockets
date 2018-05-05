@@ -1448,7 +1448,7 @@ rops_service_flag_pending_ws(struct lws_context *context, int tsi)
 	 * not flowcontrolled, fake their POLLIN status
 	 */
 	wsi = pt->ws.rx_draining_ext_list;
-	while (wsi) {
+	while (wsi && wsi->position_in_fds_table != LWS_NO_FDS_POS) {
 		pt->fds[wsi->position_in_fds_table].revents |=
 			pt->fds[wsi->position_in_fds_table].events & LWS_POLLIN;
 		if (pt->fds[wsi->position_in_fds_table].revents & LWS_POLLIN)

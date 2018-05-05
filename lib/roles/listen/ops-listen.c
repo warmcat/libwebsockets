@@ -124,7 +124,7 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 
 		fd.sockfd = accept_fd;
 		cwsi = lws_adopt_descriptor_vhost(wsi->vhost, opts, fd,
-						NULL, NULL);
+						  NULL, NULL);
 		if (!cwsi)
 			/* already closed cleanly as necessary */
 			return LWS_HPI_RET_WSI_ALREADY_DIED;
@@ -139,6 +139,7 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 			    __func__, cwsi, cwsi->wsistate, cwsi->role_ops->name);
 
 	} while (pt->fds_count < context->fd_limit_per_thread - 1 &&
+		 wsi->position_in_fds_table != LWS_NO_FDS_POS &&
 		 lws_poll_listen_fd(&pt->fds[wsi->position_in_fds_table]) > 0);
 
 	return LWS_HPI_RET_HANDLED;

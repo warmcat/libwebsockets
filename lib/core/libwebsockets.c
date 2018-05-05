@@ -751,7 +751,7 @@ just_kill_connection:
 				  __func__, wsi, (int)(long)wsi->desc.sockfd,
 				  lwsi_state(wsi));
 			if (!wsi->socket_is_permanently_unusable &&
-			    lws_sockfd_valid(wsi->desc.sockfd)) {
+			    lws_socket_is_valid(wsi->desc.sockfd)) {
 				wsi->socket_is_permanently_unusable = 1;
 				n = shutdown(wsi->desc.sockfd, SHUT_WR);
 			}
@@ -767,7 +767,7 @@ just_kill_connection:
 #if !defined(_WIN32_WCE) && !defined(LWS_WITH_ESP32)
 		/* libuv: no event available to guarantee completion */
 		if (!wsi->socket_is_permanently_unusable &&
-		    lws_sockfd_valid(wsi->desc.sockfd) &&
+		    lws_socket_is_valid(wsi->desc.sockfd) &&
 		    lwsi_state(wsi) != LRS_SHUTDOWN &&
 		    context->event_loop_ops->periodic_events_available) {
 			__lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN);
@@ -3326,7 +3326,8 @@ lws_stats_log_dump(struct lws_context *context)
 	context->updated = 1;
 
 	while (v) {
-		if (v->lserv_wsi) {
+		if (v->lserv_wsi &&
+		    v->lserv_wsi->position_in_fds_table != LWS_NO_FDS_POS) {
 
 			struct lws_context_per_thread *pt =
 					&context->pt[(int)v->lserv_wsi->tsi];

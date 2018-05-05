@@ -481,7 +481,7 @@ typedef int64_t lws_usec_t;
 #if defined(_WIN32)
 typedef SOCKET lws_sockfd_type;
 typedef HANDLE lws_filefd_type;
-#define lws_sockfd_valid(sfd) (!!sfd)
+
 struct lws_pollfd {
 	lws_sockfd_type fd; /**< file descriptor */
 	SHORT events; /**< which events to respond to */
@@ -497,7 +497,7 @@ struct lws_pollfd {
 
 typedef int lws_sockfd_type;
 typedef int lws_filefd_type;
-#define lws_sockfd_valid(sfd) (sfd >= 0)
+
 struct pollfd {
 	lws_sockfd_type fd; /**< fd related to */
 	short events; /**< which POLL... events to respond to */
@@ -701,7 +701,6 @@ extern void lws_esp32_leds_timer_cb(TimerHandle_t th);
 #else
 typedef int lws_sockfd_type;
 typedef int lws_filefd_type;
-#define lws_sockfd_valid(sfd) (sfd >= 0)
 #endif
 
 #define lws_pollfd pollfd

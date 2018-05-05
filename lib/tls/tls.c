@@ -34,7 +34,7 @@ lws_tls_fake_POLLIN_for_buffered(struct lws_context_per_thread *pt)
 	int ret = 0;
 
 	wsi = pt->tls.pending_read_list;
-	while (wsi) {
+	while (wsi && wsi->position_in_fds_table != LWS_NO_FDS_POS) {
 		wsi_next = wsi->tls.pending_read_list_next;
 		pt->fds[wsi->position_in_fds_table].revents |=
 			pt->fds[wsi->position_in_fds_table].events & LWS_POLLIN;

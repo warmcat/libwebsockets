@@ -1695,7 +1695,7 @@ lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi)
 	new_wsi->protocol = vhost->protocols;
 	new_wsi->user_space = NULL;
 	new_wsi->desc.sockfd = LWS_SOCK_INVALID;
-	new_wsi->position_in_fds_table = -1;
+	new_wsi->position_in_fds_table = LWS_NO_FDS_POS;
 
 	vhost->context->count_wsi_allocated++;
 
@@ -2073,6 +2073,9 @@ adopt_socket_readbuf(struct lws *wsi, const char *readbuf, size_t len)
 		return NULL;
 
 	if (!readbuf || len == 0)
+		return wsi;
+
+	if (wsi->position_in_fds_table == LWS_NO_FDS_POS)
 		return wsi;
 
 	pt = &wsi->context->pt[(int)wsi->tsi];

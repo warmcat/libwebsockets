@@ -91,7 +91,7 @@ lws_create_basic_wsi(struct lws_context *context, int tsi)
 	lws_role_transition(new_wsi, 0, LRS_ESTABLISHED, &role_ops_cgi);
 
 	new_wsi->hdr_parsing_completed = 0;
-	new_wsi->position_in_fds_table = -1;
+	new_wsi->position_in_fds_table = LWS_NO_FDS_POS;
 
 	/*
 	 * these can only be set once the protocol is known
