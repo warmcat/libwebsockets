@@ -72,9 +72,9 @@ ota_choose_part(void)
 		if (part == bootpart)
 			goto next;
 
+		/* OTA Partition numbering is from _OTA_MIN to less than _OTA_MAX */
 		if (part->subtype < ESP_PARTITION_SUBTYPE_APP_OTA_MIN ||
-		    part->subtype >= ESP_PARTITION_SUBTYPE_APP_OTA_MIN +
-		    		     ESP_PARTITION_SUBTYPE_APP_OTA_MAX)
+		    part->subtype >= ESP_PARTITION_SUBTYPE_APP_OTA_MAX)
 			goto next;
 
 		break;
@@ -112,7 +112,7 @@ ota_file_upload_cb(void *data, const char *name, const char *filename,
 		if (!pss->part)
 			return 1;
 
-		if (esp_ota_begin(pss->part, (long)-1, &pss->otahandle) != ESP_OK) {
+		if (esp_ota_begin(pss->part, OTA_SIZE_UNKNOWN, &pss->otahandle) != ESP_OK) {
 			lwsl_err("OTA: Failed to begin\n");
 			return 1;
 		}
