@@ -7,6 +7,10 @@
 News
 ----
 
+## v3.0.0 released
+
+See the changelog for info https://github.com/warmcat/libwebsockets/blob/v3.0-stable/changelog
+
 ## Major CI improvements for QA
 
 The Travis build of lws done on every commit now runs 
