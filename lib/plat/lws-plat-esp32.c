@@ -173,6 +173,16 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 			timeout_ms = 0;
 	}
 
+	if (timeout_ms) {
+		lws_pt_lock(pt, __func__);
+		/* don't stay in poll wait longer than next hr timeout */
+		lws_usec_t t =  __lws_hrtimer_service(pt);
+
+		if ((lws_usec_t)timeout_ms * 1000 > t)
+			timeout_ms = t / 1000;
+		lws_pt_unlock(pt);
+	}
+
 //	n = poll(pt->fds, pt->fds_count, timeout_ms);
 	{
 		fd_set readfds, writefds, errfds;
@@ -1592,7 +1602,7 @@ lws_esp32_wlan_start_ap(void)
 	if (sta_config.sta.ssid[0]) {
 		tcpip_adapter_set_hostname(TCPIP_ADAPTER_IF_STA,
 					   (const char *)&config.ap.ssid[7]);
-		esp_wifi_set_auto_connect(1);
+		// esp_wifi_set_auto_connect(1);
 		ESP_ERROR_CHECK( esp_wifi_connect());
 		ESP_ERROR_CHECK( esp_wifi_set_config(WIFI_IF_STA, &sta_config));
 		ESP_ERROR_CHECK( esp_wifi_connect());
@@ -1614,7 +1624,7 @@ lws_esp32_wlan_start_station(void)
 
 	tcpip_adapter_set_hostname(TCPIP_ADAPTER_IF_STA,
 				   (const char *)&config.ap.ssid[7]);
-	esp_wifi_set_auto_connect(1);
+	//esp_wifi_set_auto_connect(1);
 	//ESP_ERROR_CHECK( esp_wifi_connect());
 
 	lws_esp32_scan_timer_cb(NULL);
@@ -2044,7 +2054,7 @@ LWS_VISIBLE int
 lws_plat_write_cert(struct lws_vhost *vhost, int is_key, int fd, void *buf,
 			int len)
 {
-	const char *name = vhost->alloc_cert_path;
+	const char *name = vhost->tls.alloc_cert_path;
 
 	if (is_key)
 		name = vhost->tls.key_path;

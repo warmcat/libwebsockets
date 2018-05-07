@@ -1988,4 +1988,5 @@ struct lws_role_ops role_ops_ws = {
 					  LWS_CALLBACK_SERVER_WRITEABLE },
 	/* close cb clnt, srv */	{ LWS_CALLBACK_CLIENT_CLOSED,
 					  LWS_CALLBACK_CLOSED },
+	/* file handles */		0
 };
