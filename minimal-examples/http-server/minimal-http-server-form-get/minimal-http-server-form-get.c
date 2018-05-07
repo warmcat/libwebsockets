@@ -60,20 +60,8 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		if (lws_http_redirect(wsi, HTTP_STATUS_MOVED_PERMANENTLY,
 				      (unsigned char *)"after-form1.html",
-				      16, &p, end))
+				      16, &p, end) < 0)
 			return -1;
-
-		/* we could add more headers here */
-
-		if (lws_finalize_http_header(wsi, &p, end))
-			return -1;
-
-		n = lws_write(wsi, start, lws_ptr_diff(p, start),
-			      LWS_WRITE_HTTP_HEADERS |
-			      LWS_WRITE_H2_STREAM_END);
-		if (n < 0)
-			return -1;
-
 		break;
 
 	default:
