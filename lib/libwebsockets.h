@@ -539,7 +539,7 @@ struct timer_mapping {
 
 #define lws_uv_getloop(a, b) (NULL)
 
-static inline void uv_timer_init(void *l, uv_timer_t *t)
+static LWS_INLINE void uv_timer_init(void *l, uv_timer_t *t)
 {
 	(void)l;
 	*t = NULL;
@@ -547,7 +547,7 @@ static inline void uv_timer_init(void *l, uv_timer_t *t)
 
 extern void esp32_uvtimer_cb(TimerHandle_t t);
 
-static inline void uv_timer_start(uv_timer_t *t, uv_cb_t *cb, int first, int rep)
+static LWS_INLINE void uv_timer_start(uv_timer_t *t, uv_cb_t *cb, int first, int rep)
 {
 	struct timer_mapping *tm = (struct timer_mapping *)malloc(sizeof(*tm));
 
@@ -562,12 +562,12 @@ static inline void uv_timer_start(uv_timer_t *t, uv_cb_t *cb, int first, int rep
 	xTimerStart(*t, 0);
 }
 
-static inline void uv_timer_stop(uv_timer_t *t)
+static LWS_INLINE void uv_timer_stop(uv_timer_t *t)
 {
 	xTimerStop(*t, 0);
 }
 
-static inline void uv_close(uv_handle_t *h, void *v)
+static LWS_INLINE void uv_close(uv_handle_t *h, void *v)
 {
 	free(pvTimerGetTimerID((uv_timer_t)h));
 	xTimerDelete(*(uv_timer_t *)h, 0);
@@ -4942,7 +4942,7 @@ lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 	lws_write(wsi, (unsigned char *)(buf), len, LWS_WRITE_HTTP)
 
 /* helper for multi-frame ws message flags */
-static inline int
+static LWS_INLINE int
 lws_write_ws_flags(int initial, int is_start, int is_end)
 {
 	int r;
@@ -5620,13 +5620,13 @@ struct lws_dll_lws { /* typed as struct lws * */
 
 #define lws_dll_is_null(___dll) (!(___dll)->prev && !(___dll)->next)
 
-static inline void
+static LWS_INLINE void
 lws_dll_lws_add_front(struct lws_dll_lws *_a, struct lws_dll_lws *_head)
 {
 	lws_dll_add_front((struct lws_dll *)_a, (struct lws_dll *)_head);
 }
 
-static inline void
+static LWS_INLINE void
 lws_dll_lws_remove(struct lws_dll_lws *_a)
 {
 	lws_dll_remove((struct lws_dll *)_a);
