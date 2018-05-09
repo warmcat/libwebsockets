@@ -17,7 +17,7 @@
 
 static struct lws_context *context;
 static struct lws *client_wsi;
-static int interrupted;
+static int interrupted, zero_length_ping;
 
 struct pss {
 	int send_a_ping;
@@ -77,8 +77,11 @@ callback_minimal_broker(struct lws *wsi, enum lws_callback_reasons reason,
 			int m;
 
 			pss->send_a_ping = 0;
-			n = lws_snprintf((char *)ping + LWS_PRE, 125,
-				"ping body!");
+			n = 0;
+			if (!zero_length_ping)
+				n = lws_snprintf((char *)ping + LWS_PRE, 125,
+					"ping body!");
+
 			lwsl_user("Sending PING %d...\n", n);
 
 			m = lws_write(wsi, ping + LWS_PRE, n, LWS_WRITE_PING);
@@ -176,6 +179,10 @@ int main(int argc, const char **argv)
 	 */
 	info.client_ssl_ca_filepath = "./libwebsockets.org.cer";
 #endif
+
+	if (lws_cmdline_option(argc, argv, "-z"))
+		zero_length_ping = 1;
+
 
 	context = lws_create_context(&info);
 	if (!context) {
