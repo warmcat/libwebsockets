@@ -450,7 +450,7 @@ ping_drop:
 			break;
 
 		case LWSWSOPC_PONG:
-			lwsl_info("client receied pong\n");
+			lwsl_info("client received pong\n");
 			lwsl_hexdump(&wsi->ws->rx_ubuf[LWS_PRE],
 				     wsi->ws->rx_ubuf_head);
 
