@@ -232,7 +232,7 @@
  #endif
 
 #else /* not windows */
- static inline int compatible_close(int fd) { return close(fd); }
+ static LWS_INLINE int compatible_close(int fd) { return close(fd); }
 
  #include <sys/stat.h>
  #include <sys/time.h>
@@ -1216,7 +1216,7 @@ LWS_EXTERN int
 lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len);
 
 #ifndef LWS_LATENCY
-static inline void
+static LWS_INLINE void
 lws_latency(struct lws_context *context, struct lws *wsi, const char *action,
 	    int ret, int completion) {
 	do {
@@ -1224,7 +1224,7 @@ lws_latency(struct lws_context *context, struct lws *wsi, const char *action,
 		(void)completion;
 	} while (0);
 }
-static inline void
+static LWS_INLINE void
 lws_latency_pre(struct lws_context *context, struct lws *wsi) {
 	do { (void)context; (void)wsi; } while (0);
 }
@@ -1673,10 +1673,10 @@ lws_broadcast(struct lws_context *context, int reason, void *in, size_t len);
  lws_stats_atomic_max(struct lws_context * context,
 		struct lws_context_per_thread *pt, int index, uint64_t val);
 #else
- static inline uint64_t lws_stats_atomic_bump(struct lws_context * context,
+ static LWS_INLINE uint64_t lws_stats_atomic_bump(struct lws_context * context,
 		struct lws_context_per_thread *pt, int index, uint64_t bump) {
 	(void)context; (void)pt; (void)index; (void)bump; return 0; }
- static inline uint64_t lws_stats_atomic_max(struct lws_context * context,
+ static LWS_INLINE uint64_t lws_stats_atomic_max(struct lws_context * context,
 		struct lws_context_per_thread *pt, int index, uint64_t val) {
 	(void)context; (void)pt; (void)index; (void)val; return 0; }
 #endif
