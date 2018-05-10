@@ -187,23 +187,6 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 
-	if (wsi->parent_carries_io) {
-		struct lws_write_passthru pas;
-
-		pas.buf = buf;
-		pas.len = len;
-		pas.wp = wp;
-		pas.wsi = wsi;
-
-		if (wsi->parent->protocol->callback(wsi->parent,
-				LWS_CALLBACK_CHILD_WRITE_VIA_PARENT,
-				wsi->parent->user_space,
-				(void *)&pas, 0))
-			return 1;
-
-		return (int)len;
-	}
-
 	lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_API_LWS_WRITE, 1);
 
 	if ((int)len < 0) {

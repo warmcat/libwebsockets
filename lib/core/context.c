@@ -86,6 +86,57 @@ lws_role_call_alpn_negotiated(struct lws *wsi, const char *alpn)
 	return 0;
 }
 
+#if !defined(LWS_WITHOUT_SERVER)
+int
+lws_role_call_adoption_bind(struct lws *wsi, int type, const char *prot)
+{
+	LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar)
+		if (ar->adoption_bind)
+			if (ar->adoption_bind(wsi, type, prot))
+				return 0;
+	LWS_FOR_EVERY_AVAILABLE_ROLE_END;
+
+	/* fall back to raw socket role if, eg, h1 not configured */
+
+	if (role_ops_raw_skt.adoption_bind &&
+	    role_ops_raw_skt.adoption_bind(wsi, type, prot))
+		return 0;
+
+	/* fall back to raw file role if, eg, h1 not configured */
+
+	if (role_ops_raw_file.adoption_bind &&
+	    role_ops_raw_file.adoption_bind(wsi, type, prot))
+		return 0;
+
+	return 1;
+}
+#endif
+
+#if !defined(LWS_WITHOUT_CLIENT)
+int
+lws_role_call_client_bind(struct lws *wsi,
+			  const struct lws_client_connect_info *i)
+{
+	LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar)
+		if (ar->client_bind) {
+			int m = ar->client_bind(wsi, i);
+			if (m < 0)
+				return m;
+			if (m)
+				return 0;
+		}
+	LWS_FOR_EVERY_AVAILABLE_ROLE_END;
+
+	/* fall back to raw socket role if, eg, h1 not configured */
+
+	if (role_ops_raw_skt.client_bind &&
+	    role_ops_raw_skt.client_bind(wsi, i))
+		return 0;
+
+	return 1;
+}
+#endif
+
 static const char * const mount_protocols[] = {
 	"http://",
 	"https://",

@@ -659,6 +659,133 @@ rops_destroy_role_h1(struct lws *wsi)
 	return 0;
 }
 
+#if !defined(LWS_NO_SERVER)
+
+static int
+rops_adoption_bind_h1(struct lws *wsi, int type, const char *vh_prot_name)
+{
+	if (!(type & LWS_ADOPT_HTTP))
+		return 0; /* no match */
+
+
+	if (type & _LWS_ADOPT_FINISH) {
+		if (!lws_header_table_attach(wsi, 0))
+			lwsl_debug("Attached ah immediately\n");
+		else
+			lwsl_info("%s: waiting for ah\n", __func__);
+
+		return 1;
+	}
+
+	lws_role_transition(wsi, LWSIFR_SERVER, type & LWS_ADOPT_ALLOW_SSL ?
+			    LRS_SSL_INIT : LRS_HEADERS, &role_ops_h1);
+
+	if (!vh_prot_name)
+		wsi->protocol = &wsi->vhost->protocols[
+					wsi->vhost->default_protocol_index];
+
+	/* the transport is accepted... give him time to negotiate */
+	lws_set_timeout(wsi, PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
+			wsi->context->timeout_secs);
+
+	return 1; /* bound */
+}
+
+#endif
+
+#if !defined(LWS_NO_CLIENT)
+
+static const char * const http_methods[] = {
+	"GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE", "CONNECT"
+};
+
+static int
+rops_client_bind_h1(struct lws *wsi, const struct lws_client_connect_info *i)
+{
+	int n;
+
+	if (!i) {
+		/* we are finalizing an already-selected role */
+
+		/*
+		 * If we stay in http, assuming there wasn't already-set
+		 * external user_space, since we know our initial protocol
+		 * we can assign the user space now, otherwise do it after the
+		 * ws subprotocol negotiated
+		 */
+		if (!wsi->user_space && wsi->stash->method)
+			if (lws_ensure_user_space(wsi))
+				return 1;
+
+		 /*
+		  * For ws, default to http/1.1 only.  If i->alpn had been set
+		  * though, defer to whatever he has set in there (eg, "h2").
+		  *
+		  * The problem is he has to commit to h2 before he can find
+		  * out if the server has the SETTINGS for ws-over-h2 enabled;
+		  * if not then ws is not possible on that connection.  So we
+		  * only try h2 if he assertively said to use h2 alpn, otherwise
+		  * ws implies alpn restriction to h1.
+		  */
+		if (!wsi->stash->method && !wsi->stash->alpn) {
+			wsi->stash->alpn = lws_strdup("http/1.1");
+			if (!wsi->stash->alpn)
+				return 1;
+		}
+
+		/* if we went on the ah waiting list, it's ok, we can wait.
+		 *
+		 * When we do get the ah, now or later, he will end up at
+		 * lws_http_client_connect_via_info2().
+		 */
+		if (lws_header_table_attach(wsi, 0) < 0)
+			/*
+			 * if we failed here, the connection is already closed
+			 * and freed.
+			 */
+			return -1;
+
+		return 0;
+	}
+
+	/*
+	 * Clients that want to be h1, h2, or ws all start out as h1
+	 * (we don't yet know if the server supports h2 or ws)
+	 */
+
+	if (!i->method) { /* websockets */
+#if defined(LWS_ROLE_WS)
+		if (lws_create_client_ws_object(i, wsi))
+			goto fail_wsi;
+#else
+		lwsl_err("%s: ws role not configured\n", __func__);
+
+		goto fail_wsi;
+#endif
+		goto bind_h1;
+	}
+
+	/* if a recognized http method, bind to it */
+
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(http_methods); n++)
+		if (!strcmp(i->method, http_methods[n]))
+			goto bind_h1;
+
+	/* other roles may bind to it */
+
+	return 0; /* no match */
+
+bind_h1:
+	/* assert the mode and union status (hdr) clearly */
+	lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED, &role_ops_h1);
+
+	return 1; /* matched */
+
+fail_wsi:
+	return -1;
+}
+#endif
+
 struct lws_role_ops role_ops_h1 = {
 	/* role name */			"h1",
 	/* alpn id */			"http/1.1",
@@ -680,6 +807,16 @@ struct lws_role_ops role_ops_h1 = {
 	/* close_role */		NULL,
 	/* close_kill_connection */	NULL,
 	/* destroy_role */		rops_destroy_role_h1,
+#if !defined(LWS_NO_SERVER)
+	/* adoption_bind */		rops_adoption_bind_h1,
+#else
+					NULL,
+#endif
+#if !defined(LWS_NO_CLIENT)
+	/* client_bind */		rops_client_bind_h1,
+#else
+					NULL,
+#endif
 	/* writeable cb clnt, srv */	{ LWS_CALLBACK_CLIENT_HTTP_WRITEABLE,
 					  LWS_CALLBACK_HTTP_WRITEABLE },
 	/* close cb clnt, srv */	{ LWS_CALLBACK_CLOSED_CLIENT_HTTP,

@@ -1149,9 +1149,6 @@ lws_get_peer_simple(struct lws *wsi, char *name, int namelen)
 
 	wsi = lws_get_network_wsi(wsi);
 
-	if (wsi->parent_carries_io)
-		wsi = wsi->parent;
-
 #ifdef LWS_WITH_IPV6
 	if (LWS_IPV6_ENABLED(wsi->vhost)) {
 		len = sizeof(sin6);
@@ -2158,12 +2155,6 @@ lws_get_child(const struct lws *wsi)
 	return wsi->child_list;
 }
 
-LWS_VISIBLE LWS_EXTERN void
-lws_set_parent_carries_io(struct lws *wsi)
-{
-	wsi->parent_carries_io = 1;
-}
-
 LWS_VISIBLE LWS_EXTERN void *
 lws_get_opaque_parent_data(const struct lws *wsi)
 {
@@ -2348,6 +2339,17 @@ lws_parse_uri(char *p, const char **prot, const char **ads, int *port,
 	}
 
 	return 0;
+}
+
+char *
+lws_strdup(const char *s)
+{
+	char *d = lws_malloc(strlen(s) + 1, "strdup");
+
+	if (d)
+		strcpy(d, s);
+
+	return d;
 }
 
 #if defined(LWS_WITHOUT_EXTENSIONS)
@@ -2618,73 +2620,6 @@ lws_get_addr_scope(const char *ipaddr)
 	return scope;
 }
 #endif
-
-#if !defined(LWS_NO_SERVER)
-
-LWS_EXTERN struct lws *
-lws_create_adopt_udp(struct lws_vhost *vhost, int port, int flags,
-		     const char *protocol_name, struct lws *parent_wsi)
-{
-	lws_sock_file_fd_type sock;
-	struct addrinfo h, *r, *rp;
-	struct lws *wsi = NULL;
-	char buf[16];
-	int n;
-
-	memset(&h, 0, sizeof(h));
-	h.ai_family = AF_UNSPEC;    /* Allow IPv4 or IPv6 */
-	h.ai_socktype = SOCK_DGRAM;
-	h.ai_protocol = IPPROTO_UDP;
-	h.ai_flags = AI_PASSIVE | AI_ADDRCONFIG;
-
-	lws_snprintf(buf, sizeof(buf), "%u", port);
-	n = getaddrinfo(NULL, buf, &h, &r);
-	if (n) {
-		lwsl_info("%s: getaddrinfo error: %s\n", __func__,
-			  gai_strerror(n));
-		goto bail;
-	}
-
-	for (rp = r; rp; rp = rp->ai_next) {
-		sock.sockfd = socket(rp->ai_family, rp->ai_socktype,
-				     rp->ai_protocol);
-		if (sock.sockfd >= 0)
-			break;
-	}
-	if (!rp) {
-		lwsl_err("%s: unable to create INET socket\n", __func__);
-		goto bail1;
-	}
-
-	if ((flags & LWS_CAUDP_BIND) && bind(sock.sockfd, rp->ai_addr,
-#if defined(_WIN32)
-			    (int)rp->ai_addrlen
-#else
-			    rp->ai_addrlen
-#endif
-	   ) == -1) {
-		lwsl_err("%s: bind failed\n", __func__);
-		goto bail2;
-	}
-
-	wsi = lws_adopt_descriptor_vhost(vhost, LWS_ADOPT_RAW_SOCKET_UDP, sock,
-				        protocol_name, parent_wsi);
-	if (!wsi)
-		lwsl_err("%s: udp adoption failed\n", __func__);
-
-bail2:
-	if (!wsi)
-		close((int)sock.sockfd);
-bail1:
-	freeaddrinfo(r);
-
-bail:
-	return wsi;
-}
-
-#endif
-
-
 
 static const char *hex = "0123456789ABCDEF";
 

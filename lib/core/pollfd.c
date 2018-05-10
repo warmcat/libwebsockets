@@ -298,11 +298,6 @@ __remove_wsi_socket_from_fds(struct lws *wsi)
 	int v;
 	int m, ret = 0;
 
-	if (wsi->parent_carries_io) {
-		lws_same_vh_protocol_remove(wsi);
-		return 0;
-	}
-
 #if !defined(_WIN32)
 	if (wsi->desc.sockfd - lws_plat_socket_offset() > context->max_fds) {
 		lwsl_err("fd %d too high (%d)\n", wsi->desc.sockfd,
@@ -426,7 +421,6 @@ LWS_VISIBLE int
 lws_callback_on_writable(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt;
-	int n;
 
 	if (lwsi_state(wsi) == LRS_SHUTDOWN)
 		return 0;
@@ -435,22 +429,6 @@ lws_callback_on_writable(struct lws *wsi)
 		return 0;
 
 	pt = &wsi->context->pt[(int)wsi->tsi];
-
-	if (wsi->parent_carries_io) {
-#if defined(LWS_WITH_STATS)
-		if (!wsi->active_writable_req_us) {
-			wsi->active_writable_req_us = time_in_microseconds();
-			lws_stats_atomic_bump(wsi->context, pt,
-					      LWSSTATS_C_WRITEABLE_CB_EFF_REQ, 1);
-		}
-#endif
-		n = lws_callback_on_writable(wsi->parent);
-		if (n < 0)
-			return n;
-
-		wsi->parent_pending_cb_on_writable = 1;
-		return 1;
-	}
 
 	lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_WRITEABLE_CB_REQ, 1);
 #if defined(LWS_WITH_STATS)

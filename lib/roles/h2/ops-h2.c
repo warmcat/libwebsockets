@@ -1076,6 +1076,8 @@ struct lws_role_ops role_ops_h2 = {
 	/* close_role */		NULL,
 	/* close_kill_connection */	rops_close_kill_connection_h2,
 	/* destroy_role */		rops_destroy_role_h2,
+	/* adoption_bind */		NULL,
+	/* client_bind */		NULL,
 	/* writeable cb clnt, srv */	{ LWS_CALLBACK_CLIENT_HTTP_WRITEABLE,
 					  LWS_CALLBACK_HTTP_WRITEABLE },
 	/* close cb clnt, srv */	{ LWS_CALLBACK_CLOSED_CLIENT_HTTP,

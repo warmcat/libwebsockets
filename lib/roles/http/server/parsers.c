@@ -259,7 +259,7 @@ reset:
 
 #ifndef LWS_NO_CLIENT
 	if (lwsi_role_client(wsi) && lwsi_state(wsi) == LRS_UNCONNECTED)
-		if (!lws_client_connect_via_info2(wsi))
+		if (!lws_http_client_connect_via_info2(wsi))
 			/* our client connect has failed, the wsi
 			 * has been closed
 			 */
@@ -386,7 +386,7 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 	if (lwsi_role_client(wsi) && lwsi_state(wsi) == LRS_UNCONNECTED) {
 		lws_pt_unlock(pt);
 
-		if (!lws_client_connect_via_info2(wsi)) {
+		if (!lws_http_client_connect_via_info2(wsi)) {
 			/* our client connect has failed, the wsi
 			 * has been closed
 			 */

@@ -1120,7 +1120,6 @@ struct lws {
 	unsigned int waiting_to_send_close_frame:1;
 	unsigned int close_needs_ack:1;
 	unsigned int ipv6:1;
-	unsigned int parent_carries_io:1;
 	unsigned int parent_pending_cb_on_writable:1;
 	unsigned int cgi_stdout_zero_length:1;
 	unsigned int seen_zero_length_recv:1;
@@ -1185,6 +1184,9 @@ struct lws {
 	volatile char handling_pollout;
 	volatile char leave_pollout_active;
 };
+
+LWS_EXTERN char *
+lws_strdup(const char *s);
 
 #define lws_is_flowcontrolled(w) (!!(wsi->rxflow_bitmap))
 
@@ -1297,7 +1299,7 @@ LWS_EXTERN int
 lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd);
 
 LWS_EXTERN struct lws *
-lws_client_connect_via_info2(struct lws *wsi);
+lws_http_client_connect_via_info2(struct lws *wsi);
 
 
 
@@ -1731,7 +1733,8 @@ lws_generate_client_ws_handshake(struct lws *wsi, char *p);
 int
 lws_client_ws_upgrade(struct lws *wsi, const char **cce);
 int
-lws_create_client_ws_object(struct lws_client_connect_info *i, struct lws *wsi);
+lws_create_client_ws_object(const struct lws_client_connect_info *i,
+			    struct lws *wsi);
 int
 lws_alpn_comma_to_openssl(const char *comma, uint8_t *os, int len);
 int
@@ -1745,6 +1748,9 @@ void
 lws_destroy_event_pipe(struct lws *wsi);
 void
 lws_context_destroy2(struct lws_context *context);
+int
+lws_role_call_client_bind(struct lws *wsi,
+			  const struct lws_client_connect_info *i);
 
 #ifdef __cplusplus
 };

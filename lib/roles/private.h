@@ -148,9 +148,11 @@ enum lwsi_state {
 };
 
 #define lwsi_state(wsi) ((enum lwsi_state)(wsi->wsistate & LRS_MASK))
-#define lwsi_state_PRE_CLOSE(wsi) ((enum lwsi_state)(wsi->wsistate_pre_close & LRS_MASK))
+#define lwsi_state_PRE_CLOSE(wsi) \
+		((enum lwsi_state)(wsi->wsistate_pre_close & LRS_MASK))
 #define lwsi_state_est(wsi) (!(wsi->wsistate & LWSIFS_NOT_EST))
-#define lwsi_state_est_PRE_CLOSE(wsi) (!(wsi->wsistate_pre_close & LWSIFS_NOT_EST))
+#define lwsi_state_est_PRE_CLOSE(wsi) \
+		(!(wsi->wsistate_pre_close & LWSIFS_NOT_EST))
 #define lwsi_state_can_handle_POLLOUT(wsi) (wsi->wsistate & LWSIFS_POCB)
 #if !defined (_DEBUG)
 #define lwsi_set_state(wsi, lrs) wsi->wsistate = \
@@ -158,6 +160,8 @@ enum lwsi_state {
 #else
 void lwsi_set_state(struct lws *wsi, lws_wsi_state_t lrs);
 #endif
+
+#define _LWS_ADOPT_FINISH (1 << 24)
 
 /*
  * internal role-specific ops
@@ -216,6 +220,16 @@ struct lws_role_ops {
 				     enum lws_close_status reason);
 	/* role-specific destructor */
 	int (*destroy_role)(struct lws *wsi);
+
+	/* role-specific socket-adopt */
+	int (*adoption_bind)(struct lws *wsi, int type, const char *prot);
+	/* role-specific client-bind:
+	 * ret 1 = bound, 0 = not bound, -1 = fail out
+	 * i may be NULL, indicating client_bind is being called after
+	 * a successful bind earlier, to finalize the binding.  In that
+	 * case ret 0 = OK, 1 = fail, wsi needs freeing, -1 = fail, wsi freed */
+	int (*client_bind)(struct lws *wsi,
+			   const struct lws_client_connect_info *i);
 
 	/*
 	 * the callback reasons for WRITEABLE for client, server
@@ -280,3 +294,6 @@ enum {
 	LWS_UPG_RET_CONTINUE,
 	LWS_UPG_RET_BAIL
 };
+
+int
+lws_role_call_adoption_bind(struct lws *wsi, int type, const char *prot);

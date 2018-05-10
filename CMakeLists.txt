@@ -727,15 +727,15 @@ set(HDR_PUBLIC
 	)
 
 set(SOURCES
-	lib/misc/base64-decode.c
-	lib/core/libwebsockets.c
-	lib/core/service.c
-	lib/core/pollfd.c
-	lib/core/output.c
-	lib/core/context.c
 	lib/core/alloc.c
-	lib/roles/pipe/ops-pipe.c
-	lib/misc/lws-ring.c)
+	lib/core/context.c
+	lib/core/libwebsockets.c
+	lib/core/output.c
+	lib/core/pollfd.c
+	lib/core/service.c
+	lib/misc/base64-decode.c
+	lib/misc/lws-ring.c
+	lib/roles/pipe/ops-pipe.c)
 
 if (LWS_ROLE_H1 OR LWS_ROLE_H2)
 	list(APPEND SOURCES
@@ -764,7 +764,8 @@ endif()
 
 if (LWS_ROLE_RAW)
 	list(APPEND SOURCES
-		lib/roles/raw/ops-raw.c)
+		lib/roles/raw-skt/ops-raw-skt.c
+		lib/roles/raw-file/ops-raw-file.c)
 endif()
 
 if (LWS_ROLE_CGI)
@@ -785,12 +786,14 @@ endif()
 
 if (NOT LWS_WITHOUT_CLIENT)
 	list(APPEND SOURCES
+		lib/core/connect.c
 		lib/roles/http/client/client.c
 		lib/roles/http/client/client-handshake.c)
 endif()
 
 if (NOT LWS_WITHOUT_SERVER)
 	list(APPEND SOURCES
+		lib/core/adopt.c
 		lib/roles/listen/ops-listen.c)
 endif()
 

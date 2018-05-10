@@ -1565,13 +1565,6 @@ enum lws_callback_reasons {
 	 * destroyed.  in is the child wsi.
 	 */
 
-	LWS_CALLBACK_CHILD_WRITE_VIA_PARENT			= 68,
-	/**< Child has been marked with parent_carries_io attribute, so
-	 * lws_write directs the to this callback at the parent,
-	 * in is a struct lws_write_passthru containing the args
-	 * the lws_write() was called with.
-	 */
-
 	/* ---------------------------------------------------------------------
 	 * ----- Callbacks related to TLS certificate management -----
 	 */
@@ -3490,61 +3483,7 @@ struct lws_client_connect_info {
  *	information provided in ccinfo.
  */
 LWS_VISIBLE LWS_EXTERN struct lws *
-lws_client_connect_via_info(struct lws_client_connect_info * ccinfo);
-
-/**
- * lws_client_connect() - Connect to another websocket server
- * 		\deprecated DEPRECATED use lws_client_connect_via_info
- * \param clients:	Websocket context
- * \param address:	Remote server address, eg, "myserver.com"
- * \param port:	Port to connect to on the remote server, eg, 80
- * \param ssl_connection:	0 = ws://, 1 = wss:// encrypted, 2 = wss:// allow self
- *			signed certs
- * \param path:	Websocket path on server
- * \param host:	Hostname on server
- * \param origin:	Socket origin name
- * \param protocol:	Comma-separated list of protocols being asked for from
- *		the server, or just one.  The server will pick the one it
- *		likes best.  If you don't want to specify a protocol, which is
- *		legal, use NULL here.
- * \param ietf_version_or_minus_one: -1 to ask to connect using the default, latest
- *		protocol supported, or the specific protocol ordinal
- *
- *	This function creates a connection to a remote server
- */
-/* deprecated, use lws_client_connect_via_info() */
-LWS_VISIBLE LWS_EXTERN struct lws * LWS_WARN_UNUSED_RESULT
-lws_client_connect(struct lws_context *clients, const char *address,
-		   int port, int ssl_connection, const char *path,
-		   const char *host, const char *origin, const char *protocol,
-		   int ietf_version_or_minus_one) LWS_WARN_DEPRECATED;
-/* deprecated, use lws_client_connect_via_info() */
-/**
- * lws_client_connect_extended() - Connect to another websocket server
- * 			\deprecated DEPRECATED use lws_client_connect_via_info
- * \param clients:	Websocket context
- * \param address:	Remote server address, eg, "myserver.com"
- * \param port:	Port to connect to on the remote server, eg, 80
- * \param ssl_connection:	0 = ws://, 1 = wss:// encrypted, 2 = wss:// allow self
- *			signed certs
- * \param path:	Websocket path on server
- * \param host:	Hostname on server
- * \param origin:	Socket origin name
- * \param protocol:	Comma-separated list of protocols being asked for from
- *		the server, or just one.  The server will pick the one it
- *		likes best.
- * \param ietf_version_or_minus_one: -1 to ask to connect using the default, latest
- *		protocol supported, or the specific protocol ordinal
- * \param userdata: Pre-allocated user data
- *
- *	This function creates a connection to a remote server
- */
-LWS_VISIBLE LWS_EXTERN struct lws * LWS_WARN_UNUSED_RESULT
-lws_client_connect_extended(struct lws_context *clients, const char *address,
-			    int port, int ssl_connection, const char *path,
-			    const char *host, const char *origin,
-			    const char *protocol, int ietf_version_or_minus_one,
-			    void *userdata) LWS_WARN_DEPRECATED;
+lws_client_connect_via_info(const struct lws_client_connect_info *ccinfo);
 
 /**
  * lws_init_vhost_client_ssl() - also enable client SSL on an existing vhost
@@ -5283,9 +5222,6 @@ typedef enum {
 	LWS_ADOPT_HTTP = 1,		/* flag: absent implies RAW */
 	LWS_ADOPT_SOCKET = 2,		/* flag: absent implies file descr */
 	LWS_ADOPT_ALLOW_SSL = 4,	/* flag: if set requires LWS_ADOPT_SOCKET */
-	LWS_ADOPT_WS_PARENTIO = 8,	/* flag: ws mode parent handles IO
-					 *   if given must be only flag
-					 *   wsi put directly into ws mode */
 	LWS_ADOPT_FLAG_UDP = 16,	/* flag: socket is UDP */
 
 	LWS_ADOPT_RAW_SOCKET_UDP = LWS_ADOPT_SOCKET | LWS_ADOPT_FLAG_UDP,
@@ -5932,15 +5868,6 @@ lws_get_child(const struct lws *wsi);
  */
 LWS_VISIBLE LWS_EXTERN const struct lws_udp * LWS_WARN_UNUSED_RESULT
 lws_get_udp(const struct lws *wsi);
-
-/**
- * lws_parent_carries_io() - mark wsi as needing to send messages via parent
- *
- * \param wsi: child lws connection
- */
-
-LWS_VISIBLE LWS_EXTERN void
-lws_set_parent_carries_io(struct lws *wsi);
 
 LWS_VISIBLE LWS_EXTERN void *
 lws_get_opaque_parent_data(const struct lws *wsi);

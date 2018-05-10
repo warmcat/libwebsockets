@@ -781,8 +781,7 @@ lws_server_init_wsi_for_ws(struct lws *wsi)
 	lwsl_debug("Allocating RX buffer %d\n", n);
 
 #if !defined(LWS_WITH_ESP32)
-	if (!wsi->parent_carries_io &&
-	    !wsi->h2_stream_carries_ws)
+	if (!wsi->h2_stream_carries_ws)
 		if (setsockopt(wsi->desc.sockfd, SOL_SOCKET, SO_SNDBUF,
 		       (const char *)&n, sizeof n)) {
 			lwsl_warn("Failed to set SNDBUF to %d", n);
@@ -1984,6 +1983,8 @@ struct lws_role_ops role_ops_ws = {
 	/* close_role */		rops_close_role_ws,
 	/* close_kill_connection */	rops_close_kill_connection_ws,
 	/* destroy_role */		rops_destroy_role_ws,
+	/* adoption_bind */		NULL,
+	/* client_bind */		NULL,
 	/* writeable cb clnt, srv */	{ LWS_CALLBACK_CLIENT_WRITEABLE,
 					  LWS_CALLBACK_SERVER_WRITEABLE },
 	/* close cb clnt, srv */	{ LWS_CALLBACK_CLIENT_CLOSED,

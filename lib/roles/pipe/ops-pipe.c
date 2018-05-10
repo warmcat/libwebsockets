@@ -75,6 +75,8 @@ struct lws_role_ops role_ops_pipe = {
 	/* close_role */		NULL,
 	/* close_kill_connection */	NULL,
 	/* destroy_role */		NULL,
+	/* adoption_bind */		NULL,
+	/* client_bind */		NULL,
 	/* writeable cb clnt, srv */	{ 0, 0 },
 	/* close cb clnt, srv */	{ 0, 0 },
 	/* file_handle */		1,

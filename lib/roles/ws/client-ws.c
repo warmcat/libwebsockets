@@ -40,7 +40,8 @@ strtolower(char *s)
 }
 
 int
-lws_create_client_ws_object(struct lws_client_connect_info *i, struct lws *wsi)
+lws_create_client_ws_object(const struct lws_client_connect_info *i,
+			    struct lws *wsi)
 {
 	int v = SPEC_LATEST_SUPPORTED;
 

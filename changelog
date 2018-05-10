@@ -1,6 +1,12 @@
 Changelog
 ---------
 
+ - CHANGE: REMOVED: lws_client_connect() and lws_client_connect_extended()
+   compatibility apis for lws_client_connect_via_info() have been marked as
+   deprecated for several versions and are now removed.  Use
+   lws_client_connect_via_info() instead.
+
+
 v3.0.0
 ======
 
