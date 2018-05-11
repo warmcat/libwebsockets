@@ -195,6 +195,7 @@ postbody_completion:
 		}
 		break;
 
+	case LRS_RETURNED_CLOSE:
 	case LRS_AWAITING_CLOSE_ACK:
 	case LRS_WAITING_TO_SEND_CLOSE:
 	case LRS_SHUTDOWN:

@@ -30,10 +30,6 @@
 #endif
 #include <dirent.h>
 
-#if defined(LWS_HAVE_TCP_USER_TIMEOUT) && defined(__linux__)
-#include <linux/tcp.h>
-#endif
-
 int
 lws_plat_socket_offset(void)
 {
