@@ -1632,8 +1632,8 @@ lws_esp_ota_get_boot_partition(void)
 	spi_flash_read(part->address , &eih, sizeof(eih));
 	factory_part = esp_partition_find_first(ESP_PARTITION_TYPE_APP,
 			ESP_PARTITION_SUBTYPE_APP_FACTORY, NULL);
- 	ota = esp_partition_find_first(ESP_PARTITION_TYPE_APP,
-			ESP_PARTITION_SUBTYPE_APP_OTA_0, NULL);
+	// Get the partition we are running from
+	ota= esp_ota_get_running_partition();
 	spi_flash_read(ota->address , &ota_eih, sizeof(ota_eih));
 
 	if (eih.spi_mode == 0xff ||
