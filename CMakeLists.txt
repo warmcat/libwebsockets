@@ -1423,7 +1423,7 @@ CHECK_C_SOURCE_COMPILES("#define _GNU_SOURCE\n#include <unistd.h>\nint main(void
 # tcp keepalive needs this on linux to work practically... but it only exists
 # after kernel 2.6.37
 
-CHECK_C_SOURCE_COMPILES("#include <linux/tcp.h>\nint main(void) { return TCP_USER_TIMEOUT; }\n" LWS_HAVE_TCP_USER_TIMEOUT)
+CHECK_C_SOURCE_COMPILES("#include <netinet/tcp.h>\nint main(void) { return TCP_USER_TIMEOUT; }\n" LWS_HAVE_TCP_USER_TIMEOUT)
 
 set(CMAKE_REQUIRED_LIBRARIES ${temp})
 # Generate the lws_config.h that includes all the public compilation settings.
