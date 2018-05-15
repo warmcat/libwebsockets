@@ -172,13 +172,13 @@ find_package(Git)
 if(GIT_EXECUTABLE)
 	execute_process(
 		WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-		COMMAND "${GIT_EXECUTABLE}" describe
+		COMMAND "${GIT_EXECUTABLE}" describe --tags
 		OUTPUT_VARIABLE GIT_HASH
 		OUTPUT_STRIP_TRAILING_WHITESPACE
 		)
 	set(LWS_BUILD_HASH ${GIT_HASH})
 
-	# appen the build user and hostname
+	# append the build user and hostname
 	if(NOT LWS_REPRODUCIBLE)
 		execute_process(
 			WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
