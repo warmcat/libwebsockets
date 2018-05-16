@@ -253,9 +253,12 @@ lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 	if (lws_wsi_is_udp(wsi)) {
 #if !defined(LWS_WITH_ESP32)
 		if (wsi->trunc_len)
-			n = sendto(wsi->desc.sockfd, buf, len, 0, &wsi->udp->sa_pending, wsi->udp->salen_pending);
+			n = sendto(wsi->desc.sockfd, (const char *)buf,
+				   len, 0, &wsi->udp->sa_pending,
+				   wsi->udp->salen_pending);
 		else
-			n = sendto(wsi->desc.sockfd, buf, len, 0, &wsi->udp->sa, wsi->udp->salen);
+			n = sendto(wsi->desc.sockfd, (const char *)buf,
+				   len, 0, &wsi->udp->sa, wsi->udp->salen);
 #endif
 	} else
 		n = send(wsi->desc.sockfd, (char *)buf, len, MSG_NOSIGNAL);
