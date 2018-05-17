@@ -355,7 +355,7 @@ lws_create_adopt_udp(struct lws_vhost *vhost, int port, int flags,
 	for (rp = r; rp; rp = rp->ai_next) {
 		sock.sockfd = socket(rp->ai_family, rp->ai_socktype,
 				     rp->ai_protocol);
-		if (sock.sockfd >= 0)
+		if (sock.sockfd != LWS_SOCK_INVALID)
 			break;
 	}
 	if (!rp) {
@@ -381,7 +381,7 @@ lws_create_adopt_udp(struct lws_vhost *vhost, int port, int flags,
 
 bail2:
 	if (!wsi)
-		close((int)sock.sockfd);
+		compatible_close((int)sock.sockfd);
 bail1:
 	freeaddrinfo(r);
 
