@@ -1705,6 +1705,11 @@ void
 lws_peer_dump_from_wsi(struct lws *wsi);
 #endif
 
+#ifdef LWS_WITH_HTTP_PROXY
+hubbub_error
+html_parser_cb(const hubbub_token *token, void *pw);
+#endif
+
 
 void
 __lws_remove_from_timeout_list(struct lws *wsi);

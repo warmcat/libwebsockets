@@ -717,7 +717,7 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 }
 
 #ifdef LWS_WITH_HTTP_PROXY
-static hubbub_error
+hubbub_error
 html_parser_cb(const hubbub_token *token, void *pw)
 {
 	struct lws_rewrite *r = (struct lws_rewrite *)pw;
