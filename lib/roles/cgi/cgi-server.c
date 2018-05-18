@@ -112,10 +112,10 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 	int timeout_secs, const struct lws_protocol_vhost_options *mp_cgienv)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
-	char *env_array[30], cgi_path[400], e[1024], *p = e,
+	char *env_array[30], cgi_path[500], e[1024], *p = e,
 	     *end = p + sizeof(e) - 1, tok[256], *t, *sum, *sumend;
 	struct lws_cgi *cgi;
-	int n, m = 0, i, uritok = -1;
+	int n, m = 0, i, uritok = -1, c;
 
 	/*
 	 * give the master wsi a cgi struct
@@ -217,7 +217,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 		};
 		static const char * const meth_names[] = {
 			"GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE",
-			"CONNECT", ":path"
+			"CONNECT", "HEAD", ":path"
 		};
 
 		if (script_uri_path_len >= 0)
@@ -233,34 +233,28 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 //		if (script_uri_path_len < 0)
 //			uritok = 0;
 
-		if (uritok >= 0) {
-			lws_snprintf(cgi_path, sizeof(cgi_path) - 1,
-				     "REQUEST_URI=%s",
-				     lws_hdr_simple_ptr(wsi, uritok));
-			cgi_path[sizeof(cgi_path) - 1] = '\0';
-			env_array[n++] = cgi_path;
-		}
-
 		if (m >= 0) {
 			env_array[n++] = p;
 			if (m < 8) {
 				p += lws_snprintf(p, end - p,
 						  "REQUEST_METHOD=%s",
 						  meth_names[m]);
-				sum += lws_snprintf(sum, sumend - sum, "%s ", meth_names[m]);
+				sum += lws_snprintf(sum, sumend - sum, "%s ",
+						    meth_names[m]);
 			} else {
 				p += lws_snprintf(p, end - p,
 						  "REQUEST_METHOD=%s",
 			  lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_METHOD));
 				sum += lws_snprintf(sum, sumend - sum, "%s ",
-					lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_METHOD));
+					lws_hdr_simple_ptr(wsi,
+						  WSI_TOKEN_HTTP_COLON_METHOD));
 			}
 			p++;
 		}
 
 		if (uritok >= 0)
 			sum += lws_snprintf(sum, sumend - sum, "%s ",
-					lws_hdr_simple_ptr(wsi, uritok));
+					    lws_hdr_simple_ptr(wsi, uritok));
 
 		env_array[n++] = p;
 		p += lws_snprintf(p, end - p, "QUERY_STRING=");
@@ -287,13 +281,23 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 			p--;
 		*p++ = '\0';
 
+		if (uritok >= 0) {
+			strcpy(cgi_path, "REQUEST_URI=");
+			c = lws_hdr_copy(wsi, cgi_path + 12,
+					 sizeof(cgi_path) - 12, uritok);
+			if (c < 0)
+				goto bail3;
+
+			cgi_path[sizeof(cgi_path) - 1] = '\0';
+			env_array[n++] = cgi_path;
+		}
+
 		sum += lws_snprintf(sum, sumend - sum, "%s", env_array[n - 1]);
 
 		if (script_uri_path_len >= 0) {
 			env_array[n++] = p;
 			p += lws_snprintf(p, end - p, "PATH_INFO=%s",
-				      lws_hdr_simple_ptr(wsi, uritok) +
-				      script_uri_path_len);
+				      cgi_path + 12 + script_uri_path_len);
 			p++;
 		}
 	}
@@ -352,7 +356,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 		env_array[n++] = p;
 		p += lws_snprintf(p, end - p, "%s=%s", mp_cgienv->name,
 			      mp_cgienv->value);
-		lwsl_debug("   Applying mount-specific cgi env '%s'\n",
+		lwsl_info("   Applying mount-specific cgi env '%s'\n",
 			   env_array[n - 1]);
 		p++;
 		mp_cgienv = mp_cgienv->next;
@@ -363,7 +367,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 
 #if 0
 	for (m = 0; m < n; m++)
-		lwsl_err("    %s\n", env_array[m]);
+		lwsl_info("    %s\n", env_array[m]);
 #endif
 
 	/*
