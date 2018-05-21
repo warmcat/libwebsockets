@@ -152,7 +152,7 @@ rops_adoption_bind_raw_skt(struct lws *wsi, int type, const char *vh_prot_name)
 		wsi->udp = lws_malloc(sizeof(*wsi->udp), "udp struct");
 #endif
 
-	if (!vh_prot_name)
+	if (vh_prot_name)
 		lws_bind_protocol(wsi, wsi->protocol);
 	else
 		/* this is the only time he will transition */
