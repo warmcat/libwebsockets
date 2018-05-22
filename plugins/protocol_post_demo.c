@@ -37,13 +37,14 @@
 struct per_session_data__post_demo {
 	struct lws_spa *spa;
 	char result[LWS_PRE + 512];
-	int result_len;
-
 	char filename[64];
 	long file_length;
 #if !defined(LWS_WITH_ESP32)
 	lws_filefd_type fd;
 #endif
+	uint8_t completed:1;
+	uint8_t sent_headers:1;
+	uint8_t sent_body:1;
 };
 
 static const char * const param_names[] = {
@@ -111,13 +112,55 @@ file_upload_cb(void *data, const char *name, const char *filename,
 	return 0;
 }
 
+/*
+ * returns length in bytes
+ */
+
+static int
+format_result(struct per_session_data__post_demo *pss)
+{
+	unsigned char *p, *start, *end;
+	int n;
+
+	p = (unsigned char *)pss->result + LWS_PRE;
+	start = p;
+	end = p + sizeof(pss->result) - LWS_PRE - 1;
+
+	p += sprintf((char *)p,
+		"<html><body><h1>Form results (after urldecoding)</h1>"
+		"<table><tr><td>Name</td><td>Length</td><td>Value</td></tr>");
+
+	for (n = 0; n < (int)ARRAY_SIZE(param_names); n++) {
+		if (!lws_spa_get_string(pss->spa, n))
+			p += lws_snprintf((char *)p, end - p,
+			    "<tr><td><b>%s</b></td><td>0"
+			    "</td><td>NULL</td></tr>",
+			    param_names[n]);
+		else
+			p += lws_snprintf((char *)p, end - p,
+			    "<tr><td><b>%s</b></td><td>%d"
+			    "</td><td>%s</td></tr>",
+			    param_names[n],
+			    lws_spa_get_length(pss->spa, n),
+			    lws_spa_get_string(pss->spa, n));
+	}
+
+	p += lws_snprintf((char *)p, end - p,
+			"</table><br><b>filename:</b> %s, "
+			"<b>length</b> %ld",
+			pss->filename, pss->file_length);
+
+	p += lws_snprintf((char *)p, end - p, "</body></html>");
+
+	return (int)lws_ptr_diff(p, start);
+}
+
 static int
 callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
 		   void *user, void *in, size_t len)
 {
 	struct per_session_data__post_demo *pss =
 			(struct per_session_data__post_demo *)user;
-	unsigned char *buffer;
 	unsigned char *p, *start, *end;
 	int n;
 
@@ -145,68 +188,61 @@ callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
 		/* call to inform no more payload data coming */
 		lws_spa_finalize(pss->spa);
 
-		p = (unsigned char *)pss->result + LWS_PRE;
-		end = p + sizeof(pss->result) - LWS_PRE - 1;
-		p += sprintf((char *)p,
-			"<html><body><h1>Form results (after urldecoding)</h1>"
-			"<table><tr><td>Name</td><td>Length</td><td>Value</td></tr>");
-
-		for (n = 0; n < (int)ARRAY_SIZE(param_names); n++) {
-			if (!lws_spa_get_string(pss->spa, n))
-				p += lws_snprintf((char *)p, end - p,
-				    "<tr><td><b>%s</b></td><td>0</td><td>NULL</td></tr>",
-				    param_names[n]);
-			else
-				p += lws_snprintf((char *)p, end - p,
-				    "<tr><td><b>%s</b></td><td>%d</td><td>%s</td></tr>",
-				    param_names[n],
-				    lws_spa_get_length(pss->spa, n),
-				    lws_spa_get_string(pss->spa, n));
-		}
-
-		p += lws_snprintf((char *)p, end - p, "</table><br><b>filename:</b> %s, <b>length</b> %ld",
-				pss->filename, pss->file_length);
-
-		p += lws_snprintf((char *)p, end - p, "</body></html>");
-		pss->result_len = lws_ptr_diff(p, pss->result + LWS_PRE);
-
-		n = LWS_PRE + 1024;
-		buffer = malloc(n);
-		p = buffer + LWS_PRE;
-		start = p;
-		end = p + n - LWS_PRE - 1;
-
-		if (lws_add_http_header_status(wsi, HTTP_STATUS_OK, &p, end))
-			goto bail;
-
-		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE,
-				(unsigned char *)"text/html", 9, &p, end))
-			goto bail;
-		if (lws_add_http_header_content_length(wsi, pss->result_len, &p, end))
-			goto bail;
-		if (lws_finalize_http_header(wsi, &p, end))
-			goto bail;
-
-		n = lws_write(wsi, start, p - start, LWS_WRITE_HTTP_HEADERS);
-		if (n < 0)
-			goto bail;
-		free(buffer);
-
+		pss->completed = 1;
 		lws_callback_on_writable(wsi);
 		break;
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
-		if (!pss->result_len) {
-			lwsl_debug("nothing in result_len\n");
+
+		if (!pss->completed)
+			break;
+
+		p = (unsigned char *)pss->result + LWS_PRE;
+		start = p;
+		end = p + sizeof(pss->result) - LWS_PRE - 1;
+
+		if (!pss->sent_headers) {
+
+			n = format_result(pss);
+
+			if (lws_add_http_header_status(wsi, HTTP_STATUS_OK,
+						       &p, end))
+				goto bail;
+
+			if (lws_add_http_header_by_token(wsi,
+					WSI_TOKEN_HTTP_CONTENT_TYPE,
+					(unsigned char *)"text/html", 9,
+					&p, end))
+				goto bail;
+			if (lws_add_http_header_content_length(wsi, n, &p, end))
+				goto bail;
+			if (lws_finalize_http_header(wsi, &p, end))
+				goto bail;
+
+			/* first send the headers ... */
+			n = lws_write(wsi, start, lws_ptr_diff(p, start),
+				      LWS_WRITE_HTTP_HEADERS);
+			if (n < 0)
+				goto bail;
+
+			pss->sent_headers = 1;
+			lws_callback_on_writable(wsi);
 			break;
 		}
-		lwsl_debug("LWS_CALLBACK_HTTP_WRITEABLE: sending %d\n",
-			   pss->result_len);
-		n = lws_write(wsi, (unsigned char *)pss->result + LWS_PRE,
-			      pss->result_len, LWS_WRITE_HTTP_FINAL);
-		if (n < 0)
-			return 1;
-		goto try_to_reuse;
+
+		if (!pss->sent_body) {
+
+			n = format_result(pss);
+
+			n = lws_write(wsi, (unsigned char *)start, n,
+				      LWS_WRITE_HTTP_FINAL);
+
+			pss->sent_body = 1;
+			if (n < 0)
+				return 1;
+			goto try_to_reuse;
+		}
+		break;
 
 	case LWS_CALLBACK_HTTP_DROP_PROTOCOL:
 		/* called when our wsi user_space is going to be destroyed */
@@ -223,7 +259,6 @@ callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
 	return 0;
 
 bail:
-	free(buffer);
 
 	return 1;
 
