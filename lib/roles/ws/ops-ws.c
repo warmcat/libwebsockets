@@ -1245,8 +1245,7 @@ int rops_handle_POLLOUT_ws(struct lws *wsi)
 		return LWS_HP_RET_BAIL_OK;
 	}
 
-	if (lwsi_role_client(wsi) && !wsi->socket_is_permanently_unusable &&
-	    wsi->ws->send_check_ping) {
+	if (!wsi->socket_is_permanently_unusable && wsi->ws->send_check_ping) {
 
 		lwsl_info("issuing ping on wsi %p\n", wsi);
 		wsi->ws->send_check_ping = 0;
@@ -1411,15 +1410,13 @@ rops_periodic_checks_ws(struct lws_context *context, int tsi, time_t now)
 					wsi->ws->time_next_ping_check) >
 				       context->ws_ping_pong_interval) {
 
-					lwsl_info("req pp on wsi %p\n",
-						  wsi);
+					lwsl_info("req pp on wsi %p\n", wsi);
 					wsi->ws->send_check_ping = 1;
 					lws_set_timeout(wsi,
 					PENDING_TIMEOUT_WS_PONG_CHECK_SEND_PING,
 						context->timeout_secs);
 					lws_callback_on_writable(wsi);
-					wsi->ws->time_next_ping_check =
-						now;
+					wsi->ws->time_next_ping_check = now;
 				}
 				wsi = wsi->same_vh_protocol_next;
 			}
