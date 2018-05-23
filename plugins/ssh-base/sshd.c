@@ -103,7 +103,7 @@ lws_timingsafe_bcmp(const void *a, const void *b, uint32_t len)
 	uint8_t sum = 0;
 
 	while (len--)
-		sum |= (*pa ^ *pb);
+		sum |= (*pa++ ^ *pb++);
 
 	return sum;
 }
