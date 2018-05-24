@@ -119,6 +119,10 @@ lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 http_postbody:
 		lwsl_debug("%s: http post body: remain %d\n", __func__,
 			    (int)wsi->http.rx_content_remain);
+
+		if (!wsi->http.rx_content_remain)
+			goto postbody_completion;
+
 		while (len && wsi->http.rx_content_remain) {
 			/* Copy as much as possible, up to the limit of:
 			 * what we have in the read buffer (len)
