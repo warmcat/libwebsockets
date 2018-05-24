@@ -826,7 +826,15 @@ just_kill_connection:
 		if (!wsi->protocol)
 			pro = &wsi->vhost->protocols[0];
 
-		pro->callback(wsi,
+		if (!wsi->upgraded_to_http2 || !lwsi_role_client(wsi))
+			/*
+			 * The network wsi for a client h2 connection shouldn't
+			 * call back for its role: the child stream connections
+			 * own the role.  Otherwise h2 will call back closed
+			 * one too many times as the children do it and then
+			 * the closing network stream.
+			 */
+			pro->callback(wsi,
 			      wsi->role_ops->close_cb[lwsi_role_server(wsi)],
 			      wsi->user_space, NULL, 0);
 		wsi->told_user_closed = 1;
