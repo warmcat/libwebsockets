@@ -988,24 +988,29 @@ lws_create_event_pipes(struct lws_context *context)
 		wsi->tsi = n;
 		wsi->vhost = NULL;
 		wsi->event_pipe = 1;
+		wsi->desc.sockfd = LWS_SOCK_INVALID;
+		context->pt[n].pipe_wsi = wsi;
+		context->count_wsi_allocated++;
 
-		if (lws_plat_pipe_create(wsi)) {
-			lws_free(wsi);
+		if (lws_plat_pipe_create(wsi))
+			/*
+			 * platform code returns 0 if it actually created pipes
+			 * and initialized pt->dummy_pipe_fds[].  If it used
+			 * some other mechanism outside of signaling in the
+			 * normal event loop, we skip treating the pipe as
+			 * related to dummy_pipe_fds[], adding it to the fds,
+			 * etc.
+			 */
 			continue;
-		}
+
 		wsi->desc.sockfd = context->pt[n].dummy_pipe_fds[0];
 		lwsl_debug("event pipe fd %d\n", wsi->desc.sockfd);
-
-		context->pt[n].pipe_wsi = wsi;
 
 		if (context->event_loop_ops->accept)
 			context->event_loop_ops->accept(wsi);
 
 		if (__insert_wsi_socket_into_fds(context, wsi))
 			return 1;
-
-		//lws_change_pollfd(context->pt[n].pipe_wsi, 0, LWS_POLLIN);
-		context->count_wsi_allocated++;
 	}
 
 	return 0;
