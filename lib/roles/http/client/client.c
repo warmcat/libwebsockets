@@ -93,7 +93,7 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 	char *sb = p;
 	int n = 0;
 #if defined(LWS_WITH_SOCKS5)
-	char conn_mode = 0, pending_timeout = 0;
+	int conn_mode = 0, pending_timeout = 0;
 #endif
 
 	if ((pollfd->revents & LWS_POLLOUT) &&
@@ -252,6 +252,8 @@ socks_reply_fail:
 			/* clear his proxy connection timeout */
 			lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 			goto start_ws_handshake;
+		default:
+			break;
 		}
 		break;
 #endif
