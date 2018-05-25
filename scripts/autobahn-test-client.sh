@@ -142,49 +142,6 @@ else
 	echo
 fi
 
-# 2) lws-as-server tests
-
-echo
-echo "----------------------------------------------"
-echo "-------   tests: autobahn as server"
-echo
-
-$SERV -p 9001 -d7 &
-wstest -m fuzzingclient
-R=$?
-echo "Autobahn client exit $R"
-
-killall lws-minimal-ws-server-echo
-sleep 1s
-
-# repeat the client results
-
-R=`cat /tmp/ji | grep -v '"behavior": "OK"' | grep -v '"behavior": "NON-STRICT"' | grep -v '"behavior": "INFORMATIONAL"' | wc -l`
-echo -n "AUTOBAHN SERVER / LWS CLIENT: Total tests: " `cat /tmp/ji | wc -l` " : "
-if [ "$R" == "0" ] ;then
-	echo "All pass"
-else
-	RESULT=1
-	echo -n "$R FAIL : "
-	cat /tmp/ji | grep -v '"behavior": "OK"' | grep -v '"behavior": "NON-STRICT"' | grep -v '"behavior": "INFORMATIONAL"' | cut -d\" -f2 | tr '\n' ','
-	echo
-fi
-
-# and then the server results
-
-cat reports/servers/index.json | tr '\n' '!' | sed "s|\},\!|\n|g" | tr '!' ' ' | tr -s ' ' > /tmp/jis
-R=`cat /tmp/jis | grep -v '"behavior": "OK"' | grep -v '"behavior": "NON-STRICT"' | grep -v '"behavior": "INFORMATIONAL"' | wc -l`
-
-echo -n "AUTOBAHN CLIENT / LWS SERVER: Total tests: " `cat /tmp/jis | wc -l` " : "
-if [ "$R" == "0" ] ;then
-	echo "All pass"
-else
-	RESULT=$(( $RESULT + 2 ))
-	echo -n "$R FAIL : "
-	cat /tmp/jis | grep -v '"behavior": "OK"' | grep -v '"behavior": "NON-STRICT"' | grep -v '"behavior": "INFORMATIONAL"' | cut -d\" -f2 | tr '\n' ','
-	echo
-fi
-
 echo $RESULT
 exit $RESULT
 
