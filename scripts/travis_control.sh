@@ -18,25 +18,33 @@ else
 			../scripts/h2spec.sh &&
 			../scripts/attack.sh &&
 			../scripts/h2load.sh &&
-			../scripts/autobahn-test.sh
+			../scripts/autobahn-test-client.sh
 		else
-			if [ "$LWS_METHOD" = "smp" ] ; then
+			if [ "$LWS_METHOD" = "lwsws2" ] ; then
 				cmake -DLWS_OPENSSL_LIBRARIES="/usr/local/lib/libssl.so;/usr/local/lib/libcrypto.so" \
 				      -DLWS_OPENSSL_INCLUDE_DIRS="/usr/local/include/openssl" $CMAKE_ARGS .. &&
 				cmake --build . &&
-				../scripts/h2load-smp.sh
+				sudo make install &&
+				../scripts/autobahn-test-server.sh
 			else
-				if [ "$LWS_METHOD" = "mbedtls" ] ; then
-					cmake $CMAKE_ARGS .. &&
+				if [ "$LWS_METHOD" = "smp" ] ; then
+					cmake -DLWS_OPENSSL_LIBRARIES="/usr/local/lib/libssl.so;/usr/local/lib/libcrypto.so" \
+					      -DLWS_OPENSSL_INCLUDE_DIRS="/usr/local/include/openssl" $CMAKE_ARGS .. &&
 					cmake --build . &&
-					sudo make install &&
-					../minimal-examples/selftests.sh &&
-					../scripts/h2spec.sh &&
-					../scripts/h2load.sh &&
-					../scripts/attack.sh
+					../scripts/h2load-smp.sh
 				else
-					cmake $CMAKE_ARGS .. &&
-					cmake --build .
+					if [ "$LWS_METHOD" = "mbedtls" ] ; then
+						cmake $CMAKE_ARGS .. &&
+						cmake --build . &&
+						sudo make install &&
+						../minimal-examples/selftests.sh &&
+						../scripts/h2spec.sh &&
+						../scripts/h2load.sh &&
+						../scripts/attack.sh
+					else
+						cmake $CMAKE_ARGS .. &&
+						cmake --build .
+					fi
 				fi
 			fi
 		fi
