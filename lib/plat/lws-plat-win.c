@@ -20,7 +20,7 @@ lws_plat_pipe_signal(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 
-	WSASetEvent(pt->events[0]); /* trigger the cancel event */
+	WSASetEvent(pt->events); /* trigger the cancel event */
 
 	return 0;
 }
@@ -245,7 +245,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		 * any wsi has truncated, force him signalled
 		 */
 		if (wsi->trunc_len)
-			WSASetEvent(pt->events[0]);
+			WSASetEvent(pt->events);
 	}
 
 	/*
@@ -276,7 +276,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	if (ev == WSA_WAIT_EVENT_0) {
 		unsigned int eIdx, err;
 
-		WSAResetEvent(pt->events[0]);
+		WSAResetEvent(pt->events);
 
 		if (pt->context->tls_ops &&
 		    pt->context->tls_ops->fake_POLLIN_for_buffered)
@@ -415,10 +415,7 @@ lws_plat_context_early_destroy(struct lws_context *context)
 	int n = context->count_threads;
 
 	while (n--) {
-		if (pt->events) {
-			WSACloseEvent(pt->events[0]);
-			lws_free(pt->events);
-		}
+		WSACloseEvent(pt->events);
 		pt++;
 	}
 }
@@ -472,8 +469,7 @@ lws_plat_insert_socket_into_fds(struct lws_context *context, struct lws *wsi)
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 
 	pt->fds[pt->fds_count++].revents = 0;
-	pt->events[pt->fds_count] = pt->events[0];
-	WSAEventSelect(wsi->desc.sockfd, pt->events[0],
+	WSAEventSelect(wsi->desc.sockfd, pt->events,
 			   LWS_POLLIN | LWS_POLLHUP | FD_CONNECT);
 }
 
@@ -481,9 +477,6 @@ LWS_VISIBLE void
 lws_plat_delete_socket_from_fds(struct lws_context *context,
 						struct lws *wsi, int m)
 {
-	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-
-	pt->events[m + 1] = pt->events[pt->fds_count--];
 }
 
 LWS_VISIBLE void
@@ -521,9 +514,8 @@ lws_plat_change_pollfd(struct lws_context *context,
 	if ((pfd->events & LWS_POLLOUT))
 		networkevents |= LWS_POLLOUT;
 
-	if (WSAEventSelect(wsi->desc.sockfd,
-			pt->events[0],
-						   networkevents) != SOCKET_ERROR)
+	if (WSAEventSelect(wsi->desc.sockfd, pt->events,
+			   networkevents) != SOCKET_ERROR)
 		return 0;
 
 	lwsl_err("WSAEventSelect() failed with error %d\n", LWS_ERRNO);
@@ -738,23 +730,16 @@ lws_plat_init(struct lws_context *context,
 
 	for (i = 0; i < FD_HASHTABLE_MODULUS; i++) {
 		context->fd_hashtable[i].wsi =
-			lws_zalloc(sizeof(struct lws*) * context->max_fds, "win hashtable");
+			lws_zalloc(sizeof(struct lws*) * context->max_fds,
+				   "win hashtable");
 
 		if (!context->fd_hashtable[i].wsi)
 			return -1;
 	}
 
 	while (n--) {
-		pt->events = lws_malloc(sizeof(WSAEVENT) *
-					(context->fd_limit_per_thread + 1), "event table");
-		if (pt->events == NULL) {
-			lwsl_err("Unable to allocate events array for %d connections\n",
-					context->fd_limit_per_thread + 1);
-			return 1;
-		}
-
 		pt->fds_count = 0;
-		pt->events[0] = WSACreateEvent(); /* the cancel event */
+		pt->events = WSACreateEvent(); /* the cancel event */
 
 		pt++;
 	}
