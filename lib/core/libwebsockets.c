@@ -2065,7 +2065,9 @@ lwsl_hexdump_level(int hexdump_level, const void *vbuf, size_t len)
 LWS_VISIBLE void
 lwsl_hexdump(const void *vbuf, size_t len)
 {
+#if defined(_DEBUG)
 	lwsl_hexdump_level(LLL_DEBUG, vbuf, len);
+#endif
 }
 
 LWS_VISIBLE int
