@@ -68,7 +68,7 @@ rm -rf $RPM_BUILD_ROOT
 /%{_libdir}/pkgconfig/libwebsockets_static.pc
 
 %changelog
-* Mon May 4 2018 Andy Green <andy@warmcat.com> 3.0.0-1
+* Fri May 4 2018 Andy Green <andy@warmcat.com> 3.0.0-1
 - MAJOR SONAMEBUMP APICHANGES Upstream 3.0.0 release
 
 * Mon Oct 16 2017 Andy Green <andy@warmcat.com> 2.4.0-1
