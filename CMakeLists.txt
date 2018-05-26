@@ -2113,7 +2113,7 @@ if (LWS_WITH_EXPORT_LWSTARGETS)
 endif()
 
 # build subdir is not part of sources
-set(CPACK_SOURCE_IGNORE_FILES $(CPACK_SOURCE_IGNORE_FILES) ".git" "build" "tgz" "tar.gz")
+set(CPACK_SOURCE_IGNORE_FILES $(CPACK_SOURCE_IGNORE_FILES) "/.git/" "/build/" "\\\\.tgz$" "\\\\.tar\\\\.gz$")
 
 # Most people are more used to "make dist" compared to "make package_source"
 add_custom_target(dist COMMAND "${CMAKE_MAKE_PROGRAM}" package_source)
