@@ -50,6 +50,9 @@ rm -rf $RPM_BUILD_ROOT
 /usr/bin/libwebsockets-test-server
 /usr/bin/libwebsockets-test-client
 /usr/bin/libwebsockets-test-sshd
+/usr/bin/libwebsockets-test-fuzxy
+/usr/bin/libwebsockets-test-lejp
+/usr/bin/libwebsockets-test-server-extpoll
 /usr/bin/lwsws
 /%{_libdir}/libwebsockets.so.13
 /%{_libdir}/libwebsockets.so
