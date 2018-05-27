@@ -272,7 +272,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		lws_pt_unlock(pt);
 	}
 
-	ev = WSAWaitForMultipleEvents(1, pt->events, FALSE, timeout_ms, FALSE);
+	ev = WSAWaitForMultipleEvents(1, &pt->events, FALSE, timeout_ms, FALSE);
 	if (ev == WSA_WAIT_EVENT_0) {
 		unsigned int eIdx, err;
 
@@ -477,6 +477,9 @@ LWS_VISIBLE void
 lws_plat_delete_socket_from_fds(struct lws_context *context,
 						struct lws *wsi, int m)
 {
+	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+
+	pt->fds_count--;
 }
 
 LWS_VISIBLE void
