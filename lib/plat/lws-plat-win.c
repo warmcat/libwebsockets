@@ -54,7 +54,7 @@ time_in_microseconds()
 	memcpy(&datetime, &filetime, sizeof(datetime));
 
 	/* Windows file times are in 100s of nanoseconds. */
-	return (datetime.QuadPart - DELTA_EPOCH_IN_MICROSECS) / 10;
+	return (datetime.QuadPart / 10) - DELTA_EPOCH_IN_MICROSECS;
 }
 
 #ifdef _WIN32_WCE
