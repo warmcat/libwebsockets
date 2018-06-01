@@ -660,6 +660,9 @@ rops_destroy_role_h1(struct lws *wsi)
 		ah = ah->next;
 	}
 
+#ifdef LWS_ROLE_WS
+	lws_free_set_NULL(wsi->ws);
+#endif
 	return 0;
 }
 
