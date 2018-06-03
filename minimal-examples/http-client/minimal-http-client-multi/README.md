@@ -21,4 +21,5 @@ Option|Meaning
 -p|Use http/1.1 pipelining or h2 simultaneous streams
 --h1|Force http/1 only
 -l|Connect to server on https://localhost:7681 instead of https://warmcat.com:443
+-n|Read numbered files like /1.png, /2.png etc.  Default is just read /
 

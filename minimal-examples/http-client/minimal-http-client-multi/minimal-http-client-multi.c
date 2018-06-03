@@ -40,7 +40,7 @@ struct user {
 	int index;
 };
 
-static int interrupted, completed, failed;
+static int interrupted, completed, failed, numbered;
 static struct lws *client_wsi[COUNT];
 static struct user user[COUNT];
 
@@ -154,7 +154,13 @@ unsigned long long us(void)
 static void
 lws_try_client_connection(struct lws_client_connect_info *i, int m)
 {
-	i->path = "/";
+	char path[128];
+
+	if (numbered) {
+		lws_snprintf(path, sizeof(path), "/%d.png", m + 1);
+		i->path = path;
+	} else
+		i->path = "/";
 
 	i->pwsi = &client_wsi[m];
 	user[m].index = m;
@@ -167,7 +173,8 @@ lws_try_client_connection(struct lws_client_connect_info *i, int m)
 			interrupted = 1;
 		}
 	} else
-		lwsl_user("started connection %p: idx %d\n", client_wsi[m], m);
+		lwsl_user("started connection %p: idx %d (%s)\n",
+			  client_wsi[m], m, i->path);
 }
 
 int main(int argc, const char **argv)
@@ -196,7 +203,8 @@ int main(int argc, const char **argv)
 
 	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS minimal http client [-s (staggered)] [-p (pipeline)]\n");
-	lwsl_user("	[--h1 (http/1 only)] [-l (localhost)] [-d <logs>]\n");
+	lwsl_user("   [--h1 (http/1 only)] [-l (localhost)] [-d <logs>]\n");
+	lwsl_user("   [-n (numbered)]\n");
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
@@ -236,6 +244,9 @@ int main(int argc, const char **argv)
 		i.port = 443;
 		i.address = "warmcat.com";
 	}
+
+	if (lws_cmdline_option(argc, argv, "-n"))
+		numbered = 1;
 
 	if ((p = lws_cmdline_option(argc, argv, "--port")))
 		i.port = atoi(p);
