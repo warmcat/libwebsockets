@@ -119,6 +119,10 @@ cull_lagging_clients(struct per_vhost_data__minimal *vhd)
 
 	} lws_end_foreach_llp_safe(ppss);
 
+	/* it would mean we lost track of oldest... but Coverity insists */
+	if (!old_pss)
+		return;
+
 	/*
 	 * Let's recover (ie, free up) all the ring slots between the
 	 * original oldest's last one and the "worst" survivor.
