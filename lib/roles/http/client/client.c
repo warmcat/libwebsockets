@@ -580,6 +580,8 @@ lws_http_transaction_completed_client(struct lws *wsi)
 			"queued client done");
 	}
 
+	_lws_header_table_reset(wsi->http.ah);
+
 	/* after the first one, they can only be coming from the queue */
 	wsi->transaction_from_pipeline_queue = 1;
 
