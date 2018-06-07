@@ -1,7 +1,7 @@
 /*
  * libwebsockets - lws-plugin-ssh-base - sshd.c
  *
- * Copyright (C) 2017 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2017 - 2018 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -1114,6 +1114,7 @@ again:
 
 		case SSHS_NVC_DO_UAR_PUBKEY_BLOB:
 			pss->ua->pubkey = pss->last_alloc;
+			pss->last_alloc = NULL;
 			pss->ua->pubkey_len = pss->npos;
 			/*
 			 * RFC4253
@@ -1171,6 +1172,7 @@ again:
 			}
 			lwsl_info("SSHS_DO_UAR_SIG\n");
 			pss->ua->sig = pss->last_alloc;
+			pss->last_alloc = NULL;
 			pss->ua->sig_len = pss->npos;
 			pss->parser_state = SSHS_MSG_EAT_PADDING;
 
