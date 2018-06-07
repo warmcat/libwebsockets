@@ -343,7 +343,7 @@ ssh_ops_is_pubkey_authorized(const char *username, const char *type,
 	 */
 
 	if (memcmp(peer, ps, peer_len)) {
-		lwsl_notice("factors mismatch\n");
+		lwsl_info("factors mismatch\n");
 		goto bail;
 	}
 
