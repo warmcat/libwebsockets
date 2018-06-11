@@ -10,6 +10,7 @@ minimal-http-server-form-post-file|Process a multipart POST form with file trans
 minimal-http-server-form-post|Process a POST form (no file transfer)
 minimal-http-server-mimetypes|Shows how to add support for additional mimetypes at runtime
 minimal-http-server-multivhost|Same as minimal-http-server but three different vhosts
+minimal-http-server-proxy|Reverse Proxy
 minimal-http-server-smp|Multiple service threads
 minimal-http-server-sse-ring|Server Side Events with ringbuffer and threaded event sources
 minimal-http-server-sse|Simple Server Side Events

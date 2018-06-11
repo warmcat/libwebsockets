@@ -195,6 +195,13 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 
 	sum += lws_snprintf(sum, sumend - sum, "%s ", exec_array[0]);
 
+	if (0) {
+		char *pct = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_CONTENT_ENCODING);
+
+		if (pct && !strcmp(pct, "gzip"))
+			wsi->http.cgi->gzip_inflate = 1;
+	}
+
 	/* prepare his CGI env */
 
 	n = 0;
@@ -327,8 +334,29 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 	if (script_uri_path_len >= 0 &&
 	    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_USER_AGENT)) {
 		env_array[n++] = p;
-		p += lws_snprintf(p, end - p, "USER_AGENT=%s",
+		p += lws_snprintf(p, end - p, "HTTP_USER_AGENT=%s",
 			    lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_USER_AGENT));
+		p++;
+	}
+	if (script_uri_path_len >= 0 &&
+	    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_ENCODING)) {
+		env_array[n++] = p;
+		p += lws_snprintf(p, end - p, "HTTP_CONTENT_ENCODING=%s",
+			      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_CONTENT_ENCODING));
+		p++;
+	}
+	if (script_uri_path_len >= 0 &&
+	    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_ACCEPT)) {
+		env_array[n++] = p;
+		p += lws_snprintf(p, end - p, "HTTP_ACCEPT=%s",
+			      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_ACCEPT));
+		p++;
+	}
+	if (script_uri_path_len >= 0 &&
+	    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING)) {
+		env_array[n++] = p;
+		p += lws_snprintf(p, end - p, "HTTP_ACCEPT_ENCODING=%s",
+			      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING));
 		p++;
 	}
 	if (script_uri_path_len >= 0 &&
@@ -339,14 +367,21 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 			  lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE));
 			p++;
 		}
-		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
+		if (!wsi->http.cgi->gzip_inflate &&
+		    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
 			env_array[n++] = p;
 			p += lws_snprintf(p, end - p, "CONTENT_LENGTH=%s",
 					  lws_hdr_simple_ptr(wsi,
 					  WSI_TOKEN_HTTP_CONTENT_LENGTH));
 			p++;
 		}
+
+		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH))
+			wsi->http.cgi->post_in_expected =
+				atoll(lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH));
 	}
+
+
 	env_array[n++] = "PATH=/bin:/usr/bin:/usr/local/bin:/var/www/cgi-bin";
 
 	env_array[n++] = p;
@@ -356,6 +391,10 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 		env_array[n++] = p;
 		p += lws_snprintf(p, end - p, "%s=%s", mp_cgienv->name,
 			      mp_cgienv->value);
+		if (!strcmp(mp_cgienv->name, "GIT_PROJECT_ROOT")) {
+			wsi->http.cgi->implied_chunked = 1;
+			wsi->http.cgi->explicitly_chunked = 1;
+		}
 		lwsl_info("   Applying mount-specific cgi env '%s'\n",
 			   env_array[n - 1]);
 		p++;
@@ -367,7 +406,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 
 #if 0
 	for (m = 0; m < n; m++)
-		lwsl_info("    %s\n", env_array[m]);
+		lwsl_notice("    %s\n", env_array[m]);
 #endif
 
 	/*
@@ -399,9 +438,10 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 	if (cgi->pid) {
 		/* we are the parent process */
 		wsi->context->count_cgi_spawned++;
-		lwsl_debug("%s: cgi %p spawned PID %d\n", __func__,
+		lwsl_info("%s: cgi %p spawned PID %d\n", __func__,
 			   cgi, cgi->pid);
 
+		/* close: stdin:r, stdout:w, stderr:w */
 		for (n = 0; n < 3; n++)
 			close(cgi->pipe_fds[n][!(n == 0)]);
 
@@ -430,7 +470,8 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 			lwsl_err("%s: stdin dup2 failed\n", __func__);
 			goto bail3;
 		}
-		close(cgi->pipe_fds[n][!(n == 0)]);
+		close(cgi->pipe_fds[n][0]);
+		close(cgi->pipe_fds[n][1]);
 	}
 
 #if !defined(LWS_HAVE_VFORK) || !defined(LWS_HAVE_EXECVPE)
@@ -454,14 +495,14 @@ bail3:
 		__remove_wsi_socket_from_fds(wsi->http.cgi->stdwsi[n]);
 bail2:
 	for (n = 0; n < 3; n++)
-		if (wsi->http.cgi->stdwsi[n])
+		if (wsi->http.cgi->stdwsi[n] > 0)
 			__lws_free_wsi(cgi->stdwsi[n]);
 
 bail1:
 	for (n = 0; n < 3; n++) {
-		if (cgi->pipe_fds[n][0])
+		if (cgi->pipe_fds[n][0] > 0)
 			close(cgi->pipe_fds[n][0]);
-		if (cgi->pipe_fds[n][1])
+		if (cgi->pipe_fds[n][1] > 0)
 			close(cgi->pipe_fds[n][1]);
 	}
 
@@ -479,6 +520,7 @@ static const char * const significant_hdr[SIGNIFICANT_HDR_COUNT] = {
 	"location: ",
 	"status: ",
 	"transfer-encoding: chunked",
+	"content-encoding: gzip",
 };
 
 enum header_recode {
@@ -619,6 +661,9 @@ post_hpack_recode:
 				lwsl_notice("finalize failed\n");
 				return -1;
 			}
+
+//			lwsl_hexdump_notice(wsi->http.cgi->headers_pos,
+//					wsi->http.cgi->headers_end - wsi->http.cgi->headers_pos);
 
 			wsi->hdr_state = LHCS_DUMP_HEADERS;
 			wsi->reason_bf |= LWS_CB_REASON_AUX_BF__CGI_HEADERS;
@@ -764,7 +809,7 @@ post_hpack_recode:
 			    !significant_hdr[SIGNIFICANT_HDR_TRANSFER_ENCODING]
 				    [wsi->http.cgi->match[
 					 SIGNIFICANT_HDR_TRANSFER_ENCODING]]) {
-				lwsl_debug("cgi produced chunked\n");
+				lwsl_info("cgi produced chunked\n");
 				wsi->http.cgi->explicitly_chunked = 1;
 			}
 
@@ -775,7 +820,6 @@ post_hpack_recode:
 				lwsl_debug("CGI: Location hdr seen\n");
 				wsi->http.cgi->response_code = 302;
 			}
-
 			break;
 		case LCHS_LF1:
 			*wsi->http.cgi->headers_pos++ = c;
@@ -836,10 +880,25 @@ agin:
 
 	/* payload processing */
 
-	m = !wsi->http.cgi->explicitly_chunked && !wsi->http.cgi->content_length;
+	m = !wsi->http.cgi->implied_chunked && !wsi->http2_substream && !wsi->http.cgi->explicitly_chunked && !wsi->http.cgi->content_length;
 	n = lws_get_socket_fd(wsi->http.cgi->stdwsi[LWS_STDOUT]);
 	if (n < 0)
 		return -1;
+	if (m) {
+		uint8_t term[LWS_PRE + 6];
+
+		lwsl_info("%s: zero chunk\n", __func__);
+
+		memcpy(term + LWS_PRE, (uint8_t *)"0\x0d\x0a\x0d\x0a", 5);
+
+		if (lws_write(wsi, term + LWS_PRE, 5, LWS_WRITE_HTTP_FINAL) != 5)
+			return -1;
+
+		wsi->http.cgi->cgi_transaction_over = 1;
+
+		return 0;
+	}
+
 	n = read(n, start, sizeof(buf) - LWS_PRE -
 			   (m ? LWS_HTTP_CHUNK_HDR_SIZE : 0));
 
@@ -848,6 +907,7 @@ agin:
 		return -1;
 	}
 	if (n > 0) {
+
 		if (!wsi->http2_substream && m) {
 			char chdr[LWS_HTTP_CHUNK_HDR_SIZE];
 			m = lws_snprintf(chdr, LWS_HTTP_CHUNK_HDR_SIZE - 3,
@@ -860,6 +920,7 @@ agin:
 		cmd = LWS_WRITE_HTTP;
 		if (wsi->http.cgi->content_length_seen + n == wsi->http.cgi->content_length)
 			cmd = LWS_WRITE_HTTP_FINAL;
+
 		m = lws_write(wsi, (unsigned char *)start, n, cmd);
 		//lwsl_notice("write %d\n", m);
 		if (m < 0) {

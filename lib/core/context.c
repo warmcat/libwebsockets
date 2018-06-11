@@ -346,7 +346,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 	struct lws_cgi_args *args;
 #endif
 #if defined(LWS_WITH_CGI) || defined(LWS_WITH_HTTP_PROXY)
-	char buf[512];
+	char buf[128];
 	int n;
 #endif
 
@@ -387,6 +387,9 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 					~LWS_CB_REASON_AUX_BF__CGI_HEADERS;
 			else
 				wsi->reason_bf &= ~LWS_CB_REASON_AUX_BF__CGI;
+
+			if (wsi->http.cgi && wsi->http.cgi->cgi_transaction_over)
+				return -1;
 			break;
 		}
 
@@ -537,13 +540,104 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CGI_STDIN_DATA:  /* POST body for stdin */
 		args = (struct lws_cgi_args *)in;
 		args->data[args->len] = '\0';
+		if (!args->stdwsi[LWS_STDIN])
+			return -1;
 		n = lws_get_socket_fd(args->stdwsi[LWS_STDIN]);
 		if (n < 0)
 			return -1;
+
+#if defined(LWS_WITH_ZLIB)
+		if (wsi->http.cgi->gzip_inflate) {
+				/* gzip handling */
+
+				if (!wsi->http.cgi->gzip_init) {
+					lwsl_err("inflating gzip\n");
+
+					memset(&wsi->http.cgi->inflate, 0, sizeof(wsi->http.cgi->inflate));
+
+					if (inflateInit2(&wsi->http.cgi->inflate, 16 + 15) != Z_OK) {
+						lwsl_err("%s: iniflateInit failed\n", __func__);
+						return -1;
+					}
+
+					wsi->http.cgi->gzip_init = 1;
+				}
+
+				wsi->http.cgi->inflate.next_in = args->data;
+				wsi->http.cgi->inflate.avail_in = args->len;
+
+				do {
+
+					wsi->http.cgi->inflate.next_out = wsi->http.cgi->inflate_buf;
+					wsi->http.cgi->inflate.avail_out = sizeof(wsi->http.cgi->inflate_buf);
+
+					n = inflate(&wsi->http.cgi->inflate, Z_SYNC_FLUSH);
+					lwsl_err("inflate: %d\n", n);
+					switch (n) {
+					case Z_NEED_DICT:
+					case Z_STREAM_ERROR:
+					case Z_DATA_ERROR:
+					case Z_MEM_ERROR:
+						inflateEnd(&wsi->http.cgi->inflate);
+						wsi->http.cgi->gzip_init = 0;
+						lwsl_err("zlib error inflate %d\n", n);
+						return -1;
+					}
+
+					if (wsi->http.cgi->inflate.avail_out != sizeof(wsi->http.cgi->inflate_buf)) {
+						int written;
+
+//				                lwsl_hexdump_notice(wsi->http.cgi->inflate_buf,
+  //                                                      sizeof(wsi->http.cgi->inflate_buf) - wsi->http.cgi->inflate.avail_out);
+
+				                written = write(args->stdwsi[LWS_STDIN]->desc.filefd, wsi->http.cgi->inflate_buf,
+							sizeof(wsi->http.cgi->inflate_buf) - wsi->http.cgi->inflate.avail_out);
+
+						if (written != (int)(sizeof(wsi->http.cgi->inflate_buf) - wsi->http.cgi->inflate.avail_out)) {
+				                        lwsl_notice("LWS_CALLBACK_CGI_STDIN_DATA: "
+                                    				"sent %d only %d went", n, args->len);
+						}
+						lwsl_err("send inflated on fd %d says %d\n", args->stdwsi[LWS_STDIN]->desc.filefd, written);
+
+						if (n == Z_STREAM_END) {
+							lwsl_err("gzip inflate end\n");
+							inflateEnd(&wsi->http.cgi->inflate);
+							wsi->http.cgi->gzip_init = 0;
+
+							//compatible_close(args->stdwsi[LWS_STDIN]->desc.filefd);
+							//args->stdwsi[LWS_STDIN]->desc.filefd = -1;
+							break;
+						}
+
+					} else
+						break;
+
+					if (wsi->http.cgi->inflate.avail_out)
+						break;
+
+				} while (1);
+
+				return args->len;
+		}
+#endif
+
 		n = write(n, args->data, args->len);
+//		lwsl_hexdump_notice(args->data, args->len);
 		if (n < args->len)
 			lwsl_notice("LWS_CALLBACK_CGI_STDIN_DATA: "
 				    "sent %d only %d went", n, args->len);
+#if 1
+		if (wsi->http.cgi->post_in_expected && args->stdwsi[LWS_STDIN] &&
+		    args->stdwsi[LWS_STDIN]->desc.filefd > 0) {
+			wsi->http.cgi->post_in_expected -= n;
+			if (!wsi->http.cgi->post_in_expected) {
+				lwsl_info("%s: expected POST in end: closing stdin\n", __func__);
+				__lws_close_free_wsi(args->stdwsi[LWS_STDIN], 0, "cgi stdin eof");
+				args->stdwsi[LWS_STDIN] = NULL;
+			}
+		}
+#endif
+
 		return n;
 #endif
 #endif
