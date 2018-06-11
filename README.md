@@ -9,7 +9,7 @@ News
 
 ## v3.0.0 released
 
-See the changelog for info https://github.com/warmcat/libwebsockets/blob/v3.0-stable/changelog
+See the changelog for info https://libwebsockets.org/git/libwebsockets/tree/changelog?h=v3.0-stable
 
 ## Major CI improvements for QA
 
@@ -56,7 +56,7 @@ but the other browsers will catch up soon.
 
 ## New "minimal examples"
 
-https://github.com/warmcat/libwebsockets/tree/master/minimal-examples
+https://libwebsockets.org/git/libwebsockets/tree/minimal-examples
 
 These are like the test apps, but focus on doing one thing, the best way, with the minimum amount of code.  For example the minimal-http-server serves the cwd on http/1 or http/2 in 50 LOC.  Same thing with tls is just three more lines.
 
@@ -68,20 +68,12 @@ are CC0 licensed (public domain) to facilitate that.
 32- and 64-bit Windows binary builds are available via Appveyor.  Visit [lws on Appveyor](https://ci.appveyor.com/project/lws-team/libwebsockets),
 click on a build, the ARTIFACTS, and unzip the zip file at `C:\Program Files (x86)/libwebsockets`.
 
-## Latest Stable
-
- - v2.4.2 is out... HTTP/2 server support and mbedTLS as a TLS backend.
-
-see the changelog https://github.com/warmcat/libwebsockets/blob/v2.4-stable/changelog
-
-Please note the additional READMEs have moved to ./READMEs/
-
 ## ESP32 is supported
 
 ESP32 is now supported in lws!  Download the
 
- - factory https://github.com/warmcat/lws-esp32-factory and
- - test server app https://github.com/warmcat/lws-esp32-test-server-demos
+ - factory https://warmcat.com/git/lws-esp32-factory/ and
+ - test server app https://warmcat.com/git/lws-esp32-test-server-demos
 
 The ESP32 stuff has my dynamic mbedtls buffer allocation patches applied,
 which reduce allocation for small payload TLS links by around 26KiB per connection.
@@ -92,7 +84,6 @@ This is the libwebsockets C library for lightweight websocket clients and
 servers.  For support, visit
 
  https://libwebsockets.org
- https://github.com/warmcat/libwebsockets
 
 and consider joining the project mailing list at
 
@@ -100,7 +91,6 @@ and consider joining the project mailing list at
 
 You can get the latest version of the library from git:
 
-- https://github.com/warmcat/libwebsockets
 - https://libwebsockets.org/git
 
 Doxygen API docs for master: https://libwebsockets.org/lws-api-doc-master/html/index.html
