@@ -651,7 +651,6 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 					__lws_free_wsi(siwsi);
 				}
 				wsi->http.cgi->pipe_fds[LWS_STDIN][1] = -1;
-
 				args->stdwsi[LWS_STDIN] = NULL;
 			}
 		}

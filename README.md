@@ -2,7 +2,7 @@
 [![Appveyor Build status](https://ci.appveyor.com/api/projects/status/qfasji8mnfnd2r8t?svg=true)](https://ci.appveyor.com/project/lws-team/libwebsockets)
 [![Coverity Scan Build Status](https://scan.coverity.com/projects/3576/badge.svg)](https://scan.coverity.com/projects/3576)
 
-![lws-overview](./doc-assets/lws-overview.png)
+![lws-overview](https://libwebsockets.org/git/libwebsockets/about/doc-assets/lws-overview.png)
 
 News
 ----
