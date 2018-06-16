@@ -1024,7 +1024,7 @@ lws_create_vhost(struct lws_context *context,
 	return vh;
 
 bail1:
-	lws_vhost_destroy(vh, NULL, NULL);
+	lws_vhost_destroy(vh);
 
 	return NULL;
 
