@@ -26,8 +26,12 @@
  * that is unrelated to (shorter than) the lifetime of the network connection.
  */
 struct pss {
-	char str[128];
-	int len;
+	char path[128];
+
+	int times;
+	int budget;
+
+	int content_lines;
 };
 
 static int interrupted;
@@ -37,29 +41,48 @@ callback_dynamic_http(struct lws *wsi, enum lws_callback_reasons reason,
 			void *user, void *in, size_t len)
 {
 	struct pss *pss = (struct pss *)user;
-	uint8_t buf[LWS_PRE + 256], *start = &buf[LWS_PRE], *p = start,
-		*end = &buf[sizeof(buf) - 1];
+	uint8_t buf[LWS_PRE + 2048], *start = &buf[LWS_PRE], *p = start,
+		*end = &buf[sizeof(buf) - LWS_PRE - 1];
 	time_t t;
+	int n;
 
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
 
 		/* in contains the url part after our mountpoint /dyn, if any */
+		lws_snprintf(pss->path, sizeof(pss->path), "%s", (const char *)in);
 
-		t = time(NULL);
-		pss->len = lws_snprintf(pss->str, sizeof(pss->str),
-				"<html>"
-				"<img src=\"/libwebsockets.org-logo.png\">"
-				"<br>Dynamic content for '%s' from mountpoint."
-				"<br>Time: %s"
-				"</html>", (const char *)in, ctime(&t));
-
-		/* prepare and write http headers */
+		/*
+		 * prepare and write http headers... with regards to content-
+		 * length, there are three approaches:
+		 *
+		 *  - http/1.0 or connection:close: no need, but no pipelining
+		 *  - http/1.1 or connected:keep-alive
+		 *     (keep-alive is default for 1.1): content-length required
+		 *  - http/2: no need, LWS_WRITE_HTTP_FINAL closes the stream
+		 *
+		 * giving the api below LWS_ILLEGAL_HTTP_CONTENT_LEN instead of
+		 * a content length forces the connection response headers to
+		 * send back "connection: close", disabling keep-alive.
+		 *
+		 * If you know the final content-length, it's always OK to give
+		 * it and keep-alive can work then if otherwise possible.  But
+		 * often you don't know it and avoiding having to compute it
+		 * at header-time makes life easier at the server.
+		 */
 		if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
-						"text/html", pss->len, &p, end))
+				"text/html",
+				LWS_ILLEGAL_HTTP_CONTENT_LEN, /* no content len */
+				&p, end))
 			return 1;
 		if (lws_finalize_write_http_header(wsi, start, &p, end))
 			return 1;
+
+		pss->times = 0;
+		pss->budget = atoi(in + 1);
+		pss->content_lines = 0;
+		if (!pss->budget)
+			pss->budget = 10;
 
 		/* write the body separately */
 		lws_callback_on_writable(wsi);
@@ -68,16 +91,65 @@ callback_dynamic_http(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
 
-		if (!pss || !pss->len)
+		if (!pss || pss->times > pss->budget)
 			break;
 
 		/*
-		 * Use LWS_WRITE_HTTP for intermediate writes, on http/2
-		 * lws uses this to understand to end the stream with this
-		 * frame
+		 * We send a large reply in pieces of around 2KB each.
+		 *
+		 * For http/1, it's possible to send a large buffer at once,
+		 * but lws will malloc() up a temp buffer to hold any data
+		 * that the kernel didn't accept in one go.  This is expensive
+		 * in memory and cpu, so it's better to stage the creation of
+		 * the data to be sent each time.
+		 *
+		 * For http/2, large data frames would block the whole
+		 * connection, not just the stream and are not allowed.  Lws
+		 * will call back on writable when the stream both has transmit
+		 * credit and the round-robin fair access for sibling streams
+		 * allows it.
+		 *
+		 * For http/2, we must send the last part with
+		 * LWS_WRITE_HTTP_FINAL to close the stream representing
+		 * this transaction.
 		 */
-		if (lws_write(wsi, (uint8_t *)pss->str, pss->len,
-			      LWS_WRITE_HTTP_FINAL) != pss->len)
+		n = LWS_WRITE_HTTP;
+		if (pss->times == pss->budget)
+			n = LWS_WRITE_HTTP_FINAL;
+
+		if (!pss->times) {
+			/*
+			 * the first time, we print some html title
+			 */
+			t = time(NULL);
+			/*
+			 * to work with http/2, we must take care about LWS_PRE
+			 * valid behind the buffer we will send.
+			 */
+			p += lws_snprintf((char *)p, end - p, "<html>"
+				"<img src=\"/libwebsockets.org-logo.png\">"
+				"<br>Dynamic content for '%s' from mountpoint."
+				"<br>Time: %s<br><br>"
+				"</html>", pss->path, ctime(&t));
+		} else {
+			/*
+			 * after the first time, we create bulk content.
+			 *
+			 * Again we take care about LWS_PRE valid behind the
+			 * buffer we will send.
+			 */
+
+			while (lws_ptr_diff(end, p) > 80)
+				p += lws_snprintf((char *)p, end - p,
+					"%d.%d: this is some content... ",
+					pss->times, pss->content_lines++);
+
+			p += lws_snprintf((char *)p, end - p, "<br><br>");
+		}
+
+		pss->times++;
+		if (lws_write(wsi, (uint8_t *)start, lws_ptr_diff(p, start), n) !=
+				lws_ptr_diff(p, start))
 			return 1;
 
 		/*
@@ -85,8 +157,11 @@ callback_dynamic_http(struct lws *wsi, enum lws_callback_reasons reason,
 		 * HTTP/1.1 or HTTP1.0 + KA: wait / process next transaction
 		 * HTTP/2: stream ended, parent connection remains up
 		 */
-		if (lws_http_transaction_completed(wsi))
+		if (n == LWS_WRITE_HTTP_FINAL) {
+		    if (lws_http_transaction_completed(wsi))
 			return -1;
+		} else
+			lws_callback_on_writable(wsi);
 
 		return 0;
 
@@ -173,9 +248,8 @@ int main(int argc, const char **argv)
 	lwsl_user("LWS minimal http server dynamic | visit http://localhost:7681\n");
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
-	info.port = 7681;
-	info.protocols = protocols;
-	info.mounts = &mount;
+	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
+		       LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
 
 	/* for testing ah queue, not useful in real world */
 	if (lws_cmdline_option(argc, argv, "--ah1"))
@@ -187,9 +261,35 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
+	/* http on 7681 */
+
+	info.port = 7681;
+	info.protocols = protocols;
+	info.mounts = &mount;
+	info.vhost_name = "http";
+
+	if (!lws_create_vhost(context, &info)) {
+		lwsl_err("Failed to create tls vhost\n");
+		goto bail;
+	}
+
+	/* https on 7682 */
+
+	info.port = 7682;
+	info.error_document_404 = "/404.html";
+	info.ssl_cert_filepath = "localhost-100y.cert";
+	info.ssl_private_key_filepath = "localhost-100y.key";
+	info.vhost_name = "localhost";
+
+	if (!lws_create_vhost(context, &info)) {
+		lwsl_err("Failed to create tls vhost\n");
+		goto bail;
+	}
+
 	while (n >= 0 && !interrupted)
 		n = lws_service(context, 1000);
 
+bail:
 	lws_context_destroy(context);
 
 	return 0;
