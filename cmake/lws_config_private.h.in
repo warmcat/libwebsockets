@@ -119,4 +119,4 @@
 /* Define if the inline keyword doesn't exist. */
 #cmakedefine inline ${inline}
 
-
+#cmakedefine LWS_WITH_ZLIB

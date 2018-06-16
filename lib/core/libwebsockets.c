@@ -434,7 +434,7 @@ lws_timed_callback_vh_protocol(struct lws_vhost *vh, const struct lws_protocols 
 	return 0;
 }
 
-static void
+void
 lws_remove_child_from_any_parent(struct lws *wsi)
 {
 	struct lws **pwsi;
@@ -856,6 +856,7 @@ __lws_close_free_wsi_final(struct lws *wsi)
 	int n;
 
 	if (lws_socket_is_valid(wsi->desc.sockfd) && !lws_ssl_close(wsi)) {
+		lwsl_debug("%s: wsi %p: fd %d\n", __func__, wsi, wsi->desc.sockfd);
 		n = compatible_close(wsi->desc.sockfd);
 		if (n)
 			lwsl_debug("closing: close ret %d\n", LWS_ERRNO);

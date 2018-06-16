@@ -315,7 +315,7 @@ static void
 lws_libuv_closewsi_m(uv_handle_t* handle)
 {
 	lws_sockfd_type sockfd = (lws_sockfd_type)(lws_intptr_t)handle->data;
-
+	lwsl_debug("%s: sockfd %d\n", __func__, sockfd);
 	compatible_close(sockfd);
 }
 

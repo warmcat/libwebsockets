@@ -1756,6 +1756,8 @@ lws_context_destroy2(struct lws_context *context);
 int
 lws_role_call_client_bind(struct lws *wsi,
 			  const struct lws_client_connect_info *i);
+void
+lws_remove_child_from_any_parent(struct lws *wsi);
 
 #ifdef __cplusplus
 };

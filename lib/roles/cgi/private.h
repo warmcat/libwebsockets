@@ -21,6 +21,10 @@
  *  This is included from core/private.h if LWS_ROLE_WS
  */
 
+#if defined(LWS_WITH_ZLIB)
+#include <zlib.h>
+#endif
+
 extern struct lws_role_ops role_ops_cgi;
 
 #define lwsi_role_cgi(wsi) (wsi->role_ops == &role_ops_cgi)
@@ -28,10 +32,11 @@ extern struct lws_role_ops role_ops_cgi;
 #define LWS_HTTP_CHUNK_HDR_SIZE 16
 
 enum {
-	SIGNIFICANT_HDR_CONTENT_LENGTH,
+	SIGNIFICANT_HDR_CONTENT_LENGTH,		/* numeric */
 	SIGNIFICANT_HDR_LOCATION,
-	SIGNIFICANT_HDR_STATUS,
+	SIGNIFICANT_HDR_STATUS,			/* numeric */
 	SIGNIFICANT_HDR_TRANSFER_ENCODING,
+	SIGNIFICANT_HDR_CONTENT_ENCODING_GZIP,
 
 	SIGNIFICANT_HDR_COUNT
 };
@@ -51,7 +56,12 @@ struct lws_cgi {
 	unsigned char *headers_end;
 
 	char summary[128];
+#if defined(LWS_WITH_ZLIB)
+	z_stream inflate;
+	uint8_t inflate_buf[1024];
+#endif
 
+	lws_filepos_t post_in_expected;
 	lws_filepos_t content_length;
 	lws_filepos_t content_length_seen;
 
@@ -64,6 +74,10 @@ struct lws_cgi {
 
 	unsigned char being_closed:1;
 	unsigned char explicitly_chunked:1;
+	unsigned char cgi_transaction_over:1;
+	unsigned char implied_chunked:1;
+	unsigned char gzip_inflate:1;
+	unsigned char gzip_init:1;
 
 	unsigned char chunked_grace;
 };

@@ -1652,7 +1652,7 @@ lws_http_transaction_completed(struct lws *wsi)
 		return 1;
 
 	if (wsi->http.connection_type != HTTP_CONNECTION_KEEP_ALIVE) {
-		lwsl_notice("%s: %p: close connection\n", __func__, wsi);
+		lwsl_info("%s: %p: close connection\n", __func__, wsi);
 		return 1;
 	}
 
