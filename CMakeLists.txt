@@ -914,20 +914,46 @@ endif()
 
 if (WIN32)
 	list(APPEND SOURCES
-		lib/plat/lws-plat-win.c)
+		lib/plat/windows/windows-fds.c
+		lib/plat/windows/windows-file.c
+		lib/plat/windows/windows-init.c
+		lib/plat/windows/windows-misc.c
+		lib/plat/windows/windows-pipe.c
+		lib/plat/windows/windows-service.c
+		lib/plat/windows/windows-sockets.c
+		)
 else()
 
 	if (LWS_PLAT_OPTEE)
 		list(APPEND SOURCES
-			lib/plat/lws-plat-optee.c)
+			lib/plat/optee/lws-plat-optee.c)
 	else()
 		if (LWS_WITH_ESP32)
 			list(APPEND SOURCES
-				lib/plat/lws-plat-esp32.c
+				lib/plat/esp32/esp32-fds.c
+				lib/plat/esp32/esp32-file.c
+				lib/plat/esp32/esp32-helpers.c
+				lib/plat/esp32/esp32-init.c
+				lib/plat/esp32/esp32-misc.c
+				lib/plat/esp32/esp32-pipe.c
+				lib/plat/esp32/esp32-service.c
+				lib/plat/esp32/esp32-sockets.c
 				lib/misc/romfs.c)
 		else()
 			list(APPEND SOURCES
-				lib/plat/lws-plat-unix.c)
+				lib/plat/unix/unix-caps.c
+				lib/plat/unix/unix-fds.c
+				lib/plat/unix/unix-file.c
+				lib/plat/unix/unix-misc.c
+				lib/plat/unix/unix-init.c
+				lib/plat/unix/unix-pipe.c
+				lib/plat/unix/unix-service.c
+				lib/plat/unix/unix-sockets.c
+			)
+				
+			if (LWS_WITH_PLUGINS AND LWS_WITH_LIBUV)
+				list(APPEND SOURCES lib/plat/unix/unix-plugins.c)
+			endif()
 		endif()
 	endif()
 endif()

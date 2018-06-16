@@ -36,10 +36,6 @@
  typedef float _Float128x;
 #endif
 
-#ifdef LWS_HAVE_SYS_TYPES_H
- #include <sys/types.h>
-#endif
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -48,271 +44,17 @@
 #include <limits.h>
 #include <stdarg.h>
 #include <inttypes.h>
-
-#if defined(LWS_WITH_ESP32)
- #define MSG_NOSIGNAL 0
- #define SOMAXCONN 3
-#endif
-
-#define STORE_IN_ROM
 #include <assert.h>
-#if LWS_MAX_SMP > 1
- #include <pthread.h>
-#endif
 
+#ifdef LWS_HAVE_SYS_TYPES_H
+ #include <sys/types.h>
+#endif
 #ifdef LWS_HAVE_SYS_STAT_H
  #include <sys/stat.h>
 #endif
 
-#if defined(WIN32) || defined(_WIN32)
-
- #ifndef WIN32_LEAN_AND_MEAN
-  #define WIN32_LEAN_AND_MEAN
- #endif
-
- #if (WINVER < 0x0501)
-  #undef WINVER
-  #undef _WIN32_WINNT
-  #define WINVER 0x0501
-  #define _WIN32_WINNT WINVER
- #endif
-
- #define LWS_NO_DAEMONIZE
- #define LWS_ERRNO WSAGetLastError()
- #define LWS_EAGAIN WSAEWOULDBLOCK
- #define LWS_EALREADY WSAEALREADY
- #define LWS_EINPROGRESS WSAEINPROGRESS
- #define LWS_EINTR WSAEINTR
- #define LWS_EISCONN WSAEISCONN
- #define LWS_EWOULDBLOCK WSAEWOULDBLOCK
- #define MSG_NOSIGNAL 0
- #define SHUT_RDWR SD_BOTH
- #define SOL_TCP IPPROTO_TCP
- #define SHUT_WR SD_SEND
-
- #define compatible_close(fd) closesocket(fd)
- #define lws_set_blocking_send(wsi) wsi->sock_send_blocking = 1
- #define LWS_SOCK_INVALID (INVALID_SOCKET)
-
- #include <winsock2.h>
- #include <ws2tcpip.h>
- #include <windows.h>
- #include <tchar.h>
- #ifdef LWS_HAVE_IN6ADDR_H
-  #include <in6addr.h>
- #endif
- #include <mstcpip.h>
- #include <io.h>
-
- #if !defined(LWS_HAVE_ATOLL)
-  #if defined(LWS_HAVE__ATOI64)
-   #define atoll _atoi64
-  #else
-   #warning No atoll or _atoi64 available, using atoi
-   #define atoll atoi
-  #endif
- #endif
-
- #ifndef __func__
-  #define __func__ __FUNCTION__
- #endif
-
- #ifdef LWS_HAVE__VSNPRINTF
-  #define vsnprintf _vsnprintf
- #endif
-
- /* we don't have an implementation for this on windows... */
- int kill(int pid, int sig);
- int fork(void);
- #ifndef SIGINT
-  #define SIGINT 2
- #endif
-
-#else /* not windows --> */
-
- #include <fcntl.h>
- #include <strings.h>
- #include <unistd.h>
- #include <sys/types.h>
-
- #ifndef __cplusplus
-  #include <errno.h>
- #endif
- #include <netdb.h>
- #include <signal.h>
- #include <sys/socket.h>
-
- #if defined(LWS_BUILTIN_GETIFADDRS)
-  #include "./misc/getifaddrs.h"
- #else
-  #if !defined(LWS_WITH_ESP32)
-   #if defined(__HAIKU__)
-    #define _BSD_SOURCE
-   #endif
-   #include <ifaddrs.h>
-  #endif
- #endif
- #if defined (__ANDROID__)
-  #include <syslog.h>
-  #include <sys/resource.h>
- #elif defined (__sun) || defined(__HAIKU__) || defined(__QNX__)
-  #include <syslog.h>
- #else
-  #if !defined(LWS_WITH_ESP32)
-   #include <sys/syslog.h>
-  #endif
- #endif
- #include <netdb.h>
- #if !defined(LWS_WITH_ESP32)
-  #include <sys/mman.h>
-  #include <sys/un.h>
-  #include <netinet/in.h>
-  #include <netinet/tcp.h>
-  #include <arpa/inet.h>
-  #include <poll.h>
- #endif
- #ifndef LWS_NO_FORK
-  #ifdef LWS_HAVE_SYS_PRCTL_H
-   #include <sys/prctl.h>
-  #endif
- #endif
-
- #include <sys/time.h>
-
- #define LWS_ERRNO errno
- #define LWS_EAGAIN EAGAIN
- #define LWS_EALREADY EALREADY
- #define LWS_EINPROGRESS EINPROGRESS
- #define LWS_EINTR EINTR
- #define LWS_EISCONN EISCONN
- #define LWS_EWOULDBLOCK EWOULDBLOCK
-
- #define lws_set_blocking_send(wsi)
-
- #define LWS_SOCK_INVALID (-1)
-#endif /* not windows */
-
-#ifndef LWS_HAVE_BZERO
- #ifndef bzero
-  #define bzero(b, len) (memset((b), '\0', (len)), (void) 0)
- #endif
-#endif
-
-#ifndef LWS_HAVE_STRERROR
- #define strerror(x) ""
-#endif
-
-
-#define lws_socket_is_valid(x) (x != LWS_SOCK_INVALID)
-
-#include "libwebsockets.h"
-
-#include "tls/private.h"
-
-#if defined(WIN32) || defined(_WIN32)
- #include <gettimeofday.h>
-
- #ifndef BIG_ENDIAN
-  #define BIG_ENDIAN    4321  /* to show byte order (taken from gcc) */
- #endif
- #ifndef LITTLE_ENDIAN
-  #define LITTLE_ENDIAN 1234
- #endif
- #ifndef BYTE_ORDER
-  #define BYTE_ORDER LITTLE_ENDIAN
- #endif
-
- #undef __P
- #ifndef __P
-  #if __STDC__
-   #define __P(protos) protos
-  #else
-   #define __P(protos) ()
-  #endif
- #endif
-
-#else /* not windows */
- static LWS_INLINE int compatible_close(int fd) { return close(fd); }
-
- #include <sys/stat.h>
- #include <sys/time.h>
-
- #if defined(__APPLE__)
-  #include <machine/endian.h>
- #elif defined(__FreeBSD__)
-  #include <sys/endian.h>
- #elif defined(__linux__)
-  #include <endian.h>
- #endif
-#endif
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-#if defined(__QNX__)
-	#include <gulliver.h>
-	#if defined(__LITTLEENDIAN__)
-		#define BYTE_ORDER __LITTLEENDIAN__
-		#define LITTLE_ENDIAN __LITTLEENDIAN__
-		#define BIG_ENDIAN 4321  /* to show byte order (taken from gcc); for suppres warning that BIG_ENDIAN is not defined. */
-	#endif
-	#if defined(__BIGENDIAN__)
-		#define BYTE_ORDER __BIGENDIAN__
-		#define LITTLE_ENDIAN 1234  /* to show byte order (taken from gcc); for suppres warning that LITTLE_ENDIAN is not defined. */
-		#define BIG_ENDIAN __BIGENDIAN__
-	#endif
-#endif
-
-#if defined(__sun) && defined(__GNUC__)
-
- #include <arpa/nameser_compat.h>
-
- #if !defined (BYTE_ORDER)
-  #define BYTE_ORDER __BYTE_ORDER__
- #endif
-
- #if !defined(LITTLE_ENDIAN)
-  #define LITTLE_ENDIAN __ORDER_LITTLE_ENDIAN__
- #endif
-
- #if !defined(BIG_ENDIAN)
-  #define BIG_ENDIAN __ORDER_BIG_ENDIAN__
- #endif
-
-#endif /* sun + GNUC */
-
-#if !defined(BYTE_ORDER)
- #define BYTE_ORDER __BYTE_ORDER
-#endif
-#if !defined(LITTLE_ENDIAN)
- #define LITTLE_ENDIAN __LITTLE_ENDIAN
-#endif
-#if !defined(BIG_ENDIAN)
- #define BIG_ENDIAN __BIG_ENDIAN
-#endif
-
-
-/*
- * Mac OSX as well as iOS do not define the MSG_NOSIGNAL flag,
- * but happily have something equivalent in the SO_NOSIGPIPE flag.
- */
-#ifdef __APPLE__
-#define MSG_NOSIGNAL SO_NOSIGPIPE
-#endif
-
-/*
- * Solaris 11.X only supports POSIX 2001, MSG_NOSIGNAL appears in
- * POSIX 2008.
- */
-#ifdef __sun
- #define MSG_NOSIGNAL 0
-#endif
-
-#ifdef _WIN32
- #ifndef FD_HASHTABLE_MODULUS
-  #define FD_HASHTABLE_MODULUS 32
- #endif
+#if LWS_MAX_SMP > 1
+ #include <pthread.h>
 #endif
 
 #ifndef LWS_DEF_HEADER_LEN
@@ -351,7 +93,52 @@ extern "C" {
 
 #define LWS_H2_RX_SCRATCH_SIZE 512
 
+#ifndef LWS_HAVE_BZERO
+ #ifndef bzero
+  #define bzero(b, len) (memset((b), '\0', (len)), (void) 0)
+ #endif
+#endif
 
+#ifndef LWS_HAVE_STRERROR
+ #define strerror(x) ""
+#endif
+
+#define lws_socket_is_valid(x) (x != LWS_SOCK_INVALID)
+
+ /*
+  *
+  *  ------ private platform defines ------
+  *
+  */
+
+#if defined(LWS_WITH_ESP32)
+ #include "plat/esp32/private.h"
+#else
+ #if defined(WIN32) || defined(_WIN32)
+  #include "plat/windows/private.h"
+ #else
+  #if defined(LWS_PLAT_OPTEE)
+   #include "plat/optee/private.h"
+  #else
+   #include "plat/unix/private.h"
+  #endif
+ #endif
+#endif
+
+ /*
+  *
+  *  ------ public api ------
+  *
+  */
+
+#include "libwebsockets.h"
+
+
+#include "tls/private.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /*
  * All lws_tls...() functions must return this type, converting the
@@ -508,14 +295,6 @@ struct lws_signal_watcher {
 #endif
 	struct lws_context *context;
 };
-
-#ifdef _WIN32
-#define LWS_FD_HASH(fd) ((fd ^ (fd >> 8) ^ (fd >> 16)) % FD_HASHTABLE_MODULUS)
-struct lws_fd_hashtable {
-	struct lws **wsi;
-	int length;
-};
-#endif
 
 struct lws_foreign_thread_pollfd {
 	struct lws_foreign_thread_pollfd *next;
@@ -1271,21 +1050,6 @@ lws_service_flag_pending(struct lws_context *context, int tsi);
 LWS_EXTERN int
 lws_timed_callback_remove(struct lws_vhost *vh, struct lws_timed_vh_protocol *p);
 
-#if defined(_WIN32)
-LWS_EXTERN struct lws *
-wsi_from_fd(const struct lws_context *context, lws_sockfd_type fd);
-
-LWS_EXTERN int
-insert_wsi(struct lws_context *context, struct lws *wsi);
-
-LWS_EXTERN int
-delete_from_fd(struct lws_context *context, lws_sockfd_type fd);
-#else
-#define wsi_from_fd(A,B)  A->lws_lookup[B - lws_plat_socket_offset()]
-#define insert_wsi(A,B)   assert(A->lws_lookup[B->desc.sockfd - lws_plat_socket_offset()] == 0); A->lws_lookup[B->desc.sockfd - lws_plat_socket_offset()]=B
-#define delete_from_fd(A,B) A->lws_lookup[B - lws_plat_socket_offset()]=0
-#endif
-
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 __insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi);
 
@@ -1348,9 +1112,6 @@ LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 user_callback_handle_rxflow(lws_callback_function, struct lws *wsi,
 			    enum lws_callback_reasons reason, void *user,
 			    void *in, size_t len);
-
-LWS_EXTERN int
-lws_plat_socket_offset(void);
 
 LWS_EXTERN int
 lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd);

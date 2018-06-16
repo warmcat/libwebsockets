@@ -80,6 +80,7 @@ typedef unsigned long long lws_intptr_t;
 #define LWS_WARN_DEPRECATED
 #define LWS_FORMAT(string_index)
 
+#if !defined(LWS_EXTERN)
 #ifdef LWS_DLL
 #ifdef LWS_INTERNAL
 #define LWS_EXTERN extern __declspec(dllexport)
@@ -88,6 +89,7 @@ typedef unsigned long long lws_intptr_t;
 #endif
 #else
 #define LWS_EXTERN
+#endif
 #endif
 
 #define LWS_INVALID_FILE INVALID_HANDLE_VALUE
@@ -480,8 +482,10 @@ typedef int64_t lws_usec_t;
 
 
 #if defined(_WIN32)
+#if !defined(LWS_WIN32_HANDLE_TYPES)
 typedef SOCKET lws_sockfd_type;
 typedef HANDLE lws_filefd_type;
+#endif
 
 struct lws_pollfd {
 	lws_sockfd_type fd; /**< file descriptor */
