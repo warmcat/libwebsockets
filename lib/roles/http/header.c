@@ -149,9 +149,17 @@ lws_add_http_common_headers(struct lws *wsi, unsigned int code,
 		    			(int)strlen(content_type), p, end))
 		return 1;
 
-	if (content_len != LWS_ILLEGAL_HTTP_CONTENT_LEN &&
-	    lws_add_http_header_content_length(wsi, content_len, p, end))
-		return 1;
+	if (content_len != LWS_ILLEGAL_HTTP_CONTENT_LEN) {
+		if (lws_add_http_header_content_length(wsi, content_len, p, end))
+			return 1;
+	} else {
+		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_CONNECTION,
+						 (unsigned char *)"close", 5,
+						 p, end))
+			return 1;
+
+		wsi->http.connection_type = HTTP_CONNECTION_CLOSE;
+	}
 
 	return 0;
 }
