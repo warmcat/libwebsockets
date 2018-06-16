@@ -126,25 +126,25 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 			if (pt->fds[n].fd >= max_fd)
 				max_fd = pt->fds[n].fd;
 			if (pt->fds[n].events & LWS_POLLIN)
-				FD_SET(pt->fds[n].fd - LWIP_SOCKET_OFFSET, &readfds);
+				FD_SET(pt->fds[n].fd, &readfds);
 			if (pt->fds[n].events & LWS_POLLOUT)
-				FD_SET(pt->fds[n].fd - LWIP_SOCKET_OFFSET, &writefds);
-			FD_SET(pt->fds[n].fd - LWIP_SOCKET_OFFSET, &errfds);
+				FD_SET(pt->fds[n].fd, &writefds);
+			FD_SET(pt->fds[n].fd, &errfds);
 		}
 
 		n = select(max_fd + 1, &readfds, &writefds, &errfds, ptv);
 		n = 0;
 		for (m = 0; m < pt->fds_count; m++) {
 			c = 0;
-			if (FD_ISSET(pt->fds[m].fd - LWIP_SOCKET_OFFSET, &readfds)) {
+			if (FD_ISSET(pt->fds[m].fd, &readfds)) {
 				pt->fds[m].revents |= LWS_POLLIN;
 				c = 1;
 			}
-			if (FD_ISSET(pt->fds[m].fd - LWIP_SOCKET_OFFSET, &writefds)) {
+			if (FD_ISSET(pt->fds[m].fd, &writefds)) {
 				pt->fds[m].revents |= LWS_POLLOUT;
 				c = 1;
 			}
-			if (FD_ISSET(pt->fds[m].fd - LWIP_SOCKET_OFFSET, &errfds)) {
+			if (FD_ISSET(pt->fds[m].fd, &errfds)) {
 				// lwsl_notice("errfds %d\n", pt->fds[m].fd);
 				pt->fds[m].revents |= LWS_POLLHUP;
 				c = 1;

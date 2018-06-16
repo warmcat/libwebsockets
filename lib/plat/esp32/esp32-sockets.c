@@ -48,7 +48,7 @@ lws_send_pipe_choked(struct lws *wsi)
 		return 1;
 
 	FD_ZERO(&writefds);
-	FD_SET(wsi_eff->desc.sockfd - LWIP_SOCKET_OFFSET, &writefds);
+	FD_SET(wsi_eff->desc.sockfd, &writefds);
 
 	n = select(wsi_eff->desc.sockfd + 1, NULL, &writefds, NULL, &tv);
 	if (n < 0)
@@ -64,7 +64,7 @@ lws_poll_listen_fd(struct lws_pollfd *fd)
 	struct timeval tv = { 0, 0 };
 
 	FD_ZERO(&readfds);
-	FD_SET(fd->fd - LWIP_SOCKET_OFFSET, &readfds);
+	FD_SET(fd->fd, &readfds);
 
 	return select(fd->fd + 1, &readfds, NULL, NULL, &tv);
 }
