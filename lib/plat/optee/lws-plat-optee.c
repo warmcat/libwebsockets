@@ -5,12 +5,6 @@
  */
 
 int
-lws_plat_socket_offset(void)
-{
-	return 0;
-}
-
-int
 lws_plat_pipe_create(struct lws *wsi)
 {
 	return 1;
@@ -34,7 +28,7 @@ unsigned long long time_in_microseconds(void)
 	return ((unsigned long long)time(NULL)) * 1000000;
 }
 #if 0
-LWS_VISIBLE int
+int
 lws_get_random(struct lws_context *context, void *buf, int len)
 {
 	TEE_GenerateRandom(buf, len);
@@ -80,7 +74,7 @@ lws_send_pipe_choked(struct lws *wsi)
 	return 0;
 }
 
-LWS_VISIBLE int
+int
 lws_poll_listen_fd(struct lws_pollfd *fd)
 {
 //	return poll(fd, 1, 0);
@@ -89,13 +83,13 @@ lws_poll_listen_fd(struct lws_pollfd *fd)
 }
 
 #if 0
-LWS_VISIBLE void lwsl_emit_syslog(int level, const char *line)
+void lwsl_emit_syslog(int level, const char *line)
 {
 	IMSG("%d: %s\n", level, line);
 }
 #endif
 
-LWS_VISIBLE LWS_EXTERN int
+LWS_EXTERN int
 _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
 	struct lws_context_per_thread *pt;
@@ -187,41 +181,41 @@ faked_service:
 	return 0;
 }
 
-LWS_VISIBLE int
+int
 lws_plat_check_connection_error(struct lws *wsi)
 {
 	return 0;
 }
 
-LWS_VISIBLE int
+int
 lws_plat_service(struct lws_context *context, int timeout_ms)
 {
 	return _lws_plat_service_tsi(context, timeout_ms, 0);
 }
 
-LWS_VISIBLE int
+int
 lws_plat_set_socket_options(struct lws_vhost *vhost, int fd)
 {
 	return 0;
 }
 
-LWS_VISIBLE void
+void
 lws_plat_drop_app_privileges(const struct lws_context_creation_info *info)
 {
 }
 
-LWS_VISIBLE int
+int
 lws_plat_context_early_init(void)
 {
 	return 0;
 }
 
-LWS_VISIBLE void
+void
 lws_plat_context_early_destroy(struct lws_context *context)
 {
 }
 
-LWS_VISIBLE void
+void
 lws_plat_context_late_destroy(struct lws_context *context)
 {
 	if (context->lws_lookup)
@@ -230,14 +224,14 @@ lws_plat_context_late_destroy(struct lws_context *context)
 
 /* cast a struct sockaddr_in6 * into addr for ipv6 */
 
-LWS_VISIBLE int
+int
 lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 		    size_t addrlen)
 {
 	return -1;
 }
 
-LWS_VISIBLE void
+void
 lws_plat_insert_socket_into_fds(struct lws_context *context, struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
@@ -245,7 +239,7 @@ lws_plat_insert_socket_into_fds(struct lws_context *context, struct lws *wsi)
 	pt->fds[pt->fds_count++].revents = 0;
 }
 
-LWS_VISIBLE void
+void
 lws_plat_delete_socket_from_fds(struct lws_context *context,
 						struct lws *wsi, int m)
 {
@@ -254,52 +248,52 @@ lws_plat_delete_socket_from_fds(struct lws_context *context,
 	pt->fds_count--;
 }
 
-LWS_VISIBLE void
+void
 lws_plat_service_periodic(struct lws_context *context)
 {
 }
 
-LWS_VISIBLE int
+int
 lws_plat_change_pollfd(struct lws_context *context,
 		      struct lws *wsi, struct lws_pollfd *pfd)
 {
 	return 0;
 }
 
-LWS_VISIBLE const char *
+const char *
 lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
 {
 	//return inet_ntop(af, src, dst, cnt);
 	return "lws_plat_inet_ntop";
 }
 
-LWS_VISIBLE int
+int
 lws_plat_inet_pton(int af, const char *src, void *dst)
 {
 	//return inet_pton(af, src, dst);
 	return 1;
 }
 
-LWS_VISIBLE lws_fop_fd_t
+lws_fop_fd_t
 _lws_plat_file_open(const struct lws_plat_file_ops *fops,
 		    const char *filename, const char *vpath, lws_fop_flags_t *flags)
 {
 	return NULL;
 }
 
-LWS_VISIBLE int
+int
 _lws_plat_file_close(lws_fop_fd_t *fop_fd)
 {
 	return 0;
 }
 
-LWS_VISIBLE lws_fileofs_t
+lws_fileofs_t
 _lws_plat_file_seek_cur(lws_fop_fd_t fop_fd, lws_fileofs_t offset)
 {
 	return 0;
 }
 
-LWS_VISIBLE  int
+ int
 _lws_plat_file_read(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 		    uint8_t *buf, lws_filepos_t len)
 {
@@ -307,7 +301,7 @@ _lws_plat_file_read(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 	return 0;
 }
 
-LWS_VISIBLE  int
+ int
 _lws_plat_file_write(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 		     uint8_t *buf, lws_filepos_t len)
 {
@@ -316,7 +310,7 @@ _lws_plat_file_write(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 }
 
 
-LWS_VISIBLE int
+int
 lws_plat_init(struct lws_context *context,
 	      const struct lws_context_creation_info *info)
 {
@@ -340,26 +334,26 @@ lws_plat_init(struct lws_context *context,
 	return 0;
 }
 
-LWS_VISIBLE int
+int
 lws_plat_write_cert(struct lws_vhost *vhost, int is_key, int fd, void *buf,
 			int len)
 {
 	return 1;
 }
 
-LWS_VISIBLE int
+int
 lws_plat_write_file(const char *filename, void *buf, int len)
 {
 	return 1;
 }
 
-LWS_VISIBLE int
+int
 lws_plat_read_file(const char *filename, void *buf, int len)
 {
 	return -1;
 }
 
-LWS_VISIBLE int
+int
 lws_plat_recommended_rsa_bits(void)
 {
 	return 4096;

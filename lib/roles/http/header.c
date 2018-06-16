@@ -156,7 +156,7 @@ lws_add_http_common_headers(struct lws *wsi, unsigned int code,
 	return 0;
 }
 
-STORE_IN_ROM static const char * const err400[] = {
+static const char * const err400[] = {
 	"Bad Request",
 	"Unauthorized",
 	"Payment Required",
@@ -177,7 +177,7 @@ STORE_IN_ROM static const char * const err400[] = {
 	"Expectation Failed"
 };
 
-STORE_IN_ROM static const char * const err500[] = {
+static const char * const err500[] = {
 	"Internal Server Error",
 	"Not Implemented",
 	"Bad Gateway",
@@ -190,7 +190,7 @@ int
 lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 			   unsigned char **p, unsigned char *end)
 {
-	STORE_IN_ROM static const char * const hver[] = {
+	static const char * const hver[] = {
 		"HTTP/1.0", "HTTP/1.1", "HTTP/2"
 	};
 	const struct lws_protocol_vhost_options *headers;
