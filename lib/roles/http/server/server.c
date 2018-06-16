@@ -1635,6 +1635,21 @@ lws_http_transaction_completed(struct lws *wsi)
 {
 	int n = NO_PENDING_TIMEOUT;
 
+	if (wsi->trunc_len) {
+		/*
+		 * ...so he tried to send something large as the http reply,
+		 * it went as a partial, but he immediately said the
+		 * transaction was completed.
+		 *
+		 * Defer the transaction completed until the last part of the
+		 * partial is sent.
+		 */
+		lwsl_notice("%s: deferring due to partial\n", __func__);
+		wsi->http.deferred_transaction_completed = 1;
+
+		return 0;
+	}
+
 	lwsl_info("%s: wsi %p\n", __func__, wsi);
 
 	lws_access_log(wsi);

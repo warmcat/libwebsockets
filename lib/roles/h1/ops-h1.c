@@ -449,6 +449,16 @@ try_pollout:
 
 	if (lwsi_state(wsi) != LRS_ISSUING_FILE) {
 
+		if (wsi->trunc_len) {
+			//lwsl_notice("%s: completing partial\n", __func__);
+			if (lws_issue_raw(wsi, wsi->trunc_alloc + wsi->trunc_offset,
+					  wsi->trunc_len) < 0) {
+				lwsl_info("%s signalling to close\n", __func__);
+				goto fail;
+			}
+			return LWS_HPI_RET_HANDLED;
+		}
+
 		lws_stats_atomic_bump(wsi->context, pt,
 					LWSSTATS_C_WRITEABLE_CB, 1);
 #if defined(LWS_WITH_STATS)
