@@ -93,17 +93,11 @@
 
 #define LWS_H2_RX_SCRATCH_SIZE 512
 
-#ifndef LWS_HAVE_BZERO
- #ifndef bzero
-  #define bzero(b, len) (memset((b), '\0', (len)), (void) 0)
- #endif
-#endif
+#define lws_socket_is_valid(x) (x != LWS_SOCK_INVALID)
 
 #ifndef LWS_HAVE_STRERROR
  #define strerror(x) ""
 #endif
-
-#define lws_socket_is_valid(x) (x != LWS_SOCK_INVALID)
 
  /*
   *
@@ -122,6 +116,12 @@
   #else
    #include "plat/unix/private.h"
   #endif
+ #endif
+#endif
+
+#ifndef LWS_HAVE_BZERO
+ #ifndef bzero
+  #define bzero(b, len) (memset((b), '\0', (len)), (void) 0)
  #endif
 #endif
 
