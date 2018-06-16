@@ -602,7 +602,7 @@ lws_service_periodic_checks(struct lws_context *context,
 #endif
 
 	lws_plat_service_periodic(context);
-	lws_check_deferred_free(context, 0);
+	lws_check_deferred_free(context, tsi, 0);
 
 #if defined(LWS_WITH_PEER_LIMITS)
 	lws_peer_cull_peer_wait_list(context);
@@ -752,7 +752,7 @@ lws_service_periodic_checks(struct lws_context *context,
 					if (!wsi)
 						wsi = lws_zalloc(sizeof(*wsi), "cbwsi");
 					wsi->context = context;
-					wsi->vhost = v;
+					wsi->vhost = v; /* not a real bound wsi */
 					wsi->protocol = q->protocol;
 					lwsl_debug("timed cb: vh %s, protocol %s, reason %d\n", v->name, q->protocol->name, q->reason);
 					q->protocol->callback(wsi, q->reason, NULL, NULL, 0);

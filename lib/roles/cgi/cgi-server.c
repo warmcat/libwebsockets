@@ -147,7 +147,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 		if (!cgi->stdwsi[n])
 			goto bail2;
 		cgi->stdwsi[n]->cgi_channel = n;
-		cgi->stdwsi[n]->vhost = wsi->vhost;
+		lws_vhost_bind_wsi(wsi->vhost, cgi->stdwsi[n]);
 
 		lwsl_debug("%s: cgi %p: pipe fd %d -> fd %d / %d\n", __func__,
 			   cgi->stdwsi[n], n, cgi->pipe_fds[n][!!(n == 0)],

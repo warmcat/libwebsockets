@@ -2978,6 +2978,21 @@ struct lws_context_creation_info {
 	 *		native event library signal handle, eg uv_signal_t *
 	 *		for libuv.
 	 */
+	struct lws_context **pcontext;
+	/**< CONTEXT: if non-NULL, at the end of context destroy processing,
+	 * the pointer pointed to by pcontext is written with NULL.  You can
+	 * use this to let foreign event loops know that lws context destruction
+	 * is fully completed.
+	 */
+	void (*finalize)(struct lws_vhost *vh, void *arg);
+	/**< VHOST: NULL, or pointer to function that will be called back
+	 *	    when the vhost is just about to be freed.  The arg parameter
+	 *	    will be set to whatever finalize_arg is below.
+	 */
+	void *finalize_arg;
+	/**< VHOST: opaque pointer lws ignores but passes to the finalize
+	 *	    callback.  If you don't care, leave it NULL.
+	 */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
@@ -2985,12 +3000,6 @@ struct lws_context_creation_info {
 	 * The below is to ensure later library versions with new
 	 * members added above will see 0 (default) even if the app
 	 * was not built against the newer headers.
-	 */
-	struct lws_context **pcontext;
-	/**< CONTEXT: if non-NULL, at the end of context destroy processing,
-	 * the pointer pointed to by pcontext is written with NULL.  You can
-	 * use this to let foreign event loops know that lws context destruction
-	 * is fully completed.
 	 */
 
 	void *_unused[4]; /**< dummy */
@@ -3137,7 +3146,7 @@ lws_create_vhost(struct lws_context *context,
 /**
  * lws_vhost_destroy() - Destroy a vhost (virtual server context)
  *
- * \param vh:	pointer to result of lws_create_vhost()
+ * \param vh:		pointer to result of lws_create_vhost()
  *
  * This function destroys a vhost.  Normally, if you just want to exit,
  * then lws_destroy_context() will take care of everything.  If you want
@@ -3146,6 +3155,11 @@ lws_create_vhost(struct lws_context *context,
  *
  * If the vhost has a listen sockets shared by other vhosts, it will be given
  * to one of the vhosts sharing it rather than closed.
+ *
+ * The vhost close is staged according to the needs of the event loop, and if
+ * there are multiple service threads.  At the point the vhost itself if
+ * about to be freed, if you provided a finalize callback and optional arg at
+ * vhost creation time, it will be called just before the vhost is freed.
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_vhost_destroy(struct lws_vhost *vh);

@@ -222,6 +222,7 @@ bail1:
 	if (wsi->user_space)
 		lws_free_set_NULL(wsi->user_space);
 	vh->protocols[0].callback(wsi, LWS_CALLBACK_WSI_DESTROY, NULL, NULL, 0);
+	lws_vhost_unbind_wsi(wsi);
 	lws_free(wsi);
 
 	return NULL;
@@ -1071,7 +1072,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 
 			pps = lws_h2_new_pps(LWS_H2_PPS_UPDATE_WINDOW);
 			if (!pps)
-				return 1;
+				goto cleanup_wsi;
 			pps->u.update_window.sid = h2n->sid;
 			pps->u.update_window.credit = 4 * 65536;
 			h2n->swsi->h2.peer_tx_cr_est += pps->u.update_window.credit; 
@@ -1079,7 +1080,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 
 			pps = lws_h2_new_pps(LWS_H2_PPS_UPDATE_WINDOW);
 			if (!pps)
-				return 1;
+				goto cleanup_wsi;
 			pps->u.update_window.sid = 0;
 			pps->u.update_window.credit = 4 * 65536;
 			wsi->h2.peer_tx_cr_est += pps->u.update_window.credit;
@@ -1134,6 +1135,10 @@ update_end_headers:
 			h2n->cont_exp = 0;
 		lwsl_debug("END_HEADERS %d\n", h2n->swsi->h2.END_HEADERS);
 		break;
+
+cleanup_wsi:
+
+		return 1;
 
 	case LWS_H2_FRAME_TYPE_WINDOW_UPDATE:
 		if (h2n->length != 4) {

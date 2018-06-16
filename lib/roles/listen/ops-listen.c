@@ -32,6 +32,11 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 	struct sockaddr_storage cli_addr;
 	socklen_t clilen;
 
+	/* if our vhost is going down, ignore it */
+
+	if (wsi->vhost->being_destroyed)
+		return LWS_HPI_RET_HANDLED;
+
 	/* pollin means a client has connected to us then
 	 *
 	 * pollout is a hack on esp32 for background accepts signalling

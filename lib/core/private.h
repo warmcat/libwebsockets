@@ -647,6 +647,7 @@ struct lws_vhost {
 #endif
 #if LWS_MAX_SMP > 1
 	pthread_mutex_t lock;
+	char close_flow_vs_tsi[LWS_MAX_SMP];
 #endif
 
 #if defined(LWS_ROLE_H2)
@@ -674,6 +675,9 @@ struct lws_vhost {
 	struct lws *lserv_wsi;
 	const char *name;
 	const char *iface;
+
+	void (*finalize)(struct lws_vhost *vh, void *arg);
+	void *finalize_arg;
 
 #if !defined(LWS_WITH_ESP32) && !defined(OPTEE_TA) && !defined(WIN32)
 	int bind_iface;
@@ -708,6 +712,8 @@ struct lws_vhost {
 	int keepalive_timeout;
 	int timeout_secs_ah_idle;
 
+	int count_bound_wsi;
+
 #ifdef LWS_WITH_ACCESS_LOG
 	int log_fd;
 #endif
@@ -718,6 +724,13 @@ struct lws_vhost {
 	unsigned char default_protocol_index;
 	unsigned char raw_protocol_index;
 };
+
+void
+lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi);
+void
+lws_vhost_unbind_wsi(struct lws *wsi);
+void
+lws_vhost_destroy2(struct lws_vhost *vh);
 
 struct lws_deferred_free
 {
@@ -901,7 +914,7 @@ struct lws_context {
 };
 
 int
-lws_check_deferred_free(struct lws_context *context, int force);
+lws_check_deferred_free(struct lws_context *context, int tsi, int force);
 
 #define lws_get_context_protocol(ctx, x) ctx->vhost_list->protocols[x]
 #define lws_get_vh_protocol(vh, x) vh->protocols[x]

@@ -97,6 +97,8 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 		goto bail;
 	}
 
+	lws_vhost_bind_wsi(wsi->vhost, wsi);
+
 	wsi->protocol = &wsi->vhost->protocols[0];
 	wsi->client_pipeline = !!(i->ssl_connection & LCCSCF_PIPELINE);
 
