@@ -64,7 +64,7 @@ lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi)
 	lwsl_debug("new wsi %p joining vhost %s, tsi %d\n", new_wsi,
 		   vhost->name, new_wsi->tsi);
 
-	new_wsi->vhost = vhost;
+	lws_vhost_bind_wsi(vhost, new_wsi);
 	new_wsi->context = vhost->context;
 	new_wsi->pending_timeout = NO_PENDING_TIMEOUT;
 	new_wsi->rxflow_change_to = LWS_RXFLOW_ALLOW;
@@ -241,8 +241,10 @@ bail:
 		parent->child_list = new_wsi->sibling_list;
 	if (new_wsi->user_space)
 		lws_free(new_wsi->user_space);
+	lws_vhost_unbind_wsi(new_wsi);
 	lws_free(new_wsi);
-       compatible_close(fd.sockfd);
+
+	compatible_close(fd.sockfd);
 
 	return NULL;
 }

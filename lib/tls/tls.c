@@ -446,7 +446,7 @@ lws_tls_cert_updated(struct lws_context *context, const char *certpath,
 	wsi.context = context;
 
 	lws_start_foreach_ll(struct lws_vhost *, v, context->vhost_list) {
-		wsi.vhost = v;
+		wsi.vhost = v; /* not a real bound wsi */
 		if (v->tls.alloc_cert_path && v->tls.key_path &&
 		    !strcmp(v->tls.alloc_cert_path, certpath) &&
 		    !strcmp(v->tls.key_path, keypath)) {

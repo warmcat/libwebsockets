@@ -139,7 +139,7 @@ int lws_context_init_client_ssl(const struct lws_context_creation_info *info,
 	 * lws_get_context() in the callback
 	 */
 	memset(&wsi, 0, sizeof(wsi));
-	wsi.vhost = vhost;
+	wsi.vhost = vhost; /* not a real bound wsi */
 	wsi.context = vhost->context;
 
 	vhost->protocols[0].callback(&wsi,

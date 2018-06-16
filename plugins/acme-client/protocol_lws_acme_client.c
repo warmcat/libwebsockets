@@ -401,7 +401,7 @@ lws_acme_finished(struct per_vhost_data__lws_acme_client *vhd)
 
 	if (vhd->ac) {
 		if (vhd->ac->vhost)
-			lws_vhost_destroy(vhd->ac->vhost);
+			lws_vhost_destroy(vhd->ac->vhost, NULL, NULL);
 		if (vhd->ac->alloc_privkey_pem)
 			free(vhd->ac->alloc_privkey_pem);
 		free(vhd->ac);
@@ -1333,7 +1333,7 @@ poll_again:
 			 * temp SNI vhost now its job is done
 			 */
 			if (ac->vhost)
-				lws_vhost_destroy(ac->vhost);
+				lws_vhost_destroy(ac->vhost, NULL, NULL);
 			ac->vhost = NULL;
 
 			/*

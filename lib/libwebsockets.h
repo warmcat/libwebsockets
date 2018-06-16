@@ -3137,7 +3137,11 @@ lws_create_vhost(struct lws_context *context,
 /**
  * lws_vhost_destroy() - Destroy a vhost (virtual server context)
  *
- * \param vh:	pointer to result of lws_create_vhost()
+ * \param vh:		pointer to result of lws_create_vhost()
+ * \param finalize:	NULL, or pointer to function that will be called back
+ *			when the vhost is just about to be freed
+ * \param arg:		opaque pointer lws ignores but passes to the finalize
+ *			callback.  NULL if you don't care or finalize is NULL.
  *
  * This function destroys a vhost.  Normally, if you just want to exit,
  * then lws_destroy_context() will take care of everything.  If you want
@@ -3146,9 +3150,15 @@ lws_create_vhost(struct lws_context *context,
  *
  * If the vhost has a listen sockets shared by other vhosts, it will be given
  * to one of the vhosts sharing it rather than closed.
+ *
+ * The vhost close is staged according to the needs of the event loop, and if
+ * there are multiple service threads.  At the point the vhost itself if
+ * about to be freed, you can provide a finialize callback to be called, along
+ * with an optional argument... if you don't care, just set them both to NULL.
  */
 LWS_VISIBLE LWS_EXTERN void
-lws_vhost_destroy(struct lws_vhost *vh);
+lws_vhost_destroy(struct lws_vhost *vh,
+		  void (*finalize)(struct lws_vhost *vh, void *arg), void *arg);
 
 /**
  * lwsws_get_config_globals() - Parse a JSON server config file

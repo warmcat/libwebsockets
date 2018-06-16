@@ -642,7 +642,7 @@ int main(int argc, char **argv)
 		} else
 			if (!dynamic_vhost_enable && dynamic_vhost) {
 				lwsl_notice("destroying dynamic vhost...\n");
-				lws_vhost_destroy(dynamic_vhost);
+				lws_vhost_destroy(dynamic_vhost, NULL, NULL);
 				dynamic_vhost = NULL;
 			}
 

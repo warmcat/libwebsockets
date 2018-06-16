@@ -89,6 +89,40 @@ signed char char_to_hex(const char c)
 }
 
 void
+lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi)
+{
+	wsi->vhost = vh;
+	vh->count_bound_wsi++;
+	lwsl_info("%s: vh %s: count_bound_wsi %d\n",
+		    __func__, vh->name, vh->count_bound_wsi);
+	assert(wsi->vhost->count_bound_wsi > 0);
+}
+
+void
+lws_vhost_unbind_wsi(struct lws *wsi)
+{
+	if (wsi->vhost) {
+		assert(wsi->vhost->count_bound_wsi > 0);
+		wsi->vhost->count_bound_wsi--;
+		lwsl_info("%s: vh %s: count_bound_wsi %d\n", __func__,
+			  wsi->vhost->name, wsi->vhost->count_bound_wsi);
+
+		if (!wsi->vhost->count_bound_wsi &&
+		    wsi->vhost->being_destroyed) {
+			/*
+			 * We have closed all wsi that were bound to this vhost
+			 * by any pt: nothing can be servicing any wsi belonging
+			 * to it any more.
+			 *
+			 * Finalize the vh destruction
+			 */
+			lws_vhost_destroy2(wsi->vhost);
+		}
+		wsi->vhost = NULL;
+	}
+}
+
+void
 __lws_free_wsi(struct lws *wsi)
 {
 	if (!wsi)
@@ -128,6 +162,8 @@ __lws_free_wsi(struct lws *wsi)
 
 	if (wsi->context->event_loop_ops->destroy_wsi)
 		wsi->context->event_loop_ops->destroy_wsi(wsi);
+
+	lws_vhost_unbind_wsi(wsi);
 
 	wsi->context->count_wsi_allocated--;
 	lwsl_debug("%s: %p, remaining wsi %d\n", __func__, wsi,
@@ -1372,7 +1408,7 @@ lws_callback_vhost_protocols_vhost(struct lws_vhost *vh, int reason, void *in,
 	struct lws *wsi = lws_zalloc(sizeof(*wsi), "fake wsi");
 
 	wsi->context = vh->context;
-	wsi->vhost = vh;
+	lws_vhost_bind_wsi(vh, wsi);
 
 	for (n = 0; n < wsi->vhost->count_protocols; n++) {
 		wsi->protocol = &vh->protocols[n];
@@ -1652,7 +1688,7 @@ lws_broadcast(struct lws_context *context, int reason, void *in, size_t len)
 
 	while (v) {
 		const struct lws_protocols *p = v->protocols;
-		wsi.vhost = v;
+		wsi.vhost = v; /* not a real bound wsi */
 
 		for (n = 0; n < v->count_protocols; n++) {
 			wsi.protocol = p;

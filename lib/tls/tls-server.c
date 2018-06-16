@@ -139,7 +139,7 @@ lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 	 * lws_get_context() in the callback
 	 */
 	memset(&wsi, 0, sizeof(wsi));
-	wsi.vhost = vhost;
+	wsi.vhost = vhost; /* not a real bound wsi */
 	wsi.context = context;
 
 	/*
@@ -354,7 +354,7 @@ accepted:
 			if (!vh->being_destroyed && wsi->tls.ssl &&
 			    vh->tls.ssl_ctx == lws_tls_ctx_from_wsi(wsi)) {
 				lwsl_info("setting wsi to vh %s\n", vh->name);
-				wsi->vhost = vh;
+				lws_vhost_bind_wsi(vh, wsi);
 				break;
 			}
 			vh = vh->vhost_next;

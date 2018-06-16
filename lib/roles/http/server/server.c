@@ -237,7 +237,7 @@ done_list:
 		lws_role_transition(wsi, 0, LRS_UNCONNECTED, &role_ops_listen);
 		wsi->protocol = vhost->protocols;
 		wsi->tsi = m;
-		wsi->vhost = vhost;
+		lws_vhost_bind_wsi(vhost, wsi);
 		wsi->listener = 1;
 
 		if (wsi->context->event_loop_ops->init_vhost_listen_wsi)
@@ -1453,7 +1453,7 @@ raw_transition:
 				lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST));
 
 			if (vhost)
-				wsi->vhost = vhost;
+				lws_vhost_bind_wsi(vhost, wsi);
 		} else
 			lwsl_info("no host\n");
 
