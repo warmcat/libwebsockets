@@ -17,6 +17,7 @@ set(CMAKE_LINKER	"${CROSS_PATH}/bin/xtensa-esp32-elf-ld${EXECUTABLE_EXT}")
 
 SET(CMAKE_C_FLAGS "-nostdlib -Wall -Werror \
 	-I${BUILD_DIR_BASE}/include \
+	-I${IDF_PATH}/components/newlib/platform_include \
 	-I${IDF_PATH}/components/mdns/include \
 	-I${IDF_PATH}/components/heap/include \
 	-I${IDF_PATH}/components/driver/include \
