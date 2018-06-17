@@ -1631,11 +1631,9 @@ lws_esp_ota_get_boot_partition(void)
 	/* confirm what we are told is the boot part is sane */
 	spi_flash_read(part->address , &eih, sizeof(eih));
 	factory_part = esp_partition_find_first(ESP_PARTITION_TYPE_APP,
-			ESP_PARTITION_SUBTYPE_APP_FACTORY, NULL);
-	
+			ESP_PARTITION_SUBTYPE_APP_FACTORY, NULL);	
 	ota = esp_partition_find_first(ESP_PARTITION_TYPE_APP,
 			ESP_PARTITION_SUBTYPE_APP_OTA_0, NULL);
-
 	spi_flash_read(ota->address , &ota_eih, sizeof(ota_eih));
 
 	if (eih.spi_mode == 0xff ||
