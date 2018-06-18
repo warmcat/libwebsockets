@@ -785,7 +785,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			q = strrchr(new_path, '/');
 			if (q)
 				lws_strncpy(q + 1, p, sizeof(new_path) -
-							(q - new_path));
+							(q - new_path) - 1);
 			else
 				path = p;
 		}
