@@ -789,7 +789,7 @@ lws_parse_urldecode(struct lws *wsi, uint8_t *_c)
 		ah->nfrag++;
 		if (ah->nfrag >= ARRAY_SIZE(ah->frags))
 			goto excessive;
-		ah->frags[ah->nfrag].offset = ah->pos;
+		ah->frags[ah->nfrag].offset = ++ah->pos;
 		ah->frags[ah->nfrag].len = 0;
 		ah->frags[ah->nfrag].nfrag = 0;
 
