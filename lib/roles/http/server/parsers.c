@@ -677,10 +677,8 @@ lws_parse_urldecode(struct lws *wsi, uint8_t *_c)
 			return -1;
 		/* genuine delimiter */
 		if ((c == '&' || c == ';') && !enc) {
-			if (issue_char(wsi, c) < 0)
+			if (issue_char(wsi, '\0') < 0)
 				return -1;
-			/* swallow the terminator */
-			ah->frags[ah->nfrag].len--;
 			/* link to next fragment */
 			ah->frags[ah->nfrag].nfrag = ah->nfrag + 1;
 			ah->nfrag++;
@@ -688,7 +686,7 @@ lws_parse_urldecode(struct lws *wsi, uint8_t *_c)
 				goto excessive;
 			/* start next fragment after the & */
 			ah->post_literal_equal = 0;
-			ah->frags[ah->nfrag].offset = ah->pos;
+			ah->frags[ah->nfrag].offset = ++ah->pos;
 			ah->frags[ah->nfrag].len = 0;
 			ah->frags[ah->nfrag].nfrag = 0;
 			goto swallow;
