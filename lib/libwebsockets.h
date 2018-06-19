@@ -2774,10 +2774,10 @@ struct lws_context_creation_info {
 	void *provided_client_ssl_ctx; /**< dummy if ssl disabled */
 #endif
 
-	short max_http_header_data;
+	unsigned short max_http_header_data;
 	/**< CONTEXT: The max amount of header payload that can be handled
 	 * in an http request (unrecognized header payload is dropped) */
-	short max_http_header_pool;
+	unsigned short max_http_header_pool;
 	/**< CONTEXT: The max number of connections with http headers that
 	 * can be processed simultaneously (the corresponding memory is
 	 * allocated and deallocated dynamically as needed).  If the pool is
@@ -2997,6 +2997,11 @@ struct lws_context_creation_info {
 	/**< VHOST: opaque pointer lws ignores but passes to the finalize
 	 *	    callback.  If you don't care, leave it NULL.
 	 */
+	unsigned int max_http_header_pool2;
+	/**< CONTEXT: if max_http_header_pool is 0 and this
+	 * is nonzero, this will be used in place of the default.  It's
+	 * like this for compatibility with the original short version:
+	 * this is unsigned int length. */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility

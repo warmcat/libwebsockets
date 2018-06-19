@@ -655,6 +655,7 @@ struct lws_context {
 	unsigned int timeout_secs;
 	unsigned int pt_serv_buf_size;
 	int max_http_header_data;
+	int max_http_header_pool;
 	int simultaneous_ssl_restriction;
 	int simultaneous_ssl;
 #if defined(LWS_WITH_PEER_LIMITS)
@@ -681,7 +682,6 @@ struct lws_context {
 	volatile int service_tid;
 	int service_tid_detected;
 
-	short max_http_header_pool;
 	short count_threads;
 	short plugin_protocol_count;
 	short plugin_extension_count;
