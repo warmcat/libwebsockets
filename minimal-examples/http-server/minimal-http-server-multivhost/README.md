@@ -30,6 +30,11 @@ for the connection, and you will be served content from ./mount-origin-localhost
 
 ## usage
 
+Commandline option|Meaning
+---|---
+-d <loglevel>|Debug verbosity in decimal, eg, -d15
+--die-after-vhost | For testing failure handling
+
 ```
  $ ./lws-minimal-http-server-multivhost
 [2018/03/16 09:37:20:0866] USER: LWS minimal http server-multivhost | visit http://localhost:7681 / 7682
