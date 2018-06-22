@@ -74,6 +74,8 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, int fd)
 	struct protoent *tcp_proto;
 #endif
 
+	fcntl(fd, F_SETFD, FD_CLOEXEC);
+
 	if (vhost->ka_time) {
 		/* enable keepalive on this socket */
 		optval = 1;
