@@ -2809,7 +2809,7 @@ struct lws_context_creation_info {
 	/**< VHOST: pointer to optional linked list of per-vhost
 	 * options made accessible to protocols */
 	int keepalive_timeout;
-	/**< VHOST: (default = 0 = 60s) seconds to allow remote
+	/**< VHOST: (default = 0 = 5s) seconds to allow remote
 	 * client to hold on to an idle HTTP/1.1 connection */
 	const char *log_filepath;
 	/**< VHOST: filepath to append logs to... this is opened before
@@ -6021,6 +6021,19 @@ lws_is_ssl(struct lws *wsi);
 LWS_VISIBLE LWS_EXTERN int
 lws_is_cgi(struct lws *wsi);
 
+/**
+ * lws_open() - platform-specific wrapper for open that prepares the fd
+ *
+ * \param file: the filepath to open
+ * \param oflag: option flags
+ * \param mode: optional mode of any created file
+ *
+ * This is a wrapper around platform open() that sets options on the fd
+ * according to lws policy.  Currently that is FD_CLOEXEC to stop the opened
+ * fd being available to any child process forked by user code.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_open(const char *__file, int __oflag, ...);
 
 struct lws_wifi_scan { /* generic wlan scan item */
 	struct lws_wifi_scan *next;

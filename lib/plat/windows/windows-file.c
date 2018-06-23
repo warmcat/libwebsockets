@@ -24,6 +24,10 @@
 #endif
 #include "core/private.h"
 
+void lws_plat_apply_FD_CLOEXEC(int n)
+{
+}
+
 lws_fop_fd_t
 _lws_plat_file_open(const struct lws_plat_file_ops *fops, const char *filename,
 		    const char *vpath, lws_fop_flags_t *flags)
@@ -142,7 +146,7 @@ lws_plat_write_file(const char *filename, void *buf, int len)
 {
 	int m, fd;
 
-	fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+	fd = lws_open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0600);
 
 	if (fd == -1)
 		return -1;
@@ -156,7 +160,7 @@ lws_plat_write_file(const char *filename, void *buf, int len)
 int
 lws_plat_read_file(const char *filename, void *buf, int len)
 {
-	int n, fd = open(filename, O_RDONLY);
+	int n, fd = lws_open(filename, O_RDONLY);
 	if (fd == -1)
 		return -1;
 

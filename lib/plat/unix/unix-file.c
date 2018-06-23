@@ -30,13 +30,18 @@
 #endif
 #include <dirent.h>
 
+void lws_plat_apply_FD_CLOEXEC(int n)
+{
+	if (n != -1)
+		fcntl(n, F_SETFD, FD_CLOEXEC );
+}
 
 int
 lws_plat_write_file(const char *filename, void *buf, int len)
 {
 	int m, fd;
 
-	fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+	fd = lws_open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0600);
 
 	if (fd == -1)
 		return 1;
@@ -50,7 +55,7 @@ lws_plat_write_file(const char *filename, void *buf, int len)
 int
 lws_plat_read_file(const char *filename, void *buf, int len)
 {
-	int n, fd = open(filename, O_RDONLY);
+	int n, fd = lws_open(filename, O_RDONLY);
 	if (fd == -1)
 		return -1;
 
@@ -65,7 +70,7 @@ _lws_plat_file_open(const struct lws_plat_file_ops *fops, const char *filename,
 		    const char *vpath, lws_fop_flags_t *flags)
 {
 	struct stat stat_buf;
-	int ret = open(filename, (*flags) & LWS_FOP_FLAGS_MASK, 0664);
+	int ret = lws_open(filename, (*flags) & LWS_FOP_FLAGS_MASK, 0664);
 	lws_fop_fd_t fop_fd;
 
 	if (ret < 0)

@@ -397,9 +397,9 @@ callback_lws_sshd_demo(struct lws *wsi, enum lws_callback_reasons reason,
 		 * deal with it down /etc/.. when just after this we will lose
 		 * the privileges needed to read / write /etc/...
 		 */
-		vhd->privileged_fd = open(TEST_SERVER_KEY_PATH, O_RDONLY);
+		vhd->privileged_fd = lws_open(TEST_SERVER_KEY_PATH, O_RDONLY);
 		if (vhd->privileged_fd == -1)
-			vhd->privileged_fd = open(TEST_SERVER_KEY_PATH,
+			vhd->privileged_fd = lws_open(TEST_SERVER_KEY_PATH,
 					O_CREAT | O_TRUNC | O_RDWR, 0600);
 		if (vhd->privileged_fd == -1) {
 			lwsl_err("%s: Can't open %s\n", __func__,

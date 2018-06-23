@@ -4,6 +4,10 @@
  * included from libwebsockets.c for OPTEE builds
  */
 
+void lws_plat_apply_FD_CLOEXEC(int n)
+{
+}
+
 int
 lws_plat_pipe_create(struct lws *wsi)
 {

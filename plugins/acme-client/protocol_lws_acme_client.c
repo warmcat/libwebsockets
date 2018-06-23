@@ -623,7 +623,7 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 		 */
 		lws_snprintf(buf, sizeof(buf) - 1, "%s.upd",
 			     vhd->pvop[LWS_TLS_SET_CERT_PATH]);
-		vhd->fd_updated_cert = open(buf, LWS_O_WRONLY | LWS_O_CREAT |
+		vhd->fd_updated_cert = lws_open(buf, LWS_O_WRONLY | LWS_O_CREAT |
 						 LWS_O_TRUNC, 0600);
 		if (vhd->fd_updated_cert < 0) {
 			lwsl_err("unable to create update cert file %s\n", buf);
@@ -631,7 +631,7 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 		lws_snprintf(buf, sizeof(buf) - 1, "%s.upd",
 			     vhd->pvop[LWS_TLS_SET_KEY_PATH]);
-		vhd->fd_updated_key = open(buf, LWS_O_WRONLY | LWS_O_CREAT |
+		vhd->fd_updated_key = lws_open(buf, LWS_O_WRONLY | LWS_O_CREAT |
 						LWS_O_TRUNC, 0600);
 		if (vhd->fd_updated_key < 0) {
 			lwsl_err("unable to create update key file %s\n", buf);

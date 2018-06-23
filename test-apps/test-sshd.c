@@ -232,7 +232,7 @@ ssh_ops_rx(void *_priv, struct lws *wsi, const uint8_t *buf, uint32_t len)
 static size_t
 ssh_ops_get_server_key(struct lws *wsi, uint8_t *buf, size_t len)
 {
-	int fd = open(TEST_SERVER_KEY_PATH, O_RDONLY), n;
+	int fd = lws_open(TEST_SERVER_KEY_PATH, O_RDONLY), n;
 
 	if (fd == -1) {
 		lwsl_err("%s: unable to open %s for read: %s\n", __func__,
@@ -255,7 +255,7 @@ ssh_ops_get_server_key(struct lws *wsi, uint8_t *buf, size_t len)
 static size_t
 ssh_ops_set_server_key(struct lws *wsi, uint8_t *buf, size_t len)
 {
-	int fd = open(TEST_SERVER_KEY_PATH, O_CREAT | O_TRUNC | O_RDWR, 0600);
+	int fd = lws_open(TEST_SERVER_KEY_PATH, O_CREAT | O_TRUNC | O_RDWR, 0600);
 	int n;
 
 	lwsl_notice("%s: %d\n", __func__, fd);

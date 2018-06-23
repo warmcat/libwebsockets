@@ -29,6 +29,10 @@
 #include <lwip/sockets.h>
 #include <esp_task_wdt.h>
 
+void lws_plat_apply_FD_CLOEXEC(int n)
+{
+}
+
 
 LWS_VISIBLE lws_fop_fd_t IRAM_ATTR
 _lws_plat_file_open(const struct lws_plat_file_ops *fops, const char *filename,

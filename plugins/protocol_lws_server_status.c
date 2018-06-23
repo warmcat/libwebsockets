@@ -90,7 +90,7 @@ update(struct per_vhost_data__lws_server_status *v)
 			p += n;
 			l -= n;
 		}
-		fd = open(fp->filepath, LWS_O_RDONLY);
+		fd = lws_open(fp->filepath, LWS_O_RDONLY);
 		if (fd >= 0) {
 			n = read(fd, contents, sizeof(contents) - 1);
 			if (n >= 0) {

@@ -971,7 +971,7 @@ lws_create_vhost(struct lws_context *context,
 
 #ifdef LWS_WITH_ACCESS_LOG
 	if (info->log_filepath) {
-		vh->log_fd = open(info->log_filepath,
+		vh->log_fd = lws_open(info->log_filepath,
 				  O_CREAT | O_APPEND | O_RDWR, 0600);
 		if (vh->log_fd == (int)LWS_INVALID_FILE) {
 			lwsl_err("unable to open log filepath %s\n",

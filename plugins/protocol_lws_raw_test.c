@@ -128,7 +128,7 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 			lwsl_err("mkfifo failed\n");
 			return 1;
 		}
-		vhd->fifo = open(vhd->fifo_path, O_NONBLOCK | O_RDONLY);
+		vhd->fifo = lws_open(vhd->fifo_path, O_NONBLOCK | O_RDONLY);
 		if (vhd->fifo == -1) {
 			lwsl_err("opening fifo failed\n");
 			unlink(vhd->fifo_path);
@@ -203,7 +203,7 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 			vhd->zero_length_read = 0;
 			close(vhd->fifo);
 			/* the wsi that adopted the fifo file is closing... reopen the fifo and readopt */
-			vhd->fifo = open(vhd->fifo_path, O_NONBLOCK | O_RDONLY);
+			vhd->fifo = lws_open(vhd->fifo_path, O_NONBLOCK | O_RDONLY);
 			if (vhd->fifo == -1) {
 				lwsl_err("opening fifo failed\n");
 				return 1;

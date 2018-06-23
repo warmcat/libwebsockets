@@ -441,9 +441,14 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 		lwsl_info("%s: cgi %p spawned PID %d\n", __func__,
 			   cgi, cgi->pid);
 
-		/* close: stdin:r, stdout:w, stderr:w */
-		for (n = 0; n < 3; n++)
+		/*
+		 *  close:                stdin:r, stdout:w, stderr:w
+		 * hide from other forks: stdin:w, stdout:r, stderr:r
+		 */
+		for (n = 0; n < 3; n++) {
+			lws_plat_apply_FD_CLOEXEC(cgi->pipe_fds[n][!!(n == 0)]);
 			close(cgi->pipe_fds[n][!(n == 0)]);
+		}
 
 		/* inform cgi owner of the child PID */
 		n = user_callback_handle_rxflow(wsi->protocol->callback, wsi,

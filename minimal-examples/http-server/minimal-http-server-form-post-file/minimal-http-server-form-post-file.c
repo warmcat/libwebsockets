@@ -58,7 +58,7 @@ file_upload_cb(void *data, const char *name, const char *filename,
 		/* remove any scary things like .. */
 		lws_filename_purify_inplace(pss->filename);
 		/* open a file of that name for write in the cwd */
-		pss->fd = open(pss->filename, O_CREAT | O_TRUNC | O_RDWR, 0600);
+		pss->fd = lws_open(pss->filename, O_CREAT | O_TRUNC | O_RDWR, 0600);
 		if (pss->fd == LWS_INVALID_FILE) {
 			lwsl_notice("Failed to open output file %s\n",
 				    pss->filename);
