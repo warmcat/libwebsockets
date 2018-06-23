@@ -58,6 +58,28 @@ static const char * const log_level_names[] = {
 };
 #endif
 
+int lws_open(const char *__file, int __oflag, ...)
+{
+	va_list ap;
+	int n;
+
+	va_start(ap, __oflag);
+	if (((__oflag & O_CREAT) == O_CREAT)
+#if defined(O_TMPFILE)
+		|| ((__oflag & O_TMPFILE) == O_TMPFILE)
+#endif
+	)
+		/* last arg is really a mode_t.  But windows... */
+		n = open(__file, __oflag, va_arg(ap, uint32_t));
+	else
+		n = open(__file, __oflag);
+	va_end(ap);
+
+	lws_plat_apply_FD_CLOEXEC(n);
+
+	return n;
+}
+
 #if defined (_DEBUG)
 void lwsi_set_role(struct lws *wsi, lws_wsi_state_t role)
 {

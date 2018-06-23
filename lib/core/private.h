@@ -1606,6 +1606,9 @@ lws_plat_pipe_close(struct lws *wsi);
 int
 lws_create_event_pipes(struct lws_context *context);
 
+int lws_open(const char *__file, int __oflag, ...);
+void lws_plat_apply_FD_CLOEXEC(int n);
+
 const struct lws_plat_file_ops *
 lws_vfs_select_fops(const struct lws_plat_file_ops *fops, const char *vfs_path,
 		    const char **vpath);

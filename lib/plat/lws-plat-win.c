@@ -3,6 +3,10 @@
 #endif
 #include "core/private.h"
 
+void lws_plat_apply_FD_CLOEXEC(int n)
+{
+}
+
 int
 lws_plat_socket_offset(void)
 {
@@ -800,7 +804,7 @@ lws_plat_write_file(const char *filename, void *buf, int len)
 {
 	int m, fd;
 
-	fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+	fd = lws_open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0600);
 
 	if (fd == -1)
 		return -1;
@@ -814,7 +818,7 @@ lws_plat_write_file(const char *filename, void *buf, int len)
 LWS_VISIBLE int
 lws_plat_read_file(const char *filename, void *buf, int len)
 {
-	int n, fd = open(filename, O_RDONLY);
+	int n, fd = lws_open(filename, O_RDONLY);
 	if (fd == -1)
 		return -1;
 

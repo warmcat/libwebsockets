@@ -49,7 +49,7 @@ child_handler(int signum)
 		if (lock_path) {
 			/* Create the lock file as the current user */
 
-			fd = open(lock_path, O_TRUNC | O_RDWR | O_CREAT, 0640);
+			fd = lws_open(lock_path, O_TRUNC | O_RDWR | O_CREAT, 0640);
 			if (fd < 0) {
 				fprintf(stderr,
 				   "unable to create lock file %s, code=%d (%s)\n",
@@ -106,7 +106,7 @@ lws_daemonize(const char *_lock_path)
 //		return 1;
 
 	if (_lock_path) {
-		fd = open(_lock_path, O_RDONLY);
+		fd = lws_open(_lock_path, O_RDONLY);
 		if (fd >= 0) {
 			n = read(fd, buf, sizeof(buf));
 			close(fd);

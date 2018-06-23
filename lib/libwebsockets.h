@@ -2812,7 +2812,7 @@ struct lws_context_creation_info {
 	/**< VHOST: pointer to optional linked list of per-vhost
 	 * options made accessible to protocols */
 	int keepalive_timeout;
-	/**< VHOST: (default = 0 = 60s) seconds to allow remote
+	/**< VHOST: (default = 0 = 5s) seconds to allow remote
 	 * client to hold on to an idle HTTP/1.1 connection */
 	const char *log_filepath;
 	/**< VHOST: filepath to append logs to... this is opened before
