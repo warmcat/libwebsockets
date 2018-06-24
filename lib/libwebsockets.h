@@ -164,6 +164,9 @@ typedef unsigned long long lws_intptr_t;
 #ifdef LWS_HAVE_UV_VERSION_H
 #include <uv-version.h>
 #endif
+#ifdef LWS_HAVE_NEW_UV_VERSION_H
+#include <uv/version.h>
+#endif
 #endif /* LWS_WITH_LIBUV */
 #if defined(LWS_WITH_LIBEVENT)
 #include <event2/event.h>
