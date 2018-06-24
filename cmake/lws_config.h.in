@@ -109,6 +109,7 @@
 #cmakedefine LWS_HAVE_SSL_CTX_get0_certificate
 
 #cmakedefine LWS_HAVE_UV_VERSION_H
+#cmakedefine LWS_HAVE_NEW_UV_VERSION_H
 #cmakedefine LWS_HAVE_PTHREAD_H
 
 /* CGI apis */
