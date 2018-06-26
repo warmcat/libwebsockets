@@ -1620,8 +1620,10 @@ lws_vhost_destroy1(struct lws_vhost *vh)
 
 	lwsl_info("%s\n", __func__);
 
+	lws_context_lock(context, "vhost destroy 1"); /* ---------- context { */
+
 	if (vh->being_destroyed)
-		return;
+		goto out;
 
 	lws_vhost_lock(vh); /* -------------- vh { */
 
@@ -1678,10 +1680,13 @@ lws_vhost_destroy1(struct lws_vhost *vh)
 	 * It will start closing all wsi on this vhost.  When the last wsi
 	 * is closed, it will trigger lws_vhost_destroy2()
 	 */
+
+out:
+	lws_context_unlock(context); /* --------------------------- context { */
 }
 
 void
-lws_vhost_destroy2(struct lws_vhost *vh)
+__lws_vhost_destroy2(struct lws_vhost *vh)
 {
 	const struct lws_protocols *protocol = NULL;
 	struct lws_context *context = vh->context;
@@ -1889,9 +1894,12 @@ LWS_VISIBLE void
 lws_vhost_destroy(struct lws_vhost *vh)
 {
 	struct lws_deferred_free *df = lws_malloc(sizeof(*df), "deferred free");
+	struct lws_context *context = vh->context;
 
 	if (!df)
 		return;
+
+	lws_context_lock(context, __func__); /* ------ context { */
 
 	lws_vhost_destroy1(vh);
 
@@ -1903,10 +1911,10 @@ lws_vhost_destroy(struct lws_vhost *vh)
 		 *
 		 * Finalize the vh destruction immediately
 		 */
-		lws_vhost_destroy2(vh);
+		__lws_vhost_destroy2(vh);
 		lws_free(df);
 
-		return;
+		goto out;
 	}
 
 	/* part 2 is deferred to allow all the handle closes to complete */
@@ -1915,6 +1923,9 @@ lws_vhost_destroy(struct lws_vhost *vh)
 	df->deadline = lws_now_secs();
 	df->payload = vh;
 	vh->context->deferred_free_list = df;
+
+out:
+	lws_context_unlock(context); /* } context ------------------- */
 }
 
 /*
@@ -1987,6 +1998,8 @@ lws_context_destroy2(struct lws_context *context)
 
 	lwsl_info("%s: ctx %p\n", __func__, context);
 
+	lws_context_lock(context, "context destroy 2"); /* ------ context { */
+
 	context->being_destroyed2 = 1;
 
 	if (context->pt[0].fds)
@@ -1999,7 +2012,7 @@ lws_context_destroy2(struct lws_context *context)
 	vh = context->vhost_list;
 	while (vh) {
 		vh1 = vh->vhost_next;
-		lws_vhost_destroy2(vh);
+		__lws_vhost_destroy2(vh);
 		vh = vh1;
 	}
 
@@ -2007,7 +2020,7 @@ lws_context_destroy2(struct lws_context *context)
 
 	while (context->vhost_pending_destruction_list)
 		/* removes itself from list */
-		lws_vhost_destroy2(context->vhost_pending_destruction_list);
+		__lws_vhost_destroy2(context->vhost_pending_destruction_list);
 
 
 	lws_stats_log_dump(context);
@@ -2047,6 +2060,8 @@ lws_context_destroy2(struct lws_context *context)
 		for (n = 0; n < context->count_threads; n++)
 			if (context->pt[n].inside_service)
 				return;
+
+	lws_context_unlock(context); /* } context ------------------- */
 
 	lws_context_destroy3(context);
 }

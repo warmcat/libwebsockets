@@ -528,7 +528,7 @@ lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi);
 void
 lws_vhost_unbind_wsi(struct lws *wsi);
 void
-lws_vhost_destroy2(struct lws_vhost *vh);
+__lws_vhost_destroy2(struct lws_vhost *vh);
 
 struct lws_deferred_free
 {

@@ -123,25 +123,30 @@ lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi)
 void
 lws_vhost_unbind_wsi(struct lws *wsi)
 {
-	if (wsi->vhost) {
-		assert(wsi->vhost->count_bound_wsi > 0);
-		wsi->vhost->count_bound_wsi--;
-		lwsl_info("%s: vh %s: count_bound_wsi %d\n", __func__,
-			  wsi->vhost->name, wsi->vhost->count_bound_wsi);
+	if (!wsi->vhost)
+		return;
 
-		if (!wsi->vhost->count_bound_wsi &&
-		    wsi->vhost->being_destroyed) {
-			/*
-			 * We have closed all wsi that were bound to this vhost
-			 * by any pt: nothing can be servicing any wsi belonging
-			 * to it any more.
-			 *
-			 * Finalize the vh destruction
-			 */
-			lws_vhost_destroy2(wsi->vhost);
-		}
-		wsi->vhost = NULL;
+	lws_context_lock(wsi->context, __func__); /* ---------- context { */
+
+	assert(wsi->vhost->count_bound_wsi > 0);
+	wsi->vhost->count_bound_wsi--;
+	lwsl_info("%s: vh %s: count_bound_wsi %d\n", __func__,
+		  wsi->vhost->name, wsi->vhost->count_bound_wsi);
+
+	if (!wsi->vhost->count_bound_wsi &&
+	    wsi->vhost->being_destroyed) {
+		/*
+		 * We have closed all wsi that were bound to this vhost
+		 * by any pt: nothing can be servicing any wsi belonging
+		 * to it any more.
+		 *
+		 * Finalize the vh destruction
+		 */
+		__lws_vhost_destroy2(wsi->vhost);
 	}
+	wsi->vhost = NULL;
+
+	lws_context_unlock(wsi->context); /* } context ---------- */
 }
 
 void
