@@ -241,7 +241,7 @@ lws_header_table_attach(struct lws *wsi, int autoservice)
 	pt->http.ah_count_in_use++;
 
 #if defined(LWS_WITH_PEER_LIMITS) && (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2))
-	lws_context_lock(context); /* <====================================== */
+	lws_context_lock(context, "ah attach"); /* <========================= */
 	if (wsi->peer)
 		wsi->peer->http.count_ah++;
 	lws_context_unlock(context); /* ====================================> */
@@ -360,7 +360,7 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 
 	__lws_header_table_reset(wsi, autoservice);
 #if defined(LWS_WITH_PEER_LIMITS) && (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2))
-	lws_context_lock(context); /* <====================================== */
+	lws_context_lock(context, "ah detach"); /* <========================= */
 	if (wsi->peer)
 		wsi->peer->http.count_ah++;
 	lws_context_unlock(context); /* ====================================> */

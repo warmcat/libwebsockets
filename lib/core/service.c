@@ -772,7 +772,7 @@ lws_service_periodic_checks(struct lws_context *context,
 	 *	    interface missing before
 	 */
 
-	lws_context_lock(context);
+	lws_context_lock(context, "periodic checks");
 	lws_start_foreach_llp(struct lws_vhost **, pv,
 			      context->no_listener_vhost_list) {
 		struct lws_vhost *v = *pv;

@@ -996,7 +996,7 @@ lws_create_vhost(struct lws_context *context,
 		lwsl_err("%s: lws_context_init_client_ssl failed\n", __func__);
 		goto bail1;
 	}
-	lws_context_lock(context);
+	lws_context_lock(context, "create_vhost");
 	n = _lws_vhost_init_server(info, vh);
 	lws_context_unlock(context);
 	if (n < 0) {
@@ -1215,7 +1215,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 
 #if LWS_MAX_SMP > 1
-	pthread_mutex_init(&context->lock, NULL);
+	lws_mutex_refcount_init(&context->mr);
 #endif
 
 #if defined(LWS_WITH_ESP32)
@@ -1844,7 +1844,7 @@ lws_check_deferred_free(struct lws_context *context, int tsi, int force)
 	 * because there is nothing left using the vhost to conflict.
 	 */
 
-	lws_context_lock(context); /* ------------------- context { */
+	lws_context_lock(context, "check deferred free"); /* ------ context { */
 
 	lws_start_foreach_ll(struct lws_vhost *, v, context->vhost_list) {
 		if (v->being_destroyed
@@ -2034,7 +2034,7 @@ lws_context_destroy2(struct lws_context *context)
 	lws_check_deferred_free(context, 0, 1);
 
 #if LWS_MAX_SMP > 1
-	pthread_mutex_destroy(&context->lock);
+	lws_mutex_refcount_destroy(&context->mr);
 #endif
 
 	if (context->event_loop_ops->destroy_context2)

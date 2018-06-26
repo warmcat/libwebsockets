@@ -303,6 +303,28 @@ struct lws_foreign_thread_pollfd {
 	int _or;
 };
 
+#if LWS_MAX_SMP > 1
+
+struct lws_mutex_refcount {
+	pthread_mutex_t lock;
+	pthread_t lock_owner;
+	const char *last_lock_reason;
+	char lock_depth;
+	char metadata;
+};
+
+void
+lws_mutex_refcount_init(struct lws_mutex_refcount *mr);
+
+void
+lws_mutex_refcount_destroy(struct lws_mutex_refcount *mr);
+
+void
+lws_mutex_refcount_lock(struct lws_mutex_refcount *mr, const char *reason);
+
+void
+lws_mutex_refcount_unlock(struct lws_mutex_refcount *mr);
+#endif
 
 #define LWS_HRTIMER_NOWAIT (0x7fffffffffffffffll)
 
@@ -313,10 +335,8 @@ struct lws_foreign_thread_pollfd {
 
 struct lws_context_per_thread {
 #if LWS_MAX_SMP > 1
-	pthread_mutex_t lock;
 	pthread_mutex_t lock_stats;
-	pthread_t lock_owner;
-	const char *last_lock_reason;
+	struct lws_mutex_refcount mr;
 #endif
 
 	struct lws_context *context;
@@ -379,7 +399,6 @@ struct lws_context_per_thread {
 
 	unsigned char tid;
 
-	unsigned char lock_depth;
 	unsigned char inside_service:1;
 	unsigned char event_loop_foreign:1;
 	unsigned char event_loop_destroy_processing_done:1;
@@ -575,8 +594,7 @@ struct lws_context {
 	struct lws_context_per_thread pt[LWS_MAX_SMP];
 	struct lws_conn_stats conn_stats;
 #if LWS_MAX_SMP > 1
-	pthread_mutex_t lock;
-	int lock_depth;
+	struct lws_mutex_refcount mr;
 #endif
 #ifdef _WIN32
 /* different implementation between unix and windows */
@@ -1197,7 +1215,7 @@ LWS_EXTERN void lwsl_emit_stderr(int level, const char *line);
 static LWS_INLINE void
 lws_pt_mutex_init(struct lws_context_per_thread *pt)
 {
-	pthread_mutex_init(&pt->lock, NULL);
+	lws_mutex_refcount_init(&pt->mr);
 	pthread_mutex_init(&pt->lock_stats, NULL);
 }
 
@@ -1205,34 +1223,11 @@ static LWS_INLINE void
 lws_pt_mutex_destroy(struct lws_context_per_thread *pt)
 {
 	pthread_mutex_destroy(&pt->lock_stats);
-	pthread_mutex_destroy(&pt->lock);
+	lws_mutex_refcount_destroy(&pt->mr);
 }
 
-static LWS_INLINE void
-lws_pt_lock(struct lws_context_per_thread *pt, const char *reason)
-{
-	if (pt->lock_owner == pthread_self()) {
-		pt->lock_depth++;
-		return;
-	}
-	pthread_mutex_lock(&pt->lock);
-	pt->last_lock_reason = reason;
-	pt->lock_owner = pthread_self();
-	//lwsl_notice("tid %d: lock %s\n", pt->tid, reason);
-}
-
-static LWS_INLINE void
-lws_pt_unlock(struct lws_context_per_thread *pt)
-{
-	if (pt->lock_depth) {
-		pt->lock_depth--;
-		return;
-	}
-	pt->last_lock_reason = "free";
-	pt->lock_owner = 0;
-	//lwsl_notice("tid %d: unlock %s\n", pt->tid, pt->last_lock_reason);
-	pthread_mutex_unlock(&pt->lock);
-}
+#define lws_pt_lock(pt, reason) lws_mutex_refcount_lock(&pt->mr, reason)
+#define lws_pt_unlock(pt) lws_mutex_refcount_unlock(&pt->mr)
 
 static LWS_INLINE void
 lws_pt_stats_lock(struct lws_context_per_thread *pt)
@@ -1246,17 +1241,8 @@ lws_pt_stats_unlock(struct lws_context_per_thread *pt)
 	pthread_mutex_unlock(&pt->lock_stats);
 }
 
-static LWS_INLINE void
-lws_context_lock(struct lws_context *context)
-{
-	pthread_mutex_lock(&context->lock);
-}
-
-static LWS_INLINE void
-lws_context_unlock(struct lws_context *context)
-{
-	pthread_mutex_unlock(&context->lock);
-}
+#define lws_context_lock(c, reason) lws_mutex_refcount_lock(&c->mr, reason)
+#define lws_context_unlock(c) lws_mutex_refcount_unlock(&c->mr)
 
 static LWS_INLINE void
 lws_vhost_lock(struct lws_vhost *vhost)
@@ -1276,7 +1262,7 @@ lws_vhost_unlock(struct lws_vhost *vhost)
 #define lws_pt_mutex_destroy(_a) (void)(_a)
 #define lws_pt_lock(_a, b) (void)(_a)
 #define lws_pt_unlock(_a) (void)(_a)
-#define lws_context_lock(_a) (void)(_a)
+#define lws_context_lock(_a, _b) (void)(_a)
 #define lws_context_unlock(_a) (void)(_a)
 #define lws_vhost_lock(_a) (void)(_a)
 #define lws_vhost_unlock(_a) (void)(_a)

@@ -2888,6 +2888,65 @@ lws_strncpy(char *dest, const char *src, size_t size)
 	return dest;
 }
 
+#if LWS_MAX_SMP > 1
+
+void
+lws_mutex_refcount_init(struct lws_mutex_refcount *mr)
+{
+	pthread_mutex_init(&mr->lock, NULL);
+	mr->last_lock_reason = NULL;
+	mr->lock_depth = 0;
+	mr->metadata = 0;
+	mr->lock_owner = 0;
+}
+
+void
+lws_mutex_refcount_destroy(struct lws_mutex_refcount *mr)
+{
+	pthread_mutex_destroy(&mr->lock);
+}
+
+void
+lws_mutex_refcount_lock(struct lws_mutex_refcount *mr, const char *reason)
+{
+	/* if true, this sequence is atomic because our thread has the lock
+	 *
+	 *  - if true, only guy who can race to make it untrue is our thread,
+	 *    and we are here.
+	 *
+	 *  - if false, only guy who could race to make it true is our thread,
+	 *    and we are here
+	 *
+	 *  - it can be false and change to a different tid that is also false
+	 */
+	if (mr->lock_owner == pthread_self()) {
+		/* atomic because we only change it if we own the lock */
+		mr->lock_depth++;
+		return;
+	}
+
+	pthread_mutex_lock(&mr->lock);
+	/* atomic because only we can have the lock */
+	mr->last_lock_reason = reason;
+	mr->lock_owner = pthread_self();
+	mr->lock_depth = 1;
+	//lwsl_notice("tid %d: lock %s\n", mr->tid, reason);
+}
+
+void
+lws_mutex_refcount_unlock(struct lws_mutex_refcount *mr)
+{
+	if (--mr->lock_depth)
+		/* atomic because only thread that has the lock can unlock */
+		return;
+
+	mr->last_lock_reason = "free";
+	mr->lock_owner = 0;
+	//lwsl_notice("tid %d: unlock %s\n", mr->tid, mr->last_lock_reason);
+	pthread_mutex_unlock(&mr->lock);
+}
+
+#endif /* SMP */
 
 LWS_VISIBLE LWS_EXTERN int
 lws_is_cgi(struct lws *wsi) {
