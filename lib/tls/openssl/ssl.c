@@ -142,9 +142,13 @@ lws_context_init_ssl_library(const struct lws_context_creation_info *info)
 
 	lwsl_info("Doing SSL library init\n");
 
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 	SSL_library_init();
 	OpenSSL_add_all_algorithms();
 	SSL_load_error_strings();
+#else
+	OPENSSL_init_ssl(OPENSSL_INIT_LOAD_SSL_STRINGS, NULL);
+#endif
 
 	openssl_websocket_private_data_index =
 		SSL_get_ex_new_index(0, "lws", NULL, NULL, NULL);
@@ -554,6 +558,11 @@ lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 
 	if (!x509)
 		return -1;
+
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+#define X509_get_notBefore(x)	X509_getm_notBefore(x)
+#define X509_get_notAfter(x)	X509_getm_notAfter(x)
+#endif
 
 	switch (type) {
 	case LWS_TLS_CERT_INFO_VALIDITY_FROM:
