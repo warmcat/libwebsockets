@@ -1965,9 +1965,9 @@ static const char * const colours[] = {
 	"[32;1m", /* LLL_INFO */
 	"[34;1m", /* LLL_DEBUG */
 	"[33;1m", /* LLL_PARSER */
-	"[33;1m", /* LLL_HEADER */
-	"[33;1m", /* LLL_EXT */
-	"[33;1m", /* LLL_CLIENT */
+	"[33m", /* LLL_HEADER */
+	"[33m", /* LLL_EXT */
+	"[33m", /* LLL_CLIENT */
 	"[33;1m", /* LLL_LATENCY */
 	"[30;1m", /* LLL_USER */
 };
