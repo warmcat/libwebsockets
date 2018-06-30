@@ -382,7 +382,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 				 * we can get a situation he took something in
 				 * but did not generate anything out, at the end
 				 * of a message (eg, next thing he sends is 80
-				 * 00, a zero length FIN, like Authobahn can
+				 * 00, a zero length FIN, like Autobahn can
 				 * send).
 				 * If we have come back as a FIN, we must not
 				 * place the pending trailer 00 00 FF FF, just
@@ -398,8 +398,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 			}
 		}
 		priv->compressed_out = 1;
-		ebuf->len = lws_ptr_diff(priv->tx.next_out,
-						  ebuf->token);
+		ebuf->len = lws_ptr_diff(priv->tx.next_out, ebuf->token);
 
 		/*
 		 * we must announce in our returncode now if there is more

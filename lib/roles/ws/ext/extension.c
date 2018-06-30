@@ -263,9 +263,10 @@ lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len)
 			/* always either sent it all or privately buffered */
 			if (wsi->ws->clean_buffer)
 				len = n;
-		}
 
-		lwsl_parser("written %d bytes to client\n", n);
+			lwsl_ext("%s: written %d bytes to client\n",
+				 __func__, n);
+		}
 
 		/* no extension has more to spill?  Then we can go */
 

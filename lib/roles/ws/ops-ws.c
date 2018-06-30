@@ -1280,7 +1280,7 @@ int rops_handle_POLLOUT_ws(struct lws *wsi)
 	 *	       payload ordering, but since they are always complete
 	 *	       fragments control packets can interleave OK.
 	 */
-	if (lwsi_role_client(wsi) && wsi->ws->tx_draining_ext) {
+	if (wsi->ws->tx_draining_ext) {
 		lwsl_ext("SERVICING TX EXT DRAINING\n");
 		if (lws_write(wsi, NULL, 0, LWS_WRITE_CONTINUATION) < 0)
 			return LWS_HP_RET_BAIL_DIE;
@@ -1290,8 +1290,10 @@ int rops_handle_POLLOUT_ws(struct lws *wsi)
 
 	/* Priority 6: extensions
 	 */
-	if (!wsi->ws->extension_data_pending)
+	if (!wsi->ws->extension_data_pending && !wsi->ws->tx_draining_ext) {
+		lwsl_ext("%s: !wsi->ws->extension_data_pending\n", __func__);
 		return LWS_HP_RET_USER_SERVICE;
+	}
 
 	/*
 	 * check in on the active extensions, see if they
@@ -1508,7 +1510,7 @@ rops_close_role_ws(struct lws_context_per_thread *pt, struct lws *wsi)
 
 	if (wsi->ws->tx_draining_ext) {
 		struct lws **w = &pt->ws.tx_draining_ext_list;
-		lwsl_notice("%s: CLEARING tx_draining_ext\n", __func__);
+		lwsl_ext("%s: CLEARING tx_draining_ext\n", __func__);
 		wsi->ws->tx_draining_ext = 0;
 		/* remove us from context draining ext list */
 		while (*w) {
@@ -1559,7 +1561,7 @@ rops_write_role_protocol_ws(struct lws *wsi, unsigned char *buf, size_t len,
 		/* remove us from the list */
 		struct lws **w = &pt->ws.tx_draining_ext_list;
 
-		lwsl_notice("%s: CLEARING tx_draining_ext\n", __func__);
+		lwsl_ext("%s: CLEARING tx_draining_ext\n", __func__);
 		wsi->ws->tx_draining_ext = 0;
 		/* remove us from context draining ext list */
 		while (*w) {
@@ -1584,7 +1586,7 @@ rops_write_role_protocol_ws(struct lws *wsi, unsigned char *buf, size_t len,
 		if (!(wpt & LWS_WRITE_NO_FIN) && len)
 			*wp &= ~LWS_WRITE_NO_FIN;
 
-		lwsl_notice("FORCED draining wp to 0x%02X (stashed 0x%02X, incoming 0x%02X)\n", *wp,
+		lwsl_ext("FORCED draining wp to 0x%02X (stashed 0x%02X, incoming 0x%02X)\n", *wp,
 				wsi->ws->tx_draining_stashed_wp, wpt);
 		// assert(0);
 	}
@@ -1640,7 +1642,7 @@ rops_write_role_protocol_ws(struct lws *wsi, unsigned char *buf, size_t len,
 		// lwsl_notice("ext processed %d plaintext into %d compressed (wp 0x%x)\n", m, (int)ebuf.len, *wp);
 
 		if (n && ebuf.len) {
-			lwsl_notice("write drain len %d (wp 0x%x) SETTING tx_draining_ext\n", (int)ebuf.len, *wp);
+			lwsl_ext("write drain len %d (wp 0x%x) SETTING tx_draining_ext\n", (int)ebuf.len, *wp);
 			/* extension requires further draining */
 			wsi->ws->tx_draining_ext = 1;
 			wsi->ws->tx_draining_ext_list = pt->ws.tx_draining_ext_list;
