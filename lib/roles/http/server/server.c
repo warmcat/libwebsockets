@@ -995,7 +995,7 @@ lws_http_action(struct lws *wsi)
 #endif
 
 #ifdef LWS_WITH_ACCESS_LOG
-	lws_prepare_access_log_info(wsi, uri_ptr, meth);
+	lws_prepare_access_log_info(wsi, uri_ptr, uri_len, meth);
 #endif
 
 	/* can we serve it from the mount list? */
@@ -1286,7 +1286,7 @@ lws_http_action(struct lws *wsi)
 	}
 #endif
 
-	n = (int)strlen(s);
+	n = uri_len - (s - uri_ptr); // (int)strlen(s);
 	if (s[0] == '\0' || (n == 1 && s[n - 1] == '/'))
 		s = (char *)hit->def;
 	if (!s)
@@ -1514,7 +1514,7 @@ raw_transition:
 							&uri_ptr, &uri_len);
 					if (meth >= 0)
 						lws_prepare_access_log_info(wsi,
-								uri_ptr, meth);
+							uri_ptr, uri_len, meth);
 
 					/* wsi close will do the log */
 #endif
@@ -1680,7 +1680,7 @@ lws_http_transaction_completed(struct lws *wsi)
 
 	/* if we can't go back to accept new headers, drop the connection */
 	if (wsi->http2_substream)
-		return 0;
+		return 1;
 
 	if (wsi->seen_zero_length_recv)
 		return 1;
