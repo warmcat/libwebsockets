@@ -599,7 +599,8 @@ issue_char(struct lws *wsi, unsigned char c)
 	 * If we haven't hit the token limit, just copy the character into
 	 * the header
 	 */
-	if (frag_len < wsi->http.ah->current_token_limit) {
+	if (!wsi->http.ah->current_token_limit ||
+	    frag_len < wsi->http.ah->current_token_limit) {
 		wsi->http.ah->data[wsi->http.ah->pos++] = c;
 		if (c)
 			wsi->http.ah->frags[wsi->http.ah->nfrag].len++;

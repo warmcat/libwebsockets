@@ -38,6 +38,7 @@ option(LWS_WITH_ACCESS_LOG "Support generating Apache-compatible access logs" OF
 option(LWS_WITH_RANGES "Support http ranges (RFC7233)" OFF)
 option(LWS_WITH_SERVER_STATUS "Support json + jscript server monitoring" OFF)
 option(LWS_WITH_ACME "Enable support for ACME automatic cert acquisition + maintenance (letsencrypt etc)" OFF)
+option(LWS_WITH_GITWS "Enable support for gitws git websockets interface" OFF)
 #
 # TLS library options... all except mbedTLS are basically OpenSSL variants.
 #
@@ -1795,6 +1796,9 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2) AND NOT LWS_WITHOUT_TESTAPPS)
 			     INSTALL_DATADIR="${CMAKE_INSTALL_PREFIX}/plugins"
 		)
 
+		SET_TARGET_PROPERTIES(${PLUGIN_NAME}
+                               PROPERTIES COMPILE_FLAGS ${CMAKE_C_FLAGS})
+
 #		set_target_properties(${PLUGIN_NAME}
 #			PROPERTIES
 #			OUTPUT_NAME ${PLUGIN_NAME})
@@ -1812,6 +1816,11 @@ if (LWS_ROLE_WS)
 			      "plugins/protocol_lws_status.c" "" "")
 		create_plugin(protocol_lws_table_dirlisting ""
 			      "plugins/generic-table/protocol_table_dirlisting.c" "" "")
+		if (LWS_WITH_GITWS)
+			create_plugin(protocol_gitws ""
+				      "plugins/gitws/protocol_gitws.c" "" "")
+			target_link_libraries(protocol_gitws jsongit2)
+		endif()
 		if (NOT WIN32)
 			create_plugin(protocol_lws_raw_test ""
 			      "plugins/protocol_lws_raw_test.c" "" "")

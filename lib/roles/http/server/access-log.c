@@ -38,14 +38,14 @@ static const char * const hver[] = {
 };
 
 void
-lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int meth)
+lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int meth)
 {
 #ifdef LWS_WITH_IPV6
 	char ads[INET6_ADDRSTRLEN];
 #else
 	char ads[INET_ADDRSTRLEN];
 #endif
-	char da[64];
+	char da[64], uri[256];
 	const char *pa, *me;
 	struct tm *tmp;
 	time_t t = time(NULL);
@@ -81,10 +81,19 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int meth)
 		if (!me)
 			me = "(null)";
 
+		m = uri_len;
+		if (m > (int)sizeof(uri) - 1)
+			m = sizeof(uri) - 1;
+
+		strncpy(uri, uri_ptr, m);
+		uri[m] = '\0';
+
 		lws_snprintf(wsi->http.access_log.header_log, l,
 			 "%s - - [%s] \"%s %s %s\"",
-			 pa, da, me, uri_ptr,
+			 pa, da, me, uri,
 			 hver[wsi->http.request_version]);
+
+		lwsl_notice("%s\n", wsi->http.access_log.header_log);
 
 		l = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_USER_AGENT);
 		if (l) {
