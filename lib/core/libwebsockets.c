@@ -2733,6 +2733,27 @@ lws_json_purify(char *escaped, const char *string, int len)
 	}
 
 	while (*p && len-- > 6) {
+		if (*p == '\t') {
+			p++;
+			*q++ = '\\';
+			*q++ = 't';
+			continue;
+		}
+
+		if (*p == '\n') {
+			p++;
+			*q++ = '\\';
+			*q++ = 'n';
+			continue;
+		}
+
+		if (*p == '\r') {
+			p++;
+			*q++ = '\\';
+			*q++ = 'r';
+			continue;
+		}
+
 		if (*p == '\"' || *p == '\\' || *p < 0x20) {
 			*q++ = '\\';
 			*q++ = 'u';
