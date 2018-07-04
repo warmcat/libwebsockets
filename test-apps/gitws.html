@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+ <meta charset=utf-8 http-equiv="Content-Language" content="en"/>
+ <!-- <link rel="stylesheet" type="text/css" href="/base-min.css"/> -->
+ <script src="/gitws.js"></script>
+ <title>gitws test app</title>
+ 
+ <style>
+ body {
+ 	font-family: Open Sans, Arial, Helvetica, sans-serif;
+ 	font-size: 12px;
+ }
+ td {
+ 	padding: 2;
+ 	padding-left: 3;
+ 	padding-right: 3;
+ }
+ td.heading {
+ 	font-weight: bold
+ }
+ 
+ span.gravatar img.onhover {
+        display: none;
+        border: 1px solid gray;
+        padding: 0px;
+        border-radius: 4px;
+        width: 128px;
+        height: 128px;
+}
+
+ span.gravatar img.inline {
+        border-radius: 3px;
+        width: 13px;
+        height: 13px;
+        margin-right: 0.2em;
+        opacity: 0.6;
+}
+
+span.gravatar:hover > img.onhover {
+        display: block;
+        position: absolute;
+        margin-left: 1.5em;
+        background-color: #eeeeee;
+        box-shadow: 2px 2px 7px rgba(100,100,100,0.75);
+}
+
+ span.inline_head {
+        border-radius: 4px;
+	padding: 2px;
+	padding-left: 5px;
+	padding-right: 5px;
+	background-color: red;
+	color: white;
+        margin-right: 0.2em;
+}
+
+ span.inline_tag {
+        border-radius: 4px;
+	padding: 2px;
+	padding-left: 5px;
+	padding-right: 5px;
+	background-color: green;
+	color: white;
+        margin-right: 0.2em;
+}
+ 
+ </style>
+ 
+ </head>
+
+<!-- header region -->
+<table><tr>
+<td><a href="https://warmcat.com">
+	<img src="https://warmcat.com/warmcat-logo.png"
+	     width="160px" height="60px">
+    </a></td>
+<td><h1>Warmcat git repo</h1></td>
+</tr>
+</table>
+
+<div id='result'></div>
+
+<div id='initial-json' style="display:none">
+<!-- libjsongit2:initial-json -->
+</div>
+</html>

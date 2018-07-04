@@ -1661,7 +1661,7 @@ lws_http_transaction_completed(struct lws *wsi)
 
 	/* if we can't go back to accept new headers, drop the connection */
 	if (wsi->http2_substream)
-		return 0;
+		return 1;
 
 	if (wsi->seen_zero_length_recv)
 		return 1;

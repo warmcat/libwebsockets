@@ -38,6 +38,7 @@ option(LWS_WITH_ACCESS_LOG "Support generating Apache-compatible access logs" OF
 option(LWS_WITH_RANGES "Support http ranges (RFC7233)" OFF)
 option(LWS_WITH_SERVER_STATUS "Support json + jscript server monitoring" OFF)
 option(LWS_WITH_ACME "Enable support for ACME automatic cert acquisition + maintenance (letsencrypt etc)" OFF)
+option(LWS_WITH_GITWS "Enable support for gitws git websockets interface" OFF)
 #
 # TLS library options... all except mbedTLS are basically OpenSSL variants.
 #
@@ -1726,6 +1727,9 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2) AND NOT LWS_WITHOUT_TESTAPPS)
 			"${PROJECT_SOURCE_DIR}/test-apps/http2.png"
 			"${PROJECT_SOURCE_DIR}/test-apps/wss-over-h2.png"
 			"${PROJECT_SOURCE_DIR}/test-apps/lws-common.js"
+			"${PROJECT_SOURCE_DIR}/test-apps/gitws.html"
+			"${PROJECT_SOURCE_DIR}/test-apps/gitws.js"
+			"${PROJECT_SOURCE_DIR}/test-apps/base-min.css"
 			"${PROJECT_SOURCE_DIR}/test-apps/test.html")
 
 		add_custom_command(TARGET test-server
@@ -1794,6 +1798,9 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2) AND NOT LWS_WITHOUT_TESTAPPS)
 			     PROPERTY COMPILE_DEFINITIONS
 			     INSTALL_DATADIR="${CMAKE_INSTALL_PREFIX}/plugins"
 		)
+		
+		SET_TARGET_PROPERTIES(${PLUGIN_NAME}
+                               PROPERTIES COMPILE_FLAGS ${CMAKE_C_FLAGS})
 
 #		set_target_properties(${PLUGIN_NAME}
 #			PROPERTIES
@@ -1812,6 +1819,11 @@ if (LWS_ROLE_WS)
 			      "plugins/protocol_lws_status.c" "" "")
 		create_plugin(protocol_lws_table_dirlisting ""
 			      "plugins/generic-table/protocol_table_dirlisting.c" "" "")
+		if (LWS_WITH_GITWS)
+			create_plugin(protocol_gitws ""
+				      "plugins/gitws/protocol_gitws.c" "" "")
+			target_link_libraries(protocol_gitws jsongit2)
+		endif()
 		if (NOT WIN32)
 			create_plugin(protocol_lws_raw_test ""
 			      "plugins/protocol_lws_raw_test.c" "" "")
