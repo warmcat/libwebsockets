@@ -415,6 +415,9 @@ callback_lws_sshd_demo(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_VHOST_CERT_AGING:
 		break;
 
+	case LWS_CALLBACK_EVENT_WAIT_CANCELLED:
+		break;
+
 	default:
 		if (!vhd->ssh_base_protocol) {
 			vhd->ssh_base_protocol = lws_vhost_name_to_protocol(
