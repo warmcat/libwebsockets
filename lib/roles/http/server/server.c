@@ -131,6 +131,17 @@ done_list:
 
 	(void)n;
 #if defined(__linux__)
+#ifdef LWS_WITH_UNIX_SOCK
+	/*
+	 * A Unix domain sockets cannot be bound for several times, even if we set
+	 * the SO_REUSE* options on.
+	 * However, fortunately, each thread is able to independently listen when
+	 * running on a reasonably new Linux kernel. So we can safely assume
+	 * creating just one listening socket for a multi-threaded environment won't
+	 * fail in most cases.
+	 */
+	if (!LWS_UNIX_SOCK_ENABLED(vhost))
+#endif
 	limit = vhost->context->count_threads;
 #endif
 
@@ -1128,7 +1139,7 @@ lws_http_action(struct lws *wsi)
 		}
 		if (pcolon > pslash)
 			pcolon = NULL;
-		
+
 		if (pcolon)
 			n = pcolon - hit->origin;
 		else
@@ -1142,13 +1153,13 @@ lws_http_action(struct lws *wsi)
 
 		i.address = ads;
 		i.port = 80;
-		if (hit->origin_protocol == LWSMPRO_HTTPS) { 
+		if (hit->origin_protocol == LWSMPRO_HTTPS) {
 			i.port = 443;
 			i.ssl_connection = 1;
 		}
 		if (pcolon)
 			i.port = atoi(pcolon + 1);
-		
+
 		lws_snprintf(rpath, sizeof(rpath) - 1, "/%s/%s", pslash + 1,
 			     uri_ptr + hit->mountpoint_len);
 		lws_clean_url(rpath);
@@ -1164,7 +1175,7 @@ lws_http_action(struct lws *wsi)
 				p++;
 			}
 		}
-				
+
 
 		i.path = rpath;
 		i.host = i.address;
@@ -1178,7 +1189,7 @@ lws_http_action(struct lws *wsi)
 			    "from %s, to %s\n",
 			    i.address, i.port, i.path, i.ssl_connection,
 			    i.uri_replace_from, i.uri_replace_to);
-	
+
 		if (!lws_client_connect_via_info(&i)) {
 			lwsl_err("proxy connect fail\n");
 			return 1;
