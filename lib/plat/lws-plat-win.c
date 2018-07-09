@@ -316,8 +316,10 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 			if (pfd->revents & LWS_POLLHUP)
 				--eIdx;
 
-			if (pfd->revents)
+			if (pfd->revents) {
+				recv(pfd->fd, NULL, 0, 0);
 				lws_service_fd_tsi(context, pfd, tsi);
+			}
 		}
 	}
 
