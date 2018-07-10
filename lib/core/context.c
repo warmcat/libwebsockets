@@ -1851,7 +1851,7 @@ lws_check_deferred_free(struct lws_context *context, int tsi, int force)
 
 	lws_context_lock(context, "check deferred free"); /* ------ context { */
 
-	lws_start_foreach_ll(struct lws_vhost *, v, context->vhost_list) {
+	lws_start_foreach_ll2(struct lws_vhost *, v, context->vhost_list, vhost_next) {
 		if (v->being_destroyed
 #if LWS_MAX_SMP > 1
 			&& !v->close_flow_vs_tsi[tsi]
@@ -1882,7 +1882,7 @@ lws_check_deferred_free(struct lws_context *context, int tsi, int force)
 
 			lws_pt_unlock(pt); /* } pt -------------- */
 		}
-	} lws_end_foreach_ll(v, vhost_next);
+	} lws_end_foreach_ll2(v);
 
 
 	lws_context_unlock(context); /* } context ------------------- */
