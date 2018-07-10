@@ -5486,7 +5486,7 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 }
 
 /**
- * lws_start_foreach_pre_ll(): linkedlist iterator helper start (pre increment)
+ * lws_start_foreach_ll2(): linkedlist iterator helper start (pre increment storage)
  *
  * \param type: type of iteration, eg, struct xyz *
  * \param it: iterator var name to create
@@ -5496,27 +5496,27 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
  * This helper creates an iterator and starts a while (it) {
  * loop.  The iterator runs through the linked list starting at start and
  * ends when it gets a NULL.
- * The while loop should be terminated using lws_start_foreach_pre_ll().
- * Performs preincrement for situations where iterator can become invalidated
+ * The while loop should be terminated using lws_start_foreach_ll2().
+ * Performs storage of next increment for situations where iterator can become invalidated
  * during iteration.
  */
-#define lws_start_foreach_pre_ll(type, it, start, nxt)\
+#define lws_start_foreach_ll2(type, it, start, nxt)\
 { \
 	type it = start; \
 	while (it) { \
 		type next_##it = it->nxt;
 
 /**
- * lws_end_foreach_pre_ll(): linkedlist iterator helper end (pre increment)
+ * lws_end_foreach_ll2(): linkedlist iterator helper end (pre increment storage)
  *
  * \param it: same iterator var name given when starting
  *
- * This helper is the partner for lws_start_foreach_pre_ll() that ends the
+ * This helper is the partner for lws_start_foreach_ll2() that ends the
  * while loop. It uses the precreated next_ variable already stored during
  * start.
  */
 
-#define lws_end_foreach_pre_ll(it) \
+#define lws_end_foreach_ll2(it) \
 		it = next_##it; \
 	} \
 }
