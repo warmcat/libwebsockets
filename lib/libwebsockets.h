@@ -2883,6 +2883,12 @@ struct lws_context_creation_info {
 	 * via openSSL library calls */
 	const char *client_ssl_ca_filepath;
 	/**< VHOST: Client SSL context init: CA certificate filepath or NULL */
+	const void *client_ssl_ca_mem;
+	/**< VHOST: Client SSL context init: CA certificate memory buffer or NULL
+	 * use this to load CA cert from memory instead of file */
+	unsigned int client_ssl_ca_mem_len;
+	/**< VHOST: Client SSL context init: length of client_ssl_ca_mem in bytes */
+
 	const char *client_ssl_cipher_list;
 	/**< VHOST: Client SSL context init: List of valid ciphers to use (eg,
 	* "RC4-MD5:RC4-SHA:AES128-SHA:AES256-SHA:HIGH:!DSS:!aNULL"
