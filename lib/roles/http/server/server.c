@@ -494,7 +494,7 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 			lwsl_info("%s: Unable to open '%s': errno %d\n",
 				  __func__, path, errno);
 
-			return -1;
+			return 1;
 		}
 
 		/* if it can't be statted, don't try */
@@ -506,18 +506,18 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 #if !defined(WIN32)
 		if (fstat(wsi->http.fop_fd->fd, &st)) {
 			lwsl_info("unable to stat %s\n", path);
-			goto bail;
+			goto notfound;
 		}
 #else
 #if defined(LWS_HAVE__STAT32I64)
 		if (_stat32i64(path, &st)) {
 			lwsl_info("unable to stat %s\n", path);
-			goto bail;
+			goto notfound;
 		}
 #else
 		if (stat(path, &st)) {
 			lwsl_info("unable to stat %s\n", path);
-			goto bail;
+			goto notfound;
 		}
 #endif
 #endif
@@ -530,7 +530,7 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 			len = readlink(path, sym, sizeof(sym) - 1);
 			if (len) {
 				lwsl_err("Failed to read link %s\n", path);
-				goto bail;
+				goto notfound;
 			}
 			sym[len] = '\0';
 			lwsl_debug("symlink %s -> %s\n", path, sym);
@@ -594,7 +594,10 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 
 			lws_vfs_file_close(&wsi->http.fop_fd);
 
-			return lws_http_transaction_completed(wsi);
+			if (lws_http_transaction_completed(wsi))
+				return -1;
+
+			return 0;
 		}
 	}
 
@@ -643,7 +646,7 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 						       wsi->vhost, m->protocol);
 
 		if (lws_bind_protocol(wsi, pp))
-			return 1;
+			return -1;
 		args.p = (char *)p;
 		args.max_len = lws_ptr_diff(end, p);
 		if (pp->callback(wsi, LWS_CALLBACK_ADD_HEADERS,
@@ -662,6 +665,10 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 bail:
 
 	return -1;
+
+notfound:
+
+	return 1;
 }
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
@@ -862,7 +869,7 @@ lws_http_action(struct lws *wsi)
 	char http_conn_str[20];
 	int http_version_len;
 	char *uri_ptr = NULL, *s;
-	int uri_len = 0, meth;
+	int uri_len = 0, meth, m;
 	static const char * const oprot[] = {
 		"http://", "https://"
 	};
@@ -1004,7 +1011,7 @@ lws_http_action(struct lws *wsi)
 
 		lwsi_set_state(wsi, LRS_DOING_TRANSACTION);
 
-		n = wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP,
+		m = wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP,
 				    wsi->user_space, uri_ptr, uri_len);
 
 		goto after;
@@ -1245,7 +1252,7 @@ lws_http_action(struct lws *wsi)
 			return 1;
 
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI)) {
-			n = wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP,
+			m = wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP,
 					    wsi->user_space,
 					    uri_ptr + hit->mountpoint_len,
 					    uri_len - hit->mountpoint_len);
@@ -1290,10 +1297,11 @@ lws_http_action(struct lws *wsi)
 	wsi->cache_revalidate = hit->cache_revalidate;
 	wsi->cache_intermediaries = hit->cache_intermediaries;
 
-	n = 1;
+	m = 1;
 	if (hit->origin_protocol == LWSMPRO_FILE)
-		n = lws_http_serve(wsi, s, hit->origin, hit);
-	if (n) {
+		m = lws_http_serve(wsi, s, hit->origin, hit);
+
+	if (m > 0) {
 		/*
 		 * lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, NULL);
 		 */
@@ -1305,17 +1313,17 @@ lws_http_action(struct lws *wsi)
 			if (lws_bind_protocol(wsi, pp))
 				return 1;
 
-			n = pp->callback(wsi, LWS_CALLBACK_HTTP,
+			m = pp->callback(wsi, LWS_CALLBACK_HTTP,
 					 wsi->user_space,
 					 uri_ptr + hit->mountpoint_len,
 					 uri_len - hit->mountpoint_len);
 		} else
-			n = wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP,
+			m = wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP,
 				    wsi->user_space, uri_ptr, uri_len);
 	}
 
 after:
-	if (n) {
+	if (m) {
 		lwsl_info("LWS_CALLBACK_HTTP closing\n");
 
 		return 1;
