@@ -327,12 +327,17 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 				    const struct lws_context_creation_info *info,
 				    const char *cipher_list,
 				    const char *ca_filepath,
+				    const void *ca_mem,
+				    unsigned int ca_mem_len,
 				    const char *cert_filepath,
 				    const char *private_key_filepath)
 {
 	SSL_METHOD *method;
 	unsigned long error;
 	int n;
+	const unsigned char **ca_mem_ptr;
+	X509 *client_CA;
+	X509_STORE *x509_store;
 
 	/* basic openssl init already happened in context init */
 
@@ -379,14 +384,14 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 #endif
 
 	/* openssl init for cert verification (for client sockets) */
-	if (!ca_filepath) {
+	if (!ca_filepath && (!ca_mem || !ca_mem_len)) {
 		if (!SSL_CTX_load_verify_locations(
 			vh->tls.ssl_client_ctx, NULL, LWS_OPENSSL_CLIENT_CERTS))
 			lwsl_err("Unable to load SSL Client certs from %s "
 			    "(set by LWS_OPENSSL_CLIENT_CERTS) -- "
 			    "client ssl isn't going to work\n",
 			    LWS_OPENSSL_CLIENT_CERTS);
-	} else
+	} else if (ca_filepath) {
 		if (!SSL_CTX_load_verify_locations(
 			vh->tls.ssl_client_ctx, ca_filepath, NULL)) {
 			lwsl_err(
@@ -397,6 +402,23 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		}
 		else
 			lwsl_info("loaded ssl_ca_filepath\n");
+	} else {
+		ca_mem_ptr = (const unsigned char**)&ca_mem;
+		client_CA = d2i_X509(NULL, ca_mem_ptr, ca_mem_len);
+		x509_store = X509_STORE_new();
+		if (!client_CA || !X509_STORE_add_cert(x509_store, client_CA)) {
+			X509_STORE_free(x509_store);
+			lwsl_err("Unable to load SSL Client certs from ssl_ca_mem -- "
+			    "client ssl isn't going to work\n");
+			lws_ssl_elaborate_error();
+		} else {
+			/* it doesn't increment x509_store ref counter */
+			SSL_CTX_set_cert_store(vh->tls.ssl_client_ctx, x509_store);
+			lwsl_info("loaded ssl_ca_mem\n");
+		}
+		if (client_CA)
+			X509_free(client_CA);
+	}
 
 	/*
 	 * callback allowing user code to load extra verification certs

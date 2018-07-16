@@ -260,6 +260,8 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 				    const struct lws_context_creation_info *info,
 				    const char *cipher_list,
 				    const char *ca_filepath,
+				    const void *ca_mem,
+				    unsigned int ca_mem_len,
 				    const char *cert_filepath,
 				    const char *private_key_filepath);
 
