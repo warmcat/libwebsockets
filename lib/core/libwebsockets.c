@@ -2123,6 +2123,8 @@ lws_partial_buffered(struct lws *wsi)
 LWS_VISIBLE lws_fileofs_t
 lws_get_peer_write_allowance(struct lws *wsi)
 {
+	if (!wsi->role_ops->tx_credit)
+		return -1;
 	return wsi->role_ops->tx_credit(wsi);
 }
 
