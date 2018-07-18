@@ -1597,6 +1597,9 @@ void lws_free(void *p);
 #define lws_free_set_NULL(P)	do { lws_realloc(P, 0, "free"); (P) = NULL; } while(0)
 #endif
 
+char *
+lws_strdup(const char *s);
+
 int
 lws_plat_pipe_create(struct lws *wsi);
 int

@@ -162,7 +162,7 @@ create_new_conn:
 
 	if (!wsi->client_hostname_copy)
 		wsi->client_hostname_copy =
-			strdup(lws_hdr_simple_ptr(wsi,
+			lws_strdup(lws_hdr_simple_ptr(wsi,
 					_WSI_TOKEN_CLIENT_PEER_ADDRESS));
 
 	/*
@@ -846,7 +846,7 @@ html_parser_cb(const hubbub_token *token, void *pw)
 
 #endif
 
-static char *
+char *
 lws_strdup(const char *s)
 {
 	char *d = lws_malloc(strlen(s) + 1, "strdup");
