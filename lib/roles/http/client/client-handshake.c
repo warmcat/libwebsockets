@@ -162,7 +162,7 @@ create_new_conn:
 
 	if (!wsi->client_hostname_copy)
 		wsi->client_hostname_copy =
-			strdup(lws_hdr_simple_ptr(wsi,
+			lws_strdup(lws_hdr_simple_ptr(wsi,
 					_WSI_TOKEN_CLIENT_PEER_ADDRESS));
 
 	/*
