@@ -1471,7 +1471,7 @@ raw_transition:
 				context, wsi->vhost->listen_port,
 				lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST));
 
-			if (vhost)
+			if (vhost && wsi->vhost != vhost)
 				lws_vhost_bind_wsi(vhost, wsi);
 		} else
 			lwsl_info("no host\n");
