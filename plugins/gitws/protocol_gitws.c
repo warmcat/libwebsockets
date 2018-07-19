@@ -35,7 +35,9 @@ struct pss_gitws {
 
 struct vhd_gitws {
 	struct jg2_vhost *jg2_vhost;
-	const char *html, *vpath, *repo_base_dir, *acl_user;
+	struct lws_vhost *vhost;
+	const char *html, *vpath, *repo_base_dir, *acl_user, *avatar_url;
+	const struct lws_protocols *cache_protocol;
 };
 
 void refchange(void * user)
@@ -48,6 +50,50 @@ void refchange(void * user)
 		return;
 
 	lws_callback_on_writable(pss->wsi);
+}
+
+static const char *hex = "0123456789abcdef";
+
+static const char *
+md5_to_hex_cstr(char *md5_hex_33, const unsigned char *md5)
+{
+	int n;
+
+	if (!md5) {
+		*md5_hex_33++ = '?';
+		*md5_hex_33++ = '\0';
+		return md5_hex_33 - 2;
+	}
+	for (n = 0; n < 16; n++) {
+		*md5_hex_33++ = hex[((*md5) >> 4) & 0xf];
+		*md5_hex_33++ = hex[*(md5++) & 0xf];
+	}
+	*md5_hex_33 = '\0';
+
+	return md5_hex_33 - 32;
+}
+
+int avatar(void *avatar_arg, const unsigned char *md5)
+{
+	struct vhd_gitws *vhd = (struct vhd_gitws *)avatar_arg;
+	typedef int (*mention_t)(const struct lws_protocols *pcol, struct lws_vhost *vh, const char *path);
+	char md[256];
+
+	if (!vhd->cache_protocol)
+		vhd->cache_protocol = lws_vhost_name_to_protocol(
+					vhd->vhost, "lws-hproxy");
+
+	if (!vhd->cache_protocol)
+		return 0;
+
+	strcpy(md, "/avatar/");
+	md5_to_hex_cstr(md + strlen(md), md5);
+	strcat(md, "?s=128&d=retro");
+
+	((mention_t)(void *)vhd->cache_protocol->user)
+			(vhd->cache_protocol, vhd->vhost, md);
+
+	return 0;
 }
 
 static int
@@ -79,6 +125,8 @@ callback_gitws(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
 						 lws_get_protocol(wsi));
 
+		vhd->vhost = lws_get_vhost(wsi);
+
 		vhd->html = lws_pvo_search(
 				(const struct lws_protocol_vhost_options *)in,
 				"html-file")->value;
@@ -91,10 +139,16 @@ callback_gitws(struct lws *wsi, enum lws_callback_reasons reason,
 		vhd->acl_user = lws_pvo_search(
 				(const struct lws_protocol_vhost_options *)in,
 				"acl-user")->value;
+		vhd->avatar_url = lws_pvo_search(
+				(const struct lws_protocol_vhost_options *)in,
+				"avatar-url")->value;
 
 		memset(&config, 0, sizeof(config));
 		config.virtual_base_urlpath = vhd->vpath;
 		config.refchange = refchange;
+		config.avatar = avatar;
+		config.avatar_arg = vhd;
+		config.avatar_url = vhd->avatar_url;
 		config.repo_base_dir = vhd->repo_base_dir;
 		config.vhost_html_filepath = vhd->html;
 		config.acl_user = vhd->acl_user;
@@ -161,7 +215,7 @@ callback_gitws(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLOSED:
-		lwsl_err("%s: LWS_CALLBACK_CLOSED\n", __func__);
+		lwsl_debug("%s: LWS_CALLBACK_CLOSED\n", __func__);
 		jg2_ctx_destroy(pss->ctx);
 		break;
 
@@ -274,7 +328,7 @@ callback_gitws(struct lws *wsi, enum lws_callback_reasons reason,
 		return 0;
 
 	case LWS_CALLBACK_CLOSED_HTTP:
-		lwsl_err("%s: LWS_CALLBACK_CLOSED_HTTP\n", __func__);
+		lwsl_debug("%s: LWS_CALLBACK_CLOSED_HTTP\n", __func__);
 		jg2_ctx_destroy(pss->ctx);
 		return 0;
 
