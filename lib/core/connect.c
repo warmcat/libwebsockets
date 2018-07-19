@@ -87,17 +87,18 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	wsi->pending_timeout = NO_PENDING_TIMEOUT;
 	wsi->position_in_fds_table = LWS_NO_FDS_POS;
 	wsi->c_port = i->port;
-	wsi->vhost = i->vhost;
-	if (!wsi->vhost)
-		wsi->vhost = i->context->vhost_list;
+
+	wsi->vhost = NULL;
+	if (!i->vhost)
+		lws_vhost_bind_wsi(i->context->vhost_list, wsi);
+	else
+		lws_vhost_bind_wsi(i->vhost, wsi);
 
 	if (!wsi->vhost) {
 		lwsl_err("%s: No vhost in the context\n", __func__);
 
 		goto bail;
 	}
-
-	lws_vhost_bind_wsi(wsi->vhost, wsi);
 
 	wsi->protocol = &wsi->vhost->protocols[0];
 	wsi->client_pipeline = !!(i->ssl_connection & LCCSCF_PIPELINE);
