@@ -113,6 +113,8 @@ int lws_open(const char *__file, int __oflag, ...)
 void
 lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi)
 {
+	if (wsi->vhost == vh)
+		return;
 	wsi->vhost = vh;
 	vh->count_bound_wsi++;
 	lwsl_info("%s: vh %s: count_bound_wsi %d\n",
