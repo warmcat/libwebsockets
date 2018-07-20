@@ -914,9 +914,9 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		 * we seem to be good to go, give client last chance to check
 		 * headers and OK it
 		 */
-		if (wsi->protocol->callback(wsi,
+		if (wsi->protocol->callback(w,
 				LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH,
-					    wsi->user_space, NULL, 0)) {
+					    w->user_space, NULL, 0)) {
 
 			cce = "HS: disallowed by client filter";
 			goto bail2;
@@ -928,9 +928,9 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		wsi->rxflow_change_to = LWS_RXFLOW_ALLOW;
 
 		/* call him back to inform him he is up */
-		if (wsi->protocol->callback(wsi,
+		if (wsi->protocol->callback(w,
 					    LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP,
-					    wsi->user_space, NULL, 0)) {
+					    w->user_space, NULL, 0)) {
 			cce = "HS: disallowed at ESTABLISHED";
 			goto bail3;
 		}
@@ -968,9 +968,9 @@ bail2:
 		n = 0;
 		if (cce)
 			n = (int)strlen(cce);
-		wsi->protocol->callback(wsi,
+		wsi->protocol->callback(w,
 				LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
-				wsi->user_space, (void *)cce,
+				w->user_space, (void *)cce,
 				(unsigned int)n);
 	}
 	wsi->already_did_cce = 1;
