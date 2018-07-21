@@ -954,6 +954,15 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 
 		lwsl_info("%s: client connection up\n", __func__);
 
+		/*
+		 * Did we get a response from the server with an explicit
+		 * content-length of zero?  If so, this transaction is already
+		 * completed at the end of the header processing...
+		 */
+		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
+		    !wsi->http.rx_content_length)
+		        return !!lws_http_transaction_completed_client(wsi);
+
 		return 0;
 	}
 
