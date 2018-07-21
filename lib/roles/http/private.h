@@ -228,6 +228,7 @@ struct _lws_http_mode_related {
 	unsigned int perform_rewrite:1;
 #endif
 	unsigned int deferred_transaction_completed:1;
+	unsigned int content_length_explicitly_zero:1;
 };
 
 

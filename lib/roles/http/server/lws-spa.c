@@ -572,6 +572,9 @@ lws_spa_get_string(struct lws_spa *ludspa, int n)
 LWS_VISIBLE LWS_EXTERN int
 lws_spa_finalize(struct lws_spa *spa)
 {
+	if (!spa)
+		return 0;
+
 	if (spa->s) {
 		lws_urldecode_s_destroy(spa->s);
 		spa->s = NULL;
