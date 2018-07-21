@@ -52,6 +52,11 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 
 	switch (reason) {
 
+	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
+		lwsl_user("LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP: resp %u\n",
+				lws_http_client_http_response(wsi));
+		break;
+
 	/* because we are protocols[0] ... */
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		lwsl_err("CLIENT_CONNECTION_ERROR: %s\n",
