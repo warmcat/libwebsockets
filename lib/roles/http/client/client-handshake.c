@@ -177,6 +177,7 @@ create_new_conn:
 	    lws_dll_is_null(&wsi->dll_client_transaction_queue) &&
 	    lws_dll_is_null(&wsi->dll_active_client_conns)) {
 		lws_vhost_lock(wsi->vhost);
+		/* caution... we will have to unpick this on oom4 path */
 		lws_dll_lws_add_front(&wsi->dll_active_client_conns,
 				      &wsi->vhost->dll_active_client_conns);
 		lws_vhost_unlock(wsi->vhost);
@@ -581,6 +582,16 @@ oom4:
 	if (wsi->position_in_fds_table != LWS_NO_FDS_POS)
 		goto failed1;
 	lws_remove_from_timeout_list(wsi);
+	/*
+	 * We can't be an active client connection any more, if we thought
+	 * that was what we were going to be doing.  It should be if we are
+	 * failing by oom4 path, we are still called by
+	 * lws_client_connect_via_info() and will be returning NULL to that,
+	 * so nobody else should have had a chance to queue on us.
+	 */
+	lws_vhost_lock(wsi->vhost);
+	lws_dll_lws_remove(&wsi->dll_active_client_conns);
+	lws_vhost_unlock(wsi->vhost);
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	lws_header_table_detach(wsi, 0);
 #endif
