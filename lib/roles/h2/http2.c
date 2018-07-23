@@ -2073,7 +2073,7 @@ lws_h2_client_handshake(struct lws *wsi)
 
 	if (lws_add_http_header_by_token(wsi,
 				WSI_TOKEN_HTTP_COLON_SCHEME,
-				(unsigned char *)"http", 4,
+				(unsigned char *)"https", 4,
 				&p, end))
 		goto fail_length;
 

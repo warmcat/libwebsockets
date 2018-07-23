@@ -1838,6 +1838,11 @@ endif()
 
 endif()
 
+if (NOT WIN32 AND NOT LWS_WITHOUT_CLIENT AND NOT LWS_WITHOUT_SERVER AND (LWS_ROLE_H1 OR LWS_ROLE_H2))
+		create_plugin(protocol_hproxy ""
+			      "plugins/hproxy/protocol_hproxy.c" "" "")
+endif()
+
 		create_plugin(protocol_post_demo ""
 			      "plugins/protocol_post_demo.c" "" "")
 

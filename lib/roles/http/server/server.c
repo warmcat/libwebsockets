@@ -905,6 +905,7 @@ lws_http_action(struct lws *wsi)
 	/* HTTP header had a content length? */
 
 	wsi->http.rx_content_length = 0;
+	wsi->http.content_length_explicitly_zero = 0;
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI) ||
 		lws_hdr_total_length(wsi, WSI_TOKEN_PATCH_URI) ||
 		lws_hdr_total_length(wsi, WSI_TOKEN_PUT_URI))
@@ -915,6 +916,11 @@ lws_http_action(struct lws *wsi)
 			     sizeof(content_length_str) - 1,
 			     WSI_TOKEN_HTTP_CONTENT_LENGTH);
 		wsi->http.rx_content_length = atoll(content_length_str);
+		if (!wsi->http.rx_content_length) {
+			wsi->http.content_length_explicitly_zero = 1;
+			lwsl_notice("%s: explicit 0 content-length\n",
+				    __func__);
+		}
 	}
 
 	if (wsi->http2_substream) {
@@ -1345,6 +1351,34 @@ deal_body:
 		lwsl_debug("wsi->http.rx_content_length %lld %d %d\n",
 			   (long long)wsi->http.rx_content_length,
 			   wsi->upgraded_to_http2, wsi->http2_substream);
+
+		if (wsi->http.content_length_explicitly_zero &&
+		    lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI)) {
+
+			/*
+			 * POST with an explicit content-length of zero
+			 *
+			 * If we don't give the user code the empty HTTP_BODY
+			 * callback, he may become confused to hear the
+			 * HTTP_BODY_COMPLETION (due to, eg, instantiation of
+			 * lws_spa never happened).
+			 *
+			 * HTTP_BODY_COMPLETION is responsible for sending the
+			 * result status code and result body if any, and
+			 * do the transaction complete processing.
+			 */
+			if (wsi->protocol->callback(wsi,
+					LWS_CALLBACK_HTTP_BODY,
+					wsi->user_space, NULL, 0))
+				return 1;
+			if (wsi->protocol->callback(wsi,
+					LWS_CALLBACK_HTTP_BODY_COMPLETION,
+					wsi->user_space, NULL, 0))
+				return 1;
+
+			return 0;
+		}
+
 		if (wsi->http.rx_content_length > 0) {
 			struct lws_tokens ebuf;
 			int m;
