@@ -182,7 +182,7 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 			ret = -1;
 			goto bail;
 		}
-		sampled_tid = context->service_tid;
+		sampled_tid = pt->service_tid;
 		if (sampled_tid && wsi->vhost) {
 			tid = wsi->vhost->protocols[0].callback(wsi,
 				     LWS_CALLBACK_GET_THREAD_ID, NULL, NULL, 0);
@@ -335,6 +335,7 @@ __remove_wsi_socket_from_fds(struct lws *wsi)
 		pt->fds[m] = pt->fds[pt->fds_count - 1];
 		/* this decrements pt->fds_count */
 		lws_plat_delete_socket_from_fds(context, wsi, m);
+		pt->count_conns--;
 		v = (int) pt->fds[m].fd;
 		/* end guy's "position in fds table" is now the deletion guy's old one */
 		end_wsi = wsi_from_fd(context, v);

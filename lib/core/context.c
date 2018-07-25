@@ -667,6 +667,11 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			    si->where, si->ret);
 		break;
 
+#if LWS_MAX_SMP > 1
+	case LWS_CALLBACK_GET_THREAD_ID:
+		return (int)(unsigned long long)pthread_self();
+#endif
+
 	default:
 		break;
 	}

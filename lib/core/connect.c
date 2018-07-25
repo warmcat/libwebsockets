@@ -45,6 +45,9 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	struct lws *wsi;
 	const struct lws_protocols *p;
 	const char *local = i->protocol;
+#if LWS_MAX_SMP > 1
+	int n, tid;
+#endif
 
 	if (i->context->requested_kill)
 		return NULL;
@@ -67,27 +70,6 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	wsi->context = i->context;
 	wsi->desc.sockfd = LWS_SOCK_INVALID;
 
-	/*
-	 * PHASE 2: Choose an initial role for the wsi and do role-specific init
-	 *
-	 * Note the initial role may not reflect the final role, eg,
-	 * we may want ws, but first we have to go through h1 to get that
-	 */
-
-	lws_role_call_client_bind(wsi, i);
-
-	/*
-	 * PHASE 3: fill up the wsi with stuff from the connect_info as far as
-	 * it can go.  It's uncertain because not only is our connection
-	 * going to complete asynchronously, we might have bound to h1 and not
-	 * even be able to get ahold of an ah immediately.
-	 */
-
-	wsi->user_space = NULL;
-	wsi->pending_timeout = NO_PENDING_TIMEOUT;
-	wsi->position_in_fds_table = LWS_NO_FDS_POS;
-	wsi->c_port = i->port;
-
 	wsi->vhost = NULL;
 	if (!i->vhost)
 		lws_vhost_bind_wsi(i->context->vhost_list, wsi);
@@ -100,6 +82,54 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 		goto bail;
 	}
 
+	/*
+	 * PHASE 2: if SMP, bind the client to whatever tsi the current thread
+	 * represents
+	 */
+
+#if LWS_MAX_SMP > 1
+	tid = wsi->vhost->protocols[0].callback(wsi,
+				     LWS_CALLBACK_GET_THREAD_ID, NULL, NULL, 0);
+
+	lws_context_lock(i->context, "client find tsi");
+
+	for (n = 0; n < i->context->count_threads; n++)
+		if (i->context->pt[n].service_tid == tid) {
+			lwsl_info("%s: client binds to caller tsi %d\n",
+				  __func__, n);
+			wsi->tsi = n;
+			break;
+		}
+
+	/*
+	 * this binding is sort of provisional, since when we try to insert
+	 * into the pt fds, there may be no space and it will fail
+	 */
+
+	lws_context_unlock(i->context);
+#endif
+
+	/*
+	 * PHASE 3: Choose an initial role for the wsi and do role-specific init
+	 *
+	 * Note the initial role may not reflect the final role, eg,
+	 * we may want ws, but first we have to go through h1 to get that
+	 */
+
+	lws_role_call_client_bind(wsi, i);
+
+	/*
+	 * PHASE 4: fill up the wsi with stuff from the connect_info as far as
+	 * it can go.  It's uncertain because not only is our connection
+	 * going to complete asynchronously, we might have bound to h1 and not
+	 * even be able to get ahold of an ah immediately.
+	 */
+
+	wsi->user_space = NULL;
+	wsi->pending_timeout = NO_PENDING_TIMEOUT;
+	wsi->position_in_fds_table = LWS_NO_FDS_POS;
+	wsi->c_port = i->port;
+
 	wsi->protocol = &wsi->vhost->protocols[0];
 	wsi->client_pipeline = !!(i->ssl_connection & LCCSCF_PIPELINE);
 
@@ -111,7 +141,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	}
 
 	/*
-	 * PHASE 4: handle external user_space now, generic alloc is done in
+	 * PHASE 5: handle external user_space now, generic alloc is done in
 	 * role finalization
 	 */
 
@@ -130,7 +160,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 #endif
 
 	/*
-	 * PHASE 5: stash the things from connect_info that we can't process
+	 * PHASE 6: stash the things from connect_info that we can't process
 	 * right now, eg, if http binding, without an ah.  If h1 and no ah, we
 	 * will go on the ah waiting list and process those things later (after
 	 * the connect_info and maybe the things pointed to have gone out of
@@ -180,7 +210,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	}
 
 	/*
-	 * PHASE 6: Do any role-specific finalization processing.  We can still
+	 * PHASE 7: Do any role-specific finalization processing.  We can still
 	 * see important info things via wsi->stash
 	 */
 
