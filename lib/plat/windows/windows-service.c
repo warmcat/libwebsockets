@@ -42,17 +42,16 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 
 	pt = &context->pt[tsi];
 
-	if (!context->service_tid_detected) {
+	if (!pt->service_tid_detected) {
 		struct lws _lws;
 
 		memset(&_lws, 0, sizeof(_lws));
 		_lws.context = context;
 
-		context->service_tid_detected = context->vhost_list->
+		pt->service_tid = context->vhost_list->
 			protocols[0].callback(&_lws, LWS_CALLBACK_GET_THREAD_ID,
 						  NULL, NULL, 0);
-		context->service_tid = context->service_tid_detected;
-		context->service_tid_detected = 1;
+		pt->service_tid_detected = 1;
 	}
 
 	if (timeout_ms < 0) {
@@ -172,8 +171,6 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 			}
 		}
 	}
-
-	context->service_tid = 0;
 
 	if (ev == WSA_WAIT_TIMEOUT)
 		lws_service_fd(context, NULL);

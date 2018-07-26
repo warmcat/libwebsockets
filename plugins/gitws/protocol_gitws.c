@@ -110,7 +110,8 @@ callback_gitws(struct lws *wsi, enum lws_callback_reasons reason,
 	const char *mimetype;
 	unsigned long length;
 	struct jg2_vhost_config config;
-	int n, m;
+	size_t used;
+	int n;
 
 	switch (reason) {
 
@@ -337,14 +338,12 @@ callback_gitws(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 
 		n = LWS_WRITE_HTTP;
-		if (jg2_ctx_fill(pss->ctx, buf + LWS_PRE, sizeof(buf) - LWS_PRE))
+		if (jg2_ctx_fill(pss->ctx, buf + LWS_PRE,
+				 sizeof(buf) - LWS_PRE, &used))
 			n = LWS_WRITE_HTTP_FINAL;
 
-		m = jg2_ctx_buf_used(pss->ctx);
-		if (!m)
-			break;
-
-		if (lws_write(wsi, (unsigned char *)buf + LWS_PRE, m, n) != m) {
+		if (lws_write(wsi, (unsigned char *)buf + LWS_PRE, used,
+			      n) != (int)used) {
 			lwsl_err("lws_write failed\n");
 
 			return 1;

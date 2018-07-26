@@ -394,6 +394,15 @@ struct lws_context_per_thread {
 	unsigned long count_conns;
 	unsigned int fds_count;
 
+	/*
+	 * set to the Thread ID that's doing the service loop just before entry
+	 * to poll indicates service thread likely idling in poll()
+	 * volatile because other threads may check it as part of processing
+	 * for pollfd event change.
+	 */
+	volatile int service_tid;
+	int service_tid_detected;
+
 	volatile unsigned char inside_poll;
 	volatile unsigned char foreign_spinlock;
 
@@ -691,14 +700,6 @@ struct lws_context {
 	unsigned int doing_protocol_init:1;
 	unsigned int done_protocol_destroy_cb:1;
 	unsigned int finalize_destroy_after_internal_loops_stopped:1;
-	/*
-	 * set to the Thread ID that's doing the service loop just before entry
-	 * to poll indicates service thread likely idling in poll()
-	 * volatile because other threads may check it as part of processing
-	 * for pollfd event change.
-	 */
-	volatile int service_tid;
-	int service_tid_detected;
 
 	short count_threads;
 	short plugin_protocol_count;

@@ -3491,6 +3491,12 @@ struct lws_client_connect_info {
 	 *   non-NULL: this protocol name is used to bind the connection to
 	 *             the local protocol handler.  .protocol is used for the
 	 *             list of remote ws protocols we could accept */
+	const char *alpn;
+	/**< NULL: allow lws default ALPN list, from vhost if present or from
+	 *       list of roles built into lws
+	 * non-NULL: require one from provided comma-separated list of alpn
+	 *           tokens
+	 */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
@@ -3498,12 +3504,6 @@ struct lws_client_connect_info {
 	 * The below is to ensure later library versions with new
 	 * members added above will see 0 (default) even if the app
 	 * was not built against the newer headers.
-	 */
-	const char *alpn;
-	/* NULL: allow lws default ALPN list, from vhost if present or from
-	 *       list of roles built into lws
-	 * non-NULL: require one from provided comma-separated list of alpn
-	 *           tokens
 	 */
 
 	void *_unused[4]; /**< dummy */

@@ -670,7 +670,7 @@ if (LWS_WITH_LIBUV)
 CHECK_INCLUDE_FILE(uv-version.h LWS_HAVE_UV_VERSION_H)
   # libuv changed the location in 1.21.0. Retain both
   # checks temporarily to ensure a smooth transition.
-  if(NOT LWS_HAVE_UV_VERSION_H)
+  if (NOT LWS_HAVE_UV_VERSION_H)
     CHECK_INCLUDE_FILE(uv/version.h LWS_HAVE_NEW_UV_VERSION_H)
   endif()
 endif()
