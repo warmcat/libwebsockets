@@ -244,7 +244,7 @@ callback_hproxy(struct lws *wsi, enum lws_callback_reasons reason,
 	struct vhd_hproxy *vhd = (struct vhd_hproxy *)
 			      lws_protocol_vh_priv_get(lws_get_vhost(wsi),
 						       lws_get_protocol(wsi));
-	struct req *req;
+	struct req *req = NULL;
 
 	switch (reason) {
 
@@ -289,15 +289,16 @@ callback_hproxy(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_err("CLIENT_CONNECTION_ERROR: %s\n",
 				in ? (char *)in : "(null)");
 		req = (struct req *)user;
-		lws_dll_remove(&req->next);
-		free(req);
-		return 0;
+		unlink(req->filepath);
+		goto do_close;
 
 	/* chunks of chunked content, with header removed */
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
 		lwsl_user("RECEIVE_CLIENT_HTTP_READ: read %d\n", (int)len);
 		req = (struct req *)user;
-		write(req->fd, in, len);
+		if (write(req->fd, in, len) != (ssize_t)len)
+			goto nope;
+
 		return 0; /* don't passthru */
 
 	/* uninterpreted http content */
@@ -308,7 +309,7 @@ callback_hproxy(struct lws *wsi, enum lws_callback_reasons reason,
 			int lenx = sizeof(buffer) - LWS_PRE;
 
 			if (lws_http_client_read(wsi, &px, &lenx) < 0)
-				return -1;
+				goto nope;
 		}
 		return 0; /* don't passthru */
 
@@ -319,16 +320,31 @@ callback_hproxy(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
 		lwsl_user("LWS_CALLBACK_CLOSED_CLIENT_HTTP %p\n", wsi);
 		req = (struct req *)user;
-		close(req->fd);
-		lws_dll_remove(&req->next);
-		free(req);
-		return 0;
+		goto do_close;
 
 	default:
 		break;
 	}
 
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
+
+nope:
+	if (req) {
+		unlink(req->filepath);
+		close(req->fd);
+
+		req->fd = -1;
+	}
+
+	return -1;
+
+do_close:
+	if (req->fd != -1)
+		close(req->fd);
+	lws_dll_remove(&req->next);
+	free(req);
+
+	return 0;
 }
 
 static const struct lws_protocols protocols[] = {
