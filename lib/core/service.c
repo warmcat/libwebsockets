@@ -543,13 +543,14 @@ lws_service_periodic_checks(struct lws_context *context,
 			    struct lws_pollfd *pollfd, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
+	struct lws_timed_vh_protocol *tmr;
 	lws_sockfd_type our_fd = 0, tmp_fd;
 	struct lws *wsi;
 	int timed_out = 0;
 	time_t now;
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	struct allocated_headers *ah;
-	int m;
+	int n, m;
 #endif
 
 	if (!context->protocol_init_done)
@@ -744,30 +745,115 @@ lws_service_periodic_checks(struct lws_context *context,
 	 * Phase 3: vhost / protocol timer callbacks
 	 */
 
-	wsi = NULL;
+	/* 3a: lock, collect, and remove vh timers that are pending */
+
+	lws_context_lock(context, "expired vh timers"); /* context ---------- */
+
+	n = 0;
+
+	/*
+	 * first, under the context lock, get a count of the number of
+	 * expired timers so we can allocate for them (or not, cleanly)
+	 */
+
 	lws_start_foreach_ll(struct lws_vhost *, v, context->vhost_list) {
-		struct lws_timed_vh_protocol *nx;
+
 		if (v->timed_vh_protocol_list) {
-			lws_start_foreach_ll(struct lws_timed_vh_protocol *,
-					q, v->timed_vh_protocol_list) {
-				if (now >= q->time) {
-					if (!wsi)
-						wsi = lws_zalloc(sizeof(*wsi), "cbwsi");
-					wsi->context = context;
-					wsi->vhost = v; /* not a real bound wsi */
-					wsi->protocol = q->protocol;
-					lwsl_debug("timed cb: vh %s, protocol %s, reason %d\n", v->name, q->protocol->name, q->reason);
-					q->protocol->callback(wsi, q->reason, NULL, NULL, 0);
-					nx = q->next;
-					lws_timed_callback_remove(v, q);
-					q = nx;
-					continue; /* we pointed ourselves to the next from the now-deleted guy */
-				}
-			} lws_end_foreach_ll(q, next);
+
+			lws_start_foreach_ll_safe(struct lws_timed_vh_protocol *,
+					q, v->timed_vh_protocol_list, next) {
+				if (now >= q->time)
+					n++;
+			} lws_end_foreach_ll_safe(q);
 		}
+
 	} lws_end_foreach_ll(v, vhost_next);
-	if (wsi)
+
+	/* if nothing to do, unlock and move on to the next vhost */
+
+	if (!n) {
+		lws_context_unlock(context); /* ----------- context */
+		goto vh_timers_done;
+	}
+
+	/*
+	 * attempt to do the wsi and timer info allocation
+	 * first en bloc.  If it fails, we can just skip the rest and
+	 * the timers will still be pending next time.
+	 */
+
+	wsi = lws_zalloc(sizeof(*wsi), "cbwsi");
+	if (!wsi) {
+		/*
+		 * at this point, we haven't cleared any vhost
+		 * timers.  We can fail out and retry cleanly
+		 * next periodic check
+		 */
+		lws_context_unlock(context); /* ----------- context */
+		goto vh_timers_done;
+	}
+	wsi->context = context;
+
+	tmr = lws_zalloc(sizeof(*tmr) * n, "cbtmr");
+	if (!tmr) {
+		/* again OOM here can be handled cleanly */
 		lws_free(wsi);
+		lws_context_unlock(context); /* ----------- context */
+		goto vh_timers_done;
+	}
+
+	/* so we have the allocation for n pending timers... */
+
+	m = 0;
+	lws_start_foreach_ll(struct lws_vhost *, v, context->vhost_list) {
+
+		if (v->timed_vh_protocol_list) {
+
+			lws_start_foreach_ll_safe(struct lws_timed_vh_protocol *,
+					q, v->timed_vh_protocol_list, next) {
+
+				/* only do n */
+				if (m == n)
+					break;
+
+				if (now >= q->time) {
+
+					/*
+					 * tmr is an allocated array.
+					 * Ignore the linked-list.
+					 */
+					tmr[m].vhost = v;
+					tmr[m].protocol = q->protocol;
+					tmr[m++].reason = q->reason;
+
+					/* take the timer out now we took
+					 * responsibility */
+					lws_timed_callback_remove(v, q);
+				}
+
+			} lws_end_foreach_ll_safe(q);
+		}
+
+	} lws_end_foreach_ll(v, vhost_next);
+	lws_context_unlock(context); /* ---------------------------- context */
+
+	/* 3b: call the vh timer callbacks outside any lock */
+
+	for (m = 0; m < n; m++) {
+
+		wsi->vhost = tmr[m].vhost; /* not a real bound wsi */
+		wsi->protocol = tmr[m].protocol;
+
+		lwsl_debug("%s: timed cb: vh %s, protocol %s, reason %d\n",
+			   __func__, tmr[m].vhost->name, tmr[m].protocol->name,
+			   tmr[m].reason);
+		tmr[m].protocol->callback(wsi, tmr[m].reason, NULL, NULL, 0);
+	}
+
+	lws_free(tmr);
+	lws_free(wsi);
+
+vh_timers_done:
 
 	/*
 	 * Phase 4: check for unconfigured vhosts due to required

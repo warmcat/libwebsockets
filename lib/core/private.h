@@ -425,6 +425,7 @@ lws_sum_stats(const struct lws_context *ctx, struct lws_conn_stats *cs);
 struct lws_timed_vh_protocol {
 	struct lws_timed_vh_protocol *next;
 	const struct lws_protocols *protocol;
+	struct lws_vhost *vhost; /* only used for pending processing */
 	time_t time;
 	int reason;
 };
