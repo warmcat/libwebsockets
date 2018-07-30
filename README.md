@@ -1,8 +1,6 @@
-[![Travis Build Status](https://travis-ci.org/warmcat/libwebsockets.svg)](https://travis-ci.org/warmcat/libwebsockets)
-[![Appveyor Build status](https://ci.appveyor.com/api/projects/status/qfasji8mnfnd2r8t?svg=true)](https://ci.appveyor.com/project/lws-team/libwebsockets)
-[![Coverity Scan Build Status](https://scan.coverity.com/projects/3576/badge.svg)](https://scan.coverity.com/projects/3576)
+[![Travis Build Status](https://travis-ci.org/warmcat/libwebsockets.svg)](https://travis-ci.org/warmcat/libwebsockets) [![Appveyor Build status](https://ci.appveyor.com/api/projects/status/qfasji8mnfnd2r8t?svg=true)](https://ci.appveyor.com/project/lws-team/libwebsockets) [![Coverity Scan Build Status](https://scan.coverity.com/projects/3576/badge.svg)](https://scan.coverity.com/projects/3576)
 
-![lws-overview](./doc-assets/lws-overview.png)
+![overview](./doc-assets/lws-overview.svg)
 
 News
 ----
@@ -58,14 +56,17 @@ but the other browsers will catch up soon.
 
 https://libwebsockets.org/git/libwebsockets/tree/minimal-examples
 
-These are like the test apps, but focus on doing one thing, the best way, with the minimum amount of code.  For example the minimal-http-server serves the cwd on http/1 or http/2 in 50 LOC.  Same thing with tls is just three more lines.
+These are like the test apps, but focus on doing one thing, the best way, with the
+minimum amount of code.  For example the minimal-http-server serves the cwd on
+http/1 or http/2 in 50 LOC.  Same thing with tls is just three more lines.
 
 They build standalone, so it's easier to copy them directly to start your own project; they
 are CC0 licensed (public domain) to facilitate that.
 
 ## Windows binary builds
 
-32- and 64-bit Windows binary builds are available via Appveyor.  Visit [lws on Appveyor](https://ci.appveyor.com/project/lws-team/libwebsockets),
+32- and 64-bit Windows binary builds are available via Appveyor.  Visit
+[lws on Appveyor](https://ci.appveyor.com/project/lws-team/libwebsockets),
 click on a build, the ARTIFACTS, and unzip the zip file at `C:\Program Files (x86)/libwebsockets`.
 
 ## ESP32 is supported
