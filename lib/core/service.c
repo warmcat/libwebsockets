@@ -553,8 +553,10 @@ lws_service_periodic_checks(struct lws_context *context,
 #endif
 
 	if (!context->protocol_init_done)
-		if (lws_protocol_init(context))
+		if (lws_protocol_init(context)) {
+			lwsl_err("%s: lws_protocol_init failed\n", __func__);
 			return -1;
+		}
 
 	time(&now);
 
@@ -805,7 +807,7 @@ lws_service_periodic_checks(struct lws_context *context,
 	    context->tls_ops->periodic_housekeeping)
 		context->tls_ops->periodic_housekeeping(context, now);
 
-	return timed_out;
+	return 0;
 }
 
 LWS_VISIBLE int
@@ -820,7 +822,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 
 	/* the socket we came to service timed out, nothing to do */
 	if (lws_service_periodic_checks(context, pollfd, tsi) || !pollfd)
-		return 0;
+		return -2;
 
 	/* no, here to service a socket descriptor */
 	wsi = wsi_from_fd(context, pollfd->fd);

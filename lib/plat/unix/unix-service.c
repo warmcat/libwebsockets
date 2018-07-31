@@ -166,8 +166,11 @@ faked_service:
 		c--;
 
 		m = lws_service_fd_tsi(context, &pt->fds[n], tsi);
-		if (m < 0)
+		if (m < 0) {
+			lwsl_err("%s: lws_service_fd_tsi returned %d\n",
+				 __func__, m);
 			return -1;
+		}
 		/* if something closed, retry this slot */
 		if (m)
 			n--;
