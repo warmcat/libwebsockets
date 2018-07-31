@@ -422,6 +422,14 @@ struct lws_conn_stats {
 void
 lws_sum_stats(const struct lws_context *ctx, struct lws_conn_stats *cs);
 
+struct lws_timed_vh_protocol_execute {
+	struct lws_timed_vh_protocol_execute *next;
+	struct lws_context *context;
+	const struct lws_protocols *protocol;
+	struct lws_vhost *vhost;
+	int reason;
+};
+
 struct lws_timed_vh_protocol {
 	struct lws_timed_vh_protocol *next;
 	const struct lws_protocols *protocol;

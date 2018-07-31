@@ -743,27 +743,49 @@ lws_service_periodic_checks(struct lws_context *context,
 	 */
 
 	wsi = NULL;
+	struct lws_timed_vh_protocol_execute* timers = NULL;
+
+	lws_context_lock(context, "expired timers");
 	lws_start_foreach_ll(struct lws_vhost *, v, context->vhost_list) {
-		struct lws_timed_vh_protocol *nx;
 		if (v->timed_vh_protocol_list) {
-			lws_start_foreach_ll(struct lws_timed_vh_protocol *,
-					q, v->timed_vh_protocol_list) {
+			lws_start_foreach_ll_safe(struct lws_timed_vh_protocol *,
+					q, v->timed_vh_protocol_list, next) {
 				if (now >= q->time) {
-					if (!wsi)
-						wsi = lws_zalloc(sizeof(*wsi), "cbwsi");
-					wsi->context = context;
-					wsi->vhost = v; /* not a real bound wsi */
-					wsi->protocol = q->protocol;
-					lwsl_debug("timed cb: vh %s, protocol %s, reason %d\n", v->name, q->protocol->name, q->reason);
-					q->protocol->callback(wsi, q->reason, NULL, NULL, 0);
-					nx = q->next;
+					struct lws_timed_vh_protocol_execute* tmr = lws_zalloc(sizeof(struct lws_timed_vh_protocol_execute), "cbtmr");
+					tmr->next = NULL;
+					tmr->context = context;
+					tmr->vhost = v; /* not a real bound wsi */
+					tmr->protocol = q->protocol;
+					tmr->reason = q->reason;
+
+					if (timers)
+						timers->next = tmr;
+					else
+						timers = tmr;
+
 					lws_timed_callback_remove(v, q);
-					q = nx;
-					continue; /* we pointed ourselves to the next from the now-deleted guy */
 				}
-			} lws_end_foreach_ll(q, next);
+			} lws_end_foreach_ll_safe(q);
 		}
 	} lws_end_foreach_ll(v, vhost_next);
+	lws_context_unlock(context);
+
+	assert(wsi == NULL);
+
+	/* execute expired timers outside of any lock for safety */
+	lws_start_foreach_ll_safe(struct lws_timed_vh_protocol_execute *, tmr, timers, next) {
+		if (!wsi)
+			wsi = lws_zalloc(sizeof(*wsi), "cbwsi");
+
+		wsi->context = tmr->context;
+		wsi->vhost = tmr->vhost; /* not a real bound wsi */
+		wsi->protocol = tmr->protocol;
+
+		lwsl_debug("timed cb: vh %s, protocol %s, reason %d\n", tmr->vhost->name, tmr->protocol->name, tmr->reason);
+		tmr->protocol->callback(wsi, tmr->reason, NULL, NULL, 0);
+
+		lws_free(tmr);
+	} lws_end_foreach_ll_safe(tmr);
 	if (wsi)
 		lws_free(wsi);
 
