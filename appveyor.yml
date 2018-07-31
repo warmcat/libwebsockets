@@ -35,10 +35,6 @@ install:
   - 7z x -oc:\assets\sqlite3 sqlite-dll-win32-x86-3130000.zip
   - SET PATH=C:\Program Files\NSIS\;C:\Program Files (x86)\NSIS\;c:\nsis;%PATH%
 
-build:
-  parallel: true
-  verbosity: minimal
-
 build_script:
   - md build
   - cd build
