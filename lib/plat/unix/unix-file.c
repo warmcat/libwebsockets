@@ -30,10 +30,12 @@
 #endif
 #include <dirent.h>
 
-void lws_plat_apply_FD_CLOEXEC(int n)
+int lws_plat_apply_FD_CLOEXEC(int n)
 {
-	if (n != -1)
-		fcntl(n, F_SETFD, FD_CLOEXEC );
+	if (n == -1)
+		return 0;
+
+	return fcntl(n, F_SETFD, FD_CLOEXEC);
 }
 
 int

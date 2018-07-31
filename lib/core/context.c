@@ -2059,14 +2059,17 @@ lws_context_destroy2(struct lws_context *context)
 
 	if (context->event_loop_ops->destroy_context2)
 		if (context->event_loop_ops->destroy_context2(context)) {
+			lws_context_unlock(context); /* } context ----------- */
 			context->finalize_destroy_after_internal_loops_stopped = 1;
 			return;
 		}
 
 	if (!context->pt[0].event_loop_foreign)
 		for (n = 0; n < context->count_threads; n++)
-			if (context->pt[n].inside_service)
+			if (context->pt[n].inside_service) {
+				lws_context_unlock(context); /* } context --- */
 				return;
+			}
 
 	lws_context_unlock(context); /* } context ------------------- */
 

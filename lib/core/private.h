@@ -1370,7 +1370,7 @@ lws_plat_pipe_close(struct lws *wsi);
 int
 lws_create_event_pipes(struct lws_context *context);
 
-void
+int
 lws_plat_apply_FD_CLOEXEC(int n);
 
 const struct lws_plat_file_ops *

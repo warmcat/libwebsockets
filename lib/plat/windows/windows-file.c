@@ -24,8 +24,9 @@
 #endif
 #include "core/private.h"
 
-void lws_plat_apply_FD_CLOEXEC(int n)
+int lws_plat_apply_FD_CLOEXEC(int n)
 {
+	return 0;
 }
 
 lws_fop_fd_t

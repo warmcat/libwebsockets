@@ -29,8 +29,9 @@
 #include <lwip/sockets.h>
 #include <esp_task_wdt.h>
 
-void lws_plat_apply_FD_CLOEXEC(int n)
+int lws_plat_apply_FD_CLOEXEC(int n)
 {
+	return 0;
 }
 
 

@@ -105,7 +105,11 @@ int lws_open(const char *__file, int __oflag, ...)
 		n = open(__file, __oflag);
 	va_end(ap);
 
-	lws_plat_apply_FD_CLOEXEC(n);
+	if (n != -1 && lws_plat_apply_FD_CLOEXEC(n)) {
+		close(n);
+
+		return -1;
+	}
 
 	return n;
 }
