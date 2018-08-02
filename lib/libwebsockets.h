@@ -5931,6 +5931,21 @@ LWS_VISIBLE LWS_EXTERN struct lws * LWS_WARN_UNUSED_RESULT
 lws_get_child(const struct lws *wsi);
 
 /**
+ * lws_get_effective_uid_gid() - find out eventual uid and gid while still root
+ *
+ * \param context: lws context
+ * \param uid: pointer to uid result
+ * \param gid: pointer to gid result
+ *
+ * This helper allows you to find out what the uid and gid for the process will
+ * be set to after the privileges are dropped, beforehand.  So while still root,
+ * eg in LWS_CALLBACK_PROTOCOL_INIT, you can arrange things like cache dir
+ * and subdir creation / permissions down /var/cache dynamically.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_get_effective_uid_gid(struct lws_context *context, int *uid, int *gid);
+
+/**
  * lws_get_udp() - get wsi's udp struct
  *
  * \param wsi: lws connection

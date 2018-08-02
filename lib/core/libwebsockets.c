@@ -2894,6 +2894,13 @@ lws_finalize_startup(struct lws_context *context)
 	return 0;
 }
 
+LWS_VISIBLE LWS_EXTERN void
+lws_get_effective_uid_gid(struct lws_context *context, int *uid, int *gid)
+{
+	*uid = context->uid;
+	*gid = context->gid;
+}
+
 int
 lws_snprintf(char *str, size_t size, const char *format, ...)
 {
