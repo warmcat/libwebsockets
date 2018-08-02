@@ -877,7 +877,7 @@ lws_create_vhost(struct lws_context *context,
 #endif
 
 #ifdef LWS_WITH_UNIX_SOCK
-	if (LWS_UNIX_SOCK_ENABLED(context)) {
+	if (LWS_UNIX_SOCK_ENABLED(vh)) {
 		lwsl_notice("Creating Vhost '%s' path \"%s\", %d protocols\n",
 				vh->name, vh->iface, vh->count_protocols);
 	} else
@@ -1424,16 +1424,17 @@ lws_create_context(const struct lws_context_creation_info *info)
 		return NULL;
 	}
 
-
 #if defined(LWS_WITH_PEER_LIMITS)
 	/* scale the peer hash table according to the max fds for the process,
 	 * so that the max list depth averages 16.  Eg, 1024 fd -> 64,
 	 * 102400 fd -> 6400
 	 */
+
 	context->pl_hash_elements =
 		(context->count_threads * context->fd_limit_per_thread) / 16;
 	context->pl_hash_table = lws_zalloc(sizeof(struct lws_peer *) *
 			context->pl_hash_elements, "peer limits hash table");
+
 	context->ip_limit_ah = info->ip_limit_ah;
 	context->ip_limit_wsi = info->ip_limit_wsi;
 #endif
@@ -1812,7 +1813,7 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 #endif
 
 #if defined(LWS_WITH_UNIX_SOCK)
-	if (LWS_UNIX_SOCK_ENABLED(context)) {
+	if (LWS_UNIX_SOCK_ENABLED(vh)) {
 		n = unlink(vh->iface);
 		if (n)
 			lwsl_info("Closing unix socket %s: errno %d\n",

@@ -2488,7 +2488,7 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 	struct sockaddr_storage sin;
 	struct sockaddr *v;
 
-#ifdef LWS_WITH_UNIX_SOCK
+#if defined(LWS_WITH_UNIX_SOCK)
 	if (LWS_UNIX_SOCK_ENABLED(vhost)) {
 		v = (struct sockaddr *)&serv_unix;
 		n = sizeof(struct sockaddr_un);
@@ -2504,6 +2504,8 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 		strcpy(serv_unix.sun_path, iface);
 		if (serv_unix.sun_path[0] == '@')
 			serv_unix.sun_path[0] = '\0';
+		else
+			unlink(serv_unix.sun_path);
 
 	} else
 #endif
@@ -2566,7 +2568,7 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 #ifdef LWS_WITH_UNIX_SOCK
 	if (n < 0 && LWS_UNIX_SOCK_ENABLED(vhost)) {
 		lwsl_err("ERROR on binding fd %d to \"%s\" (%d %d)\n",
-				sockfd, iface, n, LWS_ERRNO);
+			 sockfd, iface, n, LWS_ERRNO);
 		return -1;
 	} else
 #endif
@@ -2575,6 +2577,12 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 				sockfd, port, n, LWS_ERRNO);
 		return -1;
 	}
+
+#if defined(LWS_WITH_UNIX_SOCK)
+	if (LWS_UNIX_SOCK_ENABLED(vhost) && vhost->context->uid) {
+		chown(serv_unix.sun_path, vhost->context->uid, vhost->context->gid);
+	}
+#endif
 
 #ifndef LWS_PLAT_OPTEE
 	if (getsockname(sockfd, (struct sockaddr *)&sin, &len) == -1)

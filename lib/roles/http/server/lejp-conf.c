@@ -1,7 +1,7 @@
 /*
  * libwebsockets web server application
  *
- * Copyright (C) 2010-2017 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2018 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -442,8 +442,9 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		struct lws_vhost *vhost;
 
 		//lwsl_notice("%s\n", ctx->path);
-		if (!a->info->port) {
-			lwsl_err("Port required (eg, 443)");
+		if (!a->info->port &&
+		    !(a->info->options & LWS_SERVER_OPTION_UNIX_SOCK)) {
+			lwsl_err("Port required (eg, 443)\n");
 			return 1;
 		}
 		a->valid = 0;

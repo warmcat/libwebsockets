@@ -64,6 +64,9 @@ lws_get_or_create_peer(struct lws_vhost *vhost, lws_sockfd_type sockfd)
 	int n, af = AF_INET;
 	struct sockaddr_storage addr;
 
+	if (vhost->options & LWS_SERVER_OPTION_UNIX_SOCK)
+		return NULL;
+
 #ifdef LWS_WITH_IPV6
 	if (LWS_IPV6_ENABLED(vhost)) {
 		af = AF_INET6;
