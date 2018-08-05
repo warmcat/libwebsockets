@@ -65,6 +65,8 @@ cb(struct lejp_ctx *ctx, char reason)
 		lwsl_notice("%s (%s)\r\n", buf,
 		       reason_names[(unsigned int)
 			(reason) & (LEJP_FLAG_CB_IS_VALUE - 1)]);
+
+		(void)reason_names; /* NO_LOGS... */
 		return 0;
 	}
 
