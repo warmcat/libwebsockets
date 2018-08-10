@@ -3090,10 +3090,6 @@ typedef int (*lws_reload_func)(void);
  *	And it marks the context to be deleted when the number of active
  *	connections into it falls to zero.
  *
- *	Otherwise if you attach the deprecated context to the replacement
- *	context when it has been created using lws_context_attach_deprecated()
- *	both any deprecated and the new context will service their connections.
- *
  *	This is aimed at allowing seamless configuration reloads.
  *
  *	The callback cb will be called after the listen sockets are actually
