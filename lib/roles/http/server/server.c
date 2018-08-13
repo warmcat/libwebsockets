@@ -28,6 +28,8 @@ const char * const method_names[] = {
 #endif
 	};
 
+static const char * const intermediates[] = { "private", "public" };
+
 /*
  * return 0: all done
  *        1: nonfatal error
@@ -567,6 +569,9 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 		if (!strcmp(sym, lws_hdr_simple_ptr(wsi,
 					WSI_TOKEN_HTTP_IF_NONE_MATCH))) {
 
+			char cache_control[50], *cc = "no-store";
+			int cclen = 8;
+
 			lwsl_debug("%s: ETAG match %s %s\n", __func__,
 				   uri, origin);
 
@@ -578,6 +583,26 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 			if (lws_add_http_header_by_token(wsi,
 					WSI_TOKEN_HTTP_ETAG,
 					(unsigned char *)sym, n, &p, end))
+				return -1;
+
+			/* but we still need to send cache control... */
+
+			if (m && m->cache_max_age && m->cache_reusable) {
+				if (!m->cache_revalidate) {
+					cc = cache_control;
+					cclen = sprintf(cache_control, "%s, max-age=%u",
+						    intermediates[wsi->cache_intermediaries],
+						    m->cache_max_age);
+				} else {
+					cc = cache_control;
+                                        cclen = sprintf(cache_control, "must-revalidate, %s, max-age=%u",
+                                                    intermediates[wsi->cache_intermediaries],
+                                                    m->cache_max_age);
+				}
+			}
+
+			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CACHE_CONTROL,
+					(unsigned char *)cc, cclen, &p, end))
 				return -1;
 
 			if (lws_finalize_http_header(wsi, &p, end))
@@ -1815,7 +1840,6 @@ LWS_VISIBLE int
 lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 		    const char *other_headers, int other_headers_len)
 {
-	static const char * const intermediates[] = { "private", "public" };
 	struct lws_context *context = lws_get_context(wsi);
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 #if defined(LWS_WITH_RANGES)
@@ -1994,14 +2018,17 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 	}
 
 	if (wsi->cache_secs && wsi->cache_reuse) {
-		if (wsi->cache_revalidate) {
+		if (!wsi->cache_revalidate) {
 			cc = cache_control;
-			cclen = sprintf(cache_control, "%s max-age: %u",
+			cclen = sprintf(cache_control, "%s, max-age=%u",
 				    intermediates[wsi->cache_intermediaries],
 				    wsi->cache_secs);
 		} else {
-			cc = "no-cache";
-			cclen = 8;
+			cc = cache_control;
+			cclen = sprintf(cache_control, "must-revalidate, %s, max-age=%u",
+                                intermediates[wsi->cache_intermediaries],
+                                                    wsi->cache_secs);
+
 		}
 	}
 
