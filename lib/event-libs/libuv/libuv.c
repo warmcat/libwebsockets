@@ -442,6 +442,8 @@ lws_plat_plugins_destroy(struct lws_context *context)
 	void *v;
 	int m;
 
+//	return 0;
+
 #if  defined(__MINGW32__) || !defined(WIN32)
 	pofs = 3;
 #endif

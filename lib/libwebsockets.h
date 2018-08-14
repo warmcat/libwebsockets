@@ -4101,7 +4101,7 @@ LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_hdr_fragment_length(struct lws *wsi, enum lws_token_indexes h, int frag_idx);
 
 /**
- * lws_hdr_copy() - copy a single fragment of the given header to a buffer
+ * lws_hdr_copy() - copy all fragments of the given header to a buffer
  *		The buffer length len must include space for an additional
  *		terminating '\0', or it will fail returning -1.
  *
@@ -4111,7 +4111,8 @@ lws_hdr_fragment_length(struct lws *wsi, enum lws_token_indexes h, int frag_idx)
  * \param h: which header index we are interested in
  *
  * copies the whole, aggregated header, even if it was delivered in
- * several actual headers piece by piece
+ * several actual headers piece by piece.  Returns -1 or length of the whole
+ * header.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_hdr_copy(struct lws *wsi, char *dest, int len, enum lws_token_indexes h);

@@ -319,7 +319,7 @@ create_new_conn:
 			}
 #endif
 		} else {
-			lwsl_err("getaddrinfo failed\n");
+			lwsl_err("getaddrinfo failed: %d\n", n);
 			cce = "getaddrinfo failed";
 			goto oom4;
 		}

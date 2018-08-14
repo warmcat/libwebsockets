@@ -1320,7 +1320,7 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len);
 LWS_EXTERN int
 lws_access_log(struct lws *wsi);
 LWS_EXTERN void
-lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int meth);
+lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int len, int meth);
 #else
 #define lws_access_log(_a)
 #endif

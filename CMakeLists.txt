@@ -669,7 +669,7 @@ if (LWS_WITH_LIBUV)
 CHECK_INCLUDE_FILE(uv-version.h LWS_HAVE_UV_VERSION_H)
   # libuv changed the location in 1.21.0. Retain both
   # checks temporarily to ensure a smooth transition.
-  if(NOT LWS_HAVE_UV_VERSION_H)
+  if (NOT LWS_HAVE_UV_VERSION_H)
     CHECK_INCLUDE_FILE(uv/version.h LWS_HAVE_NEW_UV_VERSION_H)
   endif()
 endif()
@@ -1794,6 +1794,9 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2) AND NOT LWS_WITHOUT_TESTAPPS)
 			     PROPERTY COMPILE_DEFINITIONS
 			     INSTALL_DATADIR="${CMAKE_INSTALL_PREFIX}/plugins"
 		)
+
+		SET_TARGET_PROPERTIES(${PLUGIN_NAME}
+                               PROPERTIES COMPILE_FLAGS ${CMAKE_C_FLAGS})
 
 #		set_target_properties(${PLUGIN_NAME}
 #			PROPERTIES
