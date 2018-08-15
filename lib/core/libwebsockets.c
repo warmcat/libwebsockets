@@ -888,7 +888,9 @@ just_kill_connection:
 
 	/* tell the user it's all over for this guy */
 
-	if (lwsi_state_est_PRE_CLOSE(wsi) && !wsi->told_user_closed &&
+	if ((lwsi_state_est_PRE_CLOSE(wsi) ||
+	     lwsi_state_PRE_CLOSE(wsi) == LRS_WAITING_SERVER_REPLY) &&
+	    !wsi->told_user_closed &&
 	    wsi->role_ops->close_cb[lwsi_role_server(wsi)]) {
 		const struct lws_protocols *pro = wsi->protocol;
 

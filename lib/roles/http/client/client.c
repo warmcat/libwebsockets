@@ -549,11 +549,12 @@ lws_http_transaction_completed_client(struct lws *wsi)
 {
 	struct lws *wsi_eff = lws_client_wsi_effective(wsi);
 
-	lwsl_info("%s: wsi: %p, wsi_eff: %p\n", __func__, wsi, wsi_eff);
+	lwsl_info("%s: wsi: %p, wsi_eff: %p (%s)\n", __func__, wsi, wsi_eff,
+		    wsi_eff->protocol->name);
 
-	if (user_callback_handle_rxflow(wsi_eff->protocol->callback,
-			wsi_eff, LWS_CALLBACK_COMPLETED_CLIENT_HTTP,
-			wsi_eff->user_space, NULL, 0)) {
+	if (user_callback_handle_rxflow(wsi_eff->protocol->callback, wsi_eff,
+					LWS_CALLBACK_COMPLETED_CLIENT_HTTP,
+					wsi_eff->user_space, NULL, 0)) {
 		lwsl_debug("%s: Completed call returned nonzero (role 0x%x)\n",
 						__func__, lwsi_role(wsi_eff));
 		return -1;
