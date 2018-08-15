@@ -3019,6 +3019,21 @@ lws_pvo_search(const struct lws_protocol_vhost_options *pvo, const char *name)
 	return pvo;
 }
 
+int
+lws_pvo_get_str(void *in, const char *name, const char **result)
+{
+	const struct lws_protocol_vhost_options *pv =
+		lws_pvo_search((const struct lws_protocol_vhost_options *)in,
+				name);
+
+	if (!pv)
+		return 1;
+
+	*result = (const char *)pv->value;
+
+	return 0;
+}
+
 void
 lws_sum_stats(const struct lws_context *ctx, struct lws_conn_stats *cs)
 {

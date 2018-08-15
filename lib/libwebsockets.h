@@ -2456,6 +2456,18 @@ lws_finalize_startup(struct lws_context *context);
 LWS_VISIBLE LWS_EXTERN const struct lws_protocol_vhost_options *
 lws_pvo_search(const struct lws_protocol_vhost_options *pvo, const char *name);
 
+/**
+ * lws_pvo_get_str() - retreive a string pvo value
+ *
+ * \param pvo:	the first pvo in the linked-list
+ * \param name: the name of the pvo to return if found
+ * \param result: pointer to a const char * to get the result if any
+ *
+ * Returns 0 if found and *result set, or nonzero if not found
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_pvo_get_str(void *in, const char *name, const char **result);
+
 LWS_VISIBLE LWS_EXTERN int
 lws_protocol_init(struct lws_context *context);
 
