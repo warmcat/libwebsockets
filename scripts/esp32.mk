@@ -93,14 +93,14 @@ all: $(LWS_BUILD_PATH)/pack.img
 
 flash: $(LWS_BUILD_PATH)/pack.img
 
-flash_ota: $(LWS_BUILD_PATH)/pack.img
+lws_flash_ota: $(LWS_BUILD_PATH)/pack.img
 	$(IDF_PATH)/components/esptool_py/esptool/esptool.py \
 		--chip esp32 \
 		--port $(ESPPORT) \
 		--baud $(CONFIG_ESPTOOLPY_BAUD) \
 		write_flash 0x110000 $(LWS_BUILD_PATH)/$(PROJECT_NAME).bin
 
-erase_ota:
+lws_erase_ota:
 	$(IDF_PATH)/components/esptool_py/esptool/esptool.py \
 	        --chip esp32 \
 	        --port $(ESPPORT) \
