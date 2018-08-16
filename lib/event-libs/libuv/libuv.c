@@ -722,7 +722,7 @@ elops_destroy_pt_uv(struct lws_context *context, int tsi)
 	if (!pt->event_loop_foreign) {
 		uv_signal_stop(&pt->w_sigint.uv.watcher);
 
-		ns = ARRAY_SIZE(sigs);
+		ns = LWS_ARRAY_SIZE(sigs);
 		if (lws_check_opt(context->options,
 				  LWS_SERVER_OPTION_UV_NO_SIGSEGV_SIGFPE_SPIN))
 			ns = 2;
@@ -783,13 +783,13 @@ elops_init_pt_uv(struct lws_context *context, void *_loop, int tsi)
 		LWS_UV_REFCOUNT_STATIC_HANDLE_NEW(&pt->uv.idle, context);
 
 
-		ns = ARRAY_SIZE(sigs);
+		ns = LWS_ARRAY_SIZE(sigs);
 		if (lws_check_opt(context->options,
 				  LWS_SERVER_OPTION_UV_NO_SIGSEGV_SIGFPE_SPIN))
 			ns = 2;
 
 		if (!pt->event_loop_foreign) {
-			assert(ns <= (int)ARRAY_SIZE(pt->uv.signals));
+			assert(ns <= (int)LWS_ARRAY_SIZE(pt->uv.signals));
 			for (n = 0; n < ns; n++) {
 				uv_signal_init(loop, &pt->uv.signals[n]);
 				LWS_UV_REFCOUNT_STATIC_HANDLE_NEW(&pt->uv.signals[n],

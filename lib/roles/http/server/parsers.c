@@ -563,7 +563,7 @@ int LWS_WARN_UNUSED_RESULT
 lws_hdr_simple_create(struct lws *wsi, enum lws_token_indexes h, const char *s)
 {
 	wsi->http.ah->nfrag++;
-	if (wsi->http.ah->nfrag == ARRAY_SIZE(wsi->http.ah->frags)) {
+	if (wsi->http.ah->nfrag == LWS_ARRAY_SIZE(wsi->http.ah->frags)) {
 		lwsl_warn("More hdr frags than we can deal with, dropping\n");
 		return -1;
 	}
@@ -683,7 +683,7 @@ lws_parse_urldecode(struct lws *wsi, uint8_t *_c)
 			/* link to next fragment */
 			ah->frags[ah->nfrag].nfrag = ah->nfrag + 1;
 			ah->nfrag++;
-			if (ah->nfrag >= ARRAY_SIZE(ah->frags))
+			if (ah->nfrag >= LWS_ARRAY_SIZE(ah->frags))
 				goto excessive;
 			/* start next fragment after the & */
 			ah->post_literal_equal = 0;
@@ -786,7 +786,7 @@ lws_parse_urldecode(struct lws *wsi, uint8_t *_c)
 
 		/* move to using WSI_TOKEN_HTTP_URI_ARGS */
 		ah->nfrag++;
-		if (ah->nfrag >= ARRAY_SIZE(ah->frags))
+		if (ah->nfrag >= LWS_ARRAY_SIZE(ah->frags))
 			goto excessive;
 		ah->frags[ah->nfrag].offset = ++ah->pos;
 		ah->frags[ah->nfrag].len = 0;
@@ -851,10 +851,10 @@ lws_parse(struct lws *wsi, unsigned char *buf, int *len)
 			    c == ' ')
 				break;
 
-			for (m = 0; m < ARRAY_SIZE(methods); m++)
+			for (m = 0; m < LWS_ARRAY_SIZE(methods); m++)
 				if (ah->parser_state == methods[m])
 					break;
-			if (m == ARRAY_SIZE(methods))
+			if (m == LWS_ARRAY_SIZE(methods))
 				/* it was not any of the methods */
 				goto check_eol;
 
@@ -982,7 +982,7 @@ nope:
 			if (ah->lextable_pos < 0 && lwsi_role_h1(wsi) &&
 			    lwsi_role_server(wsi)) {
 				/* this is not a header we know about */
-				for (m = 0; m < ARRAY_SIZE(methods); m++)
+				for (m = 0; m < LWS_ARRAY_SIZE(methods); m++)
 					if (ah->frag_index[methods[m]]) {
 						/*
 						 * already had the method, no idea what
@@ -995,7 +995,7 @@ nope:
 				 * hm it's an unknown http method from a client in fact,
 				 * it cannot be valid http
 				 */
-				if (m == ARRAY_SIZE(methods)) {
+				if (m == LWS_ARRAY_SIZE(methods)) {
 					/*
 					 * are we set up to accept raw in these cases?
 					 */
@@ -1024,7 +1024,7 @@ nope:
 						lextable[ah->lextable_pos + 1];
 
 				lwsl_parser("known hdr %d\n", n);
-				for (m = 0; m < ARRAY_SIZE(methods); m++)
+				for (m = 0; m < LWS_ARRAY_SIZE(methods); m++)
 					if (n == methods[m] &&
 					    ah->frag_index[methods[m]]) {
 						lwsl_warn("Duplicated method\n");
@@ -1060,7 +1060,7 @@ nope:
 start_fragment:
 			ah->nfrag++;
 excessive:
-			if (ah->nfrag == ARRAY_SIZE(ah->frags)) {
+			if (ah->nfrag == LWS_ARRAY_SIZE(ah->frags)) {
 				lwsl_warn("More hdr frags than we can deal with\n");
 				return -1;
 			}

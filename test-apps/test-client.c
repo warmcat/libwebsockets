@@ -151,7 +151,7 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 			wsi_mirror = NULL;
 		}
 
-		for (n = 0; n < (int)ARRAY_SIZE(wsi_multi); n++)
+		for (n = 0; n < (int)LWS_ARRAY_SIZE(wsi_multi); n++)
 			if (wsi == wsi_multi[n]) {
 				sprintf(which_wsi, "multi %d", n);
 				which = which_wsi;
@@ -786,7 +786,7 @@ int main(int argc, char **argv)
 	while (!force_exit) {
 
 		if (do_multi) {
-			for (n = 0; n < (int)ARRAY_SIZE(wsi_multi); n++) {
+			for (n = 0; n < (int)LWS_ARRAY_SIZE(wsi_multi); n++) {
 				if (!wsi_multi[n] && ratelimit_connects(&rl_multi[n], 2u)) {
 					lwsl_notice("dumb %d: connecting\n", n);
 					i.protocol = protocols[PROTOCOL_DUMB_INCREMENT].name;

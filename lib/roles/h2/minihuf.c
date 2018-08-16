@@ -16,7 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define ARRAY_SIZE(n) (sizeof(n) / sizeof(n[0]))
+#define LWS_ARRAY_SIZE(n) (sizeof(n) / sizeof(n[0]))
 
 struct huf {
 	unsigned int code;
@@ -340,7 +340,7 @@ int main(void)
 	int fails = 0;
 
 	m = 0;
-	while (m < ARRAY_SIZE(state)) {
+	while (m < LWS_ARRAY_SIZE(state)) {
 		for (j = 0; j < PARALLEL; j++) {
 			state[m].state[j] = 0xffff;
 			state[m].terminal = 0;
@@ -348,7 +348,7 @@ int main(void)
 		m++;
 	}
 
-	while (n < ARRAY_SIZE(huf_literal)) {
+	while (n < LWS_ARRAY_SIZE(huf_literal)) {
 
 		m = 0;
 		walk = 0;
@@ -474,7 +474,7 @@ again:
 	 * Try to parse every legal input string
 	 */
 
-	for (n = 0; n < ARRAY_SIZE(huf_literal); n++) {
+	for (n = 0; n < LWS_ARRAY_SIZE(huf_literal); n++) {
 		walk = 0;
 		m = 0;
 		y = -1;

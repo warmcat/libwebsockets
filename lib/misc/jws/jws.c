@@ -273,7 +273,7 @@ lws_jws_confirm_sig(const char *in, size_t len, struct lws_jwk *jwk)
 
 	args.alg[0] = '\0';
 	args.is_rsa = 0;
-	lejp_construct(&jctx, cb_hdr, &args, jhdr_tok, ARRAY_SIZE(jhdr_tok));
+	lejp_construct(&jctx, cb_hdr, &args, jhdr_tok, LWS_ARRAY_SIZE(jhdr_tok));
 	m = (int)(signed char)lejp_parse(&jctx, (uint8_t *)buf, n);
 	lejp_destruct(&jctx);
 	if (m < 0) {

@@ -263,7 +263,7 @@ retry_as_first:
 			c =*in;
 			if (c >= 'A' && c <= 'Z')
 				c += 'a' - 'A';
-			for (n = 0; n < (int)ARRAY_SIZE(mp_hdr); n++)
+			for (n = 0; n < (int)LWS_ARRAY_SIZE(mp_hdr); n++)
 				if (c == mp_hdr[n][s->mp]) {
 					m++;
 					hit = n;

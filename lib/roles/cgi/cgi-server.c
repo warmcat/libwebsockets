@@ -228,7 +228,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 		};
 
 		if (script_uri_path_len >= 0)
-			for (m = 0; m < (int)ARRAY_SIZE(meths); m++)
+			for (m = 0; m < (int)LWS_ARRAY_SIZE(meths); m++)
 				if (lws_hdr_total_length(wsi, meths[m]) >=
 						script_uri_path_len) {
 					uritok = meths[m];

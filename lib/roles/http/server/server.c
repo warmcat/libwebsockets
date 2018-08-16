@@ -855,7 +855,7 @@ lws_http_get_uri_and_method(struct lws *wsi, char **puri_ptr, int *puri_len)
 {
 	int n, count = 0;
 
-	for (n = 0; n < (int)ARRAY_SIZE(methods); n++)
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(methods); n++)
 		if (lws_hdr_total_length(wsi, methods[n]))
 			count++;
 	if (!count) {
@@ -870,7 +870,7 @@ lws_http_get_uri_and_method(struct lws *wsi, char **puri_ptr, int *puri_len)
 		return -1;
 	}
 
-	for (n = 0; n < (int)ARRAY_SIZE(methods); n++)
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(methods); n++)
 		if (lws_hdr_total_length(wsi, methods[n])) {
 			*puri_ptr = lws_hdr_simple_ptr(wsi, methods[n]);
 			*puri_len = lws_hdr_total_length(wsi, methods[n]);
@@ -900,7 +900,7 @@ lws_http_action(struct lws *wsi)
 	};
 
 	meth = lws_http_get_uri_and_method(wsi, &uri_ptr, &uri_len);
-	if (meth < 0 || meth >= (int)ARRAY_SIZE(method_names))
+	if (meth < 0 || meth >= (int)LWS_ARRAY_SIZE(method_names))
 		goto bail_nuke_ah;
 
 	/* we insist on absolute paths */

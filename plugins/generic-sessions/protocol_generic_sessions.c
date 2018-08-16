@@ -553,7 +553,7 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 			a.wsi = wsi;
 
 			pss->phs.vars = vars;
-			pss->phs.count_vars = ARRAY_SIZE(vars);
+			pss->phs.count_vars = LWS_ARRAY_SIZE(vars);
 			pss->phs.replace = lwsgs_subst;
 			pss->phs.data = &a;
 
@@ -568,7 +568,7 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if (!pss->spa) {
 			pss->spa = lws_spa_create(wsi, param_names,
-						ARRAY_SIZE(param_names), 1024,
+					LWS_ARRAY_SIZE(param_names), 1024,
 						NULL, NULL);
 			if (!pss->spa)
 				return -1;
@@ -901,7 +901,7 @@ init_protocol_generic_sessions(struct lws_context *context,
 	}
 
 	c->protocols = protocols;
-	c->count_protocols = ARRAY_SIZE(protocols);
+	c->count_protocols = LWS_ARRAY_SIZE(protocols);
 	c->extensions = NULL;
 	c->count_extensions = 0;
 

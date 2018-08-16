@@ -2588,7 +2588,7 @@ init_protocol_lws_ssh_base(struct lws_context *context,
 	}
 
 	c->protocols = protocols_sshd;
-	c->count_protocols = ARRAY_SIZE(protocols_sshd);
+	c->count_protocols = LWS_ARRAY_SIZE(protocols_sshd);
 	c->extensions = NULL;
 	c->count_extensions = 0;
 

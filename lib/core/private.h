@@ -136,6 +136,20 @@
 
 #include "tls/private.h"
 
+#if defined(WIN32) || defined(_WIN32)
+	 // Visual studio older than 2015 and WIN_CE has only _stricmp
+	#if (defined(_MSC_VER) && _MSC_VER < 1900) || defined(_WIN32_WCE)
+	#define strcasecmp _stricmp
+	#elif !defined(__MINGW32__)
+	#define strcasecmp stricmp
+	#endif
+	#define getdtablesize() 30000
+#endif
+
+#ifndef LWS_ARRAY_SIZE
+#define LWS_ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

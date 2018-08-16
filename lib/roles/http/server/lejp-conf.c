@@ -225,7 +225,7 @@ arg_to_bool(const char *s)
 	if (n)
 		return 1;
 
-	for (n = 0; n < (int)ARRAY_SIZE(on); n++)
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(on); n++)
 		if (!strcasecmp(s, on[n]))
 			return 1;
 
@@ -503,7 +503,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		if (a->last)
 			a->last->mount_next = m;
 
-		for (n = 0; n < (int)ARRAY_SIZE(mount_protocols); n++)
+		for (n = 0; n < (int)LWS_ARRAY_SIZE(mount_protocols); n++)
 			if (!strncmp(a->m.origin, mount_protocols[n],
 			     strlen(mount_protocols[n]))) {
 				lwsl_info("----%s\n", a->m.origin);
@@ -513,7 +513,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 				break;
 			}
 
-		if (n == (int)ARRAY_SIZE(mount_protocols)) {
+		if (n == (int)LWS_ARRAY_SIZE(mount_protocols)) {
 			lwsl_err("unsupported protocol:// %s\n", a->m.origin);
 			return 1;
 		}
@@ -928,11 +928,11 @@ lwsws_get_config_globals(struct lws_context_creation_info *info, const char *d,
 
 	lws_snprintf(dd, sizeof(dd) - 1, "%s/conf", d);
 	if (lwsws_get_config(&a, dd, paths_global,
-			     ARRAY_SIZE(paths_global), lejp_globals_cb) > 1)
+			     LWS_ARRAY_SIZE(paths_global), lejp_globals_cb) > 1)
 		return 1;
 	lws_snprintf(dd, sizeof(dd) - 1, "%s/conf.d", d);
 	if (lwsws_get_config_d(&a, dd, paths_global,
-			       ARRAY_SIZE(paths_global), lejp_globals_cb) > 1)
+			       LWS_ARRAY_SIZE(paths_global), lejp_globals_cb) > 1)
 		return 1;
 
 	a.plugin_dirs[a.count_plugin_dirs] = NULL;
@@ -963,11 +963,11 @@ lwsws_get_config_vhosts(struct lws_context *context,
 
 	lws_snprintf(dd, sizeof(dd) - 1, "%s/conf", d);
 	if (lwsws_get_config(&a, dd, paths_vhosts,
-			     ARRAY_SIZE(paths_vhosts), lejp_vhosts_cb) > 1)
+			     LWS_ARRAY_SIZE(paths_vhosts), lejp_vhosts_cb) > 1)
 		return 1;
 	lws_snprintf(dd, sizeof(dd) - 1, "%s/conf.d", d);
 	if (lwsws_get_config_d(&a, dd, paths_vhosts,
-			       ARRAY_SIZE(paths_vhosts), lejp_vhosts_cb) > 1)
+			       LWS_ARRAY_SIZE(paths_vhosts), lejp_vhosts_cb) > 1)
 		return 1;
 
 	*cs = a.p;

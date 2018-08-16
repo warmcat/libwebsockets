@@ -83,12 +83,12 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		if (!oa->option_name)
 			break;
 		lwsl_ext("%s: named option set: %s\n", __func__, oa->option_name);
-		for (n = 0; n < (int)ARRAY_SIZE(lws_ext_pm_deflate_options); n++)
+		for (n = 0; n < (int)LWS_ARRAY_SIZE(lws_ext_pm_deflate_options); n++)
 			if (!strcmp(lws_ext_pm_deflate_options[n].name,
 				    oa->option_name))
 				break;
 
-		if (n == (int)ARRAY_SIZE(lws_ext_pm_deflate_options))
+		if (n == (int)LWS_ARRAY_SIZE(lws_ext_pm_deflate_options))
 			break;
 		oa->option_index = n;
 

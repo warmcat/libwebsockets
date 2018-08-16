@@ -66,14 +66,6 @@ typedef unsigned long long lws_intptr_t;
 #define O_RDONLY	_O_RDONLY
 #endif
 
-// Visual studio older than 2015 and WIN_CE has only _stricmp
-#if (defined(_MSC_VER) && _MSC_VER < 1900) || defined(_WIN32_WCE)
-#define strcasecmp _stricmp
-#elif !defined(__MINGW32__)
-#define strcasecmp stricmp
-#endif
-#define getdtablesize() 30000
-
 #define LWS_INLINE __inline
 #define LWS_VISIBLE
 #define LWS_WARN_UNUSED_RESULT
@@ -462,9 +454,6 @@ lwsl_visible(int level);
 #endif
 
 struct lws;
-#ifndef ARRAY_SIZE
-#define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
-#endif
 
 typedef int64_t lws_usec_t;
 
@@ -7097,10 +7086,9 @@ lws_email_destroy(struct lws_email *email);
 //@{
 struct lejp_ctx;
 
-#ifndef ARRAY_SIZE
-#define ARRAY_SIZE(_x) (sizeof(_x) / sizeof(_x[0]))
-#endif
+#if !defined(LWS_ARRAY_SIZE)
 #define LWS_ARRAY_SIZE(_x) (sizeof(_x) / sizeof(_x[0]))
+#endif
 #define LEJP_FLAG_WS_KEEP 64
 #define LEJP_FLAG_WS_COMMENTLINE 32
 

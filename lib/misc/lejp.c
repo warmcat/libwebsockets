@@ -20,6 +20,7 @@
  */
 
 #include <libwebsockets.h>
+#include "core/private.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -30,7 +31,7 @@
  * \param callback:	your user callback which will received parsed tokens
  * \param user:	optional user data pointer untouched by lejp
  * \param paths:	your array of name elements you are interested in
- * \param count_paths:	ARRAY_SIZE() of @paths
+ * \param count_paths:	LWS_ARRAY_SIZE() of @paths
  *
  * Prepares your context struct for use with lejp
  */
@@ -417,7 +418,7 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 					goto reject;
 				}
 				ctx->i[ctx->ipos++] = 0;
-				if (ctx->ipos > ARRAY_SIZE(ctx->i)) {
+				if (ctx->ipos > LWS_ARRAY_SIZE(ctx->i)) {
 					ret = LEJP_REJECT_MP_DELIM_ISTACK;
 					goto reject;
 				}
@@ -722,7 +723,7 @@ add_stack_level:
 
 		ctx->st[ctx->sp].p = ctx->ppos;
 		ctx->st[ctx->sp].i = ctx->ipos;
-		if (++ctx->sp == ARRAY_SIZE(ctx->st)) {
+		if (++ctx->sp == LWS_ARRAY_SIZE(ctx->st)) {
 			ret = LEJP_REJECT_STACK_OVERFLOW;
 			goto reject;
 		}

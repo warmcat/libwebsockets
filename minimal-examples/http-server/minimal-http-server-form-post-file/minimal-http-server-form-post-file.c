@@ -125,7 +125,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		if (!pss->spa) {
 			pss->spa = lws_spa_create(wsi, param_names,
-					ARRAY_SIZE(param_names), 1024,
+					LWS_ARRAY_SIZE(param_names), 1024,
 					file_upload_cb, pss);
 			if (!pss->spa)
 				return -1;
@@ -145,7 +145,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		/* we just dump the decoded things to the log */
 
-		for (n = 0; n < (int)ARRAY_SIZE(param_names); n++) {
+		for (n = 0; n < (int)LWS_ARRAY_SIZE(param_names); n++) {
 			if (!lws_spa_get_string(pss->spa, n))
 				lwsl_user("%s: undefined\n", param_names[n]);
 			else

@@ -43,7 +43,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		/* we just dump the decoded things to the log */
 
-		for (n = 0; n < (int)ARRAY_SIZE(param_names); n++) {
+		for (n = 0; n < (int)LWS_ARRAY_SIZE(param_names); n++) {
 			val = lws_get_urlarg_by_name(wsi, param_names[n],
 					(char *)buf, sizeof(buf));
 			if (!val)
