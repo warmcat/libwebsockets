@@ -26,7 +26,7 @@
 const unsigned char *
 lws_token_to_string(enum lws_token_indexes token)
 {
-	if ((unsigned int)token >= ARRAY_SIZE(set))
+	if ((unsigned int)token >= LWS_ARRAY_SIZE(set))
 		return NULL;
 
 	return (unsigned char *)set[token];
@@ -215,9 +215,9 @@ lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 	if (lwsi_role_h2(wsi) || lwsi_role_h2_ENCAPSULATION(wsi))
 		return lws_add_http2_header_status(wsi, code, p, end);
 #endif
-	if (code >= 400 && code < (400 + ARRAY_SIZE(err400)))
+	if (code >= 400 && code < (400 + LWS_ARRAY_SIZE(err400)))
 		description = err400[code - 400];
-	if (code >= 500 && code < (500 + ARRAY_SIZE(err500)))
+	if (code >= 500 && code < (500 + LWS_ARRAY_SIZE(err500)))
 		description = err500[code - 500];
 
 	if (code == 100)
@@ -230,7 +230,7 @@ lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 		if (code >= 300 && code < 400)
 			description = "Redirect";
 
-	if (wsi->http.request_version < ARRAY_SIZE(hver))
+	if (wsi->http.request_version < LWS_ARRAY_SIZE(hver))
 		p1 = hver[wsi->http.request_version];
 	else
 		p1 = hver[0];

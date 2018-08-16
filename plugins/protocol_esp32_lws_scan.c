@@ -347,10 +347,10 @@ scan_finished(uint16_t count, wifi_ap_record_t *recs, void *v)
 
 	vhd->scan_ongoing = 0;
 
-	if (count < ARRAY_SIZE(vhd->ap_records))
+	if (count < LWS_ARRAY_SIZE(vhd->ap_records))
 		vhd->count_ap_records = count;
 	else
-		vhd->count_ap_records = ARRAY_SIZE(vhd->ap_records);
+		vhd->count_ap_records = LWS_ARRAY_SIZE(vhd->ap_records);
 
 	memcpy(vhd->ap_records, recs, vhd->count_ap_records * sizeof(*recs));
 	
@@ -826,7 +826,7 @@ issue:
 
 			lwsl_notice("si %d\n", si);
 
-			for (n = 0; n < ARRAY_SIZE(store_json); n++) {
+			for (n = 0; n < LWS_ARRAY_SIZE(store_json); n++) {
 				if (esplws_simple_arg(p, sizeof(p), in, store_json[n].j))
 					continue;
 
@@ -1020,7 +1020,7 @@ start_le:
 		/* create the POST argument parser if not already existing */
 		if (!pss->spa) {
 			pss->spa = lws_spa_create(wsi, param_names,
-					ARRAY_SIZE(param_names), 1024,
+					LWS_ARRAY_SIZE(param_names), 1024,
 					file_upload_cb, pss);
 			if (!pss->spa)
 				return -1;
@@ -1039,7 +1039,7 @@ start_le:
 		/* call to inform no more payload data coming */
 		lws_spa_finalize(pss->spa);
 
-		for (n = 0; n < ARRAY_SIZE(param_names); n++)
+		for (n = 0; n < LWS_ARRAY_SIZE(param_names); n++)
 			if (lws_spa_get_string(pss->spa, n))
 				lwsl_notice(" Param %s: %s\n", param_names[n],
 					    lws_spa_get_string(pss->spa, n));

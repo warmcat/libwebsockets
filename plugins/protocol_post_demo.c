@@ -126,7 +126,7 @@ callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
 		/* create the POST argument parser if not already existing */
 		if (!pss->spa) {
 			pss->spa = lws_spa_create(wsi, param_names,
-					ARRAY_SIZE(param_names), 1024,
+					LWS_ARRAY_SIZE(param_names), 1024,
 					file_upload_cb, pss);
 			if (!pss->spa)
 				return -1;
@@ -151,7 +151,7 @@ callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
 			"<html><body><h1>Form results (after urldecoding)</h1>"
 			"<table><tr><td>Name</td><td>Length</td><td>Value</td></tr>");
 
-		for (n = 0; n < (int)ARRAY_SIZE(param_names); n++) {
+		for (n = 0; n < (int)LWS_ARRAY_SIZE(param_names); n++) {
 			if (!lws_spa_get_string(pss->spa, n))
 				p += lws_snprintf((char *)p, end - p,
 				    "<tr><td><b>%s</b></td><td>0</td><td>NULL</td></tr>",
@@ -260,7 +260,7 @@ init_protocol_post_demo(struct lws_context *context,
 	}
 
 	c->protocols = protocols;
-	c->count_protocols = ARRAY_SIZE(protocols);
+	c->count_protocols = LWS_ARRAY_SIZE(protocols);
 	c->extensions = NULL;
 	c->count_extensions = 0;
 

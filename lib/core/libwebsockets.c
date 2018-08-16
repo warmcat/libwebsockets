@@ -1483,7 +1483,7 @@ lws_vfs_select_fops(const struct lws_plat_file_ops *fops, const char *vfs_path,
 		pf = fops->next;
 		while (pf) {
 			n = 0;
-			while (n < (int)ARRAY_SIZE(pf->fi) && pf->fi[n].sig) {
+			while (n < (int)LWS_ARRAY_SIZE(pf->fi) && pf->fi[n].sig) {
 				if (p >= vfs_path + pf->fi[n].len)
 					if (!strncmp(p - (pf->fi[n].len - 1),
 						    pf->fi[n].sig,
@@ -1976,14 +1976,14 @@ LWS_VISIBLE void lwsl_emit_stderr(int level, const char *line)
 {
 	char buf[50];
 	static char tty = 3;
-	int n, m = ARRAY_SIZE(colours) - 1;
+	int n, m = LWS_ARRAY_SIZE(colours) - 1;
 
 	if (!tty)
 		tty = isatty(2) | 2;
 	lwsl_timestamp(level, buf, sizeof(buf));
 
 	if (tty == 3) {
-		n = 1 << (ARRAY_SIZE(colours) - 1);
+		n = 1 << (LWS_ARRAY_SIZE(colours) - 1);
 		while (n) {
 			if (level & n)
 				break;

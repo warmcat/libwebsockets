@@ -351,7 +351,15 @@ extern "C" {
 
 #define LWS_H2_RX_SCRATCH_SIZE 512
 
-
+#if defined(WIN32) || defined(_WIN32)
+	 // Visual studio older than 2015 and WIN_CE has only _stricmp
+	#if (defined(_MSC_VER) && _MSC_VER < 1900) || defined(_WIN32_WCE)
+	#define strcasecmp _stricmp
+	#elif !defined(__MINGW32__)
+	#define strcasecmp stricmp
+	#endif
+	#define getdtablesize() 30000
+#endif
 
 /*
  * All lws_tls...() functions must return this type, converting the

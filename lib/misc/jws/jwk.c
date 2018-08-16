@@ -135,7 +135,7 @@ lws_jwk_import(struct lws_jwk *s, const char *in, size_t len)
 	cbs.b64 = b64;
 	cbs.b64max = b64max;
 	cbs.pos = 0;
-	lejp_construct(&jctx, cb_jwk, &cbs, jwk_tok, ARRAY_SIZE(jwk_tok));
+	lejp_construct(&jctx, cb_jwk, &cbs, jwk_tok, LWS_ARRAY_SIZE(jwk_tok));
 	m = (int)(signed char)lejp_parse(&jctx, (uint8_t *)in, len);
 	lejp_destruct(&jctx);
 

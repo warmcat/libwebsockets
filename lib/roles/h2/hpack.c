@@ -219,7 +219,7 @@ static int lws_frag_start(struct lws *wsi, int hdr_token_idx)
 		return 1;
 	}
 
-	if (ah->nfrag >= ARRAY_SIZE(ah->frag_index)) {
+	if (ah->nfrag >= LWS_ARRAY_SIZE(ah->frag_index)) {
 		lwsl_err("%s: frag index %d too big\n", __func__, ah->nfrag);
 		return 1;
 	}
@@ -375,8 +375,8 @@ lws_token_from_index(struct lws *wsi, int index, const char **arg, int *len,
 	if (index < 0)
 		return -1;
 
-	if (index < (int)ARRAY_SIZE(static_token)) {
-		if (arg && index < (int)ARRAY_SIZE(http2_canned)) {
+	if (index < (int)LWS_ARRAY_SIZE(static_token)) {
+		if (arg && index < (int)LWS_ARRAY_SIZE(http2_canned)) {
 			*arg = http2_canned[index];
 			*len = (int)strlen(http2_canned[index]);
 		}
@@ -391,8 +391,8 @@ lws_token_from_index(struct lws *wsi, int index, const char **arg, int *len,
 		return -1;
 	}
 
-	if (index < (int)ARRAY_SIZE(static_token) ||
-	    index >= (int)ARRAY_SIZE(static_token) + dyn->used_entries) {
+	if (index < (int)LWS_ARRAY_SIZE(static_token) ||
+	    index >= (int)LWS_ARRAY_SIZE(static_token) + dyn->used_entries) {
 		lwsl_info("  %s: adjusted index %d >= %d\n", __func__, index,
 			    dyn->used_entries);
 		lws_h2_goaway(wsi, H2_ERR_COMPRESSION_ERROR,
@@ -400,7 +400,7 @@ lws_token_from_index(struct lws *wsi, int index, const char **arg, int *len,
 		return -1;
 	}
 
-	index -= (int)ARRAY_SIZE(static_token);
+	index -= (int)LWS_ARRAY_SIZE(static_token);
 	index = (dyn->pos - 1 - index) % dyn->num_entries;
 	if (index < 0)
 		index += dyn->num_entries;
@@ -435,7 +435,7 @@ lws_h2_dynamic_table_dump(struct lws *wsi)
 	lwsl_header("Dump dyn table for nwsi %p (%d / %d members, pos = %d, "
 		    "start index %d, virt used %d / %d)\n", nwsi,
 		    dyn->used_entries, dyn->num_entries, dyn->pos,
-		    (uint32_t)ARRAY_SIZE(static_token),
+		    (uint32_t)LWS_ARRAY_SIZE(static_token),
 		    dyn->virtual_payload_usage, dyn->virtual_payload_max);
 
 	for (n = 0; n < dyn->used_entries; n++) {
@@ -448,7 +448,7 @@ lws_h2_dynamic_table_dump(struct lws *wsi)
 		else
 			p = "(ignored)";
 		lwsl_header("   %3d: tok %s: (len %d) val '%s'\n",
-			    (int)(n + ARRAY_SIZE(static_token)), p,
+			    (int)(n + LWS_ARRAY_SIZE(static_token)), p,
 			    dyn->entries[m].hdr_len, dyn->entries[m].value ?
 			    dyn->entries[m].value : "null");
 	}
@@ -552,7 +552,7 @@ lws_dynamic_token_insert(struct lws *wsi, int hdr_len,
 	dyn->virtual_payload_usage += hdr_len + len;
 
 	lwsl_info("%s: index %ld: lws_hdr_index 0x%x, hdr len %d, '%s' len %d\n",
-		  __func__, (long)ARRAY_SIZE(static_token),
+		  __func__, (long)LWS_ARRAY_SIZE(static_token),
 		  lws_hdr_index, hdr_len, dyn->entries[new_index].value ?
 				 dyn->entries[new_index].value : "null", len);
 
@@ -726,7 +726,7 @@ lws_hpack_use_idx_hdr(struct lws *wsi, int idx, int known_token)
 	if (arg)
 		p = arg;
 
-	if (idx < (int)ARRAY_SIZE(http2_canned))
+	if (idx < (int)LWS_ARRAY_SIZE(http2_canned))
 		p = http2_canned[idx];
 
 	if (lws_frag_start(wsi, tok))

@@ -1068,7 +1068,7 @@ end_scan()
 	uint16_t count_ap_records;
 	int n, m;
 
-	count_ap_records = ARRAY_SIZE(ap_records);
+	count_ap_records = LWS_ARRAY_SIZE(ap_records);
 	if (esp_wifi_scan_get_ap_records(&count_ap_records, ap_records)) {
 		lwsl_err("%s: failed\n", __func__);
 		return;
@@ -1292,7 +1292,7 @@ esp_err_t lws_esp32_event_passthru(void *ctx, system_event_t *event)
 
 			mdns_service_add(lws_esp32.group,
 					 "_lwsgrmem", "_tcp", 443, txta,
-					 ARRAY_SIZE(txta));
+					 LWS_ARRAY_SIZE(txta));
 
 			mem = lws_esp32.first;
 			while (mem) {
