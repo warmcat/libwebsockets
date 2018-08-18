@@ -82,9 +82,9 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 			continue;
 
 		wsi = wsi_from_fd(context, pfd->fd);
-		if (wsi->listener)
+		if (!wsi || wsi->listener)
 			continue;
-		if (!wsi || wsi->sock_send_blocking)
+		if (wsi->sock_send_blocking)
 			continue;
 		pfd->revents = LWS_POLLOUT;
 		n = lws_service_fd(context, pfd);
