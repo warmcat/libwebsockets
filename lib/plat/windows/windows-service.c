@@ -90,6 +90,10 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		n = lws_service_fd(context, pfd);
 		if (n < 0)
 			return -1;
+
+		/* Force WSAWaitForMultipleEvents() to check events and then return immediately. */
+		timeout_ms = 0;
+
 		/* if something closed, retry this slot */
 		if (n)
 			i--;
