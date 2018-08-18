@@ -82,23 +82,21 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 			continue;
 
 		wsi = wsi_from_fd(context, pfd->fd);
-		if (wsi->listener)
+		if (!wsi || wsi->listener)
 			continue;
-		if (!wsi || wsi->sock_send_blocking)
+		if (wsi->sock_send_blocking)
 			continue;
 		pfd->revents = LWS_POLLOUT;
 		n = lws_service_fd(context, pfd);
 		if (n < 0)
 			return -1;
+
+		/* Force WSAWaitForMultipleEvents() to check events and then return immediately. */
+		timeout_ms = 0;
+
 		/* if something closed, retry this slot */
 		if (n)
 			i--;
-
-		/*
-		 * any wsi has truncated, force him signalled
-		 */
-		if (wsi->trunc_len)
-			WSASetEvent(pt->events);
 	}
 
 	/*
