@@ -244,12 +244,6 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		/* if something closed, retry this slot */
 		if (n)
 			i--;
-
-		/*
-		 * any wsi has truncated, force him signalled
-		 */
-		if (wsi->trunc_len)
-			WSASetEvent(pt->events[0]);
 	}
 
 	/*
