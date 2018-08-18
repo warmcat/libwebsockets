@@ -1082,5 +1082,9 @@ struct lws_role_ops role_ops_h2 = {
 					  LWS_CALLBACK_HTTP_WRITEABLE },
 	/* close cb clnt, srv */	{ LWS_CALLBACK_CLOSED_CLIENT_HTTP,
 					  LWS_CALLBACK_CLOSED_HTTP },
+	/* protocol_bind cb c, srv */	{ LWS_CALLBACK_CLIENT_HTTP_BIND_PROTOCOL,
+					  LWS_CALLBACK_HTTP_BIND_PROTOCOL },
+	/* protocol_unbind cb c, srv */	{ LWS_CALLBACK_CLIENT_HTTP_DROP_PROTOCOL,
+					  LWS_CALLBACK_HTTP_DROP_PROTOCOL },
 	/* file_handle */		0,
 };

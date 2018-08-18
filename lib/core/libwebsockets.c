@@ -544,7 +544,8 @@ lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p)
 	const struct lws_protocols *vp = wsi->vhost->protocols, *vpo;
 
 	if (wsi->protocol && wsi->protocol_bind_balance) {
-		wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP_DROP_PROTOCOL,
+		wsi->protocol->callback(wsi,
+		       wsi->role_ops->protocol_unbind_cb[!!lwsi_role_server(wsi)],
 					wsi->user_space, NULL, 0);
 		wsi->protocol_bind_balance = 0;
 	}
@@ -581,7 +582,8 @@ lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p)
 				 __func__, p, wsi->vhost->name);
 	}
 
-	if (wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP_BIND_PROTOCOL,
+	if (wsi->protocol->callback(wsi, wsi->role_ops->protocol_bind_cb[
+				    !!lwsi_role_server(wsi)],
 				    wsi->user_space, NULL, 0))
 		return 1;
 
@@ -742,15 +744,13 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 	    lwsi_state(wsi) == LRS_H1C_ISSUE_HANDSHAKE)
 		goto just_kill_connection;
 
-	if (!wsi->told_user_closed && lwsi_role_http(wsi) &&
-	    lwsi_role_server(wsi)) {
-		if (wsi->user_space && wsi->protocol &&
-		    wsi->protocol_bind_balance) {
-			wsi->protocol->callback(wsi,
-						LWS_CALLBACK_HTTP_DROP_PROTOCOL,
-					       wsi->user_space, NULL, 0);
-			wsi->protocol_bind_balance = 0;
-		}
+	if (!wsi->told_user_closed && wsi->user_space && wsi->protocol &&
+	    wsi->protocol_bind_balance) {
+		wsi->protocol->callback(wsi,
+				wsi->role_ops->protocol_unbind_cb[
+				       !!lwsi_role_server(wsi)],
+				       wsi->user_space, NULL, 0);
+		wsi->protocol_bind_balance = 0;
 	}
 
 	/*
@@ -781,8 +781,10 @@ just_kill_connection:
 	    wsi->protocol_bind_balance) {
 		lwsl_debug("%s: %p: DROP_PROTOCOL %s\n", __func__, wsi,
 		       wsi->protocol->name);
-		wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP_DROP_PROTOCOL,
-				        wsi->user_space, NULL, 0);
+		wsi->protocol->callback(wsi,
+				wsi->role_ops->protocol_unbind_cb[
+				       !!lwsi_role_server(wsi)],
+				       wsi->user_space, NULL, 0);
 		wsi->protocol_bind_balance = 0;
 	}
 

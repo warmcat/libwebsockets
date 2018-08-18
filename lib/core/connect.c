@@ -133,11 +133,21 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	wsi->protocol = &wsi->vhost->protocols[0];
 	wsi->client_pipeline = !!(i->ssl_connection & LCCSCF_PIPELINE);
 
+	/*
+	 * PHASE 5: handle external user_space now, generic alloc is done in
+	 * role finalization
+	 */
+
+	if (wsi && !wsi->user_space && i->userdata) {
+		wsi->user_space_externally_allocated = 1;
+		wsi->user_space = i->userdata;
+	}
+
 	if (local) {
 		lwsl_info("%s: protocol binding to %s\n", __func__, local);
 		p = lws_vhost_name_to_protocol(wsi->vhost, local);
 		if (p)
-			wsi->protocol = p;
+			lws_bind_protocol(wsi, p);
 	}
 
 	/*

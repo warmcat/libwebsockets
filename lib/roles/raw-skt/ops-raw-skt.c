@@ -152,15 +152,15 @@ rops_adoption_bind_raw_skt(struct lws *wsi, int type, const char *vh_prot_name)
 		wsi->udp = lws_malloc(sizeof(*wsi->udp), "udp struct");
 #endif
 
+	lws_role_transition(wsi, 0, type & LWS_ADOPT_ALLOW_SSL ? LRS_SSL_INIT :
+				LRS_ESTABLISHED, &role_ops_raw_skt);
+
 	if (vh_prot_name)
 		lws_bind_protocol(wsi, wsi->protocol);
 	else
 		/* this is the only time he will transition */
 		lws_bind_protocol(wsi,
 			&wsi->vhost->protocols[wsi->vhost->raw_protocol_index]);
-
-	lws_role_transition(wsi, 0, type & LWS_ADOPT_ALLOW_SSL ? LRS_SSL_INIT :
-				LRS_ESTABLISHED, &role_ops_raw_skt);
 
 	return 1; /* bound */
 }
@@ -224,5 +224,9 @@ struct lws_role_ops role_ops_raw_skt = {
 #endif
 	/* writeable cb clnt, srv */	{ LWS_CALLBACK_RAW_WRITEABLE, 0 },
 	/* close cb clnt, srv */	{ LWS_CALLBACK_RAW_CLOSE, 0 },
+	/* protocol_bind cb c, srv */	{ LWS_CALLBACK_RAW_SKT_BIND_PROTOCOL,
+					  LWS_CALLBACK_RAW_SKT_BIND_PROTOCOL },
+	/* protocol_unbind cb c, srv */	{ LWS_CALLBACK_RAW_SKT_DROP_PROTOCOL,
+					  LWS_CALLBACK_RAW_SKT_DROP_PROTOCOL },
 	/* file_handle */		0,
 };

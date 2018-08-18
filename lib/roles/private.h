@@ -241,6 +241,16 @@ struct lws_role_ops {
 	 * (just client applies if no concept of client or server)
 	 */
 	uint16_t close_cb[2];
+	/*
+	 * the callback reasons for protocol bind for client, server
+	 * (just client applies if no concept of client or server)
+	 */
+	uint16_t protocol_bind_cb[2];
+	/*
+	 * the callback reasons for protocol unbind for client, server
+	 * (just client applies if no concept of client or server)
+	 */
+	uint16_t protocol_unbind_cb[2];
 
 	unsigned int file_handle:1; /* role operates on files not sockets */
 };

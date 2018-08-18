@@ -940,23 +940,6 @@ enum lws_callback_reasons {
 	LWS_CALLBACK_WSI_DESTROY				= 30,
 	/**< outermost (latest) wsi destroy notification to protocols[0] */
 
-	LWS_CALLBACK_HTTP_BIND_PROTOCOL				= 49,
-	/**< By default, all HTTP handling is done in protocols[0].
-	 * However you can bind different protocols (by name) to
-	 * different parts of the URL space using callback mounts.  This
-	 * callback occurs in the new protocol when a wsi is bound
-	 * to that protocol.  Any protocol allocation related to the
-	 * http transaction processing should be created then.
-	 * These specific callbacks are necessary because with HTTP/1.1,
-	 * a single connection may perform at series of different
-	 * transactions at different URLs, thus the lifetime of the
-	 * protocol bind is just for one transaction, not connection. */
-
-	LWS_CALLBACK_HTTP_DROP_PROTOCOL				= 50,
-	/**< This is called when a transaction is unbound from a protocol.
-	 * It indicates the connection completed its transaction and may
-	 * do something different now.  Any protocol allocation related
-	 * to the http transaction processing should be destroyed. */
 
 	/* ---------------------------------------------------------------------
 	 * ----- Callbacks related to Server TLS -----
@@ -1145,6 +1128,24 @@ enum lws_callback_reasons {
 	 * bytes per buffer).
 	 */
 
+	LWS_CALLBACK_HTTP_BIND_PROTOCOL				= 49,
+	/**< By default, all HTTP handling is done in protocols[0].
+	 * However you can bind different protocols (by name) to
+	 * different parts of the URL space using callback mounts.  This
+	 * callback occurs in the new protocol when a wsi is bound
+	 * to that protocol.  Any protocol allocation related to the
+	 * http transaction processing should be created then.
+	 * These specific callbacks are necessary because with HTTP/1.1,
+	 * a single connection may perform at series of different
+	 * transactions at different URLs, thus the lifetime of the
+	 * protocol bind is just for one transaction, not connection. */
+
+	LWS_CALLBACK_HTTP_DROP_PROTOCOL				= 50,
+	/**< This is called when a transaction is unbound from a protocol.
+	 * It indicates the connection completed its transaction and may
+	 * do something different now.  Any protocol allocation related
+	 * to the http transaction processing should be destroyed. */
+
 	/* ---------------------------------------------------------------------
 	 * ----- Callbacks related to HTTP Client  -----
 	 */
@@ -1191,6 +1192,9 @@ enum lws_callback_reasons {
 	 * From this callback, when you have sent everything, you should let
 	 * lws know by calling lws_client_http_body_pending(wsi, 0)
 	 */
+
+	LWS_CALLBACK_CLIENT_HTTP_BIND_PROTOCOL			= 75,
+	LWS_CALLBACK_CLIENT_HTTP_DROP_PROTOCOL			= 76,
 
 	/* ---------------------------------------------------------------------
 	 * ----- Callbacks related to Websocket Server -----
@@ -1251,6 +1255,9 @@ enum lws_callback_reasons {
 	 * valid.  Note though at this time the ESTABLISHED callback hasn't
 	 * happened yet so if you initialize user content there, user
 	 * content during this callback might not be useful for anything. */
+
+	LWS_CALLBACK_WS_SERVER_BIND_PROTOCOL			= 77,
+	LWS_CALLBACK_WS_SERVER_DROP_PROTOCOL			= 78,
 
 	/* ---------------------------------------------------------------------
 	 * ----- Callbacks related to Websocket Client -----
@@ -1392,6 +1399,9 @@ enum lws_callback_reasons {
 	 * network connection from the client, there's no websocket protocol
 	 * selected yet so this callback is issued only to protocol 0. */
 
+	LWS_CALLBACK_WS_CLIENT_BIND_PROTOCOL			= 79,
+	LWS_CALLBACK_WS_CLIENT_DROP_PROTOCOL			= 80,
+
 	/* ---------------------------------------------------------------------
 	 * ----- Callbacks related to external poll loop integration  -----
 	 */
@@ -1519,6 +1529,9 @@ enum lws_callback_reasons {
 	LWS_CALLBACK_RAW_ADOPT					= 62,
 	/**< RAW mode connection was adopted (equivalent to 'wsi created') */
 
+	LWS_CALLBACK_RAW_SKT_BIND_PROTOCOL			= 81,
+	LWS_CALLBACK_RAW_SKT_DROP_PROTOCOL			= 82,
+
 	/* ---------------------------------------------------------------------
 	 * ----- Callbacks related to RAW file handles -----
 	 */
@@ -1537,6 +1550,9 @@ enum lws_callback_reasons {
 
 	LWS_CALLBACK_RAW_CLOSE_FILE				= 66,
 	/**< RAW mode wsi that adopted a file is closing */
+
+	LWS_CALLBACK_RAW_FILE_BIND_PROTOCOL			= 83,
+	LWS_CALLBACK_RAW_FILE_DROP_PROTOCOL			= 84,
 
 	/* ---------------------------------------------------------------------
 	 * ----- Callbacks related to generic wsi events -----

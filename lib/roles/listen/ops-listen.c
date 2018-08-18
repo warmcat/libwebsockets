@@ -180,5 +180,7 @@ struct lws_role_ops role_ops_listen = {
 	/* client_bind */		NULL,
 	/* writeable cb clnt, srv */	{ 0, 0 },
 	/* close cb clnt, srv */	{ 0, 0 },
+	/* protocol_bind_cb c,s */	{ 0, 0 },
+	/* protocol_unbind_cb c,s */	{ 0, 0 },
 	/* file_handle */		0,
 };
