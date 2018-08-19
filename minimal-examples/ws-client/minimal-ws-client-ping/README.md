@@ -10,6 +10,15 @@ It then sends a ws PING every 5s and records any PONG coming back.
  $ cmake . && make
 ```
 
+## Commandline Options
+
+Option|Meaning
+---|---
+-d|Set logging verbosity
+--server|Use a specific server instead of libwebsockets.org, eg `--server localhost`.  Implies LCCSCF_ALLOW_SELFSIGNED
+--port|Use a specific port instead of 443, eg `--port 7681`
+-z|Send zero-length pings for testing
+
 ## usage
 
 Just run it, wait for the connect and then there will be PINGs sent

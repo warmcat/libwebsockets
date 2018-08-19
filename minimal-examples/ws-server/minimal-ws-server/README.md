@@ -6,6 +6,13 @@
  $ cmake . && make
 ```
 
+## Commandline Options
+
+Option|Meaning
+---|---
+-d|Set logging verbosity
+-s|Serve using TLS selfsigned cert (ie, connect to it with https://...)
+
 ## usage
 
 ```
