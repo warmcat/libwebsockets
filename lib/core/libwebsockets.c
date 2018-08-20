@@ -723,14 +723,24 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 		goto just_kill_connection;
 
 	case LRS_FLUSHING_BEFORE_CLOSE:
-		if (lws_has_buffered_out(wsi)) {
+		if (lws_has_buffered_out(wsi)
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+		    || wsi->http.comp_ctx.buflist_comp ||
+		    wsi->http.comp_ctx.may_have_more
+#endif
+		 ) {
 			lws_callback_on_writable(wsi);
 			return;
 		}
 		lwsl_info("%p: end LRS_FLUSHING_BEFORE_CLOSE\n", wsi);
 		goto just_kill_connection;
 	default:
-		if (lws_has_buffered_out(wsi)) {
+		if (lws_has_buffered_out(wsi)
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+				|| wsi->http.comp_ctx.buflist_comp ||
+		    wsi->http.comp_ctx.may_have_more
+#endif
+		) {
 			lwsl_info("%p: LRS_FLUSHING_BEFORE_CLOSE\n", wsi);
 			lwsi_set_state(wsi, LRS_FLUSHING_BEFORE_CLOSE);
 			__lws_set_timeout(wsi,

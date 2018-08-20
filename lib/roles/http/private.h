@@ -27,6 +27,10 @@
   #include <hubbub/parser.h>
  #endif
 
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+#include "roles/http/compression/private.h"
+#endif
+
 #define lwsi_role_http(wsi) (lwsi_role_h1(wsi) || lwsi_role_h2(wsi))
 
 enum http_version {
@@ -192,6 +196,9 @@ struct lws_access_log {
 };
 #endif
 
+#define LWS_HTTP_CHUNK_HDR_MAX_SIZE (6 + 2) /* 6 hex digits and then CRLF */
+#define LWS_HTTP_CHUNK_TRL_MAX_SIZE (2 + 5) /* CRLF, then maybe 0 CRLF CRLF */
+
 struct _lws_http_mode_related {
 	struct lws *new_wsi_list;
 
@@ -215,6 +222,10 @@ struct _lws_http_mode_related {
 #endif
 #ifdef LWS_WITH_CGI
 	struct lws_cgi *cgi; /* wsi being cgi master have one of these */
+#endif
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+	struct lws_compression_support *lcs;
+	lws_comp_ctx_t comp_ctx;
 #endif
 
 	enum http_version request_version;
