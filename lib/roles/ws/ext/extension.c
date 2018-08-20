@@ -283,7 +283,7 @@ lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len)
 		 * Or we had to hold on to some of it?
 		 */
 
-		if (!lws_send_pipe_choked(wsi) && !wsi->trunc_len)
+		if (!lws_send_pipe_choked(wsi) && !lws_has_buffered_out(wsi))
 			/* no we could add more, lets's do that */
 			continue;
 

@@ -163,7 +163,7 @@ rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 
 	if (wsi->http2_substream || wsi->upgraded_to_http2) {
 		wsi1 = lws_get_network_wsi(wsi);
-		if (wsi1 && wsi1->trunc_len)
+		if (wsi1 && lws_has_buffered_out(wsi1))
 			/*
 			 * We cannot deal with any kind of new RX
 			 * because we are dealing with a partial send

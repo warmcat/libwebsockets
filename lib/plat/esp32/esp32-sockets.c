@@ -44,7 +44,7 @@ lws_send_pipe_choked(struct lws *wsi)
 	wsi_eff->could_have_pending = 0;
 
 	/* treat the fact we got a truncated send pending as if we're choked */
-	if (wsi_eff->trunc_len)
+	if (lws_has_buffered_out(wsi))
 		return 1;
 
 	FD_ZERO(&writefds);

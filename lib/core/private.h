@@ -888,10 +888,8 @@ struct lws {
 	void *user_space;
 	void *opaque_parent_data;
 
-	struct lws_buflist *buflist;
-
-	/* truncated send handling */
-	unsigned char *trunc_alloc; /* non-NULL means buffering in progress */
+	struct lws_buflist *buflist;		/* input-side buflist */
+	struct lws_buflist *buflist_out;	/* output-side buflist */
 
 #if defined(LWS_WITH_TLS)
 	struct lws_lws_tls tls;
@@ -916,9 +914,7 @@ struct lws {
 	/* ints */
 #define LWS_NO_FDS_POS (-1)
 	int position_in_fds_table;
-	unsigned int trunc_alloc_len; /* size of malloc */
-	unsigned int trunc_offset; /* where we are in terms of spilling */
-	unsigned int trunc_len; /* how much is buffered */
+
 #ifndef LWS_NO_CLIENT
 	int chunk_remaining;
 #endif
@@ -1062,6 +1058,9 @@ extern void
 lws_latency(struct lws_context *context, struct lws *wsi, const char *action,
 	    int ret, int completion);
 #endif
+
+static LWS_INLINE int
+lws_has_buffered_out(struct lws *wsi) { return !!wsi->buflist_out; }
 
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_ws_client_rx_sm(struct lws *wsi, unsigned char c);

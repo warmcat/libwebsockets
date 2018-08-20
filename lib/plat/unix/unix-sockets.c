@@ -41,7 +41,7 @@ lws_send_pipe_choked(struct lws *wsi)
 	wsi_eff->could_have_pending = 0;
 
 	/* treat the fact we got a truncated send pending as if we're choked */
-	if (wsi_eff->trunc_len)
+	if (lws_has_buffered_out(wsi_eff))
 		return 1;
 
 	fds.fd = wsi_eff->desc.sockfd;

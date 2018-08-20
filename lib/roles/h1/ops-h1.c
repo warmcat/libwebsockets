@@ -449,10 +449,9 @@ try_pollout:
 
 	if (lwsi_state(wsi) != LRS_ISSUING_FILE) {
 
-		if (wsi->trunc_len) {
+		if (lws_has_buffered_out(wsi)) {
 			//lwsl_notice("%s: completing partial\n", __func__);
-			if (lws_issue_raw(wsi, wsi->trunc_alloc + wsi->trunc_offset,
-					  wsi->trunc_len) < 0) {
+			if (lws_issue_raw(wsi, NULL, 0) < 0) {
 				lwsl_info("%s signalling to close\n", __func__);
 				goto fail;
 			}

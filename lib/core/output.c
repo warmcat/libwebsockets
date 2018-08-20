@@ -31,46 +31,53 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	size_t real_len = len;
 	unsigned int n;
 
-	// lwsl_hexdump_err(buf, len);
-
 	/*
 	 * Detect if we got called twice without going through the
-	 * event loop to handle pending.  This would be caused by either
-	 * back-to-back writes in one WRITABLE (illegal) or calling lws_write()
-	 * from outside the WRITABLE callback (illegal).
+	 * event loop to handle pending.  Since that guarantees extending any
+	 * existing buflist_out it's inefficient.
 	 */
-	if (wsi->could_have_pending) {
-		lwsl_hexdump_level(LLL_ERR, buf, len);
-		lwsl_err("** %p: vh: %s, prot: %s, role %s: "
-			 "Illegal back-to-back write of %lu detected...\n",
+	if (buf && wsi->could_have_pending) {
+		lwsl_hexdump_level(LLL_INFO, buf, len);
+		lwsl_info("** %p: vh: %s, prot: %s, role %s: "
+			 "Inefficient back-to-back write of %lu detected...\n",
 			 wsi, wsi->vhost->name, wsi->protocol->name,
 			 wsi->role_ops->name,
 			 (unsigned long)len);
-		// assert(0);
-
-		return -1;
 	}
 
 	lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_API_WRITE, 1);
 
-	if (!len)
-		return 0;
 	/* just ignore sends after we cleared the truncation buffer */
-	if (lwsi_state(wsi) == LRS_FLUSHING_BEFORE_CLOSE && !wsi->trunc_len)
+	if (lwsi_state(wsi) == LRS_FLUSHING_BEFORE_CLOSE &&
+	    !lws_has_buffered_out(wsi))
 		return (int)len;
 
-	if (wsi->trunc_len && (buf < wsi->trunc_alloc ||
-	    buf > (wsi->trunc_alloc + wsi->trunc_len + wsi->trunc_offset))) {
-		lwsl_hexdump_level(LLL_ERR, buf, len);
-		lwsl_err("** %p: vh: %s, prot: %s, Sending new %lu, pending truncated ...\n"
-			 "   It's illegal to do an lws_write outside of\n"
-			 "   the writable callback: fix your code\n",
+	if (buf && lws_has_buffered_out(wsi)) {
+		lwsl_info("** %p: vh: %s, prot: %s, incr buflist_out by %lu\n",
 			 wsi, wsi->vhost->name, wsi->protocol->name,
 			 (unsigned long)len);
-		assert(0);
 
-		return -1;
+		/*
+		 * already buflist ahead of this, add it on the tail of the
+		 * buflist, then ignore it for now and act like we're flushing
+		 * the buflist...
+		 */
+
+		lws_buflist_append_segment(&wsi->buflist_out, buf, len);
+
+		buf = NULL;
+		len = 0;
 	}
+
+	if (wsi->buflist_out) {
+		/* we have to drain the earliest buflist_out stuff first */
+
+		len = lws_buflist_next_segment_len(&wsi->buflist_out, &buf);
+		real_len = len;
+	}
+
+	if (!len)
+		return 0;
 
 	if (!wsi->http2_substream && !lws_socket_is_valid(wsi->desc.sockfd))
 		lwsl_warn("** error invalid sock but expected to send\n");
@@ -111,16 +118,19 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	}
 
 	/*
-	 * we were already handling a truncated send?
+	 * we were sending this from buflist_out?  Then not sending everything
+	 * is a small matter of advancing ourselves only by the amount we did
+	 * send in the buflist.
 	 */
-	if (wsi->trunc_len) {
-		lwsl_info("%p partial adv %d (vs %ld)\n", wsi, n, (long)real_len);
-		wsi->trunc_offset += n;
-		wsi->trunc_len -= n;
+	if (lws_has_buffered_out(wsi)) {
+		lwsl_info("%p partial adv %d (vs %ld)\n", wsi, n,
+			  (long)real_len);
+		lws_buflist_use_segment(&wsi->buflist_out, n);
 
-		if (!wsi->trunc_len) {
-			lwsl_info("** %p partial send completed\n", wsi);
-			/* done with it, but don't free it */
+		if (!lws_has_buffered_out(wsi)) {
+			lwsl_info("%s: wsi %p: buflist_out flushed\n",
+				  __func__, wsi);
+
 			n = (int)real_len;
 			if (lwsi_state(wsi) == LRS_FLUSHING_BEFORE_CLOSE) {
 				lwsl_info("** %p signalling to close now\n", wsi);
@@ -150,35 +160,18 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 		return n;
 
 	/*
-	 * Newly truncated send.  Buffer the remainder (it will get
-	 * first priority next time the socket is writable).
+	 * We were not able to send everything... and we were not sending from
+	 * an existing buflist_out.  So we are starting a fresh buflist_out, by
+	 * buffering the unsent remainder on it.
+	 * (it will get first priority next time the socket is writable).
 	 */
 	lwsl_debug("%p new partial sent %d from %lu total\n", wsi, n,
 		    (unsigned long)real_len);
 
+	lws_buflist_append_segment(&wsi->buflist_out, buf + n, real_len - n);
+
 	lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_WRITE_PARTIALS, 1);
 	lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_B_PARTIALS_ACCEPTED_PARTS, n);
-
-	/*
-	 *  - if we still have a suitable malloc lying around, use it
-	 *  - or, if too small, reallocate it
-	 *  - or, if no buffer, create it
-	 */
-	if (!wsi->trunc_alloc || real_len - n > wsi->trunc_alloc_len) {
-		lws_free(wsi->trunc_alloc);
-
-		wsi->trunc_alloc_len = (unsigned int)(real_len - n);
-		wsi->trunc_alloc = lws_malloc(real_len - n,
-					      "truncated send alloc");
-		if (!wsi->trunc_alloc) {
-			lwsl_err("truncated send: unable to malloc %lu\n",
-				 (unsigned long)(real_len - n));
-			return -1;
-		}
-	}
-	wsi->trunc_offset = 0;
-	wsi->trunc_len = (unsigned int)(real_len - n);
-	memcpy(wsi->trunc_alloc, buf + n, real_len - n);
 
 #if !defined(LWS_WITH_ESP32)
 	if (lws_wsi_is_udp(wsi)) {
@@ -264,7 +257,7 @@ lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 
 	if (lws_wsi_is_udp(wsi)) {
 #if !defined(LWS_WITH_ESP32)
-		if (wsi->trunc_len)
+		if (lws_has_buffered_out(wsi))
 			n = sendto(wsi->desc.sockfd, (const char *)buf,
 				   len, 0, &wsi->udp->sa_pending,
 				   wsi->udp->salen_pending);

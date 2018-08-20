@@ -1713,7 +1713,7 @@ lws_http_transaction_completed(struct lws *wsi)
 {
 	int n = NO_PENDING_TIMEOUT;
 
-	if (wsi->trunc_len) {
+	if (lws_has_buffered_out(wsi)) {
 		/*
 		 * ...so he tried to send something large as the http reply,
 		 * it went as a partial, but he immediately said the
@@ -2082,10 +2082,8 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 
 	do {
 
-		if (wsi->trunc_len) {
-			if (lws_issue_raw(wsi, wsi->trunc_alloc +
-					  wsi->trunc_offset,
-					  wsi->trunc_len) < 0) {
+		if (lws_has_buffered_out(wsi)) {
+			if (lws_issue_raw(wsi, NULL, 0) < 0) {
 				lwsl_info("%s: closing\n", __func__);
 				goto file_had_it;
 			}
@@ -2259,7 +2257,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 		}
 
 all_sent:
-		if ((!wsi->trunc_len && wsi->http.filepos >= wsi->http.filelen)
+		if ((!lws_has_buffered_out(wsi) && wsi->http.filepos >= wsi->http.filelen)
 #if defined(LWS_WITH_RANGES)
 		    || finished)
 #else

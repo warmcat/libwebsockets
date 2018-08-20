@@ -976,7 +976,7 @@ rops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
 #if defined(LWS_WITH_HTTP2)
 	if (wsi->http2_substream || wsi->upgraded_to_http2) {
 		wsi1 = lws_get_network_wsi(wsi);
-		if (wsi1 && wsi1->trunc_len)
+		if (wsi1 && lws_has_buffered_out(wsi1))
 			/* We cannot deal with any kind of new RX
 			 * because we are dealing with a partial send
 			 * (new RX may trigger new http_action() that
@@ -1524,10 +1524,6 @@ rops_close_role_ws(struct lws_context_per_thread *pt, struct lws *wsi)
 	}
 #endif
 	lws_free_set_NULL(wsi->ws->rx_ubuf);
-
-	if (wsi->trunc_alloc)
-		/* not going to be completed... nuke it */
-		lws_free_set_NULL(wsi->trunc_alloc);
 
 	wsi->ws->ping_payload_len = 0;
 	wsi->ws->ping_pending_flag = 0;

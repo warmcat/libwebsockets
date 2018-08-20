@@ -30,12 +30,12 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 
 	/* pending truncated sends have uber priority */
 
-	if (wsi->trunc_len) {
+	if (lws_has_buffered_out(wsi)) {
 		if (!(pollfd->revents & LWS_POLLOUT))
 			return LWS_HPI_RET_HANDLED;
 
-		if (lws_issue_raw(wsi, wsi->trunc_alloc + wsi->trunc_offset,
-				  wsi->trunc_len) < 0)
+		/* drain the output buflist */
+		if (lws_issue_raw(wsi, NULL, 0) < 0)
 			goto fail;
 		/*
 		 * we can't afford to allow input processing to send

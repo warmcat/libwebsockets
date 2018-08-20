@@ -170,7 +170,7 @@ __lws_free_wsi(struct lws *wsi)
 		lws_free(wsi->user_space);
 
 	lws_buflist_destroy_all_segments(&wsi->buflist);
-	lws_free_set_NULL(wsi->trunc_alloc);
+	lws_buflist_destroy_all_segments(&wsi->buflist_out);
 	lws_free_set_NULL(wsi->udp);
 
 	if (wsi->vhost && wsi->vhost->lserv_wsi == wsi)
@@ -723,14 +723,14 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 		goto just_kill_connection;
 
 	case LRS_FLUSHING_BEFORE_CLOSE:
-		if (wsi->trunc_len) {
+		if (lws_has_buffered_out(wsi)) {
 			lws_callback_on_writable(wsi);
 			return;
 		}
 		lwsl_info("%p: end LRS_FLUSHING_BEFORE_CLOSE\n", wsi);
 		goto just_kill_connection;
 	default:
-		if (wsi->trunc_len) {
+		if (lws_has_buffered_out(wsi)) {
 			lwsl_info("%p: LRS_FLUSHING_BEFORE_CLOSE\n", wsi);
 			lwsi_set_state(wsi, LRS_FLUSHING_BEFORE_CLOSE);
 			__lws_set_timeout(wsi,
@@ -2166,7 +2166,7 @@ lws_get_ssl(struct lws *wsi)
 LWS_VISIBLE int
 lws_partial_buffered(struct lws *wsi)
 {
-	return !!wsi->trunc_len;
+	return lws_has_buffered_out(wsi);
 }
 
 LWS_VISIBLE lws_fileofs_t
