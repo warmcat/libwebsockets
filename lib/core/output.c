@@ -84,7 +84,7 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 		lwsl_debug("%s: draining %d\n", __func__, (int)len);
 	}
 
-	if (!len)
+	if (!len || !buf)
 		return 0;
 
 	if (!wsi->http2_substream && !lws_socket_is_valid(wsi->desc.sockfd))
