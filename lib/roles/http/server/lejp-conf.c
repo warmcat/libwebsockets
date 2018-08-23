@@ -249,7 +249,7 @@ lejp_globals_cb(struct lejp_ctx *ctx, char reason)
 		rej = lwsws_align(a);
 		a->p += sizeof(*rej);
 
-		n = lejp_get_wildcard(ctx, 0, a->p, a->end - a->p);
+		n = lejp_get_wildcard(ctx, 0, a->p, lws_ptr_diff(a->end, a->p));
 		rej->next = a->info->reject_service_keywords;
 		a->info->reject_service_keywords = rej;
 		rej->name = a->p;
@@ -400,7 +400,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->pvo = lwsws_align(a);
 		a->p += sizeof(*a->pvo);
 
-		n = lejp_get_wildcard(ctx, 0, a->p, a->end - a->p);
+		n = lejp_get_wildcard(ctx, 0, a->p, lws_ptr_diff(a->end, a->p));
 		/* ie, enable this protocol, no options yet */
 		a->pvo->next = a->info->pvo;
 		a->info->pvo = a->pvo;
@@ -418,7 +418,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		headers = lwsws_align(a);
 		a->p += sizeof(*headers);
 
-		n = lejp_get_wildcard(ctx, 0, a->p, a->end - a->p);
+		n = lejp_get_wildcard(ctx, 0, a->p, lws_ptr_diff(a->end, a->p));
 		/* ie, enable this protocol, no options yet */
 		headers->next = a->info->headers;
 		a->info->headers = headers;
@@ -621,7 +621,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		mp_cgienv->next = a->m.cgienv;
 		a->m.cgienv = mp_cgienv;
 
-		n = lejp_get_wildcard(ctx, 0, a->p, a->end - a->p);
+		n = lejp_get_wildcard(ctx, 0, a->p, lws_ptr_diff(a->end, a->p));
 		mp_cgienv->name = a->p;
 		a->p += n;
 		mp_cgienv->value = a->p;
@@ -638,7 +638,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		pvo = lwsws_align(a);
 		a->p += sizeof(*a->pvo);
 
-		n = lejp_get_wildcard(ctx, 1, a->p, a->end - a->p);
+		n = lejp_get_wildcard(ctx, 1, a->p, lws_ptr_diff(a->end, a->p));
 		/* ie, enable this protocol, no options yet */
 		pvo->next = a->pvo->options;
 		a->pvo->options = pvo;
@@ -652,7 +652,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->pvo_em = lwsws_align(a);
 		a->p += sizeof(*a->pvo_em);
 
-		n = lejp_get_wildcard(ctx, 0, a->p, a->end - a->p);
+		n = lejp_get_wildcard(ctx, 0, a->p, lws_ptr_diff(a->end, a->p));
 		/* ie, enable this protocol, no options yet */
 		a->pvo_em->next = a->m.extra_mimetypes;
 		a->m.extra_mimetypes = a->pvo_em;
@@ -667,7 +667,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->pvo_int = lwsws_align(a);
 		a->p += sizeof(*a->pvo_int);
 
-		n = lejp_get_wildcard(ctx, 0, a->p, a->end - a->p);
+		n = lejp_get_wildcard(ctx, 0, a->p, lws_ptr_diff(a->end, a->p));
 		/* ie, enable this protocol, no options yet */
 		a->pvo_int->next = a->m.interpret;
 		a->m.interpret = a->pvo_int;
@@ -753,9 +753,9 @@ dostring:
 	p = ctx->buf;
 	p1 = strstr(p, ESC_INSTALL_DATADIR);
 	if (p1) {
-		n = p1 - p;
+		n = lws_ptr_diff(p1, p);
 		if (n > a->end - a->p)
-			n = a->end - a->p;
+			n = lws_ptr_diff(a->end, a->p);
 		lws_strncpy(a->p, p, n + 1);
 		a->p += n;
 		a->p += lws_snprintf(a->p, a->end - a->p, "%s", LWS_INSTALL_DATADIR);
@@ -938,7 +938,7 @@ lwsws_get_config_globals(struct lws_context_creation_info *info, const char *d,
 	a.plugin_dirs[a.count_plugin_dirs] = NULL;
 
 	*cs = a.p;
-	*len = a.end - a.p;
+	*len = lws_ptr_diff(a.end, a.p);
 
 	return 0;
 }
@@ -971,7 +971,7 @@ lwsws_get_config_vhosts(struct lws_context *context,
 		return 1;
 
 	*cs = a.p;
-	*len = a.end - a.p;
+	*len = lws_ptr_diff(a.end, a.p);
 
 	if (!a.any_vhosts) {
 		lwsl_err("Need at least one vhost\n");

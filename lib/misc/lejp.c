@@ -126,7 +126,7 @@ lejp_check_path_match(struct lejp_ctx *ctx)
 				q++;
 				continue;
 			}
-			ctx->wild[ctx->wildcount++] = p - ctx->path;
+			ctx->wild[ctx->wildcount++] = lws_ptr_diff(p, ctx->path);
 			q++;
 			/*
 			 * if * has something after it, match to .

@@ -458,7 +458,7 @@ rops_write_role_protocol_h2(struct lws *wsi, unsigned char *buf, size_t len,
 
 	/* hide it may have been compressed... */
 
-	return olen;
+	return (int)olen;
 }
 
 static int
