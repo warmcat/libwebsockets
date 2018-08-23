@@ -50,7 +50,7 @@
 #include <fcntl.h>
 #include <assert.h>
 #include <errno.h>
-#include "../lib/libwebsockets.h"
+#include <libwebsockets.h>
 
 #ifdef _WIN32
 #include <io.h>

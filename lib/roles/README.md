@@ -54,7 +54,7 @@ If the role is disabled in cmake, nothing in its directory is built.
 
 ### Role ops struct
 
-The role is defined by `struct lws_role_ops` in `lib/private/libwebsockets.h`,
+The role is defined by `struct lws_role_ops` in `lib/roles/private.h`,
 each role instantiates one of these and fills in the appropriate ops
 callbacks to perform its job.  By convention that lives in
 `./lib/roles/**role name**/ops-**role_name**.c`.
@@ -130,7 +130,7 @@ ALPN lists, and call your role ops callbacks for things like hooking vhost creat
 ### Enabling role adoption
 
 The primary way wsi get bound to a specific role is via the lws adoption api
-`lws_adopt_descriptor_vhost()`.  Add flags as necessary in `./lib/libwebsockets.h`
+`lws_adopt_descriptor_vhost()`.  Add flags as necessary in `./include/libwebsockets/lws-adopt.h`
 `enum lws_adoption_type` and follow the existing code in `lws_adopt_descriptor_vhost()`
 to bind a wsi with suitable flags to your role ops.
 
