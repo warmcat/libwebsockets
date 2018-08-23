@@ -45,7 +45,7 @@ int fork(void)
 }
 #endif
 
-#include "../lib/libwebsockets.h"
+#include <libwebsockets.h>
 
 #include <uv.h>
 

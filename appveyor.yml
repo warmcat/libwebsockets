@@ -51,7 +51,8 @@ after_build:
   - IF EXIST %APPVEYOR_BUILD_FOLDER%\build\libwebsockets-test-server.pem cp %APPVEYOR_BUILD_FOLDER%\build\libwebsockets-test-server.pem staging\share\libwebsockets-test-server
   - IF EXIST %APPVEYOR_BUILD_FOLDER%\build\libwebsockets-test-server.key.pem cp %APPVEYOR_BUILD_FOLDER%\build\libwebsockets-test-server.key.pem staging\share\libwebsockets-test-server
   - IF EXIST %APPVEYOR_BUILD_FOLDER%\build\lws_config.h cp %APPVEYOR_BUILD_FOLDER%\build\lws_config.h staging\include
-  - cp %APPVEYOR_BUILD_FOLDER%\lib\libwebsockets.h staging\include
+  - cp %APPVEYOR_BUILD_FOLDER%\include\libwebsockets.h staging\include
+  - cp -r %APPVEYOR_BUILD_FOLDER%\include\libwebsockets staging\include
   - 7z a build\lws-%LWS_METHOD%-%APPVEYOR_BUILD_ID%.zip %APPVEYOR_BUILD_FOLDER%\staging\*
 
 artifacts:

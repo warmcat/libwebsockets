@@ -35,7 +35,7 @@
 #include <unistd.h>
 #endif
 
-#include "../lib/libwebsockets.h"
+#include <libwebsockets.h>
 
 struct lws_poly_gen {
 	uint32_t cyc[2];

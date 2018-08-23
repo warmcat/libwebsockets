@@ -21,7 +21,7 @@
 
 #define LWS_DLL
 #define LWS_INTERNAL
-#include "../lib/libwebsockets.h"
+#include <libwebsockets.h>
 
 #include <stdlib.h>
 #include <string.h>

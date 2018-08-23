@@ -101,7 +101,37 @@ WARN_LOGFILE           =
 #---------------------------------------------------------------------------
 # Configuration options related to the input files
 #---------------------------------------------------------------------------
-INPUT                  = lib/libwebsockets.h \
+INPUT                  = include/libwebsockets.h \
+			 include/libwebsockets/lws-callbacks.h \
+			 include/libwebsockets/lws-cgi.h \
+			 include/libwebsockets/lws-client.h \
+			 include/libwebsockets/lws-context-vhost.h \
+			 include/libwebsockets/lws-esp32.h \
+			 include/libwebsockets/lws-genhash.h \
+			 include/libwebsockets/lws-genrsa.h \
+			 include/libwebsockets/lws-http.h \
+			 include/libwebsockets/lws-jwk.h \
+			 include/libwebsockets/lws-jws.h \
+			 include/libwebsockets/lws-lejp.h \
+			 include/libwebsockets/lws-logs.h \
+			 include/libwebsockets/lws-misc.h \
+			 include/libwebsockets/lws-network-helper.h \
+			 include/libwebsockets/lws-plugin-generic-sessions.h \
+			 include/libwebsockets/lws-protocols-plugins.h \
+			 include/libwebsockets/lws-purify.h \
+			 include/libwebsockets/lws-ring.h \
+			 include/libwebsockets/lws-service.h \
+			 include/libwebsockets/lws-sha1-base64.h \
+			 include/libwebsockets/lws-spa.h \
+			 include/libwebsockets/lws-stats.h \
+			 include/libwebsockets/lws-timeout-timer.h \
+			 include/libwebsockets/lws-vfs.h \
+			 include/libwebsockets/lws-write.h \
+			 include/libwebsockets/lws-writeable.h \
+			 include/libwebsockets/lws-ws-close.h \
+			 include/libwebsockets/lws-ws-ext.h \
+			 include/libwebsockets/lws-ws-state.h \
+			 include/libwebsockets/lws-x509.h \
 			 plugins/ssh-base/include/lws-plugin-ssh.h \
 			 ./READMEs/mainpage.md \
 			 ./READMEs/README.build.md \
@@ -112,11 +142,10 @@ INPUT                  = lib/libwebsockets.h \
 			 ./READMEs/README.generic-sessions.md \
 			 ./READMEs/README.generic-table.md \
 			 ./READMEs/README.test-apps.md \
-			 ./READMEs/README.lws-meta.md \
 			 ./READMEs/README-plugin-sshd-base.md \
 			 ./doc-assets 
 INPUT_ENCODING         = UTF-8
-FILE_PATTERNS          = lib/*.c *.md *.png
+FILE_PATTERNS          = lib/*.c *.md *.png include/*.h
 RECURSIVE              = NO
 EXCLUDE                =
 EXCLUDE_SYMLINKS       = NO
@@ -272,11 +301,11 @@ PERLMOD_MAKEVAR_PREFIX =
 #---------------------------------------------------------------------------
 # Configuration options related to the preprocessor
 #---------------------------------------------------------------------------
-ENABLE_PREPROCESSING   = NO
+ENABLE_PREPROCESSING   = YES
 MACRO_EXPANSION        = NO
 EXPAND_ONLY_PREDEF     = NO
 SEARCH_INCLUDES        = YES
-INCLUDE_PATH           =
+INCLUDE_PATH           = ./include
 INCLUDE_FILE_PATTERNS  =
 PREDEFINED             =
 EXPAND_AS_DEFINED      =
