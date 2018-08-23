@@ -587,7 +587,7 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 
 			/* but we still need to send cache control... */
 
-			if (m && m->cache_max_age && m->cache_reusable) {
+			if (m->cache_max_age && m->cache_reusable) {
 				if (!m->cache_revalidate) {
 					cc = cache_control;
 					cclen = sprintf(cache_control, "%s, max-age=%u",

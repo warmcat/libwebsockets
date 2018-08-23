@@ -362,6 +362,9 @@ rops_write_role_protocol_h2(struct lws *wsi, unsigned char *buf, size_t len,
 	unsigned char flags = 0, base = (*wp) & 0x1f;
 	size_t olen = len;
 	int n;
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+	unsigned char mtubuf[1450 + LWS_PRE];
+#endif
 
 	/* if not in a state to send stuff, then just send nothing */
 
@@ -386,7 +389,7 @@ rops_write_role_protocol_h2(struct lws *wsi, unsigned char *buf, size_t len,
 
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
 	if (wsi->http.lcs) {
-		unsigned char mtubuf[1450 + LWS_PRE], *out = mtubuf + LWS_PRE;
+		unsigned char *out = mtubuf + LWS_PRE;
 		size_t o = sizeof(mtubuf) - LWS_PRE;
 
 		n = lws_http_compression_transform(wsi, buf, len, wp, &out, &o);
