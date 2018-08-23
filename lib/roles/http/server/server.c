@@ -1317,7 +1317,7 @@ lws_http_action(struct lws *wsi)
 	}
 #endif
 
-	n = uri_len - (s - uri_ptr); // (int)strlen(s);
+	n = uri_len - lws_ptr_diff(s, uri_ptr); // (int)strlen(s);
 	if (s[0] == '\0' || (n == 1 && s[n - 1] == '/'))
 		s = (char *)hit->def;
 	if (!s)
