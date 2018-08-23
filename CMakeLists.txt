@@ -218,6 +218,8 @@ if (LWS_WITH_HTTP2 AND LWS_WITHOUT_SERVER)
 endif()
 
 
+include_directories(include)
+
 
 if (LWS_WITH_LWSWS)
  message(STATUS "LWS_WITH_LWSWS --> Enabling LWS_WITH_PLUGINS and LWS_WITH_LIBUV")
@@ -732,7 +734,7 @@ set(HDR_PRIVATE
 	lib/core/private.h)
 
 set(HDR_PUBLIC
-	"${PROJECT_SOURCE_DIR}/lib/libwebsockets.h"
+	"${PROJECT_SOURCE_DIR}/include/libwebsockets.h"
 	"${PROJECT_BINARY_DIR}/lws_config.h"
 	"${PROJECT_SOURCE_DIR}/plugins/ssh-base/include/lws-plugin-ssh.h"
 	)
@@ -1147,7 +1149,7 @@ if (LWS_WITH_STATIC)
 	endif()
 	add_custom_command(
 		      TARGET websockets
-		      COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/lib/libwebsockets.h
+		      COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/include/libwebsockets.h
 		     					 ${CMAKE_CURRENT_BINARY_DIR}/include/libwebsockets.h
 	)
 	add_custom_command(
@@ -1187,7 +1189,7 @@ if (LWS_WITH_SHARED)
 
 	add_custom_command(
 		      TARGET websockets_shared
-		      COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/lib/libwebsockets.h
+		      COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/include/libwebsockets.h
 		     					 ${CMAKE_CURRENT_BINARY_DIR}/include/libwebsockets.h
 	)
 	add_custom_command(
@@ -2063,6 +2065,9 @@ configure_file(${PROJECT_SOURCE_DIR}/cmake/LibwebsocketsConfigVersion.cmake.in
 # Installation.
 #
 
+install(DIRECTORY include/libwebsockets
+	DESTINATION "${LWS_INSTALL_INCLUDE_DIR}" COMPONENT dev_headers)
+
 # Install libs and headers.
 install(TARGETS ${LWS_LIBRARIES}
 		EXPORT LibwebsocketsTargets
@@ -2070,6 +2075,7 @@ install(TARGETS ${LWS_LIBRARIES}
 		ARCHIVE DESTINATION "${LWS_INSTALL_LIB_DIR}${LIB_SUFFIX}" COMPONENT libraries
 		RUNTIME DESTINATION "${LWS_INSTALL_BIN_DIR}" COMPONENT libraries # Windows DLLs
 		PUBLIC_HEADER DESTINATION "${LWS_INSTALL_INCLUDE_DIR}" COMPONENT dev)
+		
 set(CPACK_COMPONENT_LIBRARIES_DISPLAY_NAME "Libraries")
 set(CPACK_COMPONENT_DEV_DISPLAY_NAME "Development files")
 
