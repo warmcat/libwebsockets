@@ -1751,7 +1751,9 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2) AND NOT LWS_WITHOUT_TESTAPPS)
 			"${PROJECT_SOURCE_DIR}/test-apps/http2.png"
 			"${PROJECT_SOURCE_DIR}/test-apps/wss-over-h2.png"
 			"${PROJECT_SOURCE_DIR}/test-apps/lws-common.js"
-			"${PROJECT_SOURCE_DIR}/test-apps/test.html")
+			"${PROJECT_SOURCE_DIR}/test-apps/test.html"
+			"${PROJECT_SOURCE_DIR}/test-apps/test.css"
+			"${PROJECT_SOURCE_DIR}/test-apps/test.js")
 
 		add_custom_command(TARGET test-server
 						POST_BUILD 
@@ -2126,7 +2128,7 @@ if (LWS_WITH_PLUGINS)
 		DESTINATION share/libwebsockets-test-server/plugins
 		COMPONENT plugins)
 if (LWS_WITH_SERVER_STATUS)
-	install(FILES plugins/server-status.html;plugins/lwsws-logo.png
+	install(FILES plugins/server-status.html;plugins/server-status.js;plugins/server-status.css;plugins/lwsws-logo.png
 		DESTINATION share/libwebsockets-test-server/server-status
 			COMPONENT examples)
 endif()
