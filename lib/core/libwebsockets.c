@@ -3507,7 +3507,7 @@ lws_stats_log_dump(struct lws_context *context)
 		wl = pt->http.ah_wait_list;
 		while (wl) {
 			m++;
-			wl = wl->ah_wait_list;
+			wl = wl->http.ah_wait_list;
 		}
 
 		lwsl_notice("  AH wait list count / actual:      %d / %d\n",
@@ -3544,7 +3544,8 @@ lws_stats_log_dump(struct lws_context *context)
 					strcpy(buf, "unknown");
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 				lwsl_notice("  peer %s: count wsi: %d, count ah: %d\n",
-					    buf, df->count_wsi, df->count_ah);
+					    buf, df->count_wsi,
+					    df->http.count_ah);
 #else
 				lwsl_notice("  peer %s: count wsi: %d\n",
 					    buf, df->count_wsi);
