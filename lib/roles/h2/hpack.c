@@ -1356,8 +1356,12 @@ int lws_add_http2_header_by_name(struct lws *wsi, const unsigned char *name,
 	*((*p)++) = 0 | lws_h2_num_start(7, len); /* non-HUF */
 	if (lws_h2_num(7, len, p, end))
 		return 1;
-	memcpy(*p, name, len);
-	*p += len;
+
+	/* upper-case header names are verboten in h2, but OK on h1, so
+	 * they're not illegal per se.  Silently convert them for h2... */
+
+	while(len--)
+		*((*p)++) = tolower((int)*name++);
 
 	*((*p)++) = 0 | lws_h2_num_start(7, length); /* non-HUF */
 	if (lws_h2_num(7, length, p, end))
@@ -1365,8 +1369,6 @@ int lws_add_http2_header_by_name(struct lws *wsi, const unsigned char *name,
 
 	memcpy(*p, value, length);
 	*p += length;
-
-	//lwsl_hexdump(op, *p -op);
 
 	return 0;
 }
