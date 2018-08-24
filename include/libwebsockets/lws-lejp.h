@@ -184,7 +184,7 @@ typedef signed char (*lejp_callback)(struct lejp_ctx *ctx, char reason);
 #endif
 #ifndef LEJP_STRING_CHUNK
 /* must be >= 30 to assemble floats */
-#define LEJP_STRING_CHUNK 255
+#define LEJP_STRING_CHUNK 254
 #endif
 
 enum num_flags {
@@ -218,7 +218,7 @@ struct lejp_ctx {
 	uint16_t i[LEJP_MAX_INDEX_DEPTH]; /* index array */
 	uint16_t wild[LEJP_MAX_INDEX_DEPTH]; /* index array */
 	char path[LEJP_MAX_PATH];
-	char buf[LEJP_STRING_CHUNK];
+	char buf[LEJP_STRING_CHUNK + 1];
 
 	/* int */
 
