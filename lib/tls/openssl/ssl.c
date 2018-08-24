@@ -216,7 +216,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 	}
 #endif
 #if defined(LWS_WITH_STATS)
-	if (!wsi->seen_rx) {
+	if (!wsi->seen_rx && wsi->accept_start_us) {
                 lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_MS_SSL_RX_DELAY,
 				time_in_microseconds() - wsi->accept_start_us);
                 lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_SSL_CONNS_HAD_RX, 1);
