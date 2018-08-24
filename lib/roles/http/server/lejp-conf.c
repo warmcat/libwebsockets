@@ -205,6 +205,7 @@ struct jpargs {
 	unsigned int enable_client_ssl:1;
 	unsigned int fresh_mount:1;
 	unsigned int any_vhosts:1;
+	unsigned int chunk:1;
 };
 
 static void *
@@ -212,6 +213,8 @@ lwsws_align(struct jpargs *a)
 {
 	if ((lws_intptr_t)(a->p) & 15)
 		a->p += 16 - ((lws_intptr_t)(a->p) & 15);
+
+	a->chunk = 0;
 
 	return a->p;
 }
@@ -413,25 +416,31 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 	}
 
 	/* this catches, eg, vhosts[].headers[].xxx */
-	if (reason == LEJPCB_VAL_STR_END &&
+	if ((reason == LEJPCB_VAL_STR_END || reason == LEJPCB_VAL_STR_CHUNK) &&
 	    ctx->path_match == LEJPVP_HEADERS_NAME + 1) {
-		headers = lwsws_align(a);
-		a->p += sizeof(*headers);
 
-		n = lejp_get_wildcard(ctx, 0, a->p, lws_ptr_diff(a->end, a->p));
-		/* ie, enable this protocol, no options yet */
-		headers->next = a->info->headers;
-		a->info->headers = headers;
-		headers->name = a->p;
-		lwsl_notice("  adding header %s=%s\n", a->p, ctx->buf);
-		a->p += n - 1;
-		*(a->p++) = ':';
-		if (a->p < a->end)
-			*(a->p++) = '\0';
-		else
-			*(a->p - 1) = '\0';
-		headers->value = a->p;
-		headers->options = NULL;
+		if (!a->chunk) {
+			headers = lwsws_align(a);
+			a->p += sizeof(*headers);
+
+			n = lejp_get_wildcard(ctx, 0, a->p,
+					lws_ptr_diff(a->end, a->p));
+			/* ie, add this header */
+			headers->next = a->info->headers;
+			a->info->headers = headers;
+			headers->name = a->p;
+
+			lwsl_notice("  adding header %s=%s\n", a->p, ctx->buf);
+			a->p += n - 1;
+			*(a->p++) = ':';
+			if (a->p < a->end)
+				*(a->p++) = '\0';
+			else
+				*(a->p - 1) = '\0';
+			headers->value = a->p;
+			headers->options = NULL;
+		}
+		a->chunk = reason == LEJPCB_VAL_STR_CHUNK;
 		goto dostring;
 	}
 
@@ -751,6 +760,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 
 dostring:
 	p = ctx->buf;
+	p[LEJP_STRING_CHUNK] = '\0';
 	p1 = strstr(p, ESC_INSTALL_DATADIR);
 	if (p1) {
 		n = lws_ptr_diff(p1, p);
@@ -763,7 +773,8 @@ dostring:
 	}
 
 	a->p += lws_snprintf(a->p, a->end - a->p, "%s", p);
-	*(a->p)++ = '\0';
+	if (reason == LEJPCB_VAL_STR_END)
+		*(a->p)++ = '\0';
 
 	return 0;
 }
