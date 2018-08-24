@@ -423,7 +423,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		headers->next = a->info->headers;
 		a->info->headers = headers;
 		headers->name = a->p;
-		// lwsl_notice("  adding header %s=%s\n", a->p, ctx->buf);
+		lwsl_notice("  adding header %s=%s\n", a->p, ctx->buf);
 		a->p += n - 1;
 		*(a->p++) = ':';
 		if (a->p < a->end)
