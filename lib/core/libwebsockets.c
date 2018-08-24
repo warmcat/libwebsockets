@@ -2593,9 +2593,11 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 	}
 
 #if defined(LWS_WITH_UNIX_SOCK)
-	if (LWS_UNIX_SOCK_ENABLED(vhost) && vhost->context->uid) {
-		chown(serv_unix.sun_path, vhost->context->uid, vhost->context->gid);
-	}
+	if (LWS_UNIX_SOCK_ENABLED(vhost) && vhost->context->uid)
+		if (chown(serv_unix.sun_path, vhost->context->uid,
+			    vhost->context->gid))
+			lwsl_notice("%s: chown for unix skt %s failed\n",
+				    __func__, serv_unix.sun_path);
 #endif
 
 #ifndef LWS_PLAT_OPTEE
