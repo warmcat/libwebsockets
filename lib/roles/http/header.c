@@ -212,34 +212,40 @@ lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 #endif
 
 #ifdef LWS_WITH_HTTP2
-	if (lwsi_role_h2(wsi) || lwsi_role_h2_ENCAPSULATION(wsi))
-		return lws_add_http2_header_status(wsi, code, p, end);
+	if (lwsi_role_h2(wsi) || lwsi_role_h2_ENCAPSULATION(wsi)) {
+		n = lws_add_http2_header_status(wsi, code, p, end);
+		if (n)
+			return n;
+	} else
 #endif
-	if (code >= 400 && code < (400 + LWS_ARRAY_SIZE(err400)))
-		description = err400[code - 400];
-	if (code >= 500 && code < (500 + LWS_ARRAY_SIZE(err500)))
-		description = err500[code - 500];
+	{
+		if (code >= 400 && code < (400 + LWS_ARRAY_SIZE(err400)))
+			description = err400[code - 400];
+		if (code >= 500 && code < (500 + LWS_ARRAY_SIZE(err500)))
+			description = err500[code - 500];
 
-	if (code == 100)
-		description = "Continue";
-	if (code == 200)
-		description = "OK";
-	if (code == 304)
-		description = "Not Modified";
-	else
-		if (code >= 300 && code < 400)
-			description = "Redirect";
+		if (code == 100)
+			description = "Continue";
+		if (code == 200)
+			description = "OK";
+		if (code == 304)
+			description = "Not Modified";
+		else
+			if (code >= 300 && code < 400)
+				description = "Redirect";
 
-	if (wsi->http.request_version < LWS_ARRAY_SIZE(hver))
-		p1 = hver[wsi->http.request_version];
-	else
-		p1 = hver[0];
+		if (wsi->http.request_version < LWS_ARRAY_SIZE(hver))
+			p1 = hver[wsi->http.request_version];
+		else
+			p1 = hver[0];
 
-	n = sprintf((char *)code_and_desc, "%s %u %s", p1, code, description);
+		n = sprintf((char *)code_and_desc, "%s %u %s", p1, code,
+			    description);
 
-	if (lws_add_http_header_by_name(wsi, NULL, code_and_desc, n, p, end))
-		return 1;
-
+		if (lws_add_http_header_by_name(wsi, NULL, code_and_desc, n, p,
+						end))
+			return 1;
+	}
 	headers = wsi->vhost->headers;
 	while (headers) {
 		if (lws_add_http_header_by_name(wsi,
