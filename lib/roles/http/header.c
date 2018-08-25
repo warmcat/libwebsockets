@@ -271,6 +271,12 @@ lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 				"includeSubDomains", 36, p, end))
 			return 1;
 
+	if (*p >= (end - 2)) {
+		lwsl_err("%s: reached end of buffer\n", __func__);
+
+		return 1;
+	}
+
 	return 0;
 }
 

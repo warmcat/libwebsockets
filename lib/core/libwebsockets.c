@@ -436,7 +436,7 @@ __lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 
 	time(&now);
 
-	lwsl_debug("%s: %p: %d secs\n", __func__, wsi, secs);
+	lwsl_debug("%s: %p: %d secs (reason %d)\n", __func__, wsi, secs, reason);
 	wsi->pending_timeout_limit = secs;
 	wsi->pending_timeout_set = now;
 	wsi->pending_timeout = reason;

@@ -131,9 +131,11 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	 * send in the buflist.
 	 */
 	if (lws_has_buffered_out(wsi)) {
-		lwsl_info("%p partial adv %d (vs %ld)\n", wsi, n,
-			  (long)real_len);
-		lws_buflist_use_segment(&wsi->buflist_out, n);
+		if (n) {
+			lwsl_info("%p partial adv %d (vs %ld)\n", wsi, n,
+					(long)real_len);
+			lws_buflist_use_segment(&wsi->buflist_out, n);
+		}
 
 		if (!lws_has_buffered_out(wsi)) {
 			lwsl_info("%s: wsi %p: buflist_out flushed\n",
