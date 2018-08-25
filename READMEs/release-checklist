@@ -81,3 +81,13 @@ Release Checklist
 9) website
 
  a) update latest tag for release branch
+
+10) post-relase version bump
+
+Bump the PATCH part of the version to 99
+
+-set(CPACK_PACKAGE_VERSION_PATCH "0")
++set(CPACK_PACKAGE_VERSION_PATCH "99")
+
+to reflect it's newer than any stable release but not a new version yet.
+
