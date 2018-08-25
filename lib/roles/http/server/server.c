@@ -459,7 +459,7 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 #endif
 	int spin = 0;
 #endif
-	char path[256], sym[512];
+	char path[256], sym[2048];
 	unsigned char *p = (unsigned char *)sym + 32 + LWS_PRE, *start = p;
 	unsigned char *end = p + sizeof(sym) - 32 - LWS_PRE;
 #if !defined(WIN32) && !defined(LWS_WITH_ESP32)
@@ -577,8 +577,11 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 
 			/* we don't need to send the payload */
 			if (lws_add_http_header_status(wsi,
-					HTTP_STATUS_NOT_MODIFIED, &p, end))
+					HTTP_STATUS_NOT_MODIFIED, &p, end)) {
+				lwsl_err("%s: failed adding not modified\n",
+						__func__);
 				return -1;
+			}
 
 			if (lws_add_http_header_by_token(wsi,
 					WSI_TOKEN_HTTP_ETAG,

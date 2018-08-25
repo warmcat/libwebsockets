@@ -665,7 +665,7 @@ rops_write_role_protocol_h1(struct lws *wsi, unsigned char *buf, size_t len,
 			 * pipelining
 			 */
 			n = lws_snprintf(c, sizeof(c), "%X\x0d\x0a", (int)o);
-			lwsl_notice("%s: chunk %s\n", __func__, c);
+			// lwsl_notice("%s: chunk %s\n", __func__, c);
 			out -= n;
 			o += n;
 			memcpy(out, c, n);
