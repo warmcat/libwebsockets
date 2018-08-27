@@ -270,6 +270,7 @@ retry_as_first:
 				}
 			in++;
 			if (!m) {
+				s->state = MT_IGNORE1; // Unknown header - ignore it
 				s->mp = 0;
 				continue;
 			}
