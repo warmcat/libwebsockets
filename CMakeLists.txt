@@ -2138,6 +2138,7 @@ if (LWS_WITH_GENERIC_SESSIONS)
 		      plugins/generic-sessions/assets/seats.jpg
 		      plugins/generic-sessions/assets/failed-login.html
 		      plugins/generic-sessions/assets/lwsgs.js
+		      plugins/generic-sessions/assets/lwsgs.css
 		      plugins/generic-sessions/assets/post-register-fail.html
 		      plugins/generic-sessions/assets/post-register-ok.html
 		      plugins/generic-sessions/assets/post-verify-ok.html

@@ -5,7 +5,7 @@ var lwsgs_auth = "$lwsgs_auth";
 var lwsgs_email = "$lwsgs_email";
 
 var lwsgs_html = '\
-	<div id="dlogin" style="display:none"> \
+	<div id="dlogin" class="hidden"> \
         <form action="lwsgs-login" method="post"> \
          <input type="hidden" name="admin" value="needadmin/admin-login.html"> \
          <input type="hidden" name="good" value="index.html"> \
@@ -14,35 +14,35 @@ var lwsgs_html = '\
          <input type="hidden" name="forgot-bad" value="sent-forgot-fail.html">\
          <input type="hidden" name="forgot-post-good" value="post-forgot-ok.html">\
          <input type="hidden" name="forgot-post-bad" value="post-forgot-fail.html">\
-	 <table style="vertical-align:top;text-align:right"\
+	 <table class="r">\
           <tr>\
            <td>User Name\
             <input type="text" size="10" id="username" name="username"></td>\
            <td>Password\
             <input type="password" id="password" size="10" name="password"><div id="pw1"></div></td>\
 	     </tr><tr>\
-	   <td colspan="2" style="text-align:center"><input type="submit" id="login" name="login" value="Login" style="margin: 4px; padding: 2px; font-weight=bold;">\
-      &nbsp;<input type="submit" id="forgot" name="forgot" value="Forgot password" style="margin: 2px; padding: 2px">\
-           &nbsp;<input id="doreg" type="button" value="Sign up" style="margin: 2px; padding: 2px"></td>\
+	   <td colspan="2" class="c"><input type="submit" id="login" name="login" value="Login" class="em">\
+      &nbsp;<input type="submit" id="forgot" name="forgot" value="Forgot password">\
+           &nbsp;<input id="doreg" type="button" value="Sign up"></td>\
           </tr>\
          </table>\
         </form>\
        </div>\
 \
-       <div id="dlogout" style="display:none;text-align:right">\
-        <form action="lwsgs-logout" method="post" style="text-align:right">\
+       <div id="dlogout" class="hiddenr">\
+        <form action="lwsgs-logout" method="post" class="r">\
          <input type="hidden" name="good" value="index.html">\
-         <table style="vertical-align:top;text-align:right">\
+         <table class="r">\
           <tr><td><span id=grav></span></td>\
- 	   <td style="text-align:center"><table><tr><td style="text-align:center">\
+ 	   <td class="tac"><table><tr><td class="tac">\
 		<a href="#" id="clink">\
 		<span id="curuser"></span></a></td></tr><tr>\
-           <td style="text-align:center"><input type="submit" name="logout" value="Logout" style="margin: 2px; padding: 2px"></td>\
+           <td class="tac"><input type="submit" name="logout" value="Logout"></td>\
           </tr></table></td></tr>\
          </table>\
         </form></div>\
 \
-	<div id="dregister" style="display:none">\
+	<div id="dregister" class="hidden">\
 	 <form action="lwsgs-login" method="post">\
 	  <input type="hidden" name="admin" value="needadmin/admin-login.html">\
 	  <input type="hidden" name="good" value="successful-login.html">\
@@ -53,14 +53,10 @@ var lwsgs_html = '\
 	  <input type="hidden" name="forgot-bad" value="sent-forgot-fail.html">\
 	  <input type="hidden" name="forgot-post-good" value="post-forgot-ok.html">\
 	  <input type="hidden" name="forgot-post-bad" value="post-forgot-fail.html">\
-	  <table style="vertical-align:top;text-align:left">\
+	  <table class="l">\
 	     <tr>\
 	      <td colspan=2 align=center>\
 		<span id="curuser"></span>\
-	<script>\
-		if (lwsgs_user)\
-			document.getElementById("curuser").innerHTML = "currently logged in as " + lwsgs_san(lwsgs_user) + "</br>";\
-	</script>\
 	       <b>Please enter your details to register</b>:\
 	      </td>\
 	     </tr>\
@@ -85,16 +81,16 @@ var lwsgs_html = '\
 	    </tr>\
 	    <tr>\
 	     <td colspan=2 align=center>\
-<input type="submit" id="register" name="register" value="Register" style="margin: 2px; padding: 2px">\
-<input type="submit" id="rforgot" name="forgot" value="Forgot Password" style="margin: 2px; padding: 2px;display: none">\
-<input type="button" id="cancel" name="cancel" value="Cancel" style="margin: 2px; padding: 2px;">\
+<input type="submit" id="register" name="register" value="Register" >\
+<input type="submit" id="rforgot" name="forgot" value="Forgot Password" class="hidden">\
+<input type="button" id="cancel" name="cancel" value="Cancel">\
 	     </td>\
 	    </tr>\
          </table>\
         </form>\
        </div>\
        \
-       <div id="dchange" style="display:none">\
+       <div id="dchange" class="hidden">\
         <form action="lwsgs-change" method="post">\
          <input type="hidden" id="cusername" name="username">\
          <input type="hidden" name="admin" value="needadmin/admin-login.html">\
@@ -106,16 +102,10 @@ var lwsgs_html = '\
          <input type="hidden" name="forgot-bad" value="sent-forgot-fail.html">\
          <input type="hidden" name="forgot-post-good" value="post-forgot-ok.html">\
          <input type="hidden" name="forgot-post-bad" value="post-forgot-fail.html">\
-         <table style="vertical-align:top;text-align:left">\
+         <table class="l">\
 	     <tr>\
 	      <td colspan=2 align=center>\
 		<span id="ccuruser"></span>\
-	<script nonce="lwscaro">\
-		if (lwsgs_user)\
-			document.getElementById("ccuruser").innerHTML =\
-			  "<span class=\"gstitle\">Login settings for " +\
-			  lwsgs_san(lwsgs_user) + "</span></br>";\
-	</script>\
 	       <b>Please enter your details to change</b>:\
 	      </td>\
 	     </tr>\
@@ -144,11 +134,11 @@ var lwsgs_html = '\
 	    <tr>\
 	     <td colspan=2 align=center>\
 	      <input type="submit" id="change" name="change"\
-	       value="Change" style="margin: 6px; padding: 6px">\
+	       value="Change" class="wide">\
 	      <input type="submit" id="cforgot" name="forgot"\
-	       value="Forgot Password" style="margin: 6px; padding: 6px;display: none">\
+	       value="Forgot Password" class="wide hidden">\
 	      <input type="button" id="cancel2" name="cancel"\
-	       value="Cancel" style="margin: 6px; padding: 6px;">\
+	       value="Cancel" class="wide">\
 	     </td>\
 	    </tr>\
 	    <tr>\
@@ -156,14 +146,14 @@ var lwsgs_html = '\
 	      <input type="checkbox" id="showdel" name="showdel"\
 	       > Show Delete&nbsp;\
 	      <input type="submit" id="delete" name="delete" \
-	       value="Delete Account" style="margin: 6px; padding: 6px;display: none">\
+	       value="Delete Account" class="wide hidden">\
 	     </td>\
 	    </tr>\
          </table>\
         </form>\
        </div>\
        \
-       <div id="dadmin" style="display:none">\
+       <div id="dadmin" class="hidden">\
          Admin settings TBD\
        </div>\
 ';
@@ -260,7 +250,7 @@ function lwsgs_rupdate()
 	    document.getElementById('password2').value) {
 		if (document.getElementById('rpassword').value.length)
 			document.getElementById('match').innerHTML = 
-				"<b style=\"color:green\">\u2713</b>";
+				"<b class=\"green\">\u2713</b>";
 		else
 			document.getElementById('match').innerHTML = "";
 		document.getElementById('pw2').style = "";
@@ -268,10 +258,10 @@ function lwsgs_rupdate()
 		if (document.getElementById('password2').value ||
 		    document.getElementById('email').value) { // ie, he is filling in "register" path and cares
 			document.getElementById('match').innerHTML =
-				"<span style=\"color: red\">\u2718 <b>Passwords do not match</b></span>";
+				"<span class=\"bad\">\u2718 <b>Passwords do not match</b></span>";
 		} else
 			document.getElementById('match').innerHTML =
-				"<span style=\"color: gray\">\u2718 Passwords do not match</span>";
+				"<span class=\"bad\">\u2718 Passwords do not match</span>";
 
 		en_register = 0;
 	}
@@ -282,7 +272,7 @@ function lwsgs_rupdate()
 		document.getElementById('rpw1').innerHTML = "Need 8 chars";
 	} else
 		if (document.getElementById('rpassword').value.length)
-			document.getElementById('rpw1').innerHTML = "<b style=\"color:green\">\u2713</b>";
+			document.getElementById('rpw1').innerHTML = "<b class=\"green\">\u2713</b>";
 		else
 			document.getElementById('rpw1').innerHTML = "";
 
@@ -304,13 +294,13 @@ function lwsgs_rupdate()
 
 		if (uc) {
 			if (document.getElementById('rusername').value)
-				uc.innerHTML = "<b style=\"color:green\">\u2713</b>";
+				uc.innerHTML = "<b class=\"green\">\u2713</b>";
 			else
 				uc.innerHTML = "";
 		}
 	} else {
 		if (document.getElementById('uchk'))
-			ocument.getElementById('uchk').innerHTML = "<b style=\"color:red\">\u2718 Already registered</b>";
+			ocument.getElementById('uchk').innerHTML = "<b class=\"red\">\u2718 Already registered</b>";
 		en_forgot = 1;
 	}
 
@@ -319,13 +309,13 @@ function lwsgs_rupdate()
 
 		if (ec) {
 			if (document.getElementById('email').value)
-				ec.innerHTML = "<b style=\"color:green\">\u2713</b>";
+				ec.innerHTML = "<b class=\"green\">\u2713</b>";
 			else
 				ec.innerHTML = "";
 		}
 	} else {
 		if (document.getElementById('echk'))
-			document.getElementById('echk').innerHTML = "<b style=\"color:red\">\u2718 Already registered</b>";
+			document.getElementById('echk').innerHTML = "<b class=\"red\">\u2718 Already registered</b>";
 		en_forgot = 1;
 	}
 
@@ -355,7 +345,7 @@ function lwsgs_cupdate()
 		    document.getElementById('ccurpw').value.length < 8) {
 			en_change = 0;
 			pwok = 0;
-			document.getElementById('cuchk').innerHTML = "<b style=\"color:red\">\u2718</b>";
+			document.getElementById('cuchk').innerHTML = "<b class=\"red\">\u2718</b>";
 		} else {
 			en_forgot = 0;
 			document.getElementById('cuchk').innerHTML = "";
@@ -367,7 +357,7 @@ function lwsgs_cupdate()
 	if (document.getElementById('cpassword').value ==
 	    document.getElementById('cpassword2').value) {
 		if (document.getElementById('cpassword').value.length)
-			document.getElementById('cmatch').innerHTML = "<b style=\"color:green\">\u2713</b>";
+			document.getElementById('cmatch').innerHTML = "<b class=\"green\">\u2713</b>";
 		else
 			document.getElementById('cmatch').innerHTML = "";
 		document.getElementById('pw2').style = "";
@@ -376,9 +366,9 @@ function lwsgs_cupdate()
 		    //document.getElementById('cemail').value
 		) { // ie, he is filling in "register" path and cares
 			document.getElementById('cmatch').innerHTML =
-				"<span style=\"color: red\">\u2718 <b>Passwords do not match</b></span>";
+				"<span class=\"red\">\u2718 <b>Passwords do not match</b></span>";
 		} else
-			document.getElementById('cmatch').innerHTML = "<span style=\"color: gray\">\u2718 Passwords do not match</span>";
+			document.getElementById('cmatch').innerHTML = "<span class=\"red\">\u2718 Passwords do not match</span>";
 
 		en_change = 0;
 	}
@@ -392,7 +382,7 @@ function lwsgs_cupdate()
 
 		if (cpw) {
 			if (document.getElementById('cpassword').value.length)
-				cpw.innerHTML = "<b style=\"color:green\">\u2713</b>";
+				cpw.innerHTML = "<b class=\"green\">\u2713</b>";
 			else
 				cpw.innerHTML = "";
 		}
@@ -500,6 +490,15 @@ function lwsgs_initial()
 {
 	document.getElementById('lwsgs').innerHTML = lwsgs_html;
 
+	if (lwsgs_user) {
+		document.getElementById("curuser").innerHTML =
+			"currently logged in as " + lwsgs_san(lwsgs_user) + "</br>";
+
+		document.getElementById("ccuruser").innerHTML =
+		  "<span class=\"gstitle\">Login settings for " +
+		  lwsgs_san(lwsgs_user) + "</span></br>";
+	}
+
 	document.getElementById('username').oninput = lwsgs_update;
 	document.getElementById('username').onchange = lwsgs_update;
 	document.getElementById('password').oninput = lwsgs_update;
@@ -528,3 +527,105 @@ function lwsgs_initial()
 	lwsgs_update();
 	lwsgs_cupdate();
 }
+
+window.addEventListener("load", function() {
+	lwsgs_initial();
+	document.getElementById("nolog").style.display = !!lwsgs_user ? "none" : "inline-block";
+	document.getElementById("logged").style.display = !lwsgs_user ? "none" : "inline-block";
+
+	document.getElementById("msg").onkeyup = mupd;
+	document.getElementById("msg").onchange = mupd;
+
+	var ws;
+
+	function mb_format(s)
+	{
+		var r = "", n, wos = 0;
+		
+		for (n = 0; n < s.length; n++) {
+			if (s[n] == ' ')
+				wos = 0;
+			else {
+				wos++;
+				if (wos == 40) {
+					wos = 0;
+					r = r + ' ';
+				}
+			}
+			if (s[n] == '<') {
+				r = r + "&lt;";
+				continue;
+			}
+			if (s[n] == '\n') {
+				r = r + "<br>";
+				continue;
+			}
+				
+			r = r + s[n];
+		}
+		
+		return r;
+	}
+
+	function add_div(n, m)
+	{
+		var q = document.getElementById(n);
+		var d = new Date(m.time * 1000);
+		
+		q.innerHTML = "<br><div class=\"group2\"><table class=\"fixed\"><tr><td>" +
+			"<img src=\"https://www.gravatar.com/avatar/" + md5(m.email) +
+			"?d=identicon\"><br>" +
+			"<b>" + lwsgs_san(m.username) + "</b><br>" +
+			"<span class=\"small\">" + d.toDateString() +
+			  "<br>" + d.toTimeString() + "</span><br>" +
+			"IP: " + lwsgs_san(m.ip) +
+			"</td><td class=\"ava\"><span>" +
+			mb_format(m.content) +
+			"</span></td></tr></table></div><br>" + q.innerHTML;
+	}
+
+	function get_appropriate_ws_url()
+	{
+		var pcol;
+		var u = document.URL;
+
+		if (u.substring(0, 5) == "https") {
+			pcol = "wss://";
+			u = u.substr(8);
+		} else {
+			pcol = "ws://";
+			if (u.substring(0, 4) == "http")
+				u = u.substr(7);
+		}
+		u = u.split('/');
+
+		return pcol + u[0] + "/xxx";
+	}
+
+	if (lwsgs_user) {
+		if (typeof MozWebSocket != "undefined")
+			ws = new MozWebSocket(get_appropriate_ws_url(),
+					   "protocol-lws-messageboard");
+		else
+			ws = new WebSocket(get_appropriate_ws_url(),
+					   "protocol-lws-messageboard");
+
+		try {
+			ws.onopen = function() {
+				document.getElementById("debug").textContent = "ws opened";
+			}
+			ws.onmessage =function got_packet(msg) {
+				add_div("messages", JSON.parse(msg.data));
+			}
+			ws.onclose = function(){
+			}
+		} catch(exception) {
+			alert('<p>Error' + exception);  
+		}
+	}
+
+	function mupd()
+	{
+		document.getElementById("send").disabled = !document.getElementById("msg").value;
+	}
+}, false);
