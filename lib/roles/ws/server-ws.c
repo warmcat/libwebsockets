@@ -259,6 +259,26 @@ lws_process_ws_upgrade(struct lws *wsi)
 		lwsl_err("NULL protocol at lws_read\n");
 
 	/*
+	 * We are upgrading to ws, so http/1.1 + h2 and keepalive + pipelined
+	 * header considerations about keeping the ah around no longer apply.
+	 *
+	 * However it's common for the first ws protocol data to have been
+	 * coalesced with the browser upgrade request and to already be in the
+	 * ah rx buffer.
+	 */
+
+	lws_pt_lock(pt, __func__);
+
+	if (wsi->h2_stream_carries_ws)
+		lws_role_transition(wsi, LWSIFR_SERVER | LWSIFR_P_ENCAP_H2,
+				    LRS_ESTABLISHED, &role_ops_ws);
+	else
+		lws_role_transition(wsi, LWSIFR_SERVER, LRS_ESTABLISHED,
+				    &role_ops_ws);
+
+	lws_pt_unlock(pt);
+
+	/*
 	 * It's either websocket or h2->websocket
 	 *
 	 * Select the first protocol we support from the list
@@ -305,7 +325,8 @@ lws_process_ws_upgrade(struct lws *wsi)
 			if (wsi->vhost->protocols[n].name &&
 			    !strcmp(wsi->vhost->protocols[n].name,
 				    protocol_name)) {
-				wsi->protocol = &wsi->vhost->protocols[n];
+				lws_bind_protocol(wsi,
+						  &wsi->vhost->protocols[n]);
 				hit = 1;
 				break;
 			}
@@ -331,8 +352,8 @@ lws_process_ws_upgrade(struct lws *wsi)
 		lwsl_info("defaulting to prot handler %d\n",
 			wsi->vhost->default_protocol_index);
 		n = wsi->vhost->default_protocol_index;
-		wsi->protocol = &wsi->vhost->protocols[
-			      (int)wsi->vhost->default_protocol_index];
+		lws_bind_protocol(wsi, &wsi->vhost->protocols[
+			      (int)wsi->vhost->default_protocol_index]);
 	}
 
 	/* allocate the ws struct for the wsi */
@@ -394,28 +415,6 @@ lws_process_ws_upgrade(struct lws *wsi)
 		}
 		break;
 	}
-
-	lws_same_vh_protocol_insert(wsi, n);
-
-	/*
-	 * We are upgrading to ws, so http/1.1 + h2 and keepalive + pipelined
-	 * header considerations about keeping the ah around no longer apply.
-	 *
-	 * However it's common for the first ws protocol data to have been
-	 * coalesced with the browser upgrade request and to already be in the
-	 * ah rx buffer.
-	 */
-
-	lws_pt_lock(pt, __func__);
-
-	if (wsi->h2_stream_carries_ws)
-		lws_role_transition(wsi, LWSIFR_SERVER | LWSIFR_P_ENCAP_H2,
-				    LRS_ESTABLISHED, &role_ops_ws);
-	else
-		lws_role_transition(wsi, LWSIFR_SERVER, LRS_ESTABLISHED,
-				    &role_ops_ws);
-
-	lws_pt_unlock(pt);
 
 	lws_server_init_wsi_for_ws(wsi);
 	lwsl_parser("accepted v%02d connection\n", wsi->ws->ietf_spec_revision);
