@@ -138,9 +138,9 @@ lws_genhash_destroy(struct lws_genhash_ctx *ctx, void *result);
  * If the return is nonzero, it failed and there is nothing needing to be
  * destroyed.
  */
-int
+LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_genhmac_init(struct lws_genhmac_ctx *ctx, enum lws_genhmac_types type,
-		const uint8_t *key, size_t key_len);
+		 const uint8_t *key, size_t key_len);
 
 /** lws_genhmac_update() - digest len bytes of the buffer starting at in
  *
@@ -152,7 +152,7 @@ lws_genhmac_init(struct lws_genhmac_ctx *ctx, enum lws_genhmac_types type,
  *
  * If the return is nonzero, it failed and needs destroying.
  */
-int
+LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_genhmac_update(struct lws_genhmac_ctx *ctx, const void *in, size_t len);
 
 /** lws_genhmac_destroy() - copy out the result digest and destroy the ctx
@@ -166,6 +166,6 @@ lws_genhmac_update(struct lws_genhmac_ctx *ctx, const void *in, size_t len);
  * NULL result is supported so that you can destroy the ctx cleanly on error
  * conditions, where there is no valid result.
  */
-int
+LWS_VISIBLE LWS_EXTERN int
 lws_genhmac_destroy(struct lws_genhmac_ctx *ctx, void *result);
 ///@}
