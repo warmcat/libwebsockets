@@ -1745,7 +1745,11 @@ lws_http_transaction_completed(struct lws *wsi)
 	lws_access_log(wsi);
 
 	if (!wsi->hdr_parsing_completed) {
-		lwsl_notice("%s: ignoring, ah parsing incomplete\n", __func__);
+		char peer[64];
+		lws_get_peer_simple(wsi, peer, sizeof(peer) - 1);
+		peer[sizeof(peer) - 1] = '\0';
+		lwsl_notice("%s: (from %s) ignoring, ah parsing incomplete\n",
+				__func__, peer);
 		return 0;
 	}
 
