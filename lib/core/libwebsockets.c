@@ -2066,8 +2066,14 @@ LWS_VISIBLE void _lws_logv(int filter, const char *format, va_list vl)
 	n = vsnprintf(buf, sizeof(buf) - 1, format, vl);
 	(void)n;
 	/* vnsprintf returns what it would have written, even if truncated */
-	if (n > (int)sizeof(buf) - 1)
-		n = sizeof(buf) - 1;
+	if (n > (int)sizeof(buf) - 1) {
+		n = sizeof(buf) - 5;
+		buf[n++] = '.';
+		buf[n++] = '.';
+		buf[n++] = '.';
+		buf[n++] = '\n';
+		buf[n] = '\0';
+	}
 	if (n > 0)
 		buf[n] = '\0';
 
