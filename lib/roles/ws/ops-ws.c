@@ -1465,6 +1465,9 @@ rops_service_flag_pending_ws(struct lws_context *context, int tsi)
 static int
 rops_close_via_role_protocol_ws(struct lws *wsi, enum lws_close_status reason)
 {
+	if (!wsi->ws)
+		return 0;
+
 	if (!wsi->ws->close_in_ping_buffer_len && /* already a reason */
 	     (reason == LWS_CLOSE_STATUS_NOSTATUS ||
 	      reason == LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY))
