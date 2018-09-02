@@ -363,7 +363,7 @@ rops_write_role_protocol_h2(struct lws *wsi, unsigned char *buf, size_t len,
 	size_t olen = len;
 	int n;
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
-	unsigned char mtubuf[1450 + LWS_PRE];
+	unsigned char mtubuf[4096 + LWS_PRE];
 #endif
 
 	/* if not in a state to send stuff, then just send nothing */
@@ -396,7 +396,7 @@ rops_write_role_protocol_h2(struct lws *wsi, unsigned char *buf, size_t len,
 		if (n)
 			return n;
 
-		lwsl_debug("%s: %p: transformed %d bytes to %d "
+		lwsl_info("%s: %p: transformed %d bytes to %d "
 			   "(wp 0x%x, more %d)\n", __func__,
 			   wsi, (int)len, (int)o, (int)*wp,
 			   wsi->http.comp_ctx.may_have_more);
@@ -776,7 +776,7 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 				return 1;
 			}
 
-			if (lws_bind_protocol(wsi, pp))
+			if (lws_bind_protocol(wsi, pp, __func__))
 				return 1;
 		}
 
@@ -885,7 +885,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 		    w->http.comp_ctx.may_have_more) {
 			enum lws_write_protocol wp = LWS_WRITE_HTTP;
 
-			lwsl_debug("%s: completing comp partial"
+			lwsl_info("%s: completing comp partial"
 				   "(buflist_comp %p, may %d)\n",
 				   __func__, w->http.comp_ctx.buflist_comp,
 				    w->http.comp_ctx.may_have_more);

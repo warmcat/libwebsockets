@@ -537,7 +537,7 @@ lws_remove_child_from_any_parent(struct lws *wsi)
 }
 
 int
-lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p)
+lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p, const char *reason)
 {
 //	if (wsi->protocol == p)
 //		return 0;
@@ -546,7 +546,7 @@ lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p)
 	if (wsi->protocol && wsi->protocol_bind_balance) {
 		wsi->protocol->callback(wsi,
 		       wsi->role_ops->protocol_unbind_cb[!!lwsi_role_server(wsi)],
-					wsi->user_space, NULL, 0);
+					wsi->user_space, (void *)reason, 0);
 		wsi->protocol_bind_balance = 0;
 	}
 	if (!wsi->user_space_externally_allocated)
@@ -759,7 +759,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 		wsi->protocol->callback(wsi,
 				wsi->role_ops->protocol_unbind_cb[
 				       !!lwsi_role_server(wsi)],
-				       wsi->user_space, NULL, 0);
+				       wsi->user_space, (void *)__func__, 0);
 		wsi->protocol_bind_balance = 0;
 	}
 
@@ -794,7 +794,7 @@ just_kill_connection:
 		wsi->protocol->callback(wsi,
 				wsi->role_ops->protocol_unbind_cb[
 				       !!lwsi_role_server(wsi)],
-				       wsi->user_space, NULL, 0);
+				       wsi->user_space, (void *)__func__, 0);
 		wsi->protocol_bind_balance = 0;
 	}
 

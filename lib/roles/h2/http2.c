@@ -1424,6 +1424,10 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			}
 		}
 
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+		lws_http_compression_validate(h2n->swsi);
+#endif
+
 		wsi->vhost->conn_stats.h2_trans++;
 		p = lws_hdr_simple_ptr(h2n->swsi, WSI_TOKEN_HTTP_COLON_METHOD);
 		if (!strcmp(p, "POST"))

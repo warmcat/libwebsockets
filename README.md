@@ -5,6 +5,10 @@
 News
 ----
 
+## v3.0.1 released
+
+See the git log for the list of fixes.
+
 ## v3.0.0 released
 
 See the changelog for info https://libwebsockets.org/git/libwebsockets/tree/changelog?h=v3.0-stable

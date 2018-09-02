@@ -474,7 +474,7 @@ lws_same_vh_protocol_insert(struct lws *wsi, int n)
 {
 	if (wsi->same_vh_protocol_prev || wsi->same_vh_protocol_next) {
 		lws_same_vh_protocol_remove(wsi);
-		lwsl_notice("Attempted to attach wsi twice to same vh prot\n");
+		lwsl_info("Attempted to attach wsi twice to same vh prot\n");
 	}
 
 	lws_vhost_lock(wsi->vhost);

@@ -729,8 +729,7 @@ enum lws_callback_reasons {
 	 * these callbacks.  The deadline can be continuously extended into the
 	 * future by later calls to lws_set_timer_usecs() before the deadline
 	 * expires, or cancelled by lws_set_timer_usecs(wsi, -1);
-	 * See the note on lws_set_timer_usecs() about which event loops are
-	 * supported. */
+	 */
 
 	LWS_CALLBACK_EVENT_WAIT_CANCELLED			= 71,
 	/**< This is sent to every protocol of every vhost in response

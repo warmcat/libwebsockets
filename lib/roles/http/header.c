@@ -141,6 +141,10 @@ lws_add_http_common_headers(struct lws *wsi, unsigned int code,
 			    const char *content_type, lws_filepos_t content_len,
 			    unsigned char **p, unsigned char *end)
 {
+	const char *ka[] = { "close", "keep-alive" };
+	int types[] = { HTTP_CONNECTION_CLOSE, HTTP_CONNECTION_KEEP_ALIVE },
+			t = 0;
+
 	if (lws_add_http_header_status(wsi, code, p, end))
 		return 1;
 
@@ -149,16 +153,60 @@ lws_add_http_common_headers(struct lws *wsi, unsigned int code,
 		    			(int)strlen(content_type), p, end))
 		return 1;
 
-	if (content_len != LWS_ILLEGAL_HTTP_CONTENT_LEN) {
-		if (lws_add_http_header_content_length(wsi, content_len, p, end))
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+	if (!wsi->http.lcs &&
+	    (!strncmp(content_type, "text/", 5) ||
+	     !strcmp(content_type, "application/javascript") ||
+	     !strcmp(content_type, "image/svg+xml")))
+		lws_http_compression_apply(wsi, NULL, p, end, 0);
+#endif
+
+	/*
+	 * if we decided to compress it, we don't know the content length...
+	 * the compressed data will go out chunked on h1
+	 */
+	if (
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+	    !wsi->http.lcs &&
+#endif
+	     content_len != LWS_ILLEGAL_HTTP_CONTENT_LEN) {
+		if (lws_add_http_header_content_length(wsi, content_len,
+						       p, end))
 			return 1;
 	} else {
-		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_CONNECTION,
-						 (unsigned char *)"close", 5,
-						 p, end))
-			return 1;
+		/* there was no length... it normally means CONNECTION_CLOSE */
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
 
-		wsi->http.connection_type = HTTP_CONNECTION_CLOSE;
+		if (!wsi->http2_substream && wsi->http.lcs) {
+			/* so...
+			 *  - h1 connection
+			 *  - http compression transform active
+			 *  - did not send content length
+			 *
+			 * then mark as chunked...
+			 */
+			wsi->http.comp_ctx.chunking = 1;
+			if (lws_add_http_header_by_token(wsi,
+					WSI_TOKEN_HTTP_TRANSFER_ENCODING,
+					(unsigned char *)"chunked", 7, p, end))
+				return -1;
+
+			/* ... but h1 compression is chunked, if active we can
+			 * still pipeline
+			 */
+			if (wsi->http.lcs &&
+			    wsi->http.conn_type == HTTP_CONNECTION_KEEP_ALIVE)
+				t = 1;
+		}
+#endif
+		if (!wsi->http2_substream) {
+			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_CONNECTION,
+						 (unsigned char *)ka[t],
+						 (int)strlen(ka[t]), p, end))
+				return 1;
+
+			wsi->http.conn_type = types[t];
+		}
 	}
 
 	return 0;
@@ -246,6 +294,7 @@ lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 						end))
 			return 1;
 	}
+
 	headers = wsi->vhost->headers;
 	while (headers) {
 		if (lws_add_http_header_by_name(wsi,
@@ -303,9 +352,9 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 	    code == HTTP_STATUS_NOT_FOUND)
 		/* we should do a redirect, and do the 404 there */
 		if (lws_http_redirect(wsi, HTTP_STATUS_FOUND,
-				       (uint8_t *)wsi->vhost->http.error_document_404,
-				       (int)strlen(wsi->vhost->http.error_document_404),
-				       &p, end) > 0)
+			       (uint8_t *)wsi->vhost->http.error_document_404,
+			       (int)strlen(wsi->vhost->http.error_document_404),
+			       &p, end) > 0)
 			return 0;
 #endif
 

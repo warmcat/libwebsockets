@@ -39,7 +39,7 @@ enum http_version {
 	HTTP_VERSION_2
 };
 
-enum http_connection_type {
+enum http_conn_type {
 	HTTP_CONNECTION_CLOSE,
 	HTTP_CONNECTION_KEEP_ALIVE
 };
@@ -226,10 +226,11 @@ struct _lws_http_mode_related {
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
 	struct lws_compression_support *lcs;
 	lws_comp_ctx_t comp_ctx;
+	unsigned char comp_accept_mask;
 #endif
 
 	enum http_version request_version;
-	enum http_connection_type connection_type;
+	enum http_conn_type conn_type;
 	lws_filepos_t tx_content_length;
 	lws_filepos_t tx_content_remain;
 	lws_filepos_t rx_content_length;

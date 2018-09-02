@@ -631,6 +631,11 @@ struct lws_context {
 	struct lws_vhost *vhost_pending_destruction_list;
 	struct lws_plugin *plugin_list;
 	struct lws_deferred_free *deferred_free_list;
+
+#if defined(LWS_WITH_THREADPOOL)
+	struct lws_threadpool *tp_list_head;
+#endif
+
 #if defined(LWS_WITH_PEER_LIMITS)
 	struct lws_peer **pl_hash_table;
 	struct lws_peer *peer_wait_list;
@@ -872,6 +877,10 @@ struct lws {
 	struct lws_dll_lws dll_timeout;
 	struct lws_dll_lws dll_hrtimer;
 	struct lws_dll_lws dll_buflist; /* guys with pending rxflow */
+
+#if defined(LWS_WITH_THREADPOOL)
+	struct lws_threadpool_task *tp_task;
+#endif
 
 #if defined(LWS_WITH_PEER_LIMITS)
 	struct lws_peer *peer;
@@ -1350,7 +1359,8 @@ int
 lws_protocol_init(struct lws_context *context);
 
 int
-lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p);
+lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p,
+		  const char *reason);
 
 const struct lws_http_mount *
 lws_find_mount(struct lws *wsi, const char *uri_ptr, int uri_len);
@@ -1488,6 +1498,8 @@ hubbub_error
 html_parser_cb(const hubbub_token *token, void *pw);
 #endif
 
+int
+lws_threadpool_tsi_context(struct lws_context *context, int tsi);
 
 void
 __lws_remove_from_timeout_list(struct lws *wsi);

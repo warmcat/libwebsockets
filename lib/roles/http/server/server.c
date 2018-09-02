@@ -673,7 +673,7 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 		const struct lws_protocols *pp = lws_vhost_name_to_protocol(
 						       wsi->vhost, m->protocol);
 
-		if (lws_bind_protocol(wsi, pp))
+		if (lws_bind_protocol(wsi, pp, __func__))
 			return -1;
 		args.p = (char *)p;
 		args.max_len = lws_ptr_diff(end, p);
@@ -887,7 +887,7 @@ int
 lws_http_action(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
-	enum http_connection_type connection_type;
+	enum http_conn_type conn_type;
 	enum http_version request_version;
 	char content_length_str[32];
 	struct lws_process_html_args args;
@@ -971,9 +971,9 @@ lws_http_action(struct lws *wsi)
 
 		/* HTTP/1.1 defaults to "keep-alive", 1.0 to "close" */
 		if (request_version == HTTP_VERSION_1_1)
-			connection_type = HTTP_CONNECTION_KEEP_ALIVE;
+			conn_type = HTTP_CONNECTION_KEEP_ALIVE;
 		else
-			connection_type = HTTP_CONNECTION_CLOSE;
+			conn_type = HTTP_CONNECTION_CLOSE;
 
 		/* Override default if http "Connection:" header: */
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_CONNECTION)) {
@@ -982,12 +982,12 @@ lws_http_action(struct lws *wsi)
 				     WSI_TOKEN_CONNECTION);
 			http_conn_str[sizeof(http_conn_str) - 1] = '\0';
 			if (!strcasecmp(http_conn_str, "keep-alive"))
-				connection_type = HTTP_CONNECTION_KEEP_ALIVE;
+				conn_type = HTTP_CONNECTION_KEEP_ALIVE;
 			else
 				if (!strcasecmp(http_conn_str, "close"))
-					connection_type = HTTP_CONNECTION_CLOSE;
+					conn_type = HTTP_CONNECTION_CLOSE;
 		}
-		wsi->http.connection_type = connection_type;
+		wsi->http.conn_type = conn_type;
 	}
 
 	n = wsi->protocol->callback(wsi, LWS_CALLBACK_FILTER_HTTP_CONNECTION,
@@ -1040,7 +1040,7 @@ lws_http_action(struct lws *wsi)
 
 		lwsl_info("no hit\n");
 
-		if (lws_bind_protocol(wsi, &wsi->vhost->protocols[0]))
+		if (lws_bind_protocol(wsi, &wsi->vhost->protocols[0], "no mount hit"))
 			return 1;
 
 		lwsi_set_state(wsi, LRS_DOING_TRANSACTION);
@@ -1260,7 +1260,7 @@ lws_http_action(struct lws *wsi)
 			return 1;
 		}
 
-		if (lws_bind_protocol(wsi, pp))
+		if (lws_bind_protocol(wsi, pp, "http action CALLBACK bind"))
 			return 1;
 
 		args.p = uri_ptr;
@@ -1344,7 +1344,9 @@ lws_http_action(struct lws *wsi)
 					lws_vhost_name_to_protocol(
 						wsi->vhost, hit->protocol);
 
-			if (lws_bind_protocol(wsi, pp))
+			lwsi_set_state(wsi, LRS_DOING_TRANSACTION);
+
+			if (lws_bind_protocol(wsi, pp, "http_action HTTP"))
 				return 1;
 
 			m = pp->callback(wsi, LWS_CALLBACK_HTTP,
@@ -1497,7 +1499,8 @@ raw_transition:
 				lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 				lws_bind_protocol(wsi, &wsi->vhost->protocols[
 				                        wsi->vhost->
-				                        raw_protocol_index]);
+				                        raw_protocol_index],
+						__func__);
 				lwsl_info("transition to raw vh %s prot %d\n",
 					  wsi->vhost->name,
 					  wsi->vhost->raw_protocol_index);
@@ -1635,6 +1638,10 @@ raw_transition:
 		lwsi_set_state(wsi, LRS_ESTABLISHED);
 		wsi->http.fop_fd = NULL;
 
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+		lws_http_compression_validate(wsi);
+#endif
+
 		lwsl_debug("%s: wsi %p: ah %p\n", __func__, (void *)wsi,
 			   (void *)wsi->http.ah);
 
@@ -1737,7 +1744,7 @@ lws_http_transaction_completed(struct lws *wsi)
 		return 0;
 	}
 
-	lwsl_info("%s: wsi %p\n", __func__, wsi);
+	lwsl_debug("%s: wsi %p\n", __func__, wsi);
 
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
 	lws_http_compression_destroy(wsi);
@@ -1760,12 +1767,12 @@ lws_http_transaction_completed(struct lws *wsi)
 	if (wsi->seen_zero_length_recv)
 		return 1;
 
-	if (wsi->http.connection_type != HTTP_CONNECTION_KEEP_ALIVE) {
+	if (wsi->http.conn_type != HTTP_CONNECTION_KEEP_ALIVE) {
 		lwsl_info("%s: %p: close connection\n", __func__, wsi);
 		return 1;
 	}
 
-	if (lws_bind_protocol(wsi, &wsi->vhost->protocols[0]))
+	if (lws_bind_protocol(wsi, &wsi->vhost->protocols[0], __func__))
 		return 1;
 
 	/*
@@ -1804,7 +1811,7 @@ lws_http_transaction_completed(struct lws *wsi)
 	if (wsi->http.ah) {
 		// lws_buflist_describe(&wsi->buflist, wsi);
 		if (!lws_buflist_next_segment_len(&wsi->buflist, NULL)) {
-			lwsl_info("%s: %p: nothing in buflist so detaching ah\n",
+			lwsl_debug("%s: %p: nothing in buflist so detaching ah\n",
 				  __func__, wsi);
 			lws_header_table_detach(wsi, 1);
 #ifdef LWS_WITH_TLS
@@ -1840,13 +1847,14 @@ lws_http_transaction_completed(struct lws *wsi)
 		if (wsi->http.ah)
 			wsi->http.ah->ues = URIES_IDLE;
 
-		//lwsi_set_state(wsi, LRS_ESTABLISHED);
+		//lwsi_set_state(wsi, LRS_ESTABLISHED); // !!!
 	} else
 		if (lws_buflist_next_segment_len(&wsi->buflist, NULL))
 			if (lws_header_table_attach(wsi, 0))
 				lwsl_debug("acquired ah\n");
 
-	lwsl_info("%s: %p: keep-alive await new transaction\n", __func__, wsi);
+	lwsl_debug("%s: %p: keep-alive await new transaction (state 0x%x)\n",
+			__func__, wsi, wsi->wsistate);
 	lws_callback_on_writable(wsi);
 
 	return 0;
@@ -2096,11 +2104,6 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 			(unsigned char *)cc, cclen, &p, end))
 		return -1;
 
-	if (wsi->http.connection_type == HTTP_CONNECTION_KEEP_ALIVE)
-		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_CONNECTION,
-				(unsigned char *)"keep-alive", 10, &p, end))
-			return -1;
-
 	if (other_headers) {
 		if ((end - p) < other_headers_len)
 			return -1;
@@ -2159,7 +2162,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 	    wsi->http.comp_ctx.may_have_more) {
 		enum lws_write_protocol wp = LWS_WRITE_HTTP;
 
-		lwsl_debug("%s: completing comp partial (buflist_comp %p, may %d)\n",
+		lwsl_info("%s: completing comp partial (buflist_comp %p, may %d)\n",
 			   __func__, wsi->http.comp_ctx.buflist_comp,
 			   wsi->http.comp_ctx.may_have_more);
 

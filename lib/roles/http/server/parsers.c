@@ -1123,6 +1123,7 @@ excessive:
 set_parsing_complete:
 	if (ah->ues != URIES_IDLE)
 		goto forbid;
+
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_UPGRADE)) {
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_VERSION))
 			wsi->rx_frame_type = /* temp for ws version index */

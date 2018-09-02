@@ -39,6 +39,18 @@ rops_handle_POLLIN_pipe(struct lws_context_per_thread *pt, struct lws *wsi,
 	if (n < 0)
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 #endif
+
+#if defined(LWS_WITH_THREADPOOL)
+	/*
+	 * threadpools that need to call for on_writable callbacks do it by
+	 * marking the task as needing one for its wsi, then cancelling service.
+	 *
+	 * Each tsi will call this to perform the actual callback_on_writable
+	 * from the correct service thread context
+	 */
+	lws_threadpool_tsi_context(pt->context, pt->tid);
+#endif
+
 	/*
 	 * the poll() wait, or the event loop for libuv etc is a
 	 * process-wide resource that we interrupted.  So let every

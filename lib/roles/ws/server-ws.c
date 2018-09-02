@@ -326,7 +326,8 @@ lws_process_ws_upgrade(struct lws *wsi)
 			    !strcmp(wsi->vhost->protocols[n].name,
 				    protocol_name)) {
 				lws_bind_protocol(wsi,
-						  &wsi->vhost->protocols[n]);
+						  &wsi->vhost->protocols[n],
+						  "ws upgrade select pcol");
 				hit = 1;
 				break;
 			}
@@ -353,7 +354,8 @@ lws_process_ws_upgrade(struct lws *wsi)
 			wsi->vhost->default_protocol_index);
 		n = wsi->vhost->default_protocol_index;
 		lws_bind_protocol(wsi, &wsi->vhost->protocols[
-			      (int)wsi->vhost->default_protocol_index]);
+			      (int)wsi->vhost->default_protocol_index],
+				"ws upgrade default pcol");
 	}
 
 	/* allocate the ws struct for the wsi */

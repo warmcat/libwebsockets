@@ -37,6 +37,7 @@ option(LWS_WITH_PEER_LIMITS "Track peers and restrict resources a single peer ca
 option(LWS_WITH_ACCESS_LOG "Support generating Apache-compatible access logs" OFF)
 option(LWS_WITH_RANGES "Support http ranges (RFC7233)" OFF)
 option(LWS_WITH_SERVER_STATUS "Support json + jscript server monitoring" OFF)
+option(LWS_WITH_THREADPOOL "Managed worker thread pool support (relies on pthreads)" ON)
 option(LWS_WITH_HTTP_STREAM_COMPRESSION "Support HTTP stream compression" OFF)
 option(LWS_WITH_HTTP_BROTLI "Also offer brotli http stream compression (requires LWS_WITH_HTTP_STREAM_COMPRESSION)" OFF)
 option(LWS_WITH_ACME "Enable support for ACME automatic cert acquisition + maintenance (letsencrypt etc)" OFF)
@@ -289,6 +290,7 @@ endif()
 
 if (WIN32)
 set(LWS_MAX_SMP 1)
+set(LWS_WITH_THREADPOOL 0)
 endif()
 
 
@@ -749,6 +751,10 @@ set(SOURCES
 	lib/misc/base64-decode.c
 	lib/misc/lws-ring.c
 	lib/roles/pipe/ops-pipe.c)
+	
+if (LWS_WITH_THREADPOOL AND UNIX AND LWS_HAVE_PTHREAD_H)
+	list(APPEND SOURCES lib/misc/threadpool/threadpool.c)
+endif()
 
 if (LWS_ROLE_H1 OR LWS_ROLE_H2)
 	list(APPEND SOURCES
