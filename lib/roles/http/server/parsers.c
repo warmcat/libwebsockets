@@ -529,6 +529,9 @@ char *lws_hdr_simple_ptr(struct lws *wsi, enum lws_token_indexes h)
 {
 	int n;
 
+	if (!wsi->http.ah)
+		return NULL;
+
 	n = wsi->http.ah->frag_index[h];
 	if (!n)
 		return NULL;
@@ -539,6 +542,9 @@ char *lws_hdr_simple_ptr(struct lws *wsi, enum lws_token_indexes h)
 static int LWS_WARN_UNUSED_RESULT
 lws_pos_in_bounds(struct lws *wsi)
 {
+	if (!wsi->http.ah)
+		return -1;
+
 	if (wsi->http.ah->pos <
 	    (unsigned int)wsi->context->max_http_header_data)
 		return 0;

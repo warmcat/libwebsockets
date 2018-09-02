@@ -74,6 +74,8 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	 * Priority 1: pending truncated sends are incomplete ws fragments
 	 *	       If anything else sent first the protocol would be
 	 *	       corrupted.
+	 *
+	 *	       These are post- any compression transform
 	 */
 
 	if (lws_has_buffered_out(wsi)) {
@@ -89,6 +91,28 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 			wsi->socket_is_permanently_unusable = 1;
 			goto bail_die; /* retry closing now */
 		}
+
+	/* Priority 2: pre- compression transform */
+
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+	if (wsi->http.comp_ctx.buflist_comp ||
+	    wsi->http.comp_ctx.may_have_more) {
+		enum lws_write_protocol wp = LWS_WRITE_HTTP;
+
+		lwsl_debug("%s: completing comp partial (buflist_comp %p, may %d)\n",
+				__func__, wsi->http.comp_ctx.buflist_comp,
+				wsi->http.comp_ctx.may_have_more
+				);
+
+		if (wsi->role_ops->write_role_protocol(wsi, NULL, 0, &wp) < 0) {
+			lwsl_info("%s signalling to close\n", __func__);
+			goto bail_die;
+		}
+		lws_callback_on_writable(wsi);
+
+		goto bail_ok;
+	}
+#endif
 
 #ifdef LWS_WITH_CGI
 	/*

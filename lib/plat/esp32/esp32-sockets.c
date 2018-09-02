@@ -44,7 +44,12 @@ lws_send_pipe_choked(struct lws *wsi)
 	wsi_eff->could_have_pending = 0;
 
 	/* treat the fact we got a truncated send pending as if we're choked */
-	if (lws_has_buffered_out(wsi))
+	if (lws_has_buffered_out(wsi)
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+	    || wsi->http.comp_ctx.buflist_comp ||
+	       wsi->http.comp_ctx.may_have_more
+#endif
+	)
 		return 1;
 
 	FD_ZERO(&writefds);

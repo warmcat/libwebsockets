@@ -31,12 +31,14 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	size_t real_len = len;
 	unsigned int n;
 
+	// lwsl_notice("%s: len %d\n", __func__, (int)len);
+
 	/*
 	 * Detect if we got called twice without going through the
 	 * event loop to handle pending.  Since that guarantees extending any
 	 * existing buflist_out it's inefficient.
 	 */
-	if (buf && wsi->could_have_pending) {
+	if (0 && buf && wsi->could_have_pending) {
 		lwsl_hexdump_level(LLL_INFO, buf, len);
 		lwsl_info("** %p: vh: %s, prot: %s, role %s: "
 			 "Inefficient back-to-back write of %lu detected...\n",
@@ -49,7 +51,11 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 
 	/* just ignore sends after we cleared the truncation buffer */
 	if (lwsi_state(wsi) == LRS_FLUSHING_BEFORE_CLOSE &&
-	    !lws_has_buffered_out(wsi))
+	    !lws_has_buffered_out(wsi)
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+	    && !wsi->http.comp_ctx.may_have_more
+#endif
+	    )
 		return (int)len;
 
 	if (buf && lws_has_buffered_out(wsi)) {
@@ -74,6 +80,8 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 
 		len = lws_buflist_next_segment_len(&wsi->buflist_out, &buf);
 		real_len = len;
+
+		lwsl_debug("%s: draining %d\n", __func__, (int)len);
 	}
 
 	if (!len)
@@ -154,6 +162,11 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 
 		return n;
 	}
+
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+	if (wsi->http.comp_ctx.may_have_more)
+		lws_callback_on_writable(wsi);
+#endif
 
 	if ((unsigned int)n == real_len)
 		/* what we just sent went out cleanly */
