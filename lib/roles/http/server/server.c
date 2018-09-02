@@ -1713,7 +1713,12 @@ lws_http_transaction_completed(struct lws *wsi)
 {
 	int n = NO_PENDING_TIMEOUT;
 
-	if (lws_has_buffered_out(wsi)) {
+	if (lws_has_buffered_out(wsi)
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+			|| wsi->http.comp_ctx.buflist_comp ||
+	    wsi->http.comp_ctx.may_have_more
+#endif
+	) {
 		/*
 		 * ...so he tried to send something large as the http reply,
 		 * it went as a partial, but he immediately said the
@@ -1722,14 +1727,18 @@ lws_http_transaction_completed(struct lws *wsi)
 		 * Defer the transaction completed until the last part of the
 		 * partial is sent.
 		 */
-		lwsl_notice("%s: deferring due to partial\n", __func__);
+		lwsl_debug("%s: %p: deferring due to partial\n", __func__, wsi);
 		wsi->http.deferred_transaction_completed = 1;
+		lws_callback_on_writable(wsi);
 
 		return 0;
 	}
 
 	lwsl_info("%s: wsi %p\n", __func__, wsi);
 
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+	lws_http_compression_destroy(wsi);
+#endif
 	lws_access_log(wsi);
 
 	if (!wsi->hdr_parsing_completed) {
@@ -1764,6 +1773,7 @@ lws_http_transaction_completed(struct lws *wsi)
 	wsi->http.tx_content_length = 0;
 	wsi->http.tx_content_remain = 0;
 	wsi->hdr_parsing_completed = 0;
+	wsi->sending_chunked = 0;
 #ifdef LWS_WITH_ACCESS_LOG
 	wsi->http.access_log.sent = 0;
 #endif
@@ -1922,6 +1932,20 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 			return -1;
 		lwsl_info("file is being provided in gzip\n");
 	}
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+	else {
+		/*
+		 * if we know its very compressible, and we can use
+		 * compression, then use the most preferred compression
+		 * method that the client said he will accept
+		 */
+
+		if (!strncmp(content_type, "text/", 5) ||
+		    !strcmp(content_type, "application/javascript") ||
+		    !strcmp(content_type, "image/svg+xml"))
+			lws_http_compression_apply(wsi, NULL, &p, end, 0);
+	}
+#endif
 
 	if (
 #if defined(LWS_WITH_RANGES)
@@ -2003,17 +2027,46 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 #endif
 
 	if (!wsi->http2_substream) {
-		if (!wsi->sending_chunked) {
+		/* for http/1.1 ... */
+		if (!wsi->sending_chunked
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+				&& !wsi->http.lcs
+#endif
+		) {
+			/* ... if not already using chunked and not using an
+			 * http compression translation, then send the naive
+			 * content length
+			 */
 			if (lws_add_http_header_content_length(wsi,
-						total_content_length,
-					       &p, end))
+						total_content_length, &p, end))
 				return -1;
 		} else {
+			/* ...otherwise, for http 1 it must go chunked.  For
+			 * the compression case, the reason is we compress on
+			 * the fly and do not know the compressed content-length
+			 * until it has all been sent.  Http/1.1 pipelining must
+			 * be able to know where the transaction boundaries are
+			 * ... so chunking...
+			 */
 			if (lws_add_http_header_by_token(wsi,
-						 WSI_TOKEN_HTTP_TRANSFER_ENCODING,
-						 (unsigned char *)"chunked",
-						 7, &p, end))
+					WSI_TOKEN_HTTP_TRANSFER_ENCODING,
+					(unsigned char *)"chunked", 7, &p, end))
 				return -1;
+
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+			if (wsi->http.lcs) {
+				/*
+				 * ...this is fun, isn't it :-)  For h1 that is
+				 * using an http compression translation, the
+				 * compressor must chunk its output privately.
+				 *
+				 * h2 doesn't need (or support) any of this
+				 * crap.
+				 */
+				lwsl_debug("setting chunking\n");
+				wsi->http.comp_ctx.chunking = 1;
+			}
+#endif
 		}
 	}
 
@@ -2082,6 +2135,8 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 
 	do {
 
+		/* priority 1: buffered output */
+
 		if (lws_has_buffered_out(wsi)) {
 			if (lws_issue_raw(wsi, NULL, 0) < 0) {
 				lwsl_info("%s: closing\n", __func__);
@@ -2089,6 +2144,27 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 			}
 			break;
 		}
+
+		/* priority 2: buffered pre-compression-transform */
+
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+	if (wsi->http.comp_ctx.buflist_comp ||
+	    wsi->http.comp_ctx.may_have_more) {
+		enum lws_write_protocol wp = LWS_WRITE_HTTP;
+
+		lwsl_debug("%s: completing comp partial (buflist_comp %p, may %d)\n",
+			   __func__, wsi->http.comp_ctx.buflist_comp,
+			   wsi->http.comp_ctx.may_have_more);
+
+		if (wsi->role_ops->write_role_protocol(wsi, NULL, 0, &wp) < 0) {
+			lwsl_info("%s signalling to close\n", __func__);
+			goto file_had_it;
+		}
+		lws_callback_on_writable(wsi);
+
+		break;
+	}
+#endif
 
 		if (wsi->http.filepos == wsi->http.filelen)
 			goto all_sent;
@@ -2257,12 +2333,18 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 		}
 
 all_sent:
-		if ((!lws_has_buffered_out(wsi) && wsi->http.filepos >= wsi->http.filelen)
+		if ((!lws_has_buffered_out(wsi)
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+				&& !wsi->http.comp_ctx.buflist_comp &&
+		    !wsi->http.comp_ctx.may_have_more
+#endif
+		    ) && (wsi->http.filepos >= wsi->http.filelen
 #if defined(LWS_WITH_RANGES)
 		    || finished)
 #else
 		)
 #endif
+		)
 		     {
 			lwsi_set_state(wsi, LRS_ESTABLISHED);
 			/* we might be in keepalive, so close it off here */
@@ -2297,7 +2379,7 @@ all_sent:
 
 			return 1;  /* >0 indicates completed */
 		}
-	} while (0); // while (!lws_send_pipe_choked(wsi))
+	} while (1); //(!lws_send_pipe_choked(wsi));
 
 	lws_callback_on_writable(wsi);
 

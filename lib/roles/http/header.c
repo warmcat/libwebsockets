@@ -413,3 +413,20 @@ lws_http_redirect(struct lws *wsi, int code, const unsigned char *loc, int len,
 	return lws_write(wsi, start, *p - start, LWS_WRITE_HTTP_HEADERS |
 						 LWS_WRITE_H2_STREAM_END);
 }
+
+#if !defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+LWS_VISIBLE int
+lws_http_compression_apply(struct lws *wsi, const char *name,
+			   unsigned char **p, unsigned char *end, char decomp)
+{
+	(void)wsi;
+	(void)name;
+	(void)p;
+	(void)end;
+	(void)decomp;
+
+	return 0;
+}
+#endif
+
+

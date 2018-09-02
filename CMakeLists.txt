@@ -37,6 +37,8 @@ option(LWS_WITH_PEER_LIMITS "Track peers and restrict resources a single peer ca
 option(LWS_WITH_ACCESS_LOG "Support generating Apache-compatible access logs" OFF)
 option(LWS_WITH_RANGES "Support http ranges (RFC7233)" OFF)
 option(LWS_WITH_SERVER_STATUS "Support json + jscript server monitoring" OFF)
+option(LWS_WITH_HTTP_STREAM_COMPRESSION "Support HTTP stream compression" OFF)
+option(LWS_WITH_HTTP_BROTLI "Also offer brotli http stream compression (requires LWS_WITH_HTTP_STREAM_COMPRESSION)" OFF)
 option(LWS_WITH_ACME "Enable support for ACME automatic cert acquisition + maintenance (letsencrypt etc)" OFF)
 #
 # TLS library options... all except mbedTLS are basically OpenSSL variants.
@@ -438,6 +440,10 @@ if (LWS_WITH_SSL AND LWS_WITH_MBEDTLS)
 	set(USE_MBEDTLS 1)
 endif()
 
+if (LWS_WITH_HTTP_STREAM_COMPRESSION)
+	set(LWS_WITH_ZLIB 1)
+endif()
+
 if (LWS_WITH_ZLIB AND NOT LWS_WITH_BUNDLED_ZLIB)
 	if ("${LWS_ZLIB_LIBRARIES}" STREQUAL "" OR "${LWS_ZLIB_INCLUDE_DIRS}" STREQUAL "")
 	else()
@@ -746,6 +752,15 @@ if (LWS_ROLE_H1 OR LWS_ROLE_H2)
 	list(APPEND SOURCES
 		lib/roles/http/header.c
 		lib/roles/http/server/parsers.c)
+	if (LWS_WITH_HTTP_STREAM_COMPRESSION)
+		list(APPEND SOURCES
+			lib/roles/http/compression/stream.c
+			lib/roles/http/compression/deflate/deflate.c)
+		if (LWS_WITH_HTTP_BROTLI)
+			list(APPEND SOURCES
+				lib/roles/http/compression/brotli/brotli.c)
+		endif()
+	endif()
 endif()
 
 if (LWS_ROLE_H1)
@@ -1201,7 +1216,7 @@ set(LIB_LIST)
 #
 
 #
-# ZLIB (Only needed for deflate extensions).
+# ZLIB (needed for deflate extension and if LWS_WITH_HTTP_STREAM_COMPRESSION)
 #
 if (LWS_WITH_ZLIB)
 	if (LWS_WITH_BUNDLED_ZLIB)
@@ -1240,6 +1255,10 @@ if (LWS_WITH_ZLIB)
 	message("zlib libraries: ${ZLIB_LIBRARIES}")
 	include_directories(${ZLIB_INCLUDE_DIRS})
 	list(APPEND LIB_LIST ${ZLIB_LIBRARIES})
+endif()
+
+if (LWS_WITH_HTTP_BROTLI)
+	list(APPEND LIB_LIST brotlienc brotlidec brotlidec)
 endif()
 
 #
@@ -1618,6 +1637,10 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2) AND NOT LWS_WITHOUT_TESTAPPS)
 			endif()
 			target_link_libraries(${TEST_NAME} websockets)
 			add_dependencies(${TEST_NAME} websockets)
+		endif()
+
+		if (LWS_WITH_HTTP_STREAM_COMPRESSION)
+			target_link_libraries(${TEST_NAME} z)
 		endif()
 
 		# Set test app specific defines.
