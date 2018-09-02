@@ -61,6 +61,8 @@ enum pending_timeout {
 	PENDING_TIMEOUT_UDP_IDLE				= 26,
 	PENDING_TIMEOUT_CLIENT_CONN_IDLE			= 27,
 	PENDING_TIMEOUT_LAGGING					= 28,
+	PENDING_TIMEOUT_THREADPOOL				= 29,
+	PENDING_TIMEOUT_THREADPOOL_TASK				= 30,
 
 	/****** add new things just above ---^ ******/
 

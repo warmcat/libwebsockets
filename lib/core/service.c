@@ -99,7 +99,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	    wsi->http.comp_ctx.may_have_more) {
 		enum lws_write_protocol wp = LWS_WRITE_HTTP;
 
-		lwsl_debug("%s: completing comp partial (buflist_comp %p, may %d)\n",
+		lwsl_info("%s: completing comp partial (buflist_comp %p, may %d)\n",
 				__func__, wsi->http.comp_ctx.buflist_comp,
 				wsi->http.comp_ctx.may_have_more
 				);
@@ -334,9 +334,10 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 
-	/* Figure out if we really want to wait in poll()
-	 * We only need to wait if really nothing already to do and we have
-	 * to wait for something from network
+	/*
+	 * Figure out if we really want to wait in poll()... we only need to
+	 * wait if really nothing already to do and we have to wait for
+	 * something from network
 	 */
 #if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
 	/* 1) if we know we are draining rx ext, do not wait in poll */
@@ -347,11 +348,12 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 	/* 2) if we know we have non-network pending data, do not wait in poll */
 
 	if (pt->context->tls_ops &&
-	    pt->context->tls_ops->fake_POLLIN_for_buffered)
-		if (pt->context->tls_ops->fake_POLLIN_for_buffered(pt))
+	    pt->context->tls_ops->fake_POLLIN_for_buffered &&
+	    pt->context->tls_ops->fake_POLLIN_for_buffered(pt))
 			return 0;
 
-	/* 3) If there is any wsi with rxflow buffered and in a state to process
+	/*
+	 * 3) If there is any wsi with rxflow buffered and in a state to process
 	 *    it, we should not wait in poll
 	 */
 
@@ -360,6 +362,12 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 
 		if (lwsi_state(wsi) != LRS_DEFERRING_ACTION)
 			return 0;
+
+	/*
+	 * 4) If any guys with http compression to spill, we shouldn't wait in
+	 *    poll but hurry along and service them
+	 */
+
 
 	} lws_end_foreach_dll(d);
 

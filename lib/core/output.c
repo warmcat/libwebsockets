@@ -29,7 +29,7 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	struct lws_context *context = lws_get_context(wsi);
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	size_t real_len = len;
-	unsigned int n;
+	unsigned int n, m;
 
 	// lwsl_notice("%s: len %d\n", __func__, (int)len);
 
@@ -104,13 +104,15 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 
 	/* nope, send it on the socket directly */
 	lws_latency_pre(context, wsi);
-	n = lws_ssl_capable_write(wsi, buf, n);
-	lws_latency(context, wsi, "send lws_issue_raw", n, n == len);
+	m = lws_ssl_capable_write(wsi, buf, n);
+	lws_latency(context, wsi, "send lws_issue_raw", n, n == m);
+
+	lwsl_info("%s: ssl_capable_write (%d) says %d\n", __func__, n, m);
 
 	/* something got written, it can have been truncated now */
 	wsi->could_have_pending = 1;
 
-	switch (n) {
+	switch (m) {
 	case LWS_SSL_CAPABLE_ERROR:
 		/* we're going to close, let close know sends aren't possible */
 		wsi->socket_is_permanently_unusable = 1;
@@ -121,7 +123,7 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 		 * ie, implying treat it was a truncated send so it gets
 		 * retried
 		 */
-		n = 0;
+		m = 0;
 		break;
 	}
 
@@ -131,17 +133,17 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	 * send in the buflist.
 	 */
 	if (lws_has_buffered_out(wsi)) {
-		if (n) {
-			lwsl_info("%p partial adv %d (vs %ld)\n", wsi, n,
+		if (m) {
+			lwsl_info("%p partial adv %d (vs %ld)\n", wsi, m,
 					(long)real_len);
-			lws_buflist_use_segment(&wsi->buflist_out, n);
+			lws_buflist_use_segment(&wsi->buflist_out, m);
 		}
 
 		if (!lws_has_buffered_out(wsi)) {
 			lwsl_info("%s: wsi %p: buflist_out flushed\n",
 				  __func__, wsi);
 
-			n = (int)real_len;
+			m = (int)real_len;
 			if (lwsi_state(wsi) == LRS_FLUSHING_BEFORE_CLOSE) {
 				lwsl_info("** %p signalling to close now\n", wsi);
 				return -1; /* retry closing now */
@@ -162,7 +164,7 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 		/* always callback on writeable */
 		lws_callback_on_writable(wsi);
 
-		return n;
+		return m;
 	}
 
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
@@ -170,9 +172,9 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 		lws_callback_on_writable(wsi);
 #endif
 
-	if ((unsigned int)n == real_len)
+	if (m == real_len)
 		/* what we just sent went out cleanly */
-		return n;
+		return m;
 
 	/*
 	 * We were not able to send everything... and we were not sending from
@@ -180,13 +182,13 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	 * buffering the unsent remainder on it.
 	 * (it will get first priority next time the socket is writable).
 	 */
-	lwsl_debug("%p new partial sent %d from %lu total\n", wsi, n,
+	lwsl_debug("%p new partial sent %d from %lu total\n", wsi, m,
 		    (unsigned long)real_len);
 
-	lws_buflist_append_segment(&wsi->buflist_out, buf + n, real_len - n);
+	lws_buflist_append_segment(&wsi->buflist_out, buf + m, real_len - m);
 
 	lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_WRITE_PARTIALS, 1);
-	lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_B_PARTIALS_ACCEPTED_PARTS, n);
+	lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_B_PARTIALS_ACCEPTED_PARTS, m);
 
 #if !defined(LWS_WITH_ESP32)
 	if (lws_wsi_is_udp(wsi)) {

@@ -156,11 +156,12 @@ rops_adoption_bind_raw_skt(struct lws *wsi, int type, const char *vh_prot_name)
 				LRS_ESTABLISHED, &role_ops_raw_skt);
 
 	if (vh_prot_name)
-		lws_bind_protocol(wsi, wsi->protocol);
+		lws_bind_protocol(wsi, wsi->protocol, __func__);
 	else
 		/* this is the only time he will transition */
 		lws_bind_protocol(wsi,
-			&wsi->vhost->protocols[wsi->vhost->raw_protocol_index]);
+			&wsi->vhost->protocols[wsi->vhost->raw_protocol_index],
+			__func__);
 
 	return 1; /* bound */
 }

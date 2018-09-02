@@ -5,6 +5,7 @@ minimal-ws-server-echo|Simple ws server that listens and echos back anything cli
 minimal-ws-server-pmd-bulk|Simple ws server showing how to pass bulk data with permessage-deflate
 minimal-ws-server-pmd|Simple ws server with permessage-deflate support
 minimal-ws-server-ring|Like minimal-ws-server but holds the chat in a multi-tail ringbuffer
+minimal-ws-server-threadpool|Demonstrates how to use a worker thread pool with lws
 minimal-ws-server-threads|Simple ws server where data is produced by different threads
 minimal-ws-server|Serves an index.html over http that opens a ws shared chat client in a browser
 

@@ -646,5 +646,34 @@ lws_http_redirect(struct lws *wsi, int code, const unsigned char *loc, int len,
  */
 LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_http_transaction_completed(struct lws *wsi);
+
+/**
+ * lws_http_compression_apply() - apply an http compression transform
+ *
+ * \param wsi: the wsi to apply the compression transform to
+ * \param name: NULL, or the name of the compression transform, eg, "deflate"
+ * \param p: pointer to pointer to headers buffer
+ * \param end: pointer to end of headers buffer
+ * \param decomp: 0 = add compressor to wsi, 1 = add decompressor
+ *
+ * This allows transparent compression of dynamically generated HTTP.  The
+ * requested compression (eg, "deflate") is only applied if the client headers
+ * indicated it was supported (and it has support in lws), otherwise it's a NOP.
+ *
+ * If the requested compression method is NULL, then the supported compression
+ * formats are tried, and for non-decompression (server) mode the first that's
+ * found on the client's accept-encoding header is chosen.
+ *
+ * NOTE: the compression transform, same as h2 support, relies on the user
+ * code using LWS_WRITE_HTTP and then LWS_WRITE_HTTP_FINAL on the last part
+ * written.  The internal lws fileserving code already does this.
+ *
+ * If the library was built without the cmake option
+ * LWS_WITH_HTTP_STREAM_COMPRESSION set, then a NOP is provided for this api,
+ * allowing user code to build either way and use compression if available.
+ */
+LWS_VISIBLE int
+lws_http_compression_apply(struct lws *wsi, const char *name,
+			   unsigned char **p, unsigned char *end, char decomp);
 ///@}
 

@@ -720,7 +720,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	 * set-cookie:.test=LWS_1456736240_336776_COOKIE;Max-Age=360000
 	 */
 
-	wsi->http.connection_type = HTTP_CONNECTION_KEEP_ALIVE;
+	wsi->http.conn_type = HTTP_CONNECTION_KEEP_ALIVE;
 	if (!wsi->client_h2_substream) {
 		p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP);
 		if (wsi->do_ws && !p) {
@@ -730,7 +730,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		}
 		if (!p) {
 			p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP1_0);
-			wsi->http.connection_type = HTTP_CONNECTION_CLOSE;
+			wsi->http.conn_type = HTTP_CONNECTION_CLOSE;
 		}
 		if (!p) {
 			cce = "HS: URI missing";
@@ -828,7 +828,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		/* if h1 KA is allowed, enable the queued pipeline guys */
 
 		if (!wsi->client_h2_alpn && !wsi->client_h2_substream && w == wsi) { /* ie, coming to this for the first time */
-			if (wsi->http.connection_type == HTTP_CONNECTION_KEEP_ALIVE)
+			if (wsi->http.conn_type == HTTP_CONNECTION_KEEP_ALIVE)
 				wsi->keepalive_active = 1;
 			else {
 				/*
@@ -916,7 +916,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 					wsi->http.rx_content_length;
 		} else /* can't do 1.1 without a content length or chunked */
 			if (!wsi->chunked)
-				wsi->http.connection_type =
+				wsi->http.conn_type =
 							HTTP_CONNECTION_CLOSE;
 
 		/*
@@ -1033,7 +1033,7 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 				return NULL;
 			}
 
-			lws_bind_protocol(wsi, pr);
+			lws_bind_protocol(wsi, pr, __func__);
 		}
 
 		if ((wsi->protocol->callback)(wsi, LWS_CALLBACK_RAW_ADOPT,

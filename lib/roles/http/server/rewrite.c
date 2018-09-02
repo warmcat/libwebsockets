@@ -37,7 +37,7 @@ LWS_EXTERN int
 lws_rewrite_parse(struct lws_rewrite *r,
 		  const unsigned char *in, int in_len)
 {
-	if (hubbub_parser_parse_chunk(r->parser, in, in_len) != HUBBUB_OK)
+	if (r && hubbub_parser_parse_chunk(r->parser, in, in_len) != HUBBUB_OK)
 		return -1;
 
 	return 0;

@@ -42,7 +42,7 @@ lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 	lws_filepos_t body_chunk_len;
 	size_t n;
 
-	// lwsl_notice("%s: h1 path: wsi state 0x%x\n", __func__, lwsi_state(wsi));
+	lwsl_debug("%s: h1 path: wsi state 0x%x\n", __func__, lwsi_state(wsi));
 
 	switch (lwsi_state(wsi)) {
 
@@ -225,7 +225,7 @@ ws_mode:
 		break;
 
 	case LRS_DEFERRING_ACTION:
-		lwsl_debug("%s: LRS_DEFERRING_ACTION\n", __func__);
+		lwsl_notice("%s: LRS_DEFERRING_ACTION\n", __func__);
 		break;
 
 	case LRS_SSL_ACK_PENDING:
@@ -543,6 +543,37 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 	}
 #endif
 
+
+	/* Priority 2: pre- compression transform */
+
+#if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
+	if (wsi->http.comp_ctx.buflist_comp ||
+	    wsi->http.comp_ctx.may_have_more) {
+		enum lws_write_protocol wp = LWS_WRITE_HTTP;
+
+		lwsl_info("%s: completing comp partial (buflist_comp %p, may %d)\n",
+				__func__, wsi->http.comp_ctx.buflist_comp,
+				wsi->http.comp_ctx.may_have_more
+				);
+
+		if (wsi->role_ops->write_role_protocol(wsi, NULL, 0, &wp) < 0) {
+			lwsl_info("%s signalling to close\n", __func__);
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
+		}
+		lws_callback_on_writable(wsi);
+
+		if (!wsi->http.comp_ctx.buflist_comp &&
+		    !wsi->http.comp_ctx.may_have_more &&
+		    wsi->http.deferred_transaction_completed) {
+			wsi->http.deferred_transaction_completed = 0;
+			if (lws_http_transaction_completed(wsi))
+				return LWS_HPI_RET_PLEASE_CLOSE_ME;
+		}
+
+		return LWS_HPI_RET_HANDLED;
+	}
+#endif
+
         if (lws_is_flowcontrolled(wsi))
                 /* We cannot deal with any kind of new RX because we are
                  * RX-flowcontrolled.
@@ -652,7 +683,7 @@ rops_write_role_protocol_h1(struct lws *wsi, unsigned char *buf, size_t len,
 		if (n)
 			return n;
 
-		lwsl_debug("%s: %p: transformed %d bytes to %d "
+		lwsl_info("%s: %p: transformed %d bytes to %d "
 			   "(wp 0x%x, more %d)\n", __func__, wsi, (int)len,
 			   (int)o, (int)*wp, wsi->http.comp_ctx.may_have_more);
 
@@ -665,7 +696,7 @@ rops_write_role_protocol_h1(struct lws *wsi, unsigned char *buf, size_t len,
 			 * pipelining
 			 */
 			n = lws_snprintf(c, sizeof(c), "%X\x0d\x0a", (int)o);
-			// lwsl_notice("%s: chunk %s\n", __func__, c);
+			lwsl_info("%s: chunk (%d) %s", __func__, (int)o, c);
 			out -= n;
 			o += n;
 			memcpy(out, c, n);
@@ -673,6 +704,7 @@ rops_write_role_protocol_h1(struct lws *wsi, unsigned char *buf, size_t len,
 			out[o++] = '\x0a';
 
 			if (((*wp) & 0x1f) == LWS_WRITE_HTTP_FINAL) {
+				lwsl_info("%s: final chunk\n", __func__);
 				out[o++] = '0';
 				out[o++] = '\x0d';
 				out[o++] = '\x0a';
@@ -902,7 +934,7 @@ rops_perform_user_POLLOUT_h1(struct lws *wsi)
 	    wsi->http.comp_ctx.may_have_more) {
 		enum lws_write_protocol wp = LWS_WRITE_HTTP;
 
-		lwsl_debug("%s: completing comp partial"
+		lwsl_info("%s: completing comp partial"
 			   "(buflist_comp %p, may %d)\n",
 			   __func__, wsi->http.comp_ctx.buflist_comp,
 			    wsi->http.comp_ctx.may_have_more);

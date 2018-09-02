@@ -407,6 +407,7 @@ struct lws;
 #include <libwebsockets/lws-vfs.h>
 #include <libwebsockets/lws-lejp.h>
 #include <libwebsockets/lws-stats.h>
+#include <libwebsockets/lws-threadpool.h>
 
 #if defined(LWS_WITH_TLS)
 
