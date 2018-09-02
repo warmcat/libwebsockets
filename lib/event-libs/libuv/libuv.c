@@ -317,6 +317,7 @@ lws_libuv_closewsi_m(uv_handle_t* handle)
 	lws_sockfd_type sockfd = (lws_sockfd_type)(lws_intptr_t)handle->data;
 
 	compatible_close(sockfd);
+	lws_free(handle);
 }
 
 int
@@ -593,12 +594,15 @@ elops_check_client_connect_ok_uv(struct lws *wsi)
 static void
 elops_close_handle_manually_uv(struct lws *wsi)
 {
-	uv_handle_t *h = (void *)&wsi->w_read.uv.watcher;
+	struct lws_io_watcher *h = (void *)&wsi->w_read.uv.watcher, *nh;
+
+	nh = lws_malloc(sizeof(*h), __func__);
+	*nh = *h;
 
 	lwsl_debug("%s: lws_libuv_closehandle: wsi %p\n", __func__, wsi);
-	h->data = (void *)(lws_intptr_t)wsi->desc.sockfd;
+	((uv_handle_t *)nh)->data = (void *)(lws_intptr_t)wsi->desc.sockfd;
 	/* required to defer actual deletion until libuv has processed it */
-	uv_close((uv_handle_t*)&wsi->w_read.uv.watcher, lws_libuv_closewsi_m);
+	uv_close((uv_handle_t *)nh, lws_libuv_closewsi_m);
 }
 
 static void
