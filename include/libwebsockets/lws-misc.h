@@ -392,6 +392,17 @@ lws_set_wsi_user(struct lws *wsi, void *user);
  * \param ads:		result pointer for address part
  * \param port:		result pointer for port part
  * \param path:		result pointer for path part
+ *
+ * You may also refer to unix socket addresses, using a '+' at the start of
+ * the address.  In this case, the address should end with ':', which is
+ * treated as the separator between the address and path (the normal separator
+ * '/' is a valid part of the socket path).  Eg,
+ *
+ * http://+/var/run/mysocket:/my/path
+ *
+ * If the first character after the + is '@', it's interpreted by lws client
+ * processing as meaning to use linux abstract namespace sockets, the @ is
+ * replaced with a '\0' before use.
  */
 LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_parse_uri(char *p, const char **prot, const char **ads, int *port,
@@ -421,6 +432,12 @@ lws_cmdline_option(int argc, const char **argv, const char *val);
  */
 LWS_VISIBLE LWS_EXTERN unsigned long
 lws_now_secs(void);
+
+/**
+ * lws_now_usecs(): return useconds since 1970-1-1
+ */
+LWS_VISIBLE LWS_EXTERN lws_usec_t
+lws_now_usecs(void);
 
 /**
  * lws_compare_time_t(): return relationship between two time_t

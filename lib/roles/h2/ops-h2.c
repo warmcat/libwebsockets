@@ -578,6 +578,19 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 {
 	struct lws *wsi2;
 
+#if defined(LWS_WITH_HTTP_PROXY)
+	if (wsi->http.proxy_clientside) {
+		struct lws *wsi_eff = lws_client_wsi_effective(wsi);
+
+		wsi->http.proxy_clientside = 0;
+
+		if (user_callback_handle_rxflow(wsi_eff->protocol->callback, wsi_eff,
+						LWS_CALLBACK_COMPLETED_CLIENT_HTTP,
+						wsi_eff->user_space, NULL, 0))
+			wsi->http.proxy_clientside = 0;
+	}
+#endif
+
 	if (wsi->http2_substream && wsi->h2_stream_carries_ws)
 		lws_h2_rst_stream(wsi, 0, "none");
 
@@ -960,7 +973,8 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			 * states.  In those cases we will hear about
 			 * END_STREAM going out in the POLLOUT handler.
 			 */
-			if (n || w->h2.send_END_STREAM) {
+			if (!w->h2.pending_status_body &&
+			    (n || w->h2.send_END_STREAM)) {
 				lwsl_info("closing stream after h2 action\n");
 				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 						   "h2 end stream");

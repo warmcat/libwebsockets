@@ -241,6 +241,9 @@ bail:
 		parent->child_list = new_wsi->sibling_list;
 	if (new_wsi->user_space)
 		lws_free(new_wsi->user_space);
+
+	vh->context->count_wsi_allocated--;
+
 	lws_vhost_unbind_wsi(new_wsi);
 	lws_free(new_wsi);
 

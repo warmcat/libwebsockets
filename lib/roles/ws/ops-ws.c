@@ -1495,7 +1495,11 @@ rops_close_via_role_protocol_ws(struct lws *wsi, enum lws_close_status reason)
 static int
 rops_close_role_ws(struct lws_context_per_thread *pt, struct lws *wsi)
 {
+	if (!wsi->ws)
+		return 0;
+
 #if !defined(LWS_WITHOUT_EXTENSIONS)
+
 	if (wsi->ws->rx_draining_ext) {
 		struct lws **w = &pt->ws.rx_draining_ext_list;
 

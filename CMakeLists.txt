@@ -29,7 +29,7 @@ option(LWS_WITH_CGI "Include CGI (spawn process with network-connected stdin/out
 option(LWS_IPV6 "Compile with support for ipv6" OFF)
 option(LWS_UNIX_SOCK "Compile with support for UNIX domain socket" ON)
 option(LWS_WITH_PLUGINS "Support plugins for protocols and extensions" OFF)
-option(LWS_WITH_HTTP_PROXY "Support for rewriting HTTP proxying (requires libhubbub)" OFF)
+option(LWS_WITH_HTTP_PROXY "Support for HTTP proxying" ON)
 option(LWS_WITH_ZIP_FOPS "Support serving pre-zipped files" OFF)
 option(LWS_WITH_SOCKS5 "Allow use of SOCKS5 proxy on client connections" OFF)
 option(LWS_WITH_GENERIC_SESSIONS "With the Generic Sessions plugin" OFF)
@@ -41,6 +41,7 @@ option(LWS_WITH_THREADPOOL "Managed worker thread pool support (relies on pthrea
 option(LWS_WITH_HTTP_STREAM_COMPRESSION "Support HTTP stream compression" OFF)
 option(LWS_WITH_HTTP_BROTLI "Also offer brotli http stream compression (requires LWS_WITH_HTTP_STREAM_COMPRESSION)" OFF)
 option(LWS_WITH_ACME "Enable support for ACME automatic cert acquisition + maintenance (letsencrypt etc)" OFF)
+option(LWS_WITH_HUBBUB "Enable libhubbub rewriting support" OFF)
 #
 # TLS library options... all except mbedTLS are basically OpenSSL variants.
 #
@@ -132,6 +133,12 @@ endif()
 
 if(NOT DEFINED CMAKE_BUILD_TYPE)
 	set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type")
+endif()
+
+# microsoft... that's why you can't have nice things
+
+if (WIN32 OR LWS_WITH_ESP32)
+	set(LWS_UNIX_SOCK 0)
 endif()
 
 project(libwebsockets C)
@@ -333,7 +340,8 @@ endif()
 
 
 if (LWS_WITH_HTTP_PROXY AND (LWS_WITHOUT_CLIENT OR LWS_WITHOUT_SERVER))
-	message(FATAL_ERROR "You have to enable both client and server for http proxy")
+	message("You have to enable both client and server for http proxy")
+	set(LWS_WITH_HTTP_PROXY 0)
 endif()
 
 # Allow the user to override installation directories.
@@ -744,6 +752,7 @@ set(HDR_PUBLIC
 set(SOURCES
 	lib/core/alloc.c
 	lib/core/context.c
+	lib/core/dummy-callback.c
 	lib/core/libwebsockets.c
 	lib/core/output.c
 	lib/core/pollfd.c
@@ -1402,7 +1411,7 @@ if (LWS_WITH_SQLITE3)
 endif()
 
 
-if (LWS_WITH_HTTP_PROXY)
+if (LWS_WITH_HUBBUB)
 	find_library(LIBHUBBUB_LIBRARIES NAMES hubbub)
 	list(APPEND LIB_LIST ${LIBHUBBUB_LIBRARIES} )
 endif()

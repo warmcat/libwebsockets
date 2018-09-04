@@ -219,6 +219,8 @@ bail1:
 	parent_wsi->h2.child_list = wsi->h2.sibling_list;
 	parent_wsi->h2.child_count--;
 
+	vh->context->count_wsi_allocated--;
+
 	if (wsi->user_space)
 		lws_free_set_NULL(wsi->user_space);
 	vh->protocols[0].callback(wsi, LWS_CALLBACK_WSI_DESTROY, NULL, NULL, 0);
@@ -380,6 +382,9 @@ lws_h2_rst_stream(struct lws *wsi, uint32_t err, const char *reason)
 	struct lws *nwsi = lws_get_network_wsi(wsi);
 	struct lws_h2_netconn *h2n = nwsi->h2.h2n;
 	struct lws_h2_protocol_send *pps;
+
+	if (!h2n)
+		return 0;
 
 	if (h2n->type == LWS_H2_FRAME_TYPE_COUNT)
 		return 0;

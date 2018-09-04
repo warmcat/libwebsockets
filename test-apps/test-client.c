@@ -672,15 +672,20 @@ int main(int argc, char **argv)
 		goto usage;
 
 	/* add back the leading / on path */
-	path[0] = '/';
-	lws_strncpy(path + 1, p, sizeof(path) - 1);
-	i.path = path;
+	if (p[0] != '/') {
+		path[0] = '/';
+		lws_strncpy(path + 1, p, sizeof(path) - 1);
+		i.path = path;
+	} else
+		i.path = p;
 
 	if (!strcmp(prot, "http") || !strcmp(prot, "ws"))
 		use_ssl = 0;
 	if (!strcmp(prot, "https") || !strcmp(prot, "wss"))
 		if (!use_ssl)
 			use_ssl = LCCSCF_USE_SSL;
+
+	lwsl_debug("'%s' %p '%s' %p\n", i.address, i.address, i.path, i.path);
 
 	/*
 	 * create the websockets context.  This tracks open connections and

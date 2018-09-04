@@ -959,6 +959,7 @@ struct lws {
 	unsigned int on_same_vh_list:1;
 	unsigned int handling_404:1;
 	unsigned int protocol_bind_balance:1;
+	unsigned int unix_skt:1;
 
 	unsigned int could_have_pending:1; /* detect back-to-back writes */
 	unsigned int outer_will_close:1;
@@ -1156,7 +1157,8 @@ user_callback_handle_rxflow(lws_callback_function, struct lws *wsi,
 			    void *in, size_t len);
 
 LWS_EXTERN int
-lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd);
+lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd,
+			    int unix_skt);
 
 LWS_EXTERN int
 lws_plat_check_connection_error(struct lws *wsi);
@@ -1493,7 +1495,7 @@ void
 lws_peer_dump_from_wsi(struct lws *wsi);
 #endif
 
-#ifdef LWS_WITH_HTTP_PROXY
+#ifdef LWS_WITH_HUBBUB
 hubbub_error
 html_parser_cb(const hubbub_token *token, void *pw);
 #endif

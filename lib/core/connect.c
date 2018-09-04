@@ -42,7 +42,7 @@ lws_client_stash_destroy(struct lws *wsi)
 LWS_VISIBLE struct lws *
 lws_client_connect_via_info(const struct lws_client_connect_info *i)
 {
-	struct lws *wsi;
+	struct lws *wsi, *safe = NULL;
 	const struct lws_protocols *p;
 	const char *local = i->protocol;
 #if LWS_MAX_SMP > 1
@@ -220,12 +220,33 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	}
 
 	/*
+	 * at this point user callbacks like
+	 * LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER will be interested to
+	 * know the parent... eg for proxying we can grab extra headers from
+	 * the parent's incoming ah and add them to the child client handshake
+	 */
+
+	if (i->parent_wsi) {
+		lwsl_info("%s: created child %p of parent %p\n", __func__,
+			  wsi, i->parent_wsi);
+		wsi->parent = i->parent_wsi;
+		safe = wsi->sibling_list = i->parent_wsi->child_list;
+		i->parent_wsi->child_list = wsi;
+	}
+
+	/*
 	 * PHASE 7: Do any role-specific finalization processing.  We can still
 	 * see important info things via wsi->stash
 	 */
 
 	if (wsi->role_ops->client_bind) {
 		int n = wsi->role_ops->client_bind(wsi, NULL);
+
+		if (n && i->parent_wsi) {
+			/* unpick from parent */
+
+			i->parent_wsi->child_list = safe;
+		}
 
 		if (n < 0)
 			/* we didn't survive, wsi is freed */
@@ -241,14 +262,8 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	if (i->pwsi)
 		*i->pwsi = wsi;
 
-	if (i->parent_wsi) {
-		lwsl_info("%s: created child %p of parent %p\n", __func__,
-			  wsi, i->parent_wsi);
-		wsi->parent = i->parent_wsi;
-		wsi->sibling_list = i->parent_wsi->child_list;
-		i->parent_wsi->child_list = wsi;
-	}
-#ifdef LWS_WITH_HTTP_PROXY
+
+#if defined(LWS_WITH_HUBBUB)
 	if (i->uri_replace_to)
 		wsi->http.rw = lws_rewrite_create(wsi, html_parser_cb,
 					     i->uri_replace_from,
