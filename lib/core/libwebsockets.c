@@ -53,6 +53,7 @@ static const char * const log_level_names[] = {
 	"CLIENT",
 	"LATENCY",
 	"USER",
+	"THREAD",
 	"?",
 	"?"
 };
@@ -372,6 +373,15 @@ __lws_set_timer_usecs(struct lws *wsi, lws_usec_t usecs)
 	}
 
 //	lws_dll_dump(&pt->dll_head_hrtimer, "after set_timer_usec");
+}
+
+LWS_VISIBLE lws_usec_t
+lws_now_usecs(void)
+{
+	struct timeval now;
+
+	gettimeofday(&now, NULL);
+	return (now.tv_sec * 1000000ll) + now.tv_usec;
 }
 
 LWS_VISIBLE void
@@ -873,6 +883,10 @@ just_kill_connection:
 		wsi->http.rw = NULL;
 	}
 #endif
+
+	if (wsi->http.pending_return_headers)
+		lws_free_set_NULL(wsi->http.pending_return_headers);
+
 	/*
 	 * we won't be servicing or receiving anything further from this guy
 	 * delete socket from the internal poll list if still present
@@ -2029,6 +2043,7 @@ static const char * const colours[] = {
 	"[33m", /* LLL_CLIENT */
 	"[33;1m", /* LLL_LATENCY */
 	"[30;1m", /* LLL_USER */
+	"[31m", /* LLL_THREAD */
 };
 
 LWS_VISIBLE void lwsl_emit_stderr(int level, const char *line)
@@ -2394,7 +2409,7 @@ lws_parse_uri(char *p, const char **prot, const char **ads, int *port,
 	      const char **path)
 {
 	const char *end;
-	static const char *slash = "/";
+	char unix_skt = 0;
 
 	/* cut up the location into address, port and path */
 	*prot = p;
@@ -2408,32 +2423,32 @@ lws_parse_uri(char *p, const char **prot, const char **ads, int *port,
 		*p = '\0';
 		p += 3;
 	}
+	if (*p == '+') /* unix skt */
+		unix_skt = 1;
+
 	*ads = p;
 	if (!strcmp(*prot, "http") || !strcmp(*prot, "ws"))
 		*port = 80;
 	else if (!strcmp(*prot, "https") || !strcmp(*prot, "wss"))
 		*port = 443;
 
-       if (*p == '[')
-       {
-               ++(*ads);
-               while (*p && *p != ']')
-                       p++;
-               if (*p)
-                       *p++ = '\0';
-       }
-       else
-       {
-               while (*p && *p != ':' && *p != '/')
-                       p++;
-       }
+	if (*p == '[') {
+		++(*ads);
+		while (*p && *p != ']')
+			p++;
+		if (*p)
+			*p++ = '\0';
+	} else
+		while (*p && *p != ':' && (unix_skt || *p != '/'))
+			p++;
+
 	if (*p == ':') {
 		*p++ = '\0';
 		*port = atoi(p);
 		while (*p && *p != '/')
 			p++;
 	}
-	*path = slash;
+	*path = "/";
 	if (*p) {
 		*p++ = '\0';
 		if (*p)

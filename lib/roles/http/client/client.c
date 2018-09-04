@@ -882,7 +882,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			if (!strncmp(lws_hdr_simple_ptr(wsi,
 						WSI_TOKEN_HTTP_CONTENT_TYPE),
 						"text/html", 9))
-				wsi->http.perform_rewrite = 1;
+				wsi->http.perform_rewrite = 0;
 		}
 #endif
 
@@ -993,7 +993,9 @@ bail2:
 	}
 	wsi->already_did_cce = 1;
 
-	lwsl_info("closing connection due to bail2 connection error\n");
+	lwsl_info("closing connection (prot %s) "
+		  "due to bail2 connection error: %s\n", wsi->protocol ?
+				  wsi->protocol->name : "unknown", cce);
 
 	/* closing will free up his parsing allocations */
 	lws_close_free_wsi(wsi, close_reason, "c hs interp");
@@ -1064,6 +1066,9 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 
 	p += sprintf(p, "Pragma: no-cache\x0d\x0a"
 			"Cache-Control: no-cache\x0d\x0a");
+
+	if (!wsi->client_pipeline)
+		p += sprintf(p, "connection: close\x0d\x0a");
 
 	p += sprintf(p, "Host: %s\x0d\x0a",
 		     lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST));

@@ -29,9 +29,12 @@ lcs_init_compression_brotli(lws_comp_ctx_t *ctx, int decomp)
 
 	if (!decomp) {
 		ctx->u.br_en = BrotliEncoderCreateInstance(NULL, NULL, NULL);
-		if (ctx->u.br_en)
+		if (ctx->u.br_en) {
 			BrotliEncoderSetParameter(ctx->u.br_en,
 					BROTLI_PARAM_MODE, BROTLI_MODE_TEXT);
+			BrotliEncoderSetParameter(ctx->u.br_en,
+					BROTLI_PARAM_QUALITY, BROTLI_MIN_QUALITY);
+		}
 	}
 	else
 		ctx->u.br_de = BrotliDecoderCreateInstance(NULL, NULL, NULL);

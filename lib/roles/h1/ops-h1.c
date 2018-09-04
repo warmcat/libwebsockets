@@ -974,6 +974,26 @@ cleanup:
 }
 #endif
 
+static int
+rops_close_kill_connection_h1(struct lws *wsi, enum lws_close_status reason)
+{
+#if defined(LWS_WITH_HTTP_PROXY)
+	struct lws *wsi_eff = lws_client_wsi_effective(wsi);
+
+	if (!wsi_eff->http.proxy_clientside)
+		return 0;
+
+	wsi_eff->http.proxy_clientside = 0;
+
+	if (user_callback_handle_rxflow(wsi_eff->protocol->callback, wsi_eff,
+					LWS_CALLBACK_COMPLETED_CLIENT_HTTP,
+					wsi_eff->user_space, NULL, 0))
+		return 0;
+#endif
+	return 0;
+}
+
+
 struct lws_role_ops role_ops_h1 = {
 	/* role name */			"h1",
 	/* alpn id */			"http/1.1",
@@ -993,7 +1013,7 @@ struct lws_role_ops role_ops_h1 = {
 	/* alpn_negotiated */		rops_alpn_negotiated_h1,
 	/* close_via_role_protocol */	NULL,
 	/* close_role */		NULL,
-	/* close_kill_connection */	NULL,
+	/* close_kill_connection */	rops_close_kill_connection_h1,
 	/* destroy_role */		rops_destroy_role_h1,
 #if !defined(LWS_NO_SERVER)
 	/* adoption_bind */		rops_adoption_bind_h1,

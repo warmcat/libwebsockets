@@ -134,6 +134,12 @@ if(NOT DEFINED CMAKE_BUILD_TYPE)
 	set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type")
 endif()
 
+# microsoft... that's why you can't have nice things
+
+if (WIN32 OR LWS_WITH_ESP32)
+	set(LWS_UNIX_SOCK 0)
+endif()
+
 project(libwebsockets C)
 
 set(PACKAGE "libwebsockets")
@@ -744,6 +750,7 @@ set(HDR_PUBLIC
 set(SOURCES
 	lib/core/alloc.c
 	lib/core/context.c
+	lib/core/dummy-callback.c
 	lib/core/libwebsockets.c
 	lib/core/output.c
 	lib/core/pollfd.c

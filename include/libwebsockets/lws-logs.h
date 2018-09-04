@@ -45,8 +45,9 @@ enum lws_log_levels {
 	LLL_CLIENT = 1 << 8,
 	LLL_LATENCY = 1 << 9,
 	LLL_USER = 1 << 10,
+	LLL_THREAD = 1 << 11,
 
-	LLL_COUNT = 11 /* set to count of valid flags */
+	LLL_COUNT = 12 /* set to count of valid flags */
 };
 
 LWS_VISIBLE LWS_EXTERN void _lws_log(int filter, const char *format, ...) LWS_FORMAT(2);
@@ -92,6 +93,7 @@ lwsl_timestamp(int level, char *p, int len);
 #define lwsl_ext(...)  _lws_log(LLL_EXT, __VA_ARGS__)
 #define lwsl_client(...) _lws_log(LLL_CLIENT, __VA_ARGS__)
 #define lwsl_latency(...) _lws_log(LLL_LATENCY, __VA_ARGS__)
+#define lwsl_thread(...) _lws_log(LLL_THREAD, __VA_ARGS__)
 
 #else /* no debug */
 #if defined(LWS_WITH_NO_LOGS)
@@ -105,6 +107,7 @@ lwsl_timestamp(int level, char *p, int len);
 #define lwsl_ext(...) do {} while(0)
 #define lwsl_client(...) do {} while(0)
 #define lwsl_latency(...) do {} while(0)
+#define lwsl_thread(...) do {} while(0)
 
 #endif
 

@@ -93,7 +93,7 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int met
 			 pa, da, me, uri,
 			 hver[wsi->http.request_version]);
 
-		lwsl_notice("%s\n", wsi->http.access_log.header_log);
+		//lwsl_notice("%s\n", wsi->http.access_log.header_log);
 
 		l = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_USER_AGENT);
 		if (l) {

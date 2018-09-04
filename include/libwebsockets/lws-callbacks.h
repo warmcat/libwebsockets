@@ -485,7 +485,7 @@ enum lws_callback_reasons {
 	/**< after your client connection completed the websocket upgrade
 	 * handshake with the remote server */
 
-	LWS_CALLBACK_CLIENT_CLOSED				=  75,
+	LWS_CALLBACK_CLIENT_CLOSED				= 75,
 	/**< when a client websocket session ends */
 
 	LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER		= 24,
@@ -497,21 +497,11 @@ enum lws_callback_reasons {
 	 * which is typically some hundreds of bytes.  So, to add a canned
 	 * cookie, your handler code might look similar to:
 	 *
-	 *	char **p = (char **)in;
+	 *	char **p = (char **)in, *end = (*p) + len;
 	 *
-	 *	if (len < 100)
-	 *		return 1;
-	 *
-	 *	*p += sprintf(*p, "Cookie: a=b\x0d\x0a");
-	 *
-	 *	return 0;
-	 *
-	 * Notice if you add anything, you just have to take care about
-	 * the CRLF on the line you added.  Obviously this callback is
-	 * optional, if you don't handle it everything is fine.
-	 *
-	 * Notice the callback is coming to protocols[0] all the time,
-	 * because there is no specific protocol negotiated yet.
+	 *	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_COOKIE,
+	 *			(unsigned char)"a=b", 3, p, end))
+	 *		return -1;
 	 *
 	 * See LWS_CALLBACK_ADD_HEADERS for adding headers to server
 	 * transactions.
@@ -798,4 +788,6 @@ lws_callback_function(struct lws *wsi, enum lws_callback_reasons reason,
 #define LWS_CB_REASON_AUX_BF__PROXY		2
 #define LWS_CB_REASON_AUX_BF__CGI_CHUNK_END	4
 #define LWS_CB_REASON_AUX_BF__CGI_HEADERS	8
+#define LWS_CB_REASON_AUX_BF__PROXY_TRANS_END	16
+#define LWS_CB_REASON_AUX_BF__PROXY_HEADERS	32
 ///@}

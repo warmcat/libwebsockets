@@ -37,8 +37,13 @@ lws_client_connect_2(struct lws *wsi)
 	ssize_t plen = 0;
 #endif
 	struct addrinfo *result;
+#if defined(LWS_WITH_UNIX_SOCK)
+	struct sockaddr_un sau;
+	char unix_skt = 0;
+#endif
 	const char *ads;
 	sockaddr46 sa46;
+	const struct sockaddr *psa;
 	int n, port;
 	const char *cce = "", *iface;
 	const char *meth = NULL;
@@ -182,6 +187,29 @@ create_new_conn:
 				      &wsi->vhost->dll_active_client_conns);
 		lws_vhost_unlock(wsi->vhost);
 	}
+
+	/*
+	 * unix socket destination?
+	 */
+
+	ads = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS);
+#if defined(LWS_WITH_UNIX_SOCK)
+	if (*ads == '+') {
+		ads++;
+		memset(&sau, 0, sizeof(sau));
+		sau.sun_family = AF_UNIX;
+		strncpy(sau.sun_path, ads, sizeof(sau.sun_path));
+		sau.sun_path[sizeof(sau.sun_path) - 1] = '\0';
+
+		lwsl_info("%s: Unix skt: %s\n", __func__, ads);
+
+		if (sau.sun_path[0] == '@')
+			sau.sun_path[0] = '\0';
+
+		unix_skt = 1;
+		goto ads_known;
+	}
+#endif
 
 	/*
 	 * start off allowing ipv6 on connection if vhost allows it
@@ -341,6 +369,10 @@ create_new_conn:
 	if (result)
 		freeaddrinfo(result);
 
+#if defined(LWS_WITH_UNIX_SOCK)
+ads_known:
+#endif
+
 	/* now we decided on ipv4 or ipv6, set the port */
 
 	if (!lws_socket_is_valid(wsi->desc.sockfd)) {
@@ -351,12 +383,21 @@ create_new_conn:
 			goto oom4;
 		}
 
+#if defined(LWS_WITH_UNIX_SOCK)
+		if (unix_skt) {
+			wsi->unix_skt = 1;
+			wsi->desc.sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
+		} else
+#endif
+		{
+
 #ifdef LWS_WITH_IPV6
 		if (wsi->ipv6)
 			wsi->desc.sockfd = socket(AF_INET6, SOCK_STREAM, 0);
 		else
 #endif
 			wsi->desc.sockfd = socket(AF_INET, SOCK_STREAM, 0);
+		}
 
 		if (!lws_socket_is_valid(wsi->desc.sockfd)) {
 			lwsl_warn("Unable to open socket\n");
@@ -364,7 +405,12 @@ create_new_conn:
 			goto oom4;
 		}
 
-		if (lws_plat_set_socket_options(wsi->vhost, wsi->desc.sockfd)) {
+		if (lws_plat_set_socket_options(wsi->vhost, wsi->desc.sockfd,
+#if defined(LWS_WITH_UNIX_SOCK)
+						unix_skt)) {
+#else
+						0)) {
+#endif
 			lwsl_err("Failed to set wsi socket options\n");
 			compatible_close(wsi->desc.sockfd);
 			cce = "set socket opts failed";
@@ -409,18 +455,29 @@ create_new_conn:
 		}
 	}
 
-#ifdef LWS_WITH_IPV6
-	if (wsi->ipv6) {
-		sa46.sa6.sin6_port = htons(port);
-		n = sizeof(struct sockaddr_in6);
+#if defined(LWS_WITH_UNIX_SOCK)
+	if (unix_skt) {
+		psa = (const struct sockaddr *)&sau;
+		n = sizeof(sau);
 	} else
 #endif
+
 	{
-		sa46.sa4.sin_port = htons(port);
-		n = sizeof(struct sockaddr);
+#ifdef LWS_WITH_IPV6
+		if (wsi->ipv6) {
+			sa46.sa6.sin6_port = htons(port);
+			n = sizeof(struct sockaddr_in6);
+			psa = (const struct sockaddr *)&sa46;
+		} else
+#endif
+		{
+			sa46.sa4.sin_port = htons(port);
+			n = sizeof(struct sockaddr);
+			psa = (const struct sockaddr *)&sa46;
+		}
 	}
 
-	if (connect(wsi->desc.sockfd, (const struct sockaddr *)&sa46, n) == -1 ||
+	if (connect(wsi->desc.sockfd, (const struct sockaddr *)psa, n) == -1 ||
 	    LWS_ERRNO == LWS_EISCONN) {
 		if (LWS_ERRNO == LWS_EALREADY ||
 		    LWS_ERRNO == LWS_EINPROGRESS ||

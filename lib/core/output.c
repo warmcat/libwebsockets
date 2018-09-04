@@ -251,6 +251,10 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 		n = recv(wsi->desc.sockfd, (char *)buf, len, 0);
 
 	if (n >= 0) {
+
+		if (!n && wsi->unix_skt)
+			return LWS_SSL_CAPABLE_ERROR;
+
 		if (wsi->vhost)
 			wsi->vhost->conn_stats.rx += n;
 		lws_stats_atomic_bump(context, pt, LWSSTATS_B_READ, n);

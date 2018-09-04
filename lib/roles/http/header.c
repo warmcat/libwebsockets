@@ -384,7 +384,7 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 
 #if defined(LWS_WITH_HTTP2)
 	if (wsi->http2_substream) {
-		unsigned char *body = p + 512;
+		char *body = (char *)start + context->pt_serv_buf_size - 512;
 
 		/*
 		 * for HTTP/2, the headers must be sent separately, since they
@@ -398,7 +398,8 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 		 *
 		 * Solve it by writing the headers now...
 		 */
-		m = lws_write(wsi, start, p - start, LWS_WRITE_HTTP_HEADERS);
+		m = lws_write(wsi, start, lws_ptr_diff(p, start),
+			      LWS_WRITE_HTTP_HEADERS);
 		if (m != lws_ptr_diff(p, start))
 			return 1;
 
@@ -407,8 +408,7 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 		 * handle_POLLOUT
 		 */
 
-		len = sprintf((char *)body,
-			      "<html><body><h1>%u</h1>%s</body></html>",
+		len = sprintf(body, "<html><body><h1>%u</h1>%s</body></html>",
 			      code, html_body);
 		wsi->http.tx_content_length = len;
 		wsi->http.tx_content_remain = len;
@@ -418,8 +418,7 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 		if (!wsi->h2.pending_status_body)
 			return -1;
 
-		strcpy(wsi->h2.pending_status_body + LWS_PRE,
-		       (const char *)body);
+		strcpy(wsi->h2.pending_status_body + LWS_PRE, body);
 		lws_callback_on_writable(wsi);
 
 		return 0;

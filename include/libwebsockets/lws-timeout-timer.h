@@ -63,6 +63,7 @@ enum pending_timeout {
 	PENDING_TIMEOUT_LAGGING					= 28,
 	PENDING_TIMEOUT_THREADPOOL				= 29,
 	PENDING_TIMEOUT_THREADPOOL_TASK				= 30,
+	PENDING_TIMEOUT_KILLED_BY_PROXY_CLIENT_CLOSE		= 31,
 
 	/****** add new things just above ---^ ******/
 

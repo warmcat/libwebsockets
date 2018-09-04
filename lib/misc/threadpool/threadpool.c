@@ -33,12 +33,20 @@ struct lws_threadpool_task {
 	struct lws_threadpool *tp;
 	char name[32];
 	struct lws_threadpool_task_args args;
-	time_t created;
-	time_t entered_state;
+
+	lws_usec_t created;
+	lws_usec_t acquired;
+	lws_usec_t done;
+	lws_usec_t entered_state;
+
+	lws_usec_t acc_running;
+	lws_usec_t acc_syncing;
 
 	pthread_cond_t wake_idle;
 
 	enum lws_threadpool_task_status status;
+
+	int late_sync_retries;
 
 	char wanted_writeable_cb;
 };
@@ -48,7 +56,7 @@ struct lws_pool {
 	pthread_t thread;
 	pthread_mutex_t lock; /* part of task wake_idle */
 	struct lws_threadpool_task *task;
-	time_t acquired;
+	lws_usec_t acquired;
 	int worker_index;
 };
 
@@ -74,25 +82,95 @@ struct lws_threadpool {
 	unsigned int destroying:1;
 };
 
+static int
+ms_delta(lws_usec_t now, lws_usec_t then)
+{
+	return (int)((now - then) / 1000);
+}
+
+static void
+us_accrue(lws_usec_t *acc, lws_usec_t then)
+{
+	lws_usec_t now = lws_now_usecs();
+
+	*acc += now - then;
+}
+
+static int
+pc_delta(lws_usec_t now, lws_usec_t then, lws_usec_t us)
+{
+	lws_usec_t delta = (now - then) + 1;
+
+	return (int)((us * 100) / delta);
+}
+
+static void
+__lws_threadpool_task_dump(struct lws_threadpool_task *task, char *buf, int len)
+{
+	lws_usec_t now = lws_now_usecs();
+	char *end = buf + len - 1;
+	int syncms = 0, runms = 0;
+
+	if (!task->acquired) {
+		buf += lws_snprintf(buf, end - buf,
+				    "task: %s, QUEUED queued: %dms",
+				    task->name, ms_delta(now, task->created));
+
+		return;
+	}
+
+	if (task->acc_running)
+		runms = task->acc_running;
+
+	if (task->acc_syncing)
+		syncms = task->acc_syncing;
+
+	if (!task->done) {
+		buf += lws_snprintf(buf, end - buf,
+			"task: %s, ONGOING state %d (%dms) alive: %dms "
+			"(queued %dms, acquired: %dms, "
+			"run: %d%%, sync: %d%%)", task->name, task->status,
+			ms_delta(now, task->entered_state),
+			ms_delta(now, task->created),
+			ms_delta(task->acquired, task->created),
+			ms_delta(now, task->acquired),
+			pc_delta(now, task->acquired, runms),
+			pc_delta(now, task->acquired, syncms));
+
+		return;
+	}
+
+	buf += lws_snprintf(buf, end - buf,
+		"task: %s, DONE state %d lived: %dms "
+		"(queued %dms, on thread: %dms, "
+		"ran: %d%%, synced: %d%%)", task->name, task->status,
+		ms_delta(task->done, task->created),
+		ms_delta(task->acquired, task->created),
+		ms_delta(task->done, task->acquired),
+		pc_delta(task->done, task->acquired, runms),
+		pc_delta(task->done, task->acquired, syncms));
+}
+
 void
 lws_threadpool_dump(struct lws_threadpool *tp)
 {
 #if defined(_DEBUG)
 	struct lws_threadpool_task **c;
-	time_t now = time(NULL);
+	char buf[160];
 	int n, count;
 
 	pthread_mutex_lock(&tp->lock); /* ======================== tpool lock */
 
-	lwsl_info("%s: tp: %s, Queued: %d, Run: %d, Done: %d\n", __func__,
+	lwsl_thread("%s: tp: %s, Queued: %d, Run: %d, Done: %d\n", __func__,
 		    tp->name, tp->queue_depth, tp->running_tasks,
 		    tp->done_queue_depth);
 
 	count = 0;
 	c = &tp->task_queue_head;
 	while (*c) {
-		lwsl_info("  - queued: %s (%ds ago)\n", (*c)->name,
-			    (int)(now - (*c)->created));
+		struct lws_threadpool_task *task = *c;
+		__lws_threadpool_task_dump(task, buf, sizeof(buf));
+		lwsl_thread("  - %s\n", buf);
 		count++;
 
 		c = &(*c)->task_queue_next;
@@ -108,10 +186,8 @@ lws_threadpool_dump(struct lws_threadpool *tp)
 		struct lws_threadpool_task *task = pool->task;
 
 		if (task) {
-			lwsl_info("  - worker %d: task: %s (%ds ago),"
-				    " state: %d (%ds ago)\n", n, task->name,
-				    (int)(now - pool->acquired), task->status,
-				    (int)(now - task->entered_state));
+			__lws_threadpool_task_dump(task, buf, sizeof(buf));
+			lwsl_thread("  - worker %d: %s\n", n, buf);
 			count++;
 		}
 	}
@@ -123,9 +199,9 @@ lws_threadpool_dump(struct lws_threadpool *tp)
 	count = 0;
 	c = &tp->task_done_head;
 	while (*c) {
-		lwsl_info("  - done task %p %s (age %ds): state %d (%ds ago)\n",
-			    (*c), (*c)->name, (int)(now - (*c)->created),
-			    (*c)->status, (int)(now - (*c)->entered_state));
+		struct lws_threadpool_task *task = *c;
+		__lws_threadpool_task_dump(task, buf, sizeof(buf));
+		lwsl_thread("  - %s\n", buf);
 		count++;
 
 		c = &(*c)->task_queue_next;
@@ -143,7 +219,7 @@ static void
 state_transition(struct lws_threadpool_task *task,
 		 enum lws_threadpool_task_status status)
 {
-	task->entered_state = time(NULL);
+	task->entered_state = lws_now_usecs();
 	task->status = status;
 }
 
@@ -156,7 +232,7 @@ lws_threadpool_task_cleanup_destroy(struct lws_threadpool_task *task)
 	if (task->args.wsi)
 		task->args.wsi->tp_task = NULL;
 
-	lwsl_debug("%s: tp %p: cleaned finished task for wsi %p\n",
+	lwsl_thread("%s: tp %p: cleaned finished task for wsi %p\n",
 		    __func__, task->tp, task->args.wsi);
 
 	lws_free(task);
@@ -179,7 +255,7 @@ __lws_threadpool_reap(struct lws_threadpool_task *task)
 			t->task_queue_next = NULL;
 			tp->done_queue_depth--;
 
-			lwsl_debug("%s: tp %s: reaped task wsi %p\n", __func__,
+			lwsl_thread("%s: tp %s: reaped task wsi %p\n", __func__,
 				   tp->name, task->args.wsi);
 
 			break;
@@ -303,7 +379,7 @@ lws_threadpool_worker_sync(struct lws_pool *pool,
 		 */
 
 		if (!wsi) {
-			lwsl_err("%s: %s: task %p (%s): No longer bound to any "
+			lwsl_thread("%s: %s: task %p (%s): No longer bound to any "
 				 "wsi to sync to\n", __func__, pool->tp->name,
 				 task, task->name);
 
@@ -341,7 +417,7 @@ lws_threadpool_worker_sync(struct lws_pool *pool,
 
 		if (pthread_cond_timedwait(&task->wake_idle, &pool->lock,
 					   &abstime) == ETIMEDOUT) {
-
+			task->late_sync_retries++;
 			if (!tries) {
 				lwsl_err("%s: %s: task %p (%s): SYNC timed out "
 					 "(associated wsi %p)\n",
@@ -374,6 +450,7 @@ lws_threadpool_worker(void *d)
 	struct lws_threadpool_task **c, **c2, *task;
 	struct lws_pool *pool = d;
 	struct lws_threadpool *tp = pool->tp;
+	char buf[160];
 
 	while (!tp->destroying) {
 
@@ -407,7 +484,7 @@ lws_threadpool_worker(void *d)
 		/* is there a task at the queue tail? */
 		if (c2 && *c2) {
 			pool->task = task = *c2;
-			pool->acquired = time(NULL);
+			task->acquired = pool->acquired = lws_now_usecs();
 			/* remove it from the queue */
 			*c2 = task->task_queue_next;
 			task->task_queue_next = NULL;
@@ -426,9 +503,10 @@ lws_threadpool_worker(void *d)
 
 		/* we have acquired a new task */
 
-		lwsl_info("%s: %s: worker %d: taking task %s for wsi %p\n",
-			   __func__, tp->name, pool->worker_index, task->name,
-			   task->args.wsi);
+		__lws_threadpool_task_dump(task, buf, sizeof(buf));
+
+		lwsl_thread("%s: %s: worker %d ACQUIRING: %s\n",
+			    __func__, tp->name, pool->worker_index, buf);
 		tp->running_tasks++;
 
 		pthread_mutex_unlock(&tp->lock); /* --------------- tp unlock */
@@ -457,17 +535,24 @@ lws_threadpool_worker(void *d)
 		 */
 
 		do {
+			lws_usec_t then;
+			int n;
+
 			if (tp->destroying || !task->args.wsi)
 				state_transition(task, LWS_TP_STATUS_STOPPING);
 
-			switch (task->args.task(task->args.user,
-						task->status)) {
+			then = lws_now_usecs();
+			n = task->args.task(task->args.user, task->status);
+			us_accrue(&task->acc_running, then);
+			switch (n) {
 			case LWS_TP_RETURN_CHECKING_IN:
 				/* if not destroying the tp, continue */
 				break;
 			case LWS_TP_RETURN_SYNC:
 				/* block until writable acknowledges */
+				then = lws_now_usecs();
 				lws_threadpool_worker_sync(pool, task);
+				us_accrue(&task->acc_syncing, then);
 				break;
 			case LWS_TP_RETURN_FINISHED:
 				state_transition(task, LWS_TP_STATUS_FINISHED);
@@ -490,17 +575,29 @@ lws_threadpool_worker(void *d)
 		pool->task->task_queue_next = tp->task_done_head;
 		tp->task_done_head = task;
 		tp->done_queue_depth++;
+		pool->task->done = lws_now_usecs();
 
 		if (!pool->task->args.wsi &&
 		    (pool->task->status == LWS_TP_STATUS_STOPPED ||
-		     pool->task->status == LWS_TP_STATUS_FINISHED))
+		     pool->task->status == LWS_TP_STATUS_FINISHED)) {
+
+			__lws_threadpool_task_dump(pool->task, buf, sizeof(buf));
+			lwsl_thread("%s: %s: worker %d REAPING: %s\n",
+				    __func__, tp->name, pool->worker_index,
+				    buf);
+
 			/*
 			 * there is no longer any wsi attached, so nothing is
 			 * going to take care of reaping us.  So we must take
 			 * care of it ourselves.
 			 */
-			__lws_threadpool_reap(task);
-		else
+			__lws_threadpool_reap(pool->task);
+		} else {
+
+			__lws_threadpool_task_dump(pool->task, buf, sizeof(buf));
+			lwsl_thread("%s: %s: worker %d DONE: %s\n",
+				    __func__, tp->name, pool->worker_index,
+				    buf);
 
 			/* signal the associated wsi to take a fresh look at
 			 * task status */
@@ -511,7 +608,7 @@ lws_threadpool_worker(void *d)
 				lws_cancel_service(
 					lws_get_context(pool->task->args.wsi));
 			}
-
+		}
 
 		pool->task = NULL;
 		pthread_mutex_unlock(&tp->lock); /* --------------- tp unlock */
@@ -593,6 +690,7 @@ lws_threadpool_finish(struct lws_threadpool *tp)
 		state_transition(task, LWS_TP_STATUS_STOPPED);
 		tp->queue_depth--;
 		tp->done_queue_depth++;
+		task->done = lws_now_usecs();
 
 		c = &task->task_queue_next;
 	}
@@ -692,6 +790,7 @@ lws_threadpool_dequeue(struct lws *wsi)
 			state_transition(task, LWS_TP_STATUS_STOPPED);
 			tp->queue_depth--;
 			tp->done_queue_depth++;
+			task->done = lws_now_usecs();
 
 			lwsl_debug("%s: tp %p: removed queued task wsi %p\n",
 				    __func__, tp, task->args.wsi);
@@ -798,7 +897,7 @@ lws_threadpool_enqueue(struct lws_threadpool *tp,
 	pthread_cond_init(&task->wake_idle, NULL);
 	task->args = *args;
 	task->tp = tp;
-	task->created = time(NULL);
+	task->created = lws_now_usecs();
 
 	va_start(ap, format);
 	vsnprintf(task->name, sizeof(task->name) - 1, format, ap);
@@ -820,7 +919,7 @@ lws_threadpool_enqueue(struct lws_threadpool *tp,
 
 	args->wsi->tp_task = task;
 
-	lwsl_info("%s: tp %s: enqueued task %p (%s) for wsi %p, depth %d\n",
+	lwsl_thread("%s: tp %s: enqueued task %p (%s) for wsi %p, depth %d\n",
 		    __func__, tp->name, task, task->name, args->wsi,
 		    tp->queue_depth);
 
@@ -843,6 +942,7 @@ lws_threadpool_task_status_wsi(struct lws *wsi,
 {
 	enum lws_threadpool_task_status status;
 	struct lws_threadpool *tp;
+	char buf[160];
 
 	*task = wsi->tp_task;
 	if (!*task)
@@ -856,6 +956,9 @@ lws_threadpool_task_status_wsi(struct lws *wsi,
 	    status == LWS_TP_STATUS_STOPPED) {
 
 		pthread_mutex_lock(&tp->lock); /* ================ tpool lock */
+		__lws_threadpool_task_dump(*task, buf, sizeof(buf));
+		lwsl_thread("%s: %s: service thread REAPING: %s\n",
+			    __func__, tp->name, buf);
 		__lws_threadpool_reap(*task);
 		lws_memory_barrier();
 		pthread_mutex_unlock(&tp->lock); /* ------------ tpool unlock */

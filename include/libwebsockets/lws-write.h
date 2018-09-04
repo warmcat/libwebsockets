@@ -86,6 +86,14 @@ enum lws_write_protocol {
 
 	/* flags */
 
+	LWS_WRITE_BUFLIST = 0x20,
+	/**< Don't actually write it... stick it on the output buflist and
+	 *   write it as soon as possible.  Useful if you learn you have to
+	 *   write something, have the data to write to hand but the timing is
+	 *   unrelated as to whether the connection is writable or not, and were
+	 *   otherwise going to have to allocate a temp buffer and write it
+	 *   later anyway */
+
 	LWS_WRITE_NO_FIN = 0x40,
 	/**< This part of the message is not the end of the message */
 

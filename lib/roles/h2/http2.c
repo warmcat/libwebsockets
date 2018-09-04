@@ -219,6 +219,8 @@ bail1:
 	parent_wsi->h2.child_list = wsi->h2.sibling_list;
 	parent_wsi->h2.child_count--;
 
+	vh->context->count_wsi_allocated--;
+
 	if (wsi->user_space)
 		lws_free_set_NULL(wsi->user_space);
 	vh->protocols[0].callback(wsi, LWS_CALLBACK_WSI_DESTROY, NULL, NULL, 0);
