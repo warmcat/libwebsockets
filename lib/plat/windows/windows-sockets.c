@@ -41,7 +41,8 @@ lws_poll_listen_fd(struct lws_pollfd *fd)
 }
 
 int
-lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd)
+lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd,
+			    int unix_skt)
 {
 	int optval = 1;
 	int optlen = sizeof(optval);

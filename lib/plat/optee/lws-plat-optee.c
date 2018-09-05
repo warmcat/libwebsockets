@@ -202,7 +202,7 @@ lws_plat_service(struct lws_context *context, int timeout_ms)
 }
 
 int
-lws_plat_set_socket_options(struct lws_vhost *vhost, int fd)
+lws_plat_set_socket_options(struct lws_vhost *vhost, int fd, int unix_skt)
 {
 	return 0;
 }

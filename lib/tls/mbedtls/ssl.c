@@ -69,7 +69,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 	errno = 0;
 	n = SSL_read(wsi->tls.ssl, buf, len);
 #if defined(LWS_WITH_ESP32)
-	if (!n && errno == ENOTCONN) {
+	if (!n && errno == LWS_ENOTCONN) {
 		lwsl_debug("%p: SSL_read ENOTCONN\n", wsi);
 		return LWS_SSL_CAPABLE_ERROR;
 	}
