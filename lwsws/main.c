@@ -211,7 +211,7 @@ int main(int argc, char **argv)
 	int n = 0, budget = 100, debug_level = 1024 + 7;
 #ifndef _WIN32
 	int m;
-	int status, syslog_options = LOG_PID | LOG_PERROR;
+	int status;//, syslog_options = LOG_PID | LOG_PERROR;
 #endif
 
 	strcpy(config_dir, "/etc/lwsws");
@@ -281,11 +281,11 @@ int main(int argc, char **argv)
 
 #ifndef _WIN32
 	/* we will only try to log things according to our debug_level */
-	setlogmask(LOG_UPTO (LOG_DEBUG));
-	openlog("lwsws", syslog_options, LOG_DAEMON);
+//	setlogmask(LOG_UPTO (LOG_DEBUG));
+//	openlog("lwsws", syslog_options, LOG_DAEMON);
 #endif
 
-	lws_set_log_level(debug_level, lwsl_emit_syslog);
+	lws_set_log_level(debug_level, NULL); // lwsl_emit_syslog);
 
 	lwsl_notice("lwsws libwebsockets web server - license CC0 + LGPL2.1\n");
 	lwsl_notice("(C) Copyright 2010-2018 Andy Green <andy@warmcat.com>\n");
