@@ -82,7 +82,7 @@ lws_plat_check_connection_error(struct lws *wsi)
 
 
 int
-lws_plat_set_socket_options(struct lws_vhost *vhost, int fd)
+lws_plat_set_socket_options(struct lws_vhost *vhost, int fd, int unix_skt)
 {
 	int optval = 1;
 	socklen_t optlen = sizeof(optval);
