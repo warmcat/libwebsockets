@@ -1,5 +1,5 @@
 Name: libwebsockets
-Version: 3.0.0
+Version: 3.0.1
 Release: 1%{?dist}
 Summary: Websocket Server and Client Library
 
@@ -71,6 +71,9 @@ rm -rf $RPM_BUILD_ROOT
 /%{_libdir}/pkgconfig/libwebsockets_static.pc
 
 %changelog
+* Fri Sep 7 2018 Andy Green <andy@warmcat.com> 3.0.1-1
+- Upstream 3.0.1 release
+
 * Fri May 4 2018 Andy Green <andy@warmcat.com> 3.0.0-1
 - MAJOR SONAMEBUMP APICHANGES Upstream 3.0.0 release
 
