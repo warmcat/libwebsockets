@@ -317,7 +317,6 @@ static struct option options[] = {
 #ifndef LWS_NO_DAEMONIZE
 	{ "daemonize",	no_argument,		NULL, 'D' },
 #endif
-	{ "resource_path", required_argument,	NULL, 'r' },
 	{ "pingpong-secs", required_argument,	NULL, 'P' },
 	{ NULL, 0, 0, 0 }
 };
@@ -351,7 +350,7 @@ int main(int argc, char **argv)
 	info.port = 7681;
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "eci:hsap:d:Dr:C:K:A:R:vu:g:P:kU:n", options, NULL);
+		n = getopt_long(argc, argv, "eci:hsap:d:DC:K:A:R:vu:g:P:kU:n", options, NULL);
 		if (n < 0)
 			continue;
 		switch (n) {
@@ -411,10 +410,6 @@ int main(int argc, char **argv)
 					   "client after 50 dumb increments"
 					   "and suppresses lws_mirror spam\n");
 			break;
-		case 'r':
-			resource_path = optarg;
-			printf("Setting resource path to \"%s\"\n", resource_path);
-			break;
 		case 'C':
 			lws_strncpy(cert_path, optarg, sizeof(cert_path));
 			break;
@@ -443,8 +438,7 @@ int main(int argc, char **argv)
 		case 'h':
 			fprintf(stderr, "Usage: test-server "
 					"[--port=<p>] [--ssl] "
-					"[-d <log bitfield>] "
-					"[--resource_path <path>]\n");
+					"[-d <log bitfield>]\n");
 			exit(1);
 		}
 	}
