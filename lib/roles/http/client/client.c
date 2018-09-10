@@ -1117,10 +1117,7 @@ lws_http_client_read(struct lws *wsi, char **buf, int *len)
 		return -1;
 	}
 
-	if (rlen == 0)
-		return -1;
-
-	if (rlen < 0)
+	if (rlen <= 0)
 		return 0;
 
 	*len = rlen;
@@ -1140,7 +1137,7 @@ spin_chunks:
 			}
 			n = char_to_hex((*buf)[0]);
 			if (n < 0) {
-				lwsl_debug("chunking failure\n");
+				lwsl_info("%s: chunking failure\n", __func__);
 				return -1;
 			}
 			wsi->chunk_remaining <<= 4;
@@ -1148,7 +1145,7 @@ spin_chunks:
 			break;
 		case ELCP_CR:
 			if ((*buf)[0] != '\x0a') {
-				lwsl_debug("chunking failure\n");
+				lwsl_info("%s: chunking failure\n", __func__);
 				return -1;
 			}
 			wsi->chunk_parser = ELCP_CONTENT;
@@ -1163,7 +1160,7 @@ spin_chunks:
 
 		case ELCP_POST_CR:
 			if ((*buf)[0] != '\x0d') {
-				lwsl_debug("chunking failure\n");
+				lwsl_info("%s: chunking failure\n", __func__);
 
 				return -1;
 			}
@@ -1172,8 +1169,11 @@ spin_chunks:
 			break;
 
 		case ELCP_POST_LF:
-			if ((*buf)[0] != '\x0a')
+			if ((*buf)[0] != '\x0a') {
+				lwsl_info("%s: chunking failure\n", __func__);
+
 				return -1;
+			}
 
 			wsi->chunk_parser = ELCP_HEX;
 			wsi->chunk_remaining = 0;
@@ -1208,7 +1208,7 @@ spin_chunks:
 		if (user_callback_handle_rxflow(wsi_eff->protocol->callback,
 				wsi_eff, LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ,
 				wsi_eff->user_space, *buf, n)) {
-			lwsl_debug("%s: RECEIVE_CLIENT_HTTP_READ returned -1\n",
+			lwsl_info("%s: RECEIVE_CLIENT_HTTP_READ returned -1\n",
 				   __func__);
 
 			return -1;
