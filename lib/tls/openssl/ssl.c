@@ -226,19 +226,49 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 
 
 	lwsl_debug("%p: SSL_read says %d\n", wsi, n);
-	/* manpage: returning 0 means connection shut down */
-	if (!n || (n == -1 && errno == LWS_ENOTCONN)) {
-		wsi->socket_is_permanently_unusable = 1;
-
-		return LWS_SSL_CAPABLE_ERROR;
-	}
-
-	if (n < 0) {
+	/* manpage: returning 0 means connection shut down
+	 *
+	 * 2018-09-10: https://github.com/openssl/openssl/issues/1903
+	 *
+	 * So, in summary, if you get a 0 or -1 return from SSL_read() /
+	 * SSL_write(), you should call SSL_get_error():
+	 *
+	 *  - If you get back SSL_ERROR_RETURN_ZERO then you know the connection
+	 *    has been cleanly shutdown by the peer. To fully close the
+	 *    connection you may choose to call SSL_shutdown() to send a
+	 *    close_notify back.
+	 *
+	 *  - If you get back SSL_ERROR_SSL then some kind of internal or
+	 *    protocol error has occurred. More details will be on the SSL error
+	 *    queue. You can also call SSL_get_shutdown(). If this indicates a
+	 *    state of SSL_RECEIVED_SHUTDOWN then you know a fatal alert has
+	 *    been received from the peer (if it had been a close_notify then
+	 *    SSL_get_error() would have returned SSL_ERROR_RETURN_ZERO).
+	 *    SSL_ERROR_SSL is considered fatal - you should not call
+	 *    SSL_shutdown() in this case.
+	 *
+	 *  - If you get back SSL_ERROR_SYSCALL then some kind of fatal (i.e.
+	 *    non-retryable) error has occurred in a system call.
+	 */
+	if (n <= 0) {
 		m = lws_ssl_get_error(wsi, n);
-		lwsl_debug("%p: ssl err %d errno %d\n", wsi, m, errno);
-		if (m == SSL_ERROR_ZERO_RETURN ||
-		    m == SSL_ERROR_SYSCALL)
+		lwsl_notice("%p: ssl err %d errno %d\n", wsi, m, errno);
+		if (m == SSL_ERROR_ZERO_RETURN) /* cleanly shut down */
 			return LWS_SSL_CAPABLE_ERROR;
+
+		/* hm not retryable.. could be 0 size pkt or error  */
+
+		if (m == SSL_ERROR_SSL || m == SSL_ERROR_SYSCALL ||
+		    errno == LWS_ENOTCONN) {
+
+			/* unclean, eg closed conn */
+
+			wsi->socket_is_permanently_unusable = 1;
+
+			return LWS_SSL_CAPABLE_ERROR;
+		}
+
+		/* retryable? */
 
 		if (SSL_want_read(wsi->tls.ssl)) {
 			lwsl_debug("%s: WANT_READ\n", __func__);
@@ -250,9 +280,8 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 			lwsl_debug("%p: LWS_SSL_CAPABLE_MORE_SERVICE\n", wsi);
 			return LWS_SSL_CAPABLE_MORE_SERVICE;
 		}
-		wsi->socket_is_permanently_unusable = 1;
 
-		return LWS_SSL_CAPABLE_ERROR;
+		/* keep on trucking it seems */
 	}
 
 	lws_stats_atomic_bump(context, pt, LWSSTATS_B_READ, n);
