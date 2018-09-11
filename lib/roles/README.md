@@ -113,7 +113,7 @@ struct lws_vhost_role_ws {
 
 ### Adding to lws available roles list
 
-Edit the NULL-terminated array `available_roles` at the top of `./lib/context.c` to include
+Edit the NULL-terminated array `available_roles` at the top of `./lib/core/context.c` to include
 a pointer to your new role's ops struct, following the style already there.
 
 ```
