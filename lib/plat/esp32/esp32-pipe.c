@@ -20,15 +20,6 @@
  */
 
 #include "core/private.h"
-#include "freertos/timers.h"
-#include <esp_attr.h>
-#include <esp_system.h>
-
-#include "apps/sntp/sntp.h"
-
-#include <lwip/sockets.h>
-#include <esp_task_wdt.h>
-
 
 int
 lws_plat_pipe_create(struct lws *wsi)

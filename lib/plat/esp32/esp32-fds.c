@@ -20,14 +20,6 @@
  */
 
 #include "core/private.h"
-#include "freertos/timers.h"
-#include <esp_attr.h>
-#include <esp_system.h>
-#include <esp_task_wdt.h>
-
-#include "apps/sntp/sntp.h"
-
-#include <lwip/sockets.h>
 
 void
 lws_plat_insert_socket_into_fds(struct lws_context *context, struct lws *wsi)

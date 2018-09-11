@@ -39,6 +39,15 @@
  #include <signal.h>
  #include <sys/socket.h>
 
+#include "freertos/timers.h"
+#include <esp_attr.h>
+#include <esp_system.h>
+#include <esp_task_wdt.h>
+
+#include "lwip/apps/sntp.h"
+
+#include <lwip/sockets.h>
+
  #if defined(LWS_BUILTIN_GETIFADDRS)
   #include "./misc/getifaddrs.h"
  #endif

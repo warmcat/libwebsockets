@@ -98,14 +98,14 @@ lws_flash_ota: $(LWS_BUILD_PATH)/pack.img
 		--chip esp32 \
 		--port $(ESPPORT) \
 		--baud $(CONFIG_ESPTOOLPY_BAUD) \
-		write_flash 0x110000 $(LWS_BUILD_PATH)/$(PROJECT_NAME).bin
+		write_flash 0x120000 $(LWS_BUILD_PATH)/$(PROJECT_NAME).bin
 
 lws_erase_ota:
 	$(IDF_PATH)/components/esptool_py/esptool/esptool.py \
 	        --chip esp32 \
 	        --port $(ESPPORT) \
 	        --baud $(CONFIG_ESPTOOLPY_BAUD) \
-	        erase_region 0x110000 0x2f0000
+	        erase_region 0x120000 0x2e0000
 
 
 export A
