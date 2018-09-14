@@ -109,7 +109,7 @@ static LWS_INLINE void uv_close(uv_handle_t *h, void *v)
 #define LWS_MAGIC_REBOOT_TYPE_REQ_FACTORY 0xb00bcafe
 #define LWS_MAGIC_REBOOT_TYPE_FORCED_FACTORY 0xfaceb00b
 #define LWS_MAGIC_REBOOT_TYPE_FORCED_FACTORY_BUTTON 0xf0cedfac
-
+#define LWS_MAGIC_REBOOT_TYPE_REQ_FACTORY_ERASE_OTA 0xfac0eeee
 
 /* user code provides these */
 

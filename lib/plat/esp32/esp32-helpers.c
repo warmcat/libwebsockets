@@ -1032,14 +1032,12 @@ lws_esp_ota_get_boot_partition(void)
 	                	}
 			}
 
-			/* destroy our OTA image header */
-			spi_flash_erase_range(ota->address, 4096);
-
 			/*
-			 * with no viable OTA image, we will come back up in
+			 * We send a message to the bootloader to erase the OTA header, we will come back up in
 			 * factory where the user can reload the OTA image
 			 */
 			lwsl_notice("  FACTORY copy successful, rebooting\n");
+			lws_esp32_restart_guided(LWS_MAGIC_REBOOT_TYPE_REQ_FACTORY_ERASE_OTA);
 retry:
 			esp_restart();
 		}
