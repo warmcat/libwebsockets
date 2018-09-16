@@ -338,6 +338,7 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 	unsigned char *p = pt->serv_buf + LWS_PRE;
 	unsigned char *start = p;
 	unsigned char *end = p + context->pt_serv_buf_size - LWS_PRE;
+	char *body = (char *)start + context->pt_serv_buf_size - 512;
 	int n = 0, m = 0, len;
 	char slen[20];
 
@@ -372,9 +373,15 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 					 &p, end))
 		return 1;
 
-	len = 35 + (int)strlen(html_body) + sprintf(slen, "%d", code);
-	n = sprintf(slen, "%d", len);
+	len = lws_snprintf(body, 510, "<html><head>"
+		"<meta charset=utf-8 http-equiv=\"Content-Language\" "
+			"content=\"en\"/>"
+		"<link rel=\"stylesheet\" type=\"text/css\" "
+			"href=\"/error.css\"/>"
+		"</head><body><h1>%u</h1>%s</body></html>", code, html_body);
 
+
+	n = sprintf(slen, "%d", len);
 	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH,
 					 (unsigned char *)slen, n, &p, end))
 		return 1;
@@ -384,7 +391,6 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 
 #if defined(LWS_WITH_HTTP2)
 	if (wsi->http2_substream) {
-		char *body = (char *)start + context->pt_serv_buf_size - 512;
 
 		/*
 		 * for HTTP/2, the headers must be sent separately, since they
@@ -407,9 +413,6 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 		 * ... but stash the body and send it as a priority next
 		 * handle_POLLOUT
 		 */
-
-		len = sprintf(body, "<html><body><h1>%u</h1>%s</body></html>",
-			      code, html_body);
 		wsi->http.tx_content_length = len;
 		wsi->http.tx_content_remain = len;
 
@@ -429,11 +432,9 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 		 * for http/1, we can just append the body after the finalized
 		 * headers and send it all in one go.
 		 */
-		p += lws_snprintf((char *)p, end - p - 1,
-				  "<html><body><h1>%u</h1>%s</body></html>",
-				  code, html_body);
 
-		n = lws_ptr_diff(p, start);
+		n = lws_ptr_diff(p, start) + len;
+		memcpy(p, body, len);
 		m = lws_write(wsi, start, n, LWS_WRITE_HTTP);
 		if (m != n)
 			return 1;

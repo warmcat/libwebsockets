@@ -45,12 +45,12 @@ function check {
 	fi
 	if [ "$1" = "defaultplusforbidden" ] ; then
 	cat $CORPUS > /tmp/plusforb
-	echo -e -n "HTTP/1.0 403 Forbidden\x0d\x0acontent-type: text/html\x0d\x0acontent-length: 38\x0d\x0a\x0d\x0a<html><body><h1>403</h1></body></html>" >> /tmp/plusforb
+	echo -e -n "HTTP/1.0 403 Forbidden\x0d\x0acontent-type: text/html\x0d\x0acontent-length: 173\x0d\x0a\x0d\x0a<html><head><meta charset=utf-8 http-equiv=\"Content-Language\" content=\"en\"/><link rel=\"stylesheet\" type=\"text/css\" href=\"/error.css\"/></head><body><h1>403</h1></body></html>" >> /tmp/plusforb
 		diff /tmp/lwscap /tmp/plusforb > /dev/null
 		if [ $? -ne 0 ] ; then
 			cat $CORPUS > /tmp/plusforb
 
-			echo -e -n "HTTP/1.1 403 Forbidden\x0d\x0acontent-type: text/html\x0d\x0acontent-length: 38\x0d\x0a\x0d\x0a<html><body><h1>403</h1></body></html>" >> /tmp/plusforb
+			echo -e -n "HTTP/1.1 403 Forbidden\x0d\x0acontent-type: text/html\x0d\x0acontent-length: 173\x0d\x0a\x0d\x0a<html><head><meta charset=utf-8 http-equiv=\"Content-Language\" content=\"en\"/><link rel=\"stylesheet\" type=\"text/css\" href=\"/error.css\"/></head><body><h1>403</h1></body></html>" >> /tmp/plusforb
 			diff /tmp/lwscap /tmp/plusforb > /dev/null
 			if [ $? -ne 0 ] ; then
 
