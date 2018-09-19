@@ -134,7 +134,8 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 					    "deferred transaction completed\n",
 					    __func__);
 				wsi->http.deferred_transaction_completed = 0;
-				return lws_http_transaction_completed(wsi);
+				return lws_http_transaction_completed(wsi) ?
+							-1 : (int)real_len;
 			}
 #endif
 #endif
