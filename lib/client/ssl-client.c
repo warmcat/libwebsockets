@@ -51,6 +51,10 @@ OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 		if (err != X509_V_OK) {
 			ssl = X509_STORE_CTX_get_ex_data(x509_ctx, SSL_get_ex_data_X509_STORE_CTX_idx());
 			wsi = SSL_get_ex_data(ssl, openssl_websocket_private_data_index);
+			if (!wsi) {
+				lwsl_err("can't retrieve wsi from ssl private data");
+				return 0;
+			}
 
 			if ((err == X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT ||
 					err == X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN) &&
