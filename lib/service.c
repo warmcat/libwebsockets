@@ -650,8 +650,7 @@ int lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len)
 			lwsl_err("%s: conflicting rxflow buf, "
 				 "current %p len %d, new %p len %d\n", __func__,
 				 wsi->rxflow_buffer, wsi->rxflow_len, buf, len);
-			assert(0);
-			return 1;
+			return -1;
 		}
 	}
 
