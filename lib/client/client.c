@@ -38,7 +38,10 @@ lws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 			 */
 			if (lws_is_flowcontrolled(wsi)) {
 				lwsl_debug("%s: caching %ld\n", __func__, (long)len);
-				lws_rxflow_cache(wsi, *buf, 0, len);
+				if (lws_rxflow_cache(wsi, *buf, 0, len) < 0) {
+					lwsl_err("lws_rxflow_cache error\n");
+					return -1;
+				}
 				return 0;
 			}
 			if (wsi->u.ws.rx_draining_ext) {

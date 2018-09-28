@@ -82,7 +82,10 @@ lws_read(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 			 * we were accepting input but now we stopped doing so
 			 */
 			if (lws_is_flowcontrolled(wsi)) {
-				lws_rxflow_cache(wsi, buf, n, len);
+				 if (lws_rxflow_cache(wsi, buf, n, len) < 0) {
+					lwsl_err("lws_rxflow_cache error, bailing out");
+					goto bail;
+				 }
 
 				return 1;
 			}
