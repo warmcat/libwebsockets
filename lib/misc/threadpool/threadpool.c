@@ -49,6 +49,7 @@ struct lws_threadpool_task {
 	int late_sync_retries;
 
 	char wanted_writeable_cb;
+	char outlive;
 };
 
 struct lws_pool {
@@ -538,17 +539,29 @@ lws_threadpool_worker(void *d)
 			lws_usec_t then;
 			int n;
 
-			if (tp->destroying || !task->args.wsi)
+			if (tp->destroying || !task->args.wsi) {
+				lwsl_info("%s: stopping on wsi gone\n", __func__);
 				state_transition(task, LWS_TP_STATUS_STOPPING);
+			}
 
 			then = lws_now_usecs();
 			n = task->args.task(task->args.user, task->status);
+			lwsl_debug("   %d, status %d\n", n, task->status);
 			us_accrue(&task->acc_running, then);
-			switch (n) {
+			if (n & LWS_TP_RETURN_FLAG_OUTLIVE)
+				task->outlive = 1;
+			switch (n & 7) {
 			case LWS_TP_RETURN_CHECKING_IN:
 				/* if not destroying the tp, continue */
 				break;
 			case LWS_TP_RETURN_SYNC:
+				if (!task->args.wsi) {
+					lwsl_debug("%s: task that wants to "
+						    "outlive lost wsi asked "
+						    "to sync: bypassed\n",
+						    __func__);
+					break;
+				}
 				/* block until writable acknowledges */
 				then = lws_now_usecs();
 				lws_threadpool_worker_sync(pool, task);
@@ -776,6 +789,17 @@ lws_threadpool_dequeue(struct lws *wsi)
 
 	tp = task->tp;
 	pthread_mutex_lock(&tp->lock); /* ======================== tpool lock */
+
+	if (task->outlive && !tp->destroying) {
+
+		/* disconnect from wsi, and wsi from task */
+
+		wsi->tp_task = NULL;
+		task->args.wsi = NULL;
+
+		goto bail;
+	}
+
 
 	c = &tp->task_queue_head;
 

@@ -126,6 +126,13 @@ LWS_TP_RETURN_SYNC|Task wants to trigger a WRITABLE callback and block until lws
 LWS_TP_RETURN_FINISHED|Task has finished, successfully as far as it goes
 LWS_TP_RETURN_STOPPED|Task has finished, aborting in response to a request to stop
 
+The SYNC or CHECKING_IN return may also have a flag `LWS_TP_RETURN_FLAG_OUTLIVE`
+applied to it, which indicates to threadpool that this task wishes to remain
+unstopped after the wsi closes.  This is useful in the case where the task
+understands it will take a long time to complete, and wants to return a
+complete status and maybe close the connection, perhaps with a token identifying
+the task.  The task can then be monitored separately by using the token.
+
 #### Synchronizing
 
 The task can choose to "SYNC" with the lws service thread, in other words

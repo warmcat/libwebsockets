@@ -58,7 +58,10 @@ enum lws_threadpool_task_return {
 	/** No more work to do... */
 	LWS_TP_RETURN_FINISHED,
 	/** Responding to request to stop */
-	LWS_TP_RETURN_STOPPED
+	LWS_TP_RETURN_STOPPED,
+
+	/* OR on to indicate this task wishes to outlive its wsi */
+	LWS_TP_RETURN_FLAG_OUTLIVE = 64
 };
 
 struct lws_threadpool_create_args {
@@ -70,6 +73,9 @@ struct lws_threadpool_task_args {
 	struct lws *wsi;	/**< user must set to wsi task is bound to */
 	void *user;		/**< user may set (user-private pointer) */
 	const char *name;	/**< user may set to describe task */
+	char async_task;	/**< set to allow the task to shrug off the loss
+				     of the associated wsi and continue to
+				     completion */
 	enum lws_threadpool_task_return (*task)(void *user,
 					enum lws_threadpool_task_status s);
 	/**< user must set to actual task function */
