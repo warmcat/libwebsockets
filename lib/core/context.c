@@ -528,9 +528,9 @@ lws_create_vhost(struct lws_context *context,
 		lws_free(lwsp);
 	}
 
-	vh->same_vh_protocol_list = (struct lws **)
-			lws_zalloc(sizeof(struct lws *) * vh->count_protocols,
-				   "same vh list");
+	vh->same_vh_protocol_heads = (struct lws_dll_lws *)
+			lws_zalloc(sizeof(struct lws_dll_lws) *
+				   vh->count_protocols, "same vh list");
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	vh->http.mount_list = info->mounts;
 #endif
@@ -1449,7 +1449,7 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 	if (vh->protocol_vh_privs)
 		lws_free(vh->protocol_vh_privs);
 	lws_ssl_SSL_CTX_destroy(vh);
-	lws_free(vh->same_vh_protocol_list);
+	lws_free(vh->same_vh_protocol_heads);
 
 	if (context->plugin_list ||
 	    (context->options & LWS_SERVER_OPTION_EXPLICIT_VHOSTS))

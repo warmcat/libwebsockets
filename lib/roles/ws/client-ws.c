@@ -377,22 +377,7 @@ check_extensions:
 	 * X <-> pAn <-> pB
 	 */
 
-	lws_vhost_lock(wsi->vhost);
-
-	wsi->same_vh_protocol_prev = /* guy who points to us */
-		&wsi->vhost->same_vh_protocol_list[n];
-	wsi->same_vh_protocol_next = /* old first guy is our next */
-			wsi->vhost->same_vh_protocol_list[n];
-	/* we become the new first guy */
-	wsi->vhost->same_vh_protocol_list[n] = wsi;
-
-	if (wsi->same_vh_protocol_next)
-		/* old first guy points back to us now */
-		wsi->same_vh_protocol_next->same_vh_protocol_prev =
-				&wsi->same_vh_protocol_next;
-	wsi->on_same_vh_list = 1;
-
-	lws_vhost_unlock(wsi->vhost);
+	lws_same_vh_protocol_insert(wsi, n);
 
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	/* instantiate the accepted extensions */

@@ -508,7 +508,7 @@ struct lws_vhost {
 	void **protocol_vh_privs;
 	const struct lws_protocol_vhost_options *pvo;
 	const struct lws_protocol_vhost_options *headers;
-	struct lws **same_vh_protocol_list;
+	struct lws_dll_lws *same_vh_protocol_heads;
 	struct lws_vhost *no_listener_vhost_list;
 #if !defined(LWS_NO_CLIENT)
 	struct lws_dll_lws dll_active_client_conns;
@@ -872,7 +872,7 @@ struct lws {
 	struct lws *sibling_list; /* subsequent children at same level */
 
 	const struct lws_protocols *protocol;
-	struct lws **same_vh_protocol_prev, *same_vh_protocol_next;
+	struct lws_dll_lws same_vh_protocol;
 
 	struct lws_dll_lws dll_timeout;
 	struct lws_dll_lws dll_hrtimer;
@@ -956,7 +956,6 @@ struct lws {
 	unsigned int seen_zero_length_recv:1;
 	unsigned int rxflow_will_be_applied:1;
 	unsigned int event_pipe:1;
-	unsigned int on_same_vh_list:1;
 	unsigned int handling_404:1;
 	unsigned int protocol_bind_balance:1;
 	unsigned int unix_skt:1;

@@ -1401,9 +1401,12 @@ rops_periodic_checks_ws(struct lws_context *context, int tsi, time_t now)
 		lws_vhost_lock(vh);
 
 		for (n = 0; n < vh->count_protocols; n++) {
-			struct lws *wsi = vh->same_vh_protocol_list[n];
 
-			while (wsi) {
+			lws_start_foreach_dll_safe(struct lws_dll_lws *, d, d1,
+					  vh->same_vh_protocol_heads[n].next) {
+				struct lws *wsi = lws_container_of(d,
+						struct lws, same_vh_protocol);
+
 				if (lwsi_role_ws(wsi) &&
 				    !wsi->socket_is_permanently_unusable &&
 				    !wsi->ws->send_check_ping &&
@@ -1420,8 +1423,8 @@ rops_periodic_checks_ws(struct lws_context *context, int tsi, time_t now)
 					lws_callback_on_writable(wsi);
 					wsi->ws->time_next_ping_check = now;
 				}
-				wsi = wsi->same_vh_protocol_next;
-			}
+
+			} lws_end_foreach_dll_safe(d, d1);
 		}
 
 		lws_vhost_unlock(vh);
