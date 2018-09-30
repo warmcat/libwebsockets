@@ -873,7 +873,7 @@ static int
 lwsws_get_config_d(void *user, const char *d, const char * const *paths,
 		   int count_paths, lejp_callback cb)
 {
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(LWS_WITH_ESP32)
 	struct dirent **namelist;
 	char path[256];
 	int n, i, ret = 0;
