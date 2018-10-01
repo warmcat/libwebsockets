@@ -2133,7 +2133,7 @@ fail_length:
 int
 lws_h2_ws_handshake(struct lws *wsi)
 {
-	uint8_t buf[LWS_PRE + 384], *p = buf + LWS_PRE, *start = p,
+	uint8_t buf[LWS_PRE + 2048], *p = buf + LWS_PRE, *start = p,
 		*end = &buf[sizeof(buf) - 1];
 	const struct lws_http_mount *hit;
 	const char * uri_ptr;
