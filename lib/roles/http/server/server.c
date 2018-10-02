@@ -1126,12 +1126,21 @@ lws_http_action(struct lws *wsi)
 	/* basic auth? */
 
 	if (hit->basic_auth_login_file) {
-		char b64[160], plain[(sizeof(b64) * 3) / 4];
-		int m;
+		char b64[160], plain[(sizeof(b64) * 3) / 4], *pcolon;
+		int m, ml, fi;
 
 		/* Did he send auth? */
-		if (!lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_AUTHORIZATION))
+		ml = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_AUTHORIZATION);
+		if (!ml)
 			return lws_unauthorised_basic_auth(wsi);
+
+		/* Disallow fragmentation monkey business */
+
+		fi = wsi->http.ah->frag_index[WSI_TOKEN_HTTP_AUTHORIZATION];
+		if (wsi->http.ah->frags[fi].nfrag) {
+			lwsl_err("fragmented basic auth header not allowed\n");
+			return lws_unauthorised_basic_auth(wsi);
+		}
 
 		n = HTTP_STATUS_FORBIDDEN;
 
@@ -1150,21 +1159,36 @@ lws_http_action(struct lws *wsi)
 
 		/* It'll be like Authorization: Basic QWxhZGRpbjpPcGVuU2VzYW1l */
 
-		m = lws_b64_decode_string(b64 + 6, plain, sizeof(plain));
+		m = lws_b64_decode_string(b64 + 6, plain, sizeof(plain) - 1);
 		if (m < 0) {
 			lwsl_err("plain auth too long\n");
 			goto transaction_result_n;
 		}
 
+		plain[m] = '\0';
+		pcolon = strchr(plain, ':');
+		if (!pcolon) {
+			lwsl_err("basic auth format broken\n");
+			return lws_unauthorised_basic_auth(wsi);
+		}
 		if (!lws_find_string_in_file(hit->basic_auth_login_file,
 					     plain, m)) {
 			lwsl_err("basic auth lookup failed\n");
 			return lws_unauthorised_basic_auth(wsi);
 		}
 
-		lwsl_info("basic auth accepted\n");
+		/*
+		 * Rewrite WSI_TOKEN_HTTP_AUTHORIZATION so it is just the
+		 * authorized username
+		 */
 
-		/* accept the auth */
+		*pcolon = '\0';
+		wsi->http.ah->frags[fi].len = lws_ptr_diff(pcolon, plain);
+		pcolon = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_AUTHORIZATION);
+		strncpy(pcolon, plain, ml - 1);
+		pcolon[ml - 1] = '\0';
+		lwsl_info("%s: basic auth accepted for %s\n", __func__,
+			 lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_AUTHORIZATION));
 	}
 
 #if defined(LWS_WITH_HTTP_PROXY)

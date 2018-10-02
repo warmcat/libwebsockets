@@ -436,6 +436,9 @@ The file should be readable by lwsws, and for a little bit of extra security not
 have a file suffix, so lws would reject to serve it even if it could find it on
 a mount.
 
+After successful authentication, `WSI_TOKEN_HTTP_AUTHORIZATION` contains the
+authenticated username.
+
 @section lwswscc Requiring a Client Cert on a vhost
 
 You can make a vhost insist to get a client certificate from the peer before

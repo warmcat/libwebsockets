@@ -9,6 +9,11 @@ by basic auth at /secret.
 The file at ./ba-passwords contains valid user:password
 combinations.
 
+## Discovering the authenticated user
+
+After a successful authentication, the `WSI_TOKEN_HTTP_AUTHORIZATION` token
+contains the authenticated username.
+
 ## build
 
 ```
