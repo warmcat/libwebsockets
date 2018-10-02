@@ -962,7 +962,8 @@ __lws_close_free_wsi_final(struct lws *wsi)
 {
 	int n;
 
-	if (lws_socket_is_valid(wsi->desc.sockfd) && !lws_ssl_close(wsi)) {
+	if (!wsi->shadow &&
+	    lws_socket_is_valid(wsi->desc.sockfd) && !lws_ssl_close(wsi)) {
 		lwsl_debug("%s: wsi %p: fd %d\n", __func__, wsi, wsi->desc.sockfd);
 		n = compatible_close(wsi->desc.sockfd);
 		if (n)

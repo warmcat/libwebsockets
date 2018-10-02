@@ -1,6 +1,7 @@
 |name|demonstrates|
 ---|---
 client-server|Minimal examples providing client and server connections simultaneously
+dbus-server|Minimal examples showing how to integrate DBUS into lws event loop
 http-client|Minimal examples providing an http client
 http-server|Minimal examples providing an http server
 raw|Minimal examples related to adopting raw file or socket descriptors into the event loop

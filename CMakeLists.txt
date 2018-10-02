@@ -23,6 +23,7 @@ option(LWS_WITH_DISTRO_RECOMMENDED "Enable features recommended for distro packa
 #
 option(LWS_ROLE_H1 "Compile with support for http/1 (needed for ws)" ON)
 option(LWS_ROLE_WS "Compile with support for websockets" ON)
+option(LWS_ROLE_DBUS "Compile with support for DBUS" OFF)
 option(LWS_WITH_HTTP2 "Compile with server support for HTTP/2" OFF)
 option(LWS_WITH_LWSWS "Libwebsockets Webserver" OFF)
 option(LWS_WITH_CGI "Include CGI (spawn process with network-connected stdin/out/err) APIs" OFF)
@@ -129,6 +130,7 @@ if(LWS_WITH_DISTRO_RECOMMENDED)
 	# libev + libevent cannot coexist at build-time
 	set(LWS_WITH_LIBEVENT 0)
 	set(LWS_WITHOUT_EXTENSIONS 0)
+	set(LWS_ROLE_DBUS 1)
 endif()
 
 if(NOT DEFINED CMAKE_BUILD_TYPE)
@@ -681,7 +683,44 @@ CHECK_INCLUDE_FILE(sys/capability.h LWS_HAVE_SYS_CAPABILITY_H)
 CHECK_INCLUDE_FILE(malloc.h LWS_HAVE_MALLOC_H)
 CHECK_INCLUDE_FILE(pthread.h LWS_HAVE_PTHREAD_H)
 
-CHECK_LIBRARY_EXISTS(cap cap_set_flag "" LWS_HAVE_LIBCAP) 
+CHECK_LIBRARY_EXISTS(cap cap_set_flag "" LWS_HAVE_LIBCAP)
+
+if (LWS_ROLE_DBUS)
+	if (NOT LWS_HAVE_LIBDBUS)
+		message(FATAL_ERROR "Install dbus-devel, or libdbus-1-dev etc")
+	endif()
+
+	if (NOT LWS_DBUS_LIB)
+		set(LWS_DBUS_LIB "dbus-1")
+	endif()
+
+	CHECK_LIBRARY_EXISTS(${LWS_DBUS_LIB} dbus_connection_set_watch_functions "" LWS_HAVE_LIBDBUS)
+
+	if (NOT LWS_DBUS_INCLUDE1)
+		# look in fedora and debian / ubuntu place
+		if (EXISTS "/usr/include/dbus-1.0")
+			set(LWS_DBUS_INCLUDE1 "/usr/include/dbus-1.0")
+		else()
+			message(FATAL_ERROR "Set LWS_DBUS_INCLUDE1 to /usr/include/dbus-1.0 or wherever the main dbus includes are")
+		endif()
+	endif()
+
+	if (NOT LWS_DBUS_INCLUDE2)
+		# look in fedora... debian / ubuntu has the ARCH in the path...
+		if (EXISTS "/usr/lib64/dbus-1.0/include")
+			set(LWS_DBUS_INCLUDE2 "/usr/lib64/dbus-1.0/include")
+		else()
+			message(FATAL_ERROR "Set LWS_DBUS_INCLUDE2 to /usr/lib/ARCH-linux-gnu/dbus-1.0/include or wherever dbus-arch-deps.h is on your system")
+		endif()
+	endif()
+
+	set(CMAKE_REQUIRED_INCLUDES ${CMAKE_REQUIRED_INCLUDES};${LWS_DBUS_INCLUDE1};${LWS_DBUS_INCLUDE2})
+
+	CHECK_C_SOURCE_COMPILES("#include <dbus/dbus.h>
+	int main(void) {
+		return 0;
+	}" LWS_DBUS_CHECK_OK)
+endif()
 
 if (LWS_WITH_LIBUV)
 CHECK_INCLUDE_FILE(uv-version.h LWS_HAVE_UV_VERSION_H)
@@ -809,6 +848,11 @@ if (LWS_ROLE_CGI)
 	list(APPEND SOURCES
 		lib/roles/cgi/cgi-server.c
 		lib/roles/cgi/ops-cgi.c)
+endif()
+
+if (LWS_ROLE_DBUS)
+	list(APPEND SOURCES
+		lib/roles/dbus/dbus.c)
 endif()
 
 if (LWS_WITH_ACCESS_LOG)
@@ -1416,6 +1460,13 @@ if (LWS_WITH_HUBBUB)
 	list(APPEND LIB_LIST ${LIBHUBBUB_LIBRARIES} )
 endif()
 
+if (LWS_ROLE_DBUS)
+	message("dbus include dir 1: ${LWS_DBUS_INCLUDE1}")
+	message("dbus include dir 2: ${LWS_DBUS_INCLUDE2}")
+	include_directories("${LWS_DBUS_INCLUDE1}")
+	include_directories("${LWS_DBUS_INCLUDE2}")
+	list(APPEND LIB_LIST ${LWS_DBUS_LIB})
+endif()
 
 #
 # Platform specific libs.

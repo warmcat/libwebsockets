@@ -291,6 +291,12 @@ extern struct lws_role_ops role_ops_raw_skt, role_ops_raw_file, role_ops_listen,
  #define lwsi_role_cgi(wsi) (0)
 #endif
 
+#if defined(LWS_ROLE_DBUS)
+ #include "roles/dbus/private.h"
+#else
+ #define lwsi_role_dbus(wsi) (0)
+#endif
+
 enum {
 	LWS_HP_RET_BAIL_OK,
 	LWS_HP_RET_BAIL_DIE,

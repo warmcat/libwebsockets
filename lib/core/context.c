@@ -35,6 +35,9 @@ const struct lws_role_ops *available_roles[] = {
 #if defined(LWS_ROLE_WS)
 	&role_ops_ws,
 #endif
+#if defined(LWS_ROLE_DBUS)
+	&role_ops_dbus,
+#endif
 	NULL
 };
 

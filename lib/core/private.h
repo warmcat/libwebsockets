@@ -386,6 +386,9 @@ struct lws_context_per_thread {
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	struct lws_pt_role_http http;
 #endif
+#if defined(LWS_ROLE_DBUS)
+	struct lws_pt_role_dbus dbus;
+#endif
 
 	/* --- event library based members --- */
 
@@ -849,6 +852,9 @@ struct lws {
 #if defined(LWS_ROLE_WS)
 	struct _lws_websocket_related *ws; /* allocated if we upgrade to ws */
 #endif
+#if defined(LWS_ROLE_DBUS)
+	struct _lws_dbus_mode_related dbus;
+#endif
 
 	const struct lws_role_ops *role_ops;
 	lws_wsi_state_t	wsistate;
@@ -962,6 +968,7 @@ struct lws {
 
 	unsigned int could_have_pending:1; /* detect back-to-back writes */
 	unsigned int outer_will_close:1;
+	unsigned int shadow:1; /* we do not control fd lifecycle at all */
 
 #ifdef LWS_WITH_ACCESS_LOG
 	unsigned int access_log_pending:1;
