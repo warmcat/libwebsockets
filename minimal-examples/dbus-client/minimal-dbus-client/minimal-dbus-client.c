@@ -40,8 +40,9 @@ client_message_handler(DBusConnection *conn, DBusMessage *message, void *data)
 		  dbus_message_get_member(message),
 		  dbus_message_get_path(message));
 
-	if (!dbus_message_get_args(message, NULL, DBUS_TYPE_STRING,
-				   &str, DBUS_TYPE_INVALID))
+	if (!dbus_message_get_args(message, NULL,
+				   DBUS_TYPE_STRING, &str,
+				   DBUS_TYPE_INVALID))
 		return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
 
 	lwsl_notice("%s: '%s'\n", __func__, str);

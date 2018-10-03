@@ -133,6 +133,12 @@ if(LWS_WITH_DISTRO_RECOMMENDED)
 	set(LWS_ROLE_DBUS 1)
 endif()
 
+# do you care about this?  Then send me a patch where it disables it on travis
+# but allows it on APPLE
+if (APPLE)
+	set(LWS_ROLE_DBUS 0)
+endif()
+
 if(NOT DEFINED CMAKE_BUILD_TYPE)
 	set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type")
 endif()
@@ -686,15 +692,15 @@ CHECK_INCLUDE_FILE(pthread.h LWS_HAVE_PTHREAD_H)
 CHECK_LIBRARY_EXISTS(cap cap_set_flag "" LWS_HAVE_LIBCAP)
 
 if (LWS_ROLE_DBUS)
-	if (NOT LWS_HAVE_LIBDBUS)
-		message(FATAL_ERROR "Install dbus-devel, or libdbus-1-dev etc")
-	endif()
 
 	if (NOT LWS_DBUS_LIB)
 		set(LWS_DBUS_LIB "dbus-1")
 	endif()
 
 	CHECK_LIBRARY_EXISTS(${LWS_DBUS_LIB} dbus_connection_set_watch_functions "" LWS_HAVE_LIBDBUS)
+	if (NOT LWS_HAVE_LIBDBUS)
+		message(FATAL_ERROR "Install dbus-devel, or libdbus-1-dev etc")
+	endif()
 
 	if (NOT LWS_DBUS_INCLUDE1)
 		# look in fedora and debian / ubuntu place
