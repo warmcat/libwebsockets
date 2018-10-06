@@ -176,8 +176,19 @@ __lws_free_wsi(struct lws *wsi)
 
 	if (wsi->vhost && wsi->vhost->lserv_wsi == wsi)
 		wsi->vhost->lserv_wsi = NULL;
+#if !defined(LWS_NO_CLIENT)
+	lws_dll_lws_remove(&wsi->dll_active_client_conns);
+#endif
+	wsi->context->count_wsi_allocated--;
 
-	// lws_peer_dump_from_wsi(wsi);
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+	__lws_header_table_detach(wsi, 0);
+#endif
+	__lws_same_vh_protocol_remove(wsi);
+#if !defined(LWS_NO_CLIENT)
+	lws_client_stash_destroy(wsi);
+	lws_free_set_NULL(wsi->client_hostname_copy);
+#endif
 
 	if (wsi->role_ops->destroy_role)
 		wsi->role_ops->destroy_role(wsi);
@@ -199,7 +210,6 @@ __lws_free_wsi(struct lws *wsi)
 
 	lws_vhost_unbind_wsi(wsi);
 
-	wsi->context->count_wsi_allocated--;
 	lwsl_debug("%s: %p, remaining wsi %d\n", __func__, wsi,
 			wsi->context->count_wsi_allocated);
 
@@ -903,7 +913,7 @@ just_kill_connection:
 	if (wsi->desc.sockfd != LWS_SOCK_INVALID)
 		__remove_wsi_socket_from_fds(wsi);
 	else
-		lws_same_vh_protocol_remove(wsi);
+		__lws_same_vh_protocol_remove(wsi);
 
 	lwsi_set_state(wsi, LRS_DEAD_SOCKET);
 	lws_buflist_destroy_all_segments(&wsi->buflist);

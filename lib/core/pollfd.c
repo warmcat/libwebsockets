@@ -484,6 +484,13 @@ lws_same_vh_protocol_insert(struct lws *wsi, int n)
 }
 
 void
+__lws_same_vh_protocol_remove(struct lws *wsi)
+{
+	if (!lws_dll_is_null(&wsi->same_vh_protocol))
+		lws_dll_lws_remove(&wsi->same_vh_protocol);
+}
+
+void
 lws_same_vh_protocol_remove(struct lws *wsi)
 {
 	if (!wsi->vhost)
@@ -491,8 +498,7 @@ lws_same_vh_protocol_remove(struct lws *wsi)
 
 	lws_vhost_lock(wsi->vhost);
 
-	if (!lws_dll_is_null(&wsi->same_vh_protocol))
-		lws_dll_lws_remove(&wsi->same_vh_protocol);
+	__lws_same_vh_protocol_remove(wsi);
 
 	lws_vhost_unlock(wsi->vhost);
 }

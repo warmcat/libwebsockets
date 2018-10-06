@@ -1451,6 +1451,8 @@ LWS_EXTERN int alloc_file(struct lws_context *context, const char *filename, uin
 LWS_EXTERN void
 lws_same_vh_protocol_remove(struct lws *wsi);
 LWS_EXTERN void
+__lws_same_vh_protocol_remove(struct lws *wsi);
+LWS_EXTERN void
 lws_same_vh_protocol_insert(struct lws *wsi, int n);
 
 LWS_EXTERN int

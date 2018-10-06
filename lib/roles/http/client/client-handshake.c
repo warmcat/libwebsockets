@@ -638,7 +638,7 @@ oom4:
 	/* take care that we might be inserted in fds already */
 	if (wsi->position_in_fds_table != LWS_NO_FDS_POS)
 		goto failed1;
-	lws_remove_from_timeout_list(wsi);
+
 	/*
 	 * We can't be an active client connection any more, if we thought
 	 * that was what we were going to be doing.  It should be if we are
@@ -646,16 +646,13 @@ oom4:
 	 * lws_client_connect_via_info() and will be returning NULL to that,
 	 * so nobody else should have had a chance to queue on us.
 	 */
-	lws_vhost_lock(wsi->vhost);
-	lws_dll_lws_remove(&wsi->dll_active_client_conns);
-	wsi->vhost->context->count_wsi_allocated--;
-	lws_vhost_unlock(wsi->vhost);
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-	lws_header_table_detach(wsi, 0);
-#endif
-	lws_client_stash_destroy(wsi);
-	lws_free_set_NULL(wsi->client_hostname_copy);
-	lws_free(wsi);
+	{
+		struct lws_vhost *vhost = wsi->vhost;
+
+		lws_vhost_lock(vhost);
+		__lws_free_wsi(wsi);
+		lws_vhost_unlock(vhost);
+	}
 
 	return NULL;
 
