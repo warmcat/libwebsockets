@@ -1610,7 +1610,7 @@ upgrade_ws:
 			       *p && *p != ',') {
 				/* ignore leading spaces */
 				if (!non_space_char_found && *p == ' ') {
-					n++;
+					p++;
 					continue;
 				}
 				non_space_char_found = 1;
