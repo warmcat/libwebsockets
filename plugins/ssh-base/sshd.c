@@ -1,7 +1,7 @@
 /*
  * libwebsockets - lws-plugin-ssh-base - sshd.c
  *
- * Copyright (C) 2017 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2017 - 2018 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -103,7 +103,7 @@ lws_timingsafe_bcmp(const void *a, const void *b, uint32_t len)
 	uint8_t sum = 0;
 
 	while (len--)
-		sum |= (*pa ^ *pb);
+		sum |= (*pa++ ^ *pb++);
 
 	return sum;
 }
@@ -416,6 +416,8 @@ ssh_free(void *p)
 	lwsl_debug("%s: FREE %p\n", __func__, p);
 	free(p);
 }
+
+#define ssh_free_set_NULL(x) if (x) { ssh_free(x); (x) = NULL; }
 
 static void
 lws_ua_destroy(struct per_session_data__sshd *pss)
@@ -1066,10 +1068,12 @@ again:
 			}
 
 			pss->seen_auth_req_before = 1;
-			lws_strncpy(pss->last_auth_req_username, pss->ua->username,
-				sizeof(pss->last_auth_req_username) - 1);
-			lws_strncpy(pss->last_auth_req_service, pss->ua->service,
-				sizeof(pss->last_auth_req_service) - 1);
+			lws_strncpy(pss->last_auth_req_username,
+				    pss->ua->username,
+				    sizeof(pss->last_auth_req_username));
+			lws_strncpy(pss->last_auth_req_service,
+				    pss->ua->service,
+				    sizeof(pss->last_auth_req_service));
 
 			if (strcmp(pss->ua->service, "ssh-connection"))
 				goto ua_fail;
@@ -1110,6 +1114,7 @@ again:
 
 		case SSHS_NVC_DO_UAR_PUBKEY_BLOB:
 			pss->ua->pubkey = pss->last_alloc;
+			pss->last_alloc = NULL;
 			pss->ua->pubkey_len = pss->npos;
 			/*
 			 * RFC4253
@@ -1167,6 +1172,7 @@ again:
 			}
 			lwsl_info("SSHS_DO_UAR_SIG\n");
 			pss->ua->sig = pss->last_alloc;
+			pss->last_alloc = NULL;
 			pss->ua->sig_len = pss->npos;
 			pss->parser_state = SSHS_MSG_EAT_PADDING;
 
@@ -1357,7 +1363,7 @@ again:
 				pss->vhd->ops->disconnect_reason(
 					pss->disconnect_reason,
 					pss->disconnect_desc, pss->name);
-			ssh_free(pss->last_alloc);
+			ssh_free_set_NULL(pss->last_alloc);
 			break;
 
 			/*
@@ -1519,7 +1525,7 @@ again:
 			if (pss->vhd->ops && pss->vhd->ops->pty_req)
 				n = pss->vhd->ops->pty_req(pss->ch_temp->priv,
 							&pss->args.pty);
-			ssh_free(pss->last_alloc);
+			ssh_free_set_NULL(pss->last_alloc);
 			if (n)
 				goto chrq_fail;
 			if (pss->rq_want_reply)
@@ -1567,7 +1573,7 @@ again:
 			    !pss->vhd->ops->exec(pss->ch_temp->priv, pss->wsi,
 					    	 (const char *)pss->last_alloc,
 						 lws_ssh_exec_finish, pss->ch_temp)) {
-				ssh_free(pss->last_alloc);
+				ssh_free_set_NULL(pss->last_alloc);
 				if (pss->rq_want_reply)
 					write_task_insert(pss, pss->ch_temp,
 						   SSH_WT_CHRQ_SUCC);
@@ -1590,7 +1596,7 @@ again:
 				/* disallow it */
 				n = 0;
 
-			ssh_free(pss->last_alloc);
+			ssh_free_set_NULL(pss->last_alloc);
 			if (!n)
 				goto chrq_fail;
 
@@ -1624,7 +1630,7 @@ again:
 				n = 1;
 			}
 #endif
-			ssh_free(pss->last_alloc);
+			ssh_free_set_NULL(pss->last_alloc);
 //			if (!n)
 				goto ch_fail;
 #if 0
@@ -1715,12 +1721,12 @@ again:
 				break;
 			}
 			if (pss->parser_state == SSHS_NVC_CD_DATA_ALLOC)
-				ssh_free(pss->last_alloc);
+				ssh_free_set_NULL(pss->last_alloc);
 
 			if (ch->peer_window_est < 32768) {
 				write_task(pss, ch, SSH_WT_WINDOW_ADJUST);
 				ch->peer_window_est += 32768;
-				lwsl_notice("extra peer WINDOW_ADJUST (~ %d)\n",
+				lwsl_info("extra peer WINDOW_ADJUST (~ %d)\n",
 					    ch->peer_window_est);
 			}
 
@@ -2082,6 +2088,8 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 		lws_kex_destroy(pss);
 		lws_ua_destroy(pss);
 
+		ssh_free_set_NULL(pss->last_alloc);
+
 		while (pss->ch_list)
 			ssh_destroy_channel(pss, pss->ch_list);
 
@@ -2232,6 +2240,7 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 			ps1 = sshd_zalloc(n);
 			if (!ps1)
 				goto bail;
+			ps = ps1;
 			pp = ps1 + 5;
 			*pp++ = SSH_MSG_USERAUTH_PK_OK;
 			if (lws_cstr(&pp, pss->ua->alg, 64)) {
@@ -2579,7 +2588,7 @@ init_protocol_lws_ssh_base(struct lws_context *context,
 	}
 
 	c->protocols = protocols_sshd;
-	c->count_protocols = ARRAY_SIZE(protocols_sshd);
+	c->count_protocols = LWS_ARRAY_SIZE(protocols_sshd);
 	c->extensions = NULL;
 	c->count_extensions = 0;
 

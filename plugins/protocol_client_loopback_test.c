@@ -150,8 +150,14 @@ callback_client_loopback_test(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLIENT_RECEIVE:
+<<<<<<< HEAD
 		lws_strncpy(buf, in, sizeof(buf) - 1);
 		lwsl_notice("Client connection received %ld from server '%s'\n", (long)len, buf);
+=======
+		lws_strncpy(buf, in, sizeof(buf));
+		lwsl_notice("Client connection received %ld from server '%s'\n",
+			    (long)len, buf);
+>>>>>>> 126e2e8776827575e704d874f5ccd959380f34fa
 
 		/* OK we are done with the client connection */
 		return -1;
@@ -183,7 +189,7 @@ init_protocol_client_loopback_test(struct lws_context *context,
 	}
 
 	c->protocols = protocols;
-	c->count_protocols = ARRAY_SIZE(protocols);
+	c->count_protocols = LWS_ARRAY_SIZE(protocols);
 	c->extensions = NULL;
 	c->count_extensions = 0;
 

@@ -6,6 +6,7 @@
 	
 		LWS bulk transfer example</b>.<br>
 		A large ws message is sent to all browsers open on this page.<br>
+		The browser js echoes the large ws message back to the server.<br>
 		<br>
 		<span id=status>Ws closed</span><br>
 		<br>
@@ -58,12 +59,15 @@ try {
 		document.getElementById("status").textContent = "ws open "+ ws.extensions;
 	} 
 
-	ws.onmessage =function got_packet(msg) {
-		console.log("Received ws message len " + msg.data.length);
+	ws.onmessage = function got_packet(msg) {
+		console.log("Received ws message len " + msg.data.size);
 		document.getElementById("r").value =
-			document.getElementById("r").value + msg.data + "\n";
+			document.getElementById("r").value + "\nReceived: " + msg.data.size + " bytes\n";
 		document.getElementById("r").scrollTop =
 			document.getElementById("r").scrollHeight;
+
+		/* echo it back */
+		ws.send(msg.data);
 	} 
 
 	ws.onclose = function(){

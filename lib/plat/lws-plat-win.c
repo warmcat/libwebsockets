@@ -1,7 +1,11 @@
 #ifndef _WINSOCK_DEPRECATED_NO_WARNINGS
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 #endif
-#include "private-libwebsockets.h"
+#include "core/private.h"
+
+void lws_plat_apply_FD_CLOEXEC(int n)
+{
+}
 
 int
 lws_plat_socket_offset(void)
@@ -20,7 +24,7 @@ lws_plat_pipe_signal(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 
-	WSASetEvent(pt->events[0]);
+	WSASetEvent(pt->events[0]); /* trigger the cancel event */
 
 	return 0;
 }
@@ -46,14 +50,15 @@ time_in_microseconds()
 #endif
 
 	/*
-	 * As per Windows documentation for FILETIME, copy the resulting FILETIME structure to a
-	 * ULARGE_INTEGER structure using memcpy (using memcpy instead of direct assignment can
-	 * prevent alignment faults on 64-bit Windows).
+	 * As per Windows documentation for FILETIME, copy the resulting
+	 * FILETIME structure to a ULARGE_INTEGER structure using memcpy
+	 * (using memcpy instead of direct assignment can prevent alignment
+	 * faults on 64-bit Windows).
 	 */
 	memcpy(&datetime, &filetime, sizeof(datetime));
 
 	/* Windows file times are in 100s of nanoseconds. */
-	return (datetime.QuadPart - DELTA_EPOCH_IN_MICROSECS) / 10;
+	return (datetime.QuadPart / 10) - DELTA_EPOCH_IN_MICROSECS;
 }
 
 #ifdef _WIN32_WCE
@@ -218,6 +223,9 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		return 0;
 	}
 
+	if (context->event_loop_ops->run_pt)
+		context->event_loop_ops->run_pt(context, tsi);
+
 	for (i = 0; i < pt->fds_count; ++i) {
 		pfd = &pt->fds[i];
 
@@ -225,23 +233,21 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 			continue;
 
 		wsi = wsi_from_fd(context, pfd->fd);
-		if (wsi->listener)
+		if (!wsi || wsi->listener)
 			continue;
-		if (!wsi || wsi->sock_send_blocking)
+		if (wsi->sock_send_blocking)
 			continue;
 		pfd->revents = LWS_POLLOUT;
 		n = lws_service_fd(context, pfd);
 		if (n < 0)
 			return -1;
+
+		/* Force WSAWaitForMultipleEvents() to check events and then return immediately. */
+		timeout_ms = 0;
+
 		/* if something closed, retry this slot */
 		if (n)
 			i--;
-
-		/*
-		 * any wsi has truncated, force him signalled
-		 */
-		if (wsi->trunc_len)
-			WSASetEvent(pt->events[0]);
 	}
 
 	/*
@@ -256,11 +262,27 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 			timeout_ms = 0;
 	}
 
+	if (timeout_ms) {
+		lws_usec_t t;
+
+		lws_pt_lock(pt, __func__);
+		/* don't stay in poll wait longer than next hr timeout */
+		t =  __lws_hrtimer_service(pt);
+
+		if ((lws_usec_t)timeout_ms * 1000 > t)
+			timeout_ms = (int)(t / 1000);
+		lws_pt_unlock(pt);
+	}
+
 	ev = WSAWaitForMultipleEvents(1, pt->events, FALSE, timeout_ms, FALSE);
 	if (ev == WSA_WAIT_EVENT_0) {
 		unsigned int eIdx, err;
 
 		WSAResetEvent(pt->events[0]);
+
+		if (pt->context->tls_ops &&
+		    pt->context->tls_ops->fake_POLLIN_for_buffered)
+			pt->context->tls_ops->fake_POLLIN_for_buffered(pt);
 
 		for (eIdx = 0; eIdx < pt->fds_count; ++eIdx) {
 			if (WSAEnumNetworkEvents(pt->fds[eIdx].fd, 0,
@@ -292,8 +314,10 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 			if (pfd->revents & LWS_POLLHUP)
 				--eIdx;
 
-			if (pfd->revents)
+			if (pfd->revents) {
+				recv(pfd->fd, NULL, 0, 0);
 				lws_service_fd_tsi(context, pfd, tsi);
+			}
 		}
 	}
 
@@ -302,7 +326,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	if (ev == WSA_WAIT_TIMEOUT)
 		lws_service_fd(context, NULL);
 
-	return 0;;
+	return 0;
 }
 
 LWS_VISIBLE int
@@ -362,7 +386,7 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd)
 }
 
 LWS_VISIBLE void
-lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
+lws_plat_drop_app_privileges(const struct lws_context_creation_info *info)
 {
 }
 
@@ -425,7 +449,7 @@ lws_interface_to_sa(int ipv6,
 
 	if (ipv6) {
 		if (lws_plat_inet_pton(AF_INET6, ifname, &addr6->sin6_addr) == 1) {
-			return 0;
+			return LWS_ITOSA_USABLE;
 		}
 	}
 #endif
@@ -439,11 +463,11 @@ lws_interface_to_sa(int ipv6,
 	}
 
 	if (address == INADDR_NONE)
-		return -1;
+		return LWS_ITOSA_NOT_EXIST;
 
 	addr->sin_addr.s_addr = (unsigned long)(lws_intptr_t)address;
 
-	return 0;
+	return LWS_ITOSA_USABLE;
 }
 
 LWS_VISIBLE void
@@ -619,7 +643,7 @@ _lws_plat_file_open(const struct lws_plat_file_ops *fops, const char *filename,
 	lws_fop_fd_t fop_fd;
 	LARGE_INTEGER llFileSize = {0};
 
-	MultiByteToWideChar(CP_UTF8, 0, filename, -1, buf, ARRAY_SIZE(buf));
+	MultiByteToWideChar(CP_UTF8, 0, filename, -1, buf, LWS_ARRAY_SIZE(buf));
 	if (((*flags) & 7) == _O_RDONLY) {
 		ret = CreateFileW(buf, GENERIC_READ, FILE_SHARE_READ,
 			  NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
@@ -711,7 +735,7 @@ _lws_plat_file_write(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 
 LWS_VISIBLE int
 lws_plat_init(struct lws_context *context,
-		  struct lws_context_creation_info *info)
+	      const struct lws_context_creation_info *info)
 {
 	struct lws_context_per_thread *pt = &context->pt[0];
 	int i, n = context->count_threads;
@@ -734,7 +758,7 @@ lws_plat_init(struct lws_context *context,
 		}
 
 		pt->fds_count = 0;
-		pt->events[0] = WSACreateEvent();
+		pt->events[0] = WSACreateEvent(); /* the cancel event */
 
 		pt++;
 	}
@@ -780,7 +804,7 @@ lws_plat_write_file(const char *filename, void *buf, int len)
 {
 	int m, fd;
 
-	fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+	fd = lws_open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0600);
 
 	if (fd == -1)
 		return -1;
@@ -794,7 +818,7 @@ lws_plat_write_file(const char *filename, void *buf, int len)
 LWS_VISIBLE int
 lws_plat_read_file(const char *filename, void *buf, int len)
 {
-	int n, fd = open(filename, O_RDONLY);
+	int n, fd = lws_open(filename, O_RDONLY);
 	if (fd == -1)
 		return -1;
 

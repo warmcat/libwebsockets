@@ -28,6 +28,7 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include <errno.h>
 
 #define TEST_SERVER_KEY_PATH "/etc/lws-test-sshd-server-key"
 
@@ -299,7 +300,7 @@ ssh_ops_is_pubkey_authorized(const char *username, const char *type,
 	 * <len32>E<len32>N that the peer sends us
 	 */
 	if (memcmp(peer, ps, peer_len)) {
-		lwsl_info("factors mismatch\n");
+		lwsl_info("%s: factors mismatch, rejecting key\n", __func__);
 		goto bail;
 	}
 
@@ -461,7 +462,7 @@ init_protocol_lws_sshd_demo(struct lws_context *context,
 	}
 
 	c->protocols = protocols;
-	c->count_protocols = ARRAY_SIZE(protocols);
+	c->count_protocols = LWS_ARRAY_SIZE(protocols);
 	c->extensions = NULL;
 	c->count_extensions = 0;
 

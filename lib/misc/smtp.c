@@ -19,7 +19,7 @@
  * MA  02110-1301  USA
  */
 
-#include "private-libwebsockets.h"
+#include "core/private.h"
 
 static unsigned int
 lwsgs_now_secs(void)

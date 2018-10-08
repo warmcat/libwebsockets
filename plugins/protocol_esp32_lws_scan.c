@@ -215,7 +215,7 @@ static void reboot_timer_cb(TimerHandle_t t)
 static int
 client_connection(struct per_vhost_data__esplws_scan *vhd, const char *file)
 {
-#if CONFIG_LWS_IS_FACTORY_APPLICATION == 'y' && defined(CONFIG_LWS_OTA_SERVER_BASE_URL) && \
+#if defined(CONFIG_LWS_IS_FACTORY_APPLICATION)  && defined(CONFIG_LWS_OTA_SERVER_BASE_URL) && \
     defined(CONFIG_LWS_OTA_SERVER_FQDN)
 	static struct lws_client_connect_info i;
 	char path[256];
@@ -347,10 +347,10 @@ scan_finished(uint16_t count, wifi_ap_record_t *recs, void *v)
 
 	vhd->scan_ongoing = 0;
 
-	if (count < ARRAY_SIZE(vhd->ap_records))
+	if (count < LWS_ARRAY_SIZE(vhd->ap_records))
 		vhd->count_ap_records = count;
 	else
-		vhd->count_ap_records = ARRAY_SIZE(vhd->ap_records);
+		vhd->count_ap_records = LWS_ARRAY_SIZE(vhd->ap_records);
 
 	memcpy(vhd->ap_records, recs, vhd->count_ap_records * sizeof(*recs));
 	
@@ -374,7 +374,7 @@ scan_finished(uint16_t count, wifi_ap_record_t *recs, void *v)
 		lws.rssi = r->rssi;
 		lws.count = 1;
 		memcpy(&lws.bssid, r->bssid, 6);
-		lws_strncpy(lws.ssid, (const char *)r->ssid, sizeof(lws.ssid) - 1);
+		lws_strncpy(lws.ssid, (const char *)r->ssid, sizeof(lws.ssid));
 
 		lws_wifi_scan_insert_trim(&vhd->known_aps_list, &lws);
 	}
@@ -407,7 +407,7 @@ file_upload_cb(void *data, const char *name, const char *filename,
 			return -1;
 
 		lwsl_notice("LWS_UFS_OPEN Filename %s\n", filename);
-		lws_strncpy(pss->filename, filename, sizeof(pss->filename) - 1);
+		lws_strncpy(pss->filename, filename, sizeof(pss->filename));
 		if (!strcmp(name, "pub") || !strcmp(name, "pri")) {
 			if (nvs_open("lws-station", NVS_READWRITE, &pss->nvh))
 				return 1;
@@ -566,7 +566,7 @@ callback_esplws_scan(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_tls_vhost_cert_info(vhd->vhost,
 					LWS_TLS_CERT_INFO_COMMON_NAME, &ir,
 						sizeof(ir.ns.name));
-				lws_strncpy(subject, ir.ns.name, sizeof(subject) - 1);
+				lws_strncpy(subject, ir.ns.name, sizeof(subject));
 
 				ir.ns.name[0] = '\0';
 				lws_tls_vhost_cert_info(vhd->vhost,
@@ -784,7 +784,7 @@ issue:
 		lwsl_notice("LWS_CALLBACK_VHOST_CERT_UPDATE: %d\n", (int)len);
 		vhd->acme_state = (int)len;
 		if (in) {
-			lws_strncpy(vhd->acme_msg, in, sizeof(vhd->acme_msg) - 1);
+			lws_strncpy(vhd->acme_msg, in, sizeof(vhd->acme_msg));
 			lwsl_notice("acme_msg: %s\n", (char *)in);
 		}
 		lws_callback_on_writable_all_protocol_vhost(vhd->vhost, vhd->protocol);
@@ -826,7 +826,7 @@ issue:
 
 			lwsl_notice("si %d\n", si);
 
-			for (n = 0; n < ARRAY_SIZE(store_json); n++) {
+			for (n = 0; n < LWS_ARRAY_SIZE(store_json); n++) {
 				if (esplws_simple_arg(p, sizeof(p), in, store_json[n].j))
 					continue;
 
@@ -1020,7 +1020,7 @@ start_le:
 		/* create the POST argument parser if not already existing */
 		if (!pss->spa) {
 			pss->spa = lws_spa_create(wsi, param_names,
-					ARRAY_SIZE(param_names), 1024,
+					LWS_ARRAY_SIZE(param_names), 1024,
 					file_upload_cb, pss);
 			if (!pss->spa)
 				return -1;
@@ -1039,7 +1039,7 @@ start_le:
 		/* call to inform no more payload data coming */
 		lws_spa_finalize(pss->spa);
 
-		for (n = 0; n < ARRAY_SIZE(param_names); n++)
+		for (n = 0; n < LWS_ARRAY_SIZE(param_names); n++)
 			if (lws_spa_get_string(pss->spa, n))
 				lwsl_notice(" Param %s: %s\n", param_names[n],
 					    lws_spa_get_string(pss->spa, n));

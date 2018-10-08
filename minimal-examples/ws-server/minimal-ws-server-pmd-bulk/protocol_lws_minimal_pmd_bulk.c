@@ -56,9 +56,27 @@ static const char * const redundant_string =
 /* one of these is created for each client connecting to us */
 
 struct per_session_data__minimal_pmd_bulk {
-	int position; /* byte position we got up to sending the message */
-	uint64_t rng;
+	int position_tx, position_rx;
+	uint64_t rng_rx, rng_tx;
 };
+
+struct vhd_minimal_pmd_bulk {
+        int *interrupted;
+        /*
+         * b0 = 1: test compressible text, = 0: test uncompressible binary
+         * b1 = 1: send as a single blob, = 0: send as fragments
+         */
+	int *options;
+};
+
+static uint64_t rng(uint64_t *r)
+{
+	*r ^= *r << 21;
+	*r ^= *r >> 35;
+	*r ^= *r << 4;
+
+	return *r;
+}
 
 static int
 callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
@@ -66,66 +84,126 @@ callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
 {
 	struct per_session_data__minimal_pmd_bulk *pss =
 			(struct per_session_data__minimal_pmd_bulk *)user;
-	uint8_t buf[LWS_PRE + MESSAGE_CHUNK_SIZE], *p;
-	int n, m, msg_flag;
+        struct vhd_minimal_pmd_bulk *vhd = (struct vhd_minimal_pmd_bulk *)
+                        lws_protocol_vh_priv_get(lws_get_vhost(wsi),
+                                lws_get_protocol(wsi));
+	uint8_t buf[LWS_PRE + MESSAGE_SIZE], *start = &buf[LWS_PRE], *p;
+	int n, m, flags, olen, amount;
 
 	switch (reason) {
+        case LWS_CALLBACK_PROTOCOL_INIT:
+                vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
+                                lws_get_protocol(wsi),
+                                sizeof(struct vhd_minimal_pmd_bulk));
+                if (!vhd)
+                        return -1;
+
+                /* get the pointer to "interrupted" we were passed in pvo */
+                vhd->interrupted = (int *)lws_pvo_search(
+                        (const struct lws_protocol_vhost_options *)in,
+                        "interrupted")->value;
+                vhd->options = (int *)lws_pvo_search(
+                        (const struct lws_protocol_vhost_options *)in,
+                        "options")->value;
+                break;
+
 	case LWS_CALLBACK_ESTABLISHED:
-		pss->position = 0;
-		pss->rng = 4;
+		pss->rng_tx = 4;
+		pss->rng_rx = 4;
 		lws_callback_on_writable(wsi);
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
-		if (pss->position == MESSAGE_SIZE)
+		if (pss->position_tx == MESSAGE_SIZE)
 			break;
 
-		if (!pss->position)
-			msg_flag = LWS_WRITE_TEXT;
-		else
-			msg_flag = LWS_WRITE_CONTINUATION;
+		amount = MESSAGE_CHUNK_SIZE;
+		if ((*vhd->options) & 2) {
+			amount = MESSAGE_SIZE;
+			lwsl_user("(writing as one blob of %d)\n", amount);
+		}
 
 		/* fill up one chunk's worth of message content */
 
-		p = &buf[LWS_PRE];
-		n = MESSAGE_CHUNK_SIZE;
-		if (n > MESSAGE_SIZE - pss->position)
-			n = MESSAGE_SIZE - pss->position;
+		p = start;
+		n = amount;
+		if (n > MESSAGE_SIZE - pss->position_tx)
+			n = MESSAGE_SIZE - pss->position_tx;
+
+		flags = lws_write_ws_flags(LWS_WRITE_BINARY, !pss->position_tx,
+					   pss->position_tx + n == MESSAGE_SIZE);
+
 		/*
 		 * select between producing compressible repeated text,
 		 * or uncompressible PRNG output
 		 */
-#if 0
-		while (n) {
-			m = pss->position % REPEAT_STRING_LEN;
-			s = REPEAT_STRING_LEN - m;
-			if (s > n)
-				s = n;
-			memcpy(p, &redundant_string[m], s);
-			pss->position += s;
-			p += s;
-			n -= s;
-		}
-#else
-		pss->position += n;
-		while (n--) {
-			pss->rng ^= pss->rng << 21;
-			pss->rng ^= pss->rng >> 35;
-			pss->rng ^= pss->rng << 4;
-			*p++ = 0x40 + ((pss->rng >> (n & 15)) & 0x3f);
-		}
-#endif
-		if (pss->position != MESSAGE_SIZE) /* if not the end, no FIN */
-			msg_flag |= LWS_WRITE_NO_FIN;
 
-		n = lws_ptr_diff(p, &buf[LWS_PRE]);
-		m = lws_write(wsi, &buf[LWS_PRE], n, msg_flag);
+		if (*vhd->options & 1) {
+			while (n) {
+				size_t s;
+
+				m = pss->position_tx % REPEAT_STRING_LEN;
+				s = REPEAT_STRING_LEN - m;
+				if (s > (size_t)n)
+					s = n;
+				memcpy(p, &redundant_string[m], s);
+				pss->position_tx += s;
+				p += s;
+				n -= s;
+			}
+		} else {
+			pss->position_tx += n;
+			while (n--)
+				*p++ = rng(&pss->rng_tx);
+		}
+
+		n = lws_ptr_diff(p, start);
+		m = lws_write(wsi, start, n, flags);
+		lwsl_user("LWS_CALLBACK_SERVER_WRITEABLE: wrote %d\n", n);
 		if (m < n) {
 			lwsl_err("ERROR %d writing ws\n", n);
 			return -1;
 		}
-		if (pss->position != MESSAGE_SIZE) /* if more to do... */
+		if (pss->position_tx != MESSAGE_SIZE) /* if more to do... */
 			lws_callback_on_writable(wsi);
+		break;
+
+	case LWS_CALLBACK_RECEIVE:
+		lwsl_user("LWS_CALLBACK_RECEIVE: %4d (pss->pos=%d, rpp %5d, last %d)\n",
+				(int)len, (int)pss->position_rx, (int)lws_remaining_packet_payload(wsi),
+				lws_is_final_fragment(wsi));
+		olen = len;
+
+		if (*vhd->options & 1) {
+			while (len) {
+				size_t s;
+				m = pss->position_rx % REPEAT_STRING_LEN;
+				s = REPEAT_STRING_LEN - m;
+				if (s > len)
+					s = len;
+				if (memcmp(in, &redundant_string[m], s)) {
+					lwsl_user("echo'd data doesn't match\n");
+					return -1;
+				}
+				pss->position_rx += s;
+				in += s;
+				len -= s;
+			}
+		} else {
+			p = (uint8_t *)in;
+			pss->position_rx += len;
+			while (len--) {
+				if (*p++ != (uint8_t)rng(&pss->rng_rx)) {
+					lwsl_user("echo'd data doesn't match: 0x%02X 0x%02X (%d)\n",
+						*(p - 1), (int)(0x40 + (pss->rng_rx & 0x3f)),
+						(int)((pss->position_rx - olen) + olen - len));
+					lwsl_hexdump_notice(in, olen);
+					return -1;
+				}
+			}
+			if (pss->position_rx == MESSAGE_SIZE)
+				pss->position_rx = 0;
+		}
 		break;
 
 	default:
@@ -163,7 +241,7 @@ init_protocol_minimal_pmd_bulk(struct lws_context *context,
 	}
 
 	c->protocols = protocols;
-	c->count_protocols = ARRAY_SIZE(protocols);
+	c->count_protocols = LWS_ARRAY_SIZE(protocols);
 	c->extensions = NULL;
 	c->count_extensions = 0;
 

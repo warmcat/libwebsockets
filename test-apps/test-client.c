@@ -54,7 +54,7 @@ static struct lws_poly_gen tx = { { 0xabcde, 0x23456789 } },
 			   rx = { { 0xabcde, 0x23456789 } }
 ;
 
-#if defined(LWS_OPENSSL_SUPPORT) && defined(LWS_HAVE_SSL_CTX_set1_param)
+#if defined(LWS_WITH_TLS) && defined(LWS_HAVE_SSL_CTX_set1_param)
 char crl_path[1024] = "";
 #endif
 
@@ -116,7 +116,7 @@ static int
 callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 			void *user, void *in, size_t len)
 {
-#if defined(LWS_OPENSSL_SUPPORT)
+#if defined(LWS_WITH_TLS)
 	union lws_tls_cert_info_results ci;
 #endif
 	const char *which = "http";
@@ -151,7 +151,7 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 			wsi_mirror = NULL;
 		}
 
-		for (n = 0; n < (int)ARRAY_SIZE(wsi_multi); n++)
+		for (n = 0; n < (int)LWS_ARRAY_SIZE(wsi_multi); n++)
 			if (wsi == wsi_multi[n]) {
 				sprintf(which_wsi, "multi %d", n);
 				which = which_wsi;
@@ -177,7 +177,7 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
 		lwsl_notice("lws_http_client_http_response %d\n",
 				lws_http_client_http_response(wsi));
-#if defined(LWS_OPENSSL_SUPPORT)
+#if defined(LWS_WITH_TLS)
 		if (!lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_COMMON_NAME,
 					    &ci, sizeof(ci.ns.name)))
 			lwsl_notice(" Peer Cert CN        : %s\n", ci.ns.name);
@@ -272,7 +272,7 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 		force_exit = 1;
 		break;
 
-#if defined(LWS_OPENSSL_SUPPORT) && defined(LWS_HAVE_SSL_CTX_set1_param) && \
+#if defined(LWS_WITH_TLS) && defined(LWS_HAVE_SSL_CTX_set1_param) && \
 	!defined(LWS_WITH_MBEDTLS)
 	case LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS:
 		if (crl_path[0]) {
@@ -339,7 +339,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		if (longlived)
 			mirror_lifetime += 500000;
 
-		lwsl_info("opened mirror connection with "
+		lwsl_notice("opened mirror connection with "
 			  "%d lifetime\n", mirror_lifetime);
 
 		/*
@@ -355,7 +355,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_callback_on_writable(wsi);
 		break;
 
-	case LWS_CALLBACK_CLOSED:
+	case LWS_CALLBACK_CLIENT_CLOSED:
 		lwsl_notice("mirror: LWS_CALLBACK_CLOSED mirror_lifetime=%d, "
 			    "rxb %d, rx_count %d\n", mirror_lifetime, rxb,
 			    rx_count);
@@ -365,6 +365,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLIENT_WRITEABLE:
+		lwsl_user("LWS_CALLBACK_CLIENT_WRITEABLE\n");
 		if (flag_no_mirror_traffic)
 			return 0;
 
@@ -411,15 +412,14 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!justmirror)
 			mirror_lifetime--;
 		if (!mirror_lifetime) {
-			lwsl_info("closing mirror session\n");
+			lwsl_notice("closing mirror session\n");
 			return -1;
 		}
 		/* get notified as soon as we can write again */
-		if (!justmirror)
-			lws_callback_on_writable(wsi);
+		lws_callback_on_writable(wsi);
 
 #if !defined(_WIN32) && !defined(WIN32)
-		usleep(250);
+		usleep(50);
 #endif
 		break;
 
@@ -545,7 +545,7 @@ static struct option options[] = {
 	{ "ssl-cert",  required_argument,	NULL, 'C' },
 	{ "ssl-key",  required_argument,	NULL, 'K' },
 	{ "ssl-ca",  required_argument,		NULL, 'A' },
-#if defined(LWS_OPENSSL_SUPPORT) && defined(LWS_HAVE_SSL_CTX_set1_param)
+#if defined(LWS_WITH_TLS) && defined(LWS_HAVE_SSL_CTX_set1_param)
 	{ "ssl-crl",  required_argument,		NULL, 'R' },
 #endif
 	{ NULL, 0, 0, 0 }
@@ -583,7 +583,7 @@ int main(int argc, char **argv)
 	memset(&info, 0, sizeof info);
 
 	lwsl_notice("libwebsockets test client - license LGPL2.1+SLE\n");
-	lwsl_notice("(C) Copyright 2010-2017 Andy Green <andy@warmcat.com>\n");
+	lwsl_notice("(C) Copyright 2010-2018 Andy Green <andy@warmcat.com>\n");
 
 	if (argc < 2)
 		goto usage;
@@ -641,18 +641,18 @@ int main(int argc, char **argv)
 			lwsl_notice("Disabled sending mirror data (for pingpong testing)\n");
 			break;
 		case 'C':
-			lws_strncpy(cert_path, optarg, sizeof(cert_path) - 1);
+			lws_strncpy(cert_path, optarg, sizeof(cert_path));
 			break;
 		case 'K':
-			lws_strncpy(key_path, optarg, sizeof(key_path) - 1);
+			lws_strncpy(key_path, optarg, sizeof(key_path));
 			break;
 		case 'A':
-			lws_strncpy(ca_path, optarg, sizeof(ca_path) - 1);
+			lws_strncpy(ca_path, optarg, sizeof(ca_path));
 			break;
 
-#if defined(LWS_OPENSSL_SUPPORT) && defined(LWS_HAVE_SSL_CTX_set1_param)
+#if defined(LWS_WITH_TLS) && defined(LWS_HAVE_SSL_CTX_set1_param)
 		case 'R':
-			lws_strncpy(crl_path, optarg, sizeof(crl_path) - 1);
+			lws_strncpy(crl_path, optarg, sizeof(crl_path));
 			break;
 #endif
 		case 'h':
@@ -673,7 +673,7 @@ int main(int argc, char **argv)
 
 	/* add back the leading / on path */
 	path[0] = '/';
-	lws_strncpy(path + 1, p, sizeof(path) - 2);
+	lws_strncpy(path + 1, p, sizeof(path) - 1);
 	i.path = path;
 
 	if (!strcmp(prot, "http") || !strcmp(prot, "ws"))
@@ -697,7 +697,7 @@ int main(int argc, char **argv)
 	info.ws_ping_pong_interval = pp_secs;
 	info.extensions = exts;
 
-#if defined(LWS_OPENSSL_SUPPORT)
+#if defined(LWS_WITH_TLS)
 	info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 #endif
 
@@ -718,14 +718,19 @@ int main(int argc, char **argv)
 		if (ca_path[0])
 			info.client_ssl_ca_filepath = ca_path;
 
-#if defined(LWS_OPENSSL_SUPPORT) && defined(LWS_HAVE_SSL_CTX_set1_param)
+#if defined(LWS_WITH_TLS) && defined(LWS_HAVE_SSL_CTX_set1_param)
 		else if (crl_path[0])
 			lwsl_notice("WARNING, providing a CRL requires a CA cert!\n");
 #endif
 	}
 
-	if (use_ssl & LCCSCF_USE_SSL)
+	if (use_ssl & LCCSCF_USE_SSL) {
 		lwsl_notice(" Using SSL\n");
+#if defined(LWS_WITH_MBEDTLS)
+		lwsl_notice("   (NOTE: mbedtls needs to be given the remote\n");
+		lwsl_notice("    CA cert to trust (with -A) to validate it)\n");
+#endif
+	}
 	else
 		lwsl_notice(" SSL disabled\n");
 	if (use_ssl & LCCSCF_ALLOW_SELFSIGNED)
@@ -781,7 +786,7 @@ int main(int argc, char **argv)
 	while (!force_exit) {
 
 		if (do_multi) {
-			for (n = 0; n < (int)ARRAY_SIZE(wsi_multi); n++) {
+			for (n = 0; n < (int)LWS_ARRAY_SIZE(wsi_multi); n++) {
 				if (!wsi_multi[n] && ratelimit_connects(&rl_multi[n], 2u)) {
 					lwsl_notice("dumb %d: connecting\n", n);
 					i.protocol = protocols[PROTOCOL_DUMB_INCREMENT].name;

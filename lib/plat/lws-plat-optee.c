@@ -1,8 +1,12 @@
-#include "private-libwebsockets.h"
+#include "core/private.h"
 
 /*
  * included from libwebsockets.c for OPTEE builds
  */
+
+void lws_plat_apply_FD_CLOEXEC(int n)
+{
+}
 
 int
 lws_plat_socket_offset(void)
@@ -137,19 +141,20 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 			/* yes... come back again quickly */
 			timeout_ms = 0;
 	}
-#if 1
+
 	n = poll(pt->fds, pt->fds_count, timeout_ms);
 
-#ifdef LWS_OPENSSL_SUPPORT
-	if (!pt->rx_draining_ext_list &&
-	    !lws_ssl_anybody_has_buffered_read_tsi(context, tsi) && !n) {
-#else
-	if (!pt->rx_draining_ext_list && !n) /* poll timeout */ {
-#endif
+	m = 0;
+
+	if (pt->context->tls_ops &&
+	    pt->context->tls_ops->fake_POLLIN_for_buffered)
+		m = pt->context->tls_ops->fake_POLLIN_for_buffered(pt);
+
+	if (/*!pt->ws.rx_draining_ext_list && */!m && !n) { /* nothing to do */
 		lws_service_fd_tsi(context, NULL, tsi);
 		return 0;
 	}
-#endif
+
 faked_service:
 	m = lws_service_flag_pending(context, tsi);
 	if (m)
@@ -205,7 +210,7 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, int fd)
 }
 
 LWS_VISIBLE void
-lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
+lws_plat_drop_app_privileges(const struct lws_context_creation_info *info)
 {
 }
 
@@ -317,7 +322,7 @@ _lws_plat_file_write(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 
 LWS_VISIBLE int
 lws_plat_init(struct lws_context *context,
-	      struct lws_context_creation_info *info)
+	      const struct lws_context_creation_info *info)
 {
 	/* master context has the global fd lookup array */
 	context->lws_lookup = lws_zalloc(sizeof(struct lws *) *

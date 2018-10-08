@@ -85,19 +85,19 @@ lookup_cb(void *priv, int cols, char **col_val, char **col_name)
 			continue;
 		}
 		if (!strcmp(col_name[n], "username")) {
-			lws_strncpy(m->username, col_val[n], sizeof(m->username) - 1);
+			lws_strncpy(m->username, col_val[n], sizeof(m->username));
 			continue;
 		}
 		if (!strcmp(col_name[n], "email")) {
-			lws_strncpy(m->email, col_val[n], sizeof(m->email) - 1);
+			lws_strncpy(m->email, col_val[n], sizeof(m->email));
 			continue;
 		}
 		if (!strcmp(col_name[n], "ip")) {
-			lws_strncpy(m->ip, col_val[n], sizeof(m->ip) - 1);
+			lws_strncpy(m->ip, col_val[n], sizeof(m->ip));
 			continue;
 		}
 		if (!strcmp(col_name[n], "content")) {
-			lws_strncpy(m->content, col_val[n], sizeof(m->content) - 1);
+			lws_strncpy(m->content, col_val[n], sizeof(m->content));
 			continue;
 		}
 	}
@@ -294,7 +294,7 @@ callback_messageboard(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 		if (!pss->spa) {
 			pss->spa = lws_spa_create(wsi, param_names,
-						ARRAY_SIZE(param_names),
+					LWS_ARRAY_SIZE(param_names),
 						MAX_MSG_LEN + 1024, NULL, NULL);
 			if (!pss->spa)
 				return -1;
@@ -373,7 +373,7 @@ callback_messageboard(struct lws *wsi, enum lws_callback_reasons reason,
 
 	default:
 passthru:
-		if (!pss)
+		if (!pss || !vhd)
 			break;
 		return vhd->gsp->callback(wsi, reason, pss->pss_gs, in, len);
 	}
@@ -408,7 +408,7 @@ init_protocol_lws_messageboard(struct lws_context *context,
 	}
 
 	c->protocols = protocols;
-	c->count_protocols = ARRAY_SIZE(protocols);
+	c->count_protocols = LWS_ARRAY_SIZE(protocols);
 	c->extensions = NULL;
 	c->count_extensions = 0;
 

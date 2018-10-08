@@ -1,6 +1,175 @@
 Changelog
 ---------
 
+v3.0.0
+======
+
+ - CHANGE: Clients used to call LWS_CALLBACK_CLOSED same as servers...
+   LWS_CALLBACK_CLIENT_CLOSED has been introduced and is called for clients
+   now.
+   
+ - CHANGE: LWS_CALLBACK_CLIENT_CONNECTION_ERROR used to only be directed at
+   protocols[0].  However in many cases, the protocol to bind to was provided
+   at client connection info time and the wsi bound accordingly.  In those
+   cases, CONNECTION_ERROR is directed at the bound protocol, not protcols[0]
+   any more.
+
+ - CHANGE: CMAKE: the following cmake defaults have changed with this version:
+ 
+     - LWS_WITH_ZIP_FOPS:      now defaults OFF
+     - LWS_WITH_RANGES:        now defaults OFF
+     - LWS_WITH_ZLIB:          now defaults OFF
+     - LWS_WITHOUT_EXTENSIONS: now defaults ON
+     
+ - CHANGE: REMOVED: lws_alloc_vfs_file() (read a file to malloc buffer)
+ 
+ - CHANGE: REMOVED: lws_read() (no longer useful outside of lws internals)
+ 
+ - CHANGE: REMOVED: ESP8266... ESP32 is now within the same price range and much
+   more performant
+   
+ - CHANGE: soname bump... don't forget to `ldconfig`
+     
+ - NEW: all event libraries support "foreign" loop integration where lws itself
+   if just a temporary user of the loop unrelated to the actual loop lifecycle.
+   
+   See `minimal-http-server-eventlib-foreign` for example code demonstrating
+   this for all the event libraries.
+   
+   Internal loop in lws is also supported and demonstrated by
+   `minimal-http-server-eventlib`.
+ 
+ - NEW: ws-over-h2 support.  This is a new RFC-on-the-way supported by Chrome
+   and shortly firefox that allows ws connections to be multiplexed back to the
+   server on the same tcp + tls wrapper h2 connection that the html and scripts
+   came in on.  This is hugely faster that discrete connections.
+ 
+ - NEW: UDP socket adoption and related event callbacks
+ 
+ - NEW: Multi-client connection binding, queuing and pipelining support.
+ 
+   Lws detects multiple client connections to the same server and port, and
+   optimizes how it handles them according to the server type and provided
+   flags.  For http/1.0, all occur with individual parallel connections.  For
+   http/1.1, you can enable keepalive pipelining, so the connections occur
+   sequentially on a single network connection.  For http/2, they all occur
+   as parallel streams within a single h2 network connection.
+   
+   See minimal-http-client-multi for example code. 
+   
+ - NEW: High resolution timer API for wsi, get a callback on your wsi with
+   LWS_CALLBACK_TIMER, set and reset the timer with lws_set_timer_usecs(wsi, us)
+   Actual resolution depends on event backend.  Works with all backends, poll,
+   libuv, libevent, and libev.
+   
+ - NEW: Protocols can arrange vhost-protocol instance specific callbacks with
+   second resolution using `lws_timed_callback_vh_protocol()`
+
+ - NEW: ACME client plugin for self-service TLS certificates
+  
+ - NEW: RFC7517 JSON Web Keys RFC7638 JWK thumbprint, and RFC7515 JSON Web
+    signatures support
+  
+ - NEW: lws_cancel_service() now provides a generic way to synchronize events
+   from other threads, which appear as a LWS_CALLBACK_EVENT_WAIT_CANCELLED
+   callback on all protocols.  This is compatible with all the event libraries.
+
+ - NEW: support BSD poll() where changes to the poll wait while waiting are
+   undone.
+
+ - NEW: Introduce generic hash, hmac and RSA apis that operate the same
+   regardless of OpenSSL or mbedTLS tls backend
+  
+ - NEW: Introduce X509 element query api that works the same regardless of
+   OpenSSL or mbedTLS tls backend
+    
+ - NEW: Introduce over 30 "minimal examples" in ./minimal-examples... these
+   replace most of the old test servers
+   
+    - test-echo -> minimal-ws-server-echo and minimal-ws-client-echo
+
+    - test-server-libuv / -libevent / -libev ->
+         minimal-https-server-eventlib / -eventlib-foreign / -eventlib-demos
+
+    - test-server-v2.0 -> folded into all the minimal servers
+
+    - test-server direct http serving -> minimal-http-server-dynamic
+    
+   The minimal examples allow individual standalone build using their own
+   small CMakeLists.txt.
+   
+ - NEW: lws now detects any back-to-back writes that did not go through the
+   event loop inbetween and reports them.  This will flag any possibility of
+   failure rather than wait until the problem happens.
+   
+ - NEW: CMake has LWS_WITH_DISTRO_RECOMMENDED to select features that are
+   appropriate for distros
+   
+ - NEW: Optional vhost URL `error_document_404` if given causes a redirect there
+   instead of serve the default 404 page.
+   
+ - NEW: lws_strncpy() wrapper guarantees NUL in copied string even if it was
+   truncated to fit.
+   
+ - NEW: for client connections, local protocol binding name can be separated
+   from the ws subprotocol name if needed, using .local_protocol_name
+
+ - NEW: Automatic detection of time discontiguities
+   
+ - NEW: Applies TCP_USER_TIMEOUT for Linux tcp keepalive where available
+     
+ - QA: 1600 tests run on each commit in Travis CI, including almost all
+   Autobahn in client and server mode, various h2load tests, h2spec, attack.sh
+   the minimal example selftests and others.
+
+ - QA: fix small warnings introduced on gcc8.x (eg, Fedora 28)
+ 
+ - QA: Add most of -Wextra on gcc (-Wsign-compare, -Wignored-qualifiers,
+   -Wtype-limits, -Wuninitialized)
+   
+ - QA: clean out warnings on windows
+ 
+ - QA: pass all 146 h2spec tests now on strict
+ 
+ - QA: introduce 35 selftests that operate different minimal examples against
+   each other and confirm the results.
+ 
+ - QA: LWS_WITH_MINIMAL_EXAMPLES allows mass build of all relevant minimal-
+   examples with the LWS build, for CI and to make all the example binaries
+   available from the lws build dir ./bin
+ 
+ - REFACTOR: the lws source directory layout in ./lib has been radically
+   improved, and there are now README.md files in selected subdirs with extra
+   documentation of interest to people working on lws itself.
+
+ - REFACTOR: pipelined transactions return to the event loop before starting the
+   next part. 
+ 
+ - REFACTOR: TLS: replace all TLS library constants with generic LWS ones and
+   adapt all the TLS library code to translate to these common ones.
+   
+   Isolated all the tls-related private stuff in `./lib/tls/private.h`, and all
+   the mbedTLS stuff in `./lib/tls/mbedtls` + openSSL stuff in
+   `./lib/tls/openssl`
+   
+ - REFACTOR: the various kinds of wsi possible with lws have been extracted
+   from the main code and isolated into "roles" in `./lib/roles` which
+   communicate with the core code via an ops struct.  Everything related to
+   ah is migrated to the http role.
+   
+   wsi modes are eliminated and replaced by the ops pointer for the role the
+   wsi is performing.  Generic states for wsi are available to control the
+   lifecycle using core code.
+   
+   Adding new "roles" is now much easier with the changes and ops struct to
+   plug into.
+
+ - REFACTOR: reduce four different kinds of buffer management in lws into a
+   generic scatter-gather struct lws_buflist. 
+
+ - REFACTOR: close notifications go through event loop
+
+
 v2.4.0
 ======
 

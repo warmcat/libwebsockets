@@ -321,6 +321,7 @@ void SSL_CTX_set_alpn_select_cb(SSL_CTX *ctx,
                                            void *arg),
                                 void *arg);
 
+void SSL_set_alpn_select_cb(SSL *ssl, void *arg);
 
 /**
  * @brief set the SSL context ALPN select protocol

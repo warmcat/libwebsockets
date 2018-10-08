@@ -19,7 +19,7 @@
  *  MA  02110-1301  USA
  */
 
-#include "private-libwebsockets.h"
+#include "core/private.h"
 #include "freertos/timers.h"
 #include <esp_attr.h>
 #include <esp_system.h>
@@ -28,6 +28,10 @@
 
 #include <lwip/sockets.h>
 #include <esp_task_wdt.h>
+
+void lws_plat_apply_FD_CLOEXEC(int n)
+{
+}
 
 int
 lws_plat_socket_offset(void)
@@ -173,6 +177,16 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 			timeout_ms = 0;
 	}
 
+	if (timeout_ms) {
+		lws_pt_lock(pt, __func__);
+		/* don't stay in poll wait longer than next hr timeout */
+		lws_usec_t t =  __lws_hrtimer_service(pt);
+
+		if ((lws_usec_t)timeout_ms * 1000 > t)
+			timeout_ms = t / 1000;
+		lws_pt_unlock(pt);
+	}
+
 //	n = poll(pt->fds, pt->fds_count, timeout_ms);
 	{
 		fd_set readfds, writefds, errfds;
@@ -217,15 +231,21 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		}
 	}
 
-#ifdef LWS_OPENSSL_SUPPORT
-	if (!pt->rx_draining_ext_list &&
-	    !lws_ssl_anybody_has_buffered_read_tsi(context, tsi) && !n) {
-#else
-	if (!pt->rx_draining_ext_list && !n) /* poll timeout */ {
+	m = 0;
+
+#if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
+	m |= !!pt->ws.rx_draining_ext_list;
 #endif
+
+	if (pt->context->tls_ops &&
+	    pt->context->tls_ops->fake_POLLIN_for_buffered)
+		m |= pt->context->tls_ops->fake_POLLIN_for_buffered(pt);
+
+	if (!m && !n) {
 		lws_service_fd_tsi(context, NULL, tsi);
 		return 0;
 	}
+
 
 faked_service:
 	m = lws_service_flag_pending(context, tsi);
@@ -335,7 +355,7 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, int fd)
 }
 
 LWS_VISIBLE void
-lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
+lws_plat_drop_app_privileges(const struct lws_context_creation_info *info)
 {
 }
 
@@ -387,7 +407,7 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 		    size_t addrlen)
 {
 #if 0
-	int rc = -1;
+	int rc = LWS_ITOSA_NOT_EXIST;
 
 	struct ifaddrs *ifr;
 	struct ifaddrs *ifc;
@@ -433,26 +453,26 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 		default:
 			continue;
 		}
-		rc = 0;
+		rc = LWS_ITOSA_USABLE;
 	}
 
 	freeifaddrs(ifr);
 
-	if (rc == -1) {
+	if (rc == LWS_ITOSA_NOT_EXIST) {
 		/* check if bind to IP address */
 #ifdef LWS_WITH_IPV6
 		if (inet_pton(AF_INET6, ifname, &addr6->sin6_addr) == 1)
-			rc = 0;
+			rc = LWS_ITOSA_USABLE;
 		else
 #endif
 		if (inet_pton(AF_INET, ifname, &addr->sin_addr) == 1)
-			rc = 0;
+			rc = LWS_ITOSA_USABLE;
 	}
 
 	return rc;
 #endif
 
-	return -1;
+	return LWS_ITOSA_NOT_EXIST;
 }
 
 LWS_VISIBLE void
@@ -600,7 +620,7 @@ const struct http2_settings const lws_h2_defaults_esp32 = { {
 
 LWS_VISIBLE int
 lws_plat_init(struct lws_context *context,
-	      struct lws_context_creation_info *info)
+	      const struct lws_context_creation_info *info)
 {
 	/* master context has the global fd lookup array */
 	context->lws_lookup = lws_zalloc(sizeof(struct lws *) *
@@ -937,8 +957,7 @@ next:
 			p = lws_malloc(sizeof(*p), "group");
 			if (!p)
 				continue;
-			lws_strncpy(p->host, r->hostname, sizeof(p->host) - 1);
-			p->host[sizeof(p->host) - 1] = '\0';
+			lws_strncpy(p->host, r->hostname, sizeof(p->host));
 
 			get_txt_param(r, "model", p->model, sizeof(p->model));
 			get_txt_param(r, "role", p->role, sizeof(p->role));
@@ -1049,7 +1068,7 @@ end_scan()
 	uint16_t count_ap_records;
 	int n, m;
 
-	count_ap_records = ARRAY_SIZE(ap_records);
+	count_ap_records = LWS_ARRAY_SIZE(ap_records);
 	if (esp_wifi_scan_get_ap_records(&count_ap_records, ap_records)) {
 		lwsl_err("%s: failed\n", __func__);
 		return;
@@ -1098,12 +1117,12 @@ hit:
 				lws_esp32.ssid[m]);
 		/* set the ssid we last tried to connect to */
 		lws_strncpy(lws_esp32.active_ssid, lws_esp32.ssid[m],
-				sizeof(lws_esp32.active_ssid) - 1);
+				sizeof(lws_esp32.active_ssid));
 
 		lws_strncpy((char *)sta_config.sta.ssid, lws_esp32.ssid[m],
-			sizeof(sta_config.sta.ssid) - 1);
+			sizeof(sta_config.sta.ssid));
 		lws_strncpy((char *)sta_config.sta.password, lws_esp32.password[m],
-			sizeof(sta_config.sta.password) - 1);
+			sizeof(sta_config.sta.password));
 
 		tcpip_adapter_set_hostname(TCPIP_ADAPTER_IF_STA,
 					   (const char *)&config.ap.ssid[7]);
@@ -1273,7 +1292,7 @@ esp_err_t lws_esp32_event_passthru(void *ctx, system_event_t *event)
 
 			mdns_service_add(lws_esp32.group,
 					 "_lwsgrmem", "_tcp", 443, txta,
-					 ARRAY_SIZE(txta));
+					 LWS_ARRAY_SIZE(txta));
 
 			mem = lws_esp32.first;
 			while (mem) {
@@ -1587,7 +1606,7 @@ lws_esp32_wlan_start_ap(void)
 	if (sta_config.sta.ssid[0]) {
 		tcpip_adapter_set_hostname(TCPIP_ADAPTER_IF_STA,
 					   (const char *)&config.ap.ssid[7]);
-		esp_wifi_set_auto_connect(1);
+		// esp_wifi_set_auto_connect(1);
 		ESP_ERROR_CHECK( esp_wifi_connect());
 		ESP_ERROR_CHECK( esp_wifi_set_config(WIFI_IF_STA, &sta_config));
 		ESP_ERROR_CHECK( esp_wifi_connect());
@@ -1609,7 +1628,7 @@ lws_esp32_wlan_start_station(void)
 
 	tcpip_adapter_set_hostname(TCPIP_ADAPTER_IF_STA,
 				   (const char *)&config.ap.ssid[7]);
-	esp_wifi_set_auto_connect(1);
+	//esp_wifi_set_auto_connect(1);
 	//ESP_ERROR_CHECK( esp_wifi_connect());
 
 	lws_esp32_scan_timer_cb(NULL);
@@ -1793,9 +1812,9 @@ lws_esp32_selfsigned(struct lws_vhost *vhost)
 	}
 
 	n = 0;
-	if (!nvs_get_blob(nvh, vhost->alloc_cert_path, NULL, &s))
+	if (!nvs_get_blob(nvh, vhost->tls.alloc_cert_path, NULL, &s))
 		n |= 1;
-	if (!nvs_get_blob(nvh, vhost->key_path, NULL, &s))
+	if (!nvs_get_blob(nvh, vhost->tls.key_path, NULL, &s))
 		n |= 2;
 
 	nvs_close(nvh);
@@ -2039,10 +2058,10 @@ LWS_VISIBLE int
 lws_plat_write_cert(struct lws_vhost *vhost, int is_key, int fd, void *buf,
 			int len)
 {
-	const char *name = vhost->alloc_cert_path;
+	const char *name = vhost->tls.alloc_cert_path;
 
 	if (is_key)
-		name = vhost->key_path;
+		name = vhost->tls.key_path;
 
 	return lws_plat_write_file(name, buf, len) < 0;
 }

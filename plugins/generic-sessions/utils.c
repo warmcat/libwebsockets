@@ -206,7 +206,7 @@ lwsgs_lookup_callback(void *priv, int cols, char **col_val, char **col_name)
 	if (cols)
 		lla->results = 0;
 	if (col_val && col_val[0]) {
-		lws_strncpy(lla->username, col_val[0], lla->len);
+		lws_strncpy(lla->username, col_val[0], lla->len + 1);
 		lwsl_info("%s: %s\n", __func__, lla->username);
 	}
 
@@ -245,11 +245,11 @@ lwsgs_lookup_callback_user(void *priv, int cols, char **col_val, char **col_name
 
 	for (n = 0; n < cols; n++) {
 		if (!strcmp(col_name[n], "username")) {
-			lws_strncpy(u->username, col_val[n], sizeof(u->username) - 1);
+			lws_strncpy(u->username, col_val[n], sizeof(u->username));
 			continue;
 		}
 		if (!strcmp(col_name[n], "ip")) {
-			lws_strncpy(u->ip, col_val[n], sizeof(u->ip) - 1);
+			lws_strncpy(u->ip, col_val[n], sizeof(u->ip));
 			continue;
 		}
 		if (!strcmp(col_name[n], "creation_time")) {
@@ -264,7 +264,7 @@ lwsgs_lookup_callback_user(void *priv, int cols, char **col_val, char **col_name
 			continue;
 		}
 		if (!strcmp(col_name[n], "email")) {
-			lws_strncpy(u->email, col_val[n], sizeof(u->email) - 1);
+			lws_strncpy(u->email, col_val[n], sizeof(u->email));
 			continue;
 		}
 		if (!strcmp(col_name[n], "verified")) {
@@ -272,15 +272,15 @@ lwsgs_lookup_callback_user(void *priv, int cols, char **col_val, char **col_name
 			continue;
 		}
 		if (!strcmp(col_name[n], "pwhash")) {
-			lws_strncpy(u->pwhash.id, col_val[n], sizeof(u->pwhash.id) - 1);
+			lws_strncpy(u->pwhash.id, col_val[n], sizeof(u->pwhash.id));
 			continue;
 		}
 		if (!strcmp(col_name[n], "pwsalt")) {
-			lws_strncpy(u->pwsalt.id, col_val[n], sizeof(u->pwsalt.id) - 1);
+			lws_strncpy(u->pwsalt.id, col_val[n], sizeof(u->pwsalt.id));
 			continue;
 		}
 		if (!strcmp(col_name[n], "token")) {
-			lws_strncpy(u->token.id, col_val[n], sizeof(u->token.id) - 1);
+			lws_strncpy(u->token.id, col_val[n], sizeof(u->token.id));
 			continue;
 		}
 	}

@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 2.8)
 include(CheckCSourceCompiles)
 
 set(SAMP lws-minimal-ws-server-ring)
-set(SRCS minimal-ws-server.c)
+set(SRCS minimal-ws-server-ring.c)
 
 # If we are being built as part of lws, confirm current build config supports
 # reqconfig, else skip building ourselves.
@@ -63,6 +63,7 @@ MACRO(require_lws_config reqconfig _val result)
 ENDMACRO()
 
 set(requirements 1)
+require_lws_config(LWS_ROLE_WS 1 requirements)
 require_lws_config(LWS_WITHOUT_SERVER 0 requirements)
 
 if (requirements)

@@ -313,7 +313,8 @@ lwsgs_handler_change_password(struct per_vhost_data__gs *vhd, struct lws *wsi,
 
 		lwsl_debug("current pw checks out\n");
 
-		lws_strncpy(u.username, lws_spa_get_string(pss->spa, FGS_USERNAME), sizeof(u.username) - 1);
+		lws_strncpy(u.username, lws_spa_get_string(pss->spa, FGS_USERNAME),
+			    sizeof(u.username));
 	}
 
 	/* does he want to delete his account? */

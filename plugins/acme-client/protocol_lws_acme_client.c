@@ -241,12 +241,12 @@ cb_authz(struct lejp_ctx *ctx, char reason)
 		s->is_sni_02 = !strcmp(ctx->buf, "tls-sni-02");
 		break;
 	case JAAZ_CHALLENGES_STATUS:
-		lws_strncpy(s->status, ctx->buf, sizeof(s->status) - 1);
+		lws_strncpy(s->status, ctx->buf, sizeof(s->status));
 		break;
 	case JAAZ_CHALLENGES_URI:
 		if (s->use) {
 			lws_strncpy(s->challenge_uri, ctx->buf,
-				sizeof(s->challenge_uri) - 1);
+				sizeof(s->challenge_uri));
 			s->yes |= 2;
 		}
 		break;
@@ -254,7 +254,7 @@ cb_authz(struct lejp_ctx *ctx, char reason)
 		lwsl_notice("JAAZ_CHALLENGES_TOKEN: %s %d\n", ctx->buf, s->use);
 		if (s->use) {
 			lws_strncpy(s->chall_token, ctx->buf,
-				sizeof(s->chall_token) - 1);
+				sizeof(s->chall_token));
 			s->yes |= 1;
 		}
 		break;
@@ -299,14 +299,14 @@ cb_chac(struct lejp_ctx *ctx, char reason)
 			return 1;
 		break;
 	case JCAC_STATUS:
-		lws_strncpy(s->status, ctx->buf, sizeof(s->status) - 1);
+		lws_strncpy(s->status, ctx->buf, sizeof(s->status));
 		break;
 	case JCAC_URI:
 		s->yes |= 2;
 		break;
 	case JCAC_TOKEN:
 		lws_strncpy(s->chall_token, ctx->buf,
-				sizeof(s->chall_token) - 1);
+				sizeof(s->chall_token));
 		s->yes |= 1;
 		break;
 	case JCAC_DETAIL:
@@ -363,7 +363,7 @@ lws_acme_client_connect(struct lws_context *context, struct lws_vhost *vh,
 
 	memset(i, 0, sizeof(*i));
 	i->port = 443;
-	lws_strncpy(_url, url, sizeof(_url) - 1);
+	lws_strncpy(_url, url, sizeof(_url));
 	if (lws_parse_uri(_url, &prot, &i->address, &i->port, &p)) {
 		lwsl_err("unable to parse uri %s\n", url);
 
@@ -372,7 +372,7 @@ lws_acme_client_connect(struct lws_context *context, struct lws_vhost *vh,
 
 	/* add back the leading / on path */
 	path[0] = '/';
-	lws_strncpy(path + 1, p, sizeof(path) - 2);
+	lws_strncpy(path + 1, p, sizeof(path) - 1);
 	i->path = path;
 	i->context = context;
 	i->vhost = vh;
@@ -585,7 +585,7 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 			memcpy(start, pvo->value, n);
 			p += n;
 
-			for (m = 0; m < (int)ARRAY_SIZE(pvo_names); m++)
+			for (m = 0; m < (int)LWS_ARRAY_SIZE(pvo_names); m++)
 				if (!strcmp(pvo->name, pvo_names[m]))
 					vhd->pvop[m] = start;
 
@@ -593,7 +593,7 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		n = 0;
-		for (m = 0; m < (int)ARRAY_SIZE(pvo_names); m++)
+		for (m = 0; m < (int)LWS_ARRAY_SIZE(pvo_names); m++)
 			if (!vhd->pvop[m] && m >= LWS_TLS_REQ_ELEMENT_COMMON_NAME) {
 				lwsl_notice("%s: require pvo '%s'\n", __func__,
 						pvo_names[m]);
@@ -669,7 +669,7 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 		if (vhd->vhost != caa->vh)
 			return 1;
 
-		for (n = 0; n < (int)ARRAY_SIZE(vhd->pvop);n++)
+		for (n = 0; n < (int)LWS_ARRAY_SIZE(vhd->pvop);n++)
 			if (caa->element_overrides[n])
 				vhd->pvop_active[n] = caa->element_overrides[n];
 			else
@@ -720,19 +720,19 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 		switch (ac->state) {
 		case ACME_STATE_DIRECTORY:
 			lejp_construct(&ac->jctx, cb_dir, vhd, jdir_tok,
-				       ARRAY_SIZE(jdir_tok));
+				       LWS_ARRAY_SIZE(jdir_tok));
 			break;
 		case ACME_STATE_NEW_REG:
 			break;
 		case ACME_STATE_NEW_AUTH:
 			lejp_construct(&ac->jctx, cb_authz, ac, jauthz_tok,
-				       ARRAY_SIZE(jauthz_tok));
+					LWS_ARRAY_SIZE(jauthz_tok));
 			break;
 
 		case ACME_STATE_POLLING:
 		case ACME_STATE_ACCEPT_CHALL:
 			lejp_construct(&ac->jctx, cb_chac, ac, jchac_tok,
-				       ARRAY_SIZE(jchac_tok));
+					LWS_ARRAY_SIZE(jchac_tok));
 			break;
 
 		case ACME_STATE_POLLING_CSR:
@@ -1530,6 +1530,8 @@ poll_again:
 		break;
 
 		case LWS_CALLBACK_USER + 0xac33:
+			if (!vhd)
+				break;
 			cwsi = lws_acme_client_connect(vhd->context, vhd->vhost,
 						       &ac->cwsi, &ac->i,
 						       ac->challenge_uri,
@@ -1596,7 +1598,7 @@ init_protocol_lws_acme_client(struct lws_context *context,
 	}
 
 	c->protocols = protocols;
-	c->count_protocols = ARRAY_SIZE(protocols);
+	c->count_protocols = LWS_ARRAY_SIZE(protocols);
 	c->extensions = NULL;
 	c->count_extensions = 0;
 

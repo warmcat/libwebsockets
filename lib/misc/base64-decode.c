@@ -40,7 +40,7 @@
 
 #include <stdio.h>
 #include <string.h>
-#include "private-libwebsockets.h"
+#include "core/private.h"
 
 static const char encode_orig[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 			     "abcdefghijklmnopqrstuvwxyz0123456789+/";

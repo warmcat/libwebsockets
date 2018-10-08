@@ -743,7 +743,9 @@ callbacks on the named protocol
 
 starting with LWS_CALLBACK_RAW_ADOPT_FILE.
 
-`protocol-lws-raw-test` plugin provides a method for testing this with
+The minimal example `raw/minimal-raw-file` demonstrates how to use it.
+
+`protocol-lws-raw-test` plugin also provides a method for testing this with
 `libwebsockets-test-server-v2.0`:
 
 The plugin creates a FIFO on your system called "/tmp/lws-test-raw"
@@ -826,6 +828,46 @@ and in another window, connect to it using the test client
 
 The connection should succeed, and text typed in the netcat window (including a CRLF)
 will be received in the client.
+
+@section rawudp RAW UDP socket integration
+
+Lws provides an api to create, optionally bind, and adopt a RAW UDP
+socket (RAW here means an uninterpreted normal UDP socket, not a
+"raw socket").
+
+```
+LWS_VISIBLE LWS_EXTERN struct lws *
+lws_create_adopt_udp(struct lws_vhost *vhost, int port, int flags,
+		     const char *protocol_name, struct lws *parent_wsi);
+```
+
+`flags` should be `LWS_CAUDP_BIND` if the socket will receive packets.
+
+The callbacks `LWS_CALLBACK_RAW_ADOPT`, `LWS_CALLBACK_RAW_CLOSE`,
+`LWS_CALLBACK_RAW_RX` and `LWS_CALLBACK_RAW_WRITEABLE` apply to the
+wsi.  But UDP is different than TCP in some fundamental ways.
+
+For receiving on a UDP connection, data becomes available at
+`LWS_CALLBACK_RAW_RX` as usual, but because there is no specific
+connection with UDP, it is necessary to also get the source address of
+the data separately, using `struct lws_udp * lws_get_udp(wsi)`.
+You should take a copy of the `struct lws_udp` itself (not the
+pointer) and save it for when you want to write back to that peer.
+
+Writing is also a bit different for UDP.  By default, the system has no
+idea about the receiver state and so asking for a `callback_on_writable()`
+always believes that the socket is writeable... the callback will
+happen next time around the event loop.
+
+With UDP, there is no single "connection".  You need to write with sendto() and
+direct the packets to a specific destination.  To return packets to a
+peer who sent something earlier and you copied his `struct lws_udp`, you
+use the .sa and .salen members as the last two parameters of the sendto().
+
+The kernel may not accept to buffer / write everything you wanted to send.
+So you are responsible to watch the result of sendto() and resend the
+unsent part next time (which may involve adding new protocol headers to
+the remainder depending on what you are doing).
 
 @section ecdh ECDH Support
 
@@ -1038,7 +1080,41 @@ prepare the client SSL context for the vhost after creating the vhost, since
 this is not normally done if the vhost was set up to listen / serve.  Call
 the api lws_init_vhost_client_ssl() to also allow client SSL on the vhost.
 
+@section clipipe Pipelining Client Requests to same host
 
+If you are opening more client requests to the same host and port, you
+can give the flag LCCSCF_PIPELINE on `info.ssl_connection` to indicate
+you wish to pipeline them.
+
+Without the flag, the client connections will occur concurrently using a
+socket and tls wrapper if requested for each connection individually.
+That is fast, but resource-intensive.
+
+With the flag, lws will queue subsequent client connections on the first
+connection to the same host and port.  When it has confirmed from the
+first connection that pipelining / keep-alive is supported by the server,
+it lets the queued client pipeline connections send their headers ahead
+of time to create a pipeline of requests on the server side.
+
+In this way only one tcp connection and tls wrapper is required to transfer
+all the transactions sequentially.  It takes a little longer but it
+can make a significant difference to resources on both sides.
+
+If lws learns from the first response header that keepalive is not possible,
+then it marks itself with that information and detaches any queued clients
+to make their own individual connections as a fallback.
+
+Lws can also intelligently combine multiple ongoing client connections to
+the same host and port into a single http/2 connection with multiple
+streams if the server supports it.
+
+Unlike http/1 pipelining, with http/2 the client connections all occur
+simultaneously using h2 stream multiplexing inside the one tcp + tls
+connection.
+
+You can turn off the h2 client support either by not building lws with
+`-DLWS_WITH_HTTP2=1` or giving the `LCCSCF_NOT_H2` flag in the client
+connection info struct `ssl_connection` member.
 
 @section vhosts Using lws vhosts
 

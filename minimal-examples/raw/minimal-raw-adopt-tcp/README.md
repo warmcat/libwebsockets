@@ -16,6 +16,9 @@ The example connects a socket itself to libwebsockets.org:80, and then
 has lws adopt it as a raw wsi.  The lws protocol writes "GET / HTTP/1.1"
 to the socket and hexdumps what was sent back.
 
+The socket won't close until the server side times it out, since it's
+a raw socket that doesn't understand it's looking at http.
+
 ## build
 
 ```

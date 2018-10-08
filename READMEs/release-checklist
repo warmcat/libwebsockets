@@ -18,20 +18,6 @@ Release Checklist
  
  d) valgrind test servers + client + browser
 
- e) attack.sh
- 
-     $ ./test-apps/attack.sh
-
- f) Autobahn
-
-     $ wstest -m fuzzingserver &
-     $ ./scripts/autobahn-test.sh
-
-     Force update by browser using agent "libwebsockets"
-     http://localhost:8080/test_browser.html
-     
-     rsync -av ./reports/* root@warmcat.com:/var/www/libwebsockets.org
-
 2) soname bump?
 
  a) We need one if we added / changed / removed apis

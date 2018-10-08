@@ -1,7 +1,7 @@
 /*
  * ws protocol handler plugin for "dumb increment"
  *
- * Copyright (C) 2010-2016 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2018 Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
@@ -26,76 +26,51 @@
 
 #include <string.h>
 
-#define DUMB_PERIOD 50
+#define DUMB_PERIOD_US 50000
 
-struct per_vhost_data__dumb_increment {
-	uv_timer_t timeout_watcher;
-	struct lws_context *context;
-	struct lws_vhost *vhost;
-	const struct lws_protocols *protocol;
-};
-
-struct per_session_data__dumb_increment {
+struct pss__dumb_increment {
 	int number;
 };
 
-static void
-uv_timeout_cb_dumb_increment(uv_timer_t *w
-#if UV_VERSION_MAJOR == 0
-		, int status
-#endif
-)
-{
-	struct per_vhost_data__dumb_increment *vhd = lws_container_of(w,
-			struct per_vhost_data__dumb_increment, timeout_watcher);
-	lws_callback_on_writable_all_protocol_vhost(vhd->vhost, vhd->protocol);
-}
+struct vhd__dumb_increment {
+	const unsigned int *options;
+};
 
 static int
 callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 			void *user, void *in, size_t len)
 {
-	struct per_session_data__dumb_increment *pss =
-			(struct per_session_data__dumb_increment *)user;
-	struct per_vhost_data__dumb_increment *vhd =
-			(struct per_vhost_data__dumb_increment *)
-			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
-					lws_get_protocol(wsi));
-	unsigned char buf[LWS_PRE + 20];
-	unsigned char *p = &buf[LWS_PRE];
+	struct pss__dumb_increment *pss = (struct pss__dumb_increment *)user;
+	struct vhd__dumb_increment *vhd =
+				(struct vhd__dumb_increment *)
+				lws_protocol_vh_priv_get(lws_get_vhost(wsi),
+						lws_get_protocol(wsi));
+	uint8_t buf[LWS_PRE + 20], *p = &buf[LWS_PRE];
+	const struct lws_protocol_vhost_options *opt;
 	int n, m;
 
 	switch (reason) {
 	case LWS_CALLBACK_PROTOCOL_INIT:
 		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
-				lws_get_protocol(wsi),
-				sizeof(struct per_vhost_data__dumb_increment));
-		vhd->context = lws_get_context(wsi);
-		vhd->protocol = lws_get_protocol(wsi);
-		vhd->vhost = lws_get_vhost(wsi);
-
-		uv_timer_init(lws_uv_getloop(vhd->context, 0),
-			      &vhd->timeout_watcher);
-		uv_timer_start(&vhd->timeout_watcher,
-			       uv_timeout_cb_dumb_increment, DUMB_PERIOD, DUMB_PERIOD);
-
-		break;
-
-	case LWS_CALLBACK_PROTOCOL_DESTROY:
+			lws_get_protocol(wsi),
+			sizeof(struct vhd__dumb_increment));
 		if (!vhd)
-			break;
-		lwsl_notice("di: LWS_CALLBACK_PROTOCOL_DESTROY: v=%p, ctx=%p\n", vhd, vhd->context);
-		uv_timer_stop(&vhd->timeout_watcher);
-		uv_close((uv_handle_t *)&vhd->timeout_watcher, NULL);
+			return -1;
+		if ((opt = lws_pvo_search(
+				(const struct lws_protocol_vhost_options *)in,
+				"options")))
+			vhd->options = (unsigned int *)opt->value;
 		break;
 
 	case LWS_CALLBACK_ESTABLISHED:
 		pss->number = 0;
-		lws_set_timer_usecs(wsi, 3 * LWS_USEC_PER_SEC);
+		if (!vhd->options || !((*vhd->options) & 1))
+			lws_set_timer_usecs(wsi, DUMB_PERIOD_US);
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
-		n = lws_snprintf((char *)p, sizeof(buf) - LWS_PRE, "%d", pss->number++);
+		n = lws_snprintf((char *)p, sizeof(buf) - LWS_PRE, "%d",
+				 pss->number++);
 		m = lws_write(wsi, p, n, LWS_WRITE_TEXT);
 		if (m < n) {
 			lwsl_err("ERROR %d writing to di socket\n", n);
@@ -106,9 +81,9 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_RECEIVE:
 		if (len < 6)
 			break;
-		if (strcmp((const char *)in, "reset\n") == 0)
+		if (strncmp((const char *)in, "reset\n", 6) == 0)
 			pss->number = 0;
-		if (strcmp((const char *)in, "closeme\n") == 0) {
+		if (strncmp((const char *)in, "closeme\n", 8) == 0) {
 			lwsl_notice("dumb_inc: closing as requested\n");
 			lws_close_reason(wsi, LWS_CLOSE_STATUS_GOINGAWAY,
 					 (unsigned char *)"seeya", 5);
@@ -117,8 +92,11 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_TIMER:
-		lwsl_info("%s: LWS_CALLBACK_TIMER: %p\n", __func__, wsi);
-		lws_set_timer_usecs(wsi, 3 * LWS_USEC_PER_SEC);
+		if (!vhd->options || !((*vhd->options) & 1)) {
+			lws_callback_on_writable_all_protocol_vhost(
+				lws_get_vhost(wsi), lws_get_protocol(wsi));
+			lws_set_timer_usecs(wsi, DUMB_PERIOD_US);
+		}
 		break;
 
 	default:
@@ -132,7 +110,7 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 	{ \
 		"dumb-increment-protocol", \
 		callback_dumb_increment, \
-		sizeof(struct per_session_data__dumb_increment), \
+		sizeof(struct pss__dumb_increment), \
 		10, /* rx buf size must be >= permessage-deflate rx size */ \
 		0, NULL, 0 \
 	}
@@ -154,7 +132,7 @@ init_protocol_dumb_increment(struct lws_context *context,
 	}
 
 	c->protocols = protocols;
-	c->count_protocols = ARRAY_SIZE(protocols);
+	c->count_protocols = LWS_ARRAY_SIZE(protocols);
 	c->extensions = NULL;
 	c->count_extensions = 0;
 
