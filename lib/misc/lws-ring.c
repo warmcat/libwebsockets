@@ -19,7 +19,7 @@
  *  MA  02110-1301  USA
  */
 
-#include "private-libwebsockets.h"
+#include "core/private.h"
 
 LWS_VISIBLE LWS_EXTERN struct lws_ring *
 lws_ring_create(size_t element_len, size_t count,

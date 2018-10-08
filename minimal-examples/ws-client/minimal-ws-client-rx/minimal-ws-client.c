@@ -6,7 +6,7 @@
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
  *
- * This demonstrates the a minimal http client using lws.
+ * This demonstrates the a minimal ws client using lws.
  *
  * It connects to https://libwebsockets.org/ and makes a
  * wss connection to the dumb-increment protocol there.  While
@@ -18,7 +18,7 @@
 #include <string.h>
 #include <signal.h>
 
-static int interrupted;
+static int interrupted, rx_seen, test;
 static struct lws *client_wsi;
 
 static int
@@ -40,6 +40,9 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_CLIENT_RECEIVE:
 		lwsl_user("RX: %s\n", (const char *)in);
+		rx_seen++;
+		if (test && rx_seen == 10)
+			interrupted = 1;
 		break;
 
 	case LWS_CALLBACK_CLIENT_CLOSED:
@@ -69,29 +72,40 @@ sigint_handler(int sig)
 	interrupted = 1;
 }
 
-int main(int argc, char **argv)
+int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	struct lws_client_connect_info i;
 	struct lws_context *context;
-	int n = 0;
+	const char *p;
+	int n = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE
+		/* for LLL_ verbosity above NOTICE to be built into lws, lws
+		 * must have been configured with -DCMAKE_BUILD_TYPE=DEBUG
+		 * instead of =RELEASE */
+		/* | LLL_INFO */ /* | LLL_PARSER */ /* | LLL_HEADER */
+		/* | LLL_EXT */ /* | LLL_CLIENT */ /* | LLL_LATENCY */
+		/* | LLL_DEBUG */;
 
 	signal(SIGINT, sigint_handler);
+	if ((p = lws_cmdline_option(argc, argv, "-d")))
+		logs = atoi(p);
 
-	lws_set_log_level(LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE
-			/* for LLL_ verbosity above NOTICE to be built into lws,
-			 * lws must have been configured and built with
-			 * -DCMAKE_BUILD_TYPE=DEBUG instead of =RELEASE */
-			/* | LLL_INFO */ /* | LLL_PARSER */ /* | LLL_HEADER */
-			/* | LLL_EXT */ /* | LLL_CLIENT */ /* | LLL_LATENCY */
-			/* | LLL_DEBUG */, NULL);
+	test = !!lws_cmdline_option(argc, argv, "-t");
 
-	lwsl_user("LWS minimal ws client rx\n");
+	lws_set_log_level(logs, NULL);
+	lwsl_user("LWS minimal ws client rx [-d <logs>] [--h2] [-t (test)]\n");
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.port = CONTEXT_PORT_NO_LISTEN; /* we do not run any server */
 	info.protocols = protocols;
+#if defined(LWS_WITH_MBEDTLS)
+	/*
+	 * OpenSSL uses the system trust store.  mbedTLS has to be told which
+	 * CA to trust explicitly.
+	 */
+	info.client_ssl_ca_filepath = "./libwebsockets.org.cer";
+#endif
 
 	context = lws_create_context(&info);
 	if (!context) {
@@ -101,23 +115,26 @@ int main(int argc, char **argv)
 
 	memset(&i, 0, sizeof i); /* otherwise uninitialized garbage */
 	i.context = context;
-
-	i.port = 7681;
-	i.address = "localhost";
+	i.port = 443;
+	i.address = "libwebsockets.org";
 	i.path = "/";
 	i.host = i.address;
 	i.origin = i.address;
-	i.ssl_connection = 0;
-
+	i.ssl_connection = LCCSCF_USE_SSL;
 	i.protocol = protocols[0].name; /* "dumb-increment-protocol" */
 	i.pwsi = &client_wsi;
+
+	if (lws_cmdline_option(argc, argv, "--h2"))
+		i.alpn = "h2";
+
 	lws_client_connect_via_info(&i);
 
 	while (n >= 0 && client_wsi && !interrupted)
 		n = lws_service(context, 1000);
 
 	lws_context_destroy(context);
-	lwsl_user("Completed\n");
 
-	return 0;
+	lwsl_user("Completed %s\n", rx_seen > 10 ? "OK" : "Failed");
+
+	return rx_seen > 10;
 }

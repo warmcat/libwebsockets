@@ -68,11 +68,13 @@ file_upload_cb(void *data, const char *name, const char *filename,
 			(struct per_session_data__post_demo *)data;
 #if !defined(LWS_WITH_ESP32)
 	int n;
+
+	(void)n;
 #endif
 
 	switch (state) {
 	case LWS_UFS_OPEN:
-		lws_strncpy(pss->filename, filename, sizeof(pss->filename) - 1);
+		lws_strncpy(pss->filename, filename, sizeof(pss->filename));
 		/* we get the original filename in @filename arg, but for
 		 * simple demo use a fixed name so we don't have to deal with
 		 * attacks  */
@@ -92,7 +94,7 @@ file_upload_cb(void *data, const char *name, const char *filename,
 
 #if !defined(LWS_WITH_ESP32)
 			n = write((int)(long long)pss->fd, buf, len);
-			lwsl_notice("%s: write %d says %d\n", __func__, len, n);
+			lwsl_info("%s: write %d says %d\n", __func__, len, n);
 #else
 			lwsl_notice("%s: Received chunk size %d\n", __func__, len);
 #endif
@@ -124,7 +126,7 @@ callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
 		/* create the POST argument parser if not already existing */
 		if (!pss->spa) {
 			pss->spa = lws_spa_create(wsi, param_names,
-					ARRAY_SIZE(param_names), 1024,
+					LWS_ARRAY_SIZE(param_names), 1024,
 					file_upload_cb, pss);
 			if (!pss->spa)
 				return -1;
@@ -139,7 +141,7 @@ callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
-		lwsl_debug("LWS_CALLBACK_HTTP_BODY_COMPLETION\n");
+		lwsl_debug("LWS_CALLBACK_HTTP_BODY_COMPLETION: %p\n", wsi);
 		/* call to inform no more payload data coming */
 		lws_spa_finalize(pss->spa);
 
@@ -149,7 +151,7 @@ callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
 			"<html><body><h1>Form results (after urldecoding)</h1>"
 			"<table><tr><td>Name</td><td>Length</td><td>Value</td></tr>");
 
-		for (n = 0; n < (int)ARRAY_SIZE(param_names); n++) {
+		for (n = 0; n < (int)LWS_ARRAY_SIZE(param_names); n++) {
 			if (!lws_spa_get_string(pss->spa, n))
 				p += lws_snprintf((char *)p, end - p,
 				    "<tr><td><b>%s</b></td><td>0</td><td>NULL</td></tr>",
@@ -194,12 +196,14 @@ callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
-		if (!pss->result_len)
+		if (!pss->result_len) {
+			lwsl_debug("nothing in result_len\n");
 			break;
+		}
 		lwsl_debug("LWS_CALLBACK_HTTP_WRITEABLE: sending %d\n",
 			   pss->result_len);
 		n = lws_write(wsi, (unsigned char *)pss->result + LWS_PRE,
-			      pss->result_len, LWS_WRITE_HTTP);
+			      pss->result_len, LWS_WRITE_HTTP_FINAL);
 		if (n < 0)
 			return 1;
 		goto try_to_reuse;
@@ -256,7 +260,7 @@ init_protocol_post_demo(struct lws_context *context,
 	}
 
 	c->protocols = protocols;
-	c->count_protocols = ARRAY_SIZE(protocols);
+	c->count_protocols = LWS_ARRAY_SIZE(protocols);
 	c->extensions = NULL;
 	c->count_extensions = 0;
 

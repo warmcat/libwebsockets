@@ -72,9 +72,9 @@ ota_choose_part(void)
 		if (part == bootpart)
 			goto next;
 
+		/* OTA Partition numbering is from _OTA_MIN to less than _OTA_MAX */
 		if (part->subtype < ESP_PARTITION_SUBTYPE_APP_OTA_MIN ||
-		    part->subtype >= ESP_PARTITION_SUBTYPE_APP_OTA_MIN +
-		    		     ESP_PARTITION_SUBTYPE_APP_OTA_MAX)
+		    part->subtype >= ESP_PARTITION_SUBTYPE_APP_OTA_MAX)
 			goto next;
 
 		break;
@@ -104,7 +104,7 @@ ota_file_upload_cb(void *data, const char *name, const char *filename,
 	switch (state) {
 	case LWS_UFS_OPEN:
 		lwsl_notice("LWS_UFS_OPEN Filename %s\n", filename);
-		lws_strncpy(pss->filename, filename, sizeof(pss->filename) - 1);
+		lws_strncpy(pss->filename, filename, sizeof(pss->filename));
 		if (strcmp(name, "ota"))
 			return 1;
 
@@ -112,7 +112,7 @@ ota_file_upload_cb(void *data, const char *name, const char *filename,
 		if (!pss->part)
 			return 1;
 
-		if (esp_ota_begin(pss->part, (long)-1, &pss->otahandle) != ESP_OK) {
+		if (esp_ota_begin(pss->part, OTA_SIZE_UNKNOWN, &pss->otahandle) != ESP_OK) {
 			lwsl_err("OTA: Failed to begin\n");
 			return 1;
 		}
@@ -200,7 +200,7 @@ callback_esplws_ota(struct lws *wsi, enum lws_callback_reasons reason,
 		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT, 30);
 		if (!pss->spa) {
 			pss->spa = lws_spa_create(wsi, ota_param_names,
-					ARRAY_SIZE(ota_param_names), 4096,
+					LWS_ARRAY_SIZE(ota_param_names), 4096,
 					ota_file_upload_cb, pss);
 			if (!pss->spa)
 				return -1;

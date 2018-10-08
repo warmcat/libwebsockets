@@ -20,7 +20,13 @@ LGPL2 / GPL2 at your choice.
 Installation
 ------------
 
-The author provides an easy way to install the various tools he provides:
+The abi monitoring stuff is now packaged in, eg, fedora, which is a lot
+easier than using the helper script.
+
+```
+# dnf install abi-tracker vtable-dumper
+
+Otherwise, the author provides an "easy way" to install the various tools he provides:
 
     git clone https://github.com/lvc/installer
 	cd installer

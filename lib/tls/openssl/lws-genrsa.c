@@ -21,7 +21,7 @@
  *  lws_genhash provides a hash / hmac abstraction api in lws that works the
  *  same whether you are using openssl or mbedtls hash functions underneath.
  */
-#include "private-libwebsockets.h"
+#include "core/private.h"
 
 LWS_VISIBLE void
 lws_jwk_destroy_genrsa_elements(struct lws_genrsa_elements *el)

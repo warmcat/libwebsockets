@@ -1,5 +1,5 @@
 Name: libwebsockets
-Version: 2.4.0
+Version: 3.0.1
 Release: 1%{?dist}
 Summary: Websocket Server and Client Library
 
@@ -7,9 +7,9 @@ Group: System Environment/Libraries
 License: LGPLv2 with exceptions
 URL: https://libwebsockets.org
 Source0: %{name}-%{version}.tar.gz
-BuildRoot:	%(mktemp -ud %{_tmppath}/%{name}-%{version}-%{release}-XXXXXX)
+BuildRoot: %(mktemp -ud %{_tmppath}/%{name}-%{version}-%{release}-XXXXXX)
 
-BuildRequires: openssl-devel cmake
+BuildRequires: openssl-devel libuv-devel libev-devel cmake
 Requires: openssl
 
 %description
@@ -48,20 +48,13 @@ rm -rf $RPM_BUILD_ROOT
 %defattr(-,root,root,-)
 %attr(755,root,root)
 /usr/bin/libwebsockets-test-server
-/usr/bin/libwebsockets-test-server-extpoll
 /usr/bin/libwebsockets-test-client
-/usr/bin/libwebsockets-test-ping
-/usr/bin/libwebsockets-test-echo
-/usr/bin/libwebsockets-test-fraggle
+/usr/bin/libwebsockets-test-sshd
 /usr/bin/libwebsockets-test-fuzxy
 /usr/bin/libwebsockets-test-lejp
-/usr/bin/libwebsockets-test-server-pthreads
-/usr/bin/libwebsockets-test-server-libev
-/usr/bin/libwebsockets-test-server-libuv
-/usr/bin/libwebsockets-test-server-v2.0
-/usr/bin/libwebsockets-test-sshd
+/usr/bin/libwebsockets-test-server-extpoll
 /usr/bin/lwsws
-/%{_libdir}/libwebsockets.so.12
+/%{_libdir}/libwebsockets.so.13
 /%{_libdir}/libwebsockets.so
 /%{_libdir}/cmake/libwebsockets/LibwebsocketsConfig.cmake
 /%{_libdir}/cmake/libwebsockets/LibwebsocketsConfigVersion.cmake
@@ -78,6 +71,12 @@ rm -rf $RPM_BUILD_ROOT
 /%{_libdir}/pkgconfig/libwebsockets_static.pc
 
 %changelog
+* Fri Sep 7 2018 Andy Green <andy@warmcat.com> 3.0.1-1
+- Upstream 3.0.1 release
+
+* Fri May 4 2018 Andy Green <andy@warmcat.com> 3.0.0-1
+- MAJOR SONAMEBUMP APICHANGES Upstream 3.0.0 release
+
 * Mon Oct 16 2017 Andy Green <andy@warmcat.com> 2.4.0-1
 - MAJOR SONAMEBUMP APICHANGES Upstream 2.4.0 release
 

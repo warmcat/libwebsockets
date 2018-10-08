@@ -351,6 +351,9 @@ void SSL_free(SSL *ssl)
 
     SSL_SESSION_free(ssl->session);
 
+    if (ssl->alpn_protos)
+	    ssl_mem_free(ssl->alpn_protos);
+
     ssl_mem_free(ssl);
 }
 
@@ -1594,11 +1597,34 @@ void ERR_free_strings(void)
 
 char *ERR_error_string(unsigned long e, char *buf)
 {
-	if (buf) {
-		strcpy(buf, "unknown");
+	if (!buf)
+		return "unknown";
+
+	switch(e) {
+		case X509_V_ERR_INVALID_CA:
+			strcpy(buf, "CA is not trusted");
+			break;
+		case X509_V_ERR_HOSTNAME_MISMATCH:
+			strcpy(buf, "Hostname mismatch");
+			break;
+		case X509_V_ERR_CA_KEY_TOO_SMALL:
+			strcpy(buf, "CA key too small");
+			break;
+		case X509_V_ERR_CA_MD_TOO_WEAK:
+			strcpy(buf, "MD key too weak");
+			break;
+		case X509_V_ERR_CERT_NOT_YET_VALID:
+			strcpy(buf, "Cert from the future");
+			break;
+		case X509_V_ERR_CERT_HAS_EXPIRED:
+			strcpy(buf, "Cert expired");
+			break;
+		default:
+			strcpy(buf, "unknown");
+			break;
 	}
 
-	return "unknown";
+	return buf;
 }
 
 void *SSL_CTX_get_ex_data(const SSL_CTX *ctx, int idx)
@@ -1622,15 +1648,16 @@ void *SSL_CTX_get_ex_data(const SSL_CTX *ctx, int idx)
  */
 
 struct alpn_ctx {
-	unsigned char *data;
-	unsigned short len;
+	unsigned char data[23];
+	unsigned char len;
 };
 
-void SSL_CTX_set_alpn_select_cb(SSL_CTX *ctx, next_proto_cb cb, void *arg)
+static void
+_openssl_alpn_to_mbedtls(struct alpn_ctx *ac, char ***palpn_protos)
 {
-	struct alpn_ctx *ac = arg;
 	unsigned char *p = ac->data, *q;
 	unsigned char len;
+	char **alpn_protos;
 	int count = 0;
 
 	/* find out how many entries he gave us */
@@ -1647,23 +1674,28 @@ void SSL_CTX_set_alpn_select_cb(SSL_CTX *ctx, next_proto_cb cb, void *arg)
 			break;
 	}
 
+	if (!len)
+		count++;
+
 	if (!count)
 		return;
 
 	/* allocate space for count + 1 pointers and the data afterwards */
 
-	ctx->alpn_protos = ssl_mem_zalloc((count + 1) * sizeof(char *) + ac->len + 1);
-	if (!ctx->alpn_protos)
+	alpn_protos = ssl_mem_zalloc((count + 1) * sizeof(char *) + ac->len + 1);
+	if (!alpn_protos)
 		return;
+
+	*palpn_protos = alpn_protos;
 
 	/* convert to mbedtls format */
 
-	q = (unsigned char *)ctx->alpn_protos + (count + 1) * sizeof(char *);
+	q = (unsigned char *)alpn_protos + (count + 1) * sizeof(char *);
 	p = ac->data;
 	count = 0;
 
 	len = *p++;
-	ctx->alpn_protos[count] = (char *)q;
+	alpn_protos[count] = (char *)q;
 	while (p - ac->data < ac->len) {
 		if (len--) {
 			*q++ = *p++;
@@ -1672,11 +1704,33 @@ void SSL_CTX_set_alpn_select_cb(SSL_CTX *ctx, next_proto_cb cb, void *arg)
 		*q++ = '\0';
 		count++;
 		len = *p++;
-		ctx->alpn_protos[count] = (char *)q;
+		alpn_protos[count] = (char *)q;
 		if (!len)
 			break;
 	}
-	ctx->alpn_protos[count] = NULL; /* last pointer ends list with NULL */
+	if (!len) {
+		*q++ = '\0';
+		count++;
+		len = *p++;
+		alpn_protos[count] = (char *)q;
+	}
+	alpn_protos[count] = NULL; /* last pointer ends list with NULL */
+}
+
+void SSL_CTX_set_alpn_select_cb(SSL_CTX *ctx, next_proto_cb cb, void *arg)
+{
+	struct alpn_ctx *ac = arg;
 
 	ctx->alpn_cb = cb;
+
+	_openssl_alpn_to_mbedtls(ac, (char ***)&ctx->alpn_protos);
+}
+
+void SSL_set_alpn_select_cb(SSL *ssl, void *arg)
+{
+	struct alpn_ctx *ac = arg;
+
+	_openssl_alpn_to_mbedtls(ac, (char ***)&ssl->alpn_protos);
+
+	_ssl_set_alpn_list(ssl);
 }

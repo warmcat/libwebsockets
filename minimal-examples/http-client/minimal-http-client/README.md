@@ -1,5 +1,8 @@
 # lws minimal http client
 
+The application goes to either https://warmcat.com or
+https://localhost:7681 (with `-l` option) and receives the page data.
+
 ## build
 
 ```
@@ -8,7 +11,11 @@
 
 ## usage
 
-The application goes to https://warmcat.com and receives the page data.
+Commandline option|Meaning
+---|---
+-d <loglevel>|Debug verbosity in decimal, eg, -d15
+-l| Connect to https://localhost:7681 and accept selfsigned cert
+--h1|Specify http/1.1 only using ALPN, rejects h2 even if server supports it
 
 ```
  $ ./lws-minimal-http-client

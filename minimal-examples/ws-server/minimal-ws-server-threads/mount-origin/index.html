@@ -54,8 +54,7 @@ function new_ws(urlpath, protocol)
 ws = new_ws(get_appropriate_ws_url(""), "lws-minimal");
 try {
 	ws.onopen = function() {
-		document.getElementById("m").disabled = 0;
-		document.getElementById("b").disabled = 0;
+		document.getElementById("r").disabled = 0;
 	} 
 
 	ws.onmessage =function got_packet(msg) {
@@ -78,8 +77,7 @@ try {
 	} 
 
 	ws.onclose = function(){
-		document.getElementById("m").disabled = 1;
-		document.getElementById("b").disabled = 1;
+		document.getElementById("r").disabled = 1;
 	}
 } catch(exception) {
 	alert('<p>Error' + exception);  

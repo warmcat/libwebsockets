@@ -76,15 +76,16 @@ ENDMACRO()
 
 set(requirements 1)
 require_pthreads(requirements)
+require_lws_config(LWS_ROLE_WS 1 requirements)
 require_lws_config(LWS_WITHOUT_SERVER 0 requirements)
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
 
 	if (websockets_shared)
-		target_link_libraries(${SAMP} websockets_shared)
+		target_link_libraries(${SAMP} websockets_shared pthread)
 		add_dependencies(${SAMP} websockets_shared)
 	else()
-		target_link_libraries(${SAMP} websockets)
+		target_link_libraries(${SAMP} websockets pthread)
 	endif()
 endif()

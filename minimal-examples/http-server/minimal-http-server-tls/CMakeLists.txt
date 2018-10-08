@@ -63,6 +63,10 @@ MACRO(require_lws_config reqconfig _val result)
 ENDMACRO()
 
 set(requirements 1)
+<<<<<<< HEAD
+=======
+require_lws_config(LWS_ROLE_H1 1 requirements)
+>>>>>>> 126e2e8776827575e704d874f5ccd959380f34fa
 require_lws_config(LWS_WITHOUT_SERVER 0 requirements)
 require_lws_config(LWS_OPENSSL_SUPPORT 1 requirements)
 

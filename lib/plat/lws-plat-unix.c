@@ -19,7 +19,8 @@
  *  MA  02110-1301  USA
  */
 
-#include "private-libwebsockets.h"
+#define _GNU_SOURCE
+#include "core/private.h"
 
 #include <pwd.h>
 #include <grp.h>
@@ -28,6 +29,12 @@
 #include <dlfcn.h>
 #endif
 #include <dirent.h>
+
+void lws_plat_apply_FD_CLOEXEC(int n)
+{
+	if (n != -1)
+		fcntl(n, F_SETFD, FD_CLOEXEC );
+}
 
 int
 lws_plat_socket_offset(void)
@@ -40,7 +47,11 @@ lws_plat_pipe_create(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 
+#if defined(LWS_HAVE_PIPE2)
+	return pipe2(pt->dummy_pipe_fds, O_NONBLOCK);
+#else
 	return pipe(pt->dummy_pipe_fds);
+#endif
 }
 
 int
@@ -51,8 +62,6 @@ lws_plat_pipe_signal(struct lws *wsi)
 	int n;
 
 	n = write(pt->dummy_pipe_fds[1], &buf, 1);
-
-	lwsl_debug("%s: fd %d %d\n", __func__, pt->dummy_pipe_fds[1], n);
 
 	return n != 1;
 }
@@ -171,9 +180,8 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	if (timeout_ms < 0)
 		goto faked_service;
 
-	lws_libev_run(context, tsi);
-	lws_libuv_run(context, tsi);
-	lws_libevent_run(context, tsi);
+	if (context->event_loop_ops->run_pt)
+		context->event_loop_ops->run_pt(context, tsi);
 
 	if (!context->service_tid_detected) {
 		struct lws _lws;
@@ -204,7 +212,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		lws_pt_lock(pt, __func__);
 		/* don't stay in poll wait longer than next hr timeout */
 		lws_usec_t t =  __lws_hrtimer_service(pt);
-		if (timeout_ms * 1000 > t)
+		if ((lws_usec_t)timeout_ms * 1000 > t)
 			timeout_ms = t / 1000;
 		lws_pt_unlock(pt);
 	}
@@ -237,7 +245,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 
 		next = ftp->next;
 		pfd = &vpt->fds[ftp->fd_index];
-		if (lws_sockfd_valid(pfd->fd)) {
+		if (lws_socket_is_valid(pfd->fd)) {
 			wsi = wsi_from_fd(context, pfd->fd);
 			if (wsi)
 				__lws_change_pollfd(wsi, ftp->_and, ftp->_or);
@@ -254,13 +262,19 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 
 	lws_pt_unlock(pt);
 
-#ifdef LWS_OPENSSL_SUPPORT
-	if (!n && !pt->rx_draining_ext_list &&
-	    !lws_ssl_anybody_has_buffered_read_tsi(context, tsi)) {
-#else
-	if (!pt->rx_draining_ext_list && !n) /* poll timeout */ {
+	m = 0;
+#if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
+	m |= !!pt->ws.rx_draining_ext_list;
 #endif
+
+	if (pt->context->tls_ops &&
+	    pt->context->tls_ops->fake_POLLIN_for_buffered)
+		m |= pt->context->tls_ops->fake_POLLIN_for_buffered(pt);
+
+	if (!m && !n) { /* nothing to do */
 		lws_service_fd_tsi(context, NULL, tsi);
+		lws_service_do_ripe_rxflow(pt);
+
 		return 0;
 	}
 
@@ -291,6 +305,8 @@ faked_service:
 			n--;
 	}
 
+	lws_service_do_ripe_rxflow(pt);
+
 	return 0;
 }
 
@@ -320,6 +336,8 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, int fd)
 	struct protoent *tcp_proto;
 #endif
 
+	fcntl(fd, F_SETFD, FD_CLOEXEC);
+
 	if (vhost->ka_time) {
 		/* enable keepalive on this socket */
 		optval = 1;
@@ -339,6 +357,14 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, int fd)
 		 */
 #else
 		/* set the keepalive conditions we want on it too */
+
+#if defined(LWS_HAVE_TCP_USER_TIMEOUT)
+		optval = 1000 * (vhost->ka_time +
+				 (vhost->ka_interval * vhost->ka_probes));
+		if (setsockopt(fd, IPPROTO_TCP, TCP_USER_TIMEOUT,
+			       (const void *)&optval, optlen) < 0)
+			return 1;
+#endif
 		optval = vhost->ka_time;
 		if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE,
 			       (const void *)&optval, optlen) < 0)
@@ -394,7 +420,7 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, int fd)
 
 #if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
 static void
-_lws_plat_apply_caps(int mode, cap_value_t *cv, int count)
+_lws_plat_apply_caps(int mode, const cap_value_t *cv, int count)
 {
 	cap_t caps;
 
@@ -411,7 +437,7 @@ _lws_plat_apply_caps(int mode, cap_value_t *cv, int count)
 #endif
 
 LWS_VISIBLE void
-lws_plat_drop_app_privileges(struct lws_context_creation_info *info)
+lws_plat_drop_app_privileges(const struct lws_context_creation_info *info)
 {
 #if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
 	int n;
@@ -526,7 +552,8 @@ lws_plat_plugins_init(struct lws_context * context, const char * const *d)
 			}
 			plugin->list = context->plugin_list;
 			context->plugin_list = plugin;
-			lws_strncpy(plugin->name, namelist[i]->d_name, sizeof(plugin->name) - 1);
+			lws_strncpy(plugin->name, namelist[i]->d_name,
+				    sizeof(plugin->name));
 			plugin->l = l;
 			plugin->caps = lcaps;
 			context->plugin_protocol_count += lcaps.count_protocols;
@@ -639,7 +666,7 @@ LWS_VISIBLE int
 lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 		    size_t addrlen)
 {
-	int rc = -1;
+	int rc = LWS_ITOSA_NOT_EXIST;
 
 	struct ifaddrs *ifr;
 	struct ifaddrs *ifc;
@@ -652,12 +679,19 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 		if (!ifc->ifa_addr)
 			continue;
 
-		lwsl_info(" interface %s vs %s\n", ifc->ifa_name, ifname);
+		lwsl_debug(" interface %s vs %s (fam %d) ipv6 %d\n", ifc->ifa_name, ifname, ifc->ifa_addr->sa_family, ipv6);
 
 		if (strcmp(ifc->ifa_name, ifname))
 			continue;
 
 		switch (ifc->ifa_addr->sa_family) {
+#if defined(AF_PACKET)
+		case AF_PACKET:
+			/* interface exists but is not usable */
+			rc = LWS_ITOSA_NOT_USABLE;
+			continue;
+#endif
+
 		case AF_INET:
 #ifdef LWS_WITH_IPV6
 			if (ipv6) {
@@ -685,20 +719,20 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 		default:
 			continue;
 		}
-		rc = 0;
+		rc = LWS_ITOSA_USABLE;
 	}
 
 	freeifaddrs(ifr);
 
-	if (rc == -1) {
+	if (rc) {
 		/* check if bind to IP address */
 #ifdef LWS_WITH_IPV6
 		if (inet_pton(AF_INET6, ifname, &addr6->sin6_addr) == 1)
-			rc = 0;
+			rc = LWS_ITOSA_USABLE;
 		else
 #endif
 		if (inet_pton(AF_INET, ifname, &addr->sin_addr) == 1)
-			rc = 0;
+			rc = LWS_ITOSA_USABLE;
 	}
 
 	return rc;
@@ -709,9 +743,8 @@ lws_plat_insert_socket_into_fds(struct lws_context *context, struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 
-	lws_libev_io(wsi, LWS_EV_START | LWS_EV_READ);
-	lws_libuv_io(wsi, LWS_EV_START | LWS_EV_READ);
-	lws_libevent_io(wsi, LWS_EV_START | LWS_EV_READ);
+	if (context->event_loop_ops->io)
+		context->event_loop_ops->io(wsi, LWS_EV_START | LWS_EV_READ);
 
 	pt->fds[pt->fds_count++].revents = 0;
 }
@@ -722,9 +755,9 @@ lws_plat_delete_socket_from_fds(struct lws_context *context,
 {
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 
-	lws_libev_io(wsi, LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE);
-	lws_libuv_io(wsi, LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE);
-	lws_libevent_io(wsi, LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE);
+	if (context->event_loop_ops->io)
+		context->event_loop_ops->io(wsi,
+				LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE);
 
 	pt->fds_count--;
 }
@@ -862,7 +895,7 @@ _lws_plat_file_write(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 
 LWS_VISIBLE int
 lws_plat_init(struct lws_context *context,
-	      struct lws_context_creation_info *info)
+	      const struct lws_context_creation_info *info)
 {
 	int fd;
 
@@ -885,10 +918,6 @@ lws_plat_init(struct lws_context *context,
 			 SYSTEM_RANDOM_FILEPATH, context->fd_random);
 		return 1;
 	}
-
-	(void)lws_libev_init_fd_table(context);
-	(void)lws_libuv_init_fd_table(context);
-	(void)lws_libevent_init_fd_table(context);
 
 #ifdef LWS_WITH_PLUGINS
 	if (info->plugin_dirs)
@@ -931,7 +960,7 @@ lws_plat_write_file(const char *filename, void *buf, int len)
 LWS_VISIBLE int
 lws_plat_read_file(const char *filename, void *buf, int len)
 {
-	int n, fd = open(filename, O_RDONLY);
+	int n, fd = lws_open(filename, O_RDONLY);
 	if (fd == -1)
 		return -1;
 

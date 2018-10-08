@@ -205,7 +205,8 @@ ssh_ops_rx(void *_priv, struct lws *wsi, const uint8_t *buf, uint32_t len)
 		if (write(fd, buf, len) != len)
 			return -1;
 		if (priv->pty_in_echo) {
-			lws_ring_insert(priv->ring_stdout, buf, 1);
+			if (!lws_ring_insert(priv->ring_stdout, buf, 1))
+				lwsl_notice("dropping...\n");
 			lws_callback_on_writable(wsi);
 		}
 	} else {
@@ -217,7 +218,8 @@ ssh_ops_rx(void *_priv, struct lws *wsi, const uint8_t *buf, uint32_t len)
 		if (priv->pty_in_echo) {
 			bbuf[0] = 0x0d;
 			bbuf[1] = 0x0a;
-			lws_ring_insert(priv->ring_stdout, bbuf, 2);
+			if (!lws_ring_insert(priv->ring_stdout, bbuf, 2))
+				lwsl_notice("dropping...\n");
 			lws_callback_on_writable(wsi);
 		}
 	}
@@ -341,7 +343,7 @@ ssh_ops_is_pubkey_authorized(const char *username, const char *type,
 	 */
 
 	if (memcmp(peer, ps, peer_len)) {
-		lwsl_notice("factors mismatch\n");
+		lwsl_info("factors mismatch\n");
 		goto bail;
 	}
 
@@ -377,7 +379,7 @@ ssh_cgi_env_add(struct sshd_instance_priv *priv, const char *name,
 		return 1;
 	}
 
-	pvo->value = malloc(strlen(name) + 1);
+	pvo->value = malloc(strlen(value) + 1);
 	if (!pvo->value) {
 		free((char *)pvo->name);
 		free(pvo);
