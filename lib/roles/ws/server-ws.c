@@ -302,7 +302,7 @@ lws_process_ws_upgrade(struct lws *wsi)
 		       *p && *p != ',') {
 			/* ignore leading spaces */
 			if (!non_space_char_found && *p == ' ') {
-				n++;
+				p++;
 				continue;
 			}
 			non_space_char_found = 1;
