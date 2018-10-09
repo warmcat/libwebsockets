@@ -252,8 +252,10 @@ int
 lws_process_ws_upgrade(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
-	char protocol_list[128], protocol_name[64], *p;
-	int protocol_len, hit, n = 0, non_space_char_found = 0;
+	const struct lws_protocols *pcol = NULL;
+	char buf[128], name[64];
+	struct lws_tokenize ts;
+	lws_tokenize_elem e;
 
 	if (!wsi->protocol)
 		lwsl_err("NULL protocol at lws_read\n");
@@ -284,78 +286,72 @@ lws_process_ws_upgrade(struct lws *wsi)
 	 * Copy it to remove header fragmentation
 	 */
 
-	if (lws_hdr_copy(wsi, protocol_list, sizeof(protocol_list) - 1,
-			 WSI_TOKEN_PROTOCOL) < 0) {
-		lwsl_err("protocol list too long");
+	lws_tokenize_init(&ts, buf, LWS_TOKENIZE_F_COMMA_SEP_LIST |
+				    LWS_TOKENIZE_F_MINUS_NONTERM);
+	ts.len = lws_hdr_copy(wsi, buf, sizeof(buf) - 1, WSI_TOKEN_PROTOCOL);
+	if (ts.len < 0) {
+		lwsl_err("%s: protocol list too long\n", __func__);
 		return 1;
 	}
+	if (!ts.len) {
+		int n = wsi->vhost->default_protocol_index;
+		/*
+		 * some clients only have one protocol and do not send the
+		 * protocol list header... allow it and match to the vhost's
+		 * default protocol (which itself defaults to zero)
+		 */
+		lwsl_info("%s: defaulting to prot handler %d\n", __func__, n);
 
-	protocol_len = lws_hdr_total_length(wsi, WSI_TOKEN_PROTOCOL);
-	protocol_list[protocol_len] = '\0';
-	p = protocol_list;
-	hit = 0;
+		lws_bind_protocol(wsi, &wsi->vhost->protocols[n],
+				  "ws upgrade default pcol");
 
-	while (*p && !hit) {
-		n = 0;
-		non_space_char_found = 0;
-		while (n < (int)sizeof(protocol_name) - 1 &&
-		       *p && *p != ',') {
-			/* ignore leading spaces */
-			if (!non_space_char_found && *p == ' ') {
-				p++;
-				continue;
-			}
-			non_space_char_found = 1;
-			protocol_name[n++] = *p++;
-		}
-		protocol_name[n] = '\0';
-		if (*p)
-			p++;
-
-		lwsl_debug("checking %s\n", protocol_name);
-
-		n = 0;
-		while (wsi->vhost->protocols[n].callback) {
-			lwsl_debug("try %s\n",
-				  wsi->vhost->protocols[n].name);
-
-			if (wsi->vhost->protocols[n].name &&
-			    !strcmp(wsi->vhost->protocols[n].name,
-				    protocol_name)) {
-				lws_bind_protocol(wsi,
-						  &wsi->vhost->protocols[n],
-						  "ws upgrade select pcol");
-				hit = 1;
-				break;
-			}
-
-			n++;
-		}
+		goto alloc_ws;
 	}
+
+	/* otherwise go through the user-provided protocol list */
+
+	do {
+		e = lws_tokenize(&ts);
+		switch (e) {
+		case LWS_TOKZE_TOKEN:
+
+			if (lws_tokenize_cstr(&ts, name, sizeof(name))) {
+				lwsl_err("%s: pcol name too long\n", __func__);
+
+				return 1;
+			}
+			lwsl_debug("checking %s\n", name);
+			pcol = lws_vhost_name_to_protocol(wsi->vhost, name);
+			if (pcol) {
+				/* if we know it, bind to it and stop looking */
+				lws_bind_protocol(wsi, pcol, "ws upg pcol");
+				e = LWS_TOKZE_ENDED;
+			}
+			break;
+
+		case LWS_TOKZE_DELIMITER:
+		case LWS_TOKZE_ENDED:
+			break;
+
+		default:
+			lwsl_err("%s: malformatted protocol list", __func__);
+
+			return 1;
+		}
+	} while (e > 0);
 
 	/* we didn't find a protocol he wanted? */
 
-	if (!hit) {
-		if (lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL)) {
-			lwsl_notice("No protocol from \"%s\" supported\n",
-				 protocol_list);
-			return 1;
-		}
-		/*
-		 * some clients only have one protocol and
-		 * do not send the protocol list header...
-		 * allow it and match to the vhost's default
-		 * protocol (which itself defaults to zero)
-		 */
-		lwsl_info("defaulting to prot handler %d\n",
-			wsi->vhost->default_protocol_index);
-		n = wsi->vhost->default_protocol_index;
-		lws_bind_protocol(wsi, &wsi->vhost->protocols[
-			      (int)wsi->vhost->default_protocol_index],
-				"ws upgrade default pcol");
+	if (!pcol) {
+		lwsl_notice("No supported protocol \"%s\"\n", buf);
+
+		return 1;
 	}
 
+alloc_ws:
+
 	/* allocate the ws struct for the wsi */
+
 	wsi->ws = lws_zalloc(sizeof(*wsi->ws), "ws struct");
 	if (!wsi->ws) {
 		lwsl_notice("OOM\n");
