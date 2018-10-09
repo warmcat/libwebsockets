@@ -408,6 +408,7 @@ struct lws;
 #include <libwebsockets/lws-lejp.h>
 #include <libwebsockets/lws-stats.h>
 #include <libwebsockets/lws-threadpool.h>
+#include <libwebsockets/lws-tokenize.h>
 
 #if defined(LWS_WITH_TLS)
 

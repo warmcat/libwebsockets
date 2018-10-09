@@ -2358,36 +2358,60 @@ __lws_rx_flow_control(struct lws *wsi)
 	return 0;
 }
 
+static const unsigned char e0f4[] = {
+	0xa0 | ((2 - 1) << 2) | 1, /* e0 */
+	0x80 | ((4 - 1) << 2) | 1, /* e1 */
+	0x80 | ((4 - 1) << 2) | 1, /* e2 */
+	0x80 | ((4 - 1) << 2) | 1, /* e3 */
+	0x80 | ((4 - 1) << 2) | 1, /* e4 */
+	0x80 | ((4 - 1) << 2) | 1, /* e5 */
+	0x80 | ((4 - 1) << 2) | 1, /* e6 */
+	0x80 | ((4 - 1) << 2) | 1, /* e7 */
+	0x80 | ((4 - 1) << 2) | 1, /* e8 */
+	0x80 | ((4 - 1) << 2) | 1, /* e9 */
+	0x80 | ((4 - 1) << 2) | 1, /* ea */
+	0x80 | ((4 - 1) << 2) | 1, /* eb */
+	0x80 | ((4 - 1) << 2) | 1, /* ec */
+	0x80 | ((2 - 1) << 2) | 1, /* ed */
+	0x80 | ((4 - 1) << 2) | 1, /* ee */
+	0x80 | ((4 - 1) << 2) | 1, /* ef */
+	0x90 | ((3 - 1) << 2) | 2, /* f0 */
+	0x80 | ((4 - 1) << 2) | 2, /* f1 */
+	0x80 | ((4 - 1) << 2) | 2, /* f2 */
+	0x80 | ((4 - 1) << 2) | 2, /* f3 */
+	0x80 | ((1 - 1) << 2) | 2, /* f4 */
+
+	0,			   /* s0 */
+	0x80 | ((4 - 1) << 2) | 0, /* s2 */
+	0x80 | ((4 - 1) << 2) | 1, /* s3 */
+};
+
+LWS_EXTERN int
+lws_check_byte_utf8(unsigned char state, unsigned char c)
+{
+	unsigned char s = state;
+
+	if (!s) {
+		if (c >= 0x80) {
+			if (c < 0xc2 || c > 0xf4)
+				return -1;
+			if (c < 0xe0)
+				return 0x80 | ((4 - 1) << 2);
+			else
+				return e0f4[c - 0xe0];
+		}
+
+		return s;
+	}
+	if (c < (s & 0xf0) || c >= (s & 0xf0) + 0x10 + ((s << 2) & 0x30))
+		return -1;
+
+	return e0f4[21 + (s & 3)];
+}
+
 LWS_EXTERN int
 lws_check_utf8(unsigned char *state, unsigned char *buf, size_t len)
 {
-	static const unsigned char e0f4[] = {
-		0xa0 | ((2 - 1) << 2) | 1, /* e0 */
-		0x80 | ((4 - 1) << 2) | 1, /* e1 */
-		0x80 | ((4 - 1) << 2) | 1, /* e2 */
-		0x80 | ((4 - 1) << 2) | 1, /* e3 */
-		0x80 | ((4 - 1) << 2) | 1, /* e4 */
-		0x80 | ((4 - 1) << 2) | 1, /* e5 */
-		0x80 | ((4 - 1) << 2) | 1, /* e6 */
-		0x80 | ((4 - 1) << 2) | 1, /* e7 */
-		0x80 | ((4 - 1) << 2) | 1, /* e8 */
-		0x80 | ((4 - 1) << 2) | 1, /* e9 */
-		0x80 | ((4 - 1) << 2) | 1, /* ea */
-		0x80 | ((4 - 1) << 2) | 1, /* eb */
-		0x80 | ((4 - 1) << 2) | 1, /* ec */
-		0x80 | ((2 - 1) << 2) | 1, /* ed */
-		0x80 | ((4 - 1) << 2) | 1, /* ee */
-		0x80 | ((4 - 1) << 2) | 1, /* ef */
-		0x90 | ((3 - 1) << 2) | 2, /* f0 */
-		0x80 | ((4 - 1) << 2) | 2, /* f1 */
-		0x80 | ((4 - 1) << 2) | 2, /* f2 */
-		0x80 | ((4 - 1) << 2) | 2, /* f3 */
-		0x80 | ((1 - 1) << 2) | 2, /* f4 */
-
-		0,			   /* s0 */
-		0x80 | ((4 - 1) << 2) | 0, /* s2 */
-		0x80 | ((4 - 1) << 2) | 1, /* s3 */
-	};
 	unsigned char s = *state;
 
 	while (len--) {
@@ -2983,6 +3007,245 @@ lws_strncpy(char *dest, const char *src, size_t size)
 	dest[size - 1] = '\0';
 
 	return dest;
+}
+
+
+typedef enum {
+	LWS_TOKZS_LEADING_WHITESPACE,
+	LWS_TOKZS_QUOTED_STRING,
+	LWS_TOKZS_TOKEN,
+	LWS_TOKZS_TOKEN_POST_TERMINAL
+} lws_tokenize_state;
+
+int
+lws_tokenize(struct lws_tokenize *ts)
+{
+	const char *rfc7230_delims = "(),/:;<=>?@[\\]{}";
+	lws_tokenize_state state = LWS_TOKZS_LEADING_WHITESPACE;
+	char c, num = -1, flo = 0;
+	int utf8 = 0;
+
+	ts->token = NULL;
+	ts->token_len = 0;
+
+	while (ts->len) {
+		c = *ts->start++;
+		ts->len--;
+
+		utf8 = lws_check_byte_utf8((unsigned char)utf8, c);
+		if (utf8 < 0)
+			return LWS_TOKZE_ERR_BROKEN_UTF8;
+
+		lwsl_debug("%s: %c (%d) %d\n", __func__, c, state, (int)ts->len);
+
+		if (!c)
+			break;
+
+		/* whitespace */
+
+		if (c == ' ' || c == '\t' || c == '\n' || c == '\r' ||
+		    c == '\f') {
+			switch (state) {
+			case LWS_TOKZS_LEADING_WHITESPACE:
+			case LWS_TOKZS_TOKEN_POST_TERMINAL:
+				continue;
+			case LWS_TOKZS_QUOTED_STRING:
+				ts->token_len++;
+				continue;
+			case LWS_TOKZS_TOKEN:
+				/* we want to scan forward to look for = */
+
+				state = LWS_TOKZS_TOKEN_POST_TERMINAL;
+				continue;
+			}
+		}
+
+		/* quoted string */
+
+		if (c == '\"') {
+			if (state == LWS_TOKZS_QUOTED_STRING)
+				return LWS_TOKZE_QUOTED_STRING;
+
+			/* starting a quoted string */
+
+			if (ts->flags & LWS_TOKENIZE_F_COMMA_SEP_LIST) {
+				if (ts->delim == LWSTZ_DT_NEED_DELIM)
+					return LWS_TOKZE_ERR_COMMA_LIST;
+				ts->delim = LWSTZ_DT_NEED_DELIM;
+			}
+
+			state = LWS_TOKZS_QUOTED_STRING;
+			ts->token = ts->start;
+			ts->token_len = 0;
+
+			continue;
+		}
+
+		/* token= aggregation */
+
+		if (c == '=' && (state == LWS_TOKZS_TOKEN_POST_TERMINAL ||
+				 state == LWS_TOKZS_TOKEN)) {
+			if (num == 1)
+				return LWS_TOKZE_ERR_NUM_ON_LHS;
+			/* swallow the = */
+			return LWS_TOKZE_TOKEN_NAME_EQUALS;
+		}
+
+		/* optional token: aggregation */
+
+		if ((ts->flags & LWS_TOKENIZE_F_AGG_COLON) && c == ':' &&
+		    (state == LWS_TOKZS_TOKEN_POST_TERMINAL ||
+		     state == LWS_TOKZS_TOKEN))
+			/* swallow the : */
+			return LWS_TOKZE_TOKEN_NAME_COLON;
+
+		/* aggregate . in a number as a float */
+
+		if (c == '.' && state == LWS_TOKZS_TOKEN && num == 1) {
+			if (flo)
+				return LWS_TOKZE_ERR_MALFORMED_FLOAT;
+			flo = 1;
+			ts->token_len++;
+			continue;
+		}
+
+		/*
+		 * Delimiter... by default anything that:
+		 *
+		 *  - isn't matched earlier, or
+		 *  - is [A-Z, a-z, 0-9, _], and
+		 *  - is not a partial utf8 char
+		 *
+		 * is a "delimiter", it marks the end of a token and is itself
+		 * reported as a single LWS_TOKZE_DELIMITER each time.
+		 *
+		 * However with LWS_TOKENIZE_F_RFC7230_DELIMS flag, tokens may
+		 * contain any noncontrol character that isn't defined in
+		 * rfc7230_delims, and only characters listed there are treated
+		 * as delimiters.
+		 */
+
+		if (!utf8 &&
+		     ((ts->flags & LWS_TOKENIZE_F_RFC7230_DELIMS &&
+		     strchr(rfc7230_delims, c) && c > 32) ||
+		    ((!(ts->flags & LWS_TOKENIZE_F_RFC7230_DELIMS) &&
+		     (c < '0' || c > '9') && (c < 'A' || c > 'Z') &&
+		     (c < 'a' || c > 'z') && c != '_') && !(c == '-' &&
+			(ts->flags & LWS_TOKENIZE_F_MINUS_NONTERM))) ||
+		    (c == '-' && !(ts->flags & LWS_TOKENIZE_F_MINUS_NONTERM))
+		    )) {
+			switch (state) {
+			case LWS_TOKZS_LEADING_WHITESPACE:
+				if (ts->flags & LWS_TOKENIZE_F_COMMA_SEP_LIST) {
+					if (c != ',' ||
+					    ts->delim != LWSTZ_DT_NEED_DELIM)
+						return LWS_TOKZE_ERR_COMMA_LIST;
+					ts->delim = LWSTZ_DT_NEED_NEXT_CONTENT;
+				}
+
+				ts->token = ts->start - 1;
+				ts->token_len = 1;
+				return LWS_TOKZE_DELIMITER;
+
+			case LWS_TOKZS_QUOTED_STRING:
+				ts->token_len++;
+				continue;
+
+			case LWS_TOKZS_TOKEN_POST_TERMINAL:
+			case LWS_TOKZS_TOKEN:
+				/* report the delimiter next time */
+				ts->start--;
+				ts->len++;
+				goto token_or_numeric;
+			}
+		}
+
+		/* anything that's not whitespace or delimiter is payload */
+
+		switch (state) {
+		case LWS_TOKZS_LEADING_WHITESPACE:
+
+			if (ts->flags & LWS_TOKENIZE_F_COMMA_SEP_LIST) {
+				if (ts->delim == LWSTZ_DT_NEED_DELIM)
+					return LWS_TOKZE_ERR_COMMA_LIST;
+				ts->delim = LWSTZ_DT_NEED_DELIM;
+			}
+
+			state = LWS_TOKZS_TOKEN;
+			ts->token = ts->start - 1;
+			ts->token_len = 1;
+			if (c < '0' || c > '9')
+				num = 0;
+			else
+				if (num < 0)
+					num = 1;
+			continue;
+		case LWS_TOKZS_QUOTED_STRING:
+		case LWS_TOKZS_TOKEN:
+			if (c < '0' || c > '9')
+				num = 0;
+			else
+				if (num < 0)
+					num = 1;
+			ts->token_len++;
+			continue;
+		case LWS_TOKZS_TOKEN_POST_TERMINAL:
+			/* report the new token next time */
+			ts->start--;
+			ts->len++;
+			goto token_or_numeric;
+		}
+	}
+
+	/* we ran out of content */
+
+	if (utf8) /* ended partway through a multibyte char */
+		return LWS_TOKZE_ERR_BROKEN_UTF8;
+
+	if (state == LWS_TOKZS_QUOTED_STRING)
+		return LWS_TOKZE_ERR_UNTERM_STRING;
+
+	if (state != LWS_TOKZS_TOKEN_POST_TERMINAL &&
+	    state != LWS_TOKZS_TOKEN) {
+		if ((ts->flags & LWS_TOKENIZE_F_COMMA_SEP_LIST) &&
+		     ts->delim == LWSTZ_DT_NEED_NEXT_CONTENT)
+			return LWS_TOKZE_ERR_COMMA_LIST;
+
+		return LWS_TOKZE_ENDED;
+	}
+
+	/* report the pending token */
+
+token_or_numeric:
+
+	if (num != 1)
+		return LWS_TOKZE_TOKEN;
+	if (flo)
+		return LWS_TOKZE_FLOAT;
+
+	return LWS_TOKZE_INTEGER;
+}
+
+
+LWS_VISIBLE LWS_EXTERN int
+lws_tokenize_cstr(struct lws_tokenize *ts, char *str, int max)
+{
+	if (ts->token_len + 1 >= max)
+		return 1;
+
+	memcpy(str, ts->token, ts->token_len);
+	str[ts->token_len] = '\0';
+
+	return 0;
+}
+
+LWS_VISIBLE LWS_EXTERN void
+lws_tokenize_init(struct lws_tokenize *ts, const char *start, int flags)
+{
+	ts->start = start;
+	ts->len = 0x7fffffff;
+	ts->flags = flags;
+	ts->delim = LWSTZ_DT_NEED_FIRST_CONTENT;
 }
 
 #if LWS_MAX_SMP > 1

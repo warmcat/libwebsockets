@@ -1449,6 +1449,8 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt);
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_plat_inet_pton(int af, const char *src, void *dst);
 
+LWS_EXTERN int
+lws_check_byte_utf8(unsigned char state, unsigned char c);
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_check_utf8(unsigned char *state, unsigned char *buf, size_t len);
 LWS_EXTERN int alloc_file(struct lws_context *context, const char *filename, uint8_t **buf,

@@ -501,6 +501,10 @@ LWS_VISIBLE int lws_hdr_copy(struct lws *wsi, char *dst, int len,
 	int toklen = lws_hdr_total_length(wsi, h);
 	int n;
 
+	*dst = '\0';
+	if (!toklen)
+		return 0;
+
 	if (toklen >= len)
 		return -1;
 
