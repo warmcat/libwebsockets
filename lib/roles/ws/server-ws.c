@@ -280,10 +280,48 @@ lws_process_ws_upgrade(struct lws *wsi)
 	/*
 	 * It's either websocket or h2->websocket
 	 *
+	 * If we are on h1, confirm we got the required "connection: upgrade"
+	 * header.  h2 / ws-over-h2 does not have this.
+	 */
+
+#if defined(LWS_WITH_HTTP2)
+	if (wsi->http2_substream)
+		goto check_protocol;
+#endif
+
+	lws_tokenize_init(&ts, buf, LWS_TOKENIZE_F_COMMA_SEP_LIST |
+				    LWS_TOKENIZE_F_MINUS_NONTERM);
+	ts.len = lws_hdr_copy(wsi, buf, sizeof(buf) - 1, WSI_TOKEN_CONNECTION);
+	if (ts.len <= 0)
+		goto bad_conn_format;
+
+	do {
+		e = lws_tokenize(&ts);
+		switch (e) {
+		case LWS_TOKZE_TOKEN:
+			if (!strcasecmp(ts.token, "upgrade"))
+				e = LWS_TOKZE_ENDED;
+			break;
+
+		case LWS_TOKZE_DELIMITER:
+		case LWS_TOKZE_ENDED:
+			break;
+
+		default:
+bad_conn_format:
+			lwsl_err("%s: malformed or absent connection hdr\n", __func__);
+
+			return 1;
+		}
+	} while (e > 0);
+
+#if defined(LWS_WITH_HTTP2)
+check_protocol:
+#endif
+
+	/*
 	 * Select the first protocol we support from the list
 	 * the client sent us.
-	 *
-	 * Copy it to remove header fragmentation
 	 */
 
 	lws_tokenize_init(&ts, buf, LWS_TOKENIZE_F_COMMA_SEP_LIST |
