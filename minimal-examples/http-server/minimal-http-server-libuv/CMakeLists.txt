@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 2.8)
 include(CheckCSourceCompiles)
 
-set(SAMP lws-minimal-http-server-tls)
-set(SRCS minimal-http-server-tls.c)
+set(SAMP lws-minimal-http-server-libuv)
+set(SRCS minimal-http-server.c)
 
 # If we are being built as part of lws, confirm current build config supports
 # reqconfig, else skip building ourselves.
@@ -63,12 +63,8 @@ MACRO(require_lws_config reqconfig _val result)
 ENDMACRO()
 
 set(requirements 1)
-<<<<<<< HEAD
-=======
-require_lws_config(LWS_ROLE_H1 1 requirements)
->>>>>>> 126e2e8776827575e704d874f5ccd959380f34fa
+require_lws_config(LWS_WITH_LIBUV 1 requirements)
 require_lws_config(LWS_WITHOUT_SERVER 0 requirements)
-require_lws_config(LWS_OPENSSL_SUPPORT 1 requirements)
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
