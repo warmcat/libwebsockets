@@ -21,6 +21,7 @@ option(LWS_WITH_DISTRO_RECOMMENDED "Enable features recommended for distro packa
 #
 # Major individual features
 #
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-deprecated-declarations" )
 option(LWS_ROLE_H1 "Compile with support for http/1 (needed for ws)" ON)
 option(LWS_ROLE_WS "Compile with support for websockets" ON)
 option(LWS_WITH_HTTP2 "Compile with server support for HTTP/2" OFF)
