@@ -643,7 +643,11 @@ if (HAIKU)
 	set(CMAKE_REQUIRED_LIBRARIES network)
 endif()
 
-CHECK_FUNCTION_EXISTS(bzero LWS_HAVE_BZERO)
+CHECK_C_SOURCE_COMPILES(
+	"#include <strings.h>
+	int main(int argc, char **argv) { char buf[1]; bzero(buf, 1); return 0; }
+	" LWS_HAVE_BZERO)
+
 CHECK_FUNCTION_EXISTS(fork LWS_HAVE_FORK)
 CHECK_FUNCTION_EXISTS(getenv LWS_HAVE_GETENV)
 CHECK_FUNCTION_EXISTS(malloc LWS_HAVE_MALLOC)
