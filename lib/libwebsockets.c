@@ -2587,6 +2587,215 @@ lws_snprintf(char *str, size_t size, const char *format, ...)
 }
 
 
+typedef enum {
+	LWS_TOKZS_LEADING_WHITESPACE,
+	LWS_TOKZS_QUOTED_STRING,
+	LWS_TOKZS_TOKEN,
+	LWS_TOKZS_TOKEN_POST_TERMINAL
+} lws_tokenize_state;
+
+int
+lws_tokenize(struct lws_tokenize *ts)
+{
+	lws_tokenize_state state = LWS_TOKZS_LEADING_WHITESPACE;
+	char c, num = -1, flo = 0;
+
+	ts->token = NULL;
+	ts->token_len = 0;
+
+	while (ts->len) {
+		c = *ts->start++;
+		ts->len--;
+
+		lwsl_debug("%s: %c (%d) %d\n", __func__, c, state, (int)ts->len);
+
+		if (!c)
+			break;
+
+		/* whitespace */
+
+		if (c == ' ' || c == '\t' || c == '\n' || c == '\r' ||
+		    c == '\f') {
+			switch (state) {
+			case LWS_TOKZS_LEADING_WHITESPACE:
+			case LWS_TOKZS_TOKEN_POST_TERMINAL:
+				continue;
+			case LWS_TOKZS_QUOTED_STRING:
+				ts->token_len++;
+				continue;
+			case LWS_TOKZS_TOKEN:
+				/* we want to scan forward to look for = */
+
+				state = LWS_TOKZS_TOKEN_POST_TERMINAL;
+				continue;
+			}
+		}
+
+		/* quoted string */
+
+		if (c == '\"') {
+			if (state == LWS_TOKZS_QUOTED_STRING)
+				return LWS_TOKZE_QUOTED_STRING;
+
+			/* starting a quoted string */
+
+			if (ts->flags & LWS_TOKENIZE_F_COMMA_SEP_LIST) {
+				if (ts->delim == LWSTZ_DT_NEED_DELIM)
+					return LWS_TOKZE_ERR_COMMA_LIST;
+				ts->delim = LWSTZ_DT_NEED_DELIM;
+			}
+
+			state = LWS_TOKZS_QUOTED_STRING;
+			ts->token = ts->start;
+			ts->token_len = 0;
+
+			continue;
+		}
+
+		/* token= aggregation */
+
+		if (c == '=' && (state == LWS_TOKZS_TOKEN_POST_TERMINAL ||
+				 state == LWS_TOKZS_TOKEN)) {
+			if (num == 1)
+				return LWS_TOKZE_ERR_NUM_ON_LHS;
+			/* swallow the = */
+			return LWS_TOKZE_TOKEN_NAME_EQUALS;
+		}
+
+		/* optional token: aggregation */
+
+		if ((ts->flags & LWS_TOKENIZE_F_AGG_COLON) && c == ':' &&
+		    (state == LWS_TOKZS_TOKEN_POST_TERMINAL ||
+		     state == LWS_TOKZS_TOKEN))
+			/* swallow the : */
+			return LWS_TOKZE_TOKEN_NAME_COLON;
+
+		/* aggregate . in a number as a float */
+
+		if (c == '.' && state == LWS_TOKZS_TOKEN && num == 1) {
+			if (flo)
+				return LWS_TOKZE_ERR_MALFORMED_FLOAT;
+			flo = 1;
+			ts->token_len++;
+			continue;
+		}
+
+		/* delimiter */
+
+		if (strchr("(),/:;<=>?@[\\]{}", c) ||
+		    (!(ts->flags & LWS_TOKENIZE_F_MINUS_NONTERM) && c == '-')) {
+			switch (state) {
+			case LWS_TOKZS_LEADING_WHITESPACE:
+
+				if (ts->flags & LWS_TOKENIZE_F_COMMA_SEP_LIST) {
+					if (c != ',' ||
+					    ts->delim != LWSTZ_DT_NEED_DELIM)
+						return LWS_TOKZE_ERR_COMMA_LIST;
+					ts->delim = LWSTZ_DT_NEED_NEXT_CONTENT;
+				}
+
+				ts->token = ts->start - 1;
+				ts->token_len = 1;
+				return LWS_TOKZE_DELIMITER;
+
+			case LWS_TOKZS_QUOTED_STRING:
+				ts->token_len++;
+				continue;
+
+			case LWS_TOKZS_TOKEN_POST_TERMINAL:
+			case LWS_TOKZS_TOKEN:
+				/* report the delimiter next time */
+				ts->start--;
+				ts->len++;
+				goto token_or_numeric;
+			}
+		}
+
+		/* anything that's not whitespace or delimiter is payload */
+
+		switch (state) {
+		case LWS_TOKZS_LEADING_WHITESPACE:
+
+			if (ts->flags & LWS_TOKENIZE_F_COMMA_SEP_LIST) {
+				if (ts->delim == LWSTZ_DT_NEED_DELIM)
+					return LWS_TOKZE_ERR_COMMA_LIST;
+				ts->delim = LWSTZ_DT_NEED_DELIM;
+			}
+
+			state = LWS_TOKZS_TOKEN;
+			ts->token = ts->start - 1;
+			ts->token_len = 1;
+			if (c < '0' || c > '9')
+				num = 0;
+			else
+				if (num < 0)
+					num = 1;
+			continue;
+		case LWS_TOKZS_QUOTED_STRING:
+		case LWS_TOKZS_TOKEN:
+			if (c < '0' || c > '9')
+				num = 0;
+			else
+				if (num < 0)
+					num = 1;
+			ts->token_len++;
+			continue;
+		case LWS_TOKZS_TOKEN_POST_TERMINAL:
+			/* report the new token next time */
+			ts->start--;
+			ts->len++;
+			goto token_or_numeric;
+		}
+	}
+
+	/* we ran out of content */
+
+	if (state == LWS_TOKZS_QUOTED_STRING)
+		return LWS_TOKZE_ERR_UNTERM_STRING;
+
+	if (state != LWS_TOKZS_TOKEN_POST_TERMINAL &&
+	    state != LWS_TOKZS_TOKEN) {
+		if (ts->delim == LWSTZ_DT_NEED_NEXT_CONTENT)
+			return LWS_TOKZE_ERR_COMMA_LIST;
+
+		return LWS_TOKZE_ENDED;
+	}
+
+	/* report the pending token */
+
+token_or_numeric:
+
+	if (num != 1)
+		return LWS_TOKZE_TOKEN;
+	if (flo)
+		return LWS_TOKZE_FLOAT;
+
+	return LWS_TOKZE_INTEGER;
+}
+
+
+LWS_VISIBLE LWS_EXTERN int
+lws_tokenize_cstr(struct lws_tokenize *ts, char *str, int max)
+{
+	if (ts->token_len + 1 >= max)
+		return 1;
+
+	memcpy(str, ts->token, ts->token_len);
+	str[ts->token_len] = '\0';
+
+	return 0;
+}
+
+LWS_VISIBLE LWS_EXTERN void
+lws_tokenize_init(struct lws_tokenize *ts, const char *start, int flags)
+{
+	ts->start = start;
+	ts->len = 0x7fffffff;
+	ts->flags = flags;
+	ts->delim = LWSTZ_DT_NEED_FIRST_CONTENT;
+}
+
+
 LWS_VISIBLE LWS_EXTERN int
 lws_is_cgi(struct lws *wsi) {
 #ifdef LWS_WITH_CGI

@@ -1330,16 +1330,18 @@ lws_server_init_wsi_for_ws(struct lws *wsi)
 int
 lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 {
-	int protocol_len, n = 0, hit, non_space_char_found = 0, m;
+	int n = 0, m, connection_upgrade = 0;
 	struct lws_context *context = lws_get_context(wsi);
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	struct _lws_header_related hdr;
 	struct allocated_headers *ah;
 	unsigned char *obuf = *buf;
-	char protocol_list[128];
-	char protocol_name[64];
 	size_t olen = len;
-	char *p;
+	const struct lws_protocols *pcol = NULL;
+	char list[128], name[64];
+	struct lws_tokenize ts;
+	lws_tokenize_elem e;
+
 
 	if (len >= 10000000) {
 		lwsl_err("%s: assert: len %ld\n", __func__, (long)len);
@@ -1584,81 +1586,128 @@ upgrade_ws:
 			lwsl_err("NULL protocol at lws_read\n");
 
 		/*
-		 * It's websocket
+		 * It's either websocket or h2->websocket
 		 *
-		 * Select the first protocol we support from the list
-		 * the client sent us.
-		 *
-		 * Copy it to remove header fragmentation
+		 * If we are on h1, confirm we got the required "connection: upgrade"
+		 * header.  h2 / ws-over-h2 does not have this.
 		 */
 
-		if (lws_hdr_copy(wsi, protocol_list, sizeof(protocol_list) - 1,
-				 WSI_TOKEN_PROTOCOL) < 0) {
-			lwsl_err("protocol list too long");
+#if defined(LWS_WITH_HTTP2)
+		if (wsi->http2_substream)
+			goto check_protocol;
+#endif
+
+		lws_tokenize_init(&ts, list, LWS_TOKENIZE_F_COMMA_SEP_LIST |
+					    LWS_TOKENIZE_F_MINUS_NONTERM);
+		ts.len = lws_hdr_copy(wsi, list, sizeof(list) - 1, WSI_TOKEN_CONNECTION);
+		if (ts.len > 0)
+		{
+			do {
+				e = lws_tokenize(&ts);
+				switch (e) {
+				case LWS_TOKZE_TOKEN:
+					if (!strcasecmp(ts.token, "upgrade")) {
+						connection_upgrade = 1;
+						e = LWS_TOKZE_ENDED;
+					}
+					break;
+
+				case LWS_TOKZE_DELIMITER:
+				case LWS_TOKZE_ENDED:
+					break;
+
+				default:
+					lwsl_err("%s: malformed connection hdr\n", __func__);
+
+					goto bail_nuke_ah;
+				}
+			} while (e != LWS_TOKZE_ENDED);
+		}
+		if (!connection_upgrade) {
+			lwsl_notice("No connection hdr\n");
+
 			goto bail_nuke_ah;
 		}
 
-		protocol_len = lws_hdr_total_length(wsi, WSI_TOKEN_PROTOCOL);
-		protocol_list[protocol_len] = '\0';
-		p = protocol_list;
-		hit = 0;
 
-		while (*p && !hit) {
-			n = 0;
-			non_space_char_found = 0;
-			while (n < sizeof(protocol_name) - 1 &&
-			       *p && *p != ',') {
-				/* ignore leading spaces */
-				if (!non_space_char_found && *p == ' ') {
-					p++;
-					continue;
-				}
-				non_space_char_found = 1;
-				protocol_name[n++] = *p++;
-			}
-			protocol_name[n] = '\0';
-			if (*p)
-				p++;
-
-			lwsl_info("checking %s\n", protocol_name);
-
-			n = 0;
-			while (wsi->vhost->protocols[n].callback) {
-				lwsl_info("try %s\n",
-					  wsi->vhost->protocols[n].name);
-
-				if (wsi->vhost->protocols[n].name &&
-				    !strcmp(wsi->vhost->protocols[n].name,
-					    protocol_name)) {
-					wsi->protocol = &wsi->vhost->protocols[n];
-					hit = 1;
-					break;
-				}
-
-				n++;
-			}
+		/* Check if 'host' header exits.
+		 * Its content is not validated. If required shall be checked in user's callback.
+		 */
+		if (!lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST)) {
+			lwsl_info("No host hdr\n");
+			goto bail_nuke_ah;
 		}
 
-		/* we didn't find a protocol he wanted? */
+#if defined(LWS_WITH_HTTP2)
+check_protocol:
+#endif
 
-		if (!hit) {
-			if (lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL)) {
-				lwsl_info("No protocol from \"%s\" supported\n",
-					 protocol_list);
+	/*
+	 * Select the first protocol we support from the list
+	 * the client sent us.
+	 */
+
+	lws_tokenize_init(&ts, list, LWS_TOKENIZE_F_COMMA_SEP_LIST |
+				    LWS_TOKENIZE_F_MINUS_NONTERM);
+	ts.len = lws_hdr_copy(wsi, list, sizeof(list) - 1, WSI_TOKEN_PROTOCOL);
+	if (ts.len < 0) {
+		lwsl_err("%s: protocol list too long\n", __func__);
+		goto bail_nuke_ah;
+	}
+	if (!ts.len) {
+		int n = wsi->vhost->default_protocol_index;
+		/*
+		 * some clients only have one protocol and do not send the
+		 * protocol list header... allow it and match to the vhost's
+		 * default protocol (which itself defaults to zero)
+		 */
+		lwsl_info("%s: defaulting to prot handler %d\n", __func__, n);
+
+		wsi->protocol = &wsi->vhost->protocols[n];
+
+		goto alloc_ws;
+	}
+
+	/* otherwise go through the user-provided protocol list */
+
+	do {
+		e = lws_tokenize(&ts);
+		switch (e) {
+		case LWS_TOKZE_TOKEN:
+
+			if (lws_tokenize_cstr(&ts, name, sizeof(name))) {
+				lwsl_err("%s: pcol name too long\n", __func__);
+
 				goto bail_nuke_ah;
 			}
-			/*
-			 * some clients only have one protocol and
-			 * do not send the protocol list header...
-			 * allow it and match to the vhost's default
-			 * protocol (which itself defaults to zero)
-			 */
-			lwsl_info("defaulting to prot handler %d\n",
-				wsi->vhost->default_protocol_index);
-			n = wsi->vhost->default_protocol_index;
-			wsi->protocol = &wsi->vhost->protocols[
-				      (int)wsi->vhost->default_protocol_index];
+			lwsl_debug("checking %s\n", name);
+			pcol = lws_vhost_name_to_protocol(wsi->vhost, name);
+			if (pcol) {
+				wsi->protocol = pcol;
+				e = LWS_TOKZE_ENDED;
+			}
+			break;
+
+		case LWS_TOKZE_DELIMITER:
+		case LWS_TOKZE_ENDED:
+			break;
+
+		default:
+			lwsl_err("%s: malformatted protocol list", __func__);
+
+			goto bail_nuke_ah;
 		}
+	} while (e != LWS_TOKZE_ENDED);
+
+	/* we didn't find a protocol he wanted? */
+
+	if (!pcol) {
+		lwsl_notice("No supported protocol \"%s\"\n", list);
+
+		goto bail_nuke_ah;
+	}
+
+alloc_ws:
 
 		/* allocate wsi->user storage */
 		if (lws_ensure_user_space(wsi))
