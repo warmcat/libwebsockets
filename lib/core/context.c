@@ -832,9 +832,6 @@ lws_create_context(const struct lws_context_creation_info *info)
 
 	lwsl_info("Initial logging level %d\n", log_level);
 	lwsl_info("Libwebsockets version: %s\n", library_version);
-#if defined(GCC_VER)
-	lwsl_info("Compiled with  %s\n", GCC_VER);
-#endif
 
 #ifdef LWS_WITH_IPV6
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DISABLE_IPV6))
@@ -1241,7 +1238,6 @@ LWS_VISIBLE LWS_EXTERN void
 lws_context_deprecate(struct lws_context *context, lws_reload_func cb)
 {
 	struct lws_vhost *vh = context->vhost_list, *vh1;
-	struct lws *wsi;
 
 	/*
 	 * "deprecation" means disable the context from accepting any new
@@ -1255,7 +1251,8 @@ lws_context_deprecate(struct lws_context *context, lws_reload_func cb)
 	/* for each vhost, close his listen socket */
 
 	while (vh) {
-		wsi = vh->lserv_wsi;
+		struct lws *wsi = vh->lserv_wsi;
+
 		if (wsi) {
 			wsi->socket_is_permanently_unusable = 1;
 			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "ctx deprecate");
@@ -1631,11 +1628,12 @@ static void
 lws_context_destroy3(struct lws_context *context)
 {
 	struct lws_context **pcontext_finalize = context->pcontext_finalize;
-	struct lws_context_per_thread *pt;
 	int n;
 
 	for (n = 0; n < context->count_threads; n++) {
-		pt = &context->pt[n];
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+		struct lws_context_per_thread *pt = &context->pt[n];
+#endif
 
 		if (context->event_loop_ops->destroy_pt)
 			context->event_loop_ops->destroy_pt(context, n);
@@ -1666,7 +1664,6 @@ lws_context_destroy2(struct lws_context *context)
 #if defined(LWS_WITH_PEER_LIMITS)
 	uint32_t nu;
 #endif
-	int n;
 
 	lwsl_info("%s: ctx %p\n", __func__, context);
 
@@ -1729,12 +1726,14 @@ lws_context_destroy2(struct lws_context *context)
 			return;
 		}
 
-	if (!context->pt[0].event_loop_foreign)
+	if (!context->pt[0].event_loop_foreign) {
+		int n;
 		for (n = 0; n < context->count_threads; n++)
 			if (context->pt[n].inside_service) {
 				lws_context_unlock(context); /* } context --- */
 				return;
 			}
+	}
 
 	lws_context_unlock(context); /* } context ------------------- */
 
@@ -1750,7 +1749,6 @@ lws_context_destroy(struct lws_context *context)
 {
 	volatile struct lws_foreign_thread_pollfd *ftp, *next;
 	volatile struct lws_context_per_thread *vpt;
-	struct lws_context_per_thread *pt;
 	struct lws_vhost *vh = NULL;
 	struct lws wsi;
 	int n, m;
@@ -1796,7 +1794,7 @@ lws_context_destroy(struct lws_context *context)
 #endif
 
 	while (m--) {
-		pt = &context->pt[m];
+		struct lws_context_per_thread *pt = &context->pt[m];
 		vpt = (volatile struct lws_context_per_thread *)pt;
 
 		ftp = vpt->foreign_pfd_list;

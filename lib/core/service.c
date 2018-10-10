@@ -232,7 +232,9 @@ static int
 __lws_service_timeout_check(struct lws *wsi, time_t sec)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	int n = 0;
+#endif
 
 	(void)n;
 
@@ -244,9 +246,11 @@ __lws_service_timeout_check(struct lws *wsi, time_t sec)
 	    lws_compare_time_t(wsi->context, sec, wsi->pending_timeout_set) >
 			       wsi->pending_timeout_limit) {
 
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 		if (wsi->desc.sockfd != LWS_SOCK_INVALID &&
 		    wsi->position_in_fds_table >= 0)
 			n = pt->fds[wsi->position_in_fds_table].events;
+#endif
 
 		lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_TIMEOUTS, 1);
 

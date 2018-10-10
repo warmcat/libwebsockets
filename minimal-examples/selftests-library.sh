@@ -1,3 +1,4 @@
+#!/bin/bash
 
 if [ -z "$1" -o -z "$2" ] ; then
 	echo "required args missing"

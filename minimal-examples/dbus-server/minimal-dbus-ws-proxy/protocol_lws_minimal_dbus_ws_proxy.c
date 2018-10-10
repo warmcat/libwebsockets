@@ -488,7 +488,7 @@ new_conn(DBusServer *server, DBusConnection *conn, void *d)
 
 	memset(conn_wspctx, 0, sizeof(*conn_wspctx));
 
-	conn_wspctx->ctx.tsi = conn_wspctx->ctx.tsi;
+	conn_wspctx->ctx.tsi = wspctx->ctx.tsi;
 	conn_wspctx->ctx.vh = wspctx->ctx.vh;
 	conn_wspctx->ctx.conn = conn;
 	conn_wspctx->vhd = vhd; /* let accepted connections also know the vhd */
@@ -708,7 +708,8 @@ callback_minimal_dbus_wsproxy(struct lws *wsi, enum lws_callback_reasons reason,
 			    pmsg->first, pmsg->final);
 
 		/* notice we allowed for LWS_PRE in the payload already */
-		m = lws_write(wsi, pmsg->payload + LWS_PRE, pmsg->len, flags);
+		m = lws_write(wsi, ((unsigned char *)pmsg->payload) + LWS_PRE,
+			      pmsg->len, flags);
 		if (m < (int)pmsg->len) {
 			lwsl_err("ERROR %d writing to ws socket\n", m);
 			return -1;

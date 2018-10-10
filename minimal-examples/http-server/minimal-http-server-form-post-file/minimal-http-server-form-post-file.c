@@ -49,7 +49,6 @@ file_upload_cb(void *data, const char *name, const char *filename,
 	       char *buf, int len, enum lws_spa_fileupload_states state)
 {
 	struct pss *pss = (struct pss *)data;
-	int n;
 
 	switch (state) {
 	case LWS_UFS_OPEN:
@@ -68,6 +67,8 @@ file_upload_cb(void *data, const char *name, const char *filename,
 	case LWS_UFS_FINAL_CONTENT:
 	case LWS_UFS_CONTENT:
 		if (len) {
+			int n;
+
 			pss->file_length += len;
 
 			n = write(pss->fd, buf, len);

@@ -543,7 +543,6 @@ esp_err_t lws_esp32_event_passthru(void *ctx, system_event_t *event)
 	struct lws_group_member *mem;
 	int n;
 #endif
-	char slot[8];
 	nvs_handle nvh;
 	uint32_t use;
 
@@ -587,6 +586,8 @@ esp_err_t lws_esp32_event_passthru(void *ctx, system_event_t *event)
 				(uint8_t *)&event->event_info.got_ip.ip_info.gw);
 
 		if (!nvs_open("lws-station", NVS_READWRITE, &nvh)) {
+			char slot[8];
+
 			lws_snprintf(slot, sizeof(slot) - 1, "%duse", try_slot);
 			use = 0;
 			nvs_get_u32(nvh, slot, &use);
@@ -1154,6 +1155,7 @@ lws_esp32_selfsigned(struct lws_vhost *vhost)
 	nvs_close(nvh);
 	if (n == 3) {
 		lwsl_notice("%s: certs exist\n", __func__);
+		free(buf);
 		return 0; /* certs already exist */
 	}
 

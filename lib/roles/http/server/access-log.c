@@ -40,16 +40,16 @@ static const char * const hver[] = {
 void
 lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int meth)
 {
+	char da[64], uri[256];
+	const char *pa, *me;
+	time_t t = time(NULL);
+	int l = 256, m;
 #ifdef LWS_WITH_IPV6
 	char ads[INET6_ADDRSTRLEN];
 #else
 	char ads[INET_ADDRSTRLEN];
 #endif
-	char da[64], uri[256];
-	const char *pa, *me;
 	struct tm *tmp;
-	time_t t = time(NULL);
-	int l = 256, m;
 
 	if (!wsi->vhost)
 		return;
@@ -62,73 +62,72 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int met
 		lws_access_log(wsi);
 
 	wsi->http.access_log.header_log = lws_malloc(l, "access log");
-	if (wsi->http.access_log.header_log) {
+	if (!wsi->http.access_log.header_log)
+		return;
 
-		tmp = localtime(&t);
-		if (tmp)
-			strftime(da, sizeof(da), "%d/%b/%Y:%H:%M:%S %z", tmp);
-		else
-			strcpy(da, "01/Jan/1970:00:00:00 +0000");
+	tmp = localtime(&t);
+	if (tmp)
+		strftime(da, sizeof(da), "%d/%b/%Y:%H:%M:%S %z", tmp);
+	else
+		strcpy(da, "01/Jan/1970:00:00:00 +0000");
 
-		pa = lws_get_peer_simple(wsi, ads, sizeof(ads));
-		if (!pa)
-			pa = "(unknown)";
+	pa = lws_get_peer_simple(wsi, ads, sizeof(ads));
+	if (!pa)
+		pa = "(unknown)";
 
-		if (wsi->http2_substream)
-			me = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_METHOD);
-		else
-			me = method_names[meth];
-		if (!me)
-			me = "(null)";
+	if (wsi->http2_substream)
+		me = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_METHOD);
+	else
+		me = method_names[meth];
+	if (!me)
+		me = "(null)";
 
-		m = uri_len;
-		if (m > (int)sizeof(uri) - 1)
-			m = sizeof(uri) - 1;
+	m = uri_len;
+	if (m > (int)sizeof(uri) - 1)
+		m = sizeof(uri) - 1;
 
-		strncpy(uri, uri_ptr, m);
-		uri[m] = '\0';
+	strncpy(uri, uri_ptr, m);
+	uri[m] = '\0';
 
-		lws_snprintf(wsi->http.access_log.header_log, l,
-			 "%s - - [%s] \"%s %s %s\"",
-			 pa, da, me, uri,
-			 hver[wsi->http.request_version]);
+	lws_snprintf(wsi->http.access_log.header_log, l,
+		 "%s - - [%s] \"%s %s %s\"",
+		 pa, da, me, uri, hver[wsi->http.request_version]);
 
-		//lwsl_notice("%s\n", wsi->http.access_log.header_log);
+	//lwsl_notice("%s\n", wsi->http.access_log.header_log);
 
-		l = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_USER_AGENT);
-		if (l) {
-			wsi->http.access_log.user_agent = lws_malloc(l + 2, "access log");
-			if (!wsi->http.access_log.user_agent) {
-				lwsl_err("OOM getting user agent\n");
-				lws_free_set_NULL(wsi->http.access_log.header_log);
-				return;
-			}
-
-			lws_hdr_copy(wsi, wsi->http.access_log.user_agent,
-					l + 1, WSI_TOKEN_HTTP_USER_AGENT);
-
-			for (m = 0; m < l; m++)
-				if (wsi->http.access_log.user_agent[m] == '\"')
-					wsi->http.access_log.user_agent[m] = '\'';
+	l = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_USER_AGENT);
+	if (l) {
+		wsi->http.access_log.user_agent = lws_malloc(l + 2, "access log");
+		if (!wsi->http.access_log.user_agent) {
+			lwsl_err("OOM getting user agent\n");
+			lws_free_set_NULL(wsi->http.access_log.header_log);
+			return;
 		}
-		l = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_REFERER);
-		if (l) {
-			wsi->http.access_log.referrer = lws_malloc(l + 2, "referrer");
-			if (!wsi->http.access_log.referrer) {
-				lwsl_err("OOM getting user agent\n");
-				lws_free_set_NULL(wsi->http.access_log.user_agent);
-				lws_free_set_NULL(wsi->http.access_log.header_log);
-				return;
-			}
-			lws_hdr_copy(wsi, wsi->http.access_log.referrer,
-					l + 1, WSI_TOKEN_HTTP_REFERER);
 
-			for (m = 0; m < l; m++)
-				if (wsi->http.access_log.referrer[m] == '\"')
-					wsi->http.access_log.referrer[m] = '\'';
-		}
-		wsi->access_log_pending = 1;
+		lws_hdr_copy(wsi, wsi->http.access_log.user_agent,
+				l + 1, WSI_TOKEN_HTTP_USER_AGENT);
+
+		for (m = 0; m < l; m++)
+			if (wsi->http.access_log.user_agent[m] == '\"')
+				wsi->http.access_log.user_agent[m] = '\'';
 	}
+	l = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_REFERER);
+	if (l) {
+		wsi->http.access_log.referrer = lws_malloc(l + 2, "referrer");
+		if (!wsi->http.access_log.referrer) {
+			lwsl_err("OOM getting user agent\n");
+			lws_free_set_NULL(wsi->http.access_log.user_agent);
+			lws_free_set_NULL(wsi->http.access_log.header_log);
+			return;
+		}
+		lws_hdr_copy(wsi, wsi->http.access_log.referrer,
+				l + 1, WSI_TOKEN_HTTP_REFERER);
+
+		for (m = 0; m < l; m++)
+			if (wsi->http.access_log.referrer[m] == '\"')
+				wsi->http.access_log.referrer[m] = '\'';
+	}
+	wsi->access_log_pending = 1;
 }
 
 

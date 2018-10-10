@@ -79,7 +79,7 @@ callback_dynamic_http(struct lws *wsi, enum lws_callback_reasons reason,
 			return 1;
 
 		pss->times = 0;
-		pss->budget = atoi(in + 1);
+		pss->budget = atoi((char *)in + 1);
 		pss->content_lines = 0;
 		if (!pss->budget)
 			pss->budget = 10;

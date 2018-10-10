@@ -36,8 +36,6 @@ lws_jwk_destroy_genrsa_elements(struct lws_genrsa_elements *el)
 LWS_VISIBLE int
 lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_genrsa_elements *el)
 {
-	int n;
-
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->ctx = lws_zalloc(sizeof(*ctx->ctx), "genrsa");
 	if (!ctx->ctx)
@@ -46,6 +44,8 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_genrsa_elements *el)
 	mbedtls_rsa_init(ctx->ctx, MBEDTLS_RSA_PKCS_V15, 0);
 
 	{
+		int n;
+
 		mbedtls_mpi *mpi[LWS_COUNT_RSA_ELEMENTS] = {
 			&ctx->ctx->E, &ctx->ctx->N, &ctx->ctx->D, &ctx->ctx->P,
 			&ctx->ctx->Q, &ctx->ctx->DP, &ctx->ctx->DQ,

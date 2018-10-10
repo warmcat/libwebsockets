@@ -46,10 +46,6 @@ _lws_plat_apply_caps(int mode, const cap_value_t *cv, int count)
 void
 lws_plat_drop_app_privileges(const struct lws_context_creation_info *info)
 {
-#if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
-	int n;
-#endif
-
 	if (info->gid && info->gid != -1)
 		if (setgid(info->gid))
 			lwsl_warn("setgid: %s\n", strerror(LWS_ERRNO));
@@ -75,10 +71,12 @@ lws_plat_drop_app_privileges(const struct lws_context_creation_info *info)
 			_lws_plat_apply_caps(CAP_EFFECTIVE, info->caps,
 					     info->count_caps);
 
-			if (info->count_caps)
+			if (info->count_caps) {
+				int n;
 				for (n = 0; n < info->count_caps; n++)
 					lwsl_notice("   RETAINING CAPABILITY %d\n",
 						    (int)info->caps[n]);
+			}
 #endif
 
 		} else

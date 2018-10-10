@@ -1,4 +1,4 @@
-#/bin/bash
+#!/bin/bash
 
 if [ "$COVERITY_SCAN_BRANCH" != 1 -a "$TRAVIS_OS_NAME" = "osx" ]; then
 	if [ "$LWS_METHOD" != "mbedtls" ] ; then

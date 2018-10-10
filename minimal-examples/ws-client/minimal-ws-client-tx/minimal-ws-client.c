@@ -214,8 +214,8 @@ init_fail:
 			goto skip;
 
 		/* notice we allowed for LWS_PRE in the payload already */
-		m = lws_write(wsi, pmsg->payload + LWS_PRE, pmsg->len,
-			      LWS_WRITE_TEXT);
+		m = lws_write(wsi, ((unsigned char *)pmsg->payload) + LWS_PRE,
+			      pmsg->len, LWS_WRITE_TEXT);
 		if (m < (int)pmsg->len) {
 			pthread_mutex_unlock(&vhd->lock_ring); /* } ring lock */
 			lwsl_err("ERROR %d writing to ws socket\n", m);

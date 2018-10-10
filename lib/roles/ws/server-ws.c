@@ -104,7 +104,7 @@ lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 				continue;
 		}
 
-		while (args && *args && *args == ' ')
+		while (args && *args == ' ')
 			args++;
 
 		/* check a client's extension against our support */
@@ -643,7 +643,7 @@ lws_ws_frame_rest_is_payload(struct lws *wsi, uint8_t **buf, size_t len)
 	if (avail > len)
 		avail = (unsigned int)len;
 
-	if (avail <= 0)
+	if (!avail)
 		return 0;
 
 	ebuf.token = (char *)buffer;

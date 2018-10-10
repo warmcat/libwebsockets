@@ -1,4 +1,4 @@
-(function () {
+(function() {
 
 /*
  * We display untrusted stuff in html context... reject anything
@@ -7,7 +7,7 @@
 
 function san(s)
 {
-	if (s.search("<") != -1)
+	if (s.search("<") !== -1)
 		return "invalid string";
 	
 	return s;
@@ -15,7 +15,7 @@ function san(s)
 
 function humanize(s)
 {
-	i = parseInt(s);
+	var i = parseInt(s, 10);
 	
 	if (i > 1000000000)
 		return (i / 1000000000).toFixed(3) + "G";
@@ -41,16 +41,16 @@ function get_appropriate_ws_url()
 	 * https:// url itself, otherwise unencrypted
 	 */
 
-	if (u.substring(0, 5) == "https") {
+	if (u.substring(0, 5) === "https") {
 		pcol = "wss://";
 		u = u.substr(8);
 	} else {
 		pcol = "ws://";
-		if (u.substring(0, 4) == "http")
+		if (u.substring(0, 4) === "http")
 			u = u.substr(7);
 	}
 
-	u = u.split('/');
+	u = u.split("/");
 
 	/* + "/xxx" bit is for IE10 workaround */
 
@@ -69,7 +69,7 @@ function ws_open_server_status()
 		socket_status.onopen = function() {
 			document.getElementById("title").innerHTML = "Server Status (Active)";
 			lws_gray_out(false);
-		}
+		};
 
 		socket_status.onmessage =function got_packet(msg) {
 			var u, ci, n;
@@ -77,9 +77,9 @@ function ws_open_server_status()
 			if (msg.data.length < 100)
 				return;
 			jso = JSON.parse(msg.data);
-			u = parseInt(san(jso.i.uptime));
+			u = parseInt(san(jso.i.uptime), 10);
 
-			if (parseInt(jso.i.contexts[0].deprecated) == 0)
+			if (parseInt(jso.i.contexts[0].deprecated, 10) === 0)
 				s = "<table><tr><td></td><td class=\"c0\">";
 			else
 				s = "<table><tr><td></td><td class=\"dc0\">";
@@ -107,14 +107,14 @@ function ws_open_server_status()
 
 			for (ci = 0; ci < jso.i.contexts.length; ci++) {
 
-				if (parseInt(jso.i.contexts[ci].deprecated) == 0)
+				if (parseInt(jso.i.contexts[ci].deprecated, 10) === 0)
 					s += "<tr><td></td><td class=\"c\">" +
 					  "Active Context</td><td>";
 				else
 					s += "<tr><td></td><td class=\"c1\">" +
 					  "Deprecated Context " + ci + "</td><td>";
 
-				  u = parseInt(san(jso.i.contexts[ci].context_uptime));
+				  u = parseInt(san(jso.i.contexts[ci].context_uptime), 10);
 	  			  s += "<span class=n>Uptime:</span> <span class=v>" +
 				  ((u / (24 * 3600)) | 0) + "d " +
 				  (((u % (24 * 3600)) / 3600) | 0) + "h " +
@@ -123,8 +123,8 @@ function ws_open_server_status()
 				s = s +
 				  "<br>" +
 				  "<span class=n>Listening wsi:</span> <span class=v>" + san(jso.i.contexts[ci].listen_wsi) + "</span>, " +
-				  "<span class=n>Current wsi alive:</span> <span class=v>" + (parseInt(san(jso.i.contexts[ci].wsi_alive)) -
-				  							      parseInt(san(jso.i.contexts[ci].listen_wsi))) + "</span><br>" +
+				  "<span class=n>Current wsi alive:</span> <span class=v>" + (parseInt(san(jso.i.contexts[ci].wsi_alive), 10) -
+						  parseInt(san(jso.i.contexts[ci].listen_wsi), 10)) + "</span><br>" +
 			  	  "<span class=n>Total Rx:</span> <span class=v>" + humanize(san(jso.i.contexts[ci].rx)) +"</span>, " +
 			  	  "<span class=n>Total Tx:</span> <span class=v>" + humanize(san(jso.i.contexts[ci].tx)) +"</span><br>" +
 			  	  
@@ -144,7 +144,7 @@ function ws_open_server_status()
 				
 				for (n = 0; n < jso.i.contexts[ci].pt.length; n++) {
 
-					if (parseInt(jso.i.contexts[ci].deprecated) == 0)
+					if (parseInt(jso.i.contexts[ci].deprecated, 10) === 0)
 						s += "<tr><td>&nbsp;&nbsp;</td><td class=\"l\">service thread " + (n + 1);
 					else
 						s += "<tr><td>&nbsp;&nbsp;</td><td class=\"dl\">service thread " + (n + 1);
@@ -159,18 +159,18 @@ function ws_open_server_status()
 	
 				}
 				for (n = 0; n < jso.i.contexts[ci].vhosts.length; n++) {
-					if (parseInt(jso.i.contexts[ci].deprecated) == 0)
+					if (parseInt(jso.i.contexts[ci].deprecated, 10) === 0)
 						s += "<tr><td>&nbsp;&nbsp;</td><td class=\"l\">vhost " + (n + 1);
 					else
 						s += "<tr><td>&nbsp;&nbsp;</td><td class=\"dl\">vhost " + (n + 1);
 					s += "</td><td><span class=\"mountname\">";
-					if (jso.i.contexts[ci].vhosts[n].use_ssl == '1')
+					if (jso.i.contexts[ci].vhosts[n].use_ssl === "1")
 						s = s + "https://";
 					else
 						s = s + "http://";
 					s = s + san(jso.i.contexts[ci].vhosts[n].name) + ":" +
 						san(jso.i.contexts[ci].vhosts[n].port) + "</span>";
-					if (jso.i.contexts[ci].vhosts[n].sts == '1')
+					if (jso.i.contexts[ci].vhosts[n].sts === "1")
 						s = s + " (STS)";
 					s = s +"<br>" +
 					
@@ -196,7 +196,7 @@ function ws_open_server_status()
 							"</span></td><td><span class=\"m2\">" +
 							san(jso.i.contexts[ci].vhosts[n].mounts[m].origin) +
 							"</span></td><td>";
-						if (parseInt(san(jso.i.contexts[ci].vhosts[n].mounts[m].cache_max_age)))
+						if (parseInt(san(jso.i.contexts[ci].vhosts[n].mounts[m].cache_max_age), 10))
 							s = s + "<span class=n>max-age:</span> <span class=v>" +
 							san(jso.i.contexts[ci].vhosts[n].mounts[m].cache_max_age) +
 							"</span>, <span class=n>reuse:</span> <span class=v>" +
@@ -205,7 +205,7 @@ function ws_open_server_status()
 							san(jso.i.contexts[ci].vhosts[n].mounts[m].cache_revalidate) +
 							"</span>, <span class=n>inter:</span> <span class=v>" +
 							san(jso.i.contexts[ci].vhosts[n].mounts[m].cache_intermediaries);
-						s = s + "</span></td></tr>"
+						s = s + "</span></td></tr>";
 					}
 					s = s + "</table>";
 					s = s + "</td></tr>";
@@ -217,14 +217,14 @@ function ws_open_server_status()
 			s = s + "</table>";
 			
 			document.getElementById("conninfo").innerHTML = s;
-		} 
+		};
 
 		socket_status.onclose = function(){
 			document.getElementById("title").innerHTML = "Server Status (Disconnected)";
-			lws_gray_out(true,{'zindex':'499'});
-		}
+			lws_gray_out(true,{"zindex":"499"});
+		};
 	} catch(exception) {
-		alert('<p>Error' + exception);  
+		alert("<p>Error" + exception);  
 	}
 }
 
@@ -232,10 +232,11 @@ function ws_open_server_status()
 
 window.addEventListener("load", function() {
 
-	lws_gray_out(true,{'zindex':'499'});
+	lws_gray_out(true,{"zindex":"499"});
 	
 	ws_open_server_status();
 	
 }, false);
 
-})();
+}());
+

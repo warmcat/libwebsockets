@@ -5,7 +5,7 @@ This is a test client used to test `./minimal-examples/dbus-server/minimal-dbus-
 It asks the minimal dbus ws proxy application to connect to libwebsockets.org
 over the mirror protocol.  And it proxies back the ASCII packets used to
 communicate the mirror sample drawing vectors over dbus to this test client
-if you draw on the mirror example app at https://libwebsockets.org/testserver/
+if you draw on the [mirror example app](https://libwebsockets.org/testserver/)
 in a browser.
 
 ## build

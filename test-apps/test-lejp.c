@@ -52,11 +52,12 @@ static signed char
 cb(struct lejp_ctx *ctx, char reason)
 {
 	char buf[1024], *p = buf, *end = &buf[sizeof(buf)];
-	int n;
 
 	if (reason & LEJP_FLAG_CB_IS_VALUE) {
 		p += lws_snprintf(p, p - end, "   value '%s' ", ctx->buf);
 		if (ctx->ipos) {
+			int n;
+
 			p += lws_snprintf(p, p - end, "(array indexes: ");
 			for (n = 0; n < ctx->ipos; n++)
 				p += lws_snprintf(p, p - end, "%d ", ctx->i[n]);

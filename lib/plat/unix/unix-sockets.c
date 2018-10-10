@@ -31,10 +31,12 @@ int
 lws_send_pipe_choked(struct lws *wsi)
 {
 	struct lws_pollfd fds;
-	struct lws *wsi_eff = wsi;
+	struct lws *wsi_eff;
 
 #if defined(LWS_WITH_HTTP2)
 	wsi_eff = lws_get_network_wsi(wsi);
+#else
+	wsi_eff = wsi;
 #endif
 
 	/* the fact we checked implies we avoided back-to-back writes */

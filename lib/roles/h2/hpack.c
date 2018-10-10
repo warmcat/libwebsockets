@@ -489,7 +489,7 @@ lws_dynamic_token_insert(struct lws *wsi, int hdr_len,
 			 int lws_hdr_index, char *arg, int len)
 {
 	struct hpack_dynamic_table *dyn;
-	int new_index, n;
+	int new_index;
 
 	/* dynamic table only belongs to network wsi */
 	wsi = lws_get_network_wsi(wsi);
@@ -522,7 +522,7 @@ lws_dynamic_token_insert(struct lws *wsi, int hdr_len,
 	       dyn->used_entries &&
 	       dyn->virtual_payload_usage + hdr_len + len >
 				dyn->virtual_payload_max + 1024) {
-		n = (dyn->pos - dyn->used_entries) % dyn->num_entries;
+		int n = (dyn->pos - dyn->used_entries) % dyn->num_entries;
 		if (n < 0)
 			n += dyn->num_entries;
 		lws_dynamic_free(dyn, n);

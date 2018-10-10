@@ -119,15 +119,16 @@ static romfs_inode_t
 romfs_lookup(romfs_t romfs, romfs_inode_t start, const char *path)
 {
 	romfs_inode_t level, i = start, i_in;
-	const char *p, *n, *cp;
+	const char *p, *cp;
 	uint32_t next_be;
 
 	if (start == (romfs_inode_t)romfs)
 		i = skip_and_pad((romfs_inode_t)romfs);
 	level = i;
 	while (i != (romfs_inode_t)romfs) {
+		const char *n = ((const char *)i) + sizeof(*i);
+
 		p = path;
-		n = ((const char *)i) + sizeof(*i);
 		i_in = i;
 
 		set_cache(i, sizeof(*i));
@@ -142,7 +143,7 @@ romfs_lookup(romfs_t romfs, romfs_inode_t start, const char *path)
 			cp++;
 		}
 
-		while (*p && *p == '/' && p[1] == '/')
+		while (*p == '/' && p[1] == '/')
 			p++;
 
 		if (!*cp && (!*p || *p == '/') &&
@@ -165,7 +166,7 @@ romfs_lookup(romfs_t romfs, romfs_inode_t start, const char *path)
 		if (!*p && *cp == '/')
 			return NULL;
 
-		while (*p && *p == '/' && p[1] == '/')
+		while (*p == '/' && p[1] == '/')
 			p++;
 
 		if (*p == '/' && !*cp) {

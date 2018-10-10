@@ -10,9 +10,9 @@ then
 	then
 		sudo apt-get install -y -qq realpath libjemalloc1 libev4 libuv-dev libdbus-1-dev
 		sudo apt-get remove python-six
-		sudo pip install six>=1.9
-		sudo pip install Twisted==16.0.0
-		sudo pip install pyopenssl>=0.14
+		sudo pip install "six>=1.9"
+		sudo pip install "Twisted==16.0.0"
+		sudo pip install "pyopenssl>=0.14"
 		sudo pip install autobahntestsuite
 		wget https://libwebsockets.org/openssl-1.1.0-trusty.tar.bz2 -O/tmp/openssl.tar.bz2
 		cd /

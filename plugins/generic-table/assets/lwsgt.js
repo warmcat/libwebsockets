@@ -3,12 +3,12 @@ function lwsgt_get_appropriate_ws_url()
 	var pcol;
 	var u = document.URL;
 
-	if (u.substring(0, 5) == "https") {
+	if (u.substring(0, 5) === "https") {
 		pcol = "wss://";
 		u = u.substr(8);
 	} else {
 		pcol = "ws://";
-		if (u.substring(0, 4) == "http")
+		if (u.substring(0, 4) === "http")
 			u = u.substr(7);
 	}
 
@@ -25,7 +25,8 @@ function lwsgt_app_hdr(j, bc, ws)
 		if (!j.cols[n].hide)
 			m++;
 
-	s = "<tr><td colspan=\"" + m + "\" class=\"lwsgt_title\">" + ws.lwsgt_title + "</td></tr>"
+	s = "<tr><td colspan=\"" + m + "\" class=\"lwsgt_title\">" +
+		ws.lwsgt_title + "</td></tr>";
 
 	if (!!bc) {
 		s += "<tr><td colspan=\"" + m + "\" class=\"lwsgt_breadcrumbs\">";
@@ -34,7 +35,8 @@ function lwsgt_app_hdr(j, bc, ws)
 			if (!bc[n].url && bc[n].url !== "")
 				s += " " + lws_san(bc[n].name) + " ";
 			else {
-				s = s + "<a href=# id=\"bc_"+ ws.divname + ws.bcq + "\" h=\"" + ws.lwsgt_cb + "\" p=\""+ws.lwsgt_parent+"\" aa=\"="+
+				s += "<a href=# id=\"bc_"+ ws.divname + ws.bcq + "\" h=\"" +
+				    ws.lwsgt_cb + "\" p=\""+ws.lwsgt_parent+"\" aa=\"="+
 					lws_san(encodeURI(bc[n].url))+"\" m=\"-1\" n=\"-1\">" +
 					lws_san(bc[n].name) + "</a> ";
 				ws.bcq++;
@@ -45,18 +47,25 @@ function lwsgt_app_hdr(j, bc, ws)
 	s += "<tr>";
 	for (n = 0; n < j.cols.length; n++)
 		if (!j.cols[n].hide)
-			s = s + "<td class=\"lwsgt_hdr\">" + lws_san(j.cols[n].name) + "</td>";
+			s = s + "<td class=\"lwsgt_hdr\">" + lws_san(j.cols[n].name) +
+				"</td>";
 	
 	s += "</tr>";
 	
 	return s;
-} 
+}
+
+function lwsgt_click_callthru()
+{
+	window[this.getAttribute("h")](this.getAttribute("p"), this.getAttribute("aa"), this.getAttribute("m"), this.getAttribute("n"));
+	event.preventDefault();
+}
 
 function lwsgt_initial(title, pcol, divname, cb, gname)
 {
 	this.divname = divname;
 	
-	lws_gray_out(true,{'zindex':'499'});
+	lws_gray_out(true,{"zindex":"499"});
 
 	if (typeof MozWebSocket != "undefined")
 		this.lwsgt_ws = new MozWebSocket(lwsgt_get_appropriate_ws_url(), pcol);
@@ -71,7 +80,7 @@ function lwsgt_initial(title, pcol, divname, cb, gname)
 			lws_gray_out(false);
 		//	document.getElementById("debug").textContent =
 		//		"ws opened " + lwsgt_get_appropriate_ws_url();
-		}
+		};
 		this.lwsgt_ws.onmessage = function got_packet(msg) {
 			var s, m, n, j = JSON.parse(msg.data);
 			document.getElementById("debug").textContent = msg.data;
@@ -114,24 +123,20 @@ function lwsgt_initial(title, pcol, divname, cb, gname)
 				s = s + "</table>";
 				document.getElementById(this.divname).innerHTML = s;
 				for (n = 0; n < q; n++)
-					document.getElementById(this.divname + n).onclick = lwsgt_click_callthru;
+					document.getElementById(this.divname + n).onclick =
+						lwsgt_click_callthru;
 
 				for (n = 0; n < this.bcq; n++)
-					document.getElementById("bc_" + this.divname + n).onclick = lwsgt_click_callthru;
+					document.getElementById("bc_" + this.divname + n).onclick =
+						lwsgt_click_callthru;
 
 			}		
-		}
+		};
 		this.lwsgt_ws.onclose = function(){
-			lws_gray_out(true,{'zindex':'499'});
-		}
+			lws_gray_out(true,{"zindex":"499"});
+		};
 	} catch(exception) {
-		alert('<p>Error' + exception);  
+		alert("<p>Error" + exception);  
 	}
-}
-
-function lwsgt_click_callthru()
-{
-	window[this.getAttribute("h")](this.getAttribute("p"), this.getAttribute("aa"), this.getAttribute("m"), this.getAttribute("n"));
-	event.preventDefault();
 }
 

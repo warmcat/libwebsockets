@@ -67,7 +67,7 @@ callback_minimal_server_echo(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_get_protocol(wsi));
 	const struct msg *pmsg;
 	struct msg amsg;
-	int n, m, flags;
+	int n, flags;
 
 	switch (reason) {
 
@@ -104,6 +104,8 @@ callback_minimal_server_echo(struct lws *wsi, enum lws_callback_reasons reason,
 
 		lwsl_user("LWS_CALLBACK_SERVER_WRITEABLE\n");
 		do {
+			int m;
+
 			pmsg = lws_ring_get_element(pss->ring, &pss->tail);
 			if (!pmsg) {
 				lwsl_user(" (nothing in ring)\n");
@@ -115,7 +117,8 @@ callback_minimal_server_echo(struct lws *wsi, enum lws_callback_reasons reason,
 				    pmsg->first, pmsg->final);
 
 			/* notice we allowed for LWS_PRE in the payload already */
-			m = lws_write(wsi, pmsg->payload + LWS_PRE, pmsg->len, flags);
+			m = lws_write(wsi, ((unsigned char *)pmsg->payload) +
+				      LWS_PRE, pmsg->len, flags);
 			if (m < (int)pmsg->len) {
 				lwsl_err("ERROR %d writing to ws socket\n", m);
 				return -1;

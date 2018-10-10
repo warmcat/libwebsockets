@@ -158,7 +158,7 @@ LWS_VISIBLE int
 lws_jwk_export(struct lws_jwk *s, int private, char *p, size_t len)
 {
 	char *start = p, *end = &p[len - 1];
-	int n, m, limit = LWS_COUNT_RSA_ELEMENTS;
+	int n, limit = LWS_COUNT_RSA_ELEMENTS;
 
 	/* RFC7638 lexicographic order requires
 	 *  RSA: e -> kty -> n
@@ -202,6 +202,8 @@ lws_jwk_export(struct lws_jwk *s, int private, char *p, size_t len)
 			limit = JWK_KEY_N + 1;
 
 		for (n = 0; n < limit; n++) {
+			int m;
+
 			if (!s->el.e[n].buf)
 				continue;
 			lwsl_info("%d: len %d\n", n, s->el.e[n].len);

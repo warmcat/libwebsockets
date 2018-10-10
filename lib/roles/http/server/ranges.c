@@ -67,11 +67,10 @@ int
 lws_ranges_next(struct lws_range_parsing *rp)
 {
 	static const char * const beq = "bytes=";
-	char c;
 
 	while (1) {
 
-		c = rp->buf[rp->pos];
+		char c = rp->buf[rp->pos];
 
 		switch (rp->state) {
 		case LWSRS_SYNTAX:

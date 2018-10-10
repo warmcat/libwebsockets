@@ -90,9 +90,6 @@ OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 int
 lws_ssl_client_bio_create(struct lws *wsi)
 {
-#if defined LWS_HAVE_X509_VERIFY_PARAM_set1_host
-	X509_VERIFY_PARAM *param;
-#endif
 	char hostname[128], *p;
 #if defined(LWS_HAVE_SSL_set_alpn_protos) && \
     defined(LWS_HAVE_SSL_get0_alpn_selected)
@@ -139,7 +136,8 @@ lws_ssl_client_bio_create(struct lws *wsi)
 
 #if defined LWS_HAVE_X509_VERIFY_PARAM_set1_host
 	if (!(wsi->tls.use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK)) {
-		param = SSL_get0_param(wsi->tls.ssl);
+		X509_VERIFY_PARAM *param = SSL_get0_param(wsi->tls.ssl);
+
 		/* Enable automatic hostname checks */
 		X509_VERIFY_PARAM_set_hostflags(param,
 						X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);

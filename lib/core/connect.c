@@ -138,7 +138,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	 * role finalization
 	 */
 
-	if (wsi && !wsi->user_space && i->userdata) {
+	if (!wsi->user_space && i->userdata) {
 		wsi->user_space_externally_allocated = 1;
 		wsi->user_space = i->userdata;
 	}
@@ -155,7 +155,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	 * role finalization
 	 */
 
-	if (wsi && !wsi->user_space && i->userdata) {
+	if (!wsi->user_space && i->userdata) {
 		wsi->user_space_externally_allocated = 1;
 		wsi->user_space = i->userdata;
 	}

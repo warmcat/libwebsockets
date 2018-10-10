@@ -644,7 +644,7 @@ lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 		size_t klen = i2d_X509_PUBKEY(X509_get_X509_PUBKEY(x509), NULL);
 		uint8_t *tmp, *ptmp;
 
-		if (klen <= 0 || klen > len)
+		if (!klen || klen > len)
 			return -1;
 
 		tmp = (uint8_t *)OPENSSL_malloc(klen);

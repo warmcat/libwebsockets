@@ -966,7 +966,6 @@ lws_threadpool_task_status_wsi(struct lws *wsi,
 {
 	enum lws_threadpool_task_status status;
 	struct lws_threadpool *tp;
-	char buf[160];
 
 	*task = wsi->tp_task;
 	if (!*task)
@@ -978,6 +977,7 @@ lws_threadpool_task_status_wsi(struct lws *wsi,
 
 	if (status == LWS_TP_STATUS_FINISHED ||
 	    status == LWS_TP_STATUS_STOPPED) {
+		char buf[160];
 
 		pthread_mutex_lock(&tp->lock); /* ================ tpool lock */
 		__lws_threadpool_task_dump(*task, buf, sizeof(buf));

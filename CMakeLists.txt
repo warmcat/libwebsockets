@@ -1772,14 +1772,6 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2) AND NOT LWS_WITHOUT_TESTAPPS)
 
 			endif()
 
-			if (UNIX)
-				create_test_app(test-fuzxy "test-apps/fuzxy.c"
-					""
-					""
-					""
-					""
-					"")
-			endif()
 		endif()
 
 		#

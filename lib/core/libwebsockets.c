@@ -1709,7 +1709,8 @@ lws_rx_flow_control(struct lws *wsi, int _enable)
 	    wsi->rxflow_change_to)
 		goto skip;
 
-	wsi->rxflow_change_to = LWS_RXFLOW_PENDING_CHANGE | !wsi->rxflow_bitmap;
+	wsi->rxflow_change_to = LWS_RXFLOW_PENDING_CHANGE |
+				(!wsi->rxflow_bitmap);
 
 	lwsl_info("%s: %p: bitmap 0x%x: en 0x%x, ch 0x%x\n", __func__, wsi,
 		  wsi->rxflow_bitmap, en, wsi->rxflow_change_to);
@@ -1850,7 +1851,9 @@ lws_set_proxy(struct lws_vhost *vhost, const char *proxy)
 
 		lwsl_info(" Proxy auth in use\n");
 
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 		proxy = p + 1;
+#endif
 	} else
 		vhost->proxy_basic_auth_token[0] = '\0';
 
@@ -1997,7 +2000,9 @@ LWS_VISIBLE int
 lwsl_timestamp(int level, char *p, int len)
 {
 #ifndef LWS_PLAT_OPTEE
+#ifndef _WIN32_WCE
 	time_t o_now = time(NULL);
+#endif
 	unsigned long long now;
 	struct tm *ptm = NULL;
 #ifndef WIN32
@@ -2132,9 +2137,7 @@ LWS_VISIBLE void
 lwsl_hexdump_level(int hexdump_level, const void *vbuf, size_t len)
 {
 	unsigned char *buf = (unsigned char *)vbuf;
-	unsigned int n, m, start;
-	char line[80];
-	char *p;
+	unsigned int n;
 
 	if (!lwsl_visible(hexdump_level))
 		return;
@@ -2148,8 +2151,8 @@ lwsl_hexdump_level(int hexdump_level, const void *vbuf, size_t len)
 	_lws_log(hexdump_level, "\n");
 
 	for (n = 0; n < len;) {
-		start = n;
-		p = line;
+		unsigned int start = n, m;
+		char line[80], *p = line;
 
 		p += sprintf(p, "%04X: ", start);
 
@@ -2557,6 +2560,8 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 #endif
 	struct sockaddr_storage sin;
 	struct sockaddr *v;
+
+	memset(&sin, 0, sizeof(sin));
 
 #if defined(LWS_WITH_UNIX_SOCK)
 	if (LWS_UNIX_SOCK_ENABLED(vhost)) {
@@ -3659,9 +3664,10 @@ LWS_VISIBLE LWS_EXTERN void
 lws_stats_log_dump(struct lws_context *context)
 {
 	struct lws_vhost *v = context->vhost_list;
-	int n, m;
-
-	(void)m;
+	int n;
+#if defined(LWS_WITH_PEER_LIMITS)
+	int m;
+#endif
 
 	if (!context->updated)
 		return;

@@ -37,6 +37,7 @@ static int
 callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 		  void *user, void *in, size_t len)
 {
+	const char *cp = (const char *)in;
 
 	switch (reason) {
 
@@ -93,7 +94,7 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_RAW_RX:
 		lwsl_user("LWS_CALLBACK_RAW_RX (%d)\n", (int)len);
 		while (len--)
-			putchar(*((const char *)in++));
+			putchar(*cp++);
 		fflush(stdout);
 		break;
 

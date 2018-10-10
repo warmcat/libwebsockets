@@ -27,11 +27,6 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
-struct lws_ss_load_sample {
-	time_t t;
-	int load_x100;
-};
-
 struct lws_ss_filepath {
 	struct lws_ss_filepath *next;
 	char filepath[128];
@@ -40,10 +35,6 @@ struct lws_ss_filepath {
 struct lws_ss_dumps {
 	char buf[32768];
 	int length;
-
-	struct lws_ss_load_sample load[64];
-	int load_head;
-	int load_tail;
 };
 
 struct per_session_data__server_status {
@@ -110,7 +101,6 @@ update(struct per_vhost_data__lws_server_status *v)
 	}
 	n = lws_snprintf(p, l, "]}");
 	p += n;
-	l -= n;
 
 	v->d.length = p - (v->d.buf + LWS_PRE);
 

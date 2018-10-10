@@ -673,7 +673,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	int n, port = 0, ssl = 0;
 	int close_reason = LWS_CLOSE_STATUS_PROTOCOL_ERR;
 	const char *prot, *ads = NULL, *path, *cce = NULL;
-	struct allocated_headers *ah = NULL;
+	struct allocated_headers *ah;
 	struct lws *w = lws_client_wsi_effective(wsi);
 	char *p, *q;
 	char new_path[300];

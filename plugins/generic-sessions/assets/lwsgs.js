@@ -390,7 +390,7 @@ function lwsgs_cupdate()
 
 	if (!document.getElementById('cpassword').value ||
 	    !document.getElementById('cpassword2').value ||
-	    pwok == 0)
+	    pwok === 0)
 		en_change = 0;
 	
 	if (document.getElementById('showdel').checked)
@@ -432,7 +432,7 @@ function lwsgs_cupdate()
 	else
 		document.getElementById('cforgot').style.display = "none";
 
-	if (pwok == 0)
+	if (pwok === 0)
 		op = '0.5';
 	else
 		op = '1.0';
@@ -445,7 +445,7 @@ function lwsgs_check_user()
 {
     var xmlHttp = new XMLHttpRequest();
     xmlHttp.onreadystatechange = function() { 
-        if (xmlHttp.readyState == 4 && xmlHttp.status == 200) {
+        if (xmlHttp.readyState === 4 && xmlHttp.status === 200) {
             lwsgs_user_check = xmlHttp.responseText;
 	    lwsgs_rupdate();
         }
@@ -458,7 +458,7 @@ function lwsgs_check_email(id)
 {
     var xmlHttp = new XMLHttpRequest();
     xmlHttp.onreadystatechange = function() { 
-        if (xmlHttp.readyState == 4 && xmlHttp.status == 200) {
+        if (xmlHttp.readyState === 4 && xmlHttp.status === 200) {
             lwsgs_email_check = xmlHttp.responseText;
 	    lwsgs_rupdate();
         }
@@ -547,7 +547,7 @@ window.addEventListener("load", function() {
 				wos = 0;
 			else {
 				wos++;
-				if (wos == 40) {
+				if (wos === 40) {
 					wos = 0;
 					r = r + ' ';
 				}

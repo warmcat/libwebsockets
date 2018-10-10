@@ -24,7 +24,7 @@
 
 #include "core/private.h"
 
-int pid_daemon;
+unsigned int pid_daemon;
 static char *lock_path;
 
 int get_daemonize_pid()
@@ -35,9 +35,6 @@ int get_daemonize_pid()
 static void
 child_handler(int signum)
 {
-	int fd, len, sent;
-	char sz[20];
-
 	switch (signum) {
 
 	case SIGALRM: /* timed out daemonizing */
@@ -47,9 +44,12 @@ child_handler(int signum)
 	case SIGUSR1: /* positive confirmation we daemonized well */
 
 		if (lock_path) {
+			char sz[20];
+			int len, sent;
+
 			/* Create the lock file as the current user */
 
-			fd = lws_open(lock_path, O_TRUNC | O_RDWR | O_CREAT, 0640);
+			int fd = lws_open(lock_path, O_TRUNC | O_RDWR | O_CREAT, 0640);
 			if (fd < 0) {
 				fprintf(stderr,
 				   "unable to create lock file %s, code=%d (%s)\n",
@@ -98,19 +98,22 @@ lws_daemonize(const char *_lock_path)
 {
 	struct sigaction act;
 	pid_t sid, parent;
-	int n, fd, ret;
-	char buf[10];
 
 	/* already a daemon */
 //	if (getppid() == 1)
 //		return 1;
 
 	if (_lock_path) {
-		fd = lws_open(_lock_path, O_RDONLY);
+		int n;
+
+		int fd = lws_open(_lock_path, O_RDONLY);
 		if (fd >= 0) {
+			char buf[10];
+
 			n = read(fd, buf, sizeof(buf));
 			close(fd);
 			if (n) {
+				int ret;
 				n = atoi(buf);
 				ret = kill(n, 0);
 				if (ret >= 0) {
@@ -141,7 +144,7 @@ lws_daemonize(const char *_lock_path)
 
 	/* Fork off the parent process */
 	pid_daemon = fork();
-	if (pid_daemon < 0) {
+	if ((int)pid_daemon < 0) {
 		fprintf(stderr, "unable to fork daemon, code=%d (%s)",
 		    errno, strerror(errno));
 		exit(9);

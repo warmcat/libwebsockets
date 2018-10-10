@@ -108,8 +108,8 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 
 		/* notice we allowed for LWS_PRE in the payload already */
-		m = lws_write(wsi, vhd->amsg.payload + LWS_PRE, vhd->amsg.len,
-			      LWS_WRITE_TEXT);
+		m = lws_write(wsi, ((unsigned char *)vhd->amsg.payload) +
+			      LWS_PRE, vhd->amsg.len, LWS_WRITE_TEXT);
 		if (m < (int)vhd->amsg.len) {
 			lwsl_err("ERROR %d writing to ws socket\n", m);
 			return -1;

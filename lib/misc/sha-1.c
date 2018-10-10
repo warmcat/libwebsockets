@@ -236,18 +236,14 @@ sha1_pad(struct sha1_ctxt *ctxt)
 void
 sha1_loop(struct sha1_ctxt *ctxt, const unsigned char *input, size_t len)
 {
-	size_t gaplen;
-	size_t gapstart;
 	size_t off;
-	size_t copysiz;
 
 	off = 0;
 
 	while (off < len) {
-		gapstart = COUNT % 64;
-		gaplen = 64 - gapstart;
+		size_t gapstart = COUNT % 64, gaplen = 64 - gapstart,
+		       copysiz = (gaplen < len - off) ? gaplen : len - off;
 
-		copysiz = (gaplen < len - off) ? gaplen : len - off;
 		memcpy(&ctxt->m.b8[gapstart], &input[off], copysiz);
 		COUNT += (unsigned char)copysiz;
 		COUNT %= 64;

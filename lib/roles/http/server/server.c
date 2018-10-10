@@ -307,7 +307,7 @@ lws_select_vhost(struct lws_context *context, int port, const char *servername)
 {
 	struct lws_vhost *vhost = context->vhost_list;
 	const char *p;
-	int n, m, colon;
+	int n, colon;
 
 	n = (int)strlen(servername);
 	colon = n;
@@ -335,7 +335,7 @@ lws_select_vhost(struct lws_context *context, int port, const char *servername)
 	 */
 	vhost = context->vhost_list;
 	while (vhost) {
-		m = (int)strlen(vhost->name);
+		int m = (int)strlen(vhost->name);
 		if (port && port == vhost->listen_port &&
 		    m <= (colon - 2) &&
 		    servername[colon - m - 1] == '.' &&
@@ -1202,7 +1202,7 @@ lws_http_action(struct lws *wsi)
 	    hit->origin_protocol == LWSMPRO_HTTP)  {
 		struct lws_client_connect_info i;
 		struct lws *cwsi;
-		char ads[96], rpath[256], *pcolon, *pslash, *p, unix_skt = 0;
+		char ads[96], rpath[256], *pcolon, *pslash, unix_skt = 0;
 		int n, na;
 
 		memset(&i, 0, sizeof(i));
@@ -1258,7 +1258,7 @@ lws_http_action(struct lws *wsi)
 		lws_clean_url(rpath);
 		na = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_URI_ARGS);
 		if (na) {
-			p = rpath + strlen(rpath);
+			char *p = rpath + strlen(rpath);
 			*p++ = '?';
 			lws_hdr_copy(wsi, p, &rpath[sizeof(rpath) - 1] - p,
 				     WSI_TOKEN_HTTP_URI_ARGS);
@@ -1485,8 +1485,6 @@ deal_body:
 		}
 
 		if (wsi->http.rx_content_length > 0) {
-			struct lws_tokens ebuf;
-			int m;
 
 			lwsi_set_state(wsi, LRS_BODY);
 			lwsl_info("%s: %p: LRS_BODY state set (0x%x)\n",
@@ -1502,12 +1500,18 @@ deal_body:
 			 */
 
 			while (1) {
+				struct lws_tokens ebuf;
+				int m;
+
 				ebuf.len = (int)lws_buflist_next_segment_len(
-						&wsi->buflist, (uint8_t **)&ebuf.token);
+						&wsi->buflist,
+						(uint8_t **)&ebuf.token);
 				if (!ebuf.len)
 					break;
-				lwsl_notice("%s: consuming %d\n", __func__, (int)ebuf.len);
-				m = lws_read_h1(wsi, (uint8_t *)ebuf.token, ebuf.len);
+				lwsl_notice("%s: consuming %d\n", __func__,
+							(int)ebuf.len);
+				m = lws_read_h1(wsi, (uint8_t *)ebuf.token,
+						ebuf.len);
 				if (m < 0)
 					return -1;
 
@@ -1588,7 +1592,7 @@ raw_transition:
 						    &role_ops_raw_skt);
 				lws_header_table_detach(wsi, 1);
 
-				if (m == 2 && (wsi->protocol->callback)(wsi,
+				if (wsi->protocol->callback(wsi,
 						LWS_CALLBACK_RAW_RX,
 						wsi->user_space, obuf, olen))
 					return 1;

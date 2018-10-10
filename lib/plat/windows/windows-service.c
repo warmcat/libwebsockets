@@ -34,7 +34,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	struct lws *wsi;
 	unsigned int i;
 	DWORD ev;
-	int n, m;
+	int n;
 
 	/* stay dead once we are dead */
 	if (context == NULL || !context->vhost_list)
@@ -58,6 +58,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		if (lws_service_flag_pending(context, tsi)) {
 			/* any socket with events to service? */
 			for (n = 0; n < (int)pt->fds_count; n++) {
+				int m;
 				if (!pt->fds[n].revents)
 					continue;
 
@@ -125,7 +126,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 
 	ev = WSAWaitForMultipleEvents(1, &pt->events, FALSE, timeout_ms, FALSE);
 	if (ev == WSA_WAIT_EVENT_0) {
-		unsigned int eIdx, err;
+		unsigned int eIdx;
 
 		WSAResetEvent(pt->events);
 
@@ -134,6 +135,8 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 			pt->context->tls_ops->fake_POLLIN_for_buffered(pt);
 
 		for (eIdx = 0; eIdx < pt->fds_count; ++eIdx) {
+			unsigned int err;
+
 			if (WSAEnumNetworkEvents(pt->fds[eIdx].fd, 0,
 					&networkevents) == SOCKET_ERROR) {
 				lwsl_err("WSAEnumNetworkEvents() failed "

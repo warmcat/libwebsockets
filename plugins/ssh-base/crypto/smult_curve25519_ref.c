@@ -60,10 +60,10 @@ static void freeze(unsigned int a[32])
 static void mult(unsigned int out[32],const unsigned int a[32],const unsigned int b[32])
 {
   unsigned int i;
-  unsigned int j;
-  unsigned int u;
 
   for (i = 0;i < 32;++i) {
+    unsigned int j;
+    unsigned int u;
     u = 0;
     for (j = 0;j <= i;++j) u += a[j] * b[i - j];
     for (j = i + 1;j < 32;++j) u += 38 * a[j] * b[i + 32 - j];

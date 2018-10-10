@@ -83,12 +83,12 @@ enum demo_protocols {
 static uint8_t
 lws_poly_rand(struct lws_poly_gen *p)
 {
-	p->cyc[0] = p->cyc[0] & 1 ? (p->cyc[0] >> 1) ^ 0xb4bcd35c :
-				    p->cyc[0] >> 1;
-	p->cyc[0] = p->cyc[0] & 1 ? (p->cyc[0] >> 1) ^ 0xb4bcd35c :
-				    p->cyc[0] >> 1;
-	p->cyc[1] = p->cyc[1] & 1 ? (p->cyc[1] >> 1) ^ 0x7a5bc2e3 :
-				    p->cyc[1] >> 1;
+	p->cyc[0] = (p->cyc[0] & 1) ? (p->cyc[0] >> 1) ^ 0xb4bcd35c :
+				      p->cyc[0] >> 1;
+	p->cyc[0] = (p->cyc[0] & 1) ? (p->cyc[0] >> 1) ^ 0xb4bcd35c :
+				      p->cyc[0] >> 1;
+	p->cyc[1] = (p->cyc[1] & 1) ? (p->cyc[1] >> 1) ^ 0x7a5bc2e3 :
+				      p->cyc[1] >> 1;
 
 	return p->cyc[0] ^ p->cyc[1];
 }

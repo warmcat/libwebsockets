@@ -228,7 +228,7 @@ callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
 					return -1;
 				}
 				pss->position_rx += s;
-				in += s;
+				in = ((unsigned char *)in) + s;
 				len -= s;
 			}
 		} else {

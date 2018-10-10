@@ -242,7 +242,7 @@ static int
 ssh_ops_is_pubkey_authorized(const char *username, const char *type,
 				 const uint8_t *peer, int peer_len)
 {
-	char *aps = NULL, *p, *ps;
+	char *aps, *p, *ps;
 	int n = (int)strlen(type), alen = 2048, ret = 2, len;
 	size_t s = 0;
 

@@ -1,4 +1,4 @@
-#/bin/bash
+#!/bin/bash
 #
 # run this from your build dir having configured
 # -DLWS_WITH_MINIMAL_EXAMPLES=1 to get all the examples

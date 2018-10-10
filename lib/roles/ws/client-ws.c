@@ -309,7 +309,7 @@ lws_client_ws_upgrade(struct lws *wsi, const char **cce)
 		}
 		while (*pc && *pc++ != ',')
 			;
-		while (*pc && *pc == ' ')
+		while (*pc == ' ')
 			pc++;
 	}
 

@@ -1181,7 +1181,6 @@ static int
 lws_h2_parse_end_of_frame(struct lws *wsi)
 {
 	struct lws_h2_netconn *h2n = wsi->h2.h2n;
-	struct lws_h2_protocol_send *pps;
 	struct lws *eff_wsi = wsi;
 	const char *p;
 	int n;
@@ -1215,6 +1214,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 #if !defined(LWS_NO_CLIENT)
 		if (wsi->client_h2_alpn &&
 		    !(h2n->flags & LWS_H2_FLAG_SETTINGS_ACK)) {
+			struct lws_h2_protocol_send *pps;
 
 			/* migrate original client ask on to substream 1 */
 
@@ -1499,10 +1499,13 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 	case LWS_H2_FRAME_TYPE_PING:
 		if (h2n->flags & LWS_H2_FLAG_SETTINGS_ACK) { // ack
 		} else {/* they're sending us a ping request */
-			lwsl_info("rx ping, preparing pong\n");
-			pps = lws_h2_new_pps(LWS_H2_PPS_PONG);
+			struct lws_h2_protocol_send *pps =
+					lws_h2_new_pps(LWS_H2_PPS_PONG);
 			if (!pps)
 				return 1;
+
+			lwsl_info("rx ping, preparing pong\n");
+
 			memcpy(pps->u.ping.ping_payload, h2n->ping_payload, 8);
 			lws_pps_schedule(wsi, pps);
 		}
@@ -2193,7 +2196,6 @@ lws_read_h2(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 {
 	unsigned char *oldbuf = buf;
 	lws_filepos_t body_chunk_len;
-	int m;
 
 	// lwsl_notice("%s: h2 path: wsistate 0x%x len %d\n", __func__,
 	//		wsi->wsistate, (int)len);
@@ -2209,6 +2211,8 @@ lws_read_h2(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 	 * case.
 	 */
 	while (len) {
+		int m;
+
 		/*
 		 * we were accepting input but now we stopped doing so
 		 */

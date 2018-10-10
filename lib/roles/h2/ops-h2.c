@@ -511,12 +511,13 @@ static int
 rops_init_vhost_h2(struct lws_vhost *vh,
 		   const struct lws_context_creation_info *info)
 {
-	int n;
-
 	vh->h2.set = vh->context->set;
-	if (info->http2_settings[0])
+	if (info->http2_settings[0]) {
+		int n;
+
 		for (n = 1; n < LWS_H2_SETTINGS_LEN; n++)
 			vh->h2.set.s[n] = info->http2_settings[n];
+	}
 
 	return 0;
 }
@@ -766,8 +767,6 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 
 	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_METHOD);
 	if (p && !strcmp(p, "POST")) {
-		const struct lws_protocols *pp;
-		const char *name;
 		const struct lws_http_mount *hit =
 				lws_find_mount(wsi,
 					lws_hdr_simple_ptr(wsi,
@@ -779,7 +778,9 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 			    lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_PATH),
 			    hit, hit ? hit->origin : "null");
 		if (hit) {
-			name = hit->origin;
+			const struct lws_protocols *pp;
+			const char *name = hit->origin;
+
 			if (hit->protocol)
 				name = hit->protocol;
 
@@ -869,6 +870,11 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 				break;
 			}
 			w = w->h2.sibling_list;
+		}
+
+		if (!w) {
+			wa = &wsi->h2.child_list;
+			goto next_child;
 		}
 
 		w->h2.requested_POLLOUT = 0;

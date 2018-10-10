@@ -255,7 +255,7 @@ lws_jws_confirm_sig(const char *in, size_t len, struct lws_jwk *jwk)
 
 	/* 2) find length of first, hdr, block */
 
-	while (in[pos] != '.' && pos < (int)len)
+	while (pos < (int)len && in[pos] != '.')
 		pos++;
 	if (pos == (int)len)
 		return -1;
