@@ -1067,9 +1067,6 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 	p += sprintf(p, "Pragma: no-cache\x0d\x0a"
 			"Cache-Control: no-cache\x0d\x0a");
 
-	if (!wsi->client_pipeline)
-		p += sprintf(p, "connection: close\x0d\x0a");
-
 	p += sprintf(p, "Host: %s\x0d\x0a",
 		     lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST));
 
@@ -1085,9 +1082,15 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 						     _WSI_TOKEN_CLIENT_ORIGIN));
 	}
 #if defined(LWS_ROLE_WS)
-	if (wsi->do_ws)
-		p = lws_generate_client_ws_handshake(wsi, p);
+	if (wsi->do_ws) {
+		const char *conn1 = "";
+		if (!wsi->client_pipeline)
+			conn1 = "close, ";
+		p = lws_generate_client_ws_handshake(wsi, p, conn1);
+	} else
 #endif
+		if (!wsi->client_pipeline)
+			p += sprintf(p, "connection: close\x0d\x0a");
 
 	/* give userland a chance to append, eg, cookies */
 

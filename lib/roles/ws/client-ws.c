@@ -114,7 +114,7 @@ lws_ws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 #endif
 
 char *
-lws_generate_client_ws_handshake(struct lws *wsi, char *p)
+lws_generate_client_ws_handshake(struct lws *wsi, char *p, const char *conn1)
 {
 	char buf[128], hash[20], key_b64[40];
 	int n;
@@ -136,8 +136,8 @@ lws_generate_client_ws_handshake(struct lws *wsi, char *p)
 	lws_b64_encode_string(hash, 16, key_b64, sizeof(key_b64));
 
 	p += sprintf(p, "Upgrade: websocket\x0d\x0a"
-			"Connection: Upgrade\x0d\x0a"
-			"Sec-WebSocket-Key: ");
+			"Connection: %sUpgrade\x0d\x0a"
+			"Sec-WebSocket-Key: ", conn1);
 	strcpy(p, key_b64);
 	p += strlen(key_b64);
 	p += sprintf(p, "\x0d\x0a");

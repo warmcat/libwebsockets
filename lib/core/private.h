@@ -1536,7 +1536,7 @@ lws_buflist_aware_consume(struct lws *wsi, struct lws_tokens *ebuf, int used,
 
 
 char *
-lws_generate_client_ws_handshake(struct lws *wsi, char *p);
+lws_generate_client_ws_handshake(struct lws *wsi, char *p, const char *conn1);
 int
 lws_client_ws_upgrade(struct lws *wsi, const char **cce);
 int
