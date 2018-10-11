@@ -212,7 +212,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		 * "?mirror=xxx", will be "xxx"
 		 */
 		name[0] = '\0';
-		if (lws_get_urlarg_by_name(wsi, "mirror", name,
+		if (!lws_get_urlarg_by_name(wsi, "mirror", name,
 					   sizeof(name) - 1))
 			lwsl_debug("get urlarg failed\n");
 		if (strchr(name, '='))
