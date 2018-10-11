@@ -309,11 +309,20 @@ lws_process_ws_upgrade(struct lws *wsi)
 
 		default:
 bad_conn_format:
-			lwsl_err("%s: malformed or absent connection hdr\n", __func__);
+			lwsl_err("%s: malformed or absent connection hdr\n",
+				 __func__);
 
 			return 1;
 		}
 	} while (e > 0);
+
+	/* let's also confirm that Host at least exists for h1 */
+
+	if (!lws_hdr_total_length(wsi, WSI_TOKEN_HOST)) {
+		lwsl_err("%s: missing host: hdr on h1 ws upgrade\n", __func__);
+
+		return 1;
+	}
 
 #if defined(LWS_WITH_HTTP2)
 check_protocol:
