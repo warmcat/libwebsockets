@@ -164,7 +164,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 
 			wsi->reason_bf &= ~LWS_CB_REASON_AUX_BF__PROXY_HEADERS;
 
-			lwsl_notice("%s: %p: issuing proxy headers\n",
+			lwsl_debug("%s: %p: issuing proxy headers\n",
 				    __func__, wsi);
 			n = lws_write(wsi, wsi->http.pending_return_headers + LWS_PRE,
 				      wsi->http.pending_return_headers_len,
@@ -351,7 +351,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 
 		parent->reason_bf |= LWS_CB_REASON_AUX_BF__PROXY_HEADERS;
 
-		lwsl_notice("%s: LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP: prepared headers\n", __func__);
+		lwsl_debug("%s: LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP: prepared headers\n", __func__);
 		lws_callback_on_writable(parent);
 
 		break; }

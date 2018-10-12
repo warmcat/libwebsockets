@@ -955,7 +955,7 @@ lws_http_action(struct lws *wsi)
 		wsi->http.rx_content_length = atoll(content_length_str);
 		if (!wsi->http.rx_content_length) {
 			wsi->http.content_length_explicitly_zero = 1;
-			lwsl_notice("%s: explicit 0 content-length\n",
+			lwsl_debug("%s: explicit 0 content-length\n",
 				    __func__);
 		}
 	}
@@ -1253,12 +1253,22 @@ lws_http_action(struct lws *wsi)
 		if (pcolon)
 			i.port = atoi(pcolon + 1);
 
-		lws_snprintf(rpath, sizeof(rpath) - 1, "/%s/%s", pslash + 1,
-			     uri_ptr + hit->mountpoint_len);
+		n = lws_snprintf(rpath, sizeof(rpath) - 1, "/%s/%s",
+				   pslash + 1, uri_ptr +
+				   	   	   hit->mountpoint_len);
 		lws_clean_url(rpath);
 		na = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_URI_ARGS);
 		if (na) {
-			char *p = rpath + strlen(rpath);
+			char *p = rpath + n;
+
+			if (na >= (int)sizeof(rpath) - n - 2) {
+				lwsl_info("%s: query string %d longer "
+					  "than we can handle\n", __func__,
+					  na);
+
+				return -1;
+			}
+
 			*p++ = '?';
 			lws_hdr_copy(wsi, p, &rpath[sizeof(rpath) - 1] - p,
 				     WSI_TOKEN_HTTP_URI_ARGS);

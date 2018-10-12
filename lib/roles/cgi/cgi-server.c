@@ -983,7 +983,7 @@ lws_cgi_kill(struct lws *wsi)
 				if (n < 0) {
 					n = kill(wsi->http.cgi->pid, SIGKILL);
 					if (n < 0)
-						lwsl_err("%s: SIGKILL PID %d "
+						lwsl_info("%s: SIGKILL PID %d "
 							 "failed errno %d "
 							 "(maybe zombie)\n",
 							 __func__,

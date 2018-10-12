@@ -1121,7 +1121,7 @@ lws_http_client_read(struct lws *wsi, char **buf, int *len)
 	lws_change_pollfd(wsi, 0, LWS_POLLIN);
 
 	if (rlen == LWS_SSL_CAPABLE_ERROR) {
-		lwsl_notice("%s: SSL capable error\n", __func__);
+		lwsl_debug("%s: SSL capable error\n", __func__);
 		return -1;
 	}
 

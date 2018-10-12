@@ -472,7 +472,7 @@ lws_urldecode_spa_cb(void *data, const char *name, char **buf, int len,
 		spa->params[n] = *buf;
 
 	if ((*buf) + len >= spa->end) {
-		lwsl_notice("%s: exceeded storage\n", __func__);
+		lwsl_info("%s: exceeded storage\n", __func__);
 		return -1;
 	}
 

@@ -252,7 +252,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 	 */
 	if (n <= 0) {
 		m = lws_ssl_get_error(wsi, n);
-		lwsl_notice("%p: ssl err %d errno %d\n", wsi, m, errno);
+		lwsl_debug("%p: ssl err %d errno %d\n", wsi, m, errno);
 		if (m == SSL_ERROR_ZERO_RETURN) /* cleanly shut down */
 			return LWS_SSL_CAPABLE_ERROR;
 
