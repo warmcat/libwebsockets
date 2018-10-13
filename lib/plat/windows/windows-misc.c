@@ -25,8 +25,8 @@
 #include "core/private.h"
 
 
-unsigned long long
-time_in_microseconds()
+uint64_t
+lws_time_in_microseconds()
 {
 #ifndef DELTA_EPOCH_IN_MICROSECS
 #define DELTA_EPOCH_IN_MICROSECS 11644473600000000ULL
@@ -56,7 +56,7 @@ time_in_microseconds()
 #ifdef _WIN32_WCE
 time_t time(time_t *t)
 {
-	time_t ret = time_in_microseconds() / 1000000;
+	time_t ret = lws_time_in_microseconds() / 1000000;
 
 	if(t != NULL)
 		*t = ret;

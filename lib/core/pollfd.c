@@ -434,7 +434,7 @@ lws_callback_on_writable(struct lws *wsi)
 	lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_WRITEABLE_CB_REQ, 1);
 #if defined(LWS_WITH_STATS)
 	if (!wsi->active_writable_req_us) {
-		wsi->active_writable_req_us = time_in_microseconds();
+		wsi->active_writable_req_us = lws_time_in_microseconds();
 		lws_stats_atomic_bump(wsi->context, pt,
 				      LWSSTATS_C_WRITEABLE_CB_EFF_REQ, 1);
 	}

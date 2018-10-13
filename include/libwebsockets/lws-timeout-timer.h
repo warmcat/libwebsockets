@@ -70,6 +70,12 @@ enum pending_timeout {
 	PENDING_TIMEOUT_USER_REASON_BASE			= 1000
 };
 
+/**
+ * lws_time_in_microseconds() - Returns the unix time in microseconds
+ */
+LWS_VISIBLE LWS_EXTERN uint64_t
+lws_time_in_microseconds(void);
+
 #define LWS_TO_KILL_ASYNC -1
 /**< If LWS_TO_KILL_ASYNC is given as the timeout sec in a lws_set_timeout()
  * call, then the connection is marked to be killed at the next timeout

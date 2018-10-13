@@ -1641,7 +1641,7 @@ lws_latency(struct lws_context *context, struct lws *wsi, const char *action,
 	unsigned long long u;
 	char buf[256];
 
-	u = time_in_microseconds();
+	u = lws_time_in_microseconds();
 
 	if (!action) {
 		wsi->latency_start = u;
@@ -2022,7 +2022,7 @@ lwsl_timestamp(int level, char *p, int len)
 	for (n = 0; n < LLL_COUNT; n++) {
 		if (level != (1 << n))
 			continue;
-		now = time_in_microseconds() / 100;
+		now = lws_time_in_microseconds() / 100;
 		if (ptm)
 			n = lws_snprintf(p, len,
 				"[%04d/%02d/%02d %02d:%02d:%02d:%04d] %s: ",

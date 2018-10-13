@@ -1442,8 +1442,6 @@ lws_plat_init(struct lws_context *context,
 	      const struct lws_context_creation_info *info);
 LWS_EXTERN void
 lws_plat_drop_app_privileges(const struct lws_context_creation_info *info);
-LWS_EXTERN unsigned long long
-time_in_microseconds(void);
 LWS_EXTERN const char * LWS_WARN_UNUSED_RESULT
 lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt);
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT

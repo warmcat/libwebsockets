@@ -28,7 +28,8 @@ lws_plat_pipe_close(struct lws *wsi)
 
 void TEE_GenerateRandom(void *randomBuffer, uint32_t randomBufferLen);
 
-unsigned long long time_in_microseconds(void)
+uint64_t
+lws_time_in_microseconds(void)
 {
 	return ((unsigned long long)time(NULL)) * 1000000;
 }
