@@ -420,7 +420,11 @@ ads_known:
 		lwsi_set_state(wsi, LRS_WAITING_CONNECT);
 
 		if (wsi->context->event_loop_ops->accept)
-			wsi->context->event_loop_ops->accept(wsi);
+			if (wsi->context->event_loop_ops->accept(wsi)) {
+				compatible_close(wsi->desc.sockfd);
+				cce = "event loop accept failed";
+				goto oom4;
+			}
 
 		if (__insert_wsi_socket_into_fds(wsi->context, wsi)) {
 			compatible_close(wsi->desc.sockfd);

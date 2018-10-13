@@ -58,7 +58,7 @@ struct lws_context_eventlibs_libuv {
 };
 
 struct lws_io_watcher_libuv {
-	uv_poll_t watcher;
+	uv_poll_t *pwatcher;
 };
 
 struct lws_signal_watcher_libuv {

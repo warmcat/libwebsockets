@@ -786,7 +786,8 @@ lws_create_event_pipes(struct lws_context *context)
 		lwsl_debug("event pipe fd %d\n", wsi->desc.sockfd);
 
 		if (context->event_loop_ops->accept)
-			context->event_loop_ops->accept(wsi);
+			if (context->event_loop_ops->accept(wsi))
+				return 1;
 
 		if (__insert_wsi_socket_into_fds(context, wsi))
 			return 1;

@@ -213,7 +213,7 @@ elops_init_context_event(struct lws_context *context,
 	return 0;
 }
 
-static void
+static int
 elops_accept_event(struct lws *wsi)
 {
 	struct lws_context *context = lws_get_context(wsi);
@@ -235,6 +235,8 @@ elops_accept_event(struct lws *wsi)
 			(EV_READ | EV_PERSIST), lws_event_cb, &wsi->w_read);
 	wsi->w_write.event.watcher = event_new(pt->event.io_loop, fd,
 			(EV_WRITE | EV_PERSIST), lws_event_cb, &wsi->w_write);
+
+	return 0;
 }
 
 static void

@@ -243,7 +243,7 @@ elops_init_context_ev(struct lws_context *context,
 	return 0;
 }
 
-static void
+static int
 elops_accept_ev(struct lws *wsi)
 {
 	int fd;
@@ -258,6 +258,8 @@ elops_accept_ev(struct lws *wsi)
 
 	ev_io_init(&wsi->w_read.ev.watcher, lws_accept_cb, fd, EV_READ);
 	ev_io_init(&wsi->w_write.ev.watcher, lws_accept_cb, fd, EV_WRITE);
+
+	return 0;
 }
 
 static void

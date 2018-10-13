@@ -195,7 +195,8 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 	lwsl_debug("new wsi wsistate 0x%x\n", new_wsi->wsistate);
 
 	if (context->event_loop_ops->accept)
-		context->event_loop_ops->accept(new_wsi);
+		if (context->event_loop_ops->accept(new_wsi))
+			goto fail;
 
 	if (!(type & LWS_ADOPT_ALLOW_SSL)) {
 		lws_pt_lock(pt, __func__);
