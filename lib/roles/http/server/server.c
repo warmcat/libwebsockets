@@ -1255,7 +1255,7 @@ lws_http_action(struct lws *wsi)
 
 		n = lws_snprintf(rpath, sizeof(rpath) - 1, "/%s/%s",
 				   pslash + 1, uri_ptr +
-				   	   	   hit->mountpoint_len);
+						   hit->mountpoint_len) - 2;
 		lws_clean_url(rpath);
 		na = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_URI_ARGS);
 		if (na) {
