@@ -110,6 +110,7 @@ option(LWS_WITH_GCOV "Build with gcc gcov coverage instrumentation" OFF)
 option(LWS_WITH_EXPORT_LWSTARGETS "Export libwebsockets CMake targets.  Disable if they conflict with an outer cmake project." ON)
 option(LWS_REPRODUCIBLE "Build libwebsockets reproducible. It removes the build user and hostname from the build" ON)
 option(LWS_WITH_MINIMAL_EXAMPLES "Also build the normally standalone minimal examples, for QA" OFF)
+option(LWS_WITH_LWSAC "lwsac Chunk Allocation api" ON)
 #
 # End of user settings
 #
@@ -147,6 +148,10 @@ endif()
 
 if (WIN32 OR LWS_WITH_ESP32)
 	set(LWS_UNIX_SOCK 0)
+endif()
+
+if (LWS_WITH_ESP32)
+	set(LWS_WITH_LWSAC 0)
 endif()
 
 project(libwebsockets C)
@@ -873,6 +878,12 @@ endif()
 if (LWS_WITH_PEER_LIMITS)
 	list(APPEND SOURCES
 		lib/misc/peer-limits.c)
+endif()
+
+if (LWS_WITH_LWSAC)
+	list(APPEND SOURCES
+		lib/misc/lwsac/lwsac.c
+		lib/misc/lwsac/cached-file.c)
 endif()
 
 if (NOT LWS_WITHOUT_CLIENT)
