@@ -8,6 +8,7 @@ minimal-http-server-eventlib|Same as minimal-http-server but works with a suppor
 minimal-http-server-form-get|Process a GET form
 minimal-http-server-form-post-file|Process a multipart POST form with file transfer
 minimal-http-server-form-post|Process a POST form (no file transfer)
+minimal-http-server-fulltext-search|Demonstrates using lws Fulltext Search
 minimal-http-server-mimetypes|Shows how to add support for additional mimetypes at runtime
 minimal-http-server-multivhost|Same as minimal-http-server but three different vhosts
 minimal-http-server-proxy|Reverse Proxy

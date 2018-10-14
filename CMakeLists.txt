@@ -43,6 +43,7 @@ option(LWS_WITH_HTTP_STREAM_COMPRESSION "Support HTTP stream compression" OFF)
 option(LWS_WITH_HTTP_BROTLI "Also offer brotli http stream compression (requires LWS_WITH_HTTP_STREAM_COMPRESSION)" OFF)
 option(LWS_WITH_ACME "Enable support for ACME automatic cert acquisition + maintenance (letsencrypt etc)" OFF)
 option(LWS_WITH_HUBBUB "Enable libhubbub rewriting support" OFF)
+option(LWS_WITH_FTS "Full Text Search support" ON)
 #
 # TLS library options... all except mbedTLS are basically OpenSSL variants.
 #
@@ -132,6 +133,7 @@ if(LWS_WITH_DISTRO_RECOMMENDED)
 	set(LWS_WITH_LIBEVENT 0)
 	set(LWS_WITHOUT_EXTENSIONS 0)
 	set(LWS_ROLE_DBUS 1)
+	set(LWS_WITH_FTS 1)
 endif()
 
 # do you care about this?  Then send me a patch where it disables it on travis
@@ -152,6 +154,7 @@ endif()
 
 if (LWS_WITH_ESP32)
 	set(LWS_WITH_LWSAC 0)
+	set(LWS_WITH_FTS 0)
 endif()
 
 project(libwebsockets C)
@@ -239,7 +242,7 @@ if (LWS_WITH_HTTP2 AND LWS_WITHOUT_SERVER)
 endif()
 
 
-include_directories(include)
+include_directories(include plugins)
 
 
 if (LWS_WITH_LWSWS)
@@ -884,6 +887,12 @@ if (LWS_WITH_LWSAC)
 	list(APPEND SOURCES
 		lib/misc/lwsac/lwsac.c
 		lib/misc/lwsac/cached-file.c)
+endif()
+
+if (LWS_WITH_FTS)
+	list(APPEND SOURCES
+		lib/misc/fts/trie.c
+		lib/misc/fts/trie-fd.c)
 endif()
 
 if (NOT LWS_WITHOUT_CLIENT)
@@ -1940,6 +1949,12 @@ endif()
 
 		create_plugin(protocol_post_demo ""
 			      "plugins/protocol_post_demo.c" "" "")
+
+if (LWS_WITH_FTS)
+		create_plugin(protocol_fulltext_demo ""
+			      "plugins/protocol_fulltext_demo.c" "" "")
+endif()
+
 
 if (LWS_WITH_SSL)
 		create_plugin(protocol_lws_ssh_base "plugins/ssh-base/include"

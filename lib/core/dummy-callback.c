@@ -404,7 +404,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		buf[0] = '\0';
 		lws_get_peer_simple(parent, buf, sizeof(buf));
 		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_X_FORWARDED_FOR,
-				(unsigned char *)buf, strlen(buf), p, end))
+				(unsigned char *)buf, (int)strlen(buf), p, end))
 			return -1;
 
 		break;

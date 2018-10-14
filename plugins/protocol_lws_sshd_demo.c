@@ -208,7 +208,8 @@ ssh_ops_get_server_key(struct lws *wsi, uint8_t *buf, size_t len)
 						 lws_get_protocol(wsi));
 	int n;
 
-	lseek(vhd->privileged_fd, 0, SEEK_SET);
+	if (lseek(vhd->privileged_fd, 0, SEEK_SET) < 0)
+		return 0;
 	n = read(vhd->privileged_fd, buf, (int)len);
 	if (n < 0) {
 		lwsl_err("%s: read failed: %d\n", __func__, n);

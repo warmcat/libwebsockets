@@ -520,7 +520,7 @@ lws_callback_on_writable_all_protocol_vhost(const struct lws_vhost *vhost,
 		return -1;
 	}
 
-	n = protocol - vhost->protocols;
+	n = (int)(protocol - vhost->protocols);
 
 	lws_start_foreach_dll_safe(struct lws_dll_lws *, d, d1,
 				   vhost->same_vh_protocol_heads[n].next) {

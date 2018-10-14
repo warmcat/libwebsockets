@@ -1233,9 +1233,9 @@ lws_http_action(struct lws *wsi)
 				pcolon = NULL;
 
 			if (pcolon)
-				n = pcolon - hit->origin;
+				n = (int)(pcolon - hit->origin);
 			else
-				n = pslash - hit->origin;
+				n = (int)(pslash - hit->origin);
 
 			if (n >= (int)sizeof(ads) - 2)
 				n = sizeof(ads) - 2;
@@ -1270,7 +1270,8 @@ lws_http_action(struct lws *wsi)
 			}
 
 			*p++ = '?';
-			lws_hdr_copy(wsi, p, &rpath[sizeof(rpath) - 1] - p,
+			lws_hdr_copy(wsi, p,
+				     (int)(&rpath[sizeof(rpath) - 1] - p),
 				     WSI_TOKEN_HTTP_URI_ARGS);
 			while (--na) {
 				if (*p == '\0')

@@ -16,6 +16,7 @@
 #cmakedefine LWS_ROLE_DBUS
 
 #cmakedefine LWS_WITH_LWSAC
+#cmakedefine LWS_WITH_FTS
 
 /* Define to 1 to use wolfSSL/CyaSSL as a replacement for OpenSSL.
  * LWS_OPENSSL_SUPPORT needs to be set also for this to work. */
