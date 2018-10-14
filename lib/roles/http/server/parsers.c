@@ -516,13 +516,16 @@ LWS_VISIBLE int lws_hdr_copy(struct lws *wsi, char *dst, int len,
 		return 0;
 
 	do {
-		if (wsi->http.ah->frags[n].len >= len)
+		if (wsi->http.ah->frags[n].len + 1 >= len)
 			return -1;
 		strncpy(dst, &wsi->http.ah->data[wsi->http.ah->frags[n].offset],
 		        wsi->http.ah->frags[n].len);
 		dst += wsi->http.ah->frags[n].len;
 		len -= wsi->http.ah->frags[n].len;
 		n = wsi->http.ah->frags[n].nfrag;
+
+		if (n)
+			*dst++ = ',';
 	} while (n);
 	*dst = '\0';
 
