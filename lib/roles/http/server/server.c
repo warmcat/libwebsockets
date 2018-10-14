@@ -2195,9 +2195,14 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 		}
 	}
 
-	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CACHE_CONTROL,
-			(unsigned char *)cc, cclen, &p, end))
-		return -1;
+	/* Only add cache control if its not specified by any other_headers. */
+	if (!other_headers ||
+			(!strstr(other_headers, "cache-control") &&
+			 !strstr(other_headers, "Cache-Control"))) {
+		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CACHE_CONTROL,
+				(unsigned char *)cc, cclen, &p, end))
+			return -1;
+	}
 
 	if (other_headers) {
 		if ((end - p) < other_headers_len)
