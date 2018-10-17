@@ -204,10 +204,12 @@ lws_generate_client_ws_handshake(struct lws *wsi, char *p, const char *conn1)
 int
 lws_client_ws_upgrade(struct lws *wsi, const char **cce)
 {
-	int n, len, okay = 0;
 	struct lws_context *context = wsi->context;
+	struct lws_tokenize ts;
+	int n, len, okay = 0;
+	lws_tokenize_elem e;
+	char *p, buf[64];
 	const char *pc;
-	char *p;
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	char *sb = (char *)&pt->serv_buf[0];
@@ -262,18 +264,31 @@ lws_client_ws_upgrade(struct lws *wsi, const char **cce)
 		goto bail3;
 	}
 
-	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_CONNECTION);
-	if (!p) {
-		lwsl_info("no Connection hdr\n");
-		*cce = "HS: CONNECTION missing";
-		goto bail3;
-	}
-	strtolower(p);
-	if (strcmp(p, "upgrade")) {
-		lwsl_warn("lws_client_int_s_hs: bad header %s\n", p);
-		*cce = "HS: UPGRADE malformed";
-		goto bail3;
-	}
+	/* connection: must have "upgrade" */
+
+	lws_tokenize_init(&ts, buf, LWS_TOKENIZE_F_COMMA_SEP_LIST |
+				    LWS_TOKENIZE_F_MINUS_NONTERM);
+	ts.len = lws_hdr_copy(wsi, buf, sizeof(buf) - 1, WSI_TOKEN_CONNECTION);
+	if (ts.len <= 0) /* won't fit, or absent */
+		goto bad_conn_format;
+
+	do {
+		e = lws_tokenize(&ts);
+		switch (e) {
+		case LWS_TOKZE_TOKEN:
+			if (!strcasecmp(ts.token, "upgrade"))
+				e = LWS_TOKZE_ENDED;
+			break;
+
+		case LWS_TOKZE_DELIMITER:
+			break;
+
+		default: /* includes ENDED */
+bad_conn_format:
+			*cce = "HS: UPGRADE malformed";
+			goto bail3;
+		}
+	} while (e > 0);
 
 	pc = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_SENT_PROTOCOLS);
 	if (!pc) {

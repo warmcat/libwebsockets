@@ -304,10 +304,9 @@ lws_process_ws_upgrade(struct lws *wsi)
 			break;
 
 		case LWS_TOKZE_DELIMITER:
-		case LWS_TOKZE_ENDED:
 			break;
 
-		default:
+		default: /* includes ENDED */
 bad_conn_format:
 			lwsl_err("%s: malformed or absent connection hdr\n",
 				 __func__);
@@ -334,7 +333,8 @@ check_protocol:
 	 */
 
 	lws_tokenize_init(&ts, buf, LWS_TOKENIZE_F_COMMA_SEP_LIST |
-				    LWS_TOKENIZE_F_MINUS_NONTERM);
+				       LWS_TOKENIZE_F_MINUS_NONTERM |
+				       LWS_TOKENIZE_F_RFC7230_DELIMS);
 	ts.len = lws_hdr_copy(wsi, buf, sizeof(buf) - 1, WSI_TOKEN_PROTOCOL);
 	if (ts.len < 0) {
 		lwsl_err("%s: protocol list too long\n", __func__);

@@ -259,7 +259,7 @@ bail:
 static int
 remote_method_call(struct lws_dbus_ctx_wsproxy_client *dcwc)
 {
-	const char *uri = "wss://libwebsockets.org/";
+	const char *uri = "wss://libwebsockets.org/?mirror=dbt";
 	const char *subprotocol = "lws-mirror-protocol";
 	DBusMessage *msg;
 	int ret = 1;
