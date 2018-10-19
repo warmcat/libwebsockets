@@ -25,6 +25,21 @@
 int openssl_websocket_private_data_index,
 	   openssl_SSL_CTX_private_data_index;
 
+int lws_openssl_describe_cipher(struct lws *wsi)
+{
+#if !defined(LWS_WITH_NO_LOGS)
+	int np = -1;
+	SSL *s = wsi->tls.ssl;
+
+	SSL_get_cipher_bits(s, &np);
+	lwsl_info("%s: wsi %p: %s, %s, %d bits, %s\n", __func__, wsi,
+			SSL_get_cipher_name(s), SSL_get_cipher(s), np,
+			SSL_get_cipher_version(s));
+#endif
+
+	return 0;
+}
+
 int lws_ssl_get_error(struct lws *wsi, int n)
 {
 	int m;

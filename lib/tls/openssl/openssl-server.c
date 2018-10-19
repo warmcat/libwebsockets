@@ -24,6 +24,8 @@
 extern int openssl_websocket_private_data_index,
 	   openssl_SSL_CTX_private_data_index;
 
+int lws_openssl_describe_cipher(struct lws *wsi);
+
 static int
 OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 {
@@ -479,6 +481,9 @@ lws_tls_server_accept(struct lws *wsi)
 				    __func__, ir.ns.name);
 		else
 			lwsl_info("%s: couldn't get client cert CN\n", __func__);
+
+		lws_openssl_describe_cipher(wsi);
+
 		return LWS_SSL_CAPABLE_DONE;
 	}
 

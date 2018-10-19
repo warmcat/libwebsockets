@@ -21,6 +21,8 @@
 
 #include "core/private.h"
 
+int lws_openssl_describe_cipher(struct lws *wsi);
+
 extern int openssl_websocket_private_data_index,
     openssl_SSL_CTX_private_data_index;
 
@@ -250,6 +252,7 @@ lws_tls_client_connect(struct lws *wsi)
 		lws_role_call_alpn_negotiated(wsi, (const char *)a);
 #endif
 		lwsl_info("client connect OK\n");
+		lws_openssl_describe_cipher(wsi);
 		return LWS_SSL_CAPABLE_DONE;
 	}
 
