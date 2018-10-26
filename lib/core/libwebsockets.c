@@ -3027,7 +3027,8 @@ lws_tokenize(struct lws_tokenize *ts)
 {
 	const char *rfc7230_delims = "(),/:;<=>?@[\\]{}";
 	lws_tokenize_state state = LWS_TOKZS_LEADING_WHITESPACE;
-	char c, num = -1, flo = 0;
+	char c, flo = 0;
+	signed char num = -1;
 	int utf8 = 0;
 
 	ts->token = NULL;
