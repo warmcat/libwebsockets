@@ -281,7 +281,7 @@ callback_minimal_client_echo(struct lws *wsi, enum lws_callback_reasons reason,
 /* boilerplate needed if we are built as a dynamic plugin */
 
 static const struct lws_protocols protocols[] = {
-	LWS_PLUGIN_PROTOCOL_MINIMAL_client_echo
+	LWS_PLUGIN_PROTOCOL_MINIMAL_CLIENT_ECHO
 };
 
 LWS_EXTERN LWS_VISIBLE int
