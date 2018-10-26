@@ -259,6 +259,8 @@ See also "rawonly" below.
  - "`ssl-option-clear'": "<decimal>"   Clears the SSL option flag value for the vhost.
  It may be used multiple times and OR's the flags together.
 
+ - "`ssl-client-option-set`" and "`ssl-client-option-clear`" work the same way for the vhost Client SSL context
+
  - "`headers':: [{ "header1": "h1value", "header2": "h2value" }] 
 
 allows you to set arbitrary headers on every file served by the vhost

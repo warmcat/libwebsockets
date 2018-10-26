@@ -308,9 +308,9 @@ struct lws_context_creation_info {
 	 * like this for compatibility with the original short version,
 	 * this is unsigned int length. */
 	long ssl_options_set;
-	/**< VHOST: Any bits set here will be set as SSL options */
+	/**< VHOST: Any bits set here will be set as server SSL options */
 	long ssl_options_clear;
-	/**< VHOST: Any bits set here will be cleared as SSL options */
+	/**< VHOST: Any bits set here will be cleared as server SSL options */
 	unsigned short ws_ping_pong_interval;
 	/**< CONTEXT: 0 for none, else interval in seconds between sending
 	 * PINGs on idle websocket connections.  When the PING is sent,
@@ -485,6 +485,12 @@ struct lws_context_creation_info {
 	 * is nonzero, this will be used in place of the default.  It's
 	 * like this for compatibility with the original short version:
 	 * this is unsigned int length. */
+
+	long ssl_client_options_set;
+	/**< VHOST: Any bits set here will be set as CLIENT SSL options */
+	long ssl_client_options_clear;
+	/**< VHOST: Any bits set here will be cleared as CLIENT SSL options */
+
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility

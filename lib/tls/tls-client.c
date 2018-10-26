@@ -128,7 +128,10 @@ int lws_context_init_client_ssl(const struct lws_context_creation_info *info,
 	}
 
 	if (lws_tls_client_create_vhost_context(vhost, info, cipher_list,
-						ca_filepath, info->client_ssl_ca_mem, info->client_ssl_ca_mem_len, cert_filepath,
+						ca_filepath,
+						info->client_ssl_ca_mem,
+						info->client_ssl_ca_mem_len,
+						cert_filepath,
 						private_key_filepath))
 		return 1;
 

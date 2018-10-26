@@ -105,6 +105,8 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].ignore-missing-cert",
 	"vhosts[].error-document-404",
 	"vhosts[].alpn",
+	"vhosts[].ssl-client-option-set",
+	"vhosts[].ssl-client-option-clear",
 };
 
 enum lejp_vhost_paths {
@@ -156,6 +158,8 @@ enum lejp_vhost_paths {
 	LEJPVP_IGNORE_MISSING_CERT,
 	LEJPVP_ERROR_DOCUMENT_404,
 	LEJPVP_ALPN,
+	LEJPVP_SSL_CLIENT_OPTION_SET,
+	LEJPVP_SSL_CLIENT_OPTION_CLEAR,
 };
 
 static const char * const parser_errs[] = {
@@ -748,6 +752,13 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		return 0;
 	case LEJPVP_SSL_OPTION_CLEAR:
 		a->info->ssl_options_clear |= atol(ctx->buf);
+		return 0;
+
+	case LEJPVP_SSL_CLIENT_OPTION_SET:
+		a->info->ssl_client_options_set |= atol(ctx->buf);
+		return 0;
+	case LEJPVP_SSL_CLIENT_OPTION_CLEAR:
+		a->info->ssl_client_options_clear |= atol(ctx->buf);
 		return 0;
 
 	case LEJPVP_ALPN:

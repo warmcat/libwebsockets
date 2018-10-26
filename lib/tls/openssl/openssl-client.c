@@ -375,6 +375,17 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 	SSL_CTX_set_options(vh->tls.ssl_client_ctx,
 			    SSL_OP_CIPHER_SERVER_PREFERENCE);
 
+	if (info->ssl_client_options_set)
+		SSL_CTX_set_options(vh->tls.ssl_client_ctx,
+				    info->ssl_client_options_set);
+
+	/* SSL_clear_options introduced in 0.9.8m */
+#if (OPENSSL_VERSION_NUMBER >= 0x009080df) && !defined(USE_WOLFSSL)
+	if (info->ssl_client_options_clear)
+		SSL_CTX_clear_options(vh->tls.ssl_client_ctx,
+				      info->ssl_client_options_clear);
+#endif
+
 	if (cipher_list)
 		SSL_CTX_set_cipher_list(vh->tls.ssl_client_ctx, cipher_list);
 
