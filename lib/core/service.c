@@ -732,8 +732,7 @@ lws_service_periodic_checks(struct lws_context *context,
 				continue;
 			}
 
-			if (lws_hdr_copy(wsi, buf,
-					 sizeof buf, m) > 0) {
+			if (lws_hdr_copy(wsi, buf, sizeof buf, m) > 0) {
 				buf[sizeof(buf) - 1] = '\0';
 
 				lwsl_notice("   %s = %s\n",

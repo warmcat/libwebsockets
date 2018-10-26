@@ -902,8 +902,8 @@ lws_http_action(struct lws *wsi)
 	struct lws_process_html_args args;
 	const struct lws_http_mount *hit = NULL;
 	unsigned int n;
-	char http_version_str[10];
-	char http_conn_str[20];
+	char http_version_str[12];
+	char http_conn_str[25];
 	int http_version_len;
 	char *uri_ptr = NULL, *s;
 	int uri_len = 0, meth, m;
@@ -949,14 +949,15 @@ lws_http_action(struct lws *wsi)
 		wsi->http.rx_content_length = 100 * 1024 * 1024;
 
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
-		lws_hdr_copy(wsi, content_length_str,
+		if (lws_hdr_copy(wsi, content_length_str,
 			     sizeof(content_length_str) - 1,
-			     WSI_TOKEN_HTTP_CONTENT_LENGTH);
-		wsi->http.rx_content_length = atoll(content_length_str);
-		if (!wsi->http.rx_content_length) {
-			wsi->http.content_length_explicitly_zero = 1;
-			lwsl_debug("%s: explicit 0 content-length\n",
-				    __func__);
+			     WSI_TOKEN_HTTP_CONTENT_LENGTH) > 0) {
+			wsi->http.rx_content_length = atoll(content_length_str);
+			if (!wsi->http.rx_content_length) {
+				wsi->http.content_length_explicitly_zero = 1;
+				lwsl_debug("%s: explicit 0 content-length\n",
+						__func__);
+			}
 		}
 	}
 
@@ -985,10 +986,9 @@ lws_http_action(struct lws *wsi)
 			conn_type = HTTP_CONNECTION_CLOSE;
 
 		/* Override default if http "Connection:" header: */
-		if (lws_hdr_total_length(wsi, WSI_TOKEN_CONNECTION)) {
-			lws_hdr_copy(wsi, http_conn_str,
-				     sizeof(http_conn_str) - 1,
-				     WSI_TOKEN_CONNECTION);
+		if (lws_hdr_total_length(wsi, WSI_TOKEN_CONNECTION) &&
+		    lws_hdr_copy(wsi, http_conn_str, sizeof(http_conn_str) - 1,
+				 WSI_TOKEN_CONNECTION) > 0) {
 			http_conn_str[sizeof(http_conn_str) - 1] = '\0';
 			if (!strcasecmp(http_conn_str, "keep-alive"))
 				conn_type = HTTP_CONNECTION_KEEP_ALIVE;

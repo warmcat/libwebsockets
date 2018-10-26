@@ -43,7 +43,7 @@ struct per_session_data__lws_status {
 	struct per_session_data__lws_status *next;
 	struct lws *wsi;
 	time_t time_est;
-	char user_agent[128];
+	char user_agent[256];
 
 	e_walk walk;
 	struct per_session_data__lws_status *walk_next;
@@ -119,10 +119,10 @@ callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
 
 		time(&pss->time_est);
 		pss->wsi = wsi;
-		strcpy(pss->user_agent, "unknown");
-		lws_hdr_copy(wsi, pss->user_agent, sizeof(pss->user_agent),
-			     WSI_TOKEN_HTTP_USER_AGENT);
 
+		if (lws_hdr_copy(wsi, pss->user_agent, sizeof(pss->user_agent),
+			     WSI_TOKEN_HTTP_USER_AGENT) < 0) /* too big */
+			strcpy(pss->user_agent, "unknown");
 		trigger_resend(vhd);
 		break;
 

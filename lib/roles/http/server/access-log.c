@@ -97,35 +97,36 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int met
 
 	l = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_USER_AGENT);
 	if (l) {
-		wsi->http.access_log.user_agent = lws_malloc(l + 2, "access log");
+		wsi->http.access_log.user_agent = lws_malloc(l + 5, "access log");
+		wsi->http.access_log.user_agent[0] = '\0';
 		if (!wsi->http.access_log.user_agent) {
 			lwsl_err("OOM getting user agent\n");
 			lws_free_set_NULL(wsi->http.access_log.header_log);
 			return;
 		}
 
-		lws_hdr_copy(wsi, wsi->http.access_log.user_agent,
-				l + 1, WSI_TOKEN_HTTP_USER_AGENT);
-
-		for (m = 0; m < l; m++)
-			if (wsi->http.access_log.user_agent[m] == '\"')
-				wsi->http.access_log.user_agent[m] = '\'';
+		if (lws_hdr_copy(wsi, wsi->http.access_log.user_agent, l + 4,
+				 WSI_TOKEN_HTTP_USER_AGENT) >= 0)
+			for (m = 0; m < l; m++)
+				if (wsi->http.access_log.user_agent[m] == '\"')
+					wsi->http.access_log.user_agent[m] = '\'';
 	}
 	l = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_REFERER);
 	if (l) {
-		wsi->http.access_log.referrer = lws_malloc(l + 2, "referrer");
+		wsi->http.access_log.referrer = lws_malloc(l + 5, "referrer");
+		wsi->http.access_log.referrer[0] = '\0';
 		if (!wsi->http.access_log.referrer) {
-			lwsl_err("OOM getting user agent\n");
+			lwsl_err("OOM getting referrer\n");
 			lws_free_set_NULL(wsi->http.access_log.user_agent);
 			lws_free_set_NULL(wsi->http.access_log.header_log);
 			return;
 		}
-		lws_hdr_copy(wsi, wsi->http.access_log.referrer,
-				l + 1, WSI_TOKEN_HTTP_REFERER);
+		if (lws_hdr_copy(wsi, wsi->http.access_log.referrer,
+				l + 4, WSI_TOKEN_HTTP_REFERER) >= 0)
 
-		for (m = 0; m < l; m++)
-			if (wsi->http.access_log.referrer[m] == '\"')
-				wsi->http.access_log.referrer[m] = '\'';
+			for (m = 0; m < l; m++)
+				if (wsi->http.access_log.referrer[m] == '\"')
+					wsi->http.access_log.referrer[m] = '\'';
 	}
 	wsi->access_log_pending = 1;
 }

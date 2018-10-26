@@ -106,10 +106,14 @@ lws_callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				continue;
 			}
 
-			lws_hdr_copy(wsi, buf, sizeof buf, n);
-			buf[sizeof(buf) - 1] = '\0';
+			if (lws_hdr_copy(wsi, buf, sizeof buf, n) < 0)
+				fprintf(stderr, "    %s (too big)\n",
+					(char *)c, buf);
+			else {
+				buf[sizeof(buf) - 1] = '\0';
 
-			fprintf(stderr, "    %s = %s\n", (char *)c, buf);
+				fprintf(stderr, "    %s = %s\n", (char *)c, buf);
+			}
 			n++;
 		} while (c);
 

@@ -80,7 +80,7 @@ lws_urldecode_s_create(struct lws *wsi, char *out, int out_len, void *data,
 {
 	struct lws_urldecode_stateful *s = lws_zalloc(sizeof(*s),
 						"stateful urldecode");
-	char buf[200], *p;
+	char buf[205], *p;
 	int m = 0;
 
 	if (!s)
