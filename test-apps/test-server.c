@@ -107,8 +107,7 @@ lws_callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			}
 
 			if (lws_hdr_copy(wsi, buf, sizeof buf, n) < 0)
-				fprintf(stderr, "    %s (too big)\n",
-					(char *)c, buf);
+				fprintf(stderr, "    %s (too big)\n", (char *)c);
 			else {
 				buf[sizeof(buf) - 1] = '\0';
 

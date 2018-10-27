@@ -233,9 +233,15 @@ See also "rawonly" below.
 
  - `"enable-client-ssl"`: `"1"` enables the vhost's client SSL context, you will need this if you plan to create client conections on the vhost that will use SSL.  You don't need it if you only want http / ws client connections.
 
- - "`ciphers`": "<cipher list>"   sets the allowed list of ciphers and key exchange protocols for the vhost.  The default list is restricted to only those providing PFS (Perfect Forward Secrecy) on the author's Fedora system.
+ - "`ciphers`": "<cipher list>"  OPENSSL only: sets the allowed list of TLS <= 1.2 ciphers and key exchange protocols for the serving SSL_CTX on the vhost.  The default list is restricted to only those providing PFS (Perfect Forward Secrecy) on the author's Fedora system.
  
- If you need to allow weaker ciphers,you can provide an alternative list here per-vhost.
+ If you need to allow weaker ciphers, you can provide an alternative list here per-vhost.
+
+ - "`client-ssl-ciphers`": "<cipher list>"  OPENSSL only: sets the allowed list of <= TLS1.2 ciphers and key exchange protocols for the client SSL_CTX on the vhost
+
+ - "`tls13-ciphers`": "<cipher list>"  OPENSSL 1.1.1+ only: sets allowed list of TLS1.3+ ciphers and key exchange protocols for the client SSL_CTX on the vhost.  The default is to allow all.
+
+ - "`client-tls13-ciphers`": "<cipher list>"  OPENSSL 1.1.1+ only: sets the allowed list of TLS1.3+ ciphers and key exchange protocols for the client SSL_CTX on the vhost.  The default is to allow all.
  
  - "`ecdh-curve`": "<curve name>"   The default ecdh curve is "prime256v1", but you can override it here, per-vhost
 

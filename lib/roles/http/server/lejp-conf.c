@@ -107,6 +107,8 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].alpn",
 	"vhosts[].ssl-client-option-set",
 	"vhosts[].ssl-client-option-clear",
+	"vhosts[].tls13-ciphers",
+	"vhosts[].client-tls13-ciphers",
 };
 
 enum lejp_vhost_paths {
@@ -160,6 +162,8 @@ enum lejp_vhost_paths {
 	LEJPVP_ALPN,
 	LEJPVP_SSL_CLIENT_OPTION_SET,
 	LEJPVP_SSL_CLIENT_OPTION_CLEAR,
+	LEJPVP_TLS13_CIPHERS,
+	LEJPVP_CLIENT_TLS13_CIPHERS,
 };
 
 static const char * const parser_errs[] = {
@@ -623,6 +627,13 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 	case LEJPVP_CIPHERS:
 		a->info->ssl_cipher_list = a->p;
 		break;
+	case LEJPVP_TLS13_CIPHERS:
+		a->info->tls1_3_plus_cipher_list = a->p;
+		break;
+	case LEJPVP_CLIENT_TLS13_CIPHERS:
+		a->info->client_tls_1_3_plus_cipher_list = a->p;
+		break;
+
 	case LEJPVP_ECDH_CURVE:
 		a->info->ecdh_curve = a->p;
 		break;

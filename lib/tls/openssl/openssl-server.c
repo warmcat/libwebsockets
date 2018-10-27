@@ -376,6 +376,12 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 	if (info->ssl_cipher_list)
 		SSL_CTX_set_cipher_list(vhost->tls.ssl_ctx, info->ssl_cipher_list);
 
+#if defined(LWS_HAVE_SSL_CTX_set_ciphersuites)
+	if (info->tls1_3_plus_cipher_list)
+		SSL_CTX_set_ciphersuites(vhost->tls.ssl_ctx,
+					 info->tls1_3_plus_cipher_list);
+#endif
+
 #if !defined(OPENSSL_NO_TLSEXT)
 	SSL_CTX_set_tlsext_servername_callback(vhost->tls.ssl_ctx,
 					       lws_ssl_server_name_cb);

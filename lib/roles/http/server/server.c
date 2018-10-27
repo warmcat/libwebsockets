@@ -1270,14 +1270,15 @@ lws_http_action(struct lws *wsi)
 			}
 
 			*p++ = '?';
-			lws_hdr_copy(wsi, p,
+			if (lws_hdr_copy(wsi, p,
 				     (int)(&rpath[sizeof(rpath) - 1] - p),
-				     WSI_TOKEN_HTTP_URI_ARGS);
-			while (--na) {
-				if (*p == '\0')
-					*p = '&';
-				p++;
-			}
+				     WSI_TOKEN_HTTP_URI_ARGS) > 0)
+				while (--na) {
+					if (*p == '\0')
+						*p = '&';
+					p++;
+				}
+			*p = '\0';
 		}
 
 		i.path = rpath;

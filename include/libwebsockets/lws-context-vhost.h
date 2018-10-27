@@ -205,12 +205,15 @@ struct lws_context_creation_info {
 	 * filepath when setting up a vhost client SSL context,
 	 * but it is preferred to use .client_ssl_ca_filepath for that.) */
 	const char *ssl_cipher_list;
-	/**< VHOST: List of valid ciphers to use (eg,
+	/**< VHOST: List of valid ciphers to use ON TLS1.2 AND LOWER ONLY (eg,
 	 * "RC4-MD5:RC4-SHA:AES128-SHA:AES256-SHA:HIGH:!DSS:!aNULL"
 	 * or you can leave it as NULL to get "DEFAULT" (For backwards
 	 * compatibility, this can also be used to pass the client cipher
 	 * list when setting up a vhost client SSL context,
-	 * but it is preferred to use .client_ssl_cipher_list for that.)*/
+	 * but it is preferred to use .client_ssl_cipher_list for that.)
+	 * SEE .tls1_3_plus_cipher_list and .client_tls_1_3_plus_cipher_list
+	 * for the equivalent for tls1.3.
+	 */
 	const char *http_proxy_address;
 	/**< VHOST: If non-NULL, attempts to proxy via the given address.
 	 * If proxy auth is required, use format "username:password\@server:port" */
@@ -491,6 +494,19 @@ struct lws_context_creation_info {
 	long ssl_client_options_clear;
 	/**< VHOST: Any bits set here will be cleared as CLIENT SSL options */
 
+	const char *tls1_3_plus_cipher_list;
+	/**< VHOST: List of valid ciphers to use for incoming server connections
+	 * ON TLS1.3 AND ABOVE (eg, "TLS_CHACHA20_POLY1305_SHA256" on this vhost
+	 * or you can leave it as NULL to get "DEFAULT".
+	 * SEE .client_tls_1_3_plus_cipher_list to do the same on the vhost
+	 * client SSL_CTX.
+	 */
+	const char *client_tls_1_3_plus_cipher_list;
+	/**< VHOST: List of valid ciphers to use for outgoing client connections
+	 * ON TLS1.3 AND ABOVE on this vhost (eg,
+	 * "TLS_CHACHA20_POLY1305_SHA256") or you can leave it as NULL to get
+	 * "DEFAULT".
+	 */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
