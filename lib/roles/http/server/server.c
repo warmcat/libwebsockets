@@ -645,8 +645,13 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 
 	mimetype = lws_get_mimetype(path, m);
 	if (!mimetype) {
-		lwsl_err("unknown mimetype for %s\n", path);
-               goto bail;
+		lwsl_info("unknown mimetype for %s\n", path);
+		if (lws_return_http_status(wsi,
+				HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE, NULL) ||
+		    lws_http_transaction_completed(wsi))
+			return -1;
+
+		return 0;
 	}
 	if (!mimetype[0])
 		lwsl_debug("sending no mimetype for %s\n", path);
@@ -699,9 +704,6 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 		return -1; /* error or can't reuse connection: close the socket */
 
 	return 0;
-bail:
-
-	return -1;
 
 notfound:
 
