@@ -1699,12 +1699,44 @@ raw_transition:
 		lwsi_set_state(wsi, LRS_PRE_WS_SERVING_ACCEPT);
 		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 
-		/* is this websocket protocol or normal http 1.0? */
-
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_UPGRADE)) {
-			if (!strcasecmp(lws_hdr_simple_ptr(wsi,
-							   WSI_TOKEN_UPGRADE),
-					"websocket")) {
+
+			const char *up = lws_hdr_simple_ptr(wsi,
+							    WSI_TOKEN_UPGRADE);
+
+			if (strcasecmp(up, "websocket") &&
+			    strcasecmp(up, "h2c")) {
+				lwsl_info("Unknown upgrade '%s'\n", up);
+
+				if (lws_return_http_status(wsi,
+						HTTP_STATUS_FORBIDDEN, NULL) ||
+				    lws_http_transaction_completed(wsi))
+					goto bail_nuke_ah;
+			}
+
+			n = user_callback_handle_rxflow(wsi->protocol->callback,
+					wsi, LWS_CALLBACK_HTTP_CONFIRM_UPGRADE,
+					wsi->user_space, (char *)up, 0);
+
+			/* just hang up? */
+
+			if (n < 0)
+				goto bail_nuke_ah;
+
+			/* callback returned headers already, do t_c? */
+
+			if (n > 0) {
+				if (lws_http_transaction_completed(wsi))
+					goto bail_nuke_ah;
+
+				/* continue on */
+
+				return 0;
+			}
+
+			/* callback said 0, it was allowed */
+
+			if (!strcasecmp(up, "websocket")) {
 #if defined(LWS_ROLE_WS)
 				wsi->vhost->conn_stats.ws_upg++;
 				lwsl_info("Upgrade to ws\n");
@@ -1712,17 +1744,12 @@ raw_transition:
 #endif
 			}
 #if defined(LWS_WITH_HTTP2)
-			if (!strcasecmp(lws_hdr_simple_ptr(wsi,
-							   WSI_TOKEN_UPGRADE),
-					"h2c")) {
+			if (!strcasecmp(up, "h2c")) {
 				wsi->vhost->conn_stats.h2_upg++;
 				lwsl_info("Upgrade to h2c\n");
 				goto upgrade_h2c;
 			}
 #endif
-			lwsl_info("Unknown upgrade\n");
-			/* dunno what he wanted to upgrade to */
-			goto bail_nuke_ah;
 		}
 
 		/* no upgrade ack... he remained as HTTP */

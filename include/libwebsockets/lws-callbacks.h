@@ -311,6 +311,20 @@ enum lws_callback_reasons {
 	 * do something different now.  Any protocol allocation related
 	 * to the http transaction processing should be destroyed. */
 
+	LWS_CALLBACK_HTTP_CONFIRM_UPGRADE			= 86,
+	/**< This is your chance to reject an HTTP upgrade action.  The
+	 * name of the protocol being upgraded to is in 'in', and the ah
+	 * is still bound to the wsi, so you can look at the headers.
+	 *
+	 * The default of returning 0 (ie, also if not handled) means the
+	 * upgrade may proceed.  Return <0 to just hang up the connection,
+	 * or >0 if you have rejected the connection by returning http headers
+	 * and response code yourself.
+	 *
+	 * There is no need for you to call transaction_completed() as the
+	 * caller will take care of it when it sees you returned >0.
+	 */
+
 	/* ---------------------------------------------------------------------
 	 * ----- Callbacks related to HTTP Client  -----
 	 */
