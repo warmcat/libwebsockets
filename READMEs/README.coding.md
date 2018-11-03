@@ -379,7 +379,19 @@ If you are not building with _DEBUG defined, ie, without this
 
 then log levels below notice do not actually get compiled in.
 
+@section asan Building with ASAN
 
+Under GCC you can select for the build to be instrumented with the Address
+Sanitizer, using `cmake .. -DCMAKE_BUILD_TYPE=DEBUG -DLWS_WITH_ASAN=1`.  LWS is routinely run during development with valgrind, but ASAN is capable of finding different issues at runtime, like operations which are not strictly defined in the C
+standard and depend on platform behaviours.
+
+Run your application like this
+
+```
+	$ sudo ASAN_OPTIONS=verbosity=2:halt_on_error=1  /usr/local/bin/lwsws
+```
+
+and attach gdb to catch the place it halts.
 
 @section extpoll External Polling Loop support
 

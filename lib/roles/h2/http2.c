@@ -1202,7 +1202,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		wsi->h2.initialized = 1;
 	}
 
-	if (h2n->collected_priority && (h2n->dep & ~(1 << 31)) == h2n->sid) {
+	if (h2n->collected_priority && (h2n->dep & ~(1u << 31)) == h2n->sid) {
 		lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR, "depends on own sid");
 		return 0;
 	}
@@ -1513,7 +1513,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		break;
 
 	case LWS_H2_FRAME_TYPE_WINDOW_UPDATE:
-		h2n->hpack_e_dep &= ~(1 << 31);
+		h2n->hpack_e_dep &= ~(1u << 31);
 		lwsl_info("WINDOW_UPDATE: sid %d %u (0x%x)\n", h2n->sid,
 			    h2n->hpack_e_dep, h2n->hpack_e_dep);
 
@@ -1904,7 +1904,7 @@ do_windows:
 					lwsl_info("PRIORITY: dep 0x%x, weight 0x%02X\n",
 						  h2n->dep, h2n->weight_temp);
 
-					if ((h2n->dep & ~(1 << 31)) == h2n->sid) {
+					if ((h2n->dep & ~(1u << 31)) == h2n->sid) {
 						lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
 							      "cant depend on own sid");
 						break;

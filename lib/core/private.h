@@ -771,7 +771,7 @@ enum {
 	LWS_EV_START = (1 << 2),
 	LWS_EV_STOP = (1 << 3),
 
-	LWS_EV_PREPARE_DELETION = (1 << 31),
+	LWS_EV_PREPARE_DELETION = (1u << 31),
 };
 
 
