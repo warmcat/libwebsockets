@@ -52,11 +52,14 @@
 enum lws_write_protocol {
 	LWS_WRITE_TEXT						= 0,
 	/**< Send a ws TEXT message,the pointer must have LWS_PRE valid
-	 * memory behind it.  The receiver expects only valid utf-8 in the
-	 * payload */
+	 * memory behind it.
+	 *
+	 * The receiver expects only valid utf-8 in the payload */
 	LWS_WRITE_BINARY					= 1,
 	/**< Send a ws BINARY message, the pointer must have LWS_PRE valid
-	 * memory behind it.  Any sequence of bytes is valid */
+	 * memory behind it.
+	 *
+	 * Any sequence of bytes is valid */
 	LWS_WRITE_CONTINUATION					= 2,
 	/**< Continue a previous ws message, the pointer must have LWS_PRE valid
 	 * memory behind it */
@@ -143,10 +146,20 @@ struct lws_write_passthru {
  * LWS_WRITE_BINARY,
  * LWS_WRITE_CONTINUATION,
  * LWS_WRITE_PING,
- * LWS_WRITE_PONG
+ * LWS_WRITE_PONG,
  *
- * the send buffer has to have LWS_PRE bytes valid BEFORE
- * the buffer pointer you pass to lws_write().
+ * or sending on http/2,
+ *
+ * the send buffer has to have LWS_PRE bytes valid BEFORE the buffer pointer you
+ * pass to lws_write().  Since you'll probably want to use http/2 before too
+ * long, it's wise to just always do this with lws_write buffers... LWS_PRE is
+ * typically 16 bytes it's not going to hurt usually.
+ *
+ * start of alloc       ptr passed to lws_write      end of allocation
+ *       |                         |                         |
+ *       v  <-- LWS_PRE bytes -->  v                         v
+ *       [----------------  allocated memory  ---------------]
+ *              (for lws use)      [====== user buffer ======]
  *
  * This allows us to add protocol info before and after the data, and send as
  * one packet on the network without payload copying, for maximum efficiency.
@@ -160,15 +173,6 @@ struct lws_write_passthru {
  *   memset(&buf[LWS_PRE], 0, 128);
  *
  *   lws_write(wsi, &buf[LWS_PRE], 128, LWS_WRITE_TEXT);
- *
- * When sending HTTP, with
- *
- * LWS_WRITE_HTTP,
- * LWS_WRITE_HTTP_HEADERS
- * LWS_WRITE_HTTP_FINAL
- *
- * there is no protocol data prepended, and don't need to take care about the
- * LWS_PRE bytes valid before the buffer pointer.
  *
  * LWS_PRE is at least the frame nonce + 2 header + 8 length
  * LWS_SEND_BUFFER_POST_PADDING is deprecated, it's now 0 and can be left off.
