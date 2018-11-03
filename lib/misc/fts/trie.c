@@ -457,7 +457,7 @@ finalize_per_input(struct lws_fts *t)
 
 	spill(0, 1);
 
-	assert(lseek(t->fd, 0, SEEK_END) == t->c);
+	assert(lseek(t->fd, 0, SEEK_END) == (off_t)t->c);
 
 	if (t->lwsac_input_head) {
 		lwsac_input_size = lwsac_total_alloc(t->lwsac_input_head);
@@ -1066,7 +1066,7 @@ after:
 		return 1;
 	}
 
-	assert(lseek(t->fd, 0, SEEK_END) == t->c);
+	assert(lseek(t->fd, 0, SEEK_END) == (off_t)t->c);
 
 	if (lseek(t->fd, t->c, SEEK_SET) < 0) {
 		lwsl_err("%s: end seek failed\n", __func__);
@@ -1330,7 +1330,7 @@ lws_fts_serialize(struct lws_fts *t)
 
 	spill(0, 1);
 
-	assert(lseek(t->fd, 0, SEEK_END) == t->c);
+	assert(lseek(t->fd, 0, SEEK_END) == (off_t)t->c);
 
 	/* drop the correct root trie offset + file length into the header */
 
