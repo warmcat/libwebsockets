@@ -65,6 +65,8 @@ connect_client(struct vhd_minimal_client_echo *vhd)
 	i.host = host;
 	i.origin = host;
 	i.ssl_connection = 0;
+	if ((*vhd->options) & 2)
+		i.ssl_connection |= LCCSCF_USE_SSL;
 	i.vhost = vhd->vhost;
 	//i.protocol = ;
 	i.pwsi = &vhd->client_wsi;

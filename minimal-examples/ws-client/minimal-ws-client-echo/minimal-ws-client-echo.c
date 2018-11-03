@@ -113,6 +113,9 @@ int main(int argc, const char **argv)
 	if (lws_cmdline_option(argc, argv, "-o"))
 		options |= 1;
 
+	if (lws_cmdline_option(argc, argv, "--ssl"))
+		options |= 2;
+
 	if ((p = lws_cmdline_option(argc, argv, "-s")))
 		ads = p;
 
