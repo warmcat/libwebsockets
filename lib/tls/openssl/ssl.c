@@ -318,23 +318,12 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 	if (!wsi->tls.ssl)
 		goto bail;
 
-	if (!SSL_pending(wsi->tls.ssl))
-		goto bail;
+	if (SSL_pending(wsi->tls.ssl) &&
+	    lws_dll_is_null(&wsi->tls.pending_tls_list)) {
 
-	if (wsi->tls.pending_read_list_next)
-		return n;
-	if (wsi->tls.pending_read_list_prev)
-		return n;
-	if (pt->tls.pending_read_list == wsi)
-		return n;
-
-	/* add us to the linked list of guys with pending ssl */
-	if (pt->tls.pending_read_list)
-		pt->tls.pending_read_list->tls.pending_read_list_prev = wsi;
-
-	wsi->tls.pending_read_list_next = pt->tls.pending_read_list;
-	wsi->tls.pending_read_list_prev = NULL;
-	pt->tls.pending_read_list = wsi;
+		lws_dll_lws_add_front(&wsi->tls.pending_tls_list,
+				      &pt->tls.pending_tls_head);
+	}
 
 	return n;
 bail:

@@ -30,18 +30,18 @@
 int
 lws_tls_fake_POLLIN_for_buffered(struct lws_context_per_thread *pt)
 {
-	struct lws *wsi, *wsi_next;
 	int ret = 0;
 
-	wsi = pt->tls.pending_read_list;
-	while (wsi && wsi->position_in_fds_table != LWS_NO_FDS_POS) {
-		wsi_next = wsi->tls.pending_read_list_next;
+	lws_start_foreach_dll_safe(struct lws_dll_lws *, p, p1,
+				   pt->tls.pending_tls_head.next) {
+		struct lws *wsi = lws_container_of(p, struct lws,
+						   tls.pending_tls_list);
+
 		pt->fds[wsi->position_in_fds_table].revents |=
 			pt->fds[wsi->position_in_fds_table].events & LWS_POLLIN;
 		ret |= pt->fds[wsi->position_in_fds_table].revents & LWS_POLLIN;
 
-		wsi = wsi_next;
-	}
+	} lws_end_foreach_dll_safe(p, p1);
 
 	return !!ret;
 }
@@ -49,29 +49,10 @@ lws_tls_fake_POLLIN_for_buffered(struct lws_context_per_thread *pt)
 void
 __lws_ssl_remove_wsi_from_buffered_list(struct lws *wsi)
 {
-	struct lws_context *context = wsi->context;
-	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-
-	if (!wsi->tls.pending_read_list_prev &&
-	    !wsi->tls.pending_read_list_next &&
-	    pt->tls.pending_read_list != wsi)
-		/* we are not on the list */
+	if (lws_dll_is_null(&wsi->tls.pending_tls_list))
 		return;
 
-	/* point previous guy's next to our next */
-	if (!wsi->tls.pending_read_list_prev)
-		pt->tls.pending_read_list = wsi->tls.pending_read_list_next;
-	else
-		wsi->tls.pending_read_list_prev->tls.pending_read_list_next =
-			wsi->tls.pending_read_list_next;
-
-	/* point next guy's previous to our previous */
-	if (wsi->tls.pending_read_list_next)
-		wsi->tls.pending_read_list_next->tls.pending_read_list_prev =
-			wsi->tls.pending_read_list_prev;
-
-	wsi->tls.pending_read_list_prev = NULL;
-	wsi->tls.pending_read_list_next = NULL;
+	lws_dll_lws_remove(&wsi->tls.pending_tls_list);
 }
 
 void

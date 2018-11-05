@@ -115,7 +115,7 @@ struct lws_context_tls {
 };
 
 struct lws_pt_tls {
-	struct lws *pending_read_list; /* linked list */
+	struct lws_dll_lws pending_tls_head;
 };
 
 struct lws_tls_ss_pieces;
@@ -149,7 +149,7 @@ struct lws_vhost_tls {
 struct lws_lws_tls {
 	lws_tls_conn *ssl;
 	lws_tls_bio *client_bio;
-	struct lws *pending_read_list_prev, *pending_read_list_next;
+	struct lws_dll_lws pending_tls_list;
 	unsigned int use_ssl;
 	unsigned int redirect_to_https:1;
 };
