@@ -1210,8 +1210,12 @@ if ((CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX) AND NOT LWS_WITHOUT_TE
 endif()
 
 if ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
+
 	# otherwise osx blows a bunch of openssl deprecated api errors
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-deprecated-declarations" )
+	if (UNIX AND LWS_HAVE_PTHREAD_H)
+		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -pthread" )
+	endif()
 endif()
 
 source_group("Headers Private"  FILES ${HDR_PRIVATE})
