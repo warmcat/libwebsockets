@@ -823,14 +823,11 @@ autocomp:
 	if (pos > (int)sizeof(s[sp].ch[0].name) - 1)
 		pos = (int)sizeof(s[sp].ch[0].name) - 1;
 
-	s[sp].child_count = 0;
+	memset(&s[sp], 0, sizeof(s[sp]));
+
 	s[sp].child = 1;
-	s[sp].once = 0;
 	s[sp].tifs = fileofs_tif_start;
 	s[sp].self = child_ofs;
-	s[sp].ch[0].name_length = 0;
-	s[sp].done_children = 0;
-	s[sp + 1].done_children = 0;
 	s[sp].ch[0].effpos = pos;
 
 	if (pos == nl)
@@ -864,11 +861,8 @@ autocomp:
 		if (!s[sp].done_children && children) {
 			s[sp].done_children = 1;
 			sp++;
-			s[sp].child = 0;
+			memset(&s[sp], 0, sizeof(s[sp]));
 			s[sp].tifs = fileofs_tif_start;
-			s[sp].once = 0;
-			s[sp].child_count = 0;
-			s[sp].done_children = 0;
 			s[sp].self = child_ofs;
 
 			for (n = 0; n < (int)children && s[sp].child_count <
