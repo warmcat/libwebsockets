@@ -1600,29 +1600,28 @@ upgrade_ws:
 		lws_tokenize_init(&ts, list, LWS_TOKENIZE_F_COMMA_SEP_LIST |
 					    LWS_TOKENIZE_F_MINUS_NONTERM);
 		ts.len = lws_hdr_copy(wsi, list, sizeof(list) - 1, WSI_TOKEN_CONNECTION);
-		if (ts.len > 0)
-		{
-			do {
-				e = lws_tokenize(&ts);
-				switch (e) {
-				case LWS_TOKZE_TOKEN:
-					if (!strcasecmp(ts.token, "upgrade")) {
-						connection_upgrade = 1;
-						e = LWS_TOKZE_ENDED;
-					}
-					break;
-
-				case LWS_TOKZE_DELIMITER:
-				case LWS_TOKZE_ENDED:
-					break;
-
-				default:
-					lwsl_err("%s: malformed connection hdr\n", __func__);
-
-					goto bail_nuke_ah;
+		if (ts.len <= 0)
+			goto bad_conn_format;
+		do {
+			e = lws_tokenize(&ts);
+			switch (e) {
+			case LWS_TOKZE_TOKEN:
+				if (!strcasecmp(ts.token, "upgrade")) {
+					connection_upgrade = 1;
+					e = LWS_TOKZE_ENDED;
 				}
-			} while (e != LWS_TOKZE_ENDED);
-		}
+				break;
+
+			case LWS_TOKZE_DELIMITER:
+				break;
+
+			default: /* includes ENDED */
+bad_conn_format:
+				lwsl_err("%s: malformed connection hdr\n", __func__);
+
+				goto bail_nuke_ah;
+			}
+		} while (e > 0);
 		if (!connection_upgrade) {
 			lwsl_notice("No connection hdr\n");
 
@@ -1633,10 +1632,13 @@ upgrade_ws:
 		/* Check if 'host' header exits.
 		 * Its content is not validated. If required shall be checked in user's callback.
 		 */
-		if (!lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST)) {
-			lwsl_info("No host hdr\n");
-			goto bail_nuke_ah;
-		}
+
+	/* let's also confirm that Host at least exists for h1 */
+
+	if (!lws_hdr_total_length(wsi, WSI_TOKEN_HOST)) {
+		lwsl_info("No host hdr\n");
+		goto bail_nuke_ah;
+	}
 
 #if defined(LWS_WITH_HTTP2)
 check_protocol:
@@ -1697,7 +1699,7 @@ check_protocol:
 
 			goto bail_nuke_ah;
 		}
-	} while (e != LWS_TOKZE_ENDED);
+	} while (e > 0);
 
 	/* we didn't find a protocol he wanted? */
 
