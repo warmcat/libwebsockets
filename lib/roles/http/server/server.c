@@ -946,20 +946,18 @@ lws_http_action(struct lws *wsi)
 	wsi->http.rx_content_length = 0;
 	wsi->http.content_length_explicitly_zero = 0;
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI) ||
-		lws_hdr_total_length(wsi, WSI_TOKEN_PATCH_URI) ||
-		lws_hdr_total_length(wsi, WSI_TOKEN_PUT_URI))
+	    lws_hdr_total_length(wsi, WSI_TOKEN_PATCH_URI) ||
+	    lws_hdr_total_length(wsi, WSI_TOKEN_PUT_URI))
 		wsi->http.rx_content_length = 100 * 1024 * 1024;
 
-	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
-		if (lws_hdr_copy(wsi, content_length_str,
-			     sizeof(content_length_str) - 1,
-			     WSI_TOKEN_HTTP_CONTENT_LENGTH) > 0) {
-			wsi->http.rx_content_length = atoll(content_length_str);
-			if (!wsi->http.rx_content_length) {
-				wsi->http.content_length_explicitly_zero = 1;
-				lwsl_debug("%s: explicit 0 content-length\n",
-						__func__);
-			}
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
+	    lws_hdr_copy(wsi, content_length_str,
+			 sizeof(content_length_str) - 1,
+			 WSI_TOKEN_HTTP_CONTENT_LENGTH) > 0) {
+		wsi->http.rx_content_length = atoll(content_length_str);
+		if (!wsi->http.rx_content_length) {
+			wsi->http.content_length_explicitly_zero = 1;
+			lwsl_debug("%s: explicit 0 content-length\n", __func__);
 		}
 	}
 
@@ -971,14 +969,13 @@ lws_http_action(struct lws *wsi)
 
 		/* Works for single digit HTTP versions. : */
 		http_version_len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP);
-		if (http_version_len > 7) {
-			lws_hdr_copy(wsi, http_version_str,
-				     sizeof(http_version_str) - 1,
-				     WSI_TOKEN_HTTP);
-			if (http_version_str[5] == '1' &&
-			    http_version_str[7] == '1')
-				request_version = HTTP_VERSION_1_1;
-		}
+		if (http_version_len > 7 &&
+		    lws_hdr_copy(wsi, http_version_str,
+				 sizeof(http_version_str) - 1,
+				 WSI_TOKEN_HTTP) > 0 &&
+		    http_version_str[5] == '1' && http_version_str[7] == '1')
+			request_version = HTTP_VERSION_1_1;
+
 		wsi->http.request_version = request_version;
 
 		/* HTTP/1.1 defaults to "keep-alive", 1.0 to "close" */
