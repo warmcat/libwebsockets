@@ -64,6 +64,8 @@
    #include <openssl/err.h>
    #include <openssl/md5.h>
    #include <openssl/sha.h>
+   #include <openssl/rsa.h>
+   #include <openssl/bn.h>
    #ifdef LWS_HAVE_OPENSSL_ECDH_H
     #include <openssl/ecdh.h>
    #endif
