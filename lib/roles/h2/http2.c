@@ -245,7 +245,9 @@ lws_wsi_h2_adopt(struct lws *parent_wsi, struct lws *wsi)
 	/* sid is set just before issuing the headers, ensuring monoticity */
 
 	wsi->seen_nonpseudoheader = 0;
+#if !defined(LWS_NO_CLIENT)
 	wsi->client_h2_substream = 1;
+#endif
 	wsi->h2.initialized = 1;
 
 	wsi->h2.parent_wsi = parent_wsi;
@@ -848,7 +850,11 @@ lws_h2_parse_frame_header(struct lws *wsi)
 	else {
 		/* if it's data, either way no swsi means CLOSED state */
 		if (h2n->type == LWS_H2_FRAME_TYPE_DATA) {
-			if (h2n->sid <= h2n->highest_sid_opened && wsi->client_h2_alpn) {
+			if (h2n->sid <= h2n->highest_sid_opened
+#if !defined(LWS_NO_CLIENT)
+					&& wsi->client_h2_alpn
+#endif
+			) {
 				lwsl_notice("ignoring straggling data\n");
 				h2n->type = LWS_H2_FRAME_TYPE_COUNT; /* ie, IGNORE */
 			} else {
@@ -1338,6 +1344,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		lwsl_info("http req, wsi=%p, h2n->swsi=%p\n", wsi, h2n->swsi);
 		h2n->swsi->hdr_parsing_completed = 1;
 
+#if !defined(LWS_NO_CLIENT)
 		if (h2n->swsi->client_h2_substream) {
 			if (lws_client_interpret_server_handshake(h2n->swsi)) {
 				lws_h2_rst_stream(h2n->swsi, H2_ERR_STREAM_CLOSED,
@@ -1345,6 +1352,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 				break;
 			}
 		}
+#endif
 
 		if (lws_hdr_extant(h2n->swsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
 			h2n->swsi->http.rx_content_length  = atoll(
@@ -1401,10 +1409,12 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			break;
 		}
 
+#if !defined(LWS_NO_CLIENT)
 		if (h2n->swsi->client_h2_substream) {
 			lwsl_info("%s: headers: client path\n", __func__);
 			break;
 		}
+#endif
 
 		if (!lws_hdr_total_length(h2n->swsi, WSI_TOKEN_HTTP_COLON_PATH) ||
 		    !lws_hdr_total_length(h2n->swsi, WSI_TOKEN_HTTP_COLON_METHOD) ||
@@ -1465,6 +1475,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		    h2n->swsi->h2.h2_state == LWS_H2_STATE_HALF_CLOSED_LOCAL)
 			lws_h2_state(h2n->swsi, LWS_H2_STATE_CLOSED);
 
+#if !defined(LWS_NO_CLIENT)
 		/*
 		 * client... remote END_STREAM implies we weren't going to
 		 * send anything else anyway.
@@ -1494,6 +1505,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 					lwsl_debug("tx completed returned close\n");
 			}
 		}
+#endif
 		break;
 
 	case LWS_H2_FRAME_TYPE_PING:
@@ -1788,7 +1800,7 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 					n = h2n->length - h2n->count + 1;
 					lwsl_debug("---- restricting len to %d vs %ld\n", n, (long)inlen + 1);
 				}
-
+#if !defined(LWS_NO_CLIENT)
 				if (h2n->swsi->client_h2_substream) {
 
 					m = user_callback_handle_rxflow(
@@ -1807,7 +1819,9 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 					}
 
 					break;
-				} else {
+				} else
+#endif
+				{
 
 					if (lwsi_state(h2n->swsi) == LRS_DEFERRING_ACTION) {
 						// lwsl_notice("appending because we are in LRS_DEFERRING_ACTION\n");

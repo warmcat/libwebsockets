@@ -24,24 +24,30 @@ MINEX=`dirname $0`
 MINEX=`realpath $MINEX`
 TESTS=0
 for i in `find $MINEX -name selftest.sh` ; do
-	C=`cat $i | grep COUNT_TESTS= | cut -d= -f2`
-	TESTS=$(( $TESTS + $C ))
+	BN=`echo -n "$i" | sed "s/\/[^\/]*\$//g" | sed "s/.*\///g"`
+	if [ -e `pwd`/bin/lws-$BN ] ; then
+		C=`cat $i | grep COUNT_TESTS= | cut -d= -f2`
+		TESTS=$(( $TESTS + $C ))
+	fi
 done
 
 FAILS=0
 WH=1
 
 for i in `find $MINEX -name selftest.sh` ; do
-	C=`cat $i | grep COUNT_TESTS= | cut -d= -f2`
-	sh $i `pwd`/bin $LOGGING_PATH $WH $TESTS $MINEX
-	FAILS=$(( $FAILS + $? ))
-
-	L=`ps fax | grep lws- | cut -d' ' -f2`
-	kill $L 2>/dev/null
-	kill -9 $L 2>/dev/null
-	wait $L 2>/dev/null
-
-	WH=$(( $WH + $C ))
+	BN=`echo -n "$i" | sed "s/\/[^\/]*\$//g" | sed "s/.*\///g"`
+	if [ -e `pwd`/bin/lws-$BN ] ; then
+		C=`cat $i | grep COUNT_TESTS= | cut -d= -f2`
+		sh $i `pwd`/bin $LOGGING_PATH $WH $TESTS $MINEX
+		FAILS=$(( $FAILS + $? ))
+	
+		L=`ps fax | grep lws- | cut -d' ' -f2`
+		kill $L 2>/dev/null
+		kill -9 $L 2>/dev/null
+		wait $L 2>/dev/null
+	
+		WH=$(( $WH + $C ))
+	fi
 done
 
 if [ $FAILS -eq 0 ] ; then

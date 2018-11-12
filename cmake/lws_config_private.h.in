@@ -120,3 +120,5 @@
 #cmakedefine inline ${inline}
 
 #cmakedefine LWS_WITH_ZLIB
+#cmakedefine LWS_HAS_PTHREAD_SETNAME_NP
+

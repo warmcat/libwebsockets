@@ -1382,7 +1382,11 @@ lws_get_network_wsi(struct lws *wsi)
 		return NULL;
 
 #if defined(LWS_WITH_HTTP2)
-	if (!wsi->http2_substream && !wsi->client_h2_substream)
+	if (!wsi->http2_substream
+#if !defined(LWS_NO_CLIENT)
+			&& !wsi->client_h2_substream
+#endif
+	)
 		return wsi;
 
 	while (wsi->h2.parent_wsi)

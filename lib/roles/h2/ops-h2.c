@@ -605,7 +605,11 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 		} lws_end_foreach_llp(w, h2.sibling_list);
 	}
 
-	if (wsi->upgraded_to_http2 || wsi->http2_substream || wsi->client_h2_substream) {
+	if (wsi->upgraded_to_http2 || wsi->http2_substream
+#if !defined(LWS_NO_CLIENT)
+			|| wsi->client_h2_substream
+#endif
+	) {
 		lwsl_info("closing %p: parent %p\n", wsi, wsi->h2.parent_wsi);
 
 		if (wsi->h2.child_list && lwsl_visible(LLL_INFO)) {
@@ -645,7 +649,11 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 		wsi->h2.h2n->pps = NULL;
 	}
 
-	if ((wsi->client_h2_substream || wsi->http2_substream) &&
+	if ((
+#if !defined(LWS_NO_CLIENT)
+			wsi->client_h2_substream ||
+#endif
+			wsi->http2_substream) &&
 	     wsi->h2.parent_wsi) {
 		lwsl_info("  %p: disentangling from siblings\n", wsi);
 		lws_start_foreach_llp(struct lws **, w,
@@ -732,8 +740,9 @@ rops_callback_on_writable_h2(struct lws *wsi)
 	/* for network action, act only on the network wsi */
 
 	wsi = network_wsi;
-	if (already && !wsi->client_h2_alpn
+	if (already
 #if !defined(LWS_NO_CLIENT)
+			&& !wsi->client_h2_alpn
 			&& !wsi->client_h2_substream
 #endif
 			)
