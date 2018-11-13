@@ -76,6 +76,9 @@ int main(int argc, const char **argv)
 	info.ssl_cert_filepath = "localhost-100y.cert";
 	info.ssl_private_key_filepath = "localhost-100y.key";
 
+	if (lws_cmdline_option(argc, argv, "-h"))
+		info.options |= LWS_SERVER_OPTION_VHOST_UPG_STRICT_HOST_CHECK;
+
 	context = lws_create_context(&info);
 	if (!context) {
 		lwsl_err("lws init failed\n");

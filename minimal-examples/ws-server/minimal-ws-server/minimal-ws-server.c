@@ -79,6 +79,7 @@ int main(int argc, const char **argv)
 	info.port = 7681;
 	info.mounts = &mount;
 	info.protocols = protocols;
+	info.vhost_name = "localhost";
 	info.ws_ping_pong_interval = 10;
 
 	if (lws_cmdline_option(argc, argv, "-s")) {
@@ -87,6 +88,9 @@ int main(int argc, const char **argv)
 		info.ssl_cert_filepath = "localhost-100y.cert";
 		info.ssl_private_key_filepath = "localhost-100y.key";
 	}
+
+	if (lws_cmdline_option(argc, argv, "-h"))
+		info.options |= LWS_SERVER_OPTION_VHOST_UPG_STRICT_HOST_CHECK;
 
 	context = lws_create_context(&info);
 	if (!context) {

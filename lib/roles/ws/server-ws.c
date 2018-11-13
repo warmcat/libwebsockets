@@ -315,14 +315,6 @@ bad_conn_format:
 		}
 	} while (e > 0);
 
-	/* let's also confirm that Host at least exists for h1 */
-
-	if (!lws_hdr_total_length(wsi, WSI_TOKEN_HOST)) {
-		lwsl_err("%s: missing host: hdr on h1 ws upgrade\n", __func__);
-
-		return 1;
-	}
-
 #if defined(LWS_WITH_HTTP2)
 check_protocol:
 #endif

@@ -134,6 +134,17 @@ enum lws_context_options {
 	 * example the ACME plugin was configured to fetch a cert, this lets
 	 * you bootstrap your vhost from having no cert to start with.
 	 */
+	LWS_SERVER_OPTION_VHOST_UPG_STRICT_HOST_CHECK		= (1 << 27),
+	/**< (VH) On this vhost, if the connection is being upgraded, insist
+	 * that there's a Host: header and that the contents match the vhost
+	 * name + port (443 / 80 are assumed if no :port given based on if the
+	 * connection is using TLS).
+	 *
+	 * By default, without this flag, on upgrade lws just checks that the
+	 * Host: header was given without checking the contents... this is to
+	 * allow lax hostname mappings like localhost / 127.0.0.1, and CNAME
+	 * mappings like www.mysite.com / mysite.com
+	 */
 
 	/****** add new things just above ---^ ******/
 };

@@ -1546,6 +1546,75 @@ transaction_result_n:
 }
 
 int
+lws_confirm_host_header(struct lws *wsi)
+{
+	struct lws_tokenize ts;
+	lws_tokenize_elem e;
+	char buf[128];
+	int port = 80;
+
+	/*
+	 * this vhost wants us to validate what the
+	 * client sent against our vhost name
+	 */
+
+	if (!lws_hdr_total_length(wsi, WSI_TOKEN_HOST)) {
+		lwsl_info("%s: missing host on upgrade\n", __func__);
+
+		return 1;
+	}
+
+#if defined(LWS_WITH_TLS)
+	if (wsi->tls.ssl)
+		port = 443;
+#endif
+
+	lws_tokenize_init(&ts, buf, LWS_TOKENIZE_F_DOT_NONTERM /* server.com */|
+				    LWS_TOKENIZE_F_NO_FLOATS /* 1.server.com */|
+				    LWS_TOKENIZE_F_MINUS_NONTERM /* a-b.com */);
+	ts.len = lws_hdr_copy(wsi, buf, sizeof(buf) - 1, WSI_TOKEN_HOST);
+	if (ts.len <= 0) {
+		lwsl_info("%s: missing or oversize host header\n", __func__);
+		return 1;
+	}
+
+	if (lws_tokenize(&ts) != LWS_TOKZE_TOKEN)
+		goto bad_format;
+
+	if (strncmp(ts.token, wsi->vhost->name, ts.token_len)) {
+		buf[(ts.token - buf) + ts.token_len] = '\0';
+		lwsl_info("%s: '%s' in host hdr but vhost name %s\n",
+			  __func__, ts.token, wsi->vhost->name);
+		return 1;
+	}
+
+	e = lws_tokenize(&ts);
+	if (e == LWS_TOKZE_DELIMITER && ts.token[0] == ':') {
+		if (lws_tokenize(&ts) != LWS_TOKZE_INTEGER)
+			goto bad_format;
+		else
+			port = atoi(ts.token);
+	} else
+		if (e != LWS_TOKZE_ENDED)
+			goto bad_format;
+
+	if (wsi->vhost->listen_port != port) {
+		lwsl_info("%s: host port %d mismatches vhost port %d\n",
+			  __func__, port, wsi->vhost->listen_port);
+		return 1;
+	}
+
+	lwsl_debug("%s: host header OK\n", __func__);
+
+	return 0;
+
+bad_format:
+	lwsl_info("%s: bad host header format\n", __func__);
+
+	return 1;
+}
+
+int
 lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 {
 	struct lws_context *context = lws_get_context(wsi);
@@ -1732,6 +1801,11 @@ raw_transition:
 			}
 
 			/* callback said 0, it was allowed */
+
+			if (wsi->vhost->options &
+			    LWS_SERVER_OPTION_VHOST_UPG_STRICT_HOST_CHECK &&
+			    lws_confirm_host_header(wsi))
+				goto bail_nuke_ah;
 
 			if (!strcasecmp(up, "websocket")) {
 #if defined(LWS_ROLE_WS)

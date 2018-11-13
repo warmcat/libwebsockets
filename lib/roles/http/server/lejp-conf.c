@@ -109,6 +109,7 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].ssl-client-option-clear",
 	"vhosts[].tls13-ciphers",
 	"vhosts[].client-tls13-ciphers",
+	"vhosts[].strict-host-check",
 };
 
 enum lejp_vhost_paths {
@@ -164,6 +165,7 @@ enum lejp_vhost_paths {
 	LEJPVP_SSL_CLIENT_OPTION_CLEAR,
 	LEJPVP_TLS13_CIPHERS,
 	LEJPVP_CLIENT_TLS13_CIPHERS,
+	LEJPVP_FLAG_STRICT_HOST_CHECK,
 };
 
 static const char * const parser_errs[] = {
@@ -752,6 +754,15 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		else
 			a->info->options &= ~(LWS_SERVER_OPTION_IGNORE_MISSING_CERT);
 
+		return 0;
+
+	case LEJPVP_FLAG_STRICT_HOST_CHECK:
+		if (arg_to_bool(ctx->buf))
+			a->info->options |=
+				LWS_SERVER_OPTION_VHOST_UPG_STRICT_HOST_CHECK;
+		else
+			a->info->options &=
+				~(LWS_SERVER_OPTION_VHOST_UPG_STRICT_HOST_CHECK);
 		return 0;
 
 	case LEJPVP_ERROR_DOCUMENT_404:
