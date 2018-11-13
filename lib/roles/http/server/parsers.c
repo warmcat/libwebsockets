@@ -525,7 +525,8 @@ LWS_VISIBLE int lws_hdr_copy(struct lws *wsi, char *dst, int len,
 		n = wsi->http.ah->frags[n].nfrag;
 
 		if (n)
-			*dst++ = ',';
+			if (h != WSI_TOKEN_HTTP_COOKIE)
+				*dst++ = ',';
 	} while (n);
 	*dst = '\0';
 
