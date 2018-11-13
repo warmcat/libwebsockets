@@ -180,6 +180,36 @@ LWS_VISIBLE LWS_EXTERN void
 lwsl_emit_syslog(int level, const char *line);
 
 /**
+ * lwsl_emit_stderr() - helper log emit function writes to stderr
+ *
+ * \param level: one of LLL_ log level indexes
+ * \param line: log string
+ *
+ * You use this by passing the function pointer to lws_set_log_level(), to set
+ * it as the log emit function, it is not called directly.
+ *
+ * It prepends a system timestamp like [2018/11/13 07:41:57:3989]
+ *
+ * If stderr is a tty, then ansi colour codes are added.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lwsl_emit_stderr(int level, const char *line);
+
+/**
+ * lwsl_emit_stderr_notimestamp() - helper log emit function writes to stderr
+ *
+ * \param level: one of LLL_ log level indexes
+ * \param line: log string
+ *
+ * You use this by passing the function pointer to lws_set_log_level(), to set
+ * it as the log emit function, it is not called directly.
+ *
+ * If stderr is a tty, then ansi colour codes are added.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lwsl_emit_stderr_notimestamp(int level, const char *line);
+
+/**
  * lwsl_visible() - returns true if the log level should be printed
  *
  * \param level: one of LLL_ log level indexes

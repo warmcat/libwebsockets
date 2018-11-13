@@ -285,7 +285,7 @@ int main(int argc, char **argv)
 //	openlog("lwsws", syslog_options, LOG_DAEMON);
 #endif
 
-	lws_set_log_level(debug_level, NULL); // lwsl_emit_syslog);
+	lws_set_log_level(debug_level, lwsl_emit_stderr_notimestamp);
 
 	lwsl_notice("lwsws libwebsockets web server - license CC0 + LGPL2.1\n");
 	lwsl_notice("(C) Copyright 2010-2018 Andy Green <andy@warmcat.com>\n");

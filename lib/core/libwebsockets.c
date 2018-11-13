@@ -2066,10 +2066,12 @@ static const char * const colours[] = {
 	"[31m", /* LLL_THREAD */
 };
 
-LWS_VISIBLE void lwsl_emit_stderr(int level, const char *line)
+static char tty;
+
+LWS_VISIBLE void
+lwsl_emit_stderr(int level, const char *line)
 {
 	char buf[50];
-	static char tty = 3;
 	int n, m = LWS_ARRAY_SIZE(colours) - 1;
 
 	if (!tty)
@@ -2088,6 +2090,28 @@ LWS_VISIBLE void lwsl_emit_stderr(int level, const char *line)
 	} else
 		fprintf(stderr, "%s%s", buf, line);
 }
+
+LWS_VISIBLE void
+lwsl_emit_stderr_notimestamp(int level, const char *line)
+{
+	int n, m = LWS_ARRAY_SIZE(colours) - 1;
+
+	if (!tty)
+		tty = isatty(2) | 2;
+
+	if (tty == 3) {
+		n = 1 << (LWS_ARRAY_SIZE(colours) - 1);
+		while (n) {
+			if (level & n)
+				break;
+			m--;
+			n >>= 1;
+		}
+		fprintf(stderr, "%c%s%s%c[0m", 27, colours[m], line, 27);
+	} else
+		fprintf(stderr, "%s", line);
+}
+
 #endif
 
 LWS_VISIBLE void _lws_logv(int filter, const char *format, va_list vl)
