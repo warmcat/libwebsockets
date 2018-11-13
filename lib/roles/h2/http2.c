@@ -1382,10 +1382,13 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 					continue;
 				}
 
-				lws_hdr_copy(h2n->swsi, buf, sizeof buf, n);
-				buf[sizeof(buf) - 1] = '\0';
+				if (lws_hdr_copy(h2n->swsi, buf, sizeof buf, n) < 0) {
+					lwsl_info("    %s !oversize!\n", (char *)c);
+				} else {
+					buf[sizeof(buf) - 1] = '\0';
 
-				lwsl_info("    %s = %s\n", (char *)c, buf);
+					lwsl_info("    %s = %s\n", (char *)c, buf);
+				}
 				n++;
 			} while (c);
 		}
