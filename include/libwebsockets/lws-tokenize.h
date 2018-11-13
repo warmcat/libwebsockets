@@ -21,7 +21,7 @@
  * included from libwebsockets.h
  */
 
-/* Do not treat - as a terminal character */
+/* Do not treat - as a terminal character, so "my-token" is one token */
 #define LWS_TOKENIZE_F_MINUS_NONTERM	(1 << 0)
 /* Separately report aggregate colon-delimited tokens */
 #define LWS_TOKENIZE_F_AGG_COLON	(1 << 1)
@@ -30,6 +30,12 @@
 /* Allow more characters in the tokens and less delimiters... default is
  * only alphanumeric + underscore in tokens */
 #define LWS_TOKENIZE_F_RFC7230_DELIMS	(1 << 3)
+/* Do not treat . as a terminal character, so "warmcat.com" is one token */
+#define LWS_TOKENIZE_F_DOT_NONTERM	(1 << 4)
+/* If something starts looking like a float, like 1.2, force to be string token.
+ * This lets you receive dotted-quads like 192.168.0.1 as string tokens, and
+ * avoids illegal float format detection like 1.myserver.com */
+#define LWS_TOKENIZE_F_NO_FLOATS	(1 << 5)
 
 typedef enum {
 

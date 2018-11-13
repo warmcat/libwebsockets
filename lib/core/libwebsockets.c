@@ -3031,9 +3031,21 @@ lws_tokenize(struct lws_tokenize *ts)
 {
 	const char *rfc7230_delims = "(),/:;<=>?@[\\]{}";
 	lws_tokenize_state state = LWS_TOKZS_LEADING_WHITESPACE;
-	char c, flo = 0;
+	char c, flo = 0, d_minus = '-', d_dot = '.', s_minus = '\0',
+	     s_dot = '\0';
 	signed char num = -1;
 	int utf8 = 0;
+
+	/* for speed, compute the effect of the flags outside the loop */
+
+	if (ts->flags & LWS_TOKENIZE_F_MINUS_NONTERM) {
+		d_minus = '\0';
+		s_minus = '-';
+	}
+	if (ts->flags & LWS_TOKENIZE_F_DOT_NONTERM) {
+		d_dot = '\0';
+		s_dot = '.';
+	}
 
 	ts->token = NULL;
 	ts->token_len = 0;
@@ -3045,8 +3057,6 @@ lws_tokenize(struct lws_tokenize *ts)
 		utf8 = lws_check_byte_utf8((unsigned char)utf8, c);
 		if (utf8 < 0)
 			return LWS_TOKZE_ERR_BROKEN_UTF8;
-
-		lwsl_debug("%s: %c (%d) %d\n", __func__, c, state, (int)ts->len);
 
 		if (!c)
 			break;
@@ -3111,7 +3121,8 @@ lws_tokenize(struct lws_tokenize *ts)
 
 		/* aggregate . in a number as a float */
 
-		if (c == '.' && state == LWS_TOKZS_TOKEN && num == 1) {
+		if (c == '.' && !(ts->flags & LWS_TOKENIZE_F_NO_FLOATS) &&
+		    state == LWS_TOKZS_TOKEN && num == 1) {
 			if (flo)
 				return LWS_TOKZE_ERR_MALFORMED_FLOAT;
 			flo = 1;
@@ -3140,9 +3151,9 @@ lws_tokenize(struct lws_tokenize *ts)
 		     strchr(rfc7230_delims, c) && c > 32) ||
 		    ((!(ts->flags & LWS_TOKENIZE_F_RFC7230_DELIMS) &&
 		     (c < '0' || c > '9') && (c < 'A' || c > 'Z') &&
-		     (c < 'a' || c > 'z') && c != '_') && !(c == '-' &&
-			(ts->flags & LWS_TOKENIZE_F_MINUS_NONTERM))) ||
-		    (c == '-' && !(ts->flags & LWS_TOKENIZE_F_MINUS_NONTERM))
+		     (c < 'a' || c > 'z') && c != '_') &&
+		     c != s_minus && c != s_dot) ||
+		    c == d_minus || c == d_dot
 		    )) {
 			switch (state) {
 			case LWS_TOKZS_LEADING_WHITESPACE:
