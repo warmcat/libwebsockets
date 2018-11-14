@@ -936,9 +936,11 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	if (!context || context->being_destroyed1)
 		return -1;
 
-	/* the socket we came to service timed out, nothing to do */
-	if (lws_service_periodic_checks(context, pollfd, tsi) || !pollfd)
+	/* the case there's no pollfd to service, we just want to do periodic */
+	if (!pollfd) {
+		lws_service_periodic_checks(context, pollfd, tsi);
 		return -2;
+	}
 
 	/* no, here to service a socket descriptor */
 	wsi = wsi_from_fd(context, pollfd->fd);
@@ -1033,6 +1035,9 @@ close_and_handled:
 handled:
 #endif
 	pollfd->revents = 0;
+
+	/* check the timeout situation if we didn't in the last second */
+	lws_service_periodic_checks(context, pollfd, tsi);
 
 	lws_pt_lock(pt, __func__);
 	__lws_hrtimer_service(pt);
