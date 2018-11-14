@@ -475,7 +475,7 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 
 	p = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_IFACE);
 	if (p)
-		strncpy(method, p, sizeof(iface) - 1);
+		strncpy(iface, p, sizeof(iface) - 1);
 
 	lwsl_info("redirect ads='%s', port=%d, path='%s', ssl = %d\n",
 		   address, port, path, ssl);
