@@ -120,8 +120,10 @@ lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi)
 {
 	if (wsi->vhost == vh)
 		return;
+	lws_context_lock(vh->context, __func__); /* ---------- context { */
 	wsi->vhost = vh;
 	vh->count_bound_wsi++;
+	lws_context_unlock(vh->context); /* } context ---------- */
 	lwsl_info("%s: vh %s: count_bound_wsi %d\n",
 		    __func__, vh->name, vh->count_bound_wsi);
 	assert(wsi->vhost->count_bound_wsi > 0);
@@ -487,8 +489,10 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 	lws_pt_unlock(pt);
 }
 
+/* requires context + vh lock */
+
 int
-lws_timed_callback_remove(struct lws_vhost *vh, struct lws_timed_vh_protocol *p)
+__lws_timed_callback_remove(struct lws_vhost *vh, struct lws_timed_vh_protocol *p)
 {
 	lws_start_foreach_llp(struct lws_timed_vh_protocol **, pt,
 			      vh->timed_vh_protocol_list) {
@@ -503,9 +507,30 @@ lws_timed_callback_remove(struct lws_vhost *vh, struct lws_timed_vh_protocol *p)
 	return 1;
 }
 
+int
+lws_pthread_self_to_tsi(struct lws_context *context)
+{
+#if LWS_MAX_SMP > 1
+	pthread_t ps = pthread_self();
+	struct lws_context_per_thread *pt = &context->pt[0];
+	int n;
+
+	for (n = 0; n < context->count_threads; n++) {
+		if (pthread_equal(ps, pt->self))
+			return n;
+		pt++;
+	}
+
+	return -1;
+#else
+	return 0;
+#endif
+}
+
 LWS_VISIBLE LWS_EXTERN int
-lws_timed_callback_vh_protocol(struct lws_vhost *vh, const struct lws_protocols *prot,
-			       int reason, int secs)
+lws_timed_callback_vh_protocol(struct lws_vhost *vh,
+			       const struct lws_protocols *prot, int reason,
+			       int secs)
 {
 	struct lws_timed_vh_protocol *p = (struct lws_timed_vh_protocol *)
 			lws_malloc(sizeof(*p), "timed_vh");
@@ -513,12 +538,22 @@ lws_timed_callback_vh_protocol(struct lws_vhost *vh, const struct lws_protocols 
 	if (!p)
 		return 1;
 
+	p->tsi_req = lws_pthread_self_to_tsi(vh->context);
+	if (p->tsi_req < 0) /* not called from a service thread --> tsi 0 */
+		p->tsi_req = 0;
+
+	lws_context_lock(vh->context, __func__); /* context ----------------- */
+
 	p->protocol = prot;
 	p->reason = reason;
 	p->time = lws_now_secs() + secs;
-	p->next = vh->timed_vh_protocol_list;
 
+	lws_vhost_lock(vh); /* vhost ---------------------------------------- */
+	p->next = vh->timed_vh_protocol_list;
 	vh->timed_vh_protocol_list = p;
+	lws_vhost_unlock(vh); /* -------------------------------------- vhost */
+
+	lws_context_unlock(vh->context); /* ------------------------- context */
 
 	return 0;
 }

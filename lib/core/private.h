@@ -351,6 +351,7 @@ struct lws_context_per_thread {
 #if LWS_MAX_SMP > 1
 	pthread_mutex_t lock_stats;
 	struct lws_mutex_refcount mr;
+	pthread_t self;
 #endif
 
 	struct lws_context *context;
@@ -445,6 +446,7 @@ struct lws_timed_vh_protocol {
 	struct lws_vhost *vhost; /* only used for pending processing */
 	time_t time;
 	int reason;
+	int tsi_req;
 };
 
 /*
@@ -1097,7 +1099,7 @@ LWS_EXTERN int
 lws_service_flag_pending(struct lws_context *context, int tsi);
 
 LWS_EXTERN int
-lws_timed_callback_remove(struct lws_vhost *vh, struct lws_timed_vh_protocol *p);
+__lws_timed_callback_remove(struct lws_vhost *vh, struct lws_timed_vh_protocol *p);
 
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 __insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi);
@@ -1437,6 +1439,10 @@ LWS_EXTERN int
 lws_plat_service(struct lws_context *context, int timeout_ms);
 LWS_EXTERN LWS_VISIBLE int
 _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi);
+
+LWS_EXTERN int
+lws_pthread_self_to_tsi(struct lws_context *context);
+
 LWS_EXTERN int
 lws_plat_init(struct lws_context *context,
 	      const struct lws_context_creation_info *info);

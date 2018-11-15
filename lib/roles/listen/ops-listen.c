@@ -79,8 +79,8 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 		 * block the connect queue for other legit peers.
 		 */
 
-		accept_fd  = accept((int)pollfd->fd,
-				    (struct sockaddr *)&cli_addr, &clilen);
+		accept_fd = accept((int)pollfd->fd,
+				   (struct sockaddr *)&cli_addr, &clilen);
 		lws_latency(context, wsi, "listener accept",
 			    (int)accept_fd, accept_fd != LWS_SOCK_INVALID);
 		if (accept_fd == LWS_SOCK_INVALID) {
@@ -88,9 +88,8 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 			    LWS_ERRNO == LWS_EWOULDBLOCK) {
 				break;
 			}
-			lwsl_err("ERROR on accept: %s\n",
-				 strerror(LWS_ERRNO));
-			break;
+			lwsl_err("accept: %s\n", strerror(LWS_ERRNO));
+			return LWS_HPI_RET_HANDLED;
 		}
 
 		lws_plat_set_socket_options(wsi->vhost, accept_fd, 0);
@@ -130,9 +129,12 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 		fd.sockfd = accept_fd;
 		cwsi = lws_adopt_descriptor_vhost(wsi->vhost, opts, fd,
 						  NULL, NULL);
-		if (!cwsi)
+		if (!cwsi) {
+			lwsl_err("%s: lws_adopt_descriptor_vhost failed\n",
+					__func__);
 			/* already closed cleanly as necessary */
 			return LWS_HPI_RET_WSI_ALREADY_DIED;
+		}
 
 		if (lws_server_socket_service_ssl(cwsi, accept_fd)) {
 			lws_close_free_wsi(cwsi, LWS_CLOSE_STATUS_NOSTATUS,

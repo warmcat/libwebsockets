@@ -658,7 +658,7 @@ lws_service_periodic_checks(struct lws_context *context,
 		our_fd = pollfd->fd;
 
 	/*
-	 * Phase 1: check every wsi on the timeout check list
+	 * Phase 1: check every wsi on our pt's timeout check list
 	 */
 
 	lws_pt_lock(pt, __func__);
@@ -792,7 +792,7 @@ lws_service_periodic_checks(struct lws_context *context,
 
 			lws_start_foreach_ll_safe(struct lws_timed_vh_protocol *,
 					q, v->timed_vh_protocol_list, next) {
-				if (now >= q->time)
+				if (now >= q->time && q->tsi_req == tsi)
 					n++;
 			} lws_end_foreach_ll_safe(q);
 		}
@@ -839,6 +839,8 @@ lws_service_periodic_checks(struct lws_context *context,
 
 		if (v->timed_vh_protocol_list) {
 
+			lws_vhost_lock(v); /* vhost ------------------------- */
+
 			lws_start_foreach_ll_safe(struct lws_timed_vh_protocol *,
 					q, v->timed_vh_protocol_list, next) {
 
@@ -846,7 +848,7 @@ lws_service_periodic_checks(struct lws_context *context,
 				if (m == n)
 					break;
 
-				if (now >= q->time) {
+				if (now >= q->time && q->tsi_req == tsi) {
 
 					/*
 					 * tmr is an allocated array.
@@ -858,10 +860,12 @@ lws_service_periodic_checks(struct lws_context *context,
 
 					/* take the timer out now we took
 					 * responsibility */
-					lws_timed_callback_remove(v, q);
+					__lws_timed_callback_remove(v, q);
 				}
 
 			} lws_end_foreach_ll_safe(q);
+
+			lws_vhost_unlock(v); /* ----------------------- vhost */
 		}
 
 	} lws_end_foreach_ll(v, vhost_next);
@@ -1085,6 +1089,9 @@ lws_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	int n;
 
 	pt->inside_service = 1;
+#if LWS_MAX_SMP > 1
+	pt->self = pthread_self();
+#endif
 
 	if (context->event_loop_ops->run_pt) {
 		/* we are configured for an event loop */

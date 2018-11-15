@@ -1369,7 +1369,7 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 	 */
 
 	while (vh->timed_vh_protocol_list)
-		lws_timed_callback_remove(vh, vh->timed_vh_protocol_list);
+		__lws_timed_callback_remove(vh, vh->timed_vh_protocol_list);
 
 	/*
 	 * let the protocols destroy the per-vhost protocol objects
