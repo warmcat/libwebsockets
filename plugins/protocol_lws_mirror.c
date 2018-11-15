@@ -218,7 +218,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		if (strchr(name, '='))
 			pn = strchr(name, '=') + 1;
 
-		lwsl_notice("%s: mirror name '%s'\n", __func__, pn);
+		//lwsl_notice("%s: mirror name '%s'\n", __func__, pn);
 
 		/* is there already a mirror instance of this name? */
 
@@ -229,7 +229,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 			count_mi++;
 			if (!strcmp(pn, mi1->name)) {
 				/* yes... we will join it */
-				lwsl_notice("Joining existing mi %p '%s'\n", mi1, pn);
+			//	lwsl_notice("Joining existing mi %p '%s'\n", mi1, pn);
 				mi = mi1;
 				break;
 			}

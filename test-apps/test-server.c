@@ -529,7 +529,7 @@ int main(int argc, char **argv)
 			       "!AES256-SHA256";
 	info.mounts = &mount;
 	info.ip_limit_ah = 24; /* for testing */
-	info.ip_limit_wsi = 105; /* for testing */
+	info.ip_limit_wsi = 400; /* for testing */
 
 	if (use_ssl)
 		/* redirect guys coming on http */

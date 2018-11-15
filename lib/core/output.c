@@ -268,7 +268,7 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 	    LWS_ERRNO == LWS_EINTR)
 		return LWS_SSL_CAPABLE_MORE_SERVICE;
 
-	lwsl_notice("error on reading from skt : %d\n", LWS_ERRNO);
+	lwsl_info("error on reading from skt : %d\n", LWS_ERRNO);
 	return LWS_SSL_CAPABLE_ERROR;
 }
 
