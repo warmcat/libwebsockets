@@ -1273,7 +1273,7 @@ lws_http_action(struct lws *wsi)
 			if (lws_hdr_copy(wsi, p,
 				     (int)(&rpath[sizeof(rpath) - 1] - p),
 				     WSI_TOKEN_HTTP_URI_ARGS) > 0)
-				while (--na) {
+				while (na--) {
 					if (*p == '\0')
 						*p = '&';
 					p++;
