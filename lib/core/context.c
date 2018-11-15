@@ -1647,6 +1647,9 @@ lws_context_destroy3(struct lws_context *context)
 #endif
 	}
 
+	if (context->pt[0].fds)
+		lws_free_set_NULL(context->pt[0].fds);
+
 	lws_free(context);
 	lwsl_info("%s: ctx %p freed\n", __func__, context);
 
@@ -1671,9 +1674,6 @@ lws_context_destroy2(struct lws_context *context)
 	lws_context_lock(context, "context destroy 2"); /* ------ context { */
 
 	context->being_destroyed2 = 1;
-
-	if (context->pt[0].fds)
-		lws_free_set_NULL(context->pt[0].fds);
 
 	/*
 	 * free all the per-vhost allocations

@@ -152,6 +152,10 @@ lws_set_timer_usecs(struct lws *wsi, lws_usec_t usecs);
  * future.
  *
  * Returns 0 if OK.
+ *
+ * In the multithreaded service case, the callback will occur in the same
+ * service thread context as the call to this api that requested it.  If it is
+ * called from a non-service thread, tsi 0 will handle it.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_timed_callback_vh_protocol(struct lws_vhost *vh,
