@@ -391,8 +391,8 @@ version 13.
 
 Since libwebsockets runs using `poll()` and a single threaded approach, any
 unexpected latency coming from system calls would be bad news.  There's now
-a latency tracking scheme that can be built in with `--with-latency` at
-configure-time, logging the time taken for system calls to complete and if
+a latency tracking scheme that can be built in with `-DLWS_WITH_LATENCY=1` at
+cmake, logging the time taken for system calls to complete and if
 the whole action did complete that time or was deferred.
 
 You can see the detailed data by enabling logging level 512 (eg, `-d 519` on
@@ -417,7 +417,11 @@ server modes
 
 1) pip install autobahntestsuite
 
-2) From your build dir: cmake .. -DLWS_WITH_MINIMAL_EXAMPLES=1 && make
+2) From your build dir:
+
+```
+ $ cmake .. -DLWS_WITHOUT_EXTENSIONS=0 -DLWS_WITH_MINIMAL_EXAMPLES=1 && make
+```
 
 3) ../scripts/autobahn-test.sh
 

@@ -1,11 +1,86 @@
 Changelog
 ---------
 
+v3.1.0
+======
+
  - CHANGE: REMOVED: lws_client_connect() and lws_client_connect_extended()
    compatibility apis for lws_client_connect_via_info() have been marked as
    deprecated for several versions and are now removed.  Use
-   lws_client_connect_via_info() instead.
+   lws_client_connect_via_info() directly instead.
 
+ - CHANGE: CMAKE:
+     - LWS_WITH_HTTP2:         now defaults ON
+
+ - NEW: CMAKE
+     - LWS_FOR_GITOHASHI: sets various cmake options suitable for gitohashi
+     - LWS_WITH_ASAN: for Linux, enable build with ASAN
+
+     Don't forget LWS_WITH_DISTRO_RECOMMENDED, which enables a wide range of lws
+     options suitable for a distro build of the library.
+     
+ - NEW: lws threadpool - lightweight pool of pthreads integrated to lws wsi, with
+   all synchronization to event loop handled internally, queue for excess tasks
+   [threadpool docs](https://libwebsockets.org/git/libwebsockets/tree/lib/misc/threadpool)
+   [threadpool minimal example](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/ws-server/minimal-ws-server-threadpool)
+   Cmake config: `-DLWS_WITH_THREADPOOL=1`
+
+ - NEW: libdbus support integrated on lws event loop
+   [lws dbus docs](https://libwebsockets.org/git/libwebsockets/tree/lib/roles/dbus)
+   [lws dbus client minimal examples](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/dbus-client)
+   [lws dbus server minimal examples](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/dbus-server)
+   Cmake config: `-DLWS_ROLE_DBUS=1`
+
+ - NEW: lws allocated chunks (lwsac) - helpers for optimized mass allocation of small
+   objects inside a few larger malloc chunks... if you need to allocate a lot of
+   inter-related structs for a limited time, this removes per-struct allocation
+   library overhead completely and removes the need for any destruction handling
+   [lwsac docs](https://libwebsockets.org/git/libwebsockets/tree/lib/misc/lwsac)
+   [lwsac minimal example](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/api-tests/api-test-lwsac)
+   Cmake Config: `-DLWS_WITH_LWSAC=1`
+
+ - NEW: lws tokenizer - helper api for robustly tokenizing your own strings without
+   allocating or adding complexity.  Configurable by flags for common delimiter
+   sets and comma-separated-lists in the tokenizer.  Detects and reports syntax
+   errors.
+   [lws_tokenize docs](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-tokenize.h)
+   [lws_tokenize minimal example / api test](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/api-tests/api-test-lws_tokenize)
+
+ - NEW: lws full-text search - optimized trie generation, serialization,
+   autocomplete suggestion generation and instant global search support extensible
+   to huge corpuses of UTF-8 text while remaining super lightweight on resources.
+   [full-text search docs](https://libwebsockets.org/git/libwebsockets/tree/lib/misc/fts)
+   [full-text search minimal example / api test](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/api-tests/api-test-fts)
+   [demo](https://libwebsockets.org/ftsdemo/)
+   [demo sources](https://libwebsockets.org/git/libwebsockets/tree/plugins/protocol_fulltext_demo.c)
+   Cmake config: `-DLWS_WITH_FTS=1 -DLWS_WITH_LWSAC=1`
+
+ - NEW: gzip + brotli http server-side compression - h1 and h2 automatic advertising
+   of server compression and application to files with mimetypes "text/*",
+   "application/javascript" and "image/svg.xml".
+   Cmake config: `-DLWS_WITH_HTTP_STREAM_COMPRESSION=1`, `-DLWS_WITH_HTTP_BROTLI=1`
+
+ - NEW: managed disk cache - API for managing a directory containing cached files
+   with hashed names, and automatic deletion of LRU files once the cache is
+   above a given limit.
+   [lws diskcache docs](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-diskcache.h)
+   Cmake config: `-DLWS_WITH_DISKCACHE=1`
+
+ - NEW: http reverse proxy - lws mounts support proxying h1 or h2 requests to
+   a local or remote IP, or unix domain socket over h1.  This allows microservice
+   type architectures where parts of the common URL space are actually handled
+   by external processes which may be remote or on the same machine.
+   [lws gitohashi serving](https://libwebsockets.org/git/) is handled this way.
+   CMake config: `-DLWS_WITH_HTTP_PROXY=1`
+   
+ - NEW: lws_buflist - internally several types of ad-hoc malloc'd buffer have
+   been replaced by a new, exported api `struct lws_buflist`.  This allows
+   multiple buffers to be chained and drawn down in strict FIFO order.
+
+ - NEW: In the case of h1 upgrade, the connection header is checked to contain
+   "upgrade".   The vhost flag LWS_SERVER_OPTION_VHOST_UPG_STRICT_HOST_CHECK
+   also causes the Host: header to be confirmed to match the vhost name and
+   listen port.
 
 v3.0.0
 ======

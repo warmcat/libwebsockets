@@ -47,10 +47,25 @@ minimum needed for the pages to operate.
 necessary so everything in the HTML can stay the same... it means adapt the
 pages to want the minimum and then enable the minimum.
 
+The main point is segregation of styles and script away from the content, in
+files referenced in the document `<head>` section, along these lines:
+
+```
+<head>
+ <meta charset=utf-8 http-equiv="Content-Language" content="en"/>
+ <link rel="stylesheet" type="text/css" href="test.css"/>
+ <script type='text/javascript' src="/lws-common.js"></script>
+ <script type='text/javascript' src='test.js'></script>
+ <title>Minimal Websocket test app</title>
+</head>
+```
+
 #### Inline styles must die
 
-All styling must go in one or more `.css` file served by the same server
-(preferably... you can whitelist other sources in the CSP if you have to).
+All styling must go in one or more `.css` file(s) best served by the same
+server... while you can whitelist other sources in the CSP if you have to,
+unless you control that server as well, you are allowing whoever gains
+access to that server access to your users.
 
 Inline styles are no longer allowed (eg, "style='font-size:120%'" in the
 HTML)... they must be replaced by reference to one or more CSS class, which
@@ -60,14 +75,14 @@ practice anyway, and your pages will be cleaner and more maintainable.
 #### Inline scripts must die
 
 Inline scripts need to be placed in a `.js` file and loaded in the page head
-section, from the server that provided the page.
+section, again it should only be from the server that provided the page.
 
 Then, any kind of inline script, yours or injected or whatever, will be
 completely rejected by the browser.
 
 #### onXXX must be replaced by eventListener
 
-Inline `onclick` or whatever are kinds of inline scripting and are banned.
+Inline `onclick()` etc are kinds of inline scripting and are banned.
 
 Modern browsers have offered a different system called ["EventListener" for
 a while](https://developer.mozilla.org/en-US/docs/Web/API/EventListener) which allows binding of events to DOM elements in JS.
@@ -118,9 +133,15 @@ it, hosting them on "self", ie, the same server that provided the HTML,
 will remove that problem.
 
 Bringing in scripts from external sources is actually quite scary from the
-security perspective.  If someone hacks the jquery site to serve a hostile
-payload in addition to the usual scripts, half the Internet will instantly
+security perspective.  If someone hacks the `ajax.googleapis.com` site to serve
+a hostile, modified jquery, half the Internet will instantly
 become malicious.  However if you serve it yourself, unless your server
 was specifically targeted you know it will continue to serve what you
 expect.
+
+Since these scripts are usually sent with cache control headers for local
+caching duration of 1 year, the cost of serving them yourself under the same
+conditions is small but your susceptibility to attack is reduced to only taking
+care of your own server.  And there is a privacy benefit that google is not
+informed of your users' IPs and activities on your site.
 
