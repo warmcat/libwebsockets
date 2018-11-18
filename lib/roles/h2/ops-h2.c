@@ -739,11 +739,10 @@ rops_callback_on_writable_h2(struct lws *wsi)
 
 	/* for network action, act only on the network wsi */
 
-	wsi = network_wsi;
 	if (already
 #if !defined(LWS_NO_CLIENT)
-			&& !wsi->client_h2_alpn
-			&& !wsi->client_h2_substream
+			&& !network_wsi->client_h2_alpn
+			&& !network_wsi->client_h2_substream
 #endif
 			)
 		return 1;

@@ -145,6 +145,20 @@ enum lws_context_options {
 	 * allow lax hostname mappings like localhost / 127.0.0.1, and CNAME
 	 * mappings like www.mysite.com / mysite.com
 	 */
+	LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE	= (1 << 28),
+	/**< (VH) Send lws default HTTP headers recommended by Mozilla Observatory
+	 * for security.  This is a helper option that sends canned headers on each
+	 * http response enabling a VERY strict Content Security Policy.  The policy
+	 * is so strict, for example it won't let the page run its own inline JS nor
+	 * show images or take CSS from a different server.  In many cases your JS only
+	 * comes from your server as do the image sources and CSS, so that is what you
+	 * want... attackers hoping to inject JS into your DOM are completely out of
+	 * luck since even if they succeed, it will be rejected for execution by the
+	 * browser according to the strict CSP.  In other cases you have to deviate from
+	 * the complete strictness, in which case don't use this flag: use the .headers
+	 * member in the vhost init described in struct lws_context_creation_info
+	 * instead to send the adapted headers yourself.
+	 */
 
 	/****** add new things just above ---^ ******/
 };

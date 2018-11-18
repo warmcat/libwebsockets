@@ -95,6 +95,8 @@ int main(int argc, const char **argv)
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	info.port = 7681;
 	info.mounts = &mount;
+	info.options =
+		LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE;
 
 	context = lws_create_context(&info);
 	if (!context) {

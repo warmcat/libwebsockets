@@ -114,6 +114,8 @@ int main(int argc, const char **argv)
 	info.mounts = &mount;
 	info.protocols = protocols;
 	info.pvo = &pvo;
+	info.options =
+		LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE;
 
 	if (!lws_cmdline_option(argc, argv, "-n"))
 		info.extensions = extensions;

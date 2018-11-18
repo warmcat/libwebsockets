@@ -83,6 +83,8 @@ int main(int argc, const char **argv)
 	info.error_document_404 = "/404.html";
 	info.pcontext = &context;
 	info.signal_cb = signal_cb;
+	info.options =
+		LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE;
 
 	if (lws_cmdline_option(argc, argv, "-s")) {
 		info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;

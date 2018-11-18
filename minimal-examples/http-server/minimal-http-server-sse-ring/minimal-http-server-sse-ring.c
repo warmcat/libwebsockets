@@ -138,7 +138,8 @@ callback_sse(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	struct pss *pss = (struct pss *)user;
 	struct vhd *vhd = (struct vhd *)lws_protocol_vh_priv_get(
 			lws_get_vhost(wsi), lws_get_protocol(wsi));
-	uint8_t buf[LWS_PRE + 256], *start = &buf[LWS_PRE], *p = start,
+	uint8_t buf[LWS_PRE + LWS_RECOMMENDED_MIN_HEADER_SPACE],
+		*start = &buf[LWS_PRE], *p = start,
 		*end = &buf[sizeof(buf) - 1];
 	const struct msg *pmsg;
 	void *retval;
@@ -266,6 +267,8 @@ callback_sse(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		return 0;
 
 	case LWS_CALLBACK_EVENT_WAIT_CANCELLED:
+		if (!vhd)
+			break;
 		/*
 		 * let everybody know we want to write something on them
 		 * as soon as they are ready
@@ -362,6 +365,8 @@ int main(int argc, const char **argv)
 	info.port = 7681;
 	info.protocols = protocols;
 	info.mounts = &mount;
+	info.options =
+		LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE;
 
 	context = lws_create_context(&info);
 	if (!context) {

@@ -97,8 +97,8 @@ static int
 callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	      void *in, size_t len)
 {
-	uint8_t buf[LWS_PRE + 256], *start = &buf[LWS_PRE], *p = start,
-		*end = &buf[sizeof(buf) - 1];
+	uint8_t buf[LWS_PRE + LWS_RECOMMENDED_MIN_HEADER_SPACE], *start = &buf[LWS_PRE],
+		*p = start, *end = &buf[sizeof(buf) - 1];
 	struct pss *pss = (struct pss *)user;
 	int n;
 
@@ -240,6 +240,8 @@ int main(int argc, const char **argv)
 	info.port = 7681;
 	info.protocols = protocols;
 	info.mounts = &mount;
+	info.options =
+		LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE;
 
 	context = lws_create_context(&info);
 	if (!context) {

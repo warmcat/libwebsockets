@@ -242,6 +242,26 @@ static const char * const err500[] = {
 	"HTTP Version Not Supported"
 };
 
+/* security best practices from Mozilla Observatory */
+
+static const
+struct lws_protocol_vhost_options pvo_hsbph[] = {{
+	NULL, NULL, "referrer-policy:", "no-referrer"
+}, {
+	&pvo_hsbph[0], NULL, "x-frame-options:", "deny"
+}, {
+	&pvo_hsbph[1], NULL, "x-xss-protection:", "1; mode=block"
+}, {
+	&pvo_hsbph[2], NULL, "x-content-type-options:", "nosniff"
+}, {
+	&pvo_hsbph[3], NULL, "content-security-policy:",
+	"default-src 'none'; img-src 'self' data: ; "
+		"script-src 'self'; font-src 'self'; "
+		"style-src 'self'; connect-src 'self'; "
+		"frame-ancestors 'none'; base-uri 'none';"
+		"form-action 'self';"
+}};
+
 int
 lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 			   unsigned char **p, unsigned char *end)
@@ -304,6 +324,20 @@ lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 			return 1;
 
 		headers = headers->next;
+	}
+
+	if (wsi->vhost->options &
+	    LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE) {
+		headers = &pvo_hsbph[LWS_ARRAY_SIZE(pvo_hsbph) - 1];
+		while (headers) {
+			if (lws_add_http_header_by_name(wsi,
+					(const unsigned char *)headers->name,
+					(unsigned char *)headers->value,
+					(int)strlen(headers->value), p, end))
+				return 1;
+
+			headers = headers->next;
+		}
 	}
 
 	if (wsi->context->server_string &&

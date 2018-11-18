@@ -85,7 +85,8 @@ completely rejected by the browser.
 Inline `onclick()` etc are kinds of inline scripting and are banned.
 
 Modern browsers have offered a different system called ["EventListener" for
-a while](https://developer.mozilla.org/en-US/docs/Web/API/EventListener) which allows binding of events to DOM elements in JS.
+a while](https://developer.mozilla.org/en-US/docs/Web/API/EventListener)
+which allows binding of events to DOM elements in JS.
 
 A bunch of different named events are possible to listen on, commonly the
 `.js` file will ask for one or both of

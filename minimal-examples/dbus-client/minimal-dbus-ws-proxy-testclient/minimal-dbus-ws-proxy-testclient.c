@@ -411,6 +411,9 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
+	info.options |=
+		LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE;
+
 	vh = lws_create_vhost(context, &info);
 	if (!vh)
 		goto bail;

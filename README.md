@@ -8,7 +8,8 @@ lightweight, configurable, scalable and flexible way.  It's easy to build and
 cross-build via cmake and is suitable for tasks from embedded RTOS through mass
 cloud serving.
 
-[50 minimal examples](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples) for various scenarios, CC0-licensed (public domain) for cut-and-paste, allow you to get started quickly.
+[50 minimal examples](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples) for
+various scenarios, CC0-licensed (public domain) for cut-and-paste, allow you to get started quickly.
 
 ![overview](./doc-assets/lws-overview.svg)
 
@@ -19,38 +20,38 @@ News
 
  - **lws threadpool** - lightweight pool of pthreads integrated to lws wsi, with all
    synchronization to event loop handled internally, queue for excess tasks
-   [threadpool docs](https://libwebsockets.org/git/libwebsockets/tree/lib/misc/threadpool)
-   [threadpool minimal example](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/ws-server/minimal-ws-server-threadpool)
+   [threadpool docs](https://libwebsockets.org/git/libwebsockets/tree/lib/misc/threadpool), 
+   [threadpool minimal example](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/ws-server/minimal-ws-server-threadpool), 
    Cmake config: `-DLWS_WITH_THREADPOOL=1`
 
  - **libdbus support** integrated on lws event loop
-   [lws dbus docs](https://libwebsockets.org/git/libwebsockets/tree/lib/roles/dbus)
-   [lws dbus client minimal examples](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/dbus-client)
-   [lws dbus server minimal examples](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/dbus-server)
+   [lws dbus docs](https://libwebsockets.org/git/libwebsockets/tree/lib/roles/dbus), 
+   [lws dbus client minimal examples](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/dbus-client), 
+   [lws dbus server minimal examples](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/dbus-server), 
    Cmake config: `-DLWS_ROLE_DBUS=1`
 
  - **lws allocated chunks (lwsac)** - helpers for optimized mass allocation of small
    objects inside a few larger malloc chunks... if you need to allocate a lot of
    inter-related structs for a limited time, this removes per-struct allocation
    library overhead completely and removes the need for any destruction handling
-   [lwsac docs](https://libwebsockets.org/git/libwebsockets/tree/lib/misc/lwsac)
-   [lwsac minimal example](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/api-tests/api-test-lwsac)
+   [lwsac docs](https://libwebsockets.org/git/libwebsockets/tree/lib/misc/lwsac), 
+   [lwsac minimal example](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/api-tests/api-test-lwsac), 
    Cmake Config: `-DLWS_WITH_LWSAC=1`
 
  - **lws tokenizer** - helper api for robustly tokenizing your own strings without
    allocating or adding complexity.  Configurable by flags for common delimiter
    sets and comma-separated-lists in the tokenizer.  Detects and reports syntax
    errors.
-   [lws_tokenize docs](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-tokenize.h)
+   [lws_tokenize docs](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-tokenize.h), 
    [lws_tokenize minimal example / api test](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/api-tests/api-test-lws_tokenize)
 
  - **lws full-text search** - optimized trie generation, serialization,
    autocomplete suggestion generation and instant global search support extensible
    to huge corpuses of UTF-8 text while remaining super lightweight on resources.
-   [full-text search docs](https://libwebsockets.org/git/libwebsockets/tree/lib/misc/fts)
-   [full-text search minimal example / api test](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/api-tests/api-test-fts)
-   [demo](https://libwebsockets.org/ftsdemo/)
-   [demo sources](https://libwebsockets.org/git/libwebsockets/tree/plugins/protocol_fulltext_demo.c)
+   [full-text search docs](https://libwebsockets.org/git/libwebsockets/tree/lib/misc/fts), 
+   [full-text search minimal example / api test](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/api-tests/api-test-fts), 
+   [demo](https://libwebsockets.org/ftsdemo/), 
+   [demo sources](https://libwebsockets.org/git/libwebsockets/tree/plugins/protocol_fulltext_demo.c), 
    Cmake config: `-DLWS_WITH_FTS=1 -DLWS_WITH_LWSAC=1`
 
  - **gzip + brotli http server-side compression** - h1 and h2 detection of client support
@@ -62,7 +63,7 @@ News
  - **managed disk cache** - API for managing a directory containing cached files
    with hashed names, and automatic deletion of LRU files once the cache is
    above a given limit.
-   [lws diskcache docs](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-diskcache.h)
+   [lws diskcache docs](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-diskcache.h), 
    Cmake config: `-DLWS_WITH_DISKCACHE=1`
 
  - **http reverse proxy** - lws mounts support proxying h1 or h2 requests to
@@ -70,11 +71,18 @@ News
    type architectures where parts of the common URL space are actually handled
    by external processes which may be remote or on the same machine.
    [lws gitohashi serving](https://libwebsockets.org/git/) is handled this way.
-   [unix domain sockets reverse proxy docs](https://libwebsockets.org/git/libwebsockets/tree/READMEs/README.unix-domain-reverse-proxy.md)
-   CMake config: `-DLWS_WITH_HTTP_PROXY=1`
+   [unix domain sockets reverse proxy docs](https://libwebsockets.org/git/libwebsockets/tree/READMEs/README.unix-domain-reverse-proxy.md), 
+   CMake config: `-DLWS_WITH_HTTP_PROXY=1` and `-DLWS_UNIX_SOCK=1` for Unix Domain Sockets
+
+ - **update minimal examples for strict Content Security Policy** the minimal
+   examples now show the best practices around Content Security Policy and
+   disabling inline Javascript.  Updated examples that are served with the
+   recommended security restrictions show a new "Strict Content Security Policy"
+   graphic.  [Read how to upgrade your applications to use a strict CSP](https://libwebsockets.org/git/libwebsockets/tree/READMEs/README.content-security-policy.md).
 
  - **release policy docs** - unsure what branch, version or tag to use, or how
    to follow master cleanly?  [Read the release policy docs](https://libwebsockets.org/git/libwebsockets/tree/READMEs/README.release-policy.md)
+   which explain how and why lws is developed, released and maintained.
 
 ## v3.0.1 released
 

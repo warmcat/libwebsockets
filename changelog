@@ -12,6 +12,11 @@ v3.1.0
  - CHANGE: CMAKE:
      - LWS_WITH_HTTP2:         now defaults ON
 
+ - CHANGE: Minimal examples updated to use Content Security Policy best
+   practices, using
+   `LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE` vhost
+   option flag and disabling of inline style and scripts.
+
  - NEW: CMAKE
      - LWS_FOR_GITOHASHI: sets various cmake options suitable for gitohashi
      - LWS_WITH_ASAN: for Linux, enable build with ASAN

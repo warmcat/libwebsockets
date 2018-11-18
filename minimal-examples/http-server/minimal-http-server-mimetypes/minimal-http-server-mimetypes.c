@@ -76,6 +76,8 @@ int main(int argc, const char **argv)
 	info.port = 7681;
 	info.mounts = &mount;
 	info.error_document_404 = "/404.html";
+	info.options =
+		LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE;
 
 	context = lws_create_context(&info);
 	if (!context) {

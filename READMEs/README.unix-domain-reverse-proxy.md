@@ -7,7 +7,9 @@ lws is able to use a mount to place reverse proxies into the URL space.
 These are particularly useful when using Unix Domain Sockets, basically
 files in the server filesystem, to communicate between lws and a separate
 server process and integrate the result into a coherent URL namespace on
-the lws side.
+the lws side.  It's also possible to proxy using tcp sockets.
+
+![overview](../doc-assets/http-proxy-overview.svg)
 
 This has the advantage that the actual web server that forwards the
 data from the unix socket owner is in a different process than the server
