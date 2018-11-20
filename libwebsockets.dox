@@ -7,7 +7,7 @@ DOXYFILE_ENCODING      = UTF-8
 PROJECT_NAME           = "libwebsockets"
 PROJECT_NUMBER         =
 PROJECT_BRIEF          = "Lightweight C library for HTML5 websockets"
-PROJECT_LOGO           = "./test-apps/libwebsockets.org-logo.png"
+PROJECT_LOGO           = "./test-apps/libwebsockets.org-logo.svg"
 OUTPUT_DIRECTORY       = "doc"
 CREATE_SUBDIRS         = NO
 ALLOW_UNICODE_NAMES    = NO
@@ -102,11 +102,15 @@ WARN_LOGFILE           =
 # Configuration options related to the input files
 #---------------------------------------------------------------------------
 INPUT                  = include/libwebsockets.h \
+			 include/libwebsockets/lws-adopt.h \
 			 include/libwebsockets/lws-callbacks.h \
 			 include/libwebsockets/lws-cgi.h \
 			 include/libwebsockets/lws-client.h \
 			 include/libwebsockets/lws-context-vhost.h \
+			 include/libwebsockets/lws-dbus.h \
+			 include/libwebsockets/lws-diskcache.h \
 			 include/libwebsockets/lws-esp32.h \
+			 include/libwebsockets/lws-fts.h \
 			 include/libwebsockets/lws-genhash.h \
 			 include/libwebsockets/lws-genrsa.h \
 			 include/libwebsockets/lws-http.h \
@@ -114,6 +118,7 @@ INPUT                  = include/libwebsockets.h \
 			 include/libwebsockets/lws-jws.h \
 			 include/libwebsockets/lws-lejp.h \
 			 include/libwebsockets/lws-logs.h \
+			 include/libwebsockets/lws-lwsac.h \
 			 include/libwebsockets/lws-misc.h \
 			 include/libwebsockets/lws-network-helper.h \
 			 include/libwebsockets/lws-plugin-generic-sessions.h \
@@ -124,7 +129,9 @@ INPUT                  = include/libwebsockets.h \
 			 include/libwebsockets/lws-sha1-base64.h \
 			 include/libwebsockets/lws-spa.h \
 			 include/libwebsockets/lws-stats.h \
+			 include/libwebsockets/lws-threadpool.h \
 			 include/libwebsockets/lws-timeout-timer.h \
+			 include/libwebsockets/lws-tokenize.h \
 			 include/libwebsockets/lws-vfs.h \
 			 include/libwebsockets/lws-write.h \
 			 include/libwebsockets/lws-writeable.h \
@@ -135,6 +142,12 @@ INPUT                  = include/libwebsockets.h \
 			 plugins/ssh-base/include/lws-plugin-ssh.h \
 			 ./READMEs/mainpage.md \
 			 ./READMEs/README.build.md \
+			 ./READMEs/README.ci.md \
+			 ./READMEs/README.content-security-policy.md \
+			 ./READMEs/README.contributing.md \
+			 ./READMEs/README.release-policy.md \
+			 ./READMEs/README.unix-domain-reverse-proxy.md \
+			 ./READMEs/README.vulnerability-reporting.md \
 			 ./READMEs/README.problems.md \
 			 ./READMEs/README.lwsws.md \
 			 ./READMEs/README.coding.md \
@@ -143,6 +156,7 @@ INPUT                  = include/libwebsockets.h \
 			 ./READMEs/README.generic-table.md \
 			 ./READMEs/README.test-apps.md \
 			 ./READMEs/README-plugin-sshd-base.md \
+			 ./READMEs/README.plugin-acme.md \
 			 ./doc-assets 
 INPUT_ENCODING         = UTF-8
 FILE_PATTERNS          = lib/*.c *.md *.png include/*.h

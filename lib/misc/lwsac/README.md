@@ -17,7 +17,30 @@ If you have an unknown amount of relatively little things to allocate, including
 strings or other unstructured data, lwsac is significantly more efficient than
 individual allocations using malloc or so.
 
+[lwsac full public api](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-lwsac.h)
+
 ## lwsac_use() api
+
+```
+/**
+ * lwsac_use - allocate / use some memory from a lwsac
+ *
+ * \param head: pointer to the lwsac list object
+ * \param ensure: the number of bytes we want to use
+ * \param chunk_size: 0, or the size of the chunk to (over)allocate if
+ *			what we want won't fit in the current tail chunk.  If
+ *			0, the default value of 4000 is used. If ensure is
+ *			larger, it is used instead.
+ *
+ * This also serves to init the lwsac if *head is NULL.  Basically it does
+ * whatever is necessary to return you a pointer to ensure bytes of memory
+ * reserved for the caller.
+ *
+ * Returns NULL if OOM.
+ */
+LWS_VISIBLE LWS_EXTERN void *
+lwsac_use(struct lwsac **head, size_t ensure, size_t chunk_size);
+```
 
 When you make an sub-allocation using `lwsac_use()`, you can either
 set the `chunk_size` arg to zero, defaulting to 4000, or a specific chunk size.
@@ -42,6 +65,19 @@ with whatever happens.
 
 ## lwsac_free() api
 
+```
+/**
+ * lwsac_free - deallocate all chunks in the lwsac and set head NULL
+ *
+ * \param head: pointer to the lwsac list object
+ *
+ * This deallocates all chunks in the lwsac, then sets *head to NULL.  All
+ * lwsac_use() pointers are invalidated in one hit without individual frees.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lwsac_free(struct lwsac **head);
+```
+
 When you are finished with the lwsac, you simply free the chain of allocated
 chunks using lwsac_free() on the lwsac head.  There's no tracking or individual
 destruction of suballocations - the whole chain of chunks the suballocations
@@ -55,6 +91,13 @@ like clearing up after a kids' party by gathering up a disposable tablecloth:
 no matter what was left on the table, it's all gone in one step.
 
 ## lws_list_ptr helpers
+
+```
+/* sort may be NULL if you don't care about order */
+LWS_VISIBLE LWS_EXTERN void
+lws_list_ptr_insert(lws_list_ptr *phead, lws_list_ptr *add,
+		    lws_list_ptr_sort_func_t sort);
+```
 
 A common pattern needed with sub-allocated structs is they are on one or more
 linked-list.  To make that simple to do cleanly, lws_list... apis are provided

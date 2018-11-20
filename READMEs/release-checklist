@@ -68,21 +68,23 @@ Release Checklist
 
 6) Announce latest version on README.md
 
-7) signed tag
+7) Make sure all new READMEs and public headers are in libwebsockets.dox
+
+8) signed tag
 
   git tag -s vX.Y[.Z]
 
-8) git
+9) git
 
  a) push
  
  b) final CI check, if fail delete tag, kill pushed tags, restart flow
 
-9) website
+10) website
 
  a) update latest tag for release branch
 
-10) post-relase version bump
+11) post-relase version bump
 
 Bump the PATCH part of the version to 99
 

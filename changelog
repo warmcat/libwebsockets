@@ -86,6 +86,11 @@ v3.1.0
    "upgrade".   The vhost flag LWS_SERVER_OPTION_VHOST_UPG_STRICT_HOST_CHECK
    also causes the Host: header to be confirmed to match the vhost name and
    listen port.
+   
+ - NEW: If no 404 redirect for `lws_return_http_status()` is specified for the vhost,
+   the status page produced will try to bring in a stylesheet `/error.css`.  This allows
+   you to produce styled 404 or other error pages with logos, graphics etc.  See
+   https://libwebsockets.org/git/badrepo for an example of what you can do with it.
 
 v3.0.0
 ======

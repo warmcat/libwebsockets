@@ -364,8 +364,7 @@ lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 }
 
 LWS_VISIBLE int
-lws_return_http_status(struct lws *wsi, unsigned int code,
-		       const char *html_body)
+lws_return_http_status(struct lws *wsi, unsigned int code, const char *html_body)
 {
 	struct lws_context *context = lws_get_context(wsi);
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
