@@ -302,8 +302,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 			priv->rx_held_valid = 1;
 		}
 
-		ebuf->len = lws_ptr_diff(priv->rx.next_out,
-						  ebuf->token);
+		ebuf->len = lws_ptr_diff(priv->rx.next_out, ebuf->token);
 		priv->count_rx_between_fin += ebuf->len;
 
 		lwsl_ext("  %s: RX leaving with new effbuff len %d, "
