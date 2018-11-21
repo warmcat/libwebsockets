@@ -222,12 +222,13 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 
 	switch (reason) {
 	case LWS_CALLBACK_ESTABLISHED:
-		if (lws_hdr_copy(wsi, buf, sizeof(buf), WSI_TOKEN_GET_URI) < 0)
+		if (lws_hdr_copy(wsi, (char *)buf, sizeof(buf),
+				 WSI_TOKEN_GET_URI) < 0)
 			return -1;
 
-		pss->last = atoi(buf + 1);
+		pss->last = atoi((char *)buf + 1);
 
-		if (pss->last > LWS_ARRAY_SIZE(corner_lengths))
+		if (pss->last > (int)LWS_ARRAY_SIZE(corner_lengths))
 			pss->last = 0;
 		lws_callback_on_writable(wsi);
 		break;

@@ -368,28 +368,36 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		ebuf->token = (char *)priv->tx.next_out;
 		priv->tx.avail_out = 1 << priv->args[PMD_TX_BUF_PWR2];
 
-		n = deflate(&priv->tx, Z_SYNC_FLUSH);
-		if (n == Z_STREAM_ERROR) {
-			lwsl_ext("%s: Z_STREAM_ERROR\n", __func__);
-			return -1;
+		if (priv->tx.avail_in) {
+			n = deflate(&priv->tx, Z_SYNC_FLUSH);
+			if (n == Z_STREAM_ERROR) {
+				lwsl_ext("%s: Z_STREAM_ERROR\n", __func__);
+				return -1;
+			}
 		}
 
 		if (priv->tx_held_valid) {
 			priv->tx_held_valid = 0;
-			if ((int)priv->tx.avail_out == 1 << priv->args[PMD_TX_BUF_PWR2])
+			if ((int)priv->tx.avail_out ==
+					1 << priv->args[PMD_TX_BUF_PWR2])
 				/*
-				 * we can get a situation he took something in
+				 * We can get a situation he took something in
 				 * but did not generate anything out, at the end
 				 * of a message (eg, next thing he sends is 80
 				 * 00, a zero length FIN, like Autobahn can
 				 * send).
+				 *
 				 * If we have come back as a FIN, we must not
 				 * place the pending trailer 00 00 FF FF, just
 				 * the 1 byte of live data
 				 */
+
 				*(--ebuf->token) = priv->tx_held[0];
 			else {
-				/* he generated data, prepend whole pending */
+				/*
+				 * he generated some data on his own...
+				 * prepend the whole pending
+				 */
 				ebuf->token -= 5;
 				for (n = 0; n < 5; n++)
 					ebuf->token[n] = priv->tx_held[n];
