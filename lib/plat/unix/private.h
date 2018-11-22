@@ -127,6 +127,7 @@
 #define LWS_EISCONN EISCONN
 #define LWS_ENOTCONN ENOTCONN
 #define LWS_EWOULDBLOCK EWOULDBLOCK
+#define LWS_EADDRINUSE EADDRINUSE
 #define lws_set_blocking_send(wsi)
 #define LWS_SOCK_INVALID (-1)
 

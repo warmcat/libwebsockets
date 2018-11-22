@@ -2603,6 +2603,14 @@ lws_set_extension_option(struct lws *wsi, const char *ext_name,
 }
 #endif
 
+/* note: this returns a random port, or one of these <= 0 return codes:
+ *
+ * LWS_ITOSA_USABLE:     the interface is usable, returned if so and sockfd invalid
+ * LWS_ITOSA_NOT_EXIST:  the requested iface does not even exist
+ * LWS_ITOSA_NOT_USABLE: the requested iface exists but is not usable (eg, no IP)
+ * LWS_ITOSA_BUSY:       the port at the requested iface + port is already in use
+ */
+
 LWS_EXTERN int
 lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 		const char *iface)
@@ -2633,11 +2641,11 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 		bzero((char *) &serv_unix, sizeof(serv_unix));
 		serv_unix.sun_family = AF_UNIX;
 		if (!iface)
-			return -1;
+			return LWS_ITOSA_NOT_EXIST;
 		if (sizeof(serv_unix.sun_path) <= strlen(iface)) {
 			lwsl_err("\"%s\" too long for UNIX domain socket\n",
 			         iface);
-			return -1;
+			return LWS_ITOSA_NOT_EXIST;
 		}
 		strcpy(serv_unix.sun_path, iface);
 		if (serv_unix.sun_path[0] == '@')
@@ -2678,8 +2686,8 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 		bzero((char *) &serv_addr4, sizeof(serv_addr4));
 		serv_addr4.sin_addr.s_addr = INADDR_ANY;
 		serv_addr4.sin_family = AF_INET;
-#if !defined(LWS_WITH_ESP32)
 
+#if !defined(LWS_WITH_ESP32)
 		if (iface) {
 		    m = interface_to_sa(vhost, iface,
 				    (struct sockaddr_in *)v, n);
@@ -2700,20 +2708,28 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 
 	/* just checking for the interface extant */
 	if (sockfd == LWS_SOCK_INVALID)
-		return 0;
+		return LWS_ITOSA_USABLE;
 
 	n = bind(sockfd, v, n);
 #ifdef LWS_WITH_UNIX_SOCK
 	if (n < 0 && LWS_UNIX_SOCK_ENABLED(vhost)) {
 		lwsl_err("ERROR on binding fd %d to \"%s\" (%d %d)\n",
 			 sockfd, iface, n, LWS_ERRNO);
-		return -1;
+		return LWS_ITOSA_NOT_EXIST;
 	} else
 #endif
 	if (n < 0) {
 		lwsl_err("ERROR on binding fd %d to port %d (%d %d)\n",
 				sockfd, port, n, LWS_ERRNO);
-		return -1;
+
+		/* if something already listening, tell caller to fail permanently */
+
+		if (LWS_ERRNO == LWS_EADDRINUSE)
+			return LWS_ITOSA_BUSY;
+
+		/* otherwise ask caller to retry later */
+
+		return LWS_ITOSA_NOT_EXIST;
 	}
 
 #if defined(LWS_WITH_UNIX_SOCK)

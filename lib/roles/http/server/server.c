@@ -83,15 +83,22 @@ _lws_vhost_init_server(const struct lws_context_creation_info *info,
 		 * let's check before we do anything else about the disposition
 		 * of the interface he wants to bind to...
 		 */
-		is = lws_socket_bind(vhost, LWS_SOCK_INVALID, vhost->listen_port, vhost->iface);
+		is = lws_socket_bind(vhost, LWS_SOCK_INVALID, vhost->listen_port,
+				vhost->iface);
 		lwsl_debug("initial if check says %d\n", is);
+
+		if (is == LWS_ITOSA_BUSY)
+			/* treat as fatal */
+			return -1;
+
 deal:
 
 		lws_start_foreach_llp(struct lws_vhost **, pv,
 				      vhost->context->no_listener_vhost_list) {
 			if (is >= LWS_ITOSA_USABLE && *pv == vhost) {
 				/* on the list and shouldn't be: remove it */
-				lwsl_debug("deferred iface: removing vh %s\n", (*pv)->name);
+				lwsl_debug("deferred iface: removing vh %s\n",
+						(*pv)->name);
 				*pv = vhost->no_listener_vhost_list;
 				vhost->no_listener_vhost_list = NULL;
 				goto done_list;
@@ -107,7 +114,8 @@ deal:
 			/* ... but needs to be: so add it */
 
 			lwsl_debug("deferred iface: adding vh %s\n", vhost->name);
-			vhost->no_listener_vhost_list = vhost->context->no_listener_vhost_list;
+			vhost->no_listener_vhost_list =
+					vhost->context->no_listener_vhost_list;
 			vhost->context->no_listener_vhost_list = vhost;
 		}
 
@@ -226,6 +234,13 @@ done_list:
 		lws_plat_set_socket_options(vhost, sockfd, 0);
 
 		is = lws_socket_bind(vhost, sockfd, vhost->listen_port, vhost->iface);
+		if (is == LWS_ITOSA_BUSY) {
+			/* treat as fatal */
+			compatible_close(sockfd);
+
+			return -1;
+		}
+
 		/*
 		 * There is a race where the network device may come up and then
 		 * go away and fail here.  So correctly handle unexpected failure
@@ -250,8 +265,7 @@ done_list:
 			wsi->unix_skt = 1;
 			vhost->listen_port = is;
 
-			lwsl_debug("%s: lws_socket_bind says %d\n", __func__,
-					is);
+			lwsl_debug("%s: lws_socket_bind says %d\n", __func__, is);
 		}
 
 		wsi->context = vhost->context;

@@ -71,10 +71,12 @@ lws_get_peer_addresses(struct lws *wsi, lws_sockfd_type fd, char *name,
 LWS_VISIBLE LWS_EXTERN const char *
 lws_get_peer_simple(struct lws *wsi, char *name, int namelen);
 
+#define LWS_ITOSA_USABLE	0
+#define LWS_ITOSA_NOT_EXIST	-1
+#define LWS_ITOSA_NOT_USABLE	-2
+#define LWS_ITOSA_BUSY		-3 /* only returned by lws_socket_bind() on
+					EADDRINUSE */
 
-#define LWS_ITOSA_NOT_EXIST -1
-#define LWS_ITOSA_NOT_USABLE -2
-#define LWS_ITOSA_USABLE 0
 #if !defined(LWS_WITH_ESP32)
 /**
  * lws_interface_to_sa() - Convert interface name or IP to sockaddr struct
