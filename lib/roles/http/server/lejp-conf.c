@@ -479,13 +479,19 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 
 #if defined(LWS_WITH_TLS)
 		if (a->enable_client_ssl) {
-			const char *cert_filepath = a->info->client_ssl_cert_filepath;
-			const char *private_key_filepath = a->info->client_ssl_private_key_filepath;
-			const char *ca_filepath = a->info->client_ssl_ca_filepath;
-			const char *cipher_list = a->info->client_ssl_cipher_list;
+			const char *cert_filepath =
+					a->info->client_ssl_cert_filepath;
+			const char *private_key_filepath =
+				       a->info->client_ssl_private_key_filepath;
+			const char *ca_filepath =
+					a->info->client_ssl_ca_filepath;
+			const char *cipher_list =
+					a->info->client_ssl_cipher_list;
+
 			memset(a->info, 0, sizeof(*a->info));
 			a->info->client_ssl_cert_filepath = cert_filepath;
-			a->info->client_ssl_private_key_filepath = private_key_filepath;
+			a->info->client_ssl_private_key_filepath =
+							private_key_filepath;
 			a->info->client_ssl_ca_filepath = ca_filepath;
 			a->info->client_ssl_cipher_list = cipher_list;
 			a->info->options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
@@ -652,8 +658,8 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->p += n;
 		mp_cgienv->value = a->p;
 		mp_cgienv->options = NULL;
-		//lwsl_notice("    adding pmo / cgi-env '%s' = '%s'\n", mp_cgienv->name,
-		//		mp_cgienv->value);
+		//lwsl_notice("    adding pmo / cgi-env '%s' = '%s'\n",
+		//		mp_cgienv->name, mp_cgienv->value);
 		goto dostring;
 
 	case LEJPVP_PROTOCOL_NAME_OPT:
@@ -683,7 +689,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->pvo_em->next = a->m.extra_mimetypes;
 		a->m.extra_mimetypes = a->pvo_em;
 		a->pvo_em->name = a->p;
-		lwsl_notice("  adding extra-mimetypes %s -> %s\n", a->p, ctx->buf);
+		lwsl_notice("  + extra-mimetypes %s -> %s\n", a->p, ctx->buf);
 		a->p += n;
 		a->pvo_em->value = a->p;
 		a->pvo_em->options = NULL;
@@ -801,7 +807,8 @@ dostring:
 			n = lws_ptr_diff(a->end, a->p);
 		lws_strncpy(a->p, p, n + 1);
 		a->p += n;
-		a->p += lws_snprintf(a->p, a->end - a->p, "%s", LWS_INSTALL_DATADIR);
+		a->p += lws_snprintf(a->p, a->end - a->p, "%s",
+				     LWS_INSTALL_DATADIR);
 		p += n + strlen(ESC_INSTALL_DATADIR);
 	}
 
@@ -976,7 +983,8 @@ lwsws_get_config_globals(struct lws_context_creation_info *info, const char *d,
 		return 1;
 	lws_snprintf(dd, sizeof(dd) - 1, "%s/conf.d", d);
 	if (lwsws_get_config_d(&a, dd, paths_global,
-			       LWS_ARRAY_SIZE(paths_global), lejp_globals_cb) > 1)
+			       LWS_ARRAY_SIZE(paths_global),
+			       lejp_globals_cb) > 1)
 		return 1;
 
 	a.plugin_dirs[a.count_plugin_dirs] = NULL;

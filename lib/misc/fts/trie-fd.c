@@ -617,8 +617,8 @@ ensure:
 		struct lwsac *lt_head = NULL;
 		struct linetable *ltst;
 		char path[256], *pp;
-		off_t fo;
 		int footprint;
+		off_t fo;
 
 		ofd = -1;
 		grab(o, sizeof(buf));

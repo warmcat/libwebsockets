@@ -439,7 +439,8 @@ __lws_hrtimer_service(struct lws_context_per_thread *pt)
 	if (!pt->dll_head_hrtimer.next)
 		return LWS_HRTIMER_NOWAIT;
 
-	wsi = lws_container_of(pt->dll_head_hrtimer.next, struct lws, dll_hrtimer);
+	wsi = lws_container_of(pt->dll_head_hrtimer.next, struct lws,
+			       dll_hrtimer);
 
 	gettimeofday(&now, NULL);
 	t = (now.tv_sec * 1000000ll) + now.tv_usec;
@@ -477,7 +478,8 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 	if (secs == LWS_TO_KILL_SYNC) {
 		lws_remove_from_timeout_list(wsi);
 		lwsl_debug("synchronously killing %p\n", wsi);
-		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "to sync kill");
+		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
+				   "to sync kill");
 		return;
 	}
 
@@ -592,7 +594,8 @@ lws_remove_child_from_any_parent(struct lws *wsi)
 }
 
 int
-lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p, const char *reason)
+lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p,
+		  const char *reason)
 {
 //	if (wsi->protocol == p)
 //		return 0;
@@ -648,7 +651,8 @@ lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p, const char *re
 }
 
 void
-__lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *caller)
+__lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
+		     const char *caller)
 {
 	struct lws_context_per_thread *pt;
 	struct lws *wsi1, *wsi2;
@@ -680,20 +684,21 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 		if ((int)reason != -1)
 			lws_vhost_lock(wsi->vhost);
 		lws_start_foreach_dll_safe(struct lws_dll_lws *, d, d1,
-					wsi->dll_client_transaction_queue_head.next) {
+				wsi->dll_client_transaction_queue_head.next) {
 			struct lws *w = lws_container_of(d, struct lws,
-							 dll_client_transaction_queue);
+						dll_client_transaction_queue);
 
 			__lws_close_free_wsi(w, -1, "trans q leader closing");
 		} lws_end_foreach_dll_safe(d, d1);
 
 		/*
-		 * !!! If we are closing, but we have pending pipelined transaction
-		 * results we already sent headers for, that's going to destroy sync
-		 * for HTTP/1 and leave H2 stream with no live swsi.
+		 * !!! If we are closing, but we have pending pipelined
+		 * transaction results we already sent headers for, that's going
+		 * to destroy sync for HTTP/1 and leave H2 stream with no live
+		 * swsi.
 		 *
-		 * However this is normal if we are being closed because the transaction
-		 * queue leader is closing.
+		 * However this is normal if we are being closed because the
+		 * transaction queue leader is closing.
 		 */
 		lws_dll_lws_remove(&wsi->dll_client_transaction_queue);
 		if ((int)reason !=-1)
@@ -709,7 +714,8 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 			wsi2->parent = NULL;
 			/* stop it doing shutdown processing */
 			wsi2->socket_is_permanently_unusable = 1;
-			__lws_close_free_wsi(wsi2, reason, "general child recurse");
+			__lws_close_free_wsi(wsi2, reason,
+					     "general child recurse");
 			wsi2 = wsi1;
 		}
 		wsi->child_list = NULL;
@@ -734,7 +740,8 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *
 				lws_cgi_remove_and_kill(wsi->parent);
 
 			/* end the binding between us and master */
-			wsi->parent->http.cgi->stdwsi[(int)wsi->cgi_channel] = NULL;
+			wsi->parent->http.cgi->stdwsi[(int)wsi->cgi_channel] =
+									NULL;
 		}
 		wsi->socket_is_permanently_unusable = 1;
 
@@ -886,7 +893,7 @@ just_kill_connection:
 	} else
 #endif
 		{
-			lwsl_info("%s: shutdown conn: %p (sock %d, state 0x%x)\n",
+			lwsl_info("%s: shutdown conn: %p (sk %d, state 0x%x)\n",
 				  __func__, wsi, (int)(long)wsi->desc.sockfd,
 				  lwsi_state(wsi));
 			if (!wsi->socket_is_permanently_unusable &&
@@ -1066,8 +1073,7 @@ lws_buflist_append_segment(struct lws_buflist **head, const uint8_t *buf,
 
 	lwsl_info("%s: len %u first %d %p\n", __func__, (uint32_t)len, first, p);
 
-	nbuf = (struct lws_buflist *)
-			lws_malloc(sizeof(**head) + len, __func__);
+	nbuf = (struct lws_buflist *)lws_malloc(sizeof(**head) + len, __func__);
 	if (!nbuf) {
 		lwsl_err("%s: OOM\n", __func__);
 		return -1;
@@ -1609,8 +1615,8 @@ lws_vfs_select_fops(const struct lws_plat_file_ops *fops, const char *vfs_path,
 			while (n < (int)LWS_ARRAY_SIZE(pf->fi) && pf->fi[n].sig) {
 				if (p >= vfs_path + pf->fi[n].len)
 					if (!strncmp(p - (pf->fi[n].len - 1),
-						    pf->fi[n].sig,
-						    pf->fi[n].len - 1)) {
+						     pf->fi[n].sig,
+						     pf->fi[n].len - 1)) {
 						*vpath = p + 1;
 						return pf;
 					}
@@ -2287,7 +2293,7 @@ lws_get_peer_write_allowance(struct lws *wsi)
 
 LWS_VISIBLE void
 lws_role_transition(struct lws *wsi, enum lwsi_role role, enum lwsi_state state,
-		struct lws_role_ops *ops)
+		    struct lws_role_ops *ops)
 {
 #if defined(_DEBUG)
 	const char *name = "(unset)";
@@ -2408,7 +2414,7 @@ __lws_rx_flow_control(struct lws *wsi)
 	wsi->rxflow_change_to &= ~LWS_RXFLOW_PENDING_CHANGE;
 
 	lwsl_info("rxflow: wsi %p change_to %d\n", wsi,
-			      wsi->rxflow_change_to & LWS_RXFLOW_ALLOW);
+		  wsi->rxflow_change_to & LWS_RXFLOW_ALLOW);
 
 	/* adjust the pollfd for this wsi */
 
@@ -2720,7 +2726,7 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 #endif
 	if (n < 0) {
 		lwsl_err("ERROR on binding fd %d to port %d (%d %d)\n",
-				sockfd, port, n, LWS_ERRNO);
+			 sockfd, port, n, LWS_ERRNO);
 
 		/* if something already listening, tell caller to fail permanently */
 
@@ -2735,7 +2741,7 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 #if defined(LWS_WITH_UNIX_SOCK)
 	if (LWS_UNIX_SOCK_ENABLED(vhost) && vhost->context->uid)
 		if (chown(serv_unix.sun_path, vhost->context->uid,
-			    vhost->context->gid))
+			  vhost->context->gid))
 			lwsl_notice("%s: chown for unix skt %s failed\n",
 				    __func__, serv_unix.sun_path);
 #endif
@@ -2814,7 +2820,7 @@ lws_get_addr_scope(const char *ipaddr)
 	for (i = 0; i < 5; i++)
 	{
 		ret = GetAdaptersAddresses(AF_INET6, GAA_FLAG_INCLUDE_PREFIX,
-				NULL, addrs, &size);
+					   NULL, addrs, &size);
 		if ((ret == NO_ERROR) || (ret == ERROR_NO_DATA)) {
 			break;
 		} else if (ret == ERROR_BUFFER_OVERFLOW)

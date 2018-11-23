@@ -40,7 +40,7 @@ static const char * const intermediates[] = { "private", "public" };
 
 int
 _lws_vhost_init_server(const struct lws_context_creation_info *info,
-			 struct lws_vhost *vhost)
+		       struct lws_vhost *vhost)
 {
 	int n, opt = 1, limit = 1;
 	lws_sockfd_type sockfd;
@@ -381,8 +381,8 @@ lws_select_vhost(struct lws_context *context, int port, const char *servername)
 LWS_VISIBLE LWS_EXTERN const char *
 lws_get_mimetype(const char *file, const struct lws_http_mount *m)
 {
-	int n = (int)strlen(file);
 	const struct lws_protocol_vhost_options *pvo = NULL;
+	int n = (int)strlen(file);
 
 	if (m)
 		pvo = m->extra_mimetypes;
@@ -616,18 +616,21 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 			if (m->cache_max_age && m->cache_reusable) {
 				if (!m->cache_revalidate) {
 					cc = cache_control;
-					cclen = sprintf(cache_control, "%s, max-age=%u",
-						    intermediates[wsi->cache_intermediaries],
-						    m->cache_max_age);
+					cclen = sprintf(cache_control,
+						"%s, max-age=%u",
+						intermediates[wsi->cache_intermediaries],
+						m->cache_max_age);
 				} else {
 					cc = cache_control;
-                                        cclen = sprintf(cache_control, "must-revalidate, %s, max-age=%u",
-                                                    intermediates[wsi->cache_intermediaries],
-                                                    m->cache_max_age);
+                                        cclen = sprintf(cache_control,
+                                        	"must-revalidate, %s, max-age=%u",
+                                                intermediates[wsi->cache_intermediaries],
+                                                m->cache_max_age);
 				}
 			}
 
-			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CACHE_CONTROL,
+			if (lws_add_http_header_by_token(wsi,
+					WSI_TOKEN_HTTP_CACHE_CONTROL,
 					(unsigned char *)cc, cclen, &p, end))
 				return -1;
 
@@ -909,24 +912,25 @@ lws_http_get_uri_and_method(struct lws *wsi, char **puri_ptr, int *puri_len)
 	return -1;
 }
 
+static const char * const oprot[] = {
+	"http://", "https://"
+};
+
 int
 lws_http_action(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
-	enum http_conn_type conn_type;
-	enum http_version request_version;
-	char content_length_str[32];
-	struct lws_process_html_args args;
 	const struct lws_http_mount *hit = NULL;
-	unsigned int n;
+	enum http_version request_version;
+	struct lws_process_html_args args;
+	enum http_conn_type conn_type;
+	char content_length_str[32];
 	char http_version_str[12];
-	char http_conn_str[25];
-	int http_version_len;
 	char *uri_ptr = NULL, *s;
 	int uri_len = 0, meth, m;
-	static const char * const oprot[] = {
-		"http://", "https://"
-	};
+	char http_conn_str[25];
+	int http_version_len;
+	unsigned int n;
 
 	meth = lws_http_get_uri_and_method(wsi, &uri_ptr, &uri_len);
 	if (meth < 0 || meth >= (int)LWS_ARRAY_SIZE(method_names))
@@ -1063,7 +1067,8 @@ lws_http_action(struct lws *wsi)
 
 		lwsl_info("no hit\n");
 
-		if (lws_bind_protocol(wsi, &wsi->vhost->protocols[0], "no mount hit"))
+		if (lws_bind_protocol(wsi, &wsi->vhost->protocols[0],
+				      "no mount hit"))
 			return 1;
 
 		lwsi_set_state(wsi, LRS_DOING_TRANSACTION);
@@ -1099,9 +1104,9 @@ lws_http_action(struct lws *wsi)
 	      hit->origin_protocol == LWSMPRO_REDIR_HTTPS)) &&
 	    (hit->origin_protocol != LWSMPRO_CGI &&
 	     hit->origin_protocol != LWSMPRO_CALLBACK)) {
-		unsigned char *start = pt->serv_buf + LWS_PRE,
-			      *p = start, *end = p + wsi->context->pt_serv_buf_size -
-			      	      LWS_PRE - 512;
+		unsigned char *start = pt->serv_buf + LWS_PRE, *p = start,
+			      *end = p + wsi->context->pt_serv_buf_size -
+			      	     LWS_PRE - 512;
 
 		lwsl_info("Doing 301 '%s' org %s\n", s, hit->origin);
 
@@ -1214,9 +1219,9 @@ lws_http_action(struct lws *wsi)
 
 	if (hit->origin_protocol == LWSMPRO_HTTPS ||
 	    hit->origin_protocol == LWSMPRO_HTTP)  {
+		char ads[96], rpath[256], *pcolon, *pslash, unix_skt = 0;
 		struct lws_client_connect_info i;
 		struct lws *cwsi;
-		char ads[96], rpath[256], *pcolon, *pslash, unix_skt = 0;
 		int n, na;
 
 		memset(&i, 0, sizeof(i));
@@ -1268,8 +1273,7 @@ lws_http_action(struct lws *wsi)
 			i.port = atoi(pcolon + 1);
 
 		n = lws_snprintf(rpath, sizeof(rpath) - 1, "/%s/%s",
-				   pslash + 1, uri_ptr +
-						   hit->mountpoint_len) - 2;
+				 pslash + 1, uri_ptr + hit->mountpoint_len) - 2;
 		lws_clean_url(rpath);
 		na = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_URI_ARGS);
 		if (na) {
@@ -2018,7 +2022,7 @@ lws_http_transaction_completed(struct lws *wsi)
 	if (wsi->http.ah) {
 		// lws_buflist_describe(&wsi->buflist, wsi);
 		if (!lws_buflist_next_segment_len(&wsi->buflist, NULL)) {
-			lwsl_debug("%s: %p: nothing in buflist so detaching ah\n",
+			lwsl_debug("%s: %p: nothing in buflist, detaching ah\n",
 				  __func__, wsi);
 			lws_header_table_detach(wsi, 1);
 #ifdef LWS_WITH_TLS
@@ -2038,7 +2042,7 @@ lws_http_transaction_completed(struct lws *wsi)
 			}
 #endif
 		} else {
-			lwsl_info("%s: %p: resetting and keeping ah as pipeline\n",
+			lwsl_info("%s: %p: resetting/keeping ah as pipeline\n",
 				  __func__, wsi);
 			lws_header_table_reset(wsi, 0);
 			/*
@@ -2074,21 +2078,21 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 {
 	struct lws_context *context = lws_get_context(wsi);
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+	unsigned char *response = pt->serv_buf + LWS_PRE;
 #if defined(LWS_WITH_RANGES)
 	struct lws_range_parsing *rp = &wsi->http.range;
 #endif
+	int ret = 0, cclen = 8, n = HTTP_STATUS_OK;
 	char cache_control[50], *cc = "no-store";
-	unsigned char *response = pt->serv_buf + LWS_PRE;
+	lws_fop_flags_t fflags = LWS_O_RDONLY;
+	const struct lws_plat_file_ops *fops;
+	lws_filepos_t total_content_length;
 	unsigned char *p = response;
 	unsigned char *end = p + context->pt_serv_buf_size - LWS_PRE;
-	lws_filepos_t total_content_length;
-	int ret = 0, cclen = 8, n = HTTP_STATUS_OK;
-	lws_fop_flags_t fflags = LWS_O_RDONLY;
+	const char *vpath;
 #if defined(LWS_WITH_RANGES)
 	int ranges;
 #endif
-	const struct lws_plat_file_ops *fops;
-	const char *vpath;
 
 	if (wsi->handling_404)
 		n = HTTP_STATUS_NOT_FOUND;
@@ -2108,7 +2112,8 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 		if (!wsi->http.fop_fd) {
 			lwsl_info("%s: Unable to open: '%s': errno %d\n",
 				  __func__, file, errno);
-			if (lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, NULL))
+			if (lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND,
+						   NULL))
 						return -1;
 			return !wsi->http2_substream;
 		}
@@ -2129,14 +2134,14 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 	 */
 	if (ranges < 0) {
 		/* it means he expressed a range in Range:, but it was illegal */
-		lws_return_http_status(wsi, HTTP_STATUS_REQ_RANGE_NOT_SATISFIABLE,
-				       NULL);
+		lws_return_http_status(wsi,
+				HTTP_STATUS_REQ_RANGE_NOT_SATISFIABLE, NULL);
 		if (lws_http_transaction_completed(wsi))
 			return -1; /* <0 means just hang up */
 
 		lws_vfs_file_close(&wsi->http.fop_fd);
 
-		return 0; /* == 0 means we dealt with the transaction complete */
+		return 0; /* == 0 means we did the transaction complete */
 	}
 	if (ranges)
 		n = HTTP_STATUS_PARTIAL_CONTENT;
@@ -2316,7 +2321,8 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 	if (!other_headers ||
 	    (!strstr(other_headers, "cache-control") &&
 	     !strstr(other_headers, "Cache-Control"))) {
-		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CACHE_CONTROL,
+		if (lws_add_http_header_by_token(wsi,
+				WSI_TOKEN_HTTP_CACHE_CONTROL,
 				(unsigned char *)cc, cclen, &p, end))
 			return -1;
 	}
@@ -2379,7 +2385,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 	    wsi->http.comp_ctx.may_have_more) {
 		enum lws_write_protocol wp = LWS_WRITE_HTTP;
 
-		lwsl_info("%s: completing comp partial (buflist_comp %p, may %d)\n",
+		lwsl_info("%s: completing comp partial (buflist %p, may %d)\n",
 			   __func__, wsi->http.comp_ctx.buflist_comp,
 			   wsi->http.comp_ctx.may_have_more);
 
@@ -2421,7 +2427,8 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 						LWS_H2_FRAME_HEADER_LENGTH,
 					"_lws\x0d\x0a"
 					"Content-Type: %s\x0d\x0a"
-					"Content-Range: bytes %llu-%llu/%llu\x0d\x0a"
+					"Content-Range: bytes "
+						"%llu-%llu/%llu\x0d\x0a"
 					"\x0d\x0a",
 					wsi->http.multipart_content_type,
 					wsi->http.range.start,
@@ -2436,7 +2443,8 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 		}
 #endif
 
-		poss = context->pt_serv_buf_size - n - LWS_H2_FRAME_HEADER_LENGTH;
+		poss = context->pt_serv_buf_size - n -
+				LWS_H2_FRAME_HEADER_LENGTH;
 
 		if (wsi->http.tx_content_length)
 			if (poss > wsi->http.tx_content_remain)
@@ -2524,11 +2532,9 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 				lwsl_debug("added trailing boundary\n");
 			}
 #endif
-			m = lws_write(wsi, p, n,
-				      wsi->http.filepos + amount == wsi->http.filelen ?
-					LWS_WRITE_HTTP_FINAL :
-					LWS_WRITE_HTTP
-				);
+			m = lws_write(wsi, p, n, wsi->http.filepos + amount ==
+					wsi->http.filelen ?
+					 LWS_WRITE_HTTP_FINAL : LWS_WRITE_HTTP);
 			if (m < 0)
 				goto file_had_it;
 
@@ -2581,9 +2587,8 @@ all_sent:
 
 			if (wsi->protocol->callback &&
 			    user_callback_handle_rxflow(wsi->protocol->callback,
-							wsi, LWS_CALLBACK_HTTP_FILE_COMPLETION,
-							wsi->user_space, NULL,
-							0) < 0) {
+					wsi, LWS_CALLBACK_HTTP_FILE_COMPLETION,
+					wsi->user_space, NULL, 0) < 0) {
 					/*
 					 * For http/1.x, the choices from
 					 * transaction_completed are either
@@ -2687,8 +2692,7 @@ skip:
 				n = (int)strlen(pc);
 				s->swallow[s->pos] = '\0';
 				if (n != s->pos) {
-					memmove(s->start + n,
-						s->start + s->pos,
+					memmove(s->start + n, s->start + s->pos,
 						old_len - (sp - args->p));
 					old_len += (n - s->pos) + 1;
 				}

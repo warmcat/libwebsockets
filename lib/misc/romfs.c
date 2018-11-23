@@ -137,7 +137,8 @@ romfs_lookup(romfs_t romfs, romfs_inode_t start, const char *path)
 		cp = (const char *)cache;
 		set_cache((romfs_inode_t)n, RFS_STRING_MAX);
 
-		while (*p && *p != '/' && *cp && *p == *cp && (p - path) < RFS_STRING_MAX) {
+		while (*p && *p != '/' && *cp && *p == *cp &&
+		       (p - path) < RFS_STRING_MAX) {
 			p++;
 			n++;
 			cp++;

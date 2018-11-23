@@ -162,8 +162,8 @@ lws_libuv_stop(struct lws_context *context)
 			if (!wsi)
 				continue;
 			lws_close_free_wsi(wsi,
-				LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY, __func__
-				/* no protocol close */);
+				LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY,
+				__func__ /* no protocol close */);
 			n--;
 		}
 	}
@@ -635,8 +635,8 @@ elops_accept_uv(struct lws *wsi)
 			     (int)(long long)wsi->desc.filefd);
 	else
 		uv_poll_init_socket(pt->uv.io_loop,
-				      wsi->w_read.uv.pwatcher,
-				      wsi->desc.sockfd);
+				    wsi->w_read.uv.pwatcher,
+				    wsi->desc.sockfd);
 
 	((uv_handle_t *)wsi->w_read.uv.pwatcher)->data = (void *)wsi;
 

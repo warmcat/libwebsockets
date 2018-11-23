@@ -48,7 +48,8 @@ int lws_ssl_get_error(struct lws *wsi, int n)
 		return 99;
 
 	m = SSL_get_error(wsi->tls.ssl, n);
-	lwsl_debug("%s: %p %d -> %d (errno %d)\n", __func__, wsi->tls.ssl, n, m, errno);
+	lwsl_debug("%s: %p %d -> %d (errno %d)\n", __func__, wsi->tls.ssl, n, m,
+		   errno);
 
 	return m;
 }
@@ -129,7 +130,8 @@ lws_ssl_bind_passphrase(SSL_CTX *ssl_ctx,
 	 * SSL_CTX_use_PrivateKey_file function
 	 */
 	SSL_CTX_set_default_passwd_cb_userdata(ssl_ctx, (void *)info);
-	SSL_CTX_set_default_passwd_cb(ssl_ctx, lws_context_init_ssl_pem_passwd_cb);
+	SSL_CTX_set_default_passwd_cb(ssl_ctx,
+				      lws_context_init_ssl_pem_passwd_cb);
 }
 
 int
@@ -149,7 +151,8 @@ lws_context_init_ssl_library(const struct lws_context_creation_info *info)
 #endif
 #endif
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT)) {
-		lwsl_info(" SSL disabled: no LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT\n");
+		lwsl_info(" SSL disabled: no "
+			  "LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT\n");
 		return 0;
 	}
 
@@ -200,8 +203,9 @@ lws_ssl_destroy(struct lws_vhost *vhost)
 	ERR_remove_thread_state(NULL);
 #endif
 #endif
-	// after 1.1.0 no need
-#if  (OPENSSL_VERSION_NUMBER >= 0x10002000) && (OPENSSL_VERSION_NUMBER <= 0x10100000)
+	/* not needed after 1.1.0 */
+#if  (OPENSSL_VERSION_NUMBER >= 0x10002000) && \
+     (OPENSSL_VERSION_NUMBER <= 0x10100000)
 	SSL_COMP_free_compression_methods();
 #endif
 	ERR_free_strings();
@@ -233,8 +237,10 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 #if defined(LWS_WITH_STATS)
 	if (!wsi->seen_rx && wsi->accept_start_us) {
                 lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_MS_SSL_RX_DELAY,
-				lws_time_in_microseconds() - wsi->accept_start_us);
-                lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_SSL_CONNS_HAD_RX, 1);
+                		      lws_time_in_microseconds() -
+                			      wsi->accept_start_us);
+                lws_stats_atomic_bump(wsi->context, pt,
+                		      LWSSTATS_C_SSL_CONNS_HAD_RX, 1);
 		wsi->seen_rx = 1;
 	}
 #endif
@@ -407,8 +413,8 @@ lws_ssl_info_callback(const SSL *ssl, int where, int ret)
 	si.ret = ret;
 
 	if (user_callback_handle_rxflow(wsi->protocol->callback,
-						   wsi, LWS_CALLBACK_SSL_INFO,
-						   wsi->user_space, &si, 0))
+					wsi, LWS_CALLBACK_SSL_INFO,
+					wsi->user_space, &si, 0))
 		lws_set_timeout(wsi, PENDING_TIMEOUT_KILLED_BY_SSL_INFO, -1);
 }
 
@@ -714,7 +720,8 @@ lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
 
 	switch (type) {
 	case LWS_TLS_CERT_INFO_VERIFIED:
-		buf->verified = SSL_get_verify_result(wsi->tls.ssl) == X509_V_OK;
+		buf->verified = SSL_get_verify_result(wsi->tls.ssl) ==
+					X509_V_OK;
 		break;
 	default:
 		rc = lws_tls_openssl_cert_info(x509, type, buf, len);
@@ -747,5 +754,4 @@ tops_periodic_housekeeping_openssl(struct lws_context *context, time_t now)
 const struct lws_tls_ops tls_ops_openssl = {
 	/* fake_POLLIN_for_buffered */	tops_fake_POLLIN_for_buffered_openssl,
 	/* periodic_housekeeping */	tops_periodic_housekeeping_openssl,
-
 };

@@ -124,7 +124,8 @@ lws_callback_all_protocol(struct lws_context *context,
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_callback_all_protocol_vhost(struct lws_vhost *vh,
-			  const struct lws_protocols *protocol, int reason)
+				const struct lws_protocols *protocol,
+				int reason)
 LWS_WARN_DEPRECATED;
 
 /**
@@ -143,8 +144,8 @@ LWS_WARN_DEPRECATED;
  */
 LWS_VISIBLE int
 lws_callback_all_protocol_vhost_args(struct lws_vhost *vh,
-			  const struct lws_protocols *protocol, int reason,
-			  void *argp, size_t len);
+				     const struct lws_protocols *protocol,
+				     int reason, void *argp, size_t len);
 
 /**
  * lws_callback_vhost_protocols() - Callback all protocols enabled on a vhost
@@ -186,7 +187,7 @@ lws_callback_vhost_protocols_vhost(struct lws_vhost *vh, int reason, void *in,
 
 LWS_VISIBLE LWS_EXTERN int
 lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
-		    void *user, void *in, size_t len);
+			void *user, void *in, size_t len);
 
 /**
  * lws_get_socket_fd() - returns the socket file descriptor

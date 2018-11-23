@@ -134,7 +134,8 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 
 	pfd = &pt->fds[wsi->position_in_fds_table];
 	pa->fd = wsi->desc.sockfd;
-	lwsl_debug("%s: wsi %p: fd %d events %d -> %d\n", __func__, wsi, pa->fd, pfd->events, (pfd->events & ~_and) | _or);
+	lwsl_debug("%s: wsi %p: fd %d events %d -> %d\n", __func__, wsi,
+		   pa->fd, pfd->events, (pfd->events & ~_and) | _or);
 	pa->prev_events = pfd->events;
 	pa->events = pfd->events = (pfd->events & ~_and) | _or;
 
@@ -245,7 +246,8 @@ __insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 #if !defined(_WIN32)
 	if (wsi->desc.sockfd - lws_plat_socket_offset() >= context->max_fds) {
 		lwsl_err("Socket fd %d is too high (%d) offset %d\n",
-			 wsi->desc.sockfd, context->max_fds, lws_plat_socket_offset());
+			 wsi->desc.sockfd, context->max_fds,
+			 lws_plat_socket_offset());
 		return 1;
 	}
 #endif
@@ -325,7 +327,7 @@ __remove_wsi_socket_from_fds(struct lws *wsi)
 				  LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE |
 				  LWS_EV_PREPARE_DELETION);
 
-	lwsl_debug("%s: wsi=%p, sock=%d, fds pos=%d, end guy pos=%d, endfd=%d\n",
+	lwsl_debug("%s: wsi=%p, skt=%d, fds pos=%d, end guy pos=%d, endfd=%d\n",
 		  __func__, wsi, wsi->desc.sockfd, wsi->position_in_fds_table,
 		  pt->fds_count, pt->fds[pt->fds_count].fd);
 
@@ -337,10 +339,11 @@ __remove_wsi_socket_from_fds(struct lws *wsi)
 		lws_plat_delete_socket_from_fds(context, wsi, m);
 		pt->count_conns--;
 		v = (int) pt->fds[m].fd;
-		/* end guy's "position in fds table" is now the deletion guy's old one */
+		/* end guy's "position in fds table" is now the deletion
+		 * guy's old one */
 		end_wsi = wsi_from_fd(context, v);
 		if (!end_wsi) {
-			lwsl_err("no wsi for fd %d at pos %d, pt->fds_count=%d\n",
+			lwsl_err("no wsi for fd %d pos %d, pt->fds_count=%d\n",
 				 (int)pt->fds[m].fd, m, pt->fds_count);
 			assert(0);
 		} else
@@ -549,7 +552,7 @@ lws_callback_on_writable_all_protocol(const struct lws_context *context,
 	while (vhost) {
 		for (n = 0; n < vhost->count_protocols; n++)
 			if (protocol->callback ==
-			    vhost->protocols[n].callback &&
+			     vhost->protocols[n].callback &&
 			    !strcmp(protocol->name, vhost->protocols[n].name))
 				break;
 		if (n != vhost->count_protocols)

@@ -217,8 +217,8 @@ lws_client_ws_upgrade(struct lws *wsi, const char **cce)
 	const struct lws_extension *ext;
 	char ext_name[128];
 	const char *c, *a;
-	char ignore;
 	int more = 1;
+	char ignore;
 #endif
 
 	if (wsi->client_h2_substream) {/* !!! client ws-over-h2 not there yet */
@@ -469,7 +469,8 @@ check_extensions:
 
 			if (ext->callback(lws_get_context(wsi), ext, wsi,
 				   LWS_EXT_CB_CLIENT_CONSTRUCT,
-				   (void *)&wsi->ws->act_ext_user[wsi->ws->count_act_ext],
+				   (void *)&wsi->ws->act_ext_user[
+				                        wsi->ws->count_act_ext],
 				   (void *)&opts, 0)) {
 				lwsl_info(" ext %s failed construction\n",
 					  ext_name);
@@ -491,8 +492,10 @@ check_extensions:
 			}
 
 			if (ext_name[0] &&
-			    lws_ext_parse_options(ext, wsi, wsi->ws->act_ext_user[
-						  wsi->ws->count_act_ext], opts, ext_name,
+			    lws_ext_parse_options(ext, wsi,
+					          wsi->ws->act_ext_user[
+						        wsi->ws->count_act_ext],
+					          opts, ext_name,
 						  (int)strlen(ext_name))) {
 				lwsl_err("%s: unable to parse user defaults '%s'",
 					 __func__, ext_name);
@@ -504,7 +507,8 @@ check_extensions:
 			 * give the extension the server options
 			 */
 			if (a && lws_ext_parse_options(ext, wsi,
-					wsi->ws->act_ext_user[wsi->ws->count_act_ext],
+					wsi->ws->act_ext_user[
+					                wsi->ws->count_act_ext],
 					opts, a, lws_ptr_diff(c, a))) {
 				lwsl_err("%s: unable to parse remote def '%s'",
 					 __func__, a);

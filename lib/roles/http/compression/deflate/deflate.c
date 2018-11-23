@@ -54,7 +54,7 @@ lcs_init_compression_deflate(lws_comp_ctx_t *ctx, int decomp)
 
 static int
 lcs_process_deflate(lws_comp_ctx_t *ctx, const void *in, size_t *ilen_iused,
-		 void *out, size_t *olen_oused)
+		    void *out, size_t *olen_oused)
 {
 	size_t olen_oused_in = *olen_oused;
 	int n;

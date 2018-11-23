@@ -585,8 +585,9 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 
 		wsi->http.proxy_clientside = 0;
 
-		if (user_callback_handle_rxflow(wsi_eff->protocol->callback, wsi_eff,
-						LWS_CALLBACK_COMPLETED_CLIENT_HTTP,
+		if (user_callback_handle_rxflow(wsi_eff->protocol->callback,
+						wsi_eff,
+					    LWS_CALLBACK_COMPLETED_CLIENT_HTTP,
 						wsi_eff->user_space, NULL, 0))
 			wsi->http.proxy_clientside = 0;
 	}
@@ -1037,7 +1038,8 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 
 		/* Notify peer that we decided to close */
 
-		if (lwsi_role_ws(w) && lwsi_state(w) == LRS_WAITING_TO_SEND_CLOSE) {
+		if (lwsi_role_ws(w) &&
+		    lwsi_state(w) == LRS_WAITING_TO_SEND_CLOSE) {
 			lwsl_debug("sending close packet\n");
 			w->waiting_to_send_close_frame = 0;
 			n = lws_write(w, &w->ws->ping_payload_buf[LWS_PRE],
@@ -1074,7 +1076,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			w->ws->ping_pending_flag = 0;
 			if (w->ws->payload_is_close) {
 				/* oh... a close frame... then we are done */
-				lwsl_debug("Acknowledged peer's close packet\n");
+				lwsl_debug("Ack'd peer's close packet\n");
 				w->ws->payload_is_close = 0;
 				lwsi_set_state(w, LRS_RETURNED_CLOSE);
 				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
@@ -1086,7 +1088,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			lws_callback_on_writable(w);
 			(w)->h2.requested_POLLOUT = 1;
 
-			/* otherwise for PING, leave POLLOUT active either way */
+			/* otherwise for PING, leave POLLOUT active both ways */
 			goto next_child;
 		}
 #endif
@@ -1163,7 +1165,7 @@ rops_alpn_negotiated_h2(struct lws *wsi, const char *alpn)
 		/* HTTP2 union */
 
 		lws_hpack_dynamic_size(wsi,
-				       wsi->h2.h2n->set.s[H2SET_HEADER_TABLE_SIZE]);
+				   wsi->h2.h2n->set.s[H2SET_HEADER_TABLE_SIZE]);
 		wsi->h2.tx_cr = 65535;
 
 		lwsl_info("%s: wsi %p: configured for h2\n", __func__, wsi);

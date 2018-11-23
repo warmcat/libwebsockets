@@ -168,8 +168,8 @@ lws_set_extension_option(struct lws *wsi, const char *ext_name,
  */
 LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_ext_parse_options(const struct lws_extension *ext, struct lws *wsi,
-		       void *ext_user, const struct lws_ext_options *opts,
-		       const char *o, int len);
+		      void *ext_user, const struct lws_ext_options *opts,
+		      const char *o, int len);
 
 /** lws_extension_callback_pm_deflate() - extension for RFC7692
  *
@@ -183,11 +183,12 @@ lws_ext_parse_options(const struct lws_extension *ext, struct lws *wsi,
  *
  * Built-in callback implementing RFC7692 permessage-deflate
  */
-LWS_EXTERN
-int lws_extension_callback_pm_deflate(
-	struct lws_context *context, const struct lws_extension *ext,
-	struct lws *wsi, enum lws_extension_callback_reasons reason,
-	void *user, void *in, size_t len);
+LWS_EXTERN int
+lws_extension_callback_pm_deflate(struct lws_context *context,
+				  const struct lws_extension *ext,
+				  struct lws *wsi,
+				  enum lws_extension_callback_reasons reason,
+				  void *user, void *in, size_t len);
 
 /*
  * The internal exts are part of the public abi

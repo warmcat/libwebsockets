@@ -124,7 +124,7 @@ lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 			 */
 			for (m = 0; m < wsi->ws->count_act_ext; m++)
 				if (wsi->ws->active_extensions[m] == ext) {
-					lwsl_info("extension mentioned twice\n");
+					lwsl_info("ext mentioned twice\n");
 					return 1; /* shenanigans */
 				}
 
@@ -209,16 +209,17 @@ lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 					oa.len = 0;
 					lwsl_info("setting '%s'\n", po->name);
 					if (!ext->callback(lws_get_context(wsi),
-							  ext, wsi,
-							  LWS_EXT_CB_OPTION_SET,
-							  wsi->ws->act_ext_user[
-								 wsi->ws->count_act_ext],
+							   ext, wsi,
+						LWS_EXT_CB_OPTION_SET,
+						wsi->ws->act_ext_user[
+							wsi->ws->count_act_ext],
 							  &oa, (end - *p))) {
 
-						*p += lws_snprintf(*p, (end - *p),
-							"; %s", po->name);
+						*p += lws_snprintf(*p,
+								   (end - *p),
+							      "; %s", po->name);
 						lwsl_debug("adding option %s\n",
-								po->name);
+							   po->name);
 					}
 					po++;
 				}
@@ -230,7 +231,8 @@ lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 			}
 
 			wsi->ws->count_act_ext++;
-			lwsl_parser("cnt_act_ext <- %d\n", wsi->ws->count_act_ext);
+			lwsl_parser("cnt_act_ext <- %d\n",
+				    wsi->ws->count_act_ext);
 
 			if (args && *args == ',')
 				more = 0;
@@ -245,8 +247,6 @@ lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 	return 0;
 }
 #endif
-
-
 
 int
 lws_process_ws_upgrade(struct lws *wsi)
@@ -325,8 +325,8 @@ check_protocol:
 	 */
 
 	lws_tokenize_init(&ts, buf, LWS_TOKENIZE_F_COMMA_SEP_LIST |
-				       LWS_TOKENIZE_F_MINUS_NONTERM |
-				       LWS_TOKENIZE_F_RFC7230_DELIMS);
+				    LWS_TOKENIZE_F_MINUS_NONTERM |
+				    LWS_TOKENIZE_F_RFC7230_DELIMS);
 	ts.len = lws_hdr_copy(wsi, buf, sizeof(buf) - 1, WSI_TOKEN_PROTOCOL);
 	if (ts.len < 0) {
 		lwsl_err("%s: protocol list too long\n", __func__);
@@ -438,7 +438,8 @@ alloc_ws:
 				lwsl_notice("h2 ws handshake failed\n");
 				return 1;
 			}
-			lws_role_transition(wsi, LWSIFR_SERVER | LWSIFR_P_ENCAP_H2,
+			lws_role_transition(wsi,
+					    LWSIFR_SERVER | LWSIFR_P_ENCAP_H2,
 					    LRS_ESTABLISHED, &role_ops_ws);
 		} else
 #endif
@@ -478,7 +479,8 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 		goto bail;
 	}
 
-	if (lws_hdr_total_length(wsi, WSI_TOKEN_KEY) >= MAX_WEBSOCKET_04_KEY_LEN) {
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_KEY) >=
+	    MAX_WEBSOCKET_04_KEY_LEN) {
 		lwsl_warn("Client key too long %d\n", MAX_WEBSOCKET_04_KEY_LEN);
 		goto bail;
 	}
@@ -508,7 +510,8 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 
 	/* make a buffer big enough for everything */
 
-	response = (char *)pt->serv_buf + MAX_WEBSOCKET_04_KEY_LEN + 256 + LWS_PRE;
+	response = (char *)pt->serv_buf + MAX_WEBSOCKET_04_KEY_LEN +
+		   256 + LWS_PRE;
 	p = response;
 	LWS_CPYAPP(p, "HTTP/1.1 101 Switching Protocols\x0d\x0a"
 		      "Upgrade: WebSocket\x0d\x0a"
@@ -601,9 +604,9 @@ bail:
 static int
 lws_ws_frame_rest_is_payload(struct lws *wsi, uint8_t **buf, size_t len)
 {
+	unsigned int avail = (unsigned int)len;
 	uint8_t *buffer = *buf, mask[4];
 	struct lws_tokens ebuf;
-	unsigned int avail = (unsigned int)len;
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	unsigned int old_packet_length = (int)wsi->ws->rx_packet_length;
 #endif

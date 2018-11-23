@@ -154,12 +154,12 @@ bail:
 
 int
 lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
-			const char *inbuf, lws_filepos_t inlen,
-		      uint8_t **buf, lws_filepos_t *amount)
+			      const char *inbuf, lws_filepos_t inlen,
+			      uint8_t **buf, lws_filepos_t *amount)
 {
 	const uint8_t *pem, *p, *end;
-	uint8_t *q;
 	lws_filepos_t len;
+	uint8_t *q;
 	int n;
 
 	if (filename) {
@@ -219,23 +219,25 @@ bail:
 int
 lws_tls_check_cert_lifetime(struct lws_vhost *v)
 {
-	union lws_tls_cert_info_results ir;
 	time_t now = (time_t)lws_now_secs(), life = 0;
 	struct lws_acme_cert_aging_args caa;
+	union lws_tls_cert_info_results ir;
 	int n;
 
 	if (v->tls.ssl_ctx && !v->tls.skipped_certs) {
 
-		if (now < 1464083026) /* May 2016 */
+		if (now < 1542933698) /* Nov 23 2018 00:42 UTC */
 			/* our clock is wrong and we can't judge the certs */
 			return -1;
 
-		n = lws_tls_vhost_cert_info(v, LWS_TLS_CERT_INFO_VALIDITY_TO, &ir, 0);
+		n = lws_tls_vhost_cert_info(v, LWS_TLS_CERT_INFO_VALIDITY_TO,
+					    &ir, 0);
 		if (n)
 			return 1;
 
 		life = (ir.time - now) / (24 * 3600);
-		lwsl_notice("   vhost %s: cert expiry: %dd\n", v->name, (int)life);
+		lwsl_notice("   vhost %s: cert expiry: %dd\n", v->name,
+			    (int)life);
 	} else
 		lwsl_notice("   vhost %s: no cert\n", v->name);
 

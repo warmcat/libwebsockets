@@ -349,7 +349,8 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 		return 0;
 #endif
 
-	/* 2) if we know we have non-network pending data, do not wait in poll */
+	/* 2) if we know we have non-network pending data,
+	 *    do not wait in poll */
 
 	if (pt->context->tls_ops &&
 	    pt->context->tls_ops->fake_POLLIN_for_buffered &&
@@ -361,7 +362,8 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 	 *    it, we should not wait in poll
 	 */
 
-	lws_start_foreach_dll(struct lws_dll_lws *, d, pt->dll_head_buflist.next) {
+	lws_start_foreach_dll(struct lws_dll_lws *, d,
+			      pt->dll_head_buflist.next) {
 		struct lws *wsi = lws_container_of(d, struct lws, dll_buflist);
 
 		if (lwsi_state(wsi) != LRS_DEFERRING_ACTION)
@@ -371,7 +373,6 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 	 * 4) If any guys with http compression to spill, we shouldn't wait in
 	 *    poll but hurry along and service them
 	 */
-
 
 	} lws_end_foreach_dll(d);
 
@@ -459,8 +460,10 @@ lws_buflist_aware_consume(struct lws *wsi, struct lws_tokens *ebuf, int used,
 		if (m < 0)
 			return 1; /* OOM */
 		if (m) {
-			lwsl_debug("%s: added %p to rxflow list\n", __func__, wsi);
-			lws_dll_lws_add_front(&wsi->dll_buflist, &pt->dll_head_buflist);
+			lwsl_debug("%s: added %p to rxflow list\n",
+				   __func__, wsi);
+			lws_dll_lws_add_front(&wsi->dll_buflist,
+					      &pt->dll_head_buflist);
 		}
 	}
 
@@ -546,7 +549,8 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 	 */
 	lws_start_foreach_dll_safe(struct lws_dll_lws *, p, p1,
 				   pt->tls.pending_tls_head.next) {
-		struct lws *wsi = lws_container_of(p, struct lws, tls.pending_tls_list);
+		struct lws *wsi = lws_container_of(p, struct lws,
+						   tls.pending_tls_list);
 
 		pt->fds[wsi->position_in_fds_table].revents |=
 			pt->fds[wsi->position_in_fds_table].events & LWS_POLLIN;

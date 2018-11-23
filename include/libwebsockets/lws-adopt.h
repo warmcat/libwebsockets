@@ -47,8 +47,8 @@
 LWS_VISIBLE LWS_EXTERN struct lws *
 lws_adopt_socket(struct lws_context *context, lws_sockfd_type accept_fd);
 /**
- * lws_adopt_socket_vhost() - adopt foreign socket as if listen socket accepted it
- * for vhost
+ * lws_adopt_socket_vhost() - adopt foreign socket as if listen socket accepted
+ * it for vhost
  *
  * \param vh: lws vhost
  * \param accept_fd: fd of already-accepted socket to adopt
@@ -142,8 +142,8 @@ lws_adopt_socket_readbuf(struct lws_context *context, lws_sockfd_type accept_fd,
  * accepted it for vhost.
  * \param vhost:	lws vhost
  * \param accept_fd:	fd of already-accepted socket to adopt
- * \param readbuf:	NULL or pointer to data that must be drained before reading from
- *			accept_fd
+ * \param readbuf:	NULL or pointer to data that must be drained before
+ * 			reading from accept_fd
  * \param len:		The length of the data held at \param readbuf
  *
  * Either returns new wsi bound to accept_fd, or closes accept_fd and
@@ -161,8 +161,9 @@ lws_adopt_socket_readbuf(struct lws_context *context, lws_sockfd_type accept_fd,
  * readbuf is limited to the size of the ah rx buf, currently 2048 bytes.
  */
 LWS_VISIBLE LWS_EXTERN struct lws *
-lws_adopt_socket_vhost_readbuf(struct lws_vhost *vhost, lws_sockfd_type accept_fd,
-                               const char *readbuf, size_t len);
+lws_adopt_socket_vhost_readbuf(struct lws_vhost *vhost,
+			       lws_sockfd_type accept_fd, const char *readbuf,
+			       size_t len);
 
 #define LWS_CAUDP_BIND 1
 

@@ -164,11 +164,11 @@ extern "C" {
  * Non-SSL mode also uses these types.
  */
 enum lws_ssl_capable_status {
-	LWS_SSL_CAPABLE_ERROR = -1,		 /* it failed */
-	LWS_SSL_CAPABLE_DONE = 0,		 /* it succeeded */
-	LWS_SSL_CAPABLE_MORE_SERVICE_READ = -2,	 /* retry WANT_READ */
-	LWS_SSL_CAPABLE_MORE_SERVICE_WRITE = -3,  /* retry WANT_WRITE */
-	LWS_SSL_CAPABLE_MORE_SERVICE = -4,	 /* general retry */
+	LWS_SSL_CAPABLE_ERROR			= -1, /* it failed */
+	LWS_SSL_CAPABLE_DONE			= 0,  /* it succeeded */
+	LWS_SSL_CAPABLE_MORE_SERVICE_READ	= -2, /* retry WANT_READ */
+	LWS_SSL_CAPABLE_MORE_SERVICE_WRITE	= -3, /* retry WANT_WRITE */
+	LWS_SSL_CAPABLE_MORE_SERVICE		= -4, /* general retry */
 };
 
 #if defined(__clang__)
@@ -403,7 +403,8 @@ struct lws_context_per_thread {
 	struct lws_pt_eventlibs_libevent event;
 #endif
 
-#if defined(LWS_WITH_LIBEV) || defined(LWS_WITH_LIBUV) || defined(LWS_WITH_LIBEVENT)
+#if defined(LWS_WITH_LIBEV) || defined(LWS_WITH_LIBUV) || \
+    defined(LWS_WITH_LIBEVENT)
 	struct lws_signal_watcher w_sigint;
 #endif
 
@@ -779,7 +780,7 @@ enum {
 
 #if defined(LWS_WITH_ESP32)
 LWS_EXTERN int
-lws_find_string_in_file(const char *filename, const char *string, int stringlen);
+lws_find_string_in_file(const char *filename, const char *str, int stringlen);
 #endif
 
 #ifdef LWS_WITH_IPV6
@@ -864,7 +865,8 @@ struct lws {
 
 	/* lifetime members */
 
-#if defined(LWS_WITH_LIBEV) || defined(LWS_WITH_LIBUV) || defined(LWS_WITH_LIBEVENT)
+#if defined(LWS_WITH_LIBEV) || defined(LWS_WITH_LIBUV) || \
+    defined(LWS_WITH_LIBEVENT)
 	struct lws_io_watcher w_read;
 #endif
 #if defined(LWS_WITH_LIBEV) || defined(LWS_WITH_LIBEVENT)
@@ -1457,8 +1459,8 @@ LWS_EXTERN int
 lws_check_byte_utf8(unsigned char state, unsigned char c);
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_check_utf8(unsigned char *state, unsigned char *buf, size_t len);
-LWS_EXTERN int alloc_file(struct lws_context *context, const char *filename, uint8_t **buf,
-		                lws_filepos_t *amount);
+LWS_EXTERN int alloc_file(struct lws_context *context, const char *filename,
+			  uint8_t **buf, lws_filepos_t *amount);
 
 
 LWS_EXTERN void
@@ -1495,7 +1497,8 @@ void socks_generate_msg(struct lws *wsi, enum socks_msg_type type,
 void
 lws_peer_track_wsi_close(struct lws_context *context, struct lws_peer *peer);
 int
-lws_peer_confirm_ah_attach_ok(struct lws_context *context, struct lws_peer *peer);
+lws_peer_confirm_ah_attach_ok(struct lws_context *context,
+			      struct lws_peer *peer);
 void
 lws_peer_track_ah_detach(struct lws_context *context, struct lws_peer *peer);
 void

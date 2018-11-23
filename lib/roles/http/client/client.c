@@ -1,7 +1,7 @@
 /*
  * libwebsockets - lib/client/client.c
  *
- * Copyright (C) 2010-2017 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2018 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -48,7 +48,7 @@ lws_client_wsi_effective(struct lws *wsi)
 	} lws_end_foreach_dll_safe(d, d1);
 
 	return lws_container_of(tail, struct lws,
-				  dll_client_transaction_queue);
+				dll_client_transaction_queue);
 }
 
 /*
@@ -66,7 +66,7 @@ _lws_client_wsi_master(struct lws *wsi)
 	d = wsi->dll_client_transaction_queue.prev;
 	while (d) {
 		wsi_eff = lws_container_of(d, struct lws,
-					dll_client_transaction_queue_head);
+					   dll_client_transaction_queue_head);
 
 		d = d->prev;
 	}
@@ -111,11 +111,12 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 		 */
 		lws_vhost_lock(wsi->vhost);
 		lws_start_foreach_dll_safe(struct lws_dll_lws *, d, d1,
-					   wsi->dll_client_transaction_queue_head.next) {
+				  wsi->dll_client_transaction_queue_head.next) {
 			struct lws *w = lws_container_of(d, struct lws,
 						  dll_client_transaction_queue);
 
-			lwsl_debug("%s: %p states 0x%x\n", __func__, w, w->wsistate);
+			lwsl_debug("%s: %p states 0x%x\n", __func__, w,
+				   w->wsistate);
 			if (lwsi_state(w) == LRS_H1C_ISSUE_HANDSHAKE2)
 				wfound = w;
 		} lws_end_foreach_dll_safe(d, d1);
@@ -208,7 +209,8 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 
 		case LRS_WAITING_SOCKS_AUTH_REPLY:
 			if (pt->serv_buf[0] != SOCKS_SUBNEGOTIATION_VERSION_1 ||
-			    pt->serv_buf[1] != SOCKS_SUBNEGOTIATION_STATUS_SUCCESS)
+			    pt->serv_buf[1] !=
+					    SOCKS_SUBNEGOTIATION_STATUS_SUCCESS)
 				goto socks_reply_fail;
 
 			lwsl_client("SOCKS password OK, sending connect\n");
@@ -243,8 +245,8 @@ socks_reply_fail:
 			/* free stash since we are done with it */
 			lws_client_stash_destroy(wsi);
 			if (lws_hdr_simple_create(wsi,
-						  _WSI_TOKEN_CLIENT_PEER_ADDRESS,
-						  wsi->vhost->socks_proxy_address))
+						 _WSI_TOKEN_CLIENT_PEER_ADDRESS,
+					       wsi->vhost->socks_proxy_address))
 				goto bail3;
 
 			wsi->c_port = wsi->vhost->socks_proxy_port;
@@ -379,7 +381,8 @@ start_ws_handshake:
 				return 0;
 
 			lwsl_err("Failed to generate handshake for client\n");
-			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "chs");
+			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
+					   "chs");
 			return 0;
 		}
 
@@ -387,8 +390,9 @@ start_ws_handshake:
 		lws_latency_pre(context, wsi);
 
 		w = _lws_client_wsi_master(wsi);
-		lwsl_info("%s: HANDSHAKE2: %p: sending headers on %p (wsistate 0x%x 0x%x)\n",
-				__func__, wsi, w, wsi->wsistate, w->wsistate);
+		lwsl_info("%s: HANDSHAKE2: %p: sending headers on %p "
+			  "(wsistate 0x%x 0x%x)\n", __func__, wsi, w,
+			  wsi->wsistate, w->wsistate);
 
 		n = lws_ssl_capable_write(w, (unsigned char *)sb, (int)(p - sb));
 		lws_latency(context, wsi, "send lws_issue_raw", n,
@@ -396,7 +400,8 @@ start_ws_handshake:
 		switch (n) {
 		case LWS_SSL_CAPABLE_ERROR:
 			lwsl_debug("ERROR writing to client socket\n");
-			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "cws");
+			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
+					   "cws");
 			return 0;
 		case LWS_SSL_CAPABLE_MORE_SERVICE:
 			lws_callback_on_writable(wsi);
@@ -421,7 +426,7 @@ start_ws_handshake:
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 			w->http.ah->parser_state = WSI_TOKEN_NAME_PART;
 			w->http.ah->lextable_pos = 0;
-			/* If we're (re)starting on headers, need other implied init */
+			/* If we're (re)starting on hdr, need other implied init */
 			wsi->http.ah->ues = URIES_IDLE;
 #endif
 		}
@@ -629,7 +634,8 @@ lws_http_transaction_completed_client(struct lws *wsi)
 	/* If we're (re)starting on headers, need other implied init */
 	wsi->http.ah->ues = URIES_IDLE;
 
-	lwsl_info("%s: %p: new queued transaction as %p\n", __func__, wsi, wsi_eff);
+	lwsl_info("%s: %p: new queued transaction as %p\n", __func__, wsi,
+		  wsi_eff);
 	lws_callback_on_writable(wsi);
 
 	return 0;
@@ -688,7 +694,8 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		 */
 #if defined(LWS_ROLE_H2)
 		if (wsi->client_h2_alpn || wsi->client_h2_substream) {
-			lwsl_debug("%s: %p: transitioning to h2 client\n", __func__, wsi);
+			lwsl_debug("%s: %p: transitioning to h2 client\n",
+				   __func__, wsi);
 			lws_role_transition(wsi, LWSIFR_CLIENT,
 					    LRS_ESTABLISHED, &role_ops_h2);
 		} else
@@ -696,7 +703,8 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		{
 #if defined(LWS_ROLE_H1)
 			{
-			lwsl_debug("%s: %p: transitioning to h1 client\n", __func__, wsi);
+			lwsl_debug("%s: %p: transitioning to h1 client\n",
+				   __func__, wsi);
 			lws_role_transition(wsi, LWSIFR_CLIENT,
 					    LRS_ESTABLISHED, &role_ops_h1);
 			}
@@ -829,7 +837,8 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 
 		/* if h1 KA is allowed, enable the queued pipeline guys */
 
-		if (!wsi->client_h2_alpn && !wsi->client_h2_substream && w == wsi) { /* ie, coming to this for the first time */
+		if (!wsi->client_h2_alpn && !wsi->client_h2_substream &&
+		    w == wsi) { /* ie, coming to this for the first time */
 			if (wsi->http.conn_type == HTTP_CONNECTION_KEEP_ALIVE)
 				wsi->keepalive_active = 1;
 			else {
@@ -850,13 +859,16 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 				wsi->keepalive_rejected = 1;
 
 				lws_vhost_lock(wsi->vhost);
-				lws_start_foreach_dll_safe(struct lws_dll_lws *, d, d1,
-							   wsi->dll_client_transaction_queue_head.next) {
-					struct lws *ww = lws_container_of(d, struct lws,
-								  dll_client_transaction_queue);
+				lws_start_foreach_dll_safe(struct lws_dll_lws *,
+							   d, d1,
+				  wsi->dll_client_transaction_queue_head.next) {
+					struct lws *ww = lws_container_of(d,
+						struct lws,
+						dll_client_transaction_queue);
 
 					/* remove him from our queue */
-					lws_dll_lws_remove(&ww->dll_client_transaction_queue);
+					lws_dll_lws_remove(
+					     &ww->dll_client_transaction_queue);
 					/* give up on pipelining */
 					ww->client_pipeline = 0;
 
@@ -1096,9 +1108,9 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 	/* give userland a chance to append, eg, cookies */
 
 	if (wsi->protocol->callback(wsi,
-				LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER,
-				wsi->user_space, &p,
-				(pkt + wsi->context->pt_serv_buf_size) - p - 12))
+			LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER,
+			wsi->user_space, &p,
+			(pkt + wsi->context->pt_serv_buf_size) - p - 12))
 		return NULL;
 
 	p += sprintf(p, "\x0d\x0a");

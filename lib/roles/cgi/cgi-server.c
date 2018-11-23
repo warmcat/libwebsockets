@@ -108,8 +108,9 @@ lws_create_basic_wsi(struct lws_context *context, int tsi)
 }
 
 LWS_VISIBLE LWS_EXTERN int
-lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len,
-	int timeout_secs, const struct lws_protocol_vhost_options *mp_cgienv)
+lws_cgi(struct lws *wsi, const char * const *exec_array,
+	int script_uri_path_len, int timeout_secs,
+	const struct lws_protocol_vhost_options *mp_cgienv)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	char *env_array[30], cgi_path[500], e[1024], *p = e,
@@ -197,7 +198,8 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 	sum += lws_snprintf(sum, sumend - sum, "%s ", exec_array[0]);
 
 	if (0) {
-		char *pct = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_CONTENT_ENCODING);
+		char *pct = lws_hdr_simple_ptr(wsi,
+				WSI_TOKEN_HTTP_CONTENT_ENCODING);
 
 		if (pct && !strcmp(pct, "gzip"))
 			wsi->http.cgi->gzip_inflate = 1;
@@ -343,7 +345,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 	    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_ENCODING)) {
 		env_array[n++] = p;
 		p += lws_snprintf(p, end - p, "HTTP_CONTENT_ENCODING=%s",
-			      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_CONTENT_ENCODING));
+		      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_CONTENT_ENCODING));
 		p++;
 	}
 	if (script_uri_path_len >= 0 &&
@@ -357,7 +359,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 	    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING)) {
 		env_array[n++] = p;
 		p += lws_snprintf(p, end - p, "HTTP_ACCEPT_ENCODING=%s",
-			      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING));
+		      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING));
 		p++;
 	}
 	if (script_uri_path_len >= 0 &&
@@ -379,7 +381,8 @@ lws_cgi(struct lws *wsi, const char * const *exec_array, int script_uri_path_len
 
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH))
 			wsi->http.cgi->post_in_expected =
-				atoll(lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH));
+				atoll(lws_hdr_simple_ptr(wsi,
+						WSI_TOKEN_HTTP_CONTENT_LENGTH));
 	}
 
 
@@ -558,7 +561,7 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 			lwsl_debug("LHCS_RESPONSE: issuing response %d\n",
 				   wsi->http.cgi->response_code);
 			if (lws_add_http_header_status(wsi,
-						       wsi->http.cgi->response_code,
+						   wsi->http.cgi->response_code,
 						       &p, end))
 				return 1;
 			if (!wsi->http.cgi->explicitly_chunked &&
@@ -589,8 +592,10 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 				goto post_hpack_recode;
 
 			p = wsi->http.cgi->headers_start;
-			wsi->http.cgi->headers_start = wsi->http.cgi->headers_pos;
-			wsi->http.cgi->headers_dumped = wsi->http.cgi->headers_start;
+			wsi->http.cgi->headers_start =
+					wsi->http.cgi->headers_pos;
+			wsi->http.cgi->headers_dumped =
+					wsi->http.cgi->headers_start;
 			hrs = HR_NAME;
 			name = buf;
 
@@ -661,15 +666,12 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 post_hpack_recode:
 			/* finalize cached headers before dumping them */
 			if (lws_finalize_http_header(wsi,
-				      (unsigned char **)&wsi->http.cgi->headers_pos,
-				      (unsigned char *)wsi->http.cgi->headers_end)) {
+			      (unsigned char **)&wsi->http.cgi->headers_pos,
+			      (unsigned char *)wsi->http.cgi->headers_end)) {
 
 				lwsl_notice("finalize failed\n");
 				return -1;
 			}
-
-//			lwsl_hexdump_notice(wsi->http.cgi->headers_pos,
-//					wsi->http.cgi->headers_end - wsi->http.cgi->headers_pos);
 
 			wsi->hdr_state = LHCS_DUMP_HEADERS;
 			wsi->reason_bf |= LWS_CB_REASON_AUX_BF__CGI_HEADERS;
@@ -679,7 +681,8 @@ post_hpack_recode:
 
 		case LHCS_DUMP_HEADERS:
 
-			n = wsi->http.cgi->headers_pos - wsi->http.cgi->headers_dumped;
+			n = wsi->http.cgi->headers_pos -
+			    wsi->http.cgi->headers_dumped;
 			if (n > 512)
 				n = 512;
 
@@ -693,19 +696,21 @@ post_hpack_recode:
 			}
 
 			m = lws_write(wsi,
-				      (unsigned char *)wsi->http.cgi->headers_dumped,
+				 (unsigned char *)wsi->http.cgi->headers_dumped,
 				      n, cmd);
 			if (m < 0) {
 				lwsl_debug("%s: write says %d\n", __func__, m);
 				return -1;
 			}
 			wsi->http.cgi->headers_dumped += n;
-			if (wsi->http.cgi->headers_dumped == wsi->http.cgi->headers_pos) {
+			if (wsi->http.cgi->headers_dumped ==
+			    wsi->http.cgi->headers_pos) {
 				wsi->hdr_state = LHCS_PAYLOAD;
 				lws_free_set_NULL(wsi->http.cgi->headers_buf);
 				lwsl_debug("freed cgi headers\n");
 			} else {
-				wsi->reason_bf |= LWS_CB_REASON_AUX_BF__CGI_HEADERS;
+				wsi->reason_bf |=
+					LWS_CB_REASON_AUX_BF__CGI_HEADERS;
 				lws_callback_on_writable(wsi);
 			}
 
@@ -716,7 +721,7 @@ post_hpack_recode:
 		}
 
 		if (!wsi->http.cgi->headers_buf) {
-			/* if we don't already have a headers buf, cook one up */
+			/* if we don't already have a headers buf, cook one */
 			n = 2048;
 			if (wsi->http2_substream)
 				n = 4096;
@@ -728,10 +733,12 @@ post_hpack_recode:
 			}
 
 			lwsl_debug("allocated cgi hdrs\n");
-			wsi->http.cgi->headers_start = wsi->http.cgi->headers_buf + LWS_PRE;
+			wsi->http.cgi->headers_start =
+					wsi->http.cgi->headers_buf + LWS_PRE;
 			wsi->http.cgi->headers_pos = wsi->http.cgi->headers_start;
 			wsi->http.cgi->headers_dumped = wsi->http.cgi->headers_pos;
-			wsi->http.cgi->headers_end = wsi->http.cgi->headers_buf + n - 1;
+			wsi->http.cgi->headers_end =
+					wsi->http.cgi->headers_buf + n - 1;
 
 			for (n = 0; n < SIGNIFICANT_HDR_COUNT; n++) {
 				wsi->http.cgi->match[n] = 0;
@@ -751,7 +758,8 @@ post_hpack_recode:
 			else
 				n = 0;
 
-			if (wsi->http.cgi->headers_pos >= wsi->http.cgi->headers_end - 4) {
+			if (wsi->http.cgi->headers_pos >=
+					wsi->http.cgi->headers_end - 4) {
 				lwsl_notice("CGI hdrs > buf size\n");
 
 				return -1;
@@ -822,7 +830,7 @@ post_hpack_recode:
 			/* presence of Location: mandates 302 retcode */
 			if (wsi->hdr_state != LCHS_HEADER &&
 			    !significant_hdr[SIGNIFICANT_HDR_LOCATION][
-				     wsi->http.cgi->match[SIGNIFICANT_HDR_LOCATION]]) {
+			      wsi->http.cgi->match[SIGNIFICANT_HDR_LOCATION]]) {
 				lwsl_debug("CGI: Location hdr seen\n");
 				wsi->http.cgi->response_code = 302;
 			}
@@ -899,7 +907,8 @@ agin:
 
 		memcpy(term + LWS_PRE, (uint8_t *)"0\x0d\x0a\x0d\x0a", 5);
 
-		if (lws_write(wsi, term + LWS_PRE, 5, LWS_WRITE_HTTP_FINAL) != 5)
+		if (lws_write(wsi, term + LWS_PRE, 5,
+			      LWS_WRITE_HTTP_FINAL) != 5)
 			return -1;
 
 		wsi->http.cgi->cgi_transaction_over = 1;
@@ -926,7 +935,8 @@ agin:
 		}
 		*/
 		cmd = LWS_WRITE_HTTP;
-		if (wsi->http.cgi->content_length_seen + n == wsi->http.cgi->content_length)
+		if (wsi->http.cgi->content_length_seen + n ==
+						wsi->http.cgi->content_length)
 			cmd = LWS_WRITE_HTTP_FINAL;
 
 		m = lws_write(wsi, (unsigned char *)start, n, cmd);
@@ -988,7 +998,7 @@ lws_cgi_kill(struct lws *wsi)
 							 "failed errno %d "
 							 "(maybe zombie)\n",
 							 __func__,
-							 wsi->http.cgi->pid, errno);
+						 wsi->http.cgi->pid, errno);
 				}
 			}
 		}
@@ -1013,8 +1023,8 @@ handled:
 	if (wsi->http.cgi->pid != -1) {
 		n = user_callback_handle_rxflow(wsi->protocol->callback, wsi,
 						LWS_CALLBACK_CGI_TERMINATED,
-						wsi->user_space,
-						(void *)&args, wsi->http.cgi->pid);
+						wsi->user_space, (void *)&args,
+						wsi->http.cgi->pid);
 		wsi->http.cgi->pid = -1;
 		if (n && !wsi->http.cgi->being_closed)
 			lws_close_free_wsi(wsi, 0, "lws_cgi_kill");
@@ -1056,9 +1066,10 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 				continue;
 
 			if (cgi->content_length) {
-				lwsl_debug("%s: wsi %p: expected content length seen: %lld\n",
-					__func__, cgi->wsi,
-					(unsigned long long)cgi->content_length_seen);
+				lwsl_debug("%s: wsi %p: expected content "
+					   "length seen: %lld\n", __func__,
+					   cgi->wsi,
+				(unsigned long long)cgi->content_length_seen);
 			}
 
 			/* reap it */
@@ -1126,8 +1137,9 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 			continue;
 
 		if (cgi->content_length)
-			lwsl_debug("%s: wsi %p: expected content length seen: %lld\n",
-				__func__, cgi->wsi,
+			lwsl_debug("%s: wsi %p: expected "
+				   "content len seen: %lld\n", __func__,
+				   cgi->wsi,
 				(unsigned long long)cgi->content_length_seen);
 
 		/* reap it */

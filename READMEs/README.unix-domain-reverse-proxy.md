@@ -89,9 +89,13 @@ Headers are converted to all lower-case and hpack format for h2 return connectio
 Header and payload proxying is staged according to when the return connection
 (which may be an h2 child stream) is writable.
 
-### Behaviour is unix domain socket server unavailable
+### Behaviour if unix domain socket server unavailable
 
 If the server that listens on the unix domain socket is down or being restarted,
 lws understands that it couldn't connect to it and returns a clean 503 response
 `HTTP_STATUS_SERVICE_UNAVAILABLE` along with a brief human-readable explanation.
+
+The generated status page produced will try to bring in a stylesheet
+`/error.css`.  This allows you to produce a styled error pages with logos,
+graphics etc.  See [this](https://libwebsockets.org/git/badrepo) for an example of what you can do with it.
 

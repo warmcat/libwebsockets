@@ -95,8 +95,8 @@ lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi)
 	 * outermost create notification for wsi
 	 * no user_space because no protocol selection
 	 */
-	vhost->protocols[0].callback(new_wsi, LWS_CALLBACK_WSI_CREATE,
-				       NULL, NULL, 0);
+	vhost->protocols[0].callback(new_wsi, LWS_CALLBACK_WSI_CREATE, NULL,
+				     NULL, 0);
 
 	return new_wsi;
 }
@@ -216,8 +216,8 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 	 *  by deferring callback to this point, after insertion to fds,
 	 * lws_callback_on_writable() can work from the callback
 	 */
-	if ((new_wsi->protocol->callback)(
-			new_wsi, n, new_wsi->user_space, NULL, 0))
+	if ((new_wsi->protocol->callback)(new_wsi, n, new_wsi->user_space,
+					  NULL, 0))
 		goto fail;
 
 	/* role may need to do something after all adoption completed */
@@ -309,7 +309,8 @@ adopt_socket_readbuf(struct lws *wsi, const char *readbuf, size_t len)
 
 		lwsl_notice("%s: calling service on readbuf ah\n", __func__);
 
-		/* unlike a normal connect, we have the headers already
+		/*
+		 * unlike a normal connect, we have the headers already
 		 * (or the first part of them anyway).
 		 * libuv won't come back and service us without a network
 		 * event, so we need to do the header service right here.
@@ -400,7 +401,7 @@ lws_adopt_socket_readbuf(struct lws_context *context, lws_sockfd_type accept_fd,
 			 const char *readbuf, size_t len)
 {
         return adopt_socket_readbuf(lws_adopt_socket(context, accept_fd),
-				     readbuf, len);
+				    readbuf, len);
 }
 
 LWS_VISIBLE struct lws *
@@ -409,5 +410,5 @@ lws_adopt_socket_vhost_readbuf(struct lws_vhost *vhost,
 			       const char *readbuf, size_t len)
 {
         return adopt_socket_readbuf(lws_adopt_socket_vhost(vhost, accept_fd),
-				     readbuf, len);
+				    readbuf, len);
 }

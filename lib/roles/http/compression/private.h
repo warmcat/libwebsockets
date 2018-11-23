@@ -60,7 +60,7 @@ struct lws_compression_support {
 	int (*init_compression)(lws_comp_ctx_t *ctx, int decomp);
 	/** pass data into the context to be processed */
 	int (*process)(lws_comp_ctx_t *ctx, const void *in, size_t *ilen_iused,
-					void *out, size_t *olen_oused);
+		       void *out, size_t *olen_oused);
 	/** destroy the de/compression context */
 	void (*destroy)(lws_comp_ctx_t *ctx);
 };

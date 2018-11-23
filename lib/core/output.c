@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2017 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2018 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -146,7 +146,7 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 
 			m = (int)real_len;
 			if (lwsi_state(wsi) == LRS_FLUSHING_BEFORE_CLOSE) {
-				lwsl_info("** %p signalling to close now\n", wsi);
+				lwsl_info("*%p signalling to close now\n", wsi);
 				return -1; /* retry closing now */
 			}
 
@@ -190,7 +190,8 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	lws_buflist_append_segment(&wsi->buflist_out, buf + m, real_len - m);
 
 	lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_WRITE_PARTIALS, 1);
-	lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_B_PARTIALS_ACCEPTED_PARTS, m);
+	lws_stats_atomic_bump(wsi->context, pt,
+			      LWSSTATS_B_PARTIALS_ACCEPTED_PARTS, m);
 
 #if !defined(LWS_WITH_ESP32)
 	if (lws_wsi_is_udp(wsi)) {
@@ -305,7 +306,7 @@ lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 	}
 
 	lwsl_debug("ERROR writing len %d to skt fd %d err %d / errno %d\n",
-			len, wsi->desc.sockfd, n, LWS_ERRNO);
+		   len, wsi->desc.sockfd, n, LWS_ERRNO);
 
 	return LWS_SSL_CAPABLE_ERROR;
 }

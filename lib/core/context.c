@@ -317,8 +317,8 @@ lws_protocol_init(struct lws_context *context)
 					(void *)pvo, 0)) {
 				lws_free(vh->protocol_vh_privs[n]);
 				vh->protocol_vh_privs[n] = NULL;
-				lwsl_err("%s: protocol %s failed init\n", __func__,
-					 vh->protocols[n].name);
+				lwsl_err("%s: protocol %s failed init\n",
+					 __func__, vh->protocols[n].name);
 
 				return 1;
 			}
@@ -462,10 +462,12 @@ lws_create_vhost(struct lws_context *context,
 		n += (int)strlen(info->ssl_private_key_filepath) + 1;
 
 	if (n) {
-		vh->tls.key_path = vh->tls.alloc_cert_path = lws_malloc(n, "vh paths");
+		vh->tls.key_path = vh->tls.alloc_cert_path =
+					lws_malloc(n, "vh paths");
 		if (info->ssl_cert_filepath) {
 			n = (int)strlen(info->ssl_cert_filepath) + 1;
-			memcpy(vh->tls.alloc_cert_path, info->ssl_cert_filepath, n);
+			memcpy(vh->tls.alloc_cert_path,
+			       info->ssl_cert_filepath, n);
 			vh->tls.key_path += n;
 		}
 		if (info->ssl_private_key_filepath)
@@ -480,7 +482,7 @@ lws_create_vhost(struct lws_context *context,
 	 */
 	lwsp = lws_zalloc(sizeof(struct lws_protocols) * (vh->count_protocols +
 				   context->plugin_protocol_count + 1),
-				   "vhost-specific plugin table");
+			  "vhost-specific plugin table");
 	if (!lwsp) {
 		lwsl_err("OOM\n");
 		return NULL;
@@ -557,8 +559,8 @@ lws_create_vhost(struct lws_context *context,
 			break;
 		}
 		lwsl_notice("Creating Vhost '%s' %s, %d protocols, IPv6 %s\n",
-				vh->name, buf, vh->count_protocols,
-				LWS_IPV6_ENABLED(vh) ? "on" : "off");
+			    vh->name, buf, vh->count_protocols,
+			    LWS_IPV6_ENABLED(vh) ? "on" : "off");
 	}
 	mounts = info->mounts;
 	while (mounts) {
@@ -673,7 +675,6 @@ lws_create_vhost(struct lws_context *context,
 		goto bail1;
 	}
 
-
 	while (1) {
 		if (!(*vh1)) {
 			*vh1 = vh;
@@ -758,7 +759,7 @@ lws_create_event_pipes(struct lws_context *context)
 
 		wsi = lws_zalloc(sizeof(*wsi), "event pipe wsi");
 		if (!wsi) {
-			lwsl_err("Out of mem\n");
+			lwsl_err("%s: Out of mem\n", __func__);
 			return 1;
 		}
 		wsi->context = context;
@@ -828,8 +829,6 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if defined(__ANDROID__)
 	struct rlimit rt;
 #endif
-
-
 
 	lwsl_info("Initial logging level %d\n", log_level);
 	lwsl_info("Libwebsockets version: %s\n", library_version);

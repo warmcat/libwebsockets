@@ -256,7 +256,6 @@ int main(int argc, char **argv)
 			if (n > 0)
 				for (m = 0; m < (int)LWS_ARRAY_SIZE(pids); m++)
 					if (!pids[m]) {
-						// fprintf(stderr, "added child pid %d\n", n);
 						pids[m] = n;
 						break;
 					}
@@ -268,7 +267,6 @@ int main(int argc, char **argv)
 		if (n > 0)
 			for (m = 0; m < (int)LWS_ARRAY_SIZE(pids); m++)
 				if (pids[m] == n) {
-					// fprintf(stderr, "reaped child pid %d\n", pids[m]);
 					pids[m] = 0;
 					break;
 				}
@@ -278,12 +276,6 @@ int main(int argc, char **argv)
 	}
 #endif
 	/* child process */
-
-#ifndef _WIN32
-	/* we will only try to log things according to our debug_level */
-//	setlogmask(LOG_UPTO (LOG_DEBUG));
-//	openlog("lwsws", syslog_options, LOG_DAEMON);
-#endif
 
 	lws_set_log_level(debug_level, lwsl_emit_stderr_notimestamp);
 

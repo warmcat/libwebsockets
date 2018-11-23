@@ -65,8 +65,8 @@ enum lws_spa_fileupload_states {
  * HTTP provided by the client.
  */
 typedef int (*lws_spa_fileupload_cb)(void *data, const char *name,
-			const char *filename, char *buf, int len,
-			enum lws_spa_fileupload_states state);
+				     const char *filename, char *buf, int len,
+				     enum lws_spa_fileupload_states state);
 
 /** struct lws_spa - opaque urldecode parser capable of handling multipart
  *			and file uploads */

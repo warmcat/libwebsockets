@@ -133,7 +133,8 @@ struct lws_process_html_args {
 	int len; /**< length of the original data at p */
 	int max_len; /**< maximum length we can grow the data to */
 	int final; /**< set if this is the last chunk of the file */
-	int chunked; /**< 0 == unchunked, 1 == produce chunk headers (incompatible with HTTP/2) */
+	int chunked; /**< 0 == unchunked, 1 == produce chunk headers
+			(incompatible with HTTP/2) */
 };
 
 typedef const char *(*lws_process_html_state_cb)(void *data, int index);
@@ -146,7 +147,8 @@ struct lws_process_html_state {
 	const char * const *vars; /**< list of variable names */
 	int count_vars; /**< count of variable names */
 
-	lws_process_html_state_cb replace; /**< called on match to perform substitution */
+	lws_process_html_state_cb replace;
+		/**< called on match to perform substitution */
 };
 
 /*! lws_chunked_html_process() - generic chunked substitution
@@ -360,7 +362,8 @@ lws_hdr_total_length(struct lws *wsi, enum lws_token_indexes h);
  * \param frag_idx: which fragment of h we want to get the length of
  */
 LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
-lws_hdr_fragment_length(struct lws *wsi, enum lws_token_indexes h, int frag_idx);
+lws_hdr_fragment_length(struct lws *wsi, enum lws_token_indexes h,
+			int frag_idx);
 
 /**
  * lws_hdr_copy() - copy all fragments of the given header to a buffer

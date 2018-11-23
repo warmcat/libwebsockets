@@ -131,7 +131,7 @@ lws_client_connect_2(struct lws *wsi)
 			}
 #endif
 
-			lwsl_info("applying %p to txn queue on %p (wsistate 0x%x)\n",
+			lwsl_info("applying %p to txn queue on %p state 0x%x\n",
 				wsi, w, w->wsistate);
 			/*
 			 * ...let's add ourselves to his transaction queue...
@@ -337,7 +337,7 @@ create_new_conn:
 		} else if (n == EAI_SYSTEM) {
 			struct hostent *host;
 
-			lwsl_info("getaddrinfo (ipv4) failed, trying gethostbyname\n");
+			lwsl_info("ipv4 getaddrinfo err, try gethostbyname\n");
 			host = gethostbyname(ads);
 			if (host) {
 				p = host->h_addr;
@@ -451,7 +451,8 @@ ads_known:
 		iface = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_IFACE);
 
 		if (iface) {
-			n = lws_socket_bind(wsi->vhost, wsi->desc.sockfd, 0, iface);
+			n = lws_socket_bind(wsi->vhost, wsi->desc.sockfd, 0,
+					    iface);
 			if (n < 0) {
 				cce = "unable to bind socket";
 				goto failed;
@@ -563,7 +564,8 @@ ads_known:
 			goto failed;
 		}
 
-		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SOCKS_GREETING_REPLY,
+		lws_set_timeout(wsi,
+				PENDING_TIMEOUT_AWAITING_SOCKS_GREETING_REPLY,
 				AWAITING_TIMEOUT);
 
 		lwsi_set_state(wsi, LRS_WAITING_SOCKS_GREETING_REPLY);
@@ -594,7 +596,7 @@ send_hs:
 		 * wait in the queue until it's possible to send them.
 		 */
 		lws_callback_on_writable(wsi_piggyback);
-		lwsl_info("%s: wsi %p: waiting to send headers (parent state %x)\n",
+		lwsl_info("%s: wsi %p: waiting to send hdrs (par state 0x%x)\n",
 			    __func__, wsi, lwsi_state(wsi_piggyback));
 	} else {
 		lwsl_info("%s: wsi %p: client creating own connection\n",
@@ -674,7 +676,8 @@ failed1:
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 
 /**
- * lws_client_reset() - retarget a connected wsi to start over with a new connection (ie, redirect)
+ * lws_client_reset() - retarget a connected wsi to start over with a new
+ * 			connection (ie, redirect)
  *			this only works if still in HTTP, ie, not upgraded yet
  * wsi:		connection to reset
  * address:	network address of the new server
@@ -1020,8 +1023,9 @@ void socks_generate_msg(struct lws *wsi, enum socks_msg_type type,
 		/* length of the password */
 		pt->serv_buf[len++] = passwd_len;
 		/* password */
-		lws_strncpy((char *)&pt->serv_buf[len], wsi->vhost->socks_password,
-			context->pt_serv_buf_size - len + 1);
+		lws_strncpy((char *)&pt->serv_buf[len],
+			    wsi->vhost->socks_password,
+			    context->pt_serv_buf_size - len + 1);
 		len += passwd_len;
 		break;
 

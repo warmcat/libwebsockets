@@ -88,8 +88,8 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	 */
 
 #if LWS_MAX_SMP > 1
-	tid = wsi->vhost->protocols[0].callback(wsi,
-				     LWS_CALLBACK_GET_THREAD_ID, NULL, NULL, 0);
+	tid = wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_GET_THREAD_ID,
+						NULL, NULL, 0);
 
 	lws_context_lock(i->context, "client find tsi");
 

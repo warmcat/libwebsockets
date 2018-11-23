@@ -73,8 +73,9 @@
   #endif /* not mbedtls */
   #if defined(OPENSSL_VERSION_NUMBER)
    #if (OPENSSL_VERSION_NUMBER < 0x0009080afL)
-/* later openssl defines this to negate the presence of tlsext... but it was only
- * introduced at 0.9.8j.  Earlier versions don't know it exists so don't
+/*
+ * later openssl defines this to negate the presence of tlsext... but it was
+ * only introduced at 0.9.8j.  Earlier versions don't know it exists so don't
  * define it... making it look like the feature exists...
  */
     #define OPENSSL_NO_TLSEXT
@@ -213,8 +214,8 @@ lws_tls_generic_cert_checks(struct lws_vhost *vhost, const char *cert,
 			    const char *private_key);
 LWS_EXTERN int
 lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
-			const char *inbuf, lws_filepos_t inlen,
-		      uint8_t **buf, lws_filepos_t *amount);
+			      const char *inbuf, lws_filepos_t inlen,
+			      uint8_t **buf, lws_filepos_t *amount);
 
 #if !defined(LWS_NO_SERVER)
  LWS_EXTERN int

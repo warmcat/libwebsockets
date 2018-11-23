@@ -90,7 +90,6 @@ lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 		 * appropriately:
 		 */
 		len -= (buf - last_char);
-//		lwsl_debug("%s: thinks we have used %ld\n", __func__, (long)len);
 
 		if (!wsi->hdr_parsing_completed)
 			/* More header content on the way */
@@ -162,7 +161,8 @@ http_postbody:
 			buf += n;
 
 			if (wsi->http.rx_content_remain)  {
-				lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
+				lws_set_timeout(wsi,
+						PENDING_TIMEOUT_HTTP_CONTENT,
 						wsi->context->timeout_secs);
 				break;
 			}
@@ -315,7 +315,8 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 	     lwsi_state(wsi) == LRS_BODY)) {
 
 		if (!wsi->http.ah && lws_header_table_attach(wsi, 0)) {
-			lwsl_info("%s: wsi %p: ah not available\n", __func__, wsi);
+			lwsl_info("%s: wsi %p: ah not available\n", __func__,
+				  wsi);
 			goto try_pollout;
 		}
 
@@ -341,7 +342,8 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 			 * and draining the extensions
 			 */
 			if (wsi->ws &&
-			    (wsi->ws->rx_draining_ext || wsi->ws->tx_draining_ext))
+			    (wsi->ws->rx_draining_ext ||
+			     wsi->ws->tx_draining_ext))
 				goto try_pollout;
 #endif
 			/*
@@ -584,12 +586,14 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 	if (!lwsi_role_client(wsi)) {
 		int n;
 
-		lwsl_debug("%s: %p: wsistate 0x%x\n", __func__, wsi, wsi->wsistate);
+		lwsl_debug("%s: %p: wsistate 0x%x\n", __func__, wsi,
+			   wsi->wsistate);
 		n = lws_h1_server_socket_service(wsi, pollfd);
 		if (n != LWS_HPI_RET_HANDLED)
 			return n;
 		if (lwsi_state(wsi) != LRS_SSL_INIT)
-			if (lws_server_socket_service_ssl(wsi, LWS_SOCK_INVALID))
+			if (lws_server_socket_service_ssl(wsi,
+							  LWS_SOCK_INVALID))
 				return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
 		return LWS_HPI_RET_HANDLED;
@@ -619,10 +623,9 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 		/* let user code know, he'll usually ask for writeable
 		 * callback and drain / re-enable it there
 		 */
-		if (user_callback_handle_rxflow(
-				wsi->protocol->callback,
-				wsi, LWS_CALLBACK_RECEIVE_CLIENT_HTTP,
-				wsi->user_space, NULL, 0)) {
+		if (user_callback_handle_rxflow(wsi->protocol->callback, wsi,
+					       LWS_CALLBACK_RECEIVE_CLIENT_HTTP,
+						wsi->user_space, NULL, 0)) {
 			lwsl_info("RECEIVE_CLIENT_HTTP closed it\n");
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}

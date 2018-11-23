@@ -240,7 +240,8 @@ lws_header_table_attach(struct lws *wsi, int autoservice)
 	wsi->http.ah->wsi = wsi; /* mark our owner */
 	pt->http.ah_count_in_use++;
 
-#if defined(LWS_WITH_PEER_LIMITS) && (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2))
+#if defined(LWS_WITH_PEER_LIMITS) && (defined(LWS_ROLE_H1) || \
+    defined(LWS_ROLE_H2))
 	lws_context_lock(context, "ah attach"); /* <========================= */
 	if (wsi->peer)
 		wsi->peer->http.count_ah++;
@@ -353,13 +354,15 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 	if (!wsi) /* everybody waiting already has too many ah... */
 		goto nobody_usable_waiting;
 
-	lwsl_info("%s: transferring ah to last eligible wsi in wait list %p (wsistate 0x%x)\n", __func__, wsi, wsi->wsistate);
+	lwsl_info("%s: transferring ah to last eligible wsi in wait list "
+		  "%p (wsistate 0x%x)\n", __func__, wsi, wsi->wsistate);
 
 	wsi->http.ah = ah;
 	ah->wsi = wsi; /* new owner */
 
 	__lws_header_table_reset(wsi, autoservice);
-#if defined(LWS_WITH_PEER_LIMITS) && (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2))
+#if defined(LWS_WITH_PEER_LIMITS) && (defined(LWS_ROLE_H1) || \
+    defined(LWS_ROLE_H2))
 	lws_context_lock(context, "ah detach"); /* <========================= */
 	if (wsi->peer)
 		wsi->peer->http.count_ah++;
@@ -397,7 +400,8 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 	}
 #endif
 
-	assert(!!pt->http.ah_wait_list_length == !!(lws_intptr_t)pt->http.ah_wait_list);
+	assert(!!pt->http.ah_wait_list_length ==
+			!!(lws_intptr_t)pt->http.ah_wait_list);
 bail:
 	lwsl_info("%s: wsi %p: ah %p (tsi=%d, count = %d)\n", __func__,
 		  (void *)wsi, (void *)ah, pt->tid, pt->http.ah_count_in_use);
@@ -521,7 +525,8 @@ LWS_VISIBLE int lws_hdr_copy(struct lws *wsi, char *dst, int len,
 		return 0;
 
 	do {
-		comma = (wsi->http.ah->frags[n].nfrag && h != WSI_TOKEN_HTTP_COOKIE) ? 1 : 0;
+		comma = (wsi->http.ah->frags[n].nfrag &&
+			h != WSI_TOKEN_HTTP_COOKIE) ? 1 : 0;
 
 		if (wsi->http.ah->frags[n].len + comma >= len)
 			return -1;
@@ -890,8 +895,9 @@ lws_parse(struct lws *wsi, unsigned char *buf, int *len)
 				if (ah->ups == URIPS_SEEN_SLASH_DOT_DOT) {
 					/*
 					 * back up one dir level if possible
-					 * safe against header fragmentation because
-					 * the method URI can only be in 1 fragment
+					 * safe against header fragmentation
+					 * because the method URI can only be
+					 * in 1 fragment
 					 */
 					if (ah->frags[ah->nfrag].len > 2) {
 						ah->pos--;
@@ -961,7 +967,8 @@ swallow:
 			pos = ah->lextable_pos;
 
 			while (1) {
-				if (lextable[pos] & (1 << 7)) { /* 1-byte, fail on mismatch */
+				if (lextable[pos] & (1 << 7)) {
+					/* 1-byte, fail on mismatch */
 					if ((lextable[pos] & 0x7f) != c) {
 nope:
 						ah->lextable_pos = -1;
@@ -980,14 +987,15 @@ nope:
 					goto nope;
 
 				/* b7 = 0, end or 3-byte */
-				if (lextable[pos] < FAIL_CHAR) { /* terminal marker */
+				if (lextable[pos] < FAIL_CHAR) { /* term mark */
 					ah->lextable_pos = pos;
 					break;
 				}
 
 				if (lextable[pos] == c) { /* goto */
-					ah->lextable_pos = pos + (lextable[pos + 1]) +
-							(lextable[pos + 2] << 8);
+					ah->lextable_pos = pos +
+						(lextable[pos + 1]) +
+						(lextable[pos + 2] << 8);
 					break;
 				}
 
@@ -1060,13 +1068,13 @@ nope:
 					n = WSI_TOKEN_ORIGIN;
 
 				ah->parser_state = (enum lws_token_indexes)
-								(WSI_TOKEN_GET_URI + n);
+							(WSI_TOKEN_GET_URI + n);
 				ah->ups = URIPS_IDLE;
 
 				if (context->token_limits)
 					ah->current_token_limit = context->
-							token_limits->token_limit[
-								      ah->parser_state];
+						token_limits->token_limit[
+							      ah->parser_state];
 				else
 					ah->current_token_limit =
 						wsi->context->max_http_header_data;

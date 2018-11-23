@@ -90,14 +90,15 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int met
 	uri[m] = '\0';
 
 	lws_snprintf(wsi->http.access_log.header_log, l,
-		 "%s - - [%s] \"%s %s %s\"",
-		 pa, da, me, uri, hver[wsi->http.request_version]);
+		     "%s - - [%s] \"%s %s %s\"",
+		     pa, da, me, uri, hver[wsi->http.request_version]);
 
 	//lwsl_notice("%s\n", wsi->http.access_log.header_log);
 
 	l = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_USER_AGENT);
 	if (l) {
-		wsi->http.access_log.user_agent = lws_malloc(l + 5, "access log");
+		wsi->http.access_log.user_agent =
+				lws_malloc(l + 5, "access log");
 		if (!wsi->http.access_log.user_agent) {
 			lwsl_err("OOM getting user agent\n");
 			lws_free_set_NULL(wsi->http.access_log.header_log);
@@ -163,8 +164,9 @@ lws_access_log(struct lws *wsi)
 	 * maintaining the structure of the log text
 	 */
 	l = lws_snprintf(ass, sizeof(ass) - 7, "%s %d %lu \"%s",
-		     wsi->http.access_log.header_log,
-		     wsi->http.access_log.response, wsi->http.access_log.sent, p1);
+			 wsi->http.access_log.header_log,
+			 wsi->http.access_log.response,
+			 wsi->http.access_log.sent, p1);
 	if (strlen(p) > sizeof(ass) - 6 - l)
 		p[sizeof(ass) - 6 - l] = '\0';
 	l += lws_snprintf(ass + l, sizeof(ass) - 1 - l, "\" \"%s\"\n", p);

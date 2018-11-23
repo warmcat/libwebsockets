@@ -15,7 +15,11 @@ v3.1.0
  - CHANGE: Minimal examples updated to use Content Security Policy best
    practices, using
    `LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE` vhost
-   option flag and disabling of inline style and scripts.
+   option flag and disabling of inline style and scripts.  A side-effect of
+   this is that buffers used to marshal headers have to be prepared to take
+   more content than previously... LWS_RECOMMENDED_MIN_HEADER_SPACE (2048
+   currently) is available for user (and internal) use to logically tie the
+   buffer size to this usecase (and follow future increases).
 
  - NEW: CMAKE
      - LWS_FOR_GITOHASHI: sets various cmake options suitable for gitohashi

@@ -161,8 +161,8 @@ lws_genrsa_public_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_genrsa_public_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
-			 enum lws_genhash_types hash_type, uint8_t *sig,
-			 size_t sig_len);
+		       enum lws_genhash_types hash_type, uint8_t *sig,
+		       size_t sig_len);
 
 /** lws_genrsa_public_decrypt_destroy() - Destroy RSA public decrypt context
  *

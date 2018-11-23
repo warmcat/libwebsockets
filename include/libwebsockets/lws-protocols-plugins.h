@@ -123,8 +123,8 @@ lws_protocol_get(struct lws *wsi) LWS_WARN_DEPRECATED;
  * helper to be called in the per-vhost init LWS_CALLBACK_PROTOCOL_INIT
  */
 LWS_VISIBLE LWS_EXTERN void *
-lws_protocol_vh_priv_zalloc(struct lws_vhost *vhost, const struct lws_protocols *prot,
-			    int size);
+lws_protocol_vh_priv_zalloc(struct lws_vhost *vhost,
+			    const struct lws_protocols *prot, int size);
 
 /**
  * lws_protocol_vh_priv_get() - retreive a protocol's per-vhost storage
@@ -136,7 +136,8 @@ lws_protocol_vh_priv_zalloc(struct lws_vhost *vhost, const struct lws_protocols 
  * by lws_protocol_vh_priv_zalloc() earlier
  */
 LWS_VISIBLE LWS_EXTERN void *
-lws_protocol_vh_priv_get(struct lws_vhost *vhost, const struct lws_protocols *prot);
+lws_protocol_vh_priv_get(struct lws_vhost *vhost,
+			 const struct lws_protocols *prot);
 
 /**
  * lws_adjust_protocol_psds - change a vhost protocol's per session data size

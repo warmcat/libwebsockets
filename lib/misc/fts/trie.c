@@ -261,7 +261,8 @@ lws_fts_create(int fd)
 
 	t->fd = fd;
 	t->lwsac_head = lwsac_head;
-	t->root = lwsac_use(&lwsac_head, sizeof(*t->root), TRIE_LWSAC_BLOCK_SIZE);
+	t->root = lwsac_use(&lwsac_head, sizeof(*t->root),
+			    TRIE_LWSAC_BLOCK_SIZE);
 	if (!t->root)
 		goto unwind;
 
@@ -349,7 +350,7 @@ lws_fts_file_index(struct lws_fts *t, const char *filepath, int filepath_len,
 
 static struct lws_fts_entry *
 lws_fts_entry_child_add(struct lws_fts *t, unsigned char c,
-			 struct lws_fts_entry *parent)
+			struct lws_fts_entry *parent)
 {
 	struct lws_fts_entry *e, **pe;
 
@@ -537,7 +538,7 @@ name_entry(struct lws_fts_entry *e1, char *s, int len)
 
 int
 lws_fts_fill(struct lws_fts *t, uint32_t file_index, const char *buf,
-	      size_t len)
+	     size_t len)
 {
 	unsigned long long tf = lws_time_in_microseconds();
 	unsigned char c, linetable[256], vlibuf[8];
@@ -900,7 +901,7 @@ seal:
 
 				e = lws_fts_entry_child_add(t, c, t->parser);
 				if (!e) {
-					lwsl_err("%s: lws_fts_entry_child_add fail2\n",
+					lwsl_err("%s: child_add fail2\n",
 						 __func__);
 					return 1;
 				}

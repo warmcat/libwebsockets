@@ -129,7 +129,7 @@ cleanup_1:
 
 LWS_VISIBLE int
 lws_genrsa_public_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
-			   size_t in_len, uint8_t *out, size_t out_max)
+			  size_t in_len, uint8_t *out, size_t out_max)
 {
 	size_t olen = 0;
 	int n;
@@ -149,7 +149,7 @@ lws_genrsa_public_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 
 LWS_VISIBLE int
 lws_genrsa_public_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
-			   size_t in_len, uint8_t *out)
+			  size_t in_len, uint8_t *out)
 {
 	int n;
 
@@ -213,8 +213,8 @@ lws_genrsa_public_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 
 LWS_VISIBLE int
 lws_genrsa_public_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
-			 enum lws_genhash_types hash_type, uint8_t *sig,
-			 size_t sig_len)
+		       enum lws_genhash_types hash_type, uint8_t *sig,
+		       size_t sig_len)
 {
 	int n, h = lws_genrsa_genrsa_hash_to_mbed_hash(hash_type);
 

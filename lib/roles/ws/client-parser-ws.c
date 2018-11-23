@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2017 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2018 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -399,9 +399,11 @@ spill:
 
 			memcpy(wsi->ws->ping_payload_buf + LWS_PRE, pp,
 			       wsi->ws->rx_ubuf_head);
-			wsi->ws->close_in_ping_buffer_len = wsi->ws->rx_ubuf_head;
+			wsi->ws->close_in_ping_buffer_len =
+					wsi->ws->rx_ubuf_head;
 
-			lwsl_info("%s: scheduling return close as ack\n", __func__);
+			lwsl_info("%s: scheduling return close as ack\n",
+				  __func__);
 			__lws_change_pollfd(wsi, LWS_POLLIN, 0);
 			lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_SEND, 3);
 			wsi->waiting_to_send_close_frame = 1;
@@ -437,7 +439,7 @@ spill:
 			/* stash the pong payload */
 			memcpy(wsi->ws->ping_payload_buf + LWS_PRE,
 			       &wsi->ws->rx_ubuf[LWS_PRE],
-				wsi->ws->rx_ubuf_head);
+			       wsi->ws->rx_ubuf_head);
 
 			wsi->ws->ping_payload_len = wsi->ws->rx_ubuf_head;
 			wsi->ws->ping_pending_flag = 1;

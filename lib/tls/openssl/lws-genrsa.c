@@ -225,8 +225,8 @@ lws_genrsa_public_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 
 LWS_VISIBLE int
 lws_genrsa_public_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
-			 enum lws_genhash_types hash_type, uint8_t *sig,
-			 size_t sig_len)
+		       enum lws_genhash_types hash_type, uint8_t *sig,
+		       size_t sig_len)
 {
 	int n = lws_genrsa_genrsa_hash_to_NID(hash_type),
 	    h = (int)lws_genhash_size(hash_type);

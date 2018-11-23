@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2017 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2018 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -166,7 +166,8 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 
 			lwsl_debug("%s: %p: issuing proxy headers\n",
 				    __func__, wsi);
-			n = lws_write(wsi, wsi->http.pending_return_headers + LWS_PRE,
+			n = lws_write(wsi, wsi->http.pending_return_headers +
+					   LWS_PRE,
 				      wsi->http.pending_return_headers_len,
 				      LWS_WRITE_HTTP_HEADERS);
 
@@ -339,10 +340,11 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		if (lws_finalize_http_header(parent, &p, end))
 			return 1;
 
-		parent->http.pending_return_headers_len = lws_ptr_diff(p, start);
+		parent->http.pending_return_headers_len =
+					lws_ptr_diff(p, start);
 		parent->http.pending_return_headers =
-			lws_malloc(parent->http.pending_return_headers_len + LWS_PRE,
-				   "return proxy headers");
+			lws_malloc(parent->http.pending_return_headers_len +
+				    LWS_PRE, "return proxy headers");
 		if (!parent->http.pending_return_headers)
 			return -1;
 
@@ -351,7 +353,8 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 
 		parent->reason_bf |= LWS_CB_REASON_AUX_BF__PROXY_HEADERS;
 
-		lwsl_debug("%s: LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP: prepared headers\n", __func__);
+		lwsl_debug("%s: LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP: "
+			   "prepared headers\n", __func__);
 		lws_callback_on_writable(parent);
 
 		break; }
@@ -475,12 +478,15 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			/* gzip handling */
 
 			if (!wsi->http.cgi->gzip_init) {
-				lwsl_err("inflating gzip\n");
+				lwsl_info("inflating gzip\n");
 
-				memset(&wsi->http.cgi->inflate, 0, sizeof(wsi->http.cgi->inflate));
+				memset(&wsi->http.cgi->inflate, 0,
+				       sizeof(wsi->http.cgi->inflate));
 
-				if (inflateInit2(&wsi->http.cgi->inflate, 16 + 15) != Z_OK) {
-					lwsl_err("%s: iniflateInit failed\n", __func__);
+				if (inflateInit2(&wsi->http.cgi->inflate,
+						 16 + 15) != Z_OK) {
+					lwsl_err("%s: iniflateInit failed\n",
+						 __func__);
 					return -1;
 				}
 

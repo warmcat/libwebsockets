@@ -1,7 +1,7 @@
 /*
  * libwebsockets-test-server - libwebsockets test implementation
  *
- * Copyright (C) 2010-2017 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2018 Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
@@ -196,10 +196,10 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 			(struct per_vhost_data__lws_mirror *)
 			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
 						 lws_get_protocol(wsi));
+	char name[300], update_worst, sent_something, *pn = name;
 	struct mirror_instance *mi = NULL;
 	const struct a_message *msg;
 	struct a_message amsg;
-	char name[300], update_worst, sent_something, *pn = name;
 	uint32_t oldest_tail;
 	int n, count_mi = 0;
 
@@ -229,7 +229,6 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 			count_mi++;
 			if (!strcmp(pn, mi1->name)) {
 				/* yes... we will join it */
-			//	lwsl_notice("Joining existing mi %p '%s'\n", mi1, pn);
 				mi = mi1;
 				break;
 			}
@@ -239,7 +238,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 
 			/* no existing mirror instance for name */
 			if (count_mi == MAX_MIRROR_INSTANCES) {
-				lws_pthread_mutex_unlock(&v->lock); /* } vhost lock */
+				lws_pthread_mutex_unlock(&v->lock); /* } vh lock */
 				return -1;
 			}
 
@@ -436,7 +435,8 @@ bail2:
 		}
 
 		if (pss->mi->rx_enabled &&
-		    lws_ring_get_count_free_elements(pss->mi->ring) < RXFLOW_MIN)
+		    lws_ring_get_count_free_elements(pss->mi->ring) <
+								    RXFLOW_MIN)
 			__mirror_rxflow_instance(pss->mi, 0);
 
 req_writable:

@@ -99,7 +99,8 @@ lws_urldecode_s_create(struct lws *wsi, char *out, int out_len, void *data,
 
 	if (lws_hdr_copy(wsi, buf, sizeof(buf),
 			 WSI_TOKEN_HTTP_CONTENT_TYPE) > 0) {
-	/* multipart/form-data; boundary=----WebKitFormBoundarycc7YgAPEIHvgE9Bf */
+	/* multipart/form-data;
+	 * boundary=----WebKitFormBoundarycc7YgAPEIHvgE9Bf */
 
 		if (!strncmp(buf, "multipart/form-data", 19)) {
 			s->multipart_form_data = 1;
@@ -270,7 +271,8 @@ retry_as_first:
 				}
 			in++;
 			if (!m) {
-				s->state = MT_IGNORE1; // Unknown header - ignore it
+				/* Unknown header - ignore it */
+				s->state = MT_IGNORE1;
 				s->mp = 0;
 				continue;
 			}
@@ -417,18 +419,16 @@ lws_urldecode_s_destroy(struct lws_urldecode_stateful *s)
 
 struct lws_spa {
 	struct lws_urldecode_stateful *s;
-	lws_spa_fileupload_cb opt_cb;
 	const char * const *param_names;
-	int count_params;
-	char **params;
-	int *param_length;
 	void *opt_data;
-
+	lws_spa_fileupload_cb opt_cb;
+	int *param_length;
+	int count_params;
+	int max_storage;
+	char finalized;
+	char **params;
 	char *storage;
 	char *end;
-	int max_storage;
-
-	char finalized;
 };
 
 static int
@@ -489,8 +489,8 @@ lws_urldecode_spa_cb(void *data, const char *name, char **buf, int len,
 
 LWS_VISIBLE LWS_EXTERN struct lws_spa *
 lws_spa_create(struct lws *wsi, const char * const *param_names,
-			 int count_params, int max_storage,
-			 lws_spa_fileupload_cb opt_cb, void *opt_data)
+	       int count_params, int max_storage,
+	       lws_spa_fileupload_cb opt_cb, void *opt_data)
 {
 	struct lws_spa *spa = lws_zalloc(sizeof(*spa), "spa");
 
@@ -596,11 +596,8 @@ lws_spa_destroy(struct lws_spa *spa)
 	if (spa->s)
 		lws_urldecode_s_destroy(spa->s);
 
-	lwsl_debug("%s %p %p %p %p\n", __func__,
-			spa->param_length,
-			spa->params,
-			spa->storage,
-			spa);
+	lwsl_debug("%s %p %p %p %p\n", __func__, spa->param_length,
+		   spa->params, spa->storage, spa);
 
 	lws_free(spa->param_length);
 	lws_free(spa->params);

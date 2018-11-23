@@ -350,18 +350,19 @@ struct lws * lws_h2_get_nth_child(struct lws *wsi, int n);
 LWS_EXTERN void lws_h2_init(struct lws *wsi);
 LWS_EXTERN int
 lws_h2_settings(struct lws *nwsi, struct http2_settings *settings,
-				     unsigned char *buf, int len);
+		unsigned char *buf, int len);
 LWS_EXTERN int
 lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 	      lws_filepos_t *inused);
-LWS_EXTERN int lws_h2_do_pps_send(struct lws *wsi);
-LWS_EXTERN int lws_h2_frame_write(struct lws *wsi, int type, int flags,
-				     unsigned int sid, unsigned int len,
-				     unsigned char *buf);
+LWS_EXTERN int
+lws_h2_do_pps_send(struct lws *wsi);
+LWS_EXTERN int
+lws_h2_frame_write(struct lws *wsi, int type, int flags, unsigned int sid,
+		   unsigned int len, unsigned char *buf);
 LWS_EXTERN struct lws *
 lws_h2_wsi_from_id(struct lws *wsi, unsigned int sid);
-LWS_EXTERN int lws_hpack_interpret(struct lws *wsi,
-				   unsigned char c);
+LWS_EXTERN int
+lws_hpack_interpret(struct lws *wsi, unsigned char c);
 LWS_EXTERN int
 lws_add_http2_header_by_name(struct lws *wsi,
 			     const unsigned char *name,
@@ -369,9 +370,9 @@ lws_add_http2_header_by_name(struct lws *wsi,
 			     unsigned char **p, unsigned char *end);
 LWS_EXTERN int
 lws_add_http2_header_by_token(struct lws *wsi,
-			    enum lws_token_indexes token,
-			    const unsigned char *value, int length,
-			    unsigned char **p, unsigned char *end);
+			      enum lws_token_indexes token,
+			      const unsigned char *value, int length,
+			      unsigned char **p, unsigned char *end);
 LWS_EXTERN int
 lws_add_http2_header_status(struct lws *wsi,
 			    unsigned int code, unsigned char **p,

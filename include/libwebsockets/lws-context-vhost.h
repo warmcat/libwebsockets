@@ -146,18 +146,20 @@ enum lws_context_options {
 	 * mappings like www.mysite.com / mysite.com
 	 */
 	LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE	= (1 << 28),
-	/**< (VH) Send lws default HTTP headers recommended by Mozilla Observatory
-	 * for security.  This is a helper option that sends canned headers on each
-	 * http response enabling a VERY strict Content Security Policy.  The policy
-	 * is so strict, for example it won't let the page run its own inline JS nor
-	 * show images or take CSS from a different server.  In many cases your JS only
-	 * comes from your server as do the image sources and CSS, so that is what you
-	 * want... attackers hoping to inject JS into your DOM are completely out of
-	 * luck since even if they succeed, it will be rejected for execution by the
-	 * browser according to the strict CSP.  In other cases you have to deviate from
-	 * the complete strictness, in which case don't use this flag: use the .headers
-	 * member in the vhost init described in struct lws_context_creation_info
-	 * instead to send the adapted headers yourself.
+	/**< (VH) Send lws default HTTP headers recommended by Mozilla
+	 * Observatory for security.  This is a helper option that sends canned
+	 * headers on each http response enabling a VERY strict Content Security
+	 * Policy.  The policy is so strict, for example it won't let the page
+	 * run its own inline JS nor show images or take CSS from a different
+	 * server.  In many cases your JS only comes from your server as do the
+	 * image sources and CSS, so that is what you want... attackers hoping
+	 * to inject JS into your DOM are completely out of luck since even if
+	 * they succeed, it will be rejected for execution by the browser
+	 * according to the strict CSP.  In other cases you have to deviate from
+	 * the complete strictness, in which case don't use this flag: use the
+	 * .headers member in the vhost init described in struct
+	 * lws_context_creation_info instead to send the adapted headers
+	 * yourself.
 	 */
 
 	/****** add new things just above ---^ ******/
@@ -194,15 +196,15 @@ struct lws_context_creation_info {
 	 * sockets in abstract namespace, by prepending an at symbol to the
 	 * socket name. */
 	const struct lws_protocols *protocols;
-	/**< VHOST: Array of structures listing supported protocols and a protocol-
-	 * specific callback for each one.  The list is ended with an
+	/**< VHOST: Array of structures listing supported protocols and a
+	 * protocol-specific callback for each one.  The list is ended with an
 	 * entry that has a NULL callback pointer. */
 	const struct lws_extension *extensions;
 	/**< VHOST: NULL or array of lws_extension structs listing the
 	 * extensions this context supports. */
 	const struct lws_token_limits *token_limits;
-	/**< CONTEXT: NULL or struct lws_token_limits pointer which is initialized
-	 * with a token length limit for each possible WSI_TOKEN_ */
+	/**< CONTEXT: NULL or struct lws_token_limits pointer which is
+	 * initialized with a token length limit for each possible WSI_TOKEN_ */
 	const char *ssl_private_key_password;
 	/**< VHOST: NULL or the passphrase needed for the private key. (For
 	 * backwards compatibility, this can also be used to pass the client
@@ -241,13 +243,16 @@ struct lws_context_creation_info {
 	 */
 	const char *http_proxy_address;
 	/**< VHOST: If non-NULL, attempts to proxy via the given address.
-	 * If proxy auth is required, use format "username:password\@server:port" */
+	 * If proxy auth is required, use format
+	 * "username:password\@server:port" */
 	unsigned int http_proxy_port;
 	/**< VHOST: If http_proxy_address was non-NULL, uses this port */
 	int gid;
-	/**< CONTEXT: group id to change to after setting listen socket, or -1. */
+	/**< CONTEXT: group id to change to after setting listen socket,
+	 *   or -1. */
 	int uid;
-	/**< CONTEXT: user id to change to after setting listen socket, or -1. */
+	/**< CONTEXT: user id to change to after setting listen socket,
+	 *   or -1. */
 	unsigned int options;
 	/**< VHOST + CONTEXT: 0, or LWS_SERVER_OPTION_... bitfields */
 	void *user;
@@ -302,7 +307,8 @@ struct lws_context_creation_info {
 	 * nonzero, this member lets you set the timeout used in seconds.
 	 * Otherwise a default timeout is used. */
 	const char *ecdh_curve;
-	/**< VHOST: if NULL, defaults to initializing server with "prime256v1" */
+	/**< VHOST: if NULL, defaults to initializing server with
+	 *   "prime256v1" */
 	const char *vhost_name;
 	/**< VHOST: name of vhost, must match external DNS name used to
 	 * access the site, like "warmcat.com" as it's used to match
@@ -385,10 +391,11 @@ struct lws_context_creation_info {
 	const char *client_ssl_ca_filepath;
 	/**< VHOST: Client SSL context init: CA certificate filepath or NULL */
 	const void *client_ssl_ca_mem;
-	/**< VHOST: Client SSL context init: CA certificate memory buffer or NULL
-	 * use this to load CA cert from memory instead of file */
+	/**< VHOST: Client SSL context init: CA certificate memory buffer or
+	 * NULL... use this to load CA cert from memory instead of file */
 	unsigned int client_ssl_ca_mem_len;
-	/**< VHOST: Client SSL context init: length of client_ssl_ca_mem in bytes */
+	/**< VHOST: Client SSL context init: length of client_ssl_ca_mem in
+	 * bytes */
 
 	const char *client_ssl_cipher_list;
 	/**< VHOST: Client SSL context init: List of valid ciphers to use (eg,
@@ -403,10 +410,12 @@ struct lws_context_creation_info {
 	 * backwards compatibility.
 	 */
 	int simultaneous_ssl_restriction;
-	/**< CONTEXT: 0 (no limit) or limit of simultaneous SSL sessions possible.*/
+	/**< CONTEXT: 0 (no limit) or limit of simultaneous SSL sessions
+	 * possible.*/
 	const char *socks_proxy_address;
 	/**< VHOST: If non-NULL, attempts to proxy via the given address.
-	 * If proxy auth is required, use format "username:password\@server:port" */
+	 * If proxy auth is required, use format
+	 * "username:password\@server:port" */
 	unsigned int socks_proxy_port;
 	/**< VHOST: If socks_proxy_address was non-NULL, uses this port */
 #if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)

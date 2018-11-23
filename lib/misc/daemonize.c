@@ -9,6 +9,10 @@
  *
  * This version is LGPL2.1+SLE like the rest of libwebsockets and is
  * Copyright (c)2006 - 2013 Andy Green <andy@warmcat.com>
+ *
+ *
+ * You're much better advised to use systemd to daemonize stuff without needing
+ * this kind of support in the app itself.
  */
 
 #include <stdlib.h>
@@ -35,6 +39,9 @@ int get_daemonize_pid()
 static void
 child_handler(int signum)
 {
+	int len, sent, fd;
+	char sz[20];
+
 	switch (signum) {
 
 	case SIGALRM: /* timed out daemonizing */
@@ -43,28 +50,27 @@ child_handler(int signum)
 
 	case SIGUSR1: /* positive confirmation we daemonized well */
 
-		if (lock_path) {
-			char sz[20];
-			int len, sent;
+		if (!lock_path)
+			exit(0);
 
-			/* Create the lock file as the current user */
+		/* Create the lock file as the current user */
 
-			int fd = lws_open(lock_path, O_TRUNC | O_RDWR | O_CREAT, 0640);
-			if (fd < 0) {
-				fprintf(stderr,
-				   "unable to create lock file %s, code=%d (%s)\n",
-					lock_path, errno, strerror(errno));
-				exit(0);
-			}
-			len = sprintf(sz, "%u", pid_daemon);
-			sent = write(fd, sz, len);
-			if (sent != len)
-				fprintf(stderr,
-				  "unable to write pid to lock file %s, code=%d (%s)\n",
-						     lock_path, errno, strerror(errno));
-
-			close(fd);
+		fd = lws_open(lock_path, O_TRUNC | O_RDWR | O_CREAT, 0640);
+		if (fd < 0) {
+			fprintf(stderr,
+			   "unable to create lock file %s, code=%d (%s)\n",
+				lock_path, errno, strerror(errno));
+			exit(0);
 		}
+		len = sprintf(sz, "%u", pid_daemon);
+		sent = write(fd, sz, len);
+		if (sent != len)
+			fprintf(stderr,
+			  "unable to write pid to lock file %s, code=%d (%s)\n",
+					     lock_path, errno, strerror(errno));
+
+		close(fd);
+
 		exit(0);
 		//!!(sent == len));
 
@@ -118,12 +124,13 @@ lws_daemonize(const char *_lock_path)
 				ret = kill(n, 0);
 				if (ret >= 0) {
 					fprintf(stderr,
-					     "Daemon already running from pid %d\n", n);
+					     "Daemon already running pid %d\n",
+					     n);
 					exit(1);
 				}
 				fprintf(stderr,
-				    "Removing stale lock file %s from dead pid %d\n",
-									 _lock_path, n);
+				    "Removing stale lock %s from dead pid %d\n",
+							_lock_path, n);
 				unlink(lock_path);
 			}
 		}

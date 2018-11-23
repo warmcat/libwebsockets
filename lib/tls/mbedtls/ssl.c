@@ -33,7 +33,8 @@ lws_context_init_ssl_library(const struct lws_context_creation_info *info)
 	lwsl_info(" Compiled with MbedTLS support\n");
 
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT))
-		lwsl_info(" SSL disabled: no LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT\n");
+		lwsl_info(" SSL disabled: no "
+			  "LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT\n");
 
 	return 0;
 }
@@ -78,7 +79,8 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 	if (!wsi->seen_rx && wsi->accept_start_us) {
                 lws_stats_atomic_bump(wsi->context, pt,
                 		      LWSSTATS_MS_SSL_RX_DELAY,
-				lws_time_in_microseconds() - wsi->accept_start_us);
+				lws_time_in_microseconds() -
+				wsi->accept_start_us);
                 lws_stats_atomic_bump(wsi->context, pt,
                 		      LWSSTATS_C_SSL_CONNS_HAD_RX, 1);
 		wsi->seen_rx = 1;

@@ -34,8 +34,8 @@
  *  - the file is already in memory
  *
  * it just returns with *cache left alone; this costs very little.  You should
- * call `lwsac_use_cached_file_start()` and `lwsac_use_cached_file_end()` to lock
- * the cache against deletion while you are using it.
+ * call `lwsac_use_cached_file_start()` and `lwsac_use_cached_file_end()`
+ * to lock the cache against deletion while you are using it.
  *
  * If it's
  *

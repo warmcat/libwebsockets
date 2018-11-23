@@ -40,29 +40,37 @@ OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 		int err = X509_STORE_CTX_get_error(x509_ctx);
 
 		if (err != X509_V_OK) {
-			ssl = X509_STORE_CTX_get_ex_data(x509_ctx, SSL_get_ex_data_X509_STORE_CTX_idx());
-			wsi = SSL_get_ex_data(ssl, openssl_websocket_private_data_index);
+			ssl = X509_STORE_CTX_get_ex_data(x509_ctx,
+					SSL_get_ex_data_X509_STORE_CTX_idx());
+			wsi = SSL_get_ex_data(ssl,
+					openssl_websocket_private_data_index);
 
 			if ((err == X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT ||
-					err == X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN) &&
-					wsi->tls.use_ssl & LCCSCF_ALLOW_SELFSIGNED) {
-				lwsl_notice("accepting self-signed certificate (verify_callback)\n");
+			     err == X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN) &&
+			     wsi->tls.use_ssl & LCCSCF_ALLOW_SELFSIGNED) {
+				lwsl_notice("accepting self-signed "
+					    "certificate (verify_callback)\n");
 				X509_STORE_CTX_set_error(x509_ctx, X509_V_OK);
 				return 1;	// ok
 			} else if ((err == X509_V_ERR_CERT_NOT_YET_VALID ||
-					err == X509_V_ERR_CERT_HAS_EXPIRED) &&
-					wsi->tls.use_ssl & LCCSCF_ALLOW_EXPIRED) {
+				    err == X509_V_ERR_CERT_HAS_EXPIRED) &&
+				    wsi->tls.use_ssl & LCCSCF_ALLOW_EXPIRED) {
 				if (err == X509_V_ERR_CERT_NOT_YET_VALID)
-					lwsl_notice("accepting not yet valid certificate (verify_callback)\n");
+					lwsl_notice("accepting not yet valid "
+						    "certificate (verify_"
+						    "callback)\n");
 				else if (err == X509_V_ERR_CERT_HAS_EXPIRED)
-					lwsl_notice("accepting expired certificate (verify_callback)\n");
+					lwsl_notice("accepting expired "
+						    "certificate (verify_"
+						    "callback)\n");
 				X509_STORE_CTX_set_error(x509_ctx, X509_V_OK);
 				return 1;	// ok
 			}
 		}
 	}
 
-	ssl = X509_STORE_CTX_get_ex_data(x509_ctx, SSL_get_ex_data_X509_STORE_CTX_idx());
+	ssl = X509_STORE_CTX_get_ex_data(x509_ctx,
+					 SSL_get_ex_data_X509_STORE_CTX_idx());
 	wsi = SSL_get_ex_data(ssl, openssl_websocket_private_data_index);
 
 	n = lws_get_context_protocol(wsi->context, 0).callback(wsi,
@@ -76,14 +84,21 @@ OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 	if (!preverify_ok) {
 		int err = X509_STORE_CTX_get_error(x509_ctx);
 
-		if (err != X509_V_OK) {	/* cert validation error was not handled in callback */
+		if (err != X509_V_OK) {
+			/* cert validation error was not handled in callback */
 			int depth = X509_STORE_CTX_get_error_depth(x509_ctx);
-			const char* msg = X509_verify_cert_error_string(err);
-			lwsl_err("SSL error: %s (preverify_ok=%d;err=%d;depth=%d)\n", msg, preverify_ok, err, depth);
+			const char *msg = X509_verify_cert_error_string(err);
+
+			lwsl_err("SSL error: %s (preverify_ok=%d;err=%d;"
+				 "depth=%d)\n", msg, preverify_ok, err, depth);
+
 			return preverify_ok;	// not ok
 		}
 	}
-	/* convert callback return code from 0 = OK to verify callback return value 1 = OK */
+	/*
+	 * convert callback return code from 0 = OK to verify callback
+	 * return value 1 = OK
+	 */
 	return !n;
 }
 #endif
@@ -142,7 +157,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 
 		/* Enable automatic hostname checks */
 		X509_VERIFY_PARAM_set_hostflags(param,
-						X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
+					X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
 		X509_VERIFY_PARAM_set1_host(param, hostname, 0);
 	}
 #endif
@@ -150,7 +165,8 @@ lws_ssl_client_bio_create(struct lws *wsi)
 #if !defined(USE_WOLFSSL)
 #ifndef USE_OLD_CYASSL
 	/* OpenSSL_client_verify_callback will be called @ SSL_connect() */
-	SSL_set_verify(wsi->tls.ssl, SSL_VERIFY_PEER, OpenSSL_client_verify_callback);
+	SSL_set_verify(wsi->tls.ssl, SSL_VERIFY_PEER,
+		       OpenSSL_client_verify_callback);
 #endif
 #endif
 
@@ -164,11 +180,13 @@ lws_ssl_client_bio_create(struct lws *wsi)
 #ifdef USE_WOLFSSL
 #ifdef USE_OLD_CYASSL
 #ifdef CYASSL_SNI_HOST_NAME
-	CyaSSL_UseSNI(wsi->tls.ssl, CYASSL_SNI_HOST_NAME, hostname, strlen(hostname));
+	CyaSSL_UseSNI(wsi->tls.ssl, CYASSL_SNI_HOST_NAME, hostname,
+		      strlen(hostname));
 #endif
 #else
 #ifdef WOLFSSL_SNI_HOST_NAME
-	wolfSSL_UseSNI(wsi->tls.ssl, WOLFSSL_SNI_HOST_NAME, hostname, strlen(hostname));
+	wolfSSL_UseSNI(wsi->tls.ssl, WOLFSSL_SNI_HOST_NAME, hostname,
+		       strlen(hostname));
 #endif
 #endif
 #else
@@ -194,7 +212,8 @@ lws_ssl_client_bio_create(struct lws *wsi)
 #endif
 #endif /* USE_WOLFSSL */
 
-	wsi->tls.client_bio = BIO_new_socket((int)(long long)wsi->desc.sockfd, BIO_NOCLOSE);
+	wsi->tls.client_bio = BIO_new_socket((int)(long long)wsi->desc.sockfd,
+					     BIO_NOCLOSE);
 	SSL_set_bio(wsi->tls.ssl, wsi->tls.client_bio, wsi->tls.client_bio);
 
 #ifdef USE_WOLFSSL
@@ -225,7 +244,8 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	SSL_set_alpn_protos(wsi->tls.ssl, openssl_alpn, n);
 #endif
 
-	SSL_set_ex_data(wsi->tls.ssl, openssl_websocket_private_data_index, wsi);
+	SSL_set_ex_data(wsi->tls.ssl, openssl_websocket_private_data_index,
+			wsi);
 
 	return 0;
 }
@@ -233,7 +253,8 @@ lws_ssl_client_bio_create(struct lws *wsi)
 enum lws_ssl_capable_status
 lws_tls_client_connect(struct lws *wsi)
 {
-#if defined(LWS_HAVE_SSL_set_alpn_protos) && defined(LWS_HAVE_SSL_get0_alpn_selected)
+#if defined(LWS_HAVE_SSL_set_alpn_protos) && \
+    defined(LWS_HAVE_SSL_get0_alpn_selected)
 	const unsigned char *prot;
 	char a[32];
 	unsigned int len;
@@ -241,7 +262,8 @@ lws_tls_client_connect(struct lws *wsi)
 	int m, n = SSL_connect(wsi->tls.ssl);
 
 	if (n == 1) {
-#if defined(LWS_HAVE_SSL_set_alpn_protos) && defined(LWS_HAVE_SSL_get0_alpn_selected)
+#if defined(LWS_HAVE_SSL_set_alpn_protos) && \
+    defined(LWS_HAVE_SSL_get0_alpn_selected)
 		SSL_get0_alpn_selected(wsi->tls.ssl, &prot, &len);
 
 		if (len >= sizeof(a))
@@ -426,12 +448,14 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		x509_store = X509_STORE_new();
 		if (!client_CA || !X509_STORE_add_cert(x509_store, client_CA)) {
 			X509_STORE_free(x509_store);
-			lwsl_err("Unable to load SSL Client certs from ssl_ca_mem -- "
-			    "client ssl isn't going to work\n");
+			lwsl_err("Unable to load SSL Client certs from "
+				 "ssl_ca_mem -- client ssl isn't going to "
+				 "work\n");
 			lws_ssl_elaborate_error();
 		} else {
 			/* it doesn't increment x509_store ref counter */
-			SSL_CTX_set_cert_store(vh->tls.ssl_client_ctx, x509_store);
+			SSL_CTX_set_cert_store(vh->tls.ssl_client_ctx,
+					       x509_store);
 			lwsl_info("loaded ssl_ca_mem\n");
 		}
 		if (client_CA)
@@ -445,11 +469,13 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 
 	/* support for client-side certificate authentication */
 	if (cert_filepath) {
-		if (lws_tls_use_any_upgrade_check_extant(cert_filepath) != LWS_TLS_EXTANT_YES &&
+		if (lws_tls_use_any_upgrade_check_extant(cert_filepath) !=
+				LWS_TLS_EXTANT_YES &&
 		    (info->options & LWS_SERVER_OPTION_IGNORE_MISSING_CERT))
 			return 0;
 
-		lwsl_notice("%s: doing cert filepath %s\n", __func__, cert_filepath);
+		lwsl_notice("%s: doing cert filepath %s\n", __func__,
+				cert_filepath);
 		n = SSL_CTX_use_certificate_chain_file(vh->tls.ssl_client_ctx,
 						       cert_filepath);
 		if (n < 1) {
@@ -483,4 +509,3 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 
 	return 0;
 }
-

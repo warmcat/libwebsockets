@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2017 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2018 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -116,9 +116,10 @@ lws_add_http_header_by_token(struct lws *wsi, enum lws_token_indexes token,
 	return lws_add_http_header_by_name(wsi, name, value, length, p, end);
 }
 
-int lws_add_http_header_content_length(struct lws *wsi,
-				       lws_filepos_t content_length,
-				       unsigned char **p, unsigned char *end)
+int
+lws_add_http_header_content_length(struct lws *wsi,
+				   lws_filepos_t content_length,
+				   unsigned char **p, unsigned char *end)
 {
 	char b[24];
 	int n;
@@ -200,7 +201,8 @@ lws_add_http_common_headers(struct lws *wsi, unsigned int code,
 		}
 #endif
 		if (!wsi->http2_substream) {
-			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_CONNECTION,
+			if (lws_add_http_header_by_token(wsi,
+						 WSI_TOKEN_CONNECTION,
 						 (unsigned char *)ka[t],
 						 (int)strlen(ka[t]), p, end))
 				return 1;
@@ -364,7 +366,8 @@ lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 }
 
 LWS_VISIBLE int
-lws_return_http_status(struct lws *wsi, unsigned int code, const char *html_body)
+lws_return_http_status(struct lws *wsi, unsigned int code,
+		       const char *html_body)
 {
 	struct lws_context *context = lws_get_context(wsi);
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];

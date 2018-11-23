@@ -1,7 +1,7 @@
 /*
  * libwebsockets - OpenSSL-specific server functions
  *
- * Copyright (C) 2010-2017 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2018 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -44,8 +44,8 @@ OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 	 */
 	wsi = SSL_get_ex_data(ssl, openssl_websocket_private_data_index);
 
-	n = lws_tls_openssl_cert_info(topcert, LWS_TLS_CERT_INFO_COMMON_NAME, &ir,
-				   sizeof(ir.ns.name));
+	n = lws_tls_openssl_cert_info(topcert, LWS_TLS_CERT_INFO_COMMON_NAME,
+				      &ir, sizeof(ir.ns.name));
 	if (!n)
 		lwsl_info("%s: client cert CN '%s'\n", __func__, ir.ns.name);
 	else
@@ -78,7 +78,8 @@ lws_tls_server_client_cert_verify_config(struct lws_vhost *vh)
 				       sizeof(void *));
 
 	/* absolutely require the client cert */
-	SSL_CTX_set_verify(vh->tls.ssl_ctx, verify_options, OpenSSL_verify_callback);
+	SSL_CTX_set_verify(vh->tls.ssl_ctx, verify_options,
+			   OpenSSL_verify_callback);
 
 	return 0;
 }
@@ -148,18 +149,18 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 {
 #if defined(LWS_HAVE_OPENSSL_ECDH_H)
 	const char *ecdh_curve = "prime256v1";
+#if defined(LWS_HAVE_SSL_EXTRA_CHAIN_CERTS)
+	STACK_OF(X509) *extra_certs = NULL;
+#endif
 	EC_KEY *ecdh, *EC_key = NULL;
 	EVP_PKEY *pkey;
 	X509 *x = NULL;
 	int ecdh_nid;
 	int KeyType;
-#if defined(LWS_HAVE_SSL_EXTRA_CHAIN_CERTS)
-	STACK_OF(X509) *extra_certs = NULL;
-#endif
 #endif
 	unsigned long error;
-	uint8_t *p;
 	lws_filepos_t flen;
+	uint8_t *p;
 
 	int n = lws_tls_generic_cert_checks(vhost, cert, private_key), m;
 
@@ -207,11 +208,12 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 			return 1;
 		}
 #ifndef USE_WOLFSSL
-		if (SSL_CTX_use_PrivateKey_ASN1(EVP_PKEY_RSA, vhost->tls.ssl_ctx,
-						p, (long)(long long)flen) != 1) {
+		if (SSL_CTX_use_PrivateKey_ASN1(EVP_PKEY_RSA,
+						vhost->tls.ssl_ctx, p,
+						(long)(long long)flen) != 1) {
 #else
-		if (wolfSSL_CTX_use_PrivateKey_buffer(vhost->tls.ssl_ctx,
-						p, flen, WOLFSSL_FILETYPE_ASN1) != 1) {
+		if (wolfSSL_CTX_use_PrivateKey_buffer(vhost->tls.ssl_ctx, p,
+					    flen, WOLFSSL_FILETYPE_ASN1) != 1) {
 #endif
 			lwsl_notice("unable to use memory privkey\n");
 
@@ -245,8 +247,8 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 		}
 	} else {
 		if (vhost->protocols[0].callback(wsi,
-		    LWS_CALLBACK_OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY,
-		    vhost->tls.ssl_ctx, NULL, 0)) {
+			      LWS_CALLBACK_OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY,
+						 vhost->tls.ssl_ctx, NULL, 0)) {
 			lwsl_err("ssl private key not set\n");
 
 			return 1;
@@ -363,10 +365,12 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 		return 1;
 	}
 
-	SSL_CTX_set_ex_data(vhost->tls.ssl_ctx, openssl_SSL_CTX_private_data_index,
+	SSL_CTX_set_ex_data(vhost->tls.ssl_ctx,
+			    openssl_SSL_CTX_private_data_index,
 			    (char *)vhost->context);
 	/* Disable SSLv2 and SSLv3 */
-	SSL_CTX_set_options(vhost->tls.ssl_ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
+	SSL_CTX_set_options(vhost->tls.ssl_ctx, SSL_OP_NO_SSLv2 |
+						SSL_OP_NO_SSLv3);
 #ifdef SSL_OP_NO_COMPRESSION
 	SSL_CTX_set_options(vhost->tls.ssl_ctx, SSL_OP_NO_COMPRESSION);
 #endif
@@ -401,10 +405,12 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 /* SSL_clear_options introduced in 0.9.8m */
 #if (OPENSSL_VERSION_NUMBER >= 0x009080df) && !defined(USE_WOLFSSL)
 	if (info->ssl_options_clear)
-		SSL_CTX_clear_options(vhost->tls.ssl_ctx, info->ssl_options_clear);
+		SSL_CTX_clear_options(vhost->tls.ssl_ctx,
+				      info->ssl_options_clear);
 #endif
 
-	lwsl_info(" SSL options 0x%lX\n", (unsigned long)SSL_CTX_get_options(vhost->tls.ssl_ctx));
+	lwsl_info(" SSL options 0x%lX\n",
+			(unsigned long)SSL_CTX_get_options(vhost->tls.ssl_ctx));
 	if (!vhost->tls.use_ssl || !info->ssl_cert_filepath)
 		return 0;
 
@@ -483,8 +489,8 @@ lws_tls_server_accept(struct lws *wsi)
 		n = lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_COMMON_NAME, &ir,
 					   sizeof(ir.ns.name));
 		if (!n)
-			lwsl_notice("%s: client cert CN '%s'\n",
-				    __func__, ir.ns.name);
+			lwsl_notice("%s: client cert CN '%s'\n", __func__,
+				    ir.ns.name);
 		else
 			lwsl_info("%s: no client cert CN\n", __func__);
 
@@ -765,7 +771,8 @@ lws_tls_acme_sni_csr_create(struct lws_context *context, const char *elements[],
 
 	for (n = 0; n < LWS_TLS_REQ_ELEMENT_COUNT; n++)
 		if (lws_tls_openssl_add_nid(subj, nid_list[n], elements[n])) {
-			lwsl_notice("%s: failed to add element %d\n", __func__, n);
+			lwsl_notice("%s: failed to add element %d\n", __func__,
+				    n);
 			goto bail3;
 		}
 
@@ -837,7 +844,8 @@ lws_tls_acme_sni_csr_create(struct lws_context *context, const char *elements[],
 	*privkey_pem = malloc(bio_len); /* malloc so user code can own / free */
 	*privkey_len = (size_t)bio_len;
 	if (!*privkey_pem) {
-		lwsl_notice("%s: need %ld for private key\n", __func__, bio_len);
+		lwsl_notice("%s: need %ld for private key\n", __func__,
+			    bio_len);
 		BIO_free(bio);
 		goto bail3;
 	}

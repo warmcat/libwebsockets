@@ -3,7 +3,8 @@
 #if defined(LWS_WITH_HUBBUB)
 
 LWS_EXTERN struct lws_rewrite *
-lws_rewrite_create(struct lws *wsi, hubbub_callback_t cb, const char *from, const char *to)
+lws_rewrite_create(struct lws *wsi, hubbub_callback_t cb, const char *from,
+		   const char *to)
 {
 	struct lws_rewrite *r = lws_malloc(sizeof(*r), "rewrite");
 

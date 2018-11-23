@@ -34,20 +34,20 @@
 ///@{
 
 enum lws_log_levels {
-	LLL_ERR = 1 << 0,
-	LLL_WARN = 1 << 1,
-	LLL_NOTICE = 1 << 2,
-	LLL_INFO = 1 << 3,
-	LLL_DEBUG = 1 << 4,
-	LLL_PARSER = 1 << 5,
-	LLL_HEADER = 1 << 6,
-	LLL_EXT = 1 << 7,
-	LLL_CLIENT = 1 << 8,
-	LLL_LATENCY = 1 << 9,
-	LLL_USER = 1 << 10,
-	LLL_THREAD = 1 << 11,
+	LLL_ERR		= 1 << 0,
+	LLL_WARN	= 1 << 1,
+	LLL_NOTICE	= 1 << 2,
+	LLL_INFO	= 1 << 3,
+	LLL_DEBUG	= 1 << 4,
+	LLL_PARSER	= 1 << 5,
+	LLL_HEADER	= 1 << 6,
+	LLL_EXT		= 1 << 7,
+	LLL_CLIENT	= 1 << 8,
+	LLL_LATENCY	= 1 << 9,
+	LLL_USER	= 1 << 10,
+	LLL_THREAD	= 1 << 11,
 
-	LLL_COUNT = 12 /* set to count of valid flags */
+	LLL_COUNT	= 12 /* set to count of valid flags */
 };
 
 LWS_VISIBLE LWS_EXTERN void _lws_log(int filter, const char *format, ...) LWS_FORMAT(2);

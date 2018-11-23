@@ -33,7 +33,7 @@ lcs_init_compression_brotli(lws_comp_ctx_t *ctx, int decomp)
 			BrotliEncoderSetParameter(ctx->u.br_en,
 					BROTLI_PARAM_MODE, BROTLI_MODE_TEXT);
 			BrotliEncoderSetParameter(ctx->u.br_en,
-					BROTLI_PARAM_QUALITY, BROTLI_MIN_QUALITY);
+				BROTLI_PARAM_QUALITY, BROTLI_MIN_QUALITY);
 		}
 	}
 	else
@@ -77,7 +77,7 @@ lcs_process_brotli(lws_comp_ctx_t *ctx, const void *in, size_t *ilen_iused,
 			return -1;
 		}
 
-		ctx->may_have_more = !a_out;//!BrotliEncoderIsFinished(ctx->u.br_en);
+		ctx->may_have_more = !a_out;
 
 	} else {
 		n = BrotliDecoderDecompressStream(ctx->u.br_de, &a_in, &n_in,

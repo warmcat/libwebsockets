@@ -82,8 +82,10 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		oa = in;
 		if (!oa->option_name)
 			break;
-		lwsl_ext("%s: named option set: %s\n", __func__, oa->option_name);
-		for (n = 0; n < (int)LWS_ARRAY_SIZE(lws_ext_pm_deflate_options); n++)
+		lwsl_ext("%s: named option set: %s\n", __func__,
+			 oa->option_name);
+		for (n = 0; n < (int)LWS_ARRAY_SIZE(lws_ext_pm_deflate_options);
+		     n++)
 			if (!strcmp(lws_ext_pm_deflate_options[n].name,
 				    oa->option_name))
 				break;
@@ -204,8 +206,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		 * rx buffer by the caller, so this assumption is safe while
 		 * we block new rx while draining the existing rx
 		 */
-		if (!priv->rx.avail_in && ebuf->token &&
-		    ebuf->len) {
+		if (!priv->rx.avail_in && ebuf->token && ebuf->len) {
 			priv->rx.next_in = (unsigned char *)ebuf->token;
 			priv->rx.avail_in = ebuf->len;
 		}
@@ -330,7 +331,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 			n = deflateInit2(&priv->tx, priv->args[PMD_COMP_LEVEL],
 					 Z_DEFLATED,
 					 -priv->args[PMD_SERVER_MAX_WINDOW_BITS +
-						     (wsi->vhost->listen_port <= 0)],
+						(wsi->vhost->listen_port <= 0)],
 					 priv->args[PMD_MEM_LEVEL],
 					 Z_DEFAULT_STRATEGY);
 			if (n != Z_OK) {

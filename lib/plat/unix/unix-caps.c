@@ -74,7 +74,7 @@ lws_plat_drop_app_privileges(const struct lws_context_creation_info *info)
 			if (info->count_caps) {
 				int n;
 				for (n = 0; n < info->count_caps; n++)
-					lwsl_notice("   RETAINING CAPABILITY %d\n",
+					lwsl_notice("   RETAINING CAP %d\n",
 						    (int)info->caps[n]);
 			}
 #endif
