@@ -1,32 +1,19 @@
 Release Checklist
 -----------------
 
-1) QA
-
- a) ab / h2load / h2spec
-
-   $ ab -n 100000 -c 200 https://127.0.0.1:7681/
-   $ h2load -n 100000 -c 200  https://localhost:7681
-   $ h2spec  -h 127.0.0.1 -p 7681 -t -k -o 1
-
- b) coverity
+1) non-CI QA
  
-   $ ../make-coverity-tarball.sh
-   https://scan.coverity.com/projects/warmcat-libwebsockets
-
- c) test servers + client + browser
- 
- d) valgrind test servers + client + browser
+ a) valgrind test servers + client + browser
 
 2) soname bump?
 
  a) We need one if we added / changed / removed apis
 
-  CMakeLists.txt
+  - CMakeLists.txt
 
    set(SOVERSION "6")
 
-  scripts/libwebsockets.spec
+  - scripts/libwebsockets.spec
 
   -/%{_libdir}/libwebsockets.so.6
   +/%{_libdir}/libwebsockets.so.7
@@ -37,13 +24,13 @@ Release Checklist
 
  b) Classify as
 
-    - MINOR bug fixes
-    - MAJOR bug fixes
-    - SECURITY fixes
+    - NEW
+    - CHANGE
+    - REMOVE
 
 4) main version bump
 
-  CMakeLists.txt
+  - CMakeLists.txt
 
    set(CPACK_PACKAGE_VERSION_MAJOR "1")
    set(CPACK_PACKAGE_VERSION_MINOR "6")
@@ -65,6 +52,9 @@ Release Checklist
 * Sun Jan 17 2016 Andrew Cooks <acooks@linux.com> 1.6.4-1
 - Bump version to 1.6.4
 - MINOR fix xyz
+
+ c) Use -DLWS_WITH_DISTRO_RECOMMENDED=1 then make package and adapt the .spec
+    to match the file list
 
 6) Announce latest version on README.md
 

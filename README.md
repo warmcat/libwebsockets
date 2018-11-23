@@ -16,7 +16,7 @@ various scenarios, CC0-licensed (public domain) for cut-and-paste, allow you to 
 News
 ----
 
-## New features in v3.1
+## v3.1 released: new features in v3.1
 
  - **lws threadpool** - lightweight pool of pthreads integrated to lws wsi, with all
    synchronization to event loop handled internally, queue for excess tasks
