@@ -305,8 +305,7 @@ Clients with limited storage and RAM will find this useful; the memory needed
 for the inflate case is constrained so that only one input buffer at a time
 is ever in memory.
 
-To use this feature, ensure LWS_WITH_ZIP_FOPS is enabled at CMake (it is by
-default).
+To use this feature, ensure LWS_WITH_ZIP_FOPS is enabled at CMake.
 
 `libwebsockets-test-server-v2.0` includes a mount using this technology
 already, run that test server and navigate to http://localhost:7681/ziptest/candide.html
