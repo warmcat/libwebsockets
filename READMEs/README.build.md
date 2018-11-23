@@ -116,6 +116,37 @@ and libnsl, and only builds in 64bit mode.
     $ cmake .. -DCMAKE_C_FLAGS=-m64 -DCMAKE_EXE_LINKER_FLAGS="-lsocket -lnsl"
 ```
 
+**NOTE7**
+
+Build and test flow against boringssl.  Notice `LWS_WITH_GENHASH` is currently
+unavailable with boringssl due to their removing the necessary apis.
+
+Build current HEAD boringssl
+
+```
+ $ cd /projects
+ $ git clone https://boringssl.googlesource.com/boringssl
+ $ cd boringssl
+ $ mkdir build
+ $ cd build
+ $ cmake ..  -DBUILD_SHARED_LIBS=1
+ $ make -j8
+```
+
+Build and test lws against it
+
+```
+ $ cd /projects/libwebsockets/build
+ $ cmake .. -DOPENSSL_LIBRARIES="/projects/boringssl/build/ssl/libssl.so;\
+   /projects/boringssl/build/crypto/libcrypto.so" \
+   -DOPENSSL_INCLUDE_DIRS=/projects/boringssl/include \
+   -DLWS_WITH_BORINGSSL=1 -DCMAKE_BUILD_TYPE=DEBUG
+ $ make -j8 && sudo make install
+ $ LD_PRELOAD="/projects/boringssl/build/ssl/libssl.so \
+   /projects/boringssl/build/crypto/libcrypto.so" \
+   /usr/local/bin/libwebsockets-test-server -s
+```
+
 4. Finally you can build using the generated Makefile:
 
 ```bash

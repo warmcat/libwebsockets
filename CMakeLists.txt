@@ -429,6 +429,11 @@ if (NOT LWS_WITH_SSL)
 	set(LWS_WITHOUT_BUILTIN_SHA1 OFF)
 endif()
 
+if (LWS_WITH_BORINGSSL)
+	# boringssl deprecated EVP_PKEY
+	set (LWS_WITH_GENHASH OFF)
+endif()
+
 if (LWS_WITH_SSL AND NOT LWS_WITH_WOLFSSL AND NOT LWS_WITH_MBEDTLS)
 	if ("${LWS_OPENSSL_LIBRARIES}" STREQUAL "" OR "${LWS_OPENSSL_INCLUDE_DIRS}" STREQUAL "")
 	else()
@@ -1887,7 +1892,7 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2) AND NOT LWS_WITHOUT_TESTAPPS)
 			"${PROJECT_SOURCE_DIR}/test-apps/favicon.ico"
 			"${PROJECT_SOURCE_DIR}/test-apps/leaf.jpg"
 			"${PROJECT_SOURCE_DIR}/test-apps/candide.zip"
-			"${PROJECT_SOURCE_DIR}/test-apps/libwebsockets.org-logo.png"
+			"${PROJECT_SOURCE_DIR}/test-apps/libwebsockets.org-logo.svg"
 			"${PROJECT_SOURCE_DIR}/test-apps/http2.png"
 			"${PROJECT_SOURCE_DIR}/test-apps/wss-over-h2.png"
 			"${PROJECT_SOURCE_DIR}/test-apps/lws-common.js"

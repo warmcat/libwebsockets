@@ -149,7 +149,7 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 {
 #if defined(LWS_HAVE_OPENSSL_ECDH_H)
 	const char *ecdh_curve = "prime256v1";
-#if defined(LWS_HAVE_SSL_EXTRA_CHAIN_CERTS)
+#if !defined(LWS_WITH_BORINGSSL) && defined(LWS_HAVE_SSL_EXTRA_CHAIN_CERTS)
 	STACK_OF(X509) *extra_certs = NULL;
 #endif
 	EC_KEY *ecdh, *EC_key = NULL;
@@ -304,7 +304,7 @@ check_key:
 		goto post_ecdh;
 	}
 #else
-	return 1;
+	return 0;
 #endif
 	/* Get the public key from certificate */
 	pkey = X509_get_pubkey(x);
