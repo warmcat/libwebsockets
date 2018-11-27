@@ -2956,7 +2956,6 @@ lws_filename_purify_inplace(char *filename)
 		}
 
 		if (*filename == ':' ||
-		    *filename == '/' ||
 		    *filename == '\\' ||
 		    *filename == '$' ||
 		    *filename == '%')

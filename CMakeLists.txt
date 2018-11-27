@@ -1995,6 +1995,10 @@ if (LWS_ROLE_WS)
 		if (NOT WIN32)
 			create_plugin(protocol_lws_raw_test ""
 			      "plugins/protocol_lws_raw_test.c" "" "")
+
+			create_plugin(protocol_deaddrop ""
+			      "plugins/deaddrop/protocol_lws_deaddrop.c" "" "")
+
 		endif()
 
 if (LWS_WITH_SERVER_STATUS)
@@ -2283,6 +2287,14 @@ if (LWS_WITH_PLUGINS)
 		PERMISSIONS  OWNER_WRITE OWNER_EXECUTE GROUP_EXECUTE WORLD_EXECUTE OWNER_READ GROUP_READ WORLD_READ
 		DESTINATION share/libwebsockets-test-server/plugins
 		COMPONENT plugins)
+
+	if (NOT WIN32)
+		install(FILES plugins/deaddrop/assets/index.html;plugins/deaddrop/assets/deaddrop.js;plugins/deaddrop/assets/deaddrop.css;plugins/deaddrop/assets/drop.svg
+			DESTINATION share/libwebsockets-test-server/deaddrop
+			COMPONENT plugins)
+	endif()
+
+
 if (LWS_WITH_SERVER_STATUS)
 	install(FILES plugins/server-status.html;plugins/server-status.js;plugins/server-status.css;plugins/lwsws-logo.png
 		DESTINATION share/libwebsockets-test-server/server-status

@@ -386,7 +386,7 @@ alloc_ws:
 	if (pvos && pvos->options &&
 	    !lws_pvo_get_str((void *)pvos->options, "basic-auth",
 			     &ws_prot_basic_auth)) {
-		lwsl_notice("%s: ws upgrade requires basic auth\n", __func__);
+		lwsl_info("%s: ws upgrade requires basic auth\n", __func__);
 		switch(lws_check_basic_auth(wsi, ws_prot_basic_auth)) {
 		case LCBA_CONTINUE:
 			break;
