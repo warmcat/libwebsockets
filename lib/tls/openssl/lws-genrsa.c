@@ -22,23 +22,23 @@
  *  same whether you are using openssl or mbedtls hash functions underneath.
  */
 #include "core/private.h"
+#include "../../jose/private.h"
 
 LWS_VISIBLE void
-lws_jwk_destroy_genrsa_elements(struct lws_genrsa_elements *el)
+lws_jwk_destroy_genrsa_elements(struct lws_jwk_elements *el)
 {
-	int n;
-
-	for (n = 0; n < LWS_COUNT_RSA_ELEMENTS; n++)
-		if (el->e[n].buf)
-			lws_free_set_NULL(el->e[n].buf);
+	lws_jwk_destroy_elements(el, LWS_COUNT_RSA_KEY_ELEMENTS);
 }
 
 LWS_VISIBLE int
-lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_genrsa_elements *el)
+lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_jwk_elements *el,
+		  struct lws_context *context)
 {
 	int n;
 
 	memset(ctx, 0, sizeof(*ctx));
+
+	ctx->context = context;
 
 	/* Step 1:
 	 *
@@ -46,7 +46,7 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_genrsa_elements *el)
 	 */
 
 	for (n = 0; n < 5; n++) {
-		ctx->bn[n] = BN_bin2bn(el->e[n].buf, el->e[n].len, NULL);
+		ctx->bn[n] = BN_bin2bn(el[n].buf, el[n].len, NULL);
 		if (!ctx->bn[n]) {
 			lwsl_notice("mpi load failed\n");
 			goto bail;
@@ -65,18 +65,20 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_genrsa_elements *el)
 	}
 
 #if defined(LWS_HAVE_RSA_SET0_KEY)
-	if (RSA_set0_key(ctx->rsa, ctx->bn[JWK_KEY_N], ctx->bn[JWK_KEY_E],
-			 ctx->bn[JWK_KEY_D]) != 1) {
+	if (RSA_set0_key(ctx->rsa, ctx->bn[JWK_RSA_KEYEL_N],
+			 ctx->bn[JWK_RSA_KEYEL_E],
+			 ctx->bn[JWK_RSA_KEYEL_D]) != 1) {
 		lwsl_notice("RSA_set0_key failed\n");
 		goto bail;
 	}
-	RSA_set0_factors(ctx->rsa, ctx->bn[JWK_KEY_P], ctx->bn[JWK_KEY_Q]);
+	RSA_set0_factors(ctx->rsa, ctx->bn[JWK_RSA_KEYEL_P],
+				   ctx->bn[JWK_RSA_KEYEL_Q]);
 #else
-	ctx->rsa->e = ctx->bn[JWK_KEY_E];
-	ctx->rsa->n = ctx->bn[JWK_KEY_N];
-	ctx->rsa->d = ctx->bn[JWK_KEY_D];
-	ctx->rsa->p = ctx->bn[JWK_KEY_P];
-	ctx->rsa->q = ctx->bn[JWK_KEY_Q];
+	ctx->rsa->e = ctx->bn[JWK_RSA_KEYEL_E];
+	ctx->rsa->n = ctx->bn[JWK_RSA_KEYEL_N];
+	ctx->rsa->d = ctx->bn[JWK_RSA_KEYEL_D];
+	ctx->rsa->p = ctx->bn[JWK_RSA_KEYEL_P];
+	ctx->rsa->q = ctx->bn[JWK_RSA_KEYEL_Q];
 #endif
 
 	return 0;
@@ -98,7 +100,7 @@ bail:
 
 LWS_VISIBLE int
 lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
-		       struct lws_genrsa_elements *el, int bits)
+		       struct lws_jwk_elements *el, int bits)
 {
 	BIGNUM *bn;
 	int n;
@@ -128,9 +130,10 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 	{
 		const BIGNUM *mpi[5];
 
-		RSA_get0_key(ctx->rsa, &mpi[JWK_KEY_N], &mpi[JWK_KEY_E],
-			     &mpi[JWK_KEY_D]);
-		RSA_get0_factors(ctx->rsa, &mpi[JWK_KEY_P], &mpi[JWK_KEY_Q]);
+		RSA_get0_key(ctx->rsa, &mpi[JWK_RSA_KEYEL_N],
+			     &mpi[JWK_RSA_KEYEL_E], &mpi[JWK_RSA_KEYEL_D]);
+		RSA_get0_factors(ctx->rsa, &mpi[JWK_RSA_KEYEL_P],
+				 &mpi[JWK_RSA_KEYEL_Q]);
 #else
 	{
 		BIGNUM *mpi[5] = {
@@ -140,23 +143,47 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 #endif
 		for (n = 0; n < 5; n++)
 			if (BN_num_bytes(mpi[n])) {
-				el->e[n].buf = lws_malloc(
+				el[n].buf = lws_malloc(
 					BN_num_bytes(mpi[n]), "genrsakey");
-				if (!el->e[n].buf)
+				if (!el[n].buf)
 					goto cleanup;
-				el->e[n].len = BN_num_bytes(mpi[n]);
-				BN_bn2bin(mpi[n], el->e[n].buf);
+				el[n].len = BN_num_bytes(mpi[n]);
+				BN_bn2bin(mpi[n], el[n].buf);
 			}
 	}
 
 	return 0;
 
 cleanup:
-	for (n = 0; n < LWS_COUNT_RSA_ELEMENTS; n++)
-		if (el->e[n].buf)
-			lws_free_set_NULL(el->e[n].buf);
+	for (n = 0; n < LWS_COUNT_RSA_KEY_ELEMENTS; n++)
+		if (el[n].buf)
+			lws_free_set_NULL(el[n].buf);
 cleanup_1:
 	RSA_free(ctx->rsa);
+
+	return -1;
+}
+
+/*
+ * flen must be less than RSA_size(rsa) - 11 for the PKCS #1 v1.5
+ * based padding modes
+ */
+
+LWS_VISIBLE int
+lws_genrsa_public_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
+			  size_t in_len, uint8_t *out)
+{
+	int m;
+
+	m = RSA_public_encrypt((int)in_len, in, out, ctx->rsa,
+			       RSA_PKCS1_PADDING);
+
+	/* the bignums are also freed by freeing the RSA */
+	RSA_free(ctx->rsa);
+	ctx->rsa = NULL;
+
+	if (m != -1)
+		return m;
 
 	return -1;
 }
@@ -165,16 +192,17 @@ LWS_VISIBLE int
 lws_genrsa_public_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			  size_t in_len, uint8_t *out, size_t out_max)
 {
-	uint32_t m;
+	int m;
 
-	m = RSA_public_decrypt((int)in_len, in, out, ctx->rsa, RSA_PKCS1_PADDING);
+	m = RSA_public_decrypt((int)in_len, in, out, ctx->rsa,
+			       RSA_PKCS1_PADDING);
 
 	/* the bignums are also freed by freeing the RSA */
 	RSA_free(ctx->rsa);
 	ctx->rsa = NULL;
 
-	if (m != (uint32_t)-1)
-		return (int)m;
+	if (m != -1)
+		return m;
 
 	return -1;
 }

@@ -1337,7 +1337,7 @@ int
 lws_tls_check_cert_lifetime(struct lws_vhost *vhost);
 
 int lws_jws_selftest(void);
-
+int lws_jwe_selftest(void);
 
 #ifndef LWS_NO_CLIENT
 LWS_EXTERN int lws_client_socket_service(struct lws *wsi,

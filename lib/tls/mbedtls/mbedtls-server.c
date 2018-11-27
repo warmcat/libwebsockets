@@ -453,7 +453,7 @@ lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
 	int buflen = 0x560;
 	uint8_t *buf = lws_malloc(buflen, "tmp cert buf"), *p = buf, *pkey_asn1;
 	struct lws_genrsa_ctx ctx;
-	struct lws_genrsa_elements el;
+	struct lws_jwk_elements el;
 	uint8_t digest[32];
 	struct lws_genhash_ctx hash_ctx;
 	int pkey_asn1_len = 3 * 1024;
@@ -498,8 +498,8 @@ lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
 	/* we need to drop 1 + (keybits / 8) bytes of n in here, 00 + key */
 
 	*p++ = 0x00;
-	memcpy(p, el.e[JWK_KEY_N].buf, el.e[JWK_KEY_N].len);
-	p += el.e[JWK_KEY_N].len;
+	memcpy(p, el.e[JWK_RSA_KEYEL_N].buf, el.e[JWK_RSA_KEYEL_N].len);
+	p += el.e[JWK_RSA_KEYEL_N].len;
 
 	memcpy(p, ss_cert_san_leadin, sizeof(ss_cert_san_leadin));
 	p += sizeof(ss_cert_san_leadin);

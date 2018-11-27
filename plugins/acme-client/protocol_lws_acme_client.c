@@ -435,13 +435,14 @@ lws_acme_load_create_auth_keys(struct per_vhost_data__lws_acme_client *vhd,
 {
 	int n;
 
-	if (!lws_jwk_load(&vhd->jwk, vhd->pvop[LWS_TLS_SET_AUTH_PATH]))
+	if (!lws_jwk_load(&vhd->jwk, vhd->pvop[LWS_TLS_SET_AUTH_PATH],
+			  NULL, NULL))
 		return 0;
 
-	strcpy(vhd->jwk.keytype, "RSA");
+	vhd->jwk.kty = LWS_JWK_KYT_RSA;
 	lwsl_notice("Generating ACME %d-bit keypair... "
 		    "will take a little while\n", bits);
-	n = lws_genrsa_new_keypair(vhd->context, &vhd->rsactx, &vhd->jwk.el,
+	n = lws_genrsa_new_keypair(vhd->context, &vhd->rsactx, vhd->jwk.e,
 				   bits);
 	if (n) {
 		lwsl_notice("failed to create keypair\n");
@@ -786,7 +787,8 @@ pkt_add_hdrs:
 							ac->replay_nonce,
 							&ac->buf[LWS_PRE],
 							sizeof(ac->buf) -
-								 LWS_PRE);
+								 LWS_PRE,
+							lws_get_context(wsi));
 			if (ac->len < 0) {
 				ac->len = 0;
 				lwsl_notice("lws_jws_create_packet failed\n");

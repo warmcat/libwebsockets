@@ -75,6 +75,7 @@
 #cmakedefine LWS_WITH_HTTP_PROXY
 #cmakedefine LWS_WITH_HTTP_STREAM_COMPRESSION
 #cmakedefine LWS_WITH_IPV6
+#cmakedefine LWS_WITH_JWE
 #cmakedefine LWS_WITH_JWS
 #cmakedefine LWS_WITH_LEJP
 #cmakedefine LWS_WITH_LIBEV

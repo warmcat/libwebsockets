@@ -1273,10 +1273,6 @@ lws_create_context(const struct lws_context_creation_info *info)
 	/* expedite post-context init (eg, protocols) */
 	lws_cancel_service(context);
 
-#if defined(LWS_WITH_SELFTESTS)
-	lws_jws_selftest();
-#endif
-
 	return context;
 
 bail:
