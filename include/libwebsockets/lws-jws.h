@@ -34,7 +34,8 @@
 ///@{
 
 LWS_VISIBLE LWS_EXTERN int
-lws_jws_confirm_sig(const char *in, size_t len, struct lws_jwk *jwk);
+lws_jws_confirm_sig(const char *in, size_t len, struct lws_jwk *jwk,
+		    struct lws_context *context);
 
 /**
  * lws_jws_sign_from_b64() - add b64 sig to b64 hdr + payload
@@ -47,6 +48,7 @@ lws_jws_confirm_sig(const char *in, size_t len, struct lws_jwk *jwk);
  * \param sig_len: max bytes we can write at b64_sig
  * \param hash_type: one of LWS_GENHASH_TYPE_SHA[256|384|512]
  * \param jwk: the struct lws_jwk containing the signing key
+ * \param context: the lws context (used to get random)
  *
  * This adds a b64-coded JWS signature of the b64-encoded protected header
  * and b64-encoded payload, at \p b64_sig.  The signature will be as large
@@ -62,7 +64,8 @@ lws_jws_confirm_sig(const char *in, size_t len, struct lws_jwk *jwk);
 LWS_VISIBLE LWS_EXTERN int
 lws_jws_sign_from_b64(const char *b64_hdr, size_t hdr_len, const char *b64_pay,
 		      size_t pay_len, char *b64_sig, size_t sig_len,
-		      enum lws_genhash_types hash_type, struct lws_jwk *jwk);
+		      enum lws_genhash_types hash_type, struct lws_jwk *jwk,
+		      struct lws_context *context);
 
 /**
  * lws_jws_create_packet() - add b64 sig to b64 hdr + payload
@@ -73,6 +76,7 @@ lws_jws_sign_from_b64(const char *b64_hdr, size_t hdr_len, const char *b64_pay,
  * \param nonce: Nonse string to include in protected header
  * \param out: buffer to take signed packet
  * \param out_len: size of \p out buffer
+ * \param conext: lws_context to get random from
  *
  * This creates a "flattened" JWS packet from the jwk and the plaintext
  * payload, and signs it.  The packet is written into \p out.
@@ -84,7 +88,8 @@ lws_jws_sign_from_b64(const char *b64_hdr, size_t hdr_len, const char *b64_pay,
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_jws_create_packet(struct lws_jwk *jwk, const char *payload, size_t len,
-		      const char *nonce, char *out, size_t out_len);
+		      const char *nonce, char *out, size_t out_len,
+		      struct lws_context *context);
 
 /**
  * lws_jws_base64_enc() - encode input data into b64url data
@@ -98,4 +103,21 @@ lws_jws_create_packet(struct lws_jwk *jwk, const char *payload, size_t len,
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_jws_base64_enc(const char *in, size_t in_len, char *out, size_t out_max);
+
+/**
+ * lws_jws_encode_section() - encode input data into b64url data, prepending . if not first
+ *
+ * \param in: the incoming plaintext
+ * \param in_len: the length of the incoming plaintext in bytes
+ * \param first: nonzero if the first section
+ * \param out: the buffer to store the b64url encoded data to
+ * \param out_max: the length of \p out in bytes
+ *
+ * Returns either -1 if problems, or the number of bytes written to \p out.
+ * If the section is not the first one, '.' is prepended.
+ */
+
+LWS_VISIBLE LWS_EXTERN int
+lws_jws_encode_section(const char *in, size_t in_len, int first, char **p,
+		       char *end);
 ///@}

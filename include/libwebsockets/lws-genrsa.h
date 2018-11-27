@@ -32,44 +32,23 @@
  */
 ///@{
 
-enum enum_jwk_tok {
-	JWK_KEY_E,
-	JWK_KEY_N,
-	JWK_KEY_D,
-	JWK_KEY_P,
-	JWK_KEY_Q,
-	JWK_KEY_DP,
-	JWK_KEY_DQ,
-	JWK_KEY_QI,
-	JWK_KTY, /* also serves as count of real elements */
-	JWK_KEY,
-};
-
-#define LWS_COUNT_RSA_ELEMENTS JWK_KTY
+/* include/libwebsockets/lws-jwk.h must be included before this */
 
 struct lws_genrsa_ctx {
 #if defined(LWS_WITH_MBEDTLS)
 	mbedtls_rsa_context *ctx;
 #else
-	BIGNUM *bn[LWS_COUNT_RSA_ELEMENTS];
+	BIGNUM *bn[LWS_COUNT_RSA_KEY_ELEMENTS];
 	RSA *rsa;
 #endif
-};
-
-struct lws_genrsa_element {
-	uint8_t *buf;
-	uint16_t len;
-};
-
-struct lws_genrsa_elements {
-	struct lws_genrsa_element e[LWS_COUNT_RSA_ELEMENTS];
+	struct lws_context *context;
 };
 
 /** lws_jwk_destroy_genrsa_elements() - Free allocations in genrsa_elements
  *
- * \param el: your struct lws_genrsa_elements
+ * \param el: your struct lws_jwk_elements
  *
- * This is a helper for user code making use of struct lws_genrsa_elements
+ * This is a helper for user code making use of struct lws_jwk_elements
  * where the elements are allocated on the heap, it frees any non-NULL
  * buf element and sets the buf to NULL.
  *
@@ -77,7 +56,7 @@ struct lws_genrsa_elements {
  * creation and destruction themselves.
  */
 LWS_VISIBLE LWS_EXTERN void
-lws_jwk_destroy_genrsa_elements(struct lws_genrsa_elements *el);
+lws_jwk_destroy_genrsa_elements(struct lws_jwk_elements *el);
 
 /** lws_genrsa_public_decrypt_create() - Create RSA public decrypt context
  *
@@ -92,7 +71,8 @@ lws_jwk_destroy_genrsa_elements(struct lws_genrsa_elements *el);
  * This and related APIs operate identically with OpenSSL or mbedTLS backends.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_genrsa_elements *el);
+lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_jwk_elements *el,
+		  struct lws_context *context);
 
 /** lws_genrsa_new_keypair() - Create new RSA keypair
  *
@@ -110,7 +90,24 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_genrsa_elements *el);
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
-		       struct lws_genrsa_elements *el, int bits);
+		       struct lws_jwk_elements *el, int bits);
+
+/** lws_genrsa_public_encrypt() - Perform RSA public encryption
+ *
+ * \param ctx: your struct lws_genrsa_ctx
+ * \param in: plaintext input
+ * \param in_len: length of plaintext input
+ * \param out: encrypted output
+ *
+ * Performs PKCS1 v1.5 Encryption
+ *
+ * Returns <0 for error, or length of decrypted data.
+ *
+ * This and related APIs operate identically with OpenSSL or mbedTLS backends.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_genrsa_public_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
+			  size_t in_len, uint8_t *out);
 
 /** lws_genrsa_public_decrypt() - Perform RSA public decryption
  *
@@ -120,7 +117,7 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
  * \param out: decrypted output
  * \param out_max: size of output buffer
  *
- * Performs the decryption.
+ * Performs PKCS1 v1.5 Decryption
  *
  * Returns <0 for error, or length of decrypted data.
  *

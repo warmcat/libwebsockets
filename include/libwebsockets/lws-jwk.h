@@ -25,35 +25,113 @@
 /*! \defgroup jwk JSON Web Keys
  * ## JSON Web Keys API
  *
- * Lws provides an API to parse JSON Web Keys into a struct lws_genrsa_elements.
+ * Lws provides an API to parse JSON Web Keys into a struct lws_jwk_elements.
  *
  * "oct" and "RSA" type keys are supported.  For "oct" keys, they are held in
- * the "e" member of the struct lws_genrsa_elements.
+ * the "e" member of the struct lws_jwk_elements.
  *
  * Keys elements are allocated on the heap.  You must destroy the allocations
- * in the struct lws_genrsa_elements by calling
+ * in the struct lws_jwk_elements by calling
  * lws_jwk_destroy_genrsa_elements() when you are finished with it.
  */
 ///@{
 
-struct lws_jwk {
-	char keytype[5];		/**< "oct" or "RSA" */
-	struct lws_genrsa_elements el;	/**< OCTet key is in el.e */
+enum lws_jwk_kyt {
+	LWS_JWK_KYT_UNKNOWN,
+	LWS_JWK_KYT_OCT,
+	LWS_JWK_KYT_RSA,
+	LWS_JWK_KYT_EC
 };
+
+/*
+ * Keytypes where the same element name is reused must all agree to put the
+ * same-named element at the same e[] index.  It's because we may not know the
+ * keytype until the end.
+ */
+
+enum enum_jwk_oct_tok {
+	JWK_OCT_KEYEL_K,
+
+	LWS_COUNT_OCT_KEY_ELEMENTS
+};
+
+enum enum_jwk_rsa_tok {
+	JWK_RSA_KEYEL_E,
+	JWK_RSA_KEYEL_N,
+	JWK_RSA_KEYEL_D, /* note... same offset as EC D */
+	JWK_RSA_KEYEL_P,
+	JWK_RSA_KEYEL_Q,
+	JWK_RSA_KEYEL_DP,
+	JWK_RSA_KEYEL_DQ,
+	JWK_RSA_KEYEL_QI,
+
+	LWS_COUNT_RSA_KEY_ELEMENTS
+};
+
+enum enum_jwk_ec_tok {
+	JWK_EC_KEYEL_CRV,
+	JWK_EC_KEYEL_X,
+	JWK_EC_KEYEL_D, /* note... same offset as RSA D */
+	JWK_EC_KEYEL_Y,
+
+	LWS_COUNT_EC_KEY_ELEMENTS
+};
+
+enum enum_jwk_meta_tok {
+	JWK_META_KTY,
+	JWK_META_KID,
+	JWK_META_USE,
+	JWK_META_KEY_OPS,
+	JWK_META_X5C,
+	JWK_META_ALG,
+
+	LWS_COUNT_JWK_ELEMENTS
+};
+
+/* largest number of key elements for any algorithm */
+#define LWS_COUNT_ALG_KEY_ELEMENTS_MAX LWS_COUNT_RSA_KEY_ELEMENTS
+
+struct lws_jwk_elements {
+	uint8_t *buf;
+	uint16_t len;
+};
+
+struct lws_jwk {
+	/* key data elements */
+	struct lws_jwk_elements e[LWS_COUNT_ALG_KEY_ELEMENTS_MAX];
+	/* generic meta key elements, like KID */
+	struct lws_jwk_elements meta[LWS_COUNT_JWK_ELEMENTS];
+	int kty;			/**< one of LWS_JWK_ */
+};
+
+typedef int (*lws_jwk_key_import_callback)(struct lws_jwk *s, void *user);
 
 /** lws_jwk_import() - Create a JSON Web key from the textual representation
  *
  * \param s: the JWK object to create
+ * \param cb: callback for each jwk-processed key, or NULL if importing a single
+ *	      key with no parent "keys" JSON
+ * \param user: pointer to be passed to the callback, otherwise ignored by lws.
+ *		NULL if importing a single key with no parent "keys" JSON
  * \param in: a single JWK JSON stanza in utf-8
  * \param len: the length of the JWK JSON stanza in bytes
  *
  * Creates an lws_jwk struct filled with data from the JSON representation.
- * "oct" and "rsa" key types are supported.
  *
- * For "oct" type keys, it is loaded into el.e.
+ * There are two ways to use this... with some protocols a single jwk is
+ * delivered with no parent "keys": [] array.  If you call this with cb and
+ * user as NULL, then the input will be interpreted like that and the results
+ * placed in s.
+ *
+ * The second case is that you are dealing with a "keys":[] array with one or
+ * more keys in it.  In this case, the function iterates through the keys using
+ * s as a temporary jwk, and calls the user-provided callback for each key in
+ * turn while it return 0 (nonzero return from the callback terminates the
+ * iteration through any further keys).
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_jwk_import(struct lws_jwk *s, const char *in, size_t len);
+lws_jwk_import(struct lws_jwk *s, lws_jwk_key_import_callback cb, void *user,
+	       const char *in, size_t len);
 
 /** lws_jwk_destroy() - Destroy a JSON Web key
  *
@@ -84,9 +162,21 @@ lws_jwk_export(struct lws_jwk *s, int _private, char *p, size_t len);
  * \param filename: filename to load from
  *
  * Returns 0 for OK or -1 for failure
+ *
+ * There are two ways to use this... with some protocols a single jwk is
+ * delivered with no parent "keys": [] array.  If you call this with cb and
+ * user as NULL, then the input will be interpreted like that and the results
+ * placed in s.
+ *
+ * The second case is that you are dealing with a "keys":[] array with one or
+ * more keys in it.  In this case, the function iterates through the keys using
+ * s as a temporary jwk, and calls the user-provided callback for each key in
+ * turn while it return 0 (nonzero return from the callback terminates the
+ * iteration through any further keys, leaving the last one in s).
  */
 LWS_VISIBLE int
-lws_jwk_load(struct lws_jwk *s, const char *filename);
+lws_jwk_load(struct lws_jwk *s, const char *filename,
+	     lws_jwk_key_import_callback cb, void *user);
 
 /** lws_jwk_save() - Export a JSON Web key to a file
  *

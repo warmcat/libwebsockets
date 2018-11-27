@@ -110,6 +110,7 @@ rm -rf $RPM_BUILD_ROOT
 "/usr/include/libwebsockets/lws-genhash.h"
 "/usr/include/libwebsockets/lws-genrsa.h"
 "/usr/include/libwebsockets/lws-http.h"
+"/usr/include/libwebsockets/lws-jose.h"
 "/usr/include/libwebsockets/lws-jwk.h"
 "/usr/include/libwebsockets/lws-jws.h"
 "/usr/include/libwebsockets/lws-lejp.h"

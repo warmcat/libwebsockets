@@ -422,9 +422,11 @@ struct lws;
 #endif
 
 #include <libwebsockets/lws-genhash.h>
-#include <libwebsockets/lws-genrsa.h>
 #include <libwebsockets/lws-jwk.h>
+#include <libwebsockets/lws-jose.h>
 #include <libwebsockets/lws-jws.h>
+#include <libwebsockets/lws-genrsa.h>
+#include <libwebsockets/lws-genec.h>
 
 #endif
 

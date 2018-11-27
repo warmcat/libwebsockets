@@ -106,8 +106,10 @@ option(LWS_WITH_NO_LOGS "Disable all logging from being compiled in" OFF)
 option(LWS_AVOID_SIGPIPE_IGN "Android 7+ reportedly needs this" OFF)
 option(LWS_WITH_STATS "Keep statistics of lws internal operations" OFF)
 option(LWS_WITH_JWS "JSON Web Signature (RFC7515) API" OFF)
+option(LWS_WITH_JWE "JSON Web Encryption (RFC7516) API" OFF)
 option(LWS_WITH_GENHASH "Enable support for Generic Hash (SHA1 + SHA2 with api independent of TLS backend)" OFF)
 option(LWS_WITH_GENRSA "Enable support for Generic RSA (RSA with api independent of TLS backend)" OFF)
+option(LWS_WITH_GENEC "Enable support for Generic EC (EC with api independent of TLS backend)" OFF)
 option(LWS_WITH_SELFTESTS "Selftests run at context creation" OFF)
 option(LWS_WITH_GCOV "Build with gcc gcov coverage instrumentation" OFF)
 option(LWS_WITH_EXPORT_LWSTARGETS "Export libwebsockets CMake targets.  Disable if they conflict with an outer cmake project." ON)
@@ -156,6 +158,9 @@ if(LWS_WITH_DISTRO_RECOMMENDED)
 	set(LWS_WITH_LEJP_CONF 1)
 	set(LWS_WITH_PLUGINS 1)
 	set(LWS_ROLE_RAW_PROXY 1)
+	set(LWS_WITH_GENHASH 1)
+	set(LWS_WITH_GENRSA 1)
+	set(LWS_WITH_GENEC 1)
 endif()
 
 # do you care about this?  Then send me a patch where it disables it on travis
@@ -295,10 +300,15 @@ if (LWS_WITH_ACME)
  set (LWS_WITH_JWS 1)
 endif()
 
+if (LWS_WITH_JWE)
+ set(LWS_WITH_JWS 1)
+endif()
+
 if (LWS_WITH_JWS)
  set(LWS_WITH_LEJP 1)
  set(LWS_WITH_GENHASH 1)
  set(LWS_WITH_GENRSA 1)
+ set(LWS_WITH_GENEC 1)
 endif()
 
 if (LWS_WITH_PLUGINS AND NOT LWS_WITH_LIBUV)
@@ -1021,6 +1031,11 @@ if (LWS_WITH_SSL)
 					lib/tls/mbedtls/lws-genrsa.c
 				)
 			endif()
+			if (LWS_WITH_GENEC)
+				list(APPEND SOURCES
+					lib/tls/mbedtls/lws-genec.c
+				)
+			endif()
 		else()
 			list(APPEND SOURCES
 				lib/tls/openssl/ssl.c
@@ -1033,6 +1048,11 @@ if (LWS_WITH_SSL)
 			if (LWS_WITH_GENRSA)
 				list(APPEND SOURCES
 					lib/tls/openssl/lws-genrsa.c
+				)
+			endif()
+			if (LWS_WITH_GENEC)
+				list(APPEND SOURCES
+					lib/tls/openssl/lws-genec.c
 				)
 			endif()
 		endif()
@@ -1191,8 +1211,14 @@ endif()
 
 if (LWS_WITH_JWS)
 	list(APPEND SOURCES
-		lib/misc/jws/jwk.c
-		lib/misc/jws/jws.c)
+		lib/jose/jwk/jwk.c
+		lib/jose/jws/jose.c
+		lib/jose/jws/jws.c)
+endif()
+
+if (LWS_WITH_JWE)
+	list(APPEND SOURCES
+		lib/jose/jwe/jwe.c)
 endif()
 
 # Add helper files for Windows.
