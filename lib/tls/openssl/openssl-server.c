@@ -147,7 +147,7 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 			  const char *mem_cert, size_t len_mem_cert,
 			  const char *mem_privkey, size_t mem_privkey_len)
 {
-#if defined(LWS_HAVE_OPENSSL_ECDH_H)
+#if !defined(OPENSSL_NO_EC)
 	const char *ecdh_curve = "prime256v1";
 #if !defined(LWS_WITH_BORINGSSL) && defined(LWS_HAVE_SSL_EXTRA_CHAIN_CERTS)
 	STACK_OF(X509) *extra_certs = NULL;
@@ -263,7 +263,7 @@ check_key:
 		return 1;
 	}
 
-#if defined(LWS_HAVE_OPENSSL_ECDH_H)
+#if !defined(OPENSSL_NO_EC)
 	if (vhost->tls.ecdh_curve[0])
 		ecdh_curve = vhost->tls.ecdh_curve;
 
@@ -333,7 +333,7 @@ check_key:
 #else
 	lwsl_notice(" OpenSSL doesn't support ECDH\n");
 #endif
-#if defined(LWS_HAVE_OPENSSL_ECDH_H) && !defined(LWS_WITH_BORINGSSL)
+#if !defined(OPENSSL_NO_EC) && !defined(LWS_WITH_BORINGSSL)
 post_ecdh:
 #endif
 	vhost->tls.skipped_certs = 0;
