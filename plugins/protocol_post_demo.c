@@ -36,7 +36,7 @@
 
 struct per_session_data__post_demo {
 	struct lws_spa *spa;
-	char result[LWS_PRE + 2048];
+	char result[LWS_PRE + LWS_RECOMMENDED_MIN_HEADER_SPACE];
 	char filename[64];
 	long file_length;
 #if !defined(LWS_WITH_ESP32)
@@ -223,7 +223,8 @@ callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
 
 			/* first send the headers ... */
 			n = lws_write(wsi, start, lws_ptr_diff(p, start),
-				      LWS_WRITE_HTTP_HEADERS);
+				      LWS_WRITE_HTTP_HEADERS |
+				      LWS_WRITE_H2_STREAM_END);
 			if (n < 0)
 				goto bail;
 
