@@ -168,6 +168,8 @@ lwsac_reference(struct lwsac *head)
 void
 lwsac_unreference(struct lwsac **head)
 {
+	if (!(*head))
+		return;
 	(*head)->refcount--;
 	if ((*head)->detached && !(*head)->refcount)
 		lwsac_free(head);
