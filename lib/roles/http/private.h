@@ -267,6 +267,18 @@ enum lws_parse_urldecode_results {
 	LPUR_EXCESSIVE,
 };
 
+enum lws_check_basic_auth_results {
+	LCBA_CONTINUE,
+	LCBA_FAILED_AUTH,
+	LCBA_END_TRANSACTION,
+};
+
+enum lws_check_basic_auth_results
+lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file);
+
+int
+lws_unauthorised_basic_auth(struct lws *wsi);
+
 int
 lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len);
 

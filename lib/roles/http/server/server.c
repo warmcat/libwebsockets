@@ -808,7 +808,7 @@ lws_find_string_in_file(const char *filename, const char *string, int stringlen)
 }
 #endif
 
-static int
+int
 lws_unauthorised_basic_auth(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
@@ -910,6 +910,76 @@ lws_http_get_uri_and_method(struct lws *wsi, char **puri_ptr, int *puri_len)
 		}
 
 	return -1;
+}
+
+enum lws_check_basic_auth_results
+lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file)
+{
+	char b64[160], plain[(sizeof(b64) * 3) / 4], *pcolon;
+	int m, ml, fi;
+
+	if (!basic_auth_login_file)
+		return LCBA_CONTINUE;
+
+	/* Did he send auth? */
+	ml = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_AUTHORIZATION);
+	if (!ml)
+		return LCBA_FAILED_AUTH;
+
+	/* Disallow fragmentation monkey business */
+
+	fi = wsi->http.ah->frag_index[WSI_TOKEN_HTTP_AUTHORIZATION];
+	if (wsi->http.ah->frags[fi].nfrag) {
+		lwsl_err("fragmented basic auth header not allowed\n");
+		return LCBA_FAILED_AUTH;
+	}
+
+	m = lws_hdr_copy(wsi, b64, sizeof(b64),
+			 WSI_TOKEN_HTTP_AUTHORIZATION);
+	if (m < 7) {
+		lwsl_err("b64 auth too long\n");
+		return LCBA_END_TRANSACTION;
+	}
+
+	b64[5] = '\0';
+	if (strcasecmp(b64, "Basic")) {
+		lwsl_err("auth missing basic: %s\n", b64);
+		return LCBA_END_TRANSACTION;
+	}
+
+	/* It'll be like Authorization: Basic QWxhZGRpbjpPcGVuU2VzYW1l */
+
+	m = lws_b64_decode_string(b64 + 6, plain, sizeof(plain) - 1);
+	if (m < 0) {
+		lwsl_err("plain auth too long\n");
+		return LCBA_END_TRANSACTION;
+	}
+
+	plain[m] = '\0';
+	pcolon = strchr(plain, ':');
+	if (!pcolon) {
+		lwsl_err("basic auth format broken\n");
+		return LCBA_END_TRANSACTION;
+	}
+	if (!lws_find_string_in_file(basic_auth_login_file, plain, m)) {
+		lwsl_err("basic auth lookup failed\n");
+		return LCBA_FAILED_AUTH;
+	}
+
+	/*
+	 * Rewrite WSI_TOKEN_HTTP_AUTHORIZATION so it is just the
+	 * authorized username
+	 */
+
+	*pcolon = '\0';
+	wsi->http.ah->frags[fi].len = lws_ptr_diff(pcolon, plain);
+	pcolon = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_AUTHORIZATION);
+	strncpy(pcolon, plain, ml - 1);
+	pcolon[ml - 1] = '\0';
+	lwsl_info("%s: basic auth accepted for %s\n", __func__,
+		 lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_AUTHORIZATION));
+
+	return LCBA_CONTINUE;
 }
 
 static const char * const oprot[] = {
@@ -1144,70 +1214,14 @@ lws_http_action(struct lws *wsi)
 
 	/* basic auth? */
 
-	if (hit->basic_auth_login_file) {
-		char b64[160], plain[(sizeof(b64) * 3) / 4], *pcolon;
-		int m, ml, fi;
-
-		/* Did he send auth? */
-		ml = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_AUTHORIZATION);
-		if (!ml)
-			return lws_unauthorised_basic_auth(wsi);
-
-		/* Disallow fragmentation monkey business */
-
-		fi = wsi->http.ah->frag_index[WSI_TOKEN_HTTP_AUTHORIZATION];
-		if (wsi->http.ah->frags[fi].nfrag) {
-			lwsl_err("fragmented basic auth header not allowed\n");
-			return lws_unauthorised_basic_auth(wsi);
-		}
-
-		n = HTTP_STATUS_FORBIDDEN;
-
-		m = lws_hdr_copy(wsi, b64, sizeof(b64),
-				 WSI_TOKEN_HTTP_AUTHORIZATION);
-		if (m < 7) {
-			lwsl_err("b64 auth too long\n");
-			goto transaction_result_n;
-		}
-
-		b64[5] = '\0';
-		if (strcasecmp(b64, "Basic")) {
-			lwsl_err("auth missing basic: %s\n", b64);
-			goto transaction_result_n;
-		}
-
-		/* It'll be like Authorization: Basic QWxhZGRpbjpPcGVuU2VzYW1l */
-
-		m = lws_b64_decode_string(b64 + 6, plain, sizeof(plain) - 1);
-		if (m < 0) {
-			lwsl_err("plain auth too long\n");
-			goto transaction_result_n;
-		}
-
-		plain[m] = '\0';
-		pcolon = strchr(plain, ':');
-		if (!pcolon) {
-			lwsl_err("basic auth format broken\n");
-			return lws_unauthorised_basic_auth(wsi);
-		}
-		if (!lws_find_string_in_file(hit->basic_auth_login_file,
-					     plain, m)) {
-			lwsl_err("basic auth lookup failed\n");
-			return lws_unauthorised_basic_auth(wsi);
-		}
-
-		/*
-		 * Rewrite WSI_TOKEN_HTTP_AUTHORIZATION so it is just the
-		 * authorized username
-		 */
-
-		*pcolon = '\0';
-		wsi->http.ah->frags[fi].len = lws_ptr_diff(pcolon, plain);
-		pcolon = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_AUTHORIZATION);
-		strncpy(pcolon, plain, ml - 1);
-		pcolon[ml - 1] = '\0';
-		lwsl_info("%s: basic auth accepted for %s\n", __func__,
-			 lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_AUTHORIZATION));
+	switch(lws_check_basic_auth(wsi, hit->basic_auth_login_file)) {
+	case LCBA_CONTINUE:
+		break;
+	case LCBA_FAILED_AUTH:
+		return lws_unauthorised_basic_auth(wsi);
+	case LCBA_END_TRANSACTION:
+		lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
+		return lws_http_transaction_completed(wsi);
 	}
 
 #if defined(LWS_WITH_HTTP_PROXY)
@@ -1557,11 +1571,6 @@ bail_nuke_ah:
 	lws_header_table_detach(wsi, 1);
 
 	return 1;
-
-transaction_result_n:
-	lws_return_http_status(wsi, n, NULL);
-
-	return lws_http_transaction_completed(wsi);
 }
 
 int

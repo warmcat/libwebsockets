@@ -252,30 +252,15 @@ int
 lws_process_ws_upgrade(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	const struct lws_protocol_vhost_options *pvos = NULL;
 	const struct lws_protocols *pcol = NULL;
+	const char *ws_prot_basic_auth = NULL;
 	char buf[128], name[64];
 	struct lws_tokenize ts;
 	lws_tokenize_elem e;
 
 	if (!wsi->protocol)
 		lwsl_err("NULL protocol at lws_read\n");
-
-	/*
-	 * We are upgrading to ws, so http/1.1 + h2 and keepalive + pipelined
-	 * header considerations about keeping the ah around no longer apply.
-	 *
-	 * However it's common for the first ws protocol data to have been
-	 * coalesced with the browser upgrade request and to already be in the
-	 * ah rx buffer.
-	 */
-
-	lws_pt_lock(pt, __func__);
-
-	if (!wsi->h2_stream_carries_ws)
-		lws_role_transition(wsi, LWSIFR_SERVER, LRS_ESTABLISHED,
-				    &role_ops_ws);
-
-	lws_pt_unlock(pt);
 
 	/*
 	 * It's either websocket or h2->websocket
@@ -388,6 +373,47 @@ check_protocol:
 	}
 
 alloc_ws:
+
+	/*
+	 * Allow basic auth a look-in now we bound the wsi to the protocol.
+	 *
+	 * For vhost ws basic auth, it is "basic-auth": "path" as usual but
+	 * applied to the protocol's entry in the vhost's "ws-protocols":
+	 * section, as a pvo.
+	 */
+
+	pvos = lws_vhost_protocol_options(wsi->vhost, wsi->protocol->name);
+	if (pvos && pvos->options &&
+	    !lws_pvo_get_str((void *)pvos->options, "basic-auth",
+			     &ws_prot_basic_auth)) {
+		lwsl_notice("%s: ws upgrade requires basic auth\n", __func__);
+		switch(lws_check_basic_auth(wsi, ws_prot_basic_auth)) {
+		case LCBA_CONTINUE:
+			break;
+		case LCBA_FAILED_AUTH:
+			return lws_unauthorised_basic_auth(wsi);
+		case LCBA_END_TRANSACTION:
+			lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
+			return lws_http_transaction_completed(wsi);
+		}
+	}
+
+	/*
+	 * We are upgrading to ws, so http/1.1 + h2 and keepalive + pipelined
+	 * header considerations about keeping the ah around no longer apply.
+	 *
+	 * However it's common for the first ws protocol data to have been
+	 * coalesced with the browser upgrade request and to already be in the
+	 * ah rx buffer.
+	 */
+
+	lws_pt_lock(pt, __func__);
+
+	if (!wsi->h2_stream_carries_ws)
+		lws_role_transition(wsi, LWSIFR_SERVER, LRS_ESTABLISHED,
+				    &role_ops_ws);
+
+	lws_pt_unlock(pt);
 
 	/* allocate the ws struct for the wsi */
 

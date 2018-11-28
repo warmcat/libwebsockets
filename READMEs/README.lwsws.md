@@ -418,7 +418,7 @@ Content-Type: header.
 7) A mount can be protected by HTTP Basic Auth.  This only makes sense when using
 https, since otherwise the password can be sniffed.
 
-You can add a `basic-auth` entry on a mount like this
+You can add a `basic-auth` entry on an http mount like this
 
 ```
 {
@@ -446,6 +446,12 @@ a mount.
 
 After successful authentication, `WSI_TOKEN_HTTP_AUTHORIZATION` contains the
 authenticated username.
+
+In the case you want to also protect being able to connect to a ws protocol on
+a particular vhost by requiring the http part can authenticate using Basic
+Auth before the ws upgrade, this is also possible.  In this case, the
+"basic-auth": and filepath to the credentials file is passed as a pvo in the
+"ws-protocols" section of the vhost definition.
 
 @section lwswscc Requiring a Client Cert on a vhost
 
