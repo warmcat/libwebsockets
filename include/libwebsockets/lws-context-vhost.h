@@ -53,8 +53,11 @@ enum lws_context_options {
 	LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT		= (1 << 3) |
 								  (1 << 12),
 	/**< (VH) Allow non-SSL (plaintext) connections on the same
-	 * port as SSL is listening... undermines the security of SSL;
-	 * provides  LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT */
+	 * port as SSL is listening.  If combined with
+	 * LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS it will try to
+	 * force http connections on an https listener (eg, http://x.com:443) to
+	 * redirect to an explicit https connection (eg, https://x.com)
+	 */
 	LWS_SERVER_OPTION_LIBEV					= (1 << 4),
 	/**< (CTX) Use libev event loop */
 	LWS_SERVER_OPTION_DISABLE_IPV6				= (1 << 5),
@@ -73,7 +76,14 @@ enum lws_context_options {
 	/**< (CTX)  Use libuv event loop */
 	LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS		= (1 << 11) |
 								  (1 << 12),
-	/**< (VH) Use http redirect to force http to https
+	/**< (VH) Use an http redirect to force the client to ask for https.
+	 * Notice if your http server issues the STS header and the client has
+	 * ever seen that, the client will fail the http connection before it
+	 * can actually do the redirect.
+	 *
+	 * Combine with LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS to handle, eg,
+	 * http://x.com:443 -> https://x.com
+	 *
 	 * (deprecated: use mount redirection) */
 	LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT			= (1 << 12),
 	/**< (CTX) Initialize the SSL library at all */
@@ -102,19 +112,42 @@ enum lws_context_options {
 	 * the context, only the string you give in the client connect
 	 * info for .origin (if any) will be used directly.
 	 */
-	LWS_SERVER_OPTION_FALLBACK_TO_RAW			= (1 << 20),
-	/**< (VH) if invalid http is coming in the first line,  */
+	LWS_SERVER_OPTION_FALLBACK_TO_RAW /* use below name */	= (1 << 20),
+	LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG= (1 << 20),
+	/**< (VH) if invalid http is coming in the first line, then abandon
+	 * trying to treat the connection as http, and belatedly apply the
+	 * .listen_accept_role / .listen_accept_protocol info struct members to
+	 * the connection.  If they are NULL, for backwards-compatibility the
+	 * connection is bound to "raw-skt" role, and in order of priority:
+	 * 1) the vh protocol with a pvo named "raw", 2) the vh protocol with a
+	 * pvo named "default", or 3) protocols[0].
+	 *
+	 * Must be combined with LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT
+	 * to work with a socket listening with tls.
+	 */
+
 	LWS_SERVER_OPTION_LIBEVENT				= (1 << 21),
 	/**< (CTX) Use libevent event loop */
-	LWS_SERVER_OPTION_ONLY_RAW				= (1 << 22),
-	/**< (VH) All connections to this vhost / port are RAW as soon as
-	 * the connection is accepted, no HTTP is going to be coming.
+
+	LWS_SERVER_OPTION_ONLY_RAW /* Use below name instead */	= (1 << 22),
+	LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG	= (1 << 22),
+	/**< (VH) All connections to this vhost / port are bound to the
+	 * role and protocol given in .listen_accept_role /
+	 * .listen_accept_protocol.
+	 *
+	 * If those explicit user-controlled names are NULL, for backwards-
+	 * compatibility the connection is bound to "raw-skt" role, and in order
+	 * of priority: 1) the vh protocol with a pvo named "raw", 2) the vh
+	 * protocol with a pvo named "default", or 3) protocols[0].
+	 *
+	 * It's much preferred to specify the role + protocol using the
+	 * .listen_accept_role and .listen_accept_protocol in the info struct.
 	 */
 	LWS_SERVER_OPTION_ALLOW_LISTEN_SHARE			= (1 << 23),
 	/**< (VH) Set to allow multiple listen sockets on one interface +
 	 * address + port.  The default is to strictly allow only one
 	 * listen socket at a time.  This is automatically selected if you
-	 * have multiple service threads.
+	 * have multiple service threads.  Linux only.
 	 */
 	LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX			= (1 << 24),
 	/**< (VH) Force setting up the vhost SSL_CTX, even though the user
@@ -160,6 +193,15 @@ enum lws_context_options {
 	 * .headers member in the vhost init described in struct
 	 * lws_context_creation_info instead to send the adapted headers
 	 * yourself.
+	 */
+
+	LWS_SERVER_OPTION_ALLOW_HTTP_ON_HTTPS_LISTENER		= (1 << 29),
+	/**< (VH) If you really want to allow HTTP connections on a tls
+	 * listener, you can do it with this combined with
+	 * LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT.  But this is allowing
+	 * accidental loss of the security assurances provided by tls depending
+	 * on the client using http when he meant https... it's not
+	 * recommended.
 	 */
 
 	/****** add new things just above ---^ ******/
@@ -542,6 +584,16 @@ struct lws_context_creation_info {
 	 * "DEFAULT".
 	 */
 
+	const char *listen_accept_role;
+	/**< VHOST: NULL for default, or force accepted incoming connections to
+	 * bind to this role.  Uses the role names from their ops struct, eg,
+	 * "raw-skt".
+	 */
+	const char *listen_accept_protocol;
+	/**< VHOST: NULL for default, or force accepted incoming connections to
+	 * bind to this vhost protocol name.
+	 */
+
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
 	 *
@@ -745,10 +797,6 @@ LWS_VISIBLE LWS_EXTERN int
 lwsws_get_config_vhosts(struct lws_context *context,
 			struct lws_context_creation_info *info, const char *d,
 			char **config_strings, int *len);
-
-/** lws_vhost_get() - \deprecated deprecated: use lws_get_vhost() */
-LWS_VISIBLE LWS_EXTERN struct lws_vhost *
-lws_vhost_get(struct lws *wsi) LWS_WARN_DEPRECATED;
 
 /**
  * lws_get_vhost() - return the vhost a wsi belongs to

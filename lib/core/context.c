@@ -72,6 +72,23 @@ lws_get_library_version(void)
 	return library_version;
 }
 
+const struct lws_role_ops *
+lws_role_by_name(const char *name)
+{
+	LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar)
+		if (!strcmp(ar->name, name))
+			return ar;
+	LWS_FOR_EVERY_AVAILABLE_ROLE_END;
+
+	if (!strcmp(name, role_ops_raw_skt.name))
+		return &role_ops_raw_skt;
+
+	if (!strcmp(name, role_ops_raw_file.name))
+		return &role_ops_raw_file;
+
+	return NULL;
+}
+
 int
 lws_role_call_alpn_negotiated(struct lws *wsi, const char *alpn)
 {
@@ -93,10 +110,31 @@ lws_role_call_alpn_negotiated(struct lws *wsi, const char *alpn)
 int
 lws_role_call_adoption_bind(struct lws *wsi, int type, const char *prot)
 {
+	/*
+	 * if the vhost is told to bind accepted sockets to a given role,
+	 * then look it up by name and try to bind to the specific role.
+	 */
+	if (lws_check_opt(wsi->vhost->options,
+			  LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG) &&
+	    wsi->vhost->listen_accept_role) {
+		const struct lws_role_ops *role =
+			lws_role_by_name(wsi->vhost->listen_accept_role);
+
+		if (role && role->adoption_bind(wsi, type, prot))
+			return 0;
+
+		lwsl_warn("%s: adoption bind to role %s failed", __func__,
+			  wsi->vhost->listen_accept_role);
+	}
+
+	/*
+	 * Otherwise ask each of the roles in order of preference if they
+	 * want to bind to this accepted socket
+	 */
+
 	LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar)
-		if (ar->adoption_bind)
-			if (ar->adoption_bind(wsi, type, prot))
-				return 0;
+		if (ar->adoption_bind && ar->adoption_bind(wsi, type, prot))
+			return 0;
 	LWS_FOR_EVERY_AVAILABLE_ROLE_END;
 
 	/* fall back to raw socket role if, eg, h1 not configured */
@@ -427,6 +465,8 @@ lws_create_vhost(struct lws_context *context,
 	vh->user = info->user;
 	vh->finalize = info->finalize;
 	vh->finalize_arg = info->finalize_arg;
+	vh->listen_accept_role = info->listen_accept_role;
+	vh->listen_accept_protocol = info->listen_accept_protocol;
 
 	LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar)
 		if (ar->init_vhost)

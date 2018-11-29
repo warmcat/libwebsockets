@@ -270,6 +270,13 @@ enum {
 	LWS_RXFLOW_PENDING_CHANGE = (1 << 1),
 };
 
+enum lws_parser_return {
+	LPR_OK		= 0,
+	LPR_FAIL	= -1,
+	LPR_DO_FALLBACK = 2,
+	LPR_FORBIDDEN	= -2
+};
+
 struct lws_ring {
 	void *buf;
 	void (*destroy_element)(void *element);
@@ -503,6 +510,8 @@ struct lws_vhost {
 	struct lws *lserv_wsi;
 	const char *name;
 	const char *iface;
+	const char *listen_accept_role;
+	const char *listen_accept_protocol;
 
 	void (*finalize)(struct lws_vhost *vh, void *arg);
 	void *finalize_arg;
@@ -1027,6 +1036,9 @@ struct lws {
 	volatile char leave_pollout_active;
 };
 
+const struct lws_role_ops *
+lws_role_by_name(const char *name);
+
 LWS_EXTERN char *
 lws_strdup(const char *s);
 
@@ -1159,7 +1171,10 @@ lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len);
 
 LWS_EXTERN void
 lws_role_transition(struct lws *wsi, enum lwsi_role role, enum lwsi_state state,
-			struct lws_role_ops *ops);
+		    const struct lws_role_ops *ops);
+
+int
+lws_http_to_fallback(struct lws *wsi, unsigned char *buf, size_t len);
 
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 user_callback_handle_rxflow(lws_callback_function, struct lws *wsi,

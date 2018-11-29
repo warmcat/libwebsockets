@@ -121,7 +121,8 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 			break;
 		}
 
-		if (!(wsi->vhost->options & LWS_SERVER_OPTION_ONLY_RAW))
+		if (!(wsi->vhost->options &
+			LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG))
 			opts |= LWS_ADOPT_HTTP;
 		else
 			opts = LWS_ADOPT_SOCKET;

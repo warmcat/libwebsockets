@@ -1110,14 +1110,20 @@ lws_http_action(struct lws *wsi)
 		unsigned char *start = pt->serv_buf + LWS_PRE, *p = start,
 			      *end = p + wsi->context->pt_serv_buf_size - LWS_PRE;
 
-		if (!lws_hdr_total_length(wsi, WSI_TOKEN_HOST))
+		n = lws_hdr_total_length(wsi, WSI_TOKEN_HOST);
+		if (!n || n > 128)
 			goto bail_nuke_ah;
 
-		n = sprintf((char *)end, "https://%s/",
-			    lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST));
+		p += lws_snprintf((char *)p, lws_ptr_diff(end, p), "https://");
+		memcpy(p, lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST), n);
+		p += n;
+		*p++ = '/';
+		*p = '\0';
+		n = lws_ptr_diff(p, start);
 
+		p += LWS_PRE;
 		n = lws_http_redirect(wsi, HTTP_STATUS_MOVED_PERMANENTLY,
-				      end, n, &p, end);
+				      start, n, &p, end);
 		if ((int)n < 0)
 			goto bail_nuke_ah;
 
@@ -1643,6 +1649,44 @@ bad_format:
 }
 
 int
+lws_http_to_fallback(struct lws *wsi, unsigned char *obuf, size_t olen)
+{
+	const struct lws_role_ops *role = &role_ops_raw_skt;
+	const struct lws_protocols *p1, *protocol =
+			 &wsi->vhost->protocols[wsi->vhost->raw_protocol_index];
+
+	if (wsi->vhost->listen_accept_role &&
+	    lws_role_by_name(wsi->vhost->listen_accept_role))
+		role = lws_role_by_name(wsi->vhost->listen_accept_role);
+
+	if (wsi->vhost->listen_accept_protocol) {
+		p1 = lws_vhost_name_to_protocol(wsi->vhost,
+			    wsi->vhost->listen_accept_protocol);
+		if (p1)
+			protocol = p1;
+	}
+
+	lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+	lws_bind_protocol(wsi, protocol, __func__);
+	lwsl_info("falling back on vh %s to protocol %s\n", wsi->vhost->name,
+		  protocol->name);
+	if ((wsi->protocol->callback)(wsi, LWS_CALLBACK_RAW_ADOPT,
+				      wsi->user_space, NULL, 0))
+		return 1;
+
+	lws_role_transition(wsi, 0, LRS_ESTABLISHED, role);
+	lws_header_table_detach(wsi, 1);
+
+	lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+
+	if (wsi->protocol->callback(wsi, LWS_CALLBACK_RAW_RX, wsi->user_space,
+				    obuf, olen))
+		return 1;
+
+	return 0;
+}
+
+int
 lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 {
 	struct lws_context *context = lws_get_context(wsi);
@@ -1675,38 +1719,27 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 		lwsl_info("%s: parsed count %d\n", __func__, (int)len - i);
 		(*buf) += (int)len - i;
 		len = i;
-		if (m) {
-			if (m == 2) {
-				/*
-				 * we are transitioning from http with
-				 * an AH, to raw.  Drop the ah and set
-				 * the mode.
-				 */
+
+		if (m == LPR_DO_FALLBACK) {
+
+			/*
+			 * http parser went off the rails and
+			 * LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_
+			 * ACCEPT_CONFIG is set on this vhost.
+			 *
+			 * We are transitioning from http with an AH, to
+			 * a backup role (raw-skt, by default).  Drop
+			 * the ah, bind to the role with mode as
+			 * ESTABLISHED.
+			 */
 raw_transition:
-				lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
-				lws_bind_protocol(wsi, &wsi->vhost->protocols[
-				                        wsi->vhost->
-				                        raw_protocol_index],
-						__func__);
-				lwsl_info("transition to raw vh %s prot %d\n",
-					  wsi->vhost->name,
-					  wsi->vhost->raw_protocol_index);
-				if ((wsi->protocol->callback)(wsi,
-						LWS_CALLBACK_RAW_ADOPT,
-						wsi->user_space, NULL, 0))
-					goto bail_nuke_ah;
 
-				lws_role_transition(wsi, 0, LRS_ESTABLISHED,
-						    &role_ops_raw_skt);
-				lws_header_table_detach(wsi, 1);
+			if (lws_http_to_fallback(wsi, obuf, olen))
+				goto bail_nuke_ah;
 
-				if (wsi->protocol->callback(wsi,
-						LWS_CALLBACK_RAW_RX,
-						wsi->user_space, obuf, olen))
-					return 1;
-
-				return 0;
-			}
+			return 0;
+		}
+		if (m) {
 			lwsl_info("lws_parse failed\n");
 			goto bail_nuke_ah;
 		}

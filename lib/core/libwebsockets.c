@@ -2293,7 +2293,7 @@ lws_get_peer_write_allowance(struct lws *wsi)
 
 LWS_VISIBLE void
 lws_role_transition(struct lws *wsi, enum lwsi_role role, enum lwsi_state state,
-		    struct lws_role_ops *ops)
+		    const struct lws_role_ops *ops)
 {
 #if defined(_DEBUG)
 	const char *name = "(unset)";

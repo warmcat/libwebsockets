@@ -110,6 +110,14 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].tls13-ciphers",
 	"vhosts[].client-tls13-ciphers",
 	"vhosts[].strict-host-check",
+
+	"vhosts[].listen-accept-role",
+	"vhosts[].listen-accept-protocol",
+	"vhosts[].apply-listen-accept", /* deprecates "onlyraw" */
+	"vhosts[].fallback-listen-accept",
+	"vhosts[].allow-non-tls",
+	"vhosts[].redirect-http",
+	"vhosts[].allow-http-on-https",
 };
 
 enum lejp_vhost_paths {
@@ -166,6 +174,14 @@ enum lejp_vhost_paths {
 	LEJPVP_TLS13_CIPHERS,
 	LEJPVP_CLIENT_TLS13_CIPHERS,
 	LEJPVP_FLAG_STRICT_HOST_CHECK,
+
+	LEJPVP_LISTEN_ACCEPT_ROLE,
+	LEJPVP_LISTEN_ACCEPT_PROTOCOL,
+	LEJPVP_FLAG_APPLY_LISTEN_ACCEPT,
+	LEJPVP_FLAG_FALLBACK_LISTEN_ACCEPT,
+	LEJPVP_FLAG_ALLOW_NON_TLS,
+	LEJPVP_FLAG_REDIRECT_HTTP,
+	LEJPVP_FLAG_ALLOW_HTTP_ON_HTTPS,
 };
 
 static const char * const parser_errs[] = {
@@ -243,6 +259,15 @@ arg_to_bool(const char *s)
 			return 1;
 
 	return 0;
+}
+
+static void
+set_reset_flag(unsigned int *p, const char *state, unsigned int flag)
+{
+	if (arg_to_bool(state))
+		*p |= flag;
+	else
+		*p &= ~(flag);
 }
 
 static signed char
@@ -727,25 +752,19 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 #endif
 
 	case LEJPVP_NOIPV6:
-		if (arg_to_bool(ctx->buf))
-			a->info->options |= LWS_SERVER_OPTION_DISABLE_IPV6;
-		else
-			a->info->options &= ~(LWS_SERVER_OPTION_DISABLE_IPV6);
+		set_reset_flag(&a->info->options, ctx->buf,
+			       LWS_SERVER_OPTION_DISABLE_IPV6);
 		return 0;
 
 	case LEJPVP_FLAG_ONLYRAW:
-		if (arg_to_bool(ctx->buf))
-			a->info->options |= LWS_SERVER_OPTION_ONLY_RAW;
-		else
-			a->info->options &= ~(LWS_SERVER_OPTION_ONLY_RAW);
+		set_reset_flag(&a->info->options, ctx->buf,
+			    LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG);
 		return 0;
 
 	case LEJPVP_IPV6ONLY:
 		a->info->options |= LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY;
-		if (arg_to_bool(ctx->buf))
-			a->info->options |= LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE;
-		else
-			a->info->options &= ~(LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE);
+		set_reset_flag(&a->info->options, ctx->buf,
+			       LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE);
 		return 0;
 
 	case LEJPVP_FLAG_CLIENT_CERT_REQUIRED:
@@ -755,20 +774,13 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		return 0;
 
 	case LEJPVP_IGNORE_MISSING_CERT:
-		if (arg_to_bool(ctx->buf))
-			a->info->options |= LWS_SERVER_OPTION_IGNORE_MISSING_CERT;
-		else
-			a->info->options &= ~(LWS_SERVER_OPTION_IGNORE_MISSING_CERT);
-
+		set_reset_flag(&a->info->options, ctx->buf,
+				LWS_SERVER_OPTION_IGNORE_MISSING_CERT);
 		return 0;
 
 	case LEJPVP_FLAG_STRICT_HOST_CHECK:
-		if (arg_to_bool(ctx->buf))
-			a->info->options |=
-				LWS_SERVER_OPTION_VHOST_UPG_STRICT_HOST_CHECK;
-		else
-			a->info->options &=
-				~(LWS_SERVER_OPTION_VHOST_UPG_STRICT_HOST_CHECK);
+		set_reset_flag(&a->info->options, ctx->buf,
+			LWS_SERVER_OPTION_VHOST_UPG_STRICT_HOST_CHECK);
 		return 0;
 
 	case LEJPVP_ERROR_DOCUMENT_404:
@@ -792,6 +804,34 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 	case LEJPVP_ALPN:
 		a->info->alpn = a->p;
 		break;
+
+	case LEJPVP_LISTEN_ACCEPT_ROLE:
+		a->info->listen_accept_role = a->p;
+		break;
+	case LEJPVP_LISTEN_ACCEPT_PROTOCOL:
+		a->info->listen_accept_protocol = a->p;
+		break;
+
+	case LEJPVP_FLAG_APPLY_LISTEN_ACCEPT:
+		set_reset_flag(&a->info->options, ctx->buf,
+			LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG);
+		return 0;
+	case LEJPVP_FLAG_FALLBACK_LISTEN_ACCEPT:
+		set_reset_flag(&a->info->options, ctx->buf,
+		      LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG);
+		return 0;
+	case LEJPVP_FLAG_ALLOW_NON_TLS:
+		set_reset_flag(&a->info->options, ctx->buf,
+			       LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT);
+		return 0;
+	case LEJPVP_FLAG_REDIRECT_HTTP:
+		set_reset_flag(&a->info->options, ctx->buf,
+			       LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS);
+		return 0;
+	case LEJPVP_FLAG_ALLOW_HTTP_ON_HTTPS:
+		set_reset_flag(&a->info->options, ctx->buf,
+			       LWS_SERVER_OPTION_ALLOW_HTTP_ON_HTTPS_LISTENER);
+		return 0;
 
 	default:
 		return 0;

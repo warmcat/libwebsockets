@@ -95,7 +95,7 @@ int lws_context_init_client_ssl(const struct lws_context_creation_info *info,
 	const char *cipher_list = info->ssl_cipher_list;
 	struct lws wsi;
 
-	if (vhost->options & LWS_SERVER_OPTION_ONLY_RAW)
+	if (vhost->options & LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG)
 		return 0;
 
 	/*

@@ -928,7 +928,7 @@ lws_parse(struct lws *wsi, unsigned char *buf, int *len)
 			case LPUR_EXCESSIVE:
 				goto excessive;
 			default:
-				return -1;
+				return LPR_FAIL;
 			}
 check_eol:
 			/* bail at EOL */
@@ -944,7 +944,7 @@ check_eol:
 
 			n = issue_char(wsi, c);
 			if ((int)n < 0)
-				return -1;
+				return LPR_FAIL;
 			if (n > 0)
 				ah->parser_state = WSI_TOKEN_SKIPPING;
 
@@ -1024,18 +1024,22 @@ nope:
 				 * hm it's an unknown http method from a client in fact,
 				 * it cannot be valid http
 				 */
-				if (m == LWS_ARRAY_SIZE(methods)) {
-					/*
-					 * are we set up to accept raw in these cases?
-					 */
-					if (lws_check_opt(wsi->vhost->options,
-						   LWS_SERVER_OPTION_FALLBACK_TO_RAW))
-						return 2; /* transition to raw */
-
-					lwsl_info("Unknown method - dropping\n");
-					goto forbid;
+				if (m != LWS_ARRAY_SIZE(methods))
+					break;
+				/*
+				 * are we set up to transition to
+				 * another role in these cases?
+				 */
+				if (lws_check_opt(wsi->vhost->options,
+		    LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG)) {
+					lwsl_notice("%s: http fail fallback\n",
+						    __func__);
+					 /* transition to other role */
+					return LPR_DO_FALLBACK;
 				}
-				break;
+
+				lwsl_info("Unknown method - dropping\n");
+				goto forbid;
 			}
 			/*
 			 * ...otherwise for a client, let him ignore unknown headers
@@ -1057,7 +1061,7 @@ nope:
 					if (n == methods[m] &&
 					    ah->frag_index[methods[m]]) {
 						lwsl_warn("Duplicated method\n");
-						return -1;
+						return LPR_FAIL;
 					}
 
 				/*
@@ -1091,7 +1095,7 @@ start_fragment:
 excessive:
 			if (ah->nfrag == LWS_ARRAY_SIZE(ah->frags)) {
 				lwsl_warn("More hdr frags than we can deal with\n");
-				return -1;
+				return LPR_FAIL;
 			}
 
 			ah->frags[ah->nfrag].offset = ah->pos;
@@ -1111,7 +1115,7 @@ excessive:
 			ah->frags[n].nfrag = ah->nfrag;
 
 			if (issue_char(wsi, ' ') < 0)
-				return -1;
+				return LPR_FAIL;
 			break;
 
 			/* skipping arg part of a name we didn't recognize */
@@ -1141,7 +1145,7 @@ excessive:
 
 	} while (*len);
 
-	return 0;
+	return LPR_OK;
 
 set_parsing_complete:
 	if (ah->ues != URIES_IDLE)
@@ -1157,12 +1161,12 @@ set_parsing_complete:
 	ah->parser_state = WSI_PARSING_COMPLETE;
 	wsi->hdr_parsing_completed = 1;
 
-	return 0;
+	return LPR_OK;
 
 forbid:
 	lwsl_notice(" forbidding on uri sanitation\n");
 	lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
 
-	return -1;
+	return LPR_FORBIDDEN;
 }
 
