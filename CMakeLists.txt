@@ -25,6 +25,7 @@ option(LWS_FOR_GITOHASHI "Enable features recommended for use with gitohashi" OF
 option(LWS_ROLE_H1 "Compile with support for http/1 (needed for ws)" ON)
 option(LWS_ROLE_WS "Compile with support for websockets" ON)
 option(LWS_ROLE_DBUS "Compile with support for DBUS" OFF)
+option(LWS_ROLE_RAW_PROXY "Raw packet proxy" OFF)
 option(LWS_WITH_HTTP2 "Compile with server support for HTTP/2" ON)
 option(LWS_WITH_LWSWS "Libwebsockets Webserver" OFF)
 option(LWS_WITH_CGI "Include CGI (spawn process with network-connected stdin/out/err) APIs" OFF)
@@ -154,6 +155,7 @@ if(LWS_WITH_DISTRO_RECOMMENDED)
 	set(LWS_WITH_LWSAC 1)
 	set(LWS_WITH_LEJP_CONF 1)
 	set(LWS_WITH_PLUGINS 1)
+	set(LWS_ROLE_RAW_PROXY 1)
 endif()
 
 # do you care about this?  Then send me a patch where it disables it on travis
@@ -279,6 +281,12 @@ if (LWS_WITH_LWSWS)
  set(LWS_WITH_LEJP 1)
  set(LWS_WITH_LEJP_CONF 1)
  set(LWS_WITH_PEER_LIMITS 1)
+ set(LWS_ROLE_RAW_PROXY 1)
+endif()
+
+if (LWS_ROLE_RAW_PROXY)
+ set (LWS_WITHOUT_CLIENT 0)
+ set (LWS_WITHOUT_SERVER 0)
 endif()
 
 if (LWS_WITH_ACME)
@@ -894,6 +902,11 @@ if (LWS_ROLE_RAW)
 	list(APPEND SOURCES
 		lib/roles/raw-skt/ops-raw-skt.c
 		lib/roles/raw-file/ops-raw-file.c)
+endif()
+
+if (LWS_ROLE_RAW_PROXY)
+	list(APPEND SOURCES
+		lib/roles/raw-proxy/ops-raw-proxy.c)
 endif()
 
 if (LWS_ROLE_CGI)
@@ -2015,6 +2028,11 @@ endif()
 
 		create_plugin(protocol_post_demo ""
 			      "plugins/protocol_post_demo.c" "" "")
+
+if (LWS_ROLE_RAW_PROXY)
+		create_plugin(protocol_lws_raw_proxy ""
+			      "plugins/raw-proxy/protocol_lws_raw_proxy.c" "" "")
+endif()
 
 if (LWS_WITH_FTS)
 		create_plugin(protocol_fulltext_demo ""

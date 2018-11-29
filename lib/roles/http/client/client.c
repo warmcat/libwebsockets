@@ -1055,7 +1055,8 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 					      wsi->user_space, NULL, 0))
 			return NULL;
 
-		lws_role_transition(wsi, 0, LRS_ESTABLISHED, &role_ops_raw_skt);
+		lws_role_transition(wsi, LWSIFR_CLIENT, LRS_ESTABLISHED,
+				    &role_ops_raw_skt);
 		lws_header_table_detach(wsi, 1);
 
 		return NULL;

@@ -651,7 +651,8 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 	return LWS_HPI_RET_HANDLED;
 }
 
-int rops_handle_POLLOUT_h1(struct lws *wsi)
+static int
+rops_handle_POLLOUT_h1(struct lws *wsi)
 {
 	if (lwsi_state(wsi) == LRS_ISSUE_HTTP_BODY)
 		return LWS_HP_RET_USER_SERVICE;
@@ -791,6 +792,8 @@ rops_adoption_bind_h1(struct lws *wsi, int type, const char *vh_prot_name)
 	if (!(type & LWS_ADOPT_HTTP))
 		return 0; /* no match */
 
+	if (type & _LWS_ADOPT_FINISH && !lwsi_role_http(wsi))
+		return 0;
 
 	if (type & _LWS_ADOPT_FINISH) {
 		if (!lws_header_table_attach(wsi, 0))
@@ -1028,6 +1031,10 @@ struct lws_role_ops role_ops_h1 = {
 #else
 					NULL,
 #endif
+	/* adoption_cb clnt, srv */	{ LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED,
+					  LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED },
+	/* rx_cb clnt, srv */		{ LWS_CALLBACK_RECEIVE_CLIENT_HTTP,
+					  0 /* may be POST, etc */ },
 	/* writeable cb clnt, srv */	{ LWS_CALLBACK_CLIENT_HTTP_WRITEABLE,
 					  LWS_CALLBACK_HTTP_WRITEABLE },
 	/* close cb clnt, srv */	{ LWS_CALLBACK_CLOSED_CLIENT_HTTP,

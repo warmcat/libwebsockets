@@ -16,6 +16,30 @@ various scenarios, CC0-licensed (public domain) for cut-and-paste, allow you to 
 News
 ----
 
+## New features on master
+
+ - **http fallback support** - you can specify a role and protocol to apply if non-http or non-tls
+   packets arrive at an http(s) listen port.  For example, you can specify that the new `raw proxy`
+   role + protocol should be used, to proxy your sshd port over :443 or :80.  Without affecting
+   normal http(s) serving on those ports but allowing, eg, `ssh -p 443 invalid@libwebsockets.org`.
+   [http fallback docs](https://libwebsockets.org/git/libwebsockets/tree/READMEs/README.http-fallback.md)
+
+ - **raw tcp proxy role and protocol** - adding raw tcp proxying is now trivial using the built-in lws
+   implementation.  You can control the onward connection using a pvo in the format "ipv4:server.com:port"
+   [raw proxy minimal example](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/raw/minimal-raw-proxy),
+   [raw proxy docs](https://libwebsockets.org/git/libwebsockets/tree/plugins/raw-proxy),
+   Cmake config: `-DLWS_ROLE_RAW_PROXY=1 -DLWS_WITH_PLUGINS=1`
+
+ - **deaddrop HTML file upload protocol** - protocol and minimal example for file upload and sharing using
+   drag and drop and a file picker.  Integrated with basic auth, uploaded files marked with upload user,
+   and files owned by the authenticated user may be deleted via the UI.  Supports multiple simultaneous
+   uploads both by drag-and-drop and from the file picker.
+   [deaddrop minimal example](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/http-server/minimal-http-server-deaddrop)
+
+ - **basic auth for ws(s)** - You can apply basic auth credential requirement to ws connections same
+   as on mounts now.  Just add a pvo "basic-auth" with the value being the credentials file path when
+   enabling the ws protocol for the vhost.
+
 ## v3.1 released: new features in v3.1
 
  - **lws threadpool** - lightweight pool of pthreads integrated to lws wsi, with all

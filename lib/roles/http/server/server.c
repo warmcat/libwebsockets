@@ -1654,6 +1654,7 @@ lws_http_to_fallback(struct lws *wsi, unsigned char *obuf, size_t olen)
 	const struct lws_role_ops *role = &role_ops_raw_skt;
 	const struct lws_protocols *p1, *protocol =
 			 &wsi->vhost->protocols[wsi->vhost->raw_protocol_index];
+	int n;
 
 	if (wsi->vhost->listen_accept_role &&
 	    lws_role_by_name(wsi->vhost->listen_accept_role))
@@ -1666,21 +1667,28 @@ lws_http_to_fallback(struct lws *wsi, unsigned char *obuf, size_t olen)
 			protocol = p1;
 	}
 
-	lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 	lws_bind_protocol(wsi, protocol, __func__);
-	lwsl_info("falling back on vh %s to protocol %s\n", wsi->vhost->name,
-		  protocol->name);
-	if ((wsi->protocol->callback)(wsi, LWS_CALLBACK_RAW_ADOPT,
-				      wsi->user_space, NULL, 0))
+
+	lws_role_transition(wsi, LWSIFR_SERVER, LRS_ESTABLISHED, role);
+
+	lws_header_table_detach(wsi, 0);
+	lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+
+	n = LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED;
+	if (wsi->role_ops->adoption_cb[lwsi_role_server(wsi)])
+		n = wsi->role_ops->adoption_cb[lwsi_role_server(wsi)];
+
+	lwsl_notice("%s: vh %s, role %s, protocol %s, cb %d, ah %p\n",
+		    __func__, wsi->vhost->name, role->name, protocol->name, n,
+		    wsi->http.ah);
+
+	if ((wsi->protocol->callback)(wsi, n, wsi->user_space, NULL, 0))
 		return 1;
 
-	lws_role_transition(wsi, 0, LRS_ESTABLISHED, role);
-	lws_header_table_detach(wsi, 1);
-
-	lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
-
-	if (wsi->protocol->callback(wsi, LWS_CALLBACK_RAW_RX, wsi->user_space,
-				    obuf, olen))
+	n = LWS_CALLBACK_RAW_RX;
+	if (wsi->role_ops->rx_cb[lwsi_role_server(wsi)])
+		n = wsi->role_ops->rx_cb[lwsi_role_server(wsi)];
+	if (wsi->protocol->callback(wsi, n, wsi->user_space, obuf, olen))
 		return 1;
 
 	return 0;
@@ -1734,8 +1742,12 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 			 */
 raw_transition:
 
-			if (lws_http_to_fallback(wsi, obuf, olen))
+			if (lws_http_to_fallback(wsi, obuf, olen)) {
+				lwsl_info("%s: fallback -> close\n", __func__);
 				goto bail_nuke_ah;
+			}
+
+			(*buf) = obuf + olen;
 
 			return 0;
 		}
@@ -1969,7 +1981,6 @@ bail_nuke_ah:
 
 	return 1;
 }
-
 
 LWS_VISIBLE int LWS_WARN_UNUSED_RESULT
 lws_http_transaction_completed(struct lws *wsi)

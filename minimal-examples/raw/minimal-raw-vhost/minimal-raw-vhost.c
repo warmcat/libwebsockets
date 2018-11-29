@@ -95,7 +95,7 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 	}
 
-	return 0;
+	return lws_callback_http_dummy(wsi, reason, user, in, len);
 }
 
 static struct lws_protocols protocols[] = {

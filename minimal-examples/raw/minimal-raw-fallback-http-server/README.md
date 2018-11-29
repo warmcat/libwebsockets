@@ -19,7 +19,7 @@ Commandline option|Meaning
 -d <loglevel>|Debug verbosity in decimal, eg, -d15
 -s|Configure the server for tls / https and `LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT`
 -h|(needs -s) Configure the vhost also for `LWS_SERVER_OPTION_ALLOW_HTTP_ON_HTTPS_LISTENER`, allowing http service on tls port (caution... it's insecure then)
--r|(needs -s) Configure the vhost also for `LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS`, so the server issues a redirect to https to clients that attempt to connect to a server configured for tls with http.
+-u|(needs -s) Configure the vhost also for `LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS`, so the server issues a redirect to https to clients that attempt to connect to a server configured for tls with http.
 
 ```
  $ ./lws-minimal-raw-fallback-http-server
@@ -37,5 +37,5 @@ content on an http(s) listening socket.
 |none|served|no tls|echos hello|LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG
 |-s|echos http GET|served|echos hello|LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG, LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT
 |-s -h|served|served|echos hello|LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG, LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT, LWS_SERVER_OPTION_ALLOW_HTTP_ON_HTTPS_LISTENER
-|-s -r|redirected to https|served|echos hello|LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG, LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT, LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS
+|-s -u|redirected to https|served|echos hello|LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG, LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT, LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS
 

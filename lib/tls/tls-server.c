@@ -297,7 +297,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 				 */
 				wsi->tls.ssl = NULL;
 
-				if (lws_check_opt(context->options,
+				if (lws_check_opt(wsi->vhost->options,
 				    LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS)) {
 					lwsl_info("%s: redirecting from http "
 						  "to https\n", __func__);
@@ -305,7 +305,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 					goto notls_accepted;
 				}
 
-				if (lws_check_opt(context->options,
+				if (lws_check_opt(wsi->vhost->options,
 				LWS_SERVER_OPTION_ALLOW_HTTP_ON_HTTPS_LISTENER)) {
 					lwsl_info("%s: allowing unencrypted "
 						  "http service on tls port\n",
@@ -313,7 +313,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 					goto notls_accepted;
 				}
 
-				if (lws_check_opt(context->options,
+				if (lws_check_opt(wsi->vhost->options,
 		    LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG)) {
 					if (lws_http_to_fallback(wsi, NULL, 0))
 						goto fail;
@@ -323,7 +323,8 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 				}
 
 				lwsl_notice("%s: client did not send a valid "
-					    "tls hello\n", __func__);
+					    "tls hello (default vhost %s)\n",
+					    __func__, wsi->vhost->name);
 				goto fail;
 			}
 			if (!n) {
@@ -424,6 +425,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 
 notls_accepted:
 	lwsi_set_state(wsi, LRS_ESTABLISHED);
+
 	return 0;
 
 fail:

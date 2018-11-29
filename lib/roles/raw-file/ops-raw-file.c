@@ -98,6 +98,10 @@ struct lws_role_ops role_ops_raw_file = {
 					NULL,
 #endif
 	/* client_bind */		NULL,
+	/* adoption_cb clnt, srv */	{ LWS_CALLBACK_RAW_ADOPT_FILE,
+					  LWS_CALLBACK_RAW_ADOPT_FILE },
+	/* rx_cb clnt, srv */		{ LWS_CALLBACK_RAW_RX_FILE,
+					  LWS_CALLBACK_RAW_RX_FILE },
 	/* writeable cb clnt, srv */	{ LWS_CALLBACK_RAW_WRITEABLE_FILE, 0 },
 	/* close cb clnt, srv */	{ LWS_CALLBACK_RAW_CLOSE_FILE, 0 },
 	/* protocol_bind cb c, srv */	{ LWS_CALLBACK_RAW_FILE_BIND_PROTOCOL,

@@ -22,8 +22,8 @@
 #include <core/private.h>
 
 static int
-rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
-			   struct lws_pollfd *pollfd)
+rops_handle_POLLIN_raw_proxy(struct lws_context_per_thread *pt, struct lws *wsi,
+			     struct lws_pollfd *pollfd)
 {
 	struct lws_tokens ebuf;
 	int n, buffered;
@@ -71,13 +71,14 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 		case LWS_SSL_CAPABLE_MORE_SERVICE:
 			goto try_pollout;
 		}
-
 		n = user_callback_handle_rxflow(wsi->protocol->callback,
-						wsi, LWS_CALLBACK_RAW_RX,
+						wsi, lwsi_role_client(wsi) ?
+						 LWS_CALLBACK_RAW_PROXY_CLI_RX :
+						 LWS_CALLBACK_RAW_PROXY_SRV_RX,
 						wsi->user_space, ebuf.token,
 						ebuf.len);
 		if (n < 0) {
-			lwsl_info("LWS_CALLBACK_RAW_RX_fail\n");
+			lwsl_info("LWS_CALLBACK_RAW_PROXY_*_RX fail\n");
 			goto fail;
 		}
 
@@ -91,41 +92,18 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 
 try_pollout:
 
-	/* this handles POLLOUT for http serving fragments */
-
 	if (!(pollfd->revents & LWS_POLLOUT))
 		return LWS_HPI_RET_HANDLED;
 
-	/* one shot */
-	if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
-		lwsl_notice("%s a\n", __func__);
-		goto fail;
+	if (lws_handle_POLLOUT_event(wsi, pollfd)) {
+		lwsl_debug("POLLOUT event closed it\n");
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
 
-	/* clear back-to-back write detection */
-	wsi->could_have_pending = 0;
-
-	lws_stats_atomic_bump(wsi->context, pt,
-				LWSSTATS_C_WRITEABLE_CB, 1);
-#if defined(LWS_WITH_STATS)
-	if (wsi->active_writable_req_us) {
-		uint64_t ul = lws_time_in_microseconds() -
-				wsi->active_writable_req_us;
-
-		lws_stats_atomic_bump(wsi->context, pt,
-				LWSSTATS_MS_WRITABLE_DELAY, ul);
-		lws_stats_atomic_max(wsi->context, pt,
-			  LWSSTATS_MS_WORST_WRITABLE_DELAY, ul);
-		wsi->active_writable_req_us = 0;
-	}
+#if !defined(LWS_NO_CLIENT)
+	if (lws_client_socket_service(wsi, pollfd, NULL))
+		return LWS_HPI_RET_WSI_ALREADY_DIED;
 #endif
-	n = user_callback_handle_rxflow(wsi->protocol->callback,
-			wsi, LWS_CALLBACK_RAW_WRITEABLE,
-			wsi->user_space, NULL, 0);
-	if (n < 0) {
-		lwsl_info("writeable_fail\n");
-		goto fail;
-	}
 
 	return LWS_HPI_RET_HANDLED;
 
@@ -135,25 +113,24 @@ fail:
 	return LWS_HPI_RET_WSI_ALREADY_DIED;
 }
 
-#if !defined(LWS_NO_SERVER)
 static int
-rops_adoption_bind_raw_skt(struct lws *wsi, int type, const char *vh_prot_name)
+rops_adoption_bind_raw_proxy(struct lws *wsi, int type,
+			     const char *vh_prot_name)
 {
 	/* no http but socket... must be raw skt */
 	if ((type & LWS_ADOPT_HTTP) || !(type & LWS_ADOPT_SOCKET) ||
-	    (type & _LWS_ADOPT_FINISH))
+	    !(type & LWS_ADOPT_FLAG_RAW_PROXY) || (type & _LWS_ADOPT_FINISH))
 		return 0; /* no match */
 
-#if !defined(LWS_WITH_ESP32)
 	if (type & LWS_ADOPT_FLAG_UDP)
 		/*
 		 * these can be >128 bytes, so just alloc for UDP
 		 */
 		wsi->udp = lws_malloc(sizeof(*wsi->udp), "udp struct");
-#endif
 
-	lws_role_transition(wsi, 0, (type & LWS_ADOPT_ALLOW_SSL) ? LRS_SSL_INIT :
-				LRS_ESTABLISHED, &role_ops_raw_skt);
+	lws_role_transition(wsi, LWSIFR_SERVER, (type & LWS_ADOPT_ALLOW_SSL) ?
+				    LRS_SSL_INIT : LRS_ESTABLISHED,
+			    &role_ops_raw_proxy);
 
 	if (vh_prot_name)
 		lws_bind_protocol(wsi, wsi->protocol, __func__);
@@ -165,12 +142,10 @@ rops_adoption_bind_raw_skt(struct lws *wsi, int type, const char *vh_prot_name)
 
 	return 1; /* bound */
 }
-#endif
 
-#if !defined(LWS_NO_CLIENT)
 static int
-rops_client_bind_raw_skt(struct lws *wsi,
-			 const struct lws_client_connect_info *i)
+rops_client_bind_raw_proxy(struct lws *wsi,
+			   const struct lws_client_connect_info *i)
 {
 	if (!i) {
 
@@ -186,14 +161,25 @@ rops_client_bind_raw_skt(struct lws *wsi,
 	/* we are a fallback if nothing else matched */
 
 	lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED,
-			    &role_ops_raw_skt);
+			    &role_ops_raw_proxy);
 
-	return 1; /* matched */
+	return 1;
 }
-#endif
 
-struct lws_role_ops role_ops_raw_skt = {
-	/* role name */			"raw-skt",
+static int
+rops_handle_POLLOUT_raw_proxy(struct lws *wsi)
+{
+	if (lwsi_state(wsi) == LRS_ESTABLISHED)
+		return LWS_HP_RET_USER_SERVICE;
+
+	if (lwsi_role_client(wsi))
+		return LWS_HP_RET_USER_SERVICE;
+
+	return LWS_HP_RET_BAIL_OK;
+}
+
+struct lws_role_ops role_ops_raw_proxy = {
+	/* role name */			"raw-proxy",
 	/* alpn id */			NULL,
 	/* check_upgrades */		NULL,
 	/* init_context */		NULL,
@@ -201,8 +187,8 @@ struct lws_role_ops role_ops_raw_skt = {
 	/* destroy_vhost */		NULL,
 	/* periodic_checks */		NULL,
 	/* service_flag_pending */	NULL,
-	/* handle_POLLIN */		rops_handle_POLLIN_raw_skt,
-	/* handle_POLLOUT */		NULL,
+	/* handle_POLLIN */		rops_handle_POLLIN_raw_proxy,
+	/* handle_POLLOUT */		rops_handle_POLLOUT_raw_proxy,
 	/* perform_user_POLLOUT */	NULL,
 	/* callback_on_writable */	NULL,
 	/* tx_credit */			NULL,
@@ -213,25 +199,19 @@ struct lws_role_ops role_ops_raw_skt = {
 	/* close_role */		NULL,
 	/* close_kill_connection */	NULL,
 	/* destroy_role */		NULL,
-#if !defined(LWS_NO_SERVER)
-	/* adoption_bind */		rops_adoption_bind_raw_skt,
-#else
-					NULL,
-#endif
-#if !defined(LWS_NO_CLIENT)
-	/* client_bind */		rops_client_bind_raw_skt,
-#else
-					NULL,
-#endif
-	/* adoption_cb clnt, srv */	{ LWS_CALLBACK_RAW_ADOPT,
-					  LWS_CALLBACK_RAW_ADOPT },
-	/* rx_cb clnt, srv */		{ LWS_CALLBACK_RAW_RX,
-					  LWS_CALLBACK_RAW_RX },
-	/* writeable cb clnt, srv */	{ LWS_CALLBACK_RAW_WRITEABLE, 0 },
-	/* close cb clnt, srv */	{ LWS_CALLBACK_RAW_CLOSE, 0 },
-	/* protocol_bind cb c, srv */	{ LWS_CALLBACK_RAW_SKT_BIND_PROTOCOL,
-					  LWS_CALLBACK_RAW_SKT_BIND_PROTOCOL },
-	/* protocol_unbind cb c, srv */	{ LWS_CALLBACK_RAW_SKT_DROP_PROTOCOL,
-					  LWS_CALLBACK_RAW_SKT_DROP_PROTOCOL },
+	/* adoption_bind */		rops_adoption_bind_raw_proxy,
+	/* client_bind */		rops_client_bind_raw_proxy,
+	/* adoption_cb clnt, srv */	{ LWS_CALLBACK_RAW_PROXY_CLI_ADOPT,
+					  LWS_CALLBACK_RAW_PROXY_SRV_ADOPT },
+	/* rx_cb clnt, srv */		{ LWS_CALLBACK_RAW_PROXY_CLI_RX,
+					  LWS_CALLBACK_RAW_PROXY_SRV_RX },
+	/* writeable cb clnt, srv */	{ LWS_CALLBACK_RAW_PROXY_CLI_WRITEABLE,
+					  LWS_CALLBACK_RAW_PROXY_SRV_WRITEABLE, },
+	/* close cb clnt, srv */	{ LWS_CALLBACK_RAW_PROXY_CLI_CLOSE,
+					  LWS_CALLBACK_RAW_PROXY_SRV_CLOSE },
+	/* protocol_bind cb c, srv */	{ LWS_CALLBACK_RAW_PROXY_CLI_BIND_PROTOCOL,
+					  LWS_CALLBACK_RAW_PROXY_SRV_BIND_PROTOCOL },
+	/* protocol_unbind cb c, srv */	{ LWS_CALLBACK_RAW_PROXY_CLI_DROP_PROTOCOL,
+					  LWS_CALLBACK_RAW_PROXY_SRV_DROP_PROTOCOL },
 	/* file_handle */		0,
 };

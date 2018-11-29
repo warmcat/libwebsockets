@@ -7,186 +7,101 @@
 #endif
 
 #define LWS_INSTALL_DATADIR "${CMAKE_INSTALL_PREFIX}/share"
-
-#cmakedefine LWS_ROLE_H1
-#cmakedefine LWS_ROLE_WS
-#cmakedefine LWS_ROLE_RAW
-#cmakedefine LWS_ROLE_H2
-#cmakedefine LWS_ROLE_CGI
-#cmakedefine LWS_ROLE_DBUS
-
-#cmakedefine LWS_WITH_LWSAC
-#cmakedefine LWS_WITH_FTS
-
-/* Define to 1 to use wolfSSL/CyaSSL as a replacement for OpenSSL.
- * LWS_OPENSSL_SUPPORT needs to be set also for this to work. */
-#cmakedefine USE_WOLFSSL
-
-/* Also define to 1 (in addition to USE_WOLFSSL) when using the
-  (older) CyaSSL library */
-#cmakedefine USE_OLD_CYASSL
-#cmakedefine LWS_WITH_BORINGSSL
-
-#cmakedefine LWS_WITH_MBEDTLS
-#cmakedefine LWS_WITH_POLARSSL
-#cmakedefine LWS_WITH_ESP32
-
-#cmakedefine LWS_WITH_PLUGINS
-#cmakedefine LWS_WITH_NO_LOGS
-
-/* The Libwebsocket version */
-#cmakedefine LWS_LIBRARY_VERSION "${LWS_LIBRARY_VERSION}"
-
 #define LWS_LIBRARY_VERSION_MAJOR ${LWS_LIBRARY_VERSION_MAJOR}
 #define LWS_LIBRARY_VERSION_MINOR ${LWS_LIBRARY_VERSION_MINOR}
 #define LWS_LIBRARY_VERSION_PATCH ${LWS_LIBRARY_VERSION_PATCH}
 /* LWS_LIBRARY_VERSION_NUMBER looks like 1005001 for e.g. version 1.5.1 */
-#define LWS_LIBRARY_VERSION_NUMBER (LWS_LIBRARY_VERSION_MAJOR*1000000)+(LWS_LIBRARY_VERSION_MINOR*1000)+LWS_LIBRARY_VERSION_PATCH
-
-/* The current git commit hash that we're building from */
-#cmakedefine LWS_BUILD_HASH "${LWS_BUILD_HASH}"
-
-/* Build with OpenSSL support ... alias of LWS_WITH_TLS for compatibility*/
-#cmakedefine LWS_OPENSSL_SUPPORT
-#cmakedefine LWS_WITH_TLS
-
-/* The client should load and trust CA root certs it finds in the OS */
-#cmakedefine LWS_SSL_CLIENT_USE_OS_CA_CERTS
-
-/* Sets the path where the client certs should be installed. */
-#cmakedefine LWS_OPENSSL_CLIENT_CERTS "${LWS_OPENSSL_CLIENT_CERTS}"
-
-/* Turn off websocket extensions */
-#cmakedefine LWS_WITHOUT_EXTENSIONS
-
-/* notice if client or server gone */
-#cmakedefine LWS_WITHOUT_SERVER
-#cmakedefine LWS_WITHOUT_CLIENT
-
-#cmakedefine LWS_WITH_POLL
-
-/* Enable libev io loop */
-#cmakedefine LWS_WITH_LIBEV
-
-/* Enable libuv io loop */
-#cmakedefine LWS_WITH_LIBUV
-
-/* Enable libevent io loop */
-#cmakedefine LWS_WITH_LIBEVENT
-
-/* Build with support for ipv6 */
-#cmakedefine LWS_WITH_IPV6
-
-/* Build with support for UNIX domain socket */
-#cmakedefine LWS_WITH_UNIX_SOCK
-
-/* Build with support for HTTP2 */
-#cmakedefine LWS_WITH_HTTP2
-
-/* Turn on latency measuring code */
-#cmakedefine LWS_LATENCY
-
-/* Don't build the daemonizeation api */
-#cmakedefine LWS_NO_DAEMONIZE
-
-/* Build without server support */
-#cmakedefine LWS_NO_SERVER
-
-/* Build without client support */
-#cmakedefine LWS_NO_CLIENT
-
-/* If we should compile with MinGW support */
-#cmakedefine LWS_MINGW_SUPPORT
-
-/* Use the BSD getifaddrs that comes with libwebsocket, for uclibc support */
-#cmakedefine LWS_BUILTIN_GETIFADDRS
-
-/* use SHA1() not internal libwebsockets_SHA1 */
-#cmakedefine LWS_SHA1_USE_OPENSSL_NAME
-
-/* SSL server using ECDH certificate */
-#cmakedefine LWS_SSL_SERVER_WITH_ECDH_CERT
-#cmakedefine LWS_HAVE_SSL_CTX_set1_param
-#cmakedefine LWS_HAVE_X509_VERIFY_PARAM_set1_host
-#cmakedefine LWS_HAVE_RSA_SET0_KEY
-#cmakedefine LWS_HAVE_X509_get_key_usage
-#cmakedefine LWS_HAVE_SSL_CTX_get0_certificate
-#cmakedefine LWS_HAVE_SSL_CTX_set_ciphersuites
-
-#cmakedefine LWS_HAVE_UV_VERSION_H
-#cmakedefine LWS_HAVE_NEW_UV_VERSION_H
-#cmakedefine LWS_HAVE_PTHREAD_H
-
-/* CGI apis */
-#cmakedefine LWS_WITH_CGI
-
-/* whether the Openssl is recent enough, and / or built with, ecdh */
-#cmakedefine LWS_HAVE_OPENSSL_ECDH_H
-
-/* HTTP Proxy support */
-#cmakedefine LWS_WITH_HTTP_PROXY
-
-/* HTTP Ranges support */
-#cmakedefine LWS_WITH_RANGES
-
-/* Http access log support */
-#cmakedefine LWS_WITH_ACCESS_LOG
-#cmakedefine LWS_WITH_SERVER_STATUS
-
-#cmakedefine LWS_WITH_STATEFUL_URLDECODE
-#cmakedefine LWS_WITH_PEER_LIMITS
-
-/* Maximum supported service threads */
+#define LWS_LIBRARY_VERSION_NUMBER (LWS_LIBRARY_VERSION_MAJOR * 1000000) + \
+					(LWS_LIBRARY_VERSION_MINOR * 1000) + \
+					LWS_LIBRARY_VERSION_PATCH
 #define LWS_MAX_SMP ${LWS_MAX_SMP}
 
-/* Lightweight JSON Parser */
-#cmakedefine LWS_WITH_LEJP
-
-/* SMTP */
-#cmakedefine LWS_WITH_SMTP
-
-/* OPTEE */
-#cmakedefine LWS_PLAT_OPTEE
-
-/* ZIP FOPS */
-#cmakedefine LWS_WITH_ZIP_FOPS
-#cmakedefine LWS_HAVE_STDINT_H
-
 #cmakedefine LWS_AVOID_SIGPIPE_IGN
-
+#cmakedefine LWS_BUILD_HASH "${LWS_BUILD_HASH}"
+#cmakedefine LWS_BUILTIN_GETIFADDRS
 #cmakedefine LWS_FALLBACK_GETHOSTBYNAME
-
-#cmakedefine LWS_WITH_STATS
-#cmakedefine LWS_WITH_SOCKS5
-
-#cmakedefine LWS_HAVE_SYS_CAPABILITY_H
-#cmakedefine LWS_HAVE_LIBCAP
-
-#cmakedefine LWS_HAVE_ATOLL
+#cmakedefine LWS_HAS_INTPTR_T
 #cmakedefine LWS_HAVE__ATOI64
-#cmakedefine LWS_HAVE__STAT32I64
-
-#cmakedefine LWS_WITH_JWS
-#cmakedefine LWS_WITH_ACME
-#cmakedefine LWS_WITH_SELFTESTS
-
+#cmakedefine LWS_HAVE_ATOLL
+#cmakedefine LWS_HAVE_LIBCAP
 #cmakedefine LWS_HAVE_MALLOC_H
-
+#cmakedefine LWS_HAVE_NEW_UV_VERSION_H
+#cmakedefine LWS_HAVE_OPENSSL_ECDH_H
 #cmakedefine LWS_HAVE_PIPE2
-
-/* OpenSSL various APIs */
-
-#cmakedefine LWS_HAVE_TLS_CLIENT_METHOD
-#cmakedefine LWS_HAVE_TLSV1_2_CLIENT_METHOD
-#cmakedefine LWS_HAVE_SSL_SET_INFO_CALLBACK
+#cmakedefine LWS_HAVE_PTHREAD_H
+#cmakedefine LWS_HAVE_RSA_SET0_KEY
+#cmakedefine LWS_HAVE_SSL_CTX_get0_certificate
+#cmakedefine LWS_HAVE_SSL_CTX_set1_param
+#cmakedefine LWS_HAVE_SSL_CTX_set_ciphersuites
 #cmakedefine LWS_HAVE_SSL_EXTRA_CHAIN_CERTS
 #cmakedefine LWS_HAVE_SSL_get0_alpn_selected
 #cmakedefine LWS_HAVE_SSL_set_alpn_protos
-
-#cmakedefine LWS_HAS_INTPTR_T
-
-#cmakedefine LWS_WITH_HTTP_STREAM_COMPRESSION
+#cmakedefine LWS_HAVE_SSL_SET_INFO_CALLBACK
+#cmakedefine LWS_HAVE__STAT32I64
+#cmakedefine LWS_HAVE_STDINT_H
+#cmakedefine LWS_HAVE_SYS_CAPABILITY_H
+#cmakedefine LWS_HAVE_TLS_CLIENT_METHOD
+#cmakedefine LWS_HAVE_TLSV1_2_CLIENT_METHOD
+#cmakedefine LWS_HAVE_UV_VERSION_H
+#cmakedefine LWS_HAVE_X509_get_key_usage
+#cmakedefine LWS_HAVE_X509_VERIFY_PARAM_set1_host
+#cmakedefine LWS_LATENCY
+#cmakedefine LWS_LIBRARY_VERSION "${LWS_LIBRARY_VERSION}"
+#cmakedefine LWS_MINGW_SUPPORT
+#cmakedefine LWS_NO_CLIENT
+#cmakedefine LWS_NO_DAEMONIZE
+#cmakedefine LWS_NO_SERVER
+#cmakedefine LWS_OPENSSL_CLIENT_CERTS "${LWS_OPENSSL_CLIENT_CERTS}"
+#cmakedefine LWS_OPENSSL_SUPPORT
+#cmakedefine LWS_PLAT_OPTEE
+#cmakedefine LWS_ROLE_CGI
+#cmakedefine LWS_ROLE_DBUS
+#cmakedefine LWS_ROLE_H1
+#cmakedefine LWS_ROLE_H2
+#cmakedefine LWS_ROLE_RAW
+#cmakedefine LWS_ROLE_RAW_PROXY
+#cmakedefine LWS_ROLE_WS
+#cmakedefine LWS_SHA1_USE_OPENSSL_NAME
+#cmakedefine LWS_SSL_CLIENT_USE_OS_CA_CERTS
+#cmakedefine LWS_SSL_SERVER_WITH_ECDH_CERT
+#cmakedefine LWS_WITH_ACCESS_LOG
+#cmakedefine LWS_WITH_ACME
+#cmakedefine LWS_WITH_BORINGSSL
+#cmakedefine LWS_WITH_CGI
+#cmakedefine LWS_WITH_ESP32
+#cmakedefine LWS_WITH_FTS
+#cmakedefine LWS_WITH_HTTP2
 #cmakedefine LWS_WITH_HTTP_BROTLI
+#cmakedefine LWS_WITH_HTTP_PROXY
+#cmakedefine LWS_WITH_HTTP_STREAM_COMPRESSION
+#cmakedefine LWS_WITH_IPV6
+#cmakedefine LWS_WITH_JWS
+#cmakedefine LWS_WITH_LEJP
+#cmakedefine LWS_WITH_LIBEV
+#cmakedefine LWS_WITH_LIBEVENT
+#cmakedefine LWS_WITH_LIBUV
+#cmakedefine LWS_WITH_LWSAC
+#cmakedefine LWS_WITH_MBEDTLS
+#cmakedefine LWS_WITH_NO_LOGS
+#cmakedefine LWS_WITHOUT_CLIENT
+#cmakedefine LWS_WITHOUT_EXTENSIONS
+#cmakedefine LWS_WITHOUT_SERVER
+#cmakedefine LWS_WITH_PEER_LIMITS
+#cmakedefine LWS_WITH_PLUGINS
+#cmakedefine LWS_WITH_POLARSSL
+#cmakedefine LWS_WITH_POLL
+#cmakedefine LWS_WITH_RANGES
+#cmakedefine LWS_WITH_SELFTESTS
+#cmakedefine LWS_WITH_SERVER_STATUS
+#cmakedefine LWS_WITH_SMTP
+#cmakedefine LWS_WITH_SOCKS5
+#cmakedefine LWS_WITH_STATEFUL_URLDECODE
+#cmakedefine LWS_WITH_STATS
 #cmakedefine LWS_WITH_THREADPOOL
+#cmakedefine LWS_WITH_TLS
+#cmakedefine LWS_WITH_UNIX_SOCK
+#cmakedefine LWS_WITH_ZIP_FOPS
+#cmakedefine USE_OLD_CYASSL
+#cmakedefine USE_WOLFSSL
 
 ${LWS_SIZEOFPTR_CODE}

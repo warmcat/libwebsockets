@@ -44,7 +44,7 @@ lws_client_connect_2(struct lws *wsi)
 	const char *ads;
 	sockaddr46 sa46;
 	const struct sockaddr *psa;
-	int n, port = 0;
+	int n, m, port = 0, rawish = 0;
 	const char *cce = "", *iface;
 	const char *meth = NULL;
 #ifdef LWS_WITH_IPV6
@@ -57,10 +57,8 @@ lws_client_connect_2(struct lws *wsi)
 #endif
 #endif
 
-	lwsl_client("%s: %p\n", __func__, wsi);
-
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-	if (!wsi->http.ah) {
+	if (!wsi->http.ah && !wsi->stash) {
 		cce = "ah was NULL at cc2";
 		lwsl_err("%s\n", cce);
 		goto oom4;
@@ -68,7 +66,14 @@ lws_client_connect_2(struct lws *wsi)
 
 	/* we can only piggyback GET or POST */
 
-	meth = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD);
+	if (wsi->stash)
+		meth = wsi->stash->method;
+	else
+		meth = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD);
+
+	if (meth && !strcmp(meth, "RAW"))
+		rawish = 1;
+
 	if (meth && strcmp(meth, "GET") && strcmp(meth, "POST"))
 		goto create_new_conn;
 
@@ -165,10 +170,15 @@ create_new_conn:
 	 * want to use it too
 	 */
 
-	if (!wsi->client_hostname_copy)
-		wsi->client_hostname_copy =
-			lws_strdup(lws_hdr_simple_ptr(wsi,
+	if (!wsi->client_hostname_copy) {
+		if (wsi->stash)
+			wsi->client_hostname_copy = lws_strdup(
+					wsi->stash->host);
+		else
+			wsi->client_hostname_copy =
+				lws_strdup(lws_hdr_simple_ptr(wsi,
 					_WSI_TOKEN_CLIENT_PEER_ADDRESS));
+	}
 
 	/*
 	 * If we made our own connection, and we're doing a method that can take
@@ -192,7 +202,10 @@ create_new_conn:
 	 * unix socket destination?
 	 */
 
-	ads = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS);
+	if (wsi->stash)
+		ads = wsi->stash->address;
+	else
+		ads = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS);
 #if defined(LWS_WITH_UNIX_SOCK)
 	if (*ads == '+') {
 		ads++;
@@ -226,8 +239,7 @@ create_new_conn:
 		plen = sprintf((char *)pt->serv_buf,
 			"CONNECT %s:%u HTTP/1.0\x0d\x0a"
 			"User-agent: libwebsockets\x0d\x0a",
-			lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS),
-			wsi->c_port);
+			ads, wsi->c_port);
 
 		if (wsi->vhost->proxy_basic_auth_token[0])
 			plen += sprintf((char *)pt->serv_buf + plen,
@@ -255,7 +267,7 @@ create_new_conn:
 
 		/* Priority 3: Connect directly */
 
-		ads = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS);
+		/* ads already set */
 		port = wsi->c_port;
 	}
 
@@ -264,7 +276,7 @@ create_new_conn:
 	 * to whatever we decided to connect to
 	 */
 
-       lwsl_info("%s: %p: address %s\n", __func__, wsi, ads);
+       lwsl_info("%s: %p: address %s:%u\n", __func__, wsi, ads, port);
 
        n = lws_getaddrinfo46(wsi, ads, &result);
 
@@ -448,7 +460,10 @@ ads_known:
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CONNECT_RESPONSE,
 				AWAITING_TIMEOUT);
 
-		iface = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_IFACE);
+		if (wsi->stash)
+			iface = wsi->stash->iface;
+		else
+			iface = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_IFACE);
 
 		if (iface) {
 			n = lws_socket_bind(wsi->vhost, wsi->desc.sockfd, 0,
@@ -532,7 +547,15 @@ ads_known:
 		 * (will overwrite existing pointer,
 		 * leaving old string/frag there but unreferenced)
 		 */
-		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS,
+		if (wsi->stash) {
+			lws_free(wsi->stash->address);
+			wsi->stash->address =
+				lws_strdup(wsi->vhost->http.http_proxy_address);
+			if (!wsi->stash->address)
+				goto failed;
+		} else
+			if (lws_hdr_simple_create(wsi,
+					_WSI_TOKEN_CLIENT_PEER_ADDRESS,
 					  wsi->vhost->http.http_proxy_address))
 			goto failed;
 		wsi->c_port = wsi->vhost->http.http_proxy_port;
@@ -564,7 +587,7 @@ ads_known:
 			goto failed;
 		}
 
-		lws_set_timeout(wsi,
+		lws_out(wsi,
 				PENDING_TIMEOUT_AWAITING_SOCKS_GREETING_REPLY,
 				AWAITING_TIMEOUT);
 
@@ -603,7 +626,33 @@ send_hs:
 			    __func__, wsi);
 
 		/* we are making our own connection */
-		lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE);
+		if (!rawish)
+			lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE);
+		else {
+			/* for a method = "RAW" connection, this makes us
+			 * established */
+
+			/* clear his established timeout */
+			lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+
+			m = wsi->role_ops->adoption_cb[0];
+			if (m) {
+				n = user_callback_handle_rxflow(
+						wsi->protocol->callback, wsi,
+						m, wsi->user_space, NULL, 0);
+				if (n < 0) {
+					lwsl_info("LWS_CALLBACK_RAW_PROXY_CLI_ADOPT failed\n");
+					goto failed;
+				}
+			}
+
+			/* service.c pollout processing wants this */
+			wsi->hdr_parsing_completed = 1;
+
+			lwsi_set_state(wsi, LRS_ESTABLISHED);
+
+			return wsi;
+		}
 
 		/*
 		 * provoke service to issue the handshake directly.
@@ -925,10 +974,15 @@ lws_http_client_connect_via_info2(struct lws *wsi)
 {
 	struct client_info_stash *stash = wsi->stash;
 
+	lwsl_debug("%s: %p (stash %p)\n", __func__, wsi, stash);
+
 	if (!stash)
 		return wsi;
 
 	wsi->opaque_user_data = wsi->stash->opaque_user_data;
+
+	if (stash->method && !strcmp(stash->method, "RAW"))
+		goto no_ah;
 
 	/*
 	 * we're not necessarily in a position to action these right away,
@@ -975,6 +1029,7 @@ lws_http_client_connect_via_info2(struct lws *wsi)
 		lws_client_stash_destroy(wsi);
 #endif
 
+no_ah:
 	wsi->context->count_wsi_allocated++;
 
 	return lws_client_connect_2(wsi);

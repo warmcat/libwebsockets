@@ -106,7 +106,7 @@ __lws_header_table_reset(struct lws *wsi, int autoservice)
 
 	/* while we hold the ah, keep a timeout on the wsi */
 	__lws_set_timeout(wsi, PENDING_TIMEOUT_HOLDING_AH,
-			wsi->vhost->timeout_secs_ah_idle);
+			  wsi->vhost->timeout_secs_ah_idle);
 
 	time(&ah->assigned);
 
@@ -196,6 +196,12 @@ lws_header_table_attach(struct lws *wsi, int autoservice)
 	lwsl_info("%s: wsi %p: ah %p (tsi %d, count = %d) in\n", __func__,
 		  (void *)wsi, (void *)wsi->http.ah, wsi->tsi,
 		  pt->http.ah_count_in_use);
+
+	if (!lwsi_role_http(wsi)) {
+		lwsl_err("%s: bad role %s\n", __func__, wsi->role_ops->name);
+		assert(0);
+		return -1;
+	}
 
 	lws_pt_lock(pt, __func__);
 

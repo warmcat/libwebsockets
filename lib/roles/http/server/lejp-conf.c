@@ -817,6 +817,8 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 			LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG);
 		return 0;
 	case LEJPVP_FLAG_FALLBACK_LISTEN_ACCEPT:
+		lwsl_notice("vh %s: LEJPVP_FLAG_FALLBACK_LISTEN_ACCEPT: %s\n",
+			    a->info->vhost_name, ctx->buf);
 		set_reset_flag(&a->info->options, ctx->buf,
 		      LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG);
 		return 0;

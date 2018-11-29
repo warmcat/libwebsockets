@@ -185,12 +185,8 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 	 * itself by default protocols[0]
 	 */
 	n = LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED;
-	if (!(type & LWS_ADOPT_HTTP)) {
-		if (!(type & LWS_ADOPT_SOCKET))
-			n = LWS_CALLBACK_RAW_ADOPT_FILE;
-		else
-			n = LWS_CALLBACK_RAW_ADOPT;
-	}
+	if (new_wsi->role_ops->adoption_cb[lwsi_role_server(new_wsi)])
+		n = new_wsi->role_ops->adoption_cb[lwsi_role_server(new_wsi)];
 
 	lwsl_debug("new wsi wsistate 0x%x\n", new_wsi->wsistate);
 

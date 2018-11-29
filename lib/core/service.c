@@ -56,7 +56,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	volatile struct lws *vwsi = (volatile struct lws *)wsi;
 	int n;
 
-	//lwsl_notice("%s: %p\n", __func__, wsi);
+	// lwsl_notice("%s: %p\n", __func__, wsi);
 
 	vwsi->leave_pollout_active = 0;
 	vwsi->handling_pollout = 1;
@@ -177,11 +177,9 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 		vwsi->leave_pollout_active = 0;
 	}
 
-	if (lwsi_role_client(wsi) &&
-	    !wsi->hdr_parsing_completed &&
+	if (lwsi_role_client(wsi) && !wsi->hdr_parsing_completed &&
 	     lwsi_state(wsi) != LRS_H2_WAITING_TO_SEND_HEADERS &&
-	     lwsi_state(wsi) != LRS_ISSUE_HTTP_BODY
-	     )
+	     lwsi_state(wsi) != LRS_ISSUE_HTTP_BODY)
 		goto bail_ok;
 
 

@@ -583,7 +583,6 @@ struct lws_context_creation_info {
 	 * "TLS_CHACHA20_POLY1305_SHA256") or you can leave it as NULL to get
 	 * "DEFAULT".
 	 */
-
 	const char *listen_accept_role;
 	/**< VHOST: NULL for default, or force accepted incoming connections to
 	 * bind to this role.  Uses the role names from their ops struct, eg,

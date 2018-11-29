@@ -26,7 +26,7 @@
 
 int close_testing;
 int max_poll_elements;
-int debug_level = 7;
+int debug_level = LLL_USER | 7;
 
 #ifdef EXTERNAL_POLL
 struct lws_pollfd *pollfds;

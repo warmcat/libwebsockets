@@ -145,6 +145,7 @@ INPUT                  = include/libwebsockets.h \
 			 ./READMEs/README.ci.md \
 			 ./READMEs/README.content-security-policy.md \
 			 ./READMEs/README.contributing.md \
+			 ./READMEs/README.http-fallback.md \
 			 ./READMEs/README.release-policy.md \
 			 ./READMEs/README.unix-domain-reverse-proxy.md \
 			 ./READMEs/README.vulnerability-reporting.md \

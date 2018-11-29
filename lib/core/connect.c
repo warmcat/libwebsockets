@@ -271,6 +271,9 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 					     i->uri_replace_to);
 #endif
 
+	if (i->method && !strcmp(i->method, "RAW"))
+		lws_http_client_connect_via_info2(wsi);
+
 	return wsi;
 
 bail1:

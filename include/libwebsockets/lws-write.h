@@ -257,7 +257,7 @@ lws_write_ws_flags(int initial, int is_start, int is_end)
  * `return lws_raw_transaction_completed(wsi)` should better be used than
  * return -1.
  */
-LWS_VISIBLE int LWS_WARN_UNUSED_RESULT
+LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_raw_transaction_completed(struct lws *wsi);
 
 ///@}

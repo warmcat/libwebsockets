@@ -38,6 +38,9 @@ const struct lws_role_ops *available_roles[] = {
 #if defined(LWS_ROLE_DBUS)
 	&role_ops_dbus,
 #endif
+#if defined(LWS_ROLE_RAW_PROXY)
+	&role_ops_raw_proxy,
+#endif
 	NULL
 };
 
@@ -110,6 +113,8 @@ lws_role_call_alpn_negotiated(struct lws *wsi, const char *alpn)
 int
 lws_role_call_adoption_bind(struct lws *wsi, int type, const char *prot)
 {
+	int n;
+
 	/*
 	 * if the vhost is told to bind accepted sockets to a given role,
 	 * then look it up by name and try to bind to the specific role.
@@ -120,11 +125,31 @@ lws_role_call_adoption_bind(struct lws *wsi, int type, const char *prot)
 		const struct lws_role_ops *role =
 			lws_role_by_name(wsi->vhost->listen_accept_role);
 
-		if (role && role->adoption_bind(wsi, type, prot))
-			return 0;
+		if (!prot)
+			prot = wsi->vhost->listen_accept_protocol;
 
-		lwsl_warn("%s: adoption bind to role %s failed", __func__,
-			  wsi->vhost->listen_accept_role);
+		if (!role)
+			lwsl_err("%s: can't find role '%s'\n", __func__,
+				  wsi->vhost->listen_accept_role);
+
+		if (role && role->adoption_bind) {
+			n = role->adoption_bind(wsi, type, prot);
+			if (n < 0)
+				return -1;
+			if (n) /* did the bind */
+				return 0;
+		}
+
+		if (type & _LWS_ADOPT_FINISH) {
+			lwsl_debug("%s: leaving bound to role %s\n", __func__,
+				   wsi->role_ops->name);
+			return 0;
+		}
+
+
+		lwsl_warn("%s: adoption bind to role '%s', "
+			  "protocol '%s', type 0x%x, failed\n", __func__,
+			  wsi->vhost->listen_accept_role, prot, type);
 	}
 
 	/*
