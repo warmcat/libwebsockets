@@ -2367,6 +2367,18 @@ lws_set_opaque_parent_data(struct lws *wsi, void *data)
 	wsi->opaque_parent_data = data;
 }
 
+LWS_VISIBLE LWS_EXTERN void *
+lws_get_opaque_user_data(const struct lws *wsi)
+{
+	return wsi->opaque_user_data;
+}
+
+LWS_VISIBLE LWS_EXTERN void
+lws_set_opaque_user_data(struct lws *wsi, void *data)
+{
+	wsi->opaque_user_data = data;
+}
+
 LWS_VISIBLE LWS_EXTERN int
 lws_get_child_pending_on_writable(const struct lws *wsi)
 {

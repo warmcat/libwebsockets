@@ -189,6 +189,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	wsi->stash->address = lws_strdup(i->address);
 	wsi->stash->path = lws_strdup(i->path);
 	wsi->stash->host = lws_strdup(i->host);
+	wsi->stash->opaque_user_data = i->opaque_user_data;
 
 	if (!wsi->stash->address || !wsi->stash->path || !wsi->stash->host)
 		goto bail1;

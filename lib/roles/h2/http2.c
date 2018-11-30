@@ -1267,6 +1267,8 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			h2n->swsi->user_space = wsi->user_space;
 			h2n->swsi->user_space_externally_allocated =
 					wsi->user_space_externally_allocated;
+			h2n->swsi->opaque_user_data = wsi->opaque_user_data;
+			wsi->opaque_user_data = NULL;
 
 			wsi->user_space = NULL;
 

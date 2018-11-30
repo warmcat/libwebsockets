@@ -831,6 +831,7 @@ struct client_info_stash {
 	char *method;
 	char *iface;
 	char *alpn;
+	void *opaque_user_data; /* not allocated or freed by lws */
 };
 #endif
 
@@ -915,6 +916,7 @@ struct lws {
 #endif
 	void *user_space;
 	void *opaque_parent_data;
+	void *opaque_user_data;
 
 	struct lws_buflist *buflist;		/* input-side buflist */
 	struct lws_buflist *buflist_out;	/* output-side buflist */

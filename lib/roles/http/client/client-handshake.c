@@ -928,6 +928,8 @@ lws_http_client_connect_via_info2(struct lws *wsi)
 	if (!stash)
 		return wsi;
 
+	wsi->opaque_user_data = wsi->stash->opaque_user_data;
+
 	/*
 	 * we're not necessarily in a position to action these right away,
 	 * stash them... we only need during connect phase so into a temp

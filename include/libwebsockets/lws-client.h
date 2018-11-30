@@ -119,6 +119,11 @@ struct lws_client_connect_info {
 	 *           tokens
 	 */
 
+	void *opaque_user_data;
+	/**< This data has no meaning to lws but is applied to the client wsi
+	 *   and can be retrieved by user code with lws_get_opaque_user_data()
+	 */
+
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
 	 *
