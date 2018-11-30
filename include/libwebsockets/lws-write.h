@@ -123,6 +123,7 @@ struct lws_write_passthru {
 
 /**
  * lws_write() - Apply protocol then write data to client
+ *
  * \param wsi:	Websocket instance (available from user callback)
  * \param buf:	The data to send.  For data being sent on a websocket
  *		connection (ie, not default http), this buffer MUST have
@@ -216,7 +217,17 @@ lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 #define lws_write_http(wsi, buf, len) \
 	lws_write(wsi, (unsigned char *)(buf), len, LWS_WRITE_HTTP)
 
-/* helper for multi-frame ws message flags */
+/**
+ * lws_write_ws_flags() - Helper for multi-frame ws message flags
+ *
+ * \param initial: the lws_write flag to use for the start fragment, eg,
+ *		   LWS_WRITE_TEXT
+ * \param is_start: nonzero if this is the first fragment of the message
+ * \param is_end: nonzero if this is the last fragment of the message
+ *
+ * Returns the correct LWS_WRITE_ flag to use for each fragment of a message
+ * in turn.
+ */
 static LWS_INLINE int
 lws_write_ws_flags(int initial, int is_start, int is_end)
 {
@@ -232,4 +243,21 @@ lws_write_ws_flags(int initial, int is_start, int is_end)
 
 	return r;
 }
+
+/**
+ * lws_raw_transaction_completed() - Helper for flushing before close
+ *
+ * \param wsi: the struct lws to operate on
+ *
+ * Returns -1 if the wsi can close now.  However if there is buffered, unsent
+ * data, the wsi is marked as to be closed when the output buffer data is
+ * drained, and it returns 0.
+ *
+ * For raw cases where the transaction completed without failure,
+ * `return lws_raw_transaction_completed(wsi)` should better be used than
+ * return -1.
+ */
+LWS_VISIBLE int LWS_WARN_UNUSED_RESULT
+lws_raw_transaction_completed(struct lws *wsi);
+
 ///@}

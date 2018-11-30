@@ -150,6 +150,11 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 				return -1; /* retry closing now */
 			}
 
+			if (wsi->close_when_buffered_out_drained) {
+				wsi->close_when_buffered_out_drained = 0;
+				return -1;
+			}
+
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 #if !defined(LWS_WITHOUT_SERVER)
 			if (wsi->http.deferred_transaction_completed) {

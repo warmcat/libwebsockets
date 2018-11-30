@@ -1437,6 +1437,29 @@ lws_get_network_wsi(struct lws *wsi)
 	return wsi;
 }
 
+
+LWS_VISIBLE int LWS_WARN_UNUSED_RESULT
+lws_raw_transaction_completed(struct lws *wsi)
+{
+	if (lws_has_buffered_out(wsi)) {
+		/*
+		 * ...so he tried to send something large, but it went out
+		 * as a partial, but he immediately called us to say he wants
+		 * to close the connection.
+		 *
+		 * Defer the close until the last part of the partial is sent.
+		 *
+		 */
+		lwsl_debug("%s: %p: deferring due to partial\n", __func__, wsi);
+		wsi->close_when_buffered_out_drained = 1;
+		lws_callback_on_writable(wsi);
+
+		return 0;
+	}
+
+	return -1;
+}
+
 LWS_VISIBLE LWS_EXTERN const struct lws_protocols *
 lws_vhost_name_to_protocol(struct lws_vhost *vh, const char *name)
 {
