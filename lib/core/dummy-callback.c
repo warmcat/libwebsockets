@@ -155,7 +155,9 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 						   LWS_WRITE_HTTP_FINAL);
 
 			/* always close after sending it */
-			return -1;
+			if (lws_http_transaction_completed(wsi))
+				return -1;
+			return 0;
 		}
 #endif
 #if defined(LWS_WITH_HTTP_PROXY)
@@ -459,10 +461,12 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			lwsl_debug("LWS_CALLBACK_CGI_TERMINATED: ending\n");
 			wsi->reason_bf |= LWS_CB_REASON_AUX_BF__CGI_CHUNK_END;
 			lws_callback_on_writable(wsi);
-			lws_set_timeout(wsi, PENDING_TIMEOUT_CGI, 3);
+			lws_set_timeout(wsi, PENDING_TIMEOUT_CGI, 10);
 			break;
 		}
-		return -1;
+		if (lws_http_transaction_completed(wsi))
+			return -1;
+		return 0;
 
 	case LWS_CALLBACK_CGI_STDIN_DATA:  /* POST body for stdin */
 		args = (struct lws_cgi_args *)in;
