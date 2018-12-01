@@ -1552,7 +1552,7 @@ deal_body:
 						(uint8_t **)&ebuf.token);
 				if (!ebuf.len)
 					break;
-				lwsl_notice("%s: consuming %d\n", __func__,
+				lwsl_debug("%s: consuming %d\n", __func__,
 							(int)ebuf.len);
 				m = lws_read_h1(wsi, (uint8_t *)ebuf.token,
 						ebuf.len);

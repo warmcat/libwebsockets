@@ -390,7 +390,7 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
-		lwsac_reference(vhd->lwsac_head);
+		lwsac_free(&vhd->lwsac_head);
 		break;
 
 	/* WS-related */
@@ -405,7 +405,8 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 		m = lws_hdr_copy(wsi, pss->user, sizeof(pss->user),
 				 WSI_TOKEN_HTTP_AUTHORIZATION);
 		if (m > 0)
-			lwsl_info("basic auth user: %s\n", pss->user);
+			lwsl_info("%s: basic auth user: %s\n",
+				  __func__, pss->user);
 		else
 			pss->user[0] = '\0';
 
@@ -440,7 +441,8 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 
 			if ((int)strlen(pss->user) != n ||
 			    memcmp(pss->user, ((const char *)in) + 8, n)) {
-				lwsl_notice("%s: del: auth mismatch '%s' '%s' (%d)\n",
+				lwsl_notice("%s: del: auth mismatch "
+					    " '%s' '%s' (%d)\n",
 					    __func__, pss->user,
 					    ((const char *)in) + 8, n);
 				break;
@@ -497,7 +499,10 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!pss->dire) {
 			p += lws_snprintf((char *)p, lws_ptr_diff(end, p),
 					  "]}");
-			lwsac_unreference(&pss->lwsac_head);
+			if (pss->lwsac_head) {
+				lwsac_unreference(&pss->lwsac_head);
+				pss->lwsac_head = NULL;
+			}
 		}
 
 		n = lws_write(wsi, start, lws_ptr_diff(p, start),
@@ -516,7 +521,7 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 		/* ie, we finished */
 
 		if (pss->filelist_version != pss->vhd->filelist_version) {
-			lwsl_notice("restart send\n");
+			lwsl_info("%s: restart send\n", __func__);
 			/* what we just sent is already out of date */
 			start_sending_dir(pss);
 			lws_callback_on_writable(wsi);
