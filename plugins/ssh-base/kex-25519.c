@@ -534,7 +534,7 @@ kex_ecdh(struct per_session_data__sshd *pss, uint8_t *reply, uint32_t *plen)
 			    kbi, kbi_len, temp, 'B' + (c * 2), pss->session_id);
 	}
 
-	explicit_bzero(temp, sizeof(temp));
+	lws_explicit_bzero(temp, sizeof(temp));
 
 	return 0;
 

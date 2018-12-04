@@ -43,7 +43,7 @@ static const char * const jwk_tok[] = {
 	"keys[]",			/* dummy */
 	"e", "n", "d", "p", "q", "dp", "dq", "qi", /* RSA */
 	"kty",				/* generic */
-	"k",				/* symmetric oct key data */
+	"k",				/* symmetric key data */
 	"crv", "x", "y",		/* EC (also "D") */
 	"kid",				/* generic */
 	"use"				/* mutually exclusive with "key_ops" */,

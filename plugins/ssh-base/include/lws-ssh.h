@@ -559,9 +559,6 @@ lws_g32(uint8_t **p);
 extern uint32_t
 lws_p32(uint8_t *p, uint32_t v);
 
-extern void
-explicit_bzero(void *p, size_t len);
-
 extern int
 lws_timingsafe_bcmp(const void *a, const void *b, uint32_t len);
 

@@ -1437,6 +1437,15 @@ lws_get_network_wsi(struct lws *wsi)
 	return wsi;
 }
 
+LWS_VISIBLE void
+lws_explicit_bzero(void *p, size_t len)
+{
+	volatile uint8_t *vp = p;
+
+	while (len--)
+		*vp++ = 0;
+}
+
 
 LWS_VISIBLE int LWS_WARN_UNUSED_RESULT
 lws_raw_transaction_completed(struct lws *wsi)
