@@ -715,6 +715,9 @@ LWS_VISIBLE LWS_EXTERN SSL*
 lws_get_ssl(struct lws *wsi);
 #endif
 
+LWS_VISIBLE LWS_EXTERN void
+lws_explicit_bzero(void *p, size_t len);
+
 /** \defgroup smtp SMTP related functions
  * ##SMTP related functions
  * \ingroup lwsapi

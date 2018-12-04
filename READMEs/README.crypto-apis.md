@@ -23,8 +23,26 @@ All the necessary includes are part of `libwebsockets.h`.
 |---|---|---|---|
 |genhash|`LWS_WITH_GENHASH`|[./include/libwebsockets/lws-genhash.h](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-genhash.h)|Provides SHA1 + SHA2 hashes and hmac|
 |genrsa|`LWS_WITH_GENRSA`|[./include/libwebsockets/lws-genrsa.h](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-genrsa.h)|Provides RSA encryption, decryption, signing, verification, key generation and creation|
+|genaes|`LWS_WITH_GENAES`|[./include/libwebsockets/lws-genaes.h](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-genaes.h)|Provides AES in all common variants for encryption and decryption|
 
 Unit tests for these apis, which serve as usage examples, can be found in [./minimal-examples/api-tests/api-test-gencrypto](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/api-tests/api-test-gencrypto)
+
+### Keys in the generic layer
+
+The necessary types and defines are brought in by `libwebsockets.h`.
+
+Keys are represented only by an array of `struct lws_jwk_elements`... the
+length of the array is defined by the cipher... it's one of
+
+|key elements count|definition|
+|---|---|
+|`LWS_COUNT_OCT_KEY_ELEMENTS`|1|
+|`LWS_COUNT_RSA_KEY_ELEMENTS`|8|
+|`LWS_COUNT_EC_KEY_ELEMENTS`|4|
+|`LWS_COUNT_AES_KEY_ELEMENTS`|1|
+
+`struct lws_jwk_elements` is a simple pointer / length combination used to
+store arbitrary octets that make up the key element's binary representation.
 
 ## Using the JOSE layer
 
@@ -37,4 +55,20 @@ All the necessary includes are part of `libwebsockets.h`.
 |JWK|`LWS_WITH_JWS`|[./include/libwebsockets/jwk.h](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-jwk.h)|Provides signature and verifcation services for RFC7517 JWK JSON, both "keys" arrays and singletons|
 
 Unit tests for these apis, which serve as usage examples, can be found in [./minimal-examples/api-tests/api-test-jose](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/api-tests/api-test-jose)
+
+### Keys in the JOSE layer
+
+Keys in the JOSE layer use a `struct lws_jwk`, this contains two arrays of
+`struct lws_jwk_elements` sized for the worst case (currently RSA).  One
+array contains the key elements as described for the generic case, and the
+other contains various key metadata taken from JWK JSON.
+
+|metadata index|function|
+|---|---|
+|`JWK_META_KTY`|Key type, eg, "EC"|
+|`JWK_META_KID`|Arbitrary ID string|
+|`JWK_META_USE`|What the public key may be used to validate, "enc" or "sig"|
+|`JWK_META_KEY_OPS`|Which operations the key is authorized for, eg, "encrypt"|
+|`JWK_META_X5C`|Optional X.509 cert version of the key|
+|`JWK_META_ALG`|Optional overall crypto algorithm the key is intended for use with|
 

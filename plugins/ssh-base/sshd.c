@@ -86,16 +86,6 @@ lws_buf(uint8_t **p, void *s, uint32_t len)
 	return 0;
 }
 
-
-void
-explicit_bzero(void *p, size_t len)
-{
-	volatile uint8_t *vp = p;
-
-	while (len--)
-		*vp++ = 0;
-}
-
 int
 lws_timingsafe_bcmp(const void *a, const void *b, uint32_t len)
 {
@@ -402,7 +392,7 @@ lws_kex_destroy(struct per_session_data__sshd *pss)
 		pss->kex->I_S = NULL;
 	}
 
-	explicit_bzero(pss->kex, sizeof(*pss->kex));
+	lws_explicit_bzero(pss->kex, sizeof(*pss->kex));
 	free(pss->kex);
 	pss->kex = NULL;
 }
@@ -436,11 +426,11 @@ lws_ua_destroy(struct per_session_data__sshd *pss)
 	if (pss->ua->pubkey)
 		ssh_free(pss->ua->pubkey);
 	if (pss->ua->sig) {
-		explicit_bzero(pss->ua->sig, pss->ua->sig_len);
+		lws_explicit_bzero(pss->ua->sig, pss->ua->sig_len);
 		ssh_free(pss->ua->sig);
 	}
 
-	explicit_bzero(pss->ua, sizeof(*pss->ua));
+	lws_explicit_bzero(pss->ua, sizeof(*pss->ua));
 	free(pss->ua);
 	pss->ua = NULL;
 }

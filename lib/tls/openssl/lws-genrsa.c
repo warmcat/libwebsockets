@@ -18,16 +18,19 @@
  *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
  *  MA  02110-1301  USA
  *
- *  lws_genhash provides a hash / hmac abstraction api in lws that works the
+ *  lws_genrsa provides an RSA abstraction api in lws that works the
  *  same whether you are using openssl or mbedtls hash functions underneath.
  */
 #include "core/private.h"
-#include "../../jose/private.h"
 
 LWS_VISIBLE void
 lws_jwk_destroy_genrsa_elements(struct lws_jwk_elements *el)
 {
-	lws_jwk_destroy_elements(el, LWS_COUNT_RSA_KEY_ELEMENTS);
+	int n;
+
+	for (n = 0; n < LWS_COUNT_RSA_KEY_ELEMENTS; n++)
+		if (el[n].buf)
+			lws_free_set_NULL(el[n].buf);
 }
 
 LWS_VISIBLE int

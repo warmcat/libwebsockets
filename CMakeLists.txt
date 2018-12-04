@@ -109,6 +109,7 @@ option(LWS_WITH_JWS "JSON Web Signature (RFC7515) API" OFF)
 option(LWS_WITH_JWE "JSON Web Encryption (RFC7516) API" OFF)
 option(LWS_WITH_GENHASH "Enable support for Generic Hash (SHA1 + SHA2 with api independent of TLS backend)" OFF)
 option(LWS_WITH_GENRSA "Enable support for Generic RSA (RSA with api independent of TLS backend)" OFF)
+option(LWS_WITH_GENAES "Enable support for Generic AES (AES with api independent of TLS backend)" OFF)
 option(LWS_WITH_GENEC "Enable support for Generic EC (EC with api independent of TLS backend)" OFF)
 option(LWS_WITH_SELFTESTS "Selftests run at context creation" OFF)
 option(LWS_WITH_GCOV "Build with gcc gcov coverage instrumentation" OFF)
@@ -1031,6 +1032,11 @@ if (LWS_WITH_SSL)
 					lib/tls/mbedtls/lws-genrsa.c
 				)
 			endif()
+			if (LWS_WITH_GENAES)
+				list(APPEND SOURCES
+					lib/tls/mbedtls/lws-genaes.c
+				)
+			endif()
 			if (LWS_WITH_GENEC)
 				list(APPEND SOURCES
 					lib/tls/mbedtls/lws-genec.c
@@ -1048,6 +1054,11 @@ if (LWS_WITH_SSL)
 			if (LWS_WITH_GENRSA)
 				list(APPEND SOURCES
 					lib/tls/openssl/lws-genrsa.c
+				)
+			endif()
+			if (LWS_WITH_GENAES)
+				list(APPEND SOURCES
+					lib/tls/openssl/lws-genaes.c
 				)
 			endif()
 			if (LWS_WITH_GENEC)

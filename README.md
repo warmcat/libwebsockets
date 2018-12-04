@@ -18,6 +18,12 @@ News
 
 ## New features on master
 
+ - **lws-genaes Generic AES crypto** - thin api layer works identically with both mbedtls and openssl
+   backends.  Supports CBC, CFB128, CFB8, CTR, ECB, OFB, XTS and GCM variants.  Unit tests in CI.
+   [genaes api](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-genaes.h),
+   [api test](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/api-tests/api-test-gencrypto),
+   CMake config: `-DLWS_WITH_GENAES=1`
+
  - **http fallback support** - you can specify a role and protocol to apply if non-http or non-tls
    packets arrive at an http(s) listen port.  For example, you can specify that the new `raw proxy`
    role + protocol should be used, to proxy your sshd port over :443 or :80.  Without affecting

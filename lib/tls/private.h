@@ -50,11 +50,15 @@
   #undef MBEDTLS_CONFIG_FILE
   #define MBEDTLS_CONFIG_FILE <mbedtls/esp_config.h>
   #include <mbedtls/ssl.h>
+  #include <mbedtls/aes.h>
+  #include <mbedtls/gcm.h>
   #include <mbedtls/x509_crt.h>
   #include "tls/mbedtls/wrapper/include/openssl/ssl.h" /* wrapper !!!! */
  #else /* not esp32 */
   #if defined(LWS_WITH_MBEDTLS)
    #include <mbedtls/ssl.h>
+   #include <mbedtls/aes.h>
+   #include <mbedtls/gcm.h>
    #include <mbedtls/x509_crt.h>
    #include <mbedtls/x509_csr.h>
    #include "tls/mbedtls/wrapper/include/openssl/ssl.h" /* wrapper !!!! */
@@ -66,6 +70,7 @@
    #include <openssl/sha.h>
    #include <openssl/rsa.h>
    #include <openssl/bn.h>
+   #include <openssl/aes.h>
    #ifdef LWS_HAVE_OPENSSL_ECDH_H
     #include <openssl/ecdh.h>
    #endif

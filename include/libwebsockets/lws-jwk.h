@@ -71,10 +71,16 @@ enum enum_jwk_rsa_tok {
 enum enum_jwk_ec_tok {
 	JWK_EC_KEYEL_CRV,
 	JWK_EC_KEYEL_X,
-	JWK_EC_KEYEL_D, /* note... same offset as RSA D */
+	JWK_EC_KEYEL_D = JWK_RSA_KEYEL_D, /* note... same offset as RSA D */
 	JWK_EC_KEYEL_Y,
 
 	LWS_COUNT_EC_KEY_ELEMENTS
+};
+
+enum enum_jwk_aes_tok {
+	JWK_EC_KEYEL_K = JWK_OCT_KEYEL_K,
+
+	LWS_COUNT_AES_KEY_ELEMENTS
 };
 
 enum enum_jwk_meta_tok {

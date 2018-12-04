@@ -345,9 +345,9 @@ chachapoly_crypt(struct lws_ssh_keys *keys, u_int seqnr, u_char *dest,
         }
         r = 0;
  out:
-        explicit_bzero(expected_tag, sizeof(expected_tag));
-        explicit_bzero(seqbuf, sizeof(seqbuf));
-        explicit_bzero(poly_key, sizeof(poly_key));
+        lws_explicit_bzero(expected_tag, sizeof(expected_tag));
+        lws_explicit_bzero(seqbuf, sizeof(seqbuf));
+        lws_explicit_bzero(poly_key, sizeof(poly_key));
         return r;
 }
 
