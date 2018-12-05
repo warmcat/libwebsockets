@@ -18,7 +18,9 @@ News
 
 ## New features on master
 
- - **`lws_genrsa` OAEP + PSS support** - in addition to PKCS#1 1.5 padding, OAEP and PSS are
+ - **`lws-genec` ECDH + ECDSA** - Work in progress
+
+ - **`lws-genrsa` OAEP + PSS support** - in addition to PKCS#1 1.5 padding, OAEP and PSS are
    now supported on both mbedtls and openssl backends.
 
  - **`lws-genaes` Generic AES crypto** - thin api layer works identically with both mbedtls and openssl

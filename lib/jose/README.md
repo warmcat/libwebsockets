@@ -20,8 +20,21 @@ useful implementations of JWS, JWE and JWK.
 
 ## Supported algorithms
 
-Symmetric ciphers are not currently supported... symmetric keys and HMAC
-are supported though.
+### Supported keys
+
+ - All RFC7517 / JWK forms: octet, RSA and EC
+
+ - singleton and keys[] arrays of keys supported
+
+### Symmetric ciphers
+
+ - All common AES varaiants: CBC, CFB128, CFB8, CTR, EVB, OFB and XTS
+
+### Asymmetric ciphers
+
+ - RSA
+
+ - EC (P-256, P-384 and P521 JWA curves)
 
 For the required and recommended asymmetric algorithms, support currently
 looks like this

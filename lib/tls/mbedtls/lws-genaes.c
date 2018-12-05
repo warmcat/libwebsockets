@@ -28,7 +28,7 @@ static int operation_map[] = { MBEDTLS_AES_ENCRYPT, MBEDTLS_AES_DECRYPT };
 
 LWS_VISIBLE int
 lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
-		  enum enum_aes_modes mode, struct lws_jwk_elements *el,
+		  enum enum_aes_modes mode, struct lws_gencrypto_keyelem *el,
 		  int padding, void *engine)
 {
 	int n;

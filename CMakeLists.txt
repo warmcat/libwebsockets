@@ -162,6 +162,8 @@ if(LWS_WITH_DISTRO_RECOMMENDED)
 	set(LWS_WITH_GENHASH 1)
 	set(LWS_WITH_GENRSA 1)
 	set(LWS_WITH_GENEC 1)
+	set(LWS_WITH_JWS 1)
+	set(LWS_WITH_JWE 1)
 endif()
 
 # do you care about this?  Then send me a patch where it disables it on travis
@@ -299,6 +301,7 @@ if (LWS_WITH_ACME)
  set (LWS_WITHOUT_CLIENT 0)
  set (LWS_WITHOUT_SERVER 0)
  set (LWS_WITH_JWS 1)
+ set (LWS_WITH_JWE 1)
 endif()
 
 if (LWS_WITH_JWE)
@@ -1039,7 +1042,13 @@ if (LWS_WITH_SSL)
 			endif()
 			if (LWS_WITH_GENEC)
 				list(APPEND SOURCES
+					lib/tls/lws-genec-common.c
 					lib/tls/mbedtls/lws-genec.c
+				)
+			endif()
+			if (LWS_WITH_GENEC OR LWS_WITH_GENRSA)
+				list(APPEND SOURCES
+					lib/tls/mbedtls/lws-gencrypto.c
 				)
 			endif()
 		else()
@@ -1063,7 +1072,13 @@ if (LWS_WITH_SSL)
 			endif()
 			if (LWS_WITH_GENEC)
 				list(APPEND SOURCES
+					lib/tls/lws-genec-common.c
 					lib/tls/openssl/lws-genec.c
+				)
+			endif()
+			if (LWS_WITH_GENEC OR LWS_WITH_GENRSA)
+				list(APPEND SOURCES
+					lib/tls/openssl/lws-gencrypto.c
 				)
 			endif()
 		endif()
@@ -1230,6 +1245,11 @@ endif()
 if (LWS_WITH_JWE)
 	list(APPEND SOURCES
 		lib/jose/jwe/jwe.c)
+endif()
+
+if (LWS_WITH_JWE OR LWS_WITH_JWS OR LWS_WITH_GENHASH)
+	list(APPEND SOURCES
+		lib/tls/lws-gencrypto-common.c)
 endif()
 
 # Add helper files for Windows.
@@ -1664,6 +1684,7 @@ CHECK_FUNCTION_EXISTS(SSL_set_alpn_protos LWS_HAVE_SSL_set_alpn_protos)
 CHECK_FUNCTION_EXISTS(SSL_CTX_set_ciphersuites LWS_HAVE_SSL_CTX_set_ciphersuites)
 if (LWS_WITH_SSL AND NOT LWS_WITH_MBEDTLS)
 CHECK_SYMBOL_EXISTS(SSL_CTX_get_extra_chain_certs_only openssl/ssl.h LWS_HAVE_SSL_EXTRA_CHAIN_CERTS)
+CHECK_FUNCTION_EXISTS(EVP_MD_CTX_free LWS_HAVE_EVP_MD_CTX_free)
 endif()
 if (LWS_WITH_MBEDTLS)
 	set(LWS_HAVE_TLS_CLIENT_METHOD 1)

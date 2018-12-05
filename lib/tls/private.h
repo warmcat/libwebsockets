@@ -61,6 +61,8 @@
    #include <mbedtls/gcm.h>
    #include <mbedtls/x509_crt.h>
    #include <mbedtls/x509_csr.h>
+   #include <mbedtls/ecp.h>
+   #include <mbedtls/ecdsa.h>
    #include "tls/mbedtls/wrapper/include/openssl/ssl.h" /* wrapper !!!! */
   #else
    #include <openssl/ssl.h>
@@ -73,6 +75,9 @@
    #include <openssl/aes.h>
    #ifdef LWS_HAVE_OPENSSL_ECDH_H
     #include <openssl/ecdh.h>
+   #endif
+   #if !defined(LWS_HAVE_EVP_MD_CTX_free)
+    #define EVP_MD_CTX_free EVP_MD_CTX_destroy
    #endif
    #include <openssl/x509v3.h>
   #endif /* not mbedtls */
@@ -287,5 +292,19 @@ lws_ssl_info_callback(const lws_tls_conn *ssl, int where, int ret);
 
 int
 lws_tls_fake_POLLIN_for_buffered(struct lws_context_per_thread *pt);
+
+
+/* genec */
+
+struct lws_gencrypto_keyelem;
+struct lws_ec_curves;
+
+LWS_EXTERN const struct lws_ec_curves lws_ec_curves[];
+const struct lws_ec_curves *
+lws_genec_curve(const struct lws_ec_curves *table, const char *name);
+LWS_VISIBLE void
+lws_genec_destroy_elements(struct lws_gencrypto_keyelem *el);
+int
+lws_gencrypto_mbedtls_rngf(void *context, unsigned char *buf, size_t len);
 
 #endif

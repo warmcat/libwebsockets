@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2018 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2018 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -21,67 +21,19 @@
  * included from libwebsockets.h
  */
 
-
 /*! \defgroup jwk JSON Web Keys
  * ## JSON Web Keys API
  *
- * Lws provides an API to parse JSON Web Keys into a struct lws_jwk_elements.
+ * Lws provides an API to parse JSON Web Keys into a struct lws_gencrypto_keyelem.
  *
  * "oct" and "RSA" type keys are supported.  For "oct" keys, they are held in
- * the "e" member of the struct lws_jwk_elements.
+ * the "e" member of the struct lws_gencrypto_keyelem.
  *
  * Keys elements are allocated on the heap.  You must destroy the allocations
- * in the struct lws_jwk_elements by calling
- * lws_jwk_destroy_genrsa_elements() when you are finished with it.
+ * in the struct lws_gencrypto_keyelem by calling
+ * lws_genrsa_destroy_elements() when you are finished with it.
  */
 ///@{
-
-enum lws_jwk_kyt {
-	LWS_JWK_KYT_UNKNOWN,
-	LWS_JWK_KYT_OCT,
-	LWS_JWK_KYT_RSA,
-	LWS_JWK_KYT_EC
-};
-
-/*
- * Keytypes where the same element name is reused must all agree to put the
- * same-named element at the same e[] index.  It's because we may not know the
- * keytype until the end.
- */
-
-enum enum_jwk_oct_tok {
-	JWK_OCT_KEYEL_K,
-
-	LWS_COUNT_OCT_KEY_ELEMENTS
-};
-
-enum enum_jwk_rsa_tok {
-	JWK_RSA_KEYEL_E,
-	JWK_RSA_KEYEL_N,
-	JWK_RSA_KEYEL_D, /* note... same offset as EC D */
-	JWK_RSA_KEYEL_P,
-	JWK_RSA_KEYEL_Q,
-	JWK_RSA_KEYEL_DP,
-	JWK_RSA_KEYEL_DQ,
-	JWK_RSA_KEYEL_QI,
-
-	LWS_COUNT_RSA_KEY_ELEMENTS
-};
-
-enum enum_jwk_ec_tok {
-	JWK_EC_KEYEL_CRV,
-	JWK_EC_KEYEL_X,
-	JWK_EC_KEYEL_D = JWK_RSA_KEYEL_D, /* note... same offset as RSA D */
-	JWK_EC_KEYEL_Y,
-
-	LWS_COUNT_EC_KEY_ELEMENTS
-};
-
-enum enum_jwk_aes_tok {
-	JWK_EC_KEYEL_K = JWK_OCT_KEYEL_K,
-
-	LWS_COUNT_AES_KEY_ELEMENTS
-};
 
 enum enum_jwk_meta_tok {
 	JWK_META_KTY,
@@ -94,19 +46,11 @@ enum enum_jwk_meta_tok {
 	LWS_COUNT_JWK_ELEMENTS
 };
 
-/* largest number of key elements for any algorithm */
-#define LWS_COUNT_ALG_KEY_ELEMENTS_MAX LWS_COUNT_RSA_KEY_ELEMENTS
-
-struct lws_jwk_elements {
-	uint8_t *buf;
-	uint16_t len;
-};
-
 struct lws_jwk {
 	/* key data elements */
-	struct lws_jwk_elements e[LWS_COUNT_ALG_KEY_ELEMENTS_MAX];
+	struct lws_gencrypto_keyelem e[LWS_GENCRYPTO_MAX_KEYEL_COUNT];
 	/* generic meta key elements, like KID */
-	struct lws_jwk_elements meta[LWS_COUNT_JWK_ELEMENTS];
+	struct lws_gencrypto_keyelem meta[LWS_COUNT_JWK_ELEMENTS];
 	int kty;			/**< one of LWS_JWK_ */
 };
 
@@ -180,7 +124,7 @@ lws_jwk_export(struct lws_jwk *s, int _private, char *p, size_t len);
  * turn while it return 0 (nonzero return from the callback terminates the
  * iteration through any further keys, leaving the last one in s).
  */
-LWS_VISIBLE int
+LWS_VISIBLE LWS_EXTERN int
 lws_jwk_load(struct lws_jwk *s, const char *filename,
 	     lws_jwk_key_import_callback cb, void *user);
 
@@ -191,7 +135,7 @@ lws_jwk_load(struct lws_jwk *s, const char *filename,
  *
  * Returns 0 for OK or -1 for failure
  */
-LWS_VISIBLE int
+LWS_VISIBLE LWS_EXTERN int
 lws_jwk_save(struct lws_jwk *s, const char *filename);
 
 /** lws_jwk_rfc7638_fingerprint() - jwk to RFC7638 compliant fingerprint
@@ -201,6 +145,9 @@ lws_jwk_save(struct lws_jwk *s, const char *filename);
  *
  * Returns 0 for OK or -1 for failure
  */
-LWS_VISIBLE int
+LWS_VISIBLE LWS_EXTERN int
 lws_jwk_rfc7638_fingerprint(struct lws_jwk *s, char *digest32);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_jwk_dump(struct lws_jwk *s);
 ///@}

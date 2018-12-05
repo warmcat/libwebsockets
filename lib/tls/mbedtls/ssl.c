@@ -23,7 +23,7 @@
 #include <mbedtls/oid.h>
 
 void
-lws_ssl_elaborate_error(void)
+lws_tls_err_describe(void)
 {
 }
 

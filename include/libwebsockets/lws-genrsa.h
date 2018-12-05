@@ -45,7 +45,7 @@ struct lws_genrsa_ctx {
 #if defined(LWS_WITH_MBEDTLS)
 	mbedtls_rsa_context *ctx;
 #else
-	BIGNUM *bn[LWS_COUNT_RSA_KEY_ELEMENTS];
+	BIGNUM *bn[LWS_GENCRYPTO_RSA_KEYEL_COUNT];
 	EVP_PKEY_CTX *ctx;
 	RSA *rsa;
 #endif
@@ -53,11 +53,11 @@ struct lws_genrsa_ctx {
 	enum enum_genrsa_mode mode;
 };
 
-/** lws_jwk_destroy_genrsa_elements() - Free allocations in genrsa_elements
+/** lws_genrsa_destroy_elements() - Free allocations in genrsa_elements
  *
- * \param el: your struct lws_jwk_elements
+ * \param el: your struct lws_gencrypto_keyelem
  *
- * This is a helper for user code making use of struct lws_jwk_elements
+ * This is a helper for user code making use of struct lws_gencrypto_keyelem
  * where the elements are allocated on the heap, it frees any non-NULL
  * buf element and sets the buf to NULL.
  *
@@ -65,7 +65,7 @@ struct lws_genrsa_ctx {
  * creation and destruction themselves.
  */
 LWS_VISIBLE LWS_EXTERN void
-lws_jwk_destroy_genrsa_elements(struct lws_jwk_elements *el);
+lws_genrsa_destroy_elements(struct lws_gencrypto_keyelem *el);
 
 /** lws_genrsa_public_decrypt_create() - Create RSA public decrypt context
  *
@@ -85,7 +85,7 @@ lws_jwk_destroy_genrsa_elements(struct lws_jwk_elements *el);
  * This and related APIs operate identically with OpenSSL or mbedTLS backends.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_jwk_elements *el,
+lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_gencrypto_keyelem *el,
 		  struct lws_context *context, enum enum_genrsa_mode mode);
 
 /** lws_genrsa_new_keypair() - Create new RSA keypair
@@ -108,7 +108,7 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_jwk_elements *el,
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
-		       enum enum_genrsa_mode mode, struct lws_jwk_elements *el,
+		       enum enum_genrsa_mode mode, struct lws_gencrypto_keyelem *el,
 		       int bits);
 
 /** lws_genrsa_public_encrypt() - Perform RSA public encryption
@@ -146,39 +146,48 @@ LWS_VISIBLE LWS_EXTERN int
 lws_genrsa_public_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			  size_t in_len, uint8_t *out, size_t out_max);
 
-/** lws_genrsa_public_verify() - Perform RSA public verification
+/** lws_genrsa_hash_sig_verify() - Verifies RSA signature on a given hash
  *
  * \param ctx: your struct lws_genrsa_ctx
- * \param in: unencrypted payload (usually a recomputed hash)
+ * \param in: input to be hashed
  * \param hash_type: one of LWS_GENHASH_TYPE_
  * \param sig: pointer to the signature we received with the payload
  * \param sig_len: length of the signature we are checking in bytes
  *
  * Returns <0 for error, or 0 if signature matches the payload + key.
  *
+ * This just looks at a hash... that's why there's no input length
+ * parameter, it's decided by the choice of hash.   It's up to you to confirm
+ * separately the actual payload matches the hash that was confirmed by this to
+ * be validly signed.
+ *
  * This and related APIs operate identically with OpenSSL or mbedTLS backends.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_genrsa_public_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
-			 enum lws_genhash_types hash_type,
-			 const uint8_t *sig, size_t sig_len);
+lws_genrsa_hash_sig_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
+			   enum lws_genhash_types hash_type,
+			   const uint8_t *sig, size_t sig_len);
 
-/** lws_genrsa_public_sign() - Create RSA signature
+/** lws_genrsa_hash_sign() - Creates an ECDSA signature for a hash you provide
  *
  * \param ctx: your struct lws_genrsa_ctx
- * \param in: precomputed hash
+ * \param in: input to be hashed and signed
  * \param hash_type: one of LWS_GENHASH_TYPE_
  * \param sig: pointer to buffer to take signature
  * \param sig_len: length of the buffer (must be >= length of key N)
  *
  * Returns <0 for error, or 0 for success.
  *
+ * This creates an RSA signature for a hash you already computed and provide.
+ * You should have created the hash before calling this by iterating over the
+ * actual payload you need to confirm.
+ *
  * This and related APIs operate identically with OpenSSL or mbedTLS backends.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_genrsa_public_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
-		       enum lws_genhash_types hash_type, uint8_t *sig,
-		       size_t sig_len);
+lws_genrsa_hash_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
+		     enum lws_genhash_types hash_type,
+		     uint8_t *sig, size_t sig_len);
 
 /** lws_genrsa_public_decrypt_destroy() - Destroy RSA public decrypt context
  *

@@ -19,16 +19,17 @@
  *  MA  02110-1301  USA
  *
  *  lws_genrsa provides an RSA abstraction api in lws that works the
- *  same whether you are using openssl or mbedtls hash functions underneath.
+ *  same whether you are using openssl or mbedtls crypto functions underneath.
  */
 #include "core/private.h"
+#include "tls/openssl/private.h"
 
 LWS_VISIBLE void
-lws_jwk_destroy_genrsa_elements(struct lws_jwk_elements *el)
+lws_genrsa_destroy_elements(struct lws_gencrypto_keyelem *el)
 {
 	int n;
 
-	for (n = 0; n < LWS_COUNT_RSA_KEY_ELEMENTS; n++)
+	for (n = 0; n < LWS_GENCRYPTO_RSA_KEYEL_COUNT; n++)
 		if (el[n].buf)
 			lws_free_set_NULL(el[n].buf);
 }
@@ -72,7 +73,7 @@ bail:
 }
 
 LWS_VISIBLE int
-lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_jwk_elements *el,
+lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_gencrypto_keyelem *el,
 		  struct lws_context *context, enum enum_genrsa_mode mode)
 {
 	int n;
@@ -106,20 +107,20 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_jwk_elements *el,
 	}
 
 #if defined(LWS_HAVE_RSA_SET0_KEY)
-	if (RSA_set0_key(ctx->rsa, ctx->bn[JWK_RSA_KEYEL_N],
-			 ctx->bn[JWK_RSA_KEYEL_E],
-			 ctx->bn[JWK_RSA_KEYEL_D]) != 1) {
+	if (RSA_set0_key(ctx->rsa, ctx->bn[LWS_GENCRYPTO_RSA_KEYEL_N],
+			 ctx->bn[LWS_GENCRYPTO_RSA_KEYEL_E],
+			 ctx->bn[LWS_GENCRYPTO_RSA_KEYEL_D]) != 1) {
 		lwsl_notice("RSA_set0_key failed\n");
 		goto bail;
 	}
-	RSA_set0_factors(ctx->rsa, ctx->bn[JWK_RSA_KEYEL_P],
-				   ctx->bn[JWK_RSA_KEYEL_Q]);
+	RSA_set0_factors(ctx->rsa, ctx->bn[LWS_GENCRYPTO_RSA_KEYEL_P],
+				   ctx->bn[LWS_GENCRYPTO_RSA_KEYEL_Q]);
 #else
-	ctx->rsa->e = ctx->bn[JWK_RSA_KEYEL_E];
-	ctx->rsa->n = ctx->bn[JWK_RSA_KEYEL_N];
-	ctx->rsa->d = ctx->bn[JWK_RSA_KEYEL_D];
-	ctx->rsa->p = ctx->bn[JWK_RSA_KEYEL_P];
-	ctx->rsa->q = ctx->bn[JWK_RSA_KEYEL_Q];
+	ctx->rsa->e = ctx->bn[LWS_GENCRYPTO_RSA_KEYEL_E];
+	ctx->rsa->n = ctx->bn[LWS_GENCRYPTO_RSA_KEYEL_N];
+	ctx->rsa->d = ctx->bn[LWS_GENCRYPTO_RSA_KEYEL_D];
+	ctx->rsa->p = ctx->bn[LWS_GENCRYPTO_RSA_KEYEL_P];
+	ctx->rsa->q = ctx->bn[LWS_GENCRYPTO_RSA_KEYEL_Q];
 #endif
 
 	if (!rsa_pkey_wrap(ctx, ctx->rsa))
@@ -142,7 +143,7 @@ bail:
 
 LWS_VISIBLE int
 lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
-		       enum enum_genrsa_mode mode, struct lws_jwk_elements *el,
+		       enum enum_genrsa_mode mode, struct lws_gencrypto_keyelem *el,
 		       int bits)
 {
 	BIGNUM *bn;
@@ -175,10 +176,10 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 	{
 		const BIGNUM *mpi[5];
 
-		RSA_get0_key(ctx->rsa, &mpi[JWK_RSA_KEYEL_N],
-			     &mpi[JWK_RSA_KEYEL_E], &mpi[JWK_RSA_KEYEL_D]);
-		RSA_get0_factors(ctx->rsa, &mpi[JWK_RSA_KEYEL_P],
-				 &mpi[JWK_RSA_KEYEL_Q]);
+		RSA_get0_key(ctx->rsa, &mpi[LWS_GENCRYPTO_RSA_KEYEL_N],
+			     &mpi[LWS_GENCRYPTO_RSA_KEYEL_E], &mpi[LWS_GENCRYPTO_RSA_KEYEL_D]);
+		RSA_get0_factors(ctx->rsa, &mpi[LWS_GENCRYPTO_RSA_KEYEL_P],
+				 &mpi[LWS_GENCRYPTO_RSA_KEYEL_Q]);
 #else
 	{
 		BIGNUM *mpi[5] = { ctx->rsa->n, ctx->rsa->e, ctx->rsa->d,
@@ -199,7 +200,7 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 		return 0;
 
 cleanup:
-	for (n = 0; n < LWS_COUNT_RSA_KEY_ELEMENTS; n++)
+	for (n = 0; n < LWS_GENCRYPTO_RSA_KEYEL_COUNT; n++)
 		if (el[n].buf)
 			lws_free_set_NULL(el[n].buf);
 cleanup_1:
@@ -241,59 +242,12 @@ lws_genrsa_public_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	return 0;
 }
 
-static int
-lws_genrsa_genrsa_hash_to_NID(enum lws_genhash_types hash_type)
-{
-	int h = -1;
-
-	switch (hash_type) {
-	case LWS_GENHASH_TYPE_SHA1:
-		h = NID_sha1;
-		break;
-	case LWS_GENHASH_TYPE_SHA256:
-		h = NID_sha256;
-		break;
-	case LWS_GENHASH_TYPE_SHA384:
-		h = NID_sha384;
-		break;
-	case LWS_GENHASH_TYPE_SHA512:
-		h = NID_sha512;
-		break;
-	}
-
-	return h;
-}
-
-static const EVP_MD *
-lws_genrsa_genrsa_hash_to_EVP_MD(enum lws_genhash_types hash_type)
-{
-	const EVP_MD *h = NULL;
-
-	switch (hash_type) {
-	case LWS_GENHASH_TYPE_SHA1:
-		h = EVP_sha1();
-		break;
-	case LWS_GENHASH_TYPE_SHA256:
-		h = EVP_sha256();
-		break;
-	case LWS_GENHASH_TYPE_SHA384:
-		h = EVP_sha384();
-		break;
-	case LWS_GENHASH_TYPE_SHA512:
-		h = EVP_sha512();
-		break;
-	}
-
-	return h;
-}
-
-
 LWS_VISIBLE int
-lws_genrsa_public_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
+lws_genrsa_hash_sig_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			 enum lws_genhash_types hash_type, const uint8_t *sig,
 			 size_t sig_len)
 {
-	int n = lws_genrsa_genrsa_hash_to_NID(hash_type),
+	int n = lws_gencrypto_openssl_hash_to_NID(hash_type),
 	    h = (int)lws_genhash_size(hash_type);
 	const EVP_MD *md = NULL;
 
@@ -305,7 +259,7 @@ lws_genrsa_public_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 		n = RSA_verify(n, in, h, (uint8_t *)sig, (int)sig_len, ctx->rsa);
 		break;
 	case LGRSAM_PKCS1_OAEP_PSS:
-		md = lws_genrsa_genrsa_hash_to_EVP_MD(hash_type);
+		md = lws_gencrypto_openssl_hash_to_EVP_MD(hash_type);
 		if (!md)
 			return -1;
 
@@ -326,11 +280,11 @@ lws_genrsa_public_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 }
 
 LWS_VISIBLE int
-lws_genrsa_public_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
+lws_genrsa_hash_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 		       enum lws_genhash_types hash_type, uint8_t *sig,
 		       size_t sig_len)
 {
-	int n = lws_genrsa_genrsa_hash_to_NID(hash_type),
+	int n = lws_gencrypto_openssl_hash_to_NID(hash_type),
 	    h = (int)lws_genhash_size(hash_type);
 	unsigned int used = 0;
 	EVP_MD_CTX *mdctx = NULL;
@@ -350,7 +304,7 @@ lws_genrsa_public_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 
 	case LGRSAM_PKCS1_OAEP_PSS:
 
-		md = lws_genrsa_genrsa_hash_to_EVP_MD(hash_type);
+		md = lws_gencrypto_openssl_hash_to_EVP_MD(hash_type);
 		if (!md)
 			return -1;
 
@@ -381,6 +335,8 @@ lws_genrsa_public_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 
 			goto bail;
 		}
+		EVP_MD_CTX_free(mdctx);
+		used = (int)sig_len;
 		break;
 
 	default:

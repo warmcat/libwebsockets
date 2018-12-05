@@ -177,7 +177,7 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, int ebuf_len)
 		"server's cert didn't look good, X509_V_ERR = %d: %s\n",
 		 n, ERR_error_string(n, sb));
 	lwsl_info("%s\n", ebuf);
-	lws_ssl_elaborate_error();
+	lws_tls_err_describe();
 
 	return -1;
 }

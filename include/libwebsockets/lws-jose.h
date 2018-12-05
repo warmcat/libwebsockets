@@ -51,21 +51,45 @@ enum lws_jws_jose_hdr_indexes {
 
 struct lws_jose {
 	/* jose header elements */
-	struct lws_jwk_elements e[LWS_COUNT_JOSE_HDR_ELEMENTS];
+	struct lws_gencrypto_keyelem e[LWS_COUNT_JOSE_HDR_ELEMENTS];
 };
 
-enum lws_jws_algtype {
-	LWS_JWK_ENCTYPE_NONE,
-	LWS_JWK_ENCTYPE_RSASSA,
-	LWS_JWK_ENCTYPE_EC
+enum lws_jose_algtype {
+	LWS_JOSE_ENCTYPE_NONE,
+
+	LWS_JOSE_ENCTYPE_RSASSA_PKCS1_1_5,
+	LWS_JOSE_ENCTYPE_RSASSA_PKCS1_OAEP,
+	LWS_JOSE_ENCTYPE_RSASSA_PKCS1_PSS,
+
+	LWS_JOSE_ENCTYPE_ECDSA,
+
+	LWS_JOSE_ENCTYPE_AES_CBC,
+	LWS_JOSE_ENCTYPE_AES_CFB128,
+	LWS_JOSE_ENCTYPE_AES_CFB8,
+	LWS_JOSE_ENCTYPE_AES_CTR,
+	LWS_JOSE_ENCTYPE_AES_ECB,
+	LWS_JOSE_ENCTYPE_AES_OFB,
+	LWS_JOSE_ENCTYPE_AES_XTS,	/* care... requires double-length key */
+	LWS_JOSE_ENCTYPE_AES_GCM,
 };
 
-struct cb_hdr_s {
+struct lws_jose_jwe_alg {
 	enum lws_genhash_types hash_type;
 	enum lws_genhmac_types hmac_type;
-	char alg[24]; /* for jwe, the JWA enc alg name, eg "ECDH-ES" */
-	char curve[16];
-	enum lws_jws_algtype algtype; /* for jws, the signing cipher */
-
-	char is_jwe;
+	enum lws_jose_algtype algtype_signing; /* the signing cipher */
+	enum lws_jose_algtype algtype_crypto; /* the encryption cipher */
+	const char *alg; /* the JWA enc alg name, eg "ES512" */
+	const char *curve_name; /* NULL, or, eg, "P-256" */
 };
+
+LWS_VISIBLE LWS_EXTERN int
+lws_gencrypto_jws_alg_to_definition(const char *alg,
+				    const struct lws_jose_jwe_alg **jose);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_gencrypto_jwe_alg_to_definition(const char *alg,
+				    const struct lws_jose_jwe_alg **jose);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_gencrypto_jwe_enc_to_definition(const char *enc,
+				    const struct lws_jose_jwe_alg **jose);

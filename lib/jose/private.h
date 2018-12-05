@@ -20,4 +20,4 @@
  */
 
 void
-lws_jwk_destroy_elements(struct lws_jwk_elements *el, int m);
+lws_jwk_destroy_elements(struct lws_gencrypto_keyelem *el, int m);

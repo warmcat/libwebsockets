@@ -20,33 +20,6 @@
  * The signature stays with the content, it serves a different purpose than eg
  * a TLS tunnel to transfer it.
  *
- * RFC7518 (JSON Web Algorithms) says for the "alg" names
- *
- * | HS256        | HMAC using SHA-256            | Required           |
- * | HS384        | HMAC using SHA-384            | Optional           |
- * | HS512        | HMAC using SHA-512            | Optional           |
- * | RS256        | RSASSA-PKCS1-v1_5 using       | Recommended        |
- * | RS384        | RSASSA-PKCS1-v1_5 using       | Optional           |
- * |              | SHA-384                       |                    |
- * | RS512        | RSASSA-PKCS1-v1_5 using       | Optional           |
- * |              | SHA-512                       |                    |
- * | ES256        | ECDSA using P-256 and SHA-256 | Recommended+       |
- * | ES384        | ECDSA using P-384 and SHA-384 | Optional           |
- * | ES512        | ECDSA using P-521 and SHA-512 | Optional           |
- *
- * Boulder (FOSS ACME provider) supports RS256, ES256, ES384 and ES512
- * currently.  The "Recommended+" just means it is recommended but will likely
- * be "very recommended" soon.
- *
- * We support HS256/384/512 for symmetric crypto, but the choice for the
- * asymmetric crypto isn't as easy to make.
- *
- * Normally you'd choose the EC option but these are defined to use the
- * "NIST curves" (RFC7518 3.4) which are believed to be insecure.
- *
- * https://safecurves.cr.yp.to/
- *
- * For that reason we implement RS256/384/512 for asymmetric.
  */
 
 static const char
@@ -101,7 +74,40 @@ static const char
 	 "BAynRFdiuB--f_nZLgrnbyTyWzO75vRK5h6xBArLIARNPvkSjtQBMHlb1L07Qe7K"
 	 "0GarZRmB_eSN9383LcOLn6_dO--xi12jzDwusC-eOkHWEsqtFZESc6BfI7noOPqv"
 	 "hJ1phCnvWh6IeYI2w9QOYEUipUTI8np6LbgGY9Fs98rqVt5AXLIhWkWywlVmtVrB"
-	 "p0igcN_IoypGlUPQGe77Rw";
+	 "p0igcN_IoypGlUPQGe77Rw"
+
+#if 0
+			   ,
+	*rfc7515_ec_a3_jose = "{\"alg\":\"ES256\"}",
+	 /* payload is the same as test2 above */
+	*rfc7515_ec_a3_b64_serialization =
+	 "eyJhbGciOiJFUzI1NiJ9"
+	 "."
+	 "eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGFt"
+	 "cGxlLmNvbS9pc19yb290Ijp0cnVlfQ"
+	 "."
+	 "DtEhU3ljbEg8L38VWAfUAqOyKAM6-Xx-F4GawxaepmXFCgfTjDxw5djxLa8ISlSA"
+	 "pmWQxfKTUJqPP3-Kg6NU1Q",
+	*rfc7515_ec_a3_jwk =
+	 "{"
+		"\"kty\":\"EC\","
+		"\"crv\":\"P-256\","
+		"\"x\":\"f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU\","
+		"\"y\":\"x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0\","
+		"\"d\":\"jpsQnnGQmL-YBIffH1136cspYG6-0iY7X1fCE9-E9LI\""
+	 "}",
+	rfc7515_ec_a3_R[] = {
+		 14, 209,  33,  83, 121,  99, 108,  72,  60,  47, 127,  21,  88,
+		  7, 212,   2, 163, 178,  40,   3,  58, 249, 124, 126,  23, 129,
+		154, 195,  22, 158, 166, 101
+	},
+	rfc7515_ec_a3_S[] = {
+		197,  10,   7, 211, 140,  60, 112, 229, 216, 241,  45, 175,
+		  8,  74,  84, 128, 166, 101, 144, 197, 242, 147,  80, 154,
+		143,  63, 127, 138, 131, 163,  84, 213
+	}
+#endif
+;
 
 /*
  * These are the inputs and outputs from the worked example in RFC7515
@@ -115,10 +121,11 @@ static const char
 int
 test_jws(struct lws_context *context)
 {
+	char buf[2048], *p = buf, *end = buf + sizeof(buf) - 1, *enc_ptr, *p1;
+	const struct lws_jose_jwe_alg *jose_alg;
+	uint8_t digest[LWS_GENHASH_LARGEST];
 	struct lws_genhmac_ctx ctx;
 	struct lws_jwk jwk;
-	char buf[2048], *p = buf, *end = buf + sizeof(buf) - 1, *enc_ptr, *p1;
-	uint8_t digest[LWS_GENHASH_LARGEST];
 	int n;
 
 	/* Test 1: SHA256 on RFC7515 worked example */
@@ -129,7 +136,7 @@ test_jws(struct lws_context *context)
 		lwsl_notice("Failed to decode JWK test key\n");
 		return -1;
 	}
-	if (jwk.kty != LWS_JWK_KYT_OCT) {
+	if (jwk.kty != LWS_GENCRYPTO_KYT_OCT) {
 		lwsl_err("%s: unexpected kty %d\n", __func__, jwk.kty);
 
 		return -1;
@@ -153,8 +160,8 @@ test_jws(struct lws_context *context)
 	/* 1.3: use HMAC SHA-256 with known key on the hdr . payload */
 
 	if (lws_genhmac_init(&ctx, LWS_GENHMAC_TYPE_SHA256,
-			     jwk.e[JWK_OCT_KEYEL_K].buf,
-			     jwk.e[JWK_OCT_KEYEL_K].len))
+			     jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf,
+			     jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].len))
 		goto bail;
 	if (lws_genhmac_update(&ctx, (uint8_t *)buf, p - buf))
 		goto bail_destroy_hmac;
@@ -191,7 +198,7 @@ test_jws(struct lws_context *context)
 		goto bail2;
 	}
 
-	if (jwk.kty != LWS_JWK_KYT_RSA) {
+	if (jwk.kty != LWS_GENCRYPTO_KYT_RSA) {
 		lwsl_err("%s: 2.2: kty: %d instead of RSA\n", __func__, jwk.kty);
 	}
 
@@ -211,9 +218,14 @@ test_jws(struct lws_context *context)
 	p = strchr(buf + 1, '.');
 	p1 = strchr(p + 1, '.');
 
+	if (lws_gencrypto_jwe_alg_to_definition("RSA1_5", &jose_alg)) {
+		lwsl_err("%s: RSA1_5 not supported\n", __func__);
+		goto bail;
+	}
+
 	n = lws_jws_sign_from_b64(buf, p - buf, p + 1, p1 - (p + 1),
 				  p1 + 1, sizeof(buf) - (p1 - buf) - 1,
-				  LWS_GENHASH_TYPE_SHA256, &jwk, context);
+				  jose_alg, &jwk, context);
 	if (n < 0) {
 		lwsl_err("%s: failed signing test packet\n", __func__);
 		goto bail;

@@ -1,7 +1,7 @@
 /*
- * libwebsockets - JSON Web Signature support
+ * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2018 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2018 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -18,15 +18,11 @@
  *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
  *  MA  02110-1301  USA
  *
- * JOSE is actually specified as part of JWS RFC7515.  JWE references RFC7515
- * to specify its JOSE JSON object.  So it lives in ./lib/jose/jws/jose.c.
+ *  gencrypto mbedtls-specific helper declarations
  */
 
-int
-lws_jws_parse_jose(const struct lws_jose_jwe_alg **args,
-		   uint8_t *buf, int n);
+mbedtls_md_type_t
+lws_gencrypto_mbedtls_hash_to_MD_TYPE(enum lws_genhash_types hash_type);
 
 int
-lws_jwe_parse_jose(const struct lws_jose_jwe_alg **args,
-		   const struct lws_jose_jwe_alg **enc_args,
-		   uint8_t *buf, int n);
+lws_gencrypto_mbedtls_rngf(void *context, unsigned char *buf, size_t len);

@@ -24,6 +24,8 @@ All the necessary includes are part of `libwebsockets.h`.
 |genhash|`LWS_WITH_GENHASH`|[./include/libwebsockets/lws-genhash.h](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-genhash.h)|Provides SHA1 + SHA2 hashes and hmac|
 |genrsa|`LWS_WITH_GENRSA`|[./include/libwebsockets/lws-genrsa.h](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-genrsa.h)|Provides RSA encryption, decryption, signing, verification, key generation and creation|
 |genaes|`LWS_WITH_GENAES`|[./include/libwebsockets/lws-genaes.h](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-genaes.h)|Provides AES in all common variants for encryption and decryption|
+|genec|`LWS_WITH_GENEC`|[./include/libwebsockets/lws-genec.h](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-genec.h)|Provides Elliptic Curve for encryption, decryption, signing, verification, key generation and creation|
+
 
 Unit tests for these apis, which serve as usage examples, can be found in [./minimal-examples/api-tests/api-test-gencrypto](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/api-tests/api-test-gencrypto)
 

@@ -19,16 +19,17 @@
  *  MA  02110-1301  USA
  *
  *  lws_genrsa provides an RSA abstraction api in lws that works the
- *  same whether you are using openssl or mbedtls hash functions underneath.
+ *  same whether you are using openssl or mbedtls crypto functions underneath.
  */
 #include "core/private.h"
+#include "tls/mbedtls/private.h"
 
 LWS_VISIBLE void
-lws_jwk_destroy_genrsa_elements(struct lws_jwk_elements *el)
+lws_genrsa_destroy_elements(struct lws_gencrypto_keyelem *el)
 {
 	int n;
 
-	for (n = 0; n < LWS_COUNT_RSA_KEY_ELEMENTS; n++)
+	for (n = 0; n < LWS_GENCRYPTO_RSA_KEYEL_COUNT; n++)
 		if (el[n].buf)
 			lws_free_set_NULL(el[n].buf);
 }
@@ -36,7 +37,7 @@ lws_jwk_destroy_genrsa_elements(struct lws_jwk_elements *el)
 static int mode_map[] = { MBEDTLS_RSA_PKCS_V15, MBEDTLS_RSA_PKCS_V21 };
 
 LWS_VISIBLE int
-lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_jwk_elements *el,
+lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_gencrypto_keyelem *el,
 		  struct lws_context *context, enum enum_genrsa_mode mode)
 {
 	memset(ctx, 0, sizeof(*ctx));
@@ -55,13 +56,13 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_jwk_elements *el,
 	{
 		int n;
 
-		mbedtls_mpi *mpi[LWS_COUNT_RSA_KEY_ELEMENTS] = {
+		mbedtls_mpi *mpi[LWS_GENCRYPTO_RSA_KEYEL_COUNT] = {
 			&ctx->ctx->E, &ctx->ctx->N, &ctx->ctx->D, &ctx->ctx->P,
 			&ctx->ctx->Q, &ctx->ctx->DP, &ctx->ctx->DQ,
 			&ctx->ctx->QP,
 		};
 
-		for (n = 0; n < LWS_COUNT_RSA_KEY_ELEMENTS; n++)
+		for (n = 0; n < LWS_GENCRYPTO_RSA_KEYEL_COUNT; n++)
 			if (el[n].buf &&
 			    mbedtls_mpi_read_binary(mpi[n], el[n].buf,
 					    	    el[n].len)) {
@@ -72,7 +73,7 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_jwk_elements *el,
 			}
 	}
 
-	ctx->ctx->len = el[JWK_RSA_KEYEL_N].len;
+	ctx->ctx->len = el[LWS_GENCRYPTO_RSA_KEYEL_N].len;
 
 	return 0;
 }
@@ -88,7 +89,7 @@ _rngf(void *context, unsigned char *buf, size_t len)
 
 LWS_VISIBLE int
 lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
-		       enum enum_genrsa_mode mode, struct lws_jwk_elements *el,
+		       enum enum_genrsa_mode mode, struct lws_gencrypto_keyelem *el,
 		       int bits)
 {
 	int n;
@@ -113,13 +114,13 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 	}
 
 	{
-		mbedtls_mpi *mpi[LWS_COUNT_RSA_KEY_ELEMENTS] = {
+		mbedtls_mpi *mpi[LWS_GENCRYPTO_RSA_KEYEL_COUNT] = {
 			&ctx->ctx->E, &ctx->ctx->N, &ctx->ctx->D, &ctx->ctx->P,
 			&ctx->ctx->Q, &ctx->ctx->DP, &ctx->ctx->DQ,
 			&ctx->ctx->QP,
 		};
 
-		for (n = 0; n < LWS_COUNT_RSA_KEY_ELEMENTS; n++)
+		for (n = 0; n < LWS_GENCRYPTO_RSA_KEYEL_COUNT; n++)
 			if (mbedtls_mpi_size(mpi[n])) {
 				el[n].buf = lws_malloc(
 					mbedtls_mpi_size(mpi[n]), "genrsakey");
@@ -134,7 +135,7 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 	return 0;
 
 cleanup:
-	for (n = 0; n < LWS_COUNT_RSA_KEY_ELEMENTS; n++)
+	for (n = 0; n < LWS_GENCRYPTO_RSA_KEYEL_COUNT; n++)
 		if (el[n].buf)
 			lws_free_set_NULL(el[n].buf);
 cleanup_1:
@@ -212,35 +213,12 @@ lws_genrsa_public_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	return 0;
 }
 
-static int
-lws_genrsa_genrsa_hash_to_mbed_hash(enum lws_genhash_types hash_type)
-{
-	int h = -1;
-
-	switch (hash_type) {
-	case LWS_GENHASH_TYPE_SHA1:
-		h = MBEDTLS_MD_SHA1;
-		break;
-	case LWS_GENHASH_TYPE_SHA256:
-		h = MBEDTLS_MD_SHA256;
-		break;
-	case LWS_GENHASH_TYPE_SHA384:
-		h = MBEDTLS_MD_SHA384;
-		break;
-	case LWS_GENHASH_TYPE_SHA512:
-		h = MBEDTLS_MD_SHA512;
-		break;
-	}
-
-	return h;
-}
-
 LWS_VISIBLE int
-lws_genrsa_public_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
+lws_genrsa_hash_sig_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			 enum lws_genhash_types hash_type, const uint8_t *sig,
 			 size_t sig_len)
 {
-	int n, h = lws_genrsa_genrsa_hash_to_mbed_hash(hash_type);
+	int n, h = lws_gencrypto_mbedtls_hash_to_MD_TYPE(hash_type);
 
 	if (h < 0)
 		return -1;
@@ -269,11 +247,11 @@ lws_genrsa_public_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 }
 
 LWS_VISIBLE int
-lws_genrsa_public_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
+lws_genrsa_hash_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 		       enum lws_genhash_types hash_type, uint8_t *sig,
 		       size_t sig_len)
 {
-	int n, h = lws_genrsa_genrsa_hash_to_mbed_hash(hash_type);
+	int n, h = lws_gencrypto_mbedtls_hash_to_MD_TYPE(hash_type);
 
 	if (h < 0)
 		return -1;
@@ -314,7 +292,7 @@ lws_genrsa_render_pkey_asn1(struct lws_genrsa_ctx *ctx, int _private,
 			    uint8_t *pkey_asn1, size_t pkey_asn1_len)
 {
 	uint8_t *p = pkey_asn1, *totlen, *end = pkey_asn1 + pkey_asn1_len - 1;
-	mbedtls_mpi *mpi[LWS_COUNT_RSA_KEY_ELEMENTS] = {
+	mbedtls_mpi *mpi[LWS_GENCRYPTO_RSA_KEYEL_COUNT] = {
 		&ctx->ctx->N, &ctx->ctx->E, &ctx->ctx->D, &ctx->ctx->P,
 		&ctx->ctx->Q, &ctx->ctx->DP, &ctx->ctx->DQ,
 		&ctx->ctx->QP,
@@ -346,7 +324,7 @@ lws_genrsa_render_pkey_asn1(struct lws_genrsa_ctx *ctx, int _private,
 	*p++ = 0x01;
 	*p++ = 0x00;
 
-	for (n = 0; n < LWS_COUNT_RSA_KEY_ELEMENTS; n++) {
+	for (n = 0; n < LWS_GENCRYPTO_RSA_KEYEL_COUNT; n++) {
 		int m = mbedtls_mpi_size(mpi[n]);
 		uint8_t *elen;
 

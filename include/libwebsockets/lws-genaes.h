@@ -73,7 +73,7 @@ struct lws_genaes_ctx {
 	char init;
 #endif
 	unsigned char tag[16];
-	struct lws_jwk_elements *k;
+	struct lws_gencrypto_keyelem *k;
 	enum enum_aes_operation op;
 	enum enum_aes_modes mode;
 	int taglen;
@@ -98,7 +98,7 @@ struct lws_genaes_ctx {
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
-		  enum enum_aes_modes mode, struct lws_jwk_elements *el,
+		  enum enum_aes_modes mode, struct lws_gencrypto_keyelem *el,
 		  int padding, void *engine);
 
 /** lws_genaes_destroy() - Destroy genaes AES context

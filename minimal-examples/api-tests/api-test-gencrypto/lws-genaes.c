@@ -38,7 +38,7 @@ static int
 test_genaes_cbc(void)
 {
 	struct lws_genaes_ctx ctx;
-	struct lws_jwk_elements e;
+	struct lws_gencrypto_keyelem e;
 	uint8_t res[32], res1[32];
 
 	/*
@@ -128,7 +128,7 @@ static int
 test_genaes_cfb128(void)
 {
 	struct lws_genaes_ctx ctx;
-	struct lws_jwk_elements e;
+	struct lws_gencrypto_keyelem e;
 	uint8_t res[32], res1[32];
 	size_t iv_off = 0;
 
@@ -215,7 +215,7 @@ static int
 test_genaes_cfb8(void)
 {
 	struct lws_genaes_ctx ctx;
-	struct lws_jwk_elements e;
+	struct lws_gencrypto_keyelem e;
 	uint8_t res[32], res1[32];
 
 	e.buf = (uint8_t *)cfb8_key;
@@ -300,7 +300,7 @@ test_genaes_ctr(void)
 {
 	uint8_t nonce_counter[16], sb[16];
 	struct lws_genaes_ctx ctx;
-	struct lws_jwk_elements e;
+	struct lws_gencrypto_keyelem e;
 	uint8_t res[32], res1[32];
 	size_t nc_off = 0;
 
@@ -390,7 +390,7 @@ static int
 test_genaes_ecb(void)
 {
 	struct lws_genaes_ctx ctx;
-	struct lws_jwk_elements e;
+	struct lws_gencrypto_keyelem e;
 	uint8_t res[32], res1[32];
 
 	/*
@@ -483,7 +483,7 @@ static int
 test_genaes_ofb(void)
 {
 	struct lws_genaes_ctx ctx;
-	struct lws_jwk_elements e;
+	struct lws_gencrypto_keyelem e;
 	uint8_t res[32], res1[32];
 	size_t iv_off = 0;
 
@@ -571,7 +571,7 @@ static int
 test_genaes_xts(void)
 {
 	struct lws_genaes_ctx ctx;
-	struct lws_jwk_elements e;
+	struct lws_gencrypto_keyelem e;
 	uint8_t res[32], res1[32], data_unit[16];
 
 	memset(data_unit, 0, sizeof(data_unit));
@@ -663,7 +663,7 @@ test_genaes_gcm(void)
 {
 	uint8_t res[sizeof(gcm_ct)], tag[sizeof(gcm_tag)];
 	struct lws_genaes_ctx ctx;
-	struct lws_jwk_elements e;
+	struct lws_gencrypto_keyelem e;
 	size_t iv_off = 0;
 
 	e.buf = (uint8_t *)gcm_key;

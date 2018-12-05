@@ -25,10 +25,10 @@
 #include <unistd.h>
 
 static const char * const kyt_names[] = {
-	"unknown",	/* LWS_JWK_KYT_UNKNOWN */
-	"oct",		/* LWS_JWK_KYT_OCT */
-	"RSA",		/* LWS_JWK_KYT_RSA */
-	"EC"		/* LWS_JWK_KYT_EC */
+	"unknown",	/* LWS_GENCRYPTO_KYT_UNKNOWN */
+	"oct",		/* LWS_GENCRYPTO_KYT_OCT */
+	"RSA",		/* LWS_GENCRYPTO_KYT_RSA */
+	"EC"		/* LWS_GENCRYPTO_KYT_EC */
 };
 
 /*
@@ -64,36 +64,58 @@ static const char * const jwk_tok[] = {
 
 /* information about each token declared above */
 
-#define FLAG_META	(1 << 12)
-#define FLAG_RSA	(1 << 13)
-#define FLAG_EC		(1 << 14)
-#define FLAG_OCT	(1 << 15)
+#define F_B64	(1 << 10)
+#define F_B64U	(1 << 11)
+#define F_META	(1 << 12)
+#define F_RSA	(1 << 13)
+#define F_EC	(1 << 14)
+#define F_OCT	(1 << 15)
 
 unsigned short tok_map[] = {
-	FLAG_RSA | FLAG_EC | FLAG_OCT | FLAG_META | 0, /* padding */
-	FLAG_RSA |				    JWK_RSA_KEYEL_E,
-	FLAG_RSA |				    JWK_RSA_KEYEL_N,
-	FLAG_RSA | FLAG_EC |			    JWK_RSA_KEYEL_D,
-	FLAG_RSA |				    JWK_RSA_KEYEL_P,
-	FLAG_RSA |				    JWK_RSA_KEYEL_Q,
-	FLAG_RSA |				    JWK_RSA_KEYEL_DP,
-	FLAG_RSA |				    JWK_RSA_KEYEL_DQ,
-	FLAG_RSA |				    JWK_RSA_KEYEL_QI,
+	F_RSA | F_EC | F_OCT | F_META |		 0xff,
+	F_RSA |				F_B64U | LWS_GENCRYPTO_RSA_KEYEL_E,
+	F_RSA |				F_B64U | LWS_GENCRYPTO_RSA_KEYEL_N,
+	F_RSA | F_EC |			F_B64U | LWS_GENCRYPTO_RSA_KEYEL_D,
+	F_RSA |				F_B64U | LWS_GENCRYPTO_RSA_KEYEL_P,
+	F_RSA |				F_B64U | LWS_GENCRYPTO_RSA_KEYEL_Q,
+	F_RSA |				F_B64U | LWS_GENCRYPTO_RSA_KEYEL_DP,
+	F_RSA |				F_B64U | LWS_GENCRYPTO_RSA_KEYEL_DQ,
+	F_RSA |				F_B64U | LWS_GENCRYPTO_RSA_KEYEL_QI,
 
-	FLAG_RSA | FLAG_EC | FLAG_OCT | FLAG_META | JWK_META_KTY,
-			     FLAG_OCT |		    JWK_OCT_KEYEL_K,
+	F_RSA | F_EC | F_OCT | F_META |		 JWK_META_KTY,
+		       F_OCT |		F_B64U | LWS_GENCRYPTO_OCT_KEYEL_K,
 
-		   FLAG_EC |			    JWK_EC_KEYEL_CRV,
-		   FLAG_EC |			    JWK_EC_KEYEL_X,
-		   FLAG_EC |			    JWK_EC_KEYEL_Y,
+		F_EC |				 LWS_GENCRYPTO_EC_KEYEL_CRV,
+		F_EC |			F_B64U | LWS_GENCRYPTO_EC_KEYEL_X,
+		F_EC |			F_B64U | LWS_GENCRYPTO_EC_KEYEL_Y,
 
-	FLAG_RSA | FLAG_EC | FLAG_OCT | FLAG_META | JWK_META_KID,
-	FLAG_RSA | FLAG_EC | FLAG_OCT | FLAG_META | JWK_META_USE,
+	F_RSA | F_EC | F_OCT | F_META |		 JWK_META_KID,
+	F_RSA | F_EC | F_OCT | F_META |		 JWK_META_USE,
 
-	FLAG_RSA | FLAG_EC | FLAG_OCT | FLAG_META | JWK_META_KEY_OPS,
-	FLAG_RSA | FLAG_EC | FLAG_OCT | FLAG_META | JWK_META_X5C,
-	FLAG_RSA | FLAG_EC | FLAG_OCT | FLAG_META | JWK_META_ALG,
+	F_RSA | F_EC | F_OCT | F_META |		 JWK_META_KEY_OPS,
+	F_RSA | F_EC | F_OCT | F_META | F_B64 |	 JWK_META_X5C,
+	F_RSA | F_EC | F_OCT | F_META |		 JWK_META_ALG,
 };
+
+static const char *meta_names[] = {
+	"kty", "kid", "use", "key_ops", "x5c", "alg"
+};
+static const char meta_b64[] = { 0, 0, 0, 0, 1, 0 };
+
+static const char *oct_names[] = {
+	"k"
+};
+static const char oct_b64[] = { 1 };
+
+static const char *rsa_names[] = {
+	"e", "n", "d", "p", "q", "dp", "dq", "qi"
+};
+static const char rsa_b64[] = { 1, 1, 1, 1, 1, 1, 1, 1 };
+
+static const char *ec_names[] = {
+	"crv", "x", "d", "y",
+};
+static const char ec_b64[] = { 0, 1, 1, 1 };
 
 struct cb_lws_jwk {
 	struct lws_jwk *s;
@@ -105,8 +127,62 @@ struct cb_lws_jwk {
 	unsigned short possible;
 };
 
+LWS_VISIBLE int
+lws_jwk_dump(struct lws_jwk *s)
+{
+	const char **enames, *b64;
+	int elems;
+	int n;
+
+	switch (s->kty) {
+	default:
+	case LWS_GENCRYPTO_KYT_UNKNOWN:
+		lwsl_err("%s: jwk %p: unknown type\n", __func__, s);
+
+		return 1;
+	case LWS_GENCRYPTO_KYT_OCT:
+		elems = LWS_GENCRYPTO_OCT_KEYEL_COUNT;
+		enames = oct_names;
+		b64 = oct_b64;
+		break;
+	case LWS_GENCRYPTO_KYT_RSA:
+		elems = LWS_GENCRYPTO_RSA_KEYEL_COUNT;
+		enames = rsa_names;
+		b64 = rsa_b64;
+		break;
+	case LWS_GENCRYPTO_KYT_EC:
+		elems = LWS_GENCRYPTO_EC_KEYEL_COUNT;
+		enames = ec_names;
+		b64 = ec_b64;
+		break;
+	}
+
+	lwsl_info("%s: jwk %p\n", __func__, s);
+
+	for (n = 0; n < LWS_COUNT_JWK_ELEMENTS; n++) {
+		if (s->meta[n].buf && meta_b64[n]) {
+			lwsl_info("  meta: %s\n", meta_names[n]);
+			lwsl_hexdump_info(s->meta[n].buf, s->meta[n].len);
+		}
+		if (s->meta[n].buf && !meta_b64[n])
+			lwsl_info("  meta: %s: '%s'\n", meta_names[n],
+				    s->meta[n].buf);
+	}
+
+	for (n = 0; n < elems; n++) {
+		if (s->e[n].buf && b64[n]) {
+			lwsl_info("  e: %s\n", enames[n]);
+			lwsl_hexdump_info(s->e[n].buf, s->e[n].len);
+		}
+		if (s->e[n].buf && !b64[n])
+			lwsl_info("  e: %s: '%s'\n", enames[n], s->e[n].buf);
+	}
+
+	return 0;
+}
+
 static int
-_lws_jwk_set_element_jwk(struct lws_jwk_elements *e, char *in, int len)
+_lws_jwk_set_element_jwk(struct lws_gencrypto_keyelem *e, char *in, int len)
 {
 	e->buf = lws_malloc(len + 1, "jwk");
 	if (!e->buf)
@@ -120,13 +196,34 @@ _lws_jwk_set_element_jwk(struct lws_jwk_elements *e, char *in, int len)
 }
 
 static int
-_lws_jwk_set_element_jwk_b64(struct lws_jwk_elements *e, char *in, int len)
+_lws_jwk_set_element_jwk_b64(struct lws_gencrypto_keyelem *e, char *in, int len)
 {
 	int dec_size = ((len * 3) / 4) + 4, n;
 
 	e->buf = lws_malloc(dec_size, "jwk");
 	if (!e->buf)
 		return -1;
+
+	/* same decoder accepts both url or original styles */
+
+	n = lws_b64_decode_string_len(in, len, (char *)e->buf, dec_size - 1);
+	if (n < 0)
+		return -1;
+	e->len = n;
+
+	return 0;
+}
+
+static int
+_lws_jwk_set_element_jwk_b64u(struct lws_gencrypto_keyelem *e, char *in, int len)
+{
+	int dec_size = ((len * 3) / 4) + 4, n;
+
+	e->buf = lws_malloc(dec_size, "jwk");
+	if (!e->buf)
+		return -1;
+
+	/* same decoder accepts both url or original styles */
 
 	n = lws_b64_decode_string_len(in, len, (char *)e->buf, dec_size - 1);
 	if (n < 0)
@@ -137,7 +234,7 @@ _lws_jwk_set_element_jwk_b64(struct lws_jwk_elements *e, char *in, int len)
 }
 
 void
-lws_jwk_destroy_elements(struct lws_jwk_elements *el, int m)
+lws_jwk_destroy_elements(struct lws_gencrypto_keyelem *el, int m)
 {
 	int n;
 
@@ -158,7 +255,7 @@ cb_jwk(struct lejp_ctx *ctx, char reason)
 {
 	struct cb_lws_jwk *cbs = (struct cb_lws_jwk *)ctx->user;
 	struct lws_jwk *s = cbs->s;
-	int idx, poss;
+	unsigned int idx, poss;
 
 	if (reason == LEJPCB_VAL_STR_START)
 		cbs->pos = 0;
@@ -172,14 +269,15 @@ cb_jwk(struct lejp_ctx *ctx, char reason)
 		 * ACME specifies the keys must be ordered in lexographic
 		 * order - where kty is not first.
 		 */
-		cbs->possible = FLAG_RSA | FLAG_EC | FLAG_OCT;
+		cbs->possible = F_RSA | F_EC | F_OCT;
 
 	if (reason == LEJPCB_OBJECT_END && ctx->path_match == 0 + 1) {
 		/* we completed parsing a key */
 		if (cbs->per_key_cb && cbs->possible) {
 			if (cbs->per_key_cb(cbs->s, cbs->user)) {
 
-				lwsl_notice("%s: user cb halts import\n", __func__);
+				lwsl_notice("%s: user cb halts import\n",
+					    __func__);
 
 				return -2;
 			}
@@ -197,6 +295,8 @@ cb_jwk(struct lejp_ctx *ctx, char reason)
 		return 0;
 
 	idx = tok_map[ctx->path_match - 1];
+	if ((idx & 0xff) == 0xff)
+		return 0;
 
 	switch (idx) {
 	/* note: kty is not necessarily first... we have to keep track of
@@ -205,34 +305,34 @@ cb_jwk(struct lejp_ctx *ctx, char reason)
 	 * not trying to tell us that it's RSA when we saw a "crv"
 	 * already) and then reduce the possibilities to just the one that
 	 * kty told. */
-	case FLAG_RSA | FLAG_EC | FLAG_OCT | FLAG_META | JWK_META_KTY:
+	case F_RSA | F_EC | F_OCT | F_META | JWK_META_KTY:
 
 		if (!strcmp(ctx->buf, "oct")) {
-			if (!(cbs->possible & FLAG_OCT))
+			if (!(cbs->possible & F_OCT))
 				goto elements_mismatch;
-			s->kty = LWS_JWK_KYT_OCT;
-			cbs->possible = FLAG_OCT;
-			break;
+			s->kty = LWS_GENCRYPTO_KYT_OCT;
+			cbs->possible = F_OCT;
+			goto cont;
 		}
 		if (!strcmp(ctx->buf, "RSA")) {
-			if (!(cbs->possible & FLAG_RSA))
+			if (!(cbs->possible & F_RSA))
 				goto elements_mismatch;
-			s->kty = LWS_JWK_KYT_RSA;
-			cbs->possible = FLAG_RSA;
-			break;
+			s->kty = LWS_GENCRYPTO_KYT_RSA;
+			cbs->possible = F_RSA;
+			goto cont;
 		}
 		if (!strcmp(ctx->buf, "EC")) {
-			if (!(cbs->possible & FLAG_EC))
+			if (!(cbs->possible & F_EC))
 				goto elements_mismatch;
-			s->kty = LWS_JWK_KYT_EC;
-			cbs->possible = FLAG_EC;
-			break;
+			s->kty = LWS_GENCRYPTO_KYT_EC;
+			cbs->possible = F_EC;
+			goto cont;
 		}
 		lwsl_err("%s: Unknown KTY '%s'\n", __func__, ctx->buf);
 		return -1;
 
 	default:
-
+cont:
 		if (cbs->pos + ctx->npos >= cbs->b64max)
 			goto bail;
 
@@ -244,12 +344,12 @@ cb_jwk(struct lejp_ctx *ctx, char reason)
 
 		/* chunking has been collated */
 
-		poss = idx & (FLAG_RSA | FLAG_EC | FLAG_OCT);
+		poss = idx & (F_RSA | F_EC | F_OCT);
 		cbs->possible &= poss;
 		if (!cbs->possible)
 			goto elements_mismatch;
 
-		if (idx & FLAG_META) {
+		if (idx & F_META) {
 			if (_lws_jwk_set_element_jwk(&s->meta[idx & 0x7f],
 						     cbs->b64, cbs->pos) < 0)
 				goto bail;
@@ -257,12 +357,27 @@ cb_jwk(struct lejp_ctx *ctx, char reason)
 			break;
 		}
 
-		/* key data... do the base64 decode then */
+		if (idx & F_B64U) {
+			/* key data... do the base64 decode as needed */
+			if (_lws_jwk_set_element_jwk_b64u(&s->e[idx & 0x7f],
+							  cbs->b64, cbs->pos)
+								< 0)
+				goto bail;
+			return 0;
+		}
 
-		if (_lws_jwk_set_element_jwk_b64(&s->e[idx & 0x7f],
-						 cbs->b64, cbs->pos) < 0)
-			goto bail;
+		if (idx & F_B64) {
+			/* cert data... do non-urlcoded base64 decode */
+			if (_lws_jwk_set_element_jwk_b64(&s->e[idx & 0x7f],
+							 cbs->b64, cbs->pos)
+								< 0)
+				goto bail;
+			return 0;
+		}
 
+			if (_lws_jwk_set_element_jwk(&s->e[idx & 0x7f],
+						     cbs->b64, cbs->pos) < 0)
+				goto bail;
 		break;
 	}
 
@@ -295,7 +410,7 @@ lws_jwk_import(struct lws_jwk *s, lws_jwk_key_import_callback cb, void *user,
 	cbs.pos = 0;
 	cbs.per_key_cb = cb;
 	cbs.user = user;
-	cbs.possible = FLAG_RSA | FLAG_EC | FLAG_OCT;
+	cbs.possible = F_RSA | F_EC | F_OCT;
 
 	if (cb == NULL)
 		tok = jwk_tok;
@@ -310,7 +425,7 @@ lws_jwk_import(struct lws_jwk *s, lws_jwk_key_import_callback cb, void *user,
 		return -1;
 	}
 
-	if (s->kty == LWS_JWK_KYT_UNKNOWN) {
+	if (s->kty == LWS_GENCRYPTO_KYT_UNKNOWN) {
 		lwsl_notice("%s: missing or unknown kyt\n", __func__);
 		return -1;
 	}
@@ -333,13 +448,13 @@ lws_jwk_export(struct lws_jwk *s, int private, char *p, size_t len)
 
 	switch (s->kty) {
 
-	case LWS_JWK_KYT_OCT:
-		if (!s->e[JWK_OCT_KEYEL_K].buf)
+	case LWS_GENCRYPTO_KYT_OCT:
+		if (!s->e[LWS_GENCRYPTO_OCT_KEYEL_K].buf)
 			return -1;
 
 		p += lws_snprintf(p, end - p, "\"k\":\"");
-		n = lws_jws_base64_enc((const char *)s->e[JWK_OCT_KEYEL_K].buf,
-				s->e[JWK_OCT_KEYEL_K].len, p, end - p - 4);
+		n = lws_jws_base64_enc((const char *)s->e[LWS_GENCRYPTO_OCT_KEYEL_K].buf,
+				s->e[LWS_GENCRYPTO_OCT_KEYEL_K].len, p, end - p - 4);
 		if (n < 0) {
 			lwsl_notice("%s: enc failed\n", __func__);
 			return -1;
@@ -351,12 +466,12 @@ lws_jwk_export(struct lws_jwk *s, int private, char *p, size_t len)
 
 		return p - start;
 
-	case LWS_JWK_KYT_RSA:
-		if (!s->e[JWK_RSA_KEYEL_E].buf ||
-		    !s->e[JWK_RSA_KEYEL_N].buf ||
-		    (private && (!s->e[JWK_RSA_KEYEL_D].buf ||
-				 !s->e[JWK_RSA_KEYEL_P].buf ||
-				 !s->e[JWK_RSA_KEYEL_Q].buf))
+	case LWS_GENCRYPTO_KYT_RSA:
+		if (!s->e[LWS_GENCRYPTO_RSA_KEYEL_E].buf ||
+		    !s->e[LWS_GENCRYPTO_RSA_KEYEL_N].buf ||
+		    (private && (!s->e[LWS_GENCRYPTO_RSA_KEYEL_D].buf ||
+				 !s->e[LWS_GENCRYPTO_RSA_KEYEL_P].buf ||
+				 !s->e[LWS_GENCRYPTO_RSA_KEYEL_Q].buf))
 		) {
 			lwsl_notice("%s: not enough elements filled\n",
 				    __func__);
@@ -364,7 +479,7 @@ lws_jwk_export(struct lws_jwk *s, int private, char *p, size_t len)
 		}
 
 		if (!private)
-			limit = JWK_RSA_KEYEL_N + 1;
+			limit = LWS_GENCRYPTO_RSA_KEYEL_N + 1;
 
 		for (n = 0; n < limit; n++) {
 			int m;
@@ -397,7 +512,7 @@ lws_jwk_export(struct lws_jwk *s, int private, char *p, size_t len)
 
 		return p - start;
 
-	case LWS_JWK_KYT_EC:
+	case LWS_GENCRYPTO_KYT_EC:
 		return p - start;
 
 	default:

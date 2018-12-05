@@ -67,8 +67,10 @@ lws_jwe_ex_a2_cek[] = {
  "\"qi\":\"eNho5yRBEBxhGBtQRww9QirZsB66TrfFReG_CcteI1aCneT0ELGhYlRlC"
 	 "tUkTRclIfuEPmNsNDPbLoLqqCVznFbvdB7x-Tl-m0l_eFTj2KiqwGqE9PZ"
 	 "B9nNTwMVvH3VRRSLWACvPnSiwP8N5Usy-WRXS-V7TbpxIhvepTfE0NNo\""
-"}",
+"}"
 
+#if 0
+,
 lws_jwe_ex_a2_jwk_enc_key[] = {
 	  80, 104,  72,  58,  11, 130, 236, 139,
 	 132, 189, 255, 205,  61,  86, 151, 176,
@@ -103,7 +105,6 @@ lws_jwe_ex_a2_jwk_enc_key[] = {
 	 248,  29, 232,  90,  29, 147, 110, 169,
 	 146, 114, 165, 204,  71, 136,  41, 252
 }
-#if 0
 ,
 *lws_jwe_ex_a2_jwk_enc_key_b64 = (uint8_t *)
 	"UGhIOguC7IuEvf_NPVaXsGMoLOmwvc1GyqlIKOK1nN94nHPoltGRhWhw7Zx0-kFm"
@@ -175,9 +176,10 @@ lws_jwe_ex_a2_authtag[] = {
 int
 test_jwe(struct lws_context *context)
 {
+	//const struct lws_jose_jwe_alg *jose_alg;
 	struct lws_genrsa_ctx rsactx;
 	struct lws_jwk jwk;
-	uint8_t enc_cek[sizeof(lws_jwe_ex_a2_jwk_enc_key) + 2048];
+	uint8_t enc_cek[/* sizeof(lws_jwe_ex_a2_jwk_enc_key) */ 256 + 2048];
 	char buf[2048], *p = buf, *end = buf + sizeof(buf) - 1;
 	int n;
 
@@ -191,7 +193,7 @@ test_jwe(struct lws_context *context)
 		return -1;
 	}
 
-	if (jwk.kty != LWS_JWK_KYT_RSA) {
+	if (jwk.kty != LWS_GENCRYPTO_KYT_RSA) {
 		lwsl_err("%s: unexpected kty %d\n", __func__, jwk.kty);
 
 		return -1;
@@ -246,8 +248,8 @@ test_jwe(struct lws_context *context)
 	/* 1.3: use HMAC SHA-256 with known key on the hdr . payload */
 
 	if (lws_genhmac_init(&ctx, LWS_GENHMAC_TYPE_SHA256,
-			     jwk.el.e[JWK_RSA_KEYEL_E].buf,
-			     jwk.el.e[JWK_RSA_KEYEL_E].len))
+			     jwk.el.e[LWS_GENCRYPTO_RSA_KEYEL_E].buf,
+			     jwk.el.e[LWS_GENCRYPTO_RSA_KEYEL_E].len))
 		goto bail;
 	if (lws_genhmac_update(&ctx, (uint8_t *)buf, p - buf))
 		goto bail_destroy_hmac;
@@ -296,9 +298,14 @@ test_jwe(struct lws_context *context)
 	p = strchr(buf + 1, '.');
 	p1 = strchr(p + 1, '.');
 
+	if (lws_gencrypto_jwe_alg_to_definition("RSA1_5", &jose_alg)) {
+		lwsl_err("%s: RSA1_5 not supported\n", __func__);
+		goto bail;
+	}
+
 	n = lws_jws_sign_from_b64(buf, p - buf, p + 1, p1 - (p + 1),
 				  p1 + 1, sizeof(buf) - (p1 - buf) - 1,
-				  LWS_GENHASH_TYPE_SHA256, &jwk);
+				  jose_alg, &jwk, context);
 	if (n < 0)
 		goto bail;
 

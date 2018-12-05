@@ -261,7 +261,7 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 	if (wsi->tls.ssl == NULL) {
 		lwsl_err("SSL_new failed: errno %d\n", errno);
 
-		lws_ssl_elaborate_error();
+		lws_tls_err_describe();
 		return 1;
 	}
 
@@ -453,7 +453,7 @@ lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
 	int buflen = 0x560;
 	uint8_t *buf = lws_malloc(buflen, "tmp cert buf"), *p = buf, *pkey_asn1;
 	struct lws_genrsa_ctx ctx;
-	struct lws_jwk_elements el;
+	struct lws_gencrypto_keyelem el;
 	uint8_t digest[32];
 	struct lws_genhash_ctx hash_ctx;
 	int pkey_asn1_len = 3 * 1024;
@@ -464,7 +464,7 @@ lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
 
 	n = lws_genrsa_new_keypair(vhost->context, &ctx, &el, keybits);
 	if (n < 0) {
-		lws_jwk_destroy_genrsa_elements(&el);
+		lws_genrsa_destroy_elements(&el);
 		goto bail1;
 	}
 
@@ -498,8 +498,8 @@ lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
 	/* we need to drop 1 + (keybits / 8) bytes of n in here, 00 + key */
 
 	*p++ = 0x00;
-	memcpy(p, el.e[JWK_RSA_KEYEL_N].buf, el.e[JWK_RSA_KEYEL_N].len);
-	p += el.e[JWK_RSA_KEYEL_N].len;
+	memcpy(p, el.e[LWS_GENCRYPTO_RSA_KEYEL_N].buf, el.e[LWS_GENCRYPTO_RSA_KEYEL_N].len);
+	p += el.e[LWS_GENCRYPTO_RSA_KEYEL_N].len;
 
 	memcpy(p, ss_cert_san_leadin, sizeof(ss_cert_san_leadin));
 	p += sizeof(ss_cert_san_leadin);
@@ -530,7 +530,7 @@ lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
 
 	/* sign the hash */
 
-	n = lws_genrsa_public_sign(&ctx, digest, LWS_GENHASH_TYPE_SHA256, p,
+	n = lws_genrsa_hash_sign(&ctx, digest, LWS_GENHASH_TYPE_SHA256, p,
 				 buflen - lws_ptr_diff(p, buf));
 	if (n < 0)
 		goto bail2;
@@ -568,7 +568,7 @@ lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
 	}
 
 	lws_genrsa_destroy(&ctx);
-	lws_jwk_destroy_genrsa_elements(&el);
+	lws_genrsa_destroy_elements(&el);
 
 	lws_free(buf);
 
@@ -576,7 +576,7 @@ lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
 
 bail2:
 	lws_genrsa_destroy(&ctx);
-	lws_jwk_destroy_genrsa_elements(&el);
+	lws_genrsa_destroy_elements(&el);
 bail1:
 	lws_free(buf);
 

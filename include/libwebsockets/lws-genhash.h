@@ -25,7 +25,7 @@
  * ## Generic Hash related functions
  *
  * Lws provides generic hash / digest accessors that abstract the ones
- * provided by whatever OpenSSL library you are linking against.
+ * provided by whatever tls library you are linking against.
  *
  * It lets you use the same code if you build against mbedtls or OpenSSL
  * for example.
@@ -33,6 +33,7 @@
 ///@{
 
 enum lws_genhash_types {
+	LWS_GENHASH_TYPE_UNKNOWN,
 	LWS_GENHASH_TYPE_SHA1,
 	LWS_GENHASH_TYPE_SHA256,
 	LWS_GENHASH_TYPE_SHA384,
@@ -40,6 +41,7 @@ enum lws_genhash_types {
 };
 
 enum lws_genhmac_types {
+	LWS_GENHMAC_TYPE_UNKNOWN,
 	LWS_GENHMAC_TYPE_SHA256,
 	LWS_GENHMAC_TYPE_SHA384,
 	LWS_GENHMAC_TYPE_SHA512,

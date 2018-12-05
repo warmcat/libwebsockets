@@ -538,7 +538,7 @@ lws_ssh_exec_finish(void *finish_handle, int retcode)
 static int
 lws_ssh_parse_plaintext(struct per_session_data__sshd *pss, uint8_t *p, size_t len)
 {
-	struct lws_jwk_elements e[LWS_COUNT_RSA_KEY_ELEMENTS];
+	struct lws_gencrypto_keyelem e[LWS_GENCRYPTO_RSA_KEYEL_COUNT];
 	struct lws_genrsa_ctx ctx;
 	struct lws_ssh_channel *ch;
 	struct lws_subprotocol_scp *scp;
@@ -1242,12 +1242,12 @@ again:
 			m = lws_g32(&pp);
 			pp += m;
 			m = lws_g32(&pp);
-			e[JWK_RSA_KEYEL_E].buf = pp;
-			e[JWK_RSA_KEYEL_E].len = m;
+			e[LWS_GENCRYPTO_RSA_KEYEL_E].buf = pp;
+			e[LWS_GENCRYPTO_RSA_KEYEL_E].len = m;
 			pp += m;
 			m = lws_g32(&pp);
-			e[JWK_RSA_KEYEL_N].buf = pp;
-			e[JWK_RSA_KEYEL_N].len = m;
+			e[LWS_GENCRYPTO_RSA_KEYEL_N].buf = pp;
+			e[LWS_GENCRYPTO_RSA_KEYEL_N].len = m;
 
 			if (lws_genrsa_create(&ctx, e, pss->vhd->context,
 					      LGRSAM_PKCS1_1_5))

@@ -160,7 +160,7 @@ struct lws_fts {
 	unsigned char agg[128];
 };
 
-/* since the kernel case allocates >2GB, no point keeping this too low */
+/* since the kernel case allocates >300MB, no point keeping this too low */
 
 #define TRIE_LWSAC_BLOCK_SIZE (1024 * 1024)
 

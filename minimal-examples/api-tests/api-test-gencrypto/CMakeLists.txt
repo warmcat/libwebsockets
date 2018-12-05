@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 2.8)
 include(CheckCSourceCompiles)
 
 set(SAMP lws-api-test-gencrypto)
-set(SRCS main.c lws-genaes.c)
+set(SRCS main.c lws-genaes.c lws-genec.c)
 
 # If we are being built as part of lws, confirm current build config supports
 # reqconfig, else skip building ourselves.
@@ -63,6 +63,7 @@ ENDMACRO()
 
 set(requirements 1)
 require_lws_config(LWS_WITH_GENAES 1 requirements)
+require_lws_config(LWS_WITH_GENEC 1 requirements)
 
 if (requirements)
 

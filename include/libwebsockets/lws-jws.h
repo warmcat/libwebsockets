@@ -64,31 +64,8 @@ lws_jws_confirm_sig(const char *in, size_t len, struct lws_jwk *jwk,
 LWS_VISIBLE LWS_EXTERN int
 lws_jws_sign_from_b64(const char *b64_hdr, size_t hdr_len, const char *b64_pay,
 		      size_t pay_len, char *b64_sig, size_t sig_len,
-		      enum lws_genhash_types hash_type, struct lws_jwk *jwk,
-		      struct lws_context *context);
-
-/**
- * lws_jws_create_packet() - add b64 sig to b64 hdr + payload
- *
- * \param jwk: the struct lws_jwk containing the signing key
- * \param payload: unencoded payload JSON
- * \param len: length of unencoded payload JSON
- * \param nonce: Nonse string to include in protected header
- * \param out: buffer to take signed packet
- * \param out_len: size of \p out buffer
- * \param conext: lws_context to get random from
- *
- * This creates a "flattened" JWS packet from the jwk and the plaintext
- * payload, and signs it.  The packet is written into \p out.
- *
- * This does the whole packet assembly and signing, calling through to
- * lws_jws_sign_from_b64() as part of the process.
- *
- * Returns the length written to \p out, or -1.
- */
-LWS_VISIBLE LWS_EXTERN int
-lws_jws_create_packet(struct lws_jwk *jwk, const char *payload, size_t len,
-		      const char *nonce, char *out, size_t out_len,
+		      const struct lws_jose_jwe_alg *args,
+		      struct lws_jwk *jwk,
 		      struct lws_context *context);
 
 /**

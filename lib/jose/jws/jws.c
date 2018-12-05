@@ -82,11 +82,13 @@ lws_jws_confirm_sig(const char *in, size_t len, struct lws_jwk *jwk,
 		    struct lws_context *context)
 {
 	int sig_pos = lws_jws_find_sig(in, len), pos = 0, n, m, h_len;
+	enum enum_genrsa_mode padding = LGRSAM_PKCS1_1_5;
 	uint8_t digest[LWS_GENHASH_LARGEST];
+	const struct lws_jose_jwe_alg *args = NULL;
 	struct lws_genhash_ctx hash_ctx;
+	struct lws_genec_ctx ecdsactx;
 	struct lws_genrsa_ctx rsactx;
 	struct lws_genhmac_ctx ctx;
-	struct cb_hdr_s args;
 	char buf[2048];
 
 	/* 1) there has to be a signature */
@@ -115,7 +117,7 @@ lws_jws_confirm_sig(const char *in, size_t len, struct lws_jwk *jwk,
 
 	m = lws_jws_parse_jose(&args, (unsigned char *)buf, n);
 	if (m < 0) {
-		lwsl_notice("parse got %d: alg %s\n", m, args.alg);
+		lwsl_notice("parse got %d: alg %s\n", m, args->alg);
 		return -1;
 	}
 
@@ -124,14 +126,21 @@ lws_jws_confirm_sig(const char *in, size_t len, struct lws_jwk *jwk,
 	m = lws_b64_decode_string_len(in + sig_pos, len - sig_pos,
 				      buf, sizeof(buf) - 1);
 
-	switch (args.algtype) {
-	case LWS_JWK_ENCTYPE_RSASSA:
+	switch (args->algtype_signing) {
+	case LWS_JOSE_ENCTYPE_RSASSA_PKCS1_PSS:
+	case LWS_JOSE_ENCTYPE_RSASSA_PKCS1_OAEP:
+		padding = LGRSAM_PKCS1_OAEP_PSS;
+		/* fallthru */
+	case LWS_JOSE_ENCTYPE_RSASSA_PKCS1_1_5:
 
-		/* RSASSA-PKCS1-v1_5 using SHA-256/384/512 */
+		/* RSASSA-PKCS1-v1_5 or OAEP using SHA-256/384/512 */
+
+		if (jwk->kty != LWS_GENCRYPTO_KYT_RSA)
+			return -1;
 
 		/* 6(RSA): compute the hash of the payload into "digest" */
 
-		if (lws_genhash_init(&hash_ctx, args.hash_type))
+		if (lws_genhash_init(&hash_ctx, args->hash_type))
 			return -1;
 
 		if (lws_genhash_update(&hash_ctx, (uint8_t *)in, sig_pos - 1)) {
@@ -142,17 +151,16 @@ lws_jws_confirm_sig(const char *in, size_t len, struct lws_jwk *jwk,
 		if (lws_genhash_destroy(&hash_ctx, digest))
 			return -1;
 
-		h_len = lws_genhash_size(args.hash_type);
+		h_len = lws_genhash_size(args->hash_type);
 
-		if (lws_genrsa_create(&rsactx, jwk->e, context,
-				      LGRSAM_PKCS1_1_5)) {
+		if (lws_genrsa_create(&rsactx, jwk->e, context, padding)) {
 			lwsl_notice("%s: lws_genrsa_public_decrypt_create\n",
 				    __func__);
 			return -1;
 		}
 
-		n = lws_genrsa_public_verify(&rsactx, digest, args.hash_type,
-					     (uint8_t *)buf, m);
+		n = lws_genrsa_hash_sig_verify(&rsactx, digest, args->hash_type,
+					       (uint8_t *)buf, m);
 
 		lws_genrsa_destroy(&rsactx);
 		if (n < 0) {
@@ -162,19 +170,19 @@ lws_jws_confirm_sig(const char *in, size_t len, struct lws_jwk *jwk,
 
 		break;
 
-	case LWS_JWK_ENCTYPE_NONE:
+	case LWS_JOSE_ENCTYPE_NONE:
 
 		/* SHA256/384/512 HMAC */
 
-		h_len = lws_genhmac_size(args.hmac_type);
+		h_len = lws_genhmac_size(args->hmac_type);
 		if (m < 0 || m != h_len)
 			return -1;
 
 		/* 6) compute HMAC over payload */
 
-		if (lws_genhmac_init(&ctx, args.hmac_type,
-				     jwk->e[JWK_RSA_KEYEL_E].buf,
-				     jwk->e[JWK_RSA_KEYEL_E].len))
+		if (lws_genhmac_init(&ctx, args->hmac_type,
+				     jwk->e[LWS_GENCRYPTO_RSA_KEYEL_E].buf,
+				     jwk->e[LWS_GENCRYPTO_RSA_KEYEL_E].len))
 			return -1;
 
 		if (lws_genhmac_update(&ctx, (uint8_t *)in, sig_pos - 1)) {
@@ -195,10 +203,63 @@ lws_jws_confirm_sig(const char *in, size_t len, struct lws_jwk *jwk,
 
 		break;
 
-	case LWS_JWK_ENCTYPE_EC:
+	case LWS_JOSE_ENCTYPE_ECDSA:
 
-		lwsl_err("%s: EC not supported yet\n", __func__);
-		return -1;
+		/* ECDSA using SHA-256/384/512 */
+
+		/* the key coming in with this makes sense, right? */
+
+		/* has to be an EC key :-) */
+		if (jwk->kty != LWS_GENCRYPTO_KYT_EC)
+			return -1;
+
+		/* key must state its curve */
+		if (!jwk->e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf)
+			return -1;
+
+		/* key must match the selected alg curve */
+		if (strcmp((const char *)jwk->e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf,
+			   args->curve_name))
+			return -1;
+
+		/* compute the hash of the payload into "digest" */
+
+		if (lws_genhash_init(&hash_ctx, args->hash_type))
+			return -1;
+
+		if (lws_genhash_update(&hash_ctx, (uint8_t *)in, sig_pos - 1)) {
+			lws_genhash_destroy(&hash_ctx, NULL);
+
+			return -1;
+		}
+		if (lws_genhash_destroy(&hash_ctx, digest))
+			return -1;
+
+		h_len = lws_genhash_size(args->hash_type);
+
+		if (lws_genecdsa_create(&ecdsactx, context, NULL)) {
+			lwsl_notice("%s: lws_genrsa_public_decrypt_create\n",
+				    __func__);
+			return -1;
+		}
+
+		if (lws_genecdsa_set_key(&ecdsactx, jwk->e)) {
+			lws_genec_destroy(&ecdsactx);
+			lwsl_notice("%s: ec key import fail\n", __func__);
+			return -1;
+		}
+
+		n = lws_genecdsa_hash_sig_verify(&ecdsactx, digest,
+						 args->hash_type,
+						 (uint8_t *)buf, m);
+
+		lws_genec_destroy(&ecdsactx);
+		if (n < 0) {
+			lwsl_notice("decrypt fail\n");
+			return -1;
+		}
+
+		break;
 
 	default:
 		lwsl_err("%s: unknown alg from jose\n", __func__);
@@ -211,16 +272,19 @@ lws_jws_confirm_sig(const char *in, size_t len, struct lws_jwk *jwk,
 LWS_VISIBLE int
 lws_jws_sign_from_b64(const char *b64_hdr, size_t hdr_len, const char *b64_pay,
 		      size_t pay_len, char *b64_sig, size_t sig_len,
-		      enum lws_genhash_types hash_type, struct lws_jwk *jwk,
+		      const struct lws_jose_jwe_alg *args,
+		      struct lws_jwk *jwk,
 		      struct lws_context *context)
 {
+	enum enum_genrsa_mode padding = LGRSAM_PKCS1_1_5;
 	uint8_t digest[LWS_GENHASH_LARGEST];
 	struct lws_genhash_ctx hash_ctx;
+	struct lws_genec_ctx ecdsactx;
 	struct lws_genrsa_ctx rsactx;
+	int n, m;
 	uint8_t *buf;
-	int n;
 
-	if (lws_genhash_init(&hash_ctx, hash_type))
+	if (lws_genhash_init(&hash_ctx, args->hash_type))
 		return -1;
 
 	if (b64_hdr) {
@@ -235,19 +299,28 @@ lws_jws_sign_from_b64(const char *b64_hdr, size_t hdr_len, const char *b64_pay,
 	if (lws_genhash_destroy(&hash_ctx, digest))
 		return -1;
 
-	if (jwk->kty == LWS_JWK_KYT_RSA) {
-		if (lws_genrsa_create(&rsactx, jwk->e, context, LGRSAM_PKCS1_1_5)) {
+	switch (args->algtype_signing) {
+	case LWS_JOSE_ENCTYPE_RSASSA_PKCS1_PSS:
+	case LWS_JOSE_ENCTYPE_RSASSA_PKCS1_OAEP:
+		padding = LGRSAM_PKCS1_OAEP_PSS;
+		/* fallthru */
+	case LWS_JOSE_ENCTYPE_RSASSA_PKCS1_1_5:
+
+		if (jwk->kty != LWS_GENCRYPTO_KYT_RSA)
+			return -1;
+
+		if (lws_genrsa_create(&rsactx, jwk->e, context, padding)) {
 			lwsl_notice("%s: lws_genrsa_public_decrypt_create\n",
 				    __func__);
 			return -1;
 		}
 
-		n = jwk->e[JWK_RSA_KEYEL_N].len;
+		n = jwk->e[LWS_GENCRYPTO_RSA_KEYEL_N].len;
 		buf = lws_malloc(n, "jws sign");
 		if (!buf)
 			return -1;
 
-		n = lws_genrsa_public_sign(&rsactx, digest, hash_type, buf, n);
+		n = lws_genrsa_hash_sign(&rsactx, digest, args->hash_type, buf, n);
 		lws_genrsa_destroy(&rsactx);
 		if (n < 0) {
 			lws_free(buf);
@@ -259,12 +332,66 @@ lws_jws_sign_from_b64(const char *b64_hdr, size_t hdr_len, const char *b64_pay,
 		lws_free(buf);
 
 		return n;
-	}
 
-	if (jwk->kty == LWS_JWK_KYT_OCT)
+	case LWS_JOSE_ENCTYPE_NONE:
 		return lws_jws_base64_enc((char *)digest,
-					  lws_genhash_size(hash_type),
+					  lws_genhash_size(args->hash_type),
 					  b64_sig, sig_len);
+	case LWS_JOSE_ENCTYPE_ECDSA:
+		/* ECDSA using SHA-256/384/512 */
+
+		/* the key coming in with this makes sense, right? */
+
+		/* has to be an EC key :-) */
+		if (jwk->kty != LWS_GENCRYPTO_KYT_EC)
+			return -1;
+
+		/* key must state its curve */
+		if (!jwk->e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf)
+			return -1;
+
+		/* must have all his pieces for a private key */
+		if (!jwk->e[LWS_GENCRYPTO_EC_KEYEL_X].buf ||
+		    !jwk->e[LWS_GENCRYPTO_EC_KEYEL_Y].buf ||
+		    !jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].buf)
+			return -1;
+
+		/* key must match the selected alg curve */
+		if (strcmp((const char *)jwk->e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf,
+			   args->curve_name))
+			return -1;
+
+		if (lws_genecdsa_create(&ecdsactx, context, NULL)) {
+			lwsl_notice("%s: lws_genrsa_public_decrypt_create\n",
+				    __func__);
+			return -1;
+		}
+
+		if (lws_genecdsa_set_key(&ecdsactx, jwk->e)) {
+			lws_genec_destroy(&ecdsactx);
+			lwsl_notice("%s: ec key import fail\n", __func__);
+			return -1;
+		}
+		m = jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].len;
+		buf = lws_malloc(m, "jws sign");
+		if (!buf)
+			return -1;
+
+		n = lws_genecdsa_hash_sign(&ecdsactx, digest, args->hash_type,
+					   (uint8_t *)buf, m);
+		lws_genec_destroy(&ecdsactx);
+		if (n < 0) {
+			lwsl_notice("decrypt fail\n");
+			return -1;
+		}
+		n = lws_jws_base64_enc((char *)buf, m, b64_sig, sig_len);
+		lws_free(buf);
+
+		return n;
+
+	default:
+		break;
+	}
 
 	/* unknown key type */
 
@@ -272,97 +399,5 @@ lws_jws_sign_from_b64(const char *b64_hdr, size_t hdr_len, const char *b64_pay,
 
 hash_fail:
 	lws_genhash_destroy(&hash_ctx, NULL);
-	return -1;
-}
-
-LWS_VISIBLE int
-lws_jws_create_packet(struct lws_jwk *jwk, const char *payload, size_t len,
-		      const char *nonce, char *out, size_t out_len,
-		      struct lws_context *context)
-{
-	char *buf, *start, *p, *end, *p1, *end1, *b64_hdr, *b64_pay;
-	int n, b64_hdr_len, b64_pay_len;
-
-	/*
-	 * This buffer is local to the function, the actual output
-	 * is prepared into vhd->buf.  Only the plaintext protected header
-	 * (which contains the public key, 512 bytes for 4096b) goes in
-	 * here temporarily.
-	 */
-	n = LWS_PRE + 2048;
-	buf = malloc(n);
-	if (!buf) {
-		lwsl_notice("%s: malloc %d failed\n", __func__, n);
-		return -1;
-	}
-
-	p = start = buf + LWS_PRE;
-	end = buf + n - LWS_PRE - 1;
-
-	/*
-	 * temporary JWS protected header plaintext
-	 */
-
-	p += lws_snprintf(p, end - p, "{\"alg\":\"RS256\",\"jwk\":");
-	n = lws_jwk_export(jwk, 0, p, end - p);
-	if (n < 0) {
-		lwsl_notice("failed to export jwk\n");
-
-		goto bail;
-	}
-	p += n;
-	p += lws_snprintf(p, end - p, ",\"nonce\":\"%s\"}", nonce);
-
-	/*
-	 * prepare the signed outer JSON with all the parts in
-	 */
-
-	p1 = out;
-	end1 = out + out_len - 1;
-
-	p1 += lws_snprintf(p1, end1 - p1, "{\"protected\":\"");
-	b64_hdr = p1;
-	n = lws_jws_base64_enc(start, p - start, p1, end1 - p1);
-	if (n < 0) {
-		lwsl_notice("%s: failed to encode protected\n", __func__);
-		goto bail;
-	}
-	b64_hdr_len = n;
-	p1 += n;
-
-	p1 += lws_snprintf(p1, end1 - p1, "\",\"payload\":\"");
-	b64_pay = p1;
-	n = lws_jws_base64_enc(payload, len, p1, end1 - p1);
-	if (n < 0) {
-		lwsl_notice("%s: failed to encode payload\n", __func__);
-		goto bail;
-	}
-	b64_pay_len = n;
-
-	p1 += n;
-	p1 += lws_snprintf(p1, end1 - p1, "\",\"signature\":\"");
-
-	/*
-	 * taking the b64 protected header and the b64 payload, sign them
-	 * and place the signature into the packet
-	 */
-	n = lws_jws_sign_from_b64(b64_hdr, b64_hdr_len, b64_pay, b64_pay_len,
-				  p1, end1 - p1, LWS_GENHASH_TYPE_SHA256, jwk,
-				  context);
-	if (n < 0) {
-		lwsl_notice("sig gen failed\n");
-
-		goto bail;
-	}
-	p1 += n;
-	p1 += lws_snprintf(p1, end1 - p1, "\"}");
-
-	free(buf);
-
-	return p1 - out;
-
-bail:
-	free(buf);
-
 	return -1;
 }
