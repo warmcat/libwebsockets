@@ -158,7 +158,9 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		/* Enable automatic hostname checks */
 		X509_VERIFY_PARAM_set_hostflags(param,
 					X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
-		X509_VERIFY_PARAM_set1_host(param, hostname, 0);
+		// Handle the case where the hostname is an IP address.
+		if (!X509_VERIFY_PARAM_set1_ip_asc(param, hostname))
+			X509_VERIFY_PARAM_set1_host(param, hostname, 0);
 	}
 #endif
 
