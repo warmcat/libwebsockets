@@ -202,13 +202,13 @@ lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 						EVP_CTRL_GCM_GET_TAG,
 						    ctx->taglen, tag) != 1) {
 					lwsl_err("get tag ctrl failed\n");
-					lws_tls_err_describe();
+					//lws_tls_err_describe();
 					n = 1;
 				} else
 				if (memcmp(tag, ctx->tag, ctx->taglen)) {
 					lwsl_err("%s: tag mismatch "
 						 "(bad first)\n", __func__);
-					lws_tls_err_describe();
+					//lws_tls_err_describe();
 					lwsl_hexdump_notice(tag, tlen);
 					lwsl_hexdump_notice(ctx->tag, ctx->taglen);
 					n = -1;
@@ -218,7 +218,7 @@ lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 		case LWS_GAESO_DEC:
 			if (EVP_DecryptFinal_ex(ctx->ctx, buf, &outl) != 1) {
 				lwsl_err("%s: dec final failed\n", __func__);
-				lws_tls_err_describe();
+				//lws_tls_err_describe();
 				n = -1;
 			}
 			break;

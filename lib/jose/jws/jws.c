@@ -144,7 +144,8 @@ lws_jws_confirm_sig(const char *in, size_t len, struct lws_jwk *jwk,
 
 		h_len = lws_genhash_size(args.hash_type);
 
-		if (lws_genrsa_create(&rsactx, jwk->e, context)) {
+		if (lws_genrsa_create(&rsactx, jwk->e, context,
+				      LGRSAM_PKCS1_1_5)) {
 			lwsl_notice("%s: lws_genrsa_public_decrypt_create\n",
 				    __func__);
 			return -1;
@@ -235,7 +236,7 @@ lws_jws_sign_from_b64(const char *b64_hdr, size_t hdr_len, const char *b64_pay,
 		return -1;
 
 	if (jwk->kty == LWS_JWK_KYT_RSA) {
-		if (lws_genrsa_create(&rsactx, jwk->e, context)) {
+		if (lws_genrsa_create(&rsactx, jwk->e, context, LGRSAM_PKCS1_1_5)) {
 			lwsl_notice("%s: lws_genrsa_public_decrypt_create\n",
 				    __func__);
 			return -1;

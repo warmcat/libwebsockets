@@ -18,7 +18,10 @@ News
 
 ## New features on master
 
- - **lws-genaes Generic AES crypto** - thin api layer works identically with both mbedtls and openssl
+ - **`lws_genrsa` OAEP + PSS support** - in addition to PKCS#1 1.5 padding, OAEP and PSS are
+   now supported on both mbedtls and openssl backends.
+
+ - **`lws-genaes` Generic AES crypto** - thin api layer works identically with both mbedtls and openssl
    backends.  Supports CBC, CFB128, CFB8, CTR, ECB, OFB, XTS and GCM variants.  Unit tests in CI.
    [genaes api](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-genaes.h),
    [api test](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/api-tests/api-test-gencrypto),

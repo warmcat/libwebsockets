@@ -34,14 +34,23 @@
 
 /* include/libwebsockets/lws-jwk.h must be included before this */
 
+enum enum_genrsa_mode {
+	LGRSAM_PKCS1_1_5,
+	LGRSAM_PKCS1_OAEP_PSS,
+
+	LGRSAM_COUNT
+};
+
 struct lws_genrsa_ctx {
 #if defined(LWS_WITH_MBEDTLS)
 	mbedtls_rsa_context *ctx;
 #else
 	BIGNUM *bn[LWS_COUNT_RSA_KEY_ELEMENTS];
+	EVP_PKEY_CTX *ctx;
 	RSA *rsa;
 #endif
 	struct lws_context *context;
+	enum enum_genrsa_mode mode;
 };
 
 /** lws_jwk_destroy_genrsa_elements() - Free allocations in genrsa_elements
@@ -62,9 +71,14 @@ lws_jwk_destroy_genrsa_elements(struct lws_jwk_elements *el);
  *
  * \param ctx: your struct lws_genrsa_ctx
  * \param el: struct prepared with key element data
+ * \param context: lws_context for RNG
+ * \param mode: RSA mode, one of LGRSAM_ constants
  *
  * Creates an RSA context with a public key associated with it, formed from
  * the key elements in \p el.
+ *
+ * Mode LGRSAM_PKCS1_1_5 is in widespread use but has weaknesses.  It's
+ * recommended to use LGRSAM_PKCS1_OAEP_PSS for new implementations.
  *
  * Returns 0 for OK or nonzero for error.
  *
@@ -72,12 +86,13 @@ lws_jwk_destroy_genrsa_elements(struct lws_jwk_elements *el);
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_jwk_elements *el,
-		  struct lws_context *context);
+		  struct lws_context *context, enum enum_genrsa_mode mode);
 
 /** lws_genrsa_new_keypair() - Create new RSA keypair
  *
  * \param context: your struct lws_context (may be used for RNG)
  * \param ctx: your struct lws_genrsa_ctx
+ * \param mode: RSA mode, one of LGRSAM_ constants
  * \param el: struct to get the new key element data allocated into it
  * \param bits: key size, eg, 4096
  *
@@ -86,11 +101,15 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_jwk_elements *el,
  *
  * Returns 0 for OK or nonzero for error.
  *
+ * Mode LGRSAM_PKCS1_1_5 is in widespread use but has weaknesses.  It's
+ * recommended to use LGRSAM_PKCS1_OAEP_PSS for new implementations.
+ *
  * This and related APIs operate identically with OpenSSL or mbedTLS backends.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
-		       struct lws_jwk_elements *el, int bits);
+		       enum enum_genrsa_mode mode, struct lws_jwk_elements *el,
+		       int bits);
 
 /** lws_genrsa_public_encrypt() - Perform RSA public encryption
  *

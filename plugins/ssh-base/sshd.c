@@ -1249,7 +1249,8 @@ again:
 			e[JWK_RSA_KEYEL_N].buf = pp;
 			e[JWK_RSA_KEYEL_N].len = m;
 
-			if (lws_genrsa_create(&ctx, e, pss->vhd->context))
+			if (lws_genrsa_create(&ctx, e, pss->vhd->context,
+					      LGRSAM_PKCS1_1_5))
 				goto ua_fail;
 
 			/*

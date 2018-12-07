@@ -442,8 +442,8 @@ lws_acme_load_create_auth_keys(struct per_vhost_data__lws_acme_client *vhd,
 	vhd->jwk.kty = LWS_JWK_KYT_RSA;
 	lwsl_notice("Generating ACME %d-bit keypair... "
 		    "will take a little while\n", bits);
-	n = lws_genrsa_new_keypair(vhd->context, &vhd->rsactx, vhd->jwk.e,
-				   bits);
+	n = lws_genrsa_new_keypair(vhd->context, &vhd->rsactx, LGRSAM_PKCS1_1_5,
+				   vhd->jwk.e, bits);
 	if (n) {
 		lwsl_notice("failed to create keypair\n");
 

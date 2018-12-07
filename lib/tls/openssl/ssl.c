@@ -94,15 +94,19 @@ char* lws_ssl_get_error_string(int status, int ret, char *buf, size_t len) {
 }
 
 void
-lws_ssl_elaborate_error(void)
+lws_tls_err_describe(void)
 {
-	char buf[256];
-	u_long err;
+	char buf[128];
+	unsigned long l;
 
-	while ((err = ERR_get_error()) != 0) {
-		ERR_error_string_n(err, buf, sizeof(buf));
-		lwsl_info("*** %s\n", buf);
-	}
+	do {
+		l = ERR_get_error();
+		if (!l)
+			break;
+		ERR_error_string_n(l, buf, sizeof(buf));
+		lwsl_info("   openssl error: %s\n", buf);
+	} while (l);
+	lwsl_info("\n");
 }
 
 static int
@@ -377,7 +381,7 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, int len)
 	}
 
 	lwsl_debug("%s failed: %s\n",__func__, ERR_error_string(m, NULL));
-	lws_ssl_elaborate_error();
+	lws_tls_err_describe();
 
 	wsi->socket_is_permanently_unusable = 1;
 

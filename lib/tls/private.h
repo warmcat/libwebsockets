@@ -194,7 +194,7 @@ lws_ssl_client_connect1(struct lws *wsi);
 LWS_EXTERN int
 lws_ssl_client_connect2(struct lws *wsi, char *errbuf, int len);
 LWS_EXTERN void
-lws_ssl_elaborate_error(void);
+lws_tls_err_describe(void);
 LWS_EXTERN int
 lws_tls_fake_POLLIN_for_buffered(struct lws_context_per_thread *pt);
 LWS_EXTERN int

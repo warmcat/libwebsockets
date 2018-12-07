@@ -211,7 +211,7 @@ test_jwe(struct lws_context *context)
 	 *        RSAES-PKCS1-v1_5 algorithm to produce the JWE Encrypted Key.
 	 */
 
-	if (lws_genrsa_create(&rsactx, jwk.e, context)) {
+	if (lws_genrsa_create(&rsactx, jwk.e, context, LGRSAM_PKCS1_1_5)) {
 		lwsl_notice("%s: lws_genrsa_public_decrypt_create\n",
 			    __func__);
 		goto bail;

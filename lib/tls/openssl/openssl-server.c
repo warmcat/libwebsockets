@@ -434,7 +434,7 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 		lwsl_err("SSL_new failed: %d (errno %d)\n",
 			 lws_ssl_get_error(wsi, 0), errno);
 
-		lws_ssl_elaborate_error();
+		lws_tls_err_describe();
 		return 1;
 	}
 

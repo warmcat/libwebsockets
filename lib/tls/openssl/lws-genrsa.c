@@ -1,7 +1,7 @@
 /*
  * libwebsockets - generic RSA api hiding the backend
  *
- * Copyright (C) 2017 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2017 - 2018 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -33,15 +33,53 @@ lws_jwk_destroy_genrsa_elements(struct lws_jwk_elements *el)
 			lws_free_set_NULL(el[n].buf);
 }
 
+static int mode_map_crypt[] = { RSA_PKCS1_PADDING, RSA_PKCS1_OAEP_PADDING },
+	   mode_map_sig[]   = { RSA_PKCS1_PADDING, RSA_PKCS1_PSS_PADDING };
+
+static int
+rsa_pkey_wrap(struct lws_genrsa_ctx *ctx, RSA *rsa)
+{
+	EVP_PKEY *pkey;
+
+	/* we have the RSA object filled up... wrap in a PKEY */
+
+	pkey = EVP_PKEY_new();
+	if (!pkey)
+		return 1;
+
+	/* bind the PKEY to the RSA key we just prepared */
+
+	if (EVP_PKEY_assign_RSA(pkey, rsa) != 1) {
+		lwsl_err("%s: EVP_PKEY_assign_RSA_KEY failed\n", __func__);
+		goto bail;
+	}
+
+	/* pepare our PKEY_CTX with the PKEY */
+
+	ctx->ctx = EVP_PKEY_CTX_new(pkey, NULL);
+	EVP_PKEY_free(pkey);
+	pkey = NULL;
+	if (!ctx->ctx)
+		goto bail;
+
+	return 0;
+
+bail:
+	if (pkey)
+		EVP_PKEY_free(pkey);
+
+	return 1;
+}
+
 LWS_VISIBLE int
 lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_jwk_elements *el,
-		  struct lws_context *context)
+		  struct lws_context *context, enum enum_genrsa_mode mode)
 {
 	int n;
 
 	memset(ctx, 0, sizeof(*ctx));
-
 	ctx->context = context;
+	ctx->mode = mode;
 
 	/* Step 1:
 	 *
@@ -84,7 +122,8 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_jwk_elements *el,
 	ctx->rsa->q = ctx->bn[JWK_RSA_KEYEL_Q];
 #endif
 
-	return 0;
+	if (!rsa_pkey_wrap(ctx, ctx->rsa))
+		return 0;
 
 bail:
 	for (n = 0; n < 5; n++)
@@ -103,12 +142,15 @@ bail:
 
 LWS_VISIBLE int
 lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
-		       struct lws_jwk_elements *el, int bits)
+		       enum enum_genrsa_mode mode, struct lws_jwk_elements *el,
+		       int bits)
 {
 	BIGNUM *bn;
 	int n;
 
 	memset(ctx, 0, sizeof(*ctx));
+	ctx->context = context;
+	ctx->mode = mode;
 
 	ctx->rsa = RSA_new();
 	if (!ctx->rsa) {
@@ -139,10 +181,8 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 				 &mpi[JWK_RSA_KEYEL_Q]);
 #else
 	{
-		BIGNUM *mpi[5] = {
-			ctx->rsa->n, ctx->rsa->e, ctx->rsa->d,
-			ctx->rsa->p, ctx->rsa->q,
-		};
+		BIGNUM *mpi[5] = { ctx->rsa->n, ctx->rsa->e, ctx->rsa->d,
+				   ctx->rsa->p, ctx->rsa->q, };
 #endif
 		for (n = 0; n < 5; n++)
 			if (BN_num_bytes(mpi[n])) {
@@ -155,7 +195,8 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 			}
 	}
 
-	return 0;
+	if (!rsa_pkey_wrap(ctx, ctx->rsa))
+		return 0;
 
 cleanup:
 	for (n = 0; n < LWS_COUNT_RSA_KEY_ELEMENTS; n++)
@@ -163,12 +204,13 @@ cleanup:
 			lws_free_set_NULL(el[n].buf);
 cleanup_1:
 	RSA_free(ctx->rsa);
+	ctx->rsa = NULL;
 
 	return -1;
 }
 
 /*
- * flen must be less than RSA_size(rsa) - 11 for the PKCS #1 v1.5
+ * in_len must be less than RSA_size(rsa) - 11 for the PKCS #1 v1.5
  * based padding modes
  */
 
@@ -176,38 +218,27 @@ LWS_VISIBLE int
 lws_genrsa_public_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			  size_t in_len, uint8_t *out)
 {
-	int m;
+	if (RSA_public_encrypt((int)in_len, in, out, ctx->rsa,
+			       mode_map_crypt[ctx->mode]) < 0) {
+		lwsl_err("%s: RSA_public_encrypt failed\n", __func__);
+		lws_tls_err_describe();
+		return -1;
+	}
 
-	m = RSA_public_encrypt((int)in_len, in, out, ctx->rsa,
-			       RSA_PKCS1_PADDING);
-
-	/* the bignums are also freed by freeing the RSA */
-	RSA_free(ctx->rsa);
-	ctx->rsa = NULL;
-
-	if (m != -1)
-		return m;
-
-	return -1;
+	return 0;
 }
 
 LWS_VISIBLE int
 lws_genrsa_public_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			  size_t in_len, uint8_t *out, size_t out_max)
 {
-	int m;
+	if (RSA_public_decrypt((int)in_len, in, out, ctx->rsa,
+			       mode_map_crypt[ctx->mode]) < 0) {
+		lwsl_err("%s: RSA_public_decrypt failed\n", __func__);
+		return -1;
+	}
 
-	m = RSA_public_decrypt((int)in_len, in, out, ctx->rsa,
-			       RSA_PKCS1_PADDING);
-
-	/* the bignums are also freed by freeing the RSA */
-	RSA_free(ctx->rsa);
-	ctx->rsa = NULL;
-
-	if (m != -1)
-		return m;
-
-	return -1;
+	return 0;
 }
 
 static int
@@ -233,6 +264,30 @@ lws_genrsa_genrsa_hash_to_NID(enum lws_genhash_types hash_type)
 	return h;
 }
 
+static const EVP_MD *
+lws_genrsa_genrsa_hash_to_EVP_MD(enum lws_genhash_types hash_type)
+{
+	const EVP_MD *h = NULL;
+
+	switch (hash_type) {
+	case LWS_GENHASH_TYPE_SHA1:
+		h = EVP_sha1();
+		break;
+	case LWS_GENHASH_TYPE_SHA256:
+		h = EVP_sha256();
+		break;
+	case LWS_GENHASH_TYPE_SHA384:
+		h = EVP_sha384();
+		break;
+	case LWS_GENHASH_TYPE_SHA512:
+		h = EVP_sha512();
+		break;
+	}
+
+	return h;
+}
+
+
 LWS_VISIBLE int
 lws_genrsa_public_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			 enum lws_genhash_types hash_type, const uint8_t *sig,
@@ -240,11 +295,27 @@ lws_genrsa_public_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 {
 	int n = lws_genrsa_genrsa_hash_to_NID(hash_type),
 	    h = (int)lws_genhash_size(hash_type);
+	const EVP_MD *md = NULL;
 
 	if (n < 0)
 		return -1;
 
-	n = RSA_verify(n, in, h, (uint8_t *)sig, (int)sig_len, ctx->rsa);
+	switch(ctx->mode) {
+	case LGRSAM_PKCS1_1_5:
+		n = RSA_verify(n, in, h, (uint8_t *)sig, (int)sig_len, ctx->rsa);
+		break;
+	case LGRSAM_PKCS1_OAEP_PSS:
+		md = lws_genrsa_genrsa_hash_to_EVP_MD(hash_type);
+		if (!md)
+			return -1;
+
+		n = RSA_verify_PKCS1_PSS(ctx->rsa, in, md, (uint8_t *)sig,
+					 (int)sig_len);
+		break;
+	default:
+		return -1;
+	}
+
 	if (n != 1) {
 		lwsl_notice("%s: -0x%x\n", __func__, -n);
 
@@ -262,39 +333,76 @@ lws_genrsa_public_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	int n = lws_genrsa_genrsa_hash_to_NID(hash_type),
 	    h = (int)lws_genhash_size(hash_type);
 	unsigned int used = 0;
+	EVP_MD_CTX *mdctx = NULL;
+	const EVP_MD *md = NULL;
 
 	if (n < 0)
 		return -1;
 
-	n = RSA_sign(n, in, h, sig, &used, ctx->rsa);
-	if (n != 1) {
-		lwsl_notice("%s: -0x%x\n", __func__, -n);
+	switch(ctx->mode) {
+	case LGRSAM_PKCS1_1_5:
+		if (RSA_sign(n, in, h, sig, &used, ctx->rsa) != 1) {
+			lwsl_err("%s: RSA_sign failed\n", __func__);
 
+			goto bail;
+		}
+		break;
+
+	case LGRSAM_PKCS1_OAEP_PSS:
+
+		md = lws_genrsa_genrsa_hash_to_EVP_MD(hash_type);
+		if (!md)
+			return -1;
+
+		if (EVP_PKEY_CTX_set_rsa_padding(ctx->ctx,
+						 mode_map_sig[ctx->mode]) != 1) {
+			lwsl_err("%s: set_rsa_padding failed\n", __func__);
+
+			goto bail;
+		}
+
+		mdctx = EVP_MD_CTX_create();
+		if (!mdctx)
+			goto bail;
+
+		if (EVP_DigestSignInit(mdctx, NULL, md, NULL,
+				       EVP_PKEY_CTX_get0_pkey(ctx->ctx))) {
+			lwsl_err("%s: EVP_DigestSignInit failed\n", __func__);
+
+			goto bail;
+		}
+		if (EVP_DigestSignUpdate(mdctx, in, EVP_MD_size(md))) {
+			lwsl_err("%s: EVP_DigestSignUpdate failed\n", __func__);
+
+			goto bail;
+		}
+		if (EVP_DigestSignFinal(mdctx, sig, &sig_len)) {
+			lwsl_err("%s: EVP_DigestSignFinal failed\n", __func__);
+
+			goto bail;
+		}
+		break;
+
+	default:
 		return -1;
 	}
 
 	return used;
+
+bail:
+	if (mdctx)
+		EVP_MD_CTX_free(mdctx);
+
+	return -1;
 }
 
 LWS_VISIBLE void
 lws_genrsa_destroy(struct lws_genrsa_ctx *ctx)
 {
-	if (!ctx->rsa)
+	if (!ctx->ctx)
 		return;
 
-#if defined(LWS_HAVE_RSA_SET0_KEY)
-	if (RSA_set0_key(ctx->rsa, NULL, NULL, NULL) != 1)
-		lwsl_notice("RSA_set0_key failed\n");
-	RSA_set0_factors(ctx->rsa, NULL, NULL);
-
-#else
-	ctx->rsa->e = NULL;
-	ctx->rsa->n = NULL;
-	ctx->rsa->d = NULL;
-	ctx->rsa->p = NULL;
-	ctx->rsa->q = NULL;
-#endif
-
-	RSA_free(ctx->rsa);
+	EVP_PKEY_CTX_free(ctx->ctx);
+	ctx->ctx = NULL;
 	ctx->rsa = NULL;
 }
