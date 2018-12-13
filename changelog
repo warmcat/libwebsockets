@@ -1,6 +1,12 @@
 Changelog
 ---------
 
+ - CHANGE: REMOVED: LWS_WITH_GENRSA, LWS_WITH_GENHASH, LWS_WITH_GENEC,
+ LWS_WITH_GENAES have all been removed and combined into LWS_WITH_GENCRYPTO
+
+ - CHANGE: REMOVED: LWS_WITH_JWS, LWS_WITH_JWE have been removed and combined
+ into LWS_WITH_JOSE
+
 v3.1.0
 ======
 

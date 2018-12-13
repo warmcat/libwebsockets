@@ -11,14 +11,56 @@ cloud serving.
 [50 minimal examples](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples) for
 various scenarios, CC0-licensed (public domain) for cut-and-paste, allow you to get started quickly.
 
-![overview](./doc-assets/lws-overview.svg)
+![overview](./doc-assets/lws-overview.png)
 
 News
 ----
 
 ## New features on master
 
- - **`lws-genec` ECDH + ECDSA** - Work in progress
+ - CMake config simplification for crypto: `-DLWS_WITH_GENCRYPTO=1` for all
+   generic cipher and hash apis built (which work the same on mbedtls and
+   OpenSSL transparently), and `-DLWS_WITH_JOSE=1` for all JOSE, JWK, JWS
+   and JWE support built (which use gencrypto and so also work the same
+   regardless of tls library backend).
+
+ - **`JWE`** - JWE (RFC7516) Work in progress: Working CI tests
+
+|Key Encryption|Payload authentication + crypt|Enc + Dec Support|
+|---|---|---|
+|`RSAES-PKCS1-v1.5` 2048b & 4096b|`AES_128_CBC_HMAC_SHA_256`|Enc + Dec|
+|`RSAES-PKCS1-v1.5` 2048b|`AES_192_CBC_HMAC_SHA_384`|Enc + Dec|
+|`RSAES-PKCS1-v1.5` 2048b|`AES_256_CBC_HMAC_SHA_512`|Enc + Dec|
+|`RSAES-OAEP`|`AES_256_GCM`|Enc + Dec|
+|`AES128KW`, `AES192KW`, `AES256KW`|`AES_128_CBC_HMAC_SHA_256`|Enc + Dec|
+|`AES128KW`, `AES192KW`, `AES256KW`|`AES_192_CBC_HMAC_SHA_384`|Enc + Dec|
+|`AES128KW`, `AES192KW`, `AES256KW`|`AES_256_CBC_HMAC_SHA_512`|Enc + Dec|
+|`ECDH-ES` P-256|`AES_128_GCM`|Dec|
+
+All tests pass on both OpenSSL and mbedTLS backends, using keys generated on
+both OpenSSL and mbedTLS in the tests.
+
+A minimal example tool shows how to encrypt and decrypt compact JWE objects
+from the commandline for all supported algorithms.
+
+   [jwe api](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-jwe.h), 
+   [jwe unit tests](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/api-tests/api-test-jose/jwe.c), 
+   [jwe minimal example](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/crypto/minimal-crypto-jwe)
+
+ - **`lws-genec` ECDSA** - JWS-compatible ECDSA is supported on both OpenSSL and mbedtls... Work in progress: ECDH-ES
+
+ - **`JWS`** - JWS (RFC7515) is now supported for none, HS256/384/512, RS256/384/512, and ES256/384/512, on both OpenSSL and mbedtls.  There's a minimal example tool that signs and verifies compact
+ representation JWS from stdin.
+   [jws api](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-jws.h), 
+   [jws unit tests](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/api-tests/api-test-jose/jws.c), 
+   [jws minimal example](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/crypto/minimal-crypto-jwe)
+
+ - **`JWK`** - JWK (RFC7517) now supports oct, RSA and EC keys including JSON key
+   arrays on both OpenSSL and mbedtls.  A minimal example tool shows how to create
+   new JSON JWK keys to specified parameters from the commandline for all supported
+   ciphers.
+
+   [jwk minimal example](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/crypto/minimal-crypto-jwk)
 
  - **`lws-genrsa` OAEP + PSS support** - in addition to PKCS#1 1.5 padding, OAEP and PSS are
    now supported on both mbedtls and openssl backends.
@@ -27,7 +69,7 @@ News
    backends.  Supports CBC, CFB128, CFB8, CTR, ECB, OFB, XTS and GCM variants.  Unit tests in CI.
    [genaes api](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-genaes.h),
    [api test](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/api-tests/api-test-gencrypto),
-   CMake config: `-DLWS_WITH_GENAES=1`
+   CMake config: `-DLWS_WITH_GENCRYPTO=1`
 
  - **http fallback support** - you can specify a role and protocol to apply if non-http or non-tls
    packets arrive at an http(s) listen port.  For example, you can specify that the new `raw proxy`

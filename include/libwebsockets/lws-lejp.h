@@ -257,6 +257,10 @@ LWS_VISIBLE LWS_EXTERN void
 lejp_change_callback(struct lejp_ctx *ctx,
 		     signed char (*callback)(struct lejp_ctx *ctx, char reason));
 
+/* exported for use when reevaluating a path for use with a subcontext */
+LWS_VISIBLE LWS_EXTERN void
+lejp_check_path_match(struct lejp_ctx *ctx);
+
 LWS_VISIBLE LWS_EXTERN int
 lejp_get_wildcard(struct lejp_ctx *ctx, int wildcard, char *dest, int len);
 //@}

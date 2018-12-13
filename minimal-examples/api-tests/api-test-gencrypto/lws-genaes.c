@@ -64,7 +64,7 @@ test_genaes_cbc(void)
 		return -1;
 	}
 
-	if (memcmp(cbc256_enc, res, 16)) {
+	if (lws_timingsafe_bcmp(cbc256_enc, res, 16)) {
 		lwsl_err("%s: lws_genaes_crypt encoding mismatch\n", __func__);
 		lwsl_hexdump_notice(res, 16);
 		return -1;
@@ -88,7 +88,7 @@ test_genaes_cbc(void)
 		return -1;
 	}
 
-	if (memcmp(cbc256, res1, 16)) {
+	if (lws_timingsafe_bcmp(cbc256, res1, 16)) {
 		lwsl_err("%s: lws_genaes_crypt decoding mismatch\n", __func__);
 		lwsl_hexdump_notice(res, 16);
 		return -1;
@@ -151,7 +151,7 @@ test_genaes_cfb128(void)
 		return -1;
 	}
 
-	if (memcmp(cfb128_enc, res, 16)) {
+	if (lws_timingsafe_bcmp(cfb128_enc, res, 16)) {
 		lwsl_err("%s: lws_genaes_crypt encoding mismatch\n", __func__);
 		lwsl_hexdump_notice(res, 16);
 		return -1;
@@ -175,7 +175,7 @@ test_genaes_cfb128(void)
 		return -1;
 	}
 
-	if (memcmp(cfb128, res1, 16)) {
+	if (lws_timingsafe_bcmp(cfb128, res1, 16)) {
 		lwsl_err("%s: lws_genaes_crypt decoding mismatch\n", __func__);
 		lwsl_hexdump_notice(res1, 16);
 		return -1;
@@ -237,7 +237,7 @@ test_genaes_cfb8(void)
 		return -1;
 	}
 
-	if (memcmp(cfb8_enc, res, 16)) {
+	if (lws_timingsafe_bcmp(cfb8_enc, res, 16)) {
 		lwsl_err("%s: lws_genaes_crypt encoding mismatch\n", __func__);
 		lwsl_hexdump_notice(res, 16);
 		return -1;
@@ -259,7 +259,7 @@ test_genaes_cfb8(void)
 		return -1;
 	}
 
-	if (memcmp(cfb8, res1, 16)) {
+	if (lws_timingsafe_bcmp(cfb8, res1, 16)) {
 		lwsl_err("%s: lws_genaes_crypt decoding mismatch\n", __func__);
 		lwsl_hexdump_notice(res1, 16);
 		return -1;
@@ -325,7 +325,7 @@ test_genaes_ctr(void)
 		return -1;
 	}
 
-	if (memcmp(ctr_enc, res, 16)) {
+	if (lws_timingsafe_bcmp(ctr_enc, res, 16)) {
 		lwsl_err("%s: lws_genaes_crypt encoding mismatch\n", __func__);
 		lwsl_hexdump_notice(res, 16);
 		return -1;
@@ -350,7 +350,7 @@ test_genaes_ctr(void)
 		return -1;
 	}
 
-	if (memcmp(ctr, res1, 16)) {
+	if (lws_timingsafe_bcmp(ctr, res1, 16)) {
 		lwsl_err("%s: lws_genaes_crypt decoding mismatch\n", __func__);
 		lwsl_hexdump_notice(res1, 16);
 		return -1;
@@ -415,7 +415,7 @@ test_genaes_ecb(void)
 		return -1;
 	}
 
-	if (memcmp(ecb_enc, res, 16)) {
+	if (lws_timingsafe_bcmp(ecb_enc, res, 16)) {
 		lwsl_err("%s: lws_genaes_crypt encoding mismatch\n", __func__);
 		lwsl_hexdump_notice(res, 16);
 		return -1;
@@ -436,7 +436,7 @@ test_genaes_ecb(void)
 		return -1;
 	}
 
-	if (memcmp(ecb, res1, 16)) {
+	if (lws_timingsafe_bcmp(ecb, res1, 16)) {
 		lwsl_err("%s: lws_genaes_crypt decoding mismatch\n", __func__);
 		lwsl_hexdump_notice(res, 16);
 		return -1;
@@ -449,6 +449,9 @@ bail:
 
 	return -1;
 }
+
+#if defined(MBEDTLS_CONFIG_H) && !defined(MBEDTLS_CIPHER_MODE_OFB)
+#else
 
 static const uint8_t
 	/*
@@ -506,7 +509,7 @@ test_genaes_ofb(void)
 		return -1;
 	}
 
-	if (memcmp(ofb_enc, res, 16)) {
+	if (lws_timingsafe_bcmp(ofb_enc, res, 16)) {
 		lwsl_err("%s: lws_genaes_crypt encoding mismatch\n", __func__);
 		lwsl_hexdump_notice(res, 16);
 		return -1;
@@ -530,7 +533,7 @@ test_genaes_ofb(void)
 		return -1;
 	}
 
-	if (memcmp(ofb, res1, 16)) {
+	if (lws_timingsafe_bcmp(ofb, res1, 16)) {
 		lwsl_err("%s: lws_genaes_crypt decoding mismatch\n", __func__);
 		lwsl_hexdump_notice(res, 16);
 		return -1;
@@ -543,6 +546,8 @@ bail:
 
 	return -1;
 }
+
+#endif
 
 static const uint8_t
 	/*
@@ -594,7 +599,7 @@ test_genaes_xts(void)
 		return -1;
 	}
 
-	if (memcmp(xts_enc, res, 16)) {
+	if (lws_timingsafe_bcmp(xts_enc, res, 16)) {
 		lwsl_err("%s: lws_genaes_crypt encoding mismatch\n", __func__);
 		lwsl_hexdump_notice(res, 16);
 		return -1;
@@ -615,7 +620,7 @@ test_genaes_xts(void)
 		return -1;
 	}
 
-	if (memcmp(xts, res1, 16)) {
+	if (lws_timingsafe_bcmp(xts, res1, 16)) {
 		lwsl_err("%s: lws_genaes_crypt decoding mismatch\n", __func__);
 		lwsl_hexdump_notice(res, 16);
 		return -1;
@@ -697,7 +702,7 @@ test_genaes_gcm(void)
 		return -1;
 	}
 
-	if (memcmp(gcm_ct, res, sizeof(gcm_ct))) {
+	if (lws_timingsafe_bcmp(gcm_ct, res, sizeof(gcm_ct))) {
 		lwsl_err("%s: lws_genaes_crypt encoding mismatch\n", __func__);
 		lwsl_hexdump_notice(res, sizeof(gcm_ct));
 		return -1;
@@ -730,7 +735,7 @@ test_genaes_gcm(void)
 		return -1;
 	}
 
-	if (memcmp(gcm_pt, res, sizeof(gcm_pt))) {
+	if (lws_timingsafe_bcmp(gcm_pt, res, sizeof(gcm_pt))) {
 		lwsl_err("%s: lws_genaes_crypt decoding mismatch\n", __func__);
 		lwsl_hexdump_notice(res, sizeof(gcm_ct));
 		return -1;
@@ -763,8 +768,11 @@ test_genaes(struct lws_context *context)
 	if (test_genaes_ecb())
 		goto bail;
 
+#if defined(MBEDTLS_CONFIG_H) && !defined(MBEDTLS_CIPHER_MODE_OFB)
+#else
 	if (test_genaes_ofb())
 		goto bail;
+#endif
 
 #if defined(MBEDTLS_CONFIG_H) && !defined(MBEDTLS_CIPHER_MODE_XTS)
 #else

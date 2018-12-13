@@ -127,7 +127,14 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 			 * need to use that in HANDSHAKE2 to understand
 			 * which wsi to actually write on
 			 */
-			lws_client_socket_service(wfound, pollfd, wsi);
+			if (lws_client_socket_service(wfound, pollfd, wsi) < 0) {
+				/* closed */
+
+				lws_vhost_unlock(wsi->vhost);
+
+				return -1;
+			}
+
 			lws_callback_on_writable(wsi);
 		} else
 			lwsl_debug("%s: didn't find anything in txn q in HS2\n",

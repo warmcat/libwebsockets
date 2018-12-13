@@ -15,6 +15,19 @@ or via another layer on top, which processes JOSE JSON objects using
 JWS (JSON Web Signatures), JWK (JSON Web Keys), and JWE (JSON Web
 Encryption).
 
+The `JW` apis use the generic apis (`lws_genrsa_`, etc) to get the crypto tasks
+done, so anything they can do you can also get done using the generic apis.
+The main difference is that with the generic apis, you must instantiate the
+correct types and use type-specfic apis.  With the `JW` apis, there is only
+one interface for all operations, with the details hidden in the api and
+controlled by the JSON objects.
+
+Because of this, the `JW` apis are often preferred because they give you
+"crypto agility" cheaply... to change your crypto to another supported algorithm
+once it's working, you literally just change your JSON defining the keys and
+JWE or JWS algorithm.  (It's up to you to define your policy for which
+combinations are acceptable by querying the parsed JW structs).
+
 ## Using the generic layer
 
 All the necessary includes are part of `libwebsockets.h`.
@@ -63,7 +76,7 @@ Unit tests for these apis, which serve as usage examples, can be found in [./min
 Keys in the JOSE layer use a `struct lws_jwk`, this contains two arrays of
 `struct lws_jwk_elements` sized for the worst case (currently RSA).  One
 array contains the key elements as described for the generic case, and the
-other contains various key metadata taken from JWK JSON.
+other contains various nonencrypted key metadata taken from JWK JSON.
 
 |metadata index|function|
 |---|---|
@@ -73,4 +86,7 @@ other contains various key metadata taken from JWK JSON.
 |`JWK_META_KEY_OPS`|Which operations the key is authorized for, eg, "encrypt"|
 |`JWK_META_X5C`|Optional X.509 cert version of the key|
 |`JWK_META_ALG`|Optional overall crypto algorithm the key is intended for use with|
+
+`lws_jwk_destroy()` should be called when the jwk is going out of scope... this
+takes care to zero down any key element data in the jwk.
 

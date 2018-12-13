@@ -25,6 +25,11 @@
 int openssl_websocket_private_data_index,
 	   openssl_SSL_CTX_private_data_index;
 
+/*
+ * Care: many openssl apis return 1 for success.  These are translated to the
+ * lws convention of 0 for success.
+ */
+
 int lws_openssl_describe_cipher(struct lws *wsi)
 {
 #if !defined(LWS_WITH_NO_LOGS)

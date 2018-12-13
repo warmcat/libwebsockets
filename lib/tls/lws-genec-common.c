@@ -57,6 +57,8 @@ lws_genec_dump(struct lws_gencrypto_keyelem *el)
 {
 	int n;
 
+	(void)enames;
+
 	lwsl_info("  genec %p: crv: '%s'\n", el,
 		  !!el[LWS_GENCRYPTO_EC_KEYEL_CRV].buf ?
 		  (char *)el[LWS_GENCRYPTO_EC_KEYEL_CRV].buf: "no curve name");

@@ -330,6 +330,22 @@ lws_snprintf(char *str, size_t size, const char *format, ...) LWS_FORMAT(3);
 LWS_VISIBLE LWS_EXTERN char *
 lws_strncpy(char *dest, const char *src, size_t size);
 
+/*
+ * lws_timingsafe_bcmp(): constant time memcmp
+ *
+ * \param a: first buffer
+ * \param b: second buffer
+ * \param len: count of bytes to compare
+ *
+ * Return 0 if the two buffers are the same, else nonzero.
+ *
+ * Always compares all of the buffer before returning, so it can't be used as
+ * a timing oracle.
+ */
+
+LWS_VISIBLE LWS_EXTERN int
+lws_timingsafe_bcmp(const void *a, const void *b, uint32_t len);
+
 /**
  * lws_get_random(): fill a buffer with platform random data
  *

@@ -1064,7 +1064,11 @@ lws_buflist_append_segment(struct lws_buflist **head, const uint8_t *buf,
 
 	/* append at the tail */
 	while (*head) {
-		if (!--sanity || head == &((*head)->next)) {
+		if (!--sanity) {
+			lwsl_err("%s: buflist reached sanity limit\n", __func__);
+			return -1;
+		}
+		if (*head == (*head)->next) {
 			lwsl_err("%s: corrupt list points to self\n", __func__);
 			return -1;
 		}
@@ -1097,7 +1101,7 @@ lws_buflist_destroy_segment(struct lws_buflist **head)
 	struct lws_buflist *old = *head;
 
 	assert(*head);
-	*head = (*head)->next;
+	*head = old->next;
 	old->next = NULL;
 	lws_free(old);
 
@@ -3140,6 +3144,18 @@ lws_strncpy(char *dest, const char *src, size_t size)
 	dest[size - 1] = '\0';
 
 	return dest;
+}
+
+int
+lws_timingsafe_bcmp(const void *a, const void *b, uint32_t len)
+{
+	const uint8_t *pa = a, *pb = b;
+	uint8_t sum = 0;
+
+	while (len--)
+		sum |= (*pa++ ^ *pb++);
+
+	return sum;
 }
 
 

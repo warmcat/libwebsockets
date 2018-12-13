@@ -143,11 +143,12 @@ LWS_VISIBLE LWS_EXTERN int
 lws_genecdsa_set_key(struct lws_genec_ctx *ctx,
 		     struct lws_gencrypto_keyelem *el);
 
-/** lws_genecdsa_hash_sig_verify() - Verifies ECDSA signature on a given hash
+/** lws_genecdsa_hash_sig_verify_jws() - Verifies a JWS ECDSA signature on a given hash
  *
  * \param ctx: your struct lws_genrsa_ctx
  * \param in: unencrypted payload (usually a recomputed hash)
  * \param hash_type: one of LWS_GENHASH_TYPE_
+ * \param keybits: number of bits in the crypto key
  * \param sig: pointer to the signature we received with the payload
  * \param sig_len: length of the signature we are checking in bytes
  *
@@ -158,31 +159,38 @@ lws_genecdsa_set_key(struct lws_genec_ctx *ctx,
  *
  * Returns <0 for error, or 0 if signature matches the hash + key..
  *
+ * The JWS ECDSA signature verification algorithm differs to generic ECDSA
+ * signatures and they're not interoperable.
+ *
  * This and related APIs operate identically with OpenSSL or mbedTLS backends.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_genecdsa_hash_sig_verify(struct lws_genec_ctx *ctx, const uint8_t *in,
-			   enum lws_genhash_types hash_type,
-			   const uint8_t *sig, size_t sig_len);
+lws_genecdsa_hash_sig_verify_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
+				 enum lws_genhash_types hash_type, int keybits,
+				 const uint8_t *sig, size_t sig_len);
 
-/** lws_genecdsa_hash_sign() - Creates an ECDSA signature for a hash you provide
+/** lws_genecdsa_hash_sign_jws() - Creates a JWS ECDSA signature for a hash you provide
  *
  * \param ctx: your struct lws_genrsa_ctx
  * \param in: precomputed hash
  * \param hash_type: one of LWS_GENHASH_TYPE_
+ * \param keybits: number of bits in the crypto key
  * \param sig: pointer to buffer to take signature
  * \param sig_len: length of the buffer (must be >= length of key N)
  *
  * Returns <0 for error, or 0 for success.
  *
- * This creates an ECDSA signature for a hash you already computed and provide.
+ * This creates a JWS ECDSA signature for a hash you already computed and provide.
+ *
+ * The JWS ECDSA signature generation algorithm differs to generic ECDSA
+ * signatures and they're not interoperable.
  *
  * This and related APIs operate identically with OpenSSL or mbedTLS backends.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_genecdsa_hash_sign(struct lws_genec_ctx *ctx, const uint8_t *in,
-		       enum lws_genhash_types hash_type, uint8_t *sig,
-		       size_t sig_len);
+lws_genecdsa_hash_sign_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
+			   enum lws_genhash_types hash_type, int keybits,
+			   uint8_t *sig, size_t sig_len);
 
 
 /* Apis that apply to both ECDH and ECDSA */

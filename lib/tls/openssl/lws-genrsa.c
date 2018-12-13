@@ -24,14 +24,15 @@
 #include "core/private.h"
 #include "tls/openssl/private.h"
 
+/*
+ * Care: many openssl apis return 1 for success.  These are translated to the
+ * lws convention of 0 for success.
+ */
+
 LWS_VISIBLE void
 lws_genrsa_destroy_elements(struct lws_gencrypto_keyelem *el)
 {
-	int n;
-
-	for (n = 0; n < LWS_GENCRYPTO_RSA_KEYEL_COUNT; n++)
-		if (el[n].buf)
-			lws_free_set_NULL(el[n].buf);
+	lws_gencrypto_destroy_elements(el, LWS_GENCRYPTO_RSA_KEYEL_COUNT);
 }
 
 static int mode_map_crypt[] = { RSA_PKCS1_PADDING, RSA_PKCS1_OAEP_PADDING },
@@ -74,7 +75,8 @@ bail:
 
 LWS_VISIBLE int
 lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_gencrypto_keyelem *el,
-		  struct lws_context *context, enum enum_genrsa_mode mode)
+		  struct lws_context *context, enum enum_genrsa_mode mode,
+		  enum lws_genhash_types oaep_hashid)
 {
 	int n;
 
@@ -129,7 +131,7 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_gencrypto_keyelem *el,
 bail:
 	for (n = 0; n < 5; n++)
 		if (ctx->bn[n]) {
-			BN_free(ctx->bn[n]);
+			BN_clear_free(ctx->bn[n]);
 			ctx->bn[n] = NULL;
 		}
 
@@ -168,7 +170,7 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 	}
 
 	n = RSA_generate_key_ex(ctx->rsa, bits, bn, NULL);
-	BN_free(bn);
+	BN_clear_free(bn);
 	if (n != 1)
 		goto cleanup_1;
 
@@ -219,27 +221,59 @@ LWS_VISIBLE int
 lws_genrsa_public_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			  size_t in_len, uint8_t *out)
 {
-	if (RSA_public_encrypt((int)in_len, in, out, ctx->rsa,
-			       mode_map_crypt[ctx->mode]) < 0) {
+	int n = RSA_public_encrypt((int)in_len, in, out, ctx->rsa,
+				   mode_map_crypt[ctx->mode]);
+	if (n < 0) {
 		lwsl_err("%s: RSA_public_encrypt failed\n", __func__);
 		lws_tls_err_describe();
 		return -1;
 	}
 
-	return 0;
+	return n;
+}
+
+LWS_VISIBLE int
+lws_genrsa_private_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
+			   size_t in_len, uint8_t *out)
+{
+	int n = RSA_private_encrypt((int)in_len, in, out, ctx->rsa,
+			        mode_map_crypt[ctx->mode]);
+	if (n < 0) {
+		lwsl_err("%s: RSA_private_encrypt failed\n", __func__);
+		lws_tls_err_describe();
+		return -1;
+	}
+
+	return n;
 }
 
 LWS_VISIBLE int
 lws_genrsa_public_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			  size_t in_len, uint8_t *out, size_t out_max)
 {
-	if (RSA_public_decrypt((int)in_len, in, out, ctx->rsa,
-			       mode_map_crypt[ctx->mode]) < 0) {
+	int n = RSA_public_decrypt((int)in_len, in, out, ctx->rsa,
+			       mode_map_crypt[ctx->mode]);
+	if (n < 0) {
 		lwsl_err("%s: RSA_public_decrypt failed\n", __func__);
 		return -1;
 	}
 
-	return 0;
+	return n;
+}
+
+LWS_VISIBLE int
+lws_genrsa_private_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
+			   size_t in_len, uint8_t *out, size_t out_max)
+{
+	int n = RSA_private_decrypt((int)in_len, in, out, ctx->rsa,
+			        mode_map_crypt[ctx->mode]);
+	if (n < 0) {
+		lwsl_err("%s: RSA_private_decrypt failed\n", __func__);
+		lws_tls_err_describe();
+		return -1;
+	}
+
+	return n;
 }
 
 LWS_VISIBLE int
@@ -271,7 +305,8 @@ lws_genrsa_hash_sig_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	}
 
 	if (n != 1) {
-		lwsl_notice("%s: -0x%x\n", __func__, -n);
+		lwsl_notice("%s: fail\n", __func__);
+		lws_tls_err_describe();
 
 		return -1;
 	}

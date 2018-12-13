@@ -70,7 +70,8 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 		 * the buflist...
 		 */
 
-		lws_buflist_append_segment(&wsi->buflist_out, buf, len);
+		if (lws_buflist_append_segment(&wsi->buflist_out, buf, len))
+			return -1;
 
 		buf = NULL;
 		len = 0;

@@ -711,10 +711,10 @@ ensure:
 				if (lseek(ofd, fo, SEEK_SET) < 0)
 					continue;
 
-				lbuf[sizeof(lbuf) - 1] = '\0';
 				m = read(ofd, lbuf, sizeof(lbuf) - 1);
 				if (m < 0)
 					continue;
+				lbuf[sizeof(lbuf) - 1] = '\0';
 
 				p = (unsigned char *)strchr((char *)lbuf, '\n');
 				if (p)

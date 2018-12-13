@@ -28,26 +28,33 @@ useful implementations of JWS, JWE and JWK.
 
 ### Symmetric ciphers
 
- - All common AES varaiants: CBC, CFB128, CFB8, CTR, EVB, OFB and XTS
+ - All common AES varaiants: CBC, CFB128, CFB8, CTR, EVB, OFB, KW and XTS
 
 ### Asymmetric ciphers
 
  - RSA
 
- - EC (P-256, P-384 and P521 JWA curves)
+ - EC (P-256, P-384 and P-521 JWA curves)
+
+### Payload auth and crypt
+
+ - AES_128_CBC_HMAC_SHA_256
+ - AES_192_CBC_HMAC_SHA_384
+ - AES_256_CBC_HMAC_SHA_512
+ - AES_128_GCM
 
 For the required and recommended asymmetric algorithms, support currently
 looks like this
 
 |JWK kty|JWA|lws|
 |---|---|---|
-|EC|Recommended+|no|
+|EC|Recommended+|yes|
 |RSA|Required|yes|
 |oct|Required|yes|
 
 |JWE alg|JWA|lws|
 |---|---|---|
-|RSA1_5|Recommended-|yes (no JWE yet but lws_genrsa supports)|
+|RSA1_5|Recommended-|yes|
 |RSA-OAEP|Recommended+|no|
 |ECDH-ES|Recommended+|no|
 
@@ -55,7 +62,15 @@ looks like this
 |---|---|---|
 |HS256|Required|yes|
 |RS256|Recommended+|yes|
-|ES256|Recommended|no|
+|ES256|Recommended|yes|
+
+## Minimal Example tools
+
+[JWK](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/crypto/minimal-crypto-jwk)
+
+[JWS](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/crypto/minimal-crypto-jws)
+
+[JWE](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/crypto/minimal-crypto-jwe)
 
 ## API tests
 

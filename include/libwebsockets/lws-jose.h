@@ -49,11 +49,6 @@ enum lws_jws_jose_hdr_indexes {
 	LWS_COUNT_JOSE_HDR_ELEMENTS
 };
 
-struct lws_jose {
-	/* jose header elements */
-	struct lws_gencrypto_keyelem e[LWS_COUNT_JOSE_HDR_ELEMENTS];
-};
-
 enum lws_jose_algtype {
 	LWS_JOSE_ENCTYPE_NONE,
 
@@ -62,6 +57,7 @@ enum lws_jose_algtype {
 	LWS_JOSE_ENCTYPE_RSASSA_PKCS1_PSS,
 
 	LWS_JOSE_ENCTYPE_ECDSA,
+	LWS_JOSE_ENCTYPE_ECDHES,
 
 	LWS_JOSE_ENCTYPE_AES_CBC,
 	LWS_JOSE_ENCTYPE_AES_CFB128,
@@ -69,9 +65,11 @@ enum lws_jose_algtype {
 	LWS_JOSE_ENCTYPE_AES_CTR,
 	LWS_JOSE_ENCTYPE_AES_ECB,
 	LWS_JOSE_ENCTYPE_AES_OFB,
-	LWS_JOSE_ENCTYPE_AES_XTS,	/* care... requires double-length key */
+	LWS_JOSE_ENCTYPE_AES_XTS,	/* care: requires double-length key */
 	LWS_JOSE_ENCTYPE_AES_GCM,
 };
+
+/* there's a table of these defined in lws-gencrypto-common.c */
 
 struct lws_jose_jwe_alg {
 	enum lws_genhash_types hash_type;
@@ -80,16 +78,97 @@ struct lws_jose_jwe_alg {
 	enum lws_jose_algtype algtype_crypto; /* the encryption cipher */
 	const char *alg; /* the JWA enc alg name, eg "ES512" */
 	const char *curve_name; /* NULL, or, eg, "P-256" */
+	unsigned short keybits_min, keybits_fixed;
+	unsigned short ivbits;
 };
 
+struct lws_jose {
+	/* jose header elements */
+	struct lws_gencrypto_keyelem e[LWS_COUNT_JOSE_HDR_ELEMENTS];
+	struct lws_jwk jwk_ephemeral;
+	const struct lws_jose_jwe_alg *alg;
+	const struct lws_jose_jwe_alg *enc_alg;
+};
+
+/**
+ * lws_jose_init() - prepare a struct lws_jose for use
+ *
+ * \param jose: the jose header struct to prepare
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_jose_init(struct lws_jose *jose);
+
+/**
+ * lws_jose_destroy() - retire a struct lws_jose from use
+ *
+ * \param jose: the jose header struct to destroy
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_jose_destroy(struct lws_jose *jose);
+
+/**
+ * lws_gencrypto_jws_alg_to_definition() - look up a jws alg name
+ *
+ * \param alg: the jws alg name
+ * \param jose: pointer to the pointer to the info struct to set on success
+ *
+ * Returns 0 if *jose set, else nonzero for failure
+ */
 LWS_VISIBLE LWS_EXTERN int
 lws_gencrypto_jws_alg_to_definition(const char *alg,
 				    const struct lws_jose_jwe_alg **jose);
 
+/**
+ * lws_gencrypto_jwe_alg_to_definition() - look up a jwe alg name
+ *
+ * \param alg: the jwe alg name
+ * \param jose: pointer to the pointer to the info struct to set on success
+ *
+ * Returns 0 if *jose set, else nonzero for failure
+ */
 LWS_VISIBLE LWS_EXTERN int
 lws_gencrypto_jwe_alg_to_definition(const char *alg,
 				    const struct lws_jose_jwe_alg **jose);
 
+/**
+ * lws_gencrypto_jwe_enc_to_definition() - look up a jwe enc name
+ *
+ * \param alg: the jwe enc name
+ * \param jose: pointer to the pointer to the info struct to set on success
+ *
+ * Returns 0 if *jose set, else nonzero for failure
+ */
 LWS_VISIBLE LWS_EXTERN int
 lws_gencrypto_jwe_enc_to_definition(const char *enc,
 				    const struct lws_jose_jwe_alg **jose);
+
+/**
+ * lws_jws_parse_jose() - parse a JWS JOSE header
+ *
+ * \param jose: the jose struct to set to parsing results
+ * \param buf: the raw JOSE header
+ * \param len: the length of the raw JOSE header
+ * \param temp: parent-owned buffer to "allocate" elements into
+ * \param temp_len: amount of space available in temp
+ *
+ * returns the amount of temp used, or -1 for error
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_jws_parse_jose(struct lws_jose *jose,
+		   const char *buf, int len, char *temp, int *temp_len);
+
+/**
+ * lws_jwe_parse_jose() - parse a JWE JOSE header
+ *
+ * \param jose: the jose struct to set to parsing results
+ * \param buf: the raw JOSE header
+ * \param len: the length of the raw JOSE header
+ * \param temp: parent-owned buffer to "allocate" elements into
+ * \param temp_len: amount of space available in temp
+ *
+ * returns the amount of temp used, or -1 for error
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_jwe_parse_jose(struct lws_jose *jose,
+		   const char *buf, int len, char *temp, int *temp_len);
+

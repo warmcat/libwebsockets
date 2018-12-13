@@ -23,6 +23,11 @@
  */
 #include "libwebsockets.h"
 
+/*
+ * Care: many openssl apis return 1 for success.  These are translated to the
+ * lws convention of 0 for success.
+ */
+
 int
 lws_genhash_init(struct lws_genhash_ctx *ctx, enum lws_genhash_types type)
 {
@@ -60,6 +65,9 @@ lws_genhash_init(struct lws_genhash_ctx *ctx, enum lws_genhash_types type)
 int
 lws_genhash_update(struct lws_genhash_ctx *ctx, const void *in, size_t len)
 {
+	if (!len)
+		return 0;
+
 	return EVP_DigestUpdate(ctx->mdctx, in, len) != 1;
 }
 

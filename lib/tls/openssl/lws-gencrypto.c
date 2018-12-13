@@ -24,6 +24,11 @@
 #include "core/private.h"
 #include "tls/openssl/private.h"
 
+/*
+ * Care: many openssl apis return 1 for success.  These are translated to the
+ * lws convention of 0 for success.
+ */
+
 int
 lws_gencrypto_openssl_hash_to_NID(enum lws_genhash_types hash_type)
 {

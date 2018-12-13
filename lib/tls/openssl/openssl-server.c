@@ -21,6 +21,11 @@
 
 #include "core/private.h"
 
+/*
+ * Care: many openssl apis return 1 for success.  These are translated to the
+ * lws convention of 0 for success.
+ */
+
 extern int openssl_websocket_private_data_index,
 	   openssl_SSL_CTX_private_data_index;
 

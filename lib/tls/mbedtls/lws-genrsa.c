@@ -23,6 +23,7 @@
  */
 #include "core/private.h"
 #include "tls/mbedtls/private.h"
+#include <mbedtls/rsa.h>
 
 LWS_VISIBLE void
 lws_genrsa_destroy_elements(struct lws_gencrypto_keyelem *el)
@@ -38,7 +39,8 @@ static int mode_map[] = { MBEDTLS_RSA_PKCS_V15, MBEDTLS_RSA_PKCS_V21 };
 
 LWS_VISIBLE int
 lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_gencrypto_keyelem *el,
-		  struct lws_context *context, enum enum_genrsa_mode mode)
+		  struct lws_context *context, enum enum_genrsa_mode mode,
+		  enum lws_genhash_types oaep_hashid)
 {
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->ctx = lws_zalloc(sizeof(*ctx->ctx), "genrsa");
@@ -52,6 +54,9 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_gencrypto_keyelem *el,
 		return -1;
 
 	mbedtls_rsa_init(ctx->ctx, mode_map[mode], 0);
+
+	ctx->ctx->padding = mode_map[mode];
+	ctx->ctx->hash_id = lws_gencrypto_mbedtls_hash_to_MD_TYPE(oaep_hashid);
 
 	{
 		int n;
@@ -71,6 +76,20 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_gencrypto_keyelem *el,
 
 				return -1;
 			}
+
+		/* mbedtls... compute missing P & Q */
+
+		if ( el[LWS_GENCRYPTO_RSA_KEYEL_D].len &&
+		    !el[LWS_GENCRYPTO_RSA_KEYEL_P].len &&
+		    !el[LWS_GENCRYPTO_RSA_KEYEL_Q].len) {
+			if (mbedtls_rsa_complete(ctx->ctx)) {
+				lwsl_notice("mbedtls_rsa_complete failed\n");
+				lws_free_set_NULL(ctx->ctx);
+
+				return -1;
+			}
+
+		}
 	}
 
 	ctx->ctx->len = el[LWS_GENCRYPTO_RSA_KEYEL_N].len;
@@ -153,16 +172,58 @@ lws_genrsa_public_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 
 	ctx->ctx->len = in_len;
 
+	mbedtls_rsa_complete(ctx->ctx);
+
 	switch(ctx->mode) {
 	case LGRSAM_PKCS1_1_5:
-		n = mbedtls_rsa_rsaes_pkcs1_v15_decrypt(ctx->ctx, NULL, NULL,
+		n = mbedtls_rsa_rsaes_pkcs1_v15_decrypt(ctx->ctx, _rngf,
+							ctx->context,
 							MBEDTLS_RSA_PUBLIC,
 							&olen, in, out,
 							out_max);
 		break;
 	case LGRSAM_PKCS1_OAEP_PSS:
-		n = mbedtls_rsa_rsaes_oaep_decrypt(ctx->ctx, NULL, NULL,
+		n = mbedtls_rsa_rsaes_oaep_decrypt(ctx->ctx, _rngf,
+						   ctx->context,
 						   MBEDTLS_RSA_PUBLIC,
+						   NULL, 0,
+						   &olen, in, out, out_max);
+		break;
+	default:
+		return -1;
+	}
+	if (n) {
+		lwsl_notice("%s: -0x%x\n", __func__, -n);
+
+		return -1;
+	}
+
+	return olen;
+}
+
+LWS_VISIBLE int
+lws_genrsa_private_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
+			   size_t in_len, uint8_t *out, size_t out_max)
+{
+	size_t olen = 0;
+	int n;
+
+	ctx->ctx->len = in_len;
+
+	mbedtls_rsa_complete(ctx->ctx);
+
+	switch(ctx->mode) {
+	case LGRSAM_PKCS1_1_5:
+		n = mbedtls_rsa_rsaes_pkcs1_v15_decrypt(ctx->ctx, _rngf,
+							ctx->context,
+							MBEDTLS_RSA_PRIVATE,
+							&olen, in, out,
+							out_max);
+		break;
+	case LGRSAM_PKCS1_OAEP_PSS:
+		n = mbedtls_rsa_rsaes_oaep_decrypt(ctx->ctx, _rngf,
+						   ctx->context,
+						   MBEDTLS_RSA_PRIVATE,
 						   NULL, 0,
 						   &olen, in, out, out_max);
 		break;
@@ -184,7 +245,42 @@ lws_genrsa_public_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 {
 	int n;
 
-	ctx->ctx->padding = mode_map[ctx->mode];
+	mbedtls_rsa_complete(ctx->ctx);
+
+	switch(ctx->mode) {
+	case LGRSAM_PKCS1_1_5:
+		n = mbedtls_rsa_rsaes_pkcs1_v15_encrypt(ctx->ctx, _rngf,
+							ctx->context,
+							MBEDTLS_RSA_PUBLIC,
+							in_len, in, out);
+		break;
+	case LGRSAM_PKCS1_OAEP_PSS:
+		n = mbedtls_rsa_rsaes_oaep_encrypt(ctx->ctx, _rngf,
+						   ctx->context,
+						   MBEDTLS_RSA_PUBLIC,
+						   NULL, 0,
+						   in_len, in, out);
+		break;
+	default:
+		return -1;
+	}
+	if (n < 0) {
+		lwsl_notice("%s: -0x%x: in_len: %d\n", __func__, -n,
+				(int)in_len);
+
+		return -1;
+	}
+
+	return mbedtls_mpi_size(&ctx->ctx->N);
+}
+
+LWS_VISIBLE int
+lws_genrsa_private_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
+			   size_t in_len, uint8_t *out)
+{
+	int n;
+
+	mbedtls_rsa_complete(ctx->ctx);
 
 	switch(ctx->mode) {
 	case LGRSAM_PKCS1_1_5:
@@ -210,7 +306,7 @@ lws_genrsa_public_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 		return -1;
 	}
 
-	return 0;
+	return mbedtls_mpi_size(&ctx->ctx->N);
 }
 
 LWS_VISIBLE int
@@ -222,6 +318,8 @@ lws_genrsa_hash_sig_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 
 	if (h < 0)
 		return -1;
+
+	mbedtls_rsa_complete(ctx->ctx);
 
 	switch(ctx->mode) {
 	case LGRSAM_PKCS1_1_5:
@@ -255,6 +353,8 @@ lws_genrsa_hash_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 
 	if (h < 0)
 		return -1;
+
+	mbedtls_rsa_complete(ctx->ctx);
 
 	/*
 	 * The "sig" buffer must be as large as the size of ctx->N

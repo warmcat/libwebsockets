@@ -52,8 +52,10 @@ lws_gencrypto_mbedtls_hash_to_MD_TYPE(enum lws_genhash_types hash_type)
 int
 lws_gencrypto_mbedtls_rngf(void *context, unsigned char *buf, size_t len)
 {
-	if ((size_t)lws_get_random(context, buf, len) == len)
+	if ((size_t)lws_get_random(context, buf, len) == len) {
+		// lwsl_hexdump_err(buf, len);
 		return 0;
-
+	}
+	lwsl_err("%s: rng failed\n", __func__);
 	return -1;
 }

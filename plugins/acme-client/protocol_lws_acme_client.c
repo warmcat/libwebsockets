@@ -439,7 +439,7 @@ lws_acme_load_create_auth_keys(struct per_vhost_data__lws_acme_client *vhd,
 			  NULL, NULL))
 		return 0;
 
-	vhd->jwk.kty = LWS_GENCRYPTO_KYT_RSA;
+	vhd->jwk.kty = LWS_GENCRYPTO_KTY_RSA;
 	lwsl_notice("Generating ACME %d-bit keypair... "
 		    "will take a little while\n", bits);
 	n = lws_genrsa_new_keypair(vhd->context, &vhd->rsactx, LGRSAM_PKCS1_1_5,
@@ -549,16 +549,18 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 	     *end = buf + sizeof(buf) - 1, digest[32], *failreason = NULL;
 	const struct lws_protocol_vhost_options *pvo;
 	struct lws_acme_cert_aging_args *caa;
-	const struct lws_jose_jwe_alg *args;
 	struct acme_connection *ac = NULL;
 	struct lws_genhash_ctx hctx;
 	unsigned char **pp, *pend;
 	const char *content_type;
+	struct lws_jose jose;
 	struct lws *cwsi;
 	int n, m;
 
 	if (vhd)
 		ac = vhd->ac;
+
+	lws_jose_init(&jose);
 
 	switch ((int)reason) {
 	case LWS_CALLBACK_PROTOCOL_INIT:
@@ -783,12 +785,12 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 			puts(start);
 pkt_add_hdrs:
-			if (lws_gencrypto_jwe_alg_to_definition("RSA1_5", &args)) {
+			if (lws_gencrypto_jwe_alg_to_definition("RSA1_5", &jose.alg)) {
 				ac->len = 0;
 				lwsl_notice("%s: no RSA1_5\n", __func__);
 				goto failed;
 			}
-			ac->len = lws_jwe_create_packet(&vhd->jwk, args,
+			ac->len = lws_jwe_create_packet(&jose, &vhd->jwk,
 							start, p - start,
 							ac->replay_nonce,
 							&ac->buf[LWS_PRE],

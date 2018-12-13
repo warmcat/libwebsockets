@@ -293,6 +293,11 @@ lws_ssl_info_callback(const lws_tls_conn *ssl, int where, int ret);
 int
 lws_tls_fake_POLLIN_for_buffered(struct lws_context_per_thread *pt);
 
+int
+lws_gencrypto_bits_to_bytes(int bits);
+
+void
+lws_gencrypto_destroy_elements(struct lws_gencrypto_keyelem *el, int m);
 
 /* genec */
 

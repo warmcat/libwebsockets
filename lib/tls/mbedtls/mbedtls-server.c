@@ -588,7 +588,7 @@ lws_tls_acme_sni_cert_destroy(struct lws_vhost *vhost)
 {
 }
 
-#if defined(LWS_WITH_JWS)
+#if defined(LWS_WITH_JOSE)
 static int
 _rngf(void *context, unsigned char *buf, size_t len)
 {

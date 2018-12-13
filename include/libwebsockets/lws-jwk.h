@@ -52,13 +52,23 @@ struct lws_jwk {
 	/* generic meta key elements, like KID */
 	struct lws_gencrypto_keyelem meta[LWS_COUNT_JWK_ELEMENTS];
 	int kty;			/**< one of LWS_JWK_ */
+	char private_key; /* nonzero = has private key elements */
 };
 
 typedef int (*lws_jwk_key_import_callback)(struct lws_jwk *s, void *user);
 
+struct lws_jwk_parse_state {
+	struct lws_jwk *jwk;
+	char b64[(((8192 / 8) * 4) / 3) + 1]; /* enough for 8Kb key */
+	lws_jwk_key_import_callback per_key_cb;
+	void *user;
+	int pos;
+	unsigned short possible;
+};
+
 /** lws_jwk_import() - Create a JSON Web key from the textual representation
  *
- * \param s: the JWK object to create
+ * \param jwk: the JWK object to create
  * \param cb: callback for each jwk-processed key, or NULL if importing a single
  *	      key with no parent "keys" JSON
  * \param user: pointer to be passed to the callback, otherwise ignored by lws.
@@ -80,21 +90,21 @@ typedef int (*lws_jwk_key_import_callback)(struct lws_jwk *s, void *user);
  * iteration through any further keys).
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_jwk_import(struct lws_jwk *s, lws_jwk_key_import_callback cb, void *user,
+lws_jwk_import(struct lws_jwk *jwk, lws_jwk_key_import_callback cb, void *user,
 	       const char *in, size_t len);
 
 /** lws_jwk_destroy() - Destroy a JSON Web key
  *
- * \param s: the JWK object to destroy
+ * \param jwk: the JWK object to destroy
  *
  * All allocations in the lws_jwk are destroyed
  */
 LWS_VISIBLE LWS_EXTERN void
-lws_jwk_destroy(struct lws_jwk *s);
+lws_jwk_destroy(struct lws_jwk *jwk);
 
 /** lws_jwk_export() - Export a JSON Web key to a textual representation
  *
- * \param s: the JWK object to export
+ * \param jwk: the JWK object to export
  * \param _private: 0 = just export public parts, 1 = export everything
  * \param p: the buffer to write the exported JWK to
  * \param len: the length of the buffer \p p in bytes
@@ -104,11 +114,11 @@ lws_jwk_destroy(struct lws_jwk *s);
  * Serializes the content of the JWK into a char buffer.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_jwk_export(struct lws_jwk *s, int _private, char *p, size_t len);
+lws_jwk_export(struct lws_jwk *jwk, int _private, char *p, size_t len);
 
 /** lws_jwk_load() - Import a JSON Web key from a file
  *
- * \param s: the JWK object to load into
+ * \param jwk: the JWK object to load into
  * \param filename: filename to load from
  *
  * Returns 0 for OK or -1 for failure
@@ -125,29 +135,58 @@ lws_jwk_export(struct lws_jwk *s, int _private, char *p, size_t len);
  * iteration through any further keys, leaving the last one in s).
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_jwk_load(struct lws_jwk *s, const char *filename,
+lws_jwk_load(struct lws_jwk *jwk, const char *filename,
 	     lws_jwk_key_import_callback cb, void *user);
 
 /** lws_jwk_save() - Export a JSON Web key to a file
  *
- * \param s: the JWK object to save from
+ * \param jwk: the JWK object to save from
  * \param filename: filename to save to
  *
  * Returns 0 for OK or -1 for failure
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_jwk_save(struct lws_jwk *s, const char *filename);
+lws_jwk_save(struct lws_jwk *jwk, const char *filename);
 
 /** lws_jwk_rfc7638_fingerprint() - jwk to RFC7638 compliant fingerprint
  *
- * \param s: the JWK object to fingerprint
+ * \param jwk: the JWK object to fingerprint
  * \param digest32: buffer to take 32-byte digest
  *
  * Returns 0 for OK or -1 for failure
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_jwk_rfc7638_fingerprint(struct lws_jwk *s, char *digest32);
+lws_jwk_rfc7638_fingerprint(struct lws_jwk *jwk, char *digest32);
+
+/** lws_jwk_strdup_meta() - allocate a duplicated string meta element
+ *
+ * \param jwk: the JWK object to fingerprint
+ * \param idx: JWK_META_ element index
+ * \param in: string to copy
+ * \param len: length of string to copy
+ *
+ * Returns 0 for OK or -1 for failure
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_jwk_strdup_meta(struct lws_jwk *jwk, enum enum_jwk_meta_tok idx,
+		    const char *in, int len);
+
 
 LWS_VISIBLE LWS_EXTERN int
-lws_jwk_dump(struct lws_jwk *s);
+lws_jwk_dump(struct lws_jwk *jwk);
+
+/** lws_jwk_generate() - create a new key of given type and characteristics
+ *
+ * \param context: the struct lws_context used for RNG
+ * \param jwk: the JWK object to fingerprint
+ * \param kty: One of the LWS_GENCRYPTO_KTY_ key types
+ * \param bits: for OCT and RSA keys, the number of bits
+ * \param curve: for EC keys, the name of the curve
+ *
+ * Returns 0 for OK or -1 for failure
+ */
+LWS_VISIBLE int
+lws_jwk_generate(struct lws_context *context, struct lws_jwk *jwk,
+	         enum lws_gencrypto_kty kty, int bits, const char *curve);
+
 ///@}

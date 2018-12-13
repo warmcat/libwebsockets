@@ -249,7 +249,7 @@ bad_onward:
 
         case LWS_CALLBACK_RAW_PROXY_CLI_ADOPT:
 		lwsl_debug("LWS_CALLBACK_RAW_CLI_ADOPT: pss %p\n", pss);
-		if (conn)
+		if (conn || !pss)
 			break;
 		conn = pss->conn = lws_get_opaque_user_data(wsi);
 		conn->established[ONW] = 1;
@@ -278,6 +278,9 @@ bad_onward:
 
 	case LWS_CALLBACK_RAW_PROXY_CLI_RX:
 		lwsl_debug("LWS_CALLBACK_RAW_PROXY_CLI_RX: %d\n", (int)len);
+
+		if (!conn)
+			return 0;
 
 		if (!pss || !conn->wsi[ACC] || conn->closed[ACC]) {
 			lwsl_info(" pss %p, wsi[ACC] %p, closed[ACC] %d\n",
@@ -312,6 +315,9 @@ bad_onward:
 
 	case LWS_CALLBACK_RAW_PROXY_CLI_WRITEABLE:
 		lwsl_debug("LWS_CALLBACK_RAW_PROXY_CLI_WRITEABLE\n");
+
+		if (!conn)
+			break;
 
 		ppkt = lws_ring_get_element(conn->r[ACC], &conn->t[ACC]);
 		if (!ppkt) {
@@ -374,7 +380,8 @@ bad_onward:
 
         case LWS_CALLBACK_RAW_PROXY_SRV_ADOPT:
 		lwsl_debug("LWS_CALLBACK_RAW_SRV_ADOPT\n");
-
+		if (!pss)
+			return -1;
 		conn = pss->conn = malloc(sizeof(struct conn));
 		if (!pss->conn)
 			return -1;
@@ -463,7 +470,7 @@ bad_onward:
 	case LWS_CALLBACK_RAW_PROXY_SRV_WRITEABLE:
 		lwsl_debug("LWS_CALLBACK_RAW_PROXY_SRV_WRITEABLE\n");
 
-		if (!conn->established[ONW] || conn->closed[ONW])
+		if (!conn || !conn->established[ONW] || conn->closed[ONW])
 			break;
 
 		ppkt = lws_ring_get_element(conn->r[ONW], &conn->t[ONW]);

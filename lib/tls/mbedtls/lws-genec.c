@@ -86,6 +86,8 @@ lws_genec_keypair_import(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 				    el[LWS_GENCRYPTO_EC_KEYEL_Y].len))
 		goto bail1;
 
+	mbedtls_mpi_lset(&kp.Q.Z, 1);
+
 	switch (ctx->genec_alg) {
 	case LEGENEC_ECDH:
 		if (mbedtls_ecdh_get_params(ctx->u.ctx_ecdh, &kp, side))
@@ -112,6 +114,7 @@ lws_genecdh_create(struct lws_genec_ctx *ctx, struct lws_context *context,
 		   const struct lws_ec_curves *curve_table)
 {
 	memset(ctx, 0, sizeof(*ctx));
+
 	ctx->context = context;
 	ctx->curve_table = curve_table;
 	ctx->genec_alg = LEGENEC_ECDH;
@@ -130,15 +133,16 @@ lws_genecdsa_create(struct lws_genec_ctx *ctx, struct lws_context *context,
 		    const struct lws_ec_curves *curve_table)
 {
 	memset(ctx, 0, sizeof(*ctx));
+
 	ctx->context = context;
 	ctx->curve_table = curve_table;
 	ctx->genec_alg = LEGENEC_ECDSA;
 
-	ctx->u.ctx_ecdh = lws_zalloc(sizeof(*ctx->u.ctx_ecdh), "genecdh");
-	if (!ctx->u.ctx_ecdh)
+	ctx->u.ctx_ecdsa = lws_zalloc(sizeof(*ctx->u.ctx_ecdsa), "genecdsa");
+	if (!ctx->u.ctx_ecdsa)
 		return 1;
 
-	mbedtls_ecdh_init(ctx->u.ctx_ecdh);
+	mbedtls_ecdsa_init(ctx->u.ctx_ecdsa);
 
 	return 0;
 }
@@ -210,7 +214,8 @@ lws_genecdh_new_keypair(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 	}
 
 	mbedtls_ecdsa_init(&ecdsa);
-	n = mbedtls_ecdsa_genkey(&ecdsa, curve->tls_lib_nid, lws_gencrypto_mbedtls_rngf,
+	n = mbedtls_ecdsa_genkey(&ecdsa, curve->tls_lib_nid,
+				 lws_gencrypto_mbedtls_rngf,
 				 ctx->context);
 	if (n) {
 		lwsl_err("mbedtls_ecdsa_genkey failed 0x%x\n", -n);
@@ -241,7 +246,8 @@ lws_genecdh_new_keypair(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 		goto bail1;
 	strcpy((char *)el[LWS_GENCRYPTO_EC_KEYEL_CRV].buf, curve_name);
 
-	for (n = LWS_GENCRYPTO_EC_KEYEL_X; n < LWS_GENCRYPTO_EC_KEYEL_COUNT; n++) {
+	for (n = LWS_GENCRYPTO_EC_KEYEL_X; n < LWS_GENCRYPTO_EC_KEYEL_COUNT;
+	     n++) {
 		el[n].len = curve->key_bytes;
 		el[n].buf = lws_malloc(curve->key_bytes, "ec");
 		if (!el[n].buf)
@@ -288,7 +294,7 @@ lws_genecdsa_new_keypair(struct lws_genec_ctx *ctx, const char *curve_name,
 		return -22;
 	}
 
-	mbedtls_ecdsa_init(ctx->u.ctx_ecdsa);
+	//mbedtls_ecdsa_init(ctx->u.ctx_ecdsa);
 	n = mbedtls_ecdsa_genkey(ctx->u.ctx_ecdsa, curve->tls_lib_nid,
 				 lws_gencrypto_mbedtls_rngf, ctx->context);
 	if (n) {
@@ -301,7 +307,7 @@ lws_genecdsa_new_keypair(struct lws_genec_ctx *ctx, const char *curve_name,
 	 * lws_gencrypto_keyelems, so they can be serialized, used in jwk etc
 	 */
 
-	kp = (mbedtls_ecp_keypair *)&ctx->u.ctx_ecdsa;
+	kp = (mbedtls_ecp_keypair *)ctx->u.ctx_ecdsa;
 
 	mpi[0] = &kp->Q.X;
 	mpi[1] = &kp->d;
@@ -314,15 +320,18 @@ lws_genecdsa_new_keypair(struct lws_genec_ctx *ctx, const char *curve_name,
 		goto bail1;
 	strcpy((char *)el[LWS_GENCRYPTO_EC_KEYEL_CRV].buf, curve_name);
 
-	for (n = LWS_GENCRYPTO_EC_KEYEL_X; n < LWS_GENCRYPTO_EC_KEYEL_COUNT; n++) {
+	for (n = LWS_GENCRYPTO_EC_KEYEL_X; n < LWS_GENCRYPTO_EC_KEYEL_COUNT;
+	     n++) {
 		el[n].len = curve->key_bytes;
 		el[n].buf = lws_malloc(curve->key_bytes, "ec");
 		if (!el[n].buf)
 			goto bail2;
 
-		if (mbedtls_mpi_write_binary(mpi[n - 1], el[n].buf,
-					     curve->key_bytes))
+
+		if (mbedtls_mpi_write_binary(mpi[n - 1], el[n].buf, el[n].len)) {
+			lwsl_err("%s: mbedtls_mpi_write_binary failed\n", __func__);
 			goto bail2;
+		}
 	}
 
 	return 0;
@@ -339,65 +348,121 @@ bail1:
 }
 
 LWS_VISIBLE LWS_EXTERN int
-lws_genecdsa_hash_sign(struct lws_genec_ctx *ctx, const uint8_t *in,
-		       enum lws_genhash_types hash_type,
+lws_genecdsa_hash_sign_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
+		       enum lws_genhash_types hash_type, int keybits,
 		       uint8_t *sig, size_t sig_len)
 {
-	mbedtls_md_type_t md_type =
-			lws_gencrypto_mbedtls_hash_to_MD_TYPE(hash_type);
+	int n, keybytes = lws_gencrypto_bits_to_bytes(keybits);
+	size_t hlen = lws_genhash_size(hash_type);
+	mbedtls_mpi mpi_r, mpi_s;
 	size_t slen = sig_len;
-	int n;
 
 	if (ctx->genec_alg != LEGENEC_ECDSA)
 		return -1;
 
-	if (md_type < 0)
-		return -2;
+	/*
+	 * The ECDSA P-256 SHA-256 digital signature is generated as follows:
+	 *
+	 * 1.  Generate a digital signature of the JWS Signing Input using ECDSA
+	 *     P-256 SHA-256 with the desired private key.  The output will be
+	 *     the pair (R, S), where R and S are 256-bit unsigned integers.
+	 *
+	 * 2.  Turn R and S into octet sequences in big-endian order, with each
+	 *     array being be 32 octets long.  The octet sequence
+	 *     representations MUST NOT be shortened to omit any leading zero
+	 *     octets contained in the values.
+	 *
+	 * 3.  Concatenate the two octet sequences in the order R and then S.
+	 *     (Note that many ECDSA implementations will directly produce this
+	 *     concatenation as their output.)
+	 *
+	 * 4.  The resulting 64-octet sequence is the JWS Signature value.
+	 */
 
+	mbedtls_mpi_init(&mpi_r);
+	mbedtls_mpi_init(&mpi_s);
 
-	n = mbedtls_ecdsa_write_signature(ctx->u.ctx_ecdsa, md_type, in,
-					  lws_genhash_size(hash_type), sig,
-					  &slen, lws_gencrypto_mbedtls_rngf,
-					  ctx->context);
+	n = mbedtls_ecdsa_sign(&ctx->u.ctx_ecdsa->grp, &mpi_r, &mpi_s,
+			       &ctx->u.ctx_ecdsa->d, in, hlen,
+			lws_gencrypto_mbedtls_rngf, ctx->context);
 	if (n) {
-		lwsl_err("%s: mbedtls_ecdsa_write_signature failed: -0x%x\n",
+		lwsl_err("%s: mbedtls_ecdsa_sign failed: -0x%x\n",
 			 __func__, -n);
 
-		goto bail;
+		goto bail2;
 	}
 
+	if (mbedtls_mpi_write_binary(&mpi_r, sig, keybytes))
+		goto bail2;
+	mbedtls_mpi_free(&mpi_r);
+	if (mbedtls_mpi_write_binary(&mpi_s, sig + keybytes, keybytes))
+		goto bail1;
+	mbedtls_mpi_free(&mpi_s);
+
 	return (int)slen;
-bail:
+
+bail2:
+	mbedtls_mpi_free(&mpi_r);
+bail1:
+	mbedtls_mpi_free(&mpi_s);
 
 	return -3;
 }
 
 LWS_VISIBLE LWS_EXTERN int
-lws_genecdsa_hash_sig_verify(struct lws_genec_ctx *ctx, const uint8_t *in,
-			     enum lws_genhash_types hash_type,
-			     const uint8_t *sig, size_t sig_len)
+lws_genecdsa_hash_sig_verify_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
+				 enum lws_genhash_types hash_type, int keybits,
+				 const uint8_t *sig, size_t sig_len)
 {
-	mbedtls_md_type_t md_type =
-			lws_gencrypto_mbedtls_hash_to_MD_TYPE(hash_type);
-	int n;
+	int n, keybytes = lws_gencrypto_bits_to_bytes(keybits);
+	size_t hlen = lws_genhash_size(hash_type);
+	mbedtls_mpi mpi_r, mpi_s;
 
 	if (ctx->genec_alg != LEGENEC_ECDSA)
 		return -1;
 
-	if (md_type < 0)
-		return -2;
+	if ((int)sig_len != keybytes * 2)
+		return -1;
 
-	n = mbedtls_ecdsa_read_signature(ctx->u.ctx_ecdsa, in,
-					 lws_genhash_size(hash_type), sig,
-					 sig_len);
+	/*
+	 * 1.  The JWS Signature value MUST be a 64-octet sequence.  If it is
+	 *     not a 64-octet sequence, the validation has failed.
+	 *
+	 * 2.  Split the 64-octet sequence into two 32-octet sequences.  The
+	 *     first octet sequence represents R and the second S.  The values R
+	 *     and S are represented as octet sequences using the Integer-to-
+	 *     OctetString Conversion defined in Section 2.3.7 of SEC1 [SEC1]
+	 *     (in big-endian octet order).
+	 *
+	 * 3.  Submit the JWS Signing Input, R, S, and the public key (x, y) to
+	 *     the ECDSA P-256 SHA-256 validator.
+	 */
+
+	mbedtls_mpi_init(&mpi_r);
+	mbedtls_mpi_init(&mpi_s);
+
+	if (mbedtls_mpi_read_binary(&mpi_r, sig, keybytes))
+		return -1;
+	if (mbedtls_mpi_read_binary(&mpi_s, sig + keybytes, keybytes))
+		goto bail1;
+
+	n = mbedtls_ecdsa_verify(&ctx->u.ctx_ecdsa->grp, in, hlen,
+				 &ctx->u.ctx_ecdsa->Q, &mpi_r, &mpi_s);
+
+	mbedtls_mpi_free(&mpi_s);
+	mbedtls_mpi_free(&mpi_r);
+
 	if (n) {
-		lwsl_err("%s: mbedtls_ecdsa_write_signature failed: -0x%x\n",
+		lwsl_err("%s: mbedtls_ecdsa_verify failed: -0x%x\n",
 			 __func__, -n);
 
 		goto bail;
 	}
 
 	return 0;
+bail1:
+	mbedtls_mpi_free(&mpi_r);
+
 bail:
 
 	return -3;

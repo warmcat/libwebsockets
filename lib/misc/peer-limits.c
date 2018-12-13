@@ -77,19 +77,20 @@ lws_get_or_create_peer(struct lws_vhost *vhost, lws_sockfd_type sockfd)
 		/* eg, udp doesn't have to have a peer */
 		return NULL;
 
-	if (af == AF_INET) {
+#ifdef LWS_WITH_IPV6
+	if (af == AF_INET)
+#endif
+	{
 		struct sockaddr_in *s = (struct sockaddr_in *)&addr;
 		q = &s->sin_addr;
 		rlen = sizeof(s->sin_addr);
-	} else
+	}
 #ifdef LWS_WITH_IPV6
-	{
+	else {
 		struct sockaddr_in6 *s = (struct sockaddr_in6 *)&addr;
 		q = &s->sin6_addr;
 		rlen = sizeof(s->sin6_addr);
 	}
-#else
-		return NULL;
 #endif
 
 	q8 = q;

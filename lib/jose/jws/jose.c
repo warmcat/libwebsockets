@@ -23,6 +23,7 @@
  */
 
 #include "core/private.h"
+#include "jose/private.h"
 
 #include <stdint.h>
 
@@ -54,8 +55,11 @@ static const char * const jws_jose[] = {
 };
 
 struct jose_cb_args {
-	const struct lws_jose_jwe_alg **args;
-	const struct lws_jose_jwe_alg **enc_args; /* null for jws case */
+	struct lws_jose *jose;
+	struct lejp_ctx jwk_jctx; /* fake lejp context used to parse epk */
+	struct lws_jwk_parse_state jps; /* fake jwk parse state */
+	char *temp;
+	int *temp_len;
 	int is_jwe;
 };
 
@@ -63,6 +67,28 @@ static signed char
 lws_jws_jose_cb(struct lejp_ctx *ctx, char reason)
 {
 	struct jose_cb_args *args = (struct jose_cb_args *)ctx->user;
+	int n;
+
+	/*
+	 * In JOSE JSON, the element "epk" contains a fully-formed JWK.
+	 *
+	 * For JOSE paths beginning "epk.", we pass them through to a JWK
+	 * LEJP subcontext to parse using the JWK parser directly.
+	 */
+
+	if (args->is_jwe && !strncmp(ctx->path, "epk.", 4)) {
+		memcpy(args->jwk_jctx.path, ctx->path + 4,
+		       sizeof(ctx->path) - 4);
+		memcpy(args->jwk_jctx.buf, ctx->buf, ctx->npos);
+		args->jwk_jctx.npos = ctx->npos;
+
+		if (!ctx->path_match)
+			args->jwk_jctx.path_match = 0;
+		lejp_check_path_match(&args->jwk_jctx);
+
+		if (args->jwk_jctx.path_match)
+			args->jwk_jctx.callback(&args->jwk_jctx, reason);
+	}
 
 	if (!(reason & LEJP_FLAG_CB_IS_VALUE) || !ctx->path_match)
 		return 0;
@@ -79,7 +105,8 @@ lws_jws_jose_cb(struct lejp_ctx *ctx, char reason)
 		 */
 
 		if (!args->is_jwe &&
-		    lws_gencrypto_jws_alg_to_definition(ctx->buf, args->args)) {
+		    lws_gencrypto_jws_alg_to_definition(ctx->buf,
+						        &args->jose->alg)) {
 			lwsl_notice("%s: unknown alg '%s'\n", __func__,
 				    ctx->buf);
 
@@ -87,8 +114,9 @@ lws_jws_jose_cb(struct lejp_ctx *ctx, char reason)
 		}
 
 		if (args->is_jwe &&
-		    lws_gencrypto_jwe_alg_to_definition(ctx->buf, args->args)) {
-			lwsl_notice("%s: unknown alg '%s'\n", __func__,
+		    lws_gencrypto_jwe_alg_to_definition(ctx->buf,
+						        &args->jose->alg)) {
+			lwsl_notice("%s: unknown JWE alg '%s'\n", __func__,
 				    ctx->buf);
 
 			return -1;
@@ -127,11 +155,13 @@ lws_jws_jose_cb(struct lejp_ctx *ctx, char reason)
 
 	/* past here, JWE only */
 
-	case LJJHI_ENC:	/* JWE only: Optional: string */
-		if (!args->is_jwe)
+	case LJJHI_ENC:	/* JWE only: Mandatory: string */
+		if (!args->is_jwe) {
+			lwsl_info("%s: enc in jws\n", __func__);
 			return -1;
+		}
 		if (lws_gencrypto_jwe_enc_to_definition(ctx->buf,
-							args->enc_args)) {
+							&args->jose->enc_alg)) {
 			lwsl_notice("%s: unknown enc '%s'\n", __func__,
 				    ctx->buf);
 
@@ -142,41 +172,45 @@ lws_jws_jose_cb(struct lejp_ctx *ctx, char reason)
 	case LJJHI_ZIP:	/* JWE only: Optional: string ("DEF" = deflate) */
 		if (!args->is_jwe)
 			return -1;
-		break;
+		goto append_string;
 
 	case LJJHI_EPK:	/* Additional arg for JWE ECDH */
 		if (!args->is_jwe)
 			return -1;
+		/* Ephemeral key... this JSON subsection is actually a JWK */
+		lwsl_err("LJJHI_EPK\n");
 		break;
 
 	case LJJHI_APU:	/* Additional arg for JWE ECDH */
 		if (!args->is_jwe)
 			return -1;
-		break;
+		/* Agreement Party U */
+		goto append_string;
 
 	case LJJHI_APV:	/* Additional arg for JWE ECDH */
 		if (!args->is_jwe)
 			return -1;
-		break;
+		/* Agreement Party V */
+		goto append_string;
 
 	case LJJHI_IV:  /* Additional arg for JWE AES */
 		if (!args->is_jwe)
 			return -1;
-		break;
+		goto append_string;
 
 	case LJJHI_TAG:	/* Additional arg for JWE AES */
 		if (!args->is_jwe)
 			return -1;
-		break;
+		goto append_string;
 
 	case LJJHI_P2S:	/* Additional arg for JWE PBES2 */
 		if (!args->is_jwe)
 			return -1;
-		break;
+		goto append_string;
 	case LJJHI_P2C:	/* Additional arg for JWE PBES2 */
 		if (!args->is_jwe)
 			return -1;
-		break;
+		goto append_string;
 
 	/* ignore what we don't understand */
 
@@ -185,21 +219,76 @@ lws_jws_jose_cb(struct lejp_ctx *ctx, char reason)
 	}
 
 	return 0;
+
+append_string:
+
+	if (*args->temp_len < ctx->npos) {
+		lwsl_err("%s: out of parsing space\n", __func__);
+		return -1;
+	}
+
+	if (!args->jose->e[ctx->path_match - 1].buf) {
+		args->jose->e[ctx->path_match - 1].buf = (uint8_t *)args->temp;
+		args->jose->e[ctx->path_match - 1].len = 0;
+	}
+
+	memcpy(args->temp, ctx->buf, ctx->npos);
+	args->temp += ctx->npos;
+	*args->temp_len -= ctx->npos;
+	args->jose->e[ctx->path_match - 1].len += ctx->npos;
+
+	if (reason == LEJPCB_VAL_STR_END) {
+		n = lws_b64_decode_string_len(
+			(const char *)args->jose->e[ctx->path_match - 1].buf,
+			args->jose->e[ctx->path_match - 1].len,
+			(char *)args->jose->e[ctx->path_match - 1].buf,
+			args->jose->e[ctx->path_match - 1].len + 1);
+		if (n < 0) {
+			lwsl_err("%s: b64 decode failed\n", __func__);
+			return -1;
+		}
+
+		args->temp -= args->jose->e[ctx->path_match - 1].len - n - 1;
+		*args->temp_len +=
+			args->jose->e[ctx->path_match - 1].len - n - 1;
+
+		args->jose->e[ctx->path_match - 1].len = n;
+	}
+
+	return 0;
+}
+
+void
+lws_jose_init(struct lws_jose *jose)
+{
+	memset(jose, 0, sizeof(*jose));
+}
+
+void
+lws_jose_destroy(struct lws_jose *jose)
+{
+//	lws_gencrypto_destroy_elements(jose->e, LWS_ARRAY_SIZE(jose->e));
+	lws_jwk_destroy(&jose->jwk_ephemeral);
 }
 
 
 static int
-lws_jose_parse(const struct lws_jose_jwe_alg **_args,
-	       const struct lws_jose_jwe_alg **enc_args,
-	       uint8_t *buf, int n, int is_jwe)
+lws_jose_parse(struct lws_jose *jose, const uint8_t *buf, int n,
+	       char *temp, int *temp_len, int is_jwe)
 {
 	struct lejp_ctx jctx;
 	struct jose_cb_args args;
 	int m;
 
-	args.args = _args;
-	args.enc_args = enc_args;
+	if (is_jwe)
+		/* prepare a context for JOSE epk ephemeral jwk parsing */
+		lws_jwk_init_jps(&args.jwk_jctx, &args.jps,
+				 &jose->jwk_ephemeral, NULL, NULL);
+
 	args.is_jwe = is_jwe;
+	args.temp = temp;
+	args.temp_len = temp_len;
+	args.jose = jose;
 
 	lejp_construct(&jctx, lws_jws_jose_cb, &args, jws_jose,
 		       LWS_ARRAY_SIZE(jws_jose));
@@ -207,7 +296,7 @@ lws_jose_parse(const struct lws_jose_jwe_alg **_args,
 	m = (int)(signed char)lejp_parse(&jctx, (uint8_t *)buf, n);
 	lejp_destruct(&jctx);
 	if (m < 0) {
-		lwsl_notice("parse got %d\n", m);
+		lwsl_notice("%s: parse %.*s returned %d\n", __func__, n, buf, m);
 		return -1;
 	}
 
@@ -215,16 +304,17 @@ lws_jose_parse(const struct lws_jose_jwe_alg **_args,
 }
 
 int
-lws_jws_parse_jose(const struct lws_jose_jwe_alg **args,
-		   uint8_t *buf, int n)
+lws_jws_parse_jose(struct lws_jose *jose,
+		   const char *buf, int len, char *temp, int *temp_len)
 {
-	return lws_jose_parse(args, NULL, buf, n, 0);
+	return lws_jose_parse(jose, (const uint8_t *)buf, len,
+			temp, temp_len, 0);
 }
 
 int
-lws_jwe_parse_jose(const struct lws_jose_jwe_alg **args,
-		   const struct lws_jose_jwe_alg **enc_args,
-		   uint8_t *buf, int n)
+lws_jwe_parse_jose(struct lws_jose *jose,
+		   const char *buf, int len, char *temp, int *temp_len)
 {
-	return lws_jose_parse(args, enc_args, buf, n, 1);
+	return lws_jose_parse(jose,
+			      (const uint8_t *)buf, len, temp, temp_len, 1);
 }

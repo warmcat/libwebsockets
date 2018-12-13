@@ -367,6 +367,9 @@ typedef unsigned long long lws_filepos_t;
 typedef long long lws_fileofs_t;
 typedef uint32_t lws_fop_flags_t;
 
+#define lws_concat_temp(_t, _l) (_t + sizeof(_t) - _l)
+#define lws_concat_used(_t, _l) (sizeof(_t) - _l)
+
 /** struct lws_pollargs - argument structure for all external poll related calls
  * passed in via 'in' */
 struct lws_pollargs {
@@ -427,8 +430,8 @@ struct lws;
 #include <libwebsockets/lws-genaes.h>
 #include <libwebsockets/lws-genec.h>
 
-#include <libwebsockets/lws-jose.h>
 #include <libwebsockets/lws-jwk.h>
+#include <libwebsockets/lws-jose.h>
 #include <libwebsockets/lws-jws.h>
 #include <libwebsockets/lws-jwe.h>
 

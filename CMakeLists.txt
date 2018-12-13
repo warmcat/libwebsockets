@@ -105,12 +105,8 @@ option(LWS_WITH_SMTP "Provide SMTP support" OFF)
 option(LWS_WITH_NO_LOGS "Disable all logging from being compiled in" OFF)
 option(LWS_AVOID_SIGPIPE_IGN "Android 7+ reportedly needs this" OFF)
 option(LWS_WITH_STATS "Keep statistics of lws internal operations" OFF)
-option(LWS_WITH_JWS "JSON Web Signature (RFC7515) API" OFF)
-option(LWS_WITH_JWE "JSON Web Encryption (RFC7516) API" OFF)
-option(LWS_WITH_GENHASH "Enable support for Generic Hash (SHA1 + SHA2 with api independent of TLS backend)" OFF)
-option(LWS_WITH_GENRSA "Enable support for Generic RSA (RSA with api independent of TLS backend)" OFF)
-option(LWS_WITH_GENAES "Enable support for Generic AES (AES with api independent of TLS backend)" OFF)
-option(LWS_WITH_GENEC "Enable support for Generic EC (EC with api independent of TLS backend)" OFF)
+option(LWS_WITH_JOSE "JSON Web Signature / Encryption / Keys (RFC7515/6/) API" OFF)
+option(LWS_WITH_GENCRYPTO "Enable support for Generic Crypto apis independent of TLS backend" OFF)
 option(LWS_WITH_SELFTESTS "Selftests run at context creation" OFF)
 option(LWS_WITH_GCOV "Build with gcc gcov coverage instrumentation" OFF)
 option(LWS_WITH_EXPORT_LWSTARGETS "Export libwebsockets CMake targets.  Disable if they conflict with an outer cmake project." ON)
@@ -159,11 +155,8 @@ if(LWS_WITH_DISTRO_RECOMMENDED)
 	set(LWS_WITH_LEJP_CONF 1)
 	set(LWS_WITH_PLUGINS 1)
 	set(LWS_ROLE_RAW_PROXY 1)
-	set(LWS_WITH_GENHASH 1)
-	set(LWS_WITH_GENRSA 1)
-	set(LWS_WITH_GENEC 1)
-	set(LWS_WITH_JWS 1)
-	set(LWS_WITH_JWE 1)
+	set(LWS_WITH_GENCRYPTO 1)
+	set(LWS_WITH_JOSE 1)
 endif()
 
 # do you care about this?  Then send me a patch where it disables it on travis
@@ -292,6 +285,11 @@ if (LWS_WITH_LWSWS)
  set(LWS_ROLE_RAW_PROXY 1)
 endif()
 
+# sshd plugin
+if (LWS_WITH_PLUGINS)
+ set(LWS_WITH_GENCRYPTO 1)
+endif()
+
 if (LWS_ROLE_RAW_PROXY)
  set (LWS_WITHOUT_CLIENT 0)
  set (LWS_WITHOUT_SERVER 0)
@@ -300,19 +298,12 @@ endif()
 if (LWS_WITH_ACME)
  set (LWS_WITHOUT_CLIENT 0)
  set (LWS_WITHOUT_SERVER 0)
- set (LWS_WITH_JWS 1)
- set (LWS_WITH_JWE 1)
+ set (LWS_WITH_JOSE 1)
 endif()
 
-if (LWS_WITH_JWE)
- set(LWS_WITH_JWS 1)
-endif()
-
-if (LWS_WITH_JWS)
+if (LWS_WITH_JOSE)
  set(LWS_WITH_LEJP 1)
- set(LWS_WITH_GENHASH 1)
- set(LWS_WITH_GENRSA 1)
- set(LWS_WITH_GENEC 1)
+ set(LWS_WITH_GENCRYPTO 1)
 endif()
 
 if (LWS_WITH_PLUGINS AND NOT LWS_WITH_LIBUV)
@@ -327,8 +318,7 @@ endif()
 
 if (LWS_WITH_PLUGINS OR LWS_WITH_CGI)
 	# sshd plugin
- set(LWS_WITH_GENHASH 1)
- set(LWS_WITH_GENRSA 1)
+ set(LWS_WITH_GENCRYPTO 1)
 endif()
 
 if (LWS_WITH_GENERIC_SESSIONS)
@@ -1025,29 +1015,13 @@ if (LWS_WITH_SSL)
 			list(APPEND SOURCES
 				lib/tls/mbedtls/ssl.c
 			)
-			if (LWS_WITH_GENHASH)
+			if (LWS_WITH_GENCRYPTO)
 				list(APPEND SOURCES
 					lib/tls/mbedtls/lws-genhash.c
-				)
-			endif()
-			if (LWS_WITH_GENRSA)
-				list(APPEND SOURCES
 					lib/tls/mbedtls/lws-genrsa.c
-				)
-			endif()
-			if (LWS_WITH_GENAES)
-				list(APPEND SOURCES
 					lib/tls/mbedtls/lws-genaes.c
-				)
-			endif()
-			if (LWS_WITH_GENEC)
-				list(APPEND SOURCES
 					lib/tls/lws-genec-common.c
 					lib/tls/mbedtls/lws-genec.c
-				)
-			endif()
-			if (LWS_WITH_GENEC OR LWS_WITH_GENRSA)
-				list(APPEND SOURCES
 					lib/tls/mbedtls/lws-gencrypto.c
 				)
 			endif()
@@ -1055,29 +1029,13 @@ if (LWS_WITH_SSL)
 			list(APPEND SOURCES
 				lib/tls/openssl/ssl.c
 			)
-			if (LWS_WITH_GENHASH)
+			if (LWS_WITH_GENCRYPTO)
 				list(APPEND SOURCES
 					lib/tls/openssl/lws-genhash.c
-				)
-			endif()
-			if (LWS_WITH_GENRSA)
-				list(APPEND SOURCES
 					lib/tls/openssl/lws-genrsa.c
-				)
-			endif()
-			if (LWS_WITH_GENAES)
-				list(APPEND SOURCES
 					lib/tls/openssl/lws-genaes.c
-				)
-			endif()
-			if (LWS_WITH_GENEC)
-				list(APPEND SOURCES
 					lib/tls/lws-genec-common.c
 					lib/tls/openssl/lws-genec.c
-				)
-			endif()
-			if (LWS_WITH_GENEC OR LWS_WITH_GENRSA)
-				list(APPEND SOURCES
 					lib/tls/openssl/lws-gencrypto.c
 				)
 			endif()
@@ -1235,19 +1193,19 @@ if (LWS_WITH_ZIP_FOPS)
        endif()
 endif()
 
-if (LWS_WITH_JWS)
+if (LWS_WITH_JOSE)
 	list(APPEND SOURCES
 		lib/jose/jwk/jwk.c
 		lib/jose/jws/jose.c
-		lib/jose/jws/jws.c)
+		lib/jose/jws/jws.c
+		lib/jose/jwe/jwe.c
+		lib/jose/jwe/jwe-rsa-aescbc.c
+		lib/jose/jwe/jwe-aeskw.c
+		lib/jose/jwe/jwe-rsa-aesgcm.c
+		)
 endif()
 
-if (LWS_WITH_JWE)
-	list(APPEND SOURCES
-		lib/jose/jwe/jwe.c)
-endif()
-
-if (LWS_WITH_JWE OR LWS_WITH_JWS OR LWS_WITH_GENHASH)
+if (LWS_WITH_JOSE OR LWS_WITH_GENCRYPTO)
 	list(APPEND SOURCES
 		lib/tls/lws-gencrypto-common.c)
 endif()
@@ -1685,6 +1643,9 @@ CHECK_FUNCTION_EXISTS(SSL_CTX_set_ciphersuites LWS_HAVE_SSL_CTX_set_ciphersuites
 if (LWS_WITH_SSL AND NOT LWS_WITH_MBEDTLS)
 CHECK_SYMBOL_EXISTS(SSL_CTX_get_extra_chain_certs_only openssl/ssl.h LWS_HAVE_SSL_EXTRA_CHAIN_CERTS)
 CHECK_FUNCTION_EXISTS(EVP_MD_CTX_free LWS_HAVE_EVP_MD_CTX_free)
+CHECK_FUNCTION_EXISTS(ECDSA_SIG_set0 LWS_HAVE_ECDSA_SIG_set0)
+CHECK_FUNCTION_EXISTS(BN_bn2binpad LWS_HAVE_BN_bn2binpad)
+CHECK_FUNCTION_EXISTS(EVP_aes_128_wrap LWS_HAVE_EVP_aes_128_wrap)
 endif()
 if (LWS_WITH_MBEDTLS)
 	set(LWS_HAVE_TLS_CLIENT_METHOD 1)

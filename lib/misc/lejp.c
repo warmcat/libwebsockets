@@ -1,7 +1,7 @@
 /*
  * Lightweight Embedded JSON Parser
  *
- * Copyright (C) 2013-2017 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2013-2018 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -107,7 +107,7 @@ lejp_change_callback(struct lejp_ctx *ctx,
 	ctx->callback(ctx, LEJPCB_START);
 }
 
-static void
+void
 lejp_check_path_match(struct lejp_ctx *ctx)
 {
 	const char *p, *q;
@@ -644,9 +644,11 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 						ret = LEJP_REJECT_CALLBACK;
 						goto reject;
 					}
-					ctx->callback(ctx, LEJPCB_COMPLETE);
-					/* done, return unused amount */
-					return len;
+					if (ctx->callback(ctx, LEJPCB_COMPLETE))
+						goto reject;
+					else
+						/* done, return unused amount */
+						return len;
 				}
 				/* pop */
 				ctx->sp--;

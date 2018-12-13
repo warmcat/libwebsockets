@@ -22,11 +22,3 @@
  * to specify its JOSE JSON object.  So it lives in ./lib/jose/jws/jose.c.
  */
 
-int
-lws_jws_parse_jose(const struct lws_jose_jwe_alg **args,
-		   uint8_t *buf, int n);
-
-int
-lws_jwe_parse_jose(const struct lws_jose_jwe_alg **args,
-		   const struct lws_jose_jwe_alg **enc_args,
-		   uint8_t *buf, int n);

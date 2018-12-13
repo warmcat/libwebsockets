@@ -39,6 +39,8 @@ int main(int argc, const char **argv)
 
 	for (n = 0; n < 1000; n++) {
 		m = lwsac_use(&lwsac, sizeof(*m), 0);
+		if (!m)
+			return -1;
 		m->payload = n;
 
 		lws_list_ptr_insert(&list_head, &m->list_next, NULL);

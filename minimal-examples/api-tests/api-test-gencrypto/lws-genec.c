@@ -54,7 +54,7 @@ test_genec1(struct lws_context *context)
 
 	lws_jwk_dump(&jwk);
 
-	if (jwk.kty != LWS_GENCRYPTO_KYT_EC) {
+	if (jwk.kty != LWS_GENCRYPTO_KTY_EC) {
 		lws_jwk_destroy(&jwk);
 		lwsl_err("%s: jwk is not an EC key\n", __func__);
 		return 1;
@@ -76,7 +76,7 @@ test_genec1(struct lws_context *context)
 		goto bail;
 	}
 
-	if (memcmp(cbc256_enc, res, 16)) {
+	if (lws_timingsafe_bcmp(cbc256_enc, res, 16)) {
 		lwsl_err("%s: lws_genec_crypt encoding mismatch\n", __func__);
 		lwsl_hexdump_notice(res, 16);
 		goto bail;
@@ -95,7 +95,7 @@ test_genec1(struct lws_context *context)
 		goto bail;
 	}
 
-	if (memcmp(cbc256, res1, 16)) {
+	if (lws_timingsafe_bcmp(cbc256, res1, 16)) {
 		lwsl_err("%s: lws_genec_crypt decoding mismatch\n", __func__);
 		lwsl_hexdump_notice(res, 16);
 		goto bail;

@@ -62,6 +62,9 @@ lws_genhash_init(struct lws_genhash_ctx *ctx, enum lws_genhash_types type)
 int
 lws_genhash_update(struct lws_genhash_ctx *ctx, const void *in, size_t len)
 {
+	if (!len)
+		return 0;
+
 	switch (ctx->type) {
 	case LWS_GENHASH_TYPE_SHA1:
 		MBA(mbedtls_sha1_update)(&ctx->u.sha1, in, len);
@@ -147,6 +150,9 @@ lws_genhmac_init(struct lws_genhmac_ctx *ctx, enum lws_genhmac_types type,
 int
 lws_genhmac_update(struct lws_genhmac_ctx *ctx, const void *in, size_t len)
 {
+	if (!len)
+		return 0;
+
 	if (mbedtls_md_hmac_update(&ctx->ctx, in, len))
 		return -1;
 

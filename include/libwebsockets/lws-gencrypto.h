@@ -27,12 +27,12 @@
  * no dependency at all on any JOSE type.
  */
 
-enum lws_gencrypto_kyt {
-	LWS_GENCRYPTO_KYT_UNKNOWN,
+enum lws_gencrypto_kty {
+	LWS_GENCRYPTO_KTY_UNKNOWN,
 
-	LWS_GENCRYPTO_KYT_OCT,
-	LWS_GENCRYPTO_KYT_RSA,
-	LWS_GENCRYPTO_KYT_EC
+	LWS_GENCRYPTO_KTY_OCT,
+	LWS_GENCRYPTO_KTY_RSA,
+	LWS_GENCRYPTO_KTY_EC
 };
 
 /*
@@ -92,3 +92,26 @@ struct lws_gencrypto_keyelem {
 	uint8_t *buf;
 	uint16_t len;
 };
+
+
+/**
+ * lws_gencrypto_bits_to_bytes() - returns rounded up bytes needed for bits
+ *
+ * \param bits
+ *
+ * Returns the number of bytes needed to store the given number of bits.  If
+ * a byte is partially used, the byte count is rounded up.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_gencrypto_bits_to_bytes(int bits);
+
+/**
+ * lws_base64_size() - returns estimated size of base64 encoding
+ *
+ * \param bytes
+ *
+ * Returns a slightly oversize estimate of the size of a base64 encoded version
+ * of the given amount of unencoded data.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_base64_size(int bytes);

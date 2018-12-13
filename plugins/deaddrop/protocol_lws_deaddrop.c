@@ -159,7 +159,7 @@ scan_upload_dir(struct vhd_deaddrop *vhd)
 			p += lws_snprintf(p, (filepath + sizeof(filepath)) - p,
 					  "%s/", subdir[m]);
 
-		p += lws_snprintf(p, (filepath + sizeof(filepath)) - p, "%s",
+		lws_snprintf(p, (filepath + sizeof(filepath)) - p, "%s",
 				  de->d_name);
 
 		/* ignore temp files */
@@ -304,12 +304,14 @@ file_upload_cb(void *data, const char *name, const char *filename,
 		if (state == LWS_UFS_CONTENT)
 			break;
 
-		close((int)(long long)pss->fd);
+		if ((int)(long long)pss->fd >= 0)
+			close((int)(long long)pss->fd);
 
 		/* the temp filename without the ~ */
 		lws_strncpy(filename2, pss->filename, sizeof(filename2));
 		filename2[strlen(filename2) - 1] = '\0';
-		rename(pss->filename, filename2);
+		if (rename(pss->filename, filename2) < 0)
+			lwsl_err("%s: unable to rename\n", __func__);
 
 		pss->fd = LWS_INVALID_FILE;
 		pss->response_code = HTTP_STATUS_OK;
