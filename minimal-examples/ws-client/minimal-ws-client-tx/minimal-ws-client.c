@@ -249,7 +249,7 @@ skip:
 		 * We respond by scheduling a writable callback for the
 		 * connected client, if any.
 		 */
-		if (vhd->client_wsi && vhd->established)
+		if (vhd && vhd->client_wsi && vhd->established)
 			lws_callback_on_writable(vhd->client_wsi);
 		break;
 
