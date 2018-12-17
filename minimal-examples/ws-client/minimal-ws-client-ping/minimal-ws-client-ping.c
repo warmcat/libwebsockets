@@ -19,7 +19,7 @@ static struct lws_context *context;
 static struct lws *client_wsi;
 static int interrupted, zero_length_ping, port = 443,
 	   ssl_connection = LCCSCF_USE_SSL;
-static const char *server_address = "libwebsockets.org", *pro = "lws-ping-test";
+static const char *server_address = "libwebsockets.org", *pro = "lws-mirror-protocol";
 
 struct pss {
 	int send_a_ping;
@@ -40,7 +40,7 @@ connect_client(void)
 	i.origin = i.address;
 	i.ssl_connection = ssl_connection;
 	i.protocol = pro;
-	i.local_protocol_name = pro;
+	i.local_protocol_name = "lws-ping-test";
 	i.pwsi = &client_wsi;
 
 	return !lws_client_connect_via_info(&i);
@@ -184,6 +184,9 @@ int main(int argc, const char **argv)
 
 	if (lws_cmdline_option(argc, argv, "-z"))
 		zero_length_ping = 1;
+
+	if ((p = lws_cmdline_option(argc, argv, "--protocol")))
+		pro = p;
 
 	if ((p = lws_cmdline_option(argc, argv, "--server"))) {
 		server_address = p;

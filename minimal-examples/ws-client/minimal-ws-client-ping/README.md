@@ -18,6 +18,7 @@ Option|Meaning
 --server|Use a specific server instead of libwebsockets.org, eg `--server localhost`.  Implies LCCSCF_ALLOW_SELFSIGNED
 --port|Use a specific port instead of 443, eg `--port 7681`
 -z|Send zero-length pings for testing
+--protocol|Use a specific ws subprotocol rather than lws-mirror-protocol, eg, `--protocol myprotocol`
 
 ## usage
 
