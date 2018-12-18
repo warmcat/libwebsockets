@@ -89,7 +89,7 @@ int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	const char *p;
-	int logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE
+	int n, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE
 			/* for LLL_ verbosity above NOTICE to be built into lws,
 			 * lws must have been configured and built with
 			 * -DCMAKE_BUILD_TYPE=DEBUG instead of =RELEASE */
@@ -147,7 +147,8 @@ int main(int argc, const char **argv)
 
 	lws_context_destroy(context);
 
-	lwsl_user("Completed %s\n", interrupted == 2 ? "OK" : "failed");
+	n = (options & 1) ? interrupted != 2 : interrupted == 3;
+	lwsl_user("Completed %d %s\n", interrupted, !n ? "OK" : "failed");
 
-	return interrupted != 2;
+	return n;
 }
