@@ -144,7 +144,7 @@ _lws_b64_decode_string(const char *in, int in_len, char *out, int out_size)
 				quad[i] = 0;
 		}
 
-		if (out_size < (done + len - 1))
+		if (out_size < (done + len + 1))
 			/* out buffer is too small */
 			return -1;
 

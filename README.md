@@ -24,7 +24,7 @@ News
    and JWE support built (which use gencrypto and so also work the same
    regardless of tls library backend).
 
- - **`JWE`** - JWE (RFC7516) Work in progress: Working CI tests
+ - **`JWE`** - JWE (RFC7516) Algorithms with CI tests:
 
 |Key Encryption|Payload authentication + crypt|Enc + Dec Support|
 |---|---|---|
@@ -35,7 +35,8 @@ News
 |`AES128KW`, `AES192KW`, `AES256KW`|`AES_128_CBC_HMAC_SHA_256`|Enc + Dec|
 |`AES128KW`, `AES192KW`, `AES256KW`|`AES_192_CBC_HMAC_SHA_384`|Enc + Dec|
 |`AES128KW`, `AES192KW`, `AES256KW`|`AES_256_CBC_HMAC_SHA_512`|Enc + Dec|
-|`ECDH-ES` P-256|`AES_128_GCM`|Dec|
+|`ECDH-ES` (P-256/384/521 key)|`AES_128/192/256_GCM`|Enc + Dec|
+|`ECDH-ES+A128/192/256KW` (P-256/384/521 key)|`AES_128/192/256_GCM`|Enc + Dec|
 
 All tests pass on both OpenSSL and mbedTLS backends, using keys generated on
 both OpenSSL and mbedTLS in the tests.
@@ -47,7 +48,7 @@ from the commandline for all supported algorithms.
    [jwe unit tests](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/api-tests/api-test-jose/jwe.c), 
    [jwe minimal example](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/crypto/minimal-crypto-jwe)
 
- - **`lws-genec` ECDSA** - JWS-compatible ECDSA is supported on both OpenSSL and mbedtls... Work in progress: ECDH-ES
+ - **`lws-genec` ECDSA** - JWS-compatible ECDSA is supported on both OpenSSL and mbedtls.
 
  - **`JWS`** - JWS (RFC7515) is now supported for none, HS256/384/512, RS256/384/512, and ES256/384/512, on both OpenSSL and mbedtls.  There's a minimal example tool that signs and verifies compact
  representation JWS from stdin.

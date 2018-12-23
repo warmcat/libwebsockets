@@ -35,12 +35,13 @@ struct lws_genec_ctx {
 		mbedtls_ecdsa_context *ctx_ecdsa;
 	} u;
 #else
-	EVP_PKEY_CTX *ctx;
-	EVP_PKEY_CTX *ctx_peer;
+	EVP_PKEY_CTX *ctx[2];
 #endif
 	struct lws_context *context;
 	const struct lws_ec_curves *curve_table;
 	enum enum_genec_alg genec_alg;
+
+	char has_private;
 };
 
 #if defined(LWS_WITH_MBEDTLS)
@@ -102,6 +103,10 @@ lws_genecdh_set_key(struct lws_genec_ctx *ctx, struct lws_gencrypto_keyelem *el,
 LWS_VISIBLE LWS_EXTERN int
 lws_genecdh_new_keypair(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 		        const char *curve_name, struct lws_gencrypto_keyelem *el);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_genecdh_compute_shared_secret(struct lws_genec_ctx *ctx, uint8_t *ss,
+		  int *ss_len);
 
 
 /* ECDSA-specific apis */

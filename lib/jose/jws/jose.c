@@ -42,6 +42,11 @@ static const char * const jws_jose[] = {
 
 	/* valid for JWE only below here */
 
+	"recipients[].header",
+	"recipients[].header.alg",
+	"recipients[].header.kid",
+	"recipients[].encrypted_key",
+
 	"enc",
 	"zip", /* ("DEF" = deflate) */
 
@@ -56,18 +61,102 @@ static const char * const jws_jose[] = {
 
 struct jose_cb_args {
 	struct lws_jose *jose;
+
 	struct lejp_ctx jwk_jctx; /* fake lejp context used to parse epk */
 	struct lws_jwk_parse_state jps; /* fake jwk parse state */
+
 	char *temp;
 	int *temp_len;
-	int is_jwe;
+
+	unsigned int is_jwe;
+	unsigned int recipients_array;
+
+	int recip;
 };
+
+/*
+ * JWE A.4.7 Complete JWE JSON Serialization example
+ *
+ * LEJPCB_CONSTRUCTED
+ *  LEJPCB_START
+ *   LEJPCB_OBJECT_START
+ *
+ *    protected LEJPCB_PAIR_NAME
+ *    protected LEJPCB_VAL_STR_START
+ *    protected LEJPCB_VAL_STR_END
+ *
+ *    unprotected LEJPCB_PAIR_NAME
+ *    unprotected LEJPCB_OBJECT_START
+ *     unprotected.jku LEJPCB_PAIR_NAME
+ *     unprotected.jku LEJPCB_VAL_STR_START
+ *     unprotected.jku LEJPCB_VAL_STR_END
+ *    unprotected.jku LEJPCB_OBJECT_END
+ *
+ *    recipients LEJPCB_PAIR_NAME
+ *    recipients[] LEJPCB_ARRAY_START
+ *
+ *     recipients[] LEJPCB_OBJECT_START
+ *      recipients[].header LEJPCB_PAIR_NAME
+ *      recipients[].header LEJPCB_OBJECT_START
+ *       recipients[].header.alg LEJPCB_PAIR_NAME
+ *       recipients[].header.alg LEJPCB_VAL_STR_START
+ *       recipients[].header.alg LEJPCB_VAL_STR_END
+ *       recipients[].header.kid LEJPCB_PAIR_NAME
+ *       recipients[].header.kid LEJPCB_VAL_STR_START
+ *       recipients[].header.kid LEJPCB_VAL_STR_END
+ *      recipients[] LEJPCB_OBJECT_END
+ *      recipients[].encrypted_key LEJPCB_PAIR_NAME
+ *      recipients[].encrypted_key LEJPCB_VAL_STR_START
+ *      recipients[].encrypted_key LEJPCB_VAL_STR_CHUNK
+ *      recipients[].encrypted_key LEJPCB_VAL_STR_END
+ *     recipients[] LEJPCB_OBJECT_END (ctx->sp = 1)
+ *
+ *     recipients[] LEJPCB_OBJECT_START
+ *      recipients[].header LEJPCB_PAIR_NAME
+ *      recipients[].header LEJPCB_OBJECT_START
+ *       recipients[].header.alg LEJPCB_PAIR_NAME
+ *       recipients[].header.alg LEJPCB_VAL_STR_START
+ *       recipients[].header.alg LEJPCB_VAL_STR_END
+ *       recipients[].header.kid LEJPCB_PAIR_NAME
+ *       recipients[].header.kid LEJPCB_VAL_STR_START
+ *       recipients[].header.kid LEJPCB_VAL_STR_END
+ *      recipients[] LEJPCB_OBJECT_END
+ *      recipients[].encrypted_key LEJPCB_PAIR_NAME
+ *      recipients[].encrypted_key LEJPCB_VAL_STR_START
+ *      recipients[].encrypted_key LEJPCB_VAL_STR_END
+ *     recipients[] LEJPCB_OBJECT_END (ctx->sp = 1)
+ *
+ *    recipients[] LEJPCB_ARRAY_END
+ *
+ *    iv LEJPCB_PAIR_NAME
+ *    iv LEJPCB_VAL_STR_START
+ *    iv LEJPCB_VAL_STR_END
+ *    ciphertext LEJPCB_PAIR_NAME
+ *    ciphertext LEJPCB_VAL_STR_START
+ *    ciphertext LEJPCB_VAL_STR_END
+ *    tag LEJPCB_PAIR_NAME
+ *    tag LEJPCB_VAL_STR_START
+ *    tag LEJPCB_VAL_STR_END
+ *
+ *   tag LEJPCB_OBJECT_END
+ *  tag LEJPCB_COMPLETE
+ * tag LEJPCB_DESTRUCTED
+ *
+ */
+
+/*
+ * RFC7516 7.2.2
+ *
+ * Note that when using the flattened syntax, just as when using the
+ * general syntax, any unprotected Header Parameter values can reside in
+ * either the "unprotected" member or the "header" member, or in both.
+ */
 
 static signed char
 lws_jws_jose_cb(struct lejp_ctx *ctx, char reason)
 {
 	struct jose_cb_args *args = (struct jose_cb_args *)ctx->user;
-	int n;
+	int n; //, dest;
 
 	/*
 	 * In JOSE JSON, the element "epk" contains a fully-formed JWK.
@@ -90,8 +179,18 @@ lws_jws_jose_cb(struct lejp_ctx *ctx, char reason)
 			args->jwk_jctx.callback(&args->jwk_jctx, reason);
 	}
 
+	// lwsl_notice("%s: %s %d (%d)\n", __func__, ctx->path, reason, ctx->sp);
+
+	/* at the end of each recipients[] entry, bump recipients count */
+
+	if (args->is_jwe && reason == LEJPCB_OBJECT_END && ctx->sp == 1 &&
+	    !strcmp(ctx->path, "recipients[]"))
+		args->jose->recipients++;
+
 	if (!(reason & LEJP_FLAG_CB_IS_VALUE) || !ctx->path_match)
 		return 0;
+
+	//dest = ctx->path_match - 1;
 
 	switch (ctx->path_match - 1) {
 
@@ -154,6 +253,27 @@ lws_jws_jose_cb(struct lejp_ctx *ctx, char reason)
 	case LJJHI_JWK:	/* Optional: jwk JSON object: public key: */
 
 	/* past here, JWE only */
+
+	case LJJHI_RECIPS_HDR:
+		if (!args->is_jwe) {
+			lwsl_info("%s: recipients in jws\n", __func__);
+			return -1;
+		}
+		args->recipients_array = 1;
+		break;
+
+	case LJJHI_RECIPS_HDR_ALG:
+	case LJJHI_RECIPS_HDR_KID:
+		break;
+
+	case LJJHI_RECIPS_EKEY:
+		if (!args->is_jwe) {
+			lwsl_info("%s: recipients in jws\n", __func__);
+			return -1;
+		}
+		args->recipients_array = 1;
+		//dest = ;
+		goto append_string;
 
 	case LJJHI_ENC:	/* JWE only: Mandatory: string */
 		if (!args->is_jwe) {
@@ -264,11 +384,20 @@ lws_jose_init(struct lws_jose *jose)
 	memset(jose, 0, sizeof(*jose));
 }
 
+static void
+lws_jose_recip_destroy(struct lws_jws_recpient *r)
+{
+	lws_jwk_destroy(&r->jwk_ephemeral);
+	lws_jwk_destroy(&r->jwk);
+}
+
 void
 lws_jose_destroy(struct lws_jose *jose)
 {
-//	lws_gencrypto_destroy_elements(jose->e, LWS_ARRAY_SIZE(jose->e));
-	lws_jwk_destroy(&jose->jwk_ephemeral);
+	int n;
+
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(jose->recipient); n++)
+		lws_jose_recip_destroy(&jose->recipient[n]);
 }
 
 
@@ -283,12 +412,16 @@ lws_jose_parse(struct lws_jose *jose, const uint8_t *buf, int n,
 	if (is_jwe)
 		/* prepare a context for JOSE epk ephemeral jwk parsing */
 		lws_jwk_init_jps(&args.jwk_jctx, &args.jps,
-				 &jose->jwk_ephemeral, NULL, NULL);
+				 &jose->recipient[jose->recipients].jwk_ephemeral,
+				 NULL, NULL);
 
 	args.is_jwe = is_jwe;
 	args.temp = temp;
 	args.temp_len = temp_len;
 	args.jose = jose;
+	args.recip = 0;
+	args.recipients_array = 0;
+	jose->recipients = 0;
 
 	lejp_construct(&jctx, lws_jws_jose_cb, &args, jws_jose,
 		       LWS_ARRAY_SIZE(jws_jose));
@@ -299,6 +432,10 @@ lws_jose_parse(struct lws_jose *jose, const uint8_t *buf, int n,
 		lwsl_notice("%s: parse %.*s returned %d\n", __func__, n, buf, m);
 		return -1;
 	}
+
+	if (!args.recipients_array && jose->recipient[0].unprot[LJJHI_ALG].buf)
+		/* if no explicit recipients[], we got one */
+		jose->recipients++;
 
 	return 0;
 }
@@ -317,4 +454,148 @@ lws_jwe_parse_jose(struct lws_jose *jose,
 {
 	return lws_jose_parse(jose,
 			      (const uint8_t *)buf, len, temp, temp_len, 1);
+}
+
+int
+lws_jose_render(struct lws_jose *jose, struct lws_jwk *aux_jwk,
+		char *out, size_t out_len)
+{
+	struct lws_jwk *jwk;
+	char *end = out + out_len - 1;
+	int n, m, f, sub = 0, vl;
+
+	/* JOSE requires an alg */
+	if (!jose->alg || !jose->alg->alg)
+		goto bail;
+
+	*out++ = '{';
+
+	for (n = 0; n < LWS_COUNT_JOSE_HDR_ELEMENTS; n++) {
+		switch (n) {
+
+		/* strings */
+
+		case LJJHI_ALG:	/* REQUIRED */
+		case LJJHI_JKU:	/* Optional: string */
+		case LJJHI_KID:	/* Optional: string */
+		case LJJHI_TYP:	/* Optional: string: media type */
+		case LJJHI_CTY:	/* Optional: string: content media type */
+		case LJJHI_X5U:	/* Optional: string: pubkey cert / chain URL */
+		case LJJHI_ENC:	/* JWE only: Optional: string */
+		case LJJHI_ZIP:	/* JWE only: Optional: string ("DEF"=deflate) */
+			if (jose->e[n].buf) {
+				out += lws_snprintf(out, end - out,
+					"%c\"%s\":\"%s\"", sub ? ',' : ' ',
+					jws_jose[n], jose->e[n].buf);
+				sub = 1;
+			}
+			break;
+
+		case LJJHI_X5T:	/* Optional: base64url: SHA-1 of actual cert */
+		case LJJHI_X5T_S256: /* Optional: base64url: SHA-256 of cert */
+		case LJJHI_APU:	/* Additional arg for JWE ECDH:  b64url */
+		case LJJHI_APV:	/* Additional arg for JWE ECDH:  b64url */
+		case LJJHI_IV:	/* Additional arg for JWE AES:   b64url */
+		case LJJHI_TAG:	/* Additional arg for JWE AES:   b64url */
+		case LJJHI_P2S:	/* Additional arg for JWE PBES2: b64url: salt */
+			if (jose->e[n].buf) {
+				out += lws_snprintf(out, end - out,
+					"%c\"%s\":\"", sub ? ',' : ' ',
+						jws_jose[n]);
+				sub = 1;
+				m = lws_b64_encode_string_url((const char *)
+						jose->e[n].buf, jose->e[n].len,
+						out, end - out);
+				if (m < 0)
+					return -1;
+				out += m;
+				out += lws_snprintf(out, end - out, "\"");
+			}
+			break;
+
+		case LJJHI_P2C: /* Additional arg for JWE PBES2: int: count */
+			break; /* don't support atm */
+
+		case LJJHI_X5C:	/* Optional: base64 (NOT -url): actual cert */
+			if (jose->e[n].buf) {
+				out += lws_snprintf(out, end - out,
+					"%c\"%s\":\"", sub ? ',' : ' ',
+							jws_jose[n]);
+				sub = 1;
+				m = lws_b64_encode_string((const char *)
+						jose->e[n].buf, jose->e[n].len,
+						out, end - out);
+				if (m < 0)
+					return -1;
+				out += m;
+				out += lws_snprintf(out, end - out, "\"");
+			}
+			break;
+
+		case LJJHI_EPK:	/* Additional arg for JWE ECDH:  eph pubkey */
+		case LJJHI_JWK:	/* Optional: jwk JSON object: public key: */
+
+			jwk = n == LJJHI_EPK ? &jose->recipient[0].jwk_ephemeral : aux_jwk;
+			if (!jwk)
+				return -1;
+
+			out += lws_snprintf(out, end - out, "%c\"%s\":",
+					    sub ? ',' : ' ', jws_jose[n]);
+			sub = 1;
+			vl = end - out;
+			m = lws_jwk_export(jwk, 0, out, &vl);
+			if (m < 0) {
+				lwsl_notice("%s: failed to export key\n",
+						__func__);
+
+				return -1;
+			}
+			out += m;
+			break;
+
+		case LJJHI_CRIT:/* Optional for send, REQUIRED: array of strings:
+				 * mustn't contain standardized strings or null set */
+			if (!jose->e[n].buf)
+				break;
+
+			out += lws_snprintf(out, end - out,
+				"%c\"%s\":[", sub ? ',' : ' ', jws_jose[n]);
+			sub = 1;
+
+			m = 0;
+			f = 1;
+			while (m < jose->e[n].len && (end - out) > 1) {
+				if (jose->e[n].buf[m] == ' ') {
+					if (!f)
+						*out++ = '\"';
+
+					m++;
+					f = 1;
+					continue;
+				}
+
+				if (f) {
+					if (m)
+						*out++ = ',';
+					*out++ = '\"';
+					f = 0;
+				}
+
+				*out++ = jose->e[n].buf[m];
+				m++;
+			}
+
+			break;
+		}
+	}
+
+	*out++ = '}';
+
+	if (out > end - 2)
+		return -1;
+
+	return out_len - (end - out) - 1;
+
+bail:
+	return -1;
 }

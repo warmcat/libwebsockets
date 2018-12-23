@@ -279,6 +279,7 @@ lws_jwk_destroy_elements(struct lws_gencrypto_keyelem *el, int m)
 			/* wipe all key material when it goes out of scope */
 			lws_explicit_bzero(el[n].buf, el[n].len);
 			lws_free_set_NULL(el[n].buf);
+			el[n].len = 0;
 		}
 }
 
@@ -545,6 +546,21 @@ lws_jwk_init_jps(struct lejp_ctx *jctx, struct lws_jwk_parse_state *jps,
 }
 
 LWS_VISIBLE int
+lws_jwk_dup_oct(struct lws_jwk *jwk, const void *key, int len)
+{
+	jwk->e[LWS_GENCRYPTO_KTY_OCT].buf = lws_malloc(len, __func__);
+	if (!jwk->e[LWS_GENCRYPTO_KTY_OCT].buf)
+		return -1;
+
+	jwk->kty = LWS_GENCRYPTO_KTY_OCT;
+	jwk->e[LWS_GENCRYPTO_OCT_KEYEL_K].len = len;
+
+	memcpy(jwk->e[LWS_GENCRYPTO_KTY_OCT].buf, key, len);
+
+	return 0;
+}
+
+LWS_VISIBLE int
 lws_jwk_generate(struct lws_context *context, struct lws_jwk *jwk,
 	       enum lws_gencrypto_kty kty, int bits, const char *curve)
 {
@@ -647,9 +663,9 @@ lws_jwk_import(struct lws_jwk *jwk, lws_jwk_key_import_callback cb, void *user,
 
 
 LWS_VISIBLE int
-lws_jwk_export(struct lws_jwk *jwk, int private, char *p, size_t len)
+lws_jwk_export(struct lws_jwk *jwk, int private, char *p, int *len)
 {
-	char *start = p, *end = &p[len - 1];
+	char *start = p, *end = &p[*len - 1];
 	int n, m, limit, first = 1, asym = 0;
 	struct lexico *l;
 
@@ -780,6 +796,8 @@ lws_jwk_export(struct lws_jwk *jwk, int private, char *p, size_t len)
 
 	p += lws_snprintf(p, end - p, "}\n");
 
+	*len -= p - start;
+
 	return p - start;
 }
 
@@ -792,7 +810,7 @@ lws_jwk_rfc7638_fingerprint(struct lws_jwk *jwk, char *digest32)
 
 	tmp = lws_malloc(tmpsize, "rfc7638 tmp");
 
-	n = lws_jwk_export(jwk, 0, tmp, tmpsize);
+	n = lws_jwk_export(jwk, 0, tmp, &tmpsize);
 	if (n < 0)
 		goto bail;
 
@@ -865,7 +883,7 @@ lws_jwk_save(struct lws_jwk *jwk, const char *filename)
 	if (!buf)
 		return -1;
 
-	n = lws_jwk_export(jwk, 1, buf, buflen);
+	n = lws_jwk_export(jwk, 1, buf, &buflen);
 	if (n < 0)
 		goto bail;
 

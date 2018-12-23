@@ -84,9 +84,7 @@ int main(int argc, const char **argv)
 	struct lws_context_creation_info info;
 	int temp_len = sizeof(temp);
 	struct lws_context *context;
-	struct lws_jose jose;
-	struct lws_jwk jwk;
-	struct lws_jws jws;
+	struct lws_jwe jwe;
 	const char *p;
 
 	if ((p = lws_cmdline_option(argc, argv, "-d")))
@@ -105,8 +103,7 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
-	lws_jose_init(&jose);
-	lws_jws_init(&jws, &jwk, context);
+	lws_jwe_init(&jwe, context);
 
 	/* if encrypting, set the ciphers */
 
@@ -121,18 +118,18 @@ int main(int argc, const char **argv)
 			return 1;
 		}
 		*sp = '\0';
-		if (lws_gencrypto_jwe_alg_to_definition(p, &jose.alg)) {
+		if (lws_gencrypto_jwe_alg_to_definition(p, &jwe.jose.alg)) {
 			lwsl_err("Unknown cipher alg %s\n", p);
 			return 1;
 		}
-		if (lws_gencrypto_jwe_enc_to_definition(sp + 1, &jose.enc_alg)) {
+		if (lws_gencrypto_jwe_enc_to_definition(sp + 1, &jwe.jose.enc_alg)) {
 			lwsl_err("Unknown payload enc alg %s\n", sp + 1);
 			return 1;
 		}
 
 		/* create JOSE header, also needed for output */
 
-		if (lws_jws_alloc_element(&jws.map, LJWS_JOSE,
+		if (lws_jws_alloc_element(&jwe.jws.map, LJWS_JOSE,
 					  lws_concat_temp(temp, temp_len),
 					  &temp_len, strlen(p) +
 					  strlen(sp + 1) + 16, 0)) {
@@ -140,8 +137,8 @@ int main(int argc, const char **argv)
 			return 1;
 		}
 
-		jws.map.len[LJWS_JOSE] = lws_snprintf(
-				(char *)jws.map.buf[LJWS_JOSE], temp_len,
+		jwe.jws.map.len[LJWS_JOSE] = lws_snprintf(
+				(char *)jwe.jws.map.buf[LJWS_JOSE], temp_len,
 				"{\"alg\":\"%s\",\"enc\":\"%s\"}", p, sp + 1);
 
 		enc = 1;
@@ -158,7 +155,7 @@ int main(int argc, const char **argv)
 	/* grab the key */
 
 	if ((p = lws_cmdline_option(argc, argv, "-k"))) {
-		if (lws_jwk_load(&jwk, p, NULL, NULL)) {
+		if (lws_jwk_load(&jwe.jwk, p, NULL, NULL)) {
 			lwsl_err("%s: problem loading JWK %s\n", __func__, p);
 
 			return 1;
@@ -173,16 +170,16 @@ int main(int argc, const char **argv)
 
 		/* point CTXT to the plaintext we read from stdin */
 
-		jws.map.buf[LJWE_CTXT] = in;
-		jws.map.len[LJWE_CTXT] = n;
+		jwe.jws.map.buf[LJWE_CTXT] = in;
+		jwe.jws.map.len[LJWE_CTXT] = n;
 
 		/*
 		 * Create a random CEK and set EKEY to it
 		 * CEK size is determined by hash / hmac size
 		 */
 
-		n = lws_gencrypto_bits_to_bytes(jose.enc_alg->keybits_fixed);
-		if (lws_jws_randomize_element(context, &jws.map, LJWE_EKEY,
+		n = lws_gencrypto_bits_to_bytes(jwe.jose.enc_alg->keybits_fixed);
+		if (lws_jws_randomize_element(context, &jwe.jws.map, LJWE_EKEY,
 					      lws_concat_temp(temp, temp_len),
 					      &temp_len, n,
 					      LWS_JWE_LIMIT_KEY_ELEMENT_BYTES)) {
@@ -192,7 +189,7 @@ int main(int argc, const char **argv)
 
 		/* perform the encryption of the CEK and the plaintext */
 
-		n = lws_jwe_encrypt(&jose, &jws,
+		n = lws_jwe_encrypt(&jwe,
 				    lws_concat_temp(temp, temp_len),
 				    &temp_len);
 		if (n < 0) {
@@ -202,9 +199,9 @@ int main(int argc, const char **argv)
 
 		/* output the JWE in compact form */
 
-		n = lws_jwe_write_compact(&jose, &jws, compact, sizeof(compact));
+		n = lws_jwe_render_compact(&jwe, compact, sizeof(compact));
 		if (n < 0) {
-			lwsl_err("%s: lws_jwe_write_compact failed: %d\n",
+			lwsl_err("%s: lws_jwe_render_compact failed: %d\n",
 				 __func__, n);
 			goto bail1;
 		}
@@ -222,7 +219,7 @@ int main(int argc, const char **argv)
 		 * converts a compact serialization to b64 + decoded maps
 		 * held in jws
 		 */
-		if (lws_jws_compact_decode(in, n, &jws.map, &jws.map_b64,
+		if (lws_jws_compact_decode(in, n, &jwe.jws.map, &jwe.jws.map_b64,
 					   lws_concat_temp(temp, temp_len),
 					   &temp_len) != 5) {
 			lwsl_err("%s: lws_jws_compact_decode failed\n",
@@ -236,7 +233,9 @@ int main(int argc, const char **argv)
 		 * signature info)
 		 */
 
-		n = lws_jwe_auth_and_decrypt(&jose, &jws);
+		n = lws_jwe_auth_and_decrypt(&jwe,
+					     lws_concat_temp(temp, temp_len),
+					     &temp_len);
 		if (n < 0) {
 			lwsl_err("%s: lws_jwe_auth_and_decrypt failed\n",
 				 __func__);
@@ -245,7 +244,8 @@ int main(int argc, const char **argv)
 
 		/* if it's valid, dump the plaintext and return 0 */
 
-		if (write(1, jws.map.buf[LJWE_CTXT], jws.map.len[LJWE_CTXT]) < 0) {
+		if (write(1, jwe.jws.map.buf[LJWE_CTXT],
+			     jwe.jws.map.len[LJWE_CTXT]) < 0) {
 			lwsl_err("Write stdout failed\n");
 			goto bail1;
 		}
@@ -255,8 +255,7 @@ int main(int argc, const char **argv)
 
 bail1:
 
-	lws_jws_destroy(&jws);
-	lws_jwk_destroy(&jwk);
+	lws_jwe_destroy(&jwe);
 
 	lws_context_destroy(context);
 

@@ -21,7 +21,32 @@
 
 #include "core/private.h"
 #include "private.h"
+#if 0
+static const char * const jws_json[] = {
+	"protected",
+	"header",
+	"payload",
+	"signature",
+	"signatures",
+};
 
+enum lws_jws_json_tok {
+	LJWSJT_PROTECTED,
+	LJWSJT_HEADER,
+	LJWSJT_PAYLOAD,
+	LJWSJT_SIGNATURE,
+	LJWSJT_SIGNATURES,
+};
+
+/* parse a JWS complete or flattened JSON object */
+
+static signed char
+lws_jws_json_cb(struct lejp_ctx *ctx, char reason)
+{
+	struct jose_cb_args *args = (struct jose_cb_args *)ctx->user;
+	int n;
+}
+#endif
 LWS_VISIBLE void
 lws_jws_init(struct lws_jws *jws, struct lws_jwk *jwk,
 	     struct lws_context *context)
@@ -32,7 +57,7 @@ lws_jws_init(struct lws_jws *jws, struct lws_jwk *jwk,
 }
 
 static void
-lws_jws_compact_map_bzero(struct lws_jws_compact_map *map)
+lws_jws_map_bzero(struct lws_jws_map *map)
 {
 	int n;
 
@@ -46,14 +71,13 @@ lws_jws_compact_map_bzero(struct lws_jws_compact_map *map)
 LWS_VISIBLE void
 lws_jws_destroy(struct lws_jws *jws)
 {
-	lws_jws_compact_map_bzero(&jws->map);
+	lws_jws_map_bzero(&jws->map);
 	jws->jwk = NULL;
 }
 
 LWS_VISIBLE int
-lws_jws_dup_element(struct lws_jws_compact_map *map, int idx,
-		    char *temp, int *temp_len, const void *in, size_t in_len,
-		    size_t actual_alloc)
+lws_jws_dup_element(struct lws_jws_map *map, int idx, char *temp, int *temp_len,
+		    const void *in, size_t in_len, size_t actual_alloc)
 {
 	if (!actual_alloc)
 		actual_alloc = in_len;
@@ -61,17 +85,18 @@ lws_jws_dup_element(struct lws_jws_compact_map *map, int idx,
 	if ((size_t)*temp_len < actual_alloc)
 		return -1;
 
+	memcpy(temp, in, in_len);
+
 	map->len[idx] = in_len;
 	map->buf[idx] = temp;
 
-	memcpy((void *)map->buf[idx], in, in_len);
 	*temp_len -= actual_alloc;
 
 	return 0;
 }
 
 LWS_VISIBLE int
-lws_jws_encode_b64_element(struct lws_jws_compact_map *map, int idx,
+lws_jws_encode_b64_element(struct lws_jws_map *map, int idx,
 			   char *temp, int *temp_len, const void *in,
 			   size_t in_len)
 {
@@ -93,8 +118,7 @@ lws_jws_encode_b64_element(struct lws_jws_compact_map *map, int idx,
 }
 
 LWS_VISIBLE int
-lws_jws_randomize_element(struct lws_context *context,
-			  struct lws_jws_compact_map *map,
+lws_jws_randomize_element(struct lws_context *context, struct lws_jws_map *map,
 			  int idx, char *temp, int *temp_len, size_t random_len,
 			  size_t actual_alloc)
 {
@@ -118,7 +142,7 @@ lws_jws_randomize_element(struct lws_context *context,
 }
 
 LWS_VISIBLE int
-lws_jws_alloc_element(struct lws_jws_compact_map *map, int idx, char *temp,
+lws_jws_alloc_element(struct lws_jws_map *map, int idx, char *temp,
 		      int *temp_len, size_t len, size_t actual_alloc)
 {
 	if (!actual_alloc)
@@ -156,7 +180,7 @@ lws_jws_base64_enc(const char *in, size_t in_len, char *out, size_t out_max)
 }
 
 LWS_VISIBLE int
-lws_jws_b64_compact_map(const char *in, int len, struct lws_jws_compact_map *map)
+lws_jws_b64_compact_map(const char *in, int len, struct lws_jws_map *map)
 {
 	int me = 0;
 
@@ -184,8 +208,8 @@ lws_jws_b64_compact_map(const char *in, int len, struct lws_jws_compact_map *map
  */
 
 LWS_VISIBLE int
-lws_jws_compact_decode(const char *in, int len, struct lws_jws_compact_map *map,
-		       struct lws_jws_compact_map *map_b64, char *out,
+lws_jws_compact_decode(const char *in, int len, struct lws_jws_map *map,
+		       struct lws_jws_map *map_b64, char *out,
 		       int *out_len)
 {
 	int blocks, n, m = 0;
@@ -202,14 +226,17 @@ lws_jws_compact_decode(const char *in, int len, struct lws_jws_compact_map *map,
 		return -1;
 
 	while (m < blocks) {
-		n = lws_b64_decode_string_len(map_b64->buf[m],
-					      map_b64->len[m], out, *out_len);
+		n = lws_b64_decode_string_len(map_b64->buf[m], map_b64->len[m],
+					      out, *out_len);
 		if (n < 0) {
 			lwsl_err("%s: b64 decode failed\n", __func__);
 			return -1;
 		}
 		/* replace the map entry with the decoded content */
-		map->buf[m] = out;
+		if (n)
+			map->buf[m] = out;
+		else
+			map->buf[m] = NULL;
 		map->len[m++] = n;
 		out += n;
 		*out_len -= n;
@@ -222,15 +249,14 @@ lws_jws_compact_decode(const char *in, int len, struct lws_jws_compact_map *map,
 }
 
 static int
-lws_jws_compact_decode_map(struct lws_jws_compact_map *map_b64,
-			   struct lws_jws_compact_map *map, char *out,
-			   int *out_len)
+lws_jws_compact_decode_map(struct lws_jws_map *map_b64, struct lws_jws_map *map,
+			   char *out, int *out_len)
 {
 	int n, m = 0;
 
 	for (n = 0; n < LWS_JWS_MAX_COMPACT_BLOCKS; n++) {
-		n = lws_b64_decode_string_len(map_b64->buf[m],
-					      map_b64->len[m], out, *out_len);
+		n = lws_b64_decode_string_len(map_b64->buf[m], map_b64->len[m],
+					      out, *out_len);
 		if (n < 0) {
 			lwsl_err("%s: b64 decode failed\n", __func__);
 			return -1;
@@ -271,8 +297,8 @@ lws_jws_encode_section(const char *in, size_t in_len, int first, char **p,
 }
 
 LWS_VISIBLE int
-lws_jws_compact_encode(struct lws_jws_compact_map *map_b64, /* b64-encoded */
-		       const struct lws_jws_compact_map *map,	/* non-b64 */
+lws_jws_compact_encode(struct lws_jws_map *map_b64, /* b64-encoded */
+		       const struct lws_jws_map *map,	/* non-b64 */
 		       char *buf, int *len)
 {
 	int n, m;
@@ -303,8 +329,7 @@ lws_jws_compact_encode(struct lws_jws_compact_map *map_b64, /* b64-encoded */
  */
 
 LWS_VISIBLE int
-lws_jws_sig_confirm(struct lws_jws_compact_map *map_b64, /* b64-encoded */
-		    struct lws_jws_compact_map *map,	/* non-b64 */
+lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 		    struct lws_jwk *jwk, struct lws_context *context)
 {
 	enum enum_genrsa_mode padding = LGRSAM_PKCS1_1_5;
@@ -529,12 +554,12 @@ lws_jws_sig_confirm(struct lws_jws_compact_map *map_b64, /* b64-encoded */
 /* it's already a b64 map, we will make a temp plain version */
 
 LWS_VISIBLE int
-lws_jws_sig_confirm_compact_b64_map(struct lws_jws_compact_map *map_b64,
+lws_jws_sig_confirm_compact_b64_map(struct lws_jws_map *map_b64,
 				    struct lws_jwk *jwk,
 			            struct lws_context *context,
 			            char *temp, int *temp_len)
 {
-	struct lws_jws_compact_map map;
+	struct lws_jws_map map;
 	int n;
 
 	n = lws_jws_compact_decode_map(map_b64, &map, temp, temp_len);
@@ -551,12 +576,11 @@ lws_jws_sig_confirm_compact_b64_map(struct lws_jws_compact_map *map_b64,
 
 LWS_VISIBLE int
 lws_jws_sig_confirm_compact_b64(const char *in, size_t len,
-				struct lws_jws_compact_map *map,
-				struct lws_jwk *jwk,
+				struct lws_jws_map *map, struct lws_jwk *jwk,
 				struct lws_context *context,
 				char *temp, int *temp_len)
 {
-	struct lws_jws_compact_map map_b64;
+	struct lws_jws_map map_b64;
 	int n;
 
 	if (lws_jws_b64_compact_map(in, len, &map_b64) < 0)
@@ -572,11 +596,11 @@ lws_jws_sig_confirm_compact_b64(const char *in, size_t len,
 /* it's already plain, we will make a temp b64 version */
 
 LWS_VISIBLE int
-lws_jws_sig_confirm_compact(struct lws_jws_compact_map *map, struct lws_jwk *jwk,
+lws_jws_sig_confirm_compact(struct lws_jws_map *map, struct lws_jwk *jwk,
 			    struct lws_context *context, char *temp,
 			    int *temp_len)
 {
-	struct lws_jws_compact_map map_b64;
+	struct lws_jws_map map_b64;
 
 	if (lws_jws_compact_encode(&map_b64, map, temp, temp_len) < 0)
 		return -1;

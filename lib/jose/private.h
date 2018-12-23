@@ -26,3 +26,7 @@ void
 lws_jwk_init_jps(struct lejp_ctx *jctx, struct lws_jwk_parse_state *jps,
 		 struct lws_jwk *jwk, lws_jwk_key_import_callback cb,
 		 void *user);
+
+int
+lws_jose_render(struct lws_jose *jose, struct lws_jwk *aux_jwk,
+		char *out, size_t out_len);

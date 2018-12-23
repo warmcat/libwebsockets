@@ -76,6 +76,7 @@ int main(int argc, const char **argv)
 	struct lws_jwk jwk;
 	char key[32768];
 	const char *curve = "P-256";
+	int vl = sizeof(key);
 
 	if ((p = lws_cmdline_option(argc, argv, "-d")))
 		logs = atoi(p);
@@ -138,7 +139,7 @@ int main(int argc, const char **argv)
 
 		/* public version */
 
-		if (lws_jwk_export(&jwk, 0, key, sizeof(key)) < 0) {
+		if (lws_jwk_export(&jwk, 0, key, &vl) < 0) {
 			lwsl_err("lws_jwk_export failed\n");
 
 			return 1;
@@ -164,7 +165,7 @@ int main(int argc, const char **argv)
 
 	/* private version */
 
-	if (lws_jwk_export(&jwk, 1, key, sizeof(key)) < 0) {
+	if (lws_jwk_export(&jwk, 1, key, &vl) < 0) {
 		lwsl_err("lws_jwk_export failed\n");
 
 		return 1;

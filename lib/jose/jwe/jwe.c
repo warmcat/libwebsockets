@@ -23,6 +23,7 @@
  *
  */
 #include "core/private.h"
+#include "jose/private.h"
 #include "jose/jwe/private.h"
 
 #if 0
@@ -49,8 +50,8 @@ enum enum_jwe_complete_tokens {
 };
 
 struct complete_cb_args {
-	struct lws_jws_compact_map *map;
-	struct lws_jws_compact_map *map_b64;
+	struct lws_jws_map *map;
+	struct lws_jws_map *map_b64;
 	char *out;
 	int out_len;
 };
@@ -89,8 +90,8 @@ lws_jwe_parse_complete_cb(struct lejp_ctx *ctx, char reason)
 
 LWS_VISIBLE int
 lws_jws_complete_decode(const char *json_in, int len,
-			struct lws_jws_compact_map *map,
-			struct lws_jws_compact_map *map_b64, char *out,
+			struct lws_jws_map *map,
+			struct lws_jws_map *map_b64, char *out,
 			int out_len)
 {
 
@@ -118,6 +119,27 @@ lws_jws_complete_decode(const char *json_in, int len,
 }
 #endif
 
+void
+lws_jwe_init(struct lws_jwe *jwe, struct lws_context *context)
+{
+	lws_jose_init(&jwe->jose);
+	lws_jws_init(&jwe->jws, &jwe->jwk, context);
+	memset(&jwe->jwk, 0, sizeof(jwe->jwk));
+	jwe->recip = 0;
+	jwe->cek_valid = 0;
+}
+
+void
+lws_jwe_destroy(struct lws_jwe *jwe)
+{
+	lws_jws_destroy(&jwe->jws);
+	lws_jose_destroy(&jwe->jose);
+	lws_jwk_destroy(&jwe->jwk);
+	/* cleanse the CEK we held on to in case of further encryptions of it */
+	lws_explicit_bzero(jwe->cek, sizeof(jwe->cek));
+	jwe->cek_valid = 0;
+}
+
 static uint8_t *
 be32(uint32_t i, uint32_t *p32)
 {
@@ -136,18 +158,25 @@ be32(uint32_t i, uint32_t *p32)
  * shared secret Z established through the ECDH algorithm, per
  * Section 6.2.2.2 of [NIST.800-56A].
  *
+ *
+ * Key derivation is performed using the Concat KDF, as defined in
+ * Section 5.8.1 of [NIST.800-56A], where the Digest Method is SHA-256.
+ *
  * out must be prepared to take at least 32 bytes or the encrypted key size,
  * whichever is larger.
  */
 
 int
-lws_jwa_concat_kdf(struct lws_jose *jose, struct lws_jws *jws, int direct,
-		   uint8_t *out, const uint8_t *shared_secret, int sslen)
+lws_jwa_concat_kdf(struct lws_jwe *jwe, int direct, uint8_t *out,
+		   const uint8_t *shared_secret, int sslen)
 {
 	int hlen = lws_genhash_size(LWS_GENHASH_TYPE_SHA256), aidlen;
 	struct lws_genhash_ctx hash_ctx;
 	uint32_t ctr = 1, t;
 	const char *aid;
+
+	if (!jwe->jose.enc_alg || !jwe->jose.alg)
+		return -1;
 
 	/*
 	 * Hash
@@ -167,7 +196,7 @@ lws_jwa_concat_kdf(struct lws_jose *jose, struct lws_jws *jws, int direct,
 	 * "alg" (algorithm) Header Parameter value.
 	 */
 
-	aid = direct ? jose->enc_alg->alg : jose->alg->alg;
+	aid = direct ? jwe->jose.enc_alg->alg : jwe->jose.alg->alg;
 	aidlen = strlen(aid);
 
 	/*
@@ -200,7 +229,7 @@ lws_jwa_concat_kdf(struct lws_jose *jose, struct lws_jws *jws, int direct,
 	 *    one hash output size (256b for SHA-256)
 	 */
 
-	while (ctr <= (uint32_t)(jose->enc_alg->keybits_fixed / hlen)) {
+	while (ctr <= (uint32_t)((jwe->jose.enc_alg->keybits_fixed + (hlen - 1)) / hlen)) {
 
 		/*
 		 * Key derivation is performed using the Concat KDF, as defined
@@ -219,17 +248,18 @@ lws_jwa_concat_kdf(struct lws_jose *jose, struct lws_jws *jws, int direct,
 		    lws_genhash_update(&hash_ctx, be32(strlen(aid), &t), 4) ||
 		    lws_genhash_update(&hash_ctx, aid, aidlen) ||
 		    lws_genhash_update(&hash_ctx,
-				       be32(jose->e[LJJHI_APU].len, &t), 4) ||
-		    lws_genhash_update(&hash_ctx, jose->e[LJJHI_APU].buf,
-						  jose->e[LJJHI_APU].len) ||
+				       be32(jwe->jose.e[LJJHI_APU].len, &t), 4) ||
+		    lws_genhash_update(&hash_ctx, jwe->jose.e[LJJHI_APU].buf,
+						  jwe->jose.e[LJJHI_APU].len) ||
 		    lws_genhash_update(&hash_ctx,
-				       be32(jose->e[LJJHI_APV].len, &t), 4) ||
-		    lws_genhash_update(&hash_ctx, jose->e[LJJHI_APV].buf,
-						  jose->e[LJJHI_APV].len) ||
+				       be32(jwe->jose.e[LJJHI_APV].len, &t), 4) ||
+		    lws_genhash_update(&hash_ctx, jwe->jose.e[LJJHI_APV].buf,
+						  jwe->jose.e[LJJHI_APV].len) ||
 		    lws_genhash_update(&hash_ctx,
-				       be32(jose->enc_alg->keybits_fixed, &t),
+				       be32(jwe->jose.enc_alg->keybits_fixed, &t),
 					    4) ||
 		    lws_genhash_destroy(&hash_ctx, out)) {
+			lwsl_err("%s: fail\n", __func__);
 			lws_genhash_destroy(&hash_ctx, NULL);
 
 			return -1;
@@ -251,98 +281,127 @@ lws_jwe_be64(uint64_t c, uint8_t *p8)
 }
 
 LWS_VISIBLE int
-lws_jwe_auth_and_decrypt(struct lws_jose *jose, struct lws_jws *jws)
+lws_jwe_auth_and_decrypt(struct lws_jwe *jwe, char *temp, int *temp_len)
 {
 	int valid_aescbc_hmac, valid_aesgcm;
-	char temp[512];
-	int temp_len = sizeof(temp);
 
-	if (lws_jwe_parse_jose(jose, jws->map.buf[LJWS_JOSE],
-			       jws->map.len[LJWS_JOSE],
-			       temp, &temp_len) < 0) {
-		lwsl_err("%s: JOSE parse failed\n", __func__);
+	if (lws_jwe_parse_jose(&jwe->jose, jwe->jws.map.buf[LJWS_JOSE],
+			       jwe->jws.map.len[LJWS_JOSE],
+			       temp, temp_len) < 0) {
+		lwsl_err("%s: JOSE parse '%.*s' failed\n", __func__,
+				jwe->jws.map.len[LJWS_JOSE],
+				jwe->jws.map.buf[LJWS_JOSE]);
 		return -1;
 	}
 
-	valid_aescbc_hmac = jose->enc_alg &&
-		jose->enc_alg->algtype_crypto == LWS_JOSE_ENCTYPE_AES_CBC &&
-		(jose->enc_alg->hmac_type == LWS_GENHMAC_TYPE_SHA256 ||
-		 jose->enc_alg->hmac_type == LWS_GENHMAC_TYPE_SHA384 ||
-		 jose->enc_alg->hmac_type == LWS_GENHMAC_TYPE_SHA512);
+	valid_aescbc_hmac = jwe->jose.enc_alg &&
+		jwe->jose.enc_alg->algtype_crypto == LWS_JOSE_ENCTYPE_AES_CBC &&
+		(jwe->jose.enc_alg->hmac_type == LWS_GENHMAC_TYPE_SHA256 ||
+		 jwe->jose.enc_alg->hmac_type == LWS_GENHMAC_TYPE_SHA384 ||
+		 jwe->jose.enc_alg->hmac_type == LWS_GENHMAC_TYPE_SHA512);
 
-	valid_aesgcm = jose->enc_alg &&
-		jose->enc_alg->algtype_crypto == LWS_JOSE_ENCTYPE_AES_GCM;
+	valid_aesgcm = jwe->jose.enc_alg &&
+		jwe->jose.enc_alg->algtype_crypto == LWS_JOSE_ENCTYPE_AES_GCM;
 
-	/* RSA + AESCBC */
-
-	if ((!strcmp(jose->alg->alg,     "RSA1_5") ||
-	     !strcmp(jose->alg->alg,   "RSA-OAEP")) && valid_aescbc_hmac)
-		return lws_jwe_auth_and_decrypt_rsa_aes_cbc_hs(jose, jws);
-
-	/* RSA + AESGCM */
-
-	if ((!strcmp(jose->alg->alg,     "RSA1_5") ||
-	     !strcmp(jose->alg->alg,   "RSA-OAEP")) && valid_aesgcm)
-		return lws_jwe_auth_and_decrypt_rsa_aes_gcm(jose, jws);
+	if ((jwe->jose.alg->algtype_signing == LWS_JOSE_ENCTYPE_RSASSA_PKCS1_1_5 ||
+	     jwe->jose.alg->algtype_signing == LWS_JOSE_ENCTYPE_RSASSA_PKCS1_OAEP)) {
+		/* RSA + AESCBC */
+		if (valid_aescbc_hmac)
+			return lws_jwe_auth_and_decrypt_rsa_aes_cbc_hs(jwe);
+		/* RSA + AESGCM */
+		if (valid_aesgcm)
+			return lws_jwe_auth_and_decrypt_rsa_aes_gcm(jwe);
+	}
 
 	/* AESKW */
 
-	if ((!strcmp(jose->alg->alg,    "A128KW") ||
-	     !strcmp(jose->alg->alg,    "A192KW") ||
-	     !strcmp(jose->alg->alg,    "A256KW")) && valid_aescbc_hmac)
-		return lws_jwe_auth_and_decrypt_aeskw_cbc_hs(jose, jws);
+	if (jwe->jose.alg->algtype_signing == LWS_JOSE_ENCTYPE_AES_ECB &&
+	    valid_aescbc_hmac)
+		return lws_jwe_auth_and_decrypt_aeskw_cbc_hs(jwe);
+
+	/* ECDH-ES + AESKW */
+
+	if (jwe->jose.alg->algtype_signing == LWS_JOSE_ENCTYPE_ECDHES &&
+	    valid_aescbc_hmac)
+		return lws_jwe_auth_and_decrypt_ecdh_cbc_hs(jwe,
+							    temp, temp_len);
 
 	lwsl_err("%s: unknown cipher alg combo %s / %s\n", __func__,
-			jose->alg->alg, jose->enc_alg ?
-					jose->enc_alg->alg : "NULL");
+			jwe->jose.alg->alg, jwe->jose.enc_alg ?
+					jwe->jose.enc_alg->alg : "NULL");
 
 	return -1;
 }
 LWS_VISIBLE int
-lws_jwe_encrypt(struct lws_jose *jose, struct lws_jws *jws,
-		char *temp, int *temp_len)
+lws_jwe_encrypt(struct lws_jwe *jwe, char *temp, int *temp_len)
 {
-	int valid_aescbc_hmac, valid_aesgcm;
+	int valid_aescbc_hmac, valid_aesgcm, ot = *temp_len, ret = -1;
 
-	valid_aesgcm = jose->enc_alg &&
-		jose->enc_alg->algtype_crypto == LWS_JOSE_ENCTYPE_AES_GCM;
+	if (jwe->jose.recipients >= (int)LWS_ARRAY_SIZE(jwe->jose.recipient)) {
+		lwsl_err("%s: max recipients reached\n", __func__);
 
-	if (lws_jwe_parse_jose(jose, jws->map.buf[LJWS_JOSE],
-			       jws->map.len[LJWS_JOSE], temp, temp_len) < 0) {
-		lwsl_err("%s: JOSE parse failed\n", __func__);
 		return -1;
 	}
 
-	valid_aescbc_hmac = jose->enc_alg &&
-		jose->enc_alg->algtype_crypto == LWS_JOSE_ENCTYPE_AES_CBC &&
-		(jose->enc_alg->hmac_type == LWS_GENHMAC_TYPE_SHA256 ||
-		 jose->enc_alg->hmac_type == LWS_GENHMAC_TYPE_SHA384 ||
-		 jose->enc_alg->hmac_type == LWS_GENHMAC_TYPE_SHA512);
+	valid_aesgcm = jwe->jose.enc_alg &&
+		jwe->jose.enc_alg->algtype_crypto == LWS_JOSE_ENCTYPE_AES_GCM;
 
-	/* RSA + AESCBC */
+	if (lws_jwe_parse_jose(&jwe->jose, jwe->jws.map.buf[LJWS_JOSE],
+			       jwe->jws.map.len[LJWS_JOSE], temp, temp_len) < 0) {
+		lwsl_err("%s: JOSE parse failed\n", __func__);
+		goto bail;
+	}
 
-	if ((!strcmp(jose->alg->alg,     "RSA1_5") ||
-	     !strcmp(jose->alg->alg,   "RSA-OAEP")) && valid_aescbc_hmac)
-		return lws_jwe_encrypt_rsa_aes_cbc_hs(jose, jws, temp, temp_len);
+	temp += ot - *temp_len;
 
-	/* RSA + AESGCM */
+	valid_aescbc_hmac = jwe->jose.enc_alg &&
+		jwe->jose.enc_alg->algtype_crypto == LWS_JOSE_ENCTYPE_AES_CBC &&
+		(jwe->jose.enc_alg->hmac_type == LWS_GENHMAC_TYPE_SHA256 ||
+		 jwe->jose.enc_alg->hmac_type == LWS_GENHMAC_TYPE_SHA384 ||
+		 jwe->jose.enc_alg->hmac_type == LWS_GENHMAC_TYPE_SHA512);
 
-	if ((!strcmp(jose->alg->alg,     "RSA1_5") ||
-	     !strcmp(jose->alg->alg,   "RSA-OAEP")) && valid_aesgcm)
-		return lws_jwe_encrypt_rsa_aes_gcm(jose, jws, temp, temp_len);
+	if ((jwe->jose.alg->algtype_signing == LWS_JOSE_ENCTYPE_RSASSA_PKCS1_1_5 ||
+	     jwe->jose.alg->algtype_signing == LWS_JOSE_ENCTYPE_RSASSA_PKCS1_OAEP)) {
+		/* RSA + AESCBC */
+		if (valid_aescbc_hmac) {
+			ret = lws_jwe_encrypt_rsa_aes_cbc_hs(jwe, temp, temp_len);
+			goto bail;
+		}
+		/* RSA + AESGCM */
+		if (valid_aesgcm) {
+			ret = lws_jwe_encrypt_rsa_aes_gcm(jwe, temp, temp_len);
+			goto bail;
+		}
+	}
 
 	/* AESKW */
 
-	if ((!strcmp(jose->alg->alg,    "A128KW") ||
-	     !strcmp(jose->alg->alg,    "A192KW") ||
-	     !strcmp(jose->alg->alg,    "A256KW")) && valid_aescbc_hmac)
-		return lws_jwe_encrypt_aeskw_cbc_hs(jose, jws, temp, temp_len);
+	if (jwe->jose.alg->algtype_signing == LWS_JOSE_ENCTYPE_AES_ECB &&
+	    valid_aescbc_hmac) {
+		ret = lws_jwe_encrypt_aeskw_cbc_hs(jwe, temp, temp_len);
+		goto bail;
+	}
+
+	/* ECDH-ES + AESKW */
+
+	if (jwe->jose.alg->algtype_signing == LWS_JOSE_ENCTYPE_ECDHES &&
+	    valid_aescbc_hmac) {
+		ret = lws_jwe_encrypt_ecdh_cbc_hs(jwe, temp, temp_len);
+		goto bail;
+	}
 
 	lwsl_err("%s: unknown cipher alg combo %s / %s\n", __func__,
-			jose->alg->alg, jose->enc_alg ?
-					jose->enc_alg->alg : "NULL");
+			jwe->jose.alg->alg, jwe->jose.enc_alg ?
+					jwe->jose.enc_alg->alg : "NULL");
 
-	return -1;
+bail:
+	if (ret)
+		memset(&jwe->jose.recipient[jwe->jose.recipients], 0,
+			sizeof(jwe->jose.recipient[0]));
+	else
+		jwe->jose.recipients++;
+
+	return ret;
 }
 
 /*
@@ -353,17 +412,36 @@ lws_jwe_encrypt(struct lws_jose *jose, struct lws_jws *jws,
  *     BASE64URL(JWE Initialization Vector)  || '.' ||
  *     BASE64URL(JWE Ciphertext)	     || '.' ||
  *     BASE64URL(JWE Authentication Tag)
+ *
+ *
+ * In the JWE Compact Serialization, no JWE Shared Unprotected Header or
+ * JWE Per-Recipient Unprotected Header are used.  In this case, the
+ * JOSE Header and the JWE Protected Header are the same.
+ *
+ * Therefore:
+ *
+ *  - Everything needed in the header part must go in the protected header
+ *    (it's the only part emitted).  We expect the caller did this.
+ *
+ *  - You can't emit Compact representation if there are multiple recipients
  */
 
 LWS_VISIBLE int
-lws_jwe_write_compact(struct lws_jose *jose, struct lws_jws *jws,
-		      char *out, size_t out_len)
+lws_jwe_render_compact(struct lws_jwe *jwe, char *out, size_t out_len)
 {
 	size_t orig = out_len;
 	int n;
 
-	n = lws_jws_base64_enc(jws->map.buf[LJWS_JOSE],
-			       jws->map.len[LJWS_JOSE], out, out_len);
+	if (jwe->jose.recipients > 1) {
+		lwsl_notice("%s: can't issue compact representation for"
+			    " multiple recipients (%d)\n", __func__,
+			    jwe->jose.recipients);
+
+		return -1;
+	}
+
+	n = lws_jws_base64_enc(jwe->jws.map.buf[LJWS_JOSE],
+			       jwe->jws.map.len[LJWS_JOSE], out, out_len);
 	if (n < 0 || (int)out_len == n) {
 		lwsl_info("%s: unable to encode JOSE\n", __func__);
 		return n;
@@ -373,8 +451,8 @@ lws_jwe_write_compact(struct lws_jose *jose, struct lws_jws *jws,
 	*out++ = '.';
 	out_len -= n + 1;
 
-	n = lws_jws_base64_enc(jws->map.buf[LJWE_EKEY],
-			       jws->map.len[LJWE_EKEY], out, out_len);
+	n = lws_jws_base64_enc(jwe->jws.map.buf[LJWE_EKEY],
+			       jwe->jws.map.len[LJWE_EKEY], out, out_len);
 	if (n < 0 || (int)out_len == n) {
 		lwsl_info("%s: unable to encode EKEY\n", __func__);
 		return n;
@@ -383,8 +461,8 @@ lws_jwe_write_compact(struct lws_jose *jose, struct lws_jws *jws,
 	out += n;
 	*out++ = '.';
 	out_len -= n + 1;
-	n = lws_jws_base64_enc(jws->map.buf[LJWE_IV],
-			       jws->map.len[LJWE_IV], out, out_len);
+	n = lws_jws_base64_enc(jwe->jws.map.buf[LJWE_IV],
+			       jwe->jws.map.len[LJWE_IV], out, out_len);
 	if (n < 0 || (int)out_len == n) {
 		lwsl_info("%s: unable to encode IV\n", __func__);
 		return n;
@@ -394,8 +472,8 @@ lws_jwe_write_compact(struct lws_jose *jose, struct lws_jws *jws,
 	*out++ = '.';
 	out_len -= n + 1;
 
-	n = lws_jws_base64_enc(jws->map.buf[LJWE_CTXT],
-			       jws->map.len[LJWE_CTXT], out, out_len);
+	n = lws_jws_base64_enc(jwe->jws.map.buf[LJWE_CTXT],
+			       jwe->jws.map.len[LJWE_CTXT], out, out_len);
 	if (n < 0 || (int)out_len == n) {
 		lwsl_info("%s: unable to encode CTXT\n", __func__);
 		return n;
@@ -404,8 +482,8 @@ lws_jwe_write_compact(struct lws_jose *jose, struct lws_jws *jws,
 	out += n;
 	*out++ = '.';
 	out_len -= n + 1;
-	n = lws_jws_base64_enc(jws->map.buf[LJWE_ATAG],
-			       jws->map.len[LJWE_ATAG], out, out_len);
+	n = lws_jws_base64_enc(jwe->jws.map.buf[LJWE_ATAG],
+			       jwe->jws.map.len[LJWE_ATAG], out, out_len);
 	if (n < 0 || (int)out_len == n) {
 		lwsl_info("%s: unable to encode ATAG\n", __func__);
 		return n;
@@ -419,20 +497,19 @@ lws_jwe_write_compact(struct lws_jose *jose, struct lws_jws *jws,
 }
 
 LWS_VISIBLE int
-lws_jwe_create_packet(struct lws_jose *jose, struct lws_jwk *jwk,
-		      const char *payload, size_t len,
+lws_jwe_create_packet(struct lws_jwe *jwe, const char *payload, size_t len,
 		      const char *nonce, char *out, size_t out_len,
 		      struct lws_context *context)
 {
 	char *buf, *start, *p, *end, *p1, *end1;
 	struct lws_jws jws;
-	int n;
+	int n, m;
 
-	lws_jws_init(&jws, jwk, context);
+	lws_jws_init(&jws, &jwe->jwk, context);
 
 	/*
 	 * This buffer is local to the function, the actual output is prepared
-	 * into vhd->buf.  Only the plaintext protected header
+	 * into out.  Only the plaintext protected header
 	 * (which contains the public key, 512 bytes for 4096b) goes in
 	 * here temporarily.
 	 */
@@ -450,12 +527,13 @@ lws_jwe_create_packet(struct lws_jose *jose, struct lws_jwk *jwk,
 	 * temporary JWS protected header plaintext
 	 */
 
-	if (!jose->alg || !jose->alg->alg)
+	if (!jwe->jose.alg || !jwe->jose.alg->alg)
 		goto bail;
 
 	p += lws_snprintf(p, end - p, "{\"alg\":\"%s\",\"jwk\":",
-			  jose->alg->alg);
-	n = lws_jwk_export(jwk, 0, p, end - p);
+			  jwe->jose.alg->alg);
+	m = end - p;
+	n = lws_jwk_export(&jwe->jwk, 0, p, &m);
 	if (n < 0) {
 		lwsl_notice("failed to export jwk\n");
 
@@ -507,7 +585,7 @@ lws_jwe_create_packet(struct lws_jose *jose, struct lws_jwk *jwk,
 	 * taking the b64 protected header and the b64 payload, sign them
 	 * and place the signature into the packet
 	 */
-	n = lws_jws_sign_from_b64(jose, &jws, p1, end1 - p1);
+	n = lws_jws_sign_from_b64(&jwe->jose, &jws, p1, end1 - p1);
 	if (n < 0) {
 		lwsl_notice("sig gen failed\n");
 
@@ -526,6 +604,134 @@ lws_jwe_create_packet(struct lws_jose *jose, struct lws_jwk *jwk,
 bail:
 	lws_jws_destroy(&jws);
 	free(buf);
+
+	return -1;
+}
+
+static const char *protected_en[] = {
+	"encrypted_key", "aad", "iv", "ciphertext", "tag"
+};
+
+static int protected_idx[] = {
+	LJWE_EKEY, LJWE_AAD, LJWE_IV, LJWE_CTXT, LJWE_ATAG
+};
+
+/*
+ * The complete JWE may look something like this:
+ *
+ *  {
+ *    "protected":
+ *     "eyJlbmMiOiJBMTI4Q0JDLUhTMjU2In0",
+ *    "unprotected":
+ *     {"jku":"https://server.example.com/keys.jwks"},
+ *    "recipients":[
+ *     {"header":
+ *       {"alg":"RSA1_5","kid":"2011-04-29"},
+ *      "encrypted_key":
+ *       "UGhIOguC7IuEvf_NPVaXsGMoLOmwvc1GyqlIKOK1nN94nHPoltGRhWhw7Zx0-
+ *        kFm1NJn8LE9XShH59_i8J0PH5ZZyNfGy2xGdULU7sHNF6Gp2vPLgNZ__deLKx
+ *        GHZ7PcHALUzoOegEI-8E66jX2E4zyJKx-YxzZIItRzC5hlRirb6Y5Cl_p-ko3
+ *        YvkkysZIFNPccxRU7qve1WYPxqbb2Yw8kZqa2rMWI5ng8OtvzlV7elprCbuPh
+ *        cCdZ6XDP0_F8rkXds2vE4X-ncOIM8hAYHHi29NX0mcKiRaD0-D-ljQTP-cFPg
+ *        wCp6X-nZZd9OHBv-B3oWh2TbqmScqXMR4gp_A"},
+ *     {"header":
+ *       {"alg":"A128KW","kid":"7"},
+ *      "encrypted_key":
+ *       "6KB707dM9YTIgHtLvtgWQ8mKwboJW3of9locizkDTHzBC2IlrT1oOQ"}],
+ *    "iv":
+ *     "AxY8DCtDaGlsbGljb3RoZQ",
+ *    "ciphertext":
+ *     "KDlTtXchhZTGufMYmOYGS4HffxPSUrfmqCHXaI9wOGY",
+ *    "tag":
+ *     "Mz-VPPyU4RlcuYv1IwIvzw"
+ *   }
+ *
+ *  The flattened JWE ends up like this
+ *
+ *   {
+ *    "protected": "eyJlbmMiOiJBMTI4Q0JDLUhTMjU2In0",
+ *    "unprotected": {"jku":"https://server.example.com/keys.jwks"},
+ *    "header": {"alg":"A128KW","kid":"7"},
+ *    "encrypted_key": "6KB707dM9YTIgHtLvtgWQ8mKwboJW3of9locizkDTHzBC2IlrT1oOQ",
+ *    "iv": "AxY8DCtDaGlsbGljb3RoZQ",
+ *    "ciphertext": "KDlTtXchhZTGufMYmOYGS4HffxPSUrfmqCHXaI9wOGY",
+ *    "tag": "Mz-VPPyU4RlcuYv1IwIvzw"
+ *   }
+ *
+ *    {
+ *      "protected":"<integrity-protected header contents>",
+ *      "unprotected":<non-integrity-protected header contents>,
+ *      "header":<more non-integrity-protected header contents>,
+ *      "encrypted_key":"<encrypted key contents>",
+ *      "aad":"<additional authenticated data contents>",
+ *      "iv":"<initialization vector contents>",
+ *      "ciphertext":"<ciphertext contents>",
+ *      "tag":"<authentication tag contents>"
+ *     }
+ */
+
+LWS_VISIBLE int
+lws_jwe_render_flattened(struct lws_jwe *jwe, char *out, size_t out_len)
+{
+	char buf[3072], *p1, *end1;
+	int m, n, jlen;
+
+	jlen = lws_jose_render(&jwe->jose, jwe->jws.jwk, buf, sizeof(buf));
+	if (jlen < 0) {
+		lwsl_err("%s: lws_jose_render failed\n", __func__);
+
+		return -1;
+	}
+
+	/*
+	 * prepare the JWE JSON with all the parts in
+	 */
+
+	p1 = out;
+	end1 = out + out_len - 1;
+
+	/*
+	 * The protected header is b64url encoding of the JOSE header part
+	 */
+
+	p1 += lws_snprintf(p1, end1 - p1, "{\"protected\":\"");
+	jwe->jws.map_b64.buf[LJWS_JOSE] = p1;
+	n = lws_jws_base64_enc(buf, jlen, p1, end1 - p1);
+	if (n < 0) {
+		lwsl_notice("%s: failed to encode protected\n", __func__);
+		goto bail;
+	}
+	jwe->jws.map_b64.len[LJWS_JOSE] = n;
+	p1 += n;
+
+	/* unprotected not supported atm */
+
+	p1 += lws_snprintf(p1, end1 - p1, "\",\n\"header\":%.*s", jlen, buf);
+
+	for (m = 0; m < (int)LWS_ARRAY_SIZE(protected_en); m++)
+		if (jwe->jws.map.buf[protected_idx[m]]) {
+			p1 += lws_snprintf(p1, end1 - p1, ",\"%s\":\"",
+					   protected_en[m]);
+			//jwe->jws.map_b64.buf[protected_idx[m]] = p1;
+			n = lws_jws_base64_enc(jwe->jws.map.buf[protected_idx[m]],
+					       jwe->jws.map.len[protected_idx[m]],
+					       p1, end1 - p1);
+			if (n < 0) {
+				lwsl_notice("%s: failed to encode %s\n",
+					    __func__, protected_en[m]);
+				goto bail;
+			}
+			//jwe->jws.map_b64.len[protected_idx[m]] = n;
+			p1 += n;
+			p1 += lws_snprintf(p1, end1 - p1, "\"");
+		}
+
+	p1 += lws_snprintf(p1, end1 - p1, "\n}\n");
+
+	return p1 - out;
+
+bail:
+	lws_jws_destroy(&jwe->jws);
 
 	return -1;
 }

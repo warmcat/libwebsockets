@@ -35,6 +35,11 @@ enum lws_jws_jose_hdr_indexes {
 	LJJHI_CRIT,	/* Optional for send, REQUIRED: array of strings:
 			 * mustn't contain standardized strings or null set */
 
+	LJJHI_RECIPS_HDR,
+	LJJHI_RECIPS_HDR_ALG,
+	LJJHI_RECIPS_HDR_KID,
+	LJJHI_RECIPS_EKEY,
+
 	LJJHI_ENC,	/* JWE only: Optional: string */
 	LJJHI_ZIP,	/* JWE only: Optional: string ("DEF" = deflate) */
 
@@ -82,12 +87,42 @@ struct lws_jose_jwe_alg {
 	unsigned short ivbits;
 };
 
+/*
+ * For JWS, "JOSE header" is defined to be the union of...
+ *
+ * o  JWS Protected Header
+ * o  JWS Unprotected Header
+ *
+ * For JWE, the "JOSE header" is the union of...
+ *
+ * o  JWE Protected Header
+ * o  JWE Shared Unprotected Header
+ * o  JWE Per-Recipient Unprotected Header
+ */
+
+#define LWS_JWS_MAX_RECIPIENTS 3
+
+struct lws_jws_recpient {
+	/*
+	 * JOSE per-recipient unprotected header... for JWS this contains
+	 * protected / header / signature
+	 */
+	struct lws_gencrypto_keyelem unprot[LWS_COUNT_JOSE_HDR_ELEMENTS];
+	struct lws_jwk jwk_ephemeral;	/* recipient ephemeral key if any */
+	struct lws_jwk jwk;		/* recipient "jwk" key if any */
+};
+
 struct lws_jose {
-	/* jose header elements */
+	/* JOSE protected and unprotected header elements */
 	struct lws_gencrypto_keyelem e[LWS_COUNT_JOSE_HDR_ELEMENTS];
-	struct lws_jwk jwk_ephemeral;
+
+	struct lws_jws_recpient recipient[LWS_JWS_MAX_RECIPIENTS];
+
+	/* information from the protected header part */
 	const struct lws_jose_jwe_alg *alg;
 	const struct lws_jose_jwe_alg *enc_alg;
+
+	int recipients; /* count of used recipient[] entries */
 };
 
 /**

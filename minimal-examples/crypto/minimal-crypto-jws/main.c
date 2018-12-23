@@ -18,7 +18,7 @@ int main(int argc, const char **argv)
 	    logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
 	char temp[32768], compact[32768], *in;
 	struct lws_context_creation_info info;
-	struct lws_jws_compact_map map;
+	struct lws_jws_map map;
 	int temp_len = sizeof(temp);
 	struct lws_context *context;
 	struct lws_jose jose;

@@ -36,10 +36,10 @@ static const char *none_cser =
 int
 test_jws_none(struct lws_context *context)
 {
-	struct lws_jws_compact_map map;
+	struct lws_jws_map map;
 	struct lws_jose jose;
 	char temp[2048];
-	int n, temp_len = sizeof(temp);
+	int n, temp_len = sizeof(temp), ret = -1;
 
 	lws_jose_init(&jose);
 
@@ -76,25 +76,24 @@ test_jws_none(struct lws_context *context)
 
 		/* confirm the payload is literally what we expect */
 		if (strncmp(none_payload, map.buf[LJWS_PYLD],
-			    map.len[LJWS_PYLD])) {
+					  map.len[LJWS_PYLD])) {
 			lwsl_err("%s: payload b64 decode wrong\n", __func__);
 			goto bail;
 		}
 
 	/* end */
 
-	lwsl_notice("%s: selftest OK\n", __func__);
-
-	lws_jose_destroy(&jose);
-
-	return 0;
+	ret = 0;
 
 bail:
 	lws_jose_destroy(&jose);
 
-	lwsl_err("%s: selftest failed ++++++++++++++++++++\n", __func__);
+	if (ret)
+		lwsl_err("%s: selftest failed ++++++++++++++++++++\n", __func__);
+	else
+		lwsl_notice("%s: selftest OK\n", __func__);
 
-	return 1;
+	return ret;
 }
 
 
@@ -117,7 +116,7 @@ test_jws_HS256(struct lws_context *context)
 {
 	char buf[2048], temp[256], *p = buf, *end = buf + sizeof(buf) - 1, *enc_ptr;
 	uint8_t digest[LWS_GENHASH_LARGEST];
-	struct lws_jws_compact_map map;
+	struct lws_jws_map map;
 	int temp_len = sizeof(temp);
 	struct lws_genhmac_ctx ctx;
 	struct lws_jose jose;
@@ -275,7 +274,7 @@ static const char
 int
 test_jws_RS256(struct lws_context *context)
 {
-	struct lws_jws_compact_map map;
+	struct lws_jws_map map;
 	struct lws_jose jose;
 	struct lws_jwk jwk;
 	struct lws_jws jws;
@@ -409,7 +408,7 @@ test_jws_ES256(struct lws_context *context)
 {
 	uint8_t digest[LWS_GENHASH_LARGEST];
 	struct lws_genhash_ctx hash_ctx;
-	struct lws_jws_compact_map map;
+	struct lws_jws_map map;
 	struct lws_jose jose;
 	struct lws_jwk jwk;
 	struct lws_jws jws;
@@ -482,7 +481,7 @@ test_jws_ES256(struct lws_context *context)
 	/* A.3 "ES256" RFC7515 worked example - sign */
 
 	l = strlen(es256_cser);
-	if (temp_len < l)
+	if (temp_len < l + 1)
 		goto bail1;
 	p = lws_concat_temp(temp, temp_len);
 	memcpy(p, es256_cser, l + 1);
@@ -521,6 +520,7 @@ test_jws_ES256(struct lws_context *context)
 
 	/* 2.4: confirm our generated signature can be verified */
 
+//	lwsl_err("p %p, l %d\n", p, (int)l);
 	p[l] = '\0';
 	if (lws_jws_sig_confirm_compact_b64(p, l, &map, &jwk, context, lws_concat_temp(temp, temp_len), &temp_len) < 0) {
 		lwsl_notice("%s: confirm our EC sig failed\n", __func__);
@@ -569,7 +569,7 @@ test_jws_ES512(struct lws_context *context)
 {
 	uint8_t digest[LWS_GENHASH_LARGEST];
 	struct lws_genhash_ctx hash_ctx;
-	struct lws_jws_compact_map map;
+	struct lws_jws_map map;
 	struct lws_jose jose;
 	struct lws_jwk jwk;
 	struct lws_jws jws;

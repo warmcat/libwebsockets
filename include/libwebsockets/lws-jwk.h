@@ -102,19 +102,31 @@ lws_jwk_import(struct lws_jwk *jwk, lws_jwk_key_import_callback cb, void *user,
 LWS_VISIBLE LWS_EXTERN void
 lws_jwk_destroy(struct lws_jwk *jwk);
 
+/** lws_jwk_dup_oct() - Set a jwk to a dup'd binary OCT key
+ *
+ * \param jwk: the JWK object to set
+ * \param key: the JWK object to destroy
+ * \param len: the JWK object to destroy
+ *
+ * Sets the kty to OCT, allocates len bytes for K and copies len bytes of key
+ * into the allocation.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_jwk_dup_oct(struct lws_jwk *jwk, const void *key, int len);
+
 /** lws_jwk_export() - Export a JSON Web key to a textual representation
  *
  * \param jwk: the JWK object to export
  * \param _private: 0 = just export public parts, 1 = export everything
  * \param p: the buffer to write the exported JWK to
- * \param len: the length of the buffer \p p in bytes
+ * \param len: the length of the buffer \p p in bytes... reduced by used amount
  *
  * Returns length of the used part of the buffer if OK, or -1 for error.
  *
  * Serializes the content of the JWK into a char buffer.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_jwk_export(struct lws_jwk *jwk, int _private, char *p, size_t len);
+lws_jwk_export(struct lws_jwk *jwk, int _private, char *p, int *len);
 
 /** lws_jwk_load() - Import a JSON Web key from a file
  *

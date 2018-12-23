@@ -32,13 +32,14 @@ combinations are acceptable by querying the parsed JW structs).
 
 All the necessary includes are part of `libwebsockets.h`.
 
-|api|cmake|header|Functionality|
-|---|---|---|---|
-|genhash|`LWS_WITH_GENHASH`|[./include/libwebsockets/lws-genhash.h](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-genhash.h)|Provides SHA1 + SHA2 hashes and hmac|
-|genrsa|`LWS_WITH_GENRSA`|[./include/libwebsockets/lws-genrsa.h](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-genrsa.h)|Provides RSA encryption, decryption, signing, verification, key generation and creation|
-|genaes|`LWS_WITH_GENAES`|[./include/libwebsockets/lws-genaes.h](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-genaes.h)|Provides AES in all common variants for encryption and decryption|
-|genec|`LWS_WITH_GENEC`|[./include/libwebsockets/lws-genec.h](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-genec.h)|Provides Elliptic Curve for encryption, decryption, signing, verification, key generation and creation|
+Enable `-DLWS_WITH_GENCRYPTO=1` at cmake.
 
+|api|header|Functionality|
+|---|---|---|---|
+|genhash|[./include/libwebsockets/lws-genhash.h](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-genhash.h)|Provides SHA1 + SHA2 hashes and hmac|
+|genrsa|[./include/libwebsockets/lws-genrsa.h](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-genrsa.h)|Provides RSA encryption, decryption, signing, verification, key generation and creation|
+|genaes|[./include/libwebsockets/lws-genaes.h](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-genaes.h)|Provides AES in all common variants for encryption and decryption|
+|genec|[./include/libwebsockets/lws-genec.h](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-genec.h)|Provides Elliptic Curve for encryption, decryption, signing, verification, key generation and creation|
 
 Unit tests for these apis, which serve as usage examples, can be found in [./minimal-examples/api-tests/api-test-gencrypto](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/api-tests/api-test-gencrypto)
 
@@ -63,11 +64,14 @@ store arbitrary octets that make up the key element's binary representation.
 
 All the necessary includes are part of `libwebsockets.h`.
 
-|api|cmake|header|Functionality|
+Enable `-DLWS_WITH_JOSE=1` at CMake.
+
+|api|header|Functionality|
 |---|---|---|---|
-|JOSE|`LWS_WITH_JWS`|[./include/libwebsockets/jose.h](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-jose.h)|Provides signature and verifcation services for RFC7515 JOSE JSON|
-|JWS|`LWS_WITH_JWS`|[./include/libwebsockets/jws.h](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-jws.h)|Provides signature and verifcation services for RFC7515 JWS JSON|
-|JWK|`LWS_WITH_JWS`|[./include/libwebsockets/jwk.h](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-jwk.h)|Provides signature and verifcation services for RFC7517 JWK JSON, both "keys" arrays and singletons|
+|JOSE|[./include/libwebsockets/lws-jose.h](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-jose.h)|Provides crypto agility for JWS / JWE|
+|JWE|[./include/libwebsockets/lws-jwe.h](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-jwe.h)|Provides Encryption and Decryption services for RFC7516 JWE JSON|
+|JWS|[./include/libwebsockets/lws-jws.h](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-jws.h)|Provides signature and verifcation services for RFC7515 JWS JSON|
+|JWK|[./include/libwebsockets/lws-jwk.h](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-jwk.h)|Provides signature and verifcation services for RFC7517 JWK JSON, both "keys" arrays and singletons|
 
 Unit tests for these apis, which serve as usage examples, can be found in [./minimal-examples/api-tests/api-test-jose](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/api-tests/api-test-jose)
 

@@ -61,7 +61,13 @@ lws_genec_keypair_import(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 	if (!curve)
 		return -22;
 
-	if (el[LWS_GENCRYPTO_EC_KEYEL_D].len != curve->key_bytes ||
+	/*
+	 * d (the private part) may be missing, otherwise it and everything
+	 * else must match the expected bignum size
+	 */
+
+	if ((el[LWS_GENCRYPTO_EC_KEYEL_D].len &&
+	     el[LWS_GENCRYPTO_EC_KEYEL_D].len != curve->key_bytes) ||
 	    el[LWS_GENCRYPTO_EC_KEYEL_X].len != curve->key_bytes ||
 	    el[LWS_GENCRYPTO_EC_KEYEL_Y].len != curve->key_bytes)
 		return -23;
@@ -70,9 +76,12 @@ lws_genec_keypair_import(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 	if (mbedtls_ecp_group_load(&kp.grp, curve->tls_lib_nid))
 		goto bail1;
 
+	ctx->has_private = !!el[LWS_GENCRYPTO_EC_KEYEL_D].len;
+
 	/* d (the private key) is directly an mpi */
 
-	if (mbedtls_mpi_read_binary(&kp.d, el[LWS_GENCRYPTO_EC_KEYEL_D].buf,
+	if (ctx->has_private &&
+	    mbedtls_mpi_read_binary(&kp.d, el[LWS_GENCRYPTO_EC_KEYEL_D].buf,
 				    el[LWS_GENCRYPTO_EC_KEYEL_D].len))
 		goto bail1;
 
@@ -92,9 +101,25 @@ lws_genec_keypair_import(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 	case LEGENEC_ECDH:
 		if (mbedtls_ecdh_get_params(ctx->u.ctx_ecdh, &kp, side))
 			goto bail1;
+		/* verify the key is consistent with the claimed curve */
+		if (ctx->has_private &&
+		    mbedtls_ecp_check_privkey(&ctx->u.ctx_ecdh->grp,
+					      &ctx->u.ctx_ecdh->d))
+			goto bail1;
+		if (mbedtls_ecp_check_pubkey(&ctx->u.ctx_ecdh->grp,
+					     &ctx->u.ctx_ecdh->Q))
+			goto bail1;
 		break;
 	case LEGENEC_ECDSA:
 		if (mbedtls_ecdsa_from_keypair(ctx->u.ctx_ecdsa, &kp))
+			goto bail1;
+		/* verify the key is consistent with the claimed curve */
+		if (ctx->has_private &&
+		    mbedtls_ecp_check_privkey(&ctx->u.ctx_ecdsa->grp,
+					      &ctx->u.ctx_ecdsa->d))
+			goto bail1;
+		if (mbedtls_ecp_check_pubkey(&ctx->u.ctx_ecdsa->grp,
+					     &ctx->u.ctx_ecdsa->Q))
 			goto bail1;
 		break;
 	default:
@@ -467,6 +492,30 @@ bail:
 
 	return -3;
 }
+
+int
+lws_genecdh_compute_shared_secret(struct lws_genec_ctx *ctx, uint8_t *ss,
+				  int *ss_len)
+{
+	int n;
+	size_t st;
+	if (mbedtls_ecp_check_pubkey(&ctx->u.ctx_ecdh->grp, &ctx->u.ctx_ecdh->Q) ||
+	    mbedtls_ecp_check_pubkey(&ctx->u.ctx_ecdh->grp, &ctx->u.ctx_ecdh->Qp)) {
+		lwsl_err("%s: both sides must be set up\n", __func__);
+
+		return -1;
+	}
+
+	n = mbedtls_ecdh_calc_secret(ctx->u.ctx_ecdh, &st, ss, *ss_len,
+			lws_gencrypto_mbedtls_rngf, ctx->context);
+	if (n)
+		return -1;
+
+	*ss_len = (int)st;
+
+	return 0;
+}
+
 
 #if 0
 LWS_VISIBLE int

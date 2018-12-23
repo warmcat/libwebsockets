@@ -274,7 +274,7 @@ static const struct lws_jose_jwe_alg lws_gencrypto_jwe_alg_map[] = {
 		LWS_GENHMAC_TYPE_UNKNOWN,
 		LWS_JOSE_ENCTYPE_RSASSA_PKCS1_OAEP,
 		LWS_JOSE_ENCTYPE_NONE,
-		"RSA-OAEP", NULL, 2048, 4096, 0
+		"RSA-OAEP-256", NULL, 2048, 4096, 0
 	},
 
 	/*

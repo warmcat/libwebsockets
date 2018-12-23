@@ -52,11 +52,12 @@ enum enum_jws_sig_elements {
 	LJWE_IV,
 	LJWE_CTXT,
 	LJWE_ATAG,
+	LJWE_AAD,
 
 	LWS_JWS_MAX_COMPACT_BLOCKS
 };
 
-struct lws_jws_compact_map {
+struct lws_jws_map {
 	const char *buf[LWS_JWS_MAX_COMPACT_BLOCKS];
 	uint16_t len[LWS_JWS_MAX_COMPACT_BLOCKS];
 };
@@ -64,7 +65,7 @@ struct lws_jws_compact_map {
 struct lws_jws {
 	struct lws_jwk *jwk; /* the struct lws_jwk containing the signing key */
 	struct lws_context *context; /* the lws context (used to get random) */
-	struct lws_jws_compact_map map, map_b64;
+	struct lws_jws_map map, map_b64;
 };
 
 /* jws EC signatures do not have ASN.1 in them, meaning they're incompatible
@@ -106,12 +107,12 @@ lws_jws_destroy(struct lws_jws *jws);
  * Returns 0 on match.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_jws_sig_confirm_compact(struct lws_jws_compact_map *map, struct lws_jwk *jwk,
+lws_jws_sig_confirm_compact(struct lws_jws_map *map, struct lws_jwk *jwk,
 			    struct lws_context *context,
 			    char *temp, int *temp_len);
 
 LWS_VISIBLE LWS_EXTERN int
-lws_jws_sig_confirm_compact_b64_map(struct lws_jws_compact_map *map_b64,
+lws_jws_sig_confirm_compact_b64_map(struct lws_jws_map *map_b64,
 				    struct lws_jwk *jwk,
 			            struct lws_context *context,
 			            char *temp, int *temp_len);
@@ -133,7 +134,7 @@ lws_jws_sig_confirm_compact_b64_map(struct lws_jws_compact_map *map_b64,
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_jws_sig_confirm_compact_b64(const char *in, size_t len,
-				struct lws_jws_compact_map *map,
+				struct lws_jws_map *map,
 				struct lws_jwk *jwk,
 				struct lws_context *context,
 				char *temp, int *temp_len);
@@ -156,8 +157,8 @@ lws_jws_sig_confirm_compact_b64(const char *in, size_t len,
  * Returns 0 on match.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_jws_sig_confirm(struct lws_jws_compact_map *map_b64, /* b64-encoded */
-		    struct lws_jws_compact_map *map,	/* non-b64 */
+lws_jws_sig_confirm(struct lws_jws_map *map_b64, /* b64-encoded */
+		    struct lws_jws_map *map,	/* non-b64 */
 		    struct lws_jwk *jwk, struct lws_context *context);
 
 /**
@@ -201,12 +202,12 @@ lws_jws_sign_from_b64(struct lws_jose *jose, struct lws_jws *jws, char *b64_sig,
  * blocks.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_jws_compact_decode(const char *in, int len, struct lws_jws_compact_map *map,
-		struct lws_jws_compact_map *map_b64, char *out, int *out_len);
+lws_jws_compact_decode(const char *in, int len, struct lws_jws_map *map,
+		struct lws_jws_map *map_b64, char *out, int *out_len);
 
 LWS_VISIBLE int
-lws_jws_compact_encode(struct lws_jws_compact_map *map_b64, /* b64-encoded */
-		       const struct lws_jws_compact_map *map,	/* non-b64 */
+lws_jws_compact_encode(struct lws_jws_map *map_b64, /* b64-encoded */
+		       const struct lws_jws_map *map,	/* non-b64 */
 		       char *buf, int *out_len);
 
 /**
@@ -260,7 +261,7 @@ lws_jws_write_compact(struct lws_jws *jws, char *compact, size_t len);
  * *temp_len is reduced by actual_alloc if successful.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_jws_dup_element(struct lws_jws_compact_map *map, int idx,
+lws_jws_dup_element(struct lws_jws_map *map, int idx,
 		    char *temp, int *temp_len, const void *in, size_t in_len,
 		    size_t actual_alloc);
 
@@ -286,7 +287,7 @@ lws_jws_dup_element(struct lws_jws_compact_map *map, int idx,
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_jws_randomize_element(struct lws_context *context,
-			  struct lws_jws_compact_map *map,
+			  struct lws_jws_map *map,
 			  int idx, char *temp, int *temp_len, size_t random_len,
 			  size_t actual_alloc);
 
@@ -310,7 +311,7 @@ lws_jws_randomize_element(struct lws_context *context,
  * *temp_len is reduced by actual_alloc if successful.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_jws_alloc_element(struct lws_jws_compact_map *map, int idx, char *temp,
+lws_jws_alloc_element(struct lws_jws_map *map, int idx, char *temp,
 		      int *temp_len, size_t len, size_t actual_alloc);
 
 /**
@@ -333,7 +334,7 @@ lws_jws_alloc_element(struct lws_jws_compact_map *map, int idx, char *temp,
  * *temp_len is reduced by actual_alloc if successful.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_jws_encode_b64_element(struct lws_jws_compact_map *map, int idx,
+lws_jws_encode_b64_element(struct lws_jws_map *map, int idx,
 			   char *temp, int *temp_len, const void *in,
 			   size_t in_len);
 
@@ -353,7 +354,7 @@ lws_jws_encode_b64_element(struct lws_jws_compact_map *map, int idx,
  */
 
 LWS_VISIBLE LWS_EXTERN int
-lws_jws_b64_compact_map(const char *in, int len, struct lws_jws_compact_map *map);
+lws_jws_b64_compact_map(const char *in, int len, struct lws_jws_map *map);
 
 
 /**

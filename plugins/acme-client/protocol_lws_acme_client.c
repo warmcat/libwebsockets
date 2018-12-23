@@ -553,14 +553,14 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 	struct lws_genhash_ctx hctx;
 	unsigned char **pp, *pend;
 	const char *content_type;
-	struct lws_jose jose;
+	struct lws_jwe jwe;
 	struct lws *cwsi;
 	int n, m;
 
 	if (vhd)
 		ac = vhd->ac;
 
-	lws_jose_init(&jose);
+	lws_jwe_init(&jwe, lws_get_context(wsi));
 
 	switch ((int)reason) {
 	case LWS_CALLBACK_PROTOCOL_INIT:
@@ -785,12 +785,13 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 			puts(start);
 pkt_add_hdrs:
-			if (lws_gencrypto_jwe_alg_to_definition("RSA1_5", &jose.alg)) {
+			if (lws_gencrypto_jwe_alg_to_definition("RSA1_5", &jwe.jose.alg)) {
 				ac->len = 0;
 				lwsl_notice("%s: no RSA1_5\n", __func__);
 				goto failed;
 			}
-			ac->len = lws_jwe_create_packet(&jose, &vhd->jwk,
+			jwe.jws.jwk = &vhd->jwk;
+			ac->len = lws_jwe_create_packet(&jwe,
 							start, p - start,
 							ac->replay_nonce,
 							&ac->buf[LWS_PRE],

@@ -1199,9 +1199,12 @@ if (LWS_WITH_JOSE)
 		lib/jose/jws/jose.c
 		lib/jose/jws/jws.c
 		lib/jose/jwe/jwe.c
+		lib/jose/jwe/enc/aescbc.c
+		lib/jose/jwe/enc/aesgcm.c
+		lib/jose/jwe/enc/aeskw.c
 		lib/jose/jwe/jwe-rsa-aescbc.c
-		lib/jose/jwe/jwe-aeskw.c
 		lib/jose/jwe/jwe-rsa-aesgcm.c
+		lib/jose/jwe/jwe-ecdh-es-aeskw.c
 		)
 endif()
 

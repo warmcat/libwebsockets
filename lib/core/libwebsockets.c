@@ -2247,11 +2247,16 @@ lwsl_hexdump_level(int hexdump_level, const void *vbuf, size_t len)
 	if (!lwsl_visible(hexdump_level))
 		return;
 
-	if (!len)
+	if (!len) {
+		_lws_log(hexdump_level, "(hexdump: zero length)\n");
 		return;
+	}
 
-	if (!vbuf)
+	if (!vbuf) {
+		_lws_log(hexdump_level, "(hexdump: trying to dump %d at NULL)\n",
+					(int)len);
 		return;
+	}
 
 	_lws_log(hexdump_level, "\n");
 
