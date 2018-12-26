@@ -19,6 +19,11 @@
 		return encodeURI(s).replace(/@/g, "%40");
 	}
 
+	function lws_urldecode(s)
+	{
+		return decodeURI(s).replace(/%40/g, "@");
+	}
+
 	function trim(num)
 	{
 		var s = num.toString();
@@ -179,7 +184,7 @@
 		e.stopPropagation();
 		e.preventDefault();
 
-		ws.send("{\"del\":\"" + decodeURI(e.target.getAttribute("file")) +
+		ws.send("{\"del\":\"" + lws_urldecode(e.target.getAttribute("file")) +
 		"\"}");
 	}
 
