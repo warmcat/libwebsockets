@@ -53,7 +53,7 @@ ECDSA_SIG_set0(ECDSA_SIG *sig, BIGNUM *r, BIGNUM *s)
 }
 #endif
 #if !defined(LWS_HAVE_BN_bn2binpad)
-static int BN_bn2binpad(const BIGNUM *a, unsigned char *to, int tolen)
+int BN_bn2binpad(const BIGNUM *a, unsigned char *to, int tolen)
 {
     int i;
     BN_ULONG l;
@@ -377,7 +377,7 @@ lws_genec_new_keypair(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 			goto bail2;
 
 		m = BN_bn2binpad(bn[n - 1], el[n].buf, el[n].len);
-		if (m != el[n].len)
+		if ((uint32_t)m != el[n].len)
 			goto bail2;
 	}
 

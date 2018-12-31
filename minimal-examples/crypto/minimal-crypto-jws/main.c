@@ -11,12 +11,14 @@
 #include <sys/types.h>
 #include <fcntl.h>
 
+#define MAX_SIZE (4 * 1024 * 1024)
+char temp[MAX_SIZE], compact[MAX_SIZE];
 
 int main(int argc, const char **argv)
 {
 	int n, sign = 0, result = 0,
 	    logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
-	char temp[32768], compact[32768], *in;
+	char *in;
 	struct lws_context_creation_info info;
 	struct lws_jws_map map;
 	int temp_len = sizeof(temp);
@@ -92,7 +94,6 @@ int main(int argc, const char **argv)
 
 		return 1;
 	}
-
 	if (sign) {
 
 		/* add the plaintext from stdin to the map and a b64 version */
@@ -116,13 +117,15 @@ int main(int argc, const char **argv)
 
 		/* prepare the space for the b64 signature in the map */
 
-		if (lws_jws_alloc_element(&jws.map, LJWS_SIG,
+		if (lws_jws_alloc_element(&jws.map_b64, LJWS_SIG,
 				      lws_concat_temp(temp, temp_len),
 				      &temp_len, lws_base64_size(
 					 LWS_JWE_LIMIT_KEY_ELEMENT_BYTES), 0)) {
 			lwsl_err("%s: temp space too small\n", __func__);
 			goto bail1;
 		}
+
+	
 
 		/* sign the plaintext */
 
@@ -136,9 +139,12 @@ int main(int argc, const char **argv)
 		/* set the actual b64 signature size */
 		jws.map_b64.len[LJWS_SIG] = n;
 
-		/* create the compact JWS representation */
-
-		n = lws_jws_write_compact(&jws, compact, sizeof(compact));
+		if (lws_cmdline_option(argc, argv, "-f"))
+			/* create the flattened representation */
+			n = lws_jws_write_flattened_json(&jws, compact, sizeof(compact));
+		else
+			/* create the compact JWS representation */
+			n = lws_jws_write_compact(&jws, compact, sizeof(compact));
 		if (n < 0) {
 			lwsl_notice("%s: write_compact failed\n", __func__);
 			goto bail1;
@@ -154,13 +160,31 @@ int main(int argc, const char **argv)
 	} else {
 		/* perform the verify directly on the compact representation */
 
-		if (lws_jws_sig_confirm_compact_b64(in,
-				lws_concat_used(temp, temp_len),
-				&map, &jwk, context,
-				lws_concat_temp(temp, temp_len),
-				&temp_len) < 0) {
-			lwsl_notice("%s: confirm rsa sig failed\n", __func__);
-			goto bail1;
+		if (lws_cmdline_option(argc, argv, "-f")) {
+			if (lws_jws_sig_confirm_json(in, n, &jws, &jwk, context,
+					lws_concat_temp(temp, temp_len),
+					&temp_len) < 0) {
+				lwsl_notice("%s: confirm rsa sig failed\n",
+					    __func__);
+				lwsl_hexdump_notice(jws.map.buf[LJWS_JOSE], jws.map.len[LJWS_JOSE]);
+				lwsl_hexdump_notice(jws.map.buf[LJWS_PYLD], jws.map.len[LJWS_PYLD]);
+				lwsl_hexdump_notice(jws.map.buf[LJWS_SIG], jws.map.len[LJWS_SIG]);
+
+				lwsl_hexdump_notice(jws.map_b64.buf[LJWS_JOSE], jws.map_b64.len[LJWS_JOSE]);
+				lwsl_hexdump_notice(jws.map_b64.buf[LJWS_PYLD], jws.map_b64.len[LJWS_PYLD]);
+				lwsl_hexdump_notice(jws.map_b64.buf[LJWS_SIG], jws.map_b64.len[LJWS_SIG]);
+				goto bail1;
+			}
+		} else {
+			if (lws_jws_sig_confirm_compact_b64(in,
+					lws_concat_used(temp, temp_len),
+					&map, &jwk, context,
+					lws_concat_temp(temp, temp_len),
+					&temp_len) < 0) {
+				lwsl_notice("%s: confirm rsa sig failed\n",
+					    __func__);
+				goto bail1;
+			}
 		}
 
 		lwsl_notice("VALID\n");

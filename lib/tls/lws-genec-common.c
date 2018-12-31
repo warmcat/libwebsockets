@@ -1,7 +1,7 @@
 /*
  * libwebsockets - generic EC api hiding the backend - common parts
  *
- * Copyright (C) 2017 - 2018 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2017 - 2019 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -38,6 +38,61 @@ lws_genec_curve(const struct lws_ec_curves *table, const char *name)
 	}
 
 	return NULL;
+}
+
+extern const struct lws_ec_curves lws_ec_curves[];
+
+int
+lws_genec_confirm_curve_allowed_by_tls_id(const char *allowed, int id,
+					  struct lws_jwk *jwk)
+{
+	struct lws_tokenize ts;
+	lws_tokenize_elem e;
+	int n, len;
+
+	lws_tokenize_init(&ts, allowed, LWS_TOKENIZE_F_COMMA_SEP_LIST |
+				       LWS_TOKENIZE_F_MINUS_NONTERM);
+	ts.len = strlen(allowed);
+	do {
+		e = lws_tokenize(&ts);
+		switch (e) {
+		case LWS_TOKZE_TOKEN:
+			n = 0;
+			while (lws_ec_curves[n].name) {
+				if (id != lws_ec_curves[n].tls_lib_nid) {
+					n++;
+					continue;
+				}
+				lwsl_info("match curve %s\n",
+					  lws_ec_curves[n].name);
+				len = strlen(lws_ec_curves[n].name);
+				jwk->e[LWS_GENCRYPTO_EC_KEYEL_CRV].len = len;
+				jwk->e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf =
+						lws_malloc(len + 1, "cert crv");
+				if (!jwk->e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf) {
+					lwsl_err("%s: OOM\n", __func__);
+					return 1;
+				}
+				memcpy(jwk->e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf,
+				       lws_ec_curves[n].name, len + 1);
+				return 0;
+			}
+			break;
+
+		case LWS_TOKZE_DELIMITER:
+			break;
+
+		default: /* includes ENDED */
+			lwsl_err("%s: malformed or curve name in list\n",
+				 __func__);
+
+			return -1;
+		}
+	} while (e > 0);
+
+	lwsl_err("%s: unsupported curve group nid %d\n", __func__, n);
+
+	return -1;
 }
 
 LWS_VISIBLE void

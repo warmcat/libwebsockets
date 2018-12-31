@@ -76,11 +76,14 @@ format_c(const char *key)
 	}
 }
 
+#define MAX_SIZE (4 * 1024 * 1024)
+	char temp[MAX_SIZE], compact[MAX_SIZE];
+
 int main(int argc, const char **argv)
 {
 	int n, enc = 0, result = 0,
 	    logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
-	char temp[32768], compact[32768], *in;
+	char *in;
 	struct lws_context_creation_info info;
 	int temp_len = sizeof(temp);
 	struct lws_context *context;
@@ -132,7 +135,7 @@ int main(int argc, const char **argv)
 		if (lws_jws_alloc_element(&jwe.jws.map, LJWS_JOSE,
 					  lws_concat_temp(temp, temp_len),
 					  &temp_len, strlen(p) +
-					  strlen(sp + 1) + 16, 0)) {
+					  strlen(sp + 1) + 32, 0)) {
 			lwsl_err("%s: temp space too small\n", __func__);
 			return 1;
 		}
@@ -189,19 +192,23 @@ int main(int argc, const char **argv)
 
 		/* perform the encryption of the CEK and the plaintext */
 
-		n = lws_jwe_encrypt(&jwe,
-				    lws_concat_temp(temp, temp_len),
+		n = lws_jwe_encrypt(&jwe, lws_concat_temp(temp, temp_len),
 				    &temp_len);
 		if (n < 0) {
 			lwsl_err("%s: lws_jwe_encrypt failed\n", __func__);
 			goto bail1;
 		}
+		if (lws_cmdline_option(argc, argv, "-f"))
+			/* output the JWE in flattened form */
+			n = lws_jwe_render_flattened(&jwe, compact,
+						     sizeof(compact));
+		else
+			/* output the JWE in compact form */
+			n = lws_jwe_render_compact(&jwe, compact,
+						   sizeof(compact));
 
-		/* output the JWE in compact form */
-
-		n = lws_jwe_render_compact(&jwe, compact, sizeof(compact));
 		if (n < 0) {
-			lwsl_err("%s: lws_jwe_render_compact failed: %d\n",
+			lwsl_err("%s: lws_jwe_render failed: %d\n",
 				 __func__, n);
 			goto bail1;
 		}
@@ -214,18 +221,27 @@ int main(int argc, const char **argv)
 				goto bail1;
 			}
 	} else {
-
-		/*
-		 * converts a compact serialization to b64 + decoded maps
-		 * held in jws
-		 */
-		if (lws_jws_compact_decode(in, n, &jwe.jws.map, &jwe.jws.map_b64,
-					   lws_concat_temp(temp, temp_len),
-					   &temp_len) != 5) {
-			lwsl_err("%s: lws_jws_compact_decode failed\n",
-				 __func__);
-			goto bail1;
-		}
+		if (lws_cmdline_option(argc, argv, "-f")) {
+			if (lws_jwe_json_parse(&jwe, (uint8_t *)in, n,
+					       lws_concat_temp(temp, temp_len),
+					       &temp_len)) {
+				lwsl_err("%s: lws_jws_compact_decode failed\n",
+								 __func__);
+				goto bail1;
+			}
+		} else
+			/*
+			 * converts a compact serialization to b64 + decoded maps
+			 * held in jws
+			 */
+			if (lws_jws_compact_decode(in, n, &jwe.jws.map,
+						   &jwe.jws.map_b64,
+						   lws_concat_temp(temp, temp_len),
+						   &temp_len) != 5) {
+				lwsl_err("%s: lws_jws_compact_decode failed\n",
+					 __func__);
+				goto bail1;
+			}
 
 		/*
 		 * Do the crypto according to what we parsed into the jose

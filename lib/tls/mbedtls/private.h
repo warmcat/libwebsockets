@@ -21,6 +21,12 @@
  *  gencrypto mbedtls-specific helper declarations
  */
 
+#include <mbedtls/x509_crl.h>
+
+struct lws_x509_cert {
+	mbedtls_x509_crt cert; /* has a .next for linked-list / chain */
+};
+
 mbedtls_md_type_t
 lws_gencrypto_mbedtls_hash_to_MD_TYPE(enum lws_genhash_types hash_type);
 

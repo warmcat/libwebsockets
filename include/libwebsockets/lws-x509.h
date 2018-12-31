@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2018 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -64,6 +64,107 @@ union lws_tls_cert_info_results {
 		char name[64];
 	} ns;
 };
+
+struct lws_x509_cert;
+struct lws_jwk;
+
+/**
+ * lws_x509_create() - Allocate an lws_x509_cert object
+ *
+ * \param x509: pointer to lws_x509_cert pointer to be set to allocated object
+ *
+ * Allocates an lws_x509_cert object and set *x509 to point to it.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_x509_create(struct lws_x509_cert **x509);
+
+/**
+ * lws_x509_parse_from_pem() - Read one or more x509 certs in PEM format from memory
+ *
+ * \param x509: pointer to lws_x509_cert object
+ * \param pem: pointer to PEM format content
+ * \param len: length of PEM format content
+ *
+ * Parses PEM certificates in memory into a native x509 representation for the
+ * TLS library.  If there are multiple PEM certs concatenated, they are all
+ * read into the same object and exist as a "chain".
+ *
+ * IMPORTANT for compatibility with mbedtls, the last used byte of \p pem
+ * must be '\0' and the \p len must include it.
+ *
+ * Returns 0 if all went OK.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_x509_parse_from_pem(struct lws_x509_cert *x509, const void *pem, size_t len);
+
+/**
+ * lws_x509_verify() - Validate signing relationship between one or more certs
+ *		       and a trusted CA cert
+ *
+ * \param x509: pointer to lws_x509_cert object, may contain multiple
+ * \param trusted: a single, trusted cert object that we are checking for
+ * \param common_name: NULL, or required CN (Common Name) of \p x509
+ *
+ * Returns 0 if the cert or certs in \p x509 represent a complete chain that is
+ * ultimately signed by the cert in \p trusted.  Returns nonzero if that's not
+ * the case.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_x509_verify(struct lws_x509_cert *x509, struct lws_x509_cert *trusted,
+		const char *common_name);
+
+/**
+ * lws_x509_public_to_jwk() - Copy the public key out of a cert and into a JWK
+ *
+ * \param jwk: pointer to the jwk to initialize and set to the public key
+ * \param x509: pointer to lws_x509_cert object that has the public key
+ * \param curves: NULL to disallow EC, else a comma-separated list of valid
+ *		  curves using the JWA naming, eg, "P-256,P-384,P-521".
+ * \param rsabits: minimum number of RSA bits required in the cert if RSA
+ *
+ * Returns 0 if JWK was set to the certificate public key correctly and the
+ * curve / the RSA key size was acceptable.  Automatically produces an RSA or
+ * EC JWK depending on what the cert had.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
+		       const char *curves, int rsabits);
+
+/**
+ * lws_x509_jwk_privkey_pem() - Copy a private key PEM into a jwk that has the
+ *				public part already
+ *
+ * \param jwk: pointer to the jwk to initialize and set to the public key
+ * \param pem: pointer to PEM private key in memory
+ * \param len: length of PEM private key in memory
+ * \param passphrase: NULL or passphrase needed to decrypt private key
+ *
+ * IMPORTANT for compatibility with mbedtls, the last used byte of \p pem
+ * must be '\0' and the \p len must include it.
+ *
+ * Returns 0 if the private key was successfully added to the JWK, else
+ * nonzero if failed.
+ *
+ * The PEM image in memory is zeroed down on both successful and failed exits.
+ * The caller should take care to zero down passphrase if used.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_x509_jwk_privkey_pem(struct lws_jwk *jwk, void *pem, size_t len,
+			 const char *passphrase);
+
+/**
+ * lws_x509_destroy() - Destroy a previously allocated lws_x509_cert object
+ *
+ * \param x509: pointer to lws_x509_cert pointer
+ *
+ * Deallocates an lws_x509_cert object and sets its pointer to NULL.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_x509_destroy(struct lws_x509_cert **x509);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_x509_info(struct lws_x509_cert *x509, enum lws_tls_cert_info type,
+	      union lws_tls_cert_info_results *buf, size_t len);
 
 /**
  * lws_tls_peer_cert_info() - get information from the peer's TLS cert

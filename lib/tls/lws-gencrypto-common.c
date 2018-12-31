@@ -563,6 +563,7 @@ static const struct lws_jose_jwe_alg lws_gencrypto_jwe_enc_map[] = {
 		LWS_JOSE_ENCTYPE_AES_GCM,
 		"A256GCM", NULL, 256, 256, 96
 	},
+	{ 0, 0, 0, 0, NULL, NULL, 0, 0, 0 } /* sentinel */
 };
 
 LWS_VISIBLE int

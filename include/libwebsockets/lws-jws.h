@@ -59,8 +59,10 @@ enum enum_jws_sig_elements {
 
 struct lws_jws_map {
 	const char *buf[LWS_JWS_MAX_COMPACT_BLOCKS];
-	uint16_t len[LWS_JWS_MAX_COMPACT_BLOCKS];
+	uint32_t len[LWS_JWS_MAX_COMPACT_BLOCKS];
 };
+
+#define LWS_JWS_MAX_SIGS 3
 
 struct lws_jws {
 	struct lws_jwk *jwk; /* the struct lws_jwk containing the signing key */
@@ -205,10 +207,16 @@ LWS_VISIBLE LWS_EXTERN int
 lws_jws_compact_decode(const char *in, int len, struct lws_jws_map *map,
 		struct lws_jws_map *map_b64, char *out, int *out_len);
 
-LWS_VISIBLE int
+LWS_VISIBLE LWS_EXTERN int
 lws_jws_compact_encode(struct lws_jws_map *map_b64, /* b64-encoded */
 		       const struct lws_jws_map *map,	/* non-b64 */
 		       char *buf, int *out_len);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_jws_sig_confirm_json(const char *in, size_t len,
+			 struct lws_jws *jws, struct lws_jwk *jwk,
+			 struct lws_context *context,
+			 char *temp, int *temp_len);
 
 /**
  * lws_jws_write_flattened_json() - create flattened JSON sig

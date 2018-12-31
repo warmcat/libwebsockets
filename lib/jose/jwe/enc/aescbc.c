@@ -38,7 +38,7 @@ lws_jwe_encrypt_cbc_hs(struct lws_jwe *jwe, uint8_t *cek,
 
 	/* Caller must have prepared space for the results */
 
-	if (jwe->jws.map.len[LJWE_ATAG] != hlen / 2) {
+	if (jwe->jws.map.len[LJWE_ATAG] != (unsigned int)hlen / 2) {
 		lwsl_notice("%s: expected tag len %d, got %d\n", __func__,
 			    hlen / 2, jwe->jws.map.len[LJWE_ATAG]);
 		return -1;
@@ -165,7 +165,7 @@ lws_jwe_auth_and_decrypt_cbc_hs(struct lws_jwe *jwe, uint8_t *enc_cek,
 
 	/* Some sanity checks on what came in */
 
-	if (jwe->jws.map.len[LJWE_ATAG] != hlen / 2) {
+	if (jwe->jws.map.len[LJWE_ATAG] != (unsigned int)hlen / 2) {
 		lwsl_notice("%s: expected tag len %d, got %d\n", __func__,
 				hlen / 2, jwe->jws.map.len[LJWE_ATAG]);
 		return -1;

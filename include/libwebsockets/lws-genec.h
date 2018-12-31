@@ -59,7 +59,7 @@ enum enum_lws_dh_side {
 struct lws_ec_curves {
 	const char *name;
 	int tls_lib_nid;
-	short key_bytes;
+	uint16_t key_bytes;
 };
 
 

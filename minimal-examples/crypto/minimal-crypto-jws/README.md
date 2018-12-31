@@ -41,6 +41,7 @@ Commandline option|Meaning
 -s "<signature alg>"|Sign (default is verify), eg, -e "ES256".  For verify, the cipher information comes from the input JWS.
 -k <jwk file>|JWK file to sign or verify with... sign requires the key has its private part
 -c|Format the JWE as a linebroken C string
+-f|Output flattened representation (instead of compact by default)
 
 ```
  $ echo -n "plaintext0123456" | ./lws-crypto-jws -s "ES256" -k ec-p256.private

@@ -18,11 +18,24 @@ News
 
 ## New features on master
 
+ - New Crypto-agile APIs + JOSE / JWS / JWE / JWK support... apis work exactly
+   the same with OpenSSL or mbedTLS tls library backends, and allow key cycling
+   and crypto algorithm changes while allowing for grace periods
+
+   [README.crypto-apis](https://libwebsockets.org/git/libwebsockets/tree/READMEs/README.crypto-apis.md)
+
  - CMake config simplification for crypto: `-DLWS_WITH_GENCRYPTO=1` for all
    generic cipher and hash apis built (which work the same on mbedtls and
    OpenSSL transparently), and `-DLWS_WITH_JOSE=1` for all JOSE, JWK, JWS
    and JWE support built (which use gencrypto and so also work the same
    regardless of tls library backend).
+
+ - **`x.509`** - new generic x509 api allows PEM-based certificate and key
+   trust relationship verification, and conversion between x.509 keys and
+   JWK.  Works for EC and RSA keys, and on mbedtls and OpenSSl the same.
+
+   [x.509 api](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/lws-x509.h), 
+   [x.509 minimal example](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/crypto/minimal-crypto-x509)
 
  - **`JWE`** - JWE (RFC7516) Algorithms with CI tests:
 

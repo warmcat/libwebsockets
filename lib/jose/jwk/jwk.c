@@ -562,7 +562,7 @@ lws_jwk_dup_oct(struct lws_jwk *jwk, const void *key, int len)
 
 LWS_VISIBLE int
 lws_jwk_generate(struct lws_context *context, struct lws_jwk *jwk,
-	       enum lws_gencrypto_kty kty, int bits, const char *curve)
+	         enum lws_gencrypto_kty kty, int bits, const char *curve)
 {
 	int n;
 

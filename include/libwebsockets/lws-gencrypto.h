@@ -90,7 +90,7 @@ enum lws_gencrypto_aes_tok {
 
 struct lws_gencrypto_keyelem {
 	uint8_t *buf;
-	uint16_t len;
+	uint32_t len;
 };
 
 

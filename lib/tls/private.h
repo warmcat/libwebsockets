@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2018 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -167,6 +167,11 @@ struct lws_lws_tls {
 	unsigned int redirect_to_https:1;
 };
 
+struct lws_ec_valid_curves {
+	int id;
+	const char *jwa_name; /* list terminates with NULL jwa_name */
+};
+
 LWS_EXTERN void
 lws_context_init_alpn(struct lws_vhost *vhost);
 LWS_EXTERN enum lws_tls_extant
@@ -311,5 +316,9 @@ LWS_VISIBLE void
 lws_genec_destroy_elements(struct lws_gencrypto_keyelem *el);
 int
 lws_gencrypto_mbedtls_rngf(void *context, unsigned char *buf, size_t len);
+
+int
+lws_genec_confirm_curve_allowed_by_tls_id(const char *allowed, int id,
+					  struct lws_jwk *jwk);
 
 #endif

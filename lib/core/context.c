@@ -607,7 +607,7 @@ lws_create_vhost(struct lws_context *context,
 
 #ifdef LWS_WITH_UNIX_SOCK
 	if (LWS_UNIX_SOCK_ENABLED(vh)) {
-		lwsl_notice("Creating Vhost '%s' path \"%s\", %d protocols\n",
+		lwsl_info("Creating Vhost '%s' path \"%s\", %d protocols\n",
 				vh->name, vh->iface, vh->count_protocols);
 	} else
 #endif
@@ -623,7 +623,7 @@ lws_create_vhost(struct lws_context *context,
 			lws_snprintf(buf, sizeof(buf), "port %u", info->port);
 			break;
 		}
-		lwsl_notice("Creating Vhost '%s' %s, %d protocols, IPv6 %s\n",
+		lwsl_info("Creating Vhost '%s' %s, %d protocols, IPv6 %s\n",
 			    vh->name, buf, vh->count_protocols,
 			    LWS_IPV6_ENABLED(vh) ? "on" : "off");
 	}

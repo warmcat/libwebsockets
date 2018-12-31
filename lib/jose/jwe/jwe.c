@@ -26,47 +26,40 @@
 #include "jose/private.h"
 #include "jose/jwe/private.h"
 
-#if 0
-static const char * const jwe_complete_tokens[] = {
+/*
+ * Currently only support flattened or compact (implicitly single signature)
+ */
+
+static const char * const jwe_json[] = {
 	"protected",
-	"recipients[].header",
-	"recipients[].header.alg",
-	"recipients[].header.kid",
-	"recipients[].encrypted_key",
 	"iv",
 	"ciphertext",
 	"tag",
+	"encrypted_key"
 };
 
 enum enum_jwe_complete_tokens {
 	LWS_EJCT_PROTECTED,
-	LWS_EJCT_HEADER,
-	LWS_EJCT_HEADER_ALG,
-	LWS_EJCT_HEADER_KID,
-	LWS_EJCT_RECIP_ENC_KEY,
 	LWS_EJCT_IV,
 	LWS_EJCT_CIPHERTEXT,
 	LWS_EJCT_TAG,
+	LWS_EJCT_RECIP_ENC_KEY,
 };
 
-struct complete_cb_args {
-	struct lws_jws_map *map;
-	struct lws_jws_map *map_b64;
-	char *out;
-	int out_len;
+/* parse a JWS complete or flattened JSON object */
+
+struct jwe_cb_args {
+	struct lws_jws *jws;
+
+	char *temp;
+	int *temp_len;
 };
-
-
-static int
-do_map(struct complete_cb_args *args, int index, char *b64, int len)
-{
-	return 0;
-}
 
 static signed char
-lws_jwe_parse_complete_cb(struct lejp_ctx *ctx, char reason)
+lws_jwe_json_cb(struct lejp_ctx *ctx, char reason)
 {
-	struct complete_cb_args *args = (struct complete_cb_args *)ctx->user;
+	struct jwe_cb_args *args = (struct jwe_cb_args *)ctx->user;
+	int n, m;
 
 	if (!(reason & LEJP_FLAG_CB_IS_VALUE) || !ctx->path_match)
 		return 0;
@@ -75,49 +68,95 @@ lws_jwe_parse_complete_cb(struct lejp_ctx *ctx, char reason)
 
 	/* strings */
 
-	case LWS_EJCT_PROTECTED:
-	case LWS_EJCT_HEADER:
-	case LWS_EJCT_HEADER_ALG:
-	case LWS_EJCT_HEADER_KID:
-	case LWS_EJCT_RECIP_ENC_KEY:
-	case LWS_EJCT_IV:
-	case LWS_EJCT_CIPHERTEXT:
-	case LWS_EJCT_TAG:
+	case LWS_EJCT_PROTECTED:  /* base64u: JOSE: must contain 'alg' */
+		m = LJWS_JOSE;
+		goto append_string;
+	case LWS_EJCT_IV:	/* base64u */
+		m = LJWE_IV;
+		goto append_string;
+	case LWS_EJCT_CIPHERTEXT:  /* base64u */
+		m = LJWE_CTXT;
+		goto append_string;
+	case LWS_EJCT_TAG:  /* base64u */
+		m = LJWE_ATAG;
+		goto append_string;
+	case LWS_EJCT_RECIP_ENC_KEY:  /* base64u */
+		m = LJWE_EKEY;
+		goto append_string;
+
+	default:
+		return -1;
+	}
+
+	return 0;
+
+append_string:
+
+	if (*args->temp_len < ctx->npos) {
+		lwsl_err("%s: out of parsing space\n", __func__);
+		return -1;
+	}
+
+	/*
+	 * We keep both b64u and decoded in temp mapped using map / map_b64,
+	 * the jws signature is actually over the b64 content not the plaintext,
+	 * and we can't do it until we see the protected alg.
+	 */
+
+	if (!args->jws->map_b64.buf[m]) {
+		args->jws->map_b64.buf[m] = args->temp;
+		args->jws->map_b64.len[m] = 0;
+	}
+
+	memcpy(args->temp, ctx->buf, ctx->npos);
+	args->temp += ctx->npos;
+	*args->temp_len -= ctx->npos;
+	args->jws->map_b64.len[m] += ctx->npos;
+
+	if (reason == LEJPCB_VAL_STR_END) {
+		args->jws->map.buf[m] = args->temp;
+
+		n = lws_b64_decode_string_len(
+			(const char *)args->jws->map_b64.buf[m],
+			args->jws->map_b64.len[m],
+			(char *)args->temp, *args->temp_len);
+		if (n < 0) {
+			lwsl_err("%s: b64 decode failed\n", __func__);
+			return -1;
+		}
+
+		args->temp += n;
+		*args->temp_len -= n;
+		args->jws->map.len[m] = n;
 	}
 
 	return 0;
 }
 
-LWS_VISIBLE int
-lws_jws_complete_decode(const char *json_in, int len,
-			struct lws_jws_map *map,
-			struct lws_jws_map *map_b64, char *out,
-			int out_len)
+int
+lws_jwe_json_parse(struct lws_jwe *jwe, const uint8_t *buf, int len,
+		   char *temp, int *temp_len)
 {
-
-	struct complete_cb_args args;
+	struct jwe_cb_args args;
 	struct lejp_ctx jctx;
-	int blocks, n, m = 0;
+	int m = 0;
 
-	if (!map_b64)
-		map_b64 = map;
+	args.jws = &jwe->jws;
+	args.temp = temp;
+	args.temp_len = temp_len;
 
-	memset(map_b64, 0, sizeof(*map_b64));
-	memset(map, 0, sizeof(*map));
+	lejp_construct(&jctx, lws_jwe_json_cb, &args, jwe_json,
+		       LWS_ARRAY_SIZE(jwe_json));
 
-	args.map = map;
-	args.map_b64 = map_b64;
-	args.out = out;
-	args.out_len = out_len;
-
-	lejp_construct(&jctx, lws_jwe_parse_complete_cb, &args,
-		       jwe_complete_tokens,
-		       LWS_ARRAY_SIZE(jwe_complete_tokens));
-
-	m = (int)(signed char)lejp_parse(&jctx, (uint8_t *)json_in, len);
+	m = (int)(signed char)lejp_parse(&jctx, (uint8_t *)buf, len);
 	lejp_destruct(&jctx);
+	if (m < 0) {
+		lwsl_notice("%s: parse returned %d\n", __func__, m);
+		return -1;
+	}
+
+	return 0;
 }
-#endif
 
 void
 lws_jwe_init(struct lws_jwe *jwe, struct lws_context *context)
@@ -291,6 +330,14 @@ lws_jwe_auth_and_decrypt(struct lws_jwe *jwe, char *temp, int *temp_len)
 		lwsl_err("%s: JOSE parse '%.*s' failed\n", __func__,
 				jwe->jws.map.len[LJWS_JOSE],
 				jwe->jws.map.buf[LJWS_JOSE]);
+		return -1;
+	}
+
+	if (!jwe->jose.alg) {
+		lwsl_err("%s: no jose.alg: %.*s\n", __func__,
+				jwe->jws.map.len[LJWS_JOSE],
+				jwe->jws.map.buf[LJWS_JOSE]);
+
 		return -1;
 	}
 
@@ -673,8 +720,8 @@ static int protected_idx[] = {
 LWS_VISIBLE int
 lws_jwe_render_flattened(struct lws_jwe *jwe, char *out, size_t out_len)
 {
-	char buf[3072], *p1, *end1;
-	int m, n, jlen;
+	char buf[3072], *p1, *end1, protected[128];
+	int m, n, jlen, plen;
 
 	jlen = lws_jose_render(&jwe->jose, jwe->jws.jwk, buf, sizeof(buf));
 	if (jlen < 0) {
@@ -694,9 +741,13 @@ lws_jwe_render_flattened(struct lws_jwe *jwe, char *out, size_t out_len)
 	 * The protected header is b64url encoding of the JOSE header part
 	 */
 
+	plen = lws_snprintf(protected, sizeof(protected),
+			    "{\"alg\":\"%s\",\"enc\":\"%s\"}",
+			    jwe->jose.alg->alg, jwe->jose.enc_alg->alg);
+
 	p1 += lws_snprintf(p1, end1 - p1, "{\"protected\":\"");
 	jwe->jws.map_b64.buf[LJWS_JOSE] = p1;
-	n = lws_jws_base64_enc(buf, jlen, p1, end1 - p1);
+	n = lws_jws_base64_enc(protected, plen, p1, end1 - p1);
 	if (n < 0) {
 		lwsl_notice("%s: failed to encode protected\n", __func__);
 		goto bail;
@@ -710,7 +761,7 @@ lws_jwe_render_flattened(struct lws_jwe *jwe, char *out, size_t out_len)
 
 	for (m = 0; m < (int)LWS_ARRAY_SIZE(protected_en); m++)
 		if (jwe->jws.map.buf[protected_idx[m]]) {
-			p1 += lws_snprintf(p1, end1 - p1, ",\"%s\":\"",
+			p1 += lws_snprintf(p1, end1 - p1, ",\n\"%s\":\"",
 					   protected_en[m]);
 			//jwe->jws.map_b64.buf[protected_idx[m]] = p1;
 			n = lws_jws_base64_enc(jwe->jws.map.buf[protected_idx[m]],

@@ -81,6 +81,9 @@ lws_jwe_render_compact(struct lws_jwe *jwe, char *out, size_t out_len);
 LWS_VISIBLE int
 lws_jwe_render_flattened(struct lws_jwe *jwe, char *out, size_t out_len);
 
+LWS_VISIBLE LWS_EXTERN int
+lws_jwe_json_parse(struct lws_jwe *jwe, const uint8_t *buf, int len,
+		   char *temp, int *temp_len);
 
 /**
  * lws_jwe_auth_and_decrypt() - confirm and decrypt JWE

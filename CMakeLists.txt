@@ -1014,6 +1014,7 @@ if (LWS_WITH_SSL)
 		if (LWS_WITH_MBEDTLS)
 			list(APPEND SOURCES
 				lib/tls/mbedtls/ssl.c
+				lib/tls/mbedtls/x509.c
 			)
 			if (LWS_WITH_GENCRYPTO)
 				list(APPEND SOURCES
@@ -1028,6 +1029,7 @@ if (LWS_WITH_SSL)
 		else()
 			list(APPEND SOURCES
 				lib/tls/openssl/ssl.c
+				lib/tls/openssl/x509.c
 			)
 			if (LWS_WITH_GENCRYPTO)
 				list(APPEND SOURCES

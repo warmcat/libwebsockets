@@ -47,6 +47,7 @@ Commandline option|Meaning
 -e "<cek cipher alg> <payload enc alg>"|Encrypt (default is decrypt), eg, -e "RSA1_5 A128CBC-HS256".  For decrypt, the cipher information comes from the input JWE.
 -k <jwk file>|JWK file to encrypt or decrypt with
 -c|Format the JWE as a linebroken C string
+-f|Output flattened representation (instead of compact by default)
 
 ```
  $ echo -n "plaintext0123456" | ./lws-crypto-jwe -k key-rsa-4096.private -e "RSA1_5 A128CBC-HS256"

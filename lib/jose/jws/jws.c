@@ -21,13 +21,20 @@
 
 #include "core/private.h"
 #include "private.h"
-#if 0
+
+/*
+ * Currently only support flattened or compact (implicitly single signature)
+ */
+
 static const char * const jws_json[] = {
-	"protected",
-	"header",
-	"payload",
-	"signature",
-	"signatures",
+	"protected", /* base64u */
+	"header", /* JSON */
+	"payload", /* base64u payload */
+	"signature", /* base64u signature */
+
+	//"signatures[].protected",
+	//"signatures[].header",
+	//"signatures[].signature"
 };
 
 enum lws_jws_json_tok {
@@ -35,18 +42,121 @@ enum lws_jws_json_tok {
 	LJWSJT_HEADER,
 	LJWSJT_PAYLOAD,
 	LJWSJT_SIGNATURE,
-	LJWSJT_SIGNATURES,
+
+	// LJWSJT_SIGNATURES_PROTECTED,
+	// LJWSJT_SIGNATURES_HEADER,
+	// LJWSJT_SIGNATURES_SIGNATURE,
 };
 
 /* parse a JWS complete or flattened JSON object */
 
+struct jws_cb_args {
+	struct lws_jws *jws;
+
+	char *temp;
+	int *temp_len;
+};
+
 static signed char
 lws_jws_json_cb(struct lejp_ctx *ctx, char reason)
 {
-	struct jose_cb_args *args = (struct jose_cb_args *)ctx->user;
-	int n;
+	struct jws_cb_args *args = (struct jws_cb_args *)ctx->user;
+	int n, m;
+
+	if (!(reason & LEJP_FLAG_CB_IS_VALUE) || !ctx->path_match)
+		return 0;
+
+	switch (ctx->path_match - 1) {
+
+	/* strings */
+
+	case LJWSJT_PROTECTED:  /* base64u: JOSE: must contain 'alg' */
+		m = LJWS_JOSE;
+		goto append_string;
+	case LJWSJT_PAYLOAD:	/* base64u */
+		m = LJWS_PYLD;
+		goto append_string;
+	case LJWSJT_SIGNATURE:  /* base64u */
+		m = LJWS_SIG;
+		goto append_string;
+
+	case LJWSJT_HEADER:	/* unprotected freeform JSON */
+		break;
+
+	default:
+		return -1;
+	}
+
+	return 0;
+
+append_string:
+
+	if (*args->temp_len < ctx->npos) {
+		lwsl_err("%s: out of parsing space\n", __func__);
+		return -1;
+	}
+
+	/*
+	 * We keep both b64u and decoded in temp mapped using map / map_b64,
+	 * the jws signature is actually over the b64 content not the plaintext,
+	 * and we can't do it until we see the protected alg.
+	 */
+
+	if (!args->jws->map_b64.buf[m]) {
+		args->jws->map_b64.buf[m] = args->temp;
+		args->jws->map_b64.len[m] = 0;
+	}
+
+	memcpy(args->temp, ctx->buf, ctx->npos);
+	args->temp += ctx->npos;
+	*args->temp_len -= ctx->npos;
+	args->jws->map_b64.len[m] += ctx->npos;
+
+	if (reason == LEJPCB_VAL_STR_END) {
+		args->jws->map.buf[m] = args->temp;
+
+		n = lws_b64_decode_string_len(
+			(const char *)args->jws->map_b64.buf[m],
+			args->jws->map_b64.len[m],
+			(char *)args->temp, *args->temp_len);
+		if (n < 0) {
+			lwsl_err("%s: b64 decode failed\n", __func__);
+			return -1;
+		}
+
+		args->temp += n;
+		*args->temp_len -= n;
+		args->jws->map.len[m] = n;
+	}
+
+	return 0;
 }
-#endif
+
+static int
+lws_jws_json_parse(struct lws_jws *jws, const uint8_t *buf, int len,
+		   char *temp, int *temp_len)
+{
+	struct jws_cb_args args;
+	struct lejp_ctx jctx;
+	int m = 0;
+
+	args.jws = jws;
+	args.temp = temp;
+	args.temp_len = temp_len;
+
+	lejp_construct(&jctx, lws_jws_json_cb, &args, jws_json,
+		       LWS_ARRAY_SIZE(jws_json));
+
+	m = (int)(signed char)lejp_parse(&jctx, (uint8_t *)buf, len);
+	lejp_destruct(&jctx);
+	if (m < 0) {
+		lwsl_notice("%s: parse returned %d\n", __func__, m);
+		return -1;
+	}
+
+	return 0;
+}
+
 LWS_VISIBLE void
 lws_jws_init(struct lws_jws *jws, struct lws_jwk *jwk,
 	     struct lws_context *context)
@@ -608,8 +718,22 @@ lws_jws_sig_confirm_compact(struct lws_jws_map *map, struct lws_jwk *jwk,
 	return lws_jws_sig_confirm(&map_b64, map, jwk, context);
 }
 
+int
+lws_jws_sig_confirm_json(const char *in, size_t len,
+			 struct lws_jws *jws, struct lws_jwk *jwk,
+			 struct lws_context *context,
+			 char *temp, int *temp_len)
+{
+	if (lws_jws_json_parse(jws, (const uint8_t *)in, len, temp, temp_len)) {
+		lwsl_err("%s: lws_jws_json_parse failed\n", __func__);
 
-LWS_VISIBLE int
+		return -1;
+	}
+	return lws_jws_sig_confirm(&jws->map_b64, &jws->map, jwk, context);
+}
+
+
+int
 lws_jws_sign_from_b64(struct lws_jose *jose, struct lws_jws *jws,
 		      char *b64_sig, size_t sig_len)
 {
@@ -768,18 +892,20 @@ lws_jws_write_flattened_json(struct lws_jws *jws, char *flattened, size_t len)
 	if (len < 1)
 		return 1;
 
-	n += lws_snprintf(flattened + n, len - n , "{\"payload\": \"%s\",\n",
+	n += lws_snprintf(flattened + n, len - n , "{\"payload\": \"%.*s\",\n",
+			  jws->map_b64.len[LJWS_PYLD],
 			  jws->map_b64.buf[LJWS_PYLD]);
 
-	n += lws_snprintf(flattened + n, len - n , " \"protected\": \"%s\",\n",
-			jws->map_b64.buf[LJWS_JOSE]);
+	n += lws_snprintf(flattened + n, len - n , " \"protected\": \"%.*s\",\n",
+			  jws->map_b64.len[LJWS_JOSE],
+			  jws->map_b64.buf[LJWS_JOSE]);
 
 	if (jws->map_b64.buf[LJWS_UHDR])
-		n += lws_snprintf(flattened + n, len - n , " \"header\": %s,\n",
-				jws->map_b64.buf[LJWS_UHDR]);
+		n += lws_snprintf(flattened + n, len - n , " \"header\": %.*s,\n",
+			  jws->map_b64.len[LJWS_UHDR], jws->map_b64.buf[LJWS_UHDR]);
 
-	n += lws_snprintf(flattened + n, len - n , " \"signature\": \"%s\"}\n",
-			jws->map_b64.buf[LJWS_SIG]);
+	n += lws_snprintf(flattened + n, len - n , " \"signature\": \"%.*s\"}\n",
+			jws->map_b64.len[LJWS_SIG], jws->map_b64.buf[LJWS_SIG]);
 
 	return (n >= len - 1);
 }

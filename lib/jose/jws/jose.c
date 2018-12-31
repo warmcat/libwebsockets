@@ -485,7 +485,7 @@ lws_jose_render(struct lws_jose *jose, struct lws_jwk *aux_jwk,
 		case LJJHI_ZIP:	/* JWE only: Optional: string ("DEF"=deflate) */
 			if (jose->e[n].buf) {
 				out += lws_snprintf(out, end - out,
-					"%c\"%s\":\"%s\"", sub ? ',' : ' ',
+					"%s\"%s\":\"%s\"", sub ? ",\n" : "",
 					jws_jose[n], jose->e[n].buf);
 				sub = 1;
 			}
@@ -500,7 +500,7 @@ lws_jose_render(struct lws_jose *jose, struct lws_jwk *aux_jwk,
 		case LJJHI_P2S:	/* Additional arg for JWE PBES2: b64url: salt */
 			if (jose->e[n].buf) {
 				out += lws_snprintf(out, end - out,
-					"%c\"%s\":\"", sub ? ',' : ' ',
+					"%s\"%s\":\"", sub ? ",\n" : "",
 						jws_jose[n]);
 				sub = 1;
 				m = lws_b64_encode_string_url((const char *)
@@ -519,7 +519,7 @@ lws_jose_render(struct lws_jose *jose, struct lws_jwk *aux_jwk,
 		case LJJHI_X5C:	/* Optional: base64 (NOT -url): actual cert */
 			if (jose->e[n].buf) {
 				out += lws_snprintf(out, end - out,
-					"%c\"%s\":\"", sub ? ',' : ' ',
+					"%s\"%s\":\"", sub ? ",\n" : "",
 							jws_jose[n]);
 				sub = 1;
 				m = lws_b64_encode_string((const char *)
@@ -536,11 +536,11 @@ lws_jose_render(struct lws_jose *jose, struct lws_jwk *aux_jwk,
 		case LJJHI_JWK:	/* Optional: jwk JSON object: public key: */
 
 			jwk = n == LJJHI_EPK ? &jose->recipient[0].jwk_ephemeral : aux_jwk;
-			if (!jwk)
-				return -1;
+			if (!jwk || !jwk->kty)
+				break;
 
-			out += lws_snprintf(out, end - out, "%c\"%s\":",
-					    sub ? ',' : ' ', jws_jose[n]);
+			out += lws_snprintf(out, end - out, "%s\"%s\":",
+					    sub ? ",\n" : "", jws_jose[n]);
 			sub = 1;
 			vl = end - out;
 			m = lws_jwk_export(jwk, 0, out, &vl);
@@ -559,12 +559,12 @@ lws_jose_render(struct lws_jose *jose, struct lws_jwk *aux_jwk,
 				break;
 
 			out += lws_snprintf(out, end - out,
-				"%c\"%s\":[", sub ? ',' : ' ', jws_jose[n]);
+				"%s\"%s\":[", sub ? ",\n" : "", jws_jose[n]);
 			sub = 1;
 
 			m = 0;
 			f = 1;
-			while (m < jose->e[n].len && (end - out) > 1) {
+			while ((unsigned int)m < jose->e[n].len && (end - out) > 1) {
 				if (jose->e[n].buf[m] == ' ') {
 					if (!f)
 						*out++ = '\"';

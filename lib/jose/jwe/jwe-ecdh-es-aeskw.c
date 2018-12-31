@@ -541,7 +541,7 @@ lws_jwe_auth_and_decrypt_ecdh(struct lws_jwe *jwe)
 
 		/* Confirm space for EKEY */
 
-		if (jwe->jws.map.len[LJWE_EKEY] < enc_hlen) {
+		if (jwe->jws.map.len[LJWE_EKEY] < (unsigned int)enc_hlen) {
 			lwsl_err("%s: missing EKEY\n", __func__);
 
 			goto bail;
