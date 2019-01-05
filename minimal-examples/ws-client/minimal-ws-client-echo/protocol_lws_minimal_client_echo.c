@@ -173,6 +173,9 @@ callback_minimal_client_echo(struct lws *wsi, enum lws_callback_reasons reason,
 			lwsl_user(" wrote %d: flags: 0x%x first: %d final %d\n",
 					m, flags, pmsg->first, pmsg->final);
 
+			if ((*vhd->options & 1) && pmsg && pmsg->final)
+				pss->completed = 1;
+
 			lws_ring_consume_single_tail(pss->ring, &pss->tail, 1);
 
 		} while (lws_ring_get_element(pss->ring, &pss->tail) &&
@@ -185,9 +188,6 @@ callback_minimal_client_echo(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if ((int)lws_ring_get_count_free_elements(pss->ring) > RING_DEPTH - 5)
 			lws_rx_flow_control(wsi, 1);
-
-		if ((*vhd->options & 1) && pmsg && pmsg->final)
-			pss->completed = 1;
 
 		break;
 
@@ -234,12 +234,12 @@ callback_minimal_client_echo(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_err("CLIENT_CONNECTION_ERROR: %s\n",
 			 in ? (char *)in : "(null)");
 		vhd->client_wsi = NULL;
-		schedule_callback(wsi, LWS_CALLBACK_USER, 1);
-		if (*vhd->options & 1) {
+		//schedule_callback(wsi, LWS_CALLBACK_USER, 1);
+		//if (*vhd->options & 1) {
 			if (!*vhd->interrupted)
-				*vhd->interrupted = 1;
+				*vhd->interrupted = 3;
 			lws_cancel_service(lws_get_context(wsi));
-		}
+		//}
 		break;
 
 	case LWS_CALLBACK_CLIENT_CLOSED:
