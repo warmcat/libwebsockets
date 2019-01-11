@@ -292,11 +292,11 @@ lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
 	ASN1_OBJECT *obj = NULL;
 	const EC_POINT *ecpoint;
 	const EC_GROUP *ecgroup;
+	EC_KEY *ecpub = NULL;
 	X509_PUBKEY *pubkey;
+	RSA *rsapub = NULL;
 	BIGNUM *mpi[4];
 	EVP_PKEY *pkey;
-	EC_KEY *ecpub;
-	RSA *rsapub;
 
 	memset(jwk, 0, sizeof(*jwk));
 
@@ -480,10 +480,10 @@ lws_x509_jwk_privkey_pem(struct lws_jwk *jwk, void *pem, size_t len,
 	BIO* bio = BIO_new(BIO_s_mem());
 	BIGNUM *mpi, *dummy[4];
 	EVP_PKEY *pkey = NULL;
+	EC_KEY *ecpriv = NULL;
+	RSA *rsapriv = NULL;
 	const BIGNUM *cmpi;
 	int n, m, ret = -1;
-	EC_KEY *ecpriv;
-	RSA *rsapriv;
 
 	BIO_write(bio, pem, len);
 	PEM_read_bio_PrivateKey(bio, &pkey, lws_x509_jwk_privkey_pem_pp_cb,
