@@ -1211,7 +1211,7 @@ lws_get_urlarg_by_name(struct lws *wsi, const char *name, char *buf, int len)
 	return NULL;
 }
 
-#if !defined(LWS_WITH_ESP32)
+#if !defined(LWS_WITH_ESP32) && !defined(LWS_PLAT_OPTEE)
 LWS_VISIBLE int
 interface_to_sa(struct lws_vhost *vh, const char *ifname,
 		struct sockaddr_in *addr, size_t addrlen)
@@ -2685,7 +2685,7 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 	socklen_t len = sizeof(struct sockaddr_storage);
 #endif
 	int n;
-#if !defined(LWS_WITH_ESP32)
+#if !defined(LWS_WITH_ESP32) && !defined(LWS_PLAT_OPTEE)
 	int m;
 #endif
 	struct sockaddr_storage sin;
@@ -2746,7 +2746,7 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 		serv_addr4.sin_addr.s_addr = INADDR_ANY;
 		serv_addr4.sin_family = AF_INET;
 
-#if !defined(LWS_WITH_ESP32)
+#if !defined(LWS_WITH_ESP32) && !defined(LWS_PLAT_OPTEE)
 		if (iface) {
 		    m = interface_to_sa(vhost, iface,
 				    (struct sockaddr_in *)v, n);

@@ -2023,7 +2023,12 @@ lws_http_transaction_completed(struct lws *wsi)
 
 	if (!wsi->hdr_parsing_completed) {
 		char peer[64];
+
+#if !defined(LWS_PLAT_OPTEE)
 		lws_get_peer_simple(wsi, peer, sizeof(peer) - 1);
+#else
+		peer[0] = '\0';
+#endif
 		peer[sizeof(peer) - 1] = '\0';
 		lwsl_notice("%s: (from %s) ignoring, ah parsing incomplete\n",
 				__func__, peer);

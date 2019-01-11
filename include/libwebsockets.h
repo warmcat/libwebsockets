@@ -331,10 +331,26 @@ typedef int lws_sockfd_type;
 typedef int lws_filefd_type;
 #endif
 
+#if defined(LWS_PLAT_OPTEE)
+#include <poll.h>
 #define lws_pollfd pollfd
-#define LWS_POLLHUP (POLLHUP|POLLERR)
+
+//struct lws_pollfd
+//{
+ //       int fd;                     /* File descriptor to poll.  */
+ //       short int events;           /* Types of events poller cares about.  */
+ //       short int revents;          /* Types of events that actually occurred.  */
+//};
+#define LWS_POLLHUP (0x18)
+#define LWS_POLLIN (1)
+#define LWS_POLLOUT (4)
+
+#else
+#define lws_pollfd pollfd
+#define LWS_POLLHUP (POLLHUP | POLLERR)
 #define LWS_POLLIN (POLLIN)
 #define LWS_POLLOUT (POLLOUT)
+#endif
 #endif
 
 

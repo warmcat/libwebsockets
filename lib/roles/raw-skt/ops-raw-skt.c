@@ -144,7 +144,7 @@ rops_adoption_bind_raw_skt(struct lws *wsi, int type, const char *vh_prot_name)
 	    (type & _LWS_ADOPT_FINISH))
 		return 0; /* no match */
 
-#if !defined(LWS_WITH_ESP32)
+#if !defined(LWS_WITH_ESP32) && !defined(LWS_PLAT_OPTEE)
 	if (type & LWS_ADOPT_FLAG_UDP)
 		/*
 		 * these can be >128 bytes, so just alloc for UDP

@@ -199,7 +199,7 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	lws_stats_atomic_bump(wsi->context, pt,
 			      LWSSTATS_B_PARTIALS_ACCEPTED_PARTS, m);
 
-#if !defined(LWS_WITH_ESP32)
+#if !defined(LWS_WITH_ESP32) && !defined(LWS_PLAT_OPTEE)
 	if (lws_wsi_is_udp(wsi)) {
 		/* stash original destination for fulfilling UDP partials */
 		wsi->udp->sa_pending = wsi->udp->sa;
@@ -251,7 +251,7 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 	lws_stats_atomic_bump(context, pt, LWSSTATS_C_API_READ, 1);
 
 	if (lws_wsi_is_udp(wsi)) {
-#if !defined(LWS_WITH_ESP32)
+#if !defined(LWS_WITH_ESP32) && !defined(LWS_PLAT_OPTEE)
 		wsi->udp->salen = sizeof(wsi->udp->sa);
 		n = recvfrom(wsi->desc.sockfd, (char *)buf, len, 0,
 			     &wsi->udp->sa, &wsi->udp->salen);
@@ -286,7 +286,7 @@ lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 	int n = 0;
 
 	if (lws_wsi_is_udp(wsi)) {
-#if !defined(LWS_WITH_ESP32)
+#if !defined(LWS_WITH_ESP32) && !defined(LWS_PLAT_OPTEE)
 		if (lws_has_buffered_out(wsi))
 			n = sendto(wsi->desc.sockfd, (const char *)buf,
 				   len, 0, &wsi->udp->sa_pending,
