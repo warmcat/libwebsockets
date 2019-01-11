@@ -862,6 +862,7 @@ set(SOURCES
 	lib/core/service.c
 	lib/misc/base64-decode.c
 	lib/misc/lws-ring.c
+	lib/core/adopt.c
 	lib/roles/pipe/ops-pipe.c)
 	
 if (LWS_WITH_THREADPOOL AND UNIX AND LWS_HAVE_PTHREAD_H)
@@ -960,7 +961,6 @@ endif()
 
 if (NOT LWS_WITHOUT_SERVER)
 	list(APPEND SOURCES
-		lib/core/adopt.c
 		lib/roles/listen/ops-listen.c)
 endif()
 
@@ -1095,7 +1095,8 @@ else()
 
 	if (LWS_PLAT_OPTEE)
 		list(APPEND SOURCES
-			lib/plat/optee/lws-plat-optee.c)
+			lib/plat/optee/lws-plat-optee.c
+		)
 	else()
 		if (LWS_WITH_ESP32)
 			list(APPEND SOURCES

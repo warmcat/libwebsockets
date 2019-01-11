@@ -109,7 +109,7 @@ lws_role_call_alpn_negotiated(struct lws *wsi, const char *alpn)
 	return 0;
 }
 
-#if !defined(LWS_WITHOUT_SERVER)
+//#if !defined(LWS_WITHOUT_SERVER)
 int
 lws_role_call_adoption_bind(struct lws *wsi, int type, const char *prot)
 {
@@ -176,7 +176,7 @@ lws_role_call_adoption_bind(struct lws *wsi, int type, const char *prot)
 
 	return 1;
 }
-#endif
+//#endif
 
 #if !defined(LWS_WITHOUT_CLIENT)
 int

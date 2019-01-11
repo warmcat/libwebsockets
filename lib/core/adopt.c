@@ -174,7 +174,7 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 		type &= ~LWS_ADOPT_ALLOW_SSL;
 
 	if (lws_role_call_adoption_bind(new_wsi, type, vh_prot_name)) {
-		lwsl_err("Unable to find a role that can adopt descriptor\n");
+		lwsl_err("Unable to find a role that can adopt descriptor type 0x%x\n", type);
 		goto bail;
 	}
 
@@ -202,11 +202,14 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 			goto fail;
 		}
 		lws_pt_unlock(pt);
-	} else
+	}
+#if !defined(LWS_WITHOUT_SERVER)
+	 else
 		if (lws_server_socket_service_ssl(new_wsi, fd.sockfd)) {
 			lwsl_info("%s: fail ssl negotiation\n", __func__);
 			goto fail;
 		}
+#endif
 
 	/*
 	 *  by deferring callback to this point, after insertion to fds,
