@@ -19,6 +19,7 @@
  extern "C" {
 #endif
 
+//#include "core/private.h"
 #include <lws_config.h>
 #if defined(LWS_WITH_ESP32)
 #undef MBEDTLS_CONFIG_FILE
@@ -154,9 +155,10 @@ struct X509_VERIFY_PARAM_st {
 
 };
 
-typedef int (*next_proto_cb)(SSL *ssl, unsigned char **out,
+typedef int (*next_proto_cb)(SSL *ssl, const unsigned char **out,
                              unsigned char *outlen, const unsigned char *in,
                              unsigned int inlen, void *arg);
+
 
 struct ssl_ctx_st
 {

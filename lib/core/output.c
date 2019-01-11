@@ -284,7 +284,9 @@ LWS_VISIBLE int
 lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 {
 	int n = 0;
+#if defined(LWS_PLAT_OPTEE)
 	ssize_t send(int sockfd, const void *buf, size_t len, int flags);
+#endif
 
 	if (lws_wsi_is_udp(wsi)) {
 #if !defined(LWS_WITH_ESP32) && !defined(LWS_PLAT_OPTEE)
