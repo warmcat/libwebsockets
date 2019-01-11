@@ -132,6 +132,8 @@ int lws_context_init_client_ssl(const struct lws_context_creation_info *info,
 						info->client_ssl_ca_mem,
 						info->client_ssl_ca_mem_len,
 						cert_filepath,
+						info->client_ssl_cert_mem,
+						info->client_ssl_cert_mem_len,
 						private_key_filepath))
 		return 1;
 

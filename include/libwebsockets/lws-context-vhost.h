@@ -422,14 +422,20 @@ struct lws_context_creation_info {
 	/**< VHOST: Client SSL context init: NULL or the passphrase needed
 	 * for the private key */
 	const char *client_ssl_cert_filepath;
-	/**< VHOST: Client SSL context init:T he certificate the client
+	/**< VHOST: Client SSL context init: The certificate the client
 	 * should present to the peer on connection */
+	const void *client_ssl_cert_mem;
+	/**< VHOST: Client SSL context init: client certificate memory buffer or
+	 * NULL... use this to load client cert from memory instead of file */
+	unsigned int client_ssl_cert_mem_len;
+	/**< VHOST: Client SSL context init: length of client_ssl_cert_mem in
+	 * bytes */
 	const char *client_ssl_private_key_filepath;
 	/**<  VHOST: Client SSL context init: filepath to client private key
 	 * if this is set to NULL but client_ssl_cert_filepath is set, you
 	 * can handle the LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS
 	 * callback of protocols[0] to allow setting of the private key directly
-	 * via openSSL library calls */
+	 * via tls library calls */
 	const char *client_ssl_ca_filepath;
 	/**< VHOST: Client SSL context init: CA certificate filepath or NULL */
 	const void *client_ssl_ca_mem;

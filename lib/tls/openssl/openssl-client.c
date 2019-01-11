@@ -360,6 +360,8 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 				    const void *ca_mem,
 				    unsigned int ca_mem_len,
 				    const char *cert_filepath,
+				    const void *cert_mem,
+				    unsigned int cert_mem_len,
 				    const char *private_key_filepath)
 {
 	SSL_METHOD *method;
@@ -492,6 +494,15 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 			return 1;
 		}
 		lwsl_notice("Loaded client cert %s\n", cert_filepath);
+	} else if (cert_mem && cert_mem_len) {
+		n = SSL_CTX_use_certificate_ASN1(vh->tls.ssl_client_ctx,
+						 cert_mem_len, cert_mem);
+		if (n < 1) {
+			lwsl_err("%s: problem interpreting client cert '%s'\n",
+				 __func__);
+			lws_tls_err_describe();
+			return 1;
+		}
 	}
 	if (private_key_filepath) {
 		lwsl_notice("%s: doing private key filepath\n", __func__);
