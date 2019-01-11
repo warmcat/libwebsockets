@@ -179,7 +179,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 	case LWS_EXT_CB_PAYLOAD_RX:
 		lwsl_ext(" %s: LWS_EXT_CB_PAYLOAD_RX: in %d, existing in %d\n",
 			 __func__, ebuf->len, priv->rx.avail_in);
-		if (!(wsi->ws->rsv_first_msg & 0x40))
+		if (!(wsi->ws->rsv_first_msg & 0x40) || (wsi->ws->opcode & 8))
 			return 0;
 
 		// lwsl_hexdump_debug(ebuf->token, ebuf->len);
