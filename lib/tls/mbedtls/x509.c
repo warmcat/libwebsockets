@@ -23,6 +23,13 @@
 #include "tls/mbedtls/private.h"
 #include <mbedtls/oid.h>
 
+#if defined(LWS_PLAT_OPTEE)
+time_t mktime(struct tm *t)
+{
+	return (time_t)0;
+}
+#endif
+
 static time_t
 lws_tls_mbedtls_time_to_unix(mbedtls_x509_time *xtime)
 {

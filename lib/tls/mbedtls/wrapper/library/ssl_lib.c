@@ -19,6 +19,8 @@
 #include "ssl_dbg.h"
 #include "ssl_port.h"
 
+#include "core/private.h"
+
 char *
 lws_strncpy(char *dest, const char *src, size_t size);
 
@@ -1647,10 +1649,6 @@ void *SSL_CTX_get_ex_data(const SSL_CTX *ctx, int idx)
  * So accept the OpenSSL style and convert to mbedtls style
  */
 
-struct alpn_ctx {
-	unsigned char data[23];
-	unsigned char len;
-};
 
 static void
 _openssl_alpn_to_mbedtls(struct alpn_ctx *ac, char ***palpn_protos)

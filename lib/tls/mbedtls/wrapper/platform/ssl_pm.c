@@ -25,7 +25,7 @@
 #include "mbedtls/error.h"
 #include "mbedtls/certs.h"
 
-#include <libwebsockets.h>
+#include "core/private.h"
 
 #define X509_INFO_STRING_LENGTH 8192
 
@@ -131,8 +131,8 @@ int ssl_pm_new(SSL *ssl)
 
     ret = mbedtls_ctr_drbg_seed(&ssl_pm->ctr_drbg, mbedtls_entropy_func, &ssl_pm->entropy, pers, pers_len);
     if (ret) {
-        SSL_DEBUG(SSL_PLATFORM_ERROR_LEVEL, "mbedtls_ctr_drbg_seed() return -0x%x", -ret);
-        goto mbedtls_err1;
+        lwsl_notice("%s: mbedtls_ctr_drbg_seed() return -0x%x", __func__, -ret);
+        //goto mbedtls_err1;
     }
 
     if (method->endpoint) {
@@ -142,6 +142,7 @@ int ssl_pm_new(SSL *ssl)
     }
     ret = mbedtls_ssl_config_defaults(&ssl_pm->conf, endpoint, MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT);
     if (ret) {
+	    lwsl_err("%s: mbedtls_ssl_config_defaults() return -0x%x", __func__, -ret);
         SSL_DEBUG(SSL_PLATFORM_ERROR_LEVEL, "mbedtls_ssl_config_defaults() return -0x%x", -ret);
         goto mbedtls_err2;
     }
@@ -174,6 +175,8 @@ int ssl_pm_new(SSL *ssl)
 
     ret = mbedtls_ssl_setup(&ssl_pm->ssl, &ssl_pm->conf);
     if (ret) {
+	    lwsl_err("%s: mbedtls_ssl_setup() return -0x%x", __func__, -ret);
+
         SSL_DEBUG(SSL_PLATFORM_ERROR_LEVEL, "mbedtls_ssl_setup() return -0x%x", -ret);
         goto mbedtls_err2;
     }
@@ -187,7 +190,7 @@ int ssl_pm_new(SSL *ssl)
 mbedtls_err2:
     mbedtls_ssl_config_free(&ssl_pm->conf);
     mbedtls_ctr_drbg_free(&ssl_pm->ctr_drbg);
-mbedtls_err1:
+//mbedtls_err1:
     mbedtls_entropy_free(&ssl_pm->entropy);
     ssl_mem_free(ssl_pm);
 no_mem:
@@ -329,7 +332,7 @@ int ssl_pm_handshake(SSL *ssl)
 	    return 0;
     }
 
-    printf("%s: mbedtls_ssl_handshake() returned -0x%x\n", __func__, -ret);
+    lwsl_info("%s: mbedtls_ssl_handshake() returned -0x%x\n", __func__, -ret);
 
     /* it's had it */
 
@@ -829,6 +832,7 @@ int X509_VERIFY_PARAM_set1_host(X509_VERIFY_PARAM *param,
 
 void _ssl_set_alpn_list(const SSL *ssl)
 {
+#if defined(LWS_HAVE_mbedtls_ssl_conf_alpn_protocols)
 	if (ssl->alpn_protos) {
 		if (mbedtls_ssl_conf_alpn_protocols(&((struct ssl_pm *)(ssl->ssl_pm))->conf, ssl->alpn_protos))
 			fprintf(stderr, "mbedtls_ssl_conf_alpn_protocols failed\n");
@@ -839,11 +843,13 @@ void _ssl_set_alpn_list(const SSL *ssl)
 		return;
 	if (mbedtls_ssl_conf_alpn_protocols(&((struct ssl_pm *)(ssl->ssl_pm))->conf, ssl->ctx->alpn_protos))
 		fprintf(stderr, "mbedtls_ssl_conf_alpn_protocols failed\n");
+#endif
 }
 
 void SSL_get0_alpn_selected(const SSL *ssl, const unsigned char **data,
                             unsigned int *len)
 {
+#if defined(LWS_HAVE_mbedtls_ssl_get_alpn_protocol)
 	const char *alp = mbedtls_ssl_get_alpn_protocol(&((struct ssl_pm *)(ssl->ssl_pm))->ssl);
 
 	*data = (const unsigned char *)alp;
@@ -851,15 +857,17 @@ void SSL_get0_alpn_selected(const SSL *ssl, const unsigned char **data,
 		*len = strlen(alp);
 	else
 		*len = 0;
+#endif
 }
 
 int SSL_set_sni_callback(SSL *ssl, int(*cb)(void *, mbedtls_ssl_context *,
 			 const unsigned char *, size_t), void *param)
 {
+#if defined(LWS_HAVE_mbedtls_ssl_conf_sni)
 	struct ssl_pm *ssl_pm = (struct ssl_pm *)ssl->ssl_pm;
 
 	mbedtls_ssl_conf_sni(&ssl_pm->conf, cb, param);
-
+#endif
 	return 0;
 }
 
@@ -874,18 +882,20 @@ SSL *SSL_SSL_from_mbedtls_ssl_context(mbedtls_ssl_context *msc)
 
 void SSL_set_SSL_CTX(SSL *ssl, SSL_CTX *ctx)
 {
+#if defined(LWS_HAVE_mbedtls_ssl_set_hs_authmode)
 	struct ssl_pm *ssl_pm = ssl->ssl_pm;
 	struct x509_pm *x509_pm = (struct x509_pm *)ctx->cert->x509->x509_pm;
 	struct x509_pm *x509_pm_ca = (struct x509_pm *)ctx->client_CA->x509_pm;
-
 	struct pkey_pm *pkey_pm = (struct pkey_pm *)ctx->cert->pkey->pkey_pm;
 	int mode;
+#endif
 
 	if (ssl->cert)
 		ssl_cert_free(ssl->cert);
 	ssl->ctx = ctx;
 	ssl->cert = __ssl_cert_new(ctx->cert);
 
+#if defined(LWS_HAVE_mbedtls_ssl_set_hs_authmode)
 	if (ctx->verify_mode == SSL_VERIFY_PEER)
 		mode = MBEDTLS_SSL_VERIFY_OPTIONAL;
 	else if (ctx->verify_mode == SSL_VERIFY_FAIL_IF_NO_PEER_CERT)
@@ -894,14 +904,20 @@ void SSL_set_SSL_CTX(SSL *ssl, SSL_CTX *ctx)
 		mode = MBEDTLS_SSL_VERIFY_UNSET;
 	else
 	        mode = MBEDTLS_SSL_VERIFY_NONE;
+#endif
 
 	    // printf("ssl: %p, client ca x509_crt %p, mbedtls mode %d\n", ssl, x509_pm_ca->x509_crt, mode);
 
 	/* apply new ctx cert to ssl */
 
 	ssl->verify_mode = ctx->verify_mode;
-
+#if defined(LWS_HAVE_mbedtls_ssl_set_hs_ca_chain)
 	mbedtls_ssl_set_hs_ca_chain(&ssl_pm->ssl, x509_pm_ca->x509_crt, NULL);
+#endif
+#if defined(LWS_HAVE_mbedtls_ssl_set_hs_own_cert)
 	mbedtls_ssl_set_hs_own_cert(&ssl_pm->ssl, x509_pm->x509_crt, pkey_pm->pkey);
+#endif
+#if defined(LWS_HAVE_mbedtls_ssl_set_hs_authmode)
 	mbedtls_ssl_set_hs_authmode(&ssl_pm->ssl, mode);
+#endif
 }

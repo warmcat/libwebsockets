@@ -312,13 +312,7 @@ const SSL_METHOD* TLS_server_method(void);
  *
  * @return none
  */
-void SSL_CTX_set_alpn_select_cb(SSL_CTX *ctx,
-                                int (*cb) (SSL *ssl,
-                                           const unsigned char **out,
-                                           unsigned char *outlen,
-                                           const unsigned char *in,
-                                           unsigned int inlen,
-                                           void *arg),
+void SSL_CTX_set_alpn_select_cb(SSL_CTX *ctx, next_proto_cb cb,
                                 void *arg);
 
 void SSL_set_alpn_select_cb(SSL *ssl, void *arg);
@@ -1172,7 +1166,7 @@ long SSL_CTX_get_default_read_ahead(SSL_CTX *ctx);
  *
  * @return data point
  */
-char *SSL_CTX_get_ex_data(const SSL_CTX *ctx, int idx);
+void *SSL_CTX_get_ex_data(const SSL_CTX *ctx, int idx);
 
 /**
  * @brief get the SSL context quiet shutdown option
@@ -1748,7 +1742,7 @@ void SSL_set_shutdown(SSL *ssl, int mode);
  *
  * @return session time
  */
-void SSL_set_time(SSL *ssl, long t);
+long SSL_set_time(SSL *ssl, long t);
 
 /**
  * @brief set SSL session timeout time
@@ -1758,7 +1752,7 @@ void SSL_set_time(SSL *ssl, long t);
  *
  * @return session timeout time
  */
-void SSL_set_timeout(SSL *ssl, long t);
+long SSL_set_timeout(SSL *ssl, long t);
 
 /**
  * @brief get SSL statement string

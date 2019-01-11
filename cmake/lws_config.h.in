@@ -29,6 +29,13 @@
 #cmakedefine LWS_HAVE_EVP_aes_128_wrap
 #cmakedefine LWS_HAVE_LIBCAP
 #cmakedefine LWS_HAVE_MALLOC_H
+#cmakedefine LWS_HAVE_mbedtls_net_init
+#cmakedefine LWS_HAVE_mbedtls_ssl_conf_alpn_protocols
+#cmakedefine LWS_HAVE_mbedtls_ssl_get_alpn_protocol
+#cmakedefine LWS_HAVE_mbedtls_ssl_conf_sni
+#cmakedefine LWS_HAVE_mbedtls_ssl_set_hs_ca_chain
+#cmakedefine LWS_HAVE_mbedtls_ssl_set_hs_own_cert
+#cmakedefine LWS_HAVE_mbedtls_ssl_set_hs_authmode
 #cmakedefine LWS_HAVE_NEW_UV_VERSION_H
 #cmakedefine LWS_HAVE_OPENSSL_ECDH_H
 #cmakedefine LWS_HAVE_PIPE2
