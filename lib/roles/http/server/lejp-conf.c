@@ -960,7 +960,7 @@ lwsws_get_config_d(void *user, const char *d, const char * const *paths,
 	char path[256];
 	int n, i, ret = 0;
 
-	n = scandir(d, &namelist, filter, alphasort);
+	n = scandir((char *) d, &namelist, filter, alphasort);
 	if (n < 0) {
 		lwsl_err("Scandir on %s failed\n", d);
 		return 1;

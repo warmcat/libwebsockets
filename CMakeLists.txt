@@ -723,6 +723,7 @@ if (NOT LWS_HAVE_GETIFADDRS)
 	set(LWS_BUILTIN_GETIFADDRS 1)
 endif()
 
+CHECK_INCLUDE_FILE(getopt.h LWS_HAS_GETOPT_LONG)
 CHECK_INCLUDE_FILE(dlfcn.h LWS_HAVE_DLFCN_H)
 CHECK_INCLUDE_FILE(fcntl.h LWS_HAVE_FCNTL_H)
 CHECK_INCLUDE_FILE(in6addr.h LWS_HAVE_IN6ADDR_H)
@@ -816,6 +817,14 @@ CHECK_C_SOURCE_COMPILES("#define _GNU_SOURCE
 		pthread_setname_np(th, NULL);
 		return 0;
 	}" LWS_HAS_PTHREAD_SETNAME_NP)
+
+CHECK_C_SOURCE_COMPILES("
+	#include <getopt.h> 
+	int main(void) { 
+		void *p = (void *)getopt_long;
+		return p != NULL;
+	}" LWS_HAS_GETOPT_LONG)
+
 
 if (NOT PID_T_SIZE)
 	set(pid_t int)

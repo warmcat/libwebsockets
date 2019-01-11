@@ -22,7 +22,9 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#if defined(LWS_HAS_GETOPT_LONG) || defined(WIN32)
 #include <getopt.h>
+#endif
 #include <string.h>
 #include <signal.h>
 
@@ -526,6 +528,7 @@ void sighandler(int sig)
 	force_exit = 1;
 }
 
+#if defined(LWS_HAS_GETOPT_LONG) || defined(WIN32)
 static struct option options[] = {
 	{ "help",	no_argument,		NULL, 'h' },
 	{ "debug",      required_argument,      NULL, 'd' },
@@ -550,6 +553,7 @@ static struct option options[] = {
 #endif
 	{ NULL, 0, 0, 0 }
 };
+#endif
 
 static int ratelimit_connects(unsigned int *last, unsigned int secs)
 {
@@ -589,8 +593,11 @@ int main(int argc, char **argv)
 		goto usage;
 
 	while (n >= 0) {
-		n = getopt_long(argc, argv, "Sjnuv:hsp:d:lC:K:A:P:moeO", options,
-				NULL);
+#if defined(LWS_HAS_GETOPT_LONG) || defined(WIN32)
+       n = getopt_long(argc, argv, "Sjnuv:hsp:d:lC:K:A:P:moeO", options, NULL);
+#else
+       n = getopt(argc, argv, "Sjnuv:hsp:d:lC:K:A:P:moeO");
+#endif
 		if (n < 0)
 			continue;
 		switch (n) {

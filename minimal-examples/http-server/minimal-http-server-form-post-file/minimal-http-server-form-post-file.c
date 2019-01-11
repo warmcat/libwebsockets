@@ -16,7 +16,7 @@
 #include <string.h>
 #include <signal.h>
 #include <unistd.h>
-#include <sys/fcntl.h>
+#include <fcntl.h>
 #include <stdlib.h>
 #include <errno.h>
 

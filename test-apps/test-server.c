@@ -21,7 +21,9 @@
 #include <libwebsockets.h>
 #include <stdio.h>
 #include <stdlib.h>
+#if defined(LWS_HAS_GETOPT_LONG) || defined(WIN32)
 #include <getopt.h>
+#endif
 #include <signal.h>
 
 int close_testing;
@@ -298,6 +300,7 @@ static const struct lws_protocol_vhost_options pvo = {
 	""				/* ignored */
 };
 
+#if defined(LWS_HAS_GETOPT_LONG) || defined(WIN32)
 static struct option options[] = {
 	{ "help",	no_argument,		NULL, 'h' },
 	{ "debug",	required_argument,	NULL, 'd' },
@@ -323,6 +326,7 @@ static struct option options[] = {
 	{ "pingpong-secs", required_argument,	NULL, 'P' },
 	{ NULL, 0, 0, 0 }
 };
+#endif
 
 int main(int argc, char **argv)
 {
@@ -353,7 +357,11 @@ int main(int argc, char **argv)
 	info.port = 7681;
 
 	while (n >= 0) {
+#if defined(LWS_HAS_GETOPT_LONG) || defined(WIN32)
 		n = getopt_long(argc, argv, "eci:hsap:d:DC:K:A:R:vu:g:P:kU:n", options, NULL);
+#else
+		n = getopt(argc, argv, "eci:hsap:d:DC:K:A:R:vu:g:P:kU:n");
+#endif
 		if (n < 0)
 			continue;
 		switch (n) {

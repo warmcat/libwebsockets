@@ -21,7 +21,9 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#if defined(LWS_HAS_GETOPT_LONG) || defined(WIN32)
 #include <getopt.h>
+#endif
 #include <signal.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -75,12 +77,14 @@ static const char * const plugin_dirs[] = {
 	NULL
 };
 
+#if defined(LWS_HAS_GETOPT_LONG) || defined(WIN32)
 static struct option options[] = {
 	{ "help",	no_argument,		NULL, 'h' },
 	{ "debug",	required_argument,	NULL, 'd' },
 	{ "configdir",  required_argument,	NULL, 'c' },
 	{ NULL, 0, 0, 0 }
 };
+#endif
 
 void signal_cb(uv_signal_t *watcher, int signum)
 {
@@ -216,7 +220,11 @@ int main(int argc, char **argv)
 
 	strcpy(config_dir, "/etc/lwsws");
 	while (n >= 0) {
+#if defined(LWS_HAS_GETOPT_LONG) || defined(WIN32)
 		n = getopt_long(argc, argv, "hd:c:", options, NULL);
+#else
+		n = getopt(argc, argv, "hd:c:");
+#endif
 		if (n < 0)
 			continue;
 		switch (n) {

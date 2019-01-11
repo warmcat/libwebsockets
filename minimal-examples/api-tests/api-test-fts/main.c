@@ -8,9 +8,12 @@
  */
 
 #include <libwebsockets.h>
+#if defined(LWS_HAS_GETOPT_LONG) || defined(WIN32)
 #include <getopt.h>
+#endif
 #include <fcntl.h>
 
+#if defined(LWS_HAS_GETOPT_LONG) || defined(WIN32)
 static struct option options[] = {
 	{ "help",	no_argument,		NULL, 'h' },
 	{ "createindex", no_argument,		NULL, 'c' },
@@ -20,6 +23,7 @@ static struct option options[] = {
 	{ "lines",	required_argument,	NULL, 'l' },
 	{ NULL, 0, 0, 0 }
 };
+#endif
 
 static const char *index_filepath = "/tmp/lws-fts-test-index";
 static char filepath[256];
@@ -35,7 +39,11 @@ int main(int argc, char **argv)
 	char buf[16384];
 
 	do {
+#if defined(LWS_HAS_GETOPT_LONG) || defined(WIN32)
 		n = getopt_long(argc, argv, "hd:i:cfl", options, NULL);
+#else
+       n = getopt(argc, argv, "hd:i:cfl");
+#endif
 		if (n < 0)
 			continue;
 		switch (n) {

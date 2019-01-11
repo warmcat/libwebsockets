@@ -348,7 +348,10 @@ lws_create_adopt_udp(struct lws_vhost *vhost, int port, int flags,
 	h.ai_family = AF_UNSPEC;    /* Allow IPv4 or IPv6 */
 	h.ai_socktype = SOCK_DGRAM;
 	h.ai_protocol = IPPROTO_UDP;
-	h.ai_flags = AI_PASSIVE | AI_ADDRCONFIG;
+	h.ai_flags = AI_PASSIVE;
+#ifdef AI_ADDRCONFIG
+	h.ai_flags |= AI_ADDRCONFIG;
+#endif
 
 	lws_snprintf(buf, sizeof(buf), "%u", port);
 	n = getaddrinfo(NULL, buf, &h, &r);
