@@ -18,6 +18,12 @@ News
 
 ## New features on master
 
+ - `LWS_WITH_NETWORK` cmake option (default on) allows one-step removal of vhost,
+   wsi, roles, event loop and all network-related code from the build.  This
+   enables use-cases where you actually need unrelated features like JOSE or FTS
+   compactly.  lws_context still exists and if tls is enabled, the tls-related code
+   is still built so the crypto is available, just nothing related to network.
+
  - New Crypto-agile APIs + JOSE / JWS / JWE / JWK support... apis work exactly
    the same with OpenSSL or mbedTLS tls library backends, and allow key cycling
    and crypto algorithm changes while allowing for grace periods

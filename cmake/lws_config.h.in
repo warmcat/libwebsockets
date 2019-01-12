@@ -95,6 +95,7 @@
 #cmakedefine LWS_WITH_LIBUV
 #cmakedefine LWS_WITH_LWSAC
 #cmakedefine LWS_WITH_MBEDTLS
+#cmakedefine LWS_WITH_NETWORK
 #cmakedefine LWS_WITH_NO_LOGS
 #cmakedefine LWS_WITHOUT_CLIENT
 #cmakedefine LWS_WITHOUT_EXTENSIONS

@@ -35,7 +35,7 @@ lws_plat_init(struct lws_context *context,
 	      const struct lws_context_creation_info *info)
 {
 	int fd;
-
+#if defined(LWS_WITH_NETWORK)
 	/* master context has the global fd lookup array */
 	context->lws_lookup = lws_zalloc(sizeof(struct lws *) *
 					 context->max_fds, "lws_lookup");
@@ -47,6 +47,7 @@ lws_plat_init(struct lws_context *context,
 
 	lwsl_info(" mem: platform fd map: %5lu bytes\n",
 		    (unsigned long)(sizeof(struct lws *) * context->max_fds));
+#endif
 	fd = lws_open(SYSTEM_RANDOM_FILEPATH, O_RDONLY);
 
 	context->fd_random = fd;
@@ -86,10 +87,10 @@ lws_plat_context_late_destroy(struct lws_context *context)
 	if (context->plugin_list)
 		lws_plat_plugins_destroy(context);
 #endif
-
+#if defined(LWS_WITH_NETWORK)
 	if (context->lws_lookup)
 		lws_free(context->lws_lookup);
-
+#endif
 	if (!context->fd_random)
 		lwsl_err("ZERO RANDOM FD\n");
 	if (context->fd_random != LWS_INVALID_FILE)

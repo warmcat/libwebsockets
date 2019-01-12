@@ -347,6 +347,7 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 		return 0;
 #endif
 
+#if defined(LWS_WITH_TLS)
 	/* 2) if we know we have non-network pending data,
 	 *    do not wait in poll */
 
@@ -354,6 +355,7 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 	    pt->context->tls_ops->fake_POLLIN_for_buffered &&
 	    pt->context->tls_ops->fake_POLLIN_for_buffered(pt))
 			return 0;
+#endif
 
 	/*
 	 * 3) If there is any wsi with rxflow buffered and in a state to process
@@ -921,6 +923,7 @@ vh_timers_done:
 	role_ops_cgi.periodic_checks(context, tsi, now);
 #endif
 
+#if defined(LWS_WITH_TLS)
 	/*
 	 * Phase 6: check the remaining cert lifetime daily
 	 */
@@ -928,6 +931,7 @@ vh_timers_done:
 	if (context->tls_ops &&
 	    context->tls_ops->periodic_housekeeping)
 		context->tls_ops->periodic_housekeeping(context, now);
+#endif
 
 	return 0;
 }

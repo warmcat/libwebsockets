@@ -1,7 +1,7 @@
 /*
- * libwebsockets - mbedTLS-specific lws apis
+ * libwebsockets - OpenSSL-specific lws apis
  *
- * Copyright (C) 2010-2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -168,6 +168,14 @@ lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 }
 
 int
+lws_x509_info(struct lws_x509_cert *x509, enum lws_tls_cert_info type,
+	      union lws_tls_cert_info_results *buf, size_t len)
+{
+	return lws_tls_openssl_cert_info(x509->cert, type, buf, len);
+}
+
+#if defined(LWS_WITH_NETWORK)
+int
 lws_tls_vhost_cert_info(struct lws_vhost *vhost, enum lws_tls_cert_info type,
 		        union lws_tls_cert_info_results *buf, size_t len)
 {
@@ -182,12 +190,7 @@ lws_tls_vhost_cert_info(struct lws_vhost *vhost, enum lws_tls_cert_info type,
 #endif
 }
 
-int
-lws_x509_info(struct lws_x509_cert *x509, enum lws_tls_cert_info type,
-	      union lws_tls_cert_info_results *buf, size_t len)
-{
-	return lws_tls_openssl_cert_info(x509->cert, type, buf, len);
-}
+
 
 int
 lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
@@ -219,6 +222,7 @@ lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
 
 	return rc;
 }
+#endif
 
 int
 lws_x509_create(struct lws_x509_cert **x509)

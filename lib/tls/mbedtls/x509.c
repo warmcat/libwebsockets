@@ -160,6 +160,7 @@ lws_tls_mbedtls_cert_info(mbedtls_x509_crt *x509, enum lws_tls_cert_info type,
 	return 0;
 }
 
+#if defined(LWS_WITH_NETWORK)
 int
 lws_tls_vhost_cert_info(struct lws_vhost *vhost, enum lws_tls_cert_info type,
 		        union lws_tls_cert_info_results *buf, size_t len)
@@ -194,6 +195,7 @@ lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
 
 	return -1;
 }
+#endif
 
 int
 lws_x509_info(struct lws_x509_cert *x509, enum lws_tls_cert_info type,

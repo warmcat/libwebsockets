@@ -1,7 +1,7 @@
 /*
  * libwebsockets - mbedTLS-specific lws apis
  *
- * Copyright (C) 2010-2018 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -22,22 +22,6 @@
 #include "core/private.h"
 #include "tls/mbedtls/private.h"
 
-void
-lws_tls_err_describe(void)
-{
-}
-
-int
-lws_context_init_ssl_library(const struct lws_context_creation_info *info)
-{
-	lwsl_info(" Compiled with MbedTLS support\n");
-
-	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT))
-		lwsl_info(" SSL disabled: no "
-			  "LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT\n");
-
-	return 0;
-}
 
 LWS_VISIBLE void
 lws_ssl_destroy(struct lws_vhost *vhost)

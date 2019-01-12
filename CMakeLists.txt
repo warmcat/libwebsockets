@@ -22,6 +22,7 @@ option(LWS_FOR_GITOHASHI "Enable features recommended for use with gitohashi" OF
 #
 # Major individual features
 #
+option(LWS_WITH_NETWORK "Compile with network-related code" ON)
 option(LWS_ROLE_H1 "Compile with support for http/1 (needed for ws)" ON)
 option(LWS_ROLE_WS "Compile with support for websockets" ON)
 option(LWS_ROLE_DBUS "Compile with support for DBUS" OFF)
@@ -157,6 +158,28 @@ if(LWS_WITH_DISTRO_RECOMMENDED)
 	set(LWS_ROLE_RAW_PROXY 1)
 	set(LWS_WITH_GENCRYPTO 1)
 	set(LWS_WITH_JOSE 1)
+endif()
+
+if (NOT LWS_WITH_NETWORK)
+	set(LWS_ROLE_H1 0)
+	set(LWS_ROLE_WS 0)
+	set(LWS_ROLE_RAW 0)
+	set(LWS_WITHOUT_EXTENSIONS 1)
+	set(LWS_WITHOUT_SERVER 1)
+	set(LWS_WITHOUT_CLIENT 1)
+	set(LWS_WITH_HTTP2 0)
+	set(LWS_WITH_SOCKS5 0)
+	set(LWS_UNIX_SOCK 0)
+	set(LWS_WITH_HTTP_PROXY 0)
+	set(LWS_WITH_PLUGINS 0)
+	set(LWS_WITH_LWSWS 0)
+	set(LWS_WITH_CGI 0)
+	set(LWS_ROLE_RAW_PROXY 0)
+	set(LWS_WITH_PEER_LIMITS 0)
+	set(LWS_WITH_GENERIC_SESSIONS 0)
+	set(LWS_WITH_HTTP_STREAM_COMPRESSION 0)
+	set(LWS_WITH_HTTP_BROTLI 0)
+	set(LWS_WITH_POLL 0)
 endif()
 
 # do you care about this?  Then send me a patch where it disables it on travis
@@ -412,10 +435,6 @@ if (LWS_WITH_CYASSL)
 	set(LWS_WITH_WOLFSSL ${LWS_WITH_CYASSL} CACHE BOOL "Use wolfSSL/CyaSSL instead of OpenSSL" FORCE)
 	set(LWS_WOLFSSL_LIBRARIES ${LWS_CYASSL_LIBRARIES} CACHE PATH "Path to wolfSSL/CyaSSL libraries" FORCE)
 	set(LWS_WOLFSSL_INCLUDE_DIRS ${LWS_CYASSL_INCLUDE_DIRS} CACHE PATH "Path to wolfSSL/CyaSSL header files" FORCE)
-endif()
-
-if (LWS_WITHOUT_CLIENT AND LWS_WITHOUT_SERVER)
-	message(FATAL_ERROR "Makes no sense to compile with neither client nor server.")
 endif()
 
 if (NOT (LWS_WITH_STATIC OR LWS_WITH_SHARED))
@@ -863,15 +882,35 @@ set(HDR_PUBLIC
 set(SOURCES
 	lib/core/alloc.c
 	lib/core/context.c
-	lib/core/dummy-callback.c
 	lib/core/libwebsockets.c
-	lib/core/output.c
-	lib/core/pollfd.c
-	lib/core/service.c
+	lib/core/logs.c
 	lib/misc/base64-decode.c
+	lib/core/vfs.c
 	lib/misc/lws-ring.c
-	lib/core/adopt.c
-	lib/roles/pipe/ops-pipe.c)
+)
+	
+if (LWS_WITH_NETWORK)
+	list(APPEND SOURCES
+		lib/core-net/dummy-callback.c
+		lib/core-net/output.c
+		lib/core-net/close.c
+		lib/core-net/network.c
+		lib/core-net/vhost.c
+		lib/core-net/pollfd.c
+		lib/core-net/service.c
+		lib/core-net/stats.c
+		lib/core-net/wsi.c
+		lib/core-net/wsi-timeout.c
+		lib/core-net/adopt.c
+		lib/roles/pipe/ops-pipe.c
+	)
+	
+	if (LWS_WITH_STATS)
+		list(APPEND SOURCES
+			lib/core-net/stats.c
+		)
+	endif()
+endif()
 	
 if (LWS_WITH_THREADPOOL AND UNIX AND LWS_HAVE_PTHREAD_H)
 	list(APPEND SOURCES lib/misc/threadpool/threadpool.c)
@@ -962,94 +1001,113 @@ endif()
 
 if (NOT LWS_WITHOUT_CLIENT)
 	list(APPEND SOURCES
-		lib/core/connect.c
+		lib/core-net/connect.c
+		lib/core-net/client.c
 		lib/roles/http/client/client.c
 		lib/roles/http/client/client-handshake.c)
 endif()
 
 if (NOT LWS_WITHOUT_SERVER)
 	list(APPEND SOURCES
+		lib/core-net/server.c
 		lib/roles/listen/ops-listen.c)
 endif()
 
 if (LWS_WITH_MBEDTLS)
  	set(LWS_WITH_SSL ON)
  	
-	list(APPEND HDR_PRIVATE
-		lib/tls/mbedtls/wrapper/include/internal/ssl3.h
-		lib/tls/mbedtls/wrapper/include/internal/ssl_cert.h
-		lib/tls/mbedtls/wrapper/include/internal/ssl_code.h
-		lib/tls/mbedtls/wrapper/include/internal/ssl_dbg.h
-		lib/tls/mbedtls/wrapper/include/internal/ssl_lib.h
-		lib/tls/mbedtls/wrapper/include/internal/ssl_methods.h
-		lib/tls/mbedtls/wrapper/include/internal/ssl_pkey.h
-		lib/tls/mbedtls/wrapper/include/internal/ssl_stack.h
-		lib/tls/mbedtls/wrapper/include/internal/ssl_types.h
-		lib/tls/mbedtls/wrapper/include/internal/ssl_x509.h
-		lib/tls/mbedtls/wrapper/include/internal/tls1.h
-		lib/tls/mbedtls/wrapper/include/internal/x509_vfy.h)
-
-	list(APPEND HDR_PRIVATE
-		lib/tls/mbedtls/wrapper/include/openssl/ssl.h)
-
-	list(APPEND HDR_PRIVATE
-		lib/tls/mbedtls/wrapper/include/platform/ssl_pm.h
-		lib/tls/mbedtls/wrapper/include/platform/ssl_port.h)
-
 	include_directories(lib/tls/mbedtls/wrapper/include)
 	include_directories(lib/tls/mbedtls/wrapper/include/platform)
 	include_directories(lib/tls/mbedtls/wrapper/include/internal)
 	include_directories(lib/tls/mbedtls/wrapper/include/openssl)
-
-	list(APPEND SOURCES
-		lib/tls/mbedtls/wrapper/library/ssl_cert.c
-		lib/tls/mbedtls/wrapper/library/ssl_lib.c
-		lib/tls/mbedtls/wrapper/library/ssl_methods.c
-		lib/tls/mbedtls/wrapper/library/ssl_pkey.c
-		lib/tls/mbedtls/wrapper/library/ssl_stack.c
-		lib/tls/mbedtls/wrapper/library/ssl_x509.c)
-
-	list(APPEND SOURCES
-		lib/tls/mbedtls/wrapper/platform/ssl_pm.c
-		lib/tls/mbedtls/wrapper/platform/ssl_port.c)
+ 	
+ 	if (LWS_WITH_NETWORK)
+		list(APPEND HDR_PRIVATE
+			lib/tls/mbedtls/wrapper/include/internal/ssl3.h
+			lib/tls/mbedtls/wrapper/include/internal/ssl_cert.h
+			lib/tls/mbedtls/wrapper/include/internal/ssl_code.h
+			lib/tls/mbedtls/wrapper/include/internal/ssl_dbg.h
+			lib/tls/mbedtls/wrapper/include/internal/ssl_lib.h
+			lib/tls/mbedtls/wrapper/include/internal/ssl_methods.h
+			lib/tls/mbedtls/wrapper/include/internal/ssl_pkey.h
+			lib/tls/mbedtls/wrapper/include/internal/ssl_stack.h
+			lib/tls/mbedtls/wrapper/include/internal/ssl_types.h
+			lib/tls/mbedtls/wrapper/include/internal/ssl_x509.h
+			lib/tls/mbedtls/wrapper/include/internal/tls1.h
+			lib/tls/mbedtls/wrapper/include/internal/x509_vfy.h)
+	
+		list(APPEND HDR_PRIVATE
+			lib/tls/mbedtls/wrapper/include/openssl/ssl.h)
+	
+		list(APPEND HDR_PRIVATE
+			lib/tls/mbedtls/wrapper/include/platform/ssl_pm.h
+			lib/tls/mbedtls/wrapper/include/platform/ssl_port.h)
+	
+		list(APPEND SOURCES
+			lib/tls/mbedtls/wrapper/library/ssl_cert.c
+			lib/tls/mbedtls/wrapper/library/ssl_lib.c
+			lib/tls/mbedtls/wrapper/library/ssl_methods.c
+			lib/tls/mbedtls/wrapper/library/ssl_pkey.c
+			lib/tls/mbedtls/wrapper/library/ssl_stack.c
+			lib/tls/mbedtls/wrapper/library/ssl_x509.c)
+	
+		list(APPEND SOURCES
+			lib/tls/mbedtls/wrapper/platform/ssl_pm.c
+			lib/tls/mbedtls/wrapper/platform/ssl_port.c)
+	endif()
 endif()
 
 if (LWS_WITH_SSL)
 	list(APPEND SOURCES
 		lib/tls/tls.c
 	)
+	if (LWS_WITH_NETWORK)
+		list(APPEND SOURCES
+			lib/tls/tls-network.c
+		)
+	endif()
 		
-		if (LWS_WITH_MBEDTLS)
+	if (LWS_WITH_MBEDTLS)
+		list(APPEND SOURCES
+			lib/tls/mbedtls/tls.c
+			lib/tls/mbedtls/x509.c
+		)
+		if (LWS_WITH_NETWORK)
 			list(APPEND SOURCES
 				lib/tls/mbedtls/ssl.c
-				lib/tls/mbedtls/x509.c
 			)
-			if (LWS_WITH_GENCRYPTO)
-				list(APPEND SOURCES
-					lib/tls/mbedtls/lws-genhash.c
-					lib/tls/mbedtls/lws-genrsa.c
-					lib/tls/mbedtls/lws-genaes.c
-					lib/tls/lws-genec-common.c
-					lib/tls/mbedtls/lws-genec.c
-					lib/tls/mbedtls/lws-gencrypto.c
-				)
-			endif()
-		else()
+		endif()
+		if (LWS_WITH_GENCRYPTO)
+			list(APPEND SOURCES
+				lib/tls/mbedtls/lws-genhash.c
+				lib/tls/mbedtls/lws-genrsa.c
+				lib/tls/mbedtls/lws-genaes.c
+				lib/tls/lws-genec-common.c
+				lib/tls/mbedtls/lws-genec.c
+				lib/tls/mbedtls/lws-gencrypto.c
+			)
+		endif()
+	else()
+		list(APPEND SOURCES
+			lib/tls/openssl/tls.c
+			lib/tls/openssl/x509.c
+		)
+		if (LWS_WITH_NETWORK)
 			list(APPEND SOURCES
 				lib/tls/openssl/ssl.c
-				lib/tls/openssl/x509.c
 			)
-			if (LWS_WITH_GENCRYPTO)
-				list(APPEND SOURCES
-					lib/tls/openssl/lws-genhash.c
-					lib/tls/openssl/lws-genrsa.c
-					lib/tls/openssl/lws-genaes.c
-					lib/tls/lws-genec-common.c
-					lib/tls/openssl/lws-genec.c
-					lib/tls/openssl/lws-gencrypto.c
-				)
-			endif()
 		endif()
+		if (LWS_WITH_GENCRYPTO)
+			list(APPEND SOURCES
+				lib/tls/openssl/lws-genhash.c
+				lib/tls/openssl/lws-genrsa.c
+				lib/tls/openssl/lws-genaes.c
+				lib/tls/lws-genec-common.c
+				lib/tls/openssl/lws-genec.c
+				lib/tls/openssl/lws-gencrypto.c
+			)
+		endif()
+	endif()
 		
 	if (NOT LWS_WITHOUT_SERVER)
 		list(APPEND SOURCES
@@ -1105,6 +1163,11 @@ else()
 		list(APPEND SOURCES
 			lib/plat/optee/lws-plat-optee.c
 		)
+		if (LWS_WITH_NETWORK)
+			list(APPEND SOURCES
+				lib/plat/optee/network.c
+			)
+		endif()
 	else()
 		if (LWS_WITH_ESP32)
 			list(APPEND SOURCES
@@ -1120,14 +1183,18 @@ else()
 		else()
 			list(APPEND SOURCES
 				lib/plat/unix/unix-caps.c
-				lib/plat/unix/unix-fds.c
 				lib/plat/unix/unix-file.c
 				lib/plat/unix/unix-misc.c
 				lib/plat/unix/unix-init.c
-				lib/plat/unix/unix-pipe.c
-				lib/plat/unix/unix-service.c
-				lib/plat/unix/unix-sockets.c
 			)
+			if (LWS_WITH_NETWORK)
+				list(APPEND SOURCES
+					lib/plat/unix/unix-pipe.c
+					lib/plat/unix/unix-service.c
+					lib/plat/unix/unix-sockets.c
+					lib/plat/unix/unix-fds.c
+				)
+			endif()
 				
 			if (LWS_WITH_PLUGINS AND LWS_WITH_LIBUV)
 				list(APPEND SOURCES lib/plat/unix/unix-plugins.c)
@@ -1155,22 +1222,22 @@ if (LWS_WITH_HTTP_PROXY)
 		lib/roles/http/server/rewrite.c)
 endif()
 
-if (LWS_WITH_POLL)
+if (LWS_WITH_POLL AND LWS_WITH_NETWORK)
 	list(APPEND SOURCES
 		lib/event-libs/poll/poll.c)
 endif()
 
-if (LWS_WITH_LIBUV)
+if (LWS_WITH_LIBUV AND LWS_WITH_NETWORK)
 	list(APPEND SOURCES
 		lib/event-libs/libuv/libuv.c)
 endif()
 
-if (LWS_WITH_LIBEVENT)
+if (LWS_WITH_LIBEVENT AND LWS_WITH_NETWORK)
 	list(APPEND SOURCES
 		lib/event-libs/libevent/libevent.c)
 endif()
 
-if (LWS_WITH_LIBEV)
+if (LWS_WITH_LIBEV AND LWS_WITH_NETWORK)
 	list(APPEND SOURCES
 		lib/event-libs/libev/libev.c)
 endif()
@@ -1179,7 +1246,7 @@ if (LWS_WITH_LEJP)
 	list(APPEND SOURCES
 		lib/misc/lejp.c)
 endif()	
-if (LWS_WITH_LEJP_CONF)
+if (LWS_WITH_LEJP_CONF AND LWS_WITH_NETWORK)
 		list(APPEND SOURCES
 			"lib/roles/http/server/lejp-conf.c"
 		)

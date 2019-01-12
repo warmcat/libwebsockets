@@ -665,21 +665,6 @@ lws_http_client_http_response(struct lws *_wsi)
 	return resp;
 }
 #endif
-#if defined(LWS_PLAT_OPTEE)
-char *
-strrchr(const char *s, int c)
-{
-	char *hit = NULL;
-
-	while (*s)
-		if (*(s++) == (char)c)
-		       hit = (char *)s - 1;
-
-	return hit;
-}
-
-#define atoll atoi
-#endif
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 int

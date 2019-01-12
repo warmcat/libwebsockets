@@ -135,9 +135,11 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	m |= !!pt->ws.rx_draining_ext_list;
 #endif
 
+#if defined(LWS_WITH_TLS)
 	if (pt->context->tls_ops &&
 	    pt->context->tls_ops->fake_POLLIN_for_buffered)
 		m |= pt->context->tls_ops->fake_POLLIN_for_buffered(pt);
+#endif
 
 	if (!m && !n) { /* nothing to do */
 		lws_service_fd_tsi(context, NULL, tsi);
