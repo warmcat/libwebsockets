@@ -64,8 +64,8 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd,
 			return 1;
 
 		alive.onoff = TRUE;
-		alive.keepalivetime = vhost->ka_time;
-		alive.keepaliveinterval = vhost->ka_interval;
+		alive.keepalivetime = vhost->ka_time * 1000;
+		alive.keepaliveinterval = vhost->ka_interval * 1000;
 
 		if (WSAIoctl(fd, SIO_KEEPALIVE_VALS, &alive, sizeof(alive),
 			     NULL, 0, &dwBytesRet, NULL, NULL))
