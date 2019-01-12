@@ -587,7 +587,7 @@ ads_known:
 			goto failed;
 		}
 
-		lws_out(wsi,
+		lws_set_timeout(wsi,
 				PENDING_TIMEOUT_AWAITING_SOCKS_GREETING_REPLY,
 				AWAITING_TIMEOUT);
 
