@@ -275,6 +275,8 @@ lws_process_ws_upgrade(struct lws *wsi)
 #endif
 
 	lws_tokenize_init(&ts, buf, LWS_TOKENIZE_F_COMMA_SEP_LIST |
+				    LWS_TOKENIZE_F_DOT_NONTERM |
+				    LWS_TOKENIZE_F_RFC7230_DELIMS |
 				    LWS_TOKENIZE_F_MINUS_NONTERM);
 	ts.len = lws_hdr_copy(wsi, buf, sizeof(buf) - 1, WSI_TOKEN_CONNECTION);
 	if (ts.len <= 0)
@@ -311,6 +313,7 @@ check_protocol:
 
 	lws_tokenize_init(&ts, buf, LWS_TOKENIZE_F_COMMA_SEP_LIST |
 				    LWS_TOKENIZE_F_MINUS_NONTERM |
+				    LWS_TOKENIZE_F_DOT_NONTERM |
 				    LWS_TOKENIZE_F_RFC7230_DELIMS);
 	ts.len = lws_hdr_copy(wsi, buf, sizeof(buf) - 1, WSI_TOKEN_PROTOCOL);
 	if (ts.len < 0) {
