@@ -174,7 +174,7 @@ typedef unsigned long long lws_intptr_t;
 #ifdef _WIN32
 #define random rand
 #else
-#if !defined(OPTEE_TA)
+#if !defined(LWS_PLAT_OPTEE)
 #include <sys/time.h>
 #include <unistd.h>
 #endif
@@ -332,19 +332,131 @@ typedef int lws_filefd_type;
 #endif
 
 #if defined(LWS_PLAT_OPTEE)
-#include <poll.h>
+#include <time.h>
+struct timeval {
+	time_t         	tv_sec;
+	unsigned int    tv_usec;
+};
+#if defined(LWS_WITH_NETWORK)
+// #include <poll.h>
 #define lws_pollfd pollfd
 
-//struct lws_pollfd
-//{
- //       int fd;                     /* File descriptor to poll.  */
- //       short int events;           /* Types of events poller cares about.  */
- //       short int revents;          /* Types of events that actually occurred.  */
-//};
+struct timezone;
+
+int gettimeofday(struct timeval *tv, struct timezone *tz);
+
+    /* Internet address. */
+    struct in_addr {
+        uint32_t       s_addr;     /* address in network byte order */
+    };
+
+typedef unsigned short sa_family_t;
+typedef unsigned short in_port_t;
+
+    struct sockaddr_storage {
+	sa_family_t   ss_family;
+    };
+
+struct sockaddr {
+	sa_family_t  sa_family;
+	char         sa_data[14];
+};
+
+
+    struct sockaddr_in {
+        sa_family_t    sin_family; /* address family: AF_INET */
+        in_port_t      sin_port;   /* port in network byte order */
+        struct in_addr sin_addr;   /* internet address */
+    /* Pad to size of `struct sockaddr'.  */
+    unsigned char sin_zero[sizeof (struct sockaddr) -
+			   sizeof(sa_family_t) -
+			   sizeof (in_port_t) -
+			   sizeof (struct in_addr)];
+    };
+
+typedef uint32_t socklen_t;
+#if !defined(TEE_SE_READER_NAME_MAX)
+           struct addrinfo {
+               int              ai_flags;
+               int              ai_family;
+               int              ai_socktype;
+               int              ai_protocol;
+               socklen_t        ai_addrlen;
+               struct sockaddr *ai_addr;
+               char            *ai_canonname;
+               struct addrinfo *ai_next;
+           };
+#endif
+
+ssize_t recv(int sockfd, void *buf, size_t len, int flags);
+ssize_t send(int sockfd, const void *buf, size_t len, int flags);
+ssize_t read(int fd, void *buf, size_t count);
+int getsockopt(int sockfd, int level, int optname,
+                      void *optval, socklen_t *optlen);
+       int setsockopt(int sockfd, int level, int optname,
+                      const void *optval, socklen_t optlen);
+int connect(int sockfd, const struct sockaddr *addr,
+                   socklen_t addrlen);
+
+extern int errno;
+
+uint16_t ntohs(uint16_t netshort);
+uint16_t htons(uint16_t hostshort);
+
+int bind(int sockfd, const struct sockaddr *addr,
+                socklen_t addrlen);
+
+
+#define  MSG_NOSIGNAL 0x4000
+#define	EAGAIN		11
+#define EINTR		4
+#define EWOULDBLOCK	EAGAIN
+#define	EADDRINUSE	98	
+#define INADDR_ANY	0
+#define AF_INET		2
+#define SHUT_WR 1
+#define AF_UNSPEC	0
+#define PF_UNSPEC	0
+#define SOCK_STREAM	1
+#define SOCK_DGRAM	2
+# define AI_PASSIVE	0x0001
+#define IPPROTO_UDP	17
+#define SOL_SOCKET	1
+#define SO_SNDBUF	7
+#define	EISCONN		106	
+#define	EALREADY	114
+#define	EINPROGRESS	115
+int shutdown(int sockfd, int how);
+int close(int fd);
+int atoi(const char *nptr);
+long long atoll(const char *nptr);
+
+void bzero(void *s, size_t n);
+int socket(int domain, int type, int protocol);
+       int getaddrinfo(const char *node, const char *service,
+                       const struct addrinfo *hints,
+                       struct addrinfo **res);
+
+       void freeaddrinfo(struct addrinfo *res);
+
+#if !defined(TEE_SE_READER_NAME_MAX)
+struct lws_pollfd
+{
+        int fd;                     /* File descriptor to poll.  */
+        short int events;           /* Types of events poller cares about.  */
+        short int revents;          /* Types of events that actually occurred.  */
+};
+#endif
+
+int poll(struct pollfd *fds, int nfds, int timeout);
+
 #define LWS_POLLHUP (0x18)
 #define LWS_POLLIN (1)
 #define LWS_POLLOUT (4)
-
+#else
+struct lws_pollfd;
+struct sockaddr_in;
+#endif
 #else
 #define lws_pollfd pollfd
 #define LWS_POLLHUP (POLLHUP | POLLERR)

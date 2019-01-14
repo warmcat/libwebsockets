@@ -50,8 +50,6 @@ enum lws_log_levels {
 	LLL_COUNT	= 12 /* set to count of valid flags */
 };
 
-LWS_VISIBLE LWS_EXTERN void _lws_log(int filter, const char *format, ...) LWS_FORMAT(2);
-LWS_VISIBLE LWS_EXTERN void _lws_logv(int filter, const char *format, va_list vl);
 /**
  * lwsl_timestamp: generate logging timestamp string
  *
@@ -63,6 +61,13 @@ LWS_VISIBLE LWS_EXTERN void _lws_logv(int filter, const char *format, va_list vl
  */
 LWS_VISIBLE LWS_EXTERN int
 lwsl_timestamp(int level, char *p, int len);
+
+#if defined(LWS_PLAT_OPTEE) && !defined(LWS_WITH_NETWORK)
+#define _lws_log(aaa, ...) SMSG(__VA_ARGS__)
+#else
+LWS_VISIBLE LWS_EXTERN void _lws_log(int filter, const char *format, ...) LWS_FORMAT(2);
+LWS_VISIBLE LWS_EXTERN void _lws_logv(int filter, const char *format, va_list vl);
+#endif
 
 /* these guys are unconditionally included */
 
@@ -80,7 +85,7 @@ lwsl_timestamp(int level, char *p, int len);
  *  active
  */
 
-#ifdef _DEBUG
+#if defined(_DEBUG)
 #if defined(LWS_WITH_NO_LOGS)
 /* notice, warn and log are always compiled in */
 #define lwsl_warn(...) _lws_log(LLL_WARN, __VA_ARGS__)
@@ -110,6 +115,7 @@ lwsl_timestamp(int level, char *p, int len);
 #define lwsl_thread(...) do {} while(0)
 
 #endif
+
 
 #define lwsl_hexdump_err(...) lwsl_hexdump_level(LLL_ERR, __VA_ARGS__)
 #define lwsl_hexdump_warn(...) lwsl_hexdump_level(LLL_WARN, __VA_ARGS__)

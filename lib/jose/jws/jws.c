@@ -120,7 +120,7 @@ append_string:
 			args->jws->map_b64.len[m],
 			(char *)args->temp, *args->temp_len);
 		if (n < 0) {
-			lwsl_err("%s: b64 decode failed\n", __func__);
+			lwsl_err("%s: b64 decode failed: in len %d, m %d\n", __func__, (int)args->jws->map_b64.len[m], m);
 			return -1;
 		}
 

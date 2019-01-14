@@ -22,7 +22,10 @@
 #include "core/private.h"
 #include "jose/private.h"
 
+#if !defined(LWS_PLAT_OPTEE) && !defined(OPTEE_DEV_KIT)
 #include <fcntl.h>
+#endif
+
 #include <unistd.h>
 
 static const char * const kty_names[] = {

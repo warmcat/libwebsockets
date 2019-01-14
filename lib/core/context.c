@@ -89,7 +89,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 		lwsl_err("No memory for websocket context\n");
 		return NULL;
 	}
-
+lwsl_info("context created\n");
 #if defined(LWS_WITH_TLS) && defined(LWS_WITH_NETWORK)
 #if defined(LWS_WITH_MBEDTLS)
 	context->tls_ops = &tls_ops_mbedtls;
@@ -150,8 +150,9 @@ lws_create_context(const struct lws_context_creation_info *info)
 	if (info->external_baggage_free_on_destroy)
 		context->external_baggage_free_on_destroy =
 			info->external_baggage_free_on_destroy;
-
+#if defined(LWS_WITH_NETWORK)
 	context->time_up = time(NULL);
+#endif
 	context->pcontext_finalize = info->pcontext;
 
 	context->simultaneous_ssl_restriction =

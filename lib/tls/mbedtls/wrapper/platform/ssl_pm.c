@@ -279,7 +279,9 @@ static int mbedtls_handshake( mbedtls_ssl_context *ssl )
     return ret;
 }
 
+#if !defined(LWS_PLAT_OPTEE)
 #include <errno.h>
+#endif
 
 int ssl_pm_handshake(SSL *ssl)
 {

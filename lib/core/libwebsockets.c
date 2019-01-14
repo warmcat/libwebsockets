@@ -48,6 +48,7 @@ signed char char_to_hex(const char c)
 
 	return -1;
 }
+#if !defined(LWS_PLAT_OPTEE)
 
 int lws_open(const char *__file, int __oflag, ...)
 {
@@ -74,7 +75,7 @@ int lws_open(const char *__file, int __oflag, ...)
 
 	return n;
 }
-
+#endif
 
 
 void
@@ -147,6 +148,8 @@ lws_dll_remove(struct lws_dll *d)
 	d->next = NULL;
 }
 
+#if !(defined(LWS_PLAT_OPTEE) && !defined(LWS_WITH_NETWORK))
+
 LWS_VISIBLE lws_usec_t
 lws_now_usecs(void)
 {
@@ -155,6 +158,7 @@ lws_now_usecs(void)
 	gettimeofday(&now, NULL);
 	return (now.tv_sec * 1000000ll) + now.tv_usec;
 }
+#endif
 
 int
 lws_pthread_self_to_tsi(struct lws_context *context)
@@ -336,6 +340,7 @@ lws_explicit_bzero(void *p, size_t len)
 		*vp++ = 0;
 }
 
+#if !(defined(LWS_PLAT_OPTEE) && !defined(LWS_WITH_NETWORK))
 
 /**
  * lws_now_secs() - seconds since 1970-1-1
@@ -362,7 +367,7 @@ lws_compare_time_t(struct lws_context *context, time_t t1, time_t t2)
 
 	return (int)(t1 - t2);
 }
-
+#endif
 LWS_VISIBLE extern const char *
 lws_canonical_hostname(struct lws_context *context)
 {

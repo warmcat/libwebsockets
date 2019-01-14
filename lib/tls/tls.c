@@ -22,6 +22,7 @@
 #include "core/private.h"
 #include "tls/private.h"
 
+#if !defined(LWS_PLAT_OPTEE) && !defined(OPTEE_DEV_KIT)
 #if defined(LWS_WITH_ESP32)
 int alloc_file(struct lws_context *context, const char *filename, uint8_t **buf,
 	       lws_filepos_t *amount)
@@ -172,8 +173,11 @@ bail:
 
 	return 4;
 }
+#endif
 
-#if !defined(LWS_WITH_ESP32) && !defined(LWS_PLAT_OPTEE)
+#if !defined(LWS_WITH_ESP32) && !defined(LWS_PLAT_OPTEE) && !defined(OPTEE_DEV_KIT)
+
+
 static int
 lws_tls_extant(const char *name)
 {

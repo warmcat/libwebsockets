@@ -19,7 +19,9 @@
  *  MA  02110-1301  USA
  */
 
+#if !defined(LWS_PLAT_OPTEE)
 #include <sys/stat.h>
+#endif
 
 /* under page size of 4096 to allow overhead */
 #define LWSAC_CHUNK_SIZE 4000
@@ -42,7 +44,9 @@ struct lwsac {
 	char detached; /* if our refcount gets to zero, free the chunk list */
 };
 
+#if !defined(LWS_PLAT_OPTEE)
 struct cached_file_info {
 	struct stat s;
 	time_t last_confirm;
 };
+#endif

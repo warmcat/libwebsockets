@@ -25,10 +25,16 @@
 #include <sys/types.h>
 #endif
 
+#if defined(LWS_PLAT_OPTEE)
+void lwsl_emit_optee(int level, const char *line);
+#endif
+
 int log_level = LLL_ERR | LLL_WARN | LLL_NOTICE;
 static void (*lwsl_emit)(int level, const char *line)
 #ifndef LWS_PLAT_OPTEE
 	= lwsl_emit_stderr
+#else
+	= lwsl_emit_optee;
 #endif
 	;
 #ifndef LWS_PLAT_OPTEE
@@ -164,9 +170,10 @@ lwsl_emit_stderr_notimestamp(int level, const char *line)
 
 #endif
 
+#if !(defined(LWS_PLAT_OPTEE) && !defined(LWS_WITH_NETWORK))
 LWS_VISIBLE void _lws_logv(int filter, const char *format, va_list vl)
 {
-	char buf[256];
+	static char buf[256];
 	int n;
 
 	if (!(log_level & filter))
@@ -185,7 +192,6 @@ LWS_VISIBLE void _lws_logv(int filter, const char *format, va_list vl)
 	}
 	if (n > 0)
 		buf[n] = '\0';
-
 	lwsl_emit(filter, buf);
 }
 
@@ -197,7 +203,7 @@ LWS_VISIBLE void _lws_log(int filter, const char *format, ...)
 	_lws_logv(filter, format, ap);
 	va_end(ap);
 }
-
+#endif
 LWS_VISIBLE void lws_set_log_level(int level,
 				   void (*func)(int level, const char *line))
 {

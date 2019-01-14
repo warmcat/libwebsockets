@@ -49,7 +49,7 @@
 #ifdef LWS_HAVE_SYS_TYPES_H
  #include <sys/types.h>
 #endif
-#ifdef LWS_HAVE_SYS_STAT_H
+#if defined(LWS_HAVE_SYS_STAT_H) && !defined(LWS_PLAT_OPTEE)
  #include <sys/stat.h>
 #endif
 

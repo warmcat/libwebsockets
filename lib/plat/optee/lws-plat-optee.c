@@ -1,33 +1,104 @@
 #include "core/private.h"
 
+#if !defined(LWS_WITH_NETWORK)
+#include <crypto/crypto.h>
+#endif
+
+int errno;
+
+#if !defined(LWS_WITH_NETWORK)
+char *
+strcpy(char *dest, const char *src)
+{
+	char *desto = dest;
+
+	while (*src)
+		*(dest++) = *(src++);
+
+	*(dest++) = '\0';
+
+	return desto;
+}
+
+char *strncpy(char *dest, const char *src, size_t limit)
+{
+	char *desto = dest;
+
+	while (*src && limit--)
+		*(dest++) = *(src++);
+
+	if (limit)
+		*(dest++) = '\0';
+
+	return desto;
+}
+
+#endif
+
 int lws_plat_apply_FD_CLOEXEC(int n)
 {
 	return 0;
 }
 
 void TEE_GenerateRandom(void *randomBuffer, uint32_t randomBufferLen);
-
+#if defined(LWS_WITH_NETWORK)
 uint64_t
 lws_time_in_microseconds(void)
 {
 	return ((unsigned long long)time(NULL)) * 1000000;
 }
-#if 0
+#endif
+
 int
 lws_get_random(struct lws_context *context, void *buf, int len)
 {
+#if defined(LWS_WITH_NETWORK)
 	TEE_GenerateRandom(buf, len);
+#else
+	crypto_rng_read(buf, len);
+#endif
 
 	return len;
 }
-#endif
 
-#if 0
-void lwsl_emit_syslog(int level, const char *line)
+
+static const char * const colours[] = {
+        "[31;1m", /* LLL_ERR */
+        "[36;1m", /* LLL_WARN */
+        "[35;1m", /* LLL_NOTICE */
+        "[32;1m", /* LLL_INFO */
+        "[34;1m", /* LLL_DEBUG */
+        "[33;1m", /* LLL_PARSER */
+        "[33;1m", /* LLL_HEADER */
+        "[33;1m", /* LLL_EXT */
+        "[33;1m", /* LLL_CLIENT */
+        "[33;1m", /* LLL_LATENCY */
+        "[30;1m", /* LLL_USER */
+};
+
+void lwsl_emit_optee(int level, const char *line)
 {
-	IMSG("%d: %s\n", level, line);
+        char buf[50], linecp[512];
+        int n, m = LWS_ARRAY_SIZE(colours) - 1;
+
+        lwsl_timestamp(level, buf, sizeof(buf));
+
+        n = 1 << (LWS_ARRAY_SIZE(colours) - 1);
+        while (n) {
+                if (level & n)
+                        break;
+                m--;
+                n >>= 1;
+        }
+        n = strlen(line);
+        if ((unsigned int)n > sizeof(linecp) - 1)
+                n = sizeof(linecp) - 1;
+        if (n)
+                memcpy(linecp, line, n - 1);
+        linecp[n - 1] = '\0';
+        EMSG("%c%s%s%s%c[0m", 27, colours[m], buf, linecp, 27);
 }
-#endif
+
 
 void
 lws_plat_drop_app_privileges(const struct lws_context_creation_info *info)

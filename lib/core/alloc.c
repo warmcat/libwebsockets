@@ -3,6 +3,9 @@
 #if defined(LWS_PLAT_OPTEE)
 
 #define TEE_USER_MEM_HINT_NO_FILL_ZERO       0x80000000
+#if defined (LWS_WITH_NETWORK)
+
+/* normal TA apis */
 
 void *__attribute__((weak))
 	TEE_Malloc(uint32_t size, uint32_t hint)
@@ -18,6 +21,27 @@ void __attribute__((weak))
 	TEE_Free(void *buffer)
 {
 }
+#else
+
+/* in-OP-TEE core apis */
+
+void *
+	TEE_Malloc(uint32_t size, uint32_t hint)
+{
+	return malloc(size);
+}
+void *
+	TEE_Realloc(void *buffer, uint32_t newSize)
+{
+	return realloc(buffer, newSize);
+}
+void
+	TEE_Free(void *buffer)
+{
+	free(buffer);
+}
+
+#endif
 
 void *lws_realloc(void *ptr, size_t size, const char *reason)
 {

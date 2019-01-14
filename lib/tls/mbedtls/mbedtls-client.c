@@ -199,8 +199,6 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 	X509 *d2i_X509(X509 **cert, const unsigned char *buffer, long len);
 	SSL_METHOD *method = (SSL_METHOD *)TLS_client_method();
 	unsigned long error;
-	lws_filepos_t len;
-	uint8_t *buf;
 	int n;
 
 	if (!method) {
@@ -224,6 +222,10 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		return 0;
 
 	if (ca_filepath) {
+#if !defined(LWS_PLAT_OPTEE)
+		uint8_t *buf;
+		lws_filepos_t len;
+
 		if (alloc_file(vh->context, ca_filepath, &buf, &len)) {
 			lwsl_err("Load CA cert file %s failed\n", ca_filepath);
 			return 1;
@@ -231,6 +233,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		vh->tls.x509_client_CA = d2i_X509(NULL, buf, len);
 		free(buf);
 		lwsl_notice("Loading client CA for verification %s\n", ca_filepath);
+#endif
 	} else {
 		vh->tls.x509_client_CA = d2i_X509(NULL, (uint8_t*)ca_mem, ca_mem_len);
 		lwsl_notice("%s: using mem client CA cert %d\n",
@@ -249,6 +252,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 
 	/* support for client-side certificate authentication */
 	if (cert_filepath) {
+#if !defined(LWS_PLAT_OPTEE)
 		uint8_t *buf;
 		lws_filepos_t amount;
 
@@ -279,6 +283,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		}
 
 		lwsl_notice("Loaded client cert %s\n", cert_filepath);
+#endif
 	} else if (cert_mem && cert_mem_len) {
 		// lwsl_hexdump_notice(cert_mem, cert_mem_len - 1);
 		SSL_CTX_use_PrivateKey_ASN1(0, vh->tls.ssl_client_ctx,

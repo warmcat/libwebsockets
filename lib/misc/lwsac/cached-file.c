@@ -19,6 +19,8 @@
  *  MA  02110-1301  USA
  */
 
+#if !defined(LWS_PLAT_OPTEE) && !defined(OPTEE_DEV_KIT)
+
 #include "core/private.h"
 #include "misc/lwsac/private.h"
 
@@ -200,3 +202,5 @@ bail:
 
 	return 1;
 }
+
+#endif

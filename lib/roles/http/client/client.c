@@ -1067,23 +1067,23 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 	 * Sec-WebSocket-Version: 4
 	 */
 
-	p += sprintf(p, "%s %s HTTP/1.1\x0d\x0a", meth,
+	p += snprintf(p, 2048, "%s %s HTTP/1.1\x0d\x0a", meth,
 		     lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI));
 
-	p += sprintf(p, "Pragma: no-cache\x0d\x0a"
+	p += snprintf(p, 64, "Pragma: no-cache\x0d\x0a"
 			"Cache-Control: no-cache\x0d\x0a");
 
-	p += sprintf(p, "Host: %s\x0d\x0a",
+	p += snprintf(p, 128, "Host: %s\x0d\x0a",
 		     lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST));
 
 	if (lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_ORIGIN)) {
 		if (lws_check_opt(wsi->context->options,
 				  LWS_SERVER_OPTION_JUST_USE_RAW_ORIGIN))
-			p += sprintf(p, "Origin: %s\x0d\x0a",
+			p += snprintf(p, 128, "Origin: %s\x0d\x0a",
 				     lws_hdr_simple_ptr(wsi,
 						     _WSI_TOKEN_CLIENT_ORIGIN));
 		else
-			p += sprintf(p, "Origin: http://%s\x0d\x0a",
+			p += snprintf(p, 128, "Origin: http://%s\x0d\x0a",
 				     lws_hdr_simple_ptr(wsi,
 						     _WSI_TOKEN_CLIENT_ORIGIN));
 	}
@@ -1096,7 +1096,7 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 	} else
 #endif
 		if (!wsi->client_pipeline)
-			p += sprintf(p, "connection: close\x0d\x0a");
+			p += snprintf(p, 64, "connection: close\x0d\x0a");
 
 	/* give userland a chance to append, eg, cookies */
 
@@ -1106,7 +1106,7 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 			(pkt + wsi->context->pt_serv_buf_size) - p - 12))
 		return NULL;
 
-	p += sprintf(p, "\x0d\x0a");
+	p += snprintf(p, 4, "\x0d\x0a");
 
 	return p;
 }
