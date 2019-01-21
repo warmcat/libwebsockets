@@ -170,5 +170,12 @@ lws_jwe_auth_and_decrypt_rsa_aes_gcm(struct lws_jwe *jwe)
 		return -1;
 	}
 
+	/* strip padding */
+
+	n = jwe->jws.map.buf[LJWE_CTXT][jwe->jws.map.len[LJWE_CTXT] - 1];
+	if (n > 16)
+		return -1;
+	jwe->jws.map.len[LJWE_CTXT] -= n;
+
 	return jwe->jws.map.len[LJWE_CTXT];
 }

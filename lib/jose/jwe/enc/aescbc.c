@@ -154,7 +154,7 @@ lws_jwe_encrypt_cbc_hs(struct lws_jwe *jwe, uint8_t *cek,
 
 int
 lws_jwe_auth_and_decrypt_cbc_hs(struct lws_jwe *jwe, uint8_t *enc_cek,
-					uint8_t *aad, int aad_len)
+				uint8_t *aad, int aad_len)
 {
 	int n, hlen = lws_genhmac_size(jwe->jose.enc_alg->hmac_type);
 	uint8_t digest[LWS_GENHASH_LARGEST];
