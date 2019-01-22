@@ -1132,7 +1132,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 
 #if LWS_MAX_SMP > 1
 	/* each thread serves his own chunk of fds */
-	for (n = 1; n < (int)info->count_threads; n++)
+	for (n = 1; n < (int)context->count_threads; n++)
 		context->pt[n].fds = context->pt[n - 1].fds +
 				     context->fd_limit_per_thread;
 #endif
