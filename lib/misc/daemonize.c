@@ -28,10 +28,10 @@
 
 #include "core/private.h"
 
-unsigned int pid_daemon;
+pid_t pid_daemon;
 static char *lock_path;
 
-int get_daemonize_pid()
+pid_t get_daemonize_pid()
 {
 	return pid_daemon;
 }

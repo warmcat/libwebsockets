@@ -363,9 +363,6 @@ int main(int argc, char **argv)
 #ifndef LWS_NO_DAEMONIZE
 		case 'D':
 			daemonize = 1;
-			#if !defined(_WIN32) && !defined(__sun)
-			syslog_options &= ~LOG_PERROR;
-			#endif
 			break;
 #endif
 		case 'u':
