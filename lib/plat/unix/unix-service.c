@@ -199,8 +199,10 @@ lws_plat_service(struct lws_context *context, int timeout_ms)
 void
 lws_plat_service_periodic(struct lws_context *context)
 {
+#if !defined(LWS_NO_DAEMONIZE)
 	/* if our parent went down, don't linger around */
 	if (context->started_with_parent &&
 	    kill(context->started_with_parent, 0) < 0)
 		kill(getpid(), SIGTERM);
+#endif
 }

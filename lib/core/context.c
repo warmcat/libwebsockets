@@ -47,7 +47,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	struct lws_context *context = NULL;
 	struct lws_plat_file_ops *prev;
 #ifndef LWS_NO_DAEMONIZE
-	int pid_daemon = get_daemonize_pid();
+	pid_t pid_daemon = get_daemonize_pid();
 #endif
 #if defined(LWS_WITH_NETWORK)
 	int n;
@@ -161,7 +161,7 @@ lwsl_info("context created\n");
 #ifndef LWS_NO_DAEMONIZE
 	if (pid_daemon) {
 		context->started_with_parent = pid_daemon;
-		lwsl_info(" Started with daemon pid %d\n", pid_daemon);
+		lwsl_info(" Started with daemon pid %u\n", (unsigned int)pid_daemon);
 	}
 #endif
 #if defined(__ANDROID__)

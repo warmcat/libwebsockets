@@ -356,7 +356,9 @@ struct lws_context {
 
 	int max_fds;
 	int count_event_loop_static_asset_handles;
-	int started_with_parent;
+#if !defined(LWS_NO_DAEMONIZE)
+	pid_t started_with_parent;
+#endif
 	int uid, gid;
 
 	int fd_random;
