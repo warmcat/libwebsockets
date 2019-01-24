@@ -299,6 +299,7 @@ file_upload_cb(void *data, const char *name, const char *filename,
 				n = write((int)(long long)pss->fd, buf, len);
 				lwsl_debug("%s: write %d says %d\n", __func__,
 					   len, n);
+				lws_set_timeout(pss->wsi, PENDING_TIMEOUT_HTTP_CONTENT, 30);
 			}
 		}
 		if (state == LWS_UFS_CONTENT)
