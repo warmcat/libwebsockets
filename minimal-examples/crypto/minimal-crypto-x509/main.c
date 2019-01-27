@@ -124,6 +124,10 @@ int main(int argc, const char **argv)
 
 			goto bail2;
 		}
+
+		if ((p = lws_cmdline_option(argc, argv, "--alg")))
+			lws_jwk_strdup_meta(&jwk, JWK_META_ALG, p, strlen(p));
+
 		lwsl_info("JWK version of trusted cert:\n");
 		lws_jwk_dump(&jwk);
 		lws_jwk_destroy(&jwk);
@@ -137,6 +141,10 @@ int main(int argc, const char **argv)
 		goto bail3;
 	}
 	lwsl_info("JWK version of cert:\n");
+
+	if ((p = lws_cmdline_option(argc, argv, "--alg")))
+		lws_jwk_strdup_meta(&jwk, JWK_META_ALG, p, strlen(p));
+
 	lws_jwk_dump(&jwk);
 	/* only print public if he doesn't provide private */
 	if (!lws_cmdline_option(argc, argv, "-p")) {
@@ -162,6 +170,9 @@ int main(int argc, const char **argv)
 
 			goto bail3;
 		}
+
+		if ((p = lws_cmdline_option(argc, argv, "--alg")))
+			lws_jwk_strdup_meta(&jwk, JWK_META_ALG, p, strlen(p));
 
 		lwsl_info("JWK version of cert + privkey:\n");
 		lws_jwk_dump(&jwk);
