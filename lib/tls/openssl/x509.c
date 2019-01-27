@@ -482,7 +482,7 @@ lws_x509_jwk_privkey_pem(struct lws_jwk *jwk, void *pem, size_t len,
 			 const char *passphrase)
 {
 	BIO* bio = BIO_new(BIO_s_mem());
-	BIGNUM *mpi, *dummy[4];
+	BIGNUM *mpi, *dummy[6];
 	EVP_PKEY *pkey = NULL;
 	EC_KEY *ecpriv = NULL;
 	RSA *rsapriv = NULL;
@@ -559,9 +559,13 @@ lws_x509_jwk_privkey_pem(struct lws_jwk *jwk, void *pem, size_t len,
 		RSA_get0_key(rsapriv, (const BIGNUM **)&dummy[0], /* n */
 				      (const BIGNUM **)&dummy[1], /* e */
 				      (const BIGNUM **)&mpi);	  /* d */
+		RSA_get0_factors(rsapriv, (const BIGNUM **)&dummy[4],  /* p */
+					  (const BIGNUM **)&dummy[5]); /* q */
 #else
 		dummy[0] = rsapriv->n;
 		dummy[1] = rsapriv->e;
+		dummy[4] = rsapriv->p;
+		dummy[5] = rsapriv->q;
 		mpi = rsapriv->d;
 #endif
 
@@ -598,9 +602,28 @@ lws_x509_jwk_privkey_pem(struct lws_jwk *jwk, void *pem, size_t len,
 		jwk->e[LWS_GENCRYPTO_RSA_KEYEL_D].len = n;
 		jwk->e[LWS_GENCRYPTO_RSA_KEYEL_D].buf = lws_malloc(n, "privjk");
 		if (!jwk->e[LWS_GENCRYPTO_RSA_KEYEL_D].buf)
-			goto bail;
+			goto bail1;
 
 		BN_bn2bin(mpi, jwk->e[LWS_GENCRYPTO_RSA_KEYEL_D].buf);
+
+		/* accept p and q from the PEM privkey into the JWK */
+
+		jwk->e[LWS_GENCRYPTO_RSA_KEYEL_P].len = BN_num_bytes(dummy[4]);
+		jwk->e[LWS_GENCRYPTO_RSA_KEYEL_P].buf = lws_malloc(n, "privjk");
+		if (!jwk->e[LWS_GENCRYPTO_RSA_KEYEL_P].buf) {
+			lws_free_set_NULL(jwk->e[LWS_GENCRYPTO_RSA_KEYEL_D].buf);
+			goto bail1;
+		}
+		BN_bn2bin(dummy[4], jwk->e[LWS_GENCRYPTO_RSA_KEYEL_P].buf);
+
+		jwk->e[LWS_GENCRYPTO_RSA_KEYEL_Q].len = BN_num_bytes(dummy[5]);
+		jwk->e[LWS_GENCRYPTO_RSA_KEYEL_Q].buf = lws_malloc(n, "privjk");
+		if (!jwk->e[LWS_GENCRYPTO_RSA_KEYEL_Q].buf) {
+			lws_free_set_NULL(jwk->e[LWS_GENCRYPTO_RSA_KEYEL_D].buf);
+			lws_free_set_NULL(jwk->e[LWS_GENCRYPTO_RSA_KEYEL_P].buf);
+			goto bail1;
+		}
+		BN_bn2bin(dummy[5], jwk->e[LWS_GENCRYPTO_RSA_KEYEL_Q].buf);
 		break;
 	default:
 		lwsl_err("%s: JWK has unknown kty %d\n", __func__, jwk->kty);
