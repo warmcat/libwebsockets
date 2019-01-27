@@ -67,15 +67,14 @@ format_c(int fd, const char *key)
 
 int main(int argc, const char **argv)
 {
-	struct lws_context_creation_info info;
-	struct lws_context *context;
-	const char *p;
 	int result = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
-	int bits = 4096;
 	enum lws_gencrypto_kty kty = LWS_GENCRYPTO_KTY_RSA;
+	struct lws_context_creation_info info;
+	const char *curve = "P-256", *p;
+	struct lws_context *context;
 	struct lws_jwk jwk;
+	int bits = 4096;
 	char key[32768];
-	const char *curve = "P-256";
 	int vl = sizeof(key);
 
 	if ((p = lws_cmdline_option(argc, argv, "-d")))
@@ -128,6 +127,9 @@ int main(int argc, const char **argv)
 
 	if ((p = lws_cmdline_option(argc, argv, "--use")))
 		lws_jwk_strdup_meta(&jwk, JWK_META_USE, p, strlen(p));
+
+	if ((p = lws_cmdline_option(argc, argv, "--alg")))
+		lws_jwk_strdup_meta(&jwk, JWK_META_ALG, p, strlen(p));
 
 	if ((p = lws_cmdline_option(argc, argv, "--key-ops")))
 		lws_jwk_strdup_meta(&jwk, JWK_META_KEY_OPS, p, strlen(p));

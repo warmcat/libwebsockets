@@ -28,6 +28,7 @@ Commandline option|Meaning
 -v <curve>|For EC keys, the curve, eg, "P-384"... this implies the key bits
 --kid "ID string"|Key identity string
 --use "use[ use]"|Key use restriction (mutually exclusive with --key-ops): sig, enc
+--alg <alg>|Specify the algorithm the key is designed for, eg "RSA1_5"
 --key-ops "op[ op]"|Key valid operations (mutually exclusive with --use): sign, verify, encrypt, decrypt, wrapKey, unwrapKey, deriveKey, deriveBits
 -c|Format the jwk as a linebroken C string
 --public <filepath>|Only output the full, private key, not the public version first
