@@ -952,6 +952,8 @@ agin:
 			if (wsi->http2_substream)
 				m = lws_write(wsi, (unsigned char *)start, 0,
 					      LWS_WRITE_HTTP_FINAL);
+			else
+				return -1;
 			return 1;
 		}
 		wsi->cgi_stdout_zero_length = 1;

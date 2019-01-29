@@ -272,14 +272,16 @@ __lws_service_timeout_check(struct lws *wsi, time_t sec)
 			  wsi->pending_timeout);
 #endif
 
-		/*
-		 * Since he failed a timeout, he already had a chance to do
-		 * something and was unable to... that includes situations like
-		 * half closed connections.  So process this "failed timeout"
-		 * close as a violent death and don't try to do protocol
-		 * cleanup like flush partials.
-		 */
-		wsi->socket_is_permanently_unusable = 1;
+		/* cgi timeout */
+		if (wsi->pending_timeout != PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE)
+			/*
+			 * Since he failed a timeout, he already had a chance to
+			 * do something and was unable to... that includes
+			 * situations like half closed connections.  So process
+			 * this "failed timeout" close as a violent death and
+			 * don't try to do protocol cleanup like flush partials.
+			 */
+			wsi->socket_is_permanently_unusable = 1;
 		if (lwsi_state(wsi) == LRS_WAITING_SSL && wsi->protocol)
 			wsi->protocol->callback(wsi,
 				LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
