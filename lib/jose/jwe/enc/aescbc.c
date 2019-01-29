@@ -195,8 +195,10 @@ lws_jwe_auth_and_decrypt_cbc_hs(struct lws_jwe *jwe, uint8_t *enc_cek,
 
 	/* first half of enc_cek is the MAC key */
 	if (lws_genhmac_init(&hmacctx, jwe->jose.enc_alg->hmac_type, enc_cek,
-			     hlen / 2))
+			     hlen / 2)) {
+		lwsl_err("%s: lws_genhmac_init fail\n", __func__);
 		return -1;
+	}
 
 	if (lws_genhmac_update(&hmacctx, aad, aad_len) ||
 	    lws_genhmac_update(&hmacctx, (uint8_t *)jwe->jws.map.buf[LJWE_IV],

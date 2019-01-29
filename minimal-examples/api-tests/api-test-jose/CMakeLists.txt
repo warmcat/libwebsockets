@@ -62,8 +62,7 @@ MACRO(require_lws_config reqconfig _val result)
 ENDMACRO()
 
 set(requirements 1)
-require_lws_config(LWS_WITH_JWS 1 requirements)
-require_lws_config(LWS_WITH_JWE 1 requirements)
+require_lws_config(LWS_WITH_JOSE 1 requirements)
 
 if (requirements)
 
