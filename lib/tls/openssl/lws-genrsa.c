@@ -184,7 +184,7 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 				 &mpi[LWS_GENCRYPTO_RSA_KEYEL_Q]);
 #else
 	{
-		BIGNUM *mpi[5] = { ctx->rsa->n, ctx->rsa->e, ctx->rsa->d,
+		BIGNUM *mpi[5] = { ctx->rsa->e, ctx->rsa->n, ctx->rsa->d,
 				   ctx->rsa->p, ctx->rsa->q, };
 #endif
 		for (n = 0; n < 5; n++)

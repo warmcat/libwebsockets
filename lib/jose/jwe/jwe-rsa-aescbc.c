@@ -100,7 +100,7 @@ lws_jwe_encrypt_rsa_aes_cbc_hs(struct lws_jwe *jwe,
 			!strcmp(jwe->jose.alg->alg,   "RSA-OAEP") ?
 					LGRSAM_PKCS1_OAEP_PSS : LGRSAM_PKCS1_1_5,
 					LWS_GENHASH_TYPE_UNKNOWN)) {
-		lwsl_notice("%s: lws_genrsa_public_decrypt_create\n",
+		lwsl_notice("%s: lws_genrsa_create\n",
 			    __func__);
 		return -1;
 	}
@@ -115,7 +115,7 @@ lws_jwe_encrypt_rsa_aes_cbc_hs(struct lws_jwe *jwe,
 	lws_genrsa_destroy(&rsactx);
 	lws_explicit_bzero(ekey, hlen); /* cleanse the temp CEK copy */
 	if (n < 0) {
-		lwsl_err("%s: decrypt cek fail\n", __func__);
+		lwsl_err("%s: encrypt cek fail\n", __func__);
 		return -1;
 	}
 	jwe->jws.map.len[LJWE_EKEY] = n; /* update to encrypted EKEY size */
