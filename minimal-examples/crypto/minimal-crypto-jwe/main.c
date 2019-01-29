@@ -225,7 +225,7 @@ int main(int argc, const char **argv)
 			if (lws_jwe_json_parse(&jwe, (uint8_t *)in, n,
 					       lws_concat_temp(temp, temp_len),
 					       &temp_len)) {
-				lwsl_err("%s: lws_jws_compact_decode failed\n",
+				lwsl_err("%s: lws_jwe_json_parse failed\n",
 								 __func__);
 				goto bail1;
 			}
