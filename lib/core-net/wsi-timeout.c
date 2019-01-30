@@ -184,6 +184,8 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 
+	// lwsl_info("%s: %p: %d %d\n", __func__, wsi, reason, secs);
+
 	if (secs == LWS_TO_KILL_SYNC) {
 		lws_remove_from_timeout_list(wsi);
 		lwsl_debug("synchronously killing %p\n", wsi);

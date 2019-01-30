@@ -881,3 +881,21 @@ lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p,
 
 	return 0;
 }
+
+int
+lws_http_mark_sse(struct lws *wsi)
+{
+	lws_http_headers_detach(wsi);
+	lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+
+	if (wsi->http2_substream) {
+		struct lws *nwsi = lws_get_network_wsi(wsi);
+
+		wsi->h2_stream_carries_sse = 1;
+		nwsi->immortal_substream_count++;
+		if (nwsi->immortal_substream_count == 1)
+			lws_set_timeout(nwsi, NO_PENDING_TIMEOUT, 0);
+	}
+
+	return 0;
+}

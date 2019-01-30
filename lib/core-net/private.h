@@ -539,6 +539,7 @@ struct lws {
 	unsigned int http2_substream:1;
 	unsigned int upgraded_to_http2:1;
 	unsigned int h2_stream_carries_ws:1;
+	unsigned int h2_stream_carries_sse:1;
 	unsigned int seen_nonpseudoheader:1;
 	unsigned int listener:1;
 	unsigned int user_space_externally_allocated:1;
@@ -618,7 +619,7 @@ struct lws {
 #if defined(LWS_WITH_STATS) && defined(LWS_WITH_TLS)
 	char seen_rx;
 #endif
-	uint8_t ws_over_h2_count;
+	uint8_t immortal_substream_count;
 	/* volatile to make sure code is aware other thread can change */
 	volatile char handling_pollout;
 	volatile char leave_pollout_active;

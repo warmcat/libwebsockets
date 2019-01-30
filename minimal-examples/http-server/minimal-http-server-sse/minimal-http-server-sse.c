@@ -65,22 +65,14 @@ callback_sse(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (lws_finalize_write_http_header(wsi, start, &p, end))
 			return 1;
 
-		/* Unlike a normal http connection, we don't want any specific
-		 * timeout.  We want to stay up until the client drops us */
-
-		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
-
 		/*
-		 * Drop the ah that contains the headers associated with
-		 * this connection... ah are a scarce resource, if we don't
-		 * drop it lws will forcibly drop the whole connection to free
-		 * the ah after 5 minutes or so.
-		 *
-		 * If the content of any http headers are important to you for
-		 * deciding what to send, copy them out to the pss before
-		 * doing the below to drop the ah.
+		 * This tells lws we are no longer a normal http stream,
+		 * but are an "immortal" (plus or minus whatever timeout you
+		 * set on it afterwards) SSE stream.  In http/2 case that also
+		 * stops idle timeouts being applied to the network connection
+		 * while this wsi is still open.
 		 */
-		lws_http_headers_detach(wsi);
+		lws_http_mark_sse(wsi);
 
 		/* write the body separately */
 
@@ -204,11 +196,18 @@ int main(int argc, const char **argv)
 	lwsl_user("LWS minimal http Server-Side Events | visit http://localhost:7681\n");
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
-	info.port = 7681;
+
 	info.protocols = protocols;
 	info.mounts = &mount;
 	info.options =
 		LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE;
+	info.port = 7681;
+	if (lws_cmdline_option(argc, argv, "-s")) {
+		info.port = 443;
+		info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+		info.ssl_cert_filepath = "localhost-100y.cert";
+		info.ssl_private_key_filepath = "localhost-100y.key";
+	}
 
 	context = lws_create_context(&info);
 	if (!context) {

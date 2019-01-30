@@ -822,7 +822,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 	}
 
 	/* let the network wsi live a bit longer if subs are active */
-	if (!wsi->ws_over_h2_count)
+	if (!wsi->immortal_substream_count)
 		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE, 31);
 
 	if (h2n->sid)
@@ -1806,7 +1806,7 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 				 * subs are active... our frame may take a long
 				 * time to chew through
 				 */
-				if (!wsi->ws_over_h2_count)
+				if (!wsi->immortal_substream_count)
 					lws_set_timeout(wsi,
 					  PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE,
 					  31);

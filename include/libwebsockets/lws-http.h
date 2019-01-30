@@ -658,12 +658,21 @@ lws_http_transaction_completed(struct lws *wsi);
  *				it to be reused by another connection
  * \param wsi:	http connection
  *
- *	Returns 1 if the HTTP connection must close now
- *	Returns 0 and resets connection to wait for new HTTP header /
- *	  transaction if possible
+ * If the wsi has an ah headers struct attached, detach it.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_http_headers_detach(struct lws *wsi);
+
+/**
+ * lws_http_mark_sse() - called to indicate this http stream is now doing SSE
+ *
+ * \param wsi:	http connection
+ *
+ * Cancel any timeout on the wsi, and for h2, mark the network connection as
+ * containing an immortal stream for the duration the SSE stream is open.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_http_mark_sse(struct lws *wsi);
 
 /**
  * lws_http_compression_apply() - apply an http compression transform

@@ -11,6 +11,8 @@ content over Server Side Events.
 
 ## usage
 
+You can give -s to listen using https on port :443
+
 ```
  $ ./lws-minimal-http-server-sse
 [2018/04/20 06:09:56:9974] USER: LWS minimal http Server-Side Events | visit http://localhost:7681

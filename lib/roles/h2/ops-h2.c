@@ -491,11 +491,11 @@ rops_check_upgrades_h2(struct lws *wsi)
 	wsi->vhost->conn_stats.ws_upg++;
 	lwsl_info("Upgrade h2 to ws\n");
 	wsi->h2_stream_carries_ws = 1;
-	nwsi->ws_over_h2_count++;
+	nwsi->immortal_substream_count++;
 	if (lws_process_ws_upgrade(wsi))
 		return LWS_UPG_RET_BAIL;
 
-	if (nwsi->ws_over_h2_count == 1)
+	if (nwsi->immortal_substream_count == 1)
 		lws_set_timeout(nwsi, NO_PENDING_TIMEOUT, 0);
 
 	lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
@@ -675,12 +675,12 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 			lws_free_set_NULL(wsi->h2.pending_status_body);
 	}
 
-	if (wsi->h2_stream_carries_ws) {
+	if (wsi->h2_stream_carries_ws || wsi->h2_stream_carries_sse) {
 		struct lws *nwsi = lws_get_network_wsi(wsi);
 
-		nwsi->ws_over_h2_count++;
+		nwsi->immortal_substream_count--;
 		/* if no ws, then put a timeout on the parent wsi */
-		if (!nwsi->ws_over_h2_count)
+		if (!nwsi->immortal_substream_count)
 			__lws_set_timeout(nwsi,
 				PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE, 31);
 	}
