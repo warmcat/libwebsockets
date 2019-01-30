@@ -70,6 +70,18 @@ callback_sse(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 
+		/*
+		 * Drop the ah that contains the headers associated with
+		 * this connection... ah are a scarce resource, if we don't
+		 * drop it lws will forcibly drop the whole connection to free
+		 * the ah after 5 minutes or so.
+		 *
+		 * If the content of any http headers are important to you for
+		 * deciding what to send, copy them out to the pss before
+		 * doing the below to drop the ah.
+		 */
+		lws_http_headers_detach(wsi);
+
 		/* write the body separately */
 
 		lws_callback_on_writable(wsi);

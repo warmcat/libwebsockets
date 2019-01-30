@@ -654,6 +654,18 @@ LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_http_transaction_completed(struct lws *wsi);
 
 /**
+ * lws_http_headers_detach() - drop the associated headers storage and allow
+ *				it to be reused by another connection
+ * \param wsi:	http connection
+ *
+ *	Returns 1 if the HTTP connection must close now
+ *	Returns 0 and resets connection to wait for new HTTP header /
+ *	  transaction if possible
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_http_headers_detach(struct lws *wsi);
+
+/**
  * lws_http_compression_apply() - apply an http compression transform
  *
  * \param wsi: the wsi to apply the compression transform to
