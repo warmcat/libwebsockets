@@ -526,4 +526,8 @@ lws_http_compression_apply(struct lws *wsi, const char *name,
 }
 #endif
 
-
+int
+lws_http_headers_detach(struct lws *wsi)
+{
+	return lws_header_table_detach(wsi, 0);
+}

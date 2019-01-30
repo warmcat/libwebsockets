@@ -215,6 +215,18 @@ callback_sse(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		pss->tail = lws_ring_get_oldest_tail(vhd->ring);
 		pss->wsi = wsi;
 
+		/*
+		 * Drop the ah that contains the headers associated with
+		 * this connection... ah are a scarce resource, if we don't
+		 * drop it lws will forcibly drop the whole connection to free
+		 * the ah after 5 minutes or so.
+		 *
+		 * If the content of any http headers are important to you for
+		 * deciding what to send, copy them out to the pss before
+		 * doing the below to drop the ah.
+		 */
+		lws_http_headers_detach(wsi);
+
 		/* Unlike a normal http connection, we don't want any specific
 		 * timeout.  We want to stay up until the client drops us */
 
