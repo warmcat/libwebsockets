@@ -549,6 +549,9 @@ bail:
 
 #endif
 
+#if defined(MBEDTLS_CONFIG_H) && !defined(MBEDTLS_CIPHER_MODE_XTS)
+#else
+
 static const uint8_t
 	/*
 	 * Fedora openssl tool doesn't support xts... this data produced
@@ -633,6 +636,7 @@ bail:
 
 	return -1;
 }
+#endif
 
 static const uint8_t
 	/*
