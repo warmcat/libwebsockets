@@ -338,6 +338,7 @@ LWS_EXTERN struct lws *
 lws_create_adopt_udp(struct lws_vhost *vhost, int port, int flags,
 		     const char *protocol_name, struct lws *parent_wsi)
 {
+#if !defined(LWS_PLAT_OPTEE)
 	lws_sock_file_fd_type sock;
 	struct addrinfo h, *r, *rp;
 	struct lws *wsi = NULL;
@@ -396,6 +397,9 @@ bail1:
 
 bail:
 	return wsi;
+#else
+	return NULL;
+#endif
 }
 
 LWS_VISIBLE struct lws *
