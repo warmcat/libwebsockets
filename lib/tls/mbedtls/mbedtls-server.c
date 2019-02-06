@@ -319,6 +319,11 @@ lws_tls_server_accept(struct lws *wsi)
 	if (m == SSL_ERROR_SYSCALL && errno == 11)
 		return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
 
+#if defined(WIN32)
+	if (m == SSL_ERROR_SYSCALL && errno == 0)
+		return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
+#endif
+
 	if (m == SSL_ERROR_SYSCALL || m == SSL_ERROR_SSL)
 		return LWS_SSL_CAPABLE_ERROR;
 
