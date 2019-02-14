@@ -17,6 +17,7 @@ minimal-http-server-smp|Multiple service threads
 minimal-http-server-sse-ring|Server Side Events with ringbuffer and threaded event sources
 minimal-http-server-sse|Simple Server Side Events
 minimal-http-server-tls-80|Serves a directory over http/1 or http/2 with TLS (SSL), custom 404 handler, redirect to https on port 80
+minimal-http-server-tls-mem|Serves using TLS with the cert and key provided as memory buffers instead of files
 minimal-http-server-tls|Serves a directory over http/1 or http/2 with TLS (SSL), custom 404 handler
 minimal-http-server|Serves a directory over http/1, custom 404 handler
 

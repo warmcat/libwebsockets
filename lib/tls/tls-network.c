@@ -89,7 +89,7 @@ lws_tls_check_cert_lifetime(struct lws_vhost *v)
 		lwsl_notice("   vhost %s: cert expiry: %dd\n", v->name,
 			    (int)life);
 	} else
-		lwsl_notice("   vhost %s: no cert\n", v->name);
+		lwsl_info("   vhost %s: no cert\n", v->name);
 
 	memset(&caa, 0, sizeof(caa));
 	caa.vh = v;

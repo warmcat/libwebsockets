@@ -655,7 +655,7 @@ int x509_pm_load(X509 *x, const unsigned char *buffer, int len)
 	    ret = mbedtls_x509_crt_parse(x509_pm->x509_crt, load_buf, len + 1);
 	    ssl_mem_free(load_buf);
     } else {
-	    printf("parsing as der\n");
+	    // printf("parsing as der\n");
 
 	    ret = mbedtls_x509_crt_parse_der(x509_pm->x509_crt, buffer, len);
     }

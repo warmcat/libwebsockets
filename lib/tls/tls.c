@@ -110,12 +110,23 @@ bail:
 }
 #endif
 
+/*
+ * filename: NULL means use buffer inbuf length inlen directly, otherwise
+ *           load the file "filename" into an allocated buffer.
+ *
+ * Allocates a separate DER output buffer if inbuf / inlen are the input,
+ * since the
+ *
+ * Contents may be PEM or DER: returns with buf pointing to DER and amount
+ * set to the DER length.
+ */
+
 int
 lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
 			      const char *inbuf, lws_filepos_t inlen,
 			      uint8_t **buf, lws_filepos_t *amount)
 {
-	const uint8_t *pem, *p, *end;
+	uint8_t *pem = NULL, *p, *end, *opem;
 	lws_filepos_t len;
 	uint8_t *q;
 	int n;
@@ -125,28 +136,60 @@ lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
 		if (n)
 			return n;
 	} else {
-		pem = (const uint8_t *)inbuf;
+		pem = (uint8_t *)inbuf;
 		len = inlen;
 	}
 
+	opem = p = pem;
+	end = p + len;
+
+	if (strncmp((char *)p, "-----", 5)) {
+
+		/* take it as being already DER */
+
+		pem = lws_malloc(inlen, "alloc_der");
+		if (!pem)
+			return 1;
+
+		memcpy(pem, inbuf, inlen);
+
+		*buf = pem;
+		*amount = inlen;
+
+		return 0;
+	}
+
+	/* PEM -> DER */
+
+	if (!filename) {
+		/* we don't know if it's in const memory... alloc the output */
+		pem = lws_malloc((inlen * 3) / 4, "alloc_der");
+		if (!pem) {
+			lwsl_err("a\n");
+			return 1;
+		}
+
+
+	} /* else overwrite the allocated, b64 input with decoded DER */
+
 	/* trim the first line */
 
-	p = pem;
-	end = p + len;
-	if (strncmp((char *)p, "-----", 5))
-		goto bail;
 	p += 5;
 	while (p < end && *p != '\n' && *p != '-')
 		p++;
 
-	if (*p != '-')
+	if (*p != '-') {
+		lwsl_err("b\n");
 		goto bail;
+	}
 
 	while (p < end && *p != '\n')
 		p++;
 
-	if (p >= end)
+	if (p >= end) {
+		lwsl_err("c\n");
 		goto bail;
+	}
 
 	p++;
 
@@ -154,13 +197,19 @@ lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
 
 	q = (uint8_t *)end - 2;
 
-	while (q > pem && *q != '\n')
+	while (q > opem && *q != '\n')
 		q--;
 
-	if (*q != '\n')
+	if (*q != '\n') {
+		lwsl_err("d\n");
 		goto bail;
+	}
 
-	*q = '\0';
+	/* we can't write into the input buffer for mem, since it may be in RO
+	 * const segment
+	 */
+	if (filename)
+		*q = '\0';
 
 	*amount = lws_b64_decode_string((char *)p, (char *)pem,
 					(int)(long long)len);
@@ -173,6 +222,8 @@ bail:
 
 	return 4;
 }
+
+
 #endif
 
 #if !defined(LWS_WITH_ESP32) && !defined(LWS_PLAT_OPTEE) && !defined(OPTEE_DEV_KIT)

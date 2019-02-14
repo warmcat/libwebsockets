@@ -258,7 +258,12 @@ struct lws_context_creation_info {
 	 * server cert from, otherwise NULL for unencrypted.  (For backwards
 	 * compatibility, this can also be used to pass the client certificate
 	 * when setting up a vhost client SSL context, but it is preferred to
-	 * use .client_ssl_cert_filepath for that.) */
+	 * use .client_ssl_cert_filepath for that.)
+	 *
+	 * Notice you can alternatively set a single DER or PEM from a memory
+	 * buffer as the vhost tls cert using \p server_ssl_cert_mem and
+	 * \p server_ssl_cert_mem_len.
+	 */
 	const char *ssl_private_key_filepath;
 	/**<  VHOST: filepath to private key if wanting SSL mode;
 	 * if this is set to NULL but ssl_cert_filepath is set, the
@@ -267,12 +272,21 @@ struct lws_context_creation_info {
 	 * library calls.   (For backwards compatibility, this can also be used
 	 * to pass the client cert private key filepath when setting up a
 	 * vhost client SSL context, but it is preferred to use
-	 * .client_ssl_private_key_filepath for that.) */
+	 * .client_ssl_private_key_filepath for that.)
+	 *
+	 * Notice you can alternatively set a DER or PEM private key from a
+	 * memory buffer as the vhost tls private key using
+	 * \p server_ssl_private_key_mem and \p server_ssl_private_key_mem_len.
+	 */
 	const char *ssl_ca_filepath;
 	/**< VHOST: CA certificate filepath or NULL.  (For backwards
 	 * compatibility, this can also be used to pass the client CA
 	 * filepath when setting up a vhost client SSL context,
-	 * but it is preferred to use .client_ssl_ca_filepath for that.) */
+	 * but it is preferred to use .client_ssl_ca_filepath for that.)
+	 *
+	 * Notice you can alternatively set a DER or PEM CA cert from a memory
+	 * buffer using \p server_ssl_ca_mem and \p server_ssl_ca_mem_len.
+	 */
 	const char *ssl_cipher_list;
 	/**< VHOST: List of valid ciphers to use ON TLS1.2 AND LOWER ONLY (eg,
 	 * "RC4-MD5:RC4-SHA:AES128-SHA:AES256-SHA:HIGH:!DSS:!aNULL"
@@ -598,6 +612,28 @@ struct lws_context_creation_info {
 	/**< VHOST: NULL for default, or force accepted incoming connections to
 	 * bind to this vhost protocol name.
 	 */
+
+	const void *server_ssl_cert_mem;
+	/**< VHOST: Alternative for \p ssl_cert_filepath that allows setting
+	 * from memory instead of from a file.  At most one of
+	 * \p ssl_cert_filepath or \p server_ssl_cert_mem should be non-NULL. */
+	unsigned int server_ssl_cert_mem_len;
+	/**< VHOST: Server SSL context init: length of server_ssl_cert_mem in
+	 * bytes */
+	const void *server_ssl_private_key_mem;
+	/**<  VHOST: Alternative for \p ssl_private_key_filepath allowing
+	 * init from a private key in memory instead of a file.  At most one
+	 * of \p ssl_private_key_filepath or \p server_ssl_private_key_mem
+	 * should be non-NULL. */
+	unsigned int server_ssl_private_key_mem_len;
+	/**< VHOST: length of \p server_ssl_private_key_mem in memory */
+	const void *server_ssl_ca_mem;
+	/**< VHOST: Alternative for \p ssl_ca_filepath allowing
+	 * init from a CA cert in memory instead of a file.  At most one
+	 * of \p ssl_ca_filepath or \p server_ssl_ca_mem should be non-NULL. */
+	unsigned int server_ssl_ca_mem_len;
+	/**< VHOST: length of \p server_ssl_ca_mem in memory */
+
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility

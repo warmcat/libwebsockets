@@ -110,14 +110,14 @@ lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 	}
 
 	/*
-	 * If he is giving a cert filepath, take it as a sign he wants to use
+	 * If he is giving a server cert, take it as a sign he wants to use
 	 * it on this vhost.  User code can leave the cert filepath NULL and
 	 * set the LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX option itself, in
 	 * which case he's expected to set up the cert himself at
 	 * LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS, which
 	 * provides the vhost SSL_CTX * in the user parameter.
 	 */
-	if (info->ssl_cert_filepath)
+	if (info->ssl_cert_filepath || info->server_ssl_cert_mem)
 		vhost->options |= LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX;
 
 	if (info->port != CONTEXT_PORT_NO_LISTEN) {
