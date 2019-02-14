@@ -101,15 +101,13 @@ lws_mbedtls_sni_cb(void *arg, mbedtls_ssl_context *mbedtls_ctx,
 int
 lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 			  const char *cert, const char *private_key,
-			  const char *mem_cert, size_t len_mem_cert,
+			  const char *mem_cert, size_t mem_cert_len,
 			  const char *mem_privkey, size_t mem_privkey_len)
 {
-	int n, f = 0;
-	const char *filepath = private_key;
-	uint8_t *mem = NULL, *p = NULL;
-	size_t mem_len = 0;
 	lws_filepos_t flen;
+	uint8_t *p = NULL;
 	long err;
+	int n;
 
 	if ((!cert || !private_key) && (!mem_cert || !mem_privkey)) {
 		lwsl_notice("%s: no usable input\n", __func__);
@@ -142,58 +140,43 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 		 * The passed memory-buffer cert image is in DER, and the
 		 * memory-buffer private key image is PEM.
 		 */
-		/* mem cert is already DER */
-		p = (uint8_t *)mem_cert;
-		flen = len_mem_cert;
-		/* mem private key is PEM, so go through the motions */
-		mem = (uint8_t *)mem_privkey;
-		mem_len = mem_privkey_len;
-		filepath = NULL;
-	} else {
-		if (lws_tls_alloc_pem_to_der_file(vhost->context, cert, NULL,
-						  0, &p, &flen)) {
-			lwsl_err("couldn't find cert file %s\n", cert);
+		cert = NULL;
+		private_key = NULL;
 
+		if (!mem_cert)
 			return 1;
-		}
-		f = 1;
 	}
+	if (lws_tls_alloc_pem_to_der_file(vhost->context, cert, mem_cert,
+					  mem_cert_len, &p, &flen)) {
+		lwsl_err("couldn't find cert file %s\n", cert);
+
+		return 1;
+	}
+
 	err = SSL_CTX_use_certificate_ASN1(vhost->tls.ssl_ctx, flen, p);
+	lws_free_set_NULL(p);
 	if (!err) {
-		free(p);
 		lwsl_err("Problem loading cert\n");
 		return 1;
 	}
 
-	if (f)
-		free(p);
-	p = NULL;
+	if (lws_tls_alloc_pem_to_der_file(vhost->context, private_key,
+					  (char *)mem_privkey, mem_privkey_len,
+					  &p, &flen)) {
+		lwsl_err("couldn't find private key\n");
 
-	if (private_key || n == LWS_TLS_EXTANT_ALTERNATIVE) {
-		if (lws_tls_alloc_pem_to_der_file(vhost->context, filepath,
-						  (char *)mem, mem_len, &p,
-						  &flen)) {
-			lwsl_err("couldn't find private key file %s\n",
-					private_key);
-
-			return 1;
-		}
-		err = SSL_CTX_use_PrivateKey_ASN1(0, vhost->tls.ssl_ctx, p, flen);
-		if (!err) {
-			free(p);
-			lwsl_err("Problem loading key\n");
-
-			return 1;
-		}
+		return 1;
 	}
 
-	if (p && !mem_privkey) {
-		free(p);
-		p = NULL;
+	err = SSL_CTX_use_PrivateKey_ASN1(0, vhost->tls.ssl_ctx, p, flen);
+	lws_free_set_NULL(p);
+	if (!err) {
+		lwsl_err("Problem loading key\n");
+
+		return 1;
 	}
 
-	if (!private_key && !mem_privkey &&
-	    vhost->protocols[0].callback(wsi,
+	if (!private_key && !mem_privkey && vhost->protocols[0].callback(wsi,
 			LWS_CALLBACK_OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY,
 			vhost->tls.ssl_ctx, NULL, 0)) {
 		lwsl_err("ssl private key not set\n");
@@ -221,7 +204,8 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 		return 1;
 	}
 
-	if (!vhost->tls.use_ssl || !info->ssl_cert_filepath)
+	if (!vhost->tls.use_ssl ||
+	    (!info->ssl_cert_filepath && !info->server_ssl_cert_mem))
 		return 0;
 
 	if (info->ssl_ca_filepath) {
@@ -242,11 +226,23 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 			return 1;
 		}
 		free(p);
+	} else {
+		if (info->server_ssl_ca_mem && info->server_ssl_ca_mem_len &&
+		    SSL_CTX_add_client_CA_ASN1(vhost->tls.ssl_ctx, (int)flen, p)
+				    != 1) {
+			lwsl_err("%s: mem SSL_CTX_add_client_CA_ASN1 unhappy\n",
+				 __func__);
+			return 1;
+		}
+		lwsl_notice("%s: vh %s: mem CA OK\n", __func__, vhost->name);
 	}
 
 	n = lws_tls_server_certs_load(vhost, wsi, info->ssl_cert_filepath,
-				      info->ssl_private_key_filepath, NULL,
-				      0, NULL, 0);
+				      info->ssl_private_key_filepath,
+				      info->server_ssl_cert_mem,
+				      info->server_ssl_cert_mem_len,
+				      info->server_ssl_private_key_mem,
+				      info->server_ssl_private_key_mem_len);
 	if (n)
 		return n;
 

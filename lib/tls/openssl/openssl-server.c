@@ -149,7 +149,7 @@ lws_ssl_server_name_cb(SSL *ssl, int *ad, void *arg)
 int
 lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 			  const char *cert, const char *private_key,
-			  const char *mem_cert, size_t len_mem_cert,
+			  const char *mem_cert, size_t mem_cert_len,
 			  const char *mem_privkey, size_t mem_privkey_len)
 {
 #if !defined(OPENSSL_NO_EC)
@@ -166,8 +166,12 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 	unsigned long error;
 	lws_filepos_t flen;
 	uint8_t *p;
+	int ret;
 
 	int n = lws_tls_generic_cert_checks(vhost, cert, private_key), m;
+
+	if (!cert && !private_key)
+		n = LWS_TLS_EXTANT_ALTERNATIVE;
 
 	if (n == LWS_TLS_EXTANT_NO && (!mem_cert || !mem_privkey))
 		return 0;
@@ -184,83 +188,104 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 		 * the rights to read our own cert + key we saved.
 		 *
 		 * If we were passed copies in memory buffers, use those
-		 * instead.
-		 *
-		 * The passed memory-buffer cert image is in DER, and the
-		 * memory-buffer private key image is PEM.
+		 * in favour of the filepaths we normally want.
 		 */
-#ifndef USE_WOLFSSL
-		if (SSL_CTX_use_certificate_ASN1(vhost->tls.ssl_ctx,
-						 (int)len_mem_cert,
-						 (uint8_t *)mem_cert) != 1) {
-#else
-		if (wolfSSL_CTX_use_certificate_buffer(vhost->tls.ssl_ctx,
-						 (uint8_t *)mem_cert,
-						 (int)len_mem_cert,
-						 WOLFSSL_FILETYPE_ASN1) != 1) {
-
-#endif
-			lwsl_err("Problem loading update cert\n");
-
-			return 1;
-		}
-
-		if (lws_tls_alloc_pem_to_der_file(vhost->context, NULL,
-						  mem_privkey, mem_privkey_len,
-						  &p, &flen)) {
-			lwsl_notice("unable to convert memory privkey\n");
-
-			return 1;
-		}
-#ifndef USE_WOLFSSL
-		if (SSL_CTX_use_PrivateKey_ASN1(EVP_PKEY_RSA,
-						vhost->tls.ssl_ctx, p,
-						(long)(long long)flen) != 1) {
-#else
-		if (wolfSSL_CTX_use_PrivateKey_buffer(vhost->tls.ssl_ctx, p,
-					    flen, WOLFSSL_FILETYPE_ASN1) != 1) {
-#endif
-			lwsl_notice("unable to use memory privkey\n");
-
-			return 1;
-		}
-
-		goto check_key;
+		cert = NULL;
+		private_key = NULL;
 	}
 
-	/* set the local certificate from CertFile */
-	m = SSL_CTX_use_certificate_chain_file(vhost->tls.ssl_ctx, cert);
-	if (m != 1) {
-		error = ERR_get_error();
-		lwsl_err("problem getting cert '%s' %lu: %s\n",
-			 cert, error, ERR_error_string(error,
-			       (char *)vhost->context->pt[0].serv_buf));
+	/*
+	 * use the multi-cert interface for backwards compatibility in the
+	 * both simple files case
+	 */
+
+	if (n != LWS_TLS_EXTANT_ALTERNATIVE && cert) {
+
+		/* set the local certificate from CertFile */
+		m = SSL_CTX_use_certificate_chain_file(vhost->tls.ssl_ctx, cert);
+		if (m != 1) {
+			error = ERR_get_error();
+			lwsl_err("problem getting cert '%s' %lu: %s\n",
+				 cert, error, ERR_error_string(error,
+				       (char *)vhost->context->pt[0].serv_buf));
+
+			return 1;
+		}
+
+		if (private_key) {
+			/* set the private key from KeyFile */
+			if (SSL_CTX_use_PrivateKey_file(vhost->tls.ssl_ctx, private_key,
+							SSL_FILETYPE_PEM) != 1) {
+				error = ERR_get_error();
+				lwsl_err("ssl problem getting key '%s' %lu: %s\n",
+					 private_key, error,
+					 ERR_error_string(error,
+					      (char *)vhost->context->pt[0].serv_buf));
+				return 1;
+			}
+		} else {
+			if (vhost->protocols[0].callback(wsi,
+				      LWS_CALLBACK_OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY,
+							 vhost->tls.ssl_ctx, NULL, 0)) {
+				lwsl_err("ssl private key not set\n");
+
+				return 1;
+			}
+		}
+
+		return 0;
+	}
+
+	/* otherwise allow for DER or PEM, file or memory image */
+
+	if (lws_tls_alloc_pem_to_der_file(vhost->context, cert, mem_cert,
+					  mem_cert_len, &p, &flen)) {
+		lwsl_err("%s: couldn't read cert file\n", __func__);
 
 		return 1;
 	}
 
-	if (n != LWS_TLS_EXTANT_ALTERNATIVE && private_key) {
-		/* set the private key from KeyFile */
-		if (SSL_CTX_use_PrivateKey_file(vhost->tls.ssl_ctx, private_key,
-					        SSL_FILETYPE_PEM) != 1) {
-			error = ERR_get_error();
-			lwsl_err("ssl problem getting key '%s' %lu: %s\n",
-				 private_key, error,
-				 ERR_error_string(error,
-				      (char *)vhost->context->pt[0].serv_buf));
-			return 1;
-		}
-	} else {
-		if (vhost->protocols[0].callback(wsi,
-			      LWS_CALLBACK_OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY,
-						 vhost->tls.ssl_ctx, NULL, 0)) {
-			lwsl_err("ssl private key not set\n");
+#if !defined(USE_WOLFSSL)
+	ret = SSL_CTX_use_certificate_ASN1(vhost->tls.ssl_ctx, (int)flen, p);
+#else
+	ret = wolfSSL_CTX_use_certificate_buffer(vhost->tls.ssl_ctx,
+						 (uint8_t *)p, (int)flen,
+						 WOLFSSL_FILETYPE_ASN1);
+#endif
+	lws_free_set_NULL(p);
+	if (ret != 1) {
+		lwsl_err("%s: Problem loading cert\n", __func__);
 
-			return 1;
-		}
+		return 1;
 	}
 
-check_key:
+	if (lws_tls_alloc_pem_to_der_file(vhost->context, private_key,
+					  mem_privkey, mem_privkey_len,
+					  &p, &flen)) {
+		lwsl_notice("unable to convert memory privkey\n");
+
+		return 1;
+	}
+
+#if !defined(USE_WOLFSSL)
+	ret = SSL_CTX_use_PrivateKey_ASN1(EVP_PKEY_RSA, vhost->tls.ssl_ctx, p,
+					  (long)(long long)flen);
+	if (ret != 1) {
+		ret = SSL_CTX_use_PrivateKey_ASN1(EVP_PKEY_EC,
+						  vhost->tls.ssl_ctx, p,
+						  (long)(long long)flen);
+	}
+#else
+	ret = wolfSSL_CTX_use_PrivateKey_buffer(vhost->tls.ssl_ctx, p, flen,
+						WOLFSSL_FILETYPE_ASN1);
+#endif
+	lws_free_set_NULL(p);
+	if (ret != 1)  {
+		lwsl_notice("unable to use memory privkey\n");
+
+		return 1;
+	}
+
 	/* verify private key */
 	if (!SSL_CTX_check_private_key(vhost->tls.ssl_ctx)) {
 		lwsl_err("Private SSL key doesn't match cert\n");
@@ -348,8 +373,7 @@ post_ecdh:
 
 int
 lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
-				  struct lws_vhost *vhost,
-				  struct lws *wsi)
+				  struct lws_vhost *vhost, struct lws *wsi)
 {
 	unsigned long error;
 	SSL_METHOD *method = (SSL_METHOD *)SSLv23_server_method();
@@ -416,14 +440,18 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 
 	lwsl_info(" SSL options 0x%lX\n",
 			(unsigned long)SSL_CTX_get_options(vhost->tls.ssl_ctx));
-	if (!vhost->tls.use_ssl || !info->ssl_cert_filepath)
+	if (!vhost->tls.use_ssl ||
+	    (!info->ssl_cert_filepath && !info->server_ssl_cert_mem))
 		return 0;
 
 	lws_ssl_bind_passphrase(vhost->tls.ssl_ctx, info);
 
 	return lws_tls_server_certs_load(vhost, wsi, info->ssl_cert_filepath,
 					 info->ssl_private_key_filepath,
-					 NULL, 0, NULL, 0);
+					 info->server_ssl_cert_mem,
+					 info->server_ssl_cert_mem_len,
+					 info->server_ssl_private_key_mem,
+					 info->server_ssl_private_key_mem_len);
 }
 
 int
@@ -512,7 +540,7 @@ lws_tls_server_accept(struct lws *wsi)
 
 		return LWS_SSL_CAPABLE_DONE;
 	}
-
+	lws_tls_err_describe();
 	m = lws_ssl_get_error(wsi, n);
 
 	if (m == SSL_ERROR_SYSCALL || m == SSL_ERROR_SSL)
