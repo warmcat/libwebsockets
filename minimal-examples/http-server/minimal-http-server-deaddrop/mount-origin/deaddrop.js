@@ -19,11 +19,6 @@
 		return encodeURI(s).replace(/@/g, "%40");
 	}
 
-	function lws_urldecode(s)
-	{
-		return decodeURI(s).replace(/%40/g, "@");
-	}
-
 	function trim(num)
 	{
 		var s = num.toString();
@@ -31,10 +26,10 @@
 		if (!s.indexOf("."))
 			return s;
 
-		while (s.length && s[s.length - 1] == "0")
+		while (s.length && s[s.length - 1] === "0")
 			s = s.substring(0, s.length - 1);
 
-		if (s[s.length - 1] == ".")
+		if (s[s.length - 1] === ".")
 			s = s.substring(0, s.length - 1);
 
 		return s;
@@ -90,7 +85,7 @@
 		var formData = new FormData();
 		var t = document.getElementById("ongoing");
 
-		formData.append('file', file);
+		formData.append("file", file);
 
 		var row = t.insertRow(0), c1 = row.insertCell(0),
 		c2 = row.insertCell(1), c3 = row.insertCell(2);
@@ -115,7 +110,7 @@
 			return;
 
 		fetch("upload/" + lws_urlencode(file.name), {
-			method: 'POST',
+			method: "POST",
 			body: formData
 		})
 		.then((e) => { /* this just means we got a response code */			  
@@ -144,7 +139,7 @@
 					t.rows[n].cells[0] = "FAIL";
 					break;
 				}
-		})
+		});
 	}
 
 	function da_drop(e) {
@@ -155,7 +150,7 @@
 
 		clear_errors();
 
-		([...e.dataTransfer.files]).forEach(do_upload)	
+		([...e.dataTransfer.files]).forEach(do_upload);
 	}
 
 	function upl_button(e) {
@@ -165,7 +160,7 @@
 		clear_errors();
 		e.preventDefault();
 
-		([...fi.files]).forEach(do_upload)	
+		([...fi.files]).forEach(do_upload);
 	}
 
 	function body_drop(e) {
@@ -184,7 +179,7 @@
 		e.stopPropagation();
 		e.preventDefault();
 
-		ws.send("{\"del\":\"" + lws_urldecode(e.target.getAttribute("file")) +
+		ws.send("{\"del\":\"" + decodeURI(e.target.getAttribute("file")) +
 		"\"}");
 	}
 

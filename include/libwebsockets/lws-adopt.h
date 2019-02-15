@@ -88,7 +88,7 @@ struct lws_udp {
 };
 #endif
 
-/*
+/**
 * lws_adopt_descriptor_vhost() - adopt foreign socket or file descriptor
 * if socket descriptor, should already have been accepted from listen socket
 *

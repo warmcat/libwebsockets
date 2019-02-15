@@ -141,7 +141,11 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		m |= pt->context->tls_ops->fake_POLLIN_for_buffered(pt);
 #endif
 
-	if (!m && !n) { /* nothing to do */
+	if (
+#if (defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)) || defined(LWS_WITH_TLS)
+		!m &&
+#endif
+		!n) { /* nothing to do */
 		lws_service_fd_tsi(context, NULL, tsi);
 		lws_service_do_ripe_rxflow(pt);
 
