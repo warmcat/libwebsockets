@@ -279,7 +279,7 @@ create_new_conn:
        lwsl_info("%s: %p: address %s:%u\n", __func__, wsi, ads, port);
 
        n = lws_getaddrinfo46(wsi, ads, &result);
-
+	memset(&sa46, 0, sizeof(sa46));
 #ifdef LWS_WITH_IPV6
 	if (wsi->ipv6) {
 		struct sockaddr_in6 *sa6;
@@ -293,9 +293,6 @@ create_new_conn:
 		}
 
 		sa6 = ((struct sockaddr_in6 *)result->ai_addr);
-
-		memset(&sa46, 0, sizeof(sa46));
-
 		sa46.sa6.sin6_family = AF_INET6;
 		switch (result->ai_family) {
 		case AF_INET:
@@ -375,7 +372,7 @@ create_new_conn:
 
 		sa46.sa4.sin_family = AF_INET;
 		sa46.sa4.sin_addr = *((struct in_addr *)p);
-		bzero(&sa46.sa4.sin_zero, 8);
+		bzero(&sa46.sa4.sin_zero, sizeof(sa46.sa4.sin_zero));
 	}
 
 	if (result)
