@@ -133,8 +133,6 @@ test_jwe_a1(struct lws_context *context)
 
 	/* we require a JOSE-formatted header to do the encryption */
 
-	if (temp_len < 256)
-		goto bail;
 	jwe.jws.map.buf[LJWS_JOSE] = temp;
 	jwe.jws.map.len[LJWS_JOSE] = lws_snprintf(temp, temp_len,
 			"{\"alg\":\"%s\",\"enc\":\"%s\"}", "RSA-OAEP", "A256GCM");
@@ -1979,8 +1977,6 @@ test_akw_encrypt(struct lws_context *context, const char *test_name,
 
 	/* we require a JOSE-formatted header to do the encryption */
 
-	if (temp_len < 256)
-		goto bail;
 	jwe.jws.map.buf[LJWS_JOSE] = temp;
 	jwe.jws.map.len[LJWS_JOSE] = lws_snprintf(temp, temp_len,
 			"{\"alg\":\"%s\", \"enc\":\"%s\"}", alg, enc);

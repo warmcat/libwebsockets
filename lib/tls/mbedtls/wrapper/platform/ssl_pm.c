@@ -884,11 +884,21 @@ SSL *SSL_SSL_from_mbedtls_ssl_context(mbedtls_ssl_context *msc)
 
 void SSL_set_SSL_CTX(SSL *ssl, SSL_CTX *ctx)
 {
-#if defined(LWS_HAVE_mbedtls_ssl_set_hs_authmode)
+#if defined(LWS_HAVE_mbedtls_ssl_set_hs_authmode) || \
+    defined(LWS_HAVE_mbedtls_ssl_set_hs_ca_chain) || \
+    defined(LWS_HAVE_mbedtls_ssl_set_hs_own_cert)
 	struct ssl_pm *ssl_pm = ssl->ssl_pm;
+#endif
+#if defined(LWS_HAVE_mbedtls_ssl_set_hs_own_cert)
 	struct x509_pm *x509_pm = (struct x509_pm *)ctx->cert->x509->x509_pm;
+#endif
+#if defined(LWS_HAVE_mbedtls_ssl_set_hs_ca_chain)
 	struct x509_pm *x509_pm_ca = (struct x509_pm *)ctx->client_CA->x509_pm;
+#endif
+#if defined(LWS_HAVE_mbedtls_ssl_set_hs_own_cert)
 	struct pkey_pm *pkey_pm = (struct pkey_pm *)ctx->cert->pkey->pkey_pm;
+#endif
+#if defined(LWS_HAVE_mbedtls_ssl_set_hs_authmode)
 	int mode;
 #endif
 
@@ -907,8 +917,6 @@ void SSL_set_SSL_CTX(SSL *ssl, SSL_CTX *ctx)
 	else
 	        mode = MBEDTLS_SSL_VERIFY_NONE;
 #endif
-
-	    // printf("ssl: %p, client ca x509_crt %p, mbedtls mode %d\n", ssl, x509_pm_ca->x509_crt, mode);
 
 	/* apply new ctx cert to ssl */
 

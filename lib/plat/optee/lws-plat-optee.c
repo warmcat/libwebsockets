@@ -93,9 +93,11 @@ void lwsl_emit_optee(int level, const char *line)
         n = strlen(line);
         if ((unsigned int)n > sizeof(linecp) - 1)
                 n = sizeof(linecp) - 1;
-        if (n)
+        if (n) {
                 memcpy(linecp, line, n - 1);
-        linecp[n - 1] = '\0';
+	        linecp[n - 1] = '\0';
+	} else
+		linecp[0] = '\0';
         EMSG("%c%s%s%s%c[0m", 27, colours[m], buf, linecp, 27);
 }
 
