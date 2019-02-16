@@ -193,6 +193,7 @@ callback_raw_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		lws_tokenize_init(&ts, cp, LWS_TOKENIZE_F_DOT_NONTERM |
 					   LWS_TOKENIZE_F_MINUS_NONTERM |
 					   LWS_TOKENIZE_F_NO_FLOATS);
+		ts.len = strlen(cp);
 
 		if (lws_tokenize(&ts) != LWS_TOKZE_TOKEN)
 			goto bad_onward;
