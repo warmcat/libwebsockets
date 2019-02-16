@@ -1037,12 +1037,14 @@ again:
 
 		case SSHS_DO_UAR_SVC:
 			pss->ua->username = (char *)pss->last_alloc;
+			pss->last_alloc = NULL; /* it was adopted */
 			state_get_string_alloc(pss, SSHS_DO_UAR_PUBLICKEY);
 			/* destroyed with UA struct */
 			break;
 
 		case SSHS_DO_UAR_PUBLICKEY:
 			pss->ua->service = (char *)pss->last_alloc;
+			pss->last_alloc = NULL; /* it was adopted */
 
 			/* Sect 5, RFC4252
 			 *
@@ -1104,6 +1106,7 @@ again:
 
 		case SSHS_NVC_DO_UAR_ALG:
 			pss->ua->alg = (char *)pss->last_alloc;
+			pss->last_alloc = NULL; /* it was adopted */
 			if (rsa_hash_alg_from_ident(pss->ua->alg) < 0) {
 				lwsl_notice("unknown alg\n");
 				goto ua_fail;
@@ -1114,7 +1117,7 @@ again:
 
 		case SSHS_NVC_DO_UAR_PUBKEY_BLOB:
 			pss->ua->pubkey = pss->last_alloc;
-			pss->last_alloc = NULL;
+			pss->last_alloc = NULL; /* it was adopted */
 			pss->ua->pubkey_len = pss->npos;
 			/*
 			 * RFC4253
@@ -1172,7 +1175,7 @@ again:
 			}
 			lwsl_info("SSHS_DO_UAR_SIG\n");
 			pss->ua->sig = pss->last_alloc;
-			pss->last_alloc = NULL;
+			pss->last_alloc = NULL; /* it was adopted */
 			pss->ua->sig_len = pss->npos;
 			pss->parser_state = SSHS_MSG_EAT_PADDING;
 
@@ -1354,6 +1357,7 @@ again:
 
 		case SSHS_NVC_DISCONNECT_DESC:
 			pss->disconnect_desc = (char *)pss->last_alloc;
+			pss->last_alloc = NULL; /* it was adopted */
 			state_get_string(pss, SSHS_NVC_DISCONNECT_LANG);
 			break;
 
@@ -1520,12 +1524,13 @@ again:
 		case SSHS_NVC_CHRQ_MODES:
 			/* modes is a stream of byte-pairs, not a string */
 			pss->args.pty.modes = (char *)pss->last_alloc;
+			pss->last_alloc = NULL; /* it was adopted */
 			pss->args.pty.modes_len = pss->npos;
 			n = 0;
 			if (pss->vhd->ops && pss->vhd->ops->pty_req)
 				n = pss->vhd->ops->pty_req(pss->ch_temp->priv,
 							&pss->args.pty);
-			ssh_free_set_NULL(pss->last_alloc);
+			ssh_free_set_NULL(pss->args.pty.modes);
 			if (n)
 				goto chrq_fail;
 			if (pss->rq_want_reply)
