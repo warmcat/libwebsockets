@@ -575,9 +575,10 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 				__remove_wsi_socket_from_fds(siwsi);
 				lwsi_set_state(siwsi, LRS_DEAD_SOCKET);
 				siwsi->socket_is_permanently_unusable = 1;
-				lws_remove_child_from_any_parent(siwsi);
+//				lws_remove_child_from_any_parent(siwsi);
 				if (wsi->context->event_loop_ops->
 							close_handle_manually) {
+
 					wsi->context->event_loop_ops->
 						close_handle_manually(siwsi);
 					siwsi->told_event_loop_closed = 1;
@@ -587,7 +588,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 				}
 				wsi->http.cgi->pipe_fds[LWS_STDIN][1] = -1;
 
-				args->stdwsi[LWS_STDIN] = NULL;
+//				args->stdwsi[LWS_STDIN] = NULL;
 			}
 		}
 

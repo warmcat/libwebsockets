@@ -200,10 +200,13 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 
 #ifdef LWS_WITH_CGI
 	if (wsi->role_ops == &role_ops_cgi) {
+
+		// lwsl_debug("%s: closing stdwsi index %d\n", __func__, (int)wsi->cgi_channel);
+
 		/* we are not a network connection, but a handler for CGI io */
 		if (wsi->parent && wsi->parent->http.cgi) {
 
-			if (wsi->cgi_channel == LWS_STDOUT)
+			if (wsi->parent->child_list == wsi && !wsi->sibling_list)
 				lws_cgi_remove_and_kill(wsi->parent);
 
 			/* end the binding between us and master */
@@ -414,9 +417,8 @@ just_kill_connection:
 	__lws_remove_from_timeout_list(wsi);
 	lws_dll_lws_remove(&wsi->dll_hrtimer);
 
-	/* don't repeat event loop stuff */
-	if (wsi->told_event_loop_closed)
-		return;
+	//if (wsi->told_event_loop_closed) // cgi std close case (dummy-callback)
+	//	return;
 
 	/* checking return redundant since we anyway close */
 	if (wsi->desc.sockfd != LWS_SOCK_INVALID)
@@ -493,11 +495,13 @@ __lws_close_free_wsi_final(struct lws *wsi)
 			if (wsi->http.cgi->pipe_fds[n][!!(n == 0)] == 0)
 				lwsl_err("ZERO FD IN CGI CLOSE");
 
-			if (wsi->http.cgi->pipe_fds[n][!!(n == 0)] >= 0)
+			if (wsi->http.cgi->pipe_fds[n][!!(n == 0)] >= 0) {
 				close(wsi->http.cgi->pipe_fds[n][!!(n == 0)]);
+				wsi->http.cgi->pipe_fds[n][!!(n == 0)] = LWS_SOCK_INVALID;
+			}
 		}
 
-		lws_free(wsi->http.cgi);
+		lws_free_set_NULL(wsi->http.cgi);
 	}
 #endif
 
