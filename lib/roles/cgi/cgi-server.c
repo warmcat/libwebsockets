@@ -135,6 +135,11 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 	sum = cgi->summary;
 	sumend = sum + strlen(cgi->summary) - 1;
 
+	for (n = 0; n < 3; n++) {
+		cgi->pipe_fds[n][0] = -1;
+		cgi->pipe_fds[n][1] = -1;
+	}
+
 	/* create pipes for [stdin|stdout] and [stderr] */
 
 	for (n = 0; n < 3; n++)
@@ -145,12 +150,14 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 
 	for (n = 0; n < 3; n++) {
 		cgi->stdwsi[n] = lws_create_basic_wsi(wsi->context, wsi->tsi);
-		if (!cgi->stdwsi[n])
+		if (!cgi->stdwsi[n]) {
+			lwsl_err("%s: unable to create cgi stdwsi\n", __func__);
 			goto bail2;
+		}
 		cgi->stdwsi[n]->cgi_channel = n;
 		lws_vhost_bind_wsi(wsi->vhost, cgi->stdwsi[n]);
 
-		lwsl_debug("%s: cgi %p: pipe fd %d -> fd %d / %d\n", __func__,
+		lwsl_debug("%s: cgi stdwsi %p: pipe idx %d -> fd %d / %d\n", __func__,
 			   cgi->stdwsi[n], n, cgi->pipe_fds[n][!!(n == 0)],
 			   cgi->pipe_fds[n][!(n == 0)]);
 
@@ -504,14 +511,14 @@ bail3:
 		__remove_wsi_socket_from_fds(wsi->http.cgi->stdwsi[n]);
 bail2:
 	for (n = 0; n < 3; n++)
-		if (wsi->http.cgi->stdwsi[n] > 0)
+		if (wsi->http.cgi->stdwsi[n])
 			__lws_free_wsi(cgi->stdwsi[n]);
 
 bail1:
 	for (n = 0; n < 3; n++) {
-		if (cgi->pipe_fds[n][0] > 0)
+		if (cgi->pipe_fds[n][0] >= 0)
 			close(cgi->pipe_fds[n][0]);
-		if (cgi->pipe_fds[n][1] > 0)
+		if (cgi->pipe_fds[n][1] >= 0)
 			close(cgi->pipe_fds[n][1]);
 	}
 
