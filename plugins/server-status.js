@@ -17,14 +17,14 @@ function humanize(s)
 {
 	var i = parseInt(s, 10);
 	
-	if (i > 1000000000)
-		return (i / 1000000000).toFixed(3) + "G";
+	if (i >= (1024 * 1024 * 1024))
+		return (i / (1024 * 1024 * 1024)).toFixed(3) + "Gi";
 	
-	if (i > 1000000)
-		return (i / 1000000).toFixed(3) + "M";
+	if (i >= (1024 * 1024))
+		return (i / (1024 * 1024)).toFixed(3) + "Mi";
 	
-	if (i > 1000)
-		return (i / 1000).toFixed(3) + "K";
+	if (i > 1024)
+		return (i / 1024).toFixed(3) + "Ki";
 	
 	return s;
 }
@@ -85,20 +85,26 @@ function ws_open_server_status()
 				s = "<table><tr><td></td><td class=\"dc0\">";
 			s +=
 			  "Server</td><td>" +
-			  "<span class=n>Version:</span> <span class=v>" +
+			  "<span class=\"sn\">Server Version:</span> <span class=\"v\">" +
 			   san(jso.i.version) + "</span><br>" +
-			  "<span class=n>Uptime:</span> <span class=v>" +
+			  "<span class=\"sn\">Host Uptime:</span> <span class=\"v\">" +
 			  ((u / (24 * 3600)) | 0) + "d " +
 			  (((u % (24 * 3600)) / 3600) | 0) + "h " +
 			  (((u % 3600) / 60) | 0) + "m</span>";
 			if (jso.i.l1)
-				s = s + ", <span class=n>Load:</span> <span class=v>" + san(jso.i.l1) + " ";
+				s = s + ", <span class=\"sn\">Host Load:</span> <span class=\"v\">" + san(jso.i.l1) + " ";
 			if (jso.i.l2)
 				s = s + san(jso.i.l2) + " ";
 			if (jso.i.l3)
 				s = s + san(jso.i.l3);
 			if (jso.i.l1)
-				s =s + "<span>";
+				s =s + "</span>";
+				
+			if (jso.i.statm) {
+				var sm = jso.i.statm.split(" ");
+				s += ", <span class=\"sn\">Virt stack + heap Usage:</span> <span class=\"v\">" +
+					humanize(parseInt(sm[0], 10) * 4096) + "B</span>";
+			}
 				
 			for (n = 0; n < jso.files.length; n++) {
 				s += "<br><span class=n>" + san(jso.files[n].path) + ":</span><br>    " + san(jso.files[n].val);
@@ -115,7 +121,7 @@ function ws_open_server_status()
 					  "Deprecated Context " + ci + "</td><td>";
 
 				  u = parseInt(san(jso.i.contexts[ci].context_uptime), 10);
-	  			  s += "<span class=n>Uptime:</span> <span class=v>" +
+	  			  s += "<span class=n>Server Uptime:</span> <span class=v>" +
 				  ((u / (24 * 3600)) | 0) + "d " +
 				  (((u % (24 * 3600)) / 3600) | 0) + "h " +
 				  (((u % 3600) / 60) | 0) + "m</span>";
@@ -125,8 +131,8 @@ function ws_open_server_status()
 				  "<span class=n>Listening wsi:</span> <span class=v>" + san(jso.i.contexts[ci].listen_wsi) + "</span>, " +
 				  "<span class=n>Current wsi alive:</span> <span class=v>" + (parseInt(san(jso.i.contexts[ci].wsi_alive), 10) -
 						  parseInt(san(jso.i.contexts[ci].listen_wsi), 10)) + "</span><br>" +
-			  	  "<span class=n>Total Rx:</span> <span class=v>" + humanize(san(jso.i.contexts[ci].rx)) +"</span>, " +
-			  	  "<span class=n>Total Tx:</span> <span class=v>" + humanize(san(jso.i.contexts[ci].tx)) +"</span><br>" +
+			  	  "<span class=n>Total Rx:</span> <span class=v>" + humanize(san(jso.i.contexts[ci].rx)) +"B</span>, " +
+			  	  "<span class=n>Total Tx:</span> <span class=v>" + humanize(san(jso.i.contexts[ci].tx)) +"B</span><br>" +
 			  	  
 			  	  "<span class=n>CONNECTIONS: HTTP/1.x:</span> <span class=v>" + san(jso.i.contexts[ci].h1_conn) +"</span>, " +
 			  	  "<span class=n>Websocket:</span> <span class=v>" + san(jso.i.contexts[ci].ws_upg) +"</span>, " +
@@ -174,8 +180,8 @@ function ws_open_server_status()
 						s = s + " (STS)";
 					s = s +"<br>" +
 					
-					  "<span class=n>Total Rx:</span> <span class=v>" + humanize(san(jso.i.contexts[ci].vhosts[n].rx)) +"</span>, " +
-					  "<span class=n>Total Tx:</span> <span class=v>" + humanize(san(jso.i.contexts[ci].vhosts[n].tx)) +"</span><br>" +
+					  "<span class=n>Total Rx:</span> <span class=v>" + humanize(san(jso.i.contexts[ci].vhosts[n].rx)) +"B</span>, " +
+					  "<span class=n>Total Tx:</span> <span class=v>" + humanize(san(jso.i.contexts[ci].vhosts[n].tx)) +"B</span><br>" +
 					  
 					  "<span class=n>CONNECTIONS: HTTP/1.x:</span> <span class=v>" + san(jso.i.contexts[ci].vhosts[n].h1_conn) +"</span>, " +
 					  "<span class=n>Websocket:</span> <span class=v>" + san(jso.i.contexts[ci].vhosts[n].ws_upg) +"</span>, " +
@@ -185,29 +191,31 @@ function ws_open_server_status()
 					
 					  "<span class=n>TRANSACTIONS: HTTP/1.x:</span> <span class=v>" + san(jso.i.contexts[ci].vhosts[n].h1_trans) + "</span>, " +
 					  "<span class=n>H2:</span> <span class=v>" + san(jso.i.contexts[ci].vhosts[n].h2_trans) +"</span>, " +
-					  "<span class=n>Total H2 substreams:</span> <span class=v>" + san(jso.i.contexts[ci].vhosts[n].h2_subs) +"</span><br>" +
+					  "<span class=n>Total H2 substreams:</span> <span class=v>" + san(jso.i.contexts[ci].vhosts[n].h2_subs) +"</span><br>";
 					
-					"<table style=\"margin-left:16px\"><tr><td class=t>Mountpoint</td><td class=t>Origin</td><td class=t>Cache Policy</td></tr>";
-
-					var m;
-					for (m = 0; m < jso.i.contexts[ci].vhosts[n].mounts.length; m++) {
-						s = s + "<tr><td>";
-						s = s + "<span class=\"m1\">" + san(jso.i.contexts[ci].vhosts[n].mounts[m].mountpoint) +
-							"</span></td><td><span class=\"m2\">" +
-							san(jso.i.contexts[ci].vhosts[n].mounts[m].origin) +
-							"</span></td><td>";
-						if (parseInt(san(jso.i.contexts[ci].vhosts[n].mounts[m].cache_max_age), 10))
-							s = s + "<span class=n>max-age:</span> <span class=v>" +
-							san(jso.i.contexts[ci].vhosts[n].mounts[m].cache_max_age) +
-							"</span>, <span class=n>reuse:</span> <span class=v>" +
-							san(jso.i.contexts[ci].vhosts[n].mounts[m].cache_reuse) +
-							"</span>, <span class=n>reval:</span> <span class=v>" +
-							san(jso.i.contexts[ci].vhosts[n].mounts[m].cache_revalidate) +
-							"</span>, <span class=n>inter:</span> <span class=v>" +
-							san(jso.i.contexts[ci].vhosts[n].mounts[m].cache_intermediaries);
-						s = s + "</span></td></tr>";
+					if (jso.i.contexts[ci].vhosts[n].mounts) {
+						s = s + "<table><tr><td class=t>Mountpoint</td><td class=t>Origin</td><td class=t>Cache Policy</td></tr>";
+	
+						var m;
+						for (m = 0; m < jso.i.contexts[ci].vhosts[n].mounts.length; m++) {
+							s = s + "<tr><td>";
+							s = s + "<span class=\"m1\">" + san(jso.i.contexts[ci].vhosts[n].mounts[m].mountpoint) +
+								"</span></td><td><span class=\"m2\">" +
+								san(jso.i.contexts[ci].vhosts[n].mounts[m].origin) +
+								"</span></td><td>";
+							if (parseInt(san(jso.i.contexts[ci].vhosts[n].mounts[m].cache_max_age), 10))
+								s = s + "<span class=n>max-age:</span> <span class=v>" +
+								san(jso.i.contexts[ci].vhosts[n].mounts[m].cache_max_age) +
+								"</span>, <span class=n>reuse:</span> <span class=v>" +
+								san(jso.i.contexts[ci].vhosts[n].mounts[m].cache_reuse) +
+								"</span>, <span class=n>reval:</span> <span class=v>" +
+								san(jso.i.contexts[ci].vhosts[n].mounts[m].cache_revalidate) +
+								"</span>, <span class=n>inter:</span> <span class=v>" +
+								san(jso.i.contexts[ci].vhosts[n].mounts[m].cache_intermediaries);
+							s = s + "</span></td></tr>";
+						}
+						s = s + "</table>";
 					}
-					s = s + "</table>";
 					s = s + "</td></tr>";
 				}
 

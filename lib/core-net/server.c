@@ -164,9 +164,9 @@ lws_json_dump_context(const struct lws_context *context, char *buf, int len,
 	char *orig = buf, *end = buf + len - 1, first = 1;
 	const struct lws_vhost *vh = context->vhost_list;
 	const struct lws_context_per_thread *pt;
-	time_t t = time(NULL);
-	int n, listening = 0, cgi_count = 0;
+	int n, listening = 0, cgi_count = 0, fd;
 	struct lws_conn_stats cs;
+	time_t t = time(NULL);
 	double d = 0;
 #ifdef LWS_WITH_CGI
 	struct lws_cgi * const *pcgi;
@@ -195,6 +195,22 @@ lws_json_dump_context(const struct lws_context *context, char *buf, int len,
 		}
 	}
 #endif
+
+	fd = lws_open("/proc/self/statm", LWS_O_RDONLY);
+	if (fd >= 0) {
+		char contents[96], pure[96];
+		n = read(fd, contents, sizeof(contents) - 1);
+		if (n > 0) {
+			contents[n] = '\0';
+			if (contents[n - 1] == '\n')
+				contents[--n] = '\0';
+			lws_json_purify(pure, contents, sizeof(pure));
+
+			buf += lws_snprintf(buf, end - buf,
+					  "\"statm\": \"%s\",\n", pure);
+		}
+		close(fd);
+	}
 
 	buf += lws_snprintf(buf, end - buf, "\"contexts\":[\n");
 
