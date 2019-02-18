@@ -27,6 +27,13 @@ span.n {
 	text-align:center;
 	color:#808020;
 }
+span.sn {
+	font-size:12pt;
+	font-family: Arial;
+	font-weight:bold;
+	text-align:center;
+	color:#808020;
+}
 span.v {
 	font-size:12pt;
 	font-family: Arial;

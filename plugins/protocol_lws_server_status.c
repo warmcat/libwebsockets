@@ -1,7 +1,7 @@
 /*
  * libwebsockets-test-server - libwebsockets test implementation
  *
- * Copyright (C) 2010-2016 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
@@ -37,16 +37,19 @@ struct lws_ss_dumps {
 	int length;
 };
 
-struct per_session_data__server_status {
+struct pss {
 	int ver;
 	int pos;
 };
 
-struct per_vhost_data__lws_server_status {
+struct vhd {
 	struct lws_context *context;
+	struct lws_vhost *vhost;
+	const struct lws_protocols *protocol;
 	int hide_vhosts;
 	int tow_flag;
-	int period_us;
+	int period_s;
+	int clients;
 	struct lws_ss_dumps d;
 	struct lws_ss_filepath *fp;
 };
@@ -54,33 +57,23 @@ struct per_vhost_data__lws_server_status {
 static const struct lws_protocols protocols[1];
 
 static void
-update(struct per_vhost_data__lws_server_status *v)
+update(struct vhd *v)
 {
 	struct lws_ss_filepath *fp;
-	char *p = v->d.buf + LWS_PRE, contents[256], pure[256];
-	int n, l, first = 1, fd;
+	char contents[256], pure[256], *p = v->d.buf + LWS_PRE,
+	     *end = v->d.buf + sizeof(v->d.buf) - LWS_PRE - 1;
+	int n, first = 1, fd;
 
-	l = sizeof(v->d.buf) - LWS_PRE - 1;
-
-	n = lws_snprintf(p, l, "{\"i\":");
-	p += n;
-	l -= n;
-
-	n = lws_json_dump_context(v->context, p, l, v->hide_vhosts);
-	p += n;
-	l -= n;
-
-	n = lws_snprintf(p, l, ", \"files\": [");
-	p += n;
-	l -= n;
+	p += lws_snprintf(p, lws_ptr_diff(end, p), "{\"i\":");
+	p += lws_json_dump_context(v->context, p, lws_ptr_diff(end, p),
+				   v->hide_vhosts);
+	p += lws_snprintf(p, lws_ptr_diff(end, p), ", \"files\": [");
 
 	fp = v->fp;
 	while (fp) {
-		if (!first) {
-			n = lws_snprintf(p, l, ",");
-			p += n;
-			l -= n;
-		}
+		if (!first)
+			p += lws_snprintf(p, lws_ptr_diff(end, p), ",");
+
 		fd = lws_open(fp->filepath, LWS_O_RDONLY);
 		if (fd >= 0) {
 			n = read(fd, contents, sizeof(contents) - 1);
@@ -88,20 +81,17 @@ update(struct per_vhost_data__lws_server_status *v)
 				contents[n] = '\0';
 				lws_json_purify(pure, contents, sizeof(pure));
 
-				n = lws_snprintf(p, l,
+				p += lws_snprintf(p, lws_ptr_diff(end, p),
 					"{\"path\":\"%s\",\"val\":\"%s\"}",
 						fp->filepath, pure);
-				p += n;
-				l -= n;
 				first = 0;
 			}
 			close(fd);
 		}
+
 		fp = fp->next;
 	}
-	n = lws_snprintf(p, l, "]}");
-	p += n;
-
+	p += lws_snprintf(p, lws_ptr_diff(end, p), "]}");
 	v->d.length = p - (v->d.buf + LWS_PRE);
 
 	lws_callback_on_writable_all_protocol(v->context, &protocols[0]);
@@ -113,8 +103,7 @@ callback_lws_server_status(struct lws *wsi, enum lws_callback_reasons reason,
 {
 	const struct lws_protocol_vhost_options *pvo =
 			(const struct lws_protocol_vhost_options *)in;
-	struct per_vhost_data__lws_server_status *v =
-			(struct per_vhost_data__lws_server_status *)
+	struct vhd *v = (struct vhd *)
 			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
 					lws_get_protocol(wsi));
 	struct lws_ss_filepath *fp, *fp1, **fp_old;
@@ -124,8 +113,26 @@ callback_lws_server_status(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_ESTABLISHED:
 		lwsl_info("%s: LWS_CALLBACK_ESTABLISHED\n", __func__);
-		lws_set_timer_usecs(wsi, v->period_us);
-		lws_callback_on_writable(wsi);
+		if (!v->clients++) {
+			lws_timed_callback_vh_protocol(v->vhost, v->protocol,
+						       LWS_CALLBACK_USER, v->period_s);
+			lwsl_info("%s: starting updates\n", __func__);
+		}
+		update(v);
+
+		break;
+
+	case LWS_CALLBACK_CLOSED:
+		if (!--v->clients)
+			lwsl_notice("%s: stopping updates\n", __func__);
+
+		break;
+
+	case LWS_CALLBACK_USER:
+		update(v);
+		if (v->clients)
+			lws_timed_callback_vh_protocol(v->vhost, v->protocol,
+						       LWS_CALLBACK_USER, v->period_s);
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_INIT: /* per vhost */
@@ -133,11 +140,10 @@ callback_lws_server_status(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 
 		lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
-				lws_get_protocol(wsi),
-				sizeof(struct per_vhost_data__lws_server_status));
-		v = (struct per_vhost_data__lws_server_status *)
-				lws_protocol_vh_priv_get(lws_get_vhost(wsi),
-				lws_get_protocol(wsi));
+					    lws_get_protocol(wsi),
+					    sizeof(struct vhd));
+		v = (struct vhd *)lws_protocol_vh_priv_get(lws_get_vhost(wsi),
+							   lws_get_protocol(wsi));
 
 		fp_old = &v->fp;
 
@@ -145,9 +151,9 @@ callback_lws_server_status(struct lws *wsi, enum lws_callback_reasons reason,
 			if (!strcmp(pvo->name, "hide-vhosts"))
 				v->hide_vhosts = atoi(pvo->value);
 			if (!strcmp(pvo->name, "update-ms"))
-				v->period_us = atoi(pvo->value) * 1000;
+				v->period_s = (atoi(pvo->value) + 500) / 1000;
 			else
-				v->period_us = 5 * 1000 * 1000;
+				v->period_s = 5;
 			if (!strcmp(pvo->name, "filepath")) {
 				fp = malloc(sizeof(*fp));
 				fp->next = NULL;
@@ -160,7 +166,11 @@ callback_lws_server_status(struct lws *wsi, enum lws_callback_reasons reason,
 			pvo = pvo->next;
 		}
 		v->context = lws_get_context(wsi);
+		v->vhost = lws_get_vhost(wsi);
+		v->protocol = lws_get_protocol(wsi);
 
+		/* get the initial data */
+		update(v);
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY: /* per vhost */
@@ -181,12 +191,6 @@ callback_lws_server_status(struct lws *wsi, enum lws_callback_reasons reason,
 			return -1;
 		break;
 
-	case LWS_CALLBACK_TIMER:
-		lws_set_timer_usecs(wsi, v->period_us);
-		update(v);
-		lws_callback_on_writable(wsi);
-		break;
-
 	default:
 		break;
 	}
@@ -198,7 +202,7 @@ static const struct lws_protocols protocols[] = {
 	{
 		"lws-server-status",
 		callback_lws_server_status,
-		sizeof(struct per_session_data__server_status),
+		sizeof(struct pss),
 		1024,
 	},
 };
