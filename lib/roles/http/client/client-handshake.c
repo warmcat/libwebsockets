@@ -1072,14 +1072,14 @@ void socks_generate_msg(struct lws *wsi, enum socks_msg_type type,
 		pt->serv_buf[len++] = n;
 		/* user name */
 		lws_strncpy((char *)&pt->serv_buf[len], wsi->vhost->socks_user,
-			context->pt_serv_buf_size - len + 1);
+			context->pt_serv_buf_size - len);
 		len += n;
 		/* length of the password */
 		pt->serv_buf[len++] = passwd_len;
 		/* password */
 		lws_strncpy((char *)&pt->serv_buf[len],
 			    wsi->vhost->socks_password,
-			    context->pt_serv_buf_size - len + 1);
+			    context->pt_serv_buf_size - len);
 		len += passwd_len;
 		break;
 
@@ -1099,7 +1099,7 @@ void socks_generate_msg(struct lws *wsi, enum socks_msg_type type,
 
 		/* the address we tell SOCKS proxy to connect to */
 		lws_strncpy((char *)&(pt->serv_buf[len]), wsi->stash->address,
-			context->pt_serv_buf_size - len + 1);
+			context->pt_serv_buf_size - len);
 		len += strlen(wsi->stash->address);
 		net_num = htons(wsi->c_port);
 
