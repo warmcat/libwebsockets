@@ -113,17 +113,19 @@ callback_lws_server_status(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_ESTABLISHED:
 		lwsl_info("%s: LWS_CALLBACK_ESTABLISHED\n", __func__);
-		v->clients++;
-		lwsl_notice("%s: starting updates\n", __func__);
+		if (!v->clients++) {
+			lws_timed_callback_vh_protocol(v->vhost, v->protocol,
+						       LWS_CALLBACK_USER, v->period_s);
+			lwsl_info("%s: starting updates\n", __func__);
+		}
 		update(v);
-		lws_timed_callback_vh_protocol(v->vhost, v->protocol,
-					       LWS_CALLBACK_USER, v->period_s);
+
 		break;
 
 	case LWS_CALLBACK_CLOSED:
-		v->clients--;
-		if (!v->clients)
+		if (!--v->clients)
 			lwsl_notice("%s: stopping updates\n", __func__);
+
 		break;
 
 	case LWS_CALLBACK_USER:
