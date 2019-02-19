@@ -882,7 +882,7 @@ static const unsigned char methods[] = {
 #endif
 };
 
-static int
+int
 lws_http_get_uri_and_method(struct lws *wsi, char **puri_ptr, int *puri_len)
 {
 	int n, count = 0;
@@ -896,7 +896,7 @@ lws_http_get_uri_and_method(struct lws *wsi, char **puri_ptr, int *puri_len)
 	}
 
 	if (count != 1 &&
-	    !(wsi->http2_substream &&
+	    !((wsi->http2_substream || wsi->h2_stream_carries_ws) &&
 	      lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH))) {
 		lwsl_warn("multiple methods?\n");
 		return -1;
