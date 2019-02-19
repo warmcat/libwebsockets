@@ -167,9 +167,13 @@ lws_access_log(struct lws *wsi)
 			 wsi->http.access_log.header_log,
 			 wsi->http.access_log.response,
 			 wsi->http.access_log.sent, p1);
-	if (strlen(p) > sizeof(ass) - 6 - l)
+	if (strlen(p) > sizeof(ass) - 6 - l) {
 		p[sizeof(ass) - 6 - l] = '\0';
+		l--;
+	}
 	l += lws_snprintf(ass + l, sizeof(ass) - 1 - l, "\" \"%s\"\n", p);
+
+	ass[sizeof(ass) - 1] = '\0';
 
 	if (write(wsi->vhost->log_fd, ass, l) != l)
 		lwsl_err("Failed to write log\n");

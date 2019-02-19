@@ -270,40 +270,40 @@ lws_process_ws_upgrade(struct lws *wsi)
 	 */
 
 #if defined(LWS_WITH_HTTP2)
-	if (wsi->http2_substream)
-		goto check_protocol;
+	if (!wsi->http2_substream) {
 #endif
 
-	lws_tokenize_init(&ts, buf, LWS_TOKENIZE_F_COMMA_SEP_LIST |
-				    LWS_TOKENIZE_F_DOT_NONTERM |
-				    LWS_TOKENIZE_F_RFC7230_DELIMS |
-				    LWS_TOKENIZE_F_MINUS_NONTERM);
-	ts.len = lws_hdr_copy(wsi, buf, sizeof(buf) - 1, WSI_TOKEN_CONNECTION);
-	if (ts.len <= 0)
-		goto bad_conn_format;
+		lws_tokenize_init(&ts, buf, LWS_TOKENIZE_F_COMMA_SEP_LIST |
+					    LWS_TOKENIZE_F_DOT_NONTERM |
+					    LWS_TOKENIZE_F_RFC7230_DELIMS |
+					    LWS_TOKENIZE_F_MINUS_NONTERM);
+		ts.len = lws_hdr_copy(wsi, buf, sizeof(buf) - 1,
+				      WSI_TOKEN_CONNECTION);
+		if (ts.len <= 0)
+			goto bad_conn_format;
 
-	do {
-		e = lws_tokenize(&ts);
-		switch (e) {
-		case LWS_TOKZE_TOKEN:
-			if (!strcasecmp(ts.token, "upgrade"))
-				e = LWS_TOKZE_ENDED;
-			break;
+		do {
+			e = lws_tokenize(&ts);
+			switch (e) {
+			case LWS_TOKZE_TOKEN:
+				if (!strcasecmp(ts.token, "upgrade"))
+					e = LWS_TOKZE_ENDED;
+				break;
 
-		case LWS_TOKZE_DELIMITER:
-			break;
+			case LWS_TOKZE_DELIMITER:
+				break;
 
-		default: /* includes ENDED */
-bad_conn_format:
-			lwsl_err("%s: malformed or absent connection hdr\n",
-				 __func__);
+			default: /* includes ENDED */
+	bad_conn_format:
+				lwsl_err("%s: malformed or absent conn hdr\n",
+					 __func__);
 
-			return 1;
-		}
-	} while (e > 0);
+				return 1;
+			}
+		} while (e > 0);
 
 #if defined(LWS_WITH_HTTP2)
-check_protocol:
+	}
 #endif
 
 	/*
@@ -484,6 +484,24 @@ alloc_ws:
 
 	lws_server_init_wsi_for_ws(wsi);
 	lwsl_parser("accepted v%02d connection\n", wsi->ws->ietf_spec_revision);
+
+#if defined(LWS_WITH_ACCESS_LOG)
+	{
+		char *uptr = NULL, combo[128];
+		int l, meth = lws_http_get_uri_and_method(wsi, &uptr, &l);
+
+		if (wsi->h2_stream_carries_ws)
+			wsi->http.request_version = HTTP_VERSION_2;
+
+		wsi->http.access_log.response = 101;
+
+		l = lws_snprintf(combo, sizeof(combo), "%.*s (%s)", l, uptr,
+				 wsi->protocol->name);
+
+		lws_prepare_access_log_info(wsi, combo, l, meth);
+		lws_access_log(wsi);
+	}
+#endif
 
 	lwsl_info("%s: %p: dropping ah on ws upgrade\n", __func__, wsi);
 	lws_header_table_detach(wsi, 1);
