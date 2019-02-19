@@ -22,7 +22,11 @@
 #include "core/private.h"
 
 static const unsigned char lextable[] = {
+#ifdef LWS_WITH_CUSTOM_HTTP_HEADER
+	#include "lextable-custom.h"
+#else
 	#include "../lextable.h"
+#endif
 };
 
 #define FAIL_CHAR 0x08

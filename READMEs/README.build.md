@@ -147,6 +147,17 @@ Build and test lws against it
    /usr/local/bin/libwebsockets-test-server -s
 ```
 
+**NOTE8**
+If you need to access the custom http header from the server response,
+you can add multiple comma separated custom header names in the cmake command.
+This will define LWS_WITH_CUSTOM_HTTP_HEADER in the lws_config.h and
+enum item WSI_TOKEN_(MYHEADER)s will be also added into the public header
+throught the libwebsockets.h.
+
+```bash
+    $ cmake .. -DCUSTOM_HTTP_HEADERS=X-Foo,X-Bar
+```
+
 4. Finally you can build using the generated Makefile:
 
 ```bash

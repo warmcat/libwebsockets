@@ -117,5 +117,6 @@
 #cmakedefine LWS_WITH_ZIP_FOPS
 #cmakedefine USE_OLD_CYASSL
 #cmakedefine USE_WOLFSSL
+#cmakedefine LWS_WITH_CUSTOM_HTTP_HEADER
 
 ${LWS_SIZEOFPTR_CODE}

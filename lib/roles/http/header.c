@@ -20,7 +20,11 @@
  */
 
 #include "core/private.h"
+#ifdef LWS_WITH_CUSTOM_HTTP_HEADER
+#include "lextable-strings-custom.h"
+#else
 #include "lextable-strings.h"
+#endif
 
 
 const unsigned char *

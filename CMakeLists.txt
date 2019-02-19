@@ -459,6 +459,9 @@ set(LWS_SQLITE3_LIBRARIES CACHE PATH "Path to the sqlite3 library")
 set(LWS_SQLITE3_INCLUDE_DIRS CACHE PATH "Path to the sqlite3 include directory")
 set(LWS_LIBEVENT_INCLUDE_DIRS CACHE PATH "Path to the libevent include directory")
 set(LWS_LIBEVENT_LIBRARIES CACHE PATH "Path to the libevent library")
+if(UNIX OR MINGW)
+	set(CUSTOM_HTTP_HEADERS "" CACHE STRING "Custom HTTP header names (comma separated)")
+endif()
 
 
 if (NOT LWS_WITH_SSL)
@@ -659,6 +662,104 @@ endif()
 
 if (LWS_SSL_SERVER_WITH_ECDH_CERT)
 	set(LWS_SSL_SERVER_WITH_ECDH_CERT 1)
+endif()
+
+if ("${CUSTOM_HTTP_HEADERS}" STREQUAL "")
+elseif(UNIX OR MINGW)
+	configure_file(${CMAKE_CURRENT_SOURCE_DIR}/lib/roles/http/lextable-strings.h ${PROJECT_BINARY_DIR}/lextable-strings.h COPYONLY)
+	configure_file(${CMAKE_CURRENT_SOURCE_DIR}/include/libwebsockets/lws-http.h ${PROJECT_BINARY_DIR}/lws-http.h COPYONLY)
+
+	string(REPLACE "," ";" CUSTOMHEADER_LIST ${CUSTOM_HTTP_HEADERS})
+	list(LENGTH CUSTOMHEADER_LIST len)
+	foreach(HEADER ${CUSTOMHEADER_LIST})
+		# step 1 update lextable-strings.h for the custom header name
+		#        in the build directory
+		#        and rename it lextable-strings-custom.h so let header.c
+		#        use this instead of original
+		execute_process(
+			WORKING_DIRECTORY "${PROJECT_BINARY_DIR}"
+			COMMAND bash "-c" "cat lextable-strings.h | sed -e s/\\\"\\\",/\\\"$(echo ${HEADER} | tr '[:upper:]' '[:lower:]'):\\\",\\\"\\\",/g > lextable-strings.h.in &&
+				mv lextable-strings.h.in lextable-strings.h &&
+				cp lextable-strings.h lextable-strings-custom.h"
+			RESULT_VARIABLE LEXTABLE_RETURN_CODE)
+
+		if (LEXTABLE_RETURN_CODE)
+			message(WARNING "!!! Failed to update lextable-strings.h for the custom http header ${HEADER}")
+		else()
+			# step 2 add WSI_TOKEN_{CUSTOMHEADER} into lws-http.h
+			#        in the build directory
+			execute_process(
+				WORKING_DIRECTORY "${PROJECT_BINARY_DIR}"
+				COMMAND bash "-c" "ENUM=$(grep -n -o -E 'WSI_TOKEN_.+= ([0-9]+)' lws-http.h | tail -n1);
+					INSLINE=`echo $ENUM | grep -o -E '^[0-9]+'`;
+					INC=$((`echo $ENUM | grep -o -E '[0-9]+$'`+1));
+					LINE=($(wc lws-http.h));
+					head -n $INSLINE lws-http.h > lws-http.h.in;
+					echo \"\tWSI_TOKEN_$(echo ${HEADER} | tr '[:lower:]' '[:upper:]' | tr - _) = $INC, /* custom response header */\" >> lws-http.h.in;
+					tail -n $((\${LINE[0]} - $INSLINE)) lws-http.h >> lws-http.h.in;
+					mv lws-http.h.in lws-http.h"
+				RESULT_VARIABLE HEADER_RETURN_CODE
+				OUTPUT_VARIABLE SED_PATTERN)
+
+			if (HEADER_RETURN_CODE)
+				message(WARNING "!!! Failed to put custom http header token WSI_TOKEN_${HEADER} into ${PROJECT_BINARY_DIR}/lws-http.h")
+			else()
+				message(STATUS "Added custom http header token WSI_TOKEN_${HEADER} into ${PROJECT_BINARY_DIR}/lws-http.h")
+				set(CUSTOM_HEADER_ADDED 1)
+			endif()
+		endif()
+	endforeach()
+
+	# step 3 build minilex with the modified lextable-strings.h from step 2
+	#        in the build directory
+	message(STATUS "${CMAKE_C_COMPILER} -o minilex minilex.c")
+	configure_file(${CMAKE_CURRENT_SOURCE_DIR}/lib/roles/http/minilex.c ${CMAKE_CURRENT_BINARY_DIR}/minilex.c COPYONLY)
+	configure_file(${CMAKE_CURRENT_SOURCE_DIR}/lib/roles/http/lextable.h ${CMAKE_CURRENT_BINARY_DIR}/lextable.h COPYONLY)
+	execute_process(
+		WORKING_DIRECTORY "${PROJECT_BINARY_DIR}"
+		COMMAND "${CMAKE_C_COMPILER}" -o minilex minilex.c
+		RESULT_VARIABLE MINILEX_BUILD_CODE)
+
+	if (MINILEX_BUILD_CODE)
+		message(WARNING "!!! Failed to build minilex tool for host for adding custom http header")
+	else()
+		# step 4 update lextable.h in the build directory
+		execute_process(
+			WORKING_DIRECTORY "${PROJECT_BINARY_DIR}"
+			COMMAND bash "-c" "./minilex > lextable.h"
+			RESULT_VARIABLE MINILEXI_RETURN_CODE)
+
+		if(MINILEXI_RETURN_CODE)
+			# step 5 build minilex again with updated lextable.h from step 4
+			#        in the build directory
+			message(STATUS "compile minilex again for adding custom headers")
+			execute_process(
+				WORKING_DIRECTORY "${PROJECT_BINARY_DIR}"
+				COMMAND "${CMAKE_C_COMPILER}" -o minilex minilex.c
+				RESULT_VARIABLE MINILEX_BUILD_CODE)
+
+			if (MINILEX_BUILD_CODE)
+				message(WARNING "!!! Failed to build minilex tool for host for adding custom http header")
+			else()
+				# step 6 generate lextable-custom.h in the build directory
+				#        and let parsers.c use this instead of original
+				execute_process(
+					WORKING_DIRECTORY "${PROJECT_BINARY_DIR}"
+					COMMAND bash "-c" "./minilex > lextable-custom.h"
+					RESULT_VARIABLE MINILEXI_RETURN_CODE)
+
+				if(MINILEXI_RETURN_CODE)
+					message(WARNING "!!! Failed to execute minilex tool for host for adding custom http header")
+				else()
+					message(STATUS "Generated new lextable-custom.h for the custom http headers")
+				endif()
+			endif()
+		else()
+			message(STATUS "Generated new lextable.h for the custom http headers")
+		endif()
+	endif()
+
+	set(LWS_WITH_CUSTOM_HTTP_HEADER 1)
 endif()
 
 include_directories("${PROJECT_BINARY_DIR}")
@@ -1408,6 +1509,14 @@ if (LWS_WITH_STATIC)
 									${CMAKE_CURRENT_BINARY_DIR}/include/libwebsockets
 	)
 
+	if (CUSTOM_HEADER_ADDED)
+		add_custom_command(
+				  TARGET websockets
+				  COMMAND ${CMAKE_COMMAND} -E copy ${PROJECT_BINARY_DIR}/lws-http.h
+									 ${CMAKE_CURRENT_BINARY_DIR}/include/libwebsockets/lws-http.h
+		)
+	endif()
+
 	add_custom_command(
 		      TARGET websockets
 		      COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_BINARY_DIR}/lws_config.h
@@ -1454,6 +1563,14 @@ if (LWS_WITH_SHARED)
 		      COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/include/libwebsockets
 									${CMAKE_CURRENT_BINARY_DIR}/include/libwebsockets
 	)
+
+	if (CUSTOM_HEADER_ADDED)
+		add_custom_command(
+				  TARGET websockets
+				  COMMAND ${CMAKE_COMMAND} -E copy ${PROJECT_BINARY_DIR}/lws-http.h
+									 ${CMAKE_CURRENT_BINARY_DIR}/include/libwebsockets/lws-http.h
+		)
+	endif()
 
 	add_custom_command(
 		      TARGET websockets_shared
