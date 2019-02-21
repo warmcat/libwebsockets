@@ -120,7 +120,7 @@ typedef X509 lws_tls_x509;
 
 LWS_EXTERN int
 lws_context_init_ssl_library(const struct lws_context_creation_info *info);
-#define LWS_SSL_ENABLED(context) (context->tls.use_ssl)
+#define LWS_SSL_ENABLED(vh) (vh && vh->tls.use_ssl)
 
 extern const struct lws_tls_ops tls_ops_openssl, tls_ops_mbedtls;
 
