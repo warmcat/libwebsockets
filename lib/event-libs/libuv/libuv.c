@@ -503,7 +503,7 @@ static int
 elops_destroy_context1_uv(struct lws_context *context)
 {
 	struct lws_context_per_thread *pt;
-	int n, m;
+	int n, m = 0;
 
 	for (n = 0; n < context->count_threads; n++) {
 		int budget = 10000;
