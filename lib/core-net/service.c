@@ -960,6 +960,15 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		/* not lws connection ... leave revents alone and return */
 		return 0;
 
+#if LWS_MAX_SMP > 1
+	if (wsi->undergoing_init_from_other_pt)
+		/*
+		 * Temporary situation that other service thread is initializing
+		 * this wsi right now for use on our service thread.
+		 */
+		return 0;
+#endif
+
 	/*
 	 * so that caller can tell we handled, past here we need to
 	 * zero down pollfd->revents after handling
