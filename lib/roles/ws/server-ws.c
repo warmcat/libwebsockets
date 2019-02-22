@@ -323,10 +323,22 @@ lws_process_ws_upgrade(struct lws *wsi)
 	if (!ts.len) {
 		int n = wsi->vhost->default_protocol_index;
 		/*
-		 * some clients only have one protocol and do not send the
+		 * Some clients only have one protocol and do not send the
 		 * protocol list header... allow it and match to the vhost's
-		 * default protocol (which itself defaults to zero)
+		 * default protocol (which itself defaults to zero).
+		 *
+		 * Setting the vhost default protocol index to -1 or anything
+		 * more than the actual number of protocols on the vhost causes
+		 * these "no protocol" ws connections to be rejected.
 		 */
+
+		if (n >= wsi->vhost->count_protocols) {
+			lwsl_notice("%s: rejecting ws upg with no protocol\n",
+				    __func__);
+
+			return 1;
+		}
+
 		lwsl_info("%s: defaulting to prot handler %d\n", __func__, n);
 
 		lws_bind_protocol(wsi, &wsi->vhost->protocols[n],

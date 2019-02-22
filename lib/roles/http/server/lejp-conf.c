@@ -118,6 +118,8 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].allow-non-tls",
 	"vhosts[].redirect-http",
 	"vhosts[].allow-http-on-https",
+
+	"vhosts[].disable-no-protocol-ws-upgrades",
 };
 
 enum lejp_vhost_paths {
@@ -182,6 +184,8 @@ enum lejp_vhost_paths {
 	LEJPVP_FLAG_ALLOW_NON_TLS,
 	LEJPVP_FLAG_REDIRECT_HTTP,
 	LEJPVP_FLAG_ALLOW_HTTP_ON_HTTPS,
+
+	LEJPVP_FLAG_DISABLE_NO_PROTOCOL_WS_UPGRADES,
 };
 
 static const char * const parser_errs[] = {
@@ -228,6 +232,7 @@ struct jpargs {
 	const char **plugin_dirs;
 	int count_plugin_dirs;
 
+	unsigned int reject_ws_with_no_protocol:1;
 	unsigned int enable_client_ssl:1;
 	unsigned int fresh_mount:1;
 	unsigned int any_vhosts:1;
@@ -367,6 +372,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		const char *ss;
 
 		/* set the defaults for this vhost */
+		a->reject_ws_with_no_protocol = 0;
 		a->valid = 1;
 		a->head = NULL;
 		a->last = NULL;
@@ -501,6 +507,12 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 			return 1;
 		}
 		a->any_vhosts = 1;
+
+		if (a->reject_ws_with_no_protocol) {
+			a->reject_ws_with_no_protocol = 0;
+
+			vhost->default_protocol_index = 255;
+		}
 
 #if defined(LWS_WITH_TLS)
 		if (a->enable_client_ssl) {
@@ -833,6 +845,10 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 	case LEJPVP_FLAG_ALLOW_HTTP_ON_HTTPS:
 		set_reset_flag(&a->info->options, ctx->buf,
 			       LWS_SERVER_OPTION_ALLOW_HTTP_ON_HTTPS_LISTENER);
+		return 0;
+
+	case LEJPVP_FLAG_DISABLE_NO_PROTOCOL_WS_UPGRADES:
+		a->reject_ws_with_no_protocol = 1;
 		return 0;
 
 	default:
