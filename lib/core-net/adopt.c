@@ -132,6 +132,12 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 	}
 #endif
 
+	/*
+	 * Notice that in SMP case, the wsi may being being created on an
+	 * entirely different pt / tsi for load balancing.  In that case as
+	 * we initialize it, it may become "live" concurrently unexpectedly...
+	 */
+
 	n = -1;
 	if (parent)
 		n = parent->tsi;
@@ -194,6 +200,15 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 		if (context->event_loop_ops->accept(new_wsi))
 			goto fail;
 
+#if LWS_MAX_SMP > 1
+	/*
+	 * Caution: after this point the wsi is live on its service thread
+	 * which may be concurrent to this.  We mark the wsi as still undergoing
+	 * init in another pt so the assigned pt leaves it alone.
+	 */
+	new_wsi->undergoing_init_from_other_pt = 1;
+#endif
+
 	if (!(type & LWS_ADOPT_ALLOW_SSL)) {
 		lws_pt_lock(pt, __func__);
 		if (__insert_wsi_socket_into_fds(context, new_wsi)) {
@@ -223,6 +238,12 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 
 	lws_role_call_adoption_bind(new_wsi, type | _LWS_ADOPT_FINISH,
 				    vh_prot_name);
+
+#if LWS_MAX_SMP > 1
+	/* its actual pt can service it now */
+
+	new_wsi->undergoing_init_from_other_pt = 0;
+#endif
 
 	lws_cancel_service_pt(new_wsi);
 

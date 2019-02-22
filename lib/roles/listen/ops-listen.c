@@ -136,7 +136,7 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 			/* already closed cleanly as necessary */
 			return LWS_HPI_RET_WSI_ALREADY_DIED;
 		}
-
+/*
 		if (lws_server_socket_service_ssl(cwsi, accept_fd)) {
 			lws_close_free_wsi(cwsi, LWS_CLOSE_STATUS_NOSTATUS,
 					   "listen svc fail");
@@ -145,6 +145,7 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 
 		lwsl_info("%s: new wsi %p: wsistate 0x%x, role_ops %s\n",
 			    __func__, cwsi, cwsi->wsistate, cwsi->role_ops->name);
+*/
 
 	} while (pt->fds_count < context->fd_limit_per_thread - 1 &&
 		 wsi->position_in_fds_table != LWS_NO_FDS_POS &&

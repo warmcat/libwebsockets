@@ -623,6 +623,10 @@ struct lws {
 	/* volatile to make sure code is aware other thread can change */
 	volatile char handling_pollout;
 	volatile char leave_pollout_active;
+#if LWS_MAX_SMP > 1
+	volatile char undergoing_init_from_other_pt;
+#endif
+
 };
 
 #define lws_is_flowcontrolled(w) (!!(wsi->rxflow_bitmap))
