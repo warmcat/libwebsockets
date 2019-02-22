@@ -807,9 +807,18 @@ rops_adoption_bind_h1(struct lws *wsi, int type, const char *vh_prot_name)
 	lws_role_transition(wsi, LWSIFR_SERVER, (type & LWS_ADOPT_ALLOW_SSL) ?
 			    LRS_SSL_INIT : LRS_HEADERS, &role_ops_h1);
 
-	if (!vh_prot_name)
+	/*
+	 * We have to bind to h1 as a default even when we're actually going to
+	 * replace it as an h2 bind later.  So don't take this seriously if the
+	 * default is disabled (ws upgrade caees properly about it)
+	 */
+
+	if (!vh_prot_name && wsi->vhost->default_protocol_index <
+			     wsi->vhost->count_protocols)
 		wsi->protocol = &wsi->vhost->protocols[
-					wsi->vhost->default_protocol_index];
+				wsi->vhost->default_protocol_index];
+	else
+		wsi->protocol = &wsi->vhost->protocols[0];
 
 	/* the transport is accepted... give him time to negotiate */
 	lws_set_timeout(wsi, PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
