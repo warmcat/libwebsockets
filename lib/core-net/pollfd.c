@@ -114,6 +114,8 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 		ftp->fd_index = wsi->position_in_fds_table;
 		ftp->next = NULL;
 
+		lws_pt_lock(pt, __func__);
+
 		/* place at END of list to maintain order */
 		ftp1 = (struct lws_foreign_thread_pollfd **)
 						&vpt->foreign_pfd_list;
@@ -123,6 +125,9 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 		*ftp1 = ftp;
 		vpt->foreign_spinlock = 0;
 		lws_memory_barrier();
+
+		lws_pt_unlock(pt);
+
 		lws_cancel_service_pt(wsi);
 
 		return 0;
