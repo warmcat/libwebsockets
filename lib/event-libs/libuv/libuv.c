@@ -614,6 +614,7 @@ elops_close_handle_manually_uv(struct lws *wsi)
 
 	wsi->desc.sockfd = LWS_SOCK_INVALID;
 	wsi->w_read.uv.pwatcher = NULL;
+	wsi->told_event_loop_closed = 1;
 
 	uv_close(h, lws_libuv_closewsi_m);
 }
@@ -663,6 +664,12 @@ elops_io_uv(struct lws *wsi, int flags)
 	      (flags & (LWS_EV_READ | LWS_EV_WRITE)))) {
 		lwsl_err("%s: assert: flags %d", __func__, flags);
 		assert(0);
+	}
+
+	if (!w->uv.pwatcher || wsi->told_event_loop_closed) {
+		lwsl_err("%s: no watcher\n", __func__);
+
+		return;
 	}
 
 	if (flags & LWS_EV_START) {
