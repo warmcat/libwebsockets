@@ -114,6 +114,7 @@ option(LWS_WITH_EXPORT_LWSTARGETS "Export libwebsockets CMake targets.  Disable 
 option(LWS_REPRODUCIBLE "Build libwebsockets reproducible. It removes the build user and hostname from the build" ON)
 option(LWS_WITH_MINIMAL_EXAMPLES "Also build the normally standalone minimal examples, for QA" OFF)
 option(LWS_WITH_LWSAC "lwsac Chunk Allocation api" ON)
+option(LWS_WITH_CUSTOM_HEADERS "Store and allow querying custom HTTP headers (H1 only)" ON)
 option(LWS_WITH_DISKCACHE "Hashed cache directory with lazy LRU deletion to size limit" OFF)
 option(LWS_WITH_ASAN "Build with gcc runtime sanitizer options enabled (needs libasan)" OFF)
 #
@@ -368,6 +369,7 @@ if (LWS_WITH_ESP32)
  set(LWS_HAVE_REALLOC 1)
  set(LWS_HAVE_GETIFADDRS 1)
  set(LWS_WITH_ZIP_FOPS 1)
+ set(LWS_WITH_CUSTOM_HEADERS 0)
 endif()
 
 

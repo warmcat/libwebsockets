@@ -1,6 +1,7 @@
 |Example|Demonstrates|
 ---|---
 minimal-http-server-basicauth|Shows how to protect a mount using a password file and basic auth
+minimal-http-server-custom-headers|Shows how to query custom headers that lws doesn't already know
 minimal-http-server-deaddrop|Shows how to use the deaddrop drag and drop file upload + sharing plugin
 minimal-http-server-dynamic|Serves both static and dynamically generated http content
 minimal-http-server-eventlib-foreign|Demonstrates integrating lws with a foreign event library

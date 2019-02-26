@@ -323,6 +323,9 @@ enum lws_token_indexes {
 
 	/* parser state additions, no storage associated */
 	WSI_TOKEN_NAME_PART,
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+	WSI_TOKEN_UNKNOWN_VALUE_PART,
+#endif
 	WSI_TOKEN_SKIPPING,
 	WSI_TOKEN_SKIPPING_SAW_CR,
 	WSI_PARSING_COMPLETE,
@@ -402,6 +405,47 @@ lws_hdr_copy(struct lws *wsi, char *dest, int len, enum lws_token_indexes h);
 LWS_VISIBLE LWS_EXTERN int
 lws_hdr_copy_fragment(struct lws *wsi, char *dest, int len,
 		      enum lws_token_indexes h, int frag_idx);
+
+/**
+ * lws_hdr_custom_length() - return length of a custom header
+ *
+ * \param wsi: websocket connection
+ * \param name: header string (including terminating :)
+ * \param nlen: length of name
+ *
+ * Lws knows about 100 common http headers, and parses them into indexes when
+ * it recognizes them.  When it meets a header that it doesn't know, it stores
+ * the name and value directly, and you can look them up using
+ * lws_hdr_custom_length() and lws_hdr_custom_copy().
+ *
+ * This api returns -1, or the length of the value part of the header if it
+ * exists.  Lws must be built with LWS_WITH_CUSTOM_HEADERS (on by default) to
+ * use this api.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_hdr_custom_length(struct lws *wsi, const char *name, int nlen);
+
+/**
+ * lws_hdr_custom_copy() - copy value part of a custom header
+ *
+ * \param wsi: websocket connection
+ * \param dst: pointer to buffer to receive the copy
+ * \param len: number of bytes available at dst
+ * \param name: header string (including terminating :)
+ * \param nlen: length of name
+ *
+ * Lws knows about 100 common http headers, and parses them into indexes when
+ * it recognizes them.  When it meets a header that it doesn't know, it stores
+ * the name and value directly, and you can look them up using
+ * lws_hdr_custom_length() and lws_hdr_custom_copy().
+ *
+ * This api returns -1, or the length of the string it copied into dst if it
+ * was big enough to contain both the string and an extra terminating NUL. Lws
+ * must be built with LWS_WITH_CUSTOM_HEADERS (on by default) to use this api.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_hdr_custom_copy(struct lws *wsi, char *dst, int len, const char *name,
+		    int nlen);
 
 /**
  * lws_get_urlarg_by_name() - return pointer to arg value if present

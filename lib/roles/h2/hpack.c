@@ -1,7 +1,7 @@
 /*
  * lib/hpack.c
  *
- * Copyright (C) 2014-2018 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2014-2019 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -1190,6 +1190,9 @@ swallow:
 			}
 
 			if (ah->parser_state == WSI_TOKEN_NAME_PART ||
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+			    ah->parser_state == WSI_TOKEN_UNKNOWN_VALUE_PART ||
+#endif
 			    ah->parser_state == WSI_TOKEN_SKIPPING) {
 				h2n->unknown_header = 1;
 				ah->parser_state = -1;

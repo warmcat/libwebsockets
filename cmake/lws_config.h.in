@@ -80,6 +80,7 @@
 #cmakedefine LWS_WITH_ACME
 #cmakedefine LWS_WITH_BORINGSSL
 #cmakedefine LWS_WITH_CGI
+#cmakedefine LWS_WITH_CUSTOM_HEADERS
 #cmakedefine LWS_WITH_ESP32
 #cmakedefine LWS_WITH_FTS
 #cmakedefine LWS_WITH_GENCRYPTO

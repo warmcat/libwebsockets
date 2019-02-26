@@ -117,11 +117,19 @@ struct allocated_headers {
 #ifndef LWS_NO_CLIENT
 	char initial_handshake_hash_base64[30];
 #endif
-
-	uint32_t pos;
-	uint32_t http_response;
-	uint32_t current_token_limit;
 	int hdr_token_idx;
+
+	ah_data_idx_t pos;
+	ah_data_idx_t http_response;
+	ah_data_idx_t current_token_limit;
+
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+	ah_data_idx_t unk_pos; /* to undo speculative unknown header */
+	ah_data_idx_t unk_value_pos;
+
+	ah_data_idx_t unk_ll_head;
+	ah_data_idx_t unk_ll_tail;
+#endif
 
 	int16_t lextable_pos;
 
