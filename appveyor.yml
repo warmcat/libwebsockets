@@ -61,17 +61,17 @@ after_build:
 artifacts:
   - path: build\lws-%LWS_METHOD%-%APPVEYOR_BUILD_ID%.zip
 
-deploy:
-- provider: BinTray
-  username: lws-team
-  api_key:
-    secure: nDpZ7P/wrk98DwJPMC6KpCC23QrVP8f3RxvKzBaqOmb9LiVrg1IyO1cc5vcgShZC
-  subject: lws-team
-  repo: libwebsockets
-  package: windows
-  publish: true
-  override: true
-  explode: false
+#deploy:
+#- provider: BinTray
+#  username: lws-team
+#  api_key:
+#    secure: nDpZ7P/wrk98DwJPMC6KpCC23QrVP8f3RxvKzBaqOmb9LiVrg1IyO1cc5vcgShZC
+#  subject: lws-team
+#  repo: libwebsockets
+#  package: windows
+#  publish: true
+#  override: true
+#  explode: false
 
 matrix:
   fast_finish: true
