@@ -241,9 +241,6 @@ create_new_conn:
 
 #ifdef LWS_WITH_IPV6
 	if (wsi->ipv6) {
-		struct sockaddr_in6 *sa6 =
-				((struct sockaddr_in6 *)result->ai_addr);
-
 		if (n) {
 			/* lws_getaddrinfo46 failed, there is no usable result */
 			lwsl_notice("%s: lws_getaddrinfo46 failed %d\n",
@@ -251,6 +248,9 @@ create_new_conn:
 			cce = "ipv6 lws_getaddrinfo46 failed";
 			goto oom4;
 		}
+
+		struct sockaddr_in6 *sa6 =
+				((struct sockaddr_in6 *)result->ai_addr);
 
 		memset(&sa46, 0, sizeof(sa46));
 
