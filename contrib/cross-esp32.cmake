@@ -15,6 +15,22 @@ set(CMAKE_AR		"${CROSS_PATH}/bin/xtensa-esp32-elf-ar${EXECUTABLE_EXT}")
 set(CMAKE_RANLIB	"${CROSS_PATH}/bin/xtensa-esp32-elf-ranlib${EXECUTABLE_EXT}")
 set(CMAKE_LINKER	"${CROSS_PATH}/bin/xtensa-esp32-elf-ld${EXECUTABLE_EXT}")
 
+#
+# Different build system distros set release optimization level to different
+# things according to their local policy, eg, Fedora is -O2 and Ubuntu is -O3
+# here.  Actually the build system's local policy is completely unrelated to
+# our desire for cross-build release optimization policy for code built to run
+# on a completely different target than the build system itself.
+#
+# Since this goes last on the compiler commandline we have to override it to a
+# sane value for cross-build here.  Notice some gcc versions enable broken
+# optimizations with -O3.
+#
+if (CMAKE_BUILD_TYPE MATCHES RELEASE OR CMAKE_BUILD_TYPE MATCHES Release OR CMAKE_BUILD_TYPE MATCHES release)
+	set(CMAKE_C_FLAGS_RELEASE ${CMAKE_C_FLAGS_RELEASE}" -O2")
+	set(CMAKE_CXX_FLAGS_RELEASE ${CMAKE_CXX_FLAGS_RELEASE}" -O2")
+endif()
+
 SET(CMAKE_C_FLAGS "-nostdlib -Wall -Werror \
 	-I${BUILD_DIR_BASE}/include \
 	-I${IDF_PATH}/components/newlib/platform_include \
