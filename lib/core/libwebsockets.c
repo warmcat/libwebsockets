@@ -25,16 +25,6 @@
 #include <sys/types.h>
 #endif
 
-#ifdef LWS_WITH_IPV6
-#if defined(WIN32) || defined(_WIN32)
-#include <wincrypt.h>
-#include <iphlpapi.h>
-#else
-#include <net/if.h>
-#endif
-#endif
-
-
 signed char char_to_hex(const char c)
 {
 	if (c >= '0' && c <= '9')

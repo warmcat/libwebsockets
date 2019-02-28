@@ -24,6 +24,15 @@
 
 #include "roles/private.h"
 
+#ifdef LWS_WITH_IPV6
+#if defined(WIN32) || defined(_WIN32)
+#include <wincrypt.h>
+#include <iphlpapi.h>
+#else
+#include <net/if.h>
+#endif
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
