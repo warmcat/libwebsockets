@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
 #include "lextable-strings.h"
 
@@ -74,19 +75,166 @@ int lextable_decode(int pos, char c)
 	}
 }
 
-int main(void)
+int update_lextable_strings(const char *headername, FILE *in)
+{
+	char buf[4096] = {0, };
+
+	if(strlen(headername) == 0)
+		return 1;
+
+	while(fgets(buf, sizeof(buf), in)) {
+		char trimmed[4096] = {0,};
+
+		for(unsigned int i = 0; i < strlen(buf); i++) {
+			if (buf[i] == ' ' || buf[i] == '\t')
+				continue;
+			else {
+				sprintf(trimmed, "%s", buf+i);
+				break;
+			}
+		}
+		if(strncmp(trimmed, "\"\"", 2) == 0) {
+			fprintf(stdout, "\t\"");
+			for(unsigned int j = 0; j < strlen(headername); j++) {
+				if(headername[j] == ',') // multiple header
+					fprintf(stdout, ":\",\n\t\"");
+                                else
+					fprintf(stdout, "%c",
+							tolower(headername[j]));
+			}
+			fprintf(stdout, ":\",\n\n");
+		}
+		fprintf(stdout, "%s", buf);
+	}
+
+	if(in != stdin)
+		fclose(in);
+
+	return 0;
+}
+
+int update_wsi_token(const char *headername, FILE *in)
+{
+	char buf[4096] = {0, };
+
+	int lineno = 0;
+	int last_manual_token = -1;
+	int last_line_of_manual_token = -1;
+
+	if(strlen(headername) == 0)
+		return 1;
+
+	while(fgets(buf, sizeof(buf), in)) {
+		char trimmed[4096] = {0,};
+		size_t len = 0;
+
+		for(unsigned int i = 0; i < strlen(buf); i++) {
+			if (buf[i] == ' ' || buf[i] == '\t' ||
+				buf[i] == '\r' || buf[i] == '\n')
+				continue;
+			else
+				trimmed[len++] = buf[i];
+		}
+		if(strncmp(trimmed, "WSI_TOKEN_", strlen("WSI_TOKEN_")) == 0) {
+			char *manual_index = strstr(trimmed, "=");
+			if (manual_index) {
+				last_manual_token = atoi(manual_index+1);
+				last_line_of_manual_token = lineno;
+			}
+		}
+		lineno += 1;
+	}
+
+	fseek(in, 0L, SEEK_SET);
+
+	lineno = 0;
+	while(fgets(buf, sizeof(buf), in)) {
+		printf("%s", buf);
+		if(lineno++ == last_line_of_manual_token) {
+			printf("\tWSI_TOKEN_");
+			for(unsigned int j = 0; j < strlen(headername); j++) {
+				if(headername[j] == '-')
+					fprintf(stdout, "_");
+				else if(headername[j] == ',') {
+					printf("\t\t= %d,\n",
+							++last_manual_token);
+					printf("\tWSI_TOKEN_");
+				} else
+					fprintf(stdout, "%c",
+							toupper(headername[j]));
+			}
+			printf("\t\t= %d,\n", ++last_manual_token);
+		}
+	}
+
+	if(in != stdin)
+		fclose(in);
+
+	return 0;
+}
+
+int usage(int argc, char *argv[])
+{
+	// Print Usage
+	printf("%s - update lextable.h or others as per option\n", argv[0]);
+	printf("Usage:\n");
+	printf("  %s [options] > output-file\n", argv[0]);
+	printf("\nOptions\n");
+	printf("  --help or -h                              Print this help\n");
+	printf("  --lextable-strings headernames\n");
+	printf("           Update lextable-strings.h for given header names\n");
+	printf("  --wsi-token headernames\n");
+	printf("      Update WSI_TOKEN in lws-http.h for given header names\n");
+	printf("  --in                                      Input file\n");
+	printf("\nExample:\n");
+	printf("  %s --lextable-strings X-Foo --in lextable-strings.h>"
+			" lextable-strings.h\n", argv[0]);
+	printf("  %s --wsi-token X-Foo --in ./lws-http.h > lws-http.h\n",
+		argv[0]);
+	printf("  %s > lextable.h    # update lextable.h\n", argv[0]);
+	printf("  %s > lextable.h    # !!! should be run twice\n", argv[0]);
+	return 1;
+}
+
+int main(int argc, char *argv[])
 {
 	int n = 0;
 	int m = 0;
 	int prev;
-	char c;
 	int walk;
 	int saw;
 	int y;
 	int j;
 	int pos = 0;
 
-	while (n < sizeof(set) / sizeof(set[0])) {
+	FILE *in = stdin;
+	char *lextable_strings_changes = NULL;
+	char *wsi_token_changes = NULL;
+	for(int i = 1; i < argc; i++) {
+		if (strcmp(argv[i], "--in") == 0 && i+1 < argc) {
+			in = fopen(argv[i+1], "r");
+			if(!in) {
+				fprintf(stderr, "No such file: %s\n",
+							argv[i+1]);
+				return 1;
+			}
+		} else if (strcmp(argv[i], "--lextable-strings") == 0 &&
+				i+1 < argc)
+			lextable_strings_changes = argv[i+1];
+		else if (strcmp(argv[i], "--wsi-token") == 0 && i+1 < argc)
+			wsi_token_changes = argv[i+1];
+		else if (strcmp(argv[i], "--help") == 0)
+			return usage(argc, argv);
+
+		i += 1;
+	}
+
+        if (lextable_strings_changes)
+            return update_lextable_strings(lextable_strings_changes, in);
+        else if (wsi_token_changes)
+            return update_wsi_token(wsi_token_changes, in);
+
+	while (n < (int)(sizeof(set) / sizeof(set[0]))) {
 
 		m = 0;
 		walk = 0;
@@ -236,7 +384,7 @@ again:
 	 * Try to parse every legal input string
 	 */
 
-	for (n = 0; n < sizeof(set) / sizeof(set[0]); n++) {
+	for (n = 0; n < (int)(sizeof(set) / sizeof(set[0])); n++) {
 		walk = 0;
 		m = 0;
 		y = -1;
@@ -250,7 +398,9 @@ again:
 			walk = lextable_decode(walk, set[n][m]);
 			if (walk < 0) {
 				fprintf(stderr, "failed\n");
-				return 3;
+				// treat as success because it printed
+				// updated header data for the next stage
+				return 0;
 			}
 
 			if (lextable[walk] < FAIL_CHAR) {
