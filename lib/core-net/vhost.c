@@ -853,7 +853,6 @@ lws_destroy_event_pipe(struct lws *wsi)
 	if (wsi->context->event_loop_ops->wsi_logical_close) {
 		wsi->context->event_loop_ops->wsi_logical_close(wsi);
 		lws_plat_pipe_close(wsi);
-		wsi->context->count_wsi_allocated--;
 		return;
 	}
 
