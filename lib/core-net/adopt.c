@@ -110,8 +110,8 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 			   struct lws *parent)
 {
 	struct lws_context *context = vh->context;
-	struct lws *new_wsi;
 	struct lws_context_per_thread *pt;
+	struct lws *new_wsi;
 	int n;
 
 #if defined(LWS_WITH_PEER_LIMITS)
@@ -133,7 +133,7 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 #endif
 
 	/*
-	 * Notice that in SMP case, the wsi may being being created on an
+	 * Notice that in SMP case, the wsi may be being created on an
 	 * entirely different pt / tsi for load balancing.  In that case as
 	 * we initialize it, it may become "live" concurrently unexpectedly...
 	 */
@@ -159,6 +159,21 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 		new_wsi->sibling_list = parent->child_list;
 		parent->child_list = new_wsi;
 	}
+
+	/* enforce that every fd is nonblocking */
+
+	if (type & LWS_ADOPT_SOCKET) {
+		if (lws_plat_set_nonblocking(fd.sockfd)) {
+			lwsl_err("%s: unable to set sockfd nonblocking\n",
+				 __func__);
+			goto bail;
+		}
+	} else
+		if (lws_plat_set_nonblocking(fd.filefd)) {
+			lwsl_err("%s: unable to set filefd nonblocking\n",
+				 __func__);
+			goto bail;
+		}
 
 	new_wsi->desc = fd;
 

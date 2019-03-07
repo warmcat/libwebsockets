@@ -66,6 +66,11 @@ lws_send_pipe_choked(struct lws *wsi)
 	return 0;
 }
 
+int
+lws_plat_set_nonblocking(int fd)
+{
+	return fcntl(fd, F_SETFL, O_NONBLOCK) < 0;
+}
 
 int
 lws_plat_set_socket_options(struct lws_vhost *vhost, int fd, int unix_skt)
@@ -156,11 +161,7 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, int fd, int unix_skt)
 		return 1;
 #endif
 
-	/* We are nonblocking... */
-	if (fcntl(fd, F_SETFL, O_NONBLOCK) < 0)
-		return 1;
-
-	return 0;
+	return lws_plat_set_nonblocking(fd);
 }
 
 

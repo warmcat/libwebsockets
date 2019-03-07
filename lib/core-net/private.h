@@ -729,6 +729,9 @@ user_callback_handle_rxflow(lws_callback_function, struct lws *wsi,
 			    void *in, size_t len);
 
 LWS_EXTERN int
+lws_plat_set_nonblocking(int fd);
+
+LWS_EXTERN int
 lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd,
 			    int unix_skt);
 

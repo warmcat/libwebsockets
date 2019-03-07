@@ -72,6 +72,11 @@ lws_plat_check_connection_error(struct lws *wsi)
 	return 0;
 }
 
+int
+lws_plat_set_nonblocking(int fd)
+{
+	return fcntl(fd, F_SETFL, O_NONBLOCK) < 0;
+}
 
 int
 lws_plat_set_socket_options(struct lws_vhost *vhost, int fd, int unix_skt)
@@ -126,11 +131,7 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, int fd, int unix_skt)
 	if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &optval, optlen) < 0)
 		return 1;
 
-	/* We are nonblocking... */
-	if (fcntl(fd, F_SETFL, O_NONBLOCK) < 0)
-		return 1;
-
-	return 0;
+	return lws_plat_set_nonblocking(fd);
 }
 
 /* cast a struct sockaddr_in6 * into addr for ipv6 */

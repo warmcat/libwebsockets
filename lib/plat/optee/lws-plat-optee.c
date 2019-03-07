@@ -101,6 +101,11 @@ void lwsl_emit_optee(int level, const char *line)
         EMSG("%c%s%s%s%c[0m", 27, colours[m], buf, linecp, 27);
 }
 
+int
+lws_plat_set_nonblocking(int fd)
+{
+	return 0;
+}
 
 void
 lws_plat_drop_app_privileges(const struct lws_context_creation_info *info)

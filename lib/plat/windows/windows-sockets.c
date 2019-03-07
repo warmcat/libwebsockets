@@ -43,12 +43,19 @@ lws_poll_listen_fd(struct lws_pollfd *fd)
 }
 
 int
+lws_plat_set_nonblocking(int fd)
+{
+	u_long optl = 1;
+
+	return !!ioctlsocket(fd, FIONBIO, &optl);
+}
+
+int
 lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd,
 			    int unix_skt)
 {
 	int optval = 1;
 	int optlen = sizeof(optval);
-	u_long optl = 1;
 	DWORD dwBytesRet;
 	struct tcp_keepalive alive;
 	int protonbr;
@@ -87,10 +94,7 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd,
 
 	setsockopt(fd, protonbr, TCP_NODELAY, (const char *)&optval, optlen);
 
-	/* We are nonblocking... */
-	ioctlsocket(fd, FIONBIO, &optl);
-
-	return 0;
+	return lws_plat_set_nonblocking(fd);
 }
 
 
