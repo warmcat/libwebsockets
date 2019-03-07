@@ -26,6 +26,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <stdio.h>
 
 struct lws_ss_filepath {
 	struct lws_ss_filepath *next;

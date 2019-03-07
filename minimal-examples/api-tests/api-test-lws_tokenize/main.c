@@ -15,6 +15,7 @@
 
 #include <libwebsockets.h>
 #include <string.h>
+#include <stdio.h>
 
 struct expected {
 	lws_tokenize_elem e;
