@@ -25,8 +25,9 @@
 LWS_VISIBLE int
 lws_set_proxy(struct lws_vhost *vhost, const char *proxy)
 {
-	char *p;
 	char authstring[96];
+	int brackets = 0;
+	char *p;
 
 	if (!proxy)
 		return -1;
@@ -57,24 +58,55 @@ lws_set_proxy(struct lws_vhost *vhost, const char *proxy)
 		vhost->proxy_basic_auth_token[0] = '\0';
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-	lws_strncpy(vhost->http.http_proxy_address, proxy,
+
+#if defined(LWS_WITH_IPV6)
+	/*
+	 * isolating the address / port is complicated by IPv6 overloading
+	 * the meaning of : in the address.  The convention to solve it is to
+	 * put [] around the ipv6 address part, eg, "[::1]:443".  This must be
+	 * parsed to "::1" as the address and the port as 443.
+	 *
+	 * IPv4 addresses like myproxy:443 continue to be parsed as normal.
+	 */
+
+	if (proxy[0] == '[')
+		brackets = 1;
+#endif
+
+	lws_strncpy(vhost->http.http_proxy_address, proxy + brackets,
 		    sizeof(vhost->http.http_proxy_address));
 
-	p = strchr(vhost->http.http_proxy_address, ':');
+	p = vhost->http.http_proxy_address;
+
+#if defined(LWS_WITH_IPV6)
+	if (brackets) {
+		/* original is IPv6 format "[::1]:443" */
+
+		p = strchr(vhost->http.http_proxy_address, ']');
+		if (!p) {
+			lwsl_err("%s: malformed proxy '%s'\n", __func__, proxy);
+
+			return -1;
+		}
+		*p++ = '\0';
+	}
+#endif
+
+	p = strchr(p, ':');
 	if (!p && !vhost->http.http_proxy_port) {
 		lwsl_err("http_proxy needs to be ads:port\n");
 
 		return -1;
-	} else {
-		if (p) {
-			*p = '\0';
-			vhost->http.http_proxy_port = atoi(p + 1);
-		}
+	}
+	if (p) {
+		*p = '\0';
+		vhost->http.http_proxy_port = atoi(p + 1);
 	}
 
 	lwsl_info(" Proxy %s:%u\n", vhost->http.http_proxy_address,
-			vhost->http.http_proxy_port);
+		  vhost->http.http_proxy_port);
 #endif
+
 	return 0;
 
 auth_too_long:
