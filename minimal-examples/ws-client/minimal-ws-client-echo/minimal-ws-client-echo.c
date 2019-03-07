@@ -24,12 +24,19 @@ static struct lws_protocols protocols[] = {
 
 static struct lws_context *context;
 static int interrupted, port = 7681, options = 0;
-static const char *url = "/", *ads = "localhost";
+static const char *url = "/", *ads = "localhost", *iface = NULL;
 
 /* pass pointers to shared vars to the protocol */
 
-static const struct lws_protocol_vhost_options pvo_ads = {
+static const struct lws_protocol_vhost_options pvo_iface = {
 	NULL,
+	NULL,
+	"iface",		/* pvo name */
+	(void *)&iface	/* pvo value */
+};
+
+static const struct lws_protocol_vhost_options pvo_ads = {
+	&pvo_iface,
 	NULL,
 	"ads",		/* pvo name */
 	(void *)&ads	/* pvo value */
@@ -118,6 +125,9 @@ int main(int argc, const char **argv)
 
 	if ((p = lws_cmdline_option(argc, argv, "-s")))
 		ads = p;
+
+	if ((p = lws_cmdline_option(argc, argv, "-i")))
+		iface = p;
 
 	lwsl_user("options %d, ads %s\n", options, ads);
 

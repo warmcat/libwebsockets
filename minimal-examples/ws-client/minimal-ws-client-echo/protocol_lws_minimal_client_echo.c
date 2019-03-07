@@ -45,6 +45,7 @@ struct vhd_minimal_client_echo {
 	int *options;
 	const char **url;
 	const char **ads;
+	const char **iface;
 	int *port;
 };
 
@@ -68,6 +69,7 @@ connect_client(struct vhd_minimal_client_echo *vhd)
 	if ((*vhd->options) & 2)
 		i.ssl_connection |= LCCSCF_USE_SSL;
 	i.vhost = vhd->vhost;
+	i.iface = *vhd->iface;
 	//i.protocol = ;
 	i.pwsi = &vhd->client_wsi;
 
@@ -134,6 +136,9 @@ callback_minimal_client_echo(struct lws *wsi, enum lws_callback_reasons reason,
 		vhd->url = (const char **)lws_pvo_search(
 			(const struct lws_protocol_vhost_options *)in,
 			"url")->value;
+		vhd->iface = (const char **)lws_pvo_search(
+			(const struct lws_protocol_vhost_options *)in,
+			"iface")->value;
 
 		if (connect_client(vhd))
 			schedule_callback(wsi, LWS_CALLBACK_USER, 1);
