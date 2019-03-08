@@ -51,7 +51,7 @@ lws_client_connect_2(struct lws *wsi)
 	char ipv6only = lws_check_opt(wsi->vhost->options,
 			LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY |
 			LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE);
-
+	struct sockaddr_in addr;
 #if defined(__ANDROID__)
 	ipv6only = 0;
 #endif
@@ -228,6 +228,18 @@ create_new_conn:
 	 * start off allowing ipv6 on connection if vhost allows it
 	 */
 	wsi->ipv6 = LWS_IPV6_ENABLED(wsi->vhost);
+#ifdef LWS_WITH_IPV6
+	if (wsi->stash)
+		iface = wsi->stash->iface;
+	else
+		iface = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_IFACE);
+
+	if (wsi->ipv6 && iface &&
+	    inet_pton(AF_INET, iface, &addr.sin_addr) == 1) {
+		lwsl_notice("%s: client connection forced to IPv4\n", __func__);
+		wsi->ipv6 = 0;
+	}
+#endif
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 
@@ -464,7 +476,7 @@ ads_known:
 
 		if (iface) {
 			n = lws_socket_bind(wsi->vhost, wsi->desc.sockfd, 0,
-					    iface);
+					    iface, wsi->ipv6);
 			if (n < 0) {
 				cce = "unable to bind socket";
 				goto failed;

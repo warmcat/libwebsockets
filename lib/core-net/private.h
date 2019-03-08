@@ -648,7 +648,7 @@ lws_role_by_name(const char *name);
 
 LWS_EXTERN int
 lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
-		const char *iface);
+		const char *iface, int ipv6_allowed);
 
 #if defined(LWS_WITH_IPV6)
 LWS_EXTERN unsigned long

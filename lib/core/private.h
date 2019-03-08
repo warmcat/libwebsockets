@@ -472,9 +472,6 @@ lws_b64_selftest(void);
  #define get_daemonize_pid() (0)
 #endif
 
-LWS_EXTERN int LWS_WARN_UNUSED_RESULT
-interface_to_sa(struct lws_vhost *vh, const char *ifname,
-		struct sockaddr_in *addr, size_t addrlen);
 LWS_EXTERN void lwsl_emit_stderr(int level, const char *line);
 
 #if !defined(LWS_WITH_TLS)

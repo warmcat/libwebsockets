@@ -210,6 +210,7 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 				memcpy(&addr6->sin6_addr.s6_addr[12],
 				       &((struct sockaddr_in *)ifc->ifa_addr)->sin_addr,
 							sizeof(struct in_addr));
+				lwsl_debug("%s: uplevelling ipv4 bind to ipv6\n", __func__);
 			} else
 #endif
 				memcpy(addr,

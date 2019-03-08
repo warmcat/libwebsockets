@@ -84,7 +84,7 @@ _lws_vhost_init_server(const struct lws_context_creation_info *info,
 		 * of the interface he wants to bind to...
 		 */
 		is = lws_socket_bind(vhost, LWS_SOCK_INVALID, vhost->listen_port,
-				vhost->iface);
+				vhost->iface, 1);
 		lwsl_debug("initial if check says %d\n", is);
 
 		if (is == LWS_ITOSA_BUSY)
@@ -233,7 +233,7 @@ done_list:
 #endif
 		lws_plat_set_socket_options(vhost, sockfd, 0);
 
-		is = lws_socket_bind(vhost, sockfd, vhost->listen_port, vhost->iface);
+		is = lws_socket_bind(vhost, sockfd, vhost->listen_port, vhost->iface, 1);
 		if (is == LWS_ITOSA_BUSY) {
 			/* treat as fatal */
 			compatible_close(sockfd);
