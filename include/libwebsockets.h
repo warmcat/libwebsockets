@@ -356,29 +356,10 @@ int gettimeofday(struct timeval *tv, struct timezone *tz);
 
 typedef unsigned short sa_family_t;
 typedef unsigned short in_port_t;
-
-    struct sockaddr_storage {
-	sa_family_t   ss_family;
-    };
-
-struct sockaddr {
-	sa_family_t  sa_family;
-	char         sa_data[14];
-};
-
-
-    struct sockaddr_in {
-        sa_family_t    sin_family; /* address family: AF_INET */
-        in_port_t      sin_port;   /* port in network byte order */
-        struct in_addr sin_addr;   /* internet address */
-    /* Pad to size of `struct sockaddr'.  */
-    unsigned char sin_zero[sizeof (struct sockaddr) -
-			   sizeof(sa_family_t) -
-			   sizeof (in_port_t) -
-			   sizeof (struct in_addr)];
-    };
-
 typedef uint32_t socklen_t;
+
+#include <libwebsockets/lws-optee.h>
+
 #if !defined(TEE_SE_READER_NAME_MAX)
            struct addrinfo {
                int              ai_flags;
