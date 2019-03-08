@@ -311,7 +311,7 @@ create_new_conn:
 			if (ipv6only)
 				break;
 			/* map IPv4 to IPv6 */
-			bzero((char *)&sa46.sa6.sin6_addr,
+			memset((char *)&sa46.sa6.sin6_addr, 0,
 						sizeof(sa46.sa6.sin6_addr));
 			sa46.sa6.sin6_addr.s6_addr[10] = 0xff;
 			sa46.sa6.sin6_addr.s6_addr[11] = 0xff;
@@ -384,7 +384,7 @@ create_new_conn:
 
 		sa46.sa4.sin_family = AF_INET;
 		sa46.sa4.sin_addr = *((struct in_addr *)p);
-		bzero(&sa46.sa4.sin_zero, sizeof(sa46.sa4.sin_zero));
+		memset(&sa46.sa4.sin_zero, 0, sizeof(sa46.sa4.sin_zero));
 	}
 
 	if (result)

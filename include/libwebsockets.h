@@ -431,7 +431,6 @@ int close(int fd);
 int atoi(const char *nptr);
 long long atoll(const char *nptr);
 
-void bzero(void *s, size_t n);
 int socket(int domain, int type, int protocol);
        int getaddrinfo(const char *node, const char *service,
                        const struct addrinfo *hints,

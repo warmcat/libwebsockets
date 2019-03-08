@@ -202,7 +202,7 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
 
 	if (af == AF_INET) {
 		struct sockaddr_in srcaddr;
-		bzero(&srcaddr, sizeof(srcaddr));
+		memset(&srcaddr, 0, sizeof(srcaddr));
 		srcaddr.sin_family = AF_INET;
 		memcpy(&(srcaddr.sin_addr), src, sizeof(srcaddr.sin_addr));
 
@@ -211,7 +211,7 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
 #ifdef LWS_WITH_IPV6
 	} else if (af == AF_INET6) {
 		struct sockaddr_in6 srcaddr;
-		bzero(&srcaddr, sizeof(srcaddr));
+		memset(&srcaddr, 0, sizeof(srcaddr));
 		srcaddr.sin6_family = AF_INET6;
 		memcpy(&(srcaddr.sin6_addr), src, sizeof(srcaddr.sin6_addr));
 
@@ -255,7 +255,8 @@ lws_plat_inet_pton(int af, const char *src, void *dst)
 	if (af == AF_INET) {
 		struct sockaddr_in dstaddr;
 		int dstaddrlen = sizeof(dstaddr);
-		bzero(&dstaddr, sizeof(dstaddr));
+
+		memset(&dstaddr, 0, sizeof(dstaddr));
 		dstaddr.sin_family = AF_INET;
 
 		if (!WSAStringToAddressW(buffer, af, 0, (struct sockaddr *) &dstaddr, &dstaddrlen)) {
@@ -266,7 +267,8 @@ lws_plat_inet_pton(int af, const char *src, void *dst)
 	} else if (af == AF_INET6) {
 		struct sockaddr_in6 dstaddr;
 		int dstaddrlen = sizeof(dstaddr);
-		bzero(&dstaddr, sizeof(dstaddr));
+
+		memset(&dstaddr, 0, sizeof(dstaddr));
 		dstaddr.sin6_family = AF_INET6;
 
 		if (!WSAStringToAddressW(buffer, af, 0, (struct sockaddr *) &dstaddr, &dstaddrlen)) {

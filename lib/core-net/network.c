@@ -231,7 +231,7 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 	if (LWS_UNIX_SOCK_ENABLED(vhost)) {
 		v = (struct sockaddr *)&serv_unix;
 		n = sizeof(struct sockaddr_un);
-		bzero((char *) &serv_unix, sizeof(serv_unix));
+		memset(&serv_unix, 0, sizeof(serv_unix));
 		serv_unix.sun_family = AF_UNIX;
 		if (!iface)
 			return LWS_ITOSA_NOT_EXIST;
@@ -252,7 +252,7 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 	if (ipv6_allowed && LWS_IPV6_ENABLED(vhost)) {
 		v = (struct sockaddr *)&serv_addr6;
 		n = sizeof(struct sockaddr_in6);
-		bzero((char *) &serv_addr6, sizeof(serv_addr6));
+		memset(&serv_addr6, 0, sizeof(serv_addr6));
 		if (iface) {
 			m = interface_to_sa(vhost, iface,
 				    (struct sockaddr_in *)v, n, 1);
@@ -276,7 +276,7 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 	{
 		v = (struct sockaddr *)&serv_addr4;
 		n = sizeof(serv_addr4);
-		bzero((char *) &serv_addr4, sizeof(serv_addr4));
+		memset(&serv_addr4, 0, sizeof(serv_addr4));
 		serv_addr4.sin_addr.s_addr = INADDR_ANY;
 		serv_addr4.sin_family = AF_INET;
 

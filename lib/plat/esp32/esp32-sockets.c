@@ -164,7 +164,7 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 #ifdef LWS_WITH_IPV6
 			if (ipv6) {
 				/* map IPv4 to IPv6 */
-				bzero((char *)&addr6->sin6_addr,
+				memset((char *)&addr6->sin6_addr, 0,
 						sizeof(struct in6_addr));
 				addr6->sin6_addr.s6_addr[10] = 0xff;
 				addr6->sin6_addr.s6_addr[11] = 0xff;
