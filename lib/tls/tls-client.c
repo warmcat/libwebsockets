@@ -98,6 +98,12 @@ int lws_context_init_client_ssl(const struct lws_context_creation_info *info,
 	if (vhost->options & LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG)
 		return 0;
 
+	if (vhost->tls.ssl_ctx) {
+		cert_filepath = NULL;
+		private_key_filepath = NULL;
+		ca_filepath = NULL;
+	}
+
 	/*
 	 *  for backwards-compatibility default to using ssl_... members, but
 	 * if the newer client-specific ones are given, use those
