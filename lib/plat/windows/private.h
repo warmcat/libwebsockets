@@ -49,7 +49,6 @@
 
  #define compatible_close(fd) closesocket(fd)
  #define lws_set_blocking_send(wsi) wsi->sock_send_blocking = 1
- #define LWS_SOCK_INVALID (INVALID_SOCKET)
 
  #include <winsock2.h>
  #include <ws2tcpip.h>

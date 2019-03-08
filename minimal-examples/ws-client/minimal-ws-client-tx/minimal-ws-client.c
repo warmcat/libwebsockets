@@ -50,6 +50,10 @@ struct per_vhost_data__minimal {
 	char established;
 };
 
+#if defined(WIN32)
+static void usleep(unsigned long l) { Sleep(l / 1000); }
+#endif
+
 static void
 __minimal_destroy_message(void *_msg)
 {
@@ -113,6 +117,8 @@ wait:
 	lwsl_notice("thread_spam %p exiting\n", (void *)pthread_self());
 
 	pthread_exit(NULL);
+
+	return NULL;
 }
 
 static int

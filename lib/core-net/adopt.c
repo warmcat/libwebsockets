@@ -168,12 +168,15 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 				 __func__);
 			goto bail;
 		}
-	} else
+	}
+#if !defined(WIN32)
+	else
 		if (lws_plat_set_nonblocking(fd.filefd)) {
 			lwsl_err("%s: unable to set filefd nonblocking\n",
 				 __func__);
 			goto bail;
 		}
+#endif
 
 	new_wsi->desc = fd;
 

@@ -56,6 +56,8 @@ void *thread_service(void *threadid)
 		;
 
 	pthread_exit(NULL);
+
+	return NULL;
 }
 
 void sigint_handler(int sig)

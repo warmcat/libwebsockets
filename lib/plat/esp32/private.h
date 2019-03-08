@@ -64,8 +64,6 @@
 
  #define lws_set_blocking_send(wsi)
 
- #define LWS_SOCK_INVALID (-1)
-
  #ifndef LWS_NO_FORK
   #ifdef LWS_HAVE_SYS_PRCTL_H
    #include <sys/prctl.h>

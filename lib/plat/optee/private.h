@@ -36,8 +36,6 @@
 
  #define lws_set_blocking_send(wsi)
 
- #define LWS_SOCK_INVALID (-1)
-
 #define compatible_close(x) close(x)
 #define lws_plat_socket_offset() (0)
 #define wsi_from_fd(A,B)  A->lws_lookup[B - lws_plat_socket_offset()]

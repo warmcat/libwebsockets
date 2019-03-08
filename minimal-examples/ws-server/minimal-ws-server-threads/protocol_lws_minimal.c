@@ -51,6 +51,10 @@ struct per_vhost_data__minimal {
 	char finished;
 };
 
+#if defined(WIN32)
+static void usleep(unsigned long l) { Sleep(l / 1000); }
+#endif
+
 /*
  * This runs under both lws service and "spam threads" contexts.
  * Access is serialized by vhd->lock_ring.
@@ -126,6 +130,8 @@ wait:
 	lwsl_notice("thread_spam %p exiting\n", (void *)pthread_self());
 
 	pthread_exit(NULL);
+
+	return NULL;
 }
 
 /* this runs under the lws service thread context only */

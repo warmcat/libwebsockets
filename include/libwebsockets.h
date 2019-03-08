@@ -85,6 +85,7 @@ typedef unsigned long long lws_intptr_t;
 #endif
 
 #define LWS_INVALID_FILE INVALID_HANDLE_VALUE
+#define LWS_SOCK_INVALID (INVALID_SOCKET)
 #define LWS_O_RDONLY _O_RDONLY
 #define LWS_O_WRONLY _O_WRONLY
 #define LWS_O_CREAT _O_CREAT
@@ -115,12 +116,15 @@ typedef unsigned long long lws_intptr_t;
 #include <poll.h>
 #include <netdb.h>
 #define LWS_INVALID_FILE -1
+#define LWS_SOCK_INVALID (-1)
 #else
 #define getdtablesize() (30)
 #if defined(LWS_WITH_ESP32)
 #define LWS_INVALID_FILE NULL
+#define LWS_SOCK_INVALID (-1)
 #else
 #define LWS_INVALID_FILE NULL
+#define LWS_SOCK_INVALID (-1)
 #endif
 #endif
 

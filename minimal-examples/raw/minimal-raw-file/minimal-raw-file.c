@@ -18,7 +18,8 @@
 #include <fcntl.h>
 
 struct raw_vhd {
-	lws_sock_file_fd_type u;
+//	lws_sock_file_fd_type u;
+	int filefd;
 };
 
 static char filepath[256];
@@ -29,6 +30,7 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 {
 	struct raw_vhd *vhd = (struct raw_vhd *)lws_protocol_vh_priv_get(
 				     lws_get_vhost(wsi), lws_get_protocol(wsi));
+	lws_sock_file_fd_type u;
 	uint8_t buf[1024];
 	int n;
 
@@ -36,26 +38,27 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_PROTOCOL_INIT:
 		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
 				lws_get_protocol(wsi), sizeof(struct raw_vhd));
-		vhd->u.filefd = lws_open(filepath, O_RDWR);
-		if (vhd->u.filefd == -1) {
+		vhd->filefd = lws_open(filepath, O_RDWR);
+		if (vhd->filefd == -1) {
 			lwsl_err("Unable to open %s\n", filepath);
 
 			return 1;
 		}
+		u.filefd = (lws_filefd_type)(long long)vhd->filefd;
 		if (!lws_adopt_descriptor_vhost(lws_get_vhost(wsi),
-						LWS_ADOPT_RAW_FILE_DESC, vhd->u,
+						LWS_ADOPT_RAW_FILE_DESC, u,
 						"raw-test", NULL)) {
 			lwsl_err("Failed to adopt fifo descriptor\n");
-			close(vhd->u.filefd);
-			vhd->u.filefd = -1;
+			close(vhd->filefd);
+			vhd->filefd = -1;
 
 			return 1;
 		}
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
-		if (vhd && vhd->u.filefd != -1)
-			close(vhd->u.filefd);
+		if (vhd && vhd->filefd != -1)
+			close(vhd->filefd);
 		break;
 
 	/* callbacks related to raw file descriptor */
@@ -66,7 +69,7 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_RAW_RX_FILE:
 		lwsl_notice("LWS_CALLBACK_RAW_RX_FILE\n");
-		n = read(vhd->u.filefd, buf, sizeof(buf));
+		n = read(vhd->filefd, buf, sizeof(buf));
 		if (n < 0) {
 			lwsl_err("Reading from %s failed\n", filepath);
 

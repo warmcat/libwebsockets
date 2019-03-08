@@ -181,7 +181,7 @@ callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
 		case WALK_FINAL:
 walk_final:
 			n = LWS_WRITE_CONTINUATION;
-			p += sprintf(p, "]}");
+			p += lws_snprintf(p, 4, "]}");
 			if (pss->changed_partway) {
 				pss->changed_partway = 0;
 				pss->subsequent = 0;

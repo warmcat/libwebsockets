@@ -259,7 +259,11 @@ file_upload_cb(void *data, const char *name, const char *filename,
 			lws_filename_purify_inplace(pss->user);
 			lws_snprintf(pss->filename, sizeof(pss->filename),
 				     "%s/%s", pss->vhd->upload_dir, pss->user);
-			if (mkdir(pss->filename, 0700) < 0)
+			if (mkdir(pss->filename
+#if !defined(WIN32)
+				, 0700
+#endif
+				) < 0)
 				lwsl_debug("%s: mkdir failed\n", __func__);
 			lws_snprintf(pss->filename, sizeof(pss->filename),
 				     "%s/%s/%s~", pss->vhd->upload_dir,
@@ -271,7 +275,7 @@ file_upload_cb(void *data, const char *name, const char *filename,
 
 		pss->fd = (lws_filefd_type)(long long)lws_open(pss->filename,
 			      O_CREAT | O_TRUNC | O_RDWR, 0600);
-		if (pss->fd == -1) {
+		if (pss->fd == LWS_INVALID_FILE) {
 			pss->response_code = HTTP_STATUS_INTERNAL_SERVER_ERROR;
 			lwsl_err("%s: unable to open %s (errno %d)\n", __func__,
 					pss->filename, errno);
@@ -305,7 +309,7 @@ file_upload_cb(void *data, const char *name, const char *filename,
 		if (state == LWS_UFS_CONTENT)
 			break;
 
-		if ((int)(long long)pss->fd >= 0)
+		if (pss->fd != LWS_INVALID_FILE)
 			close((int)(long long)pss->fd);
 
 		/* the temp filename without the ~ */

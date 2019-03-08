@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <signal.h>
 #include <pthread.h>
+#include <time.h>
 
 /* one of these created for each message in the ringbuffer */
 
@@ -55,6 +56,11 @@ struct vhd {
 };
 
 static int interrupted;
+
+#if defined(WIN32)
+static void usleep(unsigned long l) { Sleep(l / 1000); }
+#endif
+
 
 /* destroys the message when everyone has had a copy of it */
 
@@ -128,6 +134,8 @@ wait:
 	lwsl_notice("thread_spam %p exiting\n", (void *)pthread_self());
 
 	pthread_exit(NULL);
+
+	return NULL;
 }
 
 

@@ -18,16 +18,18 @@
 #include <libwebsockets.h>
 #include <string.h>
 #include <signal.h>
+#if !defined(WIN32)
 #include <sys/socket.h>
-#include <sys/types.h>
 #include <netinet/in.h>
 #include <netdb.h>
+#include <arpa/inet.h>
+#endif
+#include <sys/types.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <errno.h>
-#include <arpa/inet.h>
 
 static uint8_t sendbuf[4096];
 static size_t sendlen;
@@ -96,7 +98,11 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 		 *
 		 * For clarity partial sends just drop the remainder here.
 		 */
-		n = sendto(fd, sendbuf, sendlen, 0, &udp.sa, udp.salen);
+		n = sendto(fd,
+#if defined(WIN32)
+				(const char *)
+#endif
+			sendbuf, sendlen, 0, &udp.sa, udp.salen);
 		if (n < (ssize_t)len)
 			lwsl_notice("%s: send returned %d\n", __func__, (int)n);
 		break;

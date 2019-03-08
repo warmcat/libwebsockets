@@ -214,72 +214,47 @@ deleting build/CMakeCache.txt may be enough.
 
 @section cmwmgw Building on Windows (MinGW)
 
-1. Install MinGW: http://sourceforge.net/projects/mingw/files
+1. Install MinGW
 
-   (**NOTE**: Preferably in the default location C:\MinGW)
+    For Fedora, it's, eg, `dnf install mingw64-gcc`
 
-2. Fix up MinGW headers
+2. Install current CMake package
 
-   a) If still necessary, sdd the following lines to C:\MinGW\include\winsock2.h:
-```
-    #if(_WIN32_WINNT >= 0x0600)
+    For Fedora, it's `dnf install cmake`
 
-    typedef struct pollfd {
+3. Instal mingw-built OpenSSL pieces
 
-        SOCKET  fd;
-        SHORT   events;
-        SHORT   revents;
+    For Fedora, it's `mingw64-openssl.noarch mingw64-openssl-static.noarch`
 
-    } WSAPOLLFD, *PWSAPOLLFD, FAR *LPWSAPOLLFD;
+    mingw64-cmake as described below will auto-find the libs and includes
+    for build.  But to execute the apps, they either need to go into the same
+    `/usr/x86_64-w64-mingw32/sys-root/mingw/bin/` as the dlls are installed to,
+    or the dlls have to be copied into the same dir as your app executable.
 
-    WINSOCK_API_LINKAGE int WSAAPI WSAPoll(LPWSAPOLLFD fdArray, ULONG fds, INT timeout);
+4. Generate the build files (default is Make files) using MSYS shell.
 
-    #endif // (_WIN32_WINNT >= 0x0600)
-```
+   For Fedora, they provide a `mingw64-cmake` wrapper in the package
+   `mingw64-filesystem`, with this you can run that instead of cmake directly
+   and don't have to get involved with setting the cmake generator.
 
-       Update crtdefs.h line 47 to say:
+   Otherwise doing it by hand is like this:
 
-```
-    typedef __int64 ssize_t;
-```
-
-   b) Create C:\MinGW\include\mstcpip.h and copy and paste the content from following link into it:
-
-   https://github.com/Alexpux/mingw-w64/blob/master/mingw-w64-headers/include/mstcpip.h
-
-3. Install CMake 2.6 or greater: http://cmake.org/cmake/resources/software.html
-
-4. Install OpenSSL binaries. https://wiki.openssl.org/index.php/Binaries
-
-   (**NOTE**: Preferably in the default location to make it easier for CMake to find them)
-
-   **NOTE2**: 
-   Be sure that OPENSSL_CONF environment variable is defined and points at 
-   <OpenSSL install location>\bin\openssl.cfg
-
-5. Generate the build files (default is Make files) using MSYS shell:
 ```
     $ cd /drive/path/to/src
     $ mkdir build
     $ cd build
     $ cmake -G "MSYS Makefiles" -DCMAKE_INSTALL_PREFIX=C:/MinGW ..
 ```
-   (**NOTE**: The `build/`` directory can have any name and be located anywhere
-    on your filesystem, and that the argument `..` given to cmake is simply
-    the source directory of **libwebsockets** containing the [CMakeLists.txt](../CMakeLists.txt)
-    project file. All examples in this file assumes you use "..")
 
-   **NOTE2**:
    To generate build files allowing to create libwebsockets binaries with debug information
    set the CMAKE_BUILD_TYPE flag to DEBUG:
 ```
     $ cmake -G "MSYS Makefiles" -DCMAKE_INSTALL_PREFIX=C:/MinGW -DCMAKE_BUILD_TYPE=DEBUG ..
 ```
-6. Finally you can build using the generated Makefile and get the results deployed into your MinGW installation:
+5. Finally you can build using the generated Makefile and get the results deployed into your MinGW installation:
 
 ```
-    $ make
-    $ make install
+    $ make && make install
 ```
 
 @section distro Selecting CMake options useful for distros

@@ -161,7 +161,7 @@ lws_gencrypto_destroy_elements(struct lws_gencrypto_keyelem *el, int m);
 struct lws_gencrypto_keyelem;
 struct lws_ec_curves;
 
-LWS_EXTERN const struct lws_ec_curves lws_ec_curves[];
+LWS_EXTERN const struct lws_ec_curves *lws_ec_curves;
 const struct lws_ec_curves *
 lws_genec_curve(const struct lws_ec_curves *table, const char *name);
 LWS_VISIBLE void
