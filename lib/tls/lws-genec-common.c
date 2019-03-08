@@ -40,7 +40,7 @@ lws_genec_curve(const struct lws_ec_curves *table, const char *name)
 	return NULL;
 }
 
-extern const struct lws_ec_curves lws_ec_curves[];
+//extern const struct lws_ec_curves *lws_ec_curves;
 
 int
 lws_genec_confirm_curve_allowed_by_tls_id(const char *allowed, int id,
