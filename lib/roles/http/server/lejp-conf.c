@@ -221,6 +221,7 @@ struct jpargs {
 	struct lws_context_creation_info *info;
 	struct lws_context *context;
 	const struct lws_protocols *protocols;
+	const struct lws_protocols **pprotocols;
 	const struct lws_extension *extensions;
 	char *p, *end, valid;
 	struct lws_http_mount *head, *last;
@@ -400,6 +401,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->info->timeout_secs = i[3];
 
 		a->info->protocols = a->protocols;
+		a->info->pprotocols = a->pprotocols;
 		a->info->extensions = a->extensions;
 #if defined(LWS_WITH_TLS)
 		a->info->client_ssl_cipher_list = "ECDHE-ECDSA-AES256-GCM-SHA384:"
@@ -1069,6 +1071,7 @@ lwsws_get_config_vhosts(struct lws_context *context,
 	a.valid = 0;
 	a.context = context;
 	a.protocols = info->protocols;
+	a.pprotocols = info->pprotocols;
 	a.extensions = info->extensions;
 
 	lws_snprintf(dd, sizeof(dd) - 1, "%s/conf", d);

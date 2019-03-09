@@ -439,7 +439,7 @@ lws_create_vhost(struct lws_context *context,
 	pthread_mutex_init(&vh->lock, NULL);
 #endif
 
-	if (!pcols)
+	if (!pcols && !info->pprotocols)
 		pcols = &protocols_dummy[0];
 
 	vh->context = context;
@@ -461,10 +461,16 @@ lws_create_vhost(struct lws_context *context,
 	vh->bind_iface = info->bind_iface;
 #endif
 
-	for (vh->count_protocols = 0;
-	     pcols[vh->count_protocols].callback;
-	     vh->count_protocols++)
-		;
+	if (!pcols)
+		for (vh->count_protocols = 0;
+			info->pprotocols[vh->count_protocols];
+			vh->count_protocols++)
+			;
+	else
+		for (vh->count_protocols = 0;
+			pcols[vh->count_protocols].callback;
+			vh->count_protocols++)
+				;
 
 	vh->options = info->options;
 	vh->pvo = info->pvo;
@@ -536,7 +542,11 @@ lws_create_vhost(struct lws_context *context,
 	}
 
 	m = vh->count_protocols;
-	memcpy(lwsp, pcols, sizeof(struct lws_protocols) * m);
+	if (!pcols) {
+		for (n = 0; n < m; n++)
+			memcpy(&lwsp[n], info->pprotocols[n], sizeof(lwsp[0]));
+	} else
+		memcpy(lwsp, pcols, sizeof(struct lws_protocols) * m);
 
 	/* for compatibility, all protocols enabled on vhost if only
 	 * the default vhost exists.  Otherwise only vhosts who ask
@@ -569,11 +579,11 @@ lws_create_vhost(struct lws_context *context,
 	}
 #endif
 
-	if (
+	if (!pcols ||
 #ifdef LWS_WITH_PLUGINS
 	    (context->plugin_list) ||
 #endif
-	    context->options & LWS_SERVER_OPTION_EXPLICIT_VHOSTS)
+	    (context->options & LWS_SERVER_OPTION_EXPLICIT_VHOSTS))
 		vh->protocols = lwsp;
 	else {
 		vh->protocols = pcols;

@@ -52,3 +52,4 @@ doc
 /cov-int/
 /.vs/
 /build-mtls/
+/build-mingw64/

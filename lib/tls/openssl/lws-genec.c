@@ -74,7 +74,7 @@ int BN_bn2binpad(const BIGNUM *a, unsigned char *to, int tolen)
 }
 #endif
 
-const struct lws_ec_curves lws_ec_curves[] = {
+const struct lws_ec_curves lws_ec_curves[4] = {
 	/*
 	 * These are the curves we are willing to use by default...
 	 *
