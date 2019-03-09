@@ -240,7 +240,9 @@ struct lws_context_creation_info {
 	const struct lws_protocols *protocols;
 	/**< VHOST: Array of structures listing supported protocols and a
 	 * protocol-specific callback for each one.  The list is ended with an
-	 * entry that has a NULL callback pointer. */
+	 * entry that has a NULL callback pointer.  SEE ALSO .pprotocols below,
+	 * which gives an alternative way to provide an array of pointers to
+	 * protocol structs. */
 	const struct lws_extension *extensions;
 	/**< VHOST: NULL or array of lws_extension structs listing the
 	 * extensions this context supports. */
@@ -597,6 +599,16 @@ struct lws_context_creation_info {
 	const char *listen_accept_protocol;
 	/**< VHOST: NULL for default, or force accepted incoming connections to
 	 * bind to this vhost protocol name.
+	 */
+	const struct lws_protocols **pprotocols;
+	/**< VHOST: NULL: use .protocols, otherwise ignore .protocols and use
+	 * this array of pointers to protocols structs.  The end of the array
+	 * is marked by a NULL pointer.
+	 *
+	 * This is preferred over .protocols, because it allows the protocol
+	 * struct to be opaquely defined elsewhere, with just a pointer to it
+	 * needed to create the context with it.  .protocols requires also
+	 * the type of the user data to be known so its size can be given.
 	 */
 
 	/* Add new things just above here ---^

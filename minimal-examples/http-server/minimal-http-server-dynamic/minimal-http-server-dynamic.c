@@ -175,10 +175,10 @@ callback_dynamic_http(struct lws *wsi, enum lws_callback_reasons reason,
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
 }
 
-static struct lws_protocols protocols[] = {
-	{ "http", callback_dynamic_http, sizeof(struct pss), 0 },
-	{ NULL, NULL, 0, 0 } /* terminator */
-};
+static const struct lws_protocols protocol =
+	{ "http", callback_dynamic_http, sizeof(struct pss), 0 };
+
+static const struct lws_protocols *pprotocols[] = { &protocol, NULL };
 
 /* override the default mount for /dyn in the URL space */
 
@@ -268,7 +268,7 @@ int main(int argc, const char **argv)
 	/* http on 7681 */
 
 	info.port = 7681;
-	info.protocols = protocols;
+	info.pprotocols = pprotocols;
 	info.mounts = &mount;
 	info.vhost_name = "http";
 
