@@ -127,16 +127,13 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		lws_pt_unlock(pt);
 	}
 
-	{
-		unsigned int eIdx;
-
-		for (eIdx = 0; eIdx < pt->fds_count; ++eIdx)
-			WSAEventSelect(pt->fds[eIdx].fd, pt->events,
-			       FD_READ | FD_WRITE | FD_OOB | FD_ACCEPT |
-			       FD_CONNECT | FD_CLOSE | FD_QOS |
-			       FD_ROUTING_INTERFACE_CHANGE |
-			       FD_ADDRESS_LIST_CHANGE);
-	}
+	for (n = 0; n < (int)pt->fds_count; n++)
+		WSAEventSelect(pt->fds[n].fd, pt->events,
+		       FD_READ | (!!(pt->fds[n].events & LWS_POLLOUT) * FD_WRITE) |
+		       FD_OOB | FD_ACCEPT |
+		       FD_CONNECT | FD_CLOSE | FD_QOS |
+		       FD_ROUTING_INTERFACE_CHANGE |
+		       FD_ADDRESS_LIST_CHANGE);
 
 	ev = WSAWaitForMultipleEvents(1, &pt->events, FALSE, timeout_ms, FALSE);
 	if (ev == WSA_WAIT_EVENT_0) {

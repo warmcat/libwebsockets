@@ -132,10 +132,15 @@ void
 lws_plat_insert_socket_into_fds(struct lws_context *context, struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+	int n = LWS_POLLIN | LWS_POLLHUP | FD_CONNECT;
+
+	if (wsi->udp) {
+		lwsl_info("%s: UDP\n", __func__);
+		n = LWS_POLLIN;
+	}
 
 	pt->fds[pt->fds_count++].revents = 0;
-	WSAEventSelect(wsi->desc.sockfd, pt->events,
-			   LWS_POLLIN | LWS_POLLHUP | FD_CONNECT);
+	WSAEventSelect(wsi->desc.sockfd, pt->events, n);
 }
 
 void
@@ -170,16 +175,15 @@ lws_plat_change_pollfd(struct lws_context *context,
 			  struct lws *wsi, struct lws_pollfd *pfd)
 {
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	long networkevents = LWS_POLLHUP | FD_CONNECT;
+	long e = LWS_POLLHUP | FD_CONNECT;
 
 	if ((pfd->events & LWS_POLLIN))
-		networkevents |= LWS_POLLIN;
+		e |= LWS_POLLIN;
 
 	if ((pfd->events & LWS_POLLOUT))
-		networkevents |= LWS_POLLOUT;
+		e |= LWS_POLLOUT;
 
-	if (WSAEventSelect(wsi->desc.sockfd, pt->events,
-			   networkevents) != SOCKET_ERROR)
+	if (WSAEventSelect(wsi->desc.sockfd, pt->events, e) != SOCKET_ERROR)
 		return 0;
 
 	lwsl_err("WSAEventSelect() failed with error %d\n", LWS_ERRNO);
