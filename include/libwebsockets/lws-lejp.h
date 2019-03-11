@@ -263,4 +263,7 @@ lejp_check_path_match(struct lejp_ctx *ctx);
 
 LWS_VISIBLE LWS_EXTERN int
 lejp_get_wildcard(struct lejp_ctx *ctx, int wildcard, char *dest, int len);
+
+LWS_VISIBLE LWS_EXTERN const char *
+lejp_error_to_string(int e);
 //@}
