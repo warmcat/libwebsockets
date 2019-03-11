@@ -24,6 +24,33 @@
 #include <string.h>
 #include <stdio.h>
 
+static const char * const parser_errs[] = {
+	"",
+	"",
+	"No opening '{'",
+	"Expected closing '}'",
+	"Expected '\"'",
+	"String underrun",
+	"Illegal unescaped control char",
+	"Illegal escape format",
+	"Illegal hex number",
+	"Expected ':'",
+	"Illegal value start",
+	"Digit required after decimal point",
+	"Bad number format",
+	"Bad exponent format",
+	"Unknown token",
+	"Too many ']'",
+	"Mismatched ']'",
+	"Expected ']'",
+	"JSON nesting limit exceeded",
+	"Nesting tracking used up",
+	"Number too long",
+	"Comma or block end expected",
+	"Unknown",
+	"Parser callback errored (see earlier error)",
+};
+
 /**
  * lejp_construct - prepare a struct lejp_ctx for use
  *
@@ -752,4 +779,18 @@ redo_character:
 reject:
 	ctx->callback(ctx, LEJPCB_FAILED);
 	return ret;
+}
+
+const char *
+lejp_error_to_string(int e)
+{
+	if (e > 0)
+		e = 0;
+	else
+		e = -e;
+
+	if (e >= (int)LWS_ARRAY_SIZE(parser_errs))
+		return "Unknown error";
+
+	return parser_errs[e];
 }
