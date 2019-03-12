@@ -131,6 +131,17 @@ lwsac_use(struct lwsac **head, size_t ensure, size_t chunk_size)
 	return (char *)(*head)->curr + ofs;
 }
 
+void *
+lwsac_use_zeroed(struct lwsac **head, size_t ensure, size_t chunk_size)
+{
+	void *r = lwsac_use(head, ensure, chunk_size);
+
+	if (r)
+		memset(r, 0, ensure);
+
+	return r;
+}
+
 void
 lwsac_free(struct lwsac **head)
 {

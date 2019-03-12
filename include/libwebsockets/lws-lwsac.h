@@ -100,6 +100,24 @@ LWS_VISIBLE LWS_EXTERN void *
 lwsac_use(struct lwsac **head, size_t ensure, size_t chunk_size);
 
 /**
+ * lwsac_use - allocate / use some memory from a lwsac
+ *
+ * \param head: pointer to the lwsac list object
+ * \param ensure: the number of bytes we want to use, which must be zeroed
+ * \param chunk_size: 0, or the size of the chunk to (over)allocate if
+ *			what we want won't fit in the current tail chunk.  If
+ *			0, the default value of 4000 is used. If ensure is
+ *			larger, it is used instead.
+ *
+ * Same as lwsac_use(), but \p ensure bytes of memory at the return address
+ * are zero'd before returning.
+ *
+ * Returns NULL if OOM.
+ */
+void *
+lwsac_use_zeroed(struct lwsac **head, size_t ensure, size_t chunk_size);
+
+/**
  * lwsac_free - deallocate all chunks in the lwsac and set head NULL
  *
  * \param head: pointer to the lwsac list object
