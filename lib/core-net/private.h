@@ -437,6 +437,7 @@ struct lws_vhost {
 	int log_fd;
 #endif
 
+	unsigned int allocated_vhost_protocols:1;
 	unsigned int created_vhost_protocols:1;
 	unsigned int being_destroyed:1;
 

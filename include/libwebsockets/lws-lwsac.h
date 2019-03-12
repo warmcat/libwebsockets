@@ -114,7 +114,7 @@ lwsac_use(struct lwsac **head, size_t ensure, size_t chunk_size);
  *
  * Returns NULL if OOM.
  */
-void *
+LWS_VISIBLE LWS_EXTERN void *
 lwsac_use_zeroed(struct lwsac **head, size_t ensure, size_t chunk_size);
 
 /**

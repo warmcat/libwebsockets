@@ -583,9 +583,10 @@ lws_create_vhost(struct lws_context *context,
 #ifdef LWS_WITH_PLUGINS
 	    (context->plugin_list) ||
 #endif
-	    (context->options & LWS_SERVER_OPTION_EXPLICIT_VHOSTS))
+	    (context->options & LWS_SERVER_OPTION_EXPLICIT_VHOSTS)) {
 		vh->protocols = lwsp;
-	else {
+		vh->allocated_vhost_protocols = 1;
+	} else {
 		vh->protocols = pcols;
 		lws_free(lwsp);
 	}
@@ -1047,7 +1048,8 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 	lws_free(vh->same_vh_protocol_heads);
 
 	if (context->plugin_list ||
-	    (context->options & LWS_SERVER_OPTION_EXPLICIT_VHOSTS))
+	    (context->options & LWS_SERVER_OPTION_EXPLICIT_VHOSTS) ||
+	    vh->allocated_vhost_protocols)
 		lws_free((void *)vh->protocols);
 #if defined(LWS_WITH_NETWORK)
 	LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar)
