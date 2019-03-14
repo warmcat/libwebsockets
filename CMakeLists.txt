@@ -103,6 +103,11 @@ option(LWS_WITH_LEJP "With the Lightweight JSON Parser" ON)
 option(LWS_WITH_LEJP_CONF "With LEJP configuration parser as used by lwsws" ON)
 option(LWS_WITH_SQLITE3 "Require SQLITE3 support" OFF)
 option(LWS_WITH_SMTP "Provide SMTP support" OFF)
+if (WIN32 OR LWS_WITH_ESP32)
+option(LWS_WITH_DIR "Directory scanning api support" OFF)
+else()
+option(LWS_WITH_DIR "Directory scanning api support" ON)
+endif()
 option(LWS_WITH_NO_LOGS "Disable all logging from being compiled in" OFF)
 option(LWS_AVOID_SIGPIPE_IGN "Android 7+ reportedly needs this" OFF)
 option(LWS_WITH_STATS "Keep statistics of lws internal operations" OFF)
@@ -293,7 +298,6 @@ if (NOT LWS_ROLE_WS)
 	set(LWS_WITHOUT_EXTENSIONS 1)
 endif()
 
-
 include_directories(include plugins)
 
 
@@ -378,11 +382,13 @@ set(LWS_MAX_SMP 1)
 set(LWS_WITH_THREADPOOL 0)
 endif()
 
-
 if (LWS_WITHOUT_SERVER)
 set(LWS_WITH_LWSWS OFF)
 endif()
 
+if (LWS_WITH_LEJP_CONF)
+	set(LWS_WITH_DIR 1)
+endif()
 
 # confirm H1 relationships
 
@@ -912,6 +918,10 @@ if (LWS_WITH_NETWORK)
 			lib/core-net/stats.c
 		)
 	endif()
+endif()
+
+if (LWS_WITH_DIR)
+	list(APPEND SOURCES lib/misc/dir.c)
 endif()
 	
 if (LWS_WITH_THREADPOOL AND UNIX AND LWS_HAVE_PTHREAD_H)

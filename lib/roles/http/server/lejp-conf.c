@@ -893,100 +893,34 @@ lwsws_get_config(void *user, const char *f, const char * const *paths,
 	return 0;
 }
 
-#if defined(LWS_WITH_LIBUV) && UV_VERSION_MAJOR > 0
+struct lws_dir_args {
+	void *user;
+	const char * const *paths;
+	int count_paths;
+	lejp_callback cb;
+};
 
 static int
-lwsws_get_config_d(void *user, const char *d, const char * const *paths,
-		   int count_paths, lejp_callback cb)
+lwsws_get_config_d_cb(const char *dirpath, void *user,
+		      struct lws_dir_entry *lde)
 {
-	uv_dirent_t dent;
-	uv_fs_t req;
+	struct lws_dir_args *da = (struct lws_dir_args *)user;
 	char path[256];
-	int ret = 0, ir;
-	uv_loop_t loop;
 
-	ir = uv_loop_init(&loop);
-	if (ir) {
-		lwsl_err("%s: loop init failed %d\n", __func__, ir);
-	}
-
-	if (!uv_fs_scandir(&loop, &req, d, 0, NULL)) {
-		lwsl_err("Scandir on %s failed\n", d);
-		return 2;
-	}
-
-	while (uv_fs_scandir_next(&req, &dent) != UV_EOF) {
-		lws_snprintf(path, sizeof(path) - 1, "%s/%s", d, dent.name);
-		ret = lwsws_get_config(user, path, paths, count_paths, cb);
-		if (ret)
-			goto bail;
-	}
-
-bail:
-	uv_fs_req_cleanup(&req);
-	while (uv_loop_close(&loop))
-		;
-
-	return ret;
-}
-
-#else
-
-#ifndef _WIN32
-static int filter(const struct dirent *ent)
-{
-	if (!strcmp(ent->d_name, ".") || !strcmp(ent->d_name, ".."))
+	if (lde->type != LDOT_FILE)
 		return 0;
 
-	return 1;
+	lws_snprintf(path, sizeof(path) - 1, "%s/%s", dirpath, lde->name);
+
+	return lwsws_get_config(da->user, path, da->paths,
+				da->count_paths, da->cb);
 }
-#endif
-
-static int
-lwsws_get_config_d(void *user, const char *d, const char * const *paths,
-		   int count_paths, lejp_callback cb)
-{
-#if !defined(_WIN32) && !defined(LWS_WITH_ESP32)
-	struct dirent **namelist;
-	char path[256];
-	int n, i, ret = 0;
-
-	n = scandir((char *) d, &namelist, filter, alphasort);
-	if (n < 0) {
-		lwsl_err("Scandir on %s failed\n", d);
-		return 1;
-	}
-
-	for (i = 0; i < n; i++) {
-		if (strchr(namelist[i]->d_name, '~'))
-			goto skip;
-		lws_snprintf(path, sizeof(path) - 1, "%s/%s", d,
-			 namelist[i]->d_name);
-		ret = lwsws_get_config(user, path, paths, count_paths, cb);
-		if (ret) {
-			while (i++ < n)
-				free(namelist[i]);
-			goto bail;
-		}
-skip:
-		free(namelist[i]);
-	}
-
-bail:
-	free(namelist);
-
-	return ret;
-#else
-	return 0;
-#endif
-}
-
-#endif
 
 int
 lwsws_get_config_globals(struct lws_context_creation_info *info, const char *d,
 			 char **cs, int *len)
 {
+	struct lws_dir_args da;
 	struct jpargs a;
 	const char * const *old = info->plugin_dirs;
 	char dd[128];
@@ -1015,9 +949,13 @@ lwsws_get_config_globals(struct lws_context_creation_info *info, const char *d,
 			     LWS_ARRAY_SIZE(paths_global), lejp_globals_cb) > 1)
 		return 1;
 	lws_snprintf(dd, sizeof(dd) - 1, "%s/conf.d", d);
-	if (lwsws_get_config_d(&a, dd, paths_global,
-			       LWS_ARRAY_SIZE(paths_global),
-			       lejp_globals_cb) > 1)
+
+	da.user = &a;
+	da.paths = paths_global;
+	da.count_paths = LWS_ARRAY_SIZE(paths_global),
+	da.cb = lejp_globals_cb;
+
+	if (lws_dir(dd, &da, lwsws_get_config_d_cb) > 1)
 		return 1;
 
 	a.plugin_dirs[a.count_plugin_dirs] = NULL;
@@ -1033,6 +971,7 @@ lwsws_get_config_vhosts(struct lws_context *context,
 			struct lws_context_creation_info *info, const char *d,
 			char **cs, int *len)
 {
+	struct lws_dir_args da;
 	struct jpargs a;
 	char dd[128];
 
@@ -1052,8 +991,13 @@ lwsws_get_config_vhosts(struct lws_context *context,
 			     LWS_ARRAY_SIZE(paths_vhosts), lejp_vhosts_cb) > 1)
 		return 1;
 	lws_snprintf(dd, sizeof(dd) - 1, "%s/conf.d", d);
-	if (lwsws_get_config_d(&a, dd, paths_vhosts,
-			       LWS_ARRAY_SIZE(paths_vhosts), lejp_vhosts_cb) > 1)
+
+	da.user = &a;
+	da.paths = paths_vhosts;
+	da.count_paths = LWS_ARRAY_SIZE(paths_vhosts),
+	da.cb = lejp_vhosts_cb;
+
+	if (lws_dir(dd, &da, lwsws_get_config_d_cb) > 1)
 		return 1;
 
 	*cs = a.p;

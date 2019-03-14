@@ -677,7 +677,43 @@ lws_rx_flow_allow_all_protocol(const struct lws_context *context,
 LWS_VISIBLE LWS_EXTERN size_t
 lws_remaining_packet_payload(struct lws *wsi);
 
+#if defined(LWS_WITH_DIR)
 
+typedef enum {
+	LDOT_UNKNOWN,
+	LDOT_FILE,
+	LDOT_DIR,
+	LDOT_LINK,
+	LDOT_FIFO,
+	LDOTT_SOCKET,
+	LDOT_CHAR,
+	LDOT_BLOCK
+} lws_dir_obj_type_t;
+
+struct lws_dir_entry {
+	const char *name;
+	lws_dir_obj_type_t type;
+};
+
+typedef int
+lws_dir_callback_function(const char *dirpath, void *user,
+			  struct lws_dir_entry *lde);
+
+/**
+ * lws_dir() - get a callback for everything in a directory
+ *
+ * \param dirpath: the directory to scan
+ * \param user: pointer to give to callback
+ * \param cb: callback to receive information on each file or dir
+ *
+ * Calls \p cb (with \p user) for every object in dirpath.
+ *
+ * This wraps whether it's using POSIX apis, or libuv (as needed for windows,
+ * since it refuses to support POSIX apis for this).
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_dir(const char *dirpath, void *user, lws_dir_callback_function cb);
+#endif
 
 /**
  * lws_is_ssl() - Find out if connection is using SSL
