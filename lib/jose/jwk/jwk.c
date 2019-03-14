@@ -26,8 +26,6 @@
 #include <fcntl.h>
 #endif
 
-#include <unistd.h>
-
 static const char * const kty_names[] = {
 	"unknown",	/* LWS_GENCRYPTO_KTY_UNKNOWN */
 	"oct",		/* LWS_GENCRYPTO_KTY_OCT */
