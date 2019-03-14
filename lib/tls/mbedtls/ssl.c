@@ -83,6 +83,11 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 	if (n < 0) {
 		m = SSL_get_error(wsi->tls.ssl, n);
 		lwsl_debug("%p: ssl err %d errno %d\n", wsi, m, errno);
+		if (errno == LWS_ENOTCONN) {
+			/* If the socket isn't connected anymore, bail out. */
+			wsi->socket_is_permanently_unusable = 1;
+			return LWS_SSL_CAPABLE_ERROR;
+		}
 		if (m == SSL_ERROR_ZERO_RETURN ||
 		    m == SSL_ERROR_SYSCALL)
 			return LWS_SSL_CAPABLE_ERROR;
