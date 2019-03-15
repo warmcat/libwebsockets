@@ -1,5 +1,8 @@
 environment:
   matrix:
+    - LWS_METHOD: jose
+      CMAKE_ARGS: -DLWS_WITH_JOSE=1
+
     - LWS_METHOD: x64
       CMAKE_ARGS: -DCMAKE_GENERATOR_PLATFORM=x64 -DLWS_WITH_HTTP2=1 -DLWS_WITH_PLUGINS=1 -DLIBUV_INCLUDE_DIRS=C:\assets\libuv64\include -DLIBUV_LIBRARIES=C:\assets\libuv64\libuv.lib
 
