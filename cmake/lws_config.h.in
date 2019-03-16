@@ -30,6 +30,8 @@
 #cmakedefine LWS_HAVE_EVP_aes_128_wrap
 #cmakedefine LWS_HAVE_LIBCAP
 #cmakedefine LWS_HAVE_MALLOC_H
+#cmakedefine LWS_HAVE_MALLOC_TRIM
+#cmakedefine LWS_HAVE_MALLOC_USABLE_SIZE
 #cmakedefine LWS_HAVE_mbedtls_net_init
 #cmakedefine LWS_HAVE_mbedtls_ssl_conf_alpn_protocols
 #cmakedefine LWS_HAVE_mbedtls_ssl_get_alpn_protocol

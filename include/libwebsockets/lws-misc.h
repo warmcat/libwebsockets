@@ -716,6 +716,23 @@ lws_dir(const char *dirpath, void *user, lws_dir_callback_function cb);
 #endif
 
 /**
+ * lws_get_allocated_heap() - if the platform supports it, returns amount of
+ *				heap allocated by lws itself
+ *
+ * On glibc currently, this reports the total amount of current logical heap
+ * allocation, found by tracking the amount allocated by lws_malloc() and
+ * friends and accounting for freed allocations via lws_free().
+ *
+ * This is useful for confirming where processwide heap allocations actually
+ * come from... this number represents all lws internal allocations, for
+ * fd tables, wsi allocations, ah, etc combined.  It doesn't include allocations
+ * from user code, since lws_malloc() etc are not exported from the library.
+ *
+ * On other platforms, it always returns 0.
+ */
+size_t lws_get_allocated_heap(void);
+
+/**
  * lws_is_ssl() - Find out if connection is using SSL
  * \param wsi:	websocket connection to check
  *

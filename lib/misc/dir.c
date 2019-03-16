@@ -94,6 +94,12 @@ lws_dir(const char *dirpath, void *user, lws_dir_callback_function cb)
 		if (strchr(namelist[i]->d_name, '~'))
 			goto skip;
 		lde.name = namelist[i]->d_name;
+
+		/*
+		 * some filesystems don't report this (ZFS) and tell that
+		 * files are LDOT_UNKNOWN
+		 */
+
 		switch (namelist[i]->d_type) {
 		case DT_BLK:
 			lde.type = LDOT_BLOCK;

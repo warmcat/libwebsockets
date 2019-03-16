@@ -907,7 +907,7 @@ lwsws_get_config_d_cb(const char *dirpath, void *user,
 	struct lws_dir_args *da = (struct lws_dir_args *)user;
 	char path[256];
 
-	if (lde->type != LDOT_FILE)
+	if (lde->type != LDOT_FILE && lde->type != LDOT_UNKNOWN /* ZFS */)
 		return 0;
 
 	lws_snprintf(path, sizeof(path) - 1, "%s/%s", dirpath, lde->name);

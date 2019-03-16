@@ -212,7 +212,8 @@ lws_json_dump_context(const struct lws_context *context, char *buf, int len,
 		close(fd);
 	}
 
-	buf += lws_snprintf(buf, end - buf, "\"contexts\":[\n");
+	buf += lws_snprintf(buf, end - buf, "\"heap\":%lld,\n\"contexts\":[\n",
+				(long long)lws_get_allocated_heap());
 
 	buf += lws_snprintf(buf, end - buf, "{ "
 				"\"context_uptime\":\"%ld\",\n"

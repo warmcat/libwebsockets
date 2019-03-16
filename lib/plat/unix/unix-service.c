@@ -22,6 +22,10 @@
 #define _GNU_SOURCE
 #include "core/private.h"
 
+#if defined(LWS_HAVE_MALLOC_TRIM)
+#include <malloc.h>
+#endif
+
 int
 lws_poll_listen_fd(struct lws_pollfd *fd)
 {
@@ -208,5 +212,8 @@ lws_plat_service_periodic(struct lws_context *context)
 	if (context->started_with_parent &&
 	    kill(context->started_with_parent, 0) < 0)
 		kill(getpid(), SIGTERM);
+#endif
+#if defined(LWS_HAVE_MALLOC_TRIM)
+	malloc_trim(4 * 1024);
 #endif
 }

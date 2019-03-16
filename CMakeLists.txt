@@ -725,6 +725,14 @@ CHECK_C_SOURCE_COMPILES(
 	"#include <strings.h>
 	int main(int argc, char **argv) { char buf[1]; bzero(buf, 1); return 0; }
 	" LWS_HAVE_BZERO)
+CHECK_C_SOURCE_COMPILES(
+	"#include <malloc.h>
+	int main(int argc, char **argv) { return malloc_trim(0); }
+	" LWS_HAVE_MALLOC_TRIM)
+CHECK_C_SOURCE_COMPILES(
+	"#include <malloc.h>
+	int main(int argc, char **argv) { return (int)malloc_usable_size((void *)0); }
+	" LWS_HAVE_MALLOC_USABLE_SIZE)
 
 CHECK_FUNCTION_EXISTS(fork LWS_HAVE_FORK)
 CHECK_FUNCTION_EXISTS(getenv LWS_HAVE_GETENV)

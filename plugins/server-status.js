@@ -105,6 +105,9 @@ function ws_open_server_status()
 				s += ", <span class=\"sn\">Virt stack + heap Usage:</span> <span class=\"v\">" +
 					humanize(parseInt(sm[0], 10) * 4096) + "B</span>";
 			}
+			s += ", <span class=\"sn\">lws heap usage:</span> <span class=\"v\">" +
+			humanize(jso.i.heap) + "B</span>";
+
 				
 			for (n = 0; n < jso.files.length; n++) {
 				s += "<br><span class=n>" + san(jso.files[n].path) + ":</span><br>    " + san(jso.files[n].val);
