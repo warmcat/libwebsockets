@@ -92,6 +92,13 @@ lws_mbedtls_sni_cb(void *arg, mbedtls_ssl_context *mbedtls_ctx,
 	lwsl_info("SNI: Found: %s:%d at vhost '%s'\n", servername,
 					vh->listen_port, vhost->name);
 
+	if (!vhost->tls.ssl_ctx) {
+		lwsl_err("%s: vhost %s matches SNI but no valid cert\n",
+				__func__, vh->name);
+
+		return 1;
+	}
+
 	/* select the ssl ctx from the selected vhost for this conn */
 	SSL_set_SSL_CTX(ssl, vhost->tls.ssl_ctx);
 

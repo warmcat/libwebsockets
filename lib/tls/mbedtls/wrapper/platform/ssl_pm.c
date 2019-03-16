@@ -890,17 +890,34 @@ void SSL_set_SSL_CTX(SSL *ssl, SSL_CTX *ctx)
 	struct ssl_pm *ssl_pm = ssl->ssl_pm;
 #endif
 #if defined(LWS_HAVE_mbedtls_ssl_set_hs_own_cert)
-	struct x509_pm *x509_pm = (struct x509_pm *)ctx->cert->x509->x509_pm;
+	struct x509_pm *x509_pm;
 #endif
 #if defined(LWS_HAVE_mbedtls_ssl_set_hs_ca_chain)
-	struct x509_pm *x509_pm_ca = (struct x509_pm *)ctx->client_CA->x509_pm;
+	struct x509_pm *x509_pm_ca;
 #endif
 #if defined(LWS_HAVE_mbedtls_ssl_set_hs_own_cert)
-	struct pkey_pm *pkey_pm = (struct pkey_pm *)ctx->cert->pkey->pkey_pm;
+	struct pkey_pm *pkey_pm;
 #endif
 #if defined(LWS_HAVE_mbedtls_ssl_set_hs_authmode)
 	int mode;
 #endif
+
+#if defined(LWS_HAVE_mbedtls_ssl_set_hs_own_cert)
+	if (!ctx->cert || !ctx->cert->x509)
+		return;
+	x509_pm = (struct x509_pm *)ctx->cert->x509->x509_pm;
+#endif
+#if defined(LWS_HAVE_mbedtls_ssl_set_hs_ca_chain)
+	if (!ctx->client_CA)
+		return;
+	x509_pm_ca = (struct x509_pm *)ctx->client_CA->x509_pm;
+#endif
+#if defined(LWS_HAVE_mbedtls_ssl_set_hs_own_cert)
+	if (!ctx->cert || !ctx->cert->pkey)
+		return;
+	pkey_pm = (struct pkey_pm *)ctx->cert->pkey->pkey_pm;
+#endif
+
 
 	if (ssl->cert)
 		ssl_cert_free(ssl->cert);
