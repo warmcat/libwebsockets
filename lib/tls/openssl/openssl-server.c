@@ -572,7 +572,8 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 #endif
 #else
 
-	SSL_set_mode(wsi->tls.ssl, SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
+	SSL_set_mode(wsi->tls.ssl, SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER |
+				   SSL_MODE_RELEASE_BUFFERS);
 	bio = SSL_get_rbio(wsi->tls.ssl);
 	if (bio)
 		BIO_set_nbio(bio, 1); /* nonblocking */

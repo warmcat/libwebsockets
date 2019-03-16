@@ -406,6 +406,10 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 	SSL_CTX_set_options(vh->tls.ssl_client_ctx,
 			    SSL_OP_CIPHER_SERVER_PREFERENCE);
 
+	SSL_CTX_set_mode(vh->tls.ssl_client_ctx,
+			 SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER |
+			 SSL_MODE_RELEASE_BUFFERS);
+
 	if (info->ssl_client_options_set)
 		SSL_CTX_set_options(vh->tls.ssl_client_ctx,
 				    info->ssl_client_options_set);
