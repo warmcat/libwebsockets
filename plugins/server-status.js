@@ -103,7 +103,7 @@ function ws_open_server_status()
 			if (jso.i.statm) {
 				var sm = jso.i.statm.split(" ");
 				s += ", <span class=\"sn\">Virt stack + heap Usage:</span> <span class=\"v\">" +
-					humanize(parseInt(sm[0], 10) * 4096) + "B</span>";
+					humanize(parseInt(sm[5], 10) * 4096) + "B</span>";
 			}
 			s += ", <span class=\"sn\">lws heap usage:</span> <span class=\"v\">" +
 			humanize(jso.i.heap) + "B</span>";
