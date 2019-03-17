@@ -31,6 +31,8 @@ struct lws_context_tls {
 	char alpn_discovered[32];
 	const char *alpn_default;
 	time_t last_cert_check_s;
+	struct lws_dll cc_head;
+	int count_client_contexts;
 };
 
 struct lws_pt_tls {

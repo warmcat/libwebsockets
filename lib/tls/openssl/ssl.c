@@ -90,6 +90,29 @@ lws_ssl_bind_passphrase(SSL_CTX *ssl_ctx,
 				      lws_context_init_ssl_pem_passwd_cb);
 }
 
+static void
+lws_ssl_destroy_client_ctx(struct lws_vhost *vhost)
+{
+	struct lws_tls_client_reuse *tcr;
+
+	if (vhost->tls.user_supplied_ssl_ctx || !vhost->tls.ssl_client_ctx)
+		return;
+
+	tcr = SSL_CTX_get_ex_data(vhost->tls.ssl_client_ctx,
+				  openssl_SSL_CTX_private_data_index);
+
+	if (--tcr->refcount)
+		return;
+
+	SSL_CTX_free(vhost->tls.ssl_client_ctx);
+	vhost->tls.ssl_client_ctx = NULL;
+
+	vhost->context->tls.count_client_contexts--;
+
+	lws_dll_remove(&tcr->cc_list);
+	lws_free(tcr);
+}
+
 LWS_VISIBLE void
 lws_ssl_destroy(struct lws_vhost *vhost)
 {
@@ -99,8 +122,8 @@ lws_ssl_destroy(struct lws_vhost *vhost)
 
 	if (vhost->tls.ssl_ctx)
 		SSL_CTX_free(vhost->tls.ssl_ctx);
-	if (!vhost->tls.user_supplied_ssl_ctx && vhost->tls.ssl_client_ctx)
-		SSL_CTX_free(vhost->tls.ssl_client_ctx);
+
+	lws_ssl_destroy_client_ctx(vhost);
 
 // after 1.1.0 no need
 #if (OPENSSL_VERSION_NUMBER <  0x10100000)
@@ -378,8 +401,8 @@ lws_ssl_SSL_CTX_destroy(struct lws_vhost *vhost)
 	if (vhost->tls.ssl_ctx)
 		SSL_CTX_free(vhost->tls.ssl_ctx);
 
-	if (!vhost->tls.user_supplied_ssl_ctx && vhost->tls.ssl_client_ctx)
-		SSL_CTX_free(vhost->tls.ssl_client_ctx);
+	lws_ssl_destroy_client_ctx(vhost);
+
 #if defined(LWS_WITH_ACME)
 	lws_tls_acme_sni_cert_destroy(vhost);
 #endif

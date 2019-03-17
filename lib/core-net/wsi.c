@@ -109,7 +109,7 @@ lws_vhost_name_to_protocol(struct lws_vhost *vh, const char *name)
 	int n;
 
 	for (n = 0; n < vh->count_protocols; n++)
-		if (!strcmp(name, vh->protocols[n].name))
+		if (vh->protocols[n].name && !strcmp(name, vh->protocols[n].name))
 			return &vh->protocols[n];
 
 	return NULL;

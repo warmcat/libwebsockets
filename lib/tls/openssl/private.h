@@ -21,6 +21,19 @@
  *  gencrypto openssl-specific helper declarations
  */
 
+/*
+ * one of these per different client context
+ * cc_head is in lws_context.lws_context_tls
+ */
+
+struct lws_tls_client_reuse {
+	lws_tls_ctx *ssl_client_ctx;
+	uint8_t hash[32];
+	struct lws_dll cc_list;
+	int refcount;
+	int index;
+};
+
 typedef int (*next_proto_cb)(SSL *, const unsigned char **out,
                              unsigned char *outlen, const unsigned char *in,
                              unsigned int inlen, void *arg);
