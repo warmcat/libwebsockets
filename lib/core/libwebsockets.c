@@ -138,6 +138,17 @@ lws_dll_remove(struct lws_dll *d)
 	d->next = NULL;
 }
 
+int
+lws_dll_foreach_safe(struct lws_dll *phead, int (*cb)(struct lws_dll *d))
+{
+	lws_start_foreach_dll_safe(struct lws_dll *, p, tp, phead->next) {
+		if (cb(p))
+			return 1;
+	} lws_end_foreach_dll_safe(p, tp);
+
+	return 0;
+}
+
 #if !(defined(LWS_PLAT_OPTEE) && !defined(LWS_WITH_NETWORK))
 
 LWS_VISIBLE lws_usec_t

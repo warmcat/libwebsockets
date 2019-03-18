@@ -187,6 +187,11 @@ lws_dll_add_front(struct lws_dll *d, struct lws_dll *phead);
 LWS_VISIBLE LWS_EXTERN void
 lws_dll_remove(struct lws_dll *d);
 
+/* another way to do lws_start_foreach_dll_safe() on a list via a cb */
+
+LWS_VISIBLE LWS_EXTERN int
+lws_dll_foreach_safe(struct lws_dll *phead, int (*cb)(struct lws_dll *d));
+
 struct lws_dll_lws { /* typed as struct lws * */
 	struct lws_dll_lws *prev;
 	struct lws_dll_lws *next;
