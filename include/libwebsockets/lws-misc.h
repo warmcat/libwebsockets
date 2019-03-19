@@ -181,11 +181,30 @@ struct lws_dll { /* abstract */
  * lws_container_of() helper to recover the start of the containing struct
  */
 
+#define lws_dll_add_head lws_dll_add_front
+
 LWS_VISIBLE LWS_EXTERN void
 lws_dll_add_front(struct lws_dll *d, struct lws_dll *phead);
 
 LWS_VISIBLE LWS_EXTERN void
+lws_dll_add_tail(struct lws_dll *d, struct lws_dll *phead);
+
+static LWS_INLINE struct lws_dll *
+lws_dll_get_head(struct lws_dll *phead) { return phead->next; }
+
+static LWS_INLINE struct lws_dll *
+lws_dll_get_tail(struct lws_dll *phead) { return phead->prev; }
+
+/*
+ * caution, this doesn't track the tail in the head struct.  Use
+ * lws_dll_remove_track_tail() instead of this if you want tail tracking.  Using
+ * this means you can't use lws_dll_add_tail() amd
+ */
+LWS_VISIBLE LWS_EXTERN void
 lws_dll_remove(struct lws_dll *d);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_dll_remove_track_tail(struct lws_dll *d, struct lws_dll *phead);
 
 /* another way to do lws_start_foreach_dll_safe() on a list via a cb */
 

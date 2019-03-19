@@ -80,9 +80,34 @@ lws_dll_add_front(struct lws_dll *d, struct lws_dll *phead)
 	if (d->next)
 		d->next->prev = d;
 	/* our prev ptr is first ptr */
-	d->prev = phead;
+	d->prev = NULL;
 	/* set the first guy to be us */
 	phead->next = d;
+
+	/* list tail */
+	if (!phead->prev)
+		phead->prev = d;
+}
+
+void
+lws_dll_add_tail(struct lws_dll *d, struct lws_dll *phead)
+{
+	if (d->prev)
+		return;
+
+	/* our previous guy is current last guy */
+	d->prev = phead->prev;
+	/* if there is a prev guy, set his next ptr to our prev ptr */
+	if (d->prev)
+		d->prev->next = d;
+	/* our next ptr is NULL */
+	d->next = NULL;
+	/* set the last guy to be us */
+	phead->prev = d;
+
+	/* list tail */
+	if (!phead->prev)
+		phead->prev = d;
 }
 
 /* situation is:
@@ -137,6 +162,21 @@ lws_dll_remove(struct lws_dll *d)
 	d->prev = NULL;
 	d->next = NULL;
 }
+
+void
+lws_dll_remove_track_tail(struct lws_dll *d, struct lws_dll *phead)
+{
+	if (!d->prev) /* ie, not part of the list */
+		return;
+
+	/* track the tail if it was us... phead may be NULL tho */
+
+	if (phead && phead->prev == d)
+		phead->prev = d->prev;
+
+	lws_dll_remove(d);
+}
+
 
 int
 lws_dll_foreach_safe(struct lws_dll *phead, int (*cb)(struct lws_dll *d))
