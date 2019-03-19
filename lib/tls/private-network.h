@@ -36,7 +36,7 @@ struct lws_context_tls {
 };
 
 struct lws_pt_tls {
-	struct lws_dll_lws pending_tls_head;
+	struct lws_dll dll_pending_tls_head;
 };
 
 struct lws_tls_ss_pieces;
@@ -70,7 +70,7 @@ struct lws_vhost_tls {
 struct lws_lws_tls {
 	lws_tls_conn *ssl;
 	lws_tls_bio *client_bio;
-	struct lws_dll_lws pending_tls_list;
+	struct lws_dll dll_pending_tls;
 	unsigned int use_ssl;
 	unsigned int redirect_to_https:1;
 };

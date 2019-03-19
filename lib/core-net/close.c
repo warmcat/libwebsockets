@@ -43,7 +43,9 @@ __lws_free_wsi(struct lws *wsi)
 	if (wsi->vhost && wsi->vhost->lserv_wsi == wsi)
 		wsi->vhost->lserv_wsi = NULL;
 #if !defined(LWS_NO_CLIENT)
-	lws_dll_lws_remove(&wsi->dll_active_client_conns);
+	if (wsi->vhost)
+		lws_dll_remove_track_tail(&wsi->dll_cli_active_conns,
+					  &wsi->vhost->dll_cli_active_conns_head);
 #endif
 	wsi->context->count_wsi_allocated--;
 
@@ -53,7 +55,7 @@ __lws_free_wsi(struct lws *wsi)
 	__lws_same_vh_protocol_remove(wsi);
 #if !defined(LWS_NO_CLIENT)
 	lws_client_stash_destroy(wsi);
-	lws_free_set_NULL(wsi->client_hostname_copy);
+	lws_free_set_NULL(wsi->cli_hostname_copy);
 #endif
 
 	if (wsi->role_ops->destroy_role)
@@ -116,6 +118,17 @@ lws_remove_child_from_any_parent(struct lws *wsi)
 	wsi->parent = NULL;
 }
 
+#if !defined(LWS_NO_CLIENT)
+static int
+lws_close_trans_q_leader(struct lws_dll2 *d)
+{
+	struct lws *w = lws_container_of(d, struct lws, dll2_cli_txn_queue);
+
+	__lws_close_free_wsi(w, -1, "trans q leader closing");
+
+	return 0;
+}
+#endif
 
 void
 __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
@@ -139,9 +152,10 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 
 #if !defined(LWS_NO_CLIENT)
 
-	lws_free_set_NULL(wsi->client_hostname_copy);
+	lws_free_set_NULL(wsi->cli_hostname_copy);
 	/* we are no longer an active client connection that can piggyback */
-	lws_dll_lws_remove(&wsi->dll_active_client_conns);
+	lws_dll_remove_track_tail(&wsi->dll_cli_active_conns,
+				  &wsi->vhost->dll_cli_active_conns_head);
 
 	/*
 	 * if we have wsi in our transaction queue, if we are closing we
@@ -150,13 +164,9 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	if (wsi->vhost) {
 		if ((int)reason != -1)
 			lws_vhost_lock(wsi->vhost);
-		lws_start_foreach_dll_safe(struct lws_dll_lws *, d, d1,
-				wsi->dll_client_transaction_queue_head.next) {
-			struct lws *w = lws_container_of(d, struct lws,
-						dll_client_transaction_queue);
 
-			__lws_close_free_wsi(w, -1, "trans q leader closing");
-		} lws_end_foreach_dll_safe(d, d1);
+		lws_dll2_foreach_safe(&wsi->dll2_cli_txn_queue_owner,
+				      lws_close_trans_q_leader);
 
 		/*
 		 * !!! If we are closing, but we have pending pipelined
@@ -167,7 +177,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 		 * However this is normal if we are being closed because the
 		 * transaction queue leader is closing.
 		 */
-		lws_dll_lws_remove(&wsi->dll_client_transaction_queue);
+		lws_dll2_remove(&wsi->dll2_cli_txn_queue);
 		if ((int)reason !=-1)
 			lws_vhost_unlock(wsi->vhost);
 	}
@@ -415,7 +425,7 @@ just_kill_connection:
 	 */
 	__lws_ssl_remove_wsi_from_buffered_list(wsi);
 	__lws_remove_from_timeout_list(wsi);
-	lws_dll_lws_remove(&wsi->dll_hrtimer);
+	lws_dll_remove_track_tail(&wsi->dll_hrtimer, &pt->dll_hrtimer_head);
 
 	//if (wsi->told_event_loop_closed) // cgi std close case (dummy-callback)
 	//	return;
@@ -428,7 +438,7 @@ just_kill_connection:
 
 	lwsi_set_state(wsi, LRS_DEAD_SOCKET);
 	lws_buflist_destroy_all_segments(&wsi->buflist);
-	lws_dll_lws_remove(&wsi->dll_buflist);
+	lws_dll_remove_track_tail(&wsi->dll_buflist, &pt->dll_head_buflist);
 
 	if (wsi->role_ops->close_role)
 	    wsi->role_ops->close_role(pt, wsi);

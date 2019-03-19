@@ -608,6 +608,7 @@ lws_tls_server_accept(struct lws *wsi)
 {
 	union lws_tls_cert_info_results ir;
 	int m, n = SSL_accept(wsi->tls.ssl);
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 
 	if (n == 1) {
 		n = lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_COMMON_NAME, &ir,
@@ -621,13 +622,10 @@ lws_tls_server_accept(struct lws *wsi)
 		lws_openssl_describe_cipher(wsi);
 
 		if (SSL_pending(wsi->tls.ssl) &&
-		    lws_dll_is_null(&wsi->tls.pending_tls_list)) {
-			struct lws_context_per_thread *pt =
-					&wsi->context->pt[(int)wsi->tsi];
-
-			lws_dll_lws_add_front(&wsi->tls.pending_tls_list,
-					      &pt->tls.pending_tls_head);
-		}
+		    lws_dll_is_detached(&wsi->tls.dll_pending_tls,
+					&pt->tls.dll_pending_tls_head))
+			lws_dll_add_head(&wsi->tls.dll_pending_tls,
+					 &pt->tls.dll_pending_tls_head);
 
 		return LWS_SSL_CAPABLE_DONE;
 	}
@@ -637,14 +635,15 @@ lws_tls_server_accept(struct lws *wsi)
 	if (m == SSL_ERROR_SYSCALL || m == SSL_ERROR_SSL)
 		return LWS_SSL_CAPABLE_ERROR;
 
-	if (m == SSL_ERROR_WANT_READ || SSL_want_read(wsi->tls.ssl)) {
+	if (m == SSL_ERROR_WANT_READ ||
+	    (m != SSL_ERROR_ZERO_RETURN && SSL_want_read(wsi->tls.ssl))) {
 		if (lws_change_pollfd(wsi, 0, LWS_POLLIN)) {
 			lwsl_info("%s: WANT_READ change_pollfd failed\n",
 				  __func__);
 			return LWS_SSL_CAPABLE_ERROR;
 		}
 
-		lwsl_info("SSL_ERROR_WANT_READ\n");
+		lwsl_info("SSL_ERROR_WANT_READ: m %d\n", m);
 		return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
 	}
 	if (m == SSL_ERROR_WANT_WRITE || SSL_want_write(wsi->tls.ssl)) {

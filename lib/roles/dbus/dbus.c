@@ -308,7 +308,7 @@ lws_dbus_remove_timeout(DBusTimeout *t, void *data)
 		struct lws_role_dbus_timer *r = lws_container_of(rdt,
 					struct lws_role_dbus_timer, timer_list);
 		if (t == r->data) {
-			lws_dll_remove(rdt);
+			lws_dll_remove_track_tail(rdt, &pt->dbus.timer_list_head);
 			lws_free(rdt);
 			ctx->timeouts--;
 			break;
@@ -488,7 +488,7 @@ rops_periodic_checks_dbus(struct lws_context *context, int tsi, time_t now)
 		if (now > r->fire) {
 			lwsl_notice("%s: firing timer\n", __func__);
 			dbus_timeout_handle(r->data);
-			lws_dll_remove(rdt);
+			lws_dll_remove_track_tail(rdt, &pt->dbus.timer_list_head);
 			lws_free(rdt);
 		}
 	} lws_end_foreach_dll_safe(rdt, nx);

@@ -109,7 +109,7 @@ lws_ssl_destroy_client_ctx(struct lws_vhost *vhost)
 
 	vhost->context->tls.count_client_contexts--;
 
-	lws_dll_remove(&tcr->cc_list);
+	lws_dll_remove_track_tail(&tcr->cc_list, &vhost->context->tls.cc_head);
 	lws_free(tcr);
 }
 
@@ -261,11 +261,9 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 		goto bail;
 
 	if (SSL_pending(wsi->tls.ssl) &&
-	    lws_dll_is_null(&wsi->tls.pending_tls_list)) {
-
-		lws_dll_lws_add_front(&wsi->tls.pending_tls_list,
-				      &pt->tls.pending_tls_head);
-	}
+	    lws_dll_is_detached(&wsi->tls.dll_pending_tls, &pt->tls.dll_pending_tls_head))
+		lws_dll_add_head(&wsi->tls.dll_pending_tls,
+				 &pt->tls.dll_pending_tls_head);
 
 	return n;
 bail:

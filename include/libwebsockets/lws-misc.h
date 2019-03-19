@@ -171,7 +171,7 @@
  * doubly linked-list
  */
 
-struct lws_dll { /* abstract */
+struct lws_dll {
 	struct lws_dll *prev;
 	struct lws_dll *next;
 };
@@ -181,13 +181,17 @@ struct lws_dll { /* abstract */
  * lws_container_of() helper to recover the start of the containing struct
  */
 
-#define lws_dll_add_head lws_dll_add_front
+#define lws_dll_add_front lws_dll_add_head
 
 LWS_VISIBLE LWS_EXTERN void
-lws_dll_add_front(struct lws_dll *d, struct lws_dll *phead);
+lws_dll_add_head(struct lws_dll *d, struct lws_dll *phead);
 
 LWS_VISIBLE LWS_EXTERN void
 lws_dll_add_tail(struct lws_dll *d, struct lws_dll *phead);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_dll_insert(struct lws_dll *d, struct lws_dll *target,
+	       struct lws_dll *phead, int before);
 
 static LWS_INLINE struct lws_dll *
 lws_dll_get_head(struct lws_dll *phead) { return phead->next; }
@@ -201,7 +205,7 @@ lws_dll_get_tail(struct lws_dll *phead) { return phead->prev; }
  * this means you can't use lws_dll_add_tail() amd
  */
 LWS_VISIBLE LWS_EXTERN void
-lws_dll_remove(struct lws_dll *d);
+lws_dll_remove(struct lws_dll *d) LWS_WARN_DEPRECATED;
 
 LWS_VISIBLE LWS_EXTERN void
 lws_dll_remove_track_tail(struct lws_dll *d, struct lws_dll *phead);
@@ -211,24 +215,66 @@ lws_dll_remove_track_tail(struct lws_dll *d, struct lws_dll *phead);
 LWS_VISIBLE LWS_EXTERN int
 lws_dll_foreach_safe(struct lws_dll *phead, int (*cb)(struct lws_dll *d));
 
-struct lws_dll_lws { /* typed as struct lws * */
-	struct lws_dll_lws *prev;
-	struct lws_dll_lws *next;
+#define lws_dll_is_detached(___dll, __head) \
+	(!(___dll)->prev && !(___dll)->next && (__head)->prev != (___dll))
+
+
+/*
+ * lws_dll2_owner / lws_dll2 : more capable version of lws_dll.  Differences:
+ *
+ *  - there's an explicit lws_dll2_owner struct which holds head, tail and
+ *    count of members.
+ *
+ *  - list members all hold a pointer to their owner.  So user code does not
+ *    have to track anything about exactly what lws_dll2_owner list the object
+ *    is a member of.
+ *
+ *  - you can use lws_dll unless you want the member count or the ability to
+ *    not track exactly which list it's on.
+ *
+ *  - layout is compatible with lws_dll (but lws_dll apis will not update the
+ *    new stuff)
+ */
+
+
+struct lws_dll2;
+struct lws_dll2_owner;
+
+struct lws_dll2 {
+	struct lws_dll2		*prev;
+	struct lws_dll2		*next;
+	struct lws_dll2_owner	*owner;
 };
 
-#define lws_dll_is_null(___dll) (!(___dll)->prev && !(___dll)->next)
+struct lws_dll2_owner {
+	struct lws_dll2		*tail;
+	struct lws_dll2		*head;
 
-static LWS_INLINE void
-lws_dll_lws_add_front(struct lws_dll_lws *_a, struct lws_dll_lws *_head)
-{
-	lws_dll_add_front((struct lws_dll *)_a, (struct lws_dll *)_head);
-}
+	uint32_t		count;
+};
+static LWS_INLINE int
+lws_dll2_is_detached(const struct lws_dll2 *d) { return !d->owner; }
 
-static LWS_INLINE void
-lws_dll_lws_remove(struct lws_dll_lws *_a)
-{
-	lws_dll_remove((struct lws_dll *)_a);
-}
+static LWS_INLINE const struct lws_dll2_owner *
+lws_dll2_owner(const struct lws_dll2 *d) { return d->owner; }
+
+static LWS_INLINE struct lws_dll2 *
+lws_dll2_get_head(struct lws_dll2_owner *owner) { return owner->head; }
+
+static LWS_INLINE struct lws_dll2 *
+lws_dll2_get_tail(struct lws_dll2_owner *owner) { return owner->tail; }
+
+LWS_VISIBLE LWS_EXTERN void
+lws_dll2_add_head(struct lws_dll2 *d, struct lws_dll2_owner *owner);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_dll2_add_tail(struct lws_dll2 *d, struct lws_dll2_owner *owner);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_dll2_remove(struct lws_dll2 *d);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_dll2_foreach_safe(struct lws_dll2_owner *owner, int (*cb)(struct lws_dll2 *d));
 
 /*
  * these are safe against the current container object getting deleted,

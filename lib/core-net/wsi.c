@@ -806,25 +806,6 @@ lws_raw_transaction_completed(struct lws *wsi)
 	return -1;
 }
 
-void
-lws_dll_dump(struct lws_dll_lws *head, const char *title)
-{
-	int n = 0;
-
-	(void)n;
-	lwsl_notice("%s: %s (head.next %p)\n", __func__, title, head->next);
-
-	lws_start_foreach_dll_safe(struct lws_dll_lws *, d, d1, head->next) {
-		struct lws *wsi = lws_container_of(d, struct lws, dll_hrtimer);
-
-		(void)wsi;
-
-		lwsl_notice("  %d: wsi %p: %llu\n", n++, wsi,
-				(unsigned long long)wsi->pending_timer);
-	} lws_end_foreach_dll_safe(d, d1);
-}
-
-
 int
 lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p,
 		  const char *reason)

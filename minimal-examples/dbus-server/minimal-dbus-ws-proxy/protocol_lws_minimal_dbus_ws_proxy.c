@@ -434,7 +434,7 @@ destroy_dbus_server_conn(struct lws_dbus_ctx_wsproxy *wsctx)
 	lwsl_notice("%s\n", __func__);
 
 	dbus_connection_unregister_object_path(wsctx->ctx.conn, THIS_OBJECT);
-	lws_dll_remove(&wsctx->ctx.next);
+	lws_dll2_remove(&wsctx->ctx.next);
 	dbus_connection_unref(wsctx->ctx.conn);
 }
 
@@ -506,7 +506,7 @@ new_conn(DBusServer *server, DBusConnection *conn, void *d)
 		goto bail;
 	}
 
-	lws_dll_add_front(&conn_wspctx->ctx.next, &wspctx->ctx.next);
+	lws_dll2_add_head(&conn_wspctx->ctx.next, &wspctx->ctx.owner);
 
 	/* we take on responsibility for explicit close / unref with this... */
 	dbus_connection_ref(conn);
@@ -610,8 +610,8 @@ destroy_dbus_server_listener(struct vhd_dbus_proxy *vhd)
 {
 	dbus_server_disconnect(vhd->ctx_listener.dbs);
 
-	lws_start_foreach_dll_safe(struct lws_dll *, rdt, nx,
-			vhd->ctx_listener.next.next) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, rdt, nx,
+			vhd->ctx_listener.owner.head) {
 		struct lws_dbus_ctx *r = lws_container_of(rdt,
 						struct lws_dbus_ctx, next);
 

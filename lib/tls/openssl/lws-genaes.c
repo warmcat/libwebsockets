@@ -45,6 +45,7 @@ lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 	ctx->engine = engine;
 	ctx->init = 0;
 	ctx->op = op;
+	ctx->padding = padding;
 
 	switch (ctx->k->len) {
 	case 128 / 8:

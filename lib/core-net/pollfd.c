@@ -482,11 +482,15 @@ lws_same_vh_protocol_insert(struct lws *wsi, int n)
 {
 	lws_vhost_lock(wsi->vhost);
 
-	if (!lws_dll_is_null(&wsi->same_vh_protocol))
-		lws_dll_lws_remove(&wsi->same_vh_protocol);
+	if (!lws_dll_is_detached(&wsi->same_vh_protocol,
+				 &wsi->vhost->same_vh_protocol_heads[n]))
+		lws_dll_remove_track_tail(&wsi->same_vh_protocol,
+					  &wsi->vhost->same_vh_protocol_heads[n]);
 
-	lws_dll_lws_add_front(&wsi->same_vh_protocol,
-			      &wsi->vhost->same_vh_protocol_heads[n]);
+	lws_dll_add_head(&wsi->same_vh_protocol,
+			 &wsi->vhost->same_vh_protocol_heads[n]);
+
+	wsi->bound_vhost_index = n;
 
 	lws_vhost_unlock(wsi->vhost);
 }
@@ -494,8 +498,15 @@ lws_same_vh_protocol_insert(struct lws *wsi, int n)
 void
 __lws_same_vh_protocol_remove(struct lws *wsi)
 {
-	if (!lws_dll_is_null(&wsi->same_vh_protocol))
-		lws_dll_lws_remove(&wsi->same_vh_protocol);
+	struct lws_dll *head;
+
+	if (!wsi->vhost)
+		return;
+
+	head = &wsi->vhost->same_vh_protocol_heads[(int)wsi->bound_vhost_index];
+
+	if (!lws_dll_is_detached(&wsi->same_vh_protocol, head))
+		lws_dll_remove_track_tail(&wsi->same_vh_protocol, head);
 }
 
 void
@@ -530,7 +541,7 @@ lws_callback_on_writable_all_protocol_vhost(const struct lws_vhost *vhost,
 
 	n = (int)(protocol - vhost->protocols);
 
-	lws_start_foreach_dll_safe(struct lws_dll_lws *, d, d1,
+	lws_start_foreach_dll_safe(struct lws_dll *, d, d1,
 				   vhost->same_vh_protocol_heads[n].next) {
 		wsi = lws_container_of(d, struct lws, same_vh_protocol);
 

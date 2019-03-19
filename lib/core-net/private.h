@@ -264,9 +264,9 @@ struct lws_context_per_thread {
 	 */
 	unsigned char *serv_buf;
 
-	struct lws_dll_lws dll_head_timeout;
-	struct lws_dll_lws dll_head_hrtimer;
-	struct lws_dll_lws dll_head_buflist; /* guys with pending rxflow */
+	struct lws_dll dll_timeout_head;
+	struct lws_dll dll_hrtimer_head;
+	struct lws_dll dll_head_buflist; /* guys with pending rxflow */
 
 #if defined(LWS_WITH_TLS)
 	struct lws_pt_tls tls;
@@ -405,10 +405,10 @@ struct lws_vhost {
 	void **protocol_vh_privs;
 	const struct lws_protocol_vhost_options *pvo;
 	const struct lws_protocol_vhost_options *headers;
-	struct lws_dll_lws *same_vh_protocol_heads;
+	struct lws_dll *same_vh_protocol_heads;
 	struct lws_vhost *no_listener_vhost_list;
 #if !defined(LWS_NO_CLIENT)
-	struct lws_dll_lws dll_active_client_conns;
+	struct lws_dll dll_cli_active_conns_head;
 #endif
 
 #if defined(LWS_WITH_TLS)
@@ -487,11 +487,11 @@ struct lws {
 	struct lws *sibling_list; /* subsequent children at same level */
 
 	const struct lws_protocols *protocol;
-	struct lws_dll_lws same_vh_protocol;
+	struct lws_dll same_vh_protocol;
 
-	struct lws_dll_lws dll_timeout;
-	struct lws_dll_lws dll_hrtimer;
-	struct lws_dll_lws dll_buflist; /* guys with pending rxflow */
+	struct lws_dll dll_timeout;
+	struct lws_dll dll_hrtimer;
+	struct lws_dll dll_buflist; /* guys with pending rxflow */
 
 #if defined(LWS_WITH_THREADPOOL)
 	struct lws_threadpool_task *tp_task;
@@ -504,10 +504,10 @@ struct lws {
 	struct lws_udp *udp;
 #ifndef LWS_NO_CLIENT
 	struct client_info_stash *stash;
-	char *client_hostname_copy;
-	struct lws_dll_lws dll_active_client_conns;
-	struct lws_dll_lws dll_client_transaction_queue_head;
-	struct lws_dll_lws dll_client_transaction_queue;
+	char *cli_hostname_copy;
+	struct lws_dll dll_cli_active_conns;
+	struct lws_dll2_owner dll2_cli_txn_queue_owner;
+	struct lws_dll2 dll2_cli_txn_queue;
 #endif
 	void *user_space;
 	void *opaque_parent_data;
@@ -616,6 +616,7 @@ struct lws {
 	char protocol_interpret_idx;
 	char redirects;
 	uint8_t rxflow_bitmap;
+	uint8_t bound_vhost_index;
 #ifdef LWS_WITH_CGI
 	char cgi_channel; /* which of stdin/out/err */
 	char hdr_state;

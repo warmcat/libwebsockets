@@ -591,8 +591,8 @@ lws_create_vhost(struct lws_context *context,
 		lws_free(lwsp);
 	}
 
-	vh->same_vh_protocol_heads = (struct lws_dll_lws *)
-			lws_zalloc(sizeof(struct lws_dll_lws) *
+	vh->same_vh_protocol_heads = (struct lws_dll *)
+			lws_zalloc(sizeof(struct lws_dll) *
 				   vh->count_protocols, "same vh list");
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	vh->http.mount_list = info->mounts;

@@ -82,6 +82,7 @@ struct lws_genaes_ctx {
 	struct lws_gencrypto_keyelem *k;
 	enum enum_aes_operation op;
 	enum enum_aes_modes mode;
+	enum enum_aes_padding padding;
 	int taglen;
 	char underway;
 };

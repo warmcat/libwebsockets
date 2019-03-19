@@ -1296,17 +1296,16 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 			/* we have a transaction queue that wants to pipeline */
 			lws_vhost_lock(wsi->vhost);
-			lws_start_foreach_dll_safe(struct lws_dll_lws *, d, d1,
-				  wsi->dll_client_transaction_queue_head.next) {
+			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				  wsi->dll2_cli_txn_queue_owner.head) {
 				struct lws *w = lws_container_of(d, struct lws,
-						dll_client_transaction_queue);
+						dll2_cli_txn_queue);
 
 				if (lwsi_state(w) == LRS_H1C_ISSUE_HANDSHAKE2) {
 					lwsl_info("%s: cli pipeq %p to be h2\n",
 							__func__, w);
 					/* remove ourselves from client queue */
-					lws_dll_lws_remove(
-					      &w->dll_client_transaction_queue);
+					lws_dll2_remove(&w->dll2_cli_txn_queue);
 
 					/* attach ourselves as an h2 stream */
 					lws_wsi_h2_adopt(wsi, w);
@@ -1885,7 +1884,7 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 						if (m) {
 							struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 							lwsl_debug("%s: added %p to rxflow list\n", __func__, wsi);
-							lws_dll_lws_add_front(&h2n->swsi->dll_buflist, &pt->dll_head_buflist);
+							lws_dll_add_head(&h2n->swsi->dll_buflist, &pt->dll_head_buflist);
 						}
 						in += n - 1;
 						h2n->inside += n;

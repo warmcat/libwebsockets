@@ -31,22 +31,23 @@ lws_client_connect_2(struct lws *wsi)
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	struct lws_context *context = wsi->context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	const char *adsin;
 	struct lws *wsi_piggyback = NULL;
 	struct lws_pollfd pfd;
+	const char *adsin;
 	ssize_t plen = 0;
 #endif
-	struct addrinfo *result;
 #if defined(LWS_WITH_UNIX_SOCK)
 	struct sockaddr_un sau;
 	char unix_skt = 0;
 #endif
-	const char *ads;
-	sockaddr46 sa46;
-	const struct sockaddr *psa;
 	int n, m, port = 0, rawish = 0;
 	const char *cce = "", *iface;
+	const struct sockaddr *psa;
 	const char *meth = NULL;
+	struct addrinfo *result;
+	const char *ads;
+	sockaddr46 sa46;
+
 #ifdef LWS_WITH_IPV6
 	char ipv6only = lws_check_opt(wsi->vhost->options,
 			LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY |
@@ -91,16 +92,16 @@ lws_client_connect_2(struct lws *wsi)
 
 	lws_vhost_lock(wsi->vhost); /* ----------------------------------- { */
 
-	lws_start_foreach_dll_safe(struct lws_dll_lws *, d, d1,
-				   wsi->vhost->dll_active_client_conns.next) {
+	lws_start_foreach_dll_safe(struct lws_dll *, d, d1,
+				   wsi->vhost->dll_cli_active_conns_head.next) {
 		struct lws *w = lws_container_of(d, struct lws,
-						 dll_active_client_conns);
+						 dll_cli_active_conns);
 
 		lwsl_debug("%s: check %s %s %d %d\n", __func__, adsin,
-			   w->client_hostname_copy, wsi->c_port, w->c_port);
+			   w->cli_hostname_copy, wsi->c_port, w->c_port);
 
-		if (w != wsi && w->client_hostname_copy &&
-		    !strcmp(adsin, w->client_hostname_copy) &&
+		if (w != wsi && w->cli_hostname_copy &&
+		    !strcmp(adsin, w->cli_hostname_copy) &&
 #if defined(LWS_WITH_TLS)
 		    (wsi->tls.use_ssl & LCCSCF_USE_SSL) ==
 		     (w->tls.use_ssl & LCCSCF_USE_SSL) &&
@@ -137,13 +138,13 @@ lws_client_connect_2(struct lws *wsi)
 #endif
 
 			lwsl_info("applying %p to txn queue on %p state 0x%x\n",
-				wsi, w, w->wsistate);
+				  wsi, w, w->wsistate);
 			/*
 			 * ...let's add ourselves to his transaction queue...
 			 * we are adding ourselves at the HEAD
 			 */
-			lws_dll_lws_add_front(&wsi->dll_client_transaction_queue,
-				&w->dll_client_transaction_queue_head);
+			lws_dll2_add_head(&wsi->dll2_cli_txn_queue,
+					  &w->dll2_cli_txn_queue_owner);
 
 			/*
 			 * h1: pipeline our headers out on him,
@@ -170,12 +171,11 @@ create_new_conn:
 	 * want to use it too
 	 */
 
-	if (!wsi->client_hostname_copy) {
+	if (!wsi->cli_hostname_copy) {
 		if (wsi->stash)
-			wsi->client_hostname_copy = lws_strdup(
-					wsi->stash->host);
+			wsi->cli_hostname_copy = lws_strdup(wsi->stash->host);
 		else
-			wsi->client_hostname_copy =
+			wsi->cli_hostname_copy =
 				lws_strdup(lws_hdr_simple_ptr(wsi,
 					_WSI_TOKEN_CLIENT_PEER_ADDRESS));
 	}
@@ -189,12 +189,13 @@ create_new_conn:
 	 */
 
 	if (meth && (!strcmp(meth, "GET") || !strcmp(meth, "POST")) &&
-	    lws_dll_is_null(&wsi->dll_client_transaction_queue) &&
-	    lws_dll_is_null(&wsi->dll_active_client_conns)) {
+	    lws_dll2_is_detached(&wsi->dll2_cli_txn_queue) &&
+	    lws_dll_is_detached(&wsi->dll_cli_active_conns,
+				&wsi->vhost->dll_cli_active_conns_head)) {
 		lws_vhost_lock(wsi->vhost);
 		/* caution... we will have to unpick this on oom4 path */
-		lws_dll_lws_add_front(&wsi->dll_active_client_conns,
-				      &wsi->vhost->dll_active_client_conns);
+		lws_dll_add_head(&wsi->dll_cli_active_conns,
+				 &wsi->vhost->dll_cli_active_conns_head);
 		lws_vhost_unlock(wsi->vhost);
 	}
 
@@ -609,7 +610,7 @@ ads_known:
 send_hs:
 
 	if (wsi_piggyback &&
-	    !lws_dll_is_null(&wsi->dll_client_transaction_queue)) {
+	    !lws_dll2_is_detached(&wsi->dll2_cli_txn_queue)) {
 		/*
 		 * We are pipelining on an already-established connection...
 		 * we can skip tls establishment.
@@ -676,6 +677,8 @@ send_hs:
 
 		lws_set_timeout(wsi, PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE,
 				AWAITING_TIMEOUT);
+
+		assert(lws_socket_is_valid(wsi->desc.sockfd));
 
 		pfd.fd = wsi->desc.sockfd;
 		pfd.events = LWS_POLLIN;

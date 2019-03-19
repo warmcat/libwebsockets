@@ -36,19 +36,12 @@ lws_client_http_body_pending(struct lws *wsi, int something_left_to_send)
 struct lws *
 lws_client_wsi_effective(struct lws *wsi)
 {
-	struct lws_dll_lws *tail = NULL;
+	struct lws_dll2 *tail = lws_dll2_get_tail(&wsi->dll2_cli_txn_queue_owner);
 
-	if (!wsi->transaction_from_pipeline_queue ||
-	    !wsi->dll_client_transaction_queue_head.next)
+	if (!wsi->transaction_from_pipeline_queue || !tail)
 		return wsi;
 
-	lws_start_foreach_dll_safe(struct lws_dll_lws *, d, d1,
-				   wsi->dll_client_transaction_queue_head.next) {
-		tail = d;
-	} lws_end_foreach_dll_safe(d, d1);
-
-	return lws_container_of(tail, struct lws,
-				dll_client_transaction_queue);
+	return lws_container_of(tail, struct lws, dll2_cli_txn_queue);
 }
 
 /*
@@ -60,18 +53,12 @@ lws_client_wsi_effective(struct lws *wsi)
 static struct lws *
 _lws_client_wsi_master(struct lws *wsi)
 {
-	struct lws *wsi_eff = wsi;
-	struct lws_dll_lws *d;
+	struct lws_dll2_owner *o = wsi->dll2_cli_txn_queue.owner;
 
-	d = wsi->dll_client_transaction_queue.prev;
-	while (d) {
-		wsi_eff = lws_container_of(d, struct lws,
-					   dll_client_transaction_queue_head);
+	if (!o)
+		return wsi;
 
-		d = d->prev;
-	}
-
-	return wsi_eff;
+	return lws_container_of(o, struct lws, dll2_cli_txn_queue_owner);
 }
 
 int
@@ -98,7 +85,7 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 
 	if ((pollfd->revents & LWS_POLLOUT) &&
 	     wsi->keepalive_active &&
-	     wsi->dll_client_transaction_queue_head.next) {
+	     wsi->dll2_cli_txn_queue_owner.head) {
 		struct lws *wfound = NULL;
 
 		lwsl_debug("%s: pollout HANDSHAKE2\n", __func__);
@@ -110,10 +97,10 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 		 * that it was queued, ie, tail-first.
 		 */
 		lws_vhost_lock(wsi->vhost);
-		lws_start_foreach_dll_safe(struct lws_dll_lws *, d, d1,
-				  wsi->dll_client_transaction_queue_head.next) {
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				  wsi->dll2_cli_txn_queue_owner.head) {
 			struct lws *w = lws_container_of(d, struct lws,
-						  dll_client_transaction_queue);
+						  dll2_cli_txn_queue);
 
 			lwsl_debug("%s: %p states 0x%x\n", __func__, w,
 				   w->wsistate);
@@ -398,8 +385,8 @@ start_ws_handshake:
 
 		w = _lws_client_wsi_master(wsi);
 		lwsl_info("%s: HANDSHAKE2: %p: sending headers on %p "
-			  "(wsistate 0x%x 0x%x)\n", __func__, wsi, w,
-			  wsi->wsistate, w->wsistate);
+			  "(wsistate 0x%x 0x%x), w sock %d, wsi sock %d\n", __func__, wsi, w,
+			  wsi->wsistate, w->wsistate, w->desc.sockfd, wsi->desc.sockfd);
 
 		n = lws_ssl_capable_write(w, (unsigned char *)sb, (int)(p - sb));
 		lws_latency(context, wsi, "send lws_issue_raw", n,
@@ -587,7 +574,8 @@ lws_http_transaction_completed_client(struct lws *wsi)
 	 * If not, that's it for us.
 	 */
 
-	if (lws_dll_is_null(&wsi->dll_active_client_conns))
+	if (lws_dll_is_detached(&wsi->dll_cli_active_conns,
+				&wsi->vhost->dll_cli_active_conns_head))
 		return -1;
 
 	/* if this was a queued guy, close him and remove from queue */
@@ -860,16 +848,15 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 				wsi->keepalive_rejected = 1;
 
 				lws_vhost_lock(wsi->vhost);
-				lws_start_foreach_dll_safe(struct lws_dll_lws *,
+				lws_start_foreach_dll_safe(struct lws_dll2 *,
 							   d, d1,
-				  wsi->dll_client_transaction_queue_head.next) {
+				  wsi->dll2_cli_txn_queue_owner.head) {
 					struct lws *ww = lws_container_of(d,
 						struct lws,
-						dll_client_transaction_queue);
+						dll2_cli_txn_queue);
 
 					/* remove him from our queue */
-					lws_dll_lws_remove(
-					     &ww->dll_client_transaction_queue);
+					lws_dll2_remove(&ww->dll2_cli_txn_queue);
 					/* give up on pipelining */
 					ww->client_pipeline = 0;
 

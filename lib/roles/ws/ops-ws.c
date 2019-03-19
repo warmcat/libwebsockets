@@ -1416,7 +1416,7 @@ rops_periodic_checks_ws(struct lws_context *context, int tsi, time_t now)
 
 		for (n = 0; n < vh->count_protocols; n++) {
 
-			lws_start_foreach_dll_safe(struct lws_dll_lws *, d, d1,
+			lws_start_foreach_dll_safe(struct lws_dll *, d, d1,
 					  vh->same_vh_protocol_heads[n].next) {
 				struct lws *wsi = lws_container_of(d,
 						struct lws, same_vh_protocol);
