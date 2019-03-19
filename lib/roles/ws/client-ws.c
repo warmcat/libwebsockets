@@ -334,6 +334,11 @@ bad_conn_format:
 		goto bail2;
 	}
 
+#if defined(LWS_WITH_HTTP_PROXY)
+	lws_strncpy(wsi->ws->actual_protocol, p,
+		    sizeof(wsi->ws->actual_protocol));
+#endif
+
 	/*
 	 * identify the selected protocol struct and set it
 	 */

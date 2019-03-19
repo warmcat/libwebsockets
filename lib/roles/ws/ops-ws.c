@@ -1261,7 +1261,9 @@ int rops_handle_POLLOUT_ws(struct lws *wsi)
 
 	if (!wsi->socket_is_permanently_unusable && wsi->ws->send_check_ping) {
 
-		lwsl_info("issuing ping on wsi %p\n", wsi);
+		lwsl_info("%s: issuing ping on wsi %p: %s %s h2: %d\n", __func__, wsi,
+				wsi->role_ops->name, wsi->protocol->name,
+				wsi->http2_substream);
 		wsi->ws->send_check_ping = 0;
 		n = lws_write(wsi, &wsi->ws->ping_payload_buf[LWS_PRE],
 			      0, LWS_WRITE_PING);
@@ -1421,7 +1423,7 @@ rops_periodic_checks_ws(struct lws_context *context, int tsi, time_t now)
 				struct lws *wsi = lws_container_of(d,
 						struct lws, same_vh_protocol);
 
-				if (lwsi_role_ws(wsi) &&
+				if (lwsi_role_ws(wsi) && !wsi->http2_substream &&
 				    !wsi->socket_is_permanently_unusable &&
 				    !wsi->ws->send_check_ping &&
 				    wsi->ws->time_next_ping_check &&
@@ -1429,7 +1431,7 @@ rops_periodic_checks_ws(struct lws_context *context, int tsi, time_t now)
 					wsi->ws->time_next_ping_check) >
 				       context->ws_ping_pong_interval) {
 
-					lwsl_info("req pp on wsi %p\n", wsi);
+					lwsl_info("%s: req pp on wsi %p\n", __func__, wsi);
 					wsi->ws->send_check_ping = 1;
 					lws_set_timeout(wsi,
 					PENDING_TIMEOUT_WS_PONG_CHECK_SEND_PING,

@@ -326,7 +326,6 @@ just_kill_connection:
 	if (wsi->role_ops->close_kill_connection)
 		wsi->role_ops->close_kill_connection(wsi, reason);
 
-	lws_remove_child_from_any_parent(wsi);
 	n = 0;
 
 	if (!wsi->told_user_closed && wsi->user_space &&
@@ -469,6 +468,7 @@ just_kill_connection:
 	}
 
 async_close:
+	lws_remove_child_from_any_parent(wsi);
 	wsi->socket_is_permanently_unusable = 1;
 
 	if (wsi->context->event_loop_ops->wsi_logical_close)

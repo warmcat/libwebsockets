@@ -982,6 +982,173 @@ lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file)
 	return LCBA_CONTINUE;
 }
 
+#if defined(LWS_WITH_HTTP_PROXY)
+/*
+ * Set up an onward http proxy connection according to the mount this
+ * uri falls under.  Notice this can also be starting the proxying of what was
+ * originally an incoming h1 upgrade, or an h2 ws "upgrade".
+ */
+int
+lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
+		     char *uri_ptr, char ws)
+{
+	char ads[96], rpath[256], host[96], *pcolon, *pslash, unix_skt = 0;
+	struct lws_client_connect_info i;
+	struct lws *cwsi;
+	int n, na;
+
+	if (ws)
+		/*
+		 * Neither our inbound ws upgrade request side, nor our onward
+		 * ws client connection on our side can bind to the actual
+		 * protocol that only the remote inbound side and the remote
+		 * onward side understand.
+		 *
+		 * Instead these are both bound to our built-in "lws-ws-proxy"
+		 * protocol, which understands how to proxy between the two
+		 * sides.
+		 *
+		 * We bind the parent, inbound part here and our side of the
+		 * onward client connection is bound to the same handler using
+		 * the .local_protocol_name.
+		 */
+		lws_bind_protocol(wsi, &lws_ws_proxy, __func__);
+
+	memset(&i, 0, sizeof(i));
+	i.context = lws_get_context(wsi);
+
+	if (hit->origin[0] == '+')
+		unix_skt = 1;
+
+	pcolon = strchr(hit->origin, ':');
+	pslash = strchr(hit->origin, '/');
+	if (!pslash) {
+		lwsl_err("Proxy mount origin '%s' must have /\n", hit->origin);
+		return -1;
+	}
+
+	if (unix_skt) {
+		if (!pcolon) {
+			lwsl_err("Proxy mount origin for unix skt must "
+				 "have address delimited by :\n");
+
+			return -1;
+		}
+		n = lws_ptr_diff(pcolon, hit->origin);
+		pslash = pcolon;
+	} else {
+		if (pcolon > pslash)
+			pcolon = NULL;
+
+		if (pcolon)
+			n = (int)(pcolon - hit->origin);
+		else
+			n = (int)(pslash - hit->origin);
+
+		if (n >= (int)sizeof(ads) - 2)
+			n = sizeof(ads) - 2;
+	}
+
+	memcpy(ads, hit->origin, n);
+	ads[n] = '\0';
+
+	i.address = ads;
+	i.port = 80;
+	if (hit->origin_protocol == LWSMPRO_HTTPS) {
+		i.port = 443;
+		i.ssl_connection = 1;
+	}
+	if (pcolon)
+		i.port = atoi(pcolon + 1);
+
+	n = lws_snprintf(rpath, sizeof(rpath) - 1, "/%s/%s",
+			 pslash + 1, uri_ptr + hit->mountpoint_len) - 2;
+	lws_clean_url(rpath);
+	na = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_URI_ARGS);
+	if (na) {
+		char *p = rpath + n;
+
+		if (na >= (int)sizeof(rpath) - n - 2) {
+			lwsl_info("%s: query string %d longer "
+				  "than we can handle\n", __func__,
+				  na);
+
+			return -1;
+		}
+
+		*p++ = '?';
+		if (lws_hdr_copy(wsi, p,
+			     (int)(&rpath[sizeof(rpath) - 1] - p),
+			     WSI_TOKEN_HTTP_URI_ARGS) > 0)
+			while (na--) {
+				if (*p == '\0')
+					*p = '&';
+				p++;
+			}
+		*p = '\0';
+	}
+
+	i.path = rpath;
+	if (i.address[0] != '+' ||
+	    !lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST))
+		i.host = i.address;
+	else
+		i.host = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST);
+	i.origin = NULL;
+	if (!ws)
+		i.method = "GET";
+
+	lws_snprintf(host, sizeof(host), "%s:%d", i.address, i.port);
+	i.host = host;
+
+	i.alpn = "http/1.1";
+	i.parent_wsi = wsi;
+	i.pwsi = &cwsi;
+	i.protocol = lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL);
+	if (ws)
+		i.local_protocol_name = "lws-ws-proxy";
+
+//	i.uri_replace_from = hit->origin;
+//	i.uri_replace_to = hit->mountpoint;
+
+	lwsl_info("proxying to %s port %d url %s, ssl %d, from %s, to %s\n",
+		   i.address, i.port, i.path, i.ssl_connection,
+		   i.uri_replace_from, i.uri_replace_to);
+
+	if (!lws_client_connect_via_info(&i)) {
+		lwsl_err("proxy connect fail\n");
+
+		/*
+		 * ... we can't do the proxy action, but we can
+		 * cleanly return him a 503 and a description
+		 */
+
+		lws_return_http_status(wsi,
+			HTTP_STATUS_SERVICE_UNAVAILABLE,
+			"<h1>Service Temporarily Unavailable</h1>"
+			"The server is temporarily unable to service "
+			"your request due to maintenance downtime or "
+			"capacity problems. Please try again later.");
+
+		return 1;
+	}
+
+	lwsl_info("%s: setting proxy clientside on %p (parent %p)\n",
+		  __func__, cwsi, lws_get_parent(cwsi));
+
+	cwsi->http.proxy_clientside = 1;
+	if (ws) {
+		wsi->proxied_ws_parent = 1;
+		cwsi->h1_ws_proxied = 1;
+		if (i.protocol) {
+			lwsl_debug("%s: (requesting '%s')\n", __func__, i.protocol);
+		}
+	}
+
+	return 0;
+}
+#endif
+
 static const char * const oprot[] = {
 	"http://", "https://"
 };
@@ -1238,131 +1405,8 @@ lws_http_action(struct lws *wsi)
 	// lwsl_notice("%s: origin_protocol: %d\n", __func__, hit->origin_protocol);
 
 	if (hit->origin_protocol == LWSMPRO_HTTPS ||
-	    hit->origin_protocol == LWSMPRO_HTTP)  {
-		char ads[96], rpath[256], *pcolon, *pslash, unix_skt = 0;
-		struct lws_client_connect_info i;
-		struct lws *cwsi;
-		int n, na;
-
-		memset(&i, 0, sizeof(i));
-		i.context = lws_get_context(wsi);
-
-		if (hit->origin[0] == '+')
-			unix_skt = 1;
-
-		pcolon = strchr(hit->origin, ':');
-		pslash = strchr(hit->origin, '/');
-		if (!pslash) {
-			lwsl_err("Proxy mount origin '%s' must have /\n",
-				 hit->origin);
-			return -1;
-		}
-
-		if (unix_skt) {
-			if (!pcolon) {
-				lwsl_err("Proxy mount origin for unix skt must "
-					 "have address delimited by :\n");
-
-				return -1;
-			}
-			n = lws_ptr_diff(pcolon, hit->origin);
-			pslash = pcolon;
-		} else {
-			if (pcolon > pslash)
-				pcolon = NULL;
-
-			if (pcolon)
-				n = (int)(pcolon - hit->origin);
-			else
-				n = (int)(pslash - hit->origin);
-
-			if (n >= (int)sizeof(ads) - 2)
-				n = sizeof(ads) - 2;
-		}
-
-		memcpy(ads, hit->origin, n);
-		ads[n] = '\0';
-
-		i.address = ads;
-		i.port = 80;
-		if (hit->origin_protocol == LWSMPRO_HTTPS) {
-			i.port = 443;
-			i.ssl_connection = 1;
-		}
-		if (pcolon)
-			i.port = atoi(pcolon + 1);
-
-		n = lws_snprintf(rpath, sizeof(rpath) - 1, "/%s/%s",
-				 pslash + 1, uri_ptr + hit->mountpoint_len) - 2;
-		lws_clean_url(rpath);
-		na = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_URI_ARGS);
-		if (na) {
-			char *p = rpath + n;
-
-			if (na >= (int)sizeof(rpath) - n - 2) {
-				lwsl_info("%s: query string %d longer "
-					  "than we can handle\n", __func__,
-					  na);
-
-				return -1;
-			}
-
-			*p++ = '?';
-			if (lws_hdr_copy(wsi, p,
-				     (int)(&rpath[sizeof(rpath) - 1] - p),
-				     WSI_TOKEN_HTTP_URI_ARGS) > 0)
-				while (na--) {
-					if (*p == '\0')
-						*p = '&';
-					p++;
-				}
-			*p = '\0';
-		}
-
-		i.path = rpath;
-		if (i.address[0] != '+' ||
-		    !lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST))
-			i.host = i.address;
-		else
-			i.host = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST);
-		i.origin = NULL;
-		i.method = "GET";
-		i.alpn = "http/1.1";
-		i.parent_wsi = wsi;
-		i.pwsi = &cwsi;
-
-	//	i.uri_replace_from = hit->origin;
-	//	i.uri_replace_to = hit->mountpoint;
-
-		lwsl_info("proxying to %s port %d url %s, ssl %d, "
-			    "from %s, to %s\n",
-			    i.address, i.port, i.path, i.ssl_connection,
-			    i.uri_replace_from, i.uri_replace_to);
-
-		if (!lws_client_connect_via_info(&i)) {
-			lwsl_err("proxy connect fail\n");
-
-			/*
-			 * ... we can't do the proxy action, but we can
-			 * cleanly return him a 503 and a description
-			 */
-
-			lws_return_http_status(wsi,
-				HTTP_STATUS_SERVICE_UNAVAILABLE,
-				"<h1>Service Temporarily Unavailable</h1>"
-				"The server is temporarily unable to service "
-				"your request due to maintenance downtime or "
-				"capacity problems. Please try again later.");
-
-			return 1;
-		}
-
-		lwsl_info("%s: setting proxy clientside on %p (parent %p)\n",
-			  __func__, cwsi, lws_get_parent(cwsi));
-		cwsi->http.proxy_clientside = 1;
-
-		return 0;
-	}
+	    hit->origin_protocol == LWSMPRO_HTTP)
+		return lws_http_proxy_start(wsi, hit, uri_ptr, 0);
 #endif
 
 	/*

@@ -425,7 +425,7 @@ lws_create_vhost(struct lws_context *context,
 	struct lws_plugin *plugin = context->plugin_list;
 #endif
 	struct lws_protocols *lwsp;
-	int m, f = !info->pvo;
+	int m, f = !info->pvo, fx = 0;
 	char buf[20];
 #if !defined(LWS_WITHOUT_CLIENT) && defined(LWS_HAVE_GETENV)
 	char *p;
@@ -460,6 +460,11 @@ lws_create_vhost(struct lws_context *context,
     !defined(OPTEE_TA) && !defined(WIN32)
 	vh->bind_iface = info->bind_iface;
 #endif
+
+	/*
+	 * let's figure out how many protocols the user is handing us, using the
+	 * old or new way depending on what he gave us
+	 */
 
 	if (!pcols)
 		for (vh->count_protocols = 0;
@@ -529,12 +534,16 @@ lws_create_vhost(struct lws_context *context,
 	}
 #endif
 
+#if defined(LWS_WITH_HTTP_PROXY) && defined(LWS_ROLE_WS)
+	fx = 1;
+#endif
+
 	/*
 	 * give the vhost a unified list of protocols including the
 	 * ones that came from plugins
 	 */
 	lwsp = lws_zalloc(sizeof(struct lws_protocols) * (vh->count_protocols +
-				   context->plugin_protocol_count + 1),
+				   context->plugin_protocol_count + fx + 1),
 			  "vhost-specific plugin table");
 	if (!lwsp) {
 		lwsl_err("OOM\n");
@@ -548,7 +557,8 @@ lws_create_vhost(struct lws_context *context,
 	} else
 		memcpy(lwsp, pcols, sizeof(struct lws_protocols) * m);
 
-	/* for compatibility, all protocols enabled on vhost if only
+	/*
+	 * For compatibility, all protocols enabled on vhost if only
 	 * the default vhost exists.  Otherwise only vhosts who ask
 	 * for a protocol get it enabled.
 	 */
@@ -577,6 +587,11 @@ lws_create_vhost(struct lws_context *context,
 			plugin = plugin->list;
 		}
 	}
+#endif
+
+#if defined(LWS_WITH_HTTP_PROXY) && defined(LWS_ROLE_WS)
+	memcpy(&lwsp[m++], &lws_ws_proxy, sizeof(lws_ws_proxy));
+	vh->count_protocols++;
 #endif
 
 	if (!pcols ||
@@ -978,6 +993,7 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 		n = 0;
 		while (n < vh->count_protocols) {
 			wsi.protocol = protocol;
+
 			if (protocol->callback)
 				protocol->callback(&wsi, LWS_CALLBACK_PROTOCOL_DESTROY,
 					   NULL, NULL, 0);

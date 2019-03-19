@@ -83,6 +83,143 @@ stream_close(struct lws *wsi)
 
 #endif
 
+struct lws_proxy_pkt {
+	struct lws_dll pkt_list;
+	size_t len;
+	char binary;
+	char first;
+	char final;
+
+	/* data follows */
+};
+
+#if defined(LWS_WITH_HTTP_PROXY) && defined(LWS_ROLE_WS)
+int
+lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
+			void *user, void *in, size_t len)
+{
+	struct lws_proxy_pkt *pkt;
+	struct lws_dll *dll;
+
+	switch (reason) {
+
+	/* h1 ws proxying... child / client / onward */
+
+	case LWS_CALLBACK_CLIENT_ESTABLISHED:
+		if (!wsi->h1_ws_proxied || !wsi->parent)
+			break;
+
+		lws_process_ws_upgrade2(wsi->parent);
+
+#if defined(LWS_WITH_HTTP2)
+		if (wsi->parent->http2_substream)
+			lwsl_info("%s: proxied h2 -> h1 ws established\n", __func__);
+#endif
+		break;
+
+
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+	case LWS_CALLBACK_CLIENT_CLOSED:
+		lwsl_user("%s: client closed: parent %p\n", __func__, wsi->parent);
+		if (wsi->parent)
+			lws_set_timeout(wsi->parent, 1, LWS_TO_KILL_ASYNC);
+		break;
+
+	case LWS_CALLBACK_CLIENT_RECEIVE:
+		pkt = lws_malloc(sizeof(*pkt) + LWS_PRE + len, __func__);
+		if (!pkt)
+			return -1;
+
+		pkt->pkt_list.prev = pkt->pkt_list.next = NULL;
+		pkt->len = len;
+		pkt->first = lws_is_first_fragment(wsi);
+		pkt->final = lws_is_final_fragment(wsi);
+		pkt->binary = lws_frame_is_binary(wsi);
+
+		memcpy(((uint8_t *)&pkt[1]) + LWS_PRE, in, len);
+
+		lws_dll_add_tail(&pkt->pkt_list, &wsi->parent->ws->proxy_head);
+		lws_callback_on_writable(wsi->parent);
+		break;
+
+	case LWS_CALLBACK_CLIENT_WRITEABLE:
+		dll = lws_dll_get_tail(&wsi->ws->proxy_head);
+		if (!dll)
+			break;
+
+		pkt = (struct lws_proxy_pkt *)dll;
+		if (lws_write(wsi, ((unsigned char *)&pkt[1]) +
+			      LWS_PRE, pkt->len, lws_write_ws_flags(
+				pkt->binary ? LWS_WRITE_BINARY : LWS_WRITE_TEXT,
+					pkt->first, pkt->final)) < 0)
+			return -1;
+
+		lws_dll_remove_track_tail(dll, &wsi->ws->proxy_head);
+		lws_free(pkt);
+
+		if (lws_dll_get_tail(&wsi->ws->proxy_head))
+			lws_callback_on_writable(wsi);
+		break;
+
+	/* h1 ws proxying... parent / server / incoming */
+
+	case LWS_CALLBACK_CLOSED:
+		lwsl_user("%s: closed\n", __func__);
+		return -1;
+
+	case LWS_CALLBACK_RECEIVE:
+		pkt = lws_malloc(sizeof(*pkt) + LWS_PRE + len, __func__);
+		if (!pkt)
+			return -1;
+
+		pkt->pkt_list.prev = pkt->pkt_list.next = NULL;
+		pkt->len = len;
+		pkt->first = lws_is_first_fragment(wsi);
+		pkt->final = lws_is_final_fragment(wsi);
+		pkt->binary = lws_frame_is_binary(wsi);
+
+		memcpy(((uint8_t *)&pkt[1]) + LWS_PRE, in, len);
+
+		lws_dll_add_tail(&pkt->pkt_list, &wsi->child_list->ws->proxy_head);
+		lws_callback_on_writable(wsi->child_list);
+		break;
+
+	case LWS_CALLBACK_SERVER_WRITEABLE:
+		dll = lws_dll_get_tail(&wsi->ws->proxy_head);
+		if (!dll)
+			break;
+
+		pkt = (struct lws_proxy_pkt *)dll;
+		if (lws_write(wsi, ((unsigned char *)&pkt[1]) +
+			      LWS_PRE, pkt->len, lws_write_ws_flags(
+				pkt->binary ? LWS_WRITE_BINARY : LWS_WRITE_TEXT,
+					pkt->first, pkt->final)) < 0)
+			return -1;
+
+		lws_dll_remove_track_tail(dll, &wsi->ws->proxy_head);
+		lws_free(pkt);
+
+		if (lws_dll_get_tail(&wsi->ws->proxy_head))
+			lws_callback_on_writable(wsi);
+		break;
+
+	default:
+		return 0;
+	}
+
+	return 0;
+}
+
+const struct lws_protocols lws_ws_proxy = {
+		"lws-ws-proxy",
+		lws_callback_ws_proxy,
+		0,
+		8192,
+		8192, NULL, 0
+};
+
+#endif
+
 LWS_VISIBLE int
 lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			void *user, void *in, size_t len)
@@ -269,8 +406,8 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			return -1;
 		break; }
 
+	/* h1 http proxying... */
 
-	/* this handles the proxy case... */
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP: {
 		unsigned char *start, *p, *end;
 

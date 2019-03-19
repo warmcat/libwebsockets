@@ -2213,22 +2213,36 @@ lws_h2_ws_handshake(struct lws *wsi)
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_PROTOCOL) > 64)
 		return -1;
 
-	/* we can only return the protocol header if:
-	 *  - one came in, and ... */
-	if (lws_hdr_total_length(wsi, WSI_TOKEN_PROTOCOL) &&
-	    /*  - it is not an empty string */
-	    wsi->protocol->name && wsi->protocol->name[0]) {
-		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_PROTOCOL,
-					 (unsigned char *)wsi->protocol->name,
-					 (int)strlen(wsi->protocol->name),
-					 &p, end))
-		return -1;
+	if (wsi->proxied_ws_parent && wsi->child_list) {
+		if (lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL)) {
+			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_PROTOCOL,
+				(uint8_t *)lws_hdr_simple_ptr(wsi,
+							   WSI_TOKEN_PROTOCOL),
+				strlen(lws_hdr_simple_ptr(wsi,
+							   WSI_TOKEN_PROTOCOL)),
+						 &p, end))
+			return -1;
+		}
+	} else {
+
+		/* we can only return the protocol header if:
+		 *  - one came in, and ... */
+		if (lws_hdr_total_length(wsi, WSI_TOKEN_PROTOCOL) &&
+		    /*  - it is not an empty string */
+		    wsi->protocol->name && wsi->protocol->name[0]) {
+			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_PROTOCOL,
+						 (unsigned char *)wsi->protocol->name,
+						 (int)strlen(wsi->protocol->name),
+						 &p, end))
+			return -1;
+		}
 	}
 
 	if (lws_finalize_http_header(wsi, &p, end))
 		return -1;
 
 	m = lws_ptr_diff(p, start);
+	// lwsl_hexdump_notice(start, m);
 	n = lws_write(wsi, start, m, LWS_WRITE_HTTP_HEADERS);
 	if (n != m) {
 		lwsl_err("_write returned %d from %d\n", n, m);

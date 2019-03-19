@@ -92,6 +92,12 @@ struct _lws_websocket_related {
 	struct lws *rx_draining_ext_list;
 	struct lws *tx_draining_ext_list;
 #endif
+
+#if defined(LWS_WITH_HTTP_PROXY)
+	struct lws_dll proxy_head;
+	char actual_protocol[16];
+#endif
+
 	/* Also used for close content... control opcode == < 128 */
 	uint8_t ping_payload_buf[128 - 3 + LWS_PRE];
 	uint8_t mask[4];
@@ -160,5 +166,11 @@ int
 handshake_0405(struct lws_context *context, struct lws *wsi);
 int
 lws_process_ws_upgrade(struct lws *wsi);
+
+int
+lws_process_ws_upgrade2(struct lws *wsi);
+
+extern const struct lws_protocols lws_ws_proxy;
+
 int
 lws_server_init_wsi_for_ws(struct lws *wsi);

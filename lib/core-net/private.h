@@ -577,6 +577,8 @@ struct lws {
 	unsigned int protocol_bind_balance:1;
 	unsigned int unix_skt:1;
 	unsigned int close_when_buffered_out_drained:1;
+	unsigned int h1_ws_proxied;
+	unsigned int proxied_ws_parent;
 
 	unsigned int could_have_pending:1; /* detect back-to-back writes */
 	unsigned int outer_will_close:1;
