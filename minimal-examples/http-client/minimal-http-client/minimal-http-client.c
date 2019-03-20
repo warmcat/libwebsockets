@@ -146,7 +146,8 @@ int main(int argc, const char **argv)
 
 	memset(&i, 0, sizeof i); /* otherwise uninitialized garbage */
 	i.context = context;
-	i.ssl_connection = LCCSCF_USE_SSL;
+	if (!lws_cmdline_option(argc, argv, "-n"))
+		i.ssl_connection = LCCSCF_USE_SSL;
 
 	if (lws_cmdline_option(argc, argv, "-l")) {
 		i.port = 7681;
@@ -159,6 +160,9 @@ int main(int argc, const char **argv)
 
 	if (lws_cmdline_option(argc, argv, "--h1"))
 		i.alpn = "http/1.1";
+
+	if ((p = lws_cmdline_option(argc, argv, "-p")))
+		i.port = atoi(p);
 
 	i.path = "/";
 	i.host = i.address;

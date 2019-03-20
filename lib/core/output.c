@@ -244,6 +244,7 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 
 	lws_stats_atomic_bump(context, pt, LWSSTATS_C_API_READ, 1);
 
+	errno = 0;
 	if (lws_wsi_is_udp(wsi)) {
 #if !defined(LWS_WITH_ESP32)
 		wsi->udp->salen = sizeof(wsi->udp->sa);
@@ -256,6 +257,13 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 	if (n >= 0) {
 
 		if (!n && wsi->unix_skt)
+			return LWS_SSL_CAPABLE_ERROR;
+
+		/*
+		 * See https://libwebsockets.org/
+		 * pipermail/libwebsockets/2019-March/007857.html
+		 */
+		if (!n)
 			return LWS_SSL_CAPABLE_ERROR;
 
 		if (wsi->vhost)
