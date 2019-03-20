@@ -375,7 +375,11 @@ lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
 		mpi[LWS_GENCRYPTO_EC_KEYEL_D] = NULL;
 		mpi[LWS_GENCRYPTO_EC_KEYEL_Y] = BN_new(); /* Y */
 
+#if defined(LWS_HAVE_EC_POINT_get_affine_coordinates)
+		if (EC_POINT_get_affine_coordinates(ecgroup, ecpoint,
+#else
 		if (EC_POINT_get_affine_coordinates_GFp(ecgroup, ecpoint,
+#endif
 						  mpi[LWS_GENCRYPTO_EC_KEYEL_X],
 						  mpi[LWS_GENCRYPTO_EC_KEYEL_Y],
 							  NULL) != 1) {

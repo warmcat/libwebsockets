@@ -25,6 +25,7 @@
 #cmakedefine LWS_HAVE__ATOI64
 #cmakedefine LWS_HAVE_ATOLL
 #cmakedefine LWS_HAVE_BN_bn2binpad
+#cmakedefine LWS_HAVE_EC_POINT_get_affine_coordinates
 #cmakedefine LWS_HAVE_ECDSA_SIG_set0
 #cmakedefine LWS_HAVE_EVP_MD_CTX_free
 #cmakedefine LWS_HAVE_EVP_aes_128_wrap

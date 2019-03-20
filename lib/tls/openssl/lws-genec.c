@@ -352,7 +352,11 @@ lws_genec_new_keypair(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 	bn[1] = (BIGNUM *)EC_KEY_get0_private_key(ec);
 	bn[2] = BN_new();
 
+#if defined(LWS_HAVE_EC_POINT_get_affine_coordinates)
+	if (EC_POINT_get_affine_coordinates(EC_KEY_get0_group(ec),
+#else
 	if (EC_POINT_get_affine_coordinates_GFp(EC_KEY_get0_group(ec),
+#endif
 		        pubkey, bn[0], bn[2], NULL) != 1) {
 		lwsl_err("%s: EC_POINT_get_affine_coordinates_GFp failed\n",
 			 __func__);
