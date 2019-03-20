@@ -277,8 +277,12 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx,
 		EVP_CIPHER_CTX_set_key_length(ctx->ctx, ctx->k->len);
 
 		if (ctx->mode == LWS_GAESM_GCM) {
-			EVP_CIPHER_CTX_ctrl(ctx->ctx, EVP_CTRL_GCM_SET_IVLEN,
+			n = EVP_CIPHER_CTX_ctrl(ctx->ctx, EVP_CTRL_GCM_SET_IVLEN,
 					    *nc_or_iv_off, NULL);
+			if (n != 1) {
+				lwsl_err("%s: SET_IVLEN failed\n", __func__);
+				return -1;
+			}
 			memcpy(ctx->tag, stream_block_16, taglen);
 			ctx->taglen = taglen;
 		}
@@ -311,14 +315,26 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx,
 
 	if (ctx->mode == LWS_GAESM_GCM && !out) {
 		/* AAD */
-		if (len)
-			if (EVP_EncryptUpdate(ctx->ctx, NULL, &olen,
-					      in, len) != 1) {
-				lwsl_err("%s: set aad failed\n",
-					 __func__);
 
-				return -1;
-			}
+		if (!len)
+			return 0;
+
+		switch (ctx->op) {
+		case LWS_GAESO_ENC:
+			n = EVP_EncryptUpdate(ctx->ctx, NULL, &olen, in, len);
+			break;
+		case LWS_GAESO_DEC:
+			n = EVP_DecryptUpdate(ctx->ctx, NULL, &olen, in, len);
+			break;
+		default:
+			return -1;
+		}
+		if (n != 1) {
+			lwsl_err("%s: set AAD failed\n",  __func__);
+			lws_tls_err_describe();
+			lwsl_hexdump_err(in, len);
+			return -1;
+		}
 
 		return 0;
 	}
