@@ -213,7 +213,8 @@ lws_dll_remove_track_tail(struct lws_dll *d, struct lws_dll *phead);
 /* another way to do lws_start_foreach_dll_safe() on a list via a cb */
 
 LWS_VISIBLE LWS_EXTERN int
-lws_dll_foreach_safe(struct lws_dll *phead, int (*cb)(struct lws_dll *d));
+lws_dll_foreach_safe(struct lws_dll *phead, void *user,
+		     int (*cb)(struct lws_dll *d, void *user));
 
 #define lws_dll_is_detached(___dll, __head) \
 	(!(___dll)->prev && !(___dll)->next && (__head)->prev != (___dll))
@@ -274,7 +275,8 @@ LWS_VISIBLE LWS_EXTERN void
 lws_dll2_remove(struct lws_dll2 *d);
 
 LWS_VISIBLE LWS_EXTERN int
-lws_dll2_foreach_safe(struct lws_dll2_owner *owner, int (*cb)(struct lws_dll2 *d));
+lws_dll2_foreach_safe(struct lws_dll2_owner *owner, void *user,
+		      int (*cb)(struct lws_dll2 *d, void *user));
 
 /*
  * these are safe against the current container object getting deleted,

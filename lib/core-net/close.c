@@ -120,7 +120,7 @@ lws_remove_child_from_any_parent(struct lws *wsi)
 
 #if !defined(LWS_NO_CLIENT)
 static int
-lws_close_trans_q_leader(struct lws_dll2 *d)
+lws_close_trans_q_leader(struct lws_dll2 *d, void *user)
 {
 	struct lws *w = lws_container_of(d, struct lws, dll2_cli_txn_queue);
 
@@ -165,7 +165,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 		if ((int)reason != -1)
 			lws_vhost_lock(wsi->vhost);
 
-		lws_dll2_foreach_safe(&wsi->dll2_cli_txn_queue_owner,
+		lws_dll2_foreach_safe(&wsi->dll2_cli_txn_queue_owner, NULL,
 				      lws_close_trans_q_leader);
 
 		/*

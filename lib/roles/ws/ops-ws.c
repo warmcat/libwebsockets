@@ -1978,9 +1978,23 @@ rops_destroy_vhost_ws(struct lws_vhost *vh)
 	return 0;
 }
 
+#if defined(LWS_WITH_HTTP_PROXY)
+static int
+ws_destroy_proxy_buf(struct lws_dll *d, void *user)
+{
+	lws_free(d);
+
+	return 0;
+}
+#endif
+
 static int
 rops_destroy_role_ws(struct lws *wsi)
 {
+#if defined(LWS_WITH_HTTP_PROXY)
+	lws_dll_foreach_safe(&wsi->ws->proxy_head, NULL, ws_destroy_proxy_buf);
+#endif
+
 	lws_free_set_NULL(wsi->ws);
 
 	return 0;

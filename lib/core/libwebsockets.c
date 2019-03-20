@@ -263,10 +263,11 @@ lws_dll_remove_track_tail(struct lws_dll *d, struct lws_dll *phead)
 
 
 int
-lws_dll_foreach_safe(struct lws_dll *phead, int (*cb)(struct lws_dll *d))
+lws_dll_foreach_safe(struct lws_dll *phead, void *user,
+		     int (*cb)(struct lws_dll *d, void *user))
 {
 	lws_start_foreach_dll_safe(struct lws_dll *, p, tp, phead->next) {
-		if (cb(p))
+		if (cb(p, user))
 			return 1;
 	} lws_end_foreach_dll_safe(p, tp);
 
@@ -274,10 +275,11 @@ lws_dll_foreach_safe(struct lws_dll *phead, int (*cb)(struct lws_dll *d))
 }
 
 int
-lws_dll2_foreach_safe(struct lws_dll2_owner *owner, int (*cb)(struct lws_dll2 *d))
+lws_dll2_foreach_safe(struct lws_dll2_owner *owner, void *user,
+		      int (*cb)(struct lws_dll2 *d, void *user))
 {
 	lws_start_foreach_dll_safe(struct lws_dll2 *, p, tp, owner->head) {
-		if (cb(p))
+		if (cb(p, user))
 			return 1;
 	} lws_end_foreach_dll_safe(p, tp);
 
