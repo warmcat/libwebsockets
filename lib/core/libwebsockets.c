@@ -152,7 +152,7 @@ lws_dll_insert(struct lws_dll *n, struct lws_dll *target,
 	if (before) {
 		/*
 		 *  we go before dd
-		 *  DDp <-> DD <-> DDn --> DDp <-> us <-> DD <-> DDn
+		 *  DDp <-> DD <-> DDn   -->   DDp <-> us <-> DD <-> DDn
 		 */
 		/* we point forward to dd */
 		n->next = target;
@@ -163,10 +163,17 @@ lws_dll_insert(struct lws_dll *n, struct lws_dll *target,
 			target->prev->next = n;
 		/* DD points back to us now */
 		target->prev = n;
+
+		/* if target was the head, we are now the head */
+		if (phead->next == target)
+			phead->next = n;
+
+		/* since we are before another guy, we cannot become the tail */
+
 	} else {
 		/*
 		 *  we go after dd
-		 *  DDp <-> DD <-> DDn --> DDp <-> DD <-> us <-> DDn
+		 *  DDp <-> DD <-> DDn   -->   DDp <-> DD <-> us <-> DDn
 		 */
 		/* we point forward to what dd used to point forward to */
 		n->next = target->next;
@@ -177,6 +184,12 @@ lws_dll_insert(struct lws_dll *n, struct lws_dll *target,
 			target->next->prev = n;
 		/* DD points forward to us */
 		target->next = n;
+
+		/* if target was the tail, we are now the tail */
+		if (phead->prev == target)
+			phead->prev = n;
+
+		/* since we go after another guy, we cannot become the head */
 	}
 }
 
