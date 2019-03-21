@@ -74,6 +74,9 @@ lws_tls_server_conn_alpn(struct lws *wsi)
 	char cstr[10];
 	unsigned len;
 
+	if (!wsi->tls.ssl)
+		return 0;
+
 	SSL_get0_alpn_selected(wsi->tls.ssl, &name, &len);
 	if (!len) {
 		lwsl_info("no ALPN upgrade\n");
