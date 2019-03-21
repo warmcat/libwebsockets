@@ -153,15 +153,17 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 #if !defined(LWS_NO_CLIENT)
 
 	lws_free_set_NULL(wsi->cli_hostname_copy);
-	/* we are no longer an active client connection that can piggyback */
-	lws_dll_remove_track_tail(&wsi->dll_cli_active_conns,
-				  &wsi->vhost->dll_cli_active_conns_head);
 
 	/*
 	 * if we have wsi in our transaction queue, if we are closing we
 	 * must go through and close all those first
 	 */
 	if (wsi->vhost) {
+
+		/* we are no longer an active client connection that can piggyback */
+		lws_dll_remove_track_tail(&wsi->dll_cli_active_conns,
+					  &wsi->vhost->dll_cli_active_conns_head);
+
 		if ((int)reason != -1)
 			lws_vhost_lock(wsi->vhost);
 
@@ -201,7 +203,8 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	if (wsi->role_ops == &role_ops_raw_file) {
 		lws_remove_child_from_any_parent(wsi);
 		__remove_wsi_socket_from_fds(wsi);
-		wsi->protocol->callback(wsi, wsi->role_ops->close_cb[0],
+		if (wsi->protocol)
+			wsi->protocol->callback(wsi, wsi->role_ops->close_cb[0],
 					wsi->user_space, NULL, 0);
 		goto async_close;
 	}
@@ -329,7 +332,7 @@ just_kill_connection:
 	n = 0;
 
 	if (!wsi->told_user_closed && wsi->user_space &&
-	    wsi->protocol_bind_balance) {
+	    wsi->protocol_bind_balance && wsi->protocol) {
 		lwsl_debug("%s: %p: DROP_PROTOCOL %s\n", __func__, wsi,
 		       wsi->protocol->name);
 		wsi->protocol->callback(wsi,
@@ -340,7 +343,8 @@ just_kill_connection:
 	}
 
 	if ((lwsi_state(wsi) == LRS_WAITING_SERVER_REPLY ||
-	     lwsi_state(wsi) == LRS_WAITING_CONNECT) && !wsi->already_did_cce)
+	     lwsi_state(wsi) == LRS_WAITING_CONNECT) &&
+	     !wsi->already_did_cce && wsi->protocol)
 		wsi->protocol->callback(wsi,
 				        LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
 						wsi->user_space, NULL, 0);

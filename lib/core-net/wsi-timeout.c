@@ -21,7 +21,6 @@
 
 #include "core/private.h"
 
-
 void
 __lws_remove_from_timeout_list(struct lws *wsi)
 {
@@ -50,7 +49,7 @@ __lws_set_timer_usecs(struct lws *wsi, lws_usec_t usecs)
 	struct lws *wsi1;
 	int bef = 0;
 
-	__lws_remove_from_timeout_list(wsi);
+	lws_dll_remove_track_tail(&wsi->dll_hrtimer, &pt->dll_hrtimer_head);
 
 	if (usecs == LWS_SET_TIMER_USEC_CANCEL)
 		return;
