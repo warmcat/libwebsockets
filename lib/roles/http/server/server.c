@@ -746,6 +746,7 @@ lws_find_mount(struct lws *wsi, const char *uri_ptr, int uri_len)
 			if (hm->origin_protocol == LWSMPRO_CALLBACK ||
 			    ((hm->origin_protocol == LWSMPRO_CGI ||
 			     lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI) ||
+			     lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI) ||
 			     (wsi->http2_substream &&
 				lws_hdr_total_length(wsi,
 						WSI_TOKEN_HTTP_COLON_PATH)) ||
@@ -1095,8 +1096,19 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 	else
 		i.host = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST);
 	i.origin = NULL;
-	if (!ws)
-		i.method = "GET";
+	if (!ws) {
+		if (lws_hdr_simple_ptr(wsi, WSI_TOKEN_POST_URI)
+#if defined(LWS_WITH_HTTP2)
+								|| (
+			lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_METHOD) &&
+			!strcmp(lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_METHOD), "post")
+			)
+#endif
+		)
+			i.method = "POST";
+		else
+			i.method = "GET";
+	}
 
 	lws_snprintf(host, sizeof(host), "%s:%d", i.address, i.port);
 	i.host = host;
@@ -1402,11 +1414,20 @@ lws_http_action(struct lws *wsi)
 	 * The mount is a reverse proxy?
 	 */
 
+	// if (hit)
 	// lwsl_notice("%s: origin_protocol: %d\n", __func__, hit->origin_protocol);
+	//else
+	//	lwsl_notice("%s: no hit\n", __func__);
 
 	if (hit->origin_protocol == LWSMPRO_HTTPS ||
-	    hit->origin_protocol == LWSMPRO_HTTP)
-		return lws_http_proxy_start(wsi, hit, uri_ptr, 0);
+	    hit->origin_protocol == LWSMPRO_HTTP) {
+		n = lws_http_proxy_start(wsi, hit, uri_ptr, 0);
+		lwsl_notice("proxy start says %d\n", n);
+		if (n)
+			return n;
+
+		goto deal_body;
+	}
 #endif
 
 	/*
@@ -1534,7 +1555,7 @@ after:
 		return 1;
 	}
 
-#ifdef LWS_WITH_CGI
+#if defined(LWS_WITH_CGI) || defined(LWS_WITH_HTTP_PROXY)
 deal_body:
 #endif
 	/*
@@ -1547,7 +1568,7 @@ deal_body:
 	 */
 	if (lwsi_state(wsi) != LRS_ISSUING_FILE) {
 		/* Prepare to read body if we have a content length: */
-		lwsl_debug("wsi->http.rx_content_length %lld %d %d\n",
+		lwsl_notice("wsi->http.rx_content_length %lld %d %d\n",
 			   (long long)wsi->http.rx_content_length,
 			   wsi->upgraded_to_http2, wsi->http2_substream);
 

@@ -326,6 +326,11 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 
 just_kill_connection:
 
+#if defined(LWS_WITH_HTTP_PROXY)
+	if (wsi->http.buflist_post_body)
+		lws_buflist_destroy_all_segments(&wsi->http.buflist_post_body);
+#endif
+
 	if (wsi->role_ops->close_kill_connection)
 		wsi->role_ops->close_kill_connection(wsi, reason);
 

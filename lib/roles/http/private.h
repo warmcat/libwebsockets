@@ -215,6 +215,7 @@ struct _lws_http_mode_related {
 
 #if defined(LWS_WITH_HTTP_PROXY)
 	struct lws_rewrite *rw;
+	struct lws_buflist *buflist_post_body;
 #endif
 	struct allocated_headers *ah;
 	struct lws *ah_wait_list;

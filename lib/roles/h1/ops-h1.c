@@ -654,8 +654,51 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 static int
 rops_handle_POLLOUT_h1(struct lws *wsi)
 {
-	if (lwsi_state(wsi) == LRS_ISSUE_HTTP_BODY)
+
+	if (lwsi_state(wsi) == LRS_ISSUE_HTTP_BODY) {
+#if defined(LWS_WITH_HTTP_PROXY)
+		if (wsi->http.proxy_clientside) {
+			unsigned char *buf;
+			size_t len = lws_buflist_next_segment_len(
+					&wsi->parent->http.buflist_post_body, &buf);
+			int n;
+
+			lwsl_debug("%s: %p: proxying body %d %d %d %d %d\n",
+					__func__, wsi, (int)len,
+					(int)wsi->http.tx_content_length,
+					(int)wsi->http.tx_content_remain,
+					(int)wsi->http.rx_content_length,
+					(int)wsi->http.rx_content_remain
+					);
+
+			n = lws_write(wsi, buf, len, LWS_WRITE_HTTP);
+			if (n < 0) {
+				lwsl_err("%s: PROXY_BODY: write failed\n",
+					 __func__);
+				return -1;
+			}
+
+			lws_buflist_use_segment(&wsi->parent->http.buflist_post_body, len);
+
+			if (wsi->parent->http.buflist_post_body)
+				lws_callback_on_writable(wsi);
+			else {
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+				/* prepare ourselves to do the parsing */
+				wsi->http.ah->parser_state = WSI_TOKEN_NAME_PART;
+				wsi->http.ah->lextable_pos = 0;
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+				wsi->http.ah->unk_pos = 0;
+#endif
+#endif
+				lwsi_set_state(wsi, LRS_WAITING_SERVER_REPLY);
+				lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
+						wsi->context->timeout_secs);
+			}
+		}
+#endif
 		return LWS_HP_RET_USER_SERVICE;
+	}
 
 	if (lwsi_role_client(wsi))
 		return LWS_HP_RET_USER_SERVICE;

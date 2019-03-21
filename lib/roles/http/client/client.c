@@ -403,10 +403,15 @@ start_ws_handshake:
 		}
 
 		if (wsi->client_http_body_pending) {
+			lwsl_debug("body pending\n");
 			lwsi_set_state(wsi, LRS_ISSUE_HTTP_BODY);
 			lws_set_timeout(wsi,
 					PENDING_TIMEOUT_CLIENT_ISSUE_PAYLOAD,
 					context->timeout_secs);
+#if defined(LWS_WITH_HTTP_PROXY)
+			if (wsi->http.proxy_clientside)
+				lws_callback_on_writable(wsi);
+#endif
 			/* user code must ask for writable callback */
 			break;
 		}
@@ -436,6 +441,12 @@ start_ws_handshake:
 		goto client_http_body_sent;
 
 	case LRS_ISSUE_HTTP_BODY:
+#if defined(LWS_WITH_HTTP_PROXY)
+			if (wsi->http.proxy_clientside) {
+				lws_callback_on_writable(wsi);
+				break;
+			}
+#endif
 		if (wsi->client_http_body_pending) {
 			//lws_set_timeout(wsi,
 			//		PENDING_TIMEOUT_CLIENT_ISSUE_PAYLOAD,
@@ -1083,6 +1094,22 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 				     lws_hdr_simple_ptr(wsi,
 						     _WSI_TOKEN_CLIENT_ORIGIN));
 	}
+
+#if defined(LWS_WITH_HTTP_PROXY)
+	if (wsi->parent &&
+	    lws_hdr_total_length(wsi->parent, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
+		p += snprintf(p, 128, "Content-Length: %s\x0d\x0a",
+			lws_hdr_simple_ptr(wsi->parent, WSI_TOKEN_HTTP_CONTENT_LENGTH));
+		if (atoi(lws_hdr_simple_ptr(wsi->parent, WSI_TOKEN_HTTP_CONTENT_LENGTH)))
+			wsi->client_http_body_pending = 1;
+	}
+	if (wsi->parent &&
+	    lws_hdr_total_length(wsi->parent, WSI_TOKEN_HTTP_CONTENT_TYPE)) {
+		p += snprintf(p, 128, "Content-Type: %s\x0d\x0a",
+			lws_hdr_simple_ptr(wsi->parent, WSI_TOKEN_HTTP_CONTENT_TYPE));
+	}
+#endif
+
 #if defined(LWS_ROLE_WS)
 	if (wsi->do_ws) {
 		const char *conn1 = "";

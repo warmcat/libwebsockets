@@ -250,13 +250,29 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 #if !defined(LWS_NO_SERVER)
 	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
+#if defined(LWS_WITH_HTTP_PROXY)
+		if (wsi->child_list)
+			lwsl_user("%s: LWS_CALLBACK_HTTP_BODY_COMPLETION: %d\n", __func__, (int)len);
+		break;
+#endif
 	case LWS_CALLBACK_HTTP_FILE_COMPLETION:
 		if (lws_http_transaction_completed(wsi))
 			return -1;
 		break;
 #endif
 
+#if defined(LWS_WITH_HTTP_PROXY)
+	case LWS_CALLBACK_HTTP_BODY:
+		if (wsi->child_list) {
+			lwsl_user("%s: LWS_CALLBACK_HTTP_BODY: stashing %d\n", __func__, (int)len);
+			lws_buflist_append_segment(&wsi->http.buflist_post_body, in, len);
+			lws_callback_on_writable(wsi->child_list);
+		}
+		break;
+#endif
+
 	case LWS_CALLBACK_HTTP_WRITEABLE:
+		// lwsl_err("%s: LWS_CALLBACK_HTTP_WRITEABLE\n", __func__);
 #ifdef LWS_WITH_CGI
 		if (wsi->reason_bf & (LWS_CB_REASON_AUX_BF__CGI_HEADERS |
 				      LWS_CB_REASON_AUX_BF__CGI)) {
@@ -317,6 +333,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 					 __func__);
 				return -1;
 			}
+
 			lws_callback_on_writable(wsi);
 			break;
 		}
@@ -494,6 +511,13 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 
 		lwsl_debug("%s: LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP: "
 			   "prepared headers\n", __func__);
+
+		/*
+		 * so at this point, the onward client connection can bear
+		 * traffic.  We might be doing a POST and have pending cached
+		 * inbound stuff to send, it can go now.
+		 */
+
 		lws_callback_on_writable(parent);
 
 		break; }
@@ -518,7 +542,6 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
 		parent = lws_get_parent(wsi);
-
 		if (!parent)
 			break;
 
@@ -550,7 +573,6 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			return -1;
 
 		break;
-
 #endif
 
 #ifdef LWS_WITH_CGI

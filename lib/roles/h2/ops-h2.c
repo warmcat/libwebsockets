@@ -979,6 +979,9 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 
 			lwsl_info("  h2 action start...\n");
 			n = lws_http_action(w);
+			if (n < 0)
+				lwsl_info ("   h2 action result %d\n", n);
+			else
 			lwsl_info("  h2 action result %d "
 				  "(wsi->http.rx_content_remain %lld)\n",
 				  n, w->http.rx_content_remain);
@@ -989,13 +992,16 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			 * states.  In those cases we will hear about
 			 * END_STREAM going out in the POLLOUT handler.
 			 */
-			if (!w->h2.pending_status_body &&
+			if (n >= 0 && !w->h2.pending_status_body &&
 			    (n || w->h2.send_END_STREAM)) {
 				lwsl_info("closing stream after h2 action\n");
 				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 						   "h2 end stream");
 				wa = &wsi->h2.child_list;
 			}
+
+			if (n < 0)
+				wa = &wsi->h2.child_list;
 
 			goto next_child;
 		}
