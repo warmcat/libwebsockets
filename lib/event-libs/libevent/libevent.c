@@ -114,6 +114,9 @@ lws_event_cb(evutil_socket_t sock_fd, short revents, void *ctx)
 	}
 
 	wsi = wsi_from_fd(context, sock_fd);
+	if (!wsi) {
+		return;
+	}
 	pt = &context->pt[(int)wsi->tsi];
 
 	lws_service_fd_tsi(context, &eventfd, wsi->tsi);
@@ -362,7 +365,7 @@ elops_destroy_context2_event(struct lws_context *context)
 	struct lws_context_per_thread *pt;
 	int n, m;
 
-	lwsl_debug("%s\n", __func__);
+	lwsl_debug("%s: in\n", __func__);
 
 	for (n = 0; n < context->count_threads; n++) {
 		int budget = 1000;
@@ -392,6 +395,8 @@ elops_destroy_context2_event(struct lws_context *context)
 		event_base_free(pt->event.io_loop);
 
 	}
+
+	lwsl_debug("%s: out\n", __func__);
 
 	return 0;
 }

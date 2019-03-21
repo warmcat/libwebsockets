@@ -510,6 +510,8 @@ lws_context_destroy3(struct lws_context *context)
 #if defined(LWS_WITH_NETWORK)
 	int n;
 
+	lwsl_debug("%s\n", __func__);
+
 	for (n = 0; n < context->count_threads; n++) {
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 		struct lws_context_per_thread *pt = &context->pt[n];
@@ -567,12 +569,16 @@ lws_context_destroy2(struct lws_context *context)
 		vh = vh1;
 	}
 
+	lwsl_debug("%p: post vh listl\n", __func__);
+
 	/* remove ourselves from the pending destruction list */
 
 	while (context->vhost_pending_destruction_list)
 		/* removes itself from list */
 		__lws_vhost_destroy2(context->vhost_pending_destruction_list);
 #endif
+
+	lwsl_debug("%p: post pdl\n", __func__);
 
 	lws_stats_log_dump(context);
 #if defined(LWS_WITH_NETWORK)
@@ -593,6 +599,8 @@ lws_context_destroy2(struct lws_context *context)
 	lws_free(context->pl_hash_table);
 #endif
 
+	lwsl_debug("%p: baggage\n", __func__);
+
 	if (context->external_baggage_free_on_destroy)
 		free(context->external_baggage_free_on_destroy);
 
@@ -611,10 +619,13 @@ lws_context_destroy2(struct lws_context *context)
 			return;
 		}
 
+	lwsl_debug("%p: post dc2\n", __func__);
+
 	if (!context->pt[0].event_loop_foreign) {
 		int n;
 		for (n = 0; n < context->count_threads; n++)
 			if (context->pt[n].inside_service) {
+				lwsl_debug("%p: bailing as inside service\n", __func__);
 				lws_context_unlock(context); /* } context --- */
 				return;
 			}

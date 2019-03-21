@@ -92,6 +92,9 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 			return LWS_HPI_RET_HANDLED;
 		}
 
+		if (context->being_destroyed)
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
+
 		lws_plat_set_socket_options(wsi->vhost, accept_fd, 0);
 
 #if defined(LWS_WITH_IPV6)
@@ -117,8 +120,7 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 				NULL,
 				(void *)(lws_intptr_t)accept_fd, 0)) {
 			lwsl_debug("Callback denied net connection\n");
-			compatible_close(accept_fd);
-			break;
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}
 
 		if (!(wsi->vhost->options &

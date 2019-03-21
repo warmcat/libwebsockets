@@ -563,7 +563,8 @@ elops_wsi_logical_close_uv(struct lws *wsi)
 	if (wsi->listener || wsi->event_pipe) {
 		lwsl_debug("%s: %p: %d %d stop listener / pipe poll\n",
 			   __func__, wsi, wsi->listener, wsi->event_pipe);
-		uv_poll_stop(wsi->w_read.uv.pwatcher);
+		if (wsi->w_read.uv.pwatcher)
+			uv_poll_stop(wsi->w_read.uv.pwatcher);
 	}
 	lwsl_debug("%s: lws_libuv_closehandle: wsi %p\n", __func__, wsi);
 	/*

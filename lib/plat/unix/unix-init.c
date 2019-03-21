@@ -89,7 +89,7 @@ lws_plat_context_late_destroy(struct lws_context *context)
 #endif
 #if defined(LWS_WITH_NETWORK)
 	if (context->lws_lookup)
-		lws_free(context->lws_lookup);
+		lws_free_set_NULL(context->lws_lookup);
 #endif
 	if (!context->fd_random)
 		lwsl_err("ZERO RANDOM FD\n");

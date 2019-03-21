@@ -313,7 +313,7 @@ __remove_wsi_socket_from_fds(struct lws *wsi)
 	}
 #endif
 
-	if (wsi->vhost &&
+	if (wsi->vhost && wsi->vhost->protocols &&
 	    wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_LOCK_POLL,
 					   wsi->user_space, (void *)&pa, 1))
 		return -1;
@@ -332,9 +332,9 @@ __remove_wsi_socket_from_fds(struct lws *wsi)
 				  LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE |
 				  LWS_EV_PREPARE_DELETION);
 
-	lwsl_debug("%s: wsi=%p, skt=%d, fds pos=%d, end guy pos=%d, endfd=%d\n",
-		  __func__, wsi, wsi->desc.sockfd, wsi->position_in_fds_table,
-		  pt->fds_count, pt->fds[pt->fds_count].fd);
+//	lwsl_debug("%s: wsi=%p, skt=%d, fds pos=%d, end guy pos=%d, endfd=%d\n",
+//		  __func__, wsi, wsi->desc.sockfd, wsi->position_in_fds_table,
+//		  pt->fds_count, pt->fds[pt->fds_count].fd);
 
 	if (m != LWS_NO_FDS_POS) {
 
@@ -500,7 +500,7 @@ __lws_same_vh_protocol_remove(struct lws *wsi)
 {
 	struct lws_dll *head;
 
-	if (!wsi->vhost)
+	if (!wsi->vhost || !wsi->vhost->same_vh_protocol_heads)
 		return;
 
 	head = &wsi->vhost->same_vh_protocol_heads[(int)wsi->bound_vhost_index];
