@@ -323,6 +323,8 @@ file_upload_cb(void *data, const char *name, const char *filename,
 		scan_upload_dir(pss->vhd);
 
 		break;
+	case LWS_UFS_CLOSE:
+		break;
 	}
 
 	return 0;

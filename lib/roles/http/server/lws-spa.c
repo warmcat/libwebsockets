@@ -136,7 +136,8 @@ lws_urldecode_s_process(struct lws_urldecode_stateful *s, const char *in,
 
 	while (len--) {
 		if (s->pos == s->out_len - s->mp - 1) {
-			if (s->output(s->data, s->name, &s->out, s->pos, 0))
+			if (s->output(s->data, s->name, &s->out, s->pos,
+				      LWS_UFS_CONTENT))
 				return -1;
 
 			was_end = s->pos;
@@ -158,7 +159,7 @@ lws_urldecode_s_process(struct lws_urldecode_stateful *s, const char *in,
 			if (*in == '&') {
 				s->name[s->pos] = '\0';
 				if (s->output(s->data, s->name, &s->out,
-					      s->pos, 1))
+					      s->pos, LWS_UFS_FINAL_CONTENT))
 					return -1;
 				s->pos = 0;
 				s->state = US_IDLE;
@@ -180,7 +181,7 @@ lws_urldecode_s_process(struct lws_urldecode_stateful *s, const char *in,
 			if (*in == '&') {
 				s->out[s->pos] = '\0';
 				if (s->output(s->data, s->name, &s->out,
-					      s->pos, 1))
+					      s->pos, LWS_UFS_FINAL_CONTENT))
 					return -1;
 				s->pos = 0;
 				s->state = US_NAME;
@@ -229,7 +230,8 @@ retry_as_first:
 
 					if (s->pos || was_end)
 						if (s->output(s->data, s->name,
-						      &s->out, s->pos, 1))
+						      &s->out, s->pos,
+						      LWS_UFS_FINAL_CONTENT))
 							return -1;
 
 					s->pos = 0;
@@ -409,8 +411,12 @@ lws_urldecode_s_destroy(struct lws_urldecode_stateful *s)
 		ret = -1;
 
 	if (!ret)
-		if (s->output(s->data, s->name, &s->out, s->pos, 1))
+		if (s->output(s->data, s->name, &s->out, s->pos,
+			      LWS_UFS_FINAL_CONTENT))
 			ret = -1;
+
+	if (s->output(s->data, s->name, NULL, 0, LWS_UFS_CLOSE))
+		return -1;
 
 	lws_free(s);
 
@@ -448,15 +454,14 @@ static int
 lws_urldecode_spa_cb(void *data, const char *name, char **buf, int len,
 		     int final)
 {
-	struct lws_spa *spa =
-			(struct lws_spa *)data;
+	struct lws_spa *spa = (struct lws_spa *)data;
 	int n;
 
-	if (spa->s->content_disp_filename[0]) {
+	if (final == LWS_UFS_CLOSE || spa->s->content_disp_filename[0]) {
 		if (spa->opt_cb) {
 			n = spa->opt_cb(spa->opt_data, name,
 					spa->s->content_disp_filename,
-					*buf, len, final);
+					buf ? *buf : NULL, len, final);
 
 			if (n < 0)
 				return -1;

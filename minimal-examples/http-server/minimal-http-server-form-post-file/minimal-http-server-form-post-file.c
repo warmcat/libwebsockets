@@ -88,6 +88,8 @@ file_upload_cb(void *data, const char *name, const char *filename,
 		close(pss->fd);
 		pss->fd = -1;
 		break;
+	case LWS_UFS_CLOSE:
+		break;
 	}
 
 	return 0;

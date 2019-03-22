@@ -107,6 +107,8 @@ file_upload_cb(void *data, const char *name, const char *filename,
 		pss->fd = LWS_INVALID_FILE;
 #endif
 		break;
+	case LWS_UFS_CLOSE:
+		break;
 	}
 
 	return 0;

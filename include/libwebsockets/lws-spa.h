@@ -47,8 +47,10 @@ enum lws_spa_fileupload_states {
 	/**< a chunk of file content has arrived */
 	LWS_UFS_FINAL_CONTENT,
 	/**< the last chunk (possibly zero length) of file content has arrived */
-	LWS_UFS_OPEN
+	LWS_UFS_OPEN,
 	/**< a new file is starting to arrive */
+	LWS_UFS_CLOSE
+	/**< the file decode stuff is being destroyed */
 };
 
 /**
