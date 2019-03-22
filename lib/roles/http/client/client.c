@@ -1104,6 +1104,11 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 			wsi->client_http_body_pending = 1;
 	}
 	if (wsi->parent &&
+	    lws_hdr_total_length(wsi->parent, WSI_TOKEN_HTTP_AUTHORIZATION)) {
+		p += snprintf(p, 128, "Authorization: %s\x0d\x0a",
+			lws_hdr_simple_ptr(wsi->parent, WSI_TOKEN_HTTP_AUTHORIZATION));
+	}
+	if (wsi->parent &&
 	    lws_hdr_total_length(wsi->parent, WSI_TOKEN_HTTP_CONTENT_TYPE)) {
 		p += snprintf(p, 128, "Content-Type: %s\x0d\x0a",
 			lws_hdr_simple_ptr(wsi->parent, WSI_TOKEN_HTTP_CONTENT_TYPE));
@@ -1130,6 +1135,8 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 		return NULL;
 
 	p += snprintf(p, 4, "\x0d\x0a");
+
+	// puts(pkt);
 
 	return p;
 }
