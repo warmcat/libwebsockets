@@ -508,19 +508,23 @@ lws_spa_create(struct lws *wsi, const char * const *param_names,
 		goto bail2;
 	spa->end = spa->storage + max_storage - 1;
 
-	spa->params = lws_zalloc(sizeof(char *) * count_params, "spa params");
-	if (!spa->params)
-		goto bail3;
+	if (count_params) {
+		spa->params = lws_zalloc(sizeof(char *) * count_params, "spa params");
+		if (!spa->params)
+			goto bail3;
+	}
 
 	spa->s = lws_urldecode_s_create(wsi, spa->storage, max_storage, spa,
 					lws_urldecode_spa_cb);
 	if (!spa->s)
 		goto bail4;
 
-	spa->param_length = lws_zalloc(sizeof(int) * count_params,
-					"spa param len");
-	if (!spa->param_length)
-		goto bail5;
+	if (count_params) {
+		spa->param_length = lws_zalloc(sizeof(int) * count_params,
+						"spa param len");
+		if (!spa->param_length)
+			goto bail5;
+	}
 
 	lwsl_info("%s: Created SPA %p\n", __func__, spa);
 
