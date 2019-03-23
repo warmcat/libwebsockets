@@ -1249,7 +1249,8 @@ spin_chunks:
 	{
 		struct lws *wsi_eff = lws_client_wsi_effective(wsi);
 
-		if (user_callback_handle_rxflow(wsi_eff->protocol->callback,
+		if (!wsi_eff->protocol_bind_balance &&
+		    user_callback_handle_rxflow(wsi_eff->protocol->callback,
 				wsi_eff, LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ,
 				wsi_eff->user_space, *buf, n)) {
 			lwsl_info("%s: RECEIVE_CLIENT_HTTP_READ returned -1\n",

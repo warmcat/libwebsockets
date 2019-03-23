@@ -970,7 +970,8 @@ html_parser_cb(const hubbub_token *token, void *pw)
 		break;
 	}
 
-	if (user_callback_handle_rxflow(r->wsi->protocol->callback,
+	if (r->wsi->protocol_bind_balance &&
+	    user_callback_handle_rxflow(r->wsi->protocol->callback,
 			r->wsi, LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ,
 			r->wsi->user_space, start, p - start))
 		return -1;
