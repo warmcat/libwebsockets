@@ -402,6 +402,25 @@ lws_snprintf(char *str, size_t size, const char *format, ...) LWS_FORMAT(3);
 LWS_VISIBLE LWS_EXTERN char *
 lws_strncpy(char *dest, const char *src, size_t size);
 
+/**
+ * lws_hex_to_byte_array(): convert hex string like 0123456789ab into byte data
+ *
+ * \param h: incoming NUL-terminated hex string
+ * \param dest: array to fill with binary decodes of hex pairs from h
+ * \param max: maximum number of bytes dest can hold, must be at least half
+ *		the size of strlen(h)
+ *
+ * This converts hex strings into an array of 8-bit representations, ie the
+ * input "abcd" produces two bytes of value 0xab and 0xcd.
+ *
+ * Returns number of bytes produced into \p dest, or -1 on error.
+ *
+ * Errors include non-hex chars and an odd count of hex chars in the input
+ * string.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_hex_to_byte_array(const char *h, uint8_t *dest, int max);
+
 /*
  * lws_timingsafe_bcmp(): constant time memcmp
  *

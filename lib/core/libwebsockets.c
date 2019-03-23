@@ -38,6 +38,32 @@ signed char char_to_hex(const char c)
 
 	return -1;
 }
+
+int
+lws_hex_to_byte_array(const char *h, uint8_t *dest, int max)
+{
+	uint8_t *odest = dest;
+
+	while (max-- && *h) {
+		int t = char_to_hex(*h++), t1;
+
+		if (!*h || t < 0)
+			return -1;
+
+		t1 = char_to_hex(*h++);
+		if (t1 < 0)
+			return -1;
+
+		*dest++ = (t << 4) | t1;
+	}
+
+	if (max < 0)
+		return -1;
+
+	return dest - odest;
+}
+
+
 #if !defined(LWS_PLAT_OPTEE)
 
 int lws_open(const char *__file, int __oflag, ...)
