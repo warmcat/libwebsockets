@@ -444,9 +444,8 @@ lws_timingsafe_bcmp(const void *a, const void *b, uint32_t len);
  * \param buf: buffer to fill
  * \param len: how much to fill
  *
- * This is intended to be called from the LWS_CALLBACK_RECEIVE callback if
- * it's interested to see if the frame it's dealing with was sent in binary
- * mode.
+ * Fills buf with len bytes of random.  Returns the number of bytes set, if
+ * not equal to len, then getting the random failed.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_get_random(struct lws_context *context, void *buf, int len);
