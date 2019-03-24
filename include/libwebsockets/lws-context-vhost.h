@@ -307,10 +307,10 @@ struct lws_context_creation_info {
 	/**< VHOST: If http_proxy_address was non-NULL, uses this port */
 	int gid;
 	/**< CONTEXT: group id to change to after setting listen socket,
-	 *   or -1. */
+	 *   or -1. See also .username below. */
 	int uid;
 	/**< CONTEXT: user id to change to after setting listen socket,
-	 *   or -1. */
+	 *   or -1.  See also .groupname below. */
 	unsigned int options;
 	/**< VHOST + CONTEXT: 0, or LWS_SERVER_OPTION_... bitfields */
 	void *user;
@@ -645,7 +645,10 @@ struct lws_context_creation_info {
 	 * of \p ssl_ca_filepath or \p server_ssl_ca_mem should be non-NULL. */
 	unsigned int server_ssl_ca_mem_len;
 	/**< VHOST: length of \p server_ssl_ca_mem in memory */
-
+	const char *username; /**< CONTEXT: string username for post-init
+	 * permissions.  Like .uid but takes a string username. */
+	const char *groupname; /**< CONTEXT: string groupname for post-init
+	 * permissions.  Like .gid but takes a string groupname. */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility

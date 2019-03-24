@@ -375,8 +375,8 @@ next:
 
 	context->doing_protocol_init = 0;
 
-	if (!context->protocol_init_done)
-		lws_finalize_startup(context);
+	if (!context->protocol_init_done && lws_finalize_startup(context))
+		return 1;
 
 	context->protocol_init_done = 1;
 

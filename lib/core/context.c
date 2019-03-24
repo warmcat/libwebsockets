@@ -426,6 +426,8 @@ lwsl_info("context created\n");
 
 	context->uid = info->uid;
 	context->gid = info->gid;
+	context->username = info->username;
+	context->groupname = info->groupname;
 
 #if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
 	memcpy(context->caps, info->caps, sizeof(context->caps));
@@ -438,7 +440,8 @@ lwsl_info("context created\n");
 	 * listening, we don't want the power for anything else
 	 */
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS))
-		lws_plat_drop_app_privileges(info);
+		if (lws_plat_drop_app_privileges(context))
+			goto bail;
 
 #if defined(LWS_WITH_NETWORK)
 	/* expedite post-context init (eg, protocols) */

@@ -41,8 +41,8 @@ There is a single file intended for global settings
 
 	{
 	  "global": {
-	   "uid": "48",  # apache user
-	   "gid": "48",  # apache user
+	   "username": "apache",
+	   "groupname": "apache",
 	   "count-threads": "1",
 	   "server-string": "myserver v1", # returned in http headers
 	   "ws-pingpong-secs": "200", # confirm idle established ws connections this often

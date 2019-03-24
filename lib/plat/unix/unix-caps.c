@@ -43,43 +43,113 @@ _lws_plat_apply_caps(int mode, const cap_value_t *cv, int count)
 }
 #endif
 
-void
-lws_plat_drop_app_privileges(const struct lws_context_creation_info *info)
+int
+lws_plat_drop_app_privileges(struct lws_context *context)
 {
-	if (info->gid && info->gid != -1)
-		if (setgid(info->gid))
-			lwsl_warn("setgid: %s\n", strerror(LWS_ERRNO));
+	struct passwd *p;
+	struct group *g;
 
-	if (info->uid && info->uid != -1) {
-		struct passwd *p = getpwuid(info->uid);
+	/* if he gave us the groupname, align gid to match it */
+
+	if (context->groupname) {
+		g = getgrnam(context->groupname);
+
+		if (g) {
+			lwsl_info("%s: group %s -> gid %u\n", __func__,
+				  context->groupname, g->gr_gid);
+			context->gid = g->gr_gid;
+			if (setgid(g->gr_gid))
+				lwsl_warn("setgid: %s\n", strerror(LWS_ERRNO));
+		} else {
+			lwsl_err("%s: unknown groupname '%s'\n", __func__,
+				 context->groupname);
+
+			return 1;
+		}
+	}
+
+	/* if he gave us the username, align uid to match it */
+
+	if (context->username) {
+		p = getpwnam(context->username);
 
 		if (p) {
+			context->uid = p->pw_uid;
 
-#if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
-			_lws_plat_apply_caps(CAP_PERMITTED, info->caps,
-					     info->count_caps);
-#endif
+			lwsl_info("%s: username %s -> uid %u\n", __func__,
+				  context->username, (unsigned int)p->pw_uid);
+		} else {
+			lwsl_err("%s: unknown username %s\n", __func__,
+				 context->username);
 
-			initgroups(p->pw_name, info->gid);
-			if (setuid(info->uid))
-				lwsl_warn("setuid: %s\n", strerror(LWS_ERRNO));
-			else
-				lwsl_notice("Set privs to user '%s'\n",
-					    p->pw_name);
-
-#if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
-			_lws_plat_apply_caps(CAP_EFFECTIVE, info->caps,
-					     info->count_caps);
-
-			if (info->count_caps) {
-				int n;
-				for (n = 0; n < info->count_caps; n++)
-					lwsl_notice("   RETAINING CAP %d\n",
-						    (int)info->caps[n]);
-			}
-#endif
-
-		} else
-			lwsl_warn("getpwuid: unable to find uid %d", info->uid);
+			return 1;
+		}
 	}
+
+	/* if he gave us the gid or we have it from the groupname, set it */
+
+	if (context->gid && context->gid != -1) {
+		g = getgrgid(context->gid);
+
+		if (!g) {
+			lwsl_err("%s: cannot find name for gid %d\n",
+				  __func__, context->gid);
+
+			return 1;
+		}
+
+		if (setgid(context->gid)) {
+			lwsl_err("%s: setgid: %s failed\n", __func__,
+				 strerror(LWS_ERRNO));
+
+			return 1;
+		}
+
+		lwsl_notice("%s: effective group %s\n", __func__,
+			    g->gr_name);
+	} else
+		lwsl_info("%s: not changing group\n", __func__);
+
+
+	/* if he gave us the uid or we have it from the username, set it */
+
+	if (context->uid && context->uid != -1) {
+		p = getpwuid(context->uid);
+
+		if (!p) {
+			lwsl_err("%s: getpwuid: unable to find uid %d\n",
+				 __func__, context->uid);
+			return 1;
+		}
+
+#if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
+		_lws_plat_apply_caps(CAP_PERMITTED, context->caps,
+				     context->count_caps);
+#endif
+
+		initgroups(p->pw_name, context->gid);
+		if (setuid(context->uid)) {
+			lwsl_err("%s: setuid: %s failed\n", __func__,
+				  strerror(LWS_ERRNO));
+
+			return 1;
+		} else
+			lwsl_notice("%s: effective user '%s'\n",
+				    __func__, p->pw_name);
+
+#if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
+		_lws_plat_apply_caps(CAP_EFFECTIVE, context->caps,
+				     context->count_caps);
+
+		if (context->count_caps) {
+			int n;
+			for (n = 0; n < context->count_caps; n++)
+				lwsl_notice("   RETAINING CAP %d\n",
+					    (int)context->caps[n]);
+		}
+#endif
+	} else
+		lwsl_info("%s: not changing user\n", __func__);
+
+	return 0;
 }

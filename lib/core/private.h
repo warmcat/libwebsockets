@@ -266,6 +266,8 @@ struct lws_context {
 
 	const struct lws_tls_ops *tls_ops;
 
+	const char *username, *groupname;
+
 #if defined(LWS_WITH_HTTP2)
 	struct http2_settings set;
 #endif
@@ -588,8 +590,8 @@ lws_plat_context_late_destroy(struct lws_context *context);
 LWS_EXTERN int
 lws_plat_init(struct lws_context *context,
 	      const struct lws_context_creation_info *info);
-LWS_EXTERN void
-lws_plat_drop_app_privileges(const struct lws_context_creation_info *info);
+LWS_EXTERN int
+lws_plat_drop_app_privileges(struct lws_context *context);
 
 LWS_EXTERN int
 lws_check_byte_utf8(unsigned char state, unsigned char c);

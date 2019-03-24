@@ -24,9 +24,10 @@
 #endif
 #include "core/private.h"
 
-void
-lws_plat_drop_app_privileges(const struct lws_context_creation_info *info)
+int
+lws_plat_drop_app_privileges(struct lws_context *context)
 {
+	return 0;
 }
 
 int

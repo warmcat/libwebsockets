@@ -31,6 +31,8 @@
 static const char * const paths_global[] = {
 	"global.uid",
 	"global.gid",
+	"global.username",
+	"global.groupname",
 	"global.count-threads",
 	"global.init-ssl",
 	"global.server-string",
@@ -45,6 +47,8 @@ static const char * const paths_global[] = {
 enum lejp_global_paths {
 	LEJPGP_UID,
 	LEJPGP_GID,
+	LEJPGP_USERNAME,
+	LEJPGP_GROUPNAME,
 	LEJPGP_COUNT_THREADS,
 	LWJPGP_INIT_SSL,
 	LEJPGP_SERVER_STRING,
@@ -285,6 +289,12 @@ lejp_globals_cb(struct lejp_ctx *ctx, char reason)
 	case LEJPGP_GID:
 		a->info->gid = atoi(ctx->buf);
 		return 0;
+	case LEJPGP_USERNAME:
+		a->info->username = a->p;
+		break;
+	case LEJPGP_GROUPNAME:
+		a->info->groupname = a->p;
+		break;
 	case LEJPGP_COUNT_THREADS:
 		a->info->count_threads = atoi(ctx->buf);
 		return 0;
