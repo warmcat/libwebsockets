@@ -125,6 +125,16 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_set_timeout(wsi->parent, 1, LWS_TO_KILL_ASYNC);
 		break;
 
+	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
+	{
+		unsigned char **p = (unsigned char **)in, *end = (*p) + len,
+				    tmp[128];
+
+		proxy_header(wsi, wsi->parent, tmp, sizeof(tmp),
+			      WSI_TOKEN_HTTP_ACCEPT_LANGUAGE, p, end);
+		break;
+	}
+
 	case LWS_CALLBACK_CLIENT_RECEIVE:
 		pkt = lws_malloc(sizeof(*pkt) + LWS_PRE + len, __func__);
 		if (!pkt)
