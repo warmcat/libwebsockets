@@ -593,6 +593,11 @@ lws_plat_init(struct lws_context *context,
 LWS_EXTERN int
 lws_plat_drop_app_privileges(struct lws_context *context);
 
+#if defined(LWS_WITH_UNIX_SOCK)
+int
+lws_plat_user_colon_group_to_ids(const char *u_colon_g, uid_t *puid, gid_t *pgid);
+#endif
+
 LWS_EXTERN int
 lws_check_byte_utf8(unsigned char state, unsigned char c);
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT

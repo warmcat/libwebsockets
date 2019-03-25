@@ -67,6 +67,7 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].port",
 	"vhosts[].interface",
 	"vhosts[].unix-socket",
+	"vhosts[].unix-socket-perms",
 	"vhosts[].sts",
 	"vhosts[].host-ssl-key",
 	"vhosts[].host-ssl-cert",
@@ -133,6 +134,7 @@ enum lejp_vhost_paths {
 	LEJPVP_PORT,
 	LEJPVP_INTERFACE,
 	LEJPVP_UNIXSKT,
+	LEJPVP_UNIXSKT_PERMS,
 	LEJPVP_STS,
 	LEJPVP_HOST_SSL_KEY,
 	LEJPVP_HOST_SSL_CERT,
@@ -593,6 +595,9 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		else
 			a->info->options &= ~(LWS_SERVER_OPTION_UNIX_SOCK);
 		return 0;
+	case LEJPVP_UNIXSKT_PERMS:
+		a->info->unix_socket_perms = a->p;
+		break;
 	case LEJPVP_STS:
 		if (arg_to_bool(ctx->buf))
 			a->info->options |= LWS_SERVER_OPTION_STS;

@@ -326,11 +326,38 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 	}
 
 #if defined(LWS_WITH_UNIX_SOCK)
-	if (LWS_UNIX_SOCK_ENABLED(vhost) && vhost->context->uid)
-		if (chown(serv_unix.sun_path, vhost->context->uid,
-			  vhost->context->gid))
-			lwsl_notice("%s: chown for unix skt %s failed\n",
-				    __func__, serv_unix.sun_path);
+	if (LWS_UNIX_SOCK_ENABLED(vhost)) {
+		uid_t uid = vhost->context->uid;
+		gid_t gid = vhost->context->gid;
+
+		if (vhost->unix_socket_perms) {
+			if (lws_plat_user_colon_group_to_ids(
+				vhost->unix_socket_perms, &uid, &gid)) {
+				lwsl_err("%s: Failed to translate %s\n",
+					  __func__, vhost->unix_socket_perms);
+				return LWS_ITOSA_NOT_EXIST;
+			}
+		}
+		if (uid && gid) {
+			if (chown(serv_unix.sun_path, uid, gid)) {
+				lwsl_err("%s: failed to set %s perms %u:%u\n",
+					 __func__, serv_unix.sun_path,
+					 (unsigned int)uid, (unsigned int)gid);
+
+				return LWS_ITOSA_NOT_EXIST;
+			}
+			lwsl_notice("%s: vh %s unix skt %s perms %u:%u\n",
+				    __func__, vhost->name, serv_unix.sun_path,
+				    (unsigned int)uid, (unsigned int)gid);
+
+			if (chmod(serv_unix.sun_path, 0660)) {
+				lwsl_err("%s: failed to set %s to 0600 mode\n",
+					 __func__, serv_unix.sun_path);
+
+				return LWS_ITOSA_NOT_EXIST;
+			}
+		}
+	}
 #endif
 
 #ifndef LWS_PLAT_OPTEE

@@ -44,6 +44,45 @@ _lws_plat_apply_caps(int mode, const cap_value_t *cv, int count)
 #endif
 
 int
+lws_plat_user_colon_group_to_ids(const char *u_colon_g, uid_t *puid, gid_t *pgid)
+{
+	char *colon = strchr(u_colon_g, ':'), u[33];
+	struct passwd *p;
+	struct group *g;
+	int ulen;
+
+	if (!colon)
+		return 1;
+
+	ulen = lws_ptr_diff(colon, u_colon_g);
+	if (ulen < 2 || ulen > (int)sizeof(u) - 1)
+		return 1;
+
+	memcpy(u, u_colon_g, ulen);
+	u[ulen] = '\0';
+
+	colon++;
+
+	g = getgrnam(colon);
+	if (!g) {
+		lwsl_err("%s: unknown group '%s'\n", __func__, colon);
+
+		return 1;
+	}
+	*pgid = g->gr_gid;
+
+	p = getpwnam(u);
+	if (!p) {
+		lwsl_err("%s: unknown group '%s'\n", __func__, u);
+
+		return 1;
+	}
+	*puid = p->pw_uid;
+
+	return 0;
+}
+
+int
 lws_plat_drop_app_privileges(struct lws_context *context)
 {
 	struct passwd *p;
@@ -105,7 +144,7 @@ lws_plat_drop_app_privileges(struct lws_context *context)
 			return 1;
 		}
 
-		lwsl_notice("%s: effective group %s\n", __func__,
+		lwsl_notice("%s: effective group '%s'\n", __func__,
 			    g->gr_name);
 	} else
 		lwsl_info("%s: not changing group\n", __func__);

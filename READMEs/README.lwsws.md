@@ -227,6 +227,8 @@ See also "apply-listen-accept" below.
 
  - "`unix-socket`": "1" causes the unix socket specified in the interface option to be used instead of an INET socket
 
+ - "`unix-socket-perms`": "user:group" allows you to control the unix permissons on the listening unix socket.  It's always get to `0600` mode, but you can control the user and group for the socket fd at creation time.  This allows you to use unix user and groups to control who may open the other end of the unix socket on the local system.
+
  - "`sts`": "1" causes lwsws to send a Strict Transport Security header with responses that informs the client he should never accept to connect to this address using http.  This is needed to get the A+ security rating from SSL Labs for your server.
 
  - "`access-log`": "filepath"   sets where apache-compatible access logs will be written

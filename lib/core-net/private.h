@@ -394,6 +394,7 @@ struct lws_vhost {
 	const char *iface;
 	const char *listen_accept_role;
 	const char *listen_accept_protocol;
+	const char *unix_socket_perms;
 
 	void (*finalize)(struct lws_vhost *vh, void *arg);
 	void *finalize_arg;
