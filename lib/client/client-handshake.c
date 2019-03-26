@@ -424,6 +424,7 @@ oom4:
 		goto failed1;
 	lws_remove_from_timeout_list(wsi);
 	lws_header_table_detach(wsi, 0);
+    lws_client_stash_destroy(wsi);
 	lws_free(wsi);
 
 	return NULL;
@@ -683,6 +684,15 @@ html_parser_cb(const hubbub_token *token, void *pw)
 }
 #endif
 
+void
+lws_client_stash_destroy(struct lws *wsi)
+{
+	if (!wsi || !wsi->u.hdr.stash)
+		return;
+
+	lws_free_set_NULL(wsi->u.hdr.stash);
+}
+
 LWS_VISIBLE struct lws *
 lws_client_connect_via_info(struct lws_client_connect_info *i)
 {
@@ -763,7 +773,7 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 	wsi->u.hdr.stash = lws_malloc(sizeof(*wsi->u.hdr.stash), "client stash");
 	if (!wsi->u.hdr.stash) {
 		lwsl_err("%s: OOM\n", __func__);
-		goto bail;
+		goto bail1;
 	}
 
 	wsi->u.hdr.stash->origin[0] = '\0';
@@ -777,6 +787,7 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 		sizeof(wsi->u.hdr.stash->path) - 1);
 	strncpy(wsi->u.hdr.stash->host, i->host,
 		sizeof(wsi->u.hdr.stash->host) - 1);
+
 	if (i->origin)
 		strncpy(wsi->u.hdr.stash->origin, i->origin,
 			sizeof(wsi->u.hdr.stash->origin) - 1);
@@ -810,7 +821,7 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 		 * if we failed here, the connection is already closed
 		 * and freed.
 		 */
-		goto bail1;
+		goto bail2;
 	}
 
 	if (i->parent_wsi) {
@@ -829,10 +840,13 @@ lws_client_connect_via_info(struct lws_client_connect_info *i)
 
 	return wsi;
 
+bail1:
+	lws_client_stash_destroy(wsi);
+
 bail:
 	lws_free(wsi);
 
-bail1:
+bail2:
 	if (i->pwsi)
 		*i->pwsi = NULL;
 
@@ -886,7 +900,7 @@ lws_client_connect_via_info2(struct lws *wsi)
 
 #if defined(LWS_WITH_SOCKS5)
 	if (!wsi->vhost->socks_proxy_port)
-		lws_free_set_NULL(wsi->u.hdr.stash);
+		lws_client_stash_destroy(wsi);
 #endif
 
 	/*

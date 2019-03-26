@@ -2113,6 +2113,9 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd);
 LWS_EXTERN struct lws *
 lws_client_connect_via_info2(struct lws *wsi);
 
+LWS_EXTERN void
+lws_client_stash_destroy(struct lws *wsi);
+
 LWS_EXTERN int
 _lws_destroy_ah(struct lws_context_per_thread *pt, struct allocated_headers *ah);
 
