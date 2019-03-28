@@ -132,6 +132,17 @@ lwsac_use(struct lwsac **head, size_t ensure, size_t chunk_size)
 }
 
 void *
+lwsac_use_zero(struct lwsac **head, size_t ensure, size_t chunk_size)
+{
+	void *p = lwsac_use(head, ensure, chunk_size);
+
+	if (p)
+		memset(p, 0, ensure);
+
+	return p;
+}
+
+void *
 lwsac_use_zeroed(struct lwsac **head, size_t ensure, size_t chunk_size)
 {
 	void *r = lwsac_use(head, ensure, chunk_size);
