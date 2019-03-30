@@ -101,6 +101,8 @@ option(LWS_WITHOUT_DAEMONIZE "Don't build the daemonization api" ON)
 option(LWS_SSL_SERVER_WITH_ECDH_CERT "Include SSL server use ECDH certificate" OFF)
 option(LWS_WITH_LEJP "With the Lightweight JSON Parser" ON)
 option(LWS_WITH_SQLITE3 "Require SQLITE3 support" OFF)
+option(LWS_WITH_STRUCT_JSON "Generic struct serialization to and from JSON" ON)
+option(LWS_WITH_STRUCT_SQLITE3 "Generic struct serialization to and from SQLITE3" OFF)
 option(LWS_WITH_SMTP "Provide SMTP support" OFF)
 if (WIN32 OR LWS_WITH_ESP32)
 option(LWS_WITH_DIR "Directory scanning api support" OFF)
@@ -187,6 +189,10 @@ if (NOT LWS_WITH_NETWORK)
 	set(LWS_WITH_HTTP_STREAM_COMPRESSION 0)
 	set(LWS_WITH_HTTP_BROTLI 0)
 	set(LWS_WITH_POLL 0)
+endif()
+
+if (LWS_WITH_STRUCT_SQLITE3)
+	set(LWS_WITH_SQLITE3 1)
 endif()
 
 # do you care about this?  Then send me a patch where it disables it on travis
@@ -898,7 +904,10 @@ set(HDR_PUBLIC
 
 set(SOURCES
 	lib/core/alloc.c
+	lib/core/buflist.c
 	lib/core/context.c
+	lib/core/lws_dll.c
+	lib/core/lws_dll2.c
 	lib/core/libwebsockets.c
 	lib/core/logs.c
 	lib/misc/base64-decode.c
@@ -1018,6 +1027,16 @@ endif()
 if (LWS_WITH_DISKCACHE)
 	list(APPEND SOURCES
 		lib/misc/diskcache.c)
+endif()
+
+if (LWS_WITH_STRUCT_JSON)
+	list(APPEND SOURCES
+		lib/misc/lws-struct-lejp.c)
+endif()
+
+if (LWS_WITH_STRUCT_SQLITE3)
+	list(APPEND SOURCES
+		lib/misc/lws-struct-sqlite.c)
 endif()
 
 if (NOT LWS_WITHOUT_CLIENT)

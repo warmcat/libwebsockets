@@ -241,18 +241,19 @@ lws_dll_foreach_safe(struct lws_dll *phead, void *user,
 struct lws_dll2;
 struct lws_dll2_owner;
 
-struct lws_dll2 {
+typedef struct lws_dll2 {
 	struct lws_dll2		*prev;
 	struct lws_dll2		*next;
 	struct lws_dll2_owner	*owner;
-};
+} lws_dll2_t;
 
-struct lws_dll2_owner {
+typedef struct lws_dll2_owner {
 	struct lws_dll2		*tail;
 	struct lws_dll2		*head;
 
 	uint32_t		count;
-};
+} lws_dll2_owner_t;
+
 static LWS_INLINE int
 lws_dll2_is_detached(const struct lws_dll2 *d) { return !d->owner; }
 
@@ -277,6 +278,12 @@ lws_dll2_remove(struct lws_dll2 *d);
 LWS_VISIBLE LWS_EXTERN int
 lws_dll2_foreach_safe(struct lws_dll2_owner *owner, void *user,
 		      int (*cb)(struct lws_dll2 *d, void *user));
+
+LWS_VISIBLE LWS_EXTERN void
+lws_dll2_clear(struct lws_dll2 *d);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_dll2_owner_clear(struct lws_dll2_owner *d);
 
 /*
  * these are safe against the current container object getting deleted,
@@ -332,6 +339,7 @@ lws_buflist_append_segment(struct lws_buflist **head, const uint8_t *buf,
  */
 LWS_VISIBLE LWS_EXTERN size_t
 lws_buflist_next_segment_len(struct lws_buflist **head, uint8_t **buf);
+
 /**
  * lws_buflist_use_segment(): remove len bytes from the current segment
  *
@@ -349,6 +357,7 @@ lws_buflist_next_segment_len(struct lws_buflist **head, uint8_t **buf);
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_buflist_use_segment(struct lws_buflist **head, size_t len);
+
 /**
  * lws_buflist_destroy_all_segments(): free all segments on the list
  *
