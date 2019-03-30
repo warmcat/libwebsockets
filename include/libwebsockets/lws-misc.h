@@ -332,6 +332,7 @@ lws_buflist_append_segment(struct lws_buflist **head, const uint8_t *buf,
  */
 LWS_VISIBLE LWS_EXTERN size_t
 lws_buflist_next_segment_len(struct lws_buflist **head, uint8_t **buf);
+
 /**
  * lws_buflist_use_segment(): remove len bytes from the current segment
  *
@@ -349,6 +350,7 @@ lws_buflist_next_segment_len(struct lws_buflist **head, uint8_t **buf);
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_buflist_use_segment(struct lws_buflist **head, size_t len);
+
 /**
  * lws_buflist_destroy_all_segments(): free all segments on the list
  *

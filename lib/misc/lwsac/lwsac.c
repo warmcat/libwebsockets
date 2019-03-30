@@ -158,6 +158,7 @@ lwsac_free(struct lwsac **head)
 {
 	struct lwsac *it = *head;
 
+	*head = NULL;
 	lwsl_debug("%s: head %p\n", __func__, *head);
 
 	while (it) {
@@ -166,14 +167,15 @@ lwsac_free(struct lwsac **head)
 		free(it);
 		it = tmp;
 	}
-
-	*head = NULL;
 }
 
 void
 lwsac_info(struct lwsac *head)
 {
-	lwsl_debug("%s: lac %p: %dKiB in %d blocks\n", __func__, head,
+	if (!head)
+		lwsl_debug("%s: empty\n", __func__);
+	else
+		lwsl_debug("%s: lac %p: %dKiB in %d blocks\n", __func__, head,
 		   (int)(head->total_alloc_size >> 10), head->total_blocks);
 }
 

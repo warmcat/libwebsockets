@@ -176,7 +176,8 @@ lws_jws_jose_cb(struct lejp_ctx *ctx, char reason)
 		lejp_check_path_match(&args->jwk_jctx);
 
 		if (args->jwk_jctx.path_match)
-			args->jwk_jctx.callback(&args->jwk_jctx, reason);
+			args->jwk_jctx.pst[args->jwk_jctx.pst_sp].
+				callback(&args->jwk_jctx, reason);
 	}
 
 	// lwsl_notice("%s: %s %d (%d)\n", __func__, ctx->path, reason, ctx->sp);
