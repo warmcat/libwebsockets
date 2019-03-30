@@ -173,6 +173,9 @@ LWS_EXTERN signed char _lejp_callback(struct lejp_ctx *ctx, char reason);
 
 typedef signed char (*lejp_callback)(struct lejp_ctx *ctx, char reason);
 
+#ifndef LEJP_MAX_PARSING_STACK_DEPTH
+#define LEJP_MAX_PARSING_STACK_DEPTH 5
+#endif
 #ifndef LEJP_MAX_DEPTH
 #define LEJP_MAX_DEPTH 12
 #endif
@@ -201,24 +204,35 @@ struct _lejp_stack {
 	char b; /* user bitfield */
 };
 
+struct _lejp_parsing_stack {
+	void *user;	/* private to the stack level */
+	signed char (*callback)(struct lejp_ctx *ctx, char reason);
+	const char * const *paths;
+	uint8_t count_paths;
+	uint8_t ppos;
+	uint8_t path_match;
+};
+
 struct lejp_ctx {
 
 	/* sorted by type for most compact alignment
 	 *
 	 * pointers
 	 */
-
-	signed char (*callback)(struct lejp_ctx *ctx, char reason);
 	void *user;
-	const char * const *paths;
 
 	/* arrays */
 
+	struct _lejp_parsing_stack pst[LEJP_MAX_PARSING_STACK_DEPTH];
 	struct _lejp_stack st[LEJP_MAX_DEPTH];
 	uint16_t i[LEJP_MAX_INDEX_DEPTH]; /* index array */
 	uint16_t wild[LEJP_MAX_INDEX_DEPTH]; /* index array */
 	char path[LEJP_MAX_PATH];
 	char buf[LEJP_STRING_CHUNK + 1];
+
+	/* size_t */
+
+	size_t path_stride; /* 0 means default ptr size, else stride */
 
 	/* int */
 
@@ -235,11 +249,11 @@ struct lejp_ctx {
 	uint8_t f;
 	uint8_t sp; /* stack head */
 	uint8_t ipos; /* index stack depth */
-	uint8_t ppos;
 	uint8_t count_paths;
 	uint8_t path_match;
 	uint8_t path_match_len;
 	uint8_t wildcount;
+	uint8_t pst_sp; /* parsing stack head */
 };
 
 LWS_VISIBLE LWS_EXTERN void
@@ -256,6 +270,21 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len);
 LWS_VISIBLE LWS_EXTERN void
 lejp_change_callback(struct lejp_ctx *ctx,
 		     signed char (*callback)(struct lejp_ctx *ctx, char reason));
+
+/*
+ * push the current paths / paths_count and lejp_cb to a stack in the ctx, and
+ * start using the new ones
+ */
+LWS_VISIBLE LWS_EXTERN int
+lejp_parser_push(struct lejp_ctx *ctx, void *user, const char * const *paths,
+		 unsigned char paths_count, lejp_callback lejp_cb);
+
+/*
+ * pop the previously used paths / paths_count and lejp_cb, and continue
+ * parsing using those as before
+ */
+LWS_VISIBLE LWS_EXTERN int
+lejp_parser_pop(struct lejp_ctx *ctx);
 
 /* exported for use when reevaluating a path for use with a subcontext */
 LWS_VISIBLE LWS_EXTERN void
