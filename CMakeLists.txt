@@ -723,7 +723,7 @@ endif()
 
 CHECK_C_SOURCE_COMPILES(
 	"#include <strings.h>
-	int main(int argc, char **argv) { char buf[1]; bzero(buf, 1); return 0; }
+	int main(int argc, char **argv) { char buf[100]; bzero(buf, 100); return 0; }
 	" LWS_HAVE_BZERO)
 CHECK_C_SOURCE_COMPILES(
 	"#include <malloc.h>
