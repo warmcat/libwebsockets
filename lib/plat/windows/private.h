@@ -25,7 +25,7 @@
   #define WIN32_LEAN_AND_MEAN
  #endif
 
- #if (WINVER < 0x0501)
+ #if defined(WINVER) && (WINVER < 0x0501)
   #undef WINVER
   #undef _WIN32_WINNT
   #define WINVER 0x0501
