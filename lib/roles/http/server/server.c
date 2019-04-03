@@ -828,6 +828,9 @@ lws_unauthorised_basic_auth(struct lws *wsi)
 			(unsigned char *)buf, n, &p, end))
 		return -1;
 
+	if (lws_add_http_header_content_length(wsi, 0, &p, end))
+		return -1;
+
 	if (lws_finalize_http_header(wsi, &p, end))
 		return -1;
 
