@@ -257,6 +257,9 @@ lws_struct_sq3_open(struct lws_context *context, const char *sqlite3_path,
 		chown(sqlite3_path, uid, gid);
 	chmod(sqlite3_path, 0600);
 
+	lwsl_notice("%s: created %s owned by %u:%u mode 0600\n", __func__,
+			sqlite3_path, (unsigned int)uid, (unsigned int)gid);
+
 	sqlite3_extended_result_codes(*pdb, 1);
 
 	return 0;

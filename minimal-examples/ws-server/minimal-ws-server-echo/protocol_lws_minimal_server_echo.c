@@ -93,7 +93,8 @@ callback_minimal_server_echo(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_ESTABLISHED:
-		lwsl_user("LWS_CALLBACK_ESTABLISHED\n");
+		/* generate a block of output before travis times us out */
+		lwsl_warn("LWS_CALLBACK_ESTABLISHED\n");
 		pss->ring = lws_ring_create(sizeof(struct msg), RING_DEPTH,
 					    __minimal_destroy_message);
 		if (!pss->ring)

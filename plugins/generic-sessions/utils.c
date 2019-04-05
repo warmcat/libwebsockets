@@ -23,13 +23,13 @@
 #include <stdlib.h>
 
 void
-sha1_to_lwsgw_hash(unsigned char *hash, lwsgw_hash *shash)
+sha256_to_lwsgw_hash(unsigned char *hash, lwsgw_hash *shash)
 {
 	static const char *hex = "0123456789abcdef";
 	char *p = shash->id;
 	int n;
 
-	for (n = 0; n < 20; n++) {
+	for (n = 0; n < (int)lws_genhash_size(LWS_GENHASH_TYPE_SHA256); n++) {
 		*p++ = hex[(hash[n] >> 4) & 0xf];
 		*p++ = hex[hash[n] & 15];
 	}
@@ -48,7 +48,7 @@ lwsgw_check_admin(struct per_vhost_data__gs *vhd,
 		return 0;
 
 	lws_SHA1((unsigned char *)password, strlen(password), hash_bin.bin);
-	sha1_to_lwsgw_hash(hash_bin.bin, &pw_hash);
+	sha256_to_lwsgw_hash(hash_bin.bin, &pw_hash);
 
 	return !strcmp(vhd->admin_password_sha256.id, pw_hash.id);
 }
@@ -106,7 +106,7 @@ lwsgw_update_session(struct per_vhost_data__gs *vhd,
 		     lwsgw_hash *hash, const char *user)
 {
 	time_t n = lws_now_secs();
-	char s[200], esc[50], esc1[50];
+	char s[200], esc[96], esc1[96];
 
 	if (user[0])
 		n += vhd->timeout_absolute_secs;
@@ -124,6 +124,8 @@ lwsgw_update_session(struct per_vhost_data__gs *vhd,
 			 sqlite3_errmsg(vhd->pdb));
 		return 1;
 	}
+
+	puts(s);
 
 	return 0;
 }
@@ -183,7 +185,7 @@ lwsgs_get_sid_from_wsi(struct lws *wsi, lwsgw_hash *sid)
 	}
 	/* extract the sid from the cookie */
 	if (lwsgw_session_from_cookie(cookie, sid)) {
-		lwsl_info("session from cookie failed\n");
+		lwsl_info("%s: session from cookie failed\n", __func__);
 		return 1;
 	}
 
@@ -218,7 +220,7 @@ lwsgs_lookup_session(struct per_vhost_data__gs *vhd,
 		     const lwsgw_hash *sid, char *username, int len)
 {
 	struct lla lla = { username, len, 1 };
-	char s[150], esc[50];
+	char s[150], esc[96];
 
 	lwsgw_expire_old_sessions(vhd);
 
@@ -291,7 +293,7 @@ int
 lwsgs_lookup_user(struct per_vhost_data__gs *vhd,
 		  const char *username, struct lwsgs_user *u)
 {
-	char s[150], esc[50];
+	char s[150], esc[96];
 
 	u->username[0] = '\0';
 	lws_snprintf(s, sizeof(s) - 1,
@@ -314,17 +316,19 @@ int
 lwsgs_new_session_id(struct per_vhost_data__gs *vhd,
 		     lwsgw_hash *sid, const char *username, int exp)
 {
-	unsigned char sid_rand[20];
+	unsigned char sid_rand[32];
 	const char *u;
-	char s[300], esc[50], esc1[50];
+	char s[300], esc[96], esc1[96];
 
 	if (username)
 		u = username;
 	else
 		u = "";
 
-	if (!sid)
+	if (!sid) {
+		lwsl_err("%s: NULL sid\n", __func__);
 		return 1;
+	}
 
 	memset(sid, 0, sizeof(*sid));
 
@@ -332,7 +336,7 @@ lwsgs_new_session_id(struct per_vhost_data__gs *vhd,
 			   sizeof(sid_rand))
 		return 1;
 
-	sha1_to_lwsgw_hash(sid_rand, sid);
+	sha256_to_lwsgw_hash(sid_rand, sid);
 
 	lws_snprintf(s, sizeof(s) - 1,
 		 "insert into sessions(name, username, expire) "
@@ -347,27 +351,28 @@ lwsgs_new_session_id(struct per_vhost_data__gs *vhd,
 		return 1;
 	}
 
+	lwsl_notice("%s: created session %s\n", __func__, sid->id);
+
 	return 0;
 }
 
 int
-lwsgs_get_auth_level(struct per_vhost_data__gs *vhd,
-		     const char *username)
+lwsgs_get_auth_level(struct per_vhost_data__gs *vhd, const char *username)
 {
 	struct lwsgs_user u;
 	int n = 0;
 
 	/* we are logged in as some kind of user */
 	if (username[0]) {
-		n |= LWSGS_AUTH_LOGGED_IN;
 		/* we are logged in as admin */
 		if (!strcmp(username, vhd->admin_user))
-			n |= LWSGS_AUTH_VERIFIED | LWSGS_AUTH_ADMIN; /* automatically verified */
+			/* automatically verified */
+			n |= LWSGS_AUTH_VERIFIED | LWSGS_AUTH_ADMIN;
 	}
 
 	if (!lwsgs_lookup_user(vhd, username, &u)) {
 		if ((u.verified & 0xff) == LWSGS_VERIFIED_ACCEPTED)
-			n |= LWSGS_AUTH_VERIFIED;
+			n |= LWSGS_AUTH_LOGGED_IN | LWSGS_AUTH_VERIFIED;
 
 		if (u.last_forgot_validated > (time_t)lws_now_secs() - 300)
 			n |= LWSGS_AUTH_FORGOT_FLOW;
@@ -380,24 +385,31 @@ int
 lwsgs_check_credentials(struct per_vhost_data__gs *vhd,
 			const char *username, const char *password)
 {
-	unsigned char buffer[300];
+	struct lws_genhash_ctx hash_ctx;
 	lwsgw_hash_bin hash_bin;
 	struct lwsgs_user u;
 	lwsgw_hash hash;
-	int n;
 
 	if (lwsgs_lookup_user(vhd, username, &u))
 		return -1;
 
 	lwsl_info("user %s found, salt '%s'\n", username, u.pwsalt.id);
 
-	/* [password in ascii][salt] */
-	n = lws_snprintf((char *)buffer, sizeof(buffer) - 1,
-		     "%s-%s-%s", password, vhd->confounder, u.pwsalt.id);
+	/* sha256sum of password + salt */
 
-	/* sha1sum of password + salt */
-	lws_SHA1(buffer, n, hash_bin.bin);
-	sha1_to_lwsgw_hash(&hash_bin.bin[0], &hash);
+	if (lws_genhash_init(&hash_ctx, LWS_GENHASH_TYPE_SHA256) ||
+	    lws_genhash_update(&hash_ctx, password, strlen(password)) ||
+	    lws_genhash_update(&hash_ctx, "-", 1) ||
+	    lws_genhash_update(&hash_ctx, vhd->confounder, strlen(vhd->confounder)) ||
+	    lws_genhash_update(&hash_ctx, "-", 1) ||
+	    lws_genhash_update(&hash_ctx, u.pwsalt.id, strlen(u.pwsalt.id)) ||
+	    lws_genhash_destroy(&hash_ctx, hash_bin.bin)) {
+		lws_genhash_destroy(&hash_ctx, NULL);
+
+		return 1;
+	}
+
+	sha256_to_lwsgw_hash(&hash_bin.bin[0], &hash);
 
 	return !!strcmp(hash.id, u.pwhash.id);
 }
@@ -408,11 +420,9 @@ int
 lwsgs_hash_password(struct per_vhost_data__gs *vhd,
 		    const char *password, struct lwsgs_user *u)
 {
+	unsigned char sid_rand[32];
+	struct lws_genhash_ctx hash_ctx;
 	lwsgw_hash_bin hash_bin;
-	lwsgw_hash hash;
-	unsigned char sid_rand[20];
-	unsigned char buffer[150];
-	int n;
 
 	/* create a random salt as big as the hash */
 
@@ -422,23 +432,31 @@ lwsgs_hash_password(struct per_vhost_data__gs *vhd,
 		lwsl_err("Problem getting random for salt\n");
 		return 1;
 	}
-	sha1_to_lwsgw_hash(sid_rand, &u->pwsalt);
-
+	sha256_to_lwsgw_hash(sid_rand, &u->pwsalt);
+/*
 	if (lws_get_random(vhd->context, sid_rand,
 			   sizeof(sid_rand)) !=
 			   sizeof(sid_rand)) {
 		lwsl_err("Problem getting random for token\n");
 		return 1;
 	}
-	sha1_to_lwsgw_hash(sid_rand, &hash);
+	sha256_to_lwsgw_hash(sid_rand, &hash);
+*/
+	/* sha256sum of password + salt */
 
-	/* [password in ascii][salt] */
-	n = lws_snprintf((char *)buffer, sizeof(buffer) - 1,
-		    "%s-%s-%s", password, vhd->confounder, u->pwsalt.id);
+	if (lws_genhash_init(&hash_ctx, LWS_GENHASH_TYPE_SHA256) ||
+	    lws_genhash_update(&hash_ctx, password, strlen(password)) ||
+	    lws_genhash_update(&hash_ctx, "-", 1) ||
+	    lws_genhash_update(&hash_ctx, vhd->confounder, strlen(vhd->confounder)) ||
+	    lws_genhash_update(&hash_ctx, "-", 1) ||
+	    lws_genhash_update(&hash_ctx, u->pwsalt.id, strlen(u->pwsalt.id)) ||
+	    lws_genhash_destroy(&hash_ctx, hash_bin.bin)) {
+		lws_genhash_destroy(&hash_ctx, NULL);
 
-	/* sha1sum of password + salt */
-	lws_SHA1(buffer, n, hash_bin.bin);
-	sha1_to_lwsgw_hash(&hash_bin.bin[0], &u->pwhash);
+		return 1;
+	}
+
+	sha256_to_lwsgw_hash(&hash_bin.bin[0], &u->pwhash);
 
 	return 0;
 }

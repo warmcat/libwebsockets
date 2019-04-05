@@ -116,7 +116,12 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	 * we may want ws, but first we have to go through h1 to get that
 	 */
 
-	lws_role_call_client_bind(wsi, i);
+	if (lws_role_call_client_bind(wsi, i) < 0) {
+		lwsl_err("%s: unable to bind to role\n", __func__);
+
+		goto bail;
+	}
+	lwsl_info("%s: role binding to %s\n", __func__, wsi->role_ops->name);
 
 	/*
 	 * PHASE 4: fill up the wsi with stuff from the connect_info as far as
@@ -263,6 +268,15 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	if (i->pwsi)
 		*i->pwsi = wsi;
 
+	/* PHASE 8: notify protocol with role-specific connected callback */
+
+	lwsl_debug("%s: wsi %p: cb %d to %s %s\n", __func__,
+			wsi, wsi->role_ops->adoption_cb[0],
+			wsi->role_ops->name, wsi->protocol->name);
+
+	wsi->protocol->callback(wsi,
+			wsi->role_ops->adoption_cb[0],
+			wsi->user_space, NULL, 0);
 
 #if defined(LWS_WITH_HUBBUB)
 	if (i->uri_replace_to)

@@ -89,6 +89,16 @@ lws_create_context(const struct lws_context_creation_info *info)
 		lwsl_err("No memory for websocket context\n");
 		return NULL;
 	}
+
+	context->uid = info->uid;
+	context->gid = info->gid;
+	context->username = info->username;
+	context->groupname = info->groupname;
+
+	/* if he gave us names, set the uid / gid */
+	if (lws_plat_drop_app_privileges(context, 0))
+		goto bail;
+
 lwsl_info("context created\n");
 #if defined(LWS_WITH_TLS) && defined(LWS_WITH_NETWORK)
 #if defined(LWS_WITH_MBEDTLS)
@@ -423,15 +433,6 @@ lwsl_info("context created\n");
 #if defined(LWS_WITH_NETWORK)
 	lws_server_get_canonical_hostname(context, info);
 #endif
-
-	context->uid = info->uid;
-	context->gid = info->gid;
-	context->username = info->username;
-	context->groupname = info->groupname;
-
-	/* if he gave us names, set the uid / gid */
-	if (lws_plat_drop_app_privileges(context, 0))
-		goto bail;
 
 #if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
 	memcpy(context->caps, info->caps, sizeof(context->caps));

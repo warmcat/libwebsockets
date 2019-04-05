@@ -672,6 +672,7 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 		lwsl_debug("sending no mimetype for %s\n", path);
 
 	wsi->sending_chunked = 0;
+	wsi->interpreting = 0;
 
 	/*
 	 * check if this is in the list of file suffixes to be interpreted by
@@ -684,18 +685,33 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 			wsi->interpreting = 1;
 			if (!wsi->http2_substream)
 				wsi->sending_chunked = 1;
+
 			wsi->protocol_interpret_idx =
-					(char)(lws_intptr_t)pvo->value;
-			lwsl_info("want %s interpreted by %s\n", path,
+				lws_vhost_name_to_protocol(wsi->vhost,
+							   pvo->value) -
+				&lws_get_vhost(wsi)->protocols[0];
+
+			lwsl_debug("want %s interpreted by %s (pcol is %s)\n", path,
 				    wsi->vhost->protocols[
-				         (int)(lws_intptr_t)(pvo->value)].name);
-			wsi->protocol = &wsi->vhost->protocols[
-			                       (int)(lws_intptr_t)(pvo->value)];
+				             (int)wsi->protocol_interpret_idx].name,
+				             wsi->protocol->name);
+			if (lws_bind_protocol(wsi, &wsi->vhost->protocols[
+			          (int)wsi->protocol_interpret_idx], __func__))
+				return -1;
+
 			if (lws_ensure_user_space(wsi))
 				return -1;
 			break;
 		}
 		pvo = pvo->next;
+	}
+
+	if (wsi->sending_chunked) {
+		if (lws_add_http_header_by_token(wsi,
+				WSI_TOKEN_HTTP_TRANSFER_ENCODING,
+				(unsigned char *)"chunked", 7,
+				&p, end))
+			return -1;
 	}
 
 	if (m->protocol) {
@@ -1091,11 +1107,29 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 	}
 
 	i.path = rpath;
+
+	/* incoming may be h1 or h2... if he sends h1 HOST, use that
+	 * directly, otherwise we must convert h2 :authority to h1
+	 * host */
+
+	i.host = NULL;
+	n = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_AUTHORITY);
+	if (n > 0)
+		i.host = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_AUTHORITY);
+	else {
+		n = lws_hdr_total_length(wsi, WSI_TOKEN_HOST);
+		if (n > 0) {
+			i.host = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST);
+		}
+	}
+
+#if 0
 	if (i.address[0] != '+' ||
 	    !lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST))
 		i.host = i.address;
 	else
 		i.host = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST);
+#endif
 	i.origin = NULL;
 	if (!ws) {
 		if (lws_hdr_simple_ptr(wsi, WSI_TOKEN_POST_URI)
@@ -1111,7 +1145,12 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 			i.method = "GET";
 	}
 
-	lws_snprintf(host, sizeof(host), "%s:%d", i.address, i.port);
+	if (i.host)
+		lws_snprintf(host, sizeof(host), "%s:%u", i.host,
+					wsi->vhost->listen_port);
+	else
+		lws_snprintf(host, sizeof(host), "%s:%d", i.address, i.port);
+
 	i.host = host;
 
 	i.alpn = "http/1.1";
@@ -1423,7 +1462,7 @@ lws_http_action(struct lws *wsi)
 	if (hit->origin_protocol == LWSMPRO_HTTPS ||
 	    hit->origin_protocol == LWSMPRO_HTTP) {
 		n = lws_http_proxy_start(wsi, hit, uri_ptr, 0);
-		lwsl_notice("proxy start says %d\n", n);
+		// lwsl_notice("proxy start says %d\n", n);
 		if (n)
 			return n;
 
@@ -1453,6 +1492,9 @@ lws_http_action(struct lws *wsi)
 
 		if (lws_bind_protocol(wsi, pp, "http action CALLBACK bind"))
 			return 1;
+
+		lwsl_notice("%s: %s, checking access rights for mask 0x%x\n",
+				__func__, hit->origin, hit->auth_mask);
 
 		args.p = uri_ptr;
 		args.len = uri_len;
@@ -1569,7 +1611,7 @@ deal_body:
 	 */
 	if (lwsi_state(wsi) != LRS_ISSUING_FILE) {
 		/* Prepare to read body if we have a content length: */
-		lwsl_notice("wsi->http.rx_content_length %lld %d %d\n",
+		lwsl_debug("wsi->http.rx_content_length %lld %d %d\n",
 			   (long long)wsi->http.rx_content_length,
 			   wsi->upgraded_to_http2, wsi->http2_substream);
 
@@ -2297,9 +2339,10 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 		 * method that the client said he will accept
 		 */
 
-		if (!strncmp(content_type, "text/", 5) ||
-		    !strcmp(content_type, "application/javascript") ||
-		    !strcmp(content_type, "image/svg+xml"))
+		if (!wsi->interpreting && (
+		     !strncmp(content_type, "text/", 5) ||
+		     !strcmp(content_type, "application/javascript") ||
+		     !strcmp(content_type, "image/svg+xml")))
 			lws_http_compression_apply(wsi, NULL, &p, end, 0);
 	}
 #endif
@@ -2827,7 +2870,7 @@ skip:
 				s->swallow[s->pos] = '\0';
 				if (n != s->pos) {
 					memmove(s->start + n, s->start + s->pos,
-						old_len - (sp - args->p));
+						old_len - (sp - args->p) - 1);
 					old_len += (n - s->pos) + 1;
 				}
 				memcpy(s->start, pc, n);

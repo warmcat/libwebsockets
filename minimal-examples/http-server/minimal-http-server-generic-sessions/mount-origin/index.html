@@ -1,0 +1,57 @@
+<html>
+ <head>
+ <meta charset="UTF-8"> 
+  <script src="/lws-common.js"></script>
+  <link rel="stylesheet" type="text/css" href="lwsgs.css"/>
+  <script src="lwsgs.js"></script>
+  </head>
+
+  <body class="seats">
+    <table class="lwsgs">
+     <tr>
+      <td class="logo">
+       <img src="lwsgs.svg">
+      </td>
+      <td class="">
+	<div id=lwsgs class="lwsgs"></div>
+      </td>
+            <td class="rlogo">
+       <img src="strict-csp.svg">
+      </td>
+     </tr>
+     
+     <tr><td colspan="3" class="h99">
+        <table class="c100"><tr>
+        <td class="c">
+     	<span id="nolog" class="group2">
+     	This is a demo application for lws generic-sessions.<br><br>
+     	It's a simple messageboard.<br><br>
+     	What's interesting about it is there is <b>no serverside scripting</b>,<br>
+     	instead client js makes a wss:// connection back to the server<br>
+     	and then reacts to JSON from the ws protocol.  Sessions stuff is <br>
+     	handled by lws generic sessions, making the <a href="https://libwebsockets.org/git/libwebsockets/tree/plugins/generic-sessions/protocol_generic_sessions.c">actual<br>
+     	test application</a> <a href="https://libwebsockets.org/git/libwebsockets/tree/plugins/generic-sessions/protocol_lws_messageboard.c">very small</a>.<br><br>
+	And because it's natively websocket, it's naturally connected<br>
+	for dynamic events and easy to maintain.
+     	<br><br>
+     	Register / Login at the top right to see and create new messages.
+     	</span>
+     	<span id="logged" class="group2">
+     	<div id="newmsg">
+     		<form action="/msg" method="post" target="hidden">
+     		New message<br>
+         <textarea id="msg" placeholder="type your message here" cols="40" rows="5" name="msg"></textarea><br>
+         	<input type="submit" id="send" name="send" disabled=1>
+         	</form>
+     	</div>
+     	</span>
+     	<div id="dmessages">
+     	 <span id="messages" ></span>
+     	</div>
+     	<span id="debug" class="group2"></span>
+     	</td></tr></table>
+     </td></tr>
+    </table>
+   <iframe name="hidden" class="hidden"></iframe>
+ </body>
+</html>

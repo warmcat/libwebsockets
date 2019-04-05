@@ -212,6 +212,7 @@ struct _lws_http_mode_related {
 
 	unsigned char *pending_return_headers;
 	size_t pending_return_headers_len;
+	size_t prh_content_length;
 
 #if defined(LWS_WITH_HTTP_PROXY)
 	struct lws_rewrite *rw;

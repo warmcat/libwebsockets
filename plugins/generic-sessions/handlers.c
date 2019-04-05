@@ -1,7 +1,7 @@
 /*
  * ws protocol handler plugin for "generic sessions"
  *
- * Copyright (C) 2010-2016 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2019 Andy Green <andy@warmcat.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -21,27 +21,65 @@
 
 #include "private-lwsgs.h"
 
+static int
+lwsgs_smtp_client_done(struct lws_smtp_email *e, void *buf, size_t len)
+{
+	free(e);
+
+	return 0;
+}
+
+static int
+lwsgs_smtp_client_done_sentvfy(struct lws_smtp_email *e, void *buf, size_t len)
+{
+	struct per_vhost_data__gs *vhd = (struct per_vhost_data__gs *)e->data;
+	const char *username = (const char *)e->extra;
+	char s[200], esc[96];
+
+	lwsl_notice("%s: registration email sent: %s\n", __func__, username);
+
+	/* mark the user as having sent the verification email */
+	lws_snprintf(s, sizeof(s) - 1,
+		 "update users set verified=1 where username='%s' and verified==0;",
+		 lws_sql_purify(esc, username, sizeof(esc) - 1));
+	if (sqlite3_exec(vhd->pdb, s, NULL, NULL, NULL) != SQLITE_OK) {
+		lwsl_err("%s: Unable to update user: %s\n", __func__,
+			 sqlite3_errmsg(vhd->pdb));
+		return 1;
+	}
+
+	free(e);
+
+	return 0;
+}
+
 /* handle account confirmation links */
 
 int
 lwsgs_handler_confirm(struct per_vhost_data__gs *vhd, struct lws *wsi,
 		      struct per_session_data__gs *pss)
 {
-	char cookie[1024], s[256], esc[50];
+	char cookie[1024], s[256], esc[90];
 	struct lws_gs_event_args a;
 	struct lwsgs_user u;
 
 	if (lws_hdr_copy_fragment(wsi, cookie, sizeof(cookie),
-				  WSI_TOKEN_HTTP_URI_ARGS, 0) < 0)
+				  WSI_TOKEN_HTTP_URI_ARGS, 0) < 0) {
+		lwsl_err("%s: missing URI_ARGS\n", __func__);
 		goto verf_fail;
+	}
 
-	if (strncmp(cookie, "token=", 6))
+	if (strncmp(cookie, "token=", 6)) {
+		lwsl_err("%s: missing URI_ARGS token=\n", __func__);
 		goto verf_fail;
+	}
 
 	u.username[0] = '\0';
+	u.verified = -1;
 	lws_snprintf(s, sizeof(s) - 1,
 		 "select username,email,verified from users where token = '%s';",
 		 lws_sql_purify(esc, &cookie[6], sizeof(esc) - 1));
+	puts(s);
 	if (sqlite3_exec(vhd->pdb, s, lwsgs_lookup_callback_user, &u, NULL) !=
 	    SQLITE_OK) {
 		lwsl_err("Unable to lookup token: %s\n",
@@ -50,7 +88,8 @@ lwsgs_handler_confirm(struct per_vhost_data__gs *vhd, struct lws *wsi,
 	}
 
 	if (!u.username[0] || u.verified != 1) {
-		lwsl_notice("verify token doesn't map to unverified user\n");
+		lwsl_notice("verify token %s doesn't map to unverified user (user='%s', verified=%d)\n",
+				&cookie[6], u.username, u.verified);
 		goto verf_fail;
 	}
 
@@ -111,7 +150,7 @@ int
 lwsgs_handler_forgot(struct per_vhost_data__gs *vhd, struct lws *wsi,
 		     struct per_session_data__gs *pss)
 {
-	char cookie[1024], s[256], esc[50];
+	char cookie[1024], s[256], esc[96];
 	struct lwsgs_user u;
 	const char *a;
 
@@ -196,26 +235,24 @@ forgot_fail:
 
 int
 lwsgs_handler_check(struct per_vhost_data__gs *vhd,
-		    struct lws *wsi, struct per_session_data__gs *pss)
+		    struct lws *wsi, struct per_session_data__gs *pss,
+		    const char *in)
 {
 	static const char * const colname[] = { "username", "email" };
-	char cookie[1024], s[256], esc[50], *pc;
-	unsigned char *p, *start, *end, buffer[LWS_PRE + 256];
+	char s[256], esc[96], *pc;
+	unsigned char *p, *start, *end, buffer[LWS_PRE + 1024];
 	struct lwsgs_user u;
 	int n;
 
 	/*
-	 * either /check?email=xxx@yyy   or: /check?username=xxx
+	 * either /check/email=xxx@yyy   or: /check/username=xxx
 	 * returns '0' if not already registered, else '1'
 	 */
 
 	u.username[0] = '\0';
-	if (lws_hdr_copy_fragment(wsi, cookie, sizeof(cookie),
-				  WSI_TOKEN_HTTP_URI_ARGS, 0) < 0)
-		goto reply;
 
-	n = !strncmp(cookie, "email=", 6);
-	pc = strchr(cookie, '=');
+	n = !strncmp(in, "email=", 6);
+	pc = strchr(in, '=');
 	if (!pc) {
 		lwsl_notice("cookie has no =\n");
 		goto reply;
@@ -262,6 +299,7 @@ reply:
 		lwsl_err("_write returned %d from %ld\n", n, (long)(p - start));
 		return -1;
 	}
+
 	pss->check_response_value = s[0];
 	pss->check_response = 1;
 
@@ -276,7 +314,7 @@ int
 lwsgs_handler_change_password(struct per_vhost_data__gs *vhd, struct lws *wsi,
 			      struct per_session_data__gs *pss)
 {
-	char s[256], esc[50], username[50];
+	char s[256], esc[96], username[96];
 	struct lwsgs_user u;
 	lwsgw_hash sid;
 	int n = 0;
@@ -361,15 +399,14 @@ sql:
 
 int
 lwsgs_handler_forgot_pw_form(struct per_vhost_data__gs *vhd,
-			     struct lws *wsi,
-			     struct per_session_data__gs *pss)
+			     struct lws *wsi, struct per_session_data__gs *pss)
 {
+	char esc[96], esc1[96], esc2[96], esc3[96], esc4[96];
 	char s[LWSGS_EMAIL_CONTENT_SIZE];
-	unsigned char buffer[LWS_PRE + LWSGS_EMAIL_CONTENT_SIZE];
-	char esc[50], esc1[50], esc2[50], esc3[50], esc4[50];
+	unsigned char sid_rand[32];
+	lws_smtp_email_t *em;
 	struct lwsgs_user u;
 	lwsgw_hash hash;
-	unsigned char sid_rand[20];
 	int n;
 
 	lwsl_notice("FORGOT %s %s\n",
@@ -423,7 +460,19 @@ lwsgs_handler_forgot_pw_form(struct per_vhost_data__gs *vhd,
 		lwsl_err("Problem getting random for token\n");
 		return 1;
 	}
-	sha1_to_lwsgw_hash(sid_rand, &hash);
+	sha256_to_lwsgw_hash(sid_rand, &hash);
+
+	lws_snprintf(s, sizeof(s) - 1,
+		 "update users set token='%s',token_time='%ld' where username='%s';",
+		 hash.id, (long)lws_now_secs(),
+		 lws_sql_purify(esc, u.username, sizeof(esc) - 1));
+	if (sqlite3_exec(vhd->pdb, s, NULL, NULL, NULL) !=
+	    SQLITE_OK) {
+		lwsl_err("Unable to set token: %s\n",
+			 sqlite3_errmsg(vhd->pdb));
+		return 1;
+	}
+
 	n = lws_snprintf(s, sizeof(s),
 		"From: Forgot Password Assistant Noreply <%s>\n"
 		"To: %s <%s>\n"
@@ -437,7 +486,7 @@ lwsgs_handler_forgot_pw_form(struct per_vhost_data__gs *vhd,
 		lws_sql_purify(esc2, u.email, sizeof(esc2) - 1),
 		lws_sql_purify(esc3, u.username, sizeof(esc3) - 1),
 		lws_sql_purify(esc4, pss->ip, sizeof(esc4) - 1));
-	lws_snprintf(s + n, sizeof(s) -n,
+	n += lws_snprintf(s + n, sizeof(s) - n,
 		  "%s/lwsgs-forgot?token=%s"
 		   "&good=%s"
 		   "&bad=%s\n\n"
@@ -456,27 +505,15 @@ lwsgs_handler_forgot_pw_form(struct per_vhost_data__gs *vhd,
 			      sizeof(esc3) - 1),
 		vhd->email_contact_person);
 
-	lws_snprintf((char *)buffer, sizeof(buffer) - 1,
-		 "insert into email(username, content)"
-		 " values ('%s', '%s');",
-		lws_sql_purify(esc, u.username, sizeof(esc) - 1), s);
-	if (sqlite3_exec(vhd->pdb, (char *)buffer, NULL,
-			 NULL, NULL) != SQLITE_OK) {
-		lwsl_err("Unable to insert email: %s\n",
-			 sqlite3_errmsg(vhd->pdb));
-		return 1;
-	}
+	puts(s);
 
-	lws_snprintf(s, sizeof(s) - 1,
-		 "update users set token='%s',token_time='%ld' where username='%s';",
-		 hash.id, (long)lws_now_secs(),
-		 lws_sql_purify(esc, u.username, sizeof(esc) - 1));
-	if (sqlite3_exec(vhd->pdb, s, NULL, NULL, NULL) !=
-	    SQLITE_OK) {
-		lwsl_err("Unable to set token: %s\n",
-			 sqlite3_errmsg(vhd->pdb));
+	em = lws_smtp_client_alloc_email_helper(s, n, vhd->email_from, u.email,
+						u.username, strlen(u.username),
+						vhd, lwsgs_smtp_client_done);
+	if (!em)
 		return 1;
-	}
+	if (lws_smtp_client_add_email(vhd->smtp_client, em))
+		return 1;
 
 	return 0;
 }
@@ -487,11 +524,13 @@ lwsgs_handler_register_form(struct per_vhost_data__gs *vhd,
 			     struct per_session_data__gs *pss)
 {
 	unsigned char buffer[LWS_PRE + LWSGS_EMAIL_CONTENT_SIZE];
-	char esc[50], esc1[50], esc2[50], esc3[50], esc4[50];
+	char esc[96], esc1[96], esc2[96], esc3[96], esc4[96];
 	char s[LWSGS_EMAIL_CONTENT_SIZE];
-	unsigned char sid_rand[20];
+	unsigned char sid_rand[32];
+	lws_smtp_email_t *em;
 	struct lwsgs_user u;
 	lwsgw_hash hash;
+	size_t n;
 
 	lwsl_notice("REGISTER %s %s %s\n",
 			lws_spa_get_string(pss->spa, FGS_USERNAME),
@@ -551,7 +590,7 @@ lwsgs_handler_register_form(struct per_vhost_data__gs *vhd,
 		lwsl_err("Problem getting random for token\n");
 		return 1;
 	}
-	sha1_to_lwsgw_hash(sid_rand, &hash);
+	sha256_to_lwsgw_hash(sid_rand, &hash);
 
 	lws_snprintf((char *)buffer, sizeof(buffer) - 1,
 		 "insert into users(username,"
@@ -571,11 +610,11 @@ lwsgs_handler_register_form(struct per_vhost_data__gs *vhd,
 		return 1;
 	}
 
-	lws_snprintf(s, sizeof(s),
+	n = lws_snprintf(s, sizeof(s),
 		"From: Noreply <%s>\n"
 		"To: %s <%s>\n"
-		  "Subject: Registration verification\n"
-		  "\n"
+		"Subject: Registration verification\n"
+		"\n"
 		  "Hello, %s\n\n"
 		  "We received a registration from IP %s using this email,\n"
 		  "to confirm it is legitimate, please click the link below.\n\n"
@@ -594,16 +633,16 @@ lwsgs_handler_register_form(struct per_vhost_data__gs *vhd,
 		vhd->email_confirm_url, hash.id,
 		vhd->email_contact_person);
 
-	lws_snprintf((char *)buffer, sizeof(buffer) - 1,
-		 "insert into email(username, content) values ('%s', '%s');",
-		lws_sql_purify(esc, lws_spa_get_string(pss->spa, FGS_USERNAME),
-			       sizeof(esc) - 1), s);
-
-	if (sqlite3_exec(vhd->pdb, (char *)buffer, NULL, NULL, NULL) != SQLITE_OK) {
-		lwsl_err("Unable to insert email: %s\n",
-			 sqlite3_errmsg(vhd->pdb));
+	em = lws_smtp_client_alloc_email_helper(s, n, vhd->email_from,
+				lws_spa_get_string(pss->spa, FGS_EMAIL),
+				lws_spa_get_string(pss->spa, FGS_USERNAME),
+				strlen(lws_spa_get_string(pss->spa, FGS_USERNAME)),
+				vhd, lwsgs_smtp_client_done_sentvfy);
+	if (!em)
 		return 1;
-	}
+
+	if (lws_smtp_client_add_email(vhd->smtp_client, em))
+		return 1;
 
 	return 0;
 }

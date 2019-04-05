@@ -117,6 +117,8 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 #endif
 		break;
 
+	case LWS_CALLBACK_CLIENT_CONFIRM_EXTENSION_SUPPORTED:
+		return 1;
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 	case LWS_CALLBACK_CLIENT_CLOSED:
@@ -132,10 +134,22 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 
 		proxy_header(wsi, wsi->parent, tmp, sizeof(tmp),
 			      WSI_TOKEN_HTTP_ACCEPT_LANGUAGE, p, end);
+
+		proxy_header(wsi, wsi->parent, tmp, sizeof(tmp),
+			      WSI_TOKEN_HTTP_COOKIE, p, end);
+
+		proxy_header(wsi, wsi->parent, tmp, sizeof(tmp),
+			      WSI_TOKEN_HTTP_SET_COOKIE, p, end);
 		break;
 	}
 
 	case LWS_CALLBACK_CLIENT_RECEIVE:
+		wsi->parent->ws->proxy_buffered += len;
+		if (wsi->parent->ws->proxy_buffered > 10 * 1024 * 1024) {
+			lwsl_err("%s: proxied ws connection excessive buffering: dropping\n",
+					__func__);
+			return -1;
+		}
 		pkt = lws_malloc(sizeof(*pkt) + LWS_PRE + len, __func__);
 		if (!pkt)
 			return -1;
@@ -164,6 +178,8 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 					pkt->first, pkt->final)) < 0)
 			return -1;
 
+		wsi->parent->ws->proxy_buffered -= pkt->len;
+
 		lws_dll_remove_track_tail(dll, &wsi->ws->proxy_head);
 		lws_free(pkt);
 
@@ -172,6 +188,9 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	/* h1 ws proxying... parent / server / incoming */
+
+	case LWS_CALLBACK_CONFIRM_EXTENSION_OKAY:
+		return 1;
 
 	case LWS_CALLBACK_CLOSED:
 		lwsl_user("%s: closed\n", __func__);
@@ -331,12 +350,15 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 
 			wsi->reason_bf &= ~LWS_CB_REASON_AUX_BF__PROXY_HEADERS;
 
-			lwsl_debug("%s: %p: issuing proxy headers\n",
-				    __func__, wsi);
+			n = LWS_WRITE_HTTP_HEADERS;
+			if (!wsi->http.prh_content_length)
+				n |= LWS_WRITE_H2_STREAM_END;
+
+			lwsl_debug("%s: %p: issuing proxy headers: clen %d\n",
+				    __func__, wsi, (int)wsi->http.prh_content_length);
 			n = lws_write(wsi, wsi->http.pending_return_headers +
 					   LWS_PRE,
-				      wsi->http.pending_return_headers_len,
-				      LWS_WRITE_HTTP_HEADERS);
+				      wsi->http.pending_return_headers_len, n);
 
 			lws_free_set_NULL(wsi->http.pending_return_headers);
 
@@ -468,17 +490,21 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		 */
 
 		proxy_header(parent, wsi, end, 256,
-				WSI_TOKEN_HTTP_CONTENT_LENGTH, &p, end);
+			     WSI_TOKEN_HTTP_CONTENT_LENGTH, &p, end);
 		proxy_header(parent, wsi, end, 256,
-				WSI_TOKEN_HTTP_CONTENT_TYPE, &p, end);
+			     WSI_TOKEN_HTTP_CONTENT_TYPE, &p, end);
 		proxy_header(parent, wsi, end, 256,
-				WSI_TOKEN_HTTP_ETAG, &p, end);
+			     WSI_TOKEN_HTTP_ETAG, &p, end);
 		proxy_header(parent, wsi, end, 256,
-				WSI_TOKEN_HTTP_ACCEPT_LANGUAGE, &p, end);
+			     WSI_TOKEN_HTTP_ACCEPT_LANGUAGE, &p, end);
 		proxy_header(parent, wsi, end, 256,
-				WSI_TOKEN_HTTP_CONTENT_ENCODING, &p, end);
+			     WSI_TOKEN_HTTP_CONTENT_ENCODING, &p, end);
 		proxy_header(parent, wsi, end, 256,
-				WSI_TOKEN_HTTP_CACHE_CONTROL, &p, end);
+			     WSI_TOKEN_HTTP_CACHE_CONTROL, &p, end);
+		proxy_header(parent, wsi, end, 256,
+			     WSI_TOKEN_HTTP_SET_COOKIE, &p, end);
+		proxy_header(parent, wsi, end, 256,
+			     WSI_TOKEN_HTTP_LOCATION, &p, end);
 
 		if (!parent->http2_substream)
 			if (lws_add_http_header_by_token(parent,
@@ -508,8 +534,13 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		if (lws_finalize_http_header(parent, &p, end))
 			return 1;
 
-		parent->http.pending_return_headers_len =
-					lws_ptr_diff(p, start);
+		parent->http.prh_content_length = -1;
+		if (lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH))
+			parent->http.prh_content_length = atoll(
+				lws_hdr_simple_ptr(wsi,
+						WSI_TOKEN_HTTP_CONTENT_LENGTH));
+
+		parent->http.pending_return_headers_len = lws_ptr_diff(p, start);
 		parent->http.pending_return_headers =
 			lws_malloc(parent->http.pending_return_headers_len +
 				    LWS_PRE, "return proxy headers");
@@ -522,7 +553,9 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		parent->reason_bf |= LWS_CB_REASON_AUX_BF__PROXY_HEADERS;
 
 		lwsl_debug("%s: LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP: "
-			   "prepared headers\n", __func__);
+			   "prepared %d headers (len %d)\n", __func__,
+			   lws_http_client_http_response(wsi),
+			   (int)parent->http.prh_content_length);
 
 		/*
 		 * so at this point, the onward client connection can bear
@@ -566,8 +599,6 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		 */
 
 		proxy_header(wsi, parent, (unsigned char *)buf, sizeof(buf),
-				WSI_TOKEN_HOST, p, end);
-		proxy_header(wsi, parent, (unsigned char *)buf, sizeof(buf),
 				WSI_TOKEN_HTTP_ETAG, p, end);
 		proxy_header(wsi, parent, (unsigned char *)buf, sizeof(buf),
 				WSI_TOKEN_HTTP_IF_MODIFIED_SINCE, p, end);
@@ -577,6 +608,8 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 				WSI_TOKEN_HTTP_ACCEPT_ENCODING, p, end);
 		proxy_header(wsi, parent, (unsigned char *)buf, sizeof(buf),
 				WSI_TOKEN_HTTP_CACHE_CONTROL, p, end);
+		proxy_header(wsi, parent, (unsigned char *)buf, sizeof(buf),
+				WSI_TOKEN_HTTP_COOKIE, p, end);
 
 		buf[0] = '\0';
 		lws_get_peer_simple(parent, buf, sizeof(buf));

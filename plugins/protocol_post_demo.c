@@ -225,8 +225,7 @@ callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
 
 			/* first send the headers ... */
 			n = lws_write(wsi, start, lws_ptr_diff(p, start),
-				      LWS_WRITE_HTTP_HEADERS |
-				      LWS_WRITE_H2_STREAM_END);
+				      LWS_WRITE_HTTP_HEADERS);
 			if (n < 0)
 				goto bail;
 

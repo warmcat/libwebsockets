@@ -96,6 +96,7 @@ struct _lws_websocket_related {
 #if defined(LWS_WITH_HTTP_PROXY)
 	struct lws_dll proxy_head;
 	char actual_protocol[16];
+	size_t proxy_buffered;
 #endif
 
 	/* Also used for close content... control opcode == < 128 */

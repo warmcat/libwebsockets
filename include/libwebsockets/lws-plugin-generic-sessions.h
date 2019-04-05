@@ -36,9 +36,9 @@
 
 /* SHA-1 binary and hexified versions */
 /** typedef struct lwsgw_hash_bin */
-typedef struct { unsigned char bin[20]; /**< binary representation of hash */} lwsgw_hash_bin;
+typedef struct { unsigned char bin[32]; /**< binary representation of hash */} lwsgw_hash_bin;
 /** typedef struct lwsgw_hash */
-typedef struct { char id[41]; /**< ascii hex representation of hash */ } lwsgw_hash;
+typedef struct { char id[65]; /**< ascii hex representation of hash */ } lwsgw_hash;
 
 /** enum lwsgs_auth_bits */
 enum lwsgs_auth_bits {

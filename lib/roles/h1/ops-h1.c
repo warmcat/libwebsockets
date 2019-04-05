@@ -116,7 +116,7 @@ lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 
 	case LRS_BODY:
 http_postbody:
-		lwsl_notice("%s: http post body: remain %d\n", __func__,
+		lwsl_debug("%s: http post body: remain %d\n", __func__,
 			    (int)wsi->http.rx_content_remain);
 
 		if (!wsi->http.rx_content_remain)
@@ -659,27 +659,35 @@ rops_handle_POLLOUT_h1(struct lws *wsi)
 	if (lwsi_state(wsi) == LRS_ISSUE_HTTP_BODY) {
 #if defined(LWS_WITH_HTTP_PROXY)
 		if (wsi->http.proxy_clientside) {
-			unsigned char *buf;
+			unsigned char *buf, prebuf[LWS_PRE + 1024];
 			size_t len = lws_buflist_next_segment_len(
 					&wsi->parent->http.buflist_post_body, &buf);
 			int n;
 
-			lwsl_debug("%s: %p: proxying body %d %d %d %d %d\n",
-					__func__, wsi, (int)len,
-					(int)wsi->http.tx_content_length,
-					(int)wsi->http.tx_content_remain,
-					(int)wsi->http.rx_content_length,
-					(int)wsi->http.rx_content_remain
-					);
+			if (len) {
 
-			n = lws_write(wsi, buf, len, LWS_WRITE_HTTP);
-			if (n < 0) {
-				lwsl_err("%s: PROXY_BODY: write failed\n",
-					 __func__);
-				return -1;
+				if (len > sizeof(prebuf) - LWS_PRE)
+					len = sizeof(prebuf) - LWS_PRE;
+
+				memcpy(prebuf + LWS_PRE, buf, len);
+
+				lwsl_debug("%s: %p: proxying body %d %d %d %d %d\n",
+						__func__, wsi, (int)len,
+						(int)wsi->http.tx_content_length,
+						(int)wsi->http.tx_content_remain,
+						(int)wsi->http.rx_content_length,
+						(int)wsi->http.rx_content_remain
+						);
+
+				n = lws_write(wsi, prebuf + LWS_PRE, len, LWS_WRITE_HTTP);
+				if (n < 0) {
+					lwsl_err("%s: PROXY_BODY: write %d failed\n",
+						 __func__, (int)len);
+					return LWS_HP_RET_BAIL_DIE;
+				}
+
+				lws_buflist_use_segment(&wsi->parent->http.buflist_post_body, len);
 			}
-
-			lws_buflist_use_segment(&wsi->parent->http.buflist_post_body, len);
 
 			if (wsi->parent->http.buflist_post_body)
 				lws_callback_on_writable(wsi);

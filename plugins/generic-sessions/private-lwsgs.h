@@ -67,6 +67,7 @@ struct per_vhost_data__gs {
 	struct lws_context *context;
 	char session_db[256];
 	char admin_user[32];
+	char urlroot[48];
 	char confounder[32];
 	char email_contact_person[128];
 	char email_title[128];
@@ -119,7 +120,7 @@ int
 lwsgs_check_credentials(struct per_vhost_data__gs *vhd,
 			const char *username, const char *password);
 void
-sha1_to_lwsgw_hash(unsigned char *hash, lwsgw_hash *shash);
+sha256_to_lwsgw_hash(unsigned char *hash, lwsgw_hash *shash);
 unsigned int
 lwsgs_now_secs(void);
 int
@@ -151,7 +152,7 @@ lwsgs_handler_forgot(struct per_vhost_data__gs *vhd, struct lws *wsi,
 		     struct per_session_data__gs *pss);
 int
 lwsgs_handler_check(struct per_vhost_data__gs *vhd, struct lws *wsi,
-		      struct per_session_data__gs *pss);
+		      struct per_session_data__gs *pss, const char *in);
 int
 lwsgs_handler_change_password(struct per_vhost_data__gs *vhd, struct lws *wsi,
 			      struct per_session_data__gs *pss);

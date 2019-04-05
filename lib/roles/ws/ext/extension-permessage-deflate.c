@@ -358,9 +358,8 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 			 __func__, pmdrx->eb_out.len, priv->rx.avail_in,
 			 (unsigned long)priv->count_rx_between_fin);
 
-		if (was_fin) {
+		if (was_fin && !pen) {
 			lwsl_ext("%s: was_fin\n", __func__);
-			assert(!pen);
 			priv->count_rx_between_fin = 0;
 			if (priv->args[PMD_SERVER_NO_CONTEXT_TAKEOVER]) {
 				lwsl_ext("PMD_SERVER_NO_CONTEXT_TAKEOVER\n");

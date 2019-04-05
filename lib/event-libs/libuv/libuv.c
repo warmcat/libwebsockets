@@ -947,7 +947,7 @@ lws_libuv_closehandle(struct lws *wsi)
 		return;
 
 	if (wsi->told_event_loop_closed) {
-		assert(0);
+	//	assert(0);
 		return;
 	}
 

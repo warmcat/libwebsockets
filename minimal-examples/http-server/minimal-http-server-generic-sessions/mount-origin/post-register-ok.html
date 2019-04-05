@@ -1,0 +1,27 @@
+<html>
+ <head>
+  <script src="lwsgs.js" nonce=lwscaro></script>
+ </head>
+ <body>
+  <table>
+    <tr>
+     <td colspan=2 align=center>
+      <img src="lwsgs-logo.png">
+     </td>
+    </tr>
+    <tr>
+     <td>
+      Your registration as <span id="u"></span> is accepted,<br>
+      you will receive an email shortly with instructions<br>
+      to verify and enable the account for normal use.<br><br>
+      The link is only valid for an hour, after that if it has<br>
+      not been verified your account will be deleted.
+     </td>
+    </tr>
+   </table>
+  </body>
+ <script nonce=lwscaro>
+	document.getElementById('u').innerHTML = "<b>" + lwsgs_san(lwsgs_user) + "</b>";
+ </script>
+</html>
+
