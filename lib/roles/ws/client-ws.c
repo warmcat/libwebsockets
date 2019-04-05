@@ -305,9 +305,17 @@ bad_conn_format:
 	if (!len) {
 		lwsl_info("%s: WSI_TOKEN_PROTOCOL is null\n", __func__);
 		/*
-		 * no protocol name to work from,
+		 * no protocol name to work from, if we don't already have one
 		 * default to first protocol
 		 */
+
+		if (wsi->protocol) {
+			p = (char *)wsi->protocol->name;
+			goto identify_protocol;
+		}
+
+		/* no choice but to use the default protocol */
+
 		n = 0;
 		wsi->protocol = &wsi->vhost->protocols[0];
 		goto check_extensions;
@@ -333,6 +341,8 @@ bad_conn_format:
 		*cce = "HS: PROTOCOL malformed";
 		goto bail2;
 	}
+
+identify_protocol:
 
 #if defined(LWS_WITH_HTTP_PROXY)
 	lws_strncpy(wsi->ws->actual_protocol, p,
