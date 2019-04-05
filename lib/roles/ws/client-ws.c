@@ -305,11 +305,9 @@ bad_conn_format:
 	if (!len) {
 		lwsl_info("%s: WSI_TOKEN_PROTOCOL is null\n", __func__);
 		/*
-		 * no protocol name to work from,
-		 * default to first protocol
+		 * no protocol name to work from, keep current protocol
 		 */
 		n = 0;
-		wsi->protocol = &wsi->vhost->protocols[0];
 		goto check_extensions;
 	}
 
