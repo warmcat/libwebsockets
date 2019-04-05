@@ -261,8 +261,10 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 #if !defined(LWS_NO_SERVER)
 	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
 #if defined(LWS_WITH_HTTP_PROXY)
-		if (wsi->child_list)
+		if (wsi->child_list) {
 			lwsl_user("%s: LWS_CALLBACK_HTTP_BODY_COMPLETION: %d\n", __func__, (int)len);
+			break;
+		}
 #endif
 		/* fallthru */
 	case LWS_CALLBACK_HTTP_FILE_COMPLETION:

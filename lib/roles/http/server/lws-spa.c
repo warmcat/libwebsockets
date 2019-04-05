@@ -1,7 +1,7 @@
 /*
  * libwebsockets - Stateful urldecode for POST
  *
- * Copyright (C) 2010-2017 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2019 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -45,12 +45,14 @@ static const char * const mp_hdr[] = {
 	"\x0d\x0a"
 };
 
-typedef int (*lws_urldecode_stateful_cb)(void *data,
+struct lws_spa;
+
+typedef int (*lws_urldecode_stateful_cb)(struct lws_spa *spa,
 		const char *name, char **buf, int len, int final);
 
 struct lws_urldecode_stateful {
 	char *out;
-	void *data;
+	struct lws_spa *data;
 	struct lws *wsi;
 	char name[LWS_MAX_ELEM_NAME];
 	char temp[LWS_MAX_ELEM_NAME];
@@ -74,14 +76,28 @@ struct lws_urldecode_stateful {
 	lws_urldecode_stateful_cb output;
 };
 
+struct lws_spa {
+	struct lws_urldecode_stateful *s;
+	lws_spa_create_info_t i;
+	int *param_length;
+	char finalized;
+	char **params;
+	char *storage;
+	char *end;
+};
+
 static struct lws_urldecode_stateful *
-lws_urldecode_s_create(struct lws *wsi, char *out, int out_len, void *data,
-		       lws_urldecode_stateful_cb output)
+lws_urldecode_s_create(struct lws_spa *spa, struct lws *wsi, char *out,
+		       int out_len, lws_urldecode_stateful_cb output)
 {
-	struct lws_urldecode_stateful *s = lws_zalloc(sizeof(*s),
-						"stateful urldecode");
+	struct lws_urldecode_stateful *s;
 	char buf[205], *p;
 	int m = 0;
+
+	if (spa->i.ac)
+		s = lwsac_use_zero(spa->i.ac, sizeof(*s), spa->i.ac_chunk_size);
+	else
+		s = lws_zalloc(sizeof(*s), "stateful urldecode");
 
 	if (!s)
 		return NULL;
@@ -94,7 +110,7 @@ lws_urldecode_s_create(struct lws *wsi, char *out, int out_len, void *data,
 	s->mp = 0;
 	s->state = US_NAME;
 	s->name[0] = '\0';
-	s->data = data;
+	s->data = spa;
 	s->wsi = wsi;
 
 	if (lws_hdr_copy(wsi, buf, sizeof(buf),
@@ -403,7 +419,7 @@ done:
 }
 
 static int
-lws_urldecode_s_destroy(struct lws_urldecode_stateful *s)
+lws_urldecode_s_destroy(struct lws_spa *spa, struct lws_urldecode_stateful *s)
 {
 	int ret = 0;
 
@@ -418,48 +434,40 @@ lws_urldecode_s_destroy(struct lws_urldecode_stateful *s)
 	if (s->output(s->data, s->name, NULL, 0, LWS_UFS_CLOSE))
 		return -1;
 
-	lws_free(s);
+	if (!spa->i.ac)
+		lws_free(s);
 
 	return ret;
 }
 
-struct lws_spa {
-	struct lws_urldecode_stateful *s;
-	const char * const *param_names;
-	void *opt_data;
-	lws_spa_fileupload_cb opt_cb;
-	int *param_length;
-	int count_params;
-	int max_storage;
-	char finalized;
-	char **params;
-	char *storage;
-	char *end;
-};
-
 static int
-lws_urldecode_spa_lookup(struct lws_spa *spa,
-			 const char *name)
+lws_urldecode_spa_lookup(struct lws_spa *spa, const char *name)
 {
+	const char * const *pp = spa->i.param_names;
 	int n;
 
-	for (n = 0; n < spa->count_params; n++)
-		if (!strcmp(spa->param_names[n], name))
+	for (n = 0; n < spa->i.count_params; n++) {
+		if (!strcmp(*pp, name))
 			return n;
+
+		if (spa->i.param_names_stride)
+			pp = (const char * const *)(((char *)pp) + spa->i.param_names_stride);
+		else
+			pp++;
+	}
 
 	return -1;
 }
 
 static int
-lws_urldecode_spa_cb(void *data, const char *name, char **buf, int len,
+lws_urldecode_spa_cb(struct lws_spa *spa, const char *name, char **buf, int len,
 		     int final)
 {
-	struct lws_spa *spa = (struct lws_spa *)data;
 	int n;
 
 	if (final == LWS_UFS_CLOSE || spa->s->content_disp_filename[0]) {
-		if (spa->opt_cb) {
-			n = spa->opt_cb(spa->opt_data, name,
+		if (spa->i.opt_cb) {
+			n = spa->i.opt_cb(spa->i.opt_data, name,
 					spa->s->content_disp_filename,
 					buf ? *buf : NULL, len, final);
 
@@ -469,63 +477,88 @@ lws_urldecode_spa_cb(void *data, const char *name, char **buf, int len,
 		return 0;
 	}
 	n = lws_urldecode_spa_lookup(spa, name);
-
 	if (n == -1 || !len) /* unrecognized */
 		return 0;
 
-	if (!spa->params[n])
-		spa->params[n] = *buf;
+	if (!spa->i.ac) {
+		if (!spa->params[n])
+			spa->params[n] = *buf;
 
-	if ((*buf) + len >= spa->end) {
-		lwsl_info("%s: exceeded storage\n", __func__);
-		return -1;
+		if ((*buf) + len >= spa->end) {
+			lwsl_info("%s: exceeded storage\n", __func__);
+			return -1;
+		}
+
+		/* move it on inside storage */
+		(*buf) += len;
+		*((*buf)++) = '\0';
+
+		spa->s->out_len -= len + 1;
+	} else {
+		spa->params[n] = lwsac_use(spa->i.ac, len + 1,
+					   spa->i.ac_chunk_size);
+		if (!spa->params[n])
+			return -1;
+
+		memcpy(spa->params[n], *buf, len);
+		spa->params[n][len] = '\0';
 	}
 
 	spa->param_length[n] += len;
 
-	/* move it on inside storage */
-	(*buf) += len;
-	*((*buf)++) = '\0';
-
-	spa->s->out_len -= len + 1;
-
 	return 0;
 }
 
-LWS_VISIBLE LWS_EXTERN struct lws_spa *
-lws_spa_create(struct lws *wsi, const char * const *param_names,
-	       int count_params, int max_storage,
-	       lws_spa_fileupload_cb opt_cb, void *opt_data)
+struct lws_spa *
+lws_spa_create_via_info(struct lws *wsi, const lws_spa_create_info_t *i)
 {
-	struct lws_spa *spa = lws_zalloc(sizeof(*spa), "spa");
+	struct lws_spa *spa;
+
+	if (i->ac)
+		spa = lwsac_use_zero(i->ac, sizeof(*spa), i->ac_chunk_size);
+	else
+		spa = lws_zalloc(sizeof(*spa), "spa");
 
 	if (!spa)
 		return NULL;
 
-	spa->param_names = param_names;
-	spa->count_params = count_params;
-	spa->max_storage = max_storage;
-	spa->opt_cb = opt_cb;
-	spa->opt_data = opt_data;
+	spa->i = *i;
+	if (!spa->i.max_storage)
+		spa->i.max_storage = 512;
 
-	spa->storage = lws_malloc(max_storage, "spa");
+	if (i->ac)
+		spa->storage = lwsac_use(i->ac, spa->i.max_storage,
+					 i->ac_chunk_size);
+	else
+		spa->storage = lws_malloc(spa->i.max_storage, "spa");
+
 	if (!spa->storage)
 		goto bail2;
-	spa->end = spa->storage + max_storage - 1;
 
-	if (count_params) {
-		spa->params = lws_zalloc(sizeof(char *) * count_params, "spa params");
+	spa->end = spa->storage + i->max_storage - 1;
+
+	if (i->count_params) {
+		if (i->ac)
+			spa->params = lwsac_use_zero(i->ac,
+				sizeof(char *) * i->count_params, i->ac_chunk_size);
+		else
+			spa->params = lws_zalloc(sizeof(char *) * i->count_params,
+					 "spa params");
 		if (!spa->params)
 			goto bail3;
 	}
 
-	spa->s = lws_urldecode_s_create(wsi, spa->storage, max_storage, spa,
+	spa->s = lws_urldecode_s_create(spa, wsi, spa->storage, i->max_storage,
 					lws_urldecode_spa_cb);
 	if (!spa->s)
 		goto bail4;
 
-	if (count_params) {
-		spa->param_length = lws_zalloc(sizeof(int) * count_params,
+	if (i->count_params) {
+		if (i->ac)
+			spa->param_length = lwsac_use_zero(i->ac,
+				sizeof(int) * i->count_params, i->ac_chunk_size);
+		else
+			spa->param_length = lws_zalloc(sizeof(int) * i->count_params,
 						"spa param len");
 		if (!spa->param_length)
 			goto bail5;
@@ -536,57 +569,80 @@ lws_spa_create(struct lws *wsi, const char * const *param_names,
 	return spa;
 
 bail5:
-	lws_urldecode_s_destroy(spa->s);
+	lws_urldecode_s_destroy(spa, spa->s);
 bail4:
-	lws_free(spa->params);
+	if (!i->ac)
+		lws_free(spa->params);
 bail3:
-	lws_free(spa->storage);
+	if (!i->ac)
+		lws_free(spa->storage);
 bail2:
-	lws_free(spa);
+	if (!i->ac)
+		lws_free(spa);
+
+	if (i->ac)
+		lwsac_free(i->ac);
 
 	return NULL;
 }
 
-LWS_VISIBLE LWS_EXTERN int
-lws_spa_process(struct lws_spa *ludspa, const char *in, int len)
+struct lws_spa *
+lws_spa_create(struct lws *wsi, const char * const *param_names,
+	       int count_params, int max_storage,
+	       lws_spa_fileupload_cb opt_cb, void *opt_data)
 {
-	if (!ludspa) {
+	lws_spa_create_info_t i;
+
+	memset(&i, 0, sizeof(i));
+	i.count_params = count_params;
+	i.max_storage = max_storage;
+	i.opt_cb = opt_cb;
+	i.opt_data = opt_data;
+	i.param_names = param_names;
+
+	return lws_spa_create_via_info(wsi, &i);
+}
+
+int
+lws_spa_process(struct lws_spa *spa, const char *in, int len)
+{
+	if (!spa) {
 		lwsl_err("%s: NULL spa\n", __func__);
 		return -1;
 	}
 	/* we reject any junk after the last part arrived and we finalized */
-	if (ludspa->finalized)
+	if (spa->finalized)
 		return 0;
 
-	return lws_urldecode_s_process(ludspa->s, in, len);
+	return lws_urldecode_s_process(spa->s, in, len);
 }
 
-LWS_VISIBLE LWS_EXTERN int
-lws_spa_get_length(struct lws_spa *ludspa, int n)
+int
+lws_spa_get_length(struct lws_spa *spa, int n)
 {
-	if (n >= ludspa->count_params)
+	if (n >= spa->i.count_params)
 		return 0;
 
-	return ludspa->param_length[n];
+	return spa->param_length[n];
 }
 
-LWS_VISIBLE LWS_EXTERN const char *
-lws_spa_get_string(struct lws_spa *ludspa, int n)
+const char *
+lws_spa_get_string(struct lws_spa *spa, int n)
 {
-	if (n >= ludspa->count_params)
+	if (n >= spa->i.count_params)
 		return NULL;
 
-	return ludspa->params[n];
+	return spa->params[n];
 }
 
-LWS_VISIBLE LWS_EXTERN int
+int
 lws_spa_finalize(struct lws_spa *spa)
 {
 	if (!spa)
 		return 0;
 
 	if (spa->s) {
-		lws_urldecode_s_destroy(spa->s);
+		lws_urldecode_s_destroy(spa, spa->s);
 		spa->s = NULL;
 	}
 
@@ -595,7 +651,7 @@ lws_spa_finalize(struct lws_spa *spa)
 	return 0;
 }
 
-LWS_VISIBLE LWS_EXTERN int
+int
 lws_spa_destroy(struct lws_spa *spa)
 {
 	int n = 0;
@@ -603,15 +659,16 @@ lws_spa_destroy(struct lws_spa *spa)
 	lwsl_info("%s: destroy spa %p\n", __func__, spa);
 
 	if (spa->s)
-		lws_urldecode_s_destroy(spa->s);
+		lws_urldecode_s_destroy(spa, spa->s);
 
-	lwsl_debug("%s %p %p %p %p\n", __func__, spa->param_length,
-		   spa->params, spa->storage, spa);
-
-	lws_free(spa->param_length);
-	lws_free(spa->params);
-	lws_free(spa->storage);
-	lws_free(spa);
+	if (spa->i.ac)
+		lwsac_free(spa->i.ac);
+	else {
+		lws_free(spa->param_length);
+		lws_free(spa->params);
+		lws_free(spa->storage);
+		lws_free(spa);
+	}
 
 	return n;
 }

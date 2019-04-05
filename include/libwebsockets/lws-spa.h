@@ -86,6 +86,9 @@ struct lws_spa;
  *
  * Creates a urldecode parser and initializes it.
  *
+ * It's recommended to use the newer api, lws_spa_create_via_info()
+ * instead.
+ *
  * opt_cb can be NULL if you just want normal name=value parsing, however
  * if one or more entries in your form are bulk data (file transfer), you
  * can provide this callback and filter on the name callback parameter to
@@ -96,6 +99,36 @@ LWS_VISIBLE LWS_EXTERN struct lws_spa *
 lws_spa_create(struct lws *wsi, const char * const *param_names,
 	       int count_params, int max_storage, lws_spa_fileupload_cb opt_cb,
 	       void *opt_data);
+
+typedef struct lws_spa_create_info {
+	const char * const *param_names; /* array of form parameter names, like "username" */
+	int count_params; /* count of param_names */
+	int max_storage; /* total amount of form parameter values we can store */
+	lws_spa_fileupload_cb opt_cb; /* NULL, or callback to receive file upload data. */
+	void *opt_data; /* NULL, or user pointer provided to opt_cb. */
+	size_t param_names_stride; /* 0 if param_names is an array of char *.
+					Else stride to next char * */
+	struct lwsac **ac;	/* NULL, or pointer to lwsac * to contain all
+				   related heap allocations */
+	size_t ac_chunk_size;	/* 0 for default, or ac chunk size */
+} lws_spa_create_info_t;
+
+/**
+ * lws_spa_create_via_info() - create urldecode parser
+ *
+ * \param wsi: lws connection (used to find Content Type)
+ * \param info: pointer to struct defining the arguments
+ *
+ * Creates a urldecode parser and initializes it.
+ *
+ * opt_cb can be NULL if you just want normal name=value parsing, however
+ * if one or more entries in your form are bulk data (file transfer), you
+ * can provide this callback and filter on the name callback parameter to
+ * treat that urldecoded data separately.  The callback should return -1
+ * in case of fatal error, and 0 if OK.
+ */
+LWS_VISIBLE LWS_EXTERN struct lws_spa *
+lws_spa_create_via_info(struct lws *wsi, const lws_spa_create_info_t *info);
 
 /**
  * lws_spa_process() - parses a chunk of input data
