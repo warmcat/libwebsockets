@@ -116,7 +116,7 @@ lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 
 	case LRS_BODY:
 http_postbody:
-		lwsl_debug("%s: http post body: remain %d\n", __func__,
+		lwsl_notice("%s: http post body: remain %d\n", __func__,
 			    (int)wsi->http.rx_content_remain);
 
 		if (!wsi->http.rx_content_remain)
@@ -185,6 +185,7 @@ postbody_completion:
 			{
 				lwsl_info("HTTP_BODY_COMPLETION: %p (%s)\n",
 					  wsi, wsi->protocol->name);
+
 				n = wsi->protocol->callback(wsi,
 					LWS_CALLBACK_HTTP_BODY_COMPLETION,
 					wsi->user_space, NULL, 0);

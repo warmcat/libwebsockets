@@ -85,6 +85,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		/* inform the spa no more payload data coming */
 
+		lwsl_user("LWS_CALLBACK_HTTP_BODY_COMPLETION\n");
 		lws_spa_finalize(pss->spa);
 
 		/* we just dump the decoded things to the log */
@@ -184,6 +185,12 @@ int main(int argc, const char **argv)
 	info.mounts = &mount;
 	info.options =
 		LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE;
+
+	if (lws_cmdline_option(argc, argv, "-s")) {
+		info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+		info.ssl_cert_filepath = "localhost-100y.cert";
+		info.ssl_private_key_filepath = "localhost-100y.key";
+	}
 
 	context = lws_create_context(&info);
 	if (!context) {
