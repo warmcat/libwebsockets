@@ -550,7 +550,7 @@ LWS_VISIBLE LWS_EXTERN int
 lws_cgi_write_split_stdout_headers(struct lws *wsi)
 {
 	int n, m, cmd;
-	unsigned char buf[LWS_PRE + 1024], *start = &buf[LWS_PRE], *p = start,
+	unsigned char buf[LWS_PRE + 4096], *start = &buf[LWS_PRE], *p = start,
 			*end = &buf[sizeof(buf) - 1 - LWS_PRE], *name,
 			*value = NULL;
 	char c, hrs;
@@ -941,6 +941,20 @@ agin:
 			n += m + 2;
 		}
 		*/
+
+#if defined(LWS_WITH_HTTP2)
+		if (wsi->http2_substream) {
+			struct lws *nwsi = lws_get_network_wsi(wsi);
+
+			__lws_set_timeout(wsi,
+				PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE, 31);
+
+			if (!nwsi->immortal_substream_count)
+				__lws_set_timeout(nwsi,
+					PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE, 31);
+		}
+#endif
+
 		cmd = LWS_WRITE_HTTP;
 		if (wsi->http.cgi->content_length_seen + n ==
 						wsi->http.cgi->content_length)

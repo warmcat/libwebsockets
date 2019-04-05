@@ -252,7 +252,7 @@ __lws_service_timeout_check(struct lws *wsi, time_t sec)
 		lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_TIMEOUTS, 1);
 
 		/* no need to log normal idle keepalive timeout */
-		if (wsi->pending_timeout != PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE)
+//		if (wsi->pending_timeout != PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE)
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 			lwsl_info("wsi %p: TIMEDOUT WAITING on %d "
 				  "(did hdr %d, ah %p, wl %d, pfd "
