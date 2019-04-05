@@ -101,7 +101,7 @@ lws_ssl_destroy_client_ctx(struct lws_vhost *vhost)
 	tcr = SSL_CTX_get_ex_data(vhost->tls.ssl_client_ctx,
 				  openssl_SSL_CTX_private_data_index);
 
-	if (--tcr->refcount)
+	if (!tcr || --tcr->refcount)
 		return;
 
 	SSL_CTX_free(vhost->tls.ssl_client_ctx);
