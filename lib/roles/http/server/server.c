@@ -378,75 +378,73 @@ lws_select_vhost(struct lws_context *context, int port, const char *servername)
 	return NULL;
 }
 
+static const struct lws_mimetype {
+	const char *extension;
+	const char *mimetype;
+} server_mimetypes[] = {
+	{ ".html", "text/html" },
+	{ ".htm", "text/html" },
+	{ ".js", "text/javascript" },
+	{ ".css", "text/css" },
+	{ ".png", "image/png" },
+	{ ".jpg", "image/jpeg" },
+	{ ".jpeg", "image/jpeg" },
+	{ ".ico", "image/x-icon" },
+	{ ".gif", "image/gif" },
+	{ ".svg", "image/svg+xml" },
+	{ ".ttf", "application/x-font-ttf" },
+	{ ".otf", "application/font-woff" },
+	{ ".woff", "application/font-woff" },
+	{ ".woff2", "application/font-woff2" },
+	{ ".gz", "application/gzip" },
+	{ ".txt", "text/plain" },
+	{ ".xml", "application/xml" },
+	{ ".json", "application/json" },
+};
+
 LWS_VISIBLE LWS_EXTERN const char *
 lws_get_mimetype(const char *file, const struct lws_http_mount *m)
 {
-	const struct lws_protocol_vhost_options *pvo = NULL;
-	int n = (int)strlen(file);
+	const struct lws_protocol_vhost_options *pvo;
+	size_t n = strlen(file), len, i;
+	const char *fallback_mimetype = NULL;
+	const struct lws_mimetype *mt;
 
-	if (m)
-		pvo = m->extra_mimetypes;
+	/* prioritize user-defined mimetypes */
+	for (pvo = m ? m->extra_mimetypes : NULL; pvo; pvo = pvo->next) {
+		/* ie, match anything */
+		if (!fallback_mimetype && pvo->name[0] == '*') {
+			fallback_mimetype = pvo->value;
+			continue;
+		}
 
-	if (n < 5)
-		return NULL;
-
-	if (!strcmp(&file[n - 4], ".ico"))
-		return "image/x-icon";
-
-	if (!strcmp(&file[n - 4], ".gif"))
-		return "image/gif";
-
-	if (!strcmp(&file[n - 3], ".js"))
-		return "text/javascript";
-
-	if (!strcmp(&file[n - 4], ".png"))
-		return "image/png";
-
-	if (!strcmp(&file[n - 4], ".jpg"))
-		return "image/jpeg";
-
-	if (!strcmp(&file[n - 3], ".gz"))
-		return "application/gzip";
-
-	if (!strcmp(&file[n - 4], ".JPG"))
-		return "image/jpeg";
-
-	if (!strcmp(&file[n - 5], ".html"))
-		return "text/html";
-
-	if (!strcmp(&file[n - 4], ".css"))
-		return "text/css";
-
-	if (!strcmp(&file[n - 4], ".txt"))
-		return "text/plain";
-
-	if (!strcmp(&file[n - 4], ".svg"))
-		return "image/svg+xml";
-
-	if (!strcmp(&file[n - 4], ".ttf"))
-		return "application/x-font-ttf";
-
-	if (!strcmp(&file[n - 4], ".otf"))
-		return "application/font-woff";
-
-	if (!strcmp(&file[n - 5], ".woff"))
-		return "application/font-woff";
-
-	if (!strcmp(&file[n - 4], ".xml"))
-		return "application/xml";
-
-	while (pvo) {
-		if (pvo->name[0] == '*') /* ie, match anything */
+		len = strlen(pvo->name);
+		if (n > len && !strcasecmp(&file[n - len], pvo->name)) {
+			lwsl_info("%s: match to user mimetype: %s\n", __func__, pvo->value);
 			return pvo->value;
+		}
+	}
 
-		if (!strcmp(&file[n - strlen(pvo->name)], pvo->name))
-			return pvo->value;
+	/* fallback to server-defined mimetypes */
+	for (i = 0; i < sizeof(server_mimetypes)/sizeof(server_mimetypes[0]); ++i) {
+		mt = &server_mimetypes[i];
 
-		pvo = pvo->next;
+		len = strlen(mt->extension);
+		if (n > len && !strcasecmp(&file[n - len], mt->extension)) {
+			lwsl_info("%s: match to server mimetype: %s\n", __func__, mt->mimetype);
+			return mt->mimetype;
+		}
+	}
+
+	/* fallback to '*' if defined */
+	if (fallback_mimetype) {
+		lwsl_info("%s: match to any mimetype: %s\n", __func__, fallback_mimetype);
+		return fallback_mimetype;
 	}
 
 	return NULL;
 }
+
 static lws_fop_flags_t
 lws_vfs_prepare_flags(struct lws *wsi)
 {
