@@ -899,10 +899,11 @@ lws_parse_ws(struct lws *wsi, unsigned char **buf, size_t len)
 		 * we were accepting input but now we stopped doing so
 		 */
 		if (wsi->rxflow_bitmap) {
-			lwsl_info("%s: doing rxflow\n", __func__);
-			lws_rxflow_cache(wsi, *buf, 0, (int)len);
-			lwsl_parser("%s: cached %ld\n", __func__, (long)len);
-			*buf += len; /* stashing it is taking care of it */
+			lwsl_info("%s: doing rxflow, caching %d\n", __func__,
+					(int)len);
+			if (lws_rxflow_cache(wsi, *buf, 0, (int)len) !=
+					LWSRXFC_TRIMMED)
+				*buf += len; /* stashing it is taking care of it */
 			return 1;
 		}
 #if !defined(LWS_WITHOUT_EXTENSIONS)
