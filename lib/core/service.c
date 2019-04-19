@@ -296,23 +296,32 @@ __lws_service_timeout_check(struct lws *wsi, time_t sec)
 	return 0;
 }
 
-int lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len)
+int
+lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	uint8_t *buffered;
 	size_t blen;
-	int ret = 0, m;
+	int ret = LWSRXFC_CACHED, m;
 
 	/* his RX is flowcontrolled, don't send remaining now */
 	blen = lws_buflist_next_segment_len(&wsi->buflist, &buffered);
 	if (blen) {
 		if (buf >= buffered && buf + len <= buffered + blen) {
-			/* rxflow while we were spilling prev rxflow */
-			lwsl_info("%s: staying in rxflow buf\n", __func__);
+			/*
+			 * rxflow while we were spilling prev rxflow
+			 *
+			 * len indicates how much was unused, then... so trim
+			 * the head buflist to match that situation
+			 */
 
-			return 1;
+			lws_buflist_use_segment(&wsi->buflist, blen - len);
+			lwsl_debug("%s: trim existing rxflow %d -> %d\n",
+					__func__, (int)blen, (int)len);
+
+			return LWSRXFC_TRIMMED;
 		}
-		ret = 1;
+		ret = LWSRXFC_ADDITIONAL;
 	}
 
 	/* a new rxflow, buffer it and warn caller */
@@ -320,7 +329,7 @@ int lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len)
 	m = lws_buflist_append_segment(&wsi->buflist, buf + n, len - n);
 
 	if (m < 0)
-		return -1;
+		return LWSRXFC_ERROR;
 	if (m) {
 		lwsl_debug("%s: added %p to rxflow list\n", __func__, wsi);
 		lws_dll_lws_add_front(&wsi->dll_buflist, &pt->dll_head_buflist);

@@ -66,22 +66,44 @@ lws_create_client_ws_object(const struct lws_client_connect_info *i,
 int
 lws_ws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 {
+	unsigned char *bufin = *buf;
+
 	if ((lwsi_state(wsi) != LRS_WAITING_PROXY_REPLY) &&
 	    (lwsi_state(wsi) != LRS_H1C_ISSUE_HANDSHAKE) &&
 	    (lwsi_state(wsi) != LRS_WAITING_SERVER_REPLY) &&
 	    !lwsi_role_client(wsi))
 		return 0;
 
-	// lwsl_notice("%s: hs client gets %d in\n", __func__, (int)len);
+	lwsl_debug("%s: hs client feels it has %d in\n", __func__, (int)len);
 
 	while (len) {
 		/*
 		 * we were accepting input but now we stopped doing so
 		 */
 		if (lws_is_flowcontrolled(wsi)) {
-			//lwsl_notice("%s: caching %ld\n", __func__, (long)len);
-			lws_rxflow_cache(wsi, *buf, 0, (int)len);
-			*buf += len;
+			lwsl_debug("%s: caching %ld\n", __func__, (long)len);
+			/*
+			 * Since we cached the remaining available input, we
+			 * can say we "consumed" it.
+			 *
+			 * But what about the case where the available input
+			 * came out of the rxflow cache already?  If we are
+			 * effectively "putting it back in the cache", we have
+			 * to place it at the cache head, not the tail as usual.
+			 */
+			if (lws_rxflow_cache(wsi, *buf, 0, (int)len) ==
+							LWSRXFC_TRIMMED)
+				/*
+				 * we dealt with it by trimming the existing
+				 * rxflow cache HEAD to account for what we used.
+				 *
+				 * indicate we didn't use anything to the caller
+				 * so he doesn't do any consumed processing
+				 */
+				*buf = bufin;
+			else
+				*buf += len;
+
 			return 0;
 		}
 #if !defined(LWS_WITHOUT_EXTENSIONS)

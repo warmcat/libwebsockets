@@ -977,13 +977,20 @@ rops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
 		 */
 		return LWS_HPI_RET_HANDLED;
 #endif
-	if (lws_is_flowcontrolled(wsi)) {
+	if ((pollfd->revents & LWS_POLLIN) && lws_is_flowcontrolled(wsi)) {
 		/* We cannot deal with any kind of new RX because we are
 		 * RX-flowcontrolled.
 		 */
-		lwsl_info("flowcontrolled\n");
+		lwsl_info("%s: flowcontrolled, ignoring rx\n", __func__);
+
+		if (__lws_change_pollfd(wsi, LWS_POLLIN, 0))
+			return -1;
+
 		return LWS_HPI_RET_HANDLED;
 	}
+
+	if (lws_is_flowcontrolled(wsi))
+		return LWS_HPI_RET_HANDLED;
 
 #if defined(LWS_WITH_HTTP2)
 	if (wsi->http2_substream || wsi->upgraded_to_http2) {

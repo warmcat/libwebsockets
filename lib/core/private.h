@@ -1058,6 +1058,14 @@ __lws_free_wsi(struct lws *wsi);
 
 LWS_EXTERN int
 __remove_wsi_socket_from_fds(struct lws *wsi);
+
+enum {
+	LWSRXFC_ERROR = -1,
+	LWSRXFC_CACHED = 0,
+	LWSRXFC_ADDITIONAL = 1,
+	LWSRXFC_TRIMMED = 2,
+};
+
 LWS_EXTERN int
 lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len);
 
