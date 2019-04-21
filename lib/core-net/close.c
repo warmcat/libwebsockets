@@ -446,7 +446,7 @@ just_kill_connection:
 
 	lwsi_set_state(wsi, LRS_DEAD_SOCKET);
 	lws_buflist_destroy_all_segments(&wsi->buflist);
-	lws_dll_remove_track_tail(&wsi->dll_buflist, &pt->dll_head_buflist);
+	lws_dll2_remove(&wsi->dll_buflist);
 
 	if (wsi->role_ops->close_role)
 	    wsi->role_ops->close_role(pt, wsi);

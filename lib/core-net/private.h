@@ -265,7 +265,7 @@ struct lws_context_per_thread {
 
 	struct lws_dll dll_timeout_head;
 	struct lws_dll dll_hrtimer_head;
-	struct lws_dll dll_head_buflist; /* guys with pending rxflow */
+	struct lws_dll2_owner dll_buflist_owner; /* guys with pending rxflow */
 
 #if defined(LWS_WITH_TLS)
 	struct lws_pt_tls tls;
@@ -491,7 +491,7 @@ struct lws {
 
 	struct lws_dll dll_timeout;
 	struct lws_dll dll_hrtimer;
-	struct lws_dll dll_buflist; /* guys with pending rxflow */
+	struct lws_dll2 dll_buflist; /* guys with pending rxflow */
 
 #if defined(LWS_WITH_THREADPOOL)
 	struct lws_threadpool_task *tp_task;

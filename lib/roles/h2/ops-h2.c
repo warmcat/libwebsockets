@@ -276,8 +276,7 @@ drain:
 			if (!m) {
 				lwsl_notice("%s: removed %p from dll_buflist\n",
 					    __func__, wsi);
-				lws_dll_remove_track_tail(&wsi->dll_buflist,
-							  &pt->dll_head_buflist);
+				lws_dll2_remove(&wsi->dll_buflist);
 			}
 		} else
 			if (n != ebuf.len) {
@@ -289,8 +288,8 @@ drain:
 				if (m) {
 					lwsl_debug("%s: added %p to rxflow list\n",
 							__func__, wsi);
-					lws_dll_add_head(&wsi->dll_buflist,
-							 &pt->dll_head_buflist);
+					lws_dll2_add_head(&wsi->dll_buflist,
+							 &pt->dll_buflist_owner);
 				}
 			}
 	}
