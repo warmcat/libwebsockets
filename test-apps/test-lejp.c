@@ -42,6 +42,7 @@ static const char * const reason_names[] = {
 	"LEJPCB_ARRAY_END",
 	"LEJPCB_OBJECT_START",
 	"LEJPCB_OBJECT_END",
+	"LEJPCB_OBJECT_END_PRE",
 };
 
 static const char * const tok[] = {
@@ -52,6 +53,11 @@ static signed char
 cb(struct lejp_ctx *ctx, char reason)
 {
 	char buf[1024], *p = buf, *end = &buf[sizeof(buf)];
+	int n;
+
+	for (n = 0; n < ctx->sp; n++)
+		*p++ = ' ';
+	*p = '\0';
 
 	if (reason & LEJP_FLAG_CB_IS_VALUE) {
 		p += lws_snprintf(p, p - end, "   value '%s' ", ctx->buf);
@@ -73,12 +79,16 @@ cb(struct lejp_ctx *ctx, char reason)
 
 	switch (reason) {
 	case LEJPCB_COMPLETE:
-		lwsl_notice("Parsing Completed (LEJPCB_COMPLETE)\n");
+		lwsl_notice("%sParsing Completed (LEJPCB_COMPLETE)\n", buf);
 		break;
 	case LEJPCB_PAIR_NAME:
-		lwsl_notice("path: '%s' (LEJPCB_PAIR_NAME)\n", ctx->path);
+		lwsl_notice("%spath: '%s' (LEJPCB_PAIR_NAME)\n", buf, ctx->path);
 		break;
 	}
+
+	lwsl_notice("%s%s: path %s match %d statckp %d\r\n", buf, reason_names[(unsigned int)
+		(reason) & (LEJP_FLAG_CB_IS_VALUE - 1)], ctx->path,
+		ctx->path_match, ctx->pst[ctx->pst_sp].ppos);
 
 	return 0;
 }
