@@ -1,7 +1,7 @@
 /*
  * ws protocol handler plugin for "generic sessions"
  *
- * Copyright (C) 2010-2016 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2019 Andy Green <andy@warmcat.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -50,7 +50,7 @@ struct lwsgs_fill_args {
 };
 
 static const struct lws_protocols protocols[];
-
+#if 0
 static int
 lwsgs_lookup_callback_email(void *priv, int cols, char **col_val,
 			    char **col_name)
@@ -92,11 +92,13 @@ lwsgs_email_cb_get_body(struct lws_email *email, char *buf, int len)
 
 	return 0;
 }
+#endif
 
+#if 0
 static int
-lwsgs_email_cb_sent(struct lws_email *email)
+lwsgs_smtp_client_done(struct lws_smtp_email *e, void *buf, size_t len)
 {
-	struct per_vhost_data__gs *vhd = (struct per_vhost_data__gs *)email->data;
+	struct per_vhost_data__gs *vhd = (struct per_vhost_data__gs *)e->data;
 	char s[200], esc[50];
 
 	/* mark the user as having sent the verification email */
@@ -120,9 +122,10 @@ lwsgs_email_cb_sent(struct lws_email *email)
 
 	return 0;
 }
-
+#endif
+#if 0
 static int
-lwsgs_email_cb_on_next(struct lws_email *email)
+lwsgs_smtp_send_pending(struct lws_email *email)
 {
 	struct per_vhost_data__gs *vhd = lws_container_of(email,
 			struct per_vhost_data__gs, email);
@@ -181,7 +184,7 @@ lwsgs_email_cb_on_next(struct lws_email *email)
 
 	return 0;
 }
-
+#endif
 
 struct lwsgs_subst_args
 {
@@ -252,6 +255,7 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 	struct lws_session_info *sinfo;
 	char s[LWSGS_EMAIL_CONTENT_SIZE];
 	unsigned char *p, *start, *end;
+	lws_smtp_client_info_t sci;
 	sqlite3_stmt *sm;
 	lwsgw_hash sid;
 	const char *cp;
@@ -271,15 +275,13 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 		vhd->timeout_absolute_secs = 36000;
 		vhd->timeout_anon_absolute_secs = 1200;
 		vhd->timeout_email_secs = 24 * 3600;
-		strcpy(vhd->email.email_helo, "unconfigured.com");
-		strcpy(vhd->email.email_from, "noreply@unconfigured.com");
-		strcpy(vhd->email_title, "Registration Email from unconfigured");
-		strcpy(vhd->email.email_smtp_ip, "127.0.0.1");
 
-		vhd->email.on_next = lwsgs_email_cb_on_next;
-		vhd->email.on_get_body = lwsgs_email_cb_get_body;
-		vhd->email.on_sent = lwsgs_email_cb_sent;
-		vhd->email.data = (void *)vhd;
+		memset(&sci, 0, sizeof(sci));
+
+		strcpy(sci.helo, "unconfigured.com");
+		strcpy(sci.ip, "127.0.0.1");
+		strcpy(vhd->email_from, "noreply@unconfigured.com");
+		strcpy(vhd->email_title, "Registration Email from unconfigured");
 
 		pvo = (const struct lws_protocol_vhost_options *)in;
 		while (pvo) {
@@ -287,8 +289,8 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_strncpy(vhd->admin_user, pvo->value,
 					sizeof(vhd->admin_user));
 			if (!strcmp(pvo->name, "admin-password-sha1"))
-				lws_strncpy(vhd->admin_password_sha1.id, pvo->value,
-					sizeof(vhd->admin_password_sha1.id));
+				lws_strncpy(vhd->admin_password_sha256.id, pvo->value,
+					sizeof(vhd->admin_password_sha256.id));
 			if (!strcmp(pvo->name, "session-db"))
 				lws_strncpy(vhd->session_db, pvo->value,
 					sizeof(vhd->session_db));
@@ -296,11 +298,10 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_strncpy(vhd->confounder, pvo->value,
 					sizeof(vhd->confounder));
 			if (!strcmp(pvo->name, "email-from"))
-				lws_strncpy(vhd->email.email_from, pvo->value,
-					sizeof(vhd->email.email_from));
+				lws_strncpy(vhd->email_from, pvo->value,
+					sizeof(vhd->email_from));
 			if (!strcmp(pvo->name, "email-helo"))
-				lws_strncpy(vhd->email.email_helo, pvo->value,
-					sizeof(vhd->email.email_helo));
+				lws_strncpy(sci.helo, pvo->value, sizeof(sci.helo));
 			if (!strcmp(pvo->name, "email-template"))
 				lws_strncpy(vhd->email_template, pvo->value,
 					sizeof(vhd->email_template));
@@ -314,8 +315,7 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_strncpy(vhd->email_confirm_url, pvo->value,
 					sizeof(vhd->email_confirm_url));
 			if (!strcmp(pvo->name, "email-server-ip"))
-				lws_strncpy(vhd->email.email_smtp_ip, pvo->value,
-					sizeof(vhd->email.email_smtp_ip));
+				lws_strncpy(sci.ip, pvo->value, sizeof(sci.ip));
 
 			if (!strcmp(pvo->name, "timeout-idle-secs"))
 				vhd->timeout_idle_secs = atoi(pvo->value);
@@ -328,11 +328,11 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 			pvo = pvo->next;
 		}
 		if (!vhd->admin_user[0] ||
-		    !vhd->admin_password_sha1.id[0] ||
+		    !vhd->admin_password_sha256.id[0] ||
 		    !vhd->session_db[0]) {
 			lwsl_err("generic-sessions: "
 				 "You must give \"admin-user\", "
-				 "\"admin-password-sha1\", "
+				 "\"admin-password-sha256\", "
 				 "and \"session_db\" per-vhost options\n");
 			return 1;
 		}
@@ -401,10 +401,16 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 			return 1;
 		}
 
-		lws_email_init(&vhd->email, lws_uv_getloop(vhd->context, 0),
-				LWSGS_EMAIL_CONTENT_SIZE);
+		sci.data = vhd;
+		sci.abs = lws_abstract_get_by_name("raw_skt");
+		sci.vh = lws_get_vhost(wsi);
 
-		vhd->email_inited = 1;
+		vhd->smtp_client = lws_smtp_client_create(&sci);
+		if (!vhd->smtp_client) {
+			lwsl_err("%s: failed to create SMTP client\n", __func__);
+			return 1;
+		}
+
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
@@ -413,16 +419,15 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 			sqlite3_close(vhd->pdb);
 			vhd->pdb = NULL;
 		}
-		if (vhd->email_inited) {
-			lws_email_destroy(&vhd->email);
-			vhd->email_inited = 0;
-		}
+		if (vhd->smtp_client)
+			lws_smtp_client_destroy(&vhd->smtp_client);
 		break;
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
                 if (!pss->check_response)
                         break;
-		n = lws_write(wsi, (unsigned char *)&pss->check_response_value, 1, LWS_WRITE_HTTP_FINAL);
+		n = lws_write(wsi, (unsigned char *)&pss->check_response_value,
+				1, LWS_WRITE_HTTP_FINAL);
 		if (n != 1)
 			return -1;
 		goto try_to_reuse;
@@ -610,7 +615,7 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 					goto reg_done;
 				}
 				/* get the email monitor to take a look */
-				lws_email_check(&vhd->email);
+				lws_smtp_client_kick(vhd->smtp_client);
 				n = FGS_FORGOT_GOOD;
 				goto reg_done;
 			}
@@ -632,7 +637,7 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 					n = FGS_REG_GOOD;
 
 					/* get the email monitor to take a look */
-					lws_email_check(&vhd->email);
+					lws_smtp_client_kick(vhd->smtp_client);
 				}
 reg_done:
 				lws_strncpy(pss->onward, lws_spa_get_string(pss->spa, n),

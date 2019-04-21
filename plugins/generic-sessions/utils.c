@@ -50,7 +50,7 @@ lwsgw_check_admin(struct per_vhost_data__gs *vhd,
 	lws_SHA1((unsigned char *)password, strlen(password), hash_bin.bin);
 	sha1_to_lwsgw_hash(hash_bin.bin, &pw_hash);
 
-	return !strcmp(vhd->admin_password_sha1.id, pw_hash.id);
+	return !strcmp(vhd->admin_password_sha256.id, pw_hash.id);
 }
 
 /*

@@ -432,7 +432,7 @@ lwsgs_handler_forgot_pw_form(struct per_vhost_data__gs *vhd,
 		  "Hello, %s\n\n"
 		  "We received a password reset request from IP %s for this email,\n"
 		  "to confirm you want to do that, please click the link below.\n\n",
-		lws_sql_purify(esc, vhd->email.email_from, sizeof(esc) - 1),
+		lws_sql_purify(esc, vhd->email_from, sizeof(esc) - 1),
 		lws_sql_purify(esc1, u.username, sizeof(esc1) - 1),
 		lws_sql_purify(esc2, u.email, sizeof(esc2) - 1),
 		lws_sql_purify(esc3, u.username, sizeof(esc3) - 1),
@@ -586,7 +586,7 @@ lwsgs_handler_register_form(struct per_vhost_data__gs *vhd,
 		"automated email, you can contact a real person at\n"
 		"%s.\n"
 		"\n.\n",
-		lws_sql_purify(esc, vhd->email.email_from, sizeof(esc) - 1),
+		lws_sql_purify(esc, vhd->email_from, sizeof(esc) - 1),
 		lws_sql_purify(esc1, lws_spa_get_string(pss->spa, FGS_USERNAME), sizeof(esc1) - 1),
 		lws_sql_purify(esc2, lws_spa_get_string(pss->spa, FGS_EMAIL), sizeof(esc2) - 1),
 		lws_sql_purify(esc3, lws_spa_get_string(pss->spa, FGS_USERNAME), sizeof(esc3) - 1),

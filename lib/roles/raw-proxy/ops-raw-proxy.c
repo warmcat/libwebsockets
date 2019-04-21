@@ -119,7 +119,7 @@ rops_adoption_bind_raw_proxy(struct lws *wsi, int type,
 {
 	/* no http but socket... must be raw skt */
 	if ((type & LWS_ADOPT_HTTP) || !(type & LWS_ADOPT_SOCKET) ||
-	    !(type & LWS_ADOPT_FLAG_RAW_PROXY) || (type & _LWS_ADOPT_FINISH))
+	    (!(type & LWS_ADOPT_FLAG_RAW_PROXY)) || (type & _LWS_ADOPT_FINISH))
 		return 0; /* no match */
 
 	if (type & LWS_ADOPT_FLAG_UDP)
@@ -160,10 +160,10 @@ rops_client_bind_raw_proxy(struct lws *wsi,
 
 	/* we are a fallback if nothing else matched */
 
-	lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED,
-			    &role_ops_raw_proxy);
+//	lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED,
+//			    &role_ops_raw_proxy);
 
-	return 1;
+	return 0;
 }
 
 static int

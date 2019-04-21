@@ -96,6 +96,11 @@ try_pollout:
 	if (!(pollfd->revents & LWS_POLLOUT))
 		return LWS_HPI_RET_HANDLED;
 
+#if !defined(LWS_WITHOUT_CLIENT)
+	if (lwsi_state(wsi) == LRS_WAITING_CONNECT)
+		lws_client_connect_3(wsi, NULL, 0);
+#endif
+
 	/* one shot */
 	if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
 		lwsl_notice("%s a\n", __func__);
@@ -223,12 +228,14 @@ struct lws_role_ops role_ops_raw_skt = {
 #else
 					NULL,
 #endif
-	/* adoption_cb clnt, srv */	{ LWS_CALLBACK_RAW_ADOPT,
+	/* adoption_cb clnt, srv */	{ LWS_CALLBACK_RAW_CONNECTED,
 					  LWS_CALLBACK_RAW_ADOPT },
 	/* rx_cb clnt, srv */		{ LWS_CALLBACK_RAW_RX,
 					  LWS_CALLBACK_RAW_RX },
-	/* writeable cb clnt, srv */	{ LWS_CALLBACK_RAW_WRITEABLE, 0 },
-	/* close cb clnt, srv */	{ LWS_CALLBACK_RAW_CLOSE, 0 },
+	/* writeable cb clnt, srv */	{ LWS_CALLBACK_RAW_WRITEABLE,
+					  LWS_CALLBACK_RAW_WRITEABLE},
+	/* close cb clnt, srv */	{ LWS_CALLBACK_RAW_CLOSE,
+					  LWS_CALLBACK_RAW_CLOSE },
 	/* protocol_bind cb c, srv */	{ LWS_CALLBACK_RAW_SKT_BIND_PROTOCOL,
 					  LWS_CALLBACK_RAW_SKT_BIND_PROTOCOL },
 	/* protocol_unbind cb c, srv */	{ LWS_CALLBACK_RAW_SKT_DROP_PROTOCOL,

@@ -759,7 +759,11 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	if (ah)
 		ah->http_response = n;
 
-	if (n == 301 || n == 302 || n == 303 || n == 307 || n == 308) {
+	if (
+#if defined(LWS_WITH_HTTP_PROXY)
+	    !wsi->http.proxy_clientside &&
+#endif
+	    (n == 301 || n == 302 || n == 303 || n == 307 || n == 308)) {
 		p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_LOCATION);
 		if (!p) {
 			cce = "HS: Redirect code but no Location";
@@ -1249,8 +1253,13 @@ spin_chunks:
 	{
 		struct lws *wsi_eff = lws_client_wsi_effective(wsi);
 
-		if (!wsi_eff->protocol_bind_balance ==
+		if (
+#if defined(LWS_WITH_HTTP_PROXY)
+		    !wsi_eff->protocol_bind_balance ==
 		    !!wsi_eff->http.proxy_clientside &&
+#else
+		    !!wsi_eff->protocol_bind_balance &&
+#endif
 		    user_callback_handle_rxflow(wsi_eff->protocol->callback,
 				wsi_eff, LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ,
 				wsi_eff->user_space, *buf, n)) {

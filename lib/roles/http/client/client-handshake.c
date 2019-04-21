@@ -25,14 +25,195 @@ lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
 	return getaddrinfo(ads, NULL, &hints, result);
 }
 
+
+struct lws *
+lws_client_connect_3(struct lws *wsi, struct lws *wsi_piggyback, ssize_t plen)
+{
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	const char *meth = NULL;
+	struct lws_pollfd pfd;
+	const char *cce = "";
+	int n, m, rawish = 0;
+
+	if (wsi->stash)
+		meth = wsi->stash->method;
+	else
+		meth = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD);
+
+	if (meth && !strcmp(meth, "RAW"))
+		rawish = 1;
+
+	if (wsi_piggyback)
+		goto send_hs;
+
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+	/* we are connected to server, or proxy */
+
+	/* http proxy */
+	if (wsi->vhost->http.http_proxy_port) {
+
+		/*
+		 * OK from now on we talk via the proxy, so connect to that
+		 *
+		 * (will overwrite existing pointer,
+		 * leaving old string/frag there but unreferenced)
+		 */
+		if (wsi->stash) {
+			lws_free(wsi->stash->address);
+			wsi->stash->address =
+				lws_strdup(wsi->vhost->http.http_proxy_address);
+			if (!wsi->stash->address)
+				goto failed;
+		} else
+			if (lws_hdr_simple_create(wsi,
+					_WSI_TOKEN_CLIENT_PEER_ADDRESS,
+					  wsi->vhost->http.http_proxy_address))
+			goto failed;
+		wsi->c_port = wsi->vhost->http.http_proxy_port;
+
+		n = send(wsi->desc.sockfd, (char *)pt->serv_buf, (int)plen,
+			 MSG_NOSIGNAL);
+		if (n < 0) {
+			lwsl_debug("ERROR writing to proxy socket\n");
+			cce = "proxy write failed";
+			goto failed;
+		}
+
+		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_PROXY_RESPONSE,
+				AWAITING_TIMEOUT);
+
+		lwsi_set_state(wsi, LRS_WAITING_PROXY_REPLY);
+
+		return wsi;
+	}
+#endif
+#if defined(LWS_WITH_SOCKS5)
+	/* socks proxy */
+	else if (wsi->vhost->socks_proxy_port) {
+		n = send(wsi->desc.sockfd, (char *)pt->serv_buf, plen,
+			 MSG_NOSIGNAL);
+		if (n < 0) {
+			lwsl_debug("ERROR writing socks greeting\n");
+			cce = "socks write failed";
+			goto failed;
+		}
+
+		lws_set_timeout(wsi,
+				PENDING_TIMEOUT_AWAITING_SOCKS_GREETING_REPLY,
+				AWAITING_TIMEOUT);
+
+		lwsi_set_state(wsi, LRS_WAITING_SOCKS_GREETING_REPLY);
+
+		return wsi;
+	}
+#endif
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+send_hs:
+
+	if (wsi_piggyback &&
+	    !lws_dll2_is_detached(&wsi->dll2_cli_txn_queue)) {
+		/*
+		 * We are pipelining on an already-established connection...
+		 * we can skip tls establishment.
+		 */
+
+		lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE2);
+
+		/*
+		 * we can't send our headers directly, because they have to
+		 * be sent when the parent is writeable.  The parent will check
+		 * for anybody on his client transaction queue that is in
+		 * LRS_H1C_ISSUE_HANDSHAKE2, and let them write.
+		 *
+		 * If we are trying to do this too early, before the master
+		 * connection has written his own headers, then it will just
+		 * wait in the queue until it's possible to send them.
+		 */
+		lws_callback_on_writable(wsi_piggyback);
+		lwsl_info("%s: wsi %p: waiting to send hdrs (par state 0x%x)\n",
+			    __func__, wsi, lwsi_state(wsi_piggyback));
+	} else {
+		lwsl_info("%s: wsi %p: %s %s client created own conn (raw %d)\n",
+			    __func__, wsi, wsi->role_ops->name,
+			    wsi->protocol->name, rawish);
+
+		/* we are making our own connection */
+		if (!rawish)
+			lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE);
+		else {
+			/* for a method = "RAW" connection, this makes us
+			 * established */
+
+			/* clear his established timeout */
+			lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+
+			m = wsi->role_ops->adoption_cb[0];
+			if (m) {
+				n = user_callback_handle_rxflow(
+						wsi->protocol->callback, wsi,
+						m, wsi->user_space, NULL, 0);
+				if (n < 0) {
+					lwsl_info("LWS_CALLBACK_RAW_PROXY_CLI_ADOPT failed\n");
+					goto failed;
+				}
+			}
+
+			/* service.c pollout processing wants this */
+			wsi->hdr_parsing_completed = 1;
+			lwsl_info("%s: setting ESTABLISHED\n", __func__);
+			lwsi_set_state(wsi, LRS_ESTABLISHED);
+
+			return wsi;
+		}
+
+		/*
+		 * provoke service to issue the handshake directly.
+		 *
+		 * we need to do it this way because in the proxy case, this is
+		 * the next state and executed only if and when we get a good
+		 * proxy response inside the state machine... but notice in
+		 * SSL case this may not have sent anything yet with 0 return,
+		 * and won't until many retries from main loop.  To stop that
+		 * becoming endless, cover with a timeout.
+		 */
+
+		lws_set_timeout(wsi, PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE,
+				AWAITING_TIMEOUT);
+
+		assert(lws_socket_is_valid(wsi->desc.sockfd));
+
+		pfd.fd = wsi->desc.sockfd;
+		pfd.events = LWS_POLLIN;
+		pfd.revents = LWS_POLLIN;
+
+		n = lws_service_fd(wsi->context, &pfd);
+		if (n < 0) {
+			cce = "first service failed";
+			goto failed;
+		}
+		if (n) /* returns 1 on failure after closing wsi */
+			return NULL;
+	}
+#endif
+	return wsi;
+
+failed:
+	wsi->protocol->callback(wsi,
+		LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
+		wsi->user_space, (void *)cce, strlen(cce));
+	wsi->already_did_cce = 1;
+
+	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "client_connect2");
+
+	return NULL;
+}
+
 struct lws *
 lws_client_connect_2(struct lws *wsi)
 {
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	struct lws_context *context = wsi->context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	struct lws *wsi_piggyback = NULL;
-	struct lws_pollfd pfd;
 	const char *adsin;
 	ssize_t plen = 0;
 #endif
@@ -40,7 +221,7 @@ lws_client_connect_2(struct lws *wsi)
 	struct sockaddr_un sau;
 	char unix_skt = 0;
 #endif
-	int n, m, port = 0, rawish = 0;
+	int n, port = 0;
 	const char *cce = "", *iface;
 	const struct sockaddr *psa;
 	const char *meth = NULL;
@@ -71,9 +252,6 @@ lws_client_connect_2(struct lws *wsi)
 		meth = wsi->stash->method;
 	else
 		meth = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD);
-
-	if (meth && !strcmp(meth, "RAW"))
-		rawish = 1;
 
 	if (meth && strcmp(meth, "GET") && strcmp(meth, "POST"))
 		goto create_new_conn;
@@ -151,11 +329,8 @@ lws_client_connect_2(struct lws *wsi)
 			 * and wait for our turn at client transaction_complete
 			 * to take over parsing the rx.
 			 */
-
-			wsi_piggyback = w;
-
 			lws_vhost_unlock(wsi->vhost); /* } ---------- */
-			goto send_hs;
+			return lws_client_connect_3(wsi, w, plen);
 		}
 
 	} lws_end_foreach_dll_safe(d, d1);
@@ -543,157 +718,10 @@ ads_known:
 		}
 	}
 
-	lwsl_client("connected\n");
 
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-	/* we are connected to server, or proxy */
 
-	/* http proxy */
-	if (wsi->vhost->http.http_proxy_port) {
+	return lws_client_connect_3(wsi, NULL, plen);
 
-		/*
-		 * OK from now on we talk via the proxy, so connect to that
-		 *
-		 * (will overwrite existing pointer,
-		 * leaving old string/frag there but unreferenced)
-		 */
-		if (wsi->stash) {
-			lws_free(wsi->stash->address);
-			wsi->stash->address =
-				lws_strdup(wsi->vhost->http.http_proxy_address);
-			if (!wsi->stash->address)
-				goto failed;
-		} else
-			if (lws_hdr_simple_create(wsi,
-					_WSI_TOKEN_CLIENT_PEER_ADDRESS,
-					  wsi->vhost->http.http_proxy_address))
-			goto failed;
-		wsi->c_port = wsi->vhost->http.http_proxy_port;
-
-		n = send(wsi->desc.sockfd, (char *)pt->serv_buf, (int)plen,
-			 MSG_NOSIGNAL);
-		if (n < 0) {
-			lwsl_debug("ERROR writing to proxy socket\n");
-			cce = "proxy write failed";
-			goto failed;
-		}
-
-		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_PROXY_RESPONSE,
-				AWAITING_TIMEOUT);
-
-		lwsi_set_state(wsi, LRS_WAITING_PROXY_REPLY);
-
-		return wsi;
-	}
-#endif
-#if defined(LWS_WITH_SOCKS5)
-	/* socks proxy */
-	else if (wsi->vhost->socks_proxy_port) {
-		n = send(wsi->desc.sockfd, (char *)pt->serv_buf, plen,
-			 MSG_NOSIGNAL);
-		if (n < 0) {
-			lwsl_debug("ERROR writing socks greeting\n");
-			cce = "socks write failed";
-			goto failed;
-		}
-
-		lws_set_timeout(wsi,
-				PENDING_TIMEOUT_AWAITING_SOCKS_GREETING_REPLY,
-				AWAITING_TIMEOUT);
-
-		lwsi_set_state(wsi, LRS_WAITING_SOCKS_GREETING_REPLY);
-
-		return wsi;
-	}
-#endif
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-send_hs:
-
-	if (wsi_piggyback &&
-	    !lws_dll2_is_detached(&wsi->dll2_cli_txn_queue)) {
-		/*
-		 * We are pipelining on an already-established connection...
-		 * we can skip tls establishment.
-		 */
-
-		lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE2);
-
-		/*
-		 * we can't send our headers directly, because they have to
-		 * be sent when the parent is writeable.  The parent will check
-		 * for anybody on his client transaction queue that is in
-		 * LRS_H1C_ISSUE_HANDSHAKE2, and let them write.
-		 *
-		 * If we are trying to do this too early, before the master
-		 * connection has written his own headers, then it will just
-		 * wait in the queue until it's possible to send them.
-		 */
-		lws_callback_on_writable(wsi_piggyback);
-		lwsl_info("%s: wsi %p: waiting to send hdrs (par state 0x%x)\n",
-			    __func__, wsi, lwsi_state(wsi_piggyback));
-	} else {
-		lwsl_info("%s: wsi %p: client creating own connection\n",
-			    __func__, wsi);
-
-		/* we are making our own connection */
-		if (!rawish)
-			lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE);
-		else {
-			/* for a method = "RAW" connection, this makes us
-			 * established */
-
-			/* clear his established timeout */
-			lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
-
-			m = wsi->role_ops->adoption_cb[0];
-			if (m) {
-				n = user_callback_handle_rxflow(
-						wsi->protocol->callback, wsi,
-						m, wsi->user_space, NULL, 0);
-				if (n < 0) {
-					lwsl_info("LWS_CALLBACK_RAW_PROXY_CLI_ADOPT failed\n");
-					goto failed;
-				}
-			}
-
-			/* service.c pollout processing wants this */
-			wsi->hdr_parsing_completed = 1;
-
-			lwsi_set_state(wsi, LRS_ESTABLISHED);
-
-			return wsi;
-		}
-
-		/*
-		 * provoke service to issue the handshake directly.
-		 *
-		 * we need to do it this way because in the proxy case, this is
-		 * the next state and executed only if and when we get a good
-		 * proxy response inside the state machine... but notice in
-		 * SSL case this may not have sent anything yet with 0 return,
-		 * and won't until many retries from main loop.  To stop that
-		 * becoming endless, cover with a timeout.
-		 */
-
-		lws_set_timeout(wsi, PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE,
-				AWAITING_TIMEOUT);
-
-		assert(lws_socket_is_valid(wsi->desc.sockfd));
-
-		pfd.fd = wsi->desc.sockfd;
-		pfd.events = LWS_POLLIN;
-		pfd.revents = LWS_POLLIN;
-
-		n = lws_service_fd(context, &pfd);
-		if (n < 0) {
-			cce = "first service failed";
-			goto failed;
-		}
-		if (n) /* returns 1 on failure after closing wsi */
-			return NULL;
-	}
-#endif
-	return wsi;
 
 oom4:
 	if (lwsi_role_client(wsi) /* && lwsi_state_est(wsi) */) {
@@ -733,6 +761,7 @@ failed1:
 
 	return NULL;
 }
+
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 

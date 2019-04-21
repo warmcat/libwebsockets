@@ -62,7 +62,7 @@ struct lwsgs_user {
 };
 
 struct per_vhost_data__gs {
-	struct lws_email email;
+	lws_smtp_client_t *smtp_client;
 	struct lwsgs_user u;
 	struct lws_context *context;
 	char session_db[256];
@@ -72,14 +72,14 @@ struct per_vhost_data__gs {
 	char email_title[128];
 	char email_template[128];
 	char email_confirm_url[128];
-	lwsgw_hash admin_password_sha1;
+	char email_from[128];
+	lwsgw_hash admin_password_sha256;
 	sqlite3 *pdb;
 	int timeout_idle_secs;
 	int timeout_absolute_secs;
 	int timeout_anon_absolute_secs;
 	int timeout_email_secs;
 	time_t last_session_expire;
-	char email_inited;
 };
 
 struct per_session_data__gs {

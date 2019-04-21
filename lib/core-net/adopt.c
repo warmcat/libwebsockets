@@ -60,6 +60,7 @@ lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi)
 		return NULL;
 	}
 
+	new_wsi->wsistate |= LWSIFR_SERVER;
 	new_wsi->tsi = n;
 	lwsl_debug("new wsi %p joining vhost %s, tsi %d\n", new_wsi,
 		   vhost->name, new_wsi->tsi);
@@ -208,11 +209,12 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 	 * selected yet so we issue this to the vhosts's default protocol,
 	 * itself by default protocols[0]
 	 */
+	new_wsi->wsistate |= LWSIFR_SERVER;
 	n = LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED;
 	if (new_wsi->role_ops->adoption_cb[lwsi_role_server(new_wsi)])
 		n = new_wsi->role_ops->adoption_cb[lwsi_role_server(new_wsi)];
 
-	lwsl_debug("new wsi wsistate 0x%x\n", new_wsi->wsistate);
+	lwsl_err("new wsi wsistate 0x%x\n", new_wsi->wsistate);
 
 	if (context->event_loop_ops->accept)
 		if (context->event_loop_ops->accept(new_wsi))

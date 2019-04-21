@@ -56,6 +56,13 @@ const struct lws_event_loop_ops *available_event_libs[] = {
 	NULL
 };
 
+const struct lws_protocols *available_abstract_protocols[] = {
+#if defined(LWS_ROLE_RAW)
+	&protocol_abs_client_raw_skt,
+#endif
+	NULL
+};
+
 static const char * const mount_protocols[] = {
 	"http://",
 	"https://",
@@ -420,12 +427,11 @@ lws_create_vhost(struct lws_context *context,
 			 **vh1 = &context->vhost_list;
 	const struct lws_http_mount *mounts;
 	const struct lws_protocols *pcols = info->protocols;
-	const struct lws_protocol_vhost_options *pvo;
 #ifdef LWS_WITH_PLUGINS
 	struct lws_plugin *plugin = context->plugin_list;
 #endif
 	struct lws_protocols *lwsp;
-	int m, f = !info->pvo, fx = 0;
+	int m, f = !info->pvo, fx = 0, abs_pcol_count;
 	char buf[20];
 #if !defined(LWS_WITHOUT_CLIENT) && defined(LWS_HAVE_GETENV)
 	char *p;
@@ -539,17 +545,29 @@ lws_create_vhost(struct lws_context *context,
 	fx = 1;
 #endif
 
+	abs_pcol_count = (int)LWS_ARRAY_SIZE(available_abstract_protocols) - 1;
+
 	/*
-	 * give the vhost a unified list of protocols including the
-	 * ones that came from plugins
+	 * give the vhost a unified list of protocols including:
+	 *
+	 * - internal, abstracted ones
+	 * - the ones that came from plugins
+	 * - his user protocols
 	 */
-	lwsp = lws_zalloc(sizeof(struct lws_protocols) * (vh->count_protocols +
-				   context->plugin_protocol_count + fx + 1),
+	lwsp = lws_zalloc(sizeof(struct lws_protocols) *
+				(vh->count_protocols +
+				   abs_pcol_count +
+				   context->plugin_protocol_count +
+				   fx + 1),
 			  "vhost-specific plugin table");
 	if (!lwsp) {
 		lwsl_err("OOM\n");
 		return NULL;
 	}
+
+	/*
+	 * 1: user protocols (from pprotocols or protocols)
+	 */
 
 	m = vh->count_protocols;
 	if (!pcols) {
@@ -559,7 +577,17 @@ lws_create_vhost(struct lws_context *context,
 		memcpy(lwsp, pcols, sizeof(struct lws_protocols) * m);
 
 	/*
-	 * For compatibility, all protocols enabled on vhost if only
+	 * 2: abstract protocols
+	 */
+
+	for (n = 0; n < abs_pcol_count; n++) {
+		memcpy(&lwsp[m++], available_abstract_protocols[n],
+		       sizeof(*lwsp));
+		vh->count_protocols++;
+	}
+
+	/*
+	 * 3: For compatibility, all protocols enabled on vhost if only
 	 * the default vhost exists.  Otherwise only vhosts who ask
 	 * for a protocol get it enabled.
 	 */
@@ -569,7 +597,6 @@ lws_create_vhost(struct lws_context *context,
 	(void)f;
 #ifdef LWS_WITH_PLUGINS
 	if (plugin) {
-
 		while (plugin) {
 			for (n = 0; n < plugin->caps.count_protocols; n++) {
 				/*
@@ -591,21 +618,12 @@ lws_create_vhost(struct lws_context *context,
 #endif
 
 #if defined(LWS_WITH_HTTP_PROXY) && defined(LWS_ROLE_WS)
-	memcpy(&lwsp[m++], &lws_ws_proxy, sizeof(lws_ws_proxy));
+	memcpy(&lwsp[m++], &lws_ws_proxy, sizeof(*lwsp));
 	vh->count_protocols++;
 #endif
 
-	if (!pcols ||
-#ifdef LWS_WITH_PLUGINS
-	    (context->plugin_list) ||
-#endif
-	    (context->options & LWS_SERVER_OPTION_EXPLICIT_VHOSTS)) {
-		vh->protocols = lwsp;
-		vh->allocated_vhost_protocols = 1;
-	} else {
-		vh->protocols = pcols;
-		lws_free(lwsp);
-	}
+	vh->protocols = lwsp;
+	vh->allocated_vhost_protocols = 1;
 
 	vh->same_vh_protocol_heads = (struct lws_dll *)
 			lws_zalloc(sizeof(struct lws_dll) *
@@ -642,22 +660,6 @@ lws_create_vhost(struct lws_context *context,
 		lwsl_info("   mounting %s%s to %s\n",
 			  mount_protocols[mounts->origin_protocol],
 			  mounts->origin, mounts->mountpoint);
-
-		/* convert interpreter protocol names to pointers */
-		pvo = mounts->interpret;
-		while (pvo) {
-			for (n = 0; n < vh->count_protocols; n++) {
-				if (strcmp(pvo->value, vh->protocols[n].name))
-					continue;
-				((struct lws_protocol_vhost_options *)pvo)->
-					value = (const char *)(lws_intptr_t)n;
-				break;
-			}
-			if (n == vh->count_protocols)
-				lwsl_err("ignoring unknown interp pr %s\n",
-					 pvo->value);
-			pvo = pvo->next;
-		}
 
 		mounts = mounts->mount_next;
 	}

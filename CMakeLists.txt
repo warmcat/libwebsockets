@@ -346,11 +346,6 @@ message(STATUS "LWS_WITH_PLUGINS --> Enabling LWS_WITH_LIBUV")
  set(LWS_WITH_LIBUV 1)
 endif()
 
-if (LWS_WITH_SMTP AND NOT LWS_WITH_LIBUV)
-message(STATUS "LWS_WITH_SMTP --> Enabling LWS_WITH_LIBUV")
- set(LWS_WITH_LIBUV 1)
-endif()
-
 if (LWS_WITH_PLUGINS OR LWS_WITH_CGI)
 	# sshd plugin
  set(LWS_WITH_GENCRYPTO 1)
@@ -359,11 +354,6 @@ endif()
 if (LWS_WITH_GENERIC_SESSIONS)
  set(LWS_WITH_SQLITE3 1)
  set(LWS_WITH_SMTP 1)
-endif()
-
-if (LWS_WITH_SMTP AND NOT LWS_WITH_LIBUV)
-message(STATUS "LWS_WITH_SMTP --> Enabling LWS_WITH_LIBUV")
- set(LWS_WITH_LIBUV 1)
 endif()
 
 if (LWS_WITH_ESP32)
@@ -929,6 +919,7 @@ if (LWS_WITH_NETWORK)
 		lib/core-net/wsi-timeout.c
 		lib/core-net/adopt.c
 		lib/roles/pipe/ops-pipe.c
+		lib/abstract/abstract.c
 	)
 	
 	if (LWS_WITH_STATS)
@@ -982,6 +973,7 @@ endif()
 
 if (LWS_ROLE_RAW)
 	list(APPEND SOURCES
+		lib/abstract/transports/raw-skt.c
 		lib/roles/raw-skt/ops-raw-skt.c
 		lib/roles/raw-file/ops-raw-file.c)
 endif()
@@ -1295,7 +1287,7 @@ endif()
 
 if (LWS_WITH_SMTP)
 	list(APPEND SOURCES
-		lib/misc/smtp.c)
+		lib/abstract/smtp/smtp.c)
 endif()
 
 if (LWS_WITH_RANGES)

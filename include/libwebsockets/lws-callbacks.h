@@ -734,6 +734,9 @@ enum lws_callback_reasons {
 	LWS_CALLBACK_RAW_ADOPT					= 62,
 	/**< RAW mode connection was adopted (equivalent to 'wsi created') */
 
+	LWS_CALLBACK_RAW_CONNECTED				= 101,
+	/**< outgoing client RAW mode connection was connected */
+
 	LWS_CALLBACK_RAW_SKT_BIND_PROTOCOL			= 81,
 	LWS_CALLBACK_RAW_SKT_DROP_PROTOCOL			= 82,
 

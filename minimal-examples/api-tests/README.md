@@ -8,4 +8,5 @@ api-test-lws_tokenize|Generic secure string tokenizer api
 api-test-fts|LWS Full-text Search api
 api-test-gencrypto|LWS Generic Crypto apis
 api-test-jose|LWS JOSE apis
+api-test-smtp_client|SMTP client for sending emails
 
