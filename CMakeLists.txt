@@ -1194,6 +1194,7 @@ if (WIN32)
 		lib/plat/windows/windows-init.c
 		lib/plat/windows/windows-misc.c
 		lib/plat/windows/windows-pipe.c
+		lib/plat/windows/windows-plugins.c
 		lib/plat/windows/windows-service.c
 		lib/plat/windows/windows-sockets.c
 		)

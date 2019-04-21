@@ -30,13 +30,6 @@
 #endif
 #include <dirent.h>
 
-/*
- * this is a dummy implementation to keep travis happy.  The real, working
- * implementation can be found in event-libs/libuv/libuv.c
- */
-
-#if UV_VERSION_MAJOR <= 0
-
 static int filter(const struct dirent *ent)
 {
 	if (!strcmp(ent->d_name, ".") || !strcmp(ent->d_name, ".."))
@@ -55,6 +48,11 @@ lws_plat_plugins_init(struct lws_context * context, const char * const *d)
 	int n, i, m, ret = 0;
 	char path[256];
 	void *l;
+
+#if defined(LWS_WITH_PLUGINS) && (UV_VERSION_MAJOR > 0)
+	if (lws_check_opt(context->options, LWS_SERVER_OPTION_LIBUV))
+		return lws_uv_plugins_init(context, d);
+#endif
 
 	lwsl_notice("  Plugins:\n");
 
@@ -125,6 +123,8 @@ lws_plat_plugins_init(struct lws_context * context, const char * const *d)
 		d++;
 	}
 
+	return 0;
+
 bail:
 	free(namelist);
 
@@ -138,6 +138,11 @@ lws_plat_plugins_destroy(struct lws_context * context)
 	lws_plugin_destroy_func func;
 	char path[256];
 	int m;
+
+#if defined(LWS_WITH_PLUGINS) && (UV_VERSION_MAJOR > 0)
+	if (lws_check_opt(context->options, LWS_SERVER_OPTION_LIBUV))
+		return lws_uv_plugins_destroy(context);
+#endif
 
 	if (!plugin)
 		return 0;
@@ -170,4 +175,3 @@ next:
 
 	return 0;
 }
-#endif

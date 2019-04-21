@@ -323,8 +323,8 @@ lws_libuv_check_watcher_active(struct lws *wsi)
 
 #if defined(LWS_WITH_PLUGINS) && (UV_VERSION_MAJOR > 0)
 
-LWS_VISIBLE int
-lws_plat_plugins_init(struct lws_context *context, const char * const *d)
+int
+lws_uv_plugins_init(struct lws_context *context, const char * const *d)
 {
 	struct lws_plugin_capability lcaps;
 	struct lws_plugin *plugin;
@@ -425,8 +425,8 @@ bail:
 	return ret;
 }
 
-LWS_VISIBLE int
-lws_plat_plugins_destroy(struct lws_context *context)
+int
+lws_uv_plugins_destroy(struct lws_context *context)
 {
 	struct lws_plugin *plugin = context->plugin_list, *p;
 	lws_plugin_destroy_func func;
@@ -434,8 +434,6 @@ lws_plat_plugins_destroy(struct lws_context *context)
 	int pofs = 0;
 	void *v;
 	int m;
-
-//	return 0;
 
 #if  defined(__MINGW32__) || !defined(WIN32)
 	pofs = 3;

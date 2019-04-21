@@ -57,8 +57,8 @@ lws_plat_init(struct lws_context *context,
 		return 1;
 	}
 
-#ifdef LWS_WITH_PLUGINS
-	if (info->plugin_dirs && (context->options & LWS_SERVER_OPTION_LIBUV))
+#if defined(LWS_WITH_PLUGINS)
+	if (info->plugin_dirs)
 		lws_plat_plugins_init(context, info->plugin_dirs);
 #endif
 

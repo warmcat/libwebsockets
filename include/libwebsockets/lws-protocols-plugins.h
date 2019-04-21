@@ -217,9 +217,8 @@ struct lws_plugin {
 	struct lws_plugin *list; /**< linked list */
 #if (UV_VERSION_MAJOR > 0)
 	uv_lib_t lib; /**< shared library pointer */
-#else
-	void *l; /**< so we can compile on ancient libuv */
 #endif
+	void *l; /**< so we can compile on ancient libuv */
 	char name[64]; /**< name of the plugin */
 	struct lws_plugin_capability caps; /**< plugin capabilities */
 };

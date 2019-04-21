@@ -67,5 +67,11 @@ struct lws_signal_watcher_libuv {
 
 extern struct lws_event_loop_ops event_loop_ops_uv;
 
-LWS_VISIBLE uv_loop_t *
+uv_loop_t *
 lws_uv_getloop(struct lws_context *context, int tsi);
+
+int
+lws_uv_plugins_init(struct lws_context *context, const char * const *d);
+
+int
+lws_uv_plugins_destroy(struct lws_context *context);
