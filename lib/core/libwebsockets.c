@@ -521,7 +521,7 @@ LWS_VISIBLE LWS_EXTERN int
 lws_finalize_startup(struct lws_context *context)
 {
 	if (lws_check_opt(context->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS))
-		if (lws_plat_drop_app_privileges(context))
+		if (lws_plat_drop_app_privileges(context, 1))
 			return 1;
 
 	return 0;

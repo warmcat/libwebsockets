@@ -25,7 +25,7 @@
 #include "core/private.h"
 
 int
-lws_plat_drop_app_privileges(struct lws_context *context)
+lws_plat_drop_app_privileges(struct lws_context *context, int actually_set)
 {
 	return 0;
 }

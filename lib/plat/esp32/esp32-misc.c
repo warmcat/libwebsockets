@@ -58,7 +58,7 @@ LWS_VISIBLE void lwsl_emit_syslog(int level, const char *line)
 }
 
 int
-lws_plat_drop_app_privileges(struct lws_context *context)
+lws_plat_drop_app_privileges(struct lws_context *context, int actually_init)
 {
 	return 0;
 }

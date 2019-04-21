@@ -83,7 +83,7 @@ lws_plat_user_colon_group_to_ids(const char *u_colon_g, uid_t *puid, gid_t *pgid
 }
 
 int
-lws_plat_drop_app_privileges(struct lws_context *context)
+lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop)
 {
 	struct passwd *p;
 	struct group *g;
@@ -97,8 +97,6 @@ lws_plat_drop_app_privileges(struct lws_context *context)
 			lwsl_info("%s: group %s -> gid %u\n", __func__,
 				  context->groupname, g->gr_gid);
 			context->gid = g->gr_gid;
-			if (setgid(g->gr_gid))
-				lwsl_warn("setgid: %s\n", strerror(LWS_ERRNO));
 		} else {
 			lwsl_err("%s: unknown groupname '%s'\n", __func__,
 				 context->groupname);
@@ -124,6 +122,9 @@ lws_plat_drop_app_privileges(struct lws_context *context)
 			return 1;
 		}
 	}
+
+	if (!actually_drop)
+		return 0;
 
 	/* if he gave us the gid or we have it from the groupname, set it */
 

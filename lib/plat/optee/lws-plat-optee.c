@@ -108,7 +108,7 @@ lws_plat_set_nonblocking(int fd)
 }
 
 int
-lws_plat_drop_app_privileges(struct lws_context *context)
+lws_plat_drop_app_privileges(struct lws_context *context, int actually_init)
 {
 	return 0;
 }

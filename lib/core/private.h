@@ -591,7 +591,7 @@ LWS_EXTERN int
 lws_plat_init(struct lws_context *context,
 	      const struct lws_context_creation_info *info);
 LWS_EXTERN int
-lws_plat_drop_app_privileges(struct lws_context *context);
+lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop);
 
 #if defined(LWS_WITH_UNIX_SOCK)
 int

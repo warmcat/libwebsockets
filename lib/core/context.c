@@ -429,6 +429,10 @@ lwsl_info("context created\n");
 	context->username = info->username;
 	context->groupname = info->groupname;
 
+	/* if he gave us names, set the uid / gid */
+	if (lws_plat_drop_app_privileges(context, 0))
+		goto bail;
+
 #if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
 	memcpy(context->caps, info->caps, sizeof(context->caps));
 	context->count_caps = info->count_caps;
@@ -440,7 +444,7 @@ lwsl_info("context created\n");
 	 * listening, we don't want the power for anything else
 	 */
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS))
-		if (lws_plat_drop_app_privileges(context))
+		if (lws_plat_drop_app_privileges(context, 1))
 			goto bail;
 
 #if defined(LWS_WITH_NETWORK)
