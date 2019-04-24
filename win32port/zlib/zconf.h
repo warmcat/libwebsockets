@@ -40,6 +40,7 @@
 #  define deflateInit2_         z_deflateInit2_
 #  define deflateInit_          z_deflateInit_
 #  define deflateParams         z_deflateParams
+#  define deflatePending	z_deflatePending
 #  define deflatePrime          z_deflatePrime
 #  define deflateReset          z_deflateReset
 #  define deflateSetDictionary  z_deflateSetDictionary
