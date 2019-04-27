@@ -113,6 +113,15 @@ callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
 		lws_callback_on_writable(wsi);
 		break;
 
+	case LWS_CALLBACK_CLOSED:
+		lwsl_notice("LWS_CALLBACK_CLOSED\n");
+		break;
+
+	case LWS_CALLBACK_TIMER:
+		lwsl_user("Timer called, disabling flow control\n");
+		lws_rx_flow_control(wsi, 1);
+		break;
+
 	case LWS_CALLBACK_SERVER_WRITEABLE:
 		if (pss->position_tx == MESSAGE_SIZE)
 			break;
@@ -173,6 +182,10 @@ callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
 				(int)len, (int)pss->position_rx, (int)lws_remaining_packet_payload(wsi),
 				lws_is_final_fragment(wsi));
 		olen = len;
+
+		lwsl_user("Enabling flow control, setting timer\n");
+		lws_rx_flow_control(wsi, 0);
+		lws_set_timer_usecs(wsi, 5000);
 
 		if (*vhd->options & 1) {
 			while (len) {

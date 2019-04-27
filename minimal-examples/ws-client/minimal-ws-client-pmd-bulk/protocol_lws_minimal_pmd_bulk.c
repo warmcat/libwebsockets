@@ -240,6 +240,9 @@ callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
 					return -1;
 				}
 		}
+		lwsl_user("Enabling flow control, setting timer\n");
+		lws_rx_flow_control(wsi, 0);
+		lws_set_timer_usecs(wsi, 5000);
 
 		/* if we sent and received everything */
 
@@ -248,7 +251,10 @@ callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
 			*vhd->interrupted = 2;
 
 		break;
-
+	case LWS_CALLBACK_TIMER:
+		lwsl_user("Timer called, disabling flow control\n");
+		lws_rx_flow_control(wsi, 1);
+		break;
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		lwsl_err("CLIENT_CONNECTION_ERROR: %s\n",
 			 in ? (char *)in : "(null)");
@@ -257,6 +263,7 @@ callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLIENT_CLOSED:
+		lwsl_notice("LWS_CALLBACK_CLIENT_CLOSED\n");
 		vhd->client_wsi = NULL;
 		schedule_callback(wsi, LWS_CALLBACK_USER, 1);
 		break;
