@@ -476,7 +476,7 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 				goto append_npos;
 			}
 
-			if (ctx->dcount < 10 && c >= '0' && c <= '9') {
+			if (ctx->dcount < 20 && c >= '0' && c <= '9') {
 				if (ctx->f & LEJP_SEEN_POINT)
 					ctx->f |= LEJP_SEEN_POST_POINT;
 				ctx->dcount++;
