@@ -298,15 +298,17 @@ lws_client_ws_upgrade(struct lws *wsi, const char **cce)
 		e = lws_tokenize(&ts);
 		switch (e) {
 		case LWS_TOKZE_TOKEN:
-			if (!strcasecmp(ts.token, "upgrade"))
+			if (!strncasecmp(ts.token, "upgrade", ts.token_len))
 				e = LWS_TOKZE_ENDED;
 			break;
 
 		case LWS_TOKZE_DELIMITER:
 			break;
 
-		default: /* includes ENDED */
+		default: /* includes ENDED found by the tokenizer itself */
 bad_conn_format:
+			lwsl_info("%s: malfored connection '%s'\n",
+				  __func__, buf);
 			*cce = "HS: UPGRADE malformed";
 			goto bail3;
 		}

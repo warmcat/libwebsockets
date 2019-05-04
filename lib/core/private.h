@@ -140,8 +140,10 @@
 	 // Visual studio older than 2015 and WIN_CE has only _stricmp
 	#if (defined(_MSC_VER) && _MSC_VER < 1900) || defined(_WIN32_WCE)
 	#define strcasecmp _stricmp
+	#define strncasecmp _strnicmp
 	#elif !defined(__MINGW32__)
 	#define strcasecmp stricmp
+	#define strncasecmp strnicmp
 	#endif
 	#define getdtablesize() 30000
 #endif
