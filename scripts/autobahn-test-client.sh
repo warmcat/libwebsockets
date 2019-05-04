@@ -52,21 +52,6 @@ cat << EOF >fuzzingserver.json
 }
 EOF
 
-cat << EOF >fuzzingclient.json
-{ 
-   "outdir": "./reports/servers",
-   "servers": [
-      {
-         "url": "ws://127.0.0.1:9001"
-      }
-   ],
-   "cases": ["*"],
-   "exclude-cases": ["2.10", "2.11", "12.3.1", "12.3.2", "12.4.*", "12.5.*" ],
-   "exclude-agent-cases": {}
-}
-EOF
-
-
 PYTHONHASHSEED=0 wstest -m fuzzingserver &
 Q=$!
 sleep 2s
@@ -89,7 +74,7 @@ done
 
 # generate the report in ./reports
 #
-$CLIE -s 127.0.0.1 -p 9001 -u "/updateReports?agent=libwebsockets" -o
+$CLIE -s 127.0.0.1 -p 9001 -u "/updateReports?agent=libwebsockets" -o -d3
 sleep 2s
 killall wstest
 sleep 1s

@@ -148,6 +148,16 @@ enum lws_parser_return {
 	LPR_FORBIDDEN	= -2
 };
 
+enum pmd_return {
+	PMDR_UNKNOWN,
+	PMDR_DID_NOTHING,
+	PMDR_HAS_PENDING,
+	PMDR_EMPTY_NONFINAL,
+	PMDR_EMPTY_FINAL,
+
+	PMDR_FAILED = -1
+};
+
 typedef union {
 #ifdef LWS_WITH_IPV6
 	struct sockaddr_in6 sa6;

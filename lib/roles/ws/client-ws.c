@@ -112,7 +112,7 @@ lws_ws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 		if (wsi->ws->rx_draining_ext) {
 			int m;
 
-			//lwsl_notice("%s: draining ext\n", __func__);
+			lwsl_info("%s: draining ext\n", __func__);
 			if (lwsi_role_client(wsi))
 				m = lws_ws_client_rx_sm(wsi, 0);
 			else
@@ -122,7 +122,10 @@ lws_ws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 			continue;
 		}
 #endif
-		/* caller will account for buflist usage */
+		/*
+		 * caller will account for buflist usage by studying what
+		 * happened to *buf
+		 */
 
 		if (lws_ws_client_rx_sm(wsi, *(*buf)++)) {
 			lwsl_notice("%s: client_rx_sm exited, DROPPING %d\n",

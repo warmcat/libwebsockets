@@ -139,9 +139,20 @@ struct _lws_websocket_related {
 	unsigned int extension_data_pending:1;
 	unsigned int rx_draining_ext:1;
 	unsigned int tx_draining_ext:1;
+	unsigned int pmd_trailer_application:1;
 
 	uint8_t count_act_ext;
 #endif
+};
+
+/*
+ * we need to separately track what's happening with both compressed rx in
+ * and with inflated rx out that will be passed to the user code
+ */
+
+struct lws_ext_pm_deflate_rx_ebufs {
+	struct lws_tokens eb_in;
+	struct lws_tokens eb_out;
 };
 
 int

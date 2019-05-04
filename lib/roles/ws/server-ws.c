@@ -704,9 +704,9 @@ bail:
 static int
 lws_ws_frame_rest_is_payload(struct lws *wsi, uint8_t **buf, size_t len)
 {
+	struct lws_ext_pm_deflate_rx_ebufs pmdrx;
 	unsigned int avail = (unsigned int)len;
 	uint8_t *buffer = *buf, mask[4];
-	struct lws_tokens ebuf;
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	unsigned int old_packet_length = (int)wsi->ws->rx_packet_length;
 #endif
@@ -741,10 +741,10 @@ lws_ws_frame_rest_is_payload(struct lws *wsi, uint8_t **buf, size_t len)
 	if (!avail)
 		return 0;
 
-	ebuf.token = (char *)buffer;
-	ebuf.len = avail;
-
-	//lwsl_hexdump_notice(ebuf.token, ebuf.len);
+	pmdrx.eb_in.token = (char *)buffer;
+	pmdrx.eb_in.len = avail;
+	pmdrx.eb_out.token = (char *)buffer;
+	pmdrx.eb_out.len = avail;
 
 	if (!wsi->ws->all_zero_nonce) {
 
@@ -777,10 +777,12 @@ lws_ws_frame_rest_is_payload(struct lws *wsi, uint8_t **buf, size_t len)
 
 	(*buf) += avail;
 	len -= avail;
+	wsi->ws->rx_packet_length -= avail;
 
 #if !defined(LWS_WITHOUT_EXTENSIONS)
-	n = lws_ext_cb_active(wsi, LWS_EXT_CB_PAYLOAD_RX, &ebuf, 0);
-	lwsl_info("%s: ext says %d / ebuf.len %d\n", __func__,  n, ebuf.len);
+	n = lws_ext_cb_active(wsi, LWS_EXT_CB_PAYLOAD_RX, &pmdrx, 0);
+	lwsl_info("%s: ext says %d / ebuf_out.len %d\n", __func__,  n,
+			pmdrx.eb_out.len);
 #endif
 	/*
 	 * ebuf may be pointing somewhere completely different now,
@@ -794,11 +796,10 @@ lws_ws_frame_rest_is_payload(struct lws *wsi, uint8_t **buf, size_t len)
 		 */
 		lwsl_notice("%s: LWS_EXT_CB_PAYLOAD_RX blew out\n", __func__);
 		wsi->socket_is_permanently_unusable = 1;
+
 		return -1;
 	}
 #endif
-
-	wsi->ws->rx_packet_length -= avail;
 
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	/*
@@ -811,14 +812,15 @@ lws_ws_frame_rest_is_payload(struct lws *wsi, uint8_t **buf, size_t len)
 	 * as the message completion.
 	 */
 
-	if (!ebuf.len &&		      /* zero-length inflation output */
-	    !n &&		   /* nothing left to drain from the inflator */
-	    wsi->ws->count_act_ext &&			  /* we are using pmd */
+	if (!pmdrx.eb_out.len &&	      /* zero-length inflation output */
+	    n == PMDR_EMPTY_FINAL &&    /* nothing to drain from the inflator */
 	    old_packet_length &&	    /* we gave the inflator new input */
 	    !wsi->ws->rx_packet_length &&   /* raw ws packet payload all gone */
 	    wsi->ws->final &&		    /* the raw ws packet is a FIN guy */
 	    wsi->protocol->callback &&
 	    !wsi->wsistate_pre_close) {
+
+		lwsl_ext("%s: issuing zero length FIN pkt\n", __func__);
 
 		if (user_callback_handle_rxflow(wsi->protocol->callback, wsi,
 						LWS_CALLBACK_RECEIVE,
@@ -829,22 +831,21 @@ lws_ws_frame_rest_is_payload(struct lws *wsi, uint8_t **buf, size_t len)
 	}
 #endif
 
-	if (!ebuf.len)
+	if (!pmdrx.eb_out.len)
 		return avail;
 
-	if (
 #if !defined(LWS_WITHOUT_EXTENSIONS)
-	    n &&
-#endif
-	    ebuf.len)
+	if (n == PMDR_HAS_PENDING)
 		/* extension had more... main loop will come back */
 		lws_add_wsi_to_draining_ext_list(wsi);
 	else
 		lws_remove_wsi_from_draining_ext_list(wsi);
+#endif
 
 	if (wsi->ws->check_utf8 && !wsi->ws->defeat_check_utf8) {
 		if (lws_check_utf8(&wsi->ws->utf8,
-				   (unsigned char *)ebuf.token, ebuf.len)) {
+				   (unsigned char *)pmdrx.eb_out.token,
+				   pmdrx.eb_out.len)) {
 			lws_close_reason(wsi, LWS_CLOSE_STATUS_INVALID_PAYLOAD,
 					 (uint8_t *)"bad utf8", 8);
 			goto utf8_fail;
@@ -859,7 +860,7 @@ lws_ws_frame_rest_is_payload(struct lws *wsi, uint8_t **buf, size_t len)
 
 utf8_fail:
 			lwsl_info("utf8 error\n");
-			lwsl_hexdump_info(ebuf.token, ebuf.len);
+			lwsl_hexdump_info(pmdrx.eb_out.token, pmdrx.eb_out.len);
 
 			return -1;
 		}
@@ -869,14 +870,16 @@ utf8_fail:
 		if (user_callback_handle_rxflow(wsi->protocol->callback, wsi,
 						LWS_CALLBACK_RECEIVE,
 						wsi->user_space,
-						ebuf.token, ebuf.len))
+						pmdrx.eb_out.token,
+						pmdrx.eb_out.len))
 			return -1;
 
 	wsi->ws->first_fragment = 0;
 
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	lwsl_info("%s: input used %d, output %d, rem len %d, rx_draining_ext %d\n",
-		  __func__, avail, ebuf.len, (int)len, wsi->ws->rx_draining_ext);
+		  __func__, avail, pmdrx.eb_out.len, (int)len,
+		  wsi->ws->rx_draining_ext);
 #endif
 
 	return avail; /* how much we used from the input */
@@ -886,6 +889,7 @@ utf8_fail:
 int
 lws_parse_ws(struct lws *wsi, unsigned char **buf, size_t len)
 {
+	unsigned char *bufin = *buf;
 	int m, bulk = 0;
 
 	lwsl_debug("%s: received %d byte packet\n", __func__, (int)len);
@@ -900,10 +904,31 @@ lws_parse_ws(struct lws *wsi, unsigned char **buf, size_t len)
 		 */
 		if (wsi->rxflow_bitmap) {
 			lwsl_info("%s: doing rxflow, caching %d\n", __func__,
-					(int)len);
-			if (lws_rxflow_cache(wsi, *buf, 0, (int)len) !=
-					LWSRXFC_TRIMMED)
-				*buf += len; /* stashing it is taking care of it */
+				(int)len);
+			/*
+			 * Since we cached the remaining available input, we
+			 * can say we "consumed" it.
+			 *
+			 * But what about the case where the available input
+			 * came out of the rxflow cache already?  If we are
+			 * effectively "putting it back in the cache", we have
+			 * leave it where it is, already pointed to by the head.
+			 */
+			if (lws_rxflow_cache(wsi, *buf, 0, (int)len) ==
+							LWSRXFC_TRIMMED) {
+				/*
+				 * We dealt with it by trimming the existing
+				 * rxflow cache HEAD to account for what we used.
+				 *
+				 * indicate we didn't use anything to the caller
+				 * so he doesn't do any consumed processing
+				 */
+				lwsl_info("%s: trimming inside rxflow cache\n",
+					  __func__);
+				*buf = bufin;
+			} else
+				*buf += len;
+
 			return 1;
 		}
 #if !defined(LWS_WITHOUT_EXTENSIONS)
@@ -956,7 +981,7 @@ lws_parse_ws(struct lws *wsi, unsigned char **buf, size_t len)
 				   wsi->ws->rx_draining_ext);
 #endif
 			m = lws_ws_rx_sm(wsi, ALREADY_PROCESSED_IGNORE_CHAR |
-					 ALREADY_PROCESSED_NO_CB, 0);
+					      ALREADY_PROCESSED_NO_CB, 0);
 		}
 
 		if (m < 0) {

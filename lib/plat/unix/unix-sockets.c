@@ -33,6 +33,11 @@ lws_send_pipe_choked(struct lws *wsi)
 	struct lws_pollfd fds;
 	struct lws *wsi_eff;
 
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+	if (wsi->ws && wsi->ws->tx_draining_ext)
+		return 1;
+#endif
+
 #if defined(LWS_WITH_HTTP2)
 	wsi_eff = lws_get_network_wsi(wsi);
 #else

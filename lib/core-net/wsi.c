@@ -324,7 +324,7 @@ __lws_rx_flow_control(struct lws *wsi)
 	if (lws_buflist_next_segment_len(&wsi->buflist, NULL)) {
 		/* get ourselves called back to deal with stashed buffer */
 		lws_callback_on_writable(wsi);
-		return 0;
+		// return 0;
 	}
 
 	/* now the pending is cleared, we can change rxflow state */

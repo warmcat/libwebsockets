@@ -37,16 +37,6 @@ killall wstest 2>/dev/null
 #                   https://github.com/crossbario/autobahn-testsuite/issues/71
 
 
-cat << EOF >fuzzingserver.json
-{
-   "url": "ws://127.0.0.1:9001",
-   "outdir": "./reports/clients",
-   "cases": ["*"],
-   "exclude-cases": [ "2.10", "2.11", "12.3.1", "12.3.2", "12.4.*", "12.5.*"],
-   "exclude-agent-cases": {}
-}
-EOF
-
 cat << EOF >fuzzingclient.json
 { 
    "outdir": "./reports/servers",
@@ -56,7 +46,7 @@ cat << EOF >fuzzingclient.json
       }
    ],
    "cases": ["*"],
-   "exclude-cases": ["2.10", "2.11", "12.3.1", "12.3.2", "12.4.*", "12.5.*" ],
+   "exclude-cases": ["2.10", "2.11" ],
    "exclude-agent-cases": {}
 }
 EOF
@@ -66,7 +56,7 @@ echo "----------------------------------------------"
 echo "-------   tests: autobahn as server"
 echo
 
-$SERV -p 9001 -d7 &
+$SERV -p 9001 -d3 &
 wstest -m fuzzingclient
 R=$?
 echo "Autobahn client exit $R"

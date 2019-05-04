@@ -24,18 +24,19 @@ struct lws_ext_pm_deflate_priv {
 	unsigned char *buf_rx_inflated; /* RX inflated output buffer */
 	unsigned char *buf_tx_deflated; /* TX deflated output buffer */
 
+	unsigned char *buf_tx_holding;
+
 	size_t count_rx_between_fin;
+	size_t count_tx_between_fin;
+
+	size_t len_tx_holding;
 
 	unsigned char args[PMD_ARG_COUNT];
-	unsigned char tx_held[5];
-	unsigned char rx_held;
+
+	unsigned char tx_first_frame_type;
 
 	unsigned char tx_init:1;
 	unsigned char rx_init:1;
 	unsigned char compressed_out:1;
-	unsigned char rx_held_valid:1;
-	unsigned char tx_held_valid:1;
-	unsigned char rx_append_trailer:1;
-	unsigned char pending_tx_trailer:1;
 };
 

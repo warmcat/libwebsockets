@@ -214,8 +214,6 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 	if (new_wsi->role_ops->adoption_cb[lwsi_role_server(new_wsi)])
 		n = new_wsi->role_ops->adoption_cb[lwsi_role_server(new_wsi)];
 
-	lwsl_err("new wsi wsistate 0x%x\n", new_wsi->wsistate);
-
 	if (context->event_loop_ops->accept)
 		if (context->event_loop_ops->accept(new_wsi))
 			goto fail;

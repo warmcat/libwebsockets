@@ -63,6 +63,8 @@ lws_extension_pmdeflate_restrict_args(struct lws *wsi,
 	}
 }
 
+static unsigned char trail[] = { 0, 0, 0xff, 0xff };
+
 LWS_VISIBLE int
 lws_extension_callback_pm_deflate(struct lws_context *context,
 				  const struct lws_extension *ext,
@@ -72,10 +74,12 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 {
 	struct lws_ext_pm_deflate_priv *priv =
 				     (struct lws_ext_pm_deflate_priv *)user;
-	struct lws_tokens *ebuf = (struct lws_tokens *)in;
-	static unsigned char trail[] = { 0, 0, 0xff, 0xff };
-	int n, ret = 0, was_fin = 0, extra;
+	struct lws_ext_pm_deflate_rx_ebufs *pmdrx =
+				(struct lws_ext_pm_deflate_rx_ebufs *)in;
 	struct lws_ext_option_arg *oa;
+	int n, ret = 0, was_fin = 0, m;
+	unsigned int pen = 0;
+	int penbits = 0;
 
 	switch (reason) {
 	case LWS_EXT_CB_NAMED_OPTION_SET:
@@ -174,54 +178,80 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		if (priv->tx_init)
 			(void)deflateEnd(&priv->tx);
 		lws_free(priv);
+
 		return ret;
+
 
 	case LWS_EXT_CB_PAYLOAD_RX:
 		lwsl_ext(" %s: LWS_EXT_CB_PAYLOAD_RX: in %d, existing in %d\n",
-			 __func__, ebuf->len, priv->rx.avail_in);
+			 __func__, pmdrx->eb_in.len, priv->rx.avail_in);
+
+		/* if this frame is not marked as compressed, we ignore it */
+
 		if (!(wsi->ws->rsv_first_msg & 0x40) || (wsi->ws->opcode & 8))
-			return 0;
+			return PMDR_DID_NOTHING;
 
-		// lwsl_hexdump_debug(ebuf->token, ebuf->len);
+		/*
+		 * we shouldn't come back in here if we already applied the
+		 * trailer for this compressed packet
+		 */
+		if (!wsi->ws->pmd_trailer_application)
+			return PMDR_DID_NOTHING;
 
-		if (!priv->rx_init)
+		pmdrx->eb_out.len = 0;
+
+		lwsl_ext("%s: LWS_EXT_CB_PAYLOAD_RX: in %d, "
+			    "existing avail in %d, pkt fin: %d\n", __func__,
+				    pmdrx->eb_in.len, priv->rx.avail_in,
+				    wsi->ws->final);
+
+		/* if needed, initialize the inflator */
+
+		if (!priv->rx_init) {
 			if (inflateInit2(&priv->rx,
 			     -priv->args[PMD_SERVER_MAX_WINDOW_BITS]) != Z_OK) {
 				lwsl_err("%s: iniflateInit failed\n", __func__);
-				return -1;
+				return PMDR_FAILED;
 			}
-		priv->rx_init = 1;
-		if (!priv->buf_rx_inflated)
-			priv->buf_rx_inflated = lws_malloc(LWS_PRE + 7 + 5 +
+			priv->rx_init = 1;
+			if (!priv->buf_rx_inflated)
+				priv->buf_rx_inflated = lws_malloc(
+					LWS_PRE + 7 + 5 +
 					    (1 << priv->args[PMD_RX_BUF_PWR2]),
 					    "pmd rx inflate buf");
-		if (!priv->buf_rx_inflated) {
-			lwsl_err("%s: OOM\n", __func__);
-			return -1;
+			if (!priv->buf_rx_inflated) {
+				lwsl_err("%s: OOM\n", __func__);
+				return PMDR_FAILED;
+			}
 		}
 
+#if 0
 		/*
-		 * We have to leave the input stream alone if we didn't
-		 * finish with it yet.  The input stream is held in the wsi
-		 * rx buffer by the caller, so this assumption is safe while
-		 * we block new rx while draining the existing rx
+		 * don't give us new input while we still work through
+		 * the last input
 		 */
-		if (!priv->rx.avail_in && ebuf->token && ebuf->len) {
-			priv->rx.next_in = (unsigned char *)ebuf->token;
-			priv->rx.avail_in = ebuf->len;
+
+		if (priv->rx.avail_in && pmdrx->eb_in.token &&
+					 pmdrx->eb_in.len) {
+			lwsl_warn("%s: priv->rx.avail_in %d while getting new in\n",
+					__func__, priv->rx.avail_in);
+	//		assert(0);
 		}
+#endif
+		if (!priv->rx.avail_in && pmdrx->eb_in.token && pmdrx->eb_in.len) {
+			priv->rx.next_in = (unsigned char *)pmdrx->eb_in.token;
+			priv->rx.avail_in = pmdrx->eb_in.len;
+		}
+
 		priv->rx.next_out = priv->buf_rx_inflated + LWS_PRE;
-		ebuf->token = (char *)priv->rx.next_out;
+		pmdrx->eb_out.token = (char *)priv->rx.next_out;
 		priv->rx.avail_out = 1 << priv->args[PMD_RX_BUF_PWR2];
 
-		if (priv->rx_held_valid) {
-			lwsl_ext("-- RX piling on held byte --\n");
-			*(priv->rx.next_out++) = priv->rx_held;
-			priv->rx.avail_out--;
-			priv->rx_held_valid = 0;
-		}
+		pen = penbits = 0;
+		deflatePending(&priv->rx, &pen, &penbits);
+		pen |= penbits;
 
-		/* if...
+		/* so... if...
 		 *
 		 *  - he has no remaining input content for this message, and
 		 *  - and this is the final fragment, and
@@ -230,15 +260,26 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		 * ...then put back the 00 00 FF FF the sender stripped as our
 		 * input to zlib
 		 */
-		if (!priv->rx.avail_in && wsi->ws->final &&
-		    !wsi->ws->rx_packet_length) {
-			lwsl_ext("RX APPEND_TRAILER-DO\n");
+		if (!priv->rx.avail_in &&
+		    wsi->ws->final &&
+		    !wsi->ws->rx_packet_length &&
+		    wsi->ws->pmd_trailer_application) {
+			lwsl_ext("%s: trailer apply 1\n", __func__);
 			was_fin = 1;
+			wsi->ws->pmd_trailer_application = 0;
 			priv->rx.next_in = trail;
 			priv->rx.avail_in = sizeof(trail);
 		}
 
-		n = inflate(&priv->rx, Z_NO_FLUSH);
+		/*
+		 * if after all that there's nothing pending and nothing to give
+		 * him right now, bail without having done anything
+		 */
+
+		if (!priv->rx.avail_in && !pen)
+			return PMDR_DID_NOTHING;
+
+		n = inflate(&priv->rx, was_fin ? Z_SYNC_FLUSH : Z_NO_FLUSH);
 		lwsl_ext("inflate ret %d, avi %d, avo %d, wsifinal %d\n", n,
 			 priv->rx.avail_in, priv->rx.avail_out, wsi->ws->final);
 		switch (n) {
@@ -246,29 +287,51 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		case Z_STREAM_ERROR:
 		case Z_DATA_ERROR:
 		case Z_MEM_ERROR:
-			lwsl_notice("zlib error inflate %d: %s\n",
-				  n, priv->rx.msg);
-			return -1;
+			lwsl_err("%s: zlib error inflate %d: \"%s\"\n",
+				  __func__, n, priv->rx.msg);
+			return PMDR_FAILED;
 		}
+
 		/*
-		 * If we did not already send in the 00 00 FF FF, and he's
-		 * out of input, he did not EXACTLY fill the output buffer
-		 * (which is ambiguous and we will force it to go around
-		 * again by withholding a byte), and he's otherwise working on
-		 * being a FIN fragment, then do the FIN message processing
-		 * of faking up the 00 00 FF FF that the sender stripped.
+		 * track how much input was used, and advance it
 		 */
-		if (!priv->rx.avail_in && wsi->ws->final &&
-		    !wsi->ws->rx_packet_length && !was_fin &&
-		    priv->rx.avail_out /* ambiguous as to if it is the end */
+
+		pmdrx->eb_in.token = (char *)pmdrx->eb_in.token +
+				         (pmdrx->eb_in.len - priv->rx.avail_in);
+		pmdrx->eb_in.len = priv->rx.avail_in;
+
+		pen = penbits = 0;
+		deflatePending(&priv->rx, &pen, &penbits);
+		pen |= penbits;
+
+		lwsl_debug("%s: %d %d %d %d %d %d\n", __func__,
+				priv->rx.avail_in,
+				wsi->ws->final,
+				(int)wsi->ws->rx_packet_length,
+				was_fin,
+				wsi->ws->pmd_trailer_application,
+				pen);
+
+		if (!priv->rx.avail_in &&
+		    wsi->ws->final &&
+		    !wsi->ws->rx_packet_length &&
+		    !was_fin &&
+		    wsi->ws->pmd_trailer_application &&
+		    !pen
 		) {
-			lwsl_ext("RX APPEND_TRAILER-DO\n");
+			lwsl_ext("%s: RX trailer apply 2\n", __func__);
+
+			/* we overallocated just for this situation where
+			 * we might issue something */
+			priv->rx.avail_out += 5;
+
 			was_fin = 1;
+			wsi->ws->pmd_trailer_application = 0;
 			priv->rx.next_in = trail;
 			priv->rx.avail_in = sizeof(trail);
 			n = inflate(&priv->rx, Z_SYNC_FLUSH);
-			lwsl_ext("RX trailer inf returned %d, avi %d, avo %d\n",
-				 n, priv->rx.avail_in, priv->rx.avail_out);
+			lwsl_ext("RX trailer infl ret %d, avi %d, avo %d\n",
+				    n, priv->rx.avail_in, priv->rx.avail_out);
 			switch (n) {
 			case Z_NEED_DICT:
 			case Z_STREAM_ERROR:
@@ -278,54 +341,44 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 					  n, priv->rx.msg);
 				return -1;
 			}
-		}
-		/*
-		 * we must announce in our returncode now if there is more
-		 * output to be expected from inflate, so we can decide to
-		 * set the FIN bit on this bufferload or not.  However zlib
-		 * is ambiguous when we exactly filled the inflate buffer.  It
-		 * does not give us a clue as to whether we should understand
-		 * that to mean he ended on a buffer boundary, or if there is
-		 * more in the pipeline.
-		 *
-		 * So to work around that safely, if it used all output space
-		 * exactly, we ALWAYS say there is more coming and we withhold
-		 * the last byte of the buffer to guarantee that is true.
-		 *
-		 * That still leaves us at least one byte to finish with a FIN
-		 * on, even if actually nothing more is coming from the next
-		 * inflate action itself.
-		 */
-		if (!priv->rx.avail_out) { /* he used all available out buf */
-			lwsl_ext("-- rx grabbing held --\n");
-			/* snip the last byte and hold it for next time */
-			priv->rx_held = *(--priv->rx.next_out);
-			priv->rx_held_valid = 1;
+
+			assert(priv->rx.avail_out);
+
+			pen = penbits = 0;
+			deflatePending(&priv->rx, &pen, &penbits);
+			pen |= penbits;
 		}
 
-		ebuf->len = lws_ptr_diff(priv->rx.next_out, ebuf->token);
-		priv->count_rx_between_fin += ebuf->len;
+		pmdrx->eb_out.len = lws_ptr_diff(priv->rx.next_out,
+						 pmdrx->eb_out.token);
+		priv->count_rx_between_fin += pmdrx->eb_out.len;
 
 		lwsl_ext("  %s: RX leaving with new effbuff len %d, "
-			 "ret %d, rx.avail_in=%d, TOTAL RX since FIN %lu\n",
-			 __func__, ebuf->len, priv->rx_held_valid,
-			 priv->rx.avail_in,
+			 "rx.avail_in=%d, TOTAL RX since FIN %lu\n",
+			 __func__, pmdrx->eb_out.len, priv->rx.avail_in,
 			 (unsigned long)priv->count_rx_between_fin);
 
 		if (was_fin) {
+			lwsl_ext("%s: was_fin\n", __func__);
+			assert(!pen);
 			priv->count_rx_between_fin = 0;
 			if (priv->args[PMD_SERVER_NO_CONTEXT_TAKEOVER]) {
 				lwsl_ext("PMD_SERVER_NO_CONTEXT_TAKEOVER\n");
 				(void)inflateEnd(&priv->rx);
 				priv->rx_init = 0;
 			}
+
+			return PMDR_EMPTY_FINAL;
 		}
 
-		// lwsl_hexdump_debug(ebuf->token, ebuf->len);
+		if (pen || priv->rx.avail_in)
+			return PMDR_HAS_PENDING;
 
-		return priv->rx_held_valid;
+		return PMDR_EMPTY_NONFINAL;
 
 	case LWS_EXT_CB_PAYLOAD_TX:
+
+		/* initialize us if needed */
 
 		if (!priv->tx_init) {
 			n = deflateInit2(&priv->tx, priv->args[PMD_COMP_LEVEL],
@@ -336,139 +389,160 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 					 Z_DEFAULT_STRATEGY);
 			if (n != Z_OK) {
 				lwsl_ext("inflateInit2 failed %d\n", n);
-				return 1;
+				return PMDR_FAILED;
 			}
+			priv->tx_init = 1;
 		}
-		priv->tx_init = 1;
+
 		if (!priv->buf_tx_deflated)
 			priv->buf_tx_deflated = lws_malloc(LWS_PRE + 7 + 5 +
 					    (1 << priv->args[PMD_TX_BUF_PWR2]),
 					    "pmd tx deflate buf");
 		if (!priv->buf_tx_deflated) {
 			lwsl_err("%s: OOM\n", __func__);
-			return -1;
+			return PMDR_FAILED;
 		}
 
-		if (ebuf->token) {
-			lwsl_ext("%s: TX: ebuf length %d\n", __func__,
-				 ebuf->len);
-			priv->tx.next_in = (unsigned char *)ebuf->token;
-			priv->tx.avail_in = ebuf->len;
-		}
+		/* hook us up with any deflated input that the caller has */
 
-#if 0
-		for (n = 0; n < ebuf->len; n++) {
-			printf("%02X ", (unsigned char)ebuf->token[n]);
-			if ((n & 15) == 15)
-				printf("\n");
+		if (pmdrx->eb_in.token) {
+
+			assert(!priv->tx.avail_in);
+
+			priv->count_tx_between_fin += pmdrx->eb_in.len;
+			lwsl_ext("%s: TX: eb_in length %d, "
+				    "TOTAL TX since FIN: %d\n", __func__,
+				    pmdrx->eb_in.len,
+				    (int)priv->count_tx_between_fin);
+			priv->tx.next_in = (unsigned char *)pmdrx->eb_in.token;
+			priv->tx.avail_in = pmdrx->eb_in.len;
 		}
-		printf("\n");
-#endif
 
 		priv->tx.next_out = priv->buf_tx_deflated + LWS_PRE + 5;
-		ebuf->token = (char *)priv->tx.next_out;
+		pmdrx->eb_out.token = (char *)priv->tx.next_out;
 		priv->tx.avail_out = 1 << priv->args[PMD_TX_BUF_PWR2];
 
-		if (priv->tx.avail_in) {
-			n = deflate(&priv->tx, Z_SYNC_FLUSH);
-			if (n == Z_STREAM_ERROR) {
-				lwsl_ext("%s: Z_STREAM_ERROR\n", __func__);
-				return -1;
-			}
+		pen = penbits = 0;
+		deflatePending(&priv->tx, &pen, &penbits);
+		pen |= penbits;
+
+		if (!priv->tx.avail_in && (len & LWS_WRITE_NO_FIN)) {
+			lwsl_ext("%s: no available in, pen: %u\n", __func__, pen);
+
+			if (!pen)
+				return PMDR_DID_NOTHING;
 		}
 
-		if (priv->tx_held_valid) {
-			priv->tx_held_valid = 0;
-			if ((int)priv->tx.avail_out ==
-					1 << priv->args[PMD_TX_BUF_PWR2])
-				/*
-				 * We can get a situation he took something in
-				 * but did not generate anything out, at the end
-				 * of a message (eg, next thing he sends is 80
-				 * 00, a zero length FIN, like Autobahn can
-				 * send).
-				 *
-				 * If we have come back as a FIN, we must not
-				 * place the pending trailer 00 00 FF FF, just
-				 * the 1 byte of live data
-				 */
-
-				*(--ebuf->token) = priv->tx_held[0];
-			else {
-				/*
-				 * he generated some data on his own...
-				 * prepend the whole pending
-				 */
-				ebuf->token -= 5;
-				for (n = 0; n < 5; n++)
-					ebuf->token[n] = priv->tx_held[n];
-
-			}
+		m = Z_NO_FLUSH;
+		if (!(len & LWS_WRITE_NO_FIN)) {
+			lwsl_ext("%s: deflate with SYNC_FLUSH, pkt len %d\n",
+					__func__, (int)wsi->ws->rx_packet_length);
+			m = Z_SYNC_FLUSH;
 		}
-		priv->compressed_out = 1;
-		ebuf->len = lws_ptr_diff(priv->tx.next_out, ebuf->token);
+
+		n = deflate(&priv->tx, m);
+		if (n == Z_STREAM_ERROR) {
+			lwsl_notice("%s: Z_STREAM_ERROR\n", __func__);
+			return PMDR_FAILED;
+		}
+
+		pen = (!priv->tx.avail_out) && n != Z_STREAM_END;
+
+		lwsl_ext("%s: deflate ret %d, len 0x%x\n", __func__, n,
+				(unsigned int)len);
+
+		if ((len & 0xf) == LWS_WRITE_TEXT)
+			priv->tx_first_frame_type = LWSWSOPC_TEXT_FRAME;
+		if ((len & 0xf) == LWS_WRITE_BINARY)
+			priv->tx_first_frame_type = LWSWSOPC_BINARY_FRAME;
+
+		pmdrx->eb_out.len = lws_ptr_diff(priv->tx.next_out,
+						 pmdrx->eb_out.token);
+
+		if (m == Z_SYNC_FLUSH && !(len & LWS_WRITE_NO_FIN) && !pen &&
+		    pmdrx->eb_out.len < 4) {
+			lwsl_err("%s: FAIL want to trim out length %d\n",
+					__func__, (int)pmdrx->eb_out.len);
+			assert(0);
+		}
+
+		if (!(len & LWS_WRITE_NO_FIN) &&
+		    m == Z_SYNC_FLUSH &&
+		    !pen &&
+		    pmdrx->eb_out.len >= 4) {
+			// lwsl_err("%s: Trimming 4 from end of write\n", __func__);
+			priv->tx.next_out -= 4;
+			priv->tx.avail_out += 4;
+			priv->count_tx_between_fin = 0;
+
+			assert(priv->tx.next_out[0] == 0x00 &&
+			       priv->tx.next_out[1] == 0x00 &&
+			       priv->tx.next_out[2] == 0xff &&
+			       priv->tx.next_out[3] == 0xff);
+		}
+
 
 		/*
-		 * we must announce in our returncode now if there is more
-		 * output to be expected from inflate, so we can decide to
-		 * set the FIN bit on this bufferload or not.  However zlib
-		 * is ambiguous when we exactly filled the inflate buffer.  It
-		 * does not give us a clue as to whether we should understand
-		 * that to mean he ended on a buffer boundary, or if there is
-		 * more in the pipeline.
-		 *
-		 * Worse, the guy providing the stuff we are sending may not
-		 * know until after that this was, actually, the last chunk,
-		 * that can happen even if we did not fill the output buf, ie
-		 * he may send after this a zero-length FIN fragment.
-		 *
-		 * This is super difficult because we must snip the last 4
-		 * bytes in the case this is the last compressed output of the
-		 * message.  The only way to deal with it is defer sending the
-		 * last 5 bytes of each frame until the next one, when we will
-		 * be in a position to understand if that has a FIN or not.
+		 * track how much input was used and advance it
 		 */
 
-		extra = !!(len & LWS_WRITE_NO_FIN) || !priv->tx.avail_out;
+		pmdrx->eb_in.token = (char *)pmdrx->eb_in.token +
+					(pmdrx->eb_in.len - priv->tx.avail_in);
+		pmdrx->eb_in.len = priv->tx.avail_in;
 
-		if (ebuf->len >= 4 + extra) {
-			lwsl_ext("tx held %d\n", 4 + extra);
-			priv->tx_held_valid = extra;
-			for (n = 3 + extra; n >= 0; n--)
-				priv->tx_held[n] = *(--priv->tx.next_out);
-			ebuf->len -= 4 + extra;
-		}
-		lwsl_ext("  TX rewritten with new effbuff len %d, ret %d\n",
-			 ebuf->len, !priv->tx.avail_out);
+		priv->compressed_out = 1;
+		pmdrx->eb_out.len = lws_ptr_diff(priv->tx.next_out,
+						 pmdrx->eb_out.token);
 
-		return !priv->tx.avail_out; /* 1 == have more tx pending */
+		lwsl_ext("  TX rewritten with new eb_in len %d, "
+				"eb_out len %d, deflatePending %d\n",
+				pmdrx->eb_in.len, pmdrx->eb_out.len, pen);
+
+		if (pmdrx->eb_in.len || pen)
+			return PMDR_HAS_PENDING;
+
+		if (!(len & LWS_WRITE_NO_FIN))
+			return PMDR_EMPTY_FINAL;
+
+		return PMDR_EMPTY_NONFINAL;
 
 	case LWS_EXT_CB_PACKET_TX_PRESEND:
 		if (!priv->compressed_out)
 			break;
 		priv->compressed_out = 0;
 
-		if ((*(ebuf->token) & 0x80) &&
+		/*
+		 * we may have not produced any output for the actual "first"
+		 * write... in that case, we need to fix up the inappropriate
+		 * use of CONTINUATION when the first real write does come.
+		 */
+		if (priv->tx_first_frame_type & 0xf) {
+			*pmdrx->eb_in.token = ((*pmdrx->eb_in.token) & ~0xf) |
+					(priv->tx_first_frame_type & 0xf);
+			/*
+			 * We have now written the "first" fragment, only
+			 * do that once
+			 */
+			priv->tx_first_frame_type = 0;
+		}
+
+		n = *(pmdrx->eb_in.token) & 15;
+
+		/* set RSV1, but not on CONTINUATION */
+		if (n == LWSWSOPC_TEXT_FRAME || n == LWSWSOPC_BINARY_FRAME)
+			*pmdrx->eb_in.token |= 0x40;
+
+		lwsl_ext("%s: PRESEND compressed: ws frame 0x%02X, len %d\n",
+			    __func__, ((*pmdrx->eb_in.token) & 0xff),
+			    pmdrx->eb_in.len);
+
+		if (((*pmdrx->eb_in.token) & 0x80) &&	/* fin */
 		    priv->args[PMD_CLIENT_NO_CONTEXT_TAKEOVER]) {
 			lwsl_debug("PMD_CLIENT_NO_CONTEXT_TAKEOVER\n");
 			(void)deflateEnd(&priv->tx);
 			priv->tx_init = 0;
 		}
 
-		n = *(ebuf->token) & 15;
-		/* set RSV1, but not on CONTINUATION */
-		if (n == LWSWSOPC_TEXT_FRAME || n == LWSWSOPC_BINARY_FRAME)
-			*ebuf->token |= 0x40;
-#if 0
-		for (n = 0; n < ebuf->len; n++) {
-			printf("%02X ", (unsigned char)ebuf->token[n]);
-			if ((n & 15) == 15)
-				puts("\n");
-		}
-		puts("\n");
-#endif
-		lwsl_ext("%s: tx opcode 0x%02X\n", __func__,
-			 (unsigned char)*ebuf->token);
 		break;
 
 	default:

@@ -36,6 +36,7 @@ struct per_session_data__minimal_server_echo {
 	uint32_t tail;
 	uint8_t completed:1;
 	uint8_t flow_controlled:1;
+	uint8_t write_consume_pending:1;
 };
 
 struct vhd_minimal_server_echo {
@@ -67,7 +68,7 @@ callback_minimal_server_echo(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_get_protocol(wsi));
 	const struct msg *pmsg;
 	struct msg amsg;
-	int n, flags;
+	int m, n, flags;
 
 	switch (reason) {
 
@@ -103,39 +104,41 @@ callback_minimal_server_echo(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_SERVER_WRITEABLE:
 
 		lwsl_user("LWS_CALLBACK_SERVER_WRITEABLE\n");
-		do {
-			int m;
 
-			pmsg = lws_ring_get_element(pss->ring, &pss->tail);
-			if (!pmsg) {
-				lwsl_user(" (nothing in ring)\n");
-				break;
-			}
-
-			flags = lws_write_ws_flags(
-				    pmsg->binary ? LWS_WRITE_BINARY : LWS_WRITE_TEXT,
-				    pmsg->first, pmsg->final);
-
-			/* notice we allowed for LWS_PRE in the payload already */
-			m = lws_write(wsi, ((unsigned char *)pmsg->payload) +
-				      LWS_PRE, pmsg->len, flags);
-			if (m < (int)pmsg->len) {
-				lwsl_err("ERROR %d writing to ws socket\n", m);
-				return -1;
-			}
-
-			lwsl_user(" wrote %d: flags: 0x%x first: %d final %d\n",
-					m, flags, pmsg->first, pmsg->final);
-
+		if (pss->write_consume_pending) {
+			/* perform the deferred fifo consume */
 			lws_ring_consume_single_tail(pss->ring, &pss->tail, 1);
+			pss->write_consume_pending = 0;
+		}
 
-		} while (lws_ring_get_element(pss->ring, &pss->tail) &&
-			 !lws_send_pipe_choked(wsi));
+		pmsg = lws_ring_get_element(pss->ring, &pss->tail);
+		if (!pmsg) {
+			lwsl_user(" (nothing in ring)\n");
+			break;
+		}
 
-		/* more to do for us? */
-		if (lws_ring_get_element(pss->ring, &pss->tail))
-			/* come back as soon as we can write more */
-			lws_callback_on_writable(wsi);
+		flags = lws_write_ws_flags(
+			    pmsg->binary ? LWS_WRITE_BINARY : LWS_WRITE_TEXT,
+			    pmsg->first, pmsg->final);
+
+		/* notice we allowed for LWS_PRE in the payload already */
+		m = lws_write(wsi, ((unsigned char *)pmsg->payload) +
+			      LWS_PRE, pmsg->len, flags);
+		if (m < (int)pmsg->len) {
+			lwsl_err("ERROR %d writing to ws socket\n", m);
+			return -1;
+		}
+
+		lwsl_user(" wrote %d: flags: 0x%x first: %d final %d\n",
+				m, flags, pmsg->first, pmsg->final);
+		/*
+		 * Workaround deferred deflate in pmd extension by only
+		 * consuming the fifo entry when we are certain it has been
+		 * fully deflated at the next WRITABLE callback.  You only need
+		 * this if you're using pmd.
+		 */
+		pss->write_consume_pending = 1;
+		lws_callback_on_writable(wsi);
 
 		if (pss->flow_controlled &&
 		    (int)lws_ring_get_count_free_elements(pss->ring) > RING_DEPTH - 5) {
