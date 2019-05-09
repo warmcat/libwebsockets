@@ -875,7 +875,9 @@ lws_libuv_closewsi(uv_handle_t* handle)
 	struct lws *wsi = (struct lws *)handle->data;
 	struct lws_context *context = lws_get_context(wsi);
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	int lspd = 0, m;
+#if !defined(LWS_WITHOUT_SERVER)
+	int lspd = 0;
+#endif
 
 	lwsl_info("%s: %p\n", __func__, wsi);
 
@@ -883,12 +885,14 @@ lws_libuv_closewsi(uv_handle_t* handle)
 	 * We get called back here for every wsi that closes
 	 */
 
+#if !defined(LWS_WITHOUT_SERVER)
 	if (wsi->role_ops == &role_ops_listen && wsi->context->deprecated) {
 		lspd = 1;
 		context->deprecation_pending_listen_close_count--;
 		if (!context->deprecation_pending_listen_close_count)
 			lspd = 2;
 	}
+#endif
 
 	lws_pt_lock(pt, __func__);
 	__lws_close_free_wsi_final(wsi);
@@ -897,10 +901,12 @@ lws_libuv_closewsi(uv_handle_t* handle)
 	/* it's our job to close the handle finally */
 	lws_free(handle);
 
+#if !defined(LWS_WITHOUT_SERVER)
 	if (lspd == 2 && context->deprecation_cb) {
 		lwsl_notice("calling deprecation callback\n");
 		context->deprecation_cb();
 	}
+#endif
 
 	lwsl_info("%s: sa left %d: dyn left: %d (rk %d)\n", __func__,
 		    context->count_event_loop_static_asset_handles,
@@ -912,6 +918,7 @@ lws_libuv_closewsi(uv_handle_t* handle)
 
 	if (context->requested_kill && !context->count_wsi_allocated) {
 		struct lws_vhost *vh = context->vhost_list;
+		int m;
 
 		/*
 		 * Start Closing Phase 2: close of static handles
