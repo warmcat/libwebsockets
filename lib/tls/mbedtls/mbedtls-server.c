@@ -235,8 +235,9 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 		free(p);
 	} else {
 		if (info->server_ssl_ca_mem && info->server_ssl_ca_mem_len &&
-		    SSL_CTX_add_client_CA_ASN1(vhost->tls.ssl_ctx, (int)flen, p)
-				    != 1) {
+		    SSL_CTX_add_client_CA_ASN1(vhost->tls.ssl_ctx,
+					       (int)info->server_ssl_ca_mem_len,
+					       info->server_ssl_ca_mem) != 1) {
 			lwsl_err("%s: mem SSL_CTX_add_client_CA_ASN1 unhappy\n",
 				 __func__);
 			return 1;
