@@ -296,12 +296,24 @@ drain:
 
 	// lws_buflist_describe(&wsi->buflist, wsi);
 
+#if 0
+
+	/*
+	 * This seems to be too aggressive... we don't want the ah stuck
+	 * there but eg, WINDOW_UPDATE may come and detach it if we leave
+	 * it like that... it will get detached at stream close
+	 */
+
 	if (wsi->http.ah
 #if !defined(LWS_NO_CLIENT)
 			&& !wsi->client_h2_alpn
 #endif
-			)
+			) {
+		lwsl_err("xxx\n");
+
 		lws_header_table_detach(wsi, 0);
+	}
+#endif
 
 	pending = lws_ssl_pending(wsi);
 	if (pending) {
@@ -1148,34 +1160,33 @@ rops_alpn_negotiated_h2(struct lws *wsi, const char *alpn)
 	}
 #endif
 
-		wsi->upgraded_to_http2 = 1;
-		wsi->vhost->conn_stats.h2_alpn++;
+	wsi->upgraded_to_http2 = 1;
+	wsi->vhost->conn_stats.h2_alpn++;
 
-		/* adopt the header info */
+	/* adopt the header info */
 
-		ah = wsi->http.ah;
+	ah = wsi->http.ah;
 
-		lws_role_transition(wsi, LWSIFR_SERVER, LRS_H2_AWAIT_PREFACE,
-				    &role_ops_h2);
+	lws_role_transition(wsi, LWSIFR_SERVER, LRS_H2_AWAIT_PREFACE,
+			    &role_ops_h2);
 
-		/* http2 union member has http union struct at start */
-		wsi->http.ah = ah;
+	/* http2 union member has http union struct at start */
+	wsi->http.ah = ah;
 
-		if (!wsi->h2.h2n)
-			wsi->h2.h2n = lws_zalloc(sizeof(*wsi->h2.h2n), "h2n");
-		if (!wsi->h2.h2n)
-			return 1;
+	if (!wsi->h2.h2n)
+		wsi->h2.h2n = lws_zalloc(sizeof(*wsi->h2.h2n), "h2n");
+	if (!wsi->h2.h2n)
+		return 1;
 
-		lws_h2_init(wsi);
+	lws_h2_init(wsi);
 
-		/* HTTP2 union */
+	/* HTTP2 union */
 
-		lws_hpack_dynamic_size(wsi,
-				   wsi->h2.h2n->set.s[H2SET_HEADER_TABLE_SIZE]);
-		wsi->h2.tx_cr = 65535;
+	lws_hpack_dynamic_size(wsi,
+			   wsi->h2.h2n->set.s[H2SET_HEADER_TABLE_SIZE]);
+	wsi->h2.tx_cr = 65535;
 
-		lwsl_info("%s: wsi %p: configured for h2\n", __func__, wsi);
-
+	lwsl_info("%s: wsi %p: configured for h2\n", __func__, wsi);
 
 	return 0;
 }

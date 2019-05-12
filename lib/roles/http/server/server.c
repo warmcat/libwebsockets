@@ -1812,6 +1812,7 @@ int
 lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 {
 	struct lws_context *context = lws_get_context(wsi);
+	struct allocated_headers *ah;
 	unsigned char *obuf = *buf;
 #if defined(LWS_WITH_HTTP2)
 	char tbuf[128], *p;
@@ -2045,7 +2046,16 @@ upgrade_h2c:
 			return 1;
 		}
 
+		wsi->upgraded_to_http2 = 1;
+
 		/* adopt the header info */
+
+		ah = wsi->http.ah;
+		lws_role_transition(wsi, LWSIFR_SERVER, LRS_H2_AWAIT_PREFACE,
+				    &role_ops_h2);
+
+		/* http2 union member has http union struct at start */
+		wsi->http.ah = ah;
 
 		if (!wsi->h2.h2n) {
 			wsi->h2.h2n = lws_zalloc(sizeof(*wsi->h2.h2n),
@@ -2072,9 +2082,6 @@ upgrade_h2c:
 			lwsl_debug("http2 switch: ERROR writing to socket\n");
 			return 1;
 		}
-
-		lwsi_set_state(wsi, LRS_H2_AWAIT_PREFACE);
-		wsi->upgraded_to_http2 = 1;
 
 		return 0;
 #endif
