@@ -287,7 +287,8 @@ struct lws_context {
 /* different implementation between unix and windows */
 	struct lws_fd_hashtable fd_hashtable[FD_HASHTABLE_MODULUS];
 #else
-	struct lws **lws_lookup;  /* fd to wsi */
+	struct lws **lws_lookup;
+
 #endif
 #endif
 #if LWS_MAX_SMP > 1
@@ -386,6 +387,7 @@ struct lws_context {
 	unsigned int doing_protocol_init:1;
 	unsigned int done_protocol_destroy_cb:1;
 	unsigned int finalize_destroy_after_internal_loops_stopped:1;
+	unsigned int max_fds_unrelated_to_ulimit:1;
 
 	short count_threads;
 	short plugin_protocol_count;

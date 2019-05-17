@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2018 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2019 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -21,6 +21,91 @@
 
 #define _GNU_SOURCE
 #include "core/private.h"
+
+struct lws *
+wsi_from_fd(const struct lws_context *context, int fd)
+{
+	struct lws **p, **done;
+
+	if (!context->max_fds_unrelated_to_ulimit)
+		return context->lws_lookup[fd - lws_plat_socket_offset()];
+
+	/* slow fds handling */
+
+	p = context->lws_lookup;
+	done = &p[context->max_fds];
+
+	while (p != done) {
+		if (*p && (*p)->desc.sockfd == fd)
+			return *p;
+		p++;
+	}
+
+	return NULL;
+}
+
+int
+insert_wsi(const struct lws_context *context, struct lws *wsi)
+{
+	struct lws **p, **done;
+
+	if (!context->max_fds_unrelated_to_ulimit) {
+		assert(context->lws_lookup[wsi->desc.sockfd -
+		                           lws_plat_socket_offset()] == 0);
+
+		context->lws_lookup[wsi->desc.sockfd - \
+				  lws_plat_socket_offset()] = wsi;
+
+		return 0;
+	}
+
+	/* slow fds handling */
+
+	p = context->lws_lookup;
+	done = &p[context->max_fds];
+
+	/* find an empty slot */
+
+	while (p != done && *p)
+		p++;
+
+	if (p == done) {
+		lwsl_err("%s: reached max fds\n", __func__);
+		return 1;
+	}
+
+	*p = wsi;
+
+	return 0;
+}
+
+void
+delete_from_fd(const struct lws_context *context, int fd)
+{
+
+	struct lws **p, **done;
+
+	if (!context->max_fds_unrelated_to_ulimit) {
+		context->lws_lookup[fd - lws_plat_socket_offset()] = NULL;
+
+		return;
+	}
+
+	/* slow fds handling */
+
+	p = context->lws_lookup;
+	done = &p[context->max_fds];
+
+	/* find an empty slot */
+
+	while (p != done && *p && (*p)->desc.sockfd != fd)
+		p++;
+
+	if (p == done)
+		lwsl_err("%s: fd %d not found\n", __func__, fd);
+	else
+		*p = NULL;
+}
 
 void
 lws_plat_insert_socket_into_fds(struct lws_context *context, struct lws *wsi)

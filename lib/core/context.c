@@ -168,6 +168,8 @@ lwsl_info("context created\n");
 	context->simultaneous_ssl_restriction =
 			info->simultaneous_ssl_restriction;
 
+	context->options = info->options;
+
 #ifndef LWS_NO_DAEMONIZE
 	if (pid_daemon) {
 		context->started_with_parent = pid_daemon;
@@ -193,9 +195,21 @@ lwsl_info("context created\n");
 	if (context->count_threads > LWS_MAX_SMP)
 		context->count_threads = LWS_MAX_SMP;
 
-	context->token_limits = info->token_limits;
+	/*
+	 * deal with any max_fds override, if it's reducing (setting it to
+	 * more than ulimit -n is meaningless).  The platform init will
+	 * figure out what if this is something it can deal with.
+	 */
+	if (info->fd_limit_per_thread) {
+		int mf = info->fd_limit_per_thread * context->count_threads;
 
-	context->options = info->options;
+		if (mf < context->max_fds) {
+			context->max_fds_unrelated_to_ulimit = 1;
+			context->max_fds = mf;
+		}
+	}
+
+	context->token_limits = info->token_limits;
 
 #if defined(LWS_WITH_NETWORK)
 
@@ -347,15 +361,16 @@ lwsl_info("context created\n");
 		  (long)context->count_threads,
 		  context->pt_serv_buf_size);
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-	lwsl_info(" mem: http hdr rsvd:   %5lu B (%u thr x (%u + %lu) x %u))\n",
-		    (long)(context->max_http_header_data +
-		     sizeof(struct allocated_headers)) *
-		    context->max_http_header_pool * context->count_threads,
-		    context->count_threads,
+	lwsl_info(" mem: http hdr size:   (%u + %lu), max count %u\n",
 		    context->max_http_header_data,
 		    (long)sizeof(struct allocated_headers),
 		    context->max_http_header_pool);
 #endif
+
+	/*
+	 * fds table contains pollfd structs for as many pollfds as we can
+	 * handle... spread across as many service threads as we have going
+	 */
 	n = sizeof(struct lws_pollfd) * context->count_threads *
 	    context->fd_limit_per_thread;
 	context->pt[0].fds = lws_zalloc(n, "fds table");
@@ -363,7 +378,7 @@ lwsl_info("context created\n");
 		lwsl_err("OOM allocating %d fds\n", context->max_fds);
 		goto bail;
 	}
-	lwsl_info(" mem: pollfd map:      %5u\n", n);
+	lwsl_info(" mem: pollfd map:      %5u B\n", n);
 #endif
 	if (info->server_string) {
 		context->server_string = info->server_string;

@@ -230,10 +230,21 @@ int main(int argc, const char **argv)
 	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS minimal http client - POST [-d<verbosity>] [-l] [--h1]\n");
 
+	if (lws_cmdline_option(argc, argv, "-m"))
+		count_clients = LWS_ARRAY_SIZE(client_wsi);
+
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.port = CONTEXT_PORT_NO_LISTEN; /* we do not run any server */
 	info.protocols = protocols;
+	/*
+	 * since we know this lws context is only ever going to be used with
+	 * one client wsis / fds / sockets at a time, let lws know it doesn't
+	 * have to use the default allocations for fd tables up to ulimit -n.
+	 * It will just allocate for 1 internal and 1 (+ 1 http2 nwsi) that we
+	 * will use.
+	 */
+	info.fd_limit_per_thread = 1 + count_clients + 1;
 
 #if defined(LWS_WITH_MBEDTLS)
 	/*
@@ -249,9 +260,6 @@ int main(int argc, const char **argv)
 		lwsl_err("lws init failed\n");
 		return 1;
 	}
-
-	if (lws_cmdline_option(argc, argv, "-m"))
-		count_clients = LWS_ARRAY_SIZE(client_wsi);
 
 	memset(&i, 0, sizeof i); /* otherwise uninitialized garbage */
 	i.context = context;

@@ -249,7 +249,8 @@ __insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 	}
 
 #if !defined(_WIN32)
-	if (wsi->desc.sockfd - lws_plat_socket_offset() >= context->max_fds) {
+	if (!wsi->context->max_fds_unrelated_to_ulimit &&
+	    wsi->desc.sockfd - lws_plat_socket_offset() >= context->max_fds) {
 		lwsl_err("Socket fd %d is too high (%d) offset %d\n",
 			 wsi->desc.sockfd, context->max_fds,
 			 lws_plat_socket_offset());
@@ -266,8 +267,9 @@ __insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 					   wsi->user_space, (void *) &pa, 1))
 		return -1;
 
+	if (insert_wsi(context, wsi))
+		return -1;
 	pt->count_conns++;
-	insert_wsi(context, wsi);
 	wsi->position_in_fds_table = pt->fds_count;
 
 	pt->fds[wsi->position_in_fds_table].fd = wsi->desc.sockfd;
@@ -306,7 +308,8 @@ __remove_wsi_socket_from_fds(struct lws *wsi)
 	int m, ret = 0;
 
 #if !defined(_WIN32)
-	if (wsi->desc.sockfd - lws_plat_socket_offset() > context->max_fds) {
+	if (!wsi->context->max_fds_unrelated_to_ulimit &&
+	    wsi->desc.sockfd - lws_plat_socket_offset() > context->max_fds) {
 		lwsl_err("fd %d too high (%d)\n", wsi->desc.sockfd,
 			 context->max_fds);
 		return 1;

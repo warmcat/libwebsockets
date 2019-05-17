@@ -709,6 +709,14 @@ int main(int argc, char **argv)
 	info.ws_ping_pong_interval = pp_secs;
 	info.extensions = exts;
 
+	/*
+	 * since we know this lws context is only ever going to be used with
+	 * a few client wsis / fds / sockets at a time, let lws know it doesn't
+	 * have to use the default allocations for fd tables up to ulimit -n.
+	 * It will just allocate for 2 internal and 4 that we might use.
+	 */
+	info.fd_limit_per_thread = 2 + 4;
+
 #if defined(LWS_WITH_TLS)
 	info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 #endif

@@ -358,7 +358,19 @@ struct lws_context_creation_info {
 	unsigned int fd_limit_per_thread;
 	/**< CONTEXT: nonzero means restrict each service thread to this
 	 * many fds, 0 means the default which is divide the process fd
-	 * limit by the number of threads. */
+	 * limit by the number of threads.
+	 *
+	 * Note if this is nonzero, and fd_limit_per_thread multiplied by the
+	 * number of service threads is less than the process ulimit, then lws
+	 * restricts internal lookup table allocation to the smaller size, and
+	 * switches to a less efficient lookup scheme.  You should use this to
+	 * trade off speed against memory usage if you know the lws context
+	 * will only use a handful of fds.
+	 *
+	 * Bear in mind lws may use some fds internally, for example for the
+	 * cancel pipe, so you may need to allow for some extras for normal
+	 * operation.
+	 */
 	unsigned int timeout_secs;
 	/**< VHOST: various processes involving network roundtrips in the
 	 * library are protected from hanging forever by timeouts.  If

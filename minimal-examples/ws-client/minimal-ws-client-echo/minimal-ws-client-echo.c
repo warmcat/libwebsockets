@@ -140,6 +140,14 @@ int main(int argc, const char **argv)
 	info.pt_serv_buf_size = 32 * 1024;
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
 		       LWS_SERVER_OPTION_VALIDATE_UTF8;
+	/*
+	 * since we know this lws context is only ever going to be used with
+	 * one client wsis / fds / sockets at a time, let lws know it doesn't
+	 * have to use the default allocations for fd tables up to ulimit -n.
+	 * It will just allocate for 1 internal and 1 (+ 1 http2 nwsi) that we
+	 * will use.
+	 */
+	info.fd_limit_per_thread = 1 + 1 + 1;
 
 	if (lws_cmdline_option(argc, argv, "--libuv"))
 		info.options |= LWS_SERVER_OPTION_LIBUV;

@@ -36,16 +36,38 @@ lws_plat_init(struct lws_context *context,
 {
 	int fd;
 #if defined(LWS_WITH_NETWORK)
-	/* master context has the global fd lookup array */
+	/*
+	 * master context has the process-global fd lookup array.  This can be
+	 * done two different ways now; one or the other is done depending on if
+	 * info->fd_limit_per_thread was snonzero
+	 *
+	 *  - default: allocate a worst-case lookup array sized for ulimit -n
+	 *             and use the fd directly as an index into it
+	 *
+	 *  - slow:    allocate context->max_fds entries only (which can be
+	 *             forced at context creation time to be
+	 *             info->fd_limit_per_thread * the number of threads)
+	 *             and search the array to lookup fds
+	 *
+	 * the default way is optimized for server, if you only use one or two
+	 * client wsi the slow way may save a lot of memory.
+	 *
+	 * Both ways allocate an array of struct lws *... one allocates it for
+	 * all possible fd indexes the process could produce and uses it as a
+	 * map, the other allocates for an amount of wsi the lws context is
+	 * expected to use and searches through it to manipulate it.
+	 */
+
 	context->lws_lookup = lws_zalloc(sizeof(struct lws *) *
 					 context->max_fds, "lws_lookup");
-	if (context->lws_lookup == NULL) {
-		lwsl_err("OOM on lws_lookup array for %d connections\n",
-			 context->max_fds);
+
+	if (!context->lws_lookup) {
+		lwsl_err("%s: OOM on alloc lws_lookup array for %d conn\n",
+			 __func__, context->max_fds);
 		return 1;
 	}
 
-	lwsl_info(" mem: platform fd map: %5lu bytes\n",
+	lwsl_info(" mem: platform fd map: %5lu B\n",
 		    (unsigned long)(sizeof(struct lws *) * context->max_fds));
 #endif
 	fd = lws_open(SYSTEM_RANDOM_FILEPATH, O_RDONLY);

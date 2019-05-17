@@ -637,7 +637,7 @@ drain_extension:
 			if (n == PMDR_DID_NOTHING)
 				break;
 #endif
-			lwsl_notice("%s: post ext ret %d, ebuf in %d / out %d\n",
+			lwsl_debug("%s: post ext ret %d, ebuf in %d / out %d\n",
 				    __func__, n, pmdrx.eb_in.len,
 				    pmdrx.eb_out.len);
 
