@@ -1812,7 +1812,9 @@ int
 lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 {
 	struct lws_context *context = lws_get_context(wsi);
+#if defined(LWS_WITH_HTTP2)
 	struct allocated_headers *ah;
+#endif
 	unsigned char *obuf = *buf;
 #if defined(LWS_WITH_HTTP2)
 	char tbuf[128], *p;
