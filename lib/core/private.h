@@ -1502,8 +1502,8 @@ lws_broadcast(struct lws_context *context, int reason, void *in, size_t len);
 #endif
 
 /* socks */
-void socks_generate_msg(struct lws *wsi, enum socks_msg_type type,
-			ssize_t *msg_len);
+int
+socks_generate_msg(struct lws *wsi, enum socks_msg_type type, ssize_t *msg_len);
 
 #if defined(LWS_WITH_PEER_LIMITS)
 void
