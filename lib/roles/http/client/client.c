@@ -182,7 +182,8 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 
 			if (pt->serv_buf[1] == SOCKS_AUTH_NO_AUTH) {
 				lwsl_client("SOCKS GR: No Auth Method\n");
-				socks_generate_msg(wsi, SOCKS_MSG_CONNECT, &len);
+				if (socks_generate_msg(wsi, SOCKS_MSG_CONNECT, &len))
+					goto bail3;
 				conn_mode = LRS_WAITING_SOCKS_CONNECT_REPLY;
 				pending_timeout =
 				   PENDING_TIMEOUT_AWAITING_SOCKS_CONNECT_REPLY;
@@ -191,9 +192,10 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 
 			if (pt->serv_buf[1] == SOCKS_AUTH_USERNAME_PASSWORD) {
 				lwsl_client("SOCKS GR: User/Pw Method\n");
-				socks_generate_msg(wsi,
+				if (socks_generate_msg(wsi,
 						   SOCKS_MSG_USERNAME_PASSWORD,
-						   &len);
+						   &len))
+					goto bail3;
 				conn_mode = LRS_WAITING_SOCKS_AUTH_REPLY;
 				pending_timeout =
 				      PENDING_TIMEOUT_AWAITING_SOCKS_AUTH_REPLY;
@@ -208,7 +210,8 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 				goto socks_reply_fail;
 
 			lwsl_client("SOCKS password OK, sending connect\n");
-			socks_generate_msg(wsi, SOCKS_MSG_CONNECT, &len);
+			if (socks_generate_msg(wsi, SOCKS_MSG_CONNECT, &len))
+				goto bail3;
 			conn_mode = LRS_WAITING_SOCKS_CONNECT_REPLY;
 			pending_timeout =
 				   PENDING_TIMEOUT_AWAITING_SOCKS_CONNECT_REPLY;

@@ -446,7 +446,11 @@ create_new_conn:
 	/* Priority 2: Connect to SOCK5 Proxy */
 
 	} else if (wsi->vhost->socks_proxy_port) {
-		socks_generate_msg(wsi, SOCKS_MSG_GREETING, &plen);
+		if (socks_generate_msg(wsi, SOCKS_MSG_GREETING, &plen)) {
+			cce = "socks msg too large";
+			goto oom4;
+		}
+
 		lwsl_client("Sending SOCKS Greeting\n");
 		ads = wsi->vhost->socks_proxy_address;
 		port = wsi->vhost->socks_proxy_port;
@@ -1086,80 +1090,94 @@ bail1:
 }
 
 #if defined(LWS_WITH_SOCKS5)
-void socks_generate_msg(struct lws *wsi, enum socks_msg_type type,
-			ssize_t *msg_len)
+int
+socks_generate_msg(struct lws *wsi, enum socks_msg_type type, ssize_t *msg_len)
 {
 	struct lws_context *context = wsi->context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	ssize_t len = 0, n, passwd_len;
+	uint8_t *p = pt->serv_buf, *end = &p[context->pt_serv_buf_size];
+	ssize_t n, passwd_len;
 	short net_num;
-	char *p;
+	char *cp;
 
 	switch (type) {
 	case SOCKS_MSG_GREETING:
+		if (lws_ptr_diff(end, p) < 4)
+			return 1;
 		/* socks version, version 5 only */
-		pt->serv_buf[len++] = SOCKS_VERSION_5;
+		*p++ = SOCKS_VERSION_5;
 		/* number of methods */
-		pt->serv_buf[len++] = 2;
+		*p++ = 2;
 		/* username password method */
-		pt->serv_buf[len++] = SOCKS_AUTH_USERNAME_PASSWORD;
+		*p++ = SOCKS_AUTH_USERNAME_PASSWORD;
 		/* no authentication method */
-		pt->serv_buf[len++] = SOCKS_AUTH_NO_AUTH;
+		*p++ = SOCKS_AUTH_NO_AUTH;
 		break;
 
 	case SOCKS_MSG_USERNAME_PASSWORD:
 		n = strlen(wsi->vhost->socks_user);
 		passwd_len = strlen(wsi->vhost->socks_password);
 
+		if (n > 254 || passwd_len > 254)
+			return 1;
+
+		if (lws_ptr_diff(end, p) < 3 + n + passwd_len)
+			return 1;
+
 		/* the subnegotiation version */
-		pt->serv_buf[len++] = SOCKS_SUBNEGOTIATION_VERSION_1;
+		*p++ = SOCKS_SUBNEGOTIATION_VERSION_1;
+
 		/* length of the user name */
-		pt->serv_buf[len++] = n;
+		*p++ = n;
 		/* user name */
-		lws_strncpy((char *)&pt->serv_buf[len], wsi->vhost->socks_user,
-			context->pt_serv_buf_size - len);
-		len += n;
+		memcpy(p, wsi->vhost->socks_user, n);
+		p += n;
+
 		/* length of the password */
-		pt->serv_buf[len++] = passwd_len;
+		*p++ = passwd_len;
+
 		/* password */
-		lws_strncpy((char *)&pt->serv_buf[len],
-			    wsi->vhost->socks_password,
-			    context->pt_serv_buf_size - len);
-		len += passwd_len;
+		memcpy(p, wsi->vhost->socks_password, passwd_len);
+		p += passwd_len;
 		break;
 
 	case SOCKS_MSG_CONNECT:
-		p = (char*)&net_num;
+		n = strlen(wsi->stash->address);
+
+		if (n > 254 || lws_ptr_diff(end, p) < 5 + n + 2)
+			return 1;
+
+		cp = (char *)&net_num;
 
 		/* socks version */
-		pt->serv_buf[len++] = SOCKS_VERSION_5;
+		*p++ = SOCKS_VERSION_5;
 		/* socks command */
-		pt->serv_buf[len++] = SOCKS_COMMAND_CONNECT;
+		*p++ = SOCKS_COMMAND_CONNECT;
 		/* reserved */
-		pt->serv_buf[len++] = 0;
+		*p++ = 0;
 		/* address type */
-		pt->serv_buf[len++] = SOCKS_ATYP_DOMAINNAME;
-		/* skip length, we fill it in at the end */
-		n = len++;
+		*p++ = SOCKS_ATYP_DOMAINNAME;
+		/* length of ---> */
+		*p++ = n;
 
 		/* the address we tell SOCKS proxy to connect to */
-		lws_strncpy((char *)&(pt->serv_buf[len]), wsi->stash->address,
-			context->pt_serv_buf_size - len);
-		len += strlen(wsi->stash->address);
+		memcpy(p, wsi->stash->address, n);
+		p += n;
+
 		net_num = htons(wsi->c_port);
 
 		/* the port we tell SOCKS proxy to connect to */
-		pt->serv_buf[len++] = p[0];
-		pt->serv_buf[len++] = p[1];
+		*p++ = cp[0];
+		*p++ = cp[1];
 
-		/* the length of the address, excluding port */
-		pt->serv_buf[n] = strlen(wsi->stash->address);
 		break;
 		
 	default:
-		return;
+		return 1;
 	}
 
-	*msg_len = len;
+	*msg_len = lws_ptr_diff(p, pt->serv_buf);
+
+	return 0;
 }
 #endif

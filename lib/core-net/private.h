@@ -887,8 +887,8 @@ void
 lws_destroy_event_pipe(struct lws *wsi);
 
 /* socks */
-void socks_generate_msg(struct lws *wsi, enum socks_msg_type type,
-			ssize_t *msg_len);
+int
+socks_generate_msg(struct lws *wsi, enum socks_msg_type type, ssize_t *msg_len);
 
 
 void
