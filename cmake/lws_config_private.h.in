@@ -10,9 +10,6 @@
  * LWS_OPENSSL_SUPPORT needs to be set also for this to work. */
 #cmakedefine USE_CYASSL
 
-/* Define to 1 if you have the `bzero' function. */
-#cmakedefine LWS_HAVE_BZERO
-
 /* Define to 1 if you have the <dlfcn.h> header file. */
 #cmakedefine LWS_HAVE_DLFCN_H
 
