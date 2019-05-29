@@ -718,13 +718,6 @@ if (HAIKU)
 endif()
 
 CHECK_C_SOURCE_COMPILES(
-	"#include <strings.h>
-	#if __GNUC__
-	#pragma GCC diagnostic error \"-Wimplicit-function-declaration\"
-	#endif
-	int main(int argc, char **argv) { char buf[100]; bzero(buf, 100); return 0; }
-	" LWS_HAVE_BZERO)
-CHECK_C_SOURCE_COMPILES(
 	"#include <malloc.h>
 	int main(int argc, char **argv) { return malloc_trim(0); }
 	" LWS_HAVE_MALLOC_TRIM)
