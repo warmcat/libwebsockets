@@ -877,7 +877,7 @@ lwsws_get_config(void *user, const char *f, const char * const *paths,
 {
 	unsigned char buf[128];
 	struct lejp_ctx ctx;
-	int n, m, fd;
+	int n, m = 0, fd;
 
 	fd = lws_open(f, O_RDONLY);
 	if (fd < 0) {
