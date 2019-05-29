@@ -378,7 +378,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 				    const char *private_key_filepath)
 {
 	struct lws_tls_client_reuse *tcr;
-	const unsigned char **ca_mem_ptr;
+	const unsigned char *ca_mem_ptr;
 	X509_STORE *x509_store;
 	unsigned long error;
 	SSL_METHOD *method;
@@ -583,8 +583,8 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		else
 			lwsl_info("loaded ssl_ca_filepath\n");
 	} else {
-		ca_mem_ptr = (const unsigned char**)&ca_mem;
-		client_CA = d2i_X509(NULL, ca_mem_ptr, ca_mem_len);
+		ca_mem_ptr = (const unsigned char*)ca_mem;
+		client_CA = d2i_X509(NULL, &ca_mem_ptr, ca_mem_len);
 		x509_store = X509_STORE_new();
 		if (!client_CA || !X509_STORE_add_cert(x509_store, client_CA)) {
 			X509_STORE_free(x509_store);
