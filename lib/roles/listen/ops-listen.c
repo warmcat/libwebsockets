@@ -106,9 +106,13 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 			ntohs(((struct sockaddr_in *) &cli_addr)->sin_port)),
 			accept_fd);
 #else
+		{
+		struct sockaddr_in sain;
+		memcpy(&sain, &cli_addr, sizeof(sain));
 		lwsl_debug("accepted new conn port %u on fd=%d\n",
-			   ntohs(((struct sockaddr_in *) &cli_addr)->sin_port),
+			   ntohs(sain.sin_port),
 			   accept_fd);
+		}
 #endif
 
 		/*
