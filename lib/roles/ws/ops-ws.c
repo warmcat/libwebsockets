@@ -444,7 +444,7 @@ spill:
 
 			wsi->ws->peer_has_sent_close = 1;
 
-			pp = (unsigned char *)&wsi->ws->rx_ubuf[LWS_PRE];
+			pp = &wsi->ws->rx_ubuf[LWS_PRE];
 			if (lws_check_opt(wsi->context->options,
 					  LWS_SERVER_OPTION_VALIDATE_UTF8) &&
 			    wsi->ws->rx_ubuf_head > 2 &&
@@ -661,7 +661,7 @@ drain_extension:
 
 			if (wsi->ws->check_utf8 && !wsi->ws->defeat_check_utf8) {
 				if (lws_check_utf8(&wsi->ws->utf8,
-						   (unsigned char *)pmdrx.eb_out.token,
+						   pmdrx.eb_out.token,
 						   pmdrx.eb_out.len)) {
 					lws_close_reason(wsi,
 						LWS_CLOSE_STATUS_INVALID_PAYLOAD,
@@ -1105,7 +1105,7 @@ rops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
 read:
 	//lws_buflist_describe(&wsi->buflist, wsi);
 	ebuf.len = (int)lws_buflist_next_segment_len(&wsi->buflist,
-						     (uint8_t **)&ebuf.token);
+						     &ebuf.token);
 	if (ebuf.len) {
 		lwsl_info("draining buflist (len %d)\n", ebuf.len);
 		buffered = 1;
@@ -1136,7 +1136,7 @@ read:
 		 */
 
 		buffered = 0;
-		ebuf.token = (char *)pt->serv_buf;
+		ebuf.token = pt->serv_buf;
 		if (lwsi_role_ws(wsi))
 			ebuf.len = wsi->ws->rx_ubuf_alloc;
 		else
@@ -1148,7 +1148,7 @@ read:
 		if ((int)pending > ebuf.len)
 			pending = ebuf.len;
 
-		ebuf.len = lws_ssl_capable_read(wsi, (uint8_t *)ebuf.token,
+		ebuf.len = lws_ssl_capable_read(wsi, ebuf.token,
 						pending ? (int)pending :
 						ebuf.len);
 		switch (ebuf.len) {
@@ -1196,11 +1196,11 @@ drain:
 		if (ebuf.len) {
 #if defined(LWS_ROLE_H2)
 			if (lwsi_role_h2(wsi) && lwsi_state(wsi) != LRS_BODY)
-				n = lws_read_h2(wsi, (unsigned char *)ebuf.token,
+				n = lws_read_h2(wsi, ebuf.token,
 					     ebuf.len);
 			else
 #endif
-				n = lws_read_h1(wsi, (unsigned char *)ebuf.token,
+				n = lws_read_h1(wsi, ebuf.token,
 					     ebuf.len);
 
 			if (n < 0) {
@@ -1720,7 +1720,7 @@ rops_write_role_protocol_ws(struct lws *wsi, unsigned char *buf, size_t len,
 	 * interleaving of control frames and other connection service.
 	 */
 
-	pmdrx.eb_in.token = (char *)buf;
+	pmdrx.eb_in.token = buf;
 	pmdrx.eb_in.len = (int)len;
 
 	/* for the non-pm-deflate case */
@@ -1784,7 +1784,7 @@ rops_write_role_protocol_ws(struct lws *wsi, unsigned char *buf, size_t len,
 	 * compression extension, it has already updated its state according
 	 * to this being issued
 	 */
-	if ((char *)buf != pmdrx.eb_out.token) {
+	if (buf != pmdrx.eb_out.token) {
 		/*
 		 * ext might eat it, but not have anything to issue yet.
 		 * In that case we have to follow his lead, but stash and
@@ -1804,7 +1804,7 @@ rops_write_role_protocol_ws(struct lws *wsi, unsigned char *buf, size_t len,
 		wsi->ws->clean_buffer = 0;
 	}
 
-	buf = (unsigned char *)pmdrx.eb_out.token;
+	buf = pmdrx.eb_out.token;
 	len = pmdrx.eb_out.len;
 
 	if (!buf) {

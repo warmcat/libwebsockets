@@ -225,7 +225,7 @@ lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len)
 	struct lws_tokens ebuf;
 	int ret, m, n = 0;
 
-	ebuf.token = (char *)buf;
+	ebuf.token = buf;
 	ebuf.len = (int)len;
 
 	/*
@@ -248,7 +248,7 @@ lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len)
 		if (m) /* handled */
 			ret = 1;
 
-		if ((char *)buf != ebuf.token)
+		if (buf != ebuf.token)
 			/*
 			 * extension recreated it:
 			 * need to buffer this if not all sent
@@ -258,8 +258,7 @@ lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len)
 		/* assuming they left us something to send, send it */
 
 		if (ebuf.len) {
-			n = lws_issue_raw(wsi, (unsigned char *)ebuf.token,
-					  ebuf.len);
+			n = lws_issue_raw(wsi, ebuf.token, ebuf.len);
 			if (n < 0) {
 				lwsl_info("closing from ext access\n");
 				return -1;

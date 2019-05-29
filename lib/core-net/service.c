@@ -400,7 +400,7 @@ lws_buflist_aware_read(struct lws_context_per_thread *pt, struct lws *wsi,
 {
 	int n, prior = (int)lws_buflist_next_segment_len(&wsi->buflist, NULL);
 
-	ebuf->token = (char *)pt->serv_buf;
+	ebuf->token = pt->serv_buf;
 	ebuf->len = lws_ssl_capable_read(wsi, pt->serv_buf,
 					 wsi->context->pt_serv_buf_size);
 
@@ -417,7 +417,7 @@ lws_buflist_aware_read(struct lws_context_per_thread *pt, struct lws *wsi,
 
 	/* stash what we read */
 
-	n = lws_buflist_append_segment(&wsi->buflist, (uint8_t *)ebuf->token,
+	n = lws_buflist_append_segment(&wsi->buflist, ebuf->token,
 				       ebuf->len);
 	if (n < 0)
 		return -1;
@@ -431,7 +431,7 @@ lws_buflist_aware_read(struct lws_context_per_thread *pt, struct lws *wsi,
 get_from_buflist:
 
 	ebuf->len = (int)lws_buflist_next_segment_len(&wsi->buflist,
-						      (uint8_t **)&ebuf->token);
+						      &ebuf->token);
 
 	return 1; /* came from buflist */
 }
@@ -465,7 +465,7 @@ lws_buflist_aware_consume(struct lws *wsi, struct lws_tokens *ebuf, int used,
 
 	if (used != ebuf->len) {
 		m = lws_buflist_append_segment(&wsi->buflist,
-					       (uint8_t *)ebuf->token + used,
+					       ebuf->token + used,
 					       ebuf->len - used);
 		if (m < 0)
 			return 1; /* OOM */

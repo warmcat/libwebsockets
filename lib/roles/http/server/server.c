@@ -1663,12 +1663,12 @@ deal_body:
 
 				ebuf.len = (int)lws_buflist_next_segment_len(
 						&wsi->buflist,
-						(uint8_t **)&ebuf.token);
+						&ebuf.token);
 				if (!ebuf.len)
 					break;
 				lwsl_debug("%s: consuming %d\n", __func__,
 							(int)ebuf.len);
-				m = lws_read_h1(wsi, (uint8_t *)ebuf.token,
+				m = lws_read_h1(wsi, ebuf.token,
 						ebuf.len);
 				if (m < 0)
 					return -1;

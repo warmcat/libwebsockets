@@ -382,7 +382,7 @@ spill:
 
 		switch (wsi->ws->opcode) {
 		case LWSWSOPC_CLOSE:
-			pp = (unsigned char *)&wsi->ws->rx_ubuf[LWS_PRE];
+			pp = &wsi->ws->rx_ubuf[LWS_PRE];
 			if (lws_check_opt(wsi->context->options,
 					  LWS_SERVER_OPTION_VALIDATE_UTF8) &&
 			    wsi->ws->rx_ubuf_head > 2 &&
@@ -583,7 +583,7 @@ drain_extension:
 			if (wsi->ws->check_utf8 && !wsi->ws->defeat_check_utf8) {
 
 				if (lws_check_utf8(&wsi->ws->utf8,
-						   (unsigned char *)pmdrx.eb_out.token,
+						   pmdrx.eb_out.token,
 						   pmdrx.eb_out.len)) {
 					lws_close_reason(wsi,
 						LWS_CLOSE_STATUS_INVALID_PAYLOAD,
