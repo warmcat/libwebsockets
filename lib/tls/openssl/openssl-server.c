@@ -116,7 +116,7 @@ lws_ssl_server_name_cb(SSL *ssl, int *ad, void *arg)
 	servername = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
 	if (!servername) {
 		/* the client doesn't know what hostname it wants */
-		lwsl_info("SNI: Unknown ServerName: %s\n", servername);
+		lwsl_info("SNI: Unknown ServerName\n");
 
 		return SSL_TLSEXT_ERR_OK;
 	}
