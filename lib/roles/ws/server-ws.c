@@ -741,9 +741,9 @@ lws_ws_frame_rest_is_payload(struct lws *wsi, uint8_t **buf, size_t len)
 	if (!avail)
 		return 0;
 
-	pmdrx.eb_in.token = (char *)buffer;
+	pmdrx.eb_in.token = buffer;
 	pmdrx.eb_in.len = avail;
-	pmdrx.eb_out.token = (char *)buffer;
+	pmdrx.eb_out.token = buffer;
 	pmdrx.eb_out.len = avail;
 
 	if (!wsi->ws->all_zero_nonce) {
@@ -844,7 +844,7 @@ lws_ws_frame_rest_is_payload(struct lws *wsi, uint8_t **buf, size_t len)
 
 	if (wsi->ws->check_utf8 && !wsi->ws->defeat_check_utf8) {
 		if (lws_check_utf8(&wsi->ws->utf8,
-				   (unsigned char *)pmdrx.eb_out.token,
+				   pmdrx.eb_out.token,
 				   pmdrx.eb_out.len)) {
 			lws_close_reason(wsi, LWS_CLOSE_STATUS_INVALID_PAYLOAD,
 					 (uint8_t *)"bad utf8", 8);

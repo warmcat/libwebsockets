@@ -85,7 +85,7 @@ struct lws_pt_role_ws {
 #endif
 
 struct _lws_websocket_related {
-	char *rx_ubuf;
+	unsigned char *rx_ubuf;
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	const struct lws_extension *active_extensions[LWS_MAX_EXTENSIONS_ACTIVE];
 	void *act_ext_user[LWS_MAX_EXTENSIONS_ACTIVE];

@@ -379,10 +379,10 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 		 */
 #if defined(LWS_ROLE_H2)
 		if (lwsi_role_h2(wsi) && lwsi_state(wsi) != LRS_BODY)
-			n = lws_read_h2(wsi, (uint8_t *)ebuf.token, ebuf.len);
+			n = lws_read_h2(wsi, ebuf.token, ebuf.len);
 		else
 #endif
-			n = lws_read_h1(wsi, (uint8_t *)ebuf.token, ebuf.len);
+			n = lws_read_h1(wsi, ebuf.token, ebuf.len);
 		if (n < 0) /* we closed wsi */
 			return LWS_HPI_RET_WSI_ALREADY_DIED;
 

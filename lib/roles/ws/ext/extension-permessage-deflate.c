@@ -244,7 +244,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		}
 
 		priv->rx.next_out = priv->buf_rx_inflated + LWS_PRE;
-		pmdrx->eb_out.token = (char *)priv->rx.next_out;
+		pmdrx->eb_out.token = priv->rx.next_out;
 		priv->rx.avail_out = 1 << priv->args[PMD_RX_BUF_PWR2];
 
 		pen = penbits = 0;
@@ -296,7 +296,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		 * track how much input was used, and advance it
 		 */
 
-		pmdrx->eb_in.token = (char *)pmdrx->eb_in.token +
+		pmdrx->eb_in.token = pmdrx->eb_in.token +
 				         (pmdrx->eb_in.len - priv->rx.avail_in);
 		pmdrx->eb_in.len = priv->rx.avail_in;
 
@@ -418,7 +418,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		}
 
 		priv->tx.next_out = priv->buf_tx_deflated + LWS_PRE + 5;
-		pmdrx->eb_out.token = (char *)priv->tx.next_out;
+		pmdrx->eb_out.token = priv->tx.next_out;
 		priv->tx.avail_out = 1 << priv->args[PMD_TX_BUF_PWR2];
 
 		pen = penbits = 0;
@@ -485,7 +485,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		 * track how much input was used and advance it
 		 */
 
-		pmdrx->eb_in.token = (char *)pmdrx->eb_in.token +
+		pmdrx->eb_in.token = pmdrx->eb_in.token +
 					(pmdrx->eb_in.len - priv->tx.avail_in);
 		pmdrx->eb_in.len = priv->tx.avail_in;
 

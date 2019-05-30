@@ -201,7 +201,7 @@ lws_chunked_html_process(struct lws_process_html_args *args,
  * points to .len chars containing that header content.
  */
 struct lws_tokens {
-	char *token; /**< pointer to start of the token */
+	unsigned char *token; /**< pointer to start of the token */
 	int len; /**< length of the token's value */
 };
 

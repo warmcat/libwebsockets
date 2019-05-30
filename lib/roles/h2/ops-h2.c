@@ -179,7 +179,7 @@ read:
 	// lws_buflist_describe(&wsi->buflist, wsi);
 
 	ebuf.len = (int)lws_buflist_next_segment_len(&wsi->buflist,
-						(uint8_t **)&ebuf.token);
+						&ebuf.token);
 	if (ebuf.len) {
 		lwsl_info("draining buflist (len %d)\n", ebuf.len);
 		buffered = 1;
@@ -194,9 +194,9 @@ read:
 	      (lwsi_state(wsi) != LRS_ESTABLISHED &&
 	       lwsi_state(wsi) != LRS_H2_WAITING_TO_SEND_HEADERS))) {
 
-		ebuf.token = (char *)pt->serv_buf;
+		ebuf.token = pt->serv_buf;
 		ebuf.len = lws_ssl_capable_read(wsi,
-					(unsigned char *)ebuf.token,
+					ebuf.token,
 					wsi->context->pt_serv_buf_size);
 		switch (ebuf.len) {
 		case 0:
@@ -257,10 +257,10 @@ drain:
 	if (ebuf.len) {
 		n = 0;
 		if (lwsi_role_h2(wsi) && lwsi_state(wsi) != LRS_BODY)
-			n = lws_read_h2(wsi, (unsigned char *)ebuf.token,
+			n = lws_read_h2(wsi, ebuf.token,
 				        ebuf.len);
 		else
-			n = lws_read_h1(wsi, (unsigned char *)ebuf.token,
+			n = lws_read_h1(wsi, ebuf.token,
 				        ebuf.len);
 
 		if (n < 0) {
@@ -281,7 +281,7 @@ drain:
 		} else
 			if (n != ebuf.len) {
 				m = lws_buflist_append_segment(&wsi->buflist,
-						(uint8_t *)ebuf.token + n,
+						ebuf.token + n,
 						ebuf.len - n);
 				if (m < 0)
 					return LWS_HPI_RET_PLEASE_CLOSE_ME;
