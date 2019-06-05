@@ -111,6 +111,13 @@ _lws_plat_file_write(lws_fop_fd_t fops_fd, lws_filepos_t *amount,
 	return 0;
 }
 
+#if defined(LWS_AMAZON_RTOS)
+int
+lws_find_string_in_file(const char *filename, const char *string, int stringlen)
+{
+    return 0;
+}
+#else
 int
 lws_find_string_in_file(const char *filename, const char *string, int stringlen)
 {
@@ -140,8 +147,9 @@ lws_find_string_in_file(const char *filename, const char *string, int stringlen)
 
 	return !strcmp(p + 1, result);
 }
+#endif
 
-
+#if !defined(LWS_AMAZON_RTOS)
 LWS_VISIBLE int
 lws_plat_write_file(const char *filename, void *buf, int len)
 {
@@ -212,4 +220,4 @@ bail:
 
 	return -1;
 }
-
+#endif /* LWS_AMAZON_RTOS */

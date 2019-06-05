@@ -35,7 +35,11 @@ lws_get_random(struct lws_context *context, void *buf, int len)
 	uint8_t *pb = buf;
 
 	while (len) {
+#if defined(LWS_AMAZON_RTOS)
+		uint32_t r = rand();
+#else
 		uint32_t r = esp_random();
+#endif
 		uint8_t *p = (uint8_t *)&r;
 		int b = 4;
 

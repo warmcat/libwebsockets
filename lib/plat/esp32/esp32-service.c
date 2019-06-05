@@ -27,7 +27,9 @@ lws_plat_service(struct lws_context *context, int timeout_ms)
 	int n = _lws_plat_service_tsi(context, timeout_ms, 0);
 
 	lws_service_fd_tsi(context, NULL, 0);
+#if !defined(LWS_AMAZON_RTOS)
 	esp_task_wdt_reset();
+#endif
 
 	return n;
 }
@@ -52,7 +54,11 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 
 		if (m > context->time_last_state_dump) {
 			context->time_last_state_dump = m;
+#if defined(LWS_AMAZON_RTOS)
+			n = xPortGetFreeHeapSize();
+#else
 			n = esp_get_free_heap_size();
+#endif
 			if (n != context->last_free_heap) {
 				if (n > context->last_free_heap)
 					lwsl_notice(" heap :%d (+%d)\n", n,

@@ -66,6 +66,7 @@ lws_hex_to_byte_array(const char *h, uint8_t *dest, int max)
 
 #if !defined(LWS_PLAT_OPTEE)
 
+#if !defined(LWS_AMAZON_RTOS)
 int lws_open(const char *__file, int __oflag, ...)
 {
 	va_list ap;
@@ -92,7 +93,7 @@ int lws_open(const char *__file, int __oflag, ...)
 	return n;
 }
 #endif
-
+#endif
 
 #if !(defined(LWS_PLAT_OPTEE) && !defined(LWS_WITH_NETWORK))
 
@@ -582,7 +583,11 @@ typedef enum {
 	LWS_TOKZS_TOKEN_POST_TERMINAL
 } lws_tokenize_state;
 
+#if defined(LWS_AMAZON_RTOS)
+lws_tokenize_elem
+#else
 int
+#endif
 lws_tokenize(struct lws_tokenize *ts)
 {
 	const char *rfc7230_delims = "(),/:;<=>?@[\\]{}";

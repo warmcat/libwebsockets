@@ -862,9 +862,11 @@ lws_create_event_pipes(struct lws_context *context)
 		wsi->desc.sockfd = context->pt[n].dummy_pipe_fds[0];
 		lwsl_debug("event pipe fd %d\n", wsi->desc.sockfd);
 
+#if !defined(LWS_AMAZON_RTOS)
 		if (context->event_loop_ops->accept)
 			if (context->event_loop_ops->accept(wsi))
 				return 1;
+#endif
 
 		if (__insert_wsi_socket_into_fds(context, wsi))
 			return 1;

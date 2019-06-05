@@ -413,8 +413,10 @@ lwsl_info("context created\n");
 				goto bail;
 		}
 
+#if !defined(LWS_AMAZON_RTOS)
 	if (lws_create_event_pipes(context))
 		goto bail;
+#endif
 #endif
 
 	lws_context_init_ssl_library(info);
@@ -786,5 +788,14 @@ lws_context_destroy(struct lws_context *context)
 	}
 #endif
 
+#if defined(LWS_WITH_ESP32)
+#if defined(LWS_AMAZON_RTOS)
+	context->last_free_heap = xPortGetFreeHeapSize();
+#else
+	context->last_free_heap = esp_get_free_heap_size();
+#endif
+#endif
+
 	lws_context_destroy2(context);
 }
+

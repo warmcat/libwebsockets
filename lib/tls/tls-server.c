@@ -98,6 +98,7 @@ lws_tls_server_conn_alpn(struct lws *wsi)
 	return 0;
 }
 
+#if !defined(LWS_NO_SERVER)
 LWS_VISIBLE int
 lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 			    struct lws_vhost *vhost)
@@ -176,6 +177,7 @@ lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 
 	return 0;
 }
+#endif
 
 LWS_VISIBLE int
 lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)

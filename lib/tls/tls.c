@@ -23,7 +23,7 @@
 #include "tls/private.h"
 
 #if !defined(LWS_PLAT_OPTEE) && !defined(OPTEE_DEV_KIT)
-#if defined(LWS_WITH_ESP32)
+#if defined(LWS_WITH_ESP32) && !defined(LWS_AMAZON_RTOS)
 int alloc_file(struct lws_context *context, const char *filename, uint8_t **buf,
 	       lws_filepos_t *amount)
 {
@@ -275,6 +275,7 @@ lws_tls_extant(const char *name)
  * 4) LWS_TLS_EXTANT_YES: The certs are present with the correct name and we
  *    have the rights to read them.
  */
+#if !defined(LWS_AMAZON_RTOS)
 enum lws_tls_extant
 lws_tls_use_any_upgrade_check_extant(const char *name)
 {
@@ -331,3 +332,5 @@ lws_tls_use_any_upgrade_check_extant(const char *name)
 #endif
 	return LWS_TLS_EXTANT_YES;
 }
+#endif
+

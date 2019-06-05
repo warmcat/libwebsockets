@@ -22,7 +22,11 @@
 #include "core/private.h"
 
 static const unsigned char lextable[] = {
+#if defined(LWS_AMAZON_RTOS) || defined(LWS_AMAZON_NOART)
+	#include "roles/http/lextable.h"
+#else
 	#include "../lextable.h"
+#endif
 };
 
 #define FAIL_CHAR 0x08

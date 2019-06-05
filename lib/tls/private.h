@@ -51,8 +51,11 @@
 #else /* WOLFSSL */
  #if defined(LWS_WITH_ESP32)
   #define OPENSSL_NO_TLSEXT
-  #undef MBEDTLS_CONFIG_FILE
-  #define MBEDTLS_CONFIG_FILE <mbedtls/esp_config.h>
+  #if !defined(LWS_AMAZON_RTOS)
+   /* AMAZON RTOS has its own setting via MTK_MBEDTLS_CONFIG_FILE */
+   #undef MBEDTLS_CONFIG_FILE
+   #define MBEDTLS_CONFIG_FILE <mbedtls/esp_config.h>
+  #endif
   #include <mbedtls/ssl.h>
   #include <mbedtls/aes.h>
   #include <mbedtls/gcm.h>
