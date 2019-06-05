@@ -89,6 +89,7 @@ signed char char_to_hex(const char c)
 	return -1;
 }
 
+#if !defined(LWS_AMAZON_RTOS)
 int lws_open(const char *__file, int __oflag, ...)
 {
 	va_list ap;
@@ -114,6 +115,7 @@ int lws_open(const char *__file, int __oflag, ...)
 
 	return n;
 }
+#endif
 
 void
 lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi)
@@ -3107,7 +3109,11 @@ typedef enum {
 	LWS_TOKZS_TOKEN_POST_TERMINAL
 } lws_tokenize_state;
 
+#if defined(LWS_AMAZON_RTOS)
+lws_tokenize_elem
+#else
 int
+#endif
 lws_tokenize(struct lws_tokenize *ts)
 {
 	const char *rfc7230_delims = "(),/:;<=>?@[\\]{}";

@@ -786,9 +786,11 @@ lws_create_event_pipes(struct lws_context *context)
 		wsi->desc.sockfd = context->pt[n].dummy_pipe_fds[0];
 		lwsl_debug("event pipe fd %d\n", wsi->desc.sockfd);
 
+#if !defined(LWS_AMAZON_RTOS)
 		if (context->event_loop_ops->accept)
 			if (context->event_loop_ops->accept(wsi))
 				return 1;
+#endif
 
 		if (__insert_wsi_socket_into_fds(context, wsi))
 			return 1;
@@ -886,7 +888,11 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 
 #if defined(LWS_WITH_ESP32)
+#if defined(LWS_AMAZON_RTOS)
+	context->last_free_heap = xPortGetFreeHeapSize();
+#else
 	context->last_free_heap = esp_get_free_heap_size();
+#endif
 #endif
 
 	/* default to just the platform fops implementation */
@@ -1156,8 +1162,10 @@ lws_create_context(const struct lws_context_creation_info *info)
 				goto bail;
 		}
 
+#if !defined(LWS_AMAZON_RTOS)
 	if (lws_create_event_pipes(context))
 		goto bail;
+#endif
 
 	lws_context_init_ssl_library(info);
 

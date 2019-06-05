@@ -38,6 +38,7 @@ static const char * const intermediates[] = { "private", "public" };
  *       REQUIRES CONTEXT LOCK HELD
  */
 
+#ifndef LWS_NO_SERVER
 int
 _lws_vhost_init_server(const struct lws_context_creation_info *info,
 		       struct lws_vhost *vhost)
@@ -315,6 +316,7 @@ bail:
 
 	return -1;
 }
+#endif
 
 struct lws_vhost *
 lws_select_vhost(struct lws_context *context, int port, const char *servername)
@@ -464,6 +466,7 @@ lws_vfs_prepare_flags(struct lws *wsi)
 	return f;
 }
 
+#if !defined(LWS_AMAZON_RTOS)
 static int
 lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 	       const struct lws_http_mount *m)
@@ -727,6 +730,7 @@ notfound:
 
 	return 1;
 }
+#endif
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 const struct lws_http_mount *
@@ -1440,8 +1444,10 @@ lws_http_action(struct lws *wsi)
 	wsi->cache_intermediaries = hit->cache_intermediaries;
 
 	m = 1;
+#if !defined(LWS_AMAZON_RTOS)
 	if (hit->origin_protocol == LWSMPRO_FILE)
 		m = lws_http_serve(wsi, s, hit->origin, hit);
+#endif
 
 	if (m > 0) {
 		/*
@@ -1636,6 +1642,7 @@ bad_format:
 	return 1;
 }
 
+#ifndef LWS_NO_SERVER
 int
 lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 {
@@ -1930,7 +1937,7 @@ bail_nuke_ah:
 
 	return 1;
 }
-
+#endif
 
 LWS_VISIBLE int LWS_WARN_UNUSED_RESULT
 lws_http_transaction_completed(struct lws *wsi)
@@ -2074,7 +2081,7 @@ lws_http_transaction_completed(struct lws *wsi)
 	return 0;
 }
 
-
+#if !defined(LWS_AMAZON_RTOS)
 LWS_VISIBLE int
 lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 		    const char *other_headers, int other_headers_len)
@@ -2354,6 +2361,7 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 
 	return 0;
 }
+#endif
 
 LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 {
@@ -2626,7 +2634,7 @@ file_had_it:
 	return -1;
 }
 
-
+#ifndef LWS_NO_SERVER
 LWS_VISIBLE void
 lws_server_get_canonical_hostname(struct lws_context *context,
 				  const struct lws_context_creation_info *info)
@@ -2644,7 +2652,7 @@ lws_server_get_canonical_hostname(struct lws_context *context,
 	(void)context;
 #endif
 }
-
+#endif
 
 LWS_VISIBLE LWS_EXTERN int
 lws_chunked_html_process(struct lws_process_html_args *args,

@@ -446,6 +446,17 @@ lws_h2_settings(struct lws *wsi, struct http2_settings *settings,
 					      "Inital Window beyond max");
 				return 1;
 			}
+
+#if defined(LWS_AMAZON_RTOS) || defined(LWS_AMAZON_NOART)
+			//FIXME: Workaround for FIRMWARE-4632 until cloud-side issue is fixed.
+			if (b == 0x7fffffff) {
+				b = 65535;
+				lwsl_info("init window size 0x7fffffff\n");
+				break;
+			}
+			//FIXME: end of FIRMWARE-4632 workaround
+#endif
+
 			/*
 			 * In addition to changing the flow-control window for
 			 * streams that are not yet active, a SETTINGS frame
@@ -823,7 +834,11 @@ lws_h2_parse_frame_header(struct lws *wsi)
 
 	/* let the network wsi live a bit longer if subs are active */
 	if (!wsi->ws_over_h2_count)
+#if defined(LWS_AMAZON_RTOS) || defined(LWS_AMAZON_NOART)
+		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE, wsi->vhost->keepalive_timeout);
+#else
 		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE, 31);
+#endif
 
 	if (h2n->sid)
 		h2n->swsi = lws_h2_wsi_from_id(wsi, h2n->sid);
@@ -1805,9 +1820,15 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 				 * time to chew through
 				 */
 				if (!wsi->ws_over_h2_count)
+#if defined(LWS_AMAZON_RTOS) || defined(LWS_AMAZON_NOART)
+					lws_set_timeout(wsi,
+					  PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE,
+					  wsi->vhost->keepalive_timeout);
+#else
 					lws_set_timeout(wsi,
 					  PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE,
 					  31);
+#endif
 
 				if (!h2n->swsi)
 					break;

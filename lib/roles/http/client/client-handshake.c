@@ -422,12 +422,14 @@ ads_known:
 
 		lwsi_set_state(wsi, LRS_WAITING_CONNECT);
 
+#if !defined(LWS_AMAZON_RTOS)
 		if (wsi->context->event_loop_ops->accept)
 			if (wsi->context->event_loop_ops->accept(wsi)) {
 				compatible_close(wsi->desc.sockfd);
 				cce = "event loop accept failed";
 				goto oom4;
 			}
+#endif
 
 		if (__insert_wsi_socket_into_fds(wsi->context, wsi)) {
 			compatible_close(wsi->desc.sockfd);

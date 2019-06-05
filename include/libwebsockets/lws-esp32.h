@@ -36,6 +36,12 @@ struct pollfd {
 #define POLLHUP		0x0010
 #define POLLNVAL	0x0020
 
+#if defined(LWS_AMAZON_RTOS)
+#include <FreeRTOS.h>
+#include <event_groups.h>
+#include <string.h>
+#include "timers.h"
+#else /* LWS_AMAZON_RTOS */
 #include <freertos/FreeRTOS.h>
 #include <freertos/event_groups.h>
 #include <string.h>
@@ -47,6 +53,7 @@ struct pollfd {
 #include "driver/gpio.h"
 #include "esp_spi_flash.h"
 #include "freertos/timers.h"
+#endif /* LWS_AMAZON_RTOS */
 
 #if !defined(CONFIG_FREERTOS_HZ)
 #define CONFIG_FREERTOS_HZ 100
@@ -98,6 +105,9 @@ static LWS_INLINE void uv_close(uv_handle_t *h, void *v)
 	free(pvTimerGetTimerID((uv_timer_t)h));
 	xTimerDelete(*(uv_timer_t *)h, 0);
 }
+
+
+#if !defined(LWS_AMAZON_RTOS)
 
 /* ESP32 helper declarations */
 
@@ -224,3 +234,5 @@ extern uint16_t lws_esp32_sine_interp(int n);
 
 /* required in external code by esp32 plat (may just return if no leds) */
 extern void lws_esp32_leds_timer_cb(TimerHandle_t th);
+
+#endif /* LWS_AMAZON_RTOS */

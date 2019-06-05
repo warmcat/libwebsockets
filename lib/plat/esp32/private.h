@@ -24,7 +24,9 @@
 #define MSG_NOSIGNAL 0
 #define SOMAXCONN 3
 
+#if !defined(LWS_AMAZON_RTOS)
  #include <fcntl.h>
+#endif
  #include <strings.h>
  #include <unistd.h>
  #include <sys/stat.h>
@@ -37,12 +39,20 @@
  #endif
  #include <netdb.h>
  #include <signal.h>
+#if !defined(LWS_AMAZON_RTOS)
  #include <sys/socket.h>
+#endif
 
-#include "freertos/timers.h"
-#include <esp_attr.h>
-#include <esp_system.h>
-#include <esp_task_wdt.h>
+#if defined(LWS_AMAZON_RTOS)
+ #include "FreeRTOS.h"
+ #include "timers.h"
+ #include <esp_attr.h>
+#else
+ #include "freertos/timers.h"
+ #include <esp_attr.h>
+ #include <esp_system.h>
+ #include <esp_task_wdt.h>
+#endif
 
 #include "lwip/apps/sntp.h"
 

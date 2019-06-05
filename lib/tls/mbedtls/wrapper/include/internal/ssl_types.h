@@ -21,8 +21,11 @@
 
 #include <lws_config.h>
 #if defined(LWS_WITH_ESP32)
-#undef MBEDTLS_CONFIG_FILE
-#define MBEDTLS_CONFIG_FILE <mbedtls/esp_config.h>
+ /* AMAZON RTOS has its own setting via MTK_MBEDTLS_CONFIG_FILE */
+ #if !defined(LWS_AMAZON_RTOS)
+  #undef MBEDTLS_CONFIG_FILE
+  #define MBEDTLS_CONFIG_FILE <mbedtls/esp_config.h>
+ #endif
 #endif
 
 #include "ssl_code.h"

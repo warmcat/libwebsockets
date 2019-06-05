@@ -194,9 +194,11 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 
 	lwsl_debug("new wsi wsistate 0x%x\n", new_wsi->wsistate);
 
+#if !defined(LWS_AMAZON_RTOS)
 	if (context->event_loop_ops->accept)
 		if (context->event_loop_ops->accept(new_wsi))
 			goto fail;
+#endif
 
 	if (!(type & LWS_ADOPT_ALLOW_SSL)) {
 		lws_pt_lock(pt, __func__);
