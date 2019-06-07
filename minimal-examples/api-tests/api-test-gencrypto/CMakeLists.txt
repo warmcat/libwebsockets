@@ -63,6 +63,8 @@ ENDMACRO()
 
 set(requirements 1)
 require_lws_config(LWS_WITH_GENCRYPTO 1 requirements)
+require_lws_config(LWS_WITH_JOSE 1 requirements)
+
 
 if (requirements)
 

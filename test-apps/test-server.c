@@ -26,6 +26,11 @@
 #endif
 #include <signal.h>
 
+#if defined(WIN32) || defined(_WIN32)
+#else
+#include <unistd.h>
+#endif
+
 int close_testing;
 int max_poll_elements;
 int debug_level = LLL_USER | 7;
@@ -478,7 +483,11 @@ int main(int argc, char **argv)
 
 	printf("Using resource path \"%s\"\n", resource_path);
 #ifdef EXTERNAL_POLL
+#if !defined(WIN32) && !defined(_WIN32)
 	max_poll_elements = getdtablesize();
+#else
+	max_poll_elements = sysconf(_SC_OPEN_MAX);
+#endif
 	pollfds = malloc(max_poll_elements * sizeof (struct lws_pollfd));
 	fd_lookup = malloc(max_poll_elements * sizeof (int));
 	if (pollfds == NULL || fd_lookup == NULL) {

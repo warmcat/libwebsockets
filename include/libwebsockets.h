@@ -150,7 +150,6 @@ typedef unsigned long long lws_intptr_t;
 #if defined(__ANDROID__)
 #include <netinet/in.h>
 #include <unistd.h>
-#define getdtablesize() sysconf(_SC_OPEN_MAX)
 #endif
 
 #endif

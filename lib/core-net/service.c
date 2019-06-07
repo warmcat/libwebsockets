@@ -194,8 +194,8 @@ user_service_go_again:
 			goto bail_ok;
 	}
 	
-	lwsl_debug("%s: %p: non mux: wsistate 0x%x, ops %s\n", __func__, wsi,
-		   wsi->wsistate, wsi->role_ops->name);
+	lwsl_debug("%s: %p: non mux: wsistate 0x%lx, ops %s\n", __func__, wsi,
+		   (unsigned long)wsi->wsistate, wsi->role_ops->name);
 
 	vwsi = (volatile struct lws *)wsi;
 	vwsi->leave_pollout_active = 0;
@@ -503,9 +503,9 @@ lws_service_do_ripe_rxflow(struct lws_context_per_thread *pt)
 		pfd.revents = LWS_POLLIN;
 		pfd.fd = -1;
 
-		lwsl_debug("%s: rxflow processing: %p fc=%d, 0x%x\n", __func__,
-				wsi, lws_is_flowcontrolled(wsi),
-			    wsi->wsistate);
+		lwsl_debug("%s: rxflow processing: %p fc=%d, 0x%lx\n", __func__,
+			   wsi, lws_is_flowcontrolled(wsi),
+			   (unsigned long)wsi->wsistate);
 
 		if (!lws_is_flowcontrolled(wsi) &&
 		    lwsi_state(wsi) != LRS_DEFERRING_ACTION &&
@@ -728,8 +728,8 @@ lws_service_periodic_checks(struct lws_context *context,
 #endif
 		lwsl_notice("ah excessive hold: wsi %p\n"
 			    "  peer address: %s\n"
-			    "  ah pos %u\n",
-			    wsi, buf, ah->pos);
+			    "  ah pos %lu\n",
+			    wsi, buf, (unsigned long)ah->pos);
 		buf[0] = '\0';
 		m = 0;
 		do {

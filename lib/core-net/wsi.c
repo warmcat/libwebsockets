@@ -26,14 +26,16 @@ void lwsi_set_role(struct lws *wsi, lws_wsi_state_t role)
 {
 	wsi->wsistate = (wsi->wsistate & (~LWSI_ROLE_MASK)) | role;
 
-	lwsl_debug("lwsi_set_role(%p, 0x%x)\n", wsi, wsi->wsistate);
+	lwsl_debug("lwsi_set_role(%p, 0x%lx)\n", wsi,
+					(unsigned long)wsi->wsistate);
 }
 
 void lwsi_set_state(struct lws *wsi, lws_wsi_state_t lrs)
 {
 	wsi->wsistate = (wsi->wsistate & (~LRS_MASK)) | lrs;
 
-	lwsl_debug("lwsi_set_state(%p, 0x%x)\n", wsi, wsi->wsistate);
+	lwsl_debug("lwsi_set_state(%p, 0x%lx)\n", wsi,
+					(unsigned long)wsi->wsistate);
 }
 #endif
 
@@ -440,8 +442,8 @@ lws_role_transition(struct lws *wsi, enum lwsi_role role, enum lwsi_state state,
 #if defined(_DEBUG)
 	if (wsi->role_ops)
 		name = wsi->role_ops->name;
-	lwsl_debug("%s: %p: wsistate 0x%x, ops %s\n", __func__, wsi,
-		   wsi->wsistate, name);
+	lwsl_debug("%s: %p: wsistate 0x%lx, ops %s\n", __func__, wsi,
+		   (unsigned long)wsi->wsistate, name);
 #endif
 }
 

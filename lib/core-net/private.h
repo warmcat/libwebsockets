@@ -22,6 +22,10 @@
 #if !defined(__LWS_CORE_NET_PRIVATE_H__)
 #define __LWS_CORE_NET_PRIVATE_H__
 
+#if !defined(_POSIX_C_SOURCE)
+#define _POSIX_C_SOURCE 200112L
+#endif
+
 #include "roles/private.h"
 
 #ifdef LWS_WITH_IPV6

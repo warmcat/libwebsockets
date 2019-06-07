@@ -19,6 +19,8 @@
  *  MA  02110-1301  USA
  */
 
+#define  _GNU_SOURCE
+
 #include "core/private.h"
 
 #if defined(WIN32) || defined(_WIN32)

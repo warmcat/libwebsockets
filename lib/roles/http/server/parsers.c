@@ -94,8 +94,8 @@ _lws_create_ah(struct lws_context_per_thread *pt, ah_data_idx_t data_size)
 	ah->data_length = data_size;
 	pt->http.ah_pool_length++;
 
-	lwsl_info("%s: created ah %p (size %d): pool length %d\n", __func__,
-		    ah, (int)data_size, pt->http.ah_pool_length);
+	lwsl_info("%s: created ah %p (size %d): pool length %ld\n", __func__,
+		    ah, (int)data_size, (unsigned long)pt->http.ah_pool_length);
 
 	return ah;
 }
@@ -107,8 +107,9 @@ _lws_destroy_ah(struct lws_context_per_thread *pt, struct allocated_headers *ah)
 		if ((*a) == ah) {
 			*a = ah->next;
 			pt->http.ah_pool_length--;
-			lwsl_info("%s: freed ah %p : pool length %d\n",
-				    __func__, ah, pt->http.ah_pool_length);
+			lwsl_info("%s: freed ah %p : pool length %ld\n",
+				    __func__, ah,
+				    (unsigned long)pt->http.ah_pool_length);
 			if (ah->data)
 				lws_free(ah->data);
 			lws_free(ah);
@@ -359,9 +360,9 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 		 * we're detaching the ah, but it was held an
 		 * unreasonably long time
 		 */
-		lwsl_debug("%s: wsi %p: ah held %ds, role/state 0x%x 0x%x,"
+		lwsl_debug("%s: wsi %p: ah held %ds, role/state 0x%lx 0x%x,"
 			    "\n", __func__, wsi, (int)(now - ah->assigned),
-			    lwsi_role(wsi), lwsi_state(wsi));
+			    (unsigned long)lwsi_role(wsi), lwsi_state(wsi));
 	}
 
 	ah->assigned = 0;
@@ -414,7 +415,8 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 		goto nobody_usable_waiting;
 
 	lwsl_info("%s: transferring ah to last eligible wsi in wait list "
-		  "%p (wsistate 0x%x)\n", __func__, wsi, wsi->wsistate);
+		  "%p (wsistate 0x%lx)\n", __func__, wsi,
+		  (unsigned long)wsi->wsistate);
 
 	wsi->http.ah = ah;
 	ah->wsi = wsi; /* new owner */
@@ -693,8 +695,9 @@ lws_pos_in_bounds(struct lws *wsi)
 	 * with these tests everywhere, it should never be able to exceed
 	 * the limit, only meet it
 	 */
-	lwsl_err("%s: pos %d, limit %d\n", __func__, wsi->http.ah->pos,
-		 wsi->context->max_http_header_data);
+	lwsl_err("%s: pos %ld, limit %ld\n", __func__,
+		 (unsigned long)wsi->http.ah->pos,
+		 (unsigned long)wsi->context->max_http_header_data);
 	assert(0);
 
 	return 1;
@@ -754,9 +757,9 @@ issue_char(struct lws *wsi, unsigned char c)
 			return -1;
 
 		wsi->http.ah->data[wsi->http.ah->pos++] = '\0';
-		lwsl_warn("header %i exceeds limit %d\n",
-			  wsi->http.ah->parser_state,
-			  wsi->http.ah->current_token_limit);
+		lwsl_warn("header %li exceeds limit %ld\n",
+			  (long)wsi->http.ah->parser_state,
+			  (long)wsi->http.ah->current_token_limit);
 	}
 
 	return 1;
@@ -1098,8 +1101,10 @@ swallow:
 
 			/* collecting and checking a name part */
 		case WSI_TOKEN_NAME_PART:
-			lwsl_parser("WSI_TOKEN_NAME_PART '%c' 0x%02X (role=0x%x) "
-				    "wsi->lextable_pos=%d\n", c, c, lwsi_role(wsi),
+			lwsl_parser("WSI_TOKEN_NAME_PART '%c' 0x%02X "
+				    "(role=0x%lx) "
+				    "wsi->lextable_pos=%d\n", c, c,
+				    (unsigned long)lwsi_role(wsi),
 				    ah->lextable_pos);
 
 			if (c >= 'A' && c <= 'Z')

@@ -137,6 +137,9 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	struct lws_context_per_thread *pt;
 	struct lws *wsi1, *wsi2;
 	struct lws_context *context;
+#if !defined(LWS_NO_CLIENT)
+	long rl = (long)(int)reason;
+#endif
 	int n;
 
 	lwsl_info("%s: %p: caller: %s\n", __func__, wsi, caller);
@@ -164,7 +167,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 		lws_dll_remove_track_tail(&wsi->dll_cli_active_conns,
 					  &wsi->vhost->dll_cli_active_conns_head);
 
-		if ((int)reason != -1)
+		if (rl != -1l)
 			lws_vhost_lock(wsi->vhost);
 
 		lws_dll2_foreach_safe(&wsi->dll2_cli_txn_queue_owner, NULL,
@@ -174,13 +177,13 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 		 * !!! If we are closing, but we have pending pipelined
 		 * transaction results we already sent headers for, that's going
 		 * to destroy sync for HTTP/1 and leave H2 stream with no live
-		 * swsi.
+		 * swsi.`
 		 *
 		 * However this is normal if we are being closed because the
 		 * transaction queue leader is closing.
 		 */
 		lws_dll2_remove(&wsi->dll2_cli_txn_queue);
-		if ((int)reason !=-1)
+		if (rl != -1l)
 			lws_vhost_unlock(wsi->vhost);
 	}
 #endif

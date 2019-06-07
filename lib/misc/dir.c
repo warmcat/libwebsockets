@@ -19,6 +19,9 @@
  *  MA  02110-1301  USA
  */
 
+#define NO_GNU_SOURCE_THIS_TIME
+#define _DARWIN_C_SOURCE
+
 #include <libwebsockets.h>
 #include "core/private.h"
 #include <string.h>

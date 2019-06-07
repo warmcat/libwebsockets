@@ -22,9 +22,16 @@
 #include "lws_config.h"
 #include "lws_config_private.h"
 
-#if defined(LWS_WITH_CGI) && defined(LWS_HAVE_VFORK)
+#if defined(LWS_WITH_CGI) && defined(LWS_HAVE_VFORK) && \
+    !defined(NO_GNU_SOURCE_THIS_TIME)
  #define  _GNU_SOURCE
 #endif
+
+/*
+#if !defined(_POSIX_C_SOURCE)
+#define _POSIX_C_SOURCE 200112L
+#endif
+*/
 
 #if defined(__COVERITY__) && !defined(LWS_COVERITY_WORKAROUND)
  #define LWS_COVERITY_WORKAROUND
