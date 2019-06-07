@@ -59,13 +59,18 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 #else
 			n = esp_get_free_heap_size();
 #endif
-			if (n != context->last_free_heap) {
-				if (n > context->last_free_heap)
-					lwsl_notice(" heap :%d (+%d)\n", n,
-						    n - context->last_free_heap);
+			if ((unsigned int)n != context->last_free_heap) {
+				if ((unsigned int)n > context->last_free_heap)
+					lwsl_notice(" heap :%ld (+%ld)\n",
+						    (unsigned long)n,
+						    (unsigned long)(n -
+						      context->last_free_heap));
 				else
-					lwsl_notice(" heap :%d (-%d)\n", n,
-						    context->last_free_heap - n);
+					lwsl_notice(" heap :%ld (-%ld)\n",
+						    (unsigned long)n,
+						    (unsigned long)(
+						      context->last_free_heap -
+						      n));
 				context->last_free_heap = n;
 			}
 		}
@@ -117,7 +122,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		FD_ZERO(&writefds);
 		FD_ZERO(&errfds);
 
-		for (n = 0; n < pt->fds_count; n++) {
+		for (n = 0; n < (int)pt->fds_count; n++) {
 			pt->fds[n].revents = 0;
 			if (pt->fds[n].fd >= max_fd)
 				max_fd = pt->fds[n].fd;
@@ -130,7 +135,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 
 		n = select(max_fd + 1, &readfds, &writefds, &errfds, ptv);
 		n = 0;
-		for (m = 0; m < pt->fds_count; m++) {
+		for (m = 0; m < (int)pt->fds_count; m++) {
 			c = 0;
 			if (FD_ISSET(pt->fds[m].fd, &readfds)) {
 				pt->fds[m].revents |= LWS_POLLIN;
@@ -180,7 +185,7 @@ faked_service:
 			c = n;
 
 	/* any socket with events to service? */
-	for (n = 0; n < pt->fds_count && c; n++) {
+	for (n = 0; n < (int)pt->fds_count && c; n++) {
 		if (!pt->fds[n].revents)
 			continue;
 

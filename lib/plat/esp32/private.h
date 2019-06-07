@@ -24,7 +24,10 @@
 #define MSG_NOSIGNAL 0
 #define SOMAXCONN 3
 
-#if !defined(LWS_AMAZON_RTOS)
+#if defined(LWS_AMAZON_RTOS)
+ int
+ open(const char *path, int oflag, ...);
+#else
  #include <fcntl.h>
 #endif
  #include <strings.h>
@@ -39,7 +42,10 @@
  #endif
  #include <netdb.h>
  #include <signal.h>
-#if !defined(LWS_AMAZON_RTOS)
+#if defined(LWS_AMAZON_RTOS)
+const char *
+gai_strerror(int);
+#else
  #include <sys/socket.h>
 #endif
 

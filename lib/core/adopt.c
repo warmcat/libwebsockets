@@ -192,7 +192,8 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 			n = LWS_CALLBACK_RAW_ADOPT;
 	}
 
-	lwsl_debug("new wsi wsistate 0x%x\n", new_wsi->wsistate);
+	lwsl_debug("new wsi wsistate 0x%lx\n",
+		   (unsigned long)new_wsi->wsistate);
 
 #if !defined(LWS_AMAZON_RTOS)
 	if (context->event_loop_ops->accept)

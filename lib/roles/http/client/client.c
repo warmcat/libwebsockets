@@ -115,8 +115,8 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 			struct lws *w = lws_container_of(d, struct lws,
 						  dll_client_transaction_queue);
 
-			lwsl_debug("%s: %p states 0x%x\n", __func__, w,
-				   w->wsistate);
+			lwsl_debug("%s: %p states 0x%lx\n", __func__, w,
+				   (unsigned long)w->wsistate);
 			if (lwsi_state(w) == LRS_H1C_ISSUE_HANDSHAKE2)
 				wfound = w;
 		} lws_end_foreach_dll_safe(d, d1);
@@ -394,8 +394,10 @@ start_ws_handshake:
 
 		w = _lws_client_wsi_master(wsi);
 		lwsl_info("%s: HANDSHAKE2: %p: sending headers on %p "
-			  "(wsistate 0x%x 0x%x)\n", __func__, wsi, w,
-			  wsi->wsistate, w->wsistate);
+			  "(wsistate 0x%lx 0x%lx), w sock %d, wsi sock %d\n",
+			  __func__, wsi, w, (unsigned long)wsi->wsistate,
+			  (unsigned long)w->wsistate, w->desc.sockfd,
+			  wsi->desc.sockfd);
 
 		n = lws_ssl_capable_write(w, (unsigned char *)sb, (int)(p - sb));
 		lws_latency(context, wsi, "send lws_issue_raw", n,
@@ -565,8 +567,8 @@ lws_http_transaction_completed_client(struct lws *wsi)
 	if (user_callback_handle_rxflow(wsi_eff->protocol->callback, wsi_eff,
 					LWS_CALLBACK_COMPLETED_CLIENT_HTTP,
 					wsi_eff->user_space, NULL, 0)) {
-		lwsl_debug("%s: Completed call returned nonzero (role 0x%x)\n",
-						__func__, lwsi_role(wsi_eff));
+		lwsl_debug("%s: Completed call returned nonzero (role 0x%lx)\n",
+			   __func__, (unsigned long)lwsi_role(wsi_eff));
 		return -1;
 	}
 

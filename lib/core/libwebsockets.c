@@ -64,14 +64,16 @@ void lwsi_set_role(struct lws *wsi, lws_wsi_state_t role)
 {
 	wsi->wsistate = (wsi->wsistate & (~LWSI_ROLE_MASK)) | role;
 
-	lwsl_debug("lwsi_set_role(%p, 0x%x)\n", wsi, wsi->wsistate);
+	lwsl_debug("lwsi_set_role(%p, 0x%lx)\n", wsi,
+					(unsigned long)wsi->wsistate);
 }
 
 void lwsi_set_state(struct lws *wsi, lws_wsi_state_t lrs)
 {
 	wsi->wsistate = (wsi->wsistate & (~LRS_MASK)) | lrs;
 
-	lwsl_debug("lwsi_set_state(%p, 0x%x)\n", wsi, wsi->wsistate);
+	lwsl_debug("lwsi_set_state(%p, 0x%lx)\n", wsi,
+					(unsigned long)wsi->wsistate);
 }
 #endif
 
@@ -659,6 +661,9 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	struct lws_context_per_thread *pt;
 	struct lws *wsi1, *wsi2;
 	struct lws_context *context;
+#if !defined(LWS_NO_CLIENT)
+	long rl = (long)(int)reason;
+#endif
 	int n;
 
 	lwsl_info("%s: %p: caller: %s\n", __func__, wsi, caller);
@@ -683,7 +688,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	 * must go through and close all those first
 	 */
 	if (wsi->vhost) {
-		if ((int)reason != -1)
+		if (rl != -1l)
 			lws_vhost_lock(wsi->vhost);
 		lws_start_foreach_dll_safe(struct lws_dll_lws *, d, d1,
 				wsi->dll_client_transaction_queue_head.next) {
@@ -697,13 +702,14 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 		 * !!! If we are closing, but we have pending pipelined
 		 * transaction results we already sent headers for, that's going
 		 * to destroy sync for HTTP/1 and leave H2 stream with no live
-		 * swsi.
+		 * swsi.`
 		 *
 		 * However this is normal if we are being closed because the
 		 * transaction queue leader is closing.
 		 */
+
 		lws_dll_lws_remove(&wsi->dll_client_transaction_queue);
-		if ((int)reason !=-1)
+		if (rl != -1l)
 			lws_vhost_unlock(wsi->vhost);
 	}
 #endif
@@ -1073,7 +1079,8 @@ lws_buflist_append_segment(struct lws_buflist **head, const uint8_t *buf,
 		head = &((*head)->next);
 	}
 
-	lwsl_info("%s: len %u first %d %p\n", __func__, (uint32_t)len, first, p);
+	lwsl_info("%s: len %u first %d %p\n", __func__, (unsigned int)len,
+					      first, p);
 
 	nbuf = (struct lws_buflist *)lws_malloc(sizeof(**head) + len, __func__);
 	if (!nbuf) {
@@ -2306,8 +2313,8 @@ lws_role_transition(struct lws *wsi, enum lwsi_role role, enum lwsi_state state,
 #if defined(_DEBUG)
 	if (wsi->role_ops)
 		name = wsi->role_ops->name;
-	lwsl_debug("%s: %p: wsistate 0x%x, ops %s\n", __func__, wsi,
-		   wsi->wsistate, name);
+	lwsl_debug("%s: %p: wsistate 0x%lx, ops %s\n", __func__, wsi,
+		   (unsigned long)wsi->wsistate, name);
 #endif
 }
 

@@ -131,8 +131,9 @@ lws_client_connect_2(struct lws *wsi)
 			}
 #endif
 
-			lwsl_info("applying %p to txn queue on %p state 0x%x\n",
-				wsi, w, w->wsistate);
+			lwsl_info("apply %p to txn queue on %p state 0x%lx\n",
+				  wsi, w, (unsigned long)w->wsistate);
+
 			/*
 			 * ...let's add ourselves to his transaction queue...
 			 * we are adding ourselves at the HEAD

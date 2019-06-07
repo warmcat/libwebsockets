@@ -142,8 +142,9 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 			return LWS_HPI_RET_WSI_ALREADY_DIED;
 		}
 
-		lwsl_info("%s: new wsi %p: wsistate 0x%x, role_ops %s\n",
-			    __func__, cwsi, cwsi->wsistate, cwsi->role_ops->name);
+		lwsl_info("%s: new wsi %p: wsistate 0x%lx, role_ops %s\n",
+			    __func__, cwsi, (unsigned long)cwsi->wsistate,
+			    cwsi->role_ops->name);
 
 	} while (pt->fds_count < context->fd_limit_per_thread - 1 &&
 		 wsi->position_in_fds_table != LWS_NO_FDS_POS &&

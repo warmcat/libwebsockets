@@ -22,6 +22,16 @@
 #include "lws_config.h"
 #include "lws_config_private.h"
 
+#if defined(LWS_HAVE_SYS_STAT_H) && !defined(LWS_PLAT_OPTEE)
+ #include <sys/stat.h>
+#endif
+
+/*
+#if !defined(_POSIX_C_SOURCE)
+#define _POSIX_C_SOURCE 200112L
+#endif
+*/
+
 #if defined(LWS_WITH_CGI) && defined(LWS_HAVE_VFORK)
  #define  _GNU_SOURCE
 #endif
@@ -48,9 +58,6 @@
 
 #ifdef LWS_HAVE_SYS_TYPES_H
  #include <sys/types.h>
-#endif
-#ifdef LWS_HAVE_SYS_STAT_H
- #include <sys/stat.h>
 #endif
 
 #if LWS_MAX_SMP > 1
@@ -186,6 +193,10 @@ enum lws_ssl_capable_status {
  *  ------ roles ------
  *
  */
+
+#if !defined(_POSIX_C_SOURCE)
+#define _POSIX_C_SOURCE 200112L
+#endif
 
 #include "roles/private.h"
 
