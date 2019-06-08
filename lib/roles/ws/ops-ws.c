@@ -692,11 +692,15 @@ utf8_fail:
 
 			/* if pmd not enabled, in == out */
 
-			if (n == PMDR_DID_NOTHING ||
-			    n == PMDR_UNKNOWN)
+			if (n == PMDR_DID_NOTHING
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+				       	||
+			    n == PMDR_UNKNOWN
+#endif
+			    )
 				pmdrx.eb_in.len -= pmdrx.eb_out.len;
 
-			if (!wsi->wsistate_pre_close &&
+	if (!wsi->wsistate_pre_close &&
 			    (pmdrx.eb_out.len >= 0 ||
 			     callback_action == LWS_CALLBACK_RECEIVE_PONG ||
 						       n == PMDR_EMPTY_FINAL)) {

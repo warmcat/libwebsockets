@@ -646,7 +646,11 @@ utf8_fail:
 
 			/* if pmd not enabled, in == out */
 
-			if (n == PMDR_DID_NOTHING || n == PMDR_UNKNOWN)
+			if (n == PMDR_DID_NOTHING
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+			    || n == PMDR_UNKNOWN
+#endif
+			)
 				pmdrx.eb_in.len -= pmdrx.eb_out.len;
 
 			m = wsi->protocol->callback(wsi,

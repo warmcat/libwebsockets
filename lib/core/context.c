@@ -192,6 +192,13 @@ lwsl_info("context created\n");
 #endif
 #endif
 
+		if (context->max_fds < 0) {
+			lwsl_err("%s: problem getting process max files\n",
+				 __func__);
+
+			return NULL;
+		}
+
 	if (info->count_threads)
 		context->count_threads = info->count_threads;
 	else
