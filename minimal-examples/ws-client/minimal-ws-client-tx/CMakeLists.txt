@@ -73,6 +73,29 @@ MACRO(require_lws_config reqconfig _val result)
 	endif()
 ENDMACRO()
 
+set(LIBWEBSOCKETS_MIN_VERSION 1.7.0)
+
+find_package(OpenSSL REQUIRED)
+find_package(Libwebsockets ${LIBWEBSOCKETS_MIN_VERSION} QUIET)
+
+find_package(PkgConfig)
+
+if(Libwebsockets_FOUND)
+    set(LIBWEBSOCKETS_INCLUDE_DIR ${LIBWEBSOCKETS_INCLUDE_DIR} ${LIBWEBSOCKETS_INCLUDE_DIRS})
+else() # try to find libwebsockets with pkg-config
+    pkg_check_modules(Libwebsockets REQUIRED libwebsockets>=${LIBWEBSOCKETS_MIN_VERSION})
+    find_path(LIBWEBSOCKETS_INCLUDE_DIR libwebsockets.h
+            HINTS ${LIBWEBSOCKETS_INCLUDEDIR} ${LIBWEBSOCKETS_INCLUDE_DIRS})
+    find_library(LIBWEBSOCKETS_LIBRARIES NAMES websockets libwebsockets
+            HINTS ${LIBWEBSOCKETS_LIBDIR} ${LIBWEBSOCKETS_LIBRARY_DIRS})
+    include(FindPackageHandleStandardArgs)
+    find_package_handle_standard_args(LIBWEBSOCKETS DEFAULT_MSG LIBWEBSOCKETS_LIBRARIES LIBWEBSOCKETS_INCLUDE_DIR)
+    mark_as_advanced(LIBWEBSOCKETS_INCLUDE_DIR LIBWEBSOCKETS_LIBRARIES)
+endif()
+
+set(INCLUDE_DIRS ${LIBWEBSOCKETS_INCLUDE_DIR})
+set(LINK_LIBS pthread ${LIBWEBSOCKETS_LIBRARIES})
+
 set(requirements 1)
 require_pthreads(requirements)
 require_lws_config(LWS_ROLE_WS 1 requirements)
@@ -80,6 +103,8 @@ require_lws_config(LWS_WITHOUT_CLIENT 0 requirements)
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
+	target_include_directories(${SAMP} PUBLIC ${INCLUDE_DIRS})
+	target_link_libraries(${SAMP} ${LINK_LIBS})
 
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared pthread)
