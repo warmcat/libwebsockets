@@ -60,10 +60,12 @@ typedef struct lws_abstract lws_abstract_t;
 typedef struct lws_smtp_client_info {
 	void *data;
 
-	char ip[32]; /**< Fill before init, eg, "127.0.0.1" */
 	char helo[32];	/**< Fill before init, eg, "myserver.com" */
 
 	const lws_abstract_t *abs;	/**< abstract transport to use */
+	const lws_token_map_t	*abs_tokens;   /**< transport-specific metadata
+						    for this particular
+						    connection */
 	struct lws_vhost *vh;
 
 	time_t retry_interval;

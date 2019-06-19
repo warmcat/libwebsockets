@@ -163,10 +163,11 @@ lws_atcrs_tx(lws_abs_user_t *abs_priv, uint8_t *buf, size_t len)
 #if !defined(LWS_WITHOUT_CLIENT)
 static int
 lws_atcrs_client_conn(lws_abs_user_t *abs_priv, struct lws_vhost *vh,
-		      const char *ip, uint16_t port, int tls_flags)
+		      const lws_token_map_t *token_map)
 {
 	lws_atrs_priv_t *priv = (lws_atrs_priv_t *)abs_priv;
 	struct lws_client_connect_info i;
+	const lws_token_map_t *tm;
 
 	if (priv->connecting)
 		return 0;
@@ -177,22 +178,45 @@ lws_atcrs_client_conn(lws_abs_user_t *abs_priv, struct lws_vhost *vh,
 		return 0;
 	}
 
-	lwsl_debug("%s: priv %p connecting to %s:%u %p\n", __func__, priv,
-			ip, port, vh->context);
-
 	memset(&i, 0, sizeof(i));
+
+	/* address and port are passed-in using the abstract transport tokens */
+
+	tm = lws_abstract_get_token(token_map, LTMI_PEER_DNS_ADDRESS);
+	if (!tm) {
+		lwsl_notice("%s: raw_skt needs LTMI_PEER_DNS_ADDRESS\n",
+			    __func__);
+
+		return 1;
+	}
+	i.address = tm->u.value;
+
+	tm = lws_abstract_get_token(token_map, LTMI_PEER_PORT);
+	if (!tm) {
+		lwsl_notice("%s: raw_skt needs LTMI_PEER_PORT\n", __func__);
+
+		return 1;
+	}
+	i.port = tm->u.lvalue;
+
+	/* optional */
+	i.ssl_connection = 0;
+	tm = lws_abstract_get_token(token_map, LTMI_PEER_TLS_FLAGS);
+	if (tm)
+		i.ssl_connection = tm->u.lvalue;
+
+
+	lwsl_debug("%s: raw_skt priv %p connecting to %s:%u %p\n",
+		   __func__, priv, i.address, i.port, vh->context);
 
 	i.path = "";
 	i.vhost = vh;
-	i.port = port;
-	i.address = ip;
 	i.method = "RAW";
 	i.userdata = priv;
 	i.host = i.address;
 	i.pwsi = &priv->wsi;
 	i.origin = i.address;
 	i.context = vh->context;
-	i.ssl_connection = tls_flags;
 	i.local_protocol_name = "lws-abs-cli-raw-skt";
 
 	priv->wsi = lws_client_connect_via_info(&i);

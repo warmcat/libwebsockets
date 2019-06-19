@@ -100,11 +100,9 @@ again:
 	/* there's no existing connection */
 
 	lws_smtp_client_state_transition(c, LGSSMTP_CONNECTING);
-	lwsl_notice("LGSSMTP_IDLE: connecting to %s:25\n", c->i.ip);
 
-	if (c->abs.client_conn(c->abs_conn, c->i.vh, c->i.ip, 25, 0)) {
-		lwsl_err("%s: failed to connect to %s:25\n",
-			__func__, c->i.ip);
+	if (c->abs.client_conn(c->abs_conn, c->i.vh, c->i.abs_tokens)) {
+		lwsl_err("%s: failed to connect\n", __func__);
 
 		return;
 	}

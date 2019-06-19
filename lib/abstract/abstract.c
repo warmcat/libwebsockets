@@ -50,3 +50,18 @@ lws_abstract_get_by_name(const char *name)
 
 	return NULL;
 }
+
+const lws_token_map_t *
+lws_abstract_get_token(const lws_token_map_t *token_map, short name_index)
+{
+	if (!token_map)
+		return NULL;
+
+	do {
+		if (token_map->name_index == name_index)
+			return token_map;
+		token_map++;
+	} while (token_map->name_index);
+
+	return NULL;
+}

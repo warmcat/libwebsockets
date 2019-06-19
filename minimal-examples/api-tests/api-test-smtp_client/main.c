@@ -9,6 +9,8 @@
 
 #include <libwebsockets.h>
 
+#include <signal.h>
+
 static int interrupted, result = 1;
 static const char *recip;
 
@@ -36,6 +38,21 @@ email_sent_or_failed(struct lws_smtp_email *email, void *buf, size_t len)
 
 	return 0;
 }
+
+/*
+ * We're going to bind to the raw-skt transport, so tell that what we want it
+ * to connect to
+ */
+
+static const lws_token_map_t smtp_abs_tokens[] = {
+{
+	.u = { .value = "127.0.0.1" },
+	.name_index = LTMI_PEER_DNS_ADDRESS,
+}, {
+	.u = { .lvalue = 25l },
+	.name_index = LTMI_PEER_PORT,
+}};
+
 
 int main(int argc, const char **argv)
 {
@@ -84,10 +101,12 @@ int main(int argc, const char **argv)
 	/* create the smtp client */
 
 	memset(&sci, 0, sizeof(sci));
-	sci.data = NULL /* stmp client specific user data */;
+	sci.data = NULL; /* stmp client specific user data */
 	sci.abs = lws_abstract_get_by_name("raw_skt");
+	/* tell raw_skt transport what we want it to do */
+	sci.abs_tokens = smtp_abs_tokens;
 	sci.vh = vh;
-	lws_strncpy(sci.ip, "127.0.0.1", sizeof(sci.ip));
+
 	lws_strncpy(sci.helo, "lws-test-client", sizeof(sci.helo));
 
 	smtpc = lws_smtp_client_create(&sci);
