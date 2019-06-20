@@ -1350,7 +1350,11 @@ if (UNIX)
 	endif()
 endif()
 
-if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX OR (CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
+if ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
+	set(COMPILER_IS_CLANG ON)
+endif()
+
+if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX OR COMPILER_IS_CLANG)
     include (CheckCCompilerFlag)
     CHECK_C_COMPILER_FLAG(-fvisibility=hidden LWS_HAVE_VISIBILITY)
     if (LWS_HAVE_VISIBILITY)
@@ -1361,7 +1365,10 @@ if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX OR (CMAKE_C_COMPILER_ID 
     endif()
 
 	if (LWS_WITH_ASAN)
-		set (ASAN_FLAGS "-fsanitize=address -fsanitize=pointer-compare -fsanitize=pointer-subtract -fsanitize=leak -fsanitize=undefined -fsanitize-address-use-after-scope -fsanitize-undefined-trap-on-error")
+		set (ASAN_FLAGS "-fsanitize=address -fsanitize=undefined -fsanitize-address-use-after-scope -fsanitize-undefined-trap-on-error")
+		if (NOT COMPILER_IS_CLANG)
+			set (ASAN_FLAGS "${ASAN_FLAGS} -fsanitize=pointer-compare -fsanitize=pointer-subtract -fsanitize=leak")
+		endif()
 		message("Enabling ASAN")
 	endif()
 
@@ -1395,7 +1402,7 @@ if ((CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX) AND NOT LWS_WITHOUT_TE
     endif()
 endif()
 
-if ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
+if (COMPILER_IS_CLANG)
 
 	# otherwise osx blows a bunch of openssl deprecated api errors
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-deprecated-declarations" )
@@ -1501,7 +1508,7 @@ endif()
 
 # Set the so version of the lib.
 # Equivalent to LDFLAGS=-version-info x:x:x
-if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX OR (CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
+if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX OR COMPILER_IS_CLANG)
 	foreach(lib ${LWS_LIBRARIES})
 		set_target_properties(${lib}
 			PROPERTIES
