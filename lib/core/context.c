@@ -952,7 +952,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 		}
 		context->max_fds = rt.rlim_cur;
 #else
-#if defined(WIN32) || defined(_WIN32)
+#if defined(WIN32) || defined(_WIN32) || defined(LWS_AMAZON_RTOS)
 		context->max_fds = getdtablesize();
 #else
 		context->max_fds = sysconf(_SC_OPEN_MAX);
