@@ -44,14 +44,24 @@ email_sent_or_failed(struct lws_smtp_email *email, void *buf, size_t len)
  * to connect to
  */
 
-static const lws_token_map_t smtp_abs_tokens[] = {
-{
+static const lws_token_map_t smtp_raw_skt_transport_tokens[] = {
+ {
 	.u = { .value = "127.0.0.1" },
-	.name_index = LTMI_PEER_DNS_ADDRESS,
-}, {
-	.u = { .lvalue = 25l },
-	.name_index = LTMI_PEER_PORT,
-}};
+	.name_index = LTMI_PEER_V_DNS_ADDRESS,
+ }, {
+	.u = { .lvalue = 25 },
+	.name_index = LTMI_PEER_LV_PORT,
+ }, {
+ }
+};
+
+static const lws_token_map_t smtp_protocol_tokens[] = {
+ {
+	.u = { .value = "lws-test-client" },
+	.name_index = LTMI_PSMTP_V_HELO,
+ }, {
+ }
+};
 
 
 int main(int argc, const char **argv)
@@ -59,8 +69,7 @@ int main(int argc, const char **argv)
 	int n = 1, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
 	struct lws_context_creation_info info;
 	struct lws_context *context;
-	lws_smtp_client_info_t sci;
-	lws_smtp_client_t *smtpc;
+	lws_abs_t abs, *instance;
 	lws_smtp_email_t email;
 	struct lws_vhost *vh;
 	const char *p;
@@ -100,17 +109,32 @@ int main(int argc, const char **argv)
 
 	/* create the smtp client */
 
-	memset(&sci, 0, sizeof(sci));
-	sci.data = NULL; /* stmp client specific user data */
-	sci.abs = lws_abstract_get_by_name("raw_skt");
-	/* tell raw_skt transport what we want it to do */
-	sci.abs_tokens = smtp_abs_tokens;
-	sci.vh = vh;
+	memset(&abs, 0, sizeof(abs));
 
-	lws_strncpy(sci.helo, "lws-test-client", sizeof(sci.helo));
+	/* select the protocol and bind its tokens */
 
-	smtpc = lws_smtp_client_create(&sci);
-	if (!smtpc) {
+	abs.ap = lws_abs_protocol_get_by_name("smtp");
+	if (!abs.ap) {
+		lwsl_err("%s: no smtp abstract protocol\n", __func__);
+
+		goto bail1;
+	}
+	abs.ap_tokens = smtp_protocol_tokens;
+
+	/* select the transport and bind its tokens */
+
+	abs.at = lws_abs_transport_get_by_name("raw_skt");
+	if (!abs.at) {
+		lwsl_err("%s: no raw_skt abstract transport\n", __func__);
+
+		goto bail1;
+	}
+	abs.at_tokens = smtp_raw_skt_transport_tokens;
+
+	abs.vh = vh;
+
+	instance = lws_abs_bind_and_create_instance(&abs);
+	if (!instance) {
 		lwsl_err("%s: failed to create SMTP client\n", __func__);
 		goto bail1;
 	}
@@ -135,7 +159,7 @@ int main(int argc, const char **argv)
 			"\r\n.\r\n", recip);
 	email.done = email_sent_or_failed;
 
-	if (lws_smtp_client_add_email(smtpc, &email)) {
+	if (lws_smtp_client_add_email(instance, &email)) {
 		lwsl_err("%s: failed to add email\n", __func__);
 		goto bail;
 	}
@@ -146,7 +170,7 @@ int main(int argc, const char **argv)
 		n = lws_service(context, 1000);
 
 bail:
-	lws_smtp_client_destroy(&smtpc);
+
 bail1:
 	lwsl_user("Completed: %s\n", result ? "FAIL" : "PASS");
 

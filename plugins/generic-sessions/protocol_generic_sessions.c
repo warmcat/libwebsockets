@@ -274,7 +274,7 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		sci.data = vhd;
-		sci.abs = lws_abstract_get_by_name("raw-skt");
+		sci.abs = lws_abs_transport_get_by_name("raw-skt");
 		sci.vh = lws_get_vhost(wsi);
 
 		vhd->smtp_client = lws_smtp_client_create(&sci);

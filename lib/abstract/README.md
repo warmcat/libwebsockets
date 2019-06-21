@@ -11,11 +11,21 @@ details from protocol specification, lws now supports
 
 ![lws_abstract overview](/doc-assets/abstract-overview.svg)
 
-The concept is that the abstract protocol implementation only
-operates on callback events and reads and writes to buffers...
-separately when it is instantiated, it can be bound to an
-"abstract transport" which handles all the details of sending
-and receiving on whatever the transport is.
+The concept is that the implementation is split into two separate
+chunks of code hidden behind "ops" structs... the "abstract protocol"
+implementation is responsible for the logical protocol operation
+and reads and writes only memory buffers.
+
+The "abstract transport" implementation is responsible for sending
+and receiving buffers on some kind of transport, and again is hidden
+behind a standardized ops struct.
+
+In the system, both the abstract protocols and transports are
+found by their name.
+
+An actual "connection" is created by calling a generic api
+`lws_abs_bind_and_create_instance()` to instantiate the
+combination of a protocol and a transport.
 
 This makes it possible to confidently offer the same protocol on
 completely different transports, eg, like serial, or to wire
@@ -25,26 +35,42 @@ any network.  The abstract protocol itself has no relationship
 to the transport at all and is completely unchanged by changes
 to the transport.
 
+In addition, generic tokens to control settings in both the
+protocol and the transport are passed in at instantiation-time,
+eg, controlling the IP address targeted by the transport.
+
 lws SMTP client support has been rewritten to use the new scheme,
 and lws provides a raw socket transport built-in.
 
 ## Public API
 
 The public api for defining abstract protocols and transports is
-found at [transports.h](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/abstract/transports.h)
+found at
 
-### `lws_abstract_t`
+ - [abstract.h](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/abstract/abstract.h)
+ - [protocols.h](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/abstract/protocols.h)
+ - [transports.h](https://libwebsockets.org/git/libwebsockets/tree/include/libwebsockets/abstract/transports.h)
 
-The main structure that defines the abstraction is `lws_abstract_t`,
-this is a name and then about a dozen function pointers for various
-events and operations.
+### `lws_abs_t`
 
-The transport defines about half of these and exports this
-`lws_abstract_t *` via its name, it can be retreived using
+The main structure that defines the abstraction is `lws_abs_t`,
+this is a name and then pointers to the protocol and transport,
+optional tokens to control both the protocol and transport,
+and pointers to private allocations for both the
+protocol and transport when instantiated.
+
+The transport is selected using
 
 ```
-LWS_VISIBLE LWS_EXTERN const lws_abstract_t *
-lws_abstract_get_by_name(const char *name);
+LWS_VISIBLE LWS_EXTERN const lws_abs_transport_t *
+lws_abs_transport_get_by_name(const char *name);
+```
+
+and similarly the protocol by
+
+```
+LWS_VISIBLE LWS_EXTERN const lws_abs_protocol_t *
+lws_abs_protocol_get_by_name(const char *name);
 ```
 
 At the moment only "`raw-skt`" is defined as an lws built-in, athough
@@ -63,11 +89,6 @@ test jigs.
 These are called by the protocol to get things done and make queries
 through the abstract transport.
 
-When you instantiate an abstract protocol, it defines the other half of
-the `lws_abstract_t` operations and is combined with the transport
-`lws_abstract_t *` to get the full set of operations necessary for the
-protocol to operate on the transport.
-
 |protocol op|meaning|
 |---|---|
 |`accept()`|The peer has accepted the transport connection|
@@ -78,6 +99,12 @@ protocol to operate on the transport.
 
 These are called by the transport to inform the protocol of events
 and traffic.
+
+### Instantiation
+
+The user fills an lws_abs_t and passes a pointer to it to
+`lws_abs_bind_and_create_instance()` to create an instantiation
+of the protocol + transport.
 
 ### `lws_token_map_t`
 

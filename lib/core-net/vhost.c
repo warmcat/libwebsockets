@@ -970,6 +970,17 @@ out:
 	lws_context_unlock(context); /* --------------------------- context { */
 }
 
+
+static int
+destroy_ais(struct lws_dll2 *d, void *user)
+{
+	lws_abs_t *ai = lws_container_of(d, lws_abs_t, abstract_instances);
+
+	lws_abs_destroy_instance(&ai);
+
+	return 0;
+}
+
 void
 __lws_vhost_destroy2(struct lws_vhost *vh)
 {
@@ -1109,6 +1120,12 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 
 	if (vh->finalize)
 		vh->finalize(vh, vh->finalize_arg);
+
+	/*
+	 * abstract instances
+	 */
+
+	lws_dll2_foreach_safe(&vh->abstract_instances_owner, NULL, destroy_ais);
 
 	lwsl_info("  %s: Freeing vhost %p\n", __func__, vh);
 

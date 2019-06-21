@@ -531,8 +531,7 @@ struct lws;
 #include <libwebsockets/lws-fts.h>
 #include <libwebsockets/lws-diskcache.h>
 
-#include <libwebsockets/abstract/transports.h>
-#include <libwebsockets/abstract/smtp.h>
+#include <libwebsockets/abstract/abstract.h>
 
 #if defined(LWS_WITH_TLS)
 
