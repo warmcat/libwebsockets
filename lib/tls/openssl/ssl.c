@@ -60,9 +60,8 @@ int lws_ssl_get_error(struct lws *wsi, int n)
 	return m;
 }
 
-
 static int
-lws_context_init_ssl_pem_passwd_cb(char * buf, int size, int rwflag,
+lws_context_init_ssl_pem_passwd_cb(char *buf, int size, int rwflag,
 				   void *userdata)
 {
 	struct lws_context_creation_info * info =
@@ -74,11 +73,29 @@ lws_context_init_ssl_pem_passwd_cb(char * buf, int size, int rwflag,
 	return (int)strlen(buf);
 }
 
+static int
+lws_context_init_ssl_pem_passwd_client_cb(char *buf, int size, int rwflag,
+					  void *userdata)
+{
+	struct lws_context_creation_info * info =
+			(struct lws_context_creation_info *)userdata;
+	const char *p = info->ssl_private_key_password;
+
+	if (info->client_ssl_private_key_password)
+		p = info->client_ssl_private_key_password;
+
+	strncpy(buf, p, size);
+	buf[size - 1] = '\0';
+
+	return (int)strlen(buf);
+}
+
 void
-lws_ssl_bind_passphrase(SSL_CTX *ssl_ctx,
+lws_ssl_bind_passphrase(SSL_CTX *ssl_ctx, int is_client,
 			const struct lws_context_creation_info *info)
 {
-	if (!info->ssl_private_key_password)
+	if (!info->ssl_private_key_password &&
+	    !info->client_ssl_private_key_password)
 		return;
 	/*
 	 * password provided, set ssl callback and user data
@@ -86,7 +103,8 @@ lws_ssl_bind_passphrase(SSL_CTX *ssl_ctx,
 	 * SSL_CTX_use_PrivateKey_file function
 	 */
 	SSL_CTX_set_default_passwd_cb_userdata(ssl_ctx, (void *)info);
-	SSL_CTX_set_default_passwd_cb(ssl_ctx,
+	SSL_CTX_set_default_passwd_cb(ssl_ctx, is_client ?
+				      lws_context_init_ssl_pem_passwd_client_cb:
 				      lws_context_init_ssl_pem_passwd_cb);
 }
 

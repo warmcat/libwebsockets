@@ -107,7 +107,7 @@ lws_tls_fake_POLLIN_for_buffered(struct lws_context_per_thread *pt);
 LWS_EXTERN int
 lws_gate_accepts(struct lws_context *context, int on);
 LWS_EXTERN void
-lws_ssl_bind_passphrase(lws_tls_ctx *ssl_ctx,
+lws_ssl_bind_passphrase(lws_tls_ctx *ssl_ctx, int is_client,
 			const struct lws_context_creation_info *info);
 LWS_EXTERN void
 lws_ssl_info_callback(const lws_tls_conn *ssl, int where, int ret);

@@ -637,7 +637,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 	}
 	if (private_key_filepath) {
 		lwsl_notice("%s: doing private key filepath\n", __func__);
-		lws_ssl_bind_passphrase(vh->tls.ssl_client_ctx, info);
+		lws_ssl_bind_passphrase(vh->tls.ssl_client_ctx, 1, info);
 		/* set the private key from KeyFile */
 		if (SSL_CTX_use_PrivateKey_file(vh->tls.ssl_client_ctx,
 		    private_key_filepath, SSL_FILETYPE_PEM) != 1) {

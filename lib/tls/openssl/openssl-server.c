@@ -534,7 +534,7 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 	    (!info->ssl_cert_filepath && !info->server_ssl_cert_mem))
 		return 0;
 
-	lws_ssl_bind_passphrase(vhost->tls.ssl_ctx, info);
+	lws_ssl_bind_passphrase(vhost->tls.ssl_ctx, 0, info);
 
 	return lws_tls_server_certs_load(vhost, wsi, info->ssl_cert_filepath,
 					 info->ssl_private_key_filepath,
