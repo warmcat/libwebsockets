@@ -428,6 +428,8 @@ struct lws_vhost {
 	const struct lws_protocol_vhost_options *headers;
 	struct lws_dll *same_vh_protocol_heads;
 	struct lws_vhost *no_listener_vhost_list;
+	struct lws_dll2_owner abstract_instances_owner;
+
 #if !defined(LWS_NO_CLIENT)
 	struct lws_dll dll_cli_active_conns_head;
 #endif
@@ -1097,7 +1099,8 @@ int
 lws_buflist_aware_consume(struct lws *wsi, struct lws_tokens *ebuf, int used,
 			  int buffered);
 
-extern const struct lws_protocols protocol_abs_client_raw_skt;
+extern const struct lws_protocols protocol_abs_client_raw_skt,
+				  protocol_abs_client_unit_test;
 
 #ifdef __cplusplus
 };

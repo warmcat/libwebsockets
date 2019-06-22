@@ -354,6 +354,7 @@ endif()
 if (LWS_WITH_GENERIC_SESSIONS)
  set(LWS_WITH_SQLITE3 1)
  set(LWS_WITH_SMTP 1)
+ set(LWS_WITH_STRUCT_SQLITE3 1)
 endif()
 
 if (LWS_WITH_ESP32)
@@ -655,6 +656,13 @@ if ("${LWS_MAX_SMP}" STREQUAL "")
 	set(LWS_MAX_SMP 1)
 endif()
 
+# using any abstract protocol enables LWS_WITH_ABSTRACT
+
+if (LWS_WITH_SMTP)
+	set(LWS_WITH_ABSTRACT 1)
+endif()
+
+
 
 if (MINGW)
 	set(LWS_MINGW_SUPPORT 1)
@@ -916,8 +924,11 @@ if (LWS_WITH_NETWORK)
 		lib/core-net/wsi-timeout.c
 		lib/core-net/adopt.c
 		lib/roles/pipe/ops-pipe.c
-		lib/abstract/abstract.c
 	)
+	if (LWS_WITH_ABSTRACT)
+		list(APPEND SOURCES
+			lib/abstract/abstract.c)
+	endif()
 	
 	if (LWS_WITH_STATS)
 		list(APPEND SOURCES
@@ -970,9 +981,13 @@ endif()
 
 if (LWS_ROLE_RAW)
 	list(APPEND SOURCES
-		lib/abstract/transports/raw-skt.c
 		lib/roles/raw-skt/ops-raw-skt.c
 		lib/roles/raw-file/ops-raw-file.c)
+		
+	if (LWS_WITH_ABSTRACT)
+		list(APPEND SOURCES
+			lib/abstract/transports/raw-skt.c)
+	endif()
 endif()
 
 if (LWS_ROLE_RAW_PROXY)
@@ -1282,9 +1297,14 @@ if (LWS_WITH_LEJP_CONF AND LWS_WITH_NETWORK AND NOT LWS_PLAT_OPTEE)
 		)
 endif()
 
+if (LWS_WITH_ABSTRACT)
+	list(APPEND SOURCES
+		lib/abstract/transports/unit-test.c)
+endif()
+
 if (LWS_WITH_SMTP)
 	list(APPEND SOURCES
-		lib/abstract/smtp/smtp.c)
+		lib/abstract/protocols/smtp/smtp.c)
 endif()
 
 if (LWS_WITH_RANGES)
@@ -2602,6 +2622,7 @@ message(" LWS_HAVE__ATOI64 = ${LWS_HAVE__ATOI64}")
 message(" LWS_HAVE_STAT32I64 = ${LWS_HAVE_STAT32I64}")
 message(" LWS_HAS_INTPTR_T = ${LWS_HAS_INTPTR_T}")
 message(" LWS_WITH_EXPORT_LWSTARGETS = ${LWS_WITH_EXPORT_LWSTARGETS}")
+message(" LWS_WITH_ABSTRACT = ${LWS_WITH_ABSTRACT}")
 
 message("---------------------------------------------------------------------")
 

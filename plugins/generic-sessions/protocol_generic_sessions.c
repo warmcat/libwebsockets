@@ -136,10 +136,10 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 	struct lws_session_info *sinfo;
 	char s[LWSGS_EMAIL_CONTENT_SIZE];
 	unsigned char *p, *start, *end;
-	lws_smtp_client_info_t sci;
 	const char *cp, *cp1;
 	sqlite3_stmt *sm;
 	lwsgw_hash sid;
+	lws_abs_t abs;
 	int n;
 
 	switch (reason) {
@@ -157,10 +157,9 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 		vhd->timeout_anon_absolute_secs = 1200;
 		vhd->timeout_email_secs = 24 * 3600;
 
-		memset(&sci, 0, sizeof(sci));
 
-		strcpy(sci.helo, "unconfigured.com");
-		strcpy(sci.ip, "127.0.0.1");
+		strcpy(vhd->helo, "unconfigured.com");
+		strcpy(vhd->ip, "127.0.0.1");
 		strcpy(vhd->email_from, "noreply@unconfigured.com");
 		strcpy(vhd->email_title, "Registration Email from unconfigured");
 		vhd->urlroot[0] = '\0';
@@ -186,7 +185,7 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_strncpy(vhd->email_from, pvo->value,
 					sizeof(vhd->email_from));
 			if (!strcmp(pvo->name, "email-helo"))
-				lws_strncpy(sci.helo, pvo->value, sizeof(sci.helo));
+				lws_strncpy(vhd->helo, pvo->value, sizeof(vhd->helo));
 			if (!strcmp(pvo->name, "email-template"))
 				lws_strncpy(vhd->email_template, pvo->value,
 					sizeof(vhd->email_template));
@@ -200,7 +199,7 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_strncpy(vhd->email_confirm_url, pvo->value,
 					sizeof(vhd->email_confirm_url));
 			if (!strcmp(pvo->name, "email-server-ip"))
-				lws_strncpy(sci.ip, pvo->value, sizeof(sci.ip));
+				lws_strncpy(vhd->ip, pvo->value, sizeof(vhd->ip));
 
 			if (!strcmp(pvo->name, "timeout-idle-secs"))
 				vhd->timeout_idle_secs = atoi(pvo->value);
@@ -273,18 +272,38 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 			return 1;
 		}
 
-		sci.data = vhd;
-		sci.abs = lws_abstract_get_by_name("raw-skt");
-		sci.vh = lws_get_vhost(wsi);
+		memset(&abs, 0, sizeof(abs));
+		abs.vh = lws_get_vhost(wsi);
 
-		vhd->smtp_client = lws_smtp_client_create(&sci);
-		if (!vhd->smtp_client) {
-			lwsl_err("%s: failed to create SMTP client\n", __func__);
+		/* select the protocol and bind its tokens */
+
+		abs.ap = lws_abs_protocol_get_by_name("smtp");
+		if (!abs.ap)
 			return 1;
-		}
+
+		vhd->protocol_tokens[0].name_index = LTMI_PSMTP_V_HELO;
+		vhd->protocol_tokens[0].u.value = vhd->helo;
+
+		abs.ap_tokens = vhd->protocol_tokens;
+
+		/* select the transport and bind its tokens */
+
+		abs.at = lws_abs_transport_get_by_name("raw_skt");
+		if (!abs.at)
+			return 1;
+
+		vhd->transport_tokens[0].name_index = LTMI_PEER_V_DNS_ADDRESS;
+		vhd->transport_tokens[0].u.value = vhd->ip;
+		vhd->transport_tokens[1].name_index = LTMI_PEER_LV_PORT;
+		vhd->transport_tokens[1].u.lvalue = 25;
+
+		abs.at_tokens = vhd->transport_tokens;
+
+		vhd->smtp_client = lws_abs_bind_and_create_instance(&abs);
+		if (!vhd->smtp_client)
+			return 1;
 
 		lwsl_notice("%s: created SMTP client\n", __func__);
-
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
@@ -294,7 +313,7 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 			vhd->pdb = NULL;
 		}
 		if (vhd->smtp_client)
-			lws_smtp_client_destroy(&vhd->smtp_client);
+			lws_abs_destroy_instance(&vhd->smtp_client);
 		break;
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:

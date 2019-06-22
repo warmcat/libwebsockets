@@ -54,26 +54,16 @@
 //@{
 #if defined(LWS_WITH_SMTP)
 
+enum {
+	LTMI_PSMTP_V_HELO = LTMI_PROTOCOL_BASE,		/* u.value */
+	LTMI_PSMTP_LV_RETRY_INTERVAL,			/* u.lvalue */
+	LTMI_PSMTP_LV_DELIVERY_TIMEOUT,			/* u.lvalue */
+	LTMI_PSMTP_LV_EMAIL_QUEUE_MAX,			/* u.lvalue */
+	LTMI_PSMTP_LV_MAX_CONTENT_SIZE,			/* u.lvalue */
+};
+
 typedef struct lws_smtp_client lws_smtp_client_t;
-typedef struct lws_abstract lws_abstract_t;
-
-typedef struct lws_smtp_client_info {
-	void *data;
-
-	char helo[32];	/**< Fill before init, eg, "myserver.com" */
-
-	const lws_abstract_t *abs;	/**< abstract transport to use */
-	const lws_token_map_t	*abs_tokens;   /**< transport-specific metadata
-						    for this particular
-						    connection */
-	struct lws_vhost *vh;
-
-	time_t retry_interval;
-	time_t delivery_timeout;
-
-	size_t email_queue_max;
-	size_t max_content_size;
-} lws_smtp_client_info_t;
+typedef struct lws_abs lws_abs_t;
 
 typedef struct lws_smtp_email {
 	struct lws_dll2 list;
@@ -93,17 +83,6 @@ typedef struct lws_smtp_email {
 	int tries;
 } lws_smtp_email_t;
 
-
-/**
- * lws_smtp_client_create() - Initialize a struct lws_email
- *
- * \param abs: abstract transport to use with the new SMTP client
- * \param ci: parameters describing the new SMTP client characteristics
- *
- * Prepares a struct lws_email for use ending SMTP
- */
-LWS_VISIBLE LWS_EXTERN lws_smtp_client_t *
-lws_smtp_client_create(const lws_smtp_client_info_t *ci);
 
 /**
  * lws_smtp_client_alloc_email_helper() - Allocates and inits an email object
@@ -133,34 +112,23 @@ lws_smtp_client_alloc_email_helper(const char *payload, size_t payload_len,
 /**
  * lws_smtp_client_add_email() - Add email to the list of ones being sent
  *
- * \param c: smtp client
+ * \param instance: smtp client + transport
  * \param e: email to queue for sending on \p c
  *
  * Adds an email to the linked-list of emails to send
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_smtp_client_add_email(lws_smtp_client_t *c, lws_smtp_email_t *e);
+lws_smtp_client_add_email(lws_abs_t *instance, lws_smtp_email_t *e);
 
 /**
  * lws_smtp_client_kick() - Request check for new email
  *
- * \param email: lws_smtp_client_t context to kick
+ * \param instance: instance to kick
  *
  * Gives smtp client a chance to move things on
  */
 LWS_VISIBLE LWS_EXTERN void
-lws_smtp_client_kick(lws_smtp_client_t *email);
-
-/**
- * lws_smtp_client_destroy() - stop using the struct lws_email
- *
- * \param email: the lws_smtp_client_t context
- *
- * Stop sending email using email and free allocations
- */
-LWS_VISIBLE LWS_EXTERN void
-lws_smtp_client_destroy(lws_smtp_client_t **email);
-
+lws_smtp_client_kick(lws_abs_t *instance);
 
 #endif
 //@}

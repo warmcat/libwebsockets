@@ -62,8 +62,11 @@ struct lwsgs_user {
 };
 
 struct per_vhost_data__gs {
-	lws_smtp_client_t *smtp_client;
+	lws_abs_t *smtp_client;
 	struct lwsgs_user u;
+	lws_token_map_t transport_tokens[3];
+	lws_token_map_t protocol_tokens[2];
+	char helo[64], ip[64];
 	struct lws_context *context;
 	char session_db[256];
 	char admin_user[32];

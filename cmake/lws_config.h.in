@@ -79,6 +79,7 @@
 #cmakedefine LWS_SHA1_USE_OPENSSL_NAME
 #cmakedefine LWS_SSL_CLIENT_USE_OS_CA_CERTS
 #cmakedefine LWS_SSL_SERVER_WITH_ECDH_CERT
+#cmakedefine LWS_WITH_ABSTRACT
 #cmakedefine LWS_WITH_ACCESS_LOG
 #cmakedefine LWS_WITH_ACME
 #cmakedefine LWS_WITH_BORINGSSL
