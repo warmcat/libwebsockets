@@ -279,7 +279,10 @@ struct lws_context_per_thread {
 
 	struct lws_dll dll_timeout_head;
 	struct lws_dll dll_hrtimer_head;
-	struct lws_dll2_owner dll_buflist_owner; /* guys with pending rxflow */
+	struct lws_dll2_owner dll_buflist_owner;  /* guys with pending rxflow */
+	struct lws_dll2_owner seq_owner;	  /* list of lws_sequencer-s */
+	struct lws_dll2_owner seq_pend_owner;  /* lws_seq-s with pending evts */
+	struct lws_dll2_owner seq_to_owner;  /* lws_seq-s with sorted timeout */
 
 #if defined(LWS_WITH_TLS)
 	struct lws_pt_tls tls;
@@ -914,6 +917,9 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len);
 LWS_EXTERN void
 lws_remove_from_timeout_list(struct lws *wsi);
 
+LWS_EXTERN int
+lws_sequencer_timeout_check(struct lws_context_per_thread *pt, time_t now);
+
 LWS_EXTERN struct lws * LWS_WARN_UNUSED_RESULT
 lws_client_connect_2(struct lws *wsi);
 
@@ -1025,6 +1031,9 @@ LWS_EXTERN void
 __lws_same_vh_protocol_remove(struct lws *wsi);
 LWS_EXTERN void
 lws_same_vh_protocol_insert(struct lws *wsi, int n);
+
+int
+lws_pt_do_pending_sequencer_events(struct lws_context_per_thread *pt);
 
 LWS_EXTERN int
 lws_broadcast(struct lws_context *context, int reason, void *in, size_t len);

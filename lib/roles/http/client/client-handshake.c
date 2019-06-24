@@ -815,6 +815,11 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	if (p)
 		lws_strncpy(alpn, p, sizeof(alpn));
 
+	if (!port) {
+		port = 443;
+		ssl = 1;
+	}
+
 	lwsl_info("redirect ads='%s', port=%d, path='%s', ssl = %d\n",
 		   address, port, path, ssl);
 

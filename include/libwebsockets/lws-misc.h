@@ -285,6 +285,9 @@ lws_dll2_clear(struct lws_dll2 *d);
 LWS_VISIBLE LWS_EXTERN void
 lws_dll2_owner_clear(struct lws_dll2_owner *d);
 
+void
+lws_dll2_add_before(struct lws_dll2 *d, struct lws_dll2 *after);
+
 /*
  * these are safe against the current container object getting deleted,
  * since the hold his next in a temp and go to that next.  ___tmp is
@@ -485,7 +488,7 @@ LWS_VISIBLE LWS_EXTERN void *
 lws_wsi_user(struct lws *wsi);
 
 /**
- * lws_wsi_set_user() - set the user data associated with the client connection
+ * lws_set_wsi_user() - set the user data associated with the client connection
  * \param wsi: lws connection
  * \param user: user data
  *

@@ -368,7 +368,14 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 #endif
 
 	/*
-	 * 3) If there is any wsi with rxflow buffered and in a state to process
+	 * 3) If any pending sequencer events, do not wait in poll
+	 */
+
+	if (pt->seq_pend_owner.count)
+		return 0;
+
+	/*
+	 * 4) If there is any wsi with rxflow buffered and in a state to process
 	 *    it, we should not wait in poll
 	 */
 
@@ -380,7 +387,7 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 			return 0;
 
 	/*
-	 * 4) If any guys with http compression to spill, we shouldn't wait in
+	 * 5) If any guys with http compression to spill, we shouldn't wait in
 	 *    poll but hurry along and service them
 	 */
 
@@ -638,6 +645,9 @@ lws_service_periodic_checks(struct lws_context *context,
 
 		context->last_timeout_check_s = now - 1;
 	}
+
+	lws_sequencer_timeout_check(pt, now);
+	lws_pt_do_pending_sequencer_events(pt);
 
 	if (!lws_compare_time_t(context, context->last_timeout_check_s, now))
 		return 0;

@@ -65,6 +65,40 @@ lws_dll2_add_head(struct lws_dll2 *d, struct lws_dll2_owner *owner)
 	owner->count++;
 }
 
+/*
+ * add us to the list that 'after' is in, just before him
+ */
+
+void
+lws_dll2_add_before(struct lws_dll2 *d, struct lws_dll2 *after)
+{
+	lws_dll2_owner_t *owner = after->owner;
+
+	if (!lws_dll2_is_detached(d)) {
+		assert(0); /* only wholly detached things can be added */
+		return;
+	}
+
+	d->owner = owner;
+
+	/* we need to point to after */
+
+	d->next = after;
+
+	/* guy that used to point to after, needs to point to us */
+
+	if (after->prev)
+		after->prev->next = d;
+	else
+		owner->head = d;
+
+	/* then after needs to point back to us */
+
+	after->prev = d;
+
+	owner->count++;
+}
+
 void
 lws_dll2_add_tail(struct lws_dll2 *d, struct lws_dll2_owner *owner)
 {

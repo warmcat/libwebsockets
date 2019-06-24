@@ -909,6 +909,7 @@ if (LWS_WITH_NETWORK)
 		lib/core-net/network.c
 		lib/core-net/vhost.c
 		lib/core-net/pollfd.c
+		lib/core-net/sequencer.c
 		lib/core-net/service.c
 		lib/core-net/stats.c
 		lib/core-net/wsi.c
