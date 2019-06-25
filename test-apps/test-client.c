@@ -720,6 +720,9 @@ int main(int argc, char **argv)
 #if defined(LWS_WITH_TLS)
 	info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 #endif
+#if defined(LWS_WITH_LIBUV)
+	info.options |= LWS_SERVER_OPTION_LIBUV;
+#endif
 
 	if (use_ssl) {
 		/*
