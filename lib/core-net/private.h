@@ -344,6 +344,9 @@ struct lws_context_per_thread {
 	unsigned char inside_service:1;
 	unsigned char event_loop_foreign:1;
 	unsigned char event_loop_destroy_processing_done:1;
+#ifdef _WIN32
+    unsigned char interrupt_requested:1;
+#endif
 };
 
 struct lws_conn_stats {
