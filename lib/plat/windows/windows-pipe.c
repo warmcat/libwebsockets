@@ -35,7 +35,9 @@ lws_plat_pipe_signal(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 
-    pt->interrupt_requested = 1;
+	EnterCriticalSection(&pt->interrupt_lock);
+	pt->interrupt_requested = 1;
+	LeaveCriticalSection(&pt->interrupt_lock);
 	WSASetEvent(pt->events); /* trigger the cancel event */
 
 	return 0;
