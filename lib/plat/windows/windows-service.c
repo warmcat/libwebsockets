@@ -140,6 +140,12 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 
 	ev = WSAWaitForMultipleEvents(1, &pt->events, FALSE, timeout_ms, FALSE);
 	if (ev == WSA_WAIT_EVENT_0) {
+        if(pt->interrupt_requested) {
+            pt->interrupt_requested = 0;
+            lws_broadcast(context, LWS_CALLBACK_EVENT_WAIT_CANCELLED, NULL, 0);
+            return 0;
+        }
+
 		unsigned int eIdx;
 
 		if (pt->context->tls_ops &&
