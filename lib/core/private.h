@@ -388,6 +388,7 @@ struct lws_context_per_thread {
 	volatile struct lws_foreign_thread_pollfd * volatile foreign_pfd_list;
 #ifdef _WIN32
 	WSAEVENT events;
+	CRITICAL_SECTION interrupt_lock;
 #endif
 	lws_sockfd_type dummy_pipe_fds[2];
 	struct lws *pipe_wsi;
@@ -444,7 +445,7 @@ struct lws_context_per_thread {
 	unsigned char event_loop_foreign:1;
 	unsigned char event_loop_destroy_processing_done:1;
 #ifdef _WIN32
-    unsigned char interrupt_requested:1;
+	unsigned char interrupt_requested:1;
 #endif
 };
 

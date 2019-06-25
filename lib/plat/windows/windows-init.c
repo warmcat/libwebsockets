@@ -70,6 +70,7 @@ lws_plat_init(struct lws_context *context,
 	while (n--) {
 		pt->fds_count = 0;
 		pt->events = WSACreateEvent(); /* the cancel event */
+		InitializeCriticalSection(&pt->interrupt_lock);
 
 		pt++;
 	}
@@ -92,6 +93,7 @@ lws_plat_context_early_destroy(struct lws_context *context)
 
 	while (n--) {
 		WSACloseEvent(pt->events);
+		DeleteCriticalSection(&pt->interrupt_lock);
 		pt++;
 	}
 }
