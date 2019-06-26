@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 2.8)
 include(CheckCSourceCompiles)
 
-set(SAMP lws-api-test-smtp_client)
+set(SAMP lws-unit-tests-smtp-client)
 set(SRCS main.c)
 
 # If we are being built as part of lws, confirm current build config supports

@@ -42,6 +42,7 @@ typedef struct lws_sequencer {
 	struct lws_dll2_owner		seq_event_owner;
 	struct lws_context_per_thread	*pt;
 	lws_seq_event_cb		cb;
+	const char			*name;
 
 	time_t				time_created;
 	time_t				timeout; /* 0 or time we timeout */
@@ -53,7 +54,7 @@ typedef struct lws_sequencer {
 
 lws_sequencer_t *
 lws_sequencer_create(struct lws_context *context, int tsi, size_t user_size,
-		     void **puser, lws_seq_event_cb cb)
+		     void **puser, lws_seq_event_cb cb, const char *name)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	lws_sequencer_t *seq = lws_zalloc(sizeof(*seq) + user_size, __func__);
@@ -63,6 +64,7 @@ lws_sequencer_create(struct lws_context *context, int tsi, size_t user_size,
 
 	seq->cb = cb;
 	seq->pt = pt;
+	seq->name = name;
 
 	*puser = (void *)&seq[1];
 
@@ -108,8 +110,11 @@ lws_sequencer_destroy(lws_sequencer_t **pseq)
 	/* defeat another thread racing to add events while we are destroying */
 	seq->going_down = 1;
 
+	seq->cb(seq, (void *)&seq[1], LWSSEQ_DESTROYED, NULL);
+
 	lws_pt_lock(seq->pt, __func__); /* -------------------------- pt { */
 
+	lws_dll2_remove(&seq->seq_list);
 	lws_dll2_remove(&seq->seq_to_list);
 	lws_dll2_remove(&seq->seq_pend_list);
 	/* remove and destroy any pending events */
@@ -117,7 +122,6 @@ lws_sequencer_destroy(lws_sequencer_t **pseq)
 
 	lws_pt_unlock(seq->pt); /* } pt ---------------------------------- */
 
-	seq->cb(seq, (void *)&seq[1], LWSSEQ_DESTROYED, NULL);
 
 	lws_free_set_NULL(seq);
 }
@@ -125,13 +129,19 @@ lws_sequencer_destroy(lws_sequencer_t **pseq)
 int
 lws_sequencer_event(lws_sequencer_t *seq, lws_seq_events_t e, void *data)
 {
-	lws_seq_event_t *seqe = lws_zalloc(sizeof(*seqe), __func__);
+	lws_seq_event_t *seqe;
 
-	if (!seqe || seq->going_down)
+	if (!seq || seq->going_down)
+		return 1;
+
+	seqe = lws_zalloc(sizeof(*seqe), __func__);
+	if (!seqe)
 		return 1;
 
 	seqe->e = e;
 	seqe->data = data;
+
+	// lwsl_notice("%s: seq %s: event %d\n", __func__, seq->name, e);
 
 	lws_pt_lock(seq->pt, __func__); /* ----------------------------- pt { */
 
@@ -193,7 +203,8 @@ lws_sequencer_next_event(struct lws_dll2 *d, void *user)
 	lws_pt_unlock(seq->pt); /* } pt ------------------------------------- */
 
 	if (n) {
-		lwsl_info("%s: destroying seq by request\n", __func__);
+		lwsl_info("%s: destroying seq '%s' by request\n", __func__,
+				seq->name);
 		lws_sequencer_destroy(&seq);
 
 		return LWSSEQ_RET_DESTROY;
@@ -291,6 +302,18 @@ lws_sequencer_timeout_check(struct lws_context_per_thread *pt, time_t now)
 
 	} lws_end_foreach_dll_safe(p, tp);
 
+	/* send every sequencer a heartbeat message... it can ignore it */
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, p, tp,
+				   pt->seq_owner.head) {
+		lws_sequencer_t *s = lws_container_of(p, lws_sequencer_t,
+						      seq_list);
+
+		/* queue the message to inform the sequencer */
+		lws_sequencer_event(s, LWSSEQ_HEARTBEAT, NULL);
+
+	} lws_end_foreach_dll_safe(p, tp);
+
 	return 0;
 }
 
@@ -298,6 +321,12 @@ lws_sequencer_t *
 lws_sequencer_from_user(void *u)
 {
 	return &((lws_sequencer_t *)u)[-1];
+}
+
+const char *
+lws_sequencer_name(lws_sequencer_t *seq)
+{
+	return seq->name;
 }
 
 int

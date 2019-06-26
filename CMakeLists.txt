@@ -927,7 +927,9 @@ if (LWS_WITH_NETWORK)
 	)
 	if (LWS_WITH_ABSTRACT)
 		list(APPEND SOURCES
-			lib/abstract/abstract.c)
+			lib/abstract/abstract.c
+			lib/abstract/test-sequencer.c
+		)
 	endif()
 	
 	if (LWS_WITH_STATS)

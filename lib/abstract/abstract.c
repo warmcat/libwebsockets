@@ -89,15 +89,17 @@ lws_abs_get_token(const lws_token_map_t *token_map, short name_index)
 void
 lws_abs_destroy_instance(lws_abs_t **ai)
 {
-	if ((*ai)->api)
-		(*ai)->ap->destroy(&(*ai)->api);
-	if ((*ai)->ati)
-		(*ai)->at->destroy(&(*ai)->ati);
+	lws_abs_t *a = *ai;
 
-	lws_dll2_remove(&(*ai)->abstract_instances);
+	if (a->api)
+		a->ap->destroy(&a->api);
+	if (a->ati)
+		a->at->destroy(&a->ati);
 
-	free(*ai);
+	lws_dll2_remove(&a->abstract_instances);
+
 	*ai = NULL;
+	free(a);
 }
 
 lws_abs_t *

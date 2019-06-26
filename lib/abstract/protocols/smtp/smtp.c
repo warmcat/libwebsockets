@@ -174,8 +174,6 @@ lws_smtp_client_abs_rx(lws_abs_protocol_inst_t *api, uint8_t *buf, size_t len)
 	if (!e)
 		return 0;
 
-	lwsl_debug("%s: rx: '%.*s'\n", __func__, (int)len, (const char *)buf);
-
 	n = atoi((char *)buf);
 	if (n != retcodes[c->estate]) {
 		lwsl_notice("%s: bad response from server: %d (state %d) %.*s\n",

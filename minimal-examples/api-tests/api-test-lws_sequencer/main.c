@@ -370,7 +370,7 @@ main(int argc, const char **argv)
 	 */
 
 	seq = lws_sequencer_create(context, 0, sizeof(struct myseq),
-				   (void **)&s, sequencer_cb);
+				   (void **)&s, sequencer_cb, "seq");
 	if (!seq) {
 		lwsl_err("%s: unable to create sequencer\n", __func__);
 		goto bail1;

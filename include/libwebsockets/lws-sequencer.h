@@ -35,6 +35,7 @@ typedef enum {
 	LWSSEQ_CREATED,		/* sequencer created */
 	LWSSEQ_DESTROYED,	/* sequencer destroyed */
 	LWSSEQ_TIMED_OUT,	/* sequencer timeout */
+	LWSSEQ_HEARTBEAT,	/* 1Hz callback */
 
 	LWSSEQ_USER_BASE = 100	/* define your events from here */
 } lws_seq_events_t;
@@ -75,6 +76,7 @@ typedef lws_seq_cb_return_t (*lws_seq_event_cb)(struct lws_sequencer *seq,
  *			user_size.  The user area pointed to here is all zeroed
  *			after successful sequencer creation.
  * \param cb:		callback for events on this sequencer
+ * \param name:		Used in sequencer logging
  *
  * This binds an abstract sequencer to a per-thread (by default, the single
  * event loop of an lws_context).  After the event loop starts, the sequencer
@@ -88,7 +90,7 @@ typedef lws_seq_cb_return_t (*lws_seq_event_cb)(struct lws_sequencer *seq,
  */
 LWS_VISIBLE LWS_EXTERN lws_sequencer_t *
 lws_sequencer_create(struct lws_context *context, int tsi, size_t user_size,
-		     void **puser, lws_seq_event_cb cb);
+		     void **puser, lws_seq_event_cb cb, const char *name);
 
 /**
  * lws_sequencer_destroy() - destroy the sequencer
@@ -171,3 +173,14 @@ lws_sequencer_from_user(void *u);
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_sequencer_secs_since_creation(lws_sequencer_t *seq);
+
+/**
+ * lws_sequencer_name(): get the name of this sequencer
+ *
+ * \param seq: pointer to the lws_sequencer_t
+ *
+ * Returns the name given when the sequencer was created.  This is useful to
+ * annotate logging when then are multiple sequencers in play.
+ */
+LWS_VISIBLE LWS_EXTERN const char *
+lws_sequencer_name(lws_sequencer_t *seq);

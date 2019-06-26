@@ -61,9 +61,6 @@ const struct lws_protocols *available_abstract_protocols[] = {
 #if defined(LWS_ROLE_RAW)
 	&protocol_abs_client_raw_skt,
 #endif
-#if defined(LWS_WITH_ABSTRACT)
-	&protocol_abs_client_unit_test,
-#endif
 	NULL
 };
 #endif

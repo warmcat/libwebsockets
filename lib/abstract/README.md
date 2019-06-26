@@ -153,3 +153,18 @@ static const lws_token_map_t smtp_abs_tokens[] = {
  - add your `lws_abs_transport` to the list `available_abs_transports` in
    `./lib/abstract/abstract.c`
 
+# Protocol testing
+
+## unit tests
+
+lws features an abstract transport designed to facilitate unit testing.  This
+contains an lws_sequencer that performs the steps of tests involving sending the
+protocol test vector buffers and confirming the response of the protocol matches
+the test vectors.
+
+## test-sequencer
+
+test-sequencer is a helper that sequences running an array of unit tests and
+collects the statistics and gives a PASS / FAIL result.
+
+See the SMTP client api test for an example of how to use.
