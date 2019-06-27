@@ -203,6 +203,10 @@ enum lws_context_options {
 	 * on the client using http when he meant https... it's not
 	 * recommended.
 	 */
+	LWS_SERVER_OPTION_FAIL_UPON_UNABLE_TO_BIND		= (1 << 30),
+	/**< (VH) When instantiating a new vhost and the specified port is
+	 * already in use, a null value shall be return to signal the error.
+	 */
 
 	/****** add new things just above ---^ ******/
 };
