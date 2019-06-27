@@ -21,6 +21,8 @@ server and client callbacks without conflict.
 
 ## usage
 
+ -s means listen using tls
+
 ```
  $ ./lws-minimal-raw-vhost
 [2018/03/22 14:49:47:9516] USER: LWS minimal raw vhost

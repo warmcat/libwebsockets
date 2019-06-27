@@ -133,8 +133,6 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 		if (!(wsi->vhost->options &
 			LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG))
 			opts |= LWS_ADOPT_HTTP;
-		else
-			opts = LWS_ADOPT_SOCKET;
 
 		fd.sockfd = accept_fd;
 		cwsi = lws_adopt_descriptor_vhost(wsi->vhost, opts, fd,

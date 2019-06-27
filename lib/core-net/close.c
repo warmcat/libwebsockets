@@ -457,6 +457,8 @@ just_kill_connection:
 	/* tell the user it's all over for this guy */
 
 	if ((lwsi_state_est_PRE_CLOSE(wsi) ||
+	    /* raw skt adopted but didn't complete tls hs should CLOSE */
+	    (wsi->role_ops == &role_ops_raw_skt && !lwsi_role_client(wsi)) ||
 	     lwsi_state_PRE_CLOSE(wsi) == LRS_WAITING_SERVER_REPLY) &&
 	    !wsi->told_user_closed &&
 	    wsi->role_ops->close_cb[lwsi_role_server(wsi)]) {
