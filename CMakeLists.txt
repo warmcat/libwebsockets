@@ -73,6 +73,7 @@ option(LWS_STATIC_PIC "Build the static version of the library with position-ind
 # Specific platforms
 #
 option(LWS_WITH_ESP32 "Build for ESP32" OFF)
+option(LWS_WITH_ESP32_HELPER "Build ESP32 helper" OFF)
 option(LWS_PLAT_OPTEE "Build for OPTEE" OFF)
 #
 # Client / Server / Test Apps build control
@@ -137,6 +138,8 @@ option(LWS_WITH_LEJP_CONF "With LEJP configuration parser as used by lwsws" OFF)
 if(ESP_PLATFORM)
 	message(STATUS "ESP-IDF enabled")
 	set(LWS_WITH_ESP32 ON)
+else()
+	set(LWS_WITH_ESP32_HELPER OFF)
 endif()
 
 if (WIN32 OR LWS_WITH_ESP32)
@@ -1240,13 +1243,15 @@ else()
 			list(APPEND SOURCES
 				lib/plat/esp32/esp32-fds.c
 				lib/plat/esp32/esp32-file.c
-				lib/plat/esp32/esp32-helpers.c
 				lib/plat/esp32/esp32-init.c
 				lib/plat/esp32/esp32-misc.c
 				lib/plat/esp32/esp32-pipe.c
 				lib/plat/esp32/esp32-service.c
 				lib/plat/esp32/esp32-sockets.c
 				lib/misc/romfs.c)
+			if(LWS_WITH_ESP32_HELPER)
+				list(APPEND SOURCES lib/plat/esp32/esp32-helpers.c)
+			endif()
 		else()
 			list(APPEND SOURCES
 				lib/plat/unix/unix-caps.c
