@@ -282,7 +282,8 @@ socks_reply_fail:
 		pt->serv_buf[13] = '\0';
 		if (strcmp(sb, "HTTP/1.0 200 ") &&
 		    strcmp(sb, "HTTP/1.1 200 ")) {
-			lwsl_err("ERROR proxy: %s\n", sb);
+			lwsl_err("%s: ERROR proxy did not reply with h1\n",
+					__func__);
 			goto bail3;
 		}
 

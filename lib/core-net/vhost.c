@@ -694,7 +694,7 @@ lws_create_vhost(struct lws_context *context,
 	{
 #ifdef LWS_HAVE_GETENV
 		p = getenv("http_proxy");
-		if (p)
+		if (p && strlen(p) > 1 && strlen(p) < 128)
 			lws_set_proxy(vh, p);
 #endif
 	}
@@ -709,7 +709,7 @@ lws_create_vhost(struct lws_context *context,
 	} else {
 #ifdef LWS_HAVE_GETENV
 		p = getenv("socks_proxy");
-		if (p)
+		if (p && strlen(p) > 1 && strlen(p) < 128)
 			lws_set_socks(vh, p);
 #endif
 	}
