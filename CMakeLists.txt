@@ -125,6 +125,8 @@ option(LWS_WITH_LWSAC "lwsac Chunk Allocation api" ON)
 option(LWS_WITH_CUSTOM_HEADERS "Store and allow querying custom HTTP headers (H1 only)" ON)
 option(LWS_WITH_DISKCACHE "Hashed cache directory with lazy LRU deletion to size limit" OFF)
 option(LWS_WITH_ASAN "Build with gcc runtime sanitizer options enabled (needs libasan)" OFF)
+option(LWS_WITH_DIR "Directory scanning api support" OFF)
+option(LWS_WITH_LEJP_CONF "With LEJP configuration parser as used by lwsws" OFF)
 #
 # End of user settings
 #
@@ -133,7 +135,19 @@ option(LWS_WITH_ASAN "Build with gcc runtime sanitizer options enabled (needs li
 # Detect ESP_PLATFORM environment flag, if exist, set LWS_WITH_ESP32.
 # Otherwise the user may not be able to run configuration ESP-IDF in the first time.
 if(ESP_PLATFORM)
+	message(STATUS "ESP-IDF enabled")
 	set(LWS_WITH_ESP32 ON)
+endif()
+
+if (WIN32 OR LWS_WITH_ESP32)
+	message(STATUS "No LWS_WITH_DIR and LWS_WITH_DIR")
+	set(LWS_WITH_DIR OFF)
+	set(LWS_WITH_LEJP_CONF OFF)
+	message("LWS_WITH_DIR ${LWS_WITH_DIR}")
+else()
+	message(STATUS "Compiled with LWS_WITH_DIR and LWS_WITH_DIR")
+	set(LWS_WITH_DIR ON)
+	set(LWS_WITH_LEJP_CONF ON)
 endif()
 
 if (LWS_FOR_GITOHASHI)
@@ -313,7 +327,6 @@ if (NOT LWS_ROLE_WS)
 endif()
 
 include_directories(include plugins)
-
 
 if (LWS_WITH_LWSWS)
  message(STATUS "LWS_WITH_LWSWS --> Enabling LWS_WITH_PLUGINS and LWS_WITH_LIBUV")
