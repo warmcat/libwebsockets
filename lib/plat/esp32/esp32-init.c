@@ -49,7 +49,7 @@ lws_plat_context_late_destroy(struct lws_context *context)
  * These are the default SETTINGS used on this platform.  The user
  * can selectively modify them for a vhost during vhost creation.
  */
-const struct http2_settings const lws_h2_defaults_esp32 = { {
+const struct http2_settings lws_h2_defaults_esp32 = { {
 	1,
 	/* H2SET_HEADER_TABLE_SIZE */			 512,
 	/* H2SET_ENABLE_PUSH */				   0,
