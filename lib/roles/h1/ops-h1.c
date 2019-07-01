@@ -664,10 +664,10 @@ rops_handle_POLLOUT_h1(struct lws *wsi)
 					&wsi->parent->http.buflist_post_body, &buf);
 			int n;
 
-			if (len) {
+			if (len > sizeof(prebuf) - LWS_PRE)
+				len = sizeof(prebuf) - LWS_PRE;
 
-				if (len > sizeof(prebuf) - LWS_PRE)
-					len = sizeof(prebuf) - LWS_PRE;
+			if (len) {
 
 				memcpy(prebuf + LWS_PRE, buf, len);
 

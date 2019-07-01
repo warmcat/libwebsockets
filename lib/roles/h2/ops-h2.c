@@ -257,11 +257,9 @@ drain:
 	if (ebuf.len) {
 		n = 0;
 		if (lwsi_role_h2(wsi) && lwsi_state(wsi) != LRS_BODY)
-			n = lws_read_h2(wsi, ebuf.token,
-				        ebuf.len);
+			n = lws_read_h2(wsi, ebuf.token, ebuf.len);
 		else
-			n = lws_read_h1(wsi, ebuf.token,
-				        ebuf.len);
+			n = lws_read_h1(wsi, ebuf.token, ebuf.len);
 
 		if (n < 0) {
 			/* we closed wsi */
@@ -269,7 +267,7 @@ drain:
 			return LWS_HPI_RET_WSI_ALREADY_DIED;
 		}
 
-		if (buffered) {
+		if (n && buffered) {
 			m = lws_buflist_use_segment(&wsi->buflist, n);
 			lwsl_info("%s: draining rxflow: used %d, next %d\n",
 				    __func__, n, m);
@@ -279,7 +277,7 @@ drain:
 				lws_dll2_remove(&wsi->dll_buflist);
 			}
 		} else
-			if (n != ebuf.len) {
+			if (n && n != ebuf.len) {
 				m = lws_buflist_append_segment(&wsi->buflist,
 						ebuf.token + n,
 						ebuf.len - n);

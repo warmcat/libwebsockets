@@ -306,7 +306,8 @@ lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len)
 	/* his RX is flowcontrolled, don't send remaining now */
 	blen = lws_buflist_next_segment_len(&wsi->buflist, &buffered);
 	if (blen) {
-		if (buf >= buffered && buf + len <= buffered + blen) {
+		if (buf >= buffered && buf + len <= buffered + blen &&
+		    blen != (size_t)len) {
 			/*
 			 * rxflow while we were spilling prev rxflow
 			 *
