@@ -90,9 +90,12 @@ gai_strerror(int);
 #define compatible_close(x) close(x)
 #define lws_plat_socket_offset() LWIP_SOCKET_OFFSET
 #define wsi_from_fd(A,B)  A->lws_lookup[B - lws_plat_socket_offset()]
-#define insert_wsi(A,B)   assert(A->lws_lookup[B->desc.sockfd - \
-				  lws_plat_socket_offset()] == 0); \
-				 A->lws_lookup[B->desc.sockfd - \
-				  lws_plat_socket_offset()] = B
+
+struct lws_context;
+struct lws;
+
+int
+insert_wsi(const struct lws_context *context, struct lws *wsi);
+
 #define delete_from_fd(A,B) A->lws_lookup[B - lws_plat_socket_offset()] = 0
 
