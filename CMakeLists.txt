@@ -129,6 +129,13 @@ option(LWS_WITH_ASAN "Build with gcc runtime sanitizer options enabled (needs li
 # End of user settings
 #
 
+# Workaround for ESP-IDF
+# Detect ESP_PLATFORM environment flag, if exist, set LWS_WITH_ESP32.
+# Otherwise the user may not be able to run configuration ESP-IDF in the first time.
+if(ESP_PLATFORM)
+	set(LWS_WITH_ESP32 ON)
+endif()
+
 if (LWS_FOR_GITOHASHI)
 	set(LWS_WITH_THREADPOOL 1)
 	set(LWS_WITH_HTTP2 1)
