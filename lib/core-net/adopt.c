@@ -398,8 +398,11 @@ lws_create_adopt_udp(struct lws_vhost *vhost, int port, int flags,
 	lws_snprintf(buf, sizeof(buf), "%u", port);
 	n = getaddrinfo(NULL, buf, &h, &r);
 	if (n) {
-		lwsl_info("%s: getaddrinfo error: %s\n", __func__,
-			  gai_strerror(n));
+#ifndef LWS_WITH_ESP32
+		lwsl_info("%s: getaddrinfo error: %s\n", __func__, gai_strerror(n));
+#else
+        lwsl_info("%s: getaddrinfo error: %s\n", __func__, strerror(n));
+#endif
 		goto bail;
 	}
 
