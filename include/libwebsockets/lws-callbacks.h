@@ -153,6 +153,13 @@ enum lws_callback_reasons {
 	 * by the OS, for example if it is stored on a smartcard.
 	 * user is the server's OpenSSL SSL_CTX* */
 
+    LWS_CALLBACK_OPENSSL_SERVER_NAME = 102,
+    /**< this callback is called after a vhost accepted the connection and read
+     * the server name from the SSL SNI header. This callback can be used to
+     * update the vhost SSL context just before the SSL handshake, which can
+     * for example be used for building SSL mitm (man-in-the-middle) proxies.
+     * user is the server's OpenSSL SSL_CTX, an in is the LNI server name */
+
 	LWS_CALLBACK_SSL_INFO					= 67,
 	/**< SSL connections only.  An event you registered an
 	 * interest in at the vhost has occurred on a connection

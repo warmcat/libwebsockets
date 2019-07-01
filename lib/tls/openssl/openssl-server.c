@@ -96,6 +96,7 @@ lws_ssl_server_name_cb(SSL *ssl, int *ad, void *arg)
 	struct lws_context *context = (struct lws_context *)arg;
 	struct lws_vhost *vhost, *vh;
 	const char *servername;
+	struct lws *wsi;
 
 	if (!ssl)
 		return SSL_TLSEXT_ERR_NOACK;
@@ -134,6 +135,11 @@ lws_ssl_server_name_cb(SSL *ssl, int *ad, void *arg)
 	}
 
 	lwsl_info("SNI: Found: %s:%d\n", servername, vh->listen_port);
+
+	wsi = SSL_get_ex_data(ssl, openssl_websocket_private_data_index);
+	if (vhost->protocols[0].callback(wsi,
+				LWS_CALLBACK_OPENSSL_SERVER_NAME,
+				vhost->tls.ssl_ctx, (char *)servername, 0))
 
 	/* select the ssl ctx from the selected vhost for this conn */
 	SSL_set_SSL_CTX(ssl, vhost->tls.ssl_ctx);
