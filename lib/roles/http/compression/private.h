@@ -21,7 +21,11 @@
  *  This is included from core/private.h if LWS_WITH_HTTP_STREAM_COMPRESSION
  */
 
+#if defined(LWS_WITH_MINIZ)
+#include <miniz.h>
+#else
 #include <zlib.h>
+#endif
 #if defined(LWS_WITH_HTTP_BROTLI)
 #include <brotli/encode.h>
 #include <brotli/decode.h>

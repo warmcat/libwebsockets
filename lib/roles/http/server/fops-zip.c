@@ -53,7 +53,11 @@
 
 #include "core/private.h"
 
+#if defined(LWS_WITH_MINIZ)
+#include <miniz.h>
+#else
 #include <zlib.h>
+#endif
 
 /*
  * This code works with zip format containers which may have files compressed

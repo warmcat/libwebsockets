@@ -89,8 +89,6 @@ option(LWS_WITHOUT_TEST_CLIENT "Don't build the client test application" OFF)
 # Extensions (permessage-deflate)
 #
 option(LWS_WITHOUT_EXTENSIONS "Don't compile with extensions" ON)
-option(LWS_WITH_ZLIB "Include zlib support (required for extensions)" OFF)
-option(LWS_WITH_BUNDLED_ZLIB "Use bundled zlib version (Windows only)" ${LWS_WITH_BUNDLED_ZLIB_DEFAULT})
 #
 # Helpers + misc
 #
@@ -128,6 +126,11 @@ option(LWS_WITH_DISKCACHE "Hashed cache directory with lazy LRU deletion to size
 option(LWS_WITH_ASAN "Build with gcc runtime sanitizer options enabled (needs libasan)" OFF)
 option(LWS_WITH_DIR "Directory scanning api support" OFF)
 option(LWS_WITH_LEJP_CONF "With LEJP configuration parser as used by lwsws" OFF)
+option(LWS_WITH_ZLIB "Include zlib support (required for extensions)" OFF)
+option(LWS_WITH_BUNDLED_ZLIB "Use bundled zlib version (Windows only)" ${LWS_WITH_BUNDLED_ZLIB_DEFAULT})
+option(LWS_WITH_MINIZ "Use miniz instead of zlib" OFF)
+#
+# to use miniz, enable both LWS_WITH_ZLIB and LWS_WITH_MINIZ
 #
 # End of user settings
 #
@@ -474,8 +477,11 @@ if (NOT LWS_WITHOUT_EXTENSIONS OR LWS_WITH_ZIP_FOPS)
 	set(LWS_WITH_ZLIB 1)
 endif()
 
-set(LWS_ZLIB_LIBRARIES CACHE PATH "Path to the zlib library")
-set(LWS_ZLIB_INCLUDE_DIRS CACHE PATH "Path to the zlib include directory")
+# if you gave LWS_WITH_MINIZ, point to MINIZ here if not found
+# automatically
+
+set(LWS_ZLIB_LIBRARIES CACHE PATH "Path to the zlib/miniz library")
+set(LWS_ZLIB_INCLUDE_DIRS CACHE PATH "Path to the zlib/miniz include directory")
 set(LWS_OPENSSL_LIBRARIES CACHE PATH "Path to the OpenSSL library")
 set(LWS_OPENSSL_INCLUDE_DIRS CACHE PATH "Path to the OpenSSL include directory")
 set(LWS_WOLFSSL_LIBRARIES CACHE PATH "Path to the wolfSSL library")
@@ -852,7 +858,11 @@ endif()
 
 
 if (LWS_WITH_ZLIB AND NOT LWS_WITH_BUNDLED_ZLIB)
-	CHECK_INCLUDE_FILE(zlib.h LWS_HAVE_ZLIB_H)
+	if (LWS_WITH_MINIZ)
+		CHECK_INCLUDE_FILE(miniz.h LWS_HAVE_ZLIB_H)
+	else()
+		CHECK_INCLUDE_FILE(zlib.h LWS_HAVE_ZLIB_H)
+	endif()
 endif()
 
 # TODO: These can also be tested to see whether they actually work...
@@ -1604,10 +1614,16 @@ if (LWS_WITH_ZLIB)
 			message(FATAL_ERROR "Don't have bundled zlib for that platform")
 		endif()
 	elseif (NOT ZLIB_FOUND)
-		find_package(ZLIB REQUIRED)
+		if (LWS_WITH_MINIZ)
+			find_package(Miniz REQUIRED)
+			set(ZLIB_INCLUDE_DIRS ${MINIZ_INCLUDE_DIRS})
+			set(ZLIB_LIBRARIES ${MINIZ_LIBRARIES})
+		else()
+			find_package(ZLIB REQUIRED)
+		endif()
 	endif()
-	message("zlib include dirs: ${ZLIB_INCLUDE_DIRS}")
-	message("zlib libraries: ${ZLIB_LIBRARIES}")
+	message("zlib/miniz include dirs: ${ZLIB_INCLUDE_DIRS}")
+	message("zlib/miniz libraries: ${ZLIB_LIBRARIES}")
 	include_directories(${ZLIB_INCLUDE_DIRS})
 	list(APPEND LIB_LIST ${ZLIB_LIBRARIES})
 endif()

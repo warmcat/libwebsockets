@@ -1,5 +1,9 @@
 
+#if defined(LWS_WITH_MINIZ)
+#include <miniz.h>
+#else
 #include <zlib.h>
+#endif
 
 #define DEFLATE_FRAME_COMPRESSION_LEVEL_SERVER 1
 #define DEFLATE_FRAME_COMPRESSION_LEVEL_CLIENT Z_DEFAULT_COMPRESSION

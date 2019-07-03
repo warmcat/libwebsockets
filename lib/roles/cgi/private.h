@@ -22,7 +22,11 @@
  */
 
 #if defined(LWS_WITH_ZLIB)
+#if defined(LWS_WITH_MINIZ)
+#include <miniz.h>
+#else
 #include <zlib.h>
+#endif
 #endif
 
 extern struct lws_role_ops role_ops_cgi;
