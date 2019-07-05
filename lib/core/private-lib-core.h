@@ -641,6 +641,10 @@ lws_context_destroy2(struct lws_context *context);
 #define PRIu64 "llu"
 #endif
 
+#if defined(LWS_WITH_ABSTRACT)
+#include "private-lib-abstract.h"
+#endif
+
 #ifdef __cplusplus
 };
 #endif

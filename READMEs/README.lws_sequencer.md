@@ -1,4 +1,4 @@
-# `lws_sequencer_t` introduction
+# `struct lws_sequencer` introduction
 
 Often a single network action like a client GET is just part of a
 larger series of actions, perhaps involving different connections.
@@ -10,7 +10,7 @@ loop thread.
 
 ![lws_sequencer](/doc-assets/lws_sequencer.svg)
 
-`lws_sequencer_t` provides a generic way to stage multi-step
+`struct lws_sequencer` provides a generic way to stage multi-step
 operations from inside the event loop.  Because it participates
 in the event loop similar to a wsi, it always operates from the
 service thread context and can access structures that share the
@@ -48,7 +48,7 @@ only sends the message.  This allows the timeout to be used to, eg, wait
 out a retry cooloff period and then start the retry when the
 `LWSSEQ_TIMED_OUT` is received, according to the state of the sequencer.
 
-## Creating an `lws_sequencer_t`
+## Creating an `struct lws_sequencer`
 
 ```
 typedef struct lws_seq_info {
@@ -63,7 +63,7 @@ typedef struct lws_seq_info {
 ```
 
 ```
-lws_sequencer_t *
+struct lws_sequencer *
 lws_sequencer_create(lws_seq_info_t *info);
 ```
 
@@ -77,7 +77,7 @@ typedef int (*lws_seq_event_cb)(struct lws_sequencer *seq, void *user_data,
 				lws_seq_events_t event, void *data);
 ```
 
-`lws_sequencer_t` objects are private to lws and opaque to the user.  A small
+`struct lws_sequencer` objects are private to lws and opaque to the user.  A small
 set of apis lets you perform operations on the pointer returned by the
 create api.
 
@@ -95,7 +95,7 @@ callback from inside the event loop at a rate of one per event loop wait.
 
 ## Destroying sequencers
 
-`lws_sequencer_t` objects are cleaned up during context destruction if they are
+`struct lws_sequencer` objects are cleaned up during context destruction if they are
 still around.
 
 Normally the sequencer callback receives a queued message that

@@ -30,8 +30,11 @@ typedef struct lws_abs_transport {
 	const char *name;
 	int alloc;
 
-	int (*create)(struct lws_abs *abs);
+	int (*create)(lws_abs_t *abs);
 	void (*destroy)(lws_abs_transport_inst_t **d);
+
+	/* check if the transport settings for these connections are the same */
+	int (*compare)(lws_abs_t *abs1, lws_abs_t *abs2);
 
 	/* events the abstract protocol invokes (handled by transport) */
 

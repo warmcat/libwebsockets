@@ -510,12 +510,12 @@ lwsgs_handler_forgot_pw_form(struct per_vhost_data__gs *vhd,
 
 	puts(s);
 
-	em = lws_smtp_client_alloc_email_helper(s, n, vhd->email_from, u.email,
+	em = lws_smtpc_alloc_email_helper(s, n, vhd->email_from, u.email,
 						u.username, strlen(u.username),
 						vhd, lwsgs_smtp_client_done);
 	if (!em)
 		return 1;
-	if (lws_smtp_client_add_email(vhd->smtp_client, em))
+	if (lws_smtpc_add_email(vhd->smtp_client, em))
 		return 1;
 
 	return 0;
@@ -636,7 +636,7 @@ lwsgs_handler_register_form(struct per_vhost_data__gs *vhd,
 		vhd->email_confirm_url, hash.id,
 		vhd->email_contact_person);
 
-	em = lws_smtp_client_alloc_email_helper(s, n, vhd->email_from,
+	em = lws_smtpc_alloc_email_helper(s, n, vhd->email_from,
 				lws_spa_get_string(pss->spa, FGS_EMAIL),
 				lws_spa_get_string(pss->spa, FGS_USERNAME),
 				strlen(lws_spa_get_string(pss->spa, FGS_USERNAME)),
@@ -644,7 +644,7 @@ lwsgs_handler_register_form(struct per_vhost_data__gs *vhd,
 	if (!em)
 		return 1;
 
-	if (lws_smtp_client_add_email(vhd->smtp_client, em))
+	if (lws_smtpc_add_email(vhd->smtp_client, em))
 		return 1;
 
 	return 0;
