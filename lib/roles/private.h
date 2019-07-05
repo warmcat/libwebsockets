@@ -121,6 +121,7 @@ enum lwsi_state {
 	LRS_ISSUING_FILE			= 20,
 	LRS_HEADERS				= 21,
 	LRS_BODY				= 22,
+	LRS_DISCARD_BODY			= 31,
 	LRS_ESTABLISHED				= LWSIFS_POCB | 23,
 	/* we are established, but we have embarked on serving a single
 	 * transaction.  Other transaction input may be pending, but we will
