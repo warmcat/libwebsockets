@@ -22,20 +22,50 @@
  * IN THE SOFTWARE.
  */
 
+/*
+ * Information about how this protocol handles multiple use of connections.
+ *
+ * .flags of 0 indicates each connection must start with a fresh transport.
+ *
+ * Flags can be used to indicate the protocol itself supports different
+ * kinds of multiple use.  However the actual use or not of these may depend on
+ * negotiation with the remote peer.
+ *
+ * LWSABSPR_FLAG_PIPELINE:	other instances can be queued on one with an
+ *				existing connection and get a chance to "hot
+ *				take over" the existing transport in turn, like
+ *				h1 keepalive pipelining
+ *
+ * LWSABSPR_FLAG_MUX_STREAMS:	an existing connection can absorb more child
+ *				connections and mux them as separate child
+ *				streams ongoing, like h2
+ */
+
+enum {
+	LWSABSPR_FLAG_PIPELINE					= (1 << 0),
+	LWSABSPR_FLAG_MUX_STREAMS				= (1 << 1),
+};
+
 typedef struct lws_abs_protocol {
 	const char	*name;
 	int		alloc;
+	int		flags;
 
-	int (*create)(const struct lws_abs *ai);
-	void (*destroy)(lws_abs_protocol_inst_t **d);
+	int		(*create)(const struct lws_abs *ai);
+	void		(*destroy)(lws_abs_protocol_inst_t **d);
+	int		(*compare)(lws_abs_t *abs1, lws_abs_t *abs2);
 
 	/* events the transport invokes (handled by abstract protocol) */
 
-	int (*accept)(lws_abs_protocol_inst_t *d);
-	int (*rx)(lws_abs_protocol_inst_t *d, uint8_t *buf, size_t len);
-	int (*writeable)(lws_abs_protocol_inst_t *d, size_t budget);
-	int (*closed)(lws_abs_protocol_inst_t *d);
-	int (*heartbeat)(lws_abs_protocol_inst_t *d);
+	int		(*accept)(lws_abs_protocol_inst_t *d);
+	int		(*rx)(lws_abs_protocol_inst_t *d, const uint8_t *b, size_t l);
+	int		(*writeable)(lws_abs_protocol_inst_t *d, size_t budget);
+	int		(*closed)(lws_abs_protocol_inst_t *d);
+	int		(*heartbeat)(lws_abs_protocol_inst_t *d);
+
+	/* as parent, we get a notification a new child / queue entry
+	 * bound to us... this is the parent lws_abs_t as arg */
+	int		(*child_bind)(lws_abs_t *abs);
 } lws_abs_protocol_t;
 
 /**

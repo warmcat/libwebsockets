@@ -55,7 +55,7 @@ smtp_test_instance_init(lws_abs_t *instance)
 			"\r\n.\r\n", "andy@warmcat.com");
 	email->done = email_sent_or_failed;
 
-	if (lws_smtp_client_add_email(instance, email)) {
+	if (lws_smtpc_add_email(instance, email)) {
 		lwsl_err("%s: failed to add email\n", __func__);
 		return 1;
 	}
@@ -163,7 +163,7 @@ sigint_handler(int sig)
  * set the HELO our SMTP client will use
  */
 
-static const lws_token_map_t smtp_protocol_tokens[] = {
+static const lws_token_map_t smtp_ap_tokens[] = {
  {
 	.u = { .value = "lws-test-client" },
 	.name_index = LTMI_PSMTP_V_HELO,
@@ -183,8 +183,8 @@ int main(int argc, const char **argv)
 	struct lws_context_creation_info info;
 	lws_test_sequencer_args_t args;
 	struct lws_context *context;
+	lws_abs_t *abs = NULL;
 	struct lws_vhost *vh;
-	lws_abs_t abs, *instance;
 	const char *p;
 
 	/* the normal lws init */
@@ -213,32 +213,16 @@ int main(int argc, const char **argv)
 		goto bail1;
 	}
 
-	/* create the smtp client */
+	/* create the abs used to create connections */
 
-	memset(&abs, 0, sizeof(abs));
-	abs.vh = vh;
-
-	/* select the protocol and bind its tokens */
-
-	abs.ap = lws_abs_protocol_get_by_name("smtp");
-	if (!abs.ap)
-		goto bail1;
-
-	abs.ap_tokens = smtp_protocol_tokens;
-
-	/* select the transport and bind its tokens */
-
-	abs.at = lws_abs_transport_get_by_name("unit_test");
-	if (!abs.at)
-		goto bail1;
-
-	instance = lws_abs_bind_and_create_instance(&abs);
-	if (!instance)
+	abs = lws_abstract_alloc(vh, NULL, "smtp.unit_test",
+				 &smtp_ap_tokens[0], NULL);
+	if (!abs)
 		goto bail1;
 
 	/* configure the test sequencer */
 
-	args.abs = &abs;
+	args.abs = abs;
 	args.tests = tests;
 	args.results = results;
 	args.results_max = LWS_ARRAY_SIZE(results);
@@ -270,6 +254,8 @@ bail1:
 		  !count_tests || count_passes != count_tests ? "FAIL" : "PASS");
 
 	lws_context_destroy(context);
+
+	lws_abstract_free(&abs);
 
 	return !count_tests || count_passes != count_tests;
 }

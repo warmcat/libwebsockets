@@ -321,9 +321,9 @@ static void
 lws_atcrs_destroy(lws_abs_transport_inst_t **pati)
 {
 	/*
-	 * We don't free anything because the abstract layer combined our
-	 * allocation with that of the instance, and it will free the whole
-	 * thing after this.
+	 * For ourselves, we don't free anything because the abstract layer
+	 * combined our allocation with that of the abs instance, and it will
+	 * free the whole thing after this.
 	 */
 	*pati = NULL;
 }
@@ -349,12 +349,51 @@ lws_atcrs_state(lws_abs_transport_inst_t *ati)
 	return 1;
 }
 
+static int
+lws_atcrs_compare(lws_abs_t *abs1, lws_abs_t *abs2)
+{
+	const lws_token_map_t *tm1, *tm2;
+
+	tm1 = lws_abs_get_token(abs1->at_tokens, LTMI_PEER_V_DNS_ADDRESS);
+	tm2 = lws_abs_get_token(abs2->at_tokens, LTMI_PEER_V_DNS_ADDRESS);
+
+	/* Address token is mandatory and must match */
+	if (!tm1 || !tm2 || strcmp(tm1->u.value, tm2->u.value))
+		return 1;
+
+	/* Port token is mandatory and must match */
+	tm1 = lws_abs_get_token(abs1->at_tokens, LTMI_PEER_LV_PORT);
+	tm2 = lws_abs_get_token(abs2->at_tokens, LTMI_PEER_LV_PORT);
+	if (!tm1 || !tm2 || tm1->u.lvalue != tm2->u.lvalue)
+		return 1;
+
+	/* TLS is optional... */
+	tm1 = lws_abs_get_token(abs1->at_tokens, LTMI_PEER_LV_TLS_FLAGS);
+	tm2 = lws_abs_get_token(abs2->at_tokens, LTMI_PEER_LV_TLS_FLAGS);
+
+	/* ... but both must have the same situation with it given or not... */
+	if (!!tm1 != !!tm2)
+		return 1;
+
+	/* if not using TLS, then that's enough to call it */
+	if (!tm1)
+		return 0;
+
+	/* ...and if there are tls flags, both must have the same tls flags */
+	if (tm1->u.lvalue != tm2->u.lvalue)
+		return 1;
+
+	/* ... and both must use the same client tls ctx / vhost */
+	return abs1->vh != abs2->vh;
+}
+
 const lws_abs_transport_t lws_abs_transport_cli_raw_skt = {
 	.name			= "raw_skt",
 	.alloc			= sizeof(abs_raw_skt_priv_t),
 
 	.create			= lws_atcrs_create,
 	.destroy		= lws_atcrs_destroy,
+	.compare		= lws_atcrs_compare,
 
 	.tx			= lws_atcrs_tx,
 #if !defined(LWS_WITH_CLIENT)
