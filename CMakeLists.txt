@@ -1447,7 +1447,9 @@ endif()
 
 if (LWS_WITH_SMTP)
 	list(APPEND SOURCES
-		lib/abstract/protocols/smtp/smtp.c)
+		lib/abstract/protocols/smtp/smtp.c
+		lib/abstract/protocols/smtp/smtp-sequencer.c
+		)
 endif()
 
 if (LWS_WITH_RANGES)

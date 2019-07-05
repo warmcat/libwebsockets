@@ -22,4 +22,29 @@
  * IN THE SOFTWARE.
  */
 
+typedef struct lws_token_map lws_token_map_t;
+typedef void lws_abs_transport_inst_t;
+typedef void lws_abs_protocol_inst_t;
+
+typedef struct lws_abs {
+	void				*user;
+	struct lws_vhost		*vh;
+
+	const struct lws_abs_protocol	*ap;
+	const lws_token_map_t		*ap_tokens;
+	const struct lws_abs_transport	*at;
+	const lws_token_map_t		*at_tokens;
+
+	lws_sequencer_t			*seq;
+	void				*opaque_user_data;
+
+	/* vh lock */
+	struct lws_dll2_owner		children_owner; /* our children / queue */
+	/* vh lock */
+	struct lws_dll2			bound; /* parent or encapsulator */
+	/* vh lock */
+	struct lws_dll2			abstract_instances;
+	lws_abs_transport_inst_t	*ati;
+	lws_abs_protocol_inst_t		*api;
+} lws_abs_t;
 

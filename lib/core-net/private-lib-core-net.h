@@ -528,7 +528,7 @@ struct lws_vhost {
 	const struct lws_protocol_vhost_options *headers;
 	struct lws_dll2_owner *same_vh_protocol_owner;
 	struct lws_vhost *no_listener_vhost_list;
-	struct lws_dll2_owner abstract_instances_owner;
+	struct lws_dll2_owner abstract_instances_owner;		/* vh lock */
 
 #if defined(LWS_WITH_CLIENT)
 	struct lws_dll2_owner dll_cli_active_conns_owner;

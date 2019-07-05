@@ -513,12 +513,19 @@ lws_unit_test_result_name(int in)
 	return dnames[in];
 }
 
+static int
+lws_atcut_compare(lws_abs_t *abs1, lws_abs_t *abs2)
+{
+	return 0;
+}
+
 const lws_abs_transport_t lws_abs_transport_cli_unit_test = {
 	.name			= "unit_test",
 	.alloc			= sizeof(abs_unit_test_priv_t),
 
 	.create			= lws_atcut_create,
 	.destroy		= lws_atcut_destroy,
+	.compare		= lws_atcut_compare,
 
 	.tx			= lws_atcut_tx,
 #if !defined(LWS_WITH_CLIENT)

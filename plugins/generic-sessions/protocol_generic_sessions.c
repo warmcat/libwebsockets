@@ -562,7 +562,7 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 					goto reg_done;
 				}
 				/* get the email monitor to take a look */
-				lws_smtp_client_kick(vhd->smtp_client);
+				lws_smtpc_kick(vhd->smtp_client);
 				n = FGS_FORGOT_GOOD;
 				goto reg_done;
 			}
@@ -584,7 +584,7 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 					n = FGS_REG_GOOD;
 
 					/* get the email monitor to take a look */
-					lws_smtp_client_kick(vhd->smtp_client);
+					lws_smtpc_kick(vhd->smtp_client);
 				}
 reg_done:
 				lws_snprintf(pss->onward, sizeof(pss->onward),
