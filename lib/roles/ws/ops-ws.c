@@ -1129,7 +1129,8 @@ drain:
 		//lws_buflist_describe(&wsi->buflist, wsi);
 		if (ebuf.len) {
 #if defined(LWS_ROLE_H2)
-			if (lwsi_role_h2(wsi) && lwsi_state(wsi) != LRS_BODY)
+			if (lwsi_role_h2(wsi) && lwsi_state(wsi) != LRS_BODY &&
+			    lwsi_state(wsi) != LRS_DISCARD_BODY)
 				n = lws_read_h2(wsi, (unsigned char *)ebuf.token,
 					     ebuf.len);
 			else

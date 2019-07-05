@@ -256,7 +256,8 @@ drain:
 
 	if (ebuf.len) {
 		n = 0;
-		if (lwsi_role_h2(wsi) && lwsi_state(wsi) != LRS_BODY)
+		if (lwsi_role_h2(wsi) && lwsi_state(wsi) != LRS_BODY &&
+		    lwsi_state(wsi) != LRS_DISCARD_BODY)
 			n = lws_read_h2(wsi, (unsigned char *)ebuf.token,
 				        ebuf.len);
 		else

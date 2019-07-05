@@ -101,6 +101,7 @@ lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 				goto read_ok;
 			case LRS_ISSUING_FILE:
 				goto read_ok;
+			case LRS_DISCARD_BODY:
 			case LRS_BODY:
 				wsi->http.rx_content_remain =
 						wsi->http.rx_content_length;
@@ -114,6 +115,7 @@ lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 		}
 		break;
 
+	case LRS_DISCARD_BODY:
 	case LRS_BODY:
 http_postbody:
 		lwsl_debug("%s: http post body: remain %d\n", __func__,
@@ -149,11 +151,13 @@ http_postbody:
 					goto bail;
 			} else {
 #endif
+				if (lwsi_state(wsi) != LRS_DISCARD_BODY) {
 				n = wsi->protocol->callback(wsi,
 					LWS_CALLBACK_HTTP_BODY, wsi->user_space,
 					buf, (size_t)body_chunk_len);
 				if (n)
 					goto bail;
+				}
 				n = (size_t)body_chunk_len;
 #ifdef LWS_WITH_CGI
 			}
@@ -183,6 +187,20 @@ postbody_completion:
 			if (!wsi->http.cgi)
 #endif
 			{
+#if !defined(LWS_NO_SERVER)
+				if (lwsi_state(wsi) == LRS_DISCARD_BODY) {
+					/*
+					 * repeat the transaction completed
+					 * that got us into this state, having
+					 * consumed the pending body now
+					 */
+
+					if (lws_http_transaction_completed(wsi))
+						return -1;
+					break;
+				}
+#endif
+
 				lwsl_info("HTTP_BODY_COMPLETION: %p (%s)\n",
 					  wsi, wsi->protocol->name);
 				n = wsi->protocol->callback(wsi,
@@ -312,6 +330,7 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 	if ((lwsi_state(wsi) == LRS_ESTABLISHED ||
 	     lwsi_state(wsi) == LRS_ISSUING_FILE ||
 	     lwsi_state(wsi) == LRS_HEADERS ||
+	     lwsi_state(wsi) == LRS_DISCARD_BODY ||
 	     lwsi_state(wsi) == LRS_BODY)) {
 
 		if (!wsi->http.ah && lws_header_table_attach(wsi, 0)) {

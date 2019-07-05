@@ -980,7 +980,8 @@ lws_http_action(struct lws *wsi)
 	    lws_hdr_copy(wsi, content_length_str,
 			 sizeof(content_length_str) - 1,
 			 WSI_TOKEN_HTTP_CONTENT_LENGTH) > 0) {
-		wsi->http.rx_content_length = atoll(content_length_str);
+		wsi->http.rx_content_remain = wsi->http.rx_content_length =
+						atoll(content_length_str);
 		if (!wsi->http.rx_content_length) {
 			wsi->http.content_length_explicitly_zero = 1;
 			lwsl_debug("%s: explicit 0 content-length\n", __func__);
@@ -1525,9 +1526,11 @@ deal_body:
 
 		if (wsi->http.rx_content_length > 0) {
 
-			lwsi_set_state(wsi, LRS_BODY);
-			lwsl_info("%s: %p: LRS_BODY state set (0x%x)\n",
+			if (lwsi_state(wsi) != LRS_DISCARD_BODY) {
+				lwsi_set_state(wsi, LRS_BODY);
+				lwsl_info("%s: %p: LRS_BODY state set (0x%x)\n",
 				    __func__, wsi, wsi->wsistate);
+			}
 			wsi->http.rx_content_remain =
 					wsi->http.rx_content_length;
 
@@ -1961,6 +1964,28 @@ lws_http_transaction_completed(struct lws *wsi)
 		lwsl_debug("%s: %p: deferring due to partial\n", __func__, wsi);
 		wsi->http.deferred_transaction_completed = 1;
 		lws_callback_on_writable(wsi);
+
+		return 0;
+	}
+	/*
+	 * Are we finishing the transaction before we have consumed any body?
+	 *
+	 * For h1 this would kill keepalive pipelining, and for h2, considering
+	 * it can extend over multiple DATA frames, it would kill the network
+	 * connection.
+	 */
+	if (wsi->http.rx_content_length && wsi->http.rx_content_remain) {
+		/*
+		 * are we already in LRS_DISCARD_BODY and didn't clear the
+		 * remaining before trying to complete the transaction again?
+		 */
+		if (lwsi_state(wsi) == LRS_DISCARD_BODY)
+			return -1;
+		/*
+		 * let's defer transaction completed processing until we
+		 * discarded the remaining body
+		 */
+		lwsi_set_state(wsi, LRS_DISCARD_BODY);
 
 		return 0;
 	}
