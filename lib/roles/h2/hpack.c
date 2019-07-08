@@ -597,6 +597,11 @@ lws_hpack_dynamic_size(struct lws *wsi, int size)
 		  (int)dyn->num_entries, size,
 		  nwsi->vhost->h2.set.s[H2SET_HEADER_TABLE_SIZE]);
 
+	if (!size) {
+		size = dyn->num_entries * 8;
+		lws_hpack_destroy_dynamic_header(wsi);
+	}
+
 	if (size > (int)nwsi->vhost->h2.set.s[H2SET_HEADER_TABLE_SIZE]) {
 		lwsl_info("rejecting hpack dyn size %u vs %u\n", size,
 				nwsi->vhost->h2.set.s[H2SET_HEADER_TABLE_SIZE]);
