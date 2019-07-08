@@ -721,6 +721,8 @@ int main(int argc, char **argv)
 	info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 #endif
 
+	info.options |= LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW;
+
 	if (use_ssl) {
 		/*
 		 * If the server wants us to present a valid SSL client certificate

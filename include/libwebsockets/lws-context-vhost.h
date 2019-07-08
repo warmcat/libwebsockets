@@ -208,6 +208,10 @@ enum lws_context_options {
 	 * already in use, a null value shall be return to signal the error.
 	 */
 
+	LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW	= (1 << 31),
+	/**< (VH) Indicates the connections using this vhost should ignore
+	 * h2 WINDOW_UPDATE from broken peers and fix them up */
+
 	/****** add new things just above ---^ ******/
 };
 
