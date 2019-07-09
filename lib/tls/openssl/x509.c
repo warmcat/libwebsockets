@@ -403,7 +403,7 @@ lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
 			goto bail1;
 		}
 
-		if (RSA_size(rsapub) * 8 < rsa_min_bits) {
+		if ((size_t)RSA_size(rsapub) * 8 < (size_t)rsa_min_bits) {
 			lwsl_err("%s: key bits %d less than minimum %d\n",
 				 __func__, RSA_size(rsapub) * 8, rsa_min_bits);
 
@@ -541,7 +541,7 @@ lws_x509_jwk_privkey_pem(struct lws_jwk *jwk, void *pem, size_t len,
 
 		m = BN_bn2binpad(cmpi, jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].buf,
 				      jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].len);
-		if (m != BN_num_bytes(cmpi))
+		if ((unsigned int)m != (unsigned int)BN_num_bytes(cmpi))
 			goto bail1;
 
 		break;
