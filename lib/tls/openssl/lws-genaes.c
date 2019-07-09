@@ -64,12 +64,16 @@ lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 		case LWS_GAESM_CBC:
 			ctx->cipher = EVP_aes_128_cbc();
 			break;
+#if defined(LWS_HAVE_EVP_aes_128_cfb128)
 		case LWS_GAESM_CFB128:
 			ctx->cipher = EVP_aes_128_cfb128();
 			break;
+#endif
+#if defined(LWS_HAVE_EVP_aes_128_cfb8)
 		case LWS_GAESM_CFB8:
 			ctx->cipher = EVP_aes_128_cfb8();
 			break;
+#endif
 		case LWS_GAESM_CTR:
 			ctx->cipher = EVP_aes_128_ctr();
 			break;
@@ -107,12 +111,16 @@ lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 		case LWS_GAESM_CBC:
 			ctx->cipher = EVP_aes_192_cbc();
 			break;
+#if defined(LWS_HAVE_EVP_aes_192_cfb128)
 		case LWS_GAESM_CFB128:
 			ctx->cipher = EVP_aes_192_cfb128();
 			break;
+#endif
+#if defined(LWS_HAVE_EVP_aes_192_cfb8)
 		case LWS_GAESM_CFB8:
 			ctx->cipher = EVP_aes_192_cfb8();
 			break;
+#endif
 		case LWS_GAESM_CTR:
 			ctx->cipher = EVP_aes_192_ctr();
 			break;
@@ -149,12 +157,16 @@ lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 		case LWS_GAESM_CBC:
 			ctx->cipher = EVP_aes_256_cbc();
 			break;
+#if defined(LWS_HAVE_EVP_aes_256_cfb128)
 		case LWS_GAESM_CFB128:
 			ctx->cipher = EVP_aes_256_cfb128();
 			break;
+#endif
+#if defined(LWS_HAVE_EVP_aes_256_cfb8)
 		case LWS_GAESM_CFB8:
 			ctx->cipher = EVP_aes_256_cfb8();
 			break;
+#endif
 		case LWS_GAESM_CTR:
 			ctx->cipher = EVP_aes_256_ctr();
 			break;
@@ -164,9 +176,11 @@ lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 		case LWS_GAESM_OFB:
 			ctx->cipher = EVP_aes_256_ofb();
 			break;
+#if defined(LWS_HAVE_EVP_aes_128_xts)
 		case LWS_GAESM_XTS:
 			ctx->cipher = EVP_aes_128_xts();
 			break;
+#endif
 		case LWS_GAESM_GCM:
 			ctx->cipher = EVP_aes_256_gcm();
 			break;

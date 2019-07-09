@@ -29,6 +29,13 @@
 #cmakedefine LWS_HAVE_ECDSA_SIG_set0
 #cmakedefine LWS_HAVE_EVP_MD_CTX_free
 #cmakedefine LWS_HAVE_EVP_aes_128_wrap
+#cmakedefine LWS_HAVE_EVP_aes_128_cfb8
+#cmakedefine LWS_HAVE_EVP_aes_128_cfb128
+#cmakedefine LWS_HAVE_EVP_aes_192_cfb8
+#cmakedefine LWS_HAVE_EVP_aes_192_cfb128
+#cmakedefine LWS_HAVE_EVP_aes_256_cfb8
+#cmakedefine LWS_HAVE_EVP_aes_256_cfb128
+#cmakedefine LWS_HAVE_EVP_aes_128_xts
 #cmakedefine LWS_HAVE_LIBCAP
 #cmakedefine LWS_HAVE_MALLOC_H
 #cmakedefine LWS_HAVE_MALLOC_TRIM
