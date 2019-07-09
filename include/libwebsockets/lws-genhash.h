@@ -70,8 +70,12 @@ struct lws_genhmac_ctx {
 	const mbedtls_md_info_t *hmac;
 	mbedtls_md_context_t ctx;
 #else
-        const EVP_MD *evp_type;
-        EVP_MD_CTX *ctx;
+	const EVP_MD *evp_type;
+#if defined(LWS_HAVE_HMAC_CTX_new)
+        HMAC_CTX *ctx;
+#else
+        HMAC_CTX ctx;
+#endif
 #endif
 };
 

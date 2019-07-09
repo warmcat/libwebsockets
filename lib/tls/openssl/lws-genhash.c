@@ -87,13 +87,18 @@ lws_genhash_destroy(struct lws_genhash_ctx *ctx, void *result)
 	return ret;
 }
 
+
 int
 lws_genhmac_init(struct lws_genhmac_ctx *ctx, enum lws_genhmac_types type,
 		 const uint8_t *key, size_t key_len)
 {
-	EVP_PKEY *pkey;
-
-	ctx->type = type;
+#if defined(LWS_HAVE_HMAC_CTX_new)
+	ctx->ctx = HMAC_CTX_new();
+	if (!ctx->ctx)
+		return -1;
+#else
+	HMAC_CTX_init(&ctx->ctx);
+#endif
 
 	switch (type) {
 	case LWS_GENHMAC_TYPE_SHA256:
@@ -107,30 +112,34 @@ lws_genhmac_init(struct lws_genhmac_ctx *ctx, enum lws_genhmac_types type,
 		break;
 	default:
 		lwsl_err("%s: unknown HMAC type %d\n", __func__, type);
-		return -1;
+		goto bail;
 	}
 
-        ctx->ctx = EVP_MD_CTX_create();
-        if (!ctx->ctx)
-		return -1;
-
-        if (EVP_DigestInit_ex(ctx->ctx, ctx->evp_type, NULL) != 1)
-		return -1;
-
-        pkey = EVP_PKEY_new_mac_key(EVP_PKEY_HMAC, NULL, key, (int)key_len);
-
-        if (EVP_DigestSignInit(ctx->ctx, NULL, ctx->evp_type, NULL, pkey) != 1)
-		return -1;
-
-        EVP_PKEY_free(pkey);
+#if defined(LWS_HAVE_HMAC_CTX_new)
+        if (HMAC_Init_ex(ctx->ctx, key, key_len, ctx->evp_type, NULL) != 1)
+#else
+        if (HMAC_Init_ex(&ctx->ctx, key, key_len, ctx->evp_type, NULL) != 1)
+#endif
+        	goto bail;
 
 	return 0;
+
+bail:
+#if defined(LWS_HAVE_HMAC_CTX_new)
+	HMAC_CTX_free(ctx->ctx);
+#endif
+
+	return -1;
 }
 
 int
 lws_genhmac_update(struct lws_genhmac_ctx *ctx, const void *in, size_t len)
 {
-	 if (EVP_DigestSignUpdate(ctx->ctx, in, len) != 1)
+#if defined(LWS_HAVE_HMAC_CTX_new)
+	if (HMAC_Update(ctx->ctx, in, len) != 1)
+#else
+	if (HMAC_Update(&ctx->ctx, in, len) != 1)
+#endif
 		return -1;
 
 	return 0;
@@ -139,12 +148,18 @@ lws_genhmac_update(struct lws_genhmac_ctx *ctx, const void *in, size_t len)
 int
 lws_genhmac_destroy(struct lws_genhmac_ctx *ctx, void *result)
 {
-	size_t size = lws_genhmac_size(ctx->type);
-	int n = EVP_DigestSignFinal(ctx->ctx, result, &size);
+	unsigned int size = lws_genhmac_size(ctx->type);
+#if defined(LWS_HAVE_HMAC_CTX_new)
+	int n = HMAC_Final(ctx->ctx, result, &size);
 
-	EVP_MD_CTX_destroy(ctx->ctx);
+	HMAC_CTX_free(ctx->ctx);
+#else
+	int n = HMAC_Final(&ctx->ctx, result, &size);
+#endif
+
 	if (n != 1)
 		return -1;
 
 	return 0;
 }
+

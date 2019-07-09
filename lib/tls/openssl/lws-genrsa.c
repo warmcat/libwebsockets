@@ -297,7 +297,12 @@ lws_genrsa_hash_sig_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 		if (!md)
 			return -1;
 
+#if defined(LWS_HAVE_RSA_verify_pss_mgf1)
+		n = RSA_verify_pss_mgf1(ctx->rsa, in, h, md, NULL, -1,
+					(uint8_t *)sig,
+#else
 		n = RSA_verify_PKCS1_PSS(ctx->rsa, in, md, (uint8_t *)sig,
+#endif
 					 (int)sig_len);
 		break;
 	default:

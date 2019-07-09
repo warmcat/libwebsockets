@@ -37,6 +37,7 @@
 #cmakedefine LWS_HAVE_EVP_aes_256_cfb128
 #cmakedefine LWS_HAVE_EVP_aes_128_xts
 #cmakedefine LWS_HAVE_LIBCAP
+#cmakedefine LWS_HAVE_HMAC_CTX_new
 #cmakedefine LWS_HAVE_MALLOC_H
 #cmakedefine LWS_HAVE_MALLOC_TRIM
 #cmakedefine LWS_HAVE_MALLOC_USABLE_SIZE
@@ -52,11 +53,13 @@
 #cmakedefine LWS_HAVE_PIPE2
 #cmakedefine LWS_HAVE_PTHREAD_H
 #cmakedefine LWS_HAVE_RSA_SET0_KEY
+#cmakedefine LWS_HAVE_RSA_verify_pss_mgf1
 #cmakedefine LWS_HAVE_SSL_CTX_get0_certificate
 #cmakedefine LWS_HAVE_SSL_CTX_set1_param
 #cmakedefine LWS_HAVE_SSL_CTX_set_ciphersuites
 #cmakedefine LWS_HAVE_SSL_EXTRA_CHAIN_CERTS
 #cmakedefine LWS_HAVE_SSL_get0_alpn_selected
+#cmakedefine LWS_HAVE_SSL_CTX_EVP_PKEY_new_raw_private_key
 #cmakedefine LWS_HAVE_SSL_set_alpn_protos
 #cmakedefine LWS_HAVE_SSL_SET_INFO_CALLBACK
 #cmakedefine LWS_HAVE__STAT32I64
