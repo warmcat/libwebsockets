@@ -311,7 +311,7 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx,
 		case LWS_GAESO_DEC:
 			if (ctx->mode == LWS_GAESM_GCM)
 				EVP_CIPHER_CTX_ctrl(ctx->ctx,
-						    EVP_CTRL_CCM_SET_TAG,
+						    EVP_CTRL_GCM_SET_TAG,
 						    ctx->taglen, ctx->tag);
 			n = EVP_DecryptInit_ex(ctx->ctx, NULL, NULL,
 					       ctx->k->buf,
