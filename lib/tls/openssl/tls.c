@@ -71,7 +71,7 @@ lws_tls_err_describe(void)
 	unsigned long l;
 
 	do {
-		l = ERR_get_error();
+		l = ERR_peek_error();
 		if (!l)
 			break;
 		ERR_error_string_n(l, buf, sizeof(buf));

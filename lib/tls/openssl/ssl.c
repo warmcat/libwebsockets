@@ -181,6 +181,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 	lws_stats_atomic_bump(context, pt, LWSSTATS_C_API_READ, 1);
 
 	errno = 0;
+	ERR_clear_error();
 	n = SSL_read(wsi->tls.ssl, buf, len);
 #if defined(LWS_WITH_ESP32)
 	if (!n && errno == LWS_ENOTCONN) {
@@ -307,6 +308,8 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, int len)
 	if (!wsi->tls.ssl)
 		return lws_ssl_capable_write_no_ssl(wsi, buf, len);
 
+	errno = 0;
+	ERR_clear_error();
 	n = SSL_write(wsi->tls.ssl, buf, len);
 	if (n > 0)
 		return n;
@@ -380,7 +383,7 @@ lws_ssl_close(struct lws *wsi)
 		return 0; /* not handled */
 
 #if defined (LWS_HAVE_SSL_SET_INFO_CALLBACK)
-	/* kill ssl callbacks, becausse we will remove the fd from the
+	/* kill ssl callbacks, because we will remove the fd from the
 	 * table linking it to the wsi
 	 */
 	if (wsi->vhost->tls.ssl_info_event_mask)
@@ -465,6 +468,8 @@ __lws_tls_shutdown(struct lws *wsi)
 {
 	int n;
 
+	errno = 0;
+	ERR_clear_error();
 	n = SSL_shutdown(wsi->tls.ssl);
 	lwsl_debug("SSL_shutdown=%d for fd %d\n", n, wsi->desc.sockfd);
 	switch (n) {

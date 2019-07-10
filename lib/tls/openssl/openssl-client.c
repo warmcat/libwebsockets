@@ -279,8 +279,11 @@ lws_tls_client_connect(struct lws *wsi)
 	char a[32];
 	unsigned int len;
 #endif
-	int m, n = SSL_connect(wsi->tls.ssl);
+	int m, n;
 
+	errno = 0;
+	ERR_clear_error();
+	n = SSL_connect(wsi->tls.ssl);
 	if (n == 1) {
 #if defined(LWS_HAVE_SSL_set_alpn_protos) && \
     defined(LWS_HAVE_SSL_get0_alpn_selected)
@@ -325,6 +328,8 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, int ebuf_len)
 	int n;
 
 	lws_latency_pre(wsi->context, wsi);
+	errno = 0;
+	ERR_clear_error();
 	n = SSL_get_verify_result(wsi->tls.ssl);
 	lws_latency(wsi->context, wsi,
 		"SSL_get_verify_result LWS_CONNMODE..HANDSHAKE", n, n > 0);
@@ -496,6 +501,8 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 
 	/* no existing one the same... create new client SSL_CTX */
 
+	errno = 0;
+	ERR_clear_error();
 	vh->tls.ssl_client_ctx = SSL_CTX_new(method);
 	if (!vh->tls.ssl_client_ctx) {
 		error = ERR_get_error();
