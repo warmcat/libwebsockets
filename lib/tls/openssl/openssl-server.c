@@ -483,7 +483,11 @@ enum lws_ssl_capable_status
 lws_tls_server_accept(struct lws *wsi)
 {
 	union lws_tls_cert_info_results ir;
-	int m, n = SSL_accept(wsi->tls.ssl);
+	int m, n;
+
+	errno = 0;
+	ERR_clear_error();
+	n = SSL_accept(wsi->tls.ssl);
 
 	if (n == 1) {
 		n = lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_COMMON_NAME, &ir,

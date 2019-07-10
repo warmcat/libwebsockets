@@ -99,7 +99,7 @@ lws_ssl_elaborate_error(void)
 	char buf[256];
 	u_long err;
 
-	while ((err = ERR_get_error()) != 0) {
+	while ((err = ERR_peek_error()) != 0) {
 		ERR_error_string_n(err, buf, sizeof(buf));
 		lwsl_info("*** %s\n", buf);
 	}
@@ -246,6 +246,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 	lws_stats_atomic_bump(context, pt, LWSSTATS_C_API_READ, 1);
 
 	errno = 0;
+	ERR_clear_error();
 	n = SSL_read(wsi->tls.ssl, buf, len);
 #if defined(LWS_WITH_ESP32)
 	if (!n && errno == LWS_ENOTCONN) {
@@ -374,6 +375,8 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, int len)
 	if (!wsi->tls.ssl)
 		return lws_ssl_capable_write_no_ssl(wsi, buf, len);
 
+	errno = 0;
+	ERR_clear_error();
 	n = SSL_write(wsi->tls.ssl, buf, len);
 	if (n > 0)
 		return n;
@@ -532,6 +535,8 @@ __lws_tls_shutdown(struct lws *wsi)
 {
 	int n;
 
+	errno = 0;
+	ERR_clear_error();
 	n = SSL_shutdown(wsi->tls.ssl);
 	lwsl_debug("SSL_shutdown=%d for fd %d\n", n, wsi->desc.sockfd);
 	switch (n) {
