@@ -138,11 +138,11 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		p++;
 	}
 
+	ERR_clear_error();
 	wsi->tls.ssl = SSL_new(wsi->vhost->tls.ssl_client_ctx);
 	if (!wsi->tls.ssl) {
 		lwsl_err("SSL_new failed: %s\n",
-		         ERR_error_string(lws_ssl_get_error(wsi, 0), NULL));
-		lws_ssl_elaborate_error();
+		         ERR_error_string(ERR_get_error(), NULL));
 		return -1;
 	}
 
@@ -261,7 +261,10 @@ lws_tls_client_connect(struct lws *wsi)
 	char a[32];
 	unsigned int len;
 #endif
-	int m, n = SSL_connect(wsi->tls.ssl);
+	int m, n;
+
+	ERR_clear_error();
+	n = SSL_connect(wsi->tls.ssl);
 
 	if (n == 1) {
 #if defined(LWS_HAVE_SSL_set_alpn_protos) && \
@@ -383,6 +386,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		return 1;
 	}
 	/* create context */
+	ERR_clear_error();
 	vh->tls.ssl_client_ctx = SSL_CTX_new(method);
 	if (!vh->tls.ssl_client_ctx) {
 		error = ERR_get_error();
