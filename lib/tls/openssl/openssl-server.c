@@ -356,6 +356,7 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 				      (char *)vhost->context->pt[0].serv_buf));
 		return 1;
 	}
+	ERR_clear_error();
 	vhost->tls.ssl_ctx = SSL_CTX_new(method);	/* create context */
 	if (!vhost->tls.ssl_ctx) {
 		error = ERR_get_error();
@@ -429,12 +430,11 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 #endif
 
 	errno = 0;
+	ERR_clear_error();
 	wsi->tls.ssl = SSL_new(wsi->vhost->tls.ssl_ctx);
 	if (wsi->tls.ssl == NULL) {
-		lwsl_err("SSL_new failed: %d (errno %d)\n",
-			 lws_ssl_get_error(wsi, 0), errno);
-
-		lws_ssl_elaborate_error();
+		lwsl_err("SSL_new failed: %s (errno %d)\n",
+				ERR_error_string(ERR_get_error(), NULL), errno);
 		return 1;
 	}
 
