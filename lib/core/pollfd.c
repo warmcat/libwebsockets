@@ -29,7 +29,7 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 #endif
 	struct lws_context_per_thread *pt;
 	struct lws_context *context;
-	int ret = 0, pa_events = 1;
+	int ret = 0, pa_events;
 	struct lws_pollfd *pfd;
 	int sampled_tid, tid;
 
