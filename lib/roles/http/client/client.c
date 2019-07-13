@@ -1133,8 +1133,10 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 		p = lws_generate_client_ws_handshake(wsi, p, conn1);
 	} else
 #endif
+	{
 		if (!wsi->client_pipeline)
 			p += snprintf(p, 64, "connection: close\x0d\x0a");
+	}
 
 	/* give userland a chance to append, eg, cookies */
 
