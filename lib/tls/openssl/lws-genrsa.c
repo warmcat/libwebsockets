@@ -225,7 +225,7 @@ lws_genrsa_public_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 				   mode_map_crypt[ctx->mode]);
 	if (n < 0) {
 		lwsl_err("%s: RSA_public_encrypt failed\n", __func__);
-		lws_tls_err_describe();
+		lws_tls_err_describe_clear();
 		return -1;
 	}
 
@@ -240,7 +240,7 @@ lws_genrsa_private_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			        mode_map_crypt[ctx->mode]);
 	if (n < 0) {
 		lwsl_err("%s: RSA_private_encrypt failed\n", __func__);
-		lws_tls_err_describe();
+		lws_tls_err_describe_clear();
 		return -1;
 	}
 
@@ -269,7 +269,7 @@ lws_genrsa_private_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			        mode_map_crypt[ctx->mode]);
 	if (n < 0) {
 		lwsl_err("%s: RSA_private_decrypt failed\n", __func__);
-		lws_tls_err_describe();
+		lws_tls_err_describe_clear();
 		return -1;
 	}
 
@@ -311,7 +311,7 @@ lws_genrsa_hash_sig_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 
 	if (n != 1) {
 		lwsl_notice("%s: fail\n", __func__);
-		lws_tls_err_describe();
+		lws_tls_err_describe_clear();
 
 		return -1;
 	}

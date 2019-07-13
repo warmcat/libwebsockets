@@ -126,7 +126,7 @@ lws_genec_eckey_import(int nid, EVP_PKEY *pkey, struct lws_gencrypto_keyelem *el
 	if (n != 1) {
 		lwsl_err("%s: EC_KEY_set_public_key_affine_coordinates fail:\n",
 			 __func__);
-		lws_tls_err_describe();
+		lws_tls_err_describe_clear();
 		goto bail;
 	}
 
@@ -609,7 +609,7 @@ lws_genecdsa_hash_sig_verify_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
 	EC_KEY_free(eckey);
 	if (n != 1) {
 		lwsl_err("%s: ECDSA_do_verify fail\n", __func__);
-		lws_tls_err_describe();
+		lws_tls_err_describe_clear();
 		goto bail;
 	}
 

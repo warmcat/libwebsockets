@@ -65,15 +65,16 @@ char* lws_ssl_get_error_string(int status, int ret, char *buf, size_t len) {
 }
 
 void
-lws_tls_err_describe(void)
+lws_tls_err_describe_clear(void)
 {
-	char buf[128];
+	char buf[160];
 	unsigned long l;
 
 	do {
-		l = ERR_peek_error();
+		l = ERR_get_error();
 		if (!l)
 			break;
+
 		ERR_error_string_n(l, buf, sizeof(buf));
 		lwsl_info("   openssl error: %s\n", buf);
 	} while (l);

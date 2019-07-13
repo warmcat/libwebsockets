@@ -332,7 +332,7 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, int len)
 	}
 
 	lwsl_debug("%s failed: %s\n",__func__, ERR_error_string(m, NULL));
-	lws_tls_err_describe();
+	lws_tls_err_describe_clear();
 
 	wsi->socket_is_permanently_unusable = 1;
 

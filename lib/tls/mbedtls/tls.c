@@ -23,7 +23,7 @@
 #include "tls/mbedtls/private.h"
 
 void
-lws_tls_err_describe(void)
+lws_tls_err_describe_clear(void)
 {
 }
 

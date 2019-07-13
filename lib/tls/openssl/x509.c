@@ -244,7 +244,7 @@ lws_x509_parse_from_pem(struct lws_x509_cert *x509, const void *pem, size_t len)
 	BIO_free(bio);
 	if (!x509->cert) {
 		lwsl_err("%s: unable to parse PEM cert\n", __func__);
-		lws_tls_err_describe();
+		lws_tls_err_describe_clear();
 
 		return -1;
 	}
@@ -279,7 +279,7 @@ lws_x509_verify(struct lws_x509_cert *x509, struct lws_x509_cert *trusted,
 	ret = X509_check_issued(trusted->cert, x509->cert);
 	if (ret != X509_V_OK) {
 		lwsl_err("%s: unable to verify cert relationship\n", __func__);
-		lws_tls_err_describe();
+		lws_tls_err_describe_clear();
 
 		return -1;
 	}
@@ -500,7 +500,7 @@ lws_x509_jwk_privkey_pem(struct lws_jwk *jwk, void *pem, size_t len,
 	lws_explicit_bzero((void *)pem, len);
 	if (!pkey) {
 		lwsl_err("%s: unable to parse PEM privkey\n", __func__);
-		lws_tls_err_describe();
+		lws_tls_err_describe_clear();
 
 		return -1;
 	}

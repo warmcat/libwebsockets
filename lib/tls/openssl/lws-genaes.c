@@ -220,7 +220,7 @@ lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 	if (!n) {
 		lwsl_err("%s: cipher init failed (cipher %p)\n", __func__,
 			 ctx->cipher);
-		lws_tls_err_describe();
+		lws_tls_err_describe_clear();
 		goto bail;
 	}
 
@@ -254,7 +254,7 @@ lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 						EVP_CTRL_GCM_GET_TAG,
 						    ctx->taglen, tag) != 1) {
 					lwsl_err("get tag ctrl failed\n");
-					//lws_tls_err_describe();
+					//lws_tls_err_describe_clear();
 					n = 1;
 				}
 			}
@@ -262,7 +262,7 @@ lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 		case LWS_GAESO_DEC:
 			if (EVP_DecryptFinal_ex(ctx->ctx, buf, &outl) != 1) {
 				lwsl_err("%s: dec final failed\n", __func__);
-				lws_tls_err_describe();
+				lws_tls_err_describe_clear();
 				n = -1;
 			}
 
@@ -346,7 +346,7 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx,
 		}
 		if (n != 1) {
 			lwsl_err("%s: set AAD failed\n",  __func__);
-			lws_tls_err_describe();
+			lws_tls_err_describe_clear();
 			lwsl_hexdump_err(in, len);
 			return -1;
 		}
@@ -369,7 +369,7 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx,
 
 	if (!n) {
 		lwsl_notice("%s: update failed\n", __func__);
-		lws_tls_err_describe();
+		lws_tls_err_describe_clear();
 
 		return -1;
 	}

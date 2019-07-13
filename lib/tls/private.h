@@ -138,7 +138,7 @@ LWS_EXTERN int openssl_websocket_private_data_index;
 
 
 LWS_EXTERN void
-lws_tls_err_describe(void);
+lws_tls_err_describe_clear(void);
 
 LWS_EXTERN int
 lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,

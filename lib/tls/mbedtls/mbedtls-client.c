@@ -179,7 +179,7 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, int ebuf_len)
 		"server's cert didn't look good, X509_V_ERR = %d: %s\n",
 		 n, ERR_error_string(n, sb));
 	lwsl_info("%s\n", ebuf);
-	lws_tls_err_describe();
+	lws_tls_err_describe_clear();
 
 	return -1;
 }
@@ -278,7 +278,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		if (n < 1) {
 			lwsl_err("problem %d getting cert '%s'\n", n,
 				 cert_filepath);
-			lws_tls_err_describe();
+			lws_tls_err_describe_clear();
 			return 1;
 		}
 
@@ -293,7 +293,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		if (n < 1) {
 			lwsl_err("%s: problem interpreting client cert\n",
 				 __func__);
-			lws_tls_err_describe();
+			lws_tls_err_describe_clear();
 			return 1;
 		}
 		lwsl_notice("%s: using mem client cert %d\n",

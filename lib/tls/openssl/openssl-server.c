@@ -563,7 +563,7 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 		lwsl_err("SSL_new failed: %d (errno %d)\n",
 			 lws_ssl_get_error(wsi, 0), errno);
 
-		lws_tls_err_describe();
+		lws_tls_err_describe_clear();
 		return 1;
 	}
 
@@ -639,8 +639,9 @@ lws_tls_server_accept(struct lws *wsi)
 
 		return LWS_SSL_CAPABLE_DONE;
 	}
-	lws_tls_err_describe();
+
 	m = lws_ssl_get_error(wsi, n);
+	lws_tls_err_describe_clear();
 
 	if (m == SSL_ERROR_SYSCALL || m == SSL_ERROR_SSL)
 		return LWS_SSL_CAPABLE_ERROR;
