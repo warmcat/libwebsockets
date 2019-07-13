@@ -349,10 +349,12 @@ create_new_conn:
 	if (!wsi->cli_hostname_copy) {
 		if (wsi->stash)
 			wsi->cli_hostname_copy = lws_strdup(wsi->stash->host);
-		else
-			wsi->cli_hostname_copy =
-				lws_strdup(lws_hdr_simple_ptr(wsi,
-					_WSI_TOKEN_CLIENT_PEER_ADDRESS));
+		else {
+			char *pa = lws_hdr_simple_ptr(wsi,
+					      _WSI_TOKEN_CLIENT_PEER_ADDRESS);
+			if (pa)
+				wsi->cli_hostname_copy = lws_strdup(pa);
+		}
 	}
 
 	/*
