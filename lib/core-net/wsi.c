@@ -192,6 +192,9 @@ lws_callback_vhost_protocols_vhost(struct lws_vhost *vh, int reason, void *in,
 	int n;
 	struct lws *wsi = lws_zalloc(sizeof(*wsi), "fake wsi");
 
+	if (!wsi)
+		return 1;
+
 	wsi->context = vh->context;
 	lws_vhost_bind_wsi(vh, wsi);
 
