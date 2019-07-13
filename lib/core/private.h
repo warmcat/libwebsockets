@@ -36,16 +36,6 @@
  #define  _GNU_SOURCE
 #endif
 
-#if defined(__COVERITY__) && !defined(LWS_COVERITY_WORKAROUND)
- #define LWS_COVERITY_WORKAROUND
- typedef float _Float32;
- typedef float _Float64;
- typedef float _Float128;
- typedef float _Float32x;
- typedef float _Float64x;
- typedef float _Float128x;
-#endif
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
