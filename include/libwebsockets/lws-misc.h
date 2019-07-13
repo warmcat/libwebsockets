@@ -327,7 +327,7 @@ struct lws_buflist;
  * Returns -1 on OOM, 1 if this was the first segment on the list, and 0 if
  * it was a subsequent segment.
  */
-LWS_VISIBLE LWS_EXTERN int
+LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_buflist_append_segment(struct lws_buflist **head, const uint8_t *buf,
 			   size_t len);
 /**
