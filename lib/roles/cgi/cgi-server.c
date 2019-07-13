@@ -184,9 +184,12 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 		wsi->child_list = cgi->stdwsi[n];
 	}
 
-	lws_change_pollfd(cgi->stdwsi[LWS_STDIN], LWS_POLLIN, LWS_POLLOUT);
-	lws_change_pollfd(cgi->stdwsi[LWS_STDOUT], LWS_POLLOUT, LWS_POLLIN);
-	lws_change_pollfd(cgi->stdwsi[LWS_STDERR], LWS_POLLOUT, LWS_POLLIN);
+	if (lws_change_pollfd(cgi->stdwsi[LWS_STDIN], LWS_POLLIN, LWS_POLLOUT))
+		goto bail3;
+	if (lws_change_pollfd(cgi->stdwsi[LWS_STDOUT], LWS_POLLOUT, LWS_POLLIN))
+		goto bail3;
+	if (lws_change_pollfd(cgi->stdwsi[LWS_STDERR], LWS_POLLOUT, LWS_POLLIN))
+		goto bail3;
 
 	lwsl_debug("%s: fds in %d, out %d, err %d\n", __func__,
 		   cgi->stdwsi[LWS_STDIN]->desc.sockfd,

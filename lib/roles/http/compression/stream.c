@@ -158,8 +158,9 @@ lws_http_compression_transform(struct lws *wsi, unsigned char *buf,
 		 * and switch to trying to process the head.
 		 */
 		if (buf && len) {
-			lws_buflist_append_segment(
-				&ctx->buflist_comp, buf, len);
+			if (lws_buflist_append_segment(
+					&ctx->buflist_comp, buf, len) < 0)
+				return -1;
 			lwsl_debug("%s: %p: adding %d to comp buflist\n",
 				   __func__,wsi, (int)len);
 		}
@@ -208,8 +209,9 @@ lws_http_compression_transform(struct lws *wsi, unsigned char *buf,
 		  * ...we were sending stuff from the caller directly and not
 		  * all of it got processed... stash on the buflist tail
 		  */
-		lws_buflist_append_segment(&ctx->buflist_comp,
-					   buf + ilen_iused, len - ilen_iused);
+		if (lws_buflist_append_segment(&ctx->buflist_comp,
+					   buf + ilen_iused, len - ilen_iused) < 0)
+			return -1;
 
 		lwsl_debug("%s: buffering %d unused comp input\n", __func__,
 			   (int)(len - ilen_iused));

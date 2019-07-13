@@ -56,7 +56,8 @@ rops_handle_POLLIN_raw_proxy(struct lws_context_per_thread *pt, struct lws *wsi,
 		case 0:
 			lwsl_info("%s: read 0 len\n", __func__);
 			wsi->seen_zero_length_recv = 1;
-			lws_change_pollfd(wsi, LWS_POLLIN, 0);
+			if (lws_change_pollfd(wsi, LWS_POLLIN, 0))
+				goto fail;
 
 			/*
 			 * we need to go to fail here, since it's the only

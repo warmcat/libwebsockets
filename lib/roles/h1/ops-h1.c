@@ -354,7 +354,8 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 		case 0:
 			lwsl_info("%s: read 0 len a\n", __func__);
 			wsi->seen_zero_length_recv = 1;
-			lws_change_pollfd(wsi, LWS_POLLIN, 0);
+			if (lws_change_pollfd(wsi, LWS_POLLIN, 0))
+				goto fail;
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 			/*
 			 * autobahn requires us to win the race between close
@@ -635,7 +636,8 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 		 * and turn off our POLLIN
 		 */
 		wsi->client_rx_avail = 1;
-		lws_change_pollfd(wsi, LWS_POLLIN, 0);
+		if (lws_change_pollfd(wsi, LWS_POLLIN, 0))
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
 		//lwsl_notice("calling back %s\n", wsi->protocol->name);
 

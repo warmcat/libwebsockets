@@ -235,7 +235,8 @@ drain:
 		 * and turn off our POLLIN
 		 */
 		wsi->client_rx_avail = 1;
-		lws_change_pollfd(wsi, LWS_POLLIN, 0);
+		if (lws_change_pollfd(wsi, LWS_POLLIN, 0))
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
 		/* let user code know, he'll usually ask for writeable
 		 * callback and drain / re-enable it there
@@ -1128,7 +1129,8 @@ next_child:
 	wsi2a = wsi->h2.child_list;
 	while (wsi2a) {
 		if (wsi2a->h2.requested_POLLOUT) {
-			lws_change_pollfd(wsi, 0, LWS_POLLOUT);
+			if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
+				return -1;
 			break;
 		}
 		wsi2a = wsi2a->h2.sibling_list;
