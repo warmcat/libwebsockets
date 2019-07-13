@@ -442,10 +442,12 @@ lws_genrsa_render_pkey_asn1(struct lws_genrsa_ctx *ctx, int _private,
 		if (p + m > end)
 			return -1;
 
-		mbedtls_mpi_write_binary(mpi[n], p, m);
+		if (mbedtls_mpi_write_binary(mpi[n], p, m))
+			return -1;
 		if (p[0] & 0x80) {
 			p[0] = 0x00;
-			mbedtls_mpi_write_binary(mpi[n], &p[1], m);
+			if (mbedtls_mpi_write_binary(mpi[n], &p[1], m))
+				return -1;
 			m++;
 		}
 		if (m < 0x7f)
