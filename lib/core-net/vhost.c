@@ -436,7 +436,7 @@ lws_create_vhost(struct lws_context *context,
 #endif
 	struct lws_protocols *lwsp;
 	int m, f = !info->pvo, fx = 0, abs_pcol_count = 0;
-	char buf[20];
+	char buf[96];
 #if !defined(LWS_WITHOUT_CLIENT) && defined(LWS_HAVE_GETENV)
 	char *p;
 #endif
@@ -694,8 +694,11 @@ lws_create_vhost(struct lws_context *context,
 	{
 #ifdef LWS_HAVE_GETENV
 		p = getenv("http_proxy");
-		if (p && strlen(p) > 0 && strlen(p) < 95)
-			lws_set_proxy(vh, p);
+		if (p) {
+			lws_strncpy(buf, p, sizeof(buf));
+
+			lws_set_proxy(vh, buf);
+		}
 #endif
 	}
 #endif
