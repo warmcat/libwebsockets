@@ -128,6 +128,9 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 		break;
 	}
 
+	if ((int)m < 0)
+		m = 0;
+
 	/*
 	 * we were sending this from buflist_out?  Then not sending everything
 	 * is a small matter of advancing ourselves only by the amount we did
