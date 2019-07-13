@@ -53,7 +53,8 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 		return NULL;
 
 	if (!i->context->protocol_init_done)
-		lws_protocol_init(i->context);
+		if (lws_protocol_init(i->context))
+			return NULL;
 	/*
 	 * If we have .local_protocol_name, use it to select the local protocol
 	 * handler to bind to.  Otherwise use .protocol if http[s].
