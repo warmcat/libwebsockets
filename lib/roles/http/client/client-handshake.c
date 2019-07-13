@@ -699,7 +699,12 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 {
 	char origin[300] = "", protocol[300] = "", method[32] = "",
 	     iface[16] = "", alpn[32] = "", *p;
-	struct lws *wsi = *pwsi;
+	struct lws *wsi;
+
+	if (!pwsi)
+		return NULL;
+
+	wsi = *pwsi;
 
 	if (wsi->redirects == 3) {
 		lwsl_err("%s: Too many redirects\n", __func__);
