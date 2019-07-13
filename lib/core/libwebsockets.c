@@ -888,17 +888,17 @@ just_kill_connection:
 	    !wsi->socket_is_permanently_unusable) {
 
 #if defined(LWS_WITH_TLS)
-	if (lws_is_ssl(wsi) && wsi->tls.ssl) {
-		n = 0;
-		switch (__lws_tls_shutdown(wsi)) {
-		case LWS_SSL_CAPABLE_DONE:
-		case LWS_SSL_CAPABLE_ERROR:
-		case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
-		case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
-		case LWS_SSL_CAPABLE_MORE_SERVICE:
-			break;
-		}
-	} else
+		if (lws_is_ssl(wsi) && wsi->tls.ssl) {
+			n = 0;
+			switch (__lws_tls_shutdown(wsi)) {
+			case LWS_SSL_CAPABLE_DONE:
+			case LWS_SSL_CAPABLE_ERROR:
+			case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
+			case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
+			case LWS_SSL_CAPABLE_MORE_SERVICE:
+				break;
+			}
+		} else
 #endif
 		{
 			lwsl_info("%s: shutdown conn: %p (sk %d, state 0x%x)\n",
