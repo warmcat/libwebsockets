@@ -440,7 +440,11 @@ ads_known:
 			goto oom4;
 		}
 
-		lws_change_pollfd(wsi, 0, LWS_POLLIN);
+		if (lws_change_pollfd(wsi, 0, LWS_POLLIN)) {
+			compatible_close(wsi->desc.sockfd);
+			cce = "change_pollfd failed";
+			goto oom4;
+		}
 
 		/*
 		 * past here, we can't simply free the structs as error

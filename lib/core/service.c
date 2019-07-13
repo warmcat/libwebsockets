@@ -206,7 +206,8 @@ user_service_go_again:
 	vwsi->handling_pollout = 0;
 
 	if (vwsi->leave_pollout_active)
-		lws_change_pollfd(wsi, 0, LWS_POLLOUT);
+		if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
+			goto bail_die;
 
 	return n;
 
