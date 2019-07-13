@@ -447,7 +447,7 @@ lws_h2_settings(struct lws *wsi, struct http2_settings *settings,
 				return 1;
 			}
 
-#if defined(LWS_AMAZON_RTOS) || defined(LWS_AMAZON_NOART)
+#if defined(LWS_AMAZON_RTOS) || defined(LWS_AMAZON_LINUX)
 			//FIXME: Workaround for FIRMWARE-4632 until cloud-side issue is fixed.
 			if (b == 0x7fffffff) {
 				b = 65535;
@@ -835,7 +835,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 	/* let the network wsi live a bit longer if subs are active */
 
 	if (!wsi->immortal_substream_count)
-#if defined(LWS_AMAZON_RTOS) || defined(LWS_AMAZON_NOART)
+#if defined(LWS_AMAZON_RTOS) || defined(LWS_AMAZON_LINUX)
 		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE, wsi->vhost->keepalive_timeout);
 #else
 		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE, 31);
@@ -1830,7 +1830,7 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 				if (!wsi->immortal_substream_count)
 					lws_set_timeout(wsi,
 					  PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE,
-#if defined(LWS_AMAZON_RTOS) || defined(LWS_AMAZON_NOART)
+#if defined(LWS_AMAZON_RTOS) || defined(LWS_AMAZON_LINUX)
 					  wsi->vhost->keepalive_timeout);
 #else
 					  31);
