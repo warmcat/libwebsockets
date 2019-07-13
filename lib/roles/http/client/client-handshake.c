@@ -195,8 +195,8 @@ create_new_conn:
 	 * unix socket destination?
 	 */
 
-	ads = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS);
 #if defined(LWS_WITH_UNIX_SOCK)
+	ads = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS);
 	if (*ads == '+') {
 		ads++;
 		memset(&sau, 0, sizeof(sau));
