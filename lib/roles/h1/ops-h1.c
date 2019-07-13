@@ -881,12 +881,18 @@ rops_client_bind_h1(struct lws *wsi, const struct lws_client_connect_info *i)
 		 * When we do get the ah, now or later, he will end up at
 		 * lws_http_client_connect_via_info2().
 		 */
-		if (lws_header_table_attach(wsi, 0) < 0)
+		if (lws_header_table_attach(wsi, 0)
+#ifndef LWS_NO_CLIENT
+				< 0)
 			/*
 			 * if we failed here, the connection is already closed
 			 * and freed.
 			 */
 			return -1;
+#else
+			)
+				return 0;
+#endif
 
 		return 0;
 	}
