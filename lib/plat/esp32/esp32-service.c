@@ -82,6 +82,8 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	if (!pt->service_tid_detected) {
 		struct lws *_lws = lws_zalloc(sizeof(*_lws), "tid probe");
 
+		if (!_lws)
+			return 1;
 		_lws->context = context;
 
 		pt->service_tid = context->vhost_list->protocols[0].callback(
