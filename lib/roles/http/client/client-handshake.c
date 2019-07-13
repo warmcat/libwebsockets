@@ -166,10 +166,12 @@ create_new_conn:
 	 * want to use it too
 	 */
 
-	if (!wsi->client_hostname_copy)
-		wsi->client_hostname_copy =
-			lws_strdup(lws_hdr_simple_ptr(wsi,
-					_WSI_TOKEN_CLIENT_PEER_ADDRESS));
+	if (!wsi->client_hostname_copy) {
+		char *pa = lws_hdr_simple_ptr(wsi,
+					      _WSI_TOKEN_CLIENT_PEER_ADDRESS);
+		if (pa)
+			wsi->client_hostname_copy = lws_strdup(pa);
+	}
 
 	/*
 	 * If we made our own connection, and we're doing a method that can take

@@ -334,7 +334,8 @@ retry_as_first:
 			if (!s->temp[0]) {
 				if (s->mp < (int)sizeof(s->content_disp) - 1)
 					s->content_disp[s->mp++] = *in;
-				s->content_disp[s->mp] = '\0';
+				if (s->mp < (int)sizeof(s->content_disp))
+					s->content_disp[s->mp] = '\0';
 				goto done;
 			}
 
