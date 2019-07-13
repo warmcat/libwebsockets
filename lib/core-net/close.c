@@ -464,7 +464,7 @@ just_kill_connection:
 	    wsi->role_ops->close_cb[lwsi_role_server(wsi)]) {
 		const struct lws_protocols *pro = wsi->protocol;
 
-		if (!wsi->protocol)
+		if (!wsi->protocol && wsi->vhost && wsi->vhost->protocols)
 			pro = &wsi->vhost->protocols[0];
 
 		if (!wsi->upgraded_to_http2 || !lwsi_role_client(wsi))
