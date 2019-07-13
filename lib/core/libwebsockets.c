@@ -860,7 +860,7 @@ just_kill_connection:
 	if (!wsi->told_user_closed && wsi->user_space &&
 	    wsi->protocol_bind_balance) {
 		lwsl_debug("%s: %p: DROP_PROTOCOL %s\n", __func__, wsi,
-		       wsi->protocol->name);
+		       wsi->protocol ? wsi->protocol->name: "NULL");
 		wsi->protocol->callback(wsi,
 				wsi->role_ops->protocol_unbind_cb[
 				       !!lwsi_role_server(wsi)],
