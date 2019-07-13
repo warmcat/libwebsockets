@@ -146,8 +146,9 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 				if (!el[n].buf)
 					goto cleanup;
 				el[n].len = mbedtls_mpi_size(mpi[n]);
-				mbedtls_mpi_write_binary(mpi[n], el[n].buf,
-							 el[n].len);
+				if (mbedtls_mpi_write_binary(mpi[n], el[n].buf,
+							 el[n].len))
+					goto cleanup;
 			}
 	}
 

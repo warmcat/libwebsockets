@@ -196,7 +196,9 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	lwsl_debug("%p new partial sent %d from %lu total\n", wsi, m,
 		    (unsigned long)real_len);
 
-	lws_buflist_append_segment(&wsi->buflist_out, buf + m, real_len - m);
+	if (lws_buflist_append_segment(&wsi->buflist_out, buf + m,
+				       real_len - m) < 0)
+		return -1;
 
 	lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_WRITE_PARTIALS, 1);
 	lws_stats_atomic_bump(wsi->context, pt,
