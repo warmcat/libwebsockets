@@ -22,7 +22,7 @@
 #include "core/private.h"
 
 static const unsigned char lextable[] = {
-#if defined(LWS_AMAZON_RTOS) || defined(LWS_AMAZON_NOART)
+#if defined(LWS_AMAZON_RTOS) || defined(LWS_AMAZON_LINUX)
 	#include "roles/http/lextable.h"
 #else
 	#include "../lextable.h"
