@@ -1711,7 +1711,7 @@ _openssl_alpn_to_mbedtls(struct alpn_ctx *ac, char ***palpn_protos)
 	if (!len) {
 		*q++ = '\0';
 		count++;
-		len = *p++;
+		/* len = *p++; */
 		alpn_protos[count] = (char *)q;
 	}
 	alpn_protos[count] = NULL; /* last pointer ends list with NULL */
