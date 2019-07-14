@@ -606,6 +606,32 @@ lws_add_http_common_headers(struct lws *wsi, unsigned int code,
 			    const char *content_type, lws_filepos_t content_len,
 			    unsigned char **p, unsigned char *end);
 
+/**
+ * lws_http_get_uri_and_method() - Get information on method and url
+ *
+ * \param wsi: the connection to get information on
+ * \param puri_ptr: points to pointer to set to url
+ * \param puri_len: points to int to set to uri length
+ *
+ * Returns -1 or method index
+ *
+ * GET      0
+ * POST     1
+ * OPTIONS  2
+ * PUT      3
+ * PATCH    4
+ * DELETE   5
+ * CONNECT  6
+ * HEAD     7
+ * :path    8
+ *
+ * If returns method, *puri_ptr is set to the method's URI string and *puri_len
+ * to its length
+ */
+
+LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
+lws_http_get_uri_and_method(struct lws *wsi, char **puri_ptr, int *puri_len);
+
 ///@}
 
 /*! \defgroup urlendec Urlencode and Urldecode

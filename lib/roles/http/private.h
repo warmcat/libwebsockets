@@ -299,8 +299,5 @@ LWS_EXTERN int
 _lws_destroy_ah(struct lws_context_per_thread *pt, struct allocated_headers *ah);
 
 int
-lws_http_get_uri_and_method(struct lws *wsi, char **puri_ptr, int *puri_len);
-
-int
 lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 		     char *uri_ptr, char ws);
