@@ -320,6 +320,7 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx,
 		}
 
 		if (!n) {
+			lws_tls_err_describe_clear();
 			lwsl_err("%s: init failed (cipher %p)\n",
 				 __func__, ctx->cipher);
 
