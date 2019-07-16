@@ -131,7 +131,7 @@ http_postbody:
 			 */
 			body_chunk_len = min(wsi->http.rx_content_remain, len);
 			wsi->http.rx_content_remain -= body_chunk_len;
-			len -= body_chunk_len;
+			// len -= body_chunk_len;
 #ifdef LWS_WITH_CGI
 			if (wsi->http.cgi) {
 				struct lws_cgi_args args;
