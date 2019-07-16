@@ -42,10 +42,10 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	if (0 && buf && wsi->could_have_pending) {
 		lwsl_hexdump_level(LLL_INFO, buf, len);
 		lwsl_info("** %p: vh: %s, prot: %s, role %s: "
-			 "Inefficient back-to-back write of %lu detected...\n",
-			 wsi, wsi->vhost->name, wsi->protocol->name,
-			 wsi->role_ops->name,
-			 (unsigned long)len);
+			  "Inefficient back-to-back write of %lu detected...\n",
+			  wsi, wsi->vhost ? wsi->vhost->name : "no vhost",
+			  wsi->protocol->name, wsi->role_ops->name,
+			  (unsigned long)len);
 	}
 
 	lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_API_WRITE, 1);
@@ -61,8 +61,8 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 
 	if (buf && lws_has_buffered_out(wsi)) {
 		lwsl_info("** %p: vh: %s, prot: %s, incr buflist_out by %lu\n",
-			 wsi, wsi->vhost->name, wsi->protocol->name,
-			 (unsigned long)len);
+			  wsi, wsi->vhost ? wsi->vhost->name : "no vhost",
+			  wsi->protocol->name, (unsigned long)len);
 
 		/*
 		 * already buflist ahead of this, add it on the tail of the
