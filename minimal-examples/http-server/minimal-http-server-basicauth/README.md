@@ -3,11 +3,17 @@
 This demonstrates how to protect a mount using a password
 file outside of the mount itself.
 
+Although it's called 'basic auth' it supports both basic auth and
+RFC7616 MD5 digest auth depending on `LWS_WITH_HTTP_AUTH_BASIC` or
+`LWS_WITH_HTTP_AUTH_DIGEST`.
+
 The demo has two mounts, a normal one at / and one protected
 by basic auth at /secret.
 
-The file at ./ba-passwords contains valid user:password
-combinations.
+For Basic Auth (`LWS_WITH_HTTP_AUTH_BASIC`) the file at ./ba-passwords contains
+valid user:password combinations directly.  For Digest Auth (`LWS_WITH_HTTP_AUTH_DIGEST`)
+the file at ./digest-passwords contains valid user:md5 combinations.  The hash
+is computed by `echo -n "user:lwsauthtest@localhost:password" | md5sum`
 
 ## Discovering the authenticated user
 

@@ -89,6 +89,10 @@ option(LWS_WITHOUT_TEST_CLIENT "Don't build the client test application" OFF)
 # Extensions (permessage-deflate)
 #
 option(LWS_WITHOUT_EXTENSIONS "Don't compile with extensions" ON)
+option(LWS_WITH_HTTP_AUTH_BASIC "HTTP Basic Auth support (not very secure)" OFF)
+if (LWS_WITH_SSL)
+option(LWS_WITH_HTTP_AUTH_DIGEST "HTTP Digest Auth support (more secure)" ON)
+endif()
 #
 # Helpers + misc
 #
@@ -414,6 +418,13 @@ if (LWS_WITH_LEJP_CONF)
 	set(LWS_WITH_DIR 1)
 endif()
 
+if (LWS_WITH_HTTP_AUTH_BASIC AND LWS_WITH_HTTP_AUTH_DIGEST)
+	message(FATAL_ERROR "Pick one of LWS_WITH_HTTP_AUTH_BASIC or DIGEST")
+endif()
+if (LWS_WITH_HTTP_AUTH_BASIC OR LWS_WITH_HTTP_AUTH_DIGEST)
+	set(LWS_WITH_GENCRYPTO 1)
+endif()
+
 # confirm H1 relationships
 
 if (NOT LWS_ROLE_H1 AND LWS_ROLE_H2)
@@ -498,11 +509,9 @@ set(LWS_LIBEVENT_LIBRARIES CACHE PATH "Path to the libevent library")
 
 if (NOT LWS_WITH_SSL)
 	set(LWS_WITHOUT_BUILTIN_SHA1 OFF)
-endif()
-
-if (LWS_WITH_BORINGSSL)
-	# boringssl deprecated EVP_PKEY
-	set (LWS_WITH_GENHASH OFF)
+	if (LWS_WITH_GENCRYPTO)
+		message(FATAL_ERROR "Gencrypto requires LWS_WITH_SSL")
+	endif()
 endif()
 
 if (LWS_WITH_SSL AND NOT LWS_WITH_WOLFSSL AND NOT LWS_WITH_MBEDTLS)
@@ -1289,6 +1298,11 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2) AND NOT LWS_WITHOUT_SERVER)
 	list(APPEND SOURCES
 		lib/roles/http/server/server.c
 		lib/roles/http/server/lws-spa.c)
+
+	if (LWS_WITH_HTTP_AUTH_BASIC OR LWS_WITH_HTTP_AUTH_DIGEST)
+		list(APPEND SOURCES
+			lib/roles/http/server/auth.c)
+	endif()
 endif()
 
 if (LWS_ROLE_WS AND NOT LWS_WITHOUT_EXTENSIONS)

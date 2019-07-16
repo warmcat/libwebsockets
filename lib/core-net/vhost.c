@@ -496,6 +496,7 @@ lws_create_vhost(struct lws_context *context,
 	vh->listen_accept_role = info->listen_accept_role;
 	vh->listen_accept_protocol = info->listen_accept_protocol;
 	vh->unix_socket_perms = info->unix_socket_perms;
+	vh->http.http_auth_realm = info->http_auth_realm;
 
 	LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar)
 		if (ar->init_vhost)

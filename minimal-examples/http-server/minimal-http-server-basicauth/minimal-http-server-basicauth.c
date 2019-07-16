@@ -41,7 +41,11 @@ static const struct lws_http_mount mount_secret = {
 	/* .cache_intermediaries */	0,
 	/* .origin_protocol */		LWSMPRO_FILE, /* dynamic */
 	/* .mountpoint_len */		7,		/* char count */
+#if defined(LWS_WITH_HTTP_AUTH_BASIC)
 	/* .basic_auth_login_file */	"./ba-passwords",
+#else
+	/* .basic_auth_login_file */	"./digest-passwords",
+#endif
 };
 
 /* default mount serves the URL space from ./mount-origin */
@@ -97,6 +101,7 @@ int main(int argc, const char **argv)
 	info.mounts = &mount;
 	info.options =
 		LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE;
+	info.http_auth_realm = "lwsauthtest@localhost";
 
 	context = lws_create_context(&info);
 	if (!context) {

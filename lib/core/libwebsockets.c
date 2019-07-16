@@ -25,6 +25,8 @@
 #include <sys/types.h>
 #endif
 
+static const char *hex = "0123456789ABCDEF";
+
 signed char char_to_hex(const char c)
 {
 	if (c >= '0' && c <= '9')
@@ -40,11 +42,14 @@ signed char char_to_hex(const char c)
 }
 
 int
-lws_hex_to_byte_array(const char *h, uint8_t *dest, int max)
+lws_hex_to_byte_array(const char *h, int hlen_or_minus1, uint8_t *dest, int max)
 {
 	uint8_t *odest = dest;
 
-	while (max-- && *h) {
+	if (hlen_or_minus1 != -1 && (hlen_or_minus1 & 1))
+		return -1;
+
+	while ((hlen_or_minus1 == -1 || hlen_or_minus1 > 1) && max-- && *h) {
 		int t = char_to_hex(*h++), t1;
 
 		if (!*h || t < 0)
@@ -55,6 +60,8 @@ lws_hex_to_byte_array(const char *h, uint8_t *dest, int max)
 			return -1;
 
 		*dest++ = (t << 4) | t1;
+		if (hlen_or_minus1 != -1)
+			hlen_or_minus1 -= 2;
 	}
 
 	if (max < 0)
@@ -63,6 +70,24 @@ lws_hex_to_byte_array(const char *h, uint8_t *dest, int max)
 	return dest - odest;
 }
 
+int
+lws_byte_array_to_hex(const uint8_t *src, size_t len, char *dest, size_t dlen)
+{
+	char *odest = dest;
+
+	if (dlen < (2 * len) + 1)
+		return -1;
+
+	while (len--) {
+		*dest++ = hex[(*src) >> 4];
+		*dest++ = hex[(*src) & 15];
+		src++;
+	}
+
+	*dest = '\0';
+
+	return (int)(dest - odest);
+}
 
 #if !defined(LWS_PLAT_OPTEE)
 
@@ -346,8 +371,6 @@ lws_strdup(const char *s)
 
 	return d;
 }
-
-static const char *hex = "0123456789ABCDEF";
 
 LWS_VISIBLE LWS_EXTERN const char *
 lws_sql_purify(char *escaped, const char *string, int len)

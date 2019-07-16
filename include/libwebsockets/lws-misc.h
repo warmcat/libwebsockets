@@ -417,7 +417,8 @@ lws_strncpy(char *dest, const char *src, size_t size);
 /**
  * lws_hex_to_byte_array(): convert hex string like 0123456789ab into byte data
  *
- * \param h: incoming NUL-terminated hex string
+ * \param h: incoming (NUL-terminated if hlen_or_minus1 = -1) hex string
+ * \param hlen_or_minus1: length of h if known, else -1
  * \param dest: array to fill with binary decodes of hex pairs from h
  * \param max: maximum number of bytes dest can hold, must be at least half
  *		the size of strlen(h)
@@ -425,13 +426,37 @@ lws_strncpy(char *dest, const char *src, size_t size);
  * This converts hex strings into an array of 8-bit representations, ie the
  * input "abcd" produces two bytes of value 0xab and 0xcd.
  *
+ * If the length of \p h is unknown and it's NUL terminated, you can pass -1 in
+ * \p hlen_or_minus1 and it will stop at the NUL.  If the length is known, it can
+ * be passed in \p hlen_or_minus1 and the terminating NUL is no longer needed.
+ *
+ * \p max is used to make sure we error out before exceeding the size of the
+ * output buffer under all conditions.
+ *
  * Returns number of bytes produced into \p dest, or -1 on error.
  *
  * Errors include non-hex chars and an odd count of hex chars in the input
  * string.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_hex_to_byte_array(const char *h, uint8_t *dest, int max);
+lws_hex_to_byte_array(const char *h, int hlen_or_minus1, uint8_t *dest, int max);
+
+/**
+ * lws_byte_array_to_hex(): convert byte array into hex chars with NUL term
+ *
+ * \param src: incoming byte array
+ * \param len: length in bytes of src
+ * \param dest: result char array
+ * \param dlen: length in bytes of dest
+ *
+ * dlen must be >= (2 * len) + 1 or the function will fail returning -1.
+ *
+ * Otherwise the byte array is represented as unspaced hex chars into dest and
+ * a NUL is appended on the end.  The function returns the length in dest
+ * excluding the NUL.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_byte_array_to_hex(const uint8_t *src, size_t len, char *dest, size_t dlen);
 
 /*
  * lws_timingsafe_bcmp(): constant time memcmp

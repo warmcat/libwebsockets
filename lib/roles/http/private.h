@@ -44,6 +44,9 @@ enum http_conn_type {
 	HTTP_CONNECTION_KEEP_ALIVE
 };
 
+#define LWS_HTTP_AUTH_DIGEST_NAME "MD5"
+#define LWS_HTTP_AUTH_DIGEST_GENHASH LWS_GENHASH_TYPE_MD5
+
 /*
  * This is totally opaque to code using the library.  It's exported as a
  * forward-reference pointer-only declaration; the user can use the pointer with
@@ -189,8 +192,12 @@ struct lws_peer_role_http {
 
 struct lws_vhost_role_http {
 	char http_proxy_address[128];
+#if defined(LWS_WITH_HTTP_AUTH_DIGEST)
+	uint8_t http_digest_auth_key[16];
+#endif
 	const struct lws_http_mount *mount_list;
 	const char *error_document_404;
+	const char *http_auth_realm;
 	unsigned int http_proxy_port;
 };
 
@@ -228,6 +235,9 @@ struct _lws_http_mode_related {
 #if defined(LWS_WITH_RANGES)
 	struct lws_range_parsing range;
 	char multipart_content_type[64];
+#endif
+#if defined(LWS_WITH_HTTP_AUTH_DIGEST)
+	char username[32];
 #endif
 
 #ifdef LWS_WITH_ACCESS_LOG
@@ -277,17 +287,17 @@ enum lws_parse_urldecode_results {
 	LPUR_EXCESSIVE,
 };
 
-enum lws_check_basic_auth_results {
+enum lws_check_http_auth_results {
 	LCBA_CONTINUE,
 	LCBA_FAILED_AUTH,
 	LCBA_END_TRANSACTION,
 };
 
-enum lws_check_basic_auth_results
-lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file);
+enum lws_check_http_auth_results
+lws_check_http_auth(struct lws *wsi, const char *basic_auth_login_file);
 
 int
-lws_unauthorised_basic_auth(struct lws *wsi);
+lws_unauthorised_http_auth(struct lws *wsi);
 
 int
 lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len);

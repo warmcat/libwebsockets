@@ -252,8 +252,10 @@ int
 lws_process_ws_upgrade2(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+#if defined(LWS_WITH_HTTP_AUTH_BASIC) || defined(LWS_WITH_HTTP_AUTH_DIGEST)
 	const struct lws_protocol_vhost_options *pvos = NULL;
 	const char *ws_prot_basic_auth = NULL;
+
 
 	/*
 	 * Allow basic auth a look-in now we bound the wsi to the protocol.
@@ -268,16 +270,17 @@ lws_process_ws_upgrade2(struct lws *wsi)
 	    !lws_pvo_get_str((void *)pvos->options, "basic-auth",
 			     &ws_prot_basic_auth)) {
 		lwsl_info("%s: ws upgrade requires basic auth\n", __func__);
-		switch(lws_check_basic_auth(wsi, ws_prot_basic_auth)) {
+		switch(lws_check_http_auth(wsi, ws_prot_basic_auth)) {
 		case LCBA_CONTINUE:
 			break;
 		case LCBA_FAILED_AUTH:
-			return lws_unauthorised_basic_auth(wsi);
+			return lws_unauthorised_http_auth(wsi);
 		case LCBA_END_TRANSACTION:
 			lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
 			return lws_http_transaction_completed(wsi);
 		}
 	}
+#endif
 
 	/*
 	 * We are upgrading to ws, so http/1.1 + h2 and keepalive + pipelined

@@ -169,8 +169,28 @@ struct expected expected1[] = {
 		{ LWS_TOKZE_TOKEN_NAME_EQUALS, "a", 1 },
 		{ LWS_TOKZE_TOKEN, "5", 1 },
 		{ LWS_TOKZE_ENDED, "", 0 },
+	},
+	expected17[] = {
+		{ LWS_TOKZE_TOKEN, "Digest", 6 },
+		{ LWS_TOKZE_TOKEN_NAME_EQUALS, "username", 8 },
+		{ LWS_TOKZE_QUOTED_STRING, "Mufasa", 6 },
+		{ LWS_TOKZE_DELIMITER, ",", 1 },
+		{ LWS_TOKZE_TOKEN_NAME_EQUALS, "realm", 5 },
+		{ LWS_TOKZE_QUOTED_STRING, "testrealm@host.com", 18 },
+		{ LWS_TOKZE_DELIMITER, ",", 1 },
+		{ LWS_TOKZE_TOKEN_NAME_EQUALS, "nonce", 5 },
+		{ LWS_TOKZE_QUOTED_STRING, "dcd98b7102dd2f0e8b11d0f600bfb0c093", 34 },
+		{ LWS_TOKZE_DELIMITER, ",", 1 },
+		{ LWS_TOKZE_TOKEN_NAME_EQUALS, "uri", 3 },
+		{ LWS_TOKZE_QUOTED_STRING, "/dir/index.html", 15 },
+		{ LWS_TOKZE_DELIMITER, ",", 1 },
+		{ LWS_TOKZE_TOKEN_NAME_EQUALS, "response", 8 },
+		{ LWS_TOKZE_QUOTED_STRING, "e966c932a9242554e42c8ee200cec7f6", 32 },
+		{ LWS_TOKZE_DELIMITER, ",", 1 },
+		{ LWS_TOKZE_TOKEN_NAME_EQUALS, "opaque", 6 },
+		{ LWS_TOKZE_QUOTED_STRING, "5ccc069c403ebaf9f0171e9517f40e41", 32 },
+		{ LWS_TOKZE_ENDED, "", 0 },
 	}
-
 ;
 
 struct tests tests[] = {
@@ -247,6 +267,17 @@ struct tests tests[] = {
 		"a=5", expected16, LWS_ARRAY_SIZE(expected16),
 		LWS_TOKENIZE_F_NO_INTEGERS
 	},
+	{
+		"Digest       username=\"Mufasa\", "
+		"realm=\"testrealm@host.com\", "
+		"nonce=\"dcd98b7102dd2f0e8b11d0f600bfb0c093\", "
+		"uri=\"/dir/index.html\", "
+		"response=\"e966c932a9242554e42c8ee200cec7f6\", "
+		"opaque=\"5ccc069c403ebaf9f0171e9517f40e41\"",
+		expected17, LWS_ARRAY_SIZE(expected17),
+		LWS_TOKENIZE_F_MINUS_NONTERM |
+		LWS_TOKENIZE_F_RFC7230_DELIMS
+	}
 };
 
 /*

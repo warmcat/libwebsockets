@@ -673,6 +673,8 @@ struct lws_context_creation_info {
 	 * on a unix socket, you can give a "username:groupname" string here
 	 * to control the owner:group it's created with.  It's always created
 	 * with 0660 mode. */
+	const char *http_auth_realm; /**< VHOST: string returned with http
+	 * auth and shown to the user in the credentials prompt */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
