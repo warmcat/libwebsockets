@@ -626,6 +626,8 @@ lws_genhash_size(enum lws_genhash_types type)
 	switch(type) {
 	case LWS_GENHASH_TYPE_UNKNOWN:
 		return 0;
+	case LWS_GENHASH_TYPE_MD5:
+		return 16;
 	case LWS_GENHASH_TYPE_SHA1:
 		return 20;
 	case LWS_GENHASH_TYPE_SHA256:

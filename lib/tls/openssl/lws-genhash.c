@@ -37,6 +37,9 @@ lws_genhash_init(struct lws_genhash_ctx *ctx, enum lws_genhash_types type)
 		return 1;
 
 	switch (ctx->type) {
+	case LWS_GENHASH_TYPE_MD5:
+		ctx->evp_type = EVP_md5();
+		break;
 	case LWS_GENHASH_TYPE_SHA1:
 		ctx->evp_type = EVP_sha1();
 		break;

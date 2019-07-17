@@ -37,6 +37,9 @@ lws_gencrypto_openssl_hash_to_NID(enum lws_genhash_types hash_type)
 	switch (hash_type) {
 	case LWS_GENHASH_TYPE_UNKNOWN:
 		break;
+	case LWS_GENHASH_TYPE_MD5:
+		h = NID_md5;
+		break;
 	case LWS_GENHASH_TYPE_SHA1:
 		h = NID_sha1;
 		break;
@@ -61,6 +64,9 @@ lws_gencrypto_openssl_hash_to_EVP_MD(enum lws_genhash_types hash_type)
 
 	switch (hash_type) {
 	case LWS_GENHASH_TYPE_UNKNOWN:
+		break;
+	case LWS_GENHASH_TYPE_MD5:
+		h = EVP_md5();
 		break;
 	case LWS_GENHASH_TYPE_SHA1:
 		h = EVP_sha1();

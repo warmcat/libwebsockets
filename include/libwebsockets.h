@@ -539,6 +539,7 @@ struct lws;
 #if defined(LWS_WITH_TLS)
 
 #if defined(LWS_WITH_MBEDTLS)
+#include <mbedtls/md5.h>
 #include <mbedtls/sha1.h>
 #include <mbedtls/sha256.h>
 #include <mbedtls/sha512.h>
