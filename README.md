@@ -16,6 +16,34 @@ various scenarios, CC0-licensed (public domain) for cut-and-paste, allow you to 
 News
 ----
 
+## License change plan
+
+Lws is planning to change the pieces that are currently LGPLv2.1+SLE to MIT
+https://opensource.org/licenses/MIT .  Stuff that is already CC0 or another
+permissive license will stay as it is.
+
+This license change is making an already permissive license (it was already LGPL,
+and the SLE removed most restrictions already) even more permissive.
+So I expect most contributors either don't much care or are happy about it.
+Contributors who object should contact me via:
+
+ - the lws mailing list https://libwebsockets.org/mailman/listinfo/libwebsockets
+ - github issue https://github.com/warmcat/libwebsockets , or
+ - email to `andy@warmcat.com`
+
+...before **Aug 11 2019**, and I'll rewrite the related code before the change.
+There'll be a last release of the currently-licensed stuff (probably v3.2) and
+then the same code will have the licese grant changed in the sources, become
+master and also have an otherwise identical release, probably v4.0.  The v3.2
+stuff won't be maintained (by me anyway... it's FOSS though) but the v4.0
+stuff which is the same except the license will get the usual v4.0-stable
+treatment.
+
+Even after the change I will continue to rely on users to help me with bug
+reports and patches, work together on new features.  The license will no
+longer require it but the practical advantages from staying aligned with
+upstream lws for users remain the same.
+
 ## New features on master
 
  - `LWS_WITH_NETWORK` cmake option (default on) allows one-step removal of vhost,
