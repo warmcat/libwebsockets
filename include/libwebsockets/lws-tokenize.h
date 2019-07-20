@@ -36,6 +36,8 @@
  * This lets you receive dotted-quads like 192.168.0.1 as string tokens, and
  * avoids illegal float format detection like 1.myserver.com */
 #define LWS_TOKENIZE_F_NO_FLOATS	(1 << 5)
+/* Instead of LWS_TOKZE_INTEGER, report integers as any other string token */
+#define LWS_TOKENIZE_F_NO_INTEGERS	(1 << 6)
 
 typedef enum {
 

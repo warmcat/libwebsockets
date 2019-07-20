@@ -164,6 +164,11 @@ struct expected expected1[] = {
 		{ LWS_TOKZE_DELIMITER, ",", 1 },
 		{ LWS_TOKZE_TOKEN, "Upgrade", 7 },
 		{ LWS_TOKZE_ENDED, "", 0 },
+	},
+	expected16[] = {
+		{ LWS_TOKZE_TOKEN_NAME_EQUALS, "a", 1 },
+		{ LWS_TOKZE_TOKEN, "5", 1 },
+		{ LWS_TOKZE_ENDED, "", 0 },
 	}
 
 ;
@@ -237,6 +242,10 @@ struct tests tests[] = {
 		"close,  Upgrade",
 		expected15, LWS_ARRAY_SIZE(expected15),
 		LWS_TOKENIZE_F_COMMA_SEP_LIST
+	},
+	{
+		"a=5", expected16, LWS_ARRAY_SIZE(expected16),
+		LWS_TOKENIZE_F_NO_INTEGERS
 	},
 };
 

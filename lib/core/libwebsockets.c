@@ -594,7 +594,7 @@ lws_tokenize(struct lws_tokenize *ts)
 	lws_tokenize_state state = LWS_TOKZS_LEADING_WHITESPACE;
 	char c, flo = 0, d_minus = '-', d_dot = '.', s_minus = '\0',
 	     s_dot = '\0';
-	signed char num = -1;
+	signed char num = ts->flags & LWS_TOKENIZE_F_NO_INTEGERS ? 0 : -1;
 	int utf8 = 0;
 
 	/* for speed, compute the effect of the flags outside the loop */
@@ -756,21 +756,21 @@ lws_tokenize(struct lws_tokenize *ts)
 			state = LWS_TOKZS_TOKEN;
 			ts->token = ts->start - 1;
 			ts->token_len = 1;
-			if (c < '0' || c > '9')
-				num = 0;
-			else
-				if (num < 0)
-					num = 1;
-			continue;
+			goto checknum;
+
 		case LWS_TOKZS_QUOTED_STRING:
 		case LWS_TOKZS_TOKEN:
-			if (c < '0' || c > '9')
-				num = 0;
-			else
-				if (num < 0)
-					num = 1;
 			ts->token_len++;
+checknum:
+			if (!(ts->flags & LWS_TOKENIZE_F_NO_INTEGERS)) {
+				if (c < '0' || c > '9')
+					num = 0;
+				else
+					if (num < 0)
+						num = 1;
+			}
 			continue;
+
 		case LWS_TOKZS_TOKEN_POST_TERMINAL:
 			/* report the new token next time */
 			ts->start--;
