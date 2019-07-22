@@ -70,6 +70,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 
 	wsi->context = i->context;
 	wsi->desc.sockfd = LWS_SOCK_INVALID;
+	wsi->seq = i->seq;
 
 	wsi->vhost = NULL;
 	if (!i->vhost)

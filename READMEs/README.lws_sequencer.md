@@ -4,7 +4,7 @@ Often a single network action like a client GET is just part of a
 larger series of actions, perhaps involving different connections.
 
 Since lws operates inside an event loop, if the outer sequencing
-does not, it can be awkward to synchronize these steps with what's
+doesn't, it can be awkward to synchronize these steps with what's
 happening on the network with a particular connection on the event
 loop thread.
 
@@ -109,4 +109,30 @@ it can set it to NULL, eg, `lws_set_wsi_user(wsi, NULL);`.
 Under some conditions wsi may want to hang around a bit to see if there is a
 subsequent client wsi transaction they can be reused on.  They will clean
 themselves up when they time out.
+
+## Watching wsi lifecycle from a sequencer
+
+When a sequencer is creating a wsi as part of its sequence, it will be very
+interested in lifecycle events.  At client wsi creation time, the sequencer
+callback can set info->seq to itself in order to receive lifecycle messages
+about its wsi.
+
+|message|meaning|
+|---|---|
+|`LWSSEQ_WSI_CONNECTED`|The wsi has become connected|
+|`LWSSEQ_WSI_CONN_FAIL`|The wsi has failed to connect|
+|`LWSSEQ_WSI_CONN_CLOSE`|The wsi had been connected, but has now closed|
+
+By receiving these, the sequencer can understand when it should attempt
+reconnections or that it cannot progress the sequence.
+
+When dealing with wsi that were created by the sequencer, they may close at
+any time, eg, be closed by the remote peer or an intermediary.  The
+`LWSSEQ_WSI_CONN_CLOSE` message may have been queued but since they are
+strictly handled in the order they arrived, before it was
+handled an earlier message may want to cause some api to be called on
+the now-free()-d wsi.  To detect this situation safely, there is a
+sequencer api `lws_sequencer_check_wsi()` which peeks the message
+buffer and returns nonzero if it later contains an `LWSSEQ_WSI_CONN_CLOSE`
+already.
 

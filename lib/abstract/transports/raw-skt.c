@@ -91,6 +91,13 @@ callback_abs_client_raw_skt(struct lws *wsi, enum lws_callback_reasons reason,
 		priv->established = 1;
 		if (priv->abs->ap->accept)
 			priv->abs->ap->accept(priv->abs->api);
+		if (wsi->seq)
+			/*
+			 * we are bound to a sequencer who wants to know about
+			 * our lifecycle events
+			 */
+
+			lws_sequencer_event(wsi->seq, LWSSEQ_WSI_CONNECTED, wsi);
                 break;
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
@@ -98,10 +105,32 @@ callback_abs_client_raw_skt(struct lws *wsi, enum lws_callback_reasons reason,
 		if (in)
 			lwsl_user("   %s\n", (const char *)in);
 
+		if (wsi->seq)
+			/*
+			 * we are bound to a sequencer who wants to know about
+			 * our lifecycle events
+			 */
+
+			lws_sequencer_event(wsi->seq, LWSSEQ_WSI_CONN_FAIL,
+					    wsi);
+
+		goto close_path;
+
 		/* fallthru */
 	case LWS_CALLBACK_RAW_CLOSE:
 		if (!user)
 			break;
+
+		if (wsi->seq)
+			/*
+			 * we are bound to a sequencer who wants to know about
+			 * our lifecycle events
+			 */
+
+			lws_sequencer_event(wsi->seq, LWSSEQ_WSI_CONN_CLOSE,
+					    wsi);
+
+close_path:
 		lwsl_debug("LWS_CALLBACK_RAW_CLOSE\n");
 		priv->established = 0;
 		priv->connecting = 0;
@@ -237,6 +266,8 @@ lws_atcrs_client_conn(const lws_abs_t *abs)
 	i.origin = i.address;
 	i.context = abs->vh->context;
 	i.local_protocol_name = "lws-abs-cli-raw-skt";
+	i.seq = abs->seq;
+	i.opaque_user_data = abs->opaque_user_data;
 
 	priv->wsi = lws_client_connect_via_info(&i);
 	if (!priv->wsi)

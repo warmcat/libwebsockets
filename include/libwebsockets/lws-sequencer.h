@@ -37,6 +37,10 @@ typedef enum {
 	LWSSEQ_TIMED_OUT,	/* sequencer timeout */
 	LWSSEQ_HEARTBEAT,	/* 1Hz callback */
 
+	LWSSEQ_WSI_CONNECTED,	/* wsi we bound to us has connected */
+	LWSSEQ_WSI_CONN_FAIL,	/* wsi we bound to us has failed to connect */
+	LWSSEQ_WSI_CONN_CLOSE,	/* wsi we bound to us has closed */
+
 	LWSSEQ_USER_BASE = 100	/* define your events from here */
 } lws_seq_events_t;
 
@@ -60,6 +64,7 @@ typedef struct lws_sequencer lws_sequencer_t; /* opaque */
  */
 typedef lws_seq_cb_return_t (*lws_seq_event_cb)(struct lws_sequencer *seq,
 			     void *user, int event, void *data);
+
 
 /**
  * lws_sequencer_create() - create and bind sequencer to a pt
@@ -118,6 +123,25 @@ lws_sequencer_destroy(lws_sequencer_t **seq);
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_sequencer_event(lws_sequencer_t *seq, lws_seq_events_t e, void *data);
+
+/**
+ * lws_sequencer_check_wsi() - check if wsi still extant
+ *
+ * \param seq: the sequencer interested in the wsi
+ * \param wsi: the wsi we want to confirm hasn't closed yet
+ *
+ * Check if wsi still extant, by peeking in the message queue for a
+ * LWSSEQ_WSI_CONN_CLOSE message about wsi.  (Doesn't need to do the same for
+ * CONN_FAIL since that will never have produced any messages prior to that).
+ *
+ * Use this to avoid trying to perform operations on wsi that have already
+ * closed but we didn't get to that message yet.
+ *
+ * Returns 0 if not closed yet or 1 if it has closed but we didn't process the
+ * close message yet.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_sequencer_check_wsi(lws_sequencer_t *seq, struct lws *wsi);
 
 /**
  * lws_sequencer_timeout() - set a timeout by which the sequence must have

@@ -73,6 +73,9 @@ typedef struct lws_abs {
 	const struct lws_abs_transport	*at;
 	const lws_token_map_t		*at_tokens;
 
+	lws_sequencer_t			*seq;
+	void				*opaque_user_data;
+
 	/*
 	 * These are filled in by lws_abs_bind_and_create_instance() in the
 	 * instance copy.  They do not need to be set when creating the struct

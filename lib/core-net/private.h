@@ -512,6 +512,8 @@ struct lws {
 	const struct lws_protocols *protocol;
 	struct lws_dll same_vh_protocol;
 
+	lws_sequencer_t *seq;	/* associated sequencer if any */
+
 	struct lws_dll dll_timeout;
 	struct lws_dll dll_hrtimer;
 	struct lws_dll2 dll_buflist; /* guys with pending rxflow */

@@ -162,6 +162,42 @@ lws_sequencer_event(lws_sequencer_t *seq, lws_seq_events_t e, void *data)
 }
 
 /*
+ * Check if wsi still extant, by peeking in the message queue for a
+ * LWSSEQ_WSI_CONN_CLOSE message about wsi.  (Doesn't need to do the same for
+ * CONN_FAIL since that will never have produced any messages prior to that).
+ *
+ * Use this to avoid trying to perform operations on wsi that have already
+ * closed but we didn't get to that message yet.
+ *
+ * Returns 0 if not closed yet or 1 if it has closed but we didn't process the
+ * close message yet.
+ */
+
+int
+lws_sequencer_check_wsi(lws_sequencer_t *seq, struct lws *wsi)
+{
+	lws_seq_event_t *seqe;
+	struct lws_dll2 *dh;
+
+	lws_pt_lock(seq->pt, __func__); /* ----------------------------- pt { */
+
+	dh = lws_dll2_get_head(&seq->seq_event_owner);
+	while (dh) {
+		seqe = lws_container_of(dh, lws_seq_event_t, seq_event_list);
+
+		if (seqe->e == LWSSEQ_WSI_CONN_CLOSE && seqe->data == wsi)
+			break;
+
+		dh = dh->next;
+	}
+
+	lws_pt_unlock(seq->pt); /* } pt ------------------------------------- */
+
+	return !!dh;
+}
+
+
+/*
  * seq should have at least one pending event (he was on the pt's list of
  * sequencers with pending events).  Send the top event in the queue.
  */
