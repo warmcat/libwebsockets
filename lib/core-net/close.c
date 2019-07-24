@@ -355,7 +355,8 @@ just_kill_connection:
 	     !wsi->already_did_cce && wsi->protocol)
 		wsi->protocol->callback(wsi,
 				        LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
-						wsi->user_space, NULL, 0);
+					wsi->user_space,
+					(void *)"closed before established", 24);
 
 	/*
 	 * Testing with ab shows that we have to stage the socket close when

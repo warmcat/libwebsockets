@@ -142,6 +142,7 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, int ebuf_len)
 
 	if (!peer) {
 		lwsl_info("peer did not provide cert\n");
+		lws_snprintf(ebuf, ebuf_len, "no peer cert");
 
 		return -1;
 	}

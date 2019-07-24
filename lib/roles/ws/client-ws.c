@@ -421,6 +421,7 @@ identify_protocol:
 						wsi->protocol->name);
 			else
 				lwsl_err("No protocol on client\n");
+			*cce = "ws protocol no match";
 			goto bail2;
 		}
 	}

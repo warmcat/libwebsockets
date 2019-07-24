@@ -161,6 +161,7 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 		if (pollfd->revents & LWS_POLLHUP) {
 			lwsl_warn("SOCKS connection %p (fd=%d) dead\n",
 				  (void *)wsi, pollfd->fd);
+			cce = "socks conn dead";
 			goto bail3;
 		}
 
@@ -171,6 +172,7 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 				return 0;
 			}
 			lwsl_err("ERROR reading from SOCKS socket\n");
+			cce = "socks recv fail";
 			goto bail3;
 		}
 
@@ -183,7 +185,7 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 			if (pt->serv_buf[1] == SOCKS_AUTH_NO_AUTH) {
 				lwsl_client("SOCKS GR: No Auth Method\n");
 				if (socks_generate_msg(wsi, SOCKS_MSG_CONNECT, &len))
-					goto bail3;
+					goto socks_send_msg_fail;
 				conn_mode = LRS_WAITING_SOCKS_CONNECT_REPLY;
 				pending_timeout =
 				   PENDING_TIMEOUT_AWAITING_SOCKS_CONNECT_REPLY;
@@ -195,7 +197,7 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 				if (socks_generate_msg(wsi,
 						   SOCKS_MSG_USERNAME_PASSWORD,
 						   &len))
-					goto bail3;
+					goto socks_send_msg_fail;
 				conn_mode = LRS_WAITING_SOCKS_AUTH_REPLY;
 				pending_timeout =
 				      PENDING_TIMEOUT_AWAITING_SOCKS_AUTH_REPLY;
@@ -210,8 +212,11 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 				goto socks_reply_fail;
 
 			lwsl_client("SOCKS password OK, sending connect\n");
-			if (socks_generate_msg(wsi, SOCKS_MSG_CONNECT, &len))
+			if (socks_generate_msg(wsi, SOCKS_MSG_CONNECT, &len)) {
+socks_send_msg_fail:
+				*cce = "socks gen msg fail";
 				goto bail3;
+			}
 			conn_mode = LRS_WAITING_SOCKS_CONNECT_REPLY;
 			pending_timeout =
 				   PENDING_TIMEOUT_AWAITING_SOCKS_CONNECT_REPLY;
@@ -220,6 +225,7 @@ socks_send:
 				 MSG_NOSIGNAL);
 			if (n < 0) {
 				lwsl_debug("ERROR writing to socks proxy\n");
+				cce = "socks write fail";
 				goto bail3;
 			}
 
@@ -230,6 +236,7 @@ socks_send:
 socks_reply_fail:
 			lwsl_notice("socks reply: v%d, err %d\n",
 				    pt->serv_buf[0], pt->serv_buf[1]);
+			cce = "socks reply fail";
 			goto bail3;
 
 		case LRS_WAITING_SOCKS_CONNECT_REPLY:
@@ -243,8 +250,10 @@ socks_reply_fail:
 			lws_client_stash_destroy(wsi);
 			if (lws_hdr_simple_create(wsi,
 						 _WSI_TOKEN_CLIENT_PEER_ADDRESS,
-					       wsi->vhost->socks_proxy_address))
+					       wsi->vhost->socks_proxy_address)) {
+				cce = "socks connect fail";
 				goto bail3;
+			}
 
 			wsi->c_port = wsi->vhost->socks_proxy_port;
 
@@ -266,6 +275,7 @@ socks_reply_fail:
 			lwsl_warn("Proxy connection %p (fd=%d) dead\n",
 				  (void *)wsi, pollfd->fd);
 
+			cce = "proxy conn dead";
 			goto bail3;
 		}
 
@@ -276,6 +286,7 @@ socks_reply_fail:
 				return 0;
 			}
 			lwsl_err("ERROR reading from proxy socket\n");
+			cce = "proxy read err";
 			goto bail3;
 		}
 
@@ -284,6 +295,7 @@ socks_reply_fail:
 		    strncmp(sb, "HTTP/1.1 200 ", 13)) {
 			lwsl_err("%s: ERROR proxy did not reply with h1\n",
 					__func__);
+			cce = "proxy not h1";
 			goto bail3;
 		}
 
@@ -527,6 +539,7 @@ client_http_body_sent:
 
 			if (lws_parse(wsi, &c, &plen)) {
 				lwsl_warn("problems parsing header\n");
+				cce = "problems parsing header";
 				goto bail3;
 			}
 		}
@@ -826,8 +839,10 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		}
 #endif
 
-		if (!ads) /* make coverity happy */
+		if (!ads) /* make coverity happy */ {
+			cce = "no ads";
 			goto bail3;
+		}
 
 		if (!lws_client_reset(&wsi, ssl, ads, port, path, ads)) {
 			/* there are two ways to fail out with NULL return...
