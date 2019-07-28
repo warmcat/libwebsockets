@@ -1202,6 +1202,20 @@ cleanup_wsi:
 	return 0;
 }
 
+static const char * const method_names[] = {
+	"GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE", "CONNECT", "HEAD"
+};
+static unsigned char method_index[] = {
+	WSI_TOKEN_GET_URI,
+	WSI_TOKEN_POST_URI,
+	WSI_TOKEN_OPTIONS_URI,
+	WSI_TOKEN_PUT_URI,
+	WSI_TOKEN_PATCH_URI,
+	WSI_TOKEN_DELETE_URI,
+	WSI_TOKEN_CONNECT,
+	WSI_TOKEN_HEAD_URI,
+};
+
 /*
  * The last byte of the whole frame has been handled.
  * Perform actions for frame completion.
@@ -1484,10 +1498,17 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 		wsi->vhost->conn_stats.h2_trans++;
 		p = lws_hdr_simple_ptr(h2n->swsi, WSI_TOKEN_HTTP_COLON_METHOD);
-		if (!strcmp(p, "POST"))
-			h2n->swsi->http.ah->frag_index[WSI_TOKEN_POST_URI] =
-				h2n->swsi->http.ah->frag_index[
+		/*
+		 * duplicate :path into the individual method uri header
+		 * index, so that it looks the same as h1 in the ah
+		 */
+		for (n = 0; n < (int)LWS_ARRAY_SIZE(method_names); n++)
+			if (!strcasecmp(p, method_names[n])) {
+				h2n->swsi->http.ah->frag_index[method_index[n]] =
+						h2n->swsi->http.ah->frag_index[
 				                     WSI_TOKEN_HTTP_COLON_PATH];
+				break;
+			}
 
 		lwsl_debug("%s: setting DEF_ACT from 0x%x\n", __func__,
 			   h2n->swsi->wsistate);
