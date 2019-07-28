@@ -104,11 +104,6 @@
 
 #define         X509_V_ERR_PROXY_SUBJECT_NAME_VIOLATION         72
 
-typedef void X509_STORE_CTX;
-int X509_STORE_CTX_get_error(X509_STORE_CTX *ctx);
-int X509_STORE_CTX_get_error_depth(X509_STORE_CTX *ctx);
-
-
 #ifdef __cplusplus
 }
 #endif

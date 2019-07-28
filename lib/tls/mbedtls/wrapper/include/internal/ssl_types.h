@@ -301,6 +301,9 @@ struct pkey_method_st {
 
 #define OPENSSL_NPN_NEGOTIATED 1
 
+int X509_STORE_CTX_get_error(X509_STORE_CTX *ctx);
+int X509_STORE_CTX_get_error_depth(X509_STORE_CTX *ctx);
+
 #ifdef __cplusplus
 }
 #endif
