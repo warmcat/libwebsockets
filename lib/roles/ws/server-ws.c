@@ -728,23 +728,23 @@ lws_ws_frame_rest_is_payload(struct lws *wsi, uint8_t **buf, size_t len)
 
 		return avail;
 	}
-#endif
 
-	if (!ebuf.len)
+	/*
+	 * above is the only way to get a zero-length rx if we are using
+	 * permessage-deflate.  Otherwise we are more willing.
+	 */
+	if (wsi->ws->count_act_ext && !ebuf.len)
 		return avail;
 
-	if (
-#if !defined(LWS_WITHOUT_EXTENSIONS)
-	    n &&
-#endif
-	    ebuf.len)
+	if (n)
 		/* extension had more... main loop will come back */
 		lws_add_wsi_to_draining_ext_list(wsi);
 	else
 		lws_remove_wsi_from_draining_ext_list(wsi);
+#endif
 
 	if (wsi->ws->check_utf8 && !wsi->ws->defeat_check_utf8) {
-		if (lws_check_utf8(&wsi->ws->utf8,
+		if (ebuf.len && lws_check_utf8(&wsi->ws->utf8,
 				   (unsigned char *)ebuf.token, ebuf.len)) {
 			lws_close_reason(wsi, LWS_CLOSE_STATUS_INVALID_PAYLOAD,
 					 (uint8_t *)"bad utf8", 8);

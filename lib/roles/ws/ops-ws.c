@@ -596,26 +596,19 @@ drain_extension:
 			wsi->socket_is_permanently_unusable = 1;
 			return -1;
 		}
-#endif
-		if (
-#if !defined(LWS_WITHOUT_EXTENSIONS)
-		    rx_draining_ext &&
-#endif
-		    ebuf.len == 0)
-			goto already_done;
 
-		if (
-#if !defined(LWS_WITHOUT_EXTENSIONS)
-		    n &&
-#endif
-		    ebuf.len)
+		if (rx_draining_ext && !ebuf.len)
+				goto already_done;
+
+		if (n && ebuf.len)
 			/* extension had more... main loop will come back */
 			lws_add_wsi_to_draining_ext_list(wsi);
 		else
 			lws_remove_wsi_from_draining_ext_list(wsi);
+#endif
 
 		if (wsi->ws->check_utf8 && !wsi->ws->defeat_check_utf8) {
-			if (lws_check_utf8(&wsi->ws->utf8,
+			if (ebuf.len && lws_check_utf8(&wsi->ws->utf8,
 					   (unsigned char *)ebuf.token,
 					   ebuf.len)) {
 				lws_close_reason(wsi,
