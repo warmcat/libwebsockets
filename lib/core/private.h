@@ -180,6 +180,80 @@ enum lws_ssl_capable_status {
 
 /*
  *
+ *  ------ apis retconned from future version where they're public ------
+ */
+
+/*
+ * lws_dll2_owner / lws_dll2 : more capable version of lws_dll.  Differences:
+ *
+ *  - there's an explicit lws_dll2_owner struct which holds head, tail and
+ *    count of members.
+ *
+ *  - list members all hold a pointer to their owner.  So user code does not
+ *    have to track anything about exactly what lws_dll2_owner list the object
+ *    is a member of.
+ *
+ *  - you can use lws_dll unless you want the member count or the ability to
+ *    not track exactly which list it's on.
+ *
+ *  - layout is compatible with lws_dll (but lws_dll apis will not update the
+ *    new stuff)
+ */
+
+
+struct lws_dll2;
+struct lws_dll2_owner;
+
+typedef struct lws_dll2 {
+	struct lws_dll2		*prev;
+	struct lws_dll2		*next;
+	struct lws_dll2_owner	*owner;
+} lws_dll2_t;
+
+typedef struct lws_dll2_owner {
+	struct lws_dll2		*tail;
+	struct lws_dll2		*head;
+
+	uint32_t		count;
+} lws_dll2_owner_t;
+
+static LWS_INLINE int
+lws_dll2_is_detached(const struct lws_dll2 *d) { return !d->owner; }
+
+static LWS_INLINE const struct lws_dll2_owner *
+lws_dll2_owner(const struct lws_dll2 *d) { return d->owner; }
+
+static LWS_INLINE struct lws_dll2 *
+lws_dll2_get_head(struct lws_dll2_owner *owner) { return owner->head; }
+
+static LWS_INLINE struct lws_dll2 *
+lws_dll2_get_tail(struct lws_dll2_owner *owner) { return owner->tail; }
+
+LWS_VISIBLE LWS_EXTERN void
+lws_dll2_add_head(struct lws_dll2 *d, struct lws_dll2_owner *owner);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_dll2_add_tail(struct lws_dll2 *d, struct lws_dll2_owner *owner);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_dll2_remove(struct lws_dll2 *d);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_dll2_foreach_safe(struct lws_dll2_owner *owner, void *user,
+		      int (*cb)(struct lws_dll2 *d, void *user));
+
+LWS_VISIBLE LWS_EXTERN void
+lws_dll2_clear(struct lws_dll2 *d);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_dll2_owner_clear(struct lws_dll2_owner *d);
+
+void
+lws_dll2_add_before(struct lws_dll2 *d, struct lws_dll2 *after);
+
+
+/*
+ *
  *  ------ roles ------
  *
  */

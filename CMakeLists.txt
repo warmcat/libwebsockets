@@ -845,6 +845,7 @@ set(SOURCES
 	lib/core/context.c
 	lib/core/dummy-callback.c
 	lib/core/libwebsockets.c
+	lib/core/lws_dll2.c
 	lib/core/output.c
 	lib/core/pollfd.c
 	lib/core/service.c
