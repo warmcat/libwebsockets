@@ -895,6 +895,16 @@ LWS_VISIBLE LWS_EXTERN const char *
 lws_get_vhost_name(struct lws_vhost *vhost);
 
 /**
+ * lws_get_vhost_by_name() - returns the vhost with the requested name, or NULL
+ *
+ * \param name: vhost name we are looking for
+ *
+ * Returns NULL, or the vhost with the name \p name
+ */
+LWS_VISIBLE LWS_EXTERN struct lws_vhost *
+lws_get_vhost_by_name(struct lws_context *context, const char *name);
+
+/**
  * lws_get_vhost_port() - returns the port a vhost listens on, or -1
  *
  * \param vhost: which vhost

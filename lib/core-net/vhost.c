@@ -1301,3 +1301,18 @@ lws_context_deprecate(struct lws_context *context, lws_reload_func cb)
 	context->deprecated = 1;
 	context->deprecation_cb = cb;
 }
+
+#if defined(LWS_WITH_NETWORK)
+struct lws_vhost *
+lws_get_vhost_by_name(struct lws_context *context, const char *name)
+{
+	lws_start_foreach_ll(struct lws_vhost *, v,
+			     context->vhost_list) {
+		if (!strcmp(v->name, name))
+			return v;
+
+	} lws_end_foreach_ll(v, vhost_next);
+
+	return NULL;
+}
+#endif
