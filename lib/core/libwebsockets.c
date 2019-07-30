@@ -1073,7 +1073,11 @@ lws_buflist_append_segment(struct lws_buflist **head, const uint8_t *buf,
 
 	/* append at the tail */
 	while (*head) {
-		if (!--sanity || head == &((*head)->next)) {
+		if (!--sanity) {
+			lwsl_err("%s: buflist reached sanity limit\n", __func__);
+			return -1;
+		}
+		if (*head == (*head)->next) {
 			lwsl_err("%s: corrupt list points to self\n", __func__);
 			return -1;
 		}
@@ -1107,7 +1111,7 @@ lws_buflist_destroy_segment(struct lws_buflist **head)
 	struct lws_buflist *old = *head;
 
 	assert(*head);
-	*head = (*head)->next;
+	*head = old->next;
 	old->next = NULL;
 	lws_free(old);
 
@@ -1149,6 +1153,9 @@ lws_buflist_next_segment_len(struct lws_buflist **head, uint8_t **buf)
 		return 0;
 	}
 
+	if ((*head)->pos >= (*head)->len)
+		lws_buflist_describe(head, head);
+
 	assert((*head)->pos < (*head)->len);
 
 	if (buf)
@@ -1162,6 +1169,10 @@ lws_buflist_use_segment(struct lws_buflist **head, size_t len)
 {
 	assert(*head);
 	assert(len);
+
+	if ((*head)->pos + len > (*head)->len)
+		lws_buflist_describe(head, head);
+
 	assert((*head)->pos + len <= (*head)->len);
 
 	(*head)->pos += len;
