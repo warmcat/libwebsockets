@@ -296,7 +296,7 @@ adopt_socket_readbuf(struct lws *wsi, const char *readbuf, size_t len)
 	if (n < 0)
 		goto bail;
 	if (n)
-		lws_dll_lws_add_front(&wsi->dll_buflist, &pt->dll_head_buflist);
+		lws_dll2_add_head(&wsi->dll_buflist, &pt->dll_buflist_owner);
 
 	/*
 	 * we can't process the initial read data until we can attach an ah.

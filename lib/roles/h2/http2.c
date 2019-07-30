@@ -1904,7 +1904,7 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 						if (m) {
 							struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 							lwsl_debug("%s: added %p to rxflow list\n", __func__, wsi);
-							lws_dll_lws_add_front(&h2n->swsi->dll_buflist, &pt->dll_head_buflist);
+							lws_dll2_add_head(&h2n->swsi->dll_buflist, &pt->dll_buflist_owner);
 						}
 						in += n - 1;
 						h2n->inside += n;

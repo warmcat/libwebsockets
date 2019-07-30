@@ -33,6 +33,7 @@ struct msg {
 struct per_session_data__minimal_client_echo {
 	struct lws_ring *ring;
 	uint32_t tail;
+	char flow_controlled;
 	uint8_t completed:1;
 };
 
@@ -186,8 +187,11 @@ callback_minimal_client_echo(struct lws *wsi, enum lws_callback_reasons reason,
 			/* come back as soon as we can write more */
 			lws_callback_on_writable(wsi);
 
-		if ((int)lws_ring_get_count_free_elements(pss->ring) > RING_DEPTH - 5)
+		if (pss->flow_controlled &&
+		    (int)lws_ring_get_count_free_elements(pss->ring) > RING_DEPTH - 5) {
 			lws_rx_flow_control(wsi, 1);
+			pss->flow_controlled = 0;
+		}
 
 		break;
 
@@ -226,8 +230,10 @@ callback_minimal_client_echo(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 		lws_callback_on_writable(wsi);
 
-		if (n < 3)
+		if (!pss->flow_controlled && n < 3) {
+			pss->flow_controlled = 1;
 			lws_rx_flow_control(wsi, 0);
+		}
 		break;
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
