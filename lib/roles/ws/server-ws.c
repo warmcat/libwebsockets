@@ -783,13 +783,12 @@ lws_ws_frame_rest_is_payload(struct lws *wsi, uint8_t **buf, size_t len)
 	n = lws_ext_cb_active(wsi, LWS_EXT_CB_PAYLOAD_RX, &pmdrx, 0);
 	lwsl_info("%s: ext says %d / ebuf_out.len %d\n", __func__,  n,
 			pmdrx.eb_out.len);
-#endif
+
 	/*
 	 * ebuf may be pointing somewhere completely different now,
 	 * it's the output
 	 */
 
-#if !defined(LWS_WITHOUT_EXTENSIONS)
 	if (n < 0) {
 		/*
 		 * we may rely on this to get RX, just drop connection
@@ -799,9 +798,7 @@ lws_ws_frame_rest_is_payload(struct lws *wsi, uint8_t **buf, size_t len)
 
 		return -1;
 	}
-#endif
 
-#if !defined(LWS_WITHOUT_EXTENSIONS)
 	/*
 	 * if we had an rx fragment right at the last compressed byte of the
 	 * message, we can get a zero length inflated output, where no prior
@@ -829,12 +826,14 @@ lws_ws_frame_rest_is_payload(struct lws *wsi, uint8_t **buf, size_t len)
 
 		return avail;
 	}
-#endif
 
-	if (!pmdrx.eb_out.len)
+	/*
+	 * If doing permessage-deflate, above was the only way to get a zero
+	 * length receive.  Otherwise we're more willing.
+	 */
+	if (wsi->ws->count_act_ext && !pmdrx.eb_out.len)
 		return avail;
 
-#if !defined(LWS_WITHOUT_EXTENSIONS)
 	if (n == PMDR_HAS_PENDING)
 		/* extension had more... main loop will come back */
 		lws_add_wsi_to_draining_ext_list(wsi);
@@ -842,7 +841,8 @@ lws_ws_frame_rest_is_payload(struct lws *wsi, uint8_t **buf, size_t len)
 		lws_remove_wsi_from_draining_ext_list(wsi);
 #endif
 
-	if (wsi->ws->check_utf8 && !wsi->ws->defeat_check_utf8) {
+	if (pmdrx.eb_out.len &&
+	    wsi->ws->check_utf8 && !wsi->ws->defeat_check_utf8) {
 		if (lws_check_utf8(&wsi->ws->utf8,
 				   pmdrx.eb_out.token,
 				   pmdrx.eb_out.len)) {

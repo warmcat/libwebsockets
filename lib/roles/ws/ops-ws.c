@@ -659,7 +659,8 @@ drain_extension:
 			rx_draining_ext = wsi->ws->rx_draining_ext;
 #endif
 
-			if (wsi->ws->check_utf8 && !wsi->ws->defeat_check_utf8) {
+			if (pmdrx.eb_out.len &&
+			    wsi->ws->check_utf8 && !wsi->ws->defeat_check_utf8) {
 				if (lws_check_utf8(&wsi->ws->utf8,
 						   pmdrx.eb_out.token,
 						   pmdrx.eb_out.len)) {
