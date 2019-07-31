@@ -299,7 +299,7 @@ lws_process_ws_upgrade(struct lws *wsi)
 		e = lws_tokenize(&ts);
 		switch (e) {
 		case LWS_TOKZE_TOKEN:
-			if (!strcasecmp(ts.token, "upgrade"))
+			if (!strncasecmp(ts.token, "upgrade", ts.token_len))
 				e = LWS_TOKZE_ENDED;
 			break;
 
