@@ -43,7 +43,21 @@
 #include <ctype.h>
 #include <limits.h>
 #include <stdarg.h>
+
+#ifdef LWS_HAVE_INTTYPES_H
 #include <inttypes.h>
+#endif
+
+#if defined(WIN32) || defined(_WIN32)
+#ifndef LWS_HAVE_SNPRINTF // no snprintf
+#ifdef LWS_HAVE__SNPRINTF // has _snprintf
+#define snprintf _snprintf
+#else
+#error "no snprintf to use"
+#endif
+#endif
+#endif
+
 #include <assert.h>
 
 #ifdef LWS_HAVE_SYS_TYPES_H
