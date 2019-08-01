@@ -226,18 +226,18 @@ create_new_conn:
 	 * Priority 1: connect to http proxy */
 
 	if (wsi->vhost->http.http_proxy_port) {
-		plen = sprintf((char *)pt->serv_buf,
+		plen = lws_snprintf((char *)pt->serv_buf, 256,
 			"CONNECT %s:%u HTTP/1.0\x0d\x0a"
 			"User-agent: libwebsockets\x0d\x0a",
 			lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS),
 			wsi->c_port);
 
 		if (wsi->vhost->proxy_basic_auth_token[0])
-			plen += sprintf((char *)pt->serv_buf + plen,
+			plen += lws_snprintf((char *)pt->serv_buf + plen, 256,
 					"Proxy-authorization: basic %s\x0d\x0a",
 					wsi->vhost->proxy_basic_auth_token);
 
-		plen += sprintf((char *)pt->serv_buf + plen, "\x0d\x0a");
+		plen += lws_snprintf((char *)pt->serv_buf + plen, 5, "\x0d\x0a");
 		ads = wsi->vhost->http.http_proxy_address;
 		port = wsi->vhost->http.http_proxy_port;
 #else

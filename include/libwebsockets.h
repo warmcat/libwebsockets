@@ -290,8 +290,6 @@ lws_pthread_mutex_unlock(pthread_mutex_t *lock)
 
 struct lws;
 
-typedef int64_t lws_usec_t;
-
 /* api change list for user code to test against */
 
 #define LWS_FEATURE_SERVE_HTTP_FILE_HAS_OTHER_HEADERS_ARG
@@ -355,7 +353,11 @@ typedef int lws_filefd_type;
 #else
 #if defined(WIN32) || defined(_WIN32)
 /* !!! >:-[  */
+typedef __int64 int64_t;
+typedef unsigned __int64 uint64_t;
+typedef __int32 int32_t;
 typedef unsigned __int32 uint32_t;
+typedef __int16 int16_t;
 typedef unsigned __int16 uint16_t;
 typedef unsigned __int8 uint8_t;
 #else
@@ -365,6 +367,7 @@ typedef unsigned char uint8_t;
 #endif
 #endif
 
+typedef int64_t lws_usec_t;
 typedef unsigned long long lws_filepos_t;
 typedef long long lws_fileofs_t;
 typedef uint32_t lws_fop_flags_t;

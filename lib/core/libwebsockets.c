@@ -2245,16 +2245,16 @@ lwsl_hexdump_level(int hexdump_level, const void *vbuf, size_t len)
 
 	for (n = 0; n < len;) {
 		unsigned int start = n, m;
-		char line[80], *p = line;
+		char line[80], *p = line, *end = p + sizeof(line) - 1;
 
-		p += sprintf(p, "%04X: ", start);
+		p += lws_snprintf(p, lws_ptr_diff(end, p), "%04X: ", start);
 
 		for (m = 0; m < 16 && n < len; m++)
-			p += sprintf(p, "%02X ", buf[n++]);
+			p += lws_snprintf(p, lws_ptr_diff(end, p), "%02X ", buf[n++]);
 		while (m++ < 16)
-			p += sprintf(p, "   ");
+			p += lws_snprintf(p, lws_ptr_diff(end, p), "   ");
 
-		p += sprintf(p, "   ");
+		p += lws_snprintf(p, lws_ptr_diff(end, p), "   ");
 
 		for (m = 0; m < 16 && (start + m) < len; m++) {
 			if (buf[start + m] >= ' ' && buf[start + m] < 127)
