@@ -64,6 +64,29 @@ insert_wsi(const struct lws_context *context, struct lws *wsi)
 	p = context->lws_lookup;
 	done = &p[context->max_fds];
 
+#if defined(_DEBUG)
+
+	/* confirm it doesn't already exist */
+
+	while (p != done && *p != wsi)
+		p++;
+
+	assert(p == done);
+	p = context->lws_lookup;
+
+	/* confirm fd doesn't already exist */
+
+	while (p != done && (!*p || (*p && (*p)->desc.sockfd != wsi->desc.sockfd)))
+		p++;
+
+	if (p != done) {
+		lwsl_err("%s: wsi %p already says it has fd %d\n",
+				__func__, *p, wsi->desc.sockfd);
+		assert(0);
+	}
+	p = context->lws_lookup;
+#endif
+
 	/* find an empty slot */
 
 	while (p != done && *p)
@@ -96,15 +119,27 @@ delete_from_fd(const struct lws_context *context, int fd)
 	p = context->lws_lookup;
 	done = &p[context->max_fds];
 
-	/* find an empty slot */
+	/* find the match */
 
-	while (p != done && *p && (*p)->desc.sockfd != fd)
+	while (p != done && (!*p || (*p && (*p)->desc.sockfd != fd)))
 		p++;
 
 	if (p == done)
 		lwsl_err("%s: fd %d not found\n", __func__, fd);
 	else
 		*p = NULL;
+
+#if defined(_DEBUG)
+	p = context->lws_lookup;
+	while (p != done && (!*p || (*p && (*p)->desc.sockfd != fd)))
+		p++;
+
+	if (p != done) {
+		lwsl_err("%s: fd %d in lws_lookup again at %d\n", __func__,
+				fd, (int)(p - context->lws_lookup));
+		assert(0);
+	}
+#endif
 }
 
 void

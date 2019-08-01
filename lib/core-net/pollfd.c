@@ -304,14 +304,14 @@ __remove_wsi_socket_from_fds(struct lws *wsi)
 	struct lws_pollargs pa = { wsi->desc.sockfd, 0, 0 };
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	struct lws *end_wsi;
-	int v;
-	int m, ret = 0;
+	int v, m, ret = 0;
 
 #if !defined(_WIN32)
 	if (!wsi->context->max_fds_unrelated_to_ulimit &&
 	    wsi->desc.sockfd - lws_plat_socket_offset() > context->max_fds) {
 		lwsl_err("fd %d too high (%d)\n", wsi->desc.sockfd,
 			 context->max_fds);
+
 		return 1;
 	}
 #endif
@@ -335,30 +335,43 @@ __remove_wsi_socket_from_fds(struct lws *wsi)
 				  LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE |
 				  LWS_EV_PREPARE_DELETION);
 
-//	lwsl_debug("%s: wsi=%p, skt=%d, fds pos=%d, end guy pos=%d, endfd=%d\n",
-//		  __func__, wsi, wsi->desc.sockfd, wsi->position_in_fds_table,
-//		  pt->fds_count, pt->fds[pt->fds_count].fd);
+	/*
+	lwsl_debug("%s: wsi=%p, skt=%d, fds pos=%d, end guy pos=%d, endfd=%d\n",
+		  __func__, wsi, wsi->desc.sockfd, wsi->position_in_fds_table,
+		  pt->fds_count, pt->fds[pt->fds_count - 1].fd); */
 
 	if (m != LWS_NO_FDS_POS) {
+		char fixup = 0;
 
-		/* have the last guy take up the now vacant slot */
-		pt->fds[m] = pt->fds[pt->fds_count - 1];
-		/* this decrements pt->fds_count */
-		lws_plat_delete_socket_from_fds(context, wsi, m);
-		pt->count_conns--;
-		v = (int) pt->fds[m].fd;
-		/* end guy's "position in fds table" is now the deletion
-		 * guy's old one */
-		end_wsi = wsi_from_fd(context, v);
-		if (!end_wsi) {
-			lwsl_err("no wsi for fd %d pos %d, pt->fds_count=%d\n",
-				 (int)pt->fds[m].fd, m, pt->fds_count);
-			assert(0);
-		} else
-			end_wsi->position_in_fds_table = m;
+		assert(pt->fds_count && (unsigned int)m != pt->fds_count);
 
 		/* deletion guy's lws_lookup entry needs nuking */
 		delete_from_fd(context, wsi->desc.sockfd);
+
+		if ((unsigned int)m != pt->fds_count - 1) {
+			/* have the last guy take up the now vacant slot */
+			pt->fds[m] = pt->fds[pt->fds_count - 1];
+			fixup = 1;
+		}
+
+		pt->fds[pt->fds_count - 1].fd = -1;
+
+		/* this decrements pt->fds_count */
+		lws_plat_delete_socket_from_fds(context, wsi, m);
+		pt->count_conns--;
+		if (fixup) {
+			v = (int) pt->fds[m].fd;
+			/* old end guy's "position in fds table" is now the
+			 * deletion guy's old one */
+			end_wsi = wsi_from_fd(context, v);
+			if (!end_wsi) {
+				lwsl_err("no wsi for fd %d pos %d, "
+					 "pt->fds_count=%d\n",
+					 (int)pt->fds[m].fd, m, pt->fds_count);
+				assert(0);
+			} else
+				end_wsi->position_in_fds_table = m;
+		}
 
 		/* removed wsi has no position any more */
 		wsi->position_in_fds_table = LWS_NO_FDS_POS;
