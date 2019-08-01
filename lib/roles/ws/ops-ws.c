@@ -973,7 +973,7 @@ rops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
 
 	if (!wsi->ws) {
 		lwsl_err("ws role wsi with no ws\n");
-		return 1;
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
 
 	// lwsl_notice("%s: %s\n", __func__, wsi->protocol->name);
