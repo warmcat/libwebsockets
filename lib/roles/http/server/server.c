@@ -767,6 +767,7 @@ lws_find_mount(struct lws *wsi, const char *uri_ptr, int uri_len)
 			    ((hm->origin_protocol == LWSMPRO_CGI ||
 			     lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI) ||
 			     lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI) ||
+			     lws_hdr_total_length(wsi, WSI_TOKEN_HEAD_URI) ||
 			     (wsi->http2_substream &&
 				lws_hdr_total_length(wsi,
 						WSI_TOKEN_HTTP_COLON_PATH)) ||
@@ -2563,6 +2564,14 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 
 	wsi->http.filepos = 0;
 	lwsi_set_state(wsi, LRS_ISSUING_FILE);
+
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_HEAD_URI)) {
+		/* we do not emit the body */
+		if (lws_http_transaction_completed(wsi))
+			return -1;
+
+		return 0;
+	}
 
 	lws_callback_on_writable(wsi);
 
