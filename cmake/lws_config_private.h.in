@@ -121,6 +121,3 @@
 
 /* Defined if you have the <inttypes.h> header file. */
 #cmakedefine LWS_HAVE_INTTYPES_H
-
-#cmakedefine LWS_HAVE_SNPRINTF
-#cmakedefine LWS_HAVE__SNPRINTF

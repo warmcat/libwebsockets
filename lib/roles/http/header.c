@@ -124,7 +124,7 @@ lws_add_http_header_content_length(struct lws *wsi,
 	char b[24];
 	int n;
 
-	n = snprintf(b, sizeof(b) - 1, "%llu", (unsigned long long)content_length);
+	n = lws_snprintf(b, sizeof(b) - 1, "%llu", (unsigned long long)content_length);
 	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH,
 					 (unsigned char *)b, n, p, end))
 		return 1;
@@ -309,7 +309,7 @@ lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 		else
 			p1 = hver[0];
 
-		n = snprintf((char *)code_and_desc, sizeof(code_and_desc) - 1, "%s %u %s", p1, code,
+		n = lws_snprintf((char *)code_and_desc, sizeof(code_and_desc) - 1, "%s %u %s", p1, code,
 			    description);
 
 		if (lws_add_http_header_by_name(wsi, NULL, code_and_desc, n, p,
@@ -417,7 +417,7 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 		"</head><body><h1>%u</h1>%s</body></html>", code, html_body);
 
 
-	n = snprintf(slen, 12, "%d", len);
+	n = lws_snprintf(slen, 12, "%d", len);
 	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH,
 					 (unsigned char *)slen, n, &p, end))
 		return 1;

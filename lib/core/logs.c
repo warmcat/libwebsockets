@@ -243,14 +243,14 @@ lwsl_hexdump_level(int hexdump_level, const void *vbuf, size_t len)
 		unsigned int start = n, m;
 		char line[80], *p = line;
 
-		p += snprintf(p, 10, "%04X: ", start);
+		p += lws_snprintf(p, 10, "%04X: ", start);
 
 		for (m = 0; m < 16 && n < len; m++)
-			p += snprintf(p, 5, "%02X ", buf[n++]);
+			p += lws_snprintf(p, 5, "%02X ", buf[n++]);
 		while (m++ < 16)
-			p += snprintf(p, 5, "   ");
+			p += lws_snprintf(p, 5, "   ");
 
-		p += snprintf(p, 6, "   ");
+		p += lws_snprintf(p, 6, "   ");
 
 		for (m = 0; m < 16 && (start + m) < len; m++) {
 			if (buf[start + m] >= ' ' && buf[start + m] < 127)

@@ -1102,23 +1102,23 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 	 * Sec-WebSocket-Version: 4
 	 */
 
-	p += snprintf(p, 2048, "%s %s HTTP/1.1\x0d\x0a", meth,
+	p += lws_snprintf(p, 2048, "%s %s HTTP/1.1\x0d\x0a", meth,
 		     lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI));
 
-	p += snprintf(p, 64, "Pragma: no-cache\x0d\x0a"
+	p += lws_snprintf(p, 64, "Pragma: no-cache\x0d\x0a"
 			"Cache-Control: no-cache\x0d\x0a");
 
-	p += snprintf(p, 128, "Host: %s\x0d\x0a",
+	p += lws_snprintf(p, 128, "Host: %s\x0d\x0a",
 		     lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST));
 
 	if (lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_ORIGIN)) {
 		if (lws_check_opt(wsi->context->options,
 				  LWS_SERVER_OPTION_JUST_USE_RAW_ORIGIN))
-			p += snprintf(p, 128, "Origin: %s\x0d\x0a",
+			p += lws_snprintf(p, 128, "Origin: %s\x0d\x0a",
 				     lws_hdr_simple_ptr(wsi,
 						     _WSI_TOKEN_CLIENT_ORIGIN));
 		else
-			p += snprintf(p, 128, "Origin: http://%s\x0d\x0a",
+			p += lws_snprintf(p, 128, "Origin: http://%s\x0d\x0a",
 				     lws_hdr_simple_ptr(wsi,
 						     _WSI_TOKEN_CLIENT_ORIGIN));
 	}
@@ -1126,19 +1126,19 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 #if defined(LWS_WITH_HTTP_PROXY)
 	if (wsi->parent &&
 	    lws_hdr_total_length(wsi->parent, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
-		p += snprintf(p, 128, "Content-Length: %s\x0d\x0a",
+		p += lws_snprintf(p, 128, "Content-Length: %s\x0d\x0a",
 			lws_hdr_simple_ptr(wsi->parent, WSI_TOKEN_HTTP_CONTENT_LENGTH));
 		if (atoi(lws_hdr_simple_ptr(wsi->parent, WSI_TOKEN_HTTP_CONTENT_LENGTH)))
 			wsi->client_http_body_pending = 1;
 	}
 	if (wsi->parent &&
 	    lws_hdr_total_length(wsi->parent, WSI_TOKEN_HTTP_AUTHORIZATION)) {
-		p += snprintf(p, 128, "Authorization: %s\x0d\x0a",
+		p += lws_snprintf(p, 128, "Authorization: %s\x0d\x0a",
 			lws_hdr_simple_ptr(wsi->parent, WSI_TOKEN_HTTP_AUTHORIZATION));
 	}
 	if (wsi->parent &&
 	    lws_hdr_total_length(wsi->parent, WSI_TOKEN_HTTP_CONTENT_TYPE)) {
-		p += snprintf(p, 128, "Content-Type: %s\x0d\x0a",
+		p += lws_snprintf(p, 128, "Content-Type: %s\x0d\x0a",
 			lws_hdr_simple_ptr(wsi->parent, WSI_TOKEN_HTTP_CONTENT_TYPE));
 	}
 #endif
@@ -1153,7 +1153,7 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 #endif
 	{
 		if (!wsi->client_pipeline)
-			p += snprintf(p, 64, "connection: close\x0d\x0a");
+			p += lws_snprintf(p, 64, "connection: close\x0d\x0a");
 	}
 
 	/* give userland a chance to append, eg, cookies */
@@ -1164,7 +1164,7 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 			(pkt + wsi->context->pt_serv_buf_size) - p - 12))
 		return NULL;
 
-	p += snprintf(p, 4, "\x0d\x0a");
+	p += lws_snprintf(p, 4, "\x0d\x0a");
 
 	// puts(pkt);
 
