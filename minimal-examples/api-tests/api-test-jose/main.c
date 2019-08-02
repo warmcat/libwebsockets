@@ -40,8 +40,11 @@ int main(int argc, const char **argv)
 	}
 
 	result |= test_jwk(context);
+	lwsl_notice("%d\n", result);
 	result |= test_jws(context);
+	lwsl_notice("%d\n", result);
 	result |= test_jwe(context);
+	lwsl_notice("%d\n", result);
 
 	lwsl_user("Completed: %s\n", result ? "FAIL" : "PASS");
 

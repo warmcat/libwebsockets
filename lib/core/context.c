@@ -568,6 +568,8 @@ lws_context_destroy3(struct lws_context *context)
 	if (context->pt[0].fds)
 		lws_free_set_NULL(context->pt[0].fds);
 #endif
+	lws_context_deinit_ssl_library(context);
+
 	lws_free(context);
 	lwsl_info("%s: ctx %p freed\n", __func__, context);
 

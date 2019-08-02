@@ -81,6 +81,29 @@ lws_tls_err_describe_clear(void)
 	lwsl_info("\n");
 }
 
+#if LWS_MAX_SMP != 1
+
+static pthread_mutex_t *openssl_mutexes;
+
+static void
+lws_openssl_lock_callback(int mode, int type, const char *file, int line)
+{
+	(void)file;
+	(void)line;
+
+	if (mode & CRYPTO_LOCK)
+		pthread_mutex_lock(&openssl_mutexes[type]);
+	else
+		pthread_mutex_unlock(&openssl_mutexes[type]);
+}
+
+static unsigned long
+lws_openssl_thread_id(void)
+{
+	return (unsigned long)pthread_self();
+}
+#endif
+
 
 int
 lws_context_init_ssl_library(const struct lws_context_creation_info *info)
@@ -123,5 +146,48 @@ lws_context_init_ssl_library(const struct lws_context_creation_info *info)
 			NULL, NULL, NULL, NULL);
 #endif
 
+#if LWS_MAX_SMP != 1
+	{
+		int n;
+
+		openssl_mutexes = (pthread_mutex_t *)
+				OPENSSL_malloc(CRYPTO_num_locks() *
+					       sizeof(openssl_mutexes[0]));
+
+		for (n = 0; n < CRYPTO_num_locks(); n++)
+			pthread_mutex_init(&openssl_mutexes[n], NULL);
+
+		/*
+		 * These "functions" disappeared in later OpenSSL which is
+		 * already threadsafe.
+		 */
+
+		(void)lws_openssl_thread_id;
+		(void)lws_openssl_lock_callback;
+
+		CRYPTO_set_id_callback(lws_openssl_thread_id);
+		CRYPTO_set_locking_callback(lws_openssl_lock_callback);
+	}
+#endif
+
 	return 0;
+}
+
+void
+lws_context_deinit_ssl_library(struct lws_context *context)
+{
+#if LWS_MAX_SMP != 1
+	int n;
+
+	if (!lws_check_opt(context->options,
+			   LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT))
+		return;
+
+	CRYPTO_set_locking_callback(NULL);
+
+	for (n = 0; n < CRYPTO_num_locks(); n++)
+		pthread_mutex_destroy(&openssl_mutexes[n]);
+
+	OPENSSL_free(openssl_mutexes);
+#endif
 }

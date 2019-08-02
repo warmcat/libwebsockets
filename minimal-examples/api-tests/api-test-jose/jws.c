@@ -535,7 +535,7 @@ bail1:
 	lws_jose_destroy(&jose);
 
 bail:
-	lwsl_notice("%s: selftest %s\n", __func__, ret < 0 ? "FAIL" : "OK");
+	lwsl_notice("%s: selftest %s\n", __func__, ret ? "FAIL" : "OK");
 
 	return ret;
 }
@@ -692,7 +692,7 @@ bail1:
 	lws_jose_destroy(&jose);
 
 bail:
-	lwsl_notice("%s: selftest %s\n", __func__, ret < 0 ? "FAIL" : "OK");
+	lwsl_notice("%s: selftest %s\n", __func__, ret ? "FAIL" : "OK");
 
 	return ret;
 }

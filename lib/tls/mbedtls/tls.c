@@ -38,3 +38,9 @@ lws_context_init_ssl_library(const struct lws_context_creation_info *info)
 
 	return 0;
 }
+
+void
+lws_context_deinit_ssl_library(struct lws_context *context)
+{
+
+}
