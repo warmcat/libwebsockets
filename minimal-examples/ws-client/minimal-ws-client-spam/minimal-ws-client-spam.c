@@ -32,7 +32,7 @@ static struct client clients[200];
 static int interrupted, port = 443, ssl_connection = LCCSCF_USE_SSL;
 static const char *server_address = "libwebsockets.org",
 		  *pro = "lws-mirror-protocol";
-static int concurrent = 10, conn, tries, est, errors, closed, limit = 100;
+static int concurrent = 3, conn, tries, est, errors, closed, limit = 15;
 
 struct pss {
 	int conn;
