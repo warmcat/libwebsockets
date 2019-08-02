@@ -106,8 +106,13 @@
 
 #endif
 
-#if defined (__sun) || defined(__HAIKU__) || defined(__QNX__)
+#if defined (__sun) || defined(__HAIKU__) || defined(__QNX__) || defined(__ANDROID__)
 #include <syslog.h>
+
+#if defined(__ANDROID__)
+#include <sys/resource.h>
+#endif
+
 #else
 #include <sys/syslog.h>
 #endif
@@ -146,11 +151,6 @@ delete_from_fd(const struct lws_context *context, int fd);
 #ifdef LWS_HAVE_SYS_PRCTL_H
 #include <sys/prctl.h>
 #endif
-#endif
-
-#if defined (__ANDROID__)
- #include <syslog.h>
- #include <sys/resource.h>
 #endif
 
 #define compatible_close(x) close(x)
