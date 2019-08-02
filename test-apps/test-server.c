@@ -475,7 +475,7 @@ int main(int argc, char **argv)
 
 	printf("Using resource path \"%s\"\n", resource_path);
 #ifdef EXTERNAL_POLL
-#if !defined(WIN32) && !defined(_WIN32)
+#if !defined(WIN32) && !defined(_WIN32) && !defined(__ANDROID__)
 	max_poll_elements = getdtablesize();
 #else
 	max_poll_elements = sysconf(_SC_OPEN_MAX);
