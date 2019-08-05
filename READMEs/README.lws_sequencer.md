@@ -51,9 +51,20 @@ out a retry cooloff period and then start the retry when the
 ## Creating an `lws_sequencer_t`
 
 ```
+typedef struct lws_seq_info {
+	struct lws_context		*context;   /* lws_context for seq */
+	int				tsi;	    /* thread service idx */
+	size_t				user_size;  /* size of user alloc */
+	void				**puser;    /* place ptr to user */
+	lws_seq_event_cb		cb;	    /* seq callback */
+	const char			*name;	    /* seq name */
+	const lws_retry_bo_t		*retry;	    /* retry policy */
+} lws_seq_info_t;
+```
+
+```
 lws_sequencer_t *
-lws_sequencer_create(struct lws_context *context, int tsi, void *user_data,
-		     lws_seq_event_cb cb);
+lws_sequencer_create(lws_seq_info_t *info);
 ```
 
 When created, in lws the sequencer objects are bound to a 'per-thread',

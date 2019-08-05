@@ -43,6 +43,7 @@ typedef struct lws_sequencer {
 	struct lws_context_per_thread	*pt;
 	lws_seq_event_cb		cb;
 	const char			*name;
+	const lws_retry_bo_t		*retry;
 
 	time_t				time_created;
 	time_t				timeout; /* 0 or time we timeout */
@@ -53,20 +54,20 @@ typedef struct lws_sequencer {
 #define QUEUE_SANITY_LIMIT 10
 
 lws_sequencer_t *
-lws_sequencer_create(struct lws_context *context, int tsi, size_t user_size,
-		     void **puser, lws_seq_event_cb cb, const char *name)
+lws_sequencer_create(lws_seq_info_t *i)
 {
-	struct lws_context_per_thread *pt = &context->pt[tsi];
-	lws_sequencer_t *seq = lws_zalloc(sizeof(*seq) + user_size, __func__);
+	struct lws_context_per_thread *pt = &i->context->pt[i->tsi];
+	lws_sequencer_t *seq = lws_zalloc(sizeof(*seq) + i->user_size, __func__);
 
 	if (!seq)
 		return NULL;
 
-	seq->cb = cb;
+	seq->cb = i->cb;
 	seq->pt = pt;
-	seq->name = name;
+	seq->name = i->name;
+	seq->retry = i->retry;
 
-	*puser = (void *)&seq[1];
+	*i->puser = (void *)&seq[1];
 
 	/* add the sequencer to the pt */
 

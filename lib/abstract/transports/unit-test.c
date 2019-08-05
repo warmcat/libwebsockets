@@ -415,15 +415,21 @@ lws_atcut_create(lws_abs_t *ai)
 {
 	abs_unit_test_priv_t *priv;
 	lws_sequencer_t *seq;
+	lws_seq_info_t i;
 	seq_priv_t *s;
+
+	memset(&i, 0, sizeof(i));
+	i.context = ai->vh->context;
+	i.user_size = sizeof(*s);
+	i.puser = (void **)&s;
+	i.cb = unit_test_sequencer_cb;
+	i.name = "unit-test-seq";
 
 	/*
 	 * Create the sequencer for the steps in a single unit test
 	 */
 
-	seq = lws_sequencer_create(ai->vh->context, 0, sizeof(*s),
-				   (void **)&s, unit_test_sequencer_cb,
-				   "unit-test-seq");
+	seq = lws_sequencer_create(&i);
 	if (!seq) {
 		lwsl_err("%s: unable to create sequencer\n", __func__);
 

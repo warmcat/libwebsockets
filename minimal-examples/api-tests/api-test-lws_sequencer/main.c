@@ -325,6 +325,7 @@ main(int argc, const char **argv)
 	struct lws_context *context;
 	lws_sequencer_t *seq;
 	struct lws_vhost *vh;
+	lws_seq_info_t i;
 	struct myseq *s;
 	const char *p;
 
@@ -369,8 +370,14 @@ main(int argc, const char **argv)
 	 * receive the LWSSEQ_CREATED callback
 	 */
 
-	seq = lws_sequencer_create(context, 0, sizeof(struct myseq),
-				   (void **)&s, sequencer_cb, "seq");
+	memset(&i, 0, sizeof(i));
+	i.context = context;
+	i.user_size = sizeof(struct myseq);
+	i.puser = (void **)&s;
+	i.cb = sequencer_cb;
+	i.name = "seq";
+
+	seq = lws_sequencer_create(&i);
 	if (!seq) {
 		lwsl_err("%s: unable to create sequencer\n", __func__);
 		goto bail1;

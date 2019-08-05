@@ -233,14 +233,20 @@ lws_abs_unit_test_sequencer(const lws_test_sequencer_args_t *args)
 {
 	struct lws_seq_test_sequencer *s;
 	lws_sequencer_t *seq;
+	lws_seq_info_t i;
+
+	memset(&i, 0, sizeof(i));
+	i.context = args->abs->vh->context;
+	i.user_size = sizeof(struct lws_seq_test_sequencer);
+	i.puser = (void **)&s;
+	i.cb = test_sequencer_cb;
+	i.name = "test-seq";
 
 	/*
 	 * Create a sequencer in the event loop to manage the tests
 	 */
 
-	seq = lws_sequencer_create(args->abs->vh->context, 0,
-				   sizeof(struct lws_seq_test_sequencer),
-				   (void **)&s, test_sequencer_cb, "test-seq");
+	seq = lws_sequencer_create(&i);
 	if (!seq) {
 		lwsl_err("%s: unable to create sequencer\n", __func__);
 		return 1;

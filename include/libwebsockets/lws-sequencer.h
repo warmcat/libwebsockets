@@ -30,6 +30,13 @@
  * lws_sequencer-s are bound to a pt (per-thread) which for the default case of
  * one service thread is the same as binding to an lws_context.
  */
+/*
+ * retry backoff table... retry n happens after .retry_ms_table[n] ms, with
+ * the last entry used if n is greater than the number of entries.
+ *
+ * The first .conceal_count retries are concealed, but after that the failures
+ * are reported.
+ */
 
 typedef enum {
 	LWSSEQ_CREATED,		/* sequencer created */
@@ -64,24 +71,20 @@ typedef struct lws_sequencer lws_sequencer_t; /* opaque */
  */
 typedef lws_seq_cb_return_t (*lws_seq_event_cb)(struct lws_sequencer *seq,
 			     void *user, int event, void *data);
-
+typedef struct lws_seq_info {
+	struct lws_context		*context;   /* lws_context for seq */
+	int				tsi;	    /* thread service idx */
+	size_t				user_size;  /* size of user alloc */
+	void				**puser;    /* place ptr to user */
+	lws_seq_event_cb		cb;	    /* seq callback */
+	const char			*name;	    /* seq name */
+	const lws_retry_bo_t		*retry;	    /* retry policy */
+} lws_seq_info_t;
 
 /**
  * lws_sequencer_create() - create and bind sequencer to a pt
  *
- * \param context:	lws_context
- * \param tsi:		thread service index, 0 is safe anything else depends
- *			multiple service threads being set up
- * \param user_size:	size of the additional heap allocation to allocate after
- *			the lws sequencer object to hold user data associated
- *			with the sequence.  The start of this extra allocation
- *			is passed to the sequencer callback and in \p *puser
- * \param puser:	pointer to a void * that will be set to the start of the
- *			extra user heap allocation whose size was set by
- *			user_size.  The user area pointed to here is all zeroed
- *			after successful sequencer creation.
- * \param cb:		callback for events on this sequencer
- * \param name:		Used in sequencer logging
+ * \param info:	information about sequencer to create
  *
  * This binds an abstract sequencer to a per-thread (by default, the single
  * event loop of an lws_context).  After the event loop starts, the sequencer
@@ -94,8 +97,7 @@ typedef lws_seq_cb_return_t (*lws_seq_event_cb)(struct lws_sequencer *seq,
  * pt locking is used to protect the related data structures.
  */
 LWS_VISIBLE LWS_EXTERN lws_sequencer_t *
-lws_sequencer_create(struct lws_context *context, int tsi, size_t user_size,
-		     void **puser, lws_seq_event_cb cb, const char *name);
+lws_sequencer_create(lws_seq_info_t *info);
 
 /**
  * lws_sequencer_destroy() - destroy the sequencer

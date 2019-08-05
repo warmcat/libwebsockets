@@ -533,6 +533,7 @@ struct lws;
 #include <libwebsockets/lws-lwsac.h>
 #include <libwebsockets/lws-fts.h>
 #include <libwebsockets/lws-diskcache.h>
+#include <libwebsockets/lws-retry.h>
 #include <libwebsockets/lws-sequencer.h>
 
 #include <libwebsockets/abstract/abstract.h>
