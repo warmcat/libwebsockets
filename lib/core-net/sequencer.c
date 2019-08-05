@@ -127,6 +127,19 @@ lws_sequencer_destroy(lws_sequencer_t **pseq)
 	lws_free_set_NULL(seq);
 }
 
+void
+lws_sequencer_destroy_all_on_pt(struct lws_context_per_thread *pt)
+{
+	lws_start_foreach_dll_safe(struct lws_dll2 *, p, tp,
+				   pt->seq_owner.head) {
+		lws_sequencer_t *s = lws_container_of(p, lws_sequencer_t,
+						      seq_list);
+
+		lws_sequencer_destroy(&s);
+
+	} lws_end_foreach_dll_safe(p, tp);
+}
+
 int
 lws_sequencer_event(lws_sequencer_t *seq, lws_seq_events_t e, void *data)
 {

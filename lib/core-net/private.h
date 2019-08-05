@@ -1039,6 +1039,9 @@ lws_same_vh_protocol_insert(struct lws *wsi, int n);
 int
 lws_pt_do_pending_sequencer_events(struct lws_context_per_thread *pt);
 
+void
+lws_sequencer_destroy_all_on_pt(struct lws_context_per_thread *pt);
+
 LWS_EXTERN int
 lws_broadcast(struct lws_context *context, int reason, void *in, size_t len);
 
