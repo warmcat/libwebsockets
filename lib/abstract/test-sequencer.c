@@ -88,7 +88,7 @@ unit_test_result_cb(const void *cb_user, int disposition)
 		return -1;
 	}
 
-	lws_sequencer_event(s->unit_test_seq, r, NULL);
+	lws_sequencer_queue_event(s->unit_test_seq, r, NULL, NULL);
 
 	((struct lws_seq_test_sequencer *)s)->instance = NULL;
 
@@ -103,7 +103,8 @@ unit_test_result_cb(const void *cb_user, int disposition)
  */
 
 static lws_seq_cb_return_t
-test_sequencer_cb(struct lws_sequencer *seq, void *user, int event, void *data)
+test_sequencer_cb(struct lws_sequencer *seq, void *user, int event, void *data,
+		  void *aux)
 {
 	struct lws_seq_test_sequencer *s =
 				(struct lws_seq_test_sequencer *)user;

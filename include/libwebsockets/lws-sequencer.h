@@ -70,7 +70,8 @@ typedef struct lws_sequencer lws_sequencer_t; /* opaque */
  * starting from LWSSEQ_USER_BASE.
  */
 typedef lws_seq_cb_return_t (*lws_seq_event_cb)(struct lws_sequencer *seq,
-			     void *user, int event, void *data);
+			     void *user, int event, void *data, void *aux);
+
 typedef struct lws_seq_info {
 	struct lws_context		*context;   /* lws_context for seq */
 	int				tsi;	    /* thread service idx */
@@ -113,18 +114,25 @@ LWS_VISIBLE LWS_EXTERN void
 lws_sequencer_destroy(lws_sequencer_t **seq);
 
 /**
- * lws_sequencer_event() - queue an event on the given sequencer
+ * lws_sequencer_queue_event() - queue an event on the given sequencer
  *
  * \param seq: the opaque sequencer pointer returned by lws_sequencer_create()
  * \param e: the event index to queue
  * \param data: associated opaque (to lws) data to provide the callback
+ * \param aux: second opaque data to provide the callback
  *
  * This queues the event on a given sequencer.  Queued events are delivered one
  * per sequencer each subsequent time around the event loop, so the cb is called
  * from the event loop thread context.
+ *
+ * Notice that because the events are delivered in order from the event loop,
+ * the scope of objects pointed to by \p data or \p aux may exceed the lifetime
+ * of the thing containing the pointed-to data.  So it's usually better to pass
+ * values here.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_sequencer_event(lws_sequencer_t *seq, lws_seq_events_t e, void *data);
+lws_sequencer_queue_event(lws_sequencer_t *seq, lws_seq_events_t e, void *data,
+			  void *aux);
 
 /**
  * lws_sequencer_check_wsi() - check if wsi still extant
@@ -210,3 +218,14 @@ lws_sequencer_secs_since_creation(lws_sequencer_t *seq);
  */
 LWS_VISIBLE LWS_EXTERN const char *
 lws_sequencer_name(lws_sequencer_t *seq);
+
+/**
+ * lws_sequencer_get_context(): get the lws_context sequencer was created on
+ *
+ * \param seq: pointer to the lws_sequencer_t
+ *
+ * Returns the lws_context.  Saves you having to store it if you have a seq
+ * pointer handy.
+ */
+LWS_VISIBLE LWS_EXTERN struct lws_context *
+lws_sequencer_get_context(lws_sequencer_t *seq);

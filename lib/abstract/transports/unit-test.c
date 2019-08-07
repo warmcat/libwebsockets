@@ -78,7 +78,8 @@ lws_unit_test_packet_dispose(abs_unit_test_priv_t *priv,
 
 	priv->disposition = disp;
 
-	lws_sequencer_event(priv->seq, UTSEQ_MSG_DISPOSITION_KNOWN, NULL);
+	lws_sequencer_queue_event(priv->seq, UTSEQ_MSG_DISPOSITION_KNOWN,
+				  NULL, NULL);
 
 	return disp;
 }
@@ -125,7 +126,7 @@ process_expect(abs_unit_test_priv_t *priv)
 
 static lws_seq_cb_return_t
 unit_test_sequencer_cb(struct lws_sequencer *seq, void *user, int event,
-		       void *data)
+		       void *data, void *aux)
 {
 	seq_priv_t *s = (seq_priv_t *)user;
 	abs_unit_test_priv_t *priv = (abs_unit_test_priv_t *)s->ai->ati;
@@ -280,7 +281,7 @@ lws_atcut_close(lws_abs_transport_inst_t *ati)
 
 	lwsl_notice("%s\n", __func__);
 
-	lws_sequencer_event(priv->seq, UTSEQ_MSG_CLOSING, NULL);
+	lws_sequencer_queue_event(priv->seq, UTSEQ_MSG_CLOSING, NULL, NULL);
 
 	return 0;
 }
@@ -332,7 +333,7 @@ lws_atcut_tx(lws_abs_transport_inst_t *ati, uint8_t *buf, size_t len)
 
 	priv->expect++;
 
-	lws_sequencer_event(priv->seq, UTSEQ_MSG_POST_TX_KICK, NULL);
+	lws_sequencer_queue_event(priv->seq, UTSEQ_MSG_POST_TX_KICK, NULL, NULL);
 
 	return 0;
 }
@@ -382,7 +383,7 @@ lws_atcut_client_conn(const lws_abs_t *abs)
 	lwsl_notice("%s: %s: test '%s': start\n", __func__, abs->ap->name,
 		    priv->current_test->name);
 
-	lws_sequencer_event(priv->seq, UTSEQ_MSG_CONNECTING, NULL);
+	lws_sequencer_queue_event(priv->seq, UTSEQ_MSG_CONNECTING, NULL, NULL);
 
 	return 0;
 }
@@ -401,7 +402,7 @@ lws_atcut_ask_for_writeable(lws_abs_transport_inst_t *ati)
 	 * until we have returned to the event loop, just like a real
 	 * callback_on_writable()
 	 */
-	lws_sequencer_event(priv->seq, UTSEQ_MSG_WRITEABLE, NULL);
+	lws_sequencer_queue_event(priv->seq, UTSEQ_MSG_WRITEABLE, NULL, NULL);
 
 	return 0;
 }

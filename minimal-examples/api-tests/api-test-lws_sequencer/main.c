@@ -35,7 +35,6 @@ enum {
  */
 
 struct myseq {
-	struct lws_context	*context;
 	struct lws_vhost	*vhost;
 	struct lws		*cwsi;	/* client wsi for current step if any */
 
@@ -163,7 +162,8 @@ notify:
 
 	lws_set_wsi_user(wsi, NULL);
 	s->cwsi = NULL;
-	lws_sequencer_event(lws_sequencer_from_user(s), seq_msg, NULL);
+	lws_sequencer_queue_event(lws_sequencer_from_user(s), seq_msg,
+				  NULL, NULL);
 
 	return 0;
 }
@@ -185,7 +185,7 @@ sequencer_start_client(struct myseq *s)
 	lws_strncpy(uri, url_paths[s->state], sizeof(uri));
 
 	memset(&i, 0, sizeof i);
-	i.context = s->context;
+	i.context = lws_sequencer_get_context(lws_sequencer_from_user(s));
 
 	if (lws_parse_uri(uri, &prot, &i.address, &i.port, &path1)) {
 		lwsl_err("%s: uri error %s\n", __func__, uri);
@@ -217,8 +217,8 @@ sequencer_start_client(struct myseq *s)
 
 		/* we couldn't even get started with the client connection */
 
-		lws_sequencer_event(lws_sequencer_from_user(s),
-				    SEQ_MSG_CLIENT_FAILED, NULL);
+		lws_sequencer_queue_event(lws_sequencer_from_user(s),
+				    SEQ_MSG_CLIENT_FAILED, NULL, NULL);
 
 		return 1;
 	}
@@ -238,7 +238,8 @@ sequencer_start_client(struct myseq *s)
  */
 
 static lws_seq_cb_return_t
-sequencer_cb(struct lws_sequencer *seq, void *user, int event, void *data)
+sequencer_cb(struct lws_sequencer *seq, void *user, int event,
+	     void *data, void *aux)
 {
 	struct myseq *s = (struct myseq *)user;
 
@@ -382,7 +383,6 @@ main(int argc, const char **argv)
 		lwsl_err("%s: unable to create sequencer\n", __func__);
 		goto bail1;
 	}
-	s->context = context;
 	s->vhost = vh;
 
 	/* the usual lws event loop */

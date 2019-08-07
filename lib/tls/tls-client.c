@@ -143,7 +143,7 @@ int lws_context_init_client_ssl(const struct lws_context_creation_info *info,
 						private_key_filepath))
 		return 1;
 
-	lwsl_notice("created client ssl context for %s\n", vhost->name);
+	lwsl_info("created client ssl context for %s\n", vhost->name);
 
 	/*
 	 * give him a fake wsi with context set, so he can use
