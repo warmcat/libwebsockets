@@ -52,6 +52,7 @@ lws_buflist_append_segment(struct lws_buflist **head, const uint8_t *buf,
 		head = &((*head)->next);
 	}
 
+	(void)p;
 	lwsl_info("%s: len %u first %d %p\n", __func__, (unsigned int)len,
 					      first, p);
 
