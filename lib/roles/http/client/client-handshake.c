@@ -736,7 +736,7 @@ ads_known:
 
 
 oom4:
-	if (lwsi_role_client(wsi) /* && lwsi_state_est(wsi) */) {
+	if (lwsi_role_client(wsi) && wsi->protocol /* && lwsi_state_est(wsi) */) {
 		wsi->protocol->callback(wsi,
 			LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
 			wsi->user_space, (void *)cce, strlen(cce));
