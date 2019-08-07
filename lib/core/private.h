@@ -296,6 +296,11 @@ struct lws_context {
 	struct lws_mutex_refcount mr;
 #endif
 
+#if defined(LWS_AMAZON_RTOS)
+	mbedtls_entropy_context mec;
+	mbedtls_ctr_drbg_context mcdc;
+#endif
+
 	struct lws_deferred_free *deferred_free_list;
 
 #if defined(LWS_WITH_THREADPOOL)
