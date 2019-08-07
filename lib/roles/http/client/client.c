@@ -818,8 +818,13 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			port = wsi->c_port;
 			/* +1 as lws_client_reset expects leading / omitted */
 			path = new_path + 1;
-			lws_strncpy(new_path, lws_hdr_simple_ptr(wsi,
+			if (lws_hdr_simple_ptr(wsi,_WSI_TOKEN_CLIENT_URI))
+				lws_strncpy(new_path, lws_hdr_simple_ptr(wsi,
 				   _WSI_TOKEN_CLIENT_URI), sizeof(new_path));
+			else {
+				new_path[0] = '/';
+				new_path[1] = '\0';
+			}
 			q = strrchr(new_path, '/');
 			if (q)
 				lws_strncpy(q + 1, p, sizeof(new_path) -
