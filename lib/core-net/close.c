@@ -468,7 +468,7 @@ just_kill_connection:
 		if (!wsi->protocol && wsi->vhost && wsi->vhost->protocols)
 			pro = &wsi->vhost->protocols[0];
 
-		if (!wsi->upgraded_to_http2 || !lwsi_role_client(wsi))
+		if (pro && (!wsi->upgraded_to_http2 || !lwsi_role_client(wsi)))
 			/*
 			 * The network wsi for a client h2 connection shouldn't
 			 * call back for its role: the child stream connections
