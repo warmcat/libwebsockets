@@ -221,6 +221,8 @@ typedef unsigned long long lws_intptr_t;
 #endif
 #endif
 #include <mbedtls/ssl.h>
+#include <mbedtls/entropy.h>
+#include <mbedtls/ctr_drbg.h>
 #else
 #include <openssl/ssl.h>
 #if !defined(LWS_WITH_MBEDTLS)

@@ -32,14 +32,23 @@ lws_time_in_microseconds(void)
 LWS_VISIBLE int
 lws_get_random(struct lws_context *context, void *buf, int len)
 {
+#if defined(LWS_AMAZON_RTOS)
+	int n;
+
+	n = mbedtls_ctr_drbg_random(&context->mcdc, buf, len);
+	if (!n)
+		return len;
+
+	/* failed */
+
+	lwsl_err("%s: mbedtls_ctr_drbg_random returned 0x%x\n", __func__, n);
+
+	return 0;
+#else
 	uint8_t *pb = buf;
 
 	while (len) {
-#if defined(LWS_AMAZON_RTOS)
-		uint32_t r = rand();
-#else
 		uint32_t r = esp_random();
-#endif
 		uint8_t *p = (uint8_t *)&r;
 		int b = 4;
 
@@ -53,6 +62,7 @@ lws_get_random(struct lws_context *context, void *buf, int len)
 	}
 
 	return pb - (uint8_t *)buf;
+#endif
 }
 
 

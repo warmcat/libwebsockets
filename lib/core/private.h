@@ -711,6 +711,12 @@ struct lws_context {
 #if LWS_MAX_SMP > 1
 	struct lws_mutex_refcount mr;
 #endif
+
+#if defined(LWS_AMAZON_RTOS)
+	mbedtls_entropy_context mec;
+	mbedtls_ctr_drbg_context mcdc;
+#endif
+
 #ifdef _WIN32
 /* different implementation between unix and windows */
 	struct lws_fd_hashtable fd_hashtable[FD_HASHTABLE_MODULUS];
@@ -721,6 +727,7 @@ struct lws_context {
 	struct lws_vhost *no_listener_vhost_list;
 	struct lws_vhost *vhost_pending_destruction_list;
 	struct lws_plugin *plugin_list;
+
 	struct lws_deferred_free *deferred_free_list;
 
 #if defined(LWS_WITH_THREADPOOL)

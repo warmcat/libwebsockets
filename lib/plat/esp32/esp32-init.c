@@ -30,6 +30,10 @@ lws_plat_context_early_init(void)
 void
 lws_plat_context_early_destroy(struct lws_context *context)
 {
+#if defined(LWS_AMAZON_RTOS)
+	mbedtls_ctr_drbg_free(&context->mcdc);
+	mbedtls_entropy_free(&context->mec);
+#endif
 }
 
 void
@@ -66,6 +70,23 @@ int
 lws_plat_init(struct lws_context *context,
 	      const struct lws_context_creation_info *info)
 {
+#if defined(LWS_AMAZON_RTOS)
+	int n;
+
+	/* initialize platform random through mbedtls */
+	mbedtls_entropy_init(&context->mec);
+	mbedtls_ctr_drbg_init(&context->mcdc);
+
+	n = mbedtls_ctr_drbg_seed(&context->mcdc, mbedtls_entropy_func,
+				  &context->mec, NULL, 0);
+	if (n) {
+		lwsl_err("%s: mbedtls_ctr_drbg_seed() returned 0x%x\n",
+			 __func__, n);
+
+		return 1;
+	}
+#endif
+
 	/* master context has the global fd lookup array */
 	context->lws_lookup = lws_zalloc(sizeof(struct lws *) *
 					 context->max_fds, "esp32 lws_lookup");
