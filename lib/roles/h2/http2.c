@@ -1294,6 +1294,8 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			h2n->swsi->client_h2_substream = 1;
 
 			h2n->swsi->protocol = wsi->protocol;
+			if (h2n->swsi->user_space && !h2n->swsi->user_space_externally_allocated)
+				lws_free(h2n->swsi->user_space);
 			h2n->swsi->user_space = wsi->user_space;
 			h2n->swsi->user_space_externally_allocated =
 					wsi->user_space_externally_allocated;
