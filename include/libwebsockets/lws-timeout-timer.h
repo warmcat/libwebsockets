@@ -90,9 +90,7 @@ lws_time_in_microseconds(void);
  * wsi currently being serviced.
  */
 /**
- * lws_set_timeout() - marks the wsi as subject to a timeout
- *
- * You will not need this unless you are doing something special
+ * lws_set_timeout() - marks the wsi as subject to a timeout some seconds hence
  *
  * \param wsi:	Websocket connection instance
  * \param reason:	timeout reason
@@ -103,6 +101,19 @@ lws_time_in_microseconds(void);
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);
+
+/**
+ * lws_set_timeout_us() - marks the wsi as subject to a timeout some us hence
+ *
+ * \param wsi:	Websocket connection instance
+ * \param reason:	timeout reason
+ * \param us:	0 removes the timeout, otherwise number of us to wait
+ *
+ * Higher-resolution version of lws_set_timeout().  Actual resolution depends
+ * on platform and load, usually ms.
+ */
+void
+lws_set_timeout_us(struct lws *wsi, enum pending_timeout reason, lws_usec_t us);
 
 #define LWS_SET_TIMER_USEC_CANCEL ((lws_usec_t)-1ll)
 #define LWS_USEC_PER_SEC (1000000ll)

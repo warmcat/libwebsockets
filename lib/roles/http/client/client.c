@@ -567,7 +567,7 @@ bail3:
 			lwsl_info("reason: %s\n", cce);
 		wsi->protocol->callback(wsi,
 			LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
-			wsi->user_space, (void *)cce, cce ? strlen(cce) : 0);
+			wsi->user_space, (void *)cce, strlen(cce));
 		wsi->already_did_cce = 1;
 		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "cbail3");
 		return -1;

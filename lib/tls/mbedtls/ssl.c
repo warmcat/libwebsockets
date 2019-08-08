@@ -320,7 +320,7 @@ tops_periodic_housekeeping_mbedtls(struct lws_context *context, time_t now)
 {
 	int n;
 
-	n = lws_compare_time_t(context, now, context->tls.last_cert_check_s);
+	n = (now - context->tls.last_cert_check_s);
 	if ((!context->tls.last_cert_check_s || n > (24 * 60 * 60)) &&
 	    !lws_tls_check_all_cert_lifetimes(context))
 		context->tls.last_cert_check_s = now;

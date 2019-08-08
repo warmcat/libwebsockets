@@ -259,8 +259,6 @@ struct lws_context {
 	time_t last_timeout_check_s;
 	time_t last_ws_ping_pong_check_s;
 	time_t time_up;
-	time_t time_discontiguity;
-	time_t time_fixup;
 	const struct lws_plat_file_ops *fops;
 	struct lws_plat_file_ops fops_platform;
 	struct lws_context **pcontext_finalize;

@@ -436,7 +436,7 @@ just_kill_connection:
 	 */
 	__lws_ssl_remove_wsi_from_buffered_list(wsi);
 	__lws_remove_from_timeout_list(wsi);
-	lws_dll2_remove(&wsi->dll_hrtimer);
+	lws_dll2_remove(&wsi->sul_hrtimer.list);
 
 	//if (wsi->told_event_loop_closed) // cgi std close case (dummy-callback)
 	//	return;

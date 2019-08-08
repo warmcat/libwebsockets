@@ -256,6 +256,20 @@ struct lws_timed_vh_protocol {
 	int tsi_req;
 };
 
+typedef struct lws_sorted_usec_list {
+	struct lws_dll2 list;	/* simplify the code by keeping this at start */
+	lws_usec_t us;
+} lws_sorted_usec_list_t;
+
+typedef void (*sul_cb_t)(lws_sorted_usec_list_t *sul);
+
+int
+__lws_sul_insert(lws_dll2_owner_t *own, lws_sorted_usec_list_t *sul,
+		 lws_usec_t us);
+
+lws_usec_t
+__lws_sul_check(lws_dll2_owner_t *own, sul_cb_t cb, lws_usec_t usnow);
+
 /*
  * so we can have n connections being serviced simultaneously,
  * these things need to be isolated per-thread.
@@ -278,7 +292,7 @@ struct lws_context_per_thread {
 	unsigned char *serv_buf;
 
 	struct lws_dll2_owner dll_timeout_owner;
-	struct lws_dll2_owner dll_hrtimer_head;
+	struct lws_dll2_owner dll_hrtimer_owner;
 	struct lws_dll2_owner dll_buflist_owner;  /* guys with pending rxflow */
 	struct lws_dll2_owner seq_owner;	  /* list of lws_sequencer-s */
 	struct lws_dll2_owner seq_pend_owner;  /* lws_seq-s with pending evts */
@@ -503,6 +517,9 @@ struct lws {
 	struct lws_io_watcher w_write;
 #endif
 
+	lws_sorted_usec_list_t sul_timeout;
+	lws_sorted_usec_list_t sul_hrtimer;
+
 	/* pointers */
 
 	struct lws_context *context;
@@ -516,8 +533,6 @@ struct lws {
 
 	lws_seq_t *seq;	/* associated sequencer if any */
 
-	struct lws_dll2 dll_timeout;
-	struct lws_dll2 dll_hrtimer;
 	struct lws_dll2 dll_buflist; /* guys with pending rxflow */
 
 #if defined(LWS_WITH_THREADPOOL)
@@ -554,9 +569,6 @@ struct lws {
 	uint64_t accept_start_us;
 #endif
 #endif
-
-	lws_usec_t pending_timer; /* hrtimer fires */
-	time_t pending_timeout_set; /* second-resolution timeout start */
 
 #ifdef LWS_LATENCY
 	unsigned long action_start;
@@ -634,7 +646,6 @@ struct lws {
 #ifndef LWS_NO_CLIENT
 	unsigned short c_port;
 #endif
-	unsigned short pending_timeout_limit;
 
 	/* chars */
 
@@ -1098,6 +1109,8 @@ __lws_remove_from_timeout_list(struct lws *wsi);
 lws_usec_t
 __lws_hrtimer_service(struct lws_context_per_thread *pt, lws_usec_t t);
 
+lws_usec_t
+__lws_wsitimeout_service(struct lws_context_per_thread *pt, lws_usec_t t);
 
 int
 lws_buflist_aware_read(struct lws_context_per_thread *pt, struct lws *wsi,

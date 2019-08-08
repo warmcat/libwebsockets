@@ -35,8 +35,8 @@ lws_poll_listen_fd(struct lws_pollfd *fd)
 LWS_EXTERN int
 _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
+	lws_usec_t timeout_us = ((lws_usec_t)timeout_ms) * LWS_US_PER_MS;
 	volatile struct lws_foreign_thread_pollfd *ftp, *next;
-	lws_usec_t timeout_us = timeout_ms * LWS_US_PER_MS;
 	volatile struct lws_context_per_thread *vpt;
 	struct lws_context_per_thread *pt;
 	int n = -1, m, c;

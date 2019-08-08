@@ -28,6 +28,11 @@ __lws_event_service_get_earliest_wake(struct lws_context_per_thread *pt,
 	lws_usec_t t, us = 0;
 	char seen = 0;
 
+	t = __lws_wsitimeout_service(pt, usnow);
+	if (t) {
+		us = t;
+		seen = 1;
+	}
 	t =  __lws_hrtimer_service(pt, usnow);
 	if (t && (!seen || t < us)) {
 		us = t;

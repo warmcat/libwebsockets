@@ -79,11 +79,20 @@ lws_dll2_add_before(struct lws_dll2 *d, struct lws_dll2 *after)
 		return;
 	}
 
+	if (lws_dll2_is_detached(after)) {
+		assert(0); /* can't add after something detached */
+		return;
+	}
+
 	d->owner = owner;
 
-	/* we need to point to after */
+	/* we need to point forward to after */
 
 	d->next = after;
+
+	/* we need to point back to after->prev */
+
+	d->prev = after->prev;
 
 	/* guy that used to point to after, needs to point to us */
 
@@ -170,3 +179,22 @@ lws_dll2_owner_clear(struct lws_dll2_owner *d)
 	d->tail = NULL;
 	d->count = 0;
 }
+
+#if defined(_DEBUG)
+
+void
+lws_dll2_describe(lws_dll2_owner_t *owner, const char *desc)
+{
+	int n = 1;
+
+	lwsl_notice("%s: %s: owner %p: count %d, head %p, tail %p\n",
+		    __func__, desc, owner, owner->count, owner->head, owner->tail);
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, p, tp,
+				   lws_dll2_get_head(owner)) {
+		lwsl_notice("%s:    %d: %p: owner %p, prev %p, next %p\n",
+			    __func__, n++, p, p->owner, p->prev, p->next);
+	} lws_end_foreach_dll_safe(p, tp);
+}
+
+#endif

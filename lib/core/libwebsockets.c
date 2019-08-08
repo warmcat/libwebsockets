@@ -100,10 +100,19 @@ int lws_open(const char *__file, int __oflag, ...)
 LWS_VISIBLE lws_usec_t
 lws_now_usecs(void)
 {
+#if defined(LWS_HAVE_CLOCK_GETTIME)
+	struct timespec ts;
+
+	if (clock_gettime(CLOCK_MONOTONIC, &ts))
+		return 0;
+
+	return (ts.tv_sec * LWS_US_PER_SEC) + (ts.tv_nsec / LWS_NS_PER_US);
+#else
 	struct timeval now;
 
 	gettimeofday(&now, NULL);
 	return (now.tv_sec * 1000000ll) + now.tv_usec;
+#endif
 }
 #endif
 
@@ -158,17 +167,6 @@ lws_now_secs(void)
 	return tv.tv_sec;
 }
 
-LWS_VISIBLE LWS_EXTERN int
-lws_compare_time_t(struct lws_context *context, time_t t1, time_t t2)
-{
-	if (t1 < context->time_discontiguity)
-		t1 += context->time_fixup;
-
-	if (t2 < context->time_discontiguity)
-		t2 += context->time_fixup;
-
-	return (int)(t1 - t2);
-}
 #endif
 LWS_VISIBLE extern const char *
 lws_canonical_hostname(struct lws_context *context)

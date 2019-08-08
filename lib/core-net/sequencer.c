@@ -38,7 +38,8 @@ typedef struct lws_seq_event {
 typedef struct lws_sequencer {
 	struct lws_dll2			seq_list;
 	struct lws_dll2			seq_pend_list;
-	struct lws_dll2			seq_to_list;
+
+	lws_sorted_usec_list_t		sul;
 
 	struct lws_dll2_owner		seq_event_owner;
 	struct lws_context_per_thread	*pt;
@@ -117,7 +118,7 @@ lws_seq_destroy(lws_seq_t **pseq)
 	lws_pt_lock(seq->pt, __func__); /* -------------------------- pt { */
 
 	lws_dll2_remove(&seq->seq_list);
-	lws_dll2_remove(&seq->seq_to_list);
+	lws_dll2_remove(&seq->sul.list);
 	lws_dll2_remove(&seq->seq_pend_list);
 	/* remove and destroy any pending events */
 	lws_dll2_foreach_safe(&seq->seq_event_owner, NULL, seq_ev_destroy);
@@ -286,43 +287,9 @@ lws_pt_do_pending_sequencer_events(struct lws_context_per_thread *pt)
 int
 lws_seq_timeout_us(lws_seq_t *seq, lws_usec_t us)
 {
-	lws_dll2_remove(&seq->seq_to_list);
-
-	if (!us) {
-		/* we are clearing the timeout */
-		seq->timeout = 0;
-
-		return 0;
-	}
-
-	seq->timeout = lws_now_usecs() + us;
-
-	/*
-	 * we sort the pt's list of sequencers with pending timeouts, so it's
-	 * cheap to check it every second
-	 */
-
-	lws_start_foreach_dll_safe(struct lws_dll2 *, p, tp,
-				   seq->pt->seq_to_owner.head) {
-		lws_seq_t *s = lws_container_of(p, lws_seq_t, seq_to_list);
-
-		assert(s->timeout); /* shouldn't be on the list otherwise */
-		if (s->timeout >= seq->timeout) {
-			/* drop us in before this guy */
-			lws_dll2_add_before(&seq->seq_to_list, &s->seq_to_list);
-
-			return 0;
-		}
-	} lws_end_foreach_dll_safe(p, tp);
-
-	/*
-	 * Either nobody on the list yet to compare him to, or he's the
-	 * longest timeout... stick him at the tail end
-	 */
-
-	lws_dll2_add_tail(&seq->seq_to_list, &seq->pt->seq_to_owner);
-
-	return 0;
+	/* list is always at the very top of the sul */
+	return __lws_sul_insert(&seq->pt->seq_to_owner,
+				(lws_sorted_usec_list_t *)&seq->sul.list, us);
 }
 
 /*
@@ -331,34 +298,21 @@ lws_seq_timeout_us(lws_seq_t *seq, lws_usec_t us)
  * would have serviced it)
  */
 
+static void
+lws_seq_sul_check_cb(lws_sorted_usec_list_t *sul)
+{
+	lws_seq_t *s = lws_container_of(sul, lws_seq_t, sul);
+
+	lws_seq_queue_event(s, LWSSEQ_TIMED_OUT, NULL, NULL);
+}
+
 lws_usec_t
 __lws_seq_timeout_check(struct lws_context_per_thread *pt, lws_usec_t usnow)
 {
-	lws_usec_t future_us = 0;
+	lws_usec_t future_us = __lws_sul_check(&pt->seq_to_owner,
+					       lws_seq_sul_check_cb, usnow);
 
-	lws_start_foreach_dll_safe(struct lws_dll2 *, p, tp,
-				   pt->seq_to_owner.head) {
-		lws_seq_t *s = lws_container_of(p, lws_seq_t, seq_to_list);
-
-		assert(s->timeout); /* shouldn't be on the list otherwise */
-		if (s->timeout <= usnow) {
-			/* seq has timed out... remove him from timeout list */
-			lws_seq_timeout_us(s, LWSSEQTO_NONE);
-			/* queue the message to inform the sequencer */
-			lws_seq_queue_event(s, LWSSEQ_TIMED_OUT, NULL, NULL);
-		} else {
-			/*
-			 * No need to look further if we met one later than now:
-			 * the list is sorted in ascending time order
-			 */
-			future_us = usnow - s->timeout;
-
-			break;
-		}
-
-	} lws_end_foreach_dll_safe(p, tp);
-
-	if (usnow - pt->last_heartbeat< LWS_US_PER_SEC)
+	if (usnow - pt->last_heartbeat < LWS_US_PER_SEC)
 		return future_us;
 
 	pt->last_heartbeat = usnow;
@@ -366,7 +320,7 @@ __lws_seq_timeout_check(struct lws_context_per_thread *pt, lws_usec_t usnow)
 	/* send every sequencer a heartbeat message... it can ignore it */
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, p, tp,
-				   pt->seq_owner.head) {
+				   lws_dll2_get_head(&pt->seq_owner)) {
 		lws_seq_t *s = lws_container_of(p, lws_seq_t, seq_list);
 
 		/* queue the message to inform the sequencer */

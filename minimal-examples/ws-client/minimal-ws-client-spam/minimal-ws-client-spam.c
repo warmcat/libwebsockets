@@ -226,7 +226,8 @@ int main(int argc, const char **argv)
 		info.options = 0;
 	}
 
-	if (concurrent > (int)LWS_ARRAY_SIZE(clients)) {
+	if (concurrent < 0 ||
+	    concurrent > (int)LWS_ARRAY_SIZE(clients)) {
 		lwsl_err("%s: -c %d larger than max concurrency %d\n", __func__,
 				concurrent, (int)LWS_ARRAY_SIZE(clients));
 

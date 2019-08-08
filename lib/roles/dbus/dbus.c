@@ -288,6 +288,7 @@ lws_dbus_add_timeout(DBusTimeout *t, void *data)
 	dbt->fire = ti + (ms < 1000);
 	dbt->timer_list.prev = NULL;
 	dbt->timer_list.next = NULL;
+	dbt->timer_list.owner = NULL;
 	lws_dll2_add_head(&dbt->timer_list, &pt->dbus.timer_list_owner);
 
 	ctx->timeouts++;

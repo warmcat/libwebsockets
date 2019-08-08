@@ -781,6 +781,7 @@ CHECK_FUNCTION_EXISTS(getloadavg LWS_HAVE_GETLOADAVG)
 CHECK_FUNCTION_EXISTS(atoll LWS_HAVE_ATOLL)
 CHECK_FUNCTION_EXISTS(_atoi64 LWS_HAVE__ATOI64)
 CHECK_FUNCTION_EXISTS(_stat32i64 LWS_HAVE__STAT32I64)
+CHECK_FUNCTION_EXISTS(clock_gettime LWS_HAVE_CLOCK_GETTIME)
 
 if (NOT LWS_HAVE_GETIFADDRS)
 	if (LWS_WITHOUT_BUILTIN_GETIFADDRS)
@@ -958,6 +959,7 @@ if (LWS_WITH_NETWORK)
 		lib/core-net/pollfd.c
 		lib/core-net/sequencer.c
 		lib/core-net/service.c
+		lib/core-net/sorted-usec-list.c
 		lib/core-net/stats.c
 		lib/core-net/wsi.c
 		lib/core-net/wsi-timeout.c

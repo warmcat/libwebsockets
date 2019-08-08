@@ -24,7 +24,7 @@
 void
 __lws_remove_from_timeout_list(struct lws *wsi)
 {
-	lws_dll2_remove(&wsi->dll_timeout);
+	lws_dll2_remove(&wsi->sul_timeout.list);
 }
 
 void
@@ -43,36 +43,7 @@ __lws_set_timer_usecs(struct lws *wsi, lws_usec_t us)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 
-	lws_dll2_remove(&wsi->dll_hrtimer);
-
-	if (us == LWS_SET_TIMER_USEC_CANCEL)
-		return;
-
-	wsi->pending_timer = lws_now_usecs() + us;
-
-	/*
-	 * we sort the hrtimer list with the earliest timeout first
-	 */
-
-	lws_start_foreach_dll_safe(struct lws_dll2 *, p, tp,
-				   pt->dll_hrtimer_head.head) {
-		struct lws *w = lws_container_of(p, struct lws, dll_hrtimer);
-
-		assert(w->pending_timer); /* shouldn't be on the list otherwise */
-		if (w->pending_timer >= wsi->pending_timer) {
-			/* drop us in before this guy */
-			lws_dll2_add_before(&wsi->dll_hrtimer, &w->dll_hrtimer);
-
-			return;
-		}
-	} lws_end_foreach_dll_safe(p, tp);
-
-	/*
-	 * Either nobody on the list yet to compare him to, or he's the
-	 * longest timeout... stick him at the tail end
-	 */
-
-	lws_dll2_add_tail(&wsi->dll_hrtimer, &pt->dll_hrtimer_head);
+	__lws_sul_insert(&pt->dll_hrtimer_owner, &wsi->sul_hrtimer, us);
 }
 
 LWS_VISIBLE void
@@ -81,77 +52,50 @@ lws_set_timer_usecs(struct lws *wsi, lws_usec_t usecs)
 	__lws_set_timer_usecs(wsi, usecs);
 }
 
+static void
+lws_hrtimer_sul_check_cb(lws_sorted_usec_list_t *sul)
+{
+	struct lws *wsi = lws_container_of(sul, struct lws, sul_hrtimer);
+
+	if (wsi->protocol &&
+	    wsi->protocol->callback(wsi, LWS_CALLBACK_TIMER,
+				    wsi->user_space, NULL, 0))
+		__lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
+				     "hrtimer cb errored");
+}
+
 /* return 0 if nothing pending, or the number of us before the next event */
 
 lws_usec_t
 __lws_hrtimer_service(struct lws_context_per_thread *pt, lws_usec_t t)
 {
-	struct lws *wsi;
-
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-			lws_dll2_get_head(&pt->dll_hrtimer_head)) {
-		wsi = lws_container_of(d, struct lws, dll_hrtimer);
-
-		/*
-		 * if we met one in the future, we are done, because the list
-		 * is sorted by time in the future.
-		 */
-		if (wsi->pending_timer > t)
-			break;
-
-		lws_set_timer_usecs(wsi, LWS_SET_TIMER_USEC_CANCEL);
-
-		/* it's time for the timer to be serviced */
-
-		if (wsi->protocol &&
-		    wsi->protocol->callback(wsi, LWS_CALLBACK_TIMER,
-					    wsi->user_space, NULL, 0))
-			__lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
-					     "timer cb errored");
-	} lws_end_foreach_dll_safe(d, d1);
-
-	/* return an estimate how many us until next timer hit */
-
-	if (!lws_dll2_get_head(&pt->dll_hrtimer_head))
-		return 0; /* there is nothing pending */
-
-	wsi = lws_container_of(lws_dll2_get_head(&pt->dll_hrtimer_head),
-			       struct lws, dll_hrtimer);
-
-	t = lws_now_usecs();
-	if (wsi->pending_timer <= t) /* in the past */
-		return 1;
-
-	return wsi->pending_timer - t; /* at least 1 */
+	return __lws_sul_check(&pt->dll_hrtimer_owner,
+			       lws_hrtimer_sul_check_cb, t);
 }
 
 void
 __lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
-	time_t now;
 
-	time(&now);
+	__lws_sul_insert(&pt->dll_timeout_owner, &wsi->sul_timeout,
+			 ((lws_usec_t)secs) * LWS_US_PER_SEC);
 
 	lwsl_debug("%s: %p: %d secs, reason %d\n", __func__, wsi, secs, reason);
 
-	wsi->pending_timeout_limit = secs;
-	wsi->pending_timeout_set = now;
 	wsi->pending_timeout = reason;
-
-	lws_dll2_remove(&wsi->dll_timeout);
-	if (!reason)
-		return;
-
-	lws_dll2_add_head(&wsi->dll_timeout, &pt->dll_timeout_owner);
 }
 
-LWS_VISIBLE void
+void
 lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 
-	// lwsl_info("%s: %p: %d %d\n", __func__, wsi, reason, secs);
+	if (!secs) {
+		lws_remove_from_timeout_list(wsi);
+
+		return;
+	}
 
 	if (secs == LWS_TO_KILL_SYNC) {
 		lws_remove_from_timeout_list(wsi);
@@ -168,6 +112,80 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 	__lws_set_timeout(wsi, reason, secs);
 	lws_pt_unlock(pt);
 }
+
+void
+lws_set_timeout_us(struct lws *wsi, enum pending_timeout reason, lws_usec_t us)
+{
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+
+	if (!us) {
+		lws_remove_from_timeout_list(wsi);
+
+		return;
+	}
+
+	lws_pt_lock(pt, __func__);
+	__lws_sul_insert(&pt->dll_timeout_owner, &wsi->sul_timeout, us);
+
+	lwsl_debug("%s: %p: %llu us, reason %d\n", __func__, wsi,
+		   (unsigned long long)us, reason);
+
+	wsi->pending_timeout = reason;
+	lws_pt_unlock(pt);
+}
+
+static void
+lws_wsitimeout_sul_check_cb(lws_sorted_usec_list_t *sul)
+{
+	struct lws *wsi = lws_container_of(sul, struct lws, sul_timeout);
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+
+	lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_TIMEOUTS, 1);
+
+	/* no need to log normal idle keepalive timeout */
+//		if (wsi->pending_timeout != PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE)
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+		lwsl_info("wsi %p: TIMEDOUT WAITING on %d "
+			  "(did hdr %d, ah %p, wl %d\n",
+			  (void *)wsi, wsi->pending_timeout,
+			  wsi->hdr_parsing_completed, wsi->http.ah,
+			  pt->http.ah_wait_list_length);
+#if defined(LWS_WITH_CGI)
+	if (wsi->http.cgi)
+		lwsl_notice("CGI timeout: %s\n", wsi->http.cgi->summary);
+#endif
+#else
+	lwsl_info("wsi %p: TIMEDOUT WAITING on %d ", (void *)wsi,
+		  wsi->pending_timeout);
+#endif
+	/* cgi timeout */
+	if (wsi->pending_timeout != PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE)
+		/*
+		 * Since he failed a timeout, he already had a chance to
+		 * do something and was unable to... that includes
+		 * situations like half closed connections.  So process
+		 * this "failed timeout" close as a violent death and
+		 * don't try to do protocol cleanup like flush partials.
+		 */
+		wsi->socket_is_permanently_unusable = 1;
+	if (lwsi_state(wsi) == LRS_WAITING_SSL && wsi->protocol)
+		wsi->protocol->callback(wsi,
+			LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
+			wsi->user_space,
+			(void *)"Timed out waiting SSL", 21);
+
+	__lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "timeout");
+}
+
+/* return 0 if nothing pending, or the number of us before the next event */
+
+lws_usec_t
+__lws_wsitimeout_service(struct lws_context_per_thread *pt, lws_usec_t t)
+{
+	return __lws_sul_check(&pt->dll_timeout_owner,
+			       lws_wsitimeout_sul_check_cb, t);
+}
+
 
 /* requires context + vh lock */
 
@@ -207,7 +225,9 @@ lws_timed_callback_vh_protocol(struct lws_vhost *vh,
 
 	p->protocol = prot;
 	p->reason = reason;
-	p->time = lws_now_secs() + secs;
+	p->time = (lws_now_usecs() / LWS_US_PER_SEC) + secs;
+
+	// lwsl_notice("%s: %s.%s %d\n", __func__, vh->name, prot->name, secs);
 
 	lws_vhost_lock(vh); /* vhost ---------------------------------------- */
 	p->next = vh->timed_vh_protocol_list;

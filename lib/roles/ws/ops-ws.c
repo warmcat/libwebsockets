@@ -1507,8 +1507,7 @@ rops_periodic_checks_ws(struct lws_context *context, int tsi, time_t now)
 				    !wsi->socket_is_permanently_unusable &&
 				    !wsi->ws->send_check_ping &&
 				    wsi->ws->time_next_ping_check &&
-				    lws_compare_time_t(context, now,
-					wsi->ws->time_next_ping_check) >
+				    (now - wsi->ws->time_next_ping_check) >
 				       context->ws_ping_pong_interval) {
 
 					lwsl_info("%s: req pp on wsi %p\n",

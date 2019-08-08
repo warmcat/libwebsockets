@@ -227,75 +227,6 @@ bail_die:
 	return -1;
 }
 
-static int
-__lws_service_timeout_check(struct lws *wsi, time_t sec)
-{
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-	int n = 0;
-#endif
-
-	(void)n;
-
-	/*
-	 * if we went beyond the allowed time, kill the
-	 * connection
-	 */
-	if (lws_compare_time_t(wsi->context, sec, wsi->pending_timeout_set) >
-			       wsi->pending_timeout_limit) {
-
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-		if (wsi->desc.sockfd != LWS_SOCK_INVALID &&
-		    wsi->position_in_fds_table >= 0)
-			n = pt->fds[wsi->position_in_fds_table].events;
-#endif
-
-		lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_TIMEOUTS, 1);
-
-		/* no need to log normal idle keepalive timeout */
-//		if (wsi->pending_timeout != PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE)
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-			lwsl_info("wsi %p: TIMEDOUT WAITING on %d "
-				  "(did hdr %d, ah %p, wl %d, pfd "
-				  "events %d) %llu vs %llu\n",
-				  (void *)wsi, wsi->pending_timeout,
-				  wsi->hdr_parsing_completed, wsi->http.ah,
-				  pt->http.ah_wait_list_length, n,
-				  (unsigned long long)sec,
-				  (unsigned long long)wsi->pending_timeout_limit);
-#if defined(LWS_WITH_CGI)
-		if (wsi->http.cgi)
-			lwsl_notice("CGI timeout: %s\n", wsi->http.cgi->summary);
-#endif
-#else
-		lwsl_info("wsi %p: TIMEDOUT WAITING on %d ", (void *)wsi,
-			  wsi->pending_timeout);
-#endif
-
-		/* cgi timeout */
-		if (wsi->pending_timeout != PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE)
-			/*
-			 * Since he failed a timeout, he already had a chance to
-			 * do something and was unable to... that includes
-			 * situations like half closed connections.  So process
-			 * this "failed timeout" close as a violent death and
-			 * don't try to do protocol cleanup like flush partials.
-			 */
-			wsi->socket_is_permanently_unusable = 1;
-		if (lwsi_state(wsi) == LRS_WAITING_SSL && wsi->protocol)
-			wsi->protocol->callback(wsi,
-				LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
-				wsi->user_space,
-				(void *)"Timed out waiting SSL", 21);
-
-		__lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "timeout");
-
-		return 1;
-	}
-
-	return 0;
-}
-
 int
 lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len)
 {
@@ -600,7 +531,7 @@ lws_service_periodic_checks(struct lws_context *context,
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	struct lws_timed_vh_protocol *tmr;
-	lws_sockfd_type our_fd = 0, tmp_fd;
+	lws_sockfd_type our_fd = 0;
 	struct lws *wsi;
 	int timed_out = 0;
 	lws_usec_t usnow;
@@ -624,36 +555,13 @@ lws_service_periodic_checks(struct lws_context *context,
 	 * at boot, and got initialized a little later
 	 */
 	if (context->time_up < 1464083026 && now > 1464083026)
-		context->time_up = now / LWS_US_PER_SEC;
+		context->time_up = now;
 
-	if (context->last_timeout_check_s &&
-	    now - context->last_timeout_check_s > 100) {
-		/*
-		 * There has been a discontiguity.  Any stored time that is
-		 * less than context->time_discontiguity should have context->
-		 * time_fixup added to it.
-		 *
-		 * Some platforms with no RTC will experience this as a normal
-		 * event when ntp sets their clock, but we can have started
-		 * long before that with a 0-based unix time.
-		 */
-
-		context->time_discontiguity = now;
-		context->time_fixup = now - context->last_timeout_check_s;
-
-		lwsl_notice("time discontiguity: at old time %llus, "
-			    "new time %llus: +%llus\n",
-			    (unsigned long long)context->last_timeout_check_s,
-			    (unsigned long long)context->time_discontiguity,
-			    (unsigned long long)context->time_fixup);
-
-		context->last_timeout_check_s = now - 1;
-	}
 
 	__lws_seq_timeout_check(pt, usnow);
 	lws_pt_do_pending_sequencer_events(pt);
 
-	if (!lws_compare_time_t(context, context->last_timeout_check_s, now))
+	if (context->last_timeout_check_s == now)
 		return 0;
 
 	context->last_timeout_check_s = now;
@@ -687,25 +595,8 @@ lws_service_periodic_checks(struct lws_context *context,
 	if (pollfd)
 		our_fd = pollfd->fd;
 
-	/*
-	 * Phase 1: check every wsi on our pt's timeout check list
-	 */
-
 	lws_pt_lock(pt, __func__);
 
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-			lws_dll2_get_head(&context->pt[tsi].dll_timeout_owner)) {
-		wsi = lws_container_of(d, struct lws, dll_timeout);
-
-		tmp_fd = wsi->desc.sockfd;
-		if (__lws_service_timeout_check(wsi, now)) {
-			/* he did time out... */
-			if (tmp_fd == our_fd)
-				/* it was the guy we came to service! */
-				timed_out = 1;
-			/* he's gone, no need to mark as handled */
-		}
-	} lws_end_foreach_dll_safe(d, d1);
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	/*
@@ -721,7 +612,7 @@ lws_service_periodic_checks(struct lws_context *context,
 
 		if (!ah->in_use || !ah->wsi || !ah->assigned ||
 		    (ah->wsi->vhost &&
-		     lws_compare_time_t(context, now, ah->assigned) <
+		     (now - ah->assigned) <
 		     ah->wsi->vhost->timeout_secs_ah_idle + 360)) {
 			ah = ah->next;
 			continue;
@@ -948,6 +839,9 @@ vh_timers_done:
 #endif
 #if defined(LWS_ROLE_CGI)
 	role_ops_cgi.periodic_checks(context, tsi, now);
+#endif
+#if defined(LWS_ROLE_DBUS)
+	role_ops_dbus.periodic_checks(context, tsi, now);
 #endif
 
 #if defined(LWS_WITH_TLS)
