@@ -288,7 +288,7 @@ lws_dbus_add_timeout(DBusTimeout *t, void *data)
 	dbt->fire = ti + (ms < 1000);
 	dbt->timer_list.prev = NULL;
 	dbt->timer_list.next = NULL;
-	lws_dll_add_front(&dbt->timer_list, &pt->dbus.timer_list_head);
+	lws_dll2_add_head(&dbt->timer_list, &pt->dbus.timer_list_owner);
 
 	ctx->timeouts++;
 
@@ -303,12 +303,12 @@ lws_dbus_remove_timeout(DBusTimeout *t, void *data)
 
 	lwsl_info("%s: t %p, data %p\n", __func__, t, data);
 
-	lws_start_foreach_dll_safe(struct lws_dll *, rdt, nx,
-				   pt->dbus.timer_list_head.next) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, rdt, nx,
+				lws_dll2_get_head(&pt->dbus.timer_list_owner)) {
 		struct lws_role_dbus_timer *r = lws_container_of(rdt,
 					struct lws_role_dbus_timer, timer_list);
 		if (t == r->data) {
-			lws_dll_remove_track_tail(rdt, &pt->dbus.timer_list_head);
+			lws_dll2_remove(rdt);
 			lws_free(rdt);
 			ctx->timeouts--;
 			break;
@@ -480,15 +480,15 @@ rops_periodic_checks_dbus(struct lws_context *context, int tsi, time_t now)
 	 * service thread can modify stuff on the same pt.
 	 */
 
-	lws_start_foreach_dll_safe(struct lws_dll *, rdt, nx,
-				   pt->dbus.timer_list_head.next) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, rdt, nx,
+			 lws_dll2_get_head(&pt->dbus.timer_list_owner)) {
 		struct lws_role_dbus_timer *r = lws_container_of(rdt,
 					struct lws_role_dbus_timer, timer_list);
 
 		if (now > r->fire) {
 			lwsl_notice("%s: firing timer\n", __func__);
 			dbus_timeout_handle(r->data);
-			lws_dll_remove_track_tail(rdt, &pt->dbus.timer_list_head);
+			lws_dll2_remove(rdt);
 			lws_free(rdt);
 		}
 	} lws_end_foreach_dll_safe(rdt, nx);

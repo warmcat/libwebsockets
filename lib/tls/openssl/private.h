@@ -23,13 +23,13 @@
 
 /*
  * one of these per different client context
- * cc_head is in lws_context.lws_context_tls
+ * cc_owner is in lws_context.lws_context_tls
  */
 
 struct lws_tls_client_reuse {
 	lws_tls_ctx *ssl_client_ctx;
 	uint8_t hash[32];
-	struct lws_dll cc_list;
+	struct lws_dll2 cc_list;
 	int refcount;
 	int index;
 };

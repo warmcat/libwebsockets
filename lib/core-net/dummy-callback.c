@@ -84,7 +84,7 @@ stream_close(struct lws *wsi)
 #endif
 
 struct lws_proxy_pkt {
-	struct lws_dll pkt_list;
+	struct lws_dll2 pkt_list;
 	size_t len;
 	char binary;
 	char first;
@@ -99,7 +99,7 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 			void *user, void *in, size_t len)
 {
 	struct lws_proxy_pkt *pkt;
-	struct lws_dll *dll;
+	struct lws_dll2 *dll;
 
 	switch (reason) {
 
@@ -162,12 +162,12 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 
 		memcpy(((uint8_t *)&pkt[1]) + LWS_PRE, in, len);
 
-		lws_dll_add_tail(&pkt->pkt_list, &wsi->parent->ws->proxy_head);
+		lws_dll2_add_tail(&pkt->pkt_list, &wsi->parent->ws->proxy_owner);
 		lws_callback_on_writable(wsi->parent);
 		break;
 
 	case LWS_CALLBACK_CLIENT_WRITEABLE:
-		dll = lws_dll_get_tail(&wsi->ws->proxy_head);
+		dll = lws_dll2_get_tail(&wsi->ws->proxy_owner);
 		if (!dll)
 			break;
 
@@ -180,10 +180,10 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 
 		wsi->parent->ws->proxy_buffered -= pkt->len;
 
-		lws_dll_remove_track_tail(dll, &wsi->ws->proxy_head);
+		lws_dll2_remove(dll);
 		lws_free(pkt);
 
-		if (lws_dll_get_tail(&wsi->ws->proxy_head))
+		if (lws_dll2_get_tail(&wsi->ws->proxy_owner))
 			lws_callback_on_writable(wsi);
 		break;
 
@@ -209,12 +209,12 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 
 		memcpy(((uint8_t *)&pkt[1]) + LWS_PRE, in, len);
 
-		lws_dll_add_tail(&pkt->pkt_list, &wsi->child_list->ws->proxy_head);
+		lws_dll2_add_tail(&pkt->pkt_list, &wsi->child_list->ws->proxy_owner);
 		lws_callback_on_writable(wsi->child_list);
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
-		dll = lws_dll_get_tail(&wsi->ws->proxy_head);
+		dll = lws_dll2_get_tail(&wsi->ws->proxy_owner);
 		if (!dll)
 			break;
 
@@ -225,10 +225,10 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 					pkt->first, pkt->final)) < 0)
 			return -1;
 
-		lws_dll_remove_track_tail(dll, &wsi->ws->proxy_head);
+		lws_dll2_remove(dll);
 		lws_free(pkt);
 
-		if (lws_dll_get_tail(&wsi->ws->proxy_head))
+		if (lws_dll2_get_tail(&wsi->ws->proxy_owner))
 			lws_callback_on_writable(wsi);
 		break;
 

@@ -1497,12 +1497,13 @@ rops_periodic_checks_ws(struct lws_context *context, int tsi, time_t now)
 
 		for (n = 0; n < vh->count_protocols; n++) {
 
-			lws_start_foreach_dll_safe(struct lws_dll *, d, d1,
-					  vh->same_vh_protocol_heads[n].next) {
+			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+					lws_dll2_get_head(&vh->same_vh_protocol_owner[n])) {
 				struct lws *wsi = lws_container_of(d,
 						struct lws, same_vh_protocol);
 
-				if (lwsi_role_ws(wsi) && !wsi->http2_substream &&
+				if (lwsi_role_ws(wsi) &&
+				    !wsi->http2_substream &&
 				    !wsi->socket_is_permanently_unusable &&
 				    !wsi->ws->send_check_ping &&
 				    wsi->ws->time_next_ping_check &&
@@ -1510,7 +1511,8 @@ rops_periodic_checks_ws(struct lws_context *context, int tsi, time_t now)
 					wsi->ws->time_next_ping_check) >
 				       context->ws_ping_pong_interval) {
 
-					lwsl_info("%s: req pp on wsi %p\n", __func__, wsi);
+					lwsl_info("%s: req pp on wsi %p\n",
+							__func__, wsi);
 					wsi->ws->send_check_ping = 1;
 					lws_set_timeout(wsi,
 					PENDING_TIMEOUT_WS_PONG_CHECK_SEND_PING,
@@ -1523,6 +1525,7 @@ rops_periodic_checks_ws(struct lws_context *context, int tsi, time_t now)
 		}
 
 		lws_vhost_unlock(vh);
+
 		vh = vh->vhost_next;
 	}
 
@@ -2072,7 +2075,7 @@ rops_destroy_vhost_ws(struct lws_vhost *vh)
 
 #if defined(LWS_WITH_HTTP_PROXY)
 static int
-ws_destroy_proxy_buf(struct lws_dll *d, void *user)
+ws_destroy_proxy_buf(struct lws_dll2 *d, void *user)
 {
 	lws_free(d);
 
@@ -2084,7 +2087,7 @@ static int
 rops_destroy_role_ws(struct lws *wsi)
 {
 #if defined(LWS_WITH_HTTP_PROXY)
-	lws_dll_foreach_safe(&wsi->ws->proxy_head, NULL, ws_destroy_proxy_buf);
+	lws_dll2_foreach_safe(&wsi->ws->proxy_owner, NULL, ws_destroy_proxy_buf);
 #endif
 
 	lws_free_set_NULL(wsi->ws);

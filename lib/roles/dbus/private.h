@@ -28,13 +28,13 @@ extern struct lws_role_ops role_ops_dbus;
 #define lwsi_role_dbus(wsi) (wsi->role_ops == &role_ops_dbus)
 
 struct lws_role_dbus_timer {
-	struct lws_dll timer_list;
+	struct lws_dll2 timer_list;
 	void *data;
 	time_t fire;
 };
 
 struct lws_pt_role_dbus {
-	struct lws_dll timer_list_head;
+	struct lws_dll2_owner timer_list_owner;
 };
 
 struct _lws_dbus_mode_related {

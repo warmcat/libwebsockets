@@ -270,8 +270,8 @@ lws_client_connect_2(struct lws *wsi)
 
 	lws_vhost_lock(wsi->vhost); /* ----------------------------------- { */
 
-	lws_start_foreach_dll_safe(struct lws_dll *, d, d1,
-				   wsi->vhost->dll_cli_active_conns_head.next) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+			lws_dll2_get_head(&wsi->vhost->dll_cli_active_conns_owner)) {
 		struct lws *w = lws_container_of(d, struct lws,
 						 dll_cli_active_conns);
 
@@ -367,12 +367,11 @@ create_new_conn:
 
 	if (meth && (!strcmp(meth, "GET") || !strcmp(meth, "POST")) &&
 	    lws_dll2_is_detached(&wsi->dll2_cli_txn_queue) &&
-	    lws_dll_is_detached(&wsi->dll_cli_active_conns,
-				&wsi->vhost->dll_cli_active_conns_head)) {
+	    lws_dll2_is_detached(&wsi->dll_cli_active_conns)) {
 		lws_vhost_lock(wsi->vhost);
 		/* caution... we will have to unpick this on oom4 path */
-		lws_dll_add_head(&wsi->dll_cli_active_conns,
-				 &wsi->vhost->dll_cli_active_conns_head);
+		lws_dll2_add_head(&wsi->dll_cli_active_conns,
+				 &wsi->vhost->dll_cli_active_conns_owner);
 		lws_vhost_unlock(wsi->vhost);
 	}
 

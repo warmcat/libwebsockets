@@ -604,8 +604,7 @@ lws_http_transaction_completed_client(struct lws *wsi)
 	 * If not, that's it for us.
 	 */
 
-	if (lws_dll_is_detached(&wsi->dll_cli_active_conns,
-				&wsi->vhost->dll_cli_active_conns_head))
+	if (lws_dll2_is_detached(&wsi->dll_cli_active_conns))
 		return -1;
 
 	/* if this was a queued guy, close him and remove from queue */

@@ -277,8 +277,8 @@ struct lws_context_per_thread {
 	 */
 	unsigned char *serv_buf;
 
-	struct lws_dll dll_timeout_head;
-	struct lws_dll dll_hrtimer_head;
+	struct lws_dll2_owner dll_timeout_owner;
+	struct lws_dll2_owner dll_hrtimer_head;
 	struct lws_dll2_owner dll_buflist_owner;  /* guys with pending rxflow */
 	struct lws_dll2_owner seq_owner;	  /* list of lws_sequencer-s */
 	struct lws_dll2_owner seq_pend_owner;  /* lws_seq-s with pending evts */
@@ -428,12 +428,12 @@ struct lws_vhost {
 	void **protocol_vh_privs;
 	const struct lws_protocol_vhost_options *pvo;
 	const struct lws_protocol_vhost_options *headers;
-	struct lws_dll *same_vh_protocol_heads;
+	struct lws_dll2_owner *same_vh_protocol_owner;
 	struct lws_vhost *no_listener_vhost_list;
 	struct lws_dll2_owner abstract_instances_owner;
 
 #if !defined(LWS_NO_CLIENT)
-	struct lws_dll dll_cli_active_conns_head;
+	struct lws_dll2_owner dll_cli_active_conns_owner;
 #endif
 
 #if defined(LWS_WITH_TLS)
@@ -512,12 +512,12 @@ struct lws {
 	struct lws *sibling_list; /* subsequent children at same level */
 
 	const struct lws_protocols *protocol;
-	struct lws_dll same_vh_protocol;
+	struct lws_dll2 same_vh_protocol;
 
 	lws_seq_t *seq;	/* associated sequencer if any */
 
-	struct lws_dll dll_timeout;
-	struct lws_dll dll_hrtimer;
+	struct lws_dll2 dll_timeout;
+	struct lws_dll2 dll_hrtimer;
 	struct lws_dll2 dll_buflist; /* guys with pending rxflow */
 
 #if defined(LWS_WITH_THREADPOOL)
@@ -532,7 +532,7 @@ struct lws {
 #ifndef LWS_NO_CLIENT
 	struct client_info_stash *stash;
 	char *cli_hostname_copy;
-	struct lws_dll dll_cli_active_conns;
+	struct lws_dll2 dll_cli_active_conns;
 	struct lws_dll2_owner dll2_cli_txn_queue_owner;
 	struct lws_dll2 dll2_cli_txn_queue;
 #endif

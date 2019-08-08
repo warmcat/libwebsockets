@@ -44,8 +44,7 @@ __lws_free_wsi(struct lws *wsi)
 		wsi->vhost->lserv_wsi = NULL;
 #if !defined(LWS_NO_CLIENT)
 	if (wsi->vhost)
-		lws_dll_remove_track_tail(&wsi->dll_cli_active_conns,
-					  &wsi->vhost->dll_cli_active_conns_head);
+		lws_dll2_remove(&wsi->dll_cli_active_conns);
 #endif
 	wsi->context->count_wsi_allocated--;
 
@@ -164,8 +163,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	if (wsi->vhost) {
 
 		/* we are no longer an active client connection that can piggyback */
-		lws_dll_remove_track_tail(&wsi->dll_cli_active_conns,
-					  &wsi->vhost->dll_cli_active_conns_head);
+		lws_dll2_remove(&wsi->dll_cli_active_conns);
 
 		if (rl != -1l)
 			lws_vhost_lock(wsi->vhost);
@@ -438,7 +436,7 @@ just_kill_connection:
 	 */
 	__lws_ssl_remove_wsi_from_buffered_list(wsi);
 	__lws_remove_from_timeout_list(wsi);
-	lws_dll_remove_track_tail(&wsi->dll_hrtimer, &pt->dll_hrtimer_head);
+	lws_dll2_remove(&wsi->dll_hrtimer);
 
 	//if (wsi->told_event_loop_closed) // cgi std close case (dummy-callback)
 	//	return;

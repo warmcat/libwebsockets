@@ -498,13 +498,9 @@ lws_same_vh_protocol_insert(struct lws *wsi, int n)
 {
 	lws_vhost_lock(wsi->vhost);
 
-	if (!lws_dll_is_detached(&wsi->same_vh_protocol,
-				 &wsi->vhost->same_vh_protocol_heads[n]))
-		lws_dll_remove_track_tail(&wsi->same_vh_protocol,
-					  &wsi->vhost->same_vh_protocol_heads[n]);
-
-	lws_dll_add_head(&wsi->same_vh_protocol,
-			 &wsi->vhost->same_vh_protocol_heads[n]);
+	lws_dll2_remove(&wsi->same_vh_protocol);
+	lws_dll2_add_head(&wsi->same_vh_protocol,
+			  &wsi->vhost->same_vh_protocol_owner[n]);
 
 	wsi->bound_vhost_index = n;
 
@@ -514,15 +510,8 @@ lws_same_vh_protocol_insert(struct lws *wsi, int n)
 void
 __lws_same_vh_protocol_remove(struct lws *wsi)
 {
-	struct lws_dll *head;
-
-	if (!wsi->vhost || !wsi->vhost->same_vh_protocol_heads)
-		return;
-
-	head = &wsi->vhost->same_vh_protocol_heads[(int)wsi->bound_vhost_index];
-
-	if (!lws_dll_is_detached(&wsi->same_vh_protocol, head))
-		lws_dll_remove_track_tail(&wsi->same_vh_protocol, head);
+	if (wsi->vhost && wsi->vhost->same_vh_protocol_owner)
+		lws_dll2_remove(&wsi->same_vh_protocol);
 }
 
 void
@@ -557,8 +546,8 @@ lws_callback_on_writable_all_protocol_vhost(const struct lws_vhost *vhost,
 
 	n = (int)(protocol - vhost->protocols);
 
-	lws_start_foreach_dll_safe(struct lws_dll *, d, d1,
-				   vhost->same_vh_protocol_heads[n].next) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+			lws_dll2_get_head(&vhost->same_vh_protocol_owner[n])) {
 		wsi = lws_container_of(d, struct lws, same_vh_protocol);
 
 		assert(wsi->protocol == protocol);

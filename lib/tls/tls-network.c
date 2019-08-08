@@ -32,8 +32,8 @@ lws_tls_fake_POLLIN_for_buffered(struct lws_context_per_thread *pt)
 {
 	int ret = 0;
 
-	lws_start_foreach_dll_safe(struct lws_dll *, p, p1,
-				   pt->tls.dll_pending_tls_head.next) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, p, p1,
+			lws_dll2_get_head(&pt->tls.dll_pending_tls_owner)) {
 		struct lws *wsi = lws_container_of(p, struct lws,
 						   tls.dll_pending_tls);
 
@@ -49,14 +49,7 @@ lws_tls_fake_POLLIN_for_buffered(struct lws_context_per_thread *pt)
 void
 __lws_ssl_remove_wsi_from_buffered_list(struct lws *wsi)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
-
-	if (lws_dll_is_detached(&wsi->tls.dll_pending_tls,
-				&pt->tls.dll_pending_tls_head))
-		return;
-
-	lws_dll_remove_track_tail(&wsi->tls.dll_pending_tls,
-				  &pt->tls.dll_pending_tls_head);
+	lws_dll2_remove(&wsi->tls.dll_pending_tls);
 }
 
 void

@@ -31,12 +31,12 @@ struct lws_context_tls {
 	char alpn_discovered[32];
 	const char *alpn_default;
 	time_t last_cert_check_s;
-	struct lws_dll cc_head;
+	struct lws_dll2_owner cc_owner;
 	int count_client_contexts;
 };
 
 struct lws_pt_tls {
-	struct lws_dll dll_pending_tls_head;
+	struct lws_dll2_owner dll_pending_tls_owner;
 };
 
 struct lws_tls_ss_pieces;
@@ -70,7 +70,7 @@ struct lws_vhost_tls {
 struct lws_lws_tls {
 	lws_tls_conn *ssl;
 	lws_tls_bio *client_bio;
-	struct lws_dll dll_pending_tls;
+	struct lws_dll2 dll_pending_tls;
 	unsigned int use_ssl;
 	unsigned int redirect_to_https:1;
 };

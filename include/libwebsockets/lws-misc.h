@@ -171,6 +171,14 @@
  * doubly linked-list
  */
 
+#if defined (LWS_WITH_DEPRECATED_LWS_DLL)
+
+/*
+ * This is going away in v4.1.  You can set the cmake option above to keep it
+ * around temporarily.  Migrate your stuff to the more capable and robust
+ * lws_dll2 below
+ */
+
 struct lws_dll {
 	struct lws_dll *prev;
 	struct lws_dll *next;
@@ -219,6 +227,7 @@ lws_dll_foreach_safe(struct lws_dll *phead, void *user,
 #define lws_dll_is_detached(___dll, __head) \
 	(!(___dll)->prev && !(___dll)->next && (__head)->prev != (___dll))
 
+#endif
 
 /*
  * lws_dll2_owner / lws_dll2 : more capable version of lws_dll.  Differences:

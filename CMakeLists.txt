@@ -129,6 +129,7 @@ option(LWS_WITH_LEJP_CONF "With LEJP configuration parser as used by lwsws" OFF)
 option(LWS_WITH_ZLIB "Include zlib support (required for extensions)" OFF)
 option(LWS_WITH_BUNDLED_ZLIB "Use bundled zlib version (Windows only)" ${LWS_WITH_BUNDLED_ZLIB_DEFAULT})
 option(LWS_WITH_MINIZ "Use miniz instead of zlib" OFF)
+option(LWS_WITH_DEPRECATED_LWS_DLL "Migrate to lws_dll2 instead ASAP" OFF)
 #
 # to use miniz, enable both LWS_WITH_ZLIB and LWS_WITH_MINIZ
 #
@@ -934,7 +935,6 @@ set(SOURCES
 	lib/core/alloc.c
 	lib/core/buflist.c
 	lib/core/context.c
-	lib/core/lws_dll.c
 	lib/core/lws_dll2.c
 	lib/core/libwebsockets.c
 	lib/core/logs.c
@@ -942,6 +942,11 @@ set(SOURCES
 	lib/core/vfs.c
 	lib/misc/lws-ring.c
 )
+
+if (LWS_WITH_DEPRECATED_LWS_DLL)
+	list(APPEND SOURCES
+		lib/core/lws_dll.c)
+endif()
 	
 if (LWS_WITH_NETWORK)
 	list(APPEND SOURCES

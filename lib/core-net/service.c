@@ -568,8 +568,8 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 	 * service to use up the buffered incoming data, even though their
 	 * network socket may have nothing
 	 */
-	lws_start_foreach_dll_safe(struct lws_dll *, p, p1,
-				   pt->tls.dll_pending_tls_head.next) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, p, p1,
+			lws_dll2_get_head(&pt->tls.dll_pending_tls_owner)) {
 		struct lws *wsi = lws_container_of(p, struct lws,
 						   tls.dll_pending_tls);
 
@@ -693,8 +693,8 @@ lws_service_periodic_checks(struct lws_context *context,
 
 	lws_pt_lock(pt, __func__);
 
-	lws_start_foreach_dll_safe(struct lws_dll *, d, d1,
-				   context->pt[tsi].dll_timeout_head.next) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+			lws_dll2_get_head(&context->pt[tsi].dll_timeout_owner)) {
 		wsi = lws_container_of(d, struct lws, dll_timeout);
 
 		tmp_fd = wsi->desc.sockfd;

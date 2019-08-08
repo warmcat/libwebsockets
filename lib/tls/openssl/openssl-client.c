@@ -480,8 +480,8 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 
 	/* look for existing client context with same config already */
 
-	lws_start_foreach_dll_safe(struct lws_dll *, p, tp,
-				   vh->context->tls.cc_head.next) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, p, tp,
+			 lws_dll2_get_head(&vh->context->tls.cc_owner)) {
 		tcr = lws_container_of(p, struct lws_tls_client_reuse, cc_list);
 
 		if (!memcmp(hash, tcr->hash, len)) {
@@ -522,7 +522,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 	tcr->refcount = 1;
 	memcpy(tcr->hash, hash, len);
 	tcr->index = vh->context->tls.count_client_contexts++;
-	lws_dll_add_front(&tcr->cc_list, &vh->context->tls.cc_head);
+	lws_dll2_add_head(&tcr->cc_list, &vh->context->tls.cc_owner);
 
 	lwsl_info("%s: vh %s: created new client ctx %d\n", __func__,
 			vh->name, tcr->index);
