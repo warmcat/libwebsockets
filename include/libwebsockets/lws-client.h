@@ -49,7 +49,7 @@ enum lws_client_connect_ssl_connection_flags {
 		 * */
 };
 
-typedef struct lws_sequencer lws_sequencer_t;
+typedef struct lws_sequencer lws_seq_t;
 
 /** struct lws_client_connect_info - parameters to connect with when using
  *				    lws_client_connect_via_info() */
@@ -121,8 +121,8 @@ struct lws_client_connect_info {
 	 *           tokens
 	 */
 
-	lws_sequencer_t *seq;
-	/**< NULL, or an lws_sequencer_t that wants to be given messages about
+	lws_seq_t *seq;
+	/**< NULL, or an lws_seq_t that wants to be given messages about
 	 * this wsi's lifecycle as it connects, errors or closes.
 	 */
 
@@ -130,7 +130,7 @@ struct lws_client_connect_info {
 	/**< This data has no meaning to lws but is applied to the client wsi
 	 *   and can be retrieved by user code with lws_get_opaque_user_data().
 	 *   It's also provided with sequencer messages if the wsi is bound to
-	 *   an lws_sequencer_t.
+	 *   an lws_seq_t.
 	 */
 
 	/* Add new things just above here ---^

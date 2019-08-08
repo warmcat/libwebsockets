@@ -36,6 +36,7 @@ LWS_EXTERN int
 _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
 	volatile struct lws_foreign_thread_pollfd *ftp, *next;
+	lws_usec_t timeout_us = timeout_ms * LWS_US_PER_MS;
 	volatile struct lws_context_per_thread *vpt;
 	struct lws_context_per_thread *pt;
 	int n = -1, m, c;
@@ -62,9 +63,9 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		memset(&_lws, 0, sizeof(_lws));
 		_lws.context = context;
 
-		pt->service_tid  =
-			context->vhost_list->protocols[0].callback(
-			&_lws, LWS_CALLBACK_GET_THREAD_ID, NULL, NULL, 0);
+		pt->service_tid = context->vhost_list->protocols[0].callback(
+					&_lws, LWS_CALLBACK_GET_THREAD_ID,
+					NULL, NULL, 0);
 		pt->service_tid_detected = 1;
 	}
 
@@ -77,21 +78,24 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		/* still somebody left who wants forced service? */
 		if (!lws_service_adjust_timeout(context, 1, pt->tid))
 			/* yes... come back again quickly */
-			timeout_ms = 0;
+			timeout_us = 0;
 	}
 
-	if (timeout_ms) {
+	if (timeout_us) {
+		lws_usec_t t;
+
 		lws_pt_lock(pt, __func__);
 		/* don't stay in poll wait longer than next hr timeout */
-		lws_usec_t t =  __lws_hrtimer_service(pt);
-		if ((lws_usec_t)timeout_ms * 1000 > t)
-			timeout_ms = t / 1000;
+		t = __lws_event_service_get_earliest_wake(pt, lws_now_usecs());
+		if (t && t < timeout_us)
+			timeout_us = t;
+
 		lws_pt_unlock(pt);
 	}
 
 	vpt->inside_poll = 1;
 	lws_memory_barrier();
-	n = poll(pt->fds, pt->fds_count, timeout_ms);
+	n = poll(pt->fds, pt->fds_count, timeout_us / LWS_US_PER_MS);
 	vpt->inside_poll = 0;
 	lws_memory_barrier();
 
@@ -130,7 +134,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 
 	/* we have come out of a poll wait... check the hrtimer list */
 
-	__lws_hrtimer_service(pt);
+	__lws_hrtimer_service(pt, lws_now_usecs());
 
 	lws_pt_unlock(pt);
 

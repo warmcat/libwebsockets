@@ -58,6 +58,7 @@ lws_poll_listen_fd(struct lws_pollfd *fd)
 LWS_EXTERN int
 _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
+	lws_usec_t timeout_us = timeout_ms * LWS_US_PER_MS;
 	struct lws_context_per_thread *pt;
 	int n = -1, m, c;
 	//char buf;
@@ -93,10 +94,24 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		/* still somebody left who wants forced service? */
 		if (!lws_service_adjust_timeout(context, 1, pt->tid))
 			/* yes... come back again quickly */
-			timeout_ms = 0;
+			timeout_us = 0;
 	}
 
-	n = poll(pt->fds, pt->fds_count, timeout_ms);
+	if (timeout_us) {
+		lws_usec_t t, us = lws_now_usecs();
+
+		lws_pt_lock(pt, __func__);
+		/* don't stay in poll wait longer than next hr timeout */
+		t =  __lws_hrtimer_service(pt, us);
+		if (t && timeout_us > t)
+			timeout_us = t;
+		t = __lws_seq_timeout_check(pt, us);
+		if (t && timeout_us > t)
+			timeout_us = t;
+		lws_pt_unlock(pt);
+	}
+
+	n = poll(pt->fds, pt->fds_count, timeout_us / LWS_US_PER_MS);
 
 	m = 0;
 

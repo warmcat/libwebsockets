@@ -33,9 +33,10 @@ lws_uv_hrtimer_cb(uv_timer_t *timer
 	lws_usec_t us;
 
 	lws_pt_lock(pt, __func__);
-	us =  __lws_hrtimer_service(pt);
-	if (us != LWS_HRTIMER_NOWAIT)
-		uv_timer_start(&pt->uv.hrtimer, lws_uv_hrtimer_cb, us / 1000, 0);
+	us = __lws_event_service_get_earliest_wake(pt, lws_now_usecs());
+	if (us)
+		uv_timer_start(&pt->uv.hrtimer, lws_uv_hrtimer_cb,
+			       LWS_US_TO_MS(us), 0);
 	lws_pt_unlock(pt);
 }
 
@@ -67,9 +68,10 @@ lws_uv_idle(uv_idle_t *handle
 	/* account for hrtimer */
 
 	lws_pt_lock(pt, __func__);
-	us =  __lws_hrtimer_service(pt);
-	if (us != LWS_HRTIMER_NOWAIT)
-		uv_timer_start(&pt->uv.hrtimer, lws_uv_hrtimer_cb, us / 1000, 0);
+	us = __lws_event_service_get_earliest_wake(pt, lws_now_usecs());
+	if (us)
+		uv_timer_start(&pt->uv.hrtimer, lws_uv_hrtimer_cb,
+			       LWS_US_TO_MS(us), 0);
 	lws_pt_unlock(pt);
 
 	/* there is nobody who needs service forcing, shut down idle */

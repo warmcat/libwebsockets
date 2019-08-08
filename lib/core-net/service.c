@@ -603,6 +603,7 @@ lws_service_periodic_checks(struct lws_context *context,
 	lws_sockfd_type our_fd = 0, tmp_fd;
 	struct lws *wsi;
 	int timed_out = 0;
+	lws_usec_t usnow;
 	time_t now;
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	struct allocated_headers *ah;
@@ -615,14 +616,15 @@ lws_service_periodic_checks(struct lws_context *context,
 			return -1;
 		}
 
-	time(&now);
+	usnow = lws_now_usecs();
+	now = usnow / LWS_US_PER_SEC;
 
 	/*
 	 * handle case that system time was uninitialized when lws started
 	 * at boot, and got initialized a little later
 	 */
 	if (context->time_up < 1464083026 && now > 1464083026)
-		context->time_up = now;
+		context->time_up = now / LWS_US_PER_SEC;
 
 	if (context->last_timeout_check_s &&
 	    now - context->last_timeout_check_s > 100) {
@@ -648,7 +650,7 @@ lws_service_periodic_checks(struct lws_context *context,
 		context->last_timeout_check_s = now - 1;
 	}
 
-	lws_sequencer_timeout_check(pt, now);
+	__lws_seq_timeout_check(pt, usnow);
 	lws_pt_do_pending_sequencer_events(pt);
 
 	if (!lws_compare_time_t(context, context->last_timeout_check_s, now))
@@ -1086,7 +1088,7 @@ handled:
 	lws_service_periodic_checks(context, pollfd, tsi);
 
 	lws_pt_lock(pt, __func__);
-	__lws_hrtimer_service(pt);
+	__lws_hrtimer_service(pt, lws_now_usecs());
 	lws_pt_unlock(pt);
 
 	return 0;

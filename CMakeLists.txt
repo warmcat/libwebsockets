@@ -1305,6 +1305,11 @@ if (LWS_WITH_HTTP_PROXY)
 		lib/roles/http/server/rewrite.c)
 endif()
 
+if (LWS_WITH_NETWORK)
+	list(APPEND SOURCES
+		lib/event-libs/common.c)
+endif()
+
 if (LWS_WITH_POLL AND LWS_WITH_NETWORK)
 	list(APPEND SOURCES
 		lib/event-libs/poll/poll.c)

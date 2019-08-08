@@ -241,8 +241,6 @@ lws_mutex_refcount_unlock(struct lws_mutex_refcount *mr);
 #include "core-net/private.h"
 #endif
 
-#define LWS_HRTIMER_NOWAIT (0x7fffffffffffffffll)
-
 struct lws_deferred_free
 {
 	struct lws_deferred_free *next;

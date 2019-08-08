@@ -82,16 +82,12 @@ lws_set_timer_usecs(struct lws *wsi, lws_usec_t usecs)
 	__lws_set_timer_usecs(wsi, usecs);
 }
 
+/* return 0 if nothing pending, or the number of us before the next event */
 
 lws_usec_t
-__lws_hrtimer_service(struct lws_context_per_thread *pt)
+__lws_hrtimer_service(struct lws_context_per_thread *pt, lws_usec_t t)
 {
-	struct timeval now;
 	struct lws *wsi;
-	lws_usec_t t;
-
-	gettimeofday(&now, NULL);
-	t = (now.tv_sec * 1000000ll) + now.tv_usec;
 
 	lws_start_foreach_dll_safe(struct lws_dll *, d, d1,
 				   pt->dll_hrtimer_head.next) {
@@ -118,18 +114,16 @@ __lws_hrtimer_service(struct lws_context_per_thread *pt)
 	/* return an estimate how many us until next timer hit */
 
 	if (!pt->dll_hrtimer_head.next)
-		return LWS_HRTIMER_NOWAIT;
+		return 0; /* there is nothing pending */
 
 	wsi = lws_container_of(pt->dll_hrtimer_head.next, struct lws,
 			       dll_hrtimer);
 
-	gettimeofday(&now, NULL);
-	t = (now.tv_sec * 1000000ll) + now.tv_usec;
+	t = lws_now_usecs();
+	if (wsi->pending_timer <= t) /* in the past */
+		return 1;
 
-	if (wsi->pending_timer < t)
-		return 0;
-
-	return wsi->pending_timer - t;
+	return wsi->pending_timer - t; /* at least 1 */
 }
 
 void

@@ -288,6 +288,8 @@ struct lws_context_per_thread {
 	struct lws_pt_tls tls;
 #endif
 
+	lws_usec_t last_heartbeat;
+
 	struct lws_pollfd *fds;
 	volatile struct lws_foreign_thread_pollfd * volatile foreign_pfd_list;
 #ifdef _WIN32
@@ -512,7 +514,7 @@ struct lws {
 	const struct lws_protocols *protocol;
 	struct lws_dll same_vh_protocol;
 
-	lws_sequencer_t *seq;	/* associated sequencer if any */
+	lws_seq_t *seq;	/* associated sequencer if any */
 
 	struct lws_dll dll_timeout;
 	struct lws_dll dll_hrtimer;
@@ -921,8 +923,8 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len);
 LWS_EXTERN void
 lws_remove_from_timeout_list(struct lws *wsi);
 
-LWS_EXTERN int
-lws_sequencer_timeout_check(struct lws_context_per_thread *pt, time_t now);
+LWS_EXTERN lws_usec_t
+__lws_seq_timeout_check(struct lws_context_per_thread *pt, lws_usec_t usnow);
 
 LWS_EXTERN struct lws * LWS_WARN_UNUSED_RESULT
 lws_client_connect_2(struct lws *wsi);
@@ -1040,7 +1042,7 @@ int
 lws_pt_do_pending_sequencer_events(struct lws_context_per_thread *pt);
 
 void
-lws_sequencer_destroy_all_on_pt(struct lws_context_per_thread *pt);
+lws_seq_destroy_all_on_pt(struct lws_context_per_thread *pt);
 
 LWS_EXTERN int
 lws_broadcast(struct lws_context *context, int reason, void *in, size_t len);
@@ -1094,7 +1096,7 @@ void
 __lws_remove_from_timeout_list(struct lws *wsi);
 
 lws_usec_t
-__lws_hrtimer_service(struct lws_context_per_thread *pt);
+__lws_hrtimer_service(struct lws_context_per_thread *pt, lws_usec_t t);
 
 
 int

@@ -97,7 +97,7 @@ callback_abs_client_raw_skt(struct lws *wsi, enum lws_callback_reasons reason,
 			 * our lifecycle events
 			 */
 
-			lws_sequencer_queue_event(wsi->seq, LWSSEQ_WSI_CONNECTED,
+			lws_seq_queue_event(wsi->seq, LWSSEQ_WSI_CONNECTED,
 						  wsi, NULL);
                 break;
 
@@ -112,7 +112,7 @@ callback_abs_client_raw_skt(struct lws *wsi, enum lws_callback_reasons reason,
 			 * our lifecycle events
 			 */
 
-			lws_sequencer_queue_event(wsi->seq, LWSSEQ_WSI_CONN_FAIL,
+			lws_seq_queue_event(wsi->seq, LWSSEQ_WSI_CONN_FAIL,
 					    wsi, NULL);
 
 		goto close_path;
@@ -128,7 +128,7 @@ callback_abs_client_raw_skt(struct lws *wsi, enum lws_callback_reasons reason,
 			 * our lifecycle events
 			 */
 
-			lws_sequencer_queue_event(wsi->seq, LWSSEQ_WSI_CONN_CLOSE,
+			lws_seq_queue_event(wsi->seq, LWSSEQ_WSI_CONN_CLOSE,
 					    wsi, NULL);
 
 close_path:

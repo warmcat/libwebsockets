@@ -29,10 +29,10 @@ lws_event_hrtimer_cb(int fd, short event, void *p)
 	lws_usec_t us;
 
 	lws_pt_lock(pt, __func__);
-	us =  __lws_hrtimer_service(pt);
-	if (us != LWS_HRTIMER_NOWAIT) {
-		tv.tv_sec = us / 1000000;
-		tv.tv_usec = us - (tv.tv_sec * 1000000);
+	us = __lws_event_service_get_earliest_wake(pt, lws_now_usecs());
+	if (us) {
+		tv.tv_sec = us / LWS_US_PER_SEC;
+		tv.tv_usec = us - (tv.tv_sec * LWS_US_PER_SEC);
 		evtimer_add(pt->event.hrtimer, &tv);
 	}
 	lws_pt_unlock(pt);
@@ -70,10 +70,10 @@ lws_event_idle_timer_cb(int fd, short event, void *p)
 	/* account for hrtimer */
 
 	lws_pt_lock(pt, __func__);
-	us =  __lws_hrtimer_service(pt);
-	if (us != LWS_HRTIMER_NOWAIT) {
-		tv.tv_sec = us / 1000000;
-		tv.tv_usec = us - (tv.tv_sec * 1000000);
+	us = __lws_event_service_get_earliest_wake(pt, lws_now_usecs());
+	if (us) {
+		tv.tv_sec = us / LWS_US_PER_SEC;
+		tv.tv_usec = us - (tv.tv_sec * LWS_US_PER_SEC);
 		evtimer_add(pt->event.hrtimer, &tv);
 	}
 	lws_pt_unlock(pt);

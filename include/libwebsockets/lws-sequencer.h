@@ -56,7 +56,7 @@ typedef enum lws_seq_cb_return {
 	LWSSEQ_RET_DESTROY
 } lws_seq_cb_return_t;
 
-typedef struct lws_sequencer lws_sequencer_t; /* opaque */
+typedef struct lws_sequencer lws_seq_t; /* opaque */
 
 /*
  * handler for this sequencer.  Return 0 if OK else nonzero to destroy the
@@ -83,7 +83,7 @@ typedef struct lws_seq_info {
 } lws_seq_info_t;
 
 /**
- * lws_sequencer_create() - create and bind sequencer to a pt
+ * lws_seq_create() - create and bind sequencer to a pt
  *
  * \param info:	information about sequencer to create
  *
@@ -97,26 +97,26 @@ typedef struct lws_seq_info {
  *
  * pt locking is used to protect the related data structures.
  */
-LWS_VISIBLE LWS_EXTERN lws_sequencer_t *
-lws_sequencer_create(lws_seq_info_t *info);
+LWS_VISIBLE LWS_EXTERN lws_seq_t *
+lws_seq_create(lws_seq_info_t *info);
 
 /**
- * lws_sequencer_destroy() - destroy the sequencer
+ * lws_seq_destroy() - destroy the sequencer
  *
  * \param seq: pointer to the the opaque sequencer pointer returned by
- *	       lws_sequencer_create()
+ *	       lws_seq_create()
  *
  * This proceeds to destroy the sequencer, calling LWSSEQ_DESTROYED and then
  * freeing the sequencer object itself.  The pointed-to seq pointer will be
  * set to NULL.
  */
 LWS_VISIBLE LWS_EXTERN void
-lws_sequencer_destroy(lws_sequencer_t **seq);
+lws_seq_destroy(lws_seq_t **seq);
 
 /**
- * lws_sequencer_queue_event() - queue an event on the given sequencer
+ * lws_seq_queue_event() - queue an event on the given sequencer
  *
- * \param seq: the opaque sequencer pointer returned by lws_sequencer_create()
+ * \param seq: the opaque sequencer pointer returned by lws_seq_create()
  * \param e: the event index to queue
  * \param data: associated opaque (to lws) data to provide the callback
  * \param aux: second opaque data to provide the callback
@@ -131,11 +131,11 @@ lws_sequencer_destroy(lws_sequencer_t **seq);
  * values here.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_sequencer_queue_event(lws_sequencer_t *seq, lws_seq_events_t e, void *data,
+lws_seq_queue_event(lws_seq_t *seq, lws_seq_events_t e, void *data,
 			  void *aux);
 
 /**
- * lws_sequencer_check_wsi() - check if wsi still extant
+ * lws_seq_check_wsi() - check if wsi still extant
  *
  * \param seq: the sequencer interested in the wsi
  * \param wsi: the wsi we want to confirm hasn't closed yet
@@ -151,15 +151,17 @@ lws_sequencer_queue_event(lws_sequencer_t *seq, lws_seq_events_t e, void *data,
  * close message yet.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_sequencer_check_wsi(lws_sequencer_t *seq, struct lws *wsi);
+lws_seq_check_wsi(lws_seq_t *seq, struct lws *wsi);
+
+#define LWSSEQTO_NONE 0
 
 /**
- * lws_sequencer_timeout() - set a timeout by which the sequence must have
- *			     completed by a different event or inform the
- *			     sequencer
+ * lws_seq_timeout_us() - set a timeout by which the sequence must have
+ *				completed by a different event or inform the
+ *				sequencer
  *
  * \param seq: The sequencer to set the timeout on
- * \param secs: How many seconds in the future to fire the timeout (0 = disable)
+ * \param us: How many us in the future to fire the timeout (0 = disable)
  *
  * This api allows the sequencer to ask to be informed if it has not completed
  * or disabled its timeout after secs seconds.  Lws will send a LWSSEQ_TIMED_OUT
@@ -178,54 +180,54 @@ lws_sequencer_check_wsi(lws_sequencer_t *seq, struct lws *wsi);
  * react appropriately.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_sequencer_timeout(lws_sequencer_t *seq, int secs);
+lws_seq_timeout_us(lws_seq_t *seq, lws_usec_t us);
 
 /**
- * lws_sequencer_from_user(): get the lws_sequencer_t pointer from the user ptr
+ * lws_seq_from_user(): get the lws_seq_t pointer from the user ptr
  *
- * \param u: the sequencer user allocation returned by lws_sequencer_create() or
+ * \param u: the sequencer user allocation returned by lws_seq_create() or
  *	     provided in the sequencer callback
  *
- * This gets the lws_sequencer_t * from the sequencer user allocation pointer.
+ * This gets the lws_seq_t * from the sequencer user allocation pointer.
  * Actually these are allocated at the same time in one step, with the user
- * allocation immediately after the lws_sequencer_t, so lws can compute where
- * the lws_sequencer_t is from having the user allocation pointer.  Since the
- * size of the lws_sequencer_t is unknown to user code, this helper does it for
+ * allocation immediately after the lws_seq_t, so lws can compute where
+ * the lws_seq_t is from having the user allocation pointer.  Since the
+ * size of the lws_seq_t is unknown to user code, this helper does it for
  * you.
  */
-LWS_VISIBLE LWS_EXTERN lws_sequencer_t *
-lws_sequencer_from_user(void *u);
+LWS_VISIBLE LWS_EXTERN lws_seq_t *
+lws_seq_from_user(void *u);
 
 /**
- * lws_sequencer_secs_since_creation(): elapsed seconds since sequencer created
+ * lws_seq_secs_since_creation(): elapsed seconds since sequencer created
  *
- * \param seq: pointer to the lws_sequencer_t
+ * \param seq: pointer to the lws_seq_t
  *
- * Returns the number of seconds elapsed since the lws_sequencer_t was
+ * Returns the number of seconds elapsed since the lws_seq_t was
  * created.  This is useful to calculate sequencer timeouts for the current
  * step considering a global sequencer lifetime limit.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_sequencer_secs_since_creation(lws_sequencer_t *seq);
+lws_seq_secs_since_creation(lws_seq_t *seq);
 
 /**
- * lws_sequencer_name(): get the name of this sequencer
+ * lws_seq_name(): get the name of this sequencer
  *
- * \param seq: pointer to the lws_sequencer_t
+ * \param seq: pointer to the lws_seq_t
  *
  * Returns the name given when the sequencer was created.  This is useful to
  * annotate logging when then are multiple sequencers in play.
  */
 LWS_VISIBLE LWS_EXTERN const char *
-lws_sequencer_name(lws_sequencer_t *seq);
+lws_seq_name(lws_seq_t *seq);
 
 /**
- * lws_sequencer_get_context(): get the lws_context sequencer was created on
+ * lws_seq_get_context(): get the lws_context sequencer was created on
  *
- * \param seq: pointer to the lws_sequencer_t
+ * \param seq: pointer to the lws_seq_t
  *
  * Returns the lws_context.  Saves you having to store it if you have a seq
  * pointer handy.
  */
 LWS_VISIBLE LWS_EXTERN struct lws_context *
-lws_sequencer_get_context(lws_sequencer_t *seq);
+lws_seq_get_context(lws_seq_t *seq);

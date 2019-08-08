@@ -46,19 +46,19 @@ typedef struct lws_sequencer {
 	const char			*name;
 	const lws_retry_bo_t		*retry;
 
-	time_t				time_created;
-	time_t				timeout; /* 0 or time we timeout */
+	lws_usec_t			time_created;
+	lws_usec_t			timeout; /* 0 or time we timeout */
 
 	char				going_down;
-} lws_sequencer_t;
+} lws_seq_t;
 
 #define QUEUE_SANITY_LIMIT 10
 
-lws_sequencer_t *
-lws_sequencer_create(lws_seq_info_t *i)
+lws_seq_t *
+lws_seq_create(lws_seq_info_t *i)
 {
 	struct lws_context_per_thread *pt = &i->context->pt[i->tsi];
-	lws_sequencer_t *seq = lws_zalloc(sizeof(*seq) + i->user_size, __func__);
+	lws_seq_t *seq = lws_zalloc(sizeof(*seq) + i->user_size, __func__);
 
 	if (!seq)
 		return NULL;
@@ -78,11 +78,11 @@ lws_sequencer_create(lws_seq_info_t *i)
 
 	lws_pt_unlock(pt); /* } pt ------------------------------------------ */
 
-	time(&seq->time_created);
+	seq->time_created = lws_now_usecs();
 
 	/* try to queue the creation cb */
 
-	if (lws_sequencer_queue_event(seq, LWSSEQ_CREATED, NULL, NULL)) {
+	if (lws_seq_queue_event(seq, LWSSEQ_CREATED, NULL, NULL)) {
 		lws_dll2_remove(&seq->seq_list);
 		lws_free(seq);
 
@@ -105,9 +105,9 @@ seq_ev_destroy(struct lws_dll2 *d, void *user)
 }
 
 void
-lws_sequencer_destroy(lws_sequencer_t **pseq)
+lws_seq_destroy(lws_seq_t **pseq)
 {
-	lws_sequencer_t *seq = *pseq;
+	lws_seq_t *seq = *pseq;
 
 	/* defeat another thread racing to add events while we are destroying */
 	seq->going_down = 1;
@@ -129,20 +129,20 @@ lws_sequencer_destroy(lws_sequencer_t **pseq)
 }
 
 void
-lws_sequencer_destroy_all_on_pt(struct lws_context_per_thread *pt)
+lws_seq_destroy_all_on_pt(struct lws_context_per_thread *pt)
 {
 	lws_start_foreach_dll_safe(struct lws_dll2 *, p, tp,
 				   pt->seq_owner.head) {
-		lws_sequencer_t *s = lws_container_of(p, lws_sequencer_t,
+		lws_seq_t *s = lws_container_of(p, lws_seq_t,
 						      seq_list);
 
-		lws_sequencer_destroy(&s);
+		lws_seq_destroy(&s);
 
 	} lws_end_foreach_dll_safe(p, tp);
 }
 
 int
-lws_sequencer_queue_event(lws_sequencer_t *seq, lws_seq_events_t e, void *data,
+lws_seq_queue_event(lws_seq_t *seq, lws_seq_events_t e, void *data,
 			  void *aux)
 {
 	lws_seq_event_t *seqe;
@@ -191,7 +191,7 @@ lws_sequencer_queue_event(lws_sequencer_t *seq, lws_seq_events_t e, void *data,
  */
 
 int
-lws_sequencer_check_wsi(lws_sequencer_t *seq, struct lws *wsi)
+lws_seq_check_wsi(lws_seq_t *seq, struct lws *wsi)
 {
 	lws_seq_event_t *seqe;
 	struct lws_dll2 *dh;
@@ -220,9 +220,9 @@ lws_sequencer_check_wsi(lws_sequencer_t *seq, struct lws *wsi)
  */
 
 static int
-lws_sequencer_next_event(struct lws_dll2 *d, void *user)
+lws_seq_next_event(struct lws_dll2 *d, void *user)
 {
-	lws_sequencer_t *seq = lws_container_of(d, lws_sequencer_t,
+	lws_seq_t *seq = lws_container_of(d, lws_seq_t,
 						seq_pend_list);
 	lws_seq_event_t *seqe;
 	struct lws_dll2 *dh;
@@ -258,7 +258,7 @@ lws_sequencer_next_event(struct lws_dll2 *d, void *user)
 	if (n) {
 		lwsl_info("%s: destroying seq '%s' by request\n", __func__,
 				seq->name);
-		lws_sequencer_destroy(&seq);
+		lws_seq_destroy(&seq);
 
 		return LWSSEQ_RET_DESTROY;
 	}
@@ -278,25 +278,24 @@ lws_pt_do_pending_sequencer_events(struct lws_context_per_thread *pt)
 		return 0;
 
 	return lws_dll2_foreach_safe(&pt->seq_pend_owner, NULL,
-				     lws_sequencer_next_event);
+				     lws_seq_next_event);
 }
 
 /* set secs to zero to remove timeout */
 
 int
-lws_sequencer_timeout(lws_sequencer_t *seq, int secs)
+lws_seq_timeout_us(lws_seq_t *seq, lws_usec_t us)
 {
 	lws_dll2_remove(&seq->seq_to_list);
 
-	if (!secs) {
+	if (!us) {
 		/* we are clearing the timeout */
 		seq->timeout = 0;
 
 		return 0;
 	}
 
-	time(&seq->timeout);
-	seq->timeout += secs;
+	seq->timeout = lws_now_usecs() + us;
 
 	/*
 	 * we sort the pt's list of sequencers with pending timeouts, so it's
@@ -305,14 +304,12 @@ lws_sequencer_timeout(lws_sequencer_t *seq, int secs)
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, p, tp,
 				   seq->pt->seq_to_owner.head) {
-		lws_sequencer_t *s = lws_container_of(p, lws_sequencer_t,
-						      seq_to_list);
+		lws_seq_t *s = lws_container_of(p, lws_seq_t, seq_to_list);
 
 		assert(s->timeout); /* shouldn't be on the list otherwise */
 		if (s->timeout >= seq->timeout) {
 			/* drop us in before this guy */
-			lws_dll2_add_before(&seq->seq_to_list,
-					    &s->seq_to_list);
+			lws_dll2_add_before(&seq->seq_to_list, &s->seq_to_list);
 
 			return 0;
 		}
@@ -330,61 +327,70 @@ lws_sequencer_timeout(lws_sequencer_t *seq, int secs)
 
 /*
  * nonpublic helper to check for and handle sequencer timeouts for a whole pt
+ * returns either 0 or number of us until next event (which cannot be 0 or we
+ * would have serviced it)
  */
 
-int
-lws_sequencer_timeout_check(struct lws_context_per_thread *pt, time_t now)
+lws_usec_t
+__lws_seq_timeout_check(struct lws_context_per_thread *pt, lws_usec_t usnow)
 {
+	lws_usec_t future_us = 0;
+
 	lws_start_foreach_dll_safe(struct lws_dll2 *, p, tp,
 				   pt->seq_to_owner.head) {
-		lws_sequencer_t *s = lws_container_of(p, lws_sequencer_t,
-						      seq_to_list);
+		lws_seq_t *s = lws_container_of(p, lws_seq_t, seq_to_list);
 
 		assert(s->timeout); /* shouldn't be on the list otherwise */
-		if (s->timeout <= now) {
+		if (s->timeout <= usnow) {
 			/* seq has timed out... remove him from timeout list */
-			lws_sequencer_timeout(s, 0);
+			lws_seq_timeout_us(s, LWSSEQTO_NONE);
 			/* queue the message to inform the sequencer */
-			lws_sequencer_queue_event(s, LWSSEQ_TIMED_OUT,
-						  NULL, NULL);
-		} else
+			lws_seq_queue_event(s, LWSSEQ_TIMED_OUT, NULL, NULL);
+		} else {
 			/*
 			 * No need to look further if we met one later than now:
 			 * the list is sorted in ascending time order
 			 */
-			return 0;
+			future_us = usnow - s->timeout;
+
+			break;
+		}
 
 	} lws_end_foreach_dll_safe(p, tp);
+
+	if (usnow - pt->last_heartbeat< LWS_US_PER_SEC)
+		return future_us;
+
+	pt->last_heartbeat = usnow;
 
 	/* send every sequencer a heartbeat message... it can ignore it */
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, p, tp,
 				   pt->seq_owner.head) {
-		lws_sequencer_t *s = lws_container_of(p, lws_sequencer_t,
-						      seq_list);
+		lws_seq_t *s = lws_container_of(p, lws_seq_t, seq_list);
 
 		/* queue the message to inform the sequencer */
-		lws_sequencer_queue_event(s, LWSSEQ_HEARTBEAT, NULL, NULL);
+		lws_seq_queue_event(s, LWSSEQ_HEARTBEAT, NULL, NULL);
 
 	} lws_end_foreach_dll_safe(p, tp);
 
-	return 0;
+	return future_us;
 }
 
-lws_sequencer_t *
-lws_sequencer_from_user(void *u)
+lws_seq_t *
+lws_seq_from_user(void *u)
 {
-	return &((lws_sequencer_t *)u)[-1];
+	return &((lws_seq_t *)u)[-1];
 }
 
 const char *
-lws_sequencer_name(lws_sequencer_t *seq)
+lws_seq_name(lws_seq_t *seq)
 {
 	return seq->name;
 }
 
 int
-lws_sequencer_secs_since_creation(lws_sequencer_t *seq)
+lws_seq_secs_since_creation(lws_seq_t *seq)
 {
 	time_t now;
 
@@ -394,7 +400,7 @@ lws_sequencer_secs_since_creation(lws_sequencer_t *seq)
 }
 
 struct lws_context *
-lws_sequencer_get_context(lws_sequencer_t *seq)
+lws_seq_get_context(lws_seq_t *seq)
 {
 	return seq->pt->context;
 }

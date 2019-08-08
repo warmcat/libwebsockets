@@ -162,7 +162,7 @@ notify:
 
 	lws_set_wsi_user(wsi, NULL);
 	s->cwsi = NULL;
-	lws_sequencer_queue_event(lws_sequencer_from_user(s), seq_msg,
+	lws_seq_queue_event(lws_seq_from_user(s), seq_msg,
 				  NULL, NULL);
 
 	return 0;
@@ -185,7 +185,7 @@ sequencer_start_client(struct myseq *s)
 	lws_strncpy(uri, url_paths[s->state], sizeof(uri));
 
 	memset(&i, 0, sizeof i);
-	i.context = lws_sequencer_get_context(lws_sequencer_from_user(s));
+	i.context = lws_seq_get_context(lws_seq_from_user(s));
 
 	if (lws_parse_uri(uri, &prot, &i.address, &i.port, &path1)) {
 		lwsl_err("%s: uri error %s\n", __func__, uri);
@@ -217,13 +217,13 @@ sequencer_start_client(struct myseq *s)
 
 		/* we couldn't even get started with the client connection */
 
-		lws_sequencer_queue_event(lws_sequencer_from_user(s),
+		lws_seq_queue_event(lws_seq_from_user(s),
 				    SEQ_MSG_CLIENT_FAILED, NULL, NULL);
 
 		return 1;
 	}
 
-	lws_sequencer_timeout(lws_sequencer_from_user(s), 3);
+	lws_seq_timeout_us(lws_seq_from_user(s), 3 * LWS_US_PER_SEC);
 
 	lwsl_notice("%s: wsi %p: connecting to %s://%s:%d%s\n", __func__,
 		    s->cwsi, prot, i.address, i.port, path);
@@ -297,7 +297,7 @@ sequencer_cb(struct lws_sequencer *seq, void *user, int event,
 			  s->state, s->http_resp);
 
 done:
-		lws_sequencer_timeout(lws_sequencer_from_user(s), 0);
+		lws_seq_timeout_us(lws_seq_from_user(s), LWSSEQTO_NONE);
 		s->state++;
 		if (s->state == LWS_ARRAY_SIZE(url_paths)) {
 			/* the sequence has completed */
@@ -324,7 +324,7 @@ main(int argc, const char **argv)
 	int n = 1, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
 	struct lws_context_creation_info info;
 	struct lws_context *context;
-	lws_sequencer_t *seq;
+	lws_seq_t *seq;
 	struct lws_vhost *vh;
 	lws_seq_info_t i;
 	struct myseq *s;
@@ -378,7 +378,7 @@ main(int argc, const char **argv)
 	i.cb = sequencer_cb;
 	i.name = "seq";
 
-	seq = lws_sequencer_create(&i);
+	seq = lws_seq_create(&i);
 	if (!seq) {
 		lwsl_err("%s: unable to create sequencer\n", __func__);
 		goto bail1;
