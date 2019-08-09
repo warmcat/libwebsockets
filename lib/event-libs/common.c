@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2018 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2019 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -38,11 +38,13 @@ __lws_event_service_get_earliest_wake(struct lws_context_per_thread *pt,
 		us = t;
 		seen = 1;
 	}
+#if defined(LWS_WITH_SEQUENCER)
 	t = __lws_seq_timeout_check(pt, usnow);
 	if (t && (!seen || t < us)) {
 		us = t;
 		seen = 1;
 	}
+#endif
 
 	return us;
 }

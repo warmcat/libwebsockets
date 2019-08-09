@@ -138,12 +138,14 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 
 	lws_pt_unlock(pt);
 
+#if defined(LWS_WITH_SEQUENCER)
 	/*
 	 * if there are any pending sequencer events, handle the next one
 	 * for all sequencers with pending events.  If nothing to do returns
 	 * immediately.
 	 */
 	lws_pt_do_pending_sequencer_events(pt);
+#endif
 
 	m = 0;
 #if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)

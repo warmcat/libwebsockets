@@ -557,9 +557,10 @@ lws_service_periodic_checks(struct lws_context *context,
 	if (context->time_up < 1464083026 && now > 1464083026)
 		context->time_up = now;
 
-
+#if defined(LWS_WITH_SEQUENCER)
 	__lws_seq_timeout_check(pt, usnow);
 	lws_pt_do_pending_sequencer_events(pt);
+#endif
 
 	if (context->last_timeout_check_s == now)
 		return 0;

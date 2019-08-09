@@ -130,6 +130,7 @@ option(LWS_WITH_ZLIB "Include zlib support (required for extensions)" OFF)
 option(LWS_WITH_BUNDLED_ZLIB "Use bundled zlib version (Windows only)" ${LWS_WITH_BUNDLED_ZLIB_DEFAULT})
 option(LWS_WITH_MINIZ "Use miniz instead of zlib" OFF)
 option(LWS_WITH_DEPRECATED_LWS_DLL "Migrate to lws_dll2 instead ASAP" OFF)
+option(LWS_WITH_SEQUENCER "lws_seq_t support" ON)
 #
 # to use miniz, enable both LWS_WITH_ZLIB and LWS_WITH_MINIZ
 #
@@ -217,6 +218,7 @@ if (NOT LWS_WITH_NETWORK)
 	set(LWS_WITH_HTTP_STREAM_COMPRESSION 0)
 	set(LWS_WITH_HTTP_BROTLI 0)
 	set(LWS_WITH_POLL 0)
+	set(LWS_WITH_SEQUENCER 0)
 endif()
 
 if (LWS_WITH_STRUCT_SQLITE3)
@@ -957,7 +959,6 @@ if (LWS_WITH_NETWORK)
 		lib/core-net/network.c
 		lib/core-net/vhost.c
 		lib/core-net/pollfd.c
-		lib/core-net/sequencer.c
 		lib/core-net/service.c
 		lib/core-net/sorted-usec-list.c
 		lib/core-net/stats.c
@@ -966,13 +967,22 @@ if (LWS_WITH_NETWORK)
 		lib/core-net/adopt.c
 		lib/roles/pipe/ops-pipe.c
 	)
+
+	if (LWS_WITH_SEQUENCER)
+		list(APPEND SOURCES
+			lib/core-net/sequencer.c)
+	endif()
+
 	if (LWS_WITH_ABSTRACT)
 		list(APPEND SOURCES
 			lib/abstract/abstract.c
-			lib/abstract/test-sequencer.c
 		)
+		if (LWS_WITH_SEQUENCER)
+			list(APPEND SOURCES
+				lib/abstract/test-sequencer.c)
+		endif()
 	endif()
-	
+
 	if (LWS_WITH_STATS)
 		list(APPEND SOURCES
 			lib/core-net/stats.c

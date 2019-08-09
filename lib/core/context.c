@@ -551,8 +551,10 @@ lws_context_destroy3(struct lws_context *context)
 
 	for (n = 0; n < context->count_threads; n++) {
 		struct lws_context_per_thread *pt = &context->pt[n];
-
+		(void)pt;
+#if defined(LWS_WITH_SEQUENCER)
 		lws_seq_destroy_all_on_pt(pt);
+#endif
 
 		if (context->event_loop_ops->destroy_pt)
 			context->event_loop_ops->destroy_pt(context, n);
