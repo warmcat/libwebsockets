@@ -301,3 +301,8 @@ _lws_destroy_ah(struct lws_context_per_thread *pt, struct allocated_headers *ah)
 int
 lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 		     char *uri_ptr, char ws);
+
+typedef struct lws_sorted_usec_list lws_sorted_usec_list_t;
+
+void
+lws_sul_http_ah_lifecheck(lws_sorted_usec_list_t *sul);

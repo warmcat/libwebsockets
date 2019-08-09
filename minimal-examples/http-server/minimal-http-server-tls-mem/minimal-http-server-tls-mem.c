@@ -454,7 +454,7 @@ int main(int argc, const char **argv)
 	}
 
 	while (n >= 0 && !interrupted)
-		n = lws_service(context, 1000);
+		n = lws_service(context, 30000);
 
 	ret = 0;
 

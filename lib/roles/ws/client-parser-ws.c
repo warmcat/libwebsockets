@@ -28,6 +28,7 @@
 
 int lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 {
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	int callback_action = LWS_CALLBACK_CLIENT_RECEIVE;
 	struct lws_ext_pm_deflate_rx_ebufs pmdrx;
 	unsigned short close_code;
@@ -484,12 +485,20 @@ ping_drop:
 			lwsl_hexdump(&wsi->ws->rx_ubuf[LWS_PRE],
 				     wsi->ws->rx_ubuf_head);
 
-			if (wsi->pending_timeout ==
-				       PENDING_TIMEOUT_WS_PONG_CHECK_GET_PONG) {
-				lwsl_info("%p: received expected PONG\n", wsi);
+			if (wsi->ws->await_pong) {
 				lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
-			}
+				wsi->ws->await_pong = 0;
 
+				/*
+				 * prepare to send the ping again if nothing
+				 * sent to countermand it
+				 */
+
+				__lws_sul_insert(&pt->pt_sul_owner,
+						 &wsi->sul_ping,
+					(lws_usec_t)wsi->context->ws_ping_pong_interval *
+					 LWS_USEC_PER_SEC);
+			}
 			/* issue it */
 			callback_action = LWS_CALLBACK_CLIENT_RECEIVE_PONG;
 			break;

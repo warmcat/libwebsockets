@@ -315,20 +315,6 @@ tops_fake_POLLIN_for_buffered_mbedtls(struct lws_context_per_thread *pt)
 	return lws_tls_fake_POLLIN_for_buffered(pt);
 }
 
-static int
-tops_periodic_housekeeping_mbedtls(struct lws_context *context, time_t now)
-{
-	int n;
-
-	n = (now - context->tls.last_cert_check_s);
-	if ((!context->tls.last_cert_check_s || n > (24 * 60 * 60)) &&
-	    !lws_tls_check_all_cert_lifetimes(context))
-		context->tls.last_cert_check_s = now;
-
-	return 0;
-}
-
 const struct lws_tls_ops tls_ops_mbedtls = {
 	/* fake_POLLIN_for_buffered */	tops_fake_POLLIN_for_buffered_mbedtls,
-	/* periodic_housekeeping */	tops_periodic_housekeeping_mbedtls,
 };

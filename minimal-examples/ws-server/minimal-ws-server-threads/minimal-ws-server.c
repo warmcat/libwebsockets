@@ -120,7 +120,7 @@ int main(int argc, const char **argv)
 	/* start the threads that create content */
 
 	while (!interrupted)
-		if (lws_service(context, 1000))
+		if (lws_service(context, 30000))
 			interrupted = 1;
 
 	lws_context_destroy(context);

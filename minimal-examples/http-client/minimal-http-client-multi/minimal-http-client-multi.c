@@ -40,9 +40,12 @@ struct user {
 	int index;
 };
 
-static int interrupted, completed, failed, numbered;
+static int interrupted, completed, failed, numbered, stagger_idx;
 static struct lws *client_wsi[COUNT];
 static struct user user[COUNT];
+static lws_sorted_usec_list_t sul_stagger;
+static struct lws_client_connect_info i;
+struct lws_context *context;
 
 static int
 callback_http(struct lws *wsi, enum lws_callback_reasons reason,
@@ -205,12 +208,32 @@ lws_try_client_connection(struct lws_client_connect_info *i, int m)
 			  client_wsi[m], m, i->path);
 }
 
+static void
+stagger_cb(lws_sorted_usec_list_t *sul)
+{
+	lws_usec_t next;
+
+	/*
+	 * open the connections at 100ms intervals, with the
+	 * last one being after 1s, testing both queuing, and
+	 * direct H2 stream addition stability
+	 */
+	lws_try_client_connection(&i, stagger_idx++);
+
+	if (stagger_idx == (int)LWS_ARRAY_SIZE(client_wsi))
+		return;
+
+	next = 300 * LWS_US_PER_MS;
+	if (stagger_idx == (int)LWS_ARRAY_SIZE(client_wsi) - 1)
+		next += 700 * LWS_US_PER_MS;
+
+	lws_sul_schedule(context, 0, &sul_stagger, stagger_cb, next);
+}
+
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
-	struct lws_client_connect_info i;
-	struct lws_context *context;
-	unsigned long long start, next;
+	unsigned long long start;
 	const char *p;
 	int n = 0, m, staggered = 0, logs =
 		LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE
@@ -299,30 +322,17 @@ int main(int argc, const char **argv)
 		 */
 		for (m = 0; m < (int)LWS_ARRAY_SIZE(client_wsi); m++)
 			lws_try_client_connection(&i, m);
+	else
+		/*
+		 * delay the connections slightly
+		 */
+		lws_sul_schedule(context, 0, &sul_stagger, stagger_cb,
+				 100 * LWS_US_PER_MS);
 
-	next = start = us();
+	start = us();
 	m = 0;
-	while (n >= 0 && !interrupted) {
-
-		if (staggered) {
-			/*
-			 * open the connections at 100ms intervals, with the
-			 * last one being after 1s, testing both queuing, and
-			 * direct H2 stream addition stability
-			 */
-			if (us() > next && m < (int)LWS_ARRAY_SIZE(client_wsi)) {
-
-				lws_try_client_connection(&i, m++);
-
-				if (m == (int)LWS_ARRAY_SIZE(client_wsi) - 1)
-					next = us() + 1000000;
-				else
-					next = us() + 300000;
-			}
-		}
-
-		n = lws_service(context, 100);
-	}
+	while (n >= 0 && !interrupted)
+		n = lws_service(context, 30000);
 
 	lwsl_user("Duration: %lldms\n", (us() - start) / 1000);
 	lws_context_destroy(context);

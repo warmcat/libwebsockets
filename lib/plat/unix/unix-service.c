@@ -22,10 +22,6 @@
 #define _GNU_SOURCE
 #include "core/private.h"
 
-#if defined(LWS_HAVE_MALLOC_TRIM)
-#include <malloc.h>
-#endif
-
 int
 lws_poll_listen_fd(struct lws_pollfd *fd)
 {
@@ -82,13 +78,13 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	}
 
 	if (timeout_us) {
-		lws_usec_t t;
+		lws_usec_t us;
 
 		lws_pt_lock(pt, __func__);
 		/* don't stay in poll wait longer than next hr timeout */
-		t = __lws_event_service_get_earliest_wake(pt, lws_now_usecs());
-		if (t && t < timeout_us)
-			timeout_us = t;
+		us = __lws_sul_check(&pt->pt_sul_owner, lws_now_usecs());
+		if (us && us < timeout_us)
+			timeout_us = us;
 
 		lws_pt_unlock(pt);
 	}
@@ -132,20 +128,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	vpt->foreign_pfd_list = NULL;
 	lws_memory_barrier();
 
-	/* we have come out of a poll wait... check the hrtimer list */
-
-	__lws_hrtimer_service(pt, lws_now_usecs());
-
 	lws_pt_unlock(pt);
-
-#if defined(LWS_WITH_SEQUENCER)
-	/*
-	 * if there are any pending sequencer events, handle the next one
-	 * for all sequencers with pending events.  If nothing to do returns
-	 * immediately.
-	 */
-	lws_pt_do_pending_sequencer_events(pt);
-#endif
 
 	m = 0;
 #if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
@@ -163,7 +146,6 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		!m &&
 #endif
 		!n) { /* nothing to do */
-		lws_service_fd_tsi(context, NULL, tsi);
 		lws_service_do_ripe_rxflow(pt);
 
 		return 0;
@@ -214,19 +196,4 @@ int
 lws_plat_service(struct lws_context *context, int timeout_ms)
 {
 	return _lws_plat_service_tsi(context, timeout_ms, 0);
-}
-
-
-void
-lws_plat_service_periodic(struct lws_context *context)
-{
-#if !defined(LWS_NO_DAEMONIZE)
-	/* if our parent went down, don't linger around */
-	if (context->started_with_parent &&
-	    kill(context->started_with_parent, 0) < 0)
-		kill(getpid(), SIGTERM);
-#endif
-#if defined(LWS_HAVE_MALLOC_TRIM)
-	malloc_trim(4 * 1024);
-#endif
 }

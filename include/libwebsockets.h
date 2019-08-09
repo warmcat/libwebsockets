@@ -522,13 +522,13 @@ struct lws;
 #include <libwebsockets/lws-http.h>
 #include <libwebsockets/lws-spa.h>
 #include <libwebsockets/lws-purify.h>
+#include <libwebsockets/lws-misc.h>
 #include <libwebsockets/lws-timeout-timer.h>
 #include <libwebsockets/lws-service.h>
 #include <libwebsockets/lws-write.h>
 #include <libwebsockets/lws-writeable.h>
 #include <libwebsockets/lws-adopt.h>
 #include <libwebsockets/lws-network-helper.h>
-#include <libwebsockets/lws-misc.h>
 #include <libwebsockets/lws-ring.h>
 #include <libwebsockets/lws-sha1-base64.h>
 #include <libwebsockets/lws-x509.h>

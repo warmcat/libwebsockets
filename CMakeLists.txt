@@ -219,6 +219,7 @@ if (NOT LWS_WITH_NETWORK)
 	set(LWS_WITH_HTTP_BROTLI 0)
 	set(LWS_WITH_POLL 0)
 	set(LWS_WITH_SEQUENCER 0)
+	set(LWS_ROLE_DBUS 0)
 endif()
 
 if (LWS_WITH_STRUCT_SQLITE3)
@@ -1281,6 +1282,7 @@ else()
 				list(APPEND SOURCES lib/plat/esp32/esp32-helpers.c)
 			endif()
 		else()
+			set(LWS_PLAT_UNIX 1)
 			list(APPEND SOURCES
 				lib/plat/unix/unix-caps.c
 				lib/plat/unix/unix-file.c
@@ -1320,11 +1322,6 @@ endif()
 if (LWS_WITH_HTTP_PROXY)
 	list(APPEND SOURCES
 		lib/roles/http/server/rewrite.c)
-endif()
-
-if (LWS_WITH_NETWORK)
-	list(APPEND SOURCES
-		lib/event-libs/common.c)
 endif()
 
 if (LWS_WITH_POLL AND LWS_WITH_NETWORK)

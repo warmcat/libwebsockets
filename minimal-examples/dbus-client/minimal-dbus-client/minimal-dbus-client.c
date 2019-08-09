@@ -259,7 +259,7 @@ int main(int argc, const char **argv)
 	/* lws event loop (default poll one) */
 
 	while (n >= 0 && !interrupted)
-		n = lws_service(context, 1000);
+		n = lws_service(context, 30000);
 
 bail2:
 	destroy_dbus_client_conn(dbus_ctx);

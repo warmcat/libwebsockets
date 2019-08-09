@@ -103,7 +103,6 @@ struct _lws_websocket_related {
 	uint8_t ping_payload_buf[128 - 3 + LWS_PRE];
 	uint8_t mask[4];
 
-	time_t time_next_ping_check;
 	size_t rx_packet_length;
 	uint32_t rx_ubuf_head;
 	uint32_t rx_ubuf_alloc;
@@ -136,6 +135,7 @@ struct _lws_websocket_related {
 	unsigned int send_check_ping:1;
 	unsigned int first_fragment:1;
 	unsigned int peer_has_sent_close:1;
+	unsigned int await_pong;
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	unsigned int extension_data_pending:1;
 	unsigned int rx_draining_ext:1;
@@ -186,3 +186,6 @@ extern const struct lws_protocols lws_ws_proxy;
 
 int
 lws_server_init_wsi_for_ws(struct lws *wsi);
+
+void
+lws_sul_wsping_cb(lws_sorted_usec_list_t *sul);

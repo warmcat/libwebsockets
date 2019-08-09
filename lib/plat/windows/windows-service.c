@@ -119,17 +119,14 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	}
 
 	if (timeout_us) {
-		lws_usec_t t, us = lws_now_usecs();
+		lws_usec_t us;
 
 		lws_pt_lock(pt, __func__);
-		/* don't stay in poll wait longer than next hr timeout... */
-		t =  __lws_hrtimer_service(pt, us);
-		if (t && timeout_us > t)
-			timeout_us = t;
-		/* ... or next sequencer timeout */
-		t = __lws_seq_timeout_check(pt, us);
-		if (t && timeout_us > t)
-			timeout_us = t;
+		/* don't stay in poll wait longer than next hr timeout */
+		us = __lws_sul_check(&pt->pt_sul_owner, lws_now_usecs());
+		if (us && us < timeout_us)
+			timeout_us = us;
+
 		lws_pt_unlock(pt);
 	}
 
@@ -148,8 +145,9 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		interrupt_requested = pt->interrupt_requested;
 		pt->interrupt_requested = 0;
 		LeaveCriticalSection(&pt->interrupt_lock);
-		if(interrupt_requested) {
-			lws_broadcast(context, LWS_CALLBACK_EVENT_WAIT_CANCELLED, NULL, 0);
+		if (interrupt_requested) {
+			lws_broadcast(pt, LWS_CALLBACK_EVENT_WAIT_CANCELLED,
+				      NULL, 0);
 			return 0;
 		}
 
@@ -212,11 +210,3 @@ lws_plat_service(struct lws_context *context, int timeout_ms)
 {
 	return _lws_plat_service_tsi(context, timeout_ms, 0);
 }
-
-
-
-void
-lws_plat_service_periodic(struct lws_context *context)
-{
-}
-

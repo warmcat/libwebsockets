@@ -37,9 +37,9 @@ typedef struct lws_seq_event {
  */
 typedef struct lws_sequencer {
 	struct lws_dll2			seq_list;
-	struct lws_dll2			seq_pend_list;
 
-	lws_sorted_usec_list_t		sul;
+	lws_sorted_usec_list_t		sul_timeout;
+	lws_sorted_usec_list_t		sul_pending;
 
 	struct lws_dll2_owner		seq_event_owner;
 	struct lws_context_per_thread	*pt;
@@ -54,6 +54,41 @@ typedef struct lws_sequencer {
 } lws_seq_t;
 
 #define QUEUE_SANITY_LIMIT 10
+
+static void
+lws_sul_seq_heartbeat_cb(lws_sorted_usec_list_t *sul)
+{
+	struct lws_context_per_thread *pt = lws_container_of(sul,
+			struct lws_context_per_thread, sul_seq_heartbeat);
+
+	/* send every sequencer a heartbeat message... it can ignore it */
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, p, tp,
+				   lws_dll2_get_head(&pt->seq_owner)) {
+		lws_seq_t *s = lws_container_of(p, lws_seq_t, seq_list);
+
+		/* queue the message to inform the sequencer */
+		lws_seq_queue_event(s, LWSSEQ_HEARTBEAT, NULL, NULL);
+
+	} lws_end_foreach_dll_safe(p, tp);
+
+	/* schedule the next one */
+
+	__lws_sul_insert(&pt->pt_sul_owner, &pt->sul_seq_heartbeat,
+			 LWS_US_PER_SEC);
+}
+
+int
+lws_seq_pt_init(struct lws_context_per_thread *pt)
+{
+	pt->sul_seq_heartbeat.cb = lws_sul_seq_heartbeat_cb;
+
+	/* schedule the first heartbeat */
+	__lws_sul_insert(&pt->pt_sul_owner, &pt->sul_seq_heartbeat,
+			 LWS_US_PER_SEC);
+
+	return 0;
+}
 
 lws_seq_t *
 lws_seq_create(lws_seq_info_t *i)
@@ -118,8 +153,8 @@ lws_seq_destroy(lws_seq_t **pseq)
 	lws_pt_lock(seq->pt, __func__); /* -------------------------- pt { */
 
 	lws_dll2_remove(&seq->seq_list);
-	lws_dll2_remove(&seq->sul.list);
-	lws_dll2_remove(&seq->seq_pend_list);
+	lws_dll2_remove(&seq->sul_timeout.list);
+	lws_dll2_remove(&seq->sul_pending.list);
 	/* remove and destroy any pending events */
 	lws_dll2_foreach_safe(&seq->seq_event_owner, NULL, seq_ev_destroy);
 
@@ -142,9 +177,42 @@ lws_seq_destroy_all_on_pt(struct lws_context_per_thread *pt)
 	} lws_end_foreach_dll_safe(p, tp);
 }
 
+static void
+lws_seq_sul_pending_cb(lws_sorted_usec_list_t *sul)
+{
+	lws_seq_t *seq = lws_container_of(sul, lws_seq_t, sul_pending);
+	lws_seq_event_t *seqe;
+	struct lws_dll2 *dh;
+	int n;
+
+	if (!seq->seq_event_owner.count)
+		return;
+
+	/* events are only added at tail, so no race possible yet... */
+
+	dh = lws_dll2_get_head(&seq->seq_event_owner);
+	seqe = lws_container_of(dh, lws_seq_event_t, seq_event_list);
+
+	n = seq->cb(seq, (void *)&seq[1], seqe->e, seqe->data, seqe->aux);
+
+	/* ... have to lock here though, because we will change the list */
+
+	lws_pt_lock(seq->pt, __func__); /* ----------------------------- pt { */
+
+	/* detach event from sequencer event list and free it */
+	lws_dll2_remove(&seqe->seq_event_list);
+	lws_free(seqe);
+	lws_pt_unlock(seq->pt); /* } pt ------------------------------------- */
+
+	if (n) {
+		lwsl_info("%s: destroying seq '%s' by request\n", __func__,
+				seq->name);
+		lws_seq_destroy(&seq);
+	}
+}
+
 int
-lws_seq_queue_event(lws_seq_t *seq, lws_seq_events_t e, void *data,
-			  void *aux)
+lws_seq_queue_event(lws_seq_t *seq, lws_seq_events_t e, void *data, void *aux)
 {
 	lws_seq_event_t *seqe;
 
@@ -170,9 +238,8 @@ lws_seq_queue_event(lws_seq_t *seq, lws_seq_events_t e, void *data,
 
 	lws_dll2_add_tail(&seqe->seq_event_list, &seq->seq_event_owner);
 
-	/* if not already on the pending list, add us */
-	if (lws_dll2_is_detached(&seq->seq_pend_list))
-		lws_dll2_add_tail(&seq->seq_pend_list, &seq->pt->seq_pend_owner);
+	seq->sul_pending.cb = lws_seq_sul_pending_cb;
+	__lws_sul_insert(&seq->pt->pt_sul_owner, &seq->sul_pending, 1);
 
 	lws_pt_unlock(seq->pt); /* } pt ------------------------------------- */
 
@@ -215,71 +282,12 @@ lws_seq_check_wsi(lws_seq_t *seq, struct lws *wsi)
 }
 
 
-/*
- * seq should have at least one pending event (he was on the pt's list of
- * sequencers with pending events).  Send the top event in the queue.
- */
-
-static int
-lws_seq_next_event(struct lws_dll2 *d, void *user)
+static void
+lws_seq_sul_timeout_cb(lws_sorted_usec_list_t *sul)
 {
-	lws_seq_t *seq = lws_container_of(d, lws_seq_t,
-						seq_pend_list);
-	lws_seq_event_t *seqe;
-	struct lws_dll2 *dh;
-	int n;
+	lws_seq_t *s = lws_container_of(sul, lws_seq_t, sul_timeout);
 
-	/* we should be on the pending list, right? */
-	assert(seq->seq_event_owner.count);
-
-	/* events are only added at tail, so no race possible yet... */
-
-	dh = lws_dll2_get_head(&seq->seq_event_owner);
-	seqe = lws_container_of(dh, lws_seq_event_t, seq_event_list);
-
-	n = seq->cb(seq, (void *)&seq[1], seqe->e, seqe->data, seqe->aux);
-
-	/* ... have to lock here though, because we will change the list */
-
-	lws_pt_lock(seq->pt, __func__); /* ----------------------------- pt { */
-
-	/* detach event from sequencer event list and free it */
-	lws_dll2_remove(&seqe->seq_event_list);
-	lws_free(seqe);
-
-	/*
-	 * if seq has no more pending, remove from pt's list of sequencers
-	 * with pending events
-	 */
-	if (!seq->seq_event_owner.count)
-		lws_dll2_remove(&seq->seq_pend_list);
-
-	lws_pt_unlock(seq->pt); /* } pt ------------------------------------- */
-
-	if (n) {
-		lwsl_info("%s: destroying seq '%s' by request\n", __func__,
-				seq->name);
-		lws_seq_destroy(&seq);
-
-		return LWSSEQ_RET_DESTROY;
-	}
-
-	return LWSSEQ_RET_CONTINUE;
-}
-
-/*
- * nonpublic helper for the pt to call one event per pending sequencer, if any
- * are pending
- */
-
-int
-lws_pt_do_pending_sequencer_events(struct lws_context_per_thread *pt)
-{
-	if (!pt->seq_pend_owner.count)
-		return 0;
-
-	return lws_dll2_foreach_safe(&pt->seq_pend_owner, NULL,
-				     lws_seq_next_event);
+	lws_seq_queue_event(s, LWSSEQ_TIMED_OUT, NULL, NULL);
 }
 
 /* set secs to zero to remove timeout */
@@ -287,48 +295,10 @@ lws_pt_do_pending_sequencer_events(struct lws_context_per_thread *pt)
 int
 lws_seq_timeout_us(lws_seq_t *seq, lws_usec_t us)
 {
+	seq->sul_timeout.cb = lws_seq_sul_timeout_cb;
 	/* list is always at the very top of the sul */
-	return __lws_sul_insert(&seq->pt->seq_to_owner,
-				(lws_sorted_usec_list_t *)&seq->sul.list, us);
-}
-
-/*
- * nonpublic helper to check for and handle sequencer timeouts for a whole pt
- * returns either 0 or number of us until next event (which cannot be 0 or we
- * would have serviced it)
- */
-
-static void
-lws_seq_sul_check_cb(lws_sorted_usec_list_t *sul)
-{
-	lws_seq_t *s = lws_container_of(sul, lws_seq_t, sul);
-
-	lws_seq_queue_event(s, LWSSEQ_TIMED_OUT, NULL, NULL);
-}
-
-lws_usec_t
-__lws_seq_timeout_check(struct lws_context_per_thread *pt, lws_usec_t usnow)
-{
-	lws_usec_t future_us = __lws_sul_check(&pt->seq_to_owner,
-					       lws_seq_sul_check_cb, usnow);
-
-	if (usnow - pt->last_heartbeat < LWS_US_PER_SEC)
-		return future_us;
-
-	pt->last_heartbeat = usnow;
-
-	/* send every sequencer a heartbeat message... it can ignore it */
-
-	lws_start_foreach_dll_safe(struct lws_dll2 *, p, tp,
-				   lws_dll2_get_head(&pt->seq_owner)) {
-		lws_seq_t *s = lws_container_of(p, lws_seq_t, seq_list);
-
-		/* queue the message to inform the sequencer */
-		lws_seq_queue_event(s, LWSSEQ_HEARTBEAT, NULL, NULL);
-
-	} lws_end_foreach_dll_safe(p, tp);
-
-	return future_us;
+	return __lws_sul_insert(&seq->pt->pt_sul_owner,
+			(lws_sorted_usec_list_t *)&seq->sul_timeout.list, us);
 }
 
 lws_seq_t *

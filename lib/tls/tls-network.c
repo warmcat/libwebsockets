@@ -90,7 +90,7 @@ lws_tls_check_cert_lifetime(struct lws_vhost *v)
 
 	memset(&caa, 0, sizeof(caa));
 	caa.vh = v;
-	lws_broadcast(v->context, LWS_CALLBACK_VHOST_CERT_AGING, (void *)&caa,
+	lws_broadcast(&v->context->pt[0], LWS_CALLBACK_VHOST_CERT_AGING, (void *)&caa,
 		      (size_t)(ssize_t)life);
 
 	return 0;

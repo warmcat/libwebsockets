@@ -54,12 +54,6 @@ struct lws_event_loop_ops {
 	unsigned int periodic_events_available:1;
 };
 
-struct lws_context_per_thread;
-
-lws_usec_t
-__lws_event_service_get_earliest_wake(struct lws_context_per_thread *pt,
-				      lws_usec_t usnow);
-
 /* bring in event libs private declarations */
 
 #if defined(LWS_WITH_POLL)

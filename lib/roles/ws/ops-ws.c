@@ -31,6 +31,7 @@
 int
 lws_ws_rx_sm(struct lws *wsi, char already_processed, unsigned char c)
 {
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	int callback_action = LWS_CALLBACK_RECEIVE;
 	struct lws_ext_pm_deflate_rx_ebufs pmdrx;
 	unsigned short close_code;
@@ -546,11 +547,21 @@ ping_drop:
 			lwsl_hexdump(&wsi->ws->rx_ubuf[LWS_PRE],
 			             wsi->ws->rx_ubuf_head);
 
-			if (wsi->pending_timeout ==
-				       PENDING_TIMEOUT_WS_PONG_CHECK_GET_PONG) {
+			if (wsi->ws->await_pong) {
 				lwsl_info("received expected PONG on wsi %p\n",
 						wsi);
 				lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+				wsi->ws->await_pong = 0;
+
+				/*
+				 * prepare to send the ping again if nothing
+				 * sent to countermand it
+				 */
+
+				__lws_sul_insert(&pt->pt_sul_owner,
+						 &wsi->sul_ping,
+					(lws_usec_t)wsi->context->ws_ping_pong_interval *
+					 LWS_USEC_PER_SEC);
 			}
 
 			/* issue it */
@@ -806,16 +817,6 @@ lws_remove_wsi_from_draining_ext_list(struct lws *wsi)
 #endif
 }
 
-LWS_EXTERN void
-lws_restart_ws_ping_pong_timer(struct lws *wsi)
-{
-	if (!wsi->context->ws_ping_pong_interval ||
-	    !lwsi_role_ws(wsi))
-		return;
-
-	wsi->ws->time_next_ping_check = (time_t)lws_now_secs();
-}
-
 static int
 lws_0405_frame_mask_generate(struct lws *wsi)
 {
@@ -835,13 +836,51 @@ lws_0405_frame_mask_generate(struct lws *wsi)
 	return 0;
 }
 
+void
+lws_sul_wsping_cb(lws_sorted_usec_list_t *sul)
+{
+	struct lws *wsi = lws_container_of(sul, struct lws, sul_ping);
+
+	/*
+	 * The sul_ping timer came up... either it's time to send a PING
+	 * (!wsi->ws->send_check_ping), or we didn't get the PONG in time
+	 * (wsi->ws->send_check_ping)
+	 */
+
+	if (!wsi->ws->send_check_ping) {
+		lwsl_info("%s: req pp on wsi %p\n", __func__, wsi);
+
+		wsi->ws->send_check_ping = 1;
+		lws_set_timeout(wsi, PENDING_TIMEOUT_WS_PONG_CHECK_SEND_PING,
+				wsi->context->timeout_secs);
+		lws_callback_on_writable(wsi);
+
+		return;
+	}
+
+	if (wsi->ws->await_pong) {
+		/* it didn't return the PONG in time */
+
+		lwsl_info("%s: wsi %p: failed to send PONG\n", __func__, wsi);
+		__lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
+				     "PONG timeout");
+	}
+}
+
 int
 lws_server_init_wsi_for_ws(struct lws *wsi)
 {
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	int n;
 
 	lwsi_set_state(wsi, LRS_ESTABLISHED);
-	lws_restart_ws_ping_pong_timer(wsi);
+
+	if (wsi->context->ws_ping_pong_interval && !wsi->http2_substream ) {
+		wsi->sul_ping.cb = lws_sul_wsping_cb;
+		__lws_sul_insert(&pt->pt_sul_owner, &wsi->sul_ping,
+				 (lws_usec_t)wsi->context->ws_ping_pong_interval *
+				 LWS_USEC_PER_SEC);
+	}
 
 	/*
 	 * create the frame buffer for this connection according to the
@@ -1169,9 +1208,6 @@ read:
 					__func__);
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}
-		// lwsl_notice("Actual RX %d\n", ebuf.len);
-
-		lws_restart_ws_ping_pong_timer(wsi);
 
 		/*
 		 * coverity thinks ssl_capable_read() may read over
@@ -1262,6 +1298,7 @@ drain:
 
 int rops_handle_POLLOUT_ws(struct lws *wsi)
 {
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	int write_type = LWS_WRITE_PONG;
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	struct lws_ext_pm_deflate_rx_ebufs pmdrx;
@@ -1338,25 +1375,24 @@ int rops_handle_POLLOUT_ws(struct lws *wsi)
 		return LWS_HP_RET_BAIL_OK;
 	}
 
-	if (!wsi->socket_is_permanently_unusable && wsi->ws->send_check_ping) {
+	if (!wsi->socket_is_permanently_unusable &&
+	    wsi->ws->send_check_ping && wsi->context->ws_ping_pong_interval) {
 
 		lwsl_info("%s: issuing ping on wsi %p: %s %s h2: %d\n", __func__, wsi,
 				wsi->role_ops->name, wsi->protocol->name,
 				wsi->http2_substream);
 		wsi->ws->send_check_ping = 0;
+		wsi->ws->await_pong = 1;
 		n = lws_write(wsi, &wsi->ws->ping_payload_buf[LWS_PRE],
 			      0, LWS_WRITE_PING);
 		if (n < 0)
 			return LWS_HP_RET_BAIL_DIE;
 
-		/*
-		 * we apparently were able to send the PING in a reasonable time
-		 * now reset the clock on our peer to be able to send the
-		 * PONG in a reasonable time.
-		 */
+		/* give it a few seconds to respond with the PONG */
 
-		lws_set_timeout(wsi, PENDING_TIMEOUT_WS_PONG_CHECK_GET_PONG,
-				wsi->context->timeout_secs);
+		__lws_sul_insert(&pt->pt_sul_owner, &wsi->sul_ping,
+				 (lws_usec_t)wsi->context->timeout_secs *
+				 LWS_USEC_PER_SEC);
 
 		return LWS_HP_RET_BAIL_OK;
 	}
@@ -1479,59 +1515,6 @@ int rops_handle_POLLOUT_ws(struct lws *wsi)
 }
 
 static int
-rops_periodic_checks_ws(struct lws_context *context, int tsi, time_t now)
-{
-	struct lws_vhost *vh;
-
-	if (!context->ws_ping_pong_interval ||
-	    context->last_ws_ping_pong_check_s >= now + 10)
-		return 0;
-
-	vh = context->vhost_list;
-	context->last_ws_ping_pong_check_s = now;
-
-	while (vh) {
-		int n;
-
-		lws_vhost_lock(vh);
-
-		for (n = 0; n < vh->count_protocols; n++) {
-
-			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-					lws_dll2_get_head(&vh->same_vh_protocol_owner[n])) {
-				struct lws *wsi = lws_container_of(d,
-						struct lws, same_vh_protocol);
-
-				if (lwsi_role_ws(wsi) &&
-				    !wsi->http2_substream &&
-				    !wsi->socket_is_permanently_unusable &&
-				    !wsi->ws->send_check_ping &&
-				    wsi->ws->time_next_ping_check &&
-				    (now - wsi->ws->time_next_ping_check) >
-				       context->ws_ping_pong_interval) {
-
-					lwsl_info("%s: req pp on wsi %p\n",
-							__func__, wsi);
-					wsi->ws->send_check_ping = 1;
-					lws_set_timeout(wsi,
-					PENDING_TIMEOUT_WS_PONG_CHECK_SEND_PING,
-						context->timeout_secs);
-					lws_callback_on_writable(wsi);
-					wsi->ws->time_next_ping_check = now;
-				}
-
-			} lws_end_foreach_dll_safe(d, d1);
-		}
-
-		lws_vhost_unlock(vh);
-
-		vh = vh->vhost_next;
-	}
-
-	return 0;
-}
-
-static int
 rops_service_flag_pending_ws(struct lws_context *context, int tsi)
 {
 #if !defined(LWS_WITHOUT_EXTENSIONS)
@@ -1647,8 +1630,8 @@ static int
 rops_write_role_protocol_ws(struct lws *wsi, unsigned char *buf, size_t len,
 			    enum lws_write_protocol *wp)
 {
-#if !defined(LWS_WITHOUT_EXTENSIONS)
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 	enum lws_write_protocol wpt;
 #endif
 	struct lws_ext_pm_deflate_rx_ebufs pmdrx;
@@ -1695,8 +1678,13 @@ rops_write_role_protocol_ws(struct lws *wsi, unsigned char *buf, size_t len,
 		// assert(0);
 	}
 #endif
-	lws_restart_ws_ping_pong_timer(wsi);
-
+	/* reset the ping wait */
+	if (wsi->context->ws_ping_pong_interval) {
+		wsi->sul_ping.cb = lws_sul_wsping_cb;
+		__lws_sul_insert(&pt->pt_sul_owner, &wsi->sul_ping,
+				(lws_usec_t)wsi->context->ws_ping_pong_interval *
+								LWS_USEC_PER_SEC);
+	}
 	if (((*wp) & 0x1f) == LWS_WRITE_HTTP ||
 	    ((*wp) & 0x1f) == LWS_WRITE_HTTP_FINAL ||
 	    ((*wp) & 0x1f) == LWS_WRITE_HTTP_HEADERS_CONTINUATION ||
@@ -1988,6 +1976,7 @@ send_raw:
 static int
 rops_close_kill_connection_ws(struct lws *wsi, enum lws_close_status reason)
 {
+	lws_dll2_remove(&wsi->sul_ping.list);
 	/* deal with ws encapsulation in h2 */
 #if defined(LWS_WITH_HTTP2)
 	if (wsi->http2_substream && wsi->h2_stream_carries_ws)
@@ -2101,7 +2090,7 @@ struct lws_role_ops role_ops_ws = {
 	/* init_context */		NULL,
 	/* init_vhost */		rops_init_vhost_ws,
 	/* destroy_vhost */		rops_destroy_vhost_ws,
-	/* periodic_checks */		rops_periodic_checks_ws,
+	/* periodic_checks */		NULL,
 	/* service_flag_pending */	rops_service_flag_pending_ws,
 	/* handle_POLLIN */		rops_handle_POLLIN_ws,
 	/* handle_POLLOUT */		rops_handle_POLLOUT_ws,

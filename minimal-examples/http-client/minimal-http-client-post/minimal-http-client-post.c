@@ -293,7 +293,7 @@ int main(int argc, const char **argv)
 	}
 
 	while (n >= 0 && completed != count_clients && !interrupted)
-		n = lws_service(context, 1000);
+		n = lws_service(context, 30000);
 
 	lws_context_destroy(context);
 	lwsl_user("Completed: %s\n", bad ? "failed" : "OK");

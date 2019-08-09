@@ -255,7 +255,7 @@ int main(int argc, const char **argv)
 	/* the usual lws event loop */
 
 	while (n >= 0 && !interrupted)
-		n = lws_service(context, 1000);
+		n = lws_service(context, 30000);
 
 	/* describe the overall test results */
 

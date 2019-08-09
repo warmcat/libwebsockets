@@ -160,7 +160,7 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
-	while (!lws_service(context, 1000) && !interrupted)
+	while (!lws_service(context, 30000) && !interrupted)
 		;
 
 	lws_context_destroy(context);

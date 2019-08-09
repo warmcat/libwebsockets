@@ -595,23 +595,21 @@ lws_pvo_get_str(void *in, const char *name, const char **result)
 }
 
 int
-lws_broadcast(struct lws_context *context, int reason, void *in, size_t len)
+lws_broadcast(struct lws_context_per_thread *pt, int reason, void *in, size_t len)
 {
-	struct lws_vhost *v = context->vhost_list;
-	struct lws wsi;
+	struct lws_vhost *v = pt->context->vhost_list;
 	int n, ret = 0;
 
-	memset(&wsi, 0, sizeof(wsi));
-	wsi.context = context;
+	pt->fake_wsi->context = pt->context;
 
 	while (v) {
 		const struct lws_protocols *p = v->protocols;
-		wsi.vhost = v; /* not a real bound wsi */
+		pt->fake_wsi->vhost = v; /* not a real bound wsi */
 
 		for (n = 0; n < v->count_protocols; n++) {
-			wsi.protocol = p;
+			pt->fake_wsi->protocol = p;
 			if (p->callback &&
-			    p->callback(&wsi, reason, NULL, in, len))
+			    p->callback(pt->fake_wsi, reason, NULL, in, len))
 				ret |= 1;
 			p++;
 		}

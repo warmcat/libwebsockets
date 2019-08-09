@@ -35,6 +35,7 @@ __lws_sul_insert(lws_dll2_owner_t *own, lws_sorted_usec_list_t *sul,
 	}
 
 	sul->us = lws_now_usecs() + us;
+	assert(sul->cb);
 
 	/*
 	 * we sort the pt's list of sequencers with pending timeouts, so it's
@@ -52,6 +53,8 @@ __lws_sul_insert(lws_dll2_owner_t *own, lws_sorted_usec_list_t *sul,
 			/* drop us in before this guy */
 			lws_dll2_add_before(&sul->list, &sul1->list);
 
+			// lws_dll2_describe(own, "post-insert");
+
 			return 0;
 		}
 	} lws_end_foreach_dll_safe(p, tp);
@@ -63,11 +66,24 @@ __lws_sul_insert(lws_dll2_owner_t *own, lws_sorted_usec_list_t *sul,
 
 	lws_dll2_add_tail(&sul->list, own);
 
+	// lws_dll2_describe(own, "post-tail-insert");
+
 	return 0;
 }
 
+void
+lws_sul_schedule(struct lws_context *context, int tsi,
+	         lws_sorted_usec_list_t *sul, sul_cb_t cb, lws_usec_t us)
+{
+	struct lws_context_per_thread *pt = &context->pt[tsi];
+
+	sul->cb = cb;
+
+	__lws_sul_insert(&pt->pt_sul_owner, sul, us);
+}
+
 lws_usec_t
-__lws_sul_check(lws_dll2_owner_t *own, sul_cb_t cb, lws_usec_t usnow)
+__lws_sul_check(lws_dll2_owner_t *own, lws_usec_t usnow)
 {
 	lws_usec_t future_us = 0;
 
@@ -81,8 +97,7 @@ __lws_sul_check(lws_dll2_owner_t *own, sul_cb_t cb, lws_usec_t usnow)
 			/* seq has timed out... remove him from timeout list */
 			lws_dll2_remove(&sul->list);
 			sul->us = 0;
-			if (cb)
-				cb(sul);
+			sul->cb(sul);
 		} else {
 			/*
 			 * No need to look further if we met one later than now:

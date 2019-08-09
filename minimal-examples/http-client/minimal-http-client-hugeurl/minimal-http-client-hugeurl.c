@@ -218,7 +218,7 @@ int main(int argc, const char **argv)
 	lws_client_connect_via_info(&i);
 
 	while (n >= 0 && client_wsi && !interrupted)
-		n = lws_service(context, 1000);
+		n = lws_service(context, 30000);
 
 	lws_context_destroy(context);
 	lwsl_user("Completed: %s\n", bad? "failed": "OK");
