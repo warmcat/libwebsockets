@@ -22,38 +22,25 @@
 #include "core/private.h"
 
 void
-__lws_remove_from_timeout_list(struct lws *wsi)
+__lws_wsi_remove_from_sul(struct lws *wsi)
 {
+	//struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+
+	//lwsl_notice("%s: wsi %p, to %p, hr %p\n", __func__, wsi,
+	//		&wsi->sul_timeout.list, &wsi->sul_hrtimer.list);
+
+	// lws_dll2_describe(&pt->pt_sul_owner, "pre-remove");
 	lws_dll2_remove(&wsi->sul_timeout.list);
+	lws_dll2_remove(&wsi->sul_hrtimer.list);
+	// lws_dll2_describe(&pt->pt_sul_owner, "post-remove");
 }
 
-void
-lws_remove_from_timeout_list(struct lws *wsi)
-{
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
-
-	lws_pt_lock(pt, __func__);
-	__lws_remove_from_timeout_list(wsi);
-	lws_pt_unlock(pt);
-}
-
-
-void
-__lws_set_timer_usecs(struct lws *wsi, lws_usec_t us)
-{
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
-
-	__lws_sul_insert(&pt->dll_hrtimer_owner, &wsi->sul_hrtimer, us);
-}
-
-LWS_VISIBLE void
-lws_set_timer_usecs(struct lws *wsi, lws_usec_t usecs)
-{
-	__lws_set_timer_usecs(wsi, usecs);
-}
+/*
+ * hrtimer
+ */
 
 static void
-lws_hrtimer_sul_check_cb(lws_sorted_usec_list_t *sul)
+lws_sul_hrtimer_cb(lws_sorted_usec_list_t *sul)
 {
 	struct lws *wsi = lws_container_of(sul, struct lws, sul_hrtimer);
 
@@ -64,78 +51,27 @@ lws_hrtimer_sul_check_cb(lws_sorted_usec_list_t *sul)
 				     "hrtimer cb errored");
 }
 
-/* return 0 if nothing pending, or the number of us before the next event */
-
-lws_usec_t
-__lws_hrtimer_service(struct lws_context_per_thread *pt, lws_usec_t t)
-{
-	return __lws_sul_check(&pt->dll_hrtimer_owner,
-			       lws_hrtimer_sul_check_cb, t);
-}
-
 void
-__lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
+__lws_set_timer_usecs(struct lws *wsi, lws_usec_t us)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 
-	__lws_sul_insert(&pt->dll_timeout_owner, &wsi->sul_timeout,
-			 ((lws_usec_t)secs) * LWS_US_PER_SEC);
-
-	lwsl_debug("%s: %p: %d secs, reason %d\n", __func__, wsi, secs, reason);
-
-	wsi->pending_timeout = reason;
+	wsi->sul_hrtimer.cb = lws_sul_hrtimer_cb;
+	__lws_sul_insert(&pt->pt_sul_owner, &wsi->sul_hrtimer, us);
 }
 
-void
-lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
+LWS_VISIBLE void
+lws_set_timer_usecs(struct lws *wsi, lws_usec_t usecs)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
-
-	if (!secs) {
-		lws_remove_from_timeout_list(wsi);
-
-		return;
-	}
-
-	if (secs == LWS_TO_KILL_SYNC) {
-		lws_remove_from_timeout_list(wsi);
-		lwsl_debug("synchronously killing %p\n", wsi);
-		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
-				   "to sync kill");
-		return;
-	}
-
-	if (secs == LWS_TO_KILL_ASYNC)
-		secs = 0;
-
-	lws_pt_lock(pt, __func__);
-	__lws_set_timeout(wsi, reason, secs);
-	lws_pt_unlock(pt);
+	__lws_set_timer_usecs(wsi, usecs);
 }
 
-void
-lws_set_timeout_us(struct lws *wsi, enum pending_timeout reason, lws_usec_t us)
-{
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
-
-	if (!us) {
-		lws_remove_from_timeout_list(wsi);
-
-		return;
-	}
-
-	lws_pt_lock(pt, __func__);
-	__lws_sul_insert(&pt->dll_timeout_owner, &wsi->sul_timeout, us);
-
-	lwsl_debug("%s: %p: %llu us, reason %d\n", __func__, wsi,
-		   (unsigned long long)us, reason);
-
-	wsi->pending_timeout = reason;
-	lws_pt_unlock(pt);
-}
+/*
+ * wsi timeout
+ */
 
 static void
-lws_wsitimeout_sul_check_cb(lws_sorted_usec_list_t *sul)
+lws_sul_wsitimeout_cb(lws_sorted_usec_list_t *sul)
 {
 	struct lws *wsi = lws_container_of(sul, struct lws, sul_timeout);
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
@@ -177,15 +113,68 @@ lws_wsitimeout_sul_check_cb(lws_sorted_usec_list_t *sul)
 	__lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "timeout");
 }
 
-/* return 0 if nothing pending, or the number of us before the next event */
-
-lws_usec_t
-__lws_wsitimeout_service(struct lws_context_per_thread *pt, lws_usec_t t)
+void
+__lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 {
-	return __lws_sul_check(&pt->dll_timeout_owner,
-			       lws_wsitimeout_sul_check_cb, t);
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+
+	wsi->sul_timeout.cb = lws_sul_wsitimeout_cb;
+	__lws_sul_insert(&pt->pt_sul_owner, &wsi->sul_timeout,
+			 ((lws_usec_t)secs) * LWS_US_PER_SEC);
+
+	lwsl_debug("%s: %p: %d secs, reason %d\n", __func__, wsi, secs, reason);
+
+	wsi->pending_timeout = reason;
 }
 
+void
+lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
+{
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+
+	lws_pt_lock(pt, __func__);
+	lws_dll2_remove(&wsi->sul_timeout.list);
+	lws_pt_unlock(pt);
+
+	if (!secs)
+		return;
+
+	if (secs == LWS_TO_KILL_SYNC) {
+		lwsl_debug("synchronously killing %p\n", wsi);
+		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
+				   "to sync kill");
+		return;
+	}
+
+	if (secs == LWS_TO_KILL_ASYNC)
+		secs = 0;
+
+	lws_pt_lock(pt, __func__);
+	__lws_set_timeout(wsi, reason, secs);
+	lws_pt_unlock(pt);
+}
+
+void
+lws_set_timeout_us(struct lws *wsi, enum pending_timeout reason, lws_usec_t us)
+{
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+
+	lws_pt_lock(pt, __func__);
+	lws_dll2_remove(&wsi->sul_timeout.list);
+	lws_pt_unlock(pt);
+
+	if (!us)
+		return;
+
+	lws_pt_lock(pt, __func__);
+	__lws_sul_insert(&pt->pt_sul_owner, &wsi->sul_timeout, us);
+
+	lwsl_debug("%s: %p: %llu us, reason %d\n", __func__, wsi,
+		   (unsigned long long)us, reason);
+
+	wsi->pending_timeout = reason;
+	lws_pt_unlock(pt);
+}
 
 /* requires context + vh lock */
 
@@ -196,6 +185,7 @@ __lws_timed_callback_remove(struct lws_vhost *vh, struct lws_timed_vh_protocol *
 			      vh->timed_vh_protocol_list) {
 		if (*pt == p) {
 			*pt = p->next;
+			lws_dll2_remove(&p->sul.list);
 			lws_free(p);
 
 			return 0;
@@ -205,17 +195,37 @@ __lws_timed_callback_remove(struct lws_vhost *vh, struct lws_timed_vh_protocol *
 	return 1;
 }
 
+void
+lws_sul_timed_callback_vh_protocol_cb(lws_sorted_usec_list_t *sul)
+{
+	struct lws_timed_vh_protocol *tvp = lws_container_of(sul,
+					struct lws_timed_vh_protocol, sul);
+	struct lws_context_per_thread *pt =
+				&tvp->vhost->context->pt[tvp->tsi_req];
+
+	pt->fake_wsi->context = tvp->vhost->context;
+
+	pt->fake_wsi->vhost = tvp->vhost; /* not a real bound wsi */
+	pt->fake_wsi->protocol = tvp->protocol;
+
+	lwsl_debug("%s: timed cb: vh %s, protocol %s, reason %d\n", __func__,
+		   tvp->vhost->name, tvp->protocol->name, tvp->reason);
+
+	tvp->protocol->callback(pt->fake_wsi, tvp->reason, NULL, NULL, 0);
+}
 
 LWS_VISIBLE LWS_EXTERN int
-lws_timed_callback_vh_protocol(struct lws_vhost *vh,
-			       const struct lws_protocols *prot, int reason,
-			       int secs)
+lws_timed_callback_vh_protocol_us(struct lws_vhost *vh,
+				  const struct lws_protocols *prot, int reason,
+				  lws_usec_t us)
 {
 	struct lws_timed_vh_protocol *p = (struct lws_timed_vh_protocol *)
 			lws_malloc(sizeof(*p), "timed_vh");
 
 	if (!p)
 		return 1;
+
+	memset(p, 0, sizeof(*p));
 
 	p->tsi_req = lws_pthread_self_to_tsi(vh->context);
 	if (p->tsi_req < 0) /* not called from a service thread --> tsi 0 */
@@ -225,7 +235,12 @@ lws_timed_callback_vh_protocol(struct lws_vhost *vh,
 
 	p->protocol = prot;
 	p->reason = reason;
-	p->time = (lws_now_usecs() / LWS_US_PER_SEC) + secs;
+	p->vhost = vh;
+
+	p->sul.cb = lws_sul_timed_callback_vh_protocol_cb;
+	/* list is always at the very top of the sul */
+	__lws_sul_insert(&vh->context->pt[p->tsi_req].pt_sul_owner,
+			 (lws_sorted_usec_list_t *)&p->sul.list, us);
 
 	// lwsl_notice("%s: %s.%s %d\n", __func__, vh->name, prot->name, secs);
 
@@ -237,4 +252,13 @@ lws_timed_callback_vh_protocol(struct lws_vhost *vh,
 	lws_context_unlock(vh->context); /* ------------------------- context */
 
 	return 0;
+}
+
+LWS_VISIBLE LWS_EXTERN int
+lws_timed_callback_vh_protocol(struct lws_vhost *vh,
+			       const struct lws_protocols *prot, int reason,
+			       int secs)
+{
+	return lws_timed_callback_vh_protocol_us(vh, prot, reason,
+					((lws_usec_t)secs) * LWS_US_PER_SEC);
 }

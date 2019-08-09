@@ -30,6 +30,65 @@
 #endif
 #include <dirent.h>
 
+#if defined(LWS_HAVE_MALLOC_TRIM)
+#include <malloc.h>
+#endif
+
+#if defined(LWS_WITH_NETWORK)
+static void
+lws_sul_plat_unix(lws_sorted_usec_list_t *sul)
+{
+	struct lws_context_per_thread *pt =
+		lws_container_of(sul, struct lws_context_per_thread, sul_plat);
+	struct lws_context *context = pt->context;
+#if defined(LWS_ROLE_CGI) || defined(LWS_ROLE_DBUS)
+	time_t now = time(NULL);
+#endif
+
+#if !defined(LWS_NO_DAEMONIZE)
+	/* if our parent went down, don't linger around */
+	if (pt->context->started_with_parent &&
+	    kill(pt->context->started_with_parent, 0) < 0)
+		kill(getpid(), SIGTERM);
+#endif
+#if defined(LWS_HAVE_MALLOC_TRIM)
+	malloc_trim(4 * 1024);
+#endif
+
+	if (pt->context->deprecated && !pt->context->count_wsi_allocated) {
+		lwsl_notice("%s: ending deprecated context\n", __func__);
+		kill(getpid(), SIGINT);
+		return;
+	}
+
+	lws_check_deferred_free(context, 0, 0);
+
+	lws_context_lock(context, "periodic checks");
+	lws_start_foreach_llp(struct lws_vhost **, pv,
+			      context->no_listener_vhost_list) {
+		struct lws_vhost *v = *pv;
+		lwsl_debug("deferred iface: checking if on vh %s\n", (*pv)->name);
+		if (_lws_vhost_init_server(NULL, *pv) == 0) {
+			/* became happy */
+			lwsl_notice("vh %s: became connected\n", v->name);
+			*pv = v->no_listener_vhost_list;
+			v->no_listener_vhost_list = NULL;
+			break;
+		}
+	} lws_end_foreach_llp(pv, no_listener_vhost_list);
+	lws_context_unlock(context);
+
+#if defined(LWS_ROLE_CGI)
+	role_ops_cgi.periodic_checks(context, 0, now);
+#endif
+#if defined(LWS_ROLE_DBUS)
+	role_ops_dbus.periodic_checks(context, 0, now);
+#endif
+
+	__lws_sul_insert(&pt->pt_sul_owner, &pt->sul_plat, 30 * LWS_US_PER_SEC);
+}
+#endif
+
 int
 lws_plat_init(struct lws_context *context,
 	      const struct lws_context_creation_info *info)
@@ -82,6 +141,15 @@ lws_plat_init(struct lws_context *context,
 #if defined(LWS_WITH_PLUGINS)
 	if (info->plugin_dirs)
 		lws_plat_plugins_init(context, info->plugin_dirs);
+#endif
+
+
+#if defined(LWS_WITH_NETWORK)
+	/* we only need to do this on pt[0] */
+
+	context->pt[0].sul_plat.cb = lws_sul_plat_unix;
+	__lws_sul_insert(&context->pt[0].pt_sul_owner, &context->pt[0].sul_plat,
+			 30 * LWS_US_PER_SEC);
 #endif
 
 	return 0;

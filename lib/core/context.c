@@ -41,6 +41,32 @@ lws_get_library_version(void)
 	return library_version;
 }
 
+#if defined(LWS_WITH_STATS)
+static void
+lws_sul_stats_cb(lws_sorted_usec_list_t *sul)
+{
+	struct lws_context_per_thread *pt = lws_container_of(sul,
+			struct lws_context_per_thread, sul_stats);
+
+	lws_stats_log_dump(pt->context);
+
+	__lws_sul_insert(&pt->pt_sul_owner, &pt->sul_stats, 10 * LWS_US_PER_SEC);
+}
+#endif
+#if defined(LWS_WITH_PEER_LIMITS)
+static void
+lws_sul_peer_limits_cb(lws_sorted_usec_list_t *sul)
+{
+	struct lws_context_per_thread *pt = lws_container_of(sul,
+			struct lws_context_per_thread, sul_peer_limits);
+
+	lws_peer_cull_peer_wait_list(pt->context);
+
+	__lws_sul_insert(&pt->pt_sul_owner, &pt->sul_peer_limits, 10 * LWS_US_PER_SEC);
+}
+#endif
+
+
 LWS_VISIBLE struct lws_context *
 lws_create_context(const struct lws_context_creation_info *info)
 {
@@ -161,7 +187,7 @@ lwsl_info("context created\n");
 		context->external_baggage_free_on_destroy =
 			info->external_baggage_free_on_destroy;
 #if defined(LWS_WITH_NETWORK)
-	context->time_up = time(NULL);
+	context->time_up = lws_now_usecs();
 #endif
 	context->pcontext_finalize = info->pcontext;
 
@@ -326,7 +352,8 @@ lwsl_info("context created\n");
 	 * and header data pool
 	 */
 	for (n = 0; n < context->count_threads; n++) {
-		context->pt[n].serv_buf = lws_malloc(context->pt_serv_buf_size,
+		context->pt[n].serv_buf = lws_malloc(
+				context->pt_serv_buf_size + sizeof(struct lws),
 						     "pt_serv_buf");
 		if (!context->pt[n].serv_buf) {
 			lwsl_err("OOM\n");
@@ -336,11 +363,26 @@ lwsl_info("context created\n");
 		context->pt[n].context = context;
 		context->pt[n].tid = n;
 
+		/*
+		 * We overallocated for a fakewsi (can't compose it in the
+		 * pt because size isn't known at that time).  point to it
+		 * and zero it down.  Fakewsis are needed to make callbacks work
+		 * when the source of the callback is not actually from a wsi
+		 * context.
+		 */
+		context->pt[n].fake_wsi = (struct lws *)(context->pt[n].serv_buf +
+						context->pt_serv_buf_size);
+
+		memset(context->pt[n].fake_wsi, 0, sizeof(struct lws));
+
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 		context->pt[n].http.ah_list = NULL;
 		context->pt[n].http.ah_pool_length = 0;
 #endif
 		lws_pt_mutex_init(&context->pt[n]);
+#if defined(LWS_WITH_SEQUENCER)
+		lws_seq_pt_init(&context->pt[n]);
+#endif
 	}
 
 	lwsl_info(" Threads: %d each %d fds\n", context->count_threads,
@@ -461,6 +503,17 @@ lwsl_info("context created\n");
 	strcpy(context->canonical_hostname, "unknown");
 #if defined(LWS_WITH_NETWORK)
 	lws_server_get_canonical_hostname(context, info);
+#endif
+
+#if defined(LWS_WITH_STATS)
+	context->pt[0].sul_stats.cb = lws_sul_stats_cb;
+	__lws_sul_insert(&context->pt[0].pt_sul_owner, &context->pt[0].sul_stats,
+			 10 * LWS_US_PER_SEC);
+#endif
+#if defined(LWS_WITH_PEER_LIMITS)
+	context->pt[0].sul_peer_limits.cb = lws_sul_peer_limits_cb;
+	__lws_sul_insert(&context->pt[0].pt_sul_owner,
+			 &context->pt[0].sul_peer_limits, 10 * LWS_US_PER_SEC);
 #endif
 
 #if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)

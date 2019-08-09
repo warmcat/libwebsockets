@@ -70,7 +70,7 @@ __lws_free_wsi(struct lws *wsi)
 #if defined(LWS_WITH_OPENSSL)
 	__lws_ssl_remove_wsi_from_buffered_list(wsi);
 #endif
-	__lws_remove_from_timeout_list(wsi);
+	__lws_wsi_remove_from_sul(wsi);
 
 	if (wsi->context->event_loop_ops->destroy_wsi)
 		wsi->context->event_loop_ops->destroy_wsi(wsi);
@@ -435,11 +435,12 @@ just_kill_connection:
 	 * delete socket from the internal poll list if still present
 	 */
 	__lws_ssl_remove_wsi_from_buffered_list(wsi);
-	__lws_remove_from_timeout_list(wsi);
-	lws_dll2_remove(&wsi->sul_hrtimer.list);
+	__lws_wsi_remove_from_sul(wsi);
 
 	//if (wsi->told_event_loop_closed) // cgi std close case (dummy-callback)
 	//	return;
+
+	// lwsl_notice("%s: wsi %p, fd %d\n", __func__, wsi, wsi->desc.sockfd);
 
 	/* checking return redundant since we anyway close */
 	if (wsi->desc.sockfd != LWS_SOCK_INVALID)

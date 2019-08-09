@@ -57,8 +57,7 @@ rops_handle_POLLIN_pipe(struct lws_context_per_thread *pt, struct lws *wsi,
 	 * protocol that may be interested in the pipe event know that
 	 * it happened.
 	 */
-	if (lws_broadcast(wsi->context, LWS_CALLBACK_EVENT_WAIT_CANCELLED,
-			  NULL, 0)) {
+	if (lws_broadcast(pt, LWS_CALLBACK_EVENT_WAIT_CANCELLED, NULL, 0)) {
 		lwsl_info("closed in event cancel\n");
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}

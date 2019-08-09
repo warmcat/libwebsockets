@@ -247,28 +247,21 @@ struct client_info_stash {
 
 #define LWS_H2_FRAME_HEADER_LENGTH 9
 
-struct lws_timed_vh_protocol {
-	struct lws_timed_vh_protocol *next;
-	const struct lws_protocols *protocol;
-	struct lws_vhost *vhost; /* only used for pending processing */
-	time_t time;
-	int reason;
-	int tsi_req;
-};
-
-typedef struct lws_sorted_usec_list {
-	struct lws_dll2 list;	/* simplify the code by keeping this at start */
-	lws_usec_t us;
-} lws_sorted_usec_list_t;
-
-typedef void (*sul_cb_t)(lws_sorted_usec_list_t *sul);
-
 int
 __lws_sul_insert(lws_dll2_owner_t *own, lws_sorted_usec_list_t *sul,
 		 lws_usec_t us);
 
 lws_usec_t
-__lws_sul_check(lws_dll2_owner_t *own, sul_cb_t cb, lws_usec_t usnow);
+__lws_sul_check(lws_dll2_owner_t *own, lws_usec_t usnow);
+
+struct lws_timed_vh_protocol {
+	struct lws_timed_vh_protocol	*next;
+	lws_sorted_usec_list_t		sul;
+	const struct lws_protocols	*protocol;
+	struct lws_vhost *vhost; /* only used for pending processing */
+	int				reason;
+	int				tsi_req;
+};
 
 /*
  * so we can have n connections being serviced simultaneously,
@@ -281,6 +274,34 @@ struct lws_context_per_thread {
 	struct lws_mutex_refcount mr;
 	pthread_t self;
 #endif
+	struct lws_dll2_owner dll_buflist_owner;  /* guys with pending rxflow */
+	struct lws_dll2_owner seq_owner;	   /* list of lws_sequencer-s */
+
+	struct lws_dll2_owner pt_sul_owner;
+
+#if defined (LWS_WITH_SEQUENCER)
+	lws_sorted_usec_list_t sul_seq_heartbeat;
+#endif
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+	lws_sorted_usec_list_t sul_ah_lifecheck;
+#endif
+#if defined(LWS_WITH_TLS) && !defined(LWS_NO_SERVER)
+	lws_sorted_usec_list_t sul_tls;
+#endif
+#if defined(LWS_PLAT_UNIX)
+	lws_sorted_usec_list_t sul_plat;
+#endif
+#if defined(LWS_WITH_STATS)
+	lws_sorted_usec_list_t sul_stats;
+#endif
+#if defined(LWS_WITH_PEER_LIMITS)
+	lws_sorted_usec_list_t sul_peer_limits;
+#endif
+
+#if defined(LWS_WITH_TLS)
+	struct lws_pt_tls tls;
+#endif
+	struct lws *fake_wsi;	/* used for callbacks where there's no wsi */
 
 	struct lws_context *context;
 
@@ -290,19 +311,6 @@ struct lws_context_per_thread {
 	 * of any socket can likewise use it and overwrite)
 	 */
 	unsigned char *serv_buf;
-
-	struct lws_dll2_owner dll_timeout_owner;
-	struct lws_dll2_owner dll_hrtimer_owner;
-	struct lws_dll2_owner dll_buflist_owner;  /* guys with pending rxflow */
-	struct lws_dll2_owner seq_owner;	  /* list of lws_sequencer-s */
-	struct lws_dll2_owner seq_pend_owner;  /* lws_seq-s with pending evts */
-	struct lws_dll2_owner seq_to_owner;  /* lws_seq-s with sorted timeout */
-
-#if defined(LWS_WITH_TLS)
-	struct lws_pt_tls tls;
-#endif
-
-	lws_usec_t last_heartbeat;
 
 	struct lws_pollfd *fds;
 	volatile struct lws_foreign_thread_pollfd * volatile foreign_pfd_list;
@@ -498,10 +506,12 @@ struct lws {
 #endif
 #if defined(LWS_ROLE_WS)
 	struct _lws_websocket_related *ws; /* allocated if we upgrade to ws */
+	lws_sorted_usec_list_t sul_ping;
 #endif
 #if defined(LWS_ROLE_DBUS)
 	struct _lws_dbus_mode_related dbus;
 #endif
+
 
 	const struct lws_role_ops *role_ops;
 	lws_wsi_state_t	wsistate;
@@ -931,9 +941,6 @@ __insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi);
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len);
 
-LWS_EXTERN void
-lws_remove_from_timeout_list(struct lws *wsi);
-
 LWS_EXTERN lws_usec_t
 __lws_seq_timeout_check(struct lws_context_per_thread *pt, lws_usec_t usnow);
 
@@ -1009,8 +1016,6 @@ lws_plat_delete_socket_from_fds(struct lws_context *context,
 LWS_EXTERN void
 lws_plat_insert_socket_into_fds(struct lws_context *context,
 				struct lws *wsi);
-LWS_EXTERN void
-lws_plat_service_periodic(struct lws_context *context);
 
 LWS_EXTERN int
 lws_plat_change_pollfd(struct lws_context *context, struct lws *wsi,
@@ -1049,14 +1054,11 @@ __lws_same_vh_protocol_remove(struct lws *wsi);
 LWS_EXTERN void
 lws_same_vh_protocol_insert(struct lws *wsi, int n);
 
-int
-lws_pt_do_pending_sequencer_events(struct lws_context_per_thread *pt);
-
 void
 lws_seq_destroy_all_on_pt(struct lws_context_per_thread *pt);
 
 LWS_EXTERN int
-lws_broadcast(struct lws_context *context, int reason, void *in, size_t len);
+lws_broadcast(struct lws_context_per_thread *pt, int reason, void *in, size_t len);
 
 #if defined(LWS_WITH_STATS)
  void
@@ -1104,13 +1106,10 @@ int
 lws_threadpool_tsi_context(struct lws_context *context, int tsi);
 
 void
-__lws_remove_from_timeout_list(struct lws *wsi);
+__lws_wsi_remove_from_sul(struct lws *wsi);
 
-lws_usec_t
-__lws_hrtimer_service(struct lws_context_per_thread *pt, lws_usec_t t);
-
-lws_usec_t
-__lws_wsitimeout_service(struct lws_context_per_thread *pt, lws_usec_t t);
+int
+lws_seq_pt_init(struct lws_context_per_thread *pt);
 
 int
 lws_buflist_aware_read(struct lws_context_per_thread *pt, struct lws *wsi,

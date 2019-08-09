@@ -22,20 +22,20 @@
 #include "core/private.h"
 
 static void
-lws_uv_hrtimer_cb(uv_timer_t *timer
+lws_uv_sultimer_cb(uv_timer_t *timer
 #if UV_VERSION_MAJOR == 0
 		, int status
 #endif
 )
 {
 	struct lws_context_per_thread *pt = lws_container_of(timer,
-				struct lws_context_per_thread, uv.hrtimer);
+				struct lws_context_per_thread, uv.sultimer);
 	lws_usec_t us;
 
 	lws_pt_lock(pt, __func__);
-	us = __lws_event_service_get_earliest_wake(pt, lws_now_usecs());
+	us = __lws_sul_check(&pt->pt_sul_owner, lws_now_usecs());
 	if (us)
-		uv_timer_start(&pt->uv.hrtimer, lws_uv_hrtimer_cb,
+		uv_timer_start(&pt->uv.sultimer, lws_uv_sultimer_cb,
 			       LWS_US_TO_MS(us), 0);
 	lws_pt_unlock(pt);
 }
@@ -65,12 +65,12 @@ lws_uv_idle(uv_idle_t *handle
 		return;
 	}
 
-	/* account for hrtimer */
+	/* account for sultimer */
 
 	lws_pt_lock(pt, __func__);
-	us = __lws_event_service_get_earliest_wake(pt, lws_now_usecs());
+	us = __lws_sul_check(&pt->pt_sul_owner, lws_now_usecs());
 	if (us)
-		uv_timer_start(&pt->uv.hrtimer, lws_uv_hrtimer_cb,
+		uv_timer_start(&pt->uv.sultimer, lws_uv_sultimer_cb,
 			       LWS_US_TO_MS(us), 0);
 	lws_pt_unlock(pt);
 
@@ -188,24 +188,6 @@ lws_uv_signal_handler(uv_signal_t *watcher, int signum)
 
 	lwsl_err("internal signal handler caught signal %d\n", signum);
 	lws_libuv_stop(watcher->data);
-}
-
-static void
-lws_uv_timeout_cb(uv_timer_t *timer
-#if UV_VERSION_MAJOR == 0
-		, int status
-#endif
-)
-{
-	struct lws_context_per_thread *pt = lws_container_of(timer,
-			struct lws_context_per_thread, uv.timeout_watcher);
-
-	if (pt->context->requested_kill)
-		return;
-
-	lwsl_debug("%s\n", __func__);
-
-	lws_service_fd_tsi(pt->context, NULL, pt->tid);
 }
 
 static const int sigs[] = { SIGINT, SIGTERM, SIGSEGV, SIGFPE, SIGHUP };
@@ -778,10 +760,8 @@ elops_destroy_pt_uv(struct lws_context *context, int tsi)
 	} else
 		lwsl_debug("%s: not closing pt signals\n", __func__);
 
-	uv_timer_stop(&pt->uv.timeout_watcher);
-	uv_close((uv_handle_t *)&pt->uv.timeout_watcher, lws_uv_close_cb_sa);
-	uv_timer_stop(&pt->uv.hrtimer);
-	uv_close((uv_handle_t *)&pt->uv.hrtimer, lws_uv_close_cb_sa);
+	uv_timer_stop(&pt->uv.sultimer);
+	uv_close((uv_handle_t *)&pt->uv.sultimer, lws_uv_close_cb_sa);
 
 	uv_idle_stop(&pt->uv.idle);
 	uv_close((uv_handle_t *)&pt->uv.idle, lws_uv_close_cb_sa);
@@ -861,12 +841,8 @@ elops_init_pt_uv(struct lws_context *context, void *_loop, int tsi)
 	if (!first)
 		return status;
 
-	uv_timer_init(pt->uv.io_loop, &pt->uv.timeout_watcher);
-	LWS_UV_REFCOUNT_STATIC_HANDLE_NEW(&pt->uv.timeout_watcher, context);
-	uv_timer_start(&pt->uv.timeout_watcher, lws_uv_timeout_cb, 10, 1000);
-
-	uv_timer_init(pt->uv.io_loop, &pt->uv.hrtimer);
-	LWS_UV_REFCOUNT_STATIC_HANDLE_NEW(&pt->uv.hrtimer, context);
+	uv_timer_init(pt->uv.io_loop, &pt->uv.sultimer);
+	LWS_UV_REFCOUNT_STATIC_HANDLE_NEW(&pt->uv.sultimer, context);
 
 	return status;
 }

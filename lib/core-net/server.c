@@ -166,7 +166,6 @@ lws_json_dump_context(const struct lws_context *context, char *buf, int len,
 	const struct lws_context_per_thread *pt;
 	int n, listening = 0, cgi_count = 0, fd;
 	struct lws_conn_stats cs;
-	time_t t = time(NULL);
 	double d = 0;
 #ifdef LWS_WITH_CGI
 	struct lws_cgi * const *pcgi;
@@ -216,13 +215,13 @@ lws_json_dump_context(const struct lws_context *context, char *buf, int len,
 				(long long)lws_get_allocated_heap());
 
 	buf += lws_snprintf(buf, end - buf, "{ "
-				"\"context_uptime\":\"%ld\",\n"
+				"\"context_uptime\":\"%llu\",\n"
 				"\"cgi_spawned\":\"%d\",\n"
 				"\"pt_fd_max\":\"%d\",\n"
 				"\"ah_pool_max\":\"%d\",\n"
 				"\"deprecated\":\"%d\",\n"
 				"\"wsi_alive\":\"%d\",\n",
-				(unsigned long)(t - context->time_up),
+				(unsigned long long)(lws_now_usecs() - context->time_up),
 				context->count_cgi_spawned,
 				context->fd_limit_per_thread,
 				context->max_http_header_pool,

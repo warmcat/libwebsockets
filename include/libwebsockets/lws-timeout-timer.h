@@ -150,19 +150,18 @@ lws_set_timer_usecs(struct lws *wsi, lws_usec_t usecs);
 
 /*
  * lws_timed_callback_vh_protocol() - calls back a protocol on a vhost after
- * 					the specified delay
+ * 					the specified delay in seconds
  *
  * \param vh:	 the vhost to call back
  * \param protocol: the protocol to call back
  * \param reason: callback reason
- * \param secs:	how many seconds in the future to do the callback.  Set to
- *		-1 to cancel the timer callback.
+ * \param secs:	how many seconds in the future to do the callback.
  *
  * Callback the specified protocol with a fake wsi pointing to the specified
  * vhost and protocol, with the specified reason, at the specified time in the
  * future.
  *
- * Returns 0 if OK.
+ * Returns 0 if OK or 1 on OOM.
  *
  * In the multithreaded service case, the callback will occur in the same
  * service thread context as the call to this api that requested it.  If it is
@@ -172,4 +171,64 @@ LWS_VISIBLE LWS_EXTERN int
 lws_timed_callback_vh_protocol(struct lws_vhost *vh,
 			       const struct lws_protocols *prot,
 			       int reason, int secs);
+
+/*
+ * lws_timed_callback_vh_protocol_us() - calls back a protocol on a vhost after
+ * 					 the specified delay in us
+ *
+ * \param vh:	 the vhost to call back
+ * \param protocol: the protocol to call back
+ * \param reason: callback reason
+ * \param us:	how many us in the future to do the callback.
+ *
+ * Callback the specified protocol with a fake wsi pointing to the specified
+ * vhost and protocol, with the specified reason, at the specified time in the
+ * future.
+ *
+ * Returns 0 if OK or 1 on OOM.
+ *
+ * In the multithreaded service case, the callback will occur in the same
+ * service thread context as the call to this api that requested it.  If it is
+ * called from a non-service thread, tsi 0 will handle it.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_timed_callback_vh_protocol_us(struct lws_vhost *vh,
+				  const struct lws_protocols *prot, int reason,
+				  lws_usec_t us);
+
+
+typedef struct lws_sorted_usec_list lws_sorted_usec_list_t;
+typedef void (*sul_cb_t)(lws_sorted_usec_list_t *sul);
+
+typedef struct lws_sorted_usec_list {
+	struct lws_dll2 list;	/* simplify the code by keeping this at start */
+	sul_cb_t	cb;
+	lws_usec_t	us;
+} lws_sorted_usec_list_t;
+
+
+/*
+ * lws_sul_schedule() - schedule a callback
+ *
+ * \param context: the lws_context
+ * \param tsi: the thread service index (usually 0)
+ * \param sul: pointer to the sul element
+ * \param cb: the scheduled callback
+ * \param us: the delay before the callback arrives, or
+ *		LWS_SET_TIMER_USEC_CANCEL to cancel it.
+ *
+ * Generic callback-at-a-later time function.  The callback happens on the
+ * event loop thread context.
+ *
+ * Although the api has us resultion, the actual resolution depends on the
+ * platform and is commonly 1ms.
+ *
+ * This doesn't allocate and doesn't fail.
+ *
+ * You can call it again with another us value to change the delay.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_sul_schedule(struct lws_context *context, int tsi,
+	         lws_sorted_usec_list_t *sul, sul_cb_t cb, lws_usec_t us);
+
 ///@}

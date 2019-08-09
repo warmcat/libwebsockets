@@ -231,6 +231,7 @@ lws_generate_client_ws_handshake(struct lws *wsi, char *p, const char *conn1)
 int
 lws_client_ws_upgrade(struct lws *wsi, const char **cce)
 {
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	struct lws_context *context = wsi->context;
 	struct lws_tokenize ts;
 	int n, len, okay = 0;
@@ -238,7 +239,6 @@ lws_client_ws_upgrade(struct lws *wsi, const char **cce)
 	char *p, buf[64];
 	const char *pc;
 #if !defined(LWS_WITHOUT_EXTENSIONS)
-	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	char *sb = (char *)&pt->serv_buf[0];
 	const struct lws_ext_options *opts;
 	const struct lws_extension *ext;
@@ -627,7 +627,13 @@ check_accept:
 
 	lws_role_transition(wsi, LWSIFR_CLIENT, LRS_ESTABLISHED,
 			    &role_ops_ws);
-	lws_restart_ws_ping_pong_timer(wsi);
+
+	if (wsi->context->ws_ping_pong_interval && !wsi->http2_substream ) {
+		wsi->sul_ping.cb = lws_sul_wsping_cb;
+		__lws_sul_insert(&pt->pt_sul_owner, &wsi->sul_ping,
+				 (lws_usec_t)wsi->context->ws_ping_pong_interval *
+				 LWS_USEC_PER_SEC);
+	}
 
 	wsi->rxflow_change_to = LWS_RXFLOW_ALLOW;
 

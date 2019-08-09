@@ -48,8 +48,7 @@
 struct lws_pt_eventlibs_libuv {
 	uv_loop_t *io_loop;
 	uv_signal_t signals[8];
-	uv_timer_t timeout_watcher;
-	uv_timer_t hrtimer;
+	uv_timer_t sultimer;
 	uv_idle_t idle;
 };
 

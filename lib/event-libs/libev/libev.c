@@ -29,7 +29,7 @@ lws_ev_hrtimer_cb(struct ev_loop *loop, struct ev_timer *watcher, int revents)
 	lws_usec_t us;
 
 	lws_pt_lock(pt, __func__);
-	us = __lws_event_service_get_earliest_wake(pt, lws_now_usecs());
+	us = __lws_sul_check(&pt->pt_sul_owner, lws_now_usecs());
 	if (us) {
 		ev_timer_set(&pt->ev.hrtimer, ((float)us) / 1000000.0, 0);
 		ev_timer_start(pt->ev.io_loop, &pt->ev.hrtimer);
@@ -61,7 +61,7 @@ lws_ev_idle_cb(struct ev_loop *loop, struct ev_idle *handle, int revents)
 	/* account for hrtimer */
 
 	lws_pt_lock(pt, __func__);
-	us = __lws_event_service_get_earliest_wake(pt, lws_now_usecs());
+	us = __lws_sul_check(&pt->pt_sul_owner, lws_now_usecs());
 	if (us) {
 		ev_timer_set(&pt->ev.hrtimer, ((float)us) / 1000000.0, 0);
 		ev_timer_start(pt->ev.io_loop, &pt->ev.hrtimer);

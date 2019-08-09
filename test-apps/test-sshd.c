@@ -690,7 +690,7 @@ int main()
 
 	n = 0;
 	while (!n  && !force_exit)
-		n = lws_service(context, 500);
+		n = lws_service(context, 0);
 
 	ret = 0;
 

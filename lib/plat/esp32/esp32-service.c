@@ -38,8 +38,8 @@ lws_plat_service(struct lws_context *context, int timeout_ms)
 LWS_EXTERN int
 _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
-	lws_usec_t timeout_us = timeout_ms * LWS_US_PER_MS;
 	struct lws_context_per_thread *pt;
+	lws_usec_t timeout_us;
 	int n = -1, m, c;
 
 	/* stay dead once we are dead */
@@ -80,6 +80,10 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	if (timeout_ms < 0)
 		goto faked_service;
 
+	/* force a default timeout of 23 days */
+	timeout_ms = 2000000000;
+	timeout_us = ((lws_usec_t)timeout_ms) * LWS_US_PER_MS;
+
 	if (!pt->service_tid_detected) {
 		struct lws *_lws = lws_zalloc(sizeof(*_lws), "tid probe");
 
@@ -106,16 +110,14 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	}
 
 	if (timeout_us) {
-		lws_usec_t t, us = lws_now_usecs();
+		lws_usec_t us;
+
 		lws_pt_lock(pt, __func__);
-		/* don't stay in poll wait longer than next hr timeout... */
-		t =  __lws_hrtimer_service(pt, us);
-		if (t && timeout_us > t)
-			timeout_us = t;
-		/* ... or next sequencer timeout */
-		t = __lws_seq_timeout_check(pt, us);
-		if (t && timeout_us > t)
-			timeout_us = t;
+		/* don't stay in poll wait longer than next hr timeout */
+		us = __lws_sul_check(&pt->pt_sul_owner, lws_now_usecs());
+		if (us && us < timeout_us)
+			timeout_us = us;
+
 		lws_pt_unlock(pt);
 	}
 
@@ -208,10 +210,3 @@ faked_service:
 
 	return 0;
 }
-
-
-void
-lws_plat_service_periodic(struct lws_context *context)
-{
-}
-

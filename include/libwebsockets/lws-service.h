@@ -33,9 +33,7 @@
 /**
  * lws_service() - Service any pending websocket activity
  * \param context:	Websocket context
- * \param timeout_ms:	Timeout for poll; 0 means return immediately if nothing needed
- *		service otherwise block and service immediately, returning
- *		after the timeout if nothing needed service.
+ * \param timeout_ms:	Set to 0; ignored; for backward compatibility
  *
  *	This function deals with any pending websocket traffic, for three
  *	kinds of event.  It handles these events on both server and client
@@ -46,20 +44,8 @@
  *	2) Call the receive callback for incoming frame data received by
  *	    server or client connections.
  *
- *	You need to call this service function periodically to all the above
- *	functions to happen; if your application is single-threaded you can
- *	just call it in your main event loop.
- *
- *	Alternatively you can fork a new process that asynchronously handles
- *	calling this service in a loop.  In that case you are happy if this
- *	call blocks your thread until it needs to take care of something and
- *	would call it with a large nonzero timeout.  Your loop then takes no
- *	CPU while there is nothing happening.
- *
- *	If you are calling it in a single-threaded app, you don't want it to
- *	wait around blocking other things in your loop from happening, so you
- *	would call it with a timeout_ms of 0, so it returns immediately if
- *	nothing is pending, or as soon as it services whatever was pending.
+ *  Since v4.0 internally the timeout wait is ignored, the lws scheduler is
+ *  smart enough to stay asleep until an event is queued.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_service(struct lws_context *context, int timeout_ms);
@@ -68,9 +54,7 @@ lws_service(struct lws_context *context, int timeout_ms);
  * lws_service_tsi() - Service any pending websocket activity
  *
  * \param context:	Websocket context
- * \param timeout_ms:	Timeout for poll; 0 means return immediately if nothing needed
- *		service otherwise block and service immediately, returning
- *		after the timeout if nothing needed service.
+ * \param timeout_ms:	Set to 0; ignored; for backwards compatibility
  * \param tsi:		Thread service index, starting at 0
  *
  * Same as lws_service(), but for a specific thread service index.  Only needed
@@ -126,10 +110,6 @@ lws_cancel_service(struct lws_context *context);
  * If the socket is foreign to lws, it leaves revents alone.  So you can
  * see if you should service yourself by checking the pollfd revents
  * after letting lws try to service it.
- *
- * You should also call this with pollfd = NULL to just allow the
- * once-per-second global timeout checks; if less than a second since the last
- * check it returns immediately then.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_service_fd(struct lws_context *context, struct lws_pollfd *pollfd);

@@ -531,9 +531,24 @@ static int
 rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 		       struct lws_pollfd *pollfd)
 {
+	if (lwsi_state(wsi) == LRS_IDLING) {
+		uint8_t buf[1];
+		int rlen;
 
-//	lwsl_notice("%s: %p: wsistate 0x%x %s, revents 0x%x\n", __func__, wsi,
-//			wsi->wsistate, wsi->role_ops->name, pollfd->revents);
+		/*
+		 * h1 staggered spins here in IDLING if we don't close it.
+		 * It shows POLLIN but the tls connection returns ERROR if
+		 * you try to read it.
+		 */
+
+		// lwsl_notice("%s: %p: wsistate 0x%x %s, revents 0x%x\n",
+		//	    __func__, wsi, wsi->wsistate, wsi->role_ops->name,
+		//	    pollfd->revents);
+
+		rlen = lws_ssl_capable_read(wsi, buf, sizeof(buf));
+		if (rlen == LWS_SSL_CAPABLE_ERROR)
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
+	}
 
 #ifdef LWS_WITH_CGI
 	if (wsi->http.cgi && (pollfd->revents & LWS_POLLOUT)) {
@@ -1086,12 +1101,35 @@ rops_close_kill_connection_h1(struct lws *wsi, enum lws_close_status reason)
 	return 0;
 }
 
+int
+rops_init_context_h1(struct lws_context *context,
+		     const struct lws_context_creation_info *info)
+{
+	/*
+	 * We only want to do this once... we will do it if no h2 support
+	 * otherwise let h2 ops do it.
+	 */
+#if !defined(LWS_ROLE_H2)
+	int n;
+
+	for (n = 0; n < context->count_threads; n++) {
+		struct lws_context_per_thread *pt = &context->pt[n];
+
+		pt->sul_ah_lifecheck.cb = lws_sul_http_ah_lifecheck;
+
+		__lws_sul_insert(&pt->pt_sul_owner, &pt->sul_ah_lifecheck,
+				 30 * LWS_US_PER_SEC);
+	}
+#endif
+
+	return 0;
+}
 
 struct lws_role_ops role_ops_h1 = {
 	/* role name */			"h1",
 	/* alpn id */			"http/1.1",
 	/* check_upgrades */		NULL,
-	/* init_context */		NULL,
+	/* init_context */		rops_init_context_h1,
 	/* init_vhost */		NULL,
 	/* destroy_vhost */		NULL,
 	/* periodic_checks */		NULL,

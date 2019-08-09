@@ -538,7 +538,23 @@ static int
 rops_init_context_h2(struct lws_context *context,
 		     const struct lws_context_creation_info *info)
 {
+	int n;
+
 	context->set = lws_h2_stock_settings;
+
+	/*
+	 * We only want to do this once... we will do it if we are built
+	 * otherwise h1 ops will do it (or nobody if no http at all)
+	 */
+
+	for (n = 0; n < context->count_threads; n++) {
+		struct lws_context_per_thread *pt = &context->pt[n];
+
+		pt->sul_ah_lifecheck.cb = lws_sul_http_ah_lifecheck;
+
+		__lws_sul_insert(&pt->pt_sul_owner, &pt->sul_ah_lifecheck,
+				 30 * LWS_US_PER_SEC);
+	}
 
 	return 0;
 }

@@ -338,9 +338,6 @@ int main(int argc, char **argv)
 	struct lws_context_creation_info info;
 	struct lws_vhost *vhost;
 	char interface_name[128] = "";
-#ifdef EXTERNAL_POLL
-	unsigned int ms;
-#endif
 	const char *iface = NULL;
 	char cert_path[1024] = "";
 	char key_path[1024] = "";
@@ -585,9 +582,6 @@ int main(int argc, char **argv)
 	lws_get_fops(context)->open = test_server_fops_open;
 
 	n = 0;
-#ifdef EXTERNAL_POLL
-	int ms_1sec = 0;
-#endif
 	while (n >= 0 && !force_exit) {
 		struct timeval tv;
 
@@ -604,7 +598,6 @@ int main(int argc, char **argv)
 		 * this represents an existing server's single poll action
 		 * which also includes libwebsocket sockets
 		 */
-		ms = (tv.tv_sec * 1000) + (tv.tv_usec / 1000);
 		n = poll(pollfds, count_pollfds, 50);
 		if (n < 0)
 			continue;
@@ -626,25 +619,15 @@ int main(int argc, char **argv)
 				lwsl_notice("extpoll doing forced service!\n");
 				lws_service_tsi(context, -1, 0);
 			}
-		} else {
-			/* no revents, but before polling again, make lws check for any timeouts */
-			if (ms - ms_1sec > 1000) {
-				lwsl_notice("1 per sec\n");
-				lws_service_fd(context, NULL);
-				ms_1sec = ms;
-			}
 		}
 #else
 		/*
 		 * If libwebsockets sockets are all we care about,
 		 * you can use this api which takes care of the poll()
 		 * and looping through finding who needed service.
-		 *
-		 * If no socket needs service, it'll return anyway after
-		 * the number of ms in the second argument.
 		 */
 
-		n = lws_service(context, 50);
+		n = lws_service(context, 0);
 #endif
 
 		if (dynamic_vhost_enable && !dynamic_vhost) {

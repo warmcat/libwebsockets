@@ -176,7 +176,6 @@ struct lws;
 
 #if defined(LWS_WITH_NETWORK)
 #include "event-libs/private.h"
-#endif
 
 
 struct lws_io_watcher {
@@ -213,6 +212,7 @@ struct lws_foreign_thread_pollfd {
 	int _and;
 	int _or;
 };
+#endif
 
 #if LWS_MAX_SMP > 1
 
@@ -256,9 +256,8 @@ struct lws_deferred_free
  */
 
 struct lws_context {
-	time_t last_timeout_check_s;
 	time_t last_ws_ping_pong_check_s;
-	time_t time_up;
+	lws_usec_t time_up; /* monotonic */
 	const struct lws_plat_file_ops *fops;
 	struct lws_plat_file_ops fops_platform;
 	struct lws_context **pcontext_finalize;
@@ -321,6 +320,7 @@ struct lws_context {
 	char count_caps;
 #endif
 
+#if defined(LWS_WITH_NETWORK)
 #if defined(LWS_WITH_LIBEV)
 	struct lws_context_eventlibs_libev ev;
 #endif
@@ -331,7 +331,7 @@ struct lws_context {
 	struct lws_context_eventlibs_libevent event;
 #endif
 	struct lws_event_loop_ops *event_loop_ops;
-
+#endif
 
 #if defined(LWS_WITH_TLS) && defined(LWS_WITH_NETWORK)
 	struct lws_context_tls tls;
@@ -347,7 +347,6 @@ struct lws_context {
 
 #if defined(LWS_WITH_STATS)
 	uint64_t lws_stats[LWSSTATS_SIZE];
-	uint64_t last_dump;
 	int updated;
 #endif
 #if defined(LWS_WITH_ESP32)
