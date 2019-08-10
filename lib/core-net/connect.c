@@ -57,11 +57,6 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 		if (lws_protocol_init(i->context))
 			return NULL;
 
-#if LWS_MAX_SMP > 1
-	tid = wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_GET_THREAD_ID,
-						NULL, NULL, 0);
-#endif
-
 	/*
 	 * If we have .local_protocol_name, use it to select the local protocol
 	 * handler to bind to.  Otherwise use .protocol if http[s].
@@ -92,6 +87,11 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 
 		goto bail;
 	}
+
+#if LWS_MAX_SMP > 1
+	tid = wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_GET_THREAD_ID,
+						NULL, NULL, 0);
+#endif
 
 	/*
 	 * PHASE 2: if SMP, bind the client to whatever tsi the current thread
