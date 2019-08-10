@@ -139,7 +139,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		       FD_ADDRESS_LIST_CHANGE);
 
 	ev = WSAWaitForMultipleEvents(1, &pt->events, FALSE,
-				      timeout_us / LWS_US_PER_MS, FALSE);
+				      (DWORD)(timeout_us / LWS_US_PER_MS), FALSE);
 	if (ev == WSA_WAIT_EVENT_0) {
 		EnterCriticalSection(&pt->interrupt_lock);
 		interrupt_requested = pt->interrupt_requested;

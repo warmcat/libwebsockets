@@ -43,7 +43,7 @@ int lws_plat_apply_FD_CLOEXEC(int n)
 void TEE_GenerateRandom(void *randomBuffer, uint32_t randomBufferLen);
 #if defined(LWS_WITH_NETWORK)
 uint64_t
-lws_time_in_microseconds(void)
+lws_now_usecs(void)
 {
 	return ((unsigned long long)time(NULL)) * 1000000;
 }

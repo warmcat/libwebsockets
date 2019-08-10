@@ -27,16 +27,14 @@ lws_callback_as_writeable(struct lws *wsi)
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	int n, m;
 
-	lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_WRITEABLE_CB, 1);
+	lws_stats_bump(pt, LWSSTATS_C_WRITEABLE_CB, 1);
 #if defined(LWS_WITH_STATS)
 	if (wsi->active_writable_req_us) {
-		uint64_t ul = lws_time_in_microseconds() -
+		uint64_t ul = lws_now_usecs() -
 			      wsi->active_writable_req_us;
 
-		lws_stats_atomic_bump(wsi->context, pt,
-				      LWSSTATS_MS_WRITABLE_DELAY, ul);
-		lws_stats_atomic_max(wsi->context, pt,
-				     LWSSTATS_MS_WORST_WRITABLE_DELAY, ul);
+		lws_stats_bump(pt, LWSSTATS_US_WRITABLE_DELAY_AVG, ul);
+		lws_stats_max(pt, LWSSTATS_US_WORST_WRITABLE_DELAY, ul);
 		wsi->active_writable_req_us = 0;
 	}
 #endif

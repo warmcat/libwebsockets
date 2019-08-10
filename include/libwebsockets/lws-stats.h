@@ -42,22 +42,27 @@ enum {
 	LWSSTATS_C_WRITEABLE_CB, /**< count of writable callbacks */
 	LWSSTATS_C_SSL_CONNECTIONS_FAILED, /**< count of failed SSL connections */
 	LWSSTATS_C_SSL_CONNECTIONS_ACCEPTED, /**< count of accepted SSL connections */
-	LWSSTATS_C_SSL_CONNECTIONS_ACCEPT_SPIN, /**< count of SSL_accept() attempts */
+	LWSSTATS_C_SSL_ACCEPT_SPIN, /**< count of SSL_accept() attempts */
 	LWSSTATS_C_SSL_CONNS_HAD_RX, /**< count of accepted SSL conns that have had some RX */
 	LWSSTATS_C_TIMEOUTS, /**< count of timed-out connections */
 	LWSSTATS_C_SERVICE_ENTRY, /**< count of entries to lws service loop */
 	LWSSTATS_B_READ, /**< aggregate bytes read */
 	LWSSTATS_B_WRITE, /**< aggregate bytes written */
 	LWSSTATS_B_PARTIALS_ACCEPTED_PARTS, /**< aggreate of size of accepted write data from new partials */
-	LWSSTATS_MS_SSL_CONNECTIONS_ACCEPTED_DELAY, /**< aggregate delay in accepting connection */
-	LWSSTATS_MS_WRITABLE_DELAY, /**< aggregate delay between asking for writable and getting cb */
-	LWSSTATS_MS_WORST_WRITABLE_DELAY, /**< single worst delay between asking for writable and getting cb */
-	LWSSTATS_MS_SSL_RX_DELAY, /**< aggregate delay between ssl accept complete and first RX */
+	LWSSTATS_US_SSL_ACCEPT_LATENCY_AVG, /**< aggregate delay in accepting connection */
+	LWSSTATS_US_WRITABLE_DELAY_AVG, /**< aggregate delay between asking for writable and getting cb */
+	LWSSTATS_US_WORST_WRITABLE_DELAY, /**< single worst delay between asking for writable and getting cb */
+	LWSSTATS_US_SSL_RX_DELAY_AVG, /**< aggregate delay between ssl accept complete and first RX */
 	LWSSTATS_C_PEER_LIMIT_AH_DENIED, /**< number of times we would have given an ah but for the peer limit */
 	LWSSTATS_C_PEER_LIMIT_WSI_DENIED, /**< number of times we would have given a wsi but for the peer limit */
+	LWSSTATS_C_CONNECTIONS_CLIENT, /**< attempted client conns */
+	LWSSTATS_C_CONNECTIONS_CLIENT_FAILED, /**< failed client conns */
 
 	/* Add new things just above here ---^
-	 * This is part of the ABI, don't needlessly break compatibility */
+	 * This is part of the ABI, don't needlessly break compatibility
+	 *
+	 * UPDATE stat_names in stats.c in sync with this!
+	 */
 	LWSSTATS_SIZE
 };
 

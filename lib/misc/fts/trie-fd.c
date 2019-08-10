@@ -390,7 +390,7 @@ lws_fts_search(struct lws_fts_file *jtf, struct lws_fts_search_params *ftsp)
 	uint32_t children, instances, co, sl, agg, slt, chunk,
 		 fileofs_tif_start, desc, agg_instances;
 	int pos = 0, n, m, nl, bp, base = 0, ra, palm, budget, sp, ofd = -1;
-	unsigned long long tf = lws_time_in_microseconds();
+	unsigned long long tf = lws_now_usecs();
 	struct lws_fts_result_autocomplete **pac = NULL;
 	char stasis, nac = 0, credible, needle[32];
 	struct lws_fts_result_filepath *fp;
@@ -595,7 +595,7 @@ ensure:
 		}
 	} while(1);
 
-	result->duration_ms = (int)((lws_time_in_microseconds() - tf) / 1000);
+	result->duration_ms = (int)((lws_now_usecs() - tf) / 1000);
 
 	if (!instances && !children)
 		return result;

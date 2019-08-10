@@ -27,122 +27,134 @@
 LWS_VISIBLE LWS_EXTERN uint64_t
 lws_stats_get(struct lws_context *context, int index)
 {
+	struct lws_context_per_thread *pt = &context->pt[0];
+
 	if (index >= LWSSTATS_SIZE)
 		return 0;
 
-	return context->lws_stats[index];
+	return pt->lws_stats[index];
 }
+
+static const char * stat_names[] = {
+	"C_CONNECTIONS",
+	"C_API_CLOSE",
+	"C_API_READ",
+	"C_API_LWS_WRITE",
+	"C_API_WRITE",
+	"C_WRITE_PARTIALS",
+	"C_WRITEABLE_CB_REQ",
+	"C_WRITEABLE_CB_EFF_REQ",
+	"C_WRITEABLE_CB",
+	"C_SSL_CONNECTIONS_FAILED",
+	"C_SSL_CONNECTIONS_ACCEPTED",
+	"C_SSL_CONNECTIONS_ACCEPT_SPIN",
+	"C_SSL_CONNS_HAD_RX",
+	"C_TIMEOUTS",
+	"C_SERVICE_ENTRY",
+	"B_READ",
+	"B_WRITE",
+	"B_PARTIALS_ACCEPTED_PARTS",
+	"US_SSL_ACCEPT_LATENCY_AVG",
+	"US_WRITABLE_DELAY_AVG",
+	"US_WORST_WRITABLE_DELAY",
+	"US_SSL_RX_DELAY_AVG",
+	"C_PEER_LIMIT_AH_DENIED",
+	"C_PEER_LIMIT_WSI_DENIED",
+	"C_CONNECTIONS_CLIENT",
+	"C_CONNECTIONS_CLIENT_FAILED",
+};
+
+static int
+quantify(struct lws_context *context, int tsi, char *p, int len, int idx,
+	 uint64_t *sum)
+{
+	const lws_humanize_unit_t *schema = humanize_schema_si;
+	struct lws_context_per_thread *pt = &context->pt[tsi];
+	uint64_t u, u1;
+
+	lws_pt_stats_lock(pt);
+	u = pt->lws_stats[idx];
+
+	/* it's supposed to be an average? */
+
+	switch (idx) {
+	case LWSSTATS_US_SSL_ACCEPT_LATENCY_AVG:
+		u1 = pt->lws_stats[LWSSTATS_C_SSL_CONNECTIONS_ACCEPTED];
+		if (u1)
+			u = u / u1;
+		break;
+	case LWSSTATS_US_SSL_RX_DELAY_AVG:
+		u1 = pt->lws_stats[LWSSTATS_C_SSL_CONNS_HAD_RX];
+		if (u1)
+			u = u / u1;
+		break;
+	case LWSSTATS_US_WRITABLE_DELAY_AVG:
+		u1 = pt->lws_stats[LWSSTATS_C_WRITEABLE_CB];
+		if (u1)
+			u = u / u1;
+		break;
+	}
+	lws_pt_stats_unlock(pt);
+
+	*sum += u;
+
+	switch (stat_names[idx][0]) {
+	case 'U':
+		schema = humanize_schema_us;
+		break;
+	case 'B':
+		schema = humanize_schema_si_bytes;
+		break;
+	}
+
+	return lws_humanize(p, len, u, schema);
+}
+
 
 LWS_VISIBLE LWS_EXTERN void
 lws_stats_log_dump(struct lws_context *context)
 {
 	struct lws_vhost *v = context->vhost_list;
-	int n;
-#if defined(LWS_WITH_PEER_LIMITS)
-	int m;
-#endif
+	uint64_t summary[LWSSTATS_SIZE];
+	char bufline[128], *p, *end = bufline + sizeof(bufline) - 1;
+	int n, m;
 
 	if (!context->updated)
 		return;
 
 	context->updated = 0;
+	memset(summary, 0, sizeof(summary));
 
 	lwsl_notice("\n");
 	lwsl_notice("LWS internal statistics dump ----->\n");
-	lwsl_notice("LWSSTATS_C_CONNECTIONS:                     %8llu\n",
-		(unsigned long long)lws_stats_get(context,
-					LWSSTATS_C_CONNECTIONS));
-	lwsl_notice("LWSSTATS_C_API_CLOSE:                       %8llu\n",
-		(unsigned long long)lws_stats_get(context,
-					LWSSTATS_C_API_CLOSE));
-	lwsl_notice("LWSSTATS_C_API_READ:                        %8llu\n",
-		(unsigned long long)lws_stats_get(context,
-					LWSSTATS_C_API_READ));
-	lwsl_notice("LWSSTATS_C_API_LWS_WRITE:                   %8llu\n",
-		(unsigned long long)lws_stats_get(context,
-					LWSSTATS_C_API_LWS_WRITE));
-	lwsl_notice("LWSSTATS_C_API_WRITE:                       %8llu\n",
-		(unsigned long long)lws_stats_get(context,
-					LWSSTATS_C_API_WRITE));
-	lwsl_notice("LWSSTATS_C_WRITE_PARTIALS:                  %8llu\n",
-		(unsigned long long)lws_stats_get(context,
-					LWSSTATS_C_WRITE_PARTIALS));
-	lwsl_notice("LWSSTATS_C_WRITEABLE_CB_REQ:                %8llu\n",
-		(unsigned long long)lws_stats_get(context,
-					LWSSTATS_C_WRITEABLE_CB_REQ));
-	lwsl_notice("LWSSTATS_C_WRITEABLE_CB_EFF_REQ:            %8llu\n",
-		(unsigned long long)lws_stats_get(context,
-					LWSSTATS_C_WRITEABLE_CB_EFF_REQ));
-	lwsl_notice("LWSSTATS_C_WRITEABLE_CB:                    %8llu\n",
-		(unsigned long long)lws_stats_get(context,
-					LWSSTATS_C_WRITEABLE_CB));
-	lwsl_notice("LWSSTATS_C_SSL_CONNECTIONS_ACCEPT_SPIN:     %8llu\n",
-		(unsigned long long)lws_stats_get(context,
-					LWSSTATS_C_SSL_CONNECTIONS_ACCEPT_SPIN));
-	lwsl_notice("LWSSTATS_C_SSL_CONNECTIONS_FAILED:          %8llu\n",
-		(unsigned long long)lws_stats_get(context,
-					LWSSTATS_C_SSL_CONNECTIONS_FAILED));
-	lwsl_notice("LWSSTATS_C_SSL_CONNECTIONS_ACCEPTED:        %8llu\n",
-		(unsigned long long)lws_stats_get(context,
-					LWSSTATS_C_SSL_CONNECTIONS_ACCEPTED));
-	lwsl_notice("LWSSTATS_C_SSL_CONNS_HAD_RX:                %8llu\n",
-		(unsigned long long)lws_stats_get(context,
-					LWSSTATS_C_SSL_CONNS_HAD_RX));
-	lwsl_notice("LWSSTATS_C_PEER_LIMIT_AH_DENIED:            %8llu\n",
-		(unsigned long long)lws_stats_get(context,
-					LWSSTATS_C_PEER_LIMIT_AH_DENIED));
-	lwsl_notice("LWSSTATS_C_PEER_LIMIT_WSI_DENIED:           %8llu\n",
-		(unsigned long long)lws_stats_get(context,
-					LWSSTATS_C_PEER_LIMIT_WSI_DENIED));
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(stat_names); n++) {
+		uint64_t u = 0;
 
-	lwsl_notice("LWSSTATS_C_TIMEOUTS:                        %8llu\n",
-		(unsigned long long)lws_stats_get(context,
-					LWSSTATS_C_TIMEOUTS));
-	lwsl_notice("LWSSTATS_C_SERVICE_ENTRY:                   %8llu\n",
-		(unsigned long long)lws_stats_get(context,
-					LWSSTATS_C_SERVICE_ENTRY));
-	lwsl_notice("LWSSTATS_B_READ:                            %8llu\n",
-		(unsigned long long)lws_stats_get(context, LWSSTATS_B_READ));
-	lwsl_notice("LWSSTATS_B_WRITE:                           %8llu\n",
-		(unsigned long long)lws_stats_get(context, LWSSTATS_B_WRITE));
-	lwsl_notice("LWSSTATS_B_PARTIALS_ACCEPTED_PARTS:         %8llu\n",
-		(unsigned long long)lws_stats_get(context,
-					LWSSTATS_B_PARTIALS_ACCEPTED_PARTS));
-	lwsl_notice("LWSSTATS_MS_SSL_CONNECTIONS_ACCEPTED_DELAY: %8llums\n",
-		(unsigned long long)lws_stats_get(context,
-			LWSSTATS_MS_SSL_CONNECTIONS_ACCEPTED_DELAY) / 1000);
-	if (lws_stats_get(context, LWSSTATS_C_SSL_CONNECTIONS_ACCEPTED))
-		lwsl_notice("  Avg accept delay:                         %8llums\n",
-			(unsigned long long)(lws_stats_get(context,
-				LWSSTATS_MS_SSL_CONNECTIONS_ACCEPTED_DELAY) /
-					lws_stats_get(context,
-				LWSSTATS_C_SSL_CONNECTIONS_ACCEPTED)) / 1000);
-	lwsl_notice("LWSSTATS_MS_SSL_RX_DELAY:                   %8llums\n",
-			(unsigned long long)lws_stats_get(context,
-					LWSSTATS_MS_SSL_RX_DELAY) / 1000);
-	if (lws_stats_get(context, LWSSTATS_C_SSL_CONNS_HAD_RX))
-		lwsl_notice("  Avg accept-rx delay:                      %8llums\n",
-			(unsigned long long)(lws_stats_get(context,
-					LWSSTATS_MS_SSL_RX_DELAY) /
-			lws_stats_get(context,
-					LWSSTATS_C_SSL_CONNS_HAD_RX)) / 1000);
+		/* if it's all zeroes, don't report it */
 
-	lwsl_notice("LWSSTATS_MS_WRITABLE_DELAY:                 %8lluus\n",
-			(unsigned long long)lws_stats_get(context,
-					LWSSTATS_MS_WRITABLE_DELAY));
-	lwsl_notice("LWSSTATS_MS_WORST_WRITABLE_DELAY:           %8lluus\n",
-				(unsigned long long)lws_stats_get(context,
-					LWSSTATS_MS_WORST_WRITABLE_DELAY));
-	if (lws_stats_get(context, LWSSTATS_C_WRITEABLE_CB))
-		lwsl_notice("  Avg writable delay:                       %8lluus\n",
-			(unsigned long long)(lws_stats_get(context,
-					LWSSTATS_MS_WRITABLE_DELAY) /
-			lws_stats_get(context, LWSSTATS_C_WRITEABLE_CB)));
-	lwsl_notice("Simultaneous SSL restriction:               %8d/%d\n",
+		for (m = 0; m < context->count_threads; m++) {
+			struct lws_context_per_thread *pt = &context->pt[m];
+
+			u |= pt->lws_stats[n];
+		}
+		if (!u)
+			continue;
+
+		p = bufline;
+		p += lws_snprintf(p, lws_ptr_diff(end, p), "%28s: ",
+				  stat_names[n]);
+
+		for (m = 0; m < context->count_threads; m++)
+			quantify(context, m, p, lws_ptr_diff(end, p), n, &summary[n]);
+
+		lwsl_notice("%s\n", bufline);
+	}
+
+	lwsl_notice("Simultaneous SSL restriction:  %8d/%d\n",
 			context->simultaneous_ssl,
 			context->simultaneous_ssl_restriction);
 
-	lwsl_notice("Live wsi:                                   %8d\n",
+	lwsl_notice("Live wsi:                      %8d\n",
 			context->count_wsi_allocated);
 
 	context->updated = 1;
@@ -236,24 +248,24 @@ lws_stats_log_dump(struct lws_context *context)
 }
 
 void
-lws_stats_atomic_bump(struct lws_context * context,
-		struct lws_context_per_thread *pt, int index, uint64_t bump)
+lws_stats_bump(struct lws_context_per_thread *pt, int i, uint64_t bump)
 {
 	lws_pt_stats_lock(pt);
-	context->lws_stats[index] += bump;
-	if (index != LWSSTATS_C_SERVICE_ENTRY)
-		context->updated = 1;
+	pt->lws_stats[i] += bump;
+	if (i != LWSSTATS_C_SERVICE_ENTRY)
+		pt->updated = 1;
+	pt->context->updated = 1;
 	lws_pt_stats_unlock(pt);
 }
 
 void
-lws_stats_atomic_max(struct lws_context * context,
-		struct lws_context_per_thread *pt, int index, uint64_t val)
+lws_stats_max(struct lws_context_per_thread *pt, int index, uint64_t val)
 {
 	lws_pt_stats_lock(pt);
-	if (val > context->lws_stats[index]) {
-		context->lws_stats[index] = val;
-		context->updated = 1;
+	if (val > pt->lws_stats[index]) {
+		pt->lws_stats[index] = val;
+		pt->updated = 1;
+		pt->context->updated = 1;
 	}
 	lws_pt_stats_unlock(pt);
 }

@@ -48,7 +48,7 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 			  (unsigned long)len);
 	}
 
-	lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_API_WRITE, 1);
+	lws_stats_bump(pt, LWSSTATS_C_API_WRITE, 1);
 
 	/* just ignore sends after we cleared the truncation buffer */
 	if (lwsi_state(wsi) == LRS_FLUSHING_BEFORE_CLOSE &&
@@ -200,9 +200,8 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 				       real_len - m) < 0)
 		return -1;
 
-	lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_WRITE_PARTIALS, 1);
-	lws_stats_atomic_bump(wsi->context, pt,
-			      LWSSTATS_B_PARTIALS_ACCEPTED_PARTS, m);
+	lws_stats_bump(pt, LWSSTATS_C_WRITE_PARTIALS, 1);
+	lws_stats_bump(pt, LWSSTATS_B_PARTIALS_ACCEPTED_PARTS, m);
 
 #if !defined(LWS_WITH_ESP32) && !defined(LWS_PLAT_OPTEE)
 	if (lws_wsi_is_udp(wsi)) {
@@ -223,7 +222,7 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 
-	lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_API_LWS_WRITE, 1);
+	lws_stats_bump(pt, LWSSTATS_C_API_LWS_WRITE, 1);
 
 	if ((int)len < 0) {
 		lwsl_err("%s: suspicious len int %d, ulong %lu\n", __func__,
@@ -231,7 +230,7 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 		return -1;
 	}
 
-	lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_B_WRITE, len);
+	lws_stats_bump(pt, LWSSTATS_B_WRITE, len);
 
 #ifdef LWS_WITH_ACCESS_LOG
 	wsi->http.access_log.sent += len;
@@ -253,7 +252,7 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	int n = 0;
 
-	lws_stats_atomic_bump(context, pt, LWSSTATS_C_API_READ, 1);
+	lws_stats_bump(pt, LWSSTATS_C_API_READ, 1);
 
 	errno = 0;
 	if (lws_wsi_is_udp(wsi)) {
@@ -279,7 +278,7 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 
 		if (wsi->vhost)
 			wsi->vhost->conn_stats.rx += n;
-		lws_stats_atomic_bump(context, pt, LWSSTATS_B_READ, n);
+		lws_stats_bump(pt, LWSSTATS_B_READ, n);
 
 		return n;
 	}

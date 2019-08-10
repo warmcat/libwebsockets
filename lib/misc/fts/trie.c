@@ -540,7 +540,7 @@ int
 lws_fts_fill(struct lws_fts *t, uint32_t file_index, const char *buf,
 	     size_t len)
 {
-	unsigned long long tf = lws_time_in_microseconds();
+	unsigned long long tf = lws_now_usecs();
 	unsigned char c, linetable[256], vlibuf[8];
 	struct lws_fts_entry *e, *e1, *dcl;
 	struct lws_fts_instance_file *tif;
@@ -1083,7 +1083,7 @@ after:
 
 	/* dump the collected per-input instance and line data, and free it */
 
-	t->agg_trie_creation_us += lws_time_in_microseconds() - tf;
+	t->agg_trie_creation_us += lws_now_usecs() - tf;
 
 	return 0;
 }
@@ -1094,7 +1094,7 @@ int
 lws_fts_serialize(struct lws_fts *t)
 {
 	struct lws_fts_filepath *fp = t->filepath_list, *ofp;
-	unsigned long long tf = lws_time_in_microseconds();
+	unsigned long long tf = lws_now_usecs();
 	struct lws_fts_entry *e, *e1, *s[256];
 	unsigned char buf[8192], stasis;
 	int n, bp, sp = 0, do_parent;
@@ -1354,7 +1354,7 @@ lws_fts_serialize(struct lws_fts *t)
 		    (int)(t->agg_trie_creation_us / 1000),
 		    (int)(lwsac_total_alloc(t->lwsac_head) / 1024),
 		    (int)(t->worst_lwsac_input_size / 1024),
-		    (int)((lws_time_in_microseconds() - tf) / 1000),
+		    (int)((lws_now_usecs() - tf) / 1000),
 		    (int)(t->c / 1024));
 
 	return 0;

@@ -161,7 +161,8 @@ lws_seq_check_wsi(lws_seq_t *seq, struct lws *wsi);
  *				sequencer
  *
  * \param seq: The sequencer to set the timeout on
- * \param us: How many us in the future to fire the timeout (0 = disable)
+ * \param us: How many us in the future to fire the timeout
+ *		LWS_SET_TIMER_USEC_CANCEL = cancel any existing timeout
  *
  * This api allows the sequencer to ask to be informed if it has not completed
  * or disabled its timeout after secs seconds.  Lws will send a LWSSEQ_TIMED_OUT
@@ -199,16 +200,16 @@ LWS_VISIBLE LWS_EXTERN lws_seq_t *
 lws_seq_from_user(void *u);
 
 /**
- * lws_seq_secs_since_creation(): elapsed seconds since sequencer created
+ * lws_seq_us_since_creation(): elapsed seconds since sequencer created
  *
  * \param seq: pointer to the lws_seq_t
  *
- * Returns the number of seconds elapsed since the lws_seq_t was
+ * Returns the number of us elapsed since the lws_seq_t was
  * created.  This is useful to calculate sequencer timeouts for the current
  * step considering a global sequencer lifetime limit.
  */
-LWS_VISIBLE LWS_EXTERN int
-lws_seq_secs_since_creation(lws_seq_t *seq);
+LWS_VISIBLE LWS_EXTERN lws_usec_t
+lws_seq_us_since_creation(lws_seq_t *seq);
 
 /**
  * lws_seq_name(): get the name of this sequencer

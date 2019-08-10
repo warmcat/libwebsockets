@@ -45,7 +45,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	pt = &context->pt[tsi];
 	vpt = (volatile struct lws_context_per_thread *)pt;
 
-	lws_stats_atomic_bump(context, pt, LWSSTATS_C_SERVICE_ENTRY, 1);
+	lws_stats_bump(pt, LWSSTATS_C_SERVICE_ENTRY, 1);
 
 	if (timeout_ms < 0)
 		goto faked_service;

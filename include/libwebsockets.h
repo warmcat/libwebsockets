@@ -47,6 +47,12 @@ extern "C" {
 #define LWS_US_PER_MS 1000
 #define LWS_NS_PER_US 1000
 
+#define LWS_KI (1024)
+#define LWS_MI (LWS_KI * 1024)
+#define LWS_GI (LWS_MI * 1024)
+#define LWS_TI ((uint64_t)LWS_GI * 1024)
+#define LWS_PI ((uint64_t)LWS_TI * 1024)
+
 #define LWS_US_TO_MS(x) ((x + (LWS_US_PER_MS / 2)) / LWS_US_PER_MS)
 
 #if defined(LWS_HAS_INTPTR_T)

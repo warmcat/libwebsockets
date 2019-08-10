@@ -22,14 +22,22 @@
 #define _GNU_SOURCE
 #include "core/private.h"
 
-
-uint64_t
-lws_time_in_microseconds(void)
+lws_usec_t
+lws_now_usecs(void)
 {
-	struct timeval tv;
+#if defined(LWS_HAVE_CLOCK_GETTIME)
+	struct timespec ts;
 
-	gettimeofday(&tv, NULL);
-	return ((unsigned long long)tv.tv_sec * 1000000LL) + tv.tv_usec;
+	if (clock_gettime(CLOCK_MONOTONIC, &ts))
+		return 0;
+
+	return (ts.tv_sec * LWS_US_PER_SEC) + (ts.tv_nsec / LWS_NS_PER_US);
+#else
+	struct timeval now;
+
+	gettimeofday(&now, NULL);
+	return (now.tv_sec * 1000000ll) + now.tv_usec;
+#endif
 }
 
 LWS_VISIBLE int

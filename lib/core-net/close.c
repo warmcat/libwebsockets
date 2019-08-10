@@ -150,7 +150,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 
 	context = wsi->context;
 	pt = &context->pt[(int)wsi->tsi];
-	lws_stats_atomic_bump(wsi->context, pt, LWSSTATS_C_API_CLOSE, 1);
+	lws_stats_bump(pt, LWSSTATS_C_API_CLOSE, 1);
 
 #if !defined(LWS_NO_CLIENT)
 

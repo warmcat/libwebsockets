@@ -756,7 +756,7 @@ lws_latency(struct lws_context *context, struct lws *wsi, const char *action,
 	unsigned long long u;
 	char buf[256];
 
-	u = lws_time_in_microseconds();
+	u = lws_now_usecs();
 
 	if (!action) {
 		wsi->latency_start = u;

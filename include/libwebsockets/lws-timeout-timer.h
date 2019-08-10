@@ -64,17 +64,14 @@ enum pending_timeout {
 	PENDING_TIMEOUT_THREADPOOL				= 29,
 	PENDING_TIMEOUT_THREADPOOL_TASK				= 30,
 	PENDING_TIMEOUT_KILLED_BY_PROXY_CLIENT_CLOSE		= 31,
+	PENDING_TIMEOUT_USER_OK					= 32,
 
 	/****** add new things just above ---^ ******/
 
 	PENDING_TIMEOUT_USER_REASON_BASE			= 1000
 };
 
-/**
- * lws_time_in_microseconds() - Returns the unix time in microseconds
- */
-LWS_VISIBLE LWS_EXTERN uint64_t
-lws_time_in_microseconds(void);
+#define lws_time_in_microseconds lws_now_usecs
 
 #define LWS_TO_KILL_ASYNC -1
 /**< If LWS_TO_KILL_ASYNC is given as the timeout sec in a lws_set_timeout()

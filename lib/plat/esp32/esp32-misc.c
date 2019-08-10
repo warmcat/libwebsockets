@@ -21,8 +21,8 @@
 
 #include "core/private.h"
 
-uint64_t
-lws_time_in_microseconds(void)
+lws_usec_t
+lws_now_usecs(void)
 {
 	struct timeval tv;
 	gettimeofday(&tv, NULL);
