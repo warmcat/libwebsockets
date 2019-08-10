@@ -149,7 +149,7 @@ callback_minimal_spam(struct lws *wsi, enum lws_callback_reasons reason,
 
 			return -1;
 		}
-		lws_set_timeout(wsi, 1, LWS_TO_KILL_ASYNC);
+		lws_set_timeout(wsi, PENDING_TIMEOUT_USER_OK, LWS_TO_KILL_ASYNC);
 		break;
 
 	default:

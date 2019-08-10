@@ -292,6 +292,8 @@ struct lws_context_per_thread {
 	lws_sorted_usec_list_t sul_plat;
 #endif
 #if defined(LWS_WITH_STATS)
+	uint64_t lws_stats[LWSSTATS_SIZE];
+	int updated;
 	lws_sorted_usec_list_t sul_stats;
 #endif
 #if defined(LWS_WITH_PEER_LIMITS)
@@ -1062,18 +1064,16 @@ lws_broadcast(struct lws_context_per_thread *pt, int reason, void *in, size_t le
 
 #if defined(LWS_WITH_STATS)
  void
- lws_stats_atomic_bump(struct lws_context * context,
-		struct lws_context_per_thread *pt, int index, uint64_t bump);
+ lws_stats_bump(struct lws_context_per_thread *pt, int i, uint64_t bump);
  void
- lws_stats_atomic_max(struct lws_context * context,
-		struct lws_context_per_thread *pt, int index, uint64_t val);
+ lws_stats_max(struct lws_context_per_thread *pt, int index, uint64_t val);
 #else
- static LWS_INLINE uint64_t lws_stats_atomic_bump(struct lws_context * context,
+ static LWS_INLINE uint64_t lws_stats_bump(
 		struct lws_context_per_thread *pt, int index, uint64_t bump) {
-	(void)context; (void)pt; (void)index; (void)bump; return 0; }
- static LWS_INLINE uint64_t lws_stats_atomic_max(struct lws_context * context,
+	(void)pt; (void)index; (void)bump; return 0; }
+ static LWS_INLINE uint64_t lws_stats_max(
 		struct lws_context_per_thread *pt, int index, uint64_t val) {
-	(void)context; (void)pt; (void)index; (void)val; return 0; }
+	(void)pt; (void)index; (void)val; return 0; }
 #endif
 
 

@@ -382,12 +382,10 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 #if defined(LWS_WITH_STATS)
 		/* only set this the first time around */
 		if (!wsi->accept_start_us)
-			wsi->accept_start_us = lws_time_in_microseconds();
+			wsi->accept_start_us = lws_now_usecs();
 #endif
 		errno = 0;
-		lws_stats_atomic_bump(wsi->context, pt,
-				      LWSSTATS_C_SSL_CONNECTIONS_ACCEPT_SPIN,
-				      1);
+		lws_stats_bump(pt, LWSSTATS_C_SSL_ACCEPT_SPIN, 1);
 		n = lws_tls_server_accept(wsi);
 		lws_latency(context, wsi,
 			"SSL_accept LRS_SSL_ACK_PENDING\n", n, n == 1);
@@ -396,9 +394,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 		case LWS_SSL_CAPABLE_DONE:
 			break;
 		case LWS_SSL_CAPABLE_ERROR:
-			lws_stats_atomic_bump(wsi->context, pt,
-					      LWSSTATS_C_SSL_CONNECTIONS_FAILED,
-					      1);
+			lws_stats_bump(pt, LWSSTATS_C_SSL_CONNECTIONS_FAILED, 1);
 	                lwsl_info("SSL_accept failed socket %u: %d\n",
 	                		wsi->desc.sockfd, n);
 			wsi->socket_is_permanently_unusable = 1;
@@ -408,15 +404,14 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 			return 0;
 		}
 
-		lws_stats_atomic_bump(wsi->context, pt,
-				      LWSSTATS_C_SSL_CONNECTIONS_ACCEPTED, 1);
+		lws_stats_bump(pt, LWSSTATS_C_SSL_CONNECTIONS_ACCEPTED, 1);
 #if defined(LWS_WITH_STATS)
 		if (wsi->accept_start_us)
-			lws_stats_atomic_bump(wsi->context, pt,
-				      LWSSTATS_MS_SSL_CONNECTIONS_ACCEPTED_DELAY,
-				      lws_time_in_microseconds() -
+			lws_stats_bump(pt,
+				      LWSSTATS_US_SSL_ACCEPT_LATENCY_AVG,
+				      lws_now_usecs() -
 					      wsi->accept_start_us);
-		wsi->accept_start_us = lws_time_in_microseconds();
+		wsi->accept_start_us = lws_now_usecs();
 #endif
 
 		/* adapt our vhost to match the SNI SSL_CTX that was chosen */

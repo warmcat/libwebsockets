@@ -885,4 +885,38 @@ lws_get_ssl(struct lws *wsi);
 LWS_VISIBLE LWS_EXTERN void
 lws_explicit_bzero(void *p, size_t len);
 
+typedef struct lws_humanize_unit {
+	const char *name; /* array ends with NULL name */
+	uint64_t factor;
+} lws_humanize_unit_t;
+
+LWS_VISIBLE LWS_EXTERN const lws_humanize_unit_t humanize_schema_si[];
+LWS_VISIBLE LWS_EXTERN const lws_humanize_unit_t humanize_schema_si_bytes[];
+LWS_VISIBLE LWS_EXTERN const lws_humanize_unit_t humanize_schema_us[];
+
+/**
+ * lws_humanize() - Convert possibly large number to himan-readable uints
+ *
+ * \param buf: result string buffer
+ * \param len: remaining length in \p buf
+ * \param value: the uint64_t value to represent
+ * \param schema: and array of scaling factors and units
+ *
+ * This produces a concise string representation of \p value, referening the
+ * schema \p schema of scaling factors and units to find the smallest way to
+ * render it.
+ *
+ * Three schema are exported from lws for general use, humanize_schema_si, which
+ * represents as, eg, "  22.130Gi" or " 128      "; humanize_schema_si_bytes
+ * which is the same but shows, eg, "  22.130GiB", and humanize_schema_us,
+ * which represents a count of us as a human-readable time like "  14.350min",
+ * or "  1.500d".
+ *
+ * You can produce your own schema.
+ */
+
+LWS_VISIBLE LWS_EXTERN int
+lws_humanize(char *buf, int len, uint64_t value,
+	     const lws_humanize_unit_t *schema);
+
 ///@}

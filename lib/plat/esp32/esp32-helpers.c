@@ -261,7 +261,7 @@ get_txt_param(const mdns_result_t *mr, const char *param, char *result, int len)
 
 static void lws_esp32_mdns_timer_cb(TimerHandle_t th)
 {
-	uint64_t now = lws_time_in_microseconds();
+	uint64_t now = lws_now_usecs();
 	struct lws_group_member *p, **p1;
 	const mdns_result_t *r = mdns_results_head;
 
@@ -484,7 +484,7 @@ passthru:
 static void
 lws_set_genled(int n)
 {
-	lws_esp32.genled_t = lws_time_in_microseconds();
+	lws_esp32.genled_t = lws_now_usecs();
 	lws_esp32.genled = n;
 }
 
@@ -494,7 +494,7 @@ lws_esp32_leds_network_indication(void)
 	uint64_t us, r;
 	int n, fadein = 100, speed = 1199, div = 1, base = 0;
 
-	r = lws_time_in_microseconds();
+	r = lws_now_usecs();
 	us = r - lws_esp32.genled_t;
 
 	switch (lws_esp32.genled) {

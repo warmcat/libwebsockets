@@ -125,7 +125,7 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 		    peer->count_wsi >= context->ip_limit_wsi) {
 			lwsl_notice("Peer reached wsi limit %d\n",
 					context->ip_limit_wsi);
-			lws_stats_atomic_bump(context, &context->pt[0],
+			lws_stats_bump(&context->pt[0],
 					      LWSSTATS_C_PEER_LIMIT_WSI_DENIED,
 					      1);
 			return NULL;
@@ -153,7 +153,7 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 		lws_peer_add_wsi(context, peer, new_wsi);
 #endif
 	pt = &context->pt[(int)new_wsi->tsi];
-	lws_stats_atomic_bump(context, pt, LWSSTATS_C_CONNECTIONS, 1);
+	lws_stats_bump(pt, LWSSTATS_C_CONNECTIONS, 1);
 
 	if (parent) {
 		new_wsi->parent = parent;

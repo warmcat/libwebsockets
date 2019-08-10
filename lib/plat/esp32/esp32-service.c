@@ -48,7 +48,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		return 1;
 
 	pt = &context->pt[tsi];
-	lws_stats_atomic_bump(context, pt, LWSSTATS_C_SERVICE_ENTRY, 1);
+	lws_stats_bump(pt, LWSSTATS_C_SERVICE_ENTRY, 1);
 
 	{
 		unsigned long m = lws_now_secs();

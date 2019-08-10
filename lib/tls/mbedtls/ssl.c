@@ -49,7 +49,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 	if (!wsi->tls.ssl)
 		return lws_ssl_capable_read_no_ssl(wsi, buf, len);
 
-	lws_stats_atomic_bump(context, pt, LWSSTATS_C_API_READ, 1);
+	lws_stats_bump(pt, LWSSTATS_C_API_READ, 1);
 
 	errno = 0;
 	n = SSL_read(wsi->tls.ssl, buf, len);
@@ -61,12 +61,9 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 #endif
 #if defined(LWS_WITH_STATS)
 	if (!wsi->seen_rx && wsi->accept_start_us) {
-                lws_stats_atomic_bump(wsi->context, pt,
-                		      LWSSTATS_MS_SSL_RX_DELAY,
-				lws_time_in_microseconds() -
-				wsi->accept_start_us);
-                lws_stats_atomic_bump(wsi->context, pt,
-                		      LWSSTATS_C_SSL_CONNS_HAD_RX, 1);
+                lws_stats_bump(pt, LWSSTATS_US_SSL_RX_DELAY_AVG,
+			lws_now_usecs() - wsi->accept_start_us);
+                lws_stats_bump(pt, LWSSTATS_C_SSL_CONNS_HAD_RX, 1);
 		wsi->seen_rx = 1;
 	}
 #endif
@@ -107,7 +104,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 		return LWS_SSL_CAPABLE_ERROR;
 	}
 
-	lws_stats_atomic_bump(context, pt, LWSSTATS_B_READ, n);
+	lws_stats_bump(pt, LWSSTATS_B_READ, n);
 
 	if (wsi->vhost)
 		wsi->vhost->conn_stats.rx += n;

@@ -124,7 +124,9 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLIENT_CLOSED:
 		lwsl_user("%s: client closed: parent %p\n", __func__, wsi->parent);
 		if (wsi->parent)
-			lws_set_timeout(wsi->parent, 1, LWS_TO_KILL_ASYNC);
+			lws_set_timeout(wsi->parent,
+				PENDING_TIMEOUT_KILLED_BY_PROXY_CLIENT_CLOSE,
+				LWS_TO_KILL_ASYNC);
 		break;
 
 	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
@@ -582,8 +584,9 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!lws_get_parent(wsi))
 			break;
 		lwsl_err("%s: LWS_CALLBACK_CLOSED_CLIENT_HTTP\n", __func__);
-		lws_set_timeout(lws_get_parent(wsi), LWS_TO_KILL_ASYNC,
-				PENDING_TIMEOUT_KILLED_BY_PROXY_CLIENT_CLOSE);
+		lws_set_timeout(lws_get_parent(wsi),
+				PENDING_TIMEOUT_KILLED_BY_PROXY_CLIENT_CLOSE,
+				LWS_TO_KILL_ASYNC);
 		break;
 
 	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:

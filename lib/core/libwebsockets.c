@@ -95,27 +95,6 @@ int lws_open(const char *__file, int __oflag, ...)
 #endif
 #endif
 
-#if !(defined(LWS_PLAT_OPTEE) && !defined(LWS_WITH_NETWORK))
-
-LWS_VISIBLE lws_usec_t
-lws_now_usecs(void)
-{
-#if defined(LWS_HAVE_CLOCK_GETTIME)
-	struct timespec ts;
-
-	if (clock_gettime(CLOCK_MONOTONIC, &ts))
-		return 0;
-
-	return (ts.tv_sec * LWS_US_PER_SEC) + (ts.tv_nsec / LWS_NS_PER_US);
-#else
-	struct timeval now;
-
-	gettimeofday(&now, NULL);
-	return (now.tv_sec * 1000000ll) + now.tv_usec;
-#endif
-}
-#endif
-
 int
 lws_pthread_self_to_tsi(struct lws_context *context)
 {
@@ -911,3 +890,47 @@ lws_cmdline_option(int argc, const char **argv, const char *val)
 	return NULL;
 }
 
+
+const lws_humanize_unit_t humanize_schema_si[] = {
+	{ "Pi ", LWS_PI }, { "Ti ", LWS_TI }, { "Gi ", LWS_GI },
+	{ "Mi ", LWS_MI }, { "Ki ", LWS_KI }, { "   ", 1 },
+	{ NULL, 0 }
+};
+const lws_humanize_unit_t humanize_schema_si_bytes[] = {
+	{ "PiB", LWS_PI }, { "TiB", LWS_TI }, { "GiB", LWS_GI },
+	{ "MiB", LWS_MI }, { "KiB", LWS_KI }, { "B  ", 1 },
+	{ NULL, 0 }
+};
+const lws_humanize_unit_t humanize_schema_us[] = {
+	{ "y  ",  (uint64_t)365 * 24 * 3600 * LWS_US_PER_SEC },
+	{ "d  ",  (uint64_t)24 * 3600 * LWS_US_PER_SEC },
+	{ "hr ", (uint64_t)3600 * LWS_US_PER_SEC },
+	{ "min", 60 * LWS_US_PER_SEC },
+	{ "s  ", LWS_US_PER_SEC },
+	{ "ms ", LWS_US_PER_MS },
+	{ "us ", 1 },
+	{ NULL, 0 }
+};
+
+int
+lws_humanize(char *p, int len, uint64_t v, const lws_humanize_unit_t *schema)
+{
+	do {
+		if (v >= schema->factor || schema->factor == 1) {
+			if (schema->factor == 1)
+				return lws_snprintf(p, len,
+					" %4"PRIu64"%s    ",
+					v / schema->factor, schema->name);
+
+			return lws_snprintf(p, len, " %4"PRIu64".%03"PRIu64"%s",
+				v / schema->factor,
+				(v % schema->factor) / (schema->factor / 1000),
+				schema->name);
+		}
+		schema++;
+	} while (schema->name);
+
+	assert(0);
+
+	return 0;
+}

@@ -290,7 +290,7 @@ lws_seq_sul_timeout_cb(lws_sorted_usec_list_t *sul)
 	lws_seq_queue_event(s, LWSSEQ_TIMED_OUT, NULL, NULL);
 }
 
-/* set secs to zero to remove timeout */
+/* set us to LWS_SET_TIMER_USEC_CANCEL to remove timeout */
 
 int
 lws_seq_timeout_us(lws_seq_t *seq, lws_usec_t us)
@@ -313,14 +313,10 @@ lws_seq_name(lws_seq_t *seq)
 	return seq->name;
 }
 
-int
-lws_seq_secs_since_creation(lws_seq_t *seq)
+lws_usec_t
+lws_seq_us_since_creation(lws_seq_t *seq)
 {
-	time_t now;
-
-	time(&now);
-
-	return now - seq->time_created;
+	return lws_now_usecs() - seq->time_created;
 }
 
 struct lws_context *

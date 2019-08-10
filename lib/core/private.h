@@ -345,10 +345,6 @@ struct lws_context {
 	char worst_latency_info[256];
 #endif
 
-#if defined(LWS_WITH_STATS)
-	uint64_t lws_stats[LWSSTATS_SIZE];
-	int updated;
-#endif
 #if defined(LWS_WITH_ESP32)
 	unsigned long time_last_state_dump;
 	uint32_t last_free_heap;
@@ -398,6 +394,10 @@ struct lws_context {
 	unsigned short deprecation_pending_listen_close_count;
 
 	uint8_t max_fi;
+
+#if defined(LWS_WITH_STATS)
+	uint8_t updated;
+#endif
 };
 
 int
