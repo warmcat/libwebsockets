@@ -1121,6 +1121,9 @@ lws_buflist_aware_consume(struct lws *wsi, struct lws_tokens *ebuf, int used,
 extern const struct lws_protocols protocol_abs_client_raw_skt,
 				  protocol_abs_client_unit_test;
 
+void
+lws_inform_client_conn_fail(struct lws *wsi, void *arg, size_t len);
+
 #ifdef __cplusplus
 };
 #endif

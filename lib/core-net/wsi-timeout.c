@@ -107,11 +107,11 @@ lws_sul_wsitimeout_cb(lws_sorted_usec_list_t *sul)
 		 * don't try to do protocol cleanup like flush partials.
 		 */
 		wsi->socket_is_permanently_unusable = 1;
-	if (lwsi_state(wsi) == LRS_WAITING_SSL && wsi->protocol)
-		wsi->protocol->callback(wsi,
-			LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
-			wsi->user_space,
+#if !defined(LWS_NO_CLIENT)
+	if (lwsi_state(wsi) == LRS_WAITING_SSL)
+		lws_inform_client_conn_fail(wsi,
 			(void *)"Timed out waiting SSL", 21);
+#endif
 
 	__lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "timeout");
 }

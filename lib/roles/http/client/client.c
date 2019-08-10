@@ -565,10 +565,8 @@ bail3:
 		lwsl_info("closing conn at LWS_CONNMODE...SERVER_REPLY\n");
 		if (cce)
 			lwsl_info("reason: %s\n", cce);
-		wsi->protocol->callback(wsi,
-			LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
-			wsi->user_space, (void *)cce, strlen(cce));
-		wsi->already_did_cce = 1;
+		lws_inform_client_conn_fail(wsi, (void *)cce, strlen(cce));
+
 		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "cbail3");
 		return -1;
 
@@ -1030,12 +1028,9 @@ bail2:
 		n = 0;
 		if (cce)
 			n = (int)strlen(cce);
-		w->protocol->callback(w,
-				LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
-				w->user_space, (void *)cce,
-				(unsigned int)n);
+
+		lws_inform_client_conn_fail(wsi, (void *)cce, (unsigned int)n);
 	}
-	wsi->already_did_cce = 1;
 
 	lwsl_info("closing connection (prot %s) "
 		  "due to bail2 connection error: %s\n", wsi->protocol ?
