@@ -35,7 +35,7 @@ int close_testing;
 int max_poll_elements;
 int debug_level = LLL_USER | 7;
 
-#ifdef EXTERNAL_POLL
+#if defined(LWS_WITH_EXTERNAL_POLL)
 struct lws_pollfd *pollfds;
 int *fd_lookup;
 int count_pollfds;
@@ -479,7 +479,7 @@ int main(int argc, char **argv)
 	lwsl_notice("(C) Copyright 2010-2018 Andy Green <andy@warmcat.com>\n");
 
 	printf("Using resource path \"%s\"\n", resource_path);
-#ifdef EXTERNAL_POLL
+#if defined(LWS_WITH_EXTERNAL_POLL)
 #if !defined(WIN32) && !defined(_WIN32) && !defined(__ANDROID__)
 	max_poll_elements = getdtablesize();
 #else
@@ -593,7 +593,7 @@ int main(int argc, char **argv)
 		 * as soon as it can take more packets (usually immediately)
 		 */
 
-#ifdef EXTERNAL_POLL
+#if defined(LWS_WITH_EXTERNAL_POLL)
 		/*
 		 * this represents an existing server's single poll action
 		 * which also includes libwebsocket sockets
@@ -642,7 +642,7 @@ int main(int argc, char **argv)
 
 	}
 
-#ifdef EXTERNAL_POLL
+#if defined(LWS_WITH_EXTERNAL_POLL)
 done:
 #endif
 
