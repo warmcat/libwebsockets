@@ -198,10 +198,7 @@ send_hs:
 	return wsi;
 
 failed:
-	wsi->protocol->callback(wsi,
-		LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
-		wsi->user_space, (void *)cce, strlen(cce));
-	wsi->already_did_cce = 1;
+	lws_inform_client_conn_fail(wsi, (void *)cce, strlen(cce));
 
 	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "client_connect2");
 
@@ -735,12 +732,9 @@ ads_known:
 
 
 oom4:
-	if (lwsi_role_client(wsi) && wsi->protocol /* && lwsi_state_est(wsi) */) {
-		wsi->protocol->callback(wsi,
-			LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
-			wsi->user_space, (void *)cce, strlen(cce));
-		wsi->already_did_cce = 1;
-	}
+	if (lwsi_role_client(wsi) && wsi->protocol /* && lwsi_state_est(wsi) */)
+		lws_inform_client_conn_fail(wsi,(void *)cce, strlen(cce));
+
 	/* take care that we might be inserted in fds already */
 	if (wsi->position_in_fds_table != LWS_NO_FDS_POS)
 		goto failed1;
@@ -763,10 +757,8 @@ oom4:
 	return NULL;
 
 failed:
-	wsi->protocol->callback(wsi,
-		LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
-		wsi->user_space, (void *)cce, strlen(cce));
-	wsi->already_did_cce = 1;
+	lws_inform_client_conn_fail(wsi, (void *)cce, strlen(cce));
+
 failed1:
 	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "client_connect2");
 

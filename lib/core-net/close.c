@@ -127,6 +127,24 @@ lws_close_trans_q_leader(struct lws_dll2 *d, void *user)
 
 	return 0;
 }
+
+void
+lws_inform_client_conn_fail(struct lws *wsi, void *arg, size_t len)
+{
+	if (wsi->already_did_cce)
+		return;
+
+	wsi->already_did_cce = 1;
+	lws_stats_bump(&wsi->context->pt[(int)wsi->tsi],
+		       LWSSTATS_C_CONNS_CLIENT_FAILED, 1);
+
+	if (!wsi->protocol)
+		return;
+
+	wsi->protocol->callback(wsi,
+			        LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
+				wsi->user_space, arg, len);
+}
 #endif
 
 void
@@ -349,13 +367,13 @@ just_kill_connection:
 		wsi->protocol_bind_balance = 0;
 	}
 
+#if !defined(LWS_NO_CLIENT)
 	if ((lwsi_state(wsi) == LRS_WAITING_SERVER_REPLY ||
 	     lwsi_state(wsi) == LRS_WAITING_CONNECT) &&
 	     !wsi->already_did_cce && wsi->protocol)
-		wsi->protocol->callback(wsi,
-				        LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
-					wsi->user_space,
-					(void *)"closed before established", 24);
+		lws_inform_client_conn_fail(wsi,
+				(void *)"closed before established", 24);
+#endif
 
 	/*
 	 * Testing with ab shows that we have to stage the socket close when

@@ -55,8 +55,8 @@ enum {
 	LWSSTATS_US_SSL_RX_DELAY_AVG, /**< aggregate delay between ssl accept complete and first RX */
 	LWSSTATS_C_PEER_LIMIT_AH_DENIED, /**< number of times we would have given an ah but for the peer limit */
 	LWSSTATS_C_PEER_LIMIT_WSI_DENIED, /**< number of times we would have given a wsi but for the peer limit */
-	LWSSTATS_C_CONNECTIONS_CLIENT, /**< attempted client conns */
-	LWSSTATS_C_CONNECTIONS_CLIENT_FAILED, /**< failed client conns */
+	LWSSTATS_C_CONNS_CLIENT, /**< attempted client conns */
+	LWSSTATS_C_CONNS_CLIENT_FAILED, /**< failed client conns */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
