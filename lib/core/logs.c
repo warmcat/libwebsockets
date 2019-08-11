@@ -39,18 +39,18 @@ static void (*lwsl_emit)(int level, const char *line)
 	;
 #ifndef LWS_PLAT_OPTEE
 static const char * const log_level_names[] = {
-	"ERR",
-	"WARN",
-	"NOTICE",
-	"INFO",
-	"DEBUG",
-	"PARSER",
-	"HEADER",
-	"EXTENSION",
-	"CLIENT",
-	"LATENCY",
-	"USER",
-	"THREAD",
+	"E",
+	"W",
+	"N",
+	"I",
+	"D",
+	"P",
+	"H",
+	"EXT",
+	"CLI",
+	"LAT",
+	"USR",
+	"T",
 	"?",
 	"?"
 };
