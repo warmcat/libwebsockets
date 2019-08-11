@@ -21,6 +21,13 @@
 
 #include "core/private.h"
 
+static int
+sul_compare(const lws_dll2_t *d, const lws_dll2_t *i)
+{
+	return ((lws_sorted_usec_list_t *)d)->us -
+			((lws_sorted_usec_list_t *)i)->us;
+}
+
 int
 __lws_sul_insert(lws_dll2_owner_t *own, lws_sorted_usec_list_t *sul,
 		 lws_usec_t us)
@@ -42,29 +49,7 @@ __lws_sul_insert(lws_dll2_owner_t *own, lws_sorted_usec_list_t *sul,
 	 * cheap to check it every second
 	 */
 
-	lws_start_foreach_dll_safe(struct lws_dll2 *, p, tp,
-				   lws_dll2_get_head(own)) {
-		/* .list is always first member in lws_sorted_usec_list_t */
-		lws_sorted_usec_list_t *sul1 = (lws_sorted_usec_list_t *)p;
-
-		assert(sul1->us); /* shouldn't be on the list otherwise */
-		assert(sul != sul1);
-		if (sul1->us >= sul->us) {
-			/* drop us in before this guy */
-			lws_dll2_add_before(&sul->list, &sul1->list);
-
-			// lws_dll2_describe(own, "post-insert");
-
-			return 0;
-		}
-	} lws_end_foreach_dll_safe(p, tp);
-
-	/*
-	 * Either nobody on the list yet to compare him to, or he's the
-	 * furthest away timeout... stick him at the tail end
-	 */
-
-	lws_dll2_add_tail(&sul->list, own);
+	lws_dll2_add_sorted(&sul->list, own, sul_compare);
 
 	// lws_dll2_describe(own, "post-tail-insert");
 

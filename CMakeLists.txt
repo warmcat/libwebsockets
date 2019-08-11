@@ -132,6 +132,7 @@ option(LWS_WITH_MINIZ "Use miniz instead of zlib" OFF)
 option(LWS_WITH_DEPRECATED_LWS_DLL "Migrate to lws_dll2 instead ASAP" OFF)
 option(LWS_WITH_SEQUENCER "lws_seq_t support" ON)
 option(LWS_WITH_EXTERNAL_POLL "Support external POLL integration using callback messages (not recommended)" OFF)
+option(LWS_WITH_LWS_DSH "Support lws_dsh_t Disordered Shared Heap" OFF)
 #
 # to use miniz, enable both LWS_WITH_ZLIB and LWS_WITH_MINIZ
 #
@@ -221,6 +222,7 @@ if (NOT LWS_WITH_NETWORK)
 	set(LWS_WITH_POLL 0)
 	set(LWS_WITH_SEQUENCER 0)
 	set(LWS_ROLE_DBUS 0)
+	set(LWS_WITH_LWS_DSH 0)
 endif()
 
 if (LWS_WITH_STRUCT_SQLITE3)
@@ -979,6 +981,11 @@ if (LWS_WITH_NETWORK)
 		lib/core-net/adopt.c
 		lib/roles/pipe/ops-pipe.c
 	)
+
+	if (LWS_WITH_LWS_DSH)
+		list(APPEND SOURCES
+			lib/core-net/lws-dsh.c)
+	endif()
 
 	if (LWS_WITH_SEQUENCER)
 		list(APPEND SOURCES

@@ -294,8 +294,12 @@ lws_dll2_clear(struct lws_dll2 *d);
 LWS_VISIBLE LWS_EXTERN void
 lws_dll2_owner_clear(struct lws_dll2_owner *d);
 
-void
+LWS_VISIBLE LWS_EXTERN void
 lws_dll2_add_before(struct lws_dll2 *d, struct lws_dll2 *after);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_dll2_add_sorted(lws_dll2_t *d, lws_dll2_owner_t *own,
+		    int (*compare)(const lws_dll2_t *d, const lws_dll2_t *i));
 
 #if defined(_DEBUG)
 void
