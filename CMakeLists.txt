@@ -917,6 +917,16 @@ if (NOT LWS_HAVE_REALLOC)
 	set(realloc rpl_realloc)
 endif()
 
+if (UNIX)
+	execute_process(COMMAND uname -n OUTPUT_VARIABLE NODENAME)
+	# Need to chomp the \n at end of output.
+	string(REGEX REPLACE "[\n]+" "" NODENAME "${NODENAME}")
+
+	if( NODENAME STREQUAL "smartos" )
+		add_definitions( "-D__smartos__" )
+		set(SMARTOS 1)
+	endif()
+endif()
 
 if (MSVC)
 	# Turn off stupid microsoft security warnings.
@@ -1816,6 +1826,10 @@ if (UNIX)
 	list(APPEND LIB_LIST m)
 endif()
 
+if(SMARTOS)
+	list(APPEND LIB_LIST socket)
+endif()
+
 if (HAIKU)
 	list(APPEND LIB_LIST network)
 endif()
@@ -1823,8 +1837,6 @@ endif()
 if (LWS_HAVE_LIBCAP)
 	list(APPEND LIB_LIST cap )
 endif()
-
-
 
 # Setup the linking for all libs.
 foreach (lib ${LWS_LIBRARIES})

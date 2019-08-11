@@ -103,6 +103,33 @@ lws_dir(const char *dirpath, void *user, lws_dir_callback_function cb)
 		 * files are LDOT_UNKNOWN
 		 */
 
+#if defined(__smartos__)
+        struct stat s;
+        stat(namelist[i]->d_name, &s);
+		switch (s.st_mode) {
+		case S_IFBLK:
+			lde.type = LDOT_BLOCK;
+			break;
+		case S_IFCHR:
+			lde.type = LDOT_CHAR;
+			break;
+		case S_IFDIR:
+			lde.type = LDOT_DIR;
+			break;
+		case S_IFIFO:
+			lde.type = LDOT_FIFO;
+			break;
+		case S_IFLNK:
+			lde.type = LDOT_LINK;
+			break;
+		case S_IFREG:
+			lde.type = LDOT_FILE;
+			break;
+		default:
+			lde.type = LDOT_UNKNOWN;
+			break;
+		}
+#else
 		switch (namelist[i]->d_type) {
 		case DT_BLK:
 			lde.type = LDOT_BLOCK;
@@ -129,6 +156,7 @@ lws_dir(const char *dirpath, void *user, lws_dir_callback_function cb)
 			lde.type = LDOT_UNKNOWN;
 			break;
 		}
+#endif
 		if (cb(dirpath, user, &lde)) {
 			while (i++ < n)
 				free(namelist[i]);
