@@ -264,6 +264,41 @@ struct lws_timed_vh_protocol {
 };
 
 /*
+ * lws_dsh
+*/
+
+typedef struct lws_dsh_obj_head {
+	lws_dll2_owner_t		owner;
+	int				kind;
+} lws_dsh_obj_head_t;
+
+typedef struct lws_dsh lws_dsh_t;
+
+typedef struct lws_dsh_obj {
+	lws_dll2_t			list;	/* must be first */
+	lws_dsh_t			*dsh;	/* invalid when on free list */
+	size_t				size;	/* invalid when on free list */
+	size_t				asize;
+} lws_dsh_obj_t;
+
+typedef struct lws_dsh {
+	lws_dll2_t			list;
+	uint8_t				*buf;
+	lws_dsh_obj_head_t		*oha;	/* array of object heads/kind */
+	size_t				buffer_size;
+	size_t				locally_in_use;
+	size_t				locally_free;
+	int				count_kinds;
+	uint8_t				being_destroyed;
+	/*
+	 * Overallocations at create:
+	 *
+	 *  - the buffer itself
+	 *  - the object heads array
+	 */
+} lws_dsh_t;
+
+/*
  * so we can have n connections being serviced simultaneously,
  * these things need to be isolated per-thread.
  */

@@ -529,6 +529,7 @@ struct lws;
 #include <libwebsockets/lws-spa.h>
 #include <libwebsockets/lws-purify.h>
 #include <libwebsockets/lws-misc.h>
+#include <libwebsockets/lws-dsh.h>
 #include <libwebsockets/lws-timeout-timer.h>
 #include <libwebsockets/lws-service.h>
 #include <libwebsockets/lws-write.h>

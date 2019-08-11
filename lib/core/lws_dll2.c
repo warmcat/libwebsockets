@@ -180,6 +180,32 @@ lws_dll2_owner_clear(struct lws_dll2_owner *d)
 	d->count = 0;
 }
 
+void
+lws_dll2_add_sorted(lws_dll2_t *d, lws_dll2_owner_t *own,
+		    int (*compare)(const lws_dll2_t *d, const lws_dll2_t *i))
+{
+	lws_start_foreach_dll_safe(struct lws_dll2 *, p, tp,
+				   lws_dll2_get_head(own)) {
+		assert(p != d);
+
+		if (compare(p, d) >= 0) {
+			/* drop us in before this guy */
+			lws_dll2_add_before(d, p);
+
+			// lws_dll2_describe(own, "post-insert");
+
+			return;
+		}
+	} lws_end_foreach_dll_safe(p, tp);
+
+	/*
+	 * Either nobody on the list yet to compare him to, or he's the
+	 * furthest away timeout... stick him at the tail end
+	 */
+
+	lws_dll2_add_tail(d, own);
+}
+
 #if defined(_DEBUG)
 
 void
@@ -187,12 +213,12 @@ lws_dll2_describe(lws_dll2_owner_t *owner, const char *desc)
 {
 	int n = 1;
 
-	lwsl_notice("%s: %s: owner %p: count %d, head %p, tail %p\n",
+	lwsl_info("%s: %s: owner %p: count %d, head %p, tail %p\n",
 		    __func__, desc, owner, owner->count, owner->head, owner->tail);
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, p, tp,
 				   lws_dll2_get_head(owner)) {
-		lwsl_notice("%s:    %d: %p: owner %p, prev %p, next %p\n",
+		lwsl_info("%s:    %d: %p: owner %p, prev %p, next %p\n",
 			    __func__, n++, p, p->owner, p->prev, p->next);
 	} lws_end_foreach_dll_safe(p, tp);
 }
