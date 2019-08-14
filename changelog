@@ -1,6 +1,43 @@
 Changelog
 ---------
 
+v3.2.0
+======
+
+ - This is the last planned release under LGPLv2+SLE.  It's not planned to be
+   maintained like previous releases, please switch to master for the latest
+   stuff or continue to use v3.1-stable until the next release under the
+   new MIT license.
+
+ - NEW: completely refactored scheduler with a unified, sorted us-resolution
+   linked-list implementation.  All polled checks like timeout are migrated
+   to use the new timers, which also work on the event lib implementations.
+   Faster operation, us-resolution timeouts and generic scheduled callbacks
+   from the event loop.
+
+ - NEW: lws_dsh specialized buffer memory allocator that can borrow space
+   from other cooperating buffers on the same list.
+
+ - NEW: lws_sequencer allows managing multi-connection processes and
+   retries
+
+ - NEW: memory buffer cert support
+
+ - NEW: LWS_WITH_NETWORK in CMake... can be configured without any network-
+   related code at all
+
+ - NEW: builds on QNX 6.5 and SmartOS
+
+ - NEW: JOSE / JWK / JWS / JWE support, for all common ciphers and algs,
+   works on OpenSSL and mbedtls backends
+
+ - NEW: gencrypto now has genaes and genec in addition to genrsa, works
+   on OpenSSL and mbedtls backends
+
+ - NEW: raw_proxy role
+
+ - NEW: Basic Auth works on ws connections
+
  - CHANGE: REMOVED: LWS_WITH_GENRSA, LWS_WITH_GENHASH, LWS_WITH_GENEC,
  LWS_WITH_GENAES have all been removed and combined into LWS_WITH_GENCRYPTO
 
