@@ -934,3 +934,22 @@ lws_humanize(char *p, int len, uint64_t v, const lws_humanize_unit_t *schema)
 
 	return 0;
 }
+
+int
+lws_system_get_info(struct lws_context *context, lws_system_item_t item,
+		    lws_system_arg_t arg, size_t *len)
+{
+	if (!context->system_ops || !context->system_ops->get_info)
+		return 1;
+
+	return context->system_ops->get_info(item, arg, len);
+}
+
+int
+lws_system_reboot(struct lws_context *context)
+{
+	if (!context->system_ops || !context->system_ops->reboot)
+		return 1;
+
+	return context->system_ops->reboot();
+}

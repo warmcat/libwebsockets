@@ -308,6 +308,7 @@ struct lws_context {
 	time_t next_cull;
 #endif
 
+	const lws_system_ops_t *system_ops;
 	void *external_baggage_free_on_destroy;
 	const struct lws_token_limits *token_limits;
 	void *user_space;

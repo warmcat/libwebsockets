@@ -673,6 +673,9 @@ struct lws_context_creation_info {
 	 * on a unix socket, you can give a "username:groupname" string here
 	 * to control the owner:group it's created with.  It's always created
 	 * with 0660 mode. */
+	const lws_system_ops_t *system_ops;
+	/**< CONTEXT: hook up lws_system_ apis to system-specific
+	 * implementations */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility

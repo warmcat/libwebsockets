@@ -120,6 +120,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->gid = info->gid;
 	context->username = info->username;
 	context->groupname = info->groupname;
+	context->system_ops = info->system_ops;
 
 	/* if he gave us names, set the uid / gid */
 	if (lws_plat_drop_app_privileges(context, 0))

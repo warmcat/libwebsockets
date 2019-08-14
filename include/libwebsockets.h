@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2018 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010-2019 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -517,6 +517,7 @@ struct lws_tokens;
 struct lws_vhost;
 struct lws;
 
+#include <libwebsockets/lws-system.h>
 #include <libwebsockets/lws-ws-close.h>
 #include <libwebsockets/lws-callbacks.h>
 #include <libwebsockets/lws-ws-state.h>
