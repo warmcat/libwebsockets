@@ -16,6 +16,10 @@ various scenarios, CC0-licensed (public domain) for cut-and-paste, allow you to 
 News
 ----
 
+## Master is now MIT-licensed
+
+Libwebsockets master is now under the MIT license. See ./LICENSE.
+
 ## V3.2 relase last planned LGPLv2.1+SLE release
 
 As foretold the v3.2 release is the last planned release that will have the code

@@ -1,22 +1,14 @@
 /*
- * Lightweight Embedded JSON Parser
+ * lejp test app
  *
- * Copyright (C) 2013-2017 Andy Green <andy@warmcat.com>
+ * Written in 2010-2019 by Andy Green <andy@warmcat.com>
  *
- *  This library is free software; you can redistribute it and/or
- *  modify it under the terms of the GNU Lesser General Public
- *  License as published by the Free Software Foundation:
- *  version 2.1 of the License.
+ * This file is made available under the Creative Commons CC0 1.0
+ * Universal Public Domain Dedication.
  *
- *  This library is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- *  Lesser General Public License for more details.
- *
- *  You should have received a copy of the GNU Lesser General Public
- *  License along with this library; if not, write to the Free Software
- *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
- *  MA  02110-1301  USA
+ * This demonstrates a minimal http server that performs a form GET with a couple
+ * of parameters.  It dumps the parameters to the console log and redirects
+ * to another page.
  */
 
 #include <libwebsockets.h>
