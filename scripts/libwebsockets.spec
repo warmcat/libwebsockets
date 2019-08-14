@@ -1,5 +1,5 @@
 Name: libwebsockets
-Version: 3.1.0
+Version: 3.2.0
 Release: 1%{?dist}
 Summary: Websocket Server and Client Library
 
@@ -54,7 +54,7 @@ rm -rf $RPM_BUILD_ROOT
 "/usr/bin/libwebsockets-test-sshd"
 "/usr/bin/lwsws"
 "/%{_libdir}/libwebsockets.so"
-"/%{_libdir}/libwebsockets.so.14"
+"/%{_libdir}/libwebsockets.so.15"
 %dir "/usr/share/libwebsockets-test-server"
 "/usr/share/libwebsockets-test-server/candide.zip"
 "/usr/share/libwebsockets-test-server/favicon.ico"
@@ -149,6 +149,9 @@ rm -rf $RPM_BUILD_ROOT
 "/%{_libdir}/cmake/libwebsockets/LibwebsocketsTargets.cmake"
 
 %changelog
+* Fri Aug 14 2019 Andy Green <andy@warmcat.com> 3.2.0-1
+- MAJOR SONAMEBUMP APICHANGES Upstream 3.2.0 release (last LGPLv2.1+SLE)
+
 * Fri Nov 23 2018 Andy Green <andy@warmcat.com> 3.1.0-1
 - MAJOR SONAMEBUMP APICHANGES Upstream 3.1.0 release
 

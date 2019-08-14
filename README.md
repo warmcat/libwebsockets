@@ -16,6 +16,12 @@ various scenarios, CC0-licensed (public domain) for cut-and-paste, allow you to 
 News
 ----
 
+## V3.2 relase last planned LGPLv2.1+SLE release
+
+As foretold the v3.2 release is the last planned release that will have the code
+under LGPLv2.1+SLE.  Master has those parts changed to MIT license; the pieces
+that were CC0 or another liberal license remain the same.
+
 ## License change plan
 
 Lws is planning to change the pieces that are currently LGPLv2.1+SLE to MIT
