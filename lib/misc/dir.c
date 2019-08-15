@@ -26,7 +26,7 @@
 #define _DARWIN_C_SOURCE
 
 #include <libwebsockets.h>
-#include "core/private.h"
+#include "private-lib-core.h"
 #include <string.h>
 #include <stdio.h>
 

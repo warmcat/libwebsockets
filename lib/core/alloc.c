@@ -1,4 +1,4 @@
-#include "core/private.h"
+#include "private-lib-core.h"
 
 #if defined(LWS_HAVE_MALLOC_USABLE_SIZE)
 

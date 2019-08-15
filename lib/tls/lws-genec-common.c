@@ -24,7 +24,7 @@
  *  lws_genec provides an EC abstraction api in lws that works the
  *  same whether you are using openssl or mbedtls crypto functions underneath.
  */
-#include "core/private.h"
+#include "private-lib-core.h"
 
 const struct lws_ec_curves *
 lws_genec_curve(const struct lws_ec_curves *table, const char *name)

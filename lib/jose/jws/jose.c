@@ -25,8 +25,8 @@
  * to specify its JOSE JSON object.  So it lives in ./lib/jose/jws/jose.c.
  */
 
-#include "core/private.h"
-#include "jose/private.h"
+#include "private-lib-core.h"
+#include "jose/private-lib-jose.h"
 
 #include <stdint.h>
 

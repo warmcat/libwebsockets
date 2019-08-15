@@ -22,7 +22,7 @@
  * IN THE SOFTWARE.
  */
 
-#include "core/private.h"
+#include "private-lib-core.h"
 
 static void
 lws_uv_sultimer_cb(uv_timer_t *timer

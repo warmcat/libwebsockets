@@ -22,7 +22,7 @@
  * IN THE SOFTWARE.
  */
 
-#include "core/private.h"
+#include "private-lib-core.h"
 
 /*
  * fakes POLLIN on all tls guys with buffered rx

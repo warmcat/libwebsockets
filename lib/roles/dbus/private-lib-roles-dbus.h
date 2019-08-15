@@ -21,24 +21,25 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
  *
- *  This is included from core/private.h if LWS_ROLE_RAW_PROXY
+ * This is included from private-lib-core.h if LWS_ROLE_DBUS
  */
 
-extern struct lws_role_ops role_ops_raw_proxy;
+#include <dbus/dbus.h>
 
-#define lwsi_role_raw_proxy(wsi) (wsi->role_ops == &role_ops_raw_proxy)
+extern struct lws_role_ops role_ops_dbus;
 
-#if 0
-struct lws_vhost_role_ws {
-	const struct lws_extension *extensions;
+#define lwsi_role_dbus(wsi) (wsi->role_ops == &role_ops_dbus)
+
+struct lws_role_dbus_timer {
+	struct lws_dll2 timer_list;
+	void *data;
+	time_t fire;
 };
 
-struct lws_pt_role_ws {
-	struct lws *rx_draining_ext_list;
-	struct lws *tx_draining_ext_list;
+struct lws_pt_role_dbus {
+	struct lws_dll2_owner timer_list_owner;
 };
 
-struct _lws_raw_proxy_related {
-	struct lws *wsi_onward;
+struct _lws_dbus_mode_related {
+	DBusConnection *conn;
 };
-#endif

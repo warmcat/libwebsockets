@@ -35,7 +35,7 @@
  * worries we create a new shadow wsi until it looks like it is closing again.
  */
 
-#include <core/private.h>
+#include <private-lib-core.h>
 
 #include <libwebsockets/lws-dbus.h>
 

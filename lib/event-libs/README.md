@@ -24,7 +24,7 @@ If the event lib is disabled in cmake, nothing in its directory is built or refe
 
 ### Event loop ops struct
 
-The event lib support is defined by `struct lws_event_loop_ops` in `lib/event-libs/private.h`,
+The event lib support is defined by `struct lws_event_loop_ops` in `lib/event-libs/private-lib-event-libs.h`,
 each event lib support instantiates one of these and fills in the appropriate ops
 callbacks to perform its job.  By convention that lives in
 `./lib/event-libs/**lib name**/**lib_name**.c`.
@@ -34,15 +34,15 @@ callbacks to perform its job.  By convention that lives in
 Truly private declarations for the event lib can go in the event-libs directory as you like.
 However when the declarations must be accessible to other things in lws build, eg,
 the event lib support adds members to `struct lws` when enabled, they should be in the
-event lib supporr directory in a file `private.h`.
+event lib support directory in a file `private-lib-event-libs-myeventlib.h`.
 
-Search for "bring in event libs private declarations" in `./lib/core/private.h
+Search for "bring in event libs private declarations" in `./lib/core/private-lib-core.h
 and add your private event lib support file there following the style used for the other
 event libs, eg,
 
 ```
 #if defined(LWS_WITH_LIBUV)
- #include "event-libs/libuv/private.h"
+ #include "event-libs/libuv/private-lib-event-libs-libuv.h"
 #endif
 ```
 

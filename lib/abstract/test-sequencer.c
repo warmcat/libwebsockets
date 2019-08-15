@@ -28,7 +28,7 @@
  * for each test using te
  */
 
-#include <core/private.h>
+#include <private-lib-core.h>
 
 struct lws_seq_test_sequencer {
 	lws_abs_t			original_abs;

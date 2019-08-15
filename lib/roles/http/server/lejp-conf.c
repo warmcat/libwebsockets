@@ -22,7 +22,7 @@
  * IN THE SOFTWARE.
  */
 
-#include "core/private.h"
+#include "private-lib-core.h"
 
 #ifndef _WIN32
 /* this is needed for Travis CI */

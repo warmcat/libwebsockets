@@ -22,7 +22,7 @@
  * IN THE SOFTWARE.
  */
 
-#include "core/private.h"
+#include "private-lib-core.h"
 
 LWS_VISIBLE LWS_EXTERN void
 lws_set_fops(struct lws_context *context, const struct lws_plat_file_ops *fops)

@@ -24,8 +24,8 @@
  *  lws-gencrypto openssl-specific common code
  */
 
-#include "core/private.h"
-#include "tls/mbedtls/private.h"
+#include "private-lib-core.h"
+#include "private-lib-tls-mbedtls.h"
 
 mbedtls_md_type_t
 lws_gencrypto_mbedtls_hash_to_MD_TYPE(enum lws_genhash_types hash_type)

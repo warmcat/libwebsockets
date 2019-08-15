@@ -33,8 +33,8 @@
  *    having to load it all in memory
  */
 
-#include "core/private.h"
-#include "misc/fts/private.h"
+#include "private-lib-core.h"
+#include "private-lib-misc-fts.h"
 
 #include <stdio.h>
 #include <string.h>

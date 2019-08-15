@@ -23,7 +23,7 @@
  */
 
 #define _GNU_SOURCE
-#include "core/private.h"
+#include "private-lib-core.h"
 
 
 int

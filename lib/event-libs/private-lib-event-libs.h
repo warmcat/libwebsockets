@@ -21,7 +21,7 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
  *
- *  This is included from core/private.h
+ *  This is included from private-lib-core.h
  */
 
 struct lws_event_loop_ops {
@@ -60,18 +60,18 @@ struct lws_event_loop_ops {
 /* bring in event libs private declarations */
 
 #if defined(LWS_WITH_POLL)
-#include "event-libs/poll/private.h"
+#include "private-lib-event-libs-poll.h"
 #endif
 
 #if defined(LWS_WITH_LIBUV)
-#include "event-libs/libuv/private.h"
+#include "private-lib-event-libs-libuv.h"
 #endif
 
 #if defined(LWS_WITH_LIBEVENT)
-#include "event-libs/libevent/private.h"
+#include "private-lib-event-libs-libevent.h"
 #endif
 
 #if defined(LWS_WITH_LIBEV)
-#include "event-libs/libev/private.h"
+#include "private-lib-event-libs-libev.h"
 #endif
 

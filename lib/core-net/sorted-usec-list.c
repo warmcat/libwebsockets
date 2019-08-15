@@ -22,7 +22,7 @@
  * IN THE SOFTWARE.
  */
 
-#include "core/private.h"
+#include "private-lib-core.h"
 
 static int
 sul_compare(const lws_dll2_t *d, const lws_dll2_t *i)

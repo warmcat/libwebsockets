@@ -22,7 +22,7 @@
  * IN THE SOFTWARE.
  */
 
-#include "core/private.h"
+#include "private-lib-core.h"
 
 static void
 lws_ev_hrtimer_cb(struct ev_loop *loop, struct ev_timer *watcher, int revents)

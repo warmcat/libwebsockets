@@ -25,7 +25,7 @@
 #define _GNU_SOURCE
 #include <pthread.h>
 
-#include "core/private.h"
+#include "private-lib-core.h"
 
 #include <string.h>
 #include <stdio.h>

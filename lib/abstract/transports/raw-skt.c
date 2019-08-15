@@ -22,8 +22,8 @@
  * IN THE SOFTWARE.
  */
 
-#include "core/private.h"
-#include "abstract/private.h"
+#include "private-lib-core.h"
+#include "private-lib-abstract.h"
 
 typedef struct lws_abstxp_raw_skt_priv {
 	struct lws_abs *abs;

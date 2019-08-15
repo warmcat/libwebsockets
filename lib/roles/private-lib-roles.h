@@ -274,43 +274,43 @@ extern struct lws_role_ops role_ops_raw_skt, role_ops_raw_file, role_ops_listen,
 /* bring in role private declarations */
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
- #include "roles/http/private.h"
+ #include "private-lib-roles-http.h"
 #else
  #define lwsi_role_http(wsi) (0)
 #endif
 
 #if defined(LWS_ROLE_H1)
- #include "roles/h1/private.h"
+ #include "private-lib-roles-h1.h"
 #else
  #define lwsi_role_h1(wsi) (0)
 #endif
 
 #if defined(LWS_ROLE_H2)
- #include "roles/h2/private.h"
+ #include "private-lib-roles-h2.h"
 #else
  #define lwsi_role_h2(wsi) (0)
 #endif
 
 #if defined(LWS_ROLE_WS)
- #include "roles/ws/private.h"
+ #include "private-lib-roles-ws.h"
 #else
  #define lwsi_role_ws(wsi) (0)
 #endif
 
 #if defined(LWS_ROLE_CGI)
- #include "roles/cgi/private.h"
+ #include "private-lib-roles-cgi.h"
 #else
  #define lwsi_role_cgi(wsi) (0)
 #endif
 
 #if defined(LWS_ROLE_DBUS)
- #include "roles/dbus/private.h"
+ #include "private-lib-roles-dbus.h"
 #else
  #define lwsi_role_dbus(wsi) (0)
 #endif
 
 #if defined(LWS_ROLE_RAW_PROXY)
- #include "roles/raw-proxy/private.h"
+ #include "private-lib-roles-raw-proxy.h"
 #else
  #define lwsi_role_raw_proxy(wsi) (0)
 #endif

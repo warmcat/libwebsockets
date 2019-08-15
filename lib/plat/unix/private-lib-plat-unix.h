@@ -21,7 +21,7 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
  *
- *  Included from lib/core/private.h if no explicit platform
+ *  Included from lib/private-lib-core.h if no explicit platform
  */
 
 #include <fcntl.h>

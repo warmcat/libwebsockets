@@ -19,7 +19,7 @@
 #include "ssl_dbg.h"
 #include "ssl_port.h"
 
-#include "core/private.h"
+#include "private-lib-core.h"
 
 char *
 lws_strncpy(char *dest, const char *src, size_t size);

@@ -21,7 +21,7 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
  *
- *  This is included from core/private.h if either H1 or H2 roles are
+ *  This is included from private-lib-core.h if either H1 or H2 roles are
  *  enabled
  */
 
@@ -31,7 +31,7 @@
  #endif
 
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
-#include "roles/http/compression/private.h"
+#include "private-lib-roles-http-compression.h"
 #endif
 
 #define lwsi_role_http(wsi) (lwsi_role_h1(wsi) || lwsi_role_h2(wsi))

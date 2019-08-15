@@ -54,7 +54,7 @@ If the role is disabled in cmake, nothing in its directory is built.
 
 ### Role ops struct
 
-The role is defined by `struct lws_role_ops` in `lib/roles/private.h`,
+The role is defined by `struct lws_role_ops` in `lib/roles/private-lib-roles.h`,
 each role instantiates one of these and fills in the appropriate ops
 callbacks to perform its job.  By convention that lives in
 `./lib/roles/**role name**/ops-**role_name**.c`.
@@ -64,15 +64,15 @@ callbacks to perform its job.  By convention that lives in
 Truly private declarations for the role can go in the role directory as you like.
 However when the declarations must be accessible to other things in lws build, eg,
 the role adds members to `struct lws` when enabled, they should be in the role
-directory in a file `private.h`.
+directory in a file `private-lib-roles-myrole.h`.
 
-Search for "bring in role private declarations" in `./lib/roles/private.h
+Search for "bring in role private declarations" in `./lib/roles/private-lib-roles.h
 and add your private role file there following the style used for the other roles,
 eg,
 
 ```
 #if defined(LWS_ROLE_WS)
- #include "roles/ws/private.h"
+ #include "roles/ws/private-lib-roles-ws.h"
 #else
  #define lwsi_role_ws(wsi) (0)
 #endif

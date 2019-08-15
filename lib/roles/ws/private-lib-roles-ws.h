@@ -21,7 +21,7 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
  *
- *  This is included from core/private.h if LWS_ROLE_WS
+ *  This is included from private-lib-core.h if LWS_ROLE_WS
  */
 
 extern struct lws_role_ops role_ops_ws;

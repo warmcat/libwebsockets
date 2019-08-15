@@ -22,8 +22,8 @@
  * IN THE SOFTWARE.
  */
 
-#include "core/private.h"
-#include "tls/mbedtls/private.h"
+#include "private-lib-core.h"
+#include "private-lib-tls-mbedtls.h"
 
 
 LWS_VISIBLE void

@@ -22,8 +22,8 @@
  * IN THE SOFTWARE.
  */
 
-#include "core/private.h"
-#include "tls/mbedtls/private.h"
+#include "private-lib-core.h"
+#include "private-lib-tls-mbedtls.h"
 #include <mbedtls/oid.h>
 
 #if defined(LWS_PLAT_OPTEE) || defined(OPTEE_DEV_KIT)

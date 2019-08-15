@@ -24,8 +24,8 @@
 
 #if !defined(LWS_PLAT_OPTEE) && !defined(OPTEE_DEV_KIT)
 
-#include "core/private.h"
-#include "misc/lwsac/private.h"
+#include "private-lib-core.h"
+#include "private-lib-misc-lwsac.h"
 
 /*
  * Helper for caching a file in memory in a lac, but also to check at intervals

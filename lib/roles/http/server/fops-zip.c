@@ -33,7 +33,7 @@
  * Somewhat rewritten by AG
  */
 
-#include "core/private.h"
+#include "private-lib-core.h"
 
 #if defined(LWS_WITH_MINIZ)
 #include <miniz.h>

@@ -24,8 +24,8 @@
  *  lws_genaes provides an AES abstraction api in lws that works the
  *  same whether you are using openssl or mbedtls hash functions underneath.
  */
-#include "core/private.h"
-#include "../../jose/private.h"
+#include "private-lib-core.h"
+#include "../../jose/private-lib-jose.h"
 
 /*
  * Care: many openssl apis return 1 for success.  These are translated to the

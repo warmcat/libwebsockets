@@ -6,7 +6,7 @@ specifically HTTP content streams, after the header, be it h1 or h2.
 
 The compression transforms expose an "ops" type struct and a compressor name
 as used by `content-encoding`... the ops struct definition can be found in
-./private.h.
+./private-lib-roles-http-compression.h.
 
 Because the compression transform depends on being able to send on its output
 before it can process new input, the transform adds a new kind of buflist

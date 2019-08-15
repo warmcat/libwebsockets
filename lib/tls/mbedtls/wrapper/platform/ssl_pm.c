@@ -25,7 +25,7 @@
 #include "mbedtls/error.h"
 #include "mbedtls/certs.h"
 
-#include "core/private.h"
+#include "private-lib-core.h"
 
 #define X509_INFO_STRING_LENGTH 8192
 

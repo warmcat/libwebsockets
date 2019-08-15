@@ -21,7 +21,7 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
  *
- * Included from lib/core/private.h if defined(WIN32) || defined(_WIN32)
+ * Included from lib/private-lib-core.h if defined(WIN32) || defined(_WIN32)
  */
 
  #ifndef WIN32_LEAN_AND_MEAN

@@ -21,7 +21,7 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
  *
- *  This is included from core/private.h if LWS_WITH_TLS
+ *  This is included from private-lib-core.h if LWS_WITH_TLS
  */
 
 struct lws_context_per_thread;

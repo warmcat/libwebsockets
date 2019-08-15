@@ -25,7 +25,7 @@
 #ifndef _WINSOCK_DEPRECATED_NO_WARNINGS
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 #endif
-#include "core/private.h"
+#include "private-lib-core.h"
 
 struct lws *
 wsi_from_fd(const struct lws_context *context, lws_sockfd_type fd)

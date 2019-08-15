@@ -22,7 +22,7 @@
  * IN THE SOFTWARE.
  */
 
-#include "core/private.h"
+#include "private-lib-core.h"
 
 static int
 lcs_init_compression_deflate(lws_comp_ctx_t *ctx, int decomp)

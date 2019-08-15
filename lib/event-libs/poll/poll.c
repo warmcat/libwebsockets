@@ -21,10 +21,10 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
  *
- *  This is included from core/private.h if LWS_ROLE_WS
+ *  This is included from private-lib-core.h if LWS_ROLE_WS
  */
 
-#include <core/private.h>
+#include <private-lib-core.h>
 
 struct lws_event_loop_ops event_loop_ops_poll = {
 	/* name */			"poll",

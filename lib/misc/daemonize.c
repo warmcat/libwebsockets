@@ -26,7 +26,7 @@
 #include <unistd.h>
 #include <errno.h>
 
-#include "core/private.h"
+#include "private-lib-core.h"
 
 pid_t pid_daemon;
 static char *lock_path;

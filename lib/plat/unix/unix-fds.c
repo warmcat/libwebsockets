@@ -23,7 +23,7 @@
  */
 
 #define _GNU_SOURCE
-#include "core/private.h"
+#include "private-lib-core.h"
 
 struct lws *
 wsi_from_fd(const struct lws_context *context, int fd)

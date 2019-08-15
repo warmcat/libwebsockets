@@ -22,7 +22,7 @@
  * IN THE SOFTWARE.
  */
 
-#include "core/private.h"
+#include "private-lib-core.h"
 
 int lws_plat_apply_FD_CLOEXEC(int n)
 {

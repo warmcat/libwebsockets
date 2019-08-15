@@ -26,8 +26,8 @@
  * to provided canned packets from an array of test vectors.
  */
 
-#include "core/private.h"
-#include "abstract/private.h"
+#include "private-lib-core.h"
+#include "private-lib-abstract.h"
 
 /* this is the transport priv instantiated at abs->ati */
 

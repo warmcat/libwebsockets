@@ -22,8 +22,8 @@
  * IN THE SOFTWARE.
  */
 
-#include "core/private.h"
-#include "jose/jwe/private.h"
+#include "private-lib-core.h"
+#include "private-lib-jose-jwe.h"
 
 /*
  * NOTICE this is AESGCM content encryption, it's not AES GCM key wrapping

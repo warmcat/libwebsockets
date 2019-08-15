@@ -339,7 +339,26 @@ if (NOT LWS_ROLE_WS)
 	set(LWS_WITHOUT_EXTENSIONS 1)
 endif()
 
-include_directories(include plugins)
+if (LWS_WITH_MBEDTLS)
+	include_directories(lib/tls/mbedtls/wrapper/include)
+endif()
+
+include_directories(include plugins lib/core lib/core-net lib/event-libs include/abstract lib/tls lib/roles lib/event-libs/libuv lib/event-libs/poll lib/event-libs/libevent lib/event-libs/libev lib/jose/jwe lib/jose/jws lib/jose lib/misc lib/roles/http lib/roles/http/compression lib/roles/h1 lib/roles/h2 lib/roles/ws lib/roles/cgi lib/roles/dbus lib/roles/raw-proxy)
+
+if (LWS_WITH_ESP32)
+	include_directories(lib/plat/esp32)
+else()
+	if (WIN32)
+		include_directories(lib/plat/windows)
+	else()
+		if (LWS_WITH_OPTEE)
+			include_directories(lib/plat/optee)
+		else()
+			include_directories(lib/plat/unix)
+		endif()
+	endif()
+endif()
+
 
 if (LWS_WITH_LWSWS)
  message(STATUS "LWS_WITH_LWSWS --> Enabling LWS_WITH_PLUGINS and LWS_WITH_LIBUV")
@@ -940,7 +959,7 @@ include_directories("${PROJECT_SOURCE_DIR}/lib")
 # Group headers and sources.
 # Some IDEs use this for nicer file structure.
 set(HDR_PRIVATE
-	lib/core/private.h)
+	lib/core/private-lib-core.h)
 
 set(HDR_PUBLIC
 	"${PROJECT_SOURCE_DIR}/include/libwebsockets.h"
@@ -1119,7 +1138,7 @@ if (NOT LWS_WITHOUT_CLIENT)
 	list(APPEND SOURCES
 		lib/core-net/connect.c
 		lib/core-net/client.c
-		lib/roles/http/client/client.c
+		lib/roles/http/client/client-http.c
 		lib/roles/http/client/client-handshake.c)
 endif()
 
@@ -1185,12 +1204,12 @@ if (LWS_WITH_SSL)
 		
 	if (LWS_WITH_MBEDTLS)
 		list(APPEND SOURCES
-			lib/tls/mbedtls/tls.c
-			lib/tls/mbedtls/x509.c
+			lib/tls/mbedtls/mbedtls-tls.c
+			lib/tls/mbedtls/mbedtls-x509.c
 		)
 		if (LWS_WITH_NETWORK)
 			list(APPEND SOURCES
-				lib/tls/mbedtls/ssl.c
+				lib/tls/mbedtls/mbedtls-ssl.c
 			)
 		endif()
 		if (LWS_WITH_GENCRYPTO)
@@ -1205,12 +1224,12 @@ if (LWS_WITH_SSL)
 		endif()
 	else()
 		list(APPEND SOURCES
-			lib/tls/openssl/tls.c
-			lib/tls/openssl/x509.c
+			lib/tls/openssl/openssl-tls.c
+			lib/tls/openssl/openssl-x509.c
 		)
 		if (LWS_WITH_NETWORK)
 			list(APPEND SOURCES
-				lib/tls/openssl/ssl.c
+				lib/tls/openssl/openssl-ssl.c
 			)
 		endif()
 		if (LWS_WITH_GENCRYPTO)

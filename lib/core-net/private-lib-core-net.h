@@ -29,7 +29,7 @@
 #define _POSIX_C_SOURCE 200112L
 #endif
 
-#include "roles/private.h"
+#include "private-lib-roles.h"
 
 #ifdef LWS_WITH_IPV6
 #if defined(WIN32) || defined(_WIN32)

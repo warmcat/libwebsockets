@@ -22,7 +22,7 @@
  * IN THE SOFTWARE.
  */
 
-#include "core/private.h"
+#include "private-lib-core.h"
 
 #if !defined(LWS_WITH_ESP32) && !defined(LWS_PLAT_OPTEE)
 static int

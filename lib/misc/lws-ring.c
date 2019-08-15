@@ -22,7 +22,7 @@
  * IN THE SOFTWARE.
  */
 
-#include "core/private.h"
+#include "private-lib-core.h"
 
 LWS_VISIBLE LWS_EXTERN struct lws_ring *
 lws_ring_create(size_t element_len, size_t count,

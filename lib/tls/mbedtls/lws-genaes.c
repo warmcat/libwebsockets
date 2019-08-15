@@ -24,8 +24,8 @@
  *  lws_genaes provides an abstraction api for AES in lws that works the
  *  same whether you are using openssl or mbedtls hash functions underneath.
  */
-#include "core/private.h"
-#include "../../jose/private.h"
+#include "private-lib-core.h"
+#include "../../jose/private-lib-jose.h"
 
 static int operation_map[] = { MBEDTLS_AES_ENCRYPT, MBEDTLS_AES_DECRYPT };
 

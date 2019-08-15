@@ -1,4 +1,4 @@
-/*
+ /*
  * libwebsockets - small server side websockets and web server implementation
  *
  * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
@@ -20,30 +20,11 @@
  * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
+ *
+ *  This is included from private-lib-core.h if LWS_ROLE_H1
+ *
+ *  Most of the h1 business is defined in the h1 / h2 common roles/http dir
  */
 
-#include "core/private.h"
-#include "tls/mbedtls/private.h"
-
-void
-lws_tls_err_describe_clear(void)
-{
-}
-
-int
-lws_context_init_ssl_library(const struct lws_context_creation_info *info)
-{
-	lwsl_info(" Compiled with MbedTLS support\n");
-
-	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT))
-		lwsl_info(" SSL disabled: no "
-			  "LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT\n");
-
-	return 0;
-}
-
-void
-lws_context_deinit_ssl_library(struct lws_context *context)
-{
-
-}
+extern struct lws_role_ops role_ops_h1;
+#define lwsi_role_h1(wsi) (wsi->role_ops == &role_ops_h1)

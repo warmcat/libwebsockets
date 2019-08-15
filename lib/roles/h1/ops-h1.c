@@ -22,7 +22,7 @@
  * IN THE SOFTWARE.
  */
 
-#include <core/private.h>
+#include <private-lib-core.h>
 
 #ifndef min
 #define min(a, b) ((a) < (b) ? (a) : (b))

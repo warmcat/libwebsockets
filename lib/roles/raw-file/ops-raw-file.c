@@ -22,7 +22,7 @@
  * IN THE SOFTWARE.
  */
 
-#include <core/private.h>
+#include <private-lib-core.h>
 
 static int
 rops_handle_POLLIN_raw_file(struct lws_context_per_thread *pt, struct lws *wsi,

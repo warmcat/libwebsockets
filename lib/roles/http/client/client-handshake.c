@@ -22,7 +22,7 @@
  * IN THE SOFTWARE.
  */
 
-#include "core/private.h"
+#include "private-lib-core.h"
 
 static int
 lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)

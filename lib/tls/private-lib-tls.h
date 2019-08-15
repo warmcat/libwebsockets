@@ -21,7 +21,7 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
  *
- *  This is included from core/private.h if LWS_WITH_TLS
+ *  This is included from private-lib-core.h if LWS_WITH_TLS
  */
 
 #if !defined(__LWS_TLS_PRIVATE_H__)
@@ -63,7 +63,7 @@
   #include <mbedtls/aes.h>
   #include <mbedtls/gcm.h>
   #include <mbedtls/x509_crt.h>
-  #include "tls/mbedtls/wrapper/include/openssl/ssl.h" /* wrapper !!!! */
+  #include "openssl/ssl.h" /* wrapper !!!! */
  #else /* not esp32 */
   #if defined(LWS_WITH_MBEDTLS)
    #include <mbedtls/ssl.h>
@@ -73,7 +73,7 @@
    #include <mbedtls/x509_csr.h>
    #include <mbedtls/ecp.h>
    #include <mbedtls/ecdsa.h>
-   #include "tls/mbedtls/wrapper/include/openssl/ssl.h" /* wrapper !!!! */
+   #include "openssl/ssl.h" /* wrapper !!!! */
   #else
    #include <openssl/ssl.h>
    #include <openssl/evp.h>
@@ -121,7 +121,7 @@ typedef BIO lws_tls_bio;
 typedef X509 lws_tls_x509;
 
 #if defined(LWS_WITH_NETWORK)
-#include "tls/private-network.h"
+#include "private-network.h"
 #endif
 
 LWS_EXTERN int

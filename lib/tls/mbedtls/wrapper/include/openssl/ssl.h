@@ -20,8 +20,8 @@
 #endif
 
 #include <stdlib.h>
-#include "internal/ssl_x509.h"
-#include "internal/ssl_pkey.h"
+#include "ssl_x509.h"
+#include "ssl_pkey.h"
 
 /*
 {
