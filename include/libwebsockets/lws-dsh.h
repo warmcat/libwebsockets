@@ -42,8 +42,6 @@
  * All management structures exist inside the allocated buffer.
  */
 
-typedef struct lws_dsh lws_dsh_t;
-
 /**
  * lws_dsh_create() - Allocate a DSH buffer
  *
@@ -64,7 +62,7 @@ typedef struct lws_dsh lws_dsh_t;
  *
  * Returns an opaque pointer to the dsh, or NULL if allocation failed.
  */
-LWS_VISIBLE LWS_EXTERN lws_dsh_t *
+LWS_VISIBLE LWS_EXTERN struct lws_dsh *
 lws_dsh_create(lws_dll2_owner_t *owner, size_t buffer_size, int count_kinds);
 
 /**
@@ -82,7 +80,7 @@ lws_dsh_create(lws_dll2_owner_t *owner, size_t buffer_size, int count_kinds);
  * unmigratable objects are cleanly destroyed.
  */
 LWS_VISIBLE LWS_EXTERN void
-lws_dsh_destroy(lws_dsh_t **pdsh);
+lws_dsh_destroy(struct lws_dsh **pdsh);
 
 /**
  * lws_dsh_alloc_tail() - make a suballocation inside a dsh
@@ -103,8 +101,8 @@ lws_dsh_destroy(lws_dsh_t **pdsh);
  * The suballocation is added to the kind-specific FIFO at the tail.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_dsh_alloc_tail(lws_dsh_t *dsh, int kind, const void *src1, size_t size1,
-		    const void *src2, size_t size2);
+lws_dsh_alloc_tail(struct lws_dsh *dsh, int kind, const void *src1,
+		   size_t size1, const void *src2, size_t size2);
 
 /**
  * lws_dsh_free() - free a suballocation from the dsh
@@ -133,7 +131,7 @@ lws_dsh_free(void **obj);
  * free list.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_dsh_get_head(lws_dsh_t *dsh, int kind, void **obj, size_t *size);
+lws_dsh_get_head(struct lws_dsh *dsh, int kind, void **obj, size_t *size);
 
 /**
  * lws_dsh_describe() - DEBUG BUILDS ONLY dump the dsh to the logs
@@ -144,4 +142,4 @@ lws_dsh_get_head(lws_dsh_t *dsh, int kind, void **obj, size_t *size);
  * Useful information for debugging lws_dsh
  */
 LWS_VISIBLE LWS_EXTERN void
-lws_dsh_describe(lws_dsh_t *dsh, const char *desc);
+lws_dsh_describe(struct lws_dsh *dsh, const char *desc);

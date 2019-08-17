@@ -194,9 +194,9 @@ lws_timed_callback_vh_protocol_us(struct lws_vhost *vh,
 				  const struct lws_protocols *prot, int reason,
 				  lws_usec_t us);
 
+struct lws_sorted_usec_list;
 
-typedef struct lws_sorted_usec_list lws_sorted_usec_list_t;
-typedef void (*sul_cb_t)(lws_sorted_usec_list_t *sul);
+typedef void (*sul_cb_t)(struct lws_sorted_usec_list *sul);
 
 typedef struct lws_sorted_usec_list {
 	struct lws_dll2 list;	/* simplify the code by keeping this at start */

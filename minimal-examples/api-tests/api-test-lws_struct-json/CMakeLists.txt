@@ -61,7 +61,10 @@ MACRO(require_lws_config reqconfig _val result)
 	endif()
 ENDMACRO()
 
+set(requirements 1)
+require_lws_config(LWS_WITH_STRUCT_JSON 1 requirements)
 
+if (requirements)
 
 	add_executable(${SAMP} ${SRCS})
 
@@ -71,3 +74,4 @@ ENDMACRO()
 	else()
 		target_link_libraries(${SAMP} websockets)
 	endif()
+endif()

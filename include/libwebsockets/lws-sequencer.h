@@ -57,8 +57,6 @@ typedef enum lws_seq_cb_return {
 	LWSSEQ_RET_DESTROY
 } lws_seq_cb_return_t;
 
-typedef struct lws_sequencer lws_seq_t; /* opaque */
-
 /*
  * handler for this sequencer.  Return 0 if OK else nonzero to destroy the
  * sequencer.  LWSSEQ_DESTROYED will be called back to the handler so it can
@@ -98,7 +96,7 @@ typedef struct lws_seq_info {
  *
  * pt locking is used to protect the related data structures.
  */
-LWS_VISIBLE LWS_EXTERN lws_seq_t *
+LWS_VISIBLE LWS_EXTERN struct lws_sequencer *
 lws_seq_create(lws_seq_info_t *info);
 
 /**
@@ -112,7 +110,7 @@ lws_seq_create(lws_seq_info_t *info);
  * set to NULL.
  */
 LWS_VISIBLE LWS_EXTERN void
-lws_seq_destroy(lws_seq_t **seq);
+lws_seq_destroy(struct lws_sequencer **seq);
 
 /**
  * lws_seq_queue_event() - queue an event on the given sequencer
@@ -132,7 +130,7 @@ lws_seq_destroy(lws_seq_t **seq);
  * values here.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_seq_queue_event(lws_seq_t *seq, lws_seq_events_t e, void *data,
+lws_seq_queue_event(struct lws_sequencer *seq, lws_seq_events_t e, void *data,
 			  void *aux);
 
 /**
@@ -152,7 +150,7 @@ lws_seq_queue_event(lws_seq_t *seq, lws_seq_events_t e, void *data,
  * close message yet.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_seq_check_wsi(lws_seq_t *seq, struct lws *wsi);
+lws_seq_check_wsi(struct lws_sequencer *seq, struct lws *wsi);
 
 #define LWSSEQTO_NONE 0
 
@@ -182,7 +180,7 @@ lws_seq_check_wsi(lws_seq_t *seq, struct lws *wsi);
  * react appropriately.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_seq_timeout_us(lws_seq_t *seq, lws_usec_t us);
+lws_seq_timeout_us(struct lws_sequencer *seq, lws_usec_t us);
 
 /**
  * lws_seq_from_user(): get the lws_seq_t pointer from the user ptr
@@ -197,7 +195,7 @@ lws_seq_timeout_us(lws_seq_t *seq, lws_usec_t us);
  * size of the lws_seq_t is unknown to user code, this helper does it for
  * you.
  */
-LWS_VISIBLE LWS_EXTERN lws_seq_t *
+LWS_VISIBLE LWS_EXTERN struct lws_sequencer *
 lws_seq_from_user(void *u);
 
 /**
@@ -210,7 +208,7 @@ lws_seq_from_user(void *u);
  * step considering a global sequencer lifetime limit.
  */
 LWS_VISIBLE LWS_EXTERN lws_usec_t
-lws_seq_us_since_creation(lws_seq_t *seq);
+lws_seq_us_since_creation(struct lws_sequencer *seq);
 
 /**
  * lws_seq_name(): get the name of this sequencer
@@ -221,7 +219,7 @@ lws_seq_us_since_creation(lws_seq_t *seq);
  * annotate logging when then are multiple sequencers in play.
  */
 LWS_VISIBLE LWS_EXTERN const char *
-lws_seq_name(lws_seq_t *seq);
+lws_seq_name(struct lws_sequencer *seq);
 
 /**
  * lws_seq_get_context(): get the lws_context sequencer was created on
@@ -232,4 +230,4 @@ lws_seq_name(lws_seq_t *seq);
  * pointer handy.
  */
 LWS_VISIBLE LWS_EXTERN struct lws_context *
-lws_seq_get_context(lws_seq_t *seq);
+lws_seq_get_context(struct lws_sequencer *seq);

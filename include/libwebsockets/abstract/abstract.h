@@ -76,7 +76,7 @@ typedef struct lws_abs {
 	const struct lws_abs_transport	*at;
 	const lws_token_map_t		*at_tokens;
 
-	lws_seq_t			*seq;
+	struct lws_sequencer		*seq;
 	void				*opaque_user_data;
 
 	/*

@@ -275,11 +275,9 @@ typedef struct lws_dsh_obj_head {
 	int				kind;
 } lws_dsh_obj_head_t;
 
-typedef struct lws_dsh lws_dsh_t;
-
 typedef struct lws_dsh_obj {
 	lws_dll2_t			list;	/* must be first */
-	lws_dsh_t			*dsh;	/* invalid when on free list */
+	struct lws_dsh			*dsh;	/* invalid when on free list */
 	size_t				size;	/* invalid when on free list */
 	size_t				asize;
 } lws_dsh_obj_t;
@@ -581,7 +579,7 @@ struct lws {
 	const struct lws_protocols *protocol;
 	struct lws_dll2 same_vh_protocol;
 
-	lws_seq_t *seq;	/* associated sequencer if any */
+	struct lws_sequencer *seq;	/* associated sequencer if any */
 
 	struct lws_dll2 dll_buflist; /* guys with pending rxflow */
 
