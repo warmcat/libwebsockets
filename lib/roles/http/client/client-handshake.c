@@ -60,7 +60,7 @@ lws_client_connect_3(struct lws *wsi, struct lws *wsi_piggyback, ssize_t plen)
 	int n, m, rawish = 0;
 
 	if (wsi->stash)
-		meth = wsi->stash->method;
+		meth = wsi->stash->cis[CIS_METHOD];
 	else
 		meth = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD);
 
@@ -78,17 +78,11 @@ lws_client_connect_3(struct lws *wsi, struct lws *wsi_piggyback, ssize_t plen)
 
 		/*
 		 * OK from now on we talk via the proxy, so connect to that
-		 *
-		 * (will overwrite existing pointer,
-		 * leaving old string/frag there but unreferenced)
 		 */
-		if (wsi->stash) {
-			lws_free(wsi->stash->address);
-			wsi->stash->address =
-				lws_strdup(wsi->vhost->http.http_proxy_address);
-			if (!wsi->stash->address)
-				goto failed;
-		} else
+		if (wsi->stash)
+			wsi->stash->cis[CIS_ADDRESS] =
+				wsi->vhost->http.http_proxy_address;
+		else
 			if (lws_hdr_simple_create(wsi,
 					_WSI_TOKEN_CLIENT_PEER_ADDRESS,
 					  wsi->vhost->http.http_proxy_address))
@@ -270,7 +264,7 @@ lws_client_connect_2(struct lws *wsi)
 	/* we can only piggyback GET or POST */
 
 	if (wsi->stash)
-		meth = wsi->stash->method;
+		meth = wsi->stash->cis[CIS_METHOD];
 	else
 		meth = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD);
 
@@ -368,8 +362,9 @@ create_new_conn:
 	 */
 
 	if (!wsi->cli_hostname_copy) {
-		if (wsi->stash)
-			wsi->cli_hostname_copy = lws_strdup(wsi->stash->host);
+		if (wsi->stash && wsi->stash->cis[CIS_HOST])
+			wsi->cli_hostname_copy =
+					lws_strdup(wsi->stash->cis[CIS_HOST]);
 		else {
 			char *pa = lws_hdr_simple_ptr(wsi,
 					      _WSI_TOKEN_CLIENT_PEER_ADDRESS);
@@ -401,7 +396,7 @@ create_new_conn:
 	 */
 
 	if (wsi->stash)
-		ads = wsi->stash->address;
+		ads = wsi->stash->cis[CIS_ADDRESS];
 	else
 		ads = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS);
 #if defined(LWS_WITH_UNIX_SOCK)
@@ -490,9 +485,9 @@ create_new_conn:
 	 * to whatever we decided to connect to
 	 */
 
-       lwsl_info("%s: %p: address %s:%u\n", __func__, wsi, ads, port);
+	lwsl_info("%s: %p: address %s:%u\n", __func__, wsi, ads, port);
 
-       n = lws_getaddrinfo46(wsi, ads, &result);
+	n = lws_getaddrinfo46(wsi, ads, &result);
 	memset(&sa46, 0, sizeof(sa46));
 #ifdef LWS_WITH_IPV6
 	if (wsi->ipv6) {
@@ -571,7 +566,7 @@ create_new_conn:
 			}
 #endif
 		} else {
-			lwsl_err("getaddrinfo failed: %d\n", n);
+			lwsl_err("getaddrinfo failed: %s: %d\n", ads, n);
 			cce = "getaddrinfo failed";
 			goto oom4;
 		}
@@ -678,7 +673,7 @@ ads_known:
 				AWAITING_TIMEOUT);
 
 		if (wsi->stash)
-			iface = wsi->stash->iface;
+			iface = wsi->stash->cis[CIS_IFACE];
 		else
 			iface = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_IFACE);
 
@@ -792,6 +787,14 @@ failed1:
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 
+static uint8_t hnames2[] = {
+	_WSI_TOKEN_CLIENT_ORIGIN,
+	_WSI_TOKEN_CLIENT_SENT_PROTOCOLS,
+	_WSI_TOKEN_CLIENT_METHOD,
+	_WSI_TOKEN_CLIENT_IFACE,
+	_WSI_TOKEN_CLIENT_ALPN
+};
+
 /**
  * lws_client_reset() - retarget a connected wsi to start over with a new
  * 			connection (ie, redirect)
@@ -802,13 +805,14 @@ failed1:
  * path:	uri path to connect to on the new server
  * host:	host header to send to the new server
  */
-LWS_VISIBLE struct lws *
+struct lws *
 lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 		 const char *path, const char *host)
 {
-	char origin[300] = "", protocol[300] = "", method[32] = "",
-	     iface[16] = "", alpn[32] = "", *p;
+	char *stash, *p;
 	struct lws *wsi;
+	size_t size = 0;
+	int n;
 
 	if (!pwsi)
 		return NULL;
@@ -821,25 +825,23 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	}
 	wsi->redirects++;
 
-	p = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_ORIGIN);
-	if (p)
-		lws_strncpy(origin, p, sizeof(origin));
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(hnames2); n++)
+		size += lws_hdr_total_length(wsi, hnames2[n]) + 1;
 
-	p = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_SENT_PROTOCOLS);
-	if (p)
-		lws_strncpy(protocol, p, sizeof(protocol));
+	if ((int)size < lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_URI) + 1)
+		size = lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_URI) + 1;
 
-	p = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD);
-	if (p)
-		lws_strncpy(method, p, sizeof(method));
+	p = stash = lws_malloc(size, __func__);
+	if (!stash)
+		return NULL;
 
-	p = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_IFACE);
-	if (p)
-		lws_strncpy(iface, p, sizeof(iface));
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(hnames2); n++)
+		if (lws_hdr_total_length(wsi, hnames2[n])) {
+			memcpy(p, lws_hdr_simple_ptr(wsi, hnames2[n]),
+				lws_hdr_total_length(wsi, hnames2[n]) + 1);
+			p += lws_hdr_total_length(wsi, hnames2[n]) + 1;
+		}
 
-	p = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_ALPN);
-	if (p)
-		lws_strncpy(alpn, p, sizeof(alpn));
 
 	if (!port) {
 		port = 443;
@@ -867,7 +869,7 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 #else
 	if (ssl) {
 		lwsl_err("%s: not configured for ssl\n", __func__);
-		return NULL;
+		goto bail;
 	}
 #endif
 
@@ -880,41 +882,33 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	_lws_header_table_reset(wsi->http.ah);
 
 	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS, address))
-		return NULL;
+		goto bail;
 
 	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_HOST, host))
-		return NULL;
+		goto bail;
 
-	if (origin[0])
-		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_ORIGIN,
-					  origin))
-			return NULL;
-	if (protocol[0])
-		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_SENT_PROTOCOLS,
-					  protocol))
-			return NULL;
-	if (method[0])
-		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_METHOD,
-					  method))
-			return NULL;
+	p = stash;
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(hnames2); n++) {
+		if (lws_hdr_simple_create(wsi, hnames2[n], p))
+			goto bail;
+		p += lws_hdr_total_length(wsi, hnames2[n]) + 1;
+	}
 
-	if (iface[0])
-		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_IFACE,
-					  iface))
-			return NULL;
-	if (alpn[0])
-		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_ALPN,
-					  alpn))
-			return NULL;
+	stash[0] = '/';
+	lws_strncpy(&stash[1], path, size - 1);
+	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_URI, stash))
+		goto bail;
 
-	origin[0] = '/';
-	strncpy(&origin[1], path, sizeof(origin) - 2);
-	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_URI, origin))
-		return NULL;
+	lws_free_set_NULL(stash);
 
 	*pwsi = lws_client_connect_2(wsi);
 
 	return *pwsi;
+
+bail:
+	lws_free_set_NULL(stash);
+
+	return NULL;
 }
 
 #if defined(LWS_WITH_HTTP_PROXY) && defined(LWS_WITH_HUBBUB)
@@ -1048,10 +1042,22 @@ html_parser_cb(const hubbub_token *token, void *pw)
 
 #endif
 
+static const uint8_t hnames[] = {
+	_WSI_TOKEN_CLIENT_PEER_ADDRESS,
+	_WSI_TOKEN_CLIENT_URI,
+	_WSI_TOKEN_CLIENT_HOST,
+	_WSI_TOKEN_CLIENT_ORIGIN,
+	_WSI_TOKEN_CLIENT_SENT_PROTOCOLS,
+	_WSI_TOKEN_CLIENT_METHOD,
+	_WSI_TOKEN_CLIENT_IFACE,
+	_WSI_TOKEN_CLIENT_ALPN
+};
+
 struct lws *
 lws_http_client_connect_via_info2(struct lws *wsi)
 {
 	struct client_info_stash *stash = wsi->stash;
+	int n;
 
 	lwsl_debug("%s: %p (stash %p)\n", __func__, wsi, stash);
 
@@ -1060,7 +1066,7 @@ lws_http_client_connect_via_info2(struct lws *wsi)
 
 	wsi->opaque_user_data = wsi->stash->opaque_user_data;
 
-	if (stash->method && !strcmp(stash->method, "RAW"))
+	if (stash->cis[CIS_METHOD] && !strcmp(stash->cis[CIS_METHOD], "RAW"))
 		goto no_ah;
 
 	/*
@@ -1068,44 +1074,14 @@ lws_http_client_connect_via_info2(struct lws *wsi)
 	 * stash them... we only need during connect phase so into a temp
 	 * allocated stash
 	 */
-	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS,
-				  stash->address))
-		goto bail1;
-
-	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_URI, stash->path))
-		goto bail1;
-
-	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_HOST, stash->host))
-		goto bail1;
-
-	if (stash->origin)
-		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_ORIGIN,
-					  stash->origin))
-			goto bail1;
-	/*
-	 * this is a list of protocols we tell the server we're okay with
-	 * stash it for later when we compare server response with it
-	 */
-	if (stash->protocol)
-		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_SENT_PROTOCOLS,
-					  stash->protocol))
-			goto bail1;
-	if (stash->method)
-		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_METHOD,
-					  stash->method))
-			goto bail1;
-	if (stash->iface)
-		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_IFACE,
-					  stash->iface))
-			goto bail1;
-	if (stash->alpn)
-		if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_ALPN,
-					  stash->alpn))
-			goto bail1;
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(hnames); n++)
+		if (hnames[n] && stash->cis[n])
+			if (lws_hdr_simple_create(wsi, hnames[n], stash->cis[n]))
+				goto bail1;
 
 #if defined(LWS_WITH_SOCKS5)
 	if (!wsi->vhost->socks_proxy_port)
-		lws_client_stash_destroy(wsi);
+		lws_free_set_NULL(wsi->stash);
 #endif
 
 no_ah:
