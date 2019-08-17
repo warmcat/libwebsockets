@@ -440,7 +440,8 @@ lws_create_vhost(struct lws_context *context,
 	struct lws_protocols *lwsp;
 	int m, f = !info->pvo, fx = 0, abs_pcol_count = 0;
 	char buf[96];
-#if !defined(LWS_WITHOUT_CLIENT) && defined(LWS_HAVE_GETENV)
+#if defined(LWS_CLIENT_HTTP_PROXYING) && \
+    !defined(LWS_WITHOUT_CLIENT) && defined(LWS_HAVE_GETENV)
 	char *p;
 #endif
 	int n;
@@ -674,18 +675,17 @@ lws_create_vhost(struct lws_context *context,
 	}
 
 	vh->listen_port = info->port;
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-	vh->http.http_proxy_port = 0;
-	vh->http.http_proxy_address[0] = '\0';
-#endif
+
 #if defined(LWS_WITH_SOCKS5)
 	vh->socks_proxy_port = 0;
 	vh->socks_proxy_address[0] = '\0';
 #endif
 
-#if !defined(LWS_WITHOUT_CLIENT)
+#if !defined(LWS_WITHOUT_CLIENT) && defined(LWS_CLIENT_HTTP_PROXYING)
 	/* either use proxy from info, or try get it from env var */
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+	vh->http.http_proxy_port = 0;
+	vh->http.http_proxy_address[0] = '\0';
 	/* http proxy */
 	if (info->http_proxy_address) {
 		/* override for backwards compatibility */

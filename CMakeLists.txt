@@ -33,7 +33,7 @@ option(LWS_WITH_CGI "Include CGI (spawn process with network-connected stdin/out
 option(LWS_IPV6 "Compile with support for ipv6" OFF)
 option(LWS_UNIX_SOCK "Compile with support for UNIX domain socket" OFF)
 option(LWS_WITH_PLUGINS "Support plugins for protocols and extensions" OFF)
-option(LWS_WITH_HTTP_PROXY "Support for HTTP proxying" OFF)
+option(LWS_WITH_HTTP_PROXY "Support for active HTTP proxying" OFF)
 option(LWS_WITH_ZIP_FOPS "Support serving pre-zipped files" OFF)
 option(LWS_WITH_SOCKS5 "Allow use of SOCKS5 proxy on client connections" OFF)
 option(LWS_WITH_GENERIC_SESSIONS "With the Generic Sessions plugin" OFF)
@@ -133,6 +133,7 @@ option(LWS_WITH_DEPRECATED_LWS_DLL "Migrate to lws_dll2 instead ASAP" OFF)
 option(LWS_WITH_SEQUENCER "lws_seq_t support" ON)
 option(LWS_WITH_EXTERNAL_POLL "Support external POLL integration using callback messages (not recommended)" OFF)
 option(LWS_WITH_LWS_DSH "Support lws_dsh_t Disordered Shared Heap" OFF)
+option(LWS_CLIENT_HTTP_PROXYING "Support external http proxies for client connections" ON)
 #
 # to use miniz, enable both LWS_WITH_ZLIB and LWS_WITH_MINIZ
 #

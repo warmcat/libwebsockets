@@ -191,10 +191,14 @@ struct lws_peer_role_http {
 };
 
 struct lws_vhost_role_http {
+#if defined(LWS_CLIENT_HTTP_PROXYING)
 	char http_proxy_address[128];
+#endif
 	const struct lws_http_mount *mount_list;
 	const char *error_document_404;
+#if defined(LWS_CLIENT_HTTP_PROXYING)
 	unsigned int http_proxy_port;
+#endif
 };
 
 #ifdef LWS_WITH_ACCESS_LOG

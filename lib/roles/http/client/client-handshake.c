@@ -53,7 +53,9 @@ lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
 struct lws *
 lws_client_connect_3(struct lws *wsi, struct lws *wsi_piggyback, ssize_t plen)
 {
+#if defined(LWS_CLIENT_HTTP_PROXYING)
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+#endif
 	const char *meth = NULL;
 	struct lws_pollfd pfd;
 	const char *cce = "";
@@ -70,6 +72,7 @@ lws_client_connect_3(struct lws *wsi, struct lws *wsi_piggyback, ssize_t plen)
 	if (wsi_piggyback)
 		goto send_hs;
 
+#if defined(LWS_CLIENT_HTTP_PROXYING)
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	/* we are connected to server, or proxy */
 
@@ -104,6 +107,7 @@ lws_client_connect_3(struct lws *wsi, struct lws *wsi_piggyback, ssize_t plen)
 
 		return wsi;
 	}
+#endif
 #endif
 #if defined(LWS_WITH_SOCKS5)
 	/* socks proxy */
@@ -227,8 +231,10 @@ struct lws *
 lws_client_connect_2(struct lws *wsi)
 {
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+#if defined(LWS_CLIENT_HTTP_PROXYING)
 	struct lws_context *context = wsi->context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+#endif
 	const char *adsin;
 	ssize_t plen = 0;
 #endif
@@ -434,7 +440,8 @@ create_new_conn:
 	}
 #endif
 
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+#if defined(LWS_CLIENT_HTTP_PROXYING) && \
+	(defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2))
 
 	/* Decide what it is we need to connect to:
 	 *
