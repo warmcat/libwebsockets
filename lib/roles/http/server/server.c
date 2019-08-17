@@ -133,6 +133,8 @@ done_list:
 			if (info) /* first time */
 				lwsl_err("VH %s: iface %s port %d DOESN'T EXIST\n",
 				 vhost->name, vhost->iface, vhost->listen_port);
+			else
+				return -1;
 			return (info->options & LWS_SERVER_OPTION_FAIL_UPON_UNABLE_TO_BIND) == LWS_SERVER_OPTION_FAIL_UPON_UNABLE_TO_BIND?
 				-1 : 1;
 		case LWS_ITOSA_NOT_USABLE:
@@ -140,6 +142,8 @@ done_list:
 			if (info) /* first time */
 				lwsl_err("VH %s: iface %s port %d NOT USABLE\n",
 				 vhost->name, vhost->iface, vhost->listen_port);
+			else
+				return -1;
 			return (info->options & LWS_SERVER_OPTION_FAIL_UPON_UNABLE_TO_BIND) == LWS_SERVER_OPTION_FAIL_UPON_UNABLE_TO_BIND?
 				-1 : 1;
 		}

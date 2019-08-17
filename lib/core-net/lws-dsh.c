@@ -272,7 +272,7 @@ _lws_dsh_alloc_tail(lws_dsh_t *dsh, int kind, const void *src1, size_t size1,
 		 */
 		s.already_checked = dsh;
 
-		if (dsh->list.owner)
+		if (dsh && dsh->list.owner)
 			lws_dll2_foreach_safe(dsh->list.owner, &s, try_foreign);
 
 		if (!s.best) {
@@ -309,7 +309,8 @@ _lws_dsh_alloc_tail(lws_dsh_t *dsh, int kind, const void *src1, size_t size1,
 			if (replace->next)
 				replace->next->prev = &s.best->list;
 		} else
-			lws_dll2_add_tail(&s.best->list, &dsh->oha[kind].owner);
+			if (dsh)
+				lws_dll2_add_tail(&s.best->list, &dsh->oha[kind].owner);
 
 		assert(s.dsh->locally_free >= s.best->asize);
 		s.dsh->locally_free -= s.best->asize;
@@ -352,7 +353,8 @@ _lws_dsh_alloc_tail(lws_dsh_t *dsh, int kind, const void *src1, size_t size1,
 			if (replace->next)
 				replace->next->prev = &s.best->list;
 		} else
-			lws_dll2_add_tail(&obj->list, &dsh->oha[kind].owner);
+			if (dsh)
+				lws_dll2_add_tail(&obj->list, &dsh->oha[kind].owner);
 
 		assert(s.dsh->locally_free >= asize);
 		s.dsh->locally_free -= asize;

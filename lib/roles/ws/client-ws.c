@@ -323,10 +323,12 @@ bad_conn_format:
 	} while (e > 0);
 
 	pc = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_SENT_PROTOCOLS);
+#if defined(_DEBUG)
 	if (!pc) {
 		lwsl_parser("lws_client_int_s_hs: no protocol list\n");
 	} else
 		lwsl_parser("lws_client_int_s_hs: protocol list '%s'\n", pc);
+#endif
 
 	/*
 	 * confirm the protocol the server wants to talk was in the list
