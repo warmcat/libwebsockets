@@ -41,6 +41,12 @@ extern "C" {
 
 #include "lws_config.h"
 
+/* place for one-shot opaque forward references */
+
+typedef struct lws_sequencer lws_seq_t; /* opaque */
+typedef struct lws_sorted_usec_list lws_sorted_usec_list_t; /* opaque */
+typedef struct lws_dsh lws_dsh_t;
+
 /*
  * CARE: everything using cmake defines needs to be below here
  */

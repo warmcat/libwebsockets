@@ -42,8 +42,6 @@
  * All management structures exist inside the allocated buffer.
  */
 
-typedef struct lws_dsh lws_dsh_t;
-
 /**
  * lws_dsh_create() - Allocate a DSH buffer
  *

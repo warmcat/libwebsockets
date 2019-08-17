@@ -275,8 +275,6 @@ typedef struct lws_dsh_obj_head {
 	int				kind;
 } lws_dsh_obj_head_t;
 
-typedef struct lws_dsh lws_dsh_t;
-
 typedef struct lws_dsh_obj {
 	lws_dll2_t			list;	/* must be first */
 	lws_dsh_t			*dsh;	/* invalid when on free list */

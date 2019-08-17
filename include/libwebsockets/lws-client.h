@@ -50,8 +50,6 @@ enum lws_client_connect_ssl_connection_flags {
 		 * */
 };
 
-typedef struct lws_sequencer lws_seq_t;
-
 /** struct lws_client_connect_info - parameters to connect with when using
  *				    lws_client_connect_via_info() */
 
