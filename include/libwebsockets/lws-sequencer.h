@@ -56,8 +56,6 @@ typedef enum lws_seq_cb_return {
 	LWSSEQ_RET_DESTROY
 } lws_seq_cb_return_t;
 
-typedef struct lws_sequencer lws_seq_t; /* opaque */
-
 /*
  * handler for this sequencer.  Return 0 if OK else nonzero to destroy the
  * sequencer.  LWSSEQ_DESTROYED will be called back to the handler so it can
