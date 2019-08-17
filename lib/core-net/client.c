@@ -24,6 +24,8 @@
 
 #include "private-lib-core.h"
 
+#if defined(LWS_CLIENT_HTTP_PROXYING)
+
 LWS_VISIBLE int
 lws_set_proxy(struct lws_vhost *vhost, const char *proxy)
 {
@@ -116,4 +118,4 @@ auth_too_long:
 
 	return -1;
 }
-
+#endif
