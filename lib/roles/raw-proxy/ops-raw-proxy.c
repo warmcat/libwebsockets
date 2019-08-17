@@ -155,7 +155,7 @@ rops_client_bind_raw_proxy(struct lws *wsi,
 
 		/* finalize */
 
-		if (!wsi->user_space && wsi->stash->method)
+		if (!wsi->user_space && wsi->stash->cis[CIS_METHOD])
 			if (lws_ensure_user_space(wsi))
 				return 1;
 

@@ -937,7 +937,7 @@ rops_client_bind_h1(struct lws *wsi, const struct lws_client_connect_info *i)
 		 * we can assign the user space now, otherwise do it after the
 		 * ws subprotocol negotiated
 		 */
-		if (!wsi->user_space && wsi->stash->method)
+		if (!wsi->user_space && wsi->stash->cis[CIS_METHOD])
 			if (lws_ensure_user_space(wsi))
 				return 1;
 
@@ -951,11 +951,8 @@ rops_client_bind_h1(struct lws *wsi, const struct lws_client_connect_info *i)
 		  * only try h2 if he assertively said to use h2 alpn, otherwise
 		  * ws implies alpn restriction to h1.
 		  */
-		if (!wsi->stash->method && !wsi->stash->alpn) {
-			wsi->stash->alpn = lws_strdup("http/1.1");
-			if (!wsi->stash->alpn)
-				return 1;
-		}
+		if (!wsi->stash->cis[CIS_METHOD] && !wsi->stash->cis[CIS_ALPN])
+			wsi->stash->cis[CIS_ALPN] = "http/1.1";
 
 		/* if we went on the ah waiting list, it's ok, we can wait.
 		 *

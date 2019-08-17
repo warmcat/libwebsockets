@@ -55,7 +55,7 @@ __lws_free_wsi(struct lws *wsi)
 #endif
 	__lws_same_vh_protocol_remove(wsi);
 #if !defined(LWS_NO_CLIENT)
-	lws_client_stash_destroy(wsi);
+	lws_free_set_NULL(wsi->stash);
 	lws_free_set_NULL(wsi->cli_hostname_copy);
 #endif
 
@@ -257,7 +257,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 #endif
 
 #if !defined(LWS_NO_CLIENT)
-	lws_client_stash_destroy(wsi);
+	lws_free_set_NULL(wsi->stash);
 #endif
 
 	if (wsi->role_ops == &role_ops_raw_skt) {

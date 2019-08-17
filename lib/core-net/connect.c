@@ -24,34 +24,16 @@
 
 #include "private-lib-core.h"
 
-void
-lws_client_stash_destroy(struct lws *wsi)
-{
-	if (!wsi || !wsi->stash)
-		return;
-
-	lws_free_set_NULL(wsi->stash->address);
-	lws_free_set_NULL(wsi->stash->path);
-	lws_free_set_NULL(wsi->stash->host);
-	lws_free_set_NULL(wsi->stash->origin);
-	lws_free_set_NULL(wsi->stash->protocol);
-	lws_free_set_NULL(wsi->stash->method);
-	lws_free_set_NULL(wsi->stash->iface);
-	lws_free_set_NULL(wsi->stash->alpn);
-
-	lws_free_set_NULL(wsi->stash);
-}
-
 LWS_VISIBLE struct lws *
 lws_client_connect_via_info(const struct lws_client_connect_info *i)
 {
+	const char *local = i->protocol;
 	struct lws *wsi, *safe = NULL;
 	const struct lws_protocols *p;
-	const char *local = i->protocol;
-	int tid = 0;
-#if LWS_MAX_SMP > 1
-	int n;
-#endif
+	const char *cisin[CIS_COUNT];
+	int tid = 0, n, m;
+	size_t size;
+	char *pc;
 
 	if (i->context->requested_kill)
 		return NULL;
@@ -196,45 +178,43 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	 * with no relationship to http or ah
 	 */
 
-	wsi->stash = lws_zalloc(sizeof(*wsi->stash), "client stash");
+	cisin[CIS_ADDRESS]	= i->address;
+	cisin[CIS_PATH]		= i->path;
+	cisin[CIS_HOST]		= i->host;
+	cisin[CIS_ORIGIN]	= i->origin;
+	cisin[CIS_PROTOCOL]	= i->protocol;
+	cisin[CIS_METHOD]	= i->method;
+	cisin[CIS_IFACE]	= i->iface;
+	cisin[CIS_ALPN]		= i->alpn;
+
+	size = sizeof(*wsi->stash);
+
+	/*
+	 * Let's overallocate the stash object with space for all the args
+	 * in one hit.
+	 */
+	for (n = 0; n < CIS_COUNT; n++)
+		if (cisin[n])
+			size += strlen(cisin[n]) + 1;
+
+	wsi->stash = lws_malloc(size, "client stash");
 	if (!wsi->stash) {
 		lwsl_err("%s: OOM\n", __func__);
 		goto bail1;
 	}
+	/* all the pointers default to NULL, but no need to zero the args */
+	memset(wsi->stash, 0, sizeof(*wsi->stash));
 
-	wsi->stash->address = lws_strdup(i->address);
-	wsi->stash->path = lws_strdup(i->path);
-	wsi->stash->host = lws_strdup(i->host);
 	wsi->stash->opaque_user_data = i->opaque_user_data;
+	pc = (char *)&wsi->stash[1];
 
-	if (!wsi->stash->address || !wsi->stash->path || !wsi->stash->host)
-		goto bail1;
-
-	if (i->origin) {
-		wsi->stash->origin = lws_strdup(i->origin);
-		if (!wsi->stash->origin)
-			goto bail1;
-	}
-	if (i->protocol) {
-		wsi->stash->protocol = lws_strdup(i->protocol);
-		if (!wsi->stash->protocol)
-			goto bail1;
-	}
-	if (i->method) {
-		wsi->stash->method = lws_strdup(i->method);
-		if (!wsi->stash->method)
-			goto bail1;
-	}
-	if (i->iface) {
-		wsi->stash->iface = lws_strdup(i->iface);
-		if (!wsi->stash->iface)
-			goto bail1;
-	}
-	if (i->alpn) {
-		wsi->stash->alpn = lws_strdup(i->alpn);
-		if (!wsi->stash->alpn)
-			goto bail1;
-	}
+	for (n = 0; n < CIS_COUNT; n++)
+		if (cisin[n]) {
+			wsi->stash->cis[n] = pc;
+			m = strlen(cisin[n]) + 1;
+			memcpy(pc, cisin[n], m);
+			pc += m;
+		}
 
 	/*
 	 * at this point user callbacks like
@@ -302,7 +282,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	return wsi;
 
 bail1:
-	lws_client_stash_destroy(wsi);
+	lws_free_set_NULL(wsi->stash);
 
 bail:
 	lws_free(wsi);

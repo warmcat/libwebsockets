@@ -618,6 +618,9 @@ LWS_EXTERN int alloc_file(struct lws_context *context, const char *filename,
 void
 lws_context_destroy2(struct lws_context *context);
 
+#if !defined(PRIu64)
+#define PRIu64 "llu"
+#endif
 
 #ifdef __cplusplus
 };

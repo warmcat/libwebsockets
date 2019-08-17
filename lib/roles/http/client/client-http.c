@@ -250,7 +250,7 @@ socks_reply_fail:
 			lwsl_client("socks connect OK\n");
 
 			/* free stash since we are done with it */
-			lws_client_stash_destroy(wsi);
+			lws_free_set_NULL(wsi->stash);
 			if (lws_hdr_simple_create(wsi,
 						 _WSI_TOKEN_CLIENT_PEER_ADDRESS,
 					       wsi->vhost->socks_proxy_address)) {
@@ -705,7 +705,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	char *p, *q;
 	char new_path[300];
 
-	lws_client_stash_destroy(wsi);
+	lws_free_set_NULL(wsi->stash);
 
 	ah = wsi->http.ah;
 	if (!wsi->do_ws) {
