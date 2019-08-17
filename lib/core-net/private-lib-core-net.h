@@ -231,17 +231,24 @@ enum uri_esc_states {
 	URIES_SEEN_PERCENT_H1,
 };
 
-
 #ifndef LWS_NO_CLIENT
+
+enum {
+	CIS_ADDRESS,
+	CIS_PATH,
+	CIS_HOST,
+	CIS_ORIGIN,
+	CIS_PROTOCOL,
+	CIS_METHOD,
+	CIS_IFACE,
+	CIS_ALPN,
+
+
+	CIS_COUNT
+};
+
 struct client_info_stash {
-	char *address;
-	char *path;
-	char *host;
-	char *origin;
-	char *protocol;
-	char *method;
-	char *iface;
-	char *alpn;
+	char *cis[CIS_COUNT];
 	void *opaque_user_data; /* not allocated or freed by lws */
 };
 #endif
@@ -885,9 +892,6 @@ lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len);
 
 LWS_EXTERN int
 lws_service_flag_pending(struct lws_context *context, int tsi);
-
-LWS_EXTERN void
-lws_client_stash_destroy(struct lws *wsi);
 
 static LWS_INLINE int
 lws_has_buffered_out(struct lws *wsi) { return !!wsi->buflist_out; }

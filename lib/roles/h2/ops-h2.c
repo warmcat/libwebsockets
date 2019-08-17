@@ -793,7 +793,8 @@ lws_h2_dump_waiting_children(struct lws *wsi)
 	while (wsi) {
 		lwsl_info("  %c %p %s %s\n",
 			  wsi->h2.requested_POLLOUT ? '*' : ' ',
-			  wsi, wsi->role_ops->name, wsi->protocol->name);
+			  wsi, wsi->role_ops->name, wsi->protocol ?
+					  wsi->protocol->name : "noprotocol");
 
 		wsi = wsi->h2.sibling_list;
 	}
