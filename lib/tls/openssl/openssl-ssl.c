@@ -264,8 +264,10 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 
 	lws_stats_bump(pt, LWSSTATS_B_READ, n);
 
+#if defined(LWS_WITH_SERVER_STATUS)
 	if (wsi->vhost)
 		wsi->vhost->conn_stats.rx += n;
+#endif
 
 	// lwsl_hexdump_err(buf, n);
 

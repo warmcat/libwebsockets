@@ -1912,9 +1912,13 @@ raw_transition:
 			lwsl_info("no host\n");
 
 		if (!lwsi_role_h2(wsi) || !lwsi_role_server(wsi)) {
+#if defined(LWS_WITH_SERVER_STATUS)
 			wsi->vhost->conn_stats.h1_trans++;
+#endif
 			if (!wsi->conn_stat_done) {
+#if defined(LWS_WITH_SERVER_STATUS)
 				wsi->vhost->conn_stats.h1_conn++;
+#endif
 				wsi->conn_stat_done = 1;
 			}
 		}
@@ -1953,7 +1957,9 @@ raw_transition:
 
 					/* wsi close will do the log */
 #endif
+#if defined(LWS_WITH_SERVER_STATUS)
 					wsi->vhost->conn_stats.rejected++;
+#endif
 					/*
 					 * We don't want anything from
 					 * this rejected guy.  Follow
@@ -2019,14 +2025,18 @@ raw_transition:
 
 			if (!strcasecmp(up, "websocket")) {
 #if defined(LWS_ROLE_WS)
+#if defined(LWS_WITH_SERVER_STATUS)
 				wsi->vhost->conn_stats.ws_upg++;
+#endif
 				lwsl_info("Upgrade to ws\n");
 				goto upgrade_ws;
 #endif
 			}
 #if defined(LWS_WITH_HTTP2)
 			if (!strcasecmp(up, "h2c")) {
+#if defined(LWS_WITH_SERVER_STATUS)
 				wsi->vhost->conn_stats.h2_upg++;
+#endif
 				lwsl_info("Upgrade to h2c\n");
 				goto upgrade_h2c;
 			}
@@ -2881,7 +2891,7 @@ lws_server_get_canonical_hostname(struct lws_context *context,
 }
 #endif
 
-LWS_VISIBLE LWS_EXTERN int
+int
 lws_chunked_html_process(struct lws_process_html_args *args,
 			 struct lws_process_html_state *s)
 {

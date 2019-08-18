@@ -422,11 +422,13 @@ struct lws_context_per_thread {
 #endif
 };
 
+#if defined(LWS_WITH_SERVER_STATUS)
 struct lws_conn_stats {
 	unsigned long long rx, tx;
 	unsigned long h1_conn, h1_trans, h2_trans, ws_upg, h2_alpn, h2_subs,
 		      h2_upg, rejected;
 };
+#endif
 
 /*
  * virtual host -related context information
@@ -448,7 +450,7 @@ struct lws_conn_stats {
 
 
 struct lws_vhost {
-#if defined(LWS_WITH_CLIENT)
+#if defined(LWS_WITH_CLIENT) && defined(LWS_CLIENT_HTTP_PROXYING)
 	char proxy_basic_auth_token[128];
 #endif
 #if LWS_MAX_SMP > 1
@@ -474,7 +476,10 @@ struct lws_vhost {
 #if defined(LWS_WITH_LIBEV)
 	struct lws_io_watcher w_accept;
 #endif
+#if defined(LWS_WITH_SERVER_STATUS)
 	struct lws_conn_stats conn_stats;
+#endif
+
 	struct lws_context *context;
 	struct lws_vhost *vhost_next;
 
@@ -488,9 +493,6 @@ struct lws_vhost {
 	void (*finalize)(struct lws_vhost *vh, void *arg);
 	void *finalize_arg;
 
-#if !defined(LWS_WITH_ESP32) && !defined(OPTEE_TA) && !defined(WIN32)
-	int bind_iface;
-#endif
 	const struct lws_protocols *protocols;
 	void **protocol_vh_privs;
 	const struct lws_protocol_vhost_options *pvo;
@@ -511,6 +513,9 @@ struct lws_vhost {
 	void *user;
 
 	int listen_port;
+#if !defined(LWS_WITH_ESP32) && !defined(OPTEE_TA) && !defined(WIN32)
+	int bind_iface;
+#endif
 
 #if defined(LWS_WITH_SOCKS5)
 	unsigned int socks_proxy_port;
@@ -970,9 +975,10 @@ lws_destroy_event_pipe(struct lws *wsi);
 int
 socks_generate_msg(struct lws *wsi, enum socks_msg_type type, ssize_t *msg_len);
 
-
+#if defined(LWS_WITH_SERVER_STATUS)
 void
 lws_sum_stats(const struct lws_context *ctx, struct lws_conn_stats *cs);
+#endif
 
 LWS_EXTERN int
 __lws_timed_callback_remove(struct lws_vhost *vh, struct lws_timed_vh_protocol *p);

@@ -74,16 +74,20 @@ LWS_VISIBLE struct lws_context *
 lws_create_context(const struct lws_context_creation_info *info)
 {
 	struct lws_context *context = NULL;
+#if defined(LWS_WITH_FILE_OPS)
 	struct lws_plat_file_ops *prev;
+#endif
 #ifndef LWS_NO_DAEMONIZE
 	pid_t pid_daemon = get_daemonize_pid();
 #endif
 #if defined(LWS_WITH_NETWORK)
-	int n;
+	int n, count_threads = 1;
+	uint8_t *u;
 #endif
 #if defined(__ANDROID__)
 	struct rlimit rt;
 #endif
+	size_t s1 = 4096, size = sizeof(struct lws_context);
 
 	lwsl_info("Initial logging level %d\n", log_level);
 	lwsl_info("Libwebsockets version: %s\n", library_version);
@@ -113,7 +117,20 @@ lws_create_context(const struct lws_context_creation_info *info)
 	if (lws_plat_context_early_init())
 		return NULL;
 
-	context = lws_zalloc(sizeof(struct lws_context), "context");
+#if defined(LWS_WITH_NETWORK)
+	if (info->count_threads)
+		count_threads = info->count_threads;
+
+	if (count_threads > LWS_MAX_SMP)
+		count_threads = LWS_MAX_SMP;
+
+	if (info->pt_serv_buf_size)
+		s1 = info->pt_serv_buf_size;
+
+	size += count_threads * (s1 + sizeof(struct lws));
+#endif
+
+	context = lws_zalloc(size, "context");
 	if (!context) {
 		lwsl_err("No memory for websocket context\n");
 		return NULL;
@@ -124,12 +141,16 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->username = info->username;
 	context->groupname = info->groupname;
 	context->system_ops = info->system_ops;
+	context->pt_serv_buf_size = s1;
+#if defined(LWS_WITH_NETWORK)
+	context->count_threads = count_threads;
+#endif
 
 	/* if he gave us names, set the uid / gid */
 	if (lws_plat_drop_app_privileges(context, 0))
 		goto bail;
 
-lwsl_info("context created\n");
+	lwsl_info("context created\n");
 #if defined(LWS_WITH_TLS) && defined(LWS_WITH_NETWORK)
 #if defined(LWS_WITH_MBEDTLS)
 	context->tls_ops = &tls_ops_mbedtls;
@@ -138,10 +159,6 @@ lwsl_info("context created\n");
 #endif
 #endif
 
-	if (info->pt_serv_buf_size)
-		context->pt_serv_buf_size = info->pt_serv_buf_size;
-	else
-		context->pt_serv_buf_size = 4096;
 
 #if defined(LWS_ROLE_H2)
 	role_ops_h2.init_context(context, info);
@@ -159,6 +176,7 @@ lwsl_info("context created\n");
 #endif
 #endif
 
+#if defined(LWS_WITH_FILE_OPS)
 	/* default to just the platform fops implementation */
 
 	context->fops_platform.LWS_FOP_OPEN	= _lws_plat_file_open;
@@ -189,8 +207,11 @@ lwsl_info("context created\n");
 	/* if user provided fops, tack them on the end of the list */
 	if (info->fops)
 		prev->next = info->fops;
+#endif
 
+#if defined(LWS_WITH_SERVER)
 	context->reject_service_keywords = info->reject_service_keywords;
+#endif
 	if (info->external_baggage_free_on_destroy)
 		context->external_baggage_free_on_destroy =
 			info->external_baggage_free_on_destroy;
@@ -211,35 +232,27 @@ lwsl_info("context created\n");
 	}
 #endif
 #if defined(__ANDROID__)
-		n = getrlimit(RLIMIT_NOFILE, &rt);
-		if (n == -1) {
-			lwsl_err("Get RLIMIT_NOFILE failed!\n");
+	n = getrlimit(RLIMIT_NOFILE, &rt);
+	if (n == -1) {
+		lwsl_err("Get RLIMIT_NOFILE failed!\n");
 
-			return NULL;
-		}
-		context->max_fds = rt.rlim_cur;
+		return NULL;
+	}
+	context->max_fds = rt.rlim_cur;
 #else
 #if defined(WIN32) || defined(_WIN32) || defined(LWS_AMAZON_RTOS)
-		context->max_fds = getdtablesize();
+	context->max_fds = getdtablesize();
 #else
-		context->max_fds = sysconf(_SC_OPEN_MAX);
+	context->max_fds = sysconf(_SC_OPEN_MAX);
 #endif
 #endif
 
-		if (context->max_fds < 0) {
-			lwsl_err("%s: problem getting process max files\n",
-				 __func__);
+	if (context->max_fds < 0) {
+		lwsl_err("%s: problem getting process max files\n",
+			 __func__);
 
-			return NULL;
-		}
-
-	if (info->count_threads)
-		context->count_threads = info->count_threads;
-	else
-		context->count_threads = 1;
-
-	if (context->count_threads > LWS_MAX_SMP)
-		context->count_threads = LWS_MAX_SMP;
+		return NULL;
+	}
 
 	/*
 	 * deal with any max_fds override, if it's reducing (setting it to
@@ -359,14 +372,10 @@ lwsl_info("context created\n");
 	 * Allocate the per-thread storage for scratchpad buffers,
 	 * and header data pool
 	 */
+	u = (uint8_t *)&context[1];
 	for (n = 0; n < context->count_threads; n++) {
-		context->pt[n].serv_buf = lws_malloc(
-				context->pt_serv_buf_size + sizeof(struct lws),
-						     "pt_serv_buf");
-		if (!context->pt[n].serv_buf) {
-			lwsl_err("OOM\n");
-			return NULL;
-		}
+		context->pt[n].serv_buf = u;
+		u += context->pt_serv_buf_size;
 
 		context->pt[n].context = context;
 		context->pt[n].tid = n;
@@ -378,8 +387,8 @@ lwsl_info("context created\n");
 		 * when the source of the callback is not actually from a wsi
 		 * context.
 		 */
-		context->pt[n].fake_wsi = (struct lws *)(context->pt[n].serv_buf +
-						context->pt_serv_buf_size);
+		context->pt[n].fake_wsi = (struct lws *)u;
+		u += sizeof(struct lws);
 
 		memset(context->pt[n].fake_wsi, 0, sizeof(struct lws));
 
@@ -442,11 +451,13 @@ lwsl_info("context created\n");
 	}
 	lwsl_info(" mem: pollfd map:      %5u B\n", n);
 #endif
+#if defined(LWS_WITH_SERVER)
 	if (info->server_string) {
 		context->server_string = info->server_string;
 		context->server_string_len = (short)
 				strlen(context->server_string);
 	}
+#endif
 
 #if LWS_MAX_SMP > 1
 	/* each thread serves his own chunk of fds */
@@ -492,8 +503,7 @@ lwsl_info("context created\n");
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS))
 		if (!lws_create_vhost(context, info)) {
 			lwsl_err("Failed to create default vhost\n");
-			for (n = 0; n < context->count_threads; n++)
-				lws_free_set_NULL(context->pt[n].serv_buf);
+
 #if defined(LWS_WITH_PEER_LIMITS)
 			lws_free_set_NULL(context->pl_hash_table);
 #endif
@@ -508,9 +518,12 @@ lwsl_info("context created\n");
 	lwsl_info(" mem: per-conn:        %5lu bytes + protocol rx buf\n",
 		    (unsigned long)sizeof(struct lws));
 #endif
+
+#if defined(LWS_WITH_SERVER)
 	strcpy(context->canonical_hostname, "unknown");
 #if defined(LWS_WITH_NETWORK)
 	lws_server_get_canonical_hostname(context, info);
+#endif
 #endif
 
 #if defined(LWS_WITH_STATS)
@@ -619,8 +632,6 @@ lws_context_destroy3(struct lws_context *context)
 
 		if (context->event_loop_ops->destroy_pt)
 			context->event_loop_ops->destroy_pt(context, n);
-
-		lws_free_set_NULL(context->pt[n].serv_buf);
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 		while (pt->http.ah_list)

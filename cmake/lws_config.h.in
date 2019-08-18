@@ -101,6 +101,7 @@
 #cmakedefine LWS_WITH_DIR
 #cmakedefine LWS_WITH_ESP32
 #cmakedefine LWS_WITH_EXTERNAL_POLL
+#cmakedefine LWS_WITH_FILE_OPS
 #cmakedefine LWS_WITH_FTS
 #cmakedefine LWS_WITH_GENCRYPTO
 #cmakedefine LWS_WITH_GENERIC_SESSIONS
