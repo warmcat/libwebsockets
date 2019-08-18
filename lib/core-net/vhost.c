@@ -112,7 +112,6 @@ lws_role_call_alpn_negotiated(struct lws *wsi, const char *alpn)
 	return 0;
 }
 
-//#if !defined(LWS_WITHOUT_SERVER)
 int
 lws_role_call_adoption_bind(struct lws *wsi, int type, const char *prot)
 {
@@ -179,9 +178,8 @@ lws_role_call_adoption_bind(struct lws *wsi, int type, const char *prot)
 
 	return 1;
 }
-//#endif
 
-#if !defined(LWS_WITHOUT_CLIENT)
+#if defined(LWS_WITH_CLIENT)
 int
 lws_role_call_client_bind(struct lws *wsi,
 			  const struct lws_client_connect_info *i)
@@ -441,7 +439,7 @@ lws_create_vhost(struct lws_context *context,
 	int m, f = !info->pvo, fx = 0, abs_pcol_count = 0;
 	char buf[96];
 #if defined(LWS_CLIENT_HTTP_PROXYING) && \
-    !defined(LWS_WITHOUT_CLIENT) && defined(LWS_HAVE_GETENV)
+    defined(LWS_WITH_CLIENT) && defined(LWS_HAVE_GETENV)
 	char *p;
 #endif
 	int n;
@@ -681,7 +679,7 @@ lws_create_vhost(struct lws_context *context,
 	vh->socks_proxy_address[0] = '\0';
 #endif
 
-#if !defined(LWS_WITHOUT_CLIENT) && defined(LWS_CLIENT_HTTP_PROXYING)
+#if defined(LWS_WITH_CLIENT) && defined(LWS_CLIENT_HTTP_PROXYING)
 	/* either use proxy from info, or try get it from env var */
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	vh->http.http_proxy_port = 0;

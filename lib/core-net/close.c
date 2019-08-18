@@ -44,7 +44,7 @@ __lws_free_wsi(struct lws *wsi)
 
 	if (wsi->vhost && wsi->vhost->lserv_wsi == wsi)
 		wsi->vhost->lserv_wsi = NULL;
-#if !defined(LWS_NO_CLIENT)
+#if defined(LWS_WITH_CLIENT)
 	if (wsi->vhost)
 		lws_dll2_remove(&wsi->dll_cli_active_conns);
 #endif
@@ -54,7 +54,7 @@ __lws_free_wsi(struct lws *wsi)
 	__lws_header_table_detach(wsi, 0);
 #endif
 	__lws_same_vh_protocol_remove(wsi);
-#if !defined(LWS_NO_CLIENT)
+#if defined(LWS_WITH_CLIENT)
 	lws_free_set_NULL(wsi->stash);
 	lws_free_set_NULL(wsi->cli_hostname_copy);
 #endif
@@ -119,7 +119,7 @@ lws_remove_child_from_any_parent(struct lws *wsi)
 	wsi->parent = NULL;
 }
 
-#if !defined(LWS_NO_CLIENT)
+#if defined(LWS_WITH_CLIENT)
 static int
 lws_close_trans_q_leader(struct lws_dll2 *d, void *user)
 {
@@ -156,7 +156,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	struct lws_context_per_thread *pt;
 	struct lws *wsi1, *wsi2;
 	struct lws_context *context;
-#if !defined(LWS_NO_CLIENT)
+#if defined(LWS_WITH_CLIENT)
 	long rl = (long)(int)reason;
 #endif
 	int n;
@@ -172,7 +172,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	pt = &context->pt[(int)wsi->tsi];
 	lws_stats_bump(pt, LWSSTATS_C_API_CLOSE, 1);
 
-#if !defined(LWS_NO_CLIENT)
+#if defined(LWS_WITH_CLIENT)
 
 	lws_free_set_NULL(wsi->cli_hostname_copy);
 
@@ -256,7 +256,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 		lws_cgi_remove_and_kill(wsi);
 #endif
 
-#if !defined(LWS_NO_CLIENT)
+#if defined(LWS_WITH_CLIENT)
 	lws_free_set_NULL(wsi->stash);
 #endif
 
@@ -369,7 +369,7 @@ just_kill_connection:
 		wsi->protocol_bind_balance = 0;
 	}
 
-#if !defined(LWS_NO_CLIENT)
+#if defined(LWS_WITH_CLIENT)
 	if ((lwsi_state(wsi) == LRS_WAITING_SERVER_REPLY ||
 	     lwsi_state(wsi) == LRS_WAITING_CONNECT) &&
 	     !wsi->already_did_cce && wsi->protocol)

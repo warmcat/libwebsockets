@@ -211,7 +211,7 @@ bail:
 	return ret;
 }
 
-#ifndef LWS_NO_SERVER
+#if defined(LWS_WITH_SERVER)
 /*
  * Enable or disable listen sockets on this pt globally...
  * it's modulated according to the pt having space for a new accept.
@@ -320,8 +320,8 @@ __insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 					   wsi->user_space, (void *) &pa, 0))
 		ret =  -1;
 #endif
-#ifndef LWS_NO_SERVER
-	/* if no more room, defeat accepts on this thread */
+#if defined(LWS_WITH_SERVER)
+	/* if no more room, defeat accepts on this service thread */
 	if ((unsigned int)pt->fds_count == context->fd_limit_per_thread - 1)
 		lws_accept_modulation(context, pt, 0);
 #endif
@@ -430,7 +430,7 @@ __remove_wsi_socket_from_fds(struct lws *wsi)
 		ret = -1;
 #endif
 
-#ifndef LWS_NO_SERVER
+#if defined(LWS_WITH_SERVER)
 	if (!context->being_destroyed &&
 	    /* if this made some room, accept connects on this thread */
 	    (unsigned int)pt->fds_count < context->fd_limit_per_thread - 1)

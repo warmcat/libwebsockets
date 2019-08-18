@@ -63,7 +63,7 @@ ENDMACRO()
 
 set(requirements 1)
 require_lws_config(LWS_ROLE_H1 1 requirements)
-require_lws_config(LWS_WITHOUT_SERVER 0 requirements)
+require_lws_config(LWS_WITH_SERVER 1 requirements)
 
 CHECK_C_SOURCE_COMPILES("#include <libwebsockets.h>\nint main(void) {\n#if defined(LWS_WITH_LIBUV)\n return 0;\n#else\n fail;\n#endif\n return 0;\n}\n" LWS_WITH_LIBUV)
 CHECK_C_SOURCE_COMPILES("#include <libwebsockets.h>\nint main(void) {\n#if defined(LWS_WITH_LIBEVENT)\n return 0;\n#else\n fail;\n#endif\n return 0;\n}\n" LWS_WITH_LIBEVENT)

@@ -94,7 +94,7 @@ lws_get_network_wsi(struct lws *wsi)
 
 #if defined(LWS_WITH_HTTP2)
 	if (!wsi->http2_substream
-#if !defined(LWS_NO_CLIENT)
+#if defined(LWS_WITH_CLIENT)
 			&& !wsi->client_h2_substream
 #endif
 	)

@@ -856,7 +856,7 @@ lws_libuv_closewsi(uv_handle_t* handle)
 	struct lws *wsi = (struct lws *)handle->data;
 	struct lws_context *context = lws_get_context(wsi);
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-#if !defined(LWS_WITHOUT_SERVER)
+#if defined(LWS_WITH_SERVER)
 	int lspd = 0;
 #endif
 
@@ -866,7 +866,7 @@ lws_libuv_closewsi(uv_handle_t* handle)
 	 * We get called back here for every wsi that closes
 	 */
 
-#if !defined(LWS_WITHOUT_SERVER)
+#if defined(LWS_WITH_SERVER)
 	if (wsi->role_ops == &role_ops_listen && wsi->context->deprecated) {
 		lspd = 1;
 		context->deprecation_pending_listen_close_count--;
@@ -882,7 +882,7 @@ lws_libuv_closewsi(uv_handle_t* handle)
 	/* it's our job to close the handle finally */
 	lws_free(handle);
 
-#if !defined(LWS_WITHOUT_SERVER)
+#if defined(LWS_WITH_SERVER)
 	if (lspd == 2 && context->deprecation_cb) {
 		lwsl_notice("calling deprecation callback\n");
 		context->deprecation_cb();

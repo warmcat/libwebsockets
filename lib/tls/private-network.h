@@ -121,7 +121,7 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 LWS_EXTERN enum lws_tls_extant
 lws_tls_generic_cert_checks(struct lws_vhost *vhost, const char *cert,
 			    const char *private_key);
-#if !defined(LWS_NO_SERVER)
+#if defined(LWS_WITH_SERVER)
  LWS_EXTERN int
  lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 			     struct lws_vhost *vhost);

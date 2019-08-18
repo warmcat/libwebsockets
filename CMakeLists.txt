@@ -379,13 +379,13 @@ if (LWS_WITH_PLUGINS)
 endif()
 
 if (LWS_ROLE_RAW_PROXY)
- set (LWS_WITHOUT_CLIENT 0)
- set (LWS_WITHOUT_SERVER 0)
+ set (LWS_WITH_CLIENT 1)
+ set (LWS_WITH_SERVER 1)
 endif()
 
 if (LWS_WITH_ACME)
- set (LWS_WITHOUT_CLIENT 0)
- set (LWS_WITHOUT_SERVER 0)
+ set (LWS_WITH_CLIENT 1)
+ set (LWS_WITH_SERVER 1)
  set (LWS_WITH_JOSE 1)
 endif()
 
@@ -677,11 +677,11 @@ if (LWS_WITHOUT_DAEMONIZE OR WIN32)
 endif()
 
 if (LWS_WITHOUT_SERVER)
-	set(LWS_NO_SERVER 1)
+	set(LWS_WITHOUT_SERVER 1)
 endif()
 
 if (LWS_WITHOUT_CLIENT)
-	set(LWS_NO_CLIENT 1)
+	set(LWS_WITHOUT_CLIENT 1)
 endif()
 
 if (LWS_WITH_LIBEV)
@@ -710,6 +710,15 @@ endif()
 
 if ("${LWS_MAX_SMP}" STREQUAL "")
 	set(LWS_MAX_SMP 1)
+endif()
+
+set(LWS_WITH_CLIENT 1)
+if (LWS_WITHOUT_CLIENT)
+	set(LWS_WITH_CLIENT 0)
+endif()
+set(LWS_WITH_SERVER 1)
+if (LWS_WITHOUT_SERVER)
+	set(LWS_WITH_SERVER 0)
 endif()
 
 # using any abstract protocol enables LWS_WITH_ABSTRACT

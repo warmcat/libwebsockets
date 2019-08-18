@@ -41,7 +41,7 @@ static const char * const intermediates[] = { "private", "public" };
  *       REQUIRES CONTEXT LOCK HELD
  */
 
-#ifndef LWS_NO_SERVER
+#if defined(LWS_WITH_SERVER)
 int
 _lws_vhost_init_server(const struct lws_context_creation_info *info,
 		       struct lws_vhost *vhost)
@@ -1775,7 +1775,7 @@ bad_format:
 	return 1;
 }
 
-#if !defined(LWS_NO_SERVER)
+#if defined(LWS_WITH_SERVER)
 int
 lws_http_to_fallback(struct lws *wsi, unsigned char *obuf, size_t olen)
 {
@@ -2861,7 +2861,7 @@ file_had_it:
 	return -1;
 }
 
-#ifndef LWS_NO_SERVER
+#if defined(LWS_WITH_SERVER)
 LWS_VISIBLE void
 lws_server_get_canonical_hostname(struct lws_context *context,
 				  const struct lws_context_creation_info *info)
