@@ -168,7 +168,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	lws_mutex_refcount_init(&context->mr);
 #endif
 
-#if defined(LWS_WITH_ESP32)
+#if defined(LWS_PLAT_FREERTOS)
 #if defined(LWS_AMAZON_RTOS)
 	context->last_free_heap = xPortGetFreeHeapSize();
 #else
@@ -876,7 +876,7 @@ lws_context_destroy(struct lws_context *context)
 	}
 #endif
 
-#if defined(LWS_WITH_ESP32)
+#if defined(LWS_PLAT_FREERTOS)
 #if defined(LWS_AMAZON_RTOS)
 	context->last_free_heap = xPortGetFreeHeapSize();
 #else

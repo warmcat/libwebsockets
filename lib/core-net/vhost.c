@@ -468,8 +468,7 @@ lws_create_vhost(struct lws_context *context,
 		lwsl_info("%s set to only support RAW\n", vh->name);
 
 	vh->iface = info->iface;
-#if !defined(LWS_WITH_ESP32) && \
-    !defined(OPTEE_TA) && !defined(WIN32)
+#if !defined(LWS_PLAT_FREERTOS) && !defined(OPTEE_TA) && !defined(WIN32)
 	vh->bind_iface = info->bind_iface;
 #endif
 

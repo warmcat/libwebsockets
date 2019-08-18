@@ -189,7 +189,7 @@ lws_libuv_static_refcount_del(uv_handle_t *);
 
 #endif /* LWS_WITH_LIBUV */
 
-#if defined(LWS_WITH_ESP32)
+#if defined(LWS_PLAT_FREERTOS)
 #define lws_libuv_static_refcount_add(_a, _b)
 #define lws_libuv_static_refcount_del NULL
 #endif

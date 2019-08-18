@@ -513,7 +513,7 @@ struct lws_vhost {
 	void *user;
 
 	int listen_port;
-#if !defined(LWS_WITH_ESP32) && !defined(OPTEE_TA) && !defined(WIN32)
+#if !defined(LWS_PLAT_FREERTOS) && !defined(OPTEE_TA) && !defined(WIN32)
 	int bind_iface;
 #endif
 

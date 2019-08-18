@@ -182,7 +182,7 @@ done_list:
 			lwsl_err("ERROR opening socket\n");
 			return 1;
 		}
-#if !defined(LWS_WITH_ESP32)
+#if !defined(LWS_PLAT_FREERTOS)
 #if (defined(WIN32) || defined(_WIN32)) && defined(SO_EXCLUSIVEADDRUSE)
 		/*
 		 * only accept that we are the only listener on the port
@@ -473,7 +473,7 @@ lws_vfs_prepare_flags(struct lws *wsi)
 	return f;
 }
 
-#if !defined(LWS_AMAZON_RTOS)
+#if defined(LWS_WITH_FILE_OPS)
 static int
 lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 	       const struct lws_http_mount *m)
@@ -495,7 +495,7 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 	char path[256], sym[2048];
 	unsigned char *p = (unsigned char *)sym + 32 + LWS_PRE, *start = p;
 	unsigned char *end = p + sizeof(sym) - 32 - LWS_PRE;
-#if !defined(WIN32) && !defined(LWS_WITH_ESP32)
+#if !defined(WIN32) && !defined(LWS_PLAT_FREERTOS)
 	size_t len;
 #endif
 	int n;
@@ -535,7 +535,7 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 		/* if it can't be statted, don't try */
 		if (fflags & LWS_FOP_FLAG_VIRTUAL)
 			break;
-#if defined(LWS_WITH_ESP32)
+#if defined(LWS_PLAT_FREERTOS)
 		break;
 #endif
 #if !defined(WIN32)
@@ -560,7 +560,7 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 		wsi->http.fop_fd->mod_time = (uint32_t)st.st_mtime;
 		fflags |= LWS_FOP_FLAG_MOD_TIME_VALID;
 
-#if !defined(WIN32) && !defined(LWS_WITH_ESP32)
+#if !defined(WIN32) && !defined(LWS_PLAT_FREERTOS)
 		if ((S_IFMT & st.st_mode) == S_IFLNK) {
 			len = readlink(path, sym, sizeof(sym) - 1);
 			if (len) {
@@ -791,7 +791,7 @@ lws_find_mount(struct lws *wsi, const char *uri_ptr, int uri_len)
 }
 #endif
 
-#if !defined(LWS_WITH_ESP32)
+#if !defined(LWS_PLAT_FREERTOS)
 static int
 lws_find_string_in_file(const char *filename, const char *string, int stringlen)
 {
@@ -2048,7 +2048,9 @@ raw_transition:
 		lwsl_info("%s: %p: No upgrade\n", __func__, wsi);
 
 		lwsi_set_state(wsi, LRS_ESTABLISHED);
+#if defined(LWS_WITH_FILE_OPS)
 		wsi->http.fop_fd = NULL;
+#endif
 
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
 		lws_http_compression_validate(wsi);
@@ -2305,7 +2307,7 @@ lws_http_transaction_completed(struct lws *wsi)
 	return 0;
 }
 
-#if !defined(LWS_AMAZON_RTOS)
+#if defined(LWS_WITH_FILE_OPS)
 LWS_VISIBLE int
 lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 		    const char *other_headers, int other_headers_len)
@@ -2596,6 +2598,8 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 }
 #endif
 
+#if defined(LWS_WITH_FILE_OPS)
+
 LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 {
 	struct lws_context *context = wsi->context;
@@ -2871,6 +2875,8 @@ file_had_it:
 	return -1;
 }
 
+#endif
+
 #if defined(LWS_WITH_SERVER)
 LWS_VISIBLE void
 lws_server_get_canonical_hostname(struct lws_context *context,
@@ -2879,7 +2885,7 @@ lws_server_get_canonical_hostname(struct lws_context *context,
 	if (lws_check_opt(info->options,
 			LWS_SERVER_OPTION_SKIP_SERVER_CANONICAL_NAME))
 		return;
-#if !defined(LWS_WITH_ESP32)
+#if !defined(LWS_PLAT_FREERTOS)
 	/* find canonical hostname */
 	gethostname((char *)context->canonical_hostname,
 		    sizeof(context->canonical_hostname) - 1);

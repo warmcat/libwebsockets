@@ -21,7 +21,7 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
  *
- * Included from lib/private-lib-core.h if LWS_WITH_ESP32
+ * Included from lib/private-lib-core.h if LWS_PLAT_FREERTOS
  */
 
 #define MSG_NOSIGNAL 0

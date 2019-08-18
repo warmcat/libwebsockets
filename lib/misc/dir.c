@@ -71,7 +71,7 @@ bail:
 
 #else
 
-#if !defined(_WIN32) && !defined(LWS_WITH_ESP32)
+#if !defined(_WIN32) && !defined(LWS_PLAT_FREERTOS)
 
 #include <dirent.h>
 

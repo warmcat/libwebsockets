@@ -79,7 +79,7 @@ typedef union {
 	lws_filefd_type filefd;
 } lws_sock_file_fd_type;
 
-#if !defined(LWS_WITH_ESP32) && !defined(LWS_PLAT_OPTEE)
+#if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE)
 struct lws_udp {
 	struct sockaddr sa;
 	socklen_t salen;
