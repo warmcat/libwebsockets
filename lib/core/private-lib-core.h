@@ -261,11 +261,15 @@ struct lws_deferred_free
 struct lws_context {
 	time_t last_ws_ping_pong_check_s;
 	lws_usec_t time_up; /* monotonic */
+#if defined(LWS_WITH_FILE_OPS)
 	const struct lws_plat_file_ops *fops;
 	struct lws_plat_file_ops fops_platform;
+#endif
 	struct lws_context **pcontext_finalize;
 
+#if defined(LWS_WITH_TLS)
 	const struct lws_tls_ops *tls_ops;
+#endif
 
 	const char *username, *groupname;
 
@@ -277,11 +281,15 @@ struct lws_context {
 #endif
 #if defined(LWS_WITH_NETWORK)
 	struct lws_context_per_thread pt[LWS_MAX_SMP];
+#if defined(LWS_WITH_SERVER_STATUS)
 	struct lws_conn_stats conn_stats;
+#endif
 	struct lws_vhost *vhost_list;
 	struct lws_vhost *no_listener_vhost_list;
 	struct lws_vhost *vhost_pending_destruction_list;
+#if defined(LWS_WITH_PLUGINS)
 	struct lws_plugin *plugin_list;
+#endif
 #ifdef _WIN32
 /* different implementation between unix and windows */
 	struct lws_fd_hashtable fd_hashtable[FD_HASHTABLE_MODULUS];
@@ -315,8 +323,10 @@ struct lws_context {
 	void *external_baggage_free_on_destroy;
 	const struct lws_token_limits *token_limits;
 	void *user_space;
+#if defined(LWS_WITH_SERVER)
 	const struct lws_protocol_vhost_options *reject_service_keywords;
 	lws_reload_func deprecation_cb;
+#endif
 	void (*eventlib_signal_cb)(void *event_lib_handle, int signum);
 
 #if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
@@ -341,8 +351,10 @@ struct lws_context {
 	struct lws_context_tls tls;
 #endif
 
+#if defined(LWS_WITH_SERVER)
 	char canonical_hostname[128];
 	const char *server_string;
+#endif
 
 #ifdef LWS_LATENCY
 	unsigned long worst_latency;

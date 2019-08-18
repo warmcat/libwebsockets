@@ -150,11 +150,14 @@ lws_now_secs(void)
 }
 
 #endif
+
+#if defined(LWS_WITH_SERVER)
 LWS_VISIBLE extern const char *
 lws_canonical_hostname(struct lws_context *context)
 {
 	return (const char *)context->canonical_hostname;
 }
+#endif
 
 #if defined(LWS_WITH_SOCKS5)
 LWS_VISIBLE int

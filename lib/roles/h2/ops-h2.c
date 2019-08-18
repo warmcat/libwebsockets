@@ -503,7 +503,9 @@ rops_check_upgrades_h2(struct lws *wsi)
 
 	nwsi = lws_get_network_wsi(wsi);
 
+#if defined(LWS_WITH_SERVER_STATUS)
 	wsi->vhost->conn_stats.ws_upg++;
+#endif
 	lwsl_info("Upgrade h2 to ws\n");
 	wsi->h2_stream_carries_ws = 1;
 	nwsi->immortal_substream_count++;
@@ -1183,7 +1185,9 @@ rops_alpn_negotiated_h2(struct lws *wsi, const char *alpn)
 #endif
 
 	wsi->upgraded_to_http2 = 1;
+#if defined(LWS_WITH_SERVER_STATUS)
 	wsi->vhost->conn_stats.h2_alpn++;
+#endif
 
 	/* adopt the header info */
 

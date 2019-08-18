@@ -88,7 +88,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	timeout_us = ((lws_usec_t)timeout_ms) * LWS_US_PER_MS;
 
 	if (!pt->service_tid_detected) {
-		struct lws *_lws = lws_zalloc(sizeof(*_lws), "tid probe");
+		struct lws *_lws = pt->fake_wsi;
 
 		if (!_lws)
 			return 1;
@@ -97,7 +97,6 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		pt->service_tid = context->vhost_list->protocols[0].callback(
 			_lws, LWS_CALLBACK_GET_THREAD_ID, NULL, NULL, 0);
 		pt->service_tid_detected = 1;
-		lws_free(_lws);
 	}
 
 	/*

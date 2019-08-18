@@ -63,7 +63,7 @@
   #include <mbedtls/aes.h>
   #include <mbedtls/gcm.h>
   #include <mbedtls/x509_crt.h>
-  #include "openssl/ssl.h" /* wrapper !!!! */
+  #include "ssl.h" /* wrapper !!!! */
  #else /* not esp32 */
   #if defined(LWS_WITH_MBEDTLS)
    #include <mbedtls/ssl.h>

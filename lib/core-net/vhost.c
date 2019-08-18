@@ -1091,7 +1091,10 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 	lws_ssl_SSL_CTX_destroy(vh);
 	lws_free(vh->same_vh_protocol_owner);
 
-	if (context->plugin_list ||
+	if (
+#if defined(LWS_WITH_PLUGINS)
+		context->plugin_list ||
+#endif
 	    (context->options & LWS_SERVER_OPTION_EXPLICIT_VHOSTS) ||
 	    vh->allocated_vhost_protocols)
 		lws_free((void *)vh->protocols);
@@ -1261,7 +1264,7 @@ lws_get_vhost_listen_port(struct lws_vhost *vhost)
 	return vhost->listen_port;
 }
 
-
+#if defined(LWS_WITH_SERVER)
 LWS_VISIBLE LWS_EXTERN void
 lws_context_deprecate(struct lws_context *context, lws_reload_func cb)
 {
@@ -1302,6 +1305,7 @@ lws_context_deprecate(struct lws_context *context, lws_reload_func cb)
 	context->deprecated = 1;
 	context->deprecation_cb = cb;
 }
+#endif
 
 #if defined(LWS_WITH_NETWORK)
 struct lws_vhost *
