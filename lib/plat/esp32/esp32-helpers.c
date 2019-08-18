@@ -705,6 +705,7 @@ esp_err_t lws_esp32_event_passthru(void *ctx, system_event_t *event)
 	return ESP_OK;
 }
 
+#if defined(LWS_WITH_FILE_OPS)
 static lws_fop_fd_t IRAM_ATTR
 esp32_lws_fops_open(const struct lws_plat_file_ops *fops, const char *filename,
                     const char *vfs_path, lws_fop_flags_t *flags)
@@ -796,6 +797,7 @@ static const struct lws_plat_file_ops fops = {
 	.LWS_FOP_READ = esp32_lws_fops_read,
 	.LWS_FOP_SEEK_CUR = esp32_lws_fops_seek_cur,
 };
+#endif
 
 int
 lws_esp32_wlan_nvs_get(int retry)
@@ -1296,8 +1298,9 @@ lws_esp32_init(struct lws_context_creation_info *info, struct lws_vhost **pvh)
 	puts(buf);
 
 	/* set the lws vfs to use our romfs */
-
+#if defined(LWS_WITH_FILE_OPS)
 	lws_set_fops(context, &fops);
+#endif
 
 	info->options |= LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX |
 			 LWS_SERVER_OPTION_IGNORE_MISSING_CERT;

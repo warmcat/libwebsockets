@@ -134,6 +134,7 @@ option(LWS_WITH_SEQUENCER "lws_seq_t support" ON)
 option(LWS_WITH_EXTERNAL_POLL "Support external POLL integration using callback messages (not recommended)" OFF)
 option(LWS_WITH_LWS_DSH "Support lws_dsh_t Disordered Shared Heap" OFF)
 option(LWS_CLIENT_HTTP_PROXYING "Support external http proxies for client connections" ON)
+option(LWS_WITH_FILE_OPS "Support file operations vfs" ON)
 #
 # to use miniz, enable both LWS_WITH_ZLIB and LWS_WITH_MINIZ
 #
@@ -985,9 +986,12 @@ set(SOURCES
 	lib/core/libwebsockets.c
 	lib/core/logs.c
 	lib/misc/base64-decode.c
-	lib/core/vfs.c
 	lib/misc/lws-ring.c
 )
+
+if (LWS_WITH_FILE_OPS)
+	list(APPEND SOURCES lib/core/vfs.c)
+endif()
 
 if (LWS_WITH_DEPRECATED_LWS_DLL)
 	list(APPEND SOURCES
@@ -1318,15 +1322,17 @@ else()
 		if (LWS_WITH_ESP32)
 			list(APPEND SOURCES
 				lib/plat/esp32/esp32-fds.c
-				lib/plat/esp32/esp32-file.c
 				lib/plat/esp32/esp32-init.c
 				lib/plat/esp32/esp32-misc.c
 				lib/plat/esp32/esp32-pipe.c
 				lib/plat/esp32/esp32-service.c
 				lib/plat/esp32/esp32-sockets.c
 				lib/misc/romfs.c)
-			if(LWS_WITH_ESP32_HELPER)
+			if (LWS_WITH_ESP32_HELPER)
 				list(APPEND SOURCES lib/plat/esp32/esp32-helpers.c)
+			endif()
+			if (LWS_WITH_FILE_OPS)
+				list(APPEND SOURCES lib/plat/esp32/esp32-file.c)
 			endif()
 		else()
 			set(LWS_PLAT_UNIX 1)

@@ -308,7 +308,9 @@ lejp_globals_cb(struct lejp_ctx *ctx, char reason)
 			a->info->options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 		return 0;
 	case LEJPGP_SERVER_STRING:
+#if defined(LWS_WITH_SERVER)
 		a->info->server_string = a->p;
+#endif
 		break;
 	case LEJPGP_PLUGIN_DIR:
 		if (a->count_plugin_dirs == MAX_PLUGIN_DIRS - 1) {
@@ -358,7 +360,9 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 
 	if (reason == LEJPCB_OBJECT_START && ctx->path_match == LEJPVP + 1) {
 		uint32_t i[4];
+#if defined(LWS_WITH_SERVER)
 		const char *ss;
+#endif
 
 		/* set the defaults for this vhost */
 		a->reject_ws_with_no_protocol = 0;
@@ -376,7 +380,9 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 			LWS_SERVER_OPTION_LIBEVENT |
 			LWS_SERVER_OPTION_LIBEV
 				);
+#if defined(LWS_WITH_SERVER)
 		ss = a->info->server_string;
+#endif
 		i[2] = a->info->ws_ping_pong_interval;
 		i[3] = a->info->timeout_secs;
 
@@ -384,7 +390,9 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 
 		a->info->count_threads = i[0];
 		a->info->options = i[1];
+#if defined(LWS_WITH_SERVER)
 		a->info->server_string = ss;
+#endif
 		a->info->ws_ping_pong_interval = i[2];
 		a->info->timeout_secs = i[3];
 

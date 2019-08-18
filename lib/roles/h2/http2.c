@@ -208,7 +208,9 @@ lws_wsi_server_new(struct lws_vhost *vh, struct lws *parent_wsi,
 	if (lws_ensure_user_space(wsi))
 		goto bail1;
 
+#if defined(LWS_WITH_SERVER_STATUS)
 	wsi->vhost->conn_stats.h2_subs++;
+#endif
 
 	lwsl_info("%s: %p new ch %p, sid %d, usersp=%p, tx cr %d, "
 		  "peer_credit %d (nwsi tx_cr %d)\n",
@@ -273,7 +275,9 @@ lws_wsi_h2_adopt(struct lws *parent_wsi, struct lws *wsi)
 
 	lws_callback_on_writable(wsi);
 
+#if defined(LWS_WITH_SERVER_STATUS)
 	wsi->vhost->conn_stats.h2_subs++;
+#endif
 
 	return wsi;
 
@@ -711,7 +715,9 @@ int lws_h2_do_pps_send(struct lws *wsi)
 			h2n->swsi->h2.END_STREAM = 1;
 			lwsl_info("servicing initial http request\n");
 
+#if defined(LWS_WITH_SERVER_STATUS)
 			wsi->vhost->conn_stats.h2_trans++;
+#endif
 
 			if (lws_http_action(h2n->swsi))
 				goto bail;
@@ -1500,7 +1506,9 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		lws_http_compression_validate(h2n->swsi);
 #endif
 
+#if defined(LWS_WITH_SERVER_STATUS)
 		wsi->vhost->conn_stats.h2_trans++;
+#endif
 		p = lws_hdr_simple_ptr(h2n->swsi, WSI_TOKEN_HTTP_COLON_METHOD);
 		/*
 		 * duplicate :path into the individual method uri header

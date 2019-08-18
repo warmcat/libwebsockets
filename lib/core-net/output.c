@@ -238,8 +238,10 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 #ifdef LWS_WITH_ACCESS_LOG
 	wsi->http.access_log.sent += len;
 #endif
+#if defined(LWS_WITH_SERVER_STATUS)
 	if (wsi->vhost)
 		wsi->vhost->conn_stats.tx += len;
+#endif
 
 	assert(wsi->role_ops);
 	if (!wsi->role_ops->write_role_protocol)
@@ -279,8 +281,10 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 		if (!n)
 			return LWS_SSL_CAPABLE_ERROR;
 
+#if defined(LWS_WITH_SERVER_STATUS)
 		if (wsi->vhost)
 			wsi->vhost->conn_stats.rx += n;
+#endif
 		lws_stats_bump(pt, LWSSTATS_B_READ, n);
 
 		return n;
