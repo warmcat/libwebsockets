@@ -81,6 +81,7 @@
 #cmakedefine LWS_OPENSSL_SUPPORT
 #cmakedefine LWS_PLAT_OPTEE
 #cmakedefine LWS_PLAT_UNIX
+#cmakedefine LWS_PLAT_FREERTOS
 #cmakedefine LWS_ROLE_CGI
 #cmakedefine LWS_ROLE_DBUS
 #cmakedefine LWS_ROLE_H1

@@ -52,7 +52,7 @@
   #define OPENSSL_NO_TLSEXT
  #endif /* not USE_OLD_CYASSL */
 #else /* WOLFSSL */
- #if defined(LWS_WITH_ESP32)
+ #if defined(LWS_PLAT_FREERTOS)
   #define OPENSSL_NO_TLSEXT
   #if !defined(LWS_AMAZON_RTOS)
    /* AMAZON RTOS has its own setting via MTK_MBEDTLS_CONFIG_FILE */
@@ -73,7 +73,11 @@
    #include <mbedtls/x509_csr.h>
    #include <mbedtls/ecp.h>
    #include <mbedtls/ecdsa.h>
+  #if defined(LWS_AMAZON_LINUX)
+   #include "ssl.h" /* wrapper !!!! */
+  #else
    #include "openssl/ssl.h" /* wrapper !!!! */
+  #endif
   #else
    #include <openssl/ssl.h>
    #include <openssl/evp.h>

@@ -66,6 +66,7 @@ lws_sul_plat_unix(lws_sorted_usec_list_t *sul)
 
 	lws_check_deferred_free(context, 0, 0);
 
+#if defined(LWS_WITH_SERVER)
 	lws_context_lock(context, "periodic checks");
 	lws_start_foreach_llp(struct lws_vhost **, pv,
 			      context->no_listener_vhost_list) {
@@ -80,6 +81,7 @@ lws_sul_plat_unix(lws_sorted_usec_list_t *sul)
 		}
 	} lws_end_foreach_llp(pv, no_listener_vhost_list);
 	lws_context_unlock(context);
+#endif
 
 #if defined(LWS_ROLE_CGI)
 	role_ops_cgi.periodic_checks(context, 0, now);
@@ -132,8 +134,11 @@ lws_plat_init(struct lws_context *context,
 	lwsl_info(" mem: platform fd map: %5lu B\n",
 		    (unsigned long)(sizeof(struct lws *) * context->max_fds));
 #endif
+#if defined(LWS_WITH_FILE_OPS)
 	fd = lws_open(SYSTEM_RANDOM_FILEPATH, O_RDONLY);
-
+#else
+	fd = open(SYSTEM_RANDOM_FILEPATH, O_RDONLY);
+#endif
 	context->fd_random = fd;
 	if (context->fd_random < 0) {
 		lwsl_err("Unable to open random device %s %d\n",

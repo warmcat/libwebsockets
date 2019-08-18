@@ -53,7 +53,7 @@ enum http_conn_type {
  * other APIs to get information out of it.
  */
 
-#if defined(LWS_WITH_ESP32)
+#if defined(LWS_PLAT_FREERTOS)
 typedef uint16_t ah_data_idx_t;
 #else
 typedef uint32_t ah_data_idx_t;
@@ -228,9 +228,11 @@ struct _lws_http_mode_related {
 	struct allocated_headers *ah;
 	struct lws *ah_wait_list;
 
+#if defined(LWS_WITH_FILE_OPS)
 	lws_filepos_t filepos;
 	lws_filepos_t filelen;
 	lws_fop_fd_t fop_fd;
+#endif
 
 #if defined(LWS_WITH_RANGES)
 	struct lws_range_parsing range;

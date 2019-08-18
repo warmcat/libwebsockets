@@ -689,7 +689,9 @@ int lws_h2_do_pps_send(struct lws *wsi)
 		/* this is the end of the preface dance then? */
 		if (lwsi_state(wsi) == LRS_H2_AWAIT_SETTINGS) {
 			lwsi_set_state(wsi, LRS_ESTABLISHED);
+#if defined(LWS_WITH_FILE_OPS)
 			wsi->http.fop_fd = NULL;
+#endif
 			if (lws_is_ssl(lws_get_network_wsi(wsi)))
 				break;
 			/*
@@ -718,10 +720,10 @@ int lws_h2_do_pps_send(struct lws *wsi)
 #if defined(LWS_WITH_SERVER_STATUS)
 			wsi->vhost->conn_stats.h2_trans++;
 #endif
-
+#if defined(LWS_WITH_SERVER)
 			if (lws_http_action(h2n->swsi))
 				goto bail;
-
+#endif
 			break;
 		}
 		break;
@@ -1275,8 +1277,9 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			struct lws_h2_protocol_send *pps;
 
 			/* migrate original client ask on to substream 1 */
-
+#if defined(LWS_WITH_FILE_OPS)
 			wsi->http.fop_fd = NULL;
+#endif
 
 			/*
 			 * we need to treat the headers from the upgrade as the

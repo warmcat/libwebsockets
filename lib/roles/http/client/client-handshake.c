@@ -429,7 +429,7 @@ create_new_conn:
 	wsi->ipv6 = LWS_IPV6_ENABLED(wsi->vhost);
 #ifdef LWS_WITH_IPV6
 	if (wsi->stash)
-		iface = wsi->stash->iface;
+		iface = wsi->stash->cis[CIS_IFACE];
 	else
 		iface = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_IFACE);
 

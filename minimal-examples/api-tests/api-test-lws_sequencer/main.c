@@ -324,7 +324,7 @@ main(int argc, const char **argv)
 	int n = 1, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
 	struct lws_context_creation_info info;
 	struct lws_context *context;
-	lws_seq_t *seq;
+	struct lws_sequencer *seq;
 	struct lws_vhost *vh;
 	lws_seq_info_t i;
 	struct myseq *s;

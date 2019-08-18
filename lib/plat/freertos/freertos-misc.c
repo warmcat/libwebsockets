@@ -35,19 +35,7 @@ lws_now_usecs(void)
 LWS_VISIBLE int
 lws_get_random(struct lws_context *context, void *buf, int len)
 {
-#if defined(LWS_AMAZON_RTOS)
-	int n;
-
-	n = mbedtls_ctr_drbg_random(&context->mcdc, buf, len);
-	if (!n)
-		return len;
-
-	/* failed */
-
-	lwsl_err("%s: mbedtls_ctr_drbg_random returned 0x%x\n", __func__, n);
-
-	return 0;
-#else
+#if defined(LWS_WITH_ESP32)
 	uint8_t *pb = buf;
 
 	while (len) {
@@ -65,6 +53,18 @@ lws_get_random(struct lws_context *context, void *buf, int len)
 	}
 
 	return pb - (uint8_t *)buf;
+#else
+	int n;
+
+	n = mbedtls_ctr_drbg_random(&context->mcdc, buf, len);
+	if (!n)
+		return len;
+
+	/* failed */
+
+	lwsl_err("%s: mbedtls_ctr_drbg_random returned 0x%x\n", __func__, n);
+
+	return 0;
 #endif
 }
 
@@ -89,11 +89,3 @@ lws_plat_recommended_rsa_bits(void)
 	 */
 	return 2048;
 }
-
-void esp32_uvtimer_cb(TimerHandle_t t)
-{
-	struct timer_mapping *p = pvTimerGetTimerID(t);
-
-	p->cb(p->t);
-}
-

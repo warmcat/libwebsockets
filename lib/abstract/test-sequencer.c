@@ -37,7 +37,7 @@ struct lws_seq_test_sequencer {
 
 	struct lws_context		*context;
 	struct lws_vhost		*vhost;
-	lws_seq_t			*unit_test_seq;
+	struct lws_sequencer		*unit_test_seq;
 
 	/* holds the per-test token for the unit-test transport to consume */
 	lws_token_map_t			uttt[4];
@@ -235,7 +235,7 @@ int
 lws_abs_unit_test_sequencer(const lws_test_sequencer_args_t *args)
 {
 	struct lws_seq_test_sequencer *s;
-	lws_seq_t *seq;
+	struct lws_sequencer *seq;
 	lws_seq_info_t i;
 
 	memset(&i, 0, sizeof(i));

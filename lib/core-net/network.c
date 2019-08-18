@@ -24,7 +24,7 @@
 
 #include "private-lib-core.h"
 
-#if !defined(LWS_WITH_ESP32) && !defined(LWS_PLAT_OPTEE)
+#if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE)
 static int
 interface_to_sa(struct lws_vhost *vh, const char *ifname,
 		struct sockaddr_in *addr, size_t addrlen, int allow_ipv6)
@@ -77,7 +77,7 @@ lws_get_addresses(struct lws_vhost *vh, void *ads, char *name,
 		memset(&ai, 0, sizeof ai);
 		ai.ai_family = PF_UNSPEC;
 		ai.ai_socktype = SOCK_STREAM;
-#if !defined(LWS_WITH_ESP32)
+#if !defined(LWS_PLAT_FREERTOS)
 		if (getnameinfo((struct sockaddr *)ads,
 				sizeof(struct sockaddr_in),
 				name, name_len, NULL, 0, 0))
@@ -222,7 +222,7 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 	socklen_t len = sizeof(struct sockaddr_storage);
 #endif
 	int n;
-#if !defined(LWS_WITH_ESP32) && !defined(LWS_PLAT_OPTEE)
+#if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE)
 	int m;
 #endif
 	struct sockaddr_storage sin;
@@ -251,7 +251,7 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 
 	} else
 #endif
-#if defined(LWS_WITH_IPV6) && !defined(LWS_WITH_ESP32)
+#if defined(LWS_WITH_IPV6) && !defined(LWS_PLAT_FREERTOS)
 	if (ipv6_allowed && LWS_IPV6_ENABLED(vhost)) {
 		v = (struct sockaddr *)&serv_addr6;
 		n = sizeof(struct sockaddr_in6);
@@ -283,7 +283,7 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 		serv_addr4.sin_addr.s_addr = INADDR_ANY;
 		serv_addr4.sin_family = AF_INET;
 
-#if !defined(LWS_WITH_ESP32) && !defined(LWS_PLAT_OPTEE)
+#if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE)
 		if (iface) {
 		    m = interface_to_sa(vhost, iface,
 				    (struct sockaddr_in *)v, n, 0);

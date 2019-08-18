@@ -392,8 +392,10 @@ next:
 
 	context->protocol_init_done = 1;
 
+#if defined(LWS_WITH_SERVER)
 	if (any)
 		lws_tls_check_all_cert_lifetimes(context);
+#endif
 
 	return 0;
 }
@@ -468,8 +470,7 @@ lws_create_vhost(struct lws_context *context,
 		lwsl_info("%s set to only support RAW\n", vh->name);
 
 	vh->iface = info->iface;
-#if !defined(LWS_WITH_ESP32) && \
-    !defined(OPTEE_TA) && !defined(WIN32)
+#if !defined(LWS_PLAT_FREERTOS) && !defined(OPTEE_TA) && !defined(WIN32)
 	vh->bind_iface = info->bind_iface;
 #endif
 
@@ -753,6 +754,7 @@ lws_create_vhost(struct lws_context *context,
 		lwsl_err("%s: lws_context_init_client_ssl failed\n", __func__);
 		goto bail1;
 	}
+#if defined(LWS_WITH_SERVER)
 	lws_context_lock(context, "create_vhost");
 	n = _lws_vhost_init_server(info, vh);
 	lws_context_unlock(context);
@@ -760,6 +762,7 @@ lws_create_vhost(struct lws_context *context,
 		lwsl_err("init server failed\n");
 		goto bail1;
 	}
+#endif
 
 	while (1) {
 		if (!(*vh1)) {

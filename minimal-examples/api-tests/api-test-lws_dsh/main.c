@@ -12,7 +12,7 @@
 int
 test1(void)
 {
-	lws_dsh_t *dsh;
+	struct lws_dsh *dsh;
 	size_t size;
 	void *a1;
 
@@ -94,7 +94,7 @@ bail:
 int
 test2(void)
 {
-	lws_dsh_t *dsh, *dsh2;
+	struct lws_dsh *dsh, *dsh2;
 	lws_dll2_owner_t owner;
 	uint8_t blob[4096];
 
@@ -173,7 +173,7 @@ bail:
 int
 test3(void)
 {
-	lws_dsh_t *dsh, *dsh2;
+	struct lws_dsh *dsh, *dsh2;
 	lws_dll2_owner_t owner;
 	uint8_t blob[4096];
 
@@ -245,7 +245,7 @@ int
 test4(void)
 {
 	uint8_t blob[4096];
-	lws_dsh_t *dsh;
+	struct lws_dsh *dsh;
 	size_t size;
 	void *a1;
 

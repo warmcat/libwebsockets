@@ -35,7 +35,7 @@ typedef struct lws_abstxp_unit_test_priv {
 	char					note[128];
 	struct lws_abs				*abs;
 
-	lws_seq_t				*seq;
+	struct lws_sequencer			*seq;
 	lws_unit_test_t				*current_test;
 	lws_unit_test_packet_t			*expect;
 	lws_unit_test_packet_test_cb		result_cb;
@@ -419,7 +419,7 @@ static int
 lws_atcut_create(lws_abs_t *ai)
 {
 	abs_unit_test_priv_t *priv;
-	lws_seq_t *seq;
+	struct lws_sequencer *seq;
 	lws_seq_info_t i;
 	seq_priv_t *s;
 

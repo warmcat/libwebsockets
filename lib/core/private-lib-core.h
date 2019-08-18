@@ -110,8 +110,8 @@
   *
   */
 
-#if defined(LWS_WITH_ESP32)
- #include "private-lib-plat-esp32.h"
+#if defined(LWS_PLAT_FREERTOS)
+ #include "private-lib-plat-freertos.h"
 #else
  #if defined(WIN32) || defined(_WIN32)
   #include "private-lib-plat-windows.h"
@@ -361,7 +361,7 @@ struct lws_context {
 	char worst_latency_info[256];
 #endif
 
-#if defined(LWS_WITH_ESP32)
+#if defined(LWS_PLAT_FREERTOS)
 	unsigned long time_last_state_dump;
 	uint32_t last_free_heap;
 #endif
@@ -429,7 +429,7 @@ void
 lws_vhost_destroy1(struct lws_vhost *vh);
 
 
-#if defined(LWS_WITH_ESP32)
+#if defined(LWS_PLAT_FREERTOS)
 LWS_EXTERN int
 lws_find_string_in_file(const char *filename, const char *str, int stringlen);
 #endif
