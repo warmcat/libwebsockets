@@ -240,7 +240,7 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 		}
 		lws_pt_unlock(pt);
 	}
-#if !defined(LWS_WITHOUT_SERVER)
+#if defined(LWS_WITH_SERVER)
 	 else
 		if (lws_server_socket_service_ssl(new_wsi, fd.sockfd)) {
 			lwsl_info("%s: fail ssl negotiation\n", __func__);

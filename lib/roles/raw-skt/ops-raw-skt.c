@@ -49,7 +49,7 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 	}
 
 
-#if !defined(LWS_NO_SERVER)
+#if defined(LWS_WITH_SERVER)
 	if (!lwsi_role_client(wsi) &&  lwsi_state(wsi) != LRS_ESTABLISHED) {
 
 		lwsl_debug("%s: %p: wsistate 0x%x\n", __func__, wsi,
@@ -114,7 +114,7 @@ try_pollout:
 	if (!(pollfd->revents & LWS_POLLOUT))
 		return LWS_HPI_RET_HANDLED;
 
-#if !defined(LWS_WITHOUT_CLIENT)
+#if defined(LWS_WITH_CLIENT)
 	if (lwsi_state(wsi) == LRS_WAITING_CONNECT)
 		lws_client_connect_3(wsi, NULL, 0);
 #endif
@@ -156,7 +156,7 @@ fail:
 	return LWS_HPI_RET_WSI_ALREADY_DIED;
 }
 
-#if !defined(LWS_NO_SERVER)
+#if defined(LWS_WITH_SERVER)
 static int
 rops_adoption_bind_raw_skt(struct lws *wsi, int type, const char *vh_prot_name)
 {
@@ -188,7 +188,7 @@ rops_adoption_bind_raw_skt(struct lws *wsi, int type, const char *vh_prot_name)
 }
 #endif
 
-#if !defined(LWS_NO_CLIENT)
+#if defined(LWS_WITH_CLIENT)
 static int
 rops_client_bind_raw_skt(struct lws *wsi,
 			 const struct lws_client_connect_info *i)
@@ -234,12 +234,12 @@ struct lws_role_ops role_ops_raw_skt = {
 	/* close_role */		NULL,
 	/* close_kill_connection */	NULL,
 	/* destroy_role */		NULL,
-#if !defined(LWS_NO_SERVER)
+#if defined(LWS_WITH_SERVER)
 	/* adoption_bind */		rops_adoption_bind_raw_skt,
 #else
 					NULL,
 #endif
-#if !defined(LWS_NO_CLIENT)
+#if defined(LWS_WITH_CLIENT)
 	/* client_bind */		rops_client_bind_raw_skt,
 #else
 					NULL,

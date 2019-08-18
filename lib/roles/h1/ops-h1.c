@@ -70,7 +70,7 @@ lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 			assert(0);
 		}
 		lwsl_parser("issuing %d bytes to parser\n", (int)len);
-#if defined(LWS_ROLE_WS) && !defined(LWS_NO_CLIENT)
+#if defined(LWS_ROLE_WS) && defined(LWS_WITH_CLIENT)
 		if (lws_ws_handshake_client(wsi, &buf, (size_t)len))
 			goto bail;
 #endif
@@ -190,7 +190,7 @@ postbody_completion:
 			if (!wsi->http.cgi)
 #endif
 			{
-#if !defined(LWS_NO_SERVER)
+#if defined(LWS_WITH_SERVER)
 				if (lwsi_state(wsi) == LRS_DISCARD_BODY) {
 					/*
 					 * repeat the transaction completed
@@ -226,7 +226,7 @@ postbody_completion:
 	case LRS_SHUTDOWN:
 
 ws_mode:
-#if !defined(LWS_NO_CLIENT) && defined(LWS_ROLE_WS)
+#if defined(LWS_WITH_CLIENT) && defined(LWS_ROLE_WS)
 		// lwsl_notice("%s: ws_mode\n", __func__);
 		if (lws_ws_handshake_client(wsi, &buf, (size_t)len))
 			goto bail;
@@ -290,7 +290,7 @@ bail:
 
 	return -1;
 }
-#if !defined(LWS_NO_SERVER)
+#if defined(LWS_WITH_SERVER)
 static int
 lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 {
@@ -618,7 +618,7 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
                  */
 		return LWS_HPI_RET_HANDLED;
 
-#if !defined(LWS_NO_SERVER)
+#if defined(LWS_WITH_SERVER)
 	if (!lwsi_role_client(wsi)) {
 		int n;
 
@@ -636,7 +636,7 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 	}
 #endif
 
-#ifndef LWS_NO_CLIENT
+#if defined(LWS_WITH_CLIENT)
 	if ((pollfd->revents & LWS_POLLIN) &&
 	     wsi->hdr_parsing_completed && !wsi->told_user_closed) {
 
@@ -674,7 +674,7 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 //	if (lwsi_state(wsi) == LRS_ESTABLISHED)
 //		return LWS_HPI_RET_HANDLED;
 
-#if !defined(LWS_NO_CLIENT)
+#if defined(LWS_WITH_CLIENT)
 	if ((pollfd->revents & LWS_POLLOUT) &&
 	    lws_handle_POLLOUT_event(wsi, pollfd)) {
 		lwsl_debug("POLLOUT event closed it\n");
@@ -823,7 +823,7 @@ static int
 rops_alpn_negotiated_h1(struct lws *wsi, const char *alpn)
 {
 	lwsl_debug("%s: client %d\n", __func__, lwsi_role_client(wsi));
-#if !defined(LWS_NO_CLIENT)
+#if defined(LWS_WITH_CLIENT)
 	if (lwsi_role_client(wsi)) {
 		/*
 		 * If alpn asserts it is http/1.1, server support for KA is
@@ -872,7 +872,7 @@ rops_destroy_role_h1(struct lws *wsi)
 	return 0;
 }
 
-#if !defined(LWS_NO_SERVER)
+#if defined(LWS_WITH_SERVER)
 
 static int
 rops_adoption_bind_h1(struct lws *wsi, int type, const char *vh_prot_name)
@@ -917,7 +917,7 @@ rops_adoption_bind_h1(struct lws *wsi, int type, const char *vh_prot_name)
 
 #endif
 
-#if !defined(LWS_NO_CLIENT)
+#if defined(LWS_WITH_CLIENT)
 
 static const char * const http_methods[] = {
 	"GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE", "CONNECT"
@@ -960,7 +960,7 @@ rops_client_bind_h1(struct lws *wsi, const struct lws_client_connect_info *i)
 		 * lws_http_client_connect_via_info2().
 		 */
 		if (lws_header_table_attach(wsi, 0)
-#ifndef LWS_NO_CLIENT
+#if defined(LWS_WITH_CLIENT)
 				< 0)
 			/*
 			 * if we failed here, the connection is already closed
@@ -1107,7 +1107,7 @@ rops_init_context_h1(struct lws_context *context,
 	 * We only want to do this once... we will do it if no h2 support
 	 * otherwise let h2 ops do it.
 	 */
-#if !defined(LWS_ROLE_H2)
+#if !defined(LWS_ROLE_H2) && defined(LWS_WITH_SERVER)
 	int n;
 
 	for (n = 0; n < context->count_threads; n++) {
@@ -1144,12 +1144,12 @@ struct lws_role_ops role_ops_h1 = {
 	/* close_role */		NULL,
 	/* close_kill_connection */	rops_close_kill_connection_h1,
 	/* destroy_role */		rops_destroy_role_h1,
-#if !defined(LWS_NO_SERVER)
+#if defined(LWS_WITH_SERVER)
 	/* adoption_bind */		rops_adoption_bind_h1,
 #else
 					NULL,
 #endif
-#if !defined(LWS_NO_CLIENT)
+#if defined(LWS_WITH_CLIENT)
 	/* client_bind */		rops_client_bind_h1,
 #else
 					NULL,

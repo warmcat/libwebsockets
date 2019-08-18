@@ -65,7 +65,7 @@ lws_create_client_ws_object(const struct lws_client_connect_info *i,
 	return 0;
 }
 
-#if !defined(LWS_NO_CLIENT)
+#if defined(LWS_WITH_CLIENT)
 int
 lws_ws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 {

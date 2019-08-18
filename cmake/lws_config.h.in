@@ -77,7 +77,6 @@
 #cmakedefine LWS_MINGW_SUPPORT
 #cmakedefine LWS_NO_CLIENT
 #cmakedefine LWS_NO_DAEMONIZE
-#cmakedefine LWS_NO_SERVER
 #cmakedefine LWS_OPENSSL_CLIENT_CERTS "${LWS_OPENSSL_CLIENT_CERTS}"
 #cmakedefine LWS_OPENSSL_SUPPORT
 #cmakedefine LWS_PLAT_OPTEE
@@ -120,9 +119,9 @@
 #cmakedefine LWS_WITH_MINIZ
 #cmakedefine LWS_WITH_NETWORK
 #cmakedefine LWS_WITH_NO_LOGS
-#cmakedefine LWS_WITHOUT_CLIENT
+#cmakedefine LWS_WITH_CLIENT
 #cmakedefine LWS_WITHOUT_EXTENSIONS
-#cmakedefine LWS_WITHOUT_SERVER
+#cmakedefine LWS_WITH_SERVER
 #cmakedefine LWS_WITH_PEER_LIMITS
 #cmakedefine LWS_WITH_PLUGINS
 #cmakedefine LWS_WITH_POLARSSL
