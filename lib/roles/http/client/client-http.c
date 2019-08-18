@@ -367,7 +367,7 @@ start_ws_handshake:
 			 * So this is it, we are an h2 master client connection
 			 * now, not an h1 client connection.
 			 */
-#if defined (LWS_WITH_TLS)
+#if defined(LWS_WITH_TLS) && defined(LWS_WITH_SERVER)
 			lws_tls_server_conn_alpn(wsi);
 #endif
 

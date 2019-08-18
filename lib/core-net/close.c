@@ -264,7 +264,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 		wsi->socket_is_permanently_unusable = 1;
 		goto just_kill_connection;
 	}
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+#if defined(LWS_WITH_FILE_OPS) && (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2))
 	if (lwsi_role_http(wsi) && lwsi_role_server(wsi) &&
 	    wsi->http.fop_fd != NULL)
 		lws_vfs_file_close(&wsi->http.fop_fd);
@@ -421,7 +421,7 @@ just_kill_connection:
 		 * This causes problems on WINCE / ESP32 with disconnection
 		 * when the events are half closing connection
 		 */
-#if !defined(_WIN32_WCE) && !defined(LWS_WITH_ESP32)
+#if !defined(_WIN32_WCE) && !defined(LWS_PLAT_FREERTOS)
 		/* libuv: no event available to guarantee completion */
 		if (!wsi->socket_is_permanently_unusable &&
 		    lws_socket_is_valid(wsi->desc.sockfd) &&

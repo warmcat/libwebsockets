@@ -133,14 +133,14 @@ typedef unsigned long long lws_intptr_t;
 #define LWS_O_CREAT O_CREAT
 #define LWS_O_TRUNC O_TRUNC
 
-#if !defined(LWS_PLAT_OPTEE) && !defined(OPTEE_TA) && !defined(LWS_WITH_ESP32)
+#if !defined(LWS_PLAT_OPTEE) && !defined(OPTEE_TA) && !defined(LWS_PLAT_FREERTOS)
 #include <poll.h>
 #include <netdb.h>
 #define LWS_INVALID_FILE -1
 #define LWS_SOCK_INVALID (-1)
 #else
 #define getdtablesize() (30)
-#if defined(LWS_WITH_ESP32)
+#if defined(LWS_PLAT_FREERTOS)
 #define LWS_INVALID_FILE NULL
 #define LWS_SOCK_INVALID (-1)
 #else
@@ -237,7 +237,7 @@ typedef unsigned long long lws_intptr_t;
 #endif /* not USE_OLD_CYASSL */
 #else
 #if defined(LWS_WITH_MBEDTLS)
-#if defined(LWS_WITH_ESP32)
+#if defined(LWS_PLAT_FREERTOS)
 /* this filepath is passed to us but without quotes or <> */
 #if !defined(LWS_AMAZON_RTOS)
 /* AMAZON RTOS has its own setting via MTK_MBEDTLS_CONFIG_FILE */
@@ -351,8 +351,11 @@ struct lws_pollfd {
 #else
 
 
+#if defined(LWS_PLAT_FREERTOS)
+#include <libwebsockets/lws-freertos.h>
 #if defined(LWS_WITH_ESP32)
 #include <libwebsockets/lws-esp32.h>
+#endif
 #else
 typedef int lws_sockfd_type;
 typedef int lws_filefd_type;
@@ -549,7 +552,9 @@ struct lws;
 #include <libwebsockets/lws-sha1-base64.h>
 #include <libwebsockets/lws-x509.h>
 #include <libwebsockets/lws-cgi.h>
+#if defined(LWS_WITH_FILE_OPS)
 #include <libwebsockets/lws-vfs.h>
+#endif
 #include <libwebsockets/lws-lejp.h>
 #include <libwebsockets/lws-stats.h>
 #include <libwebsockets/lws-struct.h>

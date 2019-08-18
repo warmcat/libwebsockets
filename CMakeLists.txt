@@ -75,6 +75,8 @@ option(LWS_STATIC_PIC "Build the static version of the library with position-ind
 option(LWS_WITH_ESP32 "Build for ESP32" OFF)
 option(LWS_WITH_ESP32_HELPER "Build ESP32 helper" OFF)
 option(LWS_PLAT_OPTEE "Build for OPTEE" OFF)
+option(LWS_PLAT_FREERTOS "Build for FreeRTOS" OFF)
+
 #
 # Client / Server / Test Apps build control
 #
@@ -151,7 +153,11 @@ else()
 	set(LWS_WITH_ESP32_HELPER OFF)
 endif()
 
-if (WIN32 OR LWS_WITH_ESP32)
+if (LWS_WITH_ESP32)
+	set(LWS_PLAT_FREERTOS 1)
+endif()
+
+if (WIN32 OR LWS_PLAT_FREERTOS)
 	message(STATUS "No LWS_WITH_DIR and LWS_WITH_DIR")
 	set(LWS_WITH_DIR OFF)
 	set(LWS_WITH_LEJP_CONF OFF)
@@ -243,11 +249,11 @@ endif()
 
 # microsoft... that's why you can't have nice things
 
-if (WIN32 OR LWS_WITH_ESP32)
+if (WIN32 OR LWS_PLAT_FREERTOS)
 	set(LWS_UNIX_SOCK 0)
 endif()
 
-if (LWS_WITH_ESP32)
+if (LWS_PLAT_FREERTOS)
 	set(LWS_WITH_LWSAC 0)
 	set(LWS_WITH_FTS 0)
 endif()
@@ -347,8 +353,8 @@ endif()
 
 include_directories(include plugins lib/core lib/core-net lib/event-libs include/abstract lib/tls lib/roles lib/event-libs/libuv lib/event-libs/poll lib/event-libs/libevent lib/event-libs/libev lib/jose/jwe lib/jose/jws lib/jose lib/misc lib/roles/http lib/roles/http/compression lib/roles/h1 lib/roles/h2 lib/roles/ws lib/roles/cgi lib/roles/dbus lib/roles/raw-proxy)
 
-if (LWS_WITH_ESP32)
-	include_directories(lib/plat/esp32)
+if (LWS_PLAT_FREERTOS)
+	include_directories(lib/plat/freertos lib/plat/freertos/esp32)
 else()
 	if (WIN32)
 		include_directories(lib/plat/windows)
@@ -411,7 +417,7 @@ if (LWS_WITH_GENERIC_SESSIONS)
  set(LWS_WITH_STRUCT_SQLITE3 1)
 endif()
 
-if (LWS_WITH_ESP32)
+if (LWS_PLAT_FREERTOS)
  set(LWS_WITH_SHARED OFF)
  set(LWS_WITH_MBEDTLS ON)
   # set(LWS_WITHOUT_CLIENT ON)
@@ -536,7 +542,7 @@ endif()
 if (LWS_WITH_SSL AND NOT LWS_WITH_WOLFSSL AND NOT LWS_WITH_MBEDTLS)
 	if ("${LWS_OPENSSL_LIBRARIES}" STREQUAL "" OR "${LWS_OPENSSL_INCLUDE_DIRS}" STREQUAL "")
 	else()
-		if (NOT LWS_WITH_ESP32)
+		if (NOT LWS_PLAT_FREERTOS)
 			set(OPENSSL_LIBRARIES ${LWS_OPENSSL_LIBRARIES})
 		endif()
 		set(OPENSSL_INCLUDE_DIRS ${LWS_OPENSSL_INCLUDE_DIRS})
@@ -566,7 +572,7 @@ if (LWS_WITH_SSL AND LWS_WITH_WOLFSSL)
 endif()
 
 if (LWS_WITH_SSL AND LWS_WITH_MBEDTLS)
-	if ("${LWS_MBEDTLS_LIBRARIES}" STREQUAL "" OR "${LWS_MBEDTLS_INCLUDE_DIRS}" STREQUAL "" AND NOT LWS_WITH_ESP32)
+	if ("${LWS_MBEDTLS_LIBRARIES}" STREQUAL "" OR "${LWS_MBEDTLS_INCLUDE_DIRS}" STREQUAL "" AND NOT LWS_PLAT_FREERTOS)
 
 		find_path(LWS_MBEDTLS_INCLUDE_DIRS mbedtls/ssl.h)
 
@@ -1053,7 +1059,7 @@ endif()
 if (LWS_ROLE_H1 OR LWS_ROLE_H2)
 	list(APPEND SOURCES
 		lib/roles/http/header.c
-		lib/roles/http/server/parsers.c)
+		lib/roles/http/parsers.c)
 	if (LWS_WITH_HTTP_STREAM_COMPRESSION)
 		list(APPEND SOURCES
 			lib/roles/http/compression/stream.c
@@ -1319,29 +1325,31 @@ else()
 			)
 		endif()
 	else()
-		if (LWS_WITH_ESP32)
+		if (LWS_PLAT_FREERTOS)
 			list(APPEND SOURCES
-				lib/plat/esp32/esp32-fds.c
-				lib/plat/esp32/esp32-init.c
-				lib/plat/esp32/esp32-misc.c
-				lib/plat/esp32/esp32-pipe.c
-				lib/plat/esp32/esp32-service.c
-				lib/plat/esp32/esp32-sockets.c
+				lib/plat/freertos/freertos-fds.c
+				lib/plat/freertos/freertos-init.c
+				lib/plat/freertos/freertos-misc.c
+				lib/plat/freertos/freertos-pipe.c
+				lib/plat/freertos/freertos-service.c
+				lib/plat/freertos/freertos-sockets.c
 				lib/misc/romfs.c)
 			if (LWS_WITH_ESP32_HELPER)
-				list(APPEND SOURCES lib/plat/esp32/esp32-helpers.c)
+				list(APPEND SOURCES lib/plat/freertos/esp32/esp32-helpers.c)
 			endif()
 			if (LWS_WITH_FILE_OPS)
-				list(APPEND SOURCES lib/plat/esp32/esp32-file.c)
+				list(APPEND SOURCES lib/plat/freertos/freertos-file.c)
 			endif()
 		else()
 			set(LWS_PLAT_UNIX 1)
 			list(APPEND SOURCES
 				lib/plat/unix/unix-caps.c
-				lib/plat/unix/unix-file.c
 				lib/plat/unix/unix-misc.c
 				lib/plat/unix/unix-init.c
 			)
+			if (LWS_WITH_FILE_OPS)
+				list(APPEND SOURCES lib/plat/unix/unix-file.c)
+			endif()
 			if (LWS_WITH_NETWORK)
 				list(APPEND SOURCES
 					lib/plat/unix/unix-pipe.c
@@ -1514,7 +1522,7 @@ if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX OR COMPILER_IS_CLANG)
 		set(CMAKE_C_FLAGS "-Wtype-limits ${CMAKE_C_FLAGS}" )
 	endif()
 
-    if (UNIX AND NOT LWS_WITH_ESP32)
+    if (UNIX AND NOT LWS_PLAT_FREERTOS)
 	    set(CMAKE_C_FLAGS "-Wall -Wsign-compare -Wuninitialized -Werror ${VISIBILITY_FLAG} -Wundef ${GCOV_FLAGS} ${CMAKE_C_FLAGS} ${ASAN_FLAGS}" )
     else()
 	    set(CMAKE_C_FLAGS "-Wall -Wsign-compare -Wuninitialized -Werror ${VISIBILITY_FLAG} ${GCOV_FLAGS} ${CMAKE_C_FLAGS}" )
@@ -1750,19 +1758,19 @@ if (LWS_WITH_SSL)
 	if (NOT chose_ssl)
 		if (NOT OPENSSL_FOUND AND NOT LWS_WITH_BORINGSSL)
 			# TODO: Add support for STATIC also.
-		if (NOT LWS_WITH_ESP32)
+		if (NOT LWS_PLAT_FREERTOS)
 			find_package(OpenSSL REQUIRED)
 		endif()
 			set(OPENSSL_INCLUDE_DIRS "${OPENSSL_INCLUDE_DIR}")
 		endif()
 
 		message("OpenSSL include dir: ${OPENSSL_INCLUDE_DIRS}")
-		if (NOT LWS_WITH_ESP32)
+		if (NOT LWS_PLAT_FREERTOS)
 			message("OpenSSL libraries: ${OPENSSL_LIBRARIES}")
 		endif()
 
 		include_directories("${OPENSSL_INCLUDE_DIRS}")
-		if (NOT LWS_WITH_ESP32)
+		if (NOT LWS_PLAT_FREERTOS)
 			list(APPEND LIB_LIST ${OPENSSL_LIBRARIES})
 		endif()
 
@@ -1929,7 +1937,7 @@ CHECK_FUNCTION_EXISTS(EC_POINT_get_affine_coordinates LWS_HAVE_EC_POINT_get_affi
 endif()
 if (LWS_WITH_MBEDTLS)
 	set(LWS_HAVE_TLS_CLIENT_METHOD 1)
-	if (NOT LWS_WITH_ESP32)
+	if (NOT LWS_PLAT_FREERTOS)
 		# not supported in esp-idf openssl wrapper yet, but is in our version
 		set(LWS_HAVE_X509_VERIFY_PARAM_set1_host 1)
 	endif()
@@ -1987,7 +1995,7 @@ set(GENCERTS 0)
 if (LWS_WITH_SSL AND OPENSSL_EXECUTABLE AND NOT LWS_WITHOUT_TEST_SERVER AND NOT LWS_WITHOUT_SERVER AND NOT LWS_WITHOUT_TESTAPPS)
 	set(GENCERTS 1)
 endif()
-if (LWS_WITH_ESP32)
+if (LWS_PLAT_FREERTOS)
 	set(GENCERTS 1)
 endif()
 message(" GENCERTS = ${GENCERTS}")
@@ -2737,7 +2745,7 @@ message(" LWS_WITH_GENERIC_SESSIONS = ${LWS_WITH_GENERIC_SESSIONS}")
 message(" LWS_STATIC_PIC = ${LWS_STATIC_PIC}")
 message(" LWS_WITH_RANGES = ${LWS_WITH_RANGES}")
 message(" LWS_PLAT_OPTEE = ${LWS_PLAT_OPTEE}")
-message(" LWS_WITH_ESP32 = ${LWS_WITH_ESP32}")
+message(" LWS_PLAT_FREERTOS = ${LWS_PLAT_FREERTOS}")
 message(" LWS_WITH_ZIP_FOPS = ${LWS_WITH_ZIP_FOPS}")
 message(" LWS_AVOID_SIGPIPE_IGN = ${LWS_AVOID_SIGPIPE_IGN}")
 message(" LWS_WITH_STATS = ${LWS_WITH_STATS}")

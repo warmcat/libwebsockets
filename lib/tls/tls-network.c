@@ -65,7 +65,7 @@ lws_ssl_remove_wsi_from_buffered_list(struct lws *wsi)
 	lws_pt_unlock(pt);
 }
 
-
+#if defined(LWS_WITH_SERVER)
 int
 lws_tls_check_cert_lifetime(struct lws_vhost *v)
 {
@@ -112,7 +112,6 @@ lws_tls_check_all_cert_lifetimes(struct lws_context *context)
 
 	return 0;
 }
-
 
 /*
  * LWS_TLS_EXTANT_NO         : skip adding the cert
@@ -161,7 +160,6 @@ lws_tls_generic_cert_checks(struct lws_vhost *vhost, const char *cert,
 	return LWS_TLS_EXTANT_YES;
 }
 
-#if defined(LWS_WITH_SERVER)
 /*
  * update the cert for every vhost using the given path
  */

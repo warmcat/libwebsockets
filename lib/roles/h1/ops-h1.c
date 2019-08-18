@@ -507,6 +507,8 @@ try_pollout:
 		return LWS_HPI_RET_HANDLED;
 	}
 
+#if defined(LWS_WITH_FILE_OPS)
+
 	/* >0 == completion, <0 == error
 	 *
 	 * We'll get a LWS_CALLBACK_HTTP_FILE_COMPLETION callback when
@@ -516,6 +518,7 @@ try_pollout:
 	n = lws_serve_http_file_fragment(wsi);
 	if (n < 0)
 		goto fail;
+#endif
 
 	return LWS_HPI_RET_HANDLED;
 

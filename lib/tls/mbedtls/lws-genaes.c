@@ -25,7 +25,7 @@
  *  same whether you are using openssl or mbedtls hash functions underneath.
  */
 #include "private-lib-core.h"
-#include "../../jose/private-lib-jose.h"
+#include "private-lib-jose.h"
 
 static int operation_map[] = { MBEDTLS_AES_ENCRYPT, MBEDTLS_AES_DECRYPT };
 

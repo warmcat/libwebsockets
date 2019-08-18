@@ -25,7 +25,7 @@
  *  same whether you are using openssl or mbedtls hash functions underneath.
  */
 #include "private-lib-core.h"
-#include "../../jose/private-lib-jose.h"
+#include "private-lib-jose.h"
 
 /*
  * Care: many openssl apis return 1 for success.  These are translated to the

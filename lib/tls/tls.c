@@ -26,7 +26,7 @@
 #include "private-lib-tls.h"
 
 #if !defined(LWS_PLAT_OPTEE) && !defined(OPTEE_DEV_KIT)
-#if defined(LWS_WITH_ESP32) && !defined(LWS_AMAZON_RTOS)
+#if defined(LWS_PLAT_FREERTOS) && !defined(LWS_AMAZON_RTOS)
 int alloc_file(struct lws_context *context, const char *filename, uint8_t **buf,
 	       lws_filepos_t *amount)
 {
@@ -229,7 +229,7 @@ bail:
 
 #endif
 
-#if !defined(LWS_WITH_ESP32) && !defined(LWS_PLAT_OPTEE) && !defined(OPTEE_DEV_KIT)
+#if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE) && !defined(OPTEE_DEV_KIT)
 
 
 static int
@@ -286,7 +286,7 @@ lws_tls_use_any_upgrade_check_extant(const char *name)
 
 	int n;
 
-#if !defined(LWS_WITH_ESP32)
+#if !defined(LWS_PLAT_FREERTOS)
 	char buf[256];
 
 	lws_snprintf(buf, sizeof(buf) - 1, "%s.upd", name);

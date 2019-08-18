@@ -804,6 +804,7 @@ lws_h2_dump_waiting_children(struct lws *wsi)
 #endif
 }
 
+#if defined(LWS_WITH_SERVER)
 static int
 lws_h2_bind_for_post_before_action(struct lws *wsi)
 {
@@ -845,6 +846,7 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 
 	return 0;
 }
+#endif
 
 /*
  * we are the 'network wsi' for potentially many muxed child wsi with
@@ -998,6 +1000,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			goto next_child;
 		}
 
+#if defined(LWS_WITH_SERVER)
 		if (lwsi_state(w) == LRS_DEFERRING_ACTION) {
 
 			/*
@@ -1040,6 +1043,8 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			goto next_child;
 		}
 
+#if defined(LWS_WITH_FILE_OPS)
+
 		if (lwsi_state(w) == LRS_ISSUING_FILE) {
 
 			((volatile struct lws *)w)->leave_pollout_active = 0;
@@ -1074,6 +1079,8 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 
 			goto next_child;
 		}
+#endif
+#endif
 
 #if defined(LWS_ROLE_WS)
 

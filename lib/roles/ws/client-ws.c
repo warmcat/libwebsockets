@@ -661,7 +661,7 @@ check_accept:
 	wsi->ws->rx_ubuf_alloc = n;
 	lwsl_info("Allocating client RX buffer %d\n", n);
 
-#if !defined(LWS_WITH_ESP32)
+#if !defined(LWS_PLAT_FREERTOS)
 	if (setsockopt(wsi->desc.sockfd, SOL_SOCKET, SO_SNDBUF,
 		       (const char *)&n, sizeof n)) {
 		lwsl_warn("Failed to set SNDBUF to %d", n);
