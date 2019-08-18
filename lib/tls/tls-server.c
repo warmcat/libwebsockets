@@ -101,7 +101,7 @@ lws_tls_server_conn_alpn(struct lws *wsi)
 	return 0;
 }
 
-#if !defined(LWS_NO_SERVER)
+#if defined(LWS_WITH_SERVER)
 
 static void
 lws_sul_tls_cb(lws_sorted_usec_list_t *sul)

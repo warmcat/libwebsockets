@@ -341,7 +341,7 @@ lws_atcut_tx(lws_abs_transport_inst_t *ati, uint8_t *buf, size_t len)
 	return 0;
 }
 
-#if !defined(LWS_WITHOUT_CLIENT)
+#if defined(LWS_WITH_CLIENT)
 static int
 lws_atcut_client_conn(const lws_abs_t *abs)
 {
@@ -521,7 +521,7 @@ const lws_abs_transport_t lws_abs_transport_cli_unit_test = {
 	.destroy		= lws_atcut_destroy,
 
 	.tx			= lws_atcut_tx,
-#if defined(LWS_WITHOUT_CLIENT)
+#if !defined(LWS_WITH_CLIENT)
 	.client_conn		= NULL,
 #else
 	.client_conn		= lws_atcut_client_conn,

@@ -568,7 +568,7 @@ int main(int argc, char **argv)
 
 	info.port++;
 
-#if !defined(LWS_NO_CLIENT) && defined(LWS_WITH_TLS)
+#if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_TLS)
 	lws_init_vhost_client_ssl(&info, vhost);
 #endif
 

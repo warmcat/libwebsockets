@@ -117,7 +117,7 @@ struct allocated_headers {
 	 */
 	uint8_t frag_index[WSI_TOKEN_COUNT];
 
-#ifndef LWS_NO_CLIENT
+#if defined(LWS_WITH_CLIENT)
 	char initial_handshake_hash_base64[30];
 #endif
 	int hdr_token_idx;
@@ -267,7 +267,7 @@ struct _lws_http_mode_related {
 };
 
 
-#ifndef LWS_NO_CLIENT
+#if defined(LWS_WITH_CLIENT)
 enum lws_chunk_parser {
 	ELCP_HEX,
 	ELCP_CR,

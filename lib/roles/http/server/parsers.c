@@ -316,7 +316,7 @@ reset:
 
 	lws_pt_unlock(pt);
 
-#ifndef LWS_NO_CLIENT
+#if defined(LWS_WITH_CLIENT)
 	if (lwsi_role_client(wsi) && lwsi_state(wsi) == LRS_UNCONNECTED)
 		if (!lws_http_client_connect_via_info2(wsi))
 			/* our client connect has failed, the wsi
@@ -444,7 +444,7 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 	wsi->http.ah_wait_list = NULL;
 	pt->http.ah_wait_list_length--;
 
-#ifndef LWS_NO_CLIENT
+#if defined(LWS_WITH_CLIENT)
 	if (lwsi_role_client(wsi) && lwsi_state(wsi) == LRS_UNCONNECTED) {
 		lws_pt_unlock(pt);
 
@@ -1412,7 +1412,9 @@ set_parsing_complete:
 
 forbid:
 	lwsl_notice(" forbidding on uri sanitation\n");
+#if defined(LWS_WITH_SERVER)
 	lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
+#endif
 
 	return LPR_FORBIDDEN;
 }

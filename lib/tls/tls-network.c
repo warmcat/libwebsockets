@@ -161,7 +161,7 @@ lws_tls_generic_cert_checks(struct lws_vhost *vhost, const char *cert,
 	return LWS_TLS_EXTANT_YES;
 }
 
-#if !defined(LWS_NO_SERVER)
+#if defined(LWS_WITH_SERVER)
 /*
  * update the cert for every vhost using the given path
  */

@@ -274,7 +274,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 	switch (reason) {
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	case LWS_CALLBACK_HTTP:
-#ifndef LWS_NO_SERVER
+#if defined(LWS_WITH_SERVER)
 		if (lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, NULL))
 			return -1;
 
@@ -282,7 +282,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 #endif
 			return -1;
 		break;
-#if !defined(LWS_NO_SERVER)
+#if defined(LWS_WITH_SERVER)
 	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
 #if defined(LWS_WITH_HTTP_PROXY)
 		if (wsi->child_list) {

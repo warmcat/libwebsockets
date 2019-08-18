@@ -231,7 +231,7 @@ enum uri_esc_states {
 	URIES_SEEN_PERCENT_H1,
 };
 
-#ifndef LWS_NO_CLIENT
+#if defined(LWS_WITH_CLIENT)
 
 enum {
 	CIS_ADDRESS,
@@ -325,10 +325,10 @@ struct lws_context_per_thread {
 #if defined (LWS_WITH_SEQUENCER)
 	lws_sorted_usec_list_t sul_seq_heartbeat;
 #endif
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+#if (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)) && defined(LWS_WITH_SERVER)
 	lws_sorted_usec_list_t sul_ah_lifecheck;
 #endif
-#if defined(LWS_WITH_TLS) && !defined(LWS_NO_SERVER)
+#if defined(LWS_WITH_TLS) && defined(LWS_WITH_SERVER)
 	lws_sorted_usec_list_t sul_tls;
 #endif
 #if defined(LWS_PLAT_UNIX)
@@ -448,7 +448,7 @@ struct lws_conn_stats {
 
 
 struct lws_vhost {
-#if !defined(LWS_WITHOUT_CLIENT)
+#if defined(LWS_WITH_CLIENT)
 	char proxy_basic_auth_token[128];
 #endif
 #if LWS_MAX_SMP > 1
@@ -499,7 +499,7 @@ struct lws_vhost {
 	struct lws_vhost *no_listener_vhost_list;
 	struct lws_dll2_owner abstract_instances_owner;
 
-#if !defined(LWS_NO_CLIENT)
+#if defined(LWS_WITH_CLIENT)
 	struct lws_dll2_owner dll_cli_active_conns_owner;
 #endif
 
@@ -599,7 +599,7 @@ struct lws {
 #endif
 
 	struct lws_udp *udp;
-#ifndef LWS_NO_CLIENT
+#if defined(LWS_WITH_CLIENT)
 	struct client_info_stash *stash;
 	char *cli_hostname_copy;
 	struct lws_dll2 dll_cli_active_conns;
@@ -634,7 +634,7 @@ struct lws {
 #define LWS_NO_FDS_POS (-1)
 	int position_in_fds_table;
 
-#ifndef LWS_NO_CLIENT
+#if defined(LWS_WITH_CLIENT)
 	int chunk_remaining;
 #endif
 	unsigned int cache_secs;
@@ -681,7 +681,7 @@ struct lws {
 #ifdef LWS_WITH_ACCESS_LOG
 	unsigned int access_log_pending:1;
 #endif
-#ifndef LWS_NO_CLIENT
+#if defined(LWS_WITH_CLIENT)
 	unsigned int do_ws:1; /* whether we are doing http or ws flow */
 	unsigned int chunked:1; /* if the clientside connection is chunked */
 	unsigned int client_rx_avail:1;
@@ -698,7 +698,7 @@ struct lws {
 	unsigned int sock_send_blocking:1;
 #endif
 
-#ifndef LWS_NO_CLIENT
+#if defined(LWS_WITH_CLIENT)
 	unsigned short c_port;
 #endif
 
@@ -716,10 +716,10 @@ struct lws {
 	char cgi_channel; /* which of stdin/out/err */
 	char hdr_state;
 #endif
-#ifndef LWS_NO_CLIENT
+#if defined(LWS_WITH_CLIENT)
 	char chunk_parser; /* enum lws_chunk_parser */
 #endif
-#if defined(LWS_WITH_CGI) || !defined(LWS_NO_CLIENT)
+#if defined(LWS_WITH_CGI) || defined(LWS_WITH_CLIENT)
 	char reason_bf; /* internal writeable callback reason bitfield */
 #endif
 #if defined(LWS_WITH_STATS) && defined(LWS_WITH_TLS)
@@ -861,7 +861,7 @@ lws_ensure_user_space(struct lws *wsi);
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_change_pollfd(struct lws *wsi, int _and, int _or);
 
-#ifndef LWS_NO_SERVER
+#if defined(LWS_WITH_SERVER)
  int _lws_vhost_init_server(const struct lws_context_creation_info *info,
 			      struct lws_vhost *vhost);
  LWS_EXTERN struct lws_vhost *
@@ -1006,7 +1006,7 @@ LWS_EXTERN struct lws *
 lws_http_client_connect_via_info2(struct lws *wsi);
 
 
-#ifndef LWS_NO_CLIENT
+#if defined(LWS_WITH_CLIENT)
 LWS_EXTERN int lws_client_socket_service(struct lws *wsi,
 					 struct lws_pollfd *pollfd,
 					 struct lws *wsi_conn);
@@ -1029,7 +1029,7 @@ __lws_rx_flow_control(struct lws *wsi);
 LWS_EXTERN int
 _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa);
 
-#ifndef LWS_NO_SERVER
+#if defined(LWS_WITH_SERVER)
 LWS_EXTERN int
 lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len);
 #else
