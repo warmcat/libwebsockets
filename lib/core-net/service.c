@@ -194,7 +194,7 @@ user_service_go_again:
 		else
 			goto bail_ok;
 	}
-	
+
 	lwsl_debug("%s: %p: non mux: wsistate 0x%lx, ops %s\n", __func__, wsi,
 		   (unsigned long)wsi->wsistate, wsi->role_ops->name);
 
@@ -278,6 +278,9 @@ lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len)
 LWS_VISIBLE LWS_EXTERN int
 lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 {
+    if (!context)
+        return 1;
+
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 
 	/*
@@ -462,6 +465,9 @@ lws_service_do_ripe_rxflow(struct lws_context_per_thread *pt)
 int
 lws_service_flag_pending(struct lws_context *context, int tsi)
 {
+    if (!context)
+        return 1;
+
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	int forced = 0;
 
@@ -523,11 +529,11 @@ LWS_VISIBLE int
 lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		   int tsi)
 {
+    if (!context || context->being_destroyed1)
+        return -1;
+
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	struct lws *wsi;
-
-	if (!context || context->being_destroyed1 )
-		return -1;
 
 	if (!pollfd) {
 		/*
@@ -660,11 +666,11 @@ lws_service_fd(struct lws_context *context, struct lws_pollfd *pollfd)
 LWS_VISIBLE int
 lws_service(struct lws_context *context, int timeout_ms)
 {
+    if (!context)
+        return 1;
+
 	struct lws_context_per_thread *pt = &context->pt[0];
 	int n;
-
-	if (!context)
-		return 1;
 
 	pt->inside_service = 1;
 
@@ -686,6 +692,9 @@ lws_service(struct lws_context *context, int timeout_ms)
 LWS_VISIBLE int
 lws_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
+    if (!context)
+        return 1;
+
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	int n;
 
