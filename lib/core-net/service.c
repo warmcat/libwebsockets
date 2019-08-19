@@ -194,7 +194,7 @@ user_service_go_again:
 		else
 			goto bail_ok;
 	}
-	
+
 	lwsl_debug("%s: %p: non mux: wsistate 0x%lx, ops %s\n", __func__, wsi,
 		   (unsigned long)wsi->wsistate, wsi->role_ops->name);
 
@@ -278,7 +278,12 @@ lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len)
 LWS_VISIBLE LWS_EXTERN int
 lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 {
-	struct lws_context_per_thread *pt = &context->pt[tsi];
+	struct lws_context_per_thread *pt;
+
+	if (!context)
+		return 1;
+
+	pt = &context->pt[tsi];
 
 	/*
 	 * Figure out if we really want to wait in poll()... we only need to
@@ -462,8 +467,13 @@ lws_service_do_ripe_rxflow(struct lws_context_per_thread *pt)
 int
 lws_service_flag_pending(struct lws_context *context, int tsi)
 {
-	struct lws_context_per_thread *pt = &context->pt[tsi];
+	struct lws_context_per_thread *pt;
 	int forced = 0;
+
+	if (!context)
+		return 1;
+
+	pt = &context->pt[tsi];
 
 	lws_pt_lock(pt, __func__);
 
@@ -523,11 +533,13 @@ LWS_VISIBLE int
 lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		   int tsi)
 {
-	struct lws_context_per_thread *pt = &context->pt[tsi];
+	struct lws_context_per_thread *pt;
 	struct lws *wsi;
 
-	if (!context || context->being_destroyed1 )
+	if (!context || context->being_destroyed1)
 		return -1;
+
+	pt = &context->pt[tsi];
 
 	if (!pollfd) {
 		/*
@@ -660,12 +672,13 @@ lws_service_fd(struct lws_context *context, struct lws_pollfd *pollfd)
 LWS_VISIBLE int
 lws_service(struct lws_context *context, int timeout_ms)
 {
-	struct lws_context_per_thread *pt = &context->pt[0];
+	struct lws_context_per_thread *pt;
 	int n;
 
 	if (!context)
 		return 1;
 
+	pt = &context->pt[0];
 	pt->inside_service = 1;
 
 	if (context->event_loop_ops->run_pt) {
@@ -686,9 +699,13 @@ lws_service(struct lws_context *context, int timeout_ms)
 LWS_VISIBLE int
 lws_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
-	struct lws_context_per_thread *pt = &context->pt[tsi];
+	struct lws_context_per_thread *pt;
 	int n;
 
+	if (!context)
+		return 1;
+
+	pt = &context->pt[tsi];
 	pt->inside_service = 1;
 #if LWS_MAX_SMP > 1
 	pt->self = pthread_self();
