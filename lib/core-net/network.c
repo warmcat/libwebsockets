@@ -383,14 +383,12 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 	return port;
 }
 
-static const lws_retry_range_t default_bo = { 3000, 7000 };
-
 unsigned int
 lws_retry_get_delay_ms(struct lws_context *context,
-		       const lws_retry_bo_t *retry, uint16_t *ctry, char *conceal)
+		       const lws_retry_bo_t *retry, uint16_t *ctry,
+		       char *conceal)
 {
-	const lws_retry_range_t *r = &default_bo;
-	unsigned int ms;
+	uint64_t ms = 3000, pc = 30; /* sane-ish defaults if no retry table */
 	uint16_t ra;
 
 	if (conceal)
@@ -398,15 +396,20 @@ lws_retry_get_delay_ms(struct lws_context *context,
 
 	if (retry) {
 		if (*ctry < retry->retry_ms_table_count)
-			r = &retry->retry_ms_table[*ctry];
+			ms = retry->retry_ms_table[*ctry];
 		else
-			r = &retry->retry_ms_table[
+			ms = retry->retry_ms_table[
 				retry->retry_ms_table_count - 1];
+
+		/* if no percent given, use the default 30% */
+		if (retry->jitter_percent)
+			pc = retry->jitter_percent;
 	}
 
-	ms = r->min_ms;
 	if (lws_get_random(context, &ra, sizeof(ra)) == sizeof(ra))
-		ms += ((r->max_ms - ms) * ra) / 65535;
+		ms += ((ms * pc * ra) >> 16) / 100;
+	else
+		assert(0);
 
 	if (*ctry < 0xffff)
 		(*ctry)++;
