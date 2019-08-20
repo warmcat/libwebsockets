@@ -90,5 +90,20 @@ lws_b64_decode_string(const char *in, char *out, int out_size);
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_b64_decode_string_len(const char *in, int in_len, char *out, int out_size);
+
+struct lws_b64state {
+	unsigned char quad[4];
+	size_t done;
+	size_t len;
+	int i;
+	int c;
+};
+
+LWS_VISIBLE LWS_EXTERN void
+lws_b64_decode_state_init(struct lws_b64state *state);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_b64_decode_stateful(struct lws_b64state *s, const char *in, size_t *in_len,
+			uint8_t *out, size_t *out_size, int final);
 ///@}
 
