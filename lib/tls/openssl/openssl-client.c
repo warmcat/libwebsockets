@@ -373,6 +373,36 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, int ebuf_len)
 }
 
 int
+lws_tls_client_vhost_extra_cert_mem(struct lws_vhost *vh,
+                const uint8_t *der, size_t der_len)
+{
+	X509_STORE *st;
+	X509 *x  = d2i_X509(NULL, &der, der_len);
+	int n;
+
+	if (!x) {
+		lwsl_err("%s: Failed to load DER\n", __func__);
+		lws_tls_err_describe_clear();
+		return 1;
+	}
+
+	st = SSL_CTX_get_cert_store(vh->tls.ssl_client_ctx);
+	if (!st) {
+		lwsl_err("%s: failed to get cert store\n", __func__);
+		X509_free(x);
+		return 1;
+	}
+
+	n = X509_STORE_add_cert(st, x);
+	if (n != 1)
+		lwsl_err("%s: failed to add cert\n", __func__);
+
+	X509_free(x);
+
+	return n != 1;
+}
+
+int
 lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 				    const struct lws_context_creation_info *info,
 				    const char *cipher_list,
@@ -609,6 +639,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		}
 		if (client_CA)
 			X509_free(client_CA);
+	//	lws_tls_client_vhost_extra_cert_mem(vh, ca_mem, ca_mem_len);
 	}
 
 	/*
@@ -667,3 +698,5 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 
 	return 0;
 }
+
+

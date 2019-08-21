@@ -218,8 +218,20 @@ lws_http_client_read(struct lws *wsi, char **buf, int *len);
 LWS_VISIBLE LWS_EXTERN unsigned int
 lws_http_client_http_response(struct lws *wsi);
 
-LWS_VISIBLE LWS_EXTERN void
-lws_client_http_body_pending(struct lws *wsi, int something_left_to_send);
+/**
+ * lws_tls_client_vhost_extra_cert_mem() - add more certs to vh client tls ctx
+ *
+ * \param vh: the vhost to give more client certs to
+ * \param der: pointer to der format additional cert
+ * \param der_len: size in bytes of der
+ *
+ * After the vhost is created with one cert for client verification, you
+ * can add additional, eg, intermediate, certs to the client tls context
+ * of the vhost, for use with validating the incoming server cert(s).
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_tls_client_vhost_extra_cert_mem(struct lws_vhost *vh,
+		const uint8_t *der, size_t der_len);
 
 /**
  * lws_client_http_body_pending() - control if client connection neeeds to send body
@@ -240,5 +252,7 @@ lws_client_http_body_pending(struct lws *wsi, int something_left_to_send);
  * if there is more to come, or lws_client_http_body_pending(wsi, 0); to
  * let lws know the last part is sent and the connection can move on.
  */
+LWS_VISIBLE LWS_EXTERN void
+lws_client_http_body_pending(struct lws *wsi, int something_left_to_send);
 
 ///@}
