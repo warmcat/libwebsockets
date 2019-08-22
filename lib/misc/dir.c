@@ -106,7 +106,7 @@ lws_dir(const char *dirpath, void *user, lws_dir_callback_function cb)
 		 * files are LDOT_UNKNOWN
 		 */
 
-#if defined(__smartos__)
+#if defined(__illumos__)
         struct stat s;
         stat(namelist[i]->d_name, &s);
 		switch (s.st_mode) {

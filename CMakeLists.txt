@@ -956,13 +956,14 @@ if (NOT LWS_HAVE_REALLOC)
 endif()
 
 if (UNIX)
-	execute_process(COMMAND uname -n OUTPUT_VARIABLE NODENAME)
-	# Need to chomp the \n at end of output.
-	string(REGEX REPLACE "[\n]+" "" NODENAME "${NODENAME}")
-
-	if( NODENAME STREQUAL "smartos" )
-		add_definitions( "-D__smartos__" )
-		set(SMARTOS 1)
+	execute_process( COMMAND grep -c illumos /lib/ld.so.1 
+			 OUTPUT_VARIABLE ILLUMOS ERROR_QUIET )
+	# Chomp the \n at end of output.
+	string(REGEX REPLACE "[\n]+" "" ILLUMOS "${ILLUMOS}")
+	
+	if(NOT ${ILLUMOS} MATCHES "0")
+		add_definitions( "-D__illumos__" )
+		set(ILLUMOS 1)
 	endif()
 endif()
 
@@ -1876,7 +1877,7 @@ if (UNIX)
 	list(APPEND LIB_LIST m)
 endif()
 
-if(SMARTOS)
+if(ILLUMOS)
 	list(APPEND LIB_LIST socket)
 endif()
 
