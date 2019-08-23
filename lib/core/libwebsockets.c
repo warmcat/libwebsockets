@@ -28,6 +28,92 @@
 #include <sys/types.h>
 #endif
 
+void
+lws_ser_wu16be(uint8_t *b, uint16_t u)
+{
+	*b++ = (uint8_t)(u >> 8);
+	*b = (uint8_t)u;
+}
+
+void
+lws_ser_wu32be(uint8_t *b, uint32_t u32)
+{
+	*b++ = (uint8_t)(u32 >> 24);
+	*b++ = (uint8_t)(u32 >> 16);
+	*b++ = (uint8_t)(u32 >> 8);
+	*b = (uint8_t)u32;
+}
+
+void
+lws_ser_wu64be(uint8_t *b, uint64_t u64)
+{
+	lws_ser_wu32be(b, (uint32_t)(u64 >> 32));
+	lws_ser_wu32be(b + 4, (uint32_t)u64);
+}
+
+uint16_t
+lws_ser_ru16be(const uint8_t *b)
+{
+	return (b[0] << 8) | b[1];
+}
+
+uint32_t
+lws_ser_ru32be(const uint8_t *b)
+{
+	return (b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3];
+}
+
+uint64_t
+lws_ser_ru64be(const uint8_t *b)
+{
+	return (((uint64_t)lws_ser_ru32be(b)) << 32) | lws_ser_ru32be(b + 4);
+}
+
+int
+lws_vbi_encode(uint64_t value, void *buf)
+{
+	uint8_t *p = (uint8_t *)buf, b;
+
+	if (value > 0xfffffff) {
+		assert(0);
+		return -1;
+	}
+
+	do {
+		b = value & 0x7f;
+		value >>= 7;
+		if (value)
+			*p++ = (0x80 | b);
+		else
+			*p++ = b;
+	} while (value);
+
+	return p - (uint8_t *)buf;
+}
+
+int
+lws_vbi_decode(const void *buf, uint64_t *value, size_t len)
+{
+	const uint8_t *p = (const uint8_t *)buf, *end = p + len;
+	uint64_t v = 0;
+	int s = 0;
+
+	while (p < end) {
+		v |= (((uint64_t)(*p)) & 0x7f) << s;
+		if (*p & 0x80) {
+			*value = v;
+
+			return lws_ptr_diff(p, buf);
+		}
+		s += 7;
+		if (s >= 64)
+			return 0;
+		p++;
+	}
+
+	return 0;
+}
+
 signed char char_to_hex(const char c)
 {
 	if (c >= '0' && c <= '9')

@@ -924,4 +924,29 @@ LWS_VISIBLE LWS_EXTERN int
 lws_humanize(char *buf, int len, uint64_t value,
 	     const lws_humanize_unit_t *schema);
 
+
+LWS_VISIBLE LWS_EXTERN void
+lws_ser_wu16be(uint8_t *b, uint16_t u);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_ser_wu32be(uint8_t *b, uint32_t u32);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_ser_wu64be(uint8_t *b, uint64_t u64);
+
+LWS_VISIBLE LWS_EXTERN uint16_t
+lws_ser_ru16be(const uint8_t *b);
+
+LWS_VISIBLE LWS_EXTERN uint32_t
+lws_ser_ru32be(const uint8_t *b);
+
+LWS_VISIBLE LWS_EXTERN uint64_t
+lws_ser_ru64be(const uint8_t *b);
+
+int
+lws_vbi_encode(uint64_t value, void *buf);
+
+int
+lws_vbi_decode(const void *buf, uint64_t *value, size_t len);
+
 ///@}
