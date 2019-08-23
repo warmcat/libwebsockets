@@ -530,6 +530,7 @@ struct lws_vhost;
 struct lws;
 
 #include <libwebsockets/lws-system.h>
+#include <libwebsockets/lws-detailed-latency.h>
 #include <libwebsockets/lws-ws-close.h>
 #include <libwebsockets/lws-callbacks.h>
 #include <libwebsockets/lws-ws-state.h>

@@ -27,7 +27,8 @@
 /*
  * notice this returns number of bytes consumed, or -1
  */
-int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
+int
+lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 {
 	struct lws_context *context = lws_get_context(wsi);
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
@@ -108,10 +109,8 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 		n = (int)len;
 
 	/* nope, send it on the socket directly */
-	lws_latency_pre(context, wsi);
-	m = lws_ssl_capable_write(wsi, buf, n);
-	lws_latency(context, wsi, "send lws_issue_raw", n, n == m);
 
+	m = lws_ssl_capable_write(wsi, buf, n);
 	lwsl_info("%s: ssl_capable_write (%d) says %d\n", __func__, n, m);
 
 	/* something got written, it can have been truncated now */
@@ -220,10 +219,15 @@ int lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	return (int)real_len;
 }
 
-LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
-			  enum lws_write_protocol wp)
+int
+lws_write(struct lws *wsi, unsigned char *buf, size_t len,
+	  enum lws_write_protocol wp)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+#if defined(LWS_WITH_DETAILED_LATENCY)
+	lws_usec_t us;
+#endif
+	int m;
 
 	lws_stats_bump(pt, LWSSTATS_C_API_LWS_WRITE, 1);
 
@@ -242,15 +246,38 @@ LWS_VISIBLE int lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 	if (wsi->vhost)
 		wsi->vhost->conn_stats.tx += len;
 #endif
+#if defined(LWS_WITH_DETAILED_LATENCY)
+	us = lws_now_usecs();
+#endif
 
 	assert(wsi->role_ops);
 	if (!wsi->role_ops->write_role_protocol)
 		return lws_issue_raw(wsi, buf, len);
 
-	return wsi->role_ops->write_role_protocol(wsi, buf, len, &wp);
+	m = wsi->role_ops->write_role_protocol(wsi, buf, len, &wp);
+	if (m < 0)
+		return m;
+
+#if defined(LWS_WITH_DETAILED_LATENCY)
+	if (wsi->context->detailed_latency_cb) {
+		wsi->detlat.req_size = len;
+		wsi->detlat.acc_size = m;
+		wsi->detlat.type = LDLT_WRITE;
+		if (wsi->detlat.earliest_write_req_pre_write)
+			wsi->detlat.latencies[LAT_DUR_PROXY_RX_TO_ONWARD_TX] =
+					us - wsi->detlat.earliest_write_req_pre_write;
+		else
+			wsi->detlat.latencies[LAT_DUR_PROXY_RX_TO_ONWARD_TX] = 0;
+		wsi->detlat.latencies[LAT_DUR_USERCB] = lws_now_usecs() - us;
+		lws_det_lat_cb(wsi->context, &wsi->detlat);
+
+	}
+#endif
+
+	return m;
 }
 
-LWS_VISIBLE int
+int
 lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 {
 	struct lws_context *context = wsi->context;
@@ -299,7 +326,7 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 	return LWS_SSL_CAPABLE_ERROR;
 }
 
-LWS_VISIBLE int
+int
 lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 {
 	int n = 0;
@@ -339,7 +366,7 @@ lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 	return LWS_SSL_CAPABLE_ERROR;
 }
 
-LWS_VISIBLE int
+int
 lws_ssl_pending_no_ssl(struct lws *wsi)
 {
 	(void)wsi;

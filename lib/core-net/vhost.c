@@ -289,7 +289,7 @@ lws_protocol_init(struct lws_context *context)
 {
 	struct lws_vhost *vh = context->vhost_list;
 	const struct lws_protocol_vhost_options *pvo, *pvo1;
-	struct lws wsi;
+	struct lws *wsi = context->pt[0].fake_wsi;
 	int n, any = 0;
 
 	if (context->doing_protocol_init)
@@ -297,13 +297,12 @@ lws_protocol_init(struct lws_context *context)
 
 	context->doing_protocol_init = 1;
 
-	memset(&wsi, 0, sizeof(wsi));
-	wsi.context = context;
+	wsi->context = context;
 
 	lwsl_info("%s\n", __func__);
 
 	while (vh) {
-		wsi.vhost = vh;
+		wsi->vhost = vh;
 
 		/* only do the protocol init once for a given vhost */
 		if (vh->created_vhost_protocols ||
@@ -313,7 +312,7 @@ lws_protocol_init(struct lws_context *context)
 		/* initialize supported protocols on this vhost */
 
 		for (n = 0; n < vh->count_protocols; n++) {
-			wsi.protocol = &vh->protocols[n];
+			wsi->protocol = &vh->protocols[n];
 			if (!vh->protocols[n].name)
 				continue;
 			pvo = lws_vhost_protocol_options(vh,
@@ -366,7 +365,7 @@ lws_protocol_init(struct lws_context *context)
 			 * NOTE the wsi is all zeros except for the context, vh
 			 * + protocol ptrs so lws_get_context(wsi) etc can work
 			 */
-			if (vh->protocols[n].callback(&wsi,
+			if (vh->protocols[n].callback(wsi,
 					LWS_CALLBACK_PROTOCOL_INIT, NULL,
 					(void *)pvo, 0)) {
 				if (vh->protocol_vh_privs[n]) {

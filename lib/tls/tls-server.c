@@ -120,7 +120,7 @@ lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 			    struct lws_vhost *vhost)
 {
 	struct lws_context *context = vhost->context;
-	struct lws wsi;
+	struct lws *wsi = context->pt[0].fake_wsi;
 
 	if (!lws_check_opt(info->options,
 			   LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT)) {
@@ -159,9 +159,9 @@ lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 	 * give him a fake wsi with context + vhost set, so he can use
 	 * lws_get_context() in the callback
 	 */
-	memset(&wsi, 0, sizeof(wsi));
-	wsi.vhost = vhost; /* not a real bound wsi */
-	wsi.context = context;
+	wsi->vhost = vhost; /* not a real bound wsi */
+	wsi->context = context;
+	wsi->protocol = NULL;
 
 	/*
 	 * as a server, if we are requiring clients to identify themselves
@@ -177,12 +177,12 @@ lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 	 * allowing it to verify incoming client certs
 	 */
 	if (vhost->tls.use_ssl) {
-		if (lws_tls_server_vhost_backend_init(info, vhost, &wsi))
+		if (lws_tls_server_vhost_backend_init(info, vhost, wsi))
 			return -1;
 
 		lws_tls_server_client_cert_verify_config(vhost);
 
-		if (vhost->protocols[0].callback(&wsi,
+		if (vhost->protocols[0].callback(wsi,
 			    LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS,
 			    vhost->tls.ssl_ctx, vhost, 0))
 			return -1;
@@ -271,8 +271,6 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 			lwsl_err("%s: lws_change_pollfd failed\n", __func__);
 			goto fail;
 		}
-
-		lws_latency_pre(context, wsi);
 
 		if (wsi->vhost->tls.allow_non_ssl_on_ssl_port) {
 
@@ -390,8 +388,6 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 		errno = 0;
 		lws_stats_bump(pt, LWSSTATS_C_SSL_ACCEPT_SPIN, 1);
 		n = lws_tls_server_accept(wsi);
-		lws_latency(context, wsi,
-			"SSL_accept LRS_SSL_ACK_PENDING\n", n, n == 1);
 		lwsl_info("SSL_accept says %d\n", n);
 		switch (n) {
 		case LWS_SSL_CAPABLE_DONE:
@@ -415,6 +411,16 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 				      lws_now_usecs() -
 					      wsi->accept_start_us);
 		wsi->accept_start_us = lws_now_usecs();
+#endif
+#if defined(LWS_WITH_DETAILED_LATENCY)
+		if (context->detailed_latency_cb) {
+			wsi->detlat.type = LDLT_TLS_NEG_SERVER;
+			wsi->detlat.latencies[LAT_DUR_PROXY_RX_TO_ONWARD_TX] =
+				lws_now_usecs() -
+				wsi->detlat.earliest_write_req_pre_write;
+			wsi->detlat.latencies[LAT_DUR_USERCB] = 0;
+			lws_det_lat_cb(wsi->context, &wsi->detlat);
+		}
 #endif
 
 		/* adapt our vhost to match the SNI SSL_CTX that was chosen */

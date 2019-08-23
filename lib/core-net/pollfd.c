@@ -511,6 +511,11 @@ lws_callback_on_writable(struct lws *wsi)
 
 	pt = &wsi->context->pt[(int)wsi->tsi];
 
+#if defined(LWS_WITH_DETAILED_LATENCY)
+	if (!wsi->detlat.earliest_write_req)
+		wsi->detlat.earliest_write_req = lws_now_usecs();
+#endif
+
 	lws_stats_bump(pt, LWSSTATS_C_WRITEABLE_CB_REQ, 1);
 #if defined(LWS_WITH_STATS)
 	if (!wsi->active_writable_req_us) {
@@ -518,7 +523,6 @@ lws_callback_on_writable(struct lws *wsi)
 		lws_stats_bump(pt, LWSSTATS_C_WRITEABLE_CB_EFF_REQ, 1);
 	}
 #endif
-
 
 	if (wsi->role_ops->callback_on_writable) {
 		if (wsi->role_ops->callback_on_writable(wsi))

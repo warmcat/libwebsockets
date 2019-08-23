@@ -112,6 +112,9 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 		} lws_end_foreach_dll_safe(d, d1);
 
 		if (wfound) {
+#if defined(LWS_WITH_DETAILED_LATENCY)
+			wfound->detlat.earliest_write_req_pre_write = lws_now_usecs();
+#endif
 			/*
 			 * pollfd has the master sockfd in it... we
 			 * need to use that in HANDSHAKE2 to understand
@@ -152,6 +155,7 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 
 		/* either still pending connection, or changed mode */
 		return 0;
+
 	case LRS_WAITING_CONNECT:
 
 		/*
@@ -367,6 +371,16 @@ start_ws_handshake:
 		} else
 			wsi->tls.ssl = NULL;
 #endif
+#if defined(LWS_WITH_DETAILED_LATENCY)
+		if (context->detailed_latency_cb) {
+			wsi->detlat.type = LDLT_TLS_NEG_CLIENT;
+			wsi->detlat.latencies[LAT_DUR_PROXY_CLIENT_REQ_TO_WRITE] =
+				lws_now_usecs() -
+				wsi->detlat.earliest_write_req_pre_write;
+			wsi->detlat.latencies[LAT_DUR_USERCB] = 0;
+			lws_det_lat_cb(wsi->context, &wsi->detlat);
+		}
+#endif
 #if defined (LWS_WITH_HTTP2)
 		if (wsi->client_h2_alpn) {
 			/*
@@ -409,7 +423,6 @@ start_ws_handshake:
 		}
 
 		/* send our request to the server */
-		lws_latency_pre(context, wsi);
 
 		w = _lws_client_wsi_master(wsi);
 		lwsl_info("%s: HANDSHAKE2: %p: sending headers on %p "
@@ -417,10 +430,10 @@ start_ws_handshake:
 			  __func__, wsi, w, (unsigned long)wsi->wsistate,
 			  (unsigned long)w->wsistate, w->desc.sockfd,
 			  wsi->desc.sockfd);
-
+#if defined(LWS_WITH_DETAILED_LATENCY)
+		wsi->detlat.earliest_write_req_pre_write = lws_now_usecs();
+#endif
 		n = lws_ssl_capable_write(w, (unsigned char *)sb, (int)(p - sb));
-		lws_latency(context, wsi, "send lws_issue_raw", n,
-			    n == p - sb);
 		switch (n) {
 		case LWS_SSL_CAPABLE_ERROR:
 			lwsl_debug("ERROR writing to client socket\n");
@@ -538,8 +551,6 @@ client_http_body_sent:
 			int plen = 1;
 
 			n = lws_ssl_capable_read(wsi, &c, 1);
-			lws_latency(context, wsi, "send lws_issue_raw", n,
-				    n == 1);
 			switch (n) {
 			case 0:
 			case LWS_SSL_CAPABLE_ERROR:

@@ -286,6 +286,7 @@ struct lws_context {
 	struct lws_mutex_refcount mr;
 #endif
 
+#if defined(LWS_WITH_NETWORK)
 #if defined(LWS_WITH_LIBEV)
 	struct lws_context_eventlibs_libev ev;
 #endif
@@ -309,21 +310,20 @@ struct lws_context {
 	struct lws_vhost *vhost_list;
 	struct lws_vhost *no_listener_vhost_list;
 	struct lws_vhost *vhost_pending_destruction_list;
-	struct lws_context **pcontext_finalize;
-	const char *username, *groupname;
 
 #if defined(LWS_WITH_SERVER)
 	const char *server_string;
 #endif
 
 	struct lws_event_loop_ops *event_loop_ops;
-
-#if defined(LWS_WITH_FILE_OPS)
-	const struct lws_plat_file_ops *fops;
 #endif
 
 #if defined(LWS_WITH_TLS)
 	const struct lws_tls_ops *tls_ops;
+#endif
+
+#if defined(LWS_WITH_DETAILED_LATENCY)
+	det_lat_buf_cb_t detailed_latency_cb;
 #endif
 #if defined(LWS_WITH_PLUGINS)
 	struct lws_plugin *plugin_list;
@@ -336,6 +336,16 @@ struct lws_context {
 
 #endif
 #endif /* NETWORK */
+
+#if defined(LWS_WITH_FILE_OPS)
+	const struct lws_plat_file_ops *fops;
+#endif
+
+	struct lws_context **pcontext_finalize;
+	const char *username, *groupname;
+#if defined(LWS_WITH_DETAILED_LATENCY)
+	const char *detailed_latency_filepath;
+#endif
 
 #if defined(LWS_AMAZON_RTOS)
 	mbedtls_entropy_context mec;
@@ -364,13 +374,14 @@ struct lws_context {
 #endif
 	void (*eventlib_signal_cb)(void *event_lib_handle, int signum);
 
-	time_t last_ws_ping_pong_check_s;
-	lws_usec_t time_up; /* monotonic */
-
 #if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
 	cap_value_t caps[4];
 	char count_caps;
 #endif
+
+	lws_usec_t time_up; /* monotonic */
+
+	time_t last_ws_ping_pong_check_s;
 
 #if defined(LWS_PLAT_FREERTOS)
 	unsigned long time_last_state_dump;
@@ -385,7 +396,9 @@ struct lws_context {
 	int uid, gid;
 
 	int fd_random;
-
+#if defined(LWS_WITH_DETAILED_LATENCY)
+	int latencies_fd;
+#endif
 	int count_wsi_allocated;
 	int count_cgi_spawned;
 	unsigned int options;
@@ -464,34 +477,8 @@ lws_strdup(const char *s);
 
 LWS_EXTERN int log_level;
 
-
-
-#ifndef LWS_LATENCY
-static LWS_INLINE void
-lws_latency(struct lws_context *context, struct lws *wsi, const char *action,
-	    int ret, int completion) {
-	do {
-		(void)context; (void)wsi; (void)action; (void)ret;
-		(void)completion;
-	} while (0);
-}
-static LWS_INLINE void
-lws_latency_pre(struct lws_context *context, struct lws *wsi) {
-	do { (void)context; (void)wsi; } while (0);
-}
-#else
-#define lws_latency_pre(_context, _wsi) lws_latency(_context, _wsi, NULL, 0, 0)
-extern void
-lws_latency(struct lws_context *context, struct lws *wsi, const char *action,
-	    int ret, int completion);
-#endif
-
-
 LWS_EXTERN int
 lws_b64_selftest(void);
-
-
-
 
 
 #ifndef LWS_NO_DAEMONIZE

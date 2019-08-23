@@ -144,6 +144,11 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->pt_serv_buf_size = s1;
 #if defined(LWS_WITH_NETWORK)
 	context->count_threads = count_threads;
+#if defined(LWS_WITH_DETAILED_LATENCY)
+	context->detailed_latency_cb = info->detailed_latency_cb;
+	context->detailed_latency_filepath = info->detailed_latency_filepath;
+	context->latencies_fd = -1;
+#endif
 #endif
 
 	/* if he gave us names, set the uid / gid */
@@ -648,6 +653,11 @@ lws_context_destroy3(struct lws_context *context)
 #endif
 	lws_context_deinit_ssl_library(context);
 
+#if defined(LWS_WITH_DETAILED_LATENCIES)
+	if (context->latencies_fd != -1)
+		compatible_close(context->latencies_fd);
+#endif
+
 	lws_free(context);
 	lwsl_info("%s: ctx %p freed\n", __func__, context);
 
@@ -764,7 +774,6 @@ lws_context_destroy(struct lws_context *context)
 	volatile struct lws_foreign_thread_pollfd *ftp, *next;
 	volatile struct lws_context_per_thread *vpt;
 	struct lws_vhost *vh = NULL;
-	struct lws wsi;
 	int n, m;
 #endif
 
@@ -800,18 +809,11 @@ lws_context_destroy(struct lws_context *context)
 
 #if defined(LWS_WITH_NETWORK)
 	m = context->count_threads;
-	memset(&wsi, 0, sizeof(wsi));
-	wsi.context = context;
-
-#ifdef LWS_LATENCY
-	if (context->worst_latency_info[0])
-		lwsl_notice("Worst latency: %s\n", context->worst_latency_info);
-#endif
 
 	while (m--) {
 		struct lws_context_per_thread *pt = &context->pt[m];
-		vpt = (volatile struct lws_context_per_thread *)pt;
 
+		vpt = (volatile struct lws_context_per_thread *)pt;
 		ftp = vpt->foreign_pfd_list;
 		while (ftp) {
 			next = ftp->next;

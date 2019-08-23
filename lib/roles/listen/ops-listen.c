@@ -73,7 +73,6 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 		/* listen socket got an unencrypted connection... */
 
 		clilen = sizeof(cli_addr);
-		lws_latency_pre(context, wsi);
 
 		/*
 		 * We cannot identify the peer who is in the listen
@@ -84,8 +83,6 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 
 		accept_fd = accept((int)pollfd->fd,
 				   (struct sockaddr *)&cli_addr, &clilen);
-		lws_latency(context, wsi, "listener accept",
-			    (int)accept_fd, accept_fd != LWS_SOCK_INVALID);
 		if (accept_fd == LWS_SOCK_INVALID) {
 			if (LWS_ERRNO == LWS_EAGAIN ||
 			    LWS_ERRNO == LWS_EWOULDBLOCK) {

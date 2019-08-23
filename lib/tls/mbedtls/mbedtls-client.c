@@ -152,9 +152,6 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, int ebuf_len)
 	lwsl_info("peer provided cert\n");
 
 	n = SSL_get_verify_result(wsi->tls.ssl);
-	lws_latency(wsi->context, wsi,
-			"SSL_get_verify_result LWS_CONNMODE..HANDSHAKE", n, n > 0);
-
         lwsl_debug("get_verify says %d\n", n);
 
 	if (n == X509_V_OK)

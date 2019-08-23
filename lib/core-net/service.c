@@ -41,7 +41,17 @@ lws_callback_as_writeable(struct lws *wsi)
 		wsi->active_writable_req_us = 0;
 	}
 #endif
+#if defined(LWS_WITH_DETAILED_LATENCY)
+	if (wsi->context->detailed_latency_cb) {
+		lws_usec_t us = lws_now_usecs();
 
+		wsi->detlat.earliest_write_req_pre_write =
+					wsi->detlat.earliest_write_req;
+		wsi->detlat.earliest_write_req = 0;
+		wsi->detlat.latencies[LAT_DUR_PROXY_RX_TO_ONWARD_TX] =
+		      ((uint32_t)us - wsi->detlat.earliest_write_req_pre_write);
+	}
+#endif
 	n = wsi->role_ops->writeable_cb[lwsi_role_server(wsi)];
 
 	m = user_callback_handle_rxflow(wsi->protocol->callback,
@@ -356,8 +366,7 @@ lws_buflist_aware_read(struct lws_context_per_thread *pt, struct lws *wsi,
 
 	/* stash what we read */
 
-	n = lws_buflist_append_segment(&wsi->buflist, ebuf->token,
-				       ebuf->len);
+	n = lws_buflist_append_segment(&wsi->buflist, ebuf->token, ebuf->len);
 	if (n < 0)
 		return -1;
 	if (n) {

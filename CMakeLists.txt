@@ -99,7 +99,6 @@ option(LWS_WITHOUT_EXTENSIONS "Don't compile with extensions" ON)
 option(LWS_WITHOUT_BUILTIN_GETIFADDRS "Don't use the BSD getifaddrs implementation from libwebsockets if it is missing (this will result in a compilation error) ... The default is to assume that your libc provides it. On some systems such as uclibc it doesn't exist." OFF)
 option(LWS_FALLBACK_GETHOSTBYNAME "Also try to do dns resolution using gethostbyname if getaddrinfo fails" OFF)
 option(LWS_WITHOUT_BUILTIN_SHA1 "Don't build the lws sha-1 (eg, because openssl will provide it" OFF)
-option(LWS_WITH_LATENCY "Build latency measuring code into the library" OFF)
 option(LWS_WITHOUT_DAEMONIZE "Don't build the daemonization api" ON)
 option(LWS_SSL_SERVER_WITH_ECDH_CERT "Include SSL server use ECDH certificate" OFF)
 option(LWS_WITH_LEJP "With the Lightweight JSON Parser" ON)
@@ -139,6 +138,7 @@ option(LWS_WITH_EXTERNAL_POLL "Support external POLL integration using callback 
 option(LWS_WITH_LWS_DSH "Support lws_dsh_t Disordered Shared Heap" OFF)
 option(LWS_CLIENT_HTTP_PROXYING "Support external http proxies for client connections" ON)
 option(LWS_WITH_FILE_OPS "Support file operations vfs" ON)
+option(LWS_WITH_DETAILED_LATENCY "Record detailed latency stats for each read and write" OFF)
 #
 # to use miniz, enable both LWS_WITH_ZLIB and LWS_WITH_MINIZ
 #
@@ -677,10 +677,6 @@ if (LWS_SSL_CLIENT_USE_OS_CA_CERTS)
 	set(LWS_SSL_CLIENT_USE_OS_CA_CERTS 1)
 endif()
 
-if (LWS_WITH_LATENCY)
-	set(LWS_LATENCY 1)
-endif()
-
 if (LWS_WITHOUT_DAEMONIZE OR WIN32)
 	set(LWS_NO_DAEMONIZE 1)
 endif()
@@ -1028,6 +1024,11 @@ if (LWS_WITH_NETWORK)
 		list(APPEND SOURCES
 			lib/system/async-dns/async-dns.c
 			lib/system/async-dns/async-dns-parse.c)
+	endif()
+
+	if (LWS_WITH_DETAILED_LATENCY)
+		list(APPEND SOURCES
+			lib/core-net/detailed-latency.c)
 	endif()
 
 	if (LWS_WITH_LWS_DSH)
@@ -2739,7 +2740,6 @@ message(" LWS_WITHOUT_TEST_SERVER_EXTPOLL = ${LWS_WITHOUT_TEST_SERVER_EXTPOLL}")
 message(" LWS_WITHOUT_TEST_PING = ${LWS_WITHOUT_TEST_PING}")
 message(" LWS_WITHOUT_TEST_CLIENT = ${LWS_WITHOUT_TEST_CLIENT}")
 message(" LWS_WITHOUT_EXTENSIONS = ${LWS_WITHOUT_EXTENSIONS}")
-message(" LWS_WITH_LATENCY = ${LWS_WITH_LATENCY}")
 message(" LWS_WITHOUT_DAEMONIZE = ${LWS_WITHOUT_DAEMONIZE}")
 message(" LWS_WITH_LIBEV = ${LWS_WITH_LIBEV}")
 message(" LWS_WITH_LIBUV = ${LWS_WITH_LIBUV}")

@@ -145,6 +145,16 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 
 		n = select(max_fd + 1, &readfds, &writefds, &errfds, ptv);
 		n = 0;
+
+#if defined(LWS_WITH_DETAILED_LATENCY)
+		/*
+		 * so we can track how long it took before we actually read a POLLIN
+		 * that was signalled when we last exited poll()
+		 */
+		if (context->detailed_latency_cb)
+			pt->ust_left_poll = lws_now_usecs();
+#endif
+
 		for (m = 0; m < (int)pt->fds_count; m++) {
 			c = 0;
 			if (FD_ISSET(pt->fds[m].fd, &readfds)) {

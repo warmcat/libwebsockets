@@ -1912,14 +1912,15 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 				}
 #if defined(LWS_WITH_CLIENT)
 				if (h2n->swsi->client_h2_substream) {
-
+					if (h2n->swsi->protocol) {
 					m = user_callback_handle_rxflow(
 						h2n->swsi->protocol->callback,
 						h2n->swsi,
 					  LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ,
 						h2n->swsi->user_space,
 						in - 1, n);
-
+					} else
+						m = 1;
 					in += n - 1;
 					h2n->inside += n;
 					h2n->count += n - 1;
@@ -2241,8 +2242,10 @@ lws_h2_client_handshake(struct lws *wsi)
 	if (lws_finalize_http_header(wsi, &p, end))
 		goto fail_length;
 
-	n = lws_write(wsi, start, p - start,
-		      LWS_WRITE_HTTP_HEADERS);
+#if defined(LWS_WITH_DETAILED_LATENCY)
+	wsi->detlat.earliest_write_req_pre_write = lws_now_usecs();
+#endif
+	n = lws_write(wsi, start, p - start, LWS_WRITE_HTTP_HEADERS);
 	if (n != (p - start)) {
 		lwsl_err("_write returned %d from %ld\n", n,
 			 (long)(p - start));

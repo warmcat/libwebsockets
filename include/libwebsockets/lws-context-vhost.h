@@ -677,6 +677,11 @@ struct lws_context_creation_info {
 	const lws_system_ops_t *system_ops;
 	/**< CONTEXT: hook up lws_system_ apis to system-specific
 	 * implementations */
+	det_lat_buf_cb_t detailed_latency_cb;
+	/**< CONTEXT: NULL, or callback to receive detailed latency information
+	 * collected for each read and write */
+	const char *detailed_latency_filepath;
+	/**< CONTEXT: NULL, or filepath to put latency data into */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility

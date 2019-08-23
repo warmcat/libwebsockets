@@ -278,6 +278,11 @@ int main(int argc, const char **argv)
 	info.client_ssl_ca_filepath = "./warmcat.com.cer";
 #endif
 
+#if defined(LWS_WITH_DETAILED_LATENCY)
+	info.detailed_latency_cb = lws_det_lat_plot_cb;
+	info.detailed_latency_filepath = "/tmp/lws-latency-results";
+#endif
+
 	context = lws_create_context(&info);
 	if (!context) {
 		lwsl_err("lws init failed\n");
@@ -312,6 +317,9 @@ int main(int argc, const char **argv)
 
 	if ((p = lws_cmdline_option(argc, argv, "--port")))
 		i.port = atoi(p);
+
+	if ((p = lws_cmdline_option(argc, argv, "--server")))
+		i.address = p;
 
 	i.host = i.address;
 	i.origin = i.address;

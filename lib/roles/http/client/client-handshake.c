@@ -154,6 +154,10 @@ send_hs:
 		 * wait in the queue until it's possible to send them.
 		 */
 		lws_callback_on_writable(wsi_piggyback);
+#if defined(LWS_WITH_DETAILED_LATENCY)
+		wsi->detlat.earliest_write_req =
+			wsi->detlat.earliest_write_req_pre_write = lws_now_usecs();
+#endif
 		lwsl_info("%s: wsi %p: waiting to send hdrs (par state 0x%x)\n",
 			    __func__, wsi, lwsi_state(wsi_piggyback));
 	} else {
@@ -311,7 +315,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	}
 
 #if defined(LWS_WITH_UNIX_SOCK)
-	if (*ads == '+') {
+	if (ads && *ads == '+') {
 		ads++;
 		memset(&sau, 0, sizeof(sau));
 		sau.sun_family = AF_UNIX;
@@ -552,10 +556,13 @@ ads_known:
 	 * The actual connection attempt
 	 */
 
+#if defined(LWS_WITH_DETAILED_LATENCY)
+	wsi->detlat.earliest_write_req =
+		wsi->detlat.earliest_write_req_pre_write = lws_now_usecs();
+#endif
+
 	m = connect(wsi->desc.sockfd, (const struct sockaddr *)psa, n);
 	if (m == -1) {
-
-
 		lwsl_debug("%s: connect says errno: %d\n", __func__, LWS_ERRNO);
 
 		if (LWS_ERRNO != LWS_EALREADY &&
@@ -590,6 +597,22 @@ ads_known:
 conn_good:
 
 	lwsl_debug("%s: Connection started\n", __func__);
+
+	/* the tcp connection has happend */
+
+#if defined(LWS_WITH_DETAILED_LATENCY)
+	if (wsi->context->detailed_latency_cb) {
+		wsi->detlat.type = LDLT_CONNECTION;
+		wsi->detlat.latencies[LAT_DUR_PROXY_CLIENT_REQ_TO_WRITE] =
+			lws_now_usecs() -
+			wsi->detlat.earliest_write_req_pre_write;
+		wsi->detlat.latencies[LAT_DUR_USERCB] = 0;
+		lws_det_lat_cb(wsi->context, &wsi->detlat);
+		wsi->detlat.earliest_write_req =
+			wsi->detlat.earliest_write_req_pre_write =
+							lws_now_usecs();
+	}
+#endif
 
 	lws_addrinfo_clean(wsi);
 
@@ -663,6 +686,12 @@ lws_client_connect_2_dnsreq(struct lws *wsi)
 	const char *iface;
 #endif
 	int n, port = 0;
+
+	if (lwsi_state(wsi) == LRS_WAITING_DNS) {
+		lwsl_notice("%s: LRS_WAITING_DNS\n", __func__);
+
+		return wsi;
+	}
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	if (!wsi->http.ah && !wsi->stash) {
@@ -836,6 +865,19 @@ create_new_conn:
 	}
 #endif
 
+#if defined(LWS_WITH_DETAILED_LATENCY)
+	if (lwsi_state(wsi) == LRS_WAITING_DNS &&
+	    wsi->context->detailed_latency_cb) {
+		wsi->detlat.type = LDLT_NAME_RESOLUTION;
+		wsi->detlat.latencies[LAT_DUR_PROXY_CLIENT_REQ_TO_WRITE] =
+			lws_now_usecs() -
+			wsi->detlat.earliest_write_req_pre_write;
+		wsi->detlat.latencies[LAT_DUR_USERCB] = 0;
+		lws_det_lat_cb(wsi->context, &wsi->detlat);
+		wsi->detlat.earliest_write_req_pre_write = lws_now_usecs();
+	}
+#endif
+
 #if defined(LWS_CLIENT_HTTP_PROXYING) && \
 	(defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2))
 
@@ -876,9 +918,13 @@ create_new_conn:
 	lwsl_warn("%s: %p: lookup %s:%u\n", __func__, wsi, ads, port);
 	(void)port;
 
+#if defined(LWS_WITH_DETAILED_LATENCY)
+	wsi->detlat.earliest_write_req_pre_write = lws_now_usecs();
+#endif
 #if !defined(LWS_WITH_SYS_ASYNC_DNS)
 	n = lws_getaddrinfo46(wsi, ads, &result);
 #else
+	lwsi_set_state(wsi, LRS_WAITING_DNS);
 	/* this is either FAILED, CONTINUING, or already called connect_4 */
 
 	n = lws_async_dns_query(wsi->context, wsi->tsi, ads, LWS_ADNS_RECORD_A,

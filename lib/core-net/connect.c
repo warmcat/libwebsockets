@@ -61,6 +61,11 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	wsi->desc.sockfd = LWS_SOCK_INVALID;
 	wsi->seq = i->seq;
 
+#if defined(LWS_WITH_DETAILED_LATENCY)
+	if (i->context->detailed_latency_cb)
+		wsi->detlat.earliest_write_req_pre_write = lws_now_usecs();
+#endif
+
 	wsi->vhost = NULL;
 	if (!i->vhost)
 		lws_vhost_bind_wsi(i->context->vhost_list, wsi);
@@ -91,6 +96,9 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 			lwsl_info("%s: client binds to caller tsi %d\n",
 				  __func__, n);
 			wsi->tsi = n;
+#if defined(LWS_WITH_DETAILED_LATENCY)
+			wsi->detlat.tsi = n;
+#endif
 			break;
 		}
 

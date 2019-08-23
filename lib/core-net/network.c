@@ -159,14 +159,10 @@ lws_get_peer_addresses(struct lws *wsi, lws_sockfd_type fd, char *name,
 	struct sockaddr_in6 sin6;
 #endif
 	struct sockaddr_in sin4;
-	struct lws_context *context = wsi->context;
-	int ret = -1;
 	void *p;
 
 	rip[0] = '\0';
 	name[0] = '\0';
-
-	lws_latency_pre(context, wsi);
 
 #ifdef LWS_WITH_IPV6
 	if (LWS_IPV6_ENABLED(wsi->vhost)) {
@@ -184,10 +180,9 @@ lws_get_peer_addresses(struct lws *wsi, lws_sockfd_type fd, char *name,
 		goto bail;
 	}
 
-	ret = lws_get_addresses(wsi->vhost, p, name, name_len, rip, rip_len);
+	lws_get_addresses(wsi->vhost, p, name, name_len, rip, rip_len);
 
 bail:
-	lws_latency(context, wsi, "lws_get_peer_addresses", ret, 1);
 #endif
 	(void)wsi;
 	(void)fd;

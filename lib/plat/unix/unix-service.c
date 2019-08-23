@@ -102,6 +102,15 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	vpt->inside_poll = 0;
 	lws_memory_barrier();
 
+#if defined(LWS_WITH_DETAILED_LATENCY)
+	/*
+	 * so we can track how long it took before we actually read a POLLIN
+	 * that was signalled when we last exited poll()
+	 */
+	if (context->detailed_latency_cb)
+		pt->ust_left_poll = lws_now_usecs();
+#endif
+
 	/* Collision will be rare and brief.  Just spin until it completes */
 	while (vpt->foreign_spinlock)
 		;
