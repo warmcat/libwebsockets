@@ -27,8 +27,18 @@
 static int
 sul_compare(const lws_dll2_t *d, const lws_dll2_t *i)
 {
-	return ((lws_sorted_usec_list_t *)d)->us -
-			((lws_sorted_usec_list_t *)i)->us;
+    lws_usec_t a = ((lws_sorted_usec_list_t *)d)->us;
+    lws_usec_t b = ((lws_sorted_usec_list_t *)i)->us;
+
+    /* returning (a - b) may lead to an integer overlow bug */
+
+    if (a > b) {
+        return 1;
+    } else if (a < b) {
+        return -1;
+    } else {
+        return 0;
+    }
 }
 
 int
