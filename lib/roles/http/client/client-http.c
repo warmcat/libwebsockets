@@ -217,7 +217,7 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 			lwsl_client("SOCKS password OK, sending connect\n");
 			if (socks_generate_msg(wsi, SOCKS_MSG_CONNECT, &len)) {
 socks_send_msg_fail:
-				*cce = "socks gen msg fail";
+				cce = "socks gen msg fail";
 				goto bail3;
 			}
 			conn_mode = LRS_WAITING_SOCKS_CONNECT_REPLY;
