@@ -40,9 +40,12 @@ lws_tls_fake_POLLIN_for_buffered(struct lws_context_per_thread *pt)
 		struct lws *wsi = lws_container_of(p, struct lws,
 						   tls.dll_pending_tls);
 
-		pt->fds[wsi->position_in_fds_table].revents |=
-			pt->fds[wsi->position_in_fds_table].events & LWS_POLLIN;
-		ret |= pt->fds[wsi->position_in_fds_table].revents & LWS_POLLIN;
+		if (wsi->position_in_fds_table >= 0) {
+
+			pt->fds[wsi->position_in_fds_table].revents |=
+					pt->fds[wsi->position_in_fds_table].events & LWS_POLLIN;
+			ret |= pt->fds[wsi->position_in_fds_table].revents & LWS_POLLIN;
+		}
 
 	} lws_end_foreach_dll_safe(p, p1);
 

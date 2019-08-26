@@ -24,11 +24,52 @@
 
 #include "private-lib-core.h"
 
+#if defined(LWS_WITH_CLIENT)
+static int
+lws_close_trans_q_leader(struct lws_dll2 *d, void *user)
+{
+	struct lws *w = lws_container_of(d, struct lws, dll2_cli_txn_queue);
+
+	__lws_close_free_wsi(w, -1, "trans q leader closing");
+
+	return 0;
+}
+#endif
+
 void
-__lws_free_wsi(struct lws *wsi)
+__lws_reset_wsi(struct lws *wsi)
 {
 	if (!wsi)
 		return;
+
+#if defined(LWS_WITH_CLIENT)
+
+	lws_free_set_NULL(wsi->cli_hostname_copy);
+
+	/*
+	 * if we have wsi in our transaction queue, if we are closing we
+	 * must go through and close all those first
+	 */
+	if (wsi->vhost) {
+
+		/* we are no longer an active client connection that can piggyback */
+		lws_dll2_remove(&wsi->dll_cli_active_conns);
+
+		lws_dll2_foreach_safe(&wsi->dll2_cli_txn_queue_owner, NULL,
+				      lws_close_trans_q_leader);
+
+		/*
+		 * !!! If we are closing, but we have pending pipelined
+		 * transaction results we already sent headers for, that's going
+		 * to destroy sync for HTTP/1 and leave H2 stream with no live
+		 * swsi.`
+		 *
+		 * However this is normal if we are being closed because the
+		 * transaction queue leader is closing.
+		 */
+		lws_dll2_remove(&wsi->dll2_cli_txn_queue);
+	}
+#endif
 
 	/*
 	 * Protocol user data may be allocated either internally by lws
@@ -42,6 +83,20 @@ __lws_free_wsi(struct lws *wsi)
 	lws_buflist_destroy_all_segments(&wsi->buflist_out);
 	lws_free_set_NULL(wsi->udp);
 
+#if defined(LWS_WITH_CLIENT)
+	lws_dll2_remove(&wsi->dll2_cli_txn_queue);
+	lws_dll2_remove(&wsi->dll_cli_active_conns);
+#endif
+
+#if defined(LWS_WITH_ASYNC_DNS)
+	lws_async_dns_cancel(wsi);
+#endif
+
+#if defined(LWS_WITH_HTTP_PROXY)
+	if (wsi->http.buflist_post_body)
+		lws_buflist_destroy_all_segments(&wsi->http.buflist_post_body);
+#endif
+
 	if (wsi->vhost && wsi->vhost->lserv_wsi == wsi)
 		wsi->vhost->lserv_wsi = NULL;
 #if defined(LWS_WITH_CLIENT)
@@ -50,17 +105,11 @@ __lws_free_wsi(struct lws *wsi)
 #endif
 	wsi->context->count_wsi_allocated--;
 
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-	__lws_header_table_detach(wsi, 0);
-#endif
 	__lws_same_vh_protocol_remove(wsi);
 #if defined(LWS_WITH_CLIENT)
 	lws_free_set_NULL(wsi->stash);
 	lws_free_set_NULL(wsi->cli_hostname_copy);
 #endif
-
-	if (wsi->role_ops->destroy_role)
-		wsi->role_ops->destroy_role(wsi);
 
 #if defined(LWS_WITH_PEER_LIMITS)
 	lws_peer_track_wsi_close(wsi->context, wsi->peer);
@@ -73,6 +122,23 @@ __lws_free_wsi(struct lws *wsi)
 	__lws_ssl_remove_wsi_from_buffered_list(wsi);
 #endif
 	__lws_wsi_remove_from_sul(wsi);
+
+	if (wsi->role_ops->destroy_role)
+		wsi->role_ops->destroy_role(wsi);
+
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+	__lws_header_table_detach(wsi, 0);
+#endif
+}
+
+void
+__lws_free_wsi(struct lws *wsi)
+{
+	if (!wsi)
+		return;
+
+	__lws_reset_wsi(wsi);
+
 
 	if (wsi->context->event_loop_ops->destroy_wsi)
 		wsi->context->event_loop_ops->destroy_wsi(wsi);
@@ -120,16 +186,6 @@ lws_remove_child_from_any_parent(struct lws *wsi)
 }
 
 #if defined(LWS_WITH_CLIENT)
-static int
-lws_close_trans_q_leader(struct lws_dll2 *d, void *user)
-{
-	struct lws *w = lws_container_of(d, struct lws, dll2_cli_txn_queue);
-
-	__lws_close_free_wsi(w, -1, "trans q leader closing");
-
-	return 0;
-}
-
 void
 lws_inform_client_conn_fail(struct lws *wsi, void *arg, size_t len)
 {
@@ -174,9 +230,6 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	struct lws_context_per_thread *pt;
 	struct lws *wsi1, *wsi2;
 	struct lws_context *context;
-#if defined(LWS_WITH_CLIENT)
-	long rl = (long)(int)reason;
-#endif
 	int n;
 
 	lwsl_info("%s: %p: caller: %s\n", __func__, wsi, caller);
@@ -195,35 +248,6 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	lws_free_set_NULL(wsi->cli_hostname_copy);
 
 	lws_addrinfo_clean(wsi);
-
-	/*
-	 * if we have wsi in our transaction queue, if we are closing we
-	 * must go through and close all those first
-	 */
-	if (wsi->vhost) {
-
-		/* we are no longer an active client connection that can piggyback */
-		lws_dll2_remove(&wsi->dll_cli_active_conns);
-
-		if (rl != -1l)
-			lws_vhost_lock(wsi->vhost);
-
-		lws_dll2_foreach_safe(&wsi->dll2_cli_txn_queue_owner, NULL,
-				      lws_close_trans_q_leader);
-
-		/*
-		 * !!! If we are closing, but we have pending pipelined
-		 * transaction results we already sent headers for, that's going
-		 * to destroy sync for HTTP/1 and leave H2 stream with no live
-		 * swsi.`
-		 *
-		 * However this is normal if we are being closed because the
-		 * transaction queue leader is closing.
-		 */
-		lws_dll2_remove(&wsi->dll2_cli_txn_queue);
-		if (rl != -1l)
-			lws_vhost_unlock(wsi->vhost);
-	}
 #endif
 
 	/* if we have children, close them first */

@@ -35,6 +35,9 @@ __lws_wsi_remove_from_sul(struct lws *wsi)
 	// lws_dll2_describe(&pt->pt_sul_owner, "pre-remove");
 	lws_dll2_remove(&wsi->sul_timeout.list);
 	lws_dll2_remove(&wsi->sul_hrtimer.list);
+#if defined(LWS_ROLE_WS)
+	lws_dll2_remove(&wsi->sul_ping.list);
+#endif
 	// lws_dll2_describe(&pt->pt_sul_owner, "post-remove");
 }
 

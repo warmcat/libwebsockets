@@ -517,6 +517,8 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 		struct lws *wsi = lws_container_of(p, struct lws,
 						   tls.dll_pending_tls);
 
+		if (wsi->position_in_fds_table >= 0) {
+
 		pt->fds[wsi->position_in_fds_table].revents |=
 			pt->fds[wsi->position_in_fds_table].events & LWS_POLLIN;
 		if (pt->fds[wsi->position_in_fds_table].revents & LWS_POLLIN) {
@@ -528,6 +530,7 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 			 * list then.
 			 */
 			__lws_ssl_remove_wsi_from_buffered_list(wsi);
+		}
 		}
 
 	} lws_end_foreach_dll_safe(p, p1);

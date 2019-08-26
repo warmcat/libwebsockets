@@ -1406,9 +1406,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 #if defined(LWS_WITH_CLIENT)
 		if (h2n->swsi->client_h2_substream) {
 			if (lws_client_interpret_server_handshake(h2n->swsi)) {
-				lws_h2_rst_stream(h2n->swsi,
-						  H2_ERR_STREAM_CLOSED,
-						  "protocol CLI_EST closed it");
+				lwsl_info("%s: cli int serv hs closed it\n", __func__);
 				break;
 			}
 		}
@@ -1912,15 +1910,17 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 				}
 #if defined(LWS_WITH_CLIENT)
 				if (h2n->swsi->client_h2_substream) {
-					if (h2n->swsi->protocol) {
+					if (!h2n->swsi->protocol) {
+						lwsl_err("%s: swsi %pdoesn't have protocol\n", __func__, h2n->swsi);
+						m = 1;
+					} else
 					m = user_callback_handle_rxflow(
 						h2n->swsi->protocol->callback,
 						h2n->swsi,
 					  LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ,
 						h2n->swsi->user_space,
 						in - 1, n);
-					} else
-						m = 1;
+
 					in += n - 1;
 					h2n->inside += n;
 					h2n->count += n - 1;

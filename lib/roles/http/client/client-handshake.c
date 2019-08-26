@@ -534,7 +534,7 @@ ads_known:
 		else
 			iface = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_IFACE);
 
-		if (iface) {
+		if (iface && *iface) {
 			n = lws_socket_bind(wsi->vhost, wsi->desc.sockfd, 0,
 					    iface, wsi->ipv6);
 			if (n < 0)
@@ -707,13 +707,19 @@ lws_client_connect_2_dnsreq(struct lws *wsi)
 	else
 		meth = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD);
 
-	if (meth && strcmp(meth, "GET") && strcmp(meth, "POST"))
+	if (meth && strcmp(meth, "GET") && strcmp(meth, "POST")) {
+		lwsl_debug("%s: new conn on meth\n", __func__);
+
 		goto create_new_conn;
+	}
 
 	/* we only pipeline connections that said it was okay */
 
-	if (!wsi->client_pipeline)
+	if (!wsi->client_pipeline) {
+		lwsl_debug("%s: new conn on no pipeline flag\n", __func__);
+
 		goto create_new_conn;
+	}
 
 	/*
 	 * let's take a look first and see if there are any already-active
@@ -729,8 +735,8 @@ lws_client_connect_2_dnsreq(struct lws *wsi)
 		struct lws *w = lws_container_of(d, struct lws,
 						 dll_cli_active_conns);
 
-		lwsl_debug("%s: check %s %s %d %d\n", __func__, adsin,
-			   w->cli_hostname_copy, wsi->c_port, w->c_port);
+//		lwsl_notice("%s: check %s %s %d %d\n", __func__, adsin,
+//			   w->cli_hostname_copy, wsi->c_port, w->c_port);
 
 		if (w != wsi && w->cli_hostname_copy &&
 		    !strcmp(adsin, w->cli_hostname_copy) &&
@@ -1008,17 +1014,32 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 
 	wsi = *pwsi;
 
+	lwsl_debug("%s: wsi %p: redir %d: %s\n", __func__, wsi, wsi->redirects,
+			address);
+
 	if (wsi->redirects == 3) {
 		lwsl_err("%s: Too many redirects\n", __func__);
 		return NULL;
 	}
 	wsi->redirects++;
 
+	/*
+	 * goal is to close our role part, close the sockfd, detach the ah
+	 * but leave our wsi extant and still bound to whatever vhost it was
+	 */
+
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(hnames2); n++)
 		size += lws_hdr_total_length(wsi, hnames2[n]) + 1;
 
 	if ((int)size < lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_URI) + 1)
 		size = lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_URI) + 1;
+
+	/*
+	 * The incoming address and host can be from inside the existing ah
+	 * we are going to detach and reattch
+	 */
+
+	size += strlen(address) + 1 + strlen(host) + 1;
 
 	p = stash = lws_malloc(size, __func__);
 	if (!stash)
@@ -1032,13 +1053,23 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 		} else
 			*p++ = '\0';
 
+	memcpy(p, address, strlen(address) + 1);
+	address = p;
+	p += strlen(address) + 1;
+	memcpy(p, host, strlen(host) + 1);
+	host = p;
+
 	if (!port) {
 		port = 443;
 		ssl = 1;
 	}
 
-	lwsl_info("redirect ads='%s', port=%d, path='%s', ssl = %d\n",
-		   address, port, path, ssl);
+	lwsl_info("redirect ads='%s', port=%d, path='%s', ssl = %d, pifds %d\n",
+		   address, port, path, ssl, wsi->position_in_fds_table);
+
+	__remove_wsi_socket_from_fds(wsi);
+	__lws_reset_wsi(wsi); /* detaches ah here */
+	wsi->client_pipeline = 1;
 
 	/* close the connection by hand */
 
@@ -1046,7 +1077,8 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	lws_ssl_close(wsi);
 #endif
 
-	__remove_wsi_socket_from_fds(wsi);
+	if (wsi->role_ops && wsi->role_ops->close_kill_connection)
+		wsi->role_ops->close_kill_connection(wsi, 1);
 
 	if (wsi->context->event_loop_ops->close_handle_manually)
 		wsi->context->event_loop_ops->close_handle_manually(wsi);
@@ -1063,13 +1095,26 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	}
 #endif
 
+	if (wsi->protocol && wsi->role_ops && wsi->protocol_bind_balance) {
+		wsi->protocol->callback(wsi,
+				wsi->role_ops->protocol_unbind_cb[
+				       !!lwsi_role_server(wsi)],
+				       wsi->user_space, (void *)__func__, 0);
+		wsi->protocol_bind_balance = 0;
+	}
+
 	wsi->desc.sockfd = LWS_SOCK_INVALID;
-	lwsi_set_state(wsi, LRS_UNCONNECTED);
-	wsi->protocol = NULL;
+	lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED, &role_ops_h1);
+//	wsi->protocol = NULL;
 	wsi->pending_timeout = NO_PENDING_TIMEOUT;
 	wsi->c_port = port;
 	wsi->hdr_parsing_completed = 0;
-	_lws_header_table_reset(wsi->http.ah);
+
+	if (lws_header_table_attach(wsi, 0)) {
+		lwsl_err("%s: failed to get ah\n", __func__);
+		goto bail;
+	}
+	//_lws_header_table_reset(wsi->http.ah);
 
 	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS, address))
 		goto bail;

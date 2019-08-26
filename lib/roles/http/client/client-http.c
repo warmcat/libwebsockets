@@ -881,6 +881,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			if (wsi)
 				goto bail3;
 
+			/* wsi has closed */
 			return 1;
 		}
 		return 0;

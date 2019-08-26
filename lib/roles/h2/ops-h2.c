@@ -630,6 +630,10 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 
 	if (wsi->http2_substream && wsi->h2_stream_carries_ws)
 		lws_h2_rst_stream(wsi, 0, "none");
+/*	else
+		if (wsi->http2_substream)
+			lws_h2_rst_stream(wsi, H2_ERR_STREAM_CLOSED, "swsi got closed");
+*/
 
 	if (wsi->h2.parent_wsi && lwsl_visible(LLL_INFO)) {
 		lwsl_info(" wsi: %p, his parent %p: siblings:\n", wsi,
@@ -691,15 +695,15 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 #endif
 			wsi->http2_substream) &&
 	     wsi->h2.parent_wsi) {
-		lwsl_info("  %p: disentangling from siblings\n", wsi);
 		lws_start_foreach_llp(struct lws **, w,
 				wsi->h2.parent_wsi->h2.child_list) {
+
 			/* disconnect from siblings */
 			if (*w == wsi) {
 				wsi2 = (*w)->h2.sibling_list;
 				(*w)->h2.sibling_list = NULL;
 				*w = wsi2;
-				lwsl_info("  %p disentangled from sibling %p\n",
+				lwsl_debug("  %p disentangled from sibling %p\n",
 					  wsi, wsi2);
 				break;
 			}
