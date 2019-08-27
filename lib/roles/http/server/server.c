@@ -1700,7 +1700,8 @@ deal_body:
 				if (m < 0)
 					return -1;
 
-				if (lws_buflist_aware_consume(wsi, &ebuf, m, 1, __func__))
+				if (lws_buflist_aware_finished_consuming(wsi,
+							&ebuf, m, 1, __func__))
 					return -1;
 			}
 		}

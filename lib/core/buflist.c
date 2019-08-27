@@ -166,7 +166,7 @@ lws_buflist_describe(struct lws_buflist **head, void *id, const char *reason)
 	int n = 0;
 
 	if (*head == NULL)
-		lwsl_notice("%p: %sL buflist empty\n", id, reason);
+		lwsl_notice("%p: %s: buflist empty\n", id, reason);
 
 	while (*head) {
 		lwsl_notice("%p: %s: %d: %llu / %llu (%llu left)\n", id,

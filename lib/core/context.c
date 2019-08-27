@@ -102,7 +102,6 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 
 	lwsl_info(" LWS_DEF_HEADER_LEN    : %u\n", LWS_DEF_HEADER_LEN);
-	lwsl_info(" LWS_MAX_PROTOCOLS     : %u\n", LWS_MAX_PROTOCOLS);
 	lwsl_info(" LWS_MAX_SMP           : %u\n", LWS_MAX_SMP);
 	lwsl_info(" sizeof (*info)        : %ld\n", (long)sizeof(*info));
 #if defined(LWS_WITH_STATS)
@@ -127,6 +126,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	if (info->pt_serv_buf_size)
 		s1 = info->pt_serv_buf_size;
 
+	/* pt fakewsi and the pt serv buf allocations ride after the context */
 	size += count_threads * (s1 + sizeof(struct lws));
 #endif
 

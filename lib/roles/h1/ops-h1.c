@@ -389,7 +389,8 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 
 		if (lwsi_state(wsi) == LRS_ISSUING_FILE) {
 			// lwsl_notice("stashing: wsi %p: bd %d\n", wsi, buffered);
-			if (lws_buflist_aware_consume(wsi, &ebuf, 0, buffered, __func__))
+			if (lws_buflist_aware_finished_consuming(wsi, &ebuf, 0,
+							buffered, __func__))
 				return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
 			goto try_pollout;
@@ -410,7 +411,8 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 
 		// lwsl_notice("%s: consumed %d\n", __func__, n);
 
-		if (lws_buflist_aware_consume(wsi, &ebuf, n, buffered, __func__))
+		if (lws_buflist_aware_finished_consuming(wsi, &ebuf, n,
+							 buffered, __func__))
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
 		/*

@@ -76,10 +76,6 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 	char ebuf[128];
 #endif
 	const char *cce = NULL;
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-	ssize_t len = 0;
-	unsigned char c;
-#endif
 	char *sb = p;
 	int n = 0;
 #if defined(LWS_WITH_SOCKS5)
@@ -544,25 +540,44 @@ client_http_body_sent:
 		 * in one packet, since at that point the connection is
 		 * definitively ready from browser pov.
 		 */
-		len = 1;
-		while (wsi->http.ah->parser_state != WSI_PARSING_COMPLETE &&
-		       len > 0) {
-			int plen = 1;
+		while (wsi->http.ah->parser_state != WSI_PARSING_COMPLETE) {
+			struct lws_tokens eb;
+			int n, m, buffered;
 
-			n = lws_ssl_capable_read(wsi, &c, 1);
-			switch (n) {
-			case 0:
-			case LWS_SSL_CAPABLE_ERROR:
+			eb.token = NULL;
+			eb.len = 0;
+			buffered = lws_buflist_aware_read(pt, wsi, &eb, __func__);
+			lwsl_debug("%s: buflist-aware-read %d %d\n", __func__,
+					buffered, eb.len);
+			if (eb.len == LWS_SSL_CAPABLE_MORE_SERVICE)
+				return 0;
+			if (buffered < 0 || eb.len < 0) {
 				cce = "read failed";
 				goto bail3;
-			case LWS_SSL_CAPABLE_MORE_SERVICE:
-				return 0;
 			}
+			if (!eb.len)
+				return 0;
 
-			if (lws_parse(wsi, &c, &plen)) {
+			n = eb.len;
+			if (lws_parse(wsi, eb.token, &n)) {
 				lwsl_warn("problems parsing header\n");
 				cce = "problems parsing header";
 				goto bail3;
+			}
+
+			m = eb.len - n;
+			if (lws_buflist_aware_finished_consuming(wsi, &eb, m,
+								 buffered,
+								 __func__))
+			        return -1;
+			eb.token += m;
+			eb.len -= m;
+
+			if (n) {
+				assert(wsi->http.ah->parser_state ==
+						WSI_PARSING_COMPLETE);
+
+				break;
 			}
 		}
 
@@ -573,7 +588,6 @@ client_http_body_sent:
 		 */
 		if (wsi->http.ah->parser_state != WSI_PARSING_COMPLETE)
 			break;
-
 #endif
 
 		/*
@@ -1198,26 +1212,38 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 LWS_VISIBLE int
 lws_http_client_read(struct lws *wsi, char **buf, int *len)
 {
-	int rlen, n;
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_tokens eb;
+	int buffered, n, consumed = 0;
 
-	rlen = lws_ssl_capable_read(wsi, (unsigned char *)*buf, *len);
+	eb.token = NULL;
+	eb.len = 0;
+
+	buffered = lws_buflist_aware_read(pt, wsi, &eb, __func__);
+	*buf = (char *)eb.token;
 	*len = 0;
 
-	// lwsl_notice("%s: rlen %d\n", __func__, rlen);
+	/*
+	 * we're taking on responsibility for handling used / unused eb
+	 * when we leave, via lws_buflist_aware_finished_consuming()
+	 */
+
+//	lwsl_notice("%s: eb.len %d ENTRY chunk remaining %d\n", __func__, eb.len,
+//			wsi->chunk_remaining);
 
 	/* allow the source to signal he has data again next time */
 	if (lws_change_pollfd(wsi, 0, LWS_POLLIN))
 		return -1;
 
-	if (rlen == LWS_SSL_CAPABLE_ERROR) {
+	if (buffered < 0) {
 		lwsl_debug("%s: SSL capable error\n", __func__);
 		return -1;
 	}
 
-	if (rlen <= 0)
+	if (eb.len <= 0)
 		return 0;
 
-	*len = rlen;
+	*len = eb.len;
 	wsi->client_rx_avail = 0;
 
 	/*
@@ -1225,6 +1251,8 @@ lws_http_client_read(struct lws *wsi, char **buf, int *len)
 	 * so http client must deal with it
 	 */
 spin_chunks:
+	//lwsl_notice("%s: len %d SPIN chunk remaining %d\n", __func__, *len,
+	//		wsi->chunk_remaining);
 	while (wsi->chunked && (wsi->chunk_parser != ELCP_CONTENT) && *len) {
 		switch (wsi->chunk_parser) {
 		case ELCP_HEX:
@@ -1234,7 +1262,7 @@ spin_chunks:
 			}
 			n = char_to_hex((*buf)[0]);
 			if (n < 0) {
-				lwsl_info("%s: chunking failure\n", __func__);
+				lwsl_err("%s: chunking failure A\n", __func__);
 				return -1;
 			}
 			wsi->chunk_remaining <<= 4;
@@ -1242,11 +1270,12 @@ spin_chunks:
 			break;
 		case ELCP_CR:
 			if ((*buf)[0] != '\x0a') {
-				lwsl_info("%s: chunking failure\n", __func__);
+				lwsl_err("%s: chunking failure B\n", __func__);
 				return -1;
 			}
 			wsi->chunk_parser = ELCP_CONTENT;
-			lwsl_info("chunk %d\n", wsi->chunk_remaining);
+			//lwsl_info("starting chunk size %d (block rem %d)\n",
+			//		wsi->chunk_remaining, *len);
 			if (wsi->chunk_remaining)
 				break;
 			lwsl_info("final chunk\n");
@@ -1257,7 +1286,8 @@ spin_chunks:
 
 		case ELCP_POST_CR:
 			if ((*buf)[0] != '\x0d') {
-				lwsl_info("%s: chunking failure\n", __func__);
+				lwsl_err("%s: chunking failure C\n", __func__);
+				lwsl_hexdump_err(*buf, *len);
 
 				return -1;
 			}
@@ -1267,7 +1297,7 @@ spin_chunks:
 
 		case ELCP_POST_LF:
 			if ((*buf)[0] != '\x0a') {
-				lwsl_info("%s: chunking failure\n", __func__);
+				lwsl_err("%s: chunking failure D\n", __func__);
 
 				return -1;
 			}
@@ -1278,10 +1308,11 @@ spin_chunks:
 		}
 		(*buf)++;
 		(*len)--;
+		consumed++;
 	}
 
 	if (wsi->chunked && !wsi->chunk_remaining)
-		return 0;
+		goto account_and_ret;
 
 	if (wsi->http.rx_content_remain &&
 	    wsi->http.rx_content_remain < (unsigned int)*len)
@@ -1319,11 +1350,17 @@ spin_chunks:
 		}
 	}
 
-	if (wsi->chunked && wsi->chunk_remaining) {
-		(*buf) += n;
+	(*buf) += n;
+	*len -= n;
+	if (wsi->chunked && wsi->chunk_remaining)
 		wsi->chunk_remaining -= n;
-		*len -= n;
-	}
+
+	//lwsl_notice("chunk_remaining <- %d, block remaining %d\n",
+	//		wsi->chunk_remaining, *len);
+
+	consumed += n;
+	//eb.token += n;
+	//eb.len -= n;
 
 	if (wsi->chunked && !wsi->chunk_remaining)
 		wsi->chunk_parser = ELCP_POST_CR;
@@ -1332,7 +1369,7 @@ spin_chunks:
 		goto spin_chunks;
 
 	if (wsi->chunked)
-		return 0;
+		goto account_and_ret;
 
 	/* if we know the content length, decrement the content remaining */
 	if (wsi->http.rx_content_length > 0)
@@ -1342,7 +1379,7 @@ spin_chunks:
 	//	wsi->http.rx_content_remain, wsi->http.rx_content_length);
 
 	if (wsi->http.rx_content_remain || !wsi->http.rx_content_length)
-		return 0;
+		goto account_and_ret;
 
 completed:
 
@@ -1350,6 +1387,12 @@ completed:
 		lwsl_notice("%s: transaction completed says -1\n", __func__);
 		return -1;
 	}
+
+account_and_ret:
+//	lwsl_warn("%s: on way out, consuming %d / %d\n", __func__, consumed, eb.len);
+	if (lws_buflist_aware_finished_consuming(wsi, &eb, consumed, buffered,
+							__func__))
+		return -1;
 
 	return 0;
 }

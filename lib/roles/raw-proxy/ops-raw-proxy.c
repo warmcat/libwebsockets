@@ -86,8 +86,8 @@ rops_handle_POLLIN_raw_proxy(struct lws_context_per_thread *pt, struct lws *wsi,
 			goto fail;
 		}
 
-		if (lws_buflist_aware_consume(wsi, &ebuf, ebuf.len, buffered,
-							__func__))
+		if (lws_buflist_aware_finished_consuming(wsi, &ebuf, ebuf.len,
+							 buffered, __func__))
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	} else
 		if (wsi->favoured_pollin &&

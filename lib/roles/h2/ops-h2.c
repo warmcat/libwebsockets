@@ -273,6 +273,7 @@ drain:
 		}
 
 		if (n && buffered) {
+			// lwsl_notice("%s: h2 use %d\n", __func__, n);
 			m = lws_buflist_use_segment(&wsi->buflist, n);
 			lwsl_info("%s: draining rxflow: used %d, next %d\n",
 				    __func__, n, m);
@@ -283,6 +284,7 @@ drain:
 			}
 		} else
 			if (n && n != ebuf.len) {
+				// lwsl_notice("%s: h2 append seg %d\n", __func__, ebuf.len - n);
 				m = lws_buflist_append_segment(&wsi->buflist,
 						ebuf.token + n,
 						ebuf.len - n);

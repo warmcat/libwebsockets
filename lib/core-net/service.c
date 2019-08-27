@@ -356,9 +356,9 @@ lws_buflist_aware_read(struct lws_context_per_thread *pt, struct lws *wsi,
 	// lws_buflist_describe(&wsi->buflist, wsi, __func__);
 
 	(void)hint;
-	ebuf->token = pt->serv_buf;
-	n = lws_ssl_capable_read(wsi, pt->serv_buf,
-				 wsi->context->pt_serv_buf_size);
+	ebuf->token = pt->serv_buf + LWS_PRE;
+	n = lws_ssl_capable_read(wsi, pt->serv_buf + LWS_PRE,
+				 wsi->context->pt_serv_buf_size - LWS_PRE);
 	ebuf->len = n;
 
 	lwsl_info("%s: wsi %p: %s: ssl_capable_read %d (prior %d)\n", __func__,
@@ -405,8 +405,8 @@ get_from_buflist:
 }
 
 int
-lws_buflist_aware_consume(struct lws *wsi, struct lws_tokens *ebuf, int used,
-			  int buffered, const char *hint)
+lws_buflist_aware_finished_consuming(struct lws *wsi, struct lws_tokens *ebuf,
+				     int used, int buffered, const char *hint)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	int m;
@@ -437,6 +437,8 @@ lws_buflist_aware_consume(struct lws *wsi, struct lws_tokens *ebuf, int used,
 	/* any remainder goes on the buflist */
 
 	if (used != ebuf->len) {
+		// lwsl_notice("%s %s bac appending %d\n", __func__, hint,
+		//		ebuf->len - used);
 		m = lws_buflist_append_segment(&wsi->buflist,
 					       ebuf->token + used,
 					       ebuf->len - used);
