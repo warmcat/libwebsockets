@@ -391,7 +391,7 @@ identify_protocol:
 	if (!lwsi_role_client(wsi))
 		wsi->protocol = NULL;
 
-	while (wsi->vhost->protocols[n].callback) {
+	while (n < wsi->vhost->count_protocols) {
 		if (!wsi->protocol &&
 		    strcmp(p, wsi->vhost->protocols[n].name) == 0) {
 			wsi->protocol = &wsi->vhost->protocols[n];
@@ -400,7 +400,7 @@ identify_protocol:
 		n++;
 	}
 
-	if (!wsi->vhost->protocols[n].callback) { /* no match */
+	if (n == wsi->vhost->count_protocols) { /* no match */
 		/* if server, that's already fatal */
 		if (!lwsi_role_client(wsi)) {
 			lwsl_info("%s: fail protocol %s\n", __func__, p);

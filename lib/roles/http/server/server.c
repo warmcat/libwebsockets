@@ -1516,7 +1516,7 @@ lws_http_action(struct lws *wsi)
 		if (lws_bind_protocol(wsi, pp, "http action CALLBACK bind"))
 			return 1;
 
-		lwsl_notice("%s: %s, checking access rights for mask 0x%x\n",
+		lwsl_debug("%s: %s, checking access rights for mask 0x%x\n",
 				__func__, hit->origin, hit->auth_mask);
 
 		args.p = uri_ptr;
