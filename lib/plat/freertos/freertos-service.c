@@ -29,7 +29,6 @@ lws_plat_service(struct lws_context *context, int timeout_ms)
 {
 	int n = _lws_plat_service_tsi(context, timeout_ms, 0);
 
-	lws_service_fd_tsi(context, NULL, 0);
 #if !defined(LWS_AMAZON_RTOS)
 	esp_task_wdt_reset();
 #endif
@@ -177,11 +176,8 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	    pt->context->tls_ops->fake_POLLIN_for_buffered)
 		m |= pt->context->tls_ops->fake_POLLIN_for_buffered(pt);
 
-	if (!m && !n) {
-		lws_service_fd_tsi(context, NULL, tsi);
+	if (!m && !n)
 		return 0;
-	}
-
 
 faked_service:
 	m = lws_service_flag_pending(context, tsi);

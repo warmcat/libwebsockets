@@ -204,10 +204,13 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 				lws_service_fd_tsi(context, pfd, tsi);
 			}
 		}
-	} else if (ev == WSA_WAIT_TIMEOUT) {
-		lws_service_fd(context, NULL);
-	} else if (ev == WSA_WAIT_FAILED)
+
 		return 0;
+	}
+
+	// if (ev == WSA_WAIT_TIMEOUT) { }
+	// if (ev == WSA_WAIT_FAILED)
+		// return 0;
 
 	return 0;
 }
