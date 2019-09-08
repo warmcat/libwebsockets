@@ -81,11 +81,11 @@ typedef union {
 
 #if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE)
 struct lws_udp {
-	struct sockaddr sa;
-	socklen_t salen;
+	struct sockaddr		sa;
+	socklen_t		salen;
 
-	struct sockaddr sa_pending;
-	socklen_t salen_pending;
+	struct sockaddr		sa_pending;
+	socklen_t		salen_pending;
 };
 #endif
 
@@ -177,6 +177,7 @@ lws_adopt_socket_vhost_readbuf(struct lws_vhost *vhost,
  * \param flags:	 0 or LWS_CAUDP_NO_BIND
  * \param protocol_name: Name of protocol on vhost to bind wsi to
  * \param parent_wsi:	 NULL or parent wsi new wsi will be a child of
+ * \param retry_policy:	 NULL for vhost default policy else wsi specific policy
  *
  * Either returns new wsi bound to accept_fd, or closes accept_fd and
  * returns NULL, having cleaned up any new wsi pieces.
@@ -184,5 +185,5 @@ lws_adopt_socket_vhost_readbuf(struct lws_vhost *vhost,
 LWS_VISIBLE LWS_EXTERN struct lws *
 lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 		     int flags, const char *protocol_name,
-		     struct lws *parent_wsi);
+		     struct lws *parent_wsi, const lws_retry_bo_t *retry_policy);
 ///@}

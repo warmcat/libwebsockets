@@ -698,6 +698,12 @@ struct lws_context_creation_info {
 	/**< CONTEXT: NULL, or pointer to an array of notifiers that should
 	 * be registered during context creation, so they can see state change
 	 * events from very early on.  The array should end with a NULL. */
+	uint8_t udp_loss_sim_tx_pc;
+	/**< CONTEXT: percentage of udp writes we could have performed
+	 * to instead not do, in order to simulate and test udp retry flow */
+	uint8_t udp_loss_sim_rx_pc;
+	/**< CONTEXT: percentage of udp reads we actually received
+	 * to make disappear, in order to simulate and test udp retry flow */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility

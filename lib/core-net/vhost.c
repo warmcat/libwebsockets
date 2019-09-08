@@ -1051,6 +1051,22 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 	struct lws wsi;
 	int n;
 
+#if defined(LWS_WITH_CLIENT)
+	/*
+	 * destroy any wsi that are associated with us but have no socket
+	 * (and will otherwise be missed for destruction)
+	 */
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+			      vh->vh_awaiting_socket_owner.head) {
+		struct lws *w =
+			lws_container_of(d, struct lws, vh_awaiting_socket);
+
+		lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
+				   "awaiting skt");
+
+	} lws_end_foreach_dll_safe(d, d1);
+#endif
+
 	/*
 	 * destroy any pending timed events
 	 */

@@ -345,6 +345,18 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 					__func__, result, result->ai_next);
 	}
 
+#if defined(LWS_WITH_DETAILED_LATENCY)
+	if (lwsi_state(wsi) == LRS_WAITING_DNS &&
+	    wsi->context->detailed_latency_cb) {
+		wsi->detlat.type = LDLT_NAME_RESOLUTION;
+		wsi->detlat.latencies[LAT_DUR_PROXY_CLIENT_REQ_TO_WRITE] =
+			lws_now_usecs() -
+			wsi->detlat.earliest_write_req_pre_write;
+		wsi->detlat.latencies[LAT_DUR_USERCB] = 0;
+		lws_det_lat_cb(wsi->context, &wsi->detlat);
+		wsi->detlat.earliest_write_req_pre_write = lws_now_usecs();
+	}
+#endif
 #if defined(LWS_CLIENT_HTTP_PROXYING) && \
 	(defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2))
 

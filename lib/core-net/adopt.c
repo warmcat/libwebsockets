@@ -31,7 +31,8 @@ lws_get_idlest_tsi(struct lws_context *context)
 	int n = 0, hit = -1;
 
 	for (; n < context->count_threads; n++) {
-		lwsl_notice("%s: %d %d\n", __func__, context->pt[n].fds_count, context->fd_limit_per_thread - 1);
+		lwsl_debug("%s: %d %d\n", __func__, context->pt[n].fds_count,
+				context->fd_limit_per_thread - 1);
 		if ((unsigned int)context->pt[n].fds_count !=
 		    context->fd_limit_per_thread - 1 &&
 		    (unsigned int)context->pt[n].fds_count < lowest) {
@@ -164,6 +165,14 @@ lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 		goto bail;
 	}
 
+	/*
+	 * he's an allocated wsi, but he's not on any fds list or child list,
+	 * join him to the vhost's list of these kinds of incomplete wsi until
+	 * he gets another identity (he may do async dns now...)
+	 */
+	lws_dll2_add_head(&new_wsi->vh_awaiting_socket,
+			  &new_wsi->vhost->vh_awaiting_socket_owner);
+
 	return new_wsi;
 
 bail:
@@ -255,6 +264,9 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 			goto fail;
 		}
 #endif
+
+	/* he has fds visibility now, remove from vhost orphan list */
+	lws_dll2_remove(&new_wsi->vh_awaiting_socket);
 
 	/*
 	 *  by deferring callback to this point, after insertion to fds,
@@ -423,8 +435,21 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 	if (!wsi->dns_results)
 		wsi->dns_results_next = wsi->dns_results = r;
 
-	if (n < 0 || !r)
+	if (n < 0 || !r) {
+		/*
+		 * DNS lookup failed: there are no usable results.  Fail the
+		 * overall connection request.
+		 */
+		lwsl_debug("%s: bad: n %d, r %p\n", __func__, n, r);
+
+		/*
+		 * We didn't get a callback on a cache item and bump the
+		 * refcount.  So don't let the cleanup continue to think it
+		 * needs to decrement any refcount.
+		 */
+		wsi->dns_results_next = wsi->dns_results = NULL;
 		goto bail;
+	}
 
 	while (wsi->dns_results_next) {
 
@@ -478,7 +503,7 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 			wsi->udp->salen = wsi->dns_results_next->ai_addrlen;
 		}
 
-		/* complete the udp socket adoption flow */
+		/* we connected: complete the udp socket adoption flow */
 
 		lws_addrinfo_clean(wsi);
 		return lws_adopt_descriptor_vhost2(wsi,
@@ -500,10 +525,11 @@ bail:
 struct lws *
 lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 		     int flags, const char *protocol_name,
-		     struct lws *parent_wsi)
+		     struct lws *parent_wsi, const lws_retry_bo_t *retry_policy)
 {
 #if !defined(LWS_PLAT_OPTEE)
 	struct lws *wsi;
+	int n;
 
 	lwsl_info("%s: %s:%u\n", __func__, ads ? ads : "null", port);
 
@@ -517,6 +543,10 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 	}
 	wsi->do_bind = !!(flags & LWS_CAUDP_BIND);
 	wsi->c_port = port;
+	if (retry_policy)
+		wsi->retry_policy = retry_policy;
+	else
+		wsi->retry_policy = vhost->retry_policy;
 
 #if !defined(LWS_WITH_SYS_ASYNC_DNS)
 	{
@@ -562,11 +592,16 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 		 *
 		 * Keep a refcount on the results and free it when we connected
 		 * or definitively failed.
+		 *
+		 * Notice wsi has no socket at this point (we don't know what
+		 * kind to ask for until we get the dns back).  But it is bound
+		 * to a vhost and can be cleaned up from that at vhost destroy.
 		 */
-		if (lws_async_dns_query(vhost->context, 0, ads,
+		n = lws_async_dns_query(vhost->context, 0, ads,
 					LWS_ADNS_RECORD_A,
-					lws_create_adopt_udp2, wsi, NULL) ==
-							     LADNS_RET_FAILED) {
+					lws_create_adopt_udp2, wsi, NULL);
+		lwsl_debug("%s: dns query returned %d\n", __func__, n);
+		if (n == LADNS_RET_FAILED) {
 			lwsl_err("%s: async dns failed\n", __func__);
 			wsi = NULL;
 			/*
@@ -575,11 +610,14 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 			 */
 			goto bail;
 		}
-	} else
+	} else {
+		lwsl_debug("%s: fail on no ads\n", __func__);
 		wsi = lws_create_adopt_udp2(wsi, ads, NULL, 0, NULL);
+	}
 
 	/* dns lookup is happening asynchronously */
 
+	lwsl_debug("%s: returning wsi %p\n", __func__, wsi);
 	return wsi;
 #endif
 #if !defined(LWS_WITH_SYS_ASYNC_DNS)

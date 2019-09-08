@@ -304,8 +304,7 @@ typedef struct lws_dsh {
 
 typedef struct lws_async_dns {
 	lws_sockaddr46 		sa46; /* nameserver */
-	lws_dll2_owner_t	waiting_send;
-	lws_dll2_owner_t	waiting_resp;
+	lws_dll2_owner_t	waiting;
 	lws_dll2_owner_t	cached;
 	struct lws		*wsi;
 	time_t			time_set_server;
@@ -534,6 +533,7 @@ struct lws_vhost {
 #if defined(LWS_WITH_CLIENT)
 	struct lws_dll2_owner dll_cli_active_conns_owner;
 #endif
+	struct lws_dll2_owner vh_awaiting_socket_owner;
 
 #if defined(LWS_WITH_TLS)
 	struct lws_vhost_tls tls;
@@ -614,6 +614,7 @@ struct lws {
 
 	struct lws_dll2 dll_buflist; /* guys with pending rxflow */
 	struct lws_dll2 same_vh_protocol;
+	struct lws_dll2 vh_awaiting_socket;
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 	struct lws_dll2 adns;	/* on adns list of guys to tell result */
 	lws_async_dns_cb_t adns_cb;	/* callback with result */
@@ -744,6 +745,7 @@ struct lws {
 #endif
 
 	uint16_t c_port;
+	uint16_t retry;
 
 	/* chars */
 
