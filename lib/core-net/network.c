@@ -426,9 +426,20 @@ lws_retry_sul_schedule(struct lws_context *context, int tid,
 	if (!conceal)
 		return 1;
 
+	lwsl_info("%s: sul %p: scheduling retry in %dms\n", __func__, sul,
+			(int)ms);
+
 	lws_sul_schedule(context, tid, sul, cb, ms * 1000);
 
 	return 0;
+}
+
+int
+lws_retry_sul_schedule_retry_wsi(struct lws *wsi, lws_sorted_usec_list_t *sul,
+				 sul_cb_t cb, uint16_t *ctry)
+{
+	return lws_retry_sul_schedule(wsi->context, wsi->tsi, sul,
+				      wsi->retry_policy, cb, ctry);
 }
 
 #if defined(LWS_WITH_IPV6)

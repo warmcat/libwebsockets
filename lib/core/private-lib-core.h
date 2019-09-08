@@ -445,6 +445,8 @@ struct lws_context {
 	unsigned short deprecation_pending_listen_close_count;
 
 	uint8_t max_fi;
+	uint8_t udp_loss_sim_tx_pc;
+	uint8_t udp_loss_sim_rx_pc;
 
 #if defined(LWS_WITH_STATS)
 	uint8_t updated;

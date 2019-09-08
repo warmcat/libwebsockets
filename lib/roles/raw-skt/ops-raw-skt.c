@@ -92,10 +92,27 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 			goto try_pollout;
 		}
 
+		if (wsi->context->udp_loss_sim_rx_pc) {
+			uint16_t u16;
+			/*
+			 * We should randomly drop some of these
+			 */
+
+			if (lws_get_random(wsi->context, &u16, 2) == 2 &&
+			    ((u16 * 100) / 0xffff) <=
+				    wsi->context->udp_loss_sim_rx_pc) {
+				lwsl_warn("%s: dropping udp rx\n", __func__);
+				/* pretend it was handled */
+				n = ebuf.len;
+				goto post_rx;
+			}
+		}
+
 		n = user_callback_handle_rxflow(wsi->protocol->callback,
 						wsi, LWS_CALLBACK_RAW_RX,
 						wsi->user_space, ebuf.token,
 						ebuf.len);
+post_rx:
 		if (n < 0) {
 			lwsl_info("LWS_CALLBACK_RAW_RX_fail\n");
 			goto fail;

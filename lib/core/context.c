@@ -149,6 +149,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	int lpf = info->fd_limit_per_thread;
 
 	if (lpf) {
+		lpf++;
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 		lpf++;
 #endif
@@ -210,6 +211,14 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->groupname = info->groupname;
 	context->system_ops = info->system_ops;
 	context->pt_serv_buf_size = s1;
+	context->udp_loss_sim_tx_pc = info->udp_loss_sim_tx_pc;
+	context->udp_loss_sim_rx_pc = info->udp_loss_sim_rx_pc;
+
+	if (context->udp_loss_sim_tx_pc || context->udp_loss_sim_rx_pc)
+		lwsl_warn("%s: simulating udp loss tx: %d%%, rx: %d%%\n",
+			  __func__, context->udp_loss_sim_tx_pc,
+			  context->udp_loss_sim_rx_pc);
+
 #if defined(LWS_WITH_NETWORK)
 	context->count_threads = count_threads;
 #if defined(LWS_WITH_DETAILED_LATENCY)

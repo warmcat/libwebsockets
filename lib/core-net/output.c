@@ -336,6 +336,21 @@ lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 
 	if (lws_wsi_is_udp(wsi)) {
 #if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE)
+		if (wsi->context->udp_loss_sim_tx_pc) {
+			uint16_t u16;
+			/*
+			 * We should randomly drop some of these
+			 */
+
+			if (lws_get_random(wsi->context, &u16, 2) == 2 &&
+			    ((u16 * 100) / 0xffff) <=
+				    wsi->context->udp_loss_sim_tx_pc) {
+				lwsl_warn("%s: dropping udp tx\n", __func__);
+				/* pretend it was sent */
+				n = len;
+				goto post_send;
+			}
+		}
 		if (lws_has_buffered_out(wsi))
 			n = sendto(wsi->desc.sockfd, (const char *)buf,
 				   len, 0, &wsi->udp->sa_pending,
@@ -347,6 +362,8 @@ lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 	} else
 		n = send(wsi->desc.sockfd, (char *)buf, len, MSG_NOSIGNAL);
 //	lwsl_info("%s: sent len %d result %d", __func__, len, n);
+
+post_send:
 	if (n >= 0)
 		return n;
 

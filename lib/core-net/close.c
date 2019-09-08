@@ -71,6 +71,9 @@ __lws_reset_wsi(struct lws *wsi)
 	}
 #endif
 
+	if (wsi->vhost)
+		lws_dll2_remove(&wsi->vh_awaiting_socket);
+
 	/*
 	 * Protocol user data may be allocated either internally by lws
 	 * or by specified the user. We should only free what we allocated.
@@ -82,6 +85,7 @@ __lws_reset_wsi(struct lws *wsi)
 	lws_buflist_destroy_all_segments(&wsi->buflist);
 	lws_buflist_destroy_all_segments(&wsi->buflist_out);
 	lws_free_set_NULL(wsi->udp);
+	wsi->retry = 0;
 
 #if defined(LWS_WITH_CLIENT)
 	lws_dll2_remove(&wsi->dll2_cli_txn_queue);
@@ -145,8 +149,9 @@ __lws_free_wsi(struct lws *wsi)
 
 	lws_vhost_unbind_wsi(wsi);
 
-	lwsl_debug("%s: %p, remaining wsi %d\n", __func__, wsi,
-			wsi->context->count_wsi_allocated);
+	lwsl_debug("%s: %p, remaining wsi %d, tsi fds count %d\n", __func__, wsi,
+			wsi->context->count_wsi_allocated,
+			wsi->context->pt[(int)wsi->tsi].fds_count);
 
 	lws_free(wsi);
 }
@@ -215,7 +220,7 @@ lws_addrinfo_clean(struct lws *wsi)
 		return;
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
-	lws_async_dns_freeaddrinfo(wsi->dns_results);
+	lws_async_dns_freeaddrinfo(&wsi->dns_results);
 #else
 	freeaddrinfo((struct addrinfo *)wsi->dns_results);
 #endif
@@ -230,7 +235,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	struct lws_context_per_thread *pt;
 	struct lws *wsi1, *wsi2;
 	struct lws_context *context;
-	int n;
+	int n, ccb;
 
 	lwsl_info("%s: %p: caller: %s\n", __func__, wsi, caller);
 
@@ -409,6 +414,8 @@ just_kill_connection:
 	if (wsi->http.buflist_post_body)
 		lws_buflist_destroy_all_segments(&wsi->http.buflist_post_body);
 #endif
+	if (wsi->udp)
+		lws_free_set_NULL(wsi->udp);
 
 	if (wsi->role_ops->close_kill_connection)
 		wsi->role_ops->close_kill_connection(wsi, reason);
@@ -536,18 +543,15 @@ just_kill_connection:
 
 	/* tell the user it's all over for this guy */
 
+	ccb = 0;
 	if ((lwsi_state_est_PRE_CLOSE(wsi) ||
 	    /* raw skt adopted but didn't complete tls hs should CLOSE */
 	    (wsi->role_ops == &role_ops_raw_skt && !lwsi_role_client(wsi)) ||
 	     lwsi_state_PRE_CLOSE(wsi) == LRS_WAITING_SERVER_REPLY) &&
 	    !wsi->told_user_closed &&
 	    wsi->role_ops->close_cb[lwsi_role_server(wsi)]) {
-		const struct lws_protocols *pro = wsi->protocol;
-
-		if (!wsi->protocol && wsi->vhost && wsi->vhost->protocols)
-			pro = &wsi->vhost->protocols[0];
-
-		if (pro && (!wsi->upgraded_to_http2 || !lwsi_role_client(wsi)))
+		if (!wsi->upgraded_to_http2 || !lwsi_role_client(wsi))
+			ccb = 1;
 			/*
 			 * The network wsi for a client h2 connection shouldn't
 			 * call back for its role: the child stream connections
@@ -555,9 +559,27 @@ just_kill_connection:
 			 * one too many times as the children do it and then
 			 * the closing network stream.
 			 */
+	}
+
+	if (!wsi->told_user_closed &&
+	    !lws_dll2_is_detached(&wsi->vh_awaiting_socket))
+		/*
+		 * He's a guy who go started with dns, but failed or is
+		 * caught with a shutdown before he got the result.  We have
+		 * to issue him a close cb
+		 */
+		ccb = 1;
+
+	if (ccb) {
+		const struct lws_protocols *pro = wsi->protocol;
+
+		if (!wsi->protocol && wsi->vhost && wsi->vhost->protocols)
+			pro = &wsi->vhost->protocols[0];
+
+		if (pro)
 			pro->callback(wsi,
-			      wsi->role_ops->close_cb[lwsi_role_server(wsi)],
-			      wsi->user_space, NULL, 0);
+				wsi->role_ops->close_cb[lwsi_role_server(wsi)],
+				wsi->user_space, NULL, 0);
 		wsi->told_user_closed = 1;
 	}
 

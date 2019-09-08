@@ -16,6 +16,16 @@ various scenarios, CC0-licensed (public domain) for cut-and-paste, allow you to 
 News
 ----
 
+## UDP integration with `lws_retry`
+
+UDP support in lws has new helper that allow `lws_retry` to be applied for retry,
+and the ability to synthesize rx and tx udp packetloss systemwide to confirm
+retry strategies.  Since multiple transactions may be in flight on one UDP
+socket, the support relies on an `lws_sul` in the transaction object to manage
+the transaction retries individually.
+
+See `READMEs/README.udp.md` for details.
+
 ## `lws_system`: system state and notification handlers
 
 Lws now has the concept of systemwide state held in the context... this is to
