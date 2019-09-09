@@ -31,7 +31,6 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 	struct lws_context *context = wsi->context;
 	lws_sockfd_type accept_fd = LWS_SOCK_INVALID;
 	lws_sock_file_fd_type fd;
-	int opts = LWS_ADOPT_SOCKET | LWS_ADOPT_ALLOW_SSL;
 	struct sockaddr_storage cli_addr;
 	socklen_t clilen;
 
@@ -48,6 +47,7 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 
 	do {
 		struct lws *cwsi;
+		int opts = LWS_ADOPT_SOCKET | LWS_ADOPT_ALLOW_SSL;
 
 		if (!(pollfd->revents & (LWS_POLLIN | LWS_POLLOUT)) ||
 		    !(pollfd->events & LWS_POLLIN))
@@ -133,6 +133,11 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 		if (!(wsi->vhost->options &
 			LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG))
 			opts |= LWS_ADOPT_HTTP;
+
+#if defined(LWS_WITH_TLS)
+		if (!wsi->vhost->tls.use_ssl)
+#endif
+			opts &= ~LWS_ADOPT_ALLOW_SSL;
 
 		fd.sockfd = accept_fd;
 		cwsi = lws_adopt_descriptor_vhost(wsi->vhost, opts, fd,
