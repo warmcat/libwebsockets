@@ -252,10 +252,12 @@ bad_onward:
 		break;
 
         case LWS_CALLBACK_RAW_PROXY_CLI_ADOPT:
-		lwsl_debug("LWS_CALLBACK_RAW_CLI_ADOPT: pss %p\n", pss);
+		lwsl_debug("%s: %p: LWS_CALLBACK_RAW_CLI_ADOPT: pss %p\n", __func__, wsi, pss);
 		if (conn || !pss)
 			break;
 		conn = pss->conn = lws_get_opaque_user_data(wsi);
+		if (!conn)
+			break;
 		conn->established[ONW] = 1;
 		/* they start enabled */
 		conn->rx_enabled[ACC] = 1;
@@ -444,6 +446,9 @@ bad_onward:
 			lwsl_info(" closed[ONW] %d\n", conn->closed[ONW]);
 			return -1;
 		}
+
+		if (!len)
+			return 0;
 
 		pkt.payload = malloc(len);
 		if (!pkt.payload) {

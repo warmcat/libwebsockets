@@ -206,7 +206,8 @@ rops_client_bind_raw_skt(struct lws *wsi,
 
 	/* we are a fallback if nothing else matched */
 
-	lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED,
+	if (!i->local_protocol_name || strcmp(i->local_protocol_name, "raw-proxy"))
+		lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED,
 			    &role_ops_raw_skt);
 
 	return 1; /* matched */

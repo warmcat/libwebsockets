@@ -584,7 +584,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
 		if (!lws_get_parent(wsi))
 			break;
-		lwsl_err("%s: LWS_CALLBACK_CLOSED_CLIENT_HTTP\n", __func__);
+	//	lwsl_err("%s: LWS_CALLBACK_CLOSED_CLIENT_HTTP\n", __func__);
                lws_set_timeout(lws_get_parent(wsi), LWS_TO_KILL_ASYNC,
                                PENDING_TIMEOUT_KILLED_BY_PROXY_CLIENT_CLOSE);
 		break;
