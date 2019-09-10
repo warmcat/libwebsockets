@@ -45,6 +45,8 @@ static const char * const paths_global[] = {
 	"global.reject-service-keywords[].*",
 	"global.reject-service-keywords[]",
 	"global.default-alpn",
+	"global.ip-limit-ah",
+	"global.ip-limit-wsi",
 };
 
 enum lejp_global_paths {
@@ -61,6 +63,8 @@ enum lejp_global_paths {
 	LWJPGP_REJECT_SERVICE_KEYWORDS_NAME,
 	LWJPGP_REJECT_SERVICE_KEYWORDS,
 	LWJPGP_DEFAULT_ALPN,
+	LWJPGP_IP_LIMIT_AH,
+	LWJPGP_IP_LIMIT_WSI,
 };
 
 static const char * const paths_vhosts[] = {
@@ -331,6 +335,14 @@ lejp_globals_cb(struct lejp_ctx *ctx, char reason)
 	case LWJPGP_DEFAULT_ALPN:
 		a->info->alpn = a->p;
 		break;
+
+	case LWJPGP_IP_LIMIT_AH:
+		a->info->ip_limit_ah = atoi(ctx->buf);
+		return 0;
+
+	case LWJPGP_IP_LIMIT_WSI:
+		a->info->ip_limit_wsi = atoi(ctx->buf);
+		return 0;
 
 	default:
 		return 0;
