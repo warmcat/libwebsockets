@@ -148,12 +148,12 @@ enum {
 	LWS_RXFLOW_PENDING_CHANGE = (1 << 1),
 };
 
-enum lws_parser_return {
-	LPR_OK		= 0,
+typedef enum lws_parser_return {
+	LPR_FORBIDDEN	= -2,
 	LPR_FAIL	= -1,
+	LPR_OK		= 0,
 	LPR_DO_FALLBACK = 2,
-	LPR_FORBIDDEN	= -2
-};
+} lws_parser_return_t;
 
 enum pmd_return {
 	PMDR_UNKNOWN,
@@ -933,7 +933,7 @@ lws_has_buffered_out(struct lws *wsi) { return !!wsi->buflist_out; }
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_ws_client_rx_sm(struct lws *wsi, unsigned char c);
 
-LWS_EXTERN int LWS_WARN_UNUSED_RESULT
+LWS_EXTERN lws_parser_return_t LWS_WARN_UNUSED_RESULT
 lws_parse(struct lws *wsi, unsigned char *buf, int *len);
 
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT

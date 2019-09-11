@@ -37,41 +37,6 @@ static const unsigned char lextable[] = {
 #define UHO_LL		4
 #define UHO_NAME	8
 
-static uint16_t
-lws_un16be_get(const void *_p)
-{
-	const uint8_t *p = _p;
-
-	return ((uint16_t)p[0] << 8) | p[1];
-}
-
-static void
-lws_un16be_set(void *_p, uint16_t v)
-{
-	uint8_t *p = _p;
-
-	*p++ = (uint8_t)(v >> 8);
-	*p++ = (uint8_t)v;
-}
-
-static uint32_t
-lws_un32be_get(const void *_p)
-{
-	const uint8_t *p = _p;
-
-	return (uint32_t)((p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3]);
-}
-
-static void
-lws_un32be_set(void *_p, uint32_t v)
-{
-	uint8_t *p = _p;
-
-	*p++ = (uint8_t)(v >> 24);
-	*p++ = (uint8_t)(v >> 16);
-	*p++ = (uint8_t)(v >> 8);
-	*p = (uint8_t)v;
-}
 #endif
 
 static struct allocated_headers *
@@ -617,11 +582,13 @@ lws_hdr_custom_length(struct lws *wsi, const char *name, int nlen)
 	while (ll) {
 		if (ll >= wsi->http.ah->data_length)
 			return -1;
-		if (nlen == lws_un16be_get(&wsi->http.ah->data[ll + UHO_NLEN]) &&
+		if (nlen == lws_ser_ru16be(
+			(uint8_t *)&wsi->http.ah->data[ll + UHO_NLEN]) &&
 		    !strncmp(name, &wsi->http.ah->data[ll + UHO_NAME], nlen))
-			return lws_un16be_get(&wsi->http.ah->data[ll + UHO_VLEN]);
+			return lws_ser_ru16be(
+				(uint8_t *)&wsi->http.ah->data[ll + UHO_VLEN]);
 
-		ll = lws_un32be_get(&wsi->http.ah->data[ll + UHO_LL]);
+		ll = lws_ser_ru32be((uint8_t *)&wsi->http.ah->data[ll + UHO_LL]);
 	}
 
 	return -1;
@@ -643,9 +610,11 @@ lws_hdr_custom_copy(struct lws *wsi, char *dst, int len, const char *name,
 	while (ll) {
 		if (ll >= wsi->http.ah->data_length)
 			return -1;
-		if (nlen == lws_un16be_get(&wsi->http.ah->data[ll + UHO_NLEN]) &&
+		if (nlen == lws_ser_ru16be(
+			(uint8_t *)&wsi->http.ah->data[ll + UHO_NLEN]) &&
 		    !strncmp(name, &wsi->http.ah->data[ll + UHO_NAME], nlen)) {
-			n = lws_un16be_get(&wsi->http.ah->data[ll + UHO_VLEN]);
+			n = lws_ser_ru16be(
+				(uint8_t *)&wsi->http.ah->data[ll + UHO_VLEN]);
 			if (n + 1 > len)
 				return -1;
 			strncpy(dst, &wsi->http.ah->data[ll + UHO_NAME + nlen], n);
@@ -653,7 +622,7 @@ lws_hdr_custom_copy(struct lws *wsi, char *dst, int len, const char *name,
 
 			return n;
 		}
-		ll = lws_un32be_get(&wsi->http.ah->data[ll + UHO_LL]);
+		ll = lws_ser_ru32be((uint8_t *)&wsi->http.ah->data[ll + UHO_LL]);
 	}
 
 	return -1;
@@ -684,7 +653,7 @@ lws_pos_in_bounds(struct lws *wsi)
 	    (unsigned int)wsi->context->max_http_header_data)
 		return 0;
 
-	if ((int)wsi->http.ah->pos == wsi->context->max_http_header_data) {
+	if ((int)wsi->http.ah->pos >= wsi->context->max_http_header_data - 1) {
 		lwsl_err("Ran out of header data space\n");
 		return 1;
 	}
@@ -967,7 +936,7 @@ static const unsigned char methods[] = {
  * possible returns:, -1 fail, 0 ok or 2, transition to raw
  */
 
-int LWS_WARN_UNUSED_RESULT
+lws_parser_return_t LWS_WARN_UNUSED_RESULT
 lws_parse(struct lws *wsi, unsigned char *buf, int *len)
 {
 	struct allocated_headers *ah = wsi->http.ah;
@@ -989,7 +958,7 @@ lws_parse(struct lws *wsi, unsigned char *buf, int *len)
 			if (c == '\r')
 				break;
 			if (c == '\n') {
-				lws_un16be_set(&ah->data[ah->unk_pos + 2],
+				lws_ser_wu16be((uint8_t *)&ah->data[ah->unk_pos + 2],
 					       ah->pos - ah->unk_value_pos);
 				ah->parser_state = WSI_TOKEN_NAME_PART;
 				ah->unk_pos = 0;
@@ -1002,7 +971,7 @@ lws_parse(struct lws *wsi, unsigned char *buf, int *len)
 			    (c != ' ' && c != '\t')) {
 
 				if (lws_pos_in_bounds(wsi))
-					return -1;
+					return LPR_FAIL;
 
 				ah->data[ah->pos++] = c;
 			}
@@ -1032,7 +1001,7 @@ lws_parse(struct lws *wsi, unsigned char *buf, int *len)
 				/* enforce starting with / */
 				if (!ah->frags[ah->nfrag].len)
 					if (issue_char(wsi, '/') < 0)
-						return -1;
+						return LPR_FAIL;
 
 				if (ah->ups == URIPS_SEEN_SLASH_DOT_DOT) {
 					/*
@@ -1054,7 +1023,7 @@ lws_parse(struct lws *wsi, unsigned char *buf, int *len)
 
 				/* begin parsing HTTP version: */
 				if (issue_char(wsi, '\0') < 0)
-					return -1;
+					return LPR_FAIL;
 				ah->parser_state = WSI_TOKEN_HTTP;
 				goto start_fragment;
 			}
@@ -1131,7 +1100,7 @@ swallow:
 #endif
 
 			if (lws_pos_in_bounds(wsi))
-				return -1;
+				return LPR_FAIL;
 
 			ah->data[ah->pos++] = c;
 			pos = ah->lextable_pos;
@@ -1148,7 +1117,8 @@ swallow:
 					ah->unk_ll_head = ah->unk_pos;
 
 				if (ah->unk_ll_tail)
-					lws_un32be_set(&ah->data[ah->unk_ll_tail + UHO_LL],
+					lws_ser_wu32be(
+				(uint8_t *)&ah->data[ah->unk_ll_tail + UHO_LL],
 						       ah->unk_pos);
 
 				ah->unk_ll_tail = ah->unk_pos;
@@ -1161,7 +1131,7 @@ swallow:
 
 				/* set the unknown header name part length */
 
-				lws_un16be_set(&ah->data[ah->unk_pos],
+				lws_ser_wu16be((uint8_t *)&ah->data[ah->unk_pos],
 					       (ah->pos - ah->unk_pos) - UHO_NAME);
 
 				ah->unk_value_pos = ah->pos;
