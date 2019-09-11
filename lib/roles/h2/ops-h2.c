@@ -291,7 +291,8 @@ drain:
 				if (m) {
 					lwsl_debug("%s: added %p to rxflow list\n",
 							__func__, wsi);
-					lws_dll2_add_head(&wsi->dll_buflist,
+					if (lws_dll2_is_detached(&wsi->dll_buflist))
+						lws_dll2_add_head(&wsi->dll_buflist,
 							 &pt->dll_buflist_owner);
 				}
 			}

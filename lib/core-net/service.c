@@ -269,13 +269,15 @@ lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len)
 
 	/* a new rxflow, buffer it and warn caller */
 
+	lwsl_debug("%s: rxflow append %d\n", __func__, len - n);
 	m = lws_buflist_append_segment(&wsi->buflist, buf + n, len - n);
 
 	if (m < 0)
 		return LWSRXFC_ERROR;
 	if (m) {
 		lwsl_debug("%s: added %p to rxflow list\n", __func__, wsi);
-		lws_dll2_add_head(&wsi->dll_buflist, &pt->dll_buflist_owner);
+		if (lws_dll2_is_detached(&wsi->dll_buflist))
+			lws_dll2_add_head(&wsi->dll_buflist, &pt->dll_buflist_owner);
 	}
 
 	return ret;
@@ -366,12 +368,14 @@ lws_buflist_aware_read(struct lws_context_per_thread *pt, struct lws *wsi,
 
 	/* stash what we read */
 
+	// lwsl_debug("%s: appending %d\n", __func__, ebuf->len);
 	n = lws_buflist_append_segment(&wsi->buflist, ebuf->token, ebuf->len);
 	if (n < 0)
 		return -1;
 	if (n) {
-		lwsl_debug("%s: added %p to rxflow list\n", __func__, wsi);
-		lws_dll2_add_head(&wsi->dll_buflist, &pt->dll_buflist_owner);
+		// lwsl_debug("%s: added %p to rxflow list\n", __func__, wsi);
+		if (lws_dll2_is_detached(&wsi->dll_buflist))
+			lws_dll2_add_head(&wsi->dll_buflist, &pt->dll_buflist_owner);
 	}
 
 	/* get the first buflist guy in line */
@@ -420,9 +424,11 @@ lws_buflist_aware_consume(struct lws *wsi, struct lws_tokens *ebuf, int used,
 		if (m) {
 			lwsl_debug("%s: added %p to rxflow list\n",
 				   __func__, wsi);
-			lws_dll2_add_head(&wsi->dll_buflist,
+			if (lws_dll2_is_detached(&wsi->dll_buflist))
+				lws_dll2_add_head(&wsi->dll_buflist,
 					 &pt->dll_buflist_owner);
 		}
+		// lws_buflist_describe(&wsi->buflist, wsi);
 	}
 
 	return 0;

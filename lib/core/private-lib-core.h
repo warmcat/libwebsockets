@@ -464,13 +464,9 @@ signed char char_to_hex(const char c);
 
 struct lws_buflist {
 	struct lws_buflist *next;
-
 	size_t len;
 	size_t pos;
-
-	uint8_t buf[1]; /* true length of this is set by the oversize malloc */
 };
-
 
 LWS_EXTERN char *
 lws_strdup(const char *s);

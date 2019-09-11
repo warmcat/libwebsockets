@@ -141,7 +141,6 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 	switch (lwsi_state(wsi)) {
 
 	case LRS_WAITING_DNS:
-
 		/*
 		 * we are under PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE
 		 * timeout protection set in client-handshake.c

@@ -1349,7 +1349,8 @@ int lws_add_http2_header_by_name(struct lws *wsi, const unsigned char *name,
 {
 	int len;
 
-	lwsl_header("%s: %p  %s:%s\n", __func__, *p, name, value);
+	lwsl_header("%s: %p  %s:%s (len %d)\n", __func__, *p, name, value,
+					length);
 
 	len = (int)strlen((char *)name);
 	if (len)

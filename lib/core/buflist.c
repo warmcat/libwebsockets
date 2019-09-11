@@ -59,7 +59,8 @@ lws_buflist_append_segment(struct lws_buflist **head, const uint8_t *buf,
 	lwsl_info("%s: len %u first %d %p\n", __func__, (unsigned int)len,
 					      first, p);
 
-	nbuf = (struct lws_buflist *)lws_malloc(sizeof(**head) + len, __func__);
+	nbuf = (struct lws_buflist *)lws_malloc(
+			sizeof(struct lws_buflist) + len + LWS_PRE, __func__);
 	if (!nbuf) {
 		lwsl_err("%s: OOM\n", __func__);
 		return -1;
@@ -69,7 +70,8 @@ lws_buflist_append_segment(struct lws_buflist **head, const uint8_t *buf,
 	nbuf->pos = 0;
 	nbuf->next = NULL;
 
-	p = (void *)nbuf->buf;
+	/* whoever consumes this might need LWS_PRE from the start... */
+	p = (uint8_t *)nbuf + sizeof(*nbuf) + LWS_PRE;
 	memcpy(p, buf, len);
 
 	*head = nbuf;
@@ -85,6 +87,7 @@ lws_buflist_destroy_segment(struct lws_buflist **head)
 	assert(*head);
 	*head = old->next;
 	old->next = NULL;
+	old->pos = old->len = 0;
 	lws_free(old);
 
 	return !*head; /* returns 1 if last segment just destroyed */
@@ -108,48 +111,60 @@ lws_buflist_destroy_all_segments(struct lws_buflist **head)
 size_t
 lws_buflist_next_segment_len(struct lws_buflist **head, uint8_t **buf)
 {
-	if (!*head) {
+	struct lws_buflist *b = (*head);
+
+	if (!b) {
 		if (buf)
 			*buf = NULL;
 
 		return 0;
 	}
 
-	if (!(*head)->len && (*head)->next)
+	if (!b->len && b->next)
 		lws_buflist_destroy_segment(head);
 
-	if (!*head) {
+	if (!b) {
 		if (buf)
 			*buf = NULL;
 
 		return 0;
 	}
 
-	assert((*head)->pos < (*head)->len);
+	assert(b->pos < b->len);
 
 	if (buf)
-		*buf = (*head)->buf + (*head)->pos;
+		*buf = ((uint8_t *)b) + sizeof(*b) + b->pos + LWS_PRE;
 
-	return (*head)->len - (*head)->pos;
+	return b->len - b->pos;
 }
 
 int
 lws_buflist_use_segment(struct lws_buflist **head, size_t len)
 {
-	assert(*head);
+	struct lws_buflist *b = (*head);
+
+	assert(b);
 	assert(len);
-	assert((*head)->pos + len <= (*head)->len);
+	assert(b->pos + len <= b->len);
 
-	(*head)->pos += len;
-	if ((*head)->pos == (*head)->len)
-		lws_buflist_destroy_segment(head);
+	b->pos = b->pos + (size_t)len;
 
-	if (!*head)
-		return 0;
+	assert(b->pos <= b->len);
 
-	return (int)((*head)->len - (*head)->pos);
+	if (b->pos < b->len)
+		return (int)(b->len - b->pos);
+
+	if (b->pos == b->len) {
+		if (lws_buflist_destroy_segment(head))
+			return 0;
+
+		return lws_buflist_next_segment_len(head, NULL);
+	}
+
+	return 0;
 }
 
+#if defined(_DEBUG)
 void
 lws_buflist_describe(struct lws_buflist **head, void *id)
 {
@@ -173,3 +188,4 @@ lws_buflist_describe(struct lws_buflist **head, void *id)
 		n++;
 	}
 }
+#endif

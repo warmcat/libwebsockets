@@ -224,7 +224,8 @@ lws_json_dump_context(const struct lws_context *context, char *buf, int len,
 				"\"ah_pool_max\":\"%d\",\n"
 				"\"deprecated\":\"%d\",\n"
 				"\"wsi_alive\":\"%d\",\n",
-				(unsigned long long)(lws_now_usecs() - context->time_up),
+				(unsigned long long)(lws_now_usecs() - context->time_up) /
+					LWS_US_PER_SEC,
 				context->count_cgi_spawned,
 				context->fd_limit_per_thread,
 				context->max_http_header_pool,

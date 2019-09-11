@@ -261,7 +261,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 	struct lws_cgi_args *args;
 #endif
 #if defined(LWS_WITH_CGI) || defined(LWS_WITH_HTTP_PROXY)
-	char buf[8192];
+	char buf[LWS_PRE + 32 + 8192];
 	int n;
 #endif
 #if defined(LWS_WITH_HTTP_PROXY)
