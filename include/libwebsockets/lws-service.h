@@ -45,7 +45,7 @@
  *	2) Call the receive callback for incoming frame data received by
  *	    server or client connections.
  *
- *  Since v4.0 internally the timeout wait is ignored, the lws scheduler is
+ *  Since v3.2 internally the timeout wait is ignored, the lws scheduler is
  *  smart enough to stay asleep until an event is queued.
  */
 LWS_VISIBLE LWS_EXTERN int
@@ -94,7 +94,7 @@ lws_cancel_service(struct lws_context *context);
  * lws_service_fd() - Service polled socket with something waiting
  * \param context:	Websocket context
  * \param pollfd:	The pollfd entry describing the socket fd and which events
- *		happened, or NULL to tell lws to do only timeout servicing.
+ *		happened
  *
  * This function takes a pollfd that has POLLIN or POLLOUT activity and
  * services it according to the state of the associated
@@ -111,6 +111,10 @@ lws_cancel_service(struct lws_context *context);
  * If the socket is foreign to lws, it leaves revents alone.  So you can
  * see if you should service yourself by checking the pollfd revents
  * after letting lws try to service it.
+ *
+ * lws before v3.2 allowed pollfd to be NULL, to indicate that background
+ * periodic processing should be done.  Since v3.2, lws schedules any items
+ * that need handling in the future using lws_sul and NULL is no longer valid.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_service_fd(struct lws_context *context, struct lws_pollfd *pollfd);
