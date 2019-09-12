@@ -1700,7 +1700,7 @@ deal_body:
 				if (m < 0)
 					return -1;
 
-				if (lws_buflist_aware_consume(wsi, &ebuf, m, 1))
+				if (lws_buflist_aware_consume(wsi, &ebuf, m, 1, __func__))
 					return -1;
 			}
 		}
@@ -2264,7 +2264,7 @@ lws_http_transaction_completed(struct lws *wsi)
 	 * reset the existing header table and keep it.
 	 */
 	if (wsi->http.ah) {
-		// lws_buflist_describe(&wsi->buflist, wsi);
+		// lws_buflist_describe(&wsi->buflist, wsi, __func__);
 		if (!lws_buflist_next_segment_len(&wsi->buflist, NULL)) {
 			lwsl_debug("%s: %p: nothing in buflist, detaching ah\n",
 				  __func__, wsi);

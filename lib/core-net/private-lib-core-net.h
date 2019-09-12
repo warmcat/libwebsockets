@@ -1191,10 +1191,10 @@ lws_seq_pt_init(struct lws_context_per_thread *pt);
 
 int
 lws_buflist_aware_read(struct lws_context_per_thread *pt, struct lws *wsi,
-		       struct lws_tokens *ebuf);
+		       struct lws_tokens *ebuf, const char *hint);
 int
 lws_buflist_aware_consume(struct lws *wsi, struct lws_tokens *ebuf, int used,
-			  int buffered);
+			  int buffered, const char *hint);
 
 extern const struct lws_protocols protocol_abs_client_raw_skt,
 				  protocol_abs_client_unit_test;

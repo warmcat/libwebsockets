@@ -1150,7 +1150,7 @@ rops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
 	/* 3: buflist needs to be drained
 	 */
 read:
-	//lws_buflist_describe(&wsi->buflist, wsi);
+	//lws_buflist_describe(&wsi->buflist, wsi, __func__);
 	ebuf.len = (int)lws_buflist_next_segment_len(&wsi->buflist,
 						     &ebuf.token);
 	if (ebuf.len) {
@@ -1236,7 +1236,7 @@ drain:
 	do {
 
 		/* service incoming data */
-		//lws_buflist_describe(&wsi->buflist, wsi);
+		//lws_buflist_describe(&wsi->buflist, wsi, __func__);
 		if (ebuf.len) {
 #if defined(LWS_ROLE_H2)
 			if (lwsi_role_h2(wsi) && lwsi_state(wsi) != LRS_BODY &&
@@ -1253,9 +1253,9 @@ drain:
 				n = 0;
 				return LWS_HPI_RET_WSI_ALREADY_DIED;
 			}
-			//lws_buflist_describe(&wsi->buflist, wsi);
+			//lws_buflist_describe(&wsi->buflist, wsi, __func__);
 			//lwsl_notice("%s: consuming %d / %d\n", __func__, n, ebuf.len);
-			if (lws_buflist_aware_consume(wsi, &ebuf, n, buffered))
+			if (lws_buflist_aware_consume(wsi, &ebuf, n, buffered, __func__))
 				return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}
 

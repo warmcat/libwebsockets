@@ -1938,7 +1938,7 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 				{
 
 					if (lwsi_state(h2n->swsi) == LRS_DEFERRING_ACTION) {
-						// lwsl_notice("appending because we are in LRS_DEFERRING_ACTION\n");
+						// lwsl_notice("%s: appending because we are in LRS_DEFERRING_ACTION\n", __func__);
 						m = lws_buflist_append_segment(
 							&h2n->swsi->buflist,
 								in - 1, n);

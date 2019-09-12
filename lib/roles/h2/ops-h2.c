@@ -179,7 +179,7 @@ rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 read:
 	/* 3: network wsi buflist needs to be drained */
 
-	// lws_buflist_describe(&wsi->buflist, wsi);
+	// lws_buflist_describe(&wsi->buflist, wsi, __func__);
 
 	ebuf.len = (int)lws_buflist_next_segment_len(&wsi->buflist,
 						&ebuf.token);
@@ -298,7 +298,7 @@ drain:
 			}
 	}
 
-	// lws_buflist_describe(&wsi->buflist, wsi);
+	// lws_buflist_describe(&wsi->buflist, wsi, __func__);
 
 #if 0
 

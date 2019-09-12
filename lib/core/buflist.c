@@ -113,22 +113,19 @@ lws_buflist_next_segment_len(struct lws_buflist **head, uint8_t **buf)
 {
 	struct lws_buflist *b = (*head);
 
-	if (!b) {
-		if (buf)
-			*buf = NULL;
+	if (buf)
+		*buf = NULL;
 
-		return 0;
-	}
+	if (!b)
+		return 0;	/* there is no next segment len */
 
 	if (!b->len && b->next)
-		lws_buflist_destroy_segment(head);
+		if (lws_buflist_destroy_segment(head))
+			return 0;
 
-	if (!b) {
-		if (buf)
-			*buf = NULL;
-
-		return 0;
-	}
+	b = (*head);
+	if (!b)
+		return 0;	/* there is no next segment len */
 
 	assert(b->pos < b->len);
 
@@ -154,28 +151,26 @@ lws_buflist_use_segment(struct lws_buflist **head, size_t len)
 	if (b->pos < b->len)
 		return (int)(b->len - b->pos);
 
-	if (b->pos == b->len) {
-		if (lws_buflist_destroy_segment(head))
-			return 0;
+	if (lws_buflist_destroy_segment(head))
+		/* last segment was just destroyed */
+		return 0;
 
-		return lws_buflist_next_segment_len(head, NULL);
-	}
-
-	return 0;
+	return lws_buflist_next_segment_len(head, NULL);
 }
 
 #if defined(_DEBUG)
 void
-lws_buflist_describe(struct lws_buflist **head, void *id)
+lws_buflist_describe(struct lws_buflist **head, void *id, const char *reason)
 {
 	struct lws_buflist *old;
 	int n = 0;
 
 	if (*head == NULL)
-		lwsl_notice("%p: buflist empty\n", id);
+		lwsl_notice("%p: %sL buflist empty\n", id, reason);
 
 	while (*head) {
-		lwsl_notice("%p: %d: %llu / %llu (%llu left)\n", id, n,
+		lwsl_notice("%p: %s: %d: %llu / %llu (%llu left)\n", id,
+			    reason, n,
 			    (unsigned long long)(*head)->pos,
 			    (unsigned long long)(*head)->len,
 			    (unsigned long long)(*head)->len - (*head)->pos);

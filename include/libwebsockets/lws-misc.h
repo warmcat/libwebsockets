@@ -393,8 +393,18 @@ lws_buflist_use_segment(struct lws_buflist **head, size_t len);
 LWS_VISIBLE LWS_EXTERN void
 lws_buflist_destroy_all_segments(struct lws_buflist **head);
 
-void
-lws_buflist_describe(struct lws_buflist **head, void *id);
+/**
+ * lws_buflist_describe(): debug helper logging buflist status
+ *
+ * \param head: list head
+ * \param id: pointer shown in debug list
+ * \param reason: reason string show in debug list
+ *
+ * Iterates through the buflist segments showing position and size.
+ * This only exists when lws was built in debug mode
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_buflist_describe(struct lws_buflist **head, void *id, const char *reason);
 
 /**
  * lws_ptr_diff(): helper to report distance between pointers as an int

@@ -347,15 +347,29 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
  */
 int
 lws_buflist_aware_read(struct lws_context_per_thread *pt, struct lws *wsi,
-		       struct lws_tokens *ebuf)
+		       struct lws_tokens *ebuf, const char *hint)
 {
 	int n, prior = (int)lws_buflist_next_segment_len(&wsi->buflist, NULL);
 
-	ebuf->token = pt->serv_buf;
-	ebuf->len = lws_ssl_capable_read(wsi, pt->serv_buf,
-					 wsi->context->pt_serv_buf_size);
 
-	if (ebuf->len == LWS_SSL_CAPABLE_MORE_SERVICE && prior)
+	// lwsl_debug("%s: wsi %p: %s: prior %d\n", __func__, wsi, hint, prior);
+	// lws_buflist_describe(&wsi->buflist, wsi, __func__);
+
+	(void)hint;
+	ebuf->token = pt->serv_buf;
+	n = lws_ssl_capable_read(wsi, pt->serv_buf,
+				 wsi->context->pt_serv_buf_size);
+	ebuf->len = n;
+
+	lwsl_info("%s: wsi %p: %s: ssl_capable_read %d (prior %d)\n", __func__,
+			wsi, hint, ebuf->len, prior);
+
+	if (n == LWS_SSL_CAPABLE_ERROR && !prior) {
+		lwsl_info("%s: SSL_CAPABLE_ERROR with no prior\n", __func__);
+		return -1;
+	}
+
+	if (ebuf->len < 0 && prior)
 		goto get_from_buflist;
 
 	if (ebuf->len <= 0)
@@ -385,15 +399,22 @@ get_from_buflist:
 	ebuf->len = (int)lws_buflist_next_segment_len(&wsi->buflist,
 						      &ebuf->token);
 
+	lwsl_debug("%s: wsi %p: get from buflist told %d\n", __func__, wsi, ebuf->len);
+
 	return 1; /* came from buflist */
 }
 
 int
 lws_buflist_aware_consume(struct lws *wsi, struct lws_tokens *ebuf, int used,
-			  int buffered)
+			  int buffered, const char *hint)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	int m;
+
+	//lwsl_debug("%s %s consuming buffered %d used %zu / %zu\n", __func__, hint,
+	//		buffered, (size_t)used, (size_t)ebuf->len);
+
+	// lws_buflist_describe(&wsi->buflist, wsi, __func__);
 
 	/* it's in the buflist; we didn't use any */
 
@@ -402,8 +423,8 @@ lws_buflist_aware_consume(struct lws *wsi, struct lws_tokens *ebuf, int used,
 
 	if (used && buffered) {
 		m = lws_buflist_use_segment(&wsi->buflist, used);
-		lwsl_info("%s: draining rxflow: used %d, next %d\n",
-			    __func__, used, m);
+		// lwsl_notice("%s: used %d, next %d\n", __func__, used, m);
+		// lws_buflist_describe(&wsi->buflist, wsi, __func__);
 		if (m)
 			return 0;
 
@@ -428,7 +449,7 @@ lws_buflist_aware_consume(struct lws *wsi, struct lws_tokens *ebuf, int used,
 				lws_dll2_add_head(&wsi->dll_buflist,
 					 &pt->dll_buflist_owner);
 		}
-		// lws_buflist_describe(&wsi->buflist, wsi);
+		// lws_buflist_describe(&wsi->buflist, wsi, __func__);
 	}
 
 	return 0;
