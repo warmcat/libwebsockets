@@ -35,7 +35,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	volatile struct lws_context_per_thread *vpt;
 	struct lws_context_per_thread *pt;
 	lws_usec_t timeout_us;
-	int n = -1, m, c;
+	int n = -1, m, c, a = 0;
 
 	/* stay dead once we are dead */
 
@@ -48,10 +48,10 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	lws_stats_bump(pt, LWSSTATS_C_SERVICE_ENTRY, 1);
 
 	if (timeout_ms < 0)
-		goto faked_service;
-
-	/* force a default timeout of 23 days */
-	timeout_ms = 2000000000;
+		timeout_ms = 0;
+	else
+		/* force a default timeout of 23 days */
+		timeout_ms = 2000000000;
 	timeout_us = ((lws_usec_t)timeout_ms) * LWS_US_PER_MS;
 
 	if (context->event_loop_ops->run_pt)
@@ -72,90 +72,97 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	/*
 	 * is there anybody with pending stuff that needs service forcing?
 	 */
-	if (!lws_service_adjust_timeout(context, 1, tsi)) {
-		/* -1 timeout means just do forced service */
-		_lws_plat_service_tsi(context, -1, pt->tid);
-		/* still somebody left who wants forced service? */
-		if (!lws_service_adjust_timeout(context, 1, pt->tid))
-			/* yes... come back again quickly */
-			timeout_us = 0;
-	}
+	if (lws_service_adjust_timeout(context, 1, tsi)) {
 
-	if (timeout_us) {
-		lws_usec_t us;
+again:
+		a = 0;
+		if (timeout_us) {
+			lws_usec_t us;
+
+			lws_pt_lock(pt, __func__);
+			/* don't stay in poll wait longer than next hr timeout */
+			us = __lws_sul_check(&pt->pt_sul_owner, lws_now_usecs());
+			if (us && us < timeout_us)
+				timeout_us = us;
+
+			lws_pt_unlock(pt);
+		}
+
+		vpt->inside_poll = 1;
+		lws_memory_barrier();
+		n = poll(pt->fds, pt->fds_count, timeout_us / LWS_US_PER_MS);
+		vpt->inside_poll = 0;
+		lws_memory_barrier();
+
+	#if defined(LWS_WITH_DETAILED_LATENCY)
+		/*
+		 * so we can track how long it took before we actually read a
+		 * POLLIN that was signalled when we last exited poll()
+		 */
+		if (context->detailed_latency_cb)
+			pt->ust_left_poll = lws_now_usecs();
+	#endif
+
+		/* Collision will be rare and brief.  Spin until it completes */
+		while (vpt->foreign_spinlock)
+			;
+
+		/*
+		 * At this point we are not inside a foreign thread pollfd
+		 * change, and we have marked ourselves as outside the poll()
+		 * wait.  So we are the only guys that can modify the
+		 * lws_foreign_thread_pollfd list on the pt.  Drain the list
+		 * and apply the changes to the affected pollfds in the correct
+		 * order.
+		 */
 
 		lws_pt_lock(pt, __func__);
-		/* don't stay in poll wait longer than next hr timeout */
-		us = __lws_sul_check(&pt->pt_sul_owner, lws_now_usecs());
-		if (us && us < timeout_us)
-			timeout_us = us;
+
+		ftp = vpt->foreign_pfd_list;
+		//lwsl_notice("cleared list %p\n", ftp);
+		while (ftp) {
+			struct lws *wsi;
+			struct lws_pollfd *pfd;
+
+			next = ftp->next;
+			pfd = &vpt->fds[ftp->fd_index];
+			if (lws_socket_is_valid(pfd->fd)) {
+				wsi = wsi_from_fd(context, pfd->fd);
+				if (wsi)
+					__lws_change_pollfd(wsi, ftp->_and,
+							    ftp->_or);
+			}
+			lws_free((void *)ftp);
+			ftp = next;
+		}
+		vpt->foreign_pfd_list = NULL;
+		lws_memory_barrier();
 
 		lws_pt_unlock(pt);
-	}
 
-	vpt->inside_poll = 1;
-	lws_memory_barrier();
-	n = poll(pt->fds, pt->fds_count, timeout_us / LWS_US_PER_MS);
-	vpt->inside_poll = 0;
-	lws_memory_barrier();
+		m = 0;
+	#if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
+		m |= !!pt->ws.rx_draining_ext_list;
+	#endif
 
-	/* Collision will be rare and brief.  Just spin until it completes */
-	while (vpt->foreign_spinlock)
-		;
+	#if defined(LWS_WITH_TLS)
+		if (pt->context->tls_ops &&
+		    pt->context->tls_ops->fake_POLLIN_for_buffered)
+			m |= pt->context->tls_ops->fake_POLLIN_for_buffered(pt);
+	#endif
 
-	/*
-	 * At this point we are not inside a foreign thread pollfd change,
-	 * and we have marked ourselves as outside the poll() wait.  So we
-	 * are the only guys that can modify the lws_foreign_thread_pollfd
-	 * list on the pt.  Drain the list and apply the changes to the
-	 * affected pollfds in the correct order.
-	 */
+		if (
+	#if (defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)) || defined(LWS_WITH_TLS)
+			!m &&
+	#endif
+			!n) { /* nothing to do */
+			lws_service_do_ripe_rxflow(pt);
 
-	lws_pt_lock(pt, __func__);
-
-	ftp = vpt->foreign_pfd_list;
-	//lwsl_notice("cleared list %p\n", ftp);
-	while (ftp) {
-		struct lws *wsi;
-		struct lws_pollfd *pfd;
-
-		next = ftp->next;
-		pfd = &vpt->fds[ftp->fd_index];
-		if (lws_socket_is_valid(pfd->fd)) {
-			wsi = wsi_from_fd(context, pfd->fd);
-			if (wsi)
-				__lws_change_pollfd(wsi, ftp->_and, ftp->_or);
+			return 0;
 		}
-		lws_free((void *)ftp);
-		ftp = next;
-	}
-	vpt->foreign_pfd_list = NULL;
-	lws_memory_barrier();
+	} else
+		a = 1;
 
-	lws_pt_unlock(pt);
-
-	m = 0;
-#if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
-	m |= !!pt->ws.rx_draining_ext_list;
-#endif
-
-#if defined(LWS_WITH_TLS)
-	if (pt->context->tls_ops &&
-	    pt->context->tls_ops->fake_POLLIN_for_buffered)
-		m |= pt->context->tls_ops->fake_POLLIN_for_buffered(pt);
-#endif
-
-	if (
-#if (defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)) || defined(LWS_WITH_TLS)
-		!m &&
-#endif
-		!n) { /* nothing to do */
-		lws_service_do_ripe_rxflow(pt);
-
-		return 0;
-	}
-
-faked_service:
 	m = lws_service_flag_pending(context, tsi);
 	if (m)
 		c = -1; /* unknown limit */
@@ -186,6 +193,9 @@ faked_service:
 	}
 
 	lws_service_do_ripe_rxflow(pt);
+
+	if (a)
+		goto again;
 
 	return 0;
 }
