@@ -254,7 +254,7 @@ arg_to_bool(const char *s)
 }
 
 static void
-set_reset_flag(unsigned int *p, const char *state, unsigned int flag)
+set_reset_flag(uint64_t *p, const char *state, uint64_t flag)
 {
 	if (arg_to_bool(state))
 		*p |= flag;

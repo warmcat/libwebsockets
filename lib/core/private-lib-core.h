@@ -381,6 +381,8 @@ struct lws_context {
 
 	lws_usec_t time_up; /* monotonic */
 
+	uint64_t options;
+
 	time_t last_ws_ping_pong_check_s;
 
 #if defined(LWS_PLAT_FREERTOS)
@@ -401,7 +403,6 @@ struct lws_context {
 #endif
 	int count_wsi_allocated;
 	int count_cgi_spawned;
-	unsigned int options;
 	unsigned int fd_limit_per_thread;
 	unsigned int timeout_secs;
 	unsigned int pt_serv_buf_size;

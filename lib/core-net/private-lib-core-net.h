@@ -503,6 +503,8 @@ struct lws_vhost {
 	struct lws_conn_stats conn_stats;
 #endif
 
+	uint64_t options;
+
 	struct lws_context *context;
 	struct lws_vhost *vhost_next;
 
@@ -543,7 +545,6 @@ struct lws_vhost {
 #if defined(LWS_WITH_SOCKS5)
 	unsigned int socks_proxy_port;
 #endif
-	unsigned int options;
 	int count_protocols;
 	int ka_time;
 	int ka_probes;

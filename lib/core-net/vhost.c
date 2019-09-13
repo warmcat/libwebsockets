@@ -306,7 +306,7 @@ lws_protocol_init(struct lws_context *context)
 
 		/* only do the protocol init once for a given vhost */
 		if (vh->created_vhost_protocols ||
-		    (vh->options & LWS_SERVER_OPTION_SKIP_PROTOCOL_INIT))
+		    (lws_check_opt(vh->options, LWS_SERVER_OPTION_SKIP_PROTOCOL_INIT)))
 			goto next;
 
 		/* initialize supported protocols on this vhost */
@@ -468,7 +468,7 @@ lws_create_vhost(struct lws_context *context,
 	vh->http.error_document_404 = info->error_document_404;
 #endif
 
-	if (info->options & LWS_SERVER_OPTION_ONLY_RAW)
+	if (lws_check_opt(info->options, LWS_SERVER_OPTION_ONLY_RAW))
 		lwsl_info("%s set to only support RAW\n", vh->name);
 
 	vh->iface = info->iface;
