@@ -25,6 +25,33 @@
 #include "core/private.h"
 
 
+int
+_lws_plat_service_forced_tsi(struct lws_context *context, int tsi)
+{
+	struct lws_context_per_thread *pt = &context->pt[tsi];
+	int m, n;
+
+	lws_service_flag_pending(context, tsi);
+
+	/* any socket with events to service? */
+	for (n = 0; n < (int)pt->fds_count; n++) {
+		if (!pt->fds[n].revents)
+			continue;
+
+		m = lws_service_fd_tsi(context, &pt->fds[n], tsi);
+		if (m < 0)
+			return -1;
+		/* if something closed, retry this slot */
+		if (m)
+			n--;
+	}
+
+	lws_service_do_ripe_rxflow(pt);
+
+	return 0;
+}
+
+
 LWS_EXTERN int
 _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
@@ -97,22 +124,8 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	/*
 	 * is there anybody with pending stuff that needs service forcing?
 	 */
-	if (!lws_service_adjust_timeout(context, 1, tsi) &&
-	    lws_service_flag_pending(context, tsi)) {
-		/* any socket with events to service? */
-		for (n = 0; n < (int)pt->fds_count; n++) {
-			int m;
-			if (!pt->fds[n].revents)
-				continue;
-
-			m = lws_service_fd_tsi(context, &pt->fds[n], tsi);
-			if (m < 0)
-				return -1;
-			/* if something closed, retry this slot */
-			if (m)
-				n--;
-		}
-	}
+	if (!lws_service_adjust_timeout(context, 1, tsi))
+		_lws_plat_service_forced_tsi(context, tsi);
 
 	if (timeout_us) {
 		lws_usec_t us;

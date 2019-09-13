@@ -28,14 +28,46 @@ lws_poll_listen_fd(struct lws_pollfd *fd)
 	return poll(fd, 1, 0);
 }
 
-LWS_EXTERN int
+int
+_lws_plat_service_forced_tsi(struct lws_context *context, int tsi)
+{
+	struct lws_context_per_thread *pt = &context->pt[tsi];
+	int m, n;
+
+	lws_service_flag_pending(context, tsi);
+
+	/* any socket with events to service? */
+	for (n = 0; n < (int)pt->fds_count; n++) {
+		if (!pt->fds[n].revents)
+			continue;
+
+		m = lws_service_fd_tsi(context, &pt->fds[n], tsi);
+		if (m < 0) {
+			lwsl_err("%s: lws_service_fd_tsi returned %d\n",
+				 __func__, m);
+			return -1;
+		}
+		/* if something closed, retry this slot */
+		if (m)
+			n--;
+	}
+
+	lws_service_do_ripe_rxflow(pt);
+
+	return 0;
+}
+
+int
 _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
 	volatile struct lws_foreign_thread_pollfd *ftp, *next;
 	volatile struct lws_context_per_thread *vpt;
 	struct lws_context_per_thread *pt;
 	lws_usec_t timeout_us;
-	int n = -1, m, c, a = 0;
+	int n = -1, a = 0;
+#if (defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)) || defined(LWS_WITH_TLS)
+	int m;
+#endif
 
 	/* stay dead once we are dead */
 
@@ -140,21 +172,23 @@ again:
 
 		lws_pt_unlock(pt);
 
+#if (defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)) || defined(LWS_WITH_TLS)
 		m = 0;
-	#if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
+#endif
+#if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
 		m |= !!pt->ws.rx_draining_ext_list;
-	#endif
+#endif
 
-	#if defined(LWS_WITH_TLS)
+#if defined(LWS_WITH_TLS)
 		if (pt->context->tls_ops &&
 		    pt->context->tls_ops->fake_POLLIN_for_buffered)
 			m |= pt->context->tls_ops->fake_POLLIN_for_buffered(pt);
-	#endif
+#endif
 
 		if (
-	#if (defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)) || defined(LWS_WITH_TLS)
+#if (defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)) || defined(LWS_WITH_TLS)
 			!m &&
-	#endif
+#endif
 			!n) { /* nothing to do */
 			lws_service_do_ripe_rxflow(pt);
 
@@ -163,36 +197,9 @@ again:
 	} else
 		a = 1;
 
-	m = lws_service_flag_pending(context, tsi);
-	if (m)
-		c = -1; /* unknown limit */
-	else
-		if (n < 0) {
-			if (LWS_ERRNO != LWS_EINTR)
-				return -1;
-			return 0;
-		} else
-			c = n;
+	if (_lws_plat_service_forced_tsi(context, tsi))
+		return -1;
 
-	/* any socket with events to service? */
-	for (n = 0; n < (int)pt->fds_count && c; n++) {
-		if (!pt->fds[n].revents)
-			continue;
-
-		c--;
-
-		m = lws_service_fd_tsi(context, &pt->fds[n], tsi);
-		if (m < 0) {
-			lwsl_err("%s: lws_service_fd_tsi returned %d\n",
-				 __func__, m);
-			return -1;
-		}
-		/* if something closed, retry this slot */
-		if (m)
-			n--;
-	}
-
-	lws_service_do_ripe_rxflow(pt);
 
 	if (a)
 		goto again;
