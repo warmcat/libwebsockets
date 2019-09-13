@@ -746,6 +746,24 @@ LWS_VISIBLE LWS_EXTERN int
 lws_http_mark_sse(struct lws *wsi);
 
 /**
+ * lws_h2_client_stream_long_poll_rxonly() - h2 stream to immortal read-only
+ *
+ * \param wsi: h2 stream client wsi
+ *
+ * Send END_STREAM-flagged zero-length DATA frame to set client stream wsi into
+ * half-closed (local) and remote into half-closed (remote).  Set the client
+ * stream wsi to be immortal (not subject to timeouts).
+ *
+ * Used if the remote server supports immortal long poll to put the stream into
+ * a read-only state where it can wait as long as needed for rx.
+ *
+ * Returns 0 if the process (which happens asynchronously) started or non-zero
+ * if it wasn't an h2 stream.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_h2_client_stream_long_poll_rxonly(struct lws *wsi);
+
+/**
  * lws_http_compression_apply() - apply an http compression transform
  *
  * \param wsi: the wsi to apply the compression transform to

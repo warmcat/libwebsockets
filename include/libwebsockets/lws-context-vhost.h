@@ -212,6 +212,12 @@
 	/**< (VH) Indicates the connections using this vhost should ignore
 	 * h2 WINDOW_UPDATE from broken peers and fix them up */
 
+#define LWS_SERVER_OPTION_VH_H2_HALF_CLOSED_LONG_POLL		 (1ll << 32)
+	/**< (VH) Tell the vhost to treat half-closed remote clients as
+	 * entered into an immortal (ie, not subject to normal timeouts) long
+	 * poll mode.
+	 */
+
 	/****** add new things just above ---^ ******/
 
 
@@ -398,8 +404,9 @@ struct lws_context_creation_info {
 	/**< VHOST: pointer to optional linked list of per-vhost
 	 * options made accessible to protocols */
 	int keepalive_timeout;
-	/**< VHOST: (default = 0 = 5s) seconds to allow remote
-	 * client to hold on to an idle HTTP/1.1 connection */
+	/**< VHOST: (default = 0 = 5s, 31s for http/2) seconds to allow remote
+	 * client to hold on to an idle HTTP/1.1 connection.  Timeout lifetime
+	 * applied to idle h2 network connections */
 	const char *log_filepath;
 	/**< VHOST: filepath to append logs to... this is opened before
 	 *		any dropping of initial privileges */

@@ -845,11 +845,9 @@ lws_h2_parse_frame_header(struct lws *wsi)
 	/* let the network wsi live a bit longer if subs are active */
 
 	if (!wsi->immortal_substream_count)
-#if defined(LWS_AMAZON_RTOS) || defined(LWS_AMAZON_LINUX)
-		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE, wsi->vhost->keepalive_timeout);
-#else
-		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE, 31);
-#endif
+		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE,
+				wsi->vhost->keepalive_timeout ?
+					wsi->vhost->keepalive_timeout : 31);
 
 	if (h2n->sid)
 		h2n->swsi = lws_h2_wsi_from_id(wsi, h2n->sid);
@@ -1164,12 +1162,24 @@ lws_h2_parse_frame_header(struct lws *wsi)
 			assert(w->h2.sibling_list != w);
 		} lws_end_foreach_ll(w, h2.sibling_list);
 
+		if (lws_check_opt(h2n->swsi->vhost->options,
+			       LWS_SERVER_OPTION_VH_H2_HALF_CLOSED_LONG_POLL)) {
 
-		/* END_STREAM means after servicing this, close the stream */
-		h2n->swsi->h2.END_STREAM =
+			/*
+			 * We don't directly timeout streams that enter the
+			 * half-closed remote state, allowing immortal long
+			 * poll
+			 */
+			lws_http_mark_immortal(h2n->swsi);
+			lwsl_info("%s: %p: h2 stream entering long poll\n",
+					__func__, h2n->swsi);
+
+		} else {
+			h2n->swsi->h2.END_STREAM =
 					!!(h2n->flags & LWS_H2_FLAG_END_STREAM);
-		lwsl_info("%s: hdr END_STREAM = %d\n",__func__,
+			lwsl_debug("%s: hdr END_STREAM = %d\n",__func__,
 			  h2n->swsi->h2.END_STREAM);
+		}
 
 		h2n->cont_exp = !(h2n->flags & LWS_H2_FLAG_END_HEADERS);
 		h2n->cont_exp_sid = h2n->sid;
@@ -1863,12 +1873,9 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 				 */
 				if (!wsi->immortal_substream_count)
 					lws_set_timeout(wsi,
-					  PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE,
-#if defined(LWS_AMAZON_RTOS) || defined(LWS_AMAZON_LINUX)
-					  wsi->vhost->keepalive_timeout);
-#else
-					  31);
-#endif
+					PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE,
+						wsi->vhost->keepalive_timeout ?
+					    wsi->vhost->keepalive_timeout : 31);
 
 				if (!h2n->swsi)
 					break;
@@ -2411,3 +2418,21 @@ lws_read_h2(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 	return lws_ptr_diff(buf, oldbuf);
 }
 
+int
+lws_h2_client_stream_long_poll_rxonly(struct lws *wsi)
+{
+
+	if (!wsi->http2_substream)
+		return 1;
+
+	/*
+	 * Elect to send an empty DATA with END_STREAM, to force the stream
+	 * into HALF_CLOSED LOCAL
+	 */
+	wsi->h2.long_poll = 1;
+	wsi->h2.send_END_STREAM = 1;
+
+	lws_callback_on_writable(wsi);
+
+	return 0;
+}

@@ -328,12 +328,13 @@ struct _lws_h2_related {
 	int my_priority;
 	uint32_t dependent_on;
 
-	unsigned int END_STREAM:1;
-	unsigned int END_HEADERS:1;
-	unsigned int send_END_STREAM:1;
-	unsigned int GOING_AWAY;
-	unsigned int requested_POLLOUT:1;
-	unsigned int skint:1;
+	uint16_t END_STREAM:1;
+	uint16_t END_HEADERS:1;
+	uint16_t send_END_STREAM:1;
+	uint16_t long_poll:1;
+	uint16_t GOING_AWAY;
+	uint16_t requested_POLLOUT:1;
+	uint16_t skint:1;
 
 	uint16_t round_robin_POLLOUT;
 	uint16_t count_POLLOUT_children;

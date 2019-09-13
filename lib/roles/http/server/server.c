@@ -1340,8 +1340,9 @@ lws_http_action(struct lws *wsi)
 	 * if there is content supposed to be coming,
 	 * put a timeout on it having arrived
 	 */
-	lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
-			wsi->context->timeout_secs);
+	if (!wsi->h2_stream_immortal)
+		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
+				wsi->context->timeout_secs);
 #ifdef LWS_WITH_TLS
 	if (wsi->tls.redirect_to_https) {
 		/*

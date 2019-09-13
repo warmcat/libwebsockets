@@ -254,6 +254,11 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	lws_addrinfo_clean(wsi);
 #endif
 
+#if defined(LWS_WITH_HTTP2)
+	if (wsi->h2_stream_immortal)
+		lws_http_close_immortal(wsi);
+#endif
+
 	/* if we have children, close them first */
 	if (wsi->child_list) {
 		wsi2 = wsi->child_list;

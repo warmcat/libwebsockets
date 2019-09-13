@@ -132,6 +132,7 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].allow-http-on-https",
 
 	"vhosts[].disable-no-protocol-ws-upgrades",
+	"vhosts[].h2-half-closed-long-poll",
 };
 
 enum lejp_vhost_paths {
@@ -199,6 +200,7 @@ enum lejp_vhost_paths {
 	LEJPVP_FLAG_ALLOW_HTTP_ON_HTTPS,
 
 	LEJPVP_FLAG_DISABLE_NO_PROTOCOL_WS_UPGRADES,
+	LEJPVP_FLAG_H2_HALF_CLOSED_LONG_POLL,
 };
 
 #define MAX_PLUGIN_DIRS 10
@@ -862,6 +864,11 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 
 	case LEJPVP_FLAG_DISABLE_NO_PROTOCOL_WS_UPGRADES:
 		a->reject_ws_with_no_protocol = 1;
+		return 0;
+
+	case LEJPVP_FLAG_H2_HALF_CLOSED_LONG_POLL:
+		set_reset_flag(&a->info->options, ctx->buf,
+				LWS_SERVER_OPTION_VH_H2_HALF_CLOSED_LONG_POLL);
 		return 0;
 
 	default:

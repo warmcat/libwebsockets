@@ -676,8 +676,9 @@ struct lws {
 	unsigned int hdr_parsing_completed:1;
 	unsigned int http2_substream:1;
 	unsigned int upgraded_to_http2:1;
-	unsigned int h2_stream_carries_ws:1;
-	unsigned int h2_stream_carries_sse:1;
+	unsigned int h2_stream_immortal:1;
+	unsigned int h2_stream_carries_ws:1; /* immortal set as well */
+	unsigned int h2_stream_carries_sse:1; /* immortal set as well */
 	unsigned int seen_nonpseudoheader:1;
 	unsigned int listener:1;
 	unsigned int user_space_externally_allocated:1;
@@ -1086,20 +1087,25 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int len, int meth);
 #define lws_access_log(_a)
 #endif
 
-LWS_EXTERN int
+void
+lws_http_mark_immortal(struct lws *wsi);
+void
+lws_http_close_immortal(struct lws *wsi);
+
+int
 lws_cgi_kill_terminated(struct lws_context_per_thread *pt);
 
-LWS_EXTERN void
+void
 lws_cgi_remove_and_kill(struct lws *wsi);
 
-LWS_EXTERN void
+void
 lws_plat_delete_socket_from_fds(struct lws_context *context,
 				struct lws *wsi, int m);
-LWS_EXTERN void
+void
 lws_plat_insert_socket_into_fds(struct lws_context *context,
 				struct lws *wsi);
 
-LWS_EXTERN int
+int
 lws_plat_change_pollfd(struct lws_context *context, struct lws *wsi,
 		       struct lws_pollfd *pfd);
 

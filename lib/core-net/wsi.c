@@ -830,20 +830,69 @@ lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p,
 	return 0;
 }
 
+void
+lws_http_close_immortal(struct lws *wsi)
+{
+	struct lws *nwsi;
+
+	if (!wsi->http2_substream)
+		return;
+
+	assert(wsi->h2_stream_immortal);
+	wsi->h2_stream_immortal = 0;
+
+	nwsi = lws_get_network_wsi(wsi);
+	lwsl_debug("%s: %p %p %d\n", __func__, wsi, nwsi,
+				     nwsi->immortal_substream_count);
+	assert(nwsi->immortal_substream_count);
+	nwsi->immortal_substream_count--;
+	if (!nwsi->immortal_substream_count)
+		/*
+		 * since we closed the only immortal stream on this nwsi, we
+		 * need to reapply a normal timeout regime to the nwsi
+		 */
+		lws_set_timeout(nwsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE,
+				wsi->vhost->keepalive_timeout ?
+				    wsi->vhost->keepalive_timeout : 31);
+}
+
+void
+lws_http_mark_immortal(struct lws *wsi)
+{
+	struct lws *nwsi;
+
+	lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+
+	if (!wsi->http2_substream
+#if defined(LWS_WITH_CLIENT)
+			&& !wsi->client_h2_substream
+#endif
+	) {
+		lwsl_err("%s: not h2 substream\n", __func__);
+		return;
+	}
+
+	nwsi = lws_get_network_wsi(wsi);
+
+	lwsl_debug("%s: %p %p %d\n", __func__, wsi, nwsi,
+				     nwsi->immortal_substream_count);
+
+	wsi->h2_stream_immortal = 1;
+	assert(nwsi->immortal_substream_count < 255); /* largest count */
+	nwsi->immortal_substream_count++;
+	if (nwsi->immortal_substream_count == 1)
+		lws_set_timeout(nwsi, NO_PENDING_TIMEOUT, 0);
+}
+
+
 int
 lws_http_mark_sse(struct lws *wsi)
 {
 	lws_http_headers_detach(wsi);
-	lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+	lws_http_mark_immortal(wsi);
 
-	if (wsi->http2_substream) {
-		struct lws *nwsi = lws_get_network_wsi(wsi);
-
+	if (wsi->http2_substream)
 		wsi->h2_stream_carries_sse = 1;
-		nwsi->immortal_substream_count++;
-		if (nwsi->immortal_substream_count == 1)
-			lws_set_timeout(nwsi, NO_PENDING_TIMEOUT, 0);
-	}
 
 	return 0;
 }

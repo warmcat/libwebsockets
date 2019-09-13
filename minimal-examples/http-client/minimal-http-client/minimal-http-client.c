@@ -17,6 +17,9 @@
 #include <signal.h>
 
 static int interrupted, bad = 1, status;
+#if defined(LWS_WITH_HTTP2)
+static int long_poll;
+#endif
 static struct lws *client_wsi;
 
 static int
@@ -35,11 +38,22 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
 		status = lws_http_client_http_response(wsi);
 		lwsl_user("Connected with server response: %d\n", status);
+#if defined(LWS_WITH_HTTP2)
+		if (long_poll) {
+			lwsl_user("%s: Client entering long poll mode\n", __func__);
+			lws_h2_client_stream_long_poll_rxonly(wsi);
+		}
+#endif
 		break;
 
 	/* chunks of chunked content, with header removed */
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
 		lwsl_user("RECEIVE_CLIENT_HTTP_READ: read %d\n", (int)len);
+#if defined(LWS_WITH_HTTP2)
+		if (long_poll)
+			lwsl_notice("long poll rx: '%.*s'\n",
+					(int)len, (const char *)in);
+#endif
 #if 0  /* enable to dump the html */
 		{
 			const char *p = in;
@@ -155,8 +169,16 @@ int main(int argc, const char **argv)
 
 	memset(&i, 0, sizeof i); /* otherwise uninitialized garbage */
 	i.context = context;
-	if (!lws_cmdline_option(argc, argv, "-n"))
+	if (!lws_cmdline_option(argc, argv, "-n")) {
 		i.ssl_connection = LCCSCF_USE_SSL;
+#if defined(LWS_WITH_HTTP2)
+		/* requires h2 */
+		if (lws_cmdline_option(argc, argv, "--long-poll")) {
+			lwsl_user("%s: long poll mode\n", __func__);
+			long_poll = 1;
+		}
+#endif
+	}
 
 	if (lws_cmdline_option(argc, argv, "-l")) {
 		i.port = 7681;
