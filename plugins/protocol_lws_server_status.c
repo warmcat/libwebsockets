@@ -75,20 +75,21 @@ update(struct vhd *v)
 		if (!first)
 			p += lws_snprintf(p, lws_ptr_diff(end, p), ",");
 
+		strcpy(pure, "(unknown)");
 		fd = lws_open(fp->filepath, LWS_O_RDONLY);
 		if (fd >= 0) {
 			n = read(fd, contents, sizeof(contents) - 1);
+			close(fd);
 			if (n >= 0) {
 				contents[n] = '\0';
 				lws_json_purify(pure, contents, sizeof(pure));
-
-				p += lws_snprintf(p, lws_ptr_diff(end, p),
-					"{\"path\":\"%s\",\"val\":\"%s\"}",
-						fp->filepath, pure);
-				first = 0;
 			}
-			close(fd);
 		}
+
+		p += lws_snprintf(p, lws_ptr_diff(end, p),
+				"{\"path\":\"%s\",\"val\":\"%s\"}",
+					fp->filepath, pure);
+		first = 0;
 
 		fp = fp->next;
 	}
