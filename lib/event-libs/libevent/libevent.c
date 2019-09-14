@@ -50,7 +50,7 @@ lws_event_idle_timer_cb(int fd, short event, void *p)
 	/*
 	 * is there anybody with pending stuff that needs service forcing?
 	 */
-	if (!lws_service_adjust_timeout(pt->context, 1, pt->tid))
+	if (!lws_service_adjust_timeout(pt->context, 1, pt->tid)) {
 		/* -1 timeout means just do forced service */
 		_lws_plat_service_forced_tsi(pt->context, pt->tid);
 		/* still somebody left who wants forced service? */
