@@ -652,17 +652,13 @@ typedef enum {
 	LWS_TOKZS_TOKEN_POST_TERMINAL
 } lws_tokenize_state;
 
-#if defined(LWS_AMAZON_RTOS)
 lws_tokenize_elem
-#else
-int
-#endif
 lws_tokenize(struct lws_tokenize *ts)
 {
 	const char *rfc7230_delims = "(),/:;<=>?@[\\]{}";
 	lws_tokenize_state state = LWS_TOKZS_LEADING_WHITESPACE;
 	char c, flo = 0, d_minus = '-', d_dot = '.', s_minus = '\0',
-	     s_dot = '\0';
+	     s_dot = '\0', skipping = 0;
 	signed char num = ts->flags & LWS_TOKENIZE_F_NO_INTEGERS ? 0 : -1;
 	int utf8 = 0;
 
@@ -690,6 +686,22 @@ lws_tokenize(struct lws_tokenize *ts)
 
 		if (!c)
 			break;
+
+		if (skipping) {
+			if (c != '\r' && c != '\n')
+				continue;
+			else
+				skipping = 0;
+		}
+
+		/* comment */
+
+		if (ts->flags & LWS_TOKENIZE_F_HASH_COMMENT &&
+		    state != LWS_TOKZS_QUOTED_STRING &&
+		    c == '#') {
+			skipping = 1;
+			continue;
+		}
 
 		/* whitespace */
 

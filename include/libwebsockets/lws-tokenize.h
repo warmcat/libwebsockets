@@ -39,6 +39,8 @@
 #define LWS_TOKENIZE_F_NO_FLOATS	(1 << 5)
 /* Instead of LWS_TOKZE_INTEGER, report integers as any other string token */
 #define LWS_TOKENIZE_F_NO_INTEGERS	(1 << 6)
+/* # makes the rest of the line a comment */
+#define LWS_TOKENIZE_F_HASH_COMMENT	(1 << 7)
 
 typedef enum {
 
@@ -76,7 +78,7 @@ enum lws_tokenize_delimiter_tracking {
 	LWSTZ_DT_NEED_NEXT_CONTENT,
 };
 
-struct lws_tokenize {
+typedef struct lws_tokenize {
 	const char *start; /**< set to the start of the string to tokenize */
 	const char *token; /**< the start of an identified token or delimiter */
 	int len;	/**< set to the length of the string to tokenize */
@@ -84,7 +86,9 @@ struct lws_tokenize {
 
 	int flags;	/**< optional LWS_TOKENIZE_F_ flags, or 0 */
 	int delim;
-};
+
+	lws_tokenize_elem e; /**< convenient for storing lws_tokenize return */
+} lws_tokenize_t;
 
 /**
  * lws_tokenize() - breaks down a string into tokens and delimiters in-place
