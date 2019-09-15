@@ -521,5 +521,299 @@ lws_get_addr_scope(const char *ipaddr)
 }
 #endif
 
+/*
+ * https://en.wikipedia.org/wiki/IPv6_address
+ *
+ * An IPv6 address is represented as eight groups of four hexadecimal digits,
+ * each group representing 16 bits (two octets, a group sometimes also called a
+ * hextet[6][7]). The groups are separated by colons (:). An example of an IPv6
+ * address is:
+ *
+ *    2001:0db8:85a3:0000:0000:8a2e:0370:7334
+ *
+ * The hexadecimal digits are case-insensitive, but IETF recommendations suggest
+ * the use of lower case letters. The full representation of eight 4-digit
+ * groups may be simplified by several techniques, eliminating parts of the
+ * representation.
+ *
+ * Leading zeroes in a group may be omitted, but each group must retain at least
+ * one hexadecimal digit.[1] Thus, the example address may be written as:
+ *
+ *    2001:db8:85a3:0:0:8a2e:370:7334
+ *
+ * One or more consecutive groups containing zeros only may be replaced with a
+ * single empty group, using two consecutive colons (::).[1] The substitution
+ * may only be applied once in the address, however, because multiple
+ * occurrences would create an ambiguous representation. Thus, the example
+ * address can be further simplified:
+ *
+ *    2001:db8:85a3::8a2e:370:7334
+ *
+ * The localhost (loopback) address, 0:0:0:0:0:0:0:1, and the IPv6 unspecified
+ * address, 0:0:0:0:0:0:0:0, are reduced to ::1 and ::, respectively.
+ *
+ * During the transition of the Internet from IPv4 to IPv6, it is typical to
+ * operate in a mixed addressing environment. For such use cases, a special
+ * notation has been introduced, which expresses IPv4-mapped and IPv4-compatible
+ * IPv6 addresses by writing the least-significant 32 bits of an address in the
+ * familiar IPv4 dot-decimal notation, whereas the other 96 (most significant)
+ * bits are written in IPv6 format. For example, the IPv4-mapped IPv6 address
+ * ::ffff:c000:0280 is written as ::ffff:192.0.2.128, thus expressing clearly
+ * the original IPv4 address that was mapped to IPv6.
+ */
 
+int
+lws_parse_numeric_address(const char *ads, uint8_t *result, size_t max_len)
+{
+	struct lws_tokenize ts;
+	uint8_t *orig = result, temp[16];
+	int sects = 0, ipv6 = !!strchr(ads, ':'), skip_point = -1, dm = 0, n;
+	char t[5];
+	long u;
 
+	lws_tokenize_init(&ts, ads, LWS_TOKENIZE_F_NO_INTEGERS |
+				    LWS_TOKENIZE_F_MINUS_NONTERM);
+	ts.len = strlen(ads);
+	if (!ipv6 && ts.len < 7)
+		return -1;
+
+	if (ipv6 && ts.len < 2)
+		return -2;
+
+	if (!ipv6 && max_len < 4)
+		return -3;
+
+	if (ipv6 && max_len < 16)
+		return -4;
+
+	if (ipv6)
+		memset(result, 0, max_len);
+
+	do {
+		ts.e = lws_tokenize(&ts);
+		switch (ts.e) {
+		case LWS_TOKZE_TOKEN:
+			dm = 0;
+			if (ipv6) {
+				if (ts.token_len > 4)
+					return -1;
+				memcpy(t, ts.token, ts.token_len);
+				t[ts.token_len] = '\0';
+				for (n = 0; n < ts.token_len; n++)
+					if (t[n] < '0' || t[n] > 'f' ||
+					    (t[n] > '9' && t[n] < 'A') ||
+					    (t[n] > 'F' && t[n] < 'a'))
+						return -1;
+				u = strtol(t, NULL, 16);
+				if (u > 0xffff)
+					return -5;
+				*result++ = u >> 8;
+			} else {
+				if (ts.token_len > 3)
+					return -1;
+				memcpy(t, ts.token, ts.token_len);
+				t[ts.token_len] = '\0';
+				for (n = 0; n < ts.token_len; n++)
+					if (t[n] < '0' || t[n] > '9')
+						return -1;
+				u = strtol(t, NULL, 10);
+				if (u > 0xff)
+					return -6;
+			}
+			if (u < 0)
+				return -7;
+			*result++ = (uint8_t)u;
+			sects++;
+			break;
+
+		case LWS_TOKZE_DELIMITER:
+			if (dm++) {
+				if (dm > 2)
+					return -8;
+				if (*ts.token != ':')
+					return -9;
+				/* back to back : */
+				*result++ = 0;
+				*result++ = 0;
+				skip_point = result - orig;
+				break;
+			}
+			if (ipv6 && orig[2] == 0xff && orig[3] == 0xff &&
+			    skip_point == 2) {
+				/* ipv4 backwards compatible format */
+				ipv6 = 0;
+				memset(orig, 0, max_len);
+				orig[10] = 0xff;
+				orig[11] = 0xff;
+				skip_point = -1;
+				result = &orig[12];
+				sects = 0;
+				break;
+			}
+			if (ipv6 && *ts.token != ':')
+				return -10;
+			if (!ipv6 && *ts.token != '.')
+				return -11;
+			break;
+
+		case LWS_TOKZE_ENDED:
+			if (!ipv6 && sects == 4)
+				return result - orig;
+			if (ipv6 && sects == 8)
+				return result - orig;
+			if (skip_point != -1) {
+				int ow = result - orig;
+				/*
+				 * contains ...::...
+				 */
+				if (ow == 16)
+					return 16;
+				memcpy(temp, &orig[skip_point], ow - skip_point);
+				memset(&orig[skip_point], 0, 16 - skip_point);
+				memcpy(&orig[16 - (ow - skip_point)], temp,
+						   ow - skip_point);
+
+				return 16;
+			}
+			return -12;
+
+		default: /* includes ENDED */
+			lwsl_err("%s: malformed ip address\n",
+				 __func__);
+
+			return -13;
+		}
+	} while (ts.e > 0 && result - orig <= (int)max_len);
+
+	lwsl_err("%s: ended on e %d\n", __func__, ts.e);
+
+	return -14;
+}
+
+int
+lws_sa46_parse_numeric_address(const char *ads, lws_sockaddr46 *sa46)
+{
+	uint8_t a[16];
+	int n;
+
+	n = lws_parse_numeric_address(ads, a, sizeof(a));
+	if (n < 0)
+		return -1;
+
+#if defined(LWS_WITH_IPV6)
+	if (n == 16) {
+		sa46->sa6.sin6_family = AF_INET6;
+		memcpy(sa46->sa6.sin6_addr.s6_addr, a,
+		       sizeof(sa46->sa6.sin6_addr.s6_addr));
+
+		return 0;
+	}
+#endif
+
+	if (n != 4)
+		return -1;
+
+	sa46->sa4.sin_family = AF_INET;
+	memcpy(&sa46->sa4.sin_addr.s_addr, a,
+	       sizeof(sa46->sa4.sin_addr.s_addr));
+
+	return 0;
+}
+
+int
+lws_write_numeric_address(const uint8_t *ads, int size, char *buf, int len)
+{
+	char c, elided = 0, soe = 0, zb = -1, n, ipv4 = 0;
+	const char *e = buf + len;
+	char *obuf = buf;
+	int q = 0;
+
+	if (size == 4)
+		return lws_snprintf(buf, len, "%u.%u.%u.%u",
+				    ads[0], ads[1], ads[2], ads[3]);
+
+	if (size != 16)
+		return -1;
+
+	for (c = 0; c < size / 2; c++) {
+		uint16_t v = (ads[q] << 8) | ads[q + 1];
+
+		if (buf + 8 > e)
+			return -1;
+
+		q += 2;
+		if (soe) {
+			if (v)
+				*buf++ = ':';
+				/* fall thru to print hex value */
+		} else
+			if (!elided && !soe && !v) {
+				elided = soe = 1;
+				zb = c;
+				continue;
+			}
+
+		if (ipv4) {
+			n = lws_snprintf(buf, e - buf, "%u.%u",
+					ads[q - 2], ads[q - 1]);
+			buf += n;
+			if (c == 6)
+				*buf++ = '.';
+		} else {
+			if (soe && !v)
+				continue;
+			if (c)
+				*buf++ = ':';
+
+			buf += lws_snprintf(buf, e - buf, "%x", v);
+
+			if (soe && v) {
+				soe = 0;
+				if (c == 5 && v == 0xffff && !zb) {
+					ipv4 = 1;
+					*buf++ = ':';
+				}
+			}
+		}
+	}
+	if (buf + 3 > e)
+		return -1;
+
+	if (soe) { /* as is the case for all zeros */
+		*buf++ = ':';
+		*buf++ = ':';
+		*buf = '\0';
+	}
+
+	return buf - obuf;
+}
+
+int
+lws_sa46_write_numeric_address(lws_sockaddr46 *sa46, char *buf, int len)
+{
+	*buf = '\0';
+#if defined(LWS_WITH_IPV6)
+	if (sa46->sa4.sin_family == AF_INET6)
+		return lws_write_numeric_address(
+				(uint8_t *)&sa46->sa6.sin6_addr, 16, buf, len);
+#endif
+	if (sa46->sa4.sin_family == AF_INET)
+		return lws_write_numeric_address(
+				(uint8_t *)&sa46->sa4.sin_addr, 4, buf, len);
+
+	return -1;
+}
+
+int
+lws_sa46_compare_ads(const lws_sockaddr46 *sa46a, const lws_sockaddr46 *sa46b)
+{
+	if (sa46a->sa4.sin_family != sa46b->sa4.sin_family)
+		return 1;
+
+#if defined(LWS_WITH_IPV6)
+	if (sa46a->sa4.sin_family == AF_INET6)
+		return memcmp(&sa46a->sa6.sin6_addr, &sa46b->sa6.sin6_addr, 16);
+#endif
+
+	return sa46a->sa4.sin_addr.s_addr != sa46b->sa4.sin_addr.s_addr;
+}

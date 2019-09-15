@@ -29,6 +29,13 @@
  */
 ///@{
 
+typedef union {
+#if defined(LWS_WITH_IPV6)
+	struct sockaddr_in6 sa6;
+#endif
+	struct sockaddr_in sa4;
+} lws_sockaddr46;
+
 /**
  * lws_canonical_hostname() - returns this host's hostname
  *
@@ -103,4 +110,77 @@ LWS_VISIBLE LWS_EXTERN int
 lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 		    size_t addrlen);
 #endif
+
+/**
+ * lws_sa46_compare_ads() - checks if two sa46 have the same address
+ *
+ * \param sa46a: first
+ * \param sa46b: second
+ *
+ * Returns 0 if the address family and address are the same, otherwise nonzero.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_sa46_compare_ads(const lws_sockaddr46 *sa46a, const lws_sockaddr46 *sa46b);
+
+/*
+ * lws_parse_numeric_address() - converts numeric ipv4 or ipv6 to byte address
+ *
+ * \param ads: the numeric ipv4 or ipv6 address string
+ * \param result: result array
+ * \param max_len: max length of result array
+ *
+ * Converts a 1.2.3.4 or 2001:abcd:123:: or ::ffff:1.2.3.4 formatted numeric
+ * address into an array of network ordered byte address elements.
+ *
+ * Returns < 0 on error, else length of result set, either 4 or 16 for ipv4 /
+ * ipv6.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_parse_numeric_address(const char *ads, uint8_t *result, size_t max_len);
+
+/*
+ * lws_sa46_parse_numeric_address() - converts numeric ipv4 or ipv6 to sa46
+ *
+ * \param ads: the numeric ipv4 or ipv6 address string
+ * \param sa46: pointer to sa46 to set
+ *
+ * Converts a 1.2.3.4 or 2001:abcd:123:: or ::ffff:1.2.3.4 formatted numeric
+ * address into an sa46, a union of sockaddr_in or sockaddr_in6 depending on
+ * what kind of address was found.  sa46->sa4.sin_fmaily will be AF_INET if
+ * ipv4, or AF_INET6 if ipv6.
+ *
+ * Returns 0 if the sa46 was set, else < 0 on error.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_sa46_parse_numeric_address(const char *ads, lws_sockaddr46 *sa46);
+
+/**
+ * lws_write_numeric_address() - convert network byte order ads to text
+ *
+ * \param ads: network byte order address array
+ * \param size: number of bytes valid in ads
+ * \param buf: result buffer to take text format
+ * \param len: max size of text buffer
+ *
+ * Converts an array of network-ordered byte address elements to a textual
+ * representation of the numeric address, like "1.2.3.4" or "::1".  Return 0
+ * if OK else < 0.  ipv6 only supported with LWS_IPV6=1 at cmake.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_write_numeric_address(const uint8_t *ads, int size, char *buf, int len);
+
+/**
+ * lws_sa46_write_numeric_address() - convert sa46 ads to textual numeric ads
+ *
+ * \param sa46: the sa46 whose address to show
+ * \param buf: result buffer to take text format
+ * \param len: max size of text buffer
+ *
+ * Converts the ipv4 or ipv6 address in an lws_sockaddr46 to a textual
+ * representation of the numeric address, like "1.2.3.4" or "::1".  Return 0
+ * if OK else < 0.  ipv6 only supported with LWS_IPV6=1 at cmake.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_sa46_write_numeric_address(lws_sockaddr46 *sa46, char *buf, int len);
+
 ///@}
