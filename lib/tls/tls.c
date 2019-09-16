@@ -214,8 +214,8 @@ lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
 	if (filename)
 		*q = '\0';
 
-	*amount = lws_b64_decode_string((char *)p, (char *)pem,
-					(int)(long long)len);
+	*amount = lws_b64_decode_string_len((char *)p, lws_ptr_diff(q, p),
+					    (char *)pem, (int)(long long)len);
 	*buf = (uint8_t *)pem;
 
 	return 0;
