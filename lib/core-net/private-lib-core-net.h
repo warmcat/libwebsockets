@@ -921,6 +921,10 @@ enum {
 	LWSRXFC_TRIMMED = 2,
 };
 
+
+int
+_lws_plat_service_forced_tsi(struct lws_context *context, int tsi);
+
 LWS_EXTERN int
 lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len);
 

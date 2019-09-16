@@ -84,7 +84,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
 	lws_usec_t timeout_us = timeout_ms * LWS_US_PER_MS;
 	struct lws_context_per_thread *pt;
-	int n = -1, m, c;
+	int n = -1, m, c, a = 0;
 	//char buf;
 
 	/* stay dead once we are dead */
@@ -95,7 +95,9 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	pt = &context->pt[tsi];
 
 	if (timeout_ms < 0)
-		goto faked_service;
+		timeout_ms = 0;
+	else
+		timeout_ms = 2000000000;
 
 	if (!pt->service_tid_detected) {
 		struct lws _lws;
@@ -111,40 +113,34 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	/*
 	 * is there anybody with pending stuff that needs service forcing?
 	 */
-	if (!lws_service_adjust_timeout(context, 1, tsi)) {
-		lwsl_notice("%s: doing forced service\n", __func__);
-		/* -1 timeout means just do forced service */
-		_lws_plat_service_tsi(context, -1, pt->tid);
-		/* still somebody left who wants forced service? */
-		if (!lws_service_adjust_timeout(context, 1, pt->tid))
-			/* yes... come back again quickly */
-			timeout_us = 0;
-	}
+	if (lws_service_adjust_timeout(context, 1, tsi)) {
+again:
+		a = 0;
+		if (timeout_us) {
+			lws_usec_t us;
 
-	if (timeout_us) {
-		lws_usec_t us;
+			lws_pt_lock(pt, __func__);
+			/* don't stay in poll wait longer than next hr timeout */
+			us = __lws_sul_check(&pt->pt_sul_owner, lws_now_usecs());
+			if (us && us < timeout_us)
+				timeout_us = us;
 
-		lws_pt_lock(pt, __func__);
-		/* don't stay in poll wait longer than next hr timeout */
-		us = __lws_sul_check(&pt->pt_sul_owner, lws_now_usecs());
-		if (us && us < timeout_us)
-			timeout_us = us;
+			lws_pt_unlock(pt);
+		}
 
-		lws_pt_unlock(pt);
-	}
+		n = poll(pt->fds, pt->fds_count, timeout_us / LWS_US_PER_MS);
 
-	n = poll(pt->fds, pt->fds_count, timeout_us / LWS_US_PER_MS);
+		m = 0;
 
-	m = 0;
+		if (pt->context->tls_ops &&
+		    pt->context->tls_ops->fake_POLLIN_for_buffered)
+			m = pt->context->tls_ops->fake_POLLIN_for_buffered(pt);
 
-	if (pt->context->tls_ops &&
-	    pt->context->tls_ops->fake_POLLIN_for_buffered)
-		m = pt->context->tls_ops->fake_POLLIN_for_buffered(pt);
+		if (/*!pt->ws.rx_draining_ext_list && */!m && !n) /* nothing to do */
+			return 0;
+	} else
+		a = 1;
 
-	if (/*!pt->ws.rx_draining_ext_list && */!m && !n) /* nothing to do */
-		return 0;
-
-faked_service:
 	m = lws_service_flag_pending(context, tsi);
 	if (m)
 		c = -1; /* unknown limit */
@@ -176,6 +172,9 @@ faked_service:
 		if (m)
 			n--;
 	}
+
+	if (a)
+		goto again;
 
 	return 0;
 }

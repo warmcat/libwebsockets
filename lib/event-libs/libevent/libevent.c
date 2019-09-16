@@ -55,7 +55,7 @@ lws_event_idle_timer_cb(int fd, short event, void *p)
 	 */
 	if (!lws_service_adjust_timeout(pt->context, 1, pt->tid)) {
 		/* -1 timeout means just do forced service */
-		_lws_plat_service_tsi(pt->context, -1, pt->tid);
+		_lws_plat_service_forced_tsi(pt->context, pt->tid);
 		/* still somebody left who wants forced service? */
 		if (!lws_service_adjust_timeout(pt->context, 1, pt->tid)) {
 			/* yes... come back again later */

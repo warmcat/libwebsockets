@@ -28,6 +28,33 @@
 #include "private-lib-core.h"
 
 
+int
+_lws_plat_service_forced_tsi(struct lws_context *context, int tsi)
+{
+	struct lws_context_per_thread *pt = &context->pt[tsi];
+	int m, n;
+
+	lws_service_flag_pending(context, tsi);
+
+	/* any socket with events to service? */
+	for (n = 0; n < (int)pt->fds_count; n++) {
+		if (!pt->fds[n].revents)
+			continue;
+
+		m = lws_service_fd_tsi(context, &pt->fds[n], tsi);
+		if (m < 0)
+			return -1;
+		/* if something closed, retry this slot */
+		if (m)
+			n--;
+	}
+
+	lws_service_do_ripe_rxflow(pt);
+
+	return 0;
+}
+
+
 LWS_EXTERN int
 _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
@@ -60,27 +87,11 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		pt->service_tid_detected = 1;
 	}
 
-	if (timeout_ms < 0) {
-		if (lws_service_flag_pending(context, tsi)) {
-			/* any socket with events to service? */
-			for (n = 0; n < (int)pt->fds_count; n++) {
-				int m;
-				if (!pt->fds[n].revents)
-					continue;
-
-				m = lws_service_fd_tsi(context, &pt->fds[n], tsi);
-				if (m < 0)
-					return -1;
-				/* if something closed, retry this slot */
-				if (m)
-					n--;
-			}
-		}
-		return 0;
-	}
-
-	/* force a default timeout of 23 days */
-	timeout_ms = 2000000000;
+	if (timeout_ms < 0)
+		timeout_ms = 0;
+	else
+		/* force a default timeout of 23 days */
+		timeout_ms = 2000000000;
 	timeout_us = ((lws_usec_t)timeout_ms) * LWS_US_PER_MS;
 
 	if (context->event_loop_ops->run_pt)
@@ -116,14 +127,8 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	/*
 	 * is there anybody with pending stuff that needs service forcing?
 	 */
-	if (!lws_service_adjust_timeout(context, 1, tsi)) {
-		/* -1 timeout means just do forced service */
-		_lws_plat_service_tsi(context, -1, pt->tid);
-		/* still somebody left who wants forced service? */
-		if (!lws_service_adjust_timeout(context, 1, pt->tid))
-			/* yes... come back again quickly */
-			timeout_us = 0;
-	}
+	if (!lws_service_adjust_timeout(context, 1, tsi))
+		_lws_plat_service_forced_tsi(context, tsi);
 
 	if (timeout_us) {
 		lws_usec_t us;
