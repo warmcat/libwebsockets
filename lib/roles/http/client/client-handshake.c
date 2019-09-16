@@ -260,6 +260,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 #endif
 #endif
 
+
 	/*
 	 * async dns calls back here for everybody who cares when it gets a
 	 * result... but if we are piggybacking, we do not want to connect
@@ -554,6 +555,7 @@ ads_known:
 	m = connect(wsi->desc.sockfd, (const struct sockaddr *)psa, n);
 	if (m == -1) {
 
+
 		lwsl_debug("%s: connect says errno: %d\n", __func__, LWS_ERRNO);
 
 		if (LWS_ERRNO != LWS_EALREADY &&
@@ -597,7 +599,6 @@ conn_good:
 
 	return lws_client_connect_4_established(wsi, NULL, plen);
 
-
 oom4:
 	if (lwsi_role_client(wsi) && wsi->protocol /* && lwsi_state_est(wsi) */)
 		lws_inform_client_conn_fail(wsi,(void *)cce, strlen(cce));
@@ -622,6 +623,7 @@ oom4:
 	}
 
 	return NULL;
+
 
 try_next_result_fds:
 	wsi->oom4 = 0;
@@ -762,6 +764,8 @@ lws_client_connect_2_dnsreq(struct lws *wsi)
 
 create_new_conn:
 #endif
+
+	wsi->addrinfo_idx = 0;
 
 	/*
 	 * clients who will create their own fresh connection keep a copy of
