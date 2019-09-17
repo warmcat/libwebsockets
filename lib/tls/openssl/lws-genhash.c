@@ -106,6 +106,9 @@ lws_genhmac_init(struct lws_genhmac_ctx *ctx, enum lws_genhmac_types type,
 	HMAC_CTX_init(&ctx->ctx);
 #endif
 
+	ctx->evp_type = 0;
+	ctx->type = type;
+
 	switch (type) {
 	case LWS_GENHMAC_TYPE_SHA256:
 		ctx->evp_type = EVP_sha256();
