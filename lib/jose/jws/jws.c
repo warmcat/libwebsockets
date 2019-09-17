@@ -462,7 +462,7 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 		b = 2;
 
 	if (lws_jws_parse_jose(&jose, map->buf[LJWS_JOSE], map->len[LJWS_JOSE],
-			       temp, &temp_len) < 0) {
+			       temp, &temp_len) < 0 || !jose.alg) {
 		lwsl_notice("%s: parse failed\n", __func__);
 		return -1;
 	}
