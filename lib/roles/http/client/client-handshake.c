@@ -849,7 +849,7 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 
 	wsi->desc.sockfd = LWS_SOCK_INVALID;
 	lwsi_set_state(wsi, LRS_UNCONNECTED);
-	wsi->protocol = NULL;
+	// wsi->protocol = NULL;
 	wsi->pending_timeout = NO_PENDING_TIMEOUT;
 	wsi->c_port = port;
 	wsi->hdr_parsing_completed = 0;
