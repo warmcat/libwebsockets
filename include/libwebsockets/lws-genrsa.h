@@ -21,7 +21,7 @@
  * included from libwebsockets.h
  */
 
-/*! \defgroup generic RSA
+/*! \defgroup genericRSA Generic RSA
  * ## Generic RSA related functions
  *
  * Lws provides generic RSA functions that abstract the ones

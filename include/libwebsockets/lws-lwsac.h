@@ -21,7 +21,7 @@
  * included from libwebsockets.h
  */
 
-/** \defgroup log lwsac
+/** \defgroup lwsac lwsac
  *
  * ##Allocated Chunks
  *
