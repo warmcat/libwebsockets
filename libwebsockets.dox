@@ -103,17 +103,26 @@ WARN_LOGFILE           =
 #---------------------------------------------------------------------------
 INPUT                  = include/libwebsockets.h \
 			 include/libwebsockets/lws-adopt.h \
+			 include/libwebsockets/lws-async-dns.h \
 			 include/libwebsockets/lws-callbacks.h \
 			 include/libwebsockets/lws-cgi.h \
 			 include/libwebsockets/lws-client.h \
 			 include/libwebsockets/lws-context-vhost.h \
 			 include/libwebsockets/lws-dbus.h \
+			 include/libwebsockets/lws-detailed-latency.h \
 			 include/libwebsockets/lws-diskcache.h \
+			 include/libwebsockets/lws-dsh.h \
 			 include/libwebsockets/lws-esp32.h \
+			 include/libwebsockets/lws-freertos.h \
 			 include/libwebsockets/lws-fts.h \
+			 include/libwebsockets/lws-genaes.h \
+			 include/libwebsockets/lws-gencrypto.h \
+			 include/libwebsockets/lws-genec.h \
 			 include/libwebsockets/lws-genhash.h \
 			 include/libwebsockets/lws-genrsa.h \
 			 include/libwebsockets/lws-http.h \
+			 include/libwebsockets/lws-jose.h \
+			 include/libwebsockets/lws-jwe.h \
 			 include/libwebsockets/lws-jwk.h \
 			 include/libwebsockets/lws-jws.h \
 			 include/libwebsockets/lws-lejp.h \
@@ -124,11 +133,16 @@ INPUT                  = include/libwebsockets.h \
 			 include/libwebsockets/lws-plugin-generic-sessions.h \
 			 include/libwebsockets/lws-protocols-plugins.h \
 			 include/libwebsockets/lws-purify.h \
+			 include/libwebsockets/lws-retry.h \
 			 include/libwebsockets/lws-ring.h \
+			 include/libwebsockets/lws-sequencer.h \
 			 include/libwebsockets/lws-service.h \
 			 include/libwebsockets/lws-sha1-base64.h \
 			 include/libwebsockets/lws-spa.h \
 			 include/libwebsockets/lws-stats.h \
+			 include/libwebsockets/lws-struct.h \
+			 include/libwebsockets/lws-system.h \
+			 include/libwebsockets/lws-test-sequencer.h \
 			 include/libwebsockets/lws-threadpool.h \
 			 include/libwebsockets/lws-timeout-timer.h \
 			 include/libwebsockets/lws-tokenize.h \
@@ -141,23 +155,32 @@ INPUT                  = include/libwebsockets.h \
 			 include/libwebsockets/lws-x509.h \
 			 plugins/ssh-base/include/lws-plugin-ssh.h \
 			 ./READMEs/mainpage.md \
+			 ./READMEs/README.async-dns.md \
 			 ./READMEs/README.build.md \
 			 ./READMEs/README.ci.md \
+			 ./READMEs/README.coding.md \
 			 ./READMEs/README.content-security-policy.md \
 			 ./READMEs/README.contributing.md \
-			 ./READMEs/README.http-fallback.md \
-			 ./READMEs/README.release-policy.md \
-			 ./READMEs/README.unix-domain-reverse-proxy.md \
-			 ./READMEs/README.vulnerability-reporting.md \
-			 ./READMEs/README.problems.md \
-			 ./READMEs/README.lwsws.md \
-			 ./READMEs/README.coding.md \
+			 ./READMEs/README.crypto-apis.md \
+			 ./READMEs/README.detailed-latency.md \
 			 ./READMEs/README.esp32.md \
 			 ./READMEs/README.generic-sessions.md \
 			 ./READMEs/README.generic-table.md \
-			 ./READMEs/README.test-apps.md \
+			 ./READMEs/README.h2-long-poll.md \
+			 ./READMEs/README.http-fallback.md \
+			 ./READMEs/README.lws_dll.md \
+			 ./READMEs/README.lws_sequencer.md \
+			 ./READMEs/README.lws_struct.md \
+			 ./READMEs/README.lws_sul.md \
+			 ./READMEs/README.lwsws.md \
 			 ./READMEs/README-plugin-sshd-base.md \
 			 ./READMEs/README.plugin-acme.md \
+			 ./READMEs/README.porting.md \
+			 ./READMEs/README.problems.md \
+			 ./READMEs/README.release-policy.md \
+			 ./READMEs/README.test-apps.md \
+			 ./READMEs/README.unix-domain-reverse-proxy.md \
+			 ./READMEs/README.vulnerability-reporting.md \
 			 ./doc-assets 
 INPUT_ENCODING         = UTF-8
 FILE_PATTERNS          = lib/*.c *.md *.png include/*.h

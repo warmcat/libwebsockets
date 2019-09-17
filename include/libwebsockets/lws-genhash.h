@@ -22,7 +22,7 @@
  * IN THE SOFTWARE.
  */
 
-/*! \defgroup generic hash
+/*! \defgroup generichash Generic Hash
  * ## Generic Hash related functions
  *
  * Lws provides generic hash / digest accessors that abstract the ones

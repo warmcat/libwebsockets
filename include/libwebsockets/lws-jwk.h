@@ -133,6 +133,8 @@ lws_jwk_export(struct lws_jwk *jwk, int _private, char *p, int *len);
  *
  * \param jwk: the JWK object to load into
  * \param filename: filename to load from
+ * \param cb: optional callback for each key
+ * \param user: opaque user pointer passed to cb if given
  *
  * Returns 0 for OK or -1 for failure
  *

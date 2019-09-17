@@ -22,7 +22,7 @@
  * IN THE SOFTWARE.
  */
 
-/** \defgroup log lwsac
+/** \defgroup lwsac lwsac
  *
  * ##Allocated Chunks
  *

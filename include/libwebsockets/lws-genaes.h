@@ -130,7 +130,6 @@ lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen);
  * \param in: input plaintext or ciphertext
  * \param len: length of input (which is always length of output)
  * \param out: output plaintext or ciphertext
- * \param op: LWS_GAESO_ENC or LWS_GAESO_DEC
  * \param iv_or_nonce_ctr_or_data_unit_16: NULL, iv, nonce_ctr16, or data_unit16
  * \param stream_block_16: pointer to 16-byte stream block for CTR mode only
  * \param nc_or_iv_off: NULL or pointer to nc, or iv_off

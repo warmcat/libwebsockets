@@ -912,6 +912,7 @@ lws_get_vhost_name(struct lws_vhost *vhost);
 /**
  * lws_get_vhost_by_name() - returns the vhost with the requested name, or NULL
  *
+ * \param context: the lws_context to look in
  * \param name: vhost name we are looking for
  *
  * Returns NULL, or the vhost with the name \p name

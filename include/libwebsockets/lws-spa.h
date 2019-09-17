@@ -135,8 +135,8 @@ lws_spa_create_via_info(struct lws *wsi, const lws_spa_create_info_t *info);
  * lws_spa_process() - parses a chunk of input data
  *
  * \param spa: the parser object previously created
- * \param in: incoming, urlencoded data
- * \param len: count of bytes valid at \param in
+ * \param in: incoming urlencoded data
+ * \param len: count of bytes valid at \p in
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_spa_process(struct lws_spa *spa, const char *in, int len);

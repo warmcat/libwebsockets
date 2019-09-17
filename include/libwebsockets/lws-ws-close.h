@@ -116,7 +116,7 @@ enum lws_close_status {
  * \param wsi:	The websocket connection to set the close reason on
  * \param status:	A valid close status from websocket standard
  * \param buf:	NULL or buffer containing up to 124 bytes of auxiliary data
- * \param len:	Length of data in \param buf to send
+ * \param len:	Length of data in \p buf to send
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_close_reason(struct lws *wsi, enum lws_close_status status,

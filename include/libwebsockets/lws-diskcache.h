@@ -184,3 +184,4 @@ lws_diskcache_trim(struct lws_diskcache_scan *lds);
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_diskcache_secs_to_idle(struct lws_diskcache_scan *lds);
+///@}

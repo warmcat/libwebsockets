@@ -857,6 +857,7 @@ LWS_VISIBLE LWS_EXTERN int
 lws_is_ssl(struct lws *wsi);
 /**
  * lws_is_cgi() - find out if this wsi is running a cgi process
+ *
  * \param wsi: lws connection
  */
 LWS_VISIBLE LWS_EXTERN int
@@ -865,9 +866,8 @@ lws_is_cgi(struct lws *wsi);
 /**
  * lws_open() - platform-specific wrapper for open that prepares the fd
  *
- * \param file: the filepath to open
- * \param oflag: option flags
- * \param mode: optional mode of any created file
+ * \param __file: the filepath to open
+ * \param __oflag: option flags
  *
  * This is a wrapper around platform open() that sets options on the fd
  * according to lws policy.  Currently that is FD_CLOEXEC to stop the opened
