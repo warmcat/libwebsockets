@@ -35,9 +35,7 @@ __lws_wsi_remove_from_sul(struct lws *wsi)
 	// lws_dll2_describe(&pt->pt_sul_owner, "pre-remove");
 	lws_dll2_remove(&wsi->sul_timeout.list);
 	lws_dll2_remove(&wsi->sul_hrtimer.list);
-#if defined(LWS_ROLE_WS)
-	lws_dll2_remove(&wsi->sul_ping.list);
-#endif
+	lws_dll2_remove(&wsi->sul_validity.list);
 	// lws_dll2_describe(&pt->pt_sul_owner, "post-remove");
 }
 
@@ -227,7 +225,7 @@ lws_sul_timed_callback_vh_protocol_cb(lws_sorted_usec_list_t *sul)
 	__lws_timed_callback_remove(tvp->vhost, tvp);
 }
 
-LWS_VISIBLE LWS_EXTERN int
+int
 lws_timed_callback_vh_protocol_us(struct lws_vhost *vh,
 				  const struct lws_protocols *prot, int reason,
 				  lws_usec_t us)
@@ -267,11 +265,92 @@ lws_timed_callback_vh_protocol_us(struct lws_vhost *vh,
 	return 0;
 }
 
-LWS_VISIBLE LWS_EXTERN int
+int
 lws_timed_callback_vh_protocol(struct lws_vhost *vh,
 			       const struct lws_protocols *prot, int reason,
 			       int secs)
 {
 	return lws_timed_callback_vh_protocol_us(vh, prot, reason,
 					((lws_usec_t)secs) * LWS_US_PER_SEC);
+}
+
+static void
+lws_validity_cb(lws_sorted_usec_list_t *sul)
+{
+	struct lws *wsi = lws_container_of(sul, struct lws, sul_validity);
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	const lws_retry_bo_t *rbo = wsi->retry_policy;
+
+	/* one of either the ping or hangup validity threshold was crossed */
+
+	if (wsi->validity_hup) {
+		lwsl_info("%s: wsi %p: validity too old\n", __func__, wsi);
+		__lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
+				     "validity timeout");
+		return;
+	}
+
+	/* schedule a protocol-dependent ping */
+
+	lwsl_info("%s: wsi %p: scheduling validity check\n", __func__, wsi);
+
+	if (wsi->role_ops && wsi->role_ops->issue_keepalive)
+		wsi->role_ops->issue_keepalive(wsi, 0);
+
+	/*
+	 * We arrange to come back here after the additional ping to hangup time
+	 * and do the hangup, unless we get validated (by, eg, a PONG) and
+	 * reset the timer
+	 */
+
+	assert(rbo->secs_since_valid_hangup > rbo->secs_since_valid_ping);
+
+	wsi->validity_hup = 1;
+	__lws_sul_insert(&pt->pt_sul_owner, &wsi->sul_validity,
+			 ((uint64_t)rbo->secs_since_valid_hangup -
+				 rbo->secs_since_valid_ping) * LWS_US_PER_SEC);
+}
+
+/*
+ * The role calls this back to actually confirm validity on a particular wsi
+ * (which may not be the original wsi)
+ */
+
+void
+_lws_validity_confirmed_role(struct lws *wsi)
+{
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	const lws_retry_bo_t *rbo = wsi->retry_policy;
+
+	if (!rbo || !rbo->secs_since_valid_hangup)
+		return;
+
+	wsi->validity_hup = 0;
+	wsi->sul_validity.cb = lws_validity_cb;
+
+	wsi->validity_hup = rbo->secs_since_valid_ping >=
+			    rbo->secs_since_valid_hangup;
+
+	lwsl_info("%s: wsi %p: setting validity timer %ds (hup %d)\n",
+			__func__, wsi,
+			wsi->validity_hup ? rbo->secs_since_valid_hangup :
+					    rbo->secs_since_valid_ping,
+			wsi->validity_hup);
+
+	__lws_sul_insert(&pt->pt_sul_owner, &wsi->sul_validity,
+			 ((uint64_t)(wsi->validity_hup ?
+				rbo->secs_since_valid_hangup :
+				rbo->secs_since_valid_ping)) * LWS_US_PER_SEC);
+}
+
+void
+lws_validity_confirmed(struct lws *wsi)
+{
+	/*
+	 * This may be a stream inside a muxed network connection... leave it
+	 * to the role to figure out who actually needs to understand their
+	 * validity was confirmed.
+	 */
+	if (wsi->role_ops && wsi->role_ops->issue_keepalive)
+		wsi->role_ops->issue_keepalive(wsi, 1);
 }

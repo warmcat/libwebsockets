@@ -1064,7 +1064,7 @@ handled:
 	return 0;
 }
 
-LWS_EXTERN int
+int
 lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 {
 	struct lws_cgi **pcgi, *cgi = NULL;

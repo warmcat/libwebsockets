@@ -17,12 +17,17 @@
 
 static struct lws_context *context;
 static struct lws *client_wsi;
-static int interrupted, zero_length_ping, port = 443,
+static int interrupted, zero_length_ping, port = 443, quick_pings, no_user_ping,
 	   ssl_connection = LCCSCF_USE_SSL;
 static const char *server_address = "libwebsockets.org", *pro = "lws-mirror-protocol";
 
 struct pss {
 	int send_a_ping;
+};
+
+static const lws_retry_bo_t retry = {
+	.secs_since_valid_ping = 3,
+	.secs_since_valid_hangup = 10,
 };
 
 static int
@@ -42,6 +47,8 @@ connect_client(void)
 	i.protocol = pro;
 	i.local_protocol_name = "lws-ping-test";
 	i.pwsi = &client_wsi;
+	if (quick_pings)
+		i.retry_and_idle_policy = &retry;
 
 	return !lws_client_connect_via_info(&i);
 }
@@ -110,10 +117,12 @@ callback_minimal_broker(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_TIMER:
+		if (no_user_ping)
+			break;
 		/* we want to send a ws PING every few seconds */
 		pss->send_a_ping = 1;
 		lws_callback_on_writable(wsi);
-		lws_set_timer_usecs(wsi, 5 * LWS_USEC_PER_SEC);
+		lws_set_timer_usecs(wsi, 10 * LWS_USEC_PER_SEC);
 		break;
 
 	/* rate-limited client connect retries */
@@ -185,6 +194,9 @@ int main(int argc, const char **argv)
 	if (lws_cmdline_option(argc, argv, "-z"))
 		zero_length_ping = 1;
 
+	if (lws_cmdline_option(argc, argv, "-n"))
+		no_user_ping = 1;
+
 	if ((p = lws_cmdline_option(argc, argv, "--protocol")))
 		pro = p;
 
@@ -196,6 +208,11 @@ int main(int argc, const char **argv)
 
 	if ((p = lws_cmdline_option(argc, argv, "--port")))
 		port = atoi(p);
+
+	/* the default validity check is 5m / 5m10s... -v = 5s / 10s */
+
+	if (lws_cmdline_option(argc, argv, "-v"))
+		quick_pings = 1;
 
 	/*
 	 * since we know this lws context is only ever going to be used with

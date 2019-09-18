@@ -44,9 +44,6 @@ lws_sul_plat_unix(lws_sorted_usec_list_t *sul)
 	struct lws_context_per_thread *pt =
 		lws_container_of(sul, struct lws_context_per_thread, sul_plat);
 	struct lws_context *context = pt->context;
-#if defined(LWS_ROLE_CGI) || defined(LWS_ROLE_DBUS)
-	time_t now = time(NULL);
-#endif
 
 #if !defined(LWS_NO_DAEMONIZE)
 	/* if our parent went down, don't linger around */
@@ -81,13 +78,6 @@ lws_sul_plat_unix(lws_sorted_usec_list_t *sul)
 		}
 	} lws_end_foreach_llp(pv, no_listener_vhost_list);
 	lws_context_unlock(context);
-#endif
-
-#if defined(LWS_ROLE_CGI)
-	role_ops_cgi.periodic_checks(context, 0, now);
-#endif
-#if defined(LWS_ROLE_DBUS)
-	role_ops_dbus.periodic_checks(context, 0, now);
 #endif
 
 	__lws_sul_insert(&pt->pt_sul_owner, &pt->sul_plat, 30 * LWS_US_PER_SEC);

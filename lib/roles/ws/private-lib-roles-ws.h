@@ -104,23 +104,6 @@ struct _lws_websocket_related {
 
 	/* Also used for close content... control opcode == < 128 */
 	uint8_t ping_payload_buf[128 - 3 + LWS_PRE];
-	uint8_t mask[4];
-
-	size_t rx_packet_length;
-	uint32_t rx_ubuf_head;
-	uint32_t rx_ubuf_alloc;
-
-	uint8_t ping_payload_len;
-	uint8_t mask_idx;
-	uint8_t opcode;
-	uint8_t rsv;
-	uint8_t rsv_first_msg;
-	/* zero if no info, or length including 2-byte close code */
-	uint8_t close_in_ping_buffer_len;
-	uint8_t utf8;
-	uint8_t stashed_write_type;
-	uint8_t tx_draining_stashed_wp;
-	uint8_t ietf_spec_revision;
 
 	unsigned int final:1;
 	unsigned int frame_is_binary:1;
@@ -138,13 +121,31 @@ struct _lws_websocket_related {
 	unsigned int send_check_ping:1;
 	unsigned int first_fragment:1;
 	unsigned int peer_has_sent_close:1;
-	unsigned int await_pong;
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	unsigned int extension_data_pending:1;
 	unsigned int rx_draining_ext:1;
 	unsigned int tx_draining_ext:1;
 	unsigned int pmd_trailer_application:1;
+#endif
 
+	uint8_t mask[4];
+
+	size_t rx_packet_length;
+	uint32_t rx_ubuf_head;
+	uint32_t rx_ubuf_alloc;
+
+	uint8_t ping_payload_len;
+	uint8_t mask_idx;
+	uint8_t opcode;
+	uint8_t rsv;
+	uint8_t rsv_first_msg;
+	/* zero if no info, or length including 2-byte close code */
+	uint8_t close_in_ping_buffer_len;
+	uint8_t utf8;
+	uint8_t stashed_write_type;
+	uint8_t tx_draining_stashed_wp;
+	uint8_t ietf_spec_revision;
+#if !defined(LWS_WITHOUT_EXTENSIONS)
 	uint8_t count_act_ext;
 #endif
 };

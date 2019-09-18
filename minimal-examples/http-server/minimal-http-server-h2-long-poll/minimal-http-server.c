@@ -33,6 +33,11 @@ struct pss {
 	char pending;
 };
 
+static const lws_retry_bo_t retry = {
+	.secs_since_valid_ping = 5,
+	.secs_since_valid_hangup = 10,
+};
+
 static void
 sul_cb(lws_sorted_usec_list_t *sul)
 {
@@ -131,6 +136,11 @@ int main(int argc, const char **argv)
 		LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
 		LWS_SERVER_OPTION_VH_H2_HALF_CLOSED_LONG_POLL |
 		LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE;
+
+	/* the default validity check is 5m / 5m10s... -v = 5s / 10s */
+
+	if (lws_cmdline_option(argc, argv, "-v"))
+		info.retry_and_idle_policy = &retry;
 
 	context = lws_create_context(&info);
 	if (!context) {

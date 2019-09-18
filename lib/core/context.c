@@ -28,8 +28,12 @@
 #define LWS_BUILD_HASH "unknown-build-hash"
 #endif
 
-
 static const char *library_version = LWS_LIBRARY_VERSION " " LWS_BUILD_HASH;
+
+#if defined(LWS_WITH_NETWORK)
+/* in ms */
+static uint32_t default_backoff_table[] = { 1000, 3000, 9000, 17000 };
+#endif
 
 /**
  * lws_get_library_version: get version and git hash library built from
@@ -162,11 +166,6 @@ lws_create_context(const struct lws_context_creation_info *info)
 #else
 	context->tls_ops = &tls_ops_openssl;
 #endif
-#endif
-
-
-#if defined(LWS_ROLE_H2)
-	role_ops_h2.init_context(context, info);
 #endif
 
 #if LWS_MAX_SMP > 1
@@ -373,6 +372,15 @@ lws_create_context(const struct lws_context_creation_info *info)
 					       context->count_threads;
 
 #if defined(LWS_WITH_NETWORK)
+
+	context->default_retry.retry_ms_table = default_backoff_table;
+	context->default_retry.conceal_count =
+			context->default_retry.retry_ms_table_count =
+					LWS_ARRAY_SIZE(default_backoff_table);
+	context->default_retry.jitter_percent = 20;
+	context->default_retry.secs_since_valid_ping = 300;
+	context->default_retry.secs_since_valid_hangup = 310;
+
 	/*
 	 * Allocate the per-thread storage for scratchpad buffers,
 	 * and header data pool
@@ -405,6 +413,12 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if defined(LWS_WITH_SEQUENCER)
 		lws_seq_pt_init(&context->pt[n]);
 #endif
+
+		LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar) {
+			if (ar->pt_init_destroy)
+				ar->pt_init_destroy(context, info,
+						    &context->pt[n], 0);
+		} LWS_FOR_EVERY_AVAILABLE_ROLE_END;
 	}
 
 	lwsl_info(" Threads: %d each %d fds\n", context->count_threads,
@@ -634,6 +648,10 @@ lws_context_destroy3(struct lws_context *context)
 #if defined(LWS_WITH_SEQUENCER)
 		lws_seq_destroy_all_on_pt(pt);
 #endif
+		LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar) {
+			if (ar->pt_init_destroy)
+				ar->pt_init_destroy(context, NULL, pt, 1);
+		} LWS_FOR_EVERY_AVAILABLE_ROLE_END;
 
 		if (context->event_loop_ops->destroy_pt)
 			context->event_loop_ops->destroy_pt(context, n);

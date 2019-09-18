@@ -69,16 +69,6 @@ rops_handle_POLLOUT_cgi(struct lws *wsi)
 }
 
 static int
-rops_periodic_checks_cgi(struct lws_context *context, int tsi, time_t now)
-{
-	struct lws_context_per_thread *pt = &context->pt[tsi];
-
-	lws_cgi_kill_terminated(pt);
-
-	return 0;
-}
-
-static int
 rops_destroy_role_cgi(struct lws *wsi)
 {
 #if defined(LWS_WITH_ZLIB)
@@ -94,14 +84,43 @@ rops_destroy_role_cgi(struct lws *wsi)
 	return 0;
 }
 
+static void
+lws_cgi_sul_cb(lws_sorted_usec_list_t *sul)
+{
+	struct lws_context_per_thread *pt = lws_container_of(sul,
+			struct lws_context_per_thread, sul_cgi);
+
+	lws_cgi_kill_terminated(pt);
+
+	__lws_sul_insert(&pt->pt_sul_owner, &pt->sul_cgi,
+			 3 * LWS_US_PER_SEC);
+}
+
+static int
+rops_pt_init_destroy_cgi(struct lws_context *context,
+		    const struct lws_context_creation_info *info,
+		    struct lws_context_per_thread *pt, int destroy)
+{
+	if (!destroy) {
+
+		pt->sul_cgi.cb = lws_cgi_sul_cb;
+
+		__lws_sul_insert(&pt->pt_sul_owner, &pt->sul_cgi,
+				 3 * LWS_US_PER_SEC);
+	} else
+		lws_dll2_remove(&pt->sul_cgi.list);
+
+	return 0;
+}
+
+
 struct lws_role_ops role_ops_cgi = {
 	/* role name */			"cgi",
 	/* alpn id */			NULL,
 	/* check_upgrades */		NULL,
-	/* init_context */		NULL,
+	/* pt_init_destroy */		rops_pt_init_destroy_cgi,
 	/* init_vhost */		NULL,
 	/* destroy_vhost */		NULL,
-	/* periodic_checks */		rops_periodic_checks_cgi,
 	/* service_flag_pending */	NULL,
 	/* handle_POLLIN */		rops_handle_POLLIN_cgi,
 	/* handle_POLLOUT */		rops_handle_POLLOUT_cgi,
@@ -117,6 +136,7 @@ struct lws_role_ops role_ops_cgi = {
 	/* destroy_role */		rops_destroy_role_cgi,
 	/* adoption_bind */		NULL,
 	/* client_bind */		NULL,
+	/* issue_keepalive */		NULL,
 	/* adoption_cb clnt, srv */	{ 0, 0 },
 	/* rx_cb clnt, srv */		{ 0, 0 },
 	/* writeable cb clnt, srv */	{ 0, 0 },

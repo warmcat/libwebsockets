@@ -529,6 +529,7 @@ struct lws_tokens;
 struct lws_vhost;
 struct lws;
 
+#include <libwebsockets/lws-retry.h>
 #include <libwebsockets/lws-system.h>
 #include <libwebsockets/lws-detailed-latency.h>
 #include <libwebsockets/lws-ws-close.h>
@@ -565,7 +566,6 @@ struct lws;
 #include <libwebsockets/lws-lwsac.h>
 #include <libwebsockets/lws-fts.h>
 #include <libwebsockets/lws-diskcache.h>
-#include <libwebsockets/lws-retry.h>
 #include <libwebsockets/lws-sequencer.h>
 
 #include <libwebsockets/abstract/abstract.h>

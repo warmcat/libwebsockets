@@ -71,6 +71,7 @@ lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi)
 	new_wsi->context = vhost->context;
 	new_wsi->pending_timeout = NO_PENDING_TIMEOUT;
 	new_wsi->rxflow_change_to = LWS_RXFLOW_ALLOW;
+	new_wsi->retry_policy = vhost->retry_policy;
 
 #if defined(LWS_WITH_DETAILED_LATENCY)
 	if (vhost->context->detailed_latency_cb)

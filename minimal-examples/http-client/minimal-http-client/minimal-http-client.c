@@ -22,6 +22,11 @@ static int long_poll;
 #endif
 static struct lws *client_wsi;
 
+static const lws_retry_bo_t retry = {
+	.secs_since_valid_ping = 3,
+	.secs_since_valid_hangup = 10,
+};
+
 static int
 callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	      void *user, void *in, size_t len)
@@ -206,6 +211,11 @@ int main(int argc, const char **argv)
 
 	if (lws_cmdline_option(argc, argv, "-e"))
 		i.ssl_connection |= LCCSCF_ALLOW_EXPIRED;
+
+	/* the default validity check is 5m / 5m10s... -v = 3s / 10s */
+
+	if (lws_cmdline_option(argc, argv, "-v"))
+		i.retry_and_idle_policy = &retry;
 
 	if ((p = lws_cmdline_option(argc, argv, "--server")))
 		i.address = p;

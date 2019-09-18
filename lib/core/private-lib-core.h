@@ -274,6 +274,7 @@ struct lws_context {
 #if defined(LWS_WITH_NETWORK)
 
 	struct lws_context_per_thread pt[LWS_MAX_SMP];
+	lws_retry_bo_t	default_retry;
 
 #if defined(LWS_WITH_HTTP2)
 	struct http2_settings set;

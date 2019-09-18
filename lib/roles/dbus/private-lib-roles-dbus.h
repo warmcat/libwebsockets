@@ -38,6 +38,7 @@ struct lws_role_dbus_timer {
 
 struct lws_pt_role_dbus {
 	struct lws_dll2_owner timer_list_owner;
+	lws_sorted_usec_list_t sul;
 };
 
 struct _lws_dbus_mode_related {

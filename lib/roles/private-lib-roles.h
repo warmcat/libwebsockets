@@ -180,16 +180,14 @@ struct lws_role_ops {
 	 */
 	int (*check_upgrades)(struct lws *wsi);
 	/* role-specific context init during context creation */
-	int (*init_context)(struct lws_context *context,
-			    const struct lws_context_creation_info *info);
+	int (*pt_init_destroy)(struct lws_context *context,
+			    const struct lws_context_creation_info *info,
+			    struct lws_context_per_thread *pt, int destroy);
 	/* role-specific per-vhost init during vhost creation */
 	int (*init_vhost)(struct lws_vhost *vh,
 			  const struct lws_context_creation_info *info);
 	/* role-specific per-vhost destructor during vhost destroy */
 	int (*destroy_vhost)(struct lws_vhost *vh);
-	/* generic 1Hz callback for the role itself */
-	int (*periodic_checks)(struct lws_context *context, int tsi,
-			       time_t now);
 	/* chance for the role to force POLLIN without network activity */
 	int (*service_flag_pending)(struct lws_context *context, int tsi);
 	/* an fd using this role has POLLIN signalled */
@@ -233,6 +231,9 @@ struct lws_role_ops {
 	 * case ret 0 = OK, 1 = fail, wsi needs freeing, -1 = fail, wsi freed */
 	int (*client_bind)(struct lws *wsi,
 			   const struct lws_client_connect_info *i);
+	/* isvalid = 0: request a role-specific keepalive (PING etc)
+	 *         = 1: reset any related validity timer */
+	int (*issue_keepalive)(struct lws *wsi, int isvalid);
 
 	/*
 	 * the callback reasons for adoption for client, server

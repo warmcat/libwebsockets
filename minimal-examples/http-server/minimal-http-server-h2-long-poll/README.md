@@ -5,6 +5,13 @@
 ```
  $ cmake . && make
 ```
+## Commandline Options
+
+Option|Meaning
+---|---
+-d|Set logging verbosity
+-s|Serve using TLS selfsigned cert (ie, connect to it with https://...)
+-v|Connection validity use 3s / 10s instead of default 5m / 5m10s
 
 ## usage
 

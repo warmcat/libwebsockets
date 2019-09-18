@@ -16,6 +16,20 @@ various scenarios, CC0-licensed (public domain) for cut-and-paste, allow you to 
 News
 ----
 
+## Connection Validity tracking
+
+Lws now allows you to apply a policy for how long a network connection may go
+without seeing something on it that confirms it's still valid in the sense of
+passing traffic cohernetly both ways.  There's a global policy in the context
+which defaults to 5m before it produces a PING if possible, and 5m10 before
+the connection will be hung up, user code can override this in the context,
+vhost (for server) and client connection info (for client).
+
+An api `lws_validity_confirmed(wsi)` is provided so user code can indicate
+that it observed traffic that must mean the connection is passing traffic in
+both directions to and from the peer.  In the absence of these confirmations
+lws will generate PINGs and take PONGs as the indication of validity.
+
 ## Async DNS support
 
 Master now provides optional Asynchronous (ie, nonblocking) DNS resolving.  Enable

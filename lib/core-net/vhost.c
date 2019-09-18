@@ -475,6 +475,12 @@ lws_create_vhost(struct lws_context *context,
 #if !defined(LWS_PLAT_FREERTOS) && !defined(OPTEE_TA) && !defined(WIN32)
 	vh->bind_iface = info->bind_iface;
 #endif
+	/* apply the context default lws_retry */
+
+	if (info->retry_and_idle_policy)
+		vh->retry_policy = info->retry_and_idle_policy;
+	else
+		vh->retry_policy = &context->default_retry;
 
 	/*
 	 * let's figure out how many protocols the user is handing us, using the

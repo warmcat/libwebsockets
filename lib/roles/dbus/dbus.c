@@ -472,29 +472,42 @@ rops_handle_POLLIN_dbus(struct lws_context_per_thread *pt, struct lws *wsi,
 	return LWS_HPI_RET_HANDLED;
 }
 
-static int
-rops_periodic_checks_dbus(struct lws_context *context, int tsi, time_t now)
+static void
+lws_dbus_sul_cb(lws_sorted_usec_list_t *sul)
 {
-	struct lws_context_per_thread *pt = &context->pt[tsi];
-
-	/*
-	 * locking shouldn't be needed here, because periodic_checks is called
-	 * from the tsi-specific service thread context, and only the same
-	 * service thread can modify stuff on the same pt.
-	 */
+	struct lws_context_per_thread *pt = lws_container_of(sul,
+				struct lws_context_per_thread, dbus.sul);
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, rdt, nx,
 			 lws_dll2_get_head(&pt->dbus.timer_list_owner)) {
 		struct lws_role_dbus_timer *r = lws_container_of(rdt,
 					struct lws_role_dbus_timer, timer_list);
 
-		if (now > r->fire) {
+		if (time(NULL) > r->fire) {
 			lwsl_notice("%s: firing timer\n", __func__);
 			dbus_timeout_handle(r->data);
 			lws_dll2_remove(rdt);
 			lws_free(rdt);
 		}
 	} lws_end_foreach_dll_safe(rdt, nx);
+
+	__lws_sul_insert(&pt->pt_sul_owner, &pt->dbus.sul,
+			 3 * LWS_US_PER_SEC);
+}
+
+static int
+rops_pt_init_destroy_dbus(struct lws_context *context,
+		    const struct lws_context_creation_info *info,
+		    struct lws_context_per_thread *pt, int destroy)
+{
+	if (!destroy) {
+
+		pt->dbus.sul.cb = lws_dbus_sul_cb;
+
+		__lws_sul_insert(&pt->pt_sul_owner, &pt->dbus.sul,
+				 3 * LWS_US_PER_SEC);
+	} else
+		lws_dll2_remove(&pt->dbus.sul.list);
 
 	return 0;
 }
@@ -503,10 +516,9 @@ struct lws_role_ops role_ops_dbus = {
 	/* role name */			"dbus",
 	/* alpn id */			NULL,
 	/* check_upgrades */		NULL,
-	/* init_context */		NULL,
+	/* pt_init_destroy */		rops_pt_init_destroy_dbus,
 	/* init_vhost */		NULL,
 	/* destroy_vhost */		NULL,
-	/* periodic_checks */		rops_periodic_checks_dbus,
 	/* service_flag_pending */	NULL,
 	/* handle_POLLIN */		rops_handle_POLLIN_dbus,
 	/* handle_POLLOUT */		NULL,
@@ -522,6 +534,7 @@ struct lws_role_ops role_ops_dbus = {
 	/* destroy_role */		NULL,
 	/* adoption_bind */		NULL,
 	/* client_bind */		NULL,
+	/* issue_keepalive */		NULL,
 	/* adoption_cb clnt, srv */	{ 0, 0 },
 	/* rx_cb clnt, srv */		{ 0, 0 },
 	/* writeable cb clnt, srv */	{ 0, 0 },

@@ -19,6 +19,8 @@ Option|Meaning
 --port|Use a specific port instead of 443, eg `--port 7681`
 -z|Send zero-length pings for testing
 --protocol|Use a specific ws subprotocol rather than lws-mirror-protocol, eg, `--protocol myprotocol`
+-v|Connection validity use 3s / 10s instead of default 5m / 5m10s
+
 
 ## usage
 

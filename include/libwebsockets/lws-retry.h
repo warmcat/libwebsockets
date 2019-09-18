@@ -23,10 +23,12 @@
  */
 
 typedef struct lws_retry_bo {
-	const uint32_t		*retry_ms_table;	  /* base delay in ms */
-	uint16_t		retry_ms_table_count;     /* entries in table */
-	uint16_t		conceal_count;	    /* max retries to conceal */
-	uint8_t			jitter_percent; /* % additional random jitter */
+	const uint32_t	*retry_ms_table;	   /* base delay in ms */
+	uint16_t	retry_ms_table_count;      /* entries in table */
+	uint16_t	conceal_count;		   /* max retries to conceal */
+	uint16_t	secs_since_valid_ping;     /* idle before PING issued */
+	uint16_t	secs_since_valid_hangup;   /* idle before hangup conn */
+	uint8_t		jitter_percent;		/* % additional random jitter */
 } lws_retry_bo_t;
 
 /**

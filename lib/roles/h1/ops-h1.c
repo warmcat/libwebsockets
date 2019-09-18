@@ -1105,24 +1105,23 @@ rops_close_kill_connection_h1(struct lws *wsi, enum lws_close_status reason)
 }
 
 int
-rops_init_context_h1(struct lws_context *context,
-		     const struct lws_context_creation_info *info)
+rops_pt_init_destroy_h1(struct lws_context *context,
+		    const struct lws_context_creation_info *info,
+		    struct lws_context_per_thread *pt, int destroy)
 {
 	/*
 	 * We only want to do this once... we will do it if no h2 support
 	 * otherwise let h2 ops do it.
 	 */
 #if !defined(LWS_ROLE_H2) && defined(LWS_WITH_SERVER)
-	int n;
-
-	for (n = 0; n < context->count_threads; n++) {
-		struct lws_context_per_thread *pt = &context->pt[n];
+	if (!destroy) {
 
 		pt->sul_ah_lifecheck.cb = lws_sul_http_ah_lifecheck;
 
 		__lws_sul_insert(&pt->pt_sul_owner, &pt->sul_ah_lifecheck,
 				 30 * LWS_US_PER_SEC);
-	}
+	} else
+		lws_dll2_remove(&pt->sul_ah_lifecheck.list);
 #endif
 
 	return 0;
@@ -1132,10 +1131,9 @@ struct lws_role_ops role_ops_h1 = {
 	/* role name */			"h1",
 	/* alpn id */			"http/1.1",
 	/* check_upgrades */		NULL,
-	/* init_context */		rops_init_context_h1,
+	/* pt_init_destroy */		rops_pt_init_destroy_h1,
 	/* init_vhost */		NULL,
 	/* destroy_vhost */		NULL,
-	/* periodic_checks */		NULL,
 	/* service_flag_pending */	NULL,
 	/* handle_POLLIN */		rops_handle_POLLIN_h1,
 	/* handle_POLLOUT */		rops_handle_POLLOUT_h1,
@@ -1159,6 +1157,7 @@ struct lws_role_ops role_ops_h1 = {
 #else
 					NULL,
 #endif
+	/* issue_keepalive */		NULL,
 	/* adoption_cb clnt, srv */	{ LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED,
 					  LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED },
 	/* rx_cb clnt, srv */		{ LWS_CALLBACK_RECEIVE_CLIENT_HTTP,

@@ -27,6 +27,11 @@ static struct lws_protocols protocols[] = {
 	{ NULL, NULL, 0, 0 } /* terminator */
 };
 
+static const lws_retry_bo_t retry = {
+	.secs_since_valid_ping = 3,
+	.secs_since_valid_hangup = 10,
+};
+
 static int interrupted;
 
 static const struct lws_http_mount mount = {
@@ -93,6 +98,9 @@ int main(int argc, const char **argv)
 
 	if (lws_cmdline_option(argc, argv, "-h"))
 		info.options |= LWS_SERVER_OPTION_VHOST_UPG_STRICT_HOST_CHECK;
+
+	if (lws_cmdline_option(argc, argv, "-v"))
+		info.retry_and_idle_policy = &retry;
 
 	context = lws_create_context(&info);
 	if (!context) {

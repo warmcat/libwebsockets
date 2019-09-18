@@ -34,7 +34,6 @@
 int
 lws_ws_rx_sm(struct lws *wsi, char already_processed, unsigned char c)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	int callback_action = LWS_CALLBACK_RECEIVE;
 	struct lws_ext_pm_deflate_rx_ebufs pmdrx;
 	unsigned short close_code;
@@ -550,22 +549,7 @@ ping_drop:
 			lwsl_hexdump(&wsi->ws->rx_ubuf[LWS_PRE],
 			             wsi->ws->rx_ubuf_head);
 
-			if (wsi->ws->await_pong) {
-				lwsl_info("received expected PONG on wsi %p\n",
-						wsi);
-				lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
-				wsi->ws->await_pong = 0;
-
-				/*
-				 * prepare to send the ping again if nothing
-				 * sent to countermand it
-				 */
-
-				__lws_sul_insert(&pt->pt_sul_owner,
-						 &wsi->sul_ping,
-					(lws_usec_t)wsi->context->ws_ping_pong_interval *
-					 LWS_USEC_PER_SEC);
-			}
+			lws_validity_confirmed(wsi);
 
 			/* issue it */
 			callback_action = LWS_CALLBACK_RECEIVE_PONG;
@@ -839,51 +823,12 @@ lws_0405_frame_mask_generate(struct lws *wsi)
 	return 0;
 }
 
-void
-lws_sul_wsping_cb(lws_sorted_usec_list_t *sul)
-{
-	struct lws *wsi = lws_container_of(sul, struct lws, sul_ping);
-
-	/*
-	 * The sul_ping timer came up... either it's time to send a PING
-	 * (!wsi->ws->send_check_ping), or we didn't get the PONG in time
-	 * (wsi->ws->send_check_ping)
-	 */
-
-	if (!wsi->ws->send_check_ping) {
-		lwsl_info("%s: req pp on wsi %p\n", __func__, wsi);
-
-		wsi->ws->send_check_ping = 1;
-		lws_set_timeout(wsi, PENDING_TIMEOUT_WS_PONG_CHECK_SEND_PING,
-				wsi->context->timeout_secs);
-		lws_callback_on_writable(wsi);
-
-		return;
-	}
-
-	if (wsi->ws->await_pong) {
-		/* it didn't return the PONG in time */
-
-		lwsl_info("%s: wsi %p: failed to send PONG\n", __func__, wsi);
-		__lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
-				     "PONG timeout");
-	}
-}
-
 int
 lws_server_init_wsi_for_ws(struct lws *wsi)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	int n;
 
 	lwsi_set_state(wsi, LRS_ESTABLISHED);
-
-	if (wsi->context->ws_ping_pong_interval && !wsi->http2_substream ) {
-		wsi->sul_ping.cb = lws_sul_wsping_cb;
-		__lws_sul_insert(&pt->pt_sul_owner, &wsi->sul_ping,
-				 (lws_usec_t)wsi->context->ws_ping_pong_interval *
-				 LWS_USEC_PER_SEC);
-	}
 
 	/*
 	 * create the frame buffer for this connection according to the
@@ -925,6 +870,7 @@ lws_server_init_wsi_for_ws(struct lws *wsi)
 					    wsi->h2_stream_carries_ws))
 			return 1;
 
+	lws_validity_confirmed(wsi);
 	lwsl_debug("ws established\n");
 
 	return 0;
@@ -1302,7 +1248,6 @@ drain:
 
 int rops_handle_POLLOUT_ws(struct lws *wsi)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	int write_type = LWS_WRITE_PONG;
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	struct lws_ext_pm_deflate_rx_ebufs pmdrx;
@@ -1380,23 +1325,16 @@ int rops_handle_POLLOUT_ws(struct lws *wsi)
 	}
 
 	if (!wsi->socket_is_permanently_unusable &&
-	    wsi->ws->send_check_ping && wsi->context->ws_ping_pong_interval) {
+	    wsi->ws->send_check_ping) {
 
 		lwsl_info("%s: issuing ping on wsi %p: %s %s h2: %d\n", __func__, wsi,
 				wsi->role_ops->name, wsi->protocol->name,
 				wsi->http2_substream);
 		wsi->ws->send_check_ping = 0;
-		wsi->ws->await_pong = 1;
 		n = lws_write(wsi, &wsi->ws->ping_payload_buf[LWS_PRE],
 			      0, LWS_WRITE_PING);
 		if (n < 0)
 			return LWS_HP_RET_BAIL_DIE;
-
-		/* give it a few seconds to respond with the PONG */
-
-		__lws_sul_insert(&pt->pt_sul_owner, &wsi->sul_ping,
-				 (lws_usec_t)wsi->context->timeout_secs *
-				 LWS_USEC_PER_SEC);
 
 		return LWS_HP_RET_BAIL_OK;
 	}
@@ -1634,8 +1572,8 @@ static int
 rops_write_role_protocol_ws(struct lws *wsi, unsigned char *buf, size_t len,
 			    enum lws_write_protocol *wp)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 #if !defined(LWS_WITHOUT_EXTENSIONS)
+	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 	enum lws_write_protocol wpt;
 #endif
 	struct lws_ext_pm_deflate_rx_ebufs pmdrx;
@@ -1682,13 +1620,7 @@ rops_write_role_protocol_ws(struct lws *wsi, unsigned char *buf, size_t len,
 		// assert(0);
 	}
 #endif
-	/* reset the ping wait */
-	if (wsi->context->ws_ping_pong_interval) {
-		wsi->sul_ping.cb = lws_sul_wsping_cb;
-		__lws_sul_insert(&pt->pt_sul_owner, &wsi->sul_ping,
-				(lws_usec_t)wsi->context->ws_ping_pong_interval *
-								LWS_USEC_PER_SEC);
-	}
+
 	if (((*wp) & 0x1f) == LWS_WRITE_HTTP ||
 	    ((*wp) & 0x1f) == LWS_WRITE_HTTP_FINAL ||
 	    ((*wp) & 0x1f) == LWS_WRITE_HTTP_HEADERS_CONTINUATION ||
@@ -1980,7 +1912,6 @@ send_raw:
 static int
 rops_close_kill_connection_ws(struct lws *wsi, enum lws_close_status reason)
 {
-	lws_dll2_remove(&wsi->sul_ping.list);
 	/* deal with ws encapsulation in h2 */
 #if defined(LWS_WITH_HTTP2)
 	if (wsi->http2_substream && wsi->h2_stream_carries_ws)
@@ -2087,14 +2018,41 @@ rops_destroy_role_ws(struct lws *wsi)
 	return 0;
 }
 
+static int
+rops_issue_keepalive_ws(struct lws *wsi, int isvalid)
+{
+	uint64_t us;
+
+#if defined(LWS_WITH_HTTP2)
+	if (lwsi_role_h2_ENCAPSULATION(wsi)) {
+		/* we know then that it has an h2 parent */
+		struct lws *enc = role_ops_h2.encapsulation_parent(wsi);
+
+		assert(enc);
+		if (enc->role_ops->issue_keepalive(wsi, isvalid))
+			return 1;
+	}
+#endif
+
+	if (isvalid)
+		_lws_validity_confirmed_role(wsi);
+	else {
+		us = lws_now_usecs();
+		memcpy(&wsi->ws->ping_payload_buf[LWS_PRE], &us, 8);
+		wsi->ws->send_check_ping = 1;
+		lws_callback_on_writable(wsi);
+	}
+
+	return 0;
+}
+
 struct lws_role_ops role_ops_ws = {
 	/* role name */			"ws",
 	/* alpn id */			NULL,
 	/* check_upgrades */		NULL,
-	/* init_context */		NULL,
+	/* pt_init_destroy */		NULL,
 	/* init_vhost */		rops_init_vhost_ws,
 	/* destroy_vhost */		rops_destroy_vhost_ws,
-	/* periodic_checks */		NULL,
 	/* service_flag_pending */	rops_service_flag_pending_ws,
 	/* handle_POLLIN */		rops_handle_POLLIN_ws,
 	/* handle_POLLOUT */		rops_handle_POLLOUT_ws,
@@ -2110,6 +2068,7 @@ struct lws_role_ops role_ops_ws = {
 	/* destroy_role */		rops_destroy_role_ws,
 	/* adoption_bind */		NULL,
 	/* client_bind */		NULL,
+	/* issue_keepalive */		rops_issue_keepalive_ws,
 	/* adoption_cb clnt, srv */	{ LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED,
 					  LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED },
 	/* rx_cb clnt, srv */		{ LWS_CALLBACK_CLIENT_RECEIVE,

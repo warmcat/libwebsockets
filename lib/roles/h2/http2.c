@@ -120,7 +120,7 @@ lws_h2_dump_settings(struct http2_settings *set)
 }
 #endif
 
-static struct lws_h2_protocol_send *
+struct lws_h2_protocol_send *
 lws_h2_new_pps(enum lws_h2_protocol_send_type type)
 {
 	struct lws_h2_protocol_send *pps = lws_malloc(sizeof(*pps), "pps");
@@ -211,6 +211,9 @@ lws_wsi_server_new(struct lws_vhost *vh, struct lws *parent_wsi,
 #if defined(LWS_WITH_SERVER_STATUS)
 	wsi->vhost->conn_stats.h2_subs++;
 #endif
+
+	/* get the ball rolling */
+	lws_validity_confirmed(wsi);
 
 	lwsl_info("%s: %p new ch %p, sid %d, usersp=%p, tx cr %d, "
 		  "peer_credit %d (nwsi tx_cr %d)\n",
@@ -727,17 +730,27 @@ int lws_h2_do_pps_send(struct lws *wsi)
 			break;
 		}
 		break;
+
+	/*
+	 * h2 only has PING... ACK = 0 = ping, ACK = 1 = pong
+	 */
+
+	case LWS_H2_PPS_PING:
 	case LWS_H2_PPS_PONG:
-		lwsl_debug("sending PONG\n");
+		if (pps->type == LWS_H2_PPS_PING)
+			lwsl_info("sending PING\n");
+		else {
+			lwsl_info("sending PONG\n");
+			flags = LWS_H2_FLAG_SETTINGS_ACK;
+		}
+
 		memcpy(&set[LWS_PRE], pps->u.ping.ping_payload, 8);
-		n = lws_h2_frame_write(wsi, LWS_H2_FRAME_TYPE_PING,
-		     		       LWS_H2_FLAG_SETTINGS_ACK,
+		n = lws_h2_frame_write(wsi, LWS_H2_FRAME_TYPE_PING, flags,
 				       LWS_H2_STREAM_ID_MASTER, 8,
 				       &set[LWS_PRE]);
-		if (n != 8) {
-			lwsl_info("send %d %d\n", n, m);
+		if (n != 8)
 			goto bail;
-		}
+
 		break;
 
 	case LWS_H2_PPS_GOAWAY:
@@ -1599,6 +1612,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 	case LWS_H2_FRAME_TYPE_PING:
 		if (h2n->flags & LWS_H2_FLAG_SETTINGS_ACK) { // ack
+			lws_validity_confirmed(wsi);
 		} else {/* they're sending us a ping request */
 			struct lws_h2_protocol_send *pps =
 					lws_h2_new_pps(LWS_H2_PPS_PONG);
@@ -1737,6 +1751,7 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 
 			lwsl_info("http2: %p: established\n", wsi);
 			lwsi_set_state(wsi, LRS_H2_AWAIT_SETTINGS);
+			lws_validity_confirmed(wsi);
 			h2n->count = 0;
 			wsi->h2.tx_cr = 65535;
 
@@ -2338,6 +2353,8 @@ lws_h2_ws_handshake(struct lws *wsi)
 	    wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP_PMO, wsi->user_space,
 				    (void *)hit->cgienv, 0))
 		return 1;
+
+	lws_validity_confirmed(wsi);
 
 	return 0;
 }

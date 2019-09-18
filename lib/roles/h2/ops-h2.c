@@ -538,32 +538,31 @@ rops_init_vhost_h2(struct lws_vhost *vh,
 	return 0;
 }
 
-static int
-rops_init_context_h2(struct lws_context *context,
-		     const struct lws_context_creation_info *info)
+int
+rops_pt_init_destroy_h2(struct lws_context *context,
+		    const struct lws_context_creation_info *info,
+		    struct lws_context_per_thread *pt, int destroy)
 {
-	int n;
-
 	context->set = lws_h2_stock_settings;
 
-#if defined(LWS_WITH_SERVER)
 	/*
 	 * We only want to do this once... we will do it if we are built
 	 * otherwise h1 ops will do it (or nobody if no http at all)
 	 */
-
-	for (n = 0; n < context->count_threads; n++) {
-		struct lws_context_per_thread *pt = &context->pt[n];
+#if !defined(LWS_ROLE_H2) && defined(LWS_WITH_SERVER)
+	if (!destroy) {
 
 		pt->sul_ah_lifecheck.cb = lws_sul_http_ah_lifecheck;
 
 		__lws_sul_insert(&pt->pt_sul_owner, &pt->sul_ah_lifecheck,
 				 30 * LWS_US_PER_SEC);
-	}
+	} else
+		lws_dll2_remove(&pt->sul_ah_lifecheck.list);
 #endif
 
 	return 0;
 }
+
 
 static lws_fileofs_t
 rops_tx_credit_h2(struct lws *wsi)
@@ -1242,14 +1241,51 @@ rops_alpn_negotiated_h2(struct lws *wsi, const char *alpn)
 	return 0;
 }
 
+static int
+rops_issue_keepalive_h2(struct lws *wsi, int isvalid)
+{
+	struct lws *nwsi = lws_get_network_wsi(wsi);
+	struct lws_h2_protocol_send *pps;
+	uint64_t us = lws_now_usecs();
+
+	if (isvalid) {
+		_lws_validity_confirmed_role(nwsi);
+
+		return 0;
+	}
+
+	/*
+	 * We can only send these frames on the network connection itself...
+	 * we shouldn't be tracking validity on anything else
+	 */
+
+	assert(wsi == nwsi);
+
+	pps = lws_h2_new_pps(LWS_H2_PPS_PING);
+	if (!pps)
+		return 1;
+
+	/*
+	 * The peer is defined to copy us back the unchanged payload in another
+	 * PING frame this time with ACK set.  So by sending that out with the
+	 * current time, it's an interesting opportunity to learn the effective
+	 * RTT on the link when the PONG comes in, plus or minus the time to
+	 * schedule the PPS.
+	 */
+
+	memcpy(pps->u.ping.ping_payload, &us, 8);
+	lws_pps_schedule(nwsi, pps);
+
+	return 0;
+}
+
 struct lws_role_ops role_ops_h2 = {
 	/* role name */			"h2",
 	/* alpn id */			"h2",
 	/* check_upgrades */		rops_check_upgrades_h2,
-	/* init_context */		rops_init_context_h2,
+	/* pt_init_destroy */		rops_pt_init_destroy_h2,
 	/* init_vhost */		rops_init_vhost_h2,
 	/* destroy_vhost */		NULL,
-	/* periodic_checks */		NULL,
 	/* service_flag_pending */	NULL,
 	/* handle_POLLIN */		rops_handle_POLLIN_h2,
 	/* handle_POLLOUT */		rops_handle_POLLOUT_h2,
@@ -1265,6 +1301,7 @@ struct lws_role_ops role_ops_h2 = {
 	/* destroy_role */		rops_destroy_role_h2,
 	/* adoption_bind */		NULL,
 	/* client_bind */		NULL,
+	/* issue_keepalive */		rops_issue_keepalive_h2,
 	/* adoption_cb clnt, srv */	{ LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED,
 					  LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED },
 	/* rx cb clnt, srv */		{ LWS_CALLBACK_RECEIVE_CLIENT_HTTP,

@@ -354,6 +354,9 @@ struct lws_context_per_thread {
 #if defined(LWS_PLAT_UNIX)
 	lws_sorted_usec_list_t sul_plat;
 #endif
+#if defined(LWS_ROLE_CGI)
+	lws_sorted_usec_list_t sul_cgi;
+#endif
 #if defined(LWS_WITH_STATS)
 	uint64_t lws_stats[LWSSTATS_SIZE];
 	int updated;
@@ -508,6 +511,8 @@ struct lws_vhost {
 	struct lws_context *context;
 	struct lws_vhost *vhost_next;
 
+	const lws_retry_bo_t *retry_policy;
+
 	struct lws *lserv_wsi;
 	const char *name;
 	const char *iface;
@@ -584,7 +589,6 @@ struct lws {
 #endif
 #if defined(LWS_ROLE_WS)
 	struct _lws_websocket_related *ws; /* allocated if we upgrade to ws */
-	lws_sorted_usec_list_t sul_ping;
 #endif
 #if defined(LWS_ROLE_DBUS)
 	struct _lws_dbus_mode_related dbus;
@@ -606,6 +610,8 @@ struct lws {
 
 	lws_sorted_usec_list_t sul_timeout;
 	lws_sorted_usec_list_t sul_hrtimer;
+	lws_sorted_usec_list_t sul_validity;
+
 	struct lws_dll2 dll_buflist; /* guys with pending rxflow */
 	struct lws_dll2 same_vh_protocol;
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
@@ -627,6 +633,7 @@ struct lws {
 	const struct lws_role_ops *role_ops;
 	const struct lws_protocols *protocol;
 	struct lws_sequencer *seq;	/* associated sequencer if any */
+	const lws_retry_bo_t *retry_policy;
 
 #if defined(LWS_WITH_THREADPOOL)
 	struct lws_threadpool_task *tp_task;
@@ -710,6 +717,7 @@ struct lws {
 	unsigned int proxied_ws_parent:1;
 	unsigned int do_bind:1;
 	unsigned int oom4:1;
+	unsigned int validity_hup:1;
 
 	unsigned int could_have_pending:1; /* detect back-to-back writes */
 	unsigned int outer_will_close:1;
@@ -961,9 +969,6 @@ lws_plat_plugins_init(struct lws_context * context, const char * const *d);
 LWS_VISIBLE LWS_EXTERN int
 lws_plat_plugins_destroy(struct lws_context * context);
 
-LWS_EXTERN void
-lws_restart_ws_ping_pong_timer(struct lws *wsi);
-
 struct lws *
 lws_adopt_socket_vhost(struct lws_vhost *vh, lws_sockfd_type accept_fd);
 
@@ -1196,6 +1201,11 @@ lws_threadpool_tsi_context(struct lws_context *context, int tsi);
 
 void
 __lws_wsi_remove_from_sul(struct lws *wsi);
+
+void
+lws_validity_confirmed(struct lws *wsi);
+void
+_lws_validity_confirmed_role(struct lws *wsi);
 
 int
 lws_seq_pt_init(struct lws_context_per_thread *pt);

@@ -211,6 +211,7 @@ enum lws_h2_protocol_send_type {
 	LWS_PPS_NONE,
 	LWS_H2_PPS_MY_SETTINGS,
 	LWS_H2_PPS_ACK_SETTINGS,
+	LWS_H2_PPS_PING,
 	LWS_H2_PPS_PONG,
 	LWS_H2_PPS_GOAWAY,
 	LWS_H2_PPS_RST_STREAM,
@@ -406,3 +407,5 @@ int
 lws_handle_POLLOUT_event_h2(struct lws *wsi);
 int
 lws_read_h2(struct lws *wsi, unsigned char *buf, lws_filepos_t len);
+struct lws_h2_protocol_send *
+lws_h2_new_pps(enum lws_h2_protocol_send_type type);

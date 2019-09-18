@@ -133,6 +133,11 @@ struct lws_client_connect_info {
 	 *   an lws_seq_t.
 	 */
 
+	const lws_retry_bo_t *retry_and_idle_policy;
+	/**< optional retry and idle policy to apply to this connection.
+	 *   Currently only the idle parts are applied to the connection.
+	 */
+
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
 	 *
