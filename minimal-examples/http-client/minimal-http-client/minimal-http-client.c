@@ -195,6 +195,21 @@ int main(int argc, const char **argv)
 	if ((p = lws_cmdline_option(argc, argv, "-p")))
 		i.port = atoi(p);
 
+	if (lws_cmdline_option(argc, argv, "-j"))
+		i.ssl_connection |= LCCSCF_ALLOW_SELFSIGNED;
+
+	if (lws_cmdline_option(argc, argv, "-k"))
+		i.ssl_connection |= LCCSCF_ALLOW_INSECURE;
+
+	if (lws_cmdline_option(argc, argv, "-m"))
+		i.ssl_connection |= LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+
+	if (lws_cmdline_option(argc, argv, "-e"))
+		i.ssl_connection |= LCCSCF_ALLOW_EXPIRED;
+
+	if ((p = lws_cmdline_option(argc, argv, "--server")))
+		i.address = p;
+
 	i.path = "/";
 	i.host = i.address;
 	i.origin = i.address;

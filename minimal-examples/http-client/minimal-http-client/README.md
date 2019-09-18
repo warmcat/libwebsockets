@@ -16,6 +16,11 @@ Commandline option|Meaning
 -d <loglevel>|Debug verbosity in decimal, eg, -d15
 -l| Connect to https://localhost:7681 and accept selfsigned cert
 --h1|Specify http/1.1 only using ALPN, rejects h2 even if server supports it
+--server <name>|set server name to connect to
+-k|Apply tls option LCCSCF_ALLOW_INSECURE
+-j|Apply tls option LCCSCF_ALLOW_SELFSIGNED
+-m|Apply tls option LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK
+-e|Apply tls option LCCSCF_ALLOW_EXPIRED
 
 ```
  $ ./lws-minimal-http-client

@@ -67,6 +67,12 @@ OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 					    "certificate (verify_callback)\n");
 				X509_STORE_CTX_set_error(x509_ctx, X509_V_OK);
 				return 1;	// ok
+		} else if ((err == X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY ||
+			    err == X509_V_ERR_UNABLE_TO_VERIFY_LEAF_SIGNATURE) &&
+			    wsi->tls.use_ssl & LCCSCF_ALLOW_INSECURE) {
+				lwsl_notice("accepting non-trusted certificate\n");
+				X509_STORE_CTX_set_error(x509_ctx, X509_V_OK);
+				return 1;  /* ok */
 			} else if ((err == X509_V_ERR_CERT_NOT_YET_VALID ||
 				    err == X509_V_ERR_CERT_HAS_EXPIRED) &&
 				    wsi->tls.use_ssl & LCCSCF_ALLOW_EXPIRED) {
