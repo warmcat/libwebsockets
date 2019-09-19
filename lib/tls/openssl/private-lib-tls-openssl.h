@@ -24,6 +24,9 @@
  *  gencrypto openssl-specific helper declarations
  */
 
+#if !defined(__LWS_PRIVATE_LIB_TLS_OPENSSL_H__)
+#define __LWS_PRIVATE_LIB_TLS_OPENSSL_H__
+
 /*
  * one of these per different client context
  * cc_owner is in lws_context.lws_context_tls
@@ -54,3 +57,6 @@ lws_gencrypto_openssl_hash_to_EVP_MD(enum lws_genhash_types hash_type);
 #if !defined(LWS_HAVE_BN_bn2binpad)
 int BN_bn2binpad(const BIGNUM *a, unsigned char *to, int tolen);
 #endif
+
+#endif
+

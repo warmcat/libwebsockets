@@ -35,7 +35,7 @@ function new_ws(urlpath, protocol)
 
 document.addEventListener("DOMContentLoaded", function() {
 
-	subscriber_ws = new_ws(get_appropriate_ws_url(""), "lws-minimal-broker");
+	var subscriber_ws = new_ws(get_appropriate_ws_url(""), "lws-minimal-broker");
 	try {
 		subscriber_ws.onopen = function() {
 			document.getElementById("b").disabled = 0;
@@ -55,7 +55,7 @@ document.addEventListener("DOMContentLoaded", function() {
 		alert("<p>Error " + exception);  
 	}
 	
-	publisher_ws = new_ws(get_appropriate_ws_url("/publisher"), "lws-minimal-broker");
+	var publisher_ws = new_ws(get_appropriate_ws_url("/publisher"), "lws-minimal-broker");
 	try {
 		publisher_ws.onopen = function() {
 			document.getElementById("m").disabled = 0;

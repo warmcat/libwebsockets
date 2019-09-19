@@ -1,6 +1,6 @@
 document.addEventListener("DOMContentLoaded", function() {
 
-	var head = 0, tail = 0, ring = new Array();
+	var head = 0, tail = 0, ring = new Array(), es;
 
 	es = new EventSource("/sse/sourcename");
 	try {

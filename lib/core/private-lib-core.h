@@ -22,6 +22,9 @@
  * IN THE SOFTWARE.
  */
 
+#if !defined(__LWS_PRIVATE_LIB_CORE_H__)
+#define __LWS_PRIVATE_LIB_CORE_H__
+
 #include "lws_config.h"
 #include "lws_config_private.h"
 
@@ -632,4 +635,6 @@ lws_context_destroy2(struct lws_context *context);
 
 #ifdef __cplusplus
 };
+#endif
+
 #endif

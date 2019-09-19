@@ -40,7 +40,7 @@ document.addEventListener("DOMContentLoaded", function() {
 	
 	for (n = 0; n < 8; n++) {
 	
-		ws = new_ws(get_appropriate_ws_url(""), "lws-minimal");
+		var ws = new_ws(get_appropriate_ws_url(""), "lws-minimal");
 		wsa.push(ws);
 		try {
 			ws.onopen = function() {

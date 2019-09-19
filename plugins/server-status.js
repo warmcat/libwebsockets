@@ -29,8 +29,6 @@ function humanize(s)
 	return s;
 }
 
-	var pos = 0;
-
 function get_appropriate_ws_url()
 {
 	var pcol;

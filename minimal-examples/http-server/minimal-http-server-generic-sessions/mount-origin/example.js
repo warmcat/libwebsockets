@@ -18,5 +18,4 @@ document.addEventListener("DOMContentLoaded", function() {
 	   
 	   if (transport_protocol == "h2")
 	   	document.getElementById("transport").innerHTML = "<img src=\"/http2.png\">";
-	}
 }, false);

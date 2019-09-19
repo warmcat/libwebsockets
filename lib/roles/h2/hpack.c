@@ -394,8 +394,7 @@ lws_token_from_index(struct lws *wsi, int index, const char **arg, int *len,
 		return -1;
 	}
 
-	if (index < (int)LWS_ARRAY_SIZE(static_token) ||
-	    index >= (int)LWS_ARRAY_SIZE(static_token) + dyn->used_entries) {
+	if (index >= (int)LWS_ARRAY_SIZE(static_token) + dyn->used_entries) {
 		lwsl_info("  %s: adjusted index %d >= %d\n", __func__, index,
 			    dyn->used_entries);
 		lws_h2_goaway(wsi, H2_ERR_COMPRESSION_ERROR,

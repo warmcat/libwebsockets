@@ -457,13 +457,11 @@ lws_h2_settings(struct lws *wsi, struct http2_settings *settings,
 			}
 
 #if defined(LWS_AMAZON_RTOS) || defined(LWS_AMAZON_LINUX)
-			//FIXME: Workaround for FIRMWARE-4632 until cloud-side issue is fixed.
 			if (b == 0x7fffffff) {
 				b = 65535;
 				lwsl_info("init window size 0x7fffffff\n");
 				break;
 			}
-			//FIXME: end of FIRMWARE-4632 workaround
 #endif
 
 			/*

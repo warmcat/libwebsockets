@@ -22,6 +22,9 @@
  * IN THE SOFTWARE.
  */
 
+#if !defined(__LWS_PRIVATE_LIB_MISC_LWSAC_H__)
+#define __LWS_PRIVATE_LIB_MISC_LWSAC_H__
+
 #if !defined(LWS_PLAT_OPTEE)
 #include <sys/stat.h>
 #endif
@@ -52,4 +55,5 @@ struct cached_file_info {
 	struct stat s;
 	time_t last_confirm;
 };
+#endif
 #endif

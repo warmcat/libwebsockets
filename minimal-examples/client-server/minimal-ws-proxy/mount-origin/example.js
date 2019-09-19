@@ -36,7 +36,7 @@ function new_ws(urlpath, protocol)
 
 document.addEventListener("DOMContentLoaded", function() {
 
-	ws = new_ws(get_appropriate_ws_url(""), "lws-minimal-proxy");
+	var ws = new_ws(get_appropriate_ws_url(""), "lws-minimal-proxy");
 	try {
 		ws.onopen = function() {
 			document.getElementById("r").disabled = 0;

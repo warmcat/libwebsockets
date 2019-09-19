@@ -28,8 +28,8 @@
 	
 	function san(s)
 	{
-		s.replace("<", "!");
-		s.replace("%", "!");
+		s.replace(/</g, "!");
+		s.replace(/%/g, "!");
 		
 		return s;
 	}
@@ -46,16 +46,12 @@
 		};
 
 		xhr.onload = function(e) {	
-			var jj, n, m, s = "", x, lic = 0, hl, re;
+			var jj, n, m, s = "", lic = 0;
 			var sr = document.getElementById("searchresults");
-			var ac = document.getElementById("acomplete");
 			var inp = document.getElementById("lws_fts");
 			sr.style.width = (parseInt(sr.parentNode.offsetWidth, 10) - 88) + "px";
 			sr.style.opacity = "1";
 			inp.blur();
-			
-			hl = document.getElementById("lws_fts").value;
-			re = new RegExp(hl, "gi");
 			
 			// console.log(xhr.responseText);
 			jj = JSON.parse(xhr.responseText);
@@ -63,7 +59,6 @@
 			if (jj.fp) {
 				lic = jj.fp.length;						
 				for (n = 0; n < lic; n++) {
-					var q;
 					
 					s += "<div class='filepath'>" + jj.fp[n].path + "</div>";
 					
@@ -129,7 +124,7 @@
 			xhr.setRequestHeader("cache-control", "max-age=0");
 		};
 		xhr.onload = function(e) {
-			var jj, n, s = "", x, lic = 0;
+			var jj, n, s = "", lic = 0;
 			var inp = document.getElementById("lws_fts");
 			var ac = document.getElementById("acomplete");
 			
