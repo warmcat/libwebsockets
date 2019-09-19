@@ -275,9 +275,9 @@ struct lws_context {
 #endif
 
 #if defined(LWS_WITH_NETWORK)
-
 	struct lws_context_per_thread pt[LWS_MAX_SMP];
 	lws_retry_bo_t	default_retry;
+	lws_sorted_usec_list_t sul_system_state;
 
 #if defined(LWS_WITH_HTTP2)
 	struct http2_settings set;
@@ -309,11 +309,17 @@ struct lws_context {
 	lws_async_dns_t		async_dns;
 #endif
 
+#if defined(LWS_WITH_NETWORK)
+	lws_state_manager_t		mgr_system;
+	lws_state_notify_link_t		protocols_notify;
+#endif
+
 	/* pointers */
 
 	struct lws_vhost *vhost_list;
 	struct lws_vhost *no_listener_vhost_list;
 	struct lws_vhost *vhost_pending_destruction_list;
+	struct lws_vhost *vhost_system;
 
 #if defined(LWS_WITH_SERVER)
 	const char *server_string;

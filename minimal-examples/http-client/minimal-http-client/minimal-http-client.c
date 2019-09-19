@@ -37,7 +37,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		lwsl_err("CLIENT_CONNECTION_ERROR: %s\n",
 			 in ? (char *)in : "(null)");
-		client_wsi = NULL;
+		interrupted = 1;
 		break;
 
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
@@ -86,13 +86,13 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
 		lwsl_user("LWS_CALLBACK_COMPLETED_CLIENT_HTTP\n");
-		client_wsi = NULL;
+		interrupted = 1;
 		bad = status != 200;
 		lws_cancel_service(lws_get_context(wsi)); /* abort poll wait */
 		break;
 
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
-		client_wsi = NULL;
+		interrupted = 1;
 		bad = status != 200;
 		lws_cancel_service(lws_get_context(wsi)); /* abort poll wait */
 		break;
@@ -120,12 +120,92 @@ sigint_handler(int sig)
 	interrupted = 1;
 }
 
+struct args {
+	int argc;
+	const char **argv;
+};
+
+static int
+system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
+		   int current, int target)
+{
+	struct lws_context *context = mgr->parent;
+	struct lws_client_connect_info i;
+	struct args *a = lws_context_user(context);
+	const char *p;
+
+	if (current != LWS_SYSTATE_OPERATIONAL || target != LWS_SYSTATE_OPERATIONAL)
+		return 0;
+
+	lwsl_info("%s: operational\n", __func__);
+
+	memset(&i, 0, sizeof i); /* otherwise uninitialized garbage */
+	i.context = context;
+	if (!lws_cmdline_option(a->argc, a->argv, "-n")) {
+		i.ssl_connection = LCCSCF_USE_SSL;
+#if defined(LWS_WITH_HTTP2)
+		/* requires h2 */
+		if (lws_cmdline_option(a->argc, a->argv, "--long-poll")) {
+			lwsl_user("%s: long poll mode\n", __func__);
+			long_poll = 1;
+		}
+#endif
+	}
+
+	if (lws_cmdline_option(a->argc, a->argv, "-l")) {
+		i.port = 7681;
+		i.address = "localhost";
+		i.ssl_connection |= LCCSCF_ALLOW_SELFSIGNED;
+	} else {
+		i.port = 443;
+		i.address = "warmcat.com";
+	}
+
+	if (lws_cmdline_option(a->argc, a->argv, "--h1"))
+		i.alpn = "http/1.1";
+
+	if ((p = lws_cmdline_option(a->argc, a->argv, "-p")))
+		i.port = atoi(p);
+
+	if (lws_cmdline_option(a->argc, a->argv, "-j"))
+		i.ssl_connection |= LCCSCF_ALLOW_SELFSIGNED;
+
+	if (lws_cmdline_option(a->argc, a->argv, "-k"))
+		i.ssl_connection |= LCCSCF_ALLOW_INSECURE;
+
+	if (lws_cmdline_option(a->argc, a->argv, "-m"))
+		i.ssl_connection |= LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+
+	if (lws_cmdline_option(a->argc, a->argv, "-e"))
+		i.ssl_connection |= LCCSCF_ALLOW_EXPIRED;
+
+	/* the default validity check is 5m / 5m10s... -v = 3s / 10s */
+
+	if (lws_cmdline_option(a->argc, a->argv, "-v"))
+		i.retry_and_idle_policy = &retry;
+
+	if ((p = lws_cmdline_option(a->argc, a->argv, "--server")))
+		i.address = p;
+
+	i.path = "/";
+	i.host = i.address;
+	i.origin = i.address;
+	i.method = "GET";
+
+	i.protocol = protocols[0].name;
+	i.pwsi = &client_wsi;
+
+	return !lws_client_connect_via_info(&i);
+}
+
 int main(int argc, const char **argv)
 {
+	lws_state_notify_link_t notifier = { {}, system_notify_cb, "app" };
+	lws_state_notify_link_t *na[] = { &notifier, NULL };
 	struct lws_context_creation_info info;
-	struct lws_client_connect_info i;
 	struct lws_context *context;
 	const char *p;
+	struct args args;
 	int n = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE
 		   /*
 		    * For LLL_ verbosity above NOTICE to be built into lws,
@@ -135,6 +215,9 @@ int main(int argc, const char **argv)
 		    * | LLL_INFO   | LLL_PARSER  | LLL_HEADER | LLL_EXT |
 		    *   LLL_CLIENT | LLL_LATENCY | LLL_DEBUG
 		    */ ;
+
+	args.argc = argc;
+	args.argv = argv;
 
 	signal(SIGINT, sigint_handler);
 
@@ -148,6 +231,8 @@ int main(int argc, const char **argv)
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.port = CONTEXT_PORT_NO_LISTEN; /* we do not run any server */
 	info.protocols = protocols;
+	info.user = &args;
+	info.register_notifier_list = na;
 
 	/*
 	 * since we know this lws context is only ever going to be used with
@@ -172,64 +257,7 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
-	memset(&i, 0, sizeof i); /* otherwise uninitialized garbage */
-	i.context = context;
-	if (!lws_cmdline_option(argc, argv, "-n")) {
-		i.ssl_connection = LCCSCF_USE_SSL;
-#if defined(LWS_WITH_HTTP2)
-		/* requires h2 */
-		if (lws_cmdline_option(argc, argv, "--long-poll")) {
-			lwsl_user("%s: long poll mode\n", __func__);
-			long_poll = 1;
-		}
-#endif
-	}
-
-	if (lws_cmdline_option(argc, argv, "-l")) {
-		i.port = 7681;
-		i.address = "localhost";
-		i.ssl_connection |= LCCSCF_ALLOW_SELFSIGNED;
-	} else {
-		i.port = 443;
-		i.address = "warmcat.com";
-	}
-
-	if (lws_cmdline_option(argc, argv, "--h1"))
-		i.alpn = "http/1.1";
-
-	if ((p = lws_cmdline_option(argc, argv, "-p")))
-		i.port = atoi(p);
-
-	if (lws_cmdline_option(argc, argv, "-j"))
-		i.ssl_connection |= LCCSCF_ALLOW_SELFSIGNED;
-
-	if (lws_cmdline_option(argc, argv, "-k"))
-		i.ssl_connection |= LCCSCF_ALLOW_INSECURE;
-
-	if (lws_cmdline_option(argc, argv, "-m"))
-		i.ssl_connection |= LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
-
-	if (lws_cmdline_option(argc, argv, "-e"))
-		i.ssl_connection |= LCCSCF_ALLOW_EXPIRED;
-
-	/* the default validity check is 5m / 5m10s... -v = 3s / 10s */
-
-	if (lws_cmdline_option(argc, argv, "-v"))
-		i.retry_and_idle_policy = &retry;
-
-	if ((p = lws_cmdline_option(argc, argv, "--server")))
-		i.address = p;
-
-	i.path = "/";
-	i.host = i.address;
-	i.origin = i.address;
-	i.method = "GET";
-
-	i.protocol = protocols[0].name;
-	i.pwsi = &client_wsi;
-	lws_client_connect_via_info(&i);
-
-	while (n >= 0 && client_wsi && !interrupted)
+	while (n >= 0 && !interrupted)
 		n = lws_service(context, 0);
 
 	lws_context_destroy(context);
