@@ -3,7 +3,7 @@
  *
  * http://base64.sourceforge.net/b64.c
  *
- * with the following license:
+ * already with MIT license, which is retained.
  *
  * LICENCE:        Copyright (c) 2001 Bob Trower, Trantor Standard Systems Inc.
  *
@@ -33,9 +33,7 @@
  *               Bob Trower 08/04/01 -- Create Version 0.00.00B
  *
  * I cleaned it up quite a bit to match the (linux kernel) style of the rest
- * of libwebsockets; this version is under LGPL2.1 + SLE like the rest of lws
- * since he explicitly allows sublicensing, but I give the URL above so you can
- * get the original with Bob's super-liberal terms directly if you prefer.
+ * of libwebsockets
  */
 
 #include <stdio.h>

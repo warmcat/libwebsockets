@@ -444,6 +444,9 @@ lws_create_vhost(struct lws_context *context,
     defined(LWS_WITH_CLIENT) && defined(LWS_HAVE_GETENV)
 	char *p;
 #endif
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+	extern struct lws_protocols lws_async_dns_protocol;
+#endif
 	int n;
 
 	if (!vh)
@@ -558,6 +561,7 @@ lws_create_vhost(struct lws_context *context,
 	/*
 	 * give the vhost a unified list of protocols including:
 	 *
+	 * - internal, async_dns if enabled (first vhost only)
 	 * - internal, abstracted ones
 	 * - the ones that came from plugins
 	 * - his user protocols
@@ -591,6 +595,16 @@ lws_create_vhost(struct lws_context *context,
 	for (n = 0; n < abs_pcol_count; n++) {
 		memcpy(&lwsp[m++], available_abstract_protocols[n],
 		       sizeof(*lwsp));
+		vh->count_protocols++;
+	}
+#endif
+	/*
+	 * 3: async dns protocol (first vhost only)
+	 */
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+	if (!context->vhost_list) {
+		memcpy(&lwsp[m++], &lws_async_dns_protocol,
+		       sizeof(struct lws_protocols));
 		vh->count_protocols++;
 	}
 #endif
@@ -763,6 +777,7 @@ lws_create_vhost(struct lws_context *context,
 		goto bail1;
 	}
 #endif
+	n = !!context->vhost_list;
 
 	while (1) {
 		if (!(*vh1)) {
@@ -771,6 +786,11 @@ lws_create_vhost(struct lws_context *context,
 		}
 		vh1 = &(*vh1)->vhost_next;
 	};
+
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+	if (!n && lws_async_dns_init(context))
+		goto bail1;
+#endif
 
 	/* for the case we are adding a vhost much later, after server init */
 

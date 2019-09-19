@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 2.8)
 include(CheckCSourceCompiles)
 
-set(SAMP lws-minimal-raw-adopt-udp)
-set(SRCS minimal-raw-adopt-udp.c)
+set(SAMP lws-api-test-async-dns)
+set(SRCS main.c)
 
 # If we are being built as part of lws, confirm current build config supports
 # reqconfig, else skip building ourselves.
@@ -57,14 +57,14 @@ MACRO(require_lws_config reqconfig _val result)
 			else()
 				message(FATAL_ERROR "Lws configuration of ${reqconfig} is incompatible with this project")
 			endif()
-		endif()	
+		endif()
 	endif()
 ENDMACRO()
 
 set(requirements 1)
-require_lws_config(LWS_WITH_SERVER 1 requirements)
+require_lws_config(LWS_ROLE_H1 1 requirements)
 require_lws_config(LWS_WITH_CLIENT 1 requirements)
-
+require_lws_config(LWS_WITH_SYS_ASYNC_DNS 1 requirements)
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})

@@ -259,34 +259,72 @@ struct lws_deferred_free
  */
 
 struct lws_context {
-	time_t last_ws_ping_pong_check_s;
-	lws_usec_t time_up; /* monotonic */
+ #if defined(LWS_WITH_SERVER)
+	char canonical_hostname[96];
+ #endif
+
 #if defined(LWS_WITH_FILE_OPS)
-	const struct lws_plat_file_ops *fops;
 	struct lws_plat_file_ops fops_platform;
 #endif
-	struct lws_context **pcontext_finalize;
 
-#if defined(LWS_WITH_TLS)
-	const struct lws_tls_ops *tls_ops;
+#if defined(LWS_WITH_ZIP_FOPS)
+	struct lws_plat_file_ops fops_zip;
 #endif
 
-	const char *username, *groupname;
+#if defined(LWS_WITH_NETWORK)
+
+	struct lws_context_per_thread pt[LWS_MAX_SMP];
 
 #if defined(LWS_WITH_HTTP2)
 	struct http2_settings set;
 #endif
-#if defined(LWS_WITH_ZIP_FOPS)
-	struct lws_plat_file_ops fops_zip;
-#endif
-#if defined(LWS_WITH_NETWORK)
-	struct lws_context_per_thread pt[LWS_MAX_SMP];
+
 #if defined(LWS_WITH_SERVER_STATUS)
 	struct lws_conn_stats conn_stats;
 #endif
+#if LWS_MAX_SMP > 1
+	struct lws_mutex_refcount mr;
+#endif
+
+#if defined(LWS_WITH_LIBEV)
+	struct lws_context_eventlibs_libev ev;
+#endif
+#if defined(LWS_WITH_LIBUV)
+	struct lws_context_eventlibs_libuv uv;
+#endif
+#if defined(LWS_WITH_LIBEVENT)
+	struct lws_context_eventlibs_libevent event;
+#endif
+
+#if defined(LWS_WITH_TLS)
+	struct lws_context_tls tls;
+#endif
+
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+	lws_async_dns_t		async_dns;
+#endif
+
+	/* pointers */
+
 	struct lws_vhost *vhost_list;
 	struct lws_vhost *no_listener_vhost_list;
 	struct lws_vhost *vhost_pending_destruction_list;
+	struct lws_context **pcontext_finalize;
+	const char *username, *groupname;
+
+#if defined(LWS_WITH_SERVER)
+	const char *server_string;
+#endif
+
+	struct lws_event_loop_ops *event_loop_ops;
+
+#if defined(LWS_WITH_FILE_OPS)
+	const struct lws_plat_file_ops *fops;
+#endif
+
+#if defined(LWS_WITH_TLS)
+	const struct lws_tls_ops *tls_ops;
+#endif
 #if defined(LWS_WITH_PLUGINS)
 	struct lws_plugin *plugin_list;
 #endif
@@ -297,10 +335,7 @@ struct lws_context {
 	struct lws **lws_lookup;
 
 #endif
-#endif
-#if LWS_MAX_SMP > 1
-	struct lws_mutex_refcount mr;
-#endif
+#endif /* NETWORK */
 
 #if defined(LWS_AMAZON_RTOS)
 	mbedtls_entropy_context mec;
@@ -329,36 +364,12 @@ struct lws_context {
 #endif
 	void (*eventlib_signal_cb)(void *event_lib_handle, int signum);
 
+	time_t last_ws_ping_pong_check_s;
+	lws_usec_t time_up; /* monotonic */
+
 #if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
 	cap_value_t caps[4];
 	char count_caps;
-#endif
-
-#if defined(LWS_WITH_NETWORK)
-#if defined(LWS_WITH_LIBEV)
-	struct lws_context_eventlibs_libev ev;
-#endif
-#if defined(LWS_WITH_LIBUV)
-	struct lws_context_eventlibs_libuv uv;
-#endif
-#if defined(LWS_WITH_LIBEVENT)
-	struct lws_context_eventlibs_libevent event;
-#endif
-	struct lws_event_loop_ops *event_loop_ops;
-#endif
-
-#if defined(LWS_WITH_TLS) && defined(LWS_WITH_NETWORK)
-	struct lws_context_tls tls;
-#endif
-
-#if defined(LWS_WITH_SERVER)
-	char canonical_hostname[128];
-	const char *server_string;
-#endif
-
-#ifdef LWS_LATENCY
-	unsigned long worst_latency;
-	char worst_latency_info[256];
 #endif
 
 #if defined(LWS_PLAT_FREERTOS)

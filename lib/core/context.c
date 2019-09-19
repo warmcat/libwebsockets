@@ -639,6 +639,10 @@ lws_context_destroy3(struct lws_context *context)
 #endif
 	}
 
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+	lws_async_dns_deinit(&context->async_dns);
+#endif
+
 	if (context->pt[0].fds)
 		lws_free_set_NULL(context->pt[0].fds);
 #endif

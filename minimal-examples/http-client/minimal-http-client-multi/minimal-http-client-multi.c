@@ -307,6 +307,9 @@ int main(int argc, const char **argv)
 	if (lws_cmdline_option(argc, argv, "-n"))
 		numbered = 1;
 
+	if ((p = lws_cmdline_option(argc, argv, "--server")))
+		i.address = p;
+
 	if ((p = lws_cmdline_option(argc, argv, "--port")))
 		i.port = atoi(p);
 

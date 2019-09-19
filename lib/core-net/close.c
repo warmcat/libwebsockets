@@ -133,6 +133,8 @@ lws_close_trans_q_leader(struct lws_dll2 *d, void *user)
 void
 lws_inform_client_conn_fail(struct lws *wsi, void *arg, size_t len)
 {
+	lws_addrinfo_clean(wsi);
+
 	if (wsi->already_did_cce)
 		return;
 
@@ -148,6 +150,22 @@ lws_inform_client_conn_fail(struct lws *wsi, void *arg, size_t len)
 				wsi->user_space, arg, len);
 }
 #endif
+
+void
+lws_addrinfo_clean(struct lws *wsi)
+{
+#if defined(LWS_WITH_CLIENT)
+	if (!wsi->dns_results)
+		return;
+
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+	lws_async_dns_freeaddrinfo(wsi->dns_results);
+#else
+	freeaddrinfo((struct addrinfo *)wsi->dns_results);
+#endif
+	wsi->dns_results = NULL;
+#endif
+}
 
 void
 __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
@@ -175,6 +193,8 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 #if defined(LWS_WITH_CLIENT)
 
 	lws_free_set_NULL(wsi->cli_hostname_copy);
+
+	lws_addrinfo_clean(wsi);
 
 	/*
 	 * if we have wsi in our transaction queue, if we are closing we
@@ -317,6 +337,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	}
 
 	if (lwsi_state(wsi) == LRS_WAITING_CONNECT ||
+	    lwsi_state(wsi) == LRS_WAITING_DNS ||
 	    lwsi_state(wsi) == LRS_H1C_ISSUE_HANDSHAKE)
 		goto just_kill_connection;
 
@@ -347,6 +368,10 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 
 just_kill_connection:
 
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+	lws_async_dns_cancel(wsi);
+#endif
+
 #if defined(LWS_WITH_HTTP_PROXY)
 	if (wsi->http.buflist_post_body)
 		lws_buflist_destroy_all_segments(&wsi->http.buflist_post_body);
@@ -371,6 +396,7 @@ just_kill_connection:
 
 #if defined(LWS_WITH_CLIENT)
 	if ((lwsi_state(wsi) == LRS_WAITING_SERVER_REPLY ||
+	     lwsi_state(wsi) == LRS_WAITING_DNS ||
 	     lwsi_state(wsi) == LRS_WAITING_CONNECT) &&
 	     !wsi->already_did_cce && wsi->protocol)
 		lws_inform_client_conn_fail(wsi,

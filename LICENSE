@@ -6,15 +6,16 @@ them.
 
 Original liberal license retained:
 
-  - lib/misc/sha-1.c        - 3-clause BSD license retained, link to original
-  - win32port/zlib          - ZLIB license (see zlib.h)
-  - lib/tls/mbedtls/wrapper - Apache 2.0 (only built if linked against mbedtls)
+  - lib/misc/sha-1.c          - 3-clause BSD license retained, link to original
+  - win32port/zlib            - ZLIB license (see zlib.h)
+  - lib/tls/mbedtls/wrapper   - Apache 2.0 (only built if linked against mbedtls)
+  - lib/misc/base64-decode.c  - already MIT
 
 Relicensed to MIT:
 
-  - lib/misc/base64-decode.c - relicensed, link to original
-  - lib/misc/daemonize.c     - relicensed from Public Domain to MIT,
-                               link to original Public Domain version
+  - lib/misc/daemonize.c               - relicensed from Public Domain to MIT,
+                                         link to original Public Domain version
+  - lib/plat/windows/windows-resolv.c  - relicensed from "Beerware v42" to MIT
 
 Public Domain (CC-zero) to simplify reuse:
 

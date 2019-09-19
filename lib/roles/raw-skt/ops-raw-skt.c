@@ -116,7 +116,7 @@ try_pollout:
 
 #if defined(LWS_WITH_CLIENT)
 	if (lwsi_state(wsi) == LRS_WAITING_CONNECT)
-		lws_client_connect_3(wsi, NULL, 0);
+		lws_client_connect_4_established(wsi, NULL, 0);
 #endif
 
 	/* one shot */

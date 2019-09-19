@@ -173,6 +173,7 @@ lws_adopt_socket_vhost_readbuf(struct lws_vhost *vhost,
  * lws_create_adopt_udp() - create, bind and adopt a UDP socket
  *
  * \param vhost:	 lws vhost
+ * \param ads:		 NULL or address to do dns lookup on
  * \param port:		 UDP port to bind to, -1 means unbound
  * \param flags:	 0 or LWS_CAUDP_NO_BIND
  * \param protocol_name: Name of protocol on vhost to bind wsi to
@@ -182,6 +183,7 @@ lws_adopt_socket_vhost_readbuf(struct lws_vhost *vhost,
  * returns NULL, having cleaned up any new wsi pieces.
  * */
 LWS_VISIBLE LWS_EXTERN struct lws *
-lws_create_adopt_udp(struct lws_vhost *vhost, int port, int flags,
-		     const char *protocol_name, struct lws *parent_wsi);
+lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
+		     int flags, const char *protocol_name,
+		     struct lws *parent_wsi);
 ///@}

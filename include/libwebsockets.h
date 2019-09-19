@@ -314,6 +314,7 @@ lws_pthread_mutex_unlock(pthread_mutex_t *lock)
 #ifndef lws_container_of
 #define lws_container_of(P,T,M)	((T *)((char *)(P) - offsetof(T, M)))
 #endif
+#define LWS_ALIGN_TO(x, bou) x += ((bou) - ((x) % (bou))) % (bou)
 
 struct lws;
 
@@ -569,6 +570,7 @@ struct lws;
 #include <libwebsockets/abstract/abstract.h>
 
 #include <libwebsockets/lws-test-sequencer.h>
+#include <libwebsockets/lws-async-dns.h>
 
 #if defined(LWS_WITH_TLS)
 

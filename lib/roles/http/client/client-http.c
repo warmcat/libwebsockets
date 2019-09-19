@@ -137,14 +137,14 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 
 	switch (lwsi_state(wsi)) {
 
-	case LRS_WAITING_CONNECT:
+	case LRS_WAITING_DNS:
 
 		/*
 		 * we are under PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE
 		 * timeout protection set in client-handshake.c
 		 */
-
-		if (!lws_client_connect_2(wsi)) {
+		lwsl_err("%s: wsi %p: WAITING_DNS\n", __func__, wsi);
+		if (!lws_client_connect_2_dnsreq(wsi)) {
 			/* closed */
 			lwsl_client("closed\n");
 			return -1;
@@ -152,6 +152,15 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 
 		/* either still pending connection, or changed mode */
 		return 0;
+	case LRS_WAITING_CONNECT:
+
+		/*
+		 * we are under PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE
+		 * timeout protection set in client-handshake.c
+		 */
+		if (pollfd->revents & LWS_POLLOUT)
+			lws_client_connect_3_connect(wsi, NULL, NULL, 0, NULL);
+		break;
 
 #if defined(LWS_WITH_SOCKS5)
 	/* SOCKS Greeting Reply */

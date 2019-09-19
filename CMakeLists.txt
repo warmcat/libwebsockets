@@ -47,6 +47,7 @@ option(LWS_WITH_HTTP_BROTLI "Also offer brotli http stream compression (requires
 option(LWS_WITH_ACME "Enable support for ACME automatic cert acquisition + maintenance (letsencrypt etc)" OFF)
 option(LWS_WITH_HUBBUB "Enable libhubbub rewriting support" OFF)
 option(LWS_WITH_FTS "Full Text Search support" OFF)
+option(LWS_WITH_SYS_ASYNC_DNS "Nonblocking internal IPv4 DNS resolver" OFF)
 #
 # TLS library options... all except mbedTLS are basically OpenSSL variants.
 #
@@ -76,6 +77,7 @@ option(LWS_WITH_ESP32 "Build for ESP32" OFF)
 option(LWS_WITH_ESP32_HELPER "Build ESP32 helper" OFF)
 option(LWS_PLAT_OPTEE "Build for OPTEE" OFF)
 option(LWS_PLAT_FREERTOS "Build for FreeRTOS" OFF)
+option(LWS_PLAT_ANDROID "Android flavour of unix platform" OFF)
 
 #
 # Client / Server / Test Apps build control
@@ -351,7 +353,7 @@ if (LWS_WITH_MBEDTLS)
 	include_directories(lib/tls/mbedtls/wrapper/include)
 endif()
 
-include_directories(include plugins lib/core lib/core-net lib/event-libs include/abstract lib/tls lib/roles lib/event-libs/libuv lib/event-libs/poll lib/event-libs/libevent lib/event-libs/libev lib/jose/jwe lib/jose/jws lib/jose lib/misc lib/roles/http lib/roles/http/compression lib/roles/h1 lib/roles/h2 lib/roles/ws lib/roles/cgi lib/roles/dbus lib/roles/raw-proxy lib/abstract)
+include_directories(include plugins lib/core lib/core-net lib/event-libs include/abstract lib/tls lib/roles lib/event-libs/libuv lib/event-libs/poll lib/event-libs/libevent lib/event-libs/libev lib/jose/jwe lib/jose/jws lib/jose lib/misc lib/roles/http lib/roles/http/compression lib/roles/h1 lib/roles/h2 lib/roles/ws lib/roles/cgi lib/roles/dbus lib/roles/raw-proxy lib/abstract lib/system/async-dns)
 
 if (LWS_PLAT_FREERTOS)
 	include_directories(lib/plat/freertos lib/plat/freertos/esp32)
@@ -1022,6 +1024,12 @@ if (LWS_WITH_NETWORK)
 		lib/roles/pipe/ops-pipe.c
 	)
 
+	if (LWS_WITH_SYS_ASYNC_DNS)
+		list(APPEND SOURCES
+			lib/system/async-dns/async-dns.c
+			lib/system/async-dns/async-dns-parse.c)
+	endif()
+
 	if (LWS_WITH_LWS_DSH)
 		list(APPEND SOURCES
 			lib/core-net/lws-dsh.c)
@@ -1334,6 +1342,7 @@ else()
 				lib/plat/freertos/freertos-pipe.c
 				lib/plat/freertos/freertos-service.c
 				lib/plat/freertos/freertos-sockets.c
+				lib/plat/freertos/freertos-resolv.c
 				lib/misc/romfs.c)
 			if (LWS_WITH_ESP32_HELPER)
 				list(APPEND SOURCES lib/plat/freertos/esp32/esp32-helpers.c)
@@ -1358,6 +1367,13 @@ else()
 					lib/plat/unix/unix-sockets.c
 					lib/plat/unix/unix-fds.c
 				)
+				if (LWS_WITH_SYS_ASYNC_DNS)
+					if (LWS_PLAT_ANDROID)
+						list(APPEND SOURCES lib/plat/unix/android/android-resolv.c)
+					else()
+						list(APPEND SOURCES lib/plat/unix/unix-resolv.c)
+					endif()
+				endif()
 			endif()
 				
 			if (LWS_WITH_PLUGINS AND LWS_WITH_LIBUV)
