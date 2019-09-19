@@ -34,20 +34,65 @@ typedef enum {
 	LWS_SYSI_HRS_DEVICE_MODEL = 1,
 	LWS_SYSI_HRS_DEVICE_SERIAL,
 	LWS_SYSI_HRS_FIRMWARE_VERSION,
+	LWS_SYSI_HRS_NTP_SERVER,
 
 	LWS_SYSI_USER_BASE = 100
 } lws_system_item_t;
 
-typedef union {
-	const char	*hrs;	/* human readable string */
-	void		*data;
-	time_t		t;
+typedef struct lws_system_arg {
+	union {
+		const char	*hrs;	/* human readable string */
+		void		*data;
+		time_t		t;
+	} u;
+	size_t len;
 } lws_system_arg_t;
 
+/*
+ * Lws view of system state... normal operation from user code perspective is
+ * dependent on implicit (eg, knowing the date for cert validation) and
+ * explicit dependencies.
+ *
+ * Bit of lws and user code can register notification handlers that can enforce
+ * dependent operations before state transitions can complete.
+ */
+
+typedef enum {
+	LWS_SYSTATE_UNKNOWN,
+	LWS_SYSTATE_CONTEXT_CREATED,	/* context was just created */
+	LWS_SYSTATE_INITIALIZED,	 /* protocols initialized.  Lws itself
+					  * can operate normally */
+	LWS_SYSTATE_TIME_VALID,		/* ntpclient ran, or hw time valid...
+					  * tls cannot work until we reach here
+					  */
+	LWS_SYSTATE_POLICY_VALID,	 /* user code knows how to operate... it
+					  * can set up prerequisites */
+	LWS_SYSTATE_OPERATIONAL,	 /* user code can operate normally */
+
+	LWS_SYSTATE_POLICY_INVALID, /* user code is changing its policies
+					  * drop everything done with old
+					  * policy, switch to new then enter
+					  * LWS_SYSTATE_POLICY_VALID */
+} lws_system_states_t;
+
 typedef struct lws_system_ops {
-	int (*get_info)(lws_system_item_t i, lws_system_arg_t arg, size_t *len);
+	int (*get_info)(lws_system_item_t i, lws_system_arg_t *arg);
 	int (*reboot)(void);
+	int (*set_clock)(lws_usec_t us);
 } lws_system_ops_t;
+
+/**
+ * lws_system_get_state_manager() - return the state mgr object for system state
+ *
+ * \param context: the lws_context
+ *
+ * The returned pointer can be used with the lws_state_ apis
+ */
+
+LWS_EXTERN LWS_VISIBLE lws_state_manager_t *
+lws_system_get_state_manager(struct lws_context *context);
+
+
 
 /* wrappers handle NULL members or no ops struct set at all cleanly */
 
@@ -57,29 +102,28 @@ typedef struct lws_system_ops {
  * \param context: the lws_context
  * \param item: which information to fetch
  * \param arg: where to place the result
- * \param len: incoming: max length of result, outgoing: used length of result
  *
  * This queries a standardized information-fetching ops struct that can be
  * applied to the context... the advantage is it allows you to get common items
  * of information like a device serial number writing the code once, even if the
- * actual serial number muse be fetched in wildly different ways depending on
+ * actual serial number must be fetched in wildly different ways depending on
  * the exact platform it's running on.
  *
- * Set arg and *len on entry to be the result location and the max length that
- * can be used there, on seccessful exit *len is set to the actual length and
- * 0 is returned.  On error, 1 is returned.
+ * Point arg to your lws_system_arg_t, on return it will be set.  It doesn't
+ * copy the content just sets pointer and length.
  */
 LWS_EXTERN LWS_VISIBLE int
 lws_system_get_info(struct lws_context *context, lws_system_item_t item,
-		    lws_system_arg_t arg, size_t *len);
+		    lws_system_arg_t *arg);
 
 
 /**
- * lws_system_reboot() - if provided, use the lws_system ops to reboot
+ * lws_system_get_ops() - get ahold of the system ops struct from the context
  *
  * \param context: the lws_context
  *
- * If possible, the system will reboot.  Otherwise returns 1.
+ * Returns the system ops struct.  It may return NULL and if not, anything in
+ * there may be NULL.
  */
-LWS_EXTERN LWS_VISIBLE int
-lws_system_reboot(struct lws_context *context);
+LWS_EXTERN LWS_VISIBLE const lws_system_ops_t *
+lws_system_get_ops(struct lws_context *context);

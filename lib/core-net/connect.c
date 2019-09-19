@@ -71,9 +71,12 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 #endif
 
 	wsi->vhost = NULL;
-	if (!i->vhost)
-		lws_vhost_bind_wsi(i->context->vhost_list, wsi);
-	else
+	if (!i->vhost) {
+		struct lws_vhost *v = i->context->vhost_list;
+		if (v && !strcmp(v->name, "system"))
+			v = v->vhost_next;
+		lws_vhost_bind_wsi(v, wsi);
+	} else
 		lws_vhost_bind_wsi(i->vhost, wsi);
 
 	if (!wsi->vhost) {

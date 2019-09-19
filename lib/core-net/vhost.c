@@ -280,6 +280,91 @@ lws_vhost_protocol_options(struct lws_vhost *vh, const char *name)
 	return NULL;
 }
 
+int
+lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
+{
+	const struct lws_protocol_vhost_options *pvo, *pvo1;
+	struct lws *wsi = vh->context->pt[0].fake_wsi;
+	int n;
+
+	wsi->context = vh->context;
+	wsi->vhost = vh;
+
+	/* initialize supported protocols on this vhost */
+
+	for (n = 0; n < vh->count_protocols; n++) {
+		wsi->protocol = &vh->protocols[n];
+		if (!vh->protocols[n].name)
+			continue;
+		pvo = lws_vhost_protocol_options(vh, vh->protocols[n].name);
+		if (pvo) {
+			/*
+			 * linked list of options specific to
+			 * vh + protocol
+			 */
+			pvo1 = pvo;
+			pvo = pvo1->options;
+
+			while (pvo) {
+				lwsl_debug(
+					"    vhost \"%s\", "
+					"protocol \"%s\", "
+					"option \"%s\"\n",
+						vh->name,
+						vh->protocols[n].name,
+						pvo->name);
+
+				if (!strcmp(pvo->name, "default")) {
+					lwsl_info("Setting default "
+					   "protocol for vh %s to %s\n",
+					   vh->name,
+					   vh->protocols[n].name);
+					vh->default_protocol_index = n;
+				}
+				if (!strcmp(pvo->name, "raw")) {
+					lwsl_info("Setting raw "
+					   "protocol for vh %s to %s\n",
+					   vh->name,
+					   vh->protocols[n].name);
+					vh->raw_protocol_index = n;
+				}
+				pvo = pvo->next;
+			}
+
+			pvo = pvo1->options;
+		}
+
+#if defined(LWS_WITH_TLS)
+		if (any)
+			*any |= !!vh->tls.ssl_ctx;
+#endif
+
+		/*
+		 * inform all the protocols that they are doing their
+		 * one-time initialization if they want to.
+		 *
+		 * NOTE the wsi is all zeros except for the context, vh
+		 * + protocol ptrs so lws_get_context(wsi) etc can work
+		 */
+		if (vh->protocols[n].callback(wsi,
+				LWS_CALLBACK_PROTOCOL_INIT, NULL,
+				(void *)pvo, 0)) {
+			if (vh->protocol_vh_privs[n]) {
+				lws_free(vh->protocol_vh_privs[n]);
+				vh->protocol_vh_privs[n] = NULL;
+			}
+			lwsl_err("%s: protocol %s failed init\n",
+				 __func__, vh->protocols[n].name);
+
+			return 1;
+		}
+	}
+
+	vh->created_vhost_protocols = 1;
+
+	return 0;
+}
+
 /*
  * inform every vhost that hasn't already done it, that
  * his protocols are initializing
@@ -288,98 +373,24 @@ LWS_VISIBLE int
 lws_protocol_init(struct lws_context *context)
 {
 	struct lws_vhost *vh = context->vhost_list;
-	const struct lws_protocol_vhost_options *pvo, *pvo1;
-	struct lws *wsi = context->pt[0].fake_wsi;
-	int n, any = 0;
+	int any = 0;
 
 	if (context->doing_protocol_init)
 		return 0;
 
 	context->doing_protocol_init = 1;
 
-	wsi->context = context;
-
 	lwsl_info("%s\n", __func__);
 
 	while (vh) {
-		wsi->vhost = vh;
 
 		/* only do the protocol init once for a given vhost */
 		if (vh->created_vhost_protocols ||
 		    (lws_check_opt(vh->options, LWS_SERVER_OPTION_SKIP_PROTOCOL_INIT)))
 			goto next;
 
-		/* initialize supported protocols on this vhost */
-
-		for (n = 0; n < vh->count_protocols; n++) {
-			wsi->protocol = &vh->protocols[n];
-			if (!vh->protocols[n].name)
-				continue;
-			pvo = lws_vhost_protocol_options(vh,
-							 vh->protocols[n].name);
-			if (pvo) {
-				/*
-				 * linked list of options specific to
-				 * vh + protocol
-				 */
-				pvo1 = pvo;
-				pvo = pvo1->options;
-
-				while (pvo) {
-					lwsl_debug(
-						"    vhost \"%s\", "
-						"protocol \"%s\", "
-						"option \"%s\"\n",
-							vh->name,
-							vh->protocols[n].name,
-							pvo->name);
-
-					if (!strcmp(pvo->name, "default")) {
-						lwsl_info("Setting default "
-						   "protocol for vh %s to %s\n",
-						   vh->name,
-						   vh->protocols[n].name);
-						vh->default_protocol_index = n;
-					}
-					if (!strcmp(pvo->name, "raw")) {
-						lwsl_info("Setting raw "
-						   "protocol for vh %s to %s\n",
-						   vh->name,
-						   vh->protocols[n].name);
-						vh->raw_protocol_index = n;
-					}
-					pvo = pvo->next;
-				}
-
-				pvo = pvo1->options;
-			}
-
-#if defined(LWS_WITH_TLS)
-			any |= !!vh->tls.ssl_ctx;
-#endif
-
-			/*
-			 * inform all the protocols that they are doing their
-			 * one-time initialization if they want to.
-			 *
-			 * NOTE the wsi is all zeros except for the context, vh
-			 * + protocol ptrs so lws_get_context(wsi) etc can work
-			 */
-			if (vh->protocols[n].callback(wsi,
-					LWS_CALLBACK_PROTOCOL_INIT, NULL,
-					(void *)pvo, 0)) {
-				if (vh->protocol_vh_privs[n]) {
-					lws_free(vh->protocol_vh_privs[n]);
-					vh->protocol_vh_privs[n] = NULL;
-				}
-				lwsl_err("%s: protocol %s failed init\n",
-					 __func__, vh->protocols[n].name);
-
-				return 1;
-			}
-		}
-
-		vh->created_vhost_protocols = 1;
+		if (lws_protocol_init_vhost(vh, &any))
+			return 1;
 next:
 		vh = vh->vhost_next;
 	}
@@ -390,6 +401,17 @@ next:
 		return 1;
 
 	context->protocol_init_done = 1;
+
+	/*
+	 * Let's go as far as we can towards operational unless a notifier
+	 * knows about a dependency.  On a system with no notifier handlers
+	 * this will take us straight there.
+	 */
+
+#if defined(LWS_WITH_NETWORK)
+	lwsl_info("%s: operational\n", __func__);
+	lws_state_transition_steps(&context->mgr_system, LWS_SYSTATE_OPERATIONAL);
+#endif
 
 #if defined(LWS_WITH_SERVER)
 	if (any)

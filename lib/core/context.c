@@ -73,6 +73,55 @@ lws_sul_peer_limits_cb(lws_sorted_usec_list_t *sul)
 }
 #endif
 
+#if defined(LWS_WITH_NETWORK)
+
+#if defined(_DEBUG)
+static const char * system_state_names[] = {
+	"undef",
+	"CONTEXT_CREATED",
+	"INITIALIZED",
+	"TIME_VALID",
+	"POLICY_VALID",
+	"OPERATIONAL",
+	"POLICY_INVALID"
+};
+#endif
+
+/*
+ * Handle provoking protocol init when we pass through the right system state
+ */
+
+static int
+lws_state_notify_protocol_init(struct lws_state_manager *mgr,
+			       struct lws_state_notify_link *link, int current,
+			       int target)
+{
+	struct lws_context *context = lws_container_of(mgr, struct lws_context,
+						       mgr_system);
+
+	if (context->protocol_init_done)
+		return 0;
+
+	if (target != LWS_SYSTATE_POLICY_VALID)
+		return 0;
+
+	lwsl_info("%s: doing protocol init on POLICY_VALID\n", __func__);
+	lws_protocol_init(context);
+
+	return 0;
+}
+
+static void
+lws_context_creation_completion_cb(lws_sorted_usec_list_t *sul)
+{
+	struct lws_context *context = lws_container_of(sul, struct lws_context,
+						       sul_system_state);
+
+	/* if nothing is there to intercept anything, go all the way */
+	lws_state_transition_steps(&context->mgr_system,
+				   LWS_SYSTATE_OPERATIONAL);
+}
+#endif
 
 LWS_VISIBLE struct lws_context *
 lws_create_context(const struct lws_context_creation_info *info)
@@ -92,6 +141,16 @@ lws_create_context(const struct lws_context_creation_info *info)
 	struct rlimit rt;
 #endif
 	size_t s1 = 4096, size = sizeof(struct lws_context);
+	int lpf = info->fd_limit_per_thread;
+
+	if (lpf) {
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+		lpf++;
+#endif
+#if defined(LWS_WITH_SYS_NTPCLIENT)
+		lpf++;
+#endif
+	}
 
 	lwsl_info("Initial logging level %d\n", log_level);
 	lwsl_info("Libwebsockets version: %s\n", library_version);
@@ -264,7 +323,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	 * figure out what if this is something it can deal with.
 	 */
 	if (info->fd_limit_per_thread) {
-		int mf = info->fd_limit_per_thread * context->count_threads;
+		int mf = lpf * context->count_threads;
 
 		if (mf < context->max_fds) {
 			context->max_fds_unrelated_to_ulimit = 1;
@@ -366,7 +425,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 			context->max_http_header_pool = context->max_fds;
 
 	if (info->fd_limit_per_thread)
-		context->fd_limit_per_thread = info->fd_limit_per_thread;
+		context->fd_limit_per_thread = lpf;
 	else
 		context->fd_limit_per_thread = context->max_fds /
 					       context->count_threads;
@@ -514,29 +573,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	lws_context_init_ssl_library(info);
 
 	context->user_space = info->user;
-#if defined(LWS_WITH_NETWORK)
-	/*
-	 * if he's not saying he'll make his own vhosts later then act
-	 * compatibly and make a default vhost using the data in the info
-	 */
-	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS))
-		if (!lws_create_vhost(context, info)) {
-			lwsl_err("Failed to create default vhost\n");
 
-#if defined(LWS_WITH_PEER_LIMITS)
-			lws_free_set_NULL(context->pl_hash_table);
-#endif
-			lws_free_set_NULL(context->pt[0].fds);
-			lws_plat_context_late_destroy(context);
-			lws_free_set_NULL(context);
-			return NULL;
-		}
-
-	lws_context_init_extensions(info, context);
-
-	lwsl_info(" mem: per-conn:        %5lu bytes + protocol rx buf\n",
-		    (unsigned long)sizeof(struct lws));
-#endif
 
 #if defined(LWS_WITH_SERVER)
 	strcpy(context->canonical_hostname, "unknown");
@@ -561,6 +598,102 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->count_caps = info->count_caps;
 #endif
 
+
+#if defined(LWS_WITH_NETWORK)
+
+#if defined(LWS_WITH_SYS_ASYNC_DNS) || defined(LWS_WITH_SYS_NTPCLIENT)
+	{
+		/*
+		 * system vhost
+		 */
+
+		struct lws_context_creation_info ii;
+		const struct lws_protocols *pp[3];
+		struct lws_vhost *vh;
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+		extern const struct lws_protocols lws_async_dns_protocol;
+#endif
+#if defined(LWS_WITH_SYS_NTPCLIENT)
+		extern const struct lws_protocols lws_system_protocol_ntpc;
+#endif
+
+		n = 0;
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+		pp[n++] = &lws_async_dns_protocol;
+#endif
+#if defined(LWS_WITH_SYS_NTPCLIENT)
+		pp[n++] = &lws_system_protocol_ntpc;
+#endif
+		pp[n] = NULL;
+
+		memset(&ii, 0, sizeof(ii));
+		ii.vhost_name = "system";
+		ii.pprotocols = pp;
+
+		vh = lws_create_vhost(context, &ii);
+		if (!vh) {
+			lwsl_err("%s: failed to create system vhost\n",
+				 __func__);
+			goto bail;
+		}
+
+		if (lws_protocol_init_vhost(vh, NULL)) {
+			lwsl_err("%s: failed to init system vhost\n", __func__);
+			goto bail;
+		}
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+		if (lws_async_dns_init(context))
+			goto bail;
+#endif
+	}
+#endif
+
+	/*
+	 * init the lws_state mgr for the system state
+	 */
+#if defined(_DEBUG)
+	context->mgr_system.state_names = system_state_names;
+#endif
+	context->mgr_system.name = "system";
+	context->mgr_system.state = LWS_SYSTATE_CONTEXT_CREATED;
+	context->mgr_system.parent = context;
+
+	context->protocols_notify.name = "prot_init";
+	context->protocols_notify.notify_cb = lws_state_notify_protocol_init;
+
+	lws_state_reg_notifier(&context->mgr_system, &context->protocols_notify);
+
+	/*
+	 * insert user notifiers here so they can participate with vetoing us
+	 * trying to jump straight to operational, or at least observe us
+	 * reaching 'operational', before we returned from context creation.
+	 */
+
+	lws_state_reg_notifier_list(&context->mgr_system,
+				    info->register_notifier_list);
+
+	/*
+	 * if he's not saying he'll make his own vhosts later then act
+	 * compatibly and make a default vhost using the data in the info
+	 */
+	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS))
+		if (!lws_create_vhost(context, info)) {
+			lwsl_err("Failed to create default vhost\n");
+
+#if defined(LWS_WITH_PEER_LIMITS)
+			lws_free_set_NULL(context->pl_hash_table);
+#endif
+			lws_free_set_NULL(context->pt[0].fds);
+			lws_plat_context_late_destroy(context);
+			lws_free_set_NULL(context);
+			return NULL;
+		}
+
+	lws_context_init_extensions(info, context);
+
+	lwsl_info(" mem: per-conn:        %5lu bytes + protocol rx buf\n",
+		    (unsigned long)sizeof(struct lws));
+
 	/*
 	 * drop any root privs for this process
 	 * to listen on port < 1023 we would have needed root, but now we are
@@ -570,7 +703,18 @@ lws_create_context(const struct lws_context_creation_info *info)
 		if (lws_plat_drop_app_privileges(context, 1))
 			goto bail;
 
-#if defined(LWS_WITH_NETWORK)
+	/*
+	 * We want to move on the syste, state as far as it can go towards
+	 * OPERATIONAL now.  But we have to return from here first so the user
+	 * code that called us can set its copy of context, which it may be
+	 * relying on to perform operations triggered by the state change.
+	 *
+	 * We set up a sul to come back immediately and do the state change.
+	 */
+
+	lws_sul_schedule(context, 0, &context->sul_system_state,
+			 lws_context_creation_completion_cb, 1);
+
 	/* expedite post-context init (eg, protocols) */
 	lws_cancel_service(context);
 #endif
@@ -910,4 +1054,3 @@ lws_context_destroy(struct lws_context *context)
 
 	lws_context_destroy2(context);
 }
-

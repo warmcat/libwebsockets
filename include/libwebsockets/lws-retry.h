@@ -54,3 +54,20 @@ LWS_VISIBLE LWS_EXTERN unsigned int
 lws_retry_get_delay_ms(struct lws_context *context, const lws_retry_bo_t *retry,
 		       uint16_t *ctry, char *conceal);
 
+/**
+ * lws_retry_sul_schedule() - schedule a sul according to the backoff table
+ *
+ * \param lws_context: the lws context (used for getting random)
+ * \param sul: pointer to the sul to schedule
+ * \param retry: the retry backoff table we are using, or NULL for default
+ * \param cb: the callback for when the sul schedule time arrives
+ * \param ctry: pointer to the try counter
+ *
+ * Helper that combines interpreting the retry table with scheduling a sul to
+ * the computed delay.  If conceal is not set, it will not schedule the sul
+ * and return 1.  Otherwise the sul is scheduled and it returns 0.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_retry_sul_schedule(struct lws_context *context, int tid,
+		       lws_sorted_usec_list_t *sul, const lws_retry_bo_t *retry,
+		       sul_cb_t cb, uint16_t *ctry);

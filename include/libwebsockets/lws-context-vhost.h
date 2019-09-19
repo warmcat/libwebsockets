@@ -225,6 +225,8 @@
 
 struct lws_plat_file_ops;
 
+typedef int (*lws_context_ready_cb_t)(struct lws_context *context);
+
 /** struct lws_context_creation_info - parameters to create context and /or vhost with
  *
  * This is also used to create vhosts.... if LWS_SERVER_OPTION_EXPLICIT_VHOSTS
@@ -692,6 +694,10 @@ struct lws_context_creation_info {
 	/**< VHOST: optional retry and idle policy to apply to this vhost.
 	 *   Currently only the idle parts are applied to the connections.
 	 */
+	lws_state_notify_link_t **register_notifier_list;
+	/**< CONTEXT: NULL, or pointer to an array of notifiers that should
+	 * be registered during context creation, so they can see state change
+	 * events from very early on.  The array should end with a NULL. */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility

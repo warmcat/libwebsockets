@@ -16,6 +16,35 @@ various scenarios, CC0-licensed (public domain) for cut-and-paste, allow you to 
 News
 ----
 
+## `lws_system`: system state and notification handlers
+
+Lws now has the concept of systemwide state held in the context... this is to
+manage that there may be multiple steps that need the network before it's possible
+for the user code to operate normally.  The steps defined are
+
+`CONTEXT_CREATED`, `INITIALIZED`, `TIME_VALID`, `POLICY_VALID`, `OPERATIONAL` and
+`POLICY_INVALID`.  OPERATIONAL is the state where user code can run normally.
+
+User and other parts of lws can hook notifier callbacks to receive and be able to
+veto system state changes, either definitively or because they have been triggered
+to perform a step asynchronously and will move the state on themselves when it
+completes.
+
+By default just after context creation, lws attempts to move straight to OPERATIONAL.
+If no notifier interecepts it, it will succeed to do that and operate in a
+backwards-compatible way.
+
+See `READMEs/README.lws_system.md` for details.
+
+## `lws_system`: HAL ops struct
+
+Lws allows you to define a standardized ops struct at context creation time so your
+user code can get various information like device serial number without embedding
+system-specific code throughout the user code.  It can also perform some generic
+functions like requesting a device reboot.
+
+See `READMEs/README.lws_system.md` for details.
+
 ## Connection Validity tracking
 
 Lws now allows you to apply a policy for how long a network connection may go
@@ -30,10 +59,10 @@ that it observed traffic that must mean the connection is passing traffic in
 both directions to and from the peer.  In the absence of these confirmations
 lws will generate PINGs and take PONGs as the indication of validity.
 
-## Async DNS support
+## `lws_system`: Async DNS support
 
 Master now provides optional Asynchronous (ie, nonblocking) DNS resolving.  Enable
-with `-DLWS_WITH_ASYNC_DNS=1` at cmake.  This provides a quite sophisticated
+with `-DLWS_WITH_SYS_ASYNC_DNS=1` at cmake.  This provides a quite sophisticated
 ipv4 + ipv6 capable resolver that autodetects the dns server on several platforms
 and operates a UDP socket to its port 53 to produce and parse DNS packets
 from the event loop.  And of course, it's extremely compact.

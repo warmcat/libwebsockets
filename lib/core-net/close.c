@@ -88,7 +88,7 @@ __lws_reset_wsi(struct lws *wsi)
 	lws_dll2_remove(&wsi->dll_cli_active_conns);
 #endif
 
-#if defined(LWS_WITH_ASYNC_DNS)
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
 	lws_async_dns_cancel(wsi);
 #endif
 

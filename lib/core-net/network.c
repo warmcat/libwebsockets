@@ -415,6 +415,22 @@ lws_retry_get_delay_ms(struct lws_context *context,
 	return ms;
 }
 
+int
+lws_retry_sul_schedule(struct lws_context *context, int tid,
+		       lws_sorted_usec_list_t *sul,
+		       const lws_retry_bo_t *retry, sul_cb_t cb, uint16_t *ctry)
+{
+	char conceal;
+	uint64_t ms = lws_retry_get_delay_ms(context, retry, ctry, &conceal);
+
+	if (!conceal)
+		return 1;
+
+	lws_sul_schedule(context, tid, sul, cb, ms * 1000);
+
+	return 0;
+}
+
 #if defined(LWS_WITH_IPV6)
 LWS_EXTERN unsigned long
 lws_get_addr_scope(const char *ipaddr)
@@ -811,4 +827,10 @@ lws_sa46_compare_ads(const lws_sockaddr46 *sa46a, const lws_sockaddr46 *sa46b)
 #endif
 
 	return sa46a->sa4.sin_addr.s_addr != sa46b->sa4.sin_addr.s_addr;
+}
+
+lws_state_manager_t *
+lws_system_get_state_manager(struct lws_context *context)
+{
+	return &context->mgr_system;
 }

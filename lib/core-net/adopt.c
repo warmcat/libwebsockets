@@ -31,6 +31,7 @@ lws_get_idlest_tsi(struct lws_context *context)
 	int n = 0, hit = -1;
 
 	for (; n < context->count_threads; n++) {
+		lwsl_notice("%s: %d %d\n", __func__, context->pt[n].fds_count, context->fd_limit_per_thread - 1);
 		if ((unsigned int)context->pt[n].fds_count !=
 		    context->fd_limit_per_thread - 1 &&
 		    (unsigned int)context->pt[n].fds_count < lowest) {
@@ -540,7 +541,8 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 			lwsl_info("%s: getaddrinfo error: %s\n", __func__,
 				  gai_strerror(n));
 #else
-			lwsl_info("%s: getaddrinfo error: %s\n", __func__, strerror(n));
+			lwsl_info("%s: getaddrinfo error: %s\n", __func__,
+					strerror(n));
 #endif
 			freeaddrinfo(r);
 			goto bail1;
@@ -566,7 +568,12 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 					lws_create_adopt_udp2, wsi, NULL) ==
 							     LADNS_RET_FAILED) {
 			lwsl_err("%s: async dns failed\n", __func__);
-			goto bail1;
+			wsi = NULL;
+			/*
+			 * It was already closed by calling callback with error
+			 * from lws_async_dns_query()
+			 */
+			goto bail;
 		}
 	} else
 		wsi = lws_create_adopt_udp2(wsi, ads, NULL, 0, NULL);
@@ -575,10 +582,10 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 
 	return wsi;
 #endif
-
+#if !defined(LWS_WITH_SYS_ASYNC_DNS)
 bail1:
-	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "udp create fail");
-	wsi = NULL;
+	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "adopt udp2 fail");
+#endif
 bail:
 	return wsi;
 #else

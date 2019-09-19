@@ -695,12 +695,6 @@ handled:
 #endif
 	pollfd->revents = 0;
 
-	if (!context->protocol_init_done)
-		if (lws_protocol_init(context)) {
-			lwsl_err("%s: lws_protocol_init failed\n", __func__);
-			return -1;
-		}
-
 	return 0;
 }
 

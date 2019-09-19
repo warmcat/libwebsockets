@@ -1235,6 +1235,9 @@ void
 lws_async_dns_deinit(lws_async_dns_t *dns);
 #endif
 
+int
+lws_protocol_init_vhost(struct lws_vhost *vh, int *any);
+
 #ifdef __cplusplus
 };
 #endif
