@@ -149,7 +149,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	int lpf = info->fd_limit_per_thread;
 
 	if (lpf) {
-		lpf++;
+		lpf+= 2;
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 		lpf++;
 #endif
