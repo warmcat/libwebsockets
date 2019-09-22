@@ -204,30 +204,19 @@ int main(int argc, const char **argv)
 	lws_state_notify_link_t *na[] = { &notifier, NULL };
 	struct lws_context_creation_info info;
 	struct lws_context *context;
-	const char *p;
 	struct args args;
-	int n = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE
-		   /*
-		    * For LLL_ verbosity above NOTICE to be built into lws,
-		    * lws must have been configured and built with
-		    * -DCMAKE_BUILD_TYPE=DEBUG instead of =RELEASE
-		    *
-		    * | LLL_INFO   | LLL_PARSER  | LLL_HEADER | LLL_EXT |
-		    *   LLL_CLIENT | LLL_LATENCY | LLL_DEBUG
-		    */ ;
+	int n = 0;
 
 	args.argc = argc;
 	args.argv = argv;
 
 	signal(SIGINT, sigint_handler);
 
-	if ((p = lws_cmdline_option(argc, argv, "-d")))
-		logs = atoi(p);
+	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
+	lws_cmdline_option_handle_builtin(argc, argv, &info);
 
-	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS minimal http client [-d<verbosity>] [-l] [--h1]\n");
 
-	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.port = CONTEXT_PORT_NO_LISTEN; /* we do not run any server */
 	info.protocols = protocols;

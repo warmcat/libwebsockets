@@ -987,11 +987,49 @@ lws_cmdline_option(int argc, const char **argv, const char *val)
 				return argv[c + 1];
 			}
 
+			if (argv[c][n] == '=')
+				return &argv[c][n + 1];
 			return argv[c] + n;
 		}
 	}
 
 	return NULL;
+}
+
+static const char * const builtins[] = {
+	"-d",
+	"--udp-tx-loss",
+	"--udp-rx-loss"
+};
+
+void
+lws_cmdline_option_handle_builtin(int argc, const char **argv,
+				  struct lws_context_creation_info *info)
+{
+	const char *p;
+	int n, m, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
+
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(builtins); n++) {
+		p = lws_cmdline_option(argc, argv, builtins[n]);
+		if (!p)
+			continue;
+
+		m = atoi(p);
+
+		switch (n) {
+		case 0:
+			logs = m;
+			break;
+		case 1:
+			info->udp_loss_sim_tx_pc = m;
+			break;
+		case 2:
+			info->udp_loss_sim_rx_pc = m;
+			break;
+		}
+	}
+
+	lws_set_log_level(logs, NULL);
 }
 
 

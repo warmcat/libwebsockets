@@ -270,6 +270,22 @@ LWS_VISIBLE LWS_EXTERN const char *
 lws_cmdline_option(int argc, const char **argv, const char *val);
 
 /**
+ * lws_cmdline_option_handle_builtin(): apply standard cmdline options
+ *
+ * \param argc:		count of argument strings
+ * \param argv:		argument strings
+ * \param info:		context creation info
+ *
+ * Applies standard options to the context creation info to save them having
+ * to be (unevenly) copied into the minimal examples.
+ *
+ * Applies default log levels that can be overriden by -d
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_cmdline_option_handle_builtin(int argc, const char **argv,
+				  struct lws_context_creation_info *info);
+
+/**
  * lws_now_secs(): return seconds since 1970-1-1
  */
 LWS_VISIBLE LWS_EXTERN unsigned long
