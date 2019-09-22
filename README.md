@@ -55,6 +55,13 @@ functions like requesting a device reboot.
 
 See `READMEs/README.lws_system.md` for details.
 
+## `lws_system`: ntpclient
+
+Optional lws system service enabled by cmake `-DLWS_WITH_SYS_NTPCLIENT` intercepts
+the `lws_system` `TIME_VALID` state and performs ntpclient to get the date and time
+before entering `TIME_VALID`.  This allows user code to validate tls certificates
+correctly knowing the current date and time by the time it reached OPERATIONAL.
+
 ## Connection Validity tracking
 
 Lws now allows you to apply a policy for how long a network connection may go

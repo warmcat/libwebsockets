@@ -138,8 +138,8 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 	 * in the policy, just close without another write.
 	 */
 	if (lws_dll2_is_detached(&q->sul.list) &&
-	    lws_retry_sul_schedule_retry_wsi(wsi, &q->sul, lws_async_dns_sul_cb_retry,
-					     &q->retry)) {
+	    lws_retry_sul_schedule_retry_wsi(wsi, &q->sul,
+				       lws_async_dns_sul_cb_retry, &q->retry)) {
 		/* we have reached the end of our concealed retries */
 		lwsl_notice("%s: failing query\n", __func__);
 		/*
@@ -208,14 +208,6 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 
 	assert(p < pkt + sizeof(pkt) - LWS_PRE);
 	n = lws_ptr_diff(p, pkt + LWS_PRE);
-/*
-	fd = lws_get_socket_fd(wsi);
-	if (fd < 0)
-		goto qfail;
-
-	m = send(fd, pkt + LWS_PRE, n, 0);
-	*/
-
 	m = lws_write(wsi, pkt + LWS_PRE, n, 0);
 	if (m != n) {
 		lwsl_notice("%s: dns write failed %d %d\n", __func__,
@@ -266,7 +258,7 @@ callback_async_dns(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_RAW_RX:
 		// lwsl_user("LWS_CALLBACK_RAW_RX (%d)\n", (int)len);
-		//lwsl_hexdump_level(LLL_NOTICE, in, len);
+		// lwsl_hexdump_level(LLL_NOTICE, in, len);
 		lws_adns_parse_udp(dns, in, len);
 		break;
 

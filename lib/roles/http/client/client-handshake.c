@@ -933,7 +933,7 @@ create_new_conn:
 	 */
 	lwsi_set_state(wsi, LRS_WAITING_DNS);
 
-	lwsl_warn("%s: %p: lookup %s:%u\n", __func__, wsi, ads, port);
+	lwsl_info("%s: %p: lookup %s:%u\n", __func__, wsi, ads, port);
 	(void)port;
 
 #if defined(LWS_WITH_DETAILED_LATENCY)
