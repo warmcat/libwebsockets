@@ -552,7 +552,6 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 	{
 		struct addrinfo *r, h;
 		char buf[16];
-		int n;
 
 		memset(&h, 0, sizeof(h));
 		h.ai_family = AF_UNSPEC;    /* Allow IPv4 or IPv6 */
