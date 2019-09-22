@@ -63,15 +63,18 @@ LWS_VISIBLE int
 lwsl_timestamp(int level, char *p, int len)
 {
 #ifndef LWS_PLAT_OPTEE
-#ifndef _WIN32_WCE
-	time_t o_now = time(NULL);
-#endif
+	time_t o_now;
 	unsigned long long now;
+	struct timeval tv;
 	struct tm *ptm = NULL;
 #ifndef WIN32
 	struct tm tm;
 #endif
 	int n;
+
+	gettimeofday(&tv, NULL);
+	o_now = tv.tv_sec;
+	now = ((unsigned long long)tv.tv_sec * 10000) + (tv.tv_usec / 100);
 
 #ifndef _WIN32_WCE
 #ifdef WIN32
