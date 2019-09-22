@@ -485,22 +485,13 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 
 	/* match both A and AAAA queries if any */
 
-	q = lws_adns_get_query(dns, 0, &dns->waiting_resp,
+	q = lws_adns_get_query(dns, 0, &dns->waiting,
 			       lws_ser_ru16be(pkt + DHO_TID), NULL);
 	if (!q) {
-		/*
-		 * if he's still waiting to send the second query, he's still
-		 * on the .waiting_send list
-		 */
-		q = lws_adns_get_query(dns, 0, &dns->waiting_send,
-				       lws_ser_ru16be(pkt + DHO_TID), NULL);
+		lwsl_notice("%s: dropping unknown query tid 0x%x\n",
+			    __func__, lws_ser_ru16be(pkt + DHO_TID));
 
-		if (!q) {
-			lwsl_notice("%s: dropping unknown query tid 0x%x\n",
-				__func__, lws_ser_ru16be(pkt + DHO_TID));
-
-			return;
-		}
+		return;
 	}
 
 	/* we can get dups... drop any that have already happened */
@@ -583,6 +574,7 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 	} else {
 
 		q->firstcache = c;
+		c->incomplete = q->responded != q->asked;
 
 		/*
 		 * Only register the first one into the cache...
@@ -613,6 +605,7 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 	 * addrinfo results, if any, to all interested wsi, if any...
 	 */
 
+	c->incomplete = 0;
 	lws_async_dns_complete(q, q->firstcache);
 
 	/*

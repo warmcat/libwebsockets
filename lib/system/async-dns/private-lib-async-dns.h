@@ -43,6 +43,7 @@ typedef struct lws_adns_cache {
 	struct addrinfo		*results;
 	uint8_t			flags;	/* b0 = has ipv4, b1 = has ipv6 */
 	char			refcount;
+	char			incomplete;
 	/* name, and then result struct addrinfos overallocated here */
 } lws_adns_cache_t;
 
@@ -51,7 +52,7 @@ typedef struct lws_adns_cache {
  */
 
 typedef struct {
-	lws_sorted_usec_list_t	sul;	/* for query network timeout */
+	lws_sorted_usec_list_t	sul;	/* per-query write retry timer */
 	lws_dll2_t		list;
 
 	lws_dll2_owner_t	wsi_adns;
@@ -59,14 +60,21 @@ typedef struct {
 	struct lws_context	*context;
 	void			*opaque;
 	struct addrinfo		**last;
+	lws_async_dns_t		*dns;
 
 	lws_adns_cache_t	*firstcache;
 
 	lws_async_dns_retcode_t	ret;
 	uint16_t		tid;
 	uint16_t		qtype;
+	uint16_t		retry;
 	uint8_t			tsi;
 
+#if defined(LWS_WITH_IPV6)
+	uint8_t			sent[2];
+#else
+	uint8_t			sent[1];
+#endif
 	uint8_t			asked;
 	uint8_t			responded;
 

@@ -190,7 +190,7 @@ again:
 	fail++;
 
 next:
-	lws_async_dns_freeaddrinfo(a);
+	lws_async_dns_freeaddrinfo(&a);
 	if (dtest == (int)LWS_ARRAY_SIZE(adt))
 		interrupted = 1;
 	else
