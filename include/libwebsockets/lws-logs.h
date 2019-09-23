@@ -74,6 +74,10 @@ lwsl_timestamp(int level, char *p, int len);
 #define lwsl_warn(...) _lws_log(LLL_WARN, __VA_ARGS__)
 #define lwsl_notice(...) _lws_log(LLL_NOTICE, __VA_ARGS__)
 #endif
+#if defined(LWS_WITH_MORE_LOGS)
+/* but sometimes we want more logging in RELEASE */
+#define lwsl_info(...) _lws_log(LLL_INFO, __VA_ARGS__)
+#endif
 /*
  *  weaker logging can be deselected by telling CMake to build in RELEASE mode
  *  that gets rid of the overhead of checking while keeping _warn and _err
@@ -86,7 +90,9 @@ lwsl_timestamp(int level, char *p, int len);
 #define lwsl_warn(...) _lws_log(LLL_WARN, __VA_ARGS__)
 #define lwsl_notice(...) _lws_log(LLL_NOTICE, __VA_ARGS__)
 #endif
+#if !defined(LWS_WITH_MORE_LOGS)
 #define lwsl_info(...) _lws_log(LLL_INFO, __VA_ARGS__)
+#endif
 #define lwsl_debug(...) _lws_log(LLL_DEBUG, __VA_ARGS__)
 #define lwsl_parser(...) _lws_log(LLL_PARSER, __VA_ARGS__)
 #define lwsl_header(...)  _lws_log(LLL_HEADER, __VA_ARGS__)
@@ -100,7 +106,9 @@ lwsl_timestamp(int level, char *p, int len);
 #define lwsl_warn(...) do {} while(0)
 #define lwsl_notice(...) do {} while(0)
 #endif
+#if !defined(LWS_WITH_MORE_LOGS)
 #define lwsl_info(...) do {} while(0)
+#endif
 #define lwsl_debug(...) do {} while(0)
 #define lwsl_parser(...) do {} while(0)
 #define lwsl_header(...) do {} while(0)
