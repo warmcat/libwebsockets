@@ -273,6 +273,16 @@ lws_atcrs_client_conn(const lws_abs_t *abs)
 	i.seq = abs->seq;
 	i.opaque_user_data = abs->opaque_user_data;
 
+	/*
+	 * the protocol itself has some natural attributes we should pass on
+	 */
+
+	if (abs->ap->flags & LWS_AP_FLAG_PIPELINE_TRANSACTIONS)
+		i.ssl_connection |= LCCSCF_PIPELINE;
+
+	if (abs->ap->flags & LWS_AP_FLAG_MUXABLE_STREAM)
+		i.ssl_connection |= LCCSCF_MUXABLE_STREAM;
+
 	priv->wsi = lws_client_connect_via_info(&i);
 	if (!priv->wsi)
 		return 1;
