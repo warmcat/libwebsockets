@@ -48,7 +48,8 @@ enum lws_client_connect_ssl_connection_flags {
 		 * HTTP/1.0: possible if Keep-Alive: yes sent by server
 		 * HTTP/1.1: always possible... uses pipelining
 		 * HTTP/2:   always possible... uses parallel streams
-		 * */
+		 */
+	LCCSCF_MUXABLE_STREAM			= (1 << 17),
 };
 
 /** struct lws_client_connect_info - parameters to connect with when using
