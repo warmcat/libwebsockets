@@ -258,12 +258,9 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	char ni[48];
 	int m;
 
-#ifdef LWS_WITH_IPV6
-#if defined(__ANDROID__)
+#if defined(LWS_WITH_IPV6) && defined(__ANDROID__)
 	ipv6only = 0;
 #endif
-#endif
-
 
 	/*
 	 * async dns calls back here for everybody who cares when it gets a
@@ -688,16 +685,14 @@ failed1:
 struct lws *
 lws_client_connect_2_dnsreq(struct lws *wsi)
 {
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-	const char *adsin;
-#endif
-	const char *cce = "", *meth = NULL, *ads;
+	const char *meth = NULL, *ads;
 	struct addrinfo *result = NULL;
 #if defined(LWS_WITH_IPV6)
 	struct sockaddr_in addr;
 	const char *iface;
 #endif
 	int n, port = 0;
+	struct lws *w;
 
 	if (lwsi_state(wsi) == LRS_WAITING_DNS) {
 		lwsl_notice("%s: LRS_WAITING_DNS\n", __func__);
@@ -705,113 +700,37 @@ lws_client_connect_2_dnsreq(struct lws *wsi)
 		return wsi;
 	}
 
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-	if (!wsi->http.ah && !wsi->stash) {
-		cce = "ah was NULL at cc2";
-		lwsl_err("%s\n", cce);
-		goto oom4;
-	}
-
-	/* we can only piggyback GET or POST */
-
 	if (wsi->stash)
 		meth = wsi->stash->cis[CIS_METHOD];
 	else
 		meth = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD);
-
-	if (meth && strcmp(meth, "GET") && strcmp(meth, "POST")) {
-		lwsl_debug("%s: new conn on meth\n", __func__);
-
-		goto create_new_conn;
-	}
 
 	/* we only pipeline connections that said it was okay */
 
 	if (!wsi->client_pipeline) {
 		lwsl_debug("%s: new conn on no pipeline flag\n", __func__);
 
-		goto create_new_conn;
+		goto solo;
 	}
 
-	/*
-	 * let's take a look first and see if there are any already-active
-	 * client connections we can piggy-back on.
-	 */
+	/* only pipeline things we associate with being a stream */
 
-	adsin = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS);
+	if (meth && strcmp(meth, "RAW") && strcmp(meth, "GET") &&
+		    strcmp(meth, "POST"))
+		goto solo;
 
-	lws_vhost_lock(wsi->vhost); /* ----------------------------------- { */
+	/* consult active connections to find out disposition */
 
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(
-				&wsi->vhost->dll_cli_active_conns_owner)) {
-		struct lws *w = lws_container_of(d, struct lws,
-						 dll_cli_active_conns);
+	switch (lws_vhost_active_conns(wsi, &w)) {
+	case ACTIVE_CONNS_SOLO:
+		break;
+	case ACTIVE_CONNS_MUXED:
+		return wsi;
+	case ACTIVE_CONNS_QUEUED:
+		return lws_client_connect_4_established(wsi, w, 0);
+	}
 
-//		lwsl_notice("%s: check %s %s %d %d\n", __func__, adsin,
-//			   w->cli_hostname_copy, wsi->c_port, w->c_port);
-
-		if (w != wsi && w->cli_hostname_copy &&
-		    !strcmp(adsin, w->cli_hostname_copy) &&
-#if defined(LWS_WITH_TLS)
-		    (wsi->tls.use_ssl & LCCSCF_USE_SSL) ==
-		     (w->tls.use_ssl & LCCSCF_USE_SSL) &&
-#endif
-		    wsi->c_port == w->c_port) {
-
-			/* someone else is already connected to the right guy */
-
-			/* do we know for a fact pipelining won't fly? */
-			if (w->keepalive_rejected) {
-				lwsl_info("defeating pipelining due to no "
-					    "keepalive on server\n");
-				lws_vhost_unlock(wsi->vhost); /* } ---------- */
-				goto create_new_conn;
-			}
-#if defined (LWS_WITH_HTTP2)
-			/*
-			 * h2: in usable state already: just use it without
-			 *     going through the queue
-			 */
-			if (w->client_h2_alpn &&
-			    (lwsi_state(w) == LRS_H2_WAITING_TO_SEND_HEADERS ||
-			     lwsi_state(w) == LRS_ESTABLISHED)) {
-
-				lwsl_info("%s: just join h2 directly\n",
-						__func__);
-
-				wsi->client_h2_alpn = 1;
-				lws_wsi_h2_adopt(w, wsi);
-				lws_vhost_unlock(wsi->vhost); /* } ---------- */
-
-				return wsi;
-			}
-#endif
-
-			lwsl_info("apply %p to txn queue on %p state 0x%lx\n",
-				  wsi, w, (unsigned long)w->wsistate);
-			/*
-			 * ...let's add ourselves to his transaction queue...
-			 * we are adding ourselves at the HEAD
-			 */
-			lws_dll2_add_head(&wsi->dll2_cli_txn_queue,
-					  &w->dll2_cli_txn_queue_owner);
-
-			/*
-			 * h1: pipeline our headers out on him,
-			 * and wait for our turn at client transaction_complete
-			 * to take over parsing the rx.
-			 */
-			lws_vhost_unlock(wsi->vhost); /* } ---------- */
-			return lws_client_connect_4_established(wsi, w, 0);
-		}
-
-	} lws_end_foreach_dll_safe(d, d1);
-
-	lws_vhost_unlock(wsi->vhost); /* } ---------------------------------- */
-
-create_new_conn:
-#endif
-
+solo:
 	wsi->addrinfo_idx = 0;
 
 	/*
@@ -840,7 +759,8 @@ create_new_conn:
 	 * piggyback on our transaction queue
 	 */
 
-	if (meth && (!strcmp(meth, "GET") || !strcmp(meth, "POST")) &&
+	if (meth && (!strcmp(meth, "RAW") || !strcmp(meth, "GET") ||
+		     !strcmp(meth, "POST")) &&
 	    lws_dll2_is_detached(&wsi->dll2_cli_txn_queue) &&
 	    lws_dll2_is_detached(&wsi->dll_cli_active_conns)) {
 		lws_vhost_lock(wsi->vhost);
@@ -961,35 +881,12 @@ next_step:
 #endif
 	return lws_client_connect_3_connect(wsi, ads, result, n, NULL);
 
-oom4:
-	if (lwsi_role_client(wsi) && wsi->protocol /* && lwsi_state_est(wsi) */)
-		lws_inform_client_conn_fail(wsi,(void *)cce, strlen(cce));
-
-	/* take care that we might be inserted in fds already */
-	if (wsi->position_in_fds_table != LWS_NO_FDS_POS)
-		goto failed1;
-
-	/*
-	 * We can't be an active client connection any more, if we thought
-	 * that was what we were going to be doing.  It should be if we are
-	 * failing by oom4 path, we are still called by
-	 * lws_client_connect_via_info() and will be returning NULL to that,
-	 * so nobody else should have had a chance to queue on us.
-	 */
-	{
-		struct lws_vhost *vhost = wsi->vhost;
-
-		lws_vhost_lock(vhost);
-		__lws_free_wsi(wsi);
-		lws_vhost_unlock(vhost);
-	}
-
-	return NULL;
-
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
 failed1:
 	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "client_connect2");
 
 	return NULL;
+#endif
 }
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)

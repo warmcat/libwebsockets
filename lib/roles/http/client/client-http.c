@@ -619,6 +619,7 @@ int LWS_WARN_UNUSED_RESULT
 lws_http_transaction_completed_client(struct lws *wsi)
 {
 	struct lws *wsi_eff = lws_client_wsi_effective(wsi);
+	int n;
 
 	lwsl_info("%s: wsi: %p, wsi_eff: %p (%s)\n", __func__, wsi, wsi_eff,
 		    wsi_eff->protocol->name);
@@ -631,55 +632,13 @@ lws_http_transaction_completed_client(struct lws *wsi)
 		return -1;
 	}
 
-	/*
-	 * Are we constitutionally capable of having a queue, ie, we are on
-	 * the "active client connections" list?
-	 *
-	 * If not, that's it for us.
-	 */
-
-	if (lws_dll2_is_detached(&wsi->dll_cli_active_conns))
-		return -1;
-
-	/* if this was a queued guy, close him and remove from queue */
-
-	if (wsi->transaction_from_pipeline_queue) {
-		lwsl_debug("closing queued wsi %p\n", wsi_eff);
-		/* so the close doesn't trigger a CCE */
-		wsi_eff->already_did_cce = 1;
-		__lws_close_free_wsi(wsi_eff,
-			LWS_CLOSE_STATUS_CLIENT_TRANSACTION_DONE,
-			"queued client done");
-	}
+	n = _lws_generic_transaction_completed_active_conn(wsi);
 
 	_lws_header_table_reset(wsi->http.ah);
-
-	/* after the first one, they can only be coming from the queue */
-	wsi->transaction_from_pipeline_queue = 1;
-
 	wsi->http.rx_content_length = 0;
-	wsi->hdr_parsing_completed = 0;
 
-	/* is there a new tail after removing that one? */
-	wsi_eff = lws_client_wsi_effective(wsi);
-
-	/*
-	 * Do we have something pipelined waiting?
-	 * it's OK if he hasn't managed to send his headers yet... he's next
-	 * in line to do that...
-	 */
-	if (wsi_eff == wsi) {
-		/*
-		 * Nothing pipelined... we should hang around a bit
-		 * in case something turns up...
-		 */
-		lwsl_info("%s: nothing pipelined waiting\n", __func__);
-		lwsi_set_state(wsi, LRS_IDLING);
-
-		lws_set_timeout(wsi, PENDING_TIMEOUT_CLIENT_CONN_IDLE, 5);
-
+	if (!n)
 		return 0;
-	}
 
 	/*
 	 * H1: we can serialize the queued guys into the same ah

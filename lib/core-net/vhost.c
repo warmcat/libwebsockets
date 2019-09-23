@@ -1374,6 +1374,7 @@ lws_context_deprecate(struct lws_context *context, lws_reload_func cb)
 #endif
 
 #if defined(LWS_WITH_NETWORK)
+
 struct lws_vhost *
 lws_get_vhost_by_name(struct lws_context *context, const char *name)
 {
@@ -1386,4 +1387,103 @@ lws_get_vhost_by_name(struct lws_context *context, const char *name)
 
 	return NULL;
 }
+
+
+#if defined(LWS_WITH_CLIENT)
+/*
+ * This is the logic checking to see if the new connection wsi should have a
+ * pipelining or muxing relationship with an existing "active connection" to
+ * the same endpoint under the same conditions.
+ *
+ * This was originally in the client code but since the list is held on the
+ * vhost (to ensure the same client tls ctx is involved) it's cleaner in vhost.c
+ */
+
+int
+lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi)
+{
+	const char *adsin;
+
+	adsin = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS);
+
+	lws_vhost_lock(wsi->vhost); /* ----------------------------------- { */
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   wsi->vhost->dll_cli_active_conns_owner.head) {
+		struct lws *w = lws_container_of(d, struct lws,
+						 dll_cli_active_conns);
+
+		lwsl_debug("%s: check %s %s %d %d\n", __func__, adsin,
+			   w->cli_hostname_copy, wsi->c_port, w->c_port);
+
+		if (w != wsi && w->cli_hostname_copy &&
+		    !strcmp(adsin, w->cli_hostname_copy) &&
+#if defined(LWS_WITH_TLS)
+		    (wsi->tls.use_ssl & LCCSCF_USE_SSL) ==
+		     (w->tls.use_ssl & LCCSCF_USE_SSL) &&
+#endif
+		    wsi->c_port == w->c_port) {
+
+			/*
+			 * There's already an active connection.
+			 *
+			 * The server may have told the existing active
+			 * connection that it doesn't support pipelining...
+			 */
+			if (w->keepalive_rejected) {
+				lwsl_info("defeating pipelining due to no "
+					  "keepalive on server\n");
+				goto solo;
+			}
+#if defined (LWS_WITH_HTTP2)
+			/*
+			 * h2: in usable state already: just use it without
+			 *     going through the queue
+			 */
+			if (w->client_h2_alpn &&
+			    (lwsi_state(w) == LRS_H2_WAITING_TO_SEND_HEADERS ||
+			     lwsi_state(w) == LRS_ESTABLISHED)) {
+
+				lwsl_info("%s: just join h2 directly\n",
+						__func__);
+
+				wsi->client_h2_alpn = 1;
+				lws_wsi_h2_adopt(w, wsi);
+				lws_vhost_unlock(wsi->vhost); /* } ---------- */
+
+				return ACTIVE_CONNS_MUXED;
+			}
+#endif
+
+			lwsl_info("apply %p to txn queue on %p state 0x%lx\n",
+				  wsi, w, (unsigned long)w->wsistate);
+			/*
+			 * ...let's add ourselves to his transaction queue...
+			 * we are adding ourselves at the HEAD
+			 */
+			lws_dll2_add_head(&wsi->dll2_cli_txn_queue,
+					  &w->dll2_cli_txn_queue_owner);
+
+			/*
+			 * h1: pipeline our headers out on him,
+			 * and wait for our turn at client transaction_complete
+			 * to take over parsing the rx.
+			 */
+			lws_vhost_unlock(wsi->vhost); /* } ---------- */
+
+			*nwsi = w;
+
+			return ACTIVE_CONNS_QUEUED;
+		}
+
+	} lws_end_foreach_dll_safe(d, d1);
+
+solo:
+	lws_vhost_unlock(wsi->vhost); /* } ---------------------------------- */
+
+	/* there is nobody already connected in the same way */
+
+	return ACTIVE_CONNS_SOLO;
+}
+#endif
 #endif

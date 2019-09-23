@@ -1239,6 +1239,15 @@ lws_async_dns_deinit(lws_async_dns_t *dns);
 
 int
 lws_protocol_init_vhost(struct lws_vhost *vh, int *any);
+int
+_lws_generic_transaction_completed_active_conn(struct lws *wsi);
+
+#define ACTIVE_CONNS_SOLO 0
+#define ACTIVE_CONNS_MUXED 1
+#define ACTIVE_CONNS_QUEUED 2
+
+int
+lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi);
 
 #ifdef __cplusplus
 };
