@@ -312,6 +312,10 @@ struct lws_context {
 #if defined(LWS_WITH_NETWORK)
 	lws_state_manager_t		mgr_system;
 	lws_state_notify_link_t		protocols_notify;
+#if defined (LWS_WITH_SYS_DHCP_CLIENT)
+	lws_dll2_owner_t		dhcpc_owner;
+					/**< list of ifaces with dhcpc */
+#endif
 #endif
 
 	/* pointers */
@@ -626,6 +630,9 @@ lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop);
 int
 lws_plat_user_colon_group_to_ids(const char *u_colon_g, uid_t *puid, gid_t *pgid);
 #endif
+
+int
+lws_plat_ifname_to_hwaddr(int fd, const char *ifname, uint8_t *hwaddr, int len);
 
 LWS_EXTERN int
 lws_check_byte_utf8(unsigned char state, unsigned char c);

@@ -438,9 +438,11 @@ lws_plat_ifconfig_ip(const char *ifname, int fd, uint8_t *ip, uint8_t *mask_ip,
 
 	route.rt_flags = RTF_UP | RTF_GATEWAY;
 	route.rt_metric = 100;
+	route.rt_dev = (char *)ifname;
 
 	if (ioctl(fd, SIOCADDRT, &route) < 0) {
-		lwsl_err("%s: SIOCADDRT fail: %d\n", __func__, LWS_ERRNO);
+		lwsl_err("%s: SIOCADDRT 0x%x fail: %d\n", __func__,
+			(unsigned int)htonl(*(uint32_t *)gateway_ip), LWS_ERRNO);
 		return 1;
 	}
 

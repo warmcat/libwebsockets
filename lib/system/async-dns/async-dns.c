@@ -296,6 +296,11 @@ lws_async_dns_init(struct lws_context *context)
 
 	memset(&dns->sa46, 0, sizeof(dns->sa46));
 
+#if defined(LWS_WITH_SYS_DHCP_CLIENT)
+	if (lws_dhcpc_status(context, &dns->sa46))
+		goto ok;
+#endif
+
 	n = lws_plat_asyncdns_init(context, &dns->sa46);
 	if (n < 0) {
 		lwsl_warn("%s: no valid dns server, retry\n", __func__);
@@ -306,6 +311,9 @@ lws_async_dns_init(struct lws_context *context)
 	if (n != LADNS_CONF_SERVER_CHANGED)
 		return 0;
 
+#if defined(LWS_WITH_SYS_DHCP_CLIENT)
+ok:
+#endif
 	dns->sa46.sa4.sin_port = htons(53);
 	lws_write_numeric_address((uint8_t *)&dns->sa46.sa4.sin_addr.s_addr, 4,
 				  ads, sizeof(ads));

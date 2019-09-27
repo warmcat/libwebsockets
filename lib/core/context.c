@@ -104,6 +104,20 @@ lws_state_notify_protocol_init(struct lws_state_manager *mgr,
 	struct lws_context *context = lws_container_of(mgr, struct lws_context,
 						       mgr_system);
 
+#if defined(LWS_WITH_SYS_DHCP_CLIENT)
+	if (current == LWS_SYSTATE_DHCP) {
+		/*
+		 * Don't let it past here until at least one iface has been
+		 * configured for operation with DHCP
+		 */
+
+		if (!lws_dhcpc_status(context, NULL))
+			return 1;
+	}
+#endif
+
+	/* protocol part */
+
 	if (context->protocol_init_done)
 		return 0;
 
@@ -154,6 +168,9 @@ lws_create_context(const struct lws_context_creation_info *info)
 		lpf++;
 #endif
 #if defined(LWS_WITH_SYS_NTPCLIENT)
+		lpf++;
+#endif
+#if defined(LWS_WITH_SYS_DHCP_CLIENT)
 		lpf++;
 #endif
 	}
@@ -615,7 +632,8 @@ lws_create_context(const struct lws_context_creation_info *info)
 
 #if defined(LWS_WITH_NETWORK)
 
-#if defined(LWS_WITH_SYS_ASYNC_DNS) || defined(LWS_WITH_SYS_NTPCLIENT)
+#if defined(LWS_WITH_SYS_ASYNC_DNS) || defined(LWS_WITH_SYS_NTPCLIENT) || \
+	defined(LWS_WITH_SYS_DHCP_CLIENT)
 	{
 		/*
 		 * system vhost
@@ -630,6 +648,9 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if defined(LWS_WITH_SYS_NTPCLIENT)
 		extern const struct lws_protocols lws_system_protocol_ntpc;
 #endif
+#if defined(LWS_WITH_SYS_DHCP_CLIENT)
+		extern const struct lws_protocols lws_system_protocol_dhcpc;
+#endif
 
 		n = 0;
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
@@ -637,6 +658,9 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 #if defined(LWS_WITH_SYS_NTPCLIENT)
 		pp[n++] = &lws_system_protocol_ntpc;
+#endif
+#if defined(LWS_WITH_SYS_DHCP_CLIENT)
+		pp[n++] = &lws_system_protocol_dhcpc;
 #endif
 		pp[n] = NULL;
 
@@ -824,6 +848,9 @@ lws_context_destroy3(struct lws_context *context)
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 	lws_async_dns_deinit(&context->async_dns);
+#endif
+#if defined(LWS_WITH_SYS_DHCP_CLIENT)
+	lws_dhcpc_remove(context, NULL);
 #endif
 
 	if (context->pt[0].fds)

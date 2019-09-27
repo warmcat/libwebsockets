@@ -16,6 +16,16 @@ various scenarios, CC0-licensed (public domain) for cut-and-paste, allow you to 
 News
 ----
 
+## `lws_system`: DHCP client
+
+DHCP client is now another network service that can be integrated into lws, with
+`LWS_WITH_SYS_DHCP_CLIENT` at CMake.  When enabled, the `lws_system` state
+is held at `DHCP` until at least one registered network interface acquires a
+usable set of DHCP information including ip, subnet mask, router / gateway
+address and at least one DNS server.
+
+See the [api-test-dhcp](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/api-tests/api-test-dhcpc) Minimal Example for how to use.
+
 ## UDP integration with `lws_retry`
 
 UDP support in lws has new helper that allow `lws_retry` to be applied for retry,
@@ -43,7 +53,9 @@ completes.
 
 By default just after context creation, lws attempts to move straight to OPERATIONAL.
 If no notifier interecepts it, it will succeed to do that and operate in a
-backwards-compatible way.
+backwards-compatible way.  Enabling various features like lws ntpclient also enable
+notifiers that hold progress at the related state until their operation completes
+successfully, eg, not able to enter `TIME_VALID` until ntpclient has the time.
 
 See `READMEs/README.lws_system.md` for details.
 

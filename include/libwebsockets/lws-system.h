@@ -157,3 +157,44 @@ lws_system_get_auth(struct lws_context *context, int idx, uint8_t *buf, size_t b
  */
 LWS_EXTERN LWS_VISIBLE const lws_system_ops_t *
 lws_system_get_ops(struct lws_context *context);
+
+typedef int (*dhcpc_cb_t)(void *opaque, int af, uint8_t *ip, int ip_len);
+
+/**
+ * lws_dhcpc_request() - add a network interface to dhcpc management
+ *
+ * \param c: the lws_context
+ * \param i: the interface name, like "eth0"
+ * \param af: address family
+ * \param cb: the change callback
+ * \param opaque: opaque pointer given to the callback
+ *
+ * Register a network interface as being managed by DHCP.  lws will proceed to
+ * try to acquire an IP.  Requires LWS_WITH_SYS_DHCP_CLIENT at cmake.
+ */
+int
+lws_dhcpc_request(struct lws_context *c, const char *i, int af, dhcpc_cb_t cb,
+		void *opaque);
+
+/**
+ * lws_dhcpc_remove() - remove a network interface to dhcpc management
+ *
+ * \param context: the lws_context
+ * \param iface: the interface name, like "eth0"
+ *
+ * Remove handling of the network interface from dhcp.
+ */
+int
+lws_dhcpc_remove(struct lws_context *context, const char *iface);
+
+/**
+ * lws_dhcpc_status() - has any interface reached BOUND state
+ *
+ * \param context: the lws_context
+ * \param sa46: set to a DNS server from a bound interface, or NULL
+ *
+ * Returns 1 if any network interface managed by dhcpc has reached the BOUND
+ * state (has acquired an IP, gateway and DNS server), otherwise 0.
+ */
+int
+lws_dhcpc_status(struct lws_context *context, lws_sockaddr46 *sa46);

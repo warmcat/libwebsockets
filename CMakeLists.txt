@@ -49,6 +49,7 @@ option(LWS_WITH_HUBBUB "Enable libhubbub rewriting support" OFF)
 option(LWS_WITH_FTS "Full Text Search support" OFF)
 option(LWS_WITH_SYS_ASYNC_DNS "Nonblocking internal IPv4 + IPv6 DNS resolver" OFF)
 option(LWS_WITH_SYS_NTPCLIENT "Build in tiny ntpclient good for tls date validation and run via lws_system" OFF)
+option(LWS_WITH_SYS_DHCP_CLIENT "Build in tiny DHCP client" OFF)
 #
 # TLS library options... all except mbedTLS are basically OpenSSL variants.
 #
@@ -1039,6 +1040,12 @@ if (LWS_WITH_NETWORK)
 		list(APPEND SOURCES
 			lib/system/ntpclient/ntpclient.c)
 	endif()
+
+	if (LWS_WITH_SYS_DHCP_CLIENT)
+		list(APPEND SOURCES
+			lib/system/dhcpclient/dhcpclient.c)
+	endif()
+
 
 	if (LWS_WITH_DETAILED_LATENCY)
 		list(APPEND SOURCES
