@@ -127,11 +127,13 @@ rops_adoption_bind_raw_proxy(struct lws *wsi, int type,
 	    (!(type & LWS_ADOPT_FLAG_RAW_PROXY)) || (type & _LWS_ADOPT_FINISH))
 		return 0; /* no match */
 
+#if defined(LWS_WITH_UDP)
 	if (type & LWS_ADOPT_FLAG_UDP)
 		/*
 		 * these can be >128 bytes, so just alloc for UDP
 		 */
 		wsi->udp = lws_malloc(sizeof(*wsi->udp), "udp struct");
+#endif
 
 	lws_role_transition(wsi, LWSIFR_SERVER, (type & LWS_ADOPT_ALLOW_SSL) ?
 				    LRS_SSL_INIT : LRS_ESTABLISHED,

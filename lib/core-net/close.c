@@ -84,7 +84,9 @@ __lws_reset_wsi(struct lws *wsi)
 
 	lws_buflist_destroy_all_segments(&wsi->buflist);
 	lws_buflist_destroy_all_segments(&wsi->buflist_out);
+#if defined(LWS_WITH_UDP)
 	lws_free_set_NULL(wsi->udp);
+#endif
 	wsi->retry = 0;
 
 #if defined(LWS_WITH_CLIENT)
@@ -414,8 +416,10 @@ just_kill_connection:
 	if (wsi->http.buflist_post_body)
 		lws_buflist_destroy_all_segments(&wsi->http.buflist_post_body);
 #endif
+#if defined(LWS_WITH_UDP)
 	if (wsi->udp)
 		lws_free_set_NULL(wsi->udp);
+#endif
 
 	if (wsi->role_ops->close_kill_connection)
 		wsi->role_ops->close_kill_connection(wsi, reason);

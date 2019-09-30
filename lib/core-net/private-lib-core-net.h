@@ -245,7 +245,9 @@ struct client_info_stash {
 };
 #endif
 
+#if defined(LWS_WITH_UDP)
 #define lws_wsi_is_udp(___wsi) (!!___wsi->udp)
+#endif
 
 #define LWS_H2_FRAME_HEADER_LENGTH 9
 
@@ -644,7 +646,9 @@ struct lws {
 	struct lws_peer *peer;
 #endif
 
+#if defined(LWS_WITH_UDP)
 	struct lws_udp *udp;
+#endif
 #if defined(LWS_WITH_CLIENT)
 	struct client_info_stash *stash;
 	char *cli_hostname_copy;

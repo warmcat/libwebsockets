@@ -79,7 +79,7 @@ typedef union {
 	lws_filefd_type filefd;
 } lws_sock_file_fd_type;
 
-#if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE)
+#if defined(LWS_WITH_UDP)
 struct lws_udp {
 	struct sockaddr		sa;
 	socklen_t		salen;
@@ -168,6 +168,7 @@ lws_adopt_socket_vhost_readbuf(struct lws_vhost *vhost,
 
 #define LWS_CAUDP_BIND 1
 
+#if defined(LWS_WITH_UDP)
 /**
  * lws_create_adopt_udp() - create, bind and adopt a UDP socket
  *
@@ -186,4 +187,5 @@ LWS_VISIBLE LWS_EXTERN struct lws *
 lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 		     int flags, const char *protocol_name,
 		     struct lws *parent_wsi, const lws_retry_bo_t *retry_policy);
+#endif
 ///@}
