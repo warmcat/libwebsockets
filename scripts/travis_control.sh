@@ -15,7 +15,6 @@ else
 			cmake --build . &&
 			sudo make install &&
 			../minimal-examples/selftests.sh &&
-			../scripts/test-dbus-proxy.sh &&
 			../scripts/h2spec.sh &&
 			../scripts/attack.sh &&
 			../scripts/h2load.sh &&
