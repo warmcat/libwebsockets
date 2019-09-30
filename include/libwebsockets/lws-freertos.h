@@ -56,6 +56,7 @@ struct pollfd {
 #include <event_groups.h>
 #include <string.h>
 #include "timers.h"
+#include <lwip/sockets.h>
 #else /* LWS_AMAZON_RTOS */
 #include <freertos/FreeRTOS.h>
 #include <freertos/event_groups.h>

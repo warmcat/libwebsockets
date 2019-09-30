@@ -22,6 +22,8 @@
  * IN THE SOFTWARE.
  */
 
+#if defined(LWS_WITH_UDP)
+
 typedef enum dns_query_type {
 	LWS_ADNS_RECORD_A					= 0x01,
 	LWS_ADNS_RECORD_CNAME					= 0x05,
@@ -79,3 +81,5 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_async_dns_freeaddrinfo(const struct addrinfo **ai);
+
+#endif

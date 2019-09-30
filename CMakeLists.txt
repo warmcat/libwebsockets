@@ -140,6 +140,8 @@ option(LWS_WITH_LWS_DSH "Support lws_dsh_t Disordered Shared Heap" OFF)
 option(LWS_CLIENT_HTTP_PROXYING "Support external http proxies for client connections" ON)
 option(LWS_WITH_FILE_OPS "Support file operations vfs" ON)
 option(LWS_WITH_DETAILED_LATENCY "Record detailed latency stats for each read and write" OFF)
+option(LWS_WITH_UDP "Platform supports UDP" ON)
+
 #
 # to use miniz, enable both LWS_WITH_ZLIB and LWS_WITH_MINIZ
 #
@@ -158,6 +160,10 @@ endif()
 
 if (LWS_WITH_ESP32)
 	set(LWS_PLAT_FREERTOS 1)
+endif()
+
+if (LWS_PLAT_FREERTOS OR LWS_PLAT_OPTEE)
+	set(LWS_WITH_UDP 0)
 endif()
 
 if (WIN32 OR LWS_PLAT_FREERTOS)

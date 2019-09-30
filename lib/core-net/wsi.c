@@ -739,11 +739,13 @@ lws_protocol_get(struct lws *wsi)
 	return wsi->protocol;
 }
 
+#if defined(LWS_WITH_UDP)
 LWS_VISIBLE const struct lws_udp *
 lws_get_udp(const struct lws *wsi)
 {
 	return wsi->udp;
 }
+#endif
 
 LWS_VISIBLE LWS_EXTERN struct lws_context *
 lws_get_context(const struct lws *wsi)

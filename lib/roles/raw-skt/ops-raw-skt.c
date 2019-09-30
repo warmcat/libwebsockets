@@ -92,6 +92,7 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 			goto try_pollout;
 		}
 
+#if defined(LWS_WITH_UDP)
 		if (wsi->context->udp_loss_sim_rx_pc) {
 			uint16_t u16;
 			/*
@@ -107,12 +108,15 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 				goto post_rx;
 			}
 		}
+#endif
 
 		n = user_callback_handle_rxflow(wsi->protocol->callback,
 						wsi, LWS_CALLBACK_RAW_RX,
 						wsi->user_space, ebuf.token,
 						ebuf.len);
+#if defined(LWS_WITH_UDP)
 post_rx:
+#endif
 		if (n < 0) {
 			lwsl_info("LWS_CALLBACK_RAW_RX_fail\n");
 			goto fail;
@@ -183,7 +187,7 @@ rops_adoption_bind_raw_skt(struct lws *wsi, int type, const char *vh_prot_name)
 	    (type & _LWS_ADOPT_FINISH))
 		return 0; /* no match */
 
-#if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE)
+#if defined(LWS_WITH_UDP)
 	if (type & LWS_ADOPT_FLAG_UDP)
 		/*
 		 * these can be >128 bytes, so just alloc for UDP

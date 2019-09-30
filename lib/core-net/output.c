@@ -205,7 +205,7 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	lws_stats_bump(pt, LWSSTATS_C_WRITE_PARTIALS, 1);
 	lws_stats_bump(pt, LWSSTATS_B_PARTIALS_ACCEPTED_PARTS, m);
 
-#if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE)
+#if defined(LWS_WITH_UDP)
 	if (lws_wsi_is_udp(wsi)) {
 		/* stash original destination for fulfilling UDP partials */
 		wsi->udp->sa_pending = wsi->udp->sa;
@@ -287,13 +287,13 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 	lws_stats_bump(pt, LWSSTATS_C_API_READ, 1);
 
 	errno = 0;
+#if defined(LWS_WITH_UDP)
 	if (lws_wsi_is_udp(wsi)) {
-#if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE)
 		wsi->udp->salen = sizeof(wsi->udp->sa);
 		n = recvfrom(wsi->desc.sockfd, (char *)buf, len, 0,
 			     &wsi->udp->sa, &wsi->udp->salen);
-#endif
 	} else
+#endif
 		n = recv(wsi->desc.sockfd, (char *)buf, len, 0);
 
 	if (n >= 0) {
@@ -334,8 +334,8 @@ lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 	ssize_t send(int sockfd, const void *buf, size_t len, int flags);
 #endif
 
+#if defined(LWS_WITH_UDP)
 	if (lws_wsi_is_udp(wsi)) {
-#if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE)
 		if (wsi->context->udp_loss_sim_tx_pc) {
 			uint16_t u16;
 			/*
@@ -358,12 +358,14 @@ lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 		else
 			n = sendto(wsi->desc.sockfd, (const char *)buf,
 				   len, 0, &wsi->udp->sa, wsi->udp->salen);
-#endif
 	} else
+#endif
 		n = send(wsi->desc.sockfd, (char *)buf, len, MSG_NOSIGNAL);
 //	lwsl_info("%s: sent len %d result %d", __func__, len, n);
 
+#if defined(LWS_WITH_UDP)
 post_send:
+#endif
 	if (n >= 0)
 		return n;
 

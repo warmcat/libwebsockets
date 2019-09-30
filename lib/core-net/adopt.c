@@ -423,6 +423,7 @@ bail:
 	return NULL;
 }
 
+#if defined(LWS_WITH_UDP)
 #if defined(LWS_WITH_CLIENT)
 static struct lws *
 lws_create_adopt_udp2(struct lws *wsi, const char *ads,
@@ -629,6 +630,7 @@ bail:
 	return NULL;
 #endif
 }
+#endif
 #endif
 
 LWS_VISIBLE struct lws *
