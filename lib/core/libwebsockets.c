@@ -1077,18 +1077,4 @@ lws_humanize(char *p, int len, uint64_t v, const lws_humanize_unit_t *schema)
 	return 0;
 }
 
-int
-lws_system_get_info(struct lws_context *context, lws_system_item_t item,
-		    lws_system_arg_t *arg)
-{
-	if (!context->system_ops || !context->system_ops->get_info)
-		return 1;
 
-	return context->system_ops->get_info(item, arg);
-}
-
-const lws_system_ops_t *
-lws_system_get_ops(struct lws_context *context)
-{
-	return context->system_ops;
-}

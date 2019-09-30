@@ -997,6 +997,7 @@ set(SOURCES
 	lib/core/lws_dll2.c
 	lib/core/libwebsockets.c
 	lib/core/logs.c
+	lib/system/system.c
 	lib/misc/base64-decode.c
 	lib/misc/lws-ring.c
 )
