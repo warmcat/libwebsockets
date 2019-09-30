@@ -15,6 +15,7 @@ typedef struct lws_system_ops {
 	int (*get_info)(lws_system_item_t i, lws_system_arg_t *arg);
 	int (*reboot)(void);
 	int (*set_clock)(lws_usec_t us);
+	int (*auth)(int idx, uint8_t *buf, size_t *plen, int set);
 } lws_system_ops_t;
 ```
 
@@ -37,6 +38,11 @@ Reboots the device
 ### `set_clock`
 
 Set the system clock to us-resolution Unix time in seconds
+
+### `auth`
+
+Get and set generic binary auth blobs so the rest of lws can access them
+independently.
 
 ## System state and notifiers
 

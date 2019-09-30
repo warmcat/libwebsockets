@@ -85,6 +85,12 @@ typedef struct lws_system_ops {
 	int (*get_info)(lws_system_item_t i, lws_system_arg_t *arg);
 	int (*reboot)(void);
 	int (*set_clock)(lws_usec_t us);
+	int (*auth)(int idx, uint8_t *buf, size_t *plen, int set);
+	/**< Systemwide ephemeral auth tokens get or set... set *plen to max
+	 * size for get, will be set to actual size on return of 0, return 1
+	 * means token is too big for buffer.  idx is token index if multiple.
+	 * Auth tokens are potentially large, and should be stored as binary
+	 * and converted to a transport format like hex.  */
 } lws_system_ops_t;
 
 /**
@@ -122,6 +128,24 @@ LWS_EXTERN LWS_VISIBLE int
 lws_system_get_info(struct lws_context *context, lws_system_item_t item,
 		    lws_system_arg_t *arg);
 
+
+#define LWSSYSGAUTH_HEX (1 << 0)
+
+/**
+ * lws_system_get_auth() - retreive system auth token helper
+ *
+ * \param context: the lws_context
+ * \param idx: which auth token
+ * \param buf: where to store result
+ * \param buflen: size of buf
+ * \param flags: how to write the result
+ *
+ * Attempts to fill buf with the requested system auth token.  If flags has
+ * LWSSYSGAUTH_HEX set, then the auth token is written as pairs of hex chars
+ * for each byte.  If not set, written as 1 byte per byte binary.
+ */
+LWS_EXTERN LWS_VISIBLE int
+lws_system_get_auth(struct lws_context *context, int idx, uint8_t *buf, size_t buflen, int flags);
 
 /**
  * lws_system_get_ops() - get ahold of the system ops struct from the context
