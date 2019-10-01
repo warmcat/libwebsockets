@@ -418,7 +418,6 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 				    const char *private_key_filepath)
 {
 	struct lws_tls_client_reuse *tcr;
-	const unsigned char *ca_mem_ptr;
 	X509_STORE *x509_store;
 	unsigned long error;
 	SSL_METHOD *method;
@@ -625,23 +624,43 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		else
 			lwsl_info("loaded ssl_ca_filepath\n");
 	} else {
-		ca_mem_ptr = (const unsigned char*)ca_mem;
-		client_CA = d2i_X509(NULL, &ca_mem_ptr, ca_mem_len);
-		x509_store = X509_STORE_new();
-		if (!client_CA || !X509_STORE_add_cert(x509_store, client_CA)) {
-			X509_STORE_free(x509_store);
-			lwsl_err("Unable to load SSL Client certs from "
-				 "ssl_ca_mem -- client ssl isn't going to "
-				 "work\n");
+
+		lws_filepos_t amount = 0;
+		uint8_t *up1;
+		const uint8_t *up;
+
+		if (lws_tls_alloc_pem_to_der_file(vh->context, NULL, ca_mem,
+						  ca_mem_len, &up1,
+						  &amount)) {
+			lwsl_err("%s: Unable to decode x.509 mem\n", __func__);
+			lwsl_hexdump_notice(ca_mem, ca_mem_len);
+			return 1;
+		}
+
+		up = up1;
+		client_CA = d2i_X509(NULL, &up, amount);
+		if (!client_CA) {
+			lwsl_err("%s: d2i_X509 failed\n", __func__);
+			lwsl_hexdump_notice(up1, amount);
 			lws_tls_err_describe_clear();
 		} else {
-			/* it doesn't increment x509_store ref counter */
-			SSL_CTX_set_cert_store(vh->tls.ssl_client_ctx,
-					       x509_store);
-			lwsl_info("loaded ssl_ca_mem\n");
+			x509_store = X509_STORE_new();
+			if (!X509_STORE_add_cert(x509_store, client_CA)) {
+				X509_STORE_free(x509_store);
+				lwsl_err("Unable to load SSL Client certs from "
+					 "ssl_ca_mem -- client ssl isn't going to "
+					 "work\n");
+				lws_tls_err_describe_clear();
+			} else {
+				/* it doesn't increment x509_store ref counter */
+				SSL_CTX_set_cert_store(vh->tls.ssl_client_ctx,
+						       x509_store);
+				lwsl_info("loaded ssl_ca_mem\n");
+			}
 		}
 		if (client_CA)
 			X509_free(client_CA);
+		lws_free(up1);
 	//	lws_tls_client_vhost_extra_cert_mem(vh, ca_mem, ca_mem_len);
 	}
 
