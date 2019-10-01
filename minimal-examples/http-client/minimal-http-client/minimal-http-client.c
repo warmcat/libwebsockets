@@ -206,6 +206,7 @@ int main(int argc, const char **argv)
 	struct lws_context *context;
 	struct args args;
 	int n = 0;
+	// uint8_t memcert[4096];
 
 	args.argc = argc;
 	args.argv = argv;
@@ -239,7 +240,16 @@ int main(int argc, const char **argv)
 	 */
 	info.client_ssl_ca_filepath = "./warmcat.com.cer";
 #endif
-
+#if 0
+	n = open("./warmcat.com.cer", O_RDONLY);
+	if (n >= 0) {
+		info.client_ssl_ca_mem_len = read(n, memcert, sizeof(memcert));
+		info.client_ssl_ca_mem = memcert;
+		close(n);
+		n = 0;
+		memcert[info.client_ssl_ca_mem_len++] = '\0';
+	}
+#endif
 	context = lws_create_context(&info);
 	if (!context) {
 		lwsl_err("lws init failed\n");
