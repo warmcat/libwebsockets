@@ -558,9 +558,7 @@ size_t lws_get_allocated_heap(void);
  * lws_is_ssl() - Find out if connection is using SSL
  * \param wsi:	websocket connection to check
  *
- *	Returns 0 if the connection is not using SSL, 1 if using SSL and
- *	using verified cert, and 2 if using SSL but the cert was not
- *	checked (appears for client wsi told to skip check on connection)
+ * Returns nonzero if the wsi is inside a tls tunnel, else zero.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_is_ssl(struct lws *wsi);
