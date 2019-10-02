@@ -682,6 +682,7 @@ struct lws {
 
 #if defined(LWS_WITH_CLIENT)
 	int chunk_remaining;
+	int flags;
 #endif
 	unsigned int cache_secs;
 
