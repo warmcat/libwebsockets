@@ -1032,11 +1032,19 @@ lws_h2_parse_frame_header(struct lws *wsi)
 			if (h2n->type == LWS_H2_FRAME_TYPE_COUNT)
 				return 0;
 
-			if (wsi->upgraded_to_http2) {
+			if (wsi->upgraded_to_http2 &&
+#if defined(LWS_WITH_CLIENT)
+			    (!(wsi->flags & LCCSCF_H2_QUIRK_NGHTTP2_END_STREAM) ||
+#else
+			    (
+#endif
+					    !wsi->h2_acked_settings)) {
+
 				pps = lws_h2_new_pps(LWS_H2_PPS_ACK_SETTINGS);
 				if (!pps)
 					return 1;
 				lws_pps_schedule(wsi, pps);
+				wsi->h2_acked_settings = 1;
 			}
 			break;
 		}
@@ -1353,11 +1361,18 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 			lws_callback_on_writable(h2n->swsi);
 
-			pps = lws_h2_new_pps(LWS_H2_PPS_ACK_SETTINGS);
-			if (!pps)
-				return 1;
-			lws_pps_schedule(wsi, pps);
-			lwsl_info("%s: scheduled settings ack PPS\n", __func__);
+			if (!wsi->h2_acked_settings
+#if defined(LWS_WITH_CLIENT)
+				|| !(wsi->flags & LCCSCF_H2_QUIRK_NGHTTP2_END_STREAM)
+#endif
+			) {
+				pps = lws_h2_new_pps(LWS_H2_PPS_ACK_SETTINGS);
+				if (!pps)
+					return 1;
+				lws_pps_schedule(wsi, pps);
+				lwsl_info("%s: scheduled settings ack PPS\n", __func__);
+				wsi->h2_acked_settings = 1;
+			}
 
 			/* also attach any queued guys */
 
