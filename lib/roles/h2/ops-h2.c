@@ -71,7 +71,7 @@ const struct http2_settings lws_h2_stock_settings = { {
 	 *
 	 * Can't pass h2spec with less than 4096 here...
 	 */
-	/* H2SET_ENABLE_PUSH */				   1,
+	/* H2SET_ENABLE_PUSH */				   0,
 	/* H2SET_MAX_CONCURRENT_STREAMS */		  24,
 	/* H2SET_INITIAL_WINDOW_SIZE */		       65535,
 	/* H2SET_MAX_FRAME_SIZE */		       16384,
