@@ -692,6 +692,7 @@ struct lws {
 	unsigned int h2_stream_immortal:1;
 	unsigned int h2_stream_carries_ws:1; /* immortal set as well */
 	unsigned int h2_stream_carries_sse:1; /* immortal set as well */
+	unsigned int h2_acked_settings:1;
 	unsigned int seen_nonpseudoheader:1;
 	unsigned int listener:1;
 	unsigned int user_space_externally_allocated:1;
