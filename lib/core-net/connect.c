@@ -60,6 +60,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	wsi->context = i->context;
 	wsi->desc.sockfd = LWS_SOCK_INVALID;
 	wsi->seq = i->seq;
+	wsi->flags = i->ssl_connection;
 	if (i->retry_and_idle_policy)
 		wsi->retry_policy = i->retry_and_idle_policy;
 	else

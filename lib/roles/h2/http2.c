@@ -1324,6 +1324,9 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			/* pass on the initial headers to SID 1 */
 			h2n->swsi->http.ah = wsi->http.ah;
 			h2n->swsi->client_h2_substream = 1;
+#if defined(LWS_WITH_CLIENT)
+			h2n->swsi->flags = wsi->flags;
+#endif
 
 			h2n->swsi->protocol = wsi->protocol;
 			if (h2n->swsi->user_space && !h2n->swsi->user_space_externally_allocated)
@@ -2184,7 +2187,7 @@ lws_h2_client_handshake(struct lws *wsi)
 	     *uri = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI);
 	struct lws *nwsi = lws_get_network_wsi(wsi);
 	struct lws_h2_protocol_send *pps;
-	int n;
+	int n, m;
 	/*
 	 * The identifier of a newly established stream MUST be numerically
 	 * greater than all streams that the initiating endpoint has opened or
@@ -2233,7 +2236,7 @@ lws_h2_client_handshake(struct lws *wsi)
 
 	if (lws_add_http_header_by_token(wsi,
 				WSI_TOKEN_HTTP_COLON_SCHEME,
-				(unsigned char *)"https", 4,
+				(unsigned char *)"https", 5,
 				&p, end))
 		goto fail_length;
 
@@ -2252,6 +2255,18 @@ lws_h2_client_handshake(struct lws *wsi)
 				&p, end))
 		goto fail_length;
 
+	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HOST,
+				(unsigned char *)lws_hdr_simple_ptr(wsi,
+						_WSI_TOKEN_CLIENT_HOST),
+			lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_HOST),
+				&p, end))
+		goto fail_length;
+
+	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_USER_AGENT,
+				(unsigned char *)"lwsss", 5,
+				&p, end))
+		goto fail_length;
+
 	/* give userland a chance to append, eg, cookies */
 
 	if (wsi->protocol->callback(wsi,
@@ -2265,7 +2280,17 @@ lws_h2_client_handshake(struct lws *wsi)
 #if defined(LWS_WITH_DETAILED_LATENCY)
 	wsi->detlat.earliest_write_req_pre_write = lws_now_usecs();
 #endif
-	n = lws_write(wsi, start, p - start, LWS_WRITE_HTTP_HEADERS);
+
+	m = LWS_WRITE_HTTP_HEADERS;
+#if defined(LWS_WITH_CLIENT)
+	/* below is not needed in spec, indeed it destroys the long poll
+	 * feature, but required by nghttp2 */
+	if (wsi->flags & LCCSCF_H2_QUIRK_NGHTTP2_END_STREAM)
+		m |= LWS_WRITE_H2_STREAM_END;
+#endif
+
+	n = lws_write(wsi, start, p - start, m);
+
 	if (n != (p - start)) {
 		lwsl_err("_write returned %d from %ld\n", n,
 			 (long)(p - start));
