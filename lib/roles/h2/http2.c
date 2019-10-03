@@ -2198,11 +2198,12 @@ fail:
 	return 1;
 }
 
+#if defined(LWS_WITH_CLIENT)
 int
 lws_h2_client_handshake(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
-	uint8_t *buf, *start, *p, *end;
+	uint8_t *buf, *start, *p, *end, *q;
 	char *meth = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD),
 	     *uri = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI);
 	struct lws *nwsi = lws_get_network_wsi(wsi);
@@ -2241,7 +2242,8 @@ lws_h2_client_handshake(struct lws *wsi)
 	lws_pps_schedule(wsi, pps);
 
 	p = start = buf = pt->serv_buf + LWS_PRE;
-	end = start + wsi->context->pt_serv_buf_size - LWS_PRE - 1;
+	end = start + (wsi->context->pt_serv_buf_size / 2) - LWS_PRE - 1;
+	q = start + (wsi->context->pt_serv_buf_size / 2);
 
 	/* it's time for us to send our client stream headers */
 
@@ -2287,6 +2289,26 @@ lws_h2_client_handshake(struct lws *wsi)
 				&p, end))
 		goto fail_length;
 
+	if (wsi->flags & LCCSCF_H2_AUTH_BEARER) {
+
+		uint8_t *qend = q + (wsi->context->pt_serv_buf_size / 2) - 1;
+
+		strcpy((char *)q, "bearer ");
+
+		n = lws_system_get_auth(wsi->context, 0, q + 7,
+					lws_ptr_diff(qend, q + 7),
+					LWSSYSGAUTH_HEX);
+		if (n < 0)
+			return -1;
+
+		lwsl_debug("%s: adding auth: %s\n", __func__, q);
+
+		if (lws_add_http_header_by_token(wsi,
+						 WSI_TOKEN_HTTP_AUTHORIZATION,
+						 q, n + 7, &p, end))
+			return -1;
+	}
+
 	/* give userland a chance to append, eg, cookies */
 
 	if (wsi->protocol->callback(wsi,
@@ -2296,6 +2318,8 @@ lws_h2_client_handshake(struct lws *wsi)
 
 	if (lws_finalize_http_header(wsi, &p, end))
 		goto fail_length;
+
+	// lwsl_hexdump_notice(start, p - start);
 
 #if defined(LWS_WITH_DETAILED_LATENCY)
 	wsi->detlat.earliest_write_req_pre_write = lws_now_usecs();
@@ -2327,6 +2351,7 @@ fail_length:
 
 	return -1;
 }
+#endif
 
 int
 lws_h2_ws_handshake(struct lws *wsi)

@@ -42,6 +42,7 @@ enum lws_client_connect_ssl_connection_flags {
 	LCCSCF_ALLOW_INSECURE			= (1 << 4),
 	LCCSCF_H2_QUIRK_NGHTTP2_END_STREAM	= (1 << 5),
 	LCCSCF_H2_QUIRK_OVERFLOWS_TXCR		= (1 << 6),
+	LCCSCF_H2_AUTH_BEARER			= (1 << 7),
 
 	LCCSCF_PIPELINE				= (1 << 16),
 		/**< Serialize / pipeline multiple client connections

@@ -986,12 +986,14 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			goto next_child;
 		}
 
+#if defined(LWS_WITH_CLIENT)
 		if (lwsi_state(w) == LRS_H2_WAITING_TO_SEND_HEADERS) {
 			if (lws_h2_client_handshake(w))
 				return -1;
 
 			goto next_child;
 		}
+#endif
 
 #if defined(LWS_WITH_SERVER)
 		if (lwsi_state(w) == LRS_DEFERRING_ACTION) {
