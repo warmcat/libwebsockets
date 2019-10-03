@@ -19,6 +19,13 @@ typedef struct lws_system_ops {
 } lws_system_ops_t;
 ```
 
+|Item|Meaning|
+|---|---|
+|`(*get_info)()`|Retreive system information in a standardized way|
+|`(*reboot)()`|Reboot the system|
+|`(*set_clock)()`|Set the system clock|
+|`(*auth)()`|Set and Get dynamic auth strings|
+
 ### `get_info`
 
 This allows the user code to query some common system values without introducing
@@ -43,6 +50,8 @@ Set the system clock to us-resolution Unix time in seconds
 
 Get and set generic binary auth blobs so the rest of lws can access them
 independently.
+
+Call with `set` 0 to get and 1 to set the auth code with the index `idx`. 
 
 ## System state and notifiers
 

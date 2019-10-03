@@ -43,7 +43,8 @@ lws_system_get_ops(struct lws_context *context)
 }
 
 int
-lws_system_get_auth(struct lws_context *context, int idx, uint8_t *buf, size_t buflen, int flags)
+lws_system_get_auth(struct lws_context *context, int idx, uint8_t *buf,
+		    size_t buflen, int flags)
 {
 	size_t bl = buflen;
 	uint8_t *p, b;
@@ -54,14 +55,14 @@ lws_system_get_auth(struct lws_context *context, int idx, uint8_t *buf, size_t b
 		return -1;
 	}
 
-	if (context->system_ops->auth(idx, buf, &buflen, 0)) {
+	if (context->system_ops->auth(idx, buf, &buflen, 0) < 0) {
 		lwsl_err("%s: auth get failed\n", __func__);
 		return -1;
 	}
 
 	if (flags & LWSSYSGAUTH_HEX) {
 		if (bl < (buflen * 2) + 1) {
-			lwsl_err("%s: auth in hex oversize\n", __func__);
+			lwsl_err("%s: auth in hex oversize %d\n", __func__, (int)bl);
 			return -1;
 		}
 
