@@ -456,10 +456,15 @@ lws_h2_settings(struct lws *wsi, struct http2_settings *settings,
 				return 1;
 			}
 
+#if defined(LWS_WITH_CLIENT)
 #if defined(LWS_AMAZON_RTOS) || defined(LWS_AMAZON_LINUX)
-			if (b == 0x7fffffff) {
-				b = 65535;
-				lwsl_info("init window size 0x7fffffff\n");
+			if (
+#else
+			if (wsi->flags & LCCSCF_H2_QUIRK_OVERFLOWS_TXCR &&
+#endif
+			    b == 0x7fffffff) {
+				b >>= 4;
+
 				break;
 			}
 #endif
