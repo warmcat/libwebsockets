@@ -316,7 +316,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 				lwsl_debug("AUX_BF__CGI forcing close\n");
 				return -1;
 			}
-			if (!n)
+			if (!n && wsi->http.cgi && wsi->http.cgi->stdwsi[LWS_STDOUT])
 				lws_rx_flow_control(
 					wsi->http.cgi->stdwsi[LWS_STDOUT], 1);
 
