@@ -695,6 +695,8 @@ struct lws {
 	unsigned int h2_acked_settings:1;
 	unsigned int seen_nonpseudoheader:1;
 	unsigned int listener:1;
+	unsigned int pf_packet:1;
+	unsigned int do_broadcast:1;
 	unsigned int user_space_externally_allocated:1;
 	unsigned int socket_is_permanently_unusable:1;
 	unsigned int rxflow_change_to:2;

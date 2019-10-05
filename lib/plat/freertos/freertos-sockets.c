@@ -224,6 +224,44 @@ lws_plat_inet_pton(int af, const char *src, void *dst)
 	return 1; //  inet_pton(af, src, dst);
 }
 
+int
+lws_plat_ifname_to_hwaddr(int fd, const char *ifname, uint8_t *hwaddr, int len)
+{
+	lwsl_err("%s: UNIMPLEMENTED on this platform\n", __func__);
 
+	return -1;
+}
 
+int
+lws_plat_rawudp_broadcast(uint8_t *p, const uint8_t *canned, int canned_len,
+			  int n, int fd, const char *iface)
+{
+	lwsl_err("%s: UNIMPLEMENTED on this platform\n", __func__);
 
+	return -1;
+}
+
+int
+lws_plat_if_up(const char *ifname, int fd, int up)
+{
+	lwsl_err("%s: UNIMPLEMENTED on this platform\n", __func__);
+
+	return -1;
+}
+
+int
+lws_plat_BINDTODEVICE(int fd, const char *ifname)
+{
+	lwsl_err("%s: UNIMPLEMENTED on this platform\n", __func__);
+
+	return -1;
+}
+
+int
+lws_plat_ifconfig_ip(const char *ifname, int fd, uint8_t *ip, uint8_t *mask_ip,
+			uint8_t *gateway_ip)
+{
+	lwsl_err("%s: UNIMPLEMENTED on this platform\n", __func__);
+
+	return -1;
+}

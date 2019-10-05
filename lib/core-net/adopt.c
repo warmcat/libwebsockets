@@ -430,18 +430,19 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 		      const struct addrinfo *r, int n, void *opaque)
 {
 	lws_sock_file_fd_type sock;
+	int bc = 1;
 
 	assert(wsi);
 
 	if (!wsi->dns_results)
 		wsi->dns_results_next = wsi->dns_results = r;
 
-	if (n < 0 || !r) {
+	if (ads && (n < 0 || !r)) {
 		/*
 		 * DNS lookup failed: there are no usable results.  Fail the
 		 * overall connection request.
 		 */
-		lwsl_debug("%s: bad: n %d, r %p\n", __func__, n, r);
+		lwsl_notice("%s: bad: n %d, r %p\n", __func__, n, r);
 
 		/*
 		 * We didn't get a callback on a cache item and bump the
@@ -464,10 +465,36 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 		 * function is for.
 		 */
 
+#if !defined(__linux__)
+		/* PF_PACKET is linux-only */
 		sock.sockfd = socket(wsi->dns_results_next->ai_family,
 				     SOCK_DGRAM, IPPROTO_UDP);
-
+#else
+		sock.sockfd = socket(wsi->pf_packet ? PF_PACKET :
+					wsi->dns_results_next->ai_family,
+				     SOCK_DGRAM, wsi->pf_packet ?
+					htons(0x800) : IPPROTO_UDP);
+#endif
 		if (sock.sockfd == LWS_SOCK_INVALID)
+			goto resume;
+
+		((struct sockaddr_in *)wsi->dns_results_next->ai_addr)->sin_port =
+				htons(wsi->c_port);
+
+		if (setsockopt(sock.sockfd, SOL_SOCKET, SO_REUSEADDR, (const char *)&bc,
+			       sizeof(bc)) < 0)
+			lwsl_err("%s: failed to set reuse\n", __func__);
+
+		if (wsi->do_broadcast &&
+		    setsockopt(sock.sockfd, SOL_SOCKET, SO_BROADCAST, (const char *)&bc,
+			       sizeof(bc)) < 0)
+				lwsl_err("%s: failed to set broadcast\n",
+						__func__);
+
+		/* Bind the udp socket to a particular network interface */
+
+		if (opaque &&
+		    lws_plat_BINDTODEVICE(sock.sockfd, (const char *)opaque))
 			goto resume;
 
 		if (wsi->do_bind &&
@@ -475,16 +502,14 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 #if defined(_WIN32)
 			 (int)wsi->dns_results_next->ai_addrlen
 #else
-			 wsi->dns_results_next->ai_addrlen
+			 sizeof(struct sockaddr)//wsi->dns_results_next->ai_addrlen
 #endif
 								    ) == -1) {
-			lwsl_notice("%s: bind failed\n", __func__);
+			lwsl_err("%s: bind failed\n", __func__);
 			goto resume;
 		}
 
-		if (!wsi->do_bind) {
-			((struct sockaddr_in *)wsi->dns_results_next->ai_addr)->
-						sin_port = htons(wsi->c_port);
+		if (!wsi->do_bind && !wsi->pf_packet) {
 
 			if (connect(sock.sockfd, wsi->dns_results_next->ai_addr,
 				     wsi->dns_results_next->ai_addrlen) == -1) {
@@ -514,7 +539,7 @@ resume:
 		wsi->dns_results_next = wsi->dns_results_next->ai_next;
 	}
 
-	lwsl_err("%s: unable to create INET socket\n", __func__);
+	lwsl_err("%s: unable to create INET socket %d\n", __func__, LWS_ERRNO);
 	lws_addrinfo_clean(wsi);
 
 bail:
@@ -525,7 +550,7 @@ bail:
 
 struct lws *
 lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
-		     int flags, const char *protocol_name,
+		     int flags, const char *protocol_name, const char *ifname,
 		     struct lws *parent_wsi, const lws_retry_bo_t *retry_policy)
 {
 #if !defined(LWS_PLAT_OPTEE)
@@ -543,6 +568,8 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 		goto bail;
 	}
 	wsi->do_bind = !!(flags & LWS_CAUDP_BIND);
+	wsi->do_broadcast = !!(flags & LWS_CAUDP_BROADCAST);
+	wsi->pf_packet = !!(flags & LWS_CAUDP_PF_PACKET);
 	wsi->c_port = port;
 	if (retry_policy)
 		wsi->retry_policy = retry_policy;
@@ -599,7 +626,7 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 		 */
 		n = lws_async_dns_query(vhost->context, 0, ads,
 					LWS_ADNS_RECORD_A,
-					lws_create_adopt_udp2, wsi, NULL);
+					lws_create_adopt_udp2, wsi, (void *)ifname);
 		lwsl_debug("%s: dns query returned %d\n", __func__, n);
 		if (n == LADNS_RET_FAILED) {
 			lwsl_err("%s: async dns failed\n", __func__);
@@ -611,8 +638,8 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 			goto bail;
 		}
 	} else {
-		lwsl_debug("%s: fail on no ads\n", __func__);
-		wsi = lws_create_adopt_udp2(wsi, ads, NULL, 0, NULL);
+		lwsl_debug("%s: udp adopt has no ads\n", __func__);
+		wsi = lws_create_adopt_udp2(wsi, ads, NULL, 0, (void *)ifname);
 	}
 
 	/* dns lookup is happening asynchronously */

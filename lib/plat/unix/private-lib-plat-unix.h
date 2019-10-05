@@ -55,6 +55,8 @@
 #endif
 #if defined(__linux__)
 #include <endian.h>
+#include <linux/if_packet.h>
+#include <net/if.h>
 #endif
 #if defined(__QNX__)
 	#include <gulliver.h>
@@ -147,6 +149,10 @@ wsi_from_fd(const struct lws_context *context, int fd);
 int
 insert_wsi(const struct lws_context *context, struct lws *wsi);
 
+int
+lws_plat_ifconfig_ip(const char *ifname, int fd, uint8_t *ip, uint8_t *mask_ip,
+			uint8_t *gateway_ip);
+
 void
 delete_from_fd(const struct lws_context *context, int fd);
 
@@ -174,3 +180,13 @@ delete_from_fd(const struct lws_context *context, int fd);
 #if defined(__sun) && !defined(MSG_NOSIGNAL)
  #define MSG_NOSIGNAL 0
 #endif
+
+int
+lws_plat_BINDTODEVICE(int fd, const char *ifname);
+
+int
+lws_plat_rawudp_broadcast(uint8_t *p, const uint8_t *canned, int canned_len,
+			  int n, int fd, const char *iface);
+
+int
+lws_plat_if_up(const char *ifname, int fd, int up);

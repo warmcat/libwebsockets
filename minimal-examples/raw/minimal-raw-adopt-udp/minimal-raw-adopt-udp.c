@@ -170,7 +170,7 @@ int main(int argc, const char **argv)
 	 * Create our own "foreign" UDP socket bound to 7681/udp
 	 */
 	if (!lws_create_adopt_udp(vhost, NULL, 7681, LWS_CAUDP_BIND,
-				  protocols[0].name, NULL, NULL)) {
+				  protocols[0].name, NULL, NULL, NULL)) {
 		lwsl_err("%s: foreign socket adoption failed\n", __func__);
 		goto bail;
 	}
