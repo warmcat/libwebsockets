@@ -1435,6 +1435,8 @@ endif()
 if (LWS_WITH_LIBEV AND LWS_WITH_NETWORK)
 	list(APPEND SOURCES
 		lib/event-libs/libev/libev.c)
+	# libev generates a big mess of warnings with gcc, maintainer claims gcc to blame
+	set_source_files_properties( lib/event-libs/libev/libev.c PROPERTIES COMPILE_FLAGS "-Wno-error" )
 endif()
 
 if (LWS_WITH_LEJP)
@@ -2194,12 +2196,6 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2) AND NOT LWS_WITHOUT_TESTAPPS)
 			target_link_libraries(websockets dl)
 		endif()
 	endif()
-
-	if (LWS_WITH_LIBEV)
-		# libev generates a big mess of warnings with gcc, maintainer claims gcc to blame
-		set_source_files_properties( lib/event-libs/libev/libev.c PROPERTIES COMPILE_FLAGS "-Wno-error" )
-	endif()
-
 
 	if (NOT LWS_WITHOUT_SERVER)
 		#
