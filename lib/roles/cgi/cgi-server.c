@@ -224,8 +224,12 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 
 	n = 0;
 
-	if (lws_is_ssl(wsi))
-		env_array[n++] = "HTTPS=ON";
+	if (lws_is_ssl(wsi)) {
+		env_array[n++] = p;
+		p += lws_snprintf(p, end - p, "HTTPS=ON");
+		p++;
+	}
+
 	if (wsi->http.ah) {
 		static const unsigned char meths[] = {
 			WSI_TOKEN_GET_URI,
@@ -401,10 +405,13 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 	}
 
 
-	env_array[n++] = "PATH=/bin:/usr/bin:/usr/local/bin:/var/www/cgi-bin";
+	env_array[n++] = p;
+	p += lws_snprintf(p, end - p, "PATH=/bin:/usr/bin:/usr/local/bin:/var/www/cgi-bin");
+	p++;
 
 	env_array[n++] = p;
-	p += lws_snprintf(p, end - p, "SCRIPT_PATH=%s", exec_array[0]) + 1;
+	p += lws_snprintf(p, end - p, "SCRIPT_PATH=%s", exec_array[0]);
+	p++;
 
 	while (mp_cgienv) {
 		env_array[n++] = p;
@@ -420,7 +427,10 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 		mp_cgienv = mp_cgienv->next;
 	}
 
-	env_array[n++] = "SERVER_SOFTWARE=libwebsockets";
+	env_array[n++] = p;
+	p += lws_snprintf(p, end - p, "SERVER_SOFTWARE=libwebsockets");
+	p++;
+
 	env_array[n] = NULL;
 
 #if 0
@@ -489,13 +499,13 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 	 * process is OK.  Stuff that happens after the execvpe() is OK.
 	 */
 
-	for (n = 0; n < 3; n++) {
-		if (dup2(cgi->pipe_fds[n][!(n == 0)], n) < 0) {
+	for (m = 0; m < 3; m++) {
+		if (dup2(cgi->pipe_fds[m][!(m == 0)], m) < 0) {
 			lwsl_err("%s: stdin dup2 failed\n", __func__);
 			goto bail3;
 		}
-		close(cgi->pipe_fds[n][0]);
-		close(cgi->pipe_fds[n][1]);
+		close(cgi->pipe_fds[m][0]);
+		close(cgi->pipe_fds[m][1]);
 	}
 
 #if !defined(LWS_HAVE_VFORK) || !defined(LWS_HAVE_EXECVPE)
