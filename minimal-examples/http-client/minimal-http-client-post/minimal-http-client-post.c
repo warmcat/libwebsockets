@@ -21,7 +21,6 @@ static int interrupted, bad = 0, status, count_clients = 1, completed;
 static struct lws *client_wsi[4];
 
 struct pss {
-	char boundary[32];
 	char body_part;
 };
 
@@ -31,9 +30,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 {
 	struct pss *pss = (struct pss *)user;
 	char buf[LWS_PRE + 1024], *start = &buf[LWS_PRE], *p = start,
-		*end = &buf[sizeof(buf) - 1];
-	uint8_t **up, *uend;
-	uint32_t r;
+		*end = &buf[sizeof(buf) - LWS_PRE - 1];
 	int n;
 
 	switch (reason) {
@@ -96,29 +93,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	/* ...callbacks related to generating the POST... */
 
 	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
-		lwsl_user("LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER\n");
-		up = (uint8_t **)in;
-		uend = *up + len - 1;
-
-		/* generate a random boundary string */
-
-		lws_get_random(lws_get_context(wsi), &r, sizeof(r));
-		lws_snprintf(pss->boundary, sizeof(pss->boundary) - 1,
-				"---boundary-%08x", r);
-
-		n = lws_snprintf(buf, sizeof(buf) - 1,
-			"multipart/form-data; boundary=%s", pss->boundary);
-		if (lws_add_http_header_by_token(wsi,
-				WSI_TOKEN_HTTP_CONTENT_TYPE,
-				(uint8_t *)buf, n, up, uend))
-			return 1;
 		/*
-		 * Notice because we are sending multipart/form-data we can
-		 * usually rely on the server to understand where the form
-		 * payload ends without having to give it an overall
-		 * content-length (which can be troublesome to compute ahead
-		 * of generating the data to send).
-		 *
 		 * Tell lws we are going to send the body next...
 		 */
 		lws_client_http_body_pending(wsi, 1);
@@ -138,28 +113,25 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 
 		switch (pss->body_part++) {
 		case 0:
+			if (lws_client_http_multipart(wsi, "text", NULL, NULL,
+						      &p, end))
+				return -1;
 			/* notice every usage of the boundary starts with -- */
-			p += lws_snprintf(p, end - p, "--%s\xd\xa"
-				"content-disposition: "
-					"form-data; name=\"text\"\xd\xa"
-				"\xd\xa"
-				"my text field"
-				"\xd\xa", pss->boundary);
+			p += lws_snprintf(p, end - p, "my text field\xd\xa");
 			break;
 		case 1:
+			if (lws_client_http_multipart(wsi, "file", "myfile.txt",
+						      "text/plain", &p, end))
+				return -1;
 			p += lws_snprintf(p, end - p,
-				"--%s\xd\xa"
-				"content-disposition: form-data; name=\"file\";"
-				"filename=\"myfile.txt\"\xd\xa"
-				"content-type: text/plain\xd\xa"
-				"\xd\xa"
 					"This is the contents of the "
 					"uploaded file.\xd\xa"
-				"\xd\xa", pss->boundary);
+					"\xd\xa");
 			break;
 		case 2:
-			p += lws_snprintf(p, end - p, "--%s--\xd\xa",
-					  pss->boundary);
+			if (lws_client_http_multipart(wsi, NULL, NULL, NULL,
+						      &p, end))
+				return -1;
 			lws_client_http_body_pending(wsi, 0);
 			 /* necessary to support H2, it means we will write no
 			  * more on this stream */
@@ -211,29 +183,17 @@ int main(int argc, const char **argv)
 	struct lws_context_creation_info info;
 	struct lws_client_connect_info i;
 	struct lws_context *context;
-	const char *p;
-	int n = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE
-		   /*
-		    * For LLL_ verbosity above NOTICE to be built into lws,
-		    * lws must have been configured and built with
-		    * -DCMAKE_BUILD_TYPE=DEBUG instead of =RELEASE
-		    *
-		    * | LLL_INFO   | LLL_PARSER  | LLL_HEADER | LLL_EXT |
-		    *   LLL_CLIENT | LLL_LATENCY | LLL_DEBUG
-		    */ ;
+	int n = 0;
 
 	signal(SIGINT, sigint_handler);
 
-	if ((p = lws_cmdline_option(argc, argv, "-d")))
-		logs = atoi(p);
-
-	lws_set_log_level(logs, NULL);
+	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
+	lws_cmdline_option_handle_builtin(argc, argv, &info);
 	lwsl_user("LWS minimal http client - POST [-d<verbosity>] [-l] [--h1]\n");
 
 	if (lws_cmdline_option(argc, argv, "-m"))
 		count_clients = LWS_ARRAY_SIZE(client_wsi);
 
-	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.port = CONTEXT_PORT_NO_LISTEN; /* we do not run any server */
 	info.protocols = protocols;
@@ -263,7 +223,7 @@ int main(int argc, const char **argv)
 
 	memset(&i, 0, sizeof i); /* otherwise uninitialized garbage */
 	i.context = context;
-	i.ssl_connection = LCCSCF_USE_SSL;
+	i.ssl_connection = LCCSCF_USE_SSL | LCCSCF_HTTP_MULTIPART_MIME;
 
 	if (lws_cmdline_option(argc, argv, "-l")) {
 		i.port = 7681;

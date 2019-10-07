@@ -1040,13 +1040,75 @@ bail2:
 }
 #endif
 
+/*
+ * set the boundary string and the content-type for client multipart mime
+ */
+
+uint8_t *
+lws_http_multipart_headers(struct lws *wsi, uint8_t *p)
+{
+	char buf[10], arg[48];
+	int n;
+
+	lws_get_random(wsi->context, (uint8_t *)buf, sizeof(buf));
+	lws_b64_encode_string(buf, sizeof(buf),
+			       wsi->http.multipart_boundary,
+			       sizeof(wsi->http.multipart_boundary));
+
+	n = lws_snprintf(arg, sizeof(arg), "multipart/form-data;boundary=%s",
+			 wsi->http.multipart_boundary);
+
+	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE,
+					 (uint8_t *)arg, n, &p, p + 100))
+		return NULL;
+
+	wsi->http.multipart = wsi->http.multipart_issue_boundary = 1;
+
+	return p;
+}
+
+int
+lws_client_http_multipart(struct lws *wsi, const char *name,
+			  const char *filename, const char *content_type,
+			  char **p, char *end)
+{
+	/*
+	 * Client conn must have been created with LCCSCF_HTTP_MULTIPART_MIME
+	 * flag to use this api
+	 */
+	assert(wsi->http.multipart);
+
+	if (!name) {
+		*p += lws_snprintf((char *)(*p), lws_ptr_diff(end, p),
+					"\xd\xa--%s--\xd\xa",
+					wsi->http.multipart_boundary);
+
+		return 0;
+	}
+
+	*p += lws_snprintf((char *)(*p), lws_ptr_diff(end, p), "\xd\xa--%s\xd\xa"
+				    "Content-Disposition: form-data; "
+				      "name=\"%s\"",
+				      wsi->http.multipart_boundary, name);
+	if (filename)
+		*p += lws_snprintf((char *)(*p), lws_ptr_diff(end, p),
+				   "; filename=\"%s\"", filename);
+
+	if (content_type)
+		*p += lws_snprintf((char *)(*p), lws_ptr_diff(end, p), "\xd\xa"
+				"Content-Type: %s", content_type);
+
+	*p += lws_snprintf((char *)(*p), lws_ptr_diff(end, p), "\xd\xa\xd\xa");
+
+	return *p == end;
+}
+
 char *
 lws_generate_client_handshake(struct lws *wsi, char *pkt)
 {
-	char *p = pkt;
-	const char *meth;
-	const char *pp = lws_hdr_simple_ptr(wsi,
+	const char *meth, *pp = lws_hdr_simple_ptr(wsi,
 				_WSI_TOKEN_CLIENT_SENT_PROTOCOLS);
+	char *p = pkt, *p1;
 
 	meth = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD);
 	if (!meth) {
@@ -1117,6 +1179,13 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 			p += lws_snprintf(p, 128, "Origin: http://%s\x0d\x0a",
 				     lws_hdr_simple_ptr(wsi,
 						     _WSI_TOKEN_CLIENT_ORIGIN));
+	}
+
+	if (wsi->flags & LCCSCF_HTTP_MULTIPART_MIME) {
+		p1 = (char *)lws_http_multipart_headers(wsi, (uint8_t *)p);
+		if (!p1)
+			return NULL;
+		p = p1;
 	}
 
 #if defined(LWS_WITH_HTTP_PROXY)

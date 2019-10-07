@@ -233,7 +233,9 @@ struct _lws_http_mode_related {
 	lws_filepos_t filelen;
 	lws_fop_fd_t fop_fd;
 #endif
-
+#if defined(LWS_WITH_CLIENT)
+	char multipart_boundary[16];
+#endif
 #if defined(LWS_WITH_RANGES)
 	struct lws_range_parsing range;
 	char multipart_content_type[64];
@@ -266,6 +268,8 @@ struct _lws_http_mode_related {
 	unsigned int deferred_transaction_completed:1;
 	unsigned int content_length_explicitly_zero:1;
 	unsigned int did_stream_close:1;
+	unsigned int multipart:1;
+	unsigned int multipart_issue_boundary:1;
 };
 
 
@@ -313,3 +317,6 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 
 void
 lws_sul_http_ah_lifecheck(lws_sorted_usec_list_t *sul);
+
+uint8_t *
+lws_http_multipart_headers(struct lws *wsi, uint8_t *p);

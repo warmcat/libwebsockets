@@ -186,7 +186,8 @@ lws_urldecode_s_process(struct lws_urldecode_stateful *s, const char *in,
 				continue;
 			}
 			if (s->pos >= (int)sizeof(s->name) - 1) {
-				lwsl_notice("Name too long\n");
+				lwsl_hexdump_notice(s->name, s->pos);
+				lwsl_notice("Name too long...\n");
 				return -1;
 			}
 			s->name[s->pos++] = *in++;

@@ -2203,7 +2203,7 @@ int
 lws_h2_client_handshake(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
-	uint8_t *buf, *start, *p, *end, *q;
+	uint8_t *buf, *start, *p, *p1, *end, *q;
 	char *meth = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD),
 	     *uri = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI);
 	struct lws *nwsi = lws_get_network_wsi(wsi);
@@ -2288,6 +2288,13 @@ lws_h2_client_handshake(struct lws *wsi)
 				(unsigned char *)"lwsss", 5,
 				&p, end))
 		goto fail_length;
+
+	if (wsi->flags & LCCSCF_HTTP_MULTIPART_MIME) {
+		p1 = lws_http_multipart_headers(wsi, p);
+		if (!p1)
+			goto fail_length;
+		p = p1;
+	}
 
 	if (wsi->flags & LCCSCF_H2_AUTH_BEARER) {
 
