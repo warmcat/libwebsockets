@@ -152,7 +152,7 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 					__func__);
 			return -1;
 		}
-		pkt = lws_malloc(sizeof(*pkt) + LWS_PRE + len, __func__);
+		pkt = lws_zalloc(sizeof(*pkt) + LWS_PRE + len, __func__);
 		if (!pkt)
 			return -1;
 
@@ -199,7 +199,7 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		return -1;
 
 	case LWS_CALLBACK_RECEIVE:
-		pkt = lws_malloc(sizeof(*pkt) + LWS_PRE + len, __func__);
+		pkt = lws_zalloc(sizeof(*pkt) + LWS_PRE + len, __func__);
 		if (!pkt)
 			return -1;
 
