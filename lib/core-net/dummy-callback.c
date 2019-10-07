@@ -153,11 +153,10 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 					__func__);
 			return -1;
 		}
-		pkt = lws_malloc(sizeof(*pkt) + LWS_PRE + len, __func__);
+		pkt = lws_zalloc(sizeof(*pkt) + LWS_PRE + len, __func__);
 		if (!pkt)
 			return -1;
 
-		pkt->pkt_list.prev = pkt->pkt_list.next = NULL;
 		pkt->len = len;
 		pkt->first = lws_is_first_fragment(wsi);
 		pkt->final = lws_is_final_fragment(wsi);
@@ -200,11 +199,10 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		return -1;
 
 	case LWS_CALLBACK_RECEIVE:
-		pkt = lws_malloc(sizeof(*pkt) + LWS_PRE + len, __func__);
+		pkt = lws_zalloc(sizeof(*pkt) + LWS_PRE + len, __func__);
 		if (!pkt)
 			return -1;
 
-		pkt->pkt_list.prev = pkt->pkt_list.next = NULL;
 		pkt->len = len;
 		pkt->first = lws_is_first_fragment(wsi);
 		pkt->final = lws_is_final_fragment(wsi);
