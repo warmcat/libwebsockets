@@ -202,7 +202,7 @@ ssh_ops_rx(void *_priv, struct lws *wsi, const uint8_t *buf, uint32_t len)
 	fd = lws_get_socket_fd(wsi_stdin);
 
 	if (*buf != 0x0d) {
-		if (write(fd, buf, len) != len)
+		if (write(fd, buf, len) != (int)len)
 			return -1;
 		if (priv->pty_in_echo) {
 			if (!lws_ring_insert(priv->ring_stdout, buf, 1))

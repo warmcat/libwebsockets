@@ -62,7 +62,7 @@ child_handler(int signum)
 				lock_path, errno, strerror(errno));
 			exit(0);
 		}
-		len = sprintf(sz, "%u", pid_daemon);
+		len = sprintf(sz, "%u", (unsigned int)pid_daemon);
 		sent = write(fd, sz, len);
 		if (sent != len)
 			fprintf(stderr,

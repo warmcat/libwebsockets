@@ -491,7 +491,7 @@ lws_b64_selftest(void);
 
 
 #ifndef LWS_NO_DAEMONIZE
- LWS_EXTERN int get_daemonize_pid();
+ LWS_EXTERN pid_t get_daemonize_pid();
 #else
  #define get_daemonize_pid() (0)
 #endif
