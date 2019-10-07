@@ -279,7 +279,7 @@ typedef struct lws_dsh_obj {
 	size_t				asize;
 } lws_dsh_obj_t;
 
-typedef struct lws_dsh {
+struct lws_dsh {
 	lws_dll2_t			list;
 	uint8_t				*buf;
 	lws_dsh_obj_head_t		*oha;	/* array of object heads/kind */
@@ -294,7 +294,7 @@ typedef struct lws_dsh {
 	 *  - the buffer itself
 	 *  - the object heads array
 	 */
-} lws_dsh_t;
+};
 
 /*
  * so we can have n connections being serviced simultaneously,

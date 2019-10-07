@@ -35,7 +35,7 @@ typedef struct lws_seq_event {
 /*
  * per sequencer
  */
-typedef struct lws_sequencer {
+struct lws_sequencer {
 	struct lws_dll2			seq_list;
 
 	lws_sorted_usec_list_t		sul_timeout;
@@ -51,7 +51,7 @@ typedef struct lws_sequencer {
 	lws_usec_t			timeout; /* 0 or time we timeout */
 
 	char				going_down;
-} lws_seq_t;
+};
 
 #define QUEUE_SANITY_LIMIT 10
 
