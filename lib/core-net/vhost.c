@@ -728,7 +728,7 @@ lws_create_vhost(struct lws_context *context,
 		p = getenv("http_proxy");
 		if (p) {
 			lws_strncpy(buf, p, sizeof(buf));
-
+			/* coverity[tainted_scalar] */
 			lws_set_proxy(vh, buf);
 		}
 #endif

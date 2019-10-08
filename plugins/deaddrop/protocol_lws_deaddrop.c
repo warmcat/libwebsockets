@@ -169,6 +169,7 @@ scan_upload_dir(struct vhd_deaddrop *vhd)
 		if (de->d_name[strlen(de->d_name) - 1] == '~')
 			continue;
 
+		/* coverity[toctou] */
 		if (stat(filepath, &s))
 			continue;
 

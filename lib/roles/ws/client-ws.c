@@ -163,6 +163,7 @@ lws_generate_client_ws_handshake(struct lws *wsi, char *p, const char *conn1)
 		return NULL;
 	}
 
+	/* coverity[tainted_scalar] */
 	lws_b64_encode_string(hash, 16, key_b64, sizeof(key_b64));
 
 	p += sprintf(p, "Upgrade: websocket\x0d\x0a"

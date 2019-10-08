@@ -850,6 +850,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			 */
 			lwsl_err("Redirect failed\n");
 			cce = "HS: Redirect failed";
+			/* coverity[reverse_inull] */
 			if (wsi)
 				goto bail3;
 
