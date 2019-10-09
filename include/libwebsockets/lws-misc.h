@@ -76,6 +76,31 @@ LWS_VISIBLE LWS_EXTERN int
 lws_buflist_use_segment(struct lws_buflist **head, size_t len);
 
 /**
+ * lws_buflist_total_len(): Get the total size of the buflist
+ *
+ * \param head: list head
+ *
+ * Returns the total number of bytes held on all segments of the buflist
+ */
+LWS_VISIBLE LWS_EXTERN size_t
+lws_buflist_total_len(struct lws_buflist **head);
+
+/**
+ * lws_buflist_linear_copy(): copy everything out as one without consuming
+ *
+ * \param head: list head
+ * \param ofs: start offset into buflist in bytes
+ * \param buf: buffer to copy linearly into
+ * \param len: length of buffer available
+ *
+ * Returns -1 if len is too small, or bytes copied.  Happy to do partial
+ * copies, returns 0 when there are no more bytes to copy.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_buflist_linear_copy(struct lws_buflist **head, size_t ofs, uint8_t *buf,
+			size_t len);
+
+/**
  * lws_buflist_destroy_all_segments(): free all segments on the list
  *
  * \param head: list head
