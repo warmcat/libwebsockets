@@ -26,14 +26,14 @@
 
 void
 lws_state_reg_notifier(lws_state_manager_t *mgr,
-			lws_state_notify_link_t *notify_link)
+		       lws_state_notify_link_t *notify_link)
 {
 	lws_dll2_add_head(&notify_link->list, &mgr->notify_list);
 }
 
 void
 lws_state_reg_notifier_list(lws_state_manager_t *mgr,
-			    lws_state_notify_link_t **notify_link_array)
+			    lws_state_notify_link_t * const *notify_link_array)
 {
 	if (notify_link_array)
 		while (*notify_link_array)

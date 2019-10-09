@@ -136,16 +136,20 @@ lws_system_get_info(struct lws_context *context, lws_system_item_t item,
  *
  * \param context: the lws_context
  * \param idx: which auth token
- * \param buf: where to store result
+ * \param buf: where to store result, or NULL
  * \param buflen: size of buf
  * \param flags: how to write the result
  *
  * Attempts to fill buf with the requested system auth token.  If flags has
  * LWSSYSGAUTH_HEX set, then the auth token is written as pairs of hex chars
  * for each byte.  If not set, written as 1 byte per byte binary.
+ *
+ * If buf is NULL, returns <= 0 if auth token is not set or > 0 if set, without
+ * writing anything.  *buflen is still set to the size of the auth token.
  */
 LWS_EXTERN LWS_VISIBLE int
-lws_system_get_auth(struct lws_context *context, int idx, uint8_t *buf, size_t buflen, int flags);
+lws_system_get_auth(struct lws_context *context, int idx, uint8_t *buf,
+		    size_t buflen, int flags);
 
 /**
  * lws_system_get_ops() - get ahold of the system ops struct from the context
@@ -157,6 +161,17 @@ lws_system_get_auth(struct lws_context *context, int idx, uint8_t *buf, size_t b
  */
 LWS_EXTERN LWS_VISIBLE const lws_system_ops_t *
 lws_system_get_ops(struct lws_context *context);
+
+/**
+ * lws_system_context_from_system_mgr() - return context from system state mgr
+ *
+ * \param mgr: pointer to specifically the system state mgr
+ *
+ * Returns the context from the system state mgr.  Helper since the lws_context
+ * is opaque.
+ */
+LWS_EXTERN LWS_VISIBLE struct lws_context *
+lws_system_context_from_system_mgr(lws_state_manager_t *mgr);
 
 typedef int (*dhcpc_cb_t)(void *opaque, int af, uint8_t *ip, int ip_len);
 

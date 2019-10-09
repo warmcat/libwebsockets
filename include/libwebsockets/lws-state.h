@@ -70,7 +70,8 @@ lws_state_reg_notifier(lws_state_manager_t *mgr, lws_state_notify_link_t *nl);
  */
 
 LWS_EXTERN LWS_VISIBLE void
-lws_state_reg_notifier_list(lws_state_manager_t *mgr, lws_state_notify_link_t **nl);
+lws_state_reg_notifier_list(lws_state_manager_t *mgr,
+			    lws_state_notify_link_t * const *nl);
 
 /**
  * lws_state_transition_steps() - move to state via starting any deps

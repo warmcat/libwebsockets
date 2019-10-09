@@ -252,6 +252,11 @@ lws_client_ws_upgrade(struct lws *wsi, const char **cce)
 	char ignore;
 #endif
 
+#if defined(LWS_WITH_DETAILED_LATENCY)
+		wsi->detlat.earliest_write_req = 0;
+		wsi->detlat.earliest_write_req_pre_write = 0;
+#endif
+
 	if (wsi->client_h2_substream) {/* !!! client ws-over-h2 not there yet */
 		lwsl_warn("%s: client ws-over-h2 upgrade not supported yet\n",
 			  __func__);

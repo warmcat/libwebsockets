@@ -2296,6 +2296,14 @@ lws_h2_client_handshake(struct lws *wsi)
 		p = p1;
 	}
 
+	if (wsi->flags & LCCSCF_HTTP_X_WWW_FORM_URLENCODED) {
+		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE,
+					(unsigned char *)"application/x-www-form-urlencoded",
+					33, &p, end))
+			goto fail_length;
+		lws_client_http_body_pending(wsi, 1);
+	}
+
 	if (wsi->flags & LCCSCF_H2_AUTH_BEARER) {
 
 		uint8_t *qend = q + (wsi->context->pt_serv_buf_size / 2) - 1;
@@ -2304,7 +2312,8 @@ lws_h2_client_handshake(struct lws *wsi)
 
 		n = lws_system_get_auth(wsi->context, 0, q + 7,
 					lws_ptr_diff(qend, q + 7),
-					LWSSYSGAUTH_HEX);
+					wsi->flags & LCCSCF_H2_HEXIFY_AUTH_TOKEN ?
+							LWSSYSGAUTH_HEX : 0);
 		if (n < 0)
 			return -1;
 

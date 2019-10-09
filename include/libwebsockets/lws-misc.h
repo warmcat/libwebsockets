@@ -641,7 +641,6 @@ LWS_VISIBLE LWS_EXTERN int
 lws_humanize(char *buf, int len, uint64_t value,
 	     const lws_humanize_unit_t *schema);
 
-
 LWS_VISIBLE LWS_EXTERN void
 lws_ser_wu16be(uint8_t *b, uint16_t u);
 

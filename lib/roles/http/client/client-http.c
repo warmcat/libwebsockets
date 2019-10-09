@@ -446,6 +446,9 @@ start_ws_handshake:
 			lws_set_timeout(wsi,
 					PENDING_TIMEOUT_CLIENT_ISSUE_PAYLOAD,
 					context->timeout_secs);
+
+			if (wsi->flags & LCCSCF_HTTP_X_WWW_FORM_URLENCODED)
+				lws_callback_on_writable(wsi);
 #if defined(LWS_WITH_HTTP_PROXY)
 			if (wsi->http.proxy_clientside)
 				lws_callback_on_writable(wsi);
@@ -1228,6 +1231,12 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 			wsi->user_space, &p,
 			(pkt + wsi->context->pt_serv_buf_size) - p - 12))
 		return NULL;
+
+	if (wsi->flags & LCCSCF_HTTP_X_WWW_FORM_URLENCODED) {
+		p += lws_snprintf(p, 128, "Content-Type: application/x-www-form-urlencoded\x0d\x0a");
+		p += lws_snprintf(p, 128, "Content-Length: %lu\x0d\x0a", wsi->http.writeable_len);
+		lws_client_http_body_pending(wsi, 1);
+	}
 
 	p += lws_snprintf(p, 4, "\x0d\x0a");
 

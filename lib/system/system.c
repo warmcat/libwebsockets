@@ -56,11 +56,12 @@ lws_system_get_auth(struct lws_context *context, int idx, uint8_t *buf,
 	}
 
 	if (context->system_ops->auth(idx, buf, &buflen, 0) < 0) {
-		lwsl_err("%s: auth get failed\n", __func__);
+		if (buf)
+			lwsl_err("%s: auth get failed\n", __func__);
 		return -1;
 	}
 
-	if (flags & LWSSYSGAUTH_HEX) {
+	if (buf && (flags & LWSSYSGAUTH_HEX)) {
 		if (bl < (buflen * 2) + 1) {
 			lwsl_err("%s: auth in hex oversize %d\n", __func__, (int)bl);
 			return -1;

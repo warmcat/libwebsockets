@@ -162,6 +162,12 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 		p = lws_vhost_name_to_protocol(wsi->vhost, local);
 		if (p)
 			lws_bind_protocol(wsi, p, __func__);
+		else
+			lwsl_err("%s: unknown protocol %s\n", __func__, local);
+
+		lwsl_info("%s: wsi %p: %s %s entry\n",
+			    __func__, wsi, wsi->role_ops->name,
+			    wsi->protocol ? wsi->protocol->name : "none");
 	}
 
 	/*
@@ -277,13 +283,17 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 
 	/* PHASE 8: notify protocol with role-specific connected callback */
 
-	lwsl_debug("%s: wsi %p: cb %d to %s %s\n", __func__,
-			wsi, wsi->role_ops->adoption_cb[0],
-			wsi->role_ops->name, wsi->protocol->name);
+	/* raw socket doesn't want this... not sure if any want this */
+	if (wsi->role_ops != &role_ops_raw_skt) {
+		lwsl_debug("%s: wsi %p: cb %d to %s %s\n", __func__,
+				wsi, wsi->role_ops->adoption_cb[0],
+				wsi->role_ops->name, wsi->protocol->name);
 
-	wsi->protocol->callback(wsi,
-			wsi->role_ops->adoption_cb[0],
-			wsi->user_space, NULL, 0);
+		wsi->protocol->callback(wsi,
+				wsi->role_ops->adoption_cb[0],
+				wsi->user_space, NULL, 0);
+	}
+
 
 #if defined(LWS_WITH_HUBBUB)
 	if (i->uri_replace_to)

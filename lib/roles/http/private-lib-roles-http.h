@@ -228,6 +228,8 @@ struct _lws_http_mode_related {
 	struct allocated_headers *ah;
 	struct lws *ah_wait_list;
 
+	unsigned long		writeable_len;
+
 #if defined(LWS_WITH_FILE_OPS)
 	lws_filepos_t filepos;
 	lws_filepos_t filelen;
