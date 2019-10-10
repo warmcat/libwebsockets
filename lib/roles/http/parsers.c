@@ -1078,13 +1078,14 @@ swallow:
 				c += 'a' - 'A';
 
 #if defined(LWS_WITH_CUSTOM_HEADERS)
+
 			/*
 			 * ...in case it's an unknown header, speculatively
 			 * store it as the name comes in.  If we recognize it as
 			 * a known header, we'll snip this.
 			 */
 
-			if (!ah->unk_pos) {
+			if (!wsi->http2_substream && !ah->unk_pos) {
 				ah->unk_pos = ah->pos;
 				/*
 				 * Prepare new unknown header linked-list entry
@@ -1106,7 +1107,7 @@ swallow:
 			pos = ah->lextable_pos;
 
 #if defined(LWS_WITH_CUSTOM_HEADERS)
-			if (pos < 0 && c == ':') {
+			if (!wsi->http2_substream && pos < 0 && c == ':') {
 				/*
 				 * process unknown headers
 				 *
@@ -1170,13 +1171,16 @@ nope:
 				/* b7 = 0, end or 3-byte */
 				if (lextable[pos] < FAIL_CHAR) {
 #if defined(LWS_WITH_CUSTOM_HEADERS)
-					/*
-					 * We hit a terminal marker, so we
-					 * recognized this header... drop the
-					 * speculative name part storage
-					 */
-					ah->pos = ah->unk_pos;
-					ah->unk_pos = 0;
+					if (!wsi->http2_substream) {
+						/*
+						 * We hit a terminal marker, so
+						 * we recognized this header...
+						 * drop the speculative name
+						 * part storage
+						 */
+						ah->pos = ah->unk_pos;
+						ah->unk_pos = 0;
+					}
 #endif
 					ah->lextable_pos = pos;
 					break;
@@ -1213,19 +1217,25 @@ nope:
 #if !defined(LWS_WITH_CUSTOM_HEADERS)
 						ah->parser_state = WSI_TOKEN_SKIPPING;
 #endif
+						if (wsi->http2_substream)
+							ah->parser_state = WSI_TOKEN_SKIPPING;
 						break;
 					}
 
-				if (m != LWS_ARRAY_SIZE(methods))
+				if (m != LWS_ARRAY_SIZE(methods)) {
 #if defined(LWS_WITH_CUSTOM_HEADERS)
 					/*
 					 * We have the method, this is just an
 					 * unknown header then
 					 */
-					goto unknown_hdr;
+					if (!wsi->http2_substream)
+						goto unknown_hdr;
+					else
+						break;
 #else
 					break;
 #endif
+				}
 				/*
 				 * ...it's an unknown http method from a client
 				 * in fact, it cannot be valid http.
@@ -1246,15 +1256,15 @@ nope:
 			}
 			if (ah->lextable_pos < 0) {
 #if defined(LWS_WITH_CUSTOM_HEADERS)
-				goto unknown_hdr;
-#else
+				if (!wsi->http2_substream)
+					goto unknown_hdr;
+#endif
 				/*
 				 * ...otherwise for a client, let him ignore
 				 * unknown headers coming from the server
 				 */
 				ah->parser_state = WSI_TOKEN_SKIPPING;
 				break;
-#endif
 			}
 
 			if (lextable[ah->lextable_pos] < FAIL_CHAR) {
@@ -1301,7 +1311,8 @@ nope:
 unknown_hdr:
 			//ah->parser_state = WSI_TOKEN_SKIPPING;
 			//break;
-			break;
+			if (!wsi->http2_substream)
+				break;
 #endif
 
 start_fragment:

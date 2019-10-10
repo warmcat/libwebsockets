@@ -166,7 +166,8 @@ lws_wsi_server_new(struct lws_vhost *vh, struct lws *parent_wsi,
    	 * connection error (Section 5.4.1) of type PROTOCOL_ERROR.
 	 */
 	if (sid <= h2n->highest_sid_opened) {
-		lwsl_info("%s: tried to open lower sid %d\n", __func__, sid);
+		lwsl_info("%s: tried to open lower sid %d (%d)\n", __func__,
+				sid, h2n->highest_sid_opened);
 		lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR, "Bad sid");
 		return NULL;
 	}
@@ -1306,7 +1307,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 	case LWS_H2_FRAME_TYPE_SETTINGS:
 
 #if defined(LWS_WITH_CLIENT)
-		if (wsi->client_h2_alpn &&
+		if (wsi->client_h2_alpn && !wsi->client_h2_migrated &&
 		    !(h2n->flags & LWS_H2_FLAG_SETTINGS_ACK)) {
 			struct lws_h2_protocol_send *pps;
 
@@ -1314,7 +1315,8 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 #if defined(LWS_WITH_FILE_OPS)
 			wsi->http.fop_fd = NULL;
 #endif
-
+			lwsl_info("%s: migrating\n", __func__);
+			wsi->client_h2_migrated = 1;
 			/*
 			 * we need to treat the headers from the upgrade as the
 			 * first job.  So these need to get shifted to sid 1.

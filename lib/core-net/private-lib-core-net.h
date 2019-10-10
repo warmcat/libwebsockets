@@ -746,6 +746,7 @@ struct lws {
 	unsigned int client_pipeline:1;
 	unsigned int client_h2_alpn:1;
 	unsigned int client_h2_substream:1;
+	unsigned int client_h2_migrated:1;
 #endif
 
 #ifdef _WIN32

@@ -396,7 +396,7 @@ lws_token_from_index(struct lws *wsi, int index, const char **arg, int *len,
 
 	if (index >= (int)LWS_ARRAY_SIZE(static_token) + dyn->used_entries) {
 		lwsl_info("  %s: adjusted index %d >= %d\n", __func__, index,
-			    dyn->used_entries);
+				(int)LWS_ARRAY_SIZE(static_token) + dyn->used_entries);
 		lws_h2_goaway(wsi, H2_ERR_COMPRESSION_ERROR,
 			      "index out of range");
 		return -1;
@@ -1002,6 +1002,13 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 			h2n->hpack = HPKS_HLEN_EXT;
 			break;
 		}
+
+		if (h2n->value && !h2n->hpack_len) {
+			lwsl_debug("%s: zero-length header data\n", __func__);
+			h2n->hpack = HPKS_TYPE;
+			goto fin;
+		}
+
 pre_data:
 		h2n->hpack = HPKS_DATA;
 		if (!h2n->value || !h2n->hdr_idx) {
@@ -1179,7 +1186,7 @@ swallow:
 				      "Huffman padding excessive or wrong");
 			return 1;
 		}
-
+fin:
 		if (!h2n->value && (
 		    h2n->hpack_type == HPKT_LITERAL_HDR_VALUE ||
 		    h2n->hpack_type == HPKT_LITERAL_HDR_VALUE_INCR ||
