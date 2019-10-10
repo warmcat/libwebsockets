@@ -81,16 +81,25 @@ typedef enum { /* keep system_state_names[] in sync in context.c */
 					  * LWS_SYSTATE_POLICY_VALID */
 } lws_system_states_t;
 
+typedef enum {
+	LWSSYS_AUTH_GET,
+	LWSSYS_AUTH_TOTAL_LENGTH,
+	LWSSYS_AUTH_APPEND,
+	LWSSYS_AUTH_FREE,
+} lws_system_auth_op_t;
+
+typedef int (*lws_system_auth_cb_t)(struct lws_context *context, int idx,
+				    size_t ofs, uint8_t *buf, size_t *plen,
+				    lws_system_auth_op_t set);
+
 typedef struct lws_system_ops {
 	int (*get_info)(lws_system_item_t i, lws_system_arg_t *arg);
 	int (*reboot)(void);
 	int (*set_clock)(lws_usec_t us);
-	int (*auth)(int idx, uint8_t *buf, size_t *plen, int set);
-	/**< Systemwide ephemeral auth tokens get or set... set *plen to max
-	 * size for get, will be set to actual size on return of 0, return 1
-	 * means token is too big for buffer.  idx is token index if multiple.
-	 * Auth tokens are potentially large, and should be stored as binary
-	 * and converted to a transport format like hex.  */
+	lws_system_auth_cb_t auth;
+	/**< Systemwide auth token management. For set, content may be appended
+	 * incrementally safely.  For get, content may be read out in arbitrary
+	 * fragments using \p ofs. */
 } lws_system_ops_t;
 
 /**
@@ -136,6 +145,7 @@ lws_system_get_info(struct lws_context *context, lws_system_item_t item,
  *
  * \param context: the lws_context
  * \param idx: which auth token
+ * \param ofs: offset in source to copy from
  * \param buf: where to store result, or NULL
  * \param buflen: size of buf
  * \param flags: how to write the result
@@ -148,8 +158,8 @@ lws_system_get_info(struct lws_context *context, lws_system_item_t item,
  * writing anything.  *buflen is still set to the size of the auth token.
  */
 LWS_EXTERN LWS_VISIBLE int
-lws_system_get_auth(struct lws_context *context, int idx, uint8_t *buf,
-		    size_t buflen, int flags);
+lws_system_get_auth(struct lws_context *context, int idx, size_t ofs,
+		    uint8_t *buf, size_t buflen, int flags);
 
 /**
  * lws_system_get_ops() - get ahold of the system ops struct from the context

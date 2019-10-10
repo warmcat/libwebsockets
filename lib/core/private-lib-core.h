@@ -309,6 +309,8 @@ struct lws_context {
 	lws_async_dns_t		async_dns;
 #endif
 
+	struct lws_buflist *auth_token[2];
+
 #if defined(LWS_WITH_NETWORK)
 	lws_state_manager_t		mgr_system;
 	lws_state_notify_link_t		protocols_notify;

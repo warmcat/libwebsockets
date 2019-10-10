@@ -2310,7 +2310,7 @@ lws_h2_client_handshake(struct lws *wsi)
 
 		strcpy((char *)q, "bearer ");
 
-		n = lws_system_get_auth(wsi->context, 0, q + 7,
+		n = lws_system_get_auth(wsi->context, 0, 0, q + 7,
 					lws_ptr_diff(qend, q + 7),
 					wsi->flags & LCCSCF_H2_HEXIFY_AUTH_TOKEN ?
 							LWSSYSGAUTH_HEX : 0);

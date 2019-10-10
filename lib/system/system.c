@@ -24,7 +24,9 @@
 
 #include <private-lib-core.h>
 
+#if defined(LWS_WITH_NETWORK)
 static const char *hex = "0123456789ABCDEF";
+#endif
 
 int
 lws_system_get_info(struct lws_context *context, lws_system_item_t item,
@@ -42,20 +44,68 @@ lws_system_get_ops(struct lws_context *context)
 	return context->system_ops;
 }
 
+#if defined(LWS_WITH_NETWORK)
 int
-lws_system_get_auth(struct lws_context *context, int idx, uint8_t *buf,
-		    size_t buflen, int flags)
+lws_system_auth_default_cb(struct lws_context *context, int idx, size_t ofs,
+			   uint8_t *buf, size_t *plen, lws_system_auth_op_t op)
+{
+	int n;
+
+	if (idx >= (int)LWS_ARRAY_SIZE(context->auth_token))
+		return -1;
+
+	switch (op) {
+	case LWSSYS_AUTH_GET:
+		if (!context->auth_token[idx])
+			return -1;
+
+		if (!buf) /* we just need to tell him that it exists */
+			return -2;
+
+		n = lws_buflist_linear_copy(&context->auth_token[idx], ofs, buf,
+					    *plen);
+		if (n < 0)
+			return -2;
+
+		*plen = (size_t)n;
+
+		return 0;
+
+	case LWSSYS_AUTH_TOTAL_LENGTH:
+		*plen = lws_buflist_total_len(&context->auth_token[idx]);
+		return 0;
+
+	case LWSSYS_AUTH_APPEND:
+		if (lws_buflist_append_segment(&context->auth_token[idx], buf,
+					       *plen) < 0)
+			return -1;
+
+		return 0;
+
+	case LWSSYS_AUTH_FREE:
+		lws_buflist_destroy_all_segments(&context->auth_token[idx]);
+		return 0;
+
+	default:
+		break;
+	}
+
+	return -1;
+}
+
+int
+lws_system_get_auth(struct lws_context *context, int idx, size_t ofs,
+		    uint8_t *buf, size_t buflen, int flags)
 {
 	size_t bl = buflen;
 	uint8_t *p, b;
 	int n;
 
-	if (!context->system_ops || !context->system_ops->auth) {
-		lwsl_err("%s: add auth system op\n", __func__);
-		return -1;
-	}
-
-	if (context->system_ops->auth(idx, buf, &buflen, 0) < 0) {
+	if (!context->system_ops || !context->system_ops->auth)
+		n = lws_system_auth_default_cb(context, idx, ofs, buf, &buflen, 0);
+	else
+		n = context->system_ops->auth(context, idx, ofs, buf, &buflen, 0);
+	if (n < 0) {
 		if (buf)
 			lwsl_err("%s: auth get failed\n", __func__);
 		return -1;
@@ -63,7 +113,8 @@ lws_system_get_auth(struct lws_context *context, int idx, uint8_t *buf,
 
 	if (buf && (flags & LWSSYSGAUTH_HEX)) {
 		if (bl < (buflen * 2) + 1) {
-			lwsl_err("%s: auth in hex oversize %d\n", __func__, (int)bl);
+			lwsl_err("%s: auth in hex oversize %d\n", __func__,
+					(int)bl);
 			return -1;
 		}
 
@@ -84,4 +135,4 @@ lws_system_get_auth(struct lws_context *context, int idx, uint8_t *buf,
 
 	return (int)buflen;
 }
-
+#endif
