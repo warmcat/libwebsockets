@@ -71,12 +71,18 @@ again1:
 		pointer = 1;
 	}
 
-again:
 	if (ls >= e)
 		return -1;
+
 	ll = *ls++;
-	if (ls + ll + 4 > e || ll > budget) {
-		lwsl_notice("%s: label len invalid\n", __func__);
+	if (ls + ll + 1 > e) {
+		lwsl_notice("%s: label len invalid, %ld vs %ld\n", __func__,
+				(ls + ll + 1) - pkt, e - pkt);
+
+		return -1;
+	}
+	if (ll > budget) {
+		lwsl_notice("%s: label too long %d vs %d\n", __func__, ll, budget);
 
 		return -1;
 	}
@@ -97,7 +103,7 @@ again:
 
 	if (pointer) {
 		if (*ls)
-			goto again;
+			goto again1;
 
 		/*
 		 * special fun rule... if whole qname was a pointer label,
@@ -126,7 +132,7 @@ typedef int (*lws_async_dns_find_t)(const char *name, void *opaque,
 /* locally query the response packet */
 
 struct label_stack {
-	char name[64];
+	char name[DNS_MAX];
 	int enl;
 	const uint8_t *p;
 };
@@ -143,18 +149,18 @@ struct label_stack {
  */
 
 static int
-lws_adns_iterate(const uint8_t *pkt, int len, const char *expname,
-		 lws_async_dns_find_t cb, void *opaque)
+lws_adns_iterate(lws_adns_q_t *q, const uint8_t *pkt, int len,
+		 const char *expname, lws_async_dns_find_t cb, void *opaque)
 {
 	const uint8_t *e = pkt + len, *p, *pay;
 	struct label_stack stack[4];
+	int n = 0, stp = 0, ansc, m;
 	uint16_t rrtype, rrpaylen;
-	int n = 0, stp = 0, ansc;
 	char *sp, inq;
 	uint32_t ttl;
 
-	lws_strncpy(stack[stp].name, expname, sizeof(stack[stp].name));
-	stack[stp].enl = strlen(expname);
+	lws_strncpy(stack[0].name, expname, sizeof(stack[0].name));
+	stack[0].enl = strlen(expname);
 
 start:
 	ansc = lws_ser_ru16be(pkt + DHO_NANSWERS);
@@ -168,7 +174,7 @@ start:
 	 * query class
 	 */
 
-resume:
+
 	while (p + 14 < e && (inq || ansc)) {
 
 		if (!inq && !stp)
@@ -215,7 +221,7 @@ resume:
 		 */
 
 		if (lws_ser_ru16be(&p[2]) != 1) {
-			lwsl_debug("%s: non-IN response 0x%x\n", __func__,
+			lwsl_err("%s: non-IN response 0x%x\n", __func__,
 						lws_ser_ru16be(&p[2]));
 
 			return -1;
@@ -251,9 +257,13 @@ resume:
 		if (stack[0].name[n - 1] == '.')
 			n--;
 
-		if (n < 1 || n != stack[stp].enl ||
-		    strcmp(stack[0].name, stack[stp].name)) {
-			lwsl_debug("%s: skipping %s vs %s\n", __func__,
+		m = stack[stp].enl;
+		if (stack[stp].name[m - 1] == '.')
+			m--;
+
+		if (n < 1 || n != m ||
+		    strncmp(stack[0].name, stack[stp].name, n)) {
+			lwsl_notice("%s: skipping %s vs %s\n", __func__,
 					stack[0].name, stack[stp].name);
 			goto skip;
 		}
@@ -275,14 +285,18 @@ resume:
 		 */
 
 		switch (rrtype) {
-#if defined(LWS_WITH_IPV6)
+
 		case LWS_ADNS_RECORD_AAAA:
 			if (rrpaylen != 16) {
 				lwsl_err("%s: unexpected rrpaylen\n", __func__);
 				return -1;
 			}
+#if defined(LWS_WITH_IPV6)
 			goto do_cb;
+#else
+			break;
 #endif
+
 		case LWS_ADNS_RECORD_A:
 			if (rrpaylen != 4) {
 				lwsl_err("%s: unexpected rrpaylen4\n", __func__);
@@ -297,7 +311,7 @@ do_cb:
 
 		case LWS_ADNS_RECORD_CNAME:
 			/*
-			 * The name the CNAME refers to should itself be
+			 * The name the CNAME refers to MAY itself be
 			 * included elsewhere in the response packet.
 			 *
 			 * So switch tack, stack where to resume from and
@@ -314,6 +328,7 @@ do_cb:
 				return -1;
 			}
 			sp = stack[stp].name;
+			/* get the cname alias */
 			n = lws_adns_parse_label(pkt, len, p, rrpaylen, &sp,
 						 sizeof(stack[stp].name) -
 						 lws_ptr_diff(sp, stack[stp].name));
@@ -329,10 +344,13 @@ do_cb:
 			/* it should have exactly reached rrpaylen */
 
 			if (p != pay + rrpaylen) {
-				lwsl_err("%s: cname name bad len\n", __func__);
+				lwsl_err("%s: cname name bad len %d\n", __func__, rrpaylen);
 
 				return -1;
 			}
+
+			lwsl_info("%s: recursing looking for %s\n", __func__,
+					stack[stp].name);
 
 			stack[stp].enl = lws_ptr_diff(sp, stack[stp].name);
 			/* when we unstack, resume from here */
@@ -350,16 +368,61 @@ skip:
 	if (!stp)
 		return 1; /* we didn't find anything, but we didn't error */
 
+	lwsl_info("%s: '%s' -> CNAME '%s' resolution not provided, recursing\n",
+			__func__, ((const char *)&q[1]) + DNS_MAX,
+			stack[stp].name);
+
 	/*
 	 * This implies there wasn't any usable definition for the
-	 * CNAME in the end, eg, only AAAA when we needed and A.
+	 * CNAME in the end, eg, only AAAA when we needed an A.
 	 *
-	 * Short-circuit the whole stack and resume from after the
-	 * original CNAME reference.
+	 * It's also legit if the DNS just returns the CNAME, and that server
+	 * did not directly know the next step in resolution of the CNAME, so
+	 * instead of putting the resolution elsewhere in the response, has
+	 * told us just the CNAME and left it to us to find out its resolution
+	 * separately.
+	 *
+	 * Reset this request to be for the CNAME, and restart the request
+	 * action with a new tid.
 	 */
-	p = stack[1].p;
-	stp = 0;
-	goto resume;
+
+	if (lws_async_dns_get_new_tid(q->context, q))
+		return -1;
+
+	q->tid &= 0xfffe;
+	q->asked = q->responded = 0;
+#if defined(LWS_WITH_IPV6)
+	q->sent[1] = 0;
+#endif
+	q->sent[0] = 0;
+	q->recursion++;
+	if (q->recursion == DNS_RECURSION_LIMIT) {
+		lwsl_err("%s: recursion overflow\n", __func__);
+
+		return -1;
+	}
+
+	if (q->firstcache)
+		lws_adns_cache_destroy(q->firstcache);
+	q->firstcache = NULL;
+
+	/* overwrite the query name with the CNAME */
+
+	n = 0;
+	{
+		char *cp = (char *)&q[1];
+
+		while (stack[stp].name[n])
+			*cp++ = tolower(stack[stp].name[n++]);
+		/* trim the following . if any */
+		if (n && cp[-1] == '.')
+			cp--;
+		*cp = '\0';
+	}
+
+	lws_callback_on_writable(q->dns->wsi);
+
+	return 2;
 }
 
 int
@@ -464,12 +527,12 @@ lws_async_dns_store(const char *name, void *opaque, uint32_t ttl,
 void
 lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 {
+	const char *nm, *nmcname;
 	lws_adns_cache_t *c;
 	struct adstore adst;
 	lws_adns_q_t *q;
-	const char *nm;
+	int n, ncname;
 	size_t est;
-	int n;
 
 	// lwsl_hexdump_notice(pkt, len);
 
@@ -503,7 +566,10 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 	}
 
 	q->responded |= n;
-	nm = (const char *)&q[1];
+
+	/* we want to confirm the results against what we last requested... */
+
+	nmcname = ((const char *)&q[1]);
 
 	/*
 	 * First walk the packet figuring out the allocation needed for all
@@ -514,13 +580,26 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 	 *  char []: copy of resolved name
 	 */
 
-	n = strlen(nm) + 1;
+	ncname = strlen(nmcname) + 1;
 
-	est = sizeof(lws_adns_cache_t) + n;
-	if (lws_ser_ru16be(pkt + DHO_NANSWERS) &&
-	    lws_adns_iterate(pkt, len, nm, lws_async_dns_estimate, &est) < 0)
+	est = sizeof(lws_adns_cache_t) + ncname;
+	if (lws_ser_ru16be(pkt + DHO_NANSWERS)) {
+		int ir = lws_adns_iterate(q, pkt, len, nmcname,
+					  lws_async_dns_estimate, &est);
+		if (ir < 0)
 			goto fail_out;
 
+		if (ir == 2) /* CNAME recursive resolution */
+			return;
+	}
+
+	/* but we want to create the cache entry against the original request */
+
+	nm = ((const char *)&q[1]) + DNS_MAX;
+	n = strlen(nm) + 1;
+
+	lwsl_info("%s: create cache entry for %s, %zu\n", __func__, nm,
+			est - sizeof(lws_adns_cache_t));
 	c = lws_malloc(est, "async-dns-entry");
 	if (!c) {
 		lwsl_err("%s: OOM %zu\n", __func__, est);
@@ -550,7 +629,7 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 	 */
 
 	if (lws_ser_ru16be(pkt + DHO_NANSWERS) &&
-	    lws_adns_iterate(pkt, len, nm, lws_async_dns_store, &adst) < 0) {
+	    lws_adns_iterate(q, pkt, len, nmcname, lws_async_dns_store, &adst) < 0) {
 		lws_free(c);
 		goto fail_out;
 	}

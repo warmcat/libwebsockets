@@ -482,7 +482,7 @@ check_tid(struct lws_dll2 *d, void *user)
 	return q->tid == (uint16_t)(long)user;
 }
 
-static int
+int
 lws_async_dns_get_new_tid(struct lws_context *context, lws_adns_q_t *q)
 {
 	lws_async_dns_t *dns = &context->async_dns;
@@ -492,12 +492,16 @@ lws_async_dns_get_new_tid(struct lws_context *context, lws_adns_q_t *q)
 	 * Make the TID unpredictable, but must be unique amongst ongoing ones
 	 */
 	do {
-		if (lws_get_random(context, &q->tid, 2) != 2)
+		uint16_t tid;
+
+		if (lws_get_random(context, &tid, 2) != 2)
 			return -1;
 
 		if (lws_dll2_foreach_safe(&dns->waiting,
-					  (void *)(long)q->tid, check_tid))
+					  (void *)(long)tid, check_tid))
 			continue;
+
+		q->tid = tid;
 
 		return 0;
 
@@ -535,6 +539,9 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 		goto failed;
 	}
 #endif
+
+	if (nlen >= DNS_MAX - 1)
+		goto failed;
 
 	/*
 	 * we magically know 'localhost' and 'localhost6' if IPv6, this is a
@@ -674,12 +681,18 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	 * For ipv6, A / ipv4 is routable over ipv6.  So we always ask for A
 	 * first and then if ipv6, AAAA separately.
 	 *
-	 * The results need binding into
+	 * Allocate for DNS_MAX, because we may recurse and alter what we're
+	 * looking for.
+	 *
+	 * 0             sizeof(*q)                  sizeof(*q) + DNS_MAX
+	 * [lws_adns_q_t][ name (DNS_MAX reserved) ] [ name \0 ]
 	 */
 
-	q = (lws_adns_q_t *)lws_zalloc(sizeof(*q) + nlen + 1, __func__);
+	q = (lws_adns_q_t *)lws_malloc(sizeof(*q) + DNS_MAX + nlen + 1,
+					__func__);
 	if (!q)
 		goto failed;
+	memset(q, 0, sizeof(*q));
 
 	if (wsi)
 		lws_dll2_add_head(&wsi->adns, &q->wsi_adns);
@@ -702,10 +715,19 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	lws_retry_sul_schedule_retry_wsi(dns->wsi, &q->sul,
 					 lws_async_dns_sul_cb_retry, &q->retry);
 
+	/*
+	 * We may rewrite the copy at +sizeof(*q) for CNAME recursion.  Keep
+	 * a second copy at + sizeof(*q) + DNS_MAX so we can create the cache
+	 * entry for the original name, not the last CNAME we met.
+	 */
+
 	p = (char *)&q[1];
-	while (nlen--)
+	while (nlen--) {
 		*p++ = tolower(*name++);
+		p[DNS_MAX - 1] = p[-1];
+	}
 	*p = '\0';
+	p[DNS_MAX] = '\0';
 
 	lws_callback_on_writable(dns->wsi);
 

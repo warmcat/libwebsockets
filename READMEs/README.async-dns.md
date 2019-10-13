@@ -2,7 +2,7 @@
 
 ## Introduction
 
-Lws now features optional asynchronous, ie, nonblocking DNS
+Lws now features optional asynchronous, ie, nonblocking recursive DNS
 resolution done on the event loop, enable `-DLWS_WITH_SYS_ASYNC_DNS=1`
 at cmake to build it in.
 
@@ -35,6 +35,8 @@ Other features
     a list on the first request, not spawn multiple requests)
  - observes TTL in cache
  - TTL and timeout use `lws_sul` timers on the event loop
+ - Uses CNAME resolution inside the same response if present, otherwise
+   recurses to resolve the CNAME (up to 3 deep)
  - ipv6 pieces only built if cmake `LWS_IPV6` enabled
 
 ## Api
@@ -73,4 +75,26 @@ first cache entry and the `struct addrinfo` linked-list from the
 first cache entry is extended into the second one.  At the time the
 second result arrives, the query is destroyed and the cached results
 provided on the result callback.
+
+## Recursion
+
+Where CNAMEs are returned, DNS servers may take two approaches... if the
+CNAME is also resolved by the same server and so it knows what it should
+resolve to, it may provide the CNAME resolution in the same response
+packet.
+
+In the case the CNAME is actually resolved by a different name server,
+the server with the CNAME does not have the information to hand to also
+resolve the CNAME in the same response.  So it just leaves it for the
+client to sort out.
+
+The lws implementation can deal with both of these, first it "recurses"
+(it does not recurse on the process stack but uses its own manual stack)
+to look for results in the same packet that told it about the CNAME.  If
+there are no results, it resets the query to look instead for the CNAME,
+and restarts it.  It allows this to happen for 3 CNAME deep.
+
+At the end, either way, the cached result is set using the original
+query name and the results from the last CNAME in the chain.
+
 

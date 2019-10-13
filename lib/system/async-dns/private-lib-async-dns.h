@@ -23,10 +23,11 @@
  */
 
 
-#define	DNS_MAX			128	/* Maximum host name		*/
-#define	DNS_PACKET_LEN		1400	/* Buffer size for DNS packet	*/
-#define	MAX_CACHE_ENTRIES	10	/* Dont cache more than that	*/
-#define	DNS_QUERY_TIMEOUT	30	/* Query timeout, seconds	*/
+#define DNS_MAX			96	/* Maximum host name		*/
+#define DNS_RECURSION_LIMIT	3
+#define DNS_PACKET_LEN		1400	/* Buffer size for DNS packet	*/
+#define MAX_CACHE_ENTRIES	10	/* Dont cache more than that	*/
+#define DNS_QUERY_TIMEOUT	30	/* Query timeout, seconds	*/
 
 /*
  * ... when we completed a query then the query object is destroyed and a
@@ -78,6 +79,8 @@ typedef struct {
 	uint8_t			asked;
 	uint8_t			responded;
 
+	uint8_t			recursion;
+
 	/* name overallocated here */
 } lws_adns_q_t;
 
@@ -116,3 +119,6 @@ lws_adns_get_query(lws_async_dns_t *dns, adns_query_type_t qtype,
 
 void
 lws_async_dns_trim_cache(lws_async_dns_t *dns);
+
+int
+lws_async_dns_get_new_tid(struct lws_context *context, lws_adns_q_t *q);

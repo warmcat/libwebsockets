@@ -91,11 +91,11 @@ lws will generate PINGs and take PONGs as the indication of validity.
 
 ## `lws_system`: Async DNS support
 
-Master now provides optional Asynchronous (ie, nonblocking) DNS resolving.  Enable
-with `-DLWS_WITH_SYS_ASYNC_DNS=1` at cmake.  This provides a quite sophisticated
-ipv4 + ipv6 capable resolver that autodetects the dns server on several platforms
-and operates a UDP socket to its port 53 to produce and parse DNS packets
-from the event loop.  And of course, it's extremely compact.
+Master now provides optional Asynchronous (ie, nonblocking) recursive DNS resolving.
+Enable with `-DLWS_WITH_SYS_ASYNC_DNS=1` at cmake.  This provides a quite
+sophisticated ipv4 + ipv6 capable resolver that autodetects the dns server on
+several platforms and operates a UDP socket to its port 53 to produce and parse DNS
+packets from the event loop.  And of course, it's extremely compact.
 
 It broadly follows the getaddrinfo style api, but instead of creating the results
 on the heap for each caller, it caches a single result according to the TTL and
