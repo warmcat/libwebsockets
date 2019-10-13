@@ -59,8 +59,8 @@ lws_buflist_append_segment(struct lws_buflist **head, const uint8_t *buf,
 	lwsl_info("%s: len %u first %d %p\n", __func__, (unsigned int)len,
 					      first, p);
 
-	nbuf = (struct lws_buflist *)lws_malloc(
-			sizeof(struct lws_buflist) + len + LWS_PRE, __func__);
+	nbuf = (struct lws_buflist *)lws_malloc(sizeof(struct lws_buflist) +
+						len + LWS_PRE + 1, __func__);
 	if (!nbuf) {
 		lwsl_err("%s: OOM\n", __func__);
 		return -1;
