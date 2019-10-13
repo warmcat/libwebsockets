@@ -79,6 +79,9 @@ lws_get_peer_addresses(struct lws *wsi, lws_sockfd_type fd, char *name,
 LWS_VISIBLE LWS_EXTERN const char *
 lws_get_peer_simple(struct lws *wsi, char *name, int namelen);
 
+LWS_VISIBLE LWS_EXTERN const char *
+lws_get_peer_simple_fd(int fd, char *name, int namelen);
+
 #define LWS_ITOSA_USABLE	0
 #define LWS_ITOSA_NOT_EXIST	-1
 #define LWS_ITOSA_NOT_USABLE	-2

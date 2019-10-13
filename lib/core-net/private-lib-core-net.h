@@ -626,6 +626,10 @@ struct lws {
 	struct lws_dll2_owner dll2_cli_txn_queue_owner;
 	struct lws_dll2 dll2_cli_txn_queue;
 #endif
+
+#if defined(LWS_WITH_ACCESS_LOG)
+	char simple_ip[(8 * 5)];
+#endif
 	/* pointers */
 
 	struct lws_context *context;

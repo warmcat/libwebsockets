@@ -44,14 +44,10 @@ void
 lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int meth)
 {
 	char da[64], uri[256];
-	const char *pa, *me;
 	time_t t = time(NULL);
+	struct lws *nwsi;
+	const char *me;
 	int l = 256, m;
-#ifdef LWS_WITH_IPV6
-	char ads[INET6_ADDRSTRLEN];
-#else
-	char ads[INET_ADDRSTRLEN];
-#endif
 	struct tm *tmp;
 
 	if (!wsi->vhost)
@@ -74,10 +70,6 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int met
 	else
 		strcpy(da, "01/Jan/1970:00:00:00 +0000");
 
-	pa = lws_get_peer_simple(wsi, ads, sizeof(ads));
-	if (!pa)
-		pa = "(unknown)";
-
 	if (wsi->http2_substream)
 		me = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_METHOD);
 	else
@@ -92,9 +84,12 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int met
 	strncpy(uri, uri_ptr, m);
 	uri[m] = '\0';
 
+	nwsi = lws_get_network_wsi(wsi);
+
 	lws_snprintf(wsi->http.access_log.header_log, l,
 		     "%s - - [%s] \"%s %s %s\"",
-		     pa, da, me, uri, hver[wsi->http.request_version]);
+		     nwsi->simple_ip[0] ? nwsi->simple_ip : "unknown", da, me, uri,
+			hver[wsi->http.request_version]);
 
 	//lwsl_notice("%s\n", wsi->http.access_log.header_log);
 

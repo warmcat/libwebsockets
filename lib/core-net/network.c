@@ -111,41 +111,28 @@ lws_get_addresses(struct lws_vhost *vh, void *ads, char *name,
 	return 0;
 }
 
+const char *
+lws_get_peer_simple_fd(int fd, char *name, int namelen)
+{
+	lws_sockaddr46 sa46;
+	socklen_t len = sizeof(sa46);
 
-LWS_VISIBLE const char *
+	if (getpeername(fd, (struct sockaddr *)&sa46, &len) < 0) {
+		lws_snprintf(name, namelen, "getpeername: %s",
+				strerror(LWS_ERRNO));
+		return name;
+	}
+
+	lws_sa46_write_numeric_address(&sa46, name, namelen);
+
+	return name;
+}
+
+const char *
 lws_get_peer_simple(struct lws *wsi, char *name, int namelen)
 {
-	socklen_t len, olen;
-#ifdef LWS_WITH_IPV6
-	struct sockaddr_in6 sin6;
-#endif
-	struct sockaddr_in sin4;
-	int af = AF_INET;
-	void *p, *q;
-
 	wsi = lws_get_network_wsi(wsi);
-
-#ifdef LWS_WITH_IPV6
-	if (LWS_IPV6_ENABLED(wsi->vhost)) {
-		len = sizeof(sin6);
-		p = &sin6;
-		af = AF_INET6;
-		q = &sin6.sin6_addr;
-	} else
-#endif
-	{
-		len = sizeof(sin4);
-		p = &sin4;
-		q = &sin4.sin_addr;
-	}
-
-	olen = len;
-	if (getpeername(wsi->desc.sockfd, p, &len) < 0 || len > olen) {
-		lwsl_warn("getpeername: %s\n", strerror(LWS_ERRNO));
-		return NULL;
-	}
-
-	return lws_plat_inet_ntop(af, q, name, namelen);
+	return lws_get_peer_simple_fd(wsi->desc.sockfd, name, namelen);
 }
 #endif
 

@@ -260,7 +260,12 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 #if defined(LWS_WITH_SERVER)
 	 else
 		if (lws_server_socket_service_ssl(new_wsi, fd.sockfd)) {
+#if defined(LWS_WITH_ACCESS_LOG)
+			lwsl_notice("%s: fail ssl negotiation: %s\n", __func__,
+					new_wsi->simple_ip);
+#else
 			lwsl_info("%s: fail ssl negotiation\n", __func__);
+#endif
 			goto fail;
 		}
 #endif
@@ -332,6 +337,11 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 			compatible_close(fd.sockfd);
 		return NULL;
 	}
+
+#if defined(LWS_WITH_ACCESS_LOG)
+		lws_get_peer_simple_fd(fd.sockfd, new_wsi->simple_ip,
+					sizeof(new_wsi->simple_ip));
+#endif
 
 #if defined(LWS_WITH_PEER_LIMITS)
 	if (peer)
