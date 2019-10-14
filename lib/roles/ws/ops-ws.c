@@ -2029,7 +2029,7 @@ rops_issue_keepalive_ws(struct lws *wsi, int isvalid)
 		struct lws *enc = role_ops_h2.encapsulation_parent(wsi);
 
 		assert(enc);
-		if (enc->role_ops->issue_keepalive(wsi, isvalid))
+		if (enc->role_ops->issue_keepalive(enc, isvalid))
 			return 1;
 	}
 #endif
