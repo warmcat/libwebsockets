@@ -121,7 +121,8 @@ lws_urldecode_s_create(struct lws_spa *spa, struct lws *wsi, char *out,
 	/* multipart/form-data;
 	 * boundary=----WebKitFormBoundarycc7YgAPEIHvgE9Bf */
 
-		if (!strncmp(buf, "multipart/form-data", 19)) {
+		if (!strncmp(buf, "multipart/form-data", 19) ||
+		    !strncmp(buf, "multipart/related", 17)) {
 			s->multipart_form_data = 1;
 			s->state = MT_LOOK_BOUND_IN;
 			s->mp = 2;
