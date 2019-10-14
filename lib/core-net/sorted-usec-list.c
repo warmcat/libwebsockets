@@ -85,30 +85,29 @@ lws_sul_schedule(struct lws_context *context, int tsi,
 lws_usec_t
 __lws_sul_check(lws_dll2_owner_t *own, lws_usec_t usnow)
 {
-	lws_usec_t future_us = 0;
+	while (lws_dll2_get_head(own)) {
 
-	lws_start_foreach_dll_safe(struct lws_dll2 *, p, tp,
-				   lws_dll2_get_head(own)) {
 		/* .list is always first member in lws_sorted_usec_list_t */
-		lws_sorted_usec_list_t *sul = (lws_sorted_usec_list_t *)p;
+		lws_sorted_usec_list_t *sul = (lws_sorted_usec_list_t *)
+							lws_dll2_get_head(own);
 
 		assert(sul->us); /* shouldn't be on the list otherwise */
-		if (sul->us <= usnow) {
-			/* seq has timed out... remove him from timeout list */
-			lws_dll2_remove(&sul->list);
-			sul->us = 0;
-			sul->cb(sul);
-		} else {
-			/*
-			 * No need to look further if we met one later than now:
-			 * the list is sorted in ascending time order
-			 */
-			future_us = sul->us - usnow;
 
-			break;
-		}
+		if (sul->us > usnow)
+			return sul->us - usnow;
 
-	} lws_end_foreach_dll_safe(p, tp);
+		/* his moment has come... remove him from timeout list */
+		lws_dll2_remove(&sul->list);
+		sul->us = 0;
+		sul->cb(sul);
 
-	return future_us;
+		/*
+		 * The callback may have done any mixture of delete
+		 * and add sul entries... eg, close a wsi may pull out
+		 * multiple entries making iterating it statefully
+		 * unsafe.  Always restart at the current head of list.
+		 */
+	}
+
+	return 0;
 }
