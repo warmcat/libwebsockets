@@ -209,6 +209,9 @@ lwsac_info(struct lwsac *head);
 LWS_VISIBLE LWS_EXTERN uint64_t
 lwsac_total_alloc(struct lwsac *head);
 
+LWS_VISIBLE LWS_EXTERN uint64_t
+lwsac_total_overhead(struct lwsac *head);
+
 /**
  * lwsac_scan_extant() - returns existing copy of blob, or NULL
  *

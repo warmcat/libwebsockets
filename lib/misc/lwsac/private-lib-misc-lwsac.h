@@ -41,10 +41,13 @@
 struct lwsac {
 	struct lwsac *next;
 	struct lwsac *head; /* pointer back to the first chunk */
-	struct lwsac *curr; /* applies to head chunk only */
-	size_t total_alloc_size; /* applies to head chunk only */
 	size_t alloc_size;
 	size_t ofs; /* next writeable position inside chunk */
+};
+
+struct lwsac_head {
+	struct lwsac *curr; /* applies to head chunk only */
+	size_t total_alloc_size; /* applies to head chunk only */
 	int refcount; /* applies to head chunk only */
 	int total_blocks; /* applies to head chunk only */
 	char detached; /* if our refcount gets to zero, free the chunk list */
