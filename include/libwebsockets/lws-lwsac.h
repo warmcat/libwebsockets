@@ -101,27 +101,6 @@ LWS_VISIBLE LWS_EXTERN void *
 lwsac_use(struct lwsac **head, size_t ensure, size_t chunk_size);
 
 /**
- * lwsac_use_zero - allocate / use some memory from a lwsac and zero it
- *
- * \param head: pointer to the lwsac list object
- * \param ensure: the number of bytes we want to use
- * \param chunk_size: 0, or the size of the chunk to (over)allocate if
- *			what we want won't fit in the current tail chunk.  If
- *			0, the default value of 4000 is used. If ensure is
- *			larger, it is used instead.
- *
- * This also serves to init the lwsac if *head is NULL.  Basically it does
- * whatever is necessary to return you a pointer to ensure bytes of memory
- * reserved for the caller.
- *
- * \p ensure bytes at the return address are zeroed if the allocation succeeded.
- *
- * Returns NULL if OOM.
- */
-LWS_VISIBLE LWS_EXTERN void *
-lwsac_use_zero(struct lwsac **head, size_t ensure, size_t chunk_size);
-
-/**
  * lwsac_use - allocate / use some memory from a lwsac
  *
  * \param head: pointer to the lwsac list object
@@ -137,7 +116,9 @@ lwsac_use_zero(struct lwsac **head, size_t ensure, size_t chunk_size);
  * Returns NULL if OOM.
  */
 LWS_VISIBLE LWS_EXTERN void *
-lwsac_use_zeroed(struct lwsac **head, size_t ensure, size_t chunk_size);
+lwsac_use_zero(struct lwsac **head, size_t ensure, size_t chunk_size);
+
+#define lwsac_use_zeroed lwsac_use_zero
 
 /**
  * lwsac_free - deallocate all chunks in the lwsac and set head NULL
@@ -227,5 +208,22 @@ lwsac_info(struct lwsac *head);
 
 LWS_VISIBLE LWS_EXTERN uint64_t
 lwsac_total_alloc(struct lwsac *head);
+
+/**
+ * lwsac_scan_extant() - returns existing copy of blob, or NULL
+ *
+ * \param head: the lwsac to scan
+ * \param find: the blob to look for
+ * \param len: the length of the blob to look for
+ * \param nul: nonzero if the next byte must be NUL
+ *
+ * Helper that looks through a whole lwsac for a given binary blob already
+ * present.  Used in the case that lwsac contents are const once written, and
+ * strings or blobs may be repeated in the input: this allows the earlier
+ * copy to be pointed to by subsequent references without repeating the string
+ * or blob redundantly.
+ */
+LWS_VISIBLE LWS_EXTERN uint8_t *
+lwsac_scan_extant(struct lwsac *head, uint8_t *find, size_t len, int nul);
 
 ///@}
