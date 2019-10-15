@@ -72,8 +72,8 @@ lwsac_get_next(struct lwsac *lac)
 void *
 lwsac_use(struct lwsac **head, size_t ensure, size_t chunk_size)
 {
+	size_t ofs, alloc, al;
 	struct lwsac *chunk;
-	size_t ofs, alloc;
 
 	/* ensure there's a chunk and enough space in it for this name */
 
@@ -127,11 +127,40 @@ lwsac_use(struct lwsac **head, size_t ensure, size_t chunk_size)
 
 	ofs = (*head)->curr->ofs;
 
-	(*head)->curr->ofs += lwsac_align(ensure);
+	al = lwsac_align(ensure);
+	if (al > ensure) {
+		/* zero down the alignment padding part */
+
+		memset((char *)(*head)->curr + ofs + ensure, 0, al - ensure);
+	}
+	(*head)->curr->ofs += al;
 	if ((*head)->curr->ofs >= (*head)->curr->alloc_size)
 		(*head)->curr->ofs = (*head)->curr->alloc_size;
 
 	return (char *)(*head)->curr + ofs;
+}
+
+uint8_t *
+lwsac_scan_extant(struct lwsac *head, uint8_t *find, size_t len, int nul)
+{
+	while (head) {
+		uint8_t *pos = (uint8_t *)&head[1],
+			*end = ((uint8_t *)head) + head->ofs - len;
+
+		if (head->ofs - sizeof(*head) >= len)
+			while (pos < end) {
+				if (*pos == *find && (!nul || !pos[len]) &&
+				    pos[len - 1] == find[len - 1] &&
+				    !memcmp(pos, find, len))
+					/* found the blob */
+					return pos;
+				pos++;
+			}
+
+		head = head->next;
+	}
+
+	return NULL;
 }
 
 void *
@@ -143,17 +172,6 @@ lwsac_use_zero(struct lwsac **head, size_t ensure, size_t chunk_size)
 		memset(p, 0, ensure);
 
 	return p;
-}
-
-void *
-lwsac_use_zeroed(struct lwsac **head, size_t ensure, size_t chunk_size)
-{
-	void *r = lwsac_use(head, ensure, chunk_size);
-
-	if (r)
-		memset(r, 0, ensure);
-
-	return r;
 }
 
 void

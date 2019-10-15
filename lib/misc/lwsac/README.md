@@ -90,7 +90,7 @@ lwsac if they need to, avoiding any need to visit them during destroy.  It's
 like clearing up after a kids' party by gathering up a disposable tablecloth:
 no matter what was left on the table, it's all gone in one step.
 
-## lws_list_ptr helpers
+## `lws_list_ptr` helpers
 
 ```
 /* sort may be NULL if you don't care about order */
@@ -100,7 +100,24 @@ lws_list_ptr_insert(lws_list_ptr *phead, lws_list_ptr *add,
 ```
 
 A common pattern needed with sub-allocated structs is they are on one or more
-linked-list.  To make that simple to do cleanly, lws_list... apis are provided
+linked-list.  To make that simple to do cleanly, `lws_list...` apis are provided
 along with a generic insertion function that can take a sort callback.  These
 allow a struct to participate on multiple linked-lists simultaneously.
+
+## common const string and blob folding
+
+In some cases the input to be stored in the lwsac may repeat the same tokens
+multiple times... if the pattern is to store the string or blob in the lwsac
+and then point to it, you can make use of a helper api
+
+```
+uint8_t *
+lwsac_scan_extant(struct lwsac *head, uint8_t *find, size_t len, int nul);
+```
+
+This lets you check in all previous used parts of the lwsac for the same
+string or blob, plus optionally a terminal NUL afterwards.  If not found,
+it returns `NULL` and you can copy it into the lwsac as usual.  If it is
+found, a pointer is returned, and you can use this directly without copying
+the string or blob in again.
 
