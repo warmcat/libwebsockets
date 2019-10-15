@@ -121,3 +121,28 @@ it returns `NULL` and you can copy it into the lwsac as usual.  If it is
 found, a pointer is returned, and you can use this directly without copying
 the string or blob in again.
 
+## optimizations to minimize overhead
+
+If the lwsac will persist in the system for some time, it's desirable to reduce
+the memory needed as overhead.  Overhead is created
+
+ - once per chunk... in addition to the malloc overhead, there's an lwsac
+   chunk header of 2 x pointers and 2 x size_t
+   
+ - at the unused part at the end that was allocated but not used
+ 
+A good strategy is to make the initial allocation reflect the minimum expected
+size of the overall lwsac in one hit.  Then use a chunk size that is a tradeoff
+between the number of chunks that might be needed and the fact that on average,
+you can expect to waste half a chunk.  For example if the storage is typically
+between 4K - 6K, you could allocate 4K or 4.5K for the first chunk and then fill
+in using 256 or 512 byte chunks.
+
+You can measure the overhead in an lwsac using `lwsac_total_overhead()`.
+
+The lwsac apis look first in the unused part of previous chunks, if any, and
+will place new allocations there preferentially if they fit.  This helps for the
+case lwsac was forced to allocate a new chunk because you asked for something
+large, while there was actually significant free space left in the old chunk,
+just not enough for that particular allocation.  Subsequent lwsac use can then
+"backfill" smaller things there to make best use of allocated space.
