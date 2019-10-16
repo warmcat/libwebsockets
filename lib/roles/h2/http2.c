@@ -549,12 +549,10 @@ int
 lws_h2_tx_cr_get(struct lws *wsi)
 {
 	int c = wsi->h2.tx_cr;
-	struct lws *nwsi;
+	struct lws *nwsi = lws_get_network_wsi(wsi);
 
-	if (!wsi->http2_substream && !wsi->upgraded_to_http2)
+	if (!wsi->http2_substream && !nwsi->upgraded_to_http2)
 		return ~0x80000000;
-
-	nwsi = lws_get_network_wsi(wsi);
 
 	lwsl_info ("%s: %p: own tx credit %d: nwsi credit %d\n",
 		     __func__, wsi, c, nwsi->h2.tx_cr);
@@ -834,6 +832,9 @@ bail:
 	return 1;
 }
 
+static int
+lws_h2_parse_end_of_frame(struct lws *wsi);
+
 /*
  * The frame header part has just completely arrived.
  * Perform actions for header completion.
@@ -902,7 +903,8 @@ lws_h2_parse_frame_header(struct lws *wsi)
 					&& wsi->client_h2_alpn
 #endif
 			) {
-				lwsl_notice("ignoring straggling data\n");
+				lwsl_notice("ignoring straggling data fl 0x%x\n",
+						h2n->flags);
 				/* ie, IGNORE */
 				h2n->type = LWS_H2_FRAME_TYPE_COUNT;
 			} else {
@@ -963,7 +965,8 @@ lws_h2_parse_frame_header(struct lws *wsi)
 			lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR, "DATA 0 sid");
 			break;
 		}
-		lwsl_info("Frame header DATA: sid %d\n", h2n->sid);
+		lwsl_info("Frame header DATA: sid %d, flags 0x%x, len %d\n",
+				h2n->sid, h2n->flags, h2n->length);
 
 		if (!h2n->swsi) {
 			lwsl_notice("DATA: NULL swsi\n");
@@ -978,7 +981,12 @@ lws_h2_parse_frame_header(struct lws *wsi)
 			lws_h2_goaway(wsi, H2_ERR_STREAM_CLOSED, "conn closed");
 			break;
 		}
+
+		if (h2n->length == 0)
+			lws_h2_parse_end_of_frame(wsi);
+
 		break;
+
 	case LWS_H2_FRAME_TYPE_PRIORITY:
 		lwsl_info("LWS_H2_FRAME_TYPE_PRIORITY complete frame\n");
 		if (!h2n->sid) {
@@ -1605,7 +1613,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		 */
 
 		if (h2n->swsi->client_h2_substream &&
-		    h2n->flags & LWS_H2_FLAG_END_STREAM) {
+		    (h2n->flags & LWS_H2_FLAG_END_STREAM)) {
 			lwsl_info("%s: %p: DATA: end stream\n",
 				  __func__, h2n->swsi);
 
@@ -1901,8 +1909,8 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 
 			case LWS_H2_FRAME_TYPE_DATA:
 
-				lwsl_info("%s: LWS_H2_FRAME_TYPE_DATA\n",
-					  __func__);
+				lwsl_info("%s: LWS_H2_FRAME_TYPE_DATA: fl 0x%x\n",
+					  __func__, h2n->flags);
 
 				/*
 				 * let the network wsi live a bit longer if
@@ -2205,7 +2213,7 @@ int
 lws_h2_client_handshake(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
-	uint8_t *buf, *start, *p, *p1, *end, *q;
+	uint8_t *buf, *start, *p, *p1, *end;
 	char *meth = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD),
 	     *uri = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI);
 	struct lws *nwsi = lws_get_network_wsi(wsi);
@@ -2245,7 +2253,6 @@ lws_h2_client_handshake(struct lws *wsi)
 
 	p = start = buf = pt->serv_buf + LWS_PRE;
 	end = start + (wsi->context->pt_serv_buf_size / 2) - LWS_PRE - 1;
-	q = start + (wsi->context->pt_serv_buf_size / 2);
 
 	/* it's time for us to send our client stream headers */
 
@@ -2304,27 +2311,6 @@ lws_h2_client_handshake(struct lws *wsi)
 					33, &p, end))
 			goto fail_length;
 		lws_client_http_body_pending(wsi, 1);
-	}
-
-	if (wsi->flags & LCCSCF_H2_AUTH_BEARER) {
-
-		uint8_t *qend = q + (wsi->context->pt_serv_buf_size / 2) - 1;
-
-		strcpy((char *)q, "bearer ");
-
-		n = lws_system_get_auth(wsi->context, 0, 0, q + 7,
-					lws_ptr_diff(qend, q + 7),
-					wsi->flags & LCCSCF_H2_HEXIFY_AUTH_TOKEN ?
-							LWSSYSGAUTH_HEX : 0);
-		if (n < 0)
-			return -1;
-
-		lwsl_debug("%s: adding auth: %s\n", __func__, q);
-
-		if (lws_add_http_header_by_token(wsi,
-						 WSI_TOKEN_HTTP_AUTHORIZATION,
-						 q, n + 7, &p, end))
-			return -1;
 	}
 
 	/* give userland a chance to append, eg, cookies */
