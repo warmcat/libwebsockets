@@ -400,8 +400,10 @@ rops_write_role_protocol_h2(struct lws *wsi, unsigned char *buf, size_t len,
 #endif
 	)) {
 		//assert(0);
-		lwsl_notice("%s: binning wsistate 0x%x %d\n", __func__,
-				wsi->wsistate, *wp);
+		lwsl_notice("%s: binning wsistate 0x%x %d: %s\n", __func__,
+				(unsigned int)wsi->wsistate, *wp, wsi->protocol ?
+					wsi->protocol->name : "no protocol");
+
 		return 0;
 	}
 

@@ -1719,9 +1719,9 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		break;
 
 	case LWS_H2_FRAME_TYPE_GOAWAY:
-		lwsl_info("GOAWAY: last sid %d, error 0x%08X, string '%s'\n",
-			  h2n->goaway_last_sid, h2n->goaway_err,
-			  h2n->goaway_str);
+		lwsl_info("GOAWAY: last sid %u, error 0x%08X, string '%s'\n",
+			  (unsigned int)h2n->goaway_last_sid,
+			  (unsigned int)h2n->goaway_err, h2n->goaway_str);
 		wsi->h2.GOING_AWAY = 1;
 
 		return 1;
@@ -2127,8 +2127,9 @@ do_windows:
 
 frame_end:
 			if (h2n->count > h2n->length) {
-				lwsl_notice("%s: count > length %d %d\n",
-					    __func__, h2n->count, h2n->length);
+				lwsl_notice("%s: count > length %u %u\n",
+					    __func__, (unsigned int)h2n->count,
+					    (unsigned int)h2n->length);
 				goto fail;
 			}
 			if (h2n->count != h2n->length)
