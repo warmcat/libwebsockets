@@ -509,6 +509,10 @@ lws_create_context(const struct lws_context_creation_info *info)
 				ar->pt_init_destroy(context, info,
 						    &context->pt[n], 0);
 		} LWS_FOR_EVERY_AVAILABLE_ROLE_END;
+
+#if defined(LWS_WITH_CGI)
+		role_ops_cgi.pt_init_destroy(context, info, &context->pt[n], 0);
+#endif
 	}
 
 	lwsl_info(" Threads: %d each %d fds\n", context->count_threads,
@@ -836,6 +840,10 @@ lws_context_destroy3(struct lws_context *context)
 			if (ar->pt_init_destroy)
 				ar->pt_init_destroy(context, NULL, pt, 1);
 		} LWS_FOR_EVERY_AVAILABLE_ROLE_END;
+
+#if defined(LWS_WITH_CGI)
+		role_ops_cgi.pt_init_destroy(context, NULL, pt, 1);
+#endif
 
 		if (context->event_loop_ops->destroy_pt)
 			context->event_loop_ops->destroy_pt(context, n);
