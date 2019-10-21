@@ -32,7 +32,7 @@ lws_struct_schema_only_lejp_cb(struct lejp_ctx *ctx, char reason)
 {
 	lws_struct_args_t *a = (lws_struct_args_t *)ctx->user;
 	const lws_struct_map_t *map = a->map_st[ctx->pst_sp];
-	int n = a->map_entries_st[ctx->pst_sp];
+	size_t n = a->map_entries_st[ctx->pst_sp];
 	lejp_callback cb = map->lejp_cb;
 
 	if (reason != LEJPCB_VAL_STR_END || ctx->path_match != 1)
@@ -93,7 +93,7 @@ lws_struct_default_lejp_cb(struct lejp_ctx *ctx, char reason)
 	const lws_struct_map_t *map, *pmap = NULL;
 	uint8_t *ch;
 	char *u;
-	int n;
+	size_t n;
 
 	if (reason == LEJPCB_ARRAY_END) {
 		lejp_parser_pop(ctx);

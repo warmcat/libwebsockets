@@ -146,7 +146,8 @@ void
 lejp_check_path_match(struct lejp_ctx *ctx)
 {
 	const char *p, *q;
-	int n, s = sizeof(char *);
+	int n;
+	size_t s = sizeof(char *);
 
 	if (ctx->path_stride)
 		s = ctx->path_stride;
