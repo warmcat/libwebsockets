@@ -133,7 +133,7 @@ struct lws_fd_hashtable {
 #define LWS_EXTERN extern __declspec(dllimport)
 #endif
 #else
-#define LWS_EXTERN
+#define LWS_EXTERN extern
 #endif
 
 typedef SOCKET lws_sockfd_type;

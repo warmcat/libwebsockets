@@ -100,8 +100,6 @@ typedef unsigned long long lws_intptr_t;
 #else
 #define LWS_EXTERN extern __declspec(dllimport)
 #endif
-#else
-#define LWS_EXTERN
 #endif
 #endif
 
