@@ -149,7 +149,7 @@ lws_hex_to_byte_array(const char *h, uint8_t *dest, int max)
 	if (max < 0)
 		return -1;
 
-	return dest - odest;
+	return lws_ptr_diff(dest, odest);
 }
 
 

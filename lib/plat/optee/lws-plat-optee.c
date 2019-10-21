@@ -126,7 +126,7 @@ void lwsl_emit_optee(int level, const char *line)
 }
 
 int
-lws_plat_set_nonblocking(int fd)
+lws_plat_set_nonblocking(lws_sockfd_type fd)
 {
 	return 0;
 }
