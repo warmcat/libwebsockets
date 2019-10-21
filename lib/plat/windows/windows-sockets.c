@@ -67,7 +67,7 @@ lws_poll_listen_fd(struct lws_pollfd *fd)
 }
 
 int
-lws_plat_set_nonblocking(int fd)
+lws_plat_set_nonblocking(lws_sockfd_type fd)
 {
 	u_long optl = 1;
 
