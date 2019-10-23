@@ -637,19 +637,19 @@ typedef struct lws_humanize_unit {
 	uint64_t factor;
 } lws_humanize_unit_t;
 
-LWS_VISIBLE LWS_EXTERN const lws_humanize_unit_t humanize_schema_si[];
-LWS_VISIBLE LWS_EXTERN const lws_humanize_unit_t humanize_schema_si_bytes[];
-LWS_VISIBLE LWS_EXTERN const lws_humanize_unit_t humanize_schema_us[];
+LWS_VISIBLE LWS_EXTERN const lws_humanize_unit_t humanize_schema_si[7];
+LWS_VISIBLE LWS_EXTERN const lws_humanize_unit_t humanize_schema_si_bytes[7];
+LWS_VISIBLE LWS_EXTERN const lws_humanize_unit_t humanize_schema_us[8];
 
 /**
- * lws_humanize() - Convert possibly large number to himan-readable uints
+ * lws_humanize() - Convert possibly large number to human-readable uints
  *
  * \param buf: result string buffer
  * \param len: remaining length in \p buf
  * \param value: the uint64_t value to represent
  * \param schema: and array of scaling factors and units
  *
- * This produces a concise string representation of \p value, referening the
+ * This produces a concise string representation of \p value, referencing the
  * schema \p schema of scaling factors and units to find the smallest way to
  * render it.
  *
