@@ -841,6 +841,9 @@ lws_sul_wsping_cb(lws_sorted_usec_list_t *sul)
 {
 	struct lws *wsi = lws_container_of(sul, struct lws, sul_ping);
 
+	if (!wsi->ws)
+		return;
+
 	/*
 	 * The sul_ping timer came up... either it's time to send a PING
 	 * (!wsi->ws->send_check_ping), or we didn't get the PONG in time
