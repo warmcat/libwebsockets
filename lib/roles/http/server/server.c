@@ -1106,7 +1106,12 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 	lws_clean_url(rpath);
 	na = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_URI_ARGS);
 	if (na) {
-		char *p = rpath + n;
+		char *p;
+
+		if (!n) /* don't start with the ?... use the first / if so */
+			n++;
+
+		p = rpath + n;
 
 		if (na >= (int)sizeof(rpath) - n - 2) {
 			lwsl_info("%s: query string %d longer "
