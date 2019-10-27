@@ -2378,7 +2378,7 @@ lws_h2_ws_handshake(struct lws *wsi)
 			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_PROTOCOL,
 				(uint8_t *)lws_hdr_simple_ptr(wsi,
 							   WSI_TOKEN_PROTOCOL),
-				strlen(lws_hdr_simple_ptr(wsi,
+				(int)strlen(lws_hdr_simple_ptr(wsi,
 							   WSI_TOKEN_PROTOCOL)),
 						 &p, end))
 			return -1;
