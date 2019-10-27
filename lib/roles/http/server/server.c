@@ -695,10 +695,10 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 			if (!wsi->http2_substream)
 				wsi->sending_chunked = 1;
 
-			wsi->protocol_interpret_idx =
+			wsi->protocol_interpret_idx = (char)(
 				lws_vhost_name_to_protocol(wsi->vhost,
 							   pvo->value) -
-				&lws_get_vhost(wsi)->protocols[0];
+				&lws_get_vhost(wsi)->protocols[0]);
 
 			lwsl_debug("want %s interpreted by %s (pcol is %s)\n", path,
 				    wsi->vhost->protocols[
