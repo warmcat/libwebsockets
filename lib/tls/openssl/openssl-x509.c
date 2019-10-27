@@ -242,7 +242,7 @@ lws_x509_parse_from_pem(struct lws_x509_cert *x509, const void *pem, size_t len)
 {
 	BIO* bio = BIO_new(BIO_s_mem());
 
-	BIO_write(bio, pem, len);
+	BIO_write(bio, pem, (int)len);
 	x509->cert = PEM_read_bio_X509(bio, NULL, NULL, NULL);
 	BIO_free(bio);
 	if (!x509->cert) {
@@ -496,7 +496,7 @@ lws_x509_jwk_privkey_pem(struct lws_jwk *jwk, void *pem, size_t len,
 	const BIGNUM *cmpi;
 	int n, m, ret = -1;
 
-	BIO_write(bio, pem, len);
+	BIO_write(bio, pem, (int)len);
 	PEM_read_bio_PrivateKey(bio, &pkey, lws_x509_jwk_privkey_pem_pp_cb,
 				(void *)passphrase);
 	BIO_free(bio);
