@@ -96,10 +96,10 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd,
 	tcp_proto = getprotobyname("TCP");
 	if (!tcp_proto) {
 		int error = LWS_ERRNO;
-		lwsl_err("getprotobyname() failed with error %d\n", error);
-		return 1;
-	}
-	protonbr = tcp_proto->p_proto;
+		lwsl_warn("getprotobyname(\"TCP\") failed with error, falling back to 6 %d\n", error);
+		protonbr = 6;  /* IPPROTO_TCP */
+	} else
+		protonbr = tcp_proto->p_proto;
 #else
 	protonbr = 6;
 #endif
