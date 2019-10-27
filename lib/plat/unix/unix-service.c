@@ -57,6 +57,8 @@ _lws_plat_service_forced_tsi(struct lws_context *context, int tsi)
 	return 0;
 }
 
+#define LWS_POLL_WAIT_LIMIT 2000000000
+
 int
 _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
@@ -83,7 +85,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		timeout_ms = 0;
 	else
 		/* force a default timeout of 23 days */
-		timeout_ms = 2000000000;
+		timeout_ms = LWS_POLL_WAIT_LIMIT;
 	timeout_us = ((lws_usec_t)timeout_ms) * LWS_US_PER_MS;
 
 	if (context->event_loop_ops->run_pt)
@@ -120,9 +122,15 @@ again:
 			lws_pt_unlock(pt);
 		}
 
+		/* ensure we don't wrap at 2^31 with poll()'s signed int ms */
+
+		timeout_us /= LWS_US_PER_MS; /* ms now */
+		if (timeout_us > LWS_POLL_WAIT_LIMIT)
+			timeout_us = LWS_POLL_WAIT_LIMIT;
+
 		vpt->inside_poll = 1;
 		lws_memory_barrier();
-		n = poll(pt->fds, pt->fds_count, timeout_us / LWS_US_PER_MS);
+		n = poll(pt->fds, pt->fds_count, timeout_us /* ms now */ );
 		vpt->inside_poll = 0;
 		lws_memory_barrier();
 

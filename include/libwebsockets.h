@@ -48,10 +48,10 @@ typedef struct lws_dsh lws_dsh_t;
  * CARE: everything using cmake defines needs to be below here
  */
 
-#define LWS_US_PER_SEC 1000000
-#define LWS_MS_PER_SEC 1000
-#define LWS_US_PER_MS 1000
-#define LWS_NS_PER_US 1000
+#define LWS_US_PER_SEC ((lws_usec_t)1000000)
+#define LWS_MS_PER_SEC ((lws_usec_t)1000)
+#define LWS_US_PER_MS ((lws_usec_t)1000)
+#define LWS_NS_PER_US ((lws_usec_t)1000)
 
 #define LWS_KI (1024)
 #define LWS_MI (LWS_KI * 1024)
