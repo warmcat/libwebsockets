@@ -70,8 +70,13 @@ int
 lws_plat_set_nonblocking(lws_sockfd_type fd)
 {
 	u_long optl = 1;
-
-	return !!ioctlsocket(fd, FIONBIO, &optl);
+	int result = !!ioctlsocket(fd, FIONBIO, &optl);
+	if (!result)
+	{
+		int error = LWS_ERRNO;
+		lwsl_err("ioctlsocket FIONBIO 1 failed with error %d\n", error);
+	}
+	return result;
 }
 
 int
@@ -91,16 +96,22 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd,
 		/* enable keepalive on this socket */
 		optval = 1;
 		if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE,
-			       (const char *)&optval, optlen) < 0)
+			       (const char *)&optval, optlen) < 0) {
+			int error = LWS_ERRNO;
+			lwsl_err("setsockopt SO_KEEPALIVE 1 failed with error %d\n", error);
 			return 1;
+		}
 
 		alive.onoff = TRUE;
 		alive.keepalivetime = vhost->ka_time * 1000;
 		alive.keepaliveinterval = vhost->ka_interval * 1000;
 
 		if (WSAIoctl(fd, SIO_KEEPALIVE_VALS, &alive, sizeof(alive),
-			     NULL, 0, &dwBytesRet, NULL, NULL))
+			     NULL, 0, &dwBytesRet, NULL, NULL)) {
+			int error = LWS_ERRNO;
+			lwsl_err("WSAIoctl SIO_KEEPALIVE_VALS 1 %lu %lu failed with error %d\n", alive.keepalivetime, alive.keepaliveinterval, error);
 			return 1;
+		}
 	}
 
 	/* Disable Nagle */
@@ -108,7 +119,8 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd,
 #ifndef _WIN32_WCE
 	tcp_proto = getprotobyname("TCP");
 	if (!tcp_proto) {
-		lwsl_err("getprotobyname() failed with error %d\n", LWS_ERRNO);
+		int error = LWS_ERRNO;
+		lwsl_err("getprotobyname() failed with error %d\n", error);
 		return 1;
 	}
 	protonbr = tcp_proto->p_proto;
@@ -116,7 +128,11 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd,
 	protonbr = 6;
 #endif
 
-	setsockopt(fd, protonbr, TCP_NODELAY, (const char *)&optval, optlen);
+	if (setsockopt(fd, protonbr, TCP_NODELAY, (const char *)&optval, optlen) ) {
+		int error = LWS_ERRNO;
+		lwsl_warn("setsockopt TCP_NODELAY 1 failed with error %d\n", error);
+	}
+
 
 	return lws_plat_set_nonblocking(fd);
 }
