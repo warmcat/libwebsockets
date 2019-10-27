@@ -114,7 +114,7 @@ void
 lws_set_timeout_us(struct lws *wsi, enum pending_timeout reason, lws_usec_t us);
 
 #define LWS_SET_TIMER_USEC_CANCEL ((lws_usec_t)-1ll)
-#define LWS_USEC_PER_SEC (1000000ll)
+#define LWS_USEC_PER_SEC ((lws_usec_t)1000000)
 
 /**
  * lws_set_timer_usecs() - schedules a callback on the wsi in the future
