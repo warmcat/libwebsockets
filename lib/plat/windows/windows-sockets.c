@@ -71,7 +71,7 @@ lws_plat_set_nonblocking(lws_sockfd_type fd)
 {
 	u_long optl = 1;
 	int result = !!ioctlsocket(fd, FIONBIO, &optl);
-	if (!result)
+	if (result)
 	{
 		int error = LWS_ERRNO;
 		lwsl_err("ioctlsocket FIONBIO 1 failed with error %d\n", error);
