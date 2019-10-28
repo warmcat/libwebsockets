@@ -180,8 +180,6 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 					pkt->first, pkt->final)) < 0)
 			return -1;
 
-		wsi->parent->ws->proxy_buffered -= pkt->len;
-
 		lws_dll2_remove(dll);
 		lws_free(pkt);
 
@@ -225,6 +223,8 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 				pkt->binary ? LWS_WRITE_BINARY : LWS_WRITE_TEXT,
 					pkt->first, pkt->final)) < 0)
 			return -1;
+
+		wsi->ws->proxy_buffered -= pkt->len;
 
 		lws_dll2_remove(dll);
 		lws_free(pkt);
