@@ -400,7 +400,11 @@ lws_adjust_protocol_psds(struct lws *wsi, size_t new_size)
 	return wsi->user_space;
 }
 
-
+LWS_VISIBLE int
+lws_get_tsi(struct lws *wsi)
+{
+        return (int)wsi->tsi;
+}
 
 LWS_VISIBLE int
 lws_is_ssl(struct lws *wsi)

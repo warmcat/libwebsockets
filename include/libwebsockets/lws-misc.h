@@ -580,6 +580,15 @@ lws_dir(const char *dirpath, void *user, lws_dir_callback_function cb);
 size_t lws_get_allocated_heap(void);
 
 /**
+ * lws_get_tsi() - Get thread service index wsi belong to
+ * \param wsi:  websocket connection to check
+ *
+ * Returns more than zero (or zero if only one service thread as is the default).
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_get_tsi(struct lws *wsi);
+
+/**
  * lws_is_ssl() - Find out if connection is using SSL
  * \param wsi:	websocket connection to check
  *
