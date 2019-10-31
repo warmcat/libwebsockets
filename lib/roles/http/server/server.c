@@ -1870,7 +1870,7 @@ lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 	while (len) {
 		if (!lwsi_role_server(wsi) || !lwsi_role_http(wsi)) {
 			lwsl_err("%s: bad wsi role 0x%x\n", __func__,
-					lwsi_role(wsi));
+					(int)lwsi_role(wsi));
 			goto bail_nuke_ah;
 		}
 
