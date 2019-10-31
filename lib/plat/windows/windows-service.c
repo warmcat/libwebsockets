@@ -127,7 +127,10 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	if (!lws_service_adjust_timeout(context, 1, tsi))
 		_lws_plat_service_forced_tsi(context, tsi);
 
-	if (timeout_us) {
+	/*
+	 * service pending callbakcs and get maximum wait time
+	 */
+	{
 		lws_usec_t us;
 
 		lws_pt_lock(pt, __func__);
