@@ -36,7 +36,7 @@ lws_uv_sultimer_cb(uv_timer_t *timer
 	lws_usec_t us;
 
 	lws_pt_lock(pt, __func__);
-	us = __lws_sul_check(&pt->pt_sul_owner, lws_now_usecs());
+	us = __lws_sul_service_ripe(&pt->pt_sul_owner, lws_now_usecs());
 	if (us)
 		uv_timer_start(&pt->uv.sultimer, lws_uv_sultimer_cb,
 			       LWS_US_TO_MS(us), 0);
@@ -66,7 +66,7 @@ lws_uv_idle(uv_idle_t *handle
 	/* account for sultimer */
 
 	lws_pt_lock(pt, __func__);
-	us = __lws_sul_check(&pt->pt_sul_owner, lws_now_usecs());
+	us = __lws_sul_service_ripe(&pt->pt_sul_owner, lws_now_usecs());
 	if (us)
 		uv_timer_start(&pt->uv.sultimer, lws_uv_sultimer_cb,
 			       LWS_US_TO_MS(us), 0);

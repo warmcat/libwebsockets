@@ -110,7 +110,7 @@ again:
 
 			lws_pt_lock(pt, __func__);
 			/* don't stay in poll wait longer than next hr timeout */
-			us = __lws_sul_check(&pt->pt_sul_owner, lws_now_usecs());
+			us = __lws_sul_service_ripe(&pt->pt_sul_owner, lws_now_usecs());
 			if (us && us < timeout_us)
 				timeout_us = us;
 

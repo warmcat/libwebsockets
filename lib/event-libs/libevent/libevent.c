@@ -32,7 +32,7 @@ lws_event_hrtimer_cb(int fd, short event, void *p)
 	lws_usec_t us;
 
 	lws_pt_lock(pt, __func__);
-	us = __lws_sul_check(&pt->pt_sul_owner, lws_now_usecs());
+	us = __lws_sul_service_ripe(&pt->pt_sul_owner, lws_now_usecs());
 	if (us) {
 		tv.tv_sec = us / LWS_US_PER_SEC;
 		tv.tv_usec = us - (tv.tv_sec * LWS_US_PER_SEC);
@@ -73,7 +73,7 @@ lws_event_idle_timer_cb(int fd, short event, void *p)
 	/* account for hrtimer */
 
 	lws_pt_lock(pt, __func__);
-	us = __lws_sul_check(&pt->pt_sul_owner, lws_now_usecs());
+	us = __lws_sul_service_ripe(&pt->pt_sul_owner, lws_now_usecs());
 	if (us) {
 		tv.tv_sec = us / LWS_US_PER_SEC;
 		tv.tv_usec = us - (tv.tv_sec * LWS_US_PER_SEC);
