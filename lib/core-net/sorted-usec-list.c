@@ -102,7 +102,7 @@ lws_sul_schedule(struct lws_context *context, int tsi,
 }
 
 lws_usec_t
-__lws_sul_check(lws_dll2_owner_t *own, lws_usec_t usnow)
+__lws_sul_service_ripe(lws_dll2_owner_t *own, lws_usec_t usnow)
 {
 	while (lws_dll2_get_head(own)) {
                 /* .list is always first member in lws_sorted_usec_list_t */

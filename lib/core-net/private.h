@@ -252,7 +252,7 @@ __lws_sul_insert(lws_dll2_owner_t *own, lws_sorted_usec_list_t *sul,
 		 lws_usec_t us);
 
 lws_usec_t
-__lws_sul_check(lws_dll2_owner_t *own, lws_usec_t usnow);
+__lws_sul_service_ripe(lws_dll2_owner_t *own, lws_usec_t usnow);
 
 struct lws_timed_vh_protocol {
 	struct lws_timed_vh_protocol	*next;
