@@ -95,10 +95,35 @@ lws_list_ptr_insert(lws_list_ptr *phead, lws_list_ptr *add,
  * whatever is necessary to return you a pointer to ensure bytes of memory
  * reserved for the caller.
  *
+ * This always allocates in the current chunk or a new chunk... see the
+ * lwsac_use_backfill() variant to try first to find space in earlier chunks.
+ *
  * Returns NULL if OOM.
  */
 LWS_VISIBLE LWS_EXTERN void *
 lwsac_use(struct lwsac **head, size_t ensure, size_t chunk_size);
+
+/**
+ * lwsac_use_backfill - allocate / use some memory from a lwsac
+ *
+ * \param head: pointer to the lwsac list object
+ * \param ensure: the number of bytes we want to use
+ * \param chunk_size: 0, or the size of the chunk to (over)allocate if
+ *			what we want won't fit in the current tail chunk.  If
+ *			0, the default value of 4000 is used. If ensure is
+ *			larger, it is used instead.
+ *
+ * This also serves to init the lwsac if *head is NULL.  Basically it does
+ * whatever is necessary to return you a pointer to ensure bytes of memory
+ * reserved for the caller.
+ *
+ * Also checks if earlier blocks have enough remaining space to take the
+ * allocation before making a new allocation.
+ *
+ * Returns NULL if OOM.
+ */
+LWS_VISIBLE LWS_EXTERN void *
+lwsac_use_backfill(struct lwsac **head, size_t ensure, size_t chunk_size);
 
 /**
  * lwsac_use - allocate / use some memory from a lwsac
@@ -191,8 +216,9 @@ lwsac_cached_file(const char *filepath, lwsac_cached_file_t *cache,
 
 /* more advanced helpers */
 
+/* offset from lac to start of payload, first = 1 = first lac in chain */
 LWS_VISIBLE LWS_EXTERN size_t
-lwsac_sizeof(void);
+lwsac_sizeof(int first);
 
 LWS_VISIBLE LWS_EXTERN size_t
 lwsac_get_tail_pos(struct lwsac *lac);

@@ -71,6 +71,7 @@
 
 #define cache_file_to_lac(c) ((struct lwsac *)((char *)c - \
 			      sizeof(struct cached_file_info) - \
+			      sizeof(struct lwsac_head) - \
 			      sizeof(struct lwsac)))
 
 void
@@ -176,7 +177,7 @@ lwsac_cached_file(const char *filepath, lwsac_cached_file_t *cache, size_t *len)
 	 * it... reload in a new lac and then detach the old lac.
 	 */
 
-	all = sizeof(*info) + s.st_size + 1;
+	all = sizeof(*info) + s.st_size + 2;
 
 	info = lwsac_use(&lac, all, all);
 	if (!info)
