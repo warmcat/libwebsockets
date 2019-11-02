@@ -41,8 +41,15 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
-		status = lws_http_client_http_response(wsi);
-		lwsl_user("Connected with server response: %d\n", status);
+		{
+			char buf[128];
+
+			lws_get_peer_simple(wsi, buf, sizeof(buf));
+			status = lws_http_client_http_response(wsi);
+
+			lwsl_user("Connected to %s, http response: %d\n",
+					buf, status);
+		}
 #if defined(LWS_WITH_HTTP2)
 		if (long_poll) {
 			lwsl_user("%s: Client entering long poll mode\n", __func__);
