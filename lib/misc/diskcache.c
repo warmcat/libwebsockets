@@ -40,6 +40,14 @@
 #include <sys/time.h>
 #include <sys/types.h>
 
+#if defined(__APPLE__)
+#include <sys/dirent.h>
+/* Travis OSX does not have DT_REG... */
+#if !defined(DT_REG)
+#define DT_REG 8
+#endif
+#endif
+
 struct file_entry {
 	lws_list_ptr sorted;
 	lws_list_ptr prev;
