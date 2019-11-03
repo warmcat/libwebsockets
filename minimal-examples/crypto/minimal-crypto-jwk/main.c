@@ -167,7 +167,7 @@ int main(int argc, const char **argv)
 
 	/* private version */
 
-	if (lws_jwk_export(&jwk, 1, key, &vl) < 0) {
+	if (lws_jwk_export(&jwk, LWSJWKF_EXPORT_PRIVATE, key, &vl) < 0) {
 		lwsl_err("lws_jwk_export failed\n");
 
 		return 1;

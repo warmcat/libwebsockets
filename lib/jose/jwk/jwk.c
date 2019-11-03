@@ -667,7 +667,7 @@ lws_jwk_import(struct lws_jwk *jwk, lws_jwk_key_import_callback cb, void *user,
 
 
 LWS_VISIBLE int
-lws_jwk_export(struct lws_jwk *jwk, int private, char *p, int *len)
+lws_jwk_export(struct lws_jwk *jwk, int flags, char *p, int *len)
 {
 	char *start = p, *end = &p[*len - 1];
 	int n, m, limit, first = 1, asym = 0;
@@ -740,9 +740,9 @@ lws_jwk_export(struct lws_jwk *jwk, int private, char *p, int *len)
 					}
 					tok[pos] = '\0';
 					pos = 0;
-					if (private || !asym ||
-					    (strcmp(tok, "sign") &&
-					    strcmp(tok, "encrypt"))) {
+					if ((flags & LWSJWKF_EXPORT_PRIVATE) ||
+					    !asym || (strcmp(tok, "sign") &&
+						      strcmp(tok, "encrypt"))) {
 						if (!f)
 							*p++ = ',';
 						f = 0;
@@ -758,7 +758,8 @@ lws_jwk_export(struct lws_jwk *jwk, int private, char *p, int *len)
 
 			default:
 				/* both sig and enc require asym private key */
-				if (!private && asym && l->idx == (int)JWK_META_USE)
+				if (!(flags & LWSJWKF_EXPORT_PRIVATE) &&
+				    asym && l->idx == (int)JWK_META_USE)
 					break;
 				if (!first)
 					*p++ = ',';
@@ -771,7 +772,7 @@ lws_jwk_export(struct lws_jwk *jwk, int private, char *p, int *len)
 		}
 
 		if ((!(l->meta & 1)) && jwk->e[l->idx].buf &&
-		    (private || !(l->meta & 2))) {
+		    ((flags & LWSJWKF_EXPORT_PRIVATE) || !(l->meta & 2))) {
 			if (!first)
 				*p++ = ',';
 			first = 0;
@@ -798,7 +799,8 @@ lws_jwk_export(struct lws_jwk *jwk, int private, char *p, int *len)
 		l++;
 	}
 
-	p += lws_snprintf(p, end - p, "}\n");
+	p += lws_snprintf(p, end - p,
+			  (flags & LWSJWKF_EXPORT_NOCRLF) ? "}" : "}\n");
 
 	*len -= p - start;
 
@@ -814,7 +816,7 @@ lws_jwk_rfc7638_fingerprint(struct lws_jwk *jwk, char *digest32)
 
 	tmp = lws_malloc(tmpsize, "rfc7638 tmp");
 
-	n = lws_jwk_export(jwk, 0, tmp, &tmpsize);
+	n = lws_jwk_export(jwk, LWSJWKF_EXPORT_NOCRLF, tmp, &tmpsize);
 	if (n < 0)
 		goto bail;
 
@@ -887,7 +889,7 @@ lws_jwk_save(struct lws_jwk *jwk, const char *filename)
 	if (!buf)
 		return -1;
 
-	n = lws_jwk_export(jwk, 1, buf, &buflen);
+	n = lws_jwk_export(jwk, LWSJWKF_EXPORT_PRIVATE, buf, &buflen);
 	if (n < 0)
 		goto bail;
 
