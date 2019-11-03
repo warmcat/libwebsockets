@@ -178,7 +178,7 @@ int main(int argc, const char **argv)
 		lws_jwk_dump(&jwk);
 		lwsl_notice("Issuing Cert + Private JWK on stdout\n");
 		n = sizeof(pembuf);
-		if (lws_jwk_export(&jwk, 1, pembuf, &n))
+		if (lws_jwk_export(&jwk, LWSJWKF_EXPORT_PRIVATE, pembuf, &n))
 			puts(pembuf);
 	}
 

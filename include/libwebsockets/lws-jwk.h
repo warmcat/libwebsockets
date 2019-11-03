@@ -115,19 +115,30 @@ lws_jwk_destroy(struct lws_jwk *jwk);
 LWS_VISIBLE LWS_EXTERN int
 lws_jwk_dup_oct(struct lws_jwk *jwk, const void *key, int len);
 
+#define LWSJWKF_EXPORT_PRIVATE				(1 << 0)
+#define LWSJWKF_EXPORT_NOCRLF				(1 << 1)
+
 /** lws_jwk_export() - Export a JSON Web key to a textual representation
  *
  * \param jwk: the JWK object to export
- * \param _private: 0 = just export public parts, 1 = export everything
+ * \param flags: control export options
  * \param p: the buffer to write the exported JWK to
  * \param len: the length of the buffer \p p in bytes... reduced by used amount
  *
  * Returns length of the used part of the buffer if OK, or -1 for error.
  *
+ * \p flags can be OR-ed together
+ *
+ * LWSJWKF_EXPORT_PRIVATE: default is only public part, set this to also export
+ *			   the private part
+ *
+ * LWSJWKF_EXPORT_NOCRLF: normally adds a CRLF at the end of the export, if
+ *			  you need to suppress it, set this flag
+ *
  * Serializes the content of the JWK into a char buffer.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_jwk_export(struct lws_jwk *jwk, int _private, char *p, int *len);
+lws_jwk_export(struct lws_jwk *jwk, int flags, char *p, int *len);
 
 /** lws_jwk_load() - Import a JSON Web key from a file
  *
