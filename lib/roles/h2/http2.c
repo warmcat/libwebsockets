@@ -390,17 +390,19 @@ lws_h2_rst_stream(struct lws *wsi, uint32_t err, const char *reason)
 	if (!h2n)
 		return 0;
 
-	if (h2n->type == LWS_H2_FRAME_TYPE_COUNT)
+	if (!wsi->h2_stream_carries_ws && h2n->type == LWS_H2_FRAME_TYPE_COUNT)
 		return 0;
 
 	pps = lws_h2_new_pps(LWS_H2_PPS_RST_STREAM);
 	if (!pps)
 		return 1;
 
-	lwsl_info("%s: RST_STREAM 0x%x, REASON '%s'\n", __func__, err, reason);
+	lwsl_info("%s: RST_STREAM 0x%x, sid %d, REASON '%s'\n", __func__, err,
+			wsi->h2.my_sid, reason);
 
-	pps->u.rs.sid = h2n->sid;
+	pps->u.rs.sid = wsi->h2.my_sid;
 	pps->u.rs.err = err;
+
 	lws_pps_schedule(wsi, pps);
 
 	h2n->type = LWS_H2_FRAME_TYPE_COUNT; /* ie, IGNORE */
