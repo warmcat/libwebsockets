@@ -1054,27 +1054,58 @@ const lws_humanize_unit_t humanize_schema_us[] = {
 	{ NULL, 0 }
 };
 
+static int
+decim(char *r, uint64_t v, char chars, char leading)
+{
+	int n = chars - 1;
+	uint64_t q = 1;
+
+	r += n;
+
+	while (n >= 0) {
+		if (v / q)
+			*r-- = '0' + ((v / q) % 10);
+		else
+			*r-- = leading ? '0' : ' ';
+		q = q * 10;
+		n--;
+	}
+
+	if (v / q)
+		/* the number is bigger than the allowed chars! */
+		r[1] = '!';
+
+	return chars;
+}
+
 int
 lws_humanize(char *p, int len, uint64_t v, const lws_humanize_unit_t *schema)
 {
+	char *end = p + len;
+
 	do {
 		if (v >= schema->factor || schema->factor == 1) {
-			if (schema->factor == 1)
-				return lws_snprintf(p, len,
-					" %4"PRIu64"%s    ",
-					v / schema->factor, schema->name);
+			if (schema->factor == 1) {
+				*p++ = ' ';
+				p += decim(p, v, 4, 0);
+				return lws_snprintf(p, lws_ptr_diff(end, p),
+						    "%s    ", schema->name);
+			}
 
-			return lws_snprintf(p, len, " %4"PRIu64".%03"PRIu64"%s",
-				v / schema->factor,
-				(v % schema->factor) / (schema->factor / 1000),
-				schema->name);
+			*p++ = ' ';
+			p += decim(p, v / schema->factor, 4, 0);
+			*p++ = '.';
+			p += decim(p, (v % schema->factor) /
+					(schema->factor / 1000), 3, 1);
+
+			return lws_snprintf(p, lws_ptr_diff(end, p),
+					    "%s", schema->name);
 		}
 		schema++;
 	} while (schema->name);
 
 	assert(0);
+	strncpy(p, "unknown value", len);
 
 	return 0;
 }
-
-
