@@ -185,6 +185,9 @@ lws_json_dump_context(const struct lws_context *context, char *buf, int len,
 			    (long)d);
 
 #ifdef LWS_HAVE_GETLOADAVG
+#if defined(__sun)
+#include <sys/loadavg.h>
+#endif
 	{
 		double d[3];
 		int m;
