@@ -252,7 +252,7 @@ int main(int argc, char **argv)
 	signal(SIGHUP, reload_handler);
 	signal(SIGINT, reload_handler);
 
-	fprintf(stderr, "Root process is %u\n", getpid());
+	fprintf(stderr, "Root process is %u\n", (unsigned int)getpid());
 
 	while (1) {
 		if (do_reload) {
