@@ -1061,36 +1061,43 @@ html_parser_cb(const hubbub_token *token, void *pw)
 {
 	struct lws_rewrite *r = (struct lws_rewrite *)pw;
 	char buf[1024], *start = buf + LWS_PRE, *p = start,
-	     *end = &buf[sizeof(buf) - 1];
+	     *end = &buf[sizeof(buf) - 1], dotstar[128];
 	size_t i;
 
 	switch (token->type) {
 	case HUBBUB_TOKEN_DOCTYPE:
 
-		p += lws_snprintf(p, end - p, "<!DOCTYPE %.*s %s ",
-				(int) token->data.doctype.name.len,
-				token->data.doctype.name.ptr,
-				token->data.doctype.force_quirks ?
+		lws_strnncpy(dotstar, token->data.doctype.name.ptr,
+			     token->data.doctype.name.len, sizeof(dotstar));
+
+		p += lws_snprintf(p, end - p, "<!DOCTYPE %s %s ",
+				  dotstar, token->data.doctype.force_quirks ?
 						"(force-quirks) " : "");
 
 		if (token->data.doctype.public_missing)
 			lwsl_debug("\tpublic: missing\n");
-		else
-			p += lws_snprintf(p, end - p, "PUBLIC \"%.*s\"\n",
-				(int) token->data.doctype.public_id.len,
-				token->data.doctype.public_id.ptr);
+		else {
+			lws_strnncpy(dotstar, token->data.doctype.public_id.ptr,
+				     token->data.doctype.public_id.len,
+				     sizeof(dotstar));
+			p += lws_snprintf(p, end - p, "PUBLIC \"%s\"\n",
+					  dotstar);
+		}
 
 		if (token->data.doctype.system_missing)
 			lwsl_debug("\tsystem: missing\n");
-		else
-			p += lws_snprintf(p, end - p, " \"%.*s\">\n",
-				(int) token->data.doctype.system_id.len,
-				token->data.doctype.system_id.ptr);
+		else {
+			lws_strnncpy(dotstar, token->data.doctype.system_id.ptr,
+				     token->data.doctype.system_id.len,
+				     sizeof(dotstar));
+			p += lws_snprintf(p, end - p, " \"%s\">\n", dotstar);
+		}
 
 		break;
 	case HUBBUB_TOKEN_START_TAG:
-		p += lws_snprintf(p, end - p, "<%.*s", (int)token->data.tag.name.len,
-				token->data.tag.name.ptr);
+		lws_strnncpy(dotstar, token->data.tag.name.ptr,
+			     token->data.tag.name.len, sizeof(dotstar));
+		p += lws_snprintf(p, end - p, "<%s", dotstar);
 
 /*				(token->data.tag.self_closing) ?
 						"(self-closing) " : "",
@@ -1111,25 +1118,37 @@ html_parser_cb(const hubbub_token *token, void *pw)
 						pp += r->from_len;
 						plen -= r->from_len;
 					}
-					p += lws_snprintf(p, end - p, " %.*s=\"%s/%.*s\"",
-					       (int) token->data.tag.attributes[i].name.len,
-					       token->data.tag.attributes[i].name.ptr,
-					       r->to, plen, pp);
+					lws_strnncpy(dotstar,
+						token->data.tag.attributes[i].name.ptr,
+						token->data.tag.attributes[i].name.len,
+						sizeof(dotstar));
+
+					p += lws_snprintf(p, end - p, " %s=\"%s",
+							  dotstar, r->to);
+					lws_strnncpy(dotstar, pp, plen, sizeof(dotstar));
+					p += lws_snprintf(p, end - p, " /%s\"", dotstar);
 					continue;
 				}
 			}
 
-			p += lws_snprintf(p, end - p, " %.*s=\"%.*s\"",
-				(int) token->data.tag.attributes[i].name.len,
+			lws_strnncpy(dotstar,
 				token->data.tag.attributes[i].name.ptr,
-				(int) token->data.tag.attributes[i].value.len,
-				token->data.tag.attributes[i].value.ptr);
+				token->data.tag.attributes[i].name.len,
+				sizeof(dotstar));
+
+			p += lws_snprintf(p, end - p, " %s=\"", dotstar);
+			lws_strnncpy(dotstar,
+				token->data.tag.attributes[i].value.ptr,
+				token->data.tag.attributes[i].value.len,
+				sizeof(dotstar));
+			p += lws_snprintf(p, end - p, "%s\"", dotstar);
 		}
 		p += lws_snprintf(p, end - p, ">");
 		break;
 	case HUBBUB_TOKEN_END_TAG:
-		p += lws_snprintf(p, end - p, "</%.*s", (int) token->data.tag.name.len,
-				token->data.tag.name.ptr);
+		lws_strnncpy(dotstar, token->data.tag.name.ptr,
+			     token->data.tag.name.len, sizeof(dotstar));
+		p += lws_snprintf(p, end - p, "</%s", dotstar);
 /*
 				(token->data.tag.self_closing) ?
 						"(self-closing) " : "",
@@ -1137,18 +1156,23 @@ html_parser_cb(const hubbub_token *token, void *pw)
 						"attributes:" : "");
 */
 		for (i = 0; i < token->data.tag.n_attributes; i++) {
-			p += lws_snprintf(p, end - p, " %.*s='%.*s'\n",
-				(int) token->data.tag.attributes[i].name.len,
-				token->data.tag.attributes[i].name.ptr,
-				(int) token->data.tag.attributes[i].value.len,
-				token->data.tag.attributes[i].value.ptr);
+			lws_strnncpy(dotstar,
+				     token->data.tag.attributes[i].name.ptr,
+				     token->data.tag.attributes[i].name.len,
+				     sizeof(dotstar));
+			p += lws_snprintf(p, end - p, " %s='", dotstar);
+			lws_strnncpy(dotstar,
+				     token->data.tag.attributes[i].value.ptr,
+				     token->data.tag.attributes[i].value.len,
+				     sizeof(dotstar));
+			p += lws_snprintf(p, end - p, "%s'\n", dotstar);
 		}
 		p += lws_snprintf(p, end - p, ">");
 		break;
 	case HUBBUB_TOKEN_COMMENT:
-		p += lws_snprintf(p, end - p, "<!-- %.*s -->\n",
-				(int) token->data.comment.len,
-				token->data.comment.ptr);
+		lws_strnncpy(dotstar, token->data.comment.ptr,
+			     token->data.comment.len, sizeof(dotstar));
+		p += lws_snprintf(p, end - p, "<!-- %s -->\n",  dotstar);
 		break;
 	case HUBBUB_TOKEN_CHARACTER:
 		if (token->data.character.len == 1) {
@@ -1165,9 +1189,9 @@ html_parser_cb(const hubbub_token *token, void *pw)
 				break;
 			}
 		}
-
-		p += lws_snprintf(p, end - p, "%.*s", (int) token->data.character.len,
-				token->data.character.ptr);
+		lws_strnncpy(dotstar, token->data.character.ptr,
+			     token->data.character.len, sizeof(dotstar));
+		p += lws_snprintf(p, end - p, "%s", dotstar);
 		break;
 	case HUBBUB_TOKEN_EOF:
 		p += lws_snprintf(p, end - p, "\n");

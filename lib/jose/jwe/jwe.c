@@ -323,20 +323,21 @@ LWS_VISIBLE int
 lws_jwe_auth_and_decrypt(struct lws_jwe *jwe, char *temp, int *temp_len)
 {
 	int valid_aescbc_hmac, valid_aesgcm;
+	char dotstar[96];
 
 	if (lws_jwe_parse_jose(&jwe->jose, jwe->jws.map.buf[LJWS_JOSE],
 			       jwe->jws.map.len[LJWS_JOSE],
 			       temp, temp_len) < 0) {
-		lwsl_err("%s: JOSE parse '%.*s' failed\n", __func__,
-				jwe->jws.map.len[LJWS_JOSE],
-				jwe->jws.map.buf[LJWS_JOSE]);
+		lws_strnncpy(dotstar, jwe->jws.map.buf[LJWS_JOSE],
+			     jwe->jws.map.len[LJWS_JOSE], sizeof(dotstar));
+		lwsl_err("%s: JOSE parse '%s' failed\n", __func__, dotstar);
 		return -1;
 	}
 
 	if (!jwe->jose.alg) {
-		lwsl_err("%s: no jose.alg: %.*s\n", __func__,
-				jwe->jws.map.len[LJWS_JOSE],
-				jwe->jws.map.buf[LJWS_JOSE]);
+		lws_strnncpy(dotstar, jwe->jws.map.buf[LJWS_JOSE],
+			     jwe->jws.map.len[LJWS_JOSE], sizeof(dotstar));
+		lwsl_err("%s: no jose.alg: %s\n", __func__, dotstar);
 
 		return -1;
 	}
@@ -757,7 +758,9 @@ lws_jwe_render_flattened(struct lws_jwe *jwe, char *out, size_t out_len)
 
 	/* unprotected not supported atm */
 
-	p1 += lws_snprintf(p1, end1 - p1, "\",\n\"header\":%.*s", jlen, buf);
+	p1 += lws_snprintf(p1, end1 - p1, "\",\n\"header\":");
+	lws_strnncpy(p1, buf, jlen, end1 - p1);
+	p1 += strlen(p1);
 
 	for (m = 0; m < (int)LWS_ARRAY_SIZE(protected_en); m++)
 		if (jwe->jws.map.buf[protected_idx[m]]) {

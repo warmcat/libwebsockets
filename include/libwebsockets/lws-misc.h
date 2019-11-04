@@ -163,6 +163,14 @@ lws_snprintf(char *str, size_t size, const char *format, ...) LWS_FORMAT(3);
 LWS_VISIBLE LWS_EXTERN char *
 lws_strncpy(char *dest, const char *src, size_t size);
 
+/*
+ * Variation where we want to use the smaller of two lengths, useful when the
+ * source string is not NUL terminated
+ */
+#define lws_strnncpy(dest, src, size1, destsize) \
+	lws_strncpy(dest, src, (size_t)(size1 + 1) < (size_t)(destsize) ? \
+				(size_t)(size1 + 1) : (size_t)(destsize))
+
 /**
  * lws_hex_to_byte_array(): convert hex string like 0123456789ab into byte data
  *

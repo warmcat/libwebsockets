@@ -300,6 +300,7 @@ cb_jwk(struct lejp_ctx *ctx, char reason)
 	struct lws_jwk_parse_state *jps = (struct lws_jwk_parse_state *)ctx->user;
 	struct lws_jwk *jwk = jps->jwk;
 	unsigned int idx, poss, n;
+	char dotstar[64];
 
 	if (reason == LEJPCB_VAL_STR_START)
 		jps->pos = 0;
@@ -460,8 +461,8 @@ cb_jwk(struct lejp_ctx *ctx, char reason)
 			jps->possible = F_EC;
 			goto cont;
 		}
-		lwsl_err("%s: Unknown KTY '%.*s'\n", __func__, ctx->npos,
-			  ctx->buf);
+		lws_strnncpy(dotstar, ctx->buf, ctx->npos, sizeof(dotstar));
+		lwsl_err("%s: Unknown KTY '%s'\n", __func__, dotstar);
 		return -1;
 
 	default:
@@ -764,9 +765,12 @@ lws_jwk_export(struct lws_jwk *jwk, int flags, char *p, int *len)
 				if (!first)
 					*p++ = ',';
 				first = 0;
-				p += lws_snprintf(p, end - p, "\"%s\":\"%.*s\"",
-						  l->name, jwk->meta[l->idx].len,
-						  jwk->meta[l->idx].buf);
+				p += lws_snprintf(p, end - p, "\"%s\":\"",
+						  l->name);
+				lws_strnncpy(p, (const char *)jwk->meta[l->idx].buf,
+					     jwk->meta[l->idx].len, end - p);
+				p += strlen(p);
+				p += lws_snprintf(p, end - p, "\"");
 				break;
 			}
 		}
@@ -780,11 +784,12 @@ lws_jwk_export(struct lws_jwk *jwk, int flags, char *p, int *len)
 			p += lws_snprintf(p, end - p, "\"%s\":\"", l->name);
 
 			if (jwk->kty == LWS_GENCRYPTO_KTY_EC &&
-			    l->idx == (int)LWS_GENCRYPTO_EC_KEYEL_CRV)
-				m = lws_snprintf(p, end - p, "%.*s",
-					jwk->e[l->idx].len,
-					(const char *)jwk->e[l->idx].buf);
-			else
+			    l->idx == (int)LWS_GENCRYPTO_EC_KEYEL_CRV) {
+				lws_strnncpy(p,
+					     (const char *)jwk->e[l->idx].buf,
+					     jwk->e[l->idx].len, end - p);
+				m = strlen(p);
+			} else
 				m = lws_jws_base64_enc(
 					(const char *)jwk->e[l->idx].buf,
 					jwk->e[l->idx].len, p, end - p - 4);

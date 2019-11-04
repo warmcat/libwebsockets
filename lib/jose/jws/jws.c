@@ -895,20 +895,29 @@ lws_jws_write_flattened_json(struct lws_jws *jws, char *flattened, size_t len)
 	if (len < 1)
 		return 1;
 
-	n += lws_snprintf(flattened + n, len - n , "{\"payload\": \"%.*s\",\n",
-			  jws->map_b64.len[LJWS_PYLD],
-			  jws->map_b64.buf[LJWS_PYLD]);
+	n += lws_snprintf(flattened + n, len - n , "{\"payload\": \"");
+	lws_strnncpy(flattened + n, jws->map_b64.buf[LJWS_PYLD],
+			jws->map_b64.len[LJWS_PYLD], len - n);
+	n += strlen(flattened + n);
 
-	n += lws_snprintf(flattened + n, len - n , " \"protected\": \"%.*s\",\n",
-			  jws->map_b64.len[LJWS_JOSE],
-			  jws->map_b64.buf[LJWS_JOSE]);
+	n += lws_snprintf(flattened + n, len - n , "\",\n \"protected\": \"");
+	lws_strnncpy(flattened + n, jws->map_b64.buf[LJWS_JOSE],
+			jws->map_b64.len[LJWS_JOSE], len - n);
+	n += strlen(flattened + n);
 
-	if (jws->map_b64.buf[LJWS_UHDR])
-		n += lws_snprintf(flattened + n, len - n , " \"header\": %.*s,\n",
-			  jws->map_b64.len[LJWS_UHDR], jws->map_b64.buf[LJWS_UHDR]);
+	if (jws->map_b64.buf[LJWS_UHDR]) {
+		n += lws_snprintf(flattened + n, len - n , "\",\n \"header\": ");
+		lws_strnncpy(flattened + n, jws->map_b64.buf[LJWS_UHDR],
+				jws->map_b64.len[LJWS_UHDR], len - n);
+		n += strlen(flattened + n);
+	}
 
-	n += lws_snprintf(flattened + n, len - n , " \"signature\": \"%.*s\"}\n",
-			jws->map_b64.len[LJWS_SIG], jws->map_b64.buf[LJWS_SIG]);
+	n += lws_snprintf(flattened + n, len - n , "\",\n \"signature\": \"");
+	lws_strnncpy(flattened + n, jws->map_b64.buf[LJWS_SIG],
+			jws->map_b64.len[LJWS_SIG], len - n);
+	n += strlen(flattened + n);
+
+	n += lws_snprintf(flattened + n, len - n , "\"}\n");
 
 	return (n >= len - 1);
 }
@@ -921,12 +930,15 @@ lws_jws_write_compact(struct lws_jws *jws, char *compact, size_t len)
 	if (len < 1)
 		return 1;
 
-	n += lws_snprintf(compact + n, len - n , "%.*s",
-			  jws->map_b64.len[LJWS_JOSE], jws->map_b64.buf[LJWS_JOSE]);
-	n += lws_snprintf(compact + n, len - n , ".%.*s",
-			  jws->map_b64.len[LJWS_PYLD], jws->map_b64.buf[LJWS_PYLD]);
-	n += lws_snprintf(compact + n, len - n , ".%.*s",
-			  jws->map_b64.len[LJWS_SIG], jws->map_b64.buf[LJWS_SIG]);
+	lws_strnncpy(compact + n, jws->map_b64.buf[LJWS_JOSE],
+		     jws->map_b64.len[LJWS_JOSE], len - n);
+	n += strlen(compact + n);
+	lws_strnncpy(compact + n, jws->map_b64.buf[LJWS_PYLD],
+		     jws->map_b64.len[LJWS_PYLD], len - n);
+	n += strlen(compact + n);
+	lws_strnncpy(compact + n, jws->map_b64.buf[LJWS_SIG],
+		     jws->map_b64.len[LJWS_SIG], len - n);
+	n += strlen(compact + n);
 
 	return n >= len - 1;
 }

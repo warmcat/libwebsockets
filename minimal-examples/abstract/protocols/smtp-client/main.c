@@ -24,9 +24,11 @@ static int
 done_cb(struct lws_smtp_email *email, void *buf, size_t len)
 {
 	/* you could examine email->data here */
-	if (buf)
-		lwsl_notice("%s: %.*s\n", __func__, (int)len, (const char *)buf);
-	else
+	if (buf) {
+		char dotstar[96];
+		lws_strnncpy(dotstar, (const char *)buf, len, sizeof(dotstar));
+		lwsl_notice("%s: %s\n", __func__, dotstar);
+	} else
 		lwsl_notice("%s:\n", __func__);
 
 	/* destroy any allocations in email */

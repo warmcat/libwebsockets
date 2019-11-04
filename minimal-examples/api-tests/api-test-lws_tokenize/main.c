@@ -290,6 +290,7 @@ int main(int argc, const char **argv)
 			/* | LLL_EXT */ /* | LLL_CLIENT */ /* | LLL_LATENCY */
 			/* | LLL_DEBUG */;
 	int fail = 0, ok = 0, flags = 0;
+	char dotstar[512];
 
 	if ((p = lws_cmdline_option(argc, argv, "-d")))
 		logs = atoi(p);
@@ -299,6 +300,21 @@ int main(int argc, const char **argv)
 
 	if ((p = lws_cmdline_option(argc, argv, "-f")))
 		flags = atoi(p);
+
+	/* sanity check lws_strnncpy() */
+
+	lws_strnncpy(dotstar, "12345678", 4, sizeof(dotstar));
+	if (strcmp(dotstar, "1234")) {
+		lwsl_err("%s: lws_strnncpy check failed\n", __func__);
+
+		return 1;
+	}
+	lws_strnncpy(dotstar, "12345678", 8, 6);
+	if (strcmp(dotstar, "12345")) {
+		lwsl_err("%s: lws_strnncpy check failed\n", __func__);
+
+		return 1;
+	}
 
 	p = lws_cmdline_option(argc, argv, "-s");
 
@@ -314,9 +330,10 @@ int main(int argc, const char **argv)
 		do {
 			e = lws_tokenize(&ts);
 
-			lwsl_info("{ %s, \"%.*s\", %d }\n",
-				  element_names[e + LWS_TOKZE_ERRS],
-				  (int)ts.token_len, ts.token,
+			lws_strnncpy(dotstar, ts.token, ts.token_len,
+				     sizeof(dotstar));
+			lwsl_info("{ %s, \"%s\", %d }\n",
+				  element_names[e + LWS_TOKZE_ERRS], dotstar,
 				  (int)ts.token_len);
 
 			if (m == (int)tests[n].count) {
@@ -336,8 +353,10 @@ int main(int argc, const char **argv)
 			if (e > 0 &&
 			    (ts.token_len != exp->len ||
 			     memcmp(exp->value, ts.token, exp->len))) {
-				lwsl_notice("fail token mismatch %d %d %.*s\n",
-						ts.token_len, exp->len, ts.token_len, ts.token);
+				lws_strnncpy(dotstar, ts.token, ts.token_len,
+					     sizeof(dotstar));
+				lwsl_notice("fail token mismatch %d %d %s\n",
+					    ts.token_len, exp->len, dotstar);
 				fail++;
 				break;
 			}
@@ -399,10 +418,12 @@ int main(int argc, const char **argv)
 		do {
 			e = lws_tokenize(&ts);
 
-			printf("\t\t{ %s, \"%.*s\", %d },\n",
+			lws_strnncpy(dotstar, ts.token, ts.token_len,
+				     sizeof(dotstar));
+
+			printf("\t\t{ %s, \"%s\", %d },\n",
 				  element_names[e + LWS_TOKZE_ERRS],
-				  (int)ts.token_len,
-				  ts.token, (int)ts.token_len);
+				  dotstar, (int)ts.token_len);
 
 		} while (e > 0);
 

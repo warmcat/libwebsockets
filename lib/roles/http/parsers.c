@@ -1108,6 +1108,11 @@ swallow:
 
 #if defined(LWS_WITH_CUSTOM_HEADERS)
 			if (!wsi->http2_substream && pos < 0 && c == ':') {
+#if defined(_DEBUG)
+				char dotstar[64];
+				int uhlen;
+#endif
+
 				/*
 				 * process unknown headers
 				 *
@@ -1124,11 +1129,16 @@ swallow:
 
 				ah->unk_ll_tail = ah->unk_pos;
 
-				lwsl_debug("%s: unk header %d '%.*s'\n",
-					   __func__,
-					   ah->pos - (ah->unk_pos + UHO_NAME),
-					   ah->pos - (ah->unk_pos + UHO_NAME),
-					   &ah->data[ah->unk_pos + UHO_NAME]);
+#if defined(_DEBUG)
+				uhlen = ah->pos - (ah->unk_pos + UHO_NAME);
+				lws_strnncpy(dotstar,
+					&ah->data[ah->unk_pos + UHO_NAME],
+					uhlen, sizeof(dotstar));
+				lwsl_debug("%s: unk header %d '%s'\n",
+					    __func__,
+					    ah->pos - (ah->unk_pos + UHO_NAME),
+					    dotstar);
+#endif
 
 				/* set the unknown header name part length */
 

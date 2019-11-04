@@ -368,7 +368,7 @@ lws_process_ws_upgrade2(struct lws *wsi)
 
 #if defined(LWS_WITH_ACCESS_LOG)
 	{
-		char *uptr = "unknown method", combo[128];
+		char *uptr = "unknown method", combo[128], dotstar[64];
 		int l = 14, meth = lws_http_get_uri_and_method(wsi, &uptr, &l);
 
 		if (wsi->h2_stream_carries_ws)
@@ -376,7 +376,8 @@ lws_process_ws_upgrade2(struct lws *wsi)
 
 		wsi->http.access_log.response = 101;
 
-		l = lws_snprintf(combo, sizeof(combo), "%.*s (%s)", l, uptr,
+		lws_strnncpy(dotstar, uptr, l, sizeof(dotstar));
+		l = lws_snprintf(combo, sizeof(combo), "%s (%s)", dotstar,
 				 wsi->protocol->name);
 
 		lws_prepare_access_log_info(wsi, combo, l, meth);

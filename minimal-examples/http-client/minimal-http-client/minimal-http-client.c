@@ -62,9 +62,13 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
 		lwsl_user("RECEIVE_CLIENT_HTTP_READ: read %d\n", (int)len);
 #if defined(LWS_WITH_HTTP2)
-		if (long_poll)
-			lwsl_notice("long poll rx: '%.*s'\n",
-					(int)len, (const char *)in);
+		if (long_poll) {
+			char dotstar[128];
+			lws_strnncpy(dotstar, (const char *)in, len,
+				     sizeof(dotstar));
+			lwsl_notice("long poll rx: %d '%s'\n", (int)len,
+					dotstar);
+		}
 #endif
 #if 0  /* enable to dump the html */
 		{

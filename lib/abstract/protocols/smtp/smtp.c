@@ -170,7 +170,7 @@ static int
 lws_smtpc_abs_rx(lws_abs_protocol_inst_t *api, const uint8_t *buf, size_t len)
 {
 	lws_smtpcp_t *c = (lws_smtpcp_t *)api;
-	char at[5];
+	char dotstar[96], at[5];
 	int n;
 
 	c->abs->at->set_timeout(c->abs->ati, NO_PENDING_TIMEOUT, 0);
@@ -186,7 +186,9 @@ lws_smtpc_abs_rx(lws_abs_protocol_inst_t *api, const uint8_t *buf, size_t len)
 			 * even get started, so fail the transport connection
 			 * (and anything queued on it)
 			 */
-			lwsl_err("%s: server: %.*s\n", __func__, (int)len, buf);
+
+			lws_strnncpy(dotstar, buf, len, sizeof(dotstar));
+			lwsl_err("%s: server: %s\n", __func__, dotstar);
 
 			return 1;
 		}
@@ -213,8 +215,9 @@ lws_smtpc_abs_rx(lws_abs_protocol_inst_t *api, const uint8_t *buf, size_t len)
 
 	default:
 		if (n != retcodes[c->estate]) {
-			lwsl_notice("%s: bad response: %d (state %d) %.*s\n",
-				    __func__, n, c->estate, (int)len, buf);
+			lws_strnncpy(dotstar, buf, len, sizeof(dotstar));
+			lwsl_notice("%s: bad response: %d (state %d) %s\n",
+				    __func__, n, c->estate, dotstar);
 
 			lws_smtpc_email_disposition(c,
 					LWS_SMTP_DISPOSITION_FAILED, buf, len);
