@@ -217,7 +217,7 @@ lws_dll2_describe(lws_dll2_owner_t *owner, const char *desc)
 	int n = 1;
 
 	lwsl_info("%s: %s: owner %p: count %d, head %p, tail %p\n",
-		    __func__, desc, owner, owner->count, owner->head, owner->tail);
+		    __func__, desc, owner, (int)owner->count, owner->head, owner->tail);
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, p, tp,
 				   lws_dll2_get_head(owner)) {

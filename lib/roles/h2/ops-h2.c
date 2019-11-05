@@ -110,7 +110,7 @@ rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 #endif
 
 	 lwsl_info("%s: wsistate 0x%x, pollout %d\n", __func__,
-		   wsi->wsistate, pollfd->revents & LWS_POLLOUT);
+		   (unsigned int)wsi->wsistate, pollfd->revents & LWS_POLLOUT);
 
 	/*
 	 * something went wrong with parsing the handshake, and
@@ -920,7 +920,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 
 		w->h2.requested_POLLOUT = 0;
 		lwsl_info("%s: child %p (wsistate 0x%x)\n", __func__, w,
-			  w->wsistate);
+			  (unsigned int)w->wsistate);
 
 		/* priority 1: post compression-transform buffered output */
 

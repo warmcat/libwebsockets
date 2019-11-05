@@ -167,7 +167,7 @@ lws_wsi_server_new(struct lws_vhost *vh, struct lws *parent_wsi,
 	 */
 	if (sid <= h2n->highest_sid_opened) {
 		lwsl_info("%s: tried to open lower sid %d (%d)\n", __func__,
-				sid, h2n->highest_sid_opened);
+				sid, (int)h2n->highest_sid_opened);
 		lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR, "Bad sid");
 		return NULL;
 	}
@@ -378,7 +378,7 @@ lws_h2_goaway(struct lws *wsi, uint32_t err, const char *reason)
 	if (!pps)
 		return 1;
 
-	lwsl_info("%s: %p: ERR 0x%x, '%s'\n", __func__, wsi, err, reason);
+	lwsl_info("%s: %p: ERR 0x%x, '%s'\n", __func__, wsi, (int)err, reason);
 
 	pps->u.ga.err = err;
 	pps->u.ga.highest_sid = h2n->highest_sid;
@@ -407,7 +407,7 @@ lws_h2_rst_stream(struct lws *wsi, uint32_t err, const char *reason)
 	if (!pps)
 		return 1;
 
-	lwsl_info("%s: RST_STREAM 0x%x, sid %d, REASON '%s'\n", __func__, err,
+	lwsl_info("%s: RST_STREAM 0x%x, sid %d, REASON '%s'\n", __func__, (int)err,
 			wsi->h2.my_sid, reason);
 
 	pps->u.rs.sid = wsi->h2.my_sid;
@@ -489,8 +489,8 @@ lws_h2_settings(struct lws *wsi, struct http2_settings *settings,
 					     nwsi->h2.child_list) {
 				lwsl_info("%s: adi child tc cr %d +%d -> %d",
 					    __func__,
-					    w->h2.tx_cr, b - settings->s[a],
-					    w->h2.tx_cr + b - settings->s[a]);
+					    w->h2.tx_cr, b - (unsigned int)settings->s[a],
+					    w->h2.tx_cr + b - (unsigned int)settings->s[a]);
 				w->h2.tx_cr += b - settings->s[a];
 				if (w->h2.tx_cr > 0 &&
 				    w->h2.tx_cr <=
@@ -671,7 +671,7 @@ int lws_h2_do_pps_send(struct lws *wsi)
 		for (n = 1; n < H2SET_COUNT; n++)
 			if (h2n->set.s[n] != lws_h2_defaults.s[n]) {
 				lwsl_debug("sending SETTING %d 0x%x\n", n,
-						wsi->h2.h2n->set.s[n]);
+						(unsigned int)wsi->h2.h2n->set.s[n]);
 				lws_h2_set_bin(wsi, n, &set[LWS_PRE + m]);
 				m += sizeof(h2n->one_setting);
 			}
@@ -805,8 +805,8 @@ int lws_h2_do_pps_send(struct lws *wsi)
 
 	case LWS_H2_PPS_UPDATE_WINDOW:
 		lwsl_debug("Issuing LWS_H2_PPS_UPDATE_WINDOW: sid %d: add %d\n",
-			    pps->u.update_window.sid,
-			    pps->u.update_window.credit);
+			    (int)pps->u.update_window.sid,
+			    (int)pps->u.update_window.credit);
 		*p++ = pps->u.update_window.credit >> 24;
 		*p++ = pps->u.update_window.credit >> 16;
 		*p++ = pps->u.update_window.credit >> 8;
@@ -873,8 +873,8 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		h2n->swsi = lws_h2_wsi_from_id(wsi, h2n->sid);
 
 	lwsl_debug("%p (%p): fr hdr: typ 0x%x, fla 0x%x, sid 0x%x, len 0x%x\n",
-		  wsi, h2n->swsi, h2n->type, h2n->flags, h2n->sid,
-		  h2n->length);
+		  wsi, h2n->swsi, h2n->type, h2n->flags, (unsigned int)h2n->sid,
+		  (unsigned int)h2n->length);
 
 	if (h2n->we_told_goaway && h2n->sid > h2n->highest_sid)
 		h2n->type = LWS_H2_FRAME_TYPE_COUNT; /* ie, IGNORE */
@@ -887,7 +887,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		 * peer sent us something bigger than we told
 		 * it we would allow
 		 */
-		lwsl_info("received oversize frame %d\n", h2n->length);
+		lwsl_info("received oversize frame %d\n", (unsigned int)h2n->length);
 		lws_h2_goaway(wsi, H2_ERR_FRAME_SIZE_ERROR,
 			      "Peer ignored our frame size setting");
 		return 1;
@@ -921,7 +921,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		    h2n->type != LWS_H2_FRAME_TYPE_PRIORITY) {
 			/* if not credible, reject it */
 			lwsl_info("%s: wsi %p, No child for sid %d, rxcmd %d\n",
-			  __func__, h2n->swsi, h2n->sid, h2n->type);
+			  __func__, h2n->swsi, (unsigned int)h2n->sid, h2n->type);
 			lws_h2_goaway(wsi, H2_ERR_STREAM_CLOSED,
 				     "Data for nonexistent sid");
 			return 0;
@@ -947,8 +947,9 @@ lws_h2_parse_frame_header(struct lws *wsi)
 
 	if (h2n->cont_exp && (h2n->cont_exp_sid != h2n->sid ||
 			      h2n->type != LWS_H2_FRAME_TYPE_CONTINUATION)) {
-		lwsl_info("%s: expected cont on sid %d (got %d on sid %d)\n",
-			  __func__, h2n->cont_exp_sid, h2n->type, h2n->sid);
+		lwsl_info("%s: expected cont on sid %u (got %d on sid %u)\n",
+			  __func__, (unsigned int)h2n->cont_exp_sid, h2n->type,
+			  (unsigned int)h2n->sid);
 		h2n->cont_exp = 0;
 		if (h2n->cont_exp_headers)
 			n = H2_ERR_COMPRESSION_ERROR;
@@ -967,8 +968,9 @@ lws_h2_parse_frame_header(struct lws *wsi)
 			lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR, "DATA 0 sid");
 			break;
 		}
-		lwsl_info("Frame header DATA: sid %d, flags 0x%x, len %d\n",
-				h2n->sid, h2n->flags, h2n->length);
+		lwsl_info("Frame header DATA: sid %u, flags 0x%x, len %u\n",
+				(unsigned int)h2n->sid, h2n->flags,
+				(unsigned int)h2n->length);
 
 		if (!h2n->swsi) {
 			lwsl_notice("DATA: NULL swsi\n");
@@ -1085,8 +1087,8 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		}
 		break;
 	case LWS_H2_FRAME_TYPE_CONTINUATION:
-		lwsl_info("LWS_H2_FRAME_TYPE_CONTINUATION: sid = %d\n",
-			  h2n->sid);
+		lwsl_info("LWS_H2_FRAME_TYPE_CONTINUATION: sid = %u\n",
+			  (unsigned int)h2n->sid);
 
 		if (!h2n->cont_exp ||
 		     h2n->cont_exp_sid != h2n->sid ||
@@ -1105,7 +1107,8 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		goto update_end_headers;
 
 	case LWS_H2_FRAME_TYPE_HEADERS:
-		lwsl_info("HEADERS: frame header: sid = %d\n", h2n->sid);
+		lwsl_info("HEADERS: frame header: sid = %u\n",
+				(unsigned int)h2n->sid);
 		if (!h2n->sid) {
 			lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR, "sid 0");
 			return 1;
@@ -1123,9 +1126,9 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		if (wsi->client_h2_alpn) {
 			if (h2n->sid) {
 				h2n->swsi = lws_h2_wsi_from_id(wsi, h2n->sid);
-				lwsl_info("HEADERS: nwsi %p: sid %d mapped "
-					  "to wsi %p\n", wsi, h2n->sid,
-					  h2n->swsi);
+				lwsl_info("HEADERS: nwsi %p: sid %u mapped "
+					  "to wsi %p\n", wsi,
+					  (unsigned int)h2n->sid, h2n->swsi);
 				if (!h2n->swsi)
 					break;
 			}
@@ -1439,8 +1442,9 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 		if (h2n->hpack != HPKS_TYPE) {
 			/* hpack incomplete */
-			lwsl_info("hpack incomplete %d (type %d, len %d)\n",
-				  h2n->hpack, h2n->type, h2n->hpack_len);
+			lwsl_info("hpack incomplete %d (type %d, len %u)\n",
+				  h2n->hpack, h2n->type,
+				  (unsigned int)h2n->hpack_len);
 			lws_h2_goaway(wsi, H2_ERR_COMPRESSION_ERROR,
 				      "hpack incomplete");
 			break;
@@ -1580,7 +1584,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			}
 
 		lwsl_debug("%s: setting DEF_ACT from 0x%x\n", __func__,
-			   h2n->swsi->wsistate);
+			   (unsigned int)h2n->swsi->wsistate);
 		lwsi_set_state(h2n->swsi, LRS_DEFERRING_ACTION);
 		lws_callback_on_writable(h2n->swsi);
 		break;
@@ -1662,8 +1666,10 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 	case LWS_H2_FRAME_TYPE_WINDOW_UPDATE:
 		h2n->hpack_e_dep &= ~(1u << 31);
-		lwsl_info("WINDOW_UPDATE: sid %d %u (0x%x)\n", h2n->sid,
-			    h2n->hpack_e_dep, h2n->hpack_e_dep);
+		lwsl_info("WINDOW_UPDATE: sid %u %u (0x%x)\n",
+			  (unsigned int)h2n->sid,
+			  (unsigned int)h2n->hpack_e_dep,
+			  (unsigned int)h2n->hpack_e_dep);
 
 		if (h2n->sid)
 			eff_wsi = h2n->swsi;
@@ -1729,8 +1735,8 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		return 1;
 
 	case LWS_H2_FRAME_TYPE_RST_STREAM:
-		lwsl_info("LWS_H2_FRAME_TYPE_RST_STREAM: sid %d: reason 0x%x\n",
-			  h2n->sid, h2n->hpack_e_dep);
+		lwsl_info("LWS_H2_FRAME_TYPE_RST_STREAM: sid %u: reason 0x%x\n",
+			  (unsigned int)h2n->sid, (unsigned int)h2n->hpack_e_dep);
 		break;
 
 	case LWS_H2_FRAME_TYPE_COUNT: /* IGNORING FRAME */
@@ -1840,7 +1846,7 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 				h2n->weight_temp = c;
 				h2n->collected_priority = 1;
 				lwsl_debug("PRI FL: dep 0x%x, weight 0x%02X\n",
-					   h2n->dep, h2n->weight_temp);
+					   (unsigned int)h2n->dep, h2n->weight_temp);
 				break; /* we consumed this */
 			}
 			if (h2n->padding && h2n->count >
@@ -2029,8 +2035,10 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 					 */
 					if (n < 0 ||
 					    (!n && !lws_buflist_next_segment_len(&wsi->buflist, NULL))) {
-						lwsl_info("%s: lws_read_h1 told %d %d / %d\n",
-							__func__, n, h2n->count, h2n->length);
+						lwsl_info("%s: lws_read_h1 told %d %u / %u\n",
+							__func__, n,
+							(unsigned int)h2n->count,
+							(unsigned int)h2n->length);
 						in += h2n->length - h2n->count;
 						h2n->inside = h2n->length;
 						h2n->count = h2n->length - 1;
@@ -2085,7 +2093,7 @@ do_windows:
 				} else {
 					h2n->weight_temp = c;
 					lwsl_info("PRIORITY: dep 0x%x, weight 0x%02X\n",
-						  h2n->dep, h2n->weight_temp);
+						  (unsigned int)h2n->dep, h2n->weight_temp);
 
 					if ((h2n->dep & ~(1u << 31)) == h2n->sid) {
 						lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,

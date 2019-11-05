@@ -595,9 +595,9 @@ lws_hpack_dynamic_size(struct lws *wsi, int size)
 		goto bail;
 
 	dyn = &nwsi->h2.h2n->hpack_dyn_table;
-	lwsl_info("%s: from %d to %d, lim %d\n", __func__,
+	lwsl_info("%s: from %d to %d, lim %u\n", __func__,
 		  (int)dyn->num_entries, size,
-		  nwsi->vhost->h2.set.s[H2SET_HEADER_TABLE_SIZE]);
+		  (unsigned int)nwsi->vhost->h2.set.s[H2SET_HEADER_TABLE_SIZE]);
 
 	if (!size) {
 		size = dyn->num_entries * 8;
@@ -606,7 +606,7 @@ lws_hpack_dynamic_size(struct lws *wsi, int size)
 
 	if (size > (int)nwsi->vhost->h2.set.s[H2SET_HEADER_TABLE_SIZE]) {
 		lwsl_info("rejecting hpack dyn size %u vs %u\n", size,
-				nwsi->vhost->h2.set.s[H2SET_HEADER_TABLE_SIZE]);
+			  (unsigned int)nwsi->vhost->h2.set.s[H2SET_HEADER_TABLE_SIZE]);
 
 		// this seems necessary to work with some browsers
 
@@ -958,7 +958,7 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 
 		/* extended integer done */
 		h2n->hpack_len += h2n->hpack_m;
-		lwsl_header("HPKS_IDX_EXT: hpack_len %d\n", h2n->hpack_len);
+		lwsl_header("HPKS_IDX_EXT: hpack_len %u\n", (unsigned int)h2n->hpack_len);
 
 		switch (h2n->hpack_type) {
 		case HPKT_INDEXED_HDR_7:
@@ -1030,8 +1030,8 @@ pre_data:
 		} else {
 			n = lws_token_from_index(wsi, h2n->hdr_idx, NULL,
 						 NULL, NULL);
-			lwsl_header("  lws_tok_from_idx(%d) says %d\n",
-				   h2n->hdr_idx, n);
+			lwsl_header("  lws_tok_from_idx(%u) says %d\n",
+				   (unsigned int)h2n->hdr_idx, n);
 		}
 
 		if (n == LWS_HPACK_IGNORE_ENTRY || n == -1)
