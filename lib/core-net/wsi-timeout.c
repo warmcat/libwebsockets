@@ -156,7 +156,7 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 	if (secs == LWS_TO_KILL_ASYNC)
 		secs = 0;
 
-	assert(!wsi->h2_stream_immortal);
+	assert(!secs || !wsi->h2_stream_immortal);
 
 	lws_pt_lock(pt, __func__);
 	__lws_set_timeout(wsi, reason, secs);
