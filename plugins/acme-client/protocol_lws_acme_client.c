@@ -648,6 +648,7 @@ static const char * const pvo_names[] = {
 	"locality",
 	"organization",
 	"common-name",
+	"subject-alt-name",
 	"email",
 	"directory-url",
 	"auth-path",
@@ -822,7 +823,8 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 		n = 0;
 		for (m = 0; m < (int)LWS_ARRAY_SIZE(pvo_names); m++) {
 			if (!vhd->pvop[m] &&
-			    m >= LWS_TLS_REQ_ELEMENT_COMMON_NAME) {
+				m >= LWS_TLS_REQ_ELEMENT_COMMON_NAME &&
+				m != LWS_TLS_REQ_ELEMENT_SUBJECT_ALT_NAME) {
 				lwsl_notice("%s: require pvo '%s'\n", __func__,
 					    pvo_names[m]);
 				n |= 1;
