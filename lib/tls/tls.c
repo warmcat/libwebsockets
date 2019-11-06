@@ -25,6 +25,85 @@
 #include "private-lib-core.h"
 #include "private-lib-tls.h"
 
+#if defined(LWS_WITH_NETWORK)
+#if defined(LWS_WITH_MBEDTLS) || (defined(OPENSSL_VERSION_NUMBER) && \
+				  OPENSSL_VERSION_NUMBER >= 0x10002000L)
+static int
+alpn_cb(SSL *s, const unsigned char **out, unsigned char *outlen,
+	const unsigned char *in, unsigned int inlen, void *arg)
+{
+#if !defined(LWS_WITH_MBEDTLS)
+	struct alpn_ctx *alpn_ctx = (struct alpn_ctx *)arg;
+
+	if (SSL_select_next_proto((unsigned char **)out, outlen, alpn_ctx->data,
+				  alpn_ctx->len, in, inlen) !=
+	    OPENSSL_NPN_NEGOTIATED)
+		return SSL_TLSEXT_ERR_NOACK;
+#endif
+
+	return SSL_TLSEXT_ERR_OK;
+}
+#endif
+
+void
+lws_context_init_alpn(struct lws_vhost *vhost)
+{
+#if defined(LWS_WITH_MBEDTLS) || (defined(OPENSSL_VERSION_NUMBER) && \
+				  OPENSSL_VERSION_NUMBER >= 0x10002000L)
+	const char *alpn_comma = vhost->context->tls.alpn_default;
+
+	if (vhost->tls.alpn)
+		alpn_comma = vhost->tls.alpn;
+
+	lwsl_info(" Server '%s' advertising ALPN: %s\n",
+		    vhost->name, alpn_comma);
+	vhost->tls.alpn_ctx.len = lws_alpn_comma_to_openssl(alpn_comma,
+					vhost->tls.alpn_ctx.data,
+					sizeof(vhost->tls.alpn_ctx.data) - 1);
+
+	SSL_CTX_set_alpn_select_cb(vhost->tls.ssl_ctx, alpn_cb,
+				   &vhost->tls.alpn_ctx);
+#else
+	lwsl_err(
+		" HTTP2 / ALPN configured but not supported by OpenSSL 0x%lx\n",
+		    OPENSSL_VERSION_NUMBER);
+#endif // OPENSSL_VERSION_NUMBER >= 0x10002000L
+}
+
+int
+lws_tls_server_conn_alpn(struct lws *wsi)
+{
+#if defined(LWS_WITH_MBEDTLS) || (defined(OPENSSL_VERSION_NUMBER) && \
+				  OPENSSL_VERSION_NUMBER >= 0x10002000L)
+	const unsigned char *name = NULL;
+	char cstr[10];
+	unsigned len;
+
+	if (!wsi->tls.ssl)
+		return 0;
+
+	SSL_get0_alpn_selected(wsi->tls.ssl, &name, &len);
+	if (!len) {
+		lwsl_info("no ALPN upgrade\n");
+		return 0;
+	}
+
+	if (len > sizeof(cstr) - 1)
+		len = sizeof(cstr) - 1;
+
+	memcpy(cstr, name, len);
+	cstr[len] = '\0';
+
+	lwsl_info("negotiated '%s' using ALPN\n", cstr);
+	wsi->tls.use_ssl |= LCCSCF_USE_SSL;
+
+	return lws_role_call_alpn_negotiated(wsi, (const char *)cstr);
+#endif // OPENSSL_VERSION_NUMBER >= 0x10002000L
+
+	return 0;
+}
+#endif
+
 #if !defined(LWS_PLAT_OPTEE) && !defined(OPTEE_DEV_KIT)
 #if defined(LWS_PLAT_FREERTOS) && !defined(LWS_AMAZON_RTOS)
 int alloc_file(struct lws_context *context, const char *filename, uint8_t **buf,
