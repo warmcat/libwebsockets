@@ -469,7 +469,7 @@ lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
 	int buflen = 0x560;
 	uint8_t *buf = lws_malloc(buflen, "tmp cert buf"), *p = buf, *pkey_asn1;
 	struct lws_genrsa_ctx ctx;
-	struct lws_gencrypto_keyelem el;
+	struct lws_gencrypto_keyelem el[LWS_GENCRYPTO_RSA_KEYEL_COUNT];
 	uint8_t digest[32];
 	struct lws_genhash_ctx hash_ctx;
 	int pkey_asn1_len = 3 * 1024;
@@ -478,9 +478,10 @@ lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
 	if (!buf)
 		return 1;
 
-	n = lws_genrsa_new_keypair(vhost->context, &ctx, &el, keybits);
+	n = lws_genrsa_new_keypair(vhost->context, &ctx, LGRSAM_PKCS1_1_5,
+				   &el[0], keybits);
 	if (n < 0) {
-		lws_genrsa_destroy_elements(&el);
+		lws_genrsa_destroy_elements(&el[0]);
 		goto bail1;
 	}
 
@@ -514,8 +515,8 @@ lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
 	/* we need to drop 1 + (keybits / 8) bytes of n in here, 00 + key */
 
 	*p++ = 0x00;
-	memcpy(p, el.e[LWS_GENCRYPTO_RSA_KEYEL_N].buf, el.e[LWS_GENCRYPTO_RSA_KEYEL_N].len);
-	p += el.e[LWS_GENCRYPTO_RSA_KEYEL_N].len;
+	memcpy(p, el[LWS_GENCRYPTO_RSA_KEYEL_N].buf, el[LWS_GENCRYPTO_RSA_KEYEL_N].len);
+	p += el[LWS_GENCRYPTO_RSA_KEYEL_N].len;
 
 	memcpy(p, ss_cert_san_leadin, sizeof(ss_cert_san_leadin));
 	p += sizeof(ss_cert_san_leadin);
@@ -584,7 +585,7 @@ lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
 	}
 
 	lws_genrsa_destroy(&ctx);
-	lws_genrsa_destroy_elements(&el);
+	lws_genrsa_destroy_elements(&el[0]);
 
 	lws_free(buf);
 
@@ -592,7 +593,7 @@ lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
 
 bail2:
 	lws_genrsa_destroy(&ctx);
-	lws_genrsa_destroy_elements(&el);
+	lws_genrsa_destroy_elements(&el[0]);
 bail1:
 	lws_free(buf);
 
