@@ -637,10 +637,11 @@ lws_http_transaction_completed_client(struct lws *wsi)
 
 	n = _lws_generic_transaction_completed_active_conn(wsi);
 
-	_lws_header_table_reset(wsi->http.ah);
+	if (wsi->http.ah)
+		_lws_header_table_reset(wsi->http.ah);
 	wsi->http.rx_content_length = 0;
 
-	if (!n)
+	if (!n || !wsi->http.ah)
 		return 0;
 
 	/*
