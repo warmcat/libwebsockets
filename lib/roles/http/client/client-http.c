@@ -637,8 +637,17 @@ lws_http_transaction_completed_client(struct lws *wsi)
 
 	n = _lws_generic_transaction_completed_active_conn(wsi);
 
-	if (wsi->http.ah)
-		_lws_header_table_reset(wsi->http.ah);
+	if (wsi->http.ah) {
+		if (wsi->client_h2_substream)
+			/*
+			 * As an h2 client, once we did our transaction, that is
+			 * it for us.  Further transactions will happen as new
+			 * SIDs on the connection.
+			 */
+			__lws_header_table_detach(wsi, 0);
+		else
+			_lws_header_table_reset(wsi->http.ah);
+	}
 	wsi->http.rx_content_length = 0;
 
 	if (!n || !wsi->http.ah)
