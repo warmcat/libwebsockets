@@ -56,8 +56,10 @@ lws_system_auth_default_cb(struct lws_context *context, int idx, size_t ofs,
 
 	switch (op) {
 	case LWSSYS_AUTH_GET:
-		if (!context->auth_token[idx])
+		if (!context->auth_token[idx]) {
+			lwsl_notice("%s: token %d not set\n", __func__, idx);
 			return -1;
+		}
 
 		if (!buf) /* we just need to tell him that it exists */
 			return -2;
@@ -102,19 +104,24 @@ lws_system_get_auth(struct lws_context *context, int idx, size_t ofs,
 	int n;
 
 	if (!context->system_ops || !context->system_ops->auth)
-		n = lws_system_auth_default_cb(context, idx, ofs, buf, &buflen, 0);
+		n = lws_system_auth_default_cb(context, idx, ofs, buf, &buflen,
+						LWSSYS_AUTH_GET);
 	else
-		n = context->system_ops->auth(context, idx, ofs, buf, &buflen, 0);
+		n = context->system_ops->auth(context, idx, ofs, buf, &buflen,
+						LWSSYS_AUTH_GET);
+
 	if (n < 0) {
 		if (buf)
-			lwsl_err("%s: auth get failed\n", __func__);
-		return -1;
+			lwsl_err("%s: auth %d get failed %d, space %d\n",
+					__func__, idx, n, (int)bl);
+		return n;
 	}
 
 	if (buf && (flags & LWSSYSGAUTH_HEX)) {
 		if (bl < (buflen * 2) + 1) {
 			lwsl_err("%s: auth in hex oversize %d\n", __func__,
 					(int)bl);
+
 			return -1;
 		}
 
