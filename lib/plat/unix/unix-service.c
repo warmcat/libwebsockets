@@ -126,8 +126,6 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	/* ensure we don't wrap at 2^31 with poll()'s signed int ms */
 
 	timeout_us /= LWS_US_PER_MS; /* ms now */
-	if (timeout_us > LWS_POLL_WAIT_LIMIT)
-		timeout_us = LWS_POLL_WAIT_LIMIT;
 
 	vpt->inside_poll = 1;
 	lws_memory_barrier();
