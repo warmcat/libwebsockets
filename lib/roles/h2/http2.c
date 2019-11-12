@@ -1087,8 +1087,9 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		}
 		break;
 	case LWS_H2_FRAME_TYPE_CONTINUATION:
-		lwsl_info("LWS_H2_FRAME_TYPE_CONTINUATION: sid = %u\n",
-			  (unsigned int)h2n->sid);
+		lwsl_info("LWS_H2_FRAME_TYPE_CONTINUATION: sid = %u %d %d\n",
+			  (unsigned int)h2n->sid, (int)h2n->cont_exp,
+			  (int)h2n->cont_exp_sid);
 
 		if (!h2n->cont_exp ||
 		     h2n->cont_exp_sid != h2n->sid ||
@@ -1098,6 +1099,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 				      "unexpected CONTINUATION");
 			break;
 		}
+
 		if (h2n->swsi->h2.END_HEADERS) {
 			lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
 				      "END_HEADERS already seen");
@@ -1435,6 +1437,8 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		if (!h2n->swsi->h2.END_HEADERS) {
 			/* we are not finished yet */
 			lwsl_info("witholding http action for continuation\n");
+			h2n->cont_exp_sid = h2n->sid;
+			h2n->cont_exp = 1;
 			break;
 		}
 

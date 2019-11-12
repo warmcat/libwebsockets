@@ -1387,18 +1387,21 @@ spin_chunks:
 		if (
 #if defined(LWS_WITH_HTTP_PROXY)
 		    !wsi_eff->protocol_bind_balance ==
-		    !!wsi_eff->http.proxy_clientside &&
+		    !!wsi_eff->http.proxy_clientside
 #else
-		    !!wsi_eff->protocol_bind_balance &&
+		    !!wsi_eff->protocol_bind_balance
 #endif
-		    user_callback_handle_rxflow(wsi_eff->protocol->callback,
+		  ) {
+			if (user_callback_handle_rxflow(wsi_eff->protocol->callback,
 				wsi_eff, LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ,
 				wsi_eff->user_space, *buf, n)) {
-			lwsl_info("%s: RECEIVE_CLIENT_HTTP_READ returned -1\n",
-				   __func__);
+				lwsl_info("%s: RECEIVE_CLIENT_HTTP_READ returned -1\n",
+						__func__);
 
-			return -1;
-		}
+				return -1;
+			}
+		} else
+			lwsl_notice("%s: swallowed read (%d)\n", __func__, n);
 	}
 
 	(*buf) += n;
