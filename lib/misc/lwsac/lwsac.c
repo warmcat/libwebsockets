@@ -148,7 +148,8 @@ _lwsac_use(struct lwsac **head, size_t ensure, size_t chunk_size, char backfill)
 		lachead = (struct lwsac_head *)&bf[1];
 		memset(lachead, 0, sizeof(*lachead));
 	} else
-		lachead->curr->next = bf;
+		if (lachead->curr)
+			lachead->curr->next = bf;
 
 	lachead->curr = bf;
 	bf->head = *head;
