@@ -925,22 +925,6 @@ agin:
 	n = lws_get_socket_fd(wsi->http.cgi->stdwsi[LWS_STDOUT]);
 	if (n < 0)
 		return -1;
-	if (m) {
-		uint8_t term[LWS_PRE + 6];
-
-		lwsl_info("%s: zero chunk\n", __func__);
-
-		memcpy(term + LWS_PRE, (uint8_t *)"0\x0d\x0a\x0d\x0a", 5);
-
-		if (lws_write(wsi, term + LWS_PRE, 5,
-			      LWS_WRITE_HTTP_FINAL) != 5)
-			return -1;
-
-		wsi->http.cgi->cgi_transaction_over = 1;
-
-		return 0;
-	}
-
 	n = read(n, start, sizeof(buf) - LWS_PRE);
 
 	if (n < 0 && errno != EAGAIN) {
@@ -948,7 +932,8 @@ agin:
 		return -1;
 	}
 	if (n > 0) {
-/*
+		// lwsl_hexdump_notice(buf, n);
+
 		if (!wsi->http2_substream && m) {
 			char chdr[LWS_HTTP_CHUNK_HDR_SIZE];
 			m = lws_snprintf(chdr, LWS_HTTP_CHUNK_HDR_SIZE - 3,
@@ -958,7 +943,7 @@ agin:
 			memcpy(start + m + n, "\x0d\x0a", 2);
 			n += m + 2;
 		}
-		*/
+
 
 #if defined(LWS_WITH_HTTP2)
 		if (wsi->http2_substream) {
@@ -986,6 +971,23 @@ agin:
 		}
 		wsi->http.cgi->content_length_seen += n;
 	} else {
+
+	if (m) {
+		uint8_t term[LWS_PRE + 6];
+
+		memcpy(term + LWS_PRE, (uint8_t *)"0\x0d\x0a\x0d\x0a", 5);
+
+		if (lws_write(wsi, term + LWS_PRE, 5,
+			      LWS_WRITE_HTTP_FINAL) != 5)
+			return -1;
+
+		wsi->http.cgi->cgi_transaction_over = 1;
+
+		return 0;
+	}
+
+
+
 		if (wsi->cgi_stdout_zero_length) {
 			lwsl_debug("%s: stdout is POLLHUP'd\n", __func__);
 			if (wsi->http2_substream)
