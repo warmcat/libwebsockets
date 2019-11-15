@@ -434,6 +434,9 @@ lws_get_mimetype(const char *file, const struct lws_http_mount *m)
 	if (!strcmp(&file[n - 5], ".woff"))
 		return "application/font-woff";
 
+	if (!strcmp(&file[n - 6], ".woff2"))
+		return "application/font-woff2";
+
 	if (!strcmp(&file[n - 4], ".xml"))
 		return "application/xml";
 
