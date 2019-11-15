@@ -757,7 +757,7 @@ struct lws {
 	unsigned int sock_send_blocking:1;
 #endif
 
-	uint16_t c_port;
+	uint16_t ocport, c_port;
 	uint16_t retry;
 
 	/* chars */

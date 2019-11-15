@@ -302,13 +302,16 @@ socks_reply_fail:
 		}
 
 		pt->serv_buf[13] = '\0';
-		if (strncmp(sb, "HTTP/1.0 200 ", 13) &&
-		    strncmp(sb, "HTTP/1.1 200 ", 13)) {
+		if (n < 13 || (strncmp(sb, "HTTP/1.0 200 ", 13) &&
+		    strncmp(sb, "HTTP/1.1 200 ", 13))) {
 			lwsl_err("%s: ERROR proxy did not reply with h1\n",
 					__func__);
+			/* lwsl_hexdump_notice(sb, n); */
 			cce = "proxy not h1";
 			goto bail3;
 		}
+
+		lwsl_info("%s: proxy connection extablished\n", __func__);
 
 		/* clear his proxy connection timeout */
 

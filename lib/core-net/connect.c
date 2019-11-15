@@ -142,7 +142,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	wsi->user_space = NULL;
 	wsi->pending_timeout = NO_PENDING_TIMEOUT;
 	wsi->position_in_fds_table = LWS_NO_FDS_POS;
-	wsi->c_port = i->port;
+	wsi->ocport = wsi->c_port = i->port;
 
 	wsi->protocol = &wsi->vhost->protocols[0];
 	wsi->client_pipeline = !!(i->ssl_connection & LCCSCF_PIPELINE);

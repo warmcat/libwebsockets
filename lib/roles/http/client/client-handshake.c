@@ -81,6 +81,30 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 
 	/* http proxy */
 	if (wsi->vhost->http.http_proxy_port) {
+		const char *cpa;
+
+		if (wsi->stash)
+			cpa = wsi->stash->cis[CIS_ADDRESS];
+		else
+			cpa = lws_hdr_simple_ptr(wsi,
+					_WSI_TOKEN_CLIENT_PEER_ADDRESS);
+
+		lwsl_info("%s: going via proxy\n", __func__);
+
+		plen = lws_snprintf((char *)pt->serv_buf, 256,
+			"CONNECT %s:%u HTTP/1.1\x0d\x0a"
+			"Host: %s:%u\x0d\x0a"
+			"User-agent: lws\x0d\x0a", cpa, wsi->ocport,
+						   cpa, wsi->ocport);
+
+		if (wsi->vhost->proxy_basic_auth_token[0])
+			plen += lws_snprintf((char *)pt->serv_buf + plen, 256,
+					"Proxy-authorization: basic %s\x0d\x0a",
+					wsi->vhost->proxy_basic_auth_token);
+
+		plen += lws_snprintf((char *)pt->serv_buf + plen, 5, "\x0d\x0a");
+
+		/* lwsl_hexdump_notice(pt->serv_buf, plen); */
 
 		/*
 		 * OK from now on we talk via the proxy, so connect to that
@@ -241,12 +265,6 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 #if defined(LWS_WITH_UNIX_SOCK)
 	struct sockaddr_un sau;
 #endif
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-#if defined(LWS_CLIENT_HTTP_PROXYING)
-	struct lws_context *context = wsi->context;
-	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-#endif
-#endif
 #ifdef LWS_WITH_IPV6
 	char ipv6only = lws_check_opt(wsi->vhost->options,
 				      LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY |
@@ -363,17 +381,6 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	 * Priority 1: connect to http proxy */
 
 	if (wsi->vhost->http.http_proxy_port) {
-		plen = lws_snprintf((char *)pt->serv_buf, 256,
-			"CONNECT %s:%u HTTP/1.0\x0d\x0a"
-			"User-agent: libwebsockets\x0d\x0a",
-			ads, wsi->c_port);
-
-		if (wsi->vhost->proxy_basic_auth_token[0])
-			plen += lws_snprintf((char *)pt->serv_buf + plen, 256,
-					"Proxy-authorization: basic %s\x0d\x0a",
-					wsi->vhost->proxy_basic_auth_token);
-
-		plen += lws_snprintf((char *)pt->serv_buf + plen, 5, "\x0d\x0a");
 		ads = wsi->vhost->http.http_proxy_address;
 		wsi->c_port = wsi->vhost->http.http_proxy_port;
 #else
