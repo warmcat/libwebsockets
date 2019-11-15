@@ -689,7 +689,7 @@ struct lws {
 #endif
 
 #ifndef LWS_NO_CLIENT
-	unsigned short c_port;
+	unsigned short ocport, c_port;
 #endif
 
 	/* chars */

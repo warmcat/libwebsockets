@@ -422,10 +422,14 @@ create_new_conn:
 	 * Priority 1: connect to http proxy */
 
 	if (wsi->vhost->http.http_proxy_port) {
+
+		lwsl_info("%s: going via proxy\n", __func__);
+
 		plen = lws_snprintf((char *)pt->serv_buf, 256,
 			"CONNECT %s:%u HTTP/1.0\x0d\x0a"
+			"Host: %s:%u\x0d\x0a"
 			"User-agent: libwebsockets\x0d\x0a",
-			ads, wsi->c_port);
+			ads, wsi->ocport, ads, wsi->ocport);
 
 		if (wsi->vhost->proxy_basic_auth_token[0])
 			plen += lws_snprintf((char *)pt->serv_buf + plen, 256,
