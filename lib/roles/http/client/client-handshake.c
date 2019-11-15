@@ -8,6 +8,8 @@ lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
 	memset(&hints, 0, sizeof(hints));
 	*result = NULL;
 
+	hints.ai_socktype = SOCK_STREAM;
+
 #ifdef LWS_WITH_IPV6
 	if (wsi->ipv6) {
 
@@ -19,7 +21,6 @@ lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
 #endif
 	{
 		hints.ai_family = PF_UNSPEC;
-		hints.ai_socktype = SOCK_STREAM;
 	}
 
 	return getaddrinfo(ads, NULL, &hints, result);
