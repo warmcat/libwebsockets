@@ -2224,6 +2224,12 @@ lws_http_transaction_completed(struct lws *wsi)
 	wsi->http.access_log.sent = 0;
 #endif
 
+#if defined(LWS_WITH_FILE_OPS) && (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2))
+       if (lwsi_role_http(wsi) && lwsi_role_server(wsi) &&
+           wsi->http.fop_fd != NULL)
+	       lws_vfs_file_close(&wsi->http.fop_fd);
+#endif
+
 	if (wsi->vhost->keepalive_timeout)
 		n = PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE;
 	lws_set_timeout(wsi, n, wsi->vhost->keepalive_timeout);
