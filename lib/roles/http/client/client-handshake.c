@@ -333,6 +333,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 #if defined(LWS_WITH_UNIX_SOCK)
 	if (ads && *ads == '+') {
 		ads++;
+		memset(&sa46, 0, sizeof(sa46));
 		memset(&sau, 0, sizeof(sau));
 		sau.sun_family = AF_UNIX;
 		strncpy(sau.sun_path, ads, sizeof(sau.sun_path));

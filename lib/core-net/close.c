@@ -408,6 +408,12 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 
 just_kill_connection:
 
+#if defined(LWS_WITH_FILE_OPS) && (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2))
+	if (lwsi_role_http(wsi) && lwsi_role_server(wsi) &&
+	    wsi->http.fop_fd != NULL)
+		lws_vfs_file_close(&wsi->http.fop_fd);
+#endif
+
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 	lws_async_dns_cancel(wsi);
 #endif
