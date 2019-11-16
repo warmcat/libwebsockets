@@ -727,10 +727,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if defined(LWS_WITH_PEER_LIMITS)
 			lws_free_set_NULL(context->pl_hash_table);
 #endif
-			lws_free_set_NULL(context->pt[0].fds);
-			lws_plat_context_late_destroy(context);
-			lws_free_set_NULL(context);
-			return NULL;
+			goto fail_clean_pipes;
 		}
 
 	lws_context_init_extensions(info, context);
@@ -764,6 +761,18 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 
 	return context;
+
+#if defined(LWS_WITH_NETWORK)
+fail_clean_pipes:
+	for (n = 0; n < context->count_threads; n++)
+		lws_destroy_event_pipe(context->pt[n].pipe_wsi);
+
+	lws_free_set_NULL(context->pt[0].fds);
+	lws_plat_context_late_destroy(context);
+	lws_free_set_NULL(context);
+
+	return NULL;
+#endif
 
 bail:
 	lws_context_destroy(context);
