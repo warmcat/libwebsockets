@@ -851,6 +851,12 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 
 just_kill_connection:
 
+#if defined(LWS_WITH_FILE_OPS) && (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2))
+	if (lwsi_role_http(wsi) && lwsi_role_server(wsi) &&
+	    wsi->http.fop_fd != NULL)
+		lws_vfs_file_close(&wsi->http.fop_fd);
+#endif
+
 	if (wsi->role_ops->close_kill_connection)
 		wsi->role_ops->close_kill_connection(wsi, reason);
 
