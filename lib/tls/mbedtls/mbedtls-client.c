@@ -177,8 +177,8 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, int ebuf_len)
 		return 0;
 	}
 	lws_snprintf(ebuf, ebuf_len,
-		"server's cert didn't look good, X509_V_ERR = %d: %s\n",
-		 n, ERR_error_string(n, sb));
+		"server's cert didn't look good, (use_ssl 0x%x) X509_V_ERR = %d: %s\n",
+		(unsigned int)wsi->tls.use_ssl, n, ERR_error_string(n, sb));
 	lwsl_info("%s\n", ebuf);
 	lws_tls_err_describe_clear();
 

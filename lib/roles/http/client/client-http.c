@@ -702,6 +702,13 @@ lws_http_client_http_response(struct lws *_wsi)
 #endif
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+
+int
+lws_http_is_redirected_to_get(struct lws *wsi)
+{
+	return wsi->redirected_to_get;
+}
+
 int
 lws_client_interpret_server_handshake(struct lws *wsi)
 {
@@ -710,6 +717,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	const char *prot, *ads = NULL, *path, *cce = NULL;
 	struct allocated_headers *ah;
 	struct lws *w = lws_client_wsi_effective(wsi);
+	struct lws *nwsi = lws_get_network_wsi(wsi);
 	char *p, *q;
 	char new_path[300];
 
@@ -797,16 +805,37 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			goto bail3;
 		}
 
+		/*
+		 * Some redirect codes imply we have to change the method
+		 * used for the subsequent transaction, commonly POST ->
+		 * 303 -> GET.
+		 */
+
+		if (n == 303) {
+			char *mp = lws_hdr_simple_ptr(wsi,_WSI_TOKEN_CLIENT_METHOD);
+			int ml = lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_METHOD);
+
+			if (ml >= 3 && mp) {
+				lwsl_info("%s: 303 switching to GET\n", __func__);
+				memcpy(mp, "GET", 4);
+				wsi->redirected_to_get = 1;
+				wsi->http.ah->frags[wsi->http.ah->frag_index[
+				             _WSI_TOKEN_CLIENT_METHOD]].len = 3;
+			}
+		}
+
 		/* Relative reference absolute path */
-		if (p[0] == '/') {
+		if (p[0] == '/' || !strchr(p, ':')) {
 #if defined(LWS_WITH_TLS)
-			ssl = wsi->tls.use_ssl & LCCSCF_USE_SSL;
+			ssl = nwsi->tls.use_ssl & LCCSCF_USE_SSL;
 #endif
 			ads = lws_hdr_simple_ptr(wsi,
 						 _WSI_TOKEN_CLIENT_PEER_ADDRESS);
-			port = wsi->c_port;
-			/* +1 as lws_client_reset expects leading / omitted */
-			path = p + 1;
+			port = nwsi->c_port;
+			path = p;
+			/* lws_client_reset expects leading / omitted */
+			if (*path == '/')
+				path++;
 		}
 		/* Absolute (Full) URI */
 		else if (strchr(p, ':')) {
@@ -816,14 +845,14 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			}
 
 			if (!strcmp(prot, "wss") || !strcmp(prot, "https"))
-				ssl = 1;
+				ssl = LCCSCF_USE_SSL;
 		}
 		/* Relative reference relative path */
 		else {
 			/* This doesn't try to calculate an absolute path,
 			 * that will be left to the server */
 #if defined(LWS_WITH_TLS)
-			ssl = wsi->tls.use_ssl & LCCSCF_USE_SSL;
+			ssl = nwsi->tls.use_ssl & LCCSCF_USE_SSL;
 #endif
 			ads = lws_hdr_simple_ptr(wsi,
 						 _WSI_TOKEN_CLIENT_PEER_ADDRESS);

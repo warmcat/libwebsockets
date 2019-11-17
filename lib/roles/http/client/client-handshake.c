@@ -322,7 +322,8 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 				goto conn_good;
 			}
 
-			lwsl_debug("%s: getsockopt says err %d\n", __func__, e);
+			lwsl_debug("%s: getsockopt fd %d says err %d\n", __func__,
+					wsi->desc.sockfd, e);
 		}
 
 		lwsl_debug("%s: getsockopt check: conn fail: errno %d\n",
@@ -963,6 +964,17 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	if (!stash)
 		return NULL;
 
+	/*
+	 * _WSI_TOKEN_CLIENT_ORIGIN,
+	 * _WSI_TOKEN_CLIENT_SENT_PROTOCOLS,
+	 * _WSI_TOKEN_CLIENT_METHOD,
+	 * _WSI_TOKEN_CLIENT_IFACE,
+	 * _WSI_TOKEN_CLIENT_ALPN
+	 * address
+	 * host
+	 * path
+	 */
+
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(hnames2); n++)
 		if (lws_hdr_total_length(wsi, hnames2[n])) {
 			memcpy(p, lws_hdr_simple_ptr(wsi, hnames2[n]),
@@ -981,6 +993,8 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	path = p;
 
 	if (!port) {
+		lwsl_info("%s: forcing port 443\n", __func__);
+
 		port = 443;
 		ssl = 1;
 	}
@@ -1008,7 +1022,10 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 			compatible_close(wsi->desc.sockfd);
 
 #if defined(LWS_WITH_TLS)
-	wsi->tls.use_ssl = ssl;
+	if (!ssl)
+		wsi->tls.use_ssl &= LCCSCF_USE_SSL;
+	else
+		wsi->tls.use_ssl |= LCCSCF_USE_SSL;
 #else
 	if (ssl) {
 		lwsl_err("%s: not configured for ssl\n", __func__);
@@ -1046,6 +1063,17 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_HOST, host))
 		goto bail;
 
+	/*
+	 * _WSI_TOKEN_CLIENT_ORIGIN,
+	 * _WSI_TOKEN_CLIENT_SENT_PROTOCOLS,
+	 * _WSI_TOKEN_CLIENT_METHOD,
+	 * _WSI_TOKEN_CLIENT_IFACE,
+	 * _WSI_TOKEN_CLIENT_ALPN
+	 * address
+	 * host
+	 * path
+	 */
+
 	p = stash;
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(hnames2); n++) {
 		if (lws_hdr_simple_create(wsi, hnames2[n], p))
@@ -1059,6 +1087,11 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 		goto bail;
 
 	lws_free_set_NULL(stash);
+
+#if defined(LWS_WITH_HTTP2)
+	if (wsi->client_h2_substream)
+		wsi->h2.END_STREAM = wsi->h2.END_HEADERS = 0;
+#endif
 
 	*pwsi = lws_client_connect_2_dnsreq(wsi);
 
@@ -1258,9 +1291,10 @@ lws_http_client_connect_via_info2(struct lws *wsi)
 	 * allocated stash
 	 */
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(hnames); n++)
-		if (hnames[n] && stash->cis[n])
+		if (hnames[n] && stash->cis[n]) {
 			if (lws_hdr_simple_create(wsi, hnames[n], stash->cis[n]))
 				goto bail1;
+		}
 
 #if defined(LWS_WITH_SOCKS5)
 	if (!wsi->vhost->socks_proxy_port)

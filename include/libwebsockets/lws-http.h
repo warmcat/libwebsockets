@@ -788,8 +788,19 @@ lws_h2_client_stream_long_poll_rxonly(struct lws *wsi);
  * LWS_WITH_HTTP_STREAM_COMPRESSION set, then a NOP is provided for this api,
  * allowing user code to build either way and use compression if available.
  */
-LWS_VISIBLE int
+LWS_VISIBLE LWS_EXTERN int
 lws_http_compression_apply(struct lws *wsi, const char *name,
 			   unsigned char **p, unsigned char *end, char decomp);
+
+/**
+ * lws_http_is_redirected_to_get() - true if redirected to GET
+ *
+ * \param wsi: the wsi to check
+ *
+ * Check if the wsi is currently in GET mode, after, eg, doing a POST and
+ * receiving a 303.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_http_is_redirected_to_get(struct lws *wsi);
 ///@}
 

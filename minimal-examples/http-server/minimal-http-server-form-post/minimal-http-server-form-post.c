@@ -24,7 +24,7 @@ struct pss {
 	struct lws_spa *spa;
 };
 
-static int interrupted;
+static int interrupted, use303;
 
 static const char * const param_names[] = {
 	"text1",
@@ -81,6 +81,11 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			return -1;
 		break;
 
+	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+		if (pss->spa && lws_spa_destroy(pss->spa))
+			return -1;
+		break;
+
 	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
 
 		/* inform the spa no more payload data coming */
@@ -90,22 +95,27 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		/* we just dump the decoded things to the log */
 
-		for (n = 0; n < (int)LWS_ARRAY_SIZE(param_names); n++) {
-			if (!lws_spa_get_string(pss->spa, n))
-				lwsl_user("%s: undefined\n", param_names[n]);
-			else
-				lwsl_user("%s: (len %d) '%s'\n",
-				    param_names[n],
-				    lws_spa_get_length(pss->spa, n),
-				    lws_spa_get_string(pss->spa, n));
-		}
+		if (pss->spa)
+			for (n = 0; n < (int)LWS_ARRAY_SIZE(param_names); n++) {
+				if (!lws_spa_get_string(pss->spa, n))
+					lwsl_user("%s: undefined\n", param_names[n]);
+				else
+					lwsl_user("%s: (len %d) '%s'\n",
+					    param_names[n],
+					    lws_spa_get_length(pss->spa, n),
+					    lws_spa_get_string(pss->spa, n));
+			}
+
+		if (pss->spa && lws_spa_destroy(pss->spa))
+			return -1;
 
 		/*
 		 * Our response is to redirect to a static page.  We could
 		 * have generated a dynamic html page here instead.
 		 */
 
-		if (lws_http_redirect(wsi, HTTP_STATUS_MOVED_PERMANENTLY,
+		if (lws_http_redirect(wsi, use303 ? HTTP_STATUS_SEE_OTHER :
+					   HTTP_STATUS_MOVED_PERMANENTLY,
 				      (unsigned char *)"after-form1.html",
 				      16, &p, end) < 0)
 			return -1;
@@ -190,6 +200,11 @@ int main(int argc, const char **argv)
 		info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 		info.ssl_cert_filepath = "localhost-100y.cert";
 		info.ssl_private_key_filepath = "localhost-100y.key";
+	}
+
+	if (lws_cmdline_option(argc, argv, "--303")) {
+		lwsl_user("%s: using 303 redirect\n", __func__);
+		use303 = 1;
 	}
 
 	context = lws_create_context(&info);

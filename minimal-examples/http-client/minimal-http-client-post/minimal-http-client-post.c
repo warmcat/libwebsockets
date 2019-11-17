@@ -96,11 +96,17 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		/*
 		 * Tell lws we are going to send the body next...
 		 */
-		lws_client_http_body_pending(wsi, 1);
-		lws_callback_on_writable(wsi);
+		if (!lws_http_is_redirected_to_get(wsi)) {
+			lwsl_user("%s: doing POST flow\n", __func__);
+			lws_client_http_body_pending(wsi, 1);
+			lws_callback_on_writable(wsi);
+		} else
+			lwsl_user("%s: doing GET flow\n", __func__);
 		break;
 
 	case LWS_CALLBACK_CLIENT_HTTP_WRITEABLE:
+		if (lws_http_is_redirected_to_get(wsi))
+			break;
 		lwsl_user("LWS_CALLBACK_CLIENT_HTTP_WRITEABLE\n");
 		n = LWS_WRITE_HTTP;
 
@@ -235,6 +241,9 @@ int main(int argc, const char **argv)
 		i.address = "libwebsockets.org";
 		i.path = "/testserver/formtest";
 	}
+
+	if (lws_cmdline_option(argc, argv, "--form1"))
+		i.path = "/form1";
 
 	i.host = i.address;
 	i.origin = i.address;
