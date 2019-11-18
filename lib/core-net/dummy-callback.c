@@ -661,7 +661,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_debug("LWS_CALLBACK_CGI_TERMINATED: %d %" PRIu64 "\n",
 				wsi->http.cgi->explicitly_chunked,
 				(uint64_t)wsi->http.cgi->content_length);
-		if (!wsi->http.cgi->explicitly_chunked &&
+		if (!(wsi->http.cgi->explicitly_chunked && wsi->http2_substream) &&
 		    !wsi->http.cgi->content_length) {
 			/* send terminating chunk */
 			lwsl_debug("LWS_CALLBACK_CGI_TERMINATED: ending\n");
@@ -670,6 +670,10 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_set_timeout(wsi, PENDING_TIMEOUT_CGI, 3);
 			break;
 		}
+		if (wsi->http2_substream && !wsi->cgi_stdout_zero_length)
+			lws_write(wsi, (unsigned char *)buf + LWS_PRE, 0,
+						      LWS_WRITE_HTTP_FINAL);
+
 		if (lws_http_transaction_completed(wsi))
 			return -1;
 		return 0;

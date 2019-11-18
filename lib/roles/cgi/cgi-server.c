@@ -920,7 +920,7 @@ agin:
 	/* payload processing */
 
 	m = !wsi->http.cgi->implied_chunked && !wsi->http2_substream &&
-	    !wsi->http.cgi->explicitly_chunked &&
+	//    !wsi->http.cgi->explicitly_chunked &&
 	    !wsi->http.cgi->content_length;
 	n = lws_get_socket_fd(wsi->http.cgi->stdwsi[LWS_STDOUT]);
 	if (n < 0)
@@ -972,21 +972,20 @@ agin:
 		wsi->http.cgi->content_length_seen += n;
 	} else {
 
-	if (m) {
-		uint8_t term[LWS_PRE + 6];
+		if (!wsi->http2_substream && m) {
+			uint8_t term[LWS_PRE + 6];
 
-		memcpy(term + LWS_PRE, (uint8_t *)"0\x0d\x0a\x0d\x0a", 5);
+			lwsl_notice("%s: sent trailer\n", __func__);
+			memcpy(term + LWS_PRE, (uint8_t *)"0\x0d\x0a\x0d\x0a", 5);
 
-		if (lws_write(wsi, term + LWS_PRE, 5,
-			      LWS_WRITE_HTTP_FINAL) != 5)
-			return -1;
+			if (lws_write(wsi, term + LWS_PRE, 5,
+				      LWS_WRITE_HTTP_FINAL) != 5)
+				return -1;
 
-		wsi->http.cgi->cgi_transaction_over = 1;
+			wsi->http.cgi->cgi_transaction_over = 1;
 
-		return 0;
-	}
-
-
+			return 0;
+		}
 
 		if (wsi->cgi_stdout_zero_length) {
 			lwsl_debug("%s: stdout is POLLHUP'd\n", __func__);
@@ -1064,12 +1063,14 @@ handled:
 	args.stdwsi = &wsi->http.cgi->stdwsi[0];
 
 	if (wsi->http.cgi->pid != -1) {
+		int m = wsi->http.cgi->being_closed;
 		n = user_callback_handle_rxflow(wsi->protocol->callback, wsi,
 						LWS_CALLBACK_CGI_TERMINATED,
 						wsi->user_space, (void *)&args,
 						wsi->http.cgi->pid);
-		wsi->http.cgi->pid = -1;
-		if (n && !wsi->http.cgi->being_closed)
+		if (wsi->http.cgi)
+			wsi->http.cgi->pid = -1;
+		if (n && !m)
 			lws_close_free_wsi(wsi, 0, "lws_cgi_kill");
 	}
 

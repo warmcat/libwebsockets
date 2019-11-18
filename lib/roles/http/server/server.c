@@ -2153,10 +2153,13 @@ bail_nuke_ah:
 }
 #endif
 
-LWS_VISIBLE int LWS_WARN_UNUSED_RESULT
+int LWS_WARN_UNUSED_RESULT
 lws_http_transaction_completed(struct lws *wsi)
 {
-	int n = NO_PENDING_TIMEOUT;
+	int n;
+
+	if (wsi->http.cgi_transaction_complete)
+		return 0;
 
 	if (lws_has_buffered_out(wsi)
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
@@ -2208,7 +2211,11 @@ lws_http_transaction_completed(struct lws *wsi)
 #endif
 	lws_access_log(wsi);
 
-	if (!wsi->hdr_parsing_completed) {
+	if (!wsi->hdr_parsing_completed
+#if defined(LWS_WITH_CGI)
+			&& !wsi->http.cgi
+#endif
+	) {
 		char peer[64];
 
 #if !defined(LWS_PLAT_OPTEE)
@@ -2221,6 +2228,26 @@ lws_http_transaction_completed(struct lws *wsi)
 				__func__, peer);
 		return 0;
 	}
+
+#if defined(LWS_WITH_CGI)
+	if (wsi->http.cgi) {
+		lwsl_debug("%s: cleaning cgi\n", __func__);
+		wsi->http.cgi_transaction_complete = 1;
+		lws_cgi_remove_and_kill(wsi);
+		for (n = 0; n < 3; n++) {
+			if (wsi->http.cgi->pipe_fds[n][!!(n == 0)] == 0)
+				lwsl_err("ZERO FD IN CGI CLOSE");
+
+			if (wsi->http.cgi->pipe_fds[n][!!(n == 0)] >= 0) {
+				close(wsi->http.cgi->pipe_fds[n][!!(n == 0)]);
+				wsi->http.cgi->pipe_fds[n][!!(n == 0)] = LWS_SOCK_INVALID;
+			}
+		}
+
+		lws_free_set_NULL(wsi->http.cgi);
+		wsi->http.cgi_transaction_complete = 0;
+	}
+#endif
 
 	/* if we can't go back to accept new headers, drop the connection */
 	if (wsi->http2_substream)
@@ -2259,6 +2286,7 @@ lws_http_transaction_completed(struct lws *wsi)
 		lws_vfs_file_close(&wsi->http.fop_fd);
 #endif
 
+	n = NO_PENDING_TIMEOUT;
 	if (wsi->vhost->keepalive_timeout)
 		n = PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE;
 	lws_set_timeout(wsi, n, wsi->vhost->keepalive_timeout);

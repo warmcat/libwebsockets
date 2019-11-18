@@ -306,7 +306,8 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 				lws_cgi_remove_and_kill(wsi->parent);
 
 			/* end the binding between us and master */
-			wsi->parent->http.cgi->stdwsi[(int)wsi->cgi_channel] =
+			if (wsi->parent->http.cgi)
+				wsi->parent->http.cgi->stdwsi[(int)wsi->cgi_channel] =
 									NULL;
 		}
 		wsi->socket_is_permanently_unusable = 1;
