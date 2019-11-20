@@ -37,12 +37,15 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	const char *alpn_comma = wsi->context->tls.alpn_default;
 	struct alpn_ctx protos;
 
-	if (lws_hdr_copy(wsi, hostname, sizeof(hostname),
-			 _WSI_TOKEN_CLIENT_HOST) <= 0) {
-		lwsl_err("%s: Unable to get hostname\n", __func__);
+	if (wsi->stash)
+		lws_strncpy(hostname, wsi->stash->cis[CIS_HOST], sizeof(hostname));
+	else
+		if (lws_hdr_copy(wsi, hostname, sizeof(hostname),
+				_WSI_TOKEN_CLIENT_HOST) <= 0) {
+			lwsl_err("%s: Unable to get hostname\n", __func__);
 
-		return -1;
-	}
+			return -1;
+		}
 
 	/*
 	 * remove any :port part on the hostname... necessary for network

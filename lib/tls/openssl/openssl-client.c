@@ -141,14 +141,18 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	int n;
 #endif
 
+	if (wsi->stash)
+		lws_strncpy(hostname, wsi->stash->cis[CIS_HOST], sizeof(hostname));
+	else {
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-	if (lws_hdr_copy(wsi, hostname, sizeof(hostname),
-			 _WSI_TOKEN_CLIENT_HOST) <= 0)
+		if (lws_hdr_copy(wsi, hostname, sizeof(hostname),
+				 _WSI_TOKEN_CLIENT_HOST) <= 0)
 #endif
-	{
-		lwsl_err("%s: Unable to get hostname\n", __func__);
+		{
+			lwsl_err("%s: Unable to get hostname\n", __func__);
 
-		return -1;
+			return -1;
+		}
 	}
 
 	/*
