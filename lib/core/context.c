@@ -471,6 +471,14 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->default_retry.secs_since_valid_ping = 300;
 	context->default_retry.secs_since_valid_hangup = 310;
 
+	if (info->retry_and_idle_policy &&
+	    info->retry_and_idle_policy->secs_since_valid_ping) {
+		context->default_retry.secs_since_valid_ping =
+				info->retry_and_idle_policy->secs_since_valid_ping;
+		context->default_retry.secs_since_valid_hangup =
+				info->retry_and_idle_policy->secs_since_valid_hangup;
+	}
+
 	/*
 	 * Allocate the per-thread storage for scratchpad buffers,
 	 * and header data pool
