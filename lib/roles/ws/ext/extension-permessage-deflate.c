@@ -186,6 +186,9 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 
 
 	case LWS_EXT_CB_PAYLOAD_RX:
+		/*
+		 * ie, we are INFLATING
+		 */
 		lwsl_ext(" %s: LWS_EXT_CB_PAYLOAD_RX: in %d, existing in %d\n",
 			 __func__, pmdrx->eb_in.len, priv->rx.avail_in);
 
@@ -204,9 +207,8 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		pmdrx->eb_out.len = 0;
 
 		lwsl_ext("%s: LWS_EXT_CB_PAYLOAD_RX: in %d, "
-			    "existing avail in %d, pkt fin: %d\n", __func__,
-				    pmdrx->eb_in.len, priv->rx.avail_in,
-				    wsi->ws->final);
+			 "existing avail in %d, pkt fin: %d\n", __func__,
+			 pmdrx->eb_in.len, priv->rx.avail_in, wsi->ws->final);
 
 		/* if needed, initialize the inflator */
 
@@ -250,14 +252,12 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		pmdrx->eb_out.token = priv->rx.next_out;
 		priv->rx.avail_out = 1 << priv->args[PMD_RX_BUF_PWR2];
 
-		pen = penbits = 0;
-		deflatePending(&priv->rx, &pen, &penbits);
-		pen |= penbits;
-
 		/* so... if...
 		 *
 		 *  - he has no remaining input content for this message, and
+		 *
 		 *  - and this is the final fragment, and
+		 *
 		 *  - we used everything that could be drained on the input side
 		 *
 		 * ...then put back the 00 00 FF FF the sender stripped as our
@@ -279,7 +279,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		 * him right now, bail without having done anything
 		 */
 
-		if (!priv->rx.avail_in && !pen)
+		if (!priv->rx.avail_in)
 			return PMDR_DID_NOTHING;
 
 		n = inflate(&priv->rx, was_fin ? Z_SYNC_FLUSH : Z_NO_FLUSH);
@@ -303,25 +303,18 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 				         (pmdrx->eb_in.len - priv->rx.avail_in);
 		pmdrx->eb_in.len = priv->rx.avail_in;
 
-		pen = penbits = 0;
-		deflatePending(&priv->rx, &pen, &penbits);
-		pen |= penbits;
-
-		lwsl_debug("%s: %d %d %d %d %d %d\n", __func__,
+		lwsl_debug("%s: %d %d %d %d %d\n", __func__,
 				priv->rx.avail_in,
 				wsi->ws->final,
 				(int)wsi->ws->rx_packet_length,
 				was_fin,
-				wsi->ws->pmd_trailer_application,
-				pen);
+				wsi->ws->pmd_trailer_application);
 
 		if (!priv->rx.avail_in &&
 		    wsi->ws->final &&
 		    !wsi->ws->rx_packet_length &&
 		    !was_fin &&
-		    wsi->ws->pmd_trailer_application &&
-		    !pen
-		) {
+		    wsi->ws->pmd_trailer_application) {
 			lwsl_ext("%s: RX trailer apply 2\n", __func__);
 
 			/* we overallocated just for this situation where
@@ -334,7 +327,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 			priv->rx.avail_in = sizeof(trail);
 			n = inflate(&priv->rx, Z_SYNC_FLUSH);
 			lwsl_ext("RX trailer infl ret %d, avi %d, avo %d\n",
-				    n, priv->rx.avail_in, priv->rx.avail_out);
+				 n, priv->rx.avail_in, priv->rx.avail_out);
 			switch (n) {
 			case Z_NEED_DICT:
 			case Z_STREAM_ERROR:
@@ -346,10 +339,6 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 			}
 
 			assert(priv->rx.avail_out);
-
-			pen = penbits = 0;
-			deflatePending(&priv->rx, &pen, &penbits);
-			pen |= penbits;
 		}
 
 		pmdrx->eb_out.len = lws_ptr_diff(priv->rx.next_out,
@@ -361,7 +350,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 			 __func__, pmdrx->eb_out.len, priv->rx.avail_in,
 			 (unsigned long)priv->count_rx_between_fin);
 
-		if (was_fin && !pen) {
+		if (was_fin) {
 			lwsl_ext("%s: was_fin\n", __func__);
 			priv->count_rx_between_fin = 0;
 			if (priv->args[PMD_SERVER_NO_CONTEXT_TAKEOVER]) {
@@ -373,14 +362,18 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 			return PMDR_EMPTY_FINAL;
 		}
 
-		if (pen || priv->rx.avail_in)
+		if (priv->rx.avail_in)
 			return PMDR_HAS_PENDING;
 
 		return PMDR_EMPTY_NONFINAL;
 
 	case LWS_EXT_CB_PAYLOAD_TX:
 
-		/* initialize us if needed */
+		/*
+		 * ie, we are DEFLATING
+		 *
+		 * initialize us if needed
+		 */
 
 		if (!priv->tx_init) {
 			n = deflateInit2(&priv->tx, priv->args[PMD_COMP_LEVEL],

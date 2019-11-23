@@ -18,6 +18,7 @@ else
 			../scripts/h2spec.sh &&
 			../scripts/attack.sh &&
 			../scripts/h2load.sh &&
+			../scripts/autobahn-test-server.sh &&
 			../scripts/autobahn-test-client.sh
 		else
 			if [ "$LWS_METHOD" = "lwsws2" ] ; then

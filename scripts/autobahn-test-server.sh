@@ -40,7 +40,7 @@ cat << EOF >fuzzingclient.json
          "url": "ws://127.0.0.1:9001"
       }
    ],
-   "cases": [ "12.2.13" ],
+   "cases": [ "*" ],
    "exclude-cases": ["2.10", "2.11" ],
    "exclude-agent-cases": {}
 }
