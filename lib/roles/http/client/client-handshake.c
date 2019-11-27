@@ -1372,7 +1372,7 @@ socks_generate_msg(struct lws *wsi, enum socks_msg_type type, ssize_t *msg_len)
 		break;
 
 	case SOCKS_MSG_CONNECT:
-		n = strlen(wsi->stash->address);
+		n = strlen(wsi->stash->cis[CIS_ADDRESS]);
 
 		if (n > 254 || lws_ptr_diff(end, p) < 5 + n + 2)
 			return 1;
@@ -1391,7 +1391,7 @@ socks_generate_msg(struct lws *wsi, enum socks_msg_type type, ssize_t *msg_len)
 		*p++ = n;
 
 		/* the address we tell SOCKS proxy to connect to */
-		memcpy(p, wsi->stash->address, n);
+		memcpy(p, wsi->stash->cis[CIS_ADDRESS], n);
 		p += n;
 
 		net_num = htons(wsi->c_port);

@@ -80,6 +80,7 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 	int n = 0;
 #if defined(LWS_WITH_SOCKS5)
 	int conn_mode = 0, pending_timeout = 0;
+	ssize_t len;
 #endif
 
 	if ((pollfd->revents & LWS_POLLOUT) &&
