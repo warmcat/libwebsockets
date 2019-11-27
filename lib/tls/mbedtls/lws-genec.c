@@ -102,7 +102,8 @@ lws_genec_keypair_import(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 
 	switch (ctx->genec_alg) {
 	case LEGENEC_ECDH:
-		if (mbedtls_ecdh_get_params(ctx->u.ctx_ecdh, &kp, side))
+		if (mbedtls_ecdh_get_params(ctx->u.ctx_ecdh, &kp,
+					    (mbedtls_ecdh_side)side))
 			goto bail1;
 		/* verify the key is consistent with the claimed curve */
 		if (ctx->has_private &&
@@ -252,7 +253,8 @@ lws_genecdh_new_keypair(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 
 	kp = (mbedtls_ecp_keypair *)&ecdsa;
 
-	n = mbedtls_ecdh_get_params(ctx->u.ctx_ecdh, kp, side);
+	n = mbedtls_ecdh_get_params(ctx->u.ctx_ecdh, kp,
+				    (mbedtls_ecdh_side)side);
 	if (n) {
 		lwsl_err("mbedtls_ecdh_get_params failed 0x%x\n", -n);
 		goto bail1;
