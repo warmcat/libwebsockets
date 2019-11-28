@@ -8,7 +8,7 @@ then
 
 	if [ "$LWS_METHOD" == "lwsws" -o "$LWS_METHOD" == "lwsws2" ];
 	then
-		sudo apt-get install -y -qq realpath libjemalloc1 libev4 libuv-dev libdbus-1-dev
+		sudo apt-get install -y -qq realpath libjemalloc1 libev4 libuv-dev libdbus-1-dev valgrind
 		sudo apt-get remove python-six
 		sudo pip install "six>=1.9"
 		sudo pip install "Twisted==16.0.0"
@@ -23,7 +23,7 @@ then
 
 	if [ "$LWS_METHOD" == "mbedtls" ];
 	then
-		sudo apt-get install -y -qq realpath libjemalloc1 libev4 libuv-dev
+		sudo apt-get install -y -qq realpath libjemalloc1 libev4 libuv-dev valgrind
 		wget https://libwebsockets.org/openssl-1.1.0-trusty.tar.bz2 -O/tmp/openssl.tar.bz2
 		cd /
 		sudo tar xf /tmp/openssl.tar.bz2
