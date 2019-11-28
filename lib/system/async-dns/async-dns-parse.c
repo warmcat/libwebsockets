@@ -76,8 +76,8 @@ again1:
 
 	ll = *ls++;
 	if (ls + ll + 1 > e) {
-		lwsl_notice("%s: label len invalid, %ld vs %ld\n", __func__,
-				(ls + ll + 1) - pkt, e - pkt);
+		lwsl_notice("%s: label len invalid, %d vs %d\n", __func__,
+			    lws_ptr_diff((ls + ll + 1), pkt), lws_ptr_diff(e, pkt));
 
 		return -1;
 	}
