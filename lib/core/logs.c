@@ -179,7 +179,11 @@ lwsl_emit_stderr_notimestamp(int level, const char *line)
 #if !(defined(LWS_PLAT_OPTEE) && !defined(LWS_WITH_NETWORK))
 LWS_VISIBLE void _lws_logv(int filter, const char *format, va_list vl)
 {
+#if LWS_MAX_SMP == 1
 	static char buf[256];
+#else
+	char buf[1024];
+#endif
 	int n;
 
 	if (!(log_level & filter))
