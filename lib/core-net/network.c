@@ -744,7 +744,7 @@ lws_write_numeric_address(const uint8_t *ads, int size, char *buf, int len)
 	if (size != 16)
 		return -1;
 
-	for (c = 0; c < size / 2; c++) {
+	for (c = 0; c < (char)size / 2; c++) {
 		uint16_t v = (ads[q] << 8) | ads[q + 1];
 
 		if (buf + 8 > e)
