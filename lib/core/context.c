@@ -243,6 +243,10 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->detailed_latency_filepath = info->detailed_latency_filepath;
 	context->latencies_fd = -1;
 #endif
+#if defined(LWS_WITHOUT_EXTENSIONS)
+        if (info->extensions)
+                lwsl_warn("%s: LWS_WITHOUT_EXTENSIONS but extensions ptr set\n", __func__);
+#endif
 #endif
 
 	/* if he gave us names, set the uid / gid */
