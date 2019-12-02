@@ -302,7 +302,7 @@ By default it runs in server mode
 ```
 	$ libwebsockets-test-fraggle
 	libwebsockets test fraggle
-	(C) Copyright 2010-2011 Andy Green <andy@warmcat.com> licensed under LGPL2.1
+	(C) Copyright 2010-2011 Andy Green <andy@warmcat.com> licensed under MIT
 	 Compiled with SSL support, not using it
 	 Listening on port 7681
 	server sees client connect
@@ -318,7 +318,7 @@ give the `-c` switch and the server address at least:
 ```
 	$ libwebsockets-test-fraggle -c localhost
 	libwebsockets test fraggle
-	(C) Copyright 2010-2011 Andy Green <andy@warmcat.com> licensed under LGPL2.1
+	(C) Copyright 2010-2011 Andy Green <andy@warmcat.com> licensed under MIT
 	 Client mode
 	Connecting to localhost:7681
 	denied deflate-stream extension

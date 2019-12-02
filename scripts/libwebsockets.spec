@@ -4,7 +4,7 @@ Release: 1%{?dist}
 Summary: Websocket Server and Client Library
 
 Group: System Environment/Libraries
-License: LGPLv2 with exceptions
+License: MIT
 URL: https://libwebsockets.org
 Source0: %{name}-%{version}.tar.gz
 BuildRoot: %(mktemp -ud %{_tmppath}/%{name}-%{version}-%{release}-XXXXXX)
