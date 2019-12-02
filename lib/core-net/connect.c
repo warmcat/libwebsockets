@@ -227,7 +227,8 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	/* all the pointers default to NULL, but no need to zero the args */
 	memset(wsi->stash, 0, sizeof(*wsi->stash));
 
-	wsi->stash->opaque_user_data = i->opaque_user_data;
+	wsi->opaque_user_data = wsi->stash->opaque_user_data =
+		i->opaque_user_data;
 	pc = (char *)&wsi->stash[1];
 
 	for (n = 0; n < CIS_COUNT; n++)

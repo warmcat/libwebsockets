@@ -67,6 +67,8 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 	if ((pollfd->revents & pollfd->events & LWS_POLLIN) &&
 	    /* any tunnel has to have been established... */
 	    lwsi_state(wsi) != LRS_SSL_ACK_PENDING &&
+	    /* we are actually connected */
+	    lwsi_state(wsi) != LRS_WAITING_CONNECT &&
 	    !(wsi->favoured_pollin &&
 	      (pollfd->revents & pollfd->events & LWS_POLLOUT))) {
 
@@ -137,8 +139,9 @@ try_pollout:
 		return LWS_HPI_RET_HANDLED;
 
 #if defined(LWS_WITH_CLIENT)
-	if (lwsi_state(wsi) == LRS_WAITING_CONNECT)
-		lws_client_connect_4_established(wsi, NULL, 0);
+	if (lwsi_state(wsi) == LRS_WAITING_CONNECT &&
+	    !lws_client_connect_3_connect(wsi, NULL, NULL, 0, NULL))
+		return LWS_HPI_RET_WSI_ALREADY_DIED;
 #endif
 
 	/* one shot */
