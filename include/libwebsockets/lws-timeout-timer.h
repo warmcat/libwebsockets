@@ -251,4 +251,16 @@ lws_sul_schedule(struct lws_context *context, int tsi,
 LWS_VISIBLE LWS_EXTERN void
 lws_validity_confirmed(struct lws *wsi);
 
+/*
+ * These are not normally needed, they're exported for the case there's code
+ * using lws_sul for which lws is an optional link dependency.
+ */
+
+LWS_VISIBLE LWS_EXTERN int
+__lws_sul_insert(lws_dll2_owner_t *own, lws_sorted_usec_list_t *sul,
+		 lws_usec_t us);
+
+LWS_VISIBLE LWS_EXTERN lws_usec_t
+__lws_sul_service_ripe(lws_dll2_owner_t *own, lws_usec_t usnow);
+
 ///@}
