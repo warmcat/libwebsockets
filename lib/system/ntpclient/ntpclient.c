@@ -171,6 +171,7 @@ callback_ntpc(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			break;
 		if (v->wsi_udp)
 			lws_set_timeout(v->wsi_udp, 1, LWS_TO_KILL_ASYNC);
+		lws_state_reg_deregister(&v->notify_link);
 		v->wsi_udp = NULL;
 		goto cancel_conn_timer;
 
@@ -182,8 +183,12 @@ callback_ntpc(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		break;
 
         case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+		lwsl_notice("%s: CONNECTION_ERROR\n", __func__);
+		goto do_close;
+
 	case LWS_CALLBACK_RAW_CLOSE:
-		lwsl_debug("%s: LWS_CALLBACK_RAW_CLOSE\n", __func__);
+		lwsl_notice("%s: LWS_CALLBACK_RAW_CLOSE\n", __func__);
+do_close:
 		v->wsi_udp = NULL;
 
 		/* cancel any pending write retry */

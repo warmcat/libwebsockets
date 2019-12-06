@@ -611,7 +611,7 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 			lwsl_info("%s: getaddrinfo error: %s\n", __func__,
 					strerror(n));
 #endif
-			freeaddrinfo(r);
+			//freeaddrinfo(r);
 			goto bail1;
 		}
 		/* complete it immediately after the blocking dns lookup
@@ -660,6 +660,7 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 #if !defined(LWS_WITH_SYS_ASYNC_DNS)
 bail1:
 	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "adopt udp2 fail");
+	wsi = NULL;
 #endif
 bail:
 	return wsi;
