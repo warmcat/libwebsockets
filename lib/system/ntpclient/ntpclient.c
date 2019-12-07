@@ -125,7 +125,6 @@ callback_ntpc(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
 						 lws_get_protocol(wsi));
 	uint8_t pkt[LWS_PRE + 48];
-	lws_system_arg_t arg;
 	uint64_t ns;
 
 	switch (reason) {
@@ -157,11 +156,10 @@ callback_ntpc(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		v->notify_link.name = "ntpclient";
 		lws_state_reg_notifier(&wsi->context->mgr_system, &v->notify_link);
 
-		if (lws_system_get_info(wsi->context, LWS_SYSI_HRS_NTP_SERVER,
-					&arg))
-			v->ntp_server_ads = "pool.ntp.org";
-		else
-			v->ntp_server_ads = arg.u.hrs;
+		v->ntp_server_ads = "pool.ntp.org";
+		lws_system_blob_get_single_ptr(lws_system_get_blob(
+				v->context, LWS_SYSBLOB_TYPE_NTP_SERVER, 0),
+				(const uint8_t **)&v->ntp_server_ads);
 
 		lws_ntpc_retry_conn(&v->sul_conn);
 		break;

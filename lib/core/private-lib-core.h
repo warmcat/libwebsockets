@@ -254,6 +254,17 @@ struct lws_deferred_free
 	void *payload;
 };
 
+typedef struct lws_system_blob {
+	union {
+		struct lws_buflist *bl;
+		struct {
+			const uint8_t *ptr;
+			size_t len;
+		} direct;
+	} u;
+	char	is_direct;
+} lws_system_blob_t;
+
 /*
  * the rest is managed per-context, that includes
  *
@@ -273,6 +284,8 @@ struct lws_context {
 #if defined(LWS_WITH_ZIP_FOPS)
 	struct lws_plat_file_ops fops_zip;
 #endif
+
+	lws_system_blob_t system_blobs[LWS_SYSBLOB_TYPE_COUNT];
 
 #if defined(LWS_WITH_NETWORK)
 	struct lws_context_per_thread pt[LWS_MAX_SMP];
@@ -309,15 +322,11 @@ struct lws_context {
 	lws_async_dns_t		async_dns;
 #endif
 
-	struct lws_buflist *auth_token[2];
-
-#if defined(LWS_WITH_NETWORK)
 	lws_state_manager_t		mgr_system;
 	lws_state_notify_link_t		protocols_notify;
 #if defined (LWS_WITH_SYS_DHCP_CLIENT)
 	lws_dll2_owner_t		dhcpc_owner;
 					/**< list of ifaces with dhcpc */
-#endif
 #endif
 
 	/* pointers */
