@@ -36,13 +36,13 @@
 
 #define COUNT 8
 
-struct user {
+struct cliuser {
 	int index;
 };
 
 static int interrupted, completed, failed, numbered, stagger_idx;
 static struct lws *client_wsi[COUNT];
-static struct user user[COUNT];
+static struct cliuser cliuser[COUNT];
 static lws_sorted_usec_list_t sul_stagger;
 static struct lws_client_connect_info i;
 struct lws_context *context;
@@ -51,7 +51,7 @@ static int
 callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	      void *user, void *in, size_t len)
 {
-	struct user *u = (struct user *)user;
+	struct cliuser *u = (struct cliuser *)cliuser;
 
 	switch (reason) {
 
@@ -194,8 +194,8 @@ lws_try_client_connection(struct lws_client_connect_info *i, int m)
 		i->path = "/";
 
 	i->pwsi = &client_wsi[m];
-	user[m].index = m;
-	i->userdata = &user[m];
+	cliuser[m].index = m;
+	i->userdata = &cliuser[m];
 
 	if (!lws_client_connect_via_info(i)) {
 		failed++;
