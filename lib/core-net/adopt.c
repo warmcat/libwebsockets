@@ -117,7 +117,8 @@ lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi)
 
 static struct lws *
 lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
-			    const char *vh_prot_name, struct lws *parent)
+			    const char *vh_prot_name, struct lws *parent,
+			    void *opaque)
 {
 	struct lws_context *context = vh->context;
 	struct lws_context_per_thread *pt;
@@ -136,6 +137,8 @@ lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 	new_wsi = lws_create_new_server_wsi(vh, n);
 	if (!new_wsi)
 		return NULL;
+
+	new_wsi->opaque_user_data = opaque;
 
 	pt = &context->pt[(int)new_wsi->tsi];
 	lws_stats_bump(pt, LWSSTATS_C_CONNECTIONS, 1);
@@ -310,7 +313,7 @@ fail:
 LWS_VISIBLE struct lws *
 lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 			   lws_sock_file_fd_type fd, const char *vh_prot_name,
-			   struct lws *parent)
+			   struct lws *parent, void *opaque)
 {
 	struct lws *new_wsi;
 #if defined(LWS_WITH_PEER_LIMITS)
@@ -331,7 +334,8 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 	}
 #endif
 
-	new_wsi = lws_adopt_descriptor_vhost1(vh, type, vh_prot_name, parent);
+	new_wsi = lws_adopt_descriptor_vhost1(vh, type, vh_prot_name, parent,
+						opaque);
 	if (!new_wsi) {
 		if (type & LWS_ADOPT_SOCKET)
 			compatible_close(fd.sockfd);
@@ -358,7 +362,8 @@ lws_adopt_socket_vhost(struct lws_vhost *vh, lws_sockfd_type accept_fd)
 
 	fd.sockfd = accept_fd;
 	return lws_adopt_descriptor_vhost(vh, LWS_ADOPT_SOCKET |
-			LWS_ADOPT_HTTP | LWS_ADOPT_ALLOW_SSL, fd, NULL, NULL);
+			LWS_ADOPT_HTTP | LWS_ADOPT_ALLOW_SSL, fd, NULL, NULL,
+			NULL);
 }
 
 LWS_VISIBLE struct lws *
@@ -561,7 +566,8 @@ bail:
 struct lws *
 lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 		     int flags, const char *protocol_name, const char *ifname,
-		     struct lws *parent_wsi, const lws_retry_bo_t *retry_policy)
+		     struct lws *parent_wsi, void *opaque,
+		     const lws_retry_bo_t *retry_policy)
 {
 #if !defined(LWS_PLAT_OPTEE)
 	struct lws *wsi;
@@ -572,7 +578,7 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 	/* create the logical wsi without any valid fd */
 
 	wsi = lws_adopt_descriptor_vhost1(vhost, LWS_ADOPT_RAW_SOCKET_UDP,
-						 protocol_name, parent_wsi);
+					  protocol_name, parent_wsi, opaque);
 	if (!wsi) {
 		lwsl_err("%s: udp wsi creation failed\n", __func__);
 		goto bail;

@@ -58,7 +58,7 @@ set_hw_params(struct lws_vhost *vh, snd_pcm_t **pcm, int type)
 
 	u.filefd = (lws_filefd_type)(long long)pfd.fd;
 	wsi1 = lws_adopt_descriptor_vhost(vh, LWS_ADOPT_RAW_FILE_DESC, u,
-					  "lws-audio-test", NULL);
+					  "lws-audio-test", NULL, NULL);
 	if (!wsi1) {
 		lwsl_err("%s: Failed to adopt playback desc\n", __func__);
 		goto bail;

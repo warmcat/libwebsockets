@@ -142,7 +142,7 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (!lws_adopt_descriptor_vhost(vhd->vhost,
 						LWS_ADOPT_RAW_FILE_DESC, u,
 						"protocol-lws-raw-test",
-						NULL)) {
+						NULL, NULL)) {
 			lwsl_err("Failed to adopt fifo descriptor\n");
 			close(vhd->fifo);
 			unlink(vhd->fifo_path);
@@ -219,7 +219,7 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			lwsl_notice("FIFO %s reopened\n", vhd->fifo_path);
 			u.filefd = vhd->fifo;
 			if (!lws_adopt_descriptor_vhost(vhd->vhost, 0, u,
-					"protocol-lws-raw-test", NULL)) {
+					"protocol-lws-raw-test", NULL, NULL)) {
 				lwsl_err("Failed to adopt fifo descriptor\n");
 				close(vhd->fifo);
 				return 1;

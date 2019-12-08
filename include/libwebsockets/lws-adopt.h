@@ -98,6 +98,7 @@ struct lws_udp {
 * \param fd: union with either .sockfd or .filefd set
 * \param vh_prot_name: NULL or vh protocol name to bind raw connection to
 * \param parent: NULL or struct lws to attach new_wsi to as a child
+* \param opaque: opaque pointer to set on created wsi
 *
 * Either returns new wsi bound to accept_fd, or closes accept_fd and
 * returns NULL, having cleaned up any new wsi pieces.
@@ -111,7 +112,7 @@ struct lws_udp {
 LWS_VISIBLE LWS_EXTERN struct lws *
 lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 			   lws_sock_file_fd_type fd, const char *vh_prot_name,
-			   struct lws *parent);
+			   struct lws *parent, void *opaque);
 
 /**
  * lws_adopt_socket_readbuf() - adopt foreign socket and first rx as if listen socket accepted it
@@ -181,6 +182,7 @@ lws_adopt_socket_vhost_readbuf(struct lws_vhost *vhost,
  * \param protocol_name: Name of protocol on vhost to bind wsi to
  * \param ifname:	 NULL, for network interface name to bind socket to
  * \param parent_wsi:	 NULL or parent wsi new wsi will be a child of
+ * \param opaque:	 set created wsi opaque ptr to this
  * \param retry_policy:	 NULL for vhost default policy else wsi specific policy
  *
  * Either returns new wsi bound to accept_fd, or closes accept_fd and
@@ -189,6 +191,7 @@ lws_adopt_socket_vhost_readbuf(struct lws_vhost *vhost,
 LWS_VISIBLE LWS_EXTERN struct lws *
 lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 		     int flags, const char *protocol_name, const char *ifname,
-		     struct lws *parent_wsi, const lws_retry_bo_t *retry_policy);
+		     struct lws *parent_wsi, void *opaque,
+		     const lws_retry_bo_t *retry_policy);
 #endif
 ///@}

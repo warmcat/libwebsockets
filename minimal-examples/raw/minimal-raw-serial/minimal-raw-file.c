@@ -117,7 +117,7 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 		u.filefd = (lws_filefd_type)(long long)vhd->filefd;
 		if (!lws_adopt_descriptor_vhost(lws_get_vhost(wsi),
 						LWS_ADOPT_RAW_FILE_DESC, u,
-						"raw-test", NULL)) {
+						"raw-test", NULL, NULL)) {
 			lwsl_err("Failed to adopt fifo descriptor\n");
 			close(vhd->filefd);
 			vhd->filefd = -1;

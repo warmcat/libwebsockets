@@ -228,7 +228,7 @@ int main(int argc, const char **argv)
 	/* our foreign socket is connected... adopt it into lws */
 
 	raw_wsi = lws_adopt_descriptor_vhost(vhost, LWS_ADOPT_SOCKET, sock,
-					     protocols[0].name, NULL);
+					     protocols[0].name, NULL, NULL);
 	if (!raw_wsi) {
 		lwsl_err("%s: foreign socket adoption failed\n", __func__);
 		goto bail;
@@ -236,7 +236,8 @@ int main(int argc, const char **argv)
 
 	sock.filefd = 0;
 	stdin_wsi = lws_adopt_descriptor_vhost(vhost, LWS_ADOPT_RAW_FILE_DESC,
-					       sock, protocols[0].name, NULL);
+					       sock, protocols[0].name, NULL,
+					       NULL);
 	if (!stdin_wsi) {
 		lwsl_err("%s: stdin adoption failed\n", __func__);
 		goto bail;

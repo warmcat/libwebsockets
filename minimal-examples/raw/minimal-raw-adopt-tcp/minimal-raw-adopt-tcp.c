@@ -173,7 +173,7 @@ int main(int argc, const char **argv)
 	/* our foreign socket is connected... adopt it into lws */
 
 	if (!lws_adopt_descriptor_vhost(vhost, LWS_ADOPT_SOCKET, sock,
-				       protocols[0].name, NULL)) {
+				       protocols[0].name, NULL, NULL)) {
 		lwsl_err("%s: foreign socket adoption failed\n", __func__);
 		goto bail;
 	}

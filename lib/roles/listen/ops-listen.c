@@ -141,7 +141,7 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 
 		fd.sockfd = accept_fd;
 		cwsi = lws_adopt_descriptor_vhost(wsi->vhost, opts, fd,
-						  NULL, NULL);
+						  NULL, NULL, NULL);
 		if (!cwsi) {
 			lwsl_info("%s: vh %s: adopt failed\n", __func__,
 					wsi->vhost->name);

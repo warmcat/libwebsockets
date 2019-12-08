@@ -320,7 +320,7 @@ ok:
 
 	context->async_dns.wsi = lws_create_adopt_udp(context->vhost_list, ads,
 				      53, 0, lws_async_dns_protocol.name, NULL,
-				      NULL, &retry_policy);
+				      NULL, NULL, &retry_policy);
 	if (!dns->wsi) {
 		lwsl_err("%s: foreign socket adoption failed\n", __func__);
 		return 1;
