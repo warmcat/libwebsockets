@@ -113,6 +113,40 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 			   lws_sock_file_fd_type fd, const char *vh_prot_name,
 			   struct lws *parent);
 
+typedef struct lws_adopt_desc {
+	struct lws_vhost *vh;		/**< vhost the wsi should belong to */
+	lws_adoption_type type;		/**< OR-ed combinations of lws_adoption_type flags */
+	lws_sock_file_fd_type fd;	/**< union with either .sockfd or .filefd set */
+	const char *vh_prot_name;	/**< NULL or vh protocol name to bind raw connection to */
+	struct lws *parent;		/**< NULL or struct lws to attach new_wsi to as a child */
+	void *opaque;			/**< opaque pointer to set on created wsi */
+} lws_adopt_desc_t;
+
+/**
+* lws_adopt_descriptor_vhost_via_info() - adopt foreign socket or file descriptor
+* if socket descriptor, should already have been accepted from listen socket
+*
+* \param info: the struct containing the parameters
+*
+*  - vh: lws vhost
+*  - type: OR-ed combinations of lws_adoption_type flags
+*  - fd: union with either .sockfd or .filefd set
+*  - vh_prot_name: NULL or vh protocol name to bind raw connection to
+*  - parent: NULL or struct lws to attach new_wsi to as a child
+*  - opaque: opaque pointer to set on created wsi
+*
+* Either returns new wsi bound to accept_fd, or closes accept_fd and
+* returns NULL, having cleaned up any new wsi pieces.
+*
+* If LWS_ADOPT_SOCKET is set, LWS adopts the socket in http serving mode, it's
+* ready to accept an upgrade to ws or just serve http.
+*
+* parent may be NULL, if given it should be an existing wsi that will become the
+* parent of the new wsi created by this call.
+*/
+LWS_VISIBLE LWS_EXTERN struct lws *
+lws_adopt_descriptor_vhost_via_info(const lws_adopt_desc_t *info);
+
 /**
  * lws_adopt_socket_readbuf() - adopt foreign socket and first rx as if listen socket accepted it
  * for the default vhost of context.
@@ -181,6 +215,7 @@ lws_adopt_socket_vhost_readbuf(struct lws_vhost *vhost,
  * \param protocol_name: Name of protocol on vhost to bind wsi to
  * \param ifname:	 NULL, for network interface name to bind socket to
  * \param parent_wsi:	 NULL or parent wsi new wsi will be a child of
+ * \param opaque:	 set created wsi opaque ptr to this
  * \param retry_policy:	 NULL for vhost default policy else wsi specific policy
  *
  * Either returns new wsi bound to accept_fd, or closes accept_fd and
@@ -189,6 +224,10 @@ lws_adopt_socket_vhost_readbuf(struct lws_vhost *vhost,
 LWS_VISIBLE LWS_EXTERN struct lws *
 lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 		     int flags, const char *protocol_name, const char *ifname,
-		     struct lws *parent_wsi, const lws_retry_bo_t *retry_policy);
+		     struct lws *parent_wsi, void *opaque,
+		     const lws_retry_bo_t *retry_policy);
 #endif
+
+
+
 ///@}
