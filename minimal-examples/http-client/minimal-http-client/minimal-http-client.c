@@ -198,7 +198,11 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 	if ((p = lws_cmdline_option(a->argc, a->argv, "--server")))
 		i.address = p;
 
-	i.path = "/";
+	if ((p = lws_cmdline_option(a->argc, a->argv, "--path")))
+		i.path = p;
+	else
+		i.path = "/";
+
 	i.host = i.address;
 	i.origin = i.address;
 	i.method = "GET";

@@ -60,6 +60,17 @@ LWS_EXTERN LWS_VISIBLE void
 lws_state_reg_notifier(lws_state_manager_t *mgr, lws_state_notify_link_t *nl);
 
 /**
+ * lws_state_reg_deregister() - deregister a notifier
+ *
+ * \param nl: notification hardler to deregister
+ *
+ * Remove a notification handler from its state manager
+ */
+
+LWS_EXTERN LWS_VISIBLE void
+lws_state_reg_deregister(lws_state_notify_link_t *nl);
+
+/**
  * lws_state_reg_notifier_list() - add dep handlers for state notifications
  *
  * \param context: the lws_context

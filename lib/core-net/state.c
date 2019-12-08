@@ -32,6 +32,12 @@ lws_state_reg_notifier(lws_state_manager_t *mgr,
 }
 
 void
+lws_state_reg_deregister(lws_state_notify_link_t *nl)
+{
+	lws_dll2_remove(&nl->list);
+}
+
+void
 lws_state_reg_notifier_list(lws_state_manager_t *mgr,
 			    lws_state_notify_link_t * const *notify_link_array)
 {

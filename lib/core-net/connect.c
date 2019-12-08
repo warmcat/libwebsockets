@@ -143,6 +143,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	wsi->pending_timeout = NO_PENDING_TIMEOUT;
 	wsi->position_in_fds_table = LWS_NO_FDS_POS;
 	wsi->ocport = wsi->c_port = i->port;
+	wsi->sys_tls_client_cert = i->sys_tls_client_cert;
 
 	wsi->protocol = &wsi->vhost->protocols[0];
 	wsi->client_pipeline = !!(i->ssl_connection & LCCSCF_PIPELINE);
@@ -227,7 +228,8 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	/* all the pointers default to NULL, but no need to zero the args */
 	memset(wsi->stash, 0, sizeof(*wsi->stash));
 
-	wsi->stash->opaque_user_data = i->opaque_user_data;
+	wsi->opaque_user_data = wsi->stash->opaque_user_data =
+		i->opaque_user_data;
 	pc = (char *)&wsi->stash[1];
 
 	for (n = 0; n < CIS_COUNT; n++)

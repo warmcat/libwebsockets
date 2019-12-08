@@ -5,7 +5,7 @@
  *
  * Copyright (C)2011-2014 Andy Green <andy@warmcat.com>
  *
- * Licensed under LGPL2
+ * Licensed under MIT
  *
  * Usage: gcc minihuf.c -o minihuf && ./minihuf > huftable.h
  *

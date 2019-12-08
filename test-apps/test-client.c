@@ -589,7 +589,7 @@ int main(int argc, char **argv)
 
 	memset(&info, 0, sizeof info);
 
-	lwsl_notice("libwebsockets test client - license LGPL2.1+SLE\n");
+	lwsl_notice("libwebsockets test client - license MIT\n");
 	lwsl_notice("(C) Copyright 2010-2018 Andy Green <andy@warmcat.com>\n");
 
 	if (argc < 2)

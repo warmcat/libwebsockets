@@ -145,6 +145,11 @@ struct lws_client_connect_info {
 	 *   Currently only the idle parts are applied to the connection.
 	 */
 
+	uint8_t		sys_tls_client_cert;
+	/**< 0 means no client cert.  1+ means apply lws_system client cert 0+
+	 * to the client connection.
+	 */
+
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
 	 *

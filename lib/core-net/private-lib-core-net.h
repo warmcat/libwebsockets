@@ -778,6 +778,7 @@ struct lws {
 #if defined(LWS_WITH_CLIENT)
 	char chunk_parser; /* enum lws_chunk_parser */
 	uint8_t addrinfo_idx;
+	uint8_t sys_tls_client_cert;
 #endif
 #if defined(LWS_WITH_CGI) || defined(LWS_WITH_CLIENT)
 	char reason_bf; /* internal writeable callback reason bitfield */

@@ -64,9 +64,10 @@ different than that of previous versions.
 ![backports from master to stable](../doc-assets/lws-relpol-3.svg)
 
 If there is something you need in a later lws version that is not backported,
-you need to either backport it yourself (remember that lws is LGPL and you must
-provide your changes when you distribute the binary) or use a later lws version.
-Using a more recent version of lws is almost always the correct way.
+you need to either backport it yourself or use a later lws version.
+Using a more recent version of lws (and contributing fixes and changes so you
+yourself can get them easily as well as contributing for others) is almost
+always the correct way.
 
 ## Stable point releases
 

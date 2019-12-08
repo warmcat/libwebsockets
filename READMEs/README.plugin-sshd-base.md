@@ -47,11 +47,10 @@ the following functions:
 
 ## License
 
-lws-ssh-base is Free Software, available under libwebsocket's LGPLv2 +
-static linking exception license.
+lws-ssh-base is Free Software, available under libwebsockets' MIT license.
 
 The crypto parts are available elsewhere under a BSD license.  But for
-simplicity the whole plugin is under LGPLv2.
+simplicity the whole plugin is under MIT.
 
 ## Generating your own keys
 

@@ -475,7 +475,7 @@ int main(int argc, char **argv)
 	/* tell the library what debug level to emit and to send it to stderr */
 	lws_set_log_level(debug_level, NULL);
 
-	lwsl_notice("libwebsockets test server - license LGPL2.1+SLE\n");
+	lwsl_notice("libwebsockets test server - license MIT\n");
 	lwsl_notice("(C) Copyright 2010-2018 Andy Green <andy@warmcat.com>\n");
 
 	printf("Using resource path \"%s\"\n", resource_path);
