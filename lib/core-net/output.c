@@ -360,7 +360,10 @@ lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 				   len, 0, &wsi->udp->sa, wsi->udp->salen);
 	} else
 #endif
-		n = send(wsi->desc.sockfd, (char *)buf, len, MSG_NOSIGNAL);
+		if (wsi->role_ops->file_handle)
+			n = write(wsi->desc.filefd, buf, len);
+		else
+			n = send(wsi->desc.sockfd, (char *)buf, len, MSG_NOSIGNAL);
 //	lwsl_info("%s: sent len %d result %d", __func__, len, n);
 
 #if defined(LWS_WITH_UDP)
