@@ -279,7 +279,72 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	SSL_set_ex_data(wsi->tls.ssl, openssl_websocket_private_data_index,
 			wsi);
 
+	if (wsi->sys_tls_client_cert) {
+		lws_system_blob_t *b = lws_system_get_blob(wsi->context,
+					LWS_SYSBLOB_TYPE_CLIENT_CERT_DER,
+					wsi->sys_tls_client_cert - 1);
+		const uint8_t *data;
+		size_t size;
+
+		if (!b)
+			goto no_client_cert;
+
+		/*
+		 * Set up the per-connection client cert
+		 */
+
+		size = lws_system_blob_get_size(b);
+		if (!size)
+			goto no_client_cert;
+
+		if (lws_system_blob_get_single_ptr(b, &data))
+			goto no_client_cert;
+
+		if (SSL_use_certificate_ASN1(wsi->tls.ssl, data, size) != 1) {
+			lwsl_err("%s: use_certificate failed\n", __func__);
+			lws_tls_err_describe_clear();
+			goto no_client_cert;
+		}
+
+		b = lws_system_get_blob(wsi->context,
+					LWS_SYSBLOB_TYPE_CLIENT_KEY_DER,
+					wsi->sys_tls_client_cert - 1);
+		if (!b)
+			goto no_client_cert;
+
+		size = lws_system_blob_get_size(b);
+		if (!size)
+			goto no_client_cert;
+
+		if (lws_system_blob_get_single_ptr(b, &data))
+			goto no_client_cert;
+
+		if (SSL_use_PrivateKey_ASN1(EVP_PKEY_RSA, wsi->tls.ssl,
+					    data, size) != 1 &&
+		    SSL_use_PrivateKey_ASN1(EVP_PKEY_EC, wsi->tls.ssl,
+					    data, size) != 1) {
+			lwsl_err("%s: use_privkey failed\n", __func__);
+			lws_tls_err_describe_clear();
+			goto no_client_cert;
+		}
+
+		if (SSL_check_private_key(wsi->tls.ssl) != 1) {
+			lwsl_err("Private SSL key doesn't match cert\n");
+			lws_tls_err_describe_clear();
+			return 1;
+		}
+
+		lwsl_notice("%s: set system client cert %u\n", __func__,
+				wsi->sys_tls_client_cert - 1);
+	}
+
 	return 0;
+
+no_client_cert:
+	lwsl_err("%s: unable to set up system client cert %d\n", __func__,
+			wsi->sys_tls_client_cert - 1);
+
+	return 1;
 }
 
 enum lws_ssl_capable_status

@@ -286,8 +286,7 @@ failed1:
 /**
  * @brief load certification into the SSL
  */
-int SSL_use_certificate_ASN1(SSL *ssl, int len,
-                             const unsigned char *d)
+int SSL_use_certificate_ASN1(SSL *ssl, const unsigned char *d, int len)
 {
     int ret;
     X509 *x;
