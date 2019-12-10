@@ -1031,13 +1031,23 @@ struct lws_protocol_vhost_options {
  * served from a filesystem, or it is a cgi etc.
  */
 enum lws_mount_protocols {
-	LWSMPRO_HTTP		= 0, /**< http reverse proxy */
-	LWSMPRO_HTTPS		= 1, /**< https reverse proxy */
-	LWSMPRO_FILE		= 2, /**< serve from filesystem directory */
-	LWSMPRO_CGI		= 3, /**< pass to CGI to handle */
-	LWSMPRO_REDIR_HTTP	= 4, /**< redirect to http:// url */
-	LWSMPRO_REDIR_HTTPS	= 5, /**< redirect to https:// url */
-	LWSMPRO_CALLBACK	= 6, /**< hand by named protocol's callback */
+	LWSMPRO_HTTP = 0, /**< http reverse proxy */
+	LWSMPRO_HTTPS = 1, /**< https reverse proxy */
+	LWSMPRO_FILE = 2, /**< serve from filesystem directory */
+	LWSMPRO_CGI = 3, /**< pass to CGI to handle */
+	LWSMPRO_REDIR_HTTP = 4, /**< redirect to http:// url */
+	LWSMPRO_REDIR_HTTPS = 5, /**< redirect to https:// url */
+	LWSMPRO_CALLBACK = 6, /**< hand by named protocol's callback */
+};
+
+
+/** enum lws_authentication_mode
+ * This specifies the authentication mode of the mount. For compatibility reasons, if
+ * basic_auth_login_file is non-null then basic auth file 
+ */
+enum lws_authentication_mode {
+	LWSAUTHM_DEFAULT = 0, /**< default authenticate only if basic_auth_login_file is provided */
+	LWSAUTHM_BASIC_AUTH_CALLBACK = 1 /**< Basic auth with a custom verifier */
 };
 
 /** struct lws_http_mount
@@ -1080,7 +1090,9 @@ struct lws_http_mount {
 	unsigned char mountpoint_len; /**< length of mountpoint string */
 
 	const char *basic_auth_login_file;
-	/**<NULL, or filepath to use to check basic auth logins against */
+	/**<NULL, or filepath to use to check basic auth logins against. If non-null then */
+
+	unsigned char authentication_mode; /**< one of lws_authentication_mode, may override basic_auth_login_file */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility

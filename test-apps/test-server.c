@@ -47,7 +47,7 @@ struct lws_plat_file_ops fops_plat;
 static int test_options;
 
 /* http server gets files from this path */
-#define LOCAL_RESOURCE_PATH INSTALL_DATADIR"/libwebsockets-test-server"
+#define LOCAL_RESOURCE_PATH "D:\\Code\\libwebsockets_4cad\\test-apps"
 char *resource_path = LOCAL_RESOURCE_PATH;
 #if defined(LWS_WITH_TLS) && defined(LWS_HAVE_SSL_CTX_set1_param)
 char crl_path[1024] = "";
@@ -90,6 +90,7 @@ lws_callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		  void *in, size_t len)
 {
 	const unsigned char *c;
+	const char* creds;
 	char buf[1024];
 	int n = 0, hlen;
 
@@ -137,6 +138,13 @@ lws_callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (lws_http_transaction_completed(wsi))
 			return -1;
 
+		return 0;
+
+	case LWS_CALLBACK_VERIFY_BASIC_AUTHORIZATION:
+		creds = (const char*)in;
+		if (len > 0 && strcmp("admin:password1", creds) == 0) {
+			return 1;
+		}
 		return 0;
 	default:
 		break;
@@ -237,7 +245,7 @@ static const struct lws_http_mount mount_ziptest = {
 	LWSMPRO_FILE,	/* origin points to a callback */
 	8,			/* strlen("/ziptest"), ie length of the mountpoint */
 	NULL,
-
+	LWSAUTHM_DEFAULT,
 	{ NULL, NULL } // sentinel
 };
 
@@ -259,7 +267,7 @@ static const struct lws_http_mount mount_post = {
 	LWSMPRO_CALLBACK,	/* origin points to a callback */
 	9,			/* strlen("/formtest"), ie length of the mountpoint */
 	NULL,
-
+	LWSAUTHM_DEFAULT,
 	{ NULL, NULL } // sentinel
 };
 
@@ -287,7 +295,7 @@ static const struct lws_http_mount mount = {
 	LWSMPRO_FILE,	/* mount type is a directory in a filesystem */
 	1,		/* strlen("/"), ie length of the mountpoint */
 	NULL,
-
+	LWSAUTHM_BASIC_AUTH_CALLBACK,
 	{ NULL, NULL } // sentinel
 };
 

@@ -949,13 +949,13 @@ lws_http_get_uri_and_method(struct lws *wsi, char **puri_ptr, int *puri_len)
 
 
 enum lws_check_basic_auth_results
-lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file)
+	lws_check_basic_auth(struct lws* wsi, const char* basic_auth_login_file, unsigned char auth_mode)
 {
 #if defined(LWS_WITH_FILE_OPS)
-	char b64[160], plain[(sizeof(b64) * 3) / 4], *pcolon;
+	char b64[160], plain[(sizeof(b64) * 3) / 4], * pcolon;
 	int m, ml, fi;
 
-	if (!basic_auth_login_file)
+	if (!basic_auth_login_file && auth_mode == LWSAUTHM_DEFAULT)
 		return LCBA_CONTINUE;
 
 	/* Did he send auth? */
@@ -972,7 +972,7 @@ lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file)
 	}
 
 	m = lws_hdr_copy(wsi, b64, sizeof(b64),
-			 WSI_TOKEN_HTTP_AUTHORIZATION);
+		WSI_TOKEN_HTTP_AUTHORIZATION);
 	if (m < 7) {
 		lwsl_err("b64 auth too long\n");
 		return LCBA_END_TRANSACTION;
@@ -998,9 +998,18 @@ lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file)
 		lwsl_err("basic auth format broken\n");
 		return LCBA_END_TRANSACTION;
 	}
-	if (!lws_find_string_in_file(basic_auth_login_file, plain, m)) {
-		lwsl_err("basic auth lookup failed\n");
-		return LCBA_FAILED_AUTH;
+	if (auth_mode == LWSAUTHM_DEFAULT) {
+		if (!lws_find_string_in_file(basic_auth_login_file, plain, m)) {
+			lwsl_err("basic auth lookup failed\n");
+			return LCBA_FAILED_AUTH;
+		}
+	}
+	else if (auth_mode == LWSAUTHM_BASIC_AUTH_CALLBACK){
+		int result = wsi->protocol->callback(wsi, LWS_CALLBACK_VERIFY_BASIC_AUTHORIZATION,
+			wsi->user_space, plain, m);
+		if (!result) {
+			return LCBA_FAILED_AUTH;
+		}
 	}
 
 	/*
@@ -1468,7 +1477,7 @@ lws_http_action(struct lws *wsi)
 
 	/* basic auth? */
 
-	switch(lws_check_basic_auth(wsi, hit->basic_auth_login_file)) {
+	switch(lws_check_basic_auth(wsi, hit->basic_auth_login_file, hit->authentication_mode)) {
 	case LCBA_CONTINUE:
 		break;
 	case LCBA_FAILED_AUTH:
