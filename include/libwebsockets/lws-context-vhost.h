@@ -1040,6 +1040,16 @@ enum lws_mount_protocols {
 	LWSMPRO_CALLBACK	= 6, /**< hand by named protocol's callback */
 };
 
+/** enum lws_authentication_mode
+ * This specifies the authentication mode of the mount. For compatibility reasons, if
+ * basic_auth_login_file is non-null then basic auth file
+ */
+enum lws_authentication_mode {
+	LWSAUTHM_DEFAULT = 0, /**< default authenticate only if basic_auth_login_file is provided */
+	LWSAUTHM_BASIC_AUTH_CALLBACK = 1 /**< Basic auth with a custom verifier */
+};
+
+
 /** struct lws_http_mount
  *
  * arguments for mounting something in a vhost's url namespace
@@ -1081,6 +1091,8 @@ struct lws_http_mount {
 
 	const char *basic_auth_login_file;
 	/**<NULL, or filepath to use to check basic auth logins against */
+
+	unsigned char authentication_mode; /**< one of lws_authentication_mode, may override basic_auth_login_file */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility

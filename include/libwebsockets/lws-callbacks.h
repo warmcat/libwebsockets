@@ -280,6 +280,13 @@ enum lws_callback_reasons {
 	 *          break;
 	 */
 
+	LWS_CALLBACK_VERIFY_BASIC_AUTHORIZATION = 102,
+	/**< This gives the user code a chance to reject credentials provided to basic authorization. It will only
+	* be called if the http mount's authentication_mode is set to LWSAUTHM_BASIC_AUTH_CALLBACK
+	* `in` points to a credential string of the form `username:password`
+	* If the callback returns zero then the transaction ends with HTTP_STATUS_UNAUTHORIZED
+	* otherwise the request will be processed */
+
 	LWS_CALLBACK_CHECK_ACCESS_RIGHTS			= 51,
 	/**< This gives the user code a chance to forbid an http access.
 	 * `in` points to a `struct lws_process_html_args`, which
