@@ -246,7 +246,6 @@ static const struct lws_http_mount mount_ziptest = {
 	LWSMPRO_FILE,	/* origin points to a callback */
 	8,			/* strlen("/ziptest"), ie length of the mountpoint */
 	NULL,
-	LWSAUTHM_DEFAULT,
 
 	{ NULL, NULL } // sentinel
 };
@@ -269,7 +268,6 @@ static const struct lws_http_mount mount_post = {
 	LWSMPRO_CALLBACK,	/* origin points to a callback */
 	9,			/* strlen("/formtest"), ie length of the mountpoint */
 	NULL,
-	LWSAUTHM_DEFAULT,
 
 	{ NULL, NULL } // sentinel
 };
@@ -291,14 +289,13 @@ static const struct lws_http_mount mount = {
 	NULL,
 	0,
 	0,
-	0,
+	LWSAUTHM_BASIC_AUTH_CALLBACK,
 	0,
 	0,
 	0,
 	LWSMPRO_FILE,	/* mount type is a directory in a filesystem */
 	1,		/* strlen("/"), ie length of the mountpoint */
 	NULL,
-	LWSAUTHM_BASIC_AUTH_CALLBACK,
 
 	{ NULL, NULL } // sentinel
 };

@@ -1041,14 +1041,16 @@ enum lws_mount_protocols {
 };
 
 /** enum lws_authentication_mode
- * This specifies the authentication mode of the mount. For compatibility reasons, if
- * basic_auth_login_file is non-null then basic auth file
+ * This specifies the authentication mode of the mount. The basic_auth_login_file mount parameter
+ * is ignored unless LWSAUTHM_DEFAULT is set.
  */
 enum lws_authentication_mode {
 	LWSAUTHM_DEFAULT = 0, /**< default authenticate only if basic_auth_login_file is provided */
-	LWSAUTHM_BASIC_AUTH_CALLBACK = 1 /**< Basic auth with a custom verifier */
+	LWSAUTHM_BASIC_AUTH_CALLBACK = 1 << 28 /**< Basic auth with a custom verifier */
 };
 
+/** The authentication mode is stored in the top 4 bits of lws_http_mount.auth_mask */
+#define AUTH_MODE_MASK 0xF0000000
 
 /** struct lws_http_mount
  *
@@ -1080,7 +1082,7 @@ struct lws_http_mount {
 	int cache_max_age;
 	/**< max-age for reuse of client cache of files, seconds */
 	unsigned int auth_mask;
-	/**< bits set here must be set for authorized client session */
+	/**< bits set here must be set for authorized client session.  */
 
 	unsigned int cache_reusable:1; /**< set if client cache may reuse this */
 	unsigned int cache_revalidate:1; /**< set if client cache should revalidate on use */
@@ -1090,9 +1092,7 @@ struct lws_http_mount {
 	unsigned char mountpoint_len; /**< length of mountpoint string */
 
 	const char *basic_auth_login_file;
-	/**<NULL, or filepath to use to check basic auth logins against */
-
-	unsigned char authentication_mode; /**< one of lws_authentication_mode, may override basic_auth_login_file */
+	/**<NULL, or filepath to use to check basic auth logins against. (requires LWSAUTHM_DEFAULT) */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility

@@ -41,7 +41,10 @@ typedef struct { unsigned char bin[32]; /**< binary representation of hash */} l
 /** typedef struct lwsgw_hash */
 typedef struct { char id[65]; /**< ascii hex representation of hash */ } lwsgw_hash;
 
-/** enum lwsgs_auth_bits */
+/** enum lwsgs_auth_bits
+ *  This enum is stored in the same integer as the authentication mode in lws_http_mount,
+ *  so it can never contain more than 28 flags since auth mode has the top 4 bits
+ */
 enum lwsgs_auth_bits {
 	LWSGS_AUTH_LOGGED_IN	= 1, /**< user is logged in as somebody */
 	LWSGS_AUTH_ADMIN	= 2, /**< logged in as the admin user */

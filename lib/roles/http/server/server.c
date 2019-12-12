@@ -949,7 +949,7 @@ lws_http_get_uri_and_method(struct lws *wsi, char **puri_ptr, int *puri_len)
 
 
 enum lws_check_basic_auth_results
-lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file, unsigned char auth_mode)
+lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file, unsigned int auth_mode)
 {
 #if defined(LWS_WITH_FILE_OPS)
 	char b64[160], plain[(sizeof(b64) * 3) / 4], *pcolon;
@@ -1010,6 +1010,11 @@ lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file, unsigne
 		if (!result) {
 			return LCBA_FAILED_AUTH;
 		}
+	}
+	else
+	{
+		// Invalid auth mode so lets fail all authentication attempts
+		return LCBA_FAILED_AUTH;
 	}
 
 	/*
@@ -1477,7 +1482,7 @@ lws_http_action(struct lws *wsi)
 
 	/* basic auth? */
 
-	switch(lws_check_basic_auth(wsi, hit->basic_auth_login_file, hit->authentication_mode)) {
+	switch(lws_check_basic_auth(wsi, hit->basic_auth_login_file, hit->auth_mask & AUTH_MODE_MASK)) {
 	case LCBA_CONTINUE:
 		break;
 	case LCBA_FAILED_AUTH:
@@ -1536,7 +1541,7 @@ lws_http_action(struct lws *wsi)
 
 		args.p = uri_ptr;
 		args.len = uri_len;
-		args.max_len = hit->auth_mask;
+		args.max_len = hit->auth_mask & ~AUTH_MODE_MASK;
 		args.final = 0; /* used to signal callback dealt with it */
 		args.chunked = 0;
 
