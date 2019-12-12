@@ -946,16 +946,15 @@ lws_http_get_uri_and_method(struct lws *wsi, char **puri_ptr, int *puri_len)
 	return -1;
 }
 
-
-
 enum lws_check_basic_auth_results
-lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file)
+lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file,
+		     unsigned int auth_mode)
 {
 #if defined(LWS_WITH_FILE_OPS)
 	char b64[160], plain[(sizeof(b64) * 3) / 4], *pcolon;
-	int m, ml, fi;
+	int m, ml, fi, bar;
 
-	if (!basic_auth_login_file)
+	if (!basic_auth_login_file && auth_mode == LWSAUTHM_DEFAULT)
 		return LCBA_CONTINUE;
 
 	/* Did he send auth? */
@@ -998,8 +997,23 @@ lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file)
 		lwsl_err("basic auth format broken\n");
 		return LCBA_END_TRANSACTION;
 	}
-	if (!lws_find_string_in_file(basic_auth_login_file, plain, m)) {
-		lwsl_err("basic auth lookup failed\n");
+
+	switch (auth_mode) {
+	case LWSAUTHM_DEFAULT:
+		if (lws_find_string_in_file(basic_auth_login_file, plain, m))
+			break;
+		lwsl_err("%s: basic auth lookup failed\n", __func__);
+		return LCBA_FAILED_AUTH;
+
+	case LWSAUTHM_BASIC_AUTH_CALLBACK:
+		bar = wsi->protocol->callback(wsi,
+				LWS_CALLBACK_VERIFY_BASIC_AUTHORIZATION,
+				wsi->user_space, plain, m);
+		if (!bar)
+			return LCBA_FAILED_AUTH;
+		break;
+	default:
+		/* Invalid auth mode so lets fail all authentication attempts */
 		return LCBA_FAILED_AUTH;
 	}
 
@@ -1468,7 +1482,8 @@ lws_http_action(struct lws *wsi)
 
 	/* basic auth? */
 
-	switch(lws_check_basic_auth(wsi, hit->basic_auth_login_file)) {
+	switch (lws_check_basic_auth(wsi, hit->basic_auth_login_file,
+				     hit->auth_mask & AUTH_MODE_MASK)) {
 	case LCBA_CONTINUE:
 		break;
 	case LCBA_FAILED_AUTH:
@@ -1527,7 +1542,7 @@ lws_http_action(struct lws *wsi)
 
 		args.p = uri_ptr;
 		args.len = uri_len;
-		args.max_len = hit->auth_mask;
+		args.max_len = hit->auth_mask & ~AUTH_MODE_MASK;
 		args.final = 0; /* used to signal callback dealt with it */
 		args.chunked = 0;
 

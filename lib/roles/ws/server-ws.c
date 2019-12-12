@@ -271,7 +271,8 @@ lws_process_ws_upgrade2(struct lws *wsi)
 	    !lws_pvo_get_str((void *)pvos->options, "basic-auth",
 			     &ws_prot_basic_auth)) {
 		lwsl_info("%s: ws upgrade requires basic auth\n", __func__);
-		switch(lws_check_basic_auth(wsi, ws_prot_basic_auth)) {
+		switch (lws_check_basic_auth(wsi, ws_prot_basic_auth, LWSAUTHM_DEFAULT
+						/* no callback based auth here */)) {
 		case LCBA_CONTINUE:
 			break;
 		case LCBA_FAILED_AUTH:
