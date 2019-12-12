@@ -297,12 +297,14 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 	} else
 #endif
 	if (n < 0) {
+		int _lws_errno = LWS_ERRNO;
+
 		lwsl_err("ERROR on binding fd %d to port %d (%d %d)\n",
-			 sockfd, port, n, LWS_ERRNO);
+			 sockfd, port, n, _lws_errno);
 
 		/* if something already listening, tell caller to fail permanently */
 
-		if (LWS_ERRNO == LWS_EADDRINUSE)
+		if (_lws_errno == LWS_EADDRINUSE)
 			return LWS_ITOSA_BUSY;
 
 		/* otherwise ask caller to retry later */

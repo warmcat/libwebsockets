@@ -582,13 +582,15 @@ ads_known:
 
 	m = connect(wsi->desc.sockfd, (const struct sockaddr *)psa, n);
 	if (m == -1) {
-		lwsl_debug("%s: connect says errno: %d\n", __func__, LWS_ERRNO);
+		int errno_copy = LWS_ERRNO;
 
-		if (LWS_ERRNO != LWS_EALREADY &&
-		    LWS_ERRNO != LWS_EINPROGRESS &&
-		    LWS_ERRNO != LWS_EWOULDBLOCK
+		lwsl_debug("%s: connect says errno: %d\n", __func__, errno_copy);
+
+		if (errno_copy != LWS_EALREADY &&
+		    errno_copy != LWS_EINPROGRESS &&
+		    errno_copy != LWS_EWOULDBLOCK
 #ifdef _WIN32
-			&& LWS_ERRNO != WSAEINVAL
+			&& errno_copy != WSAEINVAL
 #endif
 		) {
 #if defined(_DEBUG)
