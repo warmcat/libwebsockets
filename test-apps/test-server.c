@@ -92,7 +92,6 @@ lws_callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	const unsigned char *c;
 	char buf[1024];
 	int n = 0, hlen;
-	const char* creds;
 
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
@@ -139,14 +138,6 @@ lws_callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			return -1;
 
 		return 0;
-
-	case LWS_CALLBACK_VERIFY_BASIC_AUTHORIZATION:
-		creds = (const char*)in;
-		if (len > 0 && strcmp("admin:password1", creds) == 0) {
-			return 1;
-		}
-		return 0;
-
 	default:
 		break;
 	}
@@ -289,7 +280,7 @@ static const struct lws_http_mount mount = {
 	NULL,
 	0,
 	0,
-	LWSAUTHM_BASIC_AUTH_CALLBACK,
+	0,
 	0,
 	0,
 	0,
