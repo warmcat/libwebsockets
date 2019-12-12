@@ -452,10 +452,10 @@ just_kill_connection:
 	     lwsi_state(wsi) == LRS_WAITING_DNS ||
 	     lwsi_state(wsi) == LRS_WAITING_CONNECT) &&
 	     !wsi->already_did_cce && wsi->protocol) {
-		static const char reason[] = "closed before established";
+		static const char fail_reason[] = "closed before established";
 
 		lws_inform_client_conn_fail(wsi,
-			(void *)reason, sizeof(reason));
+			(void *)fail_reason, sizeof(fail_reason));
 	}
 #endif
 
