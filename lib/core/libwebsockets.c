@@ -911,6 +911,112 @@ lws_tokenize_init(struct lws_tokenize *ts, const char *start, int flags)
 	ts->delim = LWSTZ_DT_NEED_FIRST_CONTENT;
 }
 
+
+typedef enum {
+	LWS_EXPS_LITERAL,
+	LWS_EXPS_OPEN_OR_LIT,
+	LWS_EXPS_NAME_OR_CLOSE,
+	LWS_EXPS_DRAIN,
+} lws_strexp_state;
+
+void
+lws_strexp_init(lws_strexp_t *exp, void *priv, lws_strexp_expand_cb cb,
+		 char *out, size_t olen)
+{
+	memset(exp, 0, sizeof(*exp));
+	exp->cb = cb;
+	exp->out = out;
+	exp->olen = olen;
+	exp->state = LWS_EXPS_LITERAL;
+	exp->priv = priv;
+}
+
+void
+lws_strexp_reset_out(lws_strexp_t *exp, char *out, size_t olen)
+{
+	exp->out = out;
+	exp->olen = olen;
+	exp->pos = 0;
+}
+
+int
+lws_strexp_expand(lws_strexp_t *exp, const char *in, size_t len,
+		  size_t *pused_in, size_t *pused_out)
+{
+	size_t used = 0;
+	int n;
+
+	while (used < len) {
+
+		switch (exp->state) {
+		case LWS_EXPS_LITERAL:
+			if (*in == '$') {
+				exp->state = LWS_EXPS_OPEN_OR_LIT;
+				break;
+			}
+
+			exp->out[exp->pos++] = *in;
+			if (exp->olen - exp->pos < 1) {
+				*pused_in = used + 1;
+				*pused_out = exp->pos;
+				return LSTRX_FILLED_OUT;
+			}
+			break;
+
+		case LWS_EXPS_OPEN_OR_LIT:
+			if (*in == '{') {
+				exp->state = LWS_EXPS_NAME_OR_CLOSE;
+				exp->name_pos = 0;
+				break;
+			}
+			/* treat as a literal */
+			if (exp->olen - exp->pos < 3)
+				return -1;
+
+			exp->out[exp->pos++] = '$';
+			exp->out[exp->pos++] = *in;
+			if (*in != '$')
+				exp->state = LWS_EXPS_LITERAL;
+			break;
+
+		case LWS_EXPS_NAME_OR_CLOSE:
+			if (*in == '}') {
+				exp->name[exp->name_pos] = '\0';
+				exp->state = LWS_EXPS_DRAIN;
+				goto drain;
+			}
+			if (exp->name_pos >= sizeof(exp->name) - 1)
+				return LSTRX_FATAL_NAME_TOO_LONG;
+
+			exp->name[exp->name_pos++] = *in;
+			break;
+
+		case LWS_EXPS_DRAIN:
+drain:
+			*pused_in = used;
+			n = exp->cb(exp->priv, exp->name, exp->out, &exp->pos,
+				    exp->olen, &exp->exp_ofs);
+			*pused_out = exp->pos;
+			if (n == LSTRX_FILLED_OUT ||
+			    n == LSTRX_FATAL_NAME_UNKNOWN)
+				return n;
+
+			exp->state = LWS_EXPS_LITERAL;
+			break;
+		}
+
+		used++;
+		in++;
+	}
+
+	exp->out[exp->pos] = '\0';
+	*pused_in = used;
+	*pused_out = exp->pos;
+
+	return LSTRX_DONE;
+}
+
+
 #if LWS_MAX_SMP > 1
 
 void
