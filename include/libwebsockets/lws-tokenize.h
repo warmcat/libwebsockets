@@ -141,3 +141,99 @@ lws_tokenize(struct lws_tokenize *ts);
 
 LWS_VISIBLE LWS_EXTERN int
 lws_tokenize_cstr(struct lws_tokenize *ts, char *str, int max);
+
+
+/*
+ * lws_strexp: flexible string expansion helper api
+ *
+ * This stateful helper can handle multiple separate input chunks and multiple
+ * output buffer loads with arbitrary boundaries between literals and expanded
+ * symbols.  This allows it to handle fragmented input as well as arbitrarily
+ * long symbol expansions that are bigger than the output buffer itself.
+ *
+ * A user callback is used to convert symbol names to the symbol value.
+ *
+ * A single byte buffer for input and another for output can process any
+ * length substitution then.  The state object is around 64 bytes on a 64-bit
+ * system and it only uses 8 bytes stack.
+ */
+
+
+typedef int (*lws_strexp_expand_cb)(void *priv, const char *name, char *out,
+				    size_t *pos, size_t olen, size_t *exp_ofs);
+
+typedef struct lws_strexp {
+	char			name[32];
+	lws_strexp_expand_cb	cb;
+	void			*priv;
+	char			*out;
+	size_t			olen;
+	size_t			pos;
+
+	size_t			exp_ofs;
+
+	uint8_t			name_pos;
+	char			state;
+} lws_strexp_t;
+
+enum {
+	LSTRX_DONE,			/* it completed OK */
+	LSTRX_FILLED_OUT,		/* out buf filled and needs resetting */
+	LSTRX_FATAL_NAME_TOO_LONG = -1,	/* fatal */
+	LSTRX_FATAL_NAME_UNKNOWN  = -2,
+};
+
+
+/**
+ * lws_strexp_init() - initialize an lws_strexp_t for use
+ *
+ * \p exp: the exp object to init
+ * \p priv: the user's object pointer to pass to callback
+ * \p cb: the callback to expand named objects
+ * \p out: the start of the output buffer
+ * \p olen: the length of the output buffer in bytes
+ *
+ * Prepares an lws_strexp_t for use and sets the initial output buffer
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_strexp_init(lws_strexp_t *exp, void *priv, lws_strexp_expand_cb cb,
+		char *out, size_t olen);
+
+/**
+ * lws_strexp_reset_out() - reset the output buffer on an existing strexp
+ *
+ * \p exp: the exp object to init
+ * \p out: the start of the output buffer
+ * \p olen: the length of the output buffer in bytes
+ *
+ * Provides a new output buffer for lws_strexp_expand() to continue to write
+ * into.  It can be the same as the old one if it has been copied out or used.
+ * The position of the next write will be reset to the start of the given buf.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_strexp_reset_out(lws_strexp_t *exp, char *out, size_t olen);
+
+/**
+ * lws_strexp_expand() - copy / expand a string into the output buffer
+ *
+ * \p exp: the exp object for the copy / expansion
+ * \p in: the start of the next input data
+ * \p len: the length of the input data
+ * \p pused: pointer to write the amount of input used
+ *
+ * Copies in to the output buffer set in exp, expanding any ${name} tokens using
+ * the callback.  *pused is set to the number of input chars used.
+ *
+ * May return LSTRX_FILLED_OUT early with *pused < len if the output buffer is
+ * filled.  Handle the output buffer and reset it with lws_strexp_reset_out()
+ * before calling again with adjusted in / len to continue.
+ *
+ * In the case of large expansions, the expansion itself may fill the output
+ * buffer, in which case the expansion callback returns the LSTRX_FILLED_OUT
+ * and will be called again to continue with its *exp_ofs parameter set
+ * appropriately.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_strexp_expand(lws_strexp_t *exp, const char *in, size_t len,
+		  size_t *pused_in, size_t *pused_out);
+
