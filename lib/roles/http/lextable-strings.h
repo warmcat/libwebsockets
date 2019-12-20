@@ -90,7 +90,7 @@ static const char * const set[] = {
 	"x-real-ip:",
 	"http/1.0 ",
 
-	"x-forwarded-for",
+	"x-forwarded-for:",
 	"connect ",
 	"head ",
 	"te:",		/* http/2 wants it to reject it */
