@@ -1001,13 +1001,25 @@ context init options flags
 
 to indicate it will use one of the event libraries at runtime.
 
-libev has some problems, its headers conflict with libevent, they both define
-critical constants like EV_READ to different values.  Attempts
-to discuss clearing that up with libevent and libev did not get anywhere useful.
+libev and libevent headers conflict, they both define critical constants like
+EV_READ to different values.  Attempts to discuss clearing that up with both
+libevent and libev did not get anywhere useful.  Therefore CMakeLists.txt will
+error out if you enable both LWS_WITH_LIBEV and LWS_WITH_LIBEVENT.
 
-In addition building anything with libev using gcc spews warnings, the
-maintainer is aware of this for many years, and blames gcc.  We worked
-around this by disabling -Werror on the parts of lws that use libev.
+In addition depending on libev / compiler version, building anything with libev
+apis using gcc may blow strict alias warnings (which are elevated to errors in
+lws).  I did some googling at found these threads related to it, the issue goes
+back at least to 2010 on and off
+
+https://github.com/redis/hiredis/issues/434
+https://bugs.gentoo.org/show_bug.cgi?id=615532
+http://lists.schmorp.de/pipermail/libev/2010q1/000916.html
+http://lists.schmorp.de/pipermail/libev/2010q1/000920.html
+http://lists.schmorp.de/pipermail/libev/2010q1/000923.html
+
+We worked around this problem by disabling -Werror on the parts of lws that
+use libev.  FWIW as of Dec 2019 using Fedora 31 libev 4.27.1 and its gcc 9.2.1
+doesn't seem to trigger the problem even without the workaround.
 
 For these reasons and the response I got trying to raise these issues with
 them, if you have a choice about event loop, I would gently encourage you
