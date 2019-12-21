@@ -152,7 +152,7 @@ lws_urldecode_s_process(struct lws_urldecode_stateful *s, const char *in,
 			int len)
 {
 	int n, m, hit = 0;
-	char c, was_end = 0;
+	char c;
 
 	while (len--) {
 		if (s->pos == s->out_len - s->mp - 1) {
@@ -160,7 +160,6 @@ lws_urldecode_s_process(struct lws_urldecode_stateful *s, const char *in,
 				      LWS_UFS_CONTENT))
 				return -1;
 
-			was_end = s->pos;
 			s->pos = 0;
 		}
 		switch (s->state) {
@@ -249,11 +248,10 @@ retry_as_first:
 					s->mp = 0;
 					s->state = MT_IGNORE1;
 
-					if (s->pos || was_end)
-						if (s->output(s->data, s->name,
+					if (s->output(s->data, s->name,
 						      &s->out, s->pos,
 						      LWS_UFS_FINAL_CONTENT))
-							return -1;
+						return -1;
 
 					s->pos = 0;
 
