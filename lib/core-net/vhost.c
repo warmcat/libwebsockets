@@ -958,7 +958,6 @@ lws_vhost_destroy1(struct lws_vhost *vh)
 
 	lws_vhost_lock(vh); /* -------------- vh { */
 
-	vh->being_destroyed = 1;
 #if defined(LWS_WITH_NETWORK)
 	/*
 	 * PHASE 1: take down or reassign any listen wsi
@@ -1039,6 +1038,8 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 	struct lws_deferred_free *df;
 	struct lws wsi;
 	int n;
+
+	vh->being_destroyed = 0;
 
 #if defined(LWS_WITH_CLIENT)
 	/*
