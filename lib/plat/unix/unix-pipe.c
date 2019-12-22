@@ -22,7 +22,9 @@
  * IN THE SOFTWARE.
  */
 
+#if !defined(_GNU_SOURCE)
 #define _GNU_SOURCE
+#endif
 #include "private-lib-core.h"
 
 

@@ -22,8 +22,12 @@
  * IN THE SOFTWARE.
  */
 
+#if !defined(NO_GNU_SOURCE_THIS_TIME)
 #define NO_GNU_SOURCE_THIS_TIME
+#endif
+#if !defined(_DARWIN_C_SOURCE)
 #define _DARWIN_C_SOURCE
+#endif
 
 #include <libwebsockets.h>
 #include "private-lib-core.h"

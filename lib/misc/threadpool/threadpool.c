@@ -22,7 +22,10 @@
  * IN THE SOFTWARE.
  */
 
+#if !defined(_GNU_SOURCE)
 #define _GNU_SOURCE
+#endif
+
 #include <pthread.h>
 
 #include "private-lib-core.h"
