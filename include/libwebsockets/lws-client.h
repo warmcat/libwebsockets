@@ -292,4 +292,19 @@ lws_client_http_multipart(struct lws *wsi, const char *name,
 			  const char *filename, const char *content_type,
 			  char **p, char *end);
 
+/**
+ * lws_http_basic_auth_gen() - helper to encode client basic auth string
+ *
+ * \param user: user name
+ * \param pw: password
+ * \param buf: where to store base64 result
+ * \param len: max usable size of buf
+ *
+ * Encodes a username and password in Basic Auth format for use with the
+ * Authorization header.  On return, buf is filled with something like
+ * "Basic QWxhZGRpbjpPcGVuU2VzYW1l".
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_http_basic_auth_gen(const char *user, const char *pw, char *buf, size_t len);
+
 ///@}

@@ -21,6 +21,7 @@ static int interrupted, bad = 1, status;
 static int long_poll;
 #endif
 static struct lws *client_wsi;
+static const char *ba_user, *ba_password;
 
 static const lws_retry_bo_t retry = {
 	.secs_since_valid_ping = 3,
@@ -57,6 +58,24 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 #endif
 		break;
+
+	/* you only need this if you need to do Basic Auth */
+	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
+	{
+		unsigned char **p = (unsigned char **)in, *end = (*p) + len;
+		char b[128];
+
+		if (!ba_user || !ba_password)
+			break;
+
+		if (lws_http_basic_auth_gen(ba_user, ba_password, b, sizeof(b)))
+			break;
+		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_AUTHORIZATION,
+				(unsigned char *)b, strlen(b), p, end))
+			return -1;
+
+		break;
+	}
 
 	/* chunks of chunked content, with header removed */
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
@@ -172,11 +191,20 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 		i.address = "warmcat.com";
 	}
 
+	if (lws_cmdline_option(a->argc, a->argv, "--nossl"))
+		i.ssl_connection = 0;
+
+
 	if (lws_cmdline_option(a->argc, a->argv, "--h1"))
 		i.alpn = "http/1.1";
 
 	if ((p = lws_cmdline_option(a->argc, a->argv, "-p")))
 		i.port = atoi(p);
+
+	if ((p = lws_cmdline_option(a->argc, a->argv, "--user")))
+		ba_user = p;
+	if ((p = lws_cmdline_option(a->argc, a->argv, "--password")))
+		ba_password = p;
 
 	if (lws_cmdline_option(a->argc, a->argv, "-j"))
 		i.ssl_connection |= LCCSCF_ALLOW_SELFSIGNED;
