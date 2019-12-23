@@ -164,7 +164,7 @@ rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 #endif
 	}
 
-	if (wsi->http2_substream || wsi->upgraded_to_http2) {
+	if (wsi->mux_substream || wsi->upgraded_to_http2) {
 		wsi1 = lws_get_network_wsi(wsi);
 		if (wsi1 && lws_has_buffered_out(wsi1))
 			/*
@@ -386,7 +386,7 @@ rops_write_role_protocol_h2(struct lws *wsi, unsigned char *buf, size_t len,
 
 	/* if not in a state to send stuff, then just send nothing */
 
-	if (!lwsi_role_ws(wsi) && !wsi->h2_stream_immortal &&
+	if (!lwsi_role_ws(wsi) && !wsi->mux_stream_immortal &&
 	    base != LWS_WRITE_HTTP &&
 	    base != LWS_WRITE_HTTP_FINAL &&
 	    base != LWS_WRITE_HTTP_HEADERS_CONTINUATION &&
@@ -477,7 +477,7 @@ rops_write_role_protocol_h2(struct lws *wsi, unsigned char *buf, size_t len,
 		wsi->h2.send_END_STREAM = 1;
 	}
 
-	n = lws_h2_frame_write(wsi, n, flags, wsi->h2.my_sid, (int)len, buf);
+	n = lws_h2_frame_write(wsi, n, flags, wsi->mux.my_sid, (int)len, buf);
 	if (n < 0)
 		return n;
 
@@ -500,7 +500,7 @@ rops_check_upgrades_h2(struct lws *wsi)
 	 */
 	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_METHOD);
 	if (!wsi->vhost->h2.set.s[H2SET_ENABLE_CONNECT_PROTOCOL] ||
-	    !wsi->http2_substream || !p || strcmp(p, "CONNECT"))
+	    !wsi->mux_substream || !p || strcmp(p, "CONNECT"))
 		return LWS_UPG_RET_CONTINUE;
 
 	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_COLON_PROTOCOL);
@@ -511,7 +511,7 @@ rops_check_upgrades_h2(struct lws *wsi)
 	wsi->vhost->conn_stats.ws_upg++;
 #endif
 	lwsl_info("Upgrade h2 to ws\n");
-	lws_http_mark_immortal(wsi);
+	lws_mux_mark_immortal(wsi);
 	wsi->h2_stream_carries_ws = 1;
 
 	if (lws_process_ws_upgrade(wsi))
@@ -599,7 +599,7 @@ rops_destroy_role_h2(struct lws *wsi)
 	lws_http_compression_destroy(wsi);
 #endif
 
-	if (wsi->upgraded_to_http2 || wsi->http2_substream) {
+	if (wsi->upgraded_to_http2 || wsi->mux_substream) {
 		lws_hpack_destroy_dynamic_header(wsi);
 
 		if (wsi->h2.h2n)
@@ -612,7 +612,6 @@ rops_destroy_role_h2(struct lws *wsi)
 static int
 rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 {
-	struct lws *wsi2;
 
 #if defined(LWS_WITH_HTTP_PROXY)
 	if (wsi->http.proxy_clientside) {
@@ -628,53 +627,28 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 	}
 #endif
 
-	if (wsi->http2_substream && wsi->h2_stream_carries_ws)
+	if (wsi->mux_substream && wsi->h2_stream_carries_ws)
 		lws_h2_rst_stream(wsi, 0, "none");
 /*	else
-		if (wsi->http2_substream)
+		if (wsi->mux_substream)
 			lws_h2_rst_stream(wsi, H2_ERR_STREAM_CLOSED, "swsi got closed");
 */
 
-	if (wsi->h2.parent_wsi && lwsl_visible(LLL_INFO)) {
-		lwsl_info(" wsi: %p, his parent %p: siblings:\n", wsi,
-			  wsi->h2.parent_wsi);
-		lws_start_foreach_llp(struct lws **, w,
-				      wsi->h2.parent_wsi->h2.child_list) {
-			lwsl_info("   \\---- child %s %p\n",
-				  (*w)->role_ops ? (*w)->role_ops->name : "?", *w);
-		} lws_end_foreach_llp(w, h2.sibling_list);
-	}
+	lwsl_info(" wsi: %p, his parent %p: siblings:\n", wsi, wsi->mux.parent_wsi);
+	lws_wsi_mux_dump_children(wsi);
 
-	if (wsi->upgraded_to_http2 || wsi->http2_substream
+	if (wsi->upgraded_to_http2 || wsi->mux_substream
 #if defined(LWS_WITH_CLIENT)
-			|| wsi->client_h2_substream
+			|| wsi->client_mux_substream
 #endif
 	) {
-		lwsl_info("closing %p: parent %p\n", wsi, wsi->h2.parent_wsi);
+		lwsl_info("closing %p: parent %p\n", wsi, wsi->mux.parent_wsi);
 
-		if (wsi->h2.child_list && lwsl_visible(LLL_INFO)) {
+		if (wsi->mux.child_list && lwsl_visible(LLL_INFO)) {
 			lwsl_info(" parent %p: closing children: list:\n", wsi);
-			lws_start_foreach_llp(struct lws **, w,
-					      wsi->h2.child_list) {
-				lwsl_info("   \\---- child %s %p\n",
-					  (*w)->role_ops ? (*w)->role_ops->name : "?",
-					  *w);
-			} lws_end_foreach_llp(w, h2.sibling_list);
+			lws_wsi_mux_dump_children(wsi);
 		}
-		if (wsi->h2.child_list) {
-			/* trigger closing of all of our http2 children first */
-			lws_start_foreach_llp(struct lws **, w,
-					      wsi->h2.child_list) {
-				lwsl_info("   closing child %p\n", *w);
-				/* disconnect from siblings */
-				wsi2 = (*w)->h2.sibling_list;
-				(*w)->h2.sibling_list = NULL;
-				(*w)->socket_is_permanently_unusable = 1;
-				__lws_close_free_wsi(*w, reason, "h2 child recurse");
-				*w = wsi2;
-				continue;
-			} lws_end_foreach_llp(w, h2.sibling_list);
-		}
+		lws_wsi_mux_close_children(wsi, reason);
 	}
 
 	if (wsi->upgraded_to_http2) {
@@ -691,25 +665,11 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 
 	if ((
 #if defined(LWS_WITH_CLIENT)
-			wsi->client_h2_substream ||
+			wsi->client_mux_substream ||
 #endif
-			wsi->http2_substream) &&
-	     wsi->h2.parent_wsi) {
-		lws_start_foreach_llp(struct lws **, w,
-				wsi->h2.parent_wsi->h2.child_list) {
-
-			/* disconnect from siblings */
-			if (*w == wsi) {
-				wsi2 = (*w)->h2.sibling_list;
-				(*w)->h2.sibling_list = NULL;
-				*w = wsi2;
-				lwsl_debug("  %p disentangled from sibling %p\n",
-					  wsi, wsi2);
-				break;
-			}
-		} lws_end_foreach_llp(w, h2.sibling_list);
-		wsi->h2.parent_wsi->h2.child_count--;
-		wsi->h2.parent_wsi = NULL;
+			wsi->mux_substream) &&
+	     wsi->mux.parent_wsi) {
+		lws_wsi_mux_sibling_disconnect(wsi);
 		if (wsi->h2.pending_status_body)
 			lws_free_set_NULL(wsi->h2.pending_status_body);
 	}
@@ -720,7 +680,9 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 static int
 rops_callback_on_writable_h2(struct lws *wsi)
 {
-	struct lws *network_wsi, *wsi2;
+#if defined(LWS_WITH_CLIENT)
+	struct lws *network_wsi;
+#endif
 	int already;
 
 	//lwsl_notice("%s: %p (wsistate 0x%x)\n", __func__, wsi, wsi->wsistate);
@@ -728,7 +690,7 @@ rops_callback_on_writable_h2(struct lws *wsi)
 //	if (!lwsi_role_h2(wsi) && !lwsi_role_h2_ENCAPSULATION(wsi))
 //		return 0;
 
-	if (wsi->h2.requested_POLLOUT
+	if (wsi->mux.requested_POLLOUT
 #if defined(LWS_WITH_CLIENT)
 			&& !wsi->client_h2_alpn
 #endif
@@ -755,48 +717,22 @@ rops_callback_on_writable_h2(struct lws *wsi)
 	}
 
 	wsi->h2.skint = 0;
+#if defined(LWS_WITH_CLIENT)
 	network_wsi = lws_get_network_wsi(wsi);
-	already = network_wsi->h2.requested_POLLOUT;
-
-	/* mark everybody above him as requesting pollout */
-
-	wsi2 = wsi;
-	while (wsi2) {
-		wsi2->h2.requested_POLLOUT = 1;
-		lwsl_info("mark %p pending writable\n", wsi2);
-		wsi2 = wsi2->h2.parent_wsi;
-	}
+#endif
+	already = lws_wsi_mux_mark_parents_needing_writeable(wsi);
 
 	/* for network action, act only on the network wsi */
 
 	if (already
 #if defined(LWS_WITH_CLIENT)
 			&& !network_wsi->client_h2_alpn
-			&& !network_wsi->client_h2_substream
+			&& !network_wsi->client_mux_substream
 #endif
 			)
 		return 1;
 
 	return 0;
-}
-
-static void
-lws_h2_dump_waiting_children(struct lws *wsi)
-{
-#if defined(_DEBUG)
-	lwsl_info("%s: %p: children waiting for POLLOUT service:\n",
-		  __func__, wsi);
-
-	wsi = wsi->h2.child_list;
-	while (wsi) {
-		lwsl_info("  %c %p %s %s\n",
-			  wsi->h2.requested_POLLOUT ? '*' : ' ',
-			  wsi, wsi->role_ops->name, wsi->protocol ?
-					  wsi->protocol->name : "noprotocol");
-
-		wsi = wsi->h2.sibling_list;
-	}
-#endif
 }
 
 #if defined(LWS_WITH_SERVER)
@@ -859,7 +795,7 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 static int
 rops_perform_user_POLLOUT_h2(struct lws *wsi)
 {
-	struct lws **wsi2, *wsi2a;
+	struct lws **wsi2;
 #if defined(LWS_ROLE_WS)
 	int write_type = LWS_WRITE_PONG;
 #endif
@@ -867,23 +803,23 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 
 	wsi = lws_get_network_wsi(wsi);
 
-	wsi->h2.requested_POLLOUT = 0;
+	wsi->mux.requested_POLLOUT = 0;
 	if (!wsi->h2.initialized) {
 		lwsl_info("pollout on uninitialized http2 conn\n");
 		return 0;
 	}
 
-	lws_h2_dump_waiting_children(wsi);
+	lws_wsi_mux_dump_waiting_children(wsi);
 
-	wsi2 = &wsi->h2.child_list;
+	wsi2 = &wsi->mux.child_list;
 	if (!*wsi2)
 		return 0;
 
 	do {
 		struct lws *w, **wa;
 
-		wa = &(*wsi2)->h2.sibling_list;
-		if (!(*wsi2)->h2.requested_POLLOUT)
+		wa = &(*wsi2)->mux.sibling_list;
+		if (!(*wsi2)->mux.requested_POLLOUT)
 			goto next_child;
 
 		/*
@@ -893,32 +829,13 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 
 		lwsl_debug("servicing child %p\n", *wsi2);
 
-		w = *wsi2;
-		while (w) {
-			if (!w->h2.sibling_list) { /* w is the current last */
-				lwsl_debug("w=%p, *wsi2 = %p\n", w, *wsi2);
-				if (w == *wsi2) /* we are already last */
-					break;
-				/* last points to us as new last */
-				w->h2.sibling_list = *wsi2;
-				/* guy pointing to us until now points to
-				 * our old next */
-				*wsi2 = (*wsi2)->h2.sibling_list;
-				/* we point to nothing because we are last */
-				w->h2.sibling_list->h2.sibling_list = NULL;
-				/* w becomes us */
-				w = w->h2.sibling_list;
-				break;
-			}
-			w = w->h2.sibling_list;
-		}
+		w = lws_wsi_mux_move_child_to_tail(wsi2);
 
 		if (!w) {
-			wa = &wsi->h2.child_list;
+			wa = &wsi->mux.child_list;
 			goto next_child;
 		}
 
-		w->h2.requested_POLLOUT = 0;
 		lwsl_info("%s: child %p (wsistate 0x%x)\n", __func__, w,
 			  (unsigned int)w->wsistate);
 
@@ -930,11 +847,11 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 				lwsl_info("%s signalling to close\n", __func__);
 				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 						   "h2 end stream 1");
-				wa = &wsi->h2.child_list;
+				wa = &wsi->mux.child_list;
 				goto next_child;
 			}
 			lws_callback_on_writable(w);
-			wa = &wsi->h2.child_list;
+			wa = &wsi->mux.child_list;
 			goto next_child;
 		}
 
@@ -956,7 +873,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 						   "comp write fail");
 			}
 			lws_callback_on_writable(w);
-			wa = &wsi->h2.child_list;
+			wa = &wsi->mux.child_list;
 			goto next_child;
 		}
 #endif
@@ -967,7 +884,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			w->socket_is_permanently_unusable = 1;
 			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 					   "h2 end stream 1");
-			wa = &wsi->h2.child_list;
+			wa = &wsi->mux.child_list;
 			goto next_child;
 		}
 
@@ -984,7 +901,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			lws_free_set_NULL(w->h2.pending_status_body);
 			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 					   "h2 end stream 1");
-			wa = &wsi->h2.child_list;
+			wa = &wsi->mux.child_list;
 			goto next_child;
 		}
 
@@ -1031,11 +948,11 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 				lwsl_info("closing stream after h2 action\n");
 				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 						   "h2 end stream");
-				wa = &wsi->h2.child_list;
+				wa = &wsi->mux.child_list;
 			}
 
 			if (n < 0)
-				wa = &wsi->h2.child_list;
+				wa = &wsi->mux.child_list;
 
 			goto next_child;
 		}
@@ -1063,7 +980,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 				lwsl_debug("Closing POLLOUT child %p\n", w);
 				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 						   "h2 end stream file");
-				wa = &wsi->h2.child_list;
+				wa = &wsi->mux.child_list;
 				goto next_child;
 			}
 			if (n > 0)
@@ -1071,7 +988,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 					return -1;
 			if (!n) {
 				lws_callback_on_writable(w);
-				(w)->h2.requested_POLLOUT = 1;
+				(w)->mux.requested_POLLOUT = 1;
 			}
 
 			goto next_child;
@@ -1126,12 +1043,12 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 				lwsi_set_state(w, LRS_RETURNED_CLOSE);
 				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 						   "returned close packet");
-				wa = &wsi->h2.child_list;
+				wa = &wsi->mux.child_list;
 				goto next_child;
 			}
 
 			lws_callback_on_writable(w);
-			(w)->h2.requested_POLLOUT = 1;
+			(w)->mux.requested_POLLOUT = 1;
 
 			/* otherwise for PING, leave POLLOUT active both ways */
 			goto next_child;
@@ -1154,7 +1071,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 							 &wp)) {
 				lwsl_info("%s: wsi %p: entering ro long poll\n",
 					  __func__, w);
-				lws_http_mark_immortal(w);
+				lws_mux_mark_immortal(w);
 			} else
 				lwsl_err("%s: wsi %p: failed to set long poll\n",
 						__func__, w);
@@ -1166,7 +1083,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 				  w->h2.send_END_STREAM);
 			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 					   "h2 pollout handle");
-			wa = &wsi->h2.child_list;
+			wa = &wsi->mux.child_list;
 		} else
 			 if (w->h2.send_END_STREAM)
 				lws_h2_state(w, LWS_H2_STATE_HALF_CLOSED_LOCAL);
@@ -1175,17 +1092,10 @@ next_child:
 		wsi2 = wa;
 	} while (wsi2 && *wsi2 && !lws_send_pipe_choked(wsi));
 
-	// lws_h2_dump_waiting_children(wsi);
+	// lws_wsi_mux_dump_waiting_children(wsi);
 
-	wsi2a = wsi->h2.child_list;
-	while (wsi2a) {
-		if (wsi2a->h2.requested_POLLOUT) {
-			if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
-				return -1;
-			break;
-		}
-		wsi2a = wsi2a->h2.sibling_list;
-	}
+	if (lws_wsi_mux_action_pending_writeable_reqs(wsi))
+		return -1;
 
 	return 0;
 }
@@ -1193,8 +1103,8 @@ next_child:
 static struct lws *
 rops_encapsulation_parent_h2(struct lws *wsi)
 {
-	if (wsi->h2.parent_wsi)
-		return wsi->h2.parent_wsi;
+	if (wsi->mux.parent_wsi)
+		return wsi->mux.parent_wsi;
 
 	return NULL;
 }

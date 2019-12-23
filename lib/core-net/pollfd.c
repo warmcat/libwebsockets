@@ -147,7 +147,7 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 	pa->prev_events = pfd->events;
 	pa->events = pfd->events = (pfd->events & ~_and) | _or;
 
-	if (wsi->http2_substream)
+	if (wsi->mux_substream)
 		return 0;
 
 #if defined(LWS_WITH_EXTERNAL_POLL)

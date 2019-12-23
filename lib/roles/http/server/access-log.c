@@ -70,7 +70,7 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int met
 	else
 		strcpy(da, "01/Jan/1970:00:00:00 +0000");
 
-	if (wsi->http2_substream)
+	if (wsi->mux_substream)
 		me = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_METHOD);
 	else
 		me = method_names[meth];

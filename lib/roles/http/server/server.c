@@ -697,7 +697,7 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 		if (n > (int)strlen(pvo->name) &&
 		    !strcmp(&path[n - strlen(pvo->name)], pvo->name)) {
 			wsi->interpreting = 1;
-			if (!wsi->http2_substream)
+			if (!wsi->mux_substream)
 				wsi->sending_chunked = 1;
 
 			wsi->protocol_interpret_idx = (char)(
@@ -777,7 +777,7 @@ lws_find_mount(struct lws *wsi, const char *uri_ptr, int uri_len)
 			     lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI) ||
 			     lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI) ||
 			     lws_hdr_total_length(wsi, WSI_TOKEN_HEAD_URI) ||
-			     (wsi->http2_substream &&
+			     (wsi->mux_substream &&
 				lws_hdr_total_length(wsi,
 						WSI_TOKEN_HTTP_COLON_PATH)) ||
 			     hm->protocol) &&
@@ -930,7 +930,7 @@ lws_http_get_uri_and_method(struct lws *wsi, char **puri_ptr, int *puri_len)
 	}
 
 	if (count != 1 &&
-	    !((wsi->http2_substream || wsi->h2_stream_carries_ws) &&
+	    !((wsi->mux_substream || wsi->h2_stream_carries_ws) &&
 	      lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH))) {
 		lwsl_warn("multiple methods?\n");
 		return -1;
@@ -1311,7 +1311,7 @@ lws_http_action(struct lws *wsi)
 		}
 	}
 
-	if (wsi->http2_substream) {
+	if (wsi->mux_substream) {
 		wsi->http.request_version = HTTP_VERSION_2;
 	} else {
 		/* http_version? Default to 1.0, override with token: */
@@ -1359,7 +1359,7 @@ lws_http_action(struct lws *wsi)
 	 * if there is content supposed to be coming,
 	 * put a timeout on it having arrived
 	 */
-	if (!wsi->h2_stream_immortal)
+	if (!wsi->mux_stream_immortal)
 		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
 				wsi->context->timeout_secs);
 #ifdef LWS_WITH_TLS
@@ -1659,7 +1659,7 @@ deal_body:
 		/* Prepare to read body if we have a content length: */
 		lwsl_debug("wsi->http.rx_content_length %lld %d %d\n",
 			   (long long)wsi->http.rx_content_length,
-			   wsi->upgraded_to_http2, wsi->http2_substream);
+			   wsi->upgraded_to_http2, wsi->mux_substream);
 
 		if (wsi->http.content_length_explicitly_zero &&
 		    lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI)) {
@@ -2265,7 +2265,7 @@ lws_http_transaction_completed(struct lws *wsi)
 #endif
 
 	/* if we can't go back to accept new headers, drop the connection */
-	if (wsi->http2_substream)
+	if (wsi->mux_substream)
 		return 1;
 
 	if (wsi->seen_zero_length_recv)
@@ -2414,7 +2414,7 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 			if (lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND,
 						   NULL))
 						return -1;
-			return !wsi->http2_substream;
+			return !wsi->mux_substream;
 		}
 	}
 
@@ -2558,7 +2558,7 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 		goto bail;
 #endif
 
-	if (!wsi->http2_substream) {
+	if (!wsi->mux_substream) {
 		/* for http/1.1 ... */
 		if (!wsi->sending_chunked
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
@@ -2686,7 +2686,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 #endif
 	int n, m;
 
-	lwsl_debug("wsi->http2_substream %d\n", wsi->http2_substream);
+	lwsl_debug("wsi->mux_substream %d\n", wsi->mux_substream);
 
 	do {
 
@@ -2924,7 +2924,7 @@ all_sent:
 					 * state, not the root connection at the
 					 * network level
 					 */
-					if (wsi->http2_substream)
+					if (wsi->mux_substream)
 						return 1;
 					else
 						return -1;

@@ -86,29 +86,29 @@ lws_vhost_unbind_wsi(struct lws *wsi)
 	lws_context_unlock(wsi->context); /* } context ---------- */
 }
 
-LWS_VISIBLE struct lws *
+struct lws *
 lws_get_network_wsi(struct lws *wsi)
 {
 	if (!wsi)
 		return NULL;
 
 #if defined(LWS_WITH_HTTP2)
-	if (!wsi->http2_substream
+	if (!wsi->mux_substream
 #if defined(LWS_WITH_CLIENT)
-			&& !wsi->client_h2_substream
+			&& !wsi->client_mux_substream
 #endif
 	)
 		return wsi;
 
-	while (wsi->h2.parent_wsi)
-		wsi = wsi->h2.parent_wsi;
+	while (wsi->mux.parent_wsi)
+		wsi = wsi->mux.parent_wsi;
 #endif
 
 	return wsi;
 }
 
 
-LWS_VISIBLE LWS_EXTERN const struct lws_protocols *
+const struct lws_protocols *
 lws_vhost_name_to_protocol(struct lws_vhost *vh, const char *name)
 {
 	int n;
@@ -222,7 +222,7 @@ lws_rx_flow_control(struct lws *wsi, int _enable)
 	int en = _enable;
 
 	// h2 ignores rx flow control atm
-	if (lwsi_role_h2(wsi) || wsi->http2_substream ||
+	if (lwsi_role_h2(wsi) || wsi->mux_substream ||
 	    lwsi_role_h2_ENCAPSULATION(wsi))
 		return 0; // !!!
 
@@ -312,7 +312,7 @@ __lws_rx_flow_control(struct lws *wsi)
 	struct lws *wsic = wsi->child_list;
 
 	// h2 ignores rx flow control atm
-	if (lwsi_role_h2(wsi) || wsi->http2_substream ||
+	if (lwsi_role_h2(wsi) || wsi->mux_substream ||
 	    lwsi_role_h2_ENCAPSULATION(wsi))
 		return 0; // !!!
 
@@ -898,11 +898,11 @@ lws_http_close_immortal(struct lws *wsi)
 {
 	struct lws *nwsi;
 
-	if (!wsi->http2_substream)
+	if (!wsi->mux_substream)
 		return;
 
-	assert(wsi->h2_stream_immortal);
-	wsi->h2_stream_immortal = 0;
+	assert(wsi->mux_stream_immortal);
+	wsi->mux_stream_immortal = 0;
 
 	nwsi = lws_get_network_wsi(wsi);
 	lwsl_debug("%s: %p %p %d\n", __func__, wsi, nwsi,
@@ -920,15 +920,15 @@ lws_http_close_immortal(struct lws *wsi)
 }
 
 void
-lws_http_mark_immortal(struct lws *wsi)
+lws_mux_mark_immortal(struct lws *wsi)
 {
 	struct lws *nwsi;
 
 	lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 
-	if (!wsi->http2_substream
+	if (!wsi->mux_substream
 #if defined(LWS_WITH_CLIENT)
-			&& !wsi->client_h2_substream
+			&& !wsi->client_mux_substream
 #endif
 	) {
 		lwsl_err("%s: not h2 substream\n", __func__);
@@ -940,7 +940,7 @@ lws_http_mark_immortal(struct lws *wsi)
 	lwsl_debug("%s: %p %p %d\n", __func__, wsi, nwsi,
 				     nwsi->immortal_substream_count);
 
-	wsi->h2_stream_immortal = 1;
+	wsi->mux_stream_immortal = 1;
 	assert(nwsi->immortal_substream_count < 255); /* largest count */
 	nwsi->immortal_substream_count++;
 	if (nwsi->immortal_substream_count == 1)
@@ -952,14 +952,15 @@ int
 lws_http_mark_sse(struct lws *wsi)
 {
 	lws_http_headers_detach(wsi);
-	lws_http_mark_immortal(wsi);
+	lws_mux_mark_immortal(wsi);
 
-	if (wsi->http2_substream)
+	if (wsi->mux_substream)
 		wsi->h2_stream_carries_sse = 1;
 
 	return 0;
 }
 
+#if defined(LWS_WITH_CLIENT)
 
 const char *
 lws_wsi_client_stash_item(struct lws *wsi, int stash_idx, int hdr_idx)
@@ -975,3 +976,216 @@ lws_wsi_client_stash_item(struct lws *wsi, int stash_idx, int hdr_idx)
 	return NULL;
 #endif
 }
+#endif
+
+#if defined(LWS_ROLE_H2)
+
+void
+lws_wsi_mux_insert(struct lws *wsi, struct lws *parent_wsi, int sid)
+{
+	wsi->mux.my_sid = sid;
+	wsi->mux.parent_wsi = parent_wsi;
+	wsi->role_ops = parent_wsi->role_ops;
+
+	/* new guy's sibling is whoever was the first child before */
+	wsi->mux.sibling_list = parent_wsi->mux.child_list;
+
+	/* first child is now the new guy */
+	parent_wsi->mux.child_list = wsi;
+
+	parent_wsi->mux.child_count++;
+}
+
+struct lws *
+lws_wsi_mux_from_id(struct lws *parent_wsi, unsigned int sid)
+{
+	lws_start_foreach_ll(struct lws *, wsi, parent_wsi->mux.child_list) {
+		if (wsi->mux.my_sid == sid)
+			return wsi;
+	} lws_end_foreach_ll(wsi, mux.sibling_list);
+
+	return NULL;
+}
+
+void
+lws_wsi_mux_dump_children(struct lws *wsi)
+{
+#if defined(_DEBUG)
+	if (!wsi->mux.parent_wsi || !lwsl_visible(LLL_INFO))
+		return;
+
+	lws_start_foreach_llp(struct lws **, w,
+			      wsi->mux.parent_wsi->mux.child_list) {
+		lwsl_info("   \\---- child %s %p\n",
+			  (*w)->role_ops ? (*w)->role_ops->name : "?", *w);
+	} lws_end_foreach_llp(w, mux.sibling_list);
+#endif
+}
+
+void
+lws_wsi_mux_close_children(struct lws *wsi, int reason)
+{
+	struct lws *wsi2;
+
+	if (!wsi->mux.child_list)
+		return;
+
+	lws_start_foreach_llp(struct lws **, w, wsi->mux.child_list) {
+		lwsl_info("   closing child %p\n", *w);
+		/* disconnect from siblings */
+		wsi2 = (*w)->mux.sibling_list;
+		(*w)->mux.sibling_list = NULL;
+		(*w)->socket_is_permanently_unusable = 1;
+		__lws_close_free_wsi(*w, reason, "mux child recurse");
+		*w = wsi2;
+		continue;
+	} lws_end_foreach_llp(w, mux.sibling_list);
+}
+
+
+void
+lws_wsi_mux_sibling_disconnect(struct lws *wsi)
+{
+	struct lws *wsi2;
+
+	lws_start_foreach_llp(struct lws **, w,
+			      wsi->mux.parent_wsi->mux.child_list) {
+
+		/* disconnect from siblings */
+		if (*w == wsi) {
+			wsi2 = (*w)->mux.sibling_list;
+			(*w)->mux.sibling_list = NULL;
+			*w = wsi2;
+			lwsl_debug("  %p disentangled from sibling %p\n",
+				  wsi, wsi2);
+			break;
+		}
+	} lws_end_foreach_llp(w, mux.sibling_list);
+	wsi->mux.parent_wsi->mux.child_count--;
+	wsi->mux.parent_wsi = NULL;
+}
+
+void
+lws_wsi_mux_dump_waiting_children(struct lws *wsi)
+{
+#if defined(_DEBUG)
+	lwsl_info("%s: %p: children waiting for POLLOUT service:\n",
+		  __func__, wsi);
+
+	wsi = wsi->mux.child_list;
+	while (wsi) {
+		lwsl_info("  %c %p %s %s\n",
+			  wsi->mux.requested_POLLOUT ? '*' : ' ',
+			  wsi, wsi->role_ops->name, wsi->protocol ?
+					  wsi->protocol->name : "noprotocol");
+
+		wsi = wsi->mux.sibling_list;
+	}
+#endif
+}
+
+int
+lws_wsi_mux_mark_parents_needing_writeable(struct lws *wsi)
+{
+	struct lws *network_wsi = lws_get_network_wsi(wsi), *wsi2;
+	int already = network_wsi->mux.requested_POLLOUT;
+
+	/* mark everybody above him as requesting pollout */
+
+	wsi2 = wsi;
+	while (wsi2) {
+		wsi2->mux.requested_POLLOUT = 1;
+		lwsl_info("mark %p pending writable\n", wsi2);
+		wsi2 = wsi2->mux.parent_wsi;
+	}
+
+	return already;
+}
+
+struct lws *
+lws_wsi_mux_move_child_to_tail(struct lws **wsi2)
+{
+	struct lws *w = *wsi2;
+
+	while (w) {
+		if (!w->mux.sibling_list) { /* w is the current last */
+			lwsl_debug("w=%p, *wsi2 = %p\n", w, *wsi2);
+
+			if (w == *wsi2) /* we are already last */
+				break;
+
+			/* last points to us as new last */
+			w->mux.sibling_list = *wsi2;
+
+			/* guy pointing to us until now points to
+			 * our old next */
+			*wsi2 = (*wsi2)->mux.sibling_list;
+
+			/* we point to nothing because we are last */
+			w->mux.sibling_list->mux.sibling_list = NULL;
+
+			/* w becomes us */
+			w = w->mux.sibling_list;
+			break;
+		}
+		w = w->mux.sibling_list;
+	}
+
+	/* clear the waiting for POLLOUT on the guy that was chosen */
+
+	if (w)
+		w->mux.requested_POLLOUT = 0;
+
+	return w;
+}
+
+int
+lws_wsi_mux_action_pending_writeable_reqs(struct lws *wsi)
+{
+	struct lws *w = wsi->mux.child_list;
+
+	while (w) {
+		if (w->mux.requested_POLLOUT) {
+			if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
+				return -1;
+			break;
+		}
+		w = w->mux.sibling_list;
+	}
+
+	return 0;
+}
+
+#if defined(LWS_WITH_CLIENT)
+
+int
+lws_wsi_mux_apply_queue(struct lws *wsi)
+{
+	/* we have a transaction queue that wants to pipeline */
+
+	lws_vhost_lock(wsi->vhost);
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   wsi->dll2_cli_txn_queue_owner.head) {
+		struct lws *w = lws_container_of(d, struct lws,
+						 dll2_cli_txn_queue);
+
+		if (lwsi_role_http(wsi) &&
+		    lwsi_state(w) == LRS_H1C_ISSUE_HANDSHAKE2) {
+			lwsl_info("%s: cli pipeq %p to be h2\n", __func__, w);
+
+			/* remove ourselves from client queue */
+			lws_dll2_remove(&w->dll2_cli_txn_queue);
+
+			/* attach ourselves as an h2 stream */
+			lws_wsi_h2_adopt(wsi, w);
+		}
+
+	} lws_end_foreach_dll_safe(d, d1);
+	lws_vhost_unlock(wsi->vhost);
+
+	return 0;
+}
+
+#endif
+
+#endif

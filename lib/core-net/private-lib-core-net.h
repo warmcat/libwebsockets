@@ -29,6 +29,21 @@
 #define _POSIX_C_SOURCE 200112L
 #endif
 
+/*
+ * Generic pieces needed to manage muxable stream protocols like h2
+ */
+
+struct lws_muxable {
+	struct lws	*parent_wsi;
+	struct lws	*child_list;
+	struct lws	*sibling_list;
+
+	unsigned int	my_sid;
+	unsigned int	child_count;
+
+	uint8_t		requested_POLLOUT;
+};
+
 #include "private-lib-roles.h"
 
 #ifdef LWS_WITH_IPV6
@@ -576,6 +591,32 @@ struct lws_vhost {
 void
 __lws_vhost_destroy2(struct lws_vhost *vh);
 
+#define mux_to_wsi(_m) lws_container_of(_m, struct lws, mux)
+
+void
+lws_wsi_mux_insert(struct lws *wsi, struct lws *parent_wsi, int sid);
+int
+lws_wsi_mux_mark_parents_needing_writeable(struct lws *wsi);
+struct lws *
+lws_wsi_mux_move_child_to_tail(struct lws **wsi2);
+int
+lws_wsi_mux_action_pending_writeable_reqs(struct lws *wsi);
+
+void
+lws_wsi_mux_dump_children(struct lws *wsi);
+
+void
+lws_wsi_mux_close_children(struct lws *wsi, int reason);
+
+void
+lws_wsi_mux_sibling_disconnect(struct lws *wsi);
+
+void
+lws_wsi_mux_dump_waiting_children(struct lws *wsi);
+
+int
+lws_wsi_mux_apply_queue(struct lws *wsi);
+
 /*
  * struct lws
  */
@@ -584,47 +625,51 @@ struct lws {
 	/* structs */
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-	struct _lws_http_mode_related http;
+	struct _lws_http_mode_related	http;
 #endif
 #if defined(LWS_ROLE_H2)
-	struct _lws_h2_related h2;
+	struct _lws_h2_related		h2;
 #endif
 #if defined(LWS_ROLE_WS)
-	struct _lws_websocket_related *ws; /* allocated if we upgrade to ws */
+	struct _lws_websocket_related	*ws; /* allocated if we upgrade to ws */
 #endif
 #if defined(LWS_ROLE_DBUS)
-	struct _lws_dbus_mode_related dbus;
+	struct _lws_dbus_mode_related	dbus;
+#endif
+
+#if defined(LWS_ROLE_H2)
+	struct lws_muxable		mux;
 #endif
 
 	/* lifetime members */
 
 #if defined(LWS_WITH_LIBEV) || defined(LWS_WITH_LIBUV) || \
     defined(LWS_WITH_LIBEVENT)
-	struct lws_io_watcher w_read;
+	struct lws_io_watcher		w_read;
 #endif
 #if defined(LWS_WITH_LIBEV) || defined(LWS_WITH_LIBEVENT)
-	struct lws_io_watcher w_write;
+	struct lws_io_watcher		w_write;
 #endif
 
 #if defined(LWS_WITH_DETAILED_LATENCY)
 	lws_detlat_t	detlat;
 #endif
 
-	lws_sorted_usec_list_t sul_timeout;
-	lws_sorted_usec_list_t sul_hrtimer;
-	lws_sorted_usec_list_t sul_validity;
+	lws_sorted_usec_list_t		sul_timeout;
+	lws_sorted_usec_list_t		sul_hrtimer;
+	lws_sorted_usec_list_t		sul_validity;
 
-	struct lws_dll2 dll_buflist; /* guys with pending rxflow */
-	struct lws_dll2 same_vh_protocol;
-	struct lws_dll2 vh_awaiting_socket;
+	struct lws_dll2			dll_buflist; /* guys with pending rxflow */
+	struct lws_dll2			same_vh_protocol;
+	struct lws_dll2			vh_awaiting_socket;
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
-	struct lws_dll2 adns;	/* on adns list of guys to tell result */
-	lws_async_dns_cb_t adns_cb;	/* callback with result */
+	struct lws_dll2			adns; /* on adns list of guys to tell result */
+	lws_async_dns_cb_t		adns_cb; /* callback with result */
 #endif
 #if defined(LWS_WITH_CLIENT)
-	struct lws_dll2 dll_cli_active_conns;
-	struct lws_dll2_owner dll2_cli_txn_queue_owner;
-	struct lws_dll2 dll2_cli_txn_queue;
+	struct lws_dll2			dll_cli_active_conns;
+	struct lws_dll2			dll2_cli_txn_queue;
+	struct lws_dll2_owner		dll2_cli_txn_queue_owner;
 #endif
 
 #if defined(LWS_WITH_ACCESS_LOG)
@@ -632,134 +677,134 @@ struct lws {
 #endif
 	/* pointers */
 
-	struct lws_context *context;
-	struct lws_vhost *vhost;
-	struct lws *parent; /* points to parent, if any */
-	struct lws *child_list; /* points to first child */
-	struct lws *sibling_list; /* subsequent children at same level */
-	const struct lws_role_ops *role_ops;
-	const struct lws_protocols *protocol;
-	struct lws_sequencer *seq;	/* associated sequencer if any */
-	const lws_retry_bo_t *retry_policy;
+	struct lws_context		*context;
+	struct lws_vhost		*vhost;
+	struct lws			*parent; /* points to parent, if any */
+	struct lws			*child_list; /* points to first child */
+	struct lws			*sibling_list; /* subsequent children at same level */
+	const struct lws_role_ops	*role_ops;
+	const struct lws_protocols	*protocol;
+	struct lws_sequencer		*seq;	/* associated sequencer if any */
+	const lws_retry_bo_t		*retry_policy;
 
 #if defined(LWS_WITH_THREADPOOL)
-	struct lws_threadpool_task *tp_task;
+	struct lws_threadpool_task	*tp_task;
 #endif
 
 #if defined(LWS_WITH_PEER_LIMITS)
-	struct lws_peer *peer;
+	struct lws_peer			*peer;
 #endif
 
 #if defined(LWS_WITH_UDP)
-	struct lws_udp *udp;
+	struct lws_udp			*udp;
 #endif
 #if defined(LWS_WITH_CLIENT)
-	struct client_info_stash *stash;
-	char *cli_hostname_copy;
-	const struct addrinfo *dns_results;
-	const struct addrinfo *dns_results_next;
+	struct client_info_stash	*stash;
+	char				*cli_hostname_copy;
+	const struct addrinfo		*dns_results;
+	const struct addrinfo		*dns_results_next;
 #endif
-	void *user_space;
-	void *opaque_parent_data;
-	void *opaque_user_data;
+	void				*user_space;
+	void				*opaque_parent_data;
+	void				*opaque_user_data;
 
-	struct lws_buflist *buflist;		/* input-side buflist */
-	struct lws_buflist *buflist_out;	/* output-side buflist */
+	struct lws_buflist		*buflist; /* input-side buflist */
+	struct lws_buflist		*buflist_out; /* output-side buflist */
 
 #if defined(LWS_WITH_TLS)
-	struct lws_lws_tls tls;
+	struct lws_lws_tls		tls;
 #endif
 
-	lws_sock_file_fd_type desc; /* .filefd / .sockfd */
+	lws_sock_file_fd_type		desc; /* .filefd / .sockfd */
 #if defined(LWS_WITH_STATS)
 	uint64_t active_writable_req_us;
 #if defined(LWS_WITH_TLS)
 	uint64_t accept_start_us;
 #endif
 #endif
-	lws_wsi_state_t	wsistate;
-	lws_wsi_state_t wsistate_pre_close;
+	lws_wsi_state_t			wsistate;
+	lws_wsi_state_t			wsistate_pre_close;
 
 	/* ints */
 #define LWS_NO_FDS_POS (-1)
-	int position_in_fds_table;
+	int				position_in_fds_table;
 
 #if defined(LWS_WITH_CLIENT)
-	int chunk_remaining;
-	int flags;
+	int				chunk_remaining;
+	int				flags;
 #endif
-	unsigned int cache_secs;
+	unsigned int			cache_secs;
 
-	unsigned int hdr_parsing_completed:1;
-	unsigned int http2_substream:1;
-	unsigned int upgraded_to_http2:1;
-	unsigned int h2_stream_immortal:1;
-	unsigned int h2_stream_carries_ws:1; /* immortal set as well */
-	unsigned int h2_stream_carries_sse:1; /* immortal set as well */
-	unsigned int h2_acked_settings:1;
-	unsigned int seen_nonpseudoheader:1;
-	unsigned int listener:1;
-	unsigned int pf_packet:1;
-	unsigned int do_broadcast:1;
-	unsigned int user_space_externally_allocated:1;
-	unsigned int socket_is_permanently_unusable:1;
-	unsigned int rxflow_change_to:2;
-	unsigned int conn_stat_done:1;
-	unsigned int cache_reuse:1;
-	unsigned int cache_revalidate:1;
-	unsigned int cache_intermediaries:1;
-	unsigned int favoured_pollin:1;
-	unsigned int sending_chunked:1;
-	unsigned int interpreting:1;
-	unsigned int already_did_cce:1;
-	unsigned int told_user_closed:1;
-	unsigned int told_event_loop_closed:1;
-	unsigned int waiting_to_send_close_frame:1;
-	unsigned int close_needs_ack:1;
-	unsigned int ipv6:1;
-	unsigned int parent_pending_cb_on_writable:1;
-	unsigned int cgi_stdout_zero_length:1;
-	unsigned int seen_zero_length_recv:1;
-	unsigned int rxflow_will_be_applied:1;
-	unsigned int event_pipe:1;
-	unsigned int handling_404:1;
-	unsigned int protocol_bind_balance:1;
-	unsigned int unix_skt:1;
-	unsigned int close_when_buffered_out_drained:1;
-	unsigned int h1_ws_proxied:1;
-	unsigned int proxied_ws_parent:1;
-	unsigned int do_bind:1;
-	unsigned int oom4:1;
-	unsigned int validity_hup:1;
+	unsigned int			hdr_parsing_completed:1;
+	unsigned int			mux_substream:1;
+	unsigned int			upgraded_to_http2:1;
+	unsigned int			mux_stream_immortal:1;
+	unsigned int			h2_stream_carries_ws:1; /* immortal set as well */
+	unsigned int			h2_stream_carries_sse:1; /* immortal set as well */
+	unsigned int			h2_acked_settings:1;
+	unsigned int			seen_nonpseudoheader:1;
+	unsigned int			listener:1;
+	unsigned int			pf_packet:1;
+	unsigned int			do_broadcast:1;
+	unsigned int			user_space_externally_allocated:1;
+	unsigned int			socket_is_permanently_unusable:1;
+	unsigned int			rxflow_change_to:2;
+	unsigned int			conn_stat_done:1;
+	unsigned int			cache_reuse:1;
+	unsigned int			cache_revalidate:1;
+	unsigned int			cache_intermediaries:1;
+	unsigned int			favoured_pollin:1;
+	unsigned int			sending_chunked:1;
+	unsigned int			interpreting:1;
+	unsigned int			already_did_cce:1;
+	unsigned int			told_user_closed:1;
+	unsigned int			told_event_loop_closed:1;
+	unsigned int			waiting_to_send_close_frame:1;
+	unsigned int			close_needs_ack:1;
+	unsigned int			ipv6:1;
+	unsigned int			parent_pending_cb_on_writable:1;
+	unsigned int			cgi_stdout_zero_length:1;
+	unsigned int			seen_zero_length_recv:1;
+	unsigned int			rxflow_will_be_applied:1;
+	unsigned int			event_pipe:1;
+	unsigned int			handling_404:1;
+	unsigned int			protocol_bind_balance:1;
+	unsigned int			unix_skt:1;
+	unsigned int			close_when_buffered_out_drained:1;
+	unsigned int			h1_ws_proxied:1;
+	unsigned int			proxied_ws_parent:1;
+	unsigned int			do_bind:1;
+	unsigned int			oom4:1;
+	unsigned int			validity_hup:1;
 
-	unsigned int could_have_pending:1; /* detect back-to-back writes */
-	unsigned int outer_will_close:1;
-	unsigned int shadow:1; /* we do not control fd lifecycle at all */
+	unsigned int			could_have_pending:1; /* detect back-to-back writes */
+	unsigned int			outer_will_close:1;
+	unsigned int			shadow:1; /* we do not control fd lifecycle at all */
 
 #ifdef LWS_WITH_ACCESS_LOG
-	unsigned int access_log_pending:1;
+	unsigned int			access_log_pending:1;
 #endif
 #if defined(LWS_WITH_CLIENT)
-	unsigned int do_ws:1; /* whether we are doing http or ws flow */
-	unsigned int chunked:1; /* if the clientside connection is chunked */
-	unsigned int client_rx_avail:1;
-	unsigned int client_http_body_pending:1;
-	unsigned int transaction_from_pipeline_queue:1;
-	unsigned int keepalive_active:1;
-	unsigned int keepalive_rejected:1;
-	unsigned int redirected_to_get:1;
-	unsigned int client_pipeline:1;
-	unsigned int client_h2_alpn:1;
-	unsigned int client_h2_substream:1;
-	unsigned int client_h2_migrated:1;
+	unsigned int			do_ws:1; /* whether we are doing http or ws flow */
+	unsigned int			chunked:1; /* if the clientside connection is chunked */
+	unsigned int			client_rx_avail:1;
+	unsigned int			client_http_body_pending:1;
+	unsigned int			transaction_from_pipeline_queue:1;
+	unsigned int			keepalive_active:1;
+	unsigned int			keepalive_rejected:1;
+	unsigned int			redirected_to_get:1;
+	unsigned int			client_pipeline:1;
+	unsigned int			client_h2_alpn:1;
+	unsigned int			client_mux_substream:1;
+	unsigned int			client_mux_migrated:1;
 #endif
 
 #ifdef _WIN32
 	unsigned int sock_send_blocking:1;
 #endif
 
-	uint16_t ocport, c_port;
-	uint16_t retry;
+	uint16_t			ocport, c_port;
+	uint16_t			retry;
 
 	/* chars */
 
@@ -1110,7 +1155,7 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int len, int meth);
 #endif
 
 void
-lws_http_mark_immortal(struct lws *wsi);
+lws_mux_mark_immortal(struct lws *wsi);
 void
 lws_http_close_immortal(struct lws *wsi);
 

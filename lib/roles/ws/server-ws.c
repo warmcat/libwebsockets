@@ -420,7 +420,7 @@ lws_process_ws_upgrade(struct lws *wsi)
 	 */
 
 #if defined(LWS_WITH_HTTP2)
-	if (!wsi->http2_substream) {
+	if (!wsi->mux_substream) {
 #endif
 
 		lws_tokenize_init(&ts, buf, LWS_TOKENIZE_F_COMMA_SEP_LIST |

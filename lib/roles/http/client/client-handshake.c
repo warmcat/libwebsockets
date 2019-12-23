@@ -1099,7 +1099,7 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	lws_free_set_NULL(stash);
 
 #if defined(LWS_WITH_HTTP2)
-	if (wsi->client_h2_substream)
+	if (wsi->client_mux_substream)
 		wsi->h2.END_STREAM = wsi->h2.END_HEADERS = 0;
 #endif
 

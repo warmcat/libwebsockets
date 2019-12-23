@@ -93,7 +93,7 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	if (!len || !buf)
 		return 0;
 
-	if (!wsi->http2_substream && !lws_socket_is_valid(wsi->desc.sockfd))
+	if (!wsi->mux_substream && !lws_socket_is_valid(wsi->desc.sockfd))
 		lwsl_warn("** error invalid sock but expected to send\n");
 
 	/* limit sending */

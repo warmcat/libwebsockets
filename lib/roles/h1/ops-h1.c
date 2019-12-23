@@ -212,7 +212,7 @@ postbody_completion:
 				if (n)
 					goto bail;
 
-				if (wsi->http2_substream)
+				if (wsi->mux_substream)
 					lwsi_set_state(wsi, LRS_ESTABLISHED);
 			}
 

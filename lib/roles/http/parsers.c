@@ -575,7 +575,7 @@ lws_hdr_custom_length(struct lws *wsi, const char *name, int nlen)
 {
 	ah_data_idx_t ll;
 
-	if (!wsi->http.ah || wsi->http2_substream)
+	if (!wsi->http.ah || wsi->mux_substream)
 		return -1;
 
 	ll = wsi->http.ah->unk_ll_head;
@@ -601,7 +601,7 @@ lws_hdr_custom_copy(struct lws *wsi, char *dst, int len, const char *name,
 	ah_data_idx_t ll;
 	int n;
 
-	if (!wsi->http.ah || wsi->http2_substream)
+	if (!wsi->http.ah || wsi->mux_substream)
 		return -1;
 
 	*dst = '\0';
@@ -1085,7 +1085,7 @@ swallow:
 			 * a known header, we'll snip this.
 			 */
 
-			if (!wsi->http2_substream && !ah->unk_pos) {
+			if (!wsi->mux_substream && !ah->unk_pos) {
 				ah->unk_pos = ah->pos;
 				/*
 				 * Prepare new unknown header linked-list entry
@@ -1107,7 +1107,7 @@ swallow:
 			pos = ah->lextable_pos;
 
 #if defined(LWS_WITH_CUSTOM_HEADERS)
-			if (!wsi->http2_substream && pos < 0 && c == ':') {
+			if (!wsi->mux_substream && pos < 0 && c == ':') {
 #if defined(_DEBUG)
 				char dotstar[64];
 				int uhlen;
@@ -1181,7 +1181,7 @@ nope:
 				/* b7 = 0, end or 3-byte */
 				if (lextable[pos] < FAIL_CHAR) {
 #if defined(LWS_WITH_CUSTOM_HEADERS)
-					if (!wsi->http2_substream) {
+					if (!wsi->mux_substream) {
 						/*
 						 * We hit a terminal marker, so
 						 * we recognized this header...
@@ -1227,7 +1227,7 @@ nope:
 #if !defined(LWS_WITH_CUSTOM_HEADERS)
 						ah->parser_state = WSI_TOKEN_SKIPPING;
 #endif
-						if (wsi->http2_substream)
+						if (wsi->mux_substream)
 							ah->parser_state = WSI_TOKEN_SKIPPING;
 						break;
 					}
@@ -1238,7 +1238,7 @@ nope:
 					 * We have the method, this is just an
 					 * unknown header then
 					 */
-					if (!wsi->http2_substream)
+					if (!wsi->mux_substream)
 						goto unknown_hdr;
 					else
 						break;
@@ -1266,7 +1266,7 @@ nope:
 			}
 			if (ah->lextable_pos < 0) {
 #if defined(LWS_WITH_CUSTOM_HEADERS)
-				if (!wsi->http2_substream)
+				if (!wsi->mux_substream)
 					goto unknown_hdr;
 #endif
 				/*
@@ -1321,7 +1321,7 @@ nope:
 unknown_hdr:
 			//ah->parser_state = WSI_TOKEN_SKIPPING;
 			//break;
-			if (!wsi->http2_substream)
+			if (!wsi->mux_substream)
 				break;
 #endif
 

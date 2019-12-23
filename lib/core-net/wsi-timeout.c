@@ -156,8 +156,8 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 	if (secs == LWS_TO_KILL_ASYNC)
 		secs = 0;
 
-	// assert(!secs || !wsi->h2_stream_immortal);
-	if (secs && wsi->h2_stream_immortal)
+	// assert(!secs || !wsi->mux_stream_immortal);
+	if (secs && wsi->mux_stream_immortal)
 		lwsl_err("%s: on immortal stream %d %d\n", __func__, reason, secs);
 
 	lws_pt_lock(pt, __func__);

@@ -57,7 +57,7 @@ stream_close(struct lws *wsi)
 
 	wsi->http.did_stream_close = 1;
 
-	if (wsi->http2_substream) {
+	if (wsi->mux_substream) {
 		if (lws_write(wsi, (unsigned char *)buf + LWS_PRE, 0,
 			      LWS_WRITE_HTTP_FINAL) < 0) {
 			lwsl_info("%s: COMPL_CLIENT_HTTP: h2 fin wr failed\n",
@@ -115,7 +115,7 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		lws_process_ws_upgrade2(wsi->parent);
 
 #if defined(LWS_WITH_HTTP2)
-		if (wsi->parent->http2_substream)
+		if (wsi->parent->mux_substream)
 			lwsl_info("%s: proxied h2 -> h1 ws established\n", __func__);
 #endif
 		break;
@@ -330,7 +330,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		if (wsi->reason_bf & LWS_CB_REASON_AUX_BF__CGI_CHUNK_END) {
-			if (!wsi->http2_substream) {
+			if (!wsi->mux_substream) {
 				memcpy(buf + LWS_PRE, "0\x0d\x0a\x0d\x0a", 5);
 				lwsl_debug("writing chunk term and exiting\n");
 				n = lws_write(wsi, (unsigned char *)buf +
@@ -508,7 +508,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		proxy_header(parent, wsi, end, 256,
 			     WSI_TOKEN_HTTP_LOCATION, &p, end);
 
-		if (!parent->http2_substream)
+		if (!parent->mux_substream)
 			if (lws_add_http_header_by_token(parent,
 				WSI_TOKEN_CONNECTION, (unsigned char *)"close",
 				5, &p, end))
@@ -522,7 +522,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		 * our own chunking since we still don't know the size.
 		 */
 
-		if (!parent->http2_substream &&
+		if (!parent->mux_substream &&
 		    !lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
 			lwsl_debug("downstream parent chunked\n");
 			if (lws_add_http_header_by_token(parent,
@@ -661,7 +661,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_debug("LWS_CALLBACK_CGI_TERMINATED: %d %" PRIu64 "\n",
 				wsi->http.cgi->explicitly_chunked,
 				(uint64_t)wsi->http.cgi->content_length);
-		if (!(wsi->http.cgi->explicitly_chunked && wsi->http2_substream) &&
+		if (!(wsi->http.cgi->explicitly_chunked && wsi->mux_substream) &&
 		    !wsi->http.cgi->content_length) {
 			/* send terminating chunk */
 			lwsl_debug("LWS_CALLBACK_CGI_TERMINATED: ending\n");
@@ -670,7 +670,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_set_timeout(wsi, PENDING_TIMEOUT_CGI, 3);
 			break;
 		}
-		if (wsi->http2_substream && !wsi->cgi_stdout_zero_length)
+		if (wsi->mux_substream && !wsi->cgi_stdout_zero_length)
 			lws_write(wsi, (unsigned char *)buf + LWS_PRE, 0,
 						      LWS_WRITE_HTTP_FINAL);
 

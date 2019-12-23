@@ -1052,7 +1052,7 @@ rops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
 		return LWS_HPI_RET_HANDLED;
 
 #if defined(LWS_WITH_HTTP2)
-	if (wsi->http2_substream || wsi->upgraded_to_http2) {
+	if (wsi->mux_substream || wsi->upgraded_to_http2) {
 		wsi1 = lws_get_network_wsi(wsi);
 		if (wsi1 && lws_has_buffered_out(wsi1))
 			/* We cannot deal with any kind of new RX
@@ -1329,7 +1329,7 @@ int rops_handle_POLLOUT_ws(struct lws *wsi)
 
 		lwsl_info("%s: issuing ping on wsi %p: %s %s h2: %d\n", __func__, wsi,
 				wsi->role_ops->name, wsi->protocol->name,
-				wsi->http2_substream);
+				wsi->mux_substream);
 		wsi->ws->send_check_ping = 0;
 		n = lws_write(wsi, &wsi->ws->ping_payload_buf[LWS_PRE],
 			      0, LWS_WRITE_PING);
@@ -1914,7 +1914,7 @@ rops_close_kill_connection_ws(struct lws *wsi, enum lws_close_status reason)
 {
 	/* deal with ws encapsulation in h2 */
 #if defined(LWS_WITH_HTTP2)
-	if (wsi->http2_substream && wsi->h2_stream_carries_ws)
+	if (wsi->mux_substream && wsi->h2_stream_carries_ws)
 		return role_ops_h2.close_kill_connection(wsi, reason);
 
 	return 0;

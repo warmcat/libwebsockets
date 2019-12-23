@@ -1363,7 +1363,7 @@ int lws_add_http2_header_by_name(struct lws *wsi, const unsigned char *name,
 		if (name[len - 1] == ':')
 			len--;
 
-	if (wsi->http2_substream && !strncmp((const char *)name,
+	if (wsi->mux_substream && !strncmp((const char *)name,
 					     "transfer-encoding", len)) {
 		lwsl_header("rejecting %s\n", name);
 

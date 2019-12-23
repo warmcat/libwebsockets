@@ -264,7 +264,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 #endif
 
 #if defined(LWS_WITH_HTTP2)
-	if (wsi->h2_stream_immortal)
+	if (wsi->mux_stream_immortal)
 		lws_http_close_immortal(wsi);
 #endif
 

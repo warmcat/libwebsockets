@@ -186,7 +186,7 @@ lws_add_http_common_headers(struct lws *wsi, unsigned int code,
 		/* there was no length... it normally means CONNECTION_CLOSE */
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
 
-		if (!wsi->http2_substream && wsi->http.lcs) {
+		if (!wsi->mux_substream && wsi->http.lcs) {
 			/* so...
 			 *  - h1 connection
 			 *  - http compression transform active
@@ -208,7 +208,7 @@ lws_add_http_common_headers(struct lws *wsi, unsigned int code,
 				t = 1;
 		}
 #endif
-		if (!wsi->http2_substream) {
+		if (!wsi->mux_substream) {
 			if (lws_add_http_header_by_token(wsi,
 						 WSI_TOKEN_CONNECTION,
 						 (unsigned char *)ka[t],
@@ -437,7 +437,7 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 		return 1;
 
 #if defined(LWS_WITH_HTTP2)
-	if (wsi->http2_substream) {
+	if (wsi->mux_substream) {
 
 		/*
 		 * for HTTP/2, the headers must be sent separately, since they
