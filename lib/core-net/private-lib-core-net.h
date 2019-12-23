@@ -1262,7 +1262,10 @@ _lws_generic_transaction_completed_active_conn(struct lws *wsi);
 #define ACTIVE_CONNS_QUEUED 2
 
 int
-lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi);
+lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin);
+
+const char *
+lws_wsi_client_stash_item(struct lws *wsi, int stash_idx, int hdr_idx);
 
 #ifdef __cplusplus
 };

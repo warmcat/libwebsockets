@@ -64,10 +64,8 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 	const char *cce = "";
 	int n, m, rawish = 0;
 
-	if (wsi->stash)
-		meth = wsi->stash->cis[CIS_METHOD];
-	else
-		meth = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD);
+	meth = lws_wsi_client_stash_item(wsi, CIS_METHOD,
+					 _WSI_TOKEN_CLIENT_METHOD);
 
 	if (meth && !strcmp(meth, "RAW"))
 		rawish = 1;
@@ -83,11 +81,10 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 	if (wsi->vhost->http.http_proxy_port) {
 		const char *cpa;
 
-		if (wsi->stash)
-			cpa = wsi->stash->cis[CIS_ADDRESS];
-		else
-			cpa = lws_hdr_simple_ptr(wsi,
-					_WSI_TOKEN_CLIENT_PEER_ADDRESS);
+		cpa = lws_wsi_client_stash_item(wsi, CIS_ADDRESS,
+						_WSI_TOKEN_CLIENT_PEER_ADDRESS);
+		if (!cpa)
+			goto failed;
 
 		lwsl_info("%s: going via proxy\n", __func__);
 
@@ -548,10 +545,8 @@ ads_known:
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CONNECT_RESPONSE,
 				AWAITING_TIMEOUT);
 
-		if (wsi->stash)
-			iface = wsi->stash->cis[CIS_IFACE];
-		else
-			iface = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_IFACE);
+		iface = lws_wsi_client_stash_item(wsi, CIS_IFACE,
+						  _WSI_TOKEN_CLIENT_IFACE);
 
 		if (iface && *iface) {
 			n = lws_socket_bind(wsi->vhost, wsi->desc.sockfd, 0,
@@ -698,12 +693,13 @@ failed1:
 struct lws *
 lws_client_connect_2_dnsreq(struct lws *wsi)
 {
-	const char *meth = NULL, *ads;
 	struct addrinfo *result = NULL;
+	const char *meth = NULL, *ads;
 #if defined(LWS_WITH_IPV6)
 	struct sockaddr_in addr;
 	const char *iface;
 #endif
+	const char *adsin;
 	int n, port = 0;
 	struct lws *w;
 
@@ -713,10 +709,13 @@ lws_client_connect_2_dnsreq(struct lws *wsi)
 		return wsi;
 	}
 
-	if (wsi->stash)
-		meth = wsi->stash->cis[CIS_METHOD];
-	else
-		meth = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD);
+	/*
+	 * The first job is figure out if we want to pipeline on or just join
+	 * an existing "active connection" to the same place
+	 */
+
+	meth = lws_wsi_client_stash_item(wsi, CIS_METHOD,
+					 _WSI_TOKEN_CLIENT_METHOD);
 
 	/* we only pipeline connections that said it was okay */
 
@@ -734,7 +733,10 @@ lws_client_connect_2_dnsreq(struct lws *wsi)
 
 	/* consult active connections to find out disposition */
 
-	switch (lws_vhost_active_conns(wsi, &w)) {
+	adsin = lws_wsi_client_stash_item(wsi, CIS_ADDRESS,
+					  _WSI_TOKEN_CLIENT_PEER_ADDRESS);
+
+	switch (lws_vhost_active_conns(wsi, &w, adsin)) {
 	case ACTIVE_CONNS_SOLO:
 		break;
 	case ACTIVE_CONNS_MUXED:
@@ -756,17 +758,19 @@ solo:
 		if (wsi->stash && wsi->stash->cis[CIS_HOST])
 			wsi->cli_hostname_copy =
 					lws_strdup(wsi->stash->cis[CIS_HOST]);
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 		else {
 			char *pa = lws_hdr_simple_ptr(wsi,
 					      _WSI_TOKEN_CLIENT_PEER_ADDRESS);
 			if (pa)
 				wsi->cli_hostname_copy = lws_strdup(pa);
 		}
+#endif
 	}
 
 	/*
-	 * If we made our own connection, and we're doing a method that can take
-	 * a pipeline, we are an "active client connection".
+	 * If we made our own connection, and we're doing a method that can
+	 * take a pipeline, we are an "active client connection".
 	 *
 	 * Add ourselves to the vhost list of those so that others can
 	 * piggyback on our transaction queue

@@ -959,3 +959,19 @@ lws_http_mark_sse(struct lws *wsi)
 
 	return 0;
 }
+
+
+const char *
+lws_wsi_client_stash_item(struct lws *wsi, int stash_idx, int hdr_idx)
+{
+	/* try the generic client stash */
+	if (wsi->stash)
+		return wsi->stash->cis[stash_idx];
+
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+	/* if not, use the ah stash if applicable */
+	return lws_hdr_simple_ptr(wsi, hdr_idx);
+#else
+	return NULL;
+#endif
+}

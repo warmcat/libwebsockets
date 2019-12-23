@@ -1390,12 +1390,8 @@ lws_get_vhost_by_name(struct lws_context *context, const char *name)
  */
 
 int
-lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi)
+lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 {
-	const char *adsin;
-
-	adsin = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS);
-
 	lws_vhost_lock(wsi->vhost); /* ----------------------------------- { */
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
@@ -1406,7 +1402,14 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi)
 		lwsl_debug("%s: check %s %s %d %d\n", __func__, adsin,
 			   w->cli_hostname_copy, wsi->c_port, w->c_port);
 
-		if (w != wsi && w->cli_hostname_copy &&
+		if (w != wsi &&
+		    /*
+		     * "same internet protocol"... this is a bit tricky,
+		     * since h2 start out as h1
+		     */
+		    (w->role_ops == wsi->role_ops ||
+		     (lwsi_role_http(w) && lwsi_role_http(wsi))) &&
+		    w->cli_hostname_copy &&
 		    !strcmp(adsin, w->cli_hostname_copy) &&
 #if defined(LWS_WITH_TLS)
 		    (wsi->tls.use_ssl & LCCSCF_USE_SSL) ==
