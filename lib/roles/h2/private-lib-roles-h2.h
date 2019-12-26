@@ -25,19 +25,6 @@
 extern struct lws_role_ops role_ops_h2;
 #define lwsi_role_h2(wsi) (wsi->role_ops == &role_ops_h2)
 
-enum lws_h2_settings {
-	H2SET_HEADER_TABLE_SIZE = 1,
-	H2SET_ENABLE_PUSH,
-	H2SET_MAX_CONCURRENT_STREAMS,
-	H2SET_INITIAL_WINDOW_SIZE,
-	H2SET_MAX_FRAME_SIZE,
-	H2SET_MAX_HEADER_LIST_SIZE,
-	H2SET_RESERVED7,
-	H2SET_ENABLE_CONNECT_PROTOCOL, /* defined in mcmanus-httpbis-h2-ws-02 */
-
-	H2SET_COUNT /* always last */
-};
-
 struct http2_settings {
 	uint32_t s[H2SET_COUNT];
 };
@@ -216,6 +203,7 @@ enum lws_h2_protocol_send_type {
 	LWS_H2_PPS_GOAWAY,
 	LWS_H2_PPS_RST_STREAM,
 	LWS_H2_PPS_UPDATE_WINDOW,
+	LWS_H2_PPS_SETTINGS_INITIAL_UPDATE_WINDOW
 };
 
 struct lws_h2_protocol_send {
@@ -322,6 +310,8 @@ struct _lws_h2_related {
 	int			tx_cr;
 	int			peer_tx_cr_est;
 
+	int32_t			manual_initial_tx_credit;
+
 	uint8_t			END_STREAM:1;
 	uint8_t			END_HEADERS:1;
 	uint8_t			send_END_STREAM:1;
@@ -329,6 +319,7 @@ struct _lws_h2_related {
 	uint8_t			GOING_AWAY;
 	uint8_t			skint:1;
 	uint8_t			initialized:1;
+	uint8_t			told_initial:1;
 
 	uint8_t			h2_state; /* RFC7540 state of the connection */
 };

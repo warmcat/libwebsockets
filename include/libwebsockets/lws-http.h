@@ -337,6 +337,19 @@ struct lws_token_limits {
 	unsigned short token_limit[WSI_TOKEN_COUNT]; /**< max chars for this token */
 };
 
+enum lws_h2_settings {
+	H2SET_HEADER_TABLE_SIZE = 1,
+	H2SET_ENABLE_PUSH,
+	H2SET_MAX_CONCURRENT_STREAMS,
+	H2SET_INITIAL_WINDOW_SIZE,
+	H2SET_MAX_FRAME_SIZE,
+	H2SET_MAX_HEADER_LIST_SIZE,
+	H2SET_RESERVED7,
+	H2SET_ENABLE_CONNECT_PROTOCOL, /* defined in mcmanus-httpbis-h2-ws-02 */
+
+	H2SET_COUNT /* always last */
+};
+
 /**
  * lws_token_to_string() - returns a textual representation of a hdr token index
  *
@@ -802,5 +815,47 @@ lws_http_compression_apply(struct lws *wsi, const char *name,
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_http_is_redirected_to_get(struct lws *wsi);
+
+/**
+ * lws_h2_update_rxflow() - manually update stream peer tx credit
+ *
+ * \param wsi: the h2 child stream whose peer credit to change
+ * \param sid: the stream ID, or LWS_H2_STREAM_SID for the wsi stream ID
+ * \param bump: signed change to confer upon peer tx credit for sid
+ *
+ * In conjunction with LCCSCF_H2_MANUAL_RXFLOW flag, allows the user code to
+ * selectively starve the remote peer of the ability to send us data on a client
+ * connection.
+ *
+ * LCCSCF_H2_MANUAL_RXFLOW makes lws revoke the default tx credit when starting
+ * the stream, before it has been asked to send us anything, stalling the stream
+ * until this api is called to send the other side permission to send us up to
+ * \p bump bytes.
+ *
+ * The nwsi tx credit is updated automatically for exactly what was sent to us
+ * on a stream with LCCSCF_H2_MANUAL_RXFLOW flag, but the stream's own tx credit
+ * must be handled manually by user code via this api.
+ *
+ * Returns 0 for success or nonzero for failure.
+ */
+#define LWS_H2_STREAM_SID -1
+LWS_VISIBLE LWS_EXTERN int
+lws_h2_update_rxflow(struct lws *wsi, int sid, int bump);
+
+
+/**
+ * lws_h2_get_peer_txcredit_estimate() - return peer tx credit estimate
+ *
+ * \param wsi: the h2 child stream whose peer credit estimate to return
+ *
+ * Returns the estimated amount of tx credit at the peer, in other words the
+ * number of bytes the peer is authorized to send to us.
+ *
+ * It's an 'estimate' because we don't know how much is already in flight
+ * towards us and actually already used.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_h2_get_peer_txcredit_estimate(struct lws *wsi);
+
 ///@}
 

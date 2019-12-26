@@ -1,5 +1,5 @@
 /*
- * lws-minimal-http-client
+ * lws-minimal-http-client-h2-rxflow
  *
  * Written in 2010-2019 by Andy Green <andy@warmcat.com>
  *
@@ -17,21 +17,41 @@
 #include <signal.h>
 
 static int interrupted, bad = 1, status;
-#if defined(LWS_WITH_HTTP2)
-static int long_poll;
-#endif
 static struct lws *client_wsi;
-static const char *ba_user, *ba_password;
 
 static const lws_retry_bo_t retry = {
 	.secs_since_valid_ping = 3,
 	.secs_since_valid_hangup = 10,
 };
 
+struct pss {
+	lws_sorted_usec_list_t sul;
+	struct lws *wsi;
+};
+
+/*
+ * Once we're established, we ask the server for another 1KB every 250ms
+ * until we have it all.
+ */
+
+static void
+drain_cb(lws_sorted_usec_list_t *sul)
+{
+	struct pss *pss = lws_container_of(sul, struct pss, sul);
+
+	lws_h2_update_rxflow(pss->wsi, LWS_H2_STREAM_SID, 1024);
+
+	lws_sul_schedule(lws_get_context(pss->wsi), 0, &pss->sul, drain_cb,
+			 250 * LWS_US_PER_MS);
+}
+
+
 static int
 callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	      void *user, void *in, size_t len)
 {
+	struct pss *pss = (struct pss *)user;
+
 	switch (reason) {
 
 	/* because we are protocols[0] ... */
@@ -51,44 +71,15 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 			lwsl_user("Connected to %s, http response: %d\n",
 					buf, status);
 		}
-#if defined(LWS_WITH_HTTP2)
-		if (long_poll) {
-			lwsl_user("%s: Client entering long poll mode\n", __func__);
-			lws_h2_client_stream_long_poll_rxonly(wsi);
-		}
-#endif
+		pss->wsi = wsi;
+		lws_sul_schedule(lws_get_context(wsi), 0, &pss->sul, drain_cb,
+				 250 * LWS_US_PER_MS);
 		break;
-
-	/* you only need this if you need to do Basic Auth */
-	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
-	{
-		unsigned char **p = (unsigned char **)in, *end = (*p) + len;
-		char b[128];
-
-		if (!ba_user || !ba_password)
-			break;
-
-		if (lws_http_basic_auth_gen(ba_user, ba_password, b, sizeof(b)))
-			break;
-		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_AUTHORIZATION,
-				(unsigned char *)b, strlen(b), p, end))
-			return -1;
-
-		break;
-	}
 
 	/* chunks of chunked content, with header removed */
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
 		lwsl_user("RECEIVE_CLIENT_HTTP_READ: read %d\n", (int)len);
-#if defined(LWS_WITH_HTTP2)
-		if (long_poll) {
-			char dotstar[128];
-			lws_strnncpy(dotstar, (const char *)in, len,
-				     sizeof(dotstar));
-			lwsl_notice("long poll rx: %d '%s'\n", (int)len,
-					dotstar);
-		}
-#endif
+
 #if 0  /* enable to dump the html */
 		{
 			const char *p = in;
@@ -124,6 +115,8 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
 		interrupted = 1;
 		bad = status != 200;
+		lws_sul_schedule(lws_get_context(wsi), 0, &pss->sul, NULL,
+				 LWS_SET_TIMER_USEC_CANCEL);
 		lws_cancel_service(lws_get_context(wsi)); /* abort poll wait */
 		break;
 
@@ -138,7 +131,7 @@ static const struct lws_protocols protocols[] = {
 	{
 		"http",
 		callback_http,
-		0,
+		sizeof(struct pss),
 		0,
 	},
 	{ NULL, NULL, 0, 0 }
@@ -171,16 +164,8 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 
 	memset(&i, 0, sizeof i); /* otherwise uninitialized garbage */
 	i.context = context;
-	if (!lws_cmdline_option(a->argc, a->argv, "-n")) {
+	if (!lws_cmdline_option(a->argc, a->argv, "-n"))
 		i.ssl_connection = LCCSCF_USE_SSL;
-#if defined(LWS_WITH_HTTP2)
-		/* requires h2 */
-		if (lws_cmdline_option(a->argc, a->argv, "--long-poll")) {
-			lwsl_user("%s: long poll mode\n", __func__);
-			long_poll = 1;
-		}
-#endif
-	}
 
 	if (lws_cmdline_option(a->argc, a->argv, "-l")) {
 		i.port = 7681;
@@ -203,11 +188,6 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 
 	if ((p = lws_cmdline_option(a->argc, a->argv, "-p")))
 		i.port = atoi(p);
-
-	if ((p = lws_cmdline_option(a->argc, a->argv, "--user")))
-		ba_user = p;
-	if ((p = lws_cmdline_option(a->argc, a->argv, "--password")))
-		ba_password = p;
 
 	if (lws_cmdline_option(a->argc, a->argv, "-j"))
 		i.ssl_connection |= LCCSCF_ALLOW_SELFSIGNED;

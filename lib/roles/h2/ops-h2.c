@@ -337,8 +337,26 @@ int rops_handle_POLLOUT_h2(struct lws *wsi)
 	if (lwsi_state(wsi) == LRS_ISSUE_HTTP_BODY)
 		return LWS_HP_RET_USER_SERVICE;
 
+	if (lwsi_state(wsi) == LRS_H2_WAITING_TO_SEND_HEADERS &&
+	    !wsi->h2.told_initial
+#if defined(LWS_WITH_CLIENT)
+	    && (wsi->flags & LCCSCF_H2_MANUAL_RXFLOW)
+#endif
+	) {
+		struct lws_h2_protocol_send *pps =
+			lws_h2_new_pps(LWS_H2_PPS_SETTINGS_INITIAL_UPDATE_WINDOW);
+		if (!pps)
+			return LWS_HP_RET_BAIL_DIE;
+
+		lwsl_notice("%s: scheduling initial window update to %d\n",
+				__func__, wsi->h2.manual_initial_tx_credit);
+		pps->u.update_window.credit = wsi->h2.manual_initial_tx_credit;
+		wsi->h2.told_initial = 1;
+		lws_pps_schedule(wsi, pps);
+	}
+
 	/*
-	 * Priority 2: H2 protocol packets
+	 * Priority 1: H2 protocol packets
 	 */
 	if ((wsi->upgraded_to_http2
 #if defined(LWS_WITH_CLIENT)
@@ -364,7 +382,7 @@ int rops_handle_POLLOUT_h2(struct lws *wsi)
 		return LWS_HP_RET_BAIL_OK; /* leave POLLOUT active */
 	}
 
-	/* Priority 4: if we are closing, not allowed to send more data frags
+	/* Priority 2: if we are closing, not allowed to send more data frags
 	 *	       which means user callback or tx ext flush banned now
 	 */
 	if (lwsi_state(wsi) == LRS_RETURNED_CLOSE)

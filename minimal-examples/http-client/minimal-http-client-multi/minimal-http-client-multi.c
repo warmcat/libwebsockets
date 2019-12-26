@@ -290,7 +290,9 @@ int main(int argc, const char **argv)
 	}
 
 	i.context = context;
-	i.ssl_connection = LCCSCF_USE_SSL;
+	i.ssl_connection = LCCSCF_USE_SSL |
+			   LCCSCF_H2_QUIRK_OVERFLOWS_TXCR |
+			   LCCSCF_H2_QUIRK_NGHTTP2_END_STREAM;
 
 	/* enables h1 or h2 connection sharing */
 	if (lws_cmdline_option(argc, argv, "-p"))

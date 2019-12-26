@@ -149,6 +149,44 @@ lws_h2_state(struct lws *wsi, enum lws_h2_states s)
 	wsi->h2.h2_state = (uint8_t)s;
 }
 
+int
+lws_h2_update_rxflow(struct lws *wsi, int sid, int bump)
+{
+	struct lws_h2_protocol_send *pps;
+
+	assert(wsi);
+
+	pps = lws_h2_new_pps(LWS_H2_PPS_UPDATE_WINDOW);
+	if (!pps)
+		return 1;
+
+	if (sid == -1)
+		sid = wsi->mux.my_sid;
+
+	pps->u.update_window.sid = sid;
+	pps->u.update_window.credit = bump;
+	wsi->h2.peer_tx_cr_est += bump;
+
+	lws_pps_schedule(wsi, pps);
+
+	return 0;
+}
+
+int
+lws_h2_get_peer_txcredit_estimate(struct lws *wsi)
+{
+	return (int)wsi->h2.peer_tx_cr_est;
+}
+
+static int
+lws_h2_update_rxflow_thresh(struct lws *wsi, int sid, int threshold, int bump)
+{
+	if (wsi->h2.peer_tx_cr_est > threshold)
+		return 0;
+
+	return lws_h2_update_rxflow(wsi, sid, bump);
+}
+
 struct lws *
 lws_wsi_server_new(struct lws_vhost *vh, struct lws *parent_wsi,
 			    unsigned int sid)
@@ -645,6 +683,27 @@ int lws_h2_do_pps_send(struct lws *wsi)
 		}
 		break;
 
+	case LWS_H2_PPS_SETTINGS_INITIAL_UPDATE_WINDOW:
+		q = &set[LWS_PRE];
+		*q++ = H2SET_INITIAL_WINDOW_SIZE >> 8;
+		*q++ = H2SET_INITIAL_WINDOW_SIZE;
+		*q++ = pps->u.update_window.credit >> 24;
+		*q++ = pps->u.update_window.credit >> 16;
+		*q++ = pps->u.update_window.credit >> 8;
+		*q = pps->u.update_window.credit;
+
+		lwsl_debug("%s: resetting initial window to %d\n", __func__,
+				(int)pps->u.update_window.credit);
+
+		n = lws_h2_frame_write(wsi, LWS_H2_FRAME_TYPE_SETTINGS,
+				       flags, LWS_H2_STREAM_ID_MASTER, 6,
+		     		       &set[LWS_PRE]);
+		if (n != 6) {
+			lwsl_info("send %d %d\n", n, m);
+			goto bail;
+		}
+		break;
+
 	case LWS_H2_PPS_ACK_SETTINGS:
 		/* send ack ... always empty */
 		n = lws_h2_frame_write(wsi, LWS_H2_FRAME_TYPE_SETTINGS, 1,
@@ -654,6 +713,7 @@ int lws_h2_do_pps_send(struct lws *wsi)
 			lwsl_err("ack tells %d\n", n);
 			goto bail;
 		}
+		wsi->h2_acked_settings = 0;
 		/* this is the end of the preface dance then? */
 		if (lwsi_state(wsi) == LRS_H2_AWAIT_SETTINGS) {
 			lwsi_set_state(wsi, LRS_ESTABLISHED);
@@ -1118,22 +1178,11 @@ lws_h2_parse_frame_header(struct lws *wsi)
 				return 1;
 			}
 
-			pps = lws_h2_new_pps(LWS_H2_PPS_UPDATE_WINDOW);
-			if (!pps)
+			if (lws_h2_update_rxflow(wsi, h2n->sid, 4 * 65536))
 				goto cleanup_wsi;
-			pps->u.update_window.sid = h2n->sid;
-			pps->u.update_window.credit = 4 * 65536;
-			h2n->swsi->h2.peer_tx_cr_est +=
-						pps->u.update_window.credit;
-			lws_pps_schedule(wsi, pps);
 
-			pps = lws_h2_new_pps(LWS_H2_PPS_UPDATE_WINDOW);
-			if (!pps)
+			if (lws_h2_update_rxflow(wsi, 0, 4 * 65536))
 				goto cleanup_wsi;
-			pps->u.update_window.sid = 0;
-			pps->u.update_window.credit = 4 * 65536;
-			wsi->h2.peer_tx_cr_est += pps->u.update_window.credit;
-			lws_pps_schedule(wsi, pps);
 		}
 
 		/*
@@ -1327,6 +1376,8 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 					wsi->user_space_externally_allocated;
 			h2n->swsi->opaque_user_data = wsi->opaque_user_data;
 			wsi->opaque_user_data = NULL;
+			h2n->swsi->h2.manual_initial_tx_credit =
+					wsi->h2.manual_initial_tx_credit;
 
 			wsi->user_space = NULL;
 
@@ -2006,30 +2057,36 @@ do_windows:
 				wsi->h2.peer_tx_cr_est -= n;
 				h2n->swsi->h2.peer_tx_cr_est -= n;
 
-	//			lwsl_notice("   peer_tx_cr_est %d, parent %d\n",
-	//				   h2n->swsi->h2.peer_tx_cr_est, wsi->h2.peer_tx_cr_est);
+#if defined(LWS_WITH_CLIENT)
+				if (!(h2n->swsi->flags & LCCSCF_H2_MANUAL_RXFLOW))
+#endif
+				{
+					/*
+					 * The default behaviour is we just keep
+					 * cranking the other side's tx credit
+					 * back up, for simple bulk transfer as
+					 * fast as we can take it
+					 */
 
-				if (h2n->swsi->h2.peer_tx_cr_est < (int)(2 * h2n->length) + 65536) {
-					pps = lws_h2_new_pps(LWS_H2_PPS_UPDATE_WINDOW);
-					if (!pps)
-						return 1;
-					pps->u.update_window.sid = h2n->sid;
-					pps->u.update_window.credit = (2 * h2n->length + 65536);
-					h2n->swsi->h2.peer_tx_cr_est += pps->u.update_window.credit; 
-					lws_pps_schedule(wsi, pps);
+					m = (2 * h2n->length) + 65536;
+
+					/* update both the stream and nwsi */
+
+					lws_h2_update_rxflow_thresh(h2n->swsi,
+								    h2n->sid, m, m);
+					lws_h2_update_rxflow_thresh(wsi, 0, m, m);
 				}
-				if (wsi->h2.peer_tx_cr_est < (int)(2 * h2n->length) + 65536) {
-					pps = lws_h2_new_pps(LWS_H2_PPS_UPDATE_WINDOW);
-					if (!pps)
-						return 1;
-					pps->u.update_window.sid = 0;
-					pps->u.update_window.credit = (2 * h2n->length + 65536);
-					wsi->h2.peer_tx_cr_est += pps->u.update_window.credit;
-					lws_pps_schedule(wsi, pps);
+#if defined(LWS_WITH_CLIENT)
+				else {
+					/*
+					 * If he's handling it himself, only
+					 * repair the nwsi credit but allow the
+					 * stream credit to run down until the
+					 * user code deals with it
+					 */
+					lws_h2_update_rxflow(wsi, 0, n);
 				}
-
-				// lwsl_notice("%s: count %d len %d\n", __func__, (int)h2n->count, (int)h2n->length);
-
+#endif
 				break;
 
 			case LWS_H2_FRAME_TYPE_PRIORITY:
@@ -2174,7 +2231,6 @@ lws_h2_client_handshake(struct lws *wsi)
 	char *meth = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD),
 	     *uri = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI);
 	struct lws *nwsi = lws_get_network_wsi(wsi);
-	struct lws_h2_protocol_send *pps;
 	int n, m;
 	/*
 	 * The identifier of a newly established stream MUST be numerically
@@ -2192,21 +2248,21 @@ lws_h2_client_handshake(struct lws *wsi)
 	lwsl_info("%s: CLIENT_WAITING_TO_SEND_HEADERS: pollout (sid %d)\n",
 			__func__, wsi->mux.my_sid);
 
-	pps = lws_h2_new_pps(LWS_H2_PPS_UPDATE_WINDOW);
-	if (!pps)
-		return 1;
-	pps->u.update_window.sid = sid;
-	pps->u.update_window.credit = 4 * 65536;
-	wsi->h2.peer_tx_cr_est += pps->u.update_window.credit;
-	lws_pps_schedule(wsi, pps);
+#if defined(LWS_WITH_CLIENT)
+	/*
+	 * Normally let's charge up the peer tx credit a bit.  But if
+	 * MANUAL_REFLOW is set, just leave it at the initial credit given in
+	 * the client create info
+	 */
+	if (!(wsi->flags & LCCSCF_H2_MANUAL_RXFLOW))
+		/* next statement... */
+#endif
 
-	pps = lws_h2_new_pps(LWS_H2_PPS_UPDATE_WINDOW);
-	if (!pps)
+	if (lws_h2_update_rxflow(wsi, sid, 4 * 65536))
 		return 1;
-	pps->u.update_window.sid = 0;
-	pps->u.update_window.credit = 4 * 65536;
-	wsi->h2.peer_tx_cr_est += pps->u.update_window.credit;
-	lws_pps_schedule(wsi, pps);
+
+	if (lws_h2_update_rxflow(wsi, 0, 4 * 65536))
+		return 1;
 
 	p = start = buf = pt->serv_buf + LWS_PRE;
 	end = start + (wsi->context->pt_serv_buf_size / 2) - LWS_PRE - 1;
