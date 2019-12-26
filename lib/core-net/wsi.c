@@ -436,7 +436,7 @@ lws_get_peer_write_allowance(struct lws *wsi)
 {
 	if (!wsi->role_ops->tx_credit)
 		return -1;
-	return wsi->role_ops->tx_credit(wsi);
+	return wsi->role_ops->tx_credit(wsi, LWSTXCR_US_TO_PEER, 0);
 }
 
 LWS_VISIBLE void
@@ -1074,10 +1074,10 @@ lws_wsi_mux_dump_waiting_children(struct lws *wsi)
 
 	wsi = wsi->mux.child_list;
 	while (wsi) {
-		lwsl_info("  %c %p %s %s\n",
+		lwsl_info("  %c %p: sid %u: %s %s\n",
 			  wsi->mux.requested_POLLOUT ? '*' : ' ',
-			  wsi, wsi->role_ops->name, wsi->protocol ?
-					  wsi->protocol->name : "noprotocol");
+			  wsi, wsi->mux.my_sid, wsi->role_ops->name,
+			  wsi->protocol ? wsi->protocol->name : "noprotocol");
 
 		wsi = wsi->mux.sibling_list;
 	}
@@ -1154,6 +1154,72 @@ lws_wsi_mux_action_pending_writeable_reqs(struct lws *wsi)
 	}
 
 	return 0;
+}
+
+int
+lws_wsi_txc_check_skint(struct lws_tx_credit *txc, int32_t tx_cr)
+{
+	if (txc->tx_cr <= 0) {
+		/*
+		 * If other side is not able to cope with us sending any DATA
+		 * so no matter if we have POLLOUT on our side if it's DATA we
+		 * want to send.
+		 */
+
+		if (!txc->skint)
+			lwsl_info("%s: %p: skint (%d)\n", __func__, txc,
+				  txc->tx_cr);
+
+		txc->skint = 1;
+
+		return 1;
+	}
+
+	if (txc->skint)
+		lwsl_info("%s: %p: unskint (%d)\n", __func__, txc, txc->tx_cr);
+
+	txc->skint = 0;
+
+	return 0;
+}
+
+#if defined(_DEBUG)
+void
+lws_wsi_txc_describe(struct lws_tx_credit *txc, const char *at, uint32_t sid)
+{
+	lwsl_info("%s: %p: %s: sid %d: %speer-to-us: %d, us-to-peer: %d\n",
+		  __func__, txc, at, sid, txc->skint ? "SKINT, " : "",
+		  txc->peer_tx_cr_est, txc->tx_cr);
+}
+#endif
+
+int
+lws_wsi_tx_credit(struct lws *wsi, char peer_to_us, int add)
+{
+	if (wsi->role_ops && wsi->role_ops->tx_credit)
+		return wsi->role_ops->tx_credit(wsi, peer_to_us, add);
+
+	return 0;
+}
+
+/*
+ * Let the protocol know about incoming tx credit window updates if it's
+ * managing the flow control manually (it may want to proxy this information)
+ */
+
+int
+lws_wsi_txc_report_manual_txcr_in(struct lws *wsi, int32_t bump)
+{
+	if (!wsi->txc.manual)
+		/*
+		 * If we don't care about managing it manually, no need to
+		 * report it
+		 */
+		return 0;
+
+	return user_callback_handle_rxflow(wsi->protocol->callback,
+					   wsi, LWS_CALLBACK_WSI_TX_CREDIT_GET,
+					   wsi->user_space, NULL, (size_t)bump);
 }
 
 #if defined(LWS_WITH_CLIENT)

@@ -107,6 +107,9 @@ enum lws_callback_reasons {
 	LWS_CALLBACK_WSI_DESTROY				= 30,
 	/**< outermost (latest) wsi destroy notification to protocols[0] */
 
+	LWS_CALLBACK_WSI_TX_CREDIT_GET				= 103,
+	/**< manually-managed connection received TX credit (len is int32) */
+
 
 	/* ---------------------------------------------------------------------
 	 * ----- Callbacks related to Server TLS -----

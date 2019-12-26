@@ -73,7 +73,10 @@ const struct http2_settings lws_h2_stock_settings = { {
 	 */
 	/* H2SET_ENABLE_PUSH */				   0,
 	/* H2SET_MAX_CONCURRENT_STREAMS */		  24,
-	/* H2SET_INITIAL_WINDOW_SIZE */		       65535,
+	/* H2SET_INITIAL_WINDOW_SIZE */		           0,
+	/*< This is managed by explicit WINDOW_UPDATE.  Because otherwise no
+	 * way to precisely control it when we do want to.
+	 */
 	/* H2SET_MAX_FRAME_SIZE */		       16384,
 	/* H2SET_MAX_HEADER_LIST_SIZE */	        4096,
 	/*< This advisory setting informs a peer of the maximum size of
@@ -338,7 +341,7 @@ int rops_handle_POLLOUT_h2(struct lws *wsi)
 		return LWS_HP_RET_USER_SERVICE;
 
 	/*
-	 * Priority 2: H2 protocol packets
+	 * Priority 1: H2 protocol packets
 	 */
 	if ((wsi->upgraded_to_http2
 #if defined(LWS_WITH_CLIENT)
@@ -364,7 +367,7 @@ int rops_handle_POLLOUT_h2(struct lws *wsi)
 		return LWS_HP_RET_BAIL_OK; /* leave POLLOUT active */
 	}
 
-	/* Priority 4: if we are closing, not allowed to send more data frags
+	/* Priority 2: if we are closing, not allowed to send more data frags
 	 *	       which means user callback or tx ext flush banned now
 	 */
 	if (lwsi_state(wsi) == LRS_RETURNED_CLOSE)
@@ -566,10 +569,40 @@ rops_pt_init_destroy_h2(struct lws_context *context,
 }
 
 
-static lws_fileofs_t
-rops_tx_credit_h2(struct lws *wsi)
+static int
+rops_tx_credit_h2(struct lws *wsi, char peer_to_us, int add)
 {
-	return lws_h2_tx_cr_get(wsi);
+	struct lws *nwsi = lws_get_network_wsi(wsi);
+	int n;
+
+	if (add) {
+		if (peer_to_us == LWSTXCR_PEER_TO_US) {
+			/*
+			 * We want to tell the peer they can write an additional
+			 * "add" bytes to us
+			 */
+			return lws_h2_update_peer_txcredit(wsi, -1, add);
+		}
+
+		/*
+		 * We're being told we can write an additional "add" bytes
+		 * to the peer
+		 */
+
+		wsi->txc.tx_cr += add;
+		nwsi->txc.tx_cr += add;
+
+		return 0;
+	}
+
+	if (peer_to_us == LWSTXCR_US_TO_PEER)
+		return lws_h2_tx_cr_get(wsi);
+
+	n = wsi->txc.peer_tx_cr_est;
+	if (n > nwsi->txc.peer_tx_cr_est)
+		n = nwsi->txc.peer_tx_cr_est;
+
+	return n;
 }
 
 static int
@@ -700,23 +733,15 @@ rops_callback_on_writable_h2(struct lws *wsi)
 	}
 
 	/* is this for DATA or for control messages? */
-	if (wsi->upgraded_to_http2 && !wsi->h2.h2n->pps &&
-	    !lws_h2_tx_cr_get(wsi)) {
-		/*
-		 * other side is not able to cope with us sending DATA
-		 * anything so no matter if we have POLLOUT on our side if it's
-		 * DATA we want to send.
-		 *
-		 * Delay waiting for our POLLOUT until peer indicates he has
-		 * space for more using tx window command in http2 layer
-		 */
-		lwsl_notice("%s: %p: skint (%d)\n", __func__, wsi,
-			    wsi->h2.tx_cr);
-		wsi->h2.skint = 1;
-		return 0;
-	}
 
-	wsi->h2.skint = 0;
+	if (wsi->upgraded_to_http2 && !wsi->h2.h2n->pps &&
+	    lws_wsi_txc_check_skint(&wsi->txc, lws_h2_tx_cr_get(wsi)))
+		/*
+		 * refuse his efforts to get WRITABLE if we have no credit and
+		 * no non-DATA pps to send
+		 */
+		return 0;
+
 #if defined(LWS_WITH_CLIENT)
 	network_wsi = lws_get_network_wsi(wsi);
 #endif
@@ -804,10 +829,10 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 	wsi = lws_get_network_wsi(wsi);
 
 	wsi->mux.requested_POLLOUT = 0;
-	if (!wsi->h2.initialized) {
-		lwsl_info("pollout on uninitialized http2 conn\n");
-		return 0;
-	}
+//	if (!wsi->h2.initialized) {
+//		lwsl_info("pollout on uninitialized http2 conn\n");
+//		return 0;
+//	}
 
 	lws_wsi_mux_dump_waiting_children(wsi);
 
@@ -960,6 +985,12 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 #if defined(LWS_WITH_FILE_OPS)
 
 		if (lwsi_state(w) == LRS_ISSUING_FILE) {
+
+			if (lws_wsi_txc_check_skint(&w->txc,
+						    lws_h2_tx_cr_get(w))) {
+				wa = &wsi->mux.child_list;
+				goto next_child;
+			}
 
 			((volatile struct lws *)w)->leave_pollout_active = 0;
 
@@ -1147,8 +1178,8 @@ rops_alpn_negotiated_h2(struct lws *wsi, const char *alpn)
 	/* HTTP2 union */
 
 	lws_hpack_dynamic_size(wsi,
-			   wsi->h2.h2n->set.s[H2SET_HEADER_TABLE_SIZE]);
-	wsi->h2.tx_cr = 65535;
+			   wsi->h2.h2n->our_set.s[H2SET_HEADER_TABLE_SIZE]);
+	wsi->txc.tx_cr = 65535;
 
 	lwsl_info("%s: wsi %p: configured for h2\n", __func__, wsi);
 

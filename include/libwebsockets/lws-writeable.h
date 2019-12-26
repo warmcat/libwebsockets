@@ -223,4 +223,24 @@ lws_get_socket_fd(struct lws *wsi);
  */
 LWS_VISIBLE LWS_EXTERN lws_fileofs_t
 lws_get_peer_write_allowance(struct lws *wsi);
+
+/**
+ * lws_wsi_tx_credit() - get / set generic tx credit if role supports it
+ *
+ * \param wsi: connection to set / get tx credit on
+ * \param peer_to_us: 0 = set / get us-to-peer direction, else peer-to-us
+ * \param add: amount of credit to add
+ *
+ * If the wsi does not support tx credit, returns 0.
+ *
+ * If add is zero, returns one of the wsi tx credit values for the wsi.
+ * If add is nonzero, \p add is added to the selected tx credit value
+ * for the wsi.
+ */
+#define LWSTXCR_US_TO_PEER 0
+#define LWSTXCR_PEER_TO_US 1
+
+LWS_VISIBLE LWS_EXTERN int
+lws_wsi_tx_credit(struct lws *wsi, char peer_to_us, int add);
+
 ///@}

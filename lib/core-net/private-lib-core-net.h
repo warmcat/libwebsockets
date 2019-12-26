@@ -639,6 +639,7 @@ struct lws {
 
 #if defined(LWS_ROLE_H2)
 	struct lws_muxable		mux;
+	struct lws_tx_credit		txc;
 #endif
 
 	/* lifetime members */
@@ -1153,6 +1154,19 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int len, int meth);
 #else
 #define lws_access_log(_a)
 #endif
+
+#if defined(_DEBUG)
+void
+lws_wsi_txc_describe(struct lws_tx_credit *txc, const char *at, uint32_t sid);
+#else
+#define lws_wsi_txc_describe(x, y, z) { (void)x; }
+#endif
+
+int
+lws_wsi_txc_check_skint(struct lws_tx_credit *txc, int32_t tx_cr);
+
+int
+lws_wsi_txc_report_manual_txcr_in(struct lws *wsi, int32_t bump);
 
 void
 lws_mux_mark_immortal(struct lws *wsi);

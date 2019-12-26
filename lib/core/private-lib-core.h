@@ -106,6 +106,20 @@
  #define strerror(x) ""
 #endif
 
+/*
+ * Generic bidi tx credit management
+ */
+
+struct lws_tx_credit {
+	int32_t			tx_cr;		/* our credit to write peer */
+	int32_t			peer_tx_cr_est; /* peer's credit to write us */
+
+	int32_t			manual_initial_tx_credit;
+
+	uint8_t			skint; /* unable to write anything */
+	uint8_t			manual;
+};
+
 
  /*
   *

@@ -42,7 +42,6 @@ struct cliuser {
 
 static int interrupted, completed, failed, numbered, stagger_idx;
 static struct lws *client_wsi[COUNT];
-static struct cliuser cliuser[COUNT];
 static lws_sorted_usec_list_t sul_stagger;
 static struct lws_client_connect_info i;
 struct lws_context *context;
@@ -51,7 +50,7 @@ static int
 callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	      void *user, void *in, size_t len)
 {
-	struct cliuser *u = (struct cliuser *)cliuser;
+	int idx = (int)(long)lws_get_opaque_user_data(wsi);
 
 	switch (reason) {
 
@@ -64,7 +63,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		lwsl_err("CLIENT_CONNECTION_ERROR: %s\n",
 			 in ? (char *)in : "(null)");
-		client_wsi[u->index] = NULL;
+		client_wsi[idx] = NULL;
 		failed++;
 		if (++completed == COUNT) {
 			lwsl_err("Done: failed: %d\n", failed);
@@ -74,8 +73,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 
 	/* chunks of chunked content, with header removed */
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
-		lwsl_user("RECEIVE_CLIENT_HTTP_READ: conn %d: read %d\n",
-			u->index, (int)len);
+		lwsl_user("RECEIVE_CLIENT_HTTP_READ: conn %d: read %d\n", idx, (int)len);
 #if 0  /* enable to dump the html */
 		{
 			const char *p = in;
@@ -103,8 +101,8 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
 		lwsl_user("LWS_CALLBACK_COMPLETED_CLIENT_HTTP %p: idx %d\n",
-			  wsi, u->index);
-		client_wsi[u->index] = NULL;
+			  wsi, idx);
+		client_wsi[idx] = NULL;
 		if (++completed == COUNT) {
 			if (!failed)
 				lwsl_user("Done: all OK\n");
@@ -117,13 +115,14 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
-		if (u && client_wsi[u->index]) {
+		lwsl_info("%s: closed: %p\n", __func__, client_wsi[idx]);
+		if (client_wsi[idx]) {
 			/*
 			 * If it completed normally, it will have been set to
 			 * NULL then already.  So we are dealing with an
 			 * abnormal, failing, close
 			 */
-			client_wsi[u->index] = NULL;
+			client_wsi[idx] = NULL;
 			failed++;
 			if (++completed == COUNT) {
 				lwsl_err("Done: failed: %d\n", failed);
@@ -194,8 +193,7 @@ lws_try_client_connection(struct lws_client_connect_info *i, int m)
 		i->path = "/";
 
 	i->pwsi = &client_wsi[m];
-	cliuser[m].index = m;
-	i->userdata = &cliuser[m];
+	i->opaque_user_data = (void *)(long)m;
 
 	if (!lws_client_connect_via_info(i)) {
 		failed++;
@@ -290,7 +288,9 @@ int main(int argc, const char **argv)
 	}
 
 	i.context = context;
-	i.ssl_connection = LCCSCF_USE_SSL;
+	i.ssl_connection = LCCSCF_USE_SSL |
+			   LCCSCF_H2_QUIRK_OVERFLOWS_TXCR |
+			   LCCSCF_H2_QUIRK_NGHTTP2_END_STREAM;
 
 	/* enables h1 or h2 connection sharing */
 	if (lws_cmdline_option(argc, argv, "-p"))
