@@ -436,7 +436,7 @@ lws_get_peer_write_allowance(struct lws *wsi)
 {
 	if (!wsi->role_ops->tx_credit)
 		return -1;
-	return wsi->role_ops->tx_credit(wsi);
+	return wsi->role_ops->tx_credit(wsi, LWSTXCR_US_TO_PEER);
 }
 
 LWS_VISIBLE void
@@ -1074,10 +1074,10 @@ lws_wsi_mux_dump_waiting_children(struct lws *wsi)
 
 	wsi = wsi->mux.child_list;
 	while (wsi) {
-		lwsl_info("  %c %p %s %s\n",
+		lwsl_info("  %c %p: sid %u: %s %s\n",
 			  wsi->mux.requested_POLLOUT ? '*' : ' ',
-			  wsi, wsi->role_ops->name, wsi->protocol ?
-					  wsi->protocol->name : "noprotocol");
+			  wsi, wsi->mux.my_sid, wsi->role_ops->name,
+			  wsi->protocol ? wsi->protocol->name : "noprotocol");
 
 		wsi = wsi->mux.sibling_list;
 	}

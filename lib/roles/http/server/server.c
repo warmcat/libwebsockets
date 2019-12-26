@@ -2132,9 +2132,9 @@ upgrade_h2c:
 
 		/* HTTP2 union */
 
-		lws_h2_settings(wsi, &wsi->h2.h2n->set, (unsigned char *)tbuf, n);
+		lws_h2_settings(wsi, &wsi->h2.h2n->peer_set, (unsigned char *)tbuf, n);
 
-		lws_hpack_dynamic_size(wsi, wsi->h2.h2n->set.s[
+		lws_hpack_dynamic_size(wsi, wsi->h2.h2n->peer_set.s[
 		                                      H2SET_HEADER_TABLE_SIZE]);
 
 		strcpy(tbuf, "HTTP/1.1 101 Switching Protocols\x0d\x0a"
@@ -2781,7 +2781,7 @@ LWS_VISIBLE int lws_serve_http_file_fragment(struct lws *wsi)
 			poss = wsi->protocol->tx_packet_size;
 
 		if (wsi->role_ops->tx_credit) {
-			lws_filepos_t txc = wsi->role_ops->tx_credit(wsi);
+			lws_filepos_t txc = wsi->role_ops->tx_credit(wsi, LWSTXCR_US_TO_PEER);
 
 			if (!txc) {
 				lwsl_info("%s: came here with no tx credit\n",
