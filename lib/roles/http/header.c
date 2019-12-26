@@ -267,7 +267,7 @@ struct lws_protocol_vhost_options pvo_hsbph[] = {{
 	&pvo_hsbph[3], NULL, "content-security-policy:",
 	"default-src 'none'; img-src 'self' data: ; "
 		"script-src 'self'; font-src 'self'; "
-		"style-src 'self'; connect-src 'self'; "
+		"style-src 'self'; connect-src 'self' ws: wss:; "
 		"frame-ancestors 'none'; base-uri 'none';"
 		"form-action 'self';"
 }};
