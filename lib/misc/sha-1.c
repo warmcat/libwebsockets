@@ -281,7 +281,7 @@ sha1_result(struct sha1_ctxt *ctxt, void *digest0)
  * This should look and work like the libcrypto implementation
  */
 
-LWS_VISIBLE unsigned char *
+unsigned char *
 lws_SHA1(const unsigned char *d, size_t n, unsigned char *md)
 {
 	struct sha1_ctxt ctx;

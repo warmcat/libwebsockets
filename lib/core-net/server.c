@@ -48,7 +48,7 @@ lws_sum_stats(const struct lws_context *ctx, struct lws_conn_stats *cs)
 	}
 }
 
-LWS_EXTERN int
+int
 lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len)
 {
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
@@ -160,7 +160,7 @@ lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len)
 }
 
 
-LWS_EXTERN LWS_VISIBLE int
+int
 lws_json_dump_context(const struct lws_context *context, char *buf, int len,
 		int hide_vhosts)
 {

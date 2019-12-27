@@ -711,7 +711,7 @@ struct lws_tls_ss_pieces {
 	RSA *rsa;
 };
 
-LWS_VISIBLE LWS_EXTERN int
+int
 lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
 			     const char *san_b)
 {
@@ -872,7 +872,7 @@ static int nid_list[] = {
 	NID_pkcs9_emailAddress,		/* LWS_TLS_REQ_ELEMENT_EMAIL */
 };
 
-LWS_VISIBLE LWS_EXTERN int
+int
 lws_tls_acme_sni_csr_create(struct lws_context *context, const char *elements[],
 			    uint8_t *csr, size_t csr_len, char **privkey_pem,
 			    size_t *privkey_len)

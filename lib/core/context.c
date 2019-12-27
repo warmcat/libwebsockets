@@ -42,7 +42,7 @@ static uint32_t default_backoff_table[] = { 1000, 3000, 9000, 17000 };
  *	representing the library version followed by the git head hash it
  *	was built from
  */
-LWS_VISIBLE const char *
+const char *
 lws_get_library_version(void)
 {
 	return library_version;
@@ -142,7 +142,7 @@ lws_context_creation_completion_cb(lws_sorted_usec_list_t *sul)
 }
 #endif
 
-LWS_VISIBLE struct lws_context *
+struct lws_context *
 lws_create_context(const struct lws_context_creation_info *info)
 {
 	struct lws_context *context = NULL;
@@ -809,7 +809,7 @@ fail_event_libs:
 	return NULL;
 }
 
-LWS_VISIBLE LWS_EXTERN int
+int
 lws_context_is_deprecated(struct lws_context *context)
 {
 	return context->deprecated;
@@ -1001,7 +1001,7 @@ lws_context_destroy2(struct lws_context *context)
  * Begin the context takedown
  */
 
-LWS_VISIBLE void
+void
 lws_context_destroy(struct lws_context *context)
 {
 #if defined(LWS_WITH_NETWORK)

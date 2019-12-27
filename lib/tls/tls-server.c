@@ -38,7 +38,7 @@ lws_sul_tls_cb(lws_sorted_usec_list_t *sul)
 			 (lws_usec_t)24 * 3600 * LWS_US_PER_SEC);
 }
 
-LWS_VISIBLE int
+int
 lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 			    struct lws_vhost *vhost)
 {
@@ -124,7 +124,7 @@ lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 }
 #endif
 
-LWS_VISIBLE int
+int
 lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 {
 	struct lws_context *context = wsi->context;

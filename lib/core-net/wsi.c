@@ -120,7 +120,7 @@ lws_vhost_name_to_protocol(struct lws_vhost *vh, const char *name)
 	return NULL;
 }
 
-LWS_VISIBLE int
+int
 lws_callback_all_protocol(struct lws_context *context,
 			  const struct lws_protocols *protocol, int reason)
 {
@@ -143,7 +143,7 @@ lws_callback_all_protocol(struct lws_context *context,
 	return 0;
 }
 
-LWS_VISIBLE int
+int
 lws_callback_all_protocol_vhost_args(struct lws_vhost *vh,
 			  const struct lws_protocols *protocol, int reason,
 			  void *argp, size_t len)
@@ -169,14 +169,14 @@ lws_callback_all_protocol_vhost_args(struct lws_vhost *vh,
 	return 0;
 }
 
-LWS_VISIBLE int
+int
 lws_callback_all_protocol_vhost(struct lws_vhost *vh,
 			  const struct lws_protocols *protocol, int reason)
 {
 	return lws_callback_all_protocol_vhost_args(vh, protocol, reason, NULL, 0);
 }
 
-LWS_VISIBLE LWS_EXTERN int
+int
 lws_callback_vhost_protocols(struct lws *wsi, int reason, void *in, int len)
 {
 	int n;
@@ -188,7 +188,7 @@ lws_callback_vhost_protocols(struct lws *wsi, int reason, void *in, int len)
 	return 0;
 }
 
-LWS_VISIBLE LWS_EXTERN int
+int
 lws_callback_vhost_protocols_vhost(struct lws_vhost *vh, int reason, void *in,
 				   size_t len)
 {
@@ -215,7 +215,7 @@ lws_callback_vhost_protocols_vhost(struct lws_vhost *vh, int reason, void *in,
 }
 
 
-LWS_VISIBLE int
+int
 lws_rx_flow_control(struct lws *wsi, int _enable)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
@@ -270,7 +270,7 @@ skip:
 	return 0;
 }
 
-LWS_VISIBLE void
+void
 lws_rx_flow_allow_all_protocol(const struct lws_context *context,
 			       const struct lws_protocols *protocol)
 {
@@ -306,7 +306,7 @@ int user_callback_handle_rxflow(lws_callback_function callback_function,
 	return n;
 }
 
-LWS_EXTERN int
+int
 __lws_rx_flow_control(struct lws *wsi)
 {
 	struct lws *wsic = wsi->child_list;
@@ -359,7 +359,7 @@ __lws_rx_flow_control(struct lws *wsi)
 }
 
 
-LWS_VISIBLE const struct lws_protocols *
+const struct lws_protocols *
 lws_get_protocol(struct lws *wsi)
 {
 	return wsi->protocol;
@@ -388,7 +388,7 @@ lws_ensure_user_space(struct lws *wsi)
 	return 0;
 }
 
-LWS_VISIBLE void *
+void *
 lws_adjust_protocol_psds(struct lws *wsi, size_t new_size)
 {
 	((struct lws_protocols *)lws_get_protocol(wsi))->per_session_data_size =
@@ -400,13 +400,13 @@ lws_adjust_protocol_psds(struct lws *wsi, size_t new_size)
 	return wsi->user_space;
 }
 
-LWS_VISIBLE int
+int
 lws_get_tsi(struct lws *wsi)
 {
         return (int)wsi->tsi;
 }
 
-LWS_VISIBLE int
+int
 lws_is_ssl(struct lws *wsi)
 {
 #if defined(LWS_WITH_TLS)
@@ -418,20 +418,20 @@ lws_is_ssl(struct lws *wsi)
 }
 
 #if defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS)
-LWS_VISIBLE lws_tls_conn*
+lws_tls_conn*
 lws_get_ssl(struct lws *wsi)
 {
 	return wsi->tls.ssl;
 }
 #endif
 
-LWS_VISIBLE int
+int
 lws_partial_buffered(struct lws *wsi)
 {
 	return lws_has_buffered_out(wsi);
 }
 
-LWS_VISIBLE lws_fileofs_t
+lws_fileofs_t
 lws_get_peer_write_allowance(struct lws *wsi)
 {
 	if (!wsi->role_ops->tx_credit)
@@ -439,7 +439,7 @@ lws_get_peer_write_allowance(struct lws *wsi)
 	return wsi->role_ops->tx_credit(wsi);
 }
 
-LWS_VISIBLE void
+void
 lws_role_transition(struct lws *wsi, enum lwsi_role role, enum lwsi_state state,
 		    const struct lws_role_ops *ops)
 {
@@ -457,7 +457,7 @@ lws_role_transition(struct lws *wsi, enum lwsi_role role, enum lwsi_state state,
 #endif
 }
 
-LWS_VISIBLE LWS_EXTERN int
+int
 lws_parse_uri(char *p, const char **prot, const char **ads, int *port,
 	      const char **path)
 {
@@ -513,7 +513,7 @@ lws_parse_uri(char *p, const char **prot, const char **ads, int *port,
 
 /* ... */
 
-LWS_VISIBLE LWS_EXTERN const char *
+const char *
 lws_get_urlarg_by_name(struct lws *wsi, const char *name, char *buf, int len)
 {
 	int n = 0, sl = (int)strlen(name);
@@ -538,7 +538,7 @@ lws_get_urlarg_by_name(struct lws *wsi, const char *name, char *buf, int len)
  * extensions disabled.
  */
 
-LWS_VISIBLE int
+int
 lws_extension_callback_pm_deflate(struct lws_context *context,
                                   const struct lws_extension *ext,
                                   struct lws *wsi,
@@ -556,7 +556,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 	return 0;
 }
 
-LWS_EXTERN int
+int
 lws_set_extension_option(struct lws *wsi, const char *ext_name,
 			 const char *opt_name, const char *opt_val)
 {
@@ -564,7 +564,7 @@ lws_set_extension_option(struct lws *wsi, const char *ext_name,
 }
 #endif
 
-LWS_VISIBLE LWS_EXTERN int
+int
 lws_is_cgi(struct lws *wsi) {
 #ifdef LWS_WITH_CGI
 	return !!wsi->http.cgi;
@@ -626,13 +626,13 @@ lws_broadcast(struct lws_context_per_thread *pt, int reason, void *in, size_t le
 	return ret;
 }
 
-LWS_VISIBLE LWS_EXTERN void *
+void *
 lws_wsi_user(struct lws *wsi)
 {
 	return wsi->user_space;
 }
 
-LWS_VISIBLE LWS_EXTERN void
+void
 lws_set_wsi_user(struct lws *wsi, void *data)
 {
 	if (wsi->user_space_externally_allocated)
@@ -642,49 +642,49 @@ lws_set_wsi_user(struct lws *wsi, void *data)
 			 __func__);
 }
 
-LWS_VISIBLE LWS_EXTERN struct lws *
+struct lws *
 lws_get_parent(const struct lws *wsi)
 {
 	return wsi->parent;
 }
 
-LWS_VISIBLE LWS_EXTERN struct lws *
+struct lws *
 lws_get_child(const struct lws *wsi)
 {
 	return wsi->child_list;
 }
 
-LWS_VISIBLE LWS_EXTERN void *
+void *
 lws_get_opaque_parent_data(const struct lws *wsi)
 {
 	return wsi->opaque_parent_data;
 }
 
-LWS_VISIBLE LWS_EXTERN void
+void
 lws_set_opaque_parent_data(struct lws *wsi, void *data)
 {
 	wsi->opaque_parent_data = data;
 }
 
-LWS_VISIBLE LWS_EXTERN void *
+void *
 lws_get_opaque_user_data(const struct lws *wsi)
 {
 	return wsi->opaque_user_data;
 }
 
-LWS_VISIBLE LWS_EXTERN void
+void
 lws_set_opaque_user_data(struct lws *wsi, void *data)
 {
 	wsi->opaque_user_data = data;
 }
 
-LWS_VISIBLE LWS_EXTERN int
+int
 lws_get_child_pending_on_writable(const struct lws *wsi)
 {
 	return wsi->parent_pending_cb_on_writable;
 }
 
-LWS_VISIBLE LWS_EXTERN void
+void
 lws_clear_child_pending_on_writable(struct lws *wsi)
 {
 	wsi->parent_pending_cb_on_writable = 0;
@@ -692,31 +692,31 @@ lws_clear_child_pending_on_writable(struct lws *wsi)
 
 
 
-LWS_VISIBLE LWS_EXTERN const char *
+const char *
 lws_get_vhost_name(struct lws_vhost *vhost)
 {
 	return vhost->name;
 }
 
-LWS_VISIBLE LWS_EXTERN int
+int
 lws_get_vhost_port(struct lws_vhost *vhost)
 {
 	return vhost->listen_port;
 }
 
-LWS_VISIBLE LWS_EXTERN void *
+void *
 lws_get_vhost_user(struct lws_vhost *vhost)
 {
 	return vhost->user;
 }
 
-LWS_VISIBLE LWS_EXTERN const char *
+const char *
 lws_get_vhost_iface(struct lws_vhost *vhost)
 {
 	return vhost->iface;
 }
 
-LWS_VISIBLE lws_sockfd_type
+lws_sockfd_type
 lws_get_socket_fd(struct lws *wsi)
 {
 	if (!wsi)
@@ -725,33 +725,33 @@ lws_get_socket_fd(struct lws *wsi)
 }
 
 
-LWS_VISIBLE struct lws_vhost *
+struct lws_vhost *
 lws_vhost_get(struct lws *wsi)
 {
 	return wsi->vhost;
 }
 
-LWS_VISIBLE struct lws_vhost *
+struct lws_vhost *
 lws_get_vhost(struct lws *wsi)
 {
 	return wsi->vhost;
 }
 
-LWS_VISIBLE const struct lws_protocols *
+const struct lws_protocols *
 lws_protocol_get(struct lws *wsi)
 {
 	return wsi->protocol;
 }
 
 #if defined(LWS_WITH_UDP)
-LWS_VISIBLE const struct lws_udp *
+const struct lws_udp *
 lws_get_udp(const struct lws *wsi)
 {
 	return wsi->udp;
 }
 #endif
 
-LWS_VISIBLE LWS_EXTERN struct lws_context *
+struct lws_context *
 lws_get_context(const struct lws *wsi)
 {
 	return wsi->context;
@@ -814,7 +814,7 @@ _lws_generic_transaction_completed_active_conn(struct lws *wsi)
 }
 #endif
 
-LWS_VISIBLE int LWS_WARN_UNUSED_RESULT
+int LWS_WARN_UNUSED_RESULT
 lws_raw_transaction_completed(struct lws *wsi)
 {
 	if (lws_has_buffered_out(wsi)) {

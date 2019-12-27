@@ -293,7 +293,7 @@ static const struct lws_protocols protocols[] = {
 	LWS_PLUGIN_PROTOCOL_MINIMAL_PMD_BULK
 };
 
-LWS_EXTERN LWS_VISIBLE int
+int
 init_protocol_minimal_pmd_bulk(struct lws_context *context,
 			       struct lws_plugin_capability *c)
 {
@@ -311,7 +311,7 @@ init_protocol_minimal_pmd_bulk(struct lws_context *context,
 	return 0;
 }
 
-LWS_EXTERN LWS_VISIBLE int
+int
 destroy_protocol_minimal_pmd_bulk(struct lws_context *context)
 {
 	return 0;

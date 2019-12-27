@@ -42,7 +42,7 @@ lws_plat_pipe_close(struct lws *wsi)
 {
 }
 
-LWS_VISIBLE int
+int
 lws_send_pipe_choked(struct lws *wsi)
 {
 	struct lws *wsi_eff;
@@ -79,7 +79,7 @@ lws_poll_listen_fd(struct lws_pollfd *fd)
 }
 
 
-LWS_EXTERN int
+int
 _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
 	lws_usec_t timeout_us = timeout_ms * LWS_US_PER_MS;

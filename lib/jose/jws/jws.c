@@ -160,7 +160,7 @@ lws_jws_json_parse(struct lws_jws *jws, const uint8_t *buf, int len,
 	return 0;
 }
 
-LWS_VISIBLE void
+void
 lws_jws_init(struct lws_jws *jws, struct lws_jwk *jwk,
 	     struct lws_context *context)
 {
@@ -181,14 +181,14 @@ lws_jws_map_bzero(struct lws_jws_map *map)
 			lws_explicit_bzero((void *)map->buf[n], map->len[n]);
 }
 
-LWS_VISIBLE void
+void
 lws_jws_destroy(struct lws_jws *jws)
 {
 	lws_jws_map_bzero(&jws->map);
 	jws->jwk = NULL;
 }
 
-LWS_VISIBLE int
+int
 lws_jws_dup_element(struct lws_jws_map *map, int idx, char *temp, int *temp_len,
 		    const void *in, size_t in_len, size_t actual_alloc)
 {
@@ -208,7 +208,7 @@ lws_jws_dup_element(struct lws_jws_map *map, int idx, char *temp, int *temp_len,
 	return 0;
 }
 
-LWS_VISIBLE int
+int
 lws_jws_encode_b64_element(struct lws_jws_map *map, int idx,
 			   char *temp, int *temp_len, const void *in,
 			   size_t in_len)
@@ -230,7 +230,7 @@ lws_jws_encode_b64_element(struct lws_jws_map *map, int idx,
 	return 0;
 }
 
-LWS_VISIBLE int
+int
 lws_jws_randomize_element(struct lws_context *context, struct lws_jws_map *map,
 			  int idx, char *temp, int *temp_len, size_t random_len,
 			  size_t actual_alloc)
@@ -254,7 +254,7 @@ lws_jws_randomize_element(struct lws_context *context, struct lws_jws_map *map,
 	return 0;
 }
 
-LWS_VISIBLE int
+int
 lws_jws_alloc_element(struct lws_jws_map *map, int idx, char *temp,
 		      int *temp_len, size_t len, size_t actual_alloc)
 {
@@ -271,7 +271,7 @@ lws_jws_alloc_element(struct lws_jws_map *map, int idx, char *temp,
 	return 0;
 }
 
-LWS_VISIBLE int
+int
 lws_jws_base64_enc(const char *in, size_t in_len, char *out, size_t out_max)
 {
 	int n;
@@ -292,7 +292,7 @@ lws_jws_base64_enc(const char *in, size_t in_len, char *out, size_t out_max)
 	return n;
 }
 
-LWS_VISIBLE int
+int
 lws_jws_b64_compact_map(const char *in, int len, struct lws_jws_map *map)
 {
 	int me = 0;
@@ -320,7 +320,7 @@ lws_jws_b64_compact_map(const char *in, int len, struct lws_jws_map *map)
  * map_b64 set to b64 elements
  */
 
-LWS_VISIBLE int
+int
 lws_jws_compact_decode(const char *in, int len, struct lws_jws_map *map,
 		       struct lws_jws_map *map_b64, char *out,
 		       int *out_len)
@@ -387,7 +387,7 @@ lws_jws_compact_decode_map(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 	return 0;
 }
 
-LWS_VISIBLE int
+int
 lws_jws_encode_section(const char *in, size_t in_len, int first, char **p,
 		       char *end)
 {
@@ -409,7 +409,7 @@ lws_jws_encode_section(const char *in, size_t in_len, int first, char **p,
 	return (*p) - p_entry;
 }
 
-LWS_VISIBLE int
+int
 lws_jws_compact_encode(struct lws_jws_map *map_b64, /* b64-encoded */
 		       const struct lws_jws_map *map,	/* non-b64 */
 		       char *buf, int *len)
@@ -441,7 +441,7 @@ lws_jws_compact_encode(struct lws_jws_map *map_b64, /* b64-encoded */
  * the JOSE header and signature, decoded versions too.
  */
 
-LWS_VISIBLE int
+int
 lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 		    struct lws_jwk *jwk, struct lws_context *context)
 {
@@ -666,7 +666,7 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 
 /* it's already a b64 map, we will make a temp plain version */
 
-LWS_VISIBLE int
+int
 lws_jws_sig_confirm_compact_b64_map(struct lws_jws_map *map_b64,
 				    struct lws_jwk *jwk,
 			            struct lws_context *context,
@@ -687,7 +687,7 @@ lws_jws_sig_confirm_compact_b64_map(struct lws_jws_map *map_b64,
  * plain version
  */
 
-LWS_VISIBLE int
+int
 lws_jws_sig_confirm_compact_b64(const char *in, size_t len,
 				struct lws_jws_map *map, struct lws_jwk *jwk,
 				struct lws_context *context,
@@ -708,7 +708,7 @@ lws_jws_sig_confirm_compact_b64(const char *in, size_t len,
 
 /* it's already plain, we will make a temp b64 version */
 
-LWS_VISIBLE int
+int
 lws_jws_sig_confirm_compact(struct lws_jws_map *map, struct lws_jwk *jwk,
 			    struct lws_context *context, char *temp,
 			    int *temp_len)
@@ -887,7 +887,7 @@ lws_jws_sign_from_b64(struct lws_jose *jose, struct lws_jws *jws,
  *   }
  */
 
-LWS_VISIBLE int
+int
 lws_jws_write_flattened_json(struct lws_jws *jws, char *flattened, size_t len)
 {
 	size_t n = 0;
@@ -922,7 +922,7 @@ lws_jws_write_flattened_json(struct lws_jws *jws, char *flattened, size_t len)
 	return (n >= len - 1);
 }
 
-LWS_VISIBLE int
+int
 lws_jws_write_compact(struct lws_jws *jws, char *compact, size_t len)
 {
 	size_t n = 0;

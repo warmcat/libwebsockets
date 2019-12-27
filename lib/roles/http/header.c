@@ -376,7 +376,7 @@ lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 	return 0;
 }
 
-LWS_VISIBLE int
+int
 lws_return_http_status(struct lws *wsi, unsigned int code,
 		       const char *html_body)
 {
@@ -493,7 +493,7 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 	return m != n;
 }
 
-LWS_VISIBLE int
+int
 lws_http_redirect(struct lws *wsi, int code, const unsigned char *loc, int len,
 		  unsigned char **p, unsigned char *end)
 {
@@ -527,7 +527,7 @@ lws_http_redirect(struct lws *wsi, int code, const unsigned char *loc, int len,
 #endif
 
 #if !defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
-LWS_VISIBLE int
+int
 lws_http_compression_apply(struct lws *wsi, const char *name,
 			   unsigned char **p, unsigned char *end, char decomp)
 {

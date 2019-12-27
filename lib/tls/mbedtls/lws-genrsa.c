@@ -28,7 +28,7 @@
 #include "private-lib-tls-mbedtls.h"
 #include <mbedtls/rsa.h>
 
-LWS_VISIBLE void
+void
 lws_genrsa_destroy_elements(struct lws_gencrypto_keyelem *el)
 {
 	int n;
@@ -40,7 +40,7 @@ lws_genrsa_destroy_elements(struct lws_gencrypto_keyelem *el)
 
 static int mode_map[] = { MBEDTLS_RSA_PKCS_V15, MBEDTLS_RSA_PKCS_V21 };
 
-LWS_VISIBLE int
+int
 lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_gencrypto_keyelem *el,
 		  struct lws_context *context, enum enum_genrsa_mode mode,
 		  enum lws_genhash_types oaep_hashid)
@@ -109,7 +109,7 @@ _rngf(void *context, unsigned char *buf, size_t len)
 	return -1;
 }
 
-LWS_VISIBLE int
+int
 lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 		       enum enum_genrsa_mode mode, struct lws_gencrypto_keyelem *el,
 		       int bits)
@@ -167,7 +167,7 @@ cleanup_1:
 	return -1;
 }
 
-LWS_VISIBLE int
+int
 lws_genrsa_public_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			  size_t in_len, uint8_t *out, size_t out_max)
 {
@@ -205,7 +205,7 @@ lws_genrsa_public_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	return olen;
 }
 
-LWS_VISIBLE int
+int
 lws_genrsa_private_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			   size_t in_len, uint8_t *out, size_t out_max)
 {
@@ -243,7 +243,7 @@ lws_genrsa_private_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	return olen;
 }
 
-LWS_VISIBLE int
+int
 lws_genrsa_public_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			  size_t in_len, uint8_t *out)
 {
@@ -278,7 +278,7 @@ lws_genrsa_public_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	return mbedtls_mpi_size(&ctx->ctx->N);
 }
 
-LWS_VISIBLE int
+int
 lws_genrsa_private_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			   size_t in_len, uint8_t *out)
 {
@@ -313,7 +313,7 @@ lws_genrsa_private_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	return mbedtls_mpi_size(&ctx->ctx->N);
 }
 
-LWS_VISIBLE int
+int
 lws_genrsa_hash_sig_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			 enum lws_genhash_types hash_type, const uint8_t *sig,
 			 size_t sig_len)
@@ -348,7 +348,7 @@ lws_genrsa_hash_sig_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	return n;
 }
 
-LWS_VISIBLE int
+int
 lws_genrsa_hash_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 		       enum lws_genhash_types hash_type, uint8_t *sig,
 		       size_t sig_len)
@@ -391,7 +391,7 @@ lws_genrsa_hash_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	return ctx->ctx->len;
 }
 
-LWS_VISIBLE int
+int
 lws_genrsa_render_pkey_asn1(struct lws_genrsa_ctx *ctx, int _private,
 			    uint8_t *pkey_asn1, size_t pkey_asn1_len)
 {
@@ -471,7 +471,7 @@ lws_genrsa_render_pkey_asn1(struct lws_genrsa_ctx *ctx, int _private,
 	return n;
 }
 
-LWS_VISIBLE void
+void
 lws_genrsa_destroy(struct lws_genrsa_ctx *ctx)
 {
 	if (!ctx->ctx)

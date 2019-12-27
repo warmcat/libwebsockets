@@ -2,7 +2,7 @@
 
 #if defined(LWS_WITH_HUBBUB)
 
-LWS_EXTERN struct lws_rewrite *
+struct lws_rewrite *
 lws_rewrite_create(struct lws *wsi, hubbub_callback_t cb, const char *from,
 		   const char *to)
 {
@@ -35,7 +35,7 @@ lws_rewrite_create(struct lws *wsi, hubbub_callback_t cb, const char *from,
 	return r;
 }
 
-LWS_EXTERN int
+int
 lws_rewrite_parse(struct lws_rewrite *r,
 		  const unsigned char *in, int in_len)
 {
@@ -45,7 +45,7 @@ lws_rewrite_parse(struct lws_rewrite *r,
 	return 0;
 }
 
-LWS_EXTERN void
+void
 lws_rewrite_destroy(struct lws_rewrite *r)
 {
 	hubbub_parser_destroy(r->parser);

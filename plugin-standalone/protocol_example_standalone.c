@@ -127,7 +127,7 @@ static const struct lws_protocols protocols[] = {
 	},
 };
 
-LWS_VISIBLE int
+int
 init_protocol_example_standalone(struct lws_context *context,
 			     struct lws_plugin_capability *c)
 {
@@ -145,7 +145,7 @@ init_protocol_example_standalone(struct lws_context *context,
 	return 0;
 }
 
-LWS_VISIBLE int
+int
 destroy_protocol_example_standalone(struct lws_context *context)
 {
 	return 0;

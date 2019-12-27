@@ -204,13 +204,13 @@ lws_pthread_self_to_tsi(struct lws_context *context)
 #endif
 }
 
-LWS_EXTERN void *
+void *
 lws_context_user(struct lws_context *context)
 {
 	return context->user_space;
 }
 
-LWS_VISIBLE void
+void
 lws_explicit_bzero(void *p, size_t len)
 {
 	volatile uint8_t *vp = p;
@@ -225,7 +225,7 @@ lws_explicit_bzero(void *p, size_t len)
  * lws_now_secs() - seconds since 1970-1-1
  *
  */
-LWS_VISIBLE LWS_EXTERN unsigned long
+unsigned long
 lws_now_secs(void)
 {
 	struct timeval tv;
@@ -238,7 +238,7 @@ lws_now_secs(void)
 #endif
 
 #if defined(LWS_WITH_SERVER)
-LWS_VISIBLE extern const char *
+const char *
 lws_canonical_hostname(struct lws_context *context)
 {
 	return (const char *)context->canonical_hostname;
@@ -246,7 +246,7 @@ lws_canonical_hostname(struct lws_context *context)
 #endif
 
 #if defined(LWS_WITH_SOCKS5)
-LWS_VISIBLE int
+int
 lws_set_socks(struct lws_vhost *vhost, const char *socks)
 {
 	char *p_at, *p_colon;
@@ -317,7 +317,7 @@ bail:
 
 
 
-LWS_VISIBLE LWS_EXTERN int
+int
 lws_get_count_threads(struct lws_context *context)
 {
 	return context->count_threads;
@@ -351,7 +351,7 @@ static const unsigned char e0f4[] = {
 	0x80 | ((4 - 1) << 2) | 1, /* s3 */
 };
 
-LWS_EXTERN int
+int
 lws_check_byte_utf8(unsigned char state, unsigned char c)
 {
 	unsigned char s = state;
@@ -374,7 +374,7 @@ lws_check_byte_utf8(unsigned char state, unsigned char c)
 	return e0f4[21 + (s & 3)];
 }
 
-LWS_EXTERN int
+int
 lws_check_utf8(unsigned char *state, unsigned char *buf, size_t len)
 {
 	unsigned char s = *state;
@@ -418,7 +418,7 @@ lws_strdup(const char *s)
 
 static const char *hex = "0123456789ABCDEF";
 
-LWS_VISIBLE LWS_EXTERN const char *
+const char *
 lws_sql_purify(char *escaped, const char *string, int len)
 {
 	const char *p = string;
@@ -438,7 +438,7 @@ lws_sql_purify(char *escaped, const char *string, int len)
 	return escaped;
 }
 
-LWS_VISIBLE LWS_EXTERN const char *
+const char *
 lws_json_purify(char *escaped, const char *string, int len)
 {
 	const char *p = string;
@@ -488,7 +488,7 @@ lws_json_purify(char *escaped, const char *string, int len)
 	return escaped;
 }
 
-LWS_VISIBLE LWS_EXTERN void
+void
 lws_filename_purify_inplace(char *filename)
 {
 	while (*filename) {
@@ -508,7 +508,7 @@ lws_filename_purify_inplace(char *filename)
 	}
 }
 
-LWS_VISIBLE LWS_EXTERN const char *
+const char *
 lws_urlencode(char *escaped, const char *string, int len)
 {
 	const char *p = string;
@@ -538,7 +538,7 @@ lws_urlencode(char *escaped, const char *string, int len)
 	return escaped;
 }
 
-LWS_VISIBLE LWS_EXTERN int
+int
 lws_urldecode(char *string, const char *escaped, int len)
 {
 	int state = 0, n;
@@ -587,7 +587,7 @@ lws_urldecode(char *string, const char *escaped, int len)
 	return 0;
 }
 
-LWS_VISIBLE LWS_EXTERN int
+int
 lws_finalize_startup(struct lws_context *context)
 {
 	if (lws_check_opt(context->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS))
@@ -597,7 +597,7 @@ lws_finalize_startup(struct lws_context *context)
 	return 0;
 }
 
-LWS_VISIBLE LWS_EXTERN void
+void
 lws_get_effective_uid_gid(struct lws_context *context, int *uid, int *gid)
 {
 	*uid = context->uid;
@@ -890,7 +890,7 @@ token_or_numeric:
 }
 
 
-LWS_VISIBLE LWS_EXTERN int
+int
 lws_tokenize_cstr(struct lws_tokenize *ts, char *str, int max)
 {
 	if (ts->token_len + 1 >= max)
@@ -902,7 +902,7 @@ lws_tokenize_cstr(struct lws_tokenize *ts, char *str, int max)
 	return 0;
 }
 
-LWS_VISIBLE LWS_EXTERN void
+void
 lws_tokenize_init(struct lws_tokenize *ts, const char *start, int flags)
 {
 	ts->start = start;

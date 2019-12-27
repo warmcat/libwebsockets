@@ -877,7 +877,7 @@ static const struct lws_protocols protocols[] = {
 	},
 };
 
-LWS_EXTERN LWS_VISIBLE int
+int
 init_protocol_generic_sessions(struct lws_context *context,
 			struct lws_plugin_capability *c)
 {
@@ -895,7 +895,7 @@ init_protocol_generic_sessions(struct lws_context *context,
 	return 0;
 }
 
-LWS_EXTERN LWS_VISIBLE int
+int
 destroy_protocol_generic_sessions(struct lws_context *context)
 {
 	return 0;

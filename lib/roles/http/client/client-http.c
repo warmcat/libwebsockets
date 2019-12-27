@@ -24,7 +24,7 @@
 
 #include "private-lib-core.h"
 
-LWS_VISIBLE LWS_EXTERN void
+void
 lws_client_http_body_pending(struct lws *wsi, int something_left_to_send)
 {
 	wsi->client_http_body_pending = !!something_left_to_send;
@@ -684,7 +684,7 @@ lws_http_transaction_completed_client(struct lws *wsi)
 	return 0;
 }
 
-LWS_VISIBLE LWS_EXTERN unsigned int
+unsigned int
 lws_http_client_http_response(struct lws *_wsi)
 {
 	struct lws *wsi;
@@ -1311,7 +1311,7 @@ lws_http_basic_auth_gen(const char *user, const char *pw, char *buf, size_t len)
 	return 0;
 }
 
-LWS_VISIBLE int
+int
 lws_http_client_read(struct lws *wsi, char **buf, int *len)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];

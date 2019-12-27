@@ -89,13 +89,13 @@ _lws_b64_encode_string(const char *encode, const char *in, int in_len,
 	return done;
 }
 
-LWS_VISIBLE int
+int
 lws_b64_encode_string(const char *in, int in_len, char *out, int out_size)
 {
 	return _lws_b64_encode_string(encode_orig, in, in_len, out, out_size);
 }
 
-LWS_VISIBLE int
+int
 lws_b64_encode_string_url(const char *in, int in_len, char *out, int out_size)
 {
 	return _lws_b64_encode_string(encode_url, in, in_len, out, out_size);
@@ -200,13 +200,13 @@ _lws_b64_decode_string(const char *in, int in_len, char *out, int out_size)
 	return ol;
 }
 
-LWS_VISIBLE int
+int
 lws_b64_decode_string(const char *in, char *out, int out_size)
 {
 	return _lws_b64_decode_string(in, -1, out, out_size);
 }
 
-LWS_VISIBLE int
+int
 lws_b64_decode_string_len(const char *in, int in_len, char *out, int out_size)
 {
 	return _lws_b64_decode_string(in, in_len, out, out_size);

@@ -2558,14 +2558,14 @@ bail:
 		1024, 0, NULL, 900	\
 	}
 
-LWS_VISIBLE const struct lws_protocols protocols_sshd[] = {
+const struct lws_protocols protocols_sshd[] = {
 	LWS_PLUGIN_PROTOCOL_LWS_RAW_SSHD,
 	{ NULL, NULL, 0, 0, 0, NULL, 0 } /* terminator */
 };
 
 #if !defined (LWS_PLUGIN_STATIC)
 
-LWS_VISIBLE int
+int
 init_protocol_lws_ssh_base(struct lws_context *context,
 			     struct lws_plugin_capability *c)
 {
@@ -2583,7 +2583,7 @@ init_protocol_lws_ssh_base(struct lws_context *context,
 	return 0;
 }
 
-LWS_VISIBLE int
+int
 destroy_protocol_lws_ssh_base(struct lws_context *context)
 {
 	return 0;
