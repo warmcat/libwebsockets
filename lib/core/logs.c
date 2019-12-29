@@ -124,7 +124,7 @@ static const char * const colours[] = {
 	"[33m", /* LLL_EXT */
 	"[33m", /* LLL_CLIENT */
 	"[33;1m", /* LLL_LATENCY */
-	"[30;1m", /* LLL_USER */
+       "[0;1m", /* LLL_USER */
 	"[31m", /* LLL_THREAD */
 };
 
