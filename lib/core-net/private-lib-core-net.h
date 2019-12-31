@@ -355,6 +355,7 @@ struct lws_context_per_thread {
 #endif
 	struct lws_dll2_owner dll_buflist_owner;  /* guys with pending rxflow */
 	struct lws_dll2_owner seq_owner;	   /* list of lws_sequencer-s */
+	lws_dll2_owner_t      attach_owner;	/* pending lws_attach */
 
 	struct lws_dll2_owner pt_sul_owner;
 
