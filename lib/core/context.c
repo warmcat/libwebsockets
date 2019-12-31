@@ -103,6 +103,15 @@ lws_state_notify_protocol_init(struct lws_state_manager *mgr,
 {
 	struct lws_context *context = lws_container_of(mgr, struct lws_context,
 						       mgr_system);
+	int n;
+
+	/*
+	 * Deal with any attachments that were waiting for the right state
+	 * to come along
+	 */
+
+	for (n = 0; n < context->count_threads; n++)
+		lws_system_do_attach(&context->pt[n]);
 
 #if defined(LWS_WITH_SYS_DHCP_CLIENT)
 	if (current == LWS_SYSTATE_DHCP) {
