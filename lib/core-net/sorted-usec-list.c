@@ -107,6 +107,13 @@ lws_sul_schedule(struct lws_context *context, int tsi,
 lws_usec_t
 __lws_sul_service_ripe(lws_dll2_owner_t *own, lws_usec_t usnow)
 {
+	struct lws_context_per_thread *pt = (struct lws_context_per_thread *)
+			lws_container_of(own, struct lws_context_per_thread,
+					 pt_sul_owner);
+
+	if (pt->attach_owner.count)
+		lws_system_do_attach(pt);
+
 	while (lws_dll2_get_head(own)) {
 
 		/* .list is always first member in lws_sorted_usec_list_t */

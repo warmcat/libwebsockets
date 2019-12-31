@@ -265,6 +265,14 @@ typedef struct lws_system_blob {
 	char	is_direct;
 } lws_system_blob_t;
 
+
+typedef struct lws_attach_item {
+	lws_dll2_t			list;
+	lws_attach_cb_t			cb;
+	void				*opaque;
+	lws_system_states_t		state;
+} lws_attach_item_t;
+
 /*
  * the rest is managed per-context, that includes
  *
@@ -486,9 +494,12 @@ LWS_EXTERN int
 lws_find_string_in_file(const char *filename, const char *str, int stringlen);
 #endif
 
-
 signed char char_to_hex(const char c);
 
+#if defined(LWS_WITH_NETWORK)
+int
+lws_system_do_attach(struct lws_context_per_thread *pt);
+#endif
 
 struct lws_buflist {
 	struct lws_buflist *next;
