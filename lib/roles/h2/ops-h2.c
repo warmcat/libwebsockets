@@ -716,8 +716,8 @@ rops_callback_on_writable_h2(struct lws *wsi)
 	if (wsi->upgraded_to_http2 && !wsi->h2.h2n->pps &&
 	    !lws_h2_tx_cr_get(wsi)) {
 		/*
-		 * other side is not able to cope with us sending DATA
-		 * anything so no matter if we have POLLOUT on our side if it's
+		 * Other side is not able to cope with us sending any DATA,
+		 * so no matter if we have POLLOUT on our side if it's
 		 * DATA we want to send.
 		 *
 		 * Delay waiting for our POLLOUT until peer indicates he has
@@ -727,6 +727,7 @@ rops_callback_on_writable_h2(struct lws *wsi)
 		lwsl_info("%s: %p: skint (%d)\n", __func__, wsi, wsi->h2.tx_cr);
 
 		wsi->h2.skint = 1;
+
 		return 0;
 	}
 

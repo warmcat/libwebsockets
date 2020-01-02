@@ -99,7 +99,7 @@ static void lws_daemon_closing(int sigact)
  * The process context you called from has been terminated then.
  */
 
-LWS_VISIBLE int
+int
 lws_daemonize(const char *_lock_path)
 {
 	struct sigaction act;

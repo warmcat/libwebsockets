@@ -24,31 +24,31 @@
 
 #include "private-lib-core.h"
 
-LWS_VISIBLE LWS_EXTERN void
+void
 lws_set_fops(struct lws_context *context, const struct lws_plat_file_ops *fops)
 {
 	context->fops = fops;
 }
 
-LWS_VISIBLE LWS_EXTERN lws_filepos_t
+lws_filepos_t
 lws_vfs_tell(lws_fop_fd_t fop_fd)
 {
 	return fop_fd->pos;
 }
 
-LWS_VISIBLE LWS_EXTERN lws_filepos_t
+lws_filepos_t
 lws_vfs_get_length(lws_fop_fd_t fop_fd)
 {
 	return fop_fd->len;
 }
 
-LWS_VISIBLE LWS_EXTERN uint32_t
+uint32_t
 lws_vfs_get_mod_time(lws_fop_fd_t fop_fd)
 {
 	return fop_fd->mod_time;
 }
 
-LWS_VISIBLE lws_fileofs_t
+lws_fileofs_t
 lws_vfs_file_seek_set(lws_fop_fd_t fop_fd, lws_fileofs_t offset)
 {
 	lws_fileofs_t ofs;
@@ -59,7 +59,7 @@ lws_vfs_file_seek_set(lws_fop_fd_t fop_fd, lws_fileofs_t offset)
 }
 
 
-LWS_VISIBLE lws_fileofs_t
+lws_fileofs_t
 lws_vfs_file_seek_end(lws_fop_fd_t fop_fd, lws_fileofs_t offset)
 {
 	return fop_fd->fops->LWS_FOP_SEEK_CUR(fop_fd, fop_fd->len +
@@ -115,7 +115,7 @@ lws_vfs_select_fops(const struct lws_plat_file_ops *fops, const char *vfs_path,
 	return fops;
 }
 
-LWS_VISIBLE LWS_EXTERN lws_fop_fd_t LWS_WARN_UNUSED_RESULT
+lws_fop_fd_t LWS_WARN_UNUSED_RESULT
 lws_vfs_file_open(const struct lws_plat_file_ops *fops, const char *vfs_path,
 		  lws_fop_flags_t *flags)
 {
@@ -128,7 +128,7 @@ lws_vfs_file_open(const struct lws_plat_file_ops *fops, const char *vfs_path,
 }
 
 
-LWS_VISIBLE struct lws_plat_file_ops *
+struct lws_plat_file_ops *
 lws_get_fops(struct lws_context *context)
 {
 	return (struct lws_plat_file_ops *)context->fops;

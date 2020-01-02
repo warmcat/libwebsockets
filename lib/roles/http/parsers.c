@@ -453,7 +453,7 @@ int lws_header_table_detach(struct lws *wsi, int autoservice)
 	return n;
 }
 
-LWS_VISIBLE int
+int
 lws_hdr_fragment_length(struct lws *wsi, enum lws_token_indexes h, int frag_idx)
 {
 	int n;
@@ -473,7 +473,7 @@ lws_hdr_fragment_length(struct lws *wsi, enum lws_token_indexes h, int frag_idx)
 	return 0;
 }
 
-LWS_VISIBLE int lws_hdr_total_length(struct lws *wsi, enum lws_token_indexes h)
+int lws_hdr_total_length(struct lws *wsi, enum lws_token_indexes h)
 {
 	int n;
 	int len = 0;
@@ -496,7 +496,7 @@ LWS_VISIBLE int lws_hdr_total_length(struct lws *wsi, enum lws_token_indexes h)
 	return len;
 }
 
-LWS_VISIBLE int lws_hdr_copy_fragment(struct lws *wsi, char *dst, int len,
+int lws_hdr_copy_fragment(struct lws *wsi, char *dst, int len,
 				      enum lws_token_indexes h, int frag_idx)
 {
 	int n = 0;
@@ -527,7 +527,7 @@ LWS_VISIBLE int lws_hdr_copy_fragment(struct lws *wsi, char *dst, int len,
 	return wsi->http.ah->frags[f].len;
 }
 
-LWS_VISIBLE int lws_hdr_copy(struct lws *wsi, char *dst, int len,
+int lws_hdr_copy(struct lws *wsi, char *dst, int len,
 			     enum lws_token_indexes h)
 {
 	int toklen = lws_hdr_total_length(wsi, h);
@@ -570,7 +570,7 @@ LWS_VISIBLE int lws_hdr_copy(struct lws *wsi, char *dst, int len,
 }
 
 #if defined(LWS_WITH_CUSTOM_HEADERS)
-LWS_VISIBLE int
+int
 lws_hdr_custom_length(struct lws *wsi, const char *name, int nlen)
 {
 	ah_data_idx_t ll;
@@ -594,7 +594,7 @@ lws_hdr_custom_length(struct lws *wsi, const char *name, int nlen)
 	return -1;
 }
 
-LWS_VISIBLE int
+int
 lws_hdr_custom_copy(struct lws *wsi, char *dst, int len, const char *name,
 		    int nlen)
 {

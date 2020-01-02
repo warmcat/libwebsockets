@@ -114,7 +114,7 @@ lws_create_basic_wsi(struct lws_context *context, int tsi)
 	return new_wsi;
 }
 
-LWS_VISIBLE LWS_EXTERN int
+int
 lws_cgi(struct lws *wsi, const char * const *exec_array,
 	int script_uri_path_len, int timeout_secs,
 	const struct lws_protocol_vhost_options *mp_cgienv)
@@ -566,7 +566,7 @@ enum header_recode {
 	HR_CRLF,
 };
 
-LWS_VISIBLE LWS_EXTERN int
+int
 lws_cgi_write_split_stdout_headers(struct lws *wsi)
 {
 	int n, m, cmd;
@@ -1003,7 +1003,7 @@ agin:
 	return 0;
 }
 
-LWS_VISIBLE LWS_EXTERN int
+int
 lws_cgi_kill(struct lws *wsi)
 {
 	struct lws_cgi_args args;
@@ -1215,7 +1215,7 @@ finish_him:
 	return 0;
 }
 
-LWS_VISIBLE LWS_EXTERN struct lws *
+struct lws *
 lws_cgi_get_stdwsi(struct lws *wsi, enum lws_enum_stdinouterr ch)
 {
 	if (!wsi->http.cgi)

@@ -1,3 +1,4 @@
+project(lws-minimal-raw-netcat)
 cmake_minimum_required(VERSION 2.8)
 include(CheckCSourceCompiles)
 

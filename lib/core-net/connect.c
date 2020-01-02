@@ -24,7 +24,7 @@
 
 #include "private-lib-core.h"
 
-LWS_VISIBLE struct lws *
+struct lws *
 lws_client_connect_via_info(const struct lws_client_connect_info *i)
 {
 	const char *local = i->protocol;

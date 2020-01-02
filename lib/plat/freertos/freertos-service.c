@@ -37,7 +37,7 @@ lws_plat_service(struct lws_context *context, int timeout_ms)
 }
 
 
-LWS_EXTERN int
+int
 _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
 	struct lws_context_per_thread *pt;

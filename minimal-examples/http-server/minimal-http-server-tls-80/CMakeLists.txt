@@ -1,3 +1,4 @@
+project(lws-minimal-http-server-tls-80)
 cmake_minimum_required(VERSION 2.8)
 include(CheckCSourceCompiles)
 

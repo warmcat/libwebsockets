@@ -32,7 +32,7 @@
  * lws convention of 0 for success.
  */
 
-LWS_VISIBLE int
+int
 lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 		  enum enum_aes_modes mode, struct lws_gencrypto_keyelem *el,
 		  enum enum_aes_padding padding, void *engine)
@@ -234,7 +234,7 @@ bail:
 	return -1;
 }
 
-LWS_VISIBLE int
+int
 lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 {
 	int outl = 0, n = 0;
@@ -282,7 +282,7 @@ lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 	return n;
 }
 
-LWS_VISIBLE int
+int
 lws_genaes_crypt(struct lws_genaes_ctx *ctx,
 		 const uint8_t *in, size_t len, uint8_t *out,
 		 uint8_t *iv_or_nonce_ctr_or_data_unit_16,

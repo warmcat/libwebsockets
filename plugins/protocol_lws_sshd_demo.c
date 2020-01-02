@@ -455,7 +455,7 @@ static const struct lws_protocols protocols[] = {
 		LWS_PLUGIN_PROTOCOL_LWS_SSHD_DEMO
 };
 
-LWS_EXTERN LWS_VISIBLE int
+LWS_VISIBLE int
 init_protocol_lws_sshd_demo(struct lws_context *context,
 			     struct lws_plugin_capability *c)
 {
@@ -473,7 +473,7 @@ init_protocol_lws_sshd_demo(struct lws_context *context,
 	return 0;
 }
 
-LWS_EXTERN LWS_VISIBLE int
+LWS_VISIBLE int
 destroy_protocol_lws_sshd_demo(struct lws_context *context)
 {
 	return 0;

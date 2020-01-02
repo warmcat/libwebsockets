@@ -61,7 +61,7 @@ lws_callback_as_writeable(struct lws *wsi)
 	return m;
 }
 
-LWS_VISIBLE int
+int
 lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 {
 	volatile struct lws *vwsi = (volatile struct lws *)wsi;
@@ -287,7 +287,7 @@ lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len)
  * activity in poll() when we have something that already needs service
  */
 
-LWS_VISIBLE LWS_EXTERN int
+int
 lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 {
 	struct lws_context_per_thread *pt;
@@ -570,7 +570,7 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 	return forced;
 }
 
-LWS_VISIBLE int
+int
 lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		   int tsi)
 {
@@ -698,13 +698,13 @@ handled:
 	return 0;
 }
 
-LWS_VISIBLE int
+int
 lws_service_fd(struct lws_context *context, struct lws_pollfd *pollfd)
 {
 	return lws_service_fd_tsi(context, pollfd, 0);
 }
 
-LWS_VISIBLE int
+int
 lws_service(struct lws_context *context, int timeout_ms)
 {
 	struct lws_context_per_thread *pt;
@@ -731,7 +731,7 @@ lws_service(struct lws_context *context, int timeout_ms)
 	return n;
 }
 
-LWS_VISIBLE int
+int
 lws_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
 	struct lws_context_per_thread *pt;

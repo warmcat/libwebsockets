@@ -57,7 +57,7 @@ lws_http_compression_validate(struct lws *wsi)
 	return 0;
 }
 
-LWS_VISIBLE int
+int
 lws_http_compression_apply(struct lws *wsi, const char *name,
 			   unsigned char **p, unsigned char *end, char decomp)
 {

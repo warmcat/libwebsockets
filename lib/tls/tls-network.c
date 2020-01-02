@@ -167,7 +167,7 @@ lws_tls_generic_cert_checks(struct lws_vhost *vhost, const char *cert,
  * update the cert for every vhost using the given path
  */
 
-LWS_VISIBLE int
+int
 lws_tls_cert_updated(struct lws_context *context, const char *certpath,
 		     const char *keypath,
 		     const char *mem_cert, size_t len_mem_cert,

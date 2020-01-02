@@ -250,7 +250,7 @@ const struct lws_protocols lws_ws_proxy = {
 
 #endif
 
-LWS_VISIBLE int
+int
 lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			void *user, void *in, size_t len)
 {

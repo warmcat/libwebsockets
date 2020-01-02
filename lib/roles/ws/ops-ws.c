@@ -749,13 +749,13 @@ illegal_ctl_length:
 }
 
 
-LWS_VISIBLE size_t
+size_t
 lws_remaining_packet_payload(struct lws *wsi)
 {
 	return wsi->ws->rx_packet_length;
 }
 
-LWS_VISIBLE int lws_frame_is_binary(struct lws *wsi)
+int lws_frame_is_binary(struct lws *wsi)
 {
 	return wsi->ws->frame_is_binary;
 }
@@ -878,7 +878,7 @@ lws_server_init_wsi_for_ws(struct lws *wsi)
 
 
 
-LWS_VISIBLE int
+int
 lws_is_final_fragment(struct lws *wsi)
 {
 #if !defined(LWS_WITHOUT_EXTENSIONS)
@@ -892,31 +892,31 @@ lws_is_final_fragment(struct lws *wsi)
 #endif
 }
 
-LWS_VISIBLE int
+int
 lws_is_first_fragment(struct lws *wsi)
 {
 	return wsi->ws->first_fragment;
 }
 
-LWS_VISIBLE unsigned char
+unsigned char
 lws_get_reserved_bits(struct lws *wsi)
 {
 	return wsi->ws->rsv;
 }
 
-LWS_VISIBLE LWS_EXTERN int
+int
 lws_get_close_length(struct lws *wsi)
 {
 	return wsi->ws->close_in_ping_buffer_len;
 }
 
-LWS_VISIBLE LWS_EXTERN unsigned char *
+unsigned char *
 lws_get_close_payload(struct lws *wsi)
 {
 	return &wsi->ws->ping_payload_buf[LWS_PRE];
 }
 
-LWS_VISIBLE LWS_EXTERN void
+void
 lws_close_reason(struct lws *wsi, enum lws_close_status status,
 		 unsigned char *buf, size_t len)
 {

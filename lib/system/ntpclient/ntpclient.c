@@ -182,11 +182,11 @@ callback_ntpc(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		break;
 
         case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
-		lwsl_notice("%s: CONNECTION_ERROR\n", __func__);
+		lwsl_info("%s: CONNECTION_ERROR\n", __func__);
 		goto do_close;
 
 	case LWS_CALLBACK_RAW_CLOSE:
-		lwsl_notice("%s: LWS_CALLBACK_RAW_CLOSE\n", __func__);
+		lwsl_debug("%s: LWS_CALLBACK_RAW_CLOSE\n", __func__);
 do_close:
 		v->wsi_udp = NULL;
 
