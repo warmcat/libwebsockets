@@ -24,7 +24,7 @@
 
 #include "private-lib-core.h"
 
-LWS_VISIBLE LWS_EXTERN void
+void
 lws_client_http_body_pending(struct lws *wsi, int something_left_to_send)
 {
 	wsi->client_http_body_pending = !!something_left_to_send;
@@ -91,7 +91,7 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 		lwsl_debug("%s: pollout HANDSHAKE2\n", __func__);
 
 		/*
-		 * We have a transaction queued that wants to pipeline.
+		 * We have a transaction / stream queued that wants to pipeline.
 		 *
 		 * We have to allow it to send headers strictly in the order
 		 * that it was queued, ie, tail-first.
@@ -102,7 +102,7 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 			struct lws *w = lws_container_of(d, struct lws,
 						  dll2_cli_txn_queue);
 
-			lwsl_debug("%s: %p states 0x%lx\n", __func__, w,
+			lwsl_notice("%s: %p states 0x%lx\n", __func__, w,
 				   (unsigned long)w->wsistate);
 			if (lwsi_state(w) == LRS_H1C_ISSUE_HANDSHAKE2)
 				wfound = w;
@@ -113,9 +113,13 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 			wfound->detlat.earliest_write_req_pre_write = lws_now_usecs();
 #endif
 			/*
-			 * pollfd has the master sockfd in it... we
-			 * need to use that in HANDSHAKE2 to understand
-			 * which wsi to actually write on
+			 * pollfd has the nwsi sockfd in it... but we're a
+			 * logical child stream sharing that... recurse with
+			 * both the correct child stream wsi and the nwsi.
+			 *
+			 * Second time around wsi / child stream wsi is not
+			 * going to trigger this as it has no pipelined queue
+			 * children of its own
 			 */
 			if (lws_client_socket_service(wfound, pollfd, wsi) < 0) {
 				/* closed */
@@ -127,8 +131,7 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 
 			lws_callback_on_writable(wsi);
 		} else
-			lwsl_debug("%s: didn't find anything in txn q in HS2\n",
-							   __func__);
+			lwsl_debug("%s: nothing in txn q in HS2\n", __func__);
 
 		lws_vhost_unlock(wsi->vhost);
 
@@ -684,18 +687,19 @@ lws_http_transaction_completed_client(struct lws *wsi)
 	return 0;
 }
 
-LWS_VISIBLE LWS_EXTERN unsigned int
+unsigned int
 lws_http_client_http_response(struct lws *_wsi)
 {
 	struct lws *wsi;
-	unsigned int resp;
+	unsigned int resp = 0;
 
 	if (_wsi->http.ah && _wsi->http.ah->http_response)
 		return _wsi->http.ah->http_response;
 
 	lws_vhost_lock(_wsi->vhost);
 	wsi = _lws_client_wsi_master(_wsi);
-	resp = wsi->http.ah->http_response;
+	if (wsi->http.ah)
+		resp = wsi->http.ah->http_response;
 	lws_vhost_unlock(_wsi->vhost);
 
 	return resp;
@@ -860,7 +864,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			port = wsi->c_port;
 			/* +1 as lws_client_reset expects leading / omitted */
 			path = new_path + 1;
-			if (lws_hdr_simple_ptr(wsi,_WSI_TOKEN_CLIENT_URI))
+			if (lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI))
 				lws_strncpy(new_path, lws_hdr_simple_ptr(wsi,
 				   _WSI_TOKEN_CLIENT_URI), sizeof(new_path));
 			else {
@@ -888,11 +892,12 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		}
 
 		if (!lws_client_reset(&wsi, ssl, ads, port, path, ads)) {
-			/* there are two ways to fail out with NULL return...
+			/*
+			 * There are two ways to fail out with NULL return...
 			 * simple, early problem where the wsi is intact, or
 			 * we went through with the reconnect attempt and the
 			 * wsi is already closed.  In the latter case, the wsi
-			 * has beet set to NULL additionally.
+			 * has been set to NULL additionally.
 			 */
 			lwsl_err("Redirect failed\n");
 			cce = "HS: Redirect failed";
@@ -1101,7 +1106,7 @@ lws_http_multipart_headers(struct lws *wsi, uint8_t *p)
 			       wsi->http.multipart_boundary,
 			       sizeof(wsi->http.multipart_boundary));
 
-	n = lws_snprintf(arg, sizeof(arg), "multipart/form-data;boundary=%s",
+	n = lws_snprintf(arg, sizeof(arg), "multipart/form-data; boundary=%s",
 			 wsi->http.multipart_boundary);
 
 	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE,
@@ -1109,6 +1114,7 @@ lws_http_multipart_headers(struct lws *wsi, uint8_t *p)
 		return NULL;
 
 	wsi->http.multipart = wsi->http.multipart_issue_boundary = 1;
+	lws_client_http_body_pending(wsi, 1);
 
 	return p;
 }
@@ -1132,7 +1138,11 @@ lws_client_http_multipart(struct lws *wsi, const char *name,
 		return 0;
 	}
 
-	*p += lws_snprintf((char *)(*p), lws_ptr_diff(end, p), "\xd\xa--%s\xd\xa"
+	if (wsi->client_subsequent_mime_part)
+		*p += lws_snprintf((char *)(*p), lws_ptr_diff(end, p), "\xd\xa");
+	wsi->client_subsequent_mime_part = 1;
+
+	*p += lws_snprintf((char *)(*p), lws_ptr_diff(end, p), "--%s\xd\xa"
 				    "Content-Disposition: form-data; "
 				      "name=\"%s\"",
 				      wsi->http.multipart_boundary, name);
@@ -1283,6 +1293,9 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 
 	p += lws_snprintf(p, 4, "\x0d\x0a");
 
+	if (wsi->client_http_body_pending)
+		lws_callback_on_writable(wsi);
+
 	// puts(pkt);
 
 	return p;
@@ -1311,7 +1324,7 @@ lws_http_basic_auth_gen(const char *user, const char *pw, char *buf, size_t len)
 	return 0;
 }
 
-LWS_VISIBLE int
+int
 lws_http_client_read(struct lws *wsi, char **buf, int *len)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];

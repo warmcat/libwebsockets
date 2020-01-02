@@ -120,7 +120,7 @@ lws_smtpc_kick_internal(lws_smtp_sequencer_t *s)
 		}
 
 		s->connstate = LSMTPSS_CONNECTING;
-		lws_sequencer_timeout(s->seq, 10);
+		lws_seq_timeout_us(s->seq, 10 * LWS_USEC_PER_SEC);
 		return;
 	}
 

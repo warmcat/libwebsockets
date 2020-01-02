@@ -239,7 +239,7 @@ lws_uv_close_cb_sa(uv_handle_t *handle)
  * .... when the libuv object is created...
  */
 
-LWS_VISIBLE void
+void
 lws_libuv_static_refcount_add(uv_handle_t *h, struct lws_context *context)
 {
 	LWS_UV_REFCOUNT_STATIC_HANDLE_NEW(h, context);
@@ -249,7 +249,7 @@ lws_libuv_static_refcount_add(uv_handle_t *h, struct lws_context *context)
  * ... and in the close callback when the object is closed.
  */
 
-LWS_VISIBLE void
+void
 lws_libuv_static_refcount_del(uv_handle_t *h)
 {
 	lws_uv_close_cb_sa(h);
@@ -266,14 +266,14 @@ static void lws_uv_walk_cb(uv_handle_t *handle, void *arg)
 		uv_close(handle, lws_uv_close_cb);
 }
 
-LWS_VISIBLE void
+void
 lws_close_all_handles_in_loop(uv_loop_t *loop)
 {
 	uv_walk(loop, lws_uv_walk_cb, NULL);
 }
 
 
-LWS_VISIBLE void
+void
 lws_libuv_stop_without_kill(const struct lws_context *context, int tsi)
 {
 	if (context->pt[tsi].uv.io_loop)
@@ -282,7 +282,7 @@ lws_libuv_stop_without_kill(const struct lws_context *context, int tsi)
 
 
 
-LWS_VISIBLE uv_loop_t *
+uv_loop_t *
 lws_uv_getloop(struct lws_context *context, int tsi)
 {
 	if (context->pt[tsi].uv.io_loop)
@@ -367,8 +367,8 @@ lws_uv_plugins_init(struct lws_context *context, const char * const *d)
 #endif
 			if (uv_dlsym(&lib, path, &v)) {
 				uv_dlerror(&lib);
-				lwsl_err("Failed to get %s on %s: %s", path,
-						dent.name, lib.errmsg);
+				lwsl_err("%s: Failed to get '%s' on %s: %s\n",
+					 __func__, path, dent.name, lib.errmsg);
 				uv_dlclose(&lib);
 				goto bail;
 			}
@@ -772,7 +772,7 @@ elops_destroy_pt_uv(struct lws_context *context, int tsi)
  * called again to bind the vhost
  */
 
-LWS_VISIBLE int
+int
 elops_init_pt_uv(struct lws_context *context, void *_loop, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];

@@ -77,7 +77,7 @@ int lextable_decode(int pos, char c)
 int main(void)
 {
 	int n = 0;
-	int m = 0;
+	int m;
 	int prev;
 	char c;
 	int walk;

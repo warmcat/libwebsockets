@@ -310,7 +310,7 @@ lws_jwa_concat_kdf(struct lws_jwe *jwe, int direct, uint8_t *out,
 	return 0;
 }
 
-LWS_VISIBLE void
+void
 lws_jwe_be64(uint64_t c, uint8_t *p8)
 {
 	int n;
@@ -319,7 +319,7 @@ lws_jwe_be64(uint64_t c, uint8_t *p8)
 		*p8++ = (uint8_t)((c >> n) & 0xff);
 }
 
-LWS_VISIBLE int
+int
 lws_jwe_auth_and_decrypt(struct lws_jwe *jwe, char *temp, int *temp_len)
 {
 	int valid_aescbc_hmac, valid_aesgcm;
@@ -380,7 +380,7 @@ lws_jwe_auth_and_decrypt(struct lws_jwe *jwe, char *temp, int *temp_len)
 
 	return -1;
 }
-LWS_VISIBLE int
+int
 lws_jwe_encrypt(struct lws_jwe *jwe, char *temp, int *temp_len)
 {
 	int valid_aescbc_hmac, valid_aesgcm, ot = *temp_len, ret = -1;
@@ -474,7 +474,7 @@ bail:
  *  - You can't emit Compact representation if there are multiple recipients
  */
 
-LWS_VISIBLE int
+int
 lws_jwe_render_compact(struct lws_jwe *jwe, char *out, size_t out_len)
 {
 	size_t orig = out_len;
@@ -544,7 +544,7 @@ lws_jwe_render_compact(struct lws_jwe *jwe, char *out, size_t out_len)
 	return orig - out_len;
 }
 
-LWS_VISIBLE int
+int
 lws_jwe_create_packet(struct lws_jwe *jwe, const char *payload, size_t len,
 		      const char *nonce, char *out, size_t out_len,
 		      struct lws_context *context)
@@ -718,7 +718,7 @@ static int protected_idx[] = {
  *     }
  */
 
-LWS_VISIBLE int
+int
 lws_jwe_render_flattened(struct lws_jwe *jwe, char *out, size_t out_len)
 {
 	char buf[3072], *p1, *end1, protected[128];

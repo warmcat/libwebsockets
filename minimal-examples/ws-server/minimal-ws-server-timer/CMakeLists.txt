@@ -1,3 +1,4 @@
+project(lws-minimal-ws-server-timer)
 cmake_minimum_required(VERSION 2.8)
 include(CheckCSourceCompiles)
 

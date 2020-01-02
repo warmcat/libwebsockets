@@ -24,7 +24,7 @@
 
 #include "private-lib-core.h"
 
-LWS_VISIBLE struct lws *
+struct lws *
 lws_client_connect_via_info(const struct lws_client_connect_info *i)
 {
 	const char *local = i->protocol;
@@ -157,7 +157,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	 * role finalization
 	 */
 
-	if (!wsi->user_space && i->userdata) {
+	if (i->userdata) {
 		wsi->user_space_externally_allocated = 1;
 		wsi->user_space = i->userdata;
 	}
@@ -308,10 +308,49 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 					     i->uri_replace_to);
 #endif
 
-	if (i->method && !strcmp(i->method, "RAW"))
+	if (i->method && (!strcmp(i->method, "RAW"))) {
+
+#if defined(LWS_WITH_TLS)
+
+		wsi->tls.ssl = NULL;
+
+		if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
+
+			/* we can retry this... just cook the SSL BIO the first time */
+
+			if (lws_ssl_client_bio_create(wsi) < 0) {
+				lwsl_err("%s: bio_create failed\n", __func__);
+				goto bail3;
+			}
+
+#if !defined(LWS_WITH_SYS_ASYNC_DNS)
+			if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
+				n = lws_ssl_client_connect1(wsi);
+				if (!n)
+					return wsi;
+				if (n < 0) {
+					lwsl_err("%s: lws_ssl_client_connect1 failed\n", __func__);
+					goto bail3;
+				}
+			}
+#endif
+		}
+
+
+		/* fallthru */
+#endif
+
 		lws_http_client_connect_via_info2(wsi);
+	}
 
 	return wsi;
+
+#if defined(LWS_WITH_TLS)
+bail3:
+	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "tls start fail");
+
+	return NULL;
+#endif
 
 bail1:
 	lws_free_set_NULL(wsi->stash);

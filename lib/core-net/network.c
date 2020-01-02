@@ -136,7 +136,7 @@ lws_get_peer_simple(struct lws *wsi, char *name, int namelen)
 }
 #endif
 
-LWS_VISIBLE void
+void
 lws_get_peer_addresses(struct lws *wsi, lws_sockfd_type fd, char *name,
 		       int name_len, char *rip, int rip_len)
 {
@@ -189,7 +189,7 @@ bail:
  * LWS_ITOSA_BUSY:       the port at the requested iface + port is already in use
  */
 
-LWS_EXTERN int
+int
 lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 		const char *iface, int ipv6_allowed)
 {
@@ -432,7 +432,7 @@ lws_retry_sul_schedule_retry_wsi(struct lws *wsi, lws_sorted_usec_list_t *sul,
 }
 
 #if defined(LWS_WITH_IPV6)
-LWS_EXTERN unsigned long
+unsigned long
 lws_get_addr_scope(const char *ipaddr)
 {
 	unsigned long scope = 0;

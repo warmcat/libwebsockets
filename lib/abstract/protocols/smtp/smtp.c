@@ -187,7 +187,7 @@ lws_smtpc_abs_rx(lws_abs_protocol_inst_t *api, const uint8_t *buf, size_t len)
 			 * (and anything queued on it)
 			 */
 
-			lws_strnncpy(dotstar, buf, len, sizeof(dotstar));
+			lws_strnncpy(dotstar, (const char *)buf, len, sizeof(dotstar));
 			lwsl_err("%s: server: %s\n", __func__, dotstar);
 
 			return 1;

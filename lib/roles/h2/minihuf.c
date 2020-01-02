@@ -334,7 +334,6 @@ int main(void)
 	int saw;
 	int y;
 	int j;
-	int q;
 	int pos = 0;
 	int biggest = 0;
 	int fails = 0;
@@ -401,9 +400,8 @@ again:
 
 	walk = 0;
 	pos = 0;
-	q = 0;
+
 	for (n = 0; n < next; n++) {
-		q = pos;
 		for (m = 0; m < 2; m++) {
 			saw = state[n].state[m];
 

@@ -250,7 +250,7 @@ const struct lws_protocols lws_ws_proxy = {
 
 #endif
 
-LWS_VISIBLE int
+int
 lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			void *user, void *in, size_t len)
 {
@@ -333,10 +333,10 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			if (!wsi->mux_substream) {
 				memcpy(buf + LWS_PRE, "0\x0d\x0a\x0d\x0a", 5);
 				lwsl_debug("writing chunk term and exiting\n");
-				n = lws_write(wsi, (unsigned char *)buf +
+				lws_write(wsi, (unsigned char *)buf +
 						   LWS_PRE, 5, LWS_WRITE_HTTP);
 			} else
-				n = lws_write(wsi, (unsigned char *)buf +
+				lws_write(wsi, (unsigned char *)buf +
 						   LWS_PRE, 0,
 						   LWS_WRITE_HTTP_FINAL);
 

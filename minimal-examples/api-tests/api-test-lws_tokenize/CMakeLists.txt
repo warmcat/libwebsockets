@@ -1,3 +1,4 @@
+project(lws-api-test-lws_tokenize)
 cmake_minimum_required(VERSION 2.8)
 include(CheckCSourceCompiles)
 

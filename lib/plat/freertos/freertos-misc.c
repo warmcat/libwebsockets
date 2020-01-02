@@ -32,7 +32,7 @@ lws_now_usecs(void)
 	return ((unsigned long long)tv.tv_sec * 1000000LL) + tv.tv_usec;
 }
 
-LWS_VISIBLE int
+int
 lws_get_random(struct lws_context *context, void *buf, int len)
 {
 #if defined(LWS_WITH_ESP32)
@@ -69,7 +69,7 @@ lws_get_random(struct lws_context *context, void *buf, int len)
 }
 
 
-LWS_VISIBLE void lwsl_emit_syslog(int level, const char *line)
+void lwsl_emit_syslog(int level, const char *line)
 {
 	lwsl_emit_stderr(level, line);
 }

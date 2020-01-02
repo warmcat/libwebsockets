@@ -134,7 +134,7 @@ lws_ssl_destroy_client_ctx(struct lws_vhost *vhost)
 	lws_free(tcr);
 }
 
-LWS_VISIBLE void
+void
 lws_ssl_destroy(struct lws_vhost *vhost)
 {
 	if (!lws_check_opt(vhost->context->options,
@@ -171,7 +171,7 @@ lws_ssl_destroy(struct lws_vhost *vhost)
 #endif
 }
 
-LWS_VISIBLE int
+int
 lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 {
 	struct lws_context *context = wsi->context;
@@ -307,7 +307,7 @@ bail:
 	return n;
 }
 
-LWS_VISIBLE int
+int
 lws_ssl_pending(struct lws *wsi)
 {
 	if (!wsi->tls.ssl)
@@ -316,10 +316,13 @@ lws_ssl_pending(struct lws *wsi)
 	return SSL_pending(wsi->tls.ssl);
 }
 
-LWS_VISIBLE int
+int
 lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, int len)
 {
 	int n, m;
+
+	// lwsl_notice("%s: len %d\n", __func__, len);
+	// lwsl_hexdump_notice(buf, len);
 
 	if (!wsi->tls.ssl)
 		return lws_ssl_capable_write_no_ssl(wsi, buf, len);
@@ -390,7 +393,7 @@ lws_ssl_info_callback(const SSL *ssl, int where, int ret)
 }
 
 
-LWS_VISIBLE int
+int
 lws_ssl_close(struct lws *wsi)
 {
 	lws_sockfd_type n;
@@ -422,10 +425,6 @@ lws_ssl_close(struct lws *wsi)
 	// lwsl_notice("%s: ssl restr %d, simul %d\n", __func__,
 	//		wsi->context->simultaneous_ssl_restriction,
 	//		wsi->context->simultaneous_ssl);
-
-#if defined(LWS_WITH_STATS)
-	wsi->context->updated = 1;
-#endif
 
 	return 1; /* handled */
 }

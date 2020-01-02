@@ -114,7 +114,7 @@ test2(void)
 	}
 
 	dsh2 = lws_dsh_create(&owner, 4096, 2);
-	if (!dsh) {
+	if (!dsh2) {
 		lwsl_err("%s: Failed to create dsh2\n", __func__);
 
 		goto bail;
@@ -193,7 +193,7 @@ test3(void)
 	}
 
 	dsh2 = lws_dsh_create(&owner, 4096, 2);
-	if (!dsh) {
+	if (!dsh2) {
 		lwsl_err("%s: Failed to create dsh2\n", __func__);
 
 		goto bail;

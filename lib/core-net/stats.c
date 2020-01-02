@@ -26,7 +26,7 @@
 
 #if defined(LWS_WITH_STATS)
 
-LWS_VISIBLE LWS_EXTERN uint64_t
+uint64_t
 lws_stats_get(struct lws_context *context, int index)
 {
 	struct lws_context_per_thread *pt = &context->pt[0];
@@ -113,7 +113,7 @@ quantify(struct lws_context *context, int tsi, char *p, int len, int idx,
 }
 
 
-LWS_VISIBLE LWS_EXTERN void
+void
 lws_stats_log_dump(struct lws_context *context)
 {
 	struct lws_vhost *v = context->vhost_list;
@@ -158,8 +158,6 @@ lws_stats_log_dump(struct lws_context *context)
 
 	lwsl_notice("Live wsi:                      %8d\n",
 			context->count_wsi_allocated);
-
-	context->updated = 1;
 
 	while (v) {
 		if (v->lserv_wsi &&

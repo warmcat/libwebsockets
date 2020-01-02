@@ -462,7 +462,7 @@ static uint8_t ss_cert_leadin[] = {
 
 #define SAN_A_LENGTH 78
 
-LWS_VISIBLE int
+int
 lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
 			     const char *san_b)
 {
@@ -621,7 +621,7 @@ static const char *x5[] = { "C", "ST", "L", "O", "CN" };
  * CSR is output formatted as b64url(DER)
  * Private key is output as a PEM in memory
  */
-LWS_VISIBLE LWS_EXTERN int
+int
 lws_tls_acme_sni_csr_create(struct lws_context *context, const char *elements[],
 			    uint8_t *dcsr, size_t csr_len, char **privkey_pem,
 			    size_t *privkey_len)

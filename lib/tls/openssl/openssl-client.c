@@ -141,9 +141,13 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	int n;
 #endif
 
-	if (wsi->stash)
+	if (wsi->stash) {
 		lws_strncpy(hostname, wsi->stash->cis[CIS_HOST], sizeof(hostname));
-	else {
+#if defined(LWS_HAVE_SSL_set_alpn_protos) && \
+    defined(LWS_HAVE_SSL_get0_alpn_selected)
+		alpn_comma = wsi->stash->cis[CIS_ALPN];
+#endif
+	} else {
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 		if (lws_hdr_copy(wsi, hostname, sizeof(hostname),
 				 _WSI_TOKEN_CLIENT_HOST) <= 0)
@@ -262,13 +266,15 @@ lws_ssl_client_bio_create(struct lws *wsi)
     defined(LWS_HAVE_SSL_get0_alpn_selected)
 	if (wsi->vhost->tls.alpn)
 		alpn_comma = wsi->vhost->tls.alpn;
+	if (wsi->stash)
+		alpn_comma = wsi->stash->cis[CIS_ALPN];
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	if (lws_hdr_copy(wsi, hostname, sizeof(hostname),
 			 _WSI_TOKEN_CLIENT_ALPN) > 0)
 		alpn_comma = hostname;
 #endif
 
-	lwsl_info("client conn using alpn list '%s'\n", alpn_comma);
+	lwsl_info("%s client conn using alpn list '%s'\n", wsi->role_ops->name, alpn_comma);
 
 	n = lws_alpn_comma_to_openssl(alpn_comma, openssl_alpn,
 				      sizeof(openssl_alpn) - 1);

@@ -1,3 +1,4 @@
+project(lws-minimal-ws-client-echo)
 cmake_minimum_required(VERSION 2.8.9)
 include(CheckCSourceCompiles)
 

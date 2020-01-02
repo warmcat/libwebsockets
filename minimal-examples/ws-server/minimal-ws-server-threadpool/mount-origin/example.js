@@ -28,7 +28,7 @@ function get_appropriate_ws_url(extra_url)
 
 function new_ws(urlpath, protocol)
 {
-	if (typeof MozWebSocket != "undefined")
+	if (typeof MozWebSocket !== "undefined")
 		return new MozWebSocket(urlpath, protocol);
 
 	return new WebSocket(urlpath, protocol);
@@ -68,7 +68,8 @@ document.addEventListener("DOMContentLoaded", function() {
 			};
 
 			ws.onclose = function(){
-				if (--alive === 0)
+				alive--;
+				if (alive === 0)
 					document.getElementById("r").disabled = 1;
 			};
 		} catch(exception) {

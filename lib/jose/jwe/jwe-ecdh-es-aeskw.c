@@ -334,9 +334,9 @@ lws_jwe_encrypt_ecdh(struct lws_jwe *jwe, char *temp, int *temp_len,
 
 	/* rewrite the protected JOSE header to have the epk pieces */
 
-	jwe->jws.map.buf[LJWE_JOSE] = temp + (ot - *temp_len);
+	jwe->jws.map.buf[LJWE_JOSE] = temp;
 
-	m = n = lws_snprintf(temp + (ot - *temp_len), *temp_len,
+	m = n = lws_snprintf(temp, *temp_len,
 			     "{\"alg\":\"%s\", \"enc\":\"%s\", \"epk\":",
 			     jwe->jose.alg->alg, jwe->jose.enc_alg->alg);
 	*temp_len -= n;

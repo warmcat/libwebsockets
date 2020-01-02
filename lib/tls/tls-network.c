@@ -167,7 +167,7 @@ lws_tls_generic_cert_checks(struct lws_vhost *vhost, const char *cert,
  * update the cert for every vhost using the given path
  */
 
-LWS_VISIBLE int
+int
 lws_tls_cert_updated(struct lws_context *context, const char *certpath,
 		     const char *keypath,
 		     const char *mem_cert, size_t len_mem_cert,
@@ -225,6 +225,9 @@ int
 lws_alpn_comma_to_openssl(const char *comma, uint8_t *os, int len)
 {
 	uint8_t *oos = os, *plen = NULL;
+
+	if (!comma)
+		return 0;
 
 	while (*comma && len > 1) {
 		if (!plen && *comma == ' ') {

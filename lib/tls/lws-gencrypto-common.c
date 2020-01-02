@@ -570,7 +570,7 @@ static const struct lws_jose_jwe_alg lws_gencrypto_jwe_enc_map[] = {
 	{ 0, 0, 0, 0, NULL, NULL, 0, 0, 0 } /* sentinel */
 };
 
-LWS_VISIBLE int
+int
 lws_gencrypto_jws_alg_to_definition(const char *alg,
 				    const struct lws_jose_jwe_alg **jose)
 {
@@ -588,7 +588,7 @@ lws_gencrypto_jws_alg_to_definition(const char *alg,
 	return 1;
 }
 
-LWS_VISIBLE int
+int
 lws_gencrypto_jwe_alg_to_definition(const char *alg,
 				    const struct lws_jose_jwe_alg **jose)
 {
@@ -606,7 +606,7 @@ lws_gencrypto_jwe_alg_to_definition(const char *alg,
 	return 1;
 }
 
-LWS_VISIBLE int
+int
 lws_gencrypto_jwe_enc_to_definition(const char *enc,
 				    const struct lws_jose_jwe_alg **jose)
 {

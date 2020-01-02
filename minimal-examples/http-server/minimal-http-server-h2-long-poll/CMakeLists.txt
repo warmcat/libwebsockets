@@ -1,3 +1,4 @@
+project(lws-minimal-http-server-h2-long-poll)
 cmake_minimum_required(VERSION 2.8)
 include(CheckCSourceCompiles)
 
