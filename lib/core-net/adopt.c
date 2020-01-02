@@ -382,7 +382,7 @@ lws_adopt_socket_vhost(struct lws_vhost *vh, lws_sockfd_type accept_fd)
 			LWS_ADOPT_HTTP | LWS_ADOPT_ALLOW_SSL, fd, NULL, NULL);
 }
 
-LWS_VISIBLE struct lws *
+struct lws *
 lws_adopt_socket(struct lws_context *context, lws_sockfd_type accept_fd)
 {
 	return lws_adopt_socket_vhost(context->vhost_list, accept_fd);
@@ -693,7 +693,7 @@ bail:
 #endif
 #endif
 
-LWS_VISIBLE struct lws *
+struct lws *
 lws_adopt_socket_readbuf(struct lws_context *context, lws_sockfd_type accept_fd,
 			 const char *readbuf, size_t len)
 {
@@ -701,7 +701,7 @@ lws_adopt_socket_readbuf(struct lws_context *context, lws_sockfd_type accept_fd,
 				    readbuf, len);
 }
 
-LWS_VISIBLE struct lws *
+struct lws *
 lws_adopt_socket_vhost_readbuf(struct lws_vhost *vhost,
 			       lws_sockfd_type accept_fd,
 			       const char *readbuf, size_t len)

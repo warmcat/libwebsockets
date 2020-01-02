@@ -766,7 +766,7 @@ rops_write_role_protocol_h1(struct lws *wsi, unsigned char *buf, size_t len,
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
 	if (wsi->http.lcs && (((*wp) & 0x1f) == LWS_WRITE_HTTP_FINAL ||
 			      ((*wp) & 0x1f) == LWS_WRITE_HTTP)) {
-		unsigned char mtubuf[1400 + LWS_PRE +
+		unsigned char mtubuf[1500 + LWS_PRE +
 				     LWS_HTTP_CHUNK_HDR_MAX_SIZE +
 				     LWS_HTTP_CHUNK_TRL_MAX_SIZE],
 			      *out = mtubuf + LWS_PRE +
@@ -982,8 +982,12 @@ rops_client_bind_h1(struct lws *wsi, const struct lws_client_connect_info *i)
 
 	/*
 	 * Clients that want to be h1, h2, or ws all start out as h1
-	 * (we don't yet know if the server supports h2 or ws)
+	 * (we don't yet know if the server supports h2 or ws), unless their
+	 * alpn is only "h2"
 	 */
+
+//	if (i->alpn && !strcmp(i->alpn, "h2"))
+//		return 0; /* we are h1, he only wants h2 */
 
 	if (!i->method) { /* websockets */
 #if defined(LWS_ROLE_WS)

@@ -131,7 +131,7 @@ lws_event_cb(evutil_socket_t sock_fd, short revents, void *ctx)
 	evtimer_add(pt->event.idle_timer, &tv);
 }
 
-LWS_VISIBLE void
+void
 lws_event_sigint_cb(evutil_socket_t sock_fd, short revents, void *ctx)
 {
 	struct lws_context_per_thread *pt = ctx;

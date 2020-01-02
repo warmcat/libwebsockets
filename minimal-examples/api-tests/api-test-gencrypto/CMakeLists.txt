@@ -1,3 +1,4 @@
+project(lws-api-test-gencrypto)
 cmake_minimum_required(VERSION 2.8)
 include(CheckCSourceCompiles)
 

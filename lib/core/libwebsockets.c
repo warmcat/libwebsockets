@@ -659,7 +659,7 @@ lws_tokenize(struct lws_tokenize *ts)
 	lws_tokenize_state state = LWS_TOKZS_LEADING_WHITESPACE;
 	char c, flo = 0, d_minus = '-', d_dot = '.', s_minus = '\0',
 	     s_dot = '\0', skipping = 0;
-	signed char num = ts->flags & LWS_TOKENIZE_F_NO_INTEGERS ? 0 : -1;
+	signed char num = (ts->flags & LWS_TOKENIZE_F_NO_INTEGERS) ? 0 : -1;
 	int utf8 = 0;
 
 	/* for speed, compute the effect of the flags outside the loop */

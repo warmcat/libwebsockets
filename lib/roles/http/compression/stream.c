@@ -57,7 +57,7 @@ lws_http_compression_validate(struct lws *wsi)
 	return 0;
 }
 
-LWS_VISIBLE int
+int
 lws_http_compression_apply(struct lws *wsi, const char *name,
 			   unsigned char **p, unsigned char *end, char decomp)
 {
@@ -154,7 +154,7 @@ lws_http_compression_transform(struct lws *wsi, unsigned char *buf,
 		*wp = LWS_WRITE_HTTP | ((*wp) & ~0x1f);
 	}
 
-	if (ctx->buflist_comp || ctx->may_have_more) {
+	if (ctx->buflist_comp) {
 		/*
 		 * we can't send this new stuff when we have old stuff
 		 * buffered and not compressed yet.  Add it to the tail

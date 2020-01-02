@@ -164,7 +164,7 @@ static const char *ec_names[] = {
 };
 static const char ec_b64[] = { 0, 1, 1, 1 };
 
-LWS_VISIBLE int
+int
 lws_jwk_dump(struct lws_jwk *jwk)
 {
 	const char **enames, *b64;
@@ -287,7 +287,7 @@ lws_jwk_destroy_elements(struct lws_gencrypto_keyelem *el, int m)
 		}
 }
 
-LWS_VISIBLE void
+void
 lws_jwk_destroy(struct lws_jwk *jwk)
 {
 	lws_jwk_destroy_elements(jwk->e, LWS_ARRAY_SIZE(jwk->e));
@@ -550,7 +550,7 @@ lws_jwk_init_jps(struct lejp_ctx *jctx, struct lws_jwk_parse_state *jps,
 		       LWS_ARRAY_SIZE(jwk_tok));
 }
 
-LWS_VISIBLE int
+int
 lws_jwk_dup_oct(struct lws_jwk *jwk, const void *key, int len)
 {
 	jwk->e[LWS_GENCRYPTO_KTY_OCT].buf = lws_malloc(len, __func__);
@@ -565,7 +565,7 @@ lws_jwk_dup_oct(struct lws_jwk *jwk, const void *key, int len)
 	return 0;
 }
 
-LWS_VISIBLE int
+int
 lws_jwk_generate(struct lws_context *context, struct lws_jwk *jwk,
 	         enum lws_gencrypto_kty kty, int bits, const char *curve)
 {
@@ -635,7 +635,7 @@ lws_jwk_generate(struct lws_context *context, struct lws_jwk *jwk,
 	return 0;
 }
 
-LWS_VISIBLE int
+int
 lws_jwk_import(struct lws_jwk *jwk, lws_jwk_key_import_callback cb, void *user,
 	       const char *in, size_t len)
 {
@@ -667,7 +667,7 @@ lws_jwk_import(struct lws_jwk *jwk, lws_jwk_key_import_callback cb, void *user,
 }
 
 
-LWS_VISIBLE int
+int
 lws_jwk_export(struct lws_jwk *jwk, int flags, char *p, int *len)
 {
 	char *start = p, *end = &p[*len - 1];
@@ -812,7 +812,7 @@ lws_jwk_export(struct lws_jwk *jwk, int flags, char *p, int *len)
 	return p - start;
 }
 
-LWS_VISIBLE int
+int
 lws_jwk_rfc7638_fingerprint(struct lws_jwk *jwk, char *digest32)
 {
 	struct lws_genhash_ctx hash_ctx;
@@ -846,7 +846,7 @@ bail:
 	return -1;
 }
 
-LWS_VISIBLE int
+int
 lws_jwk_strdup_meta(struct lws_jwk *jwk, enum enum_jwk_meta_tok idx,
 		    const char *in, int len)
 {
@@ -859,7 +859,7 @@ lws_jwk_strdup_meta(struct lws_jwk *jwk, enum enum_jwk_meta_tok idx,
 	return 0;
 }
 
-LWS_VISIBLE int
+int
 lws_jwk_load(struct lws_jwk *jwk, const char *filename,
 	     lws_jwk_key_import_callback cb, void *user)
 {
@@ -884,7 +884,7 @@ bail:
 	return -1;
 }
 
-LWS_VISIBLE int
+int
 lws_jwk_save(struct lws_jwk *jwk, const char *filename)
 {
 	int buflen = 4096;

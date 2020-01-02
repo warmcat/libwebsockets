@@ -104,7 +104,7 @@ lws_accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents)
 	ev_idle_start(pt->ev.io_loop, &pt->ev.idle);
 }
 
-LWS_VISIBLE void
+void
 lws_ev_sigint_cb(struct ev_loop *loop, struct ev_signal *watcher, int revents)
 {
 	struct lws_context *context = watcher->data;

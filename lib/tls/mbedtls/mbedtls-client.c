@@ -80,9 +80,14 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	if (wsi->vhost->tls.alpn)
 		alpn_comma = wsi->vhost->tls.alpn;
 
-	if (lws_hdr_copy(wsi, hostname, sizeof(hostname),
-			 _WSI_TOKEN_CLIENT_ALPN) > 0)
-		alpn_comma = hostname;
+	if (wsi->stash) {
+		lws_strncpy(hostname, wsi->stash->cis[CIS_HOST], sizeof(hostname));
+		alpn_comma = wsi->stash->cis[CIS_ALPN];
+	} else {
+		if (lws_hdr_copy(wsi, hostname, sizeof(hostname),
+				_WSI_TOKEN_CLIENT_ALPN) > 0)
+			alpn_comma = hostname;
+	}
 
 	lwsl_info("%s: %p: client conn sending ALPN list '%s'\n",
 		  __func__, wsi, alpn_comma);

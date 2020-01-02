@@ -24,6 +24,8 @@
 
 #include "private-lwsgs.h"
 
+#if defined(LWS_WITH_SMTP)
+
 static int
 lwsgs_smtp_client_done(struct lws_smtp_email *e, void *buf, size_t len)
 {
@@ -55,6 +57,7 @@ lwsgs_smtp_client_done_sentvfy(struct lws_smtp_email *e, void *buf, size_t len)
 
 	return 0;
 }
+#endif
 
 /* handle account confirmation links */
 
@@ -407,7 +410,9 @@ lwsgs_handler_forgot_pw_form(struct per_vhost_data__gs *vhd,
 	char esc[96], esc1[96], esc2[96], esc3[96], esc4[96];
 	char s[LWSGS_EMAIL_CONTENT_SIZE];
 	unsigned char sid_rand[32];
+#if defined(LWS_WITH_SMTP)
 	lws_smtp_email_t *em;
+#endif
 	struct lwsgs_user u;
 	lwsgw_hash hash;
 	int n;
@@ -489,7 +494,7 @@ lwsgs_handler_forgot_pw_form(struct per_vhost_data__gs *vhd,
 		lws_sql_purify(esc2, u.email, sizeof(esc2) - 1),
 		lws_sql_purify(esc3, u.username, sizeof(esc3) - 1),
 		lws_sql_purify(esc4, pss->ip, sizeof(esc4) - 1));
-	n += lws_snprintf(s + n, sizeof(s) - n,
+	lws_snprintf(s + n, sizeof(s) - n,
 		  "%s/lwsgs-forgot?token=%s"
 		   "&good=%s"
 		   "&bad=%s\n\n"
@@ -509,6 +514,7 @@ lwsgs_handler_forgot_pw_form(struct per_vhost_data__gs *vhd,
 		vhd->email_contact_person);
 
 	puts(s);
+#if defined(LWS_WITH_SMTP)
 
 	em = lws_smtpc_alloc_email_helper(s, n, vhd->email_from, u.email,
 						u.username, strlen(u.username),
@@ -517,7 +523,7 @@ lwsgs_handler_forgot_pw_form(struct per_vhost_data__gs *vhd,
 		return 1;
 	if (lws_smtpc_add_email(vhd->smtp_client, em))
 		return 1;
-
+#endif
 	return 0;
 }
 
@@ -530,7 +536,9 @@ lwsgs_handler_register_form(struct per_vhost_data__gs *vhd,
 	char esc[96], esc1[96], esc2[96], esc3[96], esc4[96];
 	char s[LWSGS_EMAIL_CONTENT_SIZE];
 	unsigned char sid_rand[32];
+#if defined(LWS_WITH_SMTP)
 	lws_smtp_email_t *em;
+#endif
 	struct lwsgs_user u;
 	lwsgw_hash hash;
 	size_t n;
@@ -636,6 +644,7 @@ lwsgs_handler_register_form(struct per_vhost_data__gs *vhd,
 		vhd->email_confirm_url, hash.id,
 		vhd->email_contact_person);
 
+#if defined(LWS_WITH_SMTP)
 	em = lws_smtpc_alloc_email_helper(s, n, vhd->email_from,
 				lws_spa_get_string(pss->spa, FGS_EMAIL),
 				lws_spa_get_string(pss->spa, FGS_USERNAME),
@@ -646,6 +655,9 @@ lwsgs_handler_register_form(struct per_vhost_data__gs *vhd,
 
 	if (lws_smtpc_add_email(vhd->smtp_client, em))
 		return 1;
+#else
+	(void)n;
+#endif
 
 	return 0;
 }

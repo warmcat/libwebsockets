@@ -28,7 +28,7 @@
 lws_async_dns_server_check_t
 lws_plat_asyncdns_init(struct lws_context *context, lws_sockaddr46 *sa46)
 {
-	char d[PROP_VALUE_MAX], *p = d;
+	char d[PROP_VALUE_MAX], *p;
 	uint32_t ip32;
 	uint8_t i[4];
 	int n;

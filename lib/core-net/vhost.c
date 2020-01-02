@@ -204,7 +204,7 @@ lws_role_call_client_bind(struct lws *wsi,
 }
 #endif
 
-LWS_VISIBLE void *
+void *
 lws_protocol_vh_priv_zalloc(struct lws_vhost *vhost,
 			    const struct lws_protocols *prot, int size)
 {
@@ -236,7 +236,7 @@ lws_protocol_vh_priv_zalloc(struct lws_vhost *vhost,
 	return vhost->protocol_vh_privs[n];
 }
 
-LWS_VISIBLE void *
+void *
 lws_protocol_vh_priv_get(struct lws_vhost *vhost,
 			 const struct lws_protocols *prot)
 {
@@ -369,7 +369,7 @@ lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
  * inform every vhost that hasn't already done it, that
  * his protocols are initializing
  */
-LWS_VISIBLE int
+int
 lws_protocol_init(struct lws_context *context)
 {
 	struct lws_vhost *vh = context->vhost_list;
@@ -436,7 +436,7 @@ static const struct lws_protocols protocols_dummy[] = {
 #undef LWS_HAVE_GETENV
 #endif
 
-LWS_VISIBLE struct lws_vhost *
+struct lws_vhost *
 lws_create_vhost(struct lws_context *context,
 		 const struct lws_context_creation_info *info)
 {
@@ -831,7 +831,7 @@ bail:
 	return NULL;
 }
 
-LWS_VISIBLE int
+int
 lws_init_vhost_client_ssl(const struct lws_context_creation_info *info,
 			  struct lws_vhost *vhost)
 {
@@ -843,13 +843,13 @@ lws_init_vhost_client_ssl(const struct lws_context_creation_info *info,
 	return lws_context_init_client_ssl(&i, vhost);
 }
 
-LWS_VISIBLE void
+void
 lws_cancel_service_pt(struct lws *wsi)
 {
 	lws_plat_pipe_signal(wsi);
 }
 
-LWS_VISIBLE void
+void
 lws_cancel_service(struct lws_context *context)
 {
 	struct lws_context_per_thread *pt = &context->pt[0];
@@ -1269,7 +1269,7 @@ lws_check_deferred_free(struct lws_context *context, int tsi, int force)
 }
 
 
-LWS_VISIBLE void
+void
 lws_vhost_destroy(struct lws_vhost *vh)
 {
 	struct lws_deferred_free *df = lws_malloc(sizeof(*df), "deferred free");
@@ -1308,20 +1308,20 @@ out:
 }
 
 
-LWS_EXTERN void *
+void *
 lws_vhost_user(struct lws_vhost *vhost)
 {
 	return vhost->user;
 }
 
-LWS_VISIBLE LWS_EXTERN int
+int
 lws_get_vhost_listen_port(struct lws_vhost *vhost)
 {
 	return vhost->listen_port;
 }
 
 #if defined(LWS_WITH_SERVER)
-LWS_VISIBLE LWS_EXTERN void
+void
 lws_context_deprecate(struct lws_context *context, lws_reload_func cb)
 {
 	struct lws_vhost *vh = context->vhost_list, *vh1;

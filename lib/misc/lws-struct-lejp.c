@@ -92,8 +92,8 @@ lws_struct_default_lejp_cb(struct lejp_ctx *ctx, char reason)
 	lws_struct_args_t *args = (lws_struct_args_t *)ctx->user;
 	const lws_struct_map_t *map, *pmap = NULL;
 	uint8_t *ch;
-	char *u;
 	size_t n;
+	char *u;
 
 	if (reason == LEJPCB_ARRAY_END) {
 		lejp_parser_pop(ctx);
@@ -103,7 +103,6 @@ lws_struct_default_lejp_cb(struct lejp_ctx *ctx, char reason)
 
 	if (reason == LEJPCB_ARRAY_START) {
 		map = &args->map_st[ctx->pst_sp][ctx->path_match - 1];
-		n = args->map_entries_st[ctx->pst_sp];
 
 		if (map->type == LSMT_LIST)
 			lws_struct_lejp_push(ctx, args, map, NULL);

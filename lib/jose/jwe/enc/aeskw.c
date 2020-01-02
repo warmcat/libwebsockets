@@ -53,7 +53,7 @@ lws_jwe_encrypt_aeskw_cbc_hs(struct lws_jwe *jwe, char *temp, int *temp_len)
 	/* create a b64 version of the JOSE header, needed for hashing */
 
 	if (lws_jws_encode_b64_element(&jwe->jws.map_b64, LJWE_JOSE,
-				       temp + (ot - *temp_len), temp_len,
+				       temp, temp_len,
 				       jwe->jws.map.buf[LJWE_JOSE],
 				       jwe->jws.map.len[LJWE_JOSE]))
 		return -1;

@@ -44,7 +44,7 @@ lws_jwe_encrypt_rsa_aes_gcm(struct lws_jwe *jwe, char *temp, int *temp_len)
 	/* create the IV + CEK */
 
 	if (lws_jws_randomize_element(jwe->jws.context, &jwe->jws.map, LJWE_IV,
-				      temp + (ot - *temp_len), temp_len,
+				      temp, temp_len,
 				      LWS_AESGCM_IV, 0))
 		return -1;
 

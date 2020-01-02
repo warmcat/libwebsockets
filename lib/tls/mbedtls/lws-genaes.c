@@ -29,7 +29,7 @@
 
 static int operation_map[] = { MBEDTLS_AES_ENCRYPT, MBEDTLS_AES_DECRYPT };
 
-LWS_VISIBLE int
+int
 lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 		  enum enum_aes_modes mode, struct lws_gencrypto_keyelem *el,
 		  enum enum_aes_padding padding, void *engine)
@@ -111,10 +111,10 @@ lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 	return n;
 }
 
-LWS_VISIBLE int
+int
 lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 {
-	int n = 0;
+	int n;
 
 	if (ctx->mode == LWS_GAESM_GCM) {
 		n = mbedtls_gcm_finish(&ctx->u.ctx_gcm, tag, tlen);
@@ -257,7 +257,7 @@ bail:
 	return ret;
 }
 
-LWS_VISIBLE int
+int
 lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 		 uint8_t *out, uint8_t *iv_or_nonce_ctr_or_data_unit_16,
 		 uint8_t *stream_block_16, size_t *nc_or_iv_off, int taglen)

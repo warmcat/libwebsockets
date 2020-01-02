@@ -271,7 +271,6 @@ drain:
 
 		if (n < 0) {
 			/* we closed wsi */
-			n = 0;
 			return LWS_HPI_RET_WSI_ALREADY_DIED;
 		}
 
@@ -393,7 +392,7 @@ rops_write_role_protocol_h2(struct lws *wsi, unsigned char *buf, size_t len,
 	    base != LWS_WRITE_HTTP &&
 	    base != LWS_WRITE_HTTP_FINAL &&
 	    base != LWS_WRITE_HTTP_HEADERS_CONTINUATION &&
-	    base != LWS_WRITE_HTTP_HEADERS &&
+	    base != LWS_WRITE_HTTP_HEADERS && lwsi_state(wsi) != LRS_BODY &&
 	    ((lwsi_state(wsi) != LRS_RETURNED_CLOSE &&
 	      lwsi_state(wsi) != LRS_WAITING_TO_SEND_CLOSE &&
 	      lwsi_state(wsi) != LRS_ESTABLISHED &&
@@ -717,8 +716,6 @@ rops_callback_on_writable_h2(struct lws *wsi)
 	struct lws *network_wsi;
 #endif
 	int already;
-
-	//lwsl_notice("%s: %p (wsistate 0x%x)\n", __func__, wsi, wsi->wsistate);
 
 //	if (!lwsi_role_h2(wsi) && !lwsi_role_h2_ENCAPSULATION(wsi))
 //		return 0;

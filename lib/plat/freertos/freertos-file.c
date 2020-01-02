@@ -30,7 +30,7 @@ int lws_plat_apply_FD_CLOEXEC(int n)
 }
 
 
-LWS_VISIBLE lws_fop_fd_t IRAM_ATTR
+lws_fop_fd_t IRAM_ATTR
 _lws_plat_file_open(const struct lws_plat_file_ops *fops, const char *filename,
 		    const char *vpath, lws_fop_flags_t *flags)
 {
@@ -63,7 +63,7 @@ bail:
 	return NULL;
 }
 
-LWS_VISIBLE int IRAM_ATTR
+int IRAM_ATTR
 _lws_plat_file_close(lws_fop_fd_t *fops_fd)
 {
 	int fd = (*fops_fd)->fd;
@@ -74,13 +74,13 @@ _lws_plat_file_close(lws_fop_fd_t *fops_fd)
 	return close(fd);
 }
 
-LWS_VISIBLE lws_fileofs_t IRAM_ATTR
+lws_fileofs_t IRAM_ATTR
 _lws_plat_file_seek_cur(lws_fop_fd_t fops_fd, lws_fileofs_t offset)
 {
 	return lseek(fops_fd->fd, offset, SEEK_CUR);
 }
 
-LWS_VISIBLE int IRAM_ATTR
+int IRAM_ATTR
 _lws_plat_file_read(lws_fop_fd_t fops_fd, lws_filepos_t *amount,
 		    uint8_t *buf, lws_filepos_t len)
 {
@@ -97,7 +97,7 @@ _lws_plat_file_read(lws_fop_fd_t fops_fd, lws_filepos_t *amount,
 	return 0;
 }
 
-LWS_VISIBLE int IRAM_ATTR
+int IRAM_ATTR
 _lws_plat_file_write(lws_fop_fd_t fops_fd, lws_filepos_t *amount,
 		     uint8_t *buf, lws_filepos_t len)
 {
@@ -153,7 +153,7 @@ lws_find_string_in_file(const char *filename, const char *string, int stringlen)
 #endif
 
 #if !defined(LWS_AMAZON_RTOS)
-LWS_VISIBLE int
+int
 lws_plat_write_file(const char *filename, void *buf, int len)
 {
 	nvs_handle nvh;
@@ -177,7 +177,7 @@ lws_plat_write_file(const char *filename, void *buf, int len)
 
 /* we write vhostname.cert.pem and vhostname.key.pem, 0 return means OK */
 
-LWS_VISIBLE int
+int
 lws_plat_write_cert(struct lws_vhost *vhost, int is_key, int fd, void *buf,
 			int len)
 {
@@ -189,7 +189,7 @@ lws_plat_write_cert(struct lws_vhost *vhost, int is_key, int fd, void *buf,
 	return lws_plat_write_file(name, buf, len) < 0;
 }
 
-LWS_VISIBLE int
+int
 lws_plat_read_file(const char *filename, void *buf, int len)
 {
 	nvs_handle nvh;

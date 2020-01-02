@@ -116,7 +116,7 @@ LWS_VISIBLE LWS_EXTERN void
 lws_dsh_free(void **obj);
 
 /**
- * lws_dsh_get_head() - free a suballocation from the dsh
+ * lws_dsh_get_head() - get the head allocation inside the dsh
  *
  * \param dsh: the dsh tracking the allocation
  * \param kind: the kind of allocation

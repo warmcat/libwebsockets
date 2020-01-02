@@ -26,7 +26,7 @@
 
 #include "extension-permessage-deflate.h"
 
-LWS_VISIBLE void
+void
 lws_context_init_extensions(const struct lws_context_creation_info *info,
 			    struct lws_context *context)
 {
@@ -41,7 +41,7 @@ enum lws_ext_option_parser_states {
 	LEAPS_SEEK_ARG_TERM
 };
 
-LWS_VISIBLE int
+int
 lws_ext_parse_options(const struct lws_extension *ext, struct lws *wsi,
 		      void *ext_user, const struct lws_ext_options *opts,
 		      const char *in, int len)

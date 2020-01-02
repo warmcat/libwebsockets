@@ -155,7 +155,6 @@ lws_system_get_state_manager(struct lws_context *context);
 
 /* wrappers handle NULL members or no ops struct set at all cleanly */
 
-
 #define LWSSYSGAUTH_HEX (1 << 0)
 
 /**

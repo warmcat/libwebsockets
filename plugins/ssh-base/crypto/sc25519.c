@@ -68,8 +68,8 @@ static void barrett_reduce(sc25519 *r, const uint32_t x[64])
       if(i+j >= 31) q2[i+j] += mu[i]*x[j+31];
   carry = q2[31] >> 8;
   q2[32] += carry;
-  carry = q2[32] >> 8;
-  q2[33] += carry;
+  //carry = q2[32] >> 8;
+  //q2[33] += carry;
 
   for(i=0;i<33;i++)r1[i] = x[i];
   for(i=0;i<32;i++)

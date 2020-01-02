@@ -47,13 +47,13 @@ lws_now_usecs(void)
 #endif
 }
 
-LWS_VISIBLE int
+int
 lws_get_random(struct lws_context *context, void *buf, int len)
 {
 	return read(context->fd_random, (char *)buf, len);
 }
 
-LWS_VISIBLE void lwsl_emit_syslog(int level, const char *line)
+void lwsl_emit_syslog(int level, const char *line)
 {
 	int syslog_level = LOG_DEBUG;
 

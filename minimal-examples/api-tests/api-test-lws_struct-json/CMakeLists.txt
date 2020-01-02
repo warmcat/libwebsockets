@@ -1,3 +1,4 @@
+project(lws-api-test-lws_struct-json)
 cmake_minimum_required(VERSION 2.8)
 include(CheckCSourceCompiles)
 

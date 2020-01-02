@@ -2558,7 +2558,7 @@ bail:
 		1024, 0, NULL, 900	\
 	}
 
-LWS_VISIBLE const struct lws_protocols protocols_sshd[] = {
+const struct lws_protocols protocols_sshd[] = {
 	LWS_PLUGIN_PROTOCOL_LWS_RAW_SSHD,
 	{ NULL, NULL, 0, 0, 0, NULL, 0 } /* terminator */
 };

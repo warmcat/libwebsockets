@@ -341,7 +341,6 @@ int main(int argc, const char **argv)
 				 100 * LWS_US_PER_MS);
 
 	start = us();
-	m = 0;
 	while (n >= 0 && !interrupted)
 		n = lws_service(context, 0);
 

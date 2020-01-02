@@ -498,7 +498,7 @@ lws_change_pollfd(struct lws *wsi, int _and, int _or)
 	return ret;
 }
 
-LWS_VISIBLE int
+int
 lws_callback_on_writable(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt;
@@ -587,7 +587,7 @@ lws_same_vh_protocol_remove(struct lws *wsi)
 }
 
 
-LWS_VISIBLE int
+int
 lws_callback_on_writable_all_protocol_vhost(const struct lws_vhost *vhost,
 				           const struct lws_protocols *protocol)
 {
@@ -617,7 +617,7 @@ lws_callback_on_writable_all_protocol_vhost(const struct lws_vhost *vhost,
 	return 0;
 }
 
-LWS_VISIBLE int
+int
 lws_callback_on_writable_all_protocol(const struct lws_context *context,
 				      const struct lws_protocols *protocol)
 {

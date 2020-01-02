@@ -8,13 +8,38 @@ lightweight, configurable, scalable and flexible way.  It's easy to build and
 cross-build via cmake and is suitable for tasks from embedded RTOS through mass
 cloud serving.
 
-[50 minimal examples](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples) for
+[70 independent minimal examples](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples) for
 various scenarios, CC0-licensed (public domain) for cut-and-paste, allow you to get started quickly.
 
 ![overview](./doc-assets/lws-overview.png)
 
 News
 ----
+
+## `lws_system` helper for attaching code to a single event loop from another thread
+
+`lws_system` ops struct now has a member that enables other threads (in the
+same process) to request a callback they define from the lws event loop thread
+context as soon as possible.  From here, in the event loop thread context,
+they can set up their lws functionality before returning and letting it
+operate wholly from the lws event loop.  The original thread calling the
+api to request the callback returns immediately.
+
+## Improvements on tx credit
+
+H2 clients and servers can now modulate RX flow control on streams precisely,
+ie, define the size of the first incoming data and hand out more tx credit
+at timing of its choosing to throttle or completely quench the remote server
+sending as it likes.
+
+The only RFC-compatible way to acheive this is set the initial tx credit to
+0 and set it explicitly when sending the headers... client code can elect to
+do this rather than automatically manage the credit by setting a new flag
+LCCSCF_H2_MANUAL_RXFLOW and indicating the initial tx credit for that stream
+in client connection info member manual_initial_tx_credit.  A new public api
+lws_wsi_tx_credit() allows dynamic get and add to local and estimated remote
+peer credit for a connection.  This api can be used without knowing if the
+underlying connection is h2 or not.
 
 ## `lws_system`: DHCP client
 

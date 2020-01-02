@@ -26,7 +26,7 @@
 
 #if defined(LWS_CLIENT_HTTP_PROXYING)
 
-LWS_VISIBLE int
+int
 lws_set_proxy(struct lws_vhost *vhost, const char *proxy)
 {
 	char authstring[96];

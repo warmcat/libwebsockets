@@ -32,7 +32,7 @@
  * lws convention of 0 for success.
  */
 
-LWS_VISIBLE void
+void
 lws_genrsa_destroy_elements(struct lws_gencrypto_keyelem *el)
 {
 	lws_gencrypto_destroy_elements(el, LWS_GENCRYPTO_RSA_KEYEL_COUNT);
@@ -76,7 +76,7 @@ bail:
 	return 1;
 }
 
-LWS_VISIBLE int
+int
 lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_gencrypto_keyelem *el,
 		  struct lws_context *context, enum enum_genrsa_mode mode,
 		  enum lws_genhash_types oaep_hashid)
@@ -146,7 +146,7 @@ bail:
 	return 1;
 }
 
-LWS_VISIBLE int
+int
 lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 		       enum enum_genrsa_mode mode, struct lws_gencrypto_keyelem *el,
 		       int bits)
@@ -220,7 +220,7 @@ cleanup_1:
  * based padding modes
  */
 
-LWS_VISIBLE int
+int
 lws_genrsa_public_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			  size_t in_len, uint8_t *out)
 {
@@ -235,7 +235,7 @@ lws_genrsa_public_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	return n;
 }
 
-LWS_VISIBLE int
+int
 lws_genrsa_private_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			   size_t in_len, uint8_t *out)
 {
@@ -250,7 +250,7 @@ lws_genrsa_private_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	return n;
 }
 
-LWS_VISIBLE int
+int
 lws_genrsa_public_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			  size_t in_len, uint8_t *out, size_t out_max)
 {
@@ -264,7 +264,7 @@ lws_genrsa_public_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	return n;
 }
 
-LWS_VISIBLE int
+int
 lws_genrsa_private_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			   size_t in_len, uint8_t *out, size_t out_max)
 {
@@ -279,7 +279,7 @@ lws_genrsa_private_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	return n;
 }
 
-LWS_VISIBLE int
+int
 lws_genrsa_hash_sig_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			 enum lws_genhash_types hash_type, const uint8_t *sig,
 			 size_t sig_len)
@@ -322,7 +322,7 @@ lws_genrsa_hash_sig_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	return 0;
 }
 
-LWS_VISIBLE int
+int
 lws_genrsa_hash_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 		       enum lws_genhash_types hash_type, uint8_t *sig,
 		       size_t sig_len)
@@ -395,7 +395,7 @@ bail:
 	return -1;
 }
 
-LWS_VISIBLE void
+void
 lws_genrsa_destroy(struct lws_genrsa_ctx *ctx)
 {
 	if (!ctx->ctx)

@@ -64,7 +64,7 @@ __lws_set_timer_usecs(struct lws *wsi, lws_usec_t us)
 	__lws_sul_insert(&pt->pt_sul_owner, &wsi->sul_hrtimer, us);
 }
 
-LWS_VISIBLE void
+void
 lws_set_timer_usecs(struct lws *wsi, lws_usec_t usecs)
 {
 	__lws_set_timer_usecs(wsi, usecs);

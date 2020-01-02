@@ -757,11 +757,16 @@ lws_client_connect_2_dnsreq(struct lws *wsi)
 	case ACTIVE_CONNS_SOLO:
 		break;
 	case ACTIVE_CONNS_MUXED:
-		lwsl_info("%s: ACTIVE_CONNS_MUXED\n", __func__);
-		if (lwsi_role_h2(wsi) && wsi->protocol->callback(wsi,
-					    LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP,
-					    wsi->user_space, NULL, 0))
-			goto failed1;
+		lwsl_notice("%s: ACTIVE_CONNS_MUXED\n", __func__);
+		if (lwsi_role_h2(wsi)) {
+			if (wsi->protocol->callback(wsi,
+						    LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP,
+						    wsi->user_space, NULL, 0))
+				goto failed1;
+
+			lwsi_set_state(wsi, LRS_H2_WAITING_TO_SEND_HEADERS);
+			lws_callback_on_writable(wsi);
+		}
 
 		return wsi;
 	case ACTIVE_CONNS_QUEUED:

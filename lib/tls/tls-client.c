@@ -50,7 +50,7 @@ lws_ssl_client_connect1(struct lws *wsi)
 int
 lws_ssl_client_connect2(struct lws *wsi, char *errbuf, int len)
 {
-	int n = 0;
+	int n;
 
 	if (lwsi_state(wsi) == LRS_WAITING_SSL) {
 		n = lws_tls_client_connect(wsi);

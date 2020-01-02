@@ -134,12 +134,11 @@ lws_urldecode_s_create(struct lws_spa *spa, struct lws *wsi, char *out,
 				s->mime_boundary[m++] = '-';
 				s->mime_boundary[m++] = '-';
 				while (m < (int)sizeof(s->mime_boundary) - 1 &&
-				       *p && *p != ' ')
+				       *p && *p != ' ' && *p != ';')
 					s->mime_boundary[m++] = *p++;
-
 				s->mime_boundary[m] = '\0';
 
-				lwsl_info("boundary '%s'\n", s->mime_boundary);
+				lwsl_notice("boundary '%s'\n", s->mime_boundary);
 			}
 		}
 	}
@@ -162,6 +161,7 @@ lws_urldecode_s_process(struct lws_urldecode_stateful *s, const char *in,
 
 			s->pos = 0;
 		}
+
 		switch (s->state) {
 
 		/* states for url arg style */
@@ -568,7 +568,7 @@ lws_spa_create_via_info(struct lws *wsi, const lws_spa_create_info_t *i)
 			goto bail5;
 	}
 
-	lwsl_info("%s: Created SPA %p\n", __func__, spa);
+	lwsl_notice("%s: Created SPA %p\n", __func__, spa);
 
 	return spa;
 
