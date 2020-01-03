@@ -938,14 +938,14 @@ if (LWS_HAVE_PTHREAD_H)
 			pthread_setname_np(th, NULL);
 			return 0;
 		}" LWS_HAS_PTHREAD_SETNAME_NP)
-
-	CHECK_C_SOURCE_COMPILES("#include <stddef.h>
-		#include <getopt.h>
-		int main(void) {
-			void *p = (void *)getopt_long;
-			return p != NULL;
-		}" LWS_HAS_GETOPT_LONG)
 endif()
+
+CHECK_C_SOURCE_COMPILES("#include <stddef.h>
+	#include <getopt.h>
+	int main(void) {
+		void *p = (void *)getopt_long;
+		return p != NULL;
+	}" LWS_HAS_GETOPT_LONG)
 
 
 if (NOT PID_T_SIZE)
