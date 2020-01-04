@@ -465,7 +465,9 @@ lws_process_ws_upgrade(struct lws *wsi)
 		meth = lws_http_get_uri_and_method(wsi, &uri_ptr, &uri_len);
 		hit = lws_find_mount(wsi, uri_ptr, uri_len);
 
-		if (hit && (meth == 0 || meth == 8) &&
+		if (hit && (meth == LWSHUMETH_GET ||
+			    meth == LWSHUMETH_CONNECT ||
+			    meth == LWSHUMETH_COLON_PATH) &&
 		    (hit->origin_protocol == LWSMPRO_HTTPS ||
 		     hit->origin_protocol == LWSMPRO_HTTP))
 			/*
