@@ -41,6 +41,8 @@
 #define LWS_TOKENIZE_F_NO_INTEGERS	(1 << 6)
 /* # makes the rest of the line a comment */
 #define LWS_TOKENIZE_F_HASH_COMMENT	(1 << 7)
+/* Do not treat / as a terminal character, so "multipart/related" is one token */
+#define LWS_TOKENIZE_F_SLASH_NONTERM	(1 << 8)
 
 typedef enum {
 
