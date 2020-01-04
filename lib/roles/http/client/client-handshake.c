@@ -29,6 +29,7 @@ static int
 lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
 {
 	struct addrinfo hints;
+	int n;
 
 	memset(&hints, 0, sizeof(hints));
 	*result = NULL;
@@ -48,7 +49,11 @@ lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
 		hints.ai_family = PF_UNSPEC;
 	}
 
-	return getaddrinfo(ads, NULL, &hints, result);
+	n = getaddrinfo(ads, NULL, &hints, result);
+
+	lwsl_info("%s: getaddrinfo '%s' says %d\n", __func__, ads, n);
+
+	return n;
 }
 #endif
 
@@ -193,6 +198,17 @@ send_hs:
 		else {
 			/* for a method = "RAW" connection, this makes us
 			 * established */
+#if 0
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+			if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
+				n = lws_ssl_client_connect1(wsi);
+				if (n < 0) {
+					lwsl_err("%s: lws_ssl_client_connect1 failed\n", __func__);
+					goto failed;
+				}
+			}
+#endif
+#endif
 
 			/* clear his established timeout */
 			lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
@@ -408,6 +424,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 		/* lws_getaddrinfo46 failed, there is no usable result */
 		lwsl_notice("%s: lws_getaddrinfo46 failed %d\n",
 				__func__, n);
+
 		cce = "ipv6 lws_getaddrinfo46 failed";
 		goto oom4;
 	}
@@ -612,7 +629,7 @@ ads_known:
 
 conn_good:
 
-	lwsl_debug("%s: Connection started\n", __func__);
+	lwsl_debug("%s: Connection started %p\n", __func__, wsi->dns_results);
 
 	/* the tcp connection has happend */
 
@@ -740,6 +757,12 @@ lws_client_connect_2_dnsreq(struct lws *wsi)
 	case ACTIVE_CONNS_SOLO:
 		break;
 	case ACTIVE_CONNS_MUXED:
+		lwsl_info("%s: ACTIVE_CONNS_MUXED\n", __func__);
+		if (lwsi_role_h2(wsi) && wsi->protocol->callback(wsi,
+					    LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP,
+					    wsi->user_space, NULL, 0))
+			goto failed1;
+
 		return wsi;
 	case ACTIVE_CONNS_QUEUED:
 		return lws_client_connect_4_established(wsi, w, 0);
@@ -901,12 +924,12 @@ next_step:
 #endif
 	return lws_client_connect_3_connect(wsi, ads, result, n, NULL);
 
-#if defined(LWS_WITH_SYS_ASYNC_DNS)
+//#if defined(LWS_WITH_SYS_ASYNC_DNS)
 failed1:
 	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "client_connect2");
 
 	return NULL;
-#endif
+//#endif
 }
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
