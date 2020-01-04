@@ -185,7 +185,7 @@ lws_buflist_linear_copy(struct lws_buflist **head, size_t ofs, uint8_t *buf,
 			s = p->len - ofs;
 			if (s > len)
 				s = len;
-			memcpy(buf, ((uint8_t *)&p[1]) + ofs, s);
+			memcpy(buf, ((uint8_t *)&p[1]) + LWS_PRE + ofs, s);
 			len -= s;
 			buf += s;
 			ofs = 0;
