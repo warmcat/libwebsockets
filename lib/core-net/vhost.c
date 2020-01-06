@@ -437,7 +437,7 @@ lws_create_vhost(struct lws_context *context,
 	struct lws_protocols *lwsp;
 	int m, f = !info->pvo, fx = 0, abs_pcol_count = 0;
 	char buf[96];
-#if !defined(LWS_WITHOUT_CLIENT) && defined(LWS_HAVE_GETENV)
+#if (!defined(LWS_WITHOUT_CLIENT) || defined(LWS_WITH_SOCKS5)) && defined(LWS_HAVE_GETENV)
 	char *p;
 #endif
 	int n;
