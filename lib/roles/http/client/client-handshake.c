@@ -1074,7 +1074,7 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 
 #if defined(LWS_WITH_TLS)
 	if (!ssl)
-		wsi->tls.use_ssl &= LCCSCF_USE_SSL;
+		wsi->tls.use_ssl &= ~LCCSCF_USE_SSL;
 	else
 		wsi->tls.use_ssl |= LCCSCF_USE_SSL;
 #else
