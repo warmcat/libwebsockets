@@ -566,9 +566,9 @@ ads_known:
 						  _WSI_TOKEN_CLIENT_IFACE);
 
 		if (iface && *iface) {
-			n = lws_socket_bind(wsi->vhost, wsi->desc.sockfd, 0,
+			m = lws_socket_bind(wsi->vhost, wsi->desc.sockfd, 0,
 					    iface, wsi->ipv6);
-			if (n < 0)
+			if (m < 0)
 				goto try_next_result_fds;
 		}
 	}
