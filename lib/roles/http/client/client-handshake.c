@@ -130,7 +130,7 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 		}
 
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_PROXY_RESPONSE,
-				AWAITING_TIMEOUT);
+				wsi->context->timeout_secs);
 
 		lwsi_set_state(wsi, LRS_WAITING_PROXY_REPLY);
 
@@ -151,7 +151,7 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 
 		lws_set_timeout(wsi,
 				PENDING_TIMEOUT_AWAITING_SOCKS_GREETING_REPLY,
-				AWAITING_TIMEOUT);
+				wsi->context->timeout_secs);
 
 		lwsi_set_state(wsi, LRS_WAITING_SOCKS_GREETING_REPLY);
 
@@ -244,7 +244,7 @@ send_hs:
 		 */
 
 		lws_set_timeout(wsi, PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE,
-				AWAITING_TIMEOUT);
+				wsi->context->timeout_secs);
 
 		assert(lws_socket_is_valid(wsi->desc.sockfd));
 
@@ -560,7 +560,7 @@ ads_known:
 			wsi->protocol = &wsi->vhost->protocols[0];
 
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CONNECT_RESPONSE,
-				AWAITING_TIMEOUT);
+				wsi->context->timeout_secs);
 
 		iface = lws_wsi_client_stash_item(wsi, CIS_IFACE,
 						  _WSI_TOKEN_CLIENT_IFACE);

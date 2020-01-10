@@ -244,7 +244,8 @@ socks_send:
 				goto bail3;
 			}
 
-			lws_set_timeout(wsi, pending_timeout, AWAITING_TIMEOUT);
+			lws_set_timeout(wsi, pending_timeout,
+					context->timeout_secs);
 			lwsi_set_state(wsi, conn_mode);
 			break;
 
