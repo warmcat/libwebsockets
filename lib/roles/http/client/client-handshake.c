@@ -959,8 +959,11 @@ static uint8_t hnames2[] = {
  */
 struct lws *
 lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
-		 const char *path, const char *host)
+		 const char *path, const char *host, char weak)
 {
+#if defined(LWS_ROLE_WS)
+	struct _lws_websocket_related *ws;
+#endif
 	char *stash, *p;
 	struct lws *wsi;
 	size_t size = 0;
@@ -1041,7 +1044,17 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 		   address, port, path, ssl, wsi->position_in_fds_table);
 
 	__remove_wsi_socket_from_fds(wsi);
+#if defined(LWS_ROLE_WS)
+	if (weak) {
+		ws = wsi->ws;
+		wsi->ws = NULL;
+	}
+#endif
 	__lws_reset_wsi(wsi); /* detaches ah here */
+#if defined(LWS_ROLE_WS)
+	if (weak)
+		wsi->ws = ws;
+#endif
 	wsi->client_pipeline = 1;
 
 	/* close the connection by hand */

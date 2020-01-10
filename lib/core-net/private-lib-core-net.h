@@ -1102,7 +1102,7 @@ lws_client_connect_2_dnsreq(struct lws *wsi);
 
 LWS_VISIBLE struct lws * LWS_WARN_UNUSED_RESULT
 lws_client_reset(struct lws **wsi, int ssl, const char *address, int port,
-		 const char *path, const char *host);
+		 const char *path, const char *host, char weak);
 
 LWS_EXTERN struct lws * LWS_WARN_UNUSED_RESULT
 lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi);

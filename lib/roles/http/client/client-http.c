@@ -893,7 +893,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			goto bail3;
 		}
 
-		if (!lws_client_reset(&wsi, ssl, ads, port, path, ads)) {
+		if (!lws_client_reset(&wsi, ssl, ads, port, path, ads, 1)) {
 			/*
 			 * There are two ways to fail out with NULL return...
 			 * simple, early problem where the wsi is intact, or
