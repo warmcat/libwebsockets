@@ -1251,14 +1251,99 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 }
 #endif
 
+
 static const char * const oprot[] = {
 	"http://", "https://"
 };
+
+
+static int
+lws_http_redirect_hit(struct lws_context_per_thread *pt, struct lws *wsi,
+		      const struct lws_http_mount *hit, char *uri_ptr,
+		      int uri_len, int *h)
+{
+	char *s;
+	int n;
+
+	*h = 0;
+	s = uri_ptr + hit->mountpoint_len;
+
+	/*
+	 * if we have a mountpoint like https://xxx.com/yyy
+	 * there is an implied / at the end for our purposes since
+	 * we can only mount on a "directory".
+	 *
+	 * But if we just go with that, the browser cannot understand
+	 * that he is actually looking down one "directory level", so
+	 * even though we give him /yyy/abc.html he acts like the
+	 * current directory level is /.  So relative urls like "x.png"
+	 * wrongly look outside the mountpoint.
+	 *
+	 * Therefore if we didn't come in on a url with an explicit
+	 * / at the end, we must redirect to add it so the browser
+	 * understands he is one "directory level" down.
+	 */
+	if ((hit->mountpoint_len > 1 ||
+	     (hit->origin_protocol == LWSMPRO_REDIR_HTTP ||
+	      hit->origin_protocol == LWSMPRO_REDIR_HTTPS)) &&
+	    (*s != '/' ||
+	     (hit->origin_protocol == LWSMPRO_REDIR_HTTP ||
+	      hit->origin_protocol == LWSMPRO_REDIR_HTTPS)) &&
+	    (hit->origin_protocol != LWSMPRO_CGI &&
+	     hit->origin_protocol != LWSMPRO_CALLBACK)) {
+		unsigned char *start = pt->serv_buf + LWS_PRE, *p = start,
+			      *end = p + wsi->context->pt_serv_buf_size -
+					LWS_PRE - 512;
+
+		*h = 1;
+
+		lwsl_info("Doing 301 '%s' org %s\n", s, hit->origin);
+
+		/* > at start indicates deal with by redirect */
+		if (hit->origin_protocol == LWSMPRO_REDIR_HTTP ||
+		    hit->origin_protocol == LWSMPRO_REDIR_HTTPS)
+			n = lws_snprintf((char *)end, 256, "%s%s",
+				    oprot[hit->origin_protocol & 1],
+				    hit->origin);
+		else {
+			if (!lws_hdr_total_length(wsi, WSI_TOKEN_HOST)) {
+				if (!lws_hdr_total_length(wsi,
+						WSI_TOKEN_HTTP_COLON_AUTHORITY))
+					goto bail_nuke_ah;
+				n = lws_snprintf((char *)end, 256,
+				    "%s%s%s/", oprot[!!lws_is_ssl(wsi)],
+				    lws_hdr_simple_ptr(wsi,
+						WSI_TOKEN_HTTP_COLON_AUTHORITY),
+				    uri_ptr);
+			} else
+				n = lws_snprintf((char *)end, 256,
+				    "%s%s%s/", oprot[!!lws_is_ssl(wsi)],
+				    lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST),
+				    uri_ptr);
+		}
+
+		lws_clean_url((char *)end);
+		n = lws_http_redirect(wsi, HTTP_STATUS_MOVED_PERMANENTLY,
+				      end, n, &p, end);
+		if ((int)n < 0)
+			goto bail_nuke_ah;
+
+		return lws_http_transaction_completed(wsi);
+	}
+
+	return 0;
+
+bail_nuke_ah:
+	lws_header_table_detach(wsi, 1);
+
+	return 1;
+}
 
 int
 lws_http_action(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	int uri_len = 0, meth, m, http_version_len, ha;
 	const struct lws_http_mount *hit = NULL;
 	enum http_version request_version;
 	struct lws_process_html_args args;
@@ -1266,9 +1351,7 @@ lws_http_action(struct lws *wsi)
 	char content_length_str[32];
 	char http_version_str[12];
 	char *uri_ptr = NULL, *s;
-	int uri_len = 0, meth, m;
 	char http_conn_str[25];
-	int http_version_len;
 	unsigned int n;
 
 	meth = lws_http_get_uri_and_method(wsi, &uri_ptr, &uri_len);
@@ -1427,67 +1510,9 @@ lws_http_action(struct lws *wsi)
 	}
 
 	s = uri_ptr + hit->mountpoint_len;
-
-	/*
-	 * if we have a mountpoint like https://xxx.com/yyy
-	 * there is an implied / at the end for our purposes since
-	 * we can only mount on a "directory".
-	 *
-	 * But if we just go with that, the browser cannot understand
-	 * that he is actually looking down one "directory level", so
-	 * even though we give him /yyy/abc.html he acts like the
-	 * current directory level is /.  So relative urls like "x.png"
-	 * wrongly look outside the mountpoint.
-	 *
-	 * Therefore if we didn't come in on a url with an explicit
-	 * / at the end, we must redirect to add it so the browser
-	 * understands he is one "directory level" down.
-	 */
-	if ((hit->mountpoint_len > 1 ||
-	     (hit->origin_protocol == LWSMPRO_REDIR_HTTP ||
-	      hit->origin_protocol == LWSMPRO_REDIR_HTTPS)) &&
-	    (*s != '/' ||
-	     (hit->origin_protocol == LWSMPRO_REDIR_HTTP ||
-	      hit->origin_protocol == LWSMPRO_REDIR_HTTPS)) &&
-	    (hit->origin_protocol != LWSMPRO_CGI &&
-	     hit->origin_protocol != LWSMPRO_CALLBACK)) {
-		unsigned char *start = pt->serv_buf + LWS_PRE, *p = start,
-			      *end = p + wsi->context->pt_serv_buf_size -
-			      	     LWS_PRE - 512;
-
-		lwsl_info("Doing 301 '%s' org %s\n", s, hit->origin);
-
-		/* > at start indicates deal with by redirect */
-		if (hit->origin_protocol == LWSMPRO_REDIR_HTTP ||
-		    hit->origin_protocol == LWSMPRO_REDIR_HTTPS)
-			n = lws_snprintf((char *)end, 256, "%s%s",
-				    oprot[hit->origin_protocol & 1],
-				    hit->origin);
-		else {
-			if (!lws_hdr_total_length(wsi, WSI_TOKEN_HOST)) {
-				if (!lws_hdr_total_length(wsi,
-						WSI_TOKEN_HTTP_COLON_AUTHORITY))
-					goto bail_nuke_ah;
-				n = lws_snprintf((char *)end, 256,
-				    "%s%s%s/", oprot[!!lws_is_ssl(wsi)],
-				    lws_hdr_simple_ptr(wsi,
-						WSI_TOKEN_HTTP_COLON_AUTHORITY),
-				    uri_ptr);
-			} else
-				n = lws_snprintf((char *)end, 256,
-				    "%s%s%s/", oprot[!!lws_is_ssl(wsi)],
-				    lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST),
-				    uri_ptr);
-		}
-
-		lws_clean_url((char *)end);
-		n = lws_http_redirect(wsi, HTTP_STATUS_MOVED_PERMANENTLY,
-				      end, n, &p, end);
-		if ((int)n < 0)
-			goto bail_nuke_ah;
-
-		return lws_http_transaction_completed(wsi);
-	}
+	n = lws_http_redirect_hit(pt, wsi, hit, uri_ptr, uri_len, &ha);
+	if (ha)
+		return n;
 
 	/* basic auth? */
 
@@ -1606,7 +1631,7 @@ lws_http_action(struct lws *wsi)
 	}
 #endif
 
-	n = uri_len - lws_ptr_diff(s, uri_ptr); // (int)strlen(s);
+	n = uri_len - lws_ptr_diff(s, uri_ptr);
 	if (s[0] == '\0' || (n == 1 && s[n - 1] == '/'))
 		s = (char *)hit->def;
 	if (!s)
@@ -1866,6 +1891,7 @@ int
 lws_handshake_server(struct lws *wsi, unsigned char **buf, size_t len)
 {
 	struct lws_context *context = lws_get_context(wsi);
+	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 #if defined(LWS_WITH_HTTP2)
 	struct allocated_headers *ah;
 #endif
@@ -2004,6 +2030,32 @@ raw_transition:
 				}
 			}
 		}
+
+		/*
+		 * So he may have come to us requesting one or another kind
+		 * of upgrade from http... but we may want to redirect him at
+		 * http level.  In that case, we need to check the redirect
+		 * situation even though he's not actually wanting http and
+		 * prioritize returning that if there is one.
+		 */
+
+		{
+			const struct lws_http_mount *hit = NULL;
+			int uri_len = 0, ha, n;
+			char *uri_ptr = NULL;
+
+			n = lws_http_get_uri_and_method(wsi, &uri_ptr, &uri_len);
+			if (n >= 0) {
+				hit = lws_find_mount(wsi, uri_ptr, uri_len);
+				if (hit) {
+					n = lws_http_redirect_hit(pt, wsi, hit, uri_ptr,
+								  uri_len, &ha);
+					if (ha)
+						return n;
+				}
+			}
+		}
+
 
 
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_CONNECT)) {

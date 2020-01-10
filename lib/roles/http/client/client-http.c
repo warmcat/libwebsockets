@@ -773,11 +773,13 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	wsi->http.conn_type = HTTP_CONNECTION_KEEP_ALIVE;
 	if (!wsi->client_mux_substream) {
 		p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP);
+		/*
 		if (wsi->do_ws && !p) {
 			lwsl_info("no URI\n");
 			cce = "HS: URI missing";
 			goto bail3;
 		}
+		*/
 		if (!p) {
 			p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP1_0);
 			wsi->http.conn_type = HTTP_CONNECTION_CLOSE;
