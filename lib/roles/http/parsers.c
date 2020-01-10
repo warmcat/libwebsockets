@@ -673,6 +673,16 @@ lws_pos_in_bounds(struct lws *wsi)
 int LWS_WARN_UNUSED_RESULT
 lws_hdr_simple_create(struct lws *wsi, enum lws_token_indexes h, const char *s)
 {
+	if (!*s) {
+		/*
+		 * If we get an empty string, then remove any entry for the
+		 * header
+		 */
+		wsi->http.ah->frag_index[h] = 0;
+
+		return 0;
+	}
+
 	wsi->http.ah->nfrag++;
 	if (wsi->http.ah->nfrag == LWS_ARRAY_SIZE(wsi->http.ah->frags)) {
 		lwsl_warn("More hdr frags than we can deal with, dropping\n");
