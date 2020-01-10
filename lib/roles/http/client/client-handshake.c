@@ -219,7 +219,7 @@ lws_client_connect_2(struct lws *wsi)
 	struct sockaddr_un sau;
 	char unix_skt = 0;
 #endif
-	int n, port = 0;
+	int n, m, port = 0;
 	const char *cce = "", *iface;
 	const struct sockaddr *psa;
 	const char *meth = NULL;
@@ -663,10 +663,10 @@ ads_known:
 		else
 			iface = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_IFACE);
 
-		if (iface) {
-			n = lws_socket_bind(wsi->vhost, wsi->desc.sockfd, 0,
+		if (iface && *iface) {
+			m = lws_socket_bind(wsi->vhost, wsi->desc.sockfd, 0,
 					    iface, wsi->ipv6);
-			if (n < 0) {
+			if (m < 0) {
 				cce = "unable to bind socket";
 				goto failed;
 			}
