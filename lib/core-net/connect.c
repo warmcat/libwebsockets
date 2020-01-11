@@ -239,7 +239,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	for (n = 0; n < CIS_COUNT; n++)
 		if (cisin[n]) {
 			wsi->stash->cis[n] = pc;
-			m = strlen(cisin[n]) + 1;
+			m = (int)strlen(cisin[n]) + 1;
 			memcpy(pc, cisin[n], m);
 			pc += m;
 		}

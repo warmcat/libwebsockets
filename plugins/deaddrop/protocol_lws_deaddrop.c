@@ -150,10 +150,14 @@ scan_upload_dir(struct vhd_deaddrop *vhd)
 		de = readdir(dir[sp]);
 		if (!de) {
 			closedir(dir[sp]);
+#if !defined(__COVERITY__)
 			if (!sp)
+#endif
 				break;
+#if !defined(__COVERITY__)
 			sp--;
 			continue;
+#endif
 		}
 
 		p = filepath;

@@ -20,7 +20,7 @@
 struct expected {
 	lws_tokenize_elem e;
 	const char *value;
-	int len;
+	size_t len;
 };
 
 struct tests {
@@ -445,7 +445,8 @@ int main(int argc, const char **argv)
 				lws_strnncpy(dotstar, ts.token, ts.token_len,
 					     sizeof(dotstar));
 				lwsl_notice("fail token mismatch %d %d %s\n",
-					    ts.token_len, exp->len, dotstar);
+					    (int)ts.token_len, (int)exp->len,
+					    dotstar);
 				fail++;
 				break;
 			}

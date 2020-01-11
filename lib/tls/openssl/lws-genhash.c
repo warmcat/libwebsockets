@@ -125,9 +125,9 @@ lws_genhmac_init(struct lws_genhmac_ctx *ctx, enum lws_genhmac_types type,
 	}
 
 #if defined(LWS_HAVE_HMAC_CTX_new)
-        if (HMAC_Init_ex(ctx->ctx, key, key_len, ctx->evp_type, NULL) != 1)
+        if (HMAC_Init_ex(ctx->ctx, key, (int)key_len, ctx->evp_type, NULL) != 1)
 #else
-        if (HMAC_Init_ex(&ctx->ctx, key, key_len, ctx->evp_type, NULL) != 1)
+        if (HMAC_Init_ex(&ctx->ctx, key, (int)key_len, ctx->evp_type, NULL) != 1)
 #endif
         	goto bail;
 
@@ -157,7 +157,7 @@ lws_genhmac_update(struct lws_genhmac_ctx *ctx, const void *in, size_t len)
 int
 lws_genhmac_destroy(struct lws_genhmac_ctx *ctx, void *result)
 {
-	unsigned int size = lws_genhmac_size(ctx->type);
+	unsigned int size = (unsigned int)lws_genhmac_size(ctx->type);
 #if defined(LWS_HAVE_HMAC_CTX_new)
 	int n = HMAC_Final(ctx->ctx, result, &size);
 

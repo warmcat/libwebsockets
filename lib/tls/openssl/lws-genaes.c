@@ -296,7 +296,7 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx,
 
 		if (ctx->mode == LWS_GAESM_GCM) {
 			n = EVP_CIPHER_CTX_ctrl(ctx->ctx, EVP_CTRL_GCM_SET_IVLEN,
-					    *nc_or_iv_off, NULL);
+					   (int)*nc_or_iv_off, NULL);
 			if (n != 1) {
 				lwsl_err("%s: SET_IVLEN failed\n", __func__);
 				return -1;
@@ -340,10 +340,10 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx,
 
 		switch (ctx->op) {
 		case LWS_GAESO_ENC:
-			n = EVP_EncryptUpdate(ctx->ctx, NULL, &olen, in, len);
+			n = EVP_EncryptUpdate(ctx->ctx, NULL, &olen, in, (int)len);
 			break;
 		case LWS_GAESO_DEC:
-			n = EVP_DecryptUpdate(ctx->ctx, NULL, &olen, in, len);
+			n = EVP_DecryptUpdate(ctx->ctx, NULL, &olen, in, (int)len);
 			break;
 		default:
 			return -1;
@@ -360,10 +360,10 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx,
 
 	switch (ctx->op) {
 	case LWS_GAESO_ENC:
-		n = EVP_EncryptUpdate(ctx->ctx, out, &outl, in, len);
+		n = EVP_EncryptUpdate(ctx->ctx, out, &outl, in, (int)len);
 		break;
 	case LWS_GAESO_DEC:
-		n = EVP_DecryptUpdate(ctx->ctx, out, &outl, in, len);
+		n = EVP_DecryptUpdate(ctx->ctx, out, &outl, in, (int)len);
 		break;
 	default:
 		return -1;

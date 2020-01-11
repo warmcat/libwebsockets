@@ -1328,6 +1328,9 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin);
 const char *
 lws_wsi_client_stash_item(struct lws *wsi, int stash_idx, int hdr_idx);
 
+int
+lws_plat_BINDTODEVICE(lws_sockfd_type fd, const char *ifname);
+
 #ifdef __cplusplus
 };
 #endif

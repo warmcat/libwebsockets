@@ -543,7 +543,7 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 		if (!wsi->do_bind && !wsi->pf_packet) {
 
 			if (connect(sock.sockfd, wsi->dns_results_next->ai_addr,
-				     wsi->dns_results_next->ai_addrlen) == -1) {
+				     (socklen_t)wsi->dns_results_next->ai_addrlen) == -1) {
 				lwsl_err("%s: conn fd %d fam %d %s:%u failed "
 					 "(salen %d) errno %d\n", __func__,
 					 sock.sockfd,
@@ -557,7 +557,7 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 
 			memcpy(&wsi->udp->sa, wsi->dns_results_next->ai_addr,
 			       wsi->dns_results_next->ai_addrlen);
-			wsi->udp->salen = wsi->dns_results_next->ai_addrlen;
+			wsi->udp->salen = (socklen_t)wsi->dns_results_next->ai_addrlen;
 		}
 
 		/* we connected: complete the udp socket adoption flow */

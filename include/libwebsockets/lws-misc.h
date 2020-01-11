@@ -72,7 +72,7 @@ lws_buflist_next_segment_len(struct lws_buflist **head, uint8_t **buf);
  * Returns the number of bytes left in the current segment.  0 indicates
  * that the buflist is empty (there are no segments on the buflist).
  */
-LWS_VISIBLE LWS_EXTERN int
+LWS_VISIBLE LWS_EXTERN size_t
 lws_buflist_use_segment(struct lws_buflist **head, size_t len);
 
 /**

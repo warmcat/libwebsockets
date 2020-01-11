@@ -306,7 +306,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		if (lws_system_blob_get_single_ptr(b, &data))
 			goto no_client_cert;
 
-		if (SSL_use_certificate_ASN1(wsi->tls.ssl, data, size) != 1) {
+		if (SSL_use_certificate_ASN1(wsi->tls.ssl, data, (int)size) != 1) {
 			lwsl_err("%s: use_certificate failed\n", __func__);
 			lws_tls_err_describe_clear();
 			goto no_client_cert;
@@ -326,9 +326,9 @@ lws_ssl_client_bio_create(struct lws *wsi)
 			goto no_client_cert;
 
 		if (SSL_use_PrivateKey_ASN1(EVP_PKEY_RSA, wsi->tls.ssl,
-					    data, size) != 1 &&
+					    data, (int)size) != 1 &&
 		    SSL_use_PrivateKey_ASN1(EVP_PKEY_EC, wsi->tls.ssl,
-					    data, size) != 1) {
+					    data, (int)size) != 1) {
 			lwsl_err("%s: use_privkey failed\n", __func__);
 			lws_tls_err_describe_clear();
 			goto no_client_cert;
@@ -455,7 +455,7 @@ lws_tls_client_vhost_extra_cert_mem(struct lws_vhost *vh,
                 const uint8_t *der, size_t der_len)
 {
 	X509_STORE *st;
-	X509 *x  = d2i_X509(NULL, &der, der_len);
+	X509 *x  = d2i_X509(NULL, &der, (long)der_len);
 	int n;
 
 	if (!x) {
@@ -713,10 +713,10 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		}
 
 		up = up1;
-		client_CA = d2i_X509(NULL, &up, amount);
+		client_CA = d2i_X509(NULL, &up, (long)amount);
 		if (!client_CA) {
 			lwsl_err("%s: d2i_X509 failed\n", __func__);
-			lwsl_hexdump_notice(up1, amount);
+			lwsl_hexdump_notice(up1, (size_t)amount);
 			lws_tls_err_describe_clear();
 		} else {
 			x509_store = X509_STORE_new();

@@ -236,7 +236,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->username = info->username;
 	context->groupname = info->groupname;
 	context->system_ops = info->system_ops;
-	context->pt_serv_buf_size = s1;
+	context->pt_serv_buf_size = (unsigned int)s1;
 	context->udp_loss_sim_tx_pc = info->udp_loss_sim_tx_pc;
 	context->udp_loss_sim_rx_pc = info->udp_loss_sim_rx_pc;
 

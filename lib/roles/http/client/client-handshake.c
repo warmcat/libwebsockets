@@ -327,6 +327,9 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 		*/
 
 		if (!getsockopt(wsi->desc.sockfd, SOL_SOCKET, SO_ERROR,
+#if defined(WIN32)
+				(char *)
+#endif
 				&e, &sl)) {
 			if (!e) {
 				lwsl_info("%s: getsockopt check: conn OK\n",

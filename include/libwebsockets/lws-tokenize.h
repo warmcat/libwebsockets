@@ -83,13 +83,13 @@ enum lws_tokenize_delimiter_tracking {
 typedef struct lws_tokenize {
 	const char *start; /**< set to the start of the string to tokenize */
 	const char *token; /**< the start of an identified token or delimiter */
-	int len;	/**< set to the length of the string to tokenize */
-	int token_len;	/**< the length of the identied token or delimiter */
+	size_t len;	/**< set to the length of the string to tokenize */
+	size_t token_len;	/**< the length of the identied token or delimiter */
 
-	int flags;	/**< optional LWS_TOKENIZE_F_ flags, or 0 */
-	int delim;
+	uint16_t flags;	/**< optional LWS_TOKENIZE_F_ flags, or 0 */
+	uint8_t delim;
 
-	lws_tokenize_elem e; /**< convenient for storing lws_tokenize return */
+	int8_t e; /**< convenient for storing lws_tokenize return */
 } lws_tokenize_t;
 
 /**
@@ -142,7 +142,7 @@ lws_tokenize(struct lws_tokenize *ts);
  */
 
 LWS_VISIBLE LWS_EXTERN int
-lws_tokenize_cstr(struct lws_tokenize *ts, char *str, int max);
+lws_tokenize_cstr(struct lws_tokenize *ts, char *str, size_t max);
 
 
 /*

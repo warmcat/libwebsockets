@@ -408,6 +408,7 @@ lws_process_ws_upgrade(struct lws *wsi)
 	char buf[128], name[64];
 	struct lws_tokenize ts;
 	lws_tokenize_elem e;
+	int n;
 
 	if (!wsi->protocol)
 		lwsl_err("NULL protocol at lws_read\n");
@@ -427,10 +428,10 @@ lws_process_ws_upgrade(struct lws *wsi)
 					    LWS_TOKENIZE_F_DOT_NONTERM |
 					    LWS_TOKENIZE_F_RFC7230_DELIMS |
 					    LWS_TOKENIZE_F_MINUS_NONTERM);
-		ts.len = lws_hdr_copy(wsi, buf, sizeof(buf) - 1,
-				      WSI_TOKEN_CONNECTION);
-		if (ts.len <= 0)
+		n = lws_hdr_copy(wsi, buf, sizeof(buf) - 1, WSI_TOKEN_CONNECTION);
+		if (n <= 0)
 			goto bad_conn_format;
+		ts.len = n;
 
 		do {
 			e = lws_tokenize(&ts);
@@ -494,11 +495,12 @@ lws_process_ws_upgrade(struct lws *wsi)
 				    LWS_TOKENIZE_F_MINUS_NONTERM |
 				    LWS_TOKENIZE_F_DOT_NONTERM |
 				    LWS_TOKENIZE_F_RFC7230_DELIMS);
-	ts.len = lws_hdr_copy(wsi, buf, sizeof(buf) - 1, WSI_TOKEN_PROTOCOL);
-	if (ts.len < 0) {
+	n = lws_hdr_copy(wsi, buf, sizeof(buf) - 1, WSI_TOKEN_PROTOCOL);
+	if (n < 0) {
 		lwsl_err("%s: protocol list too long\n", __func__);
 		return 1;
 	}
+	ts.len = n;
 	if (!ts.len) {
 		int n = wsi->vhost->default_protocol_index;
 		/*

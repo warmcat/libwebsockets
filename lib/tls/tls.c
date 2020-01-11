@@ -229,11 +229,11 @@ lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
 
 		/* take it as being already DER */
 
-		pem = lws_malloc(inlen, "alloc_der");
+		pem = lws_malloc((size_t)inlen, "alloc_der");
 		if (!pem)
 			return 1;
 
-		memcpy(pem, inbuf, inlen);
+		memcpy(pem, inbuf, (size_t)inlen);
 
 		*buf = pem;
 		*amount = inlen;
@@ -245,7 +245,7 @@ lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
 
 	if (!filename) {
 		/* we don't know if it's in const memory... alloc the output */
-		pem = lws_malloc((inlen * 3) / 4, "alloc_der");
+		pem = lws_malloc(((size_t)inlen * 3) / 4, "alloc_der");
 		if (!pem) {
 			lwsl_err("a\n");
 			return 1;

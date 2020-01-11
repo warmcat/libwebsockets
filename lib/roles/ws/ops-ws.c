@@ -807,13 +807,13 @@ lws_remove_wsi_from_draining_ext_list(struct lws *wsi)
 static int
 lws_0405_frame_mask_generate(struct lws *wsi)
 {
-	int n;
+	size_t n;
 	/* fetch the per-frame nonce */
 
 	n = lws_get_random(lws_get_context(wsi), wsi->ws->mask, 4);
 	if (n != 4) {
 		lwsl_parser("Unable to read from random device %s %d\n",
-			    SYSTEM_RANDOM_FILEPATH, n);
+			    SYSTEM_RANDOM_FILEPATH, (int)n);
 		return 1;
 	}
 

@@ -135,7 +135,7 @@ lws_buflist_next_segment_len(struct lws_buflist **head, uint8_t **buf)
 	return b->len - b->pos;
 }
 
-int
+size_t
 lws_buflist_use_segment(struct lws_buflist **head, size_t len)
 {
 	struct lws_buflist *b = (*head);

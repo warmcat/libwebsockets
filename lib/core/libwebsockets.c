@@ -88,7 +88,7 @@ lws_vbi_encode(uint64_t value, void *buf)
 			*p++ = b;
 	} while (value);
 
-	return p - (uint8_t *)buf;
+	return lws_ptr_diff(p, buf);
 }
 
 int
@@ -892,7 +892,7 @@ token_or_numeric:
 
 
 int
-lws_tokenize_cstr(struct lws_tokenize *ts, char *str, int max)
+lws_tokenize_cstr(struct lws_tokenize *ts, char *str, size_t max)
 {
 	if (ts->token_len + 1 >= max)
 		return 1;

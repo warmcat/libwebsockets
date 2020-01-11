@@ -68,7 +68,7 @@ lws_genec_confirm_curve_allowed_by_tls_id(const char *allowed, int id,
 				}
 				lwsl_info("match curve %s\n",
 					  lws_ec_curves[n].name);
-				len = strlen(lws_ec_curves[n].name);
+				len = (int)strlen(lws_ec_curves[n].name);
 				jwk->e[LWS_GENCRYPTO_EC_KEYEL_CRV].len = len;
 				jwk->e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf =
 						lws_malloc(len + 1, "cert crv");

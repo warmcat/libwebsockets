@@ -368,7 +368,7 @@ lws_plat_if_up(const char *ifname, int fd, int up)
 }
 
 int
-lws_plat_BINDTODEVICE(int fd, const char *ifname)
+lws_plat_BINDTODEVICE(lws_sockfd_type fd, const char *ifname)
 {
 #if defined(__linux__)
 	struct ifreq i;

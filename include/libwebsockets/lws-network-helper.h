@@ -77,10 +77,10 @@ lws_get_peer_addresses(struct lws *wsi, lws_sockfd_type fd, char *name,
  * peer that has connected to wsi
  */
 LWS_VISIBLE LWS_EXTERN const char *
-lws_get_peer_simple(struct lws *wsi, char *name, int namelen);
+lws_get_peer_simple(struct lws *wsi, char *name, size_t namelen);
 
 LWS_VISIBLE LWS_EXTERN const char *
-lws_get_peer_simple_fd(int fd, char *name, int namelen);
+lws_get_peer_simple_fd(lws_sockfd_type fd, char *name, size_t namelen);
 
 #define LWS_ITOSA_USABLE	0
 #define LWS_ITOSA_NOT_EXIST	-1
@@ -170,7 +170,7 @@ lws_sa46_parse_numeric_address(const char *ads, lws_sockaddr46 *sa46);
  * if OK else < 0.  ipv6 only supported with LWS_IPV6=1 at cmake.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_write_numeric_address(const uint8_t *ads, int size, char *buf, int len);
+lws_write_numeric_address(const uint8_t *ads, int size, char *buf, size_t len);
 
 /**
  * lws_sa46_write_numeric_address() - convert sa46 ads to textual numeric ads
@@ -184,6 +184,6 @@ lws_write_numeric_address(const uint8_t *ads, int size, char *buf, int len);
  * if OK else < 0.  ipv6 only supported with LWS_IPV6=1 at cmake.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_sa46_write_numeric_address(lws_sockaddr46 *sa46, char *buf, int len);
+lws_sa46_write_numeric_address(lws_sockaddr46 *sa46, char *buf, size_t len);
 
 ///@}

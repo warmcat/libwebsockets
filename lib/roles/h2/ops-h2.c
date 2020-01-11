@@ -276,7 +276,7 @@ drain:
 
 		if (n && buffered) {
 			// lwsl_notice("%s: h2 use %d\n", __func__, n);
-			m = lws_buflist_use_segment(&wsi->buflist, n);
+			m = (int)lws_buflist_use_segment(&wsi->buflist, (size_t)n);
 			lwsl_info("%s: draining rxflow: used %d, next %d\n",
 				    __func__, n, m);
 			if (!m) {

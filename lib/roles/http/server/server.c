@@ -1770,8 +1770,8 @@ lws_confirm_host_header(struct lws *wsi)
 {
 	struct lws_tokenize ts;
 	lws_tokenize_elem e;
+	int port = 80, n;
 	char buf[128];
-	int port = 80;
 
 	/*
 	 * this vhost wants us to validate what the
@@ -1792,11 +1792,12 @@ lws_confirm_host_header(struct lws *wsi)
 	lws_tokenize_init(&ts, buf, LWS_TOKENIZE_F_DOT_NONTERM /* server.com */|
 				    LWS_TOKENIZE_F_NO_FLOATS /* 1.server.com */|
 				    LWS_TOKENIZE_F_MINUS_NONTERM /* a-b.com */);
-	ts.len = lws_hdr_copy(wsi, buf, sizeof(buf) - 1, WSI_TOKEN_HOST);
-	if (ts.len <= 0) {
+	n = lws_hdr_copy(wsi, buf, sizeof(buf) - 1, WSI_TOKEN_HOST);
+	if (n <= 0) {
 		lwsl_info("%s: missing or oversize host header\n", __func__);
 		return 1;
 	}
+	ts.len = n;
 
 	if (lws_tokenize(&ts) != LWS_TOKZE_TOKEN)
 		goto bad_format;

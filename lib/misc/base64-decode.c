@@ -179,14 +179,14 @@ lws_b64_decode_stateful(struct lws_b64state *s, const char *in, size_t *in_len,
  * the first NUL in the input.
  */
 
-static int
+static size_t
 _lws_b64_decode_string(const char *in, int in_len, char *out, int out_size)
 {
 	struct lws_b64state state;
-	size_t il = in_len, ol = out_size;
+	size_t il = (size_t)in_len, ol = out_size;
 
 	if (in_len == -1)
-		il = in_len = strlen(in);
+		il = strlen(in);
 
 	lws_b64_decode_state_init(&state);
 	lws_b64_decode_stateful(&state, in, &il, (uint8_t *)out, &ol, 1);
@@ -200,13 +200,13 @@ _lws_b64_decode_string(const char *in, int in_len, char *out, int out_size)
 int
 lws_b64_decode_string(const char *in, char *out, int out_size)
 {
-	return _lws_b64_decode_string(in, -1, out, out_size);
+	return (int)_lws_b64_decode_string(in, -1, out, out_size);
 }
 
 int
 lws_b64_decode_string_len(const char *in, int in_len, char *out, int out_size)
 {
-	return _lws_b64_decode_string(in, in_len, out, out_size);
+	return (int)_lws_b64_decode_string(in, in_len, out, out_size);
 }
 
 #if 0

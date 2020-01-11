@@ -1321,7 +1321,7 @@ lws_http_basic_auth_gen(const char *user, const char *pw, char *buf, size_t len)
 	if (n >= sizeof(b) - 2)
 		return 2;
 
-	lws_b64_encode_string(b, n, buf + 6, len - 6);
+	lws_b64_encode_string(b, (int)n, buf + 6, (int)len - 6);
 	buf[len - 1] = '\0';
 
 	return 0;

@@ -156,8 +156,7 @@ lws_generate_client_ws_handshake(struct lws *wsi, char *p, const char *conn1)
 	/*
 	 * create the random key
 	 */
-	n = lws_get_random(wsi->context, hash, 16);
-	if (n != 16) {
+	if (lws_get_random(wsi->context, hash, 16) != 16) {
 		lwsl_err("Unable to read from random dev %s\n",
 			 SYSTEM_RANDOM_FILEPATH);
 		return NULL;
@@ -304,9 +303,10 @@ lws_client_ws_upgrade(struct lws *wsi, const char **cce)
 
 	lws_tokenize_init(&ts, buf, LWS_TOKENIZE_F_COMMA_SEP_LIST |
 				    LWS_TOKENIZE_F_MINUS_NONTERM);
-	ts.len = lws_hdr_copy(wsi, buf, sizeof(buf) - 1, WSI_TOKEN_CONNECTION);
-	if (ts.len <= 0) /* won't fit, or absent */
+	n = lws_hdr_copy(wsi, buf, sizeof(buf) - 1, WSI_TOKEN_CONNECTION);
+	if (n <= 0) /* won't fit, or absent */
 		goto bad_conn_format;
+	ts.len = n;
 
 	do {
 		e = lws_tokenize(&ts);

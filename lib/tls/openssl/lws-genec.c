@@ -366,7 +366,7 @@ lws_genec_new_keypair(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 		goto bail2;
 	}
 
-	el[LWS_GENCRYPTO_EC_KEYEL_CRV].len = strlen(curve_name) + 1;
+	el[LWS_GENCRYPTO_EC_KEYEL_CRV].len = (uint32_t)strlen(curve_name) + 1;
 	el[LWS_GENCRYPTO_EC_KEYEL_CRV].buf =
 			lws_malloc(el[LWS_GENCRYPTO_EC_KEYEL_CRV].len, "ec");
 	if (!el[LWS_GENCRYPTO_EC_KEYEL_CRV].buf) {
@@ -516,7 +516,7 @@ lws_genecdsa_hash_sign_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
 	 * 4.  The resulting 64-octet sequence is the JWS Signature value.
 	 */
 
-	ecdsasig = ECDSA_do_sign(in, lws_genhash_size(hash_type), eckey);
+	ecdsasig = ECDSA_do_sign(in, (int)lws_genhash_size(hash_type), eckey);
 	EC_KEY_free(eckey);
 	if (!ecdsasig) {
 		lwsl_notice("%s: ECDSA_do_sign fail\n", __func__);
@@ -559,7 +559,7 @@ lws_genecdsa_hash_sig_verify_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
 				 const uint8_t *sig, size_t sig_len)
 {
 	int ret = -1, n, keybytes = lws_gencrypto_bits_to_bytes(keybits),
-	    hlen = lws_genhash_size(hash_type);
+	    hlen = (int)lws_genhash_size(hash_type);
 	ECDSA_SIG *ecsig = ECDSA_SIG_new();
 	BIGNUM *r = NULL, *s = NULL;
 	EC_KEY *eckey;

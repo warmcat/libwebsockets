@@ -106,6 +106,7 @@ lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len)
 		const struct lws_http_mount *m = vh->http.mount_list;
 
 		buf += lws_snprintf(buf, end - buf, ",\n \"mounts\":[");
+		first = 1;
 		while (m) {
 			if (!first)
 				buf += lws_snprintf(buf, end - buf, ",");
