@@ -32,8 +32,8 @@ lws_now_usecs(void)
 	return ((unsigned long long)tv.tv_sec * 1000000LL) + tv.tv_usec;
 }
 
-int
-lws_get_random(struct lws_context *context, void *buf, int len)
+size_t
+lws_get_random(struct lws_context *context, void *buf, size_t len)
 {
 #if defined(LWS_WITH_ESP32)
 	uint8_t *pb = buf;

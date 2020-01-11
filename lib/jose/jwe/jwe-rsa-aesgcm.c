@@ -68,7 +68,7 @@ lws_jwe_encrypt_rsa_aes_gcm(struct lws_jwe *jwe, char *temp, int *temp_len)
 	 */
 	if (!jwe->cek_valid) {
 		if (lws_get_random(jwe->jws.context, jwe->cek, ekbytes) !=
-							       ekbytes) {
+							      (size_t)ekbytes) {
 			lwsl_err("%s: Problem getting random\n", __func__);
 			return -1;
 		}

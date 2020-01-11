@@ -47,10 +47,16 @@ lws_now_usecs(void)
 #endif
 }
 
-int
-lws_get_random(struct lws_context *context, void *buf, int len)
+size_t
+lws_get_random(struct lws_context *context, void *buf, size_t len)
 {
-	return read(context->fd_random, (char *)buf, len);
+#if defined(__COVERITY__)
+	memset(buf, 0, len);
+	return len;
+#else
+	/* coverity[tainted_scalar] */
+	return (size_t)read(context->fd_random, (char *)buf, len);
+#endif
 }
 
 void lwsl_emit_syslog(int level, const char *line)

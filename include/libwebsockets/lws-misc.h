@@ -216,8 +216,8 @@ lws_timingsafe_bcmp(const void *a, const void *b, uint32_t len);
  * Fills buf with len bytes of random.  Returns the number of bytes set, if
  * not equal to len, then getting the random failed.
  */
-LWS_VISIBLE LWS_EXTERN int
-lws_get_random(struct lws_context *context, void *buf, int len);
+LWS_VISIBLE LWS_EXTERN size_t
+lws_get_random(struct lws_context *context, void *buf, size_t len);
 /**
  * lws_daemonize(): make current process run in the background
  *

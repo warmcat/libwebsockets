@@ -569,6 +569,7 @@ int
 lws_jwk_generate(struct lws_context *context, struct lws_jwk *jwk,
 	         enum lws_gencrypto_kty kty, int bits, const char *curve)
 {
+	size_t sn;
 	int n;
 
 	memset(jwk, 0, sizeof(*jwk));
@@ -592,11 +593,11 @@ lws_jwk_generate(struct lws_context *context, struct lws_jwk *jwk,
 	}
 		break;
 	case LWS_GENCRYPTO_KTY_OCT:
-		n = lws_gencrypto_bits_to_bytes(bits);
-		jwk->e[LWS_GENCRYPTO_OCT_KEYEL_K].buf = lws_malloc(n, "oct");
-		jwk->e[LWS_GENCRYPTO_OCT_KEYEL_K].len = n;
+		sn = lws_gencrypto_bits_to_bytes(bits);
+		jwk->e[LWS_GENCRYPTO_OCT_KEYEL_K].buf = lws_malloc(sn, "oct");
+		jwk->e[LWS_GENCRYPTO_OCT_KEYEL_K].len = sn;
 		if (lws_get_random(context,
-				 jwk->e[LWS_GENCRYPTO_OCT_KEYEL_K].buf, n) != n) {
+			     jwk->e[LWS_GENCRYPTO_OCT_KEYEL_K].buf, sn) != sn) {
 			lwsl_err("%s: problem getting random\n", __func__);
 			return 1;
 		}

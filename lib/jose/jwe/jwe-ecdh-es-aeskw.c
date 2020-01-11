@@ -293,7 +293,8 @@ lws_jwe_encrypt_ecdh(struct lws_jwe *jwe, char *temp, int *temp_len,
 
 		/* generate the actual CEK in cek */
 
-		if (lws_get_random(jwe->jws.context, cek, enc_hlen) != enc_hlen) {
+		if (lws_get_random(jwe->jws.context, cek, enc_hlen) !=
+							(size_t)enc_hlen) {
 			lwsl_err("Problem getting random\n");
 			goto bail;
 		}

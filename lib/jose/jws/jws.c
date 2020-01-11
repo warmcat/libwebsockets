@@ -244,7 +244,7 @@ lws_jws_randomize_element(struct lws_context *context, struct lws_jws_map *map,
 	map->len[idx] = random_len;
 	map->buf[idx] = temp;
 
-	if (lws_get_random(context, temp, random_len) != (int)random_len) {
+	if (lws_get_random(context, temp, random_len) != random_len) {
 		lwsl_err("Problem getting random\n");
 		return -1;
 	}

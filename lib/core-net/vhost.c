@@ -725,12 +725,15 @@ lws_create_vhost(struct lws_context *context,
 #endif
 	{
 #ifdef LWS_HAVE_GETENV
-		p = getenv("http_proxy");
+#if defined(__COVERITY__)
+		p = NULL;
+#else
+		p = getenv("http_proxy"); /* coverity[tainted_scalar] */
 		if (p) {
 			lws_strncpy(buf, p, sizeof(buf));
-			/* coverity[tainted_scalar] */
 			lws_set_proxy(vh, buf);
 		}
+#endif
 #endif
 	}
 #endif

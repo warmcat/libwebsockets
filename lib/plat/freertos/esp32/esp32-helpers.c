@@ -1122,7 +1122,7 @@ lws_esp32_get_image_info(const esp_partition_t *part, struct lws_esp32_image *i,
 static int
 _rngf(void *context, unsigned char *buf, size_t len)
 {
-	if ((size_t)lws_get_random(context, buf, len) == len)
+	if (lws_get_random(context, buf, len) == len)
 		return 0;
 
 	return -1;
