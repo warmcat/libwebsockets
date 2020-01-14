@@ -377,7 +377,7 @@ callback_dhcpc(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			p += 0xec + 4;
 			while (p < end) {
 				uint8_t c = *p++;
-				uint8_t l;
+				uint8_t l = 0;
 
 				if (c && c != 0xff) {
 					/* pad 0 and EOT 0xff have no length */

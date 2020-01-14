@@ -390,6 +390,8 @@ lws_process_ws_upgrade2(struct lws *wsi)
 		l = lws_snprintf(combo, sizeof(combo), "%s (%s)", dotstar,
 				 wsi->protocol->name);
 
+		if (meth < 0)
+			meth = 0;
 		lws_prepare_access_log_info(wsi, combo, l, meth);
 		lws_access_log(wsi);
 	}

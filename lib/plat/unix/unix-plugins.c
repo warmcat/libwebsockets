@@ -103,6 +103,7 @@ lws_plat_plugins_init(struct lws_context * context, const char * const *d)
 
 			plugin = lws_malloc(sizeof(*plugin), "plugin");
 			if (!plugin) {
+				dlclose(l);
 				lwsl_err("OOM\n");
 				goto bail;
 			}
