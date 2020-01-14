@@ -67,10 +67,7 @@ function lwsgt_initial(title, pcol, divname, cb, gname)
 	
 	lws_gray_out(true,{"zindex":"499"});
 
-	if (typeof MozWebSocket != "undefined")
-		this.lwsgt_ws = new MozWebSocket(lwsgt_get_appropriate_ws_url(), pcol);
-	else
-		this.lwsgt_ws = new WebSocket(lwsgt_get_appropriate_ws_url(), pcol);
+	this.lwsgt_ws = new WebSocket(lwsgt_get_appropriate_ws_url(), pcol);
 	this.lwsgt_ws.divname = divname;
 	this.lwsgt_ws.lwsgt_cb = cb;
 	this.lwsgt_ws.lwsgt_parent = gname;

@@ -210,9 +210,6 @@
 
 	function new_ws(urlpath, protocol)
 	{
-		if (typeof MozWebSocket != "undefined")
-			return new MozWebSocket(urlpath, protocol);
-
 		return new WebSocket(urlpath, protocol);
 	}
 

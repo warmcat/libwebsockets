@@ -27,9 +27,6 @@ function get_appropriate_ws_url(extra_url)
 
 function new_ws(urlpath, protocol)
 {
-	if (typeof MozWebSocket != "undefined")
-		return new MozWebSocket(urlpath, protocol);
-
 	return new WebSocket(urlpath, protocol);
 }
 

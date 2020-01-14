@@ -1562,7 +1562,6 @@ lws_http_action(struct lws *wsi)
 
 		pp = lws_vhost_name_to_protocol(wsi->vhost, name);
 		if (!pp) {
-			n = -1;
 			lwsl_err("Unable to find plugin '%s'\n",
 				 hit->origin);
 			return 1;
@@ -1646,9 +1645,10 @@ lws_http_action(struct lws *wsi)
 #if defined(LWS_WITH_FILE_OPS)
 	if (hit->origin_protocol == LWSMPRO_FILE)
 		m = lws_http_serve(wsi, s, hit->origin, hit);
-#endif
 
-	if (m > 0) {
+	if (m > 0)
+#endif
+	{
 		/*
 		 * lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, NULL);
 		 */

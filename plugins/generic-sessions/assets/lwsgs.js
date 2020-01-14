@@ -603,10 +603,6 @@ window.addEventListener("load", function() {
 	}
 
 	if (lwsgs_user) {
-		if (typeof MozWebSocket != "undefined")
-			ws = new MozWebSocket(get_appropriate_ws_url(),
-					   "protocol-lws-messageboard");
-		else
 			ws = new WebSocket(get_appropriate_ws_url(),
 					   "protocol-lws-messageboard");
 
