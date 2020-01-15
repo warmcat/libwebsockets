@@ -44,7 +44,7 @@ struct lws_event_loop_ops {
 	/* close handle manually  */
 	void (*close_handle_manually)(struct lws *wsi);
 	/* event loop accept processing  */
-	int (*accept)(struct lws *wsi);
+	int (*sock_accept)(struct lws *wsi);
 	/* control wsi active events  */
 	void (*io)(struct lws *wsi, int flags);
 	/* run the event loop for a pt */

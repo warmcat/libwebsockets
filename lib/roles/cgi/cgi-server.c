@@ -178,8 +178,8 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 	}
 
 	for (n = 0; n < 3; n++) {
-		if (wsi->context->event_loop_ops->accept)
-			if (wsi->context->event_loop_ops->accept(cgi->stdwsi[n]))
+		if (wsi->context->event_loop_ops->sock_accept)
+			if (wsi->context->event_loop_ops->sock_accept(cgi->stdwsi[n]))
 				goto bail3;
 
 		if (__insert_wsi_socket_into_fds(wsi->context, cgi->stdwsi[n]))

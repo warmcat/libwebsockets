@@ -539,11 +539,9 @@ ads_known:
 		lwsl_debug("%s: %p: WAITING_CONNECT\n", __func__, wsi);
 		lwsi_set_state(wsi, LRS_WAITING_CONNECT);
 
-#if !defined(LWS_AMAZON_RTOS)
-		if (wsi->context->event_loop_ops->accept)
-			if (wsi->context->event_loop_ops->accept(wsi))
+		if (wsi->context->event_loop_ops->sock_accept)
+			if (wsi->context->event_loop_ops->sock_accept(wsi))
 				goto try_next_result_closesock;
-#endif
 
 		if (__insert_wsi_socket_into_fds(wsi->context, wsi))
 			goto try_next_result_closesock;
