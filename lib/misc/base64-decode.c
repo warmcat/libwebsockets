@@ -36,6 +36,8 @@
  * of libwebsockets
  */
 
+#include <libwebsockets.h>
+
 #include <stdio.h>
 #include <string.h>
 #include "private-lib-core.h"

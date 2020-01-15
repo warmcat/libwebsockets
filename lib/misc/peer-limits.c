@@ -22,6 +22,7 @@
  * IN THE SOFTWARE.
  */
 
+#include <libwebsockets.h>
 #include "private-lib-core.h"
 
 /* requires context->lock */

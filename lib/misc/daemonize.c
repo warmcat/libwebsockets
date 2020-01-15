@@ -26,6 +26,7 @@
 #include <unistd.h>
 #include <errno.h>
 
+#include <libwebsockets.h>
 #include "private-lib-core.h"
 
 pid_t pid_daemon;

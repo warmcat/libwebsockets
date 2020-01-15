@@ -31,6 +31,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <libwebsockets.h>
 #include <string.h>
 #include <stdint.h>
 #include <stdio.h>

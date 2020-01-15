@@ -43,6 +43,8 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
+
+#include <libwebsockets.h>
 #include "private-lib-core.h"
 
 #ifdef LWS_HAVE_SYS_SOCKIO_H

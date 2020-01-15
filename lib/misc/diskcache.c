@@ -27,6 +27,7 @@
 #endif
 #include <pthread.h>
 
+#include <libwebsockets.h>
 #include "private-lib-core.h"
 
 #include <string.h>
