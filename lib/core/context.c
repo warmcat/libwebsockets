@@ -619,10 +619,8 @@ lws_create_context(const struct lws_context_creation_info *info)
 				goto bail;
 		}
 
-#if !defined(LWS_AMAZON_RTOS)
 	if (lws_create_event_pipes(context))
 		goto bail;
-#endif
 #endif
 
 	lws_context_init_ssl_library(info);

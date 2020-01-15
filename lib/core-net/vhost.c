@@ -881,9 +881,14 @@ lws_create_event_pipes(struct lws_context *context)
 	 * not bound to a vhost or protocol (both are NULL)
 	 */
 
+#if LWS_MAX_SMP > 1
 	for (n = 0; n < context->count_threads; n++) {
+#else
+	n = 0;
+	{
+#endif
 		if (context->pt[n].pipe_wsi)
-			continue;
+			return 0;
 
 		wsi = lws_zalloc(sizeof(*wsi), "event pipe wsi");
 		if (!wsi) {
@@ -900,7 +905,7 @@ lws_create_event_pipes(struct lws_context *context)
 		context->pt[n].pipe_wsi = wsi;
 		context->count_wsi_allocated++;
 
-		if (lws_plat_pipe_create(wsi))
+		if (!lws_plat_pipe_create(wsi)) {
 			/*
 			 * platform code returns 0 if it actually created pipes
 			 * and initialized pt->dummy_pipe_fds[].  If it used
@@ -909,17 +914,17 @@ lws_create_event_pipes(struct lws_context *context)
 			 * related to dummy_pipe_fds[], adding it to the fds,
 			 * etc.
 			 */
-			continue;
 
-		wsi->desc.sockfd = context->pt[n].dummy_pipe_fds[0];
-		lwsl_debug("event pipe fd %d\n", wsi->desc.sockfd);
+			wsi->desc.sockfd = context->pt[n].dummy_pipe_fds[0];
+			lwsl_debug("event pipe fd %d\n", wsi->desc.sockfd);
 
-		if (context->event_loop_ops->sock_accept)
-			if (context->event_loop_ops->sock_accept(wsi))
+			if (context->event_loop_ops->sock_accept)
+				if (context->event_loop_ops->sock_accept(wsi))
+					return 1;
+
+			if (__insert_wsi_socket_into_fds(context, wsi))
 				return 1;
-
-		if (__insert_wsi_socket_into_fds(context, wsi))
-			return 1;
+		}
 	}
 
 	return 0;

@@ -314,6 +314,10 @@ struct lws_context {
 	lws_retry_bo_t	default_retry;
 	lws_sorted_usec_list_t sul_system_state;
 
+#if defined(LWS_PLAT_FREERTOS)
+	struct sockaddr_in frt_pipe_si;
+#endif
+
 #if defined(LWS_WITH_HTTP2)
 	struct http2_settings set;
 #endif
