@@ -240,7 +240,7 @@ rops_client_bind_raw_skt(struct lws *wsi,
 }
 #endif
 
-struct lws_role_ops role_ops_raw_skt = {
+const struct lws_role_ops role_ops_raw_skt = {
 	/* role name */			"raw-skt",
 	/* alpn id */			NULL,
 	/* check_upgrades */		NULL,

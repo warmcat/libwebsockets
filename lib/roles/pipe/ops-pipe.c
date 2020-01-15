@@ -68,7 +68,7 @@ rops_handle_POLLIN_pipe(struct lws_context_per_thread *pt, struct lws *wsi,
 	return LWS_HPI_RET_HANDLED;
 }
 
-struct lws_role_ops role_ops_pipe = {
+const struct lws_role_ops role_ops_pipe = {
 	/* role name */			"pipe",
 	/* alpn id */			NULL,
 	/* check_upgrades */		NULL,

@@ -2045,7 +2045,7 @@ rops_issue_keepalive_ws(struct lws *wsi, int isvalid)
 	return 0;
 }
 
-struct lws_role_ops role_ops_ws = {
+const struct lws_role_ops role_ops_ws = {
 	/* role name */			"ws",
 	/* alpn id */			NULL,
 	/* check_upgrades */		NULL,

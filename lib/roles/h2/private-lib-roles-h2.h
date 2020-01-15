@@ -22,7 +22,7 @@
  * IN THE SOFTWARE.
  */
 
-extern struct lws_role_ops role_ops_h2;
+extern const struct lws_role_ops role_ops_h2;
 #define lwsi_role_h2(wsi) (wsi->role_ops == &role_ops_h2)
 
 struct http2_settings {

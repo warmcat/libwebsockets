@@ -1221,7 +1221,7 @@ rops_issue_keepalive_h2(struct lws *wsi, int isvalid)
 	return 0;
 }
 
-struct lws_role_ops role_ops_h2 = {
+const struct lws_role_ops role_ops_h2 = {
 	/* role name */			"h2",
 	/* alpn id */			"h2",
 	/* check_upgrades */		rops_check_upgrades_h2,

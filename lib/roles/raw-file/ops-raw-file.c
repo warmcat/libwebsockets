@@ -77,7 +77,7 @@ rops_adoption_bind_raw_file(struct lws *wsi, int type, const char *vh_prot_name)
 	return 1; /* bound */
 }
 
-struct lws_role_ops role_ops_raw_file = {
+const struct lws_role_ops role_ops_raw_file = {
 	/* role name */			"raw-file",
 	/* alpn id */			NULL,
 	/* check_upgrades */		NULL,

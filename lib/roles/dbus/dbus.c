@@ -512,7 +512,7 @@ rops_pt_init_destroy_dbus(struct lws_context *context,
 	return 0;
 }
 
-struct lws_role_ops role_ops_dbus = {
+const struct lws_role_ops role_ops_dbus = {
 	/* role name */			"dbus",
 	/* alpn id */			NULL,
 	/* check_upgrades */		NULL,

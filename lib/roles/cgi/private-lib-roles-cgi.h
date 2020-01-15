@@ -32,7 +32,7 @@
 #endif
 #endif
 
-extern struct lws_role_ops role_ops_cgi;
+extern const struct lws_role_ops role_ops_cgi;
 
 #define lwsi_role_cgi(wsi) (wsi->role_ops == &role_ops_cgi)
 

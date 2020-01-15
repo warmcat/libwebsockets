@@ -24,7 +24,7 @@
  *  This is included from private-lib-core.h if LWS_ROLE_WS
  */
 
-extern struct lws_role_ops role_ops_ws;
+extern const struct lws_role_ops role_ops_ws;
 
 #define lwsi_role_ws(wsi) (wsi->role_ops == &role_ops_ws)
 

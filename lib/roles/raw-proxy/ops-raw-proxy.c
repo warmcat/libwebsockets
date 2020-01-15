@@ -186,7 +186,7 @@ rops_handle_POLLOUT_raw_proxy(struct lws *wsi)
 	return LWS_HP_RET_BAIL_OK;
 }
 
-struct lws_role_ops role_ops_raw_proxy = {
+const struct lws_role_ops role_ops_raw_proxy = {
 	/* role name */			"raw-proxy",
 	/* alpn id */			NULL,
 	/* check_upgrades */		NULL,

@@ -114,7 +114,7 @@ rops_pt_init_destroy_cgi(struct lws_context *context,
 }
 
 
-struct lws_role_ops role_ops_cgi = {
+const struct lws_role_ops role_ops_cgi = {
 	/* role name */			"cgi",
 	/* alpn id */			NULL,
 	/* check_upgrades */		NULL,

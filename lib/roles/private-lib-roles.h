@@ -270,8 +270,8 @@ struct lws_role_ops {
 };
 
 /* core roles */
-extern struct lws_role_ops role_ops_raw_skt, role_ops_raw_file, role_ops_listen,
-			   role_ops_pipe;
+extern const struct lws_role_ops role_ops_raw_skt, role_ops_raw_file,
+				 role_ops_listen, role_ops_pipe;
 
 /* bring in role private declarations */
 

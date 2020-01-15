@@ -176,7 +176,7 @@ int rops_handle_POLLOUT_listen(struct lws *wsi)
 	return LWS_HP_RET_USER_SERVICE;
 }
 
-struct lws_role_ops role_ops_listen = {
+const struct lws_role_ops role_ops_listen = {
 	/* role name */			"listen",
 	/* alpn id */			NULL,
 	/* check_upgrades */		NULL,

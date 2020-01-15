@@ -26,7 +26,7 @@
 
 #include <dbus/dbus.h>
 
-extern struct lws_role_ops role_ops_dbus;
+extern const struct lws_role_ops role_ops_dbus;
 
 #define lwsi_role_dbus(wsi) (wsi->role_ops == &role_ops_dbus)
 

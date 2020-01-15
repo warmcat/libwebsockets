@@ -1131,7 +1131,7 @@ rops_pt_init_destroy_h1(struct lws_context *context,
 	return 0;
 }
 
-struct lws_role_ops role_ops_h1 = {
+const struct lws_role_ops role_ops_h1 = {
 	/* role name */			"h1",
 	/* alpn id */			"http/1.1",
 	/* check_upgrades */		NULL,

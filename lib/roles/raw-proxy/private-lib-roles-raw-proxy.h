@@ -24,7 +24,7 @@
  *  This is included from private-lib-core.h if LWS_ROLE_RAW_PROXY
  */
 
-extern struct lws_role_ops role_ops_raw_proxy;
+extern const struct lws_role_ops role_ops_raw_proxy;
 
 #define lwsi_role_raw_proxy(wsi) (wsi->role_ops == &role_ops_raw_proxy)
 
