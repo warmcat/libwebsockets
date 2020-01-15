@@ -45,6 +45,35 @@ alpn_cb(SSL *s, const unsigned char **out, unsigned char *outlen,
 }
 #endif
 
+int
+lws_tls_restrict_borrow(struct lws_context *context)
+{
+	if (!context->simultaneous_ssl_restriction)
+		return 0;
+
+	if (context->simultaneous_ssl >= context->simultaneous_ssl_restriction) {
+		lwsl_notice("%s: tls connection limit %d\n", __func__,
+			    context->simultaneous_ssl);
+		return 1;
+	}
+
+	if (++context->simultaneous_ssl == context->simultaneous_ssl_restriction)
+		/* that was the last allowed SSL connection */
+		lws_gate_accepts(context, 0);
+
+	return 0;
+}
+
+void
+lws_tls_restrict_return(struct lws_context *context)
+{
+	if (context->simultaneous_ssl_restriction &&
+	    context->simultaneous_ssl-- ==
+			    context->simultaneous_ssl_restriction)
+		/* we made space and can do an accept */
+		lws_gate_accepts(context, 1);
+}
+
 void
 lws_context_init_alpn(struct lws_vhost *vhost)
 {

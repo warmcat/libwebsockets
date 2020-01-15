@@ -243,6 +243,7 @@ if (NOT LWS_WITH_NETWORK)
 	set(LWS_WITH_SEQUENCER 0)
 	set(LWS_ROLE_DBUS 0)
 	set(LWS_WITH_LWS_DSH 0)
+	set(LWS_WITH_THREADPOOL 0)
 endif()
 
 if (LWS_WITH_STRUCT_SQLITE3)
@@ -1501,7 +1502,7 @@ if (LWS_WITH_JOSE)
 		)
 endif()
 
-if (LWS_WITH_JOSE OR LWS_WITH_GENCRYPTO)
+if (LWS_WITH_TLS AND (LWS_WITH_JOSE OR LWS_WITH_GENCRYPTO))
 	list(APPEND SOURCES
 		lib/tls/lws-gencrypto-common.c)
 endif()
@@ -2223,7 +2224,7 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2) AND NOT LWS_WITHOUT_TESTAPPS)
 				""
 				"")
 
-			if (LWS_WITH_CGI)
+			if (LWS_WITH_CGI AND LWS_WITH_TLS)
 			create_test_app(test-sshd "test-apps/test-sshd.c"
 				""
 				""
@@ -2422,7 +2423,7 @@ if (LWS_WITH_ACME)
 			      "plugins/acme-client/protocol_lws_acme_client.c" "" "")
 endif()
 
-if (LWS_WITH_GENERIC_SESSIONS AND LWS_ROLE_WS)
+if (LWS_WITH_GENERIC_SESSIONS AND LWS_ROLE_WS AND LWS_WITH_TLS)
 	create_plugin(protocol_generic_sessions ""
                       "plugins/generic-sessions/protocol_generic_sessions.c"
 		      "plugins/generic-sessions/utils.c"

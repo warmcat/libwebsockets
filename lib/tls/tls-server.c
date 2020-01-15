@@ -140,24 +140,16 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 			lwsl_err("%s: leaking ssl\n", __func__);
 		if (accept_fd == LWS_SOCK_INVALID)
 			assert(0);
-		if (context->simultaneous_ssl_restriction &&
-		    context->simultaneous_ssl >=
-		    	    context->simultaneous_ssl_restriction) {
-			lwsl_notice("unable to deal with SSL connection\n");
+
+		if (lws_tls_restrict_borrow(context))
 			return 1;
-		}
 
 		if (lws_tls_server_new_nonblocking(wsi, accept_fd)) {
 			if (accept_fd != LWS_SOCK_INVALID)
 				compatible_close(accept_fd);
+			lws_tls_restrict_return(context);
 			goto fail;
 		}
-
-		if (context->simultaneous_ssl_restriction &&
-		    ++context->simultaneous_ssl ==
-				    context->simultaneous_ssl_restriction)
-			/* that was the last allowed SSL connection */
-			lws_gate_accepts(context, 0);
 
 #if defined(LWS_WITH_STATS)
 		context->updated = 1;

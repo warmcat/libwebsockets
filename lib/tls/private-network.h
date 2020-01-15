@@ -186,8 +186,3 @@ lws_ssl_info_callback(const lws_tls_conn *ssl, int where, int ret);
 
 int
 lws_tls_fake_POLLIN_for_buffered(struct lws_context_per_thread *pt);
-
-
-
-
-

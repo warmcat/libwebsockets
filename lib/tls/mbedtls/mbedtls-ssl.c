@@ -245,12 +245,8 @@ lws_ssl_close(struct lws *wsi)
 	SSL_free(wsi->tls.ssl);
 	wsi->tls.ssl = NULL;
 
-	if (!lwsi_role_client(wsi) &&
-	    wsi->context->simultaneous_ssl_restriction &&
-	    wsi->context->simultaneous_ssl-- ==
-			    wsi->context->simultaneous_ssl_restriction)
-		/* we made space and can do an accept */
-		lws_gate_accepts(wsi->context, 1);
+	if (!lwsi_role_client(wsi))
+	    lws_tls_restrict_return(wsi->context);
 
 	return 1; /* handled */
 }

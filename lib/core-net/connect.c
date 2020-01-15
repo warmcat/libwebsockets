@@ -22,6 +22,7 @@
  * IN THE SOFTWARE.
  */
 
+#include <libwebsockets.h>
 #include "private-lib-core.h"
 
 struct lws *
@@ -49,6 +50,10 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	if (i->local_protocol_name)
 		local = i->local_protocol_name;
 
+	if ((i->ssl_connection & LCCSCF_USE_SSL) &&
+	    lws_tls_restrict_borrow(i->context))
+		return NULL;
+
 	lws_stats_bump(&i->context->pt[tid], LWSSTATS_C_CONNS_CLIENT, 1);
 
 	/* PHASE 1: create a bare wsi */
@@ -56,6 +61,8 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	wsi = lws_zalloc(sizeof(struct lws), "client wsi");
 	if (wsi == NULL)
 		goto bail;
+
+
 
 	wsi->context = i->context;
 	wsi->desc.sockfd = LWS_SOCK_INVALID;
@@ -360,6 +367,10 @@ bail:
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 bail2:
 #endif
+
+	if (i->ssl_connection & LCCSCF_USE_SSL)
+		lws_tls_restrict_return(i->context);
+
 	if (i->pwsi)
 		*i->pwsi = NULL;
 

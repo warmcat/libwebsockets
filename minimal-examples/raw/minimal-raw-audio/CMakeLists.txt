@@ -65,6 +65,7 @@ ENDMACRO()
 
 set(requirements 1)
 require_lws_config(LWS_WITH_ALSA 1 requirements)
+require_lws_config(LWS_WITH_NETWORK 1 requirements)
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})

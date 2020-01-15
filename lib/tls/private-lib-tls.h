@@ -119,6 +119,12 @@ enum lws_tls_extant {
 
 #if defined(LWS_WITH_TLS)
 
+int
+lws_tls_restrict_borrow(struct lws_context *context);
+
+void
+lws_tls_restrict_return(struct lws_context *context);
+
 typedef SSL lws_tls_conn;
 typedef SSL_CTX lws_tls_ctx;
 typedef BIO lws_tls_bio;
@@ -184,6 +190,12 @@ lws_gencrypto_mbedtls_rngf(void *context, unsigned char *buf, size_t len);
 int
 lws_genec_confirm_curve_allowed_by_tls_id(const char *allowed, int id,
 					  struct lws_jwk *jwk);
+
+
+#else /* ! WITH_TLS */
+
+#define lws_tls_restrict_borrow(xxx) (0)
+#define lws_tls_restrict_return(xxx)
 
 #endif
 #endif
