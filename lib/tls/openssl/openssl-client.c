@@ -196,6 +196,13 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		if (!X509_VERIFY_PARAM_set1_ip_asc(param, hostname))
 			X509_VERIFY_PARAM_set1_host(param, hostname, 0);
 	}
+#else
+	if (!(wsi->tls.use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK)) {
+		lwsl_err("%s: your tls lib is too old to have "
+			 "X509_VERIFY_PARAM_set1_host, failing all client tls\n",
+			 __func__);
+		return -1;
+	}
 #endif
 
 #if !defined(USE_WOLFSSL)
