@@ -443,10 +443,12 @@ if (LWS_PLAT_FREERTOS)
  set(LWS_HAVE_MALLOC 1)
  set(LWS_HAVE_REALLOC 1)
  set(LWS_HAVE_GETIFADDRS 1)
- set(LWS_WITH_ZIP_FOPS 1)
  set(LWS_WITH_CUSTOM_HEADERS 0)
 endif()
 
+if (LWS_WITH_ESP32)
+ set(LWS_WITH_ZIP_FOPS 1)
+endif()
 
 if (WIN32)
 set(LWS_MAX_SMP 1)
@@ -1369,13 +1371,15 @@ else()
 				lib/plat/freertos/freertos-pipe.c
 				lib/plat/freertos/freertos-service.c
 				lib/plat/freertos/freertos-sockets.c
-				lib/plat/freertos/freertos-resolv.c
 				lib/misc/romfs.c)
 			if (LWS_WITH_ESP32_HELPER)
 				list(APPEND SOURCES lib/plat/freertos/esp32/esp32-helpers.c)
 			endif()
 			if (LWS_WITH_FILE_OPS)
 				list(APPEND SOURCES lib/plat/freertos/freertos-file.c)
+			endif()
+			if (LWS_WITH_SYS_ASYNC_DNS)
+				list(APPEND SOURCES lib/plat/freertos/freertos-resolv.c)
 			endif()
 		else()
 			set(LWS_PLAT_UNIX 1)

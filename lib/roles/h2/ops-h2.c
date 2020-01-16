@@ -793,7 +793,7 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 		}
 
 		lwsl_info("%s: setting LRS_BODY from 0x%x (%s)\n", __func__,
-			    wsi->wsistate, wsi->protocol->name);
+			    (int)wsi->wsistate, wsi->protocol->name);
 		lwsi_set_state(wsi, LRS_BODY);
 	}
 

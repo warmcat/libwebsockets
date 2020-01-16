@@ -1727,7 +1727,7 @@ deal_body:
 	if (lwsi_state(wsi) != LRS_DISCARD_BODY) {
 		lwsi_set_state(wsi, LRS_BODY);
 		lwsl_info("%s: %p: LRS_BODY state set (0x%x)\n", __func__, wsi,
-			  wsi->wsistate);
+			  (int)wsi->wsistate);
 	}
 	wsi->http.rx_content_remain = wsi->http.rx_content_length;
 
@@ -2342,7 +2342,7 @@ lws_http_transaction_completed(struct lws *wsi)
 	 * with no partials is in lws_server_socket_service() below.
 	 */
 	lwsl_debug("%s: %p: setting DEF_ACT from 0x%x\n", __func__,
-		   wsi, wsi->wsistate);
+		   wsi, (int)wsi->wsistate);
 	lwsi_set_state(wsi, LRS_DEFERRING_ACTION);
 	wsi->http.tx_content_length = 0;
 	wsi->http.tx_content_remain = 0;
@@ -2420,7 +2420,7 @@ lws_http_transaction_completed(struct lws *wsi)
 				lwsl_debug("acquired ah\n");
 
 	lwsl_debug("%s: %p: keep-alive await new transaction (state 0x%x)\n",
-		   __func__, wsi, wsi->wsistate);
+		   __func__, wsi, (int)wsi->wsistate);
 	lws_callback_on_writable(wsi);
 
 	return 0;

@@ -291,8 +291,8 @@ lws_ring_dump(struct lws_ring *ring, uint32_t *tail)
 		tail = &ring->oldest_tail;
 	lwsl_notice("ring %p: buflen %u, elem_len %u, head %u, oldest_tail %u\n"
 		    "     free_elems: %u; for tail %u, waiting elements: %u\n",
-		    ring, ring->buflen, ring->element_len, ring->head,
-		    ring->oldest_tail,
-		    (int)lws_ring_get_count_free_elements(ring), *tail,
+		    ring, (int)ring->buflen, (int)ring->element_len,
+		    (int)ring->head, (int)ring->oldest_tail,
+		    (int)lws_ring_get_count_free_elements(ring), (int)*tail,
 		    (int)lws_ring_get_count_waiting_elements(ring, tail));
 }

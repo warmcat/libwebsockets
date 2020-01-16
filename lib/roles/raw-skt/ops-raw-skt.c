@@ -53,7 +53,7 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 	if (!lwsi_role_client(wsi) &&  lwsi_state(wsi) != LRS_ESTABLISHED) {
 
 		lwsl_debug("%s: %p: wsistate 0x%x\n", __func__, wsi,
-			   wsi->wsistate);
+			   (int)wsi->wsistate);
 
 		if (lwsi_state(wsi) != LRS_SSL_INIT)
 			if (lws_server_socket_service_ssl(wsi,

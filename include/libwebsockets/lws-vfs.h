@@ -45,7 +45,7 @@
  * library and in the user code.
  */
 
-#if defined(LWS_WITH_ESP32)
+#if defined(LWS_PLAT_FREERTOS)
 /* sdk preprocessor defs? compiler issue? gets confused with member names */
 #define LWS_FOP_OPEN		_open
 #define LWS_FOP_CLOSE		_close

@@ -1168,7 +1168,7 @@ lws_wsi_txc_check_skint(struct lws_tx_credit *txc, int32_t tx_cr)
 
 		if (!txc->skint)
 			lwsl_info("%s: %p: skint (%d)\n", __func__, txc,
-				  txc->tx_cr);
+				  (int)txc->tx_cr);
 
 		txc->skint = 1;
 
@@ -1176,7 +1176,8 @@ lws_wsi_txc_check_skint(struct lws_tx_credit *txc, int32_t tx_cr)
 	}
 
 	if (txc->skint)
-		lwsl_info("%s: %p: unskint (%d)\n", __func__, txc, txc->tx_cr);
+		lwsl_info("%s: %p: unskint (%d)\n", __func__, txc,
+			  (int)txc->tx_cr);
 
 	txc->skint = 0;
 
@@ -1188,8 +1189,8 @@ void
 lws_wsi_txc_describe(struct lws_tx_credit *txc, const char *at, uint32_t sid)
 {
 	lwsl_info("%s: %p: %s: sid %d: %speer-to-us: %d, us-to-peer: %d\n",
-		  __func__, txc, at, sid, txc->skint ? "SKINT, " : "",
-		  txc->peer_tx_cr_est, txc->tx_cr);
+		  __func__, txc, at, (int)sid, txc->skint ? "SKINT, " : "",
+		  (int)txc->peer_tx_cr_est, (int)txc->tx_cr);
 }
 #endif
 

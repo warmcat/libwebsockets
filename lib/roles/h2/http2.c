@@ -165,7 +165,7 @@ lws_h2_update_peer_txcredit(struct lws *wsi, int sid, int bump)
 		sid = wsi->mux.my_sid;
 
 	lwsl_info("%s: sid %d: bump %d -> %d\n", __func__, sid, bump,
-			wsi->txc.peer_tx_cr_est + bump);
+			(int)wsi->txc.peer_tx_cr_est + bump);
 
 	pps = lws_h2_new_pps(LWS_H2_PPS_UPDATE_WINDOW);
 	if (!pps)
@@ -513,9 +513,9 @@ lws_h2_settings(struct lws *wsi, struct http2_settings *settings,
 			lws_start_foreach_ll(struct lws *, w,
 					     nwsi->mux.child_list) {
 				lwsl_info("%s: adi child tc cr %d +%d -> %d",
-					  __func__, w->txc.tx_cr,
+					  __func__, (int)w->txc.tx_cr,
 					  b - (unsigned int)settings->s[a],
-					  w->txc.tx_cr + b -
+					  (int)w->txc.tx_cr + b -
 						  (unsigned int)settings->s[a]);
 				w->txc.tx_cr += b - settings->s[a];
 				if (w->txc.tx_cr > 0 &&
@@ -584,7 +584,7 @@ lws_h2_tx_cr_get(struct lws *wsi)
 		return ~0x80000000;
 
 	lwsl_info ("%s: %p: own tx credit %d: nwsi credit %d\n",
-		     __func__, wsi, c, nwsi->txc.tx_cr);
+		     __func__, wsi, c, (int)nwsi->txc.tx_cr);
 
 	if (nwsi->txc.tx_cr < c)
 		c = nwsi->txc.tx_cr;
@@ -628,13 +628,13 @@ int lws_h2_frame_write(struct lws *wsi, int type, int flags,
 
 	lwsl_debug("%s: %p (eff %p). typ %d, fl 0x%x, sid=%d, len=%d, "
 		   "txcr=%d, nwsi->txcr=%d\n", __func__, wsi, nwsi, type, flags,
-		   sid, len, wsi->txc.tx_cr, nwsi->txc.tx_cr);
+		   sid, len, (int)wsi->txc.tx_cr, (int)nwsi->txc.tx_cr);
 
 	if (type == LWS_H2_FRAME_TYPE_DATA) {
 		if (wsi->txc.tx_cr < (int)len)
 			lwsl_info("%s: %p: sending payload len %d"
 				 " but tx_cr only %d!\n", __func__, wsi,
-				 len, wsi->txc.tx_cr);
+				 len, (int)wsi->txc.tx_cr);
 		lws_h2_tx_cr_consume(wsi, len);
 	}
 
@@ -769,7 +769,7 @@ int lws_h2_do_pps_send(struct lws *wsi)
 			h2n->swsi->txc.tx_cr =
 				h2n->our_set.s[H2SET_INITIAL_WINDOW_SIZE];
 			lwsl_info("initial tx credit on conn %p: %d\n",
-				  h2n->swsi, h2n->swsi->txc.tx_cr);
+				  h2n->swsi, (int)h2n->swsi->txc.tx_cr);
 			h2n->swsi->h2.initialized = 1;
 			/* demanded by HTTP2 */
 			h2n->swsi->h2.END_STREAM = 1;
@@ -1419,7 +1419,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			h2n->swsi->txc.tx_cr =
 				h2n->peer_set.s[H2SET_INITIAL_WINDOW_SIZE];
 			lwsl_info("%s: initial tx credit on conn %p: %d\n",
-				  __func__, h2n->swsi, h2n->swsi->txc.tx_cr);
+				  __func__, h2n->swsi, (int)h2n->swsi->txc.tx_cr);
 			h2n->swsi->h2.initialized = 1;
 
 			/* set our initial window size */
@@ -1429,7 +1429,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 				lwsl_info("%s: initial tx credit for us to "
 					  "write on master %p: %d\n", __func__,
-					  wsi, wsi->txc.tx_cr);
+					  wsi, (int)wsi->txc.tx_cr);
 				wsi->h2.initialized = 1;
 			}
 

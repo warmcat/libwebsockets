@@ -404,7 +404,7 @@ spill:
 			}
 
 			lwsl_parser("client sees server close len = %d\n",
-						 wsi->ws->rx_ubuf_head);
+						 (int)wsi->ws->rx_ubuf_head);
 			if (wsi->ws->rx_ubuf_head >= 2) {
 				close_code = (pp[0] << 8) | pp[1];
 				if (close_code < 1000 ||
@@ -446,7 +446,7 @@ spill:
 
 		case LWSWSOPC_PING:
 			lwsl_info("received %d byte ping, sending pong\n",
-				  wsi->ws->rx_ubuf_head);
+				  (int)wsi->ws->rx_ubuf_head);
 
 			/* he set a close reason on this guy, ignore PING */
 			if (wsi->ws->close_in_ping_buffer_len)
@@ -530,7 +530,7 @@ ping_drop:
 		pmdrx.eb_out = pmdrx.eb_in;
 
 		lwsl_debug("%s: starting disbursal of %d deframed rx\n",
-				__func__, wsi->ws->rx_ubuf_head);
+				__func__, (int)wsi->ws->rx_ubuf_head);
 
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 drain_extension:
@@ -659,8 +659,8 @@ utf8_fail:
 			wsi->ws->first_fragment = 0;
 
 			lwsl_debug("%s: bulk ws rx: inp used %d, output %d\n",
-				    __func__, wsi->ws->rx_ubuf_head,
-				    pmdrx.eb_out.len);
+				    __func__, (int)wsi->ws->rx_ubuf_head,
+				    (int)pmdrx.eb_out.len);
 
 			/* if user code wants to close, let caller know */
 			if (m)

@@ -36,7 +36,9 @@
 #include <stdint.h>
 #include <stdio.h>
 #include "romfs.h"
+#if defined(LWS_WITH_ESP32)
 #include "esp_spi_flash.h"
+#endif
 
 #define RFS_STRING_MAX 96
 
@@ -47,11 +49,13 @@ static romfs_t cr = (romfs_t)cache;
 static void
 set_cache(romfs_inode_t inode, size_t len)
 {
+#if defined(LWS_WITH_ESP32)
 	spi_flash_read((uint32_t)inode, cache, len);
+#endif
 }
 
 static uint32_t
-ntohl(const u32_be_t be)
+untohl(const u32_be_t be)
 {
 	return ((be >> 24) & 0xff) |
 	       ((be >> 16) & 0xff) << 8 |
@@ -92,7 +96,7 @@ romfs_mount_check(romfs_t romfs)
 	    cr->magic2 != 0x2d736631)
 		return 0;
 
-	return ntohl(cr->size);
+	return untohl(cr->size);
 }
 
 static romfs_inode_t
@@ -113,7 +117,7 @@ dir_link(romfs_t romfs, romfs_inode_t i)
 {
 	set_cache(i, sizeof(*i));
 	return (romfs_inode_t)((const uint8_t *)romfs +
-						ntohl(ci->dir_start));
+						untohl(ci->dir_start));
 }
 
 static romfs_inode_t
@@ -149,16 +153,16 @@ romfs_lookup(romfs_t romfs, romfs_inode_t start, const char *path)
 			p++;
 
 		if (!*cp && (!*p || *p == '/') &&
-		    (ntohl(next_be) & 7) == RFST_HARDLINK) {
+		    (untohl(next_be) & 7) == RFST_HARDLINK) {
 			set_cache(i, sizeof(*i));
 			return (romfs_inode_t)
 			       ((const uint8_t *)romfs +
-			        (ntohl(ci->dir_start) & ~15));
+			        (untohl(ci->dir_start) & ~15));
 		}
 
 		if (!*p && !*cp) {
 			set_cache(i, sizeof(*i));
-			if ((ntohl(ci->next) & 7) == RFST_SYMLINK) {
+			if ((untohl(ci->next) & 7) == RFST_SYMLINK) {
 				i = romfs_symlink(romfs, level, i);
 				continue;
 			}
@@ -173,7 +177,7 @@ romfs_lookup(romfs_t romfs, romfs_inode_t start, const char *path)
 
 		if (*p == '/' && !*cp) {
 			set_cache(i, sizeof(*i));
-			switch (ntohl(ci->next) & 7) {
+			switch (untohl(ci->next) & 7) {
 			case RFST_SYMLINK:
 				i = romfs_symlink(romfs, level, i);
 				if (!i)
@@ -199,11 +203,11 @@ romfs_lookup(romfs_t romfs, romfs_inode_t start, const char *path)
 		}
 
 		set_cache(i, sizeof(*i));
-		if (!(ntohl(ci->next) & ~15))
+		if (!(untohl(ci->next) & ~15))
 			return NULL;
 
 		i = (romfs_inode_t)((const uint8_t *)romfs +
-				    (ntohl(ci->next) & ~15));
+				    (untohl(ci->next) & ~15));
 		if (i == i_in)
 			return NULL;
 	}
@@ -225,9 +229,9 @@ romfs_get_info(romfs_t romfs, const char *path, size_t *len, size_t *csum)
 		return NULL;
 
 	set_cache(i, sizeof(*i));
-	*len = ntohl(ci->size);
+	*len = untohl(ci->size);
 	if (csum)
-		*csum = ntohl(ci->checksum);
+		*csum = untohl(ci->checksum);
 
 	return (void *)skip_and_pad(i);
 }

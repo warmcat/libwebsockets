@@ -628,7 +628,7 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 		int n;
 
 		lwsl_debug("%s: %p: wsistate 0x%x\n", __func__, wsi,
-			   wsi->wsistate);
+			   (int)wsi->wsistate);
 		n = lws_h1_server_socket_service(wsi, pollfd);
 		if (n != LWS_HPI_RET_HANDLED)
 			return n;
