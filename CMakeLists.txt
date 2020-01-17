@@ -1943,6 +1943,11 @@ if (LWS_HAVE_LIBCAP)
 	list(APPEND LIB_LIST cap )
 endif()
 
+if (UNIX)
+	list(APPEND LIB_LIST dl)
+endif()
+
+
 # Setup the linking for all libs.
 foreach (lib ${LWS_LIBRARIES})
 	target_link_libraries(${lib} ${LIB_LIST})
@@ -1958,10 +1963,6 @@ if (LWS_WITH_ZLIB)
 			LIST(REMOVE_AT CMAKE_REQUIRED_LIBRARIES 0 )
 		endif()
 	endif()
-endif()
-
-if (UNIX)
-	list(APPEND LIB_LIST dl)
 endif()
 
 CHECK_FUNCTION_EXISTS(SSL_CTX_set1_param LWS_HAVE_SSL_CTX_set1_param)
