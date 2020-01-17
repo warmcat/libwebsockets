@@ -1849,6 +1849,11 @@ if (LWS_HAVE_LIBCAP)
 	list(APPEND LIB_LIST cap )
 endif()
 
+if (UNIX)
+	list(APPEND LIB_LIST dl)
+endif()
+
+
 # Setup the linking for all libs.
 foreach (lib ${LWS_LIBRARIES})
 	target_link_libraries(${lib} ${LIB_LIST})
