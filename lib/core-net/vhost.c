@@ -1439,7 +1439,7 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 			 * h2: in usable state already: just use it without
 			 *     going through the queue
 			 */
-			if (w->client_h2_alpn &&
+			if (w->client_h2_alpn && w->client_mux_migrated &&
 			    (lwsi_state(w) == LRS_H2_WAITING_TO_SEND_HEADERS ||
 			     lwsi_state(w) == LRS_ESTABLISHED)) {
 
