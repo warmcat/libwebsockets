@@ -557,7 +557,7 @@ client_http_body_sent:
 
 			eb.token = NULL;
 			eb.len = 0;
-			buffered = lws_buflist_aware_read(pt, wsi, &eb, __func__);
+			buffered = lws_buflist_aware_read(pt, wsi, &eb, 0, __func__);
 			lwsl_debug("%s: buflist-aware-read %d %d\n", __func__,
 					buffered, eb.len);
 			if (eb.len == LWS_SSL_CAPABLE_MORE_SERVICE)
@@ -1334,11 +1334,19 @@ lws_http_client_read(struct lws *wsi, char **buf, int *len)
 	struct lws_tokens eb;
 	int buffered, n, consumed = 0;
 
-	eb.token = NULL;
-	eb.len = 0;
+	/*
+	 * If the caller provided a non-NULL *buf and nonzero *len, we should
+	 * use that as the buffer for the read action, limititing it to *len
+	 * (actual payload will be less if chunked headers inside).
+	 *
+	 * If it's NULL / 0 length, buflist_aware_read will use the pt_serv_buf
+	 */
 
-	buffered = lws_buflist_aware_read(pt, wsi, &eb, __func__);
-	*buf = (char *)eb.token;
+	eb.token = (unsigned char *)*buf;
+	eb.len = *len;
+
+	buffered = lws_buflist_aware_read(pt, wsi, &eb, 0, __func__);
+	*buf = (char *)eb.token; /* may be pointing to buflist or pt_serv_buf */
 	*len = 0;
 
 	/*

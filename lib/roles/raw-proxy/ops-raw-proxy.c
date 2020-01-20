@@ -54,7 +54,12 @@ rops_handle_POLLIN_raw_proxy(struct lws_context_per_thread *pt, struct lws *wsi,
 	    !(wsi->favoured_pollin &&
 	      (pollfd->revents & pollfd->events & LWS_POLLOUT))) {
 
-		buffered = lws_buflist_aware_read(pt, wsi, &ebuf, __func__);
+		ebuf.token = NULL;
+		ebuf.len = 0;
+		buffered = lws_buflist_aware_read(pt, wsi, &ebuf, 1, __func__);
+		if (buffered < 0)
+			goto fail;
+
 		switch (ebuf.len) {
 		case 0:
 			lwsl_info("%s: read 0 len\n", __func__);
