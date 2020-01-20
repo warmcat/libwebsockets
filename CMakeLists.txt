@@ -13,6 +13,9 @@ endif()
 set(LWS_ROLE_RAW 1)
 set(LWS_WITH_POLL 1)
 
+# it's at this point any toolchain file is brought in
+project(libwebsockets C)
+
 #
 # Select features recommended for PC distro packaging
 #
@@ -170,12 +173,12 @@ if (LWS_PLAT_FREERTOS OR LWS_PLAT_OPTEE)
 endif()
 
 if (WIN32 OR LWS_PLAT_FREERTOS)
-	message(STATUS "No LWS_WITH_DIR and LWS_WITH_DIR")
+	message(STATUS "No LWS_WITH_DIR or LWS_WITH_LEJP_CONF")
 	set(LWS_WITH_DIR OFF)
 	set(LWS_WITH_LEJP_CONF OFF)
 	message("LWS_WITH_DIR ${LWS_WITH_DIR}")
 else()
-	message(STATUS "Compiled with LWS_WITH_DIR and LWS_WITH_DIR")
+	message(STATUS "Compiled with LWS_WITH_DIR and LWS_WITH_LEJP_CONF")
 	set(LWS_WITH_DIR ON)
 	set(LWS_WITH_LEJP_CONF ON)
 endif()
@@ -270,8 +273,6 @@ if (LWS_PLAT_FREERTOS)
 	set(LWS_WITH_LWSAC 0)
 	set(LWS_WITH_FTS 0)
 endif()
-
-project(libwebsockets C)
 
 set(PACKAGE "libwebsockets")
 set(CPACK_PACKAGE_NAME "${PACKAGE}")
