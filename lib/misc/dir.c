@@ -182,6 +182,6 @@ bail:
 }
 
 #else
-#error "If you want lws_dir onw windows, you need libuv"
+#error "If you want lws_dir on windows, you need libuv"
 #endif
 #endif
