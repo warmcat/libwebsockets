@@ -557,7 +557,7 @@ client_http_body_sent:
 
 			eb.token = NULL;
 			eb.len = 0;
-			buffered = lws_buflist_aware_read(pt, wsi, &eb, __func__);
+			buffered = lws_buflist_aware_read(pt, wsi, &eb, 0, __func__);
 			lwsl_debug("%s: buflist-aware-read %d %d\n", __func__,
 					buffered, eb.len);
 			if (eb.len == LWS_SSL_CAPABLE_MORE_SERVICE)
@@ -1337,7 +1337,7 @@ lws_http_client_read(struct lws *wsi, char **buf, int *len)
 	eb.token = NULL;
 	eb.len = 0;
 
-	buffered = lws_buflist_aware_read(pt, wsi, &eb, __func__);
+	buffered = lws_buflist_aware_read(pt, wsi, &eb, 0, __func__);
 	*buf = (char *)eb.token;
 	*len = 0;
 
