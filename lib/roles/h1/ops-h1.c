@@ -927,7 +927,7 @@ rops_adoption_bind_h1(struct lws *wsi, int type, const char *vh_prot_name)
 #if defined(LWS_WITH_CLIENT)
 
 static const char * const http_methods[] = {
-	"GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE", "CONNECT"
+	"GET", "POST", "OPTIONS", "HEAD", "PUT", "PATCH", "DELETE", "CONNECT"
 };
 
 static int
