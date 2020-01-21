@@ -800,6 +800,7 @@ struct lws {
 	unsigned int			client_mux_substream:1;
 	unsigned int			client_mux_migrated:1;
 	unsigned int			client_subsequent_mime_part:1;
+	unsigned int                    client_no_follow_redirect:1;
 #endif
 
 #ifdef _WIN32

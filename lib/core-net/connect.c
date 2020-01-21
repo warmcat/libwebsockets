@@ -158,6 +158,8 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 
 	wsi->protocol = &wsi->vhost->protocols[0];
 	wsi->client_pipeline = !!(i->ssl_connection & LCCSCF_PIPELINE);
+	wsi->client_no_follow_redirect = !!(i->ssl_connection &
+					    LCCSCF_HTTP_NO_FOLLOW_REDIRECT);
 
 	/*
 	 * PHASE 5: handle external user_space now, generic alloc is done in
