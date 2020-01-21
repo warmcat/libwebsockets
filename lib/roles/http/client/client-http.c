@@ -802,7 +802,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	if (ah)
 		ah->http_response = n;
 
-	if (
+	if (!wsi->client_no_follow_redirect &&
 #if defined(LWS_WITH_HTTP_PROXY)
 	    !wsi->http.proxy_clientside &&
 #endif
