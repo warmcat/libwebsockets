@@ -102,7 +102,7 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 			struct lws *w = lws_container_of(d, struct lws,
 						  dll2_cli_txn_queue);
 
-			lwsl_notice("%s: %p states 0x%lx\n", __func__, w,
+			lwsl_debug("%s: %p states 0x%lx\n", __func__, w,
 				   (unsigned long)w->wsistate);
 			if (lwsi_state(w) == LRS_H1C_ISSUE_HANDSHAKE2)
 				wfound = w;
