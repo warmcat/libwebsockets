@@ -46,6 +46,7 @@ lws_ev_idle_cb(struct ev_loop *loop, struct ev_idle *handle, int revents)
 	struct lws_context_per_thread *pt = lws_container_of(handle,
 					struct lws_context_per_thread, ev.idle);
 	lws_usec_t us;
+	int reschedule = 0;
 
 	lws_service_do_ripe_rxflow(pt);
 
@@ -54,7 +55,7 @@ lws_ev_idle_cb(struct ev_loop *loop, struct ev_idle *handle, int revents)
 	 */
 	if (!lws_service_adjust_timeout(pt->context, 1, pt->tid))
 		/* -1 timeout means just do forced service */
-		_lws_plat_service_forced_tsi(pt->context, pt->tid);
+		reschedule = _lws_plat_service_forced_tsi(pt->context, pt->tid);
 
 	/* account for hrtimer */
 
@@ -67,7 +68,8 @@ lws_ev_idle_cb(struct ev_loop *loop, struct ev_idle *handle, int revents)
 	lws_pt_unlock(pt);
 
 	/* there is nobody who needs service forcing, shut down idle */
-	ev_idle_stop(loop, handle);
+	if (!reschedule)
+		ev_idle_stop(loop, handle);
 }
 
 static void

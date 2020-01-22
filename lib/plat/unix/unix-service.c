@@ -37,9 +37,9 @@ int
 _lws_plat_service_forced_tsi(struct lws_context *context, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
-	int m, n;
+	int m, n, r;
 
-	lws_service_flag_pending(context, tsi);
+	r = lws_service_flag_pending(context, tsi);
 
 	/* any socket with events to service? */
 	for (n = 0; n < (int)pt->fds_count; n++) {
@@ -59,7 +59,7 @@ _lws_plat_service_forced_tsi(struct lws_context *context, int tsi)
 
 	lws_service_do_ripe_rxflow(pt);
 
-	return 0;
+	return r;
 }
 
 #define LWS_POLL_WAIT_LIMIT 2000000000
@@ -204,7 +204,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		return 0;
 	}
 
-	if (_lws_plat_service_forced_tsi(context, tsi))
+	if (_lws_plat_service_forced_tsi(context, tsi) < 0)
 		return -1;
 
 	return 0;
