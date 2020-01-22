@@ -716,8 +716,9 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 		q->standalone_cb = cb;
 
 	/* schedule a retry according to the retry policy on the wsi */
-	lws_retry_sul_schedule_retry_wsi(dns->wsi, &q->sul,
-					 lws_async_dns_sul_cb_retry, &q->retry);
+	if (lws_retry_sul_schedule_retry_wsi(dns->wsi, &q->sul,
+					 lws_async_dns_sul_cb_retry, &q->retry))
+		goto failed;
 
 	/*
 	 * We may rewrite the copy at +sizeof(*q) for CNAME recursion.  Keep
