@@ -468,6 +468,7 @@ struct lws_context {
 	unsigned short ip_limit_wsi;
 #endif
 	unsigned int deprecated:1;
+	unsigned int inside_context_destroy:1;
 	unsigned int being_destroyed:1;
 	unsigned int being_destroyed1:1;
 	unsigned int being_destroyed2:1;

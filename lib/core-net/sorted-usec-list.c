@@ -128,7 +128,9 @@ __lws_sul_service_ripe(lws_dll2_owner_t *own, lws_usec_t usnow)
 		/* his moment has come... remove him from timeout list */
 		lws_dll2_remove(&sul->list);
 		sul->us = 0;
+		pt->inside_lws_service = 1;
 		sul->cb(sul);
+		pt->inside_lws_service = 0;
 
 		/*
 		 * The callback may have done any mixture of delete

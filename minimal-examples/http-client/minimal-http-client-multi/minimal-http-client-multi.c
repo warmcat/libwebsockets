@@ -1,7 +1,7 @@
 /*
  * lws-minimal-http-client-multi
  *
- * Written in 2010-2019 by Andy Green <andy@warmcat.com>
+ * Written in 2010-2020 by Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
@@ -40,10 +40,10 @@ struct cliuser {
 	int index;
 };
 
-static int interrupted, completed, failed, numbered, stagger_idx;
-static struct lws *client_wsi[COUNT];
+static int completed, failed, numbered, stagger_idx;
 static lws_sorted_usec_list_t sul_stagger;
 static struct lws_client_connect_info i;
+static struct lws *client_wsi[COUNT];
 struct lws_context *context;
 
 static int
@@ -65,11 +65,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 			 in ? (char *)in : "(null)");
 		client_wsi[idx] = NULL;
 		failed++;
-		if (++completed == COUNT) {
-			lwsl_err("Done: failed: %d\n", failed);
-			interrupted = 1;
-		}
-		break;
+		goto finished;
 
 	/* chunks of chunked content, with header removed */
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
@@ -103,16 +99,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_user("LWS_CALLBACK_COMPLETED_CLIENT_HTTP %p: idx %d\n",
 			  wsi, idx);
 		client_wsi[idx] = NULL;
-		if (++completed == COUNT) {
-			if (!failed)
-				lwsl_user("Done: all OK\n");
-			else
-				lwsl_err("Done: failed: %d\n", failed);
-			interrupted = 1;
-			/* so we exit immediately */
-			lws_cancel_service(lws_get_context(wsi));
-		}
-		break;
+		goto finished;
 
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
 		lwsl_info("%s: closed: %p\n", __func__, client_wsi[idx]);
@@ -124,10 +111,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 			 */
 			client_wsi[idx] = NULL;
 			failed++;
-			if (++completed == COUNT) {
-				lwsl_err("Done: failed: %d\n", failed);
-				interrupted = 1;
-			}
+			goto finished;
 		}
 		break;
 
@@ -136,6 +120,23 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	}
 
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
+
+finished:
+	if (++completed == COUNT) {
+		if (!failed)
+			lwsl_user("Done: all OK\n");
+		else
+			lwsl_err("Done: failed: %d\n", failed);
+		//interrupted = 1;
+		/*
+		 * This is how we can exit the event loop even when it's an
+		 * event library backing it... it will start and stage the
+		 * destroy to happen after we exited this service for each pt
+		 */
+		lws_context_destroy(lws_get_context(wsi));
+	}
+
+	return 0;
 }
 
 static const struct lws_protocols protocols[] = {
@@ -144,9 +145,23 @@ static const struct lws_protocols protocols[] = {
 };
 
 static void
+signal_cb(void *handle, int signum)
+{
+	switch (signum) {
+	case SIGTERM:
+	case SIGINT:
+		break;
+	default:
+		lwsl_err("%s: signal %d\n", __func__, signum);
+		break;
+	}
+	lws_context_destroy(context);
+}
+
+static void
 sigint_handler(int sig)
 {
-	interrupted = 1;
+	signal_cb(NULL, sig);
 }
 
 #if defined(WIN32)
@@ -199,7 +214,7 @@ lws_try_client_connection(struct lws_client_connect_info *i, int m)
 		failed++;
 		if (++completed == COUNT) {
 			lwsl_user("Done: failed: %d\n", failed);
-			interrupted = 1;
+			lws_context_destroy(context);
 		}
 	} else
 		lwsl_user("started connection %p: idx %d (%s)\n",
@@ -233,8 +248,7 @@ int main(int argc, const char **argv)
 	struct lws_context_creation_info info;
 	unsigned long long start;
 	const char *p;
-	int n = 0, m, staggered = 0, logs =
-		LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE
+	int m, staggered = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE
 		/* for LLL_ verbosity above NOTICE to be built into lws,
 		 * lws must have been configured and built with
 		 * -DCMAKE_BUILD_TYPE=DEBUG instead of =RELEASE */
@@ -242,9 +256,22 @@ int main(int argc, const char **argv)
 		/* | LLL_EXT */ /* | LLL_CLIENT */ /* | LLL_LATENCY */
 		/* | LLL_DEBUG */;
 
-	signal(SIGINT, sigint_handler);
-
+	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	memset(&i, 0, sizeof i); /* otherwise uninitialized garbage */
+
+	info.signal_cb = signal_cb;
+	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+
+	if (lws_cmdline_option(argc, argv, "--uv"))
+		info.options |= LWS_SERVER_OPTION_LIBUV;
+	else
+		if (lws_cmdline_option(argc, argv, "--event"))
+			info.options |= LWS_SERVER_OPTION_LIBEVENT;
+		else
+			if (lws_cmdline_option(argc, argv, "--ev"))
+				info.options |= LWS_SERVER_OPTION_LIBEV;
+			else
+				signal(SIGINT, sigint_handler);
 
 	staggered = !!lws_cmdline_option(argc, argv, "-s");
 	if ((p = lws_cmdline_option(argc, argv, "-d")))
@@ -255,8 +282,6 @@ int main(int argc, const char **argv)
 	lwsl_user("   [--h1 (http/1 only)] [-l (localhost)] [-d <logs>]\n");
 	lwsl_user("   [-n (numbered)]\n");
 
-	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
-	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.port = CONTEXT_PORT_NO_LISTEN; /* we do not run any server */
 	info.protocols = protocols;
 	/*
@@ -341,8 +366,8 @@ int main(int argc, const char **argv)
 				 100 * LWS_US_PER_MS);
 
 	start = us();
-	while (n >= 0 && !interrupted)
-		n = lws_service(context, 0);
+	while (!lws_service(context, 0))
+		;
 
 	lwsl_user("Duration: %lldms\n", (us() - start) / 1000);
 	lws_context_destroy(context);

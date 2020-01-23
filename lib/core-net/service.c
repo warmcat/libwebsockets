@@ -387,7 +387,7 @@ lws_buflist_aware_read(struct lws_context_per_thread *pt, struct lws *wsi,
 
 	if (!bns && /* only acknowledge error when we handled buflist content */
 	    n == LWS_SSL_CAPABLE_ERROR) {
-		lwsl_notice("%s: SSL_CAPABLE_ERROR\n", __func__);
+		lwsl_debug("%s: SSL_CAPABLE_ERROR\n", __func__);
 		return -1;
 	}
 
@@ -513,11 +513,15 @@ lws_service_do_ripe_rxflow(struct lws_context_per_thread *pt)
 			   (unsigned long)wsi->wsistate);
 
 		if (!lws_is_flowcontrolled(wsi) &&
-		    lwsi_state(wsi) != LRS_DEFERRING_ACTION &&
-		    (wsi->role_ops->handle_POLLIN)(pt, wsi, &pfd) ==
+		    lwsi_state(wsi) != LRS_DEFERRING_ACTION) {
+			pt->inside_lws_service = 1;
+
+			if ((wsi->role_ops->handle_POLLIN)(pt, wsi, &pfd) ==
 						   LWS_HPI_RET_PLEASE_CLOSE_ME)
-			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
-					   "close_and_handled");
+				lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
+						"close_and_handled");
+			pt->inside_lws_service = 0;
+		}
 
 	} lws_end_foreach_dll_safe(d, d1);
 
@@ -679,6 +683,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	}
 #endif
 	wsi->could_have_pending = 0; /* clear back-to-back write detection */
+	pt->inside_lws_service = 1;
 
 	/* okay, what we came here to do... */
 
@@ -690,6 +695,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 
 	switch ((wsi->role_ops->handle_POLLIN)(pt, wsi, pollfd)) {
 	case LWS_HPI_RET_WSI_ALREADY_DIED:
+		pt->inside_lws_service = 0;
 		return 1;
 	case LWS_HPI_RET_HANDLED:
 		break;
@@ -714,6 +720,7 @@ close_and_handled:
 		 * we can't clear revents now because it'd be the wrong guy's
 		 * revents
 		 */
+		pt->inside_lws_service = 0;
 		return 1;
 	default:
 		assert(0);
@@ -722,6 +729,7 @@ close_and_handled:
 handled:
 #endif
 	pollfd->revents = 0;
+	pt->inside_lws_service = 0;
 
 	return 0;
 }
