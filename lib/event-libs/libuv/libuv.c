@@ -84,6 +84,9 @@ lws_io_cb(uv_poll_t *watcher, int status, int revents)
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	struct lws_pollfd eventfd;
 
+	if (pt->is_destroyed)
+		return;
+
 #if defined(WIN32) || defined(_WIN32)
 	eventfd.fd = watcher->socket;
 #else
@@ -115,6 +118,11 @@ lws_io_cb(uv_poll_t *watcher, int status, int revents)
 		}
 	}
 	lws_service_fd_tsi(context, &eventfd, wsi->tsi);
+
+	if (pt->destroy_self) {
+		lws_context_destroy(pt->context);
+		return;
+	}
 
 	uv_idle_start(&pt->uv.idle, lws_uv_idle);
 }
@@ -497,7 +505,7 @@ elops_destroy_context1_uv(struct lws_context *context)
 						  UV_RUN_NOWAIT)))
 					;
 			if (m)
-				lwsl_err("%s: tsi %d: not all closed\n",
+				lwsl_info("%s: tsi %d: not all closed\n",
 					 __func__, n);
 
 		}

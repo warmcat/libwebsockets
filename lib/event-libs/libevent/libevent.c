@@ -48,6 +48,9 @@ lws_event_idle_timer_cb(int fd, short event, void *p)
 	struct timeval tv;
 	lws_usec_t us;
 
+	if (pt->is_destroyed)
+		return;
+
 	lws_service_do_ripe_rxflow(pt);
 
 	/*
@@ -80,6 +83,10 @@ lws_event_idle_timer_cb(int fd, short event, void *p)
 		evtimer_add(pt->event.hrtimer, &tv);
 	}
 	lws_pt_unlock(pt);
+
+
+	if (pt->destroy_self)
+		lws_context_destroy(pt->context);
 }
 
 static void
@@ -117,12 +124,19 @@ lws_event_cb(evutil_socket_t sock_fd, short revents, void *ctx)
 	}
 
 	wsi = wsi_from_fd(context, sock_fd);
-	if (!wsi) {
+	if (!wsi)
 		return;
-	}
+
 	pt = &context->pt[(int)wsi->tsi];
+	if (pt->is_destroyed)
+		return;
 
 	lws_service_fd_tsi(context, &eventfd, wsi->tsi);
+
+	if (pt->destroy_self) {
+		lws_context_destroy(pt->context);
+		return;
+	}
 
 	/* set the idle timer for 1ms ahead */
 
@@ -252,7 +266,8 @@ elops_io_event(struct lws *wsi, int flags)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 
-	if (!pt->event.io_loop || wsi->context->being_destroyed)
+	if (!pt->event.io_loop || wsi->context->being_destroyed ||
+	    pt->is_destroyed)
 		return;
 
 	assert((flags & (LWS_EV_START | LWS_EV_STOP)) &&
@@ -319,14 +334,32 @@ elops_destroy_pt_event(struct lws_context *context, int tsi)
 static void
 elops_destroy_wsi_event(struct lws *wsi)
 {
+	struct lws_context_per_thread *pt;
+
 	if (!wsi)
 		return;
 
-	if (wsi->w_read.event.watcher)
-		event_free(wsi->w_read.event.watcher);
+	pt = &wsi->context->pt[(int)wsi->tsi];
+	if (pt->is_destroyed)
+		return;
 
-	if (wsi->w_write.event.watcher)
+	if (wsi->w_read.event.watcher) {
+		event_free(wsi->w_read.event.watcher);
+		wsi->w_read.event.watcher = NULL;
+	}
+
+	if (wsi->w_write.event.watcher) {
 		event_free(wsi->w_write.event.watcher);
+		wsi->w_write.event.watcher = NULL;
+	}
+}
+
+static int
+elops_wsi_logical_close_event(struct lws *wsi)
+{
+	elops_destroy_wsi_event(wsi);
+
+	return 0;
 }
 
 static int
@@ -411,7 +444,7 @@ struct lws_event_loop_ops event_loop_ops_event = {
 	/* destroy_context2 */		elops_destroy_context2_event,
 	/* init_vhost_listen_wsi */	elops_init_vhost_listen_wsi_event,
 	/* init_pt */			elops_init_pt_event,
-	/* wsi_logical_close */		NULL,
+	/* wsi_logical_close */		elops_wsi_logical_close_event,
 	/* check_client_connect_ok */	NULL,
 	/* close_handle_manually */	NULL,
 	/* accept */			elops_accept_event,

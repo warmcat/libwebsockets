@@ -147,7 +147,6 @@ __lws_free_wsi(struct lws *wsi)
 
 	__lws_reset_wsi(wsi);
 
-
 	if (wsi->context->event_loop_ops->destroy_wsi)
 		wsi->context->event_loop_ops->destroy_wsi(wsi);
 

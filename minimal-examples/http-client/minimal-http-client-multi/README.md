@@ -22,4 +22,6 @@ Option|Meaning
 --h1|Force http/1 only
 -l|Connect to server on https://localhost:7681 instead of https://warmcat.com:443
 -n|Read numbered files like /1.png, /2.png etc.  Default is just read /
-
+--uv|Use libuv event loop if lws built for it
+--event|Use libevent event loop if lws built for it
+--ev|Use libev event loop if lws built for it

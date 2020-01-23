@@ -459,8 +459,11 @@ struct lws_context_per_thread {
 	unsigned char tid;
 
 	unsigned char inside_service:1;
+	unsigned char inside_lws_service:1;
 	unsigned char event_loop_foreign:1;
 	unsigned char event_loop_destroy_processing_done:1;
+	unsigned char destroy_self:1;
+	unsigned char is_destroyed:1;
 #ifdef _WIN32
 	unsigned char interrupt_requested:1;
 #endif

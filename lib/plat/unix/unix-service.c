@@ -207,6 +207,11 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	if (_lws_plat_service_forced_tsi(context, tsi) < 0)
 		return -1;
 
+	if (pt->destroy_self) {
+		lws_context_destroy(pt->context);
+		return -1;
+	}
+
 	return 0;
 }
 

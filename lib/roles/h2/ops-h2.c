@@ -611,7 +611,7 @@ rops_destroy_role_h2(struct lws *wsi)
 	struct allocated_headers *ah;
 
 	/* we may not have an ah, but may be on the waiting list... */
-	lwsl_info("%s: ah det due to close\n", __func__);
+	lwsl_info("%s: wsi %p: ah det due to close\n", __func__, wsi);
 	__lws_header_table_detach(wsi, 0);
 
 	ah = pt->http.ah_list;
