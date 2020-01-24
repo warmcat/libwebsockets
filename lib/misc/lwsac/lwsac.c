@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -67,6 +67,29 @@ struct lwsac *
 lwsac_get_next(struct lwsac *lac)
 {
 	return lac->next;
+}
+
+int
+lwsac_extend(struct lwsac *head, int amount)
+{
+	struct lwsac_head *lachead;
+	struct lwsac *bf;
+
+	assert(head);
+	lachead = (struct lwsac_head *)&head[1];
+
+	bf = lachead->curr;
+	assert(bf);
+
+	if (bf->alloc_size - bf->ofs < lwsac_align(amount))
+		return 1;
+
+	/* memset so constant folding never sees uninitialized data */
+
+	memset(((uint8_t *)bf) + bf->ofs, 0, lwsac_align(amount));
+	bf->ofs += lwsac_align(amount);
+
+	return 0;
 }
 
 static void *
