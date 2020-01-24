@@ -935,7 +935,12 @@ CHECK_C_SOURCE_COMPILES("#include <stdint.h>
 	}" LWS_HAS_INTPTR_T)
 
 if (LWS_HAVE_PTHREAD_H)
-	set(CMAKE_REQUIRED_FLAGS "-pthread")
+	if ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
+		set(CMAKE_REQUIRED_FLAGS "-pthread -Wno-error=unused-command-line-argument")
+	else()
+		set(CMAKE_REQUIRED_FLAGS "-pthread")
+	endif()
+
 	CHECK_C_SOURCE_COMPILES("#define _GNU_SOURCE
 		#include <pthread.h>
 		int main(void) {
@@ -1599,7 +1604,7 @@ if (COMPILER_IS_CLANG)
 	# otherwise osx blows a bunch of openssl deprecated api errors
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-deprecated-declarations" )
 	if (UNIX AND LWS_HAVE_PTHREAD_H)
-		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -pthread" )
+		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -pthread -Wno-error=unused-command-line-argument" )
 	endif()
 endif()
 
