@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -38,18 +38,26 @@
  * count reaches zero.
  */
 
+/*
+ * One of these per chunk
+ */
+
 struct lwsac {
 	struct lwsac *next;
 	struct lwsac *head; /* pointer back to the first chunk */
-	size_t alloc_size;
+	size_t alloc_size; /* alloc size of the whole chunk */
 	size_t ofs; /* next writeable position inside chunk */
 };
 
+/*
+ * One of these per lwsac, at start of first chunk
+ */
+
 struct lwsac_head {
-	struct lwsac *curr; /* applies to head chunk only */
-	size_t total_alloc_size; /* applies to head chunk only */
-	int refcount; /* applies to head chunk only */
-	int total_blocks; /* applies to head chunk only */
+	struct lwsac *curr;
+	size_t total_alloc_size;
+	int refcount;
+	int total_blocks;
 	char detached; /* if our refcount gets to zero, free the chunk list */
 };
 
