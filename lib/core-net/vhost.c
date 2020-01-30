@@ -1444,14 +1444,24 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 			 */
 			if (w->client_h2_alpn && w->client_mux_migrated &&
 			    (lwsi_state(w) == LRS_H2_WAITING_TO_SEND_HEADERS ||
-			     lwsi_state(w) == LRS_ESTABLISHED)) {
+			     lwsi_state(w) == LRS_ESTABLISHED ||
+			     lwsi_state(w) == LRS_IDLING)) {
 
-				lwsl_info("%s: just join h2 directly\n",
-						__func__);
+				lwsl_notice("%s: just join h2 directly 0x%x\n",
+						__func__, lwsi_state(w));
+
+				if (lwsi_state(w) == LRS_IDLING) {
+					// lwsi_set_state(w, LRS_ESTABLISHED);
+					_lws_generic_transaction_completed_active_conn(&w);
+				}
+
+				//lwsi_set_state(w, LRS_H1C_ISSUE_HANDSHAKE2);
 
 				wsi->client_h2_alpn = 1;
 				lws_wsi_h2_adopt(w, wsi);
 				lws_vhost_unlock(wsi->vhost); /* } ---------- */
+
+				*nwsi = w;
 
 				return ACTIVE_CONNS_MUXED;
 			}
@@ -1461,10 +1471,15 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 				  wsi, w, (unsigned long)w->wsistate);
 			/*
 			 * ...let's add ourselves to his transaction queue...
-			 * we are adding ourselves at the HEAD
+			 * we are adding ourselves at the TAIL
 			 */
-			lws_dll2_add_head(&wsi->dll2_cli_txn_queue,
+			lws_dll2_add_tail(&wsi->dll2_cli_txn_queue,
 					  &w->dll2_cli_txn_queue_owner);
+
+			if (lwsi_state(w) == LRS_IDLING) {
+				// lwsi_set_state(w, LRS_ESTABLISHED);
+				_lws_generic_transaction_completed_active_conn(&w);
+			}
 
 			/*
 			 * h1: pipeline our headers out on him,

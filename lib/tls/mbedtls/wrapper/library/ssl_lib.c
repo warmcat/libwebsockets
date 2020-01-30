@@ -1660,20 +1660,21 @@ _openssl_alpn_to_mbedtls(struct alpn_ctx *ac, char ***palpn_protos)
 
 	/* find out how many entries he gave us */
 
-	len = *p++;
-	while (p - ac->data < ac->len) {
-		if (len--) {
-			p++;
-			continue;
-		}
-		count++;
+	if (ac->len) {
 		len = *p++;
-		if (!len)
-			break;
+		if (len)
+			count++;
+		while (p - ac->data < ac->len) {
+			if (len--) {
+				p++;
+				continue;
+			}
+			len = *p++;
+			if (!len)
+				break;
+			count++;
+		}
 	}
-
-	if (!len)
-		count++;
 
 	if (!count)
 		return;

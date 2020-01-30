@@ -166,9 +166,12 @@ send_hs:
 		/*
 		 * We are pipelining on an already-established connection...
 		 * we can skip tls establishment.
+		 *
+		 * Set these queued guys to a state where they won't actually
+		 * send their headers until we decide later.
 		 */
 
-		lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE2);
+		lwsi_set_state(wsi, LRS_H2_WAITING_TO_SEND_HEADERS);
 
 		/*
 		 * we can't send our headers directly, because they have to
@@ -760,12 +763,14 @@ lws_client_connect_2_dnsreq(struct lws *wsi)
 	case ACTIVE_CONNS_MUXED:
 		lwsl_notice("%s: ACTIVE_CONNS_MUXED\n", __func__);
 		if (lwsi_role_h2(wsi)) {
+
 			if (wsi->protocol->callback(wsi,
 						    LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP,
 						    wsi->user_space, NULL, 0))
 				goto failed1;
 
-			lwsi_set_state(wsi, LRS_H2_WAITING_TO_SEND_HEADERS);
+			//lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE2);
+			//lwsi_set_state(w, LRS_ESTABLISHED);
 			lws_callback_on_writable(wsi);
 		}
 

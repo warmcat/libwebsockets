@@ -989,7 +989,7 @@ rops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}
 
-		n = lws_client_socket_service(wsi, pollfd, NULL);
+		n = lws_client_socket_service(wsi, pollfd);
 		if (n)
 			return LWS_HPI_RET_WSI_ALREADY_DIED;
 #endif

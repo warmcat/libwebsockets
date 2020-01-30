@@ -283,6 +283,8 @@ enum lws_chunk_parser {
 	ELCP_CONTENT,
 	ELCP_POST_CR,
 	ELCP_POST_LF,
+	ELCP_TRAILER_CR,
+	ELCP_TRAILER_LF
 };
 #endif
 

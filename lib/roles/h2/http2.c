@@ -314,6 +314,11 @@ lws_wsi_h2_adopt(struct lws *parent_wsi, struct lws *wsi)
 #endif
 	wsi->h2.initialized = 1;
 
+	if (!wsi->mux.my_sid) {
+		wsi->mux.my_sid = nwsi->h2.h2n->highest_sid;
+		nwsi->h2.h2n->highest_sid += 2;
+	}
+
 	lws_wsi_mux_insert(wsi, parent_wsi, wsi->mux.my_sid);
 
 	wsi->txc.tx_cr = nwsi->h2.h2n->peer_set.s[H2SET_INITIAL_WINDOW_SIZE];
@@ -2392,7 +2397,8 @@ lws_h2_client_handshake(struct lws *wsi)
 #if defined(LWS_WITH_CLIENT)
 	/* below is not needed in spec, indeed it destroys the long poll
 	 * feature, but required by nghttp2 */
-	if (wsi->flags & LCCSCF_H2_QUIRK_NGHTTP2_END_STREAM)
+	if ((wsi->flags & LCCSCF_H2_QUIRK_NGHTTP2_END_STREAM) &&
+	    !(wsi->client_http_body_pending))
 		m |= LWS_WRITE_H2_STREAM_END;
 #endif
 

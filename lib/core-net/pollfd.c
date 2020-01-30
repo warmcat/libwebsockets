@@ -502,6 +502,7 @@ int
 lws_callback_on_writable(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt;
+	struct lws *w = wsi;
 
 	if (lwsi_state(wsi) == LRS_SHUTDOWN)
 		return 0;
@@ -527,16 +528,16 @@ lws_callback_on_writable(struct lws *wsi)
 	if (wsi->role_ops->callback_on_writable) {
 		if (wsi->role_ops->callback_on_writable(wsi))
 			return 1;
-		wsi = lws_get_network_wsi(wsi);
+		w = lws_get_network_wsi(wsi);
 	}
 
-	if (wsi->position_in_fds_table == LWS_NO_FDS_POS) {
+	if (w->position_in_fds_table == LWS_NO_FDS_POS) {
 		lwsl_debug("%s: failed to find socket %d\n", __func__,
 			   wsi->desc.sockfd);
 		return -1;
 	}
 
-	if (__lws_change_pollfd(wsi, 0, LWS_POLLOUT))
+	if (__lws_change_pollfd(w, 0, LWS_POLLOUT))
 		return -1;
 
 	return 1;

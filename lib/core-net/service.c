@@ -450,11 +450,13 @@ lws_buflist_aware_finished_consuming(struct lws *wsi, struct lws_tokens *ebuf,
 		return 0;
 
 	if (used && buffered) {
-		m = (int)lws_buflist_use_segment(&wsi->buflist, (size_t)used);
-		// lwsl_notice("%s: used %d, next %d\n", __func__, used, m);
-		// lws_buflist_describe(&wsi->buflist, wsi, __func__);
-		if (m)
-			return 0;
+		if (wsi->buflist) {
+			m = (int)lws_buflist_use_segment(&wsi->buflist, (size_t)used);
+			// lwsl_notice("%s: used %d, next %d\n", __func__, used, m);
+			// lws_buflist_describe(&wsi->buflist, wsi, __func__);
+			if (m)
+				return 0;
+		}
 
 		lwsl_info("%s: removed %p from dll_buflist\n", __func__, wsi);
 		lws_dll2_remove(&wsi->dll_buflist);

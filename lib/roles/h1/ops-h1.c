@@ -688,7 +688,7 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
 
-	if (lws_client_socket_service(wsi, pollfd, NULL))
+	if (lws_client_socket_service(wsi, pollfd))
 		return LWS_HPI_RET_WSI_ALREADY_DIED;
 #endif
 
@@ -1095,16 +1095,14 @@ static int
 rops_close_kill_connection_h1(struct lws *wsi, enum lws_close_status reason)
 {
 #if defined(LWS_WITH_HTTP_PROXY)
-	struct lws *wsi_eff = lws_client_wsi_effective(wsi);
-
-	if (!wsi_eff->http.proxy_clientside)
+	if (!wsi->http.proxy_clientside)
 		return 0;
 
-	wsi_eff->http.proxy_clientside = 0;
+	wsi->http.proxy_clientside = 0;
 
-	if (user_callback_handle_rxflow(wsi_eff->protocol->callback, wsi_eff,
+	if (user_callback_handle_rxflow(wsi->protocol->callback, wsi,
 					LWS_CALLBACK_COMPLETED_CLIENT_HTTP,
-					wsi_eff->user_space, NULL, 0))
+					wsi->user_space, NULL, 0))
 		return 0;
 #endif
 	return 0;
