@@ -759,9 +759,9 @@ lws_get_context(const struct lws *wsi)
 
 #if defined(LWS_WITH_CLIENT)
 int
-_lws_generic_transaction_completed_active_conn(struct lws *wsi)
+_lws_generic_transaction_completed_active_conn(struct lws **_wsi)
 {
-	struct lws *wsi_eff = lws_client_wsi_effective(wsi);
+	struct lws *wnew, *wsi = *_wsi;
 
 	/*
 	 * Are we constitutionally capable of having a queue, ie, we are on
@@ -773,34 +773,25 @@ _lws_generic_transaction_completed_active_conn(struct lws *wsi)
 	if (lws_dll2_is_detached(&wsi->dll_cli_active_conns))
 		return 0; /* no new transaction */
 
-	/* if this was a queued guy, close him and remove from queue */
-
-	if (wsi->transaction_from_pipeline_queue) {
-		lwsl_debug("closing queued wsi %p\n", wsi_eff);
-		/* so the close doesn't trigger a CCE */
-		wsi_eff->already_did_cce = 1;
-		__lws_close_free_wsi(wsi_eff,
-			LWS_CLOSE_STATUS_CLIENT_TRANSACTION_DONE,
-			"queued client done");
-	}
-
-	/* after the first one, they can only be coming from the queue */
-	wsi->transaction_from_pipeline_queue = 1;
-
-	wsi->hdr_parsing_completed = 0;
-
-	/* is there a new tail after removing that one? */
-	wsi_eff = lws_client_wsi_effective(wsi);
-
 	/*
-	 * Do we have something pipelined waiting?
-	 * it's OK if he hasn't managed to send his headers yet... he's next
-	 * in line to do that...
+	 * With h1 queuing, the original "active client" moves his attributes
+	 * like fd, ssl, queue and active client list entry to the next guy in
+	 * the queue before closing... it's because the user code knows the
+	 * individual wsi and the action must take place in the correct wsi
+	 * context.  Note this means we don't truly pipeline headers.
+	 *
+	 * Trying to keep the original "active client" in place to do the work
+	 * of the wsi breaks down when dealing with queued POSTs otherwise; it's
+	 * also competing with the real mux child arrangements and complicating
+	 * the code.
+	 *
+	 * For that reason, see if we have any queued child now...
 	 */
-	if (wsi_eff == wsi) {
+
+	if (!wsi->dll2_cli_txn_queue_owner.head) {
 		/*
 		 * Nothing pipelined... we should hang around a bit
-		 * in case something turns up...
+		 * in case something turns up... otherwise we'll close
 		 */
 		lwsl_info("%s: nothing pipelined waiting\n", __func__);
 		lwsi_set_state(wsi, LRS_IDLING);
@@ -809,6 +800,96 @@ _lws_generic_transaction_completed_active_conn(struct lws *wsi)
 
 		return 0; /* no new transaction right now */
 	}
+
+	/*
+	 * We have a queued child wsi we should bequeath our assets to, before
+	 * closing ourself
+	 */
+
+	lws_vhost_lock(wsi->vhost);
+
+	wnew = lws_container_of(wsi->dll2_cli_txn_queue_owner.head, struct lws,
+				dll2_cli_txn_queue);
+
+	assert(wsi != wnew);
+
+	lws_dll2_remove(&wnew->dll2_cli_txn_queue);
+
+	assert(lws_socket_is_valid(wsi->desc.sockfd));
+
+	/* copy the fd */
+	wnew->desc = wsi->desc;
+
+	assert(lws_socket_is_valid(wnew->desc.sockfd));
+
+	/* disconnect the fd from association with old wsi */
+
+	if (__remove_wsi_socket_from_fds(wsi))
+		return -1;
+	wsi->desc.sockfd = LWS_SOCK_INVALID;
+
+	/* point the fd table entry to new guy */
+
+	assert(lws_socket_is_valid(wnew->desc.sockfd));
+
+	if (__insert_wsi_socket_into_fds(wsi->context, wnew))
+		return -1;
+
+#if defined(LWS_WITH_TLS)
+	/* pass on the tls */
+
+	wnew->tls = wsi->tls;
+	wsi->tls.client_bio = NULL;
+	wsi->tls.ssl = NULL;
+	wsi->tls.use_ssl = 0;
+#endif
+
+	/* take over his copy of his endpoint as an active connection */
+
+	wnew->cli_hostname_copy = wsi->cli_hostname_copy;
+	wsi->cli_hostname_copy = NULL;
+
+
+	/*
+	 * selected queued guy now replaces the original leader on the
+	 * active client conn list
+	 */
+
+	lws_dll2_remove(&wsi->dll_cli_active_conns);
+	lws_dll2_add_tail(&wnew->dll_cli_active_conns,
+			  &wsi->vhost->dll_cli_active_conns_owner);
+
+	/* move any queued guys to queue on new active conn */
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   wsi->dll2_cli_txn_queue_owner.head) {
+		struct lws *ww = lws_container_of(d, struct lws,
+					  dll2_cli_txn_queue);
+
+		lws_dll2_remove(&ww->dll2_cli_txn_queue);
+		lws_dll2_add_tail(&ww->dll2_cli_txn_queue,
+				  &wnew->dll2_cli_txn_queue_owner);
+
+	} lws_end_foreach_dll_safe(d, d1);
+
+	lws_vhost_unlock(wsi->vhost);
+
+	/*
+	 * The original leader who passed on all his powers already can die...
+	 * in the call stack above us there are guys who still want to touch
+	 * him, so have him die next time around the event loop, not now.
+	 */
+
+	wsi->already_did_cce = 1; /* so the close doesn't trigger a CCE */
+	lws_set_timeout(wsi, 1, LWS_TO_KILL_ASYNC);
+
+	/* after the first one, they can only be coming from the queue */
+	wnew->transaction_from_pipeline_queue = 1;
+
+	lwsl_notice("%s: pipeline queue passed wsi %p on to queued wsi %p\n",
+			__func__, wsi, wnew);
+
+	*_wsi = wnew; /* inform caller we swapped */
 
 	return 1; /* new transaction */
 }
@@ -1095,7 +1176,8 @@ lws_wsi_mux_mark_parents_needing_writeable(struct lws *wsi)
 	wsi2 = wsi;
 	while (wsi2) {
 		wsi2->mux.requested_POLLOUT = 1;
-		lwsl_info("mark %p pending writable\n", wsi2);
+		lwsl_info("%s: mark %p (sid %u) pending writable\n", __func__,
+				wsi2, wsi2->mux.my_sid);
 		wsi2 = wsi2->mux.parent_wsi;
 	}
 
@@ -1237,8 +1319,10 @@ lws_wsi_mux_apply_queue(struct lws *wsi)
 						 dll2_cli_txn_queue);
 
 		if (lwsi_role_http(wsi) &&
-		    lwsi_state(w) == LRS_H1C_ISSUE_HANDSHAKE2) {
+		    lwsi_state(w) == LRS_H2_WAITING_TO_SEND_HEADERS) {
 			lwsl_info("%s: cli pipeq %p to be h2\n", __func__, w);
+
+			lwsi_set_state(w, LRS_H1C_ISSUE_HANDSHAKE2);
 
 			/* remove ourselves from client queue */
 			lws_dll2_remove(&w->dll2_cli_txn_queue);

@@ -40,23 +40,33 @@ struct cliuser {
 	int index;
 };
 
-static int completed, failed, numbered, stagger_idx;
+static int completed, failed, numbered, stagger_idx, posting, count = COUNT;
 static lws_sorted_usec_list_t sul_stagger;
 static struct lws_client_connect_info i;
 static struct lws *client_wsi[COUNT];
-struct lws_context *context;
+static char urlpath[64];
+static struct lws_context *context;
+
+/* we only need this for tracking POST emit state */
+
+struct pss {
+	char body_part;
+};
 
 static int
 callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	      void *user, void *in, size_t len)
 {
-	int idx = (int)(long)lws_get_opaque_user_data(wsi);
+	char buf[LWS_PRE + 1024], *start = &buf[LWS_PRE], *p = start,
+	     *end = &buf[sizeof(buf) - LWS_PRE - 1];
+	int n, idx = (int)(long)lws_get_opaque_user_data(wsi);
+	struct pss *pss = (struct pss *)user;
 
 	switch (reason) {
 
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
-		lwsl_user("LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP: resp %u\n",
-				lws_http_client_http_response(wsi));
+		lwsl_user("LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP: idx: %d, resp %u\n",
+				idx, lws_http_client_http_response(wsi));
 		break;
 
 	/* because we are protocols[0] ... */
@@ -70,18 +80,20 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	/* chunks of chunked content, with header removed */
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
 		lwsl_user("RECEIVE_CLIENT_HTTP_READ: conn %d: read %d\n", idx, (int)len);
-#if 0  /* enable to dump the html */
-		{
-			const char *p = in;
-
-			while (len--)
-				if (*p < 0x7f)
-					putchar(*p++);
-				else
-					putchar('.');
-		}
-#endif
+		lwsl_hexdump_info(in, len);
 		return 0; /* don't passthru */
+
+	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
+		/*
+		 * Tell lws we are going to send the body next...
+		 */
+		if (posting && !lws_http_is_redirected_to_get(wsi)) {
+			lwsl_user("%s: doing POST flow\n", __func__);
+			lws_client_http_body_pending(wsi, 1);
+			lws_callback_on_writable(wsi);
+		} else
+			lwsl_user("%s: doing GET flow\n", __func__);
+		break;
 
 	/* uninterpreted http content */
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
@@ -115,6 +127,65 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 		break;
 
+	case LWS_CALLBACK_CLIENT_HTTP_WRITEABLE:
+		if (!posting)
+			break;
+		if (lws_http_is_redirected_to_get(wsi))
+			break;
+		lwsl_user("LWS_CALLBACK_CLIENT_HTTP_WRITEABLE: %p, part %d\n", wsi, pss->body_part);
+		n = LWS_WRITE_HTTP;
+
+		/*
+		 * For a small body like this, we could prepare it in memory and
+		 * send it all at once.  But to show how to handle, eg,
+		 * arbitrary-sized file payloads, or huge form-data fields, the
+		 * sending is done in multiple passes through the event loop.
+		 */
+
+		switch (pss->body_part++) {
+		case 0:
+			if (lws_client_http_multipart(wsi, "text", NULL, NULL,
+						      &p, end))
+				return -1;
+			/* notice every usage of the boundary starts with -- */
+			p += lws_snprintf(p, end - p, "my text field\xd\xa");
+			break;
+		case 1:
+			if (lws_client_http_multipart(wsi, "file", "myfile.txt",
+						      "text/plain", &p, end))
+				return -1;
+			p += lws_snprintf(p, end - p,
+					"This is the contents of the "
+					"uploaded file.\xd\xa"
+					"\xd\xa");
+			break;
+		case 2:
+			if (lws_client_http_multipart(wsi, NULL, NULL, NULL,
+						      &p, end))
+				return -1;
+			lws_client_http_body_pending(wsi, 0);
+			 /* necessary to support H2, it means we will write no
+			  * more on this stream */
+			n = LWS_WRITE_HTTP_FINAL;
+			break;
+
+		default:
+			/*
+			 * We can get extra callbacks here, if nothing to do,
+			 * then do nothing.
+			 */
+			return 0;
+		}
+
+		if (lws_write(wsi, (uint8_t *)start, lws_ptr_diff(p, start), n)
+				!= lws_ptr_diff(p, start))
+			return 1;
+
+		if (n != LWS_WRITE_HTTP_FINAL)
+			lws_callback_on_writable(wsi);
+
+		break;
+
 	default:
 		break;
 	}
@@ -122,7 +193,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
 
 finished:
-	if (++completed == COUNT) {
+	if (++completed == count) {
 		if (!failed)
 			lwsl_user("Done: all OK\n");
 		else
@@ -140,7 +211,7 @@ finished:
 }
 
 static const struct lws_protocols protocols[] = {
-	{ "http", callback_http, 0, 0, },
+	{ "http", callback_http, sizeof(struct pss), 0, },
 	{ NULL, NULL, 0, 0 }
 };
 
@@ -205,14 +276,14 @@ lws_try_client_connection(struct lws_client_connect_info *i, int m)
 		lws_snprintf(path, sizeof(path), "/%d.png", m + 1);
 		i->path = path;
 	} else
-		i->path = "/";
+		i->path = urlpath;
 
 	i->pwsi = &client_wsi[m];
 	i->opaque_user_data = (void *)(long)m;
 
 	if (!lws_client_connect_via_info(i)) {
 		failed++;
-		if (++completed == COUNT) {
+		if (++completed == count) {
 			lwsl_user("Done: failed: %d\n", failed);
 			lws_context_destroy(context);
 		}
@@ -233,11 +304,11 @@ stagger_cb(lws_sorted_usec_list_t *sul)
 	 */
 	lws_try_client_connection(&i, stagger_idx++);
 
-	if (stagger_idx == (int)LWS_ARRAY_SIZE(client_wsi))
+	if (stagger_idx == count)
 		return;
 
 	next = 300 * LWS_US_PER_MS;
-	if (stagger_idx == (int)LWS_ARRAY_SIZE(client_wsi) - 1)
+	if (stagger_idx == count - 1)
 		next += 700 * LWS_US_PER_MS;
 
 	lws_sul_schedule(context, 0, &sul_stagger, stagger_cb, next);
@@ -280,7 +351,7 @@ int main(int argc, const char **argv)
 	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS minimal http client [-s (staggered)] [-p (pipeline)]\n");
 	lwsl_user("   [--h1 (http/1 only)] [-l (localhost)] [-d <logs>]\n");
-	lwsl_user("   [-n (numbered)]\n");
+	lwsl_user("   [-n (numbered)] [--post]\n");
 
 	info.port = CONTEXT_PORT_NO_LISTEN; /* we do not run any server */
 	info.protocols = protocols;
@@ -317,6 +388,13 @@ int main(int argc, const char **argv)
 			   LCCSCF_H2_QUIRK_OVERFLOWS_TXCR |
 			   LCCSCF_H2_QUIRK_NGHTTP2_END_STREAM;
 
+	if (lws_cmdline_option(argc, argv, "--post")) {
+		posting = 1;
+		i.method = "POST";
+		i.ssl_connection |= LCCSCF_HTTP_MULTIPART_MIME;
+	} else
+		i.method = "GET";
+
 	/* enables h1 or h2 connection sharing */
 	if (lws_cmdline_option(argc, argv, "-p"))
 		i.ssl_connection |= LCCSCF_PIPELINE;
@@ -325,13 +403,19 @@ int main(int argc, const char **argv)
 	if (lws_cmdline_option(argc, argv, "--h1"))
 		i.alpn = "http/1.1";
 
+	strcpy(urlpath, "/");
+
 	if (lws_cmdline_option(argc, argv, "-l")) {
 		i.port = 7681;
 		i.address = "localhost";
 		i.ssl_connection |= LCCSCF_ALLOW_SELFSIGNED;
+		if (posting)
+			strcpy(urlpath, "/formtest");
 	} else {
 		i.port = 443;
-		i.address = "warmcat.com";
+		i.address = "libwebsockets.org";
+		if (posting)
+			strcpy(urlpath, "/testserver/formtest");
 	}
 
 	if (lws_cmdline_option(argc, argv, "-n"))
@@ -343,12 +427,15 @@ int main(int argc, const char **argv)
 	if ((p = lws_cmdline_option(argc, argv, "--port")))
 		i.port = atoi(p);
 
-	if ((p = lws_cmdline_option(argc, argv, "--server")))
-		i.address = p;
+	if ((p = lws_cmdline_option(argc, argv, "--path")))
+		lws_strncpy(urlpath, p, sizeof(urlpath));
+
+	if ((p = lws_cmdline_option(argc, argv, "-c")))
+		if (atoi(p) <= COUNT && atoi(p))
+			count = atoi(p);
 
 	i.host = i.address;
 	i.origin = i.address;
-	i.method = "GET";
 	i.protocol = protocols[0].name;
 
 	if (!staggered)
@@ -356,7 +443,7 @@ int main(int argc, const char **argv)
 		 * just pile on all the connections at once, testing the
 		 * pipeline queuing before the first is connected
 		 */
-		for (m = 0; m < (int)LWS_ARRAY_SIZE(client_wsi); m++)
+		for (m = 0; m < count; m++)
 			lws_try_client_connection(&i, m);
 	else
 		/*
@@ -372,7 +459,7 @@ int main(int argc, const char **argv)
 	lwsl_user("Duration: %lldms\n", (us() - start) / 1000);
 	lws_context_destroy(context);
 
-	lwsl_user("Exiting with %d\n", failed || completed != COUNT);
+	lwsl_user("Exiting with %d\n", failed || completed != count);
 
-	return failed || completed != COUNT;
+	return failed || completed != count;
 }

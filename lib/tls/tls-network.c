@@ -229,7 +229,7 @@ lws_alpn_comma_to_openssl(const char *comma, uint8_t *os, int len)
 	if (!comma)
 		return 0;
 
-	while (*comma && len > 1) {
+	while (*comma && len > 2) {
 		if (!plen && *comma == ' ') {
 			comma++;
 			continue;
@@ -251,6 +251,8 @@ lws_alpn_comma_to_openssl(const char *comma, uint8_t *os, int len)
 
 	if (plen)
 		*plen = lws_ptr_diff(os, plen + 1);
+
+	*os = 0;
 
 	return lws_ptr_diff(os, oos);
 }

@@ -18,7 +18,7 @@
 
 . $5/selftests-library.sh
 
-COUNT_TESTS=16
+COUNT_TESTS=22
 
 dotest $1 $2 warmcat
 dotest $1 $2 warmcat-pipe -p
@@ -28,6 +28,12 @@ dotest $1 $2 warmcat-stag -s
 dotest $1 $2 warmcat-pipe-stag -p -s
 dotest $1 $2 warmcat-h1-stag --h1 -s
 dotest $1 $2 warmcat-h1-pipe-stag --h1 -p -s
+dotest $1 $2 warmcat-post --post
+dotest $1 $2 warmcat-post-pipe --post -p
+dotest $1 $2 warmcat-post-pipe-stag --post -p -s
+dotest $1 $2 warmcat-h1-post --post --h1
+dotest $1 $2 warmcat-h1-post-pipe --post --h1 -p
+dotest $1 $2 warmcat-h1-post-pipe-stag --post --h1 -p -s
 
 spawn "" $5/http-server/minimal-http-server-tls $1/lws-minimal-http-server-tls
 dotest $1 $2 localhost -l

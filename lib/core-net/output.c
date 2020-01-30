@@ -94,7 +94,7 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 		return 0;
 
 	if (!wsi->mux_substream && !lws_socket_is_valid(wsi->desc.sockfd))
-		lwsl_warn("** error invalid sock but expected to send\n");
+		lwsl_err("%s: invalid sock %p\n", __func__, wsi);
 
 	/* limit sending */
 	if (wsi->protocol->tx_packet_size)

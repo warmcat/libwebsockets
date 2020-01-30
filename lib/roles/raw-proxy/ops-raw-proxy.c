@@ -111,7 +111,7 @@ try_pollout:
 	}
 
 #if defined(LWS_WITH_CLIENT)
-	if (lws_client_socket_service(wsi, pollfd, NULL))
+	if (lws_client_socket_service(wsi, pollfd))
 		return LWS_HPI_RET_WSI_ALREADY_DIED;
 #endif
 

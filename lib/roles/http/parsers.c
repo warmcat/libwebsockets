@@ -1412,7 +1412,7 @@ set_parsing_complete:
 	return LPR_OK;
 
 forbid:
-	lwsl_notice(" forbidding on uri sanitation\n");
+	lwsl_info(" forbidding on uri sanitation\n");
 #if defined(LWS_WITH_SERVER)
 	lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
 #endif

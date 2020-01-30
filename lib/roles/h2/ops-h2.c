@@ -132,7 +132,7 @@ rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}
 
-		n = lws_client_socket_service(wsi, pollfd, NULL);
+		n = lws_client_socket_service(wsi, pollfd);
 		if (n)
 			return LWS_HPI_RET_WSI_ALREADY_DIED;
 #endif
@@ -647,14 +647,13 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 
 #if defined(LWS_WITH_HTTP_PROXY)
 	if (wsi->http.proxy_clientside) {
-		struct lws *wsi_eff = lws_client_wsi_effective(wsi);
 
 		wsi->http.proxy_clientside = 0;
 
-		if (user_callback_handle_rxflow(wsi_eff->protocol->callback,
-						wsi_eff,
+		if (user_callback_handle_rxflow(wsi->protocol->callback,
+						wsi,
 					    LWS_CALLBACK_COMPLETED_CLIENT_HTTP,
-						wsi_eff->user_space, NULL, 0))
+						wsi->user_space, NULL, 0))
 			wsi->http.proxy_clientside = 0;
 	}
 #endif
@@ -732,12 +731,14 @@ rops_callback_on_writable_h2(struct lws *wsi)
 	/* is this for DATA or for control messages? */
 
 	if (wsi->upgraded_to_http2 && !wsi->h2.h2n->pps &&
-	    lws_wsi_txc_check_skint(&wsi->txc, lws_h2_tx_cr_get(wsi)))
+	    lws_wsi_txc_check_skint(&wsi->txc, lws_h2_tx_cr_get(wsi))) {
 		/*
 		 * refuse his efforts to get WRITABLE if we have no credit and
 		 * no non-DATA pps to send
 		 */
+		lwsl_err("%s: skint\n", __func__);
 		return 0;
+	}
 
 #if defined(LWS_WITH_CLIENT)
 	network_wsi = lws_get_network_wsi(wsi);
