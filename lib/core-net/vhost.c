@@ -934,7 +934,9 @@ void
 lws_destroy_event_pipe(struct lws *wsi)
 {
 	lwsl_info("%s\n", __func__);
-	__remove_wsi_socket_from_fds(wsi);
+
+	if (lws_socket_is_valid(wsi->desc.sockfd))
+		__remove_wsi_socket_from_fds(wsi);
 
 	if (!wsi->context->event_loop_ops->destroy_wsi &&
 	    wsi->context->event_loop_ops->wsi_logical_close) {
