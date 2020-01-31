@@ -749,7 +749,7 @@ lws_client_connect_2_dnsreq(struct lws *wsi)
 	/* only pipeline things we associate with being a stream */
 
 	if (meth && strcmp(meth, "RAW") && strcmp(meth, "GET") &&
-		    strcmp(meth, "POST"))
+		    strcmp(meth, "POST") && strcmp(meth, "PUT"))
 		goto solo;
 
 	/* consult active connections to find out disposition */
@@ -811,7 +811,7 @@ solo:
 	 */
 
 	if (meth && (!strcmp(meth, "RAW") || !strcmp(meth, "GET") ||
-		     !strcmp(meth, "POST")) &&
+		     !strcmp(meth, "POST") || !strcmp(meth, "PUT")) &&
 	    lws_dll2_is_detached(&wsi->dll2_cli_txn_queue) &&
 	    lws_dll2_is_detached(&wsi->dll_cli_active_conns)) {
 		lws_vhost_lock(wsi->vhost);
