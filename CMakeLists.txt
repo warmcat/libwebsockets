@@ -1764,7 +1764,8 @@ if (LWS_WITH_ZLIB)
 	message("zlib/miniz include dirs: ${ZLIB_INCLUDE_DIRS}")
 	message("zlib/miniz libraries: ${ZLIB_LIBRARIES}")
 	include_directories(${ZLIB_INCLUDE_DIRS})
-	list(APPEND LIB_LIST ${ZLIB_LIBRARIES})
+	# done later at end of link list
+	# list(APPEND LIB_LIST ${ZLIB_LIBRARIES})
 endif()
 
 if (LWS_WITH_HTTP_BROTLI)
@@ -1933,6 +1934,10 @@ if (${CMAKE_SYSTEM_NAME} MATCHES "QNX")
 	list(APPEND LIB_LIST socket)
 endif()
 
+#
+# add libs here that need to be at the end of the link order
+#
+
 if (UNIX)
 	list(APPEND LIB_LIST m)
 endif()
@@ -1953,6 +1958,9 @@ if (UNIX)
 	list(APPEND LIB_LIST dl)
 endif()
 
+if (LWS_WITH_ZLIB AND NOT LWS_WITH_BUNDLED_ZLIB)
+	list(APPEND LIB_LIST "${ZLIB_LIBRARIES}")
+endif()
 
 # Setup the linking for all libs.
 foreach (lib ${LWS_LIBRARIES})
