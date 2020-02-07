@@ -130,7 +130,10 @@ int main(int argc, const char **argv)
 			if (lws_cmdline_option(argc, argv, "--ev"))
 				info.options |= LWS_SERVER_OPTION_LIBEV;
 			else
-				signal(SIGINT, sigint_handler);
+				if (lws_cmdline_option(argc, argv, "--glib"))
+					info.options |= LWS_SERVER_OPTION_GLIB;
+				else
+					signal(SIGINT, sigint_handler);
 
 	context = lws_create_context(&info);
 	if (!context) {

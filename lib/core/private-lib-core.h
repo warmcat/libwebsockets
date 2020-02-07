@@ -208,6 +208,9 @@ struct lws_io_watcher {
 #ifdef LWS_WITH_LIBEVENT
 	struct lws_io_watcher_libevent event;
 #endif
+#ifdef LWS_WITH_GLIB
+	struct lws_io_watcher_glib glib;
+#endif
 	struct lws_context *context;
 
 	uint8_t actual_events;
@@ -222,6 +225,9 @@ struct lws_signal_watcher {
 #endif
 #ifdef LWS_WITH_LIBEVENT
 	struct lws_signal_watcher_libevent event;
+#endif
+#ifdef LWS_WITH_LIBEVENT
+	struct lws_signal_watcher_glib glib;
 #endif
 	struct lws_context *context;
 };
@@ -338,6 +344,9 @@ struct lws_context {
 #endif
 #if defined(LWS_WITH_LIBEVENT)
 	struct lws_context_eventlibs_libevent event;
+#endif
+#if defined(LWS_WITH_GLIB)
+	struct lws_context_eventlibs_glib glib;
 #endif
 
 #if defined(LWS_WITH_TLS)

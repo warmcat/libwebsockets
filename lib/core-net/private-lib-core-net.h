@@ -429,6 +429,9 @@ struct lws_context_per_thread {
 #if defined(LWS_WITH_LIBEVENT)
 	struct lws_pt_eventlibs_libevent event;
 #endif
+#if defined(LWS_WITH_GLIB)
+	struct lws_pt_eventlibs_glib glib;
+#endif
 
 #if defined(LWS_WITH_LIBEV) || defined(LWS_WITH_LIBUV) || \
     defined(LWS_WITH_LIBEVENT)
@@ -649,7 +652,7 @@ struct lws {
 	/* lifetime members */
 
 #if defined(LWS_WITH_LIBEV) || defined(LWS_WITH_LIBUV) || \
-    defined(LWS_WITH_LIBEVENT)
+    defined(LWS_WITH_LIBEVENT) || defined(LWS_WITH_GLIB)
 	struct lws_io_watcher		w_read;
 #endif
 #if defined(LWS_WITH_LIBEV) || defined(LWS_WITH_LIBEVENT)

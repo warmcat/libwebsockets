@@ -24,6 +24,11 @@
  *  This is included from private-lib-core.h
  */
 
+enum lws_event_lib_ops_flags {
+	LELOF_ISPOLL				= (1 >> 0),
+	LELOF_DESTROY_FINAL			= (1 >> 1),
+};
+
 struct lws_event_loop_ops {
 	const char *name;
 	/* event loop-specific context init during context creation */
@@ -54,7 +59,7 @@ struct lws_event_loop_ops {
 	/* called just before wsi is freed  */
 	void (*destroy_wsi)(struct lws *wsi);
 
-	unsigned int periodic_events_available:1;
+	uint8_t	flags;
 };
 
 /* bring in event libs private declarations */
@@ -69,6 +74,10 @@ struct lws_event_loop_ops {
 
 #if defined(LWS_WITH_LIBEVENT)
 #include "private-lib-event-libs-libevent.h"
+#endif
+
+#if defined(LWS_WITH_GLIB)
+#include "private-lib-event-libs-glib.h"
 #endif
 
 #if defined(LWS_WITH_LIBEV)
