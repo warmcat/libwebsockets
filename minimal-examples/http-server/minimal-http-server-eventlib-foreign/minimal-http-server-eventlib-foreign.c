@@ -1,7 +1,7 @@
 /*
  * lws-minimal-http-server-eventlib-foreign
  *
- * Written in 2010-2019 by Andy Green <andy@warmcat.com>
+ * Written in 2010-2020 by Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
@@ -205,6 +205,59 @@ foreign_event_loop_cleanup_libevent(void)
 
 #endif
 
+#if defined(LWS_WITH_GLIB)
+
+#include <glib-2.0/glib.h>
+#include <glib-unix.h>
+
+static GMainLoop *loop_glib;
+static guint timer_outer_glib;
+static guint sighandler_glib;
+
+static int
+timer_cb_glib(void *p)
+{
+	foreign_timer_service(loop_glib);
+	return 1;
+}
+
+static void
+signal_cb_glib(void *p)
+{
+	signal_cb(SIGINT);
+}
+
+static void
+foreign_event_loop_init_and_run_glib(void)
+{
+	/* we create and start our "foreign loop" */
+
+	loop_glib = g_main_loop_new(NULL, 0);
+
+	sighandler_glib = g_unix_signal_add(SIGINT,
+					G_SOURCE_FUNC(signal_cb_glib), NULL);
+
+	timer_outer_glib = g_timeout_add(1000, timer_cb_glib, NULL);
+
+	g_main_loop_run(loop_glib);
+}
+
+static void
+foreign_event_loop_stop_glib(void)
+{
+	g_main_loop_quit(loop_glib);
+}
+
+static void
+foreign_event_loop_cleanup_glib(void)
+{
+	/* cleanup the foreign loop assets */
+	g_source_remove(sighandler_glib);
+	g_main_loop_unref(loop_glib);
+}
+
+#endif
+
 #if defined(LWS_WITH_LIBEV)
 
 static struct ev_loop *loop_ev;
@@ -316,6 +369,10 @@ foreign_timer_service(void *foreign_loop)
 		if (info.options & LWS_SERVER_OPTION_LIBEV)
 			foreign_event_loop_stop_libev();
 #endif
+#if defined(LWS_WITH_GLIB)
+		if (info.options & LWS_SERVER_OPTION_GLIB)
+			foreign_event_loop_stop_glib();
+#endif
 		break;
 	default:
 		break;
@@ -368,9 +425,12 @@ int main(int argc, const char **argv)
 		else
 			if (lws_cmdline_option(argc, argv, "--ev"))
 				info.options |= LWS_SERVER_OPTION_LIBEV;
-			else {
+			else
+				if (lws_cmdline_option(argc, argv, "--glib"))
+					info.options |= LWS_SERVER_OPTION_GLIB;
+				else {
 				lwsl_err("This app only makes sense when used\n");
-				lwsl_err(" with a foreign loop, --uv, --event, or --ev\n");
+				lwsl_err(" with a foreign loop, --uv, --event, --glib, or --ev\n");
 
 				return 1;
 			}
@@ -401,6 +461,10 @@ int main(int argc, const char **argv)
 	if (info.options & LWS_SERVER_OPTION_LIBEV)
 		foreign_event_loop_init_and_run_libev();
 #endif
+#if defined(LWS_WITH_GLIB)
+	if (info.options & LWS_SERVER_OPTION_GLIB)
+		foreign_event_loop_init_and_run_glib();
+#endif
 
 	lws_context_destroy(context);
 
@@ -417,6 +481,10 @@ int main(int argc, const char **argv)
 #if defined(LWS_WITH_LIBEV)
 	if (info.options & LWS_SERVER_OPTION_LIBEV)
 		foreign_event_loop_cleanup_libev();
+#endif
+#if defined(LWS_WITH_LIBEV)
+	if (info.options & LWS_SERVER_OPTION_GLIB)
+		foreign_event_loop_cleanup_glib();
 #endif
 
 	lwsl_user("%s: exiting...\n", __func__);

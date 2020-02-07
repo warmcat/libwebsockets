@@ -409,6 +409,13 @@ lws_create_context(const struct lws_context_creation_info *info)
 		goto fail_event_libs;
 #endif
 
+	if (lws_check_opt(context->options, LWS_SERVER_OPTION_GLIB))
+#if defined(LWS_WITH_GLIB)
+		context->event_loop_ops = &event_loop_ops_glib;
+#else
+		goto fail_event_libs;
+#endif
+
 	if (!context->event_loop_ops)
 		goto fail_event_libs;
 

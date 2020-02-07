@@ -110,6 +110,8 @@
 #cmakedefine LWS_WITH_FTS
 #cmakedefine LWS_WITH_GENCRYPTO
 #cmakedefine LWS_WITH_GENERIC_SESSIONS
+#cmakedefine LWS_WITH_GLIB
+#cmakedefine LWS_WITH_GTK
 #cmakedefine LWS_WITH_HTTP2
 #cmakedefine LWS_WITH_HTTP_BROTLI
 #cmakedefine LWS_WITH_HTTP_PROXY

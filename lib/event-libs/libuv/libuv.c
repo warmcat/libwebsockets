@@ -976,5 +976,5 @@ struct lws_event_loop_ops event_loop_ops_uv = {
 	/* destroy_pt */		elops_destroy_pt_uv,
 	/* destroy wsi */		NULL,
 
-	/* periodic_events_available */	0,
+	/* flags */			0,
 };
