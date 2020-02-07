@@ -218,6 +218,9 @@
 	 * poll mode.
 	 */
 
+#define LWS_SERVER_OPTION_GLIB					 (1ll << 33)
+	/**< (CTX) Use glib event loop */
+
 	/****** add new things just above ---^ ******/
 
 

@@ -73,7 +73,8 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 
 #if !defined(LWS_WITH_LIBUV) && \
     !defined(LWS_WITH_LIBEV) && \
-    !defined(LWS_WITH_LIBEVENT)
+    !defined(LWS_WITH_LIBEVENT) && \
+    !defined(LWS_WITH_GLIB)
 	/*
 	 * This only applies when we use the default poll() event loop.
 	 *

@@ -1,9 +1,9 @@
-project(lws-minimal-http-server-eventlib-foreign)
+project(lws-minimal-gtk)
 cmake_minimum_required(VERSION 2.8)
 include(CheckCSourceCompiles)
 
-set(SAMP lws-minimal-http-server-eventlib-foreign)
-set(SRCS minimal-http-server-eventlib-foreign.c)
+set(SAMP lws-minimal-gtk)
+set(SRCS main.c)
 
 
 # If we are being built as part of lws, confirm current build config supports
@@ -66,55 +66,31 @@ ENDMACRO()
 set(requirements 1)
 require_lws_config(LWS_ROLE_H1 1 requirements)
 require_lws_config(LWS_WITH_SERVER 1 requirements)
-
-
-
-CHECK_C_SOURCE_COMPILES("#include <libwebsockets.h>\nint main(void) {\n#if defined(LWS_WITH_LIBUV)\n return 0;\n#else\n fail;\n#endif\n return 0;\n}\n" LWS_WITH_LIBUV)
-CHECK_C_SOURCE_COMPILES("#include <libwebsockets.h>\nint main(void) {\n#if defined(LWS_WITH_LIBEVENT)\n return 0;\n#else\n fail;\n#endif\n return 0;\n}\n" LWS_WITH_LIBEVENT)
-CHECK_C_SOURCE_COMPILES("#include <libwebsockets.h>\nint main(void) {\n#if defined(LWS_WITH_LIBEV)\n return 0;\n#else\n fail;\n#endif\n return 0;\n}\n" LWS_WITH_LIBEV)
-CHECK_C_SOURCE_COMPILES("#include <libwebsockets.h>\nint main(void) {\n#if defined(LWS_WITH_GLIB)\n return 0;\n#else\n fail;\n#endif\n return 0;\n}\n" LWS_WITH_GLIB)
-
-
-if (LWS_WITH_LIBUV)
-	set(extralibs ${extralibs} uv)
-endif()
-if (LWS_WITH_LIBEVENT)
-	set(extralibs ${extralibs} event)
-endif()
-if (LWS_WITH_LIBEV)
-	set(extralibs ${extralibs} ev)
-endif()
-if (LWS_WITH_GLIB)
-	set(LWS_GLIB_INCLUDE_DIRS CACHE PATH "Path to the glib include directory")
-	set(LWS_GLIB_LIBRARIES CACHE PATH "Path to the glib library")
-		include (FindPkgConfig)
-	if (NOT GLIB_FOUND)
-		find_path(GLIB_INCLUDE_DIRS NAMES glib-2.0/glib.h)
-		find_library(GLIB_LIBRARIES NAMES glib-2.0)
-		if(GLIB_INCLUDE_DIRS AND GLIB_LIBRARIES)
-			set(GLIB_FOUND 1)
-		endif()
-		if (GLIB_INCLUDE_DIRS)
-			set(GLIB_INCLUDE_DIRS "${GLIB_INCLUDE_DIRS}/glib-2.0")
-		endif()
-	endif()
-	PKG_SEARCH_MODULE(LWS_GLIB2 glib-2.0)
-	if (LWS_GLIB2_FOUND)
-		list(APPEND GLIB_INCLUDE_DIRS "${LWS_GLIB2_INCLUDE_DIRS}")
-	endif()
-	message("glib include dir: ${GLIB_INCLUDE_DIRS}")
-	message("glib libraries: ${GLIB_LIBRARIES}")
-	include_directories("${GLIB_INCLUDE_DIRS}")
-	set(extralibs ${extralibs} ${GLIB_LIBRARIES})
-endif()
-
-message("Extra libs: ${extralibs}")
-
-if (NOT LWS_WITH_LIBUV AND NOT LWS_WITH_LIBEVENT AND NOT LWS_WITH_LIBEV AND NOT LWS_WITH_GLIB)
-	set(requirements 0)
-endif()
+require_lws_config(LWS_WITH_GLIB 1 requirements)
+require_lws_config(LWS_WITH_GTK 1 requirements)
 
 if (requirements)
+
+# gtk pieces
+	
+	include (FindPkgConfig)
+	
+	set(LWS_GTK_INCLUDE_DIRS CACHE PATH "Path to the gtk include directory")
+	set(LWS_GTK_LIBRARIES CACHE PATH "Path to the gtk library")
+	PKG_SEARCH_MODULE(LWS_GTK2 gtk+-3.0)
+	if (LWS_GTK2_FOUND)
+		list(APPEND LWS_GTK_INCLUDE_DIRS "${LWS_GTK2_INCLUDE_DIRS}")
+		list(APPEND LWS_GTK_LIBRARIES "${LWS_GTK2_LIBRARIES}")
+	endif()
+	message("gtk include dir: ${LWS_GTK_INCLUDE_DIRS}")
+	message("gtk libraries: ${LWS_GTK_LIBRARIES}")
+	include_directories("${LWS_GTK_INCLUDE_DIRS}")
+	set(extralibs ${extralibs} ${LWS_GTK_LIBRARIES})
+	
+	
+	
+	message("Extra libs: ${extralibs}")
+
 	add_executable(${SAMP} ${SRCS})
 
 	if (websockets_shared)

@@ -16,6 +16,20 @@ various scenarios, CC0-licensed (public domain) for cut-and-paste, allow you to 
 News
 ----
 
+## libglib native event loop support
+
+glib's event loop joins libuv, libevent and libev support in lws for both the
+`lws_context` creating and owning the loop object for its lifetime, and for
+an already-existing "foreign loop" where the `lws_context` is created, attaches,
+detaches, and is destroyed without affecting the loop.
+
+This allows direct, lock-free integration of lws functionality with, eg, a GTK app's
+existing `GMainLoop` / glib `g_main_loop`.  Just select `-DLWS_WITH_GLIB=1` at cmake
+time to enable.  The -eventlib minimal examples also support --glib option to
+select using the glib loop at runtime.
+
+There's also a gtk example that is built if lws cmake has `-DLWS_WITH_GTK=1`.
+
 ## `lws_system` helper for attaching code to a single event loop from another thread
 
 `lws_system` ops struct now has a member that enables other threads (in the

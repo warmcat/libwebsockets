@@ -507,7 +507,7 @@ just_kill_connection:
 		if (!wsi->socket_is_permanently_unusable &&
 		    lws_socket_is_valid(wsi->desc.sockfd) &&
 		    lwsi_state(wsi) != LRS_SHUTDOWN &&
-		    context->event_loop_ops->periodic_events_available) {
+		    (context->event_loop_ops->flags & LELOF_ISPOLL)) {
 			__lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN);
 			lwsi_set_state(wsi, LRS_SHUTDOWN);
 			__lws_set_timeout(wsi, PENDING_TIMEOUT_SHUTDOWN_FLUSH,

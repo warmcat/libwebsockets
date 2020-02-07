@@ -1,7 +1,7 @@
- /*
+/*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -20,27 +20,35 @@
  * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
- *
- *  This is included from private-lib-core.h if LWS_ROLE_WS
  */
 
-#include <private-lib-core.h>
+#if defined(LWS_WITH_GLIB)
+#include <glib-2.0/glib.h>
+#endif /* LWS_WITH_GLIB */
 
-struct lws_event_loop_ops event_loop_ops_poll = {
-	/* name */			"poll",
-	/* init_context */		NULL,
-	/* destroy_context1 */		NULL,
-	/* destroy_context2 */		NULL,
-	/* init_vhost_listen_wsi */	NULL,
-	/* init_pt */			NULL,
-	/* wsi_logical_close */		NULL,
-	/* check_client_connect_ok */	NULL,
-	/* close_handle_manually */	NULL,
-	/* accept */			NULL,
-	/* io */			NULL,
-	/* run */			NULL,
-	/* destroy_pt */		NULL,
-	/* destroy wsi */		NULL,
-
-	/* flags */			LELOF_ISPOLL,
+struct lws_pt_eventlibs_glib {
+	GMainLoop	*loop;
+	guint		hrtimer_tag;
+	guint		sigint_tag;
+	guint		idle_tag;
 };
+
+struct lws_io_watcher_glib_subclass {
+	GSource		base;
+	struct lws	*wsi;
+	gpointer	tag;
+};
+
+/*
+ * One of these is embedded in each wsi
+ */
+
+struct lws_io_watcher_glib {
+	struct lws_io_watcher_glib_subclass *source;	/* these are created and destroyed by glib */
+};
+
+struct lws_context_eventlibs_glib {
+	//int placeholder;
+};
+
+extern struct lws_event_loop_ops event_loop_ops_glib;

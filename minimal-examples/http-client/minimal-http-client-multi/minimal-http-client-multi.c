@@ -342,7 +342,10 @@ int main(int argc, const char **argv)
 			if (lws_cmdline_option(argc, argv, "--ev"))
 				info.options |= LWS_SERVER_OPTION_LIBEV;
 			else
-				signal(SIGINT, sigint_handler);
+				if (lws_cmdline_option(argc, argv, "--glib"))
+					info.options |= LWS_SERVER_OPTION_GLIB;
+				else
+					signal(SIGINT, sigint_handler);
 
 	staggered = !!lws_cmdline_option(argc, argv, "-s");
 	if ((p = lws_cmdline_option(argc, argv, "-d")))

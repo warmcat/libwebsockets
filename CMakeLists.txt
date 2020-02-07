@@ -50,6 +50,7 @@ option(LWS_WITH_HTTP_BROTLI "Also offer brotli http stream compression (requires
 option(LWS_WITH_ACME "Enable support for ACME automatic cert acquisition + maintenance (letsencrypt etc)" OFF)
 option(LWS_WITH_HUBBUB "Enable libhubbub rewriting support" OFF)
 option(LWS_WITH_ALSA "Enable alsa audio example" OFF)
+option(LWS_WITH_GTK "Enable gtk example" OFF)
 option(LWS_WITH_FTS "Full Text Search support" OFF)
 option(LWS_WITH_SYS_ASYNC_DNS "Nonblocking internal IPv4 + IPv6 DNS resolver" OFF)
 option(LWS_WITH_SYS_NTPCLIENT "Build in tiny ntpclient good for tls date validation and run via lws_system" OFF)
@@ -69,6 +70,8 @@ option(LWS_SSL_CLIENT_USE_OS_CA_CERTS "SSL support should make use of the OS-ins
 option(LWS_WITH_LIBEV "Compile with support for libev" OFF)
 option(LWS_WITH_LIBUV "Compile with support for libuv" OFF)
 option(LWS_WITH_LIBEVENT "Compile with support for libevent" OFF)
+option(LWS_WITH_GLIB "Compile with support for glib event loop" OFF)
+
 #
 # Static / Dynamic build options
 #
@@ -204,6 +207,7 @@ if(LWS_WITH_DISTRO_RECOMMENDED)
 	set(LWS_WITH_RANGES 1)
 	set(LWS_WITH_ACME 1)
 	set(LWS_WITH_SERVER_STATUS 1)
+	set(LWS_WITH_GLIB 1)
 	set(LWS_WITH_LIBUV 1)
 	set(LWS_WITH_LIBEV 1)
 	# libev + libevent cannot coexist at build-time
@@ -365,7 +369,7 @@ if (LWS_WITH_MBEDTLS)
 	include_directories(lib/tls/mbedtls/wrapper/include)
 endif()
 
-include_directories(include plugins lib/core lib/core-net lib/event-libs include/abstract lib/tls lib/roles lib/event-libs/libuv lib/event-libs/poll lib/event-libs/libevent lib/event-libs/libev lib/jose/jwe lib/jose/jws lib/jose lib/misc lib/roles/http lib/roles/http/compression lib/roles/h1 lib/roles/h2 lib/roles/ws lib/roles/cgi lib/roles/dbus lib/roles/raw-proxy lib/abstract lib/system/async-dns)
+include_directories(include plugins lib/core lib/core-net lib/event-libs include/abstract lib/tls lib/roles lib/event-libs/libuv lib/event-libs/poll lib/event-libs/libevent lib/event-libs/glib lib/event-libs/libev lib/jose/jwe lib/jose/jws lib/jose lib/misc lib/roles/http lib/roles/http/compression lib/roles/h1 lib/roles/h2 lib/roles/ws lib/roles/cgi lib/roles/dbus lib/roles/raw-proxy lib/abstract lib/system/async-dns)
 
 if (LWS_PLAT_FREERTOS)
 	include_directories(lib/plat/freertos lib/plat/freertos/esp32)
@@ -544,6 +548,9 @@ set(LWS_SQLITE3_LIBRARIES CACHE PATH "Path to the sqlite3 library")
 set(LWS_SQLITE3_INCLUDE_DIRS CACHE PATH "Path to the sqlite3 include directory")
 set(LWS_LIBEVENT_INCLUDE_DIRS CACHE PATH "Path to the libevent include directory")
 set(LWS_LIBEVENT_LIBRARIES CACHE PATH "Path to the libevent library")
+set(LWS_GLIB_INCLUDE_DIRS CACHE PATH "Path to the glib include directory")
+set(LWS_GLIB_LIBRARIES CACHE PATH "Path to the glib library")
+
 
 
 if (NOT LWS_WITH_SSL)
@@ -651,6 +658,15 @@ if (LWS_WITH_LIBEVENT)
 		set(LIBEVENT_LIBRARIES ${LWS_LIBEVENT_LIBRARIES})
 		set(LIBEVENT_INCLUDE_DIRS ${LWS_LIBEVENT_INCLUDE_DIRS})
 		set(LIBEVENT_FOUND 1)
+	endif()
+endif()
+
+if (LWS_WITH_GLIB)
+	if ("${LWS_GLIB_LIBRARIES}" STREQUAL "" OR "${LWS_GLIB_INCLUDE_DIRS}" STREQUAL "")
+	else()
+		set(LIBGLIB_LIBRARIES ${LWS_GLIB_LIBRARIES})
+		set(LIBGLIB_INCLUDE_DIRS ${LWS_GLIB_INCLUDE_DIRS})
+		set(LIBGLIB_FOUND 1)
 	endif()
 endif()
 
@@ -1454,6 +1470,12 @@ if (LWS_WITH_LIBEVENT AND LWS_WITH_NETWORK)
 		lib/event-libs/libevent/libevent.c)
 endif()
 
+if (LWS_WITH_GLIB AND LWS_WITH_NETWORK)
+	list(APPEND SOURCES
+		lib/event-libs/glib/glib.c)
+endif()
+
+
 if (LWS_WITH_LIBEV AND LWS_WITH_NETWORK)
 	list(APPEND SOURCES
 		lib/event-libs/libev/libev.c)
@@ -1892,6 +1914,30 @@ if (LWS_WITH_LIBEVENT)
 	include_directories("${LIBEVENT_INCLUDE_DIRS}")
 	list(APPEND LIB_LIST ${LIBEVENT_LIBRARIES})
 endif(LWS_WITH_LIBEVENT)
+
+if (LWS_WITH_GLIB)
+	include (FindPkgConfig)
+	if (NOT GLIB_FOUND)
+		find_path(GLIB_INCLUDE_DIRS NAMES glib-2.0/glib.h)
+		find_library(GLIB_LIBRARIES NAMES glib-2.0)
+		if(GLIB_INCLUDE_DIRS AND GLIB_LIBRARIES)
+			set(GLIB_FOUND 1)
+		endif()
+		if (GLIB_INCLUDE_DIRS)
+			set(GLIB_INCLUDE_DIRS "${GLIB_INCLUDE_DIRS}/glib-2.0")
+		endif()
+	endif()
+	PKG_SEARCH_MODULE(LWS_GLIB2 glib-2.0)
+	if (LWS_GLIB2_FOUND)
+		list(APPEND GLIB_INCLUDE_DIRS "${LWS_GLIB2_INCLUDE_DIRS}")
+	endif()
+	message("glib include dir: ${GLIB_INCLUDE_DIRS}")
+	message("glib libraries: ${GLIB_LIBRARIES}")
+	include_directories("${GLIB_INCLUDE_DIRS}")
+	list(APPEND LIB_LIST ${GLIB_LIBRARIES})
+endif(LWS_WITH_GLIB)
+
+
 
 if (LWS_WITH_SQLITE3)
 	if (NOT SQLITE3_FOUND)
@@ -2462,7 +2508,7 @@ if (LWS_WITH_GENERIC_SESSIONS AND LWS_ROLE_WS AND LWS_WITH_TLS)
 		target_link_libraries(protocol_lws_messageboard sqlite3 )
 	endif(WIN32)
 
-endif(LWS_WITH_GENERIC_SESSIONS AND LWS_ROLE_WS)
+endif(LWS_WITH_GENERIC_SESSIONS AND LWS_ROLE_WS AND LWS_WITH_TLS)
 
 
 	endif(LWS_WITH_PLUGINS AND LWS_WITH_SHARED)
@@ -2790,6 +2836,7 @@ message(" LWS_WITHOUT_DAEMONIZE = ${LWS_WITHOUT_DAEMONIZE}")
 message(" LWS_WITH_LIBEV = ${LWS_WITH_LIBEV}")
 message(" LWS_WITH_LIBUV = ${LWS_WITH_LIBUV}")
 message(" LWS_WITH_LIBEVENT = ${LWS_WITH_LIBEVENT}")
+message(" LWS_WITH_GLIB = ${LWS_WITH_GLIB}")
 message(" LWS_IPV6 = ${LWS_IPV6}")
 message(" LWS_UNIX_SOCK = ${LWS_UNIX_SOCK}")
 message(" LWS_WITH_HTTP2 = ${LWS_WITH_HTTP2}")
