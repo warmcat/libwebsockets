@@ -482,7 +482,7 @@ int main(int argc, const char **argv)
 	if (info.options & LWS_SERVER_OPTION_LIBEV)
 		foreign_event_loop_cleanup_libev();
 #endif
-#if defined(LWS_WITH_LIBEV)
+#if defined(LWS_WITH_GLIB)
 	if (info.options & LWS_SERVER_OPTION_GLIB)
 		foreign_event_loop_cleanup_glib();
 #endif

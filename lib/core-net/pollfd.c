@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -27,7 +27,8 @@
 int
 _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 {
-#if !defined(LWS_WITH_LIBUV) && !defined(LWS_WITH_LIBEV) && !defined(LWS_WITH_LIBEVENT)
+#if !defined(LWS_WITH_LIBUV) && !defined(LWS_WITH_LIBEV) && \
+    !defined(LWS_WITH_LIBEVENT) && !defined(LWS_WITH_GLIB)
 	volatile struct lws_context_per_thread *vpt;
 #endif
 	struct lws_context_per_thread *pt;
@@ -71,10 +72,8 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 
 	assert(wsi->position_in_fds_table < (int)pt->fds_count);
 
-#if !defined(LWS_WITH_LIBUV) && \
-    !defined(LWS_WITH_LIBEV) && \
-    !defined(LWS_WITH_LIBEVENT) && \
-    !defined(LWS_WITH_GLIB)
+#if !defined(LWS_WITH_LIBUV) && !defined(LWS_WITH_LIBEV) && \
+    !defined(LWS_WITH_LIBEVENT) && !defined(LWS_WITH_GLIB)
 	/*
 	 * This only applies when we use the default poll() event loop.
 	 *
