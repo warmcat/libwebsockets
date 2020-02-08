@@ -27,7 +27,7 @@
 int
 _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 {
-#if !defined(LWS_WITH_LIBUV) && !defined(LWS_WITH_LIBEV) && !defined(LWS_WITH_LIBEVENT)
+#if !defined(LWS_WITH_LIBUV) && !defined(LWS_WITH_LIBEV) && !defined(LWS_WITH_LIBEVENT) && !defined(LWS_WITH_GLIB)
 	volatile struct lws_context_per_thread *vpt;
 #endif
 	struct lws_context_per_thread *pt;
