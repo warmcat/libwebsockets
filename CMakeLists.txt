@@ -929,6 +929,13 @@ CHECK_INCLUDE_FILE(uv-version.h LWS_HAVE_UV_VERSION_H)
   endif()
 endif()
 
+if (LWS_WITH_LIBEV)
+	CHECK_C_SOURCE_COMPILES(
+        "#include <ev.h>
+        int main(int argc, char **argv) { return EVBACKEND_LINUXAIO; }
+        " LWS_HAVE_EVBACKEND_LINUXAIO)
+endif()
+
 
 if (LWS_WITH_ZLIB AND NOT LWS_WITH_BUNDLED_ZLIB)
 	if (LWS_WITH_MINIZ)

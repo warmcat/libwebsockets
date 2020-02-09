@@ -183,6 +183,11 @@ elops_init_pt_ev(struct lws_context *context, void *_loop, int tsi)
 	case EVBACKEND_EPOLL:
 		backend_name = "epoll";
 		break;
+#if defined(LWS_HAVE_EVBACKEND_LINUXAIO)
+       case EVBACKEND_LINUXAIO:
+               backend_name = "Linux AIO";
+               break;
+#endif
 	case EVBACKEND_KQUEUE:
 		backend_name = "kqueue";
 		break;
