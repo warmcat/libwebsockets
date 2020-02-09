@@ -52,6 +52,7 @@
 #cmakedefine LWS_HAVE_NEW_UV_VERSION_H
 #cmakedefine LWS_HAVE_OPENSSL_ECDH_H
 #cmakedefine LWS_HAVE_PIPE2
+#cmakedefine LWS_HAVE_EVENTFD
 #cmakedefine LWS_HAVE_PTHREAD_H
 #cmakedefine LWS_HAVE_RSA_SET0_KEY
 #cmakedefine LWS_HAVE_RSA_verify_pss_mgf1

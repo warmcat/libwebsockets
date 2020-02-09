@@ -43,6 +43,9 @@
 #include <sys/time.h>
 #include <sys/mman.h>
 #include <sys/un.h>
+#if defined(LWS_HAVE_EVENTFD)
+#include <sys/eventfd.h>
+#endif
 
 #if defined(__APPLE__)
 #include <machine/endian.h>
