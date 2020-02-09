@@ -438,9 +438,10 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 				goto redirect_with_cookie;
 			}
 		} else
-			lwsl_notice("failed to get sid from wsi\n");
+			lwsl_notice("%s: failed to get sid from wsi\n", __func__);
 
 		n = lwsgs_get_auth_level(vhd, username);
+		lwsl_notice("%s: lwsgs_get_auth_level '%s' says %d\n", __func__, username, n);
 
 		if ((args->max_len & n) != args->max_len) {
 			lwsl_notice("Access rights fail 0x%X vs 0x%X (cookie %s)\n",
@@ -511,8 +512,10 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_HTTP_BODY:
-		if (len < 2)
+		if (len < 2) {
+			lwsl_err("%s: HTTP_BODY: len %d < 2\n", __func__, (int)len);
 			break;
+		}
 
 		if (!pss->spa) {
 			pss->spa = lws_spa_create(wsi, param_names,
@@ -529,6 +532,8 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
+
+		lwsl_debug("%s: LWS_CALLBACK_HTTP_BODY_COMPLETION\n", __func__);
 
 		if (!pss->spa)
 			break;
@@ -700,14 +705,16 @@ pass:
 					pss->login_expires))
 				goto try_to_reuse;
 
-			lwsl_notice("Creating new session: %s\n",
+			lwsl_notice("%s: Creating new session: %s\n", __func__,
 				    pss->login_session.id);
 		} else {
 			/*
 			 * we can just update the existing session to be
 			 * authorized
 			 */
-			lwsl_notice("Authorizing existing session %s", sid.id);
+			lwsl_notice("%s: Authorizing existing session %s, name %s\n",
+				    __func__, sid.id,
+				    lws_spa_get_string(pss->spa, FGS_USERNAME));
 			lwsgw_update_session(vhd, &sid,
 				lws_spa_get_string(pss->spa, FGS_USERNAME));
 			pss->login_session = sid;
