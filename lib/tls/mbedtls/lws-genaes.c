@@ -29,6 +29,20 @@
 
 static int operation_map[] = { MBEDTLS_AES_ENCRYPT, MBEDTLS_AES_DECRYPT };
 
+static unsigned int
+_write_pkcs7_pad(uint8_t *p, int len)
+{
+	unsigned int n = 0, padlen = LWS_AES_CBC_BLOCKLEN * (len /
+					LWS_AES_CBC_BLOCKLEN + 1) - len;
+
+	p += len;
+
+	while (n++ < padlen)
+		*p++ = (uint8_t)padlen;
+
+	return padlen;
+}
+
 int
 lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 		  enum enum_aes_modes mode, struct lws_gencrypto_keyelem *el,
@@ -40,6 +54,7 @@ lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 	ctx->k = el;
 	ctx->op = operation_map[op];
 	ctx->underway = 0;
+	ctx->padding = padding == LWS_GAESP_WITH_PADDING;
 
 	switch (ctx->mode) {
 	case LWS_GAESM_XTS:
@@ -276,8 +291,33 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 		break;
 	case LWS_GAESM_CBC:
 		memcpy(iv, iv_or_nonce_ctr_or_data_unit_16, 16);
-		n = mbedtls_aes_crypt_cbc(&ctx->u.ctx, ctx->op, len, iv,
-					  in, out);
+
+		/*
+		 * If encrypting, we do the PKCS#7 padding.
+		 * During decryption, the caller will need to unpad.
+		 */
+		if (ctx->padding && ctx->op == MBEDTLS_AES_ENCRYPT) {
+			/*
+			 * Since we don't want to burden the caller with
+			 * the over-allocation at the end of the input,
+			 * we have to allocate a temp with space for it
+			 */
+			uint8_t *padin = (uint8_t *)lws_malloc(
+				lws_gencrypto_padded_length(LWS_AES_CBC_BLOCKLEN, len),
+								__func__);
+
+			if (!padin)
+				return -1;
+
+			memcpy(padin, in, len);
+			len += _write_pkcs7_pad((uint8_t *)padin, len);
+			n = mbedtls_aes_crypt_cbc(&ctx->u.ctx, ctx->op, len, iv,
+						  padin, out);
+			lws_free(padin);
+		} else
+			n = mbedtls_aes_crypt_cbc(&ctx->u.ctx, ctx->op, len, iv,
+                                      in, out);
+
 		break;
 
 	case LWS_GAESM_CFB128:

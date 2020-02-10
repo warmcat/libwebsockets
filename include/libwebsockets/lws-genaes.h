@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -63,6 +63,7 @@ enum enum_aes_padding {
 /* include/libwebsockets/lws-jwk.h must be included before this */
 
 #define LWS_AES_BLOCKSIZE 128
+#define LWS_AES_CBC_BLOCKLEN 16
 
 struct lws_genaes_ctx {
 #if defined(LWS_WITH_MBEDTLS)

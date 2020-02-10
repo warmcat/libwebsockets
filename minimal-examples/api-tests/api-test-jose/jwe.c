@@ -509,7 +509,9 @@ test_jwe_ra_ptext_1024(struct lws_context *context, char *jwk_txt, int jwk_len)
 
 	if (lws_jws_dup_element(&jwe.jws.map, LJWE_CTXT,
 				lws_concat_temp(temp, temp_len), &temp_len,
-				ra_ptext_1024, sizeof(ra_ptext_1024), 0)) {
+				ra_ptext_1024, sizeof(ra_ptext_1024),
+				lws_gencrypto_padded_length(LWS_AES_CBC_BLOCKLEN,
+						      sizeof(ra_ptext_1024)))) {
 		lwsl_notice("%s: Not enough temp space for ptext\n", __func__);
 		goto bail;
 	}
@@ -632,12 +634,14 @@ test_jwe_r256a192_ptext(struct lws_context *context, char *jwk_txt, int jwk_len)
 
 	/*
 	 * dup the plaintext into the ciphertext element, it will be
-	 * encrypted in-place to a ciphertext of the same length
+	 * encrypted in-place to a ciphertext of the same length + padding
 	 */
 
 	if (lws_jws_dup_element(&jwe.jws.map, LJWE_CTXT,
 				lws_concat_temp(temp, temp_len), &temp_len,
-				ra_ptext_1024, sizeof(ra_ptext_1024), 0)) {
+				ra_ptext_1024, sizeof(ra_ptext_1024),
+				lws_gencrypto_padded_length(LWS_AES_CBC_BLOCKLEN,
+						      sizeof(ra_ptext_1024)))) {
 		lwsl_notice("%s: Not enough temp space for ptext\n", __func__);
 		goto bail;
 	}
@@ -762,12 +766,14 @@ test_jwe_r256a256_ptext(struct lws_context *context, char *jwk_txt, int jwk_len)
 
 	/*
 	 * dup the plaintext into the ciphertext element, it will be
-	 * encrypted in-place to a ciphertext of the same length
+	 * encrypted in-place to a ciphertext of the same length + padding
 	 */
 
 	if (lws_jws_dup_element(&jwe.jws.map, LJWE_CTXT,
 				lws_concat_temp(temp, temp_len), &temp_len,
-				ra_ptext_1024, sizeof(ra_ptext_1024), 0)) {
+				ra_ptext_1024, sizeof(ra_ptext_1024),
+				lws_gencrypto_padded_length(LWS_AES_CBC_BLOCKLEN,
+						      sizeof(ra_ptext_1024)))) {
 		lwsl_notice("%s: Not enough temp space for ptext\n", __func__);
 		goto bail;
 	}
@@ -1005,38 +1011,33 @@ static const char *rsa_key_4096_no_optional =
  */
 
 static char *jwe_compact_rsa_cbc_openssl =
-	"eyAiYWxnIjoiUlNBMV81IiwiZW5jIjoiQTEyOENCQy1IUzI1NiJ9"
-	"."
-	"mWXwMv4hxwgKbUAyMFAuHxiKjg62Z5owkFYLgxho5FNT3Hm5ZGiF8plS5W3NwUTmv8t6C"
-	"I0kV5cOOJXE_PXPaOptsie2aoQR-_Bs6gAFixa7aZNsnsMF4lMAiIy7VkrvP2qh0s04y2"
-	"2poOLfmS93tB9AyWdlnQ6Z-U1wzrM9kncqO9GpPol9M4WnAss1ZtTE-9Tbc7dMHURHbZb"
-	"vHn2h625pBD8oD_s0osRav8YEw7jNeQjW_ch4pI6HRox-hf0dyLtk9yFCtBjxbCvysadW"
-	"SlZPJBj0HYv0BVqCK0fETi7URx4MCJ3zgCJnpAuQo2yq1yQzXwOYcFoLIvY0jIm44A"
-	"."
-	"WINMABhU_GQKJarmmTP_-g"
-	"."
-	"V9kHAh9ajE558EPj_zX6p_C903MevMPJLcMU4MWhfhwe1cFW_0io-LvZfcF_Xj7aNoIZd"
-	"vPXJ0On_jHPFsnwe4dus6kuh8RrSKFFV0sGIv-FFXrKB99FFRY_8BTPsYFrcqt_8EV2Af"
-	"p7toaVOO15WXOEH6Ym81a3aOWCVGdj_akMN46Qx_JrQaql-Xs_fL2HdpaEWHHTV2ac9aY"
-	"ah7o0Ojl9UnzkHyXieRgrjXymvCcT0te3D4OQJhrv7TzH_hfKu621O-Frmkr-NvQGSNcl"
-	"fVgRkte2ks34j5HPqEbJQWWKG3IDfkPRvWmDZzEXW_JTrK_1r1FM-aYtY79tLnir8Zw7I"
-	"WCczD-XmtlOJNYA2Ss5dbjoJDtevbqaZWVl-sDSwO1xdf-DUfiemep7S7IFoFAdl0vXLT"
-	"YtuNBxuFw-cP2Kwi8RyF__uENo4vD003cI4htqSYIYXeyAVqWIkmsP1BFpT7MGixfvhAu"
-	"VCj_ToJmowGY3bOHiMuzyT9M7wtCCiCySEBARVU-EdQBXj8X-quSj-0OnBtxXChUS4QXw"
-	"q2pNn3UKSMsxqvHR25HQq_6U2AbvNHxKhup3luzn0T27uy0l3XeWSz_48SwJZKRnbYPtC"
-	"n5Jd5mRdr5GxihpNwupaO4BWnHZo_fHUTI9-Z18lpj_4QB-c3dzDL15xFN4HEZ5lv2iO5"
-	"zMiRI_NlVVDdA9lqGpn4IyO44osHQieBraUjWF8X5cSXDoqktXDVymAdrxe0fYZQca6Bq"
-	"CsBqFTYae4CG01SpG46ysfwAXmsTEKPzj7uiOguFCRB4hClTd-Q8R2axj9JNT1jU_Vb7U"
-	"GKFBGeDJt5PDXJyvW5rHyiQDewykf0Lpvdp39yITT8qARmJl2SwCrDCPADZ4TwwobT42B"
-	"J_Cq5IKgEOeuS3S7NOdOfXxmAcNfN0yujKbmfiOxnXhwnepQ-TnpgTV0nv8snBRITN7mS"
-	"EgflqQlKAZus_0mDbHmBmw1nY-0q4qMWI03IEwMC57-p4JLshnWgIAupnFCGp9nyi4E_s"
-	"GVyQlGCxzC5VSH1Hba3rvbulQGxx_kGk0j56NGhGsQEzqvSuI4xgIsGMPo1Ii7xUh68dd"
-	"BzJRzaov9oDTgnWM5-hoEQQoazW7hDKAFPYccC6zqX0fnI7vBIIBZsjUsol6-5bdujpb4"
-	"l3LRGCjULXlSPbnNGzyk5R-mIwQC8aM9wcIiZZdcdHdr4meMNr3HmpG_B5xtBmENAJAvU"
-	"K3DO6pro2xhypuNKYtOAdH0Xyl8QBPIJ0EFVH6_1V-H_gHs2MLMIqGfUmFCuRev60APcw"
-	"Pbf-GZxLeXLutPq2DOl1HD0XLNtYL1dB1aw2j4L8OJREOC_N-KpIH3g"
-	"."
-	"n4QRlTzW2urRnNiJlwQkZw"
+        "eyJhbGciOiJSU0ExXzUiLCJlbmMiOiJBMTI4Q0JDLUhTMjU2In0."
+        "HgQBfAg2IUpExcs74-gtuSOciw6rxh2cc4x9MVRWDZKSvMqoBYKAxl6ebSxGTReHhbvhv2Rm8stKq"
+        "OIROhWzTNGTQPnSRMzAm9x6ms39hAIGh1KCEZ47MRYkCN7hElfDVtczOCX3ZRsG9_qYEmzcY1aJ-4"
+        "_LS3yeP0HfqKBmcfvjVLw-KqcUuHp5YXsZEvt28nA9uBlCN0ROWy_2Fs-zlQj8pDMWo5pZrffKTUX"
+        "gUh_UJ9eC3qNyXtQSqUH-5vDeHPhxNnIJOsmJ5ZUAjxXPm-RJZRC9THg0DzGRZn9IqfP9qcanbcZ8"
+        "iow7gjFh1EPp3MKlpZqDKbLLei1WZvz2_A."
+        "q4STtyu4yxZfH1HNDYlYcA."
+        "_uRfuwWO22_auSqXHORw_e_Q6PmbpC0sv0tefVKsj3Zqnh2qUBlj10kiWBMWoMMjqsClBO0nUoup4"
+        "c7i1YSqxlCHliXru3athv_EYtg5qvC-z2co9NiFABHCHmBDrhj7CuKN5gqFDt1EbYMLwWtU3gOnQy"
+        "dvnzfFcQs4_jKi6tRpQzbobrkkZ2p7Y_ltjA1Wmwqrp9O8DGSRnvcomqzGHcshuyxTkjLDzD8TSMR"
+        "S1kp-miy5eDGAcp-ymWiUKN7gswy5FPjPQYzgs7Vc0n0R1ljepRHJiHaP61z_DKWXrCE6RqAVqnaw"
+        "TjjVOXXKKF9pz9W7pZL8diLZ0Ueev6xk8wzRRsUChM5toQNzFLXsnzSDQSzfSKpRnLjYvosiEegyx"
+        "RrwtQwEcNCXRj0aGxG6e_W79JdUJoi4blpTtrAVn_pk7SgRiU3aly1vso5tV_0kvMOcS6Hn38mqRQ"
+        "PQxbdIpohi8C7FFabluZqGoiji8ZTM3v-2ib2vrBFj1YvoyPG1HXJsABINzo0xOkrMFNfN_oQrCSM"
+        "Ij49N86GXmYOnu5jtZeSMXZIR2BAXnu0upXMsvtSjU8D-LJJChy0XNYoyuJar5P3YhDStdTfmn0z-"
+        "XLwaIHWc1L9-rmW9CZey3HxCLKEnr7-FjXsXqzAArsFqn1X_sVR5HRHng5ioc7sUaRoC1S_k0XPVC"
+        "qCjZvkbRry2cp2313DNwjl8SK-iZA0fVUZVPM7_eZfpEgB3bBTyamtAaqQeES6lcVEtpg176Mlh64"
+        "3JCAjroJPP4eqAA3JHnDgwlO-XhlLPTNNQ5FMLBC_dp41A-H3HFlbQUR6jX3k_H4Ggqtit50EIye3"
+        "nnKb3emFn9KVyeZCYaBecYbicEIMKW7sWLbcE_cDGqkHZcMGTOQKRiLp-xwyEu89oDGAcGBYpmC_f"
+        "iQ2qyFfe6tQK_5nPZbtW2mudiYZ-d0YIURSTp58S_n6w3wLDUEcuZtv-nhCaFVy8oUbAztkBIK6pu"
+        "VamKhHVLkCtOGIdNJYbLKAedhK1lQVPbrvfcSDPPkhxSx9AjKqhKA3ZPMA_UXQb6p9c33tgi_MdZX"
+        "-jRGXwGKWBCrv4UjttFLV-a5U7NgxQIIjwfAoutXtYardFw2d5nTJRqBrw06PSqaLzQi616_b-U0g"
+        "6bWxrFObIWrKODkGfQcXPXIQxW_4Vh6gR2GaHSi_A_5SGH0zsBtYxisbKXLK2HiZJOXBew4-am6c0"
+        "R1jBh7QtOWpwrYWt0d_xxrWtKezeEp3FkrFkwWCgY9dT1uV8tKUuxeeGqshkrXifT4axttpkbi-qA"
+        "eG_C6J-H29CPqScclD-A5LIg7k-KmA9hsWrXttAvoCSawNj1tv9JHq0jgP1yZytDW1DkWdCBY0au5"
+        "4."
+        "qqYQEaGx-lUHoO43fOXvKQ"
 ;
 
 
@@ -1102,7 +1103,33 @@ bail:
 
 static char
 *jwe_compact_rsa_cbc_mbedtls =
-	"eyAiYWxnIjoiUlNBMV81IiwiZW5jIjoiQTEyOENCQy1IUzI1NiJ9.oBqKJ06UJs2oryPLWZKyI8743GC0geUt_xaKLMaPtApp__swG2w0IhNtmkIBKA9LeeGyiCWKpGGzOlQUR5YSxrT99PnincHXw_pkCprOvi4j3oxThJ2pFRx-CBc9ZgPJ3Kje1QifOueT3vQt_65iiyXmqyc5PDxzuV0L_KtrA_jEsm2m1JVBMOX--qzXjYyqx_dc87d43TXY_4kuTmAtqVpQe7ixKJlUViPVSzuASyeLEUTIaNlALuEWial1wP-ICF37OQzOcZRH3OVZObrcZi1aWkDOLxF4qO4I_GtpuAgZT732a7gnobR-T2oyBpimcqCVEk88Wa7cYyBXZvAOUA.fNLEFh1mjdlyc3WKw0I2Kg.e8X-11K9yXK0KkK-8ikplEWFViruqduaKPDOA7x6lKpBk8l3RFX1aqC4s0WVc1eN0qd-fB__EoO_AIG1xsfw1ie2IDWV0p18ZaRkQRN9Th5UU-W9C9XyPFQUxcl7ShKRE-yKJU-VdZDk6L2-07FH3s-voVKx0oqLIYqkkXp9a2jvnzrZ0Psujs4PSCHOZEgcS8PNdMmdsjDHLsb0NDMifOSlXk2Mp6V2SizXRIPJtOkVJGKwuBc7FbdO02GnzzVXldiLC7GI0zoRsnSJndF8yc3pMrMQhoVRktkBClAcIujD_OxJwHG-i3OJqUg1uVfci86RoQrnULoygvB7apX_WMxF7eXXJdXbG8sPLLCf0SW4sgvuSclOHL2UXzGi6Tp_l1XjxFQTzVEfUaj7i0gD2wM74Ru79RX8yO0m-5qOOwkySU1lEXqbLTuxjJXD9WLcTQQmF0Nm5myTUyNOl7xKpeDpnNt5A0L8o6SW6iJ3DwZEzhMxk3JWQOYtQP1J2sgwAKEDM6SkGzTy9QXpCEoraKp2UEzunux9S6-roYpzgEFT2RZrq3Hg_JyequTtrcNaoiEKd5szJvE6pUc25WEjDzgg79v_n40gQm688mO62kiVBThVmc88u2JVlNpzVQFUfKt-bu2Xxiqn5lRfEMK93EEPZRd8n12vBq5aJKvvEpPN1AC4HaMepf78Ob0GNTYGR-70zSS0ErecCeIgUJ1CttE2Nn0qEOfbQcO48SjeIltecl9DRzeLT3tPN3Z4BqbzSX8kKU5LStUX5YC-obM_0Ss7swXJM19I1O-QH8VbHZl-9TADR6BLzmrsJQ9_BL_uTB6uPdLhYfqWw6VUf0eMLaqvsY92vV5-JVQqyv7s70FNLT1-8P94k79ZGiLvNdDNZgGsmRQOwA2Vk6snHI0oUYGj7NeEK4O64ZfNRZJgPfWnxtQ-LIhSYCJvxFGL7ZMoA_ijKl9_v_bRqd03_7o8YQisw2luDYqLa87Dh9u9tacOoraGAzcEBIAh-BOcnIrQEt5KoSbly5xNAkfqj7QDvL0vPHArZ5E3Gb_k3VbKjsqCzvisNMEjm887Z-Dc6tW4Y2OceYf-rfUDvJ3EXZ66CWSQ7yKhPVcP1RRtNUFEqLoIAkA4aEAAS2ZPKVHIJQwyMzbbNFAuvY_7piNYprAI5lySFcA1cz_hKl6s9xmqbAkH2XGZZduw5Nv-aY_LMXujjhmblqE2Ocej91xTdgMe74Ftr1b3y9FvPPVSqNjpTSfujCi5L57LOpjT78do8eSrDz6coG0zeRUybjWeTszoiYbif_NlyAcMScO5OMZHNkre6L8u-AVeYSKTGsdpK7em_iLN8cGSEjZABNAr_A9Lfg.6Qb_Qf-ktX0DRHWUHAJxDQ"
+	"eyJhbGciOiJSU0ExXzUiLCJlbmMiOiJBMTI4Q0JDLUhTMjU2In0.Ptg-RZjEhY1dWg7T"
+	"v72rqRoHXBeory9ePCC5cfASTz8BH7IdSLQcPeBWHQsmd13TXPjo-dxnmkWkx9AyKdvy"
+	"K0A6oCnsP7KfbGzPwTy5eadpaaDZ3UyXIGmusLgiXGgDZ4d13voirbRQV9nQTPsagG_k"
+	"FGRI5dKzenG2WcbUhKG-uCmypzYqjNM3LqUzdH42jjjHFOBkmK_sWSZL7Uxqq8s08hkO"
+	"aXeUQyeM7Z8wm1bsZAvIfGri5LMcBS8P70AyENchlchZpTeACIOWk19ddLPUt-ruEcm0"
+	"zZV7Gjap7uG06a0m3VyR3vMpKkXnBHQxko-RICU2PDmELVXg0pZWTw.-VaaDaUiynH_t"
+	"sh2HqKISQ.vVE8j1TQinb4anJk0ArV9ccYdlUIO20vnMa7b-JGfQ7CFi_WVt6xNaqytB"
+	"QqiTHLtAxBDIV4m9Kwid-8Kcx7BmRqu-memxHztBSvBNOYWVPTxy5I2ORGLNEbPVrFYp"
+	"c2nm3TnHfr-_2fuw6_HEnyqv_c6ZyzU0-lHZ1pE5Cs-lrjnj4ibNcK6XHhrO3nxUjPMZ"
+	"rO-2B_tZwCxzKsFAqD_XGROvNGWXEgxgIr09MyuwKJnw2oZ0xOF_d3FVYjK5XMONgWPo"
+	"lyDmbP_XLSIUXbHmLxpDB5NPLN8SKRHbMV3_qw5rFRlak2C_XlR58P-Im1PQ8gMg7lgE"
+	"IFz2DrqF4sJA5TYbQG5KCdas0SfONlP1V692dufH5D30RGsiWNSrhiyDmUNC0SeB8VqA"
+	"bmc02pPGgzZHxa5-_xIHKm4h6fmnZFScjliBQ5W6smxQ6m2Kby0MkOdqlRYFn8qLYLmF"
+	"vmVNe_Q5-iLNobx-hyyeeExRXfzNOY0HHEKw67ipBWwqA0JGIggCWAFa0fpA-Wt7sNl_"
+	"gPy96nbwuXIuRoC3wuboUlDp9k2F1vC7VY6R9jdRk1VXT_O3liBIiUIRhZiqZZ75H2RV"
+	"pLYXGrvL5G9THdRcbsg3XUt-kF4vvGQAdNmPdRmuIG1DfGDmOZnXfrG8ckTvxoKBXdQZ"
+	"gfwfAQFgeHjltiWZTCSBV4464sn2qLZ1MP3Ku9bOjb72RCpIF60Cqssb8gTQyXQf48ZR"
+	"OBd242Q7Ae6PePmb_TcnG3jOguNUgmhj8iTU7QUz0uJWpJjMRPJ8vK8SnYEguGHer4qT"
+	"EocdMzRTTZB-Pr4-Ey0Hm0zeiFvjU0Qy6crjna6SKrgms4VAJT9LiicTYFPsmFBFQ0L1"
+	"BVDiZ3NTBIv_ajvzRpBNZ0IxEH5t6W3OY0223xUF3cq8c9HhwIxMf9a2-PmZ3mVWIRnU"
+	"nGegoVkzd2l6el8aw57v5KKYas4-EkovHntCZZ_hkZ1uHtezKq0EvjnT5xGWjPFjOZnh"
+	"veiozAsaMSSyTny6mcI-hjvcgd--7qlqWpt_BEkp9XVkP2k7eHLM9v4rL6hhk_n6yK3w"
+	"qKi0xDboxU5xjuBiGKb-E8um1MUEjuLqZanKSBsgU-Vwvw0gx1r-MG6BSlrgUlT2if5k"
+	"-Wfs6iVdpK7x1zZSsetp3NEjT4DUrfmp_E_CTXhOEP0AgzpQ4Ukx5bFN3gm5gyBZw1E8"
+	"q20Hs01OBcMJ9wenLEQVMvO_IEIkRNBMWEgoZ148As14LNOgdh1UBrF6W4pAUjYvA3WG"
+	"Zp7uG9ooDB1RF2aaeBqoLJflqIegsvsfaNNBDJ-U6i_jLG1FSlttEhJVdXll0gMSYlXD"
+	"O3BBil4eiUPfiksfOmsbwoIxc-3yPTivU3DPM.O_IaktJRbdV66zfhD0LQmw"
 ;
 
 static int
@@ -1787,13 +1814,15 @@ test_ecdhes_t1(struct lws_context *context, const char *jose_hdr,
 
 	/*
 	 * dup the plaintext into the ciphertext element, it will be
-	 * encrypted in-place to a ciphertext of the same length
+	 * encrypted in-place to a ciphertext of the same length + padding
 	 */
 
 	if (lws_jws_dup_element(&jwe.jws.map, LJWE_CTXT,
 				lws_concat_temp(temp, temp_len), &temp_len,
 				ecdhes_t1_plaintext,
-				strlen(ecdhes_t1_plaintext), 0)) {
+				strlen(ecdhes_t1_plaintext),
+				lws_gencrypto_padded_length(LWS_AES_CBC_BLOCKLEN,
+						strlen(ecdhes_t1_plaintext)))) {
 		lwsl_notice("%s: Not enough temp space for ptext\n", __func__);
 		goto bail;
 	}
@@ -1873,24 +1902,58 @@ bail:
 
 /* AES Key Wrap and AES_XXX_CBC_HMAC_SHA_YYY variations
  *
- * These were created by, eg
- *
- *   echo -n "plaintext0123456" | \
- *   ./lws-crypto-jwe -e "A192KW A256CBC-HS512" -k aes192.key
+ * These were created using the node-jose node.js package
  */
-
-/* "Live long and prosper." */
 static const char
 	*akw_ptext = "plaintext0123456",
-	*akw_ct_128_128 = "eyJhbGciOiJBMTI4S1ciLCAiZW5jIjoiQTEyOENCQy1IUzI1NiJ9.zbTfhhWePf1UrCRDxJD_-8eAQr2AoWAL51_nNOv0L4nV3P0e4_9ARA.qWehIhy4j4_gh_h5MF9ZEw.GD40YH6NeNOEkhhxC9ryZA.PEuU6V3rhYXeoxENrAzDgw",
-	*akw_ct_128_192 = "eyJhbGciOiJBMTI4S1ciLCAiZW5jIjoiQTE5MkNCQy1IUzM4NCJ9.zpkr45xH_kSJ5eTBv5dGo5PN_A6YdC4JoJSOw3_VTqcOeAYyCkCAXeGWugqIVLzMzBKgtXdabO8.O28MVhkgfketu5sxQK4Ffw.j25N7luxh251kQwpAoYURQ.Pm_NOj0KZzUq2fV9ARpHxT3Iach9feLK",
-	*akw_ct_128_256 = "eyJhbGciOiJBMTI4S1ciLCAiZW5jIjoiQTI1NkNCQy1IUzUxMiJ9.VvFmi121jliyh_UKzsBv7HR3TVY7-yALpcdlasHqdzmfISd8LFU5oc2fEhfn3_TKfCbgRycm5M3103NEMbVSiNULZWvJAPFe.7uLHGFO1g-PgD9YkjPbvoA.AlPwQPWSqGaB_em4qEEyjw.0LgTLld5pSffZnzGG6IRWEwXg7HhClmwP4m_p1yKnHw",
-	*akw_ct_192_128 = "eyJhbGciOiJBMTkyS1ciLCAiZW5jIjoiQTEyOENCQy1IUzI1NiJ9.kxlmi-xn0JN-ZlnSfkVDP-fXvricJ-L63WP2bWddWEiVK4m-os2trw.iarAWaeV873kh5s7HjoZ4Q.nFHEpnnIxvbCiYfFfsLj7Q.karz-h-R93dJgwN_YZyPmw",
-	*akw_ct_192_192 = "eyJhbGciOiJBMTkyS1ciLCAiZW5jIjoiQTE5MkNCQy1IUzM4NCJ9.D869MEk-JERZU_4MgFuL_6Pg24LUEbXlTvGj-t_JUnNFsJ0p8fk5L-iOATqPmx2g7AyVWgcUqU0.RrxzDsy6Bne1pzx99PBGsA.C-ZWmMwd1uswYkvhKX2_jg.bIFY0TmGuohI2APxDZyFUYpa6s1Mx2j1",
-	*akw_ct_192_256 = "eyJhbGciOiJBMTkyS1ciLCAiZW5jIjoiQTI1NkNCQy1IUzUxMiJ9.XNOBw0Dy1paAX2_XGkZYm2Zm455i8InAVMqM3aOrVDpXYBAADuZ_Ke_dlo3Fc8J5b9m_KNCUtVUU8f3KV0sY-yESsqyZTSXk.n3wEIV1-tL50JAp4H19Y1w.ODPd-oxmpCai9CzqaO0P3Q.b9z08hJTySSVSOw-4qp5lrTEcUur46L-RRB-SEcqPpk",
-	*akw_ct_256_128 = "eyJhbGciOiJBMjU2S1ciLCAiZW5jIjoiQTEyOENCQy1IUzI1NiJ9.THaIbHUOHkr7McMeiQqIO_gBcm61F0BKx79JXkzQVVSF7m0u7Z6uhA.RAU8Yx_a9rbWeqr_0YyLZA.zzfdv55bM-qblTxaR5pNzQ.cySMIOTOcEoFkcVn0D6RKQ",
-	*akw_ct_256_192 = "eyJhbGciOiJBMjU2S1ciLCAiZW5jIjoiQTE5MkNCQy1IUzM4NCJ9.gFcfX6fVrpmDJWN5jPqSWEvpOOoNuV4Yn2KO47p1wGsdw5qIw3r5AO5U8zOEtoGNVX68IC8vkpo.9w3tBsve4e-77lI-S9cFog.Vj3L009JDipPJlHY0tS4Iw.WYGgCedW4SmxleDF3P6Hx26BUXxnizxl",
-	*akw_ct_256_256 = "eyJhbGciOiJBMjU2S1ciLCAiZW5jIjoiQTI1NkNCQy1IUzUxMiJ9.ldhqlMf2LJrZ7EDl-oZvaqi0b_KPGy4cMRx2QDpKtTg92tTSWF7ALVHPPCyT4qccIybP4rygajKfdC_Q_UE16KFyUvXhBgaj.S9OCmKpY0zDkArLF5XsrJw.zvJ1X-zuHsrwLXGJJbglPA.WaRKb7Le2ZQ30pGQAV3sfp-YY1563KXxPURHQ8ntdPc",
+	*akw_ct_128_128 = "eyJhbGciOiJBMTI4S1ciLCJlbmMiOiJBMTI4Q0JDLUhTMjU2Ii"
+	"wia2lkIjoiLTRXTEpQNWNrYUxBUFFFNXkwYXhLT0JUSTlFTngxUXBCa0toNkdOY2loOC"
+	"J9.h6oNSEgz3LwIMndEkPEa8H7_5zy0hh8TaU_1yWoNtu4Dh_WJpEgx9g.j7TYjj8wB0"
+	"RS6rclTWYmqw.zm3tPzuWhXoD7IsAWbA0xz-AJXvE9gydWPRBTaO40sQ.Okf7ttWDLPM"
+	"wIj1kUyUO_A",
+	*akw_ct_128_192 = "eyJhbGciOiJBMTI4S1ciLCJlbmMiOiJBMTkyQ0JDLUhTMzg0Ii"
+	"wia2lkIjoiLTRXTEpQNWNrYUxBUFFFNXkwYXhLT0JUSTlFTngxUXBCa0toNkdOY2loOC"
+	"J9.XkRTu4nP3b0KZxXjkjdHEnbf6AWZUmFvpsqZLuLxKcrONqDUsnYasnVuo6U0QKRUm"
+	"cyBRtSPGW4.MzNxxoOp8JR2AHoLNve-vw.rdxgo6InRAxk3afG02_75l58u5m6KYHd3h"
+	"LH16ksnZE.v7BLKaRZIwhUPhhBRTd8yPwH0xa1fOft",
+	*akw_ct_128_256 = "eyJhbGciOiJBMTI4S1ciLCJlbmMiOiJBMjU2Q0JDLUhTNTEyIi"
+	"wia2lkIjoiLTRXTEpQNWNrYUxBUFFFNXkwYXhLT0JUSTlFTngxUXBCa0toNkdOY2loOC"
+	"J9.mueR-8XzXs2RyvzzvghpIpGS1mGl7vkSjJDF5zqhH8-ektBpCXSd7R7MS5nh2-Xf_"
+	"8XDym1gn1QEQh5bDI3GPESnSN1TJR-h.g6plL_5L2BD8wcjZS7X79A.UTndfTFhGFaVZ"
+	"vWqPkV7dN00gckesd_7UylosVDqjwU.-rgi0jkYuCZDMwUVLxN6e6x8fXw2U0u4-vL8u"
+	"Kb__S8",
+	*akw_ct_192_128 = "eyJhbGciOiJBMTkyS1ciLCJlbmMiOiJBMTI4Q0JDLUhTMjU2Ii"
+	"wia2lkIjoiai10RWp2Q2JyNVlUZWtKUXlES3kyQXh5cjBWeUlUWXk4S3IycjB0cy1USS"
+	"J9.mEURnj2NvPa3TU0uR8mcm2cMd33Y6iYYZ_LFrYS_Gz49gcdxZpdk1Q.v3csq81X9o"
+	"mI-bcp6i-FTQ.EgroRqmqNfeH7XC9msLap1IGcqvc09SlnI4PO6RQqS0.hDi57mXD3vX"
+	"dx2r4Kwnv9w",
+	*akw_ct_192_192 = "eyJhbGciOiJBMTkyS1ciLCJlbmMiOiJBMTkyQ0JDLUhTMzg0Ii"
+	"wia2lkIjoiai10RWp2Q2JyNVlUZWtKUXlES3kyQXh5cjBWeUlUWXk4S3IycjB0cy1USS"
+	"J9.QHgtusQdP7Zvw9tsCZNkJyEmzg6KUaaIyTb2BXB0ng9mxSUIQ7y_6oqasYKBUJgBn"
+	"Koru-3CXOE.ZZXcGY35mmlAb4-IgA5XlQ.AuG2GRPeYJ80_4XoYAUgXbVY65ZQ689Grn"
+	"x8RCNQdfc.UjfgDr4z3PGQBdftWT2gqx1Egfd9PUR4",
+	*akw_ct_192_256 = "eyJhbGciOiJBMTkyS1ciLCJlbmMiOiJBMjU2Q0JDLUhTNTEyIi"
+	"wia2lkIjoiai10RWp2Q2JyNVlUZWtKUXlES3kyQXh5cjBWeUlUWXk4S3IycjB0cy1USS"
+	"J9.G6DziymYyU3-6unIa-Oz-0lksH05OJFDZKkFuShMuoazEMZ5ZH2S_65qD-pjpf8aN"
+	"2thOVOYT0mdtgFM0ARUfx8ZLhRFCcn1.yEKK4eARZIo9WtGVcQmgDQ.ovan2NXDmt_Ka"
+	"SsVJmhIMQqVz6meqz1oExfVcY8vdzA.R3T4lQIKX5cc2Ktv42e9u5PR--v_w2uK7F4Wp"
+	"Sr5SQ8",
+	*akw_ct_256_128 = "eyJhbGciOiJBMjU2S1ciLCJlbmMiOiJBMTI4Q0JDLUhTMjU2Ii"
+	"wia2lkIjoiSDVwSzRRUU81U0tHbDA3UXhIdk9YMzVqS2FJbzA2NXVLdWRubVZFZVpJYy"
+	"J9.ZLWrz5CE7Iav2db37VL9ZABeaRVrV9af-7-46Loc9M2D0SPSNtsxpg.ktk-VU8-5b"
+	"XRvW_A6IqDjQ.xZVIglOhadDBHUYuxPx6Wr_YzOo0qCDH24xVe58qP9Q.pO_tME930wO"
+	"u5fNJ8ubGrw",
+	*akw_ct_256_192 = "eyJhbGciOiJBMjU2S1ciLCJlbmMiOiJBMTkyQ0JDLUhTMzg0Ii"
+	"wia2lkIjoiSDVwSzRRUU81U0tHbDA3UXhIdk9YMzVqS2FJbzA2NXVLdWRubVZFZVpJYy"
+	"J9.fcblAVZ7VOXtyhymqxDBr-zgvId18p3AURNbhH5FmAvKNuUVU37xPkz6BrFopLP0J"
+	"jqXaTyyg1s.fprTe2e0esH2w7EnLEgBZQ.g1BI0U1aKSM_JBEp9jC4BxBaFXVG5BW4nl"
+	"bhX1MDeLo.XOLanrIkitLLDRONnfM05avahl_lJ_UY",
+	*akw_ct_256_256 = "eyJhbGciOiJBMjU2S1ciLCJlbmMiOiJBMjU2Q0JDLUhTNTEyIi"
+	"wia2lkIjoiSDVwSzRRUU81U0tHbDA3UXhIdk9YMzVqS2FJbzA2NXVLdWRubVZFZVpJYy"
+	"J9.SpizfgtzQLJCCnYnUmNfiMMTyL8iIDi8OyUDrO00KJtfwJdNAcs-NuYQkLKx6PlDJ"
+	"IGjucT4-IuA8k_Oc752kq1BzTHMZ-Mo.go-e8xpQoCmLD5RBQw7ruA.WqkEdM6T1_z5F"
+	"C-8eGQfGjos7cHPy1ecZk1Ep-TYgXo.bZVHhIpe2PbjguQlK_afkYDlVmEtRAe3LUJUX"
+	"4STOtU",
 	*akw_key_128 = "{\"k\":\"JjVJVh8JsXvKf9qgHHWWBA\",\"kty\":\"oct\"}",
 	*akw_key_192 = "{\"k\":\"BYF6urCMDRMKFXXRxXrDSVtW71AUZghj\",\"kty\":\"oct\"}",
 	*akw_key_256 = "{\"k\":\"cSHyZXGEfnlgKud21cM6tAxRyXnK6xbWRTsyLUegTMk\",\"kty\":\"oct\"}"
@@ -1984,12 +2047,14 @@ test_akw_encrypt(struct lws_context *context, const char *test_name,
 
 	/*
 	 * dup the plaintext into the ciphertext element, it will be
-	 * encrypted in-place to a ciphertext of the same length
+	 * encrypted in-place to a ciphertext of the same length + padding
 	 */
 
 	if (lws_jws_dup_element(&jwe.jws.map, LJWE_CTXT,
 				lws_concat_temp(temp, temp_len), &temp_len,
-				akw_ptext, strlen(akw_ptext), 0)) {
+				akw_ptext, strlen(akw_ptext),
+				lws_gencrypto_padded_length(LWS_AES_CBC_BLOCKLEN,
+							  strlen(akw_ptext)))) {
 		lwsl_notice("%s: Not enough temp space for ptext\n", __func__);
 		goto bail;
 	}

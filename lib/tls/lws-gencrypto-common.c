@@ -686,3 +686,8 @@ lws_gencrypto_destroy_elements(struct lws_gencrypto_keyelem *el, int m)
 		if (el[n].buf)
 			lws_free_set_NULL(el[n].buf);
 }
+
+size_t lws_gencrypto_padded_length(size_t pad_block_size, size_t len)
+{
+	return (len / pad_block_size + 1) * pad_block_size;
+}

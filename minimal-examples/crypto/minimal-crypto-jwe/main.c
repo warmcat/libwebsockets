@@ -153,7 +153,10 @@ int main(int argc, const char **argv)
 		lwsl_err("Problem reading from stdin\n");
 		return 1;
 	}
-	temp_len -= n;
+
+	/* account for padding as well */
+
+	temp_len -= lws_gencrypto_padded_length(LWS_AES_CBC_BLOCKLEN, n);
 
 	/* grab the key */
 

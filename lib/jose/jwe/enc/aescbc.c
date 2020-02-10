@@ -34,6 +34,7 @@ lws_jwe_encrypt_cbc_hs(struct lws_jwe *jwe, uint8_t *cek,
 	struct lws_gencrypto_keyelem el;
 	struct lws_genhmac_ctx hmacctx;
 	struct lws_genaes_ctx aesctx;
+	size_t paddedlen;
 	uint8_t al[8];
 
 	/* Caller must have prepared space for the results */
@@ -81,22 +82,27 @@ lws_jwe_encrypt_cbc_hs(struct lws_jwe *jwe, uint8_t *cek,
 	el.len = hlen / 2;
 
 	if (lws_genaes_create(&aesctx, LWS_GAESO_ENC, LWS_GAESM_CBC, &el,
-			      LWS_GAESP_NO_PADDING, NULL)) {
+			      LWS_GAESP_WITH_PADDING, NULL)) {
 		lwsl_err("%s: lws_genaes_create failed\n", __func__);
 
 		return -1;
 	}
 
 	/*
-	 * the plaintext gets delivered to us in LJWE_CTXT, this replaces
-	 * the plaintext there with the same amount of ciphertext
+	 * the plaintext gets delivered to us in LJWE_CTXT, this replaces the
+	 * plaintext there with the ciphertext, which will be larger by some
+	 * padding bytes
 	 */
 	n = lws_genaes_crypt(&aesctx, (uint8_t *)jwe->jws.map.buf[LJWE_CTXT],
 			     jwe->jws.map.len[LJWE_CTXT],
 			     (uint8_t *)jwe->jws.map.buf[LJWE_CTXT],
 			     (uint8_t *)jwe->jws.map.buf[LJWE_IV],
-			     NULL, NULL, 16);
-	lws_genaes_destroy(&aesctx, NULL, 0);
+			     NULL, NULL, LWS_AES_CBC_BLOCKLEN);
+	paddedlen = lws_gencrypto_padded_length(LWS_AES_CBC_BLOCKLEN,
+						jwe->jws.map.len[LJWE_CTXT]);
+	jwe->jws.map.len[LJWE_CTXT] = paddedlen;
+	lws_genaes_destroy(&aesctx, (uint8_t *)jwe->jws.map.buf[LJWE_CTXT] +
+			   paddedlen - LWS_AES_CBC_BLOCKLEN, LWS_AES_CBC_BLOCKLEN);
 	if (n) {
 		lwsl_err("%s: lws_genaes_crypt failed\n", __func__);
 		return -1;
@@ -241,6 +247,19 @@ lws_jwe_auth_and_decrypt_cbc_hs(struct lws_jwe *jwe, uint8_t *enc_cek,
 			     jwe->jws.map.len[LJWE_CTXT],
 			     (uint8_t *)jwe->jws.map.buf[LJWE_CTXT],
 			     (uint8_t *)jwe->jws.map.buf[LJWE_IV], NULL, NULL, 16);
+
+	/* Strip the PKCS #7 padding */
+
+	if (jwe->jws.map.len[LJWE_CTXT] < LWS_AES_CBC_BLOCKLEN ||
+	    jwe->jws.map.len[LJWE_CTXT] <= (unsigned char)jwe->jws.map.buf[LJWE_CTXT]
+						[jwe->jws.map.len[LJWE_CTXT] - 1]) {
+		lwsl_err("%s: invalid padded ciphertext length: %d. Corrupt data?\n",
+				__func__, jwe->jws.map.len[LJWE_CTXT]);
+		return -1;
+	}
+	jwe->jws.map.len[LJWE_CTXT] -= jwe->jws.map.buf[LJWE_CTXT][
+						jwe->jws.map.len[LJWE_CTXT] - 1];
+
 	n |= lws_genaes_destroy(&aesctx, NULL, 0);
 	if (n) {
 		lwsl_err("%s: lws_genaes_crypt failed\n", __func__);

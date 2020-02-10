@@ -237,8 +237,8 @@ bail:
 int
 lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 {
-	int outl = 0, n = 0;
 	uint8_t buf[256];
+	int outl = sizeof(buf), n = 0;
 
 	if (!ctx->ctx)
 		return 0;
@@ -261,7 +261,11 @@ lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 					n = 1;
 				}
 			}
+			if (ctx->mode == LWS_GAESM_CBC)
+				memcpy(tag, buf, outl);
+
 			break;
+
 		case LWS_GAESO_DEC:
 			if (EVP_DecryptFinal_ex(ctx->ctx, buf, &outl) != 1) {
 				lwsl_err("%s: dec final failed\n", __func__);
