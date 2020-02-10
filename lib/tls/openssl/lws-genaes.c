@@ -237,7 +237,7 @@ bail:
 int
 lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 {
-	int outl = 0, n = 0;
+	int outl = 256, n = 0;
 	uint8_t buf[256];
 
 	if (!ctx->ctx)
@@ -260,6 +260,9 @@ lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 					//lws_tls_err_describe_clear();
 					n = 1;
 				}
+			}
+			else if (ctx->mode ==  LWS_GAESM_CBC) {
+			    memcpy(tag, buf, outl);
 			}
 			break;
 		case LWS_GAESO_DEC:

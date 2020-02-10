@@ -25,6 +25,8 @@
 #include "private-lib-core.h"
 #include "private-lib-jose-jwe.h"
 
+#define LWS_AES_BLOCKLEN 16
+
 int
 lws_jwe_encrypt_cbc_hs(struct lws_jwe *jwe, uint8_t *cek,
 		       uint8_t *aad, int aad_len)
@@ -81,22 +83,24 @@ lws_jwe_encrypt_cbc_hs(struct lws_jwe *jwe, uint8_t *cek,
 	el.len = hlen / 2;
 
 	if (lws_genaes_create(&aesctx, LWS_GAESO_ENC, LWS_GAESM_CBC, &el,
-			      LWS_GAESP_NO_PADDING, NULL)) {
+			      LWS_GAESP_WITH_PADDING, NULL)) {
 		lwsl_err("%s: lws_genaes_create failed\n", __func__);
 
 		return -1;
 	}
 
 	/*
-	 * the plaintext gets delivered to us in LJWE_CTXT, this replaces
-	 * the plaintext there with the same amount of ciphertext
+	 * the plaintext gets delivered to us in LJWE_CTXT, this replaces the
+	 * plaintext there with the ciphertext, which will be larger by some padding bytes
 	 */
 	n = lws_genaes_crypt(&aesctx, (uint8_t *)jwe->jws.map.buf[LJWE_CTXT],
 			     jwe->jws.map.len[LJWE_CTXT],
 			     (uint8_t *)jwe->jws.map.buf[LJWE_CTXT],
 			     (uint8_t *)jwe->jws.map.buf[LJWE_IV],
-			     NULL, NULL, 16);
-	lws_genaes_destroy(&aesctx, NULL, 0);
+			     NULL, NULL, LWS_AES_BLOCKLEN);
+	size_t paddedLen = lws_gencrypto_padded_length(LWS_AES_BLOCKLEN, jwe->jws.map.len[LJWE_CTXT]);
+    jwe->jws.map.len[LJWE_CTXT] = paddedLen;
+	lws_genaes_destroy(&aesctx, (uint8_t *)jwe->jws.map.buf[LJWE_CTXT]+paddedLen-LWS_AES_BLOCKLEN, LWS_AES_BLOCKLEN);
 	if (n) {
 		lwsl_err("%s: lws_genaes_crypt failed\n", __func__);
 		return -1;
@@ -241,6 +245,9 @@ lws_jwe_auth_and_decrypt_cbc_hs(struct lws_jwe *jwe, uint8_t *enc_cek,
 			     jwe->jws.map.len[LJWE_CTXT],
 			     (uint8_t *)jwe->jws.map.buf[LJWE_CTXT],
 			     (uint8_t *)jwe->jws.map.buf[LJWE_IV], NULL, NULL, 16);
+    // PKCS #7 unpad
+	jwe->jws.map.len[LJWE_CTXT] -= jwe->jws.map.buf[LJWE_CTXT][jwe->jws.map.len[LJWE_CTXT]-1];
+
 	n |= lws_genaes_destroy(&aesctx, NULL, 0);
 	if (n) {
 		lwsl_err("%s: lws_genaes_crypt failed\n", __func__);

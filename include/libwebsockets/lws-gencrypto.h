@@ -116,3 +116,15 @@ lws_gencrypto_bits_to_bytes(int bits);
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_base64_size(int bytes);
+
+/**
+ * lws_gencrypto_padded_length() - returns PKCS#5/#7 padded length
+ *
+ * @param blocksize - blocksize to pad to
+ * @param len - Length of input to pad
+ *
+ * Returns the length of a buffer originally of size len after PKCS#5 or PKCS#7
+ * padding has been applied to it.
+ */
+LWS_VISIBLE LWS_EXTERN size_t
+lws_gencrypto_padded_length(size_t block_size, size_t len);
