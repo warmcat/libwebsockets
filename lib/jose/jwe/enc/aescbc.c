@@ -245,7 +245,13 @@ lws_jwe_auth_and_decrypt_cbc_hs(struct lws_jwe *jwe, uint8_t *enc_cek,
 			     jwe->jws.map.len[LJWE_CTXT],
 			     (uint8_t *)jwe->jws.map.buf[LJWE_CTXT],
 			     (uint8_t *)jwe->jws.map.buf[LJWE_IV], NULL, NULL, 16);
-    // PKCS #7 unpad
+
+	// PKCS #7 unpad
+    if (jwe->jws.map.len[LJWE_CTXT] <= LWS_AES_BLOCKLEN ||
+        jwe->jws.map.len[LJWE_CTXT] <= (unsigned char)jwe->jws.map.buf[LJWE_CTXT][jwe->jws.map.len[LJWE_CTXT]-1]) {
+        lwsl_err("%s: invalid padded ciphertext length: %d. Corrupt encrypted data?\n", __func__, jwe->jws.map.len[LJWE_CTXT]);
+        return -1;
+    }
 	jwe->jws.map.len[LJWE_CTXT] -= jwe->jws.map.buf[LJWE_CTXT][jwe->jws.map.len[LJWE_CTXT]-1];
 
 	n |= lws_genaes_destroy(&aesctx, NULL, 0);

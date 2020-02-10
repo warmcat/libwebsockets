@@ -154,7 +154,7 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 	// account for padding as well
-	temp_len -= (n+32);
+	temp_len -= (LWS_REQUIRED_CIPHERTEXT_LEN(n));
 
 	/* grab the key */
 

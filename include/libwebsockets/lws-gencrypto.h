@@ -82,6 +82,10 @@ enum lws_gencrypto_aes_tok {
 /* largest number of key elements for any algorithm */
 #define LWS_GENCRYPTO_MAX_KEYEL_COUNT LWS_GENCRYPTO_RSA_KEYEL_COUNT
 
+/* ciphertext length for given plaintext length */
+#define LWS_AES_CBC_CIPHERTEXT_LEN(plaintextLen) lws_gencrypto_padded_length(16, plaintextLen)
+#define LWS_REQUIRED_CIPHERTEXT_LEN LWS_AES_CBC_CIPHERTEXT_LEN
+
 /* this "stretchy" type holds individual key element data in binary form.
  * It's typcially used in an array with the layout mapping the element index to
  * the key element meaning defined by the enums above.  An array of these of

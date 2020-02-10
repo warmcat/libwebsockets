@@ -29,6 +29,20 @@
 
 static int operation_map[] = { MBEDTLS_AES_ENCRYPT, MBEDTLS_AES_DECRYPT };
 
+static unsigned char _write_pkcs7_pad(unsigned char *p, int len)
+{
+    unsigned char padLen = (unsigned char)(16*(len/16+1)-len);
+    unsigned int remaining = padLen;
+    p += len;
+
+    while (remaining-- > 0)
+    {
+        *p++ = padLen;
+    }
+
+    return padLen;
+}
+
 int
 lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 		  enum enum_aes_modes mode, struct lws_gencrypto_keyelem *el,
@@ -40,6 +54,7 @@ lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 	ctx->k = el;
 	ctx->op = operation_map[op];
 	ctx->underway = 0;
+    ctx->padding = (padding == LWS_GAESP_WITH_PADDING);
 
 	switch (ctx->mode) {
 	case LWS_GAESM_XTS:
@@ -276,8 +291,20 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 		break;
 	case LWS_GAESM_CBC:
 		memcpy(iv, iv_or_nonce_ctr_or_data_unit_16, 16);
-		n = mbedtls_aes_crypt_cbc(&ctx->u.ctx, ctx->op, len, iv,
-					  in, out);
+		// If encrypting, we do the PKCS#7 padding.
+		// During decryption, the caller has to unpad.
+		if (ctx->padding && ctx->op == MBEDTLS_AES_ENCRYPT) {
+            unsigned char *padded_input = (unsigned char *)malloc(len+LWS_AES_BLOCKSIZE);
+            memcpy(padded_input, in, len);
+            len += _write_pkcs7_pad((unsigned char *)padded_input, len);
+            n = mbedtls_aes_crypt_cbc(&ctx->u.ctx, ctx->op, len, iv,
+                                      padded_input, out);
+            free(padded_input);
+        } else {
+            n = mbedtls_aes_crypt_cbc(&ctx->u.ctx, ctx->op, len, iv,
+                                      in, out);
+		}
+
 		break;
 
 	case LWS_GAESM_CFB128:
