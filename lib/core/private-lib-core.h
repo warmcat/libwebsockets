@@ -274,7 +274,7 @@ struct lws_deferred_free
 	void *payload;
 };
 
-typedef struct lws_system_blob {
+struct lws_system_blob {
 	union {
 		struct lws_buflist *bl;
 		struct {
@@ -283,7 +283,7 @@ typedef struct lws_system_blob {
 		} direct;
 	} u;
 	char	is_direct;
-} lws_system_blob_t;
+};
 
 
 typedef struct lws_attach_item {
