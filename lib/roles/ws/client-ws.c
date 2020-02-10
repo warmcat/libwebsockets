@@ -658,16 +658,6 @@ check_accept:
 		goto bail2;
 	}
 	wsi->ws->rx_ubuf_alloc = n;
-	lwsl_info("Allocating client RX buffer %d\n", n);
-
-#if !defined(LWS_PLAT_FREERTOS)
-	if (setsockopt(wsi->desc.sockfd, SOL_SOCKET, SO_SNDBUF,
-		       (const char *)&n, sizeof n)) {
-		lwsl_warn("Failed to set SNDBUF to %d", n);
-		*cce = "HS: SO_SNDBUF failed";
-		goto bail3;
-	}
-#endif
 
 	lwsl_debug("handshake OK for protocol %s\n", wsi->protocol->name);
 
