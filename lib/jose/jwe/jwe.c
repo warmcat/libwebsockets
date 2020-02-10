@@ -492,7 +492,7 @@ lws_jwe_render_compact(struct lws_jwe *jwe, char *out, size_t out_len)
 			       jwe->jws.map.len[LJWS_JOSE], out, out_len);
 	if (n < 0 || (int)out_len == n) {
 		lwsl_info("%s: unable to encode JOSE\n", __func__);
-		return n;
+		return -1;
 	}
 
 	out += n;
@@ -503,7 +503,7 @@ lws_jwe_render_compact(struct lws_jwe *jwe, char *out, size_t out_len)
 			       jwe->jws.map.len[LJWE_EKEY], out, out_len);
 	if (n < 0 || (int)out_len == n) {
 		lwsl_info("%s: unable to encode EKEY\n", __func__);
-		return n;
+		return -1;
 	}
 
 	out += n;
@@ -513,7 +513,7 @@ lws_jwe_render_compact(struct lws_jwe *jwe, char *out, size_t out_len)
 			       jwe->jws.map.len[LJWE_IV], out, out_len);
 	if (n < 0 || (int)out_len == n) {
 		lwsl_info("%s: unable to encode IV\n", __func__);
-		return n;
+		return -1;
 	}
 
 	out += n;
@@ -524,7 +524,7 @@ lws_jwe_render_compact(struct lws_jwe *jwe, char *out, size_t out_len)
 			       jwe->jws.map.len[LJWE_CTXT], out, out_len);
 	if (n < 0 || (int)out_len == n) {
 		lwsl_info("%s: unable to encode CTXT\n", __func__);
-		return n;
+		return -1;
 	}
 
 	out += n;
@@ -534,7 +534,7 @@ lws_jwe_render_compact(struct lws_jwe *jwe, char *out, size_t out_len)
 			       jwe->jws.map.len[LJWE_ATAG], out, out_len);
 	if (n < 0 || (int)out_len == n) {
 		lwsl_info("%s: unable to encode ATAG\n", __func__);
-		return n;
+		return -1;
 	}
 
 	out += n;
