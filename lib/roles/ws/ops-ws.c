@@ -846,16 +846,6 @@ lws_server_init_wsi_for_ws(struct lws *wsi)
 		return 1;
 	}
 	wsi->ws->rx_ubuf_alloc = n;
-	lwsl_debug("Allocating RX buffer %d\n", n);
-
-#if !defined(LWS_PLAT_FREERTOS)
-	if (!wsi->h2_stream_carries_ws)
-		if (setsockopt(wsi->desc.sockfd, SOL_SOCKET, SO_SNDBUF,
-		       (const char *)&n, sizeof n)) {
-			lwsl_warn("Failed to set SNDBUF to %d", n);
-			return 1;
-		}
-#endif
 
 	/* notify user code that we're ready to roll */
 
