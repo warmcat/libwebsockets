@@ -32,22 +32,22 @@ rops_handle_POLLIN_cgi(struct lws_context_per_thread *pt, struct lws *wsi,
 
 	assert(wsi->role_ops == &role_ops_cgi);
 
-	if (wsi->cgi_channel >= LWS_STDOUT &&
+	if (wsi->lsp_channel >= LWS_STDOUT &&
 	    !(pollfd->revents & pollfd->events & LWS_POLLIN))
 		return LWS_HPI_RET_HANDLED;
 
-	if (wsi->cgi_channel == LWS_STDIN &&
+	if (wsi->lsp_channel == LWS_STDIN &&
 	    !(pollfd->revents & pollfd->events & LWS_POLLOUT))
 		return LWS_HPI_RET_HANDLED;
 
-	if (wsi->cgi_channel == LWS_STDIN &&
+	if (wsi->lsp_channel == LWS_STDIN &&
 	    lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
 		lwsl_info("failed at set pollfd\n");
 		return LWS_HPI_RET_WSI_ALREADY_DIED;
 	}
 
-	args.ch = wsi->cgi_channel;
-	args.stdwsi = &wsi->parent->http.cgi->stdwsi[0];
+	args.ch = wsi->lsp_channel;
+	args.stdwsi = &wsi->parent->http.cgi->lsp->stdwsi[0];
 	args.hdr_state = wsi->hdr_state;
 
 	lwsl_debug("CGI LWS_STDOUT %p wsistate 0x%x\n",

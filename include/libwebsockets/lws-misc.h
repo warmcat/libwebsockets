@@ -22,6 +22,15 @@
  * IN THE SOFTWARE.
  */
 
+#if defined(LWS_WITH_SPAWN)
+
+#if defined(WIN32) || defined(_WIN32)
+#else
+#include <sys/wait.h>
+#include <sys/times.h>
+#endif
+#endif
+
 /** \defgroup misc Miscellaneous APIs
 * ##Miscellaneous APIs
 *
@@ -701,10 +710,127 @@ lws_ser_ru32be(const uint8_t *b);
 LWS_VISIBLE LWS_EXTERN uint64_t
 lws_ser_ru64be(const uint8_t *b);
 
-int
+LWS_VISIBLE LWS_EXTERN int
 lws_vbi_encode(uint64_t value, void *buf);
 
-int
+LWS_VISIBLE LWS_EXTERN int
 lws_vbi_decode(const void *buf, uint64_t *value, size_t len);
 
 ///@}
+
+#if defined(LWS_WITH_SPAWN)
+
+/* opaque internal struct */
+struct lws_spawn_piped;
+
+typedef void (*lsp_cb_t)(void *opaque, lws_usec_t *accounting, siginfo_t *si,
+			 int we_killed_him);
+
+
+/**
+ * lws_spawn_piped_info - details given to create a spawned pipe
+ *
+ * \p owner: lws_dll2_owner_t that lists all active spawns, or NULL
+ * \p vh: vhost to bind stdwsi to... from opt_parent if given
+ * \p opt_parent: optional parent wsi for stdwsi
+ * \p exec_array: argv for process to spawn
+ * \p env_array: environment for spawned process, NULL ends env list
+ * \p protocol_name: NULL, or vhost protocol name to bind stdwsi to
+ * \p chroot_path: NULL, or chroot patch for child process
+ * \p wd: working directory to cd to after fork, NULL defaults to /tmp
+ * \p plsp: NULL, or pointer to the outer lsp pointer so it can be set NULL when destroyed
+ * \p opaque: pointer passed to the reap callback, if any
+ * \p timeout: optional us-resolution timeout, or zero
+ * \p reap_cb: callback when child process has been reaped and the lsp destroyed
+ * \p tsi: tsi to bind stdwsi to... from opt_parent if given
+ */
+struct lws_spawn_piped_info {
+	struct lws_dll2_owner		*owner;
+	struct lws_vhost		*vh;
+	struct lws			*opt_parent;
+
+	const char * const		*exec_array;
+	char				**env_array;
+	const char			*protocol_name;
+	const char			*chroot_path;
+	const char			*wd;
+
+	struct lws_spawn_piped		**plsp;
+
+	void				*opaque;
+
+	lsp_cb_t			reap_cb;
+
+	lws_usec_t			timeout_us;
+	int				max_log_lines;
+	int				tsi;
+
+	const struct lws_role_ops	*ops; /* NULL is raw file */
+
+	uint8_t				disable_ctrlc;
+};
+
+/**
+ * lws_spawn_piped() - spawn a child process with stdxxx redirected
+ *
+ * \p lspi: info struct describing details of spawn to create
+ *
+ * This spawns a child process managed in the lsp object and with attributes
+ * set in the arguments.  The stdin/out/err streams are redirected to pipes
+ * which are instantiated into wsi that become child wsi of \p parent if non-
+ * NULL.  .opaque_user_data on the stdwsi created is set to point to the
+ * lsp object, so this can be recovered easily in the protocol handler.
+ *
+ * If \p owner is non-NULL, successful spawns join the given dll2 owner in the
+ * original process.
+ *
+ * If \p timeout is non-zero, successful spawns register a sul with the us-
+ * resolution timeout to callback \p timeout_cb, in the original process.
+ *
+ * Returns 0 if the spawn went OK or nonzero if it failed and was cleaned up.
+ * The spawned process continues asynchronously and this will return after
+ * starting it if all went well.
+ */
+LWS_VISIBLE LWS_EXTERN struct lws_spawn_piped *
+lws_spawn_piped(const struct lws_spawn_piped_info *lspi);
+
+/*
+ * lws_spawn_piped_kill_child_process() - attempt to kill child process
+ *
+ * \p lsp: child object to kill
+ *
+ * Attempts to signal the child process in \p lsp to terminate.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_spawn_piped_kill_child_process(struct lws_spawn_piped *lsp);
+
+/**
+ * lws_spawn_stdwsi_closed() - inform the spawn one of its stdxxx pipes closed
+ *
+ * \p lsp: the spawn object
+ *
+ * When you notice one of the spawn stdxxx pipes closed, inform the spawn
+ * instance using this api.  When it sees all three have closed, it will
+ * automatically try to reap the child process.
+ *
+ * This is the mechanism whereby the spawn object can understand its child
+ * has closed.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_spawn_stdwsi_closed(struct lws_spawn_piped *lsp);
+
+/**
+ * lws_spawn_get_stdfd() - return std channel index for stdwsi
+ *
+ * \p wsi: the wsi
+ *
+ * If you know wsi is a stdwsi from a spawn, you can determine its original
+ * channel index / fd before the pipes replaced the default fds.  It will return
+ * one of 0 (STDIN), 1 (STDOUT) or 2 (STDERR).  You can handle all three in the
+ * same protocol handler and then disambiguate them using this api.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_spawn_get_stdfd(struct lws *wsi);
+
+#endif
+

@@ -54,7 +54,9 @@ struct lws;
 
 struct lws_cgi {
 	struct lws_cgi *cgi_list;
-	struct lws *stdwsi[3]; /* points to the associated stdin/out/err wsis */
+
+	struct lws_spawn_piped *lsp;
+
 	struct lws *wsi; /* owner */
 	unsigned char *headers_buf;
 	unsigned char *headers_start;
@@ -72,10 +74,8 @@ struct lws_cgi {
 	lws_filepos_t content_length;
 	lws_filepos_t content_length_seen;
 
-	int pipe_fds[3][2];
 	int match[SIGNIFICANT_HDR_COUNT];
 	char l[12];
-	int pid;
 	int response_code;
 	int lp;
 

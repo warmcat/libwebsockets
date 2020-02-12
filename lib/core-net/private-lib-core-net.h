@@ -826,8 +826,8 @@ struct lws {
 	char redirects;
 	uint8_t rxflow_bitmap;
 	uint8_t bound_vhost_index;
+	uint8_t lsp_channel; /* which of stdin/out/err */
 #ifdef LWS_WITH_CGI
-	char cgi_channel; /* which of stdin/out/err */
 	char hdr_state;
 #endif
 #if defined(LWS_WITH_CLIENT)
@@ -852,6 +852,48 @@ struct lws {
 };
 
 #define lws_is_flowcontrolled(w) (!!(wsi->rxflow_bitmap))
+
+#if defined(LWS_WITH_SPAWN)
+
+#if defined(WIN32) || defined(_WIN32)
+#else
+#include <sys/wait.h>
+#include <sys/times.h>
+#endif
+
+struct lws_spawn_piped {
+
+	struct lws_spawn_piped_info	info;
+
+	struct lws_dll2			dll;
+	lws_sorted_usec_list_t		sul;
+
+	struct lws			*stdwsi[3];
+	int				pipe_fds[3][2];
+	int				count_log_lines;
+
+	lws_usec_t			created; /* set by lws_spawn_piped() */
+	lws_usec_t			reaped;
+
+	lws_usec_t			accounting[4];
+
+	pid_t				child_pid;
+
+	siginfo_t			si;
+
+	uint8_t				pipes_alive:2;
+	uint8_t				we_killed_him_timeout:1;
+	uint8_t				we_killed_him_spew:1;
+	uint8_t				ungraceful:1;
+};
+
+void
+lws_spawn_piped_destroy(struct lws_spawn_piped **lsp);
+
+int
+lws_spawn_reap(struct lws_spawn_piped *lsp);
+
+#endif
 
 void
 lws_service_do_ripe_rxflow(struct lws_context_per_thread *pt);

@@ -296,7 +296,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 #ifdef LWS_WITH_CGI
 	if (wsi->role_ops == &role_ops_cgi) {
 
-		// lwsl_debug("%s: closing stdwsi index %d\n", __func__, (int)wsi->cgi_channel);
+		// lwsl_debug("%s: closing stdwsi index %d\n", __func__, (int)wsi->lsp_channel);
 
 		/* we are not a network connection, but a handler for CGI io */
 		if (wsi->parent && wsi->parent->http.cgi) {
@@ -306,7 +306,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 
 			/* end the binding between us and master */
 			if (wsi->parent->http.cgi)
-				wsi->parent->http.cgi->stdwsi[(int)wsi->cgi_channel] =
+				wsi->parent->http.cgi->lsp->stdwsi[(int)wsi->lsp_channel] =
 									NULL;
 		}
 		wsi->socket_is_permanently_unusable = 1;
@@ -631,17 +631,7 @@ __lws_close_free_wsi_final(struct lws *wsi)
 
 #ifdef LWS_WITH_CGI
 	if (wsi->http.cgi) {
-
-		for (n = 0; n < 3; n++) {
-			if (wsi->http.cgi->pipe_fds[n][!!(n == 0)] == 0)
-				lwsl_err("ZERO FD IN CGI CLOSE");
-
-			if (wsi->http.cgi->pipe_fds[n][!!(n == 0)] >= 0) {
-				close(wsi->http.cgi->pipe_fds[n][!!(n == 0)]);
-				wsi->http.cgi->pipe_fds[n][!!(n == 0)] = LWS_SOCK_INVALID;
-			}
-		}
-
+		lws_spawn_piped_destroy(&wsi->http.cgi->lsp);
 		lws_free_set_NULL(wsi->http.cgi);
 	}
 #endif

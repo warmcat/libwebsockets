@@ -140,7 +140,7 @@ http_postbody:
 				struct lws_cgi_args args;
 
 				args.ch = LWS_STDIN;
-				args.stdwsi = &wsi->http.cgi->stdwsi[0];
+				args.stdwsi = &wsi->http.cgi->lsp->stdwsi[0];
 				args.data = buf;
 				args.len = body_chunk_len;
 

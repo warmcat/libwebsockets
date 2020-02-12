@@ -314,9 +314,10 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 				lwsl_debug("AUX_BF__CGI forcing close\n");
 				return -1;
 			}
-			if (!n && wsi->http.cgi && wsi->http.cgi->stdwsi[LWS_STDOUT])
+			if (!n && wsi->http.cgi &&
+			    wsi->http.cgi->lsp->stdwsi[LWS_STDOUT])
 				lws_rx_flow_control(
-					wsi->http.cgi->stdwsi[LWS_STDOUT], 1);
+					wsi->http.cgi->lsp->stdwsi[LWS_STDOUT], 1);
 
 			if (wsi->reason_bf & LWS_CB_REASON_AUX_BF__CGI_HEADERS)
 				wsi->reason_bf &=
@@ -796,7 +797,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 					compatible_close(siwsi->desc.sockfd);
 					__lws_free_wsi(siwsi);
 				}
-				wsi->http.cgi->pipe_fds[LWS_STDIN][1] = -1;
+				wsi->http.cgi->lsp->pipe_fds[LWS_STDIN][1] = -1;
 
 //				args->stdwsi[LWS_STDIN] = NULL;
 			}

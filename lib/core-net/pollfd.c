@@ -140,6 +140,11 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 	lws_memory_barrier();
 #endif
 
+#if !defined(__linux__)
+	/* OSX couldn't see close on stdin pipe side otherwise */
+	_or |= LWS_POLLHUP;
+#endif
+
 	pfd = &pt->fds[wsi->position_in_fds_table];
 	pa->fd = wsi->desc.sockfd;
 	lwsl_debug("%s: wsi %p: fd %d events %d -> %d\n", __func__, wsi,

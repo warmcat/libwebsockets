@@ -347,6 +347,11 @@ struct lws_pollfd {
 #define LWS_POLLHUP (FD_CLOSE)
 #define LWS_POLLIN (FD_READ | FD_ACCEPT)
 #define LWS_POLLOUT (FD_WRITE)
+
+#if !defined(pid_t)
+#define pid_t int
+#endif
+
 #else
 
 

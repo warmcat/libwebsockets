@@ -150,6 +150,7 @@ option(LWS_CLIENT_HTTP_PROXYING "Support external http proxies for client connec
 option(LWS_WITH_FILE_OPS "Support file operations vfs" ON)
 option(LWS_WITH_DETAILED_LATENCY "Record detailed latency stats for each read and write" OFF)
 option(LWS_WITH_UDP "Platform supports UDP" ON)
+option(LWS_WITH_SPAWN "Spawn subprocesses with piped stdin/out/stderr" OFF)
 
 #
 # to use miniz, enable both LWS_WITH_ZLIB and LWS_WITH_MINIZ
@@ -195,6 +196,9 @@ if (LWS_FOR_GITOHASHI)
 	set(LWS_WITH_DISKCACHE 1)
 	set(LWS_WITH_LWSAC 1)
 	set(LWS_WITH_LEJP_CONF 1)
+	set(LWS_WITH_SPAWN 1)
+	set(LWS_WITH_STRUCT_JSON 1)
+	set(LWS_WITH_STRUCT_SQLITE3 1)
 endif()
 
 if(LWS_WITH_DISTRO_RECOMMENDED)
@@ -225,6 +229,9 @@ if(LWS_WITH_DISTRO_RECOMMENDED)
 	set(LWS_ROLE_RAW_PROXY 1)
 	set(LWS_WITH_GENCRYPTO 1)
 	set(LWS_WITH_JOSE 1)
+	set(LWS_WITH_STRUCT_JSON 1)
+	set(LWS_WITH_STRUCT_SQLITE3 1)
+	set(LWS_WITH_SPAWN 1)
 endif()
 
 if (NOT LWS_WITH_NETWORK)
@@ -251,6 +258,10 @@ if (NOT LWS_WITH_NETWORK)
 	set(LWS_ROLE_DBUS 0)
 	set(LWS_WITH_LWS_DSH 0)
 	set(LWS_WITH_THREADPOOL 0)
+endif()
+
+if (LWS_WITH_CGI)
+	set(LWS_WITH_SPAWN 1)
 endif()
 
 if (LWS_WITH_STRUCT_SQLITE3)
@@ -1039,6 +1050,11 @@ set(SOURCES
 	lib/misc/base64-decode.c
 	lib/misc/lws-ring.c
 )
+
+if (LWS_WITH_SPAWN)
+	list(APPEND SOURCES lib/misc/spawn.c)
+endif()
+
 
 if (LWS_WITH_FILE_OPS)
 	list(APPEND SOURCES lib/core/vfs.c)

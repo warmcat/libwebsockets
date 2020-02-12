@@ -2305,15 +2305,7 @@ lws_http_transaction_completed(struct lws *wsi)
 		lwsl_debug("%s: cleaning cgi\n", __func__);
 		wsi->http.cgi_transaction_complete = 1;
 		lws_cgi_remove_and_kill(wsi);
-		for (n = 0; n < 3; n++) {
-			if (wsi->http.cgi->pipe_fds[n][!!(n == 0)] == 0)
-				lwsl_err("ZERO FD IN CGI CLOSE");
-
-			if (wsi->http.cgi->pipe_fds[n][!!(n == 0)] >= 0) {
-				close(wsi->http.cgi->pipe_fds[n][!!(n == 0)]);
-				wsi->http.cgi->pipe_fds[n][!!(n == 0)] = LWS_SOCK_INVALID;
-			}
-		}
+		lws_spawn_piped_destroy(&wsi->http.cgi->lsp);
 
 		lws_free_set_NULL(wsi->http.cgi);
 		wsi->http.cgi_transaction_complete = 0;

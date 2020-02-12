@@ -40,6 +40,7 @@
 #cmakedefine LWS_HAVE_EVP_aes_256_cfb8
 #cmakedefine LWS_HAVE_EVP_aes_256_cfb128
 #cmakedefine LWS_HAVE_EVP_aes_128_xts
+#cmakedefine LWS_HAVE_EXECVPE
 #cmakedefine LWS_HAVE_LIBCAP
 #cmakedefine LWS_HAVE_HMAC_CTX_new
 #cmakedefine LWS_HAVE_MALLOC_H
@@ -73,6 +74,7 @@
 #cmakedefine LWS_HAVE_TLS_CLIENT_METHOD
 #cmakedefine LWS_HAVE_TLSV1_2_CLIENT_METHOD
 #cmakedefine LWS_HAVE_UV_VERSION_H
+#cmakedefine LWS_HAVE_VFORK
 #cmakedefine LWS_HAVE_X509_get_key_usage
 #cmakedefine LWS_HAVE_X509_VERIFY_PARAM_set1_host
 #cmakedefine LWS_LIBRARY_VERSION "${LWS_LIBRARY_VERSION}"
@@ -132,6 +134,7 @@
 #cmakedefine LWS_WITH_CLIENT
 #cmakedefine LWS_WITHOUT_EXTENSIONS
 #cmakedefine LWS_WITH_SERVER
+#cmakedefine LWS_WITH_SPAWN
 #cmakedefine LWS_WITH_PEER_LIMITS
 #cmakedefine LWS_WITH_PLUGINS
 #cmakedefine LWS_WITH_POLARSSL
