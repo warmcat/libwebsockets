@@ -21,7 +21,6 @@
  *  Included from lib/core/private.h if LWS_WITH_ESP32
  */
 
-#define MSG_NOSIGNAL 0
 #define SOMAXCONN 3
 
 #if defined(LWS_AMAZON_RTOS)
@@ -36,6 +35,10 @@
  #include <sys/types.h>
  #include <sys/time.h>
  #include <netdb.h>
+
+#if !defined(MSG_NOSIGNAL)
+#define MSG_NOSIGNAL 0
+#endif
 
  #ifndef __cplusplus
   #include <errno.h>
