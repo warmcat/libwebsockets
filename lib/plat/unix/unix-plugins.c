@@ -125,6 +125,8 @@ lws_plat_plugins_init(struct lws_context * context, const char * const *d)
 		d++;
 	}
 
+	return 0;
+
 bail:
 	free(namelist);
 
