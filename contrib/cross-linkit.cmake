@@ -28,6 +28,16 @@ set(CMAKE_C_COMPILER "${CROSS_PATH}/bin/arm-none-eabi-gcc")
 set(CMAKE_CXX_COMPILER "${CROSS_PATH}/bin/arm-none-eabi-g++")
 
 #
+# cmake believes we should link a NOP test program OK, but since we're
+# baremetal, that's not true in our case.  It tries to build this test
+# with the cross compiler, but with no args on it, and it fails.
+# So disable this test for this toolchain (we'll find out soon enough
+# if we actually can't compile anything)
+
+set(CMAKE_C_COMPILER_WORKS 1)
+set(CMAKE_CXX_COMPILER_WORKS 1)
+
+#
 # Different build system distros set release optimization level to different
 # things according to their local policy, eg, Fedora is -O2 and Ubuntu is -O3
 # here.  Actually the build system's local policy is completely unrelated to
@@ -43,7 +53,7 @@ if (CMAKE_BUILD_TYPE MATCHES RELEASE OR CMAKE_BUILD_TYPE MATCHES Release OR CMAK
 	set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O2")
 endif()
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -nostartfiles -I${CROSS_BASE}/middleware/third_party/lwip/src/include/lwip -I${CROSS_BASE}/middleware/third_party/lwip/src/include -I${CROSS_BASE}/project/mt7687_hdk/apps/httpd/inc/ -I${CROSS_BASE}/kernel/service/inc/ -I${CROSS_BASE}/driver/chip/inc -I${CROSS_BASE}/driver/chip/mt7687/inc/ -I${CROSS_BASE}/driver/CMSIS/Device/MTK/mt7687/Include/ -I${CROSS_BASE}/driver/CMSIS/Include -I${CROSS_BASE}/middleware/third_party/lwip/ports/include/ -I${CROSS_BASE}/middleware/third_party/lwip/src/include/posix/ -I${CROSS_BASE}/kernel/rtos/FreeRTOS/Source/include/ -I${CROSS_BASE}/middleware/third_party/mbedtls/include/ -I${CROSS_BASE}/kernel/rtos/FreeRTOS/Source/portable/GCC/ARM_CM4F/ -I${CROSS_BASE}/middleware/third_party/sntp/inc/ -DLWS_AMAZON_RTOS=1")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -nostartfiles -I${CROSS_BASE}/middleware/third_party/lwip/src/include/lwip -I${CROSS_BASE}/middleware/third_party/lwip/src/include -I${CROSS_BASE}/project/mt7687_hdk/apps/httpd/inc/ -I${CROSS_BASE}/kernel/service/inc/ -I${CROSS_BASE}/driver/chip/inc -I${CROSS_BASE}/driver/chip/mt7687/inc/ -I${CROSS_BASE}/driver/CMSIS/Device/MTK/mt7687/Include/ -I${CROSS_BASE}/driver/CMSIS/Include -I${CROSS_BASE}/middleware/third_party/lwip/ports/include/ -I${CROSS_BASE}/middleware/third_party/lwip/src/include/posix/ -I${CROSS_BASE}/kernel/rtos/FreeRTOS/Source/include/ -I${CROSS_BASE}/middleware/third_party/mbedtls/include/ -I${CROSS_BASE}/kernel/rtos/FreeRTOS/Source/portable/GCC/ARM_CM4F/ -I${CROSS_BASE}/middleware/third_party/sntp/inc/ -DLWS_AMAZON_RTOS=1"  CACHE STRING "" FORCE)
 
 # Where to look for the target environment. (More paths can be added here)
 set(CMAKE_FIND_ROOT_PATH "${CROSS_PATH}")
