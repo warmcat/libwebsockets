@@ -50,7 +50,8 @@ rops_handle_POLLIN_raw_file(struct lws_context_per_thread *pt, struct lws *wsi,
 	}
 
 	if (pollfd->revents & LWS_POLLHUP)
-		return LWS_HPI_RET_PLEASE_CLOSE_ME;
+		if (!(pollfd->revents & LWS_POLLIN))
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
 	return LWS_HPI_RET_HANDLED;
 }
