@@ -834,3 +834,66 @@ lws_spawn_get_stdfd(struct lws *wsi);
 
 #endif
 
+struct lws_fsmount {
+	const char	*layers_path;	/* where layers live */
+	const char	*overlay_path;	/* where overlay instantiations live */
+
+	char		mp[256];	/* mountpoint path */
+	char		ovname[64];	/* unique name for mount instance */
+	char		distro[64];	/* unique name for layer source */
+
+#if defined(__linux__)
+	const char	*layers[4];	/* distro layers, like "base", "env" */
+#endif
+};
+
+/**
+ * lws_fsmount_mount() - Mounts an overlayfs stack of layers
+ *
+ * \p fsm: struct lws_fsmount specifying the mount layout
+ *
+ * This api is able to assemble up to 4 layer directories on to a mountpoint
+ * using overlayfs mount (Linux only).
+ *
+ * Set fsm.layers_path to the base dir where the layers themselves live, the
+ * entries in fsm.layers[] specifies the relative path to the layer, comprising
+ * fsm.layers_path/fsm.distro/fsm.layers[], with [0] being the deepest, earliest
+ * layer and the rest being progressively on top of [0]; NULL indicates the
+ * layer is unused.
+ *
+ * fsm.overlay_path is the base path of the overlayfs instantiations... empty
+ * dirs must exist at
+ *
+ * fsm.overlay_path/overlays/fsm.ovname/work
+ * fsm.overlay_path/overlays/fsm.ovname/session
+ *
+ * Set fsm.mp to the path of an already-existing empty dir that will be the
+ * mountpoint, this can be whereever you like.
+ *
+ * Overlayfs merges the union of all the contributing layers at the mountpoint,
+ * the mount is writeable but the layer themselves are immutable, all additions
+ * and changes are stored in
+ *
+ * fsm.overlay_path/overlays/fsm.ovname/session
+ *
+ * Returns 0 if mounted OK, nonzero if errors.
+ *
+ * Retain fsm for use with unmounting.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_fsmount_mount(struct lws_fsmount *fsm);
+
+/**
+ * lws_fsmount_unmount() - Unmounts an overlayfs dir
+ *
+ * \p fsm: struct lws_fsmount specifying the mount layout
+ *
+ * Unmounts the mountpoint in fsm.mp.
+ *
+ * Delete fsm.overlay_path/overlays/fsm.ovname/session to permanently eradicate
+ * all changes from the time the mountpoint was in use.
+ *
+ * Returns 0 if unmounted OK.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_fsmount_unmount(struct lws_fsmount *fsm);

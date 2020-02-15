@@ -151,6 +151,8 @@ option(LWS_WITH_FILE_OPS "Support file operations vfs" ON)
 option(LWS_WITH_DETAILED_LATENCY "Record detailed latency stats for each read and write" OFF)
 option(LWS_WITH_UDP "Platform supports UDP" ON)
 option(LWS_WITH_SPAWN "Spawn subprocesses with piped stdin/out/stderr" OFF)
+option(LWS_WITH_FSMOUNT "Overlayfs and fallback mounting apis" OFF)
+
 
 #
 # to use miniz, enable both LWS_WITH_ZLIB and LWS_WITH_MINIZ
@@ -197,6 +199,7 @@ if (LWS_FOR_GITOHASHI)
 	set(LWS_WITH_LWSAC 1)
 	set(LWS_WITH_LEJP_CONF 1)
 	set(LWS_WITH_SPAWN 1)
+	set(LWS_WITH_FSMOUNT 1)
 	set(LWS_WITH_STRUCT_JSON 1)
 	set(LWS_WITH_STRUCT_SQLITE3 1)
 endif()
@@ -232,6 +235,7 @@ if(LWS_WITH_DISTRO_RECOMMENDED)
 	set(LWS_WITH_STRUCT_JSON 1)
 	set(LWS_WITH_STRUCT_SQLITE3 1)
 	set(LWS_WITH_SPAWN 1)
+	set(LWS_WITH_FSMOUNT 1)
 endif()
 
 if (NOT LWS_WITH_NETWORK)
@@ -561,7 +565,8 @@ set(LWS_LIBEVENT_INCLUDE_DIRS CACHE PATH "Path to the libevent include directory
 set(LWS_LIBEVENT_LIBRARIES CACHE PATH "Path to the libevent library")
 set(LWS_GLIB_INCLUDE_DIRS CACHE PATH "Path to the glib include directory")
 set(LWS_GLIB_LIBRARIES CACHE PATH "Path to the glib library")
-
+set(LWS_LIBMOUNT_INCLUDE_DIRS CACHE PATH "Path to the libmount include directory")
+set(LWS_LIBMOUNT_LIBRARIES CACHE PATH "Path to the libmount library")
 
 
 if (NOT LWS_WITH_SSL)
@@ -634,6 +639,23 @@ endif()
 
 if (LWS_WITH_HTTP_STREAM_COMPRESSION)
 	set(LWS_WITH_ZLIB 1)
+endif()
+
+if (LWS_WITH_FSMOUNT AND ${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
+	if ("${LWS_LIBMOUNT_LIBRARIES}" STREQUAL "" OR "${LWS_LIBMOUNT_INCLUDE_DIRS}" STREQUAL "")
+
+                # libmount paths (this is only on Linux)
+                #
+                find_path(   LIBMOUNT_INC_PATH NAMES "libmount/libmount.h")
+                find_library(LIBMOUNT_LIB_PATH NAMES "mount")
+	else()
+		set(LIBMOUNT_INC_PATH ${LWS_LIBMOUNT_INCLUDE_DIRS})
+		set(LIBMOUNT_LIB_PATH ${LWS_LIBMOUNT_LIBRARIES})
+	endif()
+
+	if (NOT LIBMOUNT_INC_PATH OR NOT LIBMOUNT_LIB_PATH)
+		message(FATAL_ERROR " Unable to find libmount")
+	endif()
 endif()
 
 if (LWS_WITH_ZLIB AND NOT LWS_WITH_BUNDLED_ZLIB)
@@ -1054,6 +1076,11 @@ set(SOURCES
 if (LWS_WITH_SPAWN)
 	list(APPEND SOURCES lib/misc/spawn.c)
 endif()
+
+if (LWS_WITH_FSMOUNT AND ${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
+	list(APPEND SOURCES lib/misc/fsmount.c)
+endif()
+
 
 
 if (LWS_WITH_FILE_OPS)
@@ -1961,6 +1988,13 @@ if (LWS_WITH_GLIB)
 	list(APPEND LIB_LIST ${GLIB_LIBRARIES})
 endif(LWS_WITH_GLIB)
 
+if (LWS_WITH_FSMOUNT AND ${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
+	message("libmount include dir: ${LIBMOUNT_INC_PATH}")
+	message("libmount libraries: ${LIBMOUNT_LIB_PATH}")
+
+	include_directories("${LIBMOUNT_INC_PATH}")
+	list(APPEND LIB_LIST ${LIBMOUNT_LIB_PATH})
+endif()
 
 
 if (LWS_WITH_SQLITE3)

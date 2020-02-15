@@ -111,6 +111,7 @@
 #cmakedefine LWS_HAVE_EVBACKEND_LINUXAIO
 #cmakedefine LWS_WITH_EXTERNAL_POLL
 #cmakedefine LWS_WITH_FILE_OPS
+#cmakedefine LWS_WITH_FSMOUNT
 #cmakedefine LWS_WITH_FTS
 #cmakedefine LWS_WITH_GENCRYPTO
 #cmakedefine LWS_WITH_GENERIC_SESSIONS
