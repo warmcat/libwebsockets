@@ -375,6 +375,9 @@ int main(int argc, const char **argv)
 	info.client_ssl_ca_filepath = "./warmcat.com.cer";
 #endif
 
+	if ((p = lws_cmdline_option(argc, argv, "--limit")))
+		info.simultaneous_ssl_restriction = atoi(p);
+
 #if defined(LWS_WITH_DETAILED_LATENCY)
 	info.detailed_latency_cb = lws_det_lat_plot_cb;
 	info.detailed_latency_filepath = "/tmp/lws-latency-results";

@@ -245,8 +245,7 @@ lws_ssl_close(struct lws *wsi)
 	SSL_free(wsi->tls.ssl);
 	wsi->tls.ssl = NULL;
 
-	if (!lwsi_role_client(wsi))
-	    lws_tls_restrict_return(wsi->context);
+	lws_tls_restrict_return(wsi->context);
 
 	return 1; /* handled */
 }

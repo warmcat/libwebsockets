@@ -50,10 +50,6 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	if (i->local_protocol_name)
 		local = i->local_protocol_name;
 
-	if ((i->ssl_connection & LCCSCF_USE_SSL) &&
-	    lws_tls_restrict_borrow(i->context))
-		return NULL;
-
 	lws_stats_bump(&i->context->pt[tid], LWSSTATS_C_CONNS_CLIENT, 1);
 
 	/* PHASE 1: create a bare wsi */

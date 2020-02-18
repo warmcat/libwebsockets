@@ -251,13 +251,19 @@ start_ws_handshake:
 #if defined(LWS_WITH_TLS)
 		/* we can retry this... just cook the SSL BIO the first time */
 
-		if ((wsi->tls.use_ssl & LCCSCF_USE_SSL) && !wsi->tls.ssl &&
-		    lws_ssl_client_bio_create(wsi) < 0) {
-			cce = "bio_create failed";
-			goto bail3;
-		}
-
 		if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
+
+			if (!wsi->transaction_from_pipeline_queue &&
+			    lws_tls_restrict_borrow(wsi->context)) {
+				cce = "tls restriction limit";
+				goto bail3;
+			}
+
+			if (!wsi->tls.ssl && lws_ssl_client_bio_create(wsi) < 0) {
+				cce = "bio_create failed";
+				goto bail3;
+			}
+
 			n = lws_ssl_client_connect1(wsi);
 			if (!n)
 				return 0;
