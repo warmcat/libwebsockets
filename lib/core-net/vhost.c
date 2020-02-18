@@ -738,19 +738,7 @@ lws_create_vhost(struct lws_context *context,
 	}
 #endif
 #if defined(LWS_WITH_SOCKS5)
-	/* socks proxy */
-	if (info->socks_proxy_address) {
-		/* override for backwards compatibility */
-		if (info->socks_proxy_port)
-			vh->socks_proxy_port = info->socks_proxy_port;
-		lws_set_socks(vh, info->socks_proxy_address);
-	} else {
-#ifdef LWS_HAVE_GETENV
-		p = getenv("socks_proxy");
-		if (p && strlen(p) > 0 && strlen(p) < 95)
-			lws_set_socks(vh, p);
-#endif
-	}
+	lws_socks5c_ads_server(vh, info);
 #endif
 
 	vh->ka_time = info->ka_time;

@@ -42,10 +42,6 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 	const char *cce = NULL;
 	char *sb = p;
 	int n = 0;
-#if defined(LWS_WITH_SOCKS5)
-	int conn_mode = 0, pending_timeout = 0;
-	ssize_t len;
-#endif
 
 	switch (lwsi_state(wsi)) {
 
@@ -80,110 +76,12 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 	case LRS_WAITING_SOCKS_AUTH_REPLY:
 	case LRS_WAITING_SOCKS_CONNECT_REPLY:
 
-		/* handle proxy hung up on us */
-
-		if (pollfd->revents & LWS_POLLHUP) {
-			lwsl_warn("SOCKS connection %p (fd=%d) dead\n",
-				  (void *)wsi, pollfd->fd);
-			cce = "socks conn dead";
+		switch (lws_socks5c_handle_state(wsi, pollfd, &cce)) {
+		case LW5CHS_RET_RET0:
+			return 0;
+		case LW5CHS_RET_BAIL3:
 			goto bail3;
-		}
-
-		n = recv(wsi->desc.sockfd, sb, context->pt_serv_buf_size, 0);
-		if (n < 0) {
-			if (LWS_ERRNO == LWS_EAGAIN) {
-				lwsl_debug("SOCKS read EAGAIN, retrying\n");
-				return 0;
-			}
-			lwsl_err("ERROR reading from SOCKS socket\n");
-			cce = "socks recv fail";
-			goto bail3;
-		}
-
-		switch (lwsi_state(wsi)) {
-
-		case LRS_WAITING_SOCKS_GREETING_REPLY:
-			if (pt->serv_buf[0] != SOCKS_VERSION_5)
-				goto socks_reply_fail;
-
-			if (pt->serv_buf[1] == SOCKS_AUTH_NO_AUTH) {
-				lwsl_client("SOCKS GR: No Auth Method\n");
-				if (socks_generate_msg(wsi, SOCKS_MSG_CONNECT, &len))
-					goto socks_send_msg_fail;
-				conn_mode = LRS_WAITING_SOCKS_CONNECT_REPLY;
-				pending_timeout =
-				   PENDING_TIMEOUT_AWAITING_SOCKS_CONNECT_REPLY;
-				goto socks_send;
-			}
-
-			if (pt->serv_buf[1] == SOCKS_AUTH_USERNAME_PASSWORD) {
-				lwsl_client("SOCKS GR: User/Pw Method\n");
-				if (socks_generate_msg(wsi,
-						   SOCKS_MSG_USERNAME_PASSWORD,
-						   &len))
-					goto socks_send_msg_fail;
-				conn_mode = LRS_WAITING_SOCKS_AUTH_REPLY;
-				pending_timeout =
-				      PENDING_TIMEOUT_AWAITING_SOCKS_AUTH_REPLY;
-				goto socks_send;
-			}
-			goto socks_reply_fail;
-
-		case LRS_WAITING_SOCKS_AUTH_REPLY:
-			if (pt->serv_buf[0] != SOCKS_SUBNEGOTIATION_VERSION_1 ||
-			    pt->serv_buf[1] !=
-					    SOCKS_SUBNEGOTIATION_STATUS_SUCCESS)
-				goto socks_reply_fail;
-
-			lwsl_client("SOCKS password OK, sending connect\n");
-			if (socks_generate_msg(wsi, SOCKS_MSG_CONNECT, &len)) {
-socks_send_msg_fail:
-				cce = "socks gen msg fail";
-				goto bail3;
-			}
-			conn_mode = LRS_WAITING_SOCKS_CONNECT_REPLY;
-			pending_timeout =
-				   PENDING_TIMEOUT_AWAITING_SOCKS_CONNECT_REPLY;
-socks_send:
-			n = send(wsi->desc.sockfd, (char *)pt->serv_buf, len,
-				 MSG_NOSIGNAL);
-			if (n < 0) {
-				lwsl_debug("ERROR writing to socks proxy\n");
-				cce = "socks write fail";
-				goto bail3;
-			}
-
-			lws_set_timeout(wsi, pending_timeout,
-					context->timeout_secs);
-			lwsi_set_state(wsi, conn_mode);
-			break;
-
-socks_reply_fail:
-			lwsl_notice("socks reply: v%d, err %d\n",
-				    pt->serv_buf[0], pt->serv_buf[1]);
-			cce = "socks reply fail";
-			goto bail3;
-
-		case LRS_WAITING_SOCKS_CONNECT_REPLY:
-			if (pt->serv_buf[0] != SOCKS_VERSION_5 ||
-			    pt->serv_buf[1] != SOCKS_REQUEST_REPLY_SUCCESS)
-				goto socks_reply_fail;
-
-			lwsl_client("socks connect OK\n");
-
-			/* free stash since we are done with it */
-			lws_free_set_NULL(wsi->stash);
-			if (lws_hdr_simple_create(wsi,
-						 _WSI_TOKEN_CLIENT_PEER_ADDRESS,
-					       wsi->vhost->socks_proxy_address)) {
-				cce = "socks connect fail";
-				goto bail3;
-			}
-
-			wsi->c_port = wsi->vhost->socks_proxy_port;
-
-			/* clear his proxy connection timeout */
-			lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+		case LW5CHS_RET_STARTHS:
 			goto start_ws_handshake;
 		default:
 			break;

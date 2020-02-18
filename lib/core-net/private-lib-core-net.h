@@ -1127,7 +1127,7 @@ lws_destroy_event_pipe(struct lws *wsi);
 
 /* socks */
 int
-socks_generate_msg(struct lws *wsi, enum socks_msg_type type, ssize_t *msg_len);
+lws_socks5c_generate_msg(struct lws *wsi, enum socks_msg_type type, ssize_t *msg_len);
 
 #if defined(LWS_WITH_SERVER_STATUS)
 void
@@ -1377,6 +1377,24 @@ lws_wsi_client_stash_item(struct lws *wsi, int stash_idx, int hdr_idx);
 
 int
 lws_plat_BINDTODEVICE(lws_sockfd_type fd, const char *ifname);
+
+int
+lws_socks5c_ads_server(struct lws_vhost *vh,
+		       const struct lws_context_creation_info *info);
+
+int
+lws_socks5c_handle_state(struct lws *wsi, struct lws_pollfd *pollfd,
+			 const char **pcce);
+
+int
+lws_socks5c_greet(struct lws *wsi, const char **pcce);
+
+enum {
+	LW5CHS_RET_RET0,
+	LW5CHS_RET_BAIL3,
+	LW5CHS_RET_STARTHS,
+	LW5CHS_RET_NOTHING
+};
 
 #ifdef __cplusplus
 };

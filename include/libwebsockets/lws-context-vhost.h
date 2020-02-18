@@ -513,7 +513,9 @@ struct lws_context_creation_info {
 	 * If proxy auth is required, use format
 	 * "username:password\@server:port" */
 	unsigned int socks_proxy_port;
-	/**< VHOST: If socks_proxy_address was non-NULL, uses this port */
+	/**< VHOST: If socks_proxy_address was non-NULL, uses this port
+	 * if nonzero, otherwise requires "server:port" in .socks_proxy_address
+	 */
 #if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
 	cap_value_t caps[4];
 	/**< CONTEXT: array holding Linux capabilities you want to

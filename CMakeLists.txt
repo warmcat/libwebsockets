@@ -1487,6 +1487,11 @@ else()
 	endif()
 endif()
 
+if (LWS_WITH_SOCKS5 AND NOT LWS_WITHOUT_CLIENT)
+	list(APPEND SOURCES
+		lib/core-net/socks5-client.c)
+endif()
+
 if ((LWS_ROLE_H1 OR LWS_ROLE_H2) AND NOT LWS_WITHOUT_SERVER)
 	list(APPEND SOURCES
 		lib/roles/http/server/server.c

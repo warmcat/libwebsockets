@@ -138,26 +138,18 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 	}
 #endif
 #endif
+
 #if defined(LWS_WITH_SOCKS5)
-	/* socks proxy */
-	else if (wsi->vhost->socks_proxy_port) {
-		n = send(wsi->desc.sockfd, (char *)pt->serv_buf, plen,
-			 MSG_NOSIGNAL);
-		if (n < 0) {
-			lwsl_debug("ERROR writing socks greeting\n");
-			cce = "socks write failed";
-			goto failed;
-		}
-
-		lws_set_timeout(wsi,
-				PENDING_TIMEOUT_AWAITING_SOCKS_GREETING_REPLY,
-				wsi->context->timeout_secs);
-
-		lwsi_set_state(wsi, LRS_WAITING_SOCKS_GREETING_REPLY);
-
+	switch (lws_socks5c_greet(wsi, &cce)) {
+	case -1:
+		goto failed;
+	case 1:
 		return wsi;
+	default:
+		break;
 	}
 #endif
+
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 send_hs:
 
@@ -288,8 +280,9 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 #endif
 	const struct sockaddr *psa = NULL;
 	const char *cce = "", *iface;
-	ssize_t plen = 0;
+	uint16_t port = wsi->c_port;
 	lws_sockaddr46 sa46;
+	ssize_t plen = 0;
 	char ni[48];
 	int m;
 
@@ -403,7 +396,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 
 	if (wsi->vhost->http.http_proxy_port) {
 		ads = wsi->vhost->http.http_proxy_address;
-		wsi->c_port = wsi->vhost->http.http_proxy_port;
+		port = wsi->vhost->http.http_proxy_port;
 #else
 		if (0) {
 #endif
@@ -413,14 +406,14 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	/* Priority 2: Connect to SOCK5 Proxy */
 
 	} else if (wsi->vhost->socks_proxy_port) {
-		if (socks_generate_msg(wsi, SOCKS_MSG_GREETING, &plen)) {
+		if (lws_socks5c_generate_msg(wsi, SOCKS_MSG_GREETING, &plen)) {
 			cce = "socks msg too large";
 			goto oom4;
 		}
 
 		lwsl_client("Sending SOCKS Greeting\n");
 		ads = wsi->vhost->socks_proxy_address;
-		wsi->c_port = wsi->vhost->socks_proxy_port;
+		port = wsi->vhost->socks_proxy_port;
 #endif
 	}
 
@@ -461,7 +454,7 @@ next_result:
 				&((struct sockaddr_in *)
 				    wsi->dns_results_next->ai_addr)->sin_addr,
 							sizeof(struct in_addr));
-			sa46.sa6.sin6_port = htons(wsi->c_port);
+			sa46.sa6.sin6_port = htons(port);
 			ni[0] = '\0';
 			lws_write_numeric_address(sa46.sa6.sin6_addr.s6_addr,
 						  16, ni, sizeof(ni));
@@ -474,7 +467,7 @@ next_result:
 			((struct sockaddr_in *)wsi->dns_results_next->ai_addr)->
 								sin_addr.s_addr;
 		memset(&sa46.sa4.sin_zero, 0, sizeof(sa46.sa4.sin_zero));
-		sa46.sa4.sin_port = htons(wsi->c_port);
+		sa46.sa4.sin_port = htons(port);
 		n = sizeof(struct sockaddr_in);
 		lws_write_numeric_address((uint8_t *)&sa46.sa4.sin_addr.s_addr,
 					  4, ni, sizeof(ni));
@@ -492,7 +485,7 @@ next_result:
 				wsi->dns_results_next->ai_addr)->sin6_scope_id;
 		sa46.sa6.sin6_flowinfo = ((struct sockaddr_in6 *)
 				wsi->dns_results_next->ai_addr)->sin6_flowinfo;
-		sa46.sa6.sin6_port = htons(wsi->c_port);
+		sa46.sa6.sin6_port = htons(port);
 		lws_write_numeric_address((uint8_t *)&sa46.sa6.sin6_addr,
 				16, ni, sizeof(ni));
 		lwsl_info("%s: %s ipv6 %s\n", __func__, ads, ni);
@@ -613,7 +606,7 @@ ads_known:
 			char nads[48];
 			lws_sa46_write_numeric_address(&sa46, nads, sizeof(nads));
 			lwsl_info("%s: Connect failed: %s port %d\n",
-				    __func__, nads, wsi->c_port);
+				    __func__, nads, port);
 #endif
 			goto try_next_result_fds;
 		}
@@ -633,7 +626,7 @@ ads_known:
 
 conn_good:
 
-	lwsl_debug("%s: Connection started %p\n", __func__, wsi->dns_results);
+	lwsl_info("%s: Connection started %p\n", __func__, wsi->dns_results);
 
 	/* the tcp connection has happend */
 
@@ -1371,96 +1364,3 @@ bail1:
 
 	return NULL;
 }
-
-#if defined(LWS_WITH_SOCKS5)
-int
-socks_generate_msg(struct lws *wsi, enum socks_msg_type type, ssize_t *msg_len)
-{
-	struct lws_context *context = wsi->context;
-	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	uint8_t *p = pt->serv_buf, *end = &p[context->pt_serv_buf_size];
-	ssize_t n, passwd_len;
-	short net_num;
-	char *cp;
-
-	switch (type) {
-	case SOCKS_MSG_GREETING:
-		if (lws_ptr_diff(end, p) < 4)
-			return 1;
-		/* socks version, version 5 only */
-		*p++ = SOCKS_VERSION_5;
-		/* number of methods */
-		*p++ = 2;
-		/* username password method */
-		*p++ = SOCKS_AUTH_USERNAME_PASSWORD;
-		/* no authentication method */
-		*p++ = SOCKS_AUTH_NO_AUTH;
-		break;
-
-	case SOCKS_MSG_USERNAME_PASSWORD:
-		n = strlen(wsi->vhost->socks_user);
-		passwd_len = strlen(wsi->vhost->socks_password);
-
-		if (n > 254 || passwd_len > 254)
-			return 1;
-
-		if (lws_ptr_diff(end, p) < 3 + n + passwd_len)
-			return 1;
-
-		/* the subnegotiation version */
-		*p++ = SOCKS_SUBNEGOTIATION_VERSION_1;
-
-		/* length of the user name */
-		*p++ = n;
-		/* user name */
-		memcpy(p, wsi->vhost->socks_user, n);
-		p += n;
-
-		/* length of the password */
-		*p++ = passwd_len;
-
-		/* password */
-		memcpy(p, wsi->vhost->socks_password, passwd_len);
-		p += passwd_len;
-		break;
-
-	case SOCKS_MSG_CONNECT:
-		n = strlen(wsi->stash->cis[CIS_ADDRESS]);
-
-		if (n > 254 || lws_ptr_diff(end, p) < 5 + n + 2)
-			return 1;
-
-		cp = (char *)&net_num;
-
-		/* socks version */
-		*p++ = SOCKS_VERSION_5;
-		/* socks command */
-		*p++ = SOCKS_COMMAND_CONNECT;
-		/* reserved */
-		*p++ = 0;
-		/* address type */
-		*p++ = SOCKS_ATYP_DOMAINNAME;
-		/* length of ---> */
-		*p++ = n;
-
-		/* the address we tell SOCKS proxy to connect to */
-		memcpy(p, wsi->stash->cis[CIS_ADDRESS], n);
-		p += n;
-
-		net_num = htons(wsi->c_port);
-
-		/* the port we tell SOCKS proxy to connect to */
-		*p++ = cp[0];
-		*p++ = cp[1];
-
-		break;
-		
-	default:
-		return 1;
-	}
-
-	*msg_len = lws_ptr_diff(p, pt->serv_buf);
-
-	return 0;
-}
-#endif
