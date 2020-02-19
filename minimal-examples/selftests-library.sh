@@ -18,7 +18,7 @@ SCRIPT_DIR=`readlink -f $SCRIPT_DIR`
 LOGPATH=$2
 
 feedback() {
-	if [ "$2" != "0" ] ; then
+	if [ "$2" != "$4" ] ; then
 		FAILS=$(( $FAILS + 1 ))
 		echo -n -e "\e[31m"
 	fi
@@ -53,11 +53,16 @@ spawn() {
 #	echo "launched prerequisite $SPID"
 }
 
-dotest() {
+_dotest() {
+	EXPRES=0
+	if [ ! -z "$4" ] ; then
+		EXPRES=$4
+	fi
 	T=$3
+#	echo "$1/lws-$MYTEST $5 $6 $7 $8 $9 ${10} ${11} ${12} ${13} ${14}"
 	(
 		{
-			/usr/bin/time -p /usr/bin/valgrind -q $1/lws-$MYTEST $4 $5 $6 $7 $8 $9 > $2/$MYTEST/$T.log 2> $2/$MYTEST/$T.log ;
+			/usr/bin/time -p /usr/bin/valgrind -q $1/lws-$MYTEST $5 $6 $7 $8 $9 ${10} ${11} ${12} ${13} ${14} > $2/$MYTEST/$T.log 2> $2/$MYTEST/$T.log ;
 			echo $? > $2/$MYTEST/$T.result
 		} 2> $2/$MYTEST/$T.time >/dev/null
 	) >/dev/null 2> /dev/null &
@@ -82,14 +87,24 @@ dotest() {
 	if [ -e $2/$MYTEST/$T.result ] ; then
 		R=`cat $2/$MYTEST/$T.result`
 		cat $2/$MYTEST/$T.log | tail -n 3 > $2/$MYTEST/$T.time
-		if [ $R -ne 0 ] ; then
+		if [ $R -ne $EXPRES ] ; then
 			pwd
+			echo Expected result $EXPRES but got $R
 			echo
 			cat $2/$MYTEST/$T.log
 			echo
 		fi
 	fi
 
-	feedback $MYTEST $R $T
+	feedback $MYTEST $R $T $EXPRES
 }
 
+dotest()
+{
+	_dotest $1 $2 $3 0 "$4" "$5" "$6" "$7" "$8" "$9" "${10}" "${11}" "${12}" "${13}"
+}
+
+dofailtest()
+{
+	_dotest $1 $2 $3 1 $4 $5 $6 $7 $8 $9 ${10} ${11} ${12} ${13}
+}
