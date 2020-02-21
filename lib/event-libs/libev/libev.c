@@ -188,7 +188,12 @@ elops_init_pt_ev(struct lws_context *context, void *_loop, int tsi)
                backend_name = "Linux AIO";
                break;
 #endif
-	case EVBACKEND_KQUEUE:
+#if defined(LWS_HAVE_EVBACKEND_IOURING)
+       case EVBACKEND_IOURING:
+               backend_name = "Linux io_uring";
+               break;
+#endif
+       case EVBACKEND_KQUEUE:
 		backend_name = "kqueue";
 		break;
 	case EVBACKEND_DEVPOLL:

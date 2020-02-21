@@ -968,6 +968,11 @@ if (LWS_WITH_LIBEV)
         "#include <ev.h>
         int main(int argc, char **argv) { return EVBACKEND_LINUXAIO; }
         " LWS_HAVE_EVBACKEND_LINUXAIO)
+	CHECK_C_SOURCE_COMPILES(
+        "#include <ev.h>
+	int main(int argc, char **argv) { return EVBACKEND_IOURING; }
+	" LWS_HAVE_EVBACKEND_IOURING)
+
 endif()
 
 
