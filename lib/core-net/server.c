@@ -210,7 +210,7 @@ lws_json_dump_context(const struct lws_context *context, char *buf, int len,
 			contents[n] = '\0';
 			if (contents[n - 1] == '\n')
 				contents[--n] = '\0';
-			lws_json_purify(pure, contents, sizeof(pure));
+			lws_json_purify(pure, contents, sizeof(pure), NULL);
 
 			buf += lws_snprintf(buf, end - buf,
 					  "\"statm\": \"%s\",\n", pure);

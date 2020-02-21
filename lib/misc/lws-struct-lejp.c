@@ -455,14 +455,14 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 {
 	lws_struct_serialize_st_t *j;
 	const lws_struct_map_t *map;
-	size_t budget = 0, olen = len;
+	size_t budget = 0, olen = len, m;
 	struct lws_dll2_owner *o;
 	unsigned long long uli;
 	const char *q;
 	const void *p;
 	char dbuf[72];
 	long long li;
-	int n;
+	int n, used;
 
 	*written = 0;
 	*buf = '\0';
@@ -554,20 +554,13 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 			break;
 
 		case LSMT_STRING_CHAR_ARRAY:
-			budget = strlen(q);
+		case LSMT_STRING_PTR:
 			if (!js->offset) {
 				*buf++ = '\"';
 				len--;
 			}
 			break;
 
-		case LSMT_STRING_PTR:
-			budget = strlen(q);
-			if (!js->offset) {
-				*buf++ = '\"';
-				len--;
-			}
-			break;
 		case LSMT_LIST:
 			*buf++ = '[';
 			len--;
@@ -654,22 +647,57 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 			break;
 		}
 
-		q += js->offset;
-		budget -= js->remaining;
+		switch (map->type) {
+		case LSMT_STRING_CHAR_ARRAY:
+		case LSMT_STRING_PTR:
+			/*
+			 * This is a bit tricky... we have to escape the string
+			 * which may 6x its length depending on what the
+			 * contents are.
+			 *
+			 * We offset the unescaped string starting point first
+			 */
 
-		if (budget > len) {
-			js->remaining = budget - len;
-			js->offset = len;
-			budget = len;
-		} else {
-			js->remaining = 0;
-			js->offset = 0;
+			q += js->offset;
+			budget = strlen(q); /* how much unescaped is left */
+
+			/*
+			 * This is going to escape as much as it can fit, and
+			 * let us know the amount of input that was consumed
+			 * in "used".
+			 */
+
+			lws_json_purify((char *)buf, q, len, &used);
+			m = strlen((const char *)buf);
+			buf += m;
+			len -= m;
+			js->remaining = budget - used;
+			js->offset = used;
+			if (!js->remaining)
+				js->offset = 0;
+
+			break;
+		default:
+			q += js->offset;
+			budget -= js->remaining;
+
+			if (budget > len) {
+				js->remaining = budget - len;
+				js->offset = len;
+				budget = len;
+			} else {
+				js->remaining = 0;
+				js->offset = 0;
+			}
+
+			memcpy(buf, q, budget);
+			buf += budget;
+			*buf = '\0';
+			len -= budget;
+			break;
 		}
 
-		memcpy(buf, q, budget);
-		buf += budget;
-		*buf = '\0';
-		len -= budget;
+
 
 		switch (map->type) {
 		case LSMT_STRING_CHAR_ARRAY:
@@ -729,7 +757,7 @@ up:
 		if (j->dllpos) {
 			/*
 			 * there was another item in the array to do... let's
-			 * move on to that nd do it
+			 * move on to that and do it
 			 */
 			*buf++ = ',';
 			len--;

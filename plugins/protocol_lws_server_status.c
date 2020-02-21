@@ -82,7 +82,7 @@ update(struct vhd *v)
 			close(fd);
 			if (n >= 0) {
 				contents[n] = '\0';
-				lws_json_purify(pure, contents, sizeof(pure));
+				lws_json_purify(pure, contents, sizeof(pure), NULL);
 			}
 		}
 

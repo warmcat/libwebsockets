@@ -287,13 +287,13 @@ callback_lws_table_dirlisting(struct lws *wsi, enum lws_callback_reasons reason,
 				first = 0;
 
 			p += lws_snprintf(p, end - p, "{\"name\":\"%s\"",
-					lws_json_purify(e, s, sizeof(e)));
+					lws_json_purify(e, s, sizeof(e), NULL));
 			if (*q) {
 				w = s1;
 				while (w[0] == '/' && w[1] == '/')
 					w++;
 				p += lws_snprintf(p, end - p, ",\"url\":\"%s\"",
-					lws_json_purify(e, w, sizeof(e)));
+					lws_json_purify(e, w, sizeof(e), NULL));
 			}
 			p += lws_snprintf(p, end - p, "}");
 			if (!q1)
@@ -306,16 +306,16 @@ callback_lws_table_dirlisting(struct lws *wsi, enum lws_callback_reasons reason,
 		while (f) {
 			/* format in JSON */
 			p += lws_snprintf(p, end - p, "{\"Icon\":\"%s\",",
-					lws_json_purify(e, f->icon, sizeof(e)));
+					lws_json_purify(e, f->icon, sizeof(e), NULL));
 			p += lws_snprintf(p, end - p, " \"Date\":\"%s\",",
-				lws_json_purify(e, f->date, sizeof(e)));
+				lws_json_purify(e, f->date, sizeof(e), NULL));
 			p += lws_snprintf(p, end - p, " \"Size\":\"%ld\",",
 				f->size);
 			if (f->uri)
 				p += lws_snprintf(p, end - p, " \"uri\":\"%s\",",
-						lws_json_purify(e, f->uri, sizeof(e)));
+						lws_json_purify(e, f->uri, sizeof(e), NULL));
 			p += lws_snprintf(p, end - p, " \"Name\":\"%s\"}",
-				lws_json_purify(e, f->name, sizeof(e)));
+				lws_json_purify(e, f->name, sizeof(e), NULL));
 
 			f = f->next;
 
