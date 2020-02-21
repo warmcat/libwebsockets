@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -35,10 +35,10 @@ static int
 lws_struct_sq3_deser_cb(void *priv, int cols, char **cv, char **cn)
 {
 	lws_struct_args_t *a = (lws_struct_args_t *)priv;
+	char *u = lwsac_use_zero(&a->ac, a->dest_len, a->ac_block_size);
+	lws_dll2_owner_t *o = (lws_dll2_owner_t *)a->cb_arg;
 	const lws_struct_map_t *map = a->map_st[0];
 	int n, mems = a->map_entries_st[0];
-	lws_dll2_owner_t *o = (lws_dll2_owner_t *)a->cb_arg;
-	char *u = lwsac_use_zero(&a->ac, a->dest_len, a->ac_block_size);
 	long long li;
 	size_t lim;
 	char **pp;
@@ -65,6 +65,12 @@ lws_struct_sq3_deser_cb(void *priv, int cols, char **cv, char **cn)
 					*pc = atoi(cv[n]);
 					break;
 				}
+				if (map->aux == sizeof(short)) {
+					short *ps;
+					ps = (short *)(u + map->ofs);
+					*ps = atoi(cv[n]);
+					break;
+				}
 				if (map->aux == sizeof(int)) {
 					int *pi;
 					pi = (int *)(u + map->ofs);
@@ -89,6 +95,12 @@ lws_struct_sq3_deser_cb(void *priv, int cols, char **cv, char **cn)
 					unsigned char *pc;
 					pc = (unsigned char *)(u + map->ofs);
 					*pc = atoi(cv[n]);
+					break;
+				}
+				if (map->aux == sizeof(unsigned short)) {
+					unsigned short *ps;
+					ps = (unsigned short *)(u + map->ofs);
+					*ps = atoi(cv[n]);
 					break;
 				}
 				if (map->aux == sizeof(unsigned int)) {
@@ -134,7 +146,7 @@ lws_struct_sq3_deser_cb(void *priv, int cols, char **cv, char **cn)
 
 			case LSMT_STRING_CHAR_ARRAY:
 				s = (char *)(u + map->ofs);
-				lim = map->aux - 1;
+				lim = map->aux;
 				lws_strncpy(s, cv[n], lim);
 				break;
 
@@ -165,12 +177,13 @@ lws_struct_sq3_deser_cb(void *priv, int cols, char **cv, char **cn)
  */
 
 int
-lws_struct_sq3_deserialize(sqlite3 *pdb, const lws_struct_map_t *schema,
-			   lws_dll2_owner_t *o, struct lwsac **ac,
-			   uint64_t start, int limit)
+lws_struct_sq3_deserialize(sqlite3 *pdb, const char *filter, const char *order,
+			   const lws_struct_map_t *schema, lws_dll2_owner_t *o,
+			   struct lwsac **ac, int start, int _limit)
 {
-	char s[150], where[32];
+	char s[250], where[250];
 	lws_struct_args_t a;
+	int limit = _limit < 0 ? -_limit : _limit;
 
 	memset(&a, 0, sizeof(a));
 	a.cb_arg = o; /* lws_dll2_owner tracking query result objects */
@@ -182,16 +195,16 @@ lws_struct_sq3_deserialize(sqlite3 *pdb, const lws_struct_map_t *schema,
 	lws_dll2_owner_clear(o);
 
 	where[0] = '\0';
-	if (start)
-		lws_snprintf(where, sizeof(where), " where when < %llu ",
-				(unsigned long long)start);
+	lws_snprintf(where, sizeof(where), " where _lws_idx >= %llu %s",
+			     (unsigned long long)start, filter ? filter : "");
 
 	lws_snprintf(s, sizeof(s) - 1, "select * "
-		     "from %s %s order by created desc limit %d;",
-		     schema->colname, where, limit);
+		     "from %s %s order by _lws_idx%s %slimit %d;",
+		     schema->colname, where, order ? order : "",
+				     _limit < 0 ? "desc " : "", limit);
 
 	if (sqlite3_exec(pdb, s, lws_struct_sq3_deser_cb, &a, NULL) != SQLITE_OK) {
-		lwsl_err("%s: fail\n", sqlite3_errmsg(pdb));
+		lwsl_err("%s: %s: fail\n", __func__, sqlite3_errmsg(pdb));
 		lwsac_free(&a.ac);
 		return -1;
 	}
@@ -201,14 +214,190 @@ lws_struct_sq3_deserialize(sqlite3 *pdb, const lws_struct_map_t *schema,
 	return 0;
 }
 
+/*
+ * This takes a struct and turns it into an sqlite3 UPDATE, using the given
+ * schema... which has one LSM_SCHEMA_DLL2 entry wrapping the actual schema
+ */
+
+static int
+_lws_struct_sq3_ser_one(sqlite3 *pdb, const lws_struct_map_t *schema,
+			uint32_t idx, void *st)
+{
+	const lws_struct_map_t *map = schema->child_map;
+	int n, m, pk = 0, nentries = schema->child_map_size;
+	size_t sql_est = 46 + strlen(schema->colname) + 1;
+		/* "insert into  (_lws_idx, ) values (00000001,);" ...
+		 * plus the table name */
+	uint8_t *stb = (uint8_t *)st;
+	const char *p;
+	char *sql;
+
+	/*
+	 * Figure out an estimate for the length of the populated sqlite
+	 * command, and then malloc it up
+	 */
+
+	for (n = 0; n < nentries; n++) {
+		sql_est += strlen(map[n].colname) + 2;
+		switch (map[n].type) {
+		case LSMT_SIGNED:
+		case LSMT_UNSIGNED:
+		case LSMT_BOOLEAN:
+
+			switch (map[n].aux) {
+			case 1:
+				sql_est += 3 + 2;
+				break;
+			case 2:
+				sql_est += 5 + 2;
+				break;
+			case 4:
+				sql_est += 10 + 2;
+				break;
+			case 8:
+				sql_est += 20 + 2;
+				break;
+			}
+
+			if (map[n].type == LSMT_SIGNED)
+				sql_est++; /* minus sign */
+
+			break;
+		case LSMT_STRING_CHAR_ARRAY:
+			sql_est += lws_sql_purify_len((const char *)st +
+							map[n].ofs) + 2;
+			break;
+
+		case LSMT_STRING_PTR:
+			p = *((const char * const *)&stb[map[n].ofs]);
+			sql_est += lws_sql_purify_len(p) + 2;
+			break;
+
+		default:
+			lwsl_err("%s: unsupported type\n", __func__);
+			assert(0);
+			break;
+		}
+	}
+
+	sql = malloc(sql_est);
+	if (!sql)
+		return -1;
+
+	m = lws_snprintf(sql, sql_est, "insert into %s(_lws_idx, ",
+			 schema->colname);
+
+	/*
+	 * First explicit integer type is primary key autoincrement, should
+	 * not be specified
+	 */
+
+	for (n = 0; n < nentries; n++) {
+		if (!pk && map[n].type == LSMT_UNSIGNED) {
+			pk = 1;
+			continue;
+		}
+		m += lws_snprintf(sql + m, sql_est - m,
+				  n == nentries - 1 ? "%s" : "%s, ",
+				  map[n].colname);
+	}
+
+	m += lws_snprintf(sql + m, sql_est - m, ") values(%u, ", idx);
+
+	pk = 0;
+	for (n = 0; n < nentries; n++) {
+		uint64_t uu64;
+		size_t q;
+
+		if (!pk && map[n].type == LSMT_UNSIGNED) {
+			pk = 1;
+			continue;
+		}
+
+		switch (map[n].type) {
+		case LSMT_SIGNED:
+		case LSMT_UNSIGNED:
+		case LSMT_BOOLEAN:
+
+			uu64 = 0;
+			for (q = 0; q < map[n].aux; q++)
+				uu64 |= ((uint64_t)stb[map[n].ofs + q] <<
+								(q << 3));
+
+			if (map[n].type == LSMT_SIGNED)
+				m += lws_snprintf(sql + m, sql_est - m, "%lld",
+						  (long long)(int64_t)uu64);
+			else
+				m += lws_snprintf(sql + m, sql_est - m, "%llu",
+						  (unsigned long long)uu64);
+			break;
+
+		case LSMT_STRING_CHAR_ARRAY:
+			sql[m++] = '\'';
+			lws_sql_purify(sql + m, (const char *)&stb[map[n].ofs],
+				       sql_est - m - 4);
+			m += strlen(sql + m);
+			sql[m++] = '\'';
+			break;
+		case LSMT_STRING_PTR:
+			p = *((const char * const *)&stb[map[n].ofs]);
+			sql[m++] = '\'';
+			lws_sql_purify(sql + m, p, sql_est - m - 4);
+			m += strlen(sql + m);
+			sql[m++] = '\'';
+			break;
+		default:
+			lwsl_err("%s: unsupported type\n", __func__);
+			assert(0);
+			break;
+		}
+
+		if (n != nentries - 1) {
+			if (sql_est - m < 6)
+				return -1;
+			sql[m++] = ',';
+			sql[m++] = ' ';
+		}
+	}
+
+	lws_snprintf(sql + m, sql_est - m, ");");
+
+	n = sqlite3_exec(pdb, sql, NULL, NULL, NULL);
+	free(sql);
+	if (n != SQLITE_OK) {
+		lwsl_err("%s: %s: fail\n", __func__, sqlite3_errmsg(pdb));
+		return -1;
+	}
+
+	return 0;
+}
+
+int
+lws_struct_sq3_serialize(sqlite3 *pdb, const lws_struct_map_t *schema,
+			 lws_dll2_owner_t *owner, uint32_t manual_idx)
+{
+	uint32_t idx = manual_idx;
+
+	lws_start_foreach_dll(struct lws_dll2 *, p, owner->head) {
+		void *item = (void *)((uint8_t *)p - schema->ofs_clist);
+		if (_lws_struct_sq3_ser_one(pdb, schema, idx++, item))
+			return 1;
+
+	} lws_end_foreach_dll(p);
+
+	return 0;
+}
+
 int
 lws_struct_sq3_create_table(sqlite3 *pdb, const lws_struct_map_t *schema)
 {
 	const lws_struct_map_t *map = schema->child_map;
 	int map_size = schema->child_map_size, subsequent = 0;
-	char s[2048], *p = s, *end = &s[sizeof(s) - 1], *pri = "primary key";
+	char s[2048], *p = s, *end = &s[sizeof(s) - 1],
+	     *pri = " primary key autoincrement", *use;
 
-	p += lws_snprintf(p, end - p, "create table if not exists %s (",
+	p += lws_snprintf(p, end - p,
+			  "create table if not exists %s (_lws_idx integer, ",
 			  schema->colname);
 
 	while (map_size--) {
@@ -216,16 +405,23 @@ lws_struct_sq3_create_table(sqlite3 *pdb, const lws_struct_map_t *schema)
 			map++;
 			continue;
 		}
-		if (subsequent && (end - p) > 3)
+		if (subsequent && (end - p) > 4) {
 			*p++ = ',';
+			*p++ = ' ';
+		}
 		subsequent = 1;
-		if (map->type < LSMT_STRING_CHAR_ARRAY)
-			p += lws_snprintf(p, end - p, "%s integer %s",
-					  map->colname, pri);
-		else
-			p += lws_snprintf(p, end - p, "%s varchar %s",
-					  map->colname, pri);
-		pri = "";
+		if (map->type < LSMT_STRING_CHAR_ARRAY) {
+			use = "";
+			if (map->colname[0] != '_') /* _lws_idx is not primary key */
+				use = pri;
+			p += lws_snprintf(p, end - p, "%s integer%s",
+					  map->colname, use);
+			if (map->colname[0] != '_')
+				pri = "";
+		} else
+			p += lws_snprintf(p, end - p, "%s varchar",
+					  map->colname);
+
 		map++;
 	}
 

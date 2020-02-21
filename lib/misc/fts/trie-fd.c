@@ -729,7 +729,7 @@ ensure:
 				lbuf[m] = '\0';
 
 				lws_json_purify(ebuf, (const char *)lbuf,
-						sizeof(ebuf) - 1);
+						sizeof(ebuf) - 1, NULL);
 				m = (int)strlen(ebuf);
 
 				p = lwsac_use(&ftsp->results_head, m + 1, 0);

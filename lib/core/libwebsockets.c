@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -366,8 +366,22 @@ lws_sql_purify(char *escaped, const char *string, int len)
 	return escaped;
 }
 
+int
+lws_sql_purify_len(const char *p)
+{
+	int olen = 0;
+
+	while (*p) {
+		if (*p++ == '\'')
+			olen++;
+		olen++;
+	}
+
+	return olen;
+}
+
 const char *
-lws_json_purify(char *escaped, const char *string, int len)
+lws_json_purify(char *escaped, const char *string, int len, int *in_used)
 {
 	const char *p = string;
 	char *q = escaped;
@@ -413,7 +427,35 @@ lws_json_purify(char *escaped, const char *string, int len)
 	}
 	*q = '\0';
 
+	if (in_used)
+		*in_used = lws_ptr_diff(p, string);
+
 	return escaped;
+}
+
+int
+lws_json_purify_len(const char *string)
+{
+	int len = 0;
+	const char *p = string;
+
+	while (*p) {
+		if (*p == '\t' || *p == '\n' || *p == '\r') {
+			p++;
+			len += 2;
+			continue;
+		}
+
+		if (*p == '\"' || *p == '\\' || *p < 0x20) {
+			len += 6;
+			p++;
+			continue;
+		}
+		p++;
+		len++;
+	}
+
+	return len;
 }
 
 void

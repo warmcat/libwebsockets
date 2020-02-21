@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -242,9 +242,13 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 #if defined(LWS_WITH_STRUCT_SQLITE3)
 
 LWS_VISIBLE LWS_EXTERN int
-lws_struct_sq3_deserialize(sqlite3 *pdb, const lws_struct_map_t *schema,
-			   lws_dll2_owner_t *o, struct lwsac **ac,
-			   uint64_t start, int limit);
+lws_struct_sq3_serialize(sqlite3 *pdb, const lws_struct_map_t *schema,
+			 lws_dll2_owner_t *owner, uint32_t manual_idx);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_struct_sq3_deserialize(sqlite3 *pdb, const char *filter, const char *order,
+			   const lws_struct_map_t *schema, lws_dll2_owner_t *o,
+			   struct lwsac **ac, int start, int limit);
 
 LWS_VISIBLE LWS_EXTERN int
 lws_struct_sq3_create_table(sqlite3 *pdb, const lws_struct_map_t *schema);

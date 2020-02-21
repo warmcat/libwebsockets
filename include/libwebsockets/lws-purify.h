@@ -44,17 +44,41 @@ LWS_VISIBLE LWS_EXTERN const char *
 lws_sql_purify(char *escaped, const char *string, int len);
 
 /**
+ * lws_sql_purify_len() - return length of purified version of input string
+ *
+ * \param string: input buffer ('/0' terminated)
+ *
+ * Calculates any character escaping without writing it anywhere and returns the
+ * calculated length of the purified string.
+ */
+int
+lws_sql_purify_len(const char *p);
+
+/**
  * lws_json_purify() - like strncpy but with escaping for json chars
  *
  * \param escaped: output buffer
  * \param string: input buffer ('/0' terminated)
  * \param len: output buffer max length
+ * \param in_used: number of bytes of string we could escape in len
  *
  * Because escaping expands the output string, it's not
  * possible to do it in-place, ie, with escaped == string
  */
 LWS_VISIBLE LWS_EXTERN const char *
-lws_json_purify(char *escaped, const char *string, int len);
+lws_json_purify(char *escaped, const char *string, int len, int *in_used);
+
+/**
+ * lws_json_purify_len() - find out the escaped length of a string
+ *
+ * \param string: input buffer ('/0' terminated)
+ *
+ * JSON may have to expand escapes by up to 6x the original depending on what
+ * it is.  This doesn't actually do the escaping but goes through the motions
+ * and computes the length of the escaped string.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_json_purify_len(const char *string);
 
 /**
  * lws_filename_purify_inplace() - replace scary filename chars with underscore

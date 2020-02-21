@@ -221,10 +221,12 @@ lws_strexp_reset_out(lws_strexp_t *exp, char *out, size_t olen);
  * \p exp: the exp object for the copy / expansion
  * \p in: the start of the next input data
  * \p len: the length of the input data
- * \p pused: pointer to write the amount of input used
+ * \p pused_in: pointer to write the amount of input used
+ * \p pused_out: pointer to write the amount of output used
  *
  * Copies in to the output buffer set in exp, expanding any ${name} tokens using
- * the callback.  *pused is set to the number of input chars used.
+ * the callback.  \p *pused_in is set to the number of input chars used and
+ * \p *pused_out the number of output characters used
  *
  * May return LSTRX_FILLED_OUT early with *pused < len if the output buffer is
  * filled.  Handle the output buffer and reset it with lws_strexp_reset_out()
