@@ -10,6 +10,7 @@ then
 	then
 		sudo apt-get install -y -qq realpath libjemalloc1 libev4 libuv-dev libdbus-1-dev valgrind
 		sudo apt-get remove python-six
+		sudo -H pip install --upgrade pip enum34
 		sudo pip install "six>=1.9"
 		sudo pip install "Twisted==16.0.0"
 		sudo pip install "pyopenssl>=0.14"

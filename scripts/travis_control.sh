@@ -17,16 +17,18 @@ else
 			../minimal-examples/selftests.sh &&
 			../scripts/h2spec.sh &&
 			../scripts/attack.sh &&
-			../scripts/h2load.sh &&
-			../scripts/autobahn-test-server.sh &&
-			../scripts/autobahn-test-client.sh
+			../scripts/h2load.sh
+# 2020-02-22 python 2.7 broken on travis for Autobahn install
+#			../scripts/autobahn-test-server.sh &&
+#			../scripts/autobahn-test-client.sh
 		else
 			if [ "$LWS_METHOD" = "lwsws2" ] ; then
 				cmake -DLWS_OPENSSL_LIBRARIES="/usr/local/lib/libssl.so;/usr/local/lib/libcrypto.so" \
 				      -DLWS_OPENSSL_INCLUDE_DIRS="/usr/local/include/openssl" $CMAKE_ARGS .. &&
 				cmake --build . &&
-				sudo make install &&
-				../scripts/autobahn-test-server.sh
+				sudo make install
+# 2020-02-22 python 2.7 broken on travis for Autobahn install
+#				../scripts/autobahn-test-server.sh
 			else
 				if [ "$LWS_METHOD" = "smp" ] ; then
 					cmake -DLWS_OPENSSL_LIBRARIES="/usr/local/lib/libssl.so;/usr/local/lib/libcrypto.so" \
