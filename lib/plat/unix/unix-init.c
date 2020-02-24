@@ -35,10 +35,6 @@
 #endif
 #include <dirent.h>
 
-#if defined(LWS_HAVE_MALLOC_TRIM)
-#include <malloc.h>
-#endif
-
 #if defined(LWS_WITH_NETWORK)
 static void
 lws_sul_plat_unix(lws_sorted_usec_list_t *sul)
@@ -52,9 +48,6 @@ lws_sul_plat_unix(lws_sorted_usec_list_t *sul)
 	if (pt->context->started_with_parent &&
 	    kill(pt->context->started_with_parent, 0) < 0)
 		kill(getpid(), SIGTERM);
-#endif
-#if defined(LWS_HAVE_MALLOC_TRIM)
-	malloc_trim(4 * 1024);
 #endif
 
 	if (pt->context->deprecated && !pt->context->count_wsi_allocated) {

@@ -1082,7 +1082,7 @@ lws_context_destroy(struct lws_context *context)
 		if (!context->being_destroyed2) {
 			lws_context_destroy2(context);
 
-			goto out;
+			return;
 		}
 		lwsl_info("%s: ctx %p: already being destroyed\n",
 			    __func__, context);
@@ -1180,6 +1180,8 @@ lws_context_destroy(struct lws_context *context)
 
 	return;
 
+#if defined(LWS_WITH_NETWORK)
 out:
 	context->inside_context_destroy = 0;
+#endif
 }
