@@ -1,7 +1,7 @@
 /*
  * libwebsockets web server application
  *
- * Written in 2010-2019 by Andy Green <andy@warmcat.com>
+ * Written in 2010-2020 by Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
@@ -51,7 +51,12 @@ int fork(void)
 
 #include <uv.h>
 
+#if defined(LWS_HAVE_MALLOC_TRIM)
+#include <malloc.h>
+#endif
+
 static struct lws_context *context;
+static lws_sorted_usec_list_t sul_lwsws;
 static char config_dir[128];
 static int opts = 0, do_reload = 1;
 static uv_loop_t loop;
@@ -111,6 +116,18 @@ void signal_cb(uv_signal_t *watcher, int signum)
 	lws_context_destroy(context);
 }
 
+static void
+lwsws_min(lws_sorted_usec_list_t *sul)
+{
+	lwsl_debug("%s\n", __func__);
+
+#if defined(LWS_HAVE_MALLOC_TRIM)
+	malloc_trim(4 * 1024);
+#endif
+
+	lws_sul_schedule(context, 0, &sul_lwsws, lwsws_min, 60 * LWS_US_PER_SEC);
+}
+
 static int
 context_creation(void)
 {
@@ -161,6 +178,8 @@ context_creation(void)
 
 	if (lwsws_get_config_vhosts(context, &info, config_dir, &cs, &cs_len))
 		return 1;
+
+	lws_sul_schedule(context, 0, &sul_lwsws, lwsws_min, 60 * LWS_US_PER_SEC);
 
 	return 0;
 
@@ -287,8 +306,8 @@ int main(int argc, char **argv)
 
 	lws_set_log_level(debug_level, lwsl_emit_stderr_notimestamp);
 
-	lwsl_notice("lwsws libwebsockets web server - license CC0 + LGPL2.1\n");
-	lwsl_notice("(C) Copyright 2010-2018 Andy Green <andy@warmcat.com>\n");
+	lwsl_notice("lwsws libwebsockets web server - license CC0 + MIT\n");
+	lwsl_notice("(C) Copyright 2010-2020 Andy Green <andy@warmcat.com>\n");
 
 #if (UV_VERSION_MAJOR > 0) // Travis...
 	uv_loop_init(&loop);
@@ -314,6 +333,9 @@ int main(int argc, char **argv)
 		uv_signal_stop(&signal_outer[n]);
 		uv_close((uv_handle_t *)&signal_outer[n], NULL);
 	}
+
+	/* cancel the per-minute sul */
+	lws_sul_schedule(context, 0, &sul_lwsws, NULL, LWS_SET_TIMER_USEC_CANCEL);
 
 	lws_context_destroy(context);
 	(void)budget;
