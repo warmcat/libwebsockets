@@ -548,6 +548,9 @@ struct lws;
 #include <libwebsockets/lws-protocols-plugins.h>
 #include <libwebsockets/lws-plugin-generic-sessions.h>
 #include <libwebsockets/lws-context-vhost.h>
+#if defined(LWS_ROLE_MQTT)
+#include <libwebsockets/lws-mqtt.h>
+#endif
 #include <libwebsockets/lws-client.h>
 #include <libwebsockets/lws-http.h>
 #include <libwebsockets/lws-spa.h>

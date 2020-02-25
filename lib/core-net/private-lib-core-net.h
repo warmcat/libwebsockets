@@ -41,6 +41,8 @@ struct lws_muxable {
 	unsigned int	my_sid;
 	unsigned int	child_count;
 
+	uint32_t	highest_sid;
+
 	uint8_t		requested_POLLOUT;
 };
 
@@ -417,7 +419,6 @@ struct lws_context_per_thread {
 #if defined(LWS_ROLE_DBUS)
 	struct lws_pt_role_dbus dbus;
 #endif
-
 	/* --- event library based members --- */
 
 #if defined(LWS_WITH_LIBEV)
@@ -476,7 +477,7 @@ struct lws_context_per_thread {
 struct lws_conn_stats {
 	unsigned long long rx, tx;
 	unsigned long h1_conn, h1_trans, h2_trans, ws_upg, h2_alpn, h2_subs,
-		      h2_upg, rejected;
+		      h2_upg, rejected, mqtt_subs;
 };
 #endif
 
@@ -643,8 +644,11 @@ struct lws {
 #if defined(LWS_ROLE_DBUS)
 	struct _lws_dbus_mode_related	dbus;
 #endif
+#if defined(LWS_ROLE_MQTT)
+	struct _lws_mqtt_related	*mqtt;
+#endif
 
-#if defined(LWS_ROLE_H2)
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT)
 	struct lws_muxable		mux;
 	struct lws_tx_credit		txc;
 #endif
@@ -1368,6 +1372,7 @@ _lws_generic_transaction_completed_active_conn(struct lws **wsi);
 #define ACTIVE_CONNS_SOLO 0
 #define ACTIVE_CONNS_MUXED 1
 #define ACTIVE_CONNS_QUEUED 2
+#define ACTIVE_CONNS_FAILED 3
 
 int
 lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin);

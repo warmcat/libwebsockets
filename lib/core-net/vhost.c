@@ -40,6 +40,9 @@ const struct lws_role_ops *available_roles[] = {
 #if defined(LWS_ROLE_RAW_PROXY)
 	&role_ops_raw_proxy,
 #endif
+#if defined(LWS_ROLE_MQTT) && defined(LWS_WITH_CLIENT)
+	&role_ops_mqtt,
+#endif
 	NULL
 };
 
@@ -1394,6 +1397,25 @@ lws_get_vhost_by_name(struct lws_context *context, const char *name)
 int
 lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 {
+	if (!lws_dll2_is_detached(&wsi->dll2_cli_txn_queue)) {
+		struct lws *w = lws_container_of(
+				wsi->dll2_cli_txn_queue.owner, struct lws,
+				dll2_cli_txn_queue_owner);
+		*nwsi = w;
+
+		return ACTIVE_CONNS_QUEUED;
+	}
+
+	if (wsi->mux.parent_wsi) {
+		/*
+		 * We already decided...
+		 */
+
+		*nwsi = wsi->mux.parent_wsi;
+
+		return ACTIVE_CONNS_MUXED;
+	}
+
 	lws_vhost_lock(wsi->vhost); /* ----------------------------------- { */
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
@@ -1401,8 +1423,8 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 		struct lws *w = lws_container_of(d, struct lws,
 						 dll_cli_active_conns);
 
-		lwsl_debug("%s: check %s %s %d %d\n", __func__, adsin,
-			   w->cli_hostname_copy, wsi->c_port, w->c_port);
+		lwsl_debug("%s: check %p %p %s %s %d %d\n", __func__, wsi, w,
+			    adsin, w->cli_hostname_copy, wsi->c_port, w->c_port);
 
 		if (w != wsi &&
 		    /*
@@ -1430,9 +1452,10 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 					  "keepalive on server\n");
 				goto solo;
 			}
-#if defined (LWS_WITH_HTTP2)
+
+#if defined(LWS_WITH_HTTP2)
 			/*
-			 * h2: in usable state already: just use it without
+			 * h2: if in usable state already: just use it without
 			 *     going through the queue
 			 */
 			if (w->client_h2_alpn && w->client_mux_migrated &&
@@ -1460,8 +1483,36 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 			}
 #endif
 
-			lwsl_info("apply %p to txn queue on %p state 0x%lx\n",
-				  wsi, w, (unsigned long)w->wsistate);
+#if defined(LWS_ROLE_MQTT)
+			/*
+			 * MQTT: if in usable state already: just use it without
+			 *	 going through the queue
+			 */
+
+			if (lwsi_role_mqtt(wsi) && w->client_mux_migrated &&
+			    lwsi_state(w) == LRS_ESTABLISHED) {
+
+				if (lws_wsi_mqtt_adopt(w, wsi)) {
+					lwsl_notice("%s: join mqtt directly\n", __func__);
+					lws_dll2_remove(&wsi->dll2_cli_txn_queue);
+					wsi->client_mux_substream = 1;
+
+					lws_vhost_unlock(wsi->vhost); /* } ---------- */
+
+
+					return ACTIVE_CONNS_MUXED;
+				}
+			}
+#endif
+
+			/*
+			 * If the connection is viable but not yet in a usable
+			 * state, let's attach ourselves to it and wait for it
+			 * to get there or fail.
+			 */
+
+			lwsl_notice("%s: apply %p to txn queue on %p state 0x%lx\n",
+				  __func__, wsi, w, (unsigned long)w->wsistate);
 			/*
 			 * ...let's add ourselves to his transaction queue...
 			 * we are adding ourselves at the TAIL
@@ -1475,7 +1526,7 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 			}
 
 			/*
-			 * h1: pipeline our headers out on him,
+			 * For eg, h1 next we'd pipeline our headers out on him,
 			 * and wait for our turn at client transaction_complete
 			 * to take over parsing the rx.
 			 */

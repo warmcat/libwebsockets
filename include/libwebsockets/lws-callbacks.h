@@ -827,6 +827,30 @@ enum lws_callback_reasons {
 	 * and failure.  in points to optional JSON, and len represents the
 	 * connection state using enum lws_cert_update_state */
 
+	/* ---------------------------------------------------------------------
+	 * ----- Callbacks related to MQTT Client  -----
+	 */
+
+	LWS_CALLBACK_MQTT_NEW_CLIENT_INSTANTIATED		= 200,
+	LWS_CALLBACK_MQTT_IDLE					= 201,
+	LWS_CALLBACK_MQTT_CLIENT_ESTABLISHED			= 202,
+	LWS_CALLBACK_MQTT_SUBSCRIBED				= 203,
+	LWS_CALLBACK_MQTT_CLIENT_WRITEABLE			= 204,
+	LWS_CALLBACK_MQTT_CLIENT_RX				= 205,
+	LWS_CALLBACK_MQTT_UNSUBSCRIBED				= 206,
+	LWS_CALLBACK_MQTT_DROP_PROTOCOL				= 207,
+	LWS_CALLBACK_MQTT_CLIENT_CLOSED				= 208,
+	LWS_CALLBACK_MQTT_ACK					= 209,
+	/**< When a message is fully sent, if QoS0 this callback is generated
+	 * to locally "acknowledge" it.  For QoS1, this callback is only
+	 * generated when the matching PUBACK is received.  Return nonzero to
+	 * close the wsi.
+	 */
+	LWS_CALLBACK_MQTT_RESEND				= 210,
+	/**< In QoS1, this callback is generated instead of the _ACK one if
+	 * we timed out waiting for a PUBACK and we must resend the message.
+	 * Return nonzero to close the wsi.
+	 */
 
 	/****** add new things just above ---^ ******/
 

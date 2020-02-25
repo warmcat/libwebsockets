@@ -16,6 +16,11 @@ various scenarios, CC0-licensed (public domain) for cut-and-paste, allow you to 
 News
 ----
 
+## mqtt client support
+
+If you enable `-DLWS_ROLE_MQTT=1`, lws can now support QoS0 and QoS1 MQTT client
+connections.  See the examples at ./minimal-examples/mqtt-client
+
 ## libglib native event loop support
 
 glib's event loop joins libuv, libevent and libev support in lws for both the
