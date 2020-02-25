@@ -157,6 +157,12 @@ struct lws_client_connect_info {
 	 * to the client connection.
 	 */
 
+#if defined(LWS_ROLE_MQTT)
+	const lws_mqtt_client_connect_param_t *mqtt_cp;
+#else
+	void		*mqtt_cp;
+#endif
+
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
 	 *

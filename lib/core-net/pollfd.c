@@ -531,16 +531,20 @@ lws_callback_on_writable(struct lws *wsi)
 #endif
 
 	if (wsi->role_ops->callback_on_writable) {
-		if (wsi->role_ops->callback_on_writable(wsi))
+		int q = wsi->role_ops->callback_on_writable(wsi);
+		//lwsl_notice("%s: rops_cow says %d\n", __func__, q);
+		if (q)
 			return 1;
 		w = lws_get_network_wsi(wsi);
-	}
+	} else
 
-	if (w->position_in_fds_table == LWS_NO_FDS_POS) {
-		lwsl_debug("%s: failed to find socket %d\n", __func__,
-			   wsi->desc.sockfd);
-		return -1;
-	}
+		if (w->position_in_fds_table == LWS_NO_FDS_POS) {
+			lwsl_debug("%s: failed to find socket %d\n", __func__,
+				   wsi->desc.sockfd);
+			return -1;
+		}
+
+	//lwsl_notice("%s: marking for POLLOUT %p (wsi %p)\n", __func__, w, wsi);
 
 	if (__lws_change_pollfd(w, 0, LWS_POLLOUT))
 		return -1;

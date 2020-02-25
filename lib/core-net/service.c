@@ -146,11 +146,13 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	if (!wsi->role_ops->handle_POLLOUT)
 		goto bail_ok;
 
-	switch ((wsi->role_ops->handle_POLLOUT)(wsi)) {
+	n = wsi->role_ops->handle_POLLOUT(wsi);
+	switch (n) {
 	case LWS_HP_RET_BAIL_OK:
 		goto bail_ok;
 	case LWS_HP_RET_BAIL_DIE:
 		goto bail_die;
+	case LWS_HP_RET_DROP_POLLOUT:
 	case LWS_HP_RET_USER_SERVICE:
 		break;
 	default:
@@ -190,6 +192,9 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	if (lwsi_role_client(wsi) && !wsi->hdr_parsing_completed &&
 	     lwsi_state(wsi) != LRS_H2_WAITING_TO_SEND_HEADERS &&
 	     lwsi_state(wsi) != LRS_ISSUE_HTTP_BODY)
+		goto bail_ok;
+
+	if (n == LWS_HP_RET_DROP_POLLOUT)
 		goto bail_ok;
 
 

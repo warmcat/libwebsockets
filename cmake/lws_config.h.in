@@ -94,6 +94,7 @@
 #cmakedefine LWS_ROLE_RAW_FILE
 #cmakedefine LWS_ROLE_RAW_PROXY
 #cmakedefine LWS_ROLE_WS
+#cmakedefine LWS_ROLE_MQTT
 #cmakedefine LWS_SHA1_USE_OPENSSL_NAME
 #cmakedefine LWS_SSL_CLIENT_USE_OS_CA_CERTS
 #cmakedefine LWS_SSL_SERVER_WITH_ECDH_CERT

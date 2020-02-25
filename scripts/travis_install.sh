@@ -8,7 +8,7 @@ then
 
 	if [ "$LWS_METHOD" == "lwsws" -o "$LWS_METHOD" == "lwsws2" ];
 	then
-		sudo apt-get install -y -qq realpath libjemalloc1 libev4 libuv-dev libdbus-1-dev valgrind
+		sudo apt-get install -y -qq realpath libjemalloc1 libev4 libuv-dev libdbus-1-dev valgrind mosquitto
 		sudo apt-get remove python-six
 		sudo pip install "six>=1.9"
 		sudo pip install "Twisted==16.0.0"

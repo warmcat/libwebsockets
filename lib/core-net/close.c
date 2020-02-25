@@ -79,10 +79,8 @@ __lws_reset_wsi(struct lws *wsi)
 	 * or by specified the user. We should only free what we allocated.
 	 */
 	if (wsi->protocol && wsi->protocol->per_session_data_size &&
-	    wsi->user_space && !wsi->user_space_externally_allocated) {
-		lws_free(wsi->user_space);
-		wsi->user_space = NULL;
-	}
+	    wsi->user_space && !wsi->user_space_externally_allocated)
+		lws_free_set_NULL(wsi->user_space);
 
 	lws_buflist_destroy_all_segments(&wsi->buflist);
 	lws_buflist_destroy_all_segments(&wsi->buflist_out);

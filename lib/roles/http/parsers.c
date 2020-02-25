@@ -211,6 +211,11 @@ lws_header_table_attach(struct lws *wsi, int autoservice)
 	struct lws_pollargs pa;
 	int n;
 
+#if defined(LWS_ROLE_MQTT) && defined(LWS_WITH_CLIENT)
+	if (lwsi_role_mqtt(wsi))
+		goto connect_via_info2;
+#endif
+
 	lwsl_info("%s: wsi %p: ah %p (tsi %d, count = %d) in\n", __func__,
 		  (void *)wsi, (void *)wsi->http.ah, wsi->tsi,
 		  pt->http.ah_count_in_use);
@@ -281,6 +286,9 @@ reset:
 
 	lws_pt_unlock(pt);
 
+#if defined(LWS_ROLE_MQTT)
+connect_via_info2:
+#endif
 #if defined(LWS_WITH_CLIENT)
 	if (lwsi_role_client(wsi) && lwsi_state(wsi) == LRS_UNCONNECTED)
 		if (!lws_http_client_connect_via_info2(wsi))

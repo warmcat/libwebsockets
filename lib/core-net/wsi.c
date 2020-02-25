@@ -52,8 +52,10 @@ lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi)
 	wsi->vhost = vh;
 	vh->count_bound_wsi++;
 	lws_context_unlock(vh->context); /* } context ---------- */
-	lwsl_info("%s: vh %s: count_bound_wsi %d\n",
-		    __func__, vh->name, vh->count_bound_wsi);
+	lwsl_debug("%s: vh %s: wsi %s/%s, count_bound_wsi %d\n", __func__,
+		   vh->name, wsi->role_ops ? wsi->role_ops->name : "none",
+		   wsi->protocol ? wsi->protocol->name : "none",
+		   vh->count_bound_wsi);
 	assert(wsi->vhost->count_bound_wsi > 0);
 }
 
@@ -67,8 +69,8 @@ lws_vhost_unbind_wsi(struct lws *wsi)
 
 	assert(wsi->vhost->count_bound_wsi > 0);
 	wsi->vhost->count_bound_wsi--;
-	lwsl_info("%s: vh %s: count_bound_wsi %d\n", __func__,
-		  wsi->vhost->name, wsi->vhost->count_bound_wsi);
+	lwsl_debug("%s: vh %s: count_bound_wsi %d\n", __func__,
+		   wsi->vhost->name, wsi->vhost->count_bound_wsi);
 
 	if (!wsi->vhost->count_bound_wsi &&
 	    wsi->vhost->being_destroyed) {
@@ -92,7 +94,7 @@ lws_get_network_wsi(struct lws *wsi)
 	if (!wsi)
 		return NULL;
 
-#if defined(LWS_WITH_HTTP2)
+#if defined(LWS_WITH_HTTP2) || defined(LWS_ROLE_MQTT)
 	if (!wsi->mux_substream
 #if defined(LWS_WITH_CLIENT)
 			&& !wsi->client_mux_substream
@@ -1062,7 +1064,7 @@ lws_wsi_client_stash_item(struct lws *wsi, int stash_idx, int hdr_idx)
 }
 #endif
 
-#if defined(LWS_ROLE_H2)
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT)
 
 void
 lws_wsi_mux_insert(struct lws *wsi, struct lws *parent_wsi, int sid)
@@ -1102,6 +1104,7 @@ lws_wsi_mux_dump_children(struct lws *wsi)
 			      wsi->mux.parent_wsi->mux.child_list) {
 		lwsl_info("   \\---- child %s %p\n",
 			  (*w)->role_ops ? (*w)->role_ops->name : "?", *w);
+		assert(*w != (*w)->mux.sibling_list);
 	} lws_end_foreach_llp(w, mux.sibling_list);
 #endif
 }
@@ -1118,6 +1121,7 @@ lws_wsi_mux_close_children(struct lws *wsi, int reason)
 		lwsl_info("   closing child %p\n", *w);
 		/* disconnect from siblings */
 		wsi2 = (*w)->mux.sibling_list;
+		assert (wsi2 != *w);
 		(*w)->mux.sibling_list = NULL;
 		(*w)->socket_is_permanently_unusable = 1;
 		__lws_close_free_wsi(*w, reason, "mux child recurse");
@@ -1146,6 +1150,7 @@ lws_wsi_mux_sibling_disconnect(struct lws *wsi)
 		}
 	} lws_end_foreach_llp(w, mux.sibling_list);
 	wsi->mux.parent_wsi->mux.child_count--;
+
 	wsi->mux.parent_wsi = NULL;
 }
 
@@ -1158,9 +1163,10 @@ lws_wsi_mux_dump_waiting_children(struct lws *wsi)
 
 	wsi = wsi->mux.child_list;
 	while (wsi) {
-		lwsl_info("  %c %p: sid %u: %s %s\n",
+		lwsl_info("  %c %p: sid %u: 0x%x %s %s\n",
 			  wsi->mux.requested_POLLOUT ? '*' : ' ',
-			  wsi, wsi->mux.my_sid, wsi->role_ops->name,
+			  wsi, wsi->mux.my_sid, lwsi_state(wsi),
+			  wsi->role_ops->name,
 			  wsi->protocol ? wsi->protocol->name : "noprotocol");
 
 		wsi = wsi->mux.sibling_list;
@@ -1233,10 +1239,13 @@ lws_wsi_mux_action_pending_writeable_reqs(struct lws *wsi)
 		if (w->mux.requested_POLLOUT) {
 			if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
 				return -1;
-			break;
+			return 0;
 		}
 		w = w->mux.sibling_list;
 	}
+
+	if (lws_change_pollfd(wsi, LWS_POLLOUT, 0))
+		return -1;
 
 	return 0;
 }
@@ -1316,11 +1325,13 @@ lws_wsi_mux_apply_queue(struct lws *wsi)
 	/* we have a transaction queue that wants to pipeline */
 
 	lws_vhost_lock(wsi->vhost);
+
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 				   wsi->dll2_cli_txn_queue_owner.head) {
 		struct lws *w = lws_container_of(d, struct lws,
 						 dll2_cli_txn_queue);
 
+#if defined(LWS_ROLE_H2)
 		if (lwsi_role_http(wsi) &&
 		    lwsi_state(w) == LRS_H2_WAITING_TO_SEND_HEADERS) {
 			lwsl_info("%s: cli pipeq %p to be h2\n", __func__, w);
@@ -1333,8 +1344,23 @@ lws_wsi_mux_apply_queue(struct lws *wsi)
 			/* attach ourselves as an h2 stream */
 			lws_wsi_h2_adopt(wsi, w);
 		}
+#endif
+
+#if defined(LWS_ROLE_MQTT)
+		if (lwsi_role_mqtt(wsi) &&
+		    lwsi_state(wsi) == LRS_ESTABLISHED) {
+			lwsl_info("%s: cli pipeq %p to be mqtt\n", __func__, w);
+
+			/* remove ourselves from client queue */
+			lws_dll2_remove(&w->dll2_cli_txn_queue);
+
+			/* attach ourselves as an h2 stream */
+			lws_wsi_mqtt_adopt(wsi, w);
+		}
+#endif
 
 	} lws_end_foreach_dll_safe(d, d1);
+
 	lws_vhost_unlock(wsi->vhost);
 
 	return 0;

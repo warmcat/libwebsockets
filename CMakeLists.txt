@@ -28,6 +28,7 @@ option(LWS_FOR_GITOHASHI "Enable features recommended for use with gitohashi" OF
 option(LWS_WITH_NETWORK "Compile with network-related code" ON)
 option(LWS_ROLE_H1 "Compile with support for http/1 (needed for ws)" ON)
 option(LWS_ROLE_WS "Compile with support for websockets" ON)
+option(LWS_ROLE_MQTT "Build with support for MQTT client" OFF)
 option(LWS_ROLE_DBUS "Compile with support for DBUS" OFF)
 option(LWS_ROLE_RAW_PROXY "Raw packet proxy" OFF)
 option(LWS_ROLE_RAW_FILE "Compile with support for raw files" ON)
@@ -241,9 +242,11 @@ if(LWS_WITH_DISTRO_RECOMMENDED)
 	set(LWS_WITH_STRUCT_SQLITE3 1)
 	set(LWS_WITH_SPAWN 1)
 	set(LWS_WITH_FSMOUNT 1)
+	set(LWS_ROLE_MQTT 1)
 endif()
 
 if (NOT LWS_WITH_NETWORK)
+	set(LWS_ROLE_MQTT 0)
 	set(LWS_ROLE_H1 0)
 	set(LWS_ROLE_WS 0)
 	set(LWS_ROLE_RAW 0)
@@ -389,7 +392,7 @@ if (LWS_WITH_MBEDTLS)
 	include_directories(lib/tls/mbedtls/wrapper/include)
 endif()
 
-include_directories(include plugins lib/core lib/core-net lib/event-libs include/abstract lib/tls lib/roles lib/event-libs/libuv lib/event-libs/poll lib/event-libs/libevent lib/event-libs/glib lib/event-libs/libev lib/jose/jwe lib/jose/jws lib/jose lib/misc lib/roles/http lib/roles/http/compression lib/roles/h1 lib/roles/h2 lib/roles/ws lib/roles/cgi lib/roles/dbus lib/roles/raw-proxy lib/abstract lib/system/async-dns)
+include_directories(include plugins lib/core lib/core-net lib/event-libs include/abstract lib/tls lib/roles lib/event-libs/libuv lib/event-libs/poll lib/event-libs/libevent lib/event-libs/glib lib/event-libs/libev lib/jose/jwe lib/jose/jws lib/jose lib/misc lib/roles/http lib/roles/http/compression lib/roles/h1 lib/roles/h2 lib/roles/ws lib/roles/cgi lib/roles/dbus lib/roles/raw-proxy lib/abstract lib/system/async-dns lib/roles/mqtt)
 
 if (LWS_PLAT_FREERTOS)
 	include_directories(lib/plat/freertos lib/plat/freertos/esp32)
@@ -1172,7 +1175,17 @@ endif()
 if (LWS_WITH_DIR)
 	list(APPEND SOURCES lib/misc/dir.c)
 endif()
-	
+
+if (LWS_ROLE_MQTT AND LWS_WITH_CLIENT)
+       list(APPEND SOURCES
+	       lib/roles/mqtt/mqtt.c
+	       lib/roles/mqtt/ops-mqtt.c
+	       lib/roles/mqtt/primitives.c
+	       lib/roles/mqtt/client/client-mqtt.c
+	       lib/roles/mqtt/client/client-mqtt-handshake.c
+       )
+endif()
+
 if (LWS_WITH_THREADPOOL AND UNIX AND LWS_HAVE_PTHREAD_H)
 	list(APPEND SOURCES lib/misc/threadpool/threadpool.c)
 endif()
@@ -2916,6 +2929,7 @@ message(" LWS_WITH_GLIB = ${LWS_WITH_GLIB}")
 message(" LWS_IPV6 = ${LWS_IPV6}")
 message(" LWS_UNIX_SOCK = ${LWS_UNIX_SOCK}")
 message(" LWS_WITH_HTTP2 = ${LWS_WITH_HTTP2}")
+message(" LWS_ROLE_MQTT = ${LWS_ROLE_MQTT}")
 message(" LWS_SSL_SERVER_WITH_ECDH_CERT = ${LWS_SSL_SERVER_WITH_ECDH_CERT}")
 message(" LWS_MAX_SMP = ${LWS_MAX_SMP}")
 message(" LWS_HAVE_PTHREAD_H = ${LWS_HAVE_PTHREAD_H}")

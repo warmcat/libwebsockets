@@ -64,7 +64,7 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 #if defined(LWS_CLIENT_HTTP_PROXYING)
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 #endif
-	const char *meth = NULL;
+	const char *meth;
 	struct lws_pollfd pfd;
 	const char *cce = "";
 	int n, m, rawish = 0;
@@ -72,7 +72,11 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 	meth = lws_wsi_client_stash_item(wsi, CIS_METHOD,
 					 _WSI_TOKEN_CLIENT_METHOD);
 
-	if (meth && !strcmp(meth, "RAW"))
+	if (meth && (!strcmp(meth, "RAW")
+#if defined(LWS_ROLE_MQTT)
+		     || !strcmp(meth, "MQTT")
+#endif
+	))
 		rawish = 1;
 
 	if (wsi_piggyback)
@@ -224,6 +228,41 @@ send_hs:
 
 			/* service.c pollout processing wants this */
 			wsi->hdr_parsing_completed = 1;
+#if defined(LWS_ROLE_MQTT)
+			if (!strcmp(meth, "MQTT")) {
+#if defined(LWS_WITH_TLS)
+				if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
+					lwsi_set_state(wsi, LRS_WAITING_SSL);
+					return wsi;
+				}
+#endif
+				lwsl_info("%s: settings LRS_MQTTC_IDLE\n",
+					  __func__);
+				lwsi_set_state(wsi, LRS_MQTTC_IDLE);
+
+				/*
+				 * provoke service to issue the CONNECT directly.
+				 */
+				lws_set_timeout(wsi, PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE,
+						AWAITING_TIMEOUT);
+
+				assert(lws_socket_is_valid(wsi->desc.sockfd));
+
+				pfd.fd = wsi->desc.sockfd;
+				pfd.events = LWS_POLLIN;
+				pfd.revents = LWS_POLLOUT;
+
+				lwsl_info("%s: going to service fd\n", __func__);
+				n = lws_service_fd(wsi->context, &pfd);
+				if (n < 0) {
+					cce = "first service failed";
+					goto failed;
+				}
+				if (n) /* returns 1 on failure after closing wsi */
+					return NULL;
+				return wsi;
+			}
+#endif
 			lwsl_info("%s: setting ESTABLISHED\n", __func__);
 			lwsi_set_state(wsi, LRS_ESTABLISHED);
 
@@ -722,8 +761,9 @@ lws_client_connect_2_dnsreq(struct lws *wsi)
 	int n, port = 0;
 	struct lws *w;
 
-	if (lwsi_state(wsi) == LRS_WAITING_DNS) {
-		lwsl_notice("%s: LRS_WAITING_DNS\n", __func__);
+	if (lwsi_state(wsi) == LRS_WAITING_DNS ||
+	    lwsi_state(wsi) == LRS_WAITING_CONNECT) {
+		lwsl_info("%s: LRS_WAITING_DNS / CONNECT\n", __func__);
 
 		return wsi;
 	}
@@ -747,7 +787,8 @@ lws_client_connect_2_dnsreq(struct lws *wsi)
 	/* only pipeline things we associate with being a stream */
 
 	if (meth && strcmp(meth, "RAW") && strcmp(meth, "GET") &&
-		    strcmp(meth, "POST") && strcmp(meth, "PUT"))
+		    strcmp(meth, "POST") && strcmp(meth, "PUT") &&
+		    strcmp(meth, "UDP") && strcmp(meth, "MQTT"))
 		goto solo;
 
 	/* consult active connections to find out disposition */
@@ -809,10 +850,12 @@ solo:
 	 */
 
 	if (meth && (!strcmp(meth, "RAW") || !strcmp(meth, "GET") ||
-		     !strcmp(meth, "POST") || !strcmp(meth, "PUT")) &&
+		     !strcmp(meth, "POST") || !strcmp(meth, "PUT") ||
+		     !strcmp(meth, "MQTT")) &&
 	    lws_dll2_is_detached(&wsi->dll2_cli_txn_queue) &&
 	    lws_dll2_is_detached(&wsi->dll_cli_active_conns)) {
 		lws_vhost_lock(wsi->vhost);
+		lwsl_info("%s: adding active conn %p\n", __func__, wsi);
 		/* caution... we will have to unpick this on oom4 path */
 		lws_dll2_add_head(&wsi->dll_cli_active_conns,
 				 &wsi->vhost->dll_cli_active_conns_owner);
@@ -1338,7 +1381,8 @@ lws_http_client_connect_via_info2(struct lws *wsi)
 
 	wsi->opaque_user_data = wsi->stash->opaque_user_data;
 
-	if (stash->cis[CIS_METHOD] && !strcmp(stash->cis[CIS_METHOD], "RAW"))
+	if (stash->cis[CIS_METHOD] && (!strcmp(stash->cis[CIS_METHOD], "RAW") ||
+				      !strcmp(stash->cis[CIS_METHOD], "MQTT")))
 		goto no_ah;
 
 	/*
