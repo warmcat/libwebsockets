@@ -24,7 +24,7 @@ lwsws.
 NOTE this method implies libuv is used by lws, to provide crossplatform
 implementations of timers, dynamic lib loading etc for plugins and lwsws.
 
-2) test-server-v2.0.c
+2) Using plugins in code
 
 This method lets you configure web serving in code, instead of using lwsws.
 
@@ -34,7 +34,7 @@ loaded.
 
  $ cmake .. -DLWS_WITH_PLUGINS=1
 
-See [test-server-v2.0.c](../test-apps/test-server-v2.0.c)
+See, eg, the [test-server](../test-apps/test-server.c)
 
 3) protocols in the server app
 
