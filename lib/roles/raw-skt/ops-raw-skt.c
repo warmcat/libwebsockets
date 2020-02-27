@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -28,6 +28,9 @@ static int
 rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 			   struct lws_pollfd *pollfd)
 {
+#if defined(LWS_WITH_SOCKS5)
+	const char *cce = NULL;
+#endif
 	struct lws_tokens ebuf;
 	int n, buffered;
 
@@ -65,76 +68,142 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 #endif
 
 	if ((pollfd->revents & pollfd->events & LWS_POLLIN) &&
-	    /* any tunnel has to have been established... */
-	    lwsi_state(wsi) != LRS_SSL_ACK_PENDING &&
-	    /* we are actually connected */
-	    lwsi_state(wsi) != LRS_WAITING_CONNECT &&
 	    !(wsi->favoured_pollin &&
 	      (pollfd->revents & pollfd->events & LWS_POLLOUT))) {
 
-		ebuf.token = NULL;
-		ebuf.len = 0;
+		lwsl_debug("%s: POLLIN: wsi %p, state 0x%x\n", __func__,
+			   wsi, lwsi_state(wsi));
 
-		buffered = lws_buflist_aware_read(pt, wsi, &ebuf, 1, __func__);
-		switch (ebuf.len) {
-		case 0:
-			lwsl_info("%s: read 0 len\n", __func__);
-			wsi->seen_zero_length_recv = 1;
-			if (lws_change_pollfd(wsi, LWS_POLLIN, 0))
+		switch (lwsi_state(wsi)) {
+
+		    /* any tunnel has to have been established... */
+		case LRS_SSL_ACK_PENDING:
+			goto nope;
+		    /* we are actually connected */
+		case LRS_WAITING_CONNECT:
+			goto nope;
+
+#if defined(LWS_WITH_SOCKS5)
+
+		/* SOCKS Greeting Reply */
+		case LRS_WAITING_SOCKS_GREETING_REPLY:
+		case LRS_WAITING_SOCKS_AUTH_REPLY:
+		case LRS_WAITING_SOCKS_CONNECT_REPLY:
+
+			switch (lws_socks5c_handle_state(wsi, pollfd, &cce)) {
+			case LW5CHS_RET_RET0:
+				goto nope;
+			case LW5CHS_RET_BAIL3:
+				lws_inform_client_conn_fail(wsi, (void *)cce, strlen(cce));
+				goto fail;
+			case LW5CHS_RET_STARTHS:
+				lwsi_set_state(wsi, LRS_ESTABLISHED);
+				lws_client_connect_4_established(wsi, NULL, 0);
+
+				/*
+				 * Now we got the socks5 connection, we need to
+				 * go down the tls path on it now if that's what
+				 * we want
+				 */
+
+//				if (!(wsi->tls.use_ssl & LCCSCF_USE_SSL)) {
+//					lwsi_set_state(wsi, LRS_ESTABLISHED);
+					goto post_rx;
+//				}
+#if 0
+				/* we can retry this... just cook the SSL BIO
+				 * the first time */
+
+				if (lws_ssl_client_bio_create(wsi) < 0) {
+					lwsl_err("%s: bio_create failed\n",
+						 __func__);
+					goto fail;
+				}
+
+				if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
+					n = lws_ssl_client_connect1(wsi);
+					if (!n)
+						return 0;
+					if (n < 0) {
+						lwsl_err("%s: connect1 failed\n",
+							 __func__);
+						goto fail;
+					}
+				}
+#endif
+			default:
+				break;
+			}
+			goto post_rx;
+#endif
+		default:
+			ebuf.token = NULL;
+			ebuf.len = 0;
+
+			buffered = lws_buflist_aware_read(pt, wsi, &ebuf, 1, __func__);
+			switch (ebuf.len) {
+			case 0:
+				lwsl_info("%s: read 0 len\n", __func__);
+				wsi->seen_zero_length_recv = 1;
+				if (lws_change_pollfd(wsi, LWS_POLLIN, 0))
+					goto fail;
+
+				/*
+				 * we need to go to fail here, since it's the only
+				 * chance we get to understand that the socket has
+				 * closed
+				 */
+				// goto try_pollout;
 				goto fail;
 
-			/*
-			 * we need to go to fail here, since it's the only
-			 * chance we get to understand that the socket has
-			 * closed
-			 */
-			// goto try_pollout;
-			goto fail;
-
-		case LWS_SSL_CAPABLE_ERROR:
-			goto fail;
-		case LWS_SSL_CAPABLE_MORE_SERVICE:
-			goto try_pollout;
-		}
+			case LWS_SSL_CAPABLE_ERROR:
+				goto fail;
+			case LWS_SSL_CAPABLE_MORE_SERVICE:
+				goto try_pollout;
+			}
 
 #if defined(LWS_WITH_UDP)
-		if (wsi->context->udp_loss_sim_rx_pc) {
-			uint16_t u16;
-			/*
-			 * We should randomly drop some of these
-			 */
+			if (wsi->context->udp_loss_sim_rx_pc) {
+				uint16_t u16;
+				/*
+				 * We should randomly drop some of these
+				 */
 
-			if (lws_get_random(wsi->context, &u16, 2) == 2 &&
-			    ((u16 * 100) / 0xffff) <=
-				    wsi->context->udp_loss_sim_rx_pc) {
-				lwsl_warn("%s: dropping udp rx\n", __func__);
-				/* pretend it was handled */
-				n = ebuf.len;
-				goto post_rx;
+				if (lws_get_random(wsi->context, &u16, 2) == 2 &&
+				    ((u16 * 100) / 0xffff) <=
+					    wsi->context->udp_loss_sim_rx_pc) {
+					lwsl_warn("%s: dropping udp rx\n", __func__);
+					/* pretend it was handled */
+					n = ebuf.len;
+					goto post_rx;
+				}
 			}
-		}
 #endif
 
-		n = user_callback_handle_rxflow(wsi->protocol->callback,
-						wsi, LWS_CALLBACK_RAW_RX,
-						wsi->user_space, ebuf.token,
-						ebuf.len);
-#if defined(LWS_WITH_UDP)
+			n = user_callback_handle_rxflow(wsi->protocol->callback,
+							wsi, LWS_CALLBACK_RAW_RX,
+							wsi->user_space, ebuf.token,
+							ebuf.len);
+#if defined(LWS_WITH_UDP) || defined(LWS_WITH_SOCKS5)
 post_rx:
 #endif
-		if (n < 0) {
-			lwsl_info("LWS_CALLBACK_RAW_RX_fail\n");
-			goto fail;
-		}
+			if (n < 0) {
+				lwsl_info("LWS_CALLBACK_RAW_RX_fail\n");
+				goto fail;
+			}
 
-		if (lws_buflist_aware_finished_consuming(wsi, &ebuf, ebuf.len,
-							 buffered, __func__))
-			return LWS_HPI_RET_PLEASE_CLOSE_ME;
-	} else
-		if (wsi->favoured_pollin &&
-		    (pollfd->revents & pollfd->events & LWS_POLLOUT))
-			/* we balanced the last favouring of pollin */
-			wsi->favoured_pollin = 0;
+			if (lws_buflist_aware_finished_consuming(wsi, &ebuf, ebuf.len,
+								 buffered, __func__))
+				return LWS_HPI_RET_PLEASE_CLOSE_ME;
+
+			goto try_pollout;
+		}
+	}
+nope:
+	if (wsi->favoured_pollin &&
+	    (pollfd->revents & pollfd->events & LWS_POLLOUT))
+		/* we balanced the last favouring of pollin */
+		wsi->favoured_pollin = 0;
 
 try_pollout:
 

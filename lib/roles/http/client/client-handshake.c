@@ -140,14 +140,15 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 #endif
 
 #if defined(LWS_WITH_SOCKS5)
-	switch (lws_socks5c_greet(wsi, &cce)) {
-	case -1:
-		goto failed;
-	case 1:
-		return wsi;
-	default:
-		break;
-	}
+	if (lwsi_state(wsi) != 	LRS_ESTABLISHED)
+		switch (lws_socks5c_greet(wsi, &cce)) {
+		case -1:
+			goto failed;
+		case 1:
+			return wsi;
+		default:
+			break;
+		}
 #endif
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
