@@ -278,7 +278,7 @@ lws_socks5c_handle_state(struct lws *wsi, struct lws_pollfd *pollfd,
 		return LW5CHS_RET_BAIL3;
 	}
 
-	// lwsl_hexdump_warn(sb, n);
+	// lwsl_hexdump_warn(pt->serv_buf, n);
 
 	switch (lwsi_state(wsi)) {
 
