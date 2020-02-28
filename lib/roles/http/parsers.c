@@ -24,7 +24,7 @@
 
 #include "private-lib-core.h"
 
-static const unsigned char lextable[] = {
+static const unsigned char lextable_h1[] = {
 	#include "lextable.h"
 };
 
@@ -1169,27 +1169,27 @@ swallow:
 				break;
 
 			while (1) {
-				if (lextable[pos] & (1 << 7)) {
+				if (lextable_h1[pos] & (1 << 7)) {
 					/* 1-byte, fail on mismatch */
-					if ((lextable[pos] & 0x7f) != c) {
+					if ((lextable_h1[pos] & 0x7f) != c) {
 nope:
 						ah->lextable_pos = -1;
 						break;
 					}
 					/* fall thru */
 					pos++;
-					if (lextable[pos] == FAIL_CHAR)
+					if (lextable_h1[pos] == FAIL_CHAR)
 						goto nope;
 
 					ah->lextable_pos = pos;
 					break;
 				}
 
-				if (lextable[pos] == FAIL_CHAR)
+				if (lextable_h1[pos] == FAIL_CHAR)
 					goto nope;
 
 				/* b7 = 0, end or 3-byte */
-				if (lextable[pos] < FAIL_CHAR) {
+				if (lextable_h1[pos] < FAIL_CHAR) {
 #if defined(LWS_WITH_CUSTOM_HEADERS)
 					if (!wsi->mux_substream) {
 						/*
@@ -1206,10 +1206,10 @@ nope:
 					break;
 				}
 
-				if (lextable[pos] == c) { /* goto */
+				if (lextable_h1[pos] == c) { /* goto */
 					ah->lextable_pos = pos +
-						(lextable[pos + 1]) +
-						(lextable[pos + 2] << 8);
+						(lextable_h1[pos + 1]) +
+						(lextable_h1[pos + 2] << 8);
 					break;
 				}
 
@@ -1287,11 +1287,11 @@ nope:
 				break;
 			}
 
-			if (lextable[ah->lextable_pos] < FAIL_CHAR) {
+			if (lextable_h1[ah->lextable_pos] < FAIL_CHAR) {
 				/* terminal state */
 
-				n = ((unsigned int)lextable[ah->lextable_pos] << 8) |
-						lextable[ah->lextable_pos + 1];
+				n = ((unsigned int)lextable_h1[ah->lextable_pos] << 8) |
+						lextable_h1[ah->lextable_pos + 1];
 
 				lwsl_parser("known hdr %d\n", n);
 				for (m = 0; m < LWS_ARRAY_SIZE(methods); m++)

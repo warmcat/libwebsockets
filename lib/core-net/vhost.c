@@ -89,8 +89,10 @@ lws_role_by_name(const char *name)
 	if (!strcmp(name, role_ops_raw_skt.name))
 		return &role_ops_raw_skt;
 
+#if defined(LWS_ROLE_RAW_FILE)
 	if (!strcmp(name, role_ops_raw_file.name))
 		return &role_ops_raw_file;
+#endif
 
 	return NULL;
 }
@@ -170,11 +172,14 @@ lws_role_call_adoption_bind(struct lws *wsi, int type, const char *prot)
 	    role_ops_raw_skt.adoption_bind(wsi, type, prot))
 		return 0;
 
+#if defined(LWS_ROLE_RAW_FILE)
+
 	/* fall back to raw file role if, eg, h1 not configured */
 
 	if (role_ops_raw_file.adoption_bind &&
 	    role_ops_raw_file.adoption_bind(wsi, type, prot))
 		return 0;
+#endif
 
 	return 1;
 }

@@ -282,6 +282,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 		wsi->child_list = NULL;
 	}
 
+#if defined(LWS_ROLE_RAW_FILE)
 	if (wsi->role_ops == &role_ops_raw_file) {
 		lws_remove_child_from_any_parent(wsi);
 		__remove_wsi_socket_from_fds(wsi);
@@ -290,6 +291,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 					wsi->user_space, NULL, 0);
 		goto async_close;
 	}
+#endif
 
 	wsi->wsistate_pre_close = wsi->wsistate;
 
@@ -598,7 +600,9 @@ just_kill_connection:
 		wsi->told_user_closed = 1;
 	}
 
+#if defined(LWS_ROLE_RAW_FILE)
 async_close:
+#endif
 	lws_remove_child_from_any_parent(wsi);
 	wsi->socket_is_permanently_unusable = 1;
 

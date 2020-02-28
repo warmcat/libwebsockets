@@ -30,6 +30,7 @@ option(LWS_ROLE_H1 "Compile with support for http/1 (needed for ws)" ON)
 option(LWS_ROLE_WS "Compile with support for websockets" ON)
 option(LWS_ROLE_DBUS "Compile with support for DBUS" OFF)
 option(LWS_ROLE_RAW_PROXY "Raw packet proxy" OFF)
+option(LWS_ROLE_RAW_FILE "Compile with support for raw files" ON)
 option(LWS_WITH_HTTP2 "Compile with server support for HTTP/2" ON)
 option(LWS_WITH_LWSWS "Libwebsockets Webserver" OFF)
 option(LWS_WITH_CGI "Include CGI (spawn process with network-connected stdin/out/err) APIs" OFF)
@@ -1208,8 +1209,10 @@ endif()
 
 if (LWS_ROLE_RAW)
 	list(APPEND SOURCES
-		lib/roles/raw-skt/ops-raw-skt.c
-		lib/roles/raw-file/ops-raw-file.c)
+		lib/roles/raw-skt/ops-raw-skt.c)
+	if (LWS_ROLE_RAW_FILE)
+		list(APPEND SOURCES lib/roles/raw-file/ops-raw-file.c)
+	endif()
 		
 	if (LWS_WITH_ABSTRACT)
 		list(APPEND SOURCES
