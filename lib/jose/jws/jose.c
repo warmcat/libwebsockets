@@ -228,8 +228,8 @@ lws_jws_jose_cb(struct lejp_ctx *ctx, char reason)
 		return 0;
 
 	case LJJHI_TYP: /* Optional: string: media type */
-		if (strcmp(ctx->buf, "JWT"))
-			return -1;
+		lws_strnncpy(args->jose->typ, ctx->buf, ctx->npos,
+			     sizeof(args->jose->typ));
 		break;
 
 	case LJJHI_JKU:	/* Optional: string */
