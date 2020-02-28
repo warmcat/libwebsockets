@@ -57,6 +57,7 @@ option(LWS_WITH_SYS_ASYNC_DNS "Nonblocking internal IPv4 + IPv6 DNS resolver" OF
 option(LWS_WITH_SYS_NTPCLIENT "Build in tiny ntpclient good for tls date validation and run via lws_system" OFF)
 option(LWS_WITH_SYS_DHCP_CLIENT "Build in tiny DHCP client" OFF)
 option(LWS_WITH_HTTP_BASIC_AUTH "Support Basic Auth" ON)
+option(LWS_WITH_HTTP_UNCOMMON_HEADERS "Include less common http header support" ON)
 
 #
 # TLS library options... all except mbedTLS are basically OpenSSL variants.
@@ -127,6 +128,7 @@ option(LWS_WITH_DIR "Directory scanning api support" ON)
 option(LWS_WITH_LEJP_CONF "With LEJP configuration parser as used by lwsws" ON)
 endif()
 option(LWS_WITH_NO_LOGS "Disable all logging from being compiled in" OFF)
+option(LWS_LOGS_TIMESTAMP "Timestamp at start of logs" ON)
 option(LWS_AVOID_SIGPIPE_IGN "Android 7+ reportedly needs this" OFF)
 option(LWS_WITH_STATS "Keep statistics of lws internal operations" OFF)
 option(LWS_WITH_JOSE "JSON Web Signature / Encryption / Keys (RFC7515/6/) API" OFF)

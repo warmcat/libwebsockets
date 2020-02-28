@@ -269,6 +269,7 @@ struct _lws_http_mode_related {
 #endif
 	unsigned int deferred_transaction_completed:1;
 	unsigned int content_length_explicitly_zero:1;
+	unsigned int content_length_given:1;
 	unsigned int did_stream_close:1;
 	unsigned int multipart:1;
 	unsigned int cgi_transaction_complete:1;

@@ -1314,15 +1314,21 @@ cleanup_wsi:
 }
 
 static const char * const method_names[] = {
-	"GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE", "CONNECT", "HEAD"
+	"GET", "POST",
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
+	"OPTIONS", "PUT", "PATCH", "DELETE",
+#endif
+	"CONNECT", "HEAD"
 };
 static unsigned char method_index[] = {
 	WSI_TOKEN_GET_URI,
 	WSI_TOKEN_POST_URI,
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
 	WSI_TOKEN_OPTIONS_URI,
 	WSI_TOKEN_PUT_URI,
 	WSI_TOKEN_PATCH_URI,
 	WSI_TOKEN_DELETE_URI,
+#endif
 	WSI_TOKEN_CONNECT,
 	WSI_TOKEN_HEAD_URI,
 };
@@ -2442,6 +2448,7 @@ fail_length:
 }
 #endif
 
+#if defined(LWS_ROLE_WS)
 int
 lws_h2_ws_handshake(struct lws *wsi)
 {
@@ -2514,6 +2521,7 @@ lws_h2_ws_handshake(struct lws *wsi)
 
 	return 0;
 }
+#endif
 
 int
 lws_read_h2(struct lws *wsi, unsigned char *buf, lws_filepos_t len)

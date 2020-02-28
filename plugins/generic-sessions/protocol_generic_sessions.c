@@ -111,11 +111,12 @@ lwsgs_subst(void *data, int index)
 static int
 lws_get_effective_host(struct lws *wsi, char *buf, size_t buflen)
 {
+#if defined(LWS_ROLE_H2)
 	/* h2 */
 	if (lws_hdr_copy(wsi, buf, buflen - 1,
 			 WSI_TOKEN_HTTP_COLON_AUTHORITY) > 0)
 		return 0;
-
+#endif
 	/* h1 */
 	if (lws_hdr_copy(wsi, buf, buflen - 1,  WSI_TOKEN_HOST) > 0)
 		return 0;

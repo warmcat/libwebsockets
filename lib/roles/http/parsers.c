@@ -934,10 +934,12 @@ excessive:
 static const unsigned char methods[] = {
 	WSI_TOKEN_GET_URI,
 	WSI_TOKEN_POST_URI,
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
 	WSI_TOKEN_OPTIONS_URI,
 	WSI_TOKEN_PUT_URI,
 	WSI_TOKEN_PATCH_URI,
 	WSI_TOKEN_DELETE_URI,
+#endif
 	WSI_TOKEN_CONNECT,
 	WSI_TOKEN_HEAD_URI,
 };
@@ -1305,8 +1307,10 @@ nope:
 				 * WSORIGIN is protocol equiv to ORIGIN,
 				 * JWebSocket likes to send it, map to ORIGIN
 				 */
+#if defined(LWS_ROLE_WS)
 				if (n == WSI_TOKEN_SWORIGIN)
 					n = WSI_TOKEN_ORIGIN;
+#endif
 
 				ah->parser_state = (enum lws_token_indexes)
 							(WSI_TOKEN_GET_URI + n);
@@ -1400,11 +1404,13 @@ set_parsing_complete:
 		goto forbid;
 
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_UPGRADE)) {
+#if defined(LWS_ROLE_WS)
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_VERSION))
 			wsi->rx_frame_type = /* temp for ws version index */
 			       atoi(lws_hdr_simple_ptr(wsi, WSI_TOKEN_VERSION));
 
 		lwsl_parser("v%02d hdrs done\n", wsi->rx_frame_type);
+#endif
 	}
 	ah->parser_state = WSI_PARSING_COMPLETE;
 	wsi->hdr_parsing_completed = 1;

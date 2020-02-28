@@ -70,12 +70,6 @@ lws_poll_listen_fd(struct lws_pollfd *fd)
 }
 
 int
-lws_plat_check_connection_error(struct lws *wsi)
-{
-	return 0;
-}
-
-int
 lws_plat_set_nonblocking(lws_sockfd_type fd)
 {
 	return fcntl(fd, F_SETFL, O_NONBLOCK) < 0;

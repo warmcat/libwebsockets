@@ -25,7 +25,11 @@
 #include "private-lib-core.h"
 
 const char * const method_names[] = {
-	"GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE", "CONNECT", "HEAD",
+	"GET", "POST",
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
+	"OPTIONS", "PUT", "PATCH", "DELETE",
+#endif
+	"CONNECT", "HEAD",
 #ifdef LWS_WITH_HTTP2
 	":path",
 #endif
@@ -784,9 +788,11 @@ lws_find_mount(struct lws *wsi, const char *uri_ptr, int uri_len)
 			     lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI) ||
 			     lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI) ||
 			     lws_hdr_total_length(wsi, WSI_TOKEN_HEAD_URI) ||
+#if defined(LWS_ROLE_H2)
 			     (wsi->mux_substream &&
 				lws_hdr_total_length(wsi,
 						WSI_TOKEN_HTTP_COLON_PATH)) ||
+#endif
 			     hm->protocol) &&
 			    hm->mountpoint_len > best)) {
 				best = hm->mountpoint_len;
@@ -916,10 +922,12 @@ int lws_clean_url(char *p)
 static const unsigned char methods[] = {
 	WSI_TOKEN_GET_URI,
 	WSI_TOKEN_POST_URI,
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
 	WSI_TOKEN_OPTIONS_URI,
 	WSI_TOKEN_PUT_URI,
 	WSI_TOKEN_PATCH_URI,
 	WSI_TOKEN_DELETE_URI,
+#endif
 	WSI_TOKEN_CONNECT,
 	WSI_TOKEN_HEAD_URI,
 #ifdef LWS_WITH_HTTP2
@@ -941,8 +949,12 @@ lws_http_get_uri_and_method(struct lws *wsi, char **puri_ptr, int *puri_len)
 	}
 
 	if (count != 1 &&
-	    !((wsi->mux_substream || wsi->h2_stream_carries_ws) &&
-	      lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH))) {
+	    !((wsi->mux_substream || wsi->h2_stream_carries_ws)
+#if defined(LWS_ROLE_H2)
+			    &&
+	      lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH)
+#endif
+	      )) {
 		lwsl_warn("multiple methods?\n");
 		return -1;
 	}
@@ -1169,10 +1181,13 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 	 * host */
 
 	i.host = NULL;
+#if defined(LWS_ROLE_H2)
 	n = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_AUTHORITY);
 	if (n > 0)
 		i.host = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_AUTHORITY);
-	else {
+	else
+#endif
+	{
 		n = lws_hdr_total_length(wsi, WSI_TOKEN_HOST);
 		if (n > 0) {
 			i.host = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST);
@@ -1315,14 +1330,20 @@ lws_http_redirect_hit(struct lws_context_per_thread *pt, struct lws *wsi,
 				    hit->origin);
 		else {
 			if (!lws_hdr_total_length(wsi, WSI_TOKEN_HOST)) {
+#if defined(LWS_ROLE_H2)
 				if (!lws_hdr_total_length(wsi,
 						WSI_TOKEN_HTTP_COLON_AUTHORITY))
+#endif
 					goto bail_nuke_ah;
+#if defined(LWS_ROLE_H2)
 				n = lws_snprintf((char *)end, 256,
 				    "%s%s%s/", oprot[!!lws_is_ssl(wsi)],
 				    lws_hdr_simple_ptr(wsi,
 						WSI_TOKEN_HTTP_COLON_AUTHORITY),
 				    uri_ptr);
+#else
+				;
+#endif
 			} else
 				n = lws_snprintf((char *)end, 256,
 				    "%s%s%s/", oprot[!!lws_is_ssl(wsi)],
@@ -1394,9 +1415,13 @@ lws_http_action(struct lws *wsi)
 
 	wsi->http.rx_content_length = 0;
 	wsi->http.content_length_explicitly_zero = 0;
-	if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI) ||
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI)
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
+			||
 	    lws_hdr_total_length(wsi, WSI_TOKEN_PATCH_URI) ||
-	    lws_hdr_total_length(wsi, WSI_TOKEN_PUT_URI))
+	    lws_hdr_total_length(wsi, WSI_TOKEN_PUT_URI)
+#endif
+	    )
 		wsi->http.rx_content_length = 100 * 1024 * 1024;
 
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
@@ -1996,7 +2021,7 @@ raw_transition:
 		}
 
 		/* check for unwelcome guests */
-
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
 		if (wsi->context->reject_service_keywords) {
 			const struct lws_protocol_vhost_options *rej =
 					wsi->context->reject_service_keywords;
@@ -2042,7 +2067,7 @@ raw_transition:
 				}
 			}
 		}
-
+#endif
 		/*
 		 * So he may have come to us requesting one or another kind
 		 * of upgrade from http... but we may want to redirect him at

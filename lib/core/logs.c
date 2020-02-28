@@ -41,24 +41,10 @@ static void (*lwsl_emit)(int level, const char *line)
 #endif
 	;
 #ifndef LWS_PLAT_OPTEE
-static const char * const log_level_names[] = {
-	"E",
-	"W",
-	"N",
-	"I",
-	"D",
-	"P",
-	"H",
-	"EXT",
-	"C",
-	"L",
-	"U",
-	"T",
-	"?",
-	"?"
-};
+static const char * log_level_names ="EWNIDPHXCLUT??";
 #endif
 
+#if defined(LWS_LOGS_TIMESTAMP)
 int
 lwsl_timestamp(int level, char *p, int len)
 {
@@ -91,7 +77,7 @@ lwsl_timestamp(int level, char *p, int len)
 
 		if (ptm)
 			n = lws_snprintf(p, len,
-				"[%04d/%02d/%02d %02d:%02d:%02d:%04d] %s: ",
+				"[%04d/%02d/%02d %02d:%02d:%02d:%04d] %c: ",
 				ptm->tm_year + 1900,
 				ptm->tm_mon + 1,
 				ptm->tm_mday,
@@ -100,7 +86,7 @@ lwsl_timestamp(int level, char *p, int len)
 				ptm->tm_sec,
 				(int)(now % 10000), log_level_names[n]);
 		else
-			n = lws_snprintf(p, len, "[%llu:%04d] %s: ",
+			n = lws_snprintf(p, len, "[%llu:%04d] %c: ",
 					(unsigned long long) now / 10000,
 					(int)(now % 10000), log_level_names[n]);
 		return n;
@@ -111,6 +97,7 @@ lwsl_timestamp(int level, char *p, int len)
 
 	return 0;
 }
+#endif
 
 #ifndef LWS_PLAT_OPTEE
 static const char * const colours[] = {
@@ -124,21 +111,25 @@ static const char * const colours[] = {
 	"[33m", /* LLL_EXT */
 	"[33m", /* LLL_CLIENT */
 	"[33;1m", /* LLL_LATENCY */
-       "[0;1m", /* LLL_USER */
+        "[0;1m", /* LLL_USER */
 	"[31m", /* LLL_THREAD */
 };
 
 static char tty;
 
-void
-lwsl_emit_stderr(int level, const char *line)
+static void
+_lwsl_emit_stderr(int level, const char *line, int ts)
 {
 	char buf[50];
 	int n, m = LWS_ARRAY_SIZE(colours) - 1;
 
 	if (!tty)
 		tty = isatty(2) | 2;
-	lwsl_timestamp(level, buf, sizeof(buf));
+
+#if defined(LWS_LOGS_TIMESTAMP)
+	if (ts)
+		lwsl_timestamp(level, buf, sizeof(buf));
+#endif
 
 	if (tty == 3) {
 		n = 1 << (LWS_ARRAY_SIZE(colours) - 1);
@@ -154,24 +145,15 @@ lwsl_emit_stderr(int level, const char *line)
 }
 
 void
+lwsl_emit_stderr(int level, const char *line)
+{
+	_lwsl_emit_stderr(level, line, 1);
+}
+
+void
 lwsl_emit_stderr_notimestamp(int level, const char *line)
 {
-	int n, m = LWS_ARRAY_SIZE(colours) - 1;
-
-	if (!tty)
-		tty = isatty(2) | 2;
-
-	if (tty == 3) {
-		n = 1 << (LWS_ARRAY_SIZE(colours) - 1);
-		while (n) {
-			if (level & n)
-				break;
-			m--;
-			n >>= 1;
-		}
-		fprintf(stderr, "%c%s%s%c[0m", 27, colours[m], line, 27);
-	} else
-		fprintf(stderr, "%s", line);
+	_lwsl_emit_stderr(level, line, 0);
 }
 
 #endif
@@ -214,8 +196,7 @@ void _lws_log(int filter, const char *format, ...)
 	va_end(ap);
 }
 #endif
-void lws_set_log_level(int level,
-				   void (*func)(int level, const char *line))
+void lws_set_log_level(int level, void (*func)(int level, const char *line))
 {
 	log_level = level;
 	if (func)
@@ -242,8 +223,7 @@ lwsl_hexdump_level(int hexdump_level, const void *vbuf, size_t len)
 	}
 
 	if (!vbuf) {
-		_lws_log(hexdump_level, "(hexdump: trying to dump %d at NULL)\n",
-					(int)len);
+		_lws_log(hexdump_level, "(hexdump: NULL ptr)\n");
 		return;
 	}
 
