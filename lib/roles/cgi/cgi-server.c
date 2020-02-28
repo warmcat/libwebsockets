@@ -132,10 +132,12 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 		static const unsigned char meths[] = {
 			WSI_TOKEN_GET_URI,
 			WSI_TOKEN_POST_URI,
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
 			WSI_TOKEN_OPTIONS_URI,
 			WSI_TOKEN_PUT_URI,
 			WSI_TOKEN_PATCH_URI,
 			WSI_TOKEN_DELETE_URI,
+#endif
 			WSI_TOKEN_CONNECT,
 			WSI_TOKEN_HEAD_URI,
 		#ifdef LWS_WITH_HTTP2
@@ -143,7 +145,10 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 		#endif
 		};
 		static const char * const meth_names[] = {
-			"GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE",
+			"GET", "POST",
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
+			"OPTIONS", "PUT", "PATCH", "DELETE",
+#endif
 			"CONNECT", "HEAD", ":path"
 		};
 
@@ -168,6 +173,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 						  meth_names[m]);
 				sum += lws_snprintf(sum, sumend - sum, "%s ",
 						    meth_names[m]);
+#if defined(LWS_ROLE_H2)
 			} else {
 				p += lws_snprintf(p, end - p,
 						  "REQUEST_METHOD=%s",
@@ -175,6 +181,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 				sum += lws_snprintf(sum, sumend - sum, "%s ",
 					lws_hdr_simple_ptr(wsi,
 						  WSI_TOKEN_HTTP_COLON_METHOD));
+#endif
 			}
 			p++;
 		}
@@ -228,6 +235,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 			p++;
 		}
 	}
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
 	if (script_uri_path_len >= 0 &&
 	    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_REFERER)) {
 		env_array[n++] = p;
@@ -235,6 +243,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 			      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_REFERER));
 		p++;
 	}
+#endif
 	if (script_uri_path_len >= 0 &&
 	    lws_hdr_total_length(wsi, WSI_TOKEN_HOST)) {
 		env_array[n++] = p;
@@ -251,6 +260,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 			p += lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE);
 		*p++ = '\0';
 	}
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
 	if (script_uri_path_len >= 0 &&
 	    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_USER_AGENT)) {
 		env_array[n++] = p;
@@ -258,6 +268,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 			    lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_USER_AGENT));
 		p++;
 	}
+#endif
 	if (script_uri_path_len >= 0 &&
 	    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_ENCODING)) {
 		env_array[n++] = p;

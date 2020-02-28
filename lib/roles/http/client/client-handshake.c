@@ -614,8 +614,10 @@ ads_known:
 			goto try_next_result_fds;
 		}
 
+#if defined(WIN32)
 		if (lws_plat_check_connection_error(wsi))
 			goto try_next_result_fds;
+#endif
 
 		/*
 		 * must do specifically a POLLOUT poll to hear

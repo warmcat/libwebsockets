@@ -536,7 +536,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	const char *prot, *ads = NULL, *path, *cce = NULL;
 	struct allocated_headers *ah, *ah1;
 	struct lws *nwsi = lws_get_network_wsi(wsi);
-	char *p, *q;
+	char *p = NULL, *q;
 	char new_path[300];
 
 	lws_free_set_NULL(wsi->stash);
@@ -602,6 +602,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			lwsl_info("no URI\n");
 			goto bail3;
 		}
+#if defined(LWS_ROLE_H2)
 	} else {
 		p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_STATUS);
 		if (!p) {
@@ -609,7 +610,15 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			lwsl_info("no status\n");
 			goto bail3;
 		}
+#endif
 	}
+#if !defined(LWS_ROLE_H2)
+	if (!p) {
+		cce = "HS: :status missing";
+		lwsl_info("no status\n");
+		goto bail3;
+	}
+#endif
 	n = atoi(p);
 	if (ah)
 		ah->http_response = n;
@@ -811,6 +820,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			wsi->chunk_parser = ELCP_HEX;
 		}
 
+		wsi->http.content_length_given = 0;
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
 			wsi->http.rx_content_length =
 					atoll(lws_hdr_simple_ptr(wsi,
@@ -820,9 +830,12 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 					    wsi->http.rx_content_length);
 			wsi->http.rx_content_remain =
 					wsi->http.rx_content_length;
-		} else /* can't do 1.1 without a content length or chunked */
+			wsi->http.content_length_given = 1;
+		} else { /* can't do 1.1 without a content length or chunked */
 			if (!wsi->chunked)
 				wsi->http.conn_type = HTTP_CONNECTION_CLOSE;
+			lwsl_debug("%s: no content length\n", __func__);
+		}
 
 		/*
 		 * we seem to be good to go, give client last chance to check
@@ -1341,10 +1354,11 @@ spin_chunks:
 	if (wsi->http.rx_content_length > 0)
 		wsi->http.rx_content_remain -= n;
 
-	// lwsl_notice("rx_content_remain %lld, rx_content_length %lld\n",
-	//	wsi->http.rx_content_remain, wsi->http.rx_content_length);
+	// lwsl_notice("rx_content_remain %lld, rx_content_length %lld, giv %d\n",
+	//	    wsi->http.rx_content_remain, wsi->http.rx_content_length,
+	//	    wsi->http.content_length_given);
 
-	if (wsi->http.rx_content_remain || !wsi->http.rx_content_length)
+	if (wsi->http.rx_content_remain || !wsi->http.content_length_given)
 		goto account_and_ret;
 
 completed:

@@ -180,12 +180,6 @@ again:
 }
 
 int
-lws_plat_check_connection_error(struct lws *wsi)
-{
-	return 0;
-}
-
-int
 lws_plat_service(struct lws_context *context, int timeout_ms)
 {
 	return _lws_plat_service_tsi(context, timeout_ms, 0);

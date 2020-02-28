@@ -574,9 +574,11 @@ struct lws;
 #include <libwebsockets/lws-diskcache.h>
 #include <libwebsockets/lws-sequencer.h>
 
+#if !defined(LWS_PLAT_FREERTOS)
 #include <libwebsockets/abstract/abstract.h>
 
 #include <libwebsockets/lws-test-sequencer.h>
+#endif
 #include <libwebsockets/lws-async-dns.h>
 
 #if defined(LWS_WITH_TLS)
