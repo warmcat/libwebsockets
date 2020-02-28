@@ -89,6 +89,8 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 		break;
 #endif
 
+#if defined(LWS_CLIENT_HTTP_PROXYING) && (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2))
+
 	case LRS_WAITING_PROXY_REPLY:
 
 		/* handle proxy hung up on us */
@@ -130,6 +132,8 @@ lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 
 		/* fallthru */
+
+#endif
 
 	case LRS_H1C_ISSUE_HANDSHAKE:
 
@@ -1109,6 +1113,7 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 }
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+#if defined(LWS_WITH_HTTP_BASIC_AUTH)
 
 int
 lws_http_basic_auth_gen(const char *user, const char *pw, char *buf, size_t len)
@@ -1130,6 +1135,8 @@ lws_http_basic_auth_gen(const char *user, const char *pw, char *buf, size_t len)
 
 	return 0;
 }
+
+#endif
 
 int
 lws_http_client_read(struct lws *wsi, char **buf, int *len)

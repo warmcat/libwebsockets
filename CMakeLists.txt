@@ -56,6 +56,8 @@ option(LWS_WITH_FTS "Full Text Search support" OFF)
 option(LWS_WITH_SYS_ASYNC_DNS "Nonblocking internal IPv4 + IPv6 DNS resolver" OFF)
 option(LWS_WITH_SYS_NTPCLIENT "Build in tiny ntpclient good for tls date validation and run via lws_system" OFF)
 option(LWS_WITH_SYS_DHCP_CLIENT "Build in tiny DHCP client" OFF)
+option(LWS_WITH_HTTP_BASIC_AUTH "Support Basic Auth" ON)
+
 #
 # TLS library options... all except mbedTLS are basically OpenSSL variants.
 #

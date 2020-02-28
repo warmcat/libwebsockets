@@ -59,6 +59,8 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 #endif
 		break;
 
+#if defined(LWS_WITH_HTTP_BASIC_AUTH)
+
 	/* you only need this if you need to do Basic Auth */
 	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
 	{
@@ -76,6 +78,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 
 		break;
 	}
+#endif
 
 	/* chunks of chunked content, with header removed */
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:

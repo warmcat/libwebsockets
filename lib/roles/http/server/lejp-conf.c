@@ -671,7 +671,9 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->m.cache_intermediaries = arg_to_bool(ctx->buf);;
 		return 0;
 	case LEJPVP_MOUNT_BASIC_AUTH:
+#if defined(LWS_WITH_HTTP_BASIC_AUTH)
 		a->m.basic_auth_login_file = a->p;
+#endif
 		break;
 	case LEJPVP_CGI_TIMEOUT:
 		a->m.cgi_timeout = atoi(ctx->buf);
