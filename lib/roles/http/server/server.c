@@ -800,7 +800,7 @@ lws_find_mount(struct lws *wsi, const char *uri_ptr, int uri_len)
 }
 #endif
 
-#if !defined(LWS_PLAT_FREERTOS) && defined(LWS_WITH_FILE_OPS)
+#if defined(LWS_WITH_HTTP_BASIC_AUTH) && !defined(LWS_PLAT_FREERTOS) && defined(LWS_WITH_FILE_OPS)
 static int
 lws_find_string_in_file(const char *filename, const char *string, int stringlen)
 {
@@ -846,6 +846,8 @@ lws_find_string_in_file(const char *filename, const char *string, int stringlen)
 }
 #endif
 
+#if defined(LWS_WITH_HTTP_BASIC_AUTH)
+
 int
 lws_unauthorised_basic_auth(struct lws *wsi)
 {
@@ -880,6 +882,8 @@ lws_unauthorised_basic_auth(struct lws *wsi)
 	return lws_http_transaction_completed(wsi);
 
 }
+
+#endif
 
 int lws_clean_url(char *p)
 {
@@ -952,6 +956,8 @@ lws_http_get_uri_and_method(struct lws *wsi, char **puri_ptr, int *puri_len)
 
 	return -1;
 }
+
+#if defined(LWS_WITH_HTTP_BASIC_AUTH)
 
 enum lws_check_basic_auth_results
 lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file,
@@ -1042,6 +1048,8 @@ lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file,
 	return LCBA_FAILED_AUTH;
 #endif
 }
+
+#endif
 
 #if defined(LWS_WITH_HTTP_PROXY)
 /*
@@ -1514,6 +1522,8 @@ lws_http_action(struct lws *wsi)
 	if (ha)
 		return n;
 
+#if defined(LWS_WITH_HTTP_BASIC_AUTH)
+
 	/* basic auth? */
 
 	switch (lws_check_basic_auth(wsi, hit->basic_auth_login_file,
@@ -1526,6 +1536,7 @@ lws_http_action(struct lws *wsi)
 		lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
 		return lws_http_transaction_completed(wsi);
 	}
+#endif
 
 #if defined(LWS_WITH_HTTP_PROXY)
 	/*

@@ -99,10 +99,12 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 			"User-agent: lws\x0d\x0a", cpa, wsi->ocport,
 						   cpa, wsi->ocport);
 
+#if defined(LWS_WITH_HTTP_BASIC_AUTH)
 		if (wsi->vhost->proxy_basic_auth_token[0])
 			plen += lws_snprintf((char *)pt->serv_buf + plen, 256,
 					"Proxy-authorization: basic %s\x0d\x0a",
 					wsi->vhost->proxy_basic_auth_token);
+#endif
 
 		plen += lws_snprintf((char *)pt->serv_buf + plen, 5, "\x0d\x0a");
 

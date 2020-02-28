@@ -255,8 +255,10 @@ int
 lws_process_ws_upgrade2(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+#if defined(LWS_WITH_HTTP_BASIC_AUTH)
 	const struct lws_protocol_vhost_options *pvos = NULL;
 	const char *ws_prot_basic_auth = NULL;
+
 
 	/*
 	 * Allow basic auth a look-in now we bound the wsi to the protocol.
@@ -282,6 +284,7 @@ lws_process_ws_upgrade2(struct lws *wsi)
 			return lws_http_transaction_completed(wsi);
 		}
 	}
+#endif
 
 	/*
 	 * We are upgrading to ws, so http/1.1 + h2 and keepalive + pipelined
