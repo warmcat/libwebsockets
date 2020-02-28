@@ -228,8 +228,11 @@ start_ws_handshake:
 	case LRS_H1C_ISSUE_HANDSHAKE2:
 		p = lws_generate_client_handshake(wsi, p);
 		if (p == NULL) {
-			if (wsi->role_ops == &role_ops_raw_skt ||
-			    wsi->role_ops == &role_ops_raw_file)
+			if (wsi->role_ops == &role_ops_raw_skt
+#if defined(LWS_ROLE_RAW_FILE)
+				|| wsi->role_ops == &role_ops_raw_file
+#endif
+			    )
 				return 0;
 
 			lwsl_err("Failed to generate handshake for client\n");
