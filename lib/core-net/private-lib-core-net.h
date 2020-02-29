@@ -359,6 +359,15 @@ struct lws_context_per_thread {
 	struct lws_dll2_owner seq_owner;	   /* list of lws_sequencer-s */
 	lws_dll2_owner_t      attach_owner;	/* pending lws_attach */
 
+#if defined(LWS_WITH_SECURE_STREAMS)
+	lws_dll2_owner_t ss_owner;
+#endif
+#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API) || \
+    defined(LWS_WITH_SECURE_STREAMS_THREAD_API)
+	lws_dll2_owner_t ss_dsh_owner;
+	lws_dll2_owner_t ss_client_owner;
+#endif
+
 	struct lws_dll2_owner pt_sul_owner;
 
 #if defined (LWS_WITH_SEQUENCER)
@@ -588,9 +597,10 @@ struct lws_vhost {
 	int log_fd;
 #endif
 
-	unsigned int allocated_vhost_protocols:1;
-	unsigned int created_vhost_protocols:1;
-	unsigned int being_destroyed:1;
+	uint8_t allocated_vhost_protocols:1;
+	uint8_t created_vhost_protocols:1;
+	uint8_t being_destroyed:1;
+	uint8_t from_ss_policy:1;
 
 	unsigned char default_protocol_index;
 	unsigned char raw_protocol_index;
@@ -1149,6 +1159,9 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len);
 
 lws_usec_t
 __lws_seq_timeout_check(struct lws_context_per_thread *pt, lws_usec_t usnow);
+
+lws_usec_t
+__lws_ss_timeout_check(struct lws_context_per_thread *pt, lws_usec_t usnow);
 
 struct lws * LWS_WARN_UNUSED_RESULT
 lws_client_connect_2_dnsreq(struct lws *wsi);

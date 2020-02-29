@@ -134,7 +134,7 @@ callback_ntpc(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (v)
 			break;
 
-		lwsl_debug("%s: LWS_CALLBACK_PROTOCOL_INIT\n", __func__);
+		lwsl_debug("%s: LWS_CALLBACK_PROTOCOL_INIT:\n", __func__);
 		lws_protocol_vh_priv_zalloc(wsi->vhost, wsi->protocol,
 					    sizeof(*v));
 		v = (struct vhd_ntpc *)lws_protocol_vh_priv_get(wsi->vhost,

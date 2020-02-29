@@ -340,14 +340,17 @@ do_cb:
 
 			if (p + 14 > e)
 				return -1;
-
-			/* it should have exactly reached rrpaylen */
+#if 0
+			/* it should have exactly reached rrpaylen if only one
+			 * CNAME, else somewhere in the middle */
 
 			if (p != pay + rrpaylen) {
 				lwsl_err("%s: cname name bad len %d\n", __func__, rrpaylen);
 
 				return -1;
 			}
+#endif
+			lwsl_notice("%s: recursing looking for %s\n", __func__, stack[stp].name);
 
 			lwsl_info("%s: recursing looking for %s\n", __func__,
 					stack[stp].name);

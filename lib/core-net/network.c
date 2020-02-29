@@ -213,7 +213,7 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 	memset(&sin, 0, sizeof(sin));
 
 #if defined(LWS_WITH_UNIX_SOCK)
-	if (LWS_UNIX_SOCK_ENABLED(vhost)) {
+	if (!port && LWS_UNIX_SOCK_ENABLED(vhost)) {
 		v = (struct sockaddr *)&serv_unix;
 		n = sizeof(struct sockaddr_un);
 		memset(&serv_unix, 0, sizeof(serv_unix));
@@ -313,7 +313,7 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 	}
 
 #if defined(LWS_WITH_UNIX_SOCK)
-	if (LWS_UNIX_SOCK_ENABLED(vhost)) {
+	if (!port && LWS_UNIX_SOCK_ENABLED(vhost)) {
 		uid_t uid = vhost->context->uid;
 		gid_t gid = vhost->context->gid;
 

@@ -313,8 +313,14 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 					     i->uri_replace_to);
 #endif
 
-	if (i->method && (!strcmp(i->method, "RAW") ||
-			  !strcmp(i->method, "MQTT"))) {
+	if (i->method && (!strcmp(i->method, "RAW") // ||
+//			  !strcmp(i->method, "MQTT")
+	)) {
+
+		/*
+		 * Not for MQTT here, since we don't know if we will
+		 * pipeline it or not...
+		 */
 
 #if defined(LWS_WITH_TLS)
 

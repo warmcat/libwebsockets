@@ -200,6 +200,31 @@ send_hs:
 		else {
 			/* for a method = "RAW" connection, this makes us
 			 * established */
+
+#if defined(LWS_WITH_TLS)
+			if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
+
+				/* we can retry this... just cook the SSL BIO the first time */
+
+				if (lws_ssl_client_bio_create(wsi) < 0) {
+					lwsl_err("%s: bio_create failed\n", __func__);
+					goto failed;
+				}
+
+	//#if !defined(LWS_WITH_SYS_ASYNC_DNS)
+				if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
+					n = lws_ssl_client_connect1(wsi);
+					if (!n)
+						return wsi;
+					if (n < 0) {
+						lwsl_err("%s: lws_ssl_client_connect1 failed\n", __func__);
+						goto failed;
+					}
+				}
+	//#endif
+			}
+#endif
+
 #if 0
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 			if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {

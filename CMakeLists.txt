@@ -61,6 +61,13 @@ option(LWS_WITH_HTTP_BASIC_AUTH "Support Basic Auth" ON)
 option(LWS_WITH_HTTP_UNCOMMON_HEADERS "Include less common http header support" ON)
 
 #
+# Secure Streams
+#
+option(LWS_WITH_SECURE_STREAMS "Secure Streams protocol-agnostic API" OFF)
+option(LWS_WITH_SECURE_STREAMS_PROXY_API "Secure Streams support to work across processes" OFF)
+option(LWS_WITH_SECURE_STREAMS_SYS_AUTH_API_AMAZON_COM "Auth support for api.amazon.com" OFF)
+
+#
 # TLS library options... all except mbedTLS are basically OpenSSL variants.
 #
 option(LWS_WITH_SSL "Include SSL support (defaults to OpenSSL or similar, mbedTLS if LWS_WITH_MBEDTLS is set)" ON)
@@ -245,6 +252,11 @@ if(LWS_WITH_DISTRO_RECOMMENDED)
 	set(LWS_ROLE_MQTT 1)
 endif()
 
+if (LWS_WITH_SECURE_STREAMS_PROXY_API)
+	set(LWS_WITH_LWS_DSH 1)
+	set(LWS_WITH_UNIX_SOCK 1)
+endif()
+
 if (NOT LWS_WITH_NETWORK)
 	set(LWS_ROLE_MQTT 0)
 	set(LWS_ROLE_H1 0)
@@ -393,6 +405,10 @@ if (LWS_WITH_MBEDTLS)
 endif()
 
 include_directories(include plugins lib/core lib/core-net lib/event-libs include/abstract lib/tls lib/roles lib/event-libs/libuv lib/event-libs/poll lib/event-libs/libevent lib/event-libs/glib lib/event-libs/libev lib/jose/jwe lib/jose/jws lib/jose lib/misc lib/roles/http lib/roles/http/compression lib/roles/h1 lib/roles/h2 lib/roles/ws lib/roles/cgi lib/roles/dbus lib/roles/raw-proxy lib/abstract lib/system/async-dns lib/roles/mqtt)
+
+if (LWS_WITH_SECURE_STREAMS)
+	set(LWS_WITH_SECURE_STREAMS_SYS_AUTH_API_AMAZON_COM 1)
+endif()
 
 if (LWS_PLAT_FREERTOS)
 	include_directories(lib/plat/freertos lib/plat/freertos/esp32)
@@ -752,14 +768,6 @@ if (LWS_WITHOUT_DAEMONIZE OR WIN32)
 	set(LWS_NO_DAEMONIZE 1)
 endif()
 
-if (LWS_WITHOUT_SERVER)
-	set(LWS_WITHOUT_SERVER 1)
-endif()
-
-if (LWS_WITHOUT_CLIENT)
-	set(LWS_WITHOUT_CLIENT 1)
-endif()
-
 if (LWS_WITH_LIBEV)
 	set(LWS_WITH_LIBEV 1)
 endif()
@@ -790,11 +798,11 @@ endif()
 
 set(LWS_WITH_CLIENT 1)
 if (LWS_WITHOUT_CLIENT)
-	set(LWS_WITH_CLIENT 0)
+	set(LWS_WITH_CLIENT)
 endif()
 set(LWS_WITH_SERVER 1)
 if (LWS_WITHOUT_SERVER)
-	set(LWS_WITH_SERVER 0)
+	set(LWS_WITH_SERVER)
 endif()
 
 # using any abstract protocol enables LWS_WITH_ABSTRACT
@@ -1165,6 +1173,53 @@ if (LWS_WITH_NETWORK)
 		endif()
 	endif()
 
+	if (LWS_WITH_SECURE_STREAMS)
+		list(APPEND SOURCES
+			lib/secure-streams/secure-streams.c
+			lib/secure-streams/policy.c
+			lib/secure-streams/system/fetch-policy/fetch-policy.c
+		)
+		if (LWS_ROLE_H1)
+			list(APPEND SOURCES
+				lib/secure-streams/protocols/ss-h1.c
+			)
+		endif()
+		if (LWS_ROLE_H2)
+			list(APPEND SOURCES
+				lib/secure-streams/protocols/ss-h2.c
+			)
+		endif()
+		if (LWS_ROLE_WS)
+			list(APPEND SOURCES
+				lib/secure-streams/protocols/ss-ws.c
+			)
+		endif()
+		if (LWS_ROLE_MQTT)
+			list(APPEND SOURCES
+				lib/secure-streams/protocols/ss-mqtt.c
+			)
+		endif()
+
+		if (LWS_WITH_SECURE_STREAMS_PROXY_API)
+			list(APPEND SOURCES
+				lib/secure-streams/secure-streams-serialize.c
+				lib/secure-streams/secure-streams-client.c
+			)
+		endif()
+
+		if (LWS_WITH_SECURE_STREAMS_PROXY_API)
+			list(APPEND SOURCES
+				lib/secure-streams/secure-streams-process.c
+			)
+		endif()
+
+		if (LWS_WITH_SECURE_STREAMS_SYS_AUTH_API_AMAZON_COM)
+			list(APPEND SOURCES
+				lib/secure-streams/system/auth-api.amazon.com/auth.c
+			)
+		endif()
+	endif()
+
 	if (LWS_WITH_STATS)
 		list(APPEND SOURCES
 			lib/core-net/stats.c
@@ -1300,7 +1355,11 @@ endif()
 
 if (NOT LWS_WITHOUT_SERVER)
 	list(APPEND SOURCES
-		lib/core-net/server.c
+		lib/core-net/server.c)
+endif()
+
+if (NOT LWS_WITHOUT_SERVER OR LWS_WITH_SECURE_STREAMS_PROCESS_API)
+	list(APPEND SOURCES
 		lib/roles/listen/ops-listen.c)
 endif()
 
@@ -1684,7 +1743,7 @@ if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX OR COMPILER_IS_CLANG)
 	endif()
 
     if (UNIX AND NOT LWS_PLAT_FREERTOS)
-	    set(CMAKE_C_FLAGS "-Wall -Wsign-compare -Wuninitialized -Werror ${VISIBILITY_FLAG} -Wundef ${GCOV_FLAGS} ${CMAKE_C_FLAGS} ${ASAN_FLAGS}" )
+	    set(CMAKE_C_FLAGS "-Wall -Wsign-compare -Wstrict-aliasing -Wuninitialized -Werror ${VISIBILITY_FLAG} -Wundef ${GCOV_FLAGS} ${CMAKE_C_FLAGS} ${ASAN_FLAGS}" )
     else()
 	    set(CMAKE_C_FLAGS "-Wall -Wsign-compare -Wuninitialized -Werror ${VISIBILITY_FLAG} ${GCOV_FLAGS} ${CMAKE_C_FLAGS}" )
     endif()
@@ -2665,6 +2724,59 @@ if (LWS_WITH_LWSWS)
 			     INSTALL_DATADIR="${CMAKE_INSTALL_PREFIX}/share"
 		)
 endif (LWS_WITH_LWSWS)
+
+# secure streams plugins
+
+if (LWS_WITH_SECURE_STREAMS)
+	#
+	# Helper function for adding a secure stream plugin
+	#
+	macro(create_ss_plugin NAME S2 S3 S4 S5 S6)
+
+		set(SSP_SRCS)
+		set(SSP_PUBLIC_HDR)
+		set(SSP_HDR)
+
+		if ("${S2}" STREQUAL "")
+		else()
+			list(APPEND SSP_SRCS
+			     lib/secure-streams/plugins/${NAME}/${S2})
+		endif()
+		if ("${S3}" STREQUAL "")
+		else()
+			list(APPEND SSP_SRCS
+			     lib/secure-streams/plugins/${NAME}/${S3})
+		endif()
+		if ("${S4}" STREQUAL "")
+		else()
+			list(APPEND SSP_SRCS
+			     lib/secure-streams/plugins/${NAME}/${S4})
+		endif()
+		if ("${S5}" STREQUAL "")
+		else()
+			list(APPEND SSP_SRCS
+			     lib/secure-streams/plugins/${NAME}/${S5})
+		endif()
+		if ("${S6}" STREQUAL "")
+		else()
+			list(APPEND SSP_SRCS
+			     lib/secure-streams/plugins/${NAME}/${S6})
+		endif()
+
+		source_group("Headers Private"  FILES ${SSP_HDR})
+		source_group("Sources"		FILES ${SSP_SRCS})
+
+		add_library( ${NAME} STATIC
+			     ${SSP_HDR} ${SSP_PUBLIC_HDR} ${SSP_SRCS} )
+
+                add_dependencies(${NAME} websockets_shared)
+		list(APPEND SS_PLUGINS_LIST ${NAME})
+	endmacro()
+
+	include_directories(lib/secure-streams)
+
+	create_ss_plugin(ssp-h1url "h1url.c" "" "" "" "")
+endif()
 
 if (UNIX)
 

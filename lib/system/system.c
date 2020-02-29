@@ -56,6 +56,8 @@ lws_system_blob_heap_append(lws_system_blob_t *b, const uint8_t *buf, size_t len
 {
 	assert(!b->is_direct);
 
+	lwsl_debug("%s: blob %p\n", __func__, b);
+
 	if (lws_buflist_append_segment(&b->u.bl, buf, len) < 0)
 		return -1;
 
@@ -126,6 +128,7 @@ lws_system_blob_destroy(lws_system_blob_t *b)
 {
 	if (!b)
 		return;
+	lwsl_info("%s: blob %p\n", __func__, b);
 	if (!b->is_direct)
 		lws_buflist_destroy_all_segments(&b->u.bl);
 }

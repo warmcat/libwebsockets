@@ -71,6 +71,24 @@ const struct lws_protocols *available_abstract_protocols[] = {
 };
 #endif
 
+#if defined(LWS_WITH_SECURE_STREAMS)
+const struct lws_protocols *available_secstream_protocols[] = {
+#if defined(LWS_ROLE_H1)
+	&protocol_secstream_h1,
+#endif
+#if defined(LWS_ROLE_H2)
+	&protocol_secstream_h2,
+#endif
+#if defined(LWS_ROLE_WS)
+	&protocol_secstream_ws,
+#endif
+#if defined(LWS_ROLE_MQTT)
+	&protocol_secstream_mqtt,
+#endif
+	NULL
+};
+#endif
+
 static const char * const mount_protocols[] = {
 	"http://",
 	"https://",
@@ -456,7 +474,7 @@ lws_create_vhost(struct lws_context *context,
 	struct lws_plugin *plugin = context->plugin_list;
 #endif
 	struct lws_protocols *lwsp;
-	int m, f = !info->pvo, fx = 0, abs_pcol_count = 0;
+	int m, f = !info->pvo, fx = 0, abs_pcol_count = 0, sec_pcol_count = 0;
 	char buf[96];
 #if ((defined(LWS_CLIENT_HTTP_PROXYING) && defined(LWS_WITH_CLIENT)) \
 		|| defined(LWS_WITH_SOCKS5)) && defined(LWS_HAVE_GETENV)
@@ -581,6 +599,9 @@ lws_create_vhost(struct lws_context *context,
 #if defined(LWS_WITH_ABSTRACT)
 	abs_pcol_count = (int)LWS_ARRAY_SIZE(available_abstract_protocols) - 1;
 #endif
+#if defined(LWS_WITH_SECURE_STREAMS)
+	sec_pcol_count = (int)LWS_ARRAY_SIZE(available_secstream_protocols) - 1;
+#endif
 
 	/*
 	 * give the vhost a unified list of protocols including:
@@ -592,7 +613,7 @@ lws_create_vhost(struct lws_context *context,
 	 */
 	lwsp = lws_zalloc(sizeof(struct lws_protocols) *
 				(vh->count_protocols +
-				   abs_pcol_count +
+				   abs_pcol_count + sec_pcol_count +
 				   context->plugin_protocol_count +
 				   fx + 1),
 			  "vhost-specific plugin table");
@@ -629,6 +650,14 @@ lws_create_vhost(struct lws_context *context,
 	if (!context->vhost_list) {
 		memcpy(&lwsp[m++], &lws_async_dns_protocol,
 		       sizeof(struct lws_protocols));
+		vh->count_protocols++;
+	}
+#endif
+
+#if defined(LWS_WITH_SECURE_STREAMS)
+	for (n = 0; n < sec_pcol_count; n++) {
+		memcpy(&lwsp[m++], available_secstream_protocols[n],
+		       sizeof(*lwsp));
 		vh->count_protocols++;
 	}
 #endif
@@ -1287,6 +1316,8 @@ lws_vhost_destroy(struct lws_vhost *vh)
 
 	lws_vhost_destroy1(vh);
 
+	lwsl_debug("%s: count_bound_wsi %d\n", __func__, vh->count_bound_wsi);
+
 	if (!vh->count_bound_wsi) {
 		/*
 		 * After listen handoff, there are already no wsi bound to this
@@ -1406,6 +1437,7 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 		return ACTIVE_CONNS_QUEUED;
 	}
 
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT)
 	if (wsi->mux.parent_wsi) {
 		/*
 		 * We already decided...
@@ -1415,6 +1447,7 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 
 		return ACTIVE_CONNS_MUXED;
 	}
+#endif
 
 	lws_vhost_lock(wsi->vhost); /* ----------------------------------- { */
 
@@ -1448,7 +1481,7 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 			 * connection that it doesn't support pipelining...
 			 */
 			if (w->keepalive_rejected) {
-				lwsl_info("defeating pipelining due to no "
+				lwsl_notice("defeating pipelining due to no "
 					  "keepalive on server\n");
 				goto solo;
 			}

@@ -234,8 +234,9 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 		     const char *caller)
 {
 	struct lws_context_per_thread *pt;
-	struct lws *wsi1, *wsi2;
+	const struct lws_protocols *pro;
 	struct lws_context *context;
+	struct lws *wsi1, *wsi2;
 	int n, ccb;
 
 	lwsl_info("%s: %p: caller: %s\n", __func__, wsi, caller);
@@ -585,8 +586,15 @@ just_kill_connection:
 		 */
 		ccb = 1;
 
+	pro = wsi->protocol;
+
+#if defined(LWS_WITH_CLIENT)
+	if (!ccb && (lwsi_state_PRE_CLOSE(wsi) & LWSIFS_NOT_EST) &&
+			lwsi_role_client(wsi)) {
+		lws_inform_client_conn_fail(wsi, "Closed before conn", 18);
+	}
+#endif
 	if (ccb) {
-		const struct lws_protocols *pro = wsi->protocol;
 
 		if (!wsi->protocol && wsi->vhost && wsi->vhost->protocols)
 			pro = &wsi->vhost->protocols[0];

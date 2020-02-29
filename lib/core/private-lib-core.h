@@ -197,6 +197,9 @@ struct lws;
 #if defined(LWS_WITH_NETWORK)
 #include "private-lib-event-libs.h"
 
+#if defined(LWS_WITH_SECURE_STREAMS)
+#include "private-lib-secure-streams.h"
+#endif
 
 struct lws_io_watcher {
 #ifdef LWS_WITH_LIBEV
@@ -357,6 +360,14 @@ struct lws_context {
 	lws_async_dns_t		async_dns;
 #endif
 
+#if defined(LWS_WITH_SECURE_STREAMS_SYS_AUTH_API_AMAZON_COM)
+	void				*pol_args;
+	struct lws_ss_handle		*hss_auth;
+	struct lws_ss_handle		*hss_fetch_policy;
+	lws_sorted_usec_list_t		sul_api_amazon_com;
+	lws_sorted_usec_list_t		sul_api_amazon_com_kick;
+#endif
+
 	lws_state_manager_t		mgr_system;
 	lws_state_notify_link_t		protocols_notify;
 #if defined (LWS_WITH_SYS_DHCP_CLIENT)
@@ -397,6 +408,11 @@ struct lws_context {
 #endif
 #endif /* NETWORK */
 
+#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
+	const char	*ss_proxy_bind;
+	const char	*ss_proxy_address;
+#endif
+
 #if defined(LWS_WITH_FILE_OPS)
 	const struct lws_plat_file_ops *fops;
 #endif
@@ -425,6 +441,14 @@ struct lws_context {
 #endif
 
 	const lws_system_ops_t *system_ops;
+
+#if defined(LWS_WITH_SECURE_STREAMS)
+	const char *pss_policies_json;
+	const lws_ss_policy_t *pss_policies;
+	const lws_ss_plugin_t **pss_plugins;
+	struct lwsac *ac_policy;
+#endif
+
 	void *external_baggage_free_on_destroy;
 	const struct lws_token_limits *token_limits;
 	void *user_space;
@@ -487,6 +511,7 @@ struct lws_context {
 	unsigned int done_protocol_destroy_cb:1;
 	unsigned int finalize_destroy_after_internal_loops_stopped:1;
 	unsigned int max_fds_unrelated_to_ulimit:1;
+	unsigned int policy_updated:1;
 
 	short count_threads;
 	short plugin_protocol_count;
@@ -494,6 +519,9 @@ struct lws_context {
 	short server_string_len;
 	unsigned short ws_ping_pong_interval;
 	unsigned short deprecation_pending_listen_close_count;
+#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
+	uint16_t	ss_proxy_port;
+#endif
 
 	uint8_t max_fi;
 	uint8_t udp_loss_sim_tx_pc;

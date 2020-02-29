@@ -146,6 +146,7 @@ _lwsac_use(struct lwsac **head, size_t ensure, size_t chunk_size, char backfill)
 	if (al >= alloc - hp)
 		alloc = al + hp;
 
+	lwsl_debug("%s: alloc %d for %d\n", __func__, (int)alloc, (int)ensure);
 	bf = malloc(alloc);
 	if (!bf) {
 		lwsl_err("%s: OOM trying to alloc %llud\n", __func__,

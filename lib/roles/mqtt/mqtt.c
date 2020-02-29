@@ -1705,6 +1705,8 @@ lws_mqtt_client_send_publish(struct lws *wsi, lws_mqtt_publish_param_t *pub,
 
 do_write:
 
+	// lwsl_hexdump_err(start, lws_ptr_diff(p, start));
+
 	if (lws_write(nwsi, start, lws_ptr_diff(p, start), LWS_WRITE_BINARY) !=
 			lws_ptr_diff(p, start)) {
 		lwsl_err("%s: write failed\n", __func__);
