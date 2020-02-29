@@ -51,6 +51,8 @@ lws_struct_schema_only_lejp_cb(struct lejp_ctx *ctx, char reason)
 			return 1;
 		}
 		a->dest_len = map->aux;
+		if (!ctx->pst_sp)
+			a->top_schema_index = (int)(map - a->map_st[ctx->pst_sp]);
 
 		if (!cb)
 			cb = lws_struct_default_lejp_cb;

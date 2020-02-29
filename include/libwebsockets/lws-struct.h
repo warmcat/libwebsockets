@@ -70,6 +70,8 @@ typedef struct lws_struct_args {
 	size_t ac_block_size;
 	int subtype;
 
+	int top_schema_index;
+
 	/*
 	 * temp ac used to collate unknown possibly huge strings before final
 	 * allocation and copy
