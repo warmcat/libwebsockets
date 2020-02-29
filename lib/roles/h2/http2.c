@@ -2611,7 +2611,7 @@ lws_h2_client_stream_long_poll_rxonly(struct lws *wsi)
 	wsi->h2.long_poll = 1;
 	wsi->h2.send_END_STREAM = 1;
 
-	lws_header_table_detach(wsi, 0);
+	// lws_header_table_detach(wsi, 0);
 
 	lws_callback_on_writable(wsi);
 

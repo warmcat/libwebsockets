@@ -16,6 +16,26 @@ various scenarios, CC0-licensed (public domain) for cut-and-paste, allow you to 
 News
 ----
 
+## Introducing Secure Streams client support
+
+Secure Streams is an optional layer above lws (`-DLWS_WITH_SECURE_STREAMS=1`) that
+separates connectivity policy into a JSON document, which can be part of the
+firmware or fetched at boot time.
+
+Code no longer deals with details like endpoint specification or tls cert stack used
+to validate the remote server, it's all specified in JSON, eg, see
+[this example](https://warmcat.com/policy/minimal-proxy.json).  Even the protocol to use to talk to the
+server, between h1, h2, ws or MQTT, is specified in the policy JSON and the code
+itself just deals with payloads and optionally metadata, making it possible to
+switch endpoints, update certs and even switch communication protocols by just
+editing the JSON policy and leaving the code alone.
+
+Logical Secure Stream connections outlive any underlying lws connection, and support
+"nailed-up" connection reacquisition and exponential backoff management.
+
+See [./lib/secure-streams/README.md](https://libwebsockets.org/git/libwebsockets/tree/lib/secure-streams/README.md) and the related minimal examples
+for more details.
+
 ## mqtt client support
 
 If you enable `-DLWS_ROLE_MQTT=1`, lws can now support QoS0 and QoS1 MQTT client

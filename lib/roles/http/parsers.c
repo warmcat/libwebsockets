@@ -286,10 +286,10 @@ reset:
 
 	lws_pt_unlock(pt);
 
+#if defined(LWS_WITH_CLIENT)
 #if defined(LWS_ROLE_MQTT)
 connect_via_info2:
 #endif
-#if defined(LWS_WITH_CLIENT)
 	if (lwsi_role_client(wsi) && lwsi_state(wsi) == LRS_UNCONNECTED)
 		if (!lws_http_client_connect_via_info2(wsi))
 			/* our client connect has failed, the wsi
@@ -349,6 +349,7 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 		lws_peer_track_ah_detach(context, wsi->peer);
 #endif
 	ah->wsi = NULL; /* no owner */
+	wsi->http.ah = NULL;
 
 	pwsi = &pt->http.ah_wait_list;
 

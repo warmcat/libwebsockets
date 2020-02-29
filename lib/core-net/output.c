@@ -264,10 +264,10 @@ lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 		wsi->detlat.acc_size = m;
 		wsi->detlat.type = LDLT_WRITE;
 		if (wsi->detlat.earliest_write_req_pre_write)
-			wsi->detlat.latencies[LAT_DUR_PROXY_RX_TO_ONWARD_TX] =
+			wsi->detlat.latencies[LAT_DUR_PROXY_PROXY_REQ_TO_WRITE] =
 					us - wsi->detlat.earliest_write_req_pre_write;
 		else
-			wsi->detlat.latencies[LAT_DUR_PROXY_RX_TO_ONWARD_TX] = 0;
+			wsi->detlat.latencies[LAT_DUR_PROXY_PROXY_REQ_TO_WRITE] = 0;
 		wsi->detlat.latencies[LAT_DUR_USERCB] = lws_now_usecs() - us;
 		lws_det_lat_cb(wsi->context, &wsi->detlat);
 

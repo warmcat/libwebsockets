@@ -86,7 +86,7 @@ lws_set_socks(struct lws_vhost *vhost, const char *socks)
 		}
 	}
 
-	lwsl_notice("%s: Connections via Socks5 %s:%u\n", __func__,
+	lwsl_debug("%s: Connections via Socks5 %s:%u\n", __func__,
 		    vhost->socks_proxy_address, vhost->socks_proxy_port);
 
 	return 0;

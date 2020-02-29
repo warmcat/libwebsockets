@@ -294,7 +294,7 @@ lws_validity_cb(lws_sorted_usec_list_t *sul)
 
 	/* schedule a protocol-dependent ping */
 
-	lwsl_info("%s: wsi %p: scheduling validity check\n", __func__, wsi);
+	lwsl_notice("%s: wsi %p: scheduling validity check\n", __func__, wsi);
 
 	if (wsi->role_ops && wsi->role_ops->issue_keepalive)
 		wsi->role_ops->issue_keepalive(wsi, 0);

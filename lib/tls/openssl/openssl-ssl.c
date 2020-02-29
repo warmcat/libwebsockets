@@ -60,6 +60,8 @@ int lws_ssl_get_error(struct lws *wsi, int n)
 	lwsl_debug("%s: %p %d -> %d (errno %d)\n", __func__, wsi->tls.ssl, n, m,
 		   errno);
 
+	assert (errno != 9);
+
 	return m;
 }
 

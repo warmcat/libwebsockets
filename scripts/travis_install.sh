@@ -22,7 +22,7 @@ then
 		sudo update-ca-certificates
 	fi
 
-	if [ "$LWS_METHOD" == "mbedtls" ];
+	if [ "$LWS_METHOD" == "mbedtls" -o "$LWS_METHOD" == "ss+mbedtls" ];
 	then
 		sudo apt-get install -y -qq realpath libjemalloc1 libev4 libuv-dev valgrind
 		wget https://libwebsockets.org/openssl-1.1.0-trusty.tar.bz2 -O/tmp/openssl.tar.bz2

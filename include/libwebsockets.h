@@ -576,6 +576,9 @@ struct lws;
 #include <libwebsockets/lws-fts.h>
 #include <libwebsockets/lws-diskcache.h>
 #include <libwebsockets/lws-sequencer.h>
+#include <libwebsockets/lws-secure-streams.h>
+#include <libwebsockets/lws-secure-streams-policy.h>
+#include <libwebsockets/lws-secure-streams-client.h>
 
 #if !defined(LWS_PLAT_FREERTOS)
 #include <libwebsockets/abstract/abstract.h>

@@ -6,6 +6,7 @@ dbus-server|Minimal examples showing how to integrate DBUS into lws event loop
 http-client|Minimal examples providing an http client
 http-server|Minimal examples providing an http server
 raw|Minimal examples related to adopting raw file or socket descriptors into the event loop
+secure-streams|Minimal examples related to the Secure Streams client api
 ws-client|Minimal examples providing a ws client
 ws-server|Minimal examples providing a ws server (and an http server)
 

@@ -39,7 +39,7 @@ drain_cb(lws_sorted_usec_list_t *sul)
 {
 	struct pss *pss = lws_container_of(sul, struct pss, sul);
 
-	lws_h2_update_peer_txcredit(pss->wsi, LWS_H2_STREAM_SID, each);
+	lws_wsi_tx_credit(pss->wsi, LWSTXCR_PEER_TO_US, each);
 
 	lws_sul_schedule(lws_get_context(pss->wsi), 0, &pss->sul, drain_cb,
 			 250 * LWS_US_PER_MS);

@@ -49,6 +49,14 @@ typedef enum {
 	LWSSEQ_WSI_CONN_FAIL,	/* wsi we bound to us has failed to connect */
 	LWSSEQ_WSI_CONN_CLOSE,	/* wsi we bound to us has closed */
 
+
+	LWSSEQ_SS_STATE_BASE,	/* secure streams owned by a sequencer provide
+				 * automatic messages about state changes on
+				 * the sequencer, passing the oridinal in the
+				 * event argument field.  The message index is
+				 * LWSSEQ_SS_STATE_BASE + the enum from
+				 * lws_ss_constate_t */
+
 	LWSSEQ_USER_BASE = 100	/* define your events from here */
 } lws_seq_events_t;
 
