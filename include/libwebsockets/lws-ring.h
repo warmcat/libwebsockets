@@ -277,7 +277,7 @@ lws_ring_dump(struct lws_ring *ring, uint32_t *tail);
 		___n = 0; \
 		___oldest = *(___ptail); \
 		lws_start_foreach_llp(___type **, ___ppss, ___list_head) { \
-			___m = lws_ring_get_count_waiting_elements( \
+			___m = (int)lws_ring_get_count_waiting_elements( \
 					___ring, &(*___ppss)->___mtail); \
 			if (___m >= ___n) { \
 				___n = ___m; \

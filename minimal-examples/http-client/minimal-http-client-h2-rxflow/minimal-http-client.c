@@ -236,7 +236,7 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 
 int main(int argc, const char **argv)
 {
-	lws_state_notify_link_t notifier = { {}, system_notify_cb, "app" };
+	lws_state_notify_link_t notifier = { {0}, system_notify_cb, "app" };
 	lws_state_notify_link_t *na[] = { &notifier, NULL };
 	struct lws_context_creation_info info;
 	struct lws_context *context;

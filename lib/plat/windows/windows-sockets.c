@@ -235,7 +235,7 @@ const char *
 lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
 {
 	WCHAR *buffer;
-	DWORD bufferlen = cnt;
+	size_t bufferlen = (size_t)cnt;
 	BOOL ok = FALSE;
 
 	buffer = lws_malloc(bufferlen * 2, "inet_ntop");
@@ -250,7 +250,9 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
 		srcaddr.sin_family = AF_INET;
 		memcpy(&(srcaddr.sin_addr), src, sizeof(srcaddr.sin_addr));
 
-		if (!WSAAddressToStringW((struct sockaddr*)&srcaddr, sizeof(srcaddr), 0, buffer, &bufferlen))
+		if (!WSAAddressToStringW((struct sockaddr*)&srcaddr,
+					sizeof(srcaddr), 0, buffer,
+					(LPDWORD)&bufferlen))
 			ok = TRUE;
 #ifdef LWS_WITH_IPV6
 	} else if (af == AF_INET6) {
@@ -259,7 +261,9 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
 		srcaddr.sin6_family = AF_INET6;
 		memcpy(&(srcaddr.sin6_addr), src, sizeof(srcaddr.sin6_addr));
 
-		if (!WSAAddressToStringW((struct sockaddr*)&srcaddr, sizeof(srcaddr), 0, buffer, &bufferlen))
+		if (!WSAAddressToStringW((struct sockaddr*)&srcaddr,
+					 sizeof(srcaddr), 0, buffer,
+					 (LPDWORD)&bufferlen))
 			ok = TRUE;
 #endif
 	} else
@@ -269,7 +273,8 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
 		int rv = WSAGetLastError();
 		lwsl_err("WSAAddressToString() : %d\n", rv);
 	} else {
-		if (WideCharToMultiByte(CP_ACP, 0, buffer, bufferlen, dst, cnt, 0, NULL) <= 0)
+		if (WideCharToMultiByte(CP_ACP, 0, buffer, (int)bufferlen, dst,
+					cnt, 0, NULL) <= 0)
 			ok = FALSE;
 	}
 
@@ -281,7 +286,7 @@ int
 lws_plat_inet_pton(int af, const char *src, void *dst)
 {
 	WCHAR *buffer;
-	DWORD bufferlen = (int)strlen(src) + 1;
+	size_t bufferlen = strlen(src) + 1;
 	BOOL ok = FALSE;
 
 	buffer = lws_malloc(bufferlen * 2, "inet_pton");
@@ -290,7 +295,8 @@ lws_plat_inet_pton(int af, const char *src, void *dst)
 		return -1;
 	}
 
-	if (MultiByteToWideChar(CP_ACP, 0, src, bufferlen, buffer, bufferlen) <= 0) {
+	if (MultiByteToWideChar(CP_ACP, 0, src, (int)bufferlen, buffer,
+				(int)bufferlen) <= 0) {
 		lwsl_err("Failed to convert multi byte to wide char\n");
 		lws_free(buffer);
 		return -1;
