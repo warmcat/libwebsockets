@@ -993,10 +993,10 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	 */
 
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(hnames2); n++)
-		size += lws_hdr_total_length(wsi, hnames2[n]) + 1;
+		size += lws_hdr_total_length(wsi, hnames2[n]) + (size_t)1;
 
-	if ((int)size < lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_URI) + 1)
-		size = lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_URI) + 1;
+	if (size < (size_t)lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_URI) + 1)
+		size = lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_URI) + (size_t)1;
 
 	/*
 	 * The incoming address and host can be from inside the existing ah
@@ -1022,19 +1022,19 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(hnames2); n++)
 		if (lws_hdr_total_length(wsi, hnames2[n])) {
-			memcpy(p, lws_hdr_simple_ptr(wsi, hnames2[n]),
-				lws_hdr_total_length(wsi, hnames2[n]) + 1);
-			p += lws_hdr_total_length(wsi, hnames2[n]) + 1;
+			memcpy(p, lws_hdr_simple_ptr(wsi, hnames2[n]), (size_t)(
+			       lws_hdr_total_length(wsi, hnames2[n]) + 1));
+			p += (size_t)(lws_hdr_total_length(wsi, hnames2[n]) + 1);
 		} else
 			*p++ = '\0';
 
-	memcpy(p, address, strlen(address) + 1);
+	memcpy(p, address, strlen(address) + (size_t)1);
 	address = p;
 	p += strlen(address) + 1;
-	memcpy(p, host, strlen(host) + 1);
+	memcpy(p, host, strlen(host) + (size_t)1);
 	host = p;
 	p += strlen(host) + 1;
-	memcpy(p, path, strlen(path) + 1);
+	memcpy(p, path, strlen(path) + (size_t)1);
 	path = p;
 
 	if (!port) {
@@ -1133,11 +1133,12 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(hnames2); n++) {
 		if (lws_hdr_simple_create(wsi, hnames2[n], p))
 			goto bail;
-		p += lws_hdr_total_length(wsi, hnames2[n]) + 1;
+		p += lws_hdr_total_length(wsi, hnames2[n]) + (size_t)1;
 	}
 
 	stash[0] = '/';
-	memmove(&stash[1], path, size - 1 < strlen(path) + 1 ? size - 1 : strlen(path) + 1);
+	memmove(&stash[1], path, size - 1 < strlen(path) + 1 ?
+					size - 1 : strlen(path) + (size_t)1);
 	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_URI, stash))
 		goto bail;
 

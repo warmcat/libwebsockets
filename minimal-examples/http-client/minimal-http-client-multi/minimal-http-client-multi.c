@@ -59,7 +59,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 {
 	char buf[LWS_PRE + 1024], *start = &buf[LWS_PRE], *p = start,
 	     *end = &buf[sizeof(buf) - LWS_PRE - 1];
-	int n, idx = (int)(long)lws_get_opaque_user_data(wsi);
+	int n, idx = (int)(intptr_t)lws_get_opaque_user_data(wsi);
 	struct pss *pss = (struct pss *)user;
 
 	switch (reason) {
@@ -279,7 +279,7 @@ lws_try_client_connection(struct lws_client_connect_info *i, int m)
 		i->path = urlpath;
 
 	i->pwsi = &client_wsi[m];
-	i->opaque_user_data = (void *)(long)m;
+	i->opaque_user_data = (void *)(intptr_t)m;
 
 	if (!lws_client_connect_via_info(i)) {
 		failed++;

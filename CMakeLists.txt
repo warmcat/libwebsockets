@@ -2517,22 +2517,23 @@ if (LWS_ROLE_WS)
 			create_plugin(protocol_lws_raw_test ""
 			      "plugins/protocol_lws_raw_test.c" "" "")
 
-			create_plugin(protocol_deaddrop ""
-			      "plugins/deaddrop/protocol_lws_deaddrop.c" "" "")
-
+		      if (UNIX AND LWS_HAVE_PTHREAD_H)
+				create_plugin(protocol_deaddrop ""
+				      "plugins/deaddrop/protocol_lws_deaddrop.c" "" "")
+			endif()
 		endif()
 
-if (LWS_WITH_SERVER_STATUS)
-		create_plugin(protocol_lws_server_status ""
-			      "plugins/protocol_lws_server_status.c" "" "")
-endif()
+	if (LWS_WITH_SERVER_STATUS)
+			create_plugin(protocol_lws_server_status ""
+				      "plugins/protocol_lws_server_status.c" "" "")
+	endif()
 
-if (NOT LWS_WITHOUT_CLIENT)
-		create_plugin(protocol_client_loopback_test ""
-                              "plugins/protocol_client_loopback_test.c" "" "")
-endif()
+	if (NOT LWS_WITHOUT_CLIENT)
+			create_plugin(protocol_client_loopback_test ""
+        	                      "plugins/protocol_client_loopback_test.c" "" "")
+	endif()
 
-endif()
+endif(LWS_ROLE_WS)
 
 		create_plugin(protocol_post_demo ""
 			      "plugins/protocol_post_demo.c" "" "")

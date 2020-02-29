@@ -73,7 +73,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		if (lws_http_basic_auth_gen(ba_user, ba_password, b, sizeof(b)))
 			break;
 		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_AUTHORIZATION,
-				(unsigned char *)b, strlen(b), p, end))
+				(unsigned char *)b, (int)strlen(b), p, end))
 			return -1;
 
 		break;
@@ -256,7 +256,7 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 
 int main(int argc, const char **argv)
 {
-	lws_state_notify_link_t notifier = { {}, system_notify_cb, "app" };
+	lws_state_notify_link_t notifier = { {0}, system_notify_cb, "app" };
 	lws_state_notify_link_t *na[] = { &notifier, NULL };
 	struct lws_context_creation_info info;
 	struct lws_context *context;
