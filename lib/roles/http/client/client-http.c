@@ -779,72 +779,113 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		return 0;
 	}
 
-	if (!wsi->do_ws) {
+	/* if h1 KA is allowed, enable the queued pipeline guys */
 
-		/* if h1 KA is allowed, enable the queued pipeline guys */
+	if (!wsi->client_h2_alpn && !wsi->client_mux_substream) {
+		/* ie, coming to this for the first time */
+		if (wsi->http.conn_type == HTTP_CONNECTION_KEEP_ALIVE)
+			wsi->keepalive_active = 1;
+		else {
+			/*
+			 * Ugh... now the main http connection has seen
+			 * both sides, we learn the server doesn't
+			 * support keepalive.
+			 *
+			 * That means any guys queued on us are going
+			 * to have to be restarted from connect2 with
+			 * their own connections.
+			 */
 
-		if (!wsi->client_h2_alpn && !wsi->client_mux_substream) {
-			/* ie, coming to this for the first time */
-			if (wsi->http.conn_type == HTTP_CONNECTION_KEEP_ALIVE)
-				wsi->keepalive_active = 1;
-			else {
-				/*
-				 * Ugh... now the main http connection has seen
-				 * both sides, we learn the server doesn't
-				 * support keepalive.
-				 *
-				 * That means any guys queued on us are going
-				 * to have to be restarted from connect2 with
-				 * their own connections.
-				 */
+			/*
+			 * stick around telling any new guys they can't
+			 * pipeline to this server
+			 */
+			wsi->keepalive_rejected = 1;
 
-				/*
-				 * stick around telling any new guys they can't
-				 * pipeline to this server
-				 */
-				wsi->keepalive_rejected = 1;
+			lws_vhost_lock(wsi->vhost);
+			lws_start_foreach_dll_safe(struct lws_dll2 *,
+						   d, d1,
+			  wsi->dll2_cli_txn_queue_owner.head) {
+				struct lws *ww = lws_container_of(d,
+					struct lws,
+					dll2_cli_txn_queue);
 
-				lws_vhost_lock(wsi->vhost);
-				lws_start_foreach_dll_safe(struct lws_dll2 *,
-							   d, d1,
-				  wsi->dll2_cli_txn_queue_owner.head) {
-					struct lws *ww = lws_container_of(d,
-						struct lws,
-						dll2_cli_txn_queue);
+				/* remove him from our queue */
+				lws_dll2_remove(&ww->dll2_cli_txn_queue);
+				/* give up on pipelining */
+				ww->client_pipeline = 0;
 
-					/* remove him from our queue */
-					lws_dll2_remove(&ww->dll2_cli_txn_queue);
-					/* give up on pipelining */
-					ww->client_pipeline = 0;
-
-					/* go back to "trying to connect" state */
-					lws_role_transition(ww, LWSIFR_CLIENT,
-							    LRS_UNCONNECTED,
+				/* go back to "trying to connect" state */
+				lws_role_transition(ww, LWSIFR_CLIENT,
+						    LRS_UNCONNECTED,
 #if defined(LWS_ROLE_H1)
-							    &role_ops_h1);
+						    &role_ops_h1);
 #else
 #if defined (LWS_ROLE_H2)
-							    &role_ops_h2);
+						    &role_ops_h2);
 #else
-							    &role_ops_raw);
+						    &role_ops_raw);
 #endif
 #endif
-					ww->user_space = NULL;
-				} lws_end_foreach_dll_safe(d, d1);
-				lws_vhost_unlock(wsi->vhost);
-			}
+				ww->user_space = NULL;
+			} lws_end_foreach_dll_safe(d, d1);
+			lws_vhost_unlock(wsi->vhost);
 		}
+	}
 
 #ifdef LWS_WITH_HTTP_PROXY
-		wsi->http.perform_rewrite = 0;
-		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE)) {
-			if (!strncmp(lws_hdr_simple_ptr(wsi,
-						WSI_TOKEN_HTTP_CONTENT_TYPE),
-						"text/html", 9))
-				wsi->http.perform_rewrite = 0;
-		}
+	wsi->http.perform_rewrite = 0;
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE)) {
+		if (!strncmp(lws_hdr_simple_ptr(wsi,
+					WSI_TOKEN_HTTP_CONTENT_TYPE),
+					"text/html", 9))
+			wsi->http.perform_rewrite = 0;
+	}
 #endif
 
+	/* he may choose to send us stuff in chunked transfer-coding */
+	wsi->chunked = 0;
+	wsi->chunk_remaining = 0; /* ie, next thing is chunk size */
+	if (lws_hdr_total_length(wsi,
+				WSI_TOKEN_HTTP_TRANSFER_ENCODING)) {
+		wsi->chunked = !strcmp(lws_hdr_simple_ptr(wsi,
+				       WSI_TOKEN_HTTP_TRANSFER_ENCODING),
+					"chunked");
+		/* first thing is hex, after payload there is crlf */
+		wsi->chunk_parser = ELCP_HEX;
+	}
+
+	wsi->http.content_length_given = 0;
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
+		wsi->http.rx_content_length =
+				atoll(lws_hdr_simple_ptr(wsi,
+					WSI_TOKEN_HTTP_CONTENT_LENGTH));
+		lwsl_info("%s: incoming content length %llu\n",
+			    __func__, (unsigned long long)
+				    wsi->http.rx_content_length);
+		wsi->http.rx_content_remain =
+				wsi->http.rx_content_length;
+		wsi->http.content_length_given = 1;
+	} else { /* can't do 1.1 without a content length or chunked */
+		if (!wsi->chunked)
+			wsi->http.conn_type = HTTP_CONNECTION_CLOSE;
+		lwsl_debug("%s: no content length\n", __func__);
+	}
+
+	if (wsi->do_ws) {
+		/*
+		 * Give one last opportunity to ws protocols to inspect server reply
+		 * before the ws upgrade code discard it. ie: download reply body in case
+		 * of any other response code than 101.
+		 */
+		if (wsi->protocol->callback(wsi,
+					  LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP,
+					  wsi->user_space, NULL, 0)) {
+
+			cce = "HS: disallowed by client filter";
+			goto bail2;
+		}
+	} else {
 		/* allocate the per-connection user memory (if any) */
 		if (lws_ensure_user_space(wsi)) {
 			lwsl_err("Problem allocating wsi user mem\n");
@@ -852,34 +893,6 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			goto bail2;
 		}
 
-		/* he may choose to send us stuff in chunked transfer-coding */
-		wsi->chunked = 0;
-		wsi->chunk_remaining = 0; /* ie, next thing is chunk size */
-		if (lws_hdr_total_length(wsi,
-					WSI_TOKEN_HTTP_TRANSFER_ENCODING)) {
-			wsi->chunked = !strcmp(lws_hdr_simple_ptr(wsi,
-					       WSI_TOKEN_HTTP_TRANSFER_ENCODING),
-						"chunked");
-			/* first thing is hex, after payload there is crlf */
-			wsi->chunk_parser = ELCP_HEX;
-		}
-
-		wsi->http.content_length_given = 0;
-		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
-			wsi->http.rx_content_length =
-					atoll(lws_hdr_simple_ptr(wsi,
-						WSI_TOKEN_HTTP_CONTENT_LENGTH));
-			lwsl_info("%s: incoming content length %llu\n",
-				    __func__, (unsigned long long)
-					    wsi->http.rx_content_length);
-			wsi->http.rx_content_remain =
-					wsi->http.rx_content_length;
-			wsi->http.content_length_given = 1;
-		} else { /* can't do 1.1 without a content length or chunked */
-			if (!wsi->chunked)
-				wsi->http.conn_type = HTTP_CONNECTION_CLOSE;
-			lwsl_debug("%s: no content length\n", __func__);
-		}
 
 		/*
 		 * we seem to be good to go, give client last chance to check

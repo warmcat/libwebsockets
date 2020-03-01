@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -849,6 +849,16 @@ lws_http_compression_apply(struct lws *wsi, const char *name,
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_http_is_redirected_to_get(struct lws *wsi);
+
+/**
+ * lws_http_client_http_error() - determine if the response code indicates an error
+ *
+ * \param code: the response code to test
+ *
+ * Returns nonzero if the code indicates an error, else zero if reflects a
+ * non-error condition
+ */
+#define lws_http_client_http_resp_is_error(code) (!(code < 400))
 
 /**
  * lws_h2_update_peer_txcredit() - manually update stream peer tx credit
