@@ -195,35 +195,49 @@ send_hs:
 			    wsi->protocol->name, rawish, wsi->vhost->name);
 
 		/* we are making our own connection */
+
+#if defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS)
+
+		/* we have connected if we got here */
+
+		if (lwsi_state(wsi) == LRS_WAITING_CONNECT &&
+		    (wsi->tls.use_ssl & LCCSCF_USE_SSL)) {
+
+			if (!wsi->transaction_from_pipeline_queue &&
+			    lws_tls_restrict_borrow(wsi->context)) {
+				cce = "tls restriction limit";
+				goto failed;
+			}
+
+			/* we can retry this... just cook the SSL BIO the first time */
+
+			if (lws_ssl_client_bio_create(wsi) < 0) {
+				lwsl_err("%s: bio_create failed\n", __func__);
+				goto failed;
+			}
+
+//#if !defined(LWS_WITH_SYS_ASYNC_DNS)
+			if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
+				n = lws_ssl_client_connect1(wsi);
+				if (!n)
+					return wsi;
+				if (n < 0) {
+					lwsl_err("%s: lws_ssl_client_connect1 failed\n", __func__);
+					goto failed;
+				}
+			}
+//#endif
+
+			lwsi_set_state(wsi, LRS_WAITING_SSL);
+			return wsi;
+		}
+#endif
+
 		if (!rawish)
 			lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE);
 		else {
 			/* for a method = "RAW" connection, this makes us
 			 * established */
-
-#if defined(LWS_WITH_TLS)
-			if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
-
-				/* we can retry this... just cook the SSL BIO the first time */
-
-				if (lws_ssl_client_bio_create(wsi) < 0) {
-					lwsl_err("%s: bio_create failed\n", __func__);
-					goto failed;
-				}
-
-	//#if !defined(LWS_WITH_SYS_ASYNC_DNS)
-				if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
-					n = lws_ssl_client_connect1(wsi);
-					if (!n)
-						return wsi;
-					if (n < 0) {
-						lwsl_err("%s: lws_ssl_client_connect1 failed\n", __func__);
-						goto failed;
-					}
-				}
-	//#endif
-			}
-#endif
 
 #if 0
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
@@ -374,9 +388,12 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 			goto failed;
 	}
 #endif
-
+#if !defined(WIN32)
 	/*
-	* We can check using getsockopt if our connect actually completed
+	* We can check using getsockopt if our connect actually completed.
+	* Posix connect() allows nonblocking to redo the connect to
+	* find out if it succeeded, for win32 we have to use this path
+	* and take WSAEALREADY as a successful connect.
 	*/
 
 	if (lwsi_state(wsi) == LRS_WAITING_CONNECT &&
@@ -409,6 +426,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 				__func__, LWS_ERRNO);
 		goto try_next_result_fds;
 	}
+#endif
 
 #if defined(LWS_WITH_UNIX_SOCK)
 	if (ads && *ads == '+') {
@@ -667,6 +685,7 @@ ads_known:
 		    errno_copy != LWS_EWOULDBLOCK
 #ifdef _WIN32
 			&& errno_copy != WSAEINVAL
+                       && errno_copy != WSAEISCONN
 #endif
 		) {
 #if defined(_DEBUG)
@@ -681,6 +700,8 @@ ads_known:
 #if defined(WIN32)
 		if (lws_plat_check_connection_error(wsi))
 			goto try_next_result_fds;
+               if (errno_copy == WSAEISCONN)
+                       goto conn_good;
 #endif
 
 		/*
