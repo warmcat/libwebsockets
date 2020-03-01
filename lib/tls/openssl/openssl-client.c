@@ -369,12 +369,34 @@ lws_tls_client_connect(struct lws *wsi)
 	char a[32];
 	unsigned int len;
 #endif
-	int m, n;
+	int m, n, en;
 
 	errno = 0;
 	ERR_clear_error();
 	n = SSL_connect(wsi->tls.ssl);
-	if (n == 1) {
+	en = errno;
+
+	m = lws_ssl_get_error(wsi, n);
+
+	if (m == SSL_ERROR_SYSCALL
+#if defined(WIN32)
+			&& en
+#endif
+	) {
+		lwsl_info("%s: n %d, m %d, errno %d\n", __func__, n, m, en);
+		return LWS_SSL_CAPABLE_ERROR;
+	}
+
+	if (m == SSL_ERROR_SSL)
+		return LWS_SSL_CAPABLE_ERROR;
+
+	if (m == SSL_ERROR_WANT_READ || SSL_want_read(wsi->tls.ssl))
+		return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
+
+	if (m == SSL_ERROR_WANT_WRITE || SSL_want_write(wsi->tls.ssl))
+		return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
+
+	if (n == 1 || m == SSL_ERROR_SYSCALL) {
 #if defined(LWS_HAVE_SSL_set_alpn_protos) && \
     defined(LWS_HAVE_SSL_get0_alpn_selected)
 		SSL_get0_alpn_selected(wsi->tls.ssl, &prot, &len);
@@ -390,17 +412,6 @@ lws_tls_client_connect(struct lws *wsi)
 		lws_openssl_describe_cipher(wsi);
 		return LWS_SSL_CAPABLE_DONE;
 	}
-
-	m = lws_ssl_get_error(wsi, n);
-
-	if (m == SSL_ERROR_SYSCALL || m == SSL_ERROR_SSL)
-		return LWS_SSL_CAPABLE_ERROR;
-
-	if (m == SSL_ERROR_WANT_READ || SSL_want_read(wsi->tls.ssl))
-		return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
-
-	if (m == SSL_ERROR_WANT_WRITE || SSL_want_write(wsi->tls.ssl))
-		return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
 
 	if (!n) /* we don't know what he wants, but he says to retry */
 		return LWS_SSL_CAPABLE_MORE_SERVICE;
