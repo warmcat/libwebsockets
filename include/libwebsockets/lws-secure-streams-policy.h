@@ -211,7 +211,16 @@ typedef struct lws_ss_policy {
 		struct {
 			const char	*topic;	    /* stream sends on this topic */
 			const char	*subscribe; /* stream subscribes to this topic */
+
+			const char	*will_topic;
+			const char	*will_message;
+
+			uint16_t	keep_alive;
 			uint8_t		qos;
+			uint8_t		clean_start;
+			uint8_t		will_qos;
+			uint8_t		will_retain;
+
 		} mqtt;
 
 		/* details for non-http related protocols... */

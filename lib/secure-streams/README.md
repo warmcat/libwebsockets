@@ -292,6 +292,55 @@ Set the topic this streamtype subscribes to
 
 Set the QOS level for this streamtype
 
+### `mqtt_keep_alive`
+
+16-bit number representing MQTT keep alive for the stream.
+
+This is applied at connection time... where different streams may bind to the
+same underlying MQTT connection, all the streams should have an identical
+setting for this.
+
+### `mqtt_clean_start`
+
+Set to true if the connection should use MQTT's "clean start" feature.
+
+This is applied at connection time... where different streams may bind to the
+same underlying MQTT connection, all the streams should have an identical
+setting for this.
+
+### `mqtt_will_topic`
+
+Set the topic of the connection's will message, if any (there is none by default).
+
+This is applied at connection time... where different streams may bind to the
+same underlying MQTT connection, all the streams should have an identical
+setting for this.
+
+### `mqtt_will_message`
+
+Set the content of the connect's will message, if any (there is none by default).
+
+This is applied at connection time... where different streams may bind to the
+same underlying MQTT connection, all the streams should have an identical
+setting for this.
+
+### `mqtt_will_qos`
+
+Set the QoS of the will message, if any (there is none by default).
+
+This is applied at connection time... where different streams may bind to the
+same underlying MQTT connection, all the streams should have an identical
+setting for this.
+
+### `mqtt_will_retain`
+
+Set to true if the connection should use MQTT's "will retain" feature, if there
+is a will message (there is none by default).
+
+This is applied at connection time... where different streams may bind to the
+same underlying MQTT connection, all the streams should have an identical
+setting for this.
+
 ## Loading and using updated remote policy
 
 If the default, hardcoded policy includes a streamtype `fetch_policy`,

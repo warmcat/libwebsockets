@@ -85,6 +85,12 @@ static const char * const lejp_tokens_policy[] = {
 	"s[].*.mqtt_topic",
 	"s[].*.mqtt_subscribe",
 	"s[].*.mqtt_qos",
+	"s[].*.mqtt_keep_alive",
+	"s[].*.mqtt_clean_start",
+	"s[].*.mqtt_will_topic",
+	"s[].*.mqtt_will_message",
+	"s[].*.mqtt_will_qos",
+	"s[].*.mqtt_will_retain",
 	"s[].*",
 };
 
@@ -142,6 +148,12 @@ typedef enum {
 	LSSPPT_MQTT_TOPIC,
 	LSSPPT_MQTT_SUBSCRIBE,
 	LSSPPT_MQTT_QOS,
+	LSSPPT_MQTT_KEEPALIVE,
+	LSSPPT_MQTT_CLEAN_START,
+	LSSPPT_MQTT_WILL_TOPIC,
+	LSSPPT_MQTT_WILL_MESSAGE,
+	LSSPPT_MQTT_WILL_QOS,
+	LSSPPT_MQTT_WILL_RETAIN,
 	LSSPPT_STREAMTYPES
 } policy_token_t;
 
@@ -655,6 +667,30 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 
 	case LSSPPT_MQTT_QOS:
 		a->curr[LTY_POLICY].p->u.mqtt.qos = atoi(ctx->buf);
+		break;
+
+	case LSSPPT_MQTT_KEEPALIVE:
+		a->curr[LTY_POLICY].p->u.mqtt.keep_alive = atoi(ctx->buf);
+		break;
+
+	case LSSPPT_MQTT_CLEAN_START:
+		a->curr[LTY_POLICY].p->u.mqtt.clean_start =
+						reason == LEJPCB_VAL_TRUE;
+		break;
+	case LSSPPT_MQTT_WILL_TOPIC:
+		pp = (char **)&a->curr[LTY_POLICY].p->u.mqtt.will_topic;
+		goto string2;
+
+	case LSSPPT_MQTT_WILL_MESSAGE:
+		pp = (char **)&a->curr[LTY_POLICY].p->u.mqtt.will_message;
+		goto string2;
+
+	case LSSPPT_MQTT_WILL_QOS:
+		a->curr[LTY_POLICY].p->u.mqtt.will_qos = atoi(ctx->buf);
+		break;
+	case LSSPPT_MQTT_WILL_RETAIN:
+		a->curr[LTY_POLICY].p->u.mqtt.will_retain =
+						reason == LEJPCB_VAL_TRUE;
 		break;
 
 	case LSSPPT_PROTOCOL:

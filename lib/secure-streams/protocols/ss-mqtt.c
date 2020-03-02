@@ -204,12 +204,12 @@ secstream_connect_munge_mqtt(lws_ss_handle_t *h, char *buf, size_t len,
 	memset(&ct->ccp, 0, sizeof(ct->ccp));
 
 	ct->ccp.client_id		= "lwsMqttClient";
-	ct->ccp.keep_alive		= 60;
-	ct->ccp.clean_start		= 1;
-	ct->ccp.will_param.topic	= "good/bye";
-	ct->ccp.will_param.message	= "sign-off";
-	ct->ccp.will_param.qos		= 0;
-	ct->ccp.will_param.retain	= 0;
+	ct->ccp.keep_alive		= h->policy->u.mqtt.keep_alive;
+	ct->ccp.clean_start		= h->policy->u.mqtt.clean_start;
+	ct->ccp.will_param.topic	= h->policy->u.mqtt.will_topic;
+	ct->ccp.will_param.message	= h->policy->u.mqtt.will_message;
+	ct->ccp.will_param.qos		= h->policy->u.mqtt.will_qos;
+	ct->ccp.will_param.retain	= h->policy->u.mqtt.will_retain;
 
 	lwsl_notice("%s\n", __func__);
 
