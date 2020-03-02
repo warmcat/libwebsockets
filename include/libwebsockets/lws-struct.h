@@ -70,6 +70,8 @@ typedef struct lws_struct_args {
 	size_t ac_block_size;
 	int subtype;
 
+	int top_schema_index;
+
 	/*
 	 * temp ac used to collate unknown possibly huge strings before final
 	 * allocation and copy
@@ -230,7 +232,8 @@ lws_struct_default_lejp_cb(struct lejp_ctx *ctx, char reason);
 
 LWS_VISIBLE LWS_EXTERN lws_struct_serialize_t *
 lws_struct_json_serialize_create(const lws_struct_map_t *map,
-				 size_t map_entries, int flags, void *ptoplevel);
+				 size_t map_entries, int flags,
+				 const void *ptoplevel);
 
 LWS_VISIBLE LWS_EXTERN void
 lws_struct_json_serialize_destroy(lws_struct_serialize_t **pjs);

@@ -119,6 +119,10 @@ static const char * const json_tests[] = {
 		"yJln+v4RIWj2xOGPJovOqiXwi0FyM61f8U8gj0OiNA2/QlvrqQVDF7sMXgjvaE7iQt5vMETteZlx"
 		"+z3f+jTFM/aon511W4+ZkRD+6AHwucvM9BEC\"}]}"
 	"}",
+	"{" /* test 8 the "other" schema */
+		"\"schema\":\"com-warmcat-sai-other\","
+		"\"name\":\"somename\""
+	"}",
 };
 
 /*
@@ -170,7 +174,8 @@ static const char * const json_expected[] = {
 		"V+ye6F9JTUMlozRMsGuF8U4btDzH5xdnmvRS4Ar6LKEtAXGkj2yuyJln+v4R"
 		"IWj2xOGPJovOqiXwi0FyM61f8U8gj0OiNA2/QlvrqQVDF7sMXgjvaE7iQt5v"
 		"METteZlx+z3f+jTFM/aon511W4+ZkRD+6AHwucvM9BEC\""
-			",\"someflag\":false}]}"
+			",\"someflag\":false}]}",
+	"{\"schema\":\"com-warmcat-sai-other\",\"name\":\"somename\"}"
 };
 
 /*
@@ -210,6 +215,8 @@ static const lws_struct_map_t lsm_target[] = {
 			 NULL, lsm_child,			"child"),
 };
 
+/* the first kind of struct / schema we can receive */
+
 /* builder object */
 
 typedef struct sai_builder {
@@ -227,20 +234,66 @@ static const lws_struct_map_t lsm_builder[] = {
 			 NULL, lsm_target,			"targets"),
 };
 
-/* Schema table
+/*
+ * the second kind of struct / schema we can receive
+ */
+
+typedef struct sai_other {
+	char 			name[32];
+} sai_other_t;
+
+static const lws_struct_map_t lsm_other[] = {
+	LSM_CARRAY	(sai_other_t, name,		"name"),
+};
+
+/*
+ * meta composed pointers test
+ *
+ * We serialize a struct that consists of members that point to other objects,
+ * we expect this kind of thing
+ *
+ * {
+ *   "schema": "meta",
+ *   "t": { ... },
+ *   "e": { ...}
+ * }
+ */
+
+typedef struct meta {
+	sai_target_t	*t;
+	sai_builder_t	*b;
+} meta_t;
+
+static const lws_struct_map_t lsm_meta[] = {
+	LSM_CHILD_PTR	(meta_t, t, sai_target_t, NULL, lsm_target, "t"),
+	LSM_CHILD_PTR	(meta_t, b, sai_child_t, NULL, lsm_builder, "e"),
+};
+
+static const lws_struct_map_t lsm_schema_meta[] = {
+	LSM_SCHEMA	(meta_t, NULL, lsm_meta, "meta.schema"),
+};
+
+/*
+ * Schema table
  *
  * Before we can understand the serialization top level format, we must read
  * the schema, use the table below to create the right toplevel object for the
  * schema name, and select the correct map tables to interpret the rest of the
  * serialization.
  *
- * Therefore the schema tables below are the starting point for the
- * JSON deserialization.
+ * In this example there are two completely separate structs / schemas possible
+ * to receive, and we disambiguate and create the correct one using the schema
+ * JSON node.
+ *
+ * Therefore the schema table below is the starting point for the JSON
+ * deserialization.
  */
 
 static const lws_struct_map_t lsm_schema_map[] = {
 	LSM_SCHEMA	(sai_builder_t, NULL,
 			 lsm_builder,		"com-warmcat-sai-builder"),
+	LSM_SCHEMA	(sai_other_t, NULL,
+			 lsm_other,		"com-warmcat-sai-other"),
 };
 
 static int
@@ -268,8 +321,11 @@ int main(int argc, const char **argv)
 #endif
 	struct lejp_ctx ctx;
 	lws_struct_args_t a;
-	sai_builder_t *b;
+	sai_builder_t *b, mb;
+	sai_target_t mt;
+	sai_other_t *o;
 	const char *p;
+	meta_t meta;
 
 	if ((p = lws_cmdline_option(argc, argv, "-d")))
 		logs = atoi(p);
@@ -299,27 +355,58 @@ int main(int argc, const char **argv)
 		}
 		lwsac_info(a.ac);
 
-		b = a.dest;
-		if (!b) {
-			lwsl_err("%s: didn't produce any output\n", __func__);
-			e++;
-			goto done;
+		if (m + 1 != 8) {
+			b = a.dest;
+			if (!b) {
+				lwsl_err("%s: didn't produce any output\n", __func__);
+				e++;
+				goto done;
+			}
+
+			if (a.top_schema_index) {
+				lwsl_err("%s: wrong top_schema_index\n", __func__);
+				e++;
+				goto done;
+			}
+
+			lwsl_notice("builder.hostname = '%s', timeout = %d, targets (%d)\n",
+				    b->hostname, b->nspawn_timeout,
+				    b->targets.count);
+
+			lws_dll2_foreach_safe(&b->targets, NULL, show_target);
+		} else {
+			o = a.dest;
+			if (!o) {
+				lwsl_err("%s: didn't produce any output\n", __func__);
+				e++;
+				goto done;
+			}
+
+			if (a.top_schema_index != 1) {
+				lwsl_err("%s: wrong top_schema_index\n", __func__);
+				e++;
+				goto done;
+			}
+
+			lwsl_notice("other.name = '%s'\n", o->name);
 		}
-
-		lwsl_notice("builder.hostname = '%s', timeout = %d, targets (%d)\n",
-			    b->hostname, b->nspawn_timeout,
-			    b->targets.count);
-
-		lws_dll2_foreach_safe(&b->targets, NULL, show_target);
 
 		/* 2. serialize the structs into JSON and confirm */
 
 		lwsl_notice("%s:    .... strarting serialization of test %d\n",
 				__func__, m + 1);
-		ser = lws_struct_json_serialize_create(lsm_schema_map,
+
+		if (m + 1 != 8) {
+			ser = lws_struct_json_serialize_create(lsm_schema_map,
 						LWS_ARRAY_SIZE(lsm_schema_map),
 						       0//LSSERJ_FLAG_PRETTY
 						       , b);
+		} else {
+			ser = lws_struct_json_serialize_create(&lsm_schema_map[1],
+						1,
+						       0//LSSERJ_FLAG_PRETTY
+						       , o);
+		}
 		if (!ser) {
 			lwsl_err("%s: unable to init serialization\n", __func__);
 			goto bail;
@@ -328,12 +415,11 @@ int main(int argc, const char **argv)
 		do {
 			n = lws_struct_json_serialize(ser, buf, sizeof(buf),
 						      &written);
-			lwsl_notice("ser says %d\n", n);
 			switch (n) {
-			case LSJS_RESULT_CONTINUE:
 			case LSJS_RESULT_FINISH:
 				puts((const char *)buf);
 				break;
+			case LSJS_RESULT_CONTINUE:
 			case LSJS_RESULT_ERROR:
 				goto bail;
 			}
@@ -343,6 +429,7 @@ int main(int argc, const char **argv)
 			lwsl_err("%s: test %d: expected %s\n", __func__, m + 1,
 					json_expected[m]);
 			e++;
+			goto done;
 		}
 
 		lws_struct_json_serialize_destroy(&ser);
@@ -353,6 +440,48 @@ done:
 
 	if (e)
 		goto bail;
+
+	/* ad-hoc tests */
+
+	memset(&meta, 0, sizeof(meta));
+	memset(&mb, 0, sizeof(mb));
+	memset(&mt, 0, sizeof(mt));
+
+	meta.t = &mt;
+	meta.b = &mb;
+
+	meta.t->name = "mytargetname";
+	lws_strncpy(meta.b->hostname, "myhostname", sizeof(meta.b->hostname));
+	ser = lws_struct_json_serialize_create(lsm_schema_meta, 1, 0,
+					       &meta);
+	if (!ser) {
+		lwsl_err("%s: failed to create json\n", __func__);
+
+
+	}
+	do {
+		n = lws_struct_json_serialize(ser, buf, sizeof(buf), &written);
+		switch (n) {
+		case LSJS_RESULT_CONTINUE:
+		case LSJS_RESULT_FINISH:
+			puts((const char *)buf);
+			if (strcmp((const char *)buf,
+				"{\"schema\":\"meta.schema\","
+				"\"t\":{\"name\":\"mytargetname\","
+					"\"someflag\":false},"
+				"\"e\":{\"hostname\":\"myhostname\","
+					"\"nspawn_timeout\":0}}")) {
+				lwsl_err("%s: meta test fail\n", __func__);
+				goto bail;
+			}
+			break;
+		case LSJS_RESULT_ERROR:
+			goto bail;
+		}
+	} while(n == LSJS_RESULT_CONTINUE);
+
+	lws_struct_json_serialize_destroy(&ser);
+
 
 	lwsl_user("Completed: PASS\n");
 

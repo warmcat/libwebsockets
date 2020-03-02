@@ -51,6 +51,8 @@ lws_struct_schema_only_lejp_cb(struct lejp_ctx *ctx, char reason)
 			return 1;
 		}
 		a->dest_len = map->aux;
+		if (!ctx->pst_sp)
+			a->top_schema_index = (int)(map - a->map_st[ctx->pst_sp]);
 
 		if (!cb)
 			cb = lws_struct_default_lejp_cb;
@@ -365,6 +367,7 @@ chunk_copy:
 				if (b > lim)
 					b = lim;
 				memcpy(s, ctx->buf, b);
+				s[b] = '\0';
 			}
 			break;
 		default:
@@ -404,7 +407,7 @@ lws_struct_json_init_parse(struct lejp_ctx *ctx, lejp_callback cb, void *user)
 lws_struct_serialize_t *
 lws_struct_json_serialize_create(const lws_struct_map_t *map,
 				 size_t map_entries, int flags,
-				 void *ptoplevel)
+				 const void *ptoplevel)
 {
 	lws_struct_serialize_t *js = lws_zalloc(sizeof(*js), __func__);
 	lws_struct_serialize_st_t *j;
@@ -601,7 +604,7 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 			if (js->sp + 1 == LEJP_MAX_PARSING_STACK_DEPTH)
 				return LSJS_RESULT_ERROR;
 
-			/* add a stack level tto handle parsing child members */
+			/* add a stack level to handle parsing child members */
 
 			n = j->idt;
 			j = &js->st[++js->sp];
@@ -615,6 +618,7 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 			len--;
 			lws_struct_pretty(js, &buf, &len);
 			j->obj = q;
+
 			continue;
 
 		case LSMT_SCHEMA:
