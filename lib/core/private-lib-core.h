@@ -226,7 +226,7 @@ struct lws_signal_watcher {
 #ifdef LWS_WITH_LIBEVENT
 	struct lws_signal_watcher_libevent event;
 #endif
-#ifdef LWS_WITH_LIBEVENT
+#ifdef LWS_WITH_GLIB
 	struct lws_signal_watcher_glib glib;
 #endif
 	struct lws_context *context;
