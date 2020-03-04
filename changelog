@@ -1,7 +1,94 @@
 Changelog
 ---------
 
- - Master is now under the MIT license
+v4.0.0
+======
+
+ - NEW: Lws is now under the MIT license, see ./LICENSE for details
+ 
+ - NEW: GLIB native event loop support, lws + gtk example
+
+ - NEW: native lws MQTT client... supports client stream binding like h2 when
+   multiple logical connections are going to the same endpoint over MQTT, they
+   transparently and independently share the one connection + tls tunnel
+ 
+ - NEW: "Secure Streams"... if you are making a device with client connections
+   to the internet or cloud, this allows separation of the communications
+   policy (endpoints, tls cert validation, protocols, etc) from the code, with
+   the goal you can combine streams, change protocols and cloud provision, and
+   reflect that in the device's JSON policy document without having to change
+   any code.
+
+ - NEW: lws_system: New lightweight and efficient Asynchronous DNS resolver
+   implementation for both A and AAAA records, supports recursive (without
+   recursion in code) lookups, caching, and getaddrinfo() compatible results
+   scheme (from cache directly without per-consumer allocation).  Able to
+   perform DNS lookups without introducing latency in the event loop.
+
+ - NEW: lws_system: ntpclient implementation with interface for setting system
+   time via lws_system ops
+ 
+ - NEW: lws_system: dhcpclient implementation
+ 
+ - NEW: Connection validity tracking, autoproduce PING/PONG for protocols that
+   support it if not informed that the connection has passed data in both
+   directions recently enough
+
+ - NEW: lws_retry: standardized exponential backoff and retry timing based
+   around backoff table and lws_sul
+
+ - NEW: there are official public helpers for unaligned de/serialization of all
+   common types, see eh, lws_ser_wu16be() in include/libwebsockets/lws-misc.h
+
+ - NEW: lws_tls_client_vhost_extra_cert_mem() api allows attaching extra certs
+   to a client vhost from DER in memory
+   
+ - NEW: lws_system: generic blobs support passing auth tokens, per-connection
+   client certs etc from platform into lws
+
+ - NEW: public helpers to consume and produce ipv4/6 addresses in a clean way,
+   along with lws_sockaddr46 type now public.  See eg, lws_sockaddr46-based
+   lws_sa46_parse_numeric_address(), lws_write_numeric_address()
+   in include/libwebsockets/lws-network-helper.h
+
+ - Improved client redirect handling, h2 compatibility
+ 
+ - NEW: lwsac: additional features for constant folding support (strings that
+   already are in the lwsac can be pointed to without copying again), backfill
+   (look for gaps in previous chunks that could take a new use size), and
+   lwsac_extend() so last use() can attempt to use more unallocated chunk space
+
+ - NEW: lws_humanize: apis for reporting scalar quanties like 1234 as "1.234KB"
+   with the scaled symbol strings passed in by caller
+
+ - NEW: freertos: support lws_cancel_service() by using UDP pair bound to lo,
+   since it doesn't have logical pipes
+
+ - NEW: "esp32" plat, which implemented freertos plat compatibility on esp32, is
+   renamed to "freertos" plat, targeting esp32 and other freertos platforms
+
+ - NEW: base64 has an additional api supporting stateful decode, where the input
+   is not all in the same place at the same time and can be processed
+   incrementally
+
+ - NEW: lws ws proxy: support RFC8441
+   
+ - NEW: lws_spawn_piped apis: generic support for vforking a process with child
+   wsis attached to its stdin, stdout and stderr via pipes.  When processes are
+   reaped, a specified callback is triggered.  Currently Linux + OSX.
+   
+ - NEW: lws_fsmount apis: Linux-only overlayfs mount and unmount management for
+   aggregating read-only layers with disposable, changeable upper layer fs
+
+ - Improvements for RTOS / small build case bring the footprint of lws v4 below
+   that of v3.1 on ARM 
+   
+ - lws_tokenize: flag specifying # should mark rest of line as comment
+
+ - NEW: minimal example for integrating libasound / alsa via raw file
+
+ - lws_struct: sqlite and json / lejp translation now usable
+
 
 v3.2.0
 ======
@@ -445,629 +532,6 @@ See README.lwsws.md for more information.
  appear there for creation, rx, writable and close.
  See libwebsockets-test-client (with raw://) for an example.
  See README.coding.md
-
-
-v2.1.0
-======
-
-Major new features
-
- - Support POST arguments, including multipart and file attachment
-
- - Move most of lwsws into lws, make the stub CC0
-
- - Add loopback test plugin to confirm client ws / http coexistence
-
- - Integrate lwsws testing on Appveyor (ie, windows)
-
- - Introduce helpers for sql, urlencode and urldecode sanitation
-
- - Introduce LWS_CALLBACK_HTTP_BIND_PROTOCOL / DROP_PROTOCOL that
- are compatible with http:/1.1 pipelining and different plugins
- owning different parts of the URL space
-
- - lwsgs - Generic Sessions plugin supports serverside sessions,
- cookies, hashed logins, forgot password etc
-
- - Added APIs for sending email to SMTP servers
-
- - Messageboard example plugin for lwsgs
-
- - Automatic PING sending at fixed intervals and close if no response
-
- - Change default header limit in ah to 4096 (from 1024)
-
- - Add SNI matching for wildcards if no specific wildcard vhost name match
-
- - Convert docs to Doxygen
-
- - ESP8266 support ^^
-
-Fixes
------
-
-See git log v2.0.0..
-
-
-
-v2.0.0
-======
-
-Summary
--------
-
- - There are only api additions, the api is compatible with v1.7.x.  But
-   there is necessarily an soname bump to 8.
- 
- - If you are using lws client, you mainly need to be aware the option
-   LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT is needed at context-creation time
-   if you will use SSL.
-   
- - If you are using lws for serving, the above is also true but there are
-   many new features to simplify your code (and life).  There is a
-   summany online here
-   
-     https://libwebsockets.org/lws-2.0-new-features.html
-     
-   but basically the keywords are vhosts, mounts and plugins.  You can now
-   do the web serving part from lws without any user callback code at all.
-   See ./test-server/test-server-v2.0.c for an example, it has no user
-   code for ws either since it uses the protocol plugins... that one C file
-   is all that is needed to do the whole test server function.
-   
-   You now have the option to use a small generic ws-capable webserver
-   "lwsws" and write your ws part as a plugin.  That eliminates even
-   cut-and-pasting the test server code and offers more configurable
-   features like control over http cacheability in JSON.
-
-
-Fixes
------
-
-These are already in 1.7.x series
-
-1) MAJOR (Windows-only) fix assert firing
-
-2) MAJOR http:/1.1 connections handled by  lws_return_http_status() did not
-get sent a content-length resulting in the link hanging until the peer closed
-it.  attack.sh updated to add a test for this.
-
-3) MINOR An error about hdr struct in _lws_ws_related is corrected, it's not
-known to affect anything until after it was fixed
-
-4) MINOR During the close shutdown wait state introduced at v1.7, if something
-requests callback on writeable for the socket it will busywait until the
-socket closes
-
-5) MAJOR Although the test server has done it for a few versions already, it
-is now required for the user code to explicitly call
-
-	if (lws_http_transaction_completed(wsi))
-		return -1;
-
-when it finishes replying to a transaction in http.  Previously the library
-did it for you, but that disallowed large, long transfers with multiple
-trips around the event loop (and cgi...).
-
-6) MAJOR connections on ah waiting list that closed did not get removed from
-the waiting list...
-
-7) MAJOR since we added the ability to hold an ah across http keepalive
-transactions where more headers had already arrived, we broke the ability
-to tell if more headers had arrived.  Result was if the browser didn't
-close the keepalive, we retained ah for the lifetime of the keepalive,
-using up the pool.
-
-8) MAJOR windows-only-POLLHUP was not coming
-
-9) Client should not send ext hdr if no exts
-
-Changes
--------
-
-1) MINOR test-server gained some new switches
-
-   -C <file>  use external SSL cert file
-   -K <file>  use external SSL key file
-   -A <file>  use external SSL CA cert file
-   
-   -u <uid>  set effective uid
-   -g <gid>  set effective gid
-
-together you can use them like this to have the test-server work with the
-usual purchased SSL certs from an official CA.
-
-   --ssl -C your.crt -K your.key -A your.cer -u 99 -g 99
-
-2) MINOR the OpenSSL magic to setup ECDH cipher usage is implemented in the
-library, and the ciphers restricted to use ECDH only.
-Using this, the lws test server can score an A at SSLLABS test
-
-3) MINOR STS (SSL always) header is added to the test server if you use --ssl.  With
-that, we score A+ at SSLLABS test
-
-4) MINOR daemonize function (disabled at cmake by default) is updated to work
-with systemd
-
-5) MINOR example systemd .service file now provided for test server
-(not installed by default)
-
-6) test server html is updated with tabs and a new live server monitoring
-feature.  Input sanitization added to the js.
-
-7) client connections attempted when no ah is free no longer fail, they are
-just deferred until an ah becomes available.
-
-8) The test client pays attention to if you give it an http:/ or https://
-protocol string to its argument in URL format.  If so, it stays in http[s]
-client mode and doesn't upgrade to ws[s], allowing you to do generic http client
-operations.  Receiving transfer-encoding: chunked is supported.
-
-9) If you enable -DLWS_WITH_HTTP_PROXY=1 at cmake, the test server has a
-new URI path http://localhost:7681/proxytest If you visit here, a client
-connection to http://example.com:80 is spawned, and the results piped on
-to your original connection.
-
-10) Also with LWS_WITH_HTTP_PROXY enabled at cmake, lws wants to link to an
-additional library, "libhubbub".  This allows lws to do html rewriting on the
-fly, adjusting proxied urls in a lightweight and fast way.
-
-11) There's a new context creation flag LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT,
-this is included automatically if you give any other SSL-related option flag.
-If you give no SSL-related option flag, nor this one directly, then even
-though SSL support may be compiled in, it is never initialized nor used for the
-whole lifetime of the lws context.
-
-Conversely in order to prepare the context to use SSL, even though, eg, you
-are not listening on SSL but will use SSL client connections later, you must
-give this flag explicitly to make sure SSL is initialized.
-
-
-User API additions
-------------------
-
-1) MINOR APIBREAK There's a new member in struct lws_context_creation_info, ecdh_curve,
-which lets you set the name of the ECDH curve OpenSSL should use.  By
-default (if you leave ecdh_curve NULL) it will use "prime256v1"
-
-2) MINOR NEWAPI It was already possible to adopt a foreign socket that had not
-been read from using lws_adopt_socket() since v1.7.  Now you can adopt a
-partially-used socket if you don't need SSL, by passing it what you read
-so it can drain that before reading from the socket.
-
-LWS_VISIBLE LWS_EXTERN struct lws *
-lws_adopt_socket_readbuf(struct lws_context *context, lws_sockfd_type accept_fd,
-		const char *readbuf, size_t len);
-
-3) MINOR NEWAPI CGI type "network io" subprocess execution is now possible from
-a simple api.
-
-LWS_VISIBLE LWS_EXTERN int
-lws_cgi(struct lws *wsi, char * const *exec_array,  int script_uri_path_len,
-        int timeout_secs);
-
-LWS_VISIBLE LWS_EXTERN int
-lws_cgi_kill(struct lws *wsi);
-
-To use it, you must first set the cmake option
-
-$ cmake .. -DLWS_WITH_CGI=1
-
-See test-server-http.c and  test server path
-
-http://localhost:7681/cgitest
-
-stdin gets http body, you can test it with wget
-
-$ echo hello > hello.txt
-$ wget http://localhost:7681/cgitest --post-file=hello.txt -O- --quiet
-lwstest script
-read="hello"
-
-The test script returns text/html table showing /proc/meminfo.  But the cgi
-support is complete enough to run cgit cgi.
-
-4) There is a helper api for forming logging timestamps
-
-LWS_VISIBLE int
-lwsl_timestamp(int level, char *p, int len)
-
-this generates this kind of timestamp for use as logging preamble
-
-lwsts[13116]: [2016/01/25 14:52:52:8386] NOTICE: Initial logging level 7
-
-5) struct lws_client_connect_info has a new member
-
- const char *method
- 
-If it's NULL, then everything happens as before, lws_client_connect_via_info()
-makes a ws or wss connection to the address given.
-
-If you set method to a valid http method like "GET", though, then this method
-is used and the connection remains in http[s], it's not upgraded to ws[s].
-
-So with this, you can perform http[s] client operations as well as ws[s] ones.
-
-There are 4 new related callbacks
-
-	LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP			= 44,
-	LWS_CALLBACK_CLOSED_CLIENT_HTTP				= 45,
-	LWS_CALLBACK_RECEIVE_CLIENT_HTTP			= 46,
-	LWS_CALLBACK_COMPLETED_CLIENT_HTTP			= 47,
-
-6) struct lws_client_connect_info has a new member
-
- const char *parent_wsi
- 
-if non-NULL, the client wsi is set to be a child of parent_wsi.  This ensures
-if parent_wsi closes, then the client child is closed just before.
-
-7) If you're using SSL, there's a new context creation-time option flag
-LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS.  If you give this, non-ssl
-connections to the server listen port are accepted and receive a 301
-redirect to / on the same host and port using https://
-
-8) User code may set per-connection extension options now, using a new api
-"lws_set_extension_option()".
-
-This should be called from the ESTABLISHED callback like this
-
- lws_set_extension_option(wsi, "permessage-deflate",
-                          "rx_buf_size", "12"); /* 1 << 12 */
-
-If the extension is not active (missing or not negotiated for the
-connection, or extensions are disabled on the library) the call is
-just returns -1.  Otherwise the connection's extension has its
-named option changed.
-
-The extension may decide to alter or disallow the change, in the
-example above permessage-deflate restricts the size of his rx
-output buffer also considering the protocol's rx_buf_size member.
-
-
-New application lwsws
----------------------
-
-A libwebsockets-based general webserver is built by default now, lwsws.
-
-It's configured by JSON, by default in
-
-  /etc/lwsws/conf
-
-which contains global lws context settings like this
-
-{
-  "global": {
-   "uid": "99",
-   "gid": "99",
-   "interface": "eth0",
-   "count-threads": "1"
- }
-}
-
-  /etc/lwsws/conf.d/*
-
-which contains zero or more files describing vhosts, like this
-
-{
- "vhosts": [
-  { "name": "warmcat.com",
-    "port": "443",
-    "host-ssl-key": "/etc/pki/tls/private/warmcat.com.key",
-    "host-ssl-cert": "/etc/pki/tls/certs/warmcat.com.crt",
-    "host-ssl-ca": "/etc/pki/tls/certs/warmcat.com.cer",
-    "mounts": [
-      { "/": [
-       { "home": "file:///var/www/warmcat.com" },
-       { "default": "index.html" }
-      ]
-     }
-    ]
-   }
- ]
-}
-
-
-
-v1.7.0
-======
-
-Extension Changes
------------------
-
-1) There is now a "permessage-deflate" / RFC7692 implementation.  It's very
-similar to "deflate-frame" we have offered for a long while; deflate-frame is
-now provided as an alias of permessage-deflate.
-
-The main differences are that the new permessage-deflate implementation:
-
- - properly performs streaming respecting input and output buffer limits.  The
-   old deflate-frame implementation could only work on complete deflate input
-   and produce complete inflate output for each frame.  The new implementation
-   only mallocs buffers at initialization.
-
- - goes around the event loop after each input package is processed allowing
-   interleaved output processing.  The RX flow control api can be used to
-   force compressed input processing to match the rate of compressed output
-   processing (test--echo shows an example of how to do this).
-
- - when being "deflate-frame" for compatibility he uses the same default zlib
-   settings as the old "deflate-frame", but instead of exponentially increasing
-   malloc allocations until the whole output will fit, he observes the default
-   input and output chunking buffer sizes of "permessage-deflate", that's
-   1024 in and 1024 out at a time.
-
-2) deflate-stream has been disabled for many versions (for over a year) and is
-now removed.  Browsers are now standardizing on "permessage-deflate" / RFC7692
-
-3) struct lws_extension is simplified, and lws extensions now have a public
-api (their callback) for use in user code to compose extensions and options
-the user code wants.  lws_get_internal_exts() is deprecated but kept around
-as a NOP.  The changes allow one extension implementation to go by different
-names and allows the user client code to control option offers per-ext.
-
-The test client and server are updated to use the new way.  If you use
-the old way it should still work, but extensions will be disabled until you
-update your code.
-
-Extensions are now responsible for allocating and per-instance private struct
-at instance construction time and freeing it when the instance is destroyed.
-Not needing to know the size means the extension's struct can be opaque
-to user code.
-
-
-User api additions
-------------------
-
-1) The info struct gained three new members
-
- - max_http_header_data: 0 for default (1024) or set the maximum amount of known
-    http header payload that lws can deal with.  Payload in unknown http
-    headers is dropped silently.  If for some reason you need to send huge
-    cookies or other HTTP-level headers, you can now increase this at context-
-    creation time.
-
- - max_http_header_pool: 0 for default (16) or set the maximum amount of http
-     headers that can be tracked by lws in this context.  For the server, if
-     the header pool is completely in use then accepts on the listen socket
-     are disabled until one becomes free.  For the client, if you simultaneously
-     have pending connects for more than this number of client connections,
-     additional connects will fail until some of the pending connections timeout
-     or complete.
-
- - timeout_secs: 0 for default (currently 20s), or set the library's
-     network activity timeout to the given number of seconds
-
-HTTP header processing in lws only exists until just after the first main
-callback after the HTTP handshake... for ws connections that is ESTABLISHED and
-for HTTP connections the HTTP callback.
-
-So these settings are not related to the maximum number of simultaneous
-connections, but the number of HTTP handshakes that may be expected or ongoing,
-or have just completed, at one time.  The reason it's useful is it changes the
-memory allocation for header processing to be one-time at context creation
-instead of every time there is a new connection, and gives you control over
-the peak allocation.
-
-Setting max_http_header_pool to 1 is fine it will just queue incoming
-connections before the accept as necessary, you can still have as many
-simultaneous post-header connections as you like.  Since the http header
-processing is completed and the allocation released after ESTABLISHED or the
-HTTP callback, even with a pool of 1 many connections can be handled rapidly.
-
-2) There is a new callback that allows the user code to get acccess to the
-optional close code + aux data that may have been sent by the peer.
-
-LWS_CALLBACK_WS_PEER_INITIATED_CLOSE:
-             The peer has sent an unsolicited Close WS packet.  @in and
-             @len are the optional close code (first 2 bytes, network
-             order) and the optional additional information which is not
-             defined in the standard, and may be a string or non-human-
-             readble data.
-             If you return 0 lws will echo the close and then close the
-             connection.  If you return nonzero lws will just close the
-             connection.
-
-As usual not handling it does the right thing, if you're not interested in it
-just ignore it.
-
-The test server has "open and close" testing buttons at the bottom, if you
-open and close that connection, on close it will send a close code 3000 decimal
-and the string "Bye!" as the aux data.
-
-The test server dumb-increment callback handles this callback reason and prints
-
-lwsts[15714]: LWS_CALLBACK_WS_PEER_INITIATED_CLOSE: len 6
-lwsts[15714]:  0: 0x0B
-lwsts[15714]:  1: 0xB8
-lwsts[15714]:  2: 0x42
-lwsts[15714]:  3: 0x79
-lwsts[15714]:  4: 0x65
-lwsts[15714]:  5: 0x21
-
-3) There is a new API to allow the user code to control the content of the
-close frame sent when about to return nonzero from the user callback to
-indicate the connection should close.
-
-/**
- * lws_close_reason - Set reason and aux data to send with Close packet
- *		If you are going to return nonzero from the callback
- *		requesting the connection to close, you can optionally
- *		call this to set the reason the peer will be told if
- *		possible.
- *
- * @wsi:	The websocket connection to set the close reason on
- * @status:	A valid close status from websocket standard
- * @buf:	NULL or buffer containing up to 124 bytes of auxiliary data
- * @len:	Length of data in @buf to send
- */
-LWS_VISIBLE LWS_EXTERN void
-lws_close_reason(struct lws *wsi, enum lws_close_status status,
-		 unsigned char *buf, size_t len);
-
-An extra button is added to the "open and close" test server page that requests
-that the test server close the connection from his end.
-
-The test server code will do so by
-
-			lws_close_reason(wsi, LWS_CLOSE_STATUS_GOINGAWAY,
-					 (unsigned char *)"seeya", 5);
-			return -1;
-
-The browser shows the close code and reason he received
-
-websocket connection CLOSED, code: 1001, reason: seeya
-
-4) There's a new context creation time option flag
-
-LWS_SERVER_OPTION_VALIDATE_UTF8
-
-if you set it in info->options, then TEXT and CLOSE frames will get checked to
-confirm that they contain valid UTF-8.  If they don't, the connection will get
-closed by lws.
-
-5) ECDH Certs are now supported.  Enable the CMake option
-
-cmake .. -DLWS_SSL_SERVER_WITH_ECDH_CERT=1 
-
-**and** the info->options flag
-
-LWS_SERVER_OPTION_SSL_ECDH
-
-to build in support and select it at runtime.
-
-6) There's a new api lws_parse_uri() that simplifies chopping up
-https://xxx:yyy/zzz uris into parts nicely.  The test client now uses this
-to allow proper uris as well as the old address style.
-
-7) SMP support is integrated into LWS without any internal threading.  It's
-very simple to use, libwebsockets-test-server-pthread shows how to do it,
-use -j <n> argument there to control the number of service threads up to 32.
-
-Two new members are added to the info struct
-
-	unsigned int count_threads;
-	unsigned int fd_limit_per_thread;
-	
-leave them at the default 0 to get the normal singlethreaded service loop.
-
-Set count_threads to n to tell lws you will have n simultaneous service threads
-operating on the context.
-
-There is still a single listen socket on one port, no matter how many
-service threads.
-
-When a connection is made, it is accepted by the service thread with the least
-connections active to perform load balancing.
-
-The user code is responsible for spawning n threads running the service loop
-associated to a specific tsi (Thread Service Index, 0 .. n - 1).  See
-the libwebsockets-test-server-pthread for how to do.
-
-If you leave fd_limit_per_thread at 0, then the process limit of fds is shared
-between the service threads; if you process was allowed 1024 fds overall then
-each thread is limited to 1024 / n.
-
-You can set fd_limit_per_thread to a nonzero number to control this manually, eg
-the overall supported fd limit is less than the process allowance.
-
-You can control the context basic data allocation for multithreading from Cmake
-using -DLWS_MAX_SMP=, if not given it's set to 32.  The serv_buf allocation
-for the threads (currently 4096) is made at runtime only for active threads.
-
-Because lws will limit the requested number of actual threads supported
-according to LWS_MAX_SMP, there is an api lws_get_count_threads(context) to
-discover how many threads were actually allowed when the context was created.
-
-It's required to implement locking in the user code in the same way that
-libwebsockets-test-server-pthread does it, for the FD locking callbacks.
-
-If LWS_MAX_SMP=1, then there is no code related to pthreads compiled in the
-library.  If more than 1, a small amount of pthread mutex code is built into
-the library.
-
-8) New API
-
-LWS_VISIBLE struct lws *
-lws_adopt_socket(struct lws_context *context, lws_sockfd_type accept_fd)
-
-allows foreign sockets accepted by non-lws code to be adopted by lws as if they
-had just been accepted by lws' own listen socket.
-
-9) X-Real-IP: header has been added as WSI_TOKEN_HTTP_X_REAL_IP
-
-10) Libuv support is added, there are new related user apis
-
-typedef void (lws_uv_signal_cb_t)(uv_loop_t *l, uv_signal_t *w, int revents);
-
-LWS_VISIBLE LWS_EXTERN int
-lws_uv_sigint_cfg(struct lws_context *context, int use_uv_sigint,
-		  lws_uv_signal_cb_t *cb);
-
-LWS_VISIBLE LWS_EXTERN int
-lws_uv_initloop(struct lws_context *context, uv_loop_t *loop, int tsi);
-
-LWS_VISIBLE void
-lws_uv_sigint_cb(uv_loop_t *loop, uv_signal_t *watcher, int revents);
-
-and CMAKE option
-
-LWS_WITH_LIBUV
-
-
-User api changes
-----------------
-
-1) LWS_SEND_BUFFER_POST_PADDING is now 0 and deprecated.  You can remove it; if
-you still use it, obviously it does nothing.  Old binary code with nonzero
-LWS_SEND_BUFFER_POST_PADDING is perfectly compatible, the old code just
-allocated a buffer bigger than the library is going to use.
-
-The example apps no longer use LWS_SEND_BUFFER_POST_PADDING.
-
-The only path who made use of it was sending with LWS_WRITE_CLOSE --->
-
-2) Because of lws_close_reason() formalizing handling close frames,
-LWS_WRITE_CLOSE is removed from libwebsockets.h.  It was only of use to send
-close frames...close frame content should be managed using lws_close_reason()
-now.
-
-3) We check for invalid CLOSE codes and complain about protocol violation in
-our close code.  But it changes little since we were in the middle of closing
-anyway.
-
-4) zero-length RX frames and zero length TX frames are now allowed.
-
-5) Pings and close used to be limited to 124 bytes, the correct limit is 125
-so that is now also allowed.
-
-6) LWS_PRE is provided as a synonym for LWS_SEND_BUFFER_PRE_PADDING, either is
-valid to use now.
-
-7) There's generic support for RFC7462 style extension options built into the
-library now.  As a consequence, a field "options" is added to lws_extension.
-It can be NULL if there are no options on the extension.  Extension internal
-info is part of the public abi because extensions may be implemented outside
-the library.
-
-8) WSI_TOKEN_PROXY enum was accidentally defined to collide with another token
-of value 73.  That's now corrected and WSI_TOKEN_PROXY moved to his own place at
-77.
-
-9) With the addition of libuv support, libev is not the only event loop
-library in town and his api names must be elaborated with _ev_
-
-  Callback typedef: lws_signal_cb ---> lws_ev_signal_cb_t
-  lws_sigint_cfg --> lws_ev_sigint_cfg
-  lws_initloop --> lws_ev_initloop
-  lws_sigint_cb --> lws_ev_sigint_cb
-
-10) Libev support is made compatible with multithreaded service,
-lws_ev_initloop (was lws_initloop) gets an extra argument for the
-thread service index (use 0 if you will just have 1 service thread).
-
-LWS_VISIBLE LWS_EXTERN int
-lws_ev_initloop(struct lws_context *context, ev_loop_t *loop, int tsi);
 
 
 (for earlier changelogs, see the tagged releases)

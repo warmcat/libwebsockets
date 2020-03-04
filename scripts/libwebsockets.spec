@@ -1,5 +1,5 @@
 Name: libwebsockets
-Version: 3.2.0
+Version: 4.0.0
 Release: 1%{?dist}
 Summary: Websocket Server and Client Library
 
@@ -54,7 +54,7 @@ rm -rf $RPM_BUILD_ROOT
 "/usr/bin/libwebsockets-test-sshd"
 "/usr/bin/lwsws"
 "/%{_libdir}/libwebsockets.so"
-"/%{_libdir}/libwebsockets.so.15"
+"/%{_libdir}/libwebsockets.so.16"
 %dir "/usr/share/libwebsockets-test-server"
 "/usr/share/libwebsockets-test-server/candide.zip"
 "/usr/share/libwebsockets-test-server/favicon.ico"

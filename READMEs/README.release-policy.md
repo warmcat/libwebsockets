@@ -1,12 +1,34 @@
 # lws release policy
 
+## How should users consume lws?
+
+The one definitively wrong way to consume lws (or anything else) is "import" some
+version of it into your proprietary tree and think you will stick with that
+forever, perhaps piling cryptic fixes or hacks on top until quite quickly,
+nobody dare think about updating it.
+
+The stable releases go on to a branch like v4.0-stable as described below, over
+time these attract dozens or even hundreds of minor or major fix patches
+backported from master.  So you should not consume tags like v4.0.0 but build
+into your planning that you will need to follow v4.0-stable in order to stay on
+top of known bugs.
+
+And we only backport fixes to the last stable release, although we will make
+exceptions for important fixes.  So after a while, trying to stick with one
+old versions means nobody is providing security fixes on it any more.  So you
+should build into your planning that you will follow lws release upgrades.
+
+If you find problems and create fixes, please upstream them, simplifying your
+life so you can just directly consume the upstream tree with no private changes.
+
 ## Master branch
 
 Master branch is the default and all new work happens there.  It's unstable and
 subject to history rewrites, patches moving about and being squashed etc.  In
 terms of it working, it is subject to passing CI tests including a battery of
 runtime tests, so if it is passing CI as it usually is then it's probably in
-usable shape.
+usable shape.  See "Why no history on master" below for why it's managed like
+that.
 
 ![all work happens on master](../doc-assets/lws-relpol-1.svg)
 
@@ -86,4 +108,19 @@ uncommon though.
 
 ![backport to multiple stable branches](../doc-assets/lws-relpol-5.svg)
 
+## Why no history on master
+
+Git is a wonderful tool that can be understood to have two main modes of operation,
+merge and rebase that are mutually exclusive.  Most devs only use merge / pull,
+but rebase / fetch is much more flexible.  Running master via rebases allows me to
+dispense with feature branches during development and enables tracking multiple
+in-progress patches in-tree by updating them in place.  If this doesn't make
+sense or seems heretical to you, it's OK I don't need devsplain'ing about it,
+just sit back and enjoy the clean, rapid development results.
+
+Since stable branches don't allow new features, they are run as traditional trees
+with a history, like a one-way pile of patches on top of the original release.  If
+CI shows something is messed up with the latest patch, I will edit it in-place if
+it has only been out for a few hours, but there is no re-ordering or other history
+manipulation.
 

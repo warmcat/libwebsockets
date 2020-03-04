@@ -3,18 +3,27 @@
 # Libwebsockets
 
 Libwebsockets is a simple-to-use, pure C library providing client and server
-for **http/1**, **http/2**, **websockets** and other protocols in a security-minded,
+for **http/1**, **http/2**, **websockets**, **MQTT** and other protocols in a security-minded,
 lightweight, configurable, scalable and flexible way.  It's easy to build and
 cross-build via cmake and is suitable for tasks from embedded RTOS through mass
 cloud serving.
 
-[70 independent minimal examples](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples) for
+[80 independent minimal examples](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples) for
 various scenarios, CC0-licensed (public domain) for cut-and-paste, allow you to get started quickly.
 
 ![overview](./doc-assets/lws-overview.png)
 
 News
 ----
+
+## v4.0 is released
+
+Users wanting a stable branch should follow v4.0-stable to get the most stable version
+at any given time.
+
+See the [changelog](https://libwebsockets.org/git/libwebsockets/tree/lib/changelog) for
+information on the huge amount of new features in this release, and additional information
+below.
 
 ## Introducing Secure Streams client support
 
