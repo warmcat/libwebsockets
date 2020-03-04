@@ -173,6 +173,11 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 			}
 #endif
 #endif
+#if defined(LWS_ROLE_WS)
+			/* Since buflist_out flushed, we're not inside a frame any more */
+			if (wsi->ws)
+				wsi->ws->inside_frame = 0;
+#endif
 		}
 		/* always callback on writeable */
 		lws_callback_on_writable(wsi);
