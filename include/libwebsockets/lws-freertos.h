@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -27,6 +27,13 @@
 typedef int lws_sockfd_type;
 typedef int lws_filefd_type;
 
+#if defined(LWS_AMAZON_RTOS)
+#include <FreeRTOS.h>
+#include <event_groups.h>
+#include <string.h>
+#include "timers.h"
+#include <lwip/sockets.h>
+
 /*
  * Later lwip (at least 2.1.12) already defines these in its own headers
  * protected by the same test as used here... if POLLIN / POLLOUT already exist
@@ -51,12 +58,6 @@ struct pollfd {
 
 #endif
 
-#if defined(LWS_AMAZON_RTOS)
-#include <FreeRTOS.h>
-#include <event_groups.h>
-#include <string.h>
-#include "timers.h"
-#include <lwip/sockets.h>
 #else /* LWS_AMAZON_RTOS */
 #include <freertos/FreeRTOS.h>
 #include <freertos/event_groups.h>
