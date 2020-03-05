@@ -37,12 +37,57 @@
 #include <unistd.h>
 #include <fcntl.h>
 
+static int
+rm_rf_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
+{
+	char path[384];
+
+	if (!strcmp(lde->name, ".") || !strcmp(lde->name, ".."))
+		return 0;
+
+	lws_snprintf(path, sizeof(path), "%s/%s", dirpath, lde->name);
+
+	if (lde->type == LDOT_DIR) {
+		lws_dir(path, NULL, rm_rf_cb);
+		rmdir(path);
+	} else
+		unlink(path);
+
+	return 0;
+}
+
 int
 lws_fsmount_mount(struct lws_fsmount *fsm)
 {
 	struct libmnt_context *ctx;
-	char opts[512];
+	char opts[512], c;
 	int n, m;
+
+	/*
+	 * For robustness, there are a couple of sticky situations caused by
+	 * previous mounts not cleaning up... 1) still mounted on the mountpoint
+	 * and 2) junk in the session dir from the dead session.
+	 *
+	 * For 1), do a gratuitous umount attempts until it feels nothing to
+	 * umount...
+	 */
+
+	c = fsm->mp[0];
+	while (!lws_fsmount_unmount(fsm))
+		fsm->mp[0] = c;
+	fsm->mp[0] = c;
+
+	/*
+	 * ... for 2), generate the session dir basepath and destroy everything
+	 * in it... it's less dangerous than it sounds because there are
+	 * hardcoded unusual dir names in the base path, so it can't go wild
+	 * even if the overlay path is empty or /
+	 */
+
+	lws_snprintf(opts, sizeof(opts), "%s/overlays/%s/session",
+		     fsm->overlay_path, fsm->ovname);
+	lwsl_info("%s: emptying session dir %s\n", __func__, opts);
+	lws_dir(opts, NULL, rm_rf_cb);
 
 	/*
 	 * Piece together the options for the overlay mount...
@@ -78,6 +123,7 @@ lws_fsmount_mount(struct lws_fsmount *fsm)
 	mnt_context_set_source(ctx, "none");
 
 	lwsl_notice("%s: mount opts %s\n", __func__, opts);
+	puts(opts);
 
 	m = mnt_context_mount(ctx);
 	lwsl_notice("%s: mountpoint %s: %d\n", __func__, fsm->mp, m);
