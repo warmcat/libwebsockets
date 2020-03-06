@@ -1177,8 +1177,8 @@ lws_wsi_mux_dump_waiting_children(struct lws *wsi)
 int
 lws_wsi_mux_mark_parents_needing_writeable(struct lws *wsi)
 {
-	struct lws *network_wsi = lws_get_network_wsi(wsi), *wsi2;
-	int already = network_wsi->mux.requested_POLLOUT;
+	struct lws /* *network_wsi = lws_get_network_wsi(wsi), */ *wsi2;
+	//int already = network_wsi->mux.requested_POLLOUT;
 
 	/* mark everybody above him as requesting pollout */
 
@@ -1190,7 +1190,7 @@ lws_wsi_mux_mark_parents_needing_writeable(struct lws *wsi)
 		wsi2 = wsi2->mux.parent_wsi;
 	}
 
-	return already;
+	return 0; // already;
 }
 
 struct lws *

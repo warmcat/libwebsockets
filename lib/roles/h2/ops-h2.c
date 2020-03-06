@@ -725,7 +725,7 @@ rops_callback_on_writable_h2(struct lws *wsi)
 #endif
 	) {
 		lwsl_debug("already pending writable\n");
-		return 1;
+		// return 1;
 	}
 
 	/* is this for DATA or for control messages? */
