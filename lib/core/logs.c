@@ -126,6 +126,7 @@ _lwsl_emit_stderr(int level, const char *line, int ts)
 	if (!tty)
 		tty = isatty(2) | 2;
 
+	buf[0] = '\0';
 #if defined(LWS_LOGS_TIMESTAMP)
 	if (ts)
 		lwsl_timestamp(level, buf, sizeof(buf));
