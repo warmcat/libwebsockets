@@ -302,6 +302,8 @@ lws_tls_server_accept(struct lws *wsi)
 	int m, n;
 
 	n = SSL_accept(wsi->tls.ssl);
+
+	wsi->skip_fallback = 1;
 	if (n == 1) {
 
 		if (strstr(wsi->vhost->name, ".invalid")) {

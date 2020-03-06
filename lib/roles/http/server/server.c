@@ -1900,8 +1900,8 @@ lws_http_to_fallback(struct lws *wsi, unsigned char *obuf, size_t olen)
 	lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 
 	n = LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED;
-	if (wsi->role_ops->adoption_cb[0])
-		n = wsi->role_ops->adoption_cb[0];
+	if (wsi->role_ops->adoption_cb[1])
+		n = wsi->role_ops->adoption_cb[1];
 
 	ipbuf[0] = '\0';
 #if !defined(LWS_PLAT_OPTEE)

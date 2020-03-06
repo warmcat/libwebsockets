@@ -294,17 +294,18 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 
 	/* PHASE 8: notify protocol with role-specific connected callback */
 
-	/* raw socket doesn't want this... not sure if any want this */
-	if (wsi->role_ops != &role_ops_raw_skt) {
-		lwsl_debug("%s: wsi %p: cb %d to %s %s\n", __func__,
-				wsi, wsi->role_ops->adoption_cb[0],
-				wsi->role_ops->name, wsi->protocol->name);
+	/* raw socket per se doesn't want this... raw socket proxy wants it... */
 
-		wsi->protocol->callback(wsi,
-				wsi->role_ops->adoption_cb[0],
+	if (wsi->role_ops != &role_ops_raw_skt ||
+	    (i->local_protocol_name &&
+	     !strcmp(i->local_protocol_name, "raw-proxy"))) {
+		lwsl_debug("%s: wsi %p: adoption cb %d to %s %s\n", __func__,
+			   wsi, wsi->role_ops->adoption_cb[0],
+			   wsi->role_ops->name, wsi->protocol->name);
+
+		wsi->protocol->callback(wsi, wsi->role_ops->adoption_cb[0],
 				wsi->user_space, NULL, 0);
 	}
-
 
 #if defined(LWS_WITH_HUBBUB)
 	if (i->uri_replace_to)
