@@ -1078,6 +1078,7 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 	struct lws *cwsi;
 	int n, na;
 
+#if defined(LWS_ROLE_WS)
 	if (ws)
 		/*
 		 * Neither our inbound ws upgrade request side, nor our onward
@@ -1094,7 +1095,7 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 		 * the .local_protocol_name.
 		 */
 		lws_bind_protocol(wsi, &lws_ws_proxy, __func__);
-
+#endif
 	memset(&i, 0, sizeof(i));
 	i.context = lws_get_context(wsi);
 
@@ -1228,9 +1229,11 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 	i.alpn = "http/1.1";
 	i.parent_wsi = wsi;
 	i.pwsi = &cwsi;
+#if defined(LWS_ROLE_WS)
 	i.protocol = lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL);
 	if (ws)
 		i.local_protocol_name = "lws-ws-proxy";
+#endif
 
 //	i.uri_replace_from = hit->origin;
 //	i.uri_replace_to = hit->mountpoint;
