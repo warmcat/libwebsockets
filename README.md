@@ -21,9 +21,98 @@ News
 Users wanting a stable branch should follow v4.0-stable to get the most stable version
 at any given time.
 
-See the [changelog](https://libwebsockets.org/git/libwebsockets/tree/lib/changelog) for
+See the [changelog](https://libwebsockets.org/git/libwebsockets/tree/changelog) for
 information on the huge amount of new features in this release, and additional information
 below.
+
+```
+ - NEW: Lws is now under the MIT license, see ./LICENSE for details
+ 
+ - NEW: GLIB native event loop support, lws + gtk example
+
+ - NEW: native lws MQTT client... supports client stream binding like h2 when
+   multiple logical connections are going to the same endpoint over MQTT, they
+   transparently and independently share the one connection + tls tunnel
+ 
+ - NEW: "Secure Streams"... if you are making a device with client connections
+   to the internet or cloud, this allows separation of the communications
+   policy (endpoints, tls cert validation, protocols, etc) from the code, with
+   the goal you can combine streams, change protocols and cloud provision, and
+   reflect that in the device's JSON policy document without having to change
+   any code.
+
+ - NEW: lws_system: New lightweight and efficient Asynchronous DNS resolver
+   implementation for both A and AAAA records, supports recursive (without
+   recursion in code) lookups, caching, and getaddrinfo() compatible results
+   scheme (from cache directly without per-consumer allocation).  Able to
+   perform DNS lookups without introducing latency in the event loop.
+
+ - NEW: lws_system: ntpclient implementation with interface for setting system
+   time via lws_system ops
+ 
+ - NEW: lws_system: dhcpclient implementation
+ 
+ - NEW: Connection validity tracking, autoproduce PING/PONG for protocols that
+   support it if not informed that the connection has passed data in both
+   directions recently enough
+
+ - NEW: lws_retry: standardized exponential backoff and retry timing based
+   around backoff table and lws_sul
+
+ - NEW: there are official public helpers for unaligned de/serialization of all
+   common types, see eh, lws_ser_wu16be() in include/libwebsockets/lws-misc.h
+
+ - NEW: lws_tls_client_vhost_extra_cert_mem() api allows attaching extra certs
+   to a client vhost from DER in memory
+   
+ - NEW: lws_system: generic blobs support passing auth tokens, per-connection
+   client certs etc from platform into lws
+
+ - NEW: public helpers to consume and produce ipv4/6 addresses in a clean way,
+   along with lws_sockaddr46 type now public.  See eg, lws_sockaddr46-based
+   lws_sa46_parse_numeric_address(), lws_write_numeric_address()
+   in include/libwebsockets/lws-network-helper.h
+
+ - Improved client redirect handling, h2 compatibility
+ 
+ - NEW: lwsac: additional features for constant folding support (strings that
+   already are in the lwsac can be pointed to without copying again), backfill
+   (look for gaps in previous chunks that could take a new use size), and
+   lwsac_extend() so last use() can attempt to use more unallocated chunk space
+
+ - NEW: lws_humanize: apis for reporting scalar quanties like 1234 as "1.234KB"
+   with the scaled symbol strings passed in by caller
+
+ - NEW: freertos: support lws_cancel_service() by using UDP pair bound to lo,
+   since it doesn't have logical pipes
+
+ - NEW: "esp32" plat, which implemented freertos plat compatibility on esp32, is
+   renamed to "freertos" plat, targeting esp32 and other freertos platforms
+
+ - NEW: base64 has an additional api supporting stateful decode, where the input
+   is not all in the same place at the same time and can be processed
+   incrementally
+
+ - NEW: lws ws proxy: support RFC8441
+   
+ - NEW: lws_spawn_piped apis: generic support for vforking a process with child
+   wsis attached to its stdin, stdout and stderr via pipes.  When processes are
+   reaped, a specified callback is triggered.  Currently Linux + OSX.
+   
+ - NEW: lws_fsmount apis: Linux-only overlayfs mount and unmount management for
+   aggregating read-only layers with disposable, changeable upper layer fs
+
+ - Improvements for RTOS / small build case bring the footprint of lws v4 below
+   that of v3.1 on ARM 
+   
+ - lws_tokenize: flag specifying # should mark rest of line as comment
+
+ - NEW: minimal example for integrating libasound / alsa via raw file
+
+ - lws_struct: sqlite and json / lejp translation now usable
+
+
+```
 
 ## Introducing Secure Streams client support
 
