@@ -204,23 +204,17 @@ lws_mqtt_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 			if (!(wsi->tls.use_ssl & LCCSCF_USE_SSL))
 				goto start_ws_handshake;
 
-			/* we can retry this... just cook the SSL BIO the first time */
-
-			if (lws_ssl_client_bio_create(wsi) < 0) {
-				lwsl_err("%s: bio_create failed\n", __func__);
+			switch (lws_client_create_tls(wsi, &cce, 0)) {
+			case 0:
+				break;
+			case 1:
+				return 0;
+			default:
 				goto bail3;
 			}
 
-			if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
-				n = lws_ssl_client_connect1(wsi);
-				if (!n)
-					return 0;
-				if (n < 0) {
-					lwsl_err("%s: lws_ssl_client_connect1 failed\n",
-						 __func__);
-					goto bail3;
-				}
-			}
+			break;
+
 		default:
 			break;
 		}
@@ -349,7 +343,7 @@ start_ws_handshake:
 			goto fail;
 		case LWS_SSL_CAPABLE_MORE_SERVICE:
 			lwsl_info("SSL Capable more service\n");
-			goto fail;
+			return 0;
 		case LWS_SSL_CAPABLE_ERROR:
 			lwsl_info("%s: LWS_SSL_CAPABLE_ERROR\n",
 					__func__);

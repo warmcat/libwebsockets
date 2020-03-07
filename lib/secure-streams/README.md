@@ -393,7 +393,7 @@ directly parses the policy and makes the outgoing connections itself.
 However when configured at cmake with
 
 ```
--DLWS_WITH_SOCKS=1 -DLWS_WITH_SECURE_STREAMS=1 -DLWS_WITH_SECURE_STREAMS_PROXY_API=1 -DLWS_WITH_MINIMAL_EXAMPLES=1
+-DLWS_WITH_SOCKS5=1 -DLWS_WITH_SECURE_STREAMS=1 -DLWS_WITH_SECURE_STREAMS_PROXY_API=1 -DLWS_WITH_MINIMAL_EXAMPLES=1
 ```
 
 and define `LWS_SS_USE_SSPC` when building the application, applications forward

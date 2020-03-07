@@ -26,7 +26,7 @@ dotest $1 $2 warmcat-m -m
 dotest $1 $2 warmcat-m-h1 -m --h1
 
 spawn "" $5 $1/libwebsockets-test-server -s
-dotest $1 $2 localhost -l
+dotest $1 $2 localhost -l -d1151
 spawn $SPID $5 $1/libwebsockets-test-server -s
 dotest $1 $2 localhost-h1 -l --h1
 spawn $SPID $5 $1/libwebsockets-test-server -s
