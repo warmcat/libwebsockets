@@ -328,30 +328,27 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 		wsi->tls.ssl = NULL;
 
 		if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
+			const char *cce = NULL;
 
-			/* we can retry this... just cook the SSL BIO the first time */
-
-			if (lws_ssl_client_bio_create(wsi) < 0) {
-				lwsl_err("%s: bio_create failed\n", __func__);
+			switch (
+#if !defined(LWS_WITH_SYS_ASYNC_DNS)
+			lws_client_create_tls(wsi, &cce, 1)
+#else
+			lws_client_create_tls(wsi, &cce, 0)
+#endif
+			) {
+			case 1:
+				return wsi;
+			case 0:
+				break;
+			default:
 				goto bail3;
 			}
-
-#if !defined(LWS_WITH_SYS_ASYNC_DNS)
-			if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
-				n = lws_ssl_client_connect1(wsi);
-				if (!n)
-					return wsi;
-				if (n < 0) {
-					lwsl_err("%s: lws_ssl_client_connect1 failed\n", __func__);
-					goto bail3;
-				}
-			}
-#endif
 		}
+#endif
 
 
 		/* fallthru */
-#endif
 
 		lws_http_client_connect_via_info2(wsi);
 	}

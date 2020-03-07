@@ -105,32 +105,8 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 				 * go down the tls path on it now if that's what
 				 * we want
 				 */
+				goto post_rx;
 
-//				if (!(wsi->tls.use_ssl & LCCSCF_USE_SSL)) {
-//					lwsi_set_state(wsi, LRS_ESTABLISHED);
-					goto post_rx;
-//				}
-#if 0
-				/* we can retry this... just cook the SSL BIO
-				 * the first time */
-
-				if (lws_ssl_client_bio_create(wsi) < 0) {
-					lwsl_err("%s: bio_create failed\n",
-						 __func__);
-					goto fail;
-				}
-
-				if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
-					n = lws_ssl_client_connect1(wsi);
-					if (!n)
-						return 0;
-					if (n < 0) {
-						lwsl_err("%s: connect1 failed\n",
-							 __func__);
-						goto fail;
-					}
-				}
-#endif
 			default:
 				break;
 			}

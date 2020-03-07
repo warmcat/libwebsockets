@@ -326,3 +326,6 @@ lws_sul_http_ah_lifecheck(lws_sorted_usec_list_t *sul);
 
 uint8_t *
 lws_http_multipart_headers(struct lws *wsi, uint8_t *p);
+
+int
+lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1);

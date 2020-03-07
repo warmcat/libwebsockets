@@ -190,9 +190,9 @@ send_hs:
 		lwsl_info("%s: wsi %p: waiting to send hdrs (par state 0x%x)\n",
 			    __func__, wsi, lwsi_state(wsi_piggyback));
 	} else {
-		lwsl_info("%s: wsi %p: %s %s client created own conn (raw %d) vh %s\n",
+		lwsl_info("%s: wsi %p: %s %s client created own conn (raw %d) vh %sm st 0x%x\n",
 			    __func__, wsi, wsi->role_ops->name,
-			    wsi->protocol->name, rawish, wsi->vhost->name);
+			    wsi->protocol->name, rawish, wsi->vhost->name, lwsi_state(wsi));
 
 		/* we are making our own connection */
 
@@ -203,32 +203,30 @@ send_hs:
 		if (lwsi_state(wsi) == LRS_WAITING_CONNECT &&
 		    (wsi->tls.use_ssl & LCCSCF_USE_SSL)) {
 
-			if (!wsi->transaction_from_pipeline_queue &&
-			    lws_tls_restrict_borrow(wsi->context)) {
-				cce = "tls restriction limit";
-				goto failed;
-			}
+
 
 			/* we can retry this... just cook the SSL BIO the first time */
 
-			if (lws_ssl_client_bio_create(wsi) < 0) {
-				lwsl_err("%s: bio_create failed\n", __func__);
+			switch (lws_client_create_tls(wsi, &cce, 1)) {
+			case 0:
+				break;
+			case 1:
+				return wsi;
+			default:
 				goto failed;
 			}
 
-//#if !defined(LWS_WITH_SYS_ASYNC_DNS)
-			if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
-				n = lws_ssl_client_connect1(wsi);
-				if (!n)
-					return wsi;
-				if (n < 0) {
-					lwsl_err("%s: lws_ssl_client_connect1 failed\n", __func__);
-					goto failed;
-				}
-			}
-//#endif
 
-			lwsi_set_state(wsi, LRS_WAITING_SSL);
+
+			lwsl_notice("%s: wsi %p: st 0x%x\n",
+				    __func__, wsi, lwsi_state(wsi));
+
+			if (lwsi_state(wsi) == LRS_WAITING_CONNECT)
+				lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE2);
+			lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
+					wsi->context->timeout_secs);
+
+			//if ()
 			return wsi;
 		}
 #endif
@@ -239,17 +237,6 @@ send_hs:
 			/* for a method = "RAW" connection, this makes us
 			 * established */
 
-#if 0
-#if defined(LWS_WITH_SYS_ASYNC_DNS)
-			if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
-				n = lws_ssl_client_connect1(wsi);
-				if (n < 0) {
-					lwsl_err("%s: lws_ssl_client_connect1 failed\n", __func__);
-					goto failed;
-				}
-			}
-#endif
-#endif
 
 			/* clear his established timeout */
 			lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);

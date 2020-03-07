@@ -24,6 +24,68 @@
 
 #include "private-lib-core.h"
 
+#if defined(LWS_WITH_TLS)
+int
+lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1)
+{
+	int n;
+
+	/* we can retry this... just cook the SSL BIO the first time */
+
+	if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
+
+		if (!wsi->tls.ssl) {
+			if (lws_ssl_client_bio_create(wsi) < 0) {
+				*pcce = "bio_create failed";
+				return -1;
+			}
+
+			if (!wsi->transaction_from_pipeline_queue &&
+			    lws_tls_restrict_borrow(wsi->context)) {
+				*pcce = "tls restriction limit";
+				return -1;
+			}
+		}
+
+		if (!do_c1)
+			return 0;
+
+		n = lws_ssl_client_connect1(wsi);
+		if (!n)
+			return 1; /* caller should return 0 */
+		if (n < 0) {
+			*pcce = "lws_ssl_client_connect1 failed";
+			return -1;
+		}
+	} else
+		wsi->tls.ssl = NULL;
+
+#if defined (LWS_WITH_HTTP2)
+	if (wsi->client_h2_alpn) {
+		/*
+		 * We connected to the server and set up tls, and
+		 * negotiated "h2".
+		 *
+		 * So this is it, we are an h2 master client connection
+		 * now, not an h1 client connection.
+		 */
+#if defined(LWS_WITH_TLS)
+		lws_tls_server_conn_alpn(wsi);
+#endif
+
+		/* send the H2 preface to legitimize the connection */
+		if (lws_h2_issue_preface(wsi)) {
+			*pcce = "error sending h2 preface";
+			return -1;
+		}
+	}
+#endif
+
+	return 0; /* OK */
+}
+
+#endif
+
 void
 lws_client_http_body_pending(struct lws *wsi, int something_left_to_send)
 {
@@ -151,30 +213,11 @@ start_ws_handshake:
 			return -1;
 
 #if defined(LWS_WITH_TLS)
-		/* we can retry this... just cook the SSL BIO the first time */
-
-		if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
-
-			if (!wsi->transaction_from_pipeline_queue &&
-			    lws_tls_restrict_borrow(wsi->context)) {
-				cce = "tls restriction limit";
-				goto bail3;
-			}
-
-			if (!wsi->tls.ssl && lws_ssl_client_bio_create(wsi) < 0) {
-				cce = "bio_create failed";
-				goto bail3;
-			}
-
-			n = lws_ssl_client_connect1(wsi);
-			if (!n)
-				return 0;
-			if (n < 0) {
-				cce = "lws_ssl_client_connect1 failed";
-				goto bail3;
-			}
-		} else
-			wsi->tls.ssl = NULL;
+		n = lws_client_create_tls(wsi, &cce, 1);
+		if (n < 0)
+			goto bail3;
+		if (n == 1)
+			return 0;
 
 		/* fallthru */
 
@@ -220,12 +263,13 @@ start_ws_handshake:
 				goto bail3;
 			}
 
+		//	lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE2);
+			lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
+					context->timeout_secs);
+
 			break;
 		}
 #endif
-		lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE2);
-		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
-				context->timeout_secs);
 
 		/* fallthru */
 
