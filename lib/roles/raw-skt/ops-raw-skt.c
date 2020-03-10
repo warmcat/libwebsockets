@@ -32,7 +32,7 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 	const char *cce = NULL;
 #endif
 	struct lws_tokens ebuf;
-	int n, buffered;
+	int n = 0, buffered = 0;
 
 	/* pending truncated sends have uber priority */
 

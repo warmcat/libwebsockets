@@ -369,13 +369,17 @@ lws_tls_client_connect(struct lws *wsi)
 	char a[32];
 	unsigned int len;
 #endif
-	int m, n, en;
+	int m, n;
+#if defined(WIN32) || defined(_DEBUG)
+	int en;
+#endif
 
 	errno = 0;
 	ERR_clear_error();
 	n = SSL_connect(wsi->tls.ssl);
+#if defined(WIN32) || defined(_DEBUG)
 	en = errno;
-
+#endif
 	m = lws_ssl_get_error(wsi, n);
 
 	if (m == SSL_ERROR_SYSCALL
@@ -383,7 +387,9 @@ lws_tls_client_connect(struct lws *wsi)
 			&& en
 #endif
 	) {
+#if defined(WIN32) || defined(_DEBUG)
 		lwsl_info("%s: n %d, m %d, errno %d\n", __func__, n, m, en);
+#endif
 		return LWS_SSL_CAPABLE_ERROR;
 	}
 

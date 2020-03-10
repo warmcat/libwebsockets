@@ -124,7 +124,11 @@ ss_avs_metadata_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	lwsl_info("%s: len %d, buf h %d, t %d, space %d\n", __func__,
 		    (int)len, (int)m->head, (int)m->tail, (int)n);
 	lws_ss_get_est_peer_tx_credit(m->ss);
-	assert (len <= n);
+	if (len > n) {
+		assert(0);
+		lwsl_err("%s: bad len\n", __func__);
+		return 1;
+	}
 
 	if (m->head < m->tail)				/* |****h-------t**| */
 		memcpy(&m->buf[m->head], buf, len);

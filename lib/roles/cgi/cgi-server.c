@@ -167,7 +167,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 
 		if (m >= 0) {
 			env_array[n++] = p;
-			if (m < 8) {
+			if (m < (int)LWS_ARRAY_SIZE(meths) - 1) {
 				p += lws_snprintf(p, end - p,
 						  "REQUEST_METHOD=%s",
 						  meth_names[m]);
