@@ -937,7 +937,11 @@ lws_context_destroy3(struct lws_context *context)
 
 #if defined(LWS_WITH_NETWORK)
 
-	lwsl_debug("%s\n", __func__);
+	lwsl_err("%s\n", __func__);
+
+	context->finalize_destroy_after_internal_loops_stopped = 1;
+	if (context->event_loop_ops->destroy_context2)
+		context->event_loop_ops->destroy_context2(context);
 
 	for (n = 0; n < context->count_threads; n++) {
 		struct lws_context_per_thread *pt = &context->pt[n];
@@ -953,9 +957,10 @@ lws_context_destroy3(struct lws_context *context)
 #if defined(LWS_WITH_CGI)
 		role_ops_cgi.pt_init_destroy(context, NULL, pt, 1);
 #endif
-
+#if 0
 		if (context->event_loop_ops->destroy_pt)
 			context->event_loop_ops->destroy_pt(context, n);
+#endif
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 		while (pt->http.ah_list)

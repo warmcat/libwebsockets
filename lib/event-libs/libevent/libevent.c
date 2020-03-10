@@ -134,6 +134,7 @@ lws_event_cb(evutil_socket_t sock_fd, short revents, void *ctx)
 	lws_service_fd_tsi(context, &eventfd, wsi->tsi);
 
 	if (pt->destroy_self) {
+		lwsl_notice("%s: pt destroy self coming true\n", __func__);
 		lws_context_destroy(pt->context);
 		return;
 	}
@@ -326,8 +327,10 @@ elops_destroy_pt_event(struct lws_context *context, int tsi)
 	if (!pt->event_loop_foreign) {
 		event_del(pt->w_sigint.event.watcher);
 		event_free(pt->w_sigint.event.watcher);
-
-		event_base_free(pt->event.io_loop);
+		event_base_loopexit(pt->event.io_loop, NULL);
+	//	event_base_free(pt->event.io_loop);
+	//	pt->event.io_loop = NULL;
+		lwsl_notice("%s: set to exit loop\n", __func__);
 	}
 }
 
@@ -428,7 +431,9 @@ elops_destroy_context2_event(struct lws_context *context)
 		} else
 			lwsl_debug("%s: %d: everything closed OK\n", __func__, n);
 #endif
+		lwsl_err("%s: event_base_free\n", __func__);
 		event_base_free(pt->event.io_loop);
+		pt->event.io_loop = NULL;
 
 	}
 

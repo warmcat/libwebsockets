@@ -357,6 +357,11 @@ elops_io_glib(struct lws *wsi, int flags)
 		return;
 	}
 
+	if (!wsi_to_subclass(wsi)) {
+		lwsl_err("%s: glib wsi source pointer is NULL\n", __func__);
+		return;
+	}
+
 	g_source_modify_unix_fd(wsi_to_gsource(wsi), wsi_to_subclass(wsi)->tag,
 				cond);
 }
