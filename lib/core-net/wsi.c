@@ -822,6 +822,8 @@ _lws_generic_transaction_completed_active_conn(struct lws **_wsi)
 
 	assert(lws_socket_is_valid(wsi->desc.sockfd));
 
+	__lws_change_pollfd(wsi, LWS_POLLOUT | LWS_POLLIN, 0);
+
 	/* copy the fd */
 	wnew->desc = wsi->desc;
 
@@ -832,6 +834,21 @@ _lws_generic_transaction_completed_active_conn(struct lws **_wsi)
 	if (__remove_wsi_socket_from_fds(wsi))
 		return -1;
 	wsi->desc.sockfd = LWS_SOCK_INVALID;
+
+	/*
+	 * ... we're doing some magic here in terms of handing off the socket
+	 * that has been active to a wsi that has not yet itself been active...
+	 * depending on the event lib we may need to give a magic spark to the
+	 * new guy and snuff out the old guy's magic spark at that level as well
+	 */
+
+#if defined(LWS_WITH_LIBEV) || defined(LWS_WITH_LIBUV) || \
+    defined(LWS_WITH_LIBEVENT) || defined(LWS_WITH_GLIB)
+	if (wsi->context->event_loop_ops->destroy_wsi)
+		wsi->context->event_loop_ops->destroy_wsi(wsi);
+	if (wsi->context->event_loop_ops->sock_accept)
+		wsi->context->event_loop_ops->sock_accept(wnew);
+#endif
 
 	/* point the fd table entry to new guy */
 
