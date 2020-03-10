@@ -1760,7 +1760,10 @@ lws_mqtt_client_send_subcribe(struct lws *wsi, lws_mqtt_subscribe_param_t *sub)
 	lws_mqtt_str_t mqtt_vh_payload;
 	uint8_t exists[8], extant;
 	lws_mqtt_subs_t *mysub;
-	uint32_t rem_len, tops;
+	uint32_t rem_len;
+#if defined(_DEBUG)
+	uint32_t tops;
+#endif
 	uint32_t n;
 
 	assert(sub->num_topics);
@@ -1826,6 +1829,7 @@ lws_mqtt_client_send_subcribe(struct lws *wsi, lws_mqtt_subscribe_param_t *sub)
 			return 0;
 		}
 
+#if defined(_DEBUG)
 		/*
 		 * zero or more of the topics already existed, but not all,
 		 * so we must go to the server with a filtered list of the
@@ -1833,6 +1837,7 @@ lws_mqtt_client_send_subcribe(struct lws *wsi, lws_mqtt_subscribe_param_t *sub)
 		 */
 
 		tops = sub->num_topics - extant;
+#endif
 
 		/*
 		 * Pid + (Topic len field + Topic len + Req. QoS) x Num of Topics
@@ -1844,8 +1849,10 @@ lws_mqtt_client_send_subcribe(struct lws *wsi, lws_mqtt_subscribe_param_t *sub)
 
 		wsi->mqtt->sub_size = rem_len;
 
+#if defined(_DEBUG)
 		lwsl_debug("%s: Number of topics = %d, Remaining len = %d\n",
 			   __func__, (int)tops, (int)rem_len);
+#endif
 
 		p += lws_mqtt_vbi_encode(rem_len, p);
 
@@ -1933,8 +1940,11 @@ lws_mqtt_client_send_unsubcribe(struct lws *wsi,
 	struct lws *nwsi = lws_get_network_wsi(wsi);
 	lws_mqtt_str_t mqtt_vh_payload;
 	uint8_t send_unsub[8], orphaned;
-	uint32_t rem_len, n, tops;
+	uint32_t rem_len, n;
 	lws_mqtt_subs_t *mysub;
+#if defined(_DEBUG)
+	uint32_t tops;
+#endif
 
 	lwsl_info("%s: Enter\n", __func__);
 
@@ -1978,7 +1988,7 @@ lws_mqtt_client_send_unsubcribe(struct lws *wsi,
 
 			return 0;
 		}
-
+#if defined(_DEBUG)
 		/*
 		 * one or more of the topics needs to be unsubscribed
 		 * from, so we must go to the server with a filtered
@@ -1986,6 +1996,7 @@ lws_mqtt_client_send_unsubcribe(struct lws *wsi,
 		 */
 
 		tops = orphaned;
+#endif
 
 		if (lws_mqtt_fill_fixed_header(p++, LMQCP_CTOS_UNSUBSCRIBE,
 					       0, 0, 0)) {
