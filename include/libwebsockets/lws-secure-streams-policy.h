@@ -206,6 +206,9 @@ typedef struct lws_ss_policy {
 					/* false = TEXT, true = BINARY */
 				} ws;
 			} u;
+
+			uint16_t	resp_expect;
+			uint8_t		fail_redirect:1;
 		} http;
 
 		struct {

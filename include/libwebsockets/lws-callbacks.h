@@ -390,6 +390,9 @@ enum lws_callback_reasons {
 	 * lws know by calling lws_client_http_body_pending(wsi, 0)
 	 */
 
+	LWS_CALLBACK_CLIENT_HTTP_REDIRECT			= 104,
+	/**< we're handling a 3xx redirect... return nonzero to hang up */
+
 	LWS_CALLBACK_CLIENT_HTTP_BIND_PROTOCOL			= 85,
 	LWS_CALLBACK_CLIENT_HTTP_DROP_PROTOCOL			= 76,
 

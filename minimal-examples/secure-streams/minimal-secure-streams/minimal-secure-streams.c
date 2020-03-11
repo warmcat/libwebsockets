@@ -154,6 +154,11 @@ static const char * const default_ss_policy =
 		"}"
 	  "],"
 	  "\"s\": ["
+	  	/*
+		 * "fetch_policy" decides from where the real policy
+		 * will be fetched, if present.  Otherwise the initial
+		 * policy is treated as the whole, hardcoded, policy.
+		 */
 		"{\"fetch_policy\": {"
 			"\"endpoint\":"		"\"warmcat.com\","
 			"\"port\":"		"443,"
@@ -168,8 +173,42 @@ static const char * const default_ss_policy =
 			"\"opportunistic\":"	"true,"
 			"\"retry\":"		"\"default\","
 			"\"tls_trust_store\":"	"\"le_via_isrg\""
-		"}}"
-	"}"
+		"}},{"
+			/*
+			 * "captive_portal_detect" describes
+			 * what to do in order to check if the path to
+			 * the Internet is being interrupted by a
+			 * captive portal.  If there's a larger policy
+			 * fetched from elsewhere, it should also include
+			 * this since it needs to be done at least after
+			 * every DHCP acquisition
+			 */
+		    "\"captive_portal_detect\": {"
+#if 1
+			/* this does the actual test */
+                        "\"endpoint\": \"connectivitycheck.android.com\","
+			"\"http_url\": \"generate_204\","
+			"\"port\": 80,"
+#endif
+#if 0
+			/* this looks like a captive portal due to redirect */
+			"\"endpoint\": \"google.com\","
+			"\"http_url\": \"/\","
+			"\"port\": 80,"
+#endif
+#if 0
+			/* this looks like no internet */
+			"\"endpoint\": \"warmcat.com\","
+			"\"http_url\": \"/\","
+			"\"port\": 999,"
+#endif
+                        "\"protocol\": \"h1\","
+                        "\"http_method\": \"GET\","
+                        "\"opportunistic\": true,"
+                        "\"http_expect\": 204,"
+			"\"http_fail_redirect\": true"
+                "}}"
+	"]}"
 ;
 
 #endif

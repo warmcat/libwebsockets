@@ -82,7 +82,9 @@ static const char * system_state_names[] = {
 	"INITIALIZED",
 	"IFACE_COLDPLUG",
 	"DHCP",
+	"CPD_PRE_TIME",
 	"TIME_VALID",
+	"CPD_POST_TIME",
 	"POLICY_VALID",
 	"REGISTERED",
 	"AUTH1",
@@ -145,6 +147,20 @@ lws_state_notify_protocol_init(struct lws_state_manager *mgr,
 #endif
 
 #if defined(LWS_WITH_SECURE_STREAMS)
+	/*
+	 * See if we should do the SS Captive Portal Detection
+	 */
+	if (target == LWS_SYSTATE_CPD_PRE_TIME) {
+		if (lws_system_cpd_state_get(context))
+			return 0; /* allow it */
+
+		lwsl_info("%s: LWS_SYSTATE_CPD_PRE_TIME\n", __func__);
+		if (!lws_system_cpd_start(context))
+			return 1;
+
+		/* it failed, eg, no streamtype for it in the policy */
+	}
+
 	/*
 	 * Skip this if we are running something without the policy for it
 	 */
@@ -896,10 +912,56 @@ fail_event_libs:
 	return NULL;
 }
 
+#if defined(LWS_WITH_NETWORK)
 int
-lws_context_is_deprecated(struct lws_context *context)
+lws_system_cpd_start(struct lws_context *cx)
 {
-	return context->deprecated;
+	cx->captive_portal_detect = LWS_CPD_UNKNOWN;
+
+	/* if there's a platform implementation, use it */
+
+	if (lws_system_get_ops(cx) &&
+	    lws_system_get_ops(cx)->captive_portal_detect_request)
+		return lws_system_get_ops(cx)->captive_portal_detect_request(cx);
+
+#if defined(LWS_WITH_SECURE_STREAMS)
+	/*
+	 * Otherwise try to use SS "captive_portal_detect" if that's enabled
+	 */
+	return lws_ss_sys_cpd(cx);
+#else
+	return 0;
+#endif
+}
+
+static const char *cname[] = { "?", "OK", "Captive", "No internet" };
+
+void
+lws_system_cpd_set(struct lws_context *cx, lws_cpd_result_t result)
+{
+	if (cx->captive_portal_detect != LWS_CPD_UNKNOWN)
+		return;
+
+	lwsl_notice("%s: setting CPD result %s\n", __func__, cname[result]);
+
+	cx->captive_portal_detect = (uint8_t)result;
+
+	/* if nothing is there to intercept anything, go all the way */
+	lws_state_transition_steps(&cx->mgr_system, LWS_SYSTATE_OPERATIONAL);
+}
+
+lws_cpd_result_t
+lws_system_cpd_state_get(struct lws_context *cx)
+{
+	return (lws_cpd_result_t)cx->captive_portal_detect;
+}
+
+#endif
+
+int
+lws_context_is_deprecated(struct lws_context *cx)
+{
+	return cx->deprecated;
 }
 
 /*

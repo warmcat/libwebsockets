@@ -119,6 +119,9 @@ lws_state_transition_steps(lws_state_manager_t *mgr, int target)
 	char temp8[8];
 #endif
 
+	if (mgr->state > target)
+		return 0;
+
 	while (!n && mgr->state != target)
 		n = _lws_state_transition(mgr, mgr->state + 1);
 

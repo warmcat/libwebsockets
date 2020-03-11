@@ -523,6 +523,8 @@ struct lws_context {
 	uint8_t max_fi;
 	uint8_t udp_loss_sim_tx_pc;
 	uint8_t udp_loss_sim_rx_pc;
+	uint8_t captive_portal_detect;
+	uint8_t captive_portal_detect_type;
 
 #if defined(LWS_WITH_STATS)
 	uint8_t updated;

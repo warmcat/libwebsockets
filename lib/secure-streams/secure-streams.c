@@ -302,8 +302,8 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 
 	pol = lws_ss_policy_lookup(context, ssi->streamtype);
 	if (!pol) {
-		lwsl_err("%s: unknown stream type %s\n", __func__,
-			 ssi->streamtype);
+		lwsl_notice("%s: unknown stream type %s\n", __func__,
+			    ssi->streamtype);
 		return 1;
 	}
 

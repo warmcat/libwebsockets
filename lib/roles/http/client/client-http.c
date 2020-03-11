@@ -678,6 +678,15 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			goto bail3;
 		}
 
+		/* let's let the user code know, if he cares */
+
+		if (wsi->protocol->callback(wsi,
+					    LWS_CALLBACK_CLIENT_HTTP_REDIRECT,
+					    wsi->user_space, p, n)) {
+			cce = "HS: user code rejected redirect";
+			goto bail3;
+		}
+
 		/*
 		 * Some redirect codes imply we have to change the method
 		 * used for the subsequent transaction, commonly POST ->

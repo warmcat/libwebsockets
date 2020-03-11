@@ -177,6 +177,23 @@ to validate the remote server cert.
 HTTP method to use with http-related protocols, like GET or POST.
 Not required for ws.
 
+### `http_expect`
+
+Optionally indicates that success for HTTP transactions using this
+streamtype is different than the default 200 - 299.
+
+Eg, you may choose to set this to 204 for Captive Portal Detect usage
+if that's what you expect the server to reply with to indicate
+success.  In that case, anything other than 204 will be treated as a
+connection failure.
+
+### `http_fail_redirect`
+
+Set to `true` if you want to fail the connection on meeting an
+http redirect.  This is needed to, eg, detect Captive Portals
+correctly.  Normally, if on https, you would want the default behaviour
+of following the redirect.
+
 ### `http_url`
 
 Url path to use with http-related protocols
@@ -351,6 +368,26 @@ the policy to use it.
 The secure-streams-proxy minimal example shows how this is done and
 fetches its real policy from warmcat.com at startup using the built-in
 one.
+
+## Captive Portal Detection
+
+If the policy contains a streamtype `captive_portal_detect` then the
+type of transaction described there is automatically performed after
+acquiring a DHCP address to try to determine the captive portal
+situation.
+
+```
+		"captive_portal_detect": {
+                        "endpoint": "connectivitycheck.android.com",
+                        "port": 80,
+                        "protocol": "h1",
+                        "http_method": "GET",
+                        "http_url": "generate_204",
+                        "opportunistic": true,
+                        "http_expect": 204,
+			"http_fail_redirect": true
+                }
+```
 
 ## Stream serialization and proxying
 

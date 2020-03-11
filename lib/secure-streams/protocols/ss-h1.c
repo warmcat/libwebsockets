@@ -167,7 +167,6 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 	switch (reason) {
 
-	/* because we are protocols[0] ... */
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		assert(h);
 		assert(h->policy);
@@ -177,6 +176,13 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		h->wsi = NULL;
 		lws_ss_backoff(h);
 		break;
+
+	case LWS_CALLBACK_CLIENT_HTTP_REDIRECT:
+		if (h->policy->u.http.fail_redirect)
+			lws_system_cpd_set(lws_get_context(wsi),
+					   LWS_CPD_CAPTIVE_PORTAL);
+		/* don't follow it */
+		return 1;
 
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
 		if (!h)
@@ -201,7 +207,12 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	//	if (!status)
 			/* it's just telling use we connected / joined the nwsi */
 	//		break;
-		h->u.http.good_respcode = (status >= 200 && status < 300);
+
+		if (h->policy->u.http.resp_expect)
+			h->u.http.good_respcode =
+					status == h->policy->u.http.resp_expect;
+		else
+			h->u.http.good_respcode = (status >= 200 && status < 300);
 		// lwsl_err("%s: good resp %d %d\n", __func__, status, h->u.http.good_respcode);
 
 		if (h->u.http.good_respcode)

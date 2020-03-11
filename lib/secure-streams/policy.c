@@ -79,6 +79,8 @@ static const char * const lejp_tokens_policy[] = {
 	"s[].*.http_multipart_filename",
 	"s[].*.http_mime_content_type",
 	"s[].*.http_www_form_urlencoded",
+	"s[].*.http_expect",
+	"s[].*.http_fail_redirect",
 	"s[].*.ws_subprotocol",
 	"s[].*.ws_binary",
 	"s[].*.local_sink",
@@ -142,6 +144,8 @@ typedef enum {
 	LSSPPT_HTTP_MULTIPART_FILENAME,
 	LSSPPT_HTTP_MULTIPART_CONTENT_TYPE,
 	LSSPPT_HTTP_WWW_FORM_URLENCODED,
+	LSSPPT_HTTP_EXPECT,
+	LSSPPT_HTTP_FAIL_REDIRECT,
 	LSSPPT_WS_SUBPROTOCOL,
 	LSSPPT_WS_BINARY,
 	LSSPPT_LOCAL_SINK,
@@ -524,6 +528,10 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		a->curr[LTY_POLICY].p->client_cert = atoi(ctx->buf) + 1;
 		break;
 
+	case LSSPPT_HTTP_EXPECT:
+		a->curr[LTY_POLICY].p->u.http.resp_expect = atoi(ctx->buf);
+		break;
+
 	case LSSPPT_OPPORTUNISTIC:
 		if (reason == LEJPCB_VAL_TRUE)
 			a->curr[LTY_POLICY].p->flags |= LWSSSPOLF_OPPORTUNISTIC;
@@ -644,6 +652,12 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		a->curr[LTY_POLICY].p->flags |= LWSSSPOLF_HTTP_MULTIPART;
 		pp = (char **)&a->curr[LTY_POLICY].p->u.http.multipart_content_type;
 		goto string2;
+
+	case LSSPPT_HTTP_FAIL_REDIRECT:
+		a->curr[LTY_POLICY].p->u.http.fail_redirect =
+						reason == LEJPCB_VAL_TRUE;
+		break;
+
 	case LSSPPT_WS_SUBPROTOCOL:
 		pp = (char **)&a->curr[LTY_POLICY].p->u.http.u.ws.subprotocol;
 		goto string2;

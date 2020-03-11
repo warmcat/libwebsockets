@@ -1178,6 +1178,7 @@ if (LWS_WITH_NETWORK)
 			lib/secure-streams/secure-streams.c
 			lib/secure-streams/policy.c
 			lib/secure-streams/system/fetch-policy/fetch-policy.c
+			lib/secure-streams/system/captive-portal-detect/captive-portal-detect.c
 		)
 		if (LWS_ROLE_H1)
 			list(APPEND SOURCES
@@ -1218,6 +1219,7 @@ if (LWS_WITH_NETWORK)
 				lib/secure-streams/system/auth-api.amazon.com/auth.c
 			)
 		endif()
+
 	endif()
 
 	if (LWS_WITH_STATS)
