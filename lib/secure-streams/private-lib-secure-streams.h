@@ -272,18 +272,8 @@ lws_ss_destroy_dll(struct lws_dll2 *d, void *user);
 int
 lws_sspc_destroy_dll(struct lws_dll2 *d, void *user);
 
-
-int
-lws_ss_policy_parse_begin(struct lws_context *context);
-
-int
-lws_ss_policy_parse(struct lws_context *context, const uint8_t *buf, size_t len);
-
 int
 lws_ss_policy_set(struct lws_context *context, const char *name);
-
-int
-lws_ss_policy_parse_abandon(struct lws_context *context);
 
 int
 lws_ss_sys_fetch_policy(struct lws_context *context);

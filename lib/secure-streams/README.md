@@ -369,6 +369,45 @@ The secure-streams-proxy minimal example shows how this is done and
 fetches its real policy from warmcat.com at startup using the built-in
 one.
 
+## Applying streamtype policy overlays
+
+This is intended for modifying policies at runtime for testing, eg, to
+force error paths to be taken.  After the main policy is processed, you
+may parse additional, usually smaller policy fragments on top of it.
+
+Where streamtype names in the new fragment already exist in the current
+parsed policy, the settings in the fragment are applied over the parsed
+policy, overriding settings.  There's a simple api to enable this by
+giving it the override JSON in one string
+
+```
+int
+lws_ss_policy_overlay(struct lws_context *context, const char *overlay);
+```
+
+but there are also other apis available that can statefully process
+larger overlay fragments if needed.
+
+An example overlay fragment looks like this
+
+```
+	{ "s": [{ "captive_portal_detect": {
+		"endpoint": "google.com",
+		"http_url": "/",
+		"port": 80
+	}}]}
+```
+
+ie the overlay fragment completely follows the structure of the main policy,
+just misses out anything it doesn't override.
+
+Currently ONLY streamtypes may be overridden.
+
+You can see an example of this in use in `minimal-secure-streams` example
+where `--force-portal` and `--force-no-internet` options cause the captive
+portal detect streamtype to be overridden to force the requested kind of
+outcome.
+
 ## Captive Portal Detection
 
 If the policy contains a streamtype `captive_portal_detect` then the

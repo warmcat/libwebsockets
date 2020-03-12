@@ -45,7 +45,7 @@ ss_fetch_policy_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	struct lws_context *context = (struct lws_context *)m->opaque_data;
 
 	if (flags & LWSSS_FLAG_SOM) {
-		if (lws_ss_policy_parse_begin(context))
+		if (lws_ss_policy_parse_begin(context, 0))
 			return 1;
 		m->partway = 1;
 	}

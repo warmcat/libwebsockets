@@ -247,3 +247,15 @@ typedef struct lws_ss_policy {
 	uint8_t			client_cert; /**< which client cert to apply
 						  0 = none, 1+ = cc 0+ */
 } lws_ss_policy_t;
+
+LWS_VISIBLE LWS_EXTERN int
+lws_ss_policy_parse_begin(struct lws_context *context, int overlay);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_ss_policy_parse_abandon(struct lws_context *context);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_ss_policy_parse(struct lws_context *context, const uint8_t *buf, size_t len);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_ss_policy_overlay(struct lws_context *context, const char *overlay);

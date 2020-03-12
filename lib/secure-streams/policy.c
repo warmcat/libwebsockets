@@ -277,6 +277,7 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 	char **pp, dotstar[32], *q;
 	lws_ss_trust_store_t *ts;
 	lws_ss_metadata_t *pmd;
+	lws_ss_policy_t *p2;
 	lws_retry_bo_t *b;
 	size_t inl, outl;
 	lws_ss_x509_t *x;
@@ -336,11 +337,39 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 	}
 
 	if (reason == LEJPCB_PAIR_NAME && n != -1 && n != LTY_TRUSTSTORE) {
+
+		p2 = NULL;
+		if (n == LTY_POLICY) {
+			/*
+			 * We want to allow for the possibility of overlays...
+			 * eg, we come later with a JSON snippet that overrides
+			 * select streamtype members of a streamtype that was
+			 * already defined
+			 */
+			p2 = (lws_ss_policy_t *)a->context->pss_policies;
+
+			while (p2) {
+				if (!strncmp(p2->streamtype,
+					     ctx->path + ctx->st[ctx->sp].p,
+					     ctx->path_match_len -
+						          ctx->st[ctx->sp].p)) {
+					lwsl_info("%s: overriding s[] %s\n",
+						  __func__, p2->streamtype);
+					break;
+				}
+
+				p2 = p2->next;
+			}
+		}
+
 		/*
-		 * We do the pointers always as .b, all of the participating
-		 * structs begin with .next and .name
+		 * We do the pointers always as .b union member, all of the
+		 * participating structs begin with .next and .name the same
 		 */
-		a->curr[n].b = lwsac_use_zero(&a->ac, sizes[n], POL_AC_GRAIN);
+		if (p2) /* we may be overriding existing streamtype... */
+			a->curr[n].b = (backoff_t *)p2;
+		else
+			a->curr[n].b = lwsac_use_zero(&a->ac, sizes[n], POL_AC_GRAIN);
 		if (!a->curr[n].b)
 			goto oom;
 
@@ -352,11 +381,15 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		}
 
 		a->count = 0;
-		a->curr[n].b->next = a->heads[n].b;
-		a->heads[n].b = a->curr[n].b;
-		pp = (char **)&a->curr[n].b->name;
+		if (!p2) {
+			a->curr[n].b->next = a->heads[n].b;
+			a->heads[n].b = a->curr[n].b;
+			pp = (char **)&a->curr[n].b->name;
 
-		goto string1;
+			goto string1;
+		}
+
+		return 0; /* overriding */
 	}
 
 	if (!(reason & LEJP_FLAG_CB_IS_VALUE) || !ctx->path_match)
@@ -762,7 +795,7 @@ oom:
 }
 
 int
-lws_ss_policy_parse_begin(struct lws_context *context)
+lws_ss_policy_parse_begin(struct lws_context *context, int overlay)
 {
 	struct policy_cb_args *args;
 	char *p;
@@ -773,6 +806,12 @@ lws_ss_policy_parse_begin(struct lws_context *context)
 
 		return 1;
 	}
+	if (overlay)
+		/* continue to use the existing lwsac */
+		args->ac = context->ac_policy;
+	else
+		/* we don't want to see any old policy */
+		context->pss_policies = NULL;
 
 	context->pol_args = args;
 	args->context = context;
@@ -816,6 +855,14 @@ lws_ss_policy_parse(struct lws_context *context, const uint8_t *buf, size_t len)
 	lws_ss_policy_parse_abandon(context);
 
 	return m;
+}
+
+int
+lws_ss_policy_overlay(struct lws_context *context, const char *overlay)
+{
+	lws_ss_policy_parse_begin(context, 1);
+	return lws_ss_policy_parse(context, (const uint8_t *)overlay,
+				   strlen(overlay));
 }
 
 int

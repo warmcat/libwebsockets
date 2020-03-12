@@ -37,7 +37,8 @@
  */
 // #define VIA_LOCALHOST_SOCKS
 
-static int interrupted, bad = 1;
+static int interrupted, bad = 1, force_cpd_fail_portal,
+	   force_cpd_fail_no_internet;
 static lws_state_notify_link_t nl;
 
 /*
@@ -184,24 +185,9 @@ static const char * const default_ss_policy =
 			 * every DHCP acquisition
 			 */
 		    "\"captive_portal_detect\": {"
-#if 1
-			/* this does the actual test */
                         "\"endpoint\": \"connectivitycheck.android.com\","
 			"\"http_url\": \"generate_204\","
 			"\"port\": 80,"
-#endif
-#if 0
-			/* this looks like a captive portal due to redirect */
-			"\"endpoint\": \"google.com\","
-			"\"http_url\": \"/\","
-			"\"port\": 80,"
-#endif
-#if 0
-			/* this looks like no internet */
-			"\"endpoint\": \"warmcat.com\","
-			"\"http_url\": \"/\","
-			"\"port\": 999,"
-#endif
                         "\"protocol\": \"h1\","
                         "\"http_method\": \"GET\","
                         "\"opportunistic\": true,"
@@ -309,6 +295,38 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 	 * state wait while we trigger the dependent action.
 	 */
 	switch (target) {
+
+	case LWS_SYSTATE_INITIALIZED: /* overlay on the hardcoded policy */
+	case LWS_SYSTATE_POLICY_VALID: /* overlay on the loaded policy */
+
+		if (target != current)
+			break;
+
+		if (force_cpd_fail_portal)
+
+			/* this makes it look like we're behind a captive portal
+			 * because the overriden address does a redirect */
+
+			lws_ss_policy_overlay(context,
+				      "{\"s\": [{\"captive_portal_detect\": {"
+				         "\"endpoint\": \"google.com\","
+					 "\"http_url\": \"/\","
+					 "\"port\": 80"
+				      "}}]}");
+
+		if (force_cpd_fail_no_internet)
+
+			/* this looks like no internet, because the overridden
+			 * port doesn't have anything that will connect to us */
+
+			lws_ss_policy_overlay(context,
+				      "{\"s\": [{\"captive_portal_detect\": {"
+					 "\"endpoint\": \"warmcat.com\","
+					 "\"http_url\": \"/\","
+					 "\"port\": 999"
+				      "}}]}");
+		break;
+
 	case LWS_SYSTATE_REGISTERED:
 		size = lws_system_blob_get_size(ab);
 		if (size)
@@ -371,6 +389,14 @@ int main(int argc, const char **argv)
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 
 	lwsl_user("LWS secure streams test client [-d<verb>]\n");
+
+	/* these options are mutually exclusive if given */
+
+	if (lws_cmdline_option(argc, argv, "--force-portal"))
+		force_cpd_fail_portal = 1;
+
+	if (lws_cmdline_option(argc, argv, "--force-no-internet"))
+		force_cpd_fail_no_internet = 1;
 
 	info.fd_limit_per_thread = 1 + 6 + 1;
 	info.port = CONTEXT_PORT_NO_LISTEN;
