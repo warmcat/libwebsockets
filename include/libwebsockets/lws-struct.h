@@ -242,7 +242,7 @@ LWS_VISIBLE LWS_EXTERN lws_struct_json_serialize_result_t
 lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 			  size_t len, size_t *written);
 
-#if defined(LWS_WITH_STRUCT_SQLITE3)
+typedef struct sqlite3 sqlite3;
 
 LWS_VISIBLE LWS_EXTERN int
 lws_struct_sq3_serialize(sqlite3 *pdb, const lws_struct_map_t *schema,
@@ -263,4 +263,3 @@ lws_struct_sq3_open(struct lws_context *context, const char *sqlite3_path,
 LWS_VISIBLE LWS_EXTERN int
 lws_struct_sq3_close(sqlite3 **pdb);
 
-#endif
