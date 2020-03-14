@@ -163,7 +163,7 @@ lws_sspc_rideshare(struct lws_sspc_handle *h);
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_sspc_set_metadata(struct lws_sspc_handle *h, const char *name,
-		      void *value, size_t len);
+		      const void *value, size_t len);
 
 LWS_VISIBLE LWS_EXTERN int
 lws_sspc_add_peer_tx_credit(struct lws_sspc_handle *h, int32_t add);

@@ -242,7 +242,7 @@ lws_ss_policy_metadata_index(const lws_ss_policy_t *p, size_t index)
 
 int
 lws_ss_set_metadata(struct lws_ss_handle *h, const char *name,
-		    void *value, size_t len)
+		    const void *value, size_t len)
 {
 	lws_ss_metadata_t *omd = lws_ss_policy_metadata(h->policy, name);
 
@@ -252,7 +252,7 @@ lws_ss_set_metadata(struct lws_ss_handle *h, const char *name,
 	}
 
 	h->metadata[omd->length].name = name;
-	h->metadata[omd->length].value = value;
+	h->metadata[omd->length].value = (void *)value;
 	h->metadata[omd->length].length = len;
 
 	return 0;

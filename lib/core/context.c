@@ -949,7 +949,9 @@ lws_system_cpd_set(struct lws_context *cx, lws_cpd_result_t result)
 	cx->captive_portal_detect = (uint8_t)result;
 
 	/* if nothing is there to intercept anything, go all the way */
-	lws_state_transition_steps(&cx->mgr_system, LWS_SYSTATE_OPERATIONAL);
+	if (cx->mgr_system.state != LWS_SYSTATE_POLICY_INVALID)
+		lws_state_transition_steps(&cx->mgr_system,
+					   LWS_SYSTATE_OPERATIONAL);
 }
 
 lws_cpd_result_t

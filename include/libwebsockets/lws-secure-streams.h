@@ -463,7 +463,7 @@ lws_ss_rideshare(struct lws_ss_handle *h);
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_ss_set_metadata(struct lws_ss_handle *h, const char *name,
-		    void *value, size_t len);
+		    const void *value, size_t len);
 
 
 /**

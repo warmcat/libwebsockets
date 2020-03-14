@@ -185,11 +185,13 @@ lws_ss_backoff(lws_ss_handle_t *h)
 int
 lws_ss_client_connect(lws_ss_handle_t *h)
 {
+	const char *prot, *_prot, *ipath, *_ipath, *ads, *_ads;
 	struct lws_client_connect_info i;
 	const struct ss_pcols *ssp;
 	size_t used_in, used_out;
 	union lws_ss_contemp ct;
 	char path[128], ep[96];
+	int port, _port, tls;
 	lws_strexp_t exp;
 
 	if (!h->policy) {
@@ -205,10 +207,53 @@ lws_ss_client_connect(lws_ss_handle_t *h)
 	if (h->h_sink)
 		return 0;
 
+	/*
+	 * We're going to substitute ${metadata} in the endpoint at connection-
+	 * time, so this can be set dynamically...
+	 */
+
+	lws_strexp_init(&exp, (void *)h, lws_ss_exp_cb_metadata, ep, sizeof(ep));
+
+	if (lws_strexp_expand(&exp, h->policy->endpoint,
+			      strlen(h->policy->endpoint),
+			      &used_in, &used_out) != LSTRX_DONE) {
+		lwsl_err("%s: address strexp failed\n", __func__);
+
+		return -1;
+	}
+
+	/*
+	 * ... in some cases, we might want the user to be able to override
+	 * some policy settings by what he provided in there.  For example,
+	 * if he set the endpoint to "https://myendpoint.com:4443/mypath" it
+	 * might be quite convenient to override the policy to follow the info
+	 * that was given for at least server, port and the url path.
+	 */
+
+	_port = port = h->policy->port;
+	_prot = prot = NULL;
+	_ipath = ipath = "";
+	_ads = ads = ep;
+
+	if (strchr(ep, ':') &&
+	    !lws_parse_uri(ep, &_prot, &_ads, &_port, &_ipath)) {
+		lwsl_debug("%s: using uri parse results '%s' '%s' %d '%s'\n",
+				__func__, _prot, _ads, _port, _ipath);
+		prot = _prot;
+		ads = _ads;
+		port = _port;
+		ipath = _ipath;
+	}
+
 	memset(&i, 0, sizeof i); /* otherwise uninitialized garbage */
 	i.context = h->context;
+	tls = !!(h->policy->flags & LWSSSPOLF_TLS);
 
-	if (h->policy->flags & LWSSSPOLF_TLS) {
+	if (prot && (!strcmp(prot, "http") || !strcmp(prot, "ws") ||
+		     !strcmp(prot, "mqtt")))
+		tls = 0;
+
+	if (tls) {
 		lwsl_info("%s: using tls\n", __func__);
 		i.ssl_connection = LCCSCF_USE_SSL;
 
@@ -228,28 +273,19 @@ lws_ss_client_connect(lws_ss_handle_t *h)
 		}
 	}
 
-	/* expand metadata ${symbols} that may be inside the endpoint string */
+	i.address		= ads;
+	i.port			= port;
+	i.host			= i.address;
+	i.origin		= i.address;
+	i.opaque_user_data	= h;
+	i.seq			= h->seq;
+	i.retry_and_idle_policy	= h->policy->retry_bo;
+	i.sys_tls_client_cert	= h->policy->client_cert;
 
-	lws_strexp_init(&exp, (void *)h, lws_ss_exp_cb_metadata, ep, sizeof(ep));
-
-	if (lws_strexp_expand(&exp, h->policy->endpoint,
-			      strlen(h->policy->endpoint),
-			      &used_in, &used_out) != LSTRX_DONE) {
-		lwsl_err("%s: address strexp failed\n", __func__);
-
-		return -1;
-	}
-
-	i.address = ep;
-	i.port = h->policy->port;
-	i.host = i.address;
-	i.origin = i.address;
-	i.opaque_user_data = h;
-	i.seq = h->seq;
-	i.retry_and_idle_policy = h->policy->retry_bo;
-	i.sys_tls_client_cert = h->policy->client_cert;
-
-	i.path = "";
+	i.path			= ipath;
+		/* if this is not "", munge should use it instead of policy
+		 * url path
+		 */
 
 	ssp = ss_pcols[(int)h->policy->protocol];
 	if (!ssp) {

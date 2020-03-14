@@ -493,7 +493,7 @@ lws_sspc_rideshare(struct lws_sspc_handle *h)
 
 static int
 _lws_sspc_set_metadata(struct lws_sspc_handle *h, const char *name,
-		       void *value, size_t len, int tx_cr_adjust)
+		       const void *value, size_t len, int tx_cr_adjust)
 {
 	lws_sspc_metadata_t *md;
 
@@ -555,7 +555,7 @@ _lws_sspc_set_metadata(struct lws_sspc_handle *h, const char *name,
 
 int
 lws_sspc_set_metadata(struct lws_sspc_handle *h, const char *name,
-		      void *value, size_t len)
+		      const void *value, size_t len)
 {
 	return _lws_sspc_set_metadata(h, name, value, len, 0);
 }

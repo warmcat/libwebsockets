@@ -40,6 +40,7 @@
 static int interrupted, bad = 1, force_cpd_fail_portal,
 	   force_cpd_fail_no_internet;
 static lws_state_notify_link_t nl;
+static const char *server_name_or_url = "warmcat.com";
 
 /*
  * If the -proxy app is fulfilling our connection, then we don't need to have
@@ -223,7 +224,9 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 
 	switch (state) {
 	case LWSSSCS_CREATING:
-		lws_ss_set_metadata(m->ss, "servername", "warmcat.com", 11);
+		lwsl_notice("%s: CREATING: setting servername metadata to %s\n",
+				__func__, server_name_or_url);
+		lws_ss_set_metadata(m->ss, "servername", server_name_or_url, strlen(server_name_or_url));
 		lws_ss_client_connect(m->ss);
 		break;
 	case LWSSSCS_ALL_RETRIES_FAILED:
@@ -296,6 +299,7 @@ int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	struct lws_context *context;
+	const char *p;
 	int n = 0;
 
 	signal(SIGINT, sigint_handler);
@@ -318,29 +322,29 @@ int main(int argc, const char **argv)
 
 #if defined(LWS_SS_USE_SSPC)
 	info.protocols = lws_sspc_protocols;
-	{
-		const char *p;
 
-		/* connect to ssproxy via UDS by default, else via
-		 * tcp connection to this port */
-		if ((p = lws_cmdline_option(argc, argv, "-p")))
-			info.ss_proxy_port = atoi(p);
+	/* connect to ssproxy via UDS by default, else via
+	 * tcp connection to this port */
+	if ((p = lws_cmdline_option(argc, argv, "-p")))
+		info.ss_proxy_port = atoi(p);
 
-		/* UDS "proxy.ss.lws" in abstract namespace, else this socket
-		 * path; when -p given this can specify the network interface
-		 * to bind to */
-		if ((p = lws_cmdline_option(argc, argv, "-i")))
-			info.ss_proxy_bind = p;
+	/* UDS "proxy.ss.lws" in abstract namespace, else this socket
+	 * path; when -p given this can specify the network interface
+	 * to bind to */
+	if ((p = lws_cmdline_option(argc, argv, "-i")))
+		info.ss_proxy_bind = p;
 
-		/* if -p given, -a specifies the proxy address to connect to */
-		if ((p = lws_cmdline_option(argc, argv, "-a")))
-			info.ss_proxy_address = p;
-	}
+	/* if -p given, -a specifies the proxy address to connect to */
+	if ((p = lws_cmdline_option(argc, argv, "-a")))
+		info.ss_proxy_address = p;
 #else
 	info.pss_policies_json = default_ss_policy;
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 #endif
+
+	if ((p = lws_cmdline_option(argc, argv, "-u")))
+		server_name_or_url = p;
 
 	/* integrate us with lws system state management when context created */
 

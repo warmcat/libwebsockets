@@ -143,15 +143,30 @@ secstream_connect_munge_ws(lws_ss_handle_t *h, char *buf, size_t len,
 			   struct lws_client_connect_info *i,
 			   union lws_ss_contemp *ct)
 {
+	const char *pbasis = h->policy->u.http.url;
+	size_t used_in, used_out;
+	lws_strexp_t exp;
+
 	lwsl_notice("%s\n", __func__);
 
-	if (!h->policy->u.http.url)
+	/* i.path on entry is used to override the policy urlpath if not "" */
+
+	if (i->path[0])
+		pbasis = i->path;
+
+	if (!pbasis)
 		return 0;
 
 	/* protocol aux is the path part ; ws subprotocol name */
 
-	i->path = h->policy->u.http.url;
-	lws_snprintf(buf, len, "/%s", h->policy->u.http.url);
+	i->path = buf;
+	buf[0] = '/';
+
+	lws_strexp_init(&exp, (void *)h, lws_ss_exp_cb_metadata, buf + 1, len - 1);
+
+	if (lws_strexp_expand(&exp, pbasis, strlen(pbasis),
+			      &used_in, &used_out) != LSTRX_DONE)
+		return 1;
 
 	i->protocol = h->policy->u.http.u.ws.subprotocol;
 

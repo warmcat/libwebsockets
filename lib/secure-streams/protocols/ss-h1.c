@@ -543,10 +543,16 @@ secstream_connect_munge_h1(lws_ss_handle_t *h, char *buf, size_t len,
 			   struct lws_client_connect_info *i,
 			   union lws_ss_contemp *ct)
 {
+	const char *pbasis = h->policy->u.http.url;
 	size_t used_in, used_out;
 	lws_strexp_t exp;
 
-	if (!h->policy->u.http.url)
+	/* i.path on entry is used to override the policy urlpath if not "" */
+
+	if (i->path[0])
+		pbasis = i->path;
+
+	if (!pbasis)
 		return 0;
 
 #if !defined(LWS_PLAT_FREERTOS) || defined(LWS_ROLE_H2)
@@ -564,8 +570,7 @@ secstream_connect_munge_h1(lws_ss_handle_t *h, char *buf, size_t len,
 
 	lws_strexp_init(&exp, (void *)h, lws_ss_exp_cb_metadata, buf + 1, len - 1);
 
-	if (lws_strexp_expand(&exp, h->policy->u.http.url,
-			      strlen(h->policy->u.http.url),
+	if (lws_strexp_expand(&exp, pbasis, strlen(pbasis),
 			      &used_in, &used_out) != LSTRX_DONE)
 		return 1;
 

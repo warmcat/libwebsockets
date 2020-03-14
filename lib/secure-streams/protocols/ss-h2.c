@@ -112,6 +112,15 @@ secstream_connect_munge_h2(lws_ss_handle_t *h, char *buf, size_t len,
 			   struct lws_client_connect_info *i,
 			   union lws_ss_contemp *ct)
 {
+	const char *pbasis = h->policy->u.http.url;
+	size_t used_in, used_out;
+	lws_strexp_t exp;
+
+	/* i.path on entry is used to override the policy urlpath if not "" */
+
+	if (i->path[0])
+		pbasis = i->path;
+
 	if (h->policy->flags & LWSSSPOLF_QUIRK_NGHTTP2_END_STREAM)
 		i->ssl_connection |= LCCSCF_H2_QUIRK_NGHTTP2_END_STREAM;
 
@@ -137,13 +146,19 @@ secstream_connect_munge_h2(lws_ss_handle_t *h, char *buf, size_t len,
 				i->manual_initial_tx_credit);
 	}
 
-	if (!h->policy->u.http.url)
+	if (!pbasis)
 		return 0;
 
 	/* protocol aux is the path part */
 
 	i->path = buf;
-	lws_snprintf(buf, len, "/%s", h->policy->u.http.url);
+	buf[0] = '/';
+
+	lws_strexp_init(&exp, (void *)h, lws_ss_exp_cb_metadata, buf + 1, len - 1);
+
+	if (lws_strexp_expand(&exp, pbasis, strlen(pbasis),
+			      &used_in, &used_out) != LSTRX_DONE)
+		return 1;
 
 	return 0;
 }
