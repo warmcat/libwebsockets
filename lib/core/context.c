@@ -1062,11 +1062,13 @@ lws_create_context(const struct lws_context_creation_info *info)
 		else
 			context->max_http_header_pool = context->max_fds;
 
+
 	if (info->fd_limit_per_thread)
 		context->fd_limit_per_thread = info->fd_limit_per_thread;
 	else
-		context->fd_limit_per_thread = context->max_fds /
-					       context->count_threads;
+		if (context->count_threads)
+			context->fd_limit_per_thread = context->max_fds /
+							context->count_threads;
 
 	/*
 	 * Allocate the per-thread storage for scratchpad buffers,
