@@ -421,6 +421,18 @@ LWS_VISIBLE LWS_EXTERN struct lws_context *
 lws_ss_get_context(struct lws_ss_handle *h);
 
 /**
+ * lws_ss_to_user_object() - convenience helper to get user object from handle
+ *
+ * \param h: secure streams handle
+ *
+ * Returns the user allocation related to the handle.  Normally you won't need
+ * this since it's available in the rx, tx and state callbacks as "userdata"
+ * already.
+ */
+LWS_VISIBLE LWS_EXTERN void *
+lws_ss_to_user_object(struct lws_ss_handle *h);
+
+/**
  * lws_ss_rideshare() - find the current streamtype when types rideshare
  *
  * \param h: the stream handle

@@ -480,6 +480,12 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 	return 0;
 }
 
+void *
+lws_ss_to_user_object(struct lws_ss_handle *h)
+{
+	return (void *)&h[1];
+}
+
 void
 lws_ss_destroy(lws_ss_handle_t **ppss)
 {
