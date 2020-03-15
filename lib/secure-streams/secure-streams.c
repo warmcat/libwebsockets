@@ -257,19 +257,17 @@ lws_ss_client_connect(lws_ss_handle_t *h)
 		lwsl_info("%s: using tls\n", __func__);
 		i.ssl_connection = LCCSCF_USE_SSL;
 
-		if (!h->policy->trust_store) {
-			lwsl_err("%s: tls required but no policy trust store\n",
-				 __func__);
+		if (!h->policy->trust_store)
+			lwsl_info("%s: using platform trust store\n", __func__);
+		else {
 
-			return -1;
-		}
+			i.vhost = lws_get_vhost_by_name(h->context,
+							h->policy->trust_store->name);
+			if (!i.vhost) {
+				lwsl_err("%s: missing vh for policy ca\n", __func__);
 
-		i.vhost = lws_get_vhost_by_name(h->context,
-						h->policy->trust_store->name);
-		if (!i.vhost) {
-			lwsl_err("%s: missing vh for policy ca\n", __func__);
-
-			return -1;
+				return -1;
+			}
 		}
 	}
 
