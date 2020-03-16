@@ -71,7 +71,11 @@ struct lws_threadpool_create_args {
 };
 
 struct lws_threadpool_task_args {
-	struct lws *wsi;	/**< user must set to wsi task is bound to */
+#if defined(LWS_WITH_SECURE_STREAMS)
+	struct lws_ss_handle *ss; /**< either wsi or ss must be set */
+#endif
+	struct lws *wsi;	/**< either wsi or ss must be set */
+
 	void *user;		/**< user may set (user-private pointer) */
 	const char *name;	/**< user may set to describe task */
 	char async_task;	/**< set to allow the task to shrug off the loss
@@ -177,6 +181,11 @@ lws_threadpool_enqueue(struct lws_threadpool *tp,
 LWS_VISIBLE LWS_EXTERN int
 lws_threadpool_dequeue(struct lws *wsi);
 
+#if defined(LWS_WITH_SECURE_STREAMS)
+LWS_VISIBLE LWS_EXTERN int
+lws_threadpool_dequeue_ss(struct lws_ss_handle *ss);
+#endif
+
 /**
  * lws_threadpool_task_status() - Dequeue or try to stop a running task
  *
@@ -197,6 +206,12 @@ lws_threadpool_dequeue(struct lws *wsi);
 LWS_VISIBLE LWS_EXTERN enum lws_threadpool_task_status
 lws_threadpool_task_status_wsi(struct lws *wsi,
 			       struct lws_threadpool_task **task, void **user);
+
+#if defined(LWS_WITH_SECURE_STREAMS)
+LWS_VISIBLE LWS_EXTERN enum lws_threadpool_task_status
+lws_threadpool_task_status_ss(struct lws_ss_handle *ss,
+			      struct lws_threadpool_task **task, void **user);
+#endif
 
 /**
  * lws_threadpool_task_sync() - Indicate to a stalled task it may continue
