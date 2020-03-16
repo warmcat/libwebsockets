@@ -187,8 +187,10 @@ lws_ss_client_connect(lws_ss_handle_t *h)
 {
 	struct lws_client_connect_info i;
 	const struct ss_pcols *ssp;
+	size_t used_in, used_out;
 	union lws_ss_contemp ct;
-	char path[128];
+	char path[128], ep[96];
+	lws_strexp_t exp;
 
 	if (!h->policy) {
 		lwsl_err("%s: ss with no policy\n", __func__);
@@ -226,7 +228,19 @@ lws_ss_client_connect(lws_ss_handle_t *h)
 		}
 	}
 
-	i.address = h->policy->endpoint;
+	/* expand metadata ${symbols} that may be inside the endpoint string */
+
+	lws_strexp_init(&exp, (void *)h, lws_ss_exp_cb_metadata, ep, sizeof(ep));
+
+	if (lws_strexp_expand(&exp, h->policy->endpoint,
+			      strlen(h->policy->endpoint),
+			      &used_in, &used_out) != LSTRX_DONE) {
+		lwsl_err("%s: address strexp failed\n", __func__);
+
+		return -1;
+	}
+
+	i.address = ep;
 	i.port = h->policy->port;
 	i.host = i.address;
 	i.origin = i.address;

@@ -119,7 +119,14 @@ These are an array of policies for the supported stream type names.
 
 ### `endpoint`
 
-The DNS address the secure stream should connect to
+The DNS address the secure stream should connect to.
+
+This may contain string symbols which will be replaced with the
+corresponding streamtype metadata value at runtime.  Eg, if the
+streamtype lists a metadata name "region", it's then possible to
+define the endpoint as, eg, `${region}.mysite.com`, and before
+attempting the connection setting the stream's metadata item
+"region" to the desired value, eg, "uk".
 
 ### `port`
 
