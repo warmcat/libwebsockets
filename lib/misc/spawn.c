@@ -188,7 +188,7 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	}
 
 	temp = *lsp;
-	waitid(P_PID, lsp->child_pid, &lsp->si, WEXITED | WNOHANG);
+	waitid(P_PID, lsp->child_pid, &temp.si, WEXITED | WNOHANG);
 	lsp->child_pid = -1;
 
 	/* destroy the lsp itself first (it's freed and plsp set NULL */
