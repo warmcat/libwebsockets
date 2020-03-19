@@ -18,7 +18,11 @@
 
 /* mbedtls include */
 #include "mbedtls/platform.h"
+#if defined(LWS_HAVE_MBEDTLS_NET_SOCKETS)
 #include "mbedtls/net_sockets.h"
+#else
+#include "mbedtls/net.h"
+#endif
 #include "mbedtls/debug.h"
 #include "mbedtls/entropy.h"
 #include "mbedtls/ctr_drbg.h"
