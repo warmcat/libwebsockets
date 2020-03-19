@@ -48,25 +48,28 @@ lws_dir(const char *dirpath, void *user, lws_dir_callback_function cb)
 	ir = uv_loop_init(&loop);
 	if (ir) {
 		lwsl_err("%s: loop init failed %d\n", __func__, ir);
+		return 1;
 	}
 
 	ir = uv_fs_scandir(&loop, &req, dirpath, 0, NULL);
 	if (ir < 0) {
 		lwsl_err("Scandir on %s failed, errno %d\n", dirpath, LWS_ERRNO);
-		return 2;
+		ret = 2;
+		goto bail;
 	}
 
 	while (uv_fs_scandir_next(&req, &dent) != UV_EOF) {
 		lde.name = dent.name;
 		lde.type = (int)dent.type;
 		if (cb(dirpath, user, &lde))
-			goto bail;
+			goto bail1;
 	}
 
 	ret = 0;
 
-bail:
+bail1:
 	uv_fs_req_cleanup(&req);
+bail:
 	while (uv_loop_close(&loop))
 		;
 
