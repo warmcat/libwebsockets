@@ -637,14 +637,11 @@ lws_wsi_user(struct lws *wsi)
 void
 lws_set_wsi_user(struct lws *wsi, void *data)
 {
-	    /* client and user owns it... */
-	if (wsi->user_space_externally_allocated ||
-	    /* server, and protocol can never own it, user can control it... */
-	    (wsi->protocol && !wsi->protocol->per_session_data_size))
-		wsi->user_space = data;
-	else
-		lwsl_err("%s: Cannot set internally-allocated user_space\n",
-			 __func__);
+	if (!wsi->user_space_externally_allocated && wsi->user_space)
+		lws_free(wsi->user_space);
+
+	wsi->user_space_externally_allocated = 1;
+	wsi->user_space = data;
 }
 
 struct lws *
