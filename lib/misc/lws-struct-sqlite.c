@@ -185,6 +185,9 @@ lws_struct_sq3_deserialize(sqlite3 *pdb, const char *filter, const char *order,
 	lws_struct_args_t a;
 	int limit = _limit < 0 ? -_limit : _limit;
 
+	if (!order)
+		order = "_lws_idx";
+
 	memset(&a, 0, sizeof(a));
 	a.cb_arg = o; /* lws_dll2_owner tracking query result objects */
 	a.map_st[0]  = schema->child_map;
@@ -199,8 +202,8 @@ lws_struct_sq3_deserialize(sqlite3 *pdb, const char *filter, const char *order,
 			     (unsigned long long)start, filter ? filter : "");
 
 	lws_snprintf(s, sizeof(s) - 1, "select * "
-		     "from %s %s order by _lws_idx%s %slimit %d;",
-		     schema->colname, where, order ? order : "",
+		     "from %s %s order by %s %slimit %d;",
+		     schema->colname, where, order,
 				     _limit < 0 ? "desc " : "", limit);
 
 	if (sqlite3_exec(pdb, s, lws_struct_sq3_deser_cb, &a, NULL) != SQLITE_OK) {

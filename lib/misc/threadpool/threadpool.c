@@ -265,25 +265,28 @@ __lws_threadpool_reap(struct lws_threadpool_task *task)
 
 	/* remove the task from the done queue */
 
-	c = &tp->task_done_head;
+	if (tp) {
+		c = &tp->task_done_head;
 
-	while (*c) {
-		if ((*c) == task) {
-			t = *c;
-			*c = t->task_queue_next;
-			t->task_queue_next = NULL;
-			tp->done_queue_depth--;
+		while (*c) {
+			if ((*c) == task) {
+				t = *c;
+				*c = t->task_queue_next;
+				t->task_queue_next = NULL;
+				tp->done_queue_depth--;
 
-			lwsl_thread("%s: tp %s: reaped task wsi %p\n", __func__,
-				   tp->name, task_to_wsi(task));
+				lwsl_thread("%s: tp %s: reaped task wsi %p\n", __func__,
+					   tp->name, task_to_wsi(task));
 
-			break;
+				break;
+			}
+			c = &(*c)->task_queue_next;
 		}
-		c = &(*c)->task_queue_next;
-	}
 
-	if (!t)
-		lwsl_err("%s: task %p not in done queue\n", __func__, task);
+		if (!t)
+			lwsl_err("%s: task %p not in done queue\n", __func__, task);
+	} else
+		lwsl_err("%s: task->tp NULL already\n", __func__);
 
 	/* call the task's cleanup and delete the task itself */
 
