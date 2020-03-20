@@ -36,7 +36,7 @@ int openssl_websocket_private_data_index,
 
 int lws_openssl_describe_cipher(struct lws *wsi)
 {
-#if !defined(LWS_WITH_NO_LOGS)
+#if !defined(LWS_WITH_NO_LOGS) && !defined(USE_WOLFSSL)
 	int np = -1;
 	SSL *s = wsi->tls.ssl;
 
