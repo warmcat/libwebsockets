@@ -234,6 +234,8 @@ static const struct lws_jose_jwe_alg lws_gencrypto_jws_alg_map[] = {
 		"PS512", NULL, 2048, 4096, 0
 	},
 #endif
+	/* list terminator */
+	{ 0, 0, 0, 0, NULL, NULL, 0, 0, 0}
 };
 
 /*
