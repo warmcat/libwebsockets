@@ -26,6 +26,10 @@
 
 #include <glib-unix.h>
 
+#if !defined(G_SOURCE_FUNC)
+#define G_SOURCE_FUNC(f) ((GSourceFunc) (void (*)(void)) (f))
+#endif
+
 #define wsi_to_subclass(_w)	  ((_w)->w_read.glib.source)
 #define wsi_to_gsource(_w)	  ((GSource *)wsi_to_subclass(_w))
 #define pt_to_loop(_pt)		  ((_pt)->glib.loop)
