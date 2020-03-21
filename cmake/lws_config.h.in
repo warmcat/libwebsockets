@@ -46,7 +46,10 @@
 #cmakedefine LWS_HAVE_MALLOC_H
 #cmakedefine LWS_HAVE_MALLOC_TRIM
 #cmakedefine LWS_HAVE_MALLOC_USABLE_SIZE
+#cmakedefine LWS_HAVE_mbedtls_md_setup
 #cmakedefine LWS_HAVE_mbedtls_net_init
+#cmakedefine LWS_HAVE_mbedtls_rsa_complete
+#cmakedefine LWS_HAVE_mbedtls_internal_aes_encrypt
 #cmakedefine LWS_HAVE_mbedtls_ssl_conf_alpn_protocols
 #cmakedefine LWS_HAVE_mbedtls_ssl_get_alpn_protocol
 #cmakedefine LWS_HAVE_mbedtls_ssl_conf_sni

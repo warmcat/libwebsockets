@@ -85,8 +85,13 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_gencrypto_keyelem *el,
 		if ( el[LWS_GENCRYPTO_RSA_KEYEL_D].len &&
 		    !el[LWS_GENCRYPTO_RSA_KEYEL_P].len &&
 		    !el[LWS_GENCRYPTO_RSA_KEYEL_Q].len) {
+#if defined(LWS_HAVE_mbedtls_rsa_complete)
 			if (mbedtls_rsa_complete(ctx->ctx)) {
 				lwsl_notice("mbedtls_rsa_complete failed\n");
+#else
+			{
+				lwsl_notice("%s: you have to provide P and Q\n", __func__);
+#endif
 				lws_free_set_NULL(ctx->ctx);
 
 				return -1;
@@ -176,7 +181,9 @@ lws_genrsa_public_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 
 	ctx->ctx->len = in_len;
 
+#if defined(LWS_HAVE_mbedtls_rsa_complete)
 	mbedtls_rsa_complete(ctx->ctx);
+#endif
 
 	switch(ctx->mode) {
 	case LGRSAM_PKCS1_1_5:
@@ -214,7 +221,9 @@ lws_genrsa_private_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 
 	ctx->ctx->len = in_len;
 
+#if defined(LWS_HAVE_mbedtls_rsa_complete)
 	mbedtls_rsa_complete(ctx->ctx);
+#endif
 
 	switch(ctx->mode) {
 	case LGRSAM_PKCS1_1_5:
@@ -249,7 +258,9 @@ lws_genrsa_public_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 {
 	int n;
 
+#if defined(LWS_HAVE_mbedtls_rsa_complete)
 	mbedtls_rsa_complete(ctx->ctx);
+#endif
 
 	switch(ctx->mode) {
 	case LGRSAM_PKCS1_1_5:
@@ -284,7 +295,9 @@ lws_genrsa_private_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 {
 	int n;
 
+#if defined(LWS_HAVE_mbedtls_rsa_complete)
 	mbedtls_rsa_complete(ctx->ctx);
+#endif
 
 	switch(ctx->mode) {
 	case LGRSAM_PKCS1_1_5:
@@ -323,7 +336,9 @@ lws_genrsa_hash_sig_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	if (h < 0)
 		return -1;
 
+#if defined(LWS_HAVE_mbedtls_rsa_complete)
 	mbedtls_rsa_complete(ctx->ctx);
+#endif
 
 	switch(ctx->mode) {
 	case LGRSAM_PKCS1_1_5:
@@ -358,7 +373,9 @@ lws_genrsa_hash_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	if (h < 0)
 		return -1;
 
+#if defined(LWS_HAVE_mbedtls_rsa_complete)
 	mbedtls_rsa_complete(ctx->ctx);
+#endif
 
 	/*
 	 * The "sig" buffer must be as large as the size of ctx->N

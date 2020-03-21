@@ -161,6 +161,7 @@ lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 	return 0;
 }
 
+#if defined(LWS_HAVE_mbedtls_internal_aes_encrypt)
 static int
 lws_genaes_rfc3394_wrap(int wrap, int cek_bits, const uint8_t *kek,
 			int kek_bits, const uint8_t *in, uint8_t *out)
@@ -271,6 +272,7 @@ bail:
 
 	return ret;
 }
+#endif
 
 int
 lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
@@ -282,6 +284,7 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 
 	switch (ctx->mode) {
 	case LWS_GAESM_KW:
+#if defined(LWS_HAVE_mbedtls_internal_aes_encrypt)
 		/* a key of length ctx->k->len is wrapped by a 128-bit KEK */
 		n = lws_genaes_rfc3394_wrap(ctx->op == MBEDTLS_AES_ENCRYPT,
 				ctx->op == MBEDTLS_AES_ENCRYPT ? len * 8 :
@@ -289,6 +292,10 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 						ctx->k->len * 8,
 				in, out);
 		break;
+#else
+		lwsl_err("%s: your mbedtls is too old\n", __func__);
+		return -1;
+#endif
 	case LWS_GAESM_CBC:
 		memcpy(iv, iv_or_nonce_ctr_or_data_unit_16, 16);
 
