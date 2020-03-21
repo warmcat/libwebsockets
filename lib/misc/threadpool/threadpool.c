@@ -1026,8 +1026,10 @@ lws_threadpool_task_status_wsi(struct lws *wsi,
 	struct lws_threadpool *tp;
 
 	*task = wsi->tp_task;
-	if (!*task)
-		return -1;
+	if (!*task) {
+		lwsl_notice("%s: wsi has NULL tp_task, ~=FINISHED\n", __func__);
+		return LWS_TP_STATUS_FINISHED;
+	}
 
 	tp = (*task)->tp;
 	*user = (*task)->args.user;
