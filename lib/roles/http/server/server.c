@@ -587,8 +587,8 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 #endif
 		if ((S_IFMT & st.st_mode) == S_IFDIR) {
 			lwsl_debug("default filename append to dir\n");
-			lws_snprintf(path, sizeof(path) - 1, "%s/%s/index.html",
-				 origin, uri);
+			lws_snprintf(path, sizeof(path) - 1, "%s/%s/%s",
+				 origin, uri, m->def ? m->def : "index.html");
 		}
 
 	} while ((S_IFMT & st.st_mode) != S_IFREG && spin < 5);
