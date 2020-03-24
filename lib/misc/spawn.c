@@ -188,7 +188,11 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	}
 
 	temp = *lsp;
-	waitid(P_PID, lsp->child_pid, &temp.si, WEXITED | WNOHANG);
+	n = waitid(P_PID, lsp->child_pid, &temp.si, WEXITED | WNOHANG);
+	temp.si.si_status &= 0xff; /* we use b8 + for flags */
+	lwsl_notice("%s: waitd says %d, process exit %d\n",
+		    __func__, n, temp.si.si_status);
+
 	lsp->child_pid = -1;
 
 	/* destroy the lsp itself first (it's freed and plsp set NULL */
