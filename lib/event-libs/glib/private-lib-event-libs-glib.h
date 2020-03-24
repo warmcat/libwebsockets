@@ -23,7 +23,11 @@
  */
 
 #if defined(LWS_WITH_GLIB)
+#if defined(__APPLE__)
+#include <glib.h>
+#else
 #include <glib-2.0/glib.h>
+#endif
 #endif /* LWS_WITH_GLIB */
 
 struct lws_pt_eventlibs_glib {
