@@ -66,6 +66,7 @@ option(LWS_WITH_HTTP_UNCOMMON_HEADERS "Include less common http header support" 
 option(LWS_WITH_SECURE_STREAMS "Secure Streams protocol-agnostic API" OFF)
 option(LWS_WITH_SECURE_STREAMS_PROXY_API "Secure Streams support to work across processes" OFF)
 option(LWS_WITH_SECURE_STREAMS_SYS_AUTH_API_AMAZON_COM "Auth support for api.amazon.com" OFF)
+option(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY "Secure Streams Policy is hardcoded only" OFF)
 
 #
 # TLS library options... all except mbedTLS are basically OpenSSL variants.
@@ -1176,10 +1177,15 @@ if (LWS_WITH_NETWORK)
 	if (LWS_WITH_SECURE_STREAMS)
 		list(APPEND SOURCES
 			lib/secure-streams/secure-streams.c
-			lib/secure-streams/policy.c
-			lib/secure-streams/system/fetch-policy/fetch-policy.c
+			lib/secure-streams/policy-common.c
 			lib/secure-streams/system/captive-portal-detect/captive-portal-detect.c
 		)
+		if (NOT LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
+			list(APPEND SOURCES
+				lib/secure-streams/policy-json.c
+				lib/secure-streams/system/fetch-policy/fetch-policy.c
+			)
+		endif()
 		if (LWS_ROLE_H1)
 			list(APPEND SOURCES
 				lib/secure-streams/protocols/ss-h1.c

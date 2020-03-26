@@ -358,7 +358,6 @@ struct lws_context {
 #endif
 
 #if defined(LWS_WITH_SECURE_STREAMS_SYS_AUTH_API_AMAZON_COM)
-	void				*pol_args;
 	struct lws_ss_handle		*hss_auth;
 	struct lws_ss_handle		*hss_fetch_policy;
 	lws_sorted_usec_list_t		sul_api_amazon_com;
@@ -440,10 +439,13 @@ struct lws_context {
 	const lws_system_ops_t *system_ops;
 
 #if defined(LWS_WITH_SECURE_STREAMS)
+#if !defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
 	const char *pss_policies_json;
+	struct lwsac *ac_policy;
+	void *pol_args;
+#endif
 	const lws_ss_policy_t *pss_policies;
 	const lws_ss_plugin_t **pss_plugins;
-	struct lwsac *ac_policy;
 #endif
 
 	void *external_baggage_free_on_destroy;

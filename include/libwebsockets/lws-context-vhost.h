@@ -712,9 +712,14 @@ struct lws_context_creation_info {
 	/**< CONTEXT: percentage of udp reads we actually received
 	 * to make disappear, in order to simulate and test udp retry flow */
 #if defined(LWS_WITH_SECURE_STREAMS)
+#if defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
+	const struct lws_ss_policy *pss_policies; /**< CONTEXT: point to first
+	 * in a linked-list of streamtype policies prepared by user code */
+#else
 	const char *pss_policies_json; /**< CONTEXT: point to a string
 	 * containing a JSON description of the secure streams policies.  Set
 	 * to NULL if not using Secure Streams. */
+#endif
 	const struct lws_ss_plugin **pss_plugins; /**< CONTEXT: point to an array
 	 * of pointers to plugin structs here, terminated with a NULL ptr.
 	 * Set to NULL if not using Secure Streams. */

@@ -242,6 +242,46 @@ typedef struct lws_sspc_handle {
 	uint8_t			destroying:1;
 } lws_sspc_handle_t;
 
+typedef struct backoffs {
+	struct backoffs *next;
+	const char *name;
+	lws_retry_bo_t r;
+} backoff_t;
+
+union u {
+	backoff_t *b;
+	lws_ss_x509_t *x;
+	lws_ss_trust_store_t *t;
+	lws_ss_policy_t *p;
+};
+
+enum {
+	LTY_BACKOFF,
+	LTY_X509,
+	LTY_TRUSTSTORE,
+	LTY_POLICY,
+
+	_LTY_COUNT /* always last */
+};
+
+
+struct policy_cb_args {
+	struct lejp_ctx jctx;
+	struct lws_context *context;
+	struct lwsac *ac;
+
+	const char *socks5_proxy;
+
+	struct lws_b64state b64;
+
+	union u heads[_LTY_COUNT];
+	union u curr[_LTY_COUNT];
+
+	uint8_t *p;
+
+	int count;
+};
+
 int
 lws_ss_deserialize_parse(struct lws_ss_serialization_parser *par,
 			 struct lws_context *context,

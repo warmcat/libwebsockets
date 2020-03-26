@@ -528,3 +528,30 @@ socks_proxy=127.0.0.1:1337 ./bin/lws-minimal-secure-streams-client -p 1234 -i 12
 
 You can confirm this goes through the ssh socks5 proxy to get to the SS proxy
 and fulfil the connection.
+
+## Using static policies
+
+If one of your targets is too constrained to make use of dynamic JSON policies, but
+using SS and the policies is attractive for wider reasons, you can use a static policy
+built into the firmware for the constrained target.
+
+The secure-streams example "policy2c" (which runs on the build machine, not the device)
+
+https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/secure-streams/minimal-secure-streams-policy2c
+
+accepts a normal JSON policy on stdin, and emits a C code representation that can be
+included directly in the firmware.
+
+https://libwebsockets.org/git/libwebsockets/tree/minimal-examples/secure-streams/minimal-secure-streams-staticpolicy/static-policy.h
+
+Using this technique it's possible to standardize on maintaining JSON policies across a
+range of devices with different contraints, and use the C conversion of the policy on devices
+that are too small.
+
+The Cmake option `LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY` should be enabled to use this
+mode, it will not build the JSON parser (and the option for LEJP can also be disabled if
+you're not otherwise using it, saving an additional couple of KB).
+
+Notice policy2c example tool must be built with `LWS_ROLE_H1`, `LWS_ROLE_H2`, `LWS_ROLE_WS`
+and `LWS_ROLE_MQTT` enabled so it can handle any kind of policy.
+

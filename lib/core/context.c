@@ -161,6 +161,7 @@ lws_state_notify_protocol_init(struct lws_state_manager *mgr,
 		/* it failed, eg, no streamtype for it in the policy */
 	}
 
+#if !defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
 	/*
 	 * Skip this if we are running something without the policy for it
 	 */
@@ -173,6 +174,7 @@ lws_state_notify_protocol_init(struct lws_state_manager *mgr,
 		if (!lws_ss_sys_fetch_policy(context))
 			return 1;
 	}
+#endif
 #endif
 
 	/* protocol part */
@@ -295,6 +297,11 @@ lws_create_context(const struct lws_context_creation_info *info)
 			  __func__, context->udp_loss_sim_tx_pc,
 			  context->udp_loss_sim_rx_pc);
 
+#if defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
+	/* directly use the user-provided policy object list */
+	context->pss_policies = info->pss_policies;
+#endif
+
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
 	context->ss_proxy_bind = info->ss_proxy_bind;
 	context->ss_proxy_port = info->ss_proxy_port;
@@ -318,7 +325,9 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 
 #if defined(LWS_WITH_SECURE_STREAMS)
+#if !defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
 	context->pss_policies_json = info->pss_policies_json;
+#endif
 	context->pss_plugins = info->pss_plugins;
 #endif
 
@@ -822,6 +831,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 
 #if defined(LWS_WITH_SECURE_STREAMS)
 
+#if !defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
 	if (context->pss_policies_json) {
 		/*
 		 * You must create your context with the explicit vhosts flag
@@ -844,6 +854,16 @@ lws_create_context(const struct lws_context_creation_info *info)
 			goto bail;
 		}
 	} else
+#else
+	if (context->pss_policies) {
+		/* user code set the policy objects directly, no parsing step */
+
+		if (lws_ss_policy_set(context, "hardcoded")) {
+			lwsl_err("%s: policy set failed\n", __func__);
+			goto bail;
+		}
+	} else
+#endif
 		lws_create_vhost(context, info);
 #endif
 
@@ -1096,8 +1116,10 @@ lws_context_destroy2(struct lws_context *context)
 
 #if defined(LWS_WITH_SECURE_STREAMS)
 		lws_dll2_foreach_safe(&pt->ss_owner, NULL, lws_ss_destroy_dll);
+#if !defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
 		if (context->ac_policy)
 			lwsac_free(&context->ac_policy);
+#endif
 #endif
 
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)

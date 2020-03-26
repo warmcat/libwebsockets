@@ -20,15 +20,12 @@
  * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
+ *
+ * This file contains the stuff related to JSON-provided policy, it's not built
+ * if LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY enabled.
  */
 
 #include <private-lib-core.h>
-
-typedef struct backoffs {
-	struct backoffs *next;
-	const char *name;
-	lws_retry_bo_t r;
-} backoff_t;
 
 static const char * const lejp_tokens_policy[] = {
 	"release",
@@ -161,39 +158,6 @@ typedef enum {
 	LSSPPT_STREAMTYPES
 } policy_token_t;
 
-union u {
-	backoff_t *b;
-	lws_ss_x509_t *x;
-	lws_ss_trust_store_t *t;
-	lws_ss_policy_t *p;
-};
-
-enum {
-	LTY_BACKOFF,
-	LTY_X509,
-	LTY_TRUSTSTORE,
-	LTY_POLICY,
-
-	_LTY_COUNT /* always last */
-};
-
-struct policy_cb_args {
-	struct lejp_ctx jctx;
-	struct lws_context *context;
-	struct lwsac *ac;
-
-	const char *socks5_proxy;
-
-	struct lws_b64state b64;
-
-	union u heads[_LTY_COUNT];
-	union u curr[_LTY_COUNT];
-
-	uint8_t *p;
-
-	int count;
-};
-
 #define POL_AC_INITIAL	2048
 #define POL_AC_GRAIN	800
 #define MAX_CERT_TEMP	2048 /* used to discover actual cert size for realloc */
@@ -211,63 +175,6 @@ static const char *protonames[] = {
 	"ws",		/* LWSSSP_WS */
 	"mqtt",		/* LWSSSP_MQTT */
 };
-
-lws_ss_metadata_t *
-lws_ss_policy_metadata(const lws_ss_policy_t *p, const char *name)
-{
-	lws_ss_metadata_t *pmd = p->metadata;
-
-	while (pmd) {
-		if (pmd->name && !strcmp(name, pmd->name))
-			return pmd;
-		pmd = pmd->next;
-	}
-
-	return NULL;
-}
-
-lws_ss_metadata_t *
-lws_ss_policy_metadata_index(const lws_ss_policy_t *p, size_t index)
-{
-	lws_ss_metadata_t *pmd = p->metadata;
-
-	while (pmd) {
-		if (pmd->length == index)
-			return pmd;
-		pmd = pmd->next;
-	}
-
-	return NULL;
-}
-
-int
-lws_ss_set_metadata(struct lws_ss_handle *h, const char *name,
-		    const void *value, size_t len)
-{
-	lws_ss_metadata_t *omd = lws_ss_policy_metadata(h->policy, name);
-
-	if (!omd) {
-		lwsl_err("%s: unknown metadata %s\n", __func__, name);
-		return 1;
-	}
-
-	h->metadata[omd->length].name = name;
-	h->metadata[omd->length].value = (void *)value;
-	h->metadata[omd->length].length = len;
-
-	return 0;
-}
-
-lws_ss_metadata_t *
-lws_ss_get_handle_metadata(struct lws_ss_handle *h, const char *name)
-{
-	lws_ss_metadata_t *omd = lws_ss_policy_metadata(h->policy, name);
-
-	if (!omd)
-		return NULL;
-
-	return &h->metadata[omd->length];
-}
 
 static signed char
 lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
@@ -645,6 +552,7 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 				a->curr[LTY_POLICY].p->metadata_count++;
 		break;
 
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	case LSSPPT_HTTP_AUTH_HEADER:
 	case LSSPPT_HTTP_DSN_HEADER:
 	case LSSPPT_HTTP_FWV_HEADER:
@@ -690,6 +598,9 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		a->curr[LTY_POLICY].p->u.http.fail_redirect =
 						reason == LEJPCB_VAL_TRUE;
 		break;
+#endif
+
+#if defined(LWS_ROLE_WS)
 
 	case LSSPPT_WS_SUBPROTOCOL:
 		pp = (char **)&a->curr[LTY_POLICY].p->u.http.u.ws.subprotocol;
@@ -699,11 +610,14 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		a->curr[LTY_POLICY].p->u.http.u.ws.binary =
 						reason == LEJPCB_VAL_TRUE;
 		break;
+#endif
+
 	case LSSPPT_LOCAL_SINK:
 		if (reason == LEJPCB_VAL_TRUE)
 			a->curr[LTY_POLICY].p->flags |= LWSSSPOLF_LOCAL_SINK;
 		break;
 
+#if defined(LWS_ROLE_MQTT)
 	case LSSPPT_MQTT_TOPIC:
 		pp = (char **)&a->curr[LTY_POLICY].p->u.mqtt.topic;
 		goto string2;
@@ -739,6 +653,7 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		a->curr[LTY_POLICY].p->u.mqtt.will_retain =
 						reason == LEJPCB_VAL_TRUE;
 		break;
+#endif
 
 	case LSSPPT_PROTOCOL:
 		a->curr[LTY_POLICY].p->protocol = 0xff;
@@ -752,6 +667,9 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		lws_strnncpy(dotstar, ctx->buf, ctx->npos, sizeof(dotstar));
 		lwsl_err("%s: unknown protocol name %s\n", __func__, dotstar);
 		return -1;
+
+	default:
+		break;
 	}
 
 	return 0;
@@ -835,6 +753,7 @@ lws_ss_policy_parse_abandon(struct lws_context *context)
 	struct policy_cb_args *args = (struct policy_cb_args *)context->pol_args;
 
 	lejp_destruct(&args->jctx);
+	lwsac_free(&args->ac);
 	lws_free_set_NULL(context->pol_args);
 
 	return 0;
@@ -865,175 +784,13 @@ lws_ss_policy_overlay(struct lws_context *context, const char *overlay)
 				   strlen(overlay));
 }
 
-int
-lws_ss_policy_set(struct lws_context *context, const char *name)
+const lws_ss_policy_t *
+lws_ss_policy_get(struct lws_context *context)
 {
 	struct policy_cb_args *args = (struct policy_cb_args *)context->pol_args;
-	lws_ss_trust_store_t *ts;
-	struct lws_vhost *v;
-	lws_ss_x509_t *x;
-	char buf[16];
-	int m, ret = 0;
 
-	/*
-	 * Parsing seems to have succeeded, and we're going to use the new
-	 * policy that's laid out in args->ac
-	 */
-
-	lejp_destruct(&args->jctx);
-
-	if (context->ac_policy) {
-
-		/*
-		 * So this is a bit fun-filled, we already had a policy in
-		 * force, perhaps it was the default policy that's just good for
-		 * fetching the real policy, and we're doing that now.
-		 *
-		 * We can destroy all the policy-related direct allocations
-		 * easily because they're cleanly in a single lwsac...
-		 */
-		lwsac_free(&context->ac_policy);
-
-		/*
-		 * ...but when we did the trust stores, we created vhosts for
-		 * each.  We need to destroy those now too, and recreate new
-		 * ones from the new policy, perhaps with different X.509s.
-		 */
-
-		v = context->vhost_list;
-		while (v) {
-			if (v->from_ss_policy) {
-				struct lws_vhost *vh = v->vhost_next;
-				lwsl_debug("%s: destroying vh %p\n", __func__, v);
-				lws_vhost_destroy(v);
-				v = vh;
-				continue;
-			}
-			v = v->vhost_next;
-		}
-
-		lws_check_deferred_free(context, 0, 1);
-	}
-
-	context->pss_policies = args->heads[LTY_POLICY].p;
-	context->ac_policy = args->ac;
-
-	lws_humanize(buf, sizeof(buf), lwsac_total_alloc(args->ac),
-			humanize_schema_si_bytes);
-	if (lwsac_total_alloc(args->ac))
-		m = (int)((lwsac_total_overhead(args->ac) * 100) /
-				lwsac_total_alloc(args->ac));
-	else
-		m = 0;
-
-	lwsl_notice("%s: %s, pad %d%c: %s\n", __func__, buf, m, '%', name);
-
-	/* Create vhosts for each type of trust store */
-
-	ts = args->heads[LTY_TRUSTSTORE].t;
-	while (ts) {
-		struct lws_context_creation_info i;
-
-		memset(&i, 0, sizeof(i));
-
-		/*
-		 * We get called from context creation... instantiates
-		 * vhosts with client tls contexts set up for each unique CA.
-		 *
-		 * Create the vhost with the first (mandatory) entry in the
-		 * trust store...
-		 */
-
-		v = lws_get_vhost_by_name(context, ts->name);
-		if (!v) {
-			int n;
-
-			i.options = context->options;
-			i.vhost_name = ts->name;
-			lwsl_debug("%s: %s\n", __func__, i.vhost_name);
-			i.client_ssl_ca_mem = ts->ssx509[0]->ca_der;
-			i.client_ssl_ca_mem_len = ts->ssx509[0]->ca_der_len;
-			i.port = CONTEXT_PORT_NO_LISTEN;
-			lwsl_info("%s: %s trust store initial '%s'\n", __func__,
-				  ts->name, ts->ssx509[0]->vhost_name);
-
-			v = lws_create_vhost(context, &i);
-			if (!v) {
-				lwsl_err("%s: failed to create vhost %s\n",
-					 __func__, ts->name);
-				ret = 1;
-			} else
-				v->from_ss_policy = 1;
-
-			for (n = 1; v && n < ts->count; n++) {
-				lwsl_info("%s: add '%s' to trust store\n",
-					  __func__, ts->ssx509[n]->vhost_name);
-				if (lws_tls_client_vhost_extra_cert_mem(v,
-						ts->ssx509[n]->ca_der,
-						ts->ssx509[n]->ca_der_len)) {
-					lwsl_err("%s: add extra cert failed\n",
-							__func__);
-					ret = 1;
-				}
-			}
-		}
-
-		ts = ts->next;
-	}
-
-#if defined(LWS_WITH_SOCKS5)
-
-	/*
-	 * ... we need to go through every vhost updating its understanding of
-	 * which socks5 proxy to use...
-	 */
-
-	v = context->vhost_list;
-	while (v) {
-		lws_set_socks(v, args->socks5_proxy);
-		v = v->vhost_next;
-	}
-	if (context->vhost_system)
-		lws_set_socks(context->vhost_system, args->socks5_proxy);
-
-	if (args->socks5_proxy)
-		lwsl_notice("%s: global socks5 proxy: %s\n", __func__,
-			    args->socks5_proxy);
-#endif
-
-	/* now we processed the x.509 CAs, we can free all of our originals */
-
-	x = args->heads[LTY_X509].x;
-	while (x) {
-		/*
-		 * Free all the DER buffers now they have been parsed into
-		 * tls library X.509 objects
-		 */
-		lws_free((void *)x->ca_der);
-		x->ca_der = NULL;
-		x = x->next;
-	}
-
-	/* and we can discard the parsing args object now, invalidating args */
-
-	lws_free_set_NULL(context->pol_args);
-
-	return ret;
-}
-
-const lws_ss_policy_t *
-lws_ss_policy_lookup(const struct lws_context *context, const char *streamtype)
-{
-	const lws_ss_policy_t *p = context->pss_policies;
-
-	if (!streamtype)
+	if (!args)
 		return NULL;
 
-	while (p) {
-		if (!strcmp(p->streamtype, streamtype))
-			return p;
-		p = p->next;
-	}
-
-	return NULL;
+	return args->heads[LTY_POLICY].p;
 }

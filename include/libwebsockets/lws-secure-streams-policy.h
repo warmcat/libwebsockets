@@ -122,7 +122,7 @@ typedef struct lws_ss_trust_store {
 	struct lws_ss_trust_store	*next;
 	const char			*name;
 
-	lws_ss_x509_t			*ssx509[8];
+	const lws_ss_x509_t		*ssx509[6];
 	int				count;
 } lws_ss_trust_store_t;
 
@@ -130,6 +130,7 @@ enum {
 	LWSSSP_H1,
 	LWSSSP_H2,
 	LWSSSP_WS,
+	LWSSSP_MQTT,
 
 
 	LWSSS_HBI_AUTH = 0,
@@ -179,6 +180,8 @@ typedef struct lws_ss_policy {
 
 	union {
 
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_WS)
+
 		/* details for http-related protocols... */
 
 		struct {
@@ -211,6 +214,10 @@ typedef struct lws_ss_policy {
 			uint8_t		fail_redirect:1;
 		} http;
 
+#endif
+
+#if defined(LWS_ROLE_MQTT)
+
 		struct {
 			const char	*topic;	    /* stream sends on this topic */
 			const char	*subscribe; /* stream subscribes to this topic */
@@ -225,6 +232,8 @@ typedef struct lws_ss_policy {
 			uint8_t		will_retain;
 
 		} mqtt;
+
+#endif
 
 		/* details for non-http related protocols... */
 	} u;
@@ -248,6 +257,12 @@ typedef struct lws_ss_policy {
 						  0 = none, 1+ = cc 0+ */
 } lws_ss_policy_t;
 
+#if !defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
+
+/*
+ * These only exist / have meaning if there's a dynamic JSON policy enabled
+ */
+
 LWS_VISIBLE LWS_EXTERN int
 lws_ss_policy_parse_begin(struct lws_context *context, int overlay);
 
@@ -259,3 +274,12 @@ lws_ss_policy_parse(struct lws_context *context, const uint8_t *buf, size_t len)
 
 LWS_VISIBLE LWS_EXTERN int
 lws_ss_policy_overlay(struct lws_context *context, const char *overlay);
+
+/*
+ * You almost certainly don't want this, it returns the first policy object
+ * in a linked-list of objects created by lws_ss_policy_parse above
+ */
+LWS_VISIBLE LWS_EXTERN const lws_ss_policy_t *
+lws_ss_policy_get(struct lws_context *context);
+
+#endif
