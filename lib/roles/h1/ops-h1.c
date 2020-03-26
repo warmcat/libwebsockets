@@ -256,6 +256,9 @@ ws_mode:
 	case LRS_SSL_ACK_PENDING:
 		break;
 
+	case LRS_FLUSHING_BEFORE_CLOSE:
+		break;
+
 	case LRS_DEAD_SOCKET:
 		lwsl_err("%s: Unhandled state LRS_DEAD_SOCKET\n", __func__);
 		goto bail;
