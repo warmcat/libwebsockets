@@ -166,7 +166,7 @@ option(LWS_WITH_DETAILED_LATENCY "Record detailed latency stats for each read an
 option(LWS_WITH_UDP "Platform supports UDP" ON)
 option(LWS_WITH_SPAWN "Spawn subprocesses with piped stdin/out/stderr" OFF)
 option(LWS_WITH_FSMOUNT "Overlayfs and fallback mounting apis" OFF)
-
+option(LWS_WITH_FANALYZER "Enable gcc -fanalyzer if compiler supports" OFF)
 
 #
 # to use miniz, enable both LWS_WITH_ZLIB and LWS_WITH_MINIZ
@@ -1724,6 +1724,9 @@ endif()
 if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX OR COMPILER_IS_CLANG)
     include (CheckCCompilerFlag)
     CHECK_C_COMPILER_FLAG(-fvisibility=hidden LWS_HAVE_VISIBILITY)
+    if (LWS_WITH_FANALYZER)
+	    CHECK_C_COMPILER_FLAG(-fanalyzer LWS_HAVE_FANALYZER)
+    endif()
     if (LWS_HAVE_VISIBILITY)
                 set(VISIBILITY_FLAG -fvisibility=hidden)
     endif()
@@ -1748,6 +1751,10 @@ if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX OR COMPILER_IS_CLANG)
 
 	if (LWS_GCC_HAS_TYPE_LIMITS)
 		set(CMAKE_C_FLAGS "-Wtype-limits ${CMAKE_C_FLAGS}" )
+	endif()
+
+	if (LWS_WITH_FANALYZER AND LWS_HAVE_FANALYZER)
+		set(CMAKE_C_FLAGS "-fanalyzer ${CMAKE_C_FLAGS}" )
 	endif()
 
     if (UNIX AND NOT LWS_PLAT_FREERTOS)
