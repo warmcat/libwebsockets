@@ -24,6 +24,14 @@
 
 #include "private-lib-core.h"
 
+#if defined(LWS_WITH_MBEDTLS)
+#if defined(LWS_HAVE_MBEDTLS_NET_SOCKETS)
+#include "mbedtls/net_sockets.h"
+#else
+#include "mbedtls/net.h"
+#endif
+#endif
+
 int
 lws_send_pipe_choked(struct lws *wsi)
 {
@@ -259,3 +267,56 @@ lws_plat_ifconfig_ip(const char *ifname, int fd, uint8_t *ip, uint8_t *mask_ip,
 
 	return -1;
 }
+
+#if defined(LWS_WITH_MBEDTLS)
+int
+lws_plat_mbedtls_net_send(void *ctx, const uint8_t *buf, size_t len)
+{
+	int fd = ((mbedtls_net_context *) ctx)->fd;
+	int ret;
+
+	if (fd < 0)
+		return MBEDTLS_ERR_NET_INVALID_CONTEXT;
+
+	ret = write(fd, buf, len);
+	if (ret >= 0)
+		return ret;
+
+	if (errno == EAGAIN || errno == EWOULDBLOCK)
+		return MBEDTLS_ERR_SSL_WANT_WRITE;
+
+	if (errno == EPIPE || errno == ECONNRESET)
+		return MBEDTLS_ERR_NET_CONN_RESET;
+
+	if( errno == EINTR )
+		return MBEDTLS_ERR_SSL_WANT_WRITE;
+
+	return MBEDTLS_ERR_NET_SEND_FAILED;
+}
+
+int
+lws_plat_mbedtls_net_recv(void *ctx, unsigned char *buf, size_t len)
+{
+	int fd = ((mbedtls_net_context *) ctx)->fd;
+	int ret;
+
+	if (fd < 0)
+		return MBEDTLS_ERR_NET_INVALID_CONTEXT;
+
+	ret = (int)read(fd, buf, len);
+	if (ret >= 0)
+		return ret;
+
+	if (errno == EAGAIN || errno == EWOULDBLOCK)
+		return MBEDTLS_ERR_SSL_WANT_READ;
+
+	if (errno == EPIPE || errno == ECONNRESET)
+		return MBEDTLS_ERR_NET_CONN_RESET;
+
+	if (errno == EINTR)
+		return MBEDTLS_ERR_SSL_WANT_READ;
+
+	return MBEDTLS_ERR_NET_RECV_FAILED;
+}
+#endif
+

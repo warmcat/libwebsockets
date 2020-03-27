@@ -1408,6 +1408,13 @@ lws_socks5c_handle_state(struct lws *wsi, struct lws_pollfd *pollfd,
 int
 lws_socks5c_greet(struct lws *wsi, const char **pcce);
 
+int
+lws_plat_mbedtls_net_send(void *ctx, const uint8_t *buf, size_t len);
+
+int
+lws_plat_mbedtls_net_recv(void *ctx, unsigned char *buf, size_t len);
+
+
 enum {
 	LW5CHS_RET_RET0,
 	LW5CHS_RET_BAIL3,

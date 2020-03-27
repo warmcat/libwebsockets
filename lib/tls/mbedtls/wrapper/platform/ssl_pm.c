@@ -67,6 +67,7 @@ struct pkey_pm
 
 unsigned int max_content_len;
 
+
 /*********************************************************************************************/
 /************************************ SSL arch interface *************************************/
 
@@ -185,7 +186,9 @@ int ssl_pm_new(SSL *ssl)
         goto mbedtls_err2;
     }
 
-    mbedtls_ssl_set_bio(&ssl_pm->ssl, &ssl_pm->fd, mbedtls_net_send, mbedtls_net_recv, NULL);
+    mbedtls_ssl_set_bio(&ssl_pm->ssl, &ssl_pm->fd,
+		        lws_plat_mbedtls_net_send,
+			lws_plat_mbedtls_net_recv, NULL);
 
     ssl->ssl_pm = ssl_pm;
 
