@@ -337,6 +337,8 @@ lws_sspc_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 
 	h = malloc(sizeof(lws_sspc_handle_t) + ssi->user_alloc +
 		   strlen(ssi->streamtype) + 1);
+	if (!h)
+		return 1;
 	memset(h, 0, sizeof(*h));
 	memcpy(&h->ssi, ssi, sizeof(*ssi));
 	ua = (uint8_t *)&h[1];

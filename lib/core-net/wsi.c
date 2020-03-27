@@ -1036,6 +1036,8 @@ lws_mux_mark_immortal(struct lws *wsi)
 	}
 
 	nwsi = lws_get_network_wsi(wsi);
+	if (!nwsi)
+		return;
 
 	lwsl_debug("%s: %p %p %d\n", __func__, wsi, nwsi,
 				     nwsi->immortal_substream_count);
@@ -1051,6 +1053,9 @@ lws_mux_mark_immortal(struct lws *wsi)
 int
 lws_http_mark_sse(struct lws *wsi)
 {
+	if (!wsi)
+		return 0;
+
 	lws_http_headers_detach(wsi);
 	lws_mux_mark_immortal(wsi);
 

@@ -1414,9 +1414,9 @@ set_parsing_complete:
 
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_UPGRADE)) {
 #if defined(LWS_ROLE_WS)
-		if (lws_hdr_total_length(wsi, WSI_TOKEN_VERSION))
-			wsi->rx_frame_type = /* temp for ws version index */
-			       atoi(lws_hdr_simple_ptr(wsi, WSI_TOKEN_VERSION));
+		const char *pv = lws_hdr_simple_ptr(wsi, WSI_TOKEN_VERSION);
+		if (pv)
+			wsi->rx_frame_type = atoi(pv);
 
 		lwsl_parser("v%02d hdrs done\n", wsi->rx_frame_type);
 #endif
