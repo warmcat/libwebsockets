@@ -85,6 +85,7 @@ const struct lws_protocols *available_secstream_protocols[] = {
 #if defined(LWS_ROLE_MQTT)
 	&protocol_secstream_mqtt,
 #endif
+	&protocol_secstream_raw,
 	NULL
 };
 #endif

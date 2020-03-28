@@ -1179,6 +1179,7 @@ if (LWS_WITH_NETWORK)
 			lib/secure-streams/secure-streams.c
 			lib/secure-streams/policy-common.c
 			lib/secure-streams/system/captive-portal-detect/captive-portal-detect.c
+			lib/secure-streams/protocols/ss-raw.c
 		)
 		if (NOT LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
 			list(APPEND SOURCES

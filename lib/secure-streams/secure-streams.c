@@ -45,6 +45,8 @@ static const struct ss_pcols *ss_pcols[] = {
 #else
 	NULL,
 #endif
+	&ss_pcol_raw,		/* LWSSSP_RAW */
+	NULL,
 };
 
 static const char *state_names[] = {
@@ -301,7 +303,8 @@ lws_ss_client_connect(lws_ss_handle_t *h)
 	i.protocol = ssp->protocol_name; /* lws protocol name */
 	i.local_protocol_name = i.protocol;
 
-	ssp->munge(h, path, sizeof(path), &i, &ct);
+	if (ssp->munge) /* eg, raw doesn't use; endpoint strexp already done */
+		ssp->munge(h, path, sizeof(path), &i, &ct);
 
 	i.pwsi = &h->wsi;
 

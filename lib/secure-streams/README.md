@@ -143,6 +143,14 @@ streamtypes are
 |h2|http/2|
 |ws|http/1 Websockets|
 |mqtt|mqtt 3.1.1|
+|raw||
+
+Raw protocol is a bit different than the others in that there is no protocol framing,
+whatever is received on the connection is passed to the user rx callback and whatever
+the tx callback provides is issued on to the connection.  Because tcp can be
+arbitrarily fragmented by any intermediary, such streams have to be regarded as an
+ordered bytestream that may be fragmented at any byte without any meaning in terms
+of message boundaries, for that reason SOM and EOM are ignored with raw.
 
 ### `plugins`
 

@@ -174,6 +174,7 @@ static const char *protonames[] = {
 	"h2",		/* LWSSSP_H2 */
 	"ws",		/* LWSSSP_WS */
 	"mqtt",		/* LWSSSP_MQTT */
+	"raw",		/* LWSSSP_RAW */
 };
 
 static signed char
