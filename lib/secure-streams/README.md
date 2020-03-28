@@ -128,6 +128,13 @@ define the endpoint as, eg, `${region}.mysite.com`, and before
 attempting the connection setting the stream's metadata item
 "region" to the desired value, eg, "uk".
 
+If the endpoint string begins with `+`, then it's understood to
+mean a connection to a Unix Domain Socket, for Linux `+@` means
+the following Unix Domain Socket is in the Linux Abstract
+Namespace and doesn't have a filesystem footprint.  This is only
+supported on unix-type and windows platforms and when lws was
+configured with `-DLWS_UNIX_SOCK=1`
+
 ### `port`
 
 The port number as an integer on the endpoint to connect to
