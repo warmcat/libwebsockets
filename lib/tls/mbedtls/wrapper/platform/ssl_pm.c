@@ -539,6 +539,7 @@ OSSL_HANDSHAKE_STATE ssl_pm_get_state(const SSL *ssl)
 
 int x509_pm_show_info(X509 *x)
 {
+#if 0
     int ret;
     char *buf;
     mbedtls_x509_crt *x509_crt;
@@ -578,6 +579,9 @@ mbedtls_err1:
     ssl_mem_free(buf);
 no_mem:
     return -1;
+#else
+    return 0;
+#endif
 }
 
 int x509_pm_new(X509 *x, X509 *m_x)
