@@ -16,7 +16,7 @@
 #
 
 # if your sdk lives somewhere else, this is the only place that should need changing
-set(CROSS_BASE /projects/linkit/sdk)
+set(CROSS_BASE /opt/linkit/sdk)
 set(CROSS_PATH ${CROSS_BASE}/tools/gcc/gcc-arm-none-eabi)
 
 #
