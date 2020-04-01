@@ -362,7 +362,7 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	if (lws_change_pollfd(lsp->stdwsi[LWS_STDERR], LWS_POLLOUT, LWS_POLLIN))
 		goto bail3;
 
-	lwsl_debug("%s: fds in %d, out %d, err %d\n", __func__,
+	lwsl_notice("%s: fds in %d, out %d, err %d\n", __func__,
 		   lsp->stdwsi[LWS_STDIN]->desc.sockfd,
 		   lsp->stdwsi[LWS_STDOUT]->desc.sockfd,
 		   lsp->stdwsi[LWS_STDERR]->desc.sockfd);
@@ -448,8 +448,18 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 			lwsl_err("%s: stdin dup2 failed\n", __func__);
 			goto bail3;
 		}
-		close(lsp->pipe_fds[m][0]);
-		close(lsp->pipe_fds[m][1]);
+		/*
+		 * If we used fork(), then we can close both sides of the
+		 * original pipe now we bound it to fd 0, 1, 2.
+		 *
+		 * But if we used vfork(), until the exec() we have hijacked
+		 * the original process temporarily and we are (ab)using its
+		 * identity during this pre-exec() time
+		 */
+		close(lsp->pipe_fds[m][!(m == 0)]);
+#if !defined(LWS_HAVE_VFORK) || !defined(LWS_HAVE_EXECVPE)
+		close(lsp->pipe_fds[m][!!(m == 0)]);
+#endif
 	}
 
 	// lwsl_notice("%s: child cd %s, exec %s\n", __func__, wd, i->exec_array[0]);
