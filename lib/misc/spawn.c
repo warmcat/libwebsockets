@@ -456,8 +456,8 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		 * the original process temporarily and we are (ab)using its
 		 * identity during this pre-exec() time
 		 */
-		close(lsp->pipe_fds[m][!(m == 0)]);
 #if !defined(LWS_HAVE_VFORK) || !defined(LWS_HAVE_EXECVPE)
+		close(lsp->pipe_fds[m][!(m == 0)]);
 		close(lsp->pipe_fds[m][!!(m == 0)]);
 #endif
 	}

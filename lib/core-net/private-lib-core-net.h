@@ -710,7 +710,7 @@ struct lws {
 	const lws_retry_bo_t		*retry_policy;
 
 #if defined(LWS_WITH_THREADPOOL)
-	struct lws_threadpool_task	*tp_task;
+	lws_dll2_owner_t		tp_task_owner; /* struct lws_threadpool_task */
 #endif
 
 #if defined(LWS_WITH_PEER_LIMITS)

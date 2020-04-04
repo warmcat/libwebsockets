@@ -237,7 +237,7 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_WS_SERVER_DROP_PROTOCOL:
 		lwsl_debug("LWS_CALLBACK_WS_SERVER_DROP_PROTOCOL: %p\n", wsi);
-		lws_threadpool_dequeue(wsi);
+		lws_threadpool_dequeue_task(lws_threadpool_get_task_wsi(wsi));
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
@@ -253,7 +253,8 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 		 * private task data.
 		 */
 
-		n = lws_threadpool_task_status_wsi(wsi, &task, &_user);
+		task = lws_threadpool_get_task_wsi(wsi);
+		n = lws_threadpool_task_status(task, &_user);
 		lwsl_debug("%s: LWS_CALLBACK_SERVER_WRITEABLE: status %d\n",
 			   __func__, n);
 		switch(n) {
