@@ -1088,6 +1088,12 @@ lws_wsi_client_stash_item(struct lws *wsi, int stash_idx, int hdr_idx)
 void
 lws_wsi_mux_insert(struct lws *wsi, struct lws *parent_wsi, int sid)
 {
+	lwsl_info("%s: wsi %p, par %p: assign sid %d (curr %d)\n", __func__,
+		  wsi, parent_wsi, sid, wsi->mux.my_sid);
+
+	if (wsi->mux.my_sid && wsi->mux.my_sid != (unsigned int)sid)
+		assert(0);
+
 	wsi->mux.my_sid = sid;
 	wsi->mux.parent_wsi = parent_wsi;
 	wsi->role_ops = parent_wsi->role_ops;
@@ -1204,8 +1210,8 @@ lws_wsi_mux_mark_parents_needing_writeable(struct lws *wsi)
 	wsi2 = wsi;
 	while (wsi2) {
 		wsi2->mux.requested_POLLOUT = 1;
-		lwsl_info("%s: mark %p (sid %u) pending writable\n", __func__,
-				wsi2, wsi2->mux.my_sid);
+		lwsl_info("%s: mark wsi: %p, sid %u, pending writable\n",
+			  __func__, wsi2, wsi2->mux.my_sid);
 		wsi2 = wsi2->mux.parent_wsi;
 	}
 

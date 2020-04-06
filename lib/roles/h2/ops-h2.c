@@ -859,8 +859,8 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			goto next_child;
 		}
 
-		lwsl_info("%s: child %p (wsistate 0x%x)\n", __func__, w,
-			  (unsigned int)w->wsistate);
+		lwsl_info("%s: child wsi %p, sid %d, (wsistate 0x%x)\n",
+			  __func__, w, w->mux.my_sid, (unsigned int)w->wsistate);
 
 		/* priority 1: post compression-transform buffered output */
 
