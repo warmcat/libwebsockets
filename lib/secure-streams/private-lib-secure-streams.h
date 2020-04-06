@@ -92,10 +92,19 @@ typedef struct lws_ss_handle {
 
 			union {
 				struct { /* LWSSSP_H1 */
+#if defined(WIN32)
+					uint8_t dummy;
+#endif
 				} h1;
 				struct { /* LWSSSP_H2 */
+#if defined(WIN32)
+					uint8_t dummy;
+#endif
 				} h2;
 				struct { /* LWSSSP_WS */
+#if defined(WIN32)
+					uint8_t dummy;
+#endif
 				} ws;
 			} u;
 		} http;
@@ -132,6 +141,10 @@ typedef struct lws_ss_handle {
 union lws_ss_contemp {
 #if defined(LWS_ROLE_MQTT)
 	lws_mqtt_client_connect_param_t ccp;
+#else
+#if defined(WIN32)
+	uint8_t	dummy;
+#endif
 #endif
 };
 
@@ -363,9 +376,9 @@ struct ss_pcols {
 	const char					*name;
 	const char					*alpn;
 	const char					*protocol_name;
-	const secstream_protocol_connect_munge_t	munge;
-	const secstream_protocol_add_txcr_t		tx_cr_add;
-	const secstream_protocol_get_txcr_t		tx_cr_est;
+	secstream_protocol_connect_munge_t		munge;
+	secstream_protocol_add_txcr_t			tx_cr_add;
+	secstream_protocol_get_txcr_t			tx_cr_est;
 };
 
 extern const struct ss_pcols ss_pcol_h1;

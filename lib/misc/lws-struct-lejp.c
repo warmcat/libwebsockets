@@ -675,7 +675,7 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 			 * in "used".
 			 */
 
-			lws_json_purify((char *)buf, q, len, &used);
+			lws_json_purify((char *)buf, q, (int)len, &used);
 			m = strlen((const char *)buf);
 			buf += m;
 			len -= m;

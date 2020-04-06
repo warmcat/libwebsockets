@@ -272,7 +272,8 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 					lws_strnncpy(h->u.http.boundary + 4,
 						     ts.token, ts.token_len,
 						     sizeof(h->u.http.boundary) - 4);
-					h->u.http.boundary_len = ts.token_len + 4;
+					h->u.http.boundary_len =
+						(uint8_t)(ts.token_len + 4);
 					h->u.http.boundary_seq = 2;
 					h->u.http.boundary_dashes = 0;
 				}
@@ -334,7 +335,7 @@ malformed:
 
 			if (lws_add_http_header_by_name(wsi,
 					 (uint8_t *)h->policy->u.http.blob_header[m],
-					 buf, buflen + o, p, end))
+					 buf, (int)(buflen + o), p, end))
 				return -1;
 		}
 
@@ -357,7 +358,7 @@ malformed:
 				if (lws_add_http_header_by_name(wsi,
 						polmd->value,
 						h->metadata[m].value,
-						h->metadata[m].length, p, end))
+						(int)h->metadata[m].length, p, end))
 				return -1;
 			}
 		}

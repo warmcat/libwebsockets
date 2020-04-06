@@ -126,7 +126,7 @@ ss_api_amazon_auth_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 			lws_system_blob_heap_empty(ab);
 		}
 
-		n = (int)(signed char)lejp_parse(&m->jctx, buf, len);
+		n = (int)(signed char)lejp_parse(&m->jctx, buf, (int)len);
 		if (n < 0) {
 			lejp_destruct(&m->jctx);
 			lws_system_blob_destroy(
@@ -205,7 +205,7 @@ ss_api_amazon_auth_state(void *userobj, void *sh, lws_ss_constate_t state,
 		s = lws_system_blob_get_size(
 			lws_system_get_blob(context, LWS_SYSBLOB_TYPE_AUTH,
 					    AUTH_IDX_ROOT));
-		lws_ss_request_tx_len(m->ss, s);
+		lws_ss_request_tx_len(m->ss, (unsigned long)s);
 		m->pos = 0;
 		break;
 

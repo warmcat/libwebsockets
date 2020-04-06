@@ -202,7 +202,8 @@ lws_ss_policy_set(struct lws_context *context, const char *name)
 		i.vhost_name = pol->trust_store->name;
 		lwsl_debug("%s: %s\n", __func__, i.vhost_name);
 		i.client_ssl_ca_mem = pol->trust_store->ssx509[0]->ca_der;
-		i.client_ssl_ca_mem_len = pol->trust_store->ssx509[0]->ca_der_len;
+		i.client_ssl_ca_mem_len = (unsigned int)
+				pol->trust_store->ssx509[0]->ca_der_len;
 		i.port = CONTEXT_PORT_NO_LISTEN;
 		lwsl_info("%s: %s trust store initial '%s'\n", __func__,
 			  i.vhost_name, pol->trust_store->ssx509[0]->vhost_name);

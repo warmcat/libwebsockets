@@ -365,7 +365,7 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		lws_b64_decode_stateful(&a->b64, ctx->buf, &inl,
 					a->p + a->count, &outl,
 					reason == LEJPCB_VAL_STR_END);
-		a->count += outl;
+		a->count += (int)outl;
 		if (inl != ctx->npos) {
 			lwsl_err("%s: b64 decode fail\n", __func__);
 			goto oom;
@@ -766,7 +766,7 @@ lws_ss_policy_parse(struct lws_context *context, const uint8_t *buf, size_t len)
 	struct policy_cb_args *args = (struct policy_cb_args *)context->pol_args;
 	int m;
 
-	m = (int)(signed char)lejp_parse(&args->jctx, buf, len);
+	m = (int)(signed char)lejp_parse(&args->jctx, buf, (int)len);
 	if (m == LEJP_CONTINUE || m >= 0)
 		return m;
 

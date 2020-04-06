@@ -723,6 +723,10 @@ lws_vbi_decode(const void *buf, uint64_t *value, size_t len);
 /* opaque internal struct */
 struct lws_spawn_piped;
 
+#if defined(WIN32)
+typedef struct _lws_siginfo_t *siginfo_t;
+#endif
+
 typedef void (*lsp_cb_t)(void *opaque, lws_usec_t *accounting, siginfo_t *si,
 			 int we_killed_him);
 
