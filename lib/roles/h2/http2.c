@@ -248,6 +248,8 @@ lws_wsi_server_new(struct lws_vhost *vh, struct lws *parent_wsi,
 	h2n->highest_sid_opened = sid;
 
 	lws_wsi_mux_insert(wsi, parent_wsi, sid);
+	if (sid >= h2n->highest_sid)
+		h2n->highest_sid = sid + 2;
 
 	wsi->mux_substream = 1;
 	wsi->seen_nonpseudoheader = 0;
@@ -318,6 +320,9 @@ lws_wsi_h2_adopt(struct lws *parent_wsi, struct lws *wsi)
 		wsi->mux.my_sid = nwsi->h2.h2n->highest_sid;
 		nwsi->h2.h2n->highest_sid += 2;
 	}
+
+	lwsl_info("%s: binding wsi %p to sid %d (next %d)\n", __func__,
+			wsi, (int)wsi->mux.my_sid, (int)nwsi->h2.h2n->highest_sid);
 
 	lws_wsi_mux_insert(wsi, parent_wsi, wsi->mux.my_sid);
 
@@ -1219,6 +1224,9 @@ lws_h2_parse_frame_header(struct lws *wsi)
 				return 1;
 			}
 
+			if (h2n->sid >= h2n->highest_sid)
+				h2n->highest_sid = h2n->sid + 2;
+
 			h2n->swsi->h2.initialized = 1;
 
 			if (lws_h2_update_peer_txcredit(h2n->swsi,
@@ -1569,6 +1577,9 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		}
 
 		switch (h2n->swsi->h2.h2_state) {
+		case LWS_H2_STATE_IDLE:
+			lws_h2_state(h2n->swsi, LWS_H2_STATE_OPEN);
+			break;
 		case LWS_H2_STATE_OPEN:
 			if (h2n->swsi->h2.END_STREAM)
 				lws_h2_state(h2n->swsi,
@@ -1582,7 +1593,8 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 #if defined(LWS_WITH_CLIENT)
 		if (h2n->swsi->client_mux_substream) {
-			lwsl_info("%s: headers: client path\n", __func__);
+			lwsl_info("%s: wsi %p: headers: client path (h2 state %s)\n",
+				  __func__, wsi, h2_state_names[h2n->swsi->h2.h2_state]);
 			break;
 		}
 #endif
@@ -2318,7 +2330,13 @@ lws_h2_client_handshake(struct lws *wsi)
 	lwsl_debug("%s\n", __func__);
 
 	nwsi->h2.h2n->highest_sid_opened = sid;
-	wsi->mux.my_sid = sid;
+	if (!wsi->mux.my_sid)
+		wsi->mux.my_sid = sid;
+	else {
+		lwsl_debug("%s: %p already sid %d\n",
+				__func__, wsi, wsi->mux.my_sid);
+		//assert(0);
+	}
 
 	lwsl_info("%s: CLIENT_WAITING_TO_SEND_HEADERS: pollout (sid %d)\n",
 			__func__, wsi->mux.my_sid);
@@ -2430,7 +2448,7 @@ lws_h2_client_handshake(struct lws *wsi)
 		wsi->txc.manual = 1;
 	}
 
-	if (lws_h2_update_peer_txcredit(wsi, sid, n))
+	if (lws_h2_update_peer_txcredit(wsi, wsi->mux.my_sid, n))
 		return 1;
 
 	lws_h2_state(wsi, LWS_H2_STATE_OPEN);

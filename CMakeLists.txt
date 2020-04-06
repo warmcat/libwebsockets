@@ -356,7 +356,7 @@ find_package(Git)
 if(GIT_EXECUTABLE)
 	execute_process(
 		WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-		COMMAND "${GIT_EXECUTABLE}" describe --tags
+		COMMAND "${GIT_EXECUTABLE}" describe --tags --always
 		OUTPUT_VARIABLE GIT_HASH
 		OUTPUT_STRIP_TRAILING_WHITESPACE
 		)

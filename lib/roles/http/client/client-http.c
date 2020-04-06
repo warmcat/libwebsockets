@@ -911,7 +911,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 
 		wsi->http.ah = ah1;
 
-		lwsl_info("%s: client connection up\n", __func__);
+		lwsl_info("%s: wsi %p: client connection up\n", __func__, wsi);
 
 		/*
 		 * Did we get a response from the server with an explicit
