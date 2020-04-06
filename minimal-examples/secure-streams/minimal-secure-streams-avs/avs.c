@@ -46,7 +46,7 @@ typedef struct ss_avs_metadata {
 	 */
 
 	lws_sorted_usec_list_t	sul;
-	uint8_t			buf[8192];
+	uint8_t			buf[256 * 1024]; /* to test rate-limiting, set to 8 * 1024 */
 	int			head;
 	int			tail;
 
@@ -125,8 +125,9 @@ ss_avs_metadata_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 		    (int)len, (int)m->head, (int)m->tail, (int)n);
 	lws_ss_get_est_peer_tx_credit(m->ss);
 	if (len > n) {
+		lwsl_err("%s: bad len: len %d, n %d\n", __func__, (int)len, (int)n);
 		assert(0);
-		lwsl_err("%s: bad len\n", __func__);
+
 		return 1;
 	}
 
@@ -159,11 +160,11 @@ ss_avs_metadata_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf,
 
 	if ((long)m->pos < 0) {
 		*len = 0;
-		lwsl_notice("%s: skip tx\n", __func__);
+		lwsl_debug("%s: skip tx\n", __func__);
 		return 1;
 	}
 
-	lwsl_notice("%s: rideshare '%s'\n", __func__, lws_ss_rideshare(m->ss));
+//	lwsl_notice("%s: rideshare '%s'\n", __func__, lws_ss_rideshare(m->ss));
 
 	if (!strcmp(lws_ss_rideshare(m->ss), "avs_audio")) {
 		/* audio rideshare */
@@ -268,7 +269,7 @@ ss_avs_event_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	lwsl_notice("%s: rideshare %s, len %d, flags 0x%x\n", __func__,
 			lws_ss_rideshare(m->ss), (int)len, flags);
 
-	//lwsl_hexdump_warn(buf, len);
+//	lwsl_hexdump_warn(buf, len);
 
 	bad = 0; /* for this demo, receiving something here == success */
 
@@ -327,8 +328,9 @@ ss_avs_event_state(void *userobj, void *sh,
 		 * framing like multipart MIME and contains other parts
 		 */
 
-		ssi.manual_initial_tx_credit =
-				sizeof(((ss_avs_metadata_t *)0)->buf) / 2;
+		/* uncomment to test rate-limiting, doesn't work with AVS servers */
+//		ssi.manual_initial_tx_credit =
+//				sizeof(((ss_avs_metadata_t *)0)->buf) / 2;
 
 		if (lws_ss_create(context, 0, &ssi, context, &hss_avs_sync,
 				  NULL, NULL)) {
