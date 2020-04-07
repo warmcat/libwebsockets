@@ -63,7 +63,7 @@ callback_raw_echo(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (len > sizeof(pss->buf))
 			len = sizeof(pss->buf);
 		memcpy(pss->buf, in, len);
-		pss->len = len;
+		pss->len = (int)len;
 		lws_callback_on_writable(wsi);
 		break;
 

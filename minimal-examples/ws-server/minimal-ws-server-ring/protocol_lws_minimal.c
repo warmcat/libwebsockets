@@ -55,7 +55,7 @@ cull_lagging_clients(struct per_vhost_data__minimal *vhd)
 {
 	uint32_t oldest_tail = lws_ring_get_oldest_tail(vhd->ring);
 	struct per_session_data__minimal *old_pss = NULL;
-	int most = 0, before = lws_ring_get_count_waiting_elements(vhd->ring,
+	int most = 0, before = (int)lws_ring_get_count_waiting_elements(vhd->ring,
 					&oldest_tail), m;
 
 	/*
@@ -111,7 +111,7 @@ cull_lagging_clients(struct per_vhost_data__minimal *vhd)
 			 * what is the largest number of pending ring elements
 			 * for any survivor.
 			 */
-			m = lws_ring_get_count_waiting_elements(vhd->ring,
+			m = (int)lws_ring_get_count_waiting_elements(vhd->ring,
 							&((*ppss)->tail));
 			if (m > most)
 				most = m;

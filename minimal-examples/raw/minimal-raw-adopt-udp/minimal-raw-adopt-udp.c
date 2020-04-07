@@ -28,7 +28,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#if !defined(WIN32)
 #include <unistd.h>
+#endif
 #include <errno.h>
 
 static uint8_t sendbuf[4096];
@@ -40,7 +42,7 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 			void *user, void *in, size_t len)
 {
 	ssize_t n;
-	int fd;
+	lws_sockfd_type fd;
 
 	switch (reason) {
 
@@ -102,7 +104,7 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 #if defined(WIN32)
 				(const char *)
 #endif
-			sendbuf, sendlen, 0, &udp.sa, udp.salen);
+			sendbuf, sendlen, 0, &udp.sa, (socklen_t)udp.salen);
 		if (n < (ssize_t)len)
 			lwsl_notice("%s: send returned %d\n", __func__, (int)n);
 		break;

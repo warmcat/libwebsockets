@@ -5,6 +5,18 @@ include(CheckCSourceCompiles)
 set(SAMP lws-minimal-http-server-sse)
 set(SRCS minimal-http-server-sse.c)
 
+MACRO(require_pthreads result)
+	CHECK_INCLUDE_FILE(pthread.h LWS_HAVE_PTHREAD_H)
+	if (NOT LWS_HAVE_PTHREAD_H)
+		if (LWS_WITH_MINIMAL_EXAMPLES)
+			set(${result} 0)
+			message("${SAMP}: skipping as no pthreads")
+		else()
+			message(FATAL_ERROR "threading support requires pthreads")
+		endif()
+	endif()
+ENDMACRO()
+
 # If we are being built as part of lws, confirm current build config supports
 # reqconfig, else skip building ourselves.
 #
@@ -64,6 +76,7 @@ MACRO(require_lws_config reqconfig _val result)
 ENDMACRO()
 
 set(requirements 1)
+require_pthreads(requirements)
 require_lws_config(LWS_ROLE_H1 1 requirements)
 require_lws_config(LWS_WITH_SERVER 1 requirements)
 

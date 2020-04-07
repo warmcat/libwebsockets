@@ -13,7 +13,6 @@
 #include <libwebsockets.h>
 #include <string.h>
 #include <signal.h>
-#include <pthread.h>
 
 /*
  * This represents your object that "contains" the client connection and has

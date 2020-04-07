@@ -72,7 +72,7 @@ require_lws_config(LWS_ROLE_WS 1 requirements)
 require_lws_config(LWS_WITH_SERVER 1 requirements)
 require_lws_config(LWS_WITH_HTTP_BASIC_AUTH 1 requirements)
 
-if (requirements)
+if (requirements AND UNIX)
 	add_executable(${SAMP} ${SRCS})
 
 	if (LWS_PLUGINS_DIR)

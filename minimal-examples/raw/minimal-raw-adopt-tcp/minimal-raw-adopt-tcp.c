@@ -31,7 +31,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#if !defined(WIN32)
 #include <unistd.h>
+#endif
 #include <errno.h>
 
 static int

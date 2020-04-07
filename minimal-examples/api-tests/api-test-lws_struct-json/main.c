@@ -346,7 +346,7 @@ int main(int argc, const char **argv)
 
 		lws_struct_json_init_parse(&ctx, NULL, &a);
 		n = (int)(signed char)lejp_parse(&ctx, (uint8_t *)json_tests[m],
-						 strlen(json_tests[m]));
+						 (int)strlen(json_tests[m]));
 		if (n < 0) {
 			lwsl_err("%s: notification JSON decode failed '%s'\n",
 					__func__, lejp_error_to_string(n));

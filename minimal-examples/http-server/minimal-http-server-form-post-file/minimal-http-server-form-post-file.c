@@ -15,7 +15,9 @@
 #include <libwebsockets.h>
 #include <string.h>
 #include <signal.h>
+#if !defined(WIN32)
 #include <unistd.h>
+#endif
 #include <fcntl.h>
 #include <stdlib.h>
 #include <errno.h>

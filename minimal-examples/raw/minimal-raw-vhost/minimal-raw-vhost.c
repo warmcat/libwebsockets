@@ -75,7 +75,7 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_RAW_RX:
 		lwsl_user("LWS_CALLBACK_RAW_RX: %d\n", (int)len);
-		vhd->len = len;
+		vhd->len = (int)len;
 		if (vhd->len > (int)sizeof(vhd->buf))
 			vhd->len = sizeof(vhd->buf);
 		memcpy(vhd->buf, in, vhd->len);

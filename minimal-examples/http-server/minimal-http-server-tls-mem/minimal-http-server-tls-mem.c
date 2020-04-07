@@ -429,9 +429,9 @@ int main(int argc, const char **argv)
 	info.mounts = &mount;
 	info.error_document_404 = "/404.html";
 	info.server_ssl_cert_mem		= cert_pem;
-	info.server_ssl_cert_mem_len		= strlen(cert_pem);
+	info.server_ssl_cert_mem_len		= (unsigned int)strlen(cert_pem);
 	info.server_ssl_private_key_mem		= key_pem;
-	info.server_ssl_private_key_mem_len	= strlen(key_pem);
+	info.server_ssl_private_key_mem_len	= (unsigned int)strlen(key_pem);
 	info.vhost_name = "first";
 
 	if (!lws_create_vhost(context, &info)) {
@@ -443,9 +443,9 @@ int main(int argc, const char **argv)
 	info.mounts = &mount;
 	info.error_document_404 = "/404.html";
 	info.server_ssl_cert_mem		= cert_der;
-	info.server_ssl_cert_mem_len		= sizeof(cert_der);
+	info.server_ssl_cert_mem_len		= (unsigned int)sizeof(cert_der);
 	info.server_ssl_private_key_mem		= key_der;
-	info.server_ssl_private_key_mem_len	= sizeof(key_der);
+	info.server_ssl_private_key_mem_len	= (unsigned int)sizeof(key_der);
 	info.vhost_name = "second";
 
 	if (!lws_create_vhost(context, &info)) {

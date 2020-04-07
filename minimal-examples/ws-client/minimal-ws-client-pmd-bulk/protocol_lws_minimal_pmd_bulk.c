@@ -181,14 +181,14 @@ callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
 				if (s > (size_t)n)
 					s = n;
 				memcpy(p, &redundant_string[m], s);
-				pss->position_tx += s;
+				pss->position_tx += (int)s;
 				p += s;
-				n -= s;
+				n -= (int)s;
 			}
 		} else {
 			pss->position_tx += n;
 			while (n--)
-				*p++ = rng(&pss->rng_tx);
+				*p++ = (uint8_t)rng(&pss->rng_tx);
 		}
 
 		n = lws_ptr_diff(p, start);
@@ -227,13 +227,13 @@ callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
 					lwsl_user("echo'd data doesn't match\n");
 					return -1;
 				}
-				pss->position_rx += s;
+				pss->position_rx += (int)s;
 				in = ((unsigned char *)in) + s;
 				len -= s;
 			}
 		} else {
 			p = (uint8_t *)in;
-			pss->position_rx += len;
+			pss->position_rx += (int)len;
 			while (len--)
 				if (*p++ != (uint8_t)rng(&pss->rng_rx)) {
 					lwsl_user("echo'd data doesn't match\n");
