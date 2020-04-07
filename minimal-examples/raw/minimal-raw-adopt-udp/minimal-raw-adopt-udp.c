@@ -104,7 +104,11 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 #if defined(WIN32)
 				(const char *)
 #endif
-			sendbuf, sendlen, 0, &udp.sa, (socklen_t)udp.salen);
+			sendbuf,
+#if defined(WIN32)
+			(int)
+#endif
+			sendlen, 0, &udp.sa, (socklen_t)udp.salen);
 		if (n < (ssize_t)len)
 			lwsl_notice("%s: send returned %d\n", __func__, (int)n);
 		break;

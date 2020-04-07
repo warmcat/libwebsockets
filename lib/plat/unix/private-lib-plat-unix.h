@@ -166,6 +166,7 @@ delete_from_fd(const struct lws_context *context, int fd);
 #endif
 
 #define compatible_close(x) close(x)
+#define compatible_file_close(fd) close(fd)
 #define lws_plat_socket_offset() (0)
 
 /*
