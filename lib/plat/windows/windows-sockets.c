@@ -142,6 +142,7 @@ int
 lws_interface_to_sa(int ipv6,
 		const char *ifname, struct sockaddr_in *addr, size_t addrlen)
 {
+	long long address;
 #ifdef LWS_WITH_IPV6
 	struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)addr;
 
@@ -152,7 +153,7 @@ lws_interface_to_sa(int ipv6,
 	}
 #endif
 
-	long long address = inet_addr(ifname);
+	address = inet_addr(ifname);
 
 	if (address == INADDR_NONE) {
 		struct hostent *entry = gethostbyname(ifname);
