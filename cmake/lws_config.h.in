@@ -18,6 +18,8 @@
 
 #cmakedefine LWS_LIBRARY_VERSION_NUMBER
 
+#cmakedefine LWS_EXT_PTHREAD_LIBRARIES
+
 #cmakedefine LWS_AVOID_SIGPIPE_IGN
 #cmakedefine LWS_BUILD_HASH "${LWS_BUILD_HASH}"
 #cmakedefine LWS_BUILTIN_GETIFADDRS

@@ -15,8 +15,15 @@ MACRO(require_pthreads result)
 		else()
 			message(FATAL_ERROR "threading support requires pthreads")
 		endif()
+	else()
+		if (WIN32)
+			set(PTHREAD_LIB ${LWS_EXT_PTHREAD_LIBRARIES})
+		else()
+			set(PTHREAD_LIB pthread)
+		endif()
 	endif()
 ENDMACRO()
+
 # If we are being built as part of lws, confirm current build config supports
 # reqconfig, else skip building ourselves.
 #
@@ -84,9 +91,9 @@ if (requirements)
 	add_executable(${SAMP} ${SRCS})
 
 	if (websockets_shared)
-		target_link_libraries(${SAMP} websockets_shared pthread)
-		add_dependencies(${SAMP} websockets_shared pthread)
+		target_link_libraries(${SAMP} websockets_shared ${PTHREAD_LIB})
+		add_dependencies(${SAMP} websockets_shared)
 	else()
-		target_link_libraries(${SAMP} websockets pthread)
+		target_link_libraries(${SAMP} websockets ${PTHREAD_LIB})
 	endif()
 endif()

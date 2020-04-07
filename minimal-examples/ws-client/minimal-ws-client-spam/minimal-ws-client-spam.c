@@ -13,6 +13,12 @@
 #include <libwebsockets.h>
 #include <string.h>
 #include <signal.h>
+#if defined(WIN32)
+#define HAVE_STRUCT_TIMESPEC
+#if defined(pid_t)
+#undef pid_t
+#endif
+#endif
 #include <pthread.h>
 
 enum {

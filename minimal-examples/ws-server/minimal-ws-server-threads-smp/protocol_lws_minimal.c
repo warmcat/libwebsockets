@@ -83,7 +83,11 @@ thread_spam(void *d)
 	struct per_vhost_data__minimal *vhd =
 			(struct per_vhost_data__minimal *)d;
 	struct msg amsg;
-	int len = 128, index = 1, n;
+	int len = 128, index = 1, n, whoami = 0;
+
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(vhd->pthread_spam); n++)
+		if (pthread_equal(pthread_self(), vhd->pthread_spam[n]))
+			whoami = n + 1;
 
 	do {
 		/* don't generate output if nobody connected */
@@ -105,10 +109,10 @@ thread_spam(void *d)
 			goto wait_unlock;
 		}
 		n = lws_snprintf((char *)amsg.payload + LWS_PRE, len,
-			         "%s: spam tid: %p, msg: %d", vhd->config,
-			         (void *)pthread_self(), index++);
+			         "%s: spam tid: %d, msg: %d", vhd->config,
+			         whoami, index++);
 		amsg.len = n;
-		n = lws_ring_insert(vhd->ring, &amsg, 1);
+		n = (int)lws_ring_insert(vhd->ring, &amsg, 1);
 		if (n != 1) {
 			__minimal_destroy_message(&amsg);
 			lwsl_user("dropping!\n");
@@ -127,7 +131,7 @@ wait:
 
 	} while (!vhd->finished);
 
-	lwsl_notice("thread_spam %p exiting\n", (void *)pthread_self());
+	lwsl_notice("thread_spam %d exiting\n", whoami);
 
 	pthread_exit(NULL);
 
@@ -199,8 +203,7 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 init_fail:
 		vhd->finished = 1;
 		for (n = 0; n < (int)LWS_ARRAY_SIZE(vhd->pthread_spam); n++)
-			if (vhd->pthread_spam[n])
-				pthread_join(vhd->pthread_spam[n], &retval);
+			pthread_join(vhd->pthread_spam[n], &retval);
 
 		if (vhd->ring)
 			lws_ring_destroy(vhd->ring);
@@ -231,7 +234,7 @@ init_fail:
 		}
 
 		n = lws_snprintf(temp + LWS_PRE, sizeof(temp) - LWS_PRE,
-			      "svc tid:%p, %s", (void *)pthread_self(),
+			      "svc, %s",
 			      (char *)pmsg->payload + LWS_PRE);
 
 		/* notice we allowed for LWS_PRE in the payload already */
@@ -265,8 +268,7 @@ init_fail:
 		break;
 
 	case LWS_CALLBACK_EVENT_WAIT_CANCELLED:
-		lwsl_notice("LWS_CALLBACK_EVENT_WAIT_CANCELLED in svc tid %p\n",
-				(void *)pthread_self());
+		lwsl_notice("LWS_CALLBACK_EVENT_WAIT_CANCELLED in svc\n");
 		if (!vhd)
 			break;
 		/*

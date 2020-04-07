@@ -43,6 +43,10 @@ struct task_data {
 	uint64_t pos, end;
 };
 
+#if defined(WIN32)
+static void usleep(unsigned long l) { Sleep(l / 1000); }
+#endif
+
 /*
  * Create the private data for the task
  *
@@ -254,6 +258,8 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 		 */
 
 		task = lws_threadpool_get_task_wsi(wsi);
+		if (!task)
+			break;
 		n = lws_threadpool_task_status(task, &_user);
 		lwsl_debug("%s: LWS_CALLBACK_SERVER_WRITEABLE: status %d\n",
 			   __func__, n);
@@ -277,7 +283,7 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 
 		lws_set_timeout(wsi, PENDING_TIMEOUT_THREADPOOL_TASK, 5);
 
-		n = strlen(priv->result + LWS_PRE);
+		n = (int)strlen(priv->result + LWS_PRE);
 		m = lws_write(wsi, (unsigned char *)priv->result + LWS_PRE,
 			      n, LWS_WRITE_TEXT);
 		if (m < n) {

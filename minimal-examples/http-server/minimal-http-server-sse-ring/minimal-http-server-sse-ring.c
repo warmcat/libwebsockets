@@ -19,6 +19,12 @@
 #include <string.h>
 #include <stdlib.h>
 #include <signal.h>
+#if defined(WIN32)
+#define HAVE_STRUCT_TIMESPEC
+#if defined(pid_t)
+#undef pid_t
+#endif
+#endif
 #include <pthread.h>
 #include <time.h>
 
@@ -86,7 +92,11 @@ thread_spam(void *d)
 {
 	struct vhd *vhd = (struct vhd *)d;
 	struct msg amsg;
-	int len = 128, index = 1, n;
+	int len = 128, index = 1, n, whoami = 0;
+
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(vhd->pthread_spam); n++)
+		if (pthread_equal(pthread_self(), vhd->pthread_spam[n]))
+			whoami = n + 1;
 
 	do {
 		/* don't generate output if nobody connected */
@@ -108,10 +118,9 @@ thread_spam(void *d)
 			goto wait_unlock;
 		}
 		n = lws_snprintf((char *)amsg.payload, len,
-			         "%s: tid: %p, msg: %d", __func__,
-			         (void *)pthread_self(), index++);
+			         "%s: tid: %d, msg: %d", __func__, whoami, index++);
 		amsg.len = n;
-		n = lws_ring_insert(vhd->ring, &amsg, 1);
+		n = (int)lws_ring_insert(vhd->ring, &amsg, 1);
 		if (n != 1) {
 			__minimal_destroy_message(&amsg);
 			lwsl_user("dropping!\n");
@@ -131,7 +140,7 @@ wait:
 
 	} while (!vhd->finished);
 
-	lwsl_notice("thread_spam %p exiting\n", (void *)pthread_self());
+	lwsl_notice("thread_spam %d exiting\n", whoami);
 
 	pthread_exit(NULL);
 
@@ -186,8 +195,7 @@ callback_sse(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		init_fail:
 		vhd->finished = 1;
 		for (n = 0; n < (int)LWS_ARRAY_SIZE(vhd->pthread_spam); n++)
-			if (vhd->pthread_spam[n])
-				pthread_join(vhd->pthread_spam[n], &retval);
+			pthread_join(vhd->pthread_spam[n], &retval);
 
 		if (vhd->ring)
 			lws_ring_destroy(vhd->ring);

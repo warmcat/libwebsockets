@@ -73,3 +73,22 @@ there.
 ```
 
 After that you can run the test apps OK.
+
+## pthreads
+
+It's amazing but after all these years windows doesn't offer pthreads compatibility
+itself.  Just like the many other missing POSIX bits like fork().
+
+I downloaded the latest (2012) zip release of pthreads-win32 from here
+
+ftp://sourceware.org/pub/pthreads-win32
+
+Then I created a dir "C:\Program Files (x86)\pthreads", and copied the `dll`,
+`include` and `lib` subdirs from the `prebuilt` folder in the zip there.
+
+The cmake incantation to build against pthreads set up like that is
+
+```
+ $ cmake .. -DLWS_EXT_PTHREAD_INCLUDE_DIR="C:\Program Files (x86)\pthreads\include" -DLWS_EXT_PTHREAD_LIBRARIES="C:\Program Files (x86)\pthreads\lib\x64\libpthreadGC2.a" -DLWS_WITH_MINIMAL_EXAMPLES=1
+```
+

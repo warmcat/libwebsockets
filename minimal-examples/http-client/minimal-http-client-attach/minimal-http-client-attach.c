@@ -15,6 +15,12 @@
 #include <libwebsockets.h>
 #include <string.h>
 #include <signal.h>
+#if defined(WIN32)
+#define HAVE_STRUCT_TIMESPEC
+#if defined(pid_t)
+#undef pid_t
+#endif
+#endif
 #include <pthread.h>
 
 static struct lws_context *context;
@@ -119,10 +125,7 @@ attach_callback(struct lws_context *context, int tsi, void *opaque)
 	/*
 	 * Even though it was asked for from a different thread, we are called
 	 * back by lws from the lws event loop thread context
-	 */
-	lwsl_user("%s: called from tid %p\n", __func__, (void *)pthread_self());
-
-	/*
+	 *
 	 * We can set up our operations on the lws event loop and return so
 	 * they can happen asynchronously
 	 */
@@ -218,7 +221,6 @@ int main(int argc, const char **argv)
 		logs = atoi(p);
 
 	lws_set_log_level(logs, NULL);
-	lwsl_user("%s: main thread tid %p\n", __func__, (void *)pthread_self());
 	lwsl_user("LWS minimal http client attach\n");
 
 	pthread_mutex_init(&lock, NULL);

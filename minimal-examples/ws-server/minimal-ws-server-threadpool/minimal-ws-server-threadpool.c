@@ -21,6 +21,12 @@
 #include <libwebsockets.h>
 #include <string.h>
 #include <signal.h>
+#if defined(WIN32)
+#define HAVE_STRUCT_TIMESPEC
+#if defined(pid_t)
+#undef pid_t
+#endif
+#endif
 #include <pthread.h>
 
 #define LWS_PLUGIN_STATIC
@@ -124,6 +130,8 @@ int main(int argc, const char **argv)
 			interrupted = 1;
 
 	lws_context_destroy(context);
+
+	lwsl_user("%s: exiting cleanly...\n", __func__);
 
 	return 0;
 }

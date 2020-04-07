@@ -26,6 +26,12 @@
 #define _GNU_SOURCE
 #endif
 
+#if defined(WIN32)
+#define HAVE_STRUCT_TIMESPEC
+#if defined(pid_t)
+#undef pid_t
+#endif
+#endif
 #include <pthread.h>
 
 #include "private-lib-core.h"
@@ -131,10 +137,10 @@ __lws_threadpool_task_dump(struct lws_threadpool_task *task, char *buf, int len)
 	}
 
 	if (task->acc_running)
-		runms = task->acc_running;
+		runms = (int)task->acc_running;
 
 	if (task->acc_syncing)
-		syncms = task->acc_syncing;
+		syncms = (int)task->acc_syncing;
 
 	if (!task->done) {
 		buf += lws_snprintf(buf, end - buf,

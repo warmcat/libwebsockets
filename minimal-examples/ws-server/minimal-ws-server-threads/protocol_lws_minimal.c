@@ -83,7 +83,11 @@ thread_spam(void *d)
 	struct per_vhost_data__minimal *vhd =
 			(struct per_vhost_data__minimal *)d;
 	struct msg amsg;
-	int len = 128, index = 1, n;
+	int len = 128, index = 1, n, whoami = 0;
+
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(vhd->pthread_spam); n++)
+		if (pthread_equal(pthread_self(), vhd->pthread_spam[n]))
+			whoami = n + 1;
 
 	do {
 		/* don't generate output if nobody connected */
@@ -105,8 +109,8 @@ thread_spam(void *d)
 			goto wait_unlock;
 		}
 		n = lws_snprintf((char *)amsg.payload + LWS_PRE, len,
-			         "%s: tid: %p, msg: %d", vhd->config,
-			         (void *)pthread_self(), index++);
+			         "%s: tid: %d, msg: %d", vhd->config,
+			         whoami, index++);
 		amsg.len = n;
 		n = lws_ring_insert(vhd->ring, &amsg, 1);
 		if (n != 1) {
@@ -127,7 +131,7 @@ wait:
 
 	} while (!vhd->finished);
 
-	lwsl_notice("thread_spam %p exiting\n", (void *)pthread_self());
+	lwsl_notice("thread_spam %d exiting\n", whoami);
 
 	pthread_exit(NULL);
 

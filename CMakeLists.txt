@@ -497,7 +497,6 @@ endif()
 
 if (WIN32)
 set(LWS_MAX_SMP 1)
-set(LWS_WITH_THREADPOOL 0)
 endif()
 
 if (LWS_WITHOUT_SERVER)
@@ -592,6 +591,10 @@ set(LWS_GLIB_INCLUDE_DIRS CACHE PATH "Path to the glib include directory")
 set(LWS_GLIB_LIBRARIES CACHE PATH "Path to the glib library")
 set(LWS_LIBMOUNT_INCLUDE_DIRS CACHE PATH "Path to the libmount include directory")
 set(LWS_LIBMOUNT_LIBRARIES CACHE PATH "Path to the libmount library")
+# on unix, these are in the toolchain.  On win32 you have to put them somewhere
+# yourself and point to them here
+set(LWS_EXT_PTHREAD_INCLUDE_DIR CACHE PATH "Path to an external pthreads include directory")
+set(LWS_EXT_PTHREAD_LIBRARIES CACHE PATH "Path to an external pthreads library")
 
 
 if (NOT LWS_WITH_SSL)
@@ -911,6 +914,14 @@ if (NOT LWS_HAVE_GETIFADDRS)
 	set(LWS_BUILTIN_GETIFADDRS 1)
 endif()
 
+if (LWS_EXT_PTHREAD_INCLUDE_DIR)
+	set(CMAKE_REQUIRED_INCLUDES ${CMAKE_REQUIRED_INCLUDES};${LWS_EXT_PTHREAD_INCLUDE_DIR})
+	include_directories(${LWS_EXT_PTHREAD_INCLUDE_DIR})
+
+	list(APPEND LIB_LIST ${LWS_EXT_PTHREAD_LIBRARIES})
+	set(CMAKE_REQUIRED_FLAGS ${CMAKE_REQUIRED_FLAGS} " -DHAVE_STRUCT_TIMESPEC=1")
+endif()
+
 CHECK_INCLUDE_FILE(dlfcn.h LWS_HAVE_DLFCN_H)
 CHECK_INCLUDE_FILE(fcntl.h LWS_HAVE_FCNTL_H)
 CHECK_INCLUDE_FILE(in6addr.h LWS_HAVE_IN6ADDR_H)
@@ -1015,9 +1026,9 @@ CHECK_C_SOURCE_COMPILES("#include <stdint.h>
 
 if (LWS_HAVE_PTHREAD_H)
 	if ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
-		set(CMAKE_REQUIRED_FLAGS "-pthread -Wno-error=unused-command-line-argument")
+		set(CMAKE_REQUIRED_FLAGS ${CMAKE_REQUIRED_FLAGS} "-pthread -Wno-error=unused-command-line-argument")
 	else()
-		set(CMAKE_REQUIRED_FLAGS "-pthread")
+		set(CMAKE_REQUIRED_FLAGS ${CMAKE_REQUIRED_FLAGS} "-pthread")
 	endif()
 
 	CHECK_C_SOURCE_COMPILES("#define _GNU_SOURCE
@@ -1102,8 +1113,6 @@ endif()
 if (LWS_WITH_FSMOUNT AND ${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
 	list(APPEND SOURCES lib/misc/fsmount.c)
 endif()
-
-
 
 if (LWS_WITH_FILE_OPS)
 	list(APPEND SOURCES lib/core/vfs.c)
@@ -1250,7 +1259,7 @@ if (LWS_ROLE_MQTT AND LWS_WITH_CLIENT)
        )
 endif()
 
-if (LWS_WITH_THREADPOOL AND UNIX AND LWS_HAVE_PTHREAD_H)
+if (LWS_WITH_THREADPOOL AND LWS_HAVE_PTHREAD_H)
 	list(APPEND SOURCES lib/misc/threadpool/threadpool.c)
 endif()
 
@@ -1796,6 +1805,7 @@ source_group("Resources"        FILES ${RESOURCES})
 #
 set(LWS_LIBRARIES)
 
+
 if (LWS_WITH_STATIC)
     if (LWS_STATIC_PIC)
         set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -1896,6 +1906,9 @@ set(LIB_LIST)
 #
 # Find libraries.
 #
+if (LWS_EXT_PTHREAD_INCLUDE_DIR)
+	list(APPEND LIB_LIST ${LWS_EXT_PTHREAD_LIBRARIES})
+endif()
 
 #
 # ZLIB (needed for deflate extension and if LWS_WITH_HTTP_STREAM_COMPRESSION)
@@ -1977,7 +1990,7 @@ if (LWS_WITH_SSL)
 				include_directories("${inc}" "${inc}/wolfssl")
 			endforeach()
 		endif()
-		set(CMAKE_REQUIRED_INCLUDES ${OPENSSL_INCLUDE_DIRS})
+		set(CMAKE_REQUIRED_INCLUDES ${CMAKE_REQUIRED_INCLUDES} ${OPENSSL_INCLUDE_DIRS})
 		set(VARIA wolfSSL_)
 
 		list(APPEND LIB_LIST "${WOLFSSL_LIBRARIES}")
@@ -2020,7 +2033,7 @@ if (LWS_WITH_SSL)
 
 	if (NOT LWS_WITH_MBEDTLS)
 		# older (0.98) Openssl lacks this
-		set(CMAKE_REQUIRED_INCLUDES ${OPENSSL_INCLUDE_DIRS})
+		set(CMAKE_REQUIRED_INCLUDES ${CMAKE_REQUIRED_INCLUDES} ${OPENSSL_INCLUDE_DIRS})
 		check_include_file(openssl/ecdh.h LWS_HAVE_OPENSSL_ECDH_H)
 
 		if (LWS_SSL_SERVER_WITH_ECDH_CERT AND NOT LWS_HAVE_OPENSSL_ECDH_H)
@@ -2181,7 +2194,7 @@ foreach (lib ${LWS_LIBRARIES})
 endforeach()
 
 set (temp ${CMAKE_REQUIRED_LIBRARIES})
-set(CMAKE_REQUIRED_LIBRARIES ${LIB_LIST})
+set(CMAKE_REQUIRED_LIBRARIES ${LIB_LIST} ${CMAKE_REQUIRED_LIBRARIES})
 
 if (LWS_WITH_ZLIB)
 	if (LWS_WITH_BUNDLED_ZLIB)
