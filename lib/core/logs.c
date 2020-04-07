@@ -162,7 +162,8 @@ lwsl_emit_stderr_notimestamp(int level, const char *line)
 #if !(defined(LWS_PLAT_OPTEE) && !defined(LWS_WITH_NETWORK))
 void _lws_logv(int filter, const char *format, va_list vl)
 {
-#if LWS_MAX_SMP == 1
+#if LWS_MAX_SMP == 1 && !defined(LWS_WITH_THREADPOOL)
+	/* this is incompatible with multithreaded logging */
 	static char buf[256];
 #else
 	char buf[1024];

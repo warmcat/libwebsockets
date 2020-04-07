@@ -346,10 +346,10 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 				ctx->uni |= c - '0';
 			else
 				if (c >= 'a' && c <= 'f')
-					ctx->uni = c - 'a' + 10;
+					ctx->uni |= c - 'a' + 10;
 				else
 					if (c >= 'A' && c <= 'F')
-						ctx->uni = c - 'A' + 10;
+						ctx->uni |= c - 'A' + 10;
 					else {
 						ret = LEJP_REJECT_ILLEGAL_HEX;
 						goto reject;

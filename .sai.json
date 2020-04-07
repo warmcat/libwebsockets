@@ -15,20 +15,30 @@
 			"build": "mkdir build destdir; cd build; cmake .. -DLWS_OPENSSL_INCLUDE_DIRS=/usr/local/opt/openssl@1.1/include -DLWS_OPENSSL_LIBRARIES=\"/usr/local/opt/openssl/lib/libssl.dylib;/usr/local/opt/openssl/lib/libcrypto.dylib\" ${cmake} && make -j"
 		},
 		"linkit-cross": {
-			"build": "mkdir build;cd build;cmake .. ${cmake};make -j",
+			"build": "mkdir build;cd build;cmake .. -DCMAKE_INSTALL_PREFIX:PATH=/tmp -DCMAKE_TOOLCHAIN_FILE=../contrib/cross-linkit.cmake -DLWS_PLAT_FREERTOS=1 -DLWS_WITH_ZLIB=0 -DLWS_WITHOUT_EXTENSIONS=1 -DLWS_WITH_ZIP_FOPS=0 -DLWS_WITH_HTTP_STREAM_COMPRESSION=0 -DLWS_WITH_MBEDTLS=1 -DLWS_WITH_FILE_OPS=0 ${cmake};make -j",
+			"default": false
+		},
+		"windows-10": {
+			"build": "mkdir build && cd build && cmake .. -DLWS_EXT_PTHREAD_INCLUDE_DIR=\"C:\\Program Files (x86)\\pthreads\\include\" -DLWS_EXT_PTHREAD_LIBRARIES=\"C:\\Program Files (x86)\\pthreads\\lib\\x64\\libpthreadGC2.a\" ${cmake} && cmake --build . --config DEBUG",
 			"default": false
 		}
 	},
 
 	"configurations": {
 		"default": {
-			"cmake":	"-DLWS_WITH_MINIMAL_EXAMPLES=1",
-			"deps":		"openssl"
+			"cmake":	"",
+			"deps":		"openssl",
+			"platforms":	"windows-10, linkit-cross"
 		},
-		"linkit": {
-			"cmake":	"-DCMAKE_INSTALL_PREFIX:PATH=/tmp -DCMAKE_TOOLCHAIN_FILE=../contrib/cross-linkit.cmake -DLWS_PLAT_FREERTOS=1 -DLWS_WITH_ZLIB=0 -DLWS_WITHOUT_EXTENSIONS=1 -DLWS_WITH_ZIP_FOPS=0 -DLWS_WITH_HTTP_STREAM_COMPRESSION=0 -DLWS_WITH_MBEDTLS=1 -DLWS_WITH_FILE_OPS=0",
-			"deps":		"linkit-sdk",
-			"platforms":	"linkit-cross"
+		"default-examples": {
+			"cmake":	"-DLWS_WITH_MINIMAL_EXAMPLES=1",
+			"deps":		"openssl",
+			"platforms":	"windows-10"
+		},
+		"lws_system": {
+			"cmake":	"-DLWS_WITH_ACME=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DCMAKE_BUILD_TYPE=RELEASE -DLWS_WITH_GENCRYPTO=1 -DLWS_WITH_JOSE=1 -DLWS_WITH_SYS_ASYNC_DNS=1 -DLWS_WITH_SYS_NTPCLIENT=1",
+			"deps":		"libz,openssl",
+			"platforms":	"windows-10"
 		},
 		"lwsws": {
 			"cmake":	"-DLWS_WITH_LWSWS=ON -DLWS_WITHOUT_EXTENSIONS=0 -DLWS_WITH_HTTP2=1 -DLWS_WITH_ACME=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DCMAKE_BUILD_TYPE=DEBUG -DLWS_WITH_GENCRYPTO=1 -DLWS_WITH_JOSE=1 -DLWS_WITH_SYS_ASYNC_DNS=1 -DLWS_WITH_SYS_NTPCLIENT=1",
@@ -70,7 +80,8 @@
 			"deps":		"libglib"
 		},
 		"ipv6":	{
-			"cmake":	"-DLWS_IPV6=ON"
+			"cmake":	"-DLWS_IPV6=ON",
+			"platforms":	"windows-10"
 		},
 		"nossl": {
 			"cmake":	"-DLWS_WITH_SSL=OFF"
@@ -96,7 +107,8 @@
 			"deps":		"openssl"
 		},
 		"threadpool": {
-			"cmake":	"-DLWS_WITH_THREADPOOL=1 -DLWS_WITH_MINIMAL_EXAMPLES=1"
+			"cmake":	"-DLWS_WITH_THREADPOOL=1 -DLWS_WITH_MINIMAL_EXAMPLES=1",
+			"platforms":	"windows-10"
 		}
 	}
 }

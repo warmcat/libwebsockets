@@ -413,7 +413,14 @@ lws_json_purify(char *escaped, const char *string, int len, int *in_used)
 			continue;
 		}
 
-		if (*p == '\"' || *p == '\\' || *p < 0x20) {
+		if (*p == '\\') {
+			p++;
+			*q++ = '\\';
+			*q++ = '\\';
+			continue;
+		}
+
+		if (*p == '\"' || *p < 0x20) {
 			*q++ = '\\';
 			*q++ = 'u';
 			*q++ = '0';
@@ -469,7 +476,9 @@ lws_filename_purify_inplace(char *filename)
 		}
 
 		if (*filename == ':' ||
+#if !defined(WIN32)
 		    *filename == '\\' ||
+#endif
 		    *filename == '$' ||
 		    *filename == '%')
 			*filename = '_';

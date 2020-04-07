@@ -104,7 +104,7 @@ use_buffer_50ms(lws_sorted_usec_list_t *sul)
 	if (n < (sizeof(m->buf) * 2) / 3 && e < (int)(sizeof(m->buf) - 1 - n)) {
 		lwsl_info("%s: requesting additional %d\n", __func__,
 				(int)(sizeof(m->buf) - 1 - e - n));
-		lws_ss_add_peer_tx_credit(m->ss, (sizeof(m->buf) - 1 - e - n));
+		lws_ss_add_peer_tx_credit(m->ss, (int32_t)(sizeof(m->buf) - 1 - e - n));
 	}
 
 	lws_sul_schedule(context, 0, &m->sul, use_buffer_50ms,
@@ -389,7 +389,11 @@ avs_example_start(struct lws_context *context)
 
 		goto bail;
 	}
-	if (read(fd, wav, wav_len) != (int)wav_len) {
+	if (read(fd, wav,
+#if defined(WIN32)
+		(unsigned int)
+#endif
+			wav_len) != (int)wav_len) {
 		lwsl_err("%s: failed to read wav\n", __func__);
 
 		goto bail;

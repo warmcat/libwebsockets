@@ -171,7 +171,8 @@ __lws_threadpool_task_dump(struct lws_threadpool_task *task, char *buf, int len)
 void
 lws_threadpool_dump(struct lws_threadpool *tp)
 {
-#if defined(_DEBUG)
+#if 0
+	//defined(_DEBUG)
 	struct lws_threadpool_task **c;
 	char buf[160];
 	int n, count;
@@ -290,8 +291,14 @@ __lws_threadpool_reap(struct lws_threadpool_task *task)
 			c = &(*c)->task_queue_next;
 		}
 
-		if (!t)
+		if (!t) {
 			lwsl_err("%s: task %p not in done queue\n", __func__, task);
+			/*
+			 * This shouldn't occur, but in this case not really
+			 * safe to assume there's a task to destroy
+			 */
+			return;
+		}
 	} else
 		lwsl_err("%s: task->tp NULL already\n", __func__);
 
@@ -473,6 +480,8 @@ done:
 	return 0;
 }
 
+static int dummy;
+
 static void *
 lws_threadpool_worker(void *d)
 {
@@ -495,8 +504,8 @@ lws_threadpool_worker(void *d)
 			pthread_cond_wait(&tp->wake_idle, &tp->lock);
 
 		if (tp->destroying) {
-			pthread_mutex_unlock(&tp->lock);  /* ------ tp unlock */
-			continue;
+			lwsl_notice("%s: bailing\n", __func__);
+			goto doneski;
 		}
 
 		c = &tp->task_queue_head;
@@ -651,13 +660,17 @@ lws_threadpool_worker(void *d)
 			}
 		}
 
+doneski:
 		pool->task = NULL;
 		pthread_mutex_unlock(&tp->lock); /* --------------- tp unlock */
 	}
 
-	/* threadpool is being destroyed */
+	lwsl_notice("%s: Exiting\n", __func__);
 
-	pthread_exit(NULL);
+	/* threadpool is being destroyed */
+#if !defined(WIN32)
+	pthread_exit(&dummy);
+#endif
 
 	return NULL;
 }
@@ -760,8 +773,8 @@ lws_threadpool_destroy(struct lws_threadpool *tp)
 	/* remove us from the context list of threadpools */
 
 	lws_context_lock(tp->context, __func__);
-
 	ptp = &tp->context->tp_list_head;
+
 	while (*ptp) {
 		if (*ptp == tp) {
 			*ptp = tp->tp_list;
@@ -772,27 +785,32 @@ lws_threadpool_destroy(struct lws_threadpool *tp)
 
 	lws_context_unlock(tp->context);
 
+	/*
+	 * Wake up the threadpool guys and tell them to exit
+	 */
 
 	pthread_mutex_lock(&tp->lock); /* ======================== tpool lock */
-
 	tp->destroying = 1;
 	pthread_cond_broadcast(&tp->wake_idle);
 	pthread_mutex_unlock(&tp->lock); /* -------------------- tpool unlock */
 
 	lws_threadpool_dump(tp);
 
+	lwsl_info("%s: waiting for threads to rejoin\n", __func__);
+#if defined(WIN32)
+	Sleep(1000);
+#endif
+
 	for (n = 0; n < tp->threads_in_pool; n++) {
 		task = tp->pool_list[n].task;
-
-		/* he could be sitting waiting for SYNC */
-
-		if (task != NULL)
-			pthread_cond_broadcast(&task->wake_idle);
 
 		pthread_join(tp->pool_list[n].thread, &retval);
 		pthread_mutex_destroy(&tp->pool_list[n].lock);
 	}
 	lwsl_info("%s: all threadpools exited\n", __func__);
+#if defined(WIN32)
+	Sleep(1000);
+#endif
 
 	task = tp->task_done_head;
 	while (task) {
@@ -1074,6 +1092,8 @@ void
 lws_threadpool_task_sync(struct lws_threadpool_task *task, int stop)
 {
 	lwsl_debug("%s\n", __func__);
+	if (!task)
+		return;
 
 	if (stop)
 		state_transition(task, LWS_TP_STATUS_STOPPING);

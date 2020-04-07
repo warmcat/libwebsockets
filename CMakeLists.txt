@@ -1109,7 +1109,12 @@ set(SOURCES
 )
 
 if (LWS_WITH_SPAWN)
-	list(APPEND SOURCES lib/misc/spawn.c)
+	if (UNIX)
+		list(APPEND SOURCES lib/plat/unix/unix-spawn.c)
+	endif()
+	if (WIN32)
+		list(APPEND SOURCES lib/plat/windows/windows-spawn.c)
+	endif()
 endif()
 
 if (LWS_WITH_FSMOUNT AND ${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
