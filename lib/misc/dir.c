@@ -78,9 +78,13 @@ bail:
 
 #else
 
-#if !defined(_WIN32) && !defined(LWS_PLAT_FREERTOS)
+#if !defined(LWS_PLAT_FREERTOS)
 
+#if defined(WIN32)
+#include "../../win32port/dirent/dirent-win32.h"
+#else
 #include <dirent.h>
+#endif
 
 static int filter(const struct dirent *ent)
 {
@@ -153,15 +157,19 @@ lws_dir(const char *dirpath, void *user, lws_dir_callback_function cb)
 		case DT_FIFO:
 			lde.type = LDOT_FIFO;
 			break;
+#if !defined(WIN32)
 		case DT_LNK:
 			lde.type = LDOT_LINK;
 			break;
+#endif
 		case DT_REG:
 			lde.type = LDOT_FILE;
 			break;
+#if !defined(WIN32)
 		case DT_SOCK:
 			lde.type = LDOTT_SOCKET;
 			break;
+#endif
 		default:
 			lde.type = LDOT_UNKNOWN;
 			break;
@@ -183,8 +191,5 @@ bail:
 
 	return ret;
 }
-
-#else
-#error "If you want lws_dir on windows, you need libuv"
 #endif
 #endif
