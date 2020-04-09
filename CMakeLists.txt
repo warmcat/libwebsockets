@@ -1773,6 +1773,11 @@ if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX OR COMPILER_IS_CLANG)
     endif()
 endif ()
 
+if (MSVC)
+	# Fail the build if any warnings
+	add_compile_options(/W3 /WX)
+endif()
+
 if (LWS_PLAT_OPTEE)
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} --sysroot ../../../../lib/libutils/isoc/include -I../../../../lib/libutils/isoc/include -I../../../../lib/libutils/ext/include" )
 endif()
