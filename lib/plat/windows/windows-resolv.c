@@ -39,7 +39,7 @@
 lws_async_dns_server_check_t
 lws_plat_asyncdns_init(struct lws_context *context, lws_sockaddr46 *sa46)
 {
-	char	subkey[512], dhcpns[512], ns[512], value[128], *key =
+	char	subkey[512], value[128], *key =
 	"SYSTEM\\ControlSet001\\Services\\Tcpip\\Parameters\\Interfaces";
 	HKEY	hKey, hSub;
 	LONG	err;
@@ -59,7 +59,7 @@ lws_plat_asyncdns_init(struct lws_context *context, lws_sockaddr46 *sa46)
 		    &type, value, &len) == ERROR_SUCCESS ||
 		    RegQueryValueEx(hSub, "DhcpNameServer", 0,
 		    &type, value, &len) == ERROR_SUCCESS)) {
-			n = lws_sa46_parse_numeric_address(value, sa46)
+			n = lws_sa46_parse_numeric_address(value, sa46);
 			RegCloseKey(hSub);
 			RegCloseKey(hKey);
 			return n == 0 ? LADNS_CONF_SERVER_CHANGED :

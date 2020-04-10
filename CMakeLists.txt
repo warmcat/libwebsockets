@@ -1508,6 +1508,9 @@ if (WIN32)
 		lib/plat/windows/windows-service.c
 		lib/plat/windows/windows-sockets.c
 		)
+	if (LWS_WITH_SYS_ASYNC_DNS)
+		list(APPEND SOURCES lib/plat/windows/windows-resolv.c)
+	endif()
 else()
 
 	if (LWS_PLAT_OPTEE)
