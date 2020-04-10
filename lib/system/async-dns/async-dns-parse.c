@@ -122,7 +122,7 @@ again1:
 
 	ls++;
 
-	return ls - ols;
+	return lws_ptr_diff(ls, ols);
 }
 
 typedef int (*lws_async_dns_find_t)(const char *name, void *opaque,
@@ -160,7 +160,7 @@ lws_adns_iterate(lws_adns_q_t *q, const uint8_t *pkt, int len,
 	uint32_t ttl;
 
 	lws_strncpy(stack[0].name, expname, sizeof(stack[0].name));
-	stack[0].enl = strlen(expname);
+	stack[0].enl = (int)strlen(expname);
 
 start:
 	ansc = lws_ser_ru16be(pkt + DHO_NANSWERS);
@@ -583,11 +583,11 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 	 *  char []: copy of resolved name
 	 */
 
-	ncname = strlen(nmcname) + 1;
+	ncname = (int)strlen(nmcname) + 1;
 
 	est = sizeof(lws_adns_cache_t) + ncname;
 	if (lws_ser_ru16be(pkt + DHO_NANSWERS)) {
-		int ir = lws_adns_iterate(q, pkt, len, nmcname,
+		int ir = lws_adns_iterate(q, pkt, (int)len, nmcname,
 					  lws_async_dns_estimate, &est);
 		if (ir < 0)
 			goto fail_out;
@@ -599,7 +599,7 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 	/* but we want to create the cache entry against the original request */
 
 	nm = ((const char *)&q[1]) + DNS_MAX;
-	n = strlen(nm) + 1;
+	n = (int)strlen(nm) + 1;
 
 	lwsl_info("%s: create cache entry for %s, %zu\n", __func__, nm,
 			est - sizeof(lws_adns_cache_t));
@@ -632,7 +632,7 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 	 */
 
 	if (lws_ser_ru16be(pkt + DHO_NANSWERS) &&
-	    lws_adns_iterate(q, pkt, len, nmcname, lws_async_dns_store, &adst) < 0) {
+	    lws_adns_iterate(q, pkt, (int)len, nmcname, lws_async_dns_store, &adst) < 0) {
 		lws_free(c);
 		goto fail_out;
 	}

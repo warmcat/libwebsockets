@@ -483,7 +483,7 @@ check_tid(struct lws_dll2 *d, void *user)
 {
 	lws_adns_q_t *q = lws_container_of(d, lws_adns_q_t, list);
 
-	return q->tid == (uint16_t)(long)user;
+	return q->tid == (uint16_t)(intptr_t)user;
 }
 
 int
@@ -502,7 +502,7 @@ lws_async_dns_get_new_tid(struct lws_context *context, lws_adns_q_t *q)
 			return -1;
 
 		if (lws_dll2_foreach_safe(&dns->waiting,
-					  (void *)(long)tid, check_tid))
+					  (void *)(intptr_t)tid, check_tid))
 			continue;
 
 		q->tid = tid;
