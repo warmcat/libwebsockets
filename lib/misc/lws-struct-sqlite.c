@@ -445,7 +445,9 @@ int
 lws_struct_sq3_open(struct lws_context *context, const char *sqlite3_path,
 		    sqlite3 **pdb)
 {
+#if !defined(WIN32)
 	int uid = 0, gid = 0;
+#endif
 
 	if (sqlite3_open_v2(sqlite3_path, pdb,
 			    SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE,
@@ -456,6 +458,7 @@ lws_struct_sq3_open(struct lws_context *context, const char *sqlite3_path,
 		return 1;
 	}
 
+#if !defined(WIN32)
 	lws_get_effective_uid_gid(context, &uid, &gid);
 	if (uid)
 		chown(sqlite3_path, uid, gid);
@@ -463,7 +466,9 @@ lws_struct_sq3_open(struct lws_context *context, const char *sqlite3_path,
 
 	lwsl_notice("%s: created %s owned by %u:%u mode 0600\n", __func__,
 			sqlite3_path, (unsigned int)uid, (unsigned int)gid);
-
+#else
+	lwsl_notice("%s: created %s\n", __func__, sqlite3_path);
+#endif
 	sqlite3_extended_result_codes(*pdb, 1);
 
 	return 0;
