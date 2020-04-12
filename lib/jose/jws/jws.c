@@ -200,10 +200,10 @@ lws_jws_dup_element(struct lws_jws_map *map, int idx, char *temp, int *temp_len,
 
 	memcpy(temp, in, in_len);
 
-	map->len[idx] = in_len;
+	map->len[idx] = (uint32_t)in_len;
 	map->buf[idx] = temp;
 
-	*temp_len -= actual_alloc;
+	*temp_len -= (int)actual_alloc;
 
 	return 0;
 }
@@ -241,7 +241,7 @@ lws_jws_randomize_element(struct lws_context *context, struct lws_jws_map *map,
 	if ((size_t)*temp_len < actual_alloc)
 		return -1;
 
-	map->len[idx] = random_len;
+	map->len[idx] = (uint32_t)random_len;
 	map->buf[idx] = temp;
 
 	if (lws_get_random(context, temp, random_len) != random_len) {
@@ -249,7 +249,7 @@ lws_jws_randomize_element(struct lws_context *context, struct lws_jws_map *map,
 		return -1;
 	}
 
-	*temp_len -= actual_alloc;
+	*temp_len -= (int)actual_alloc;
 
 	return 0;
 }
@@ -264,9 +264,9 @@ lws_jws_alloc_element(struct lws_jws_map *map, int idx, char *temp,
 	if ((size_t)*temp_len < actual_alloc)
 		return -1;
 
-	map->len[idx] = len;
+	map->len[idx] = (uint32_t)len;
 	map->buf[idx] = temp;
-	*temp_len -= actual_alloc;
+	*temp_len -= (int)actual_alloc;
 
 	return 0;
 }
@@ -276,7 +276,7 @@ lws_jws_base64_enc(const char *in, size_t in_len, char *out, size_t out_max)
 {
 	int n;
 
-	n = lws_b64_encode_string_url(in, in_len, out, out_max - 1);
+	n = lws_b64_encode_string_url(in, (int)in_len, out, (int)out_max - 1);
 	if (n < 0) {
 		lwsl_notice("%s: in len %d too large for %d out buf\n",
 				__func__, (int)in_len, (int)out_max);
@@ -391,7 +391,7 @@ int
 lws_jws_encode_section(const char *in, size_t in_len, int first, char **p,
 		       char *end)
 {
-	int n, len = (end - *p) - 1;
+	int n, len = lws_ptr_diff(end, (*p)) - 1;
 	char *p_entry = *p;
 
 	if (len < 3)
@@ -406,7 +406,7 @@ lws_jws_encode_section(const char *in, size_t in_len, int first, char **p,
 
 	*p += n;
 
-	return (*p) - p_entry;
+	return lws_ptr_diff((*p), p_entry);
 }
 
 int
@@ -542,7 +542,7 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 
 		/* SHA256/384/512 HMAC */
 
-		h_len = lws_genhmac_size(jose.alg->hmac_type);
+		h_len = (int)lws_genhmac_size(jose.alg->hmac_type);
 
 		/* 6) compute HMAC over payload */
 
@@ -629,7 +629,7 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 			return -1;
 		}
 
-		h_len = lws_genhash_size(jose.alg->hash_type);
+		h_len = (int)lws_genhash_size(jose.alg->hash_type);
 
 		if (lws_genecdsa_create(&ecdsactx, context, NULL)) {
 			lwsl_notice("%s: lws_genrsa_public_decrypt_create\n",
@@ -696,10 +696,10 @@ lws_jws_sig_confirm_compact_b64(const char *in, size_t len,
 	struct lws_jws_map map_b64;
 	int n;
 
-	if (lws_jws_b64_compact_map(in, len, &map_b64) < 0)
+	if (lws_jws_b64_compact_map(in, (int)len, &map_b64) < 0)
 		return -1;
 
-	n = lws_jws_compact_decode(in, len, map, &map_b64, temp, temp_len);
+	n = lws_jws_compact_decode(in, (int)len, map, &map_b64, temp, temp_len);
 	if (n > 3 || n < 0)
 		return -1;
 
@@ -727,7 +727,8 @@ lws_jws_sig_confirm_json(const char *in, size_t len,
 			 struct lws_context *context,
 			 char *temp, int *temp_len)
 {
-	if (lws_jws_json_parse(jws, (const uint8_t *)in, len, temp, temp_len)) {
+	if (lws_jws_json_parse(jws, (const uint8_t *)in,
+			       (int)len, temp, temp_len)) {
 		lwsl_err("%s: lws_jws_json_parse failed\n", __func__);
 
 		return -1;

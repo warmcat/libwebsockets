@@ -41,7 +41,7 @@ lws_jwe_encrypt_aeskw_cbc_hs(struct lws_jwe *jwe, char *temp, int *temp_len)
 	/* we are wrapping a key, so size for the worst case after wrap */
 	uint8_t enc_cek[LWS_JWE_LIMIT_KEY_ELEMENT_BYTES +
 	                LWS_JWE_RFC3394_OVERHEAD_BYTES];
-	int n, m, hlen = lws_genhmac_size(jwe->jose.enc_alg->hmac_type),
+	int n, m, hlen = (int)lws_genhmac_size(jwe->jose.enc_alg->hmac_type),
 			 ot = *temp_len;
 
 	if (jwe->jws.jwk->kty != LWS_GENCRYPTO_KTY_OCT) {

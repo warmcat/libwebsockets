@@ -209,7 +209,7 @@ int
 lws_jwa_concat_kdf(struct lws_jwe *jwe, int direct, uint8_t *out,
 		   const uint8_t *shared_secret, int sslen)
 {
-	int hlen = lws_genhash_size(LWS_GENHASH_TYPE_SHA256), aidlen;
+	int hlen = (int)lws_genhash_size(LWS_GENHASH_TYPE_SHA256), aidlen;
 	struct lws_genhash_ctx hash_ctx;
 	uint32_t ctr = 1, t;
 	const char *aid;
@@ -236,7 +236,7 @@ lws_jwa_concat_kdf(struct lws_jwe *jwe, int direct, uint8_t *out,
 	 */
 
 	aid = direct ? jwe->jose.enc_alg->alg : jwe->jose.alg->alg;
-	aidlen = strlen(aid);
+	aidlen = (int)strlen(aid);
 
 	/*
 	 *   PartyUInfo (PartyVInfo is the same deal)
@@ -284,7 +284,7 @@ lws_jwa_concat_kdf(struct lws_jwe *jwe, int direct, uint8_t *out,
 		    /* Z */
 		    lws_genhash_update(&hash_ctx, shared_secret, sslen) ||
 		    /* other info */
-		    lws_genhash_update(&hash_ctx, be32(strlen(aid), &t), 4) ||
+		    lws_genhash_update(&hash_ctx, be32((uint32_t)strlen(aid), &t), 4) ||
 		    lws_genhash_update(&hash_ctx, aid, aidlen) ||
 		    lws_genhash_update(&hash_ctx,
 				       be32(jwe->jose.e[LJJHI_APU].len, &t), 4) ||
@@ -541,7 +541,7 @@ lws_jwe_render_compact(struct lws_jwe *jwe, char *out, size_t out_len)
 	*out++ = '\0';
 	out_len -= n;
 
-	return orig - out_len;
+	return (int)(orig - out_len);
 }
 
 int
@@ -578,9 +578,9 @@ lws_jwe_create_packet(struct lws_jwe *jwe, const char *payload, size_t len,
 	if (!jwe->jose.alg || !jwe->jose.alg->alg)
 		goto bail;
 
-	p += lws_snprintf(p, end - p, "{\"alg\":\"%s\",\"jwk\":",
+	p += lws_snprintf(p, lws_ptr_diff(end, p), "{\"alg\":\"%s\",\"jwk\":",
 			  jwe->jose.alg->alg);
-	m = end - p;
+	m = lws_ptr_diff(end, p);
 	n = lws_jwk_export(&jwe->jwk, 0, p, &m);
 	if (n < 0) {
 		lwsl_notice("failed to export jwk\n");
@@ -647,7 +647,7 @@ lws_jwe_create_packet(struct lws_jwe *jwe, const char *payload, size_t len,
 
 	free(buf);
 
-	return p1 - out;
+	return lws_ptr_diff(p1, out);
 
 bail:
 	lws_jws_destroy(&jws);
@@ -782,7 +782,7 @@ lws_jwe_render_flattened(struct lws_jwe *jwe, char *out, size_t out_len)
 
 	p1 += lws_snprintf(p1, end1 - p1, "\n}\n");
 
-	return p1 - out;
+	return lws_ptr_diff(p1, out);
 
 bail:
 	lws_jws_destroy(&jwe->jws);

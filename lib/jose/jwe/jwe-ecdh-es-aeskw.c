@@ -203,7 +203,7 @@ lws_jwe_encrypt_ecdh(struct lws_jwe *jwe, char *temp, int *temp_len,
 		derived[LWS_JWE_LIMIT_KEY_ELEMENT_BYTES];
 	int m, n, ret = -1, ot = *temp_len, ss_len = sizeof(shared_secret),
 	  //  kw_hlen = lws_genhash_size(jwe->jose.alg->hash_type),
-	    enc_hlen = lws_genhmac_size(jwe->jose.enc_alg->hmac_type),
+	    enc_hlen = (int)lws_genhmac_size(jwe->jose.enc_alg->hmac_type),
 	    ekbytes = 32; //jwe->jose.alg->keybits_fixed / 8;
 	struct lws_genec_ctx ecctx;
 	struct lws_jwk *ephem = &jwe->jose.recipient[jwe->recip].jwk_ephemeral;
@@ -378,7 +378,7 @@ int
 lws_jwe_encrypt_ecdh_cbc_hs(struct lws_jwe *jwe, char *temp, int *temp_len)
 {
 	int ss_len, // kw_hlen = lws_genhash_size(jwe->jose.alg->hash_type),
-	    enc_hlen = lws_genhmac_size(jwe->jose.enc_alg->hmac_type);
+	    enc_hlen = (int)lws_genhmac_size(jwe->jose.enc_alg->hmac_type);
 	uint8_t cek[LWS_JWE_LIMIT_KEY_ELEMENT_BYTES];
 	int ekbytes = jwe->jose.alg->keybits_fixed / 8;
 	int n, ot = *temp_len, ret = -1;
@@ -455,7 +455,7 @@ lws_jwe_auth_and_decrypt_ecdh(struct lws_jwe *jwe)
 	uint8_t shared_secret[LWS_JWE_LIMIT_KEY_ELEMENT_BYTES],
 		derived[LWS_JWE_LIMIT_KEY_ELEMENT_BYTES];
 	int ekbytes = jwe->jose.enc_alg->keybits_fixed / 8,
-		      enc_hlen = lws_genhmac_size(jwe->jose.enc_alg->hmac_type);
+		      enc_hlen = (int)lws_genhmac_size(jwe->jose.enc_alg->hmac_type);
 	struct lws_genec_ctx ecctx;
 	int n, ret = -1, ss_len = sizeof(shared_secret);
 

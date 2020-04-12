@@ -29,7 +29,7 @@ int
 lws_jwe_encrypt_cbc_hs(struct lws_jwe *jwe, uint8_t *cek,
 		       uint8_t *aad, int aad_len)
 {
-	int n, hlen = lws_genhmac_size(jwe->jose.enc_alg->hmac_type);
+	int n, hlen = (int)lws_genhmac_size(jwe->jose.enc_alg->hmac_type);
 	uint8_t digest[LWS_GENHASH_LARGEST];
 	struct lws_gencrypto_keyelem el;
 	struct lws_genhmac_ctx hmacctx;
@@ -100,7 +100,7 @@ lws_jwe_encrypt_cbc_hs(struct lws_jwe *jwe, uint8_t *cek,
 			     NULL, NULL, LWS_AES_CBC_BLOCKLEN);
 	paddedlen = lws_gencrypto_padded_length(LWS_AES_CBC_BLOCKLEN,
 						jwe->jws.map.len[LJWE_CTXT]);
-	jwe->jws.map.len[LJWE_CTXT] = paddedlen;
+	jwe->jws.map.len[LJWE_CTXT] = (uint32_t)paddedlen;
 	lws_genaes_destroy(&aesctx, (uint8_t *)jwe->jws.map.buf[LJWE_CTXT] +
 			   paddedlen - LWS_AES_CBC_BLOCKLEN, LWS_AES_CBC_BLOCKLEN);
 	if (n) {
@@ -162,7 +162,7 @@ int
 lws_jwe_auth_and_decrypt_cbc_hs(struct lws_jwe *jwe, uint8_t *enc_cek,
 				uint8_t *aad, int aad_len)
 {
-	int n, hlen = lws_genhmac_size(jwe->jose.enc_alg->hmac_type);
+	int n, hlen = (int)lws_genhmac_size(jwe->jose.enc_alg->hmac_type);
 	uint8_t digest[LWS_GENHASH_LARGEST];
 	struct lws_gencrypto_keyelem el;
 	struct lws_genhmac_ctx hmacctx;

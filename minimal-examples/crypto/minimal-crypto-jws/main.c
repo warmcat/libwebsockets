@@ -152,7 +152,11 @@ int main(int argc, const char **argv)
 
 		/* dump the compact JWS representation on stdout */
 
-		if (write(1, compact, strlen(compact))  < 0) {
+		if (write(1, compact,
+#if defined(WIN32)
+				(unsigned int)
+#endif
+				strlen(compact))  < 0) {
 			lwsl_err("Write stdout failed\n");
 			goto bail1;
 		}

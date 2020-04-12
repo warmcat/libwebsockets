@@ -46,7 +46,7 @@ test_jws_none(struct lws_context *context)
 	/* A.5 Unsecured JSON "none" RFC7515 worked example */
 
 	/* decode the b64.b64[.b64] compact serialization blocks */
-	n = lws_jws_compact_decode(none_cser, strlen(none_cser), &map, NULL,
+	n = lws_jws_compact_decode(none_cser, (int)strlen(none_cser), &map, NULL,
 				   temp, &temp_len);
 	if (n != 2) {
 		lwsl_err("%s: concat_map failed\n", __func__);
@@ -131,8 +131,8 @@ test_jws_HS256(struct lws_context *context)
 
 	/* parse the JOSE header */
 
-	if (lws_jws_parse_jose(&jose, test1, strlen(test1), temp, &temp_len) < 0 ||
-			!jose.alg) {
+	if (lws_jws_parse_jose(&jose, test1, (int)strlen(test1), temp,
+			       &temp_len) < 0 || !jose.alg) {
 		lwsl_err("%s: JOSE parse failed\n", __func__);
 		goto bail;
 	}
@@ -314,7 +314,7 @@ test_jws_RS256(struct lws_context *context)
 		goto bail;
 	}
 
-	if (lws_jws_b64_compact_map(rfc7515_rsa_a1, strlen(rfc7515_rsa_a1),
+	if (lws_jws_b64_compact_map(rfc7515_rsa_a1, (int)strlen(rfc7515_rsa_a1),
 				   &jws.map_b64) != 3) {
 		lwsl_notice("%s: lws_jws_b64_compact_map failed\n", __func__);
 		goto bail;
@@ -323,7 +323,7 @@ test_jws_RS256(struct lws_context *context)
 	/* 2.3: generate our own signature for a copy of the test packet */
 
 	in = lws_concat_temp(temp, temp_len);
-	l = strlen(rfc7515_rsa_a1);
+	l = (int)strlen(rfc7515_rsa_a1);
 	if (temp_len < l + 1)
 		goto bail;
 	memcpy(in, rfc7515_rsa_a1, l + 1);
@@ -421,7 +421,7 @@ test_jws_ES256(struct lws_context *context)
 	lws_jose_init(&jose);
 
 	/* decode the b64.b64[.b64] compact serialization blocks */
-	if (lws_jws_compact_decode(es256_cser, strlen(es256_cser),
+	if (lws_jws_compact_decode(es256_cser, (int)strlen(es256_cser),
 				   &jws.map, &jws.map_b64,
 				   temp, &temp_len) != 3) {
 		lwsl_err("%s: concat_map failed\n", __func__);
@@ -481,7 +481,7 @@ test_jws_ES256(struct lws_context *context)
 
 	/* A.3 "ES256" RFC7515 worked example - sign */
 
-	l = strlen(es256_cser);
+	l = (int)strlen(es256_cser);
 	if (temp_len < l + 1)
 		goto bail1;
 	p = lws_concat_temp(temp, temp_len);
@@ -582,7 +582,7 @@ test_jws_ES512(struct lws_context *context)
 	lws_jose_init(&jose);
 
 	/* decode the b64.b64[.b64] compact serialization blocks */
-	if (lws_jws_compact_decode(es512_cser, strlen(es512_cser),
+	if (lws_jws_compact_decode(es512_cser, (int)strlen(es512_cser),
 				   &jws.map, &jws.map_b64, temp,
 				   &temp_len) != 3) {
 		lwsl_err("%s: concat_map failed\n", __func__);
@@ -642,7 +642,7 @@ test_jws_ES512(struct lws_context *context)
 
 	/* A.3 "es512" RFC7515 worked example - sign */
 
-	l = strlen(es512_cser);
+	l = (int)strlen(es512_cser);
 	if (temp_len < l)
 		goto bail1;
 	p = lws_concat_temp(temp, temp_len);

@@ -595,7 +595,7 @@ lws_jwk_generate(struct lws_context *context, struct lws_jwk *jwk,
 	case LWS_GENCRYPTO_KTY_OCT:
 		sn = lws_gencrypto_bits_to_bytes(bits);
 		jwk->e[LWS_GENCRYPTO_OCT_KEYEL_K].buf = lws_malloc(sn, "oct");
-		jwk->e[LWS_GENCRYPTO_OCT_KEYEL_K].len = sn;
+		jwk->e[LWS_GENCRYPTO_OCT_KEYEL_K].len = (uint32_t)sn;
 		if (lws_get_random(context,
 			     jwk->e[LWS_GENCRYPTO_OCT_KEYEL_K].buf, sn) != sn) {
 			lwsl_err("%s: problem getting random\n", __func__);
@@ -646,7 +646,7 @@ lws_jwk_import(struct lws_jwk *jwk, lws_jwk_key_import_callback cb, void *user,
 
 	lws_jwk_init_jps(&jctx, &jps, jwk, cb, user);
 
-	m = (int)(signed char)lejp_parse(&jctx, (uint8_t *)in, len);
+	m = (int)(signed char)lejp_parse(&jctx, (uint8_t *)in, (int)len);
 	lejp_destruct(&jctx);
 
 	if (m < 0) {
@@ -789,7 +789,7 @@ lws_jwk_export(struct lws_jwk *jwk, int flags, char *p, int *len)
 				lws_strnncpy(p,
 					     (const char *)jwk->e[l->idx].buf,
 					     jwk->e[l->idx].len, end - p);
-				m = strlen(p);
+				m = (int)strlen(p);
 			} else
 				m = lws_jws_base64_enc(
 					(const char *)jwk->e[l->idx].buf,
@@ -808,9 +808,9 @@ lws_jwk_export(struct lws_jwk *jwk, int flags, char *p, int *len)
 	p += lws_snprintf(p, end - p,
 			  (flags & LWSJWKF_EXPORT_NOCRLF) ? "}" : "}\n");
 
-	*len -= p - start;
+	*len -= lws_ptr_diff(p, start);
 
-	return p - start;
+	return lws_ptr_diff(p, start);
 }
 
 int

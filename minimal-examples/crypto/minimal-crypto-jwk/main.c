@@ -123,16 +123,16 @@ int main(int argc, const char **argv)
 	}
 
 	if ((p = lws_cmdline_option(argc, argv, "--kid")))
-		lws_jwk_strdup_meta(&jwk, JWK_META_KID, p, strlen(p));
+		lws_jwk_strdup_meta(&jwk, JWK_META_KID, p, (int)strlen(p));
 
 	if ((p = lws_cmdline_option(argc, argv, "--use")))
-		lws_jwk_strdup_meta(&jwk, JWK_META_USE, p, strlen(p));
+		lws_jwk_strdup_meta(&jwk, JWK_META_USE, p, (int)strlen(p));
 
 	if ((p = lws_cmdline_option(argc, argv, "--alg")))
-		lws_jwk_strdup_meta(&jwk, JWK_META_ALG, p, strlen(p));
+		lws_jwk_strdup_meta(&jwk, JWK_META_ALG, p, (int)strlen(p));
 
 	if ((p = lws_cmdline_option(argc, argv, "--key-ops")))
-		lws_jwk_strdup_meta(&jwk, JWK_META_KEY_OPS, p, strlen(p));
+		lws_jwk_strdup_meta(&jwk, JWK_META_KEY_OPS, p, (int)strlen(p));
 
 	if ((p = lws_cmdline_option(argc, argv, "--public")) &&
 	    kty != LWS_GENCRYPTO_KTY_OCT) {
@@ -156,7 +156,11 @@ int main(int argc, const char **argv)
 		if (lws_cmdline_option(argc, argv, "-c"))
 			format_c(fd, key);
 		else {
-			if (write(fd, key, strlen(key)) < 0) {
+			if (write(fd, key,
+#if defined(WIN32)
+					(unsigned int)
+#endif
+					strlen(key)) < 0) {
 				lwsl_err("Write public failed\n");
 				return 1;
 			}
@@ -177,7 +181,11 @@ int main(int argc, const char **argv)
 		if (format_c(1, key) < 0)
 			return 1;
 	} else
-		if (write(1, key, strlen(key)) < 0) {
+		if (write(1, key,
+#if defined(WIN32)
+				(unsigned int)
+#endif
+				strlen(key)) < 0) {
 			lwsl_err("Write stdout failed\n");
 			return 1;
 		}

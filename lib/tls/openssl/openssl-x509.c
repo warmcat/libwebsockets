@@ -474,7 +474,7 @@ static int
 lws_x509_jwk_privkey_pem_pp_cb(char *buf, int size, int rwflag, void *u)
 {
 	const char *pp = (const char *)u;
-	int n = strlen(pp);
+	int n = (int)strlen(pp);
 
 	if (n > size - 1)
 		return -1;

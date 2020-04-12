@@ -46,7 +46,8 @@ int
 lws_jwe_encrypt_rsa_aes_cbc_hs(struct lws_jwe *jwe,
 			       char *temp, int *temp_len)
 {
-	int n, hlen = lws_genhmac_size(jwe->jose.enc_alg->hmac_type), ot = *temp_len;
+	int n, hlen = (int)lws_genhmac_size(jwe->jose.enc_alg->hmac_type),
+	    ot = *temp_len;
 	char ekey[LWS_GENHASH_LARGEST];
 	struct lws_genrsa_ctx rsactx;
 

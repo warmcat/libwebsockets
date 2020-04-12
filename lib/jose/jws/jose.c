@@ -509,7 +509,7 @@ lws_jose_render(struct lws_jose *jose, struct lws_jwk *aux_jwk,
 				sub = 1;
 				m = lws_b64_encode_string_url((const char *)
 						jose->e[n].buf, jose->e[n].len,
-						out, end - out);
+						out, lws_ptr_diff(end, out));
 				if (m < 0)
 					return -1;
 				out += m;
@@ -528,7 +528,7 @@ lws_jose_render(struct lws_jose *jose, struct lws_jwk *aux_jwk,
 				sub = 1;
 				m = lws_b64_encode_string((const char *)
 						jose->e[n].buf, jose->e[n].len,
-						out, end - out);
+						out, lws_ptr_diff(end, out));
 				if (m < 0)
 					return -1;
 				out += m;
@@ -546,7 +546,7 @@ lws_jose_render(struct lws_jose *jose, struct lws_jwk *aux_jwk,
 			out += lws_snprintf(out, end - out, "%s\"%s\":",
 					    sub ? ",\n" : "", jws_jose[n]);
 			sub = 1;
-			vl = end - out;
+			vl = lws_ptr_diff(end, out);
 			m = lws_jwk_export(jwk, 0, out, &vl);
 			if (m < 0) {
 				lwsl_notice("%s: failed to export key\n",
@@ -598,7 +598,7 @@ lws_jose_render(struct lws_jose *jose, struct lws_jwk *aux_jwk,
 	if (out > end - 2)
 		return -1;
 
-	return out_len - (end - out) - 1;
+	return lws_ptr_diff(out_len, (end - out)) - 1;
 
 bail:
 	return -1;
