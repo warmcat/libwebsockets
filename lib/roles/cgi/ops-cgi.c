@@ -113,6 +113,15 @@ rops_pt_init_destroy_cgi(struct lws_context *context,
 	return 0;
 }
 
+static int
+rops_close_role_cgi(struct lws_context_per_thread *pt, struct lws *wsi)
+{
+	if (wsi->parent && wsi->parent->http.cgi && wsi->parent->http.cgi->lsp)
+		lws_spawn_stdwsi_closed(wsi->parent->http.cgi->lsp, wsi);
+
+	return 0;
+}
+
 
 const struct lws_role_ops role_ops_cgi = {
 	/* role name */			"cgi",
@@ -131,7 +140,7 @@ const struct lws_role_ops role_ops_cgi = {
 	/* encapsulation_parent */	NULL,
 	/* alpn_negotiated */		NULL,
 	/* close_via_role_protocol */	NULL,
-	/* close_role */		NULL,
+	/* close_role */		rops_close_role_cgi,
 	/* close_kill_connection */	NULL,
 	/* destroy_role */		rops_destroy_role_cgi,
 	/* adoption_bind */		NULL,

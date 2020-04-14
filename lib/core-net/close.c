@@ -144,6 +144,7 @@ __lws_free_wsi(struct lws *wsi)
 		return;
 
 	__lws_reset_wsi(wsi);
+	__lws_wsi_remove_from_sul(wsi);
 
 	if (wsi->context->event_loop_ops->destroy_wsi)
 		wsi->context->event_loop_ops->destroy_wsi(wsi);
@@ -271,7 +272,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 		wsi2 = wsi->child_list;
 		while (wsi2) {
 			wsi1 = wsi2->sibling_list;
-			wsi2->parent = NULL;
+//			wsi2->parent = NULL;
 			/* stop it doing shutdown processing */
 			wsi2->socket_is_permanently_unusable = 1;
 			__lws_close_free_wsi(wsi2, reason,
@@ -306,7 +307,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 				lws_cgi_remove_and_kill(wsi->parent);
 
 			/* end the binding between us and master */
-			if (wsi->parent->http.cgi)
+			if (wsi->parent->http.cgi && wsi->parent->http.cgi->lsp)
 				wsi->parent->http.cgi->lsp->stdwsi[(int)wsi->lsp_channel] =
 									NULL;
 		}
@@ -454,7 +455,7 @@ just_kill_connection:
 	     !wsi->already_did_cce && wsi->protocol) {
 		static const char _reason[] = "closed before established";
 
-		lwsl_notice("%s: closing in unestablished state 0x%x\n",
+		lwsl_debug("%s: closing in unestablished state 0x%x\n",
 				__func__, lwsi_state(wsi));
 		wsi->socket_is_permanently_unusable = 1;
 

@@ -110,6 +110,8 @@ lws_spawn_piped_destroy(struct lws_spawn_piped **_lsp)
 
 	lws_sul_schedule(lsp->info.vh->context, lsp->info.tsi, &lsp->sul,
 			 NULL, LWS_SET_TIMER_USEC_CANCEL);
+	lws_sul_schedule(lsp->info.vh->context, lsp->info.tsi, &lsp->sul_reap,
+			 NULL, LWS_SET_TIMER_USEC_CANCEL);
 
 	for (n = 0; n < 3; n++) {
 #if 0
@@ -179,7 +181,8 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	 */
 
 	if (!lsp->ungraceful && lsp->pipes_alive) {
-		lwsl_debug("%s: stdwsi alive, not reaping\n", __func__);
+		lwsl_notice("%s: %d stdwsi alive, not reaping\n", __func__,
+				lsp->pipes_alive);
 		return 0;
 	}
 
@@ -326,9 +329,16 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 
 	/* create pipes for [stdin|stdout] and [stderr] */
 
-	for (n = 0; n < 3; n++)
+	for (n = 0; n < 3; n++) {
 		if (pipe(lsp->pipe_fds[n]) == -1)
 			goto bail1;
+		lws_plat_apply_FD_CLOEXEC(lsp->pipe_fds[n][n == 0]);
+	}
+
+	/*
+	 * At this point, we have 6 pipe fds open on lws side and no wsis
+	 * bound to them
+	 */
 
 	/* create wsis for each stdin/out/err fd */
 
@@ -350,13 +360,25 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 
 		/* read side is 0, stdin we want the write side, others read */
 
-		lws_plat_apply_FD_CLOEXEC(lsp->pipe_fds[n][n == 0]);
 		lsp->stdwsi[n]->desc.sockfd = lsp->pipe_fds[n][n == 0];
 		if (fcntl(lsp->pipe_fds[n][n == 0], F_SETFL, O_NONBLOCK) < 0) {
 			lwsl_err("%s: setting NONBLOCK failed\n", __func__);
 			goto bail2;
 		}
+
+		/*
+		 * We have bound 3 x pipe fds to wsis, wr side of stdin and rd
+		 * side of stdout / stderr... those are marked CLOEXEC so they
+		 * won't go through the fork
+		 *
+		 * rd side of stdin and wr side of stdout / stderr are open but
+		 * not bound to anything on lws side.
+		 */
 	}
+
+	/*
+	 * Stitch the wsi fd into the poll wait
+	 */
 
 	for (n = 0; n < 3; n++) {
 		if (context->event_loop_ops->sock_accept)
@@ -384,7 +406,7 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		   lsp->stdwsi[LWS_STDOUT]->desc.sockfd,
 		   lsp->stdwsi[LWS_STDERR]->desc.sockfd);
 
-	/* we are ready with the redirection pipes... run the thing */
+	/* we are ready with the redirection pipes... do the (v)fork */
 #if !defined(LWS_HAVE_VFORK) || !defined(LWS_HAVE_EXECVPE)
 	lsp->child_pid = fork();
 #else
@@ -407,15 +429,13 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	if (lsp->child_pid) {
 
 		/*
-		 * We are the parent process
-		 *
-		 *  close:                stdin:r, stdout:w, stderr:w
-		 * hide from other forks: stdin:w, stdout:r, stderr:r
+		 * We are the parent process.  We can close our copy of the
+		 * "other" side of the pipe fds, ie, rd for stdin and wr for
+		 * stdout / stderr.
 		 */
-		for (n = 0; n < 3; n++) {
-			/* these guys don't have any wsi footprint */
+		for (n = 0; n < 3; n++)
+			/* these guys didn't have any wsi footprint */
 			close(lsp->pipe_fds[n][n != 0]);
-		}
 
 		lsp->pipes_alive = 3;
 		lsp->created = lws_now_usecs();
@@ -460,25 +480,25 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	if (chdir(wd))
 		lwsl_notice("%s: Failed to cd to %s\n", __func__, wd);
 
+	/*
+	 * Bind the child's stdin / out / err to its side of our pipes
+	 */
+
 	for (m = 0; m < 3; m++) {
 		if (dup2(lsp->pipe_fds[m][m != 0], m) < 0) {
 			lwsl_err("%s: stdin dup2 failed\n", __func__);
 			goto bail3;
 		}
 		/*
-		 * If we used fork(), then we can close both sides of the
-		 * original pipe now we bound it to fd 0, 1, 2.
+		 * CLOEXEC on the lws-side of the pipe fds should have already
+		 * dealt with closing those for the child perspective.
 		 *
-		 * But if we used vfork(), until the exec() we have hijacked
-		 * the original process temporarily and we are (ab)using its
-		 * identity during this pre-exec() time
+		 * Now it has done the dup, the child should close its original
+		 * copies of its side of the pipes.
 		 */
-#if !defined(LWS_HAVE_VFORK) || !defined(LWS_HAVE_EXECVPE)
-		close(lsp->pipe_fds[m][m != 0]);
-#endif
-	}
 
-	// lwsl_notice("%s: child cd %s, exec %s\n", __func__, wd, i->exec_array[0]);
+		close(lsp->pipe_fds[m][m != 0]);
+	}
 
 #if !defined(LWS_HAVE_VFORK) || !defined(LWS_HAVE_EXECVPE)
 #if defined(__linux__)

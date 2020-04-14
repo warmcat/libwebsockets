@@ -296,6 +296,35 @@ static const lws_struct_map_t lsm_schema_map[] = {
 			 lsm_other,		"com-warmcat-sai-other"),
 };
 
+typedef struct sai_cancel {
+	char task_uuid[65];
+} sai_cancel_t;
+
+const lws_struct_map_t lsm_task_cancel[] = {
+	LSM_CARRAY	(sai_cancel_t, task_uuid,	 "uuid"),
+};
+
+static const lws_struct_map_t t2_map[] = {
+	LSM_SCHEMA	(sai_cancel_t, NULL, lsm_task_cancel,
+					      "com.warmcat.sai.taskinfo"),
+	LSM_SCHEMA	(sai_cancel_t, NULL, lsm_task_cancel,
+					      "com.warmcat.sai.eventinfo"),
+	LSM_SCHEMA	(sai_cancel_t, NULL, lsm_task_cancel,
+			/* shares struct */   "com.warmcat.sai.taskreset"),
+	LSM_SCHEMA	(sai_cancel_t, NULL, lsm_task_cancel,
+			/* shares struct */   "com.warmcat.sai.eventreset"),
+	LSM_SCHEMA	(sai_cancel_t, NULL, lsm_task_cancel,
+			/* shares struct */   "com.warmcat.sai.eventdelete"),
+	LSM_SCHEMA	(sai_cancel_t,		 NULL, lsm_task_cancel,
+					      "com.warmcat.sai.taskcan"),
+};
+
+static const char *t2 =
+	"{\"schema\":\"com.warmcat.sai.taskcan\","
+	 "\"uuid\": \"071ab46ab4296e5de674c628fec17c55088254679f7714ad991f8c4873dca\"}\x01\x02\xff\xff\xff\xff";
+
+
+
 static int
 show_target(struct lws_dll2 *d, void *user)
 {

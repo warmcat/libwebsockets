@@ -131,7 +131,7 @@ lws_ws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 		 */
 
 		if (lws_ws_client_rx_sm(wsi, *(*buf)++)) {
-			lwsl_notice("%s: client_rx_sm exited, DROPPING %d\n",
+			lwsl_info("%s: client_rx_sm exited, DROPPING %d\n",
 				    __func__, (int)len);
 			return -1;
 		}

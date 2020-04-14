@@ -69,6 +69,7 @@ require_lws_config(LWS_WITH_LWS_DSH 1 requirements)
 if (requirements)
 
 	add_executable(${SAMP} ${SRCS})
+	add_test(NAME api-test-lws_dsh COMMAND lws-api-test-lws_dsh)
 
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared)

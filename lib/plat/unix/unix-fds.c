@@ -182,7 +182,7 @@ delete_from_fd(const struct lws_context *context, int fd)
 		p++;
 
 	if (p == done)
-		lwsl_err("%s: fd %d not found\n", __func__, fd);
+		lwsl_debug("%s: fd %d not found\n", __func__, fd);
 	else
 		*p = NULL;
 

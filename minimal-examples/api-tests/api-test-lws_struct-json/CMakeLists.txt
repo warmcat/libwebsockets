@@ -68,6 +68,7 @@ require_lws_config(LWS_WITH_STRUCT_JSON 1 requirements)
 if (requirements)
 
 	add_executable(${SAMP} ${SRCS})
+	add_test(NAME api-test-lws_struct-json COMMAND lws-api-test-lws_struct-json)
 
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared)

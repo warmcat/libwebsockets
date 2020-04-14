@@ -25,11 +25,11 @@
 #include "private-lib-core.h"
 
 int
-lws_ssl_client_connect1(struct lws *wsi)
+lws_ssl_client_connect1(struct lws *wsi, char *errbuf, int len)
 {
 	int n;
 
-	n = lws_tls_client_connect(wsi);
+	n = lws_tls_client_connect(wsi, errbuf, len);
 	switch (n) {
 	case LWS_SSL_CAPABLE_ERROR:
 		return -1;
@@ -53,12 +53,12 @@ lws_ssl_client_connect2(struct lws *wsi, char *errbuf, int len)
 	int n;
 
 	if (lwsi_state(wsi) == LRS_WAITING_SSL) {
-		n = lws_tls_client_connect(wsi);
+		n = lws_tls_client_connect(wsi, errbuf, len);
 		lwsl_debug("%s: SSL_connect says %d\n", __func__, n);
 
 		switch (n) {
 		case LWS_SSL_CAPABLE_ERROR:
-			lws_snprintf(errbuf, len, "client connect failed");
+			// lws_snprintf(errbuf, len, "client connect failed");
 			return -1;
 		case LWS_SSL_CAPABLE_DONE:
 			break; /* connected */

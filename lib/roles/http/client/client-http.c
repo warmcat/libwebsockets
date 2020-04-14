@@ -28,11 +28,11 @@
 int
 lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1)
 {
-	int n;
 
 	/* we can retry this... just cook the SSL BIO the first time */
 
 	if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
+		int n;
 
 		if (!wsi->tls.ssl) {
 			if (lws_ssl_client_bio_create(wsi) < 0) {
@@ -50,12 +50,13 @@ lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1)
 		if (!do_c1)
 			return 0;
 
-		n = lws_ssl_client_connect1(wsi);
+		n = lws_ssl_client_connect1(wsi, (char *)wsi->context->pt[(int)wsi->tsi].serv_buf,
+					    wsi->context->pt_serv_buf_size);
 		lwsl_debug("%s: lws_ssl_client_connect1: %d\n", __func__, n);
 		if (!n)
 			return CCTLS_RETURN_RETRY; /* caller should return 0 */
 		if (n < 0) {
-			*pcce = "lws_ssl_client_connect1 failed";
+			*pcce = (const char *)wsi->context->pt[(int)wsi->tsi].serv_buf;
 			return CCTLS_RETURN_ERROR;
 		}
 	} else
@@ -485,6 +486,8 @@ bail3:
 				__func__, wsi, lwsi_state(wsi));
 		if (cce)
 			lwsl_info("reason: %s\n", cce);
+		else
+			cce = "unknown";
 		lws_inform_client_conn_fail(wsi, (void *)cce, strlen(cce));
 
 		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "cbail3");

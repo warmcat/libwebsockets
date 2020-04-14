@@ -128,6 +128,9 @@ lws_spawn_piped_destroy(struct lws_spawn_piped **_lsp)
 	lws_sul_schedule(lsp->info.vh->context, lsp->info.tsi, &lsp->sul,
 			 NULL, LWS_SET_TIMER_USEC_CANCEL);
 
+	lws_sul_schedule(lsp->context, 0, &lsp->sul_reap, NULL,
+			 LWS_SET_TIMER_USEC_CANCEL);
+
 	lws_sul_schedule(lsp->context, 0, &lsp->sul_poll, NULL,
 			 LWS_SET_TIMER_USEC_CANCEL);
 

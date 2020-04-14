@@ -62,9 +62,8 @@ MACRO(require_lws_config reqconfig _val result)
 	endif()
 ENDMACRO()
 
-
-
 	add_executable(${SAMP} ${SRCS})
+	add_test(NAME api-test-lws_tokenize COMMAND lws-api-test-lws_tokenize)
 
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared)

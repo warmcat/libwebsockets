@@ -69,6 +69,14 @@ require_lws_config(LWS_WITH_CLIENT 1 requirements)
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
+	if (LWS_CTEST_INTERNET_AVAILABLE)
+		add_test(NAME ws-client-rx-warmcat COMMAND lws-minimal-ws-client-rx -t)
+		set_tests_properties(ws-client-rx-warmcat
+				     PROPERTIES
+				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/ws-client/minimal-ws-client-rx
+				     TIMEOUT 20)
+
+	endif()
 
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared)

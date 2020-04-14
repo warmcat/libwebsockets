@@ -63,11 +63,12 @@ MACRO(require_lws_config reqconfig _val result)
 ENDMACRO()
 
 set(requirements 1)
-require_lws_config(LWS_WITH_STRUCT_SQLITE 1 requirements)
+require_lws_config(LWS_WITH_STRUCT_SQLITE3 1 requirements)
 
 if (requirements)
 
 	add_executable(${SAMP} ${SRCS})
+	add_test(NAME api-test-lws_struct_sqlite COMMAND lws-api-test-lws_struct-sqlite)
 
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared sqlite3)

@@ -70,6 +70,7 @@ connect_client(int idx)
 	clients[idx].state = CLIENT_CONNECTING;
 	tries++;
 
+	lwsl_notice("%s: connection %s:%d\n", __func__, i.address, i.port);
 	if (!lws_client_connect_via_info(&i)) {
 		clients[idx].wsi = NULL;
 		clients[idx].state = CLIENT_IDLE;
@@ -257,6 +258,8 @@ int main(int argc, const char **argv)
 
 	while (n >= 0 && !interrupted)
 		n = lws_service(context, 0);
+
+	lwsl_notice("%s: exiting service loop\n", __func__);
 
 	lws_context_destroy(context);
 

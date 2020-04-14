@@ -138,7 +138,7 @@ lws_struct_default_lejp_cb(struct lejp_ctx *ctx, char reason)
 	if (map->type == LSMT_SCHEMA) {
 
 		while (n--) {
-			if (strcmp(map->colname, ctx->buf)) {
+			if (strncmp(map->colname, ctx->buf, ctx->npos)) {
 				map++;
 				continue;
 			}
@@ -157,7 +157,9 @@ lws_struct_default_lejp_cb(struct lejp_ctx *ctx, char reason)
 
 			return 0;
 		}
-		lwsl_notice("%s: unknown schema\n", __func__);
+		lwsl_notice("%s: unknown schema %.*s, tried %d\n", __func__,
+				ctx->npos, ctx->buf,
+				(int)args->map_entries_st[ctx->pst_sp]);
 
 		goto cleanup;
 	}

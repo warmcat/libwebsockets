@@ -14,6 +14,9 @@
 		"linux-fedora-32-x86_64": {
 			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G RPM\";cmake .. ${cmake} && make -j && make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}"
 		},
+		"linux-centos-8-x8664": {
+			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G RPM\";cmake .. ${cmake} && make -j && make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}"
+		},
 		"linux-debian-buster-arm32": {
 			"build": "mkdir build;cd build;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G DEB\";cmake .. ${cmake} && make -j3 && make -j DESTDIR=../destdir install && ctest -j3 --output-on-failure ${cpack}",
 			"default": false
@@ -44,20 +47,34 @@
 			"cmake":	"-DLWS_WITH_ACME=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DCMAKE_BUILD_TYPE=RELEASE -DLWS_WITH_GENCRYPTO=1 -DLWS_WITH_JOSE=1 -DLWS_WITH_SYS_ASYNC_DNS=1 -DLWS_WITH_SYS_NTPCLIENT=1",
 			"platforms":	"windows-10"
 		},
+		"secure-streams": {
+			"cmake":	"-DLWS_WITH_SECURE_STREAMS=1",
+			"platforms":	"windows-10"
+		},
+		"secure-streams-proxy": {
+			"cmake":	"-DLWS_WITH_SECURE_STREAMS=1 -DLWS_WITH_SECURE_STREAMS_PROXY_API=1",
+			"platforms":	"not windows-10"
+		},
 		"distro_recommended": {
 			"cmake":	"-DLWS_WITH_DISTRO_RECOMMENDED=1",
 			"platforms":	"not linkit-cross, not windows-10, linux-debian-buster-arm32",
 			"cpack":	"&& cpack $SAI_CPACK",
-			"artifacts":	"build/*.rpm, build/*.deb"
+			"artifacts":	"build/*.rpm, build/*.deb, build/*.zip"
 		},
 		"lwsws": {
-			"cmake":	"-DLWS_WITH_LWSWS=ON -DLWS_WITHOUT_EXTENSIONS=0 -DLWS_WITH_HTTP2=1 -DLWS_WITH_ACME=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DCMAKE_BUILD_TYPE=DEBUG -DLWS_WITH_GENCRYPTO=1 -DLWS_WITH_JOSE=1 -DLWS_WITH_SYS_ASYNC_DNS=1 -DLWS_WITH_SYS_NTPCLIENT=1"
+			"cmake":	"-DLWS_WITH_LWSWS=ON -DLWS_WITHOUT_EXTENSIONS=0 -DLWS_WITH_HTTP2=1 -DLWS_WITH_ACME=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DCMAKE_BUILD_TYPE=DEBUG -DLWS_WITH_GENCRYPTO=1 -DLWS_WITH_JOSE=1 -DLWS_WITH_SYS_ASYNC_DNS=1 -DLWS_WITH_SYS_NTPCLIENT=1",
+			# no distro -devel package for libuv
+			"platforms":	"not linux-centos-8-x8664"
 		},
 		"lwsws2": {
-			"cmake":	"-DLWS_WITH_LWSWS=ON -DLWS_WITHOUT_EXTENSIONS=0 -DLWS_WITH_HTTP2=1 -DLWS_WITH_ACME=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DCMAKE_BUILD_TYPE=DEBUG -DLWS_WITH_LWS_DSH=1"
+			"cmake":	"-DLWS_WITH_LWSWS=ON -DLWS_WITHOUT_EXTENSIONS=0 -DLWS_WITH_HTTP2=1 -DLWS_WITH_ACME=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DCMAKE_BUILD_TYPE=DEBUG -DLWS_WITH_LWS_DSH=1",
+			# no distro -devel package for libuv
+			"platforms":	"not linux-centos-8-x8664"
 		},
 		"mbedtls": {
-			"cmake":	"-DLWS_WITH_MBEDTLS=1 -DLWS_WITH_HTTP2=1 -DLWS_WITH_LWSWS=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_JOSE=1 -DCMAKE_BUILD_TYPE=DEBUG"
+			"cmake":	"-DLWS_WITH_MBEDTLS=1 -DLWS_WITH_HTTP2=1 -DLWS_WITH_LWSWS=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_JOSE=1 -DCMAKE_BUILD_TYPE=DEBUG",
+			# no distro -devel package for mbedtls
+			"platforms":	"not linux-centos-8-x8664"
 		},
 		"noserver": {
 			"cmake":	"-DLWS_WITHOUT_SERVER=ON -DLWS_WITH_MINIMAL_EXAMPLES=1"

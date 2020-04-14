@@ -545,7 +545,8 @@ elops_destroy_context2_uv(struct lws_context *context)
 static int
 elops_wsi_logical_close_uv(struct lws *wsi)
 {
-	if (!lws_socket_is_valid(wsi->desc.sockfd))
+	if (!lws_socket_is_valid(wsi->desc.sockfd) &&
+	    wsi->role_ops != &role_ops_raw_file)
 		return 0;
 
 	if (wsi->listener || wsi->event_pipe) {
@@ -656,7 +657,7 @@ elops_io_uv(struct lws *wsi, int flags)
 	}
 
 	if (!w->uv.pwatcher || wsi->told_event_loop_closed) {
-		lwsl_err("%s: no watcher\n", __func__);
+		lwsl_info("%s: no watcher\n", __func__);
 
 		return;
 	}

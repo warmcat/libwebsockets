@@ -317,6 +317,7 @@ static struct option options[] = {
 	{ "ssl-cert",  required_argument,	NULL, 'C' },
 	{ "ssl-key",  required_argument,	NULL, 'K' },
 	{ "ssl-ca",  required_argument,		NULL, 'A' },
+	{ "resource-path",  required_argument,		NULL, 'r' },
 #if defined(LWS_WITH_TLS)
 	{ "ssl-verify-client",	no_argument,		NULL, 'v' },
 #if defined(LWS_HAVE_SSL_CTX_set1_param)
@@ -329,9 +330,16 @@ static struct option options[] = {
 	{ "daemonize",	no_argument,		NULL, 'D' },
 #endif
 	{ "pingpong-secs", required_argument,	NULL, 'P' },
+	{ "ignore-sigterm", no_argument,	NULL, 'I' },
+
 	{ NULL, 0, 0, 0 }
 };
 #endif
+
+static void
+sigterm_catch(int sig)
+{
+}
 
 int main(int argc, char **argv)
 {
@@ -360,9 +368,9 @@ int main(int argc, char **argv)
 
 	while (n >= 0) {
 #if defined(LWS_HAS_GETOPT_LONG) || defined(WIN32)
-		n = getopt_long(argc, argv, "eci:hsap:d:DC:K:A:R:vu:g:P:kU:n", options, NULL);
+		n = getopt_long(argc, argv, "eci:hsap:d:DC:K:A:R:vu:g:P:kU:niIr:", options, NULL);
 #else
-		n = getopt(argc, argv, "eci:hsap:d:DC:K:A:R:vu:g:P:kU:n");
+		n = getopt(argc, argv, "eci:hsap:d:DC:K:A:R:vu:g:P:kU:nIr:");
 #endif
 		if (n < 0)
 			continue;
@@ -387,6 +395,12 @@ int main(int argc, char **argv)
 		case 'n':
 			/* no dumb increment send */
 			test_options |= 1;
+			break;
+		case 'I':
+			signal(SIGTERM, sigterm_catch);
+			break;
+		case 'r':
+			resource_path = optarg;
 			break;
 		case 's':
 			use_ssl = 1;
@@ -539,8 +553,8 @@ int main(int argc, char **argv)
 			       "!AES256-GCM-SHA384:"
 			       "!AES256-SHA256";
 	info.mounts = &mount;
-	info.ip_limit_ah = 24; /* for testing */
-	info.ip_limit_wsi = 400; /* for testing */
+	info.ip_limit_ah = 128; /* for testing */
+	info.ip_limit_wsi = 800; /* for testing */
 
 	if (use_ssl)
 		/* redirect guys coming on http */
