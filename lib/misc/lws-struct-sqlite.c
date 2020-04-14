@@ -511,7 +511,7 @@ lws_struct_sq3_open(struct lws_context *context, const char *sqlite3_path,
 			    SQLITE_OPEN_READWRITE |
 			    (create_if_missing ? SQLITE_OPEN_CREATE : 0),
 			    NULL) != SQLITE_OK) {
-		lwsl_err("%s: Unable to open db %s: %s\n",
+		lwsl_info("%s: Unable to open db %s: %s\n",
 			 __func__, sqlite3_path, sqlite3_errmsg(*pdb));
 
 		return 1;
@@ -520,7 +520,8 @@ lws_struct_sq3_open(struct lws_context *context, const char *sqlite3_path,
 #if !defined(WIN32)
 	lws_get_effective_uid_gid(context, &uid, &gid);
 	if (uid)
-		chown(sqlite3_path, uid, gid);
+		if (chown(sqlite3_path, uid, gid))
+			lwsl_err("%s: failed to chown %s\n", __func__, sqlite3_path);
 	chmod(sqlite3_path, 0600);
 
 	lwsl_debug("%s: created %s owned by %u:%u mode 0600\n", __func__,

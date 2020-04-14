@@ -376,7 +376,7 @@ no_client_cert:
 }
 
 enum lws_ssl_capable_status
-lws_tls_client_connect(struct lws *wsi)
+lws_tls_client_connect(struct lws *wsi, char *errbuf, int elen)
 {
 #if defined(LWS_HAVE_SSL_set_alpn_protos) && \
     defined(LWS_HAVE_SSL_get0_alpn_selected)
@@ -384,17 +384,13 @@ lws_tls_client_connect(struct lws *wsi)
 	char a[32];
 	unsigned int len;
 #endif
-	int m, n;
-#if defined(WIN32) || (_LWS_ENABLED_LOGS & LLL_INFO)
-	int en;
-#endif
+	int m, n, en;
 
 	errno = 0;
 	ERR_clear_error();
 	n = SSL_connect(wsi->tls.ssl);
-#if defined(WIN32) || (_LWS_ENABLED_LOGS & LLL_INFO)
 	en = errno;
-#endif
+
 	m = lws_ssl_get_error(wsi, n);
 
 	if (m == SSL_ERROR_SYSCALL
@@ -405,11 +401,15 @@ lws_tls_client_connect(struct lws *wsi)
 #if defined(WIN32) || (_LWS_ENABLED_LOGS & LLL_INFO)
 		lwsl_info("%s: n %d, m %d, errno %d\n", __func__, n, m, en);
 #endif
+		lws_snprintf(errbuf, elen, "connect SYSCALL %d", en);
 		return LWS_SSL_CAPABLE_ERROR;
 	}
 
-	if (m == SSL_ERROR_SSL)
+	if (m == SSL_ERROR_SSL) {
+		n = lws_snprintf(errbuf, elen, "connect SSL err %d: ", m);
+		ERR_error_string_n(m, errbuf + n, elen - n);
 		return LWS_SSL_CAPABLE_ERROR;
+	}
 
 	if (m == SSL_ERROR_WANT_READ || SSL_want_read(wsi->tls.ssl))
 		return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
@@ -436,6 +436,8 @@ lws_tls_client_connect(struct lws *wsi)
 
 	if (!n) /* we don't know what he wants, but he says to retry */
 		return LWS_SSL_CAPABLE_MORE_SERVICE;
+
+	lws_snprintf(errbuf, elen, "connect unk %d", m);
 
 	return LWS_SSL_CAPABLE_ERROR;
 }

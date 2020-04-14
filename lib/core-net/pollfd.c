@@ -417,7 +417,7 @@ __remove_wsi_socket_from_fds(struct lws *wsi)
 				lwsl_err("no wsi for fd %d pos %d, "
 					 "pt->fds_count=%d\n",
 					 (int)pt->fds[m].fd, m, pt->fds_count);
-				assert(0);
+				// assert(0);
 			} else
 				end_wsi->position_in_fds_table = m;
 		}

@@ -27,6 +27,7 @@
 #ifdef LWS_HAVE_SYS_TYPES_H
 #include <sys/types.h>
 #endif
+#include <signal.h>
 
 void
 lws_ser_wu16be(uint8_t *b, uint16_t u)
@@ -1086,8 +1087,14 @@ lws_cmdline_option(int argc, const char **argv, const char *val)
 static const char * const builtins[] = {
 	"-d",
 	"--udp-tx-loss",
-	"--udp-rx-loss"
+	"--udp-rx-loss",
+	"--ignore-sigterm"
 };
+
+static void
+lws_sigterm_catch(int sig)
+{
+}
 
 void
 lws_cmdline_option_handle_builtin(int argc, const char **argv,
@@ -1112,6 +1119,9 @@ lws_cmdline_option_handle_builtin(int argc, const char **argv,
 			break;
 		case 2:
 			info->udp_loss_sim_rx_pc = m;
+			break;
+		case 3:
+			signal(SIGTERM, lws_sigterm_catch);
 			break;
 		}
 	}

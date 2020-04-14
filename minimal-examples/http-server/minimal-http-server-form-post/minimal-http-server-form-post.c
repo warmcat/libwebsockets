@@ -202,6 +202,9 @@ int main(int argc, const char **argv)
 		info.ssl_private_key_filepath = "localhost-100y.key";
 	}
 
+	if ((p = lws_cmdline_option(argc, argv, "--port")))
+		info.port = atoi(p);
+
 	if (lws_cmdline_option(argc, argv, "--303")) {
 		lwsl_user("%s: using 303 redirect\n", __func__);
 		use303 = 1;

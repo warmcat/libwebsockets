@@ -125,7 +125,7 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 	case LWS_CALLBACK_CLIENT_CLOSED:
-		lwsl_user("%s: client closed: parent %p\n", __func__, wsi->parent);
+		lwsl_info("%s: client closed: parent %p\n", __func__, wsi->parent);
 		if (wsi->parent)
                        lws_set_timeout(wsi->parent, 1, LWS_TO_KILL_ASYNC);
 		break;
@@ -193,7 +193,7 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		return 1;
 
 	case LWS_CALLBACK_CLOSED:
-		lwsl_user("%s: closed\n", __func__);
+		lwsl_info("%s: closed\n", __func__);
 		return -1;
 
 	case LWS_CALLBACK_RECEIVE:

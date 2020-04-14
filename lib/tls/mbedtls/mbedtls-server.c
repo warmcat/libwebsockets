@@ -325,7 +325,7 @@ lws_tls_server_accept(struct lws *wsi)
 	}
 
 	m = SSL_get_error(wsi->tls.ssl, n);
-	lwsl_debug("%s: %p: accept SSL_get_error %d errno %d\n", __func__,
+	lwsl_notice("%s: %p: accept SSL_get_error %d errno %d\n", __func__,
 		   wsi, m, errno);
 
 	// mbedtls wrapper only

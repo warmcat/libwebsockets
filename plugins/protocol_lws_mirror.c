@@ -206,6 +206,15 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 	switch (reason) {
 	case LWS_CALLBACK_ESTABLISHED:
 		lwsl_info("%s: LWS_CALLBACK_ESTABLISHED\n", __func__);
+		if (!v) {
+			lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
+					lws_get_protocol(wsi),
+					sizeof(struct per_vhost_data__lws_mirror));
+			v = (struct per_vhost_data__lws_mirror *)
+					lws_protocol_vh_priv_get(lws_get_vhost(wsi),
+								 lws_get_protocol(wsi));
+			lws_pthread_mutex_init(&v->lock);
+		}
 
 		/*
 		 * mirror instance name... defaults to "", but if URL includes
@@ -332,13 +341,15 @@ bail1:
 		return 1; /* disallow compression */
 
 	case LWS_CALLBACK_PROTOCOL_INIT: /* per vhost */
-		lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
+		if (!v) {
+			lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
 				lws_get_protocol(wsi),
 				sizeof(struct per_vhost_data__lws_mirror));
-		v = (struct per_vhost_data__lws_mirror *)
+			v = (struct per_vhost_data__lws_mirror *)
 				lws_protocol_vh_priv_get(lws_get_vhost(wsi),
 							 lws_get_protocol(wsi));
-		lws_pthread_mutex_init(&v->lock);
+			lws_pthread_mutex_init(&v->lock);
+		}
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:

@@ -6,42 +6,6 @@ include(CheckLibraryExists)
 set(SAMP lws-minimal-dbus-ws-proxy-testclient)
 set(SRCS minimal-dbus-ws-proxy-testclient.c)
 
-if (NOT LWS_WITH_MINIMAL_EXAMPLES)
-	CHECK_LIBRARY_EXISTS(dbus-1 dbus_connection_set_watch_functions "" LWS_HAVE_LIBDBUS)
-	if (NOT LWS_HAVE_LIBDBUS)
-		message(FATAL_ERROR "Install dbus-devel, or libdbus-1-dev etc")
-	endif()
-
-	if (NOT LWS_DBUS_LIB)
-		set(LWS_DBUS_LIB "dbus-1")
-	endif()
-
-	if (NOT LWS_DBUS_INCLUDE1)
-		# look in fedora and debian / ubuntu place
-		if (EXISTS "/usr/include/dbus-1.0")
-			set(LWS_DBUS_INCLUDE1 "/usr/include/dbus-1.0")
-		else()
-			message(FATAL_ERROR "Set LWS_DBUS_INCLUDE1 to /usr/include/dbus-1.0 or wherever the main dbus includes are")
-		endif()
-	endif()
-
-	if (NOT LWS_DBUS_INCLUDE2)
-		# look in fedora... debian / ubuntu has the ARCH in the path...
-		if (EXISTS "/usr/lib64/dbus-1.0/include")
-			set(LWS_DBUS_INCLUDE2 "/usr/lib64/dbus-1.0/include")
-		else()
-			message(FATAL_ERROR "Set LWS_DBUS_INCLUDE2 to /usr/lib/ARCH-linux-gnu/dbus-1.0/include or wherever dbus-arch-deps.h is on your system")
-		endif()
-	endif()
-
-	set(CMAKE_REQUIRED_INCLUDES ${CMAKE_REQUIRED_INCLUDES};${LWS_DBUS_INCLUDE1};${LWS_DBUS_INCLUDE2})
-
-	if (NOT LWS_DBUS_INCLUDE1 OR NOT LWS_DBUS_INCLUDE2)
-		message(FATAL_ERROR "To build with libdbus, LWS_DBUS_INCLUDE1/2 must be given. See lib/roles/dbus/README.md")
-	endif()
-
-endif()
-
 # If we are being built as part of lws, confirm current build config supports
 # reqconfig, else skip building ourselves.
 #
@@ -107,10 +71,15 @@ require_lws_config(LWS_WITH_CLIENT 1 requirements)
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
-	
+
+	if (NOT LWS_PLAT_FREERTOS)
+		find_package(PkgConfig QUIET)
+		pkg_check_modules(PC_DBUS1 dbus-1 QUIET)
+		list(APPEND LWS_DBUS_INCLUDE1 ${PC_DBUS1_INCLUDE_DIRS})
+		list(APPEND LWS_DBUS_LIB "${PC_DBUS1_LIBRARIES};dl")
+	endif()
+
 	include_directories("${LWS_DBUS_INCLUDE1}")
-	include_directories("${LWS_DBUS_INCLUDE2}")
-	list(APPEND LIB_LIST dbus-1)
 
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared)

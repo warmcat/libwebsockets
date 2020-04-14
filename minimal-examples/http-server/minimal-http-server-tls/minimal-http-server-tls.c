@@ -52,24 +52,17 @@ int main(int argc, const char **argv)
 	struct lws_context_creation_info info;
 	struct lws_context *context;
 	const char *p;
-	int n = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE
-			/* for LLL_ verbosity above NOTICE to be built into lws,
-			 * lws must have been configured and built with
-			 * -DCMAKE_BUILD_TYPE=DEBUG instead of =RELEASE */
-			/* | LLL_INFO */ /* | LLL_PARSER */ /* | LLL_HEADER */
-			/* | LLL_EXT */ /* | LLL_CLIENT */ /* | LLL_LATENCY */
-			/* | LLL_DEBUG */;
-
-	if ((p = lws_cmdline_option(argc, argv, "-d")))
-		logs = atoi(p);
-
-	lws_set_log_level(logs, NULL);
-	lwsl_user("LWS minimal http server TLS | visit https://localhost:7681\n");
+	int n = 0;
 
 	signal(SIGINT, sigint_handler);
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
+	lws_cmdline_option_handle_builtin(argc, argv, &info);
+	lwsl_user("LWS minimal http server TLS | visit https://localhost:7681\n");
+
 	info.port = 7681;
+	if ((p = lws_cmdline_option(argc, argv, "--port")))
+		info.port = atoi(p);
 	info.mounts = &mount;
 	info.error_document_404 = "/404.html";
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |

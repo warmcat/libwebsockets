@@ -448,7 +448,7 @@ just_kill_connection:
 	}
 
 #if defined(LWS_WITH_CLIENT)
-	if ((lwsi_state(wsi) == LRS_WAITING_SERVER_REPLY ||
+	if (( // lwsi_state(wsi) == LRS_WAITING_SERVER_REPLY ||
 	     lwsi_state(wsi) == LRS_WAITING_DNS ||
 	     lwsi_state(wsi) == LRS_WAITING_CONNECT) &&
 	     !wsi->already_did_cce && wsi->protocol) {
