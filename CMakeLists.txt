@@ -19,6 +19,7 @@ set(LWS_WITH_POLL 1)
 
 # it's at this point any toolchain file is brought in
 project(libwebsockets C)
+include(CTest)
 
 #
 # Select features recommended for PC distro packaging
@@ -71,6 +72,18 @@ option(LWS_WITH_SECURE_STREAMS "Secure Streams protocol-agnostic API" OFF)
 option(LWS_WITH_SECURE_STREAMS_PROXY_API "Secure Streams support to work across processes" OFF)
 option(LWS_WITH_SECURE_STREAMS_SYS_AUTH_API_AMAZON_COM "Auth support for api.amazon.com" OFF)
 option(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY "Secure Streams Policy is hardcoded only" OFF)
+
+#
+# CTest options
+#
+#
+# If you build with LWS_WITH_MINIMAL_EXAMPLES, you can use CTest / make test to run
+# examples that can give a pass/fail response.  By default it runs tests both against
+# a local server peer and warmcat.com, if your CI wants to do the tests but does not
+# have internet routing, then you can still run a subset of tests with CTest / make
+# test that only does local tests by disabling this option.
+#
+option(LWS_CTEST_INTERNET_AVAILABLE "CTest will performs tests that need the Internet" ON)
 
 #
 # TLS library options... all except mbedTLS are basically OpenSSL variants.
@@ -141,8 +154,8 @@ option(LWS_WITH_DIR "Directory scanning api support" ON)
 option(LWS_WITH_LEJP_CONF "With LEJP configuration parser as used by lwsws" ON)
 endif()
 option(LWS_WITH_NO_LOGS "Disable all logging other than _err and _user from being compiled in" OFF)
-option(LWS_LOGGING_BITFIELD_SET "Bitfield describing which log levels to force included into the build" 0)
-option(LWS_LOGGING_BITFIELD_CLEAR "Bitfield describing which log levels to force removed from the build" 0)
+set(LWS_LOGGING_BITFIELD_SET 0 CACHE STRING "Bitfield describing which log levels to force included into the build")
+set(LWS_LOGGING_BITFIELD_CLEAR 0 CACHE STRING "Bitfield describing which log levels to force removed from the build")
 option(LWS_LOGS_TIMESTAMP "Timestamp at start of logs" ON)
 option(LWS_AVOID_SIGPIPE_IGN "Android 7+ reportedly needs this" OFF)
 option(LWS_WITH_STATS "Keep statistics of lws internal operations" OFF)

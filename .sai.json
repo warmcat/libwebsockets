@@ -3,23 +3,23 @@
 
 	"platforms": {
 		"linux-ubuntu-xenial-amd64": {
-			"build": "mkdir build destdir;cd build;cmake .. ${cmake};make -j;make -j DESTDIR=../destdir install"
+			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;cmake .. ${cmake};make -j;make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure"
 		},
-		"linux-ubuntu-bionic-amd64": {
-			"build": "mkdir build destdir;cd build;cmake .. ${cmake};make -j;make -j DESTDIR=../destdir install"
+		"linux-ubuntu-focal-amd64": {
+			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;cmake .. ${cmake};make -j;make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure"
 		},
 		"linux-fedora-32-x86_64": {
-			"build": "mkdir build destdir;cd build;cmake .. ${cmake};make -j;make -j DESTDIR=../destdir install"
+			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;cmake .. ${cmake};make -j;make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure"
 		},
 		"OSX-catalina": {
-			"build": "mkdir build destdir; cd build; cmake .. -DLWS_OPENSSL_INCLUDE_DIRS=/usr/local/opt/openssl@1.1/include -DLWS_OPENSSL_LIBRARIES=\"/usr/local/opt/openssl/lib/libssl.dylib;/usr/local/opt/openssl/lib/libcrypto.dylib\" ${cmake} && make -j"
+			"build": "mkdir build destdir; cd build; cmake .. -DLWS_OPENSSL_INCLUDE_DIRS=/usr/local/opt/openssl@1.1/include -DLWS_OPENSSL_LIBRARIES=\"/usr/local/opt/openssl/lib/libssl.dylib;/usr/local/opt/openssl/lib/libcrypto.dylib\" ${cmake} && make -j && ctest -j4 --output-on-failure"
 		},
 		"linkit-cross": {
-			"build": "mkdir build;cd build;cmake .. -DCMAKE_INSTALL_PREFIX:PATH=/tmp -DCMAKE_TOOLCHAIN_FILE=../contrib/cross-linkit.cmake -DLWS_PLAT_FREERTOS=1 -DLWS_WITH_ZLIB=0 -DLWS_WITHOUT_EXTENSIONS=1 -DLWS_WITH_ZIP_FOPS=0 -DLWS_WITH_HTTP_STREAM_COMPRESSION=0 -DLWS_WITH_MBEDTLS=1 -DLWS_WITH_FILE_OPS=0 ${cmake};make -j",
+			"build": "mkdir build;cd build;export CCACHE_DISABLE=1;cmake .. -DCMAKE_INSTALL_PREFIX:PATH=/tmp -DCMAKE_TOOLCHAIN_FILE=../contrib/cross-linkit.cmake -DLWS_PLAT_FREERTOS=1 -DLWS_WITH_ZLIB=0 -DLWS_WITHOUT_EXTENSIONS=1 -DLWS_WITH_ZIP_FOPS=0 -DLWS_WITH_HTTP_STREAM_COMPRESSION=0 -DLWS_WITH_MBEDTLS=1 -DLWS_WITH_FILE_OPS=0 ${cmake};make -j",
 			"default": false
 		},
 		"windows-10": {
-			"build": "mkdir build && cd build && cmake .. -DLWS_EXT_PTHREAD_INCLUDE_DIR=\"C:\\Program Files (x86)\\pthreads\\include\" -DLWS_EXT_PTHREAD_LIBRARIES=\"C:\\Program Files (x86)\\pthreads\\lib\\x64\\libpthreadGC2.a\" ${cmake} && cmake --build . --config DEBUG",
+			"build": "mkdir build && cd build && cmake .. -DLWS_EXT_PTHREAD_INCLUDE_DIR=\"C:\\Program Files (x86)\\pthreads\\include\" -DLWS_EXT_PTHREAD_LIBRARIES=\"C:\\Program Files (x86)\\pthreads\\lib\\x64\\libpthreadGC2.a\" ${cmake} && cmake --build . --config DEBUG && set CTEST_OUTPUT_ON_FAILURE=1 && ctest . -C DEBUG -j4 --output-on-failure",
 			"default": false
 		}
 	},

@@ -89,6 +89,42 @@ require_lws_config(LWS_WITH_CLIENT 1 requirements)
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
+       #
+       # instantiate the server per sai builder instance, they are running in the same
+       # machine context in parallel so they can tread on each other otherwise
+       #
+       set(SPLOCALTESTPORT "7620")
+       if ("$ENV{SAI_INSTANCE_IDX}" STREQUAL "0")
+	       set(SPLOCALTESTPORT 7621)
+       endif()
+       if ("$ENV{SAI_INSTANCE_IDX}" STREQUAL "1")
+	       set(SPLOCALTESTPORT 7622)
+       endif()
+       if ("$ENV{SAI_INSTANCE_IDX}" STREQUAL "2")
+	       set(SPLOCALTESTPORT 7623)
+       endif()
+
+# hack
+if (WIN32)
+else()
+
+if (WIN32)
+	add_test(NAME sts COMMAND cmd.exe /c start /b $<TARGET_FILE:test-server> -s --port ${SPLOCALTESTPORT})
+	add_test(NAME cts COMMAND taskkill /F /IM $<TARGET_FILE_NAME:test-server> /T)
+else()
+	add_test(NAME sts COMMAND ${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh $<TARGET_FILE:test-server> -s --port ${SPLOCALTESTPORT})
+	add_test(NAME cts COMMAND ${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh $<TARGET_FILE_NAME:test-server>)
+endif()
+
+	set_tests_properties(sts PROPERTIES WORKING_DIRECTORY . FIXTURES_SETUP localspamserver TIMEOUT 800)
+	set_tests_properties(cts PROPERTIES FIXTURES_CLEANUP localspamserver)
+
+	add_test(NAME ws-client-spam COMMAND lws-minimal-ws-client-spam --server localhost --port ${SPLOCALTESTPORT} -l 32 -c 3)
+	set_tests_properties(ws-client-spam PROPERTIES
+			     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/ws-client/minimal-ws-client-spam
+			     FIXTURES_REQUIRED "localspamserver"
+			     TIMEOUT 40)
+endif()
 
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared ${PTHREAD_LIB})

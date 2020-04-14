@@ -69,6 +69,20 @@ require_lws_config(LWS_WITH_CLIENT 1 requirements)
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
+	if (LWS_CTEST_INTERNET_AVAILABLE)
+		add_test(NAME http-client-post-warmcat COMMAND lws-minimal-http-client-post --ignore-sigterm )
+		add_test(NAME http-client-post-warmcat-m COMMAND lws-minimal-http-client-post --ignore-sigterm -m)
+		add_test(NAME http-client-post-warmcat-h1 COMMAND lws-minimal-http-client-post --ignore-sigterm --h1)
+		add_test(NAME http-client-post-warmcat-m-h1 COMMAND lws-minimal-http-client-post --ignore-sigterm -m --h1)
+		set_tests_properties(http-client-post-warmcat
+				     http-client-post-warmcat-m
+				     http-client-post-warmcat-h1
+				     http-client-post-warmcat-m-h1
+				     PROPERTIES
+				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/http-client/minimal-http-client-post
+				     TIMEOUT 20)
+
+	endif()
 
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared)

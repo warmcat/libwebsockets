@@ -957,7 +957,9 @@ lws_system_cpd_start(struct lws_context *cx)
 #endif
 }
 
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 static const char *cname[] = { "?", "OK", "Captive", "No internet" };
+#endif
 
 void
 lws_system_cpd_set(struct lws_context *cx, lws_cpd_result_t result)
