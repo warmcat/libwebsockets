@@ -372,7 +372,7 @@ __remove_wsi_socket_from_fds(struct lws *wsi)
 		return -1;
 #endif
 
-	lws_same_vh_protocol_remove(wsi);
+	__lws_same_vh_protocol_remove(wsi);
 
 	/* the guy who is to be deleted's slot index in pt->fds */
 	m = wsi->position_in_fds_table;

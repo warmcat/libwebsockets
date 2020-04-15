@@ -1506,7 +1506,7 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 
 				if (lwsi_state(w) == LRS_IDLING) {
 					// lwsi_set_state(w, LRS_ESTABLISHED);
-					_lws_generic_transaction_completed_active_conn(&w);
+					_lws_generic_transaction_completed_active_conn(&w, 0);
 				}
 
 				//lwsi_set_state(w, LRS_H1C_ISSUE_HANDSHAKE2);
@@ -1560,7 +1560,7 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 
 			if (lwsi_state(w) == LRS_IDLING) {
 				// lwsi_set_state(w, LRS_ESTABLISHED);
-				_lws_generic_transaction_completed_active_conn(&w);
+				_lws_generic_transaction_completed_active_conn(&w, 0);
 			}
 
 			/*

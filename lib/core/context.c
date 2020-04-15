@@ -1075,6 +1075,10 @@ lws_context_destroy3(struct lws_context *context)
 		lws_system_blob_destroy(
 				lws_system_get_blob(context, n, 0));
 
+#if LWS_MAX_SMP > 1
+	lws_mutex_refcount_destroy(&context->mr);
+#endif
+
 	lws_free(context);
 	lwsl_info("%s: ctx %p freed\n", __func__, context);
 
@@ -1197,14 +1201,11 @@ lws_context_destroy2(struct lws_context *context)
 	lws_check_deferred_free(context, 0, 1);
 #endif
 
+	lws_context_unlock(context); /* } context ------ */
 
-#if LWS_MAX_SMP > 1
-	lws_mutex_refcount_destroy(&context->mr);
-#endif
 #if defined(LWS_WITH_NETWORK)
 	if (context->event_loop_ops->destroy_context2)
 		if (context->event_loop_ops->destroy_context2(context)) {
-			lws_context_unlock(context); /* } context ----------- */
 			context->finalize_destroy_after_internal_loops_stopped = 1;
 			return;
 		}
@@ -1216,12 +1217,10 @@ lws_context_destroy2(struct lws_context *context)
 		for (n = 0; n < context->count_threads; n++)
 			if (context->pt[n].inside_service) {
 				lwsl_debug("%p: bailing as inside service\n", __func__);
-				lws_context_unlock(context); /* } context --- */
 				return;
 			}
 	}
 #endif
-	lws_context_unlock(context); /* } context ------------------- */
 
 	lws_context_destroy3(context);
 }

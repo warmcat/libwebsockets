@@ -510,7 +510,7 @@ lws_http_transaction_completed_client(struct lws *wsi)
 	 * For h1, wsi may pass some assets on to a queued child and be
 	 * destroyed during this.
 	 */
-	n = _lws_generic_transaction_completed_active_conn(&wsi);
+	n = _lws_generic_transaction_completed_active_conn(&wsi, 1);
 
 	if (wsi->http.ah) {
 		if (wsi->client_mux_substream)

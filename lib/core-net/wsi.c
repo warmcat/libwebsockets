@@ -761,7 +761,7 @@ lws_get_context(const struct lws *wsi)
 
 #if defined(LWS_WITH_CLIENT)
 int
-_lws_generic_transaction_completed_active_conn(struct lws **_wsi)
+_lws_generic_transaction_completed_active_conn(struct lws **_wsi, char take_vh_lock)
 {
 	struct lws *wnew, *wsi = *_wsi;
 
@@ -808,7 +808,8 @@ _lws_generic_transaction_completed_active_conn(struct lws **_wsi)
 	 * closing ourself
 	 */
 
-	lws_vhost_lock(wsi->vhost);
+	if (take_vh_lock)
+		lws_vhost_lock(wsi->vhost);
 
 	wnew = lws_container_of(wsi->dll2_cli_txn_queue_owner.head, struct lws,
 				dll2_cli_txn_queue);
@@ -891,7 +892,8 @@ _lws_generic_transaction_completed_active_conn(struct lws **_wsi)
 
 	} lws_end_foreach_dll_safe(d, d1);
 
-	lws_vhost_unlock(wsi->vhost);
+	if (take_vh_lock)
+		lws_vhost_unlock(wsi->vhost);
 
 	/*
 	 * The original leader who passed on all his powers already can die...
