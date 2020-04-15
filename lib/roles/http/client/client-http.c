@@ -471,7 +471,8 @@ client_http_body_sent:
 		return lws_client_interpret_server_handshake(wsi);
 
 bail3:
-		lwsl_info("closing conn at LWS_CONNMODE...SERVER_REPLY\n");
+		lwsl_info("%s: closing conn at LWS_CONNMODE...SERVER_REPLY, wsi %p, state 0x%x\n",
+				__func__, wsi, lwsi_state(wsi));
 		if (cce)
 			lwsl_info("reason: %s\n", cce);
 		lws_inform_client_conn_fail(wsi, (void *)cce, strlen(cce));

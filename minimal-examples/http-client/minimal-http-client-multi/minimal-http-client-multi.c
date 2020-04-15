@@ -44,7 +44,7 @@ static int completed, failed, numbered, stagger_idx, posting, count = COUNT;
 static lws_sorted_usec_list_t sul_stagger;
 static struct lws_client_connect_info i;
 static struct lws *client_wsi[COUNT];
-static char urlpath[64];
+static char urlpath[64], intr;
 static struct lws_context *context;
 
 /* we only need this for tracking POST emit state */
@@ -198,7 +198,7 @@ finished:
 			lwsl_user("Done: all OK\n");
 		else
 			lwsl_err("Done: failed: %d\n", failed);
-		//interrupted = 1;
+		intr = 1;
 		/*
 		 * This is how we can exit the event loop even when it's an
 		 * event library backing it... it will start and stage the
@@ -459,7 +459,7 @@ int main(int argc, const char **argv)
 				 100 * LWS_US_PER_MS);
 
 	start = us();
-	while (!lws_service(context, 0))
+	while (!intr && !lws_service(context, 0))
 		;
 
 	lwsl_user("Duration: %lldms\n", (us() - start) / 1000);

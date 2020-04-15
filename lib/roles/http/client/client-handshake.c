@@ -192,7 +192,8 @@ send_hs:
 	} else {
 		lwsl_info("%s: wsi %p: %s %s client created own conn (raw %d) vh %sm st 0x%x\n",
 			    __func__, wsi, wsi->role_ops->name,
-			    wsi->protocol->name, rawish, wsi->vhost->name, lwsi_state(wsi));
+			    wsi->protocol->name, rawish, wsi->vhost->name,
+			    lwsi_state(wsi));
 
 		/* we are making our own connection */
 
@@ -231,9 +232,10 @@ send_hs:
 		}
 #endif
 
-		if (!rawish)
-			lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE);
-		else {
+		if (!rawish) {
+			if (lwsi_state(wsi) != LRS_H1C_ISSUE_HANDSHAKE2)
+				lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE);
+		} else {
 			/* for a method = "RAW" connection, this makes us
 			 * established */
 
@@ -848,6 +850,13 @@ lws_client_connect_2_dnsreq(struct lws *wsi)
 
 		return wsi;
 	case ACTIVE_CONNS_QUEUED:
+		if (lwsi_state(wsi) == LRS_UNCONNECTED) {
+			if (lwsi_role_h2(w))
+				lwsi_set_state(wsi, LRS_H2_WAITING_TO_SEND_HEADERS);
+			else
+				lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE2);
+		}
+
 		return lws_client_connect_4_established(wsi, w, 0);
 	}
 

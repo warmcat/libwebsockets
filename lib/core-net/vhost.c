@@ -1424,6 +1424,10 @@ lws_get_vhost_by_name(struct lws_context *context, const char *name)
  *
  * This was originally in the client code but since the list is held on the
  * vhost (to ensure the same client tls ctx is involved) it's cleaner in vhost.c
+ *
+ * ACTIVE_CONNS_QUEUED: We're queued on an active connection, set *nwsi to that
+ * ACTIVE_CONNS_MUXED: We are joining an active mux conn *nwsi as a child
+ * ACTIVE_CONNS_SOLO: There's no existing conn to join either way
  */
 
 int
