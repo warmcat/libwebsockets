@@ -383,12 +383,6 @@ if(GIT_EXECUTABLE)
 	message("Git commit hash: ${LWS_BUILD_HASH}")
 endif()
 
-# translate old functionality enables to set up ROLE enables so nothing changes
-if (LWS_WITH_HTTP2 AND LWS_WITHOUT_SERVER)
-	set(LWS_WITH_HTTP2 0)
-	message("HTTP2 disabled due to LWS_WITHOUT_SERVER")
-endif()
-
 if (LWS_WITH_HTTP2)
 	set(LWS_ROLE_H2 1)
 endif()
@@ -789,10 +783,6 @@ endif()
 
 if (LWS_UNIX_SOCK)
     set(LWS_WITH_UNIX_SOCK 1)
-endif()
-
-if (LWS_WITH_HTTP2)
-	set(LWS_WITH_HTTP2 1)
 endif()
 
 if ("${LWS_MAX_SMP}" STREQUAL "")
@@ -1514,7 +1504,7 @@ if (NOT LWS_WITHOUT_BUILTIN_SHA1)
 		lib/misc/sha-1.c)
 endif()
 
-if (LWS_WITH_HTTP2 AND NOT LWS_WITHOUT_SERVER)
+if (LWS_WITH_HTTP2)
 	list(APPEND SOURCES
 		lib/roles/h2/http2.c
 		lib/roles/h2/hpack.c

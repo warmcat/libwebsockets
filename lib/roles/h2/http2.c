@@ -2466,7 +2466,7 @@ fail_length:
 }
 #endif
 
-#if defined(LWS_ROLE_WS)
+#if defined(LWS_ROLE_WS) && defined(LWS_WITH_SERVER)
 int
 lws_h2_ws_handshake(struct lws *wsi)
 {

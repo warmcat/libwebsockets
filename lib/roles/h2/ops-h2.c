@@ -488,6 +488,7 @@ rops_write_role_protocol_h2(struct lws *wsi, unsigned char *buf, size_t len,
 	return (int)olen;
 }
 
+#if defined(LWS_WITH_SERVER)
 static int
 rops_check_upgrades_h2(struct lws *wsi)
 {
@@ -526,6 +527,7 @@ rops_check_upgrades_h2(struct lws *wsi)
 	return LWS_UPG_RET_CONTINUE;
 #endif
 }
+#endif
 
 static int
 rops_init_vhost_h2(struct lws_vhost *vh,
@@ -1225,7 +1227,11 @@ rops_issue_keepalive_h2(struct lws *wsi, int isvalid)
 const struct lws_role_ops role_ops_h2 = {
 	/* role name */			"h2",
 	/* alpn id */			"h2",
+#if defined(LWS_WITH_SERVER)
 	/* check_upgrades */		rops_check_upgrades_h2,
+#else
+					NULL,
+#endif
 	/* pt_init_destroy */		rops_pt_init_destroy_h2,
 	/* init_vhost */		rops_init_vhost_h2,
 	/* destroy_vhost */		NULL,
