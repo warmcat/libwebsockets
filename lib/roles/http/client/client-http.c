@@ -1022,7 +1022,7 @@ lws_client_http_multipart(struct lws *wsi, const char *name,
 	assert(wsi->http.multipart);
 
 	if (!name) {
-		*p += lws_snprintf((char *)(*p), lws_ptr_diff(end, p),
+		*p += lws_snprintf((char *)(*p), lws_ptr_diff(end, *p),
 					"\xd\xa--%s--\xd\xa",
 					wsi->http.multipart_boundary);
 
@@ -1030,22 +1030,22 @@ lws_client_http_multipart(struct lws *wsi, const char *name,
 	}
 
 	if (wsi->client_subsequent_mime_part)
-		*p += lws_snprintf((char *)(*p), lws_ptr_diff(end, p), "\xd\xa");
+		*p += lws_snprintf((char *)(*p), lws_ptr_diff(end, *p), "\xd\xa");
 	wsi->client_subsequent_mime_part = 1;
 
-	*p += lws_snprintf((char *)(*p), lws_ptr_diff(end, p), "--%s\xd\xa"
+	*p += lws_snprintf((char *)(*p), lws_ptr_diff(end, *p), "--%s\xd\xa"
 				    "Content-Disposition: form-data; "
 				      "name=\"%s\"",
 				      wsi->http.multipart_boundary, name);
 	if (filename)
-		*p += lws_snprintf((char *)(*p), lws_ptr_diff(end, p),
+		*p += lws_snprintf((char *)(*p), lws_ptr_diff(end, *p),
 				   "; filename=\"%s\"", filename);
 
 	if (content_type)
-		*p += lws_snprintf((char *)(*p), lws_ptr_diff(end, p), "\xd\xa"
+		*p += lws_snprintf((char *)(*p), lws_ptr_diff(end, *p), "\xd\xa"
 				"Content-Type: %s", content_type);
 
-	*p += lws_snprintf((char *)(*p), lws_ptr_diff(end, p), "\xd\xa\xd\xa");
+	*p += lws_snprintf((char *)(*p), lws_ptr_diff(end, *p), "\xd\xa\xd\xa");
 
 	return *p == end;
 }
