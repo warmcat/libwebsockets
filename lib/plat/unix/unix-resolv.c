@@ -28,10 +28,12 @@ lws_async_dns_server_check_t
 lws_plat_asyncdns_init(struct lws_context *context, lws_sockaddr46 *sa46)
 {
 	lws_async_dns_server_check_t s = LADNS_CONF_SERVER_CHANGED;
-	char resolv[512], ads[48];
 	lws_sockaddr46 sa46t;
 	lws_tokenize_t ts;
 	int fd, n, ns = 0;
+	char ads[48], *r;
+
+	r = (char *)context->pt[0].serv_buf;
 
 	/* grab the first chunk of /etc/resolv.conf */
 
@@ -39,17 +41,17 @@ lws_plat_asyncdns_init(struct lws_context *context, lws_sockaddr46 *sa46)
 	if (fd < 0)
 		return LADNS_CONF_SERVER_UNKNOWN;
 
-	n = read(fd, resolv, sizeof(resolv) - 1);
+	n = read(fd, r, context->pt_serv_buf_size - 1);
 	close(fd);
 	if (n < 0)
 		return LADNS_CONF_SERVER_UNKNOWN;
 
-	resolv[n] = '\0';
-	lws_tokenize_init(&ts, resolv, LWS_TOKENIZE_F_DOT_NONTERM |
-				       LWS_TOKENIZE_F_NO_FLOATS |
-				       LWS_TOKENIZE_F_NO_INTEGERS |
-				       LWS_TOKENIZE_F_MINUS_NONTERM |
-				       LWS_TOKENIZE_F_HASH_COMMENT);
+	r[n] = '\0';
+	lws_tokenize_init(&ts, r, LWS_TOKENIZE_F_DOT_NONTERM |
+				  LWS_TOKENIZE_F_NO_FLOATS |
+				  LWS_TOKENIZE_F_NO_INTEGERS |
+				  LWS_TOKENIZE_F_MINUS_NONTERM |
+				  LWS_TOKENIZE_F_HASH_COMMENT);
 	do {
 		ts.e = lws_tokenize(&ts);
 		if (ts.e != LWS_TOKZE_TOKEN) {
