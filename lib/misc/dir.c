@@ -34,6 +34,8 @@
 #include <string.h>
 #include <stdio.h>
 
+#define COMBO_SIZEOF 256
+
 #if defined(LWS_WITH_LIBUV) && UV_VERSION_MAJOR > 0
 
 int
@@ -94,12 +96,62 @@ static int filter(const struct dirent *ent)
 	return 1;
 }
 
+
+#if !defined(WIN32)
+static char csep = '/';
+#else
+static char csep = '\\';
+#endif
+
+static void
+lws_dir_via_stat(char *combo, size_t l, const char *path, struct lws_dir_entry *lde)
+{
+        struct stat s;
+
+        lws_strncpy(combo + l, path, COMBO_SIZEOF - l);
+
+        lde->type = LDOT_UNKNOWN;
+
+        if (!stat(combo, &s)) {
+		switch (s.st_mode & S_IFMT) {
+		case S_IFBLK:
+			lde->type = LDOT_BLOCK;
+			break;
+		case S_IFCHR:
+			lde->type = LDOT_CHAR;
+			break;
+		case S_IFDIR:
+			lde->type = LDOT_DIR;
+			break;
+		case S_IFIFO:
+			lde->type = LDOT_FIFO;
+			break;
+#if !defined(WIN32)
+		case S_IFLNK:
+			lde->type = LDOT_LINK;
+			break;
+#endif
+		case S_IFREG:
+			lde->type = LDOT_FILE;
+			break;
+		default:
+			break;
+		}
+        }
+}
+
 int
 lws_dir(const char *dirpath, void *user, lws_dir_callback_function cb)
 {
 	struct lws_dir_entry lde;
 	struct dirent **namelist;
 	int n, i, ret = 1;
+	char combo[COMBO_SIZEOF];
+	size_t l;
+
+	l = lws_snprintf(combo, COMBO_SIZEOF - 2, "%s", dirpath);
+	combo[l++] = csep;
+	combo[l] = '\0';
 
 	n = scandir((char *)dirpath, &namelist, filter, alphasort);
 	if (n < 0) {
@@ -118,46 +170,34 @@ lws_dir(const char *dirpath, void *user, lws_dir_callback_function cb)
 		 */
 
 #if defined(__sun)
-        struct stat s;
-        stat(namelist[i]->d_name, &s);
-		switch (s.st_mode) {
-		case S_IFBLK:
-			lde.type = LDOT_BLOCK;
-			break;
-		case S_IFCHR:
-			lde.type = LDOT_CHAR;
-			break;
-		case S_IFDIR:
-			lde.type = LDOT_DIR;
-			break;
-		case S_IFIFO:
-			lde.type = LDOT_FIFO;
-			break;
-		case S_IFLNK:
-			lde.type = LDOT_LINK;
-			break;
-		case S_IFREG:
-			lde.type = LDOT_FILE;
-			break;
-		default:
-			lde.type = LDOT_UNKNOWN;
-			break;
-		}
+		lws_dir_via_stat(combo, l, namelist[i]->d_name, &lde);
 #else
+		/*
+		 * XFS on Linux doesn't fill in d_type at all, always zero.
+		 */
+
 		switch (namelist[i]->d_type) {
+#if DT_BLK != DT_UNKNOWN
 		case DT_BLK:
 			lde.type = LDOT_BLOCK;
 			break;
+#endif
+#if DT_CHR != DT_UNKNOWN
 		case DT_CHR:
 			lde.type = LDOT_CHAR;
 			break;
+#endif
+#if DT_DIR != DT_UNKNOWN
 		case DT_DIR:
 			lde.type = LDOT_DIR;
 			break;
+#endif
+#if DT_FIFO != DT_UNKNOWN
 		case DT_FIFO:
 			lde.type = LDOT_FIFO;
 			break;
-#if !defined(WIN32)
+#endif
+#if DT_LNK != DT_UNKNOWN
 		case DT_LNK:
 			lde.type = LDOT_LINK;
 			break;
@@ -165,13 +205,14 @@ lws_dir(const char *dirpath, void *user, lws_dir_callback_function cb)
 		case DT_REG:
 			lde.type = LDOT_FILE;
 			break;
-#if !defined(WIN32)
+#if DT_SOCK != DT_UNKNOWN
 		case DT_SOCK:
 			lde.type = LDOTT_SOCKET;
 			break;
 #endif
 		default:
 			lde.type = LDOT_UNKNOWN;
+			lws_dir_via_stat(combo, l, namelist[i]->d_name, &lde);
 			break;
 		}
 #endif
