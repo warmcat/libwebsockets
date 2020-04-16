@@ -32,9 +32,9 @@ int
 _lws_plat_service_forced_tsi(struct lws_context *context, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
-	int m, n;
+	int m, n, r;
 
-	lws_service_flag_pending(context, tsi);
+	r = lws_service_flag_pending(context, tsi);
 
 	/* any socket with events to service? */
 	for (n = 0; n < (int)pt->fds_count; n++) {
@@ -51,7 +51,7 @@ _lws_plat_service_forced_tsi(struct lws_context *context, int tsi)
 
 	lws_service_do_ripe_rxflow(pt);
 
-	return 0;
+	return r;
 }
 
 
@@ -125,12 +125,6 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	}
 
 	/*
-	 * is there anybody with pending stuff that needs service forcing?
-	 */
-	if (!lws_service_adjust_timeout(context, 1, tsi))
-		_lws_plat_service_forced_tsi(context, tsi);
-
-	/*
 	 * service pending callbacks and get maximum wait time
 	 */
 	{
@@ -145,6 +139,15 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		lws_pt_unlock(pt);
 	}
 
+	if (_lws_plat_service_forced_tsi(context, tsi))
+		timeout_us = 0;
+
+	/*
+	 * is there anybody with pending stuff that needs service forcing?
+	 */
+	if (!lws_service_adjust_timeout(context, 1, tsi))
+		timeout_us = 0;
+
 	for (n = 0; n < (int)pt->fds_count; n++)
 		WSAEventSelect(pt->fds[n].fd, pt->events,
 		       FD_READ | (!!(pt->fds[n].events & LWS_POLLOUT) * FD_WRITE) |
@@ -155,70 +158,73 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 
 	ev = WSAWaitForMultipleEvents(1, &pt->events, FALSE,
 				      (DWORD)(timeout_us / LWS_US_PER_MS), FALSE);
-	if (ev == WSA_WAIT_EVENT_0) {
-		EnterCriticalSection(&pt->interrupt_lock);
-		interrupt_requested = pt->interrupt_requested;
-		pt->interrupt_requested = 0;
-		LeaveCriticalSection(&pt->interrupt_lock);
-		if (interrupt_requested) {
-			lws_broadcast(pt, LWS_CALLBACK_EVENT_WAIT_CANCELLED,
-				      NULL, 0);
-			return 0;
-		}
+	if (ev != WSA_WAIT_EVENT_0)
+		return 0;
 
-#if defined(LWS_WITH_TLS)
-		if (pt->context->tls_ops &&
-		    pt->context->tls_ops->fake_POLLIN_for_buffered)
-			pt->context->tls_ops->fake_POLLIN_for_buffered(pt);
-#endif
-
-		for (eIdx = 0; eIdx < pt->fds_count; ++eIdx) {
-			unsigned int err;
-
-			if (WSAEnumNetworkEvents(pt->fds[eIdx].fd, pt->events,
-					&networkevents) == SOCKET_ERROR) {
-				lwsl_err("WSAEnumNetworkEvents() failed "
-					 "with error %d\n", LWS_ERRNO);
-				return -1;
-			}
-
-			if (!networkevents.lNetworkEvents)
-				networkevents.lNetworkEvents = LWS_POLLOUT;
-
-			pfd = &pt->fds[eIdx];
-			pfd->revents = (short)networkevents.lNetworkEvents;
-
-			err = networkevents.iErrorCode[FD_CONNECT_BIT];
-
-			if ((networkevents.lNetworkEvents & FD_CONNECT) &&
-			     err && err != LWS_EALREADY &&
-			     err != LWS_EINPROGRESS && err != LWS_EWOULDBLOCK &&
-			     err != WSAEINVAL) {
-				lwsl_debug("Unable to connect errno=%d\n", err);
-				pfd->revents |= LWS_POLLHUP;
-			}
-
-			if (pfd->revents & LWS_POLLOUT) {
-				wsi = wsi_from_fd(context, pfd->fd);
-				if (wsi)
-					wsi->sock_send_blocking = 0;
-			}
-			 /* if something closed, retry this slot */
-			if (pfd->revents & LWS_POLLHUP)
-				--eIdx;
-
-			if (pfd->revents) {
-				recv(pfd->fd, NULL, 0, 0);
-				lws_service_fd_tsi(context, pfd, tsi);
-			}
-		}
-
+	EnterCriticalSection(&pt->interrupt_lock);
+	interrupt_requested = pt->interrupt_requested;
+	pt->interrupt_requested = 0;
+	LeaveCriticalSection(&pt->interrupt_lock);
+	if (interrupt_requested) {
+		lws_broadcast(pt, LWS_CALLBACK_EVENT_WAIT_CANCELLED,
+			      NULL, 0);
 		return 0;
 	}
 
-	// if (ev == WSA_WAIT_TIMEOUT) { }
-	// if (ev == WSA_WAIT_FAILED)
-		// return 0;
+#if defined(LWS_WITH_TLS)
+	if (pt->context->tls_ops &&
+	    pt->context->tls_ops->fake_POLLIN_for_buffered)
+		pt->context->tls_ops->fake_POLLIN_for_buffered(pt);
+#endif
+
+	for (eIdx = 0; eIdx < pt->fds_count; ++eIdx) {
+		unsigned int err;
+
+		if (WSAEnumNetworkEvents(pt->fds[eIdx].fd, pt->events,
+				&networkevents) == SOCKET_ERROR) {
+			lwsl_err("WSAEnumNetworkEvents() failed "
+				 "with error %d\n", LWS_ERRNO);
+			return -1;
+		}
+
+		if (!networkevents.lNetworkEvents)
+			networkevents.lNetworkEvents = LWS_POLLOUT;
+
+		pfd = &pt->fds[eIdx];
+		pfd->revents = (short)networkevents.lNetworkEvents;
+
+		err = networkevents.iErrorCode[FD_CONNECT_BIT];
+
+		if ((networkevents.lNetworkEvents & FD_CONNECT) &&
+		     err && err != LWS_EALREADY &&
+		     err != LWS_EINPROGRESS && err != LWS_EWOULDBLOCK &&
+		     err != WSAEINVAL) {
+			lwsl_debug("Unable to connect errno=%d\n", err);
+			pfd->revents |= LWS_POLLHUP;
+		}
+
+		if (pfd->revents & LWS_POLLOUT) {
+			wsi = wsi_from_fd(context, pfd->fd);
+			if (wsi)
+				wsi->sock_send_blocking = 0;
+		}
+		 /* if something closed, retry this slot */
+		if (pfd->revents & LWS_POLLHUP)
+			--eIdx;
+
+		if (pfd->revents) {
+			/*
+			 * On windows is somehow necessary to "acknowledge" the
+			 * POLLIN event, otherwise we never receive another one
+			 * on the TCP connection.  But it breaks UDP, so only
+			 * do it on non-UDP.
+			 */
+			if (!wsi_from_fd(context, pfd->fd)->udp)
+				recv(pfd->fd, NULL, 0, 0);
+
+			lws_service_fd_tsi(context, pfd, tsi);
+		}
+	}
 
 	return 0;
 }
