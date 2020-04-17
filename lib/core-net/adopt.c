@@ -539,7 +539,7 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 		}
 
 		if (!wsi->do_bind && !wsi->pf_packet) {
-
+#if !defined(__APPLE__)
 			if (connect(sock.sockfd, wsi->dns_results_next->ai_addr,
 				     (socklen_t)wsi->dns_results_next->ai_addrlen) == -1) {
 				lwsl_err("%s: conn fd %d fam %d %s:%u failed "
@@ -552,7 +552,7 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 				compatible_close(sock.sockfd);
 				goto resume;
 			}
-
+#endif
 			memcpy(&wsi->udp->sa, wsi->dns_results_next->ai_addr,
 			       wsi->dns_results_next->ai_addrlen);
 			wsi->udp->salen = (socklen_t)wsi->dns_results_next->ai_addrlen;
