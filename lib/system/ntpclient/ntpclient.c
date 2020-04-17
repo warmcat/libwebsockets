@@ -50,7 +50,8 @@ struct vhd_ntpc {
  * and the transaction forever.
  */
 
-static const uint32_t botable[] = { 1000, 1250, 1500, 2000, 3000 };
+static const uint32_t botable[] =
+		{ 300, 500, 650, 800, 800, 900, 1000, 1100, 1500 };
 static const lws_retry_bo_t bo = {
 	botable, LWS_ARRAY_SIZE(botable), LWS_RETRY_CONCEAL_ALWAYS, 0, 0, 20 };
 
