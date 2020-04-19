@@ -329,13 +329,14 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		lsp->stdwsi[n]->opaque_user_data = i->opaque;
 
 		lwsl_debug("%s: lsp stdwsi %p: pipe idx %d -> fd %d / %d\n", __func__,
-			   lsp->stdwsi[n], n, lsp->pipe_fds[n][!!(n == 0)],
-			   lsp->pipe_fds[n][!(n == 0)]);
+			   lsp->stdwsi[n], n, lsp->pipe_fds[n][n == 0],
+			   lsp->pipe_fds[n][n != 0]);
 
 		/* read side is 0, stdin we want the write side, others read */
 
-		lsp->stdwsi[n]->desc.sockfd = lsp->pipe_fds[n][!!(n == 0)];
-		if (fcntl(lsp->pipe_fds[n][!!(n == 0)], F_SETFL, O_NONBLOCK) < 0) {
+		lws_plat_apply_FD_CLOEXEC(lsp->pipe_fds[n][n == 0]);
+		lsp->stdwsi[n]->desc.sockfd = lsp->pipe_fds[n][n == 0];
+		if (fcntl(lsp->pipe_fds[n][n == 0], F_SETFL, O_NONBLOCK) < 0) {
 			lwsl_err("%s: setting NONBLOCK failed\n", __func__);
 			goto bail2;
 		}
@@ -389,7 +390,19 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 
 	if (lsp->child_pid) {
 
-		/* we are the parent process */
+		/*
+		 * We are the parent process
+		 *
+		 *  close:                stdin:r, stdout:w, stderr:w
+		 * hide from other forks: stdin:w, stdout:r, stderr:r
+		 */
+		for (n = 0; n < 3; n++) {
+			/* these guys don't have any wsi footprint */
+			close(lsp->pipe_fds[n][n != 0]);
+		}
+
+		lsp->pipes_alive = 3;
+		lsp->created = lws_now_usecs();
 
 		lwsl_info("%s: lsp %p spawned PID %d\n", __func__, lsp,
 			  lsp->child_pid);
@@ -397,18 +410,6 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		lws_sul_schedule(context, i->tsi, &lsp->sul, lws_spawn_timeout,
 				 i->timeout_us ? i->timeout_us :
 						   300 * LWS_US_PER_SEC);
-
-		/*
-		 *  close:                stdin:r, stdout:w, stderr:w
-		 * hide from other forks: stdin:w, stdout:r, stderr:r
-		 */
-		for (n = 0; n < 3; n++) {
-			lws_plat_apply_FD_CLOEXEC(lsp->pipe_fds[n][!!(n == 0)]);
-			close(lsp->pipe_fds[n][!(n == 0)]);
-		}
-
-		lsp->pipes_alive = 3;
-		lsp->created = lws_now_usecs();
 
 		if (i->owner)
 			lws_dll2_add_head(&lsp->dll, i->owner);
@@ -444,7 +445,7 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		lwsl_notice("%s: Failed to cd to %s\n", __func__, wd);
 
 	for (m = 0; m < 3; m++) {
-		if (dup2(lsp->pipe_fds[m][!(m == 0)], m) < 0) {
+		if (dup2(lsp->pipe_fds[m][m != 0], m) < 0) {
 			lwsl_err("%s: stdin dup2 failed\n", __func__);
 			goto bail3;
 		}
@@ -457,8 +458,7 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		 * identity during this pre-exec() time
 		 */
 #if !defined(LWS_HAVE_VFORK) || !defined(LWS_HAVE_EXECVPE)
-		close(lsp->pipe_fds[m][!(m == 0)]);
-		close(lsp->pipe_fds[m][!!(m == 0)]);
+		close(lsp->pipe_fds[m][m != 0]);
 #endif
 	}
 
