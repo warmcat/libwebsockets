@@ -204,8 +204,6 @@ send_hs:
 		if (lwsi_state(wsi) == LRS_WAITING_CONNECT &&
 		    (wsi->tls.use_ssl & LCCSCF_USE_SSL)) {
 
-
-
 			/* we can retry this... just cook the SSL BIO the first time */
 
 			switch (lws_client_create_tls(wsi, &cce, 1)) {
@@ -217,13 +215,18 @@ send_hs:
 				goto failed;
 			}
 
+			/*
+			 * We succeeded to negotiate a new client tls tunnel.
+			 * If it's h2 alpn, we have arranged to send to h2
+			 * prefix and set our state to
+			 * LRS_H2_WAITING_TO_SEND_HEADERS already.
+			 */
 
-
-			lwsl_notice("%s: wsi %p: st 0x%x\n",
+			lwsl_notice("%s: wsi %p: tls established st 0x%x\n",
 				    __func__, wsi, lwsi_state(wsi));
 
-			if (lwsi_state(wsi) == LRS_WAITING_CONNECT)
-				lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE2);
+			if (lwsi_state(wsi) != LRS_H2_WAITING_TO_SEND_HEADERS)
+				lwsi_set_state(wsi, LRS_WAITING_SSL);
 			lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
 					wsi->context->timeout_secs);
 

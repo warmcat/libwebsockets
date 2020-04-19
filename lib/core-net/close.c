@@ -454,6 +454,9 @@ just_kill_connection:
 	     !wsi->already_did_cce && wsi->protocol) {
 		static const char _reason[] = "closed before established";
 
+		lwsl_notice("%s: closing in unestablished state 0x%x\n",
+				__func__, lwsi_state(wsi));
+
 		lws_inform_client_conn_fail(wsi,
 			(void *)_reason, sizeof(_reason));
 	}

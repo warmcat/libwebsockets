@@ -757,9 +757,8 @@ lws_threadpool_finish(struct lws_threadpool *tp)
 		c = &task->task_queue_next;
 	}
 
-	pthread_mutex_unlock(&tp->lock); /* -------------------- tpool unlock */
-
 	pthread_cond_broadcast(&tp->wake_idle);
+	pthread_mutex_unlock(&tp->lock); /* -------------------- tpool unlock */
 }
 
 void
@@ -1068,6 +1067,12 @@ lws_threadpool_task_status(struct lws_threadpool_task *task, void **user)
 }
 
 enum lws_threadpool_task_status
+lws_threadpool_task_status_noreap(struct lws_threadpool_task *task)
+{
+	return task->status;
+}
+
+enum lws_threadpool_task_status
 lws_threadpool_task_status_wsi(struct lws *wsi,
 			       struct lws_threadpool_task **_task, void **user)
 {
@@ -1098,7 +1103,9 @@ lws_threadpool_task_sync(struct lws_threadpool_task *task, int stop)
 	if (stop)
 		state_transition(task, LWS_TP_STATUS_STOPPING);
 
+	pthread_mutex_lock(&task->tp->lock);
 	pthread_cond_signal(&task->wake_idle);
+	pthread_mutex_unlock(&task->tp->lock);
 }
 
 int

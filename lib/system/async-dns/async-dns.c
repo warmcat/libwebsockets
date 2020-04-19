@@ -214,8 +214,8 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 	n = lws_ptr_diff(p, pkt + LWS_PRE);
 	m = lws_write(wsi, pkt + LWS_PRE, n, 0);
 	if (m != n) {
-		lwsl_notice("%s: dns write failed %d %d\n", __func__,
-			    m, n);
+		lwsl_notice("%s: dns write failed %d %d errno %d\n", __func__,
+			    m, n, errno);
 		goto qfail;
 	}
 

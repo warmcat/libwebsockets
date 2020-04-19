@@ -643,7 +643,8 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 			return n;
 		if (lwsi_state(wsi) != LRS_SSL_INIT)
 			if (lws_server_socket_service_ssl(wsi,
-							  LWS_SOCK_INVALID))
+							  LWS_SOCK_INVALID,
+					!!(pollfd->revents & LWS_POLLIN)))
 				return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
 		return LWS_HPI_RET_HANDLED;

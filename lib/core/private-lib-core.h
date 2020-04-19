@@ -589,7 +589,7 @@ LWS_EXTERN void lwsl_emit_stderr(int level, const char *line);
  #define lws_ssl_capable_read lws_ssl_capable_read_no_ssl
  #define lws_ssl_capable_write lws_ssl_capable_write_no_ssl
  #define lws_ssl_pending lws_ssl_pending_no_ssl
- #define lws_server_socket_service_ssl(_b, _c) (0)
+ #define lws_server_socket_service_ssl(_b, _c, _d) (0)
  #define lws_ssl_close(_a) (0)
  #define lws_ssl_context_destroy(_a)
  #define lws_ssl_SSL_CTX_destroy(_a)

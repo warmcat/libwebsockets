@@ -123,7 +123,7 @@ lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 #endif
 
 int
-lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
+lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char from_pollin)
 {
 	struct lws_context *context = wsi->context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
@@ -141,10 +141,13 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 		if (accept_fd == LWS_SOCK_INVALID)
 			assert(0);
 
-		if (lws_tls_restrict_borrow(context))
+		if (lws_tls_restrict_borrow(context)) {
+			lwsl_err("%s: failed on ssl restriction\n", __func__);
 			return 1;
+		}
 
 		if (lws_tls_server_new_nonblocking(wsi, accept_fd)) {
+			lwsl_err("%s: failed on lws_tls_server_new_nonblocking\n", __func__);
 			if (accept_fd != LWS_SOCK_INVALID)
 				compatible_close(accept_fd);
 			lws_tls_restrict_return(context);
@@ -183,6 +186,10 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 		}
 
 		if (wsi->vhost->tls.allow_non_ssl_on_ssl_port && !wsi->skip_fallback) {
+			/*
+			 * We came here by POLLIN, so there is supposed to be
+			 * something to read...
+			 */
 
 			n = recv(wsi->desc.sockfd, (char *)pt->serv_buf,
 				 context->pt_serv_buf_size, MSG_PEEK);
@@ -263,13 +270,32 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 			}
 			if (!n) {
 				/*
-				 * connection is gone, fail out
+				 * POLLIN but nothing to read is supposed to
+				 * mean the connection is gone, we should
+				 * fail out...
+				 *
 				 */
-				lwsl_debug("PEEKed 0\n");
+				lwsl_warn("%s: PEEKed 0 (from_pollin %d)\n",
+					  __func__, from_pollin);
+				if (!from_pollin)
+					/*
+					 * If this wasn't actually info from a
+					 * pollin let it go around again until
+					 * either data came or we still get told
+					 * zero length peek AND POLLIN
+					 */
+					goto punt;
+
+				/*
+				 * treat as remote closed
+				 */
+
 				goto fail;
 			}
 			if (n < 0 && (LWS_ERRNO == LWS_EAGAIN ||
 				      LWS_ERRNO == LWS_EWOULDBLOCK)) {
+
+punt:
 				/*
 				 * well, we get no way to know ssl or not
 				 * so go around again waiting for something
@@ -277,7 +303,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 				 * connection.
 				 */
 				if (lws_change_pollfd(wsi, 0, LWS_POLLIN)) {
-					lwsl_info("%s: change_pollfd failed\n",
+					lwsl_err("%s: change_pollfd failed\n",
 						  __func__);
 					return -1;
 				}
@@ -303,8 +329,8 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 			break;
 		case LWS_SSL_CAPABLE_ERROR:
 			lws_stats_bump(pt, LWSSTATS_C_SSL_CONNECTIONS_FAILED, 1);
-	                lwsl_info("SSL_accept failed socket %u: %d\n",
-	                		wsi->desc.sockfd, n);
+	                lwsl_warn("%s: SSL_accept failed socket %u: %d\n",
+	                		__func__, wsi->desc.sockfd, n);
 			wsi->socket_is_permanently_unusable = 1;
 			goto fail;
 
@@ -349,8 +375,10 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd)
 				context->timeout_secs);
 
 		lwsi_set_state(wsi, LRS_ESTABLISHED);
-		if (lws_tls_server_conn_alpn(wsi))
+		if (lws_tls_server_conn_alpn(wsi)) {
+			lwsl_warn("%s: fail on alpn\n", __func__);
 			goto fail;
+		}
 		lwsl_debug("accepted new SSL conn\n");
 		break;
 

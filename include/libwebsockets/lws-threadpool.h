@@ -219,6 +219,9 @@ lws_threadpool_task_status_wsi(struct lws *wsi,
 LWS_VISIBLE LWS_EXTERN enum lws_threadpool_task_status
 lws_threadpool_task_status(struct lws_threadpool_task *task, void **user);
 
+LWS_VISIBLE LWS_EXTERN enum lws_threadpool_task_status
+lws_threadpool_task_status_noreap(struct lws_threadpool_task *task);
+
 /**
  * lws_threadpool_task_sync() - Indicate to a stalled task it may continue
  *

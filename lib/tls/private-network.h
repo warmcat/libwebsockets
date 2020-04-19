@@ -87,7 +87,8 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, int len);
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_ssl_pending(struct lws *wsi);
 LWS_EXTERN int LWS_WARN_UNUSED_RESULT
-lws_server_socket_service_ssl(struct lws *new_wsi, lws_sockfd_type accept_fd);
+lws_server_socket_service_ssl(struct lws *new_wsi, lws_sockfd_type accept_fd,
+				char is_pollin);
 LWS_EXTERN int
 lws_ssl_close(struct lws *wsi);
 LWS_EXTERN void

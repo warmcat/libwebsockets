@@ -306,7 +306,8 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->ss_proxy_bind = info->ss_proxy_bind;
 	context->ss_proxy_port = info->ss_proxy_port;
 	context->ss_proxy_address = info->ss_proxy_address;
-	lwsl_notice("%s: using ss proxy bind '%s', port %d, ads '%s'\n",
+	if (context->ss_proxy_bind && context->ss_proxy_address)
+		lwsl_notice("%s: using ss proxy bind '%s', port %d, ads '%s'\n",
 			__func__, context->ss_proxy_bind, context->ss_proxy_port,
 			context->ss_proxy_address);
 #endif

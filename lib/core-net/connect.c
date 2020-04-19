@@ -173,7 +173,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 		if (p)
 			lws_bind_protocol(wsi, p, __func__);
 		else
-			lwsl_err("%s: unknown protocol %s\n", __func__, local);
+			lwsl_info("%s: unknown protocol %s\n", __func__, local);
 
 		lwsl_info("%s: wsi %p: %s %s entry\n",
 			    __func__, wsi, wsi->role_ops->name,

@@ -260,7 +260,7 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 	}
 #if defined(LWS_WITH_SERVER)
 	 else
-		if (lws_server_socket_service_ssl(new_wsi, fd.sockfd)) {
+		if (lws_server_socket_service_ssl(new_wsi, fd.sockfd, 0)) {
 #if defined(LWS_WITH_ACCESS_LOG)
 			lwsl_notice("%s: fail ssl negotiation: %s\n", __func__,
 					new_wsi->simple_ip);

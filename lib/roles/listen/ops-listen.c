@@ -153,7 +153,7 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 			return LWS_HPI_RET_WSI_ALREADY_DIED;
 		}
 /*
-		if (lws_server_socket_service_ssl(cwsi, accept_fd)) {
+		if (lws_server_socket_service_ssl(cwsi, accept_fd, 1)) {
 			lws_close_free_wsi(cwsi, LWS_CLOSE_STATUS_NOSTATUS,
 					   "listen svc fail");
 			return LWS_HPI_RET_WSI_ALREADY_DIED;
