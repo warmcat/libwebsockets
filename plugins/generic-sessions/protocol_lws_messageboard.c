@@ -193,7 +193,7 @@ callback_messageboard(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		if (lws_struct_sq3_open(lws_get_context(wsi),
-					vhd->message_db, &vhd->pdb)) {
+					vhd->message_db, 1, &vhd->pdb)) {
 			lwsl_err("Unable to open message db %s: %s\n",
 				 vhd->message_db, sqlite3_errmsg(vhd->pdb));
 

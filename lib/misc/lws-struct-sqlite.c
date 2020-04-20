@@ -207,7 +207,7 @@ lws_struct_sq3_deserialize(sqlite3 *pdb, const char *filter, const char *order,
 				     _limit < 0 ? "desc " : "", limit);
 
 	if (sqlite3_exec(pdb, s, lws_struct_sq3_deser_cb, &a, NULL) != SQLITE_OK) {
-		lwsl_err("%s: %s: fail\n", __func__, sqlite3_errmsg(pdb));
+		lwsl_err("%s: %s: fail %s\n", __func__, sqlite3_errmsg(pdb), s);
 		lwsac_free(&a.ac);
 		return -1;
 	}
@@ -443,14 +443,15 @@ lws_struct_sq3_create_table(sqlite3 *pdb, const lws_struct_map_t *schema)
 
 int
 lws_struct_sq3_open(struct lws_context *context, const char *sqlite3_path,
-		    sqlite3 **pdb)
+		    char create_if_missing, sqlite3 **pdb)
 {
 #if !defined(WIN32)
 	int uid = 0, gid = 0;
 #endif
 
 	if (sqlite3_open_v2(sqlite3_path, pdb,
-			    SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE,
+			    SQLITE_OPEN_READWRITE |
+			    (create_if_missing ? SQLITE_OPEN_CREATE : 0),
 			    NULL) != SQLITE_OK) {
 		lwsl_err("%s: Unable to open db %s: %s\n",
 			 __func__, sqlite3_path, sqlite3_errmsg(*pdb));
@@ -464,10 +465,10 @@ lws_struct_sq3_open(struct lws_context *context, const char *sqlite3_path,
 		chown(sqlite3_path, uid, gid);
 	chmod(sqlite3_path, 0600);
 
-	lwsl_notice("%s: created %s owned by %u:%u mode 0600\n", __func__,
+	lwsl_debug("%s: created %s owned by %u:%u mode 0600\n", __func__,
 			sqlite3_path, (unsigned int)uid, (unsigned int)gid);
 #else
-	lwsl_notice("%s: created %s\n", __func__, sqlite3_path);
+	lwsl_debug("%s: created %s\n", __func__, sqlite3_path);
 #endif
 	sqlite3_extended_result_codes(*pdb, 1);
 

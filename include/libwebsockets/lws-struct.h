@@ -258,7 +258,7 @@ lws_struct_sq3_create_table(sqlite3 *pdb, const lws_struct_map_t *schema);
 
 LWS_VISIBLE LWS_EXTERN int
 lws_struct_sq3_open(struct lws_context *context, const char *sqlite3_path,
-		    sqlite3 **pdb);
+		    char create_if_missing, sqlite3 **pdb);
 
 LWS_VISIBLE LWS_EXTERN int
 lws_struct_sq3_close(sqlite3 **pdb);

@@ -228,7 +228,7 @@ callback_generic_sessions(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		if (lws_struct_sq3_open(lws_get_context(wsi),
-					vhd->session_db, &vhd->pdb)) {
+					vhd->session_db, 1, &vhd->pdb)) {
 			lwsl_err("Unable to open session db %s: %s\n",
 				 vhd->session_db, sqlite3_errmsg(vhd->pdb));
 
