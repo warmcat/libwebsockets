@@ -37,13 +37,13 @@ lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1)
 		if (!wsi->tls.ssl) {
 			if (lws_ssl_client_bio_create(wsi) < 0) {
 				*pcce = "bio_create failed";
-				return -1;
+				return CCTLS_RETURN_ERROR;
 			}
 
 			if (!wsi->transaction_from_pipeline_queue &&
 			    lws_tls_restrict_borrow(wsi->context)) {
 				*pcce = "tls restriction limit";
-				return -1;
+				return CCTLS_RETURN_ERROR;
 			}
 		}
 
@@ -51,11 +51,12 @@ lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1)
 			return 0;
 
 		n = lws_ssl_client_connect1(wsi);
+		lwsl_debug("%s: lws_ssl_client_connect1: %d\n", __func__, n);
 		if (!n)
-			return 1; /* caller should return 0 */
+			return CCTLS_RETURN_RETRY; /* caller should return 0 */
 		if (n < 0) {
 			*pcce = "lws_ssl_client_connect1 failed";
-			return -1;
+			return CCTLS_RETURN_ERROR;
 		}
 	} else
 		wsi->tls.ssl = NULL;
@@ -76,12 +77,12 @@ lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1)
 		/* send the H2 preface to legitimize the connection */
 		if (lws_h2_issue_preface(wsi)) {
 			*pcce = "error sending h2 preface";
-			return -1;
+			return CCTLS_RETURN_ERROR;
 		}
 	}
 #endif
 
-	return 0; /* OK */
+	return CCTLS_RETURN_DONE; /* OK */
 }
 
 #endif

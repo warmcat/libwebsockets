@@ -327,5 +327,11 @@ lws_sul_http_ah_lifecheck(lws_sorted_usec_list_t *sul);
 uint8_t *
 lws_http_multipart_headers(struct lws *wsi, uint8_t *p);
 
+enum {
+	CCTLS_RETURN_ERROR		= -1,
+	CCTLS_RETURN_DONE		= 0,
+	CCTLS_RETURN_RETRY		= 1,
+};
+
 int
 lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1);

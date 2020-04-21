@@ -203,13 +203,19 @@ send_hs:
 
 		if (lwsi_state(wsi) == LRS_WAITING_CONNECT &&
 		    (wsi->tls.use_ssl & LCCSCF_USE_SSL)) {
+			int result;
 
-			/* we can retry this... just cook the SSL BIO the first time */
+			/*
+			 * We can retry this... just cook the SSL BIO
+			 * the first time
+			 */
 
-			switch (lws_client_create_tls(wsi, &cce, 1)) {
-			case 0:
+			result = lws_client_create_tls(wsi, &cce, 1);
+			lwsl_debug("%s: create_tls said %d\n", __func__, result);
+			switch (result) {
+			case CCTLS_RETURN_DONE:
 				break;
-			case 1:
+			case CCTLS_RETURN_RETRY:
 				return wsi;
 			default:
 				goto failed;
@@ -226,12 +232,11 @@ send_hs:
 				    __func__, wsi, lwsi_state(wsi));
 
 			if (lwsi_state(wsi) != LRS_H2_WAITING_TO_SEND_HEADERS)
-				lwsi_set_state(wsi, LRS_WAITING_SSL);
+				lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE2);
 			lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
 					wsi->context->timeout_secs);
 
-			//if ()
-			return wsi;
+			goto provoke_service;
 		}
 #endif
 
@@ -310,7 +315,9 @@ send_hs:
 		 * and won't until many retries from main loop.  To stop that
 		 * becoming endless, cover with a timeout.
 		 */
-
+#if defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS)
+provoke_service:
+#endif
 		lws_set_timeout(wsi, PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE,
 				wsi->context->timeout_secs);
 
@@ -732,6 +739,7 @@ conn_good:
 		wsi->protocol->callback(wsi, LWS_CALLBACK_WSI_CREATE,
 					wsi->user_space, NULL, 0);
 
+	lwsl_debug("%s: going into connect_4\n", __func__);
 	return lws_client_connect_4_established(wsi, NULL, plen);
 
 oom4:
@@ -853,6 +861,7 @@ lws_client_connect_2_dnsreq(struct lws *wsi)
 
 		return wsi;
 	case ACTIVE_CONNS_QUEUED:
+		lwsl_debug("%s: ACTIVE_CONNS_QUEUED st 0x%x: \n", __func__, lwsi_state(wsi));
 		if (lwsi_state(wsi) == LRS_UNCONNECTED) {
 			if (lwsi_role_h2(w))
 				lwsi_set_state(wsi, LRS_H2_WAITING_TO_SEND_HEADERS);
