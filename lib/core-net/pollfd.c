@@ -242,7 +242,7 @@ lws_accept_modulation(struct lws_context *context,
 }
 #endif
 
-#if defined(_DEBUG)
+#if _LWS_ENABLED_LOGS & LLL_WARN
 void
 __dump_fds(struct lws_context_per_thread *pt, const char *s)
 {

@@ -34,22 +34,20 @@
  */
 ///@{
 
-enum lws_log_levels {
-	LLL_ERR		= 1 << 0,
-	LLL_WARN	= 1 << 1,
-	LLL_NOTICE	= 1 << 2,
-	LLL_INFO	= 1 << 3,
-	LLL_DEBUG	= 1 << 4,
-	LLL_PARSER	= 1 << 5,
-	LLL_HEADER	= 1 << 6,
-	LLL_EXT		= 1 << 7,
-	LLL_CLIENT	= 1 << 8,
-	LLL_LATENCY	= 1 << 9,
-	LLL_USER	= 1 << 10,
-	LLL_THREAD	= 1 << 11,
+#define LLL_ERR		(1 << 0)
+#define	LLL_WARN	(1 << 1)
+#define	LLL_NOTICE	(1 << 2)
+#define	LLL_INFO	(1 << 3)
+#define	LLL_DEBUG	(1 << 4)
+#define	LLL_PARSER	(1 << 5)
+#define	LLL_HEADER	(1 << 6)
+#define	LLL_EXT		(1 << 7)
+#define	LLL_CLIENT	(1 << 8)
+#define	LLL_LATENCY	(1 << 9)
+#define	LLL_USER	(1 << 10)
+#define	LLL_THREAD	(1 << 11)
 
-	LLL_COUNT	= 12 /* set to count of valid flags */
-};
+#define	LLL_COUNT	(12) /* set to count of valid flags */
 
 /**
  * lwsl_timestamp: generate logging timestamp string
@@ -70,51 +68,124 @@ LWS_VISIBLE LWS_EXTERN void _lws_log(int filter, const char *format, ...) LWS_FO
 LWS_VISIBLE LWS_EXTERN void _lws_logv(int filter, const char *format, va_list vl);
 #endif
 
-/* these guys are unconditionally included */
-
-#define lwsl_err(...) _lws_log(LLL_ERR, __VA_ARGS__)
-#define lwsl_user(...) _lws_log(LLL_USER, __VA_ARGS__)
-
-#if !defined(LWS_WITH_NO_LOGS)
-/* notice and warn are usually included by being compiled in */
-#define lwsl_warn(...) _lws_log(LLL_WARN, __VA_ARGS__)
-#define lwsl_notice(...) _lws_log(LLL_NOTICE, __VA_ARGS__)
-#endif
 /*
- *  weaker logging can be deselected by telling CMake to build in RELEASE mode
- *  that gets rid of the overhead of checking while keeping _warn and _err
- *  active
+ * Figure out which logs to build in or not
  */
 
 #if defined(_DEBUG)
-#if defined(LWS_WITH_NO_LOGS)
-/* notice, warn and log are always compiled in */
-#define lwsl_warn(...) _lws_log(LLL_WARN, __VA_ARGS__)
-#define lwsl_notice(...) _lws_log(LLL_NOTICE, __VA_ARGS__)
-#endif
-#define lwsl_info(...) _lws_log(LLL_INFO, __VA_ARGS__)
-#define lwsl_debug(...) _lws_log(LLL_DEBUG, __VA_ARGS__)
-#define lwsl_parser(...) _lws_log(LLL_PARSER, __VA_ARGS__)
-#define lwsl_header(...)  _lws_log(LLL_HEADER, __VA_ARGS__)
-#define lwsl_ext(...)  _lws_log(LLL_EXT, __VA_ARGS__)
-#define lwsl_client(...) _lws_log(LLL_CLIENT, __VA_ARGS__)
-#define lwsl_latency(...) _lws_log(LLL_LATENCY, __VA_ARGS__)
-#define lwsl_thread(...) _lws_log(LLL_THREAD, __VA_ARGS__)
+ /*
+  * In DEBUG build, select all logs unless NO_LOGS
+  */
+ #if defined(LWS_WITH_NO_LOGS)
+  #define _LWS_LINIT (LLL_ERR | LLL_USER)
+ #else
+   #define _LWS_LINIT ((1 << LLL_COUNT) - 1)
+ #endif
+#else /* not _DEBUG */
+ #define _LWS_LINIT (LLL_ERR | LLL_USER | LLL_WARN | LLL_NOTICE)
+#endif /* _DEBUG */
 
-#else /* no debug */
-#if defined(LWS_WITH_NO_LOGS)
+/*
+ * Create either empty overrides or the ones forced at build-time.
+ * These overrides have the final say... any bits set in
+ * LWS_LOGGING_BITFIELD_SET force the build of those logs, any bits
+ * set in LWS_LOGGING_BITFIELD_CLEAR disable the build of those logs.
+ *
+ * If not defined lws decides based on CMAKE_BUILD_TYPE=DEBUG or not
+ */
+
+#if defined(LWS_LOGGING_BITFIELD_SET)
+ #define _LWS_LBS (LWS_LOGGING_BITFIELD_SET)
+#else
+ #define _LWS_LBS 0
+#endif
+
+#if defined(LWS_LOGGING_BITFIELD_CLEAR)
+ #define _LWS_LBC (LWS_LOGGING_BITFIELD_CLEAR)
+#else
+ #define _LWS_LBC 0
+#endif
+
+/*
+ * Compute the final active logging bitfield for build
+ */
+#define _LWS_ENABLED_LOGS (((_LWS_LINIT) | (_LWS_LBS)) & ~(_LWS_LBC))
+
+/*
+ * Individually enable or disable log levels for build
+ * depending on what was computed
+ */
+
+#if (_LWS_ENABLED_LOGS & LLL_ERR)
+#define lwsl_err(...) _lws_log(LLL_ERR, __VA_ARGS__)
+#else
+#define lwsl_err(...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_WARN)
+#define lwsl_warn(...) _lws_log(LLL_WARN, __VA_ARGS__)
+#else
 #define lwsl_warn(...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+#define lwsl_notice(...) _lws_log(LLL_NOTICE, __VA_ARGS__)
+#else
 #define lwsl_notice(...) do {} while(0)
 #endif
-#define lwsl_info(...) do {} while(0)
-#define lwsl_debug(...) do {} while(0)
-#define lwsl_parser(...) do {} while(0)
-#define lwsl_header(...) do {} while(0)
-#define lwsl_ext(...) do {} while(0)
-#define lwsl_client(...) do {} while(0)
-#define lwsl_latency(...) do {} while(0)
-#define lwsl_thread(...) do {} while(0)
 
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
+#define lwsl_info(...) _lws_log(LLL_INFO, __VA_ARGS__)
+#else
+#define lwsl_info(...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_DEBUG)
+#define lwsl_debug(...) _lws_log(LLL_DEBUG, __VA_ARGS__)
+#else
+#define lwsl_debug(...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_PARSER)
+#define lwsl_parser(...) _lws_log(LLL_PARSER, __VA_ARGS__)
+#else
+#define lwsl_parser(...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_HEADER)
+#define lwsl_header(...) _lws_log(LLL_HEADER, __VA_ARGS__)
+#else
+#define lwsl_header(...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_EXT)
+#define lwsl_ext(...) _lws_log(LLL_EXT, __VA_ARGS__)
+#else
+#define lwsl_ext(...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_CLIENT)
+#define lwsl_client(...) _lws_log(LLL_CLIENT, __VA_ARGS__)
+#else
+#define lwsl_client(...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_LATENCY)
+#define lwsl_latency(...) _lws_log(LLL_LATENCY, __VA_ARGS__)
+#else
+#define lwsl_latency(...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_THREAD)
+#define lwsl_thread(...) _lws_log(LLL_THREAD, __VA_ARGS__)
+#else
+#define lwsl_thread(...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_USER)
+#define lwsl_user(...) _lws_log(LLL_USER, __VA_ARGS__)
+#else
+#define lwsl_user(...) do {} while(0)
 #endif
 
 
