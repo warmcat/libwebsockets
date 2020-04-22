@@ -214,6 +214,7 @@ lws_dll2_add_sorted(lws_dll2_t *d, lws_dll2_owner_t *own,
 void
 lws_dll2_describe(lws_dll2_owner_t *owner, const char *desc)
 {
+#if _LWS_ENABLED_LOGS & LLL_INFO
 	int n = 1;
 
 	lwsl_info("%s: %s: owner %p: count %d, head %p, tail %p\n",
@@ -224,6 +225,7 @@ lws_dll2_describe(lws_dll2_owner_t *owner, const char *desc)
 		lwsl_info("%s:    %d: %p: owner %p, prev %p, next %p\n",
 			    __func__, n++, p, p->owner, p->prev, p->next);
 	} lws_end_foreach_dll_safe(p, tp);
+#endif
 }
 
 #endif

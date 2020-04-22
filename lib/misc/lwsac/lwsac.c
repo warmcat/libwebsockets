@@ -277,7 +277,7 @@ lwsac_free(struct lwsac **head)
 void
 lwsac_info(struct lwsac *head)
 {
-#if defined(_DEBUG)
+#if _LWS_ENABLED_LOGS & LLL_DEBUG
 	struct lwsac_head *lachead;
 
 	if (!head) {
