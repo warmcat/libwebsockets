@@ -172,6 +172,7 @@ option(LWS_WITH_UDP "Platform supports UDP" ON)
 option(LWS_WITH_SPAWN "Spawn subprocesses with piped stdin/out/stderr" OFF)
 option(LWS_WITH_FSMOUNT "Overlayfs and fallback mounting apis" OFF)
 option(LWS_WITH_FANALYZER "Enable gcc -fanalyzer if compiler supports" OFF)
+option(LWS_HTTP_HEADERS_ALL "Override header reduction optimization and include all like older lws versions" OFF)
 
 #
 # to use miniz, enable both LWS_WITH_ZLIB and LWS_WITH_MINIZ

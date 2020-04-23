@@ -754,42 +754,42 @@ lws_hpack_use_idx_hdr(struct lws *wsi, int idx, int known_token)
 	return 0;
 }
 
-#if !defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) && !defined(LWS_ROLE_WS) && !defined(LWS_ROLE_H2)
+#if !defined(LWS_HTTP_HEADERS_ALL) && !defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) && !defined(LWS_ROLE_WS) && !defined(LWS_ROLE_H2)
 static uint8_t lws_header_implies_psuedoheader_map[] = {
 	0x03,0x00,0x00,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
 };
 #endif
-#if  defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) && !defined(LWS_ROLE_WS) && !defined(LWS_ROLE_H2)
+#if !defined(LWS_HTTP_HEADERS_ALL) && defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) && !defined(LWS_ROLE_WS) && !defined(LWS_ROLE_H2)
 static uint8_t lws_header_implies_psuedoheader_map[] = {
 	0x07,0x00,0x00,0x00,0x00,0x00,0x00,0x0e,0x04,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
 };
 #endif
-#if !defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) &&  defined(LWS_ROLE_WS) && !defined(LWS_ROLE_H2)
+#if !defined(LWS_HTTP_HEADERS_ALL) && !defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) &&  defined(LWS_ROLE_WS) && !defined(LWS_ROLE_H2)
 static uint8_t lws_header_implies_psuedoheader_map[] = {
 	0x03,0x00,0x00,0x00,0x00,0x00,0x00,0x04,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
 };
 #endif
-#if  defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) &&  defined(LWS_ROLE_WS) && !defined(LWS_ROLE_H2)
+#if !defined(LWS_HTTP_HEADERS_ALL) && defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) &&  defined(LWS_ROLE_WS) && !defined(LWS_ROLE_H2)
 static uint8_t lws_header_implies_psuedoheader_map[] = {
 	0x07,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x38,0x10,0x00,0x00,0x00,0x00,0x00,0x00,
 };
 #endif
-#if !defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) && !defined(LWS_ROLE_WS) &&  defined(LWS_ROLE_H2)
+#if !defined(LWS_HTTP_HEADERS_ALL) && !defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) && !defined(LWS_ROLE_WS) &&  defined(LWS_ROLE_H2)
 static uint8_t lws_header_implies_psuedoheader_map[] = {
 	0x03,0x00,0x80,0x0f,0x00,0x00,0x00,0x00,0x02,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
 };
 #endif
-#if  defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) && !defined(LWS_ROLE_WS) &&  defined(LWS_ROLE_H2)
+#if !defined(LWS_HTTP_HEADERS_ALL) && defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) && !defined(LWS_ROLE_WS) &&  defined(LWS_ROLE_H2)
 static uint8_t lws_header_implies_psuedoheader_map[] = {
 	0x07,0x00,0x00,0x3e,0x00,0x00,0x00,0x80,0x03,0x01,0x00,0x00,0x00,0x00,0x00,0x00,
 };
 #endif
-#if !defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) &&  defined(LWS_ROLE_WS) &&  defined(LWS_ROLE_H2)
+#if !defined(LWS_HTTP_HEADERS_ALL) && !defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) &&  defined(LWS_ROLE_WS) &&  defined(LWS_ROLE_H2)
 static uint8_t lws_header_implies_psuedoheader_map[] = {
 	0x03,0x00,0x00,0x00,0x3e,0x00,0x00,0x00,0x00,0x08,0x00,0x00,0x00,0x00,0x00,0x00,
 };
 #endif
-#if  defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) &&  defined(LWS_ROLE_WS) &&  defined(LWS_ROLE_H2)
+#if defined(LWS_HTTP_HEADERS_ALL) || (defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) &&  defined(LWS_ROLE_WS) &&  defined(LWS_ROLE_H2))
 static uint8_t lws_header_implies_psuedoheader_map[] = {
 	0x07,0x00,0x00,0x00,0xf8,0x00,0x00,0x00,0x00,0x0e,0x04,0x00,0x00,0x00,0x00,0x00,
 };

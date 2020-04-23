@@ -249,10 +249,16 @@ int issue(int version)
 
 	memset(rset, 0, sizeof(rset));
 
-	printf("#if %cdefined(LWS_WITH_HTTP_UNCOMMON_HEADERS) && "
-		 "%cdefined(LWS_ROLE_WS) && "
-		 "%cdefined(LWS_ROLE_H2)\n", version & 1 ? ' ' : '!',
-		     version & 2 ? ' ' : '!', version & 4 ? ' ' : '!');
+	if (version == 7)
+		printf("#if defined(LWS_HTTP_HEADERS_ALL) || (%cdefined(LWS_WITH_HTTP_UNCOMMON_HEADERS) && "
+			 "%cdefined(LWS_ROLE_WS) && "
+			 "%cdefined(LWS_ROLE_H2))\n", version & 1 ? ' ' : '!',
+			     version & 2 ? ' ' : '!', version & 4 ? ' ' : '!');
+	else
+		printf("#if !defined(LWS_HTTP_HEADERS_ALL) && %cdefined(LWS_WITH_HTTP_UNCOMMON_HEADERS) && "
+			 "%cdefined(LWS_ROLE_WS) && "
+			 "%cdefined(LWS_ROLE_H2)\n", version & 1 ? ' ' : '!',
+			     version & 2 ? ' ' : '!', version & 4 ? ' ' : '!');
 
 	/*
 	 * let's create version's view of the set of strings
@@ -467,7 +473,13 @@ int main(void)
 
 	for (n = 0; n < 8; n++) {
 
-		printf("#if %cdefined(LWS_WITH_HTTP_UNCOMMON_HEADERS) && "
+		if (n == 7)
+			printf("#if defined(LWS_HTTP_HEADERS_ALL) || (%cdefined(LWS_WITH_HTTP_UNCOMMON_HEADERS) && "
+				 "%cdefined(LWS_ROLE_WS) && "
+				 "%cdefined(LWS_ROLE_H2))\n", n & 1 ? ' ' : '!',
+				     n & 2 ? ' ' : '!', n & 4 ? ' ' : '!');
+		else
+		printf("#if !defined(LWS_HTTP_HEADERS_ALL) && %cdefined(LWS_WITH_HTTP_UNCOMMON_HEADERS) && "
 			 "%cdefined(LWS_ROLE_WS) && "
 			 "%cdefined(LWS_ROLE_H2)\n", n & 1 ? ' ' : '!',
 			     n & 2 ? ' ' : '!', n & 4 ? ' ' : '!');
