@@ -28,7 +28,11 @@
 #include "private-lib-core.h"
 
 #include <sys/ioctl.h>
+
+#if !defined(LWS_DETECTED_PLAT_IOS)
 #include <net/route.h>
+#endif
+
 #include <net/if.h>
 
 #include <pwd.h>

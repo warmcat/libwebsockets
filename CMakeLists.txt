@@ -177,6 +177,10 @@ option(LWS_WITH_FSMOUNT "Overlayfs and fallback mounting apis" OFF)
 # End of user settings
 #
 
+if(IOS)
+    set(LWS_DETECTED_PLAT_IOS 1)
+endif()
+
 # Workaround for ESP-IDF
 # Detect ESP_PLATFORM environment flag, if exist, set LWS_WITH_ESP32.
 # Otherwise the user may not be able to run configuration ESP-IDF in the first time.
