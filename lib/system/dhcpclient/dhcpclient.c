@@ -168,6 +168,7 @@ static const uint8_t rawdisc[] = {
  * +---------------------------------------------------------------+
  */
 
+#if defined(_DEBUG)
 static const char *dhcp_entry_names[] = {
 	"proposed ip",
 	"dhcp server",
@@ -183,6 +184,7 @@ static const char *dhcp_entry_names[] = {
 	"rebinding secs",
 	"renewal secs",
 };
+#endif
 
 static void
 lws_dhcpc_retry_conn(struct lws_sorted_usec_list *sul)
