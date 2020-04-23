@@ -69,7 +69,6 @@ insert_wsi(const struct lws_context *context, struct lws *wsi)
 	p = context->lws_lookup;
 	done = &p[context->max_fds];
 
-#if defined(_DEBUG)
 
 	/* confirm it doesn't already exist */
 
@@ -79,18 +78,28 @@ insert_wsi(const struct lws_context *context, struct lws *wsi)
 	assert(p == done);
 	p = context->lws_lookup;
 
-	/* confirm fd doesn't already exist */
+	/* confirm fd isn't already in use by a wsi */
 
 	while (p != done && (!*p || (*p)->desc.sockfd != wsi->desc.sockfd))
 		p++;
 
 	if (p != done) {
-		lwsl_err("%s: wsi %p already says it has fd %d\n",
+		lwsl_warn("%s: wsi %p already lists fd %d, transferring\n",
 				__func__, *p, wsi->desc.sockfd);
-		assert(0);
+		/*
+		 * So something closed that fd outside of the wsi activities...
+		 * later the closed fd has been reused for something else.
+		 *
+		 * Work around it by invalidating the old guy's fd, mark him
+		 * as unable to do any transfers and close him.
+		 */
+
+		(*p)->desc.sockfd = LWS_SOCK_INVALID;
+		(*p)->position_in_fds_table = -1;
+		(*p)->socket_is_permanently_unusable = 1;
+		lws_set_timeout(*p, 1, LWS_TO_KILL_ASYNC);
 	}
 	p = context->lws_lookup;
-#endif
 
 	/* find an empty slot */
 
