@@ -159,9 +159,12 @@ callback_ntpc(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		lws_state_reg_notifier(&wsi->context->mgr_system, &v->notify_link);
 
 		v->ntp_server_ads = "pool.ntp.org";
+		lws_plat_ntpclient_config(v->context);
 		lws_system_blob_get_single_ptr(lws_system_get_blob(
 				v->context, LWS_SYSBLOB_TYPE_NTP_SERVER, 0),
 				(const uint8_t **)&v->ntp_server_ads);
+
+		lwsl_info("%s: using ntp server %s\n", __func__, v->ntp_server_ads);
 
 		lws_ntpc_retry_conn(&v->sul_conn);
 		break;

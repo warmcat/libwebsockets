@@ -711,6 +711,9 @@ lws_plat_user_colon_group_to_ids(const char *u_colon_g, uid_t *puid, gid_t *pgid
 #endif
 
 int
+lws_plat_ntpclient_config(struct lws_context *context);
+
+int
 lws_plat_ifname_to_hwaddr(int fd, const char *ifname, uint8_t *hwaddr, int len);
 
 LWS_EXTERN int

@@ -40,3 +40,20 @@ lws_plat_asyncdns_init(struct lws_context *context, lws_sockaddr46 *sa46)
 
 	return s;
 }
+
+int
+lws_plat_ntpclient_config(struct lws_context *context)
+{
+#if 0
+	char *ntpsrv = getenv("LWS_NTP_SERVER");
+
+	if (ntpsrv && strlen(ntpsrv) < 64) {
+		lws_system_blob_heap_append(lws_system_get_blob(context,
+					    LWS_SYSBLOB_TYPE_NTP_SERVER, 0),
+					    (const uint8_t *)ntpsrv,
+					    strlen(ntpsrv));
+		return 1;
+	}
+#endif
+	return 0;
+}
