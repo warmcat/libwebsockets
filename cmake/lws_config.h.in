@@ -24,6 +24,7 @@
 #cmakedefine LWS_BUILD_HASH "${LWS_BUILD_HASH}"
 #cmakedefine LWS_BUILTIN_GETIFADDRS
 #cmakedefine LWS_CLIENT_HTTP_PROXYING
+#cmakedefine LWS_DETECTED_PLAT_IOS
 #cmakedefine LWS_FALLBACK_GETHOSTBYNAME
 #cmakedefine LWS_HAS_INTPTR_T
 #cmakedefine LWS_HAS_GETOPT_LONG
