@@ -1027,21 +1027,21 @@ CHECK_C_SOURCE_COMPILES("#include <stdint.h>
 		return 0;
 	}" LWS_HAS_INTPTR_T)
 
-if (LWS_HAVE_PTHREAD_H)
-	if ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
-		set(CMAKE_REQUIRED_FLAGS ${CMAKE_REQUIRED_FLAGS} "-pthread -Wno-error=unused-command-line-argument")
-	else()
-		set(CMAKE_REQUIRED_FLAGS ${CMAKE_REQUIRED_FLAGS} "-pthread")
-	endif()
+	if (LWS_HAVE_PTHREAD_H AND NOT LWS_PLAT_FREERTOS)
+		if ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
+			set(CMAKE_REQUIRED_FLAGS ${CMAKE_REQUIRED_FLAGS} "-pthread -Wno-error=unused-command-line-argument")
+		else()
+			set(CMAKE_REQUIRED_FLAGS ${CMAKE_REQUIRED_FLAGS} "-pthread")
+		endif()
 
-	CHECK_C_SOURCE_COMPILES("#define _GNU_SOURCE
-		#include <pthread.h>
-		int main(void) {
-			pthread_t th = 0;
-			pthread_setname_np(th, NULL);
-			return 0;
-		}" LWS_HAS_PTHREAD_SETNAME_NP)
-endif()
+		CHECK_C_SOURCE_COMPILES("#define _GNU_SOURCE
+			#include <pthread.h>
+			int main(void) {
+				pthread_t th = 0;
+				pthread_setname_np(th, NULL);
+				return 0;
+			}" LWS_HAS_PTHREAD_SETNAME_NP)
+	endif()
 
 CHECK_C_SOURCE_COMPILES("#include <stddef.h>
 	#include <getopt.h>
