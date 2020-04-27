@@ -160,7 +160,8 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 	}
 	err = SSL_CTX_use_certificate_ASN1(vhost->tls.ssl_ctx, flen, p);
 	if (!err) {
-		free(p);
+		if (f)
+			free(p);
 		lwsl_err("Problem loading cert\n");
 		return 1;
 	}
