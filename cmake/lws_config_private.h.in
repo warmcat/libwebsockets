@@ -19,7 +19,7 @@
 /* Define to 1 if you have the `fork' function. */
 #cmakedefine LWS_HAVE_FORK
 
-/* Define to 1 if you have the `getenv’ function. */
+/* Define to 1 if you have the `getenv' function. */
 #cmakedefine LWS_HAVE_GETENV
 
 /* Define to 1 if you have the <in6addr.h> header file. */
