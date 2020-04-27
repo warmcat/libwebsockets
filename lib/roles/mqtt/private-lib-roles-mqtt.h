@@ -25,8 +25,6 @@
 #ifndef _PRIVATE_LIB_ROLES_MQTT
 #define _PRIVATE_LIB_ROLES_MQTT 1
 
-#include <libwebsockets/lws-mqtt.h>
-
 extern struct lws_role_ops role_ops_mqtt;
 
 #define lwsi_role_mqtt(wsi) (wsi->role_ops == &role_ops_mqtt)
@@ -115,7 +113,7 @@ lws_mqtt_vbi_r(lws_mqtt_vbi *vbi, const uint8_t **in, size_t *len);
 lws_mqtt_stateful_primitive_return_t
 lws_mqtt_mb_parse(lws_mqtt_vbi *vbi, const uint8_t **in, size_t *len);
 
-typedef struct lws_mqtt_str_st {
+struct lws_mqtt_str_st {
 	uint8_t		*buf;
 	uint16_t	len;
 
@@ -124,14 +122,14 @@ typedef struct lws_mqtt_str_st {
 	uint16_t	pos;
 	char		len_valid;
 	char		needs_freeing;
-} lws_mqtt_str_t;
+};
 
 static inline int
-lws_mqtt_str_first(lws_mqtt_str_t *s) { return !s->buf && !s->pos; }
+lws_mqtt_str_first(struct lws_mqtt_str_st *s) { return !s->buf && !s->pos; }
 
 
 lws_mqtt_stateful_primitive_return_t
-lws_mqtt_str_parse(lws_mqtt_str_t *bd, const uint8_t **in, size_t *len);
+lws_mqtt_str_parse(struct lws_mqtt_str_st *bd, const uint8_t **in, size_t *len);
 
 typedef enum {
 	LMQCPP_IDLE,
@@ -251,7 +249,7 @@ typedef enum {
 } lwsgs_mqtt_states_t;
 
 typedef struct lws_mqtt_parser_st {
-	/* lws_mqtt_str_t s_content_type; */
+	/* struct lws_mqtt_str_st s_content_type; */
 	lws_mqtt_packet_parse_state_t state;
 	lws_mqtt_vbi vbit;
 
@@ -308,12 +306,12 @@ typedef struct lws_mqtts {
 typedef struct lws_mqttc {
 	lws_mqtt_parser_t	par;
 	lwsgs_mqtt_states_t	estate;
-	lws_mqtt_str_t		*id;
-	lws_mqtt_str_t		*username;
-	lws_mqtt_str_t		*password;
+	struct lws_mqtt_str_st	*id;
+	struct lws_mqtt_str_st	*username;
+	struct lws_mqtt_str_st	*password;
 	struct {
-		lws_mqtt_str_t	*topic;
-		lws_mqtt_str_t	*message;
+		struct lws_mqtt_str_st	*topic;
+		struct lws_mqtt_str_st	*message;
 		lws_mqtt_qos_levels_t qos;
 		uint8_t		retain;
 	} will;
