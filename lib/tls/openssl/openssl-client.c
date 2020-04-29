@@ -21,6 +21,7 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
  */
+#include <string.h>
 
 #include "private-lib-core.h"
 #include "private-lib-tls-openssl.h"
@@ -194,9 +195,10 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		X509_VERIFY_PARAM_set_hostflags(param,
 					X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
 #endif
-		// Handle the case where the hostname is an IP address.
+		/* Handle the case where the hostname is an IP address */
 		if (!X509_VERIFY_PARAM_set1_ip_asc(param, hostname))
-			X509_VERIFY_PARAM_set1_host(param, hostname, 0);
+			X509_VERIFY_PARAM_set1_host(param, hostname,
+					strnlen(hostname, sizeof(hostname)));
 	}
 #else
 	if (!(wsi->tls.use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK)) {
