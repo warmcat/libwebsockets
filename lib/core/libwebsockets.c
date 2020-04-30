@@ -938,6 +938,7 @@ lws_strexp_expand(lws_strexp_t *exp, const char *in, size_t len,
 			if (*in == '{') {
 				exp->state = LWS_EXPS_NAME_OR_CLOSE;
 				exp->name_pos = 0;
+				exp->exp_ofs = 0;
 				break;
 			}
 			/* treat as a literal */
