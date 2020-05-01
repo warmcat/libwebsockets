@@ -19,6 +19,7 @@ set(LWS_WITH_POLL 1)
 
 # it's at this point any toolchain file is brought in
 project(libwebsockets C)
+include(CTest)
 
 #
 # Select features recommended for PC distro packaging
@@ -71,6 +72,18 @@ option(LWS_WITH_SECURE_STREAMS "Secure Streams protocol-agnostic API" OFF)
 option(LWS_WITH_SECURE_STREAMS_PROXY_API "Secure Streams support to work across processes" OFF)
 option(LWS_WITH_SECURE_STREAMS_SYS_AUTH_API_AMAZON_COM "Auth support for api.amazon.com" OFF)
 option(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY "Secure Streams Policy is hardcoded only" OFF)
+
+#
+# CTest options
+#
+#
+# If you build with LWS_WITH_MINIMAL_EXAMPLES, you can use CTest / make test to run
+# examples that can give a pass/fail response.  By default it runs tests both against
+# a local server peer and warmcat.com, if your CI wants to do the tests but does not
+# have internet routing, then you can still run a subset of tests with CTest / make
+# test that only does local tests by disabling this option.
+#
+option(LWS_CTEST_INTERNET_AVAILABLE "CTest will performs tests that need the Internet" ON)
 
 #
 # TLS library options... all except mbedTLS are basically OpenSSL variants.
@@ -261,6 +274,9 @@ if(LWS_WITH_DISTRO_RECOMMENDED)
 	set(LWS_WITH_SPAWN 1)
 	set(LWS_WITH_FSMOUNT 1)
 	set(LWS_ROLE_MQTT 1)
+	set(LWS_WITH_SECURE_STREAMS 1)
+	set(LWS_WITH_SECURE_STREAMS_PROXY_API 1)
+	set(LWS_WITH_DIR 1)
 endif()
 
 if (LWS_WITH_SECURE_STREAMS_PROXY_API)
@@ -303,8 +319,11 @@ if (LWS_WITH_STRUCT_SQLITE3)
 	set(LWS_WITH_SQLITE3 1)
 endif()
 
-# do you care about this?  Then send me a patch where it disables it on travis
-# but allows it on APPLE
+if (LWS_WITH_HTTP_BASIC_AUTH)
+	# WWW_AUTHENTICATE used by basic auth is an "uncommon header"
+	set(LWS_WITH_HTTP_UNCOMMON_HEADERS 1)
+endif()
+
 if (APPLE)
 	set(LWS_ROLE_DBUS 0)
 endif()
@@ -324,43 +343,6 @@ if (LWS_PLAT_FREERTOS)
 	set(LWS_WITH_FTS 0)
 endif()
 
-set(PACKAGE "libwebsockets")
-set(CPACK_PACKAGE_NAME "${PACKAGE}")
-set(CPACK_PACKAGE_VERSION_MAJOR "4")
-set(CPACK_PACKAGE_VERSION_MINOR "0")
-set(CPACK_PACKAGE_VERSION_PATCH "99")
-set(CPACK_PACKAGE_RELEASE 1)
-set(CPACK_GENERATOR "RPM")
-set(CPACK_PACKAGE_VERSION "${CPACK_PACKAGE_VERSION_MAJOR}.${CPACK_PACKAGE_VERSION_MINOR}.${CPACK_PACKAGE_VERSION_PATCH}")
-set(CPACK_PACKAGE_VENDOR "andy@warmcat.com")
-set(CPACK_PACKAGE_CONTACT "andy@warmcat.com")
-set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "${PACKAGE} ${PACKAGE_VERSION}")
-set(SOVERSION "16")
-if(NOT CPACK_GENERATOR)
-    if(UNIX)
-        set(CPACK_GENERATOR "TGZ")
-    else()
-        set(CPACK_GENERATOR "ZIP")
-    endif()
-endif()
-set(CPACK_SOURCE_GENERATOR "TGZ")
-set(CPACK_SOURCE_PACKAGE_FILE_NAME "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}")
-set(VERSION "${CPACK_PACKAGE_VERSION}")
-
-set(LWS_LIBRARY_VERSION ${CPACK_PACKAGE_VERSION})
-set(LWS_LIBRARY_VERSION_MAJOR ${CPACK_PACKAGE_VERSION_MAJOR})
-set(LWS_LIBRARY_VERSION_MINOR ${CPACK_PACKAGE_VERSION_MINOR})
-set(LWS_LIBRARY_VERSION_PATCH ${CPACK_PACKAGE_VERSION_PATCH})
-
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake/")
-
-
-message(STATUS "CMAKE_TOOLCHAIN_FILE='${CMAKE_TOOLCHAIN_FILE}'")
-
-if(WIN32)
-	configure_file(${CMAKE_CURRENT_SOURCE_DIR}/win32port/version.rc.in ${CMAKE_CURRENT_BINARY_DIR}/win32port/version.rc @ONLY)
-	set(RESOURCES ${CMAKE_CURRENT_BINARY_DIR}/win32port/version.rc)
-endif()
 
 # Try to find the current Git hash.
 find_package(Git)
@@ -392,6 +374,57 @@ if(GIT_EXECUTABLE)
 	endif()
 
 	message("Git commit hash: ${LWS_BUILD_HASH}")
+endif()
+
+set(PACKAGE "libwebsockets")
+set(CPACK_RPM_PACKAGE_LICENSE "MIT")
+set(CPACK_PACKAGE_NAME "${PACKAGE}")
+set(CPACK_PACKAGE_VERSION_MAJOR "4")
+set(CPACK_PACKAGE_VERSION_MINOR "0")
+set(CPACK_PACKAGE_VERSION_PATCH "99-${LWS_BUILD_HASH}")
+set(CPACK_PACKAGE_RELEASE 1)
+
+set(CPACK_PACKAGE_VERSION "${CPACK_PACKAGE_VERSION_MAJOR}.${CPACK_PACKAGE_VERSION_MINOR}.${CPACK_PACKAGE_VERSION_PATCH}")
+set(CPACK_PACKAGE_VENDOR "andy@warmcat.com")
+set(CPACK_PACKAGE_CONTACT "andy@warmcat.com")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "${PACKAGE} ${PACKAGE_VERSION}")
+set(SOVERSION "16")
+if(NOT CPACK_GENERATOR)
+    if(UNIX)
+        set(CPACK_GENERATOR "TGZ")
+    else()
+        set(CPACK_GENERATOR "ZIP")
+    endif()
+endif()
+set(CPACK_SOURCE_GENERATOR "TGZ")
+set(CPACK_SOURCE_PACKAGE_FILE_NAME "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}")
+set(VERSION "${CPACK_PACKAGE_VERSION}")
+
+set(CPACK_RPM_PACKAGE_RELEASE_DIST ON)
+set(CPACK_RPM_FILE_NAME "RPM-DEFAULT")
+set(CPACK_RPM_DEBUGINFO_PACKAGE ON)
+# below makes some kind of chimera rpm with binaries and sources
+set(CPACK_RPM_PACKAGE_SOURCES OFF)
+set(CPACK_RPM_INSTALL_WITH_EXEC ON)
+
+set(CPACK_DEBIAN_FILE_NAME "DEB-DEFAULT")
+set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+set(CPACK_DEBIAN_DEBUGINFO_PACKAGE ON)
+set(CPACK_DEBIAN_PACKAGE_SOURCE ON)
+
+set(LWS_LIBRARY_VERSION ${CPACK_PACKAGE_VERSION})
+set(LWS_LIBRARY_VERSION_MAJOR ${CPACK_PACKAGE_VERSION_MAJOR})
+set(LWS_LIBRARY_VERSION_MINOR ${CPACK_PACKAGE_VERSION_MINOR})
+set(LWS_LIBRARY_VERSION_PATCH ${CPACK_PACKAGE_VERSION_PATCH})
+
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake/")
+
+
+message(STATUS "CMAKE_TOOLCHAIN_FILE='${CMAKE_TOOLCHAIN_FILE}'")
+
+if(WIN32)
+	configure_file(${CMAKE_CURRENT_SOURCE_DIR}/win32port/version.rc.in ${CMAKE_CURRENT_BINARY_DIR}/win32port/version.rc @ONLY)
+	set(RESOURCES ${CMAKE_CURRENT_BINARY_DIR}/win32port/version.rc)
 endif()
 
 if (LWS_WITH_HTTP2)
@@ -954,30 +987,14 @@ if (LWS_ROLE_DBUS)
 		set(LWS_DBUS_LIB "dbus-1")
 	endif()
 
-	CHECK_LIBRARY_EXISTS(${LWS_DBUS_LIB} dbus_connection_set_watch_functions "" LWS_HAVE_LIBDBUS)
-	if (NOT LWS_HAVE_LIBDBUS)
-		message(FATAL_ERROR "Install dbus-devel, or libdbus-1-dev etc")
+	if (NOT LWS_PLAT_FREERTOS)
+		find_package(PkgConfig QUIET)
+		pkg_check_modules(PC_DBUS1 dbus-1 QUIET)
+		list(APPEND LWS_DBUS_INCLUDE1 ${PC_DBUS1_INCLUDE_DIRS})
+		list(APPEND LWS_DBUS_LIB ${PC_DBUS1_LIBRARIES})
 	endif()
 
-	if (NOT LWS_DBUS_INCLUDE1)
-		# look in fedora and debian / ubuntu place
-		if (EXISTS "/usr/include/dbus-1.0")
-			set(LWS_DBUS_INCLUDE1 "/usr/include/dbus-1.0")
-		else()
-			message(FATAL_ERROR "Set LWS_DBUS_INCLUDE1 to /usr/include/dbus-1.0 or wherever the main dbus includes are")
-		endif()
-	endif()
-
-	if (NOT LWS_DBUS_INCLUDE2)
-		# look in fedora... debian / ubuntu has the ARCH in the path...
-		if (EXISTS "/usr/lib64/dbus-1.0/include")
-			set(LWS_DBUS_INCLUDE2 "/usr/lib64/dbus-1.0/include")
-		else()
-			message(FATAL_ERROR "Set LWS_DBUS_INCLUDE2 to /usr/lib/ARCH-linux-gnu/dbus-1.0/include or wherever dbus-arch-deps.h is on your system")
-		endif()
-	endif()
-
-	set(CMAKE_REQUIRED_INCLUDES ${CMAKE_REQUIRED_INCLUDES};${LWS_DBUS_INCLUDE1};${LWS_DBUS_INCLUDE2})
+	set(CMAKE_REQUIRED_INCLUDES ${CMAKE_REQUIRED_INCLUDES};${LWS_DBUS_INCLUDE1})
 
 	CHECK_C_SOURCE_COMPILES("#include <dbus/dbus.h>
 	int main(void) {
@@ -1778,10 +1795,11 @@ if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX OR COMPILER_IS_CLANG)
 		set(CMAKE_C_FLAGS "-fanalyzer ${CMAKE_C_FLAGS}" )
 	endif()
 
+	# always warn all and Werror, and generate debug info
     if (UNIX AND NOT LWS_PLAT_FREERTOS)
-	    set(CMAKE_C_FLAGS "-Wall -Wsign-compare -Wstrict-aliasing -Wuninitialized -Werror ${VISIBILITY_FLAG} -Wundef ${GCOV_FLAGS} ${CMAKE_C_FLAGS} ${ASAN_FLAGS}" )
+	    set(CMAKE_C_FLAGS "-g -Wall -Wsign-compare -Wstrict-aliasing -Wuninitialized -Werror ${VISIBILITY_FLAG} -Wundef ${GCOV_FLAGS} ${CMAKE_C_FLAGS} ${ASAN_FLAGS}" )
     else()
-	    set(CMAKE_C_FLAGS "-Wall -Wsign-compare -Wuninitialized -Werror ${VISIBILITY_FLAG} ${GCOV_FLAGS} ${CMAKE_C_FLAGS}" )
+	    set(CMAKE_C_FLAGS "-g -Wall -Wsign-compare -Wuninitialized -Werror ${VISIBILITY_FLAG} ${GCOV_FLAGS} ${CMAKE_C_FLAGS}" )
     endif()
 endif ()
 
@@ -1839,23 +1857,18 @@ if (LWS_WITH_STATIC)
 			PROPERTIES
 			OUTPUT_NAME websockets_static)
 	endif()
+	if (NOT LWS_WITH_SHARED)
 	add_custom_command(
-		      TARGET websockets
+		      TARGET websockets POST_BUILD
+		      DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/lws_config.h
 		      COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/include/libwebsockets.h
-		     					 ${CMAKE_CURRENT_BINARY_DIR}/include/libwebsockets.h
-	)
-
-	add_custom_command(
-		      TARGET websockets
+		     		${CMAKE_CURRENT_BINARY_DIR}/include/libwebsockets.h
 		      COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/include/libwebsockets/
-									${CMAKE_CURRENT_BINARY_DIR}/include/libwebsockets
-	)
-
-	add_custom_command(
-		      TARGET websockets
+				${CMAKE_CURRENT_BINARY_DIR}/include/libwebsockets
 		      COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_BINARY_DIR}/lws_config.h
-		     					 ${CMAKE_CURRENT_BINARY_DIR}/include/lws_config.h
+		     		${CMAKE_CURRENT_BINARY_DIR}/include/lws_config.h
 	)
+	endif()
 
 endif()
 
@@ -1886,24 +1899,17 @@ if (LWS_WITH_SHARED)
 		set_property(TARGET websockets_shared PROPERTY MACOSX_RPATH YES)
 	endif()
 
+
 	add_custom_command(
-		      TARGET websockets_shared
+		      TARGET websockets_shared POST_BUILD
+		      DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/lws_config.h
 		      COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/include/libwebsockets.h
-		     					 ${CMAKE_CURRENT_BINARY_DIR}/include/libwebsockets.h
-	)
-
-	add_custom_command(
-		      TARGET websockets
-		      COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/include/libwebsockets
-									${CMAKE_CURRENT_BINARY_DIR}/include/libwebsockets
-	)
-
-	add_custom_command(
-		      TARGET websockets_shared
+		     		${CMAKE_CURRENT_BINARY_DIR}/include/libwebsockets.h
+		      COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/include/libwebsockets/
+				${CMAKE_CURRENT_BINARY_DIR}/include/libwebsockets
 		      COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_BINARY_DIR}/lws_config.h
-		     					 ${CMAKE_CURRENT_BINARY_DIR}/include/lws_config.h
+		     		${CMAKE_CURRENT_BINARY_DIR}/include/lws_config.h
 	)
-
 
 endif()
 
@@ -2157,9 +2163,7 @@ endif()
 
 if (LWS_ROLE_DBUS)
 	message("dbus include dir 1: ${LWS_DBUS_INCLUDE1}")
-	message("dbus include dir 2: ${LWS_DBUS_INCLUDE2}")
 	include_directories("${LWS_DBUS_INCLUDE1}")
-	include_directories("${LWS_DBUS_INCLUDE2}")
 	list(APPEND LIB_LIST ${LWS_DBUS_LIB})
 endif()
 
@@ -3059,10 +3063,6 @@ set(CPACK_SOURCE_IGNORE_FILES $(CPACK_SOURCE_IGNORE_FILES) "/.git/" "/build/" "\
 # Most people are more used to "make dist" compared to "make package_source"
 add_custom_target(dist COMMAND "${CMAKE_MAKE_PROGRAM}" package_source)
 
-include(UseRPMTools)
-if (RPMTools_FOUND)
-	RPMTools_ADD_RPM_TARGETS(libwebsockets scripts/libwebsockets.spec)
-endif()
 
 message("---------------------------------------------------------------------")
 message("  Settings:  (For more help do cmake -LH <srcpath>)")
