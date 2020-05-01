@@ -34,51 +34,23 @@
 #include <string.h>
 #include <stdio.h>
 
+#include <sys/stat.h>
+#if defined(WIN32)
+#include <direct.h>
+#define read _read
+#define open _open
+#define close _close
+#define write _write
+#define mkdir(x,y) _mkdir(x)
+#define rmdir _rmdir
+#define unlink _unlink
+#define HAVE_STRUCT_TIMESPEC
+#if defined(pid_t)
+#undef pid_t
+#endif
+#endif /* win32 */
+
 #define COMBO_SIZEOF 256
-
-#if defined(LWS_WITH_LIBUV) && UV_VERSION_MAJOR > 0
-
-int
-lws_dir(const char *dirpath, void *user, lws_dir_callback_function cb)
-{
-	struct lws_dir_entry lde;
-	uv_dirent_t dent;
-	uv_fs_t req;
-	int ret = 1, ir;
-	uv_loop_t loop;
-
-	ir = uv_loop_init(&loop);
-	if (ir) {
-		lwsl_err("%s: loop init failed %d\n", __func__, ir);
-		return 1;
-	}
-
-	ir = uv_fs_scandir(&loop, &req, dirpath, 0, NULL);
-	if (ir < 0) {
-		lwsl_err("Scandir on %s failed, errno %d\n", dirpath, LWS_ERRNO);
-		ret = 2;
-		goto bail;
-	}
-
-	while (uv_fs_scandir_next(&req, &dent) != UV_EOF) {
-		lde.name = dent.name;
-		lde.type = (int)dent.type;
-		if (cb(dirpath, user, &lde))
-			goto bail1;
-	}
-
-	ret = 0;
-
-bail1:
-	uv_fs_req_cleanup(&req);
-bail:
-	while (uv_loop_close(&loop))
-		;
-
-	return ret;
-}
-
-#else
 
 #if !defined(LWS_PLAT_FREERTOS)
 
@@ -232,5 +204,85 @@ bail:
 
 	return ret;
 }
+
+/*
+ * Check filename against one globby filter
+ *
+ * We can support things like "*.rpm"
+ */
+
+static int
+lws_dir_glob_check(const char *nm, const char *filt)
+{
+	while (*nm) {
+		if (*filt == '*') {
+			if (!strcmp(nm, filt + 1))
+				return 1;
+		} else {
+			if (*nm != *filt)
+				return 0;
+			filt++;
+		}
+		nm++;
+	}
+
+	return 0;
+}
+
+/*
+ * We get passed a single filter string, like "*.txt" or "mydir/\*.rpm" or so.
+ */
+
+int
+lws_dir_glob_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
+{
+	lws_dir_glob_t *filter = (lws_dir_glob_t*)user;
+	char path[384];
+
+	if (!strcmp(lde->name, ".") || !strcmp(lde->name, ".."))
+		return 0;
+
+	if (lde->type == LDOT_DIR)
+		return 0;
+
+	if (lws_dir_glob_check(lde->name, filter->filter)) {
+		lws_snprintf(path, sizeof(path), "%s%c%s", dirpath, csep,
+							   lde->name);
+		filter->cb(filter->user, path);
+	}
+
+	return 0;
+}
+
+int
+lws_dir_rm_rf_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
+{
+	char path[384];
+
+	if (!strcmp(lde->name, ".") || !strcmp(lde->name, ".."))
+		return 0;
+
+	lws_snprintf(path, sizeof(path), "%s%c%s", dirpath, csep, lde->name);
+
+	if (lde->type == LDOT_DIR) {
+		lws_dir(path, NULL, lws_dir_rm_rf_cb);
+		if (rmdir(path))
+			lwsl_warn("%s: rmdir %s failed %d\n", __func__, path, errno);
+	} else {
+		if (unlink(path)) {
+#if defined(WIN32)
+			SetFileAttributesA(path, FILE_ATTRIBUTE_NORMAL);
+			if (unlink(path))
+#else
+			if (rmdir(path))
 #endif
+			lwsl_warn("%s: unlink %s failed %d (type %d)\n",
+					__func__, path, errno, lde->type);
+		}
+	}
+
+	return 0;
+}
+
+
 #endif

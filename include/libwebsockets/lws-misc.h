@@ -577,6 +577,53 @@ lws_dir_callback_function(const char *dirpath, void *user,
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_dir(const char *dirpath, void *user, lws_dir_callback_function cb);
+
+/**
+ * lws_dir_rm_rf_cb() - callback for lws_dir that performs recursive rm -rf
+ *
+ * \param dirpath: directory we are at in lws_dir
+ * \param user: ignored
+ * \param lde: lws_dir info on the file or directory we are at
+ *
+ * This is a readymade rm -rf callback for use with lws_dir.  It recursively
+ * removes everything below the starting dir and then the starting dir itself.
+ * Works on linux, OSX and Windows at least.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_dir_rm_rf_cb(const char *dirpath, void *user, struct lws_dir_entry *lde);
+
+/*
+ * We pass every file in the base dir through a filter, and call back on the
+ * ones that match.  Directories are ignored.
+ *
+ * The original path filter string may look like, eg, "sai-*.deb" or "*.txt"
+ */
+
+typedef int (*lws_dir_glob_cb_t)(void *data, const char *path);
+
+typedef struct lws_dir_glob {
+	const char		*filter;
+	lws_dir_glob_cb_t	cb;
+	void			*user;
+} lws_dir_glob_t;
+
+/**
+ * lws_dir_glob_cb() - callback for lws_dir that performs filename globbing
+ *
+ * \param dirpath: directory we are at in lws_dir
+ * \param user: pointer to your prepared lws_dir_glob_cb_t
+ * \param lde: lws_dir info on the file or directory we are at
+ *
+ * \p user is prepared with an `lws_dir_glob_t` containing a callback for paths
+ * that pass the filtering, a user pointer to pass to that callback, and a
+ * glob string like "*.txt".  It may not contain directories, the lws_dir musr
+ * be started at the correct dir.
+ *
+ * Only the base path passed to lws_dir is scanned, it does not look in subdirs.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_dir_glob_cb(const char *dirpath, void *user, struct lws_dir_entry *lde);
+
 #endif
 
 /**
