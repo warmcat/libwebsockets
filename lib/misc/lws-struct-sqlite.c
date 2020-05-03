@@ -181,9 +181,10 @@ lws_struct_sq3_deserialize(sqlite3 *pdb, const char *filter, const char *order,
 			   const lws_struct_map_t *schema, lws_dll2_owner_t *o,
 			   struct lwsac **ac, int start, int _limit)
 {
-	char s[250], where[250];
-	lws_struct_args_t a;
 	int limit = _limit < 0 ? -_limit : _limit;
+	char s[768], results[512], where[250];
+	lws_struct_args_t a;
+	int n, m;
 
 	if (!order)
 		order = "_lws_idx";
@@ -197,14 +198,26 @@ lws_struct_sq3_deserialize(sqlite3 *pdb, const char *filter, const char *order,
 
 	lws_dll2_owner_clear(o);
 
+	/*
+	 * Explicitly list the columns instead of use *, so we can skip blobs
+	 */
+
+	m = 0;
+	for (n = 0; n < (int)schema->child_map_size; n++)
+		m += lws_snprintf(&results[m], sizeof(results) - n - 1,
+				  "%s%c", schema->child_map[n].colname,
+				  n + 1 == (int)schema->child_map_size ? ' ' : ',');
+
 	where[0] = '\0';
 	lws_snprintf(where, sizeof(where), " where _lws_idx >= %llu %s",
 			     (unsigned long long)start, filter ? filter : "");
 
-	lws_snprintf(s, sizeof(s) - 1, "select * "
-		     "from %s %s order by %s %slimit %d;",
+	lws_snprintf(s, sizeof(s) - 1, "select %s "
+		     "from %s %s order by %s %slimit %d;", results,
 		     schema->colname, where, order,
 				     _limit < 0 ? "desc " : "", limit);
+
+
 
 	if (sqlite3_exec(pdb, s, lws_struct_sq3_deser_cb, &a, NULL) != SQLITE_OK) {
 		lwsl_err("%s: %s: fail %s\n", __func__, sqlite3_errmsg(pdb), s);
@@ -227,13 +240,33 @@ _lws_struct_sq3_ser_one(sqlite3 *pdb, const lws_struct_map_t *schema,
 			uint32_t idx, void *st)
 {
 	const lws_struct_map_t *map = schema->child_map;
-	int n, m, pk = 0, nentries = schema->child_map_size;
+	int n, m, pk = 0, nentries = schema->child_map_size, nef = 0, did;
 	size_t sql_est = 46 + strlen(schema->colname) + 1;
 		/* "insert into  (_lws_idx, ) values (00000001,);" ...
 		 * plus the table name */
 	uint8_t *stb = (uint8_t *)st;
 	const char *p;
 	char *sql;
+
+	/*
+	 * Figure out effective number of columns, exluding BLOB.
+	 *
+	 * The first UNSIGNED is a hidden index.  Blobs are not handled by
+	 * lws_struct except to create the column in the schema.
+	 */
+
+	pk = 0;
+	nef = 0;
+	for (n = 0; n < nentries; n++) {
+		if (!pk && map[n].type == LSMT_UNSIGNED) {
+			pk = 1;
+			continue;
+		}
+		if (map[n].type == LSMT_BLOB_PTR)
+			continue;
+
+		nef++;
+	}
 
 	/*
 	 * Figure out an estimate for the length of the populated sqlite
@@ -276,6 +309,11 @@ _lws_struct_sq3_ser_one(sqlite3 *pdb, const lws_struct_map_t *schema,
 			sql_est += (p ? lws_sql_purify_len(p) : 0) + 2;
 			break;
 
+		case LSMT_BLOB_PTR:
+			/* we don't deal with blobs actually */
+			sql_est -= strlen(map[n].colname) + 2;
+			break;
+
 		default:
 			lwsl_err("%s: unsupported type\n", __func__);
 			assert(0);
@@ -295,19 +333,26 @@ _lws_struct_sq3_ser_one(sqlite3 *pdb, const lws_struct_map_t *schema,
 	 * not be specified
 	 */
 
+	pk = 0;
+	did = 0;
 	for (n = 0; n < nentries; n++) {
 		if (!pk && map[n].type == LSMT_UNSIGNED) {
 			pk = 1;
 			continue;
 		}
+		if (map[n].type == LSMT_BLOB_PTR)
+			continue;
+
+		did++;
 		m += lws_snprintf(sql + m, sql_est - m,
-				  n == nentries - 1 ? "%s" : "%s, ",
+				  did == nef ? "%s" : "%s, ",
 				  map[n].colname);
 	}
 
 	m += lws_snprintf(sql + m, sql_est - m, ") values(%u, ", idx);
 
 	pk = 0;
+	did = 0;
 	for (n = 0; n < nentries; n++) {
 		uint64_t uu64;
 		size_t q;
@@ -351,13 +396,18 @@ _lws_struct_sq3_ser_one(sqlite3 *pdb, const lws_struct_map_t *schema,
 			}
 			sql[m++] = '\'';
 			break;
+
+		case LSMT_BLOB_PTR:
+			continue;
+
 		default:
 			lwsl_err("%s: unsupported type\n", __func__);
 			assert(0);
 			break;
 		}
 
-		if (n != nentries - 1) {
+		did++;
+		if (did != nef) {
 			if (sql_est - m < 6)
 				return -1;
 			sql[m++] = ',';
@@ -368,11 +418,13 @@ _lws_struct_sq3_ser_one(sqlite3 *pdb, const lws_struct_map_t *schema,
 	lws_snprintf(sql + m, sql_est - m, ");");
 
 	n = sqlite3_exec(pdb, sql, NULL, NULL, NULL);
-	free(sql);
 	if (n != SQLITE_OK) {
+		lwsl_err("%s\n", sql);
+		free(sql);
 		lwsl_err("%s: %s: fail\n", __func__, sqlite3_errmsg(pdb));
 		return -1;
 	}
+	free(sql);
 
 	return 0;
 }
@@ -406,7 +458,7 @@ lws_struct_sq3_create_table(sqlite3 *pdb, const lws_struct_map_t *schema)
 			  schema->colname);
 
 	while (map_size--) {
-		if (map->type > LSMT_STRING_PTR) {
+		if (map->type > LSMT_STRING_PTR && map->type != LSMT_BLOB_PTR) {
 			map++;
 			continue;
 		}
@@ -415,17 +467,23 @@ lws_struct_sq3_create_table(sqlite3 *pdb, const lws_struct_map_t *schema)
 			*p++ = ' ';
 		}
 		subsequent = 1;
-		if (map->type < LSMT_STRING_CHAR_ARRAY) {
-			use = "";
-			if (map->colname[0] != '_') /* _lws_idx is not primary key */
-				use = pri;
-			p += lws_snprintf(p, end - p, "%s integer%s",
-					  map->colname, use);
-			if (map->colname[0] != '_')
-				pri = "";
-		} else
-			p += lws_snprintf(p, end - p, "%s varchar",
-					  map->colname);
+		if (map->type == LSMT_BLOB_PTR) {
+
+			p += lws_snprintf(p, end - p, "%s blob", map->colname);
+
+		} else {
+			if (map->type < LSMT_STRING_CHAR_ARRAY) {
+				use = "";
+				if (map->colname[0] != '_') /* _lws_idx is not primary key */
+					use = pri;
+				p += lws_snprintf(p, end - p, "%s integer%s",
+						map->colname, use);
+				if (map->colname[0] != '_')
+					pri = "";
+			} else
+				p += lws_snprintf(p, end - p, "%s varchar",
+						map->colname);
+		}
 
 		map++;
 	}

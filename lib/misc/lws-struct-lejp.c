@@ -496,6 +496,9 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 				goto up;
 			break;
 
+		case LSMT_BLOB_PTR:
+			goto up;
+
 		default:
 			break;
 		}
@@ -652,6 +655,8 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 			/* we're actually at the same level */
 			j->subsequent = 1;
 			j->idt = 1;
+			break;
+		default:
 			break;
 		}
 

@@ -35,6 +35,7 @@ typedef enum {
 	LSMT_LIST,
 	LSMT_CHILD_PTR,
 	LSMT_SCHEMA,
+	LSMT_BLOB_PTR,
 
 } lws_struct_map_type_eum;
 
@@ -187,6 +188,23 @@ typedef struct lws_struct_args {
 	  0, \
 	  LWS_ARRAY_SIZE(map), \
 	  LSMT_SCHEMA \
+	}
+
+/*
+ * This is just used to create the table schema, it is not part of serialization
+ * and deserialization.  Blobs should be accessed separately.
+ */
+
+#define LSM_BLOB_PTR(type, blobptr_name, qname) \
+	{ \
+	  qname, /* JSON item, or sqlite3 column name */ \
+	  NULL, \
+	  NULL, \
+	  offsetof(type, blobptr_name),       /* member that points to blob */ \
+	  sizeof (((type *)0)->blobptr_name),       /* size of blob pointer */ \
+	  0,		 /* member holding blob len */ \
+	  0, /* size of blob length member */ \
+	  LSMT_BLOB_PTR \
 	}
 
 typedef struct lws_struct_serialize_st {
