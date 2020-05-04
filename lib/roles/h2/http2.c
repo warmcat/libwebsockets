@@ -316,10 +316,13 @@ lws_wsi_h2_adopt(struct lws *parent_wsi, struct lws *wsi)
 #endif
 	wsi->h2.initialized = 1;
 
+#if 0
+	/* only assign sid at header send time when we know it */
 	if (!wsi->mux.my_sid) {
 		wsi->mux.my_sid = nwsi->h2.h2n->highest_sid;
 		nwsi->h2.h2n->highest_sid += 2;
 	}
+#endif
 
 	lwsl_info("%s: binding wsi %p to sid %d (next %d)\n", __func__,
 			wsi, (int)wsi->mux.my_sid, (int)nwsi->h2.h2n->highest_sid);
@@ -2329,14 +2332,16 @@ lws_h2_client_handshake(struct lws *wsi)
 
 	lwsl_debug("%s\n", __func__);
 
-	nwsi->h2.h2n->highest_sid_opened = sid;
-	if (!wsi->mux.my_sid)
-		wsi->mux.my_sid = sid;
-	else {
-		lwsl_debug("%s: %p already sid %d\n",
-				__func__, wsi, wsi->mux.my_sid);
-		//assert(0);
-	}
+	/*
+	 * We MUST allocate our sid here at the point we're about to send the
+	 * stream open.  It's because we don't know the order in which multiple
+	 * open streams will send their headers... in h2, sending the headers
+	 * is the point the stream is opened.  The peer requires that we only
+	 * open streams in ascending sid order
+	 */
+
+	wsi->mux.my_sid = nwsi->h2.h2n->highest_sid_opened = sid;
+	lwsl_info("%s: wsi %p: assigning SID %d at header send\n", __func__, wsi, sid);
 
 	lwsl_info("%s: CLIENT_WAITING_TO_SEND_HEADERS: pollout (sid %d)\n",
 			__func__, wsi->mux.my_sid);
