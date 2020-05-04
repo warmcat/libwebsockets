@@ -40,6 +40,16 @@ lws_spawn_timeout(struct lws_sorted_usec_list *sul)
 	lws_spawn_piped_kill_child_process(lsp);
 }
 
+void
+lws_spawn_sul_reap(struct lws_sorted_usec_list *sul)
+{
+	struct lws_spawn_piped *lsp = lws_container_of(sul,
+					struct lws_spawn_piped, sul_reap);
+
+	lwsl_warn("%s: reaping spawn after last stdpipe closed\n", __func__);
+	lws_spawn_reap(lsp);
+}
+
 static struct lws *
 lws_create_basic_wsi(struct lws_context *context, int tsi,
 		     const struct lws_role_ops *ops)
@@ -96,7 +106,13 @@ lws_spawn_piped_destroy(struct lws_spawn_piped **_lsp)
 	if (!lsp)
 		return;
 
+	lws_dll2_remove(&lsp->dll);
+
+	lws_sul_schedule(lsp->info.vh->context, lsp->info.tsi, &lsp->sul,
+			 NULL, LWS_SET_TIMER_USEC_CANCEL);
+
 	for (n = 0; n < 3; n++) {
+#if 0
 		if (lsp->pipe_fds[n][!!(n == 0)] == 0)
 			lwsl_err("ZERO FD IN CGI CLOSE");
 
@@ -104,12 +120,12 @@ lws_spawn_piped_destroy(struct lws_spawn_piped **_lsp)
 			close(lsp->pipe_fds[n][!!(n == 0)]);
 			lsp->pipe_fds[n][!!(n == 0)] = LWS_SOCK_INVALID;
 		}
+#endif
+		if (lsp->stdwsi[n]) {
+			lws_set_timeout(lsp->stdwsi[n], 1, LWS_TO_KILL_ASYNC);
+			lsp->stdwsi[n] = NULL;
+		}
 	}
-
-	lws_dll2_remove(&lsp->dll);
-
-	lws_sul_schedule(lsp->info.vh->context, lsp->info.tsi, &lsp->sul,
-			 NULL, LWS_SET_TIMER_USEC_CANCEL);
 
 	lws_free_set_NULL((*_lsp));
 }
@@ -510,12 +526,20 @@ bail1:
 }
 
 void
-lws_spawn_stdwsi_closed(struct lws_spawn_piped *lsp)
+lws_spawn_stdwsi_closed(struct lws_spawn_piped *lsp, struct lws *wsi)
 {
+	int n;
+
 	assert(lsp);
 	lsp->pipes_alive--;
 	lwsl_debug("%s: pipes alive %d\n", __func__, lsp->pipes_alive);
-	lws_spawn_reap(lsp);
+	if (!lsp->pipes_alive)
+		lws_sul_schedule(lsp->info.vh->context, lsp->info.tsi,
+				 &lsp->sul_reap, lws_spawn_sul_reap, 1);
+
+	for (n = 0; n < 3; n++)
+		if (lsp->stdwsi[n] == wsi)
+			lsp->stdwsi[n] = NULL;
 }
 
 int

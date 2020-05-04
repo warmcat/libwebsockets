@@ -456,6 +456,7 @@ just_kill_connection:
 
 		lwsl_notice("%s: closing in unestablished state 0x%x\n",
 				__func__, lwsi_state(wsi));
+		wsi->socket_is_permanently_unusable = 1;
 
 		lws_inform_client_conn_fail(wsi,
 			(void *)_reason, sizeof(_reason));
@@ -548,10 +549,7 @@ just_kill_connection:
 	// lwsl_notice("%s: wsi %p, fd %d\n", __func__, wsi, wsi->desc.sockfd);
 
 	/* checking return redundant since we anyway close */
-	if (wsi->desc.sockfd != LWS_SOCK_INVALID)
-		__remove_wsi_socket_from_fds(wsi);
-	else
-		__lws_same_vh_protocol_remove(wsi);
+	__remove_wsi_socket_from_fds(wsi);
 
 	lwsi_set_state(wsi, LRS_DEAD_SOCKET);
 	lws_buflist_destroy_all_segments(&wsi->buflist);
@@ -634,6 +632,16 @@ __lws_close_free_wsi_final(struct lws *wsi)
 		if (n)
 			lwsl_debug("closing: close ret %d\n", LWS_ERRNO);
 
+		__remove_wsi_socket_from_fds(wsi);
+		if (lws_socket_is_valid(wsi->desc.sockfd))
+			delete_from_fd(wsi->context, wsi->desc.sockfd);
+
+#if !defined(LWS_PLAT_FREERTOS) && !defined(WIN32) && !defined(LWS_PLAT_OPTEE)
+		delete_from_fdwsi(wsi->context, wsi);
+#endif
+
+		sanity_assert_no_sockfd_traces(wsi->context, wsi->desc.sockfd);
+
 		wsi->desc.sockfd = LWS_SOCK_INVALID;
 	}
 
@@ -649,6 +657,8 @@ __lws_close_free_wsi_final(struct lws *wsi)
 	}
 #endif
 
+	__lws_wsi_remove_from_sul(wsi);
+	sanity_assert_no_wsi_traces(wsi->context, wsi);
 	__lws_free_wsi(wsi);
 }
 

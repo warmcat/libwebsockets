@@ -319,6 +319,9 @@ lws_threadpool_tsi_context(struct lws_context *context, int tsi)
 	struct lws_threadpool_task **c, *task = NULL;
 	struct lws_threadpool *tp;
 	struct lws *wsi;
+	char some = 0;
+
+	lwsl_notice("%s\n", __func__);
 
 	lws_context_lock(context, __func__);
 
@@ -340,6 +343,7 @@ lws_threadpool_tsi_context(struct lws_context *context, int tsi)
 			    !task->wanted_writeable_cb)
 				continue;
 
+			some = 1;
 			task->wanted_writeable_cb = 0;
 			lws_memory_barrier();
 
@@ -363,6 +367,7 @@ lws_threadpool_tsi_context(struct lws_context *context, int tsi)
 			if (wsi && wsi->tsi == tsi &&
 			    task->wanted_writeable_cb) {
 
+				some = 1;
 				task->wanted_writeable_cb = 0;
 				lws_memory_barrier();
 
@@ -380,6 +385,9 @@ lws_threadpool_tsi_context(struct lws_context *context, int tsi)
 
 		tp = tp->tp_list;
 	}
+
+	if (!some)
+		lwsl_notice("%s: unable to find task wanting sync\n", __func__);
 
 	lws_context_unlock(context);
 

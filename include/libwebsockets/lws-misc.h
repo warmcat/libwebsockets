@@ -862,6 +862,7 @@ lws_spawn_piped_kill_child_process(struct lws_spawn_piped *lsp);
  * lws_spawn_stdwsi_closed() - inform the spawn one of its stdxxx pipes closed
  *
  * \p lsp: the spawn object
+ * \p wsi: the wsi that is closing
  *
  * When you notice one of the spawn stdxxx pipes closed, inform the spawn
  * instance using this api.  When it sees all three have closed, it will
@@ -871,7 +872,7 @@ lws_spawn_piped_kill_child_process(struct lws_spawn_piped *lsp);
  * has closed.
  */
 LWS_VISIBLE LWS_EXTERN void
-lws_spawn_stdwsi_closed(struct lws_spawn_piped *lsp);
+lws_spawn_stdwsi_closed(struct lws_spawn_piped *lsp, struct lws *wsi);
 
 /**
  * lws_spawn_get_stdfd() - return std channel index for stdwsi

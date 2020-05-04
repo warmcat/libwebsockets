@@ -378,15 +378,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 
 	if (!lws_dll2_is_detached(&wsi->dll2_cli_txn_queue))
 		return wsi;
-#if 0
-	if (!ads && !result) {
-		cce = "dns resolution failed";
-		if (!wsi->oom4)
-			goto oom4;
-		else
-			goto failed;
-	}
-#endif
+
 #if !defined(WIN32)
 	/*
 	* We can check using getsockopt if our connect actually completed.
@@ -626,17 +618,20 @@ ads_known:
 		if (__insert_wsi_socket_into_fds(wsi->context, wsi))
 			goto try_next_result_closesock;
 
-		if (lws_change_pollfd(wsi, 0, LWS_POLLIN))
-			goto try_next_result_fds;
-
 		/*
+		 * The fd + wsi combination is entered into the wsi tables
+		 * at this point, with a pollfd
+		 *
 		 * Past here, we can't simply free the structs as error
 		 * handling as oom4 does.
 		 *
 		 * We can run the whole close flow, or unpick the fds inclusion
 		 * and anything else we have done.
 		 */
-		wsi->oom4 = 1;
+
+		if (lws_change_pollfd(wsi, 0, LWS_POLLIN))
+			goto try_next_result_fds;
+
 		if (!wsi->protocol)
 			wsi->protocol = &wsi->vhost->protocols[0];
 
@@ -743,11 +738,17 @@ conn_good:
 	return lws_client_connect_4_established(wsi, NULL, plen);
 
 oom4:
+	/*
+	 * We get here if we're trying to clean up a connection attempt that
+	 * didn't make it as far as getting inserted into the wsi / fd tables
+	 */
+
 	if (lwsi_role_client(wsi) && wsi->protocol /* && lwsi_state_est(wsi) */)
 		lws_inform_client_conn_fail(wsi,(void *)cce, strlen(cce));
 
 	/* take care that we might be inserted in fds already */
 	if (wsi->position_in_fds_table != LWS_NO_FDS_POS)
+		/* do the full wsi close flow */
 		goto failed1;
 
 	/*
@@ -759,20 +760,26 @@ oom4:
 	 */
 	{
 		struct lws_vhost *vhost = wsi->vhost;
+		lws_sockfd_type sfd = wsi->desc.sockfd;
 
 		lws_vhost_lock(vhost);
 		__lws_free_wsi(wsi);
 		lws_vhost_unlock(vhost);
+
+		sanity_assert_no_wsi_traces(vhost->context, wsi);
+		sanity_assert_no_sockfd_traces(vhost->context, sfd);
 	}
 
 	return NULL;
 
 
 try_next_result_fds:
-	wsi->oom4 = 0;
 	__remove_wsi_socket_from_fds(wsi);
 
 try_next_result_closesock:
+	/*
+	 * We are killing the socket but leaving
+	 */
 	compatible_close(wsi->desc.sockfd);
 	wsi->desc.sockfd = LWS_SOCK_INVALID;
 

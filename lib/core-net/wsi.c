@@ -831,7 +831,12 @@ _lws_generic_transaction_completed_active_conn(struct lws **_wsi, char take_vh_l
 
 	if (__remove_wsi_socket_from_fds(wsi))
 		return -1;
+
+	sanity_assert_no_wsi_traces(wsi->context, wsi);
+	sanity_assert_no_sockfd_traces(wsi->context, wsi->desc.sockfd);
 	wsi->desc.sockfd = LWS_SOCK_INVALID;
+
+	__lws_wsi_remove_from_sul(wsi);
 
 	/*
 	 * ... we're doing some magic here in terms of handing off the socket

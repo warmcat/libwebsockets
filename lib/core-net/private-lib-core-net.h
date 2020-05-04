@@ -796,7 +796,6 @@ struct lws {
 	unsigned int			h1_ws_proxied:1;
 	unsigned int			proxied_ws_parent:1;
 	unsigned int			do_bind:1;
-	unsigned int			oom4:1;
 	unsigned int			validity_hup:1;
 	unsigned int			skip_fallback:1;
 	unsigned int			file_desc:1;
@@ -883,6 +882,7 @@ struct lws_spawn_piped {
 
 	struct lws_dll2			dll;
 	lws_sorted_usec_list_t		sul;
+	lws_sorted_usec_list_t		sul_reap;
 
 	struct lws_context		*context;
 	struct lws			*stdwsi[3];
@@ -1394,6 +1394,22 @@ _lws_generic_transaction_completed_active_conn(struct lws **wsi, char take_vh_lo
 #define ACTIVE_CONNS_MUXED 1
 #define ACTIVE_CONNS_QUEUED 2
 #define ACTIVE_CONNS_FAILED 3
+
+#if defined(_DEBUG) && !defined(LWS_PLAT_FREERTOS) && !defined(WIN32) && !defined(LWS_PLAT_OPTEE)
+
+int
+sanity_assert_no_wsi_traces(const struct lws_context *context, struct lws *wsi);
+int
+sanity_assert_no_sockfd_traces(const struct lws_context *context,
+			       lws_sockfd_type sfd);
+#else
+static inline int sanity_assert_no_wsi_traces(const struct lws_context *context, struct lws *wsi) { (void)context; (void)wsi; return 0; }
+static inline int sanity_assert_no_sockfd_traces(const struct lws_context *context, lws_sockfd_type sfd) { (void)context; (void)sfd; return 0; }
+#endif
+
+
+void
+delete_from_fdwsi(const struct lws_context *context, struct lws *wsi);
 
 int
 lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin);

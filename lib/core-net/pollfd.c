@@ -378,8 +378,7 @@ __remove_wsi_socket_from_fds(struct lws *wsi)
 	m = wsi->position_in_fds_table;
 	
 	/* these are the only valid possibilities for position_in_fds_table */
-	assert(m == LWS_NO_FDS_POS || (m >= 0 &&
-				       (unsigned int)m < pt->fds_count));
+	assert(m == LWS_NO_FDS_POS || (m >= 0 && (unsigned int)m < pt->fds_count));
 
 	if (context->event_loop_ops->io)
 		context->event_loop_ops->io(wsi,

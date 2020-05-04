@@ -49,10 +49,76 @@ wsi_from_fd(const struct lws_context *context, int fd)
 	return NULL;
 }
 
+#if defined(_DEBUG)
+int
+sanity_assert_no_wsi_traces(const struct lws_context *context, struct lws *wsi)
+{
+	struct lws **p, **done;
+
+	if (!context->max_fds_unrelated_to_ulimit)
+		/* can't tell */
+		return 0;
+
+	/* slow fds handling */
+
+	p = context->lws_lookup;
+	done = &p[context->max_fds];
+
+	/* confirm the wsi doesn't already exist */
+
+	while (p != done && *p != wsi)
+		p++;
+
+	if (p == done)
+		return 0;
+
+	assert(0); /* this wsi is still mentioned inside lws */
+
+	return 1;
+}
+
+int
+sanity_assert_no_sockfd_traces(const struct lws_context *context,
+			       lws_sockfd_type sfd)
+{
+	struct lws **p, **done;
+
+	if (sfd == LWS_SOCK_INVALID)
+		return 0;
+
+	if (!context->max_fds_unrelated_to_ulimit &&
+	    context->lws_lookup[sfd - lws_plat_socket_offset()]) {
+		assert(0); /* the fd is still in use */
+		return 1;
+	}
+
+	/* slow fds handling */
+
+	p = context->lws_lookup;
+	done = &p[context->max_fds];
+
+	/* confirm the sfd not already in use */
+
+	while (p != done && (!*p || (*p)->desc.sockfd != sfd))
+		p++;
+
+	if (p == done)
+		return 0;
+
+	assert(0); /* this fd is still in the tables */
+
+	return 1;
+}
+#endif
+
+
 int
 insert_wsi(const struct lws_context *context, struct lws *wsi)
 {
 	struct lws **p, **done;
+
+	if (sanity_assert_no_wsi_traces(context, wsi))
+		return 0;
 
 	if (!context->max_fds_unrelated_to_ulimit) {
 		assert(context->lws_lookup[wsi->desc.sockfd -
@@ -69,36 +135,11 @@ insert_wsi(const struct lws_context *context, struct lws *wsi)
 	p = context->lws_lookup;
 	done = &p[context->max_fds];
 
-
-	/* confirm it doesn't already exist */
-
-	while (p != done && *p != wsi)
-		p++;
-
-	assert(p == done);
-	p = context->lws_lookup;
-
 	/* confirm fd isn't already in use by a wsi */
 
-	while (p != done && (!*p || (*p)->desc.sockfd != wsi->desc.sockfd))
-		p++;
+	if (sanity_assert_no_sockfd_traces(context, wsi->desc.sockfd))
+		return 0;
 
-	if (p != done) {
-		lwsl_warn("%s: wsi %p already lists fd %d, transferring\n",
-				__func__, *p, wsi->desc.sockfd);
-		/*
-		 * So something closed that fd outside of the wsi activities...
-		 * later the closed fd has been reused for something else.
-		 *
-		 * Work around it by invalidating the old guy's fd, mark him
-		 * as unable to do any transfers and close him.
-		 */
-
-		(*p)->desc.sockfd = LWS_SOCK_INVALID;
-		(*p)->position_in_fds_table = -1;
-		(*p)->socket_is_permanently_unusable = 1;
-		lws_set_timeout(*p, 1, LWS_TO_KILL_ASYNC);
-	}
 	p = context->lws_lookup;
 
 	/* find an empty slot */
@@ -115,6 +156,8 @@ insert_wsi(const struct lws_context *context, struct lws *wsi)
 
 	return 0;
 }
+
+
 
 void
 delete_from_fd(const struct lws_context *context, int fd)
@@ -154,6 +197,30 @@ delete_from_fd(const struct lws_context *context, int fd)
 		assert(0);
 	}
 #endif
+}
+
+void
+delete_from_fdwsi(const struct lws_context *context, struct lws *wsi)
+{
+
+	struct lws **p, **done;
+
+	if (!context->max_fds_unrelated_to_ulimit)
+		return;
+
+
+	/* slow fds handling */
+
+	p = context->lws_lookup;
+	done = &p[context->max_fds];
+
+	/* find the match */
+
+	while (p != done && (!*p || (*p) != wsi))
+		p++;
+
+	if (p != done)
+		*p = NULL;
 }
 
 void
