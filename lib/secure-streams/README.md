@@ -13,6 +13,17 @@ creation, but able to be updated from a remote copy.
 
 ![overview](../doc-assets/ss-explain.png)
 
+## Convention for rx and tx callback return
+
+Function|Return|Meaning
+---|---|---
+tx|0|Send the amount of `buf` stored in `*len`
+tx|>0|Do not send anything
+tx|<0|Finished with stream
+rx|>=0|accepted
+rx|<0|Finished with stream
+
+
 # JSON Policy Database
 
 Example JSON policy... formatting is shown for clarity but whitespace can be

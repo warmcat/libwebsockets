@@ -33,7 +33,7 @@ secstream_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	lws_ss_handle_t *h = (lws_ss_handle_t *)lws_get_opaque_user_data(wsi);
 	uint8_t buf[LWS_PRE + 1520], *p = &buf[LWS_PRE],
 		*end = &buf[sizeof(buf) - 1];
-	int f = 0;
+	int f = 0, txr;
 	size_t buflen;
 
 	switch (reason) {
@@ -78,7 +78,8 @@ secstream_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (!h)
 			return 0;
 
-		h->info.rx(ss_to_userobj(h), (const uint8_t *)in, len, 0);
+		if (h->info.rx(ss_to_userobj(h), (const uint8_t *)in, len, 0) < 0)
+			return -1;
 
 		return 0; /* don't passthru */
 
@@ -88,7 +89,12 @@ secstream_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			return 0;
 
 		buflen = lws_ptr_diff(end, p);
-		if (h->info.tx(ss_to_userobj(h),  h->txord++, p, &buflen, &f)) {
+		txr = h->info.tx(ss_to_userobj(h),  h->txord++, p, &buflen, &f);
+		if (txr < 0) {
+			lwsl_debug("%s: tx handler asked to close\n", __func__);
+			return -1;
+		}
+		if (txr > 0) {
 			/* don't want to send anything */
 			lwsl_debug("%s: dont want to write\n", __func__);
 			return 0;
