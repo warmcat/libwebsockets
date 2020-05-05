@@ -67,9 +67,7 @@ lws_ss_sys_auth_api_amazon_com_renew(lws_sorted_usec_list_t *sul)
 	struct lws_context *context = lws_container_of(sul, struct lws_context,
 							sul_api_amazon_com);
 
-	/* if nothing is there to intercept anything, go all the way */
-	lws_state_transition_steps(&context->mgr_system,
-				   LWS_SYSTATE_OPERATIONAL);
+	lws_ss_sys_auth_api_amazon_com(context);
 }
 
 static signed char
@@ -201,6 +199,8 @@ ss_api_amazon_auth_state(void *userobj, void *sh, lws_ss_constate_t state,
 
 	switch (state) {
 	case LWSSSCS_CREATING:
+        	lws_ss_set_metadata(m->ss, "ctype", "application/json", 16);
+		/* fallthru */
 	case LWSSSCS_CONNECTING:
 		s = lws_system_blob_get_size(
 			lws_system_get_blob(context, LWS_SYSBLOB_TYPE_AUTH,
@@ -226,18 +226,16 @@ ss_api_amazon_auth_state(void *userobj, void *sh, lws_ss_constate_t state,
 			lws_system_get_blob(context, LWS_SYSBLOB_TYPE_AUTH,
 					    AUTH_IDX_LWA));
 
-		if (s)
+		if (s && context->mgr_system.state != LWS_SYSTATE_OPERATIONAL)
 			lws_sul_schedule(context, 0,
 					 &context->sul_api_amazon_com_kick,
 					 lws_ss_sys_auth_api_amazon_com_kick, 1);
+		lws_ss_destroy(&m->ss);
+		context->hss_auth = NULL;
+
 		break;
 
 	case LWSSSCS_DESTROYING:
-		lws_sul_schedule(context, 0, &context->sul_api_amazon_com,
-				 NULL, LWS_SET_TIMER_USEC_CANCEL);
-		lws_system_blob_destroy(
-			lws_system_get_blob(context, LWS_SYSBLOB_TYPE_AUTH,
-					    AUTH_IDX_LWA));
 		break;
 
 	default:
