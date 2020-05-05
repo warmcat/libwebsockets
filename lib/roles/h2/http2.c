@@ -1414,6 +1414,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			/* pass on the initial headers to SID 1 */
 			h2n->swsi->http.ah = wsi->http.ah;
 			h2n->swsi->client_mux_substream = 1;
+			h2n->swsi->client_h2_alpn = 1;
 #if defined(LWS_WITH_CLIENT)
 			h2n->swsi->flags = wsi->flags;
 #endif
@@ -2381,7 +2382,8 @@ lws_h2_client_handshake(struct lws *wsi)
 				&p, end))
 		goto fail_length;
 
-	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HOST,
+	if (!wsi->client_h2_alpn &&
+	    lws_add_http_header_by_token(wsi, WSI_TOKEN_HOST,
 				(unsigned char *)lws_hdr_simple_ptr(wsi,
 						_WSI_TOKEN_CLIENT_HOST),
 			lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_HOST),
