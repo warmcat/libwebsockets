@@ -47,6 +47,7 @@ static const char * const paths_global[] = {
 	"global.default-alpn",
 	"global.ip-limit-ah",
 	"global.ip-limit-wsi",
+	"global.rlimit-nofile",
 };
 
 enum lejp_global_paths {
@@ -65,6 +66,7 @@ enum lejp_global_paths {
 	LWJPGP_DEFAULT_ALPN,
 	LWJPGP_IP_LIMIT_AH,
 	LWJPGP_IP_LIMIT_WSI,
+	LWJPGP_FD_LIMIT_PT,
 };
 
 static const char * const paths_vhosts[] = {
@@ -344,6 +346,10 @@ lejp_globals_cb(struct lejp_ctx *ctx, char reason)
 
 	case LWJPGP_IP_LIMIT_WSI:
 		a->info->ip_limit_wsi = atoi(ctx->buf);
+		return 0;
+
+	case LWJPGP_FD_LIMIT_PT:
+		a->info->rlimit_nofile = atoi(ctx->buf);
 		return 0;
 
 	default:

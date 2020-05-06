@@ -737,6 +737,11 @@ struct lws_context_creation_info {
 	 * ss_proxy_bind and the given port */
 #endif
 
+	int rlimit_nofile;
+	/**< 0 = inherit the initial ulimit for files / sockets from the startup
+	 * environment.  Nonzero = try to set the limit for this process.
+	 */
+
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
 	 *

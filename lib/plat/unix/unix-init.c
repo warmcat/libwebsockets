@@ -126,8 +126,8 @@ lws_plat_init(struct lws_context *context,
 #endif
 	context->fd_random = fd;
 	if (context->fd_random < 0) {
-		lwsl_err("Unable to open random device %s %d\n",
-			 SYSTEM_RANDOM_FILEPATH, context->fd_random);
+		lwsl_err("Unable to open random device %s %d, errno %d\n",
+			 SYSTEM_RANDOM_FILEPATH, context->fd_random, errno);
 		return 1;
 	}
 

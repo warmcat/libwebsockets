@@ -30,6 +30,11 @@
 
 static const char *library_version = LWS_LIBRARY_VERSION " " LWS_BUILD_HASH;
 
+#if defined(__linux__)
+/* for setrlimit */
+#include <sys/resource.h>
+#endif
+
 #if defined(LWS_WITH_NETWORK)
 /* in ms */
 static uint32_t default_backoff_table[] = { 1000, 3000, 9000, 17000 };
@@ -410,6 +415,20 @@ lws_create_context(const struct lws_context_creation_info *info)
 			info->simultaneous_ssl_restriction;
 
 	context->options = info->options;
+
+#if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE) && !defined(WIN32)
+	/*
+	 * If asked, try to set the rlimit / ulimit for process sockets / files.
+	 * We read the effective limit in a moment, so we will find out the
+	 * real limit according to system constraints then.
+	 */
+	if (info->rlimit_nofile) {
+		struct rlimit rl;
+
+		rl.rlim_cur = rl.rlim_max = info->rlimit_nofile;
+		setrlimit(RLIMIT_NOFILE, &rl);
+	}
+#endif
 
 #ifndef LWS_NO_DAEMONIZE
 	if (pid_daemon) {
