@@ -163,6 +163,12 @@ struct lws_client_connect_info {
 	void		*mqtt_cp;
 #endif
 
+	uint16_t	keep_warm_secs;
+	/**< 0 means 5s.  If the client connection to the endpoint becomes idle,
+	 * defer closing it for this many seconds in case another outgoing
+	 * connection to the same endpoint turns up.
+	 */
+
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
 	 *

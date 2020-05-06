@@ -830,6 +830,9 @@ struct lws {
 
 	uint16_t			ocport, c_port;
 	uint16_t			retry;
+#if defined(LWS_WITH_CLIENT)
+	uint16_t			keep_warm_secs;
+#endif
 
 	/* chars */
 

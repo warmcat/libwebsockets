@@ -58,7 +58,10 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	if (wsi == NULL)
 		goto bail;
 
-
+	if (i->keep_warm_secs)
+		wsi->keep_warm_secs = i->keep_warm_secs;
+	else
+		wsi->keep_warm_secs = 5;
 
 	wsi->context = i->context;
 	wsi->desc.sockfd = LWS_SOCK_INVALID;

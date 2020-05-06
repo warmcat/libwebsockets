@@ -798,7 +798,8 @@ _lws_generic_transaction_completed_active_conn(struct lws **_wsi, char take_vh_l
 		lwsl_info("%s: nothing pipelined waiting\n", __func__);
 		lwsi_set_state(wsi, LRS_IDLING);
 
-		lws_set_timeout(wsi, PENDING_TIMEOUT_CLIENT_CONN_IDLE, 5);
+		lws_set_timeout(wsi, PENDING_TIMEOUT_CLIENT_CONN_IDLE,
+				wsi->keep_warm_secs);
 
 		return 0; /* no new transaction right now */
 	}
@@ -873,7 +874,7 @@ _lws_generic_transaction_completed_active_conn(struct lws **_wsi, char take_vh_l
 
 	wnew->cli_hostname_copy = wsi->cli_hostname_copy;
 	wsi->cli_hostname_copy = NULL;
-
+	wnew->keep_warm_secs = wsi->keep_warm_secs;
 
 	/*
 	 * selected queued guy now replaces the original leader on the
