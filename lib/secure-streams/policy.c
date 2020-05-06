@@ -808,6 +808,7 @@ int
 lws_ss_policy_set(struct lws_context *context, const char *name)
 {
 	struct policy_cb_args *args = (struct policy_cb_args *)context->pol_args;
+	struct lws_context_creation_info i;
 	lws_ss_trust_store_t *ts;
 	struct lws_vhost *v;
 	lws_ss_x509_t *x;
@@ -871,8 +872,6 @@ lws_ss_policy_set(struct lws_context *context, const char *name)
 
 	ts = args->heads[LTY_TRUSTSTORE].t;
 	while (ts) {
-		struct lws_context_creation_info i;
-
 		memset(&i, 0, sizeof(i));
 
 		/*
@@ -919,7 +918,17 @@ lws_ss_policy_set(struct lws_context *context, const char *name)
 
 		ts = ts->next;
 	}
-
+	if (!context->vhost_list) {
+        	/* corner case... there's no trust store used */
+		memset(&i, 0, sizeof(i));
+		i.options = context->options;
+		i.vhost_name = "_ss_default";
+		i.port = CONTEXT_PORT_NO_LISTEN;
+		v = lws_create_vhost(context, &i);
+		if (!v)
+			lwsl_err("%s: failed to create vhost %s\n",
+				 __func__, i.vhost_name);
+	}
 #if defined(LWS_WITH_SOCKS5)
 
 	/*
