@@ -189,6 +189,16 @@ lws_ss_policy_set(struct lws_context *context, const char *name)
 
 		if (!pol->trust_store) {
 			pol = pol->next;
+			if (!pol && !context->vhost_list) {
+				/* corner case... there's no trust store used */
+				i.options = context->options;
+				i.vhost_name = "_ss_default";
+				i.port = CONTEXT_PORT_NO_LISTEN;
+				v = lws_create_vhost(context, &i);
+				if (!v)
+					lwsl_err("%s: failed to create vhost %s\n",
+						 __func__, i.vhost_name);
+			}
 			continue;
 		}
 		v = lws_get_vhost_by_name(context, pol->trust_store->name);
