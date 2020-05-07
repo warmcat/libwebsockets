@@ -204,6 +204,9 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 	if (lws_cmdline_option(a->argc, a->argv, "--h1"))
 		i.alpn = "http/1.1";
 
+	if (lws_cmdline_option(a->argc, a->argv, "--h2-prior-knowledge"))
+		i.ssl_connection |= LCCSCF_H2_PRIOR_KNOWLEDGE;
+
 	if ((p = lws_cmdline_option(a->argc, a->argv, "-p")))
 		i.port = atoi(p);
 

@@ -232,8 +232,13 @@ start_ws_handshake:
 				cce = ebuf;
 				goto bail3;
 			}
-		} else
+		} else {
 			wsi->tls.ssl = NULL;
+			if(wsi->flags & LCCSCF_H2_PRIOR_KNOWLEDGE) {
+				lwsl_info("h2 prior knowledge\n");
+				lws_role_call_alpn_negotiated(wsi, "h2");
+			}
+		}
 #endif
 #if defined(LWS_WITH_DETAILED_LATENCY)
 		if (context->detailed_latency_cb) {
@@ -248,14 +253,18 @@ start_ws_handshake:
 #if defined (LWS_WITH_HTTP2)
 		if (wsi->client_h2_alpn) {
 			/*
-			 * We connected to the server and set up tls, and
-			 * negotiated "h2".
+			 * We connected to the server and set up tls and
+			 * negotiated "h2" or connected as clear text
+			 * with http/2 prior knowledge.
 			 *
 			 * So this is it, we are an h2 master client connection
 			 * now, not an h1 client connection.
 			 */
+
 #if defined(LWS_WITH_TLS)
-			lws_tls_server_conn_alpn(wsi);
+			if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
+				lws_tls_server_conn_alpn(wsi);
+			}
 #endif
 
 			/* send the H2 preface to legitimize the connection */

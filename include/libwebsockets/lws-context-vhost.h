@@ -221,6 +221,11 @@
 #define LWS_SERVER_OPTION_GLIB					 (1ll << 33)
 	/**< (CTX) Use glib event loop */
 
+#define LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE				(1ll << 34)
+	/**< (VH) Tell the vhost to treat plain text http connections as
+	 * H2 with prior knowledge (no upgrade request involved)
+	 */
+
 	/****** add new things just above ---^ ******/
 
 

@@ -765,6 +765,11 @@ int lws_h2_do_pps_send(struct lws *wsi)
 #endif
 			if (lws_is_ssl(lws_get_network_wsi(wsi)))
 				break;
+
+			if (wsi->vhost->options &
+				LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE)
+				break;
+
 			/*
 			 * we need to treat the headers from the upgrade as the
 			 * first job.  So these need to get shifted to sid 1.

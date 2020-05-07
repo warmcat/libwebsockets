@@ -72,6 +72,9 @@ int main(int argc, const char **argv)
 	info.options =
 		LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE;
 
+	if (lws_cmdline_option(argc, argv, "--h2-prior-knowledge"))
+		info.options |= LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE;
+
 	context = lws_create_context(&info);
 	if (!context) {
 		lwsl_err("lws init failed\n");

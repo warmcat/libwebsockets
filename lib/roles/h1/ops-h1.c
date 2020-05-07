@@ -907,11 +907,20 @@ rops_adoption_bind_h1(struct lws *wsi, int type, const char *vh_prot_name)
 		return 1;
 	}
 
-	lws_role_transition(wsi, LWSIFR_SERVER, (type & LWS_ADOPT_ALLOW_SSL) ?
-			    LRS_SSL_INIT : LRS_HEADERS, &role_ops_h1);
+	/* If Non-TLS and HTTP2 prior knowledge is enabled, skip to clear text HTTP2 */
+
+#if defined(LWS_WITH_HTTP2)
+	if ((!(type & LWS_ADOPT_ALLOW_SSL)) && (wsi->vhost->options & LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE)) {
+		lwsl_info("http/2 prior knowledge\n");
+		lws_role_call_alpn_negotiated(wsi, "h2");
+	}
+	else
+#endif
+		lws_role_transition(wsi, LWSIFR_SERVER, (type & LWS_ADOPT_ALLOW_SSL) ?
+				LRS_SSL_INIT : LRS_HEADERS, &role_ops_h1);
 
 	/*
-	 * We have to bind to h1 as a default even when we're actually going to
+	 * Otherwise, we have to bind to h1 as a default even when we're actually going to
 	 * replace it as an h2 bind later.  So don't take this seriously if the
 	 * default is disabled (ws upgrade caees properly about it)
 	 */
