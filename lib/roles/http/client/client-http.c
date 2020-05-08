@@ -237,7 +237,6 @@ start_ws_handshake:
 			wsi->tls.ssl = NULL;
 			if(wsi->flags & LCCSCF_H2_PRIOR_KNOWLEDGE) {
 				lwsl_info("h2 prior knowledge\n");
-				wsi->client_h2_alpn = 1;
 				lws_role_call_alpn_negotiated(wsi, "h2");
 			}
 		}
