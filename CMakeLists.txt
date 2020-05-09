@@ -264,6 +264,7 @@ option(LWS_WITH_CBOR_FLOAT "Build floating point types if building CBOR LECP" ON
 option(LWS_WITH_SQLITE3 "Require SQLITE3 support" OFF)
 option(LWS_WITH_STRUCT_JSON "Generic struct serialization to and from JSON" OFF)
 option(LWS_WITH_STRUCT_SQLITE3 "Generic struct serialization to and from SQLITE3" OFF)
+option(LWS_WITH_JSONRPC "JSON RPC support" ON)
 # broken atm
 #option(LWS_WITH_SMTP "Provide SMTP support" OFF)
 if (LWS_WITH_ESP32)
@@ -960,7 +961,6 @@ list(APPEND LIB_LIST ${LIB_LIST_AT_END})
 #
 
 include_directories("${PROJECT_SOURCE_DIR}/lib")
-
 add_subdirectory(lib)
 
 

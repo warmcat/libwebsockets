@@ -237,7 +237,7 @@ static const char tokens[] = "rue alse ull ";
 int
 lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 {
-	unsigned char c, n, s;
+	unsigned char c, n, s, defer = 0;
 	int ret = LEJP_REJECT_UNKNOWN;
 
 	if (!ctx->sp && !ctx->pst[ctx->pst_sp].ppos)
@@ -508,6 +508,8 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 					 * smaller than the matching point
 					 */
 					ctx->path_match = 0;
+				if (ctx->pst_sp && !ctx->sp)
+					lejp_parser_pop(ctx);
 				if (ctx->outer_array && !ctx->sp) { /* ended on ] */
 					n = LEJPCB_ARRAY_END;
 					goto completed;
@@ -700,6 +702,9 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 					goto completed;
 				}
 
+				if (ctx->pst_sp && !ctx->sp)
+					defer = 1;
+
 				/* do LEJP_MP_ARRAY_END processing */
 				goto redo_character;
 			}
@@ -740,6 +745,8 @@ pop_level:
 			if (ctx->pst[ctx->pst_sp].callback(ctx,
 							   LEJPCB_OBJECT_END))
 				goto reject_callback;
+			if (ctx->pst_sp && !ctx->sp)
+				lejp_parser_pop(ctx);
 			break;
 
 		case LEJP_MP_ARRAY_END:
@@ -763,6 +770,10 @@ array_end:
 
 			ctx->st[ctx->sp].s = LEJP_MP_COMMA_OR_END;
 			ctx->pst[ctx->pst_sp].callback(ctx, LEJPCB_ARRAY_END);
+			if (defer) {
+				lejp_parser_pop(ctx);
+				defer = 0;
+			}
 			break;
 		}
 

@@ -67,6 +67,12 @@ if (LWS_WITH_STRUCT_JSON)
 		misc/lws-struct-lejp.c)
 endif()
 
+if (LWS_WITH_JSONRPC)
+	list(APPEND SOURCES
+		misc/jrpc/jrpc.c)
+	include_directories(misc/jrpc)
+endif()
+
 if (LWS_WITH_STRUCT_SQLITE3)
 	list(APPEND SOURCES
 		misc/lws-struct-sqlite.c)

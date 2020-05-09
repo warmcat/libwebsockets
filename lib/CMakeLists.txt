@@ -148,6 +148,7 @@ endif()
 if (LWS_WITH_JOSE)
 	add_subdir_include_dirs(jose)
 endif()
+
 if (LWS_WITH_COSE)
 	add_subdir_include_dirs(cose)
 endif()

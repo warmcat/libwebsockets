@@ -108,6 +108,8 @@ enum lejp_callbacks {
 
 	LEJPCB_OBJECT_START	= 16,
 	LEJPCB_OBJECT_END	= 17,
+
+	LEJPCB_USER_START	= 32,
 };
 
 /**
