@@ -88,7 +88,7 @@ cb(struct lejp_ctx *ctx, char reason)
 int
 main(int argc, char *argv[])
 {
-	int fd, n = 1, ret = 1, m;
+	int fd, n = 1, ret = 1, m = 0;
 	struct lejp_ctx ctx;
 	char buf[128];
 
@@ -112,7 +112,7 @@ main(int argc, char *argv[])
 			goto bail;
 		}
 	}
-	lwsl_notice("okay\n");
+	lwsl_notice("okay (%d)\n", m);
 	ret = 0;
 bail:
 	lejp_destruct(&ctx);

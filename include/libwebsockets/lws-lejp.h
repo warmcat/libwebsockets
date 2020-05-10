@@ -255,6 +255,7 @@ struct lejp_ctx {
 	uint8_t path_match_len;
 	uint8_t wildcount;
 	uint8_t pst_sp; /* parsing stack head */
+	uint8_t outer_array;
 };
 
 LWS_VISIBLE LWS_EXTERN void

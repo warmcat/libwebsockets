@@ -77,6 +77,7 @@ lejp_construct(struct lejp_ctx *ctx,
 	ctx->st[0].b = 0;
 	ctx->sp = 0;
 	ctx->ipos = 0;
+	ctx->outer_array = 0;
 	ctx->path_match = 0;
 	ctx->path_stride = 0;
 	ctx->path[0] = '\0';
@@ -265,6 +266,23 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 
 		switch (s) {
 		case LEJP_IDLE:
+			if (!ctx->sp && c == '[') {
+				/* push */
+				ctx->outer_array = 1;
+				ctx->st[ctx->sp].s = LEJP_MP_ARRAY_END;
+				c = LEJP_MP_VALUE;
+				ctx->path[ctx->pst[ctx->pst_sp].ppos++] = '[';
+				ctx->path[ctx->pst[ctx->pst_sp].ppos++] = ']';
+				ctx->path[ctx->pst[ctx->pst_sp].ppos] = '\0';
+				if (ctx->pst[ctx->pst_sp].callback(ctx, LEJPCB_ARRAY_START))
+					goto reject_callback;
+				ctx->i[ctx->ipos++] = 0;
+				if (ctx->ipos > LWS_ARRAY_SIZE(ctx->i)) {
+					ret = LEJP_REJECT_MP_DELIM_ISTACK;
+					goto reject;
+				}
+				goto add_stack_level;
+			}
 			if (c != '{') {
 				ret = LEJP_REJECT_IDLE_NO_BRACE;
 				goto reject;
@@ -484,6 +502,10 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 					 * smaller than the matching point
 					 */
 					ctx->path_match = 0;
+				if (ctx->outer_array && !ctx->sp) { /* ended on ] */
+					n = LEJPCB_ARRAY_END;
+					goto completed;
+				}
 				goto array_end;
 
 			case 't': /* true */
@@ -641,7 +663,7 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 				break;
 			}
 			if (c == ']') {
-				if (!ctx->sp) {  /* JSON can't end on ] */
+				if (!ctx->sp) {
 					ret = LEJP_REJECT_MP_C_OR_E_UNDERF;
 					goto reject;
 				}
@@ -651,6 +673,7 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 					ret = LEJP_REJECT_MP_C_OR_E_NOTARRAY;
 					goto reject;
 				}
+
 				/* drop the path [n] bit */
 				if (ctx->sp) {
 					ctx->pst[ctx->pst_sp].ppos =
@@ -666,6 +689,11 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 					 */
 					ctx->path_match = 0;
 
+				if (ctx->outer_array && !ctx->sp) { /* ended on ] */
+					n = LEJPCB_ARRAY_END;
+					goto completed;
+				}
+
 				/* do LEJP_MP_ARRAY_END processing */
 				goto redo_character;
 			}
@@ -674,12 +702,12 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 				goto reject;
 			}
 			if (!ctx->sp) {
+				n = LEJPCB_OBJECT_END;
+completed:
 				lejp_check_path_match(ctx);
-				if (ctx->pst[ctx->pst_sp].callback(ctx,
-						LEJPCB_OBJECT_END))
-					goto reject_callback;
-				if (ctx->pst[ctx->pst_sp].callback(ctx,
-						LEJPCB_COMPLETE))
+				if (ctx->pst[ctx->pst_sp].callback(ctx, n) ||
+				    ctx->pst[ctx->pst_sp].callback(ctx,
+							    LEJPCB_COMPLETE))
 					goto reject_callback;
 
 				/* done, return unused amount */
