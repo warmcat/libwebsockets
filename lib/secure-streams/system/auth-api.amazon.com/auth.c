@@ -124,7 +124,7 @@ ss_api_amazon_auth_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 			lws_system_blob_heap_empty(ab);
 		}
 
-		n = (int)(signed char)lejp_parse(&m->jctx, buf, (int)len);
+		n = lejp_parse(&m->jctx, buf, (int)len);
 		if (n < 0) {
 			lejp_destruct(&m->jctx);
 			lws_system_blob_destroy(

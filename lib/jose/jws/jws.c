@@ -150,7 +150,7 @@ lws_jws_json_parse(struct lws_jws *jws, const uint8_t *buf, int len,
 	lejp_construct(&jctx, lws_jws_json_cb, &args, jws_json,
 		       LWS_ARRAY_SIZE(jws_json));
 
-	m = (int)(signed char)lejp_parse(&jctx, (uint8_t *)buf, len);
+	m = lejp_parse(&jctx, (uint8_t *)buf, len);
 	lejp_destruct(&jctx);
 	if (m < 0) {
 		lwsl_notice("%s: parse returned %d\n", __func__, m);

@@ -345,7 +345,7 @@ int main(int argc, const char **argv)
 		a.ac_block_size = 512;
 
 		lws_struct_json_init_parse(&ctx, NULL, &a);
-		n = (int)(signed char)lejp_parse(&ctx, (uint8_t *)json_tests[m],
+		n = lejp_parse(&ctx, (uint8_t *)json_tests[m],
 						 (int)strlen(json_tests[m]));
 		if (n < 0) {
 			lwsl_err("%s: notification JSON decode failed '%s'\n",
@@ -482,6 +482,23 @@ done:
 
 	lws_struct_json_serialize_destroy(&ser);
 
+	lwsl_notice("Test set 2\n");
+
+	memset(&a, 0, sizeof(a));
+	a.map_st[0] = t2_map;
+	a.map_entries_st[0] = LWS_ARRAY_SIZE(t2_map);
+	a.ac_block_size = 128;
+
+	lws_struct_json_init_parse(&ctx, NULL, &a);
+	m = lejp_parse(&ctx, (uint8_t *)t2, (int)strlen(t2));
+	if (m < 0 || !a.dest) {
+		lwsl_notice("%s: notification JSON decode failed '%s'\n",
+				__func__, lejp_error_to_string(m));
+		goto bail;
+	}
+
+	lwsl_notice("Test set 2: %d: %s\n", m,
+			((sai_cancel_t *)a.dest)->task_uuid);
 
 	lwsl_user("Completed: PASS\n");
 

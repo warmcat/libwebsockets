@@ -766,7 +766,7 @@ lws_ss_policy_parse(struct lws_context *context, const uint8_t *buf, size_t len)
 	struct policy_cb_args *args = (struct policy_cb_args *)context->pol_args;
 	int m;
 
-	m = (int)(signed char)lejp_parse(&args->jctx, buf, (int)len);
+	m = lejp_parse(&args->jctx, buf, (int)len);
 	if (m == LEJP_CONTINUE || m >= 0)
 		return m;
 

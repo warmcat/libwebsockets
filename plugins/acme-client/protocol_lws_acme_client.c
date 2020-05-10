@@ -1196,8 +1196,7 @@ pkt_add_hdrs:
 		case ACME_STATE_DIRECTORY:
 			((char *)in)[len] = '\0';
 			puts(in);
-			m = (int)(signed char)lejp_parse(&ac->jctx,
-					(uint8_t *)in, len);
+			m = lejp_parse(&ac->jctx, (uint8_t *)in, len);
 			if (m < 0 && m != LEJP_CONTINUE) {
 				lwsl_notice("lejp parse failed %d\n", m);
 				goto failed;

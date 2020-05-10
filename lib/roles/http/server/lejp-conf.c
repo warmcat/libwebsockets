@@ -930,7 +930,7 @@ lwsws_get_config(void *user, const char *f, const char * const *paths,
 		if (!n)
 			break;
 
-		m = (int)(signed char)lejp_parse(&ctx, buf, n);
+		m = lejp_parse(&ctx, buf, n);
 	} while (m == LEJP_CONTINUE);
 
 	close(fd);

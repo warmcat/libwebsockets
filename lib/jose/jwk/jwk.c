@@ -646,7 +646,7 @@ lws_jwk_import(struct lws_jwk *jwk, lws_jwk_key_import_callback cb, void *user,
 
 	lws_jwk_init_jps(&jctx, &jps, jwk, cb, user);
 
-	m = (int)(signed char)lejp_parse(&jctx, (uint8_t *)in, (int)len);
+	m = lejp_parse(&jctx, (uint8_t *)in, (int)len);
 	lejp_destruct(&jctx);
 
 	if (m < 0) {

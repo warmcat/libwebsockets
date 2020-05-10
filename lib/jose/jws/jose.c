@@ -430,7 +430,7 @@ lws_jose_parse(struct lws_jose *jose, const uint8_t *buf, int n,
 	lejp_construct(&jctx, lws_jws_jose_cb, &args, jws_jose,
 		       LWS_ARRAY_SIZE(jws_jose));
 
-	m = (int)(signed char)lejp_parse(&jctx, (uint8_t *)buf, n);
+	m = lejp_parse(&jctx, (uint8_t *)buf, n);
 	lejp_destruct(&jctx);
 	if (m < 0) {
 		lwsl_notice("%s: parse returned %d\n", __func__, m);
