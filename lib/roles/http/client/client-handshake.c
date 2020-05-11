@@ -346,6 +346,20 @@ failed:
 	return NULL;
 }
 
+static void
+lws_client_conn_wait_timeout(lws_sorted_usec_list_t *sul)
+{
+	struct lws *wsi = lws_container_of(sul, struct lws, sul_connect_timeout);
+
+	/*
+	 * This is used to constrain the time we're willing to wait for a
+	 * connection before giving up on it and retrying.
+	 */
+
+	lwsl_info("%s: connect wait timeout has fired\n", __func__);
+	lws_client_connect_3_connect(wsi, NULL, NULL, 0, NULL);
+}
+
 struct lws *
 lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 			     const struct addrinfo *result, int n, void *opaque)
@@ -391,6 +405,9 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	    lws_socket_is_valid(wsi->desc.sockfd)) {
 		socklen_t sl = sizeof(int);
 		int e = 0;
+
+		if (!result && !wsi->sul_connect_timeout.list.owner)
+			goto connect_to;
 
 		/*
 		* this resets SO_ERROR after reading it.  If there's an error
@@ -668,6 +685,9 @@ ads_known:
 		wsi->detlat.earliest_write_req_pre_write = lws_now_usecs();
 #endif
 
+	if (!result && !wsi->sul_connect_timeout.list.owner)
+		goto connect_to;
+
 	m = connect(wsi->desc.sockfd, (const struct sockaddr *)psa, n);
 	if (m == -1) {
 		int errno_copy = LWS_ERRNO;
@@ -699,6 +719,15 @@ ads_known:
 #endif
 
 		/*
+		 * Let's set a specialized timeout for the connect completion,
+		 * it uses wsi->sul_connect_timeout just for this purpose
+		 */
+
+		lws_sul_schedule(wsi->context, 0, &wsi->sul_connect_timeout,
+				 lws_client_conn_wait_timeout,
+				 wsi->context->timeout_secs * LWS_USEC_PER_SEC);
+
+		/*
 		 * must do specifically a POLLOUT poll to hear
 		 * about the connect completion
 		 */
@@ -709,7 +738,8 @@ ads_known:
 	}
 
 conn_good:
-
+	lws_sul_schedule(wsi->context, 0, &wsi->sul_connect_timeout, NULL,
+			 LWS_SET_TIMER_USEC_CANCEL);
 	lwsl_info("%s: Connection started %p\n", __func__, wsi->dns_results);
 
 	/* the tcp connection has happend */
@@ -773,6 +803,12 @@ oom4:
 	return NULL;
 
 
+connect_to:
+	/*
+	 * It looks like the sul_connect_timeout fired
+	 */
+	lwsl_info("%s: abandoning connect due to timeout\n", __func__);
+
 try_next_result_fds:
 	__remove_wsi_socket_from_fds(wsi);
 
@@ -784,6 +820,8 @@ try_next_result_closesock:
 	wsi->desc.sockfd = LWS_SOCK_INVALID;
 
 try_next_result:
+	lws_sul_schedule(wsi->context, 0, &wsi->sul_connect_timeout,
+			 NULL, LWS_SET_TIMER_USEC_CANCEL);
 	if (wsi->dns_results_next) {
 		wsi->dns_results_next = wsi->dns_results_next->ai_next;
 		if (wsi->dns_results_next)

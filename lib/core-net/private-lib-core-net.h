@@ -680,6 +680,7 @@ struct lws {
 	lws_sorted_usec_list_t		sul_timeout;
 	lws_sorted_usec_list_t		sul_hrtimer;
 	lws_sorted_usec_list_t		sul_validity;
+	lws_sorted_usec_list_t		sul_connect_timeout;
 
 	struct lws_dll2			dll_buflist; /* guys with pending rxflow */
 	struct lws_dll2			same_vh_protocol;
