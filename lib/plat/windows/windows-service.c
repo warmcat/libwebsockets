@@ -54,6 +54,7 @@ _lws_plat_service_forced_tsi(struct lws_context *context, int tsi)
 	return r;
 }
 
+extern void lws_client_conn_wait_timeout(lws_sorted_usec_list_t *sul);
 
 int
 _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
