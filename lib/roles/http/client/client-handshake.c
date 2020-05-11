@@ -196,6 +196,13 @@ send_hs:
 
 		/* we are making our own connection */
 
+	if (!rawish)
+		lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE);
+	else {
+		/* for a method = "RAW" connection, this makes us
+		 * established */
+
+
 #if defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS)
 
 		/* we have connected if we got here */
@@ -226,17 +233,9 @@ send_hs:
 			lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
 					wsi->context->timeout_secs);
 
-			//if ()
 			return wsi;
 		}
 #endif
-
-		if (!rawish)
-			lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE);
-		else {
-			/* for a method = "RAW" connection, this makes us
-			 * established */
-
 
 			/* clear his established timeout */
 			lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
