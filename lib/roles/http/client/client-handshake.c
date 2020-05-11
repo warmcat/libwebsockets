@@ -197,49 +197,6 @@ send_hs:
 
 		/* we are making our own connection */
 
-#if defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS)
-
-		/* we have connected if we got here */
-
-		if (lwsi_state(wsi) == LRS_WAITING_CONNECT &&
-		    (wsi->tls.use_ssl & LCCSCF_USE_SSL)) {
-			int result;
-
-			/*
-			 * We can retry this... just cook the SSL BIO
-			 * the first time
-			 */
-
-			result = lws_client_create_tls(wsi, &cce, 1);
-			lwsl_debug("%s: create_tls said %d\n", __func__, result);
-			switch (result) {
-			case CCTLS_RETURN_DONE:
-				break;
-			case CCTLS_RETURN_RETRY:
-				return wsi;
-			default:
-				goto failed;
-			}
-
-			/*
-			 * We succeeded to negotiate a new client tls tunnel.
-			 * If it's h2 alpn, we have arranged to send to h2
-			 * prefix and set our state to
-			 * LRS_H2_WAITING_TO_SEND_HEADERS already.
-			 */
-
-			lwsl_notice("%s: wsi %p: tls established st 0x%x\n",
-				    __func__, wsi, lwsi_state(wsi));
-
-			if (lwsi_state(wsi) != LRS_H2_WAITING_TO_SEND_HEADERS)
-				lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE2);
-			lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
-					wsi->context->timeout_secs);
-
-			goto provoke_service;
-		}
-#endif
-
 		if (!rawish) {
 			if (lwsi_state(wsi) != LRS_H1C_ISSUE_HANDSHAKE2)
 				lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE);
@@ -247,6 +204,48 @@ send_hs:
 			/* for a method = "RAW" connection, this makes us
 			 * established */
 
+#if defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS)
+
+			/* we have connected if we got here */
+
+			if (lwsi_state(wsi) == LRS_WAITING_CONNECT &&
+			    (wsi->tls.use_ssl & LCCSCF_USE_SSL)) {
+				int result;
+
+				/*
+				 * We can retry this... just cook the SSL BIO
+				 * the first time
+				 */
+
+				result = lws_client_create_tls(wsi, &cce, 1);
+				lwsl_debug("%s: create_tls said %d\n", __func__, result);
+				switch (result) {
+				case CCTLS_RETURN_DONE:
+					break;
+				case CCTLS_RETURN_RETRY:
+					return wsi;
+				default:
+					goto failed;
+				}
+
+				/*
+				 * We succeeded to negotiate a new client tls tunnel.
+				 * If it's h2 alpn, we have arranged to send to h2
+				 * prefix and set our state to
+				 * LRS_H2_WAITING_TO_SEND_HEADERS already.
+				 */
+
+				lwsl_notice("%s: wsi %p: tls established st 0x%x\n",
+					    __func__, wsi, lwsi_state(wsi));
+
+				if (lwsi_state(wsi) != LRS_H2_WAITING_TO_SEND_HEADERS)
+					lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE2);
+				lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
+						wsi->context->timeout_secs);
+
+				goto provoke_service;
+			}
+#endif
 
 			/* clear his established timeout */
 			lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
