@@ -346,7 +346,7 @@ failed:
 	return NULL;
 }
 
-static void
+void
 lws_client_conn_wait_timeout(lws_sorted_usec_list_t *sul)
 {
 	struct lws *wsi = lws_container_of(sul, struct lws, sul_connect_timeout);
@@ -744,8 +744,10 @@ ads_known:
 		 * must do specifically a POLLOUT poll to hear
 		 * about the connect completion
 		 */
+#if !defined(WIN32)
 		if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
 			goto try_next_result_fds;
+#endif
 
 		return wsi;
 	}
