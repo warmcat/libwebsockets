@@ -514,7 +514,8 @@ malformed:
 			  lws_ptr_diff(p, buf + LWS_PRE), f);
 
 		if (lws_write(wsi, buf + LWS_PRE, lws_ptr_diff(p, buf + LWS_PRE),
-			 LWS_WRITE_HTTP) != (int)lws_ptr_diff(p, buf + LWS_PRE)) {
+			 (f & LWSSS_FLAG_EOM) ? LWS_WRITE_HTTP_FINAL : LWS_WRITE_HTTP) !=
+				(int)lws_ptr_diff(p, buf + LWS_PRE)) {
 			lwsl_err("%s: write failed\n", __func__);
 			return -1;
 		}
