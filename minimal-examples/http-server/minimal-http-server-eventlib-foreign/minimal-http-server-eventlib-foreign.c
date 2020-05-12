@@ -306,7 +306,7 @@ foreign_event_loop_cleanup_libev(void)
 	ev_timer_stop(loop_ev, &timer_outer_ev);
 	ev_signal_stop(loop_ev, &sighandler_ev);
 
-	ev_run(loop_ev, UV_RUN_DEFAULT);
+	ev_run(loop_ev, 0);
 	ev_loop_destroy(loop_ev);
 }
 

@@ -235,11 +235,8 @@ elops_destroy_pt_ev(struct lws_context *context, int tsi)
 	ev_timer_stop(pt->ev.io_loop, &pt->ev.hrtimer);
 	ev_idle_stop(pt->ev.io_loop, &pt->ev.idle);
 
-	if (!pt->event_loop_foreign) {
+	if (!pt->event_loop_foreign)
 		ev_signal_stop(pt->ev.io_loop, &pt->w_sigint.ev.watcher);
-
-		ev_loop_destroy(pt->ev.io_loop);
-	}
 }
 
 static int
