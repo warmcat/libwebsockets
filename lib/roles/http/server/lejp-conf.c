@@ -40,7 +40,7 @@ static const char * const paths_global[] = {
 	"global.init-ssl",
 	"global.server-string",
 	"global.plugin-dir",
-	"global.ws-pingpong-secs",
+	"global.ws-pingpong-secs", /* deprecated */
 	"global.timeout-secs",
 	"global.reject-service-keywords[].*",
 	"global.reject-service-keywords[]",
@@ -328,8 +328,7 @@ lejp_globals_cb(struct lejp_ctx *ctx, char reason)
 		a->plugin_dirs[a->count_plugin_dirs++] = a->p;
 		break;
 
-	case LWJPGP_PINGPONG_SECS:
-		a->info->ws_ping_pong_interval = atoi(ctx->buf);
+	case LWJPGP_PINGPONG_SECS: /* deprecated */
 		return 0;
 
 	case LWJPGP_TIMEOUT_SECS:
@@ -403,7 +402,6 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 #if defined(LWS_WITH_SERVER)
 		ss = a->info->server_string;
 #endif
-		i[2] = a->info->ws_ping_pong_interval;
 		i[3] = a->info->timeout_secs;
 
 		memset(a->info, 0, sizeof(*a->info));
@@ -413,7 +411,6 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 #if defined(LWS_WITH_SERVER)
 		a->info->server_string = ss;
 #endif
-		a->info->ws_ping_pong_interval = i[2];
 		a->info->timeout_secs = i[3];
 
 		a->info->protocols = a->protocols;

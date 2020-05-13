@@ -329,7 +329,6 @@ static struct option options[] = {
 #ifndef LWS_NO_DAEMONIZE
 	{ "daemonize",	no_argument,		NULL, 'D' },
 #endif
-	{ "pingpong-secs", required_argument,	NULL, 'P' },
 	{ "ignore-sigterm", no_argument,	NULL, 'I' },
 
 	{ NULL, 0, 0, 0 }
@@ -352,7 +351,6 @@ int main(int argc, char **argv)
 	char ca_path[1024] = "";
 	int uid = -1, gid = -1;
 	int use_ssl = 0;
-	int pp_secs = 0;
 	int opts = 0;
 	int n = 0;
 #ifndef LWS_NO_DAEMONIZE
@@ -368,9 +366,9 @@ int main(int argc, char **argv)
 
 	while (n >= 0) {
 #if defined(LWS_HAS_GETOPT_LONG) || defined(WIN32)
-		n = getopt_long(argc, argv, "eci:hsap:d:DC:K:A:R:vu:g:P:kU:niIr:", options, NULL);
+		n = getopt_long(argc, argv, "eci:hsap:d:DC:K:A:R:vu:g:kU:niIr:", options, NULL);
 #else
-		n = getopt(argc, argv, "eci:hsap:d:DC:K:A:R:vu:g:P:kU:nIr:");
+		n = getopt(argc, argv, "eci:hsap:d:DC:K:A:R:vu:g:kU:nIr:");
 #endif
 		if (n < 0)
 			continue;
@@ -443,10 +441,6 @@ int main(int argc, char **argv)
 		case 'A':
 			lws_strncpy(ca_path, optarg, sizeof(ca_path));
 			break;
-		case 'P':
-			pp_secs = atoi(optarg);
-			lwsl_notice("Setting pingpong interval to %d\n", pp_secs);
-			break;
 #if defined(LWS_WITH_TLS)
 		case 'v':
 			use_ssl = 1;
@@ -511,7 +505,6 @@ int main(int argc, char **argv)
 	info.protocols = protocols;
 	info.ssl_cert_filepath = NULL;
 	info.ssl_private_key_filepath = NULL;
-	info.ws_ping_pong_interval = pp_secs;
 
 	if (use_ssl) {
 		if (strlen(resource_path) > sizeof(cert_path) - 32) {
