@@ -85,7 +85,6 @@ int main(int argc, const char **argv)
 	info.mounts = &mount;
 	info.protocols = protocols;
 	info.vhost_name = "localhost";
-	info.ws_ping_pong_interval = 10;
 	info.options =
 		LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE;
 

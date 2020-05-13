@@ -550,8 +550,6 @@ lws_create_context(const struct lws_context_creation_info *info)
 	else
 		context->timeout_secs = 5;
 
-	context->ws_ping_pong_interval = info->ws_ping_pong_interval;
-
 	lwsl_info(" default timeout (secs): %u\n", context->timeout_secs);
 
 	if (info->max_http_header_data)

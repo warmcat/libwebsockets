@@ -446,18 +446,6 @@ struct lws_context_creation_info {
 	/**< VHOST: Any bits set here will be set as server SSL options */
 	long ssl_options_clear;
 	/**< VHOST: Any bits set here will be cleared as server SSL options */
-	unsigned short ws_ping_pong_interval;
-	/**< CONTEXT: 0 for none, else interval in seconds between sending
-	 * PINGs on idle websocket connections.  When the PING is sent,
-	 * the PONG must come within the normal timeout_secs timeout period
-	 * or the connection will be dropped.
-	 * Any RX or TX traffic on the connection restarts the interval timer,
-	 * so a connection which always sends or receives something at intervals
-	 * less than the interval given here will never send PINGs / expect
-	 * PONGs.  Conversely as soon as the ws connection is established, an
-	 * idle connection will do the PING / PONG roundtrip as soon as
-	 * ws_ping_pong_interval seconds has passed without traffic
-	 */
 	const struct lws_protocol_vhost_options *headers;
 		/**< VHOST: pointer to optional linked list of per-vhost
 		 * canned headers that are added to server responses */
