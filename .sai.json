@@ -21,6 +21,10 @@
 			"build": "mkdir build;cd build;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G DEB\";cmake .. ${cmake} && make -j3 && make -j DESTDIR=../destdir install && ctest -j3 --output-on-failure ${cpack}",
 			"default": false
 		},
+		"android-aarch64": {
+			"build": "mkdir build;cd build;cmake .. -DCMAKE_TOOLCHAIN_FILE=../libwebsockets/contrib/cross-aarch64-android.cmake ${cmake} && make -j",
+			"default": false
+		},
 		"iOS": {
 			"build": "mkdir build destdir; cd build; export SAI_CPACK=\"-G ZIP\";cmake .. -DCMAKE_MAKE_PROGRAM=/usr/bin/make -DCMAKE_IOS_DEVELOPER_ROOT=/opt/Xcode-beta.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer -DCMAKE_TOOLCHAIN_FILE=contrib/iOS.cmake -DIOS_PLATFORM=OS ${cmake} && make -j",
 			"default": false
@@ -75,6 +79,10 @@
 			"cmake":	"-DLWS_WITH_LWSWS=ON -DLWS_WITHOUT_EXTENSIONS=0 -DLWS_WITH_HTTP2=1 -DLWS_WITH_ACME=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DCMAKE_BUILD_TYPE=DEBUG -DLWS_WITH_LWS_DSH=1",
 			# no distro -devel package for libuv
 			"platforms":	"not linux-centos-8-x8664"
+		},
+		"justmbedtls": {
+			"cmake": "-DLWS_WITH_MBEDTLS=1 -DLWS_WITHOUT_TESTAPPS=1",
+			"platforms": "none, android-aarch64"
 		},
 		"mbedtls": {
 			"cmake":	"-DLWS_WITH_MBEDTLS=1 -DLWS_WITH_HTTP2=1 -DLWS_WITH_LWSWS=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_JOSE=1 -DCMAKE_BUILD_TYPE=DEBUG",
