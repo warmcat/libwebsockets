@@ -43,7 +43,7 @@ lws_get_random(struct lws_context *context, void *buf, size_t len)
 		uint8_t *p = (uint8_t *)&r;
 		int b = 4;
 
-		if (len < b)
+		if (len < (size_t)b)
 			b = len;
 
 		len -= b;

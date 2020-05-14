@@ -28,6 +28,7 @@
 #include "lws_config.h"
 #include "lws_config_private.h"
 
+
 #if defined(LWS_WITH_CGI) && defined(LWS_HAVE_VFORK) && \
     !defined(NO_GNU_SOURCE_THIS_TIME) && !defined(_GNU_SOURCE)
  #define  _GNU_SOURCE
@@ -46,6 +47,7 @@
 #include <ctype.h>
 #include <limits.h>
 #include <stdarg.h>
+#include <errno.h>
 
 #ifdef LWS_HAVE_INTTYPES_H
 #include <inttypes.h>

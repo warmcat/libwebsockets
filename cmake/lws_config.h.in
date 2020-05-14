@@ -16,6 +16,7 @@
 					LWS_LIBRARY_VERSION_PATCH
 #define LWS_MAX_SMP ${LWS_MAX_SMP}
 
+#cmakedefine LWS_ESP_PLATFORM
 #cmakedefine LWS_LIBRARY_VERSION_NUMBER
 
 #cmakedefine LWS_EXT_PTHREAD_LIBRARIES
@@ -181,4 +182,3 @@
 #cmakedefine USE_OLD_CYASSL
 #cmakedefine USE_WOLFSSL
 
-${LWS_SIZEOFPTR_CODE}

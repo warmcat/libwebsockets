@@ -135,7 +135,7 @@ lws_find_string_in_file(const char *filename, const char *string, int stringlen)
 
 	q = string;
 	n = 0;
-	while (n < sizeof(buf) - 1 && q != p)
+	while ((size_t)n < sizeof(buf) - 1 && q != p)
 		buf[n++] = *q++;
 	buf[n] = '\0';
 

@@ -25,6 +25,7 @@
  */
 
 #include <mbedtls/x509_crl.h>
+#include <errno.h>
 
 struct lws_x509_cert {
 	mbedtls_x509_crt cert; /* has a .next for linked-list / chain */

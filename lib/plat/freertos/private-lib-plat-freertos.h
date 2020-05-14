@@ -24,7 +24,9 @@
  * Included from lib/private-lib-core.h if LWS_PLAT_FREERTOS
  */
 
+#if !defined(LWS_ESP_PLATFORM)
 #define SOMAXCONN 3
+#endif
 
 #if defined(LWS_AMAZON_RTOS)
  int
@@ -43,7 +45,6 @@
  #ifndef __cplusplus
   #include <errno.h>
  #endif
- #include <netdb.h>
  #include <signal.h>
 #if defined(LWS_AMAZON_RTOS)
 const char *
@@ -68,6 +69,7 @@ gai_strerror(int);
 
 #if defined(LWS_WITH_ESP32)
 #include "lwip/apps/sntp.h"
+#include <errno.h>
 #endif
 
 #include <lwip/sockets.h>
