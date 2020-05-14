@@ -5,6 +5,7 @@
 		#define _DEBUG
 	#endif
 #endif
+#cmakedefine LWIP_PROVIDE_ERRNO
 
 /* Define to 1 to use CyaSSL as a replacement for OpenSSL. 
  * LWS_OPENSSL_SUPPORT needs to be set also for this to work. */

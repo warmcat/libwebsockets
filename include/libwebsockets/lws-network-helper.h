@@ -29,6 +29,10 @@
  */
 ///@{
 
+#if defined(LWS_ESP_PLATFORM)
+#include <lwip/sockets.h>
+#endif
+
 typedef union {
 #if defined(LWS_WITH_IPV6)
 	struct sockaddr_in6 sa6;

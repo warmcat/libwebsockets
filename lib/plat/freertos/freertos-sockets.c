@@ -23,7 +23,7 @@
  */
 
 #include "private-lib-core.h"
-
+#include <errno.h>
 #if defined(LWS_WITH_MBEDTLS)
 #if defined(LWS_HAVE_MBEDTLS_NET_SOCKETS)
 #include "mbedtls/net_sockets.h"

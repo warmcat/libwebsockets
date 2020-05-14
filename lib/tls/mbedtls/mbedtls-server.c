@@ -24,6 +24,7 @@
 
 #include "private-lib-core.h"
 #include <mbedtls/x509_csr.h>
+#include <errno.h>
 
 int
 lws_tls_server_client_cert_verify_config(struct lws_vhost *vh)

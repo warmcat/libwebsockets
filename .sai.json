@@ -40,13 +40,19 @@
 		"windows-10": {
 			"build": "mkdir build && cd build && set SAI_CPACK=\"-G ZIP\" && cmake .. -DLWS_EXT_PTHREAD_INCLUDE_DIR=\"C:\\Program Files (x86)\\pthreads\\include\" -DLWS_EXT_PTHREAD_LIBRARIES=\"C:\\Program Files (x86)\\pthreads\\lib\\x64\\libpthreadGC2.a\" ${cmake} && cmake --build . --config DEBUG && set CTEST_OUTPUT_ON_FAILURE=1 && ctest . -C DEBUG -j4 --output-on-failure",
 			"default": false
+		},
+		"freertos-esp32": {
+			# official way to get sdkconfig.h is idf.py menuconfig, but
+			# no obvious way to do that in CI
+			"build":	"rm -rf ebuild ; mkdir ebuild; cd ebuild; cp -rp ../minimal-examples/embedded/lws-minimal-esp32 . ;  cd lws-minimal-esp32 ; . /opt/esp/esp-idf/export.sh ; ln -sf ../.. libwebsockets ; idf.py set-target esp32 && cp libwebsockets/minimal-examples/embedded/lws-minimal-esp32/sdkconfig . && cp sdkconfig.h build && idf.py build && cd build && /usr/local/bin/sai-device freertos-esp32 ESPPORT=0 ctest --output-on-failure",
+			"default":	false
 		}
 	},
 
 	"configurations": {
 		"default": {
 			"cmake":	"",
-			"platforms":	"windows-10, linkit-cross, linux-debian-buster-arm32"
+			"platforms":	"windows-10, linkit-cross, linux-debian-buster-arm32, freertos-esp32"
 		},
 		"default-examples": {
 			"cmake":	"-DLWS_WITH_MINIMAL_EXAMPLES=1",

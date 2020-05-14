@@ -9,11 +9,13 @@
 # Target operating system name.
 set(CMAKE_SYSTEM_NAME Linux)
 
-# Name of C compiler.
-set(CMAKE_C_COMPILER	"${CROSS_PATH}/bin/xtensa-esp32-elf-gcc${EXECUTABLE_EXT}")
-set(CMAKE_AR		"${CROSS_PATH}/bin/xtensa-esp32-elf-ar${EXECUTABLE_EXT}")
-set(CMAKE_RANLIB	"${CROSS_PATH}/bin/xtensa-esp32-elf-ranlib${EXECUTABLE_EXT}")
-set(CMAKE_LINKER	"${CROSS_PATH}/bin/xtensa-esp32-elf-ld${EXECUTABLE_EXT}")
+# assumed these are set up on the $PATH
+set(TC xtensa-esp32-elf)
+
+set(CMAKE_C_COMPILER	"${TC}-gcc${EXECUTABLE_EXT}")
+set(CMAKE_AR		"${TC}-ar${EXECUTABLE_EXT}")
+set(CMAKE_RANLIB	"${TC}-ranlib${EXECUTABLE_EXT}")
+set(CMAKE_LINKER	"${TC}-ld${EXECUTABLE_EXT}")
 
 #
 # Different build system distros set release optimization level to different

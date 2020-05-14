@@ -23,6 +23,7 @@
  */
 
 #include "private-lib-core.h"
+#include <errno.h>
 
 #if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE)
 static int
@@ -327,21 +328,21 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 				return LWS_ITOSA_NOT_EXIST;
 			}
 		}
-		if (uid && gid) {
-			if (chown(serv_unix.sun_path, uid, gid)) {
+		if (iface && iface[0] != '@' && uid && gid) {
+			if (chown(iface, uid, gid)) {
 				lwsl_err("%s: failed to set %s perms %u:%u\n",
-					 __func__, serv_unix.sun_path,
+					 __func__, iface,
 					 (unsigned int)uid, (unsigned int)gid);
 
 				return LWS_ITOSA_NOT_EXIST;
 			}
 			lwsl_notice("%s: vh %s unix skt %s perms %u:%u\n",
-				    __func__, vhost->name, serv_unix.sun_path,
+				    __func__, vhost->name, iface,
 				    (unsigned int)uid, (unsigned int)gid);
 
-			if (chmod(serv_unix.sun_path, 0660)) {
+			if (chmod(iface, 0660)) {
 				lwsl_err("%s: failed to set %s to 0600 mode\n",
-					 __func__, serv_unix.sun_path);
+					 __func__, iface);
 
 				return LWS_ITOSA_NOT_EXIST;
 			}

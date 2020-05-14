@@ -25,7 +25,6 @@
 #include "private-lib-core.h"
 #include "private-lib-tls-mbedtls.h"
 
-
 void
 lws_ssl_destroy(struct lws_vhost *vhost)
 {

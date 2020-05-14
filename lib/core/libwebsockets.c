@@ -1091,10 +1091,12 @@ static const char * const builtins[] = {
 	"--ignore-sigterm"
 };
 
+#if !defined(LWS_PLAT_FREERTOS)
 static void
 lws_sigterm_catch(int sig)
 {
 }
+#endif
 
 void
 lws_cmdline_option_handle_builtin(int argc, const char **argv,
@@ -1121,7 +1123,9 @@ lws_cmdline_option_handle_builtin(int argc, const char **argv,
 			info->udp_loss_sim_rx_pc = m;
 			break;
 		case 3:
+#if !defined(LWS_PLAT_FREERTOS)
 			signal(SIGTERM, lws_sigterm_catch);
+#endif
 			break;
 		}
 	}
