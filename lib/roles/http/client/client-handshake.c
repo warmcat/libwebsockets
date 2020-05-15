@@ -683,7 +683,10 @@ ads_known:
 #if defined(LWS_WITH_UNIX_SOCK)
 	if (wsi->unix_skt) {
 		psa = (const struct sockaddr *)&sau;
-		n = sizeof(sau);
+		if (sau.sun_path[0])
+			n = sizeof(uint16_t) + strlen(sau.sun_path);
+		else
+			n = sizeof(uint16_t) + strlen(&sau.sun_path[1]) + 1;
 	} else
 #endif
 

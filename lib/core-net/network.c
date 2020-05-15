@@ -215,7 +215,6 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 #if defined(LWS_WITH_UNIX_SOCK)
 	if (!port && LWS_UNIX_SOCK_ENABLED(vhost)) {
 		v = (struct sockaddr *)&serv_unix;
-		n = sizeof(struct sockaddr_un);
 		memset(&serv_unix, 0, sizeof(serv_unix));
 		serv_unix.sun_family = AF_UNIX;
 		if (!iface)
@@ -225,11 +224,14 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 			         iface);
 			return LWS_ITOSA_NOT_EXIST;
 		}
+		n = sizeof(uint16_t) + strlen(iface);
 		strcpy(serv_unix.sun_path, iface);
 		if (serv_unix.sun_path[0] == '@')
 			serv_unix.sun_path[0] = '\0';
 		else
 			unlink(serv_unix.sun_path);
+
+		// lwsl_hexdump_notice(v, n);
 
 	} else
 #endif
