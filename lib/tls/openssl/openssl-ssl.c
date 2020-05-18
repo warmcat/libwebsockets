@@ -297,10 +297,12 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 	if (!wsi->tls.ssl)
 		goto bail;
 
-	if (SSL_pending(wsi->tls.ssl) &&
-	    lws_dll2_is_detached(&wsi->tls.dll_pending_tls))
-		lws_dll2_add_head(&wsi->tls.dll_pending_tls,
-				  &pt->tls.dll_pending_tls_owner);
+	if (SSL_pending(wsi->tls.ssl)) {
+		if (lws_dll2_is_detached(&wsi->tls.dll_pending_tls))
+			lws_dll2_add_head(&wsi->tls.dll_pending_tls,
+					  &pt->tls.dll_pending_tls_owner);
+	} else
+		__lws_ssl_remove_wsi_from_buffered_list(wsi);
 
 	return n;
 bail:

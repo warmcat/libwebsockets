@@ -587,18 +587,17 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 
 		if (wsi->position_in_fds_table >= 0) {
 
-		pt->fds[wsi->position_in_fds_table].revents |=
-			pt->fds[wsi->position_in_fds_table].events & LWS_POLLIN;
-		if (pt->fds[wsi->position_in_fds_table].revents & LWS_POLLIN) {
-			forced = 1;
-			/*
-			 * he's going to get serviced now, take him off the
-			 * list of guys with buffered SSL.  If he still has some
-			 * at the end of the service, he'll get put back on the
-			 * list then.
-			 */
-			__lws_ssl_remove_wsi_from_buffered_list(wsi);
-		}
+			pt->fds[wsi->position_in_fds_table].revents |=
+				pt->fds[wsi->position_in_fds_table].events &
+								LWS_POLLIN;
+			if (pt->fds[wsi->position_in_fds_table].revents &
+								LWS_POLLIN)
+				/*
+				 * We're not going to remove the wsi from the
+				 * pending tls list.  The processing will have
+				 * to do it if he exhausts the pending tls.
+				 */
+				forced = 1;
 		}
 
 	} lws_end_foreach_dll_safe(p, p1);
