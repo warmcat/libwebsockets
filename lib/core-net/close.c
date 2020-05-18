@@ -82,7 +82,13 @@ __lws_reset_wsi(struct lws *wsi)
 	    wsi->user_space && !wsi->user_space_externally_allocated)
 		lws_free_set_NULL(wsi->user_space);
 
+	/*
+	 * Don't let buflist content or state from the wsi's previous life
+	 * carry over to the new life
+	 */
+
 	lws_buflist_destroy_all_segments(&wsi->buflist);
+	lws_dll2_remove(&wsi->dll_buflist);
 	lws_buflist_destroy_all_segments(&wsi->buflist_out);
 #if defined(LWS_WITH_UDP)
 	lws_free_set_NULL(wsi->udp);
