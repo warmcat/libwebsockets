@@ -958,6 +958,21 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		    !wsi->http.rx_content_length)
 		        return !!lws_http_transaction_completed_client(wsi);
 
+		/*
+		 * We can also get a case where it's http/1 and there's no
+		 * content-length at all, so anything that comes is the body
+		 * until it hangs up on us.  With that situation, hanging up
+		 * on us past this point should generate a valid
+		 * LWS_CALLBACK_COMPLETED_CLIENT_HTTP.
+		 *
+		 * In that situation, he can't pipeline because in h1 there's
+		 * no post-header in-band way to signal the end of the
+		 * transaction except hangup.
+		 *
+		 * lws_http_transaction_completed_client() is the right guy to
+		 * issue it when we see the peer has hung up on us.
+		 */
+
 		return 0;
 	}
 
@@ -1267,6 +1282,23 @@ lws_http_client_read(struct lws *wsi, char **buf, int *len)
 
 	if (buffered < 0) {
 		lwsl_debug("%s: SSL capable error\n", __func__);
+
+		if (wsi->http.ah &&
+		    wsi->http.ah->parser_state == WSI_PARSING_COMPLETE &&
+		    !lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH))
+			/*
+			 * We had the headers from this stream, but as there
+			 * was no content-length: we had to wait until the
+			 * stream ended to inform the user code the transaction
+			 * has completed to the best of our knowledge
+			 */
+			if (lws_http_transaction_completed_client(wsi))
+				/*
+				 * We're going to close anyway, but that api has
+				 * warn_unused_result
+				 */
+				return -1;
+
 		return -1;
 	}
 
