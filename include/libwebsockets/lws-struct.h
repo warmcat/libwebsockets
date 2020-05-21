@@ -219,7 +219,8 @@ typedef struct lws_struct_serialize_st {
 } lws_struct_serialize_st_t;
 
 enum {
-	LSSERJ_FLAG_PRETTY = 1
+	LSSERJ_FLAG_PRETTY	= (1 << 0),
+	LSSERJ_FLAG_OMIT_SCHEMA = (1 << 1)
 };
 
 typedef struct lws_struct_serialize {
