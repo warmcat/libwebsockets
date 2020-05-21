@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 2.8)
 include(CheckCSourceCompiles)
 
 set(SAMP lws-api-test-lws_struct-json)
-set(SRCS main.c)
+set(SRCS main.c test2.c)
 
 # If we are being built as part of lws, confirm current build config supports
 # reqconfig, else skip building ourselves.

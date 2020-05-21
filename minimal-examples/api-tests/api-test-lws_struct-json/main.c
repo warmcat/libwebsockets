@@ -16,6 +16,8 @@
 
 #include <libwebsockets.h>
 
+extern int test2(void);
+
 /*
  * in this example, the JSON is for one "builder" object, which may specify
  * a child list "targets" of zero or more "target" objects.
@@ -529,11 +531,18 @@ done:
 	lwsl_notice("Test set 2: %d: %s\n", m,
 			((sai_cancel_t *)a.dest)->task_uuid);
 
+	lwsac_free(&a.ac);
+
+	if (test2())
+		goto bail;
+
 	lwsl_user("Completed: PASS\n");
 
 	return 0;
 
 bail:
+if (test2())
+	return 1;
 	lwsl_user("Completed: FAIL\n");
 
 	return 1;
