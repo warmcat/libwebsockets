@@ -374,8 +374,10 @@ bail:
 bail2:
 #endif
 
+#if defined(LWS_WITH_TLS)
 	if (i->ssl_connection & LCCSCF_USE_SSL)
 		lws_tls_restrict_return(i->context);
+#endif
 
 	if (i->pwsi)
 		*i->pwsi = NULL;

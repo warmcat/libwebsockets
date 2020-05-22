@@ -40,11 +40,13 @@ lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1)
 				return CCTLS_RETURN_ERROR;
 			}
 
+#if defined(LWS_WITH_TLS)
 			if (!wsi->transaction_from_pipeline_queue &&
 			    lws_tls_restrict_borrow(wsi->context)) {
 				*pcce = "tls restriction limit";
 				return CCTLS_RETURN_ERROR;
 			}
+#endif
 		}
 
 		if (!do_c1)

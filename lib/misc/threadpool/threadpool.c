@@ -1050,6 +1050,9 @@ lws_threadpool_task_status(struct lws_threadpool_task *task, void **user)
 	enum lws_threadpool_task_status status;
 	struct lws_threadpool *tp = task->tp;
 
+	if (!tp)
+		return LWS_TP_STATUS_FINISHED;
+
 	*user = task->args.user;
 	status = task->status;
 

@@ -33,7 +33,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <signal.h>
-
+#include <errno.h>
 /* import the whole of lws-plugin-sshd-base statically */
 #include <lws-plugin-sshd-static-build-includes.h>
 

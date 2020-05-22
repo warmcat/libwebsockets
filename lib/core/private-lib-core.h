@@ -133,6 +133,7 @@
 
 #include "libwebsockets.h"
 
+
 /*
  * Generic bidi tx credit management
  */
@@ -147,8 +148,9 @@ struct lws_tx_credit {
 	uint8_t			manual;
 };
 
-
+#if defined(LWS_WITH_TLS)
 #include "private-lib-tls.h"
+#endif
 
 #if defined(WIN32) || defined(_WIN32)
 	 // Visual studio older than 2015 and WIN_CE has only _stricmp
