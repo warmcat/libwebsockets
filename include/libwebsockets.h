@@ -173,6 +173,19 @@ typedef unsigned long long lws_intptr_t;
 
 #endif
 
+#ifndef LWS_EXTERN
+#define LWS_EXTERN extern
+#endif
+
+#ifdef _WIN32
+#define random rand
+#else
+#if !defined(LWS_PLAT_OPTEE)
+#include <sys/time.h>
+#include <unistd.h>
+#endif
+#endif
+
 #if defined(LWS_WITH_LIBEV)
 #include <ev.h>
 #endif /* LWS_WITH_LIBEV */
@@ -188,19 +201,6 @@ typedef unsigned long long lws_intptr_t;
 #if defined(LWS_WITH_LIBEVENT)
 #include <event2/event.h>
 #endif /* LWS_WITH_LIBEVENT */
-
-#ifndef LWS_EXTERN
-#define LWS_EXTERN extern
-#endif
-
-#ifdef _WIN32
-#define random rand
-#else
-#if !defined(LWS_PLAT_OPTEE)
-#include <sys/time.h>
-#include <unistd.h>
-#endif
-#endif
 
 #if defined(LWS_WITH_TLS)
 
