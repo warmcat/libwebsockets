@@ -338,11 +338,16 @@ lws_adopt_descriptor_vhost_via_info(const lws_adopt_desc_t *info)
 
 		if (peer && info->vh->context->ip_limit_wsi &&
 		    peer->count_wsi >= info->vh->context->ip_limit_wsi) {
-			lwsl_notice("Peer reached wsi limit %d\n",
+			lwsl_info("Peer reached wsi limit %d\n",
 					info->vh->context->ip_limit_wsi);
 			lws_stats_bump(&info->vh->context->pt[0],
 					      LWSSTATS_C_PEER_LIMIT_WSI_DENIED,
 					      1);
+			if (info->vh->context->pl_notify_cb)
+				info->vh->context->pl_notify_cb(
+							info->vh->context,
+							info->fd.sockfd,
+							&peer->sa46);
 			compatible_close(info->fd.sockfd);
 			return NULL;
 		}
