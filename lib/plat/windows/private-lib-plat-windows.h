@@ -64,6 +64,10 @@
  #include <mstcpip.h>
  #include <io.h>
 
+#if defined(LWS_WITH_UNIX_SOCK)
+#include <afunix.h>
+#endif
+
  #if !defined(LWS_HAVE_ATOLL)
   #if defined(LWS_HAVE__ATOI64)
    #define atoll _atoi64

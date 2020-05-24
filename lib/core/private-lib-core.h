@@ -706,7 +706,7 @@ lws_plat_init(struct lws_context *context,
 LWS_EXTERN int
 lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop);
 
-#if defined(LWS_WITH_UNIX_SOCK)
+#if defined(LWS_WITH_UNIX_SOCK) && !defined(WIN32)
 int
 lws_plat_user_colon_group_to_ids(const char *u_colon_g, uid_t *puid, gid_t *pgid);
 #endif
