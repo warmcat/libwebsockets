@@ -130,7 +130,7 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 				(void *)(lws_intptr_t)accept_fd, 0)) {
 			lwsl_debug("Callback denied net connection\n");
 			compatible_close(accept_fd);
-			return LWS_HPI_RET_PLEASE_CLOSE_ME;
+			return LWS_HPI_RET_HANDLED;
 		}
 
 		if (!(wsi->vhost->options &
