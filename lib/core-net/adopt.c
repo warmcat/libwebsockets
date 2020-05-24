@@ -343,6 +343,7 @@ lws_adopt_descriptor_vhost_via_info(const lws_adopt_desc_t *info)
 			lws_stats_bump(&info->vh->context->pt[0],
 					      LWSSTATS_C_PEER_LIMIT_WSI_DENIED,
 					      1);
+			compatible_close(info->fd.sockfd);
 			return NULL;
 		}
 	}
