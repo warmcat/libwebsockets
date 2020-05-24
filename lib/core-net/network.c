@@ -225,7 +225,7 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 			         iface);
 			return LWS_ITOSA_NOT_EXIST;
 		}
-		n = sizeof(uint16_t) + strlen(iface);
+		n = (int)(sizeof(uint16_t) + strlen(iface));
 		strcpy(serv_unix.sun_path, iface);
 		if (serv_unix.sun_path[0] == '@')
 			serv_unix.sun_path[0] = '\0';
@@ -315,7 +315,7 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 		return LWS_ITOSA_NOT_EXIST;
 	}
 
-#if defined(LWS_WITH_UNIX_SOCK)
+#if defined(LWS_WITH_UNIX_SOCK) && !defined(WIN32)
 	if (!port && LWS_UNIX_SOCK_ENABLED(vhost)) {
 		uid_t uid = vhost->context->uid;
 		gid_t gid = vhost->context->gid;

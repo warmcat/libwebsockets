@@ -681,9 +681,9 @@ ads_known:
 	if (wsi->unix_skt) {
 		psa = (const struct sockaddr *)&sau;
 		if (sau.sun_path[0])
-			n = sizeof(uint16_t) + strlen(sau.sun_path);
+			n = (int)(sizeof(uint16_t) + strlen(sau.sun_path));
 		else
-			n = sizeof(uint16_t) + strlen(&sau.sun_path[1]) + 1;
+			n = (int)(sizeof(uint16_t) + strlen(&sau.sun_path[1]) + 1);
 	} else
 #endif
 
