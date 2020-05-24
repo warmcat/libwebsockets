@@ -432,9 +432,10 @@ struct lws_context {
 #endif
 
 #if defined(LWS_WITH_PEER_LIMITS)
-	struct lws_peer **pl_hash_table;
-	struct lws_peer *peer_wait_list;
-	time_t next_cull;
+	struct lws_peer			**pl_hash_table;
+	struct lws_peer			*peer_wait_list;
+	lws_peer_limits_notify_t	pl_notify_cb;
+	time_t				next_cull;
 #endif
 
 	const lws_system_ops_t *system_ops;

@@ -187,10 +187,11 @@ struct lws_peer {
 	struct lws_peer *next;
 	struct lws_peer *peer_wait_list;
 
+	lws_sockaddr46	sa46;
+
 	time_t time_created;
 	time_t time_closed_all;
 
-	uint8_t addr[32];
 	uint32_t hash;
 	uint32_t count_wsi;
 	uint32_t total_wsi;
@@ -198,8 +199,6 @@ struct lws_peer {
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	struct lws_peer_role_http http;
 #endif
-
-	uint8_t af;
 };
 #endif
 
