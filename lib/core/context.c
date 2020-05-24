@@ -661,6 +661,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 
 	context->ip_limit_ah = info->ip_limit_ah;
 	context->ip_limit_wsi = info->ip_limit_wsi;
+	context->pl_notify_cb = info->pl_notify_cb;
 #endif
 
 	lwsl_info(" mem: context:         %5lu B (%ld ctx + (%ld thr x %d))\n",
