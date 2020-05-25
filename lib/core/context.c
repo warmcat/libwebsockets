@@ -1049,8 +1049,6 @@ lws_context_destroy3(struct lws_context *context)
 
 #if defined(LWS_WITH_NETWORK)
 
-	lwsl_err("%s\n", __func__);
-
 	context->finalize_destroy_after_internal_loops_stopped = 1;
 	if (context->event_loop_ops->destroy_context2)
 		context->event_loop_ops->destroy_context2(context);
