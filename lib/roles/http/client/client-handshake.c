@@ -355,10 +355,6 @@ lws_client_conn_wait_timeout(lws_sorted_usec_list_t *sul)
 	 * connection before giving up on it and retrying.
 	 */
 
-#if defined(WIN32)
-       wsi->dns_results_next = wsi->dns_results_next->ai_next;
-#endif
-
 	lwsl_info("%s: connect wait timeout has fired\n", __func__);
 	lws_client_connect_3_connect(wsi, NULL, NULL, 0, NULL);
 }
