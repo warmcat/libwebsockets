@@ -275,7 +275,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 				 * fail out...
 				 *
 				 */
-				lwsl_warn("%s: PEEKed 0 (from_pollin %d)\n",
+				lwsl_debug("%s: PEEKed 0 (from_pollin %d)\n",
 					  __func__, from_pollin);
 				if (!from_pollin)
 					/*
