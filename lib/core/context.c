@@ -548,7 +548,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	if (info->timeout_secs)
 		context->timeout_secs = info->timeout_secs;
 	else
-		context->timeout_secs = AWAITING_TIMEOUT;
+		context->timeout_secs = 5;
 
 	context->ws_ping_pong_interval = info->ws_ping_pong_interval;
 

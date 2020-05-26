@@ -280,7 +280,7 @@ send_hs:
 				 * provoke service to issue the CONNECT directly.
 				 */
 				lws_set_timeout(wsi, PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE,
-						AWAITING_TIMEOUT);
+						wsi->context->timeout_secs);
 
 				assert(lws_socket_is_valid(wsi->desc.sockfd));
 
@@ -356,6 +356,10 @@ lws_client_conn_wait_timeout(lws_sorted_usec_list_t *sul)
 	 * connection before giving up on it and retrying.
 	 */
 
+#if defined(WIN32)
+       wsi->dns_results_next = wsi->dns_results_next->ai_next;
+#endif
+
 	lwsl_info("%s: connect wait timeout has fired\n", __func__);
 	lws_client_connect_3_connect(wsi, NULL, NULL, 0, NULL);
 }
@@ -380,6 +384,9 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	char ni[48];
 	int m;
 
+       if (n == LWS_CONNECT_COMPLETION_GOOD)
+               goto conn_good;
+
 #if defined(LWS_WITH_IPV6) && defined(__ANDROID__)
 	ipv6only = 0;
 #endif
@@ -393,7 +400,6 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	if (!lws_dll2_is_detached(&wsi->dll2_cli_txn_queue))
 		return wsi;
 
-#if !defined(WIN32)
 	/*
 	* We can check using getsockopt if our connect actually completed.
 	* Posix connect() allows nonblocking to redo the connect to
@@ -406,22 +412,30 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 		socklen_t sl = sizeof(int);
 		int e = 0;
 
-		if (!result && !wsi->sul_connect_timeout.list.owner)
+		if (!result && /* no dns results... */
+		    !wsi->sul_connect_timeout.list.owner /* no ongoing connect timeout */)
 			goto connect_to;
-
+#if defined(WIN32)
+		if (!connect(wsi->desc.sockfd, NULL, 0)) {
+			goto conn_good;
+               } else {
+			if (!errno || errno == WSAEINVAL || errno == WSAEWOULDBLOCK || errno == WSAEALREADY) {
+				lwsl_info("%s: errno %d\n", __func__, errno);
+				return NULL;
+			}
+			lwsl_info("%s: connect check take as FAILED\n", __func__);
+		}
+#else
 		/*
 		* this resets SO_ERROR after reading it.  If there's an error
 		* condition the connect definitively failed.
 		*/
 
 		if (!getsockopt(wsi->desc.sockfd, SOL_SOCKET, SO_ERROR,
-#if defined(WIN32)
-				(char *)
-#endif
 				&e, &sl)) {
 			if (!e) {
-				lwsl_info("%s: getsockopt check: conn OK\n",
-						__func__);
+				lwsl_debug("%s: getsockopt check: conn OK errno %d\n",
+					   __func__, errno);
 
 				goto conn_good;
 			}
@@ -429,12 +443,12 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 			lwsl_debug("%s: getsockopt fd %d says err %d\n", __func__,
 					wsi->desc.sockfd, e);
 		}
+#endif
 
 		lwsl_debug("%s: getsockopt check: conn fail: errno %d\n",
 				__func__, LWS_ERRNO);
 		goto try_next_result_fds;
 	}
-#endif
 
 #if defined(LWS_WITH_UNIX_SOCK)
 	if (ads && *ads == '+') {
@@ -551,7 +565,8 @@ next_result:
 			ni[0] = '\0';
 			lws_write_numeric_address(sa46.sa6.sin6_addr.s6_addr,
 						  16, ni, sizeof(ni));
-			lwsl_info("%s: %s ipv4->ipv6 %s\n", __func__, ads, ni);
+			lwsl_info("%s: %s ipv4->ipv6 %s\n", __func__,
+				  ads ? ads : "(null)", ni);
 			break;
 		}
 #endif
@@ -564,7 +579,7 @@ next_result:
 		n = sizeof(struct sockaddr_in);
 		lws_write_numeric_address((uint8_t *)&sa46.sa4.sin_addr.s_addr,
 					  4, ni, sizeof(ni));
-		lwsl_info("%s: %s ipv4 %s\n", __func__, ads, ni);
+		lwsl_info("%s: %s ipv4 %s\n", __func__, ads ? ads : "(null)", ni);
 		break;
 	case AF_INET6:
 #if defined(LWS_WITH_IPV6)
@@ -581,7 +596,7 @@ next_result:
 		sa46.sa6.sin6_port = htons(port);
 		lws_write_numeric_address((uint8_t *)&sa46.sa6.sin6_addr,
 				16, ni, sizeof(ni));
-		lwsl_info("%s: %s ipv6 %s\n", __func__, ads, ni);
+		lwsl_info("%s: %s ipv6 %s\n", __func__, ads ? ads : "(null)", ni);
 #else
 		goto try_next_result;	/* ipv4 only can't use this */
 #endif
@@ -653,7 +668,7 @@ ads_known:
 			wsi->protocol = &wsi->vhost->protocols[0];
 
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CONNECT_RESPONSE,
-				wsi->context->timeout_secs);
+				wsi->vhost->connect_timeout_secs);
 
 		iface = lws_wsi_client_stash_item(wsi, CIS_IFACE,
 						  _WSI_TOKEN_CLIENT_IFACE);
@@ -684,9 +699,6 @@ ads_known:
 	wsi->detlat.earliest_write_req =
 		wsi->detlat.earliest_write_req_pre_write = lws_now_usecs();
 #endif
-
-	if (!result && !wsi->sul_connect_timeout.list.owner)
-		goto connect_to;
 
 	m = connect(wsi->desc.sockfd, (const struct sockaddr *)psa, n);
 	if (m == -1) {
@@ -719,8 +731,9 @@ ads_known:
 #endif
 
 		/*
-		 * Let's set a specialized timeout for the connect completion,
-		 * it uses wsi->sul_connect_timeout just for this purpose
+		 * Let's set a specialized timeout for this connect attempt
+		 * completion, it uses wsi->sul_connect_timeout just for this
+		 * purpose
 		 */
 
 		lws_sul_schedule(wsi->context, 0, &wsi->sul_connect_timeout,
@@ -801,7 +814,6 @@ oom4:
 	}
 
 	return NULL;
-
 
 connect_to:
 	/*

@@ -341,6 +341,8 @@ enum {
 	LWS_UPG_RET_BAIL
 };
 
+#define LWS_CONNECT_COMPLETION_GOOD (-99)
+
 int
 lws_role_call_adoption_bind(struct lws *wsi, int type, const char *prot);
 

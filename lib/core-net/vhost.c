@@ -513,6 +513,12 @@ lws_create_vhost(struct lws_context *context,
 #if !defined(LWS_PLAT_FREERTOS) && !defined(OPTEE_TA) && !defined(WIN32)
 	vh->bind_iface = info->bind_iface;
 #endif
+#if defined(LWS_WITH_CLIENT)
+	if (info->connect_timeout_secs)
+		vh->connect_timeout_secs = info->connect_timeout_secs;
+	else
+		vh->connect_timeout_secs = 20;
+#endif
 	/* apply the context default lws_retry */
 
 	if (info->retry_and_idle_policy)
