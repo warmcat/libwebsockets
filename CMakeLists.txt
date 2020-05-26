@@ -67,6 +67,11 @@ option(LWS_WITH_DISTRO_RECOMMENDED "Enable features recommended for distro packa
 option(LWS_FOR_GITOHASHI "Enable features recommended for use with gitohashi" OFF)
 
 #
+# Compiler features
+#
+option(DISABLE_WERROR "Avoid treating compiler warnings as fatal errors" OFF)
+
+#
 # Major individual features
 #
 option(LWS_WITH_NETWORK "Compile with network-related code" ON)
@@ -637,12 +642,15 @@ if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX OR COMPILER_IS_CLANG)
 		set(CMAKE_C_FLAGS "-fanalyzer ${CMAKE_C_FLAGS}" )
 	endif()
 
-	# always warn all and Werror, and generate debug info
+	# always warn all and generate debug info
     if (UNIX AND NOT LWS_PLAT_FREERTOS)
-	    set(CMAKE_C_FLAGS "-g -Wall -Wsign-compare -Wstrict-aliasing -Wuninitialized -Werror ${VISIBILITY_FLAG} -Wundef ${GCOV_FLAGS} ${CMAKE_C_FLAGS} ${ASAN_FLAGS}" )
+	    set(CMAKE_C_FLAGS "-g -Wall -Wsign-compare -Wstrict-aliasing -Wuninitialized ${VISIBILITY_FLAG} -Wundef ${GCOV_FLAGS} ${CMAKE_C_FLAGS} ${ASAN_FLAGS}" )
     else()
-	    set(CMAKE_C_FLAGS "-g -Wall -Wsign-compare -Wuninitialized -Werror ${VISIBILITY_FLAG} ${GCOV_FLAGS} ${CMAKE_C_FLAGS}" )
+	    set(CMAKE_C_FLAGS "-g -Wall -Wsign-compare -Wuninitialized ${VISIBILITY_FLAG} ${GCOV_FLAGS} ${CMAKE_C_FLAGS}" )
     endif()
+	    if ("${DISABLE_WERROR}" STREQUAL "OFF")
+		    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror")
+	    endif()
 endif ()
 
 
