@@ -282,6 +282,7 @@ int main(int argc, const char **argv)
 	info.protocols = protocols;
 	info.user = &args;
 	info.register_notifier_list = na;
+       info.connect_timeout_secs = 30;
 
 	/*
 	 * since we know this lws context is only ever going to be used with

@@ -590,6 +590,7 @@ struct lws_vhost {
 	int ka_interval;
 	int keepalive_timeout;
 	int timeout_secs_ah_idle;
+	int connect_timeout_secs;
 
 	int count_bound_wsi;
 

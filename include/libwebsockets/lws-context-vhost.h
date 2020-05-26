@@ -402,6 +402,10 @@ struct lws_context_creation_info {
 	 * library are protected from hanging forever by timeouts.  If
 	 * nonzero, this member lets you set the timeout used in seconds.
 	 * Otherwise a default timeout is used. */
+	unsigned int connect_timeout_secs;
+	/**< VHOST: client connections have this long to find a working server
+	 * from the DNS results, or the whole connection times out.  If zero,
+	 * a default timeout is used */
 	const char *ecdh_curve;
 	/**< VHOST: if NULL, defaults to initializing server with
 	 *   "prime256v1" */

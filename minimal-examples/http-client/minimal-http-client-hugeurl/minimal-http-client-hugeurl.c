@@ -162,6 +162,8 @@ int main(int argc, const char **argv)
 	info.port = CONTEXT_PORT_NO_LISTEN; /* we do not run any server */
 	info.protocols = protocols;
 	info.pt_serv_buf_size = 8192;
+	info.timeout_secs = 10;
+	info.connect_timeout_secs = 30;
 	/*
 	 * since we know this lws context is only ever going to be used with
 	 * one client wsis / fds / sockets at a time, let lws know it doesn't

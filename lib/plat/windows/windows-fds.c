@@ -73,7 +73,7 @@ delete_from_fd(struct lws_context *context, lws_sockfd_type fd)
 			return 0;
 		}
 
-	lwsl_err("Failed to find fd %d requested for "
+	lwsl_debug("Failed to find fd %d requested for "
 		 "delete in hashtable\n", fd);
 	return 1;
 }
