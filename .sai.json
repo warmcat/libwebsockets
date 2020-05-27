@@ -14,6 +14,9 @@
 		"linux-fedora-32-x86_64": {
 			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G RPM\";cmake .. ${cmake} && make -j && make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}"
 		},
+		"gentoo-amd64": {
+			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G ZIP\";cmake .. ${cmake} && make -j && make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}"
+		},
 		"linux-centos-8-x8664": {
 			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G RPM\";cmake .. ${cmake} && make -j && make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}"
 		},
@@ -57,6 +60,10 @@
 		"default-examples": {
 			"cmake":	"-DLWS_WITH_MINIMAL_EXAMPLES=1",
 			"platforms":	"windows-10, linux-debian-buster-arm32"
+		},
+		"unix-domain": {
+			"cmake":	"-DUNIX_SOCK=1",
+			"platforms":	"windows-10"
 		},
 		"lws_system": {
 			"cmake":	"-DLWS_WITH_ACME=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DCMAKE_BUILD_TYPE=RELEASE -DLWS_WITH_GENCRYPTO=1 -DLWS_WITH_JOSE=1 -DLWS_WITH_SYS_ASYNC_DNS=1 -DLWS_WITH_SYS_NTPCLIENT=1",
