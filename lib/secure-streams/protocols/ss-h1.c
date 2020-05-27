@@ -364,10 +364,11 @@ malformed:
 		}
 
 		/*
-		 * Content-length on POST if we have the length information
+		 * Content-length on POST / PUT if we have the length information
 		 */
 
-		if (!strcmp(h->policy->u.http.method, "POST") &&
+		if ((!strcmp(h->policy->u.http.method, "POST") ||
+		     !strcmp(h->policy->u.http.method, "PUT")) &&
 		    wsi->http.writeable_len) {
 			if (!(h->policy->flags &
 				LWSSSPOLF_HTTP_NO_CONTENT_LENGTH)) {
