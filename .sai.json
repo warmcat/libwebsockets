@@ -20,7 +20,7 @@
 		"linux-centos-8-x8664": {
 			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G RPM\";cmake .. ${cmake} && make -j && make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}"
 		},
-		"linux-debian-buster-arm32": {
+		"ubuntu-focal-aarch64": {
 			"build": "mkdir build;cd build;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G DEB\";cmake .. ${cmake} && make -j3 && make -j DESTDIR=../destdir install && ctest -j3 --output-on-failure ${cpack}",
 			"default": false
 		},
@@ -55,11 +55,11 @@
 	"configurations": {
 		"default": {
 			"cmake":	"",
-			"platforms":	"windows-10, linkit-cross, linux-debian-buster-arm32, freertos-esp32"
+			"platforms":	"windows-10, linkit-cross, ubuntu-focal-aarch64, freertos-esp32"
 		},
 		"default-examples": {
 			"cmake":	"-DLWS_WITH_MINIMAL_EXAMPLES=1",
-			"platforms":	"windows-10, linux-debian-buster-arm32"
+			"platforms":	"windows-10, ubuntu-focal-aarch64"
 		},
 		"unix-domain": {
 			"cmake":	"-DUNIX_SOCK=1",
@@ -79,7 +79,7 @@
 		},
 		"distro_recommended": {
 			"cmake":	"-DLWS_WITH_DISTRO_RECOMMENDED=1",
-			"platforms":	"not linkit-cross, not windows-10, linux-debian-buster-arm32",
+			"platforms":	"not linkit-cross, not windows-10, ubuntu-focal-aarch64",
 			"cpack":	"&& cpack $SAI_CPACK",
 			"artifacts":	"build/*.rpm, build/*.deb, build/*.zip"
 		},
