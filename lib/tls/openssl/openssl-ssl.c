@@ -368,6 +368,7 @@ lws_ssl_info_callback(const SSL *ssl, int where, int ret)
 	struct lws *wsi;
 	struct lws_context *context;
 	struct lws_ssl_info si;
+	int fd;
 
 #ifndef USE_WOLFSSL
 	context = (struct lws_context *)SSL_CTX_get_ex_data(
@@ -380,7 +381,12 @@ lws_ssl_info_callback(const SSL *ssl, int where, int ret)
 #endif
 	if (!context)
 		return;
-	wsi = wsi_from_fd(context, SSL_get_fd(ssl));
+
+	fd = SSL_get_fd(ssl);
+	if (fd < 0 || (fd - lws_plat_socket_offset()) < 0)
+		return;
+
+	wsi = wsi_from_fd(context, fd);
 	if (!wsi)
 		return;
 
