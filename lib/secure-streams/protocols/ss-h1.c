@@ -27,6 +27,10 @@
 #include <private-lib-core.h>
 
 #if !defined(LWS_PLAT_FREERTOS) || defined(LWS_ROLE_H2)
+#define LWS_WITH_SS_RIDESHARE
+#endif
+
+#if defined(LWS_WITH_SS_RIDESHARE)
 static int
 ss_http_multipart_parser(lws_ss_handle_t *h, void *in, size_t len)
 {
@@ -163,6 +167,7 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	uint8_t buf[LWS_PRE + 1520], *p = &buf[LWS_PRE],
 		*end = &buf[sizeof(buf) - 1];
 	int f = 0, m, status, txr;
+	char conceal_eom = 0;
 	size_t buflen;
 
 	switch (reason) {
@@ -235,7 +240,7 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		 */
 		lws_validity_confirmed(wsi);
 
-#if !defined(LWS_PLAT_FREERTOS) || defined(LWS_ROLE_H2)
+#if defined(LWS_WITH_SS_RIDESHARE)
 
 		if (lws_hdr_copy(wsi, (char *)buf, sizeof(buf),
 				 WSI_TOKEN_HTTP_CONTENT_TYPE) > 0 &&
@@ -397,7 +402,7 @@ malformed:
 		if (!h)
 			return 0;
 
-#if !defined(LWS_PLAT_FREERTOS) || defined(LWS_ROLE_H2)
+#if defined(LWS_WITH_SS_RIDESHARE)
 		if (h->u.http.boundary[0])
 			return ss_http_multipart_parser(h, in, len);
 #endif
@@ -455,7 +460,7 @@ malformed:
 		if (!h->rideshare)
 			h->rideshare = h->policy;
 
-#if !defined(LWS_PLAT_FREERTOS) || defined(LWS_ROLE_H2)
+#if defined(LWS_WITH_SS_RIDESHARE)
 		if (!h->inside_msg && h->rideshare->u.http.multipart_name)
 			lws_client_http_multipart(wsi,
 				h->rideshare->u.http.multipart_name,
@@ -486,19 +491,21 @@ malformed:
 		p += buflen;
 
 		if (f & LWSSS_FLAG_EOM) {
-#if !defined(LWS_PLAT_FREERTOS) || defined(LWS_ROLE_H2)
+#if defined(LWS_WITH_SS_RIDESHARE)
+			conceal_eom = 1;
 			/* end of rideshares */
 			if (!h->rideshare->rideshare_streamtype) {
 				lws_client_http_body_pending(wsi, 0);
 				if (h->rideshare->u.http.multipart_name)
 					lws_client_http_multipart(wsi, NULL, NULL, NULL,
 						(char **)&p, (char *)end);
+				conceal_eom = 0;
 			} else {
 #endif
 				h->rideshare = lws_ss_policy_lookup(wsi->context,
 						h->rideshare->rideshare_streamtype);
 				lws_callback_on_writable(wsi);
-#if !defined(LWS_PLAT_FREERTOS) || defined(LWS_ROLE_H2)
+#if defined(LWS_WITH_SS_RIDESHARE)
 			}
 #endif
 
@@ -515,7 +522,8 @@ malformed:
 			  lws_ptr_diff(p, buf + LWS_PRE), f);
 
 		if (lws_write(wsi, buf + LWS_PRE, lws_ptr_diff(p, buf + LWS_PRE),
-			 (f & LWSSS_FLAG_EOM) ? LWS_WRITE_HTTP_FINAL : LWS_WRITE_HTTP) !=
+			 (!conceal_eom && (f & LWSSS_FLAG_EOM)) ?
+				    LWS_WRITE_HTTP_FINAL : LWS_WRITE_HTTP) !=
 				(int)lws_ptr_diff(p, buf + LWS_PRE)) {
 			lwsl_err("%s: write failed\n", __func__);
 			return -1;
@@ -564,7 +572,7 @@ secstream_connect_munge_h1(lws_ss_handle_t *h, char *buf, size_t len,
 	if (!pbasis)
 		return 0;
 
-#if !defined(LWS_PLAT_FREERTOS) || defined(LWS_ROLE_H2)
+#if defined(LWS_WITH_SS_RIDESHARE)
 	if (h->policy->flags & LWSSSPOLF_HTTP_MULTIPART)
 		i->ssl_connection |= LCCSCF_HTTP_MULTIPART_MIME;
 
