@@ -115,8 +115,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
 		interrupted = 1;
 		bad = status != 200;
-		lws_sul_schedule(lws_get_context(wsi), 0, &pss->sul, NULL,
-				 LWS_SET_TIMER_USEC_CANCEL);
+		lws_sul_cancel(&pss->sul);
 		lws_cancel_service(lws_get_context(wsi)); /* abort poll wait */
 		break;
 

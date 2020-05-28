@@ -153,7 +153,7 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_RAW_CLOSE_FILE:
 		lwsl_notice("LWS_CALLBACK_RAW_CLOSE_FILE\n");
-		lws_sul_schedule(lws_get_context(wsi), 0, &vhd->sul, sul_cb, LWS_SET_TIMER_USEC_CANCEL);
+		lws_sul_cancel(&vhd->sul);
 		break;
 
 	case LWS_CALLBACK_RAW_WRITEABLE_FILE:

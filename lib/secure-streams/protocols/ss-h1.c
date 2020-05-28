@@ -231,8 +231,10 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		h->retry = 0;
 		h->seqstate = SSSEQ_CONNECTED;
-		lws_ss_set_timeout_us(h, LWS_SET_TIMER_USEC_CANCEL);
-		lws_ss_event_helper(h, LWSSSCS_CONNECTED);
+		lws_sul_cancel(&h->sul);
+		if (lws_ss_event_helper(h, LWSSSCS_CONNECTED)) {
+			return -1;
+		}
 
 		/*
 		 * Since it's an http transaction we initiated... this is

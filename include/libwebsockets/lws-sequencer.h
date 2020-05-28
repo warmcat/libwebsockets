@@ -87,6 +87,8 @@ typedef struct lws_seq_info {
 	lws_seq_event_cb		cb;	    /* seq callback */
 	const char			*name;	    /* seq name */
 	const lws_retry_bo_t		*retry;	    /* retry policy */
+	uint8_t				wakesuspend:1; /* important enough to
+						     * wake system */
 } lws_seq_info_t;
 
 /**

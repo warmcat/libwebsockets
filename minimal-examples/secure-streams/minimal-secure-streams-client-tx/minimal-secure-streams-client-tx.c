@@ -112,8 +112,7 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		lws_sul_schedule(context, 0, &m->sul, txcb, RATE_US);
 		break;
 	case LWSSSCS_DISCONNECTED:
-		lws_sul_schedule(context, 0, &m->sul, txcb,
-				 LWS_SET_TIMER_USEC_CANCEL);
+		lws_sul_cancel(&m->sul);
 		break;
 	case LWSSSCS_ALL_RETRIES_FAILED:
 		/* if we're out of retries, we want to close the app and FAIL */

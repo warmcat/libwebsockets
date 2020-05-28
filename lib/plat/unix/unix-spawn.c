@@ -108,10 +108,8 @@ lws_spawn_piped_destroy(struct lws_spawn_piped **_lsp)
 
 	lws_dll2_remove(&lsp->dll);
 
-	lws_sul_schedule(lsp->info.vh->context, lsp->info.tsi, &lsp->sul,
-			 NULL, LWS_SET_TIMER_USEC_CANCEL);
-	lws_sul_schedule(lsp->info.vh->context, lsp->info.tsi, &lsp->sul_reap,
-			 NULL, LWS_SET_TIMER_USEC_CANCEL);
+	lws_sul_cancel(&lsp->sul);
+	lws_sul_cancel(&lsp->sul_reap);
 
 	for (n = 0; n < 3; n++) {
 #if 0
@@ -188,8 +186,7 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 
 	/* we reached the reap point, no need for timeout wait */
 
-	lws_sul_schedule(lsp->info.vh->context, lsp->info.tsi, &lsp->sul, NULL,
-			 LWS_SET_TIMER_USEC_CANCEL);
+	lws_sul_cancel(&lsp->sul);
 
 	/*
 	 * All the stdwsi went down, nothing more is coming... it's over

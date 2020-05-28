@@ -422,8 +422,7 @@ rops_close_role_mqtt(struct lws_context_per_thread *pt, struct lws *wsi)
 
 	c = &wsi->mqtt->client;
 
-	__lws_sul_insert(&pt->pt_sul_owner, &wsi->mqtt->sul_qos1_puback_wait,
-			 LWS_SET_TIMER_USEC_CANCEL);
+	lws_sul_cancel(&wsi->mqtt->sul_qos1_puback_wait);
 
 	lws_mqtt_str_free(&c->username);
 	lws_mqtt_str_free(&c->password);

@@ -1111,9 +1111,7 @@ bail1:
 						 * no need for ACK timeout wait
 						 * any more
 						 */
-						lws_sul_schedule(lws_get_context(w), 0,
-							&w->mqtt->sul_qos1_puback_wait, NULL,
-							LWS_SET_TIMER_USEC_CANCEL);
+						lws_sul_cancel(&w->mqtt->sul_qos1_puback_wait);
 
 						if (requested_close) {
 							__lws_close_free_wsi(w,
@@ -1745,8 +1743,9 @@ do_write:
 	/* For QoS1, if no PUBACK coming after 3s, we must RETRY the publish */
 
 	wsi->mqtt->sul_qos1_puback_wait.cb = lws_mqtt_publish_resend;
-	__lws_sul_insert(&pt->pt_sul_owner, &wsi->mqtt->sul_qos1_puback_wait,
-			 3 * LWS_USEC_PER_SEC);
+	__lws_sul_insert_us(&pt->pt_sul_owner[wsi->conn_validity_wakesuspend],
+			    &wsi->mqtt->sul_qos1_puback_wait,
+			    3 * LWS_USEC_PER_SEC);
 
 	return 0;
 }

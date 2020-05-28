@@ -90,6 +90,7 @@ static const char * const lejp_tokens_policy[] = {
 	"s[].*.mqtt_will_message",
 	"s[].*.mqtt_will_qos",
 	"s[].*.mqtt_will_retain",
+	"s[].*.swake_validity",
 	"s[].*",
 };
 
@@ -155,6 +156,7 @@ typedef enum {
 	LSSPPT_MQTT_WILL_MESSAGE,
 	LSSPPT_MQTT_WILL_QOS,
 	LSSPPT_MQTT_WILL_RETAIN,
+	LSSPPT_SWAKE_VALIDITY,
 	LSSPPT_STREAMTYPES
 } policy_token_t;
 
@@ -497,6 +499,11 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		if (reason == LEJPCB_VAL_TRUE)
 			a->curr[LTY_POLICY].p->flags |=
 					LWSSSPOLF_HTTP_X_WWW_FORM_URLENCODED;
+		break;
+	case LSSPPT_SWAKE_VALIDITY:
+		if (reason == LEJPCB_VAL_TRUE)
+			a->curr[LTY_POLICY].p->flags |=
+					LWSSSPOLF_WAKE_SUSPEND__VALIDITY;
 		break;
 
 	case LSSPPT_RETRYPTR:

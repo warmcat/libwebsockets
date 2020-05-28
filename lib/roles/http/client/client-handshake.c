@@ -756,8 +756,7 @@ ads_known:
 	}
 
 conn_good:
-	lws_sul_schedule(wsi->context, 0, &wsi->sul_connect_timeout, NULL,
-			 LWS_SET_TIMER_USEC_CANCEL);
+	lws_sul_cancel(&wsi->sul_connect_timeout);
 	lwsl_info("%s: Connection started %p\n", __func__, wsi->dns_results);
 
 	/* the tcp connection has happend */
@@ -837,8 +836,7 @@ try_next_result_closesock:
 	wsi->desc.sockfd = LWS_SOCK_INVALID;
 
 try_next_result:
-	lws_sul_schedule(wsi->context, 0, &wsi->sul_connect_timeout,
-			 NULL, LWS_SET_TIMER_USEC_CANCEL);
+	lws_sul_cancel(&wsi->sul_connect_timeout);
 	if (wsi->dns_results_next) {
 		wsi->dns_results_next = wsi->dns_results_next->ai_next;
 		if (wsi->dns_results_next)

@@ -157,7 +157,8 @@ lws_glib_hrtimer_cb(void *p)
 	lws_usec_t us;
 
 	lws_pt_lock(pt, __func__);
-	us = __lws_sul_service_ripe(&pt->pt_sul_owner, lws_now_usecs());
+	us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
+				    lws_now_usecs());
 	if (us) {
 		ms = us / LWS_US_PER_MS;
 		if (!ms)

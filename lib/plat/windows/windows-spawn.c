@@ -125,14 +125,9 @@ lws_spawn_piped_destroy(struct lws_spawn_piped **_lsp)
 
 	lws_dll2_remove(&lsp->dll);
 
-	lws_sul_schedule(lsp->info.vh->context, lsp->info.tsi, &lsp->sul,
-			 NULL, LWS_SET_TIMER_USEC_CANCEL);
-
-	lws_sul_schedule(lsp->context, 0, &lsp->sul_reap, NULL,
-			 LWS_SET_TIMER_USEC_CANCEL);
-
-	lws_sul_schedule(lsp->context, 0, &lsp->sul_poll, NULL,
-			 LWS_SET_TIMER_USEC_CANCEL);
+	lws_sul_cancel(&lsp->sul);
+	lws_sul_cancel(&lsp->sul_reap);
+	lws_sul_cancel(&lsp->sul_poll);
 
 	lwsl_warn("%s: deleting lsp\n", __func__);
 
@@ -192,8 +187,7 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 
 	/* we reached the reap point, no need for timeout wait */
 
-	lws_sul_schedule(lsp->info.vh->context, lsp->info.tsi, &lsp->sul, NULL,
-			 LWS_SET_TIMER_USEC_CANCEL);
+	lws_sul_cancel(&lsp->sul);
 
 	/*
 	 * All the stdwsi went down, nothing more is coming... it's over
@@ -517,8 +511,7 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 
 bail3:
 
-	lws_sul_schedule(context, 0, &lsp->sul_poll, NULL,
-			 LWS_SET_TIMER_USEC_CANCEL);
+	lws_sul_cancel(&lsp->sul_poll);
 
 	while (--n >= 0)
 		__remove_wsi_socket_from_fds(lsp->stdwsi[n]);

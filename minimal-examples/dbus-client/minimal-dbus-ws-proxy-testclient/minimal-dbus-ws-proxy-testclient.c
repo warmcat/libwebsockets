@@ -43,6 +43,8 @@ enum lws_dbus_client_state {
 struct lws_dbus_ctx_wsproxy_client {
 	struct lws_dbus_ctx ctx;
 
+	lws_sorted_usec_list_t sul;
+
 	enum lws_dbus_client_state state;
 };
 
@@ -309,83 +311,56 @@ bail:
 	return ret;
 }
 
-/*
- * Stub lws protocol, just so we can get synchronous timers conveniently.
- *
- * Set up a 1Hz timer and if our connection state is suitable, use that
- * to write mirror protocol drawing packets to the proxied ws connection
- */
-
-static int
-callback_just_timer(struct lws *wsi, enum lws_callback_reasons reason,
-		    void *user, void *in, size_t len)
+static void
+sul_timer(struct lws_sorted_usec_list *sul)
 {
 	char payload[64];
 	const char *ws_pkt = payload;
 	DBusMessage *msg;
 
-	switch (reason) {
-	case LWS_CALLBACK_PROTOCOL_INIT:
-	case LWS_CALLBACK_USER:
-		lwsl_info("%s: LWS_CALLBACK_USER\n", __func__);
+	if (!dbus_ctx || dbus_ctx->state != LDCS_CONN_ONWARD)
+		goto again;
 
-		if (!dbus_ctx || dbus_ctx->state != LDCS_CONN_ONWARD)
-			goto again;
-
-		if (autoexit_budget > 0) {
-			if (!--autoexit_budget) {
-				lwsl_notice("reached autoexit budget\n");
-				interrupted = 1;
-				break;
-			}
+	if (autoexit_budget > 0) {
+		if (!--autoexit_budget) {
+			lwsl_notice("reached autoexit budget\n");
+			interrupted = 1;
+			return;
 		}
-
-		msg = dbus_message_new_method_call(THIS_BUSNAME, THIS_OBJECT,
-						   THIS_INTERFACE, "Send");
-		if (!msg)
-			break;
-
-		lws_snprintf(payload, sizeof(payload), "d #%06X %d %d %d %d;",
-			     rand() & 0xffffff, rand() % 480, rand() % 300,
-			     rand() % 480, rand() % 300);
-
-		if (!dbus_message_append_args(msg, DBUS_TYPE_STRING, &ws_pkt,
-						   DBUS_TYPE_INVALID)) {
-			dbus_message_unref(msg);
-			break;
-		}
-
-		if (!dbus_connection_send_with_reply(dbus_ctx->ctx.conn, msg,
-						     &dbus_ctx->ctx.pc,
-						    DBUS_TIMEOUT_USE_DEFAULT)) {
-			lwsl_err("%s: unable to send\n", __func__);
-			dbus_message_unref(msg);
-			break;
-		}
-
-		dbus_message_unref(msg);
-		dbus_pending_call_set_notify(dbus_ctx->ctx.pc,
-					     pending_call_notify,
-					     &dbus_ctx->ctx, NULL);
-		count_tx++;
-
-again:
-		lws_timed_callback_vh_protocol(lws_get_vhost(wsi),
-					       lws_get_protocol(wsi),
-					       LWS_CALLBACK_USER, 2);
-		break;
-	default:
-		break;
 	}
 
-	return 0;
+	msg = dbus_message_new_method_call(THIS_BUSNAME, THIS_OBJECT,
+					   THIS_INTERFACE, "Send");
+	if (!msg)
+		goto again;
+
+	lws_snprintf(payload, sizeof(payload), "d #%06X %d %d %d %d;",
+		     rand() & 0xffffff, rand() % 480, rand() % 300,
+		     rand() % 480, rand() % 300);
+
+	if (!dbus_message_append_args(msg, DBUS_TYPE_STRING, &ws_pkt,
+					   DBUS_TYPE_INVALID)) {
+		dbus_message_unref(msg);
+		goto again;
+	}
+
+	if (!dbus_connection_send_with_reply(dbus_ctx->ctx.conn, msg,
+					     &dbus_ctx->ctx.pc,
+					    DBUS_TIMEOUT_USE_DEFAULT)) {
+		lwsl_err("%s: unable to send\n", __func__);
+		dbus_message_unref(msg);
+		goto again;
+	}
+
+	dbus_message_unref(msg);
+	dbus_pending_call_set_notify(dbus_ctx->ctx.pc,
+				     pending_call_notify,
+				     &dbus_ctx->ctx, NULL);
+	count_tx++;
+
+again:
+	lws_sul_schedule(context, 0, &dbus_ctx->sul, sul_timer, 2 * LWS_US_PER_SEC);
 }
-
-static struct lws_protocols protocols[] = {
-		{ "_just_timer", callback_just_timer, 0, 10, 0, NULL, 0 },
-		{ }
-};
-
 
 int main(int argc, const char **argv)
 {
@@ -413,7 +388,6 @@ int main(int argc, const char **argv)
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
-	info.protocols = protocols;
 	context = lws_create_context(&info);
 	if (!context) {
 		lwsl_err("lws init failed\n");
@@ -430,6 +404,9 @@ int main(int argc, const char **argv)
 	dbus_ctx = create_dbus_client_conn(vh, 0, THIS_LISTEN_PATH);
 	if (!dbus_ctx)
 		goto bail1;
+
+	lws_sul_schedule(context, 0, &dbus_ctx->sul, sul_timer, LWS_US_PER_SEC);
+
 
 	if (remote_method_call(dbus_ctx))
 		goto bail2;

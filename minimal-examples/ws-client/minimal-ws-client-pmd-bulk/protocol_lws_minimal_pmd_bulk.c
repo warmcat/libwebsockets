@@ -65,6 +65,8 @@ struct vhd_minimal_pmd_bulk {
 	struct lws_vhost *vhost;
 	struct lws *client_wsi;
 
+	lws_sorted_usec_list_t sul;
+
 	int *interrupted;
 	int *options;
 };
@@ -78,9 +80,11 @@ static uint64_t rng(uint64_t *r)
         return *r;
 }
 
-static int
-connect_client(struct vhd_minimal_pmd_bulk *vhd)
+static void
+sul_connect_attempt(struct lws_sorted_usec_list *sul)
 {
+	struct vhd_minimal_pmd_bulk *vhd =
+		lws_container_of(sul, struct vhd_minimal_pmd_bulk, sul);
 	struct lws_client_connect_info i;
 
 	memset(&i, 0, sizeof(i));
@@ -96,14 +100,9 @@ connect_client(struct vhd_minimal_pmd_bulk *vhd)
 	i.protocol = "lws-minimal-pmd-bulk";
 	i.pwsi = &vhd->client_wsi;
 
-	return !lws_client_connect_via_info(&i);
-}
-
-static void
-schedule_callback(struct lws *wsi, int reason, int secs)
-{
-	lws_timed_callback_vh_protocol(lws_get_vhost(wsi),
-		lws_get_protocol(wsi), reason, secs);
+	if (!lws_client_connect_via_info(&i))
+		lws_sul_schedule(vhd->context, 0, &vhd->sul,
+				 sul_connect_attempt, 10 * LWS_US_PER_SEC);
 }
 
 static int
@@ -138,8 +137,11 @@ callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
 			(const struct lws_protocol_vhost_options *)in,
 			"options")->value;
 
-		if (connect_client(vhd))
-			schedule_callback(wsi, LWS_CALLBACK_USER, 1);
+		sul_connect_attempt(&vhd->sul);
+		break;
+
+	case LWS_CALLBACK_PROTOCOL_DESTROY:
+		lws_sul_cancel(&vhd->sul);
 		break;
 
 	case LWS_CALLBACK_CLIENT_ESTABLISHED:
@@ -253,20 +255,14 @@ callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_err("CLIENT_CONNECTION_ERROR: %s\n",
 			 in ? (char *)in : "(null)");
 		vhd->client_wsi = NULL;
-		schedule_callback(wsi, LWS_CALLBACK_USER, 1);
+		lws_sul_schedule(vhd->context, 0, &vhd->sul,
+				 sul_connect_attempt, LWS_US_PER_SEC);
 		break;
 
 	case LWS_CALLBACK_CLIENT_CLOSED:
 		vhd->client_wsi = NULL;
-		schedule_callback(wsi, LWS_CALLBACK_USER, 1);
-		break;
-
-	/* rate-limited client connect retries */
-
-	case LWS_CALLBACK_USER:
-		lwsl_notice("%s: LWS_CALLBACK_USER\n", __func__);
-		if (connect_client(vhd))
-			schedule_callback(wsi, LWS_CALLBACK_USER, 1);
+		lws_sul_schedule(vhd->context, 0, &vhd->sul,
+				 sul_connect_attempt, LWS_US_PER_SEC);
 		break;
 
 	default:

@@ -362,8 +362,7 @@ lws_process_ws_upgrade2(struct lws *wsi)
 			 * validity checking
 			 */
 
-			__lws_sul_insert(&pt->pt_sul_owner, &wsi->sul_validity,
-					 LWS_SET_TIMER_USEC_CANCEL);
+			lws_sul_cancel(&wsi->sul_validity);
 		} else
 #endif
 		{

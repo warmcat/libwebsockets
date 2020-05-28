@@ -335,7 +335,7 @@ int main(int argc, char **argv)
 	}
 
 	/* cancel the per-minute sul */
-	lws_sul_schedule(context, 0, &sul_lwsws, NULL, LWS_SET_TIMER_USEC_CANCEL);
+	lws_sul_cancel(&sul_lwsws);
 
 	lws_context_destroy(context);
 	(void)budget;

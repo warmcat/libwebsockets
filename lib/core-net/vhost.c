@@ -1098,13 +1098,14 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 	} lws_end_foreach_dll_safe(d, d1);
 #endif
 
+#if defined(LWS_WITH_DEPRECATED_THINGS)
 	/*
 	 * destroy any pending timed events
 	 */
 
 	while (vh->timed_vh_protocol_list)
 		__lws_timed_callback_remove(vh, vh->timed_vh_protocol_list);
-
+#endif
 	/*
 	 * let the protocols destroy the per-vhost protocol objects
 	 */

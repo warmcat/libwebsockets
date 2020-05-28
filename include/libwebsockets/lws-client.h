@@ -58,7 +58,9 @@ enum lws_client_connect_ssl_connection_flags {
 		 * HTTP/2:   always possible... uses parallel streams
 		 */
 	LCCSCF_MUXABLE_STREAM			= (1 << 17),
-	LCCSCF_H2_PRIOR_KNOWLEDGE		= (1 << 18)
+	LCCSCF_H2_PRIOR_KNOWLEDGE		= (1 << 18),
+	LCCSCF_WAKE_SUSPEND__VALIDITY		= (1 << 19),
+	/* our validity checks are important enough to wake from suspend */
 };
 
 /** struct lws_client_connect_info - parameters to connect with when using

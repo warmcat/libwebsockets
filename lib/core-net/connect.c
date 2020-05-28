@@ -77,6 +77,9 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 		wsi->detlat.earliest_write_req_pre_write = lws_now_usecs();
 #endif
 
+	if (i->ssl_connection & LCCSCF_WAKE_SUSPEND__VALIDITY)
+		wsi->conn_validity_wakesuspend = 1;
+
 	wsi->vhost = NULL;
 	if (!i->vhost) {
 		struct lws_vhost *v = i->context->vhost_list;

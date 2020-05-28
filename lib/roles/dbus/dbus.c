@@ -491,7 +491,7 @@ lws_dbus_sul_cb(lws_sorted_usec_list_t *sul)
 		}
 	} lws_end_foreach_dll_safe(rdt, nx);
 
-	__lws_sul_insert(&pt->pt_sul_owner, &pt->dbus.sul,
+	lws_sul_schedule(pt->context, pt->tid, &pt->dbus.sul, lws_dbus_sul_cb,
 			 3 * LWS_US_PER_SEC);
 }
 
@@ -501,13 +501,10 @@ rops_pt_init_destroy_dbus(struct lws_context *context,
 		    struct lws_context_per_thread *pt, int destroy)
 {
 	if (!destroy) {
-
-		pt->dbus.sul.cb = lws_dbus_sul_cb;
-
-		__lws_sul_insert(&pt->pt_sul_owner, &pt->dbus.sul,
+		lws_sul_schedule(context, pt->tid, &pt->dbus.sul, lws_dbus_sul_cb,
 				 3 * LWS_US_PER_SEC);
 	} else
-		lws_dll2_remove(&pt->dbus.sul.list);
+		lws_sul_cancel(&pt->dbus.sul);
 
 	return 0;
 }

@@ -47,6 +47,7 @@ struct vhd {
 	struct lws_context *context;
 	struct lws_vhost *vhost;
 	const struct lws_protocols *protocol;
+	lws_sorted_usec_list_t sul;
 	int hide_vhosts;
 	int tow_flag;
 	int period_s;
@@ -58,8 +59,9 @@ struct vhd {
 static const struct lws_protocols protocols[1];
 
 static void
-update(struct vhd *v)
+update(struct lws_sorted_usec_list *sul)
 {
+	struct vhd *v = lws_container_of(sul, struct vhd, sul);
 	struct lws_ss_filepath *fp;
 	char contents[256], pure[256], *p = v->d.buf + LWS_PRE,
 	     *end = v->d.buf + sizeof(v->d.buf) - LWS_PRE - 1;
@@ -97,6 +99,8 @@ update(struct vhd *v)
 	v->d.length = p - (v->d.buf + LWS_PRE);
 
 	lws_callback_on_writable_all_protocol(v->context, &protocols[0]);
+
+	lws_sul_schedule(v->context, 0, &v->sul, update, v->period_s * LWS_US_PER_SEC);
 }
 
 static int
@@ -116,25 +120,15 @@ callback_lws_server_status(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_ESTABLISHED:
 		lwsl_info("%s: LWS_CALLBACK_ESTABLISHED\n", __func__);
 		if (!v->clients++) {
-			lws_timed_callback_vh_protocol(v->vhost, v->protocol,
-						       LWS_CALLBACK_USER, v->period_s);
+			lws_sul_schedule(lws_get_context(wsi), 0, &v->sul, update, 1);
 			lwsl_info("%s: starting updates\n", __func__);
 		}
-		update(v);
-
 		break;
 
 	case LWS_CALLBACK_CLOSED:
 		if (!--v->clients)
 			lwsl_notice("%s: stopping updates\n", __func__);
 
-		break;
-
-	case LWS_CALLBACK_USER:
-		update(v);
-		if (v->clients)
-			lws_timed_callback_vh_protocol(v->vhost, v->protocol,
-						       LWS_CALLBACK_USER, v->period_s);
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_INIT: /* per vhost */
@@ -171,8 +165,7 @@ callback_lws_server_status(struct lws *wsi, enum lws_callback_reasons reason,
 		v->vhost = lws_get_vhost(wsi);
 		v->protocol = lws_get_protocol(wsi);
 
-		/* get the initial data */
-		update(v);
+		lws_sul_schedule(lws_get_context(wsi), 0, &v->sul, update, 1);
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY: /* per vhost */

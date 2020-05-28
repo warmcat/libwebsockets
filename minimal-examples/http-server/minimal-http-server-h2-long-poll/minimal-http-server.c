@@ -79,8 +79,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	case LWS_CALLBACK_CLOSED_HTTP:
 		if (!pss)
 			break;
-		lws_sul_schedule(lws_get_context(wsi), 0, &pss->sul, sul_cb,
-				 LWS_SET_TIMER_USEC_CANCEL);
+		lws_sul_cancel(&pss->sul);
 		break;
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:

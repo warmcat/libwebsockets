@@ -75,7 +75,8 @@ lws_sul_plat_unix(lws_sorted_usec_list_t *sul)
 	lws_context_unlock(context);
 #endif
 
-	__lws_sul_insert(&pt->pt_sul_owner, &pt->sul_plat, 30 * LWS_US_PER_SEC);
+	__lws_sul_insert_us(&pt->pt_sul_owner[LWSSULLI_MISS_IF_SUSPENDED],
+			    &pt->sul_plat, 30 * LWS_US_PER_SEC);
 }
 #endif
 
@@ -141,8 +142,8 @@ lws_plat_init(struct lws_context *context,
 	/* we only need to do this on pt[0] */
 
 	context->pt[0].sul_plat.cb = lws_sul_plat_unix;
-	__lws_sul_insert(&context->pt[0].pt_sul_owner, &context->pt[0].sul_plat,
-			 30 * LWS_US_PER_SEC);
+	__lws_sul_insert_us(&context->pt[0].pt_sul_owner[LWSSULLI_MISS_IF_SUSPENDED],
+			    &context->pt[0].sul_plat, 30 * LWS_US_PER_SEC);
 #endif
 
 	return 0;

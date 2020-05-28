@@ -53,7 +53,8 @@ typedef struct lws_sequencer {
 	lws_usec_t			time_created;
 	lws_usec_t			timeout; /* 0 or time we timeout */
 
-	char				going_down;
+	uint8_t				going_down:1;
+	uint8_t				wakesuspend:1;
 } lws_seq_t;
 
 #define QUEUE_SANITY_LIMIT 10
@@ -77,8 +78,8 @@ lws_sul_seq_heartbeat_cb(lws_sorted_usec_list_t *sul)
 
 	/* schedule the next one */
 
-	__lws_sul_insert(&pt->pt_sul_owner, &pt->sul_seq_heartbeat,
-			 LWS_US_PER_SEC);
+	__lws_sul_insert_us(&pt->pt_sul_owner[LWSSULLI_MISS_IF_SUSPENDED],
+			    &pt->sul_seq_heartbeat, LWS_US_PER_SEC);
 }
 
 int
@@ -87,8 +88,8 @@ lws_seq_pt_init(struct lws_context_per_thread *pt)
 	pt->sul_seq_heartbeat.cb = lws_sul_seq_heartbeat_cb;
 
 	/* schedule the first heartbeat */
-	__lws_sul_insert(&pt->pt_sul_owner, &pt->sul_seq_heartbeat,
-			 LWS_US_PER_SEC);
+	__lws_sul_insert_us(&pt->pt_sul_owner[LWSSULLI_MISS_IF_SUSPENDED],
+			    &pt->sul_seq_heartbeat, LWS_US_PER_SEC);
 
 	return 0;
 }
@@ -106,6 +107,7 @@ lws_seq_create(lws_seq_info_t *i)
 	seq->pt = pt;
 	seq->name = i->name;
 	seq->retry = i->retry;
+	seq->wakesuspend = i->wakesuspend;
 
 	*i->puser = (void *)&seq[1];
 
@@ -242,7 +244,8 @@ lws_seq_queue_event(lws_seq_t *seq, lws_seq_events_t e, void *data, void *aux)
 	lws_dll2_add_tail(&seqe->seq_event_list, &seq->seq_event_owner);
 
 	seq->sul_pending.cb = lws_seq_sul_pending_cb;
-	__lws_sul_insert(&seq->pt->pt_sul_owner, &seq->sul_pending, 1);
+	__lws_sul_insert_us(&seq->pt->pt_sul_owner[seq->wakesuspend],
+			    &seq->sul_pending, 1);
 
 	lws_pt_unlock(seq->pt); /* } pt ------------------------------------- */
 
@@ -300,8 +303,10 @@ lws_seq_timeout_us(lws_seq_t *seq, lws_usec_t us)
 {
 	seq->sul_timeout.cb = lws_seq_sul_timeout_cb;
 	/* list is always at the very top of the sul */
-	return __lws_sul_insert(&seq->pt->pt_sul_owner,
+	__lws_sul_insert_us(&seq->pt->pt_sul_owner[seq->wakesuspend],
 			(lws_sorted_usec_list_t *)&seq->sul_timeout.list, us);
+
+	return 0;
 }
 
 lws_seq_t *

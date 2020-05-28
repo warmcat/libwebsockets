@@ -401,8 +401,7 @@ lws_sspc_destroy(lws_sspc_handle_t **ph)
 
 	h->destroying = 1;
 
-	lws_sul_schedule(h->context, 0, &h->sul_retry, NULL,
-			 LWS_SET_TIMER_USEC_CANCEL);
+	lws_sul_cancel(&h->sul_retry);
 	lws_dll2_remove(&h->client_list);
 
 	if (h->dsh)

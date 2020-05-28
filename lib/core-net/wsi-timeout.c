@@ -61,7 +61,8 @@ __lws_set_timer_usecs(struct lws *wsi, lws_usec_t us)
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 
 	wsi->sul_hrtimer.cb = lws_sul_hrtimer_cb;
-	__lws_sul_insert(&pt->pt_sul_owner, &wsi->sul_hrtimer, us);
+	__lws_sul_insert_us(&pt->pt_sul_owner[LWSSULLI_MISS_IF_SUSPENDED],
+			    &wsi->sul_hrtimer, us);
 }
 
 void
@@ -126,8 +127,9 @@ __lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
 
 	wsi->sul_timeout.cb = lws_sul_wsitimeout_cb;
-	__lws_sul_insert(&pt->pt_sul_owner, &wsi->sul_timeout,
-			 ((lws_usec_t)secs) * LWS_US_PER_SEC);
+	__lws_sul_insert_us(&pt->pt_sul_owner[LWSSULLI_MISS_IF_SUSPENDED],
+			    &wsi->sul_timeout,
+			    ((lws_usec_t)secs) * LWS_US_PER_SEC);
 
 	lwsl_debug("%s: %p: %d secs, reason %d\n", __func__, wsi, secs, reason);
 
@@ -178,7 +180,8 @@ lws_set_timeout_us(struct lws *wsi, enum pending_timeout reason, lws_usec_t us)
 		return;
 
 	lws_pt_lock(pt, __func__);
-	__lws_sul_insert(&pt->pt_sul_owner, &wsi->sul_timeout, us);
+	__lws_sul_insert_us(&pt->pt_sul_owner[LWSSULLI_MISS_IF_SUSPENDED],
+			    &wsi->sul_timeout, us);
 
 	lwsl_notice("%s: %p: %llu us, reason %d\n", __func__, wsi,
 		   (unsigned long long)us, reason);
@@ -186,6 +189,8 @@ lws_set_timeout_us(struct lws *wsi, enum pending_timeout reason, lws_usec_t us)
 	wsi->pending_timeout = reason;
 	lws_pt_unlock(pt);
 }
+
+#if defined(LWS_WITH_DEPRECATED_THINGS)
 
 /* requires context + vh lock */
 
@@ -276,6 +281,8 @@ lws_timed_callback_vh_protocol(struct lws_vhost *vh,
 					((lws_usec_t)secs) * LWS_US_PER_SEC);
 }
 
+#endif
+
 static void
 lws_validity_cb(lws_sorted_usec_list_t *sul)
 {
@@ -308,8 +315,9 @@ lws_validity_cb(lws_sorted_usec_list_t *sul)
 	assert(rbo->secs_since_valid_hangup > rbo->secs_since_valid_ping);
 
 	wsi->validity_hup = 1;
-	__lws_sul_insert(&pt->pt_sul_owner, &wsi->sul_validity,
-			 ((uint64_t)rbo->secs_since_valid_hangup -
+	__lws_sul_insert_us(&pt->pt_sul_owner[!!wsi->conn_validity_wakesuspend],
+			    &wsi->sul_validity,
+			    ((uint64_t)rbo->secs_since_valid_hangup -
 				 rbo->secs_since_valid_ping) * LWS_US_PER_SEC);
 }
 
@@ -339,8 +347,9 @@ _lws_validity_confirmed_role(struct lws *wsi)
 					    rbo->secs_since_valid_ping,
 			wsi->validity_hup);
 
-	__lws_sul_insert(&pt->pt_sul_owner, &wsi->sul_validity,
-			 ((uint64_t)(wsi->validity_hup ?
+	__lws_sul_insert_us(&pt->pt_sul_owner[!!wsi->conn_validity_wakesuspend],
+			    &wsi->sul_validity,
+			    ((uint64_t)(wsi->validity_hup ?
 				rbo->secs_since_valid_hangup :
 				rbo->secs_since_valid_ping)) * LWS_US_PER_SEC);
 }

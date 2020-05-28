@@ -92,8 +92,8 @@ lws_cgi_sul_cb(lws_sorted_usec_list_t *sul)
 
 	lws_cgi_kill_terminated(pt);
 
-	__lws_sul_insert_us(&pt->pt_sul_owner, &pt->sul_cgi,
-			    3 * LWS_US_PER_SEC);
+	__lws_sul_insert_us(&pt->pt_sul_owner[LWSSULLI_MISS_IF_SUSPENDED],
+			    &pt->sul_cgi, 3 * LWS_US_PER_SEC);
 }
 
 static int
@@ -105,8 +105,8 @@ rops_pt_init_destroy_cgi(struct lws_context *context,
 
 		pt->sul_cgi.cb = lws_cgi_sul_cb;
 
-		__lws_sul_insert(&pt->pt_sul_owner, &pt->sul_cgi,
-				 3 * LWS_US_PER_SEC);
+		__lws_sul_insert_us(&pt->pt_sul_owner[LWSSULLI_MISS_IF_SUSPENDED],
+				    &pt->sul_cgi, 3 * LWS_US_PER_SEC);
 	} else
 		lws_dll2_remove(&pt->sul_cgi.list);
 

@@ -43,6 +43,8 @@ struct vhd_minimal_client_echo {
 	struct lws_vhost *vhost;
 	struct lws *client_wsi;
 
+	lws_sorted_usec_list_t sul;
+
 	int *interrupted;
 	int *options;
 	const char **url;
@@ -51,9 +53,11 @@ struct vhd_minimal_client_echo {
 	int *port;
 };
 
-static int
-connect_client(struct vhd_minimal_client_echo *vhd)
+static void
+sul_connect_attempt(struct lws_sorted_usec_list *sul)
 {
+	struct vhd_minimal_client_echo *vhd =
+		lws_container_of(sul, struct vhd_minimal_client_echo, sul);
 	struct lws_client_connect_info i;
 	char host[128];
 
@@ -77,7 +81,9 @@ connect_client(struct vhd_minimal_client_echo *vhd)
 
 	lwsl_user("connecting to %s:%d/%s\n", i.address, i.port, i.path);
 
-	return !lws_client_connect_via_info(&i);
+	if (!lws_client_connect_via_info(&i))
+		lws_sul_schedule(vhd->context, 0, &vhd->sul,
+				 sul_connect_attempt, 10 * LWS_US_PER_SEC);
 }
 
 static void
@@ -88,13 +94,6 @@ __minimal_destroy_message(void *_msg)
 	free(msg->payload);
 	msg->payload = NULL;
 	msg->len = 0;
-}
-
-static void
-schedule_callback(struct lws *wsi, int reason, int secs)
-{
-	lws_timed_callback_vh_protocol(lws_get_vhost(wsi),
-		lws_get_protocol(wsi), reason, secs);
 }
 
 static int
@@ -142,8 +141,11 @@ callback_minimal_client_echo(struct lws *wsi, enum lws_callback_reasons reason,
 			(const struct lws_protocol_vhost_options *)in,
 			"iface")->value;
 
-		if (connect_client(vhd))
-			schedule_callback(wsi, LWS_CALLBACK_USER, 1);
+		sul_connect_attempt(&vhd->sul);
+		break;
+
+	case LWS_CALLBACK_PROTOCOL_DESTROY:
+		lws_sul_cancel(&vhd->sul);
 		break;
 
 	case LWS_CALLBACK_CLIENT_ESTABLISHED:
@@ -250,32 +252,18 @@ callback_minimal_client_echo(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_err("CLIENT_CONNECTION_ERROR: %s\n",
 			 in ? (char *)in : "(null)");
 		vhd->client_wsi = NULL;
-		//schedule_callback(wsi, LWS_CALLBACK_USER, 1);
-		//if (*vhd->options & 1) {
-			if (!*vhd->interrupted)
-				*vhd->interrupted = 3;
-			lws_cancel_service(lws_get_context(wsi));
-		//}
+		if (!*vhd->interrupted)
+			*vhd->interrupted = 3;
+		lws_cancel_service(lws_get_context(wsi));
 		break;
 
 	case LWS_CALLBACK_CLIENT_CLOSED:
 		lwsl_user("LWS_CALLBACK_CLIENT_CLOSED\n");
 		lws_ring_destroy(pss->ring);
 		vhd->client_wsi = NULL;
-		// schedule_callback(wsi, LWS_CALLBACK_USER, 1);
-		//if (*vhd->options & 1) {
-			if (!*vhd->interrupted)
-				*vhd->interrupted = 1 + pss->completed;
-			lws_cancel_service(lws_get_context(wsi));
-	//	}
-		break;
-
-	/* rate-limited client connect retries */
-
-	case LWS_CALLBACK_USER:
-		lwsl_notice("%s: LWS_CALLBACK_USER\n", __func__);
-		if (connect_client(vhd))
-			schedule_callback(wsi, LWS_CALLBACK_USER, 1);
+		if (!*vhd->interrupted)
+			*vhd->interrupted = 1 + pss->completed;
+		lws_cancel_service(lws_get_context(wsi));
 		break;
 
 	default:

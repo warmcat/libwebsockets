@@ -150,7 +150,9 @@ lws_ss_set_timeout_us(lws_ss_handle_t *h, lws_usec_t us)
 	struct lws_context_per_thread *pt = &h->context->pt[h->tsi];
 
 	h->sul.cb = lws_ss_timeout_sul_check_cb;
-	__lws_sul_insert(&pt->pt_sul_owner, &h->sul, us);
+	__lws_sul_insert_us(&pt->pt_sul_owner[
+	            !!(h->policy->flags & LWSSSPOLF_WAKE_SUSPEND__VALIDITY)],
+		    &h->sul, us);
 
 	return 0;
 }
@@ -272,6 +274,9 @@ lws_ss_client_connect(lws_ss_handle_t *h)
 			}
 		}
 	}
+
+	if (h->policy->flags & LWSSSPOLF_WAKE_SUSPEND__VALIDITY)
+		i.ssl_connection |= LCCSCF_WAKE_SUSPEND__VALIDITY;
 
 	i.address		= ads;
 	i.port			= port;
@@ -525,7 +530,7 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 		pmd = pmd->next;
 	}
 
-	lws_sul_schedule(h->context, 0, &h->sul, NULL, LWS_SET_TIMER_USEC_CANCEL);
+	lws_sul_cancel(&h->sul);
 
 	lws_free_set_NULL(h);
 }

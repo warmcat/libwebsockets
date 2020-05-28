@@ -67,7 +67,7 @@ secstream_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		h->retry = 0;
 		h->seqstate = SSSEQ_CONNECTED;
-		lws_ss_set_timeout_us(h, LWS_SET_TIMER_USEC_CANCEL);
+		lws_sul_cancel(&h->sul);
 		lws_ss_event_helper(h, LWSSSCS_CONNECTED);
 
 		lws_validity_confirmed(wsi);

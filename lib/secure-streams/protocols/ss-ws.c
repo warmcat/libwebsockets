@@ -67,8 +67,9 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	case LWS_CALLBACK_CLIENT_ESTABLISHED:
 		h->retry = 0;
 		h->seqstate = SSSEQ_CONNECTED;
-		lws_ss_set_timeout_us(h, LWS_SET_TIMER_USEC_CANCEL);
-		lws_ss_event_helper(h, LWSSSCS_CONNECTED);
+		lws_sul_cancel(&h->sul);
+		if (lws_ss_event_helper(h, LWSSSCS_CONNECTED))
+			return -1;
 		break;
 
 	case LWS_CALLBACK_CLIENT_RECEIVE:

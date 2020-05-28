@@ -116,6 +116,10 @@ enum {
 	/**< set up lws_system client cert */
 	LWSSSPOLF_LOCAL_SINK					= (1 << 13),
 	/**< expected to bind to a local sink only */
+	LWSSSPOLF_WAKE_SUSPEND__VALIDITY			= (1 << 14),
+	/**< this stream's idle validity checks are critical enough we
+	 * should arrange to wake from suspend to perform them
+	 */
 };
 
 typedef struct lws_ss_trust_store {

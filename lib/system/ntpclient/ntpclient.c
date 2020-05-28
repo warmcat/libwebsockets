@@ -195,8 +195,7 @@ do_close:
 		v->wsi_udp = NULL;
 
 		/* cancel any pending write retry */
-		lws_sul_schedule(v->context, 0, &v->sul_write, NULL,
-				 LWS_SET_TIMER_USEC_CANCEL);
+		lws_sul_cancel(&v->sul_write);
 
 		if (v->set_time)
 			goto cancel_conn_timer;
@@ -280,8 +279,7 @@ retry_conn:
 
 
 cancel_conn_timer:
-	lws_sul_schedule(v->context, 0, &v->sul_conn, NULL,
-			 LWS_SET_TIMER_USEC_CANCEL);
+	lws_sul_cancel(&v->sul_conn);
 
 	return 0;
 }

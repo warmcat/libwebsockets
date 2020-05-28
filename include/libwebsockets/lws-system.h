@@ -169,6 +169,10 @@ typedef struct lws_system_ops {
 	 * Start the check that proceeds asynchronously, and report the results
 	 * by calling lws_captive_portal_detect_result() api
 	 */
+
+	uint32_t	wake_latency_us;
+	/**< time taken for this device to wake from suspend, in us
+	 */
 } lws_system_ops_t;
 
 /**

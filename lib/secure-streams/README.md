@@ -203,6 +203,14 @@ connection for retry + backoff
 The name of the trust store described in the `trust_stores` section to apply
 to validate the remote server cert.
 
+### `swake_validity`
+
+Set to `true` if this streamtype is important enough for the functioning of the
+device that its locally-initiated periodic connection validity checks of the
+interval described in the associated retry / backoff selection, are important
+enough to wake the whole system from low power suspend so they happen on
+schedule.
+
 ## http transport
 
 ### `http_method`

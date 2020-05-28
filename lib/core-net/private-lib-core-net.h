@@ -77,6 +77,10 @@ enum lws_ssl_capable_status {
 	LWS_SSL_CAPABLE_MORE_SERVICE		= -4, /* general retry */
 };
 
+#define __lws_sul_insert_us(owner, sul, _us) \
+		(sul)->us = lws_now_usecs() + _us; \
+		__lws_sul_insert(owner, sul)
+
 
 /*
  *
@@ -267,12 +271,11 @@ struct client_info_stash {
 
 #define LWS_H2_FRAME_HEADER_LENGTH 9
 
-int
-__lws_sul_insert(lws_dll2_owner_t *own, lws_sorted_usec_list_t *sul,
-		 lws_usec_t us);
 
 lws_usec_t
-__lws_sul_service_ripe(lws_dll2_owner_t *own, lws_usec_t usnow);
+__lws_sul_service_ripe(lws_dll2_owner_t *own, int num_own, lws_usec_t usnow);
+
+#if defined(LWS_WITH_DEPRECATED_THINGS)
 
 struct lws_timed_vh_protocol {
 	struct lws_timed_vh_protocol	*next;
@@ -282,6 +285,8 @@ struct lws_timed_vh_protocol {
 	int				reason;
 	int				tsi_req;
 };
+
+#endif
 
 /*
  * lws_dsh
@@ -367,7 +372,7 @@ struct lws_context_per_thread {
 	lws_dll2_owner_t ss_client_owner;
 #endif
 
-	struct lws_dll2_owner pt_sul_owner;
+	struct lws_dll2_owner pt_sul_owner[LWS_COUNT_PT_SUL_OWNERS];
 
 #if defined (LWS_WITH_SEQUENCER)
 	lws_sorted_usec_list_t sul_seq_heartbeat;
@@ -572,7 +577,9 @@ struct lws_vhost {
 	struct lws_vhost_tls tls;
 #endif
 
+#if defined(LWS_WITH_DEPRECATED_THINGS)
 	struct lws_timed_vh_protocol *timed_vh_protocol_list;
+#endif
 	void *user;
 
 	int listen_port;
@@ -800,6 +807,7 @@ struct lws {
 	unsigned int			validity_hup:1;
 	unsigned int			skip_fallback:1;
 	unsigned int			file_desc:1;
+	unsigned int			conn_validity_wakesuspend:1;
 
 	unsigned int			could_have_pending:1; /* detect back-to-back writes */
 	unsigned int			outer_will_close:1;
@@ -1160,8 +1168,10 @@ void
 lws_sum_stats(const struct lws_context *ctx, struct lws_conn_stats *cs);
 #endif
 
+#if defined(LWS_WITH_DEPRECATED_THINGS)
 int
 __lws_timed_callback_remove(struct lws_vhost *vh, struct lws_timed_vh_protocol *p);
+#endif
 
 int LWS_WARN_UNUSED_RESULT
 __insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi);

@@ -234,8 +234,7 @@ drain_end_cb(void *v)
 				/*
 				 * Put a hold on bringing in any more data
 				 */
-				lws_sul_schedule(context, 0, &m->sul, NULL,
-						 LWS_SET_TIMER_USEC_CANCEL);
+				lws_sul_cancel(&m->sul);
 #endif
 				/* destroy our copy of the handle */
 				m->mh = NULL;
@@ -391,8 +390,7 @@ ss_avs_metadata_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 			/*
 			 * Put a hold on bringing in any more data
 			 */
-			lws_sul_schedule(context, 0, &m->sul, NULL,
-					 LWS_SET_TIMER_USEC_CANCEL);
+			lws_sul_cancel(&m->sul);
 #endif
 			/* destroy our copy of the handle */
 			m->mh = NULL;
@@ -549,8 +547,7 @@ ss_avs_metadata_state(void *userobj, void *sh,
 		lws_ss_request_tx(m->ss);
 		break;
 	case LWSSSCS_DISCONNECTED:
-		lws_sul_schedule(context, 0, &m->sul, NULL,
-				 LWS_SET_TIMER_USEC_CANCEL);
+		lws_sul_cancel(&m->sul);
 		//if (m->mh) {
 			play_mp3(NULL, NULL, NULL);
 			m->mh = NULL;

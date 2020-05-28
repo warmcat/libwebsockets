@@ -334,8 +334,7 @@ callback_dhcpc(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (!r)
 			break;
 		r->wsi_raw = NULL;
-		lws_sul_schedule(r->context, 0, &r->sul_write, NULL,
-				 LWS_SET_TIMER_USEC_CANCEL);
+		lws_sul_cancel(&r->sul_write);
 		if (r->state != LDHC_BOUND) {
 			r->state = LDHC_INIT;
 			lws_retry_sul_schedule(r->context, 0, &r->sul_conn, &bo2,
@@ -553,10 +552,8 @@ broken:
 
 			/* clear timeouts related to the broadcast socket */
 
-			lws_sul_schedule(r->context, 0, &r->sul_write, NULL,
-					 LWS_SET_TIMER_USEC_CANCEL);
-			lws_sul_schedule(r->context, 0, &r->sul_conn, NULL,
-					 LWS_SET_TIMER_USEC_CANCEL);
+			lws_sul_cancel(&r->sul_write);
+			lws_sul_cancel(&r->sul_conn);
 
 			lwsl_notice("%s: DHCP configured %s\n", __func__,
 					(const char *)&r[1]);
@@ -650,8 +647,7 @@ retry_conn:
 
 #if 0
 cancel_conn_timer:
-	lws_sul_schedule(r->context, 0, &r->sul_conn, NULL,
-			 LWS_SET_TIMER_USEC_CANCEL);
+	lws_sul_cancel(&r->sul_conn);
 
 	return 0;
 #endif
@@ -665,10 +661,8 @@ lws_dhcpc_destroy(lws_dhcpc_req_t **pr)
 {
 	lws_dhcpc_req_t *r = *pr;
 
-	lws_sul_schedule(r->context, 0, &r->sul_conn, NULL,
-			 LWS_SET_TIMER_USEC_CANCEL);
-	lws_sul_schedule(r->context, 0, &r->sul_write, NULL,
-			 LWS_SET_TIMER_USEC_CANCEL);
+	lws_sul_cancel(&r->sul_conn);
+	lws_sul_cancel(&r->sul_write);
 	if (r->wsi_raw)
 		lws_set_timeout(r->wsi_raw, 1, LWS_TO_KILL_ASYNC);
 

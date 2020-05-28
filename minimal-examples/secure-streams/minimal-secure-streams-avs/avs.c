@@ -223,7 +223,7 @@ ss_avs_metadata_state(void *userobj, void *sh,
 {
 
 	ss_avs_metadata_t *m = (ss_avs_metadata_t *)userobj;
-	struct lws_context *context = (struct lws_context *)m->opaque_data;
+	// struct lws_context *context = (struct lws_context *)m->opaque_data;
 
 	lwsl_user("%s: %s, ord 0x%x\n", __func__, lws_ss_state_name(state),
 		  (unsigned int)ack);
@@ -243,13 +243,11 @@ ss_avs_metadata_state(void *userobj, void *sh,
 		/* for this demo app, we want to exit on fail to connect */
 	case LWSSSCS_DISCONNECTED:
 		/* for this demo app, we want to exit after complete flow */
-		lws_sul_schedule(context, 0, &m->sul, use_buffer_50ms,
-				 LWS_SET_TIMER_USEC_CANCEL);
+		lws_sul_cancel(&m->sul);
 		interrupted = 1;
 		break;
 	case LWSSSCS_DESTROYING:
-		lws_sul_schedule(context, 0, &m->sul, use_buffer_50ms,
-				 LWS_SET_TIMER_USEC_CANCEL);
+		lws_sul_cancel(&m->sul);
 		break;
 	default:
 		break;
