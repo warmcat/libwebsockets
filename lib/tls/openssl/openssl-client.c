@@ -722,15 +722,25 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 
 	/* openssl init for cert verification (for client sockets) */
 	if (!ca_filepath && (!ca_mem || !ca_mem_len)) {
+#if defined(LWS_HAVE_SSL_CTX_load_verify_dir)
+		if (!SSL_CTX_load_verify_dir(
+			vh->tls.ssl_client_ctx, LWS_OPENSSL_CLIENT_CERTS))
+#else
 		if (!SSL_CTX_load_verify_locations(
 			vh->tls.ssl_client_ctx, NULL, LWS_OPENSSL_CLIENT_CERTS))
+#endif
 			lwsl_err("Unable to load SSL Client certs from %s "
 			    "(set by LWS_OPENSSL_CLIENT_CERTS) -- "
 			    "client ssl isn't going to work\n",
 			    LWS_OPENSSL_CLIENT_CERTS);
 	} else if (ca_filepath) {
+#if defined(LWS_HAVE_SSL_CTX_load_verify_file)
+		if (!SSL_CTX_load_verify_file(
+			vh->tls.ssl_client_ctx, ca_filepath)) {
+#else
 		if (!SSL_CTX_load_verify_locations(
 			vh->tls.ssl_client_ctx, ca_filepath, NULL)) {
+#endif
 			lwsl_err(
 				"Unable to load SSL Client certs "
 				"file from %s -- client ssl isn't "

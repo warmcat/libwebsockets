@@ -71,6 +71,8 @@
 #cmakedefine LWS_HAVE_RSA_SET0_KEY
 #cmakedefine LWS_HAVE_RSA_verify_pss_mgf1
 #cmakedefine LWS_HAVE_SSL_CTX_get0_certificate
+#cmakedefine LWS_HAVE_SSL_CTX_load_verify_file
+#cmakedefine LWS_HAVE_SSL_CTX_load_verify_dir
 #cmakedefine LWS_HAVE_SSL_CTX_set1_param
 #cmakedefine LWS_HAVE_SSL_CTX_set_ciphersuites
 #cmakedefine LWS_HAVE_SSL_EXTRA_CHAIN_CERTS

@@ -519,8 +519,13 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 #endif
 
 	if (info->ssl_ca_filepath &&
+#if defined(LWS_HAVE_SSL_CTX_load_verify_file)
+	    !SSL_CTX_load_verify_file(vhost->tls.ssl_ctx,
+				      info->ssl_ca_filepath)) {
+#else
 	    !SSL_CTX_load_verify_locations(vhost->tls.ssl_ctx,
 					   info->ssl_ca_filepath, NULL)) {
+#endif
 		lwsl_err("%s: SSL_CTX_load_verify_locations unhappy\n",
 			 __func__);
 	}

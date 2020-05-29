@@ -92,8 +92,8 @@ lws_cgi_sul_cb(lws_sorted_usec_list_t *sul)
 
 	lws_cgi_kill_terminated(pt);
 
-	__lws_sul_insert(&pt->pt_sul_owner, &pt->sul_cgi,
-			 3 * LWS_US_PER_SEC);
+	__lws_sul_insert_us(&pt->pt_sul_owner, &pt->sul_cgi,
+			    3 * LWS_US_PER_SEC);
 }
 
 static int
