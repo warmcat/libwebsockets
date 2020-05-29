@@ -57,6 +57,10 @@
 			"cmake":	"",
 			"platforms":	"windows-10, linkit-cross, ubuntu-focal-aarch64, freertos-esp32"
 		},
+		"openssl-v3": {
+			"cmake":	"-DLWS_OPENSSL_LIBRARIES=\"/usr/local/src/openssl/v3/usr/local/lib64/libssl.a;/usr/local/src/openssl/v3/usr/local/lib64/libcrypto.a\" -DLWS_OPENSSL_INCLUDE_DIRS=\"/usr/local/src/openssl/v3/usr/local/include/\"",
+			"platforms":	"none,linux-fedora-32-x86_64"
+		},
 		"default-examples": {
 			"cmake":	"-DLWS_WITH_MINIMAL_EXAMPLES=1",
 			"platforms":	"windows-10, ubuntu-focal-aarch64"
