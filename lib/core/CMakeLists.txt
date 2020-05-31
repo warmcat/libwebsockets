@@ -37,10 +37,5 @@ if (LWS_WITH_FILE_OPS)
 	list(APPEND SOURCES core/vfs.c)
 endif()
 
-if (LWS_WITH_DEPRECATED_LWS_DLL)
-	list(APPEND SOURCES
-		core/lws_dll.c)
-endif()
-	
 exports_to_parent_scope()
 
