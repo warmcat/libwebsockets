@@ -232,6 +232,18 @@ typedef enum {
 
 } lws_ss_conn_states_t;
 
+/*
+ * Returns from state() callback can tell the caller what the user code
+ * wants to do
+ */
+
+enum lws_ss_state_return_t {
+	LWSSSSRET_TX_DONT_SEND		=  1, /* (*tx) only */
+	LWSSSSRET_OK			=  0,
+	LWSSSSRET_DISCONNECT_ME		= -1,
+	LWSSSSRET_DESTROY_ME		= -2,
+};
+
 /**
  * lws_ss_info_t: information about stream to be created
  *

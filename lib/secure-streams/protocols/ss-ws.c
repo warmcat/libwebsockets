@@ -30,7 +30,7 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 {
 	lws_ss_handle_t *h = (lws_ss_handle_t *)lws_get_opaque_user_data(wsi);
 	uint8_t buf[LWS_PRE + 1400];
-	int f = 0, f1, txr;
+	int f = 0, f1;
 	size_t buflen;
 
 	switch (reason) {
@@ -41,7 +41,10 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			 in ? (char *)in : "(null)");
 		if (!h)
 			break;
-		lws_ss_event_helper(h, LWSSSCS_UNREACHABLE);
+		if (lws_ss_event_helper(h, LWSSSCS_UNREACHABLE)) {
+			lws_ss_destroy(&h);
+			break;
+		}
 		h->wsi = NULL;
 		lws_ss_backoff(h);
 		break;
@@ -100,15 +103,25 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		}
 
 		buflen = sizeof(buf) - LWS_PRE;
-		txr = h->info.tx(ss_to_userobj(h),  h->txord++, buf + LWS_PRE,
-				&buflen, &f);
-		if (txr < 0) {
-			lwsl_debug("%s: tx handler asked to close\n", __func__);
-			return -1;
-		}
-		if (txr > 0)
+		switch(h->info.tx(ss_to_userobj(h),  h->txord++, buf + LWS_PRE,
+				  &buflen, &f)) {
+		case LWSSSSRET_DISCONNECT_ME:
+			lwsl_debug("%s: tx handler asked to close conn\n", __func__);
+			return -1; /* close connection */
+
+		case LWSSSSRET_DESTROY_ME:
+			lws_set_opaque_user_data(wsi, NULL);
+			h->wsi = NULL;
+			lws_ss_destroy(&h);
+			return -1; /* close connection */
+
+		case LWSSSSRET_TX_DONT_SEND:
 			/* don't want to send anything */
+			lwsl_debug("%s: dont want to write\n", __func__);
 			return 0;
+		default:
+			break;
+		}
 
 		f1 = lws_write_ws_flags(LWS_WRITE_BINARY,
 					!!(f & LWSSS_FLAG_SOM),

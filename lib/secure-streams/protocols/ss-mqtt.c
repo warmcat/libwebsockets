@@ -31,8 +31,8 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	lws_ss_handle_t *h = (lws_ss_handle_t *)lws_get_opaque_user_data(wsi);
 	lws_mqtt_publish_param_t mqpp, *pmqpp;
 	uint8_t buf[LWS_PRE + 1400];
-	int f = 0, txr;
 	size_t buflen;
+	int f = 0;
 
 	switch (reason) {
 
@@ -144,15 +144,25 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 
 		buflen = sizeof(buf) - LWS_PRE;
-		txr = h->info.tx(ss_to_userobj(h),  h->txord++, buf + LWS_PRE,
-				 &buflen, &f);
-		if (txr < 0) {
-			lwsl_debug("%s: tx handler asked to close\n", __func__);
-			return -1;
-		}
-		if (txr > 0)
+		switch(h->info.tx(ss_to_userobj(h),  h->txord++,  buf + LWS_PRE,
+				  &buflen, &f)) {
+		case LWSSSSRET_DISCONNECT_ME:
+			lwsl_debug("%s: tx handler asked to close conn\n", __func__);
+			return -1; /* close connection */
+
+		case LWSSSSRET_DESTROY_ME:
+			lws_set_opaque_user_data(wsi, NULL);
+			h->wsi = NULL;
+			lws_ss_destroy(&h);
+			return -1; /* close connection */
+
+		case LWSSSSRET_TX_DONT_SEND:
 			/* don't want to send anything */
+			lwsl_debug("%s: dont want to write\n", __func__);
 			return 0;
+		default:
+			break;
+		}
 
 		memset(&mqpp, 0, sizeof(mqpp));
 		mqpp.topic = (char *)h->policy->u.mqtt.topic;

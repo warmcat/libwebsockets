@@ -166,7 +166,7 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	lws_ss_handle_t *h = (lws_ss_handle_t *)lws_get_opaque_user_data(wsi);
 	uint8_t buf[LWS_PRE + 1520], *p = &buf[LWS_PRE],
 		*end = &buf[sizeof(buf) - 1];
-	int f = 0, m, status, txr;
+	int f = 0, m, status;
 	char conceal_eom = 0;
 	size_t buflen;
 
@@ -177,7 +177,12 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		assert(h->policy);
 		lwsl_info("%s: h: %p, %s CLIENT_CONNECTION_ERROR: %s\n", __func__,
 			  h, h->policy->streamtype, in ? (char *)in : "(null)");
-		lws_ss_event_helper(h, LWSSSCS_UNREACHABLE);
+		/* already disconnected, no action for DISCONNECT_ME */
+		if (lws_ss_event_helper(h, LWSSSCS_UNREACHABLE) ==
+							LWSSSSRET_DESTROY_ME) {
+			lws_ss_destroy(&h);
+			break;
+		}
 		h->wsi = NULL;
 		lws_ss_backoff(h);
 		break;
@@ -201,7 +206,9 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (h->policy && !(h->policy->flags & LWSSSPOLF_OPPORTUNISTIC) &&
 		    !h->txn_ok && !wsi->context->being_destroyed)
 			lws_ss_backoff(h);
-		if (lws_ss_event_helper(h, LWSSSCS_DISCONNECTED))
+		/* already disconnected, no action for DISCONNECT_ME */
+		if (lws_ss_event_helper(h, LWSSSCS_DISCONNECTED) ==
+							LWSSSSRET_DESTROY_ME)
 			lws_ss_destroy(&h);
 		break;
 
@@ -443,13 +450,16 @@ malformed:
 
 		wsi->http.writeable_len = h->writeable_len = 0;
 
-		if (h->u.http.good_respcode)
-			lws_ss_event_helper(h, LWSSSCS_QOS_ACK_REMOTE);
-		else
-			lws_ss_event_helper(h, LWSSSCS_QOS_NACK_REMOTE);
+		if (h->u.http.good_respcode) {
+			if (lws_ss_event_helper(h, LWSSSCS_QOS_ACK_REMOTE))
+				break;
+		} else
+			if (lws_ss_event_helper(h, LWSSSCS_QOS_NACK_REMOTE))
+				break;
 
 		h->wsi = NULL;
 		h->txn_ok = 1;
+
 		//bad = status != 200;
 		lws_cancel_service(lws_get_context(wsi)); /* abort poll wait */
 		break;
@@ -476,15 +486,23 @@ malformed:
 
 #endif
 
-		txr = h->info.tx(ss_to_userobj(h),  h->txord++, p, &buflen, &f);
-		if (txr < 0) {
-			lwsl_debug("%s: tx handler asked to close\n", __func__);
-			return -1;
-		}
-		if (txr > 0) {
+		switch(h->info.tx(ss_to_userobj(h),  h->txord++, p, &buflen, &f)) {
+		case LWSSSSRET_DISCONNECT_ME:
+			lwsl_debug("%s: tx handler asked to close conn\n", __func__);
+			return -1; /* close connection */
+
+		case LWSSSSRET_DESTROY_ME:
+			lws_set_opaque_user_data(wsi, NULL);
+			h->wsi = NULL;
+			lws_ss_destroy(&h);
+			return -1; /* close connection */
+
+		case LWSSSSRET_TX_DONT_SEND:
 			/* don't want to send anything */
 			lwsl_debug("%s: dont want to write\n", __func__);
 			return 0;
+		default:
+			break;
 		}
 
 		lwsl_info("%s: WRITEABLE: user tx says len %d fl 0x%x\n",

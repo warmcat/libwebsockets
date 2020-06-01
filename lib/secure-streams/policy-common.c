@@ -101,6 +101,16 @@ lws_ss_policy_metadata_index(const lws_ss_policy_t *p, size_t index)
 	return NULL;
 }
 
+static int
+fe_lws_ss_destroy(struct lws_dll2 *d, void *user)
+{
+	lws_ss_handle_t *h = lws_container_of(d, lws_ss_handle_t, list);
+
+	lws_ss_destroy(&h);
+
+	return 0;
+}
+
 int
 lws_ss_policy_set(struct lws_context *context, const char *name)
 {
@@ -123,6 +133,19 @@ lws_ss_policy_set(struct lws_context *context, const char *name)
 	lejp_destruct(&args->jctx);
 
 	if (context->ac_policy) {
+		int n;
+
+		/*
+		 * any existing ss created with the old policy have to go away
+		 * now, since they point to the shortly-to-be-destroyed old
+		 * policy
+		 */
+
+		for (n = 0; n < context->count_threads; n++) {
+			struct lws_context_per_thread *pt = &context->pt[n];
+
+			lws_dll2_foreach_safe(&pt->ss_owner, NULL, fe_lws_ss_destroy);
+		}
 
 		/*
 		 * So this is a bit fun-filled, we already had a policy in

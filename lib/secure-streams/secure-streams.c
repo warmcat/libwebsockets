@@ -77,6 +77,8 @@ lws_ss_state_name(int state)
 int
 lws_ss_event_helper(lws_ss_handle_t *h, lws_ss_constate_t cs)
 {
+	int n;
+
 	if (!h)
 		return 0;
 
@@ -90,12 +92,38 @@ lws_ss_event_helper(lws_ss_handle_t *h, lws_ss_constate_t cs)
 				    (void *)h, NULL);
 #endif
 
-	if (h->h_sink && h->h_sink->info.state &&
-	    h->h_sink->info.state(h->sink_obj, h->h_sink, cs, 0))
-		return 1;
+	if (h->h_sink && h->h_sink->info.state) {
+		n = h->h_sink->info.state(h->sink_obj, h->h_sink, cs, 0);
+		if (n) {
+			lws_set_timeout(h->wsi, 1, LWS_TO_KILL_ASYNC);
+			h->wsi = NULL; /* stop destroy trying to repeat this */
+			if (n == LWSSSSRET_DESTROY_ME) {
+				lws_ss_destroy(&h);
+				return 1;
+			}
+		}
+	}
 
-	if (h->info.state)
-		return h->info.state(ss_to_userobj(h), NULL, cs, 0);
+	if (h->info.state) {
+		n = h->info.state(ss_to_userobj(h), NULL, cs, 0);
+		if (n) {
+			if (cs == LWSSSCS_CREATING)
+				/* just let caller handle it */
+				return 1;
+			if (h->wsi)
+				lws_set_timeout(h->wsi, 1, LWS_TO_KILL_ASYNC);
+			if (n == LWSSSSRET_DESTROY_ME) {
+				lwsl_info("%s: ss %p asks to be destroyed\n", __func__, h);
+				/* disconnect ss from the wsi */
+				if (h->wsi)
+					lws_set_opaque_user_data(h->wsi, NULL);
+				h->wsi = NULL; /* stop destroy trying to repeat this */
+				lws_ss_destroy(&h);
+				return 1;
+			}
+			h->wsi = NULL; /* stop destroy trying to repeat this */
+		}
+	}
 
 	return 0;
 }
@@ -105,7 +133,7 @@ lws_ss_timeout_sul_check_cb(lws_sorted_usec_list_t *sul)
 {
 	lws_ss_handle_t *h = lws_container_of(sul, lws_ss_handle_t, sul);
 
-	lwsl_err("%s: retrying ss h %p after backoff\n", __func__, h);
+	lwsl_err("%s: retrying ss h %p (%s) after backoff\n", __func__, h, h->policy->streamtype);
 	/* we want to retry... */
 	h->seqstate = SSSEQ_DO_RETRY;
 
@@ -481,7 +509,14 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 		 */
 	}
 
-	lws_ss_event_helper(h, LWSSSCS_CREATING);
+	if (lws_ss_event_helper(h, LWSSSCS_CREATING)) {
+		lws_pt_lock(pt, __func__);
+		lws_dll2_remove(&h->list);
+		lws_pt_unlock(pt);
+		lws_free(h);
+
+		return 1;
+	}
 
 	if (!ssi->register_sink && (h->policy->flags & LWSSSPOLF_NAILED_UP))
 		if (lws_ss_client_connect(h))
@@ -511,7 +546,7 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 		 * Don't let the wsi point to us any more,
 		 * we (the ss object bound to the wsi) are going away now
 		 */
-//		lws_set_opaque_user_data(h->wsi, NULL);
+		lws_set_opaque_user_data(h->wsi, NULL);
 		lws_set_timeout(h->wsi, 1, LWS_TO_KILL_SYNC);
 	}
 
@@ -521,6 +556,7 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 	*ppss = NULL;
 	lws_dll2_remove(&h->list);
 	lws_dll2_remove(&h->to_list);
+	/* no need to worry about return code since we are anyway destroying */
 	lws_ss_event_helper(h, LWSSSCS_DESTROYING);
 	lws_pt_unlock(pt);
 

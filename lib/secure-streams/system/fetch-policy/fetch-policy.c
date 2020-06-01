@@ -77,6 +77,8 @@ policy_set(lws_sorted_usec_list_t *sul)
 	 * ss connection close that was using the vhost from the old policy
 	 */
 
+	lws_ss_destroy(&m->ss);
+
 	if (lws_ss_policy_set(context, "updated"))
 		lwsl_err("%s: policy set failed\n", __func__);
 	else {

@@ -52,7 +52,7 @@ ss_cpd_state(void *userobj, void *sh, lws_ss_constate_t state,
 		break;
 	case LWSSSCS_QOS_ACK_REMOTE:
 		lws_system_cpd_set(cx, LWS_CPD_INTERNET_OK);
-		break;
+		return LWSSSSRET_DESTROY_ME;
 
 	case LWSSSCS_ALL_RETRIES_FAILED:
 	case LWSSSCS_DISCONNECTED:
@@ -61,13 +61,13 @@ ss_cpd_state(void *userobj, void *sh, lws_ss_constate_t state,
 		 * cover the situation we didn't connect to anything
 		 */
 		lws_system_cpd_set(cx, LWS_CPD_NO_INTERNET);
-		break;
+		return LWSSSSRET_DESTROY_ME;
 
 	default:
 		break;
 	}
 
-	return 0;
+	return LWSSSSRET_OK;
 }
 
 int

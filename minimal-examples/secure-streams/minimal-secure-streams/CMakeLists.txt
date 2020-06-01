@@ -16,6 +16,14 @@ require_lws_config(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY 0 requirements)
 if (requirements)
 	add_executable(${SAMP} minimal-secure-streams.c)
 
+	if (LWS_CTEST_INTERNET_AVAILABLE)
+		add_test(NAME ss-warmcat COMMAND lws-minimal-secure-streams)
+		set_tests_properties(ss-warmcat
+				     PROPERTIES
+				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/secure-streams/minimal-secure-streams
+				     TIMEOUT 20)
+	endif()
+
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared)
 		add_dependencies(${SAMP} websockets_shared)
