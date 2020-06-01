@@ -36,21 +36,6 @@ typedef struct ss_cpd {
 	uint8_t			partway;
 } ss_cpd_t;
 
-/* secure streams payload interface */
-
-static int
-ss_cpd_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
-{
-	return 0;
-}
-
-static int
-ss_cpd_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf,
-		   size_t *len, int *flags)
-{
-	return 1;
-}
-
 static int
 ss_cpd_state(void *userobj, void *sh, lws_ss_constate_t state,
 	     lws_ss_tx_ordinal_t ack)
@@ -95,8 +80,6 @@ lws_ss_sys_cpd(struct lws_context *cx)
 	memset(&ssi, 0, sizeof(ssi));
 	ssi.handle_offset	    = offsetof(ss_cpd_t, ss);
 	ssi.opaque_user_data_offset = offsetof(ss_cpd_t, opaque_data);
-	ssi.rx			    = ss_cpd_rx;
-	ssi.tx			    = ss_cpd_tx;
 	ssi.state		    = ss_cpd_state;
 	ssi.user_alloc		    = sizeof(ss_cpd_t);
 	ssi.streamtype		    = "captive_portal_detect";

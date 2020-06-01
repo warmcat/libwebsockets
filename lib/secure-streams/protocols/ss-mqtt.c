@@ -80,7 +80,7 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 	case LWS_CALLBACK_MQTT_CLIENT_RX:
 		// lwsl_user("LWS_CALLBACK_CLIENT_RECEIVE: read %d\n", (int)len);
-		if (!h)
+		if (!h || !h->info.rx)
 			return 0;
 
 		pmqpp = (lws_mqtt_publish_param_t *)in;
@@ -109,7 +109,7 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		break;
 
 	case LWS_CALLBACK_MQTT_CLIENT_WRITEABLE:
-		if (!h)
+		if (!h || !h->info.tx)
 			return 0;
 		lwsl_notice("%s: ss %p: WRITEABLE\n", __func__, h);
 

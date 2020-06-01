@@ -75,7 +75,7 @@ secstream_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 	/* chunks of chunked content, with header removed */
 	case LWS_CALLBACK_RAW_RX:
-		if (!h)
+		if (!h || !h->info.rx)
 			return 0;
 
 		if (h->info.rx(ss_to_userobj(h), (const uint8_t *)in, len, 0) < 0)
@@ -85,7 +85,7 @@ secstream_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 	case LWS_CALLBACK_RAW_WRITEABLE:
 		lwsl_info("%s: RAW_WRITEABLE\n", __func__);
-		if (!h)
+		if (!h || !h->info.tx)
 			return 0;
 
 		buflen = lws_ptr_diff(end, p);

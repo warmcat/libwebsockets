@@ -90,10 +90,14 @@ lws_ss_event_helper(lws_ss_handle_t *h, lws_ss_constate_t cs)
 				    (void *)h, NULL);
 #endif
 
-	if (h->h_sink &&h->h_sink->info.state(h->sink_obj, h->h_sink, cs, 0))
+	if (h->h_sink && h->h_sink->info.state &&
+	    h->h_sink->info.state(h->sink_obj, h->h_sink, cs, 0))
 		return 1;
 
-	return h->info.state(ss_to_userobj(h), NULL, cs, 0);
+	if (h->info.state)
+		return h->info.state(ss_to_userobj(h), NULL, cs, 0);
+
+	return 0;
 }
 
 static void

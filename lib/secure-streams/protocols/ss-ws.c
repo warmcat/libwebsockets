@@ -74,7 +74,7 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 	case LWS_CALLBACK_CLIENT_RECEIVE:
 		// lwsl_user("LWS_CALLBACK_CLIENT_RECEIVE: read %d\n", (int)len);
-		if (!h)
+		if (!h || !h->info.rx)
 			return 0;
 		if (lws_is_first_fragment(wsi))
 			f |= LWSSS_FLAG_SOM;
@@ -90,7 +90,7 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		return 0; /* don't passthru */
 
 	case LWS_CALLBACK_CLIENT_WRITEABLE:
-		if (!h)
+		if (!h || !h->info.tx)
 			return 0;
 		// lwsl_notice("%s: ss %p: WRITEABLE\n", __func__, h);
 

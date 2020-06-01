@@ -401,7 +401,7 @@ malformed:
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
 		lwsl_debug("%s: RECEIVE_CLIENT_HTTP_READ: read %d\n",
 				__func__, (int)len);
-		if (!h)
+		if (!h || !h->info.rx)
 			return 0;
 
 #if defined(LWS_WITH_SS_RIDESHARE)
@@ -456,7 +456,7 @@ malformed:
 
 	case LWS_CALLBACK_CLIENT_HTTP_WRITEABLE:
 		lwsl_info("%s: LWS_CALLBACK_CLIENT_HTTP_WRITEABLE\n", __func__);
-		if (!h)
+		if (!h || !h->info.tx)
 			return 0;
 
 		if (!h->rideshare)
