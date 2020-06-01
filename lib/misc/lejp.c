@@ -294,6 +294,9 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 			break;
 		case LEJP_MEMBERS:
 			if (c == '}') {
+				if (ctx->sp >= 1)
+					goto pop_level;
+
 				ctx->st[ctx->sp].s = LEJP_IDLE;
 				ret = LEJP_REJECT_MEMBERS_NO_CLOSE;
 				goto reject;
@@ -715,7 +718,7 @@ completed:
 			}
 
 			/* pop */
-
+pop_level:
 			ctx->sp--;
 			if (ctx->sp) {
 				ctx->pst[ctx->pst_sp].ppos = ctx->st[ctx->sp].p;
