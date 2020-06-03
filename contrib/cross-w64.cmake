@@ -3,13 +3,18 @@
 #
 # This can be used when running cmake in the following way:
 #  cd build/
-#  cmake .. -DCMAKE_TOOLCHAIN_FILE=../contrib/cross-w64.cmake -DLWS_WITH_SSL=0
+#  cmake .. -DCMAKE_TOOLCHAIN_FILE=../contrib/cross-w64.cmake
 #
 
-set(CROSS_PATH /opt/mingw64)
+# the outermost path to your cross toolchain
+#set(CROSS_PATH /opt/mingw64)
+set(CROSS_PATH /usr)
+# your cross root
+set(CROSS_ROOT ${CROSS_PATH}/x86_64-w64-mingw32/sys-root/)
 
 # Target operating system name.
 set(CMAKE_SYSTEM_NAME Windows)
+set(CMAKE_SYSROOT ${CROSS_ROOT})
 
 # Name of C compiler.
 set(CMAKE_C_COMPILER "${CROSS_PATH}/bin/x86_64-w64-mingw32-gcc")
@@ -34,7 +39,7 @@ if (CMAKE_BUILD_TYPE MATCHES RELEASE OR CMAKE_BUILD_TYPE MATCHES Release OR CMAK
 endif()
 
 # Where to look for the target environment. (More paths can be added here)
-set(CMAKE_FIND_ROOT_PATH "${CROSS_PATH}")
+set(CMAKE_FIND_ROOT_PATH "${CROSS_ROOT}/mingw")
 
 # Adjust the default behavior of the FIND_XXX() commands:
 # search programs in the host environment only.

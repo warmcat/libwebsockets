@@ -44,6 +44,14 @@
 			"build": "mkdir build && cd build && set SAI_CPACK=\"-G ZIP\" && cmake .. -DLWS_OPENSSL_LIBRARIES=\"C:\\Program Files\\OpenSSL\\lib\\libssl.lib;C:\\Program Files\\OpenSSL\\lib\\libcrypto.lib\" -DLWS_OPENSSL_INCLUDE_DIRS=\"C:\\Program Files\\OpenSSL\\include\" -DLWS_EXT_PTHREAD_INCLUDE_DIR=\"C:\\Program Files (x86)\\pthreads\\include\" -DLWS_EXT_PTHREAD_LIBRARIES=\"C:\\Program Files (x86)\\pthreads\\lib\\x64\\libpthreadGC2.a\" ${cmake} && cmake --build . --config DEBUG && set CTEST_OUTPUT_ON_FAILURE=1 && ctest . -C DEBUG -j4 --output-on-failure",
 			"default": false
 		},
+		"mingw32": {
+			"build": "mkdir build && cd build && cmake .. -DCMAKE_TOOLCHAIN_FILE=../contrib/cross-w32.cmake -DLWS_UNIX_SOCK=0 ${cmake} && cmake --build . --config DEBUG",
+			"default": false
+		},
+		"mingw64": {
+			"build": "mkdir build && cd build && cmake .. -DCMAKE_TOOLCHAIN_FILE=../contrib/cross-w64.cmake -DLWS_UNIX_SOCK=0 ${cmake} && cmake --build . --config DEBUG",
+			"default": false
+		},
 		"freertos-esp32": {
 			# official way to get sdkconfig.h is idf.py menuconfig, but
 			# no obvious way to do that in CI
@@ -60,7 +68,7 @@
 	"configurations": {
 		"default": {
 			"cmake":	"",
-			"platforms":	"windows-10, linkit-cross, ubuntu-focal-aarch64, freertos-esp32, linux-fedora-32-riscv"
+			"platforms":	"windows-10, linkit-cross, ubuntu-focal-aarch64, freertos-esp32, linux-fedora-32-riscv, mingw32, mingw64"
 		},
 		"default-examples-openssl-v3": {
 			"cmake":	"-DLWS_OPENSSL_LIBRARIES=\"/usr/local/src/openssl/v3/usr/local/lib64/libssl.a;/usr/local/src/openssl/v3/usr/local/lib64/libcrypto.a\" -DLWS_OPENSSL_INCLUDE_DIRS=\"/usr/local/src/openssl/v3/usr/local/include/\" -DLWS_WITH_MINIMAL_EXAMPLES=1",

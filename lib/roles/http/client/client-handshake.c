@@ -404,8 +404,10 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 
 	if (lwsi_state(wsi) == LRS_WAITING_CONNECT &&
 	    lws_socket_is_valid(wsi->desc.sockfd)) {
+#if !defined(WIN32)
 		socklen_t sl = sizeof(int);
 		int e = 0;
+#endif
 
 		if (!result && /* no dns results... */
 		    !wsi->sul_connect_timeout.list.owner /* no ongoing connect timeout */)

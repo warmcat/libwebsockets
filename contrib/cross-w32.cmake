@@ -6,7 +6,11 @@
 #  cmake .. -DCMAKE_TOOLCHAIN_FILE=../contrib/cross-w32.cmake -DLWS_WITH_SSL=0
 #
 
-set(CROSS_PATH /opt/mingw32)
+# the outermost path to your cross toolchain
+#set(CROSS_PATH /opt/mingw32)
+set(CROSS_PATH /usr)
+# your cross root
+set(CROSS_ROOT ${CROSS_PATH}/i686-w64-mingw32/sys-root/)
 
 # Target operating system name.
 set(CMAKE_SYSTEM_NAME Windows)
@@ -15,7 +19,6 @@ set(CMAKE_SYSTEM_NAME Windows)
 set(CMAKE_C_COMPILER "${CROSS_PATH}/bin/i686-w64-mingw32-gcc")
 set(CMAKE_CXX_COMPILER "${CROSS_PATH}/bin/i686-w64-mingw32-g++")
 set(CMAKE_RC_COMPILER "${CROSS_PATH}/bin/i686-w64-mingw32-windres")
-set(CMAKE_C_FLAGS "-Wno-error")
 
 #
 # Different build system distros set release optimization level to different
@@ -34,7 +37,8 @@ if (CMAKE_BUILD_TYPE MATCHES RELEASE OR CMAKE_BUILD_TYPE MATCHES Release OR CMAK
 endif()
 
 # Where to look for the target environment. (More paths can be added here)
-set(CMAKE_FIND_ROOT_PATH "${CROSS_PATH}")
+set(CMAKE_FIND_ROOT_PATH "${CROSS_ROOT}/mingw")
+set(CMAKE_SYSROOT ${CROSS_ROOT})
 
 # Adjust the default behavior of the FIND_XXX() commands:
 # search programs in the host environment only.

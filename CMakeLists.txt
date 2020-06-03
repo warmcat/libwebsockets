@@ -525,6 +525,16 @@ CHECK_INCLUDE_FILE(malloc.h LWS_HAVE_MALLOC_H)
 CHECK_INCLUDE_FILE(pthread.h LWS_HAVE_PTHREAD_H)
 CHECK_INCLUDE_FILE(inttypes.h LWS_HAVE_INTTYPES_H)
 
+if (WIN32 OR MSVC)
+	CHECK_C_SOURCE_COMPILES("#include <winsock2.h>
+				 #include <afunix.h>
+				 int main() { return 0; }" LWS_HAVE_WIN32_AFUNIX_H)
+
+	if (LWS_UNIX_SOCK AND NOT LWS_HAVE_WIN32_AFUNIX_H)
+		message(FATAL_ERROR "No afunix.h in toolchain for LWS_UNIX_SOCK")
+	endif()
+endif()
+
 CHECK_LIBRARY_EXISTS(cap cap_set_flag "" LWS_HAVE_LIBCAP)
 
 
