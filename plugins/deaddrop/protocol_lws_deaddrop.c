@@ -306,7 +306,7 @@ file_upload_cb(void *data, const char *name, const char *filename,
 			if (pss->file_length > pss->vhd->max_size) {
 				pss->response_code =
 					HTTP_STATUS_REQ_ENTITY_TOO_LARGE;
-				close((int)(long long)pss->fd);
+				close((int)(lws_intptr_t)pss->fd);
 				pss->fd = LWS_INVALID_FILE;
 				unlink(pss->filename);
 
@@ -314,7 +314,7 @@ file_upload_cb(void *data, const char *name, const char *filename,
 			}
 
 			if (pss->fd != LWS_INVALID_FILE) {
-				n = write((int)(long long)pss->fd, buf, len);
+				n = write((int)(lws_intptr_t)pss->fd, buf, len);
 				lwsl_debug("%s: write %d says %d\n", __func__,
 					   len, n);
 				lws_set_timeout(pss->wsi, PENDING_TIMEOUT_HTTP_CONTENT, 30);
@@ -324,7 +324,7 @@ file_upload_cb(void *data, const char *name, const char *filename,
 			break;
 
 		if (pss->fd != LWS_INVALID_FILE)
-			close((int)(long long)pss->fd);
+			close((int)(lws_intptr_t)pss->fd);
 
 		/* the temp filename without the ~ */
 		lws_strncpy(filename2, pss->filename, sizeof(filename2));
