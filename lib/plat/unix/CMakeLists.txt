@@ -99,23 +99,6 @@ endif()
 
 list(APPEND LIB_LIST_AT_END dl)
 
-if (LWS_WITH_FSMOUNT AND ${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
-	if ("${LWS_LIBMOUNT_LIBRARIES}" STREQUAL "" OR "${LWS_LIBMOUNT_INCLUDE_DIRS}" STREQUAL "")
-
-                # libmount paths (this is only on Linux)
-                #
-                find_path(   LIBMOUNT_INC_PATH NAMES "libmount/libmount.h")
-                find_library(LIBMOUNT_LIB_PATH NAMES "mount")
-	else()
-		set(LIBMOUNT_INC_PATH ${LWS_LIBMOUNT_INCLUDE_DIRS} PARENT_SCOPE)
-		set(LIBMOUNT_LIB_PATH ${LWS_LIBMOUNT_LIBRARIES} PARENT_SCOPE)
-	endif()
-
-	if (NOT LIBMOUNT_INC_PATH OR NOT LIBMOUNT_LIB_PATH)
-		message(FATAL_ERROR " Unable to find libmount")
-	endif()
-endif()
-
 #
 # Keep explicit parent scope exports at end
 #

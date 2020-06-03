@@ -31,11 +31,17 @@ include(CheckLibraryExists)
 include(CheckTypeSize)
 include(CheckCSourceCompiles)
 
-if(POLICY CMP0048)
+if (POLICY CMP0048)
 	cmake_policy(SET CMP0048 NEW)
 endif()
 
-#cmake_policy(SET CMP0076 NEW)
+#if (POLICY CMP0024)
+#	cmake_policy(SET CMP0024 NEW)
+#endif()
+
+if (POLICY CMP0075)
+	cmake_policy(SET CMP0075 NEW)
+endif()
 
 # General Advice
 #
@@ -577,10 +583,10 @@ if (LWS_HAVE_PTHREAD_H AND NOT LWS_PLAT_FREERTOS)
 			set(LWS_PTHR_FLAGS "-pthread")
 		endif()
 	
-		set(CMAKE_REQUIRED_LIBRARIES ${CMAKE_REQUIRED_LIBRARIES} ${LWS_PTHR_FLAGS})
-		if (NOT WIN32 AND NOT MSVC)
-			list(APPEND LIB_LIST_AT_END ${LWS_PTHR_FLAGS})
-		endif()
+		#		set(CMAKE_REQUIRED_LIBRARIES ${CMAKE_REQUIRED_LIBRARIES} ${LWS_PTHR_FLAGS})
+		#		if (NOT WIN32 AND NOT MSVC)
+		#	list(APPEND LIB_LIST_AT_END ${LWS_PTHR_FLAGS})
+		#endif()
 	endif()
 
 	CHECK_C_SOURCE_COMPILES("#define _GNU_SOURCE
@@ -739,11 +745,16 @@ endif()
 
 
 if (LWS_WITH_FSMOUNT AND ${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
-	message("libmount include dir: ${LIBMOUNT_INC_PATH}")
-	message("libmount libraries: ${LIBMOUNT_LIB_PATH}")
-
-	include_directories("${LIBMOUNT_INC_PATH}")
-	list(APPEND LIB_LIST ${LIBMOUNT_LIB_PATH})
+	if (NOT LWS_LIBMOUNT_INCLUDE_DIRS STREQUAL "")
+		include_directories(${LWS_LIBMOUNT_INCLUDE_DIRS})
+		message("libmount include dir: ${LWS_LIBMOUNT_INCLUDE_DIRS}")
+	endif()
+	if (NOT LWS_LIBMOUNT_LIBRARIES STREQUAL "")
+		message("libmount libraries: ${LWS_LIBMOUNT_LIBRARIES}")
+		list(APPEND LIB_LIST ${LWS_LIBMOUNT_LIBRARIES})
+	else()
+		list(APPEND LIB_LIST mount)
+	endif()
 endif()
 
 
@@ -766,6 +777,7 @@ if (LWS_WITH_HUBBUB)
 	find_library(LIBHUBBUB_LIBRARIES NAMES hubbub)
 	list(APPEND LIB_LIST ${LIBHUBBUB_LIBRARIES} )
 endif()
+
 
 #
 # Append the "at end" pieces to the lib list
