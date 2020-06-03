@@ -498,7 +498,7 @@ just_kill_connection:
 #endif
 		{
 			lwsl_info("%s: shutdown conn: %p (sk %d, state 0x%x)\n",
-				  __func__, wsi, (int)(long)wsi->desc.sockfd,
+				  __func__, wsi, (int)(lws_intptr_t)wsi->desc.sockfd,
 				  lwsi_state(wsi));
 			if (!wsi->socket_is_permanently_unusable &&
 			    lws_socket_is_valid(wsi->desc.sockfd)) {

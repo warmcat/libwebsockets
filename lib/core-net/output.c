@@ -366,7 +366,7 @@ lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 	} else
 #endif
 		if (wsi->role_ops->file_handle)
-			n = write((int)(long long)wsi->desc.filefd, buf, len);
+			n = write((int)(lws_intptr_t)wsi->desc.filefd, buf, len);
 		else
 			n = send(wsi->desc.sockfd, (char *)buf, len, MSG_NOSIGNAL);
 //	lwsl_info("%s: sent len %d result %d", __func__, len, n);

@@ -625,7 +625,7 @@ elops_accept_uv(struct lws *wsi)
 
 	if (wsi->role_ops->file_handle)
 		uv_poll_init(pt->uv.io_loop, wsi->w_read.uv.pwatcher,
-			     (int)(long long)wsi->desc.filefd);
+			     (int)(lws_intptr_t)wsi->desc.filefd);
 	else
 		uv_poll_init_socket(pt->uv.io_loop,
 				    wsi->w_read.uv.pwatcher,

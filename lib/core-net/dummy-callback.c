@@ -816,7 +816,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 
 #if LWS_MAX_SMP > 1
 	case LWS_CALLBACK_GET_THREAD_ID:
-		return (int)(unsigned long long)pthread_self();
+		return (int)(lws_intptr_t)pthread_self();
 #endif
 
 	default:
