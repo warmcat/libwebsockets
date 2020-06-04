@@ -46,8 +46,20 @@ lws_spawn_sul_reap(struct lws_sorted_usec_list *sul)
 	struct lws_spawn_piped *lsp = lws_container_of(sul,
 					struct lws_spawn_piped, sul_reap);
 
-	lwsl_warn("%s: reaping spawn after last stdpipe closed\n", __func__);
-	lws_spawn_reap(lsp);
+	lwsl_notice("%s: reaping spawn after last stdpipe, tries left %d\n",
+		    __func__, lsp->reap_retry_budget);
+	if (!lws_spawn_reap(lsp) && !lsp->pipes_alive) {
+		if (--lsp->reap_retry_budget) {
+			lws_sul_schedule(lsp->info.vh->context, lsp->info.tsi,
+					 &lsp->sul_reap, lws_spawn_sul_reap,
+					 250 * LWS_US_PER_MS);
+		} else {
+			lwsl_err("%s: Unable to reap lsp %p, killing\n",
+				 __func__, lsp);
+			lsp->reap_retry_budget = 20;
+			lws_spawn_piped_kill_child_process(lsp);
+		}
+	}
 }
 
 static struct lws *
@@ -314,6 +326,7 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 
 	/* wholesale take a copy of info */
 	lsp->info = *i;
+	lsp->reap_retry_budget = 20;
 
 	/*
 	 * Prepare the stdin / out / err pipes

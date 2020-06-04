@@ -914,6 +914,7 @@ struct lws_spawn_piped {
 
 	siginfo_t			si;
 #endif
+	int				reap_retry_budget;
 
 	uint8_t				pipes_alive:2;
 	uint8_t				we_killed_him_timeout:1;
