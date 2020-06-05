@@ -259,7 +259,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 #endif
 #endif /* USE_WOLFSSL */
 
-	wsi->tls.client_bio = BIO_new_socket((int)(lws_intptr_t)wsi->desc.sockfd,
+	wsi->tls.client_bio = BIO_new_socket((int)(long long)wsi->desc.sockfd,
 					     BIO_NOCLOSE);
 	SSL_set_bio(wsi->tls.ssl, wsi->tls.client_bio, wsi->tls.client_bio);
 
@@ -531,7 +531,10 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 				    const char *cert_filepath,
 				    const void *cert_mem,
 				    unsigned int cert_mem_len,
-				    const char *private_key_filepath)
+				    const char *private_key_filepath,
+					const void *key_mem,
+				    unsigned int key_mem_len
+					)
 {
 	struct lws_tls_client_reuse *tcr;
 	X509_STORE *x509_store;
@@ -814,14 +817,36 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		}
 		lwsl_notice("Loaded client cert %s\n", cert_filepath);
 	} else if (cert_mem && cert_mem_len) {
-		n = SSL_CTX_use_certificate_ASN1(vh->tls.ssl_client_ctx,
-						 cert_mem_len, cert_mem);
-		if (n < 1) {
-			lwsl_err("%s: problem interpreting client cert\n",
-				 __func__);
-			lws_tls_err_describe_clear();
+
+		//lwsl_hexdump_notice(cert_mem, cert_mem_len);
+		lws_filepos_t flen;
+		uint8_t *p;
+
+		if (lws_tls_alloc_pem_to_der_file(vh->context, NULL, cert_mem,
+				cert_mem_len, &p, &flen)) {
+			lwsl_err("%s: couldn't read cert file\n", __func__);
+
 			return 1;
 		}
+
+		n = SSL_CTX_use_certificate_ASN1(vh->tls.ssl_client_ctx, (int)flen, p);
+		
+		if (n < 1) {
+			lwsl_err("%s: problem interpreting client cert\n",  __func__);
+			lws_tls_err_describe_clear();
+			//return 1;
+		}
+
+		lws_free_set_NULL(p);
+
+		if (n != 1)  {
+
+			return 1;
+		}
+
+
+
+
 	}
 	if (private_key_filepath) {
 		lwsl_notice("%s: doing private key filepath\n", __func__);
@@ -842,6 +867,36 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 			lwsl_err("Private SSL key doesn't match cert\n");
 			return 1;
 		}
+	}
+	else if(key_mem && key_mem_len) {
+
+		lws_filepos_t flen;
+		uint8_t *p;
+
+		if (lws_tls_alloc_pem_to_der_file(vh->context, NULL, key_mem,
+				key_mem_len, &p, &flen)) {
+			lwsl_err("%s: couldn't read key file\n", __func__);
+
+			return 1;
+		}
+
+
+		n = SSL_CTX_use_PrivateKey_ASN1(EVP_PKEY_RSA, vh->tls.ssl_client_ctx, p,
+						(long)(long long)flen);
+		if (n != 1) {
+			n = SSL_CTX_use_PrivateKey_ASN1(EVP_PKEY_EC,
+							vh->tls.ssl_client_ctx, p,
+							(long)(long long)flen);
+		}
+		
+		lws_free_set_NULL(p);
+
+		if (n != 1)  {
+			lwsl_notice("unable to use key_mem\n");
+
+			return 1;
+		}
+
 	}
 
 	return 0;

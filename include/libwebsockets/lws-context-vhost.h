@@ -487,6 +487,12 @@ struct lws_context_creation_info {
 	 * can handle the LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS
 	 * callback of protocols[0] to allow setting of the private key directly
 	 * via tls library calls */
+	const void *client_ssl_key_mem;
+	/**< VHOST: Client SSL context init: client key memory buffer or
+	 * NULL... use this to load client key from memory instead of file */
+	unsigned int client_ssl_key_mem_len;
+	/**< VHOST: Client SSL context init: length of client_ssl_key_mem in
+	 * bytes */
 	const char *client_ssl_ca_filepath;
 	/**< VHOST: Client SSL context init: CA certificate filepath or NULL */
 	const void *client_ssl_ca_mem;
