@@ -22,6 +22,7 @@
  * IN THE SOFTWARE.
  */
 
+#define WIN32_LEAN_AND_MEAN
 #include "private-lib-core.h"
 #include "private-lib-tls-openssl.h"
 

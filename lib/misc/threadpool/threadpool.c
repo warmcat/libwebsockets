@@ -482,7 +482,9 @@ done:
 	return 0;
 }
 
+#if !defined(WIN32)
 static int dummy;
+#endif
 
 static void *
 lws_threadpool_worker(void *d)

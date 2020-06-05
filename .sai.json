@@ -5,10 +5,10 @@
 	# has somewhere to go to find its /usr/share content like certs
 
 	"platforms": {
-		"linux-ubuntu-18.04/x86_64-amd/gcc": {
+		"linux-ubuntu-1804/x86_64-amd/gcc": {
 			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G DEB\";cmake .. ${cmake} && make -j && make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}"
 		},
-		"linux-ubuntu-20.04/x86_64-amd/gcc": {
+		"linux-ubuntu-2004/x86_64-amd/gcc": {
 			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G DEB\";cmake .. ${cmake} && make -j && make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}"
 		},
 		"linux-fedora-32/x86_64-amd/gcc": {
@@ -20,7 +20,7 @@
 		"linux-centos-8/x86_64-amd/gcc": {
 			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G RPM\";cmake .. ${cmake} && make -j && make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}"
 		},
-		"linux-ubuntu-20.04/aarch64-a72-bcm2711-rpi4/gcc": {
+		"linux-ubuntu-2004/aarch64-a72-bcm2711-rpi4/gcc": {
 			"build": "mkdir build;cd build;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G DEB\";cmake .. ${cmake} && make -j3 && make -j DESTDIR=../destdir install && ctest -j3 --output-on-failure ${cpack}",
 			"default": false
 		},
@@ -68,7 +68,7 @@
 	"configurations": {
 		"default": {
 			"cmake":	"",
-			"platforms":	"windows-10/x86_64-amd/mingw64, freertos-linkit/arm32-m4-mt7697-usi/gcc, linux-ubuntu-20.04/aarch64-a72-bcm2711-rpi4/gcc, freertos-espidf/xl6-esp32/gcc, linux-fedora-32/riscv64-virt/gcc, windows-10/x86_64-amd/mingw32, windows-10/x86_64-amd/mingw64"
+			"platforms":	"windows-10/x86_64-amd/msvc, freertos-linkit/arm32-m4-mt7697-usi/gcc, linux-ubuntu-2004/aarch64-a72-bcm2711-rpi4/gcc, freertos-espidf/xl6-esp32/gcc, linux-fedora-32/riscv64-virt/gcc, windows-10/x86_64-amd/mingw32, windows-10/x86_64-amd/mingw64"
 		},
 		"default-examples-openssl-v3": {
 			"cmake":	"-DLWS_OPENSSL_LIBRARIES=\"/usr/local/src/openssl/v3/usr/local/lib64/libssl.a;/usr/local/src/openssl/v3/usr/local/lib64/libcrypto.a\" -DLWS_OPENSSL_INCLUDE_DIRS=\"/usr/local/src/openssl/v3/usr/local/include/\" -DLWS_WITH_MINIMAL_EXAMPLES=1",
@@ -80,27 +80,27 @@
 		},
 		"default-examples": {
 			"cmake":	"-DLWS_WITH_MINIMAL_EXAMPLES=1",
-			"platforms":	"windows-10/x86_64-amd/mingw64, linux-ubuntu-20.04/aarch64-a72-bcm2711-rpi4/gcc, linux-fedora-32/riscv64-virt/gcc"
+			"platforms":	"windows-10/x86_64-amd/msvc, linux-ubuntu-2004/aarch64-a72-bcm2711-rpi4/gcc, linux-fedora-32/riscv64-virt/gcc"
 		},
 		"unix-domain": {
 			"cmake":	"-DUNIX_SOCK=1",
-			"platforms":	"windows-10/x86_64-amd/mingw64"
+			"platforms":	"windows-10/x86_64-amd/msvc"
 		},
 		"lws_system": {
 			"cmake":	"-DLWS_WITH_ACME=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DCMAKE_BUILD_TYPE=RELEASE -DLWS_WITH_GENCRYPTO=1 -DLWS_WITH_JOSE=1 -DLWS_WITH_SYS_ASYNC_DNS=1 -DLWS_WITH_SYS_NTPCLIENT=1",
-			"platforms":	"windows-10/x86_64-amd/mingw64"
+			"platforms":	"windows-10/x86_64-amd/msvc"
 		},
 		"secure-streams": {
 			"cmake":	"-DLWS_WITH_SECURE_STREAMS=1",
-			"platforms":	"windows-10/x86_64-amd/mingw64, linux-fedora-32/riscv64-virt/gcc"
+			"platforms":	"windows-10/x86_64-amd/msvc, linux-fedora-32/riscv64-virt/gcc"
 		},
 		"secure-streams-proxy": {
 			"cmake":	"-DLWS_WITH_SECURE_STREAMS=1 -DLWS_WITH_SECURE_STREAMS_PROXY_API=1",
-			"platforms":	"not windows-10/x86_64-amd/mingw64"
+			"platforms":	"not windows-10/x86_64-amd/msvc"
 		},
 		"distro_recommended": {
 			"cmake":	"-DLWS_WITH_DISTRO_RECOMMENDED=1",
-			"platforms":	"not linkit-cross, not windows-10/x86_64-amd/mingw64, linux-ubuntu-20.04/aarch64-a72-bcm2711-rpi4/gcc, linux-fedora-32/riscv64-virt/gcc",
+			"platforms":	"not linkit-cross, not windows-10/x86_64-amd/msvc, linux-ubuntu-2004/aarch64-a72-bcm2711-rpi4/gcc, linux-fedora-32/riscv64-virt/gcc",
 			"cpack":	"&& cpack $SAI_CPACK",
 			"artifacts":	"build/*.rpm, build/*.deb, build/*.zip"
 		},
@@ -146,7 +146,7 @@
 		},
 		"ipv6":	{
 			"cmake":	"-DLWS_IPV6=ON",
-			"platforms":	"windows-10/x86_64-amd/mingw64"
+			"platforms":	"windows-10/x86_64-amd/mingw64, windows-10/x86_64-amd/msvc"
 		},
 		"nossl": {
 			"cmake":	"-DLWS_WITH_SSL=OFF",
@@ -169,7 +169,7 @@
 		},
 		"threadpool": {
 			"cmake":	"-DLWS_WITH_THREADPOOL=1 -DLWS_WITH_MINIMAL_EXAMPLES=1",
-			"platforms":	"windows-10/x86_64-amd/mingw64"
+			"platforms":	"windows-10/x86_64-amd/msvc"
 		}
 	}
 }

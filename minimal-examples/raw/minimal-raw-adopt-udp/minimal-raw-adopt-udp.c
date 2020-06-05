@@ -86,8 +86,13 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 
 		fd = lws_get_socket_fd(wsi);
+#if defined(WIN32)
+		if ((int)fd < 0)
+			break;
+#else
 		if (fd < 0) /* keep Coverity happy: actually it cannot be < 0 */
 			break;
+#endif
 
 		/*
 		 * We can write directly on the UDP socket, specifying

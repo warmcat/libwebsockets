@@ -148,6 +148,16 @@ struct lws_tx_credit {
 	uint8_t			manual;
 };
 
+#ifdef LWS_WITH_IPV6
+#if defined(WIN32) || defined(_WIN32)
+#include <iphlpapi.h>
+#else
+#include <net/if.h>
+#endif
+#endif
+
+#undef X509_NAME
+
 #if defined(LWS_WITH_TLS)
 #include "private-lib-tls.h"
 #endif
