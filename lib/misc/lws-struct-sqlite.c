@@ -537,10 +537,19 @@ lws_struct_sq3_open(struct lws_context *context, const char *sqlite3_path,
 int
 lws_struct_sq3_close(sqlite3 **pdb)
 {
+	int n;
+
 	if (!*pdb)
 		return 0;
 
-	sqlite3_close(*pdb);
+	n = sqlite3_close(*pdb);
+	if (n != SQLITE_OK) {
+		/*
+		 * trouble...
+		 */
+		lwsl_err("%s: failed to close: %d\n", __func__, n);
+		return 1;
+	}
 	*pdb = NULL;
 
 	return 0;
