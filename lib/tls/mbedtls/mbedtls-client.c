@@ -256,7 +256,10 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 				    const char *cert_filepath,
 				    const void *cert_mem,
 				    unsigned int cert_mem_len,
-				    const char *private_key_filepath)
+				    const char *private_key_filepath,
+					const void *key_mem,
+					unsigned int key_mem_len
+					)
 {
 	X509 *d2i_X509(X509 **cert, const unsigned char *buffer, long len);
 	SSL_METHOD *method = (SSL_METHOD *)TLS_client_method();
@@ -347,13 +350,13 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		lwsl_notice("Loaded client cert %s\n", cert_filepath);
 #endif
 	} else if (cert_mem && cert_mem_len) {
-		// lwsl_hexdump_notice(cert_mem, cert_mem_len - 1);
+		/* lwsl_hexdump_notice(cert_mem, cert_mem_len - 1); */
 		SSL_CTX_use_PrivateKey_ASN1(0, vh->tls.ssl_client_ctx,
 				cert_mem, cert_mem_len - 1);
 		n = SSL_CTX_use_certificate_ASN1(vh->tls.ssl_client_ctx,
 						 cert_mem_len, cert_mem);
 		if (n < 1) {
-			lwsl_err("%s: problem interpreting client cert\n",
+			lwsl_err("%s: (mbedtls) problem interpreting client cert\n",
 				 __func__);
 			lws_tls_err_describe_clear();
 			return 1;

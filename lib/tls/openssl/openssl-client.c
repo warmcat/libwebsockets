@@ -531,7 +531,10 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 				    const char *cert_filepath,
 				    const void *cert_mem,
 				    unsigned int cert_mem_len,
-				    const char *private_key_filepath)
+				    const char *private_key_filepath,
+					const void *key_mem,
+				    unsigned int key_mem_len
+					)
 {
 	struct lws_tls_client_reuse *tcr;
 	X509_STORE *x509_store;
@@ -752,12 +755,11 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 	} else {
 
 		lws_filepos_t amount = 0;
-		uint8_t *up1;
 		const uint8_t *up;
+		uint8_t *up1;
 
 		if (lws_tls_alloc_pem_to_der_file(vh->context, NULL, ca_mem,
-						  ca_mem_len, &up1,
-						  &amount)) {
+						  ca_mem_len, &up1, &amount)) {
 			lwsl_err("%s: Unable to decode x.509 mem\n", __func__);
 			lwsl_hexdump_notice(ca_mem, ca_mem_len);
 			return 1;
@@ -796,6 +798,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 	 */
 
 	/* support for client-side certificate authentication */
+
 	if (cert_filepath) {
 		if (lws_tls_use_any_upgrade_check_extant(cert_filepath) !=
 				LWS_TLS_EXTANT_YES &&
@@ -813,18 +816,33 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 			return 1;
 		}
 		lwsl_notice("Loaded client cert %s\n", cert_filepath);
+
 	} else if (cert_mem && cert_mem_len) {
-		n = SSL_CTX_use_certificate_ASN1(vh->tls.ssl_client_ctx,
-						 cert_mem_len, cert_mem);
-		if (n < 1) {
-			lwsl_err("%s: problem interpreting client cert\n",
-				 __func__);
-			lws_tls_err_describe_clear();
+		lws_filepos_t flen;
+		uint8_t *p;
+
+		if (lws_tls_alloc_pem_to_der_file(vh->context, NULL, cert_mem,
+						  cert_mem_len, &p, &flen)) {
+			lwsl_err("%s: couldn't read cert file\n", __func__);
+
 			return 1;
 		}
+
+		n = SSL_CTX_use_certificate_ASN1(vh->tls.ssl_client_ctx, (int)flen, p);
+
+		if (n < 1) {
+			lwsl_err("%s: problem interpreting client cert\n",  __func__);
+			lws_tls_err_describe_clear();
+		}
+
+		lws_free_set_NULL(p);
+
+		if (n != 1)
+			return 1;
+
 	}
 	if (private_key_filepath) {
-		lwsl_notice("%s: doing private key filepath\n", __func__);
+		lwsl_info("%s: using private key filepath\n", __func__);
 		lws_ssl_bind_passphrase(vh->tls.ssl_client_ctx, 1, info);
 		/* set the private key from KeyFile */
 		if (SSL_CTX_use_PrivateKey_file(vh->tls.ssl_client_ctx,
@@ -834,12 +852,39 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 			lws_tls_err_describe_clear();
 			return 1;
 		}
-		lwsl_notice("Loaded client cert private key %s\n",
+		lwsl_info("Loaded client cert private key %s\n",
 			    private_key_filepath);
 
 		/* verify private key */
 		if (!SSL_CTX_check_private_key(vh->tls.ssl_client_ctx)) {
 			lwsl_err("Private SSL key doesn't match cert\n");
+			return 1;
+		}
+	}
+	else if (key_mem && key_mem_len) {
+
+		lws_filepos_t flen;
+		uint8_t *p;
+
+		if (lws_tls_alloc_pem_to_der_file(vh->context, NULL, key_mem,
+						  key_mem_len, &p, &flen)) {
+			lwsl_err("%s: couldn't use mem cert\n", __func__);
+
+			return 1;
+		}
+
+		n = SSL_CTX_use_PrivateKey_ASN1(EVP_PKEY_RSA, vh->tls.ssl_client_ctx, p,
+						(long)(lws_intptr_t)flen);
+		if (n != 1)
+			n = SSL_CTX_use_PrivateKey_ASN1(EVP_PKEY_EC,
+							vh->tls.ssl_client_ctx, p,
+							(long)(lws_intptr_t)flen);
+
+		lws_free_set_NULL(p);
+
+		if (n != 1)  {
+			lwsl_err("%s: unable to use key_mem\n", __func__);
+
 			return 1;
 		}
 	}

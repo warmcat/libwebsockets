@@ -134,7 +134,10 @@ int lws_context_init_client_ssl(const struct lws_context_creation_info *info,
 						cert_filepath,
 						info->client_ssl_cert_mem,
 						info->client_ssl_cert_mem_len,
-						private_key_filepath))
+						private_key_filepath,
+						info->client_ssl_key_mem,
+						info->client_ssl_key_mem_len
+						))
 		return 1;
 
 	lwsl_info("created client ssl context for %s\n", vhost->name);

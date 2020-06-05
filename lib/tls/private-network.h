@@ -171,7 +171,10 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 			    const char *cert_filepath,
 			    const void *cert_mem,
 			    unsigned int cert_mem_len,
-			    const char *private_key_filepath);
+			    const char *private_key_filepath,
+			    const void *key_mem,
+			    unsigned int key_mem_len);
+
 
 LWS_EXTERN lws_tls_ctx *
 lws_tls_ctx_from_wsi(struct lws *wsi);
