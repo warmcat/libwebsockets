@@ -710,9 +710,9 @@ typedef struct lws_humanize_unit {
 	uint64_t factor;
 } lws_humanize_unit_t;
 
-LWS_VISIBLE LWS_EXTERN const lws_humanize_unit_t humanize_schema_si[7];
-LWS_VISIBLE LWS_EXTERN const lws_humanize_unit_t humanize_schema_si_bytes[7];
-LWS_VISIBLE LWS_EXTERN const lws_humanize_unit_t humanize_schema_us[8];
+LWS_VISIBLE extern const lws_humanize_unit_t humanize_schema_si[7];
+LWS_VISIBLE extern const lws_humanize_unit_t humanize_schema_si_bytes[7];
+LWS_VISIBLE extern const lws_humanize_unit_t humanize_schema_us[8];
 
 /**
  * lws_humanize() - Convert possibly large number to human-readable uints

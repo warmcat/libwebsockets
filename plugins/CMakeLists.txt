@@ -24,7 +24,9 @@
 
 include_directories(.)
 
+if (DEFINED LIB_LIST_AT_END)
 link_libraries(${LIB_LIST_AT_END})
+endif()
 
 if (LWS_WITH_PLUGINS AND LWS_WITH_SHARED)
 	macro(create_plugin PLUGIN_NAME PLUGIN_INCLUDE MAIN_SRC S2 S3)

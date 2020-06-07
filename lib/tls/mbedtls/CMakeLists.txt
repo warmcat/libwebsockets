@@ -73,10 +73,17 @@ include_directories(wrapper/include wrapper/include/internal)
 			tls/mbedtls/wrapper/platform/ssl_port.c)
 	endif()
 
+	set(_WANT_MBT 0)
+	if (NOT LWS_PLAT_FREERTOS)
+		if (NOT DEFINED LWS_MBEDTLS_LIBRARIES)
+			set(_WANT_MBT 1)
+		endif()
+		if (NOT DEFINED LWS_MBEDTLS_INCLUDE_DIRS)
+			set(_WANT_MBT 1)
+		endif()
+	endif()
 
-	if ((NOT LWS_MBEDTLS_LIBRARIES OR "${LWS_MBEDTLS_LIBRARIES}" STREQUAL "" OR
-	     NOT LWS_MBEDTLS_INCLUDE_DIRS OR "${LWS_MBEDTLS_INCLUDE_DIRS}" STREQUAL "") AND
-	     NOT LWS_PLAT_FREERTOS)
+	if (_WANT_MBT)
 
 		find_path(LWS_MBEDTLS_INCLUDE_DIRS mbedtls/ssl.h)
 
@@ -96,12 +103,20 @@ include_directories(wrapper/include wrapper/include/internal)
 			message(FATAL_ERROR "You must set LWS_MBEDTLS_LIBRARIES and LWS_MBEDTLS_INCLUDE_DIRS when LWS_WITH_MBEDTLS is turned on.")
 		endif()
 	endif()
-	set(MBEDTLS_LIBRARIES ${LWS_MBEDTLS_LIBRARIES})
-	set(MBEDTLS_INCLUDE_DIRS ${LWS_MBEDTLS_INCLUDE_DIRS})
+	if (LWS_MBEDTLS_LIBRARIES)
+		set(MBEDTLS_LIBRARIES ${LWS_MBEDTLS_LIBRARIES})
+	endif()
+	if (LWS_MBEDTLS_INCLUDE_DIRS)
+		set(MBEDTLS_INCLUDE_DIRS ${LWS_MBEDTLS_INCLUDE_DIRS})
+	endif()
 	set(USE_MBEDTLS 1 PARENT_SCOPE)
-	include_directories(${MBEDTLS_INCLUDE_DIRS})
+	if (DEFINED MBEDTLS_INCLUDE_DIRS)
+		include_directories(${MBEDTLS_INCLUDE_DIRS})
+	endif()
 
-	list(APPEND LIB_LIST ${MBEDTLS_LIBRARIES})
+	if (DEFINED MBEDTLS_LIBRARIES)
+		list(APPEND LIB_LIST ${MBEDTLS_LIBRARIES})
+	endif()
 
 # old mbedtls has everything in mbedtls/net.h
 
