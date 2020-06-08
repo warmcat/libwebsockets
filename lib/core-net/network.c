@@ -436,14 +436,39 @@ lws_retry_sul_schedule_retry_wsi(struct lws *wsi, lws_sorted_usec_list_t *sul,
 
 #if defined(LWS_WITH_IPV6)
 unsigned long
-lws_get_addr_scope(const char *ipaddr)
+lws_get_addr_scope(const char *ifname_or_ipaddr)
 {
-	unsigned long scope = 0;
-
-#ifndef WIN32
-	struct ifaddrs *addrs, *addr;
+	unsigned long scope;
 	char ip[NI_MAXHOST];
 	unsigned int i;
+#if !defined(WIN32)
+	struct ifaddrs *addrs, *addr;
+#else
+	PIP_ADAPTER_ADDRESSES adapter, addrs = NULL;
+	PIP_ADAPTER_UNICAST_ADDRESS addr;
+	struct sockaddr_in6 *sockaddr;
+	ULONG size = 0;
+	int found = 0;
+	DWORD ret;
+#endif
+
+	/*
+	 * First see if we can look the string up as a network interface name...
+	 * windows vista+ also has this
+	 */
+
+	scope = if_nametoindex(ifname_or_ipaddr);
+	if (scope > 0)
+		/* we found it from the interface name lookup */
+		return scope;
+
+	/*
+	 * if not, try to look it up as an IP -> interface -> interface index
+	 */
+
+	scope = 0;
+
+#if !defined(WIN32)
 
 	getifaddrs(&addrs);
 	for (addr = addrs; addr; addr = addr->ifa_next) {
@@ -451,6 +476,7 @@ lws_get_addr_scope(const char *ipaddr)
 			addr->ifa_addr->sa_family != AF_INET6)
 			continue;
 
+		ip[0] = '\0';
 		getnameinfo(addr->ifa_addr,
 				sizeof(struct sockaddr_in6),
 				ip, sizeof(ip),
@@ -463,21 +489,13 @@ lws_get_addr_scope(const char *ipaddr)
 				break;
 			}
 
-		if (!strcmp(ip, ipaddr)) {
+		if (!strcmp(ip, ifname_or_ipaddr)) {
 			scope = if_nametoindex(addr->ifa_name);
 			break;
 		}
 	}
 	freeifaddrs(addrs);
 #else
-	PIP_ADAPTER_ADDRESSES adapter, addrs = NULL;
-	PIP_ADAPTER_UNICAST_ADDRESS addr;
-	ULONG size = 0;
-	DWORD ret;
-	struct sockaddr_in6 *sockaddr;
-	char ip[NI_MAXHOST];
-	unsigned int i;
-	int found = 0;
 
 	for (i = 0; i < 5; i++)
 	{
@@ -516,7 +534,7 @@ lws_get_addr_scope(const char *ipaddr)
 							&sockaddr->sin6_addr,
 							ip, sizeof(ip));
 
-					if (!strcmp(ip, ipaddr)) {
+					if (!strcmp(ip, ifname_or_ipaddr)) {
 						scope = sockaddr->sin6_scope_id;
 						found = 1;
 						break;
