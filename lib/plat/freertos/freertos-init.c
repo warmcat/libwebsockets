@@ -111,5 +111,9 @@ lws_plat_init(struct lws_context *context,
 	context->set = lws_h2_defaults_esp32;
 #endif
 
+#if defined(LWS_ESP_PLATFORM)
+	gpio_install_isr_service(0);
+#endif
+
 	return 0;
 }

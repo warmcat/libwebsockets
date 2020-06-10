@@ -21,16 +21,50 @@
 #include "esp_wifi.h"
 #include <nvs_flash.h>
 #include <esp_netif.h>
+#include <driver/gpio.h>
 
 #include <libwebsockets.h>
 
+struct lws_context *context;
 lws_sorted_usec_list_t sul;
+lws_display_state_t lds;
 int interrupted;
+
+static void
+esp32_i2c_delay(void)
+{
+	ets_delay_us(1);
+}
+
+static const lws_bb_i2c_t li2c = {
+	.bb_ops			= lws_bb_i2c_ops,
+	.scl			= GPIO_NUM_15,
+	.sda			= GPIO_NUM_4,
+	.gpio			= &lws_gpio_plat,
+	.delay			= esp32_i2c_delay
+};
+
+static const lws_display_ssd1306_t disp = {
+	.disp = {
+		lws_display_ssd1306_ops,
+		.w	= 128,
+		.h	= 64
+	},
+	.i2c		= (lws_i2c_ops_t *)&li2c,
+	.gpio		= &lws_gpio_plat,
+	.reset_gpio	= GPIO_NUM_16,
+	.i2c7_address	= SSD1306_I2C7_ADS1
+};
+
+static const uint8_t img[] = {
+#include "../banded-img.h"
+};
 
 static void
 sul_cb(lws_sorted_usec_list_t *sul)
 {
-	interrupted = 1;
+	//interrupted = 1;
+	lwsl_notice("Completed: PASS\n");
 }
 
 void 
@@ -38,8 +72,6 @@ app_main(void)
 {
 	wifi_init_config_t wic = WIFI_INIT_CONFIG_DEFAULT();
 	struct lws_context_creation_info info;
-	struct lws_context *context;
-	esp_chip_info_t chip_info;
 	int n = 0;
 
 	lws_set_log_level(15, NULL);
@@ -54,20 +86,7 @@ app_main(void)
 
 	memset(&info, 0, sizeof(info));
 
-	lwsl_notice("LWS minimal build test\n");
-
-	esp_chip_info(&chip_info);
-	lwsl_notice("chip: %s (%d CPU cores) WiFi%s%s\n",
-		   CONFIG_IDF_TARGET, chip_info.cores,
-		   (chip_info.features & CHIP_FEATURE_BT) ? "/BT" : "",
-		   (chip_info.features & CHIP_FEATURE_BLE) ? "/BLE" : "");
-
-	lwsl_notice("silicon revision %d\n", chip_info.revision);
-
-	lwsl_notice("%dMB %s flash\n", spi_flash_get_chip_size() / (1024 * 1024),
-            (chip_info.features & CHIP_FEATURE_EMB_FLASH) ? "embedded" : "external");
-
-	lwsl_notice("Free heap: %d\n", esp_get_free_heap_size());
+	lwsl_notice("LWS test for Heltec WB32 ESP32 board\n");
 
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.port = CONTEXT_PORT_NO_LISTEN;
@@ -78,7 +97,15 @@ app_main(void)
 	}
 
 	/*
-	 * We just exit the event loop after 3s
+	 * Show the lws logo on the display
+	 */
+
+	lws_display_state_init(&lds, context, 10000, 20000, 200, 10, &disp.disp);
+	lws_display_state_active(&lds);
+	disp.disp.blit(lds.disp, img, 0, 0, 128, 64);
+
+	/*
+	 * We say the test succeeded if we survive 3s around the event loop
 	 */
 
 	lws_sul_schedule(context, 0, &sul, sul_cb, 3 * LWS_USEC_PER_SEC);
@@ -90,7 +117,6 @@ app_main(void)
 
 	lws_context_destroy(context);
 
-	lwsl_notice("Completed: PASS\n");
 //	fflush(stdout);
 //	esp_restart();
 
@@ -99,4 +125,3 @@ spin:
 	taskYIELD();
 	goto spin;
 }
-

@@ -150,3 +150,7 @@ extern uint16_t lws_esp32_sine_interp(int n);
 /* required in external code by esp32 plat (may just return if no leds) */
 extern void lws_esp32_leds_timer_cb(TimerHandle_t th);
 
+
+#include "libwebsockets/lws-gpio.h"
+extern const lws_gpio_ops_t lws_gpio_plat;
+

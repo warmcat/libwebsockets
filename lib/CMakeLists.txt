@@ -122,6 +122,10 @@ add_subdir_include_dirs(misc)
 add_subdir_include_dirs(system)
 add_subdir_include_dirs(event-libs)
 
+if (LWS_WITH_DRIVERS)
+	add_subdir_include_dirs(drivers)
+endif()
+
 if (LWS_WITH_NETWORK)
 	add_subdir_include_dirs(core-net)
 	if (LWS_WITH_ABSTRACT)

@@ -6,6 +6,10 @@ if (ESP_PLATFORM)
 	enable_testing()
 
 	target_link_libraries(lws-minimal-esp32.elf websockets)
+
+	option(LWS_WITH_DRIVERS "With generic drivers for gpio, i2c, display etc" ON)
+	set(LWS_WITH_DRIVERS ON)
+
 	add_subdirectory(libwebsockets)
 
 	add_test(NAME flashing COMMAND idf.py flash)

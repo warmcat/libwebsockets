@@ -153,6 +153,12 @@ option(LWS_WITH_LIBEVENT "Compile with support for libevent" OFF)
 option(LWS_WITH_GLIB "Compile with support for glib event loop" OFF)
 
 #
+# LWS Drivers
+#
+
+option(LWS_WITH_DRIVERS "With generic drivers for gpio, i2c, display etc" OFF)
+
+#
 # Static / Dynamic build options
 #
 option(LWS_WITH_STATIC "Build the static version of the library" ON)
