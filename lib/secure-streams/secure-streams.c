@@ -133,7 +133,8 @@ lws_ss_timeout_sul_check_cb(lws_sorted_usec_list_t *sul)
 {
 	lws_ss_handle_t *h = lws_container_of(sul, lws_ss_handle_t, sul);
 
-	lwsl_err("%s: retrying ss h %p (%s) after backoff\n", __func__, h, h->policy->streamtype);
+	lwsl_notice("%s: retrying ss h %p (%s) after backoff\n", __func__, h,
+		 h->policy->streamtype);
 	/* we want to retry... */
 	h->seqstate = SSSEQ_DO_RETRY;
 
