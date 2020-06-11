@@ -74,11 +74,18 @@ struct lws_genhmac_ctx {
 	mbedtls_md_context_t ctx;
 #else
 	const EVP_MD *evp_type;
+
+#if defined(LWS_HAVE_EVP_PKEY_new_raw_private_key)
+	EVP_MD_CTX *ctx;
+	EVP_PKEY *key;
+#else
 #if defined(LWS_HAVE_HMAC_CTX_new)
         HMAC_CTX *ctx;
 #else
         HMAC_CTX ctx;
 #endif
+#endif
+
 #endif
 };
 

@@ -93,6 +93,78 @@ lws_genhash_destroy(struct lws_genhash_ctx *ctx, void *result)
 	return ret;
 }
 
+#if defined(LWS_HAVE_EVP_PKEY_new_raw_private_key)
+
+int
+lws_genhmac_init(struct lws_genhmac_ctx *ctx, enum lws_genhmac_types type,
+		 const uint8_t *key, size_t key_len)
+{
+	ctx->ctx = EVP_MD_CTX_create();
+	if (!ctx->ctx)
+		return -1;
+
+	ctx->evp_type = 0;
+	ctx->type = type;
+
+	switch (type) {
+	case LWS_GENHMAC_TYPE_SHA256:
+		ctx->evp_type = EVP_sha256();
+		break;
+	case LWS_GENHMAC_TYPE_SHA384:
+		ctx->evp_type = EVP_sha384();
+		break;
+	case LWS_GENHMAC_TYPE_SHA512:
+		ctx->evp_type = EVP_sha512();
+		break;
+	default:
+		lwsl_err("%s: unknown HMAC type %d\n", __func__, type);
+		goto bail;
+	}
+
+	ctx->key = EVP_PKEY_new_raw_private_key(EVP_PKEY_HMAC, NULL, key, key_len);
+	if (!ctx->key)
+		goto bail;
+
+	if (EVP_DigestSignInit(ctx->ctx, NULL, ctx->evp_type, NULL, ctx->key) != 1)
+		goto bail1;
+
+	return 0;
+
+bail1:
+	EVP_PKEY_free(ctx->key);
+bail:
+	EVP_MD_CTX_free(ctx->ctx);
+
+	return -1;
+}
+
+int
+lws_genhmac_update(struct lws_genhmac_ctx *ctx, const void *in, size_t len)
+{
+
+	if (EVP_DigestSignUpdate(ctx->ctx, in, len) != 1)
+		return -1;
+
+	return 0;
+}
+
+int
+lws_genhmac_destroy(struct lws_genhmac_ctx *ctx, void *result)
+{
+	size_t size = (size_t)lws_genhmac_size(ctx->type);
+	int n;
+
+	n = EVP_DigestSignFinal(ctx->ctx, result, &size);
+	EVP_MD_CTX_free(ctx->ctx);
+	EVP_PKEY_free(ctx->key);
+
+	if (n != 1)
+		return -1;
+
+	return 0;
+}
+
+#else
 
 int
 lws_genhmac_init(struct lws_genhmac_ctx *ctx, enum lws_genhmac_types type,
@@ -172,3 +244,5 @@ lws_genhmac_destroy(struct lws_genhmac_ctx *ctx, void *result)
 	return 0;
 }
 
+
+#endif
