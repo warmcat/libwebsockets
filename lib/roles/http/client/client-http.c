@@ -1027,7 +1027,7 @@ lws_http_multipart_headers(struct lws *wsi, uint8_t *p)
 			       wsi->http.multipart_boundary,
 			       sizeof(wsi->http.multipart_boundary));
 
-	n = lws_snprintf(arg, sizeof(arg), "multipart/form-data; boundary=%s",
+	n = lws_snprintf(arg, sizeof(arg), "multipart/form-data; boundary=\"%s\"",
 			 wsi->http.multipart_boundary);
 
 	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE,

@@ -138,8 +138,10 @@ lws_urldecode_s_create(struct lws_spa *spa, struct lws *wsi, char *out,
 				s->mime_boundary[m++] = '\x0a';
 				s->mime_boundary[m++] = '-';
 				s->mime_boundary[m++] = '-';
+				if (*p == '\"')
+					p++;
 				while (m < (int)sizeof(s->mime_boundary) - 1 &&
-				       *p && *p != ' ' && *p != ';')
+				       *p && *p != ' ' && *p != ';' && *p != '\"')
 					s->mime_boundary[m++] = *p++;
 				s->mime_boundary[m] = '\0';
 
