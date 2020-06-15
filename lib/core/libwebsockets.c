@@ -936,7 +936,9 @@ lws_strexp_expand(lws_strexp_t *exp, const char *in, size_t len,
 				break;
 			}
 
-			exp->out[exp->pos++] = *in;
+			if (exp->out)
+				exp->out[exp->pos] = *in;
+			exp->pos++;
 			if (exp->olen - exp->pos < 1) {
 				*pused_in = used + 1;
 				*pused_out = exp->pos;
@@ -955,8 +957,11 @@ lws_strexp_expand(lws_strexp_t *exp, const char *in, size_t len,
 			if (exp->olen - exp->pos < 3)
 				return -1;
 
-			exp->out[exp->pos++] = '$';
-			exp->out[exp->pos++] = *in;
+			if (exp->out) {
+				exp->out[exp->pos++] = '$';
+				exp->out[exp->pos++] = *in;
+			} else
+				exp->pos += 2;
 			if (*in != '$')
 				exp->state = LWS_EXPS_LITERAL;
 			break;
@@ -991,7 +996,8 @@ drain:
 		in++;
 	}
 
-	exp->out[exp->pos] = '\0';
+	if (exp->out)
+		exp->out[exp->pos] = '\0';
 	*pused_in = used;
 	*pused_out = exp->pos;
 

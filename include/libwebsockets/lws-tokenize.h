@@ -192,10 +192,15 @@ enum {
  * \p exp: the exp object to init
  * \p priv: the user's object pointer to pass to callback
  * \p cb: the callback to expand named objects
- * \p out: the start of the output buffer
+ * \p out: the start of the output buffer, or NULL just to get the length
  * \p olen: the length of the output buffer in bytes
  *
  * Prepares an lws_strexp_t for use and sets the initial output buffer
+ *
+ * If \p out is NULL, substitution proceeds normally, but no output is produced,
+ * only the length is returned.  olen should be set to the largest feasible
+ * overall length.  To use this mode, the substitution callback must also check
+ * for NULL \p out and avoid producing the output.
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_strexp_init(lws_strexp_t *exp, void *priv, lws_strexp_expand_cb cb,
@@ -205,12 +210,17 @@ lws_strexp_init(lws_strexp_t *exp, void *priv, lws_strexp_expand_cb cb,
  * lws_strexp_reset_out() - reset the output buffer on an existing strexp
  *
  * \p exp: the exp object to init
- * \p out: the start of the output buffer
+ * \p out: the start of the output buffer, or NULL to just get length
  * \p olen: the length of the output buffer in bytes
  *
  * Provides a new output buffer for lws_strexp_expand() to continue to write
  * into.  It can be the same as the old one if it has been copied out or used.
  * The position of the next write will be reset to the start of the given buf.
+ *
+ * If \p out is NULL, substitution proceeds normally, but no output is produced,
+ * only the length is returned.  \p olen should be set to the largest feasible
+ * overall length.  To use this mode, the substitution callback must also check
+ * for NULL \p out and avoid producing the output.
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_strexp_reset_out(lws_strexp_t *exp, char *out, size_t olen);

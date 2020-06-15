@@ -299,7 +299,8 @@ expand:
 	if (total < budget)
 		budget = total;
 
-	memcpy(out + *pos, replace + (*exp_ofs), budget);
+	if (out)
+		memcpy(out + *pos, replace + (*exp_ofs), budget);
 	*exp_ofs += budget;
 	*pos += budget;
 
@@ -350,6 +351,17 @@ int main(int argc, const char **argv)
 		    strcmp(obuf, "this-is-a-replacement_string-for-strexp")) {
 			lwsl_notice("%s: obuf %s\n", __func__, obuf);
 			lwsl_err("%s: lws_strexp test 1 failed: %d\n", __func__, n);
+
+			return 1;
+		}
+
+		/* as above, but don't generate output, just find the length */
+
+		lws_strexp_init(&exp, NULL, exp_cb1, NULL, (size_t)-1);
+		n = lws_strexp_expand(&exp, exp_inp1, 28, &used_in, &used_out);
+		if (n != LSTRX_DONE || used_in != 28 || used_out != 39) {
+			lwsl_err("%s: lws_strexp test 2 failed: %d, used_out: %d\n",
+					__func__, n, (int)used_out);
 
 			return 1;
 		}

@@ -167,7 +167,8 @@ lws_ss_exp_cb_metadata(void *priv, const char *name, char *out, size_t *pos,
 	if (total < budget)
 		budget = total;
 
-	memcpy(out + *pos, replace + (*exp_ofs), budget);
+	if (out)
+		memcpy(out + *pos, replace + (*exp_ofs), budget);
 	*exp_ofs += budget;
 	*pos += budget;
 
