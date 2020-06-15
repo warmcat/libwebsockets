@@ -1,4 +1,5 @@
-# - Config file for the Libevent package
+# - Config file for lws
+
 # It defines the following variables
 #  LIBWEBSOCKETS_INCLUDE_DIRS - include directories for FooBar
 #  LIBWEBSOCKETS_LIBRARIES    - libraries to link against
@@ -14,4 +15,11 @@ include(${LWS_CMAKE_DIR}/LibwebsocketsTargets.cmake)
 
 # IMPORTED targets from LibwebsocketsTargets.cmake
 set(LIBWEBSOCKETS_LIBRARIES websockets websockets_shared)
+
+# These are additional libs that lws wants your app to also link to
+if (NOT WIN32 AND NOT MSVC)
+	set(LIBWEBSOCKETS_DEP_LIBS @LIB_LIST_AT_END@)
+else()
+	set(LIBWEBSOCKETS_DEP_LIBS)
+endif()
 

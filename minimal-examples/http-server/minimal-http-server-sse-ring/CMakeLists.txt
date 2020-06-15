@@ -1,5 +1,6 @@
 project(lws-minimal-http-server-sse-ring)
 cmake_minimum_required(VERSION 2.8)
+find_package(libwebsockets CONFIG REQUIRED)
 include(CheckIncludeFile)
 include(CheckCSourceCompiles)
 
@@ -15,9 +16,9 @@ if (requirements)
 	add_executable(${SAMP} ${SRCS})
 
 	if (websockets_shared)
-		target_link_libraries(${SAMP} websockets_shared ${PTHREAD_LIB})
+		target_link_libraries(${SAMP} websockets_shared ${PTHREAD_LIB} ${LIBWEBSOCKETS_DEP_LIBS})
 		add_dependencies(${SAMP} websockets_shared)
 	else()
-		target_link_libraries(${SAMP} websockets ${PTHREAD_LIB})
+		target_link_libraries(${SAMP} websockets ${PTHREAD_LIB} ${LIBWEBSOCKETS_DEP_LIBS})
 	endif()
 endif()

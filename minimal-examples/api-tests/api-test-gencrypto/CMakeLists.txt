@@ -19,10 +19,10 @@ if (requirements)
 	add_test(NAME api-test-gencrypto COMMAND lws-api-test-gencrypto)
 
 	if (websockets_shared)
-		target_link_libraries(${SAMP} websockets_shared)
+		target_link_libraries(${SAMP} websockets_shared ${LIBWEBSOCKETS_DEP_LIBS})
 		add_dependencies(${SAMP} websockets_shared)
 	else()
-		target_link_libraries(${SAMP} websockets)
+		target_link_libraries(${SAMP} websockets ${LIBWEBSOCKETS_DEP_LIBS})
 	endif()
 endif()
 

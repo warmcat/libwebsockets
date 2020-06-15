@@ -19,10 +19,10 @@ if (requirements)
 	endif()
 
 	if (websockets_shared)
-		target_link_libraries(${PROJECT_NAME} websockets_shared)
+		target_link_libraries(${PROJECT_NAME} websockets_shared ${LIBWEBSOCKETS_DEP_LIBS})
 		add_dependencies(${PROJECT_NAME} websockets_shared)
 	else()
-		target_link_libraries(${PROJECT_NAME} websockets)
+		target_link_libraries(${PROJECT_NAME} websockets ${LIBWEBSOCKETS_DEP_LIBS})
 	endif()
 
 endif()
