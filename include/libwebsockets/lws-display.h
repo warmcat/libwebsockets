@@ -96,7 +96,7 @@ typedef struct lws_diplay_state {
  *  - off-only: set autodim to some ms and off_ms to 0
  *  - neither: set both autodim and off_ms to -1
  */
-void
+LWS_VISIBLE LWS_EXTERN void
 lws_display_state_init(lws_display_state_t *lds, struct lws_context *ctx,
 		       int autodim_ms, int off_ms, lws_display_brightness active,
 		       lws_display_brightness dim, const lws_display_t *disp);
@@ -110,7 +110,7 @@ lws_display_state_init(lws_display_state_t *lds, struct lws_context *ctx,
  *
  * Adjusts the brightness gradually twoards the target at 20Hz
  */
-void
+LWS_VISIBLE LWS_EXTERN void
 lws_display_state_set_brightness(lws_display_state_t *lds,
 				 lws_display_brightness target,
 				 lws_display_brightness step);
@@ -123,7 +123,7 @@ lws_display_state_set_brightness(lws_display_state_t *lds,
  * Resets the auto-dim and auto-off timers and makes sure the display is on and
  * at the active brightness level
  */
-void
+LWS_VISIBLE LWS_EXTERN void
 lws_display_state_active(lws_display_state_t *lds);
 
 /*
@@ -134,7 +134,7 @@ lws_display_state_active(lws_display_state_t *lds);
  * Turns the display to least power mode or completely off if possible.
  * Disables the timers related to dimming and blanking.
  */
-void
+LWS_VISIBLE LWS_EXTERN void
 lws_display_state_off(lws_display_state_t *lds);
 
 #endif

@@ -28,7 +28,12 @@
 struct lws_context *context;
 lws_sorted_usec_list_t sul;
 lws_display_state_t lds;
+struct lws_led_state *lls;
 int interrupted;
+
+/*
+ * Hook up bitbang i2c, display driver and display
+ */
 
 static void
 esp32_i2c_delay(void)
@@ -37,28 +42,89 @@ esp32_i2c_delay(void)
 }
 
 static const lws_bb_i2c_t li2c = {
-	.bb_ops			= lws_bb_i2c_ops,
-	.scl			= GPIO_NUM_15,
-	.sda			= GPIO_NUM_4,
-	.gpio			= &lws_gpio_plat,
-	.delay			= esp32_i2c_delay
+	.bb_ops				= lws_bb_i2c_ops,
+	.scl				= GPIO_NUM_15,
+	.sda				= GPIO_NUM_4,
+	.gpio				= &lws_gpio_plat,
+	.delay				= esp32_i2c_delay
 };
 
 static const lws_display_ssd1306_t disp = {
 	.disp = {
 		lws_display_ssd1306_ops,
-		.w	= 128,
-		.h	= 64
+		.w			= 128,
+		.h			= 64
 	},
-	.i2c		= (lws_i2c_ops_t *)&li2c,
-	.gpio		= &lws_gpio_plat,
-	.reset_gpio	= GPIO_NUM_16,
-	.i2c7_address	= SSD1306_I2C7_ADS1
+	.i2c				= (lws_i2c_ops_t *)&li2c,
+	.gpio				= &lws_gpio_plat,
+	.reset_gpio			= GPIO_NUM_16,
+	.i2c7_address			= SSD1306_I2C7_ADS1
+};
+
+/*
+ * Button controller
+ */
+
+static const lws_button_map_t bcm[] = {
+	{
+		.gpio			= GPIO_NUM_0,
+		.smd_interaction_name	= "user"
+	},
+};
+
+static const lws_button_controller_t bc = {
+	.smd_bc_name			= "bc",
+	.gpio_ops			= &lws_gpio_plat,
+	.button_map			= &bcm[0],
+	.active_state_bitmap		= 0,
+	.message_on_down_bitmap		= (1 << 0),
+	.message_on_up_bitmap		= 0,
+	.count_buttons			= LWS_ARRAY_SIZE(bcm)
+};
+
+/*
+ * led controller
+ */
+
+static const lws_led_gpio_map_t lgm[] = {
+	{
+		.name			= "alert",
+		.gpio			= GPIO_NUM_25,
+		.active_level		= 1,
+	},
+};
+
+static const lws_led_gpio_controller_t lgc = {
+	.led_ops			= lws_led_gpio_ops,
+	.gpio_ops			= &lws_gpio_plat,
+	.led_map			= &lgm[0],
+	.count_leds			= LWS_ARRAY_SIZE(lgm)
 };
 
 static const uint8_t img[] = {
 #include "../banded-img.h"
 };
+
+static uint8_t flip;
+
+static int
+smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp, void *buf,
+       size_t len)
+{
+	flip = flip ^ 1;
+	lgc.led_ops.intensity(&lgc.led_ops,
+			      lgc.led_ops.lookup(&lgc.led_ops, "alert"), flip);
+
+	lwsl_hexdump_notice(buf, len);
+
+	/*
+	 * Any kind of user interaction brings the display back up and resets
+	 * the dimming and blanking timers
+	 */
+	lws_display_state_active(&lds);
+
+	return 0;
+}
 
 static void
 sul_cb(lws_sorted_usec_list_t *sul)
@@ -72,6 +138,7 @@ app_main(void)
 {
 	wifi_init_config_t wic = WIFI_INIT_CONFIG_DEFAULT();
 	struct lws_context_creation_info info;
+	struct lws_button_state *bcs;
 	int n = 0;
 
 	lws_set_log_level(15, NULL);
@@ -90,10 +157,24 @@ app_main(void)
 
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.port = CONTEXT_PORT_NO_LISTEN;
+	info.early_smd_cb = smd_cb;
+	info.early_smd_class_filter = LWSSMDCL_INTERACTION;
 	context = lws_create_context(&info);
 	if (!context) {
 		lwsl_err("lws init failed\n");
 		return;
+	}
+
+	lls = lgc.led_ops.create(&lgc.led_ops);
+	if (!lls) {
+		lwsl_err("%s: could not create led\n", __func__);
+		goto spin;
+	}
+
+	bcs = lws_button_controller_create(context, &bc);
+	if (!bcs) {
+		lwsl_err("%s: could not create buttons\n", __func__);
+		goto spin;
 	}
 
 	/*
@@ -103,6 +184,8 @@ app_main(void)
 	lws_display_state_init(&lds, context, 10000, 20000, 200, 10, &disp.disp);
 	lws_display_state_active(&lds);
 	disp.disp.blit(lds.disp, img, 0, 0, 128, 64);
+
+	lws_button_enable(bcs, 0, lws_button_get_bit(bcs, "user"));
 
 	/*
 	 * We say the test succeeded if we survive 3s around the event loop

@@ -612,10 +612,10 @@ struct lws;
 #include <libwebsockets/lws-display.h>
 #include <libwebsockets/lws-i2c.h>
 #include <libwebsockets/lws-gpio.h>
-
 #include <libwebsockets/lws-bb-i2c.h>
-
 #include <libwebsockets/lws-ssd1306-i2c.h>
+#include <libwebsockets/lws-button.h>
+#include <libwebsockets/lws-led.h>
 
 #ifdef __cplusplus
 }

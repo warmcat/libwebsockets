@@ -3,6 +3,8 @@ list(APPEND SOURCES
         drivers/display/ssd1306-i2c.c
         drivers/i2c/lws-i2c.c
         drivers/i2c/bitbang/lws-bb-i2c.c
+	drivers/button/lws-button.c
+	drivers/led/led-gpio.c
 )
 
 if (LWS_ESP_PLATFORM)

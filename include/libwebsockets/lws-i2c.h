@@ -44,10 +44,10 @@ typedef struct lws_i2c_ops {
  * These are implemented by calling the ops above, and so are generic
  */
 
-int
+LWS_VISIBLE LWS_EXTERN int
 lws_i2c_command(const lws_i2c_ops_t *ctx, uint8_t ads7, uint8_t c);
 
-int
+LWS_VISIBLE LWS_EXTERN int
 lws_i2c_command_list(const lws_i2c_ops_t *ctx, uint8_t ads7, const uint8_t *buf,
 		     size_t len);
 
