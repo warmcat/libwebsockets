@@ -198,8 +198,10 @@ int main(int argc, const char **argv)
 
 	if (lws_cmdline_option(argc, argv, "-s")) {
 		info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+#if defined(LWS_WITH_TLS)
 		info.ssl_cert_filepath = "localhost-100y.cert";
 		info.ssl_private_key_filepath = "localhost-100y.key";
+#endif
 	}
 
 	context = lws_create_context(&info);

@@ -335,10 +335,13 @@ lejp_globals_cb(struct lejp_ctx *ctx, char reason)
 		a->info->timeout_secs = atoi(ctx->buf);
 		return 0;
 
+#if defined(LWS_WITH_TLS)
 	case LWJPGP_DEFAULT_ALPN:
 		a->info->alpn = a->p;
 		break;
+#endif
 
+#if defined(LWS_WITH_PEER_LIMITS)
 	case LWJPGP_IP_LIMIT_AH:
 		a->info->ip_limit_ah = atoi(ctx->buf);
 		return 0;
@@ -346,6 +349,7 @@ lejp_globals_cb(struct lejp_ctx *ctx, char reason)
 	case LWJPGP_IP_LIMIT_WSI:
 		a->info->ip_limit_wsi = atoi(ctx->buf);
 		return 0;
+#endif
 
 	case LWJPGP_FD_LIMIT_PT:
 		a->info->rlimit_nofile = atoi(ctx->buf);
@@ -415,8 +419,11 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 
 		a->info->protocols = a->protocols;
 		a->info->pprotocols = a->pprotocols;
+#if defined(LWS_ROLE_WS)
 		a->info->extensions = a->extensions;
+#endif
 #if defined(LWS_WITH_TLS)
+#if defined(LWS_WITH_CLIENT)
 		a->info->client_ssl_cipher_list = "ECDHE-ECDSA-AES256-GCM-SHA384:"
 			"ECDHE-RSA-AES256-GCM-SHA384:"
 			"DHE-RSA-AES256-GCM-SHA384:"
@@ -431,6 +438,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 			"!AES256-GCM-SHA384:"
 			"!AES256-SHA256";
 #endif
+#if defined(LWS_WITH_SERVER)
 		a->info->ssl_cipher_list = "ECDHE-ECDSA-AES256-GCM-SHA384:"
 				       "ECDHE-RSA-AES256-GCM-SHA384:"
 				       "DHE-RSA-AES256-GCM-SHA384:"
@@ -444,6 +452,8 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 				       "!DHE-RSA-AES256-SHA256:"
 				       "!AES256-GCM-SHA384:"
 				       "!AES256-SHA256";
+#endif
+#endif
 		a->info->keepalive_timeout = 5;
 	}
 
@@ -529,7 +539,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 			vhost->default_protocol_index = 255;
 		}
 
-#if defined(LWS_WITH_TLS)
+#if defined(LWS_WITH_TLS) && defined(LWS_WITH_CLIENT)
 		if (a->enable_client_ssl) {
 			const char *cert_filepath =
 					a->info->client_ssl_cert_filepath;
@@ -632,6 +642,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		else
 			a->info->options &= ~(LWS_SERVER_OPTION_STS);
 		return 0;
+#if defined(LWS_WITH_TLS)
 	case LEJPVP_HOST_SSL_KEY:
 		a->info->ssl_private_key_filepath = a->p;
 		break;
@@ -641,6 +652,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 	case LEJPVP_HOST_SSL_CA:
 		a->info->ssl_ca_filepath = a->p;
 		break;
+#endif
 	case LEJPVP_ACCESS_LOG:
 		a->info->log_filepath = a->p;
 		break;
@@ -685,23 +697,25 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->info->keepalive_timeout = atoi(ctx->buf);
 		return 0;
 #if defined(LWS_WITH_TLS)
+#if defined(LWS_WITH_CLIENT)
 	case LEJPVP_CLIENT_CIPHERS:
 		a->info->client_ssl_cipher_list = a->p;
 		break;
+	case LEJPVP_CLIENT_TLS13_CIPHERS:
+		a->info->client_tls_1_3_plus_cipher_list = a->p;
+		break;
 #endif
+
 	case LEJPVP_CIPHERS:
 		a->info->ssl_cipher_list = a->p;
 		break;
 	case LEJPVP_TLS13_CIPHERS:
 		a->info->tls1_3_plus_cipher_list = a->p;
 		break;
-	case LEJPVP_CLIENT_TLS13_CIPHERS:
-		a->info->client_tls_1_3_plus_cipher_list = a->p;
-		break;
-
 	case LEJPVP_ECDH_CURVE:
 		a->info->ecdh_curve = a->p;
 		break;
+#endif
 	case LEJPVP_PMO:
 	case LEJPVP_CGI_ENV:
 		mp_cgienv = lwsws_align(a);
@@ -771,7 +785,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 	case LEJPVP_ENABLE_CLIENT_SSL:
 		a->enable_client_ssl = arg_to_bool(ctx->buf);
 		return 0;
-#if defined(LWS_WITH_TLS)
+#if defined(LWS_WITH_TLS) && defined(LWS_WITH_CLIENT)
 	case LEJPVP_CLIENT_SSL_KEY:
 		a->info->client_ssl_private_key_filepath = a->p;
 		break;
@@ -819,6 +833,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->info->error_document_404 = a->p;
 		break;
 
+#if defined(LWS_WITH_TLS)
 	case LEJPVP_SSL_OPTION_SET:
 		a->info->ssl_options_set |= atol(ctx->buf);
 		return 0;
@@ -826,16 +841,19 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->info->ssl_options_clear |= atol(ctx->buf);
 		return 0;
 
+#if defined(LWS_WITH_CLIENT)
 	case LEJPVP_SSL_CLIENT_OPTION_SET:
 		a->info->ssl_client_options_set |= atol(ctx->buf);
 		return 0;
 	case LEJPVP_SSL_CLIENT_OPTION_CLEAR:
 		a->info->ssl_client_options_clear |= atol(ctx->buf);
 		return 0;
+#endif
 
 	case LEJPVP_ALPN:
 		a->info->alpn = a->p;
 		break;
+#endif
 
 	case LEJPVP_LISTEN_ACCEPT_ROLE:
 		a->info->listen_accept_role = a->p;
@@ -972,7 +990,9 @@ lwsws_get_config_globals(struct lws_context_creation_info *info, const char *d,
 {
 	struct lws_dir_args da;
 	struct jpargs a;
+#if defined(LWS_WITH_PLUGINS)
 	const char * const *old = info->plugin_dirs;
+#endif
 	char dd[128];
 
 	memset(&a, 0, sizeof(a));
@@ -983,16 +1003,20 @@ lwsws_get_config_globals(struct lws_context_creation_info *info, const char *d,
 	a.valid = 0;
 
 	lwsws_align(&a);
+#if defined(LWS_WITH_PLUGINS)
 	info->plugin_dirs = (void *)a.p;
+#endif
 	a.plugin_dirs = (void *)a.p; /* writeable version */
 	a.p += MAX_PLUGIN_DIRS * sizeof(void *);
 
+#if defined(LWS_WITH_PLUGINS)
 	/* copy any default paths */
 
 	while (old && *old) {
 		a.plugin_dirs[a.count_plugin_dirs++] = *old;
 		old++;
 	}
+#endif
 
 	lws_snprintf(dd, sizeof(dd) - 1, "%s/conf", d);
 	if (lwsws_get_config(&a, dd, paths_global,
@@ -1034,7 +1058,9 @@ lwsws_get_config_vhosts(struct lws_context *context,
 	a.context = context;
 	a.protocols = info->protocols;
 	a.pprotocols = info->pprotocols;
+#if defined(LWS_ROLE_WS)
 	a.extensions = info->extensions;
+#endif
 
 	lws_snprintf(dd, sizeof(dd) - 1, "%s/conf", d);
 	if (lwsws_get_config(&a, dd, paths_vhosts,

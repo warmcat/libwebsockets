@@ -26,6 +26,7 @@
 
 include_directories(.)
 
+if (LWS_WITH_CLIENT)
 	list(APPEND SOURCES
 			secure-streams/secure-streams.c
 			secure-streams/policy-common.c
@@ -121,6 +122,7 @@ include_directories(.)
 	endmacro()
 
 	create_ss_plugin(ssp-h1url "h1url.c" "" "" "" "")
+endif()
 
 #
 # Keep explicit parent scope exports at end

@@ -201,8 +201,10 @@ int main(int argc, const char **argv)
 
 	info.port = 7682;
 	info.error_document_404 = "/404.html";
+#if defined(LWS_WITH_TLS)
 	info.ssl_cert_filepath = "localhost-100y.cert";
 	info.ssl_private_key_filepath = "localhost-100y.key";
+#endif
 	info.vhost_name = "https";
 
 	if (!lws_create_vhost(context, &info)) {

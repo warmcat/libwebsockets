@@ -510,6 +510,7 @@ static const struct lws_protocols protocols[] = {
 	{ NULL, NULL, 0, 0 } /* end */
 };
 
+#if defined(LWS_ROLE_WS)
 static const struct lws_extension exts[] = {
 	{
 		"permessage-deflate",
@@ -523,7 +524,7 @@ static const struct lws_extension exts[] = {
 	},
 	{ NULL, NULL, NULL /* terminator */ }
 };
-
+#endif
 
 
 void sighandler(int sig)
@@ -703,7 +704,9 @@ int main(int argc, char **argv)
 	info.protocols = protocols;
 	info.gid = -1;
 	info.uid = -1;
+#if defined(LWS_ROLE_WS)
 	info.extensions = exts;
+#endif
 
 	/*
 	 * since we know this lws context is only ever going to be used with
@@ -718,7 +721,7 @@ int main(int argc, char **argv)
 #endif
 
 	info.options |= LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW;
-
+#if defined(LWS_WITH_TLS)
 	if (use_ssl) {
 		/*
 		 * If the server wants us to present a valid SSL client certificate
@@ -759,7 +762,7 @@ int main(int argc, char **argv)
 		lwsl_notice(" Skipping peer cert hostname check\n");
 	else
 		lwsl_notice(" Requiring peer cert hostname matches\n");
-
+#endif
 	context = lws_create_context(&info);
 	if (context == NULL) {
 		fprintf(stderr, "Creating libwebsocket context failed\n");

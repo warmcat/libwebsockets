@@ -206,6 +206,7 @@ void sighandler(int sig)
 	lws_cancel_service(context);
 }
 
+#if defined(LWS_ROLE_WS)
 static const struct lws_extension exts[] = {
 	{
 		"permessage-deflate",
@@ -214,6 +215,7 @@ static const struct lws_extension exts[] = {
 	},
 	{ NULL, NULL, NULL /* terminator */ }
 };
+#endif
 
 /*
  * mount handlers for sections of the URL space
@@ -503,6 +505,8 @@ int main(int argc, char **argv)
 
 	info.iface = iface;
 	info.protocols = protocols;
+
+#if defined(LWS_WITH_TLS)
 	info.ssl_cert_filepath = NULL;
 	info.ssl_private_key_filepath = NULL;
 
@@ -521,17 +525,22 @@ int main(int argc, char **argv)
 		if (!key_path[0])
 			sprintf(key_path, "%s/libwebsockets-test-server.key.pem",
 								resource_path);
-
+#if defined(LWS_WITH_TLS)
 		info.ssl_cert_filepath = cert_path;
 		info.ssl_private_key_filepath = key_path;
 		if (ca_path[0])
 			info.ssl_ca_filepath = ca_path;
+#endif
 	}
+#endif
 	info.gid = gid;
 	info.uid = uid;
 	info.options = opts | LWS_SERVER_OPTION_VALIDATE_UTF8 | LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
+#if defined(LWS_ROLE_WS)
 	info.extensions = exts;
+#endif
 	info.timeout_secs = 5;
+#if defined(LWS_WITH_TLS)
 	info.ssl_cipher_list = "ECDHE-ECDSA-AES256-GCM-SHA384:"
 			       "ECDHE-RSA-AES256-GCM-SHA384:"
 			       "DHE-RSA-AES256-GCM-SHA384:"
@@ -545,9 +554,12 @@ int main(int argc, char **argv)
 			       "!DHE-RSA-AES256-SHA256:"
 			       "!AES256-GCM-SHA384:"
 			       "!AES256-SHA256";
+#endif
 	info.mounts = &mount;
+#if defined(LWS_WITH_PEER_LIMITS)
 	info.ip_limit_ah = 128; /* for testing */
 	info.ip_limit_wsi = 800; /* for testing */
+#endif
 
 	if (use_ssl)
 		/* redirect guys coming on http */

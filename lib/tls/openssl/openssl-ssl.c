@@ -65,6 +65,7 @@ int lws_ssl_get_error(struct lws *wsi, int n)
 	return m;
 }
 
+#if defined(LWS_WITH_SERVER)
 static int
 lws_context_init_ssl_pem_passwd_cb(char *buf, int size, int rwflag,
 				   void *userdata)
@@ -77,7 +78,9 @@ lws_context_init_ssl_pem_passwd_cb(char *buf, int size, int rwflag,
 
 	return (int)strlen(buf);
 }
+#endif
 
+#if defined(LWS_WITH_CLIENT)
 static int
 lws_context_init_ssl_pem_passwd_client_cb(char *buf, int size, int rwflag,
 					  void *userdata)
@@ -94,13 +97,23 @@ lws_context_init_ssl_pem_passwd_client_cb(char *buf, int size, int rwflag,
 
 	return (int)strlen(buf);
 }
+#endif
 
 void
 lws_ssl_bind_passphrase(SSL_CTX *ssl_ctx, int is_client,
 			const struct lws_context_creation_info *info)
 {
-	if (!info->ssl_private_key_password &&
-	    !info->client_ssl_private_key_password)
+	if (
+#if defined(LWS_WITH_SERVER)
+		!info->ssl_private_key_password
+#endif
+#if defined(LWS_WITH_SERVER) && defined(LWS_WITH_CLIENT)
+			&&
+#endif
+#if defined(LWS_WITH_CLIENT)
+	    !info->client_ssl_private_key_password
+#endif
+	    )
 		return;
 	/*
 	 * password provided, set ssl callback and user data
@@ -109,10 +122,20 @@ lws_ssl_bind_passphrase(SSL_CTX *ssl_ctx, int is_client,
 	 */
 	SSL_CTX_set_default_passwd_cb_userdata(ssl_ctx, (void *)info);
 	SSL_CTX_set_default_passwd_cb(ssl_ctx, is_client ?
+#if defined(LWS_WITH_CLIENT)
 				      lws_context_init_ssl_pem_passwd_client_cb:
-				      lws_context_init_ssl_pem_passwd_cb);
+#else
+					NULL:
+#endif
+#if defined(LWS_WITH_SERVER)
+				      lws_context_init_ssl_pem_passwd_cb
+#else
+				      	NULL
+#endif
+				  );
 }
 
+#if defined(LWS_WITH_CLIENT)
 static void
 lws_ssl_destroy_client_ctx(struct lws_vhost *vhost)
 {
@@ -135,7 +158,7 @@ lws_ssl_destroy_client_ctx(struct lws_vhost *vhost)
 	lws_dll2_remove(&tcr->cc_list);
 	lws_free(tcr);
 }
-
+#endif
 void
 lws_ssl_destroy(struct lws_vhost *vhost)
 {
@@ -145,8 +168,9 @@ lws_ssl_destroy(struct lws_vhost *vhost)
 
 	if (vhost->tls.ssl_ctx)
 		SSL_CTX_free(vhost->tls.ssl_ctx);
-
+#if defined(LWS_WITH_CLIENT)
 	lws_ssl_destroy_client_ctx(vhost);
+#endif
 
 // after 1.1.0 no need
 #if (OPENSSL_VERSION_NUMBER <  0x10100000)
@@ -441,7 +465,9 @@ lws_ssl_SSL_CTX_destroy(struct lws_vhost *vhost)
 	if (vhost->tls.ssl_ctx)
 		SSL_CTX_free(vhost->tls.ssl_ctx);
 
+#if defined(LWS_WITH_CLIENT)
 	lws_ssl_destroy_client_ctx(vhost);
+#endif
 
 #if defined(LWS_WITH_ACME)
 	lws_tls_acme_sni_cert_destroy(vhost);

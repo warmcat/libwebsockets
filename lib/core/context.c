@@ -134,7 +134,7 @@ lws_state_notify_protocol_init(struct lws_state_manager *mgr,
 	}
 #endif
 
-#if defined(LWS_WITH_SECURE_STREAMS_SYS_AUTH_API_AMAZON_COM)
+#if defined(LWS_WITH_SECURE_STREAMS) && defined(LWS_WITH_SECURE_STREAMS_SYS_AUTH_API_AMAZON_COM)
 	/*
 	 * Skip this if we are running something without the policy for it
 	 *
@@ -301,6 +301,8 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->groupname = info->groupname;
 	context->system_ops = info->system_ops;
 	context->pt_serv_buf_size = (unsigned int)s1;
+
+#if defined(LWS_WITH_UDP)
 	context->udp_loss_sim_tx_pc = info->udp_loss_sim_tx_pc;
 	context->udp_loss_sim_rx_pc = info->udp_loss_sim_rx_pc;
 
@@ -308,6 +310,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 		lwsl_warn("%s: simulating udp loss tx: %d%%, rx: %d%%\n",
 			  __func__, context->udp_loss_sim_tx_pc,
 			  context->udp_loss_sim_rx_pc);
+#endif
 
 #if defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
 	/* directly use the user-provided policy object list */
@@ -331,7 +334,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->detailed_latency_filepath = info->detailed_latency_filepath;
 	context->latencies_fd = -1;
 #endif
-#if defined(LWS_WITHOUT_EXTENSIONS)
+#if defined(LWS_ROLE_WS) && defined(LWS_WITHOUT_EXTENSIONS)
         if (info->extensions)
                 lwsl_warn("%s: LWS_WITHOUT_EXTENSIONS but extensions ptr set\n", __func__);
 #endif
@@ -413,8 +416,10 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 	context->pcontext_finalize = info->pcontext;
 
+#if defined(LWS_WITH_TLS) && defined(LWS_WITH_NETWORK)
 	context->simultaneous_ssl_restriction =
 			info->simultaneous_ssl_restriction;
+#endif
 
 	context->options = info->options;
 
@@ -474,9 +479,9 @@ lws_create_context(const struct lws_context_creation_info *info)
 		}
 	}
 
-	context->token_limits = info->token_limits;
-
 #if defined(LWS_WITH_NETWORK)
+
+	context->token_limits = info->token_limits;
 
 	/*
 	 * set the context event loops ops struct
@@ -546,14 +551,16 @@ lws_create_context(const struct lws_context_creation_info *info)
 
 	lwsl_info("Default ALPN advertisment: %s\n", context->tls.alpn_default);
 #endif
-
+#if defined(LWS_WITH_NETWORK)
 	if (info->timeout_secs)
 		context->timeout_secs = info->timeout_secs;
 	else
+#endif
 		context->timeout_secs = 5;
 
 	lwsl_info(" default timeout (secs): %u\n", context->timeout_secs);
 
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	if (info->max_http_header_data)
 		context->max_http_header_data = info->max_http_header_data;
 	else
@@ -571,7 +578,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 					info->max_http_header_pool2;
 		else
 			context->max_http_header_pool = context->max_fds;
-
+#endif
 
 	if (info->fd_limit_per_thread)
 		context->fd_limit_per_thread = lpf;

@@ -1092,8 +1092,10 @@ lws_cmdline_option(int argc, const char **argv, const char *val)
 
 static const char * const builtins[] = {
 	"-d",
+#if defined(LWS_WITH_UDP)
 	"--udp-tx-loss",
 	"--udp-rx-loss",
+#endif
 	"--ignore-sigterm"
 };
 
@@ -1122,6 +1124,7 @@ lws_cmdline_option_handle_builtin(int argc, const char **argv,
 		case 0:
 			logs = m;
 			break;
+#if defined(LWS_WITH_UDP)
 		case 1:
 			info->udp_loss_sim_tx_pc = m;
 			break;
@@ -1129,6 +1132,9 @@ lws_cmdline_option_handle_builtin(int argc, const char **argv,
 			info->udp_loss_sim_rx_pc = m;
 			break;
 		case 3:
+#else
+		case 1:
+#endif
 #if !defined(LWS_PLAT_FREERTOS)
 			signal(SIGTERM, lws_sigterm_catch);
 #endif

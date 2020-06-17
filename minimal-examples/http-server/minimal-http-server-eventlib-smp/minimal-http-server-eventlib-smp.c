@@ -122,11 +122,13 @@ int main(int argc, const char **argv)
 	} else
 		info.count_threads = COUNT_THREADS;
 
+#if defined(LWS_WITH_TLS)
 	if (lws_cmdline_option(argc, argv, "-s")) {
 		info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 		info.ssl_cert_filepath = "localhost-100y.cert";
 		info.ssl_private_key_filepath = "localhost-100y.key";
 	}
+#endif
 
 	if (lws_cmdline_option(argc, argv, "--uv"))
 		info.options |= LWS_SERVER_OPTION_LIBUV;
