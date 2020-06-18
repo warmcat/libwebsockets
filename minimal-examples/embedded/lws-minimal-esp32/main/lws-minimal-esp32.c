@@ -27,8 +27,8 @@
 
 struct lws_context *context;
 lws_sorted_usec_list_t sul;
-lws_display_state_t lds;
 struct lws_led_state *lls;
+lws_display_state_t lds;
 int interrupted;
 
 /*
@@ -83,6 +83,20 @@ static const lws_button_controller_t bc = {
 };
 
 /*
+ * pwm controller
+ */
+
+static const lws_pwm_map_t pwm_map[] = {
+	{ .gpio = GPIO_NUM_25, .index = 0 }
+};
+
+static const lws_pwm_ops_t pwm_ops = {
+	lws_pwm_plat_ops,
+	.pwm_map			= &pwm_map[0],
+	.count_pwm_map			= LWS_ARRAY_SIZE(pwm_map)
+};
+
+/*
  * led controller
  */
 
@@ -90,6 +104,7 @@ static const lws_led_gpio_map_t lgm[] = {
 	{
 		.name			= "alert",
 		.gpio			= GPIO_NUM_25,
+		.pwm_ops		= &pwm_ops, /* managed by pwm */
 		.active_level		= 1,
 	},
 };
@@ -107,13 +122,19 @@ static const uint8_t img[] = {
 
 static uint8_t flip;
 
+static const lws_led_sequence_def_t *seqs[] = {
+	&lws_pwmseq_static_on,
+	&lws_pwmseq_static_off,
+	&lws_pwmseq_sine_endless_slow,
+	&lws_pwmseq_sine_endless_fast,
+};
+
 static int
 smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp, void *buf,
        size_t len)
 {
-	flip = flip ^ 1;
-	lgc.led_ops.intensity(&lgc.led_ops,
-			      lgc.led_ops.lookup(&lgc.led_ops, "alert"), flip);
+	lws_led_transition(lls, 0, seqs[flip & 3], &lws_pwmseq_linear_wipe);
+	flip++;
 
 	lwsl_hexdump_notice(buf, len);
 
@@ -170,6 +191,12 @@ app_main(void)
 		lwsl_err("%s: could not create led\n", __func__);
 		goto spin;
 	}
+
+	/* pwm init must go after the led controller init */
+
+	pwm_ops.init(&pwm_ops);
+	lgc.led_ops.intensity(&lgc.led_ops, "alert", 0);
+//	lws_led_transition(lls, 0, &lws_pwmseq_sine_endless, NULL);
 
 	bcs = lws_button_controller_create(context, &bc);
 	if (!bcs) {

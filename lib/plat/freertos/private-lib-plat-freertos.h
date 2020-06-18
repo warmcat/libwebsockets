@@ -118,3 +118,14 @@ insert_wsi(const struct lws_context *context, struct lws *wsi);
 
 #define delete_from_fd(A,B) A->lws_lookup[B - lws_plat_socket_offset()] = 0
 
+#define LWS_PLAT_TIMER_TYPE		TimerHandle_t
+#define LWS_PLAT_TIMER_CB(name, var)	void name(TimerHandle_t var)
+#define LWS_PLAT_TIMER_CB_GET_OPAQUE(x) pvTimerGetTimerID(x)
+#define LWS_PLAT_TIMER_CREATE(name, interval, repeat, opaque, cb) \
+	xTimerCreate(name, pdMS_TO_TICKS(interval), repeat ? pdTRUE : 0, \
+		     opaque, cb)
+#define LWS_PLAT_TIMER_DELETE(ptr)	xTimerDelete(ptr, 0)
+#define LWS_PLAT_TIMER_START(ptr)	xTimerStart(ptr, 0)
+#define LWS_PLAT_TIMER_STOP(ptr)	xTimerStop(ptr, 0)
+
+
