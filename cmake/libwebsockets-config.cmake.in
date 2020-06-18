@@ -17,9 +17,7 @@ include(${LWS_CMAKE_DIR}/LibwebsocketsTargets.cmake)
 set(LIBWEBSOCKETS_LIBRARIES websockets websockets_shared)
 
 # These are additional libs that lws wants your app to also link to
-if (NOT WIN32 AND NOT MSVC)
-	set(LIBWEBSOCKETS_DEP_LIBS @LIB_LIST_AT_END@)
-else()
-	set(LIBWEBSOCKETS_DEP_LIBS)
-endif()
+foreach(item "@LIB_LIST_AT_END@")
+	list(APPEND LIBWEBSOCKETS_DEP_LIBS ${item})
+endforeach()
 

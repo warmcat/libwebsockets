@@ -20,6 +20,7 @@
 #include <libwebsockets.h>
 #include <string.h>
 #include <signal.h>
+#include <stdio.h>
 #include <assert.h>
 
 static int interrupted, bad = 1;
