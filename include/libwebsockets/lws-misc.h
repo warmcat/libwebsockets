@@ -181,6 +181,68 @@ lws_strncpy(char *dest, const char *src, size_t size);
 				(size_t)(size1 + 1) : (size_t)(destsize))
 
 /**
+ * lws_nstrstr(): like strstr for length-based strings without terminating NUL
+ *
+ * \param buf: the string to search
+ * \param len: the length of the string to search
+ * \param name: the substring to search for
+ * \param nl: the length of name
+ *
+ * Returns NULL if \p name is not present in \p buf.  Otherwise returns the
+ * address of the first instance of \p name in \p buf.
+ *
+ * Neither buf nor name need to be NUL-terminated.
+ */
+LWS_VISIBLE LWS_EXTERN const char *
+lws_nstrstr(const char *buf, size_t len, const char *name, size_t nl);
+
+/**
+ * lws_json_simple_find(): dumb JSON string parser
+ *
+ * \param buf: the JSON to search
+ * \param len: the length of the JSON to search
+ * \param name: the name field to search the JSON for, eg, "\"myname\":"
+ * \param alen: set to the length of the argument part if non-NULL return
+ *
+ * Either returns NULL if \p name is not present in buf, or returns a pointer
+ * to the argument body of the first instance of \p name, and sets *alen to the
+ * length of the argument body.
+ *
+ * This can cheaply handle fishing out, eg, myarg from {"myname": "myarg"} by
+ * searching for "\"myname\":".  It will return a pointer to myarg and set *alen
+ * to 5.  It equally handles args like "myname": true, or "myname":false, and
+ * null or numbers are all returned as delimited strings.
+ *
+ * Anything more complicated like the value is a subobject or array, you should
+ * parse it using a full parser like lejp.  This is suitable is the JSON is
+ * and will remain short and simple, and contains well-known names amongst other
+ * extensible JSON members.
+ */
+LWS_VISIBLE LWS_EXTERN const char *
+lws_json_simple_find(const char *buf, size_t len, const char *name, size_t *alen);
+
+/**
+ * lws_json_simple_strcmp(): dumb JSON string comparison
+ *
+ * \param buf: the JSON to search
+ * \param len: the length of the JSON to search
+ * \param name: the name field to search the JSON for, eg, "\"myname\":"
+ * \param comp: return a strcmp of this and the discovered argument
+ *
+ * Helper that combines lws_json_simple_find() with strcmp() if it was found.
+ * If the \p name was not found, returns -1.  Otherwise returns a strcmp()
+ * between what was found and \p comp, ie, return 0 if they match or something
+ * else if they don't.
+ *
+ * If the JSON is relatively simple and you want to target constrained
+ * devices, this can be a good choice.  If the JSON may be complex, you
+ * should use a full JSON parser.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_json_simple_strcmp(const char *buf, size_t len, const char *name, const char *comp);
+
+
+/**
  * lws_hex_to_byte_array(): convert hex string like 0123456789ab into byte data
  *
  * \param h: incoming NUL-terminated hex string

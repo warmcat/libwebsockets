@@ -345,6 +345,117 @@ lws_strdup(const char *s)
 	return d;
 }
 
+const char *
+lws_nstrstr(const char *buf, size_t len, const char *name, size_t nl)
+{
+	const char *end = buf + len - nl + 1;
+	size_t n;
+
+	if (nl > len)
+		/* it cannot be found if the needle is longer than the haystack */
+		return NULL;
+
+	while (buf < end) {
+		if (*buf != name[0]) {
+			buf++;
+			continue;
+		}
+
+		if (nl == 1)
+			/* single char match, we are done */
+			return buf;
+
+		if (buf[nl - 1] == name[nl - 1]) {
+			/*
+			 * This is looking interesting then... the first
+			 * and last chars match, let's check the insides
+			 */
+			n = 1;
+			while (n < nl && buf[n] == name[n])
+				n++;
+
+			if (n == nl)
+				/* it's a hit */
+				return buf;
+		}
+
+		buf++;
+	}
+
+	return NULL;
+}
+
+/*
+ * name wants to be something like "\"myname\":"
+ */
+
+const char *
+lws_json_simple_find(const char *buf, size_t len, const char *name, size_t *alen)
+{
+	size_t nl = strlen(name);
+	const char *np = lws_nstrstr(buf, len, name, nl),
+		   *end = buf + len, *as;
+	int qu = 0;
+
+	if (!np)
+		return NULL;
+
+	np += nl;
+
+	while (np < end && (*np == ' ' || *np == '\t'))
+		np++;
+
+	if (np >= end - 1)
+		return NULL;
+
+	/*
+	 * The arg could be lots of things after "name": with JSON, commonly a
+	 * string like "mystring", true, false, null, [...] or {...} ... we want
+	 * to handle common, simple cases cheaply with this; the user can choose
+	 * a full JSON parser like lejp if it's complicated.  So if no opening
+	 * quote, return until a terminator like , ] }.  If there's an opening
+	 * quote, return until closing quote, handling escaped quotes.
+	 */
+
+	if (*np == '\"') {
+		qu = 1;
+		np++;
+	}
+
+	as = np;
+	while (np < end &&
+	       (!qu || *np != '\"') && /* end quote is EOT if quoted */
+	       (qu || (*np != '}' && *np != ']' && *np != ',')) /* delimiters */
+	) {
+		if (qu && *np == '\\') /* skip next char if quoted escape */
+			np++;
+		np++;
+	}
+
+	if (np == end)
+		return NULL;
+
+	*alen = lws_ptr_diff(np, as);
+
+	return as;
+}
+
+int
+lws_json_simple_strcmp(const char *buf, size_t len, const char *name,
+		       const char *comp)
+{
+	size_t al;
+	const char *hit = lws_json_simple_find(buf, len, name, &al);
+
+	if (!hit)
+		return -1;
+
+	if (al != strlen(comp))
+		return -1;
+
+	return strncmp(hit, comp, al);
+}
+
 static const char *hex = "0123456789ABCDEF";
 
 const char *

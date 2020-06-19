@@ -417,6 +417,73 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
+	/* sanity check lws_nstrstr() */
+
+	{
+		static const char *t1 = "abc123456";
+		const char *mcp;
+
+		mcp = lws_nstrstr(t1, strlen(t1), "abc", 3);
+		if (mcp != t1) {
+			lwsl_err("%s: lws_nstrstr 1 failed\n", __func__);
+			return 1;
+		}
+		mcp = lws_nstrstr(t1, strlen(t1), "def", 3);
+		if (mcp != NULL) {
+			lwsl_err("%s: lws_nstrstr 2 failed\n", __func__);
+			return 1;
+		}
+		mcp = lws_nstrstr(t1, strlen(t1), "456", 3);
+		if (mcp != t1 + 6) {
+			lwsl_err("%s: lws_nstrstr 3 failed: %p\n", __func__, mcp);
+			return 1;
+		}
+		mcp = lws_nstrstr(t1, strlen(t1), "1", 1);
+		if (mcp != t1 + 3) {
+			lwsl_err("%s: lws_nstrstr 4 failed\n", __func__);
+			return 1;
+		}
+		mcp = lws_nstrstr(t1, strlen(t1), "abc1234567", 10);
+		if (mcp != NULL) {
+			lwsl_err("%s: lws_nstrstr 5 failed\n", __func__);
+			return 1;
+		}
+	}
+
+	/* sanity check lws_json_simple_find() */
+
+	{
+		static const char *t1 = "{\"myname1\":true,"
+					 "\"myname2\":\"string\", "
+					 "\"myname3\": 123}";
+		size_t alen;
+		const char *mcp;
+
+		mcp = lws_json_simple_find(t1, strlen(t1), "\"myname1\":", &alen);
+		if (mcp != t1 + 11 || alen != 4) {
+			lwsl_err("%s: lws_json_simple_find 1 failed: (%d) %s\n", __func__, (int)alen, mcp);
+			return 1;
+		}
+
+		mcp = lws_json_simple_find(t1, strlen(t1), "\"myname2\":", &alen);
+		if (mcp != t1 + 27 || alen != 6) {
+			lwsl_err("%s: lws_json_simple_find 2 failed\n", __func__);
+			return 1;
+		}
+
+		mcp = lws_json_simple_find(t1, strlen(t1), "\"myname3\":", &alen);
+		if (mcp != t1 + 47 || alen != 3) {
+			lwsl_err("%s: lws_json_simple_find 3 failed\n", __func__);
+			return 1;
+		}
+
+		mcp = lws_json_simple_find(t1, strlen(t1), "\"nope\":", &alen);
+		if (mcp != NULL) {
+			lwsl_err("%s: lws_json_simple_find 4 failed\n", __func__);
+			return 1;
+		}
+	}
+
 	p = lws_cmdline_option(argc, argv, "-s");
 
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(tests); n++) {
