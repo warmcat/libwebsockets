@@ -944,7 +944,9 @@ lws_context_destroy3(struct lws_context *context)
 
 #if defined(LWS_WITH_NETWORK)
 
-	lwsl_debug("%s\n", __func__);
+	context->finalize_destroy_after_internal_loops_stopped = 1;
+	if (context->event_loop_ops->destroy_context2)
+		context->event_loop_ops->destroy_context2(context);
 
 	for (n = 0; n < context->count_threads; n++) {
 		struct lws_context_per_thread *pt = &context->pt[n];
@@ -960,9 +962,10 @@ lws_context_destroy3(struct lws_context *context)
 #if defined(LWS_WITH_CGI)
 		role_ops_cgi.pt_init_destroy(context, NULL, pt, 1);
 #endif
-
+#if 0
 		if (context->event_loop_ops->destroy_pt)
 			context->event_loop_ops->destroy_pt(context, n);
+#endif
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 		while (pt->http.ah_list)
@@ -1111,14 +1114,11 @@ lws_context_destroy2(struct lws_context *context)
 	lws_check_deferred_free(context, 0, 1);
 #endif
 
+	lws_context_unlock(context); /* } context ------ */
 
-#if LWS_MAX_SMP > 1
-	lws_mutex_refcount_destroy(&context->mr);
-#endif
 #if defined(LWS_WITH_NETWORK)
 	if (context->event_loop_ops->destroy_context2)
 		if (context->event_loop_ops->destroy_context2(context)) {
-			lws_context_unlock(context); /* } context ----------- */
 			context->finalize_destroy_after_internal_loops_stopped = 1;
 			return;
 		}
@@ -1130,12 +1130,10 @@ lws_context_destroy2(struct lws_context *context)
 		for (n = 0; n < context->count_threads; n++)
 			if (context->pt[n].inside_service) {
 				lwsl_debug("%p: bailing as inside service\n", __func__);
-				lws_context_unlock(context); /* } context --- */
 				return;
 			}
 	}
 #endif
-	lws_context_unlock(context); /* } context ------------------- */
 
 	lws_context_destroy3(context);
 }
