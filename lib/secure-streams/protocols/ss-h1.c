@@ -206,6 +206,8 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (h->policy && !(h->policy->flags & LWSSSPOLF_OPPORTUNISTIC) &&
 		    !h->txn_ok && !wsi->context->being_destroyed)
 			lws_ss_backoff(h);
+		else
+			h->seqstate = SSSEQ_IDLE;
 		/* already disconnected, no action for DISCONNECT_ME */
 		if (lws_ss_event_helper(h, LWSSSCS_DISCONNECTED) ==
 							LWSSSSRET_DESTROY_ME)
