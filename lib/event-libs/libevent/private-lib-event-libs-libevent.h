@@ -32,6 +32,7 @@ struct lws_pt_eventlibs_libevent {
 
 struct lws_io_watcher_libevent {
 	struct event *watcher;
+	char		set;
 };
 
 struct lws_signal_watcher_libevent {

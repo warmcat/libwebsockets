@@ -200,6 +200,7 @@ elops_init_pt_event(struct lws_context *context, void *_loop, int tsi)
 					(EV_READ | EV_PERSIST), lws_event_cb,
 					&vh->lserv_wsi->w_read);
 			event_add(vh->lserv_wsi->w_read.event.watcher, NULL);
+			vh->lserv_wsi->w_read.event.set = 1;
 		}
 		vh = vh->vhost_next;
 	}
@@ -277,17 +278,25 @@ elops_io_event(struct lws *wsi, int flags)
 	       (flags & (LWS_EV_READ | LWS_EV_WRITE)));
 
 	if (flags & LWS_EV_START) {
-		if (flags & LWS_EV_WRITE)
+		if ((flags & LWS_EV_WRITE) && !wsi->w_write.event.set) {
 			event_add(wsi->w_write.event.watcher, NULL);
+			wsi->w_write.event.set = 1;
+		}
 
-		if (flags & LWS_EV_READ)
+		if ((flags & LWS_EV_READ) && !wsi->w_read.event.set) {
 			event_add(wsi->w_read.event.watcher, NULL);
+			wsi->w_read.event.set = 1;
+		}
 	} else {
-		if (flags & LWS_EV_WRITE)
+		if ((flags & LWS_EV_WRITE) && wsi->w_write.event.set) {
 			event_del(wsi->w_write.event.watcher);
+			wsi->w_write.event.set = 0;
+		}
 
-		if (flags & LWS_EV_READ)
+		if ((flags & LWS_EV_READ) && wsi->w_read.event.set) {
 			event_del(wsi->w_read.event.watcher);
+			wsi->w_read.event.set = 0;
+		}
 	}
 }
 
