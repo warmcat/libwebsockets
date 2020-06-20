@@ -153,11 +153,12 @@ enum lejp_callbacks {
  *
  *  LEJPCB_VAL_STR_START: We are starting to parse a string, no data yet
  *
- *  LEJPCB_VAL_STR_CHUNK: We parsed LEJP_STRING_CHUNK -1 bytes of string data in
- *			ctx->buf, which is as much as we can buffer, so we are
- *			spilling it.  If all your strings are less than
- *			LEJP_STRING_CHUNK - 1 bytes, you will never see this
- *			callback.
+ *  LEJPCB_VAL_STR_CHUNK: We filled the string buffer in the ctx, but it's not
+ *			  the end of the string.  We produce this to spill the
+ *			  intermediate buffer to the user code, so we can handle
+ *			  huge JSON strings using only the small buffer in the
+ *			  ctx.  If the whole JSON string fits in the ctx buffer,
+ *			  you won't get these callbacks.
  *
  *  LEJPCB_VAL_STR_END:	String parsing has completed, the last chunk of the
  *			string is in ctx->buf.
