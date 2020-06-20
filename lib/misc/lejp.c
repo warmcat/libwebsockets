@@ -434,7 +434,7 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 			break;
 
 		case LEJP_MP_VALUE:
-			if (c >= '0' && c <= '9') {
+			if (c == '-' || (c >= '0' && c <= '9')) {
 				ctx->npos = 0;
 				ctx->dcount = 0;
 				ctx->f = 0;
