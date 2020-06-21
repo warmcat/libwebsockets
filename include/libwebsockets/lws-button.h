@@ -29,7 +29,32 @@
 
 typedef uint16_t lws_button_idx_t;
 
+/* actual minimum may be 1 x RTOS tick depending on platform */
+#define LWS_BUTTON_MON_TIMER_MS 5
+
 typedef void (*lws_button_cb_t)(void *opaque, lws_button_idx_t idx, int state);
+
+/* These are specified in ms but the granularity is LWS_BUTTON_MON_TIMER_MS,
+ * which may have been rounded up to an RTOS tick depending on platform */
+
+enum {
+	LWSBTNRGMFLAG_CLASSIFY_DOUBLECLICK = (1 << 0)
+};
+
+typedef struct lws_button_regime {
+	uint16_t			ms_min_down;
+	uint16_t			ms_min_down_longpress;
+	uint16_t			ms_up_settle;
+	uint16_t			ms_doubleclick_grace;
+	uint16_t			ms_repeat_down;
+	uint8_t				flags;
+	/**< when double-click classification is enabled, clicks are delayed
+	 * by ms_min_down + ms_doubleclick_grace to wait and see if it will
+	 * become a double-click.  Set LWSBTNRGMFLAG_CLASSIFY_DOUBLECLICK to
+	 * enable it or leave that bit at 0 to get faster single-click
+	 * classification.
+	 */
+} lws_button_regime_t;
 
 /*
  * This is the const part of the button controller, describing the static
@@ -39,6 +64,8 @@ typedef void (*lws_button_cb_t)(void *opaque, lws_button_idx_t idx, int state);
 typedef struct lws_button_map {
 	_lws_plat_gpio_t		gpio;
 	const char			*smd_interaction_name;
+	const lws_button_regime_t	*regime;
+	/**< a default regime is applied if this is left NULL */
 } lws_button_map_t;
 
 typedef struct lws_button_controller {
@@ -46,8 +73,6 @@ typedef struct lws_button_controller {
 	const lws_gpio_ops_t		*gpio_ops;
 	const lws_button_map_t		*button_map;
 	lws_button_idx_t		active_state_bitmap;
-	lws_button_idx_t		message_on_down_bitmap;
-	lws_button_idx_t		message_on_up_bitmap;
 	uint8_t				count_buttons;
 } lws_button_controller_t;
 

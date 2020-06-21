@@ -77,9 +77,7 @@ static const lws_button_controller_t bc = {
 	.gpio_ops			= &lws_gpio_plat,
 	.button_map			= &bcm[0],
 	.active_state_bitmap		= 0,
-	.message_on_down_bitmap		= (1 << 0),
-	.message_on_up_bitmap		= 0,
-	.count_buttons			= LWS_ARRAY_SIZE(bcm)
+	.count_buttons			= LWS_ARRAY_SIZE(bcm),
 };
 
 /*
@@ -133,8 +131,14 @@ static int
 smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp, void *buf,
        size_t len)
 {
-	lws_led_transition(lls, 0, seqs[flip & 3], &lws_pwmseq_linear_wipe);
-	flip++;
+
+	if (!lws_json_simple_strcmp(buf, len, "\"src\":", "bc/user")) {
+		if (!lws_json_simple_strcmp(buf, len, "\"event\":", "click")) {
+			lws_led_transition(lls, "alert", seqs[flip & 3],
+					   &lws_pwmseq_linear_wipe);
+			flip++;
+		}
+	}
 
 	lwsl_hexdump_notice(buf, len);
 
@@ -213,6 +217,7 @@ app_main(void)
 	disp.disp.blit(lds.disp, img, 0, 0, 128, 64);
 
 	lws_button_enable(bcs, 0, lws_button_get_bit(bcs, "user"));
+	lgc.led_ops.intensity(&lgc.led_ops, "alert", 0);
 
 	/*
 	 * We say the test succeeded if we survive 3s around the event loop
