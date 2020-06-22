@@ -705,13 +705,16 @@ ads_known:
 		wsi->detlat.earliest_write_req_pre_write = lws_now_usecs();
 #endif
 
+#if defined(LWS_ESP_PLATFORM)
+	errno = 0;
+#endif
 	m = connect(wsi->desc.sockfd, (const struct sockaddr *)psa, n);
 	if (m == -1) {
 		int errno_copy = LWS_ERRNO;
 
 		lwsl_debug("%s: connect says errno: %d\n", __func__, errno_copy);
 
-		if (errno_copy != LWS_EALREADY &&
+		if (errno_copy && errno_copy != LWS_EALREADY &&
 		    errno_copy != LWS_EINPROGRESS &&
 		    errno_copy != LWS_EWOULDBLOCK
 #ifdef _WIN32

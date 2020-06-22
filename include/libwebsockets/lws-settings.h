@@ -34,7 +34,7 @@
  * Blobs have a further "filename" associated with them.
  */
 
-#defined LSOOPEN_FLAG_WRITEABLE				(1 << 0)
+#define LSOOPEN_FLAG_WRITEABLE				(1 << 0)
 
 struct lws_settings_ops;
 

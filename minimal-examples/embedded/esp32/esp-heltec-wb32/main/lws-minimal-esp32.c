@@ -16,11 +16,7 @@
 #include "sdkconfig.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "esp_system.h"
-#include "esp_spi_flash.h"
-#include "esp_wifi.h"
-#include <nvs_flash.h>
-#include <esp_netif.h>
+
 #include <driver/gpio.h>
 
 #include <libwebsockets.h>
@@ -29,6 +25,7 @@ struct lws_context *context;
 lws_sorted_usec_list_t sul;
 struct lws_led_state *lls;
 lws_display_state_t lds;
+lws_netdev_instance_wifi_t *wnd;
 int interrupted;
 
 /*
@@ -114,6 +111,10 @@ static const lws_led_gpio_controller_t lgc = {
 	.count_leds			= LWS_ARRAY_SIZE(lgm)
 };
 
+static const lws_netdev_ops_t wifi_ops = {
+	lws_netdev_wifi_plat_ops
+};
+
 static const uint8_t img[] = {
 #include "../banded-img.h"
 };
@@ -161,20 +162,14 @@ sul_cb(lws_sorted_usec_list_t *sul)
 void 
 app_main(void)
 {
-	wifi_init_config_t wic = WIFI_INIT_CONFIG_DEFAULT();
 	struct lws_context_creation_info info;
 	struct lws_button_state *bcs;
 	int n = 0;
 
 	lws_set_log_level(15, NULL);
-        nvs_flash_init();
-	esp_netif_init();
 
-	n = esp_wifi_init(&wic);
-	if (n) {
-		lwsl_err("%s: wifi init fail: %d\n", __func__, n);
-		goto spin;
-	}
+        lws_netdev_plat_init();
+        lws_netdev_plat_wifi_init();
 
 	memset(&info, 0, sizeof(info));
 
@@ -190,6 +185,25 @@ app_main(void)
 		lwsl_err("lws init failed\n");
 		return;
 	}
+
+	/* create the wifi network device and configure it */
+
+	wnd = (lws_netdev_instance_wifi_t *)
+			wifi_ops.create(context, &wifi_ops, "wl0", NULL);
+	if (!wnd) {
+		lwsl_err("%s: failed to create wifi object\n", __func__);
+		goto spin;
+	}
+
+	strcpy(wnd->sta.creds.ssid, "xxx");
+	strcpy(wnd->sta.creds.passphrase, "yyy");
+	wnd->flags |= LNDIW_MODE_STA;
+
+	if (wifi_ops.configure(&wnd->inst, NULL)) {
+		lwsl_err("%s: failed to configure wifi object\n", __func__);
+		goto spin;
+	}
+	wifi_ops.up(&wnd->inst);
 
 	lls = lgc.led_ops.create(&lgc.led_ops);
 	if (!lls) {

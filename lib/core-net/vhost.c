@@ -126,7 +126,9 @@ lws_role_call_alpn_negotiated(struct lws *wsi, const char *alpn)
 	if (!alpn)
 		return 0;
 
+#if !defined(LWS_ESP_PLATFORM)
 	lwsl_info("%s: '%s'\n", __func__, alpn);
+#endif
 
 	LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar)
 		if (ar->alpn && !strcmp(ar->alpn, alpn) && ar->alpn_negotiated)

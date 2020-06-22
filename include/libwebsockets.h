@@ -622,6 +622,7 @@ struct lws;
 #include <libwebsockets/lws-ssd1306-i2c.h>
 #include <libwebsockets/lws-ili9341-spi.h>
 #include <libwebsockets/lws-settings.h>
+#include <libwebsockets/lws-netdev.h>
 
 #ifdef __cplusplus
 }

@@ -70,6 +70,12 @@ struct pollfd {
 #include "driver/gpio.h"
 #include "esp_spi_flash.h"
 #include "freertos/timers.h"
+
+#if defined(LWS_ESP_PLATFORM)
+#include "lwip/sockets.h"
+#include "lwip/netdb.h"
+#endif
+
 #endif /* LWS_AMAZON_RTOS */
 
 #if !defined(CONFIG_FREERTOS_HZ)

@@ -24,6 +24,7 @@
 
 #include "private-lib-core.h"
 
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
 lws_async_dns_server_check_t
 lws_plat_asyncdns_init(struct lws_context *context, lws_sockaddr46 *sa46)
 {
@@ -40,20 +41,14 @@ lws_plat_asyncdns_init(struct lws_context *context, lws_sockaddr46 *sa46)
 
 	return s;
 }
+#endif
 
 int
 lws_plat_ntpclient_config(struct lws_context *context)
 {
-#if 0
-	char *ntpsrv = getenv("LWS_NTP_SERVER");
+	lws_system_blob_heap_append(lws_system_get_blob(context,
+				    LWS_SYSBLOB_TYPE_NTP_SERVER, 0),
+				    (const uint8_t *)"pool.ntp.org", 12);
 
-	if (ntpsrv && strlen(ntpsrv) < 64) {
-		lws_system_blob_heap_append(lws_system_get_blob(context,
-					    LWS_SYSBLOB_TYPE_NTP_SERVER, 0),
-					    (const uint8_t *)ntpsrv,
-					    strlen(ntpsrv));
-		return 1;
-	}
-#endif
 	return 0;
 }

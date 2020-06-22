@@ -383,9 +383,9 @@ struct lws_context {
 	lws_async_dns_t		async_dns;
 #endif
 
+	struct lws_ss_handle		*hss_fetch_policy;
 #if defined(LWS_WITH_SECURE_STREAMS_SYS_AUTH_API_AMAZON_COM)
 	struct lws_ss_handle		*hss_auth;
-	struct lws_ss_handle		*hss_fetch_policy;
 	lws_sorted_usec_list_t		sul_api_amazon_com;
 	lws_sorted_usec_list_t		sul_api_amazon_com_kick;
 #endif

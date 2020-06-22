@@ -146,8 +146,10 @@ callback_ntpc(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		if (!lws_system_get_ops(wsi->context) ||
 		    !lws_system_get_ops(wsi->context)->set_clock) {
+#if !defined(LWS_ESP_PLATFORM)
 			lwsl_err("%s: set up system ops for set_clock\n",
 					__func__);
+#endif
 
 		//	return -1;
 		}
@@ -163,8 +165,11 @@ callback_ntpc(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		lws_system_blob_get_single_ptr(lws_system_get_blob(
 				v->context, LWS_SYSBLOB_TYPE_NTP_SERVER, 0),
 				(const uint8_t **)&v->ntp_server_ads);
+		if (!v->ntp_server_ads || v->ntp_server_ads[0] == '\0')
+			v->ntp_server_ads = "pool.ntp.org";
 
-		lwsl_info("%s: using ntp server %s\n", __func__, v->ntp_server_ads);
+		lwsl_info("%s: using ntp server %s\n", __func__,
+			  v->ntp_server_ads);
 
 		lws_ntpc_retry_conn(&v->sul_conn);
 		break;
@@ -222,7 +227,19 @@ do_close:
 		lwsl_notice("%s: Unix time: %llu\n", __func__,
 				(unsigned long long)ns / 1000000000);
 
-	//	lws_system_get_ops(wsi->context)->set_clock(ns / 1000);
+#if defined(LWS_ESP_PLATFORM)
+		{
+			struct timeval t;
+
+			t.tv_sec = (unsigned long long)ns / 1000000000;
+			t.tv_usec = (ns % 1000000000) / 1000;
+
+			settimeofday(&t, NULL);
+		}
+#endif
+		if (lws_system_get_ops(wsi->context) &&
+		    lws_system_get_ops(wsi->context)->set_clock)
+			lws_system_get_ops(wsi->context)->set_clock(ns / 1000);
 
 		v->set_time = 1;
 		lws_state_transition_steps(&wsi->context->mgr_system,

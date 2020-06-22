@@ -30,10 +30,11 @@ endif()
 # Workaround for ESP-IDF
 # Detect ESP_PLATFORM environment flag, if exist, set LWS_WITH_ESP32.
 # Otherwise the user may not be able to run configuration ESP-IDF in the first time.
-if(ESP_PLATFORM)
+if (ESP_PLATFORM)
 	message(STATUS "ESP-IDF enabled")
 	set(LWS_WITH_ESP32 ON)
 	set(LWS_WITH_ZLIB OFF)
+	set(LWS_HAVE_mbedtls_ssl_get_alpn_protocol 1)
 else()
 	set(LWS_WITH_ESP32_HELPER OFF)
 endif()
@@ -42,7 +43,7 @@ if (LWS_WITH_ESP32)
 	set(LWS_PLAT_FREERTOS 1)
 endif()
 
-if (LWS_PLAT_FREERTOS OR LWS_PLAT_OPTEE)
+if (LWS_PLAT_OPTEE)
 	set(LWS_WITH_UDP 0)
 endif()
 
@@ -170,7 +171,6 @@ if (LWS_PLAT_FREERTOS)
 endif()
 
 if (LWS_PLAT_FREERTOS)
-	set(LWS_WITH_LWSAC 0)
 	set(LWS_WITH_FTS 0)
 endif()
 
