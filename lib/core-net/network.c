@@ -851,8 +851,10 @@ lws_sa46_compare_ads(const lws_sockaddr46 *sa46a, const lws_sockaddr46 *sa46b)
 	return sa46a->sa4.sin_addr.s_addr != sa46b->sa4.sin_addr.s_addr;
 }
 
+#if defined(LWS_WITH_SYS_STATE)
 lws_state_manager_t *
 lws_system_get_state_manager(struct lws_context *context)
 {
 	return &context->mgr_system;
 }
+#endif

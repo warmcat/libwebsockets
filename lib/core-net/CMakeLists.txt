@@ -33,12 +33,17 @@ list(APPEND SOURCES
 	core-net/pollfd.c
 	core-net/service.c
 	core-net/sorted-usec-list.c
-	core-net/state.c
 	core-net/wsi.c
 	core-net/wsi-timeout.c
 	core-net/adopt.c
 	roles/pipe/ops-pipe.c
 )
+
+if (LWS_WITH_SYS_STATE)
+	list(APPEND SOURCES
+		core-net/state.c
+	)
+endif()
 
 if (LWS_WITH_DETAILED_LATENCY)
 	list(APPEND SOURCES

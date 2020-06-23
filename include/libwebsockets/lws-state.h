@@ -25,6 +25,8 @@
 struct lws_state_notify_link;
 struct lws_state_manager;
 
+#if defined(LWS_WITH_SYS_STATE)
+
 typedef int (*lws_state_notify_t)(struct lws_state_manager *mgr,
 				  struct lws_state_notify_link *link,
 				  int current, int target);
@@ -107,3 +109,7 @@ lws_state_transition_steps(lws_state_manager_t *mgr, int target);
  */
 LWS_EXTERN LWS_VISIBLE int
 lws_state_transition(lws_state_manager_t *mgr, int target);
+
+#else
+
+#endif

@@ -6,6 +6,7 @@ include(LwsCheckRequirements)
 set(requirements 1)
 require_lws_config(LWS_WITH_SECURE_STREAMS 1 requirements)
 require_lws_config(LWS_WITH_TLS 1 requirements)
+require_lws_config(LWS_WITH_SYS_STATE 1 requirements)
 
 
 if (requirements)

@@ -221,10 +221,14 @@
 #define LWS_SERVER_OPTION_GLIB					 (1ll << 33)
 	/**< (CTX) Use glib event loop */
 
-#define LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE				(1ll << 34)
+#define LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE			 (1ll << 34)
 	/**< (VH) Tell the vhost to treat plain text http connections as
 	 * H2 with prior knowledge (no upgrade request involved)
 	 */
+
+#define LWS_SERVER_OPTION_NO_LWS_SYSTEM_STATES			 (1ll << 35)
+	/**< (CTX) Disable lws_system state, eg, because we are a secure streams
+	 * proxy client that is not trying to track system state by itself. */
 
 	/****** add new things just above ---^ ******/
 
@@ -725,10 +729,12 @@ struct lws_context_creation_info {
 	/**< VHOST: optional retry and idle policy to apply to this vhost.
 	 *   Currently only the idle parts are applied to the connections.
 	 */
+#if defined(LWS_WITH_SYS_STATE)
 	lws_state_notify_link_t * const *register_notifier_list;
 	/**< CONTEXT: NULL, or pointer to an array of notifiers that should
 	 * be registered during context creation, so they can see state change
 	 * events from very early on.  The array should end with a NULL. */
+#endif
 #if defined(LWS_WITH_SECURE_STREAMS)
 #if defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
 	const struct lws_ss_policy *pss_policies; /**< CONTEXT: point to first

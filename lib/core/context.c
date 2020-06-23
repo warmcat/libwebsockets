@@ -82,6 +82,8 @@ lws_sul_peer_limits_cb(lws_sorted_usec_list_t *sul)
 
 #if defined(LWS_WITH_NETWORK)
 
+#if defined(LWS_WITH_SYS_STATE)
+
 #if defined(_DEBUG)
 static const char * system_state_names[] = {
 	"undef",
@@ -100,6 +102,7 @@ static const char * system_state_names[] = {
 	"POLICY_INVALID"
 };
 #endif
+
 
 /*
  * Handle provoking protocol init when we pass through the right system state
@@ -213,6 +216,7 @@ lws_context_creation_completion_cb(lws_sorted_usec_list_t *sul)
 	lws_state_transition_steps(&context->mgr_system,
 				   LWS_SYSTATE_OPERATIONAL);
 }
+#endif /* WITH_SYS_STATE */
 #endif
 
 struct lws_context *
@@ -824,6 +828,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	}
 #endif
 
+#if defined(LWS_WITH_SYS_STATE)
 	/*
 	 * init the lws_state mgr for the system state
 	 */
@@ -847,6 +852,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 
 	lws_state_reg_notifier_list(&context->mgr_system,
 				    info->register_notifier_list);
+#endif
 
 	/*
 	 * if he's not saying he'll make his own vhosts later then act
@@ -914,6 +920,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 		if (lws_plat_drop_app_privileges(context, 1))
 			goto bail;
 
+#if defined(LWS_WITH_SYS_STATE)
 	/*
 	 * We want to move on the syste, state as far as it can go towards
 	 * OPERATIONAL now.  But we have to return from here first so the user
@@ -925,6 +932,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 
 	lws_sul_schedule(context, 0, &context->sul_system_state,
 			 lws_context_creation_completion_cb, 1);
+#endif
 
 	/* expedite post-context init (eg, protocols) */
 	lws_cancel_service(context);
@@ -1002,11 +1010,12 @@ lws_system_cpd_set(struct lws_context *cx, lws_cpd_result_t result)
 	lwsl_notice("%s: setting CPD result %s\n", __func__, cname[result]);
 
 	cx->captive_portal_detect = (uint8_t)result;
-
+#if defined(LWS_WITH_SYS_STATE)
 	/* if nothing is there to intercept anything, go all the way */
 	if (cx->mgr_system.state != LWS_SYSTATE_POLICY_INVALID)
 		lws_state_transition_steps(&cx->mgr_system,
 					   LWS_SYSTATE_OPERATIONAL);
+#endif
 }
 
 lws_cpd_result_t
@@ -1345,7 +1354,9 @@ lws_context_destroy(struct lws_context *context)
 	context->being_destroyed = 1;
 
 #if defined(LWS_WITH_NETWORK)
+#if defined(LWS_WITH_SYS_STATE)
 	lws_state_transition(&context->mgr_system, LWS_SYSTATE_POLICY_INVALID);
+#endif
 	m = context->count_threads;
 
 	while (m--) {
@@ -1434,6 +1445,7 @@ out:
 #endif
 }
 
+#if defined(LWS_WITH_SYS_STATE)
 struct lws_context *
 lws_system_context_from_system_mgr(lws_state_manager_t *mgr)
 {
@@ -1443,3 +1455,4 @@ lws_system_context_from_system_mgr(lws_state_manager_t *mgr)
 	return NULL;
 #endif
 }
+#endif

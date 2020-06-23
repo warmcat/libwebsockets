@@ -13,6 +13,7 @@ set(requirements 1)
 require_lws_config(LWS_ROLE_H1 1 requirements)
 require_lws_config(LWS_WITH_TLS 1 requirements)
 require_lws_config(LWS_WITH_CLIENT 1 requirements)
+require_lws_config(LWS_WITH_SYS_STATE 1 requirements)
 
 if (NOT WIN32 AND requirements)
 	add_executable(${SAMP} ${SRCS})

@@ -175,6 +175,8 @@ typedef struct lws_system_ops {
 	 */
 } lws_system_ops_t;
 
+#if defined(LWS_WITH_SYS_STATE)
+
 /**
  * lws_system_get_state_manager() - return the state mgr object for system state
  *
@@ -186,7 +188,7 @@ typedef struct lws_system_ops {
 LWS_EXTERN LWS_VISIBLE lws_state_manager_t *
 lws_system_get_state_manager(struct lws_context *context);
 
-
+#endif
 
 /* wrappers handle NULL members or no ops struct set at all cleanly */
 
@@ -203,6 +205,8 @@ lws_system_get_state_manager(struct lws_context *context);
 LWS_EXTERN LWS_VISIBLE const lws_system_ops_t *
 lws_system_get_ops(struct lws_context *context);
 
+#if defined(LWS_WITH_SYS_STATE)
+
 /**
  * lws_system_context_from_system_mgr() - return context from system state mgr
  *
@@ -214,6 +218,7 @@ lws_system_get_ops(struct lws_context *context);
 LWS_EXTERN LWS_VISIBLE struct lws_context *
 lws_system_context_from_system_mgr(lws_state_manager_t *mgr);
 
+#endif
 
 /**
  * __lws_system_attach() - get and set items on context attach list

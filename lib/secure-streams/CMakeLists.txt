@@ -73,7 +73,8 @@ if (LWS_WITH_CLIENT)
 			)
 		endif()
 
-		if (LWS_WITH_SECURE_STREAMS_SYS_AUTH_API_AMAZON_COM)
+		if (LWS_WITH_SECURE_STREAMS_SYS_AUTH_API_AMAZON_COM AND
+		    LWS_WITH_SYS_STATE)
 			list(APPEND SOURCES
 				secure-streams/system/auth-api.amazon.com/auth.c
 			)

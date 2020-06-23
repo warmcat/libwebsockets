@@ -385,15 +385,17 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 			 * first 4 bytes or the create result, comma-separated
 			 */
 
-			rsp = conn->ss->policy;
+			if (conn->ss) {
+				rsp = conn->ss->policy;
 
-			while (rsp) {
-				if (n != 4 && n < (int)sizeof(s) - 2)
-					s[n++] = ',';
-				n += lws_snprintf(&s[n], sizeof(s) - n,
-						"%s", rsp->streamtype);
-				rsp = lws_ss_policy_lookup(wsi->context,
-					rsp->rideshare_streamtype);
+				while (rsp) {
+					if (n != 4 && n < (int)sizeof(s) - 2)
+						s[n++] = ',';
+					n += lws_snprintf(&s[n], sizeof(s) - n,
+							"%s", rsp->streamtype);
+					rsp = lws_ss_policy_lookup(wsi->context,
+						rsp->rideshare_streamtype);
+				}
 			}
 			s[2] = n - 3;
 			conn->state = LPCS_OPERATIONAL;

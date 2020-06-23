@@ -179,6 +179,7 @@ __lws_system_attach(struct lws_context *context, int tsi, lws_attach_cb_t cb,
 	}
 
 	*get = NULL;
+#if defined(LWS_WITH_SYS_STATE)
 	if (!pt->attach_owner.count)
 		return 0;
 
@@ -202,6 +203,7 @@ __lws_system_attach(struct lws_context *context, int tsi, lws_attach_cb_t cb,
 			return 0;
 		}
 	} lws_end_foreach_dll(d);
+#endif
 
 	/* nobody ready to go... leave *get as NULL and return cleanly */
 

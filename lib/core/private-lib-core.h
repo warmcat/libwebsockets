@@ -375,8 +375,10 @@ struct lws_context {
 	lws_sorted_usec_list_t		sul_api_amazon_com_kick;
 #endif
 
+#if defined(LWS_WITH_SYS_STATE)
 	lws_state_manager_t		mgr_system;
 	lws_state_notify_link_t		protocols_notify;
+#endif
 #if defined (LWS_WITH_SYS_DHCP_CLIENT)
 	lws_dll2_owner_t		dhcpc_owner;
 					/**< list of ifaces with dhcpc */

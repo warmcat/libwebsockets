@@ -206,6 +206,8 @@ typedef struct myss {
 	lws_sorted_usec_list_t		sul;
 } myss_t;
 
+#if !defined(LWS_SS_USE_SSPC)
+
 static const char *canned_root_token_payload =
 	"grant_type=refresh_token"
 	"&refresh_token=Atzr|IwEBIJedGXjDqsU_vMxykqOMg"
@@ -219,6 +221,8 @@ static const char *canned_root_token_payload =
 	"xL_hDCcTho8opCVX-6QhJHl6SQFlTw13"
 	"&client_id="
 		"amzn1.application-oa2-client.4823334c434b4190a2b5a42c07938a2d";
+
+#endif
 
 /* secure streams payload interface */
 
@@ -285,9 +289,12 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 		    int current, int target)
 {
 	struct lws_context *context = lws_system_context_from_system_mgr(mgr);
+#if !defined(LWS_SS_USE_SSPC)
+
 	lws_system_blob_t *ab = lws_system_get_blob(context,
 				LWS_SYSBLOB_TYPE_AUTH, 1 /* AUTH_IDX_ROOT */);
 	size_t size;
+#endif
 
 	/*
 	 * For the things we care about, let's notice if we are trying to get
@@ -295,6 +302,13 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 	 * state wait while we trigger the dependent action.
 	 */
 	switch (target) {
+
+#if !defined(LWS_SS_USE_SSPC)
+
+	/*
+	 * The proxy takes responsibility for this stuff if we get things
+	 * done through that
+	 */
 
 	case LWS_SYSTATE_INITIALIZED: /* overlay on the hardcoded policy */
 	case LWS_SYSTATE_POLICY_VALID: /* overlay on the loaded policy */
@@ -337,6 +351,8 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 				(const uint8_t *)canned_root_token_payload,
 				strlen(canned_root_token_payload));
 		break;
+
+#endif
 
 	case LWS_SYSTATE_OPERATIONAL:
 		if (current == LWS_SYSTATE_OPERATIONAL) {
@@ -444,6 +460,11 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
+#if !defined(LWS_SS_USE_SSPC)
+	/*
+	 * If we're being a proxied client, the proxy does all this
+	 */
+
 	/*
 	 * Set the related lws_system blobs
 	 *
@@ -472,6 +493,7 @@ int main(int argc, const char **argv)
 	lws_system_blob_heap_append(lws_system_get_blob(context,
 				    LWS_SYSBLOB_TYPE_DEVICE_TYPE, 0),
 				   (const uint8_t *)"spacerocket", 11);
+#endif
 
 	/* the event loop */
 

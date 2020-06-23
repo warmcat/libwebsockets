@@ -83,8 +83,10 @@ policy_set(lws_sorted_usec_list_t *sul)
 		lwsl_err("%s: policy set failed\n", __func__);
 	else {
 		context->policy_updated = 1;
+#if defined(LWS_WITH_SYS_STATE)
 		lws_state_transition_steps(&context->mgr_system,
 					   LWS_SYSTATE_OPERATIONAL);
+#endif
 	}
 }
 

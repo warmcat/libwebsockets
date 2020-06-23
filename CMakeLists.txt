@@ -114,6 +114,7 @@ option(LWS_WITH_SYS_NTPCLIENT "Build in tiny ntpclient good for tls date validat
 option(LWS_WITH_SYS_DHCP_CLIENT "Build in tiny DHCP client" OFF)
 option(LWS_WITH_HTTP_BASIC_AUTH "Support Basic Auth" ON)
 option(LWS_WITH_HTTP_UNCOMMON_HEADERS "Include less common http header support" ON)
+option(LWS_WITH_SYS_STATE "lws_system state support" ON)
 
 #
 # Secure Streams

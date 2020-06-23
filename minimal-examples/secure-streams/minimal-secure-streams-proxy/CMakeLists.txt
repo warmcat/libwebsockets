@@ -14,6 +14,7 @@ require_lws_config(LWS_WITHOUT_CLIENT 0 requirements)
 require_lws_config(LWS_WITH_SECURE_STREAMS 1 requirements)
 require_lws_config(LWS_WITH_SECURE_STREAMS_PROXY_API 1 requirements)
 require_lws_config(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY 0 requirements)
+require_lws_config(LWS_WITH_SYS_STATE 1 requirements)
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
