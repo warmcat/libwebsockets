@@ -109,6 +109,13 @@ _lws_state_transition(lws_state_manager_t *mgr, int target)
 	/* Indicate success by calling the notifers again with both args same */
 	_report(mgr, target, target);
 
+#if defined(LWS_WITH_SYS_SMD)
+	if (mgr->smd_class)
+		(void)lws_smd_msg_printf(mgr->context,
+				   mgr->smd_class, "{\"state\":\"%s\"}",
+				   mgr->state_names[target]);
+#endif
+
 	return 0;
 }
 

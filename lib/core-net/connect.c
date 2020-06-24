@@ -174,7 +174,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	}
 
 	if (local) {
-		lwsl_info("%s: protocol binding to %s\n", __func__, local);
+		lwsl_info("%s: vh %s protocol binding to %s\n", __func__, wsi->vhost->name, local);
 		p = lws_vhost_name_to_protocol(wsi->vhost, local);
 		if (p)
 			lws_bind_protocol(wsi, p, __func__);

@@ -461,7 +461,8 @@ int main(int argc, const char **argv)
 
 		mcp = lws_json_simple_find(t1, strlen(t1), "\"myname1\":", &alen);
 		if (mcp != t1 + 11 || alen != 4) {
-			lwsl_err("%s: lws_json_simple_find 1 failed: (%d) %s\n", __func__, (int)alen, mcp);
+			lwsl_err("%s: lws_json_simple_find 1 failed: (%d) %s\n",
+				 __func__, (int)alen, mcp);
 			return 1;
 		}
 

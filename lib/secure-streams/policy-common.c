@@ -27,6 +27,12 @@
 
 #include <private-lib-core.h>
 
+#if defined(LWS_WITH_SYS_SMD)
+const lws_ss_policy_t pol_smd = {
+	.flags			= 0, /* have to set something for windows */
+};
+#endif
+
 const lws_ss_policy_t *
 lws_ss_policy_lookup(const struct lws_context *context, const char *streamtype)
 {
@@ -34,6 +40,11 @@ lws_ss_policy_lookup(const struct lws_context *context, const char *streamtype)
 
 	if (!streamtype)
 		return NULL;
+
+#if defined(LWS_WITH_SYS_SMD)
+	if (!strcmp(streamtype, LWS_SMD_STREAMTYPENAME))
+		return &pol_smd;
+#endif
 
 	while (p) {
 		if (!strcmp(p->streamtype, streamtype))
@@ -212,7 +223,7 @@ lws_ss_policy_set(struct lws_context *context, const char *name)
 
 		if (!pol->trust_store) {
 			pol = pol->next;
-			if (!pol && !context->vhost_list) {
+			if (!pol) {
 				/* corner case... there's no trust store used */
 				i.options = context->options;
 				i.vhost_name = "_ss_default";
@@ -254,6 +265,7 @@ lws_ss_policy_set(struct lws_context *context, const char *name)
 		for (n = 1; v && n < pol->trust_store->count; n++) {
 			lwsl_info("%s: add '%s' to trust store\n", __func__,
 				  pol->trust_store->ssx509[n]->vhost_name);
+#if defined(LWS_WITH_TLS)
 			if (lws_tls_client_vhost_extra_cert_mem(v,
 					pol->trust_store->ssx509[n]->ca_der,
 					pol->trust_store->ssx509[n]->ca_der_len)) {
@@ -261,6 +273,7 @@ lws_ss_policy_set(struct lws_context *context, const char *name)
 						__func__);
 				ret = 1;
 			}
+#endif
 		}
 
 		pol = pol->next;

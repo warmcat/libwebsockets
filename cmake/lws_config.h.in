@@ -170,6 +170,7 @@
 #cmakedefine LWS_WITH_SELFTESTS
 #cmakedefine LWS_WITH_SEQUENCER
 #cmakedefine LWS_WITH_SERVER_STATUS
+#cmakedefine LWS_WITH_SYS_SMD
 #cmakedefine LWS_WITH_SMTP
 #cmakedefine LWS_WITH_SOCKS5
 #cmakedefine LWS_WITH_STATEFUL_URLDECODE

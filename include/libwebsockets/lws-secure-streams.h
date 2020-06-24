@@ -252,6 +252,20 @@ enum lws_ss_state_return_t {
  * to create the requested stream.
  */
 
+enum {
+	LWSSSINFLAGS_REGISTER_SINK			=	(1 << 0),
+	/**< If set, we're not creating a specific stream, but registering
+	 * ourselves as the "sink" for .streamtype.  It's analogous to saying
+	 * we want to be the many-to-one "server" for .streamtype; when other
+	 * streams are created with that streamtype, they should be forwarded
+	 * to this stream owner, where they join and part from the sink via
+	 * (*state) LWSSSCS_SINK_JOIN / _PART events, the new client handle
+	 * being provided in the h_src parameter.
+	 */
+	LWSSSINFLAGS_PROXIED				=	(1 << 1),
+	/**< Set if the stream is being created as a stand-in at the proxy */
+};
+
 typedef struct lws_ss_info {
 	const char *streamtype; /**< type of stream we want to create */
 	size_t	    user_alloc; /**< size of user allocation */
@@ -276,16 +290,13 @@ typedef struct lws_ss_info {
 	int	    manual_initial_tx_credit;
 	/**< 0 = manage any tx credit automatically, nonzero explicitly sets the
 	 * peer stream to have the given amount of tx credit, if the protocol
-	 * can support it. */
-	char	    register_sink;
-	/**< If set, we're not creating a specific stream, but registering
-	 * ourselves as the "sink" for .streamtype.  It's analogous to saying
-	 * we want to be the many-to-one "server" for .streamtype; when other
-	 * streams are created with that streamtype, they should be forwarded
-	 * to this stream owner, where they join and part from the sink via
-	 * (*state) LWSSSCS_SINK_JOIN / _PART events, the new client handle
-	 * being provided in the h_src parameter.
-	 */
+	 * can support it.
+	 *
+	 * In the special case of _lws_smd streamtype, this is used to indicate
+	 * the connection's rx class mask.
+	 * */
+	uint8_t	    flags;
+
 } lws_ss_info_t;
 
 /**

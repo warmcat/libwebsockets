@@ -91,6 +91,8 @@ ss_proxy_onward_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	const char *rsp = NULL;
 	int n;
 
+	// lwsl_notice("%s: len %d\n", __func__, (int)len);
+
 	/*
 	 * The onward secure stream connection has received something.
 	 */

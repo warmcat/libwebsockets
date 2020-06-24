@@ -39,10 +39,14 @@ typedef struct lws_state_notify_link {
 
 typedef struct lws_state_manager {
 	lws_dll2_owner_t	notify_list;
+	struct lws_context	*context;
 	void			*parent;
+#if defined(LWS_WITH_SYS_SMD)
+	lws_smd_class_t		smd_class;
+#endif
 	/**< optional opaque pointer to owning object... useful to make such
 	 * a pointer available to a notification callback.  Ignored by lws */
-	const char		**state_names;	/* may be NULL */
+	const char		**state_names;
 	const char		*name;
 	int			state;
 } lws_state_manager_t;

@@ -69,8 +69,7 @@
 #endif
 
 #if defined(LWS_HAVE_PTHREAD_H)
-#include <pthread.h>
-typedef pthread_mutex_t lws_mutex_t;
+#define lws_mutex_t		pthread_mutex_t
 #define lws_mutex_init(x)	pthread_mutex_init(&(x), NULL)
 #define lws_mutex_destroy(x)	pthread_mutex_destroy(&(x))
 #define lws_mutex_lock(x)	pthread_mutex_lock(&(x))

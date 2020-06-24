@@ -51,7 +51,11 @@ if (LWS_WITH_NETWORK)
 		list(APPEND SOURCES
 			system/dhcpclient/dhcpclient.c)
 	endif()
-	
+
+	if (LWS_WITH_SYS_SMD)
+		add_subdir_include_dirs(smd)
+	endif()
+
 endif()
 
 #

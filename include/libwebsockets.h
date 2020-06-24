@@ -348,10 +348,6 @@ struct lws_pollfd {
 #define LWS_POLLIN (FD_READ | FD_ACCEPT)
 #define LWS_POLLOUT (FD_WRITE)
 
-#if !defined(pid_t)
-#define pid_t int
-#endif
-
 #else
 
 
@@ -535,6 +531,9 @@ struct lws;
 
 #include <libwebsockets/lws-dll2.h>
 #include <libwebsockets/lws-timeout-timer.h>
+#if defined(LWS_WITH_SYS_SMD)
+#include <libwebsockets/lws-smd.h>
+#endif
 #include <libwebsockets/lws-state.h>
 #include <libwebsockets/lws-retry.h>
 #include <libwebsockets/lws-adopt.h>
@@ -547,7 +546,9 @@ struct lws;
 #include <libwebsockets/lws-ws-ext.h>
 #include <libwebsockets/lws-protocols-plugins.h>
 #include <libwebsockets/lws-plugin-generic-sessions.h>
+
 #include <libwebsockets/lws-context-vhost.h>
+
 #if defined(LWS_ROLE_MQTT)
 #include <libwebsockets/lws-mqtt.h>
 #endif

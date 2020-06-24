@@ -32,8 +32,6 @@ typedef struct ss_cpd {
 	/* ... application specific state ... */
 
 	lws_sorted_usec_list_t	sul;
-
-	uint8_t			partway;
 } ss_cpd_t;
 
 static int
@@ -70,21 +68,18 @@ ss_cpd_state(void *userobj, void *sh, lws_ss_constate_t state,
 	return LWSSSSRET_OK;
 }
 
+static const lws_ss_info_t ssi_cpd = {
+	.handle_offset			= offsetof(ss_cpd_t, ss),
+	.opaque_user_data_offset	= offsetof(ss_cpd_t, opaque_data),
+	.state				= ss_cpd_state,
+	.user_alloc			= sizeof(ss_cpd_t),
+	.streamtype			= "captive_portal_detect",
+};
+
 int
 lws_ss_sys_cpd(struct lws_context *cx)
 {
-	lws_ss_info_t ssi;
-
-	/* We're making an outgoing secure stream ourselves */
-
-	memset(&ssi, 0, sizeof(ssi));
-	ssi.handle_offset	    = offsetof(ss_cpd_t, ss);
-	ssi.opaque_user_data_offset = offsetof(ss_cpd_t, opaque_data);
-	ssi.state		    = ss_cpd_state;
-	ssi.user_alloc		    = sizeof(ss_cpd_t);
-	ssi.streamtype		    = "captive_portal_detect";
-
-	if (lws_ss_create(cx, 0, &ssi, cx, NULL, NULL, NULL)) {
+	if (lws_ss_create(cx, 0, &ssi_cpd, cx, NULL, NULL, NULL)) {
 		lwsl_info("%s: Create stream failed (policy?)\n", __func__);
 
 		return 1;

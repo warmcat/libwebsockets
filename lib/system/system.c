@@ -128,7 +128,7 @@ lws_system_blob_destroy(lws_system_blob_t *b)
 {
 	if (!b)
 		return;
-	lwsl_info("%s: blob %p\n", __func__, b);
+	// lwsl_info("%s: blob %p\n", __func__, b);
 	if (!b->is_direct)
 		lws_buflist_destroy_all_segments(&b->u.bl);
 }

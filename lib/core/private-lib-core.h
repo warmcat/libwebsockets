@@ -62,8 +62,14 @@
  #include <sys/stat.h>
 #endif
 
-#if LWS_MAX_SMP > 1
+#if LWS_MAX_SMP > 1 || defined(LWS_WITH_SYS_SMD)
+ /* https://stackoverflow.com/questions/33557506/timespec-redefinition-error */
+ #define HAVE_STRUCT_TIMESPEC
  #include <pthread.h>
+#else
+ #if !defined(pid_t) && defined(WIN32)
+ #define pid_t int
+ #endif
 #endif
 
 #ifndef LWS_DEF_HEADER_LEN
@@ -212,6 +218,11 @@ struct lws;
 #include "private-lib-secure-streams.h"
 #endif
 
+
+#if defined(LWS_WITH_SYS_SMD)
+#include "private-lib-system-smd.h"
+#endif
+
 struct lws_io_watcher {
 #ifdef LWS_WITH_LIBEV
 	struct lws_io_watcher_libev ev;
@@ -325,6 +336,10 @@ struct lws_context {
 #endif
 
 	lws_system_blob_t system_blobs[LWS_SYSBLOB_TYPE_COUNT];
+
+#if defined(LWS_WITH_SYS_SMD)
+	lws_smd_t		smd;
+#endif
 
 #if defined(LWS_WITH_NETWORK)
 	struct lws_context_per_thread pt[LWS_MAX_SMP];

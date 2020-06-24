@@ -799,6 +799,18 @@ struct lws_context_creation_info {
 	 * to make disappear, in order to simulate and test udp retry flow */
 #endif
 
+#if defined(LWS_WITH_SYS_SMD)
+	lws_smd_notification_cb_t		early_smd_cb;
+	/**< CONTEXT: NULL, or an smd notification callback that will be registered
+	 * immediately after the smd in the context is initialized.  This ensures
+	 * you can get all notifications without having to intercept the event loop
+	 * creation, eg, when using an event library.  Other callbacks can be
+	 * registered later manually without problems.
+	 */
+	void					*early_smd_opaque;
+	lws_smd_class_t				early_smd_class_filter;
+#endif
+
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
 	 *

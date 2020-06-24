@@ -121,6 +121,12 @@ typedef struct lws_ss_handle {
 			size_t				subscribe_to_len;
 		} mqtt;
 #endif
+#if defined(LWS_WITH_SYS_SMD)
+		struct {
+			struct lws_smd_peer		*smd_peer;
+			lws_sorted_usec_list_t		sul_write;
+		} smd;
+#endif
 	} u;
 
 	unsigned long		writeable_len;
@@ -257,6 +263,8 @@ typedef struct lws_sspc_handle {
 	uint8_t			rsidx;
 
 	uint8_t			destroying:1;
+	uint8_t			non_wsi:1;
+	uint8_t			ignore_txc:1;
 } lws_sspc_handle_t;
 
 typedef struct backoffs {
@@ -298,6 +306,10 @@ struct policy_cb_args {
 
 	int count;
 };
+
+#if defined(LWS_WITH_SYS_SMD)
+extern const lws_ss_policy_t pol_smd;
+#endif
 
 int
 lws_ss_deserialize_parse(struct lws_ss_serialization_parser *par,

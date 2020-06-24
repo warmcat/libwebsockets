@@ -57,6 +57,8 @@ lws_sspc_sul_retry_cb(lws_sorted_usec_list_t *sul)
 
 		return;
 	}
+
+	lwsl_notice("%s: sspc ss wsi %p\n", __func__, h->cwsi);
 }
 
 static int
@@ -172,7 +174,7 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!h)
 			break;
 
-		lwsl_info("%s: WRITEABLE %p: (%s) state %d\n", __func__, wsi,
+		lwsl_notice("%s: WRITEABLE %p: (%s) state %d\n", __func__, wsi,
 				h->ssi.streamtype, h->state);
 
 		n = 0;
@@ -250,7 +252,7 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 
 			/* we can't write anything if we don't have credit */
-			if (h->txc.tx_cr <= 0) {
+			if (!h->ignore_txc && h->txc.tx_cr <= 0) {
 				lwsl_notice("%s: WRITEABLE / OPERATIONAL:"
 					    " lack credit (%d)\n", __func__,
 					    h->txc.tx_cr);
@@ -288,8 +290,6 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if (!n)
 			break;
-
-		// lwsl_hexdump_notice(cp, n);
 
 		n = lws_write(wsi, (uint8_t *)cp, n, LWS_WRITE_RAW);
 		if (n < 0) {
@@ -347,10 +347,14 @@ lws_sspc_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 	memcpy(p, ssi->streamtype, strlen(ssi->streamtype) + 1);
 	h->ssi.streamtype = (const char *)p;
 	h->context = context;
+
 	if (!ssi->manual_initial_tx_credit)
 		h->txc.peer_tx_cr_est = 500000000;
 	else
 		h->txc.peer_tx_cr_est = ssi->manual_initial_tx_credit;
+
+	if (!strcmp(ssi->streamtype, "_lws_smd"))
+		h->ignore_txc = 1;
 
 	lws_dll2_add_head(&h->client_list, &context->pt[tsi].ss_client_owner);
 
@@ -409,7 +413,8 @@ lws_sspc_destroy(lws_sspc_handle_t **ph)
 	if (h->cwsi) {
 		struct lws *wsi = h->cwsi;
 		h->cwsi = NULL;
-		lws_set_timeout(wsi, 1, LWS_TO_KILL_SYNC);
+		if (h->cwsi)
+			lws_set_timeout(wsi, 1, LWS_TO_KILL_SYNC);
 	}
 
 	/* clean out any pending metadata changes that didn't make it */

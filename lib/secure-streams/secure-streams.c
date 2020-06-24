@@ -220,6 +220,84 @@ lws_ss_backoff(lws_ss_handle_t *h)
 	return 0;
 }
 
+#if defined(LWS_WITH_SYS_SMD)
+
+/*
+ * Local SMD <-> SS
+ *
+ * We pass received messages through to the SS handler synchronously, using the
+ * lws service thread context.
+ *
+ * After the SS is created and registered, still nothing is going to come here
+ * until the peer sends us his rx_class_mask and we update his registration with
+ * it, because from SS creation his rx_class_mask defaults to 0.
+ */
+
+static int
+lws_smd_ss_cb(void *opaque, lws_smd_class_t _class,
+	      lws_usec_t timestamp, void *buf, size_t len)
+{
+	lws_ss_handle_t *h = (lws_ss_handle_t *)opaque;
+	uint8_t *p = (uint8_t *)buf - LWS_SMD_SS_RX_HEADER_LEN;
+
+	/*
+	 * When configured with SS enabled, lws over-allocates
+	 * LWS_SMD_SS_RX_HEADER_LEN bytes behind the payload of the queued
+	 * message, for prepending serialized class and timestamp data in-band
+	 * with the payload.
+	 */
+
+	lws_ser_wu64be(p, _class);
+	lws_ser_wu64be(p + 8, timestamp);
+
+	if (h->info.rx)
+		h->info.rx((void *)&h[1], p, len + LWS_SMD_SS_RX_HEADER_LEN,
+		      LWSSS_FLAG_SOM | LWSSS_FLAG_EOM);
+
+	return 0;
+}
+
+static void
+lws_ss_smd_tx_cb(lws_sorted_usec_list_t *sul)
+{
+	lws_ss_handle_t *h = lws_container_of(sul, lws_ss_handle_t, u.smd.sul_write);
+	uint8_t buf[LWS_SMD_SS_RX_HEADER_LEN + LWS_SMD_MAX_PAYLOAD], *p;
+	size_t len = sizeof(buf);
+	lws_smd_class_t _class;
+	int flags = 0, n;
+
+	if (!h->info.tx)
+		return;
+
+	n = h->info.tx(&h[1], h->txord++, buf, &len, &flags);
+	if (n)
+		/* nonzero return means don't want to send anything */
+		return;
+
+	// lwsl_notice("%s: (SS %p bound to _lws_smd creates message) tx len %d\n", __func__, h, (int)len);
+	// lwsl_hexdump_notice(buf, len);
+
+	assert(len >= LWS_SMD_SS_RX_HEADER_LEN);
+	_class = (lws_smd_class_t)lws_ser_ru64be(buf);
+	p = lws_smd_msg_alloc(h->context, _class, len - LWS_SMD_SS_RX_HEADER_LEN);
+	if (!p) {
+		lwsl_notice("%s: failed to alloc\n", __func__);
+		return;
+	}
+
+	memcpy(p, buf + LWS_SMD_SS_RX_HEADER_LEN, len - LWS_SMD_SS_RX_HEADER_LEN);
+	if (lws_smd_msg_send(h->context, p)) {
+		lwsl_notice("%s: failed to queue\n", __func__);
+		return;
+	}
+}
+
+#endif
+
+/*
+ * This is a local SS binding to a local SMD server
+ */
+
 int
 lws_ss_client_connect(lws_ss_handle_t *h)
 {
@@ -244,6 +322,34 @@ lws_ss_client_connect(lws_ss_handle_t *h)
 
 	if (h->h_sink)
 		return 0;
+
+#if defined(LWS_WITH_SYS_SMD)
+	if (h->policy == &pol_smd) {
+
+		if (h->u.smd.smd_peer) {
+			// lwsl_notice("%s: peer already set\n", __func__);
+			return 0;
+		}
+
+		// lwsl_notice("%s: received connect for _lws_smd, registering for class mask 0x%x\n",
+		//		__func__, h->info.manual_initial_tx_credit);
+
+		h->u.smd.smd_peer = lws_smd_register(h->context, h,
+					(h->info.flags & LWSSSINFLAGS_PROXIED) ?
+						LWSSMDREG_FLAG_PROXIED_SS : 0,
+					h->info.manual_initial_tx_credit,
+					lws_smd_ss_cb);
+		if (!h->u.smd.smd_peer)
+			return -1;
+
+		if (lws_ss_event_helper(h, LWSSSCS_CONNECTING))
+			return -1;
+		// lwsl_err("%s: registered SS SMD\n", __func__);
+		if (lws_ss_event_helper(h, LWSSSCS_CONNECTED))
+			return -1;
+		return 0;
+	}
+#endif
 
 	/*
 	 * We're going to substitute ${metadata} in the endpoint at connection-
@@ -367,7 +473,6 @@ lws_ss_client_connect(lws_ss_handle_t *h)
 	return 0;
 }
 
-
 /*
  * Public API
  */
@@ -397,7 +502,7 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 		return 1;
 	}
 
-	if (ssi->register_sink) {
+	if (ssi->flags & LWSSSINFLAGS_REGISTER_SINK) {
 		/*
 		 * This can register a secure streams sink as well as normal
 		 * secure streams connections.  If that's what's happening,
@@ -505,13 +610,41 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 	if (ppayload_fmt)
 		*ppayload_fmt = pol->payload_fmt;
 
-	if (ssi->register_sink) {
+#if defined(LWS_WITH_SYS_SMD)
+	/*
+	 * For a local Secure Streams connection
+	 */
+	if (!(ssi->flags & LWSSSINFLAGS_PROXIED) &&
+	    pol == &pol_smd) {
+		/*
+		 * So he has asked to be wired up to SMD over a SS link.
+		 * Register him as an smd participant in his own right.
+		 *
+		 * Just for this case, ssi->manual_initial_tx_credit is used
+		 * to set the rx class mask (this is part of the SS serialization
+		 * format as well)
+		 */
+		h->u.smd.smd_peer = lws_smd_register(context, h, 0,
+						     ssi->manual_initial_tx_credit,
+						     lws_smd_ss_cb);
+		if (!h->u.smd.smd_peer)
+			goto late_bail;
+		lwsl_info("%s: registered SS SMD\n", __func__);
+		if (lws_ss_event_helper(h, LWSSSCS_CONNECTING))
+			return -1;
+		if (lws_ss_event_helper(h, LWSSSCS_CONNECTED))
+			return -1;
+	}
+#endif
+
+	if (ssi->flags & LWSSSINFLAGS_REGISTER_SINK) {
 		/*
 		 *
 		 */
 	}
 
 	if (lws_ss_event_helper(h, LWSSSCS_CREATING)) {
+late_bail:
 		lws_pt_lock(pt, __func__);
 		lws_dll2_remove(&h->list);
 		lws_pt_unlock(pt);
@@ -520,7 +653,14 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 		return 1;
 	}
 
-	if (!ssi->register_sink && (h->policy->flags & LWSSSPOLF_NAILED_UP))
+	if (!(ssi->flags & LWSSSINFLAGS_REGISTER_SINK) &&
+	    ((h->policy->flags & LWSSSPOLF_NAILED_UP)
+#if defined(LWS_WITH_SYS_SMD)
+		|| ((h->policy == &pol_smd) //&&
+		    //(ssi->flags & LWSSSINFLAGS_PROXIED))
+				)
+#endif
+			    ))
 		if (lws_ss_client_connect(h))
 			lws_ss_backoff(h);
 
@@ -550,6 +690,15 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 		 */
 		lws_set_opaque_user_data(h->wsi, NULL);
 		lws_set_timeout(h->wsi, 1, LWS_TO_KILL_SYNC);
+	}
+
+	/*
+	 * if we bound an smd registration to the SS, unregister it
+	 */
+
+	if (h->policy == &pol_smd && h->u.smd.smd_peer) {
+		lws_smd_unregister(h->u.smd.smd_peer);
+		h->u.smd.smd_peer = NULL;
 	}
 
 	pt = &h->context->pt[h->tsi];
@@ -587,6 +736,22 @@ lws_ss_request_tx(lws_ss_handle_t *h)
 
 		return;
 	}
+
+#if defined(LWS_WITH_SYS_SMD)
+	if (h->policy == &pol_smd) {
+		/*
+		 * He's an _lws_smd... and no wsi... since we're just going
+		 * to queue it, we could call his tx() right here, but rather
+		 * than surprise him let's set a sul to do it next time around
+		 * the event loop
+		 */
+
+		lws_sul_schedule(h->context, 0, &h->u.smd.sul_write,
+				 lws_ss_smd_tx_cb, 1);
+
+		return;
+	}
+#endif
 
 	if (h->seqstate != SSSEQ_IDLE &&
 	    h->seqstate != SSSEQ_DO_RETRY)

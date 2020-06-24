@@ -774,10 +774,18 @@ payload_ff:
 				    __func__, par->streamtype, par->txcr_out);
 
 			ssi->streamtype = par->streamtype;
-			if (par->txcr_out)
+			if (par->txcr_out) // !!!
 				ssi->manual_initial_tx_credit = par->txcr_out;
 
-			if (lws_ss_create(context, 0, ssi, parconn, pss, NULL, NULL)) {
+			/*
+			 * Even for a synthetic SS proxing action like _lws_smd,
+			 * we create an actual SS in the proxy representing the
+			 * connection
+			 */
+
+			ssi->flags |= LWSSSINFLAGS_PROXIED;
+			if (lws_ss_create(context, 0, ssi, parconn, pss,
+					  NULL, NULL)) {
 				/*
 				 * We're unable to create the onward secure
 				 * stream he asked for... schedule a chance to
@@ -794,9 +802,19 @@ payload_ff:
 
 			if (*pss) {
 				(*pss)->being_serialized = 1;
-				lwsl_notice("%s: Created SS initial credit %d\n",
-					   __func__, par->txcr_out);
-				(*pss)->info.manual_initial_tx_credit = par->txcr_out;
+#if defined(LWS_WITH_SYS_SMD)
+				if ((*pss)->policy != &pol_smd)
+					/*
+					 * In SMD case we overloaded the
+					 * initial credit to be the class mask
+					 */
+#endif
+				{
+					lwsl_info("%s: Created SS initial credit %d\n",
+						__func__, par->txcr_out);
+
+					(*pss)->info.manual_initial_tx_credit = par->txcr_out;
+				}
 			}
 
 			/* parent needs to schedule write on client conn */
