@@ -49,18 +49,6 @@ static const lws_bb_i2c_t li2c = {
 	.delay				= esp32_i2c_delay
 };
 
-static const lws_display_ssd1306_t disp = {
-	.disp = {
-		lws_display_ssd1306_ops,
-		.w			= 128,
-		.h			= 64
-	},
-	.i2c				= (lws_i2c_ops_t *)&li2c,
-	.gpio				= &lws_gpio_plat,
-	.reset_gpio			= GPIO_NUM_16,
-	.i2c7_address			= SSD1306_I2C7_ADS1
-};
-
 /*
  * Button controller
  */
@@ -85,13 +73,25 @@ static const lws_button_controller_t bc = {
  */
 
 static const lws_pwm_map_t pwm_map[] = {
-	{ .gpio = GPIO_NUM_25, .index = 0 }
+	{ .gpio = GPIO_NUM_25, .index = 0, .active_level = 1 }
 };
 
 static const lws_pwm_ops_t pwm_ops = {
 	lws_pwm_plat_ops,
 	.pwm_map			= &pwm_map[0],
 	.count_pwm_map			= LWS_ARRAY_SIZE(pwm_map)
+};
+
+static const lws_display_ssd1306_t disp = {
+	.disp = {
+		lws_display_ssd1306_ops,
+		.w			= 128,
+		.h			= 64
+	},
+	.i2c				= (lws_i2c_ops_t *)&li2c,
+	.gpio				= &lws_gpio_plat,
+	.reset_gpio			= GPIO_NUM_16,
+	.i2c7_address			= SSD1306_I2C7_ADS1
 };
 
 /*
@@ -184,6 +184,7 @@ app_main(void)
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.early_smd_cb = smd_cb;
 	info.early_smd_class_filter = LWSSMDCL_INTERACTION;
+
 	context = lws_create_context(&info);
 	if (!context) {
 		lwsl_err("lws init failed\n");
@@ -199,8 +200,6 @@ app_main(void)
 	/* pwm init must go after the led controller init */
 
 	pwm_ops.init(&pwm_ops);
-	lgc.led_ops.intensity(&lgc.led_ops, "alert", 0);
-//	lws_led_transition(lls, 0, &lws_pwmseq_sine_endless, NULL);
 
 	bcs = lws_button_controller_create(context, &bc);
 	if (!bcs) {
@@ -212,12 +211,13 @@ app_main(void)
 	 * Show the lws logo on the display
 	 */
 
-	lws_display_state_init(&lds, context, 10000, 20000, 200, 10, &disp.disp);
-	lws_display_state_active(&lds);
+	lws_display_state_init(&lds, context, 10000, 20000, lls, &disp.disp);
 	disp.disp.blit(lds.disp, img, 0, 0, 128, 64);
+	lws_display_state_active(&lds);
 
 	lws_button_enable(bcs, 0, lws_button_get_bit(bcs, "user"));
-	lgc.led_ops.intensity(&lgc.led_ops, "alert", 0);
+	lws_led_transition(lls, "alert", &lws_pwmseq_static_off,
+			   &lws_pwmseq_static_on);
 
 	/*
 	 * We say the test succeeded if we survive 3s around the event loop

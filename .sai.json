@@ -55,7 +55,7 @@
 		"freertos-espidf/xl6-esp32/gcc": {
 			# official way to get sdkconfig.h is idf.py menuconfig, but
 			# no obvious way to do that in CI
-			"build":	"rm -rf ebuild ; mkdir ebuild; cd ebuild; cp -rp ../minimal-examples/embedded/lws-minimal-esp32 . ;  cd lws-minimal-esp32 ; . /opt/esp/esp-idf/export.sh ; ln -sf ../.. libwebsockets ; idf.py set-target esp32 && cp libwebsockets/minimal-examples/embedded/lws-minimal-esp32/sdkconfig . && cp sdkconfig.h build && idf.py build && cd build && /usr/local/bin/sai-device freertos-espidf ESPPORT=0 ctest --output-on-failure",
+			"build":	"rm -rf ebuild ; mkdir ebuild; cd ebuild; cp -rp ../minimal-examples/embedded/esp32/${cmake} . ;  cd ${cmake} ; . /opt/esp/esp-idf/export.sh ; ln -sf ../.. libwebsockets ; idf.py set-target esp32 && cp libwebsockets/minimal-examples/embedded/esp32/${cmake}/sdkconfig . && cp sdkconfig.h build && idf.py build && cd build && /usr/local/bin/sai-device ${cmake} ESPPORT=0 ctest --output-on-failure",
 			"default":	false
 		},
 		"linux-fedora-32/riscv64-virt/gcc": {
@@ -68,7 +68,15 @@
 	"configurations": {
 		"default": {
 			"cmake":	"",
-			"platforms":	"windows-10/x86_64-amd/msvc, freertos-linkit/arm32-m4-mt7697-usi/gcc, linux-ubuntu-2004/aarch64-a72-bcm2711-rpi4/gcc, freertos-espidf/xl6-esp32/gcc, windows-10/x86_64-amd/mingw32, windows-10/x86_64-amd/mingw64"
+			"platforms":	"windows-10/x86_64-amd/msvc, freertos-linkit/arm32-m4-mt7697-usi/gcc, linux-ubuntu-2004/aarch64-a72-bcm2711-rpi4/gcc, windows-10/x86_64-amd/mingw32, windows-10/x86_64-amd/mingw64"
+		},
+		"emb1": {
+			"cmake":	"esp-heltec-wb32",
+			"platforms":	"none, freertos-espidf/xl6-esp32/gcc"
+		},
+		"emb2": {
+			"cmake":	"esp-wrover-kit",
+			"platforms":	"none, freertos-espidf/xl6-esp32/gcc"
 		},
 #		"default-examples-openssl-v3": {
 #			"cmake":	"-DLWS_OPENSSL_LIBRARIES=\"/usr/local/src/openssl/v3/usr/local/lib64/libssl.a;/usr/local/src/openssl/v3/usr/local/lib64/libcrypto.a\" -DLWS_OPENSSL_INCLUDE_DIRS=\"/usr/local/src/openssl/v3/usr/local/include/\" -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_GENCRYPTO=1",

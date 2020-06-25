@@ -25,102 +25,108 @@
 #include <libwebsockets.h>
 
 static void
-sul_cb(lws_sorted_usec_list_t *sul)
-{
-	lws_display_state_t *lds = lws_container_of(sul, lws_display_state_t,
-						    sul);
-
-	if (lds->bl_target > lds->bl_current) {
-		if (lds->bl_target - lds->bl_current < lds->bl_step)
-			lds->bl_current = lds->bl_target;
-		else
-			lds->bl_current += lds->bl_step;
-	} else {
-		if (lds->bl_current - lds->bl_target < lds->bl_step)
-			lds->bl_current = lds->bl_target;
-		else
-			lds->bl_current -= lds->bl_step;
-	}
-
-	lds->disp->brightness(lds->disp, lds->bl_current);
-
-	if (lds->bl_current != lds->bl_target)
-		/*
-		 * Come back and move towards the target again in 50ms
-		 */
-		lws_sul_schedule(lds->ctx, 0, &lds->sul,
-				 sul_cb, 50 * LWS_US_PER_MS);
-}
-
-static void
 sul_autodim_cb(lws_sorted_usec_list_t *sul)
 {
 	lws_display_state_t *lds = lws_container_of(sul, lws_display_state_t,
-						   sul_autodim);
+						    sul_autodim);
+	int next_ms = -1;
 
 	/* we fire both to dim and to blank... if already in dim state, blank */
 
-	if (lds->state == LWSDISPS_AUTODIMMED) {
+	switch (lds->state) {
+	case LWSDISPS_BECOMING_ACTIVE:
+		lws_display_state_set_brightness(lds, lds->disp->bl_active);
+		lds->state = LWSDISPS_ACTIVE;
+		next_ms = lds->autodim_ms;
+		break;
+
+	case LWSDISPS_ACTIVE:
+		/* active -> autodimmed */
+		lds->state = LWSDISPS_AUTODIMMED;
+		next_ms = lds->off_ms;
+		lws_display_state_set_brightness(lds, lds->disp->bl_dim);
+		break;
+
+	case LWSDISPS_AUTODIMMED:
+		/* dimmed -> OFF */
+		lws_display_state_set_brightness(lds, &lws_pwmseq_static_off);
+		lds->state = LWSDISPS_GOING_OFF;
+		next_ms = 600;
+		break;
+
+	case LWSDISPS_GOING_OFF:
+		/* off dimming completed, actual display OFF */
 		lws_display_state_off(lds);
+		return;
+
+	default:
 		return;
 	}
 
-	lds->state = LWSDISPS_AUTODIMMED;
-	lws_display_state_set_brightness(lds, lds->bl_dim, lds->bl_step);
-
-	if (lds->off_ms >= 0)
+	if (next_ms >= 0)
 		lws_sul_schedule(lds->ctx, 0, &lds->sul_autodim, sul_autodim_cb,
-				 lds->off_ms * LWS_US_PER_MS);
+				 next_ms * LWS_US_PER_MS);
 }
 
 void
-lws_display_state_init(lws_display_state_t *ds, struct lws_context *ctx,
-		       int dim_ms, int off_ms, lws_display_brightness active,
-		       lws_display_brightness dim, const lws_display_t *disp)
+lws_display_state_init(lws_display_state_t *lds, struct lws_context *ctx,
+		       int dim_ms, int off_ms, struct lws_led_state *bl_lcs,
+		       const lws_display_t *disp)
 {
-	memset(ds, 0, sizeof(*ds));
-	ds->disp = disp;
-	ds->ctx = ctx;
-	ds->autodim_ms = dim_ms;
-	ds->off_ms = off_ms;
-	ds->bl_active = active;
-	ds->bl_dim = dim;
+	memset(lds, 0, sizeof(*lds));
+
+	lds->disp = disp;
+	lds->ctx = ctx;
+	lds->autodim_ms = dim_ms;
+	lds->off_ms = off_ms;
+	lds->bl_lcs = bl_lcs;
+	lds->state = LWSDISPS_OFF;
+
+	lws_led_transition(lds->bl_lcs, "backlight", &lws_pwmseq_static_off,
+						     &lws_pwmseq_static_on);
+
+	disp->init(disp);
 }
 
 void
 lws_display_state_set_brightness(lws_display_state_t *lds,
-				 lws_display_brightness target,
-				 lws_display_brightness step)
+				 const lws_led_sequence_def_t *pwmseq)
 {
-	lds->bl_target = target;
-	lds->bl_step = step;
-
-	lws_sul_schedule(lds->ctx, 0, &lds->sul, sul_cb, 1);
+	lws_led_transition(lds->bl_lcs, "backlight", pwmseq,
+			   lds->disp->bl_transition);
 }
 
 void
 lws_display_state_active(lws_display_state_t *lds)
 {
-	if (lds->state == LWSDISPS_OFF)
-		lds->disp->power(lds->disp, 1);
+	int waiting_ms;
 
-	if (lds->bl_current != lds->bl_active)
-		lws_display_state_set_brightness(lds, lds->bl_active, 2);
+	if (lds->state == LWSDISPS_OFF) {
+		/* power us up */
+		lds->disp->power(lds->disp, 1);
+		lds->state = LWSDISPS_BECOMING_ACTIVE;
+		waiting_ms = lds->disp->latency_wake_ms;
+	} else {
+
+		if (lds->state != LWSDISPS_ACTIVE)
+			lws_display_state_set_brightness(lds,
+						lds->disp->bl_active);
+
+		lds->state = LWSDISPS_ACTIVE;
+		waiting_ms = lds->autodim_ms;
+	}
 
 	/* reset the autodim timer */
-	if (lds->autodim_ms >= 0)
+	if (waiting_ms >= 0)
 		lws_sul_schedule(lds->ctx, 0, &lds->sul_autodim, sul_autodim_cb,
-				 lds->autodim_ms * LWS_US_PER_MS);
+				 waiting_ms * LWS_US_PER_MS);
 
-	lds->state = LWSDISPS_ACTIVE;
 }
 
 void
 lws_display_state_off(lws_display_state_t *lds)
 {
 	lds->disp->power(lds->disp, 0);
-	lws_sul_cancel(&lds->sul);
 	lws_sul_cancel(&lds->sul_autodim);
-	lds->bl_current = 0;
 	lds->state = LWSDISPS_OFF;
 }

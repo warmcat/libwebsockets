@@ -25,6 +25,7 @@
 typedef struct lws_pwm_map {
 	_lws_plat_gpio_t		gpio;
 	uint8_t				index;
+	uint8_t				active_level;
 } lws_pwm_map_t;
 
 typedef struct lws_pwm_ops {
@@ -61,4 +62,6 @@ extern const lws_led_sequence_def_t lws_pwmseq_sine_endless_slow,
 				    lws_pwmseq_sine_endless_fast,
 				    lws_pwmseq_linear_wipe,
 				    lws_pwmseq_sine_up, lws_pwmseq_sine_down,
-				    lws_pwmseq_static_on, lws_pwmseq_static_off;
+				    lws_pwmseq_static_on,
+				    lws_pwmseq_static_half,
+				    lws_pwmseq_static_off;

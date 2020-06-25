@@ -25,9 +25,6 @@
  * functions for the ops that use the underlying, eg, OS gpio arrangements.
  */
 
-#if !defined(__LWS_LED_H__)
-#define __LWS_LED_H__
-
 /* only b15 significant for GPIO */
 typedef uint16_t lws_led_intensity_t;
 typedef uint16_t lws_led_seq_phase_t;
@@ -54,6 +51,29 @@ typedef struct lws_led_sequence_def_t {
 	uint16_t			ms;
 	uint8_t				flags;
 } lws_led_sequence_def_t;
+
+enum {
+	LLSI_CURR,
+	LLSI_NEXT,
+	LLSI_TRANS
+};
+
+typedef struct lws_led_state_ch
+{
+	const lws_led_sequence_def_t		*seq; /* NULL = inactive */
+	lws_led_seq_phase_t			ph;
+	lws_led_seq_phase_t			step;
+	int					phase_budget;
+	lws_led_intensity_t			last;
+	/**< at the end of the sequence we decouple the sequencer, but leave
+	 * the last computed sample behind for further transitions to base off
+	 */
+} lws_led_state_ch_t;
+
+typedef struct lws_led_state_chs
+{
+	lws_led_state_ch_t			seqs[3];
+} lws_led_state_chs_t;
 
 /* this should always be first in the subclassed implementation types */
 
@@ -124,4 +144,3 @@ lws_led_transition(struct lws_led_state *lcs, const char *name,
 		.intensity	= lws_led_gpio_intensity, \
 	}
 
-#endif

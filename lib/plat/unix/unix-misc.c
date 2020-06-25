@@ -27,6 +27,18 @@
 #endif
 #include "private-lib-core.h"
 
+/*
+ * Normally you don't want this, use lws_sul instead inside the event loop.
+ * But sometimes for drivers it makes sense, so there's an internal-only
+ * crossplatform api for it.
+ */
+
+void
+lws_msleep(unsigned int ms)
+{
+        usleep(ms * LWS_US_PER_MS);
+}
+
 lws_usec_t
 lws_now_usecs(void)
 {

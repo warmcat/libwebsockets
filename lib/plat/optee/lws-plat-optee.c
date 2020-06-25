@@ -252,3 +252,10 @@ lws_plat_ntpclient_config(struct lws_context *context)
 #endif
 	return 0;
 }
+
+void
+lws_msleep(unsigned int ms)
+{
+}
+
+

@@ -59,8 +59,8 @@ lws_seq_advance(lws_led_state_t *lcs, lws_led_state_ch_t *ch)
 	if (!ch->seq)
 		return;
 
-	if (ch->phase_budget != -1 &&
-	    ch->phase_budget < ch->step) {
+	if (ch->phase_budget != LWS_SEQ_LEDPHASE_TOTAL_ENDLESS &&
+	    (ch->phase_budget < ch->step || !ch->phase_budget)) {
 
 		/* we are done */
 
@@ -75,40 +75,42 @@ lws_seq_advance(lws_led_state_t *lcs, lws_led_state_ch_t *ch)
 	}
 
 	ch->ph += ch->step;
-	if (ch->phase_budget != -1)
+	if (ch->phase_budget != LWS_SEQ_LEDPHASE_TOTAL_ENDLESS)
 		ch->phase_budget -= ch->step;
 }
 
 static lws_led_intensity_t
 lws_seq_sample(const lws_led_gpio_map_t *map, lws_led_state_chs_t *chs)
 {
-	unsigned int i = 0, mix, nx;
+	unsigned int i;
 
-	if (chs->seqs[LWS_LED_SEQ_IDX_CURR].seq)
-		i = chs->seqs[LWS_LED_SEQ_IDX_CURR].seq->
-				func(chs->seqs[LWS_LED_SEQ_IDX_CURR].ph);
+	if (chs->seqs[LLSI_CURR].seq)
+		chs->seqs[LLSI_CURR].last = chs->seqs[LLSI_CURR].seq->
+						func(chs->seqs[LLSI_CURR].ph);
 
-	if (chs->seqs[LWS_LED_SEQ_IDX_TRANSITION].seq) {
+	if (chs->seqs[LLSI_TRANS].seq) {
 		/*
 		 * If a transition is ongoing, we need to use the transition
 		 * intensity as the mixing factor between the still-live current
 		 * and newly-live next sequences
 		 */
-		mix = chs->seqs[LWS_LED_SEQ_IDX_TRANSITION].seq->
-				func(chs->seqs[LWS_LED_SEQ_IDX_TRANSITION].ph);
-		nx = 0;
-		if (chs->seqs[LWS_LED_SEQ_IDX_NEXT].seq)
-			nx = chs->seqs[LWS_LED_SEQ_IDX_NEXT].seq->
-				func(chs->seqs[LWS_LED_SEQ_IDX_NEXT].ph);
+		chs->seqs[LLSI_TRANS].last = chs->seqs[LLSI_TRANS].seq->
+						func(chs->seqs[LLSI_TRANS].ph);
 
-		i = (lws_led_intensity_t)(
-					((i * (65535 - mix) / 65536) +
-					((nx * mix) / 65536)));
-	}
+		if (chs->seqs[LLSI_NEXT].seq)
+			chs->seqs[LLSI_NEXT].last = chs->seqs[LLSI_NEXT].seq->
+						  func(chs->seqs[LLSI_NEXT].ph);
 
-	return map->intensity_correction ?
-				map->intensity_correction(i) :
-				cie_antilog((lws_led_intensity_t)i);
+		i = (lws_led_intensity_t)(((
+				(unsigned int)chs->seqs[LLSI_CURR].last *
+				(65535 - chs->seqs[LLSI_TRANS].last) >> 16) +
+			(((unsigned int)chs->seqs[LLSI_NEXT].last *
+			 (unsigned int)chs->seqs[LLSI_TRANS].last) >> 16)));
+	} else
+		i = chs->seqs[LLSI_CURR].last;
+
+	return map->intensity_correction ? map->intensity_correction(i) :
+					   cie_antilog((lws_led_intensity_t)i);
 }
 
 void
@@ -121,20 +123,26 @@ lws_seq_timer_handle(lws_led_state_t *lcs)
 
 	for (n = 0; n < lgc->count_leds; n++) {
 
-		lws_seq_advance(lcs, &chs->seqs[LWS_LED_SEQ_IDX_CURR]);
-
-		if (chs->seqs[LWS_LED_SEQ_IDX_TRANSITION].seq) {
-			lws_seq_advance(lcs, &chs->seqs[LWS_LED_SEQ_IDX_NEXT]);
-			lws_seq_advance(lcs, &chs->seqs[LWS_LED_SEQ_IDX_TRANSITION]);
-			if (!chs->seqs[LWS_LED_SEQ_IDX_TRANSITION].seq) {
-				chs->seqs[LWS_LED_SEQ_IDX_CURR] =
-					chs->seqs[LWS_LED_SEQ_IDX_NEXT];
-				chs->seqs[LWS_LED_SEQ_IDX_NEXT].seq = NULL;
-			}
-		}
-
 		lgc->led_ops.intensity(&lgc->led_ops, map->name,
 				       lws_seq_sample(map, chs));
+
+		lws_seq_advance(lcs, &chs->seqs[LLSI_CURR]);
+
+		if (chs->seqs[LLSI_TRANS].seq) {
+			lws_seq_advance(lcs, &chs->seqs[LLSI_NEXT]);
+			lws_seq_advance(lcs, &chs->seqs[LLSI_TRANS]);
+
+			/*
+			 * When we finished the transition, we can make the
+			 * "next" sequence the current sequence and no need for
+			 * a "next" or a transition any more.
+			 */
+
+			if (!chs->seqs[LLSI_TRANS].seq) {
+				chs->seqs[LLSI_CURR] = chs->seqs[LLSI_NEXT];
+				chs->seqs[LLSI_NEXT].seq = NULL;
+			}
+		}
 
 		map++;
 		chs++;
@@ -162,10 +170,10 @@ lws_led_set_chs_seq(struct lws_led_state *lcs, lws_led_state_ch_t *dest,
 	 */
 
 	steps = def->ms / LWS_LED_SEQUENCER_UPDATE_INTERVAL_MS;
-	dest->step = (def->ledphase_total != -1 ?
+	dest->step = (def->ledphase_total != LWS_SEQ_LEDPHASE_TOTAL_ENDLESS ?
 		def->ledphase_total : LWS_LED_FUNC_PHASE) / (steps ? steps : 1);
 
-	if (steps && !lcs->timer_refcount++) {
+	if (!lcs->timer_refcount++) {
 #if defined(LWS_PLAT_TIMER_START)
 		LWS_PLAT_TIMER_START(lcs->timer);
 #endif
@@ -181,18 +189,12 @@ lws_led_transition(struct lws_led_state *lcs, const char *name,
 {
 	lws_led_state_chs_t *chs = (lws_led_state_chs_t *)&lcs[1];
 	int index = lws_led_gpio_lookup(&lcs->controller->led_ops, name);
-	const lws_led_gpio_map_t *map;
 
 	if (index < 0)
 		return 1;
 
-	map = &lcs->controller->led_map[index];
-
-	lws_led_set_chs_seq(lcs, &chs[index].seqs[LWS_LED_SEQ_IDX_TRANSITION], trans);
-	lws_led_set_chs_seq(lcs, &chs[index].seqs[LWS_LED_SEQ_IDX_NEXT], next);
-
-	lcs->controller->led_ops.intensity(&lcs->controller->led_ops, map->name,
-			       lws_seq_sample(map, chs));
+	lws_led_set_chs_seq(lcs, &chs[index].seqs[LLSI_TRANS], trans);
+	lws_led_set_chs_seq(lcs, &chs[index].seqs[LLSI_NEXT], next);
 
 	return 0;
 }

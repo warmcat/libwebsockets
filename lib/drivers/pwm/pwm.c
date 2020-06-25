@@ -96,7 +96,7 @@ lws_led_func_linear(lws_led_seq_phase_t n)
 static lws_led_intensity_t
 lws_led_func_static(lws_led_seq_phase_t n)
 {
-	return n ? LWS_LED_MAX_INTENSITY : 0;
+	return ((int)n * LWS_LED_MAX_INTENSITY) / 2;
 }
 
 const lws_led_sequence_def_t lws_pwmseq_static_off = {
@@ -106,9 +106,16 @@ const lws_led_sequence_def_t lws_pwmseq_static_off = {
 	.ms			= 0
 };
 
-const lws_led_sequence_def_t lws_pwmseq_static_on = {
+const lws_led_sequence_def_t lws_pwmseq_static_half = {
 	.func			= lws_led_func_static,
 	.ledphase_offset	= 1,
+	.ledphase_total		= 0,
+	.ms			= 0
+};
+
+const lws_led_sequence_def_t lws_pwmseq_static_on = {
+	.func			= lws_led_func_static,
+	.ledphase_offset	= 2,
 	.ledphase_total		= 0,
 	.ms			= 0
 };

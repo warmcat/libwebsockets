@@ -85,6 +85,7 @@ ms_min_down|20ms|Down events shorter than this are ignored
 ms_min_down_longpress|300ms|Down events longer than this are reported as a long-click
 ms_up_settle|20ms|After the first indication a button is no longer down, the button is ignored for this interval
 ms_doubleclick_grace|120ms|The time allowed after a click to see if a second, double-click, is forthcoming
+ms_repeat_down|0 / disabled|If held down, interval at which to issue `stilldown` events
 flags|LWSBTNRGMFLAG_CLASSIFY_DOUBLECLICK|Control which classifications can apply
 
 ### lws_smd System Message Distribution Events
@@ -117,6 +118,7 @@ the interaction, eg, that it can be understood as a single "double-click" event.
 Event name|Meaning
 ---|---
 down|The button passes a filter for being down, useful for duration-based response
+stilldown|The regime can be configured to issue "repeat" notifications at intervals
 up|The button has come up, useful for duration-based response
 click|The button activity resulted in a classification as a single-click
 longclick|The button activity resulted in a classification as a long-click
@@ -149,3 +151,6 @@ Classification|Sequencing
 click|down-up-click (it's classified when it went up and cannot be a longclick)
 longclick|down-longclick-up (it's classified while still down)
 doubleclick|down-up-down-doubleclick-up (classified as soon as second click down long enough)
+
+If the regime is configured for it, any "down" may be followed by one or more
+"stilldown" at intervals if the button is down long enough

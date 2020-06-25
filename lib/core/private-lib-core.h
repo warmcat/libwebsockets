@@ -751,6 +751,8 @@ lws_check_utf8(unsigned char *state, unsigned char *buf, size_t len);
 LWS_EXTERN int alloc_file(struct lws_context *context, const char *filename,
 			  uint8_t **buf, lws_filepos_t *amount);
 
+void lws_msleep(unsigned int);
+
 void
 lws_context_destroy2(struct lws_context *context);
 

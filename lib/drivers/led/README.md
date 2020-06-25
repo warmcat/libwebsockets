@@ -151,4 +151,5 @@ lws_pwmseq_linear_wipe|single 0 - 100% ramp over 0.3s
 lws_pwmseq_sine_up|single 0 - 100% using sine curve over 0.3s
 lws_pwmseq_sine_down|single 100% - 0 using sine curve over 0.3s
 lws_pwmseq_static_on|100% static
+lws_pwmseq_static_half|50% static
 lws_pwmseq_static_off|0% static

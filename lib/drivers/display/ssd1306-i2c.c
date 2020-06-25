@@ -22,7 +22,7 @@
  * IN THE SOFTWARE.
  */
 
-#include <libwebsockets.h>
+#include <private-lib-core.h>
 #include <drivers/devices/display/ssd1306.h>
 
 
@@ -56,18 +56,9 @@ lws_display_ssd1306_i2c_init(const struct lws_display *disp)
 		si->gpio->mode(si->reset_gpio, LWSGGPIO_FL_WRITE |
 					       LWSGGPIO_FL_PULLUP);
 		si->gpio->set(si->reset_gpio, 0);
-
-#if defined(LWS_PLAT_FREERTOS)
-		vTaskDelay(10);
-#else
-		usleep(10000);
-#endif
+		lws_msleep(1);
 		si->gpio->set(si->reset_gpio, 1);
-#if defined(LWS_PLAT_FREERTOS)
-		vTaskDelay(1);
-#else
-		usleep(1000);
-#endif
+		lws_msleep(1);
 	}
 
 	if (lws_i2c_command_list(si->i2c, si->i2c7_address,
@@ -81,7 +72,7 @@ lws_display_ssd1306_i2c_init(const struct lws_display *disp)
 }
 
 int
-lws_display_ssd1306_i2c_brightness(const struct lws_display *disp, uint8_t b)
+lws_display_ssd1306_i2c_contrast(const struct lws_display *disp, uint8_t b)
 {
 	const lws_display_ssd1306_t *si = (const lws_display_ssd1306_t *)disp;
 	uint8_t ba[2];

@@ -1,5 +1,5 @@
 /*
- * Generic GPIO led
+ * Generic SPI
  *
  * Copyright (C) 2019 - 2020 Andy Green <andy@warmcat.com>
  *
@@ -22,18 +22,5 @@
  * IN THE SOFTWARE.
  */
 
-typedef struct lws_led_state
-{
-#if defined(LWS_PLAT_TIMER_TYPE)
-	LWS_PLAT_TIMER_TYPE			timer;
-#endif
-
-	lws_led_gpio_controller_t		*controller;
-	int					timer_refcount;
-} lws_led_state_t;
-
-void
-lws_seq_timer_handle(lws_led_state_t *lcs);
-
-int
-lws_led_gpio_lookup(const struct lws_led_ops *lo, const char *name);
+#include <libwebsockets.h>
+	

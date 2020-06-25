@@ -66,6 +66,8 @@ lws_pwm_plat_intensity(const struct lws_pwm_ops *lo, _lws_plat_gpio_t gpio,
 
 	for (n = 0; n < lo->count_pwm_map; n++) {
 		if (lo->pwm_map[n].gpio == gpio) {
+			if (!lo->pwm_map[n].active_level)
+				inten = 65535 - inten;
 			ledc_set_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0 +
 					lo->pwm_map[n].index, inten >> 3);
 			ledc_update_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0 +
