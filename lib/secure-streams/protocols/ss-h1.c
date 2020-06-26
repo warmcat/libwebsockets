@@ -474,6 +474,7 @@ malformed:
 		if (!h->rideshare)
 			h->rideshare = h->policy;
 
+		buflen = lws_ptr_diff(end, p);
 #if defined(LWS_WITH_SS_RIDESHARE)
 		if (!h->inside_msg && h->rideshare->u.http.multipart_name)
 			lws_client_http_multipart(wsi,
@@ -482,10 +483,8 @@ malformed:
 				h->rideshare->u.http.multipart_content_type,
 				(char **)&p, (char *)end);
 
-		buflen = lws_ptr_diff(end, p);
 		if (h->policy->u.http.multipart_name)
 			buflen -= 24; /* allow space for end of multipart */
-
 #endif
 
 		switch(h->info.tx(ss_to_userobj(h),  h->txord++, p, &buflen, &f)) {
@@ -513,23 +512,22 @@ malformed:
 		p += buflen;
 
 		if (f & LWSSS_FLAG_EOM) {
-#if defined(LWS_WITH_SS_RIDESHARE)
+
 			conceal_eom = 1;
 			/* end of rideshares */
 			if (!h->rideshare->rideshare_streamtype) {
 				lws_client_http_body_pending(wsi, 0);
+#if defined(LWS_WITH_SS_RIDESHARE)
 				if (h->rideshare->u.http.multipart_name)
 					lws_client_http_multipart(wsi, NULL, NULL, NULL,
 						(char **)&p, (char *)end);
 				conceal_eom = 0;
-			} else {
 #endif
+			} else {
 				h->rideshare = lws_ss_policy_lookup(wsi->context,
 						h->rideshare->rideshare_streamtype);
 				lws_callback_on_writable(wsi);
-#if defined(LWS_WITH_SS_RIDESHARE)
 			}
-#endif
 
 			h->inside_msg = 0;
 		} else {
