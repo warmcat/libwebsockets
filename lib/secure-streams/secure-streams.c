@@ -183,7 +183,7 @@ lws_ss_backoff(lws_ss_handle_t *h)
 }
 
 int
-lws_ss_client_connect(lws_ss_handle_t *h)
+_lws_ss_client_connect(lws_ss_handle_t *h, int is_retry)
 {
 	struct lws_client_connect_info i;
 	const struct ss_pcols *ssp;
@@ -204,6 +204,9 @@ lws_ss_client_connect(lws_ss_handle_t *h)
 
 	if (h->h_sink)
 		return 0;
+
+	if (!is_retry)
+		h->retry = 0;
 
 	memset(&i, 0, sizeof i); /* otherwise uninitialized garbage */
 	i.context = h->context;
@@ -289,6 +292,11 @@ lws_ss_client_connect(lws_ss_handle_t *h)
 	return 0;
 }
 
+int
+lws_ss_client_connect(lws_ss_handle_t *h)
+{
+	return _lws_ss_client_connect(h, 0);
+}
 
 /*
  * Public API
@@ -435,8 +443,9 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 
 	lws_ss_event_helper(h, LWSSSCS_CREATING);
 
-	if (!ssi->register_sink && (h->policy->flags & LWSSSPOLF_NAILED_UP))
-		if (lws_ss_client_connect(h))
+	if (!ssi->register_sink &&
+	    ((h->policy->flags & LWSSSPOLF_NAILED_UP)))
+		if (_lws_ss_client_connect(h, 0))
 			lws_ss_backoff(h);
 
 	return 0;
@@ -503,7 +512,11 @@ lws_ss_request_tx(lws_ss_handle_t *h)
 	h->seqstate = SSSEQ_TRY_CONNECT;
 	lws_ss_event_helper(h, LWSSSCS_POLL);
 
-	if (lws_ss_client_connect(h))
+	/*
+	 * Retries operate via lws_ss_request_tx(), explicitly ask for a
+	 * reconnection to clear the retry limit
+	 */
+	if (_lws_ss_client_connect(h, 1))
 		lws_ss_backoff(h);
 }
 
