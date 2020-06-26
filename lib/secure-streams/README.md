@@ -17,12 +17,35 @@ creation, but able to be updated from a remote copy.
 
 Function|Return|Meaning
 ---|---|---
-tx|0|Send the amount of `buf` stored in `*len`
-tx|>0|Do not send anything
-tx|<0|Finished with stream
+tx|`LWSSSSRET_OK`|Send the amount of `buf` stored in `*len`
+tx|`LWSSSSRET_TX_DONT_SEND`|Do not send anything
+tx|`LWSSSSRET_DISCONNECT_ME`|Close the current connection
+tx|`LWSSSSRET_DESTROY_ME`|Destroy the Secure Stream
 rx|>=0|accepted
-rx|<0|Finished with stream
+rx|<0|Close the current connection
 
+## Secure Streams State lifecycle
+
+![overview](../doc-assets/ss-state-flow.png)
+
+Secure Streams are created using `lws_ss_create()`, after that they may acquire
+underlying connections, and lose them, but the lifecycle of the Secure Stream
+itself is not directly related to any underlying connection.
+
+Once created, Secure Streams may attempt connections, these may fail and once
+the number of failures exceeds the count of attempts to conceal in the retry /
+backoff policy, the stream reaches `LWSSSCS_ALL_RETRIES_FAILED`.  The stream becomes
+idle again until another explicit connection attempt is given.
+
+Once connected, the user code can use `lws_ss_request_tx()` to ask for a slot
+to write to the peer, when this if forthcoming the tx handler can send a message.
+If the underlying protocol gives indications of transaction success, such as,
+eg, a 200 for http, or an ACK from MQTT, the stream state is called back with
+an `LWSSSCS_QOS_ACK_REMOTE` or `LWSSSCS_QOS_NACK_REMOTE`.
+
+State callbacks and tx() can indicate they want to drop the connection
+(`LWSSSRET_DISCONNECT_ME`) or destroy the whole logical Secure Stream
+(`LWSSSRET_DESTROY_ME`).
 
 # JSON Policy Database
 
