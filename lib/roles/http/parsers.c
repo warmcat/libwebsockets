@@ -96,8 +96,8 @@ _lws_header_table_reset(struct allocated_headers *ah)
 	ah->http_response = 0;
 	ah->parser_state = WSI_TOKEN_NAME_PART;
 	ah->lextable_pos = 0;
-#if defined(LWS_WITH_CUSTOM_HEADERS)
 	ah->unk_pos = 0;
+#if defined(LWS_WITH_CUSTOM_HEADERS)
 	ah->unk_ll_head = 0;
 	ah->unk_ll_tail = 0;
 #endif
@@ -1097,9 +1097,6 @@ swallow:
 
 			if (c >= 'A' && c <= 'Z')
 				c += 'a' - 'A';
-
-#if defined(LWS_WITH_CUSTOM_HEADERS)
-
 			/*
 			 * ...in case it's an unknown header, speculatively
 			 * store it as the name comes in.  If we recognize it as
@@ -1108,6 +1105,7 @@ swallow:
 
 			if (!wsi->mux_substream && !ah->unk_pos) {
 				ah->unk_pos = ah->pos;
+#if defined(LWS_WITH_CUSTOM_HEADERS)
 				/*
 				 * Prepare new unknown header linked-list entry
 				 *
@@ -1118,8 +1116,8 @@ swallow:
 				for (n = 0; n < 8; n++)
 					if (!lws_pos_in_bounds(wsi))
 						ah->data[ah->pos++] = 0;
-			}
 #endif
+			}
 
 			if (lws_pos_in_bounds(wsi))
 				return LPR_FAIL;
@@ -1201,7 +1199,6 @@ nope:
 
 				/* b7 = 0, end or 3-byte */
 				if (lextable_h1[pos] < FAIL_CHAR) {
-#if defined(LWS_WITH_CUSTOM_HEADERS)
 					if (!wsi->mux_substream) {
 						/*
 						 * We hit a terminal marker, so
@@ -1212,7 +1209,7 @@ nope:
 						ah->pos = ah->unk_pos;
 						ah->unk_pos = 0;
 					}
-#endif
+
 					ah->lextable_pos = pos;
 					break;
 				}
@@ -1390,10 +1387,7 @@ excessive:
 				goto forbid;
 			if (c == '\x0a') {
 				ah->parser_state = WSI_TOKEN_NAME_PART;
-#if defined(LWS_WITH_CUSTOM_HEADERS)
-				ah->unk_pos = 0;
-#endif
-				ah->lextable_pos = 0;
+				ah->unk_pos = ah->lextable_pos = 0;
 			} else
 				ah->parser_state = WSI_TOKEN_SKIPPING;
 			break;
