@@ -823,6 +823,9 @@ struct lws {
 	unsigned int			client_mux_migrated:1;
 	unsigned int			client_subsequent_mime_part:1;
 	unsigned int                    client_no_follow_redirect:1;
+	unsigned int                    client_suppress_CONNECTION_ERROR:1;
+	/**< because the client connection creation api is still the parent of
+	 * this activity, and will report the failure */
 #endif
 
 #ifdef _WIN32

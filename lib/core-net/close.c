@@ -214,9 +214,10 @@ lws_inform_client_conn_fail(struct lws *wsi, void *arg, size_t len)
 	if (!wsi->protocol)
 		return;
 
-	wsi->protocol->callback(wsi,
-			        LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
-				wsi->user_space, arg, len);
+	if (!wsi->client_suppress_CONNECTION_ERROR)
+		wsi->protocol->callback(wsi,
+					LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
+					wsi->user_space, arg, len);
 }
 #endif
 

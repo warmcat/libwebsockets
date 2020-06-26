@@ -58,6 +58,12 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	if (wsi == NULL)
 		goto bail;
 
+	/*
+	 * Until we exit, we can report connection failure directly to the
+	 * caller without needing to call through to protocol CONNECTION_ERROR.
+	 */
+	wsi->client_suppress_CONNECTION_ERROR = 1;
+
 	if (i->keep_warm_secs)
 		wsi->keep_warm_secs = i->keep_warm_secs;
 	else
@@ -356,8 +362,15 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 
 		/* fallthru */
 
-		lws_http_client_connect_via_info2(wsi);
+		wsi = lws_http_client_connect_via_info2(wsi);
 	}
+
+	if (wsi)
+		/*
+		 * If it subsequently fails, report CONNECTION_ERROR,
+		 * because we're going to return a non-error return now.
+		 */
+		wsi->client_suppress_CONNECTION_ERROR = 0;
 
 	return wsi;
 
