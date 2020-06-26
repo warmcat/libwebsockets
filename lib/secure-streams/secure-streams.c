@@ -294,12 +294,8 @@ lws_ss_smd_tx_cb(lws_sorted_usec_list_t *sul)
 
 #endif
 
-/*
- * This is a local SS binding to a local SMD server
- */
-
 int
-lws_ss_client_connect(lws_ss_handle_t *h)
+_lws_ss_client_connect(lws_ss_handle_t *h, int is_retry)
 {
 	const char *prot, *_prot, *ipath, *_ipath, *ads, *_ads;
 	struct lws_client_connect_info i;
@@ -322,6 +318,9 @@ lws_ss_client_connect(lws_ss_handle_t *h)
 
 	if (h->h_sink)
 		return 0;
+
+	if (!is_retry)
+		h->retry = 0;
 
 #if defined(LWS_WITH_SYS_SMD)
 	if (h->policy == &pol_smd) {
@@ -471,6 +470,12 @@ lws_ss_client_connect(lws_ss_handle_t *h)
 	}
 
 	return 0;
+}
+
+int
+lws_ss_client_connect(lws_ss_handle_t *h)
+{
+	return _lws_ss_client_connect(h, 0);
 }
 
 /*
@@ -661,7 +666,7 @@ late_bail:
 				)
 #endif
 			    ))
-		if (lws_ss_client_connect(h))
+		if (_lws_ss_client_connect(h, 0))
 			lws_ss_backoff(h);
 
 	return 0;
@@ -760,7 +765,11 @@ lws_ss_request_tx(lws_ss_handle_t *h)
 	h->seqstate = SSSEQ_TRY_CONNECT;
 	lws_ss_event_helper(h, LWSSSCS_POLL);
 
-	if (lws_ss_client_connect(h))
+	/*
+	 * Retries operate via lws_ss_request_tx(), explicitly ask for a
+	 * reconnection to clear the retry limit
+	 */
+	if (_lws_ss_client_connect(h, 1))
 		lws_ss_backoff(h);
 }
 

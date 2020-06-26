@@ -378,6 +378,9 @@ lws_ss_exp_cb_metadata(void *priv, const char *name, char *out, size_t *pos,
 			size_t olen, size_t *exp_ofs);
 
 int
+_lws_ss_client_connect(lws_ss_handle_t *h, int is_retry);
+
+int
 lws_ss_sys_cpd(struct lws_context *cx);
 
 typedef int (* const secstream_protocol_connect_munge_t)(lws_ss_handle_t *h,
