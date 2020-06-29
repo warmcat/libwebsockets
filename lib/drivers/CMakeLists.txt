@@ -10,6 +10,7 @@ list(APPEND SOURCES
 	drivers/led/led-gpio.c
 	drivers/led/led-seq.c
 	drivers/pwm/pwm.c
+	drivers/settings/settings.c
 )
 
 if (LWS_ESP_PLATFORM)
