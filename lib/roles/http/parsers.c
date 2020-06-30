@@ -1065,12 +1065,18 @@ lws_parse(struct lws *wsi, unsigned char *buf, int *len)
 check_eol:
 			/* bail at EOL */
 			if (ah->parser_state != WSI_TOKEN_CHALLENGE &&
-			    c == '\x0d') {
+			    (c == '\x0d' || c == '\x0a')) {
 				if (ah->ues != URIES_IDLE)
 					goto forbid;
 
+				if (c == '\x0a') {
+					/* broken peer */
+					ah->parser_state = WSI_TOKEN_NAME_PART;
+					ah->unk_pos = ah->lextable_pos = 0;
+				} else
+					ah->parser_state = WSI_TOKEN_SKIPPING_SAW_CR;
+
 				c = '\0';
-				ah->parser_state = WSI_TOKEN_SKIPPING_SAW_CR;
 				lwsl_parser("*\n");
 			}
 
@@ -1094,6 +1100,10 @@ swallow:
 				    "wsi->lextable_pos=%d\n", c, c,
 				    (unsigned long)lwsi_role(wsi),
 				    ah->lextable_pos);
+
+			if (!ah->unk_pos && c == '\x0a')
+				/* broken peer */
+				goto set_parsing_complete;
 
 			if (c >= 'A' && c <= 'Z')
 				c += 'a' - 'A';
@@ -1390,6 +1400,12 @@ excessive:
 			/* skipping arg part of a name we didn't recognize */
 		case WSI_TOKEN_SKIPPING:
 			lwsl_parser("WSI_TOKEN_SKIPPING '%c'\n", c);
+
+			if (c == '\x0a') {
+				/* broken peer */
+				ah->parser_state = WSI_TOKEN_NAME_PART;
+				ah->unk_pos = ah->lextable_pos = 0;
+			}
 
 			if (c == '\x0d')
 				ah->parser_state = WSI_TOKEN_SKIPPING_SAW_CR;
