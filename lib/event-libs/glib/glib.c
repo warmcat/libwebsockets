@@ -27,13 +27,19 @@
 #include <glib-unix.h>
 
 #if !defined(G_SOURCE_FUNC)
-#define G_SOURCE_FUNC(f) ((GSourceFunc) (void (*)(void)) (f))
+#define G_SOURCE_FUNC(f)	  ((GSourceFunc) (void (*)(void)) (f))
 #endif
 
 #define wsi_to_subclass(_w)	  ((_w)->w_read.glib.source)
 #define wsi_to_gsource(_w)	  ((GSource *)wsi_to_subclass(_w))
 #define pt_to_loop(_pt)		  ((_pt)->glib.loop)
 #define pt_to_g_main_context(_pt) g_main_loop_get_context(pt_to_loop(_pt))
+
+#define lws_gs_valid(t)		  (t.gs)
+#define lws_gs_destroy(t)	  if (lws_gs_valid(t)) { \
+					g_source_remove(t.tag); \
+					g_source_unref(t.gs); \
+					t.gs = NULL; t.tag = 0; }
 
 static gboolean
 lws_glib_idle_timer_cb(void *p);
@@ -62,17 +68,17 @@ lws_glib_check(GSource *src)
 static int
 lws_glib_set_idle(struct lws_context_per_thread *pt)
 {
-	GSource *gis;
-
-	if (pt->glib.idle_tag)
+	if (lws_gs_valid(pt->glib.idle))
 		return 0;
 
-	gis = g_idle_source_new();
-	if (!gis)
+	pt->glib.idle.gs = g_idle_source_new();
+	if (!pt->glib.idle.gs)
 		return 1;
 
-	g_source_set_callback(gis, lws_glib_idle_timer_cb, pt, NULL);
-	pt->glib.idle_tag = g_source_attach(gis, pt_to_g_main_context(pt));
+	g_source_set_callback(pt->glib.idle.gs, lws_glib_idle_timer_cb, pt,
+			      NULL);
+	pt->glib.idle.tag = g_source_attach(pt->glib.idle.gs,
+					    pt_to_g_main_context(pt));
 
 	return 0;
 }
@@ -80,14 +86,16 @@ lws_glib_set_idle(struct lws_context_per_thread *pt)
 static int
 lws_glib_set_timeout(struct lws_context_per_thread *pt, unsigned int ms)
 {
-	GSource *gts;
+	lws_gs_destroy(pt->glib.hrtimer);
 
-	gts = g_timeout_source_new(ms);
-	if (!gts)
+	pt->glib.hrtimer.gs = g_timeout_source_new(ms);
+	if (!pt->glib.hrtimer.gs)
 		return 1;
 
-	g_source_set_callback(gts, lws_glib_hrtimer_cb, pt, NULL);
-	pt->glib.hrtimer_tag = g_source_attach(gts, pt_to_g_main_context(pt));
+	g_source_set_callback(pt->glib.hrtimer.gs, lws_glib_hrtimer_cb, pt,
+			      NULL);
+	pt->glib.hrtimer.tag = g_source_attach(pt->glib.hrtimer.gs,
+					       pt_to_g_main_context(pt));
 
 	return 0;
 }
@@ -127,7 +135,7 @@ lws_glib_dispatch(GSource *src, GSourceFunc x, gpointer userData)
 
 	lws_service_fd_tsi(sub->wsi->context, &eventfd, sub->wsi->tsi);
 
-	if (!pt->glib.idle_tag)
+	if (!lws_gs_valid(pt->glib.idle))
 		lws_glib_set_idle(pt);
 
 	if (pt->destroy_self)
@@ -157,6 +165,9 @@ lws_glib_hrtimer_cb(void *p)
 	lws_usec_t us;
 
 	lws_pt_lock(pt, __func__);
+
+	lws_gs_destroy(pt->glib.hrtimer);
+
 	us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
 				    lws_now_usecs());
 	if (us) {
@@ -206,7 +217,7 @@ lws_glib_idle_timer_cb(void *p)
 	 * We reenable the idle callback on the next network or scheduled event
 	 */
 
-	pt->glib.idle_tag = 0;
+	lws_gs_destroy(pt->glib.idle);
 
 	return FALSE;
 }
@@ -314,7 +325,7 @@ elops_init_pt_glib(struct lws_context *context, void *_loop, int tsi)
 	if (pt->event_loop_foreign)
 		return 0;
 
-	pt->glib.sigint_tag = g_unix_signal_add(SIGINT,
+	pt->glib.sigint.tag = g_unix_signal_add(SIGINT,
 					G_SOURCE_FUNC(lws_glib_sigint_cb), pt);
 
 	return 0;
@@ -331,6 +342,9 @@ elops_io_glib(struct lws *wsi, int flags)
 	GIOCondition cond = wsi->w_read.actual_events | G_IO_ERR;
 
 	if (!pt_to_loop(pt) || wsi->context->being_destroyed || pt->is_destroyed)
+		return;
+
+	if (!wsi_to_subclass(wsi))
 		return;
 
 	/*
@@ -356,16 +370,6 @@ elops_io_glib(struct lws *wsi, int flags)
 
 	lwsl_debug("%s: wsi %p, fd %d, 0x%x/0x%x\n", __func__, wsi,
 			wsi->desc.sockfd, flags, (int)cond);
-
-	if (!wsi_to_subclass(wsi)) {
-		lwsl_err("%s: glib wsi source pointer is NULL\n", __func__);
-		return;
-	}
-
-	if (!wsi_to_subclass(wsi)) {
-		lwsl_err("%s: glib wsi source pointer is NULL\n", __func__);
-		return;
-	}
 
 	g_source_modify_unix_fd(wsi_to_gsource(wsi), wsi_to_subclass(wsi)->tag,
 				cond);
@@ -402,6 +406,7 @@ elops_destroy_wsi_glib(struct lws *wsi)
 	}
 
 	g_source_destroy(wsi_to_gsource(wsi));
+	g_source_unref(wsi_to_gsource(wsi));
 	wsi_to_subclass(wsi) = NULL;
 }
 
@@ -424,12 +429,12 @@ elops_destroy_pt_glib(struct lws_context *context, int tsi)
 		vh = vh->vhost_next;
 	}
 
-	if (pt->glib.hrtimer_tag)
-		g_source_remove(pt->glib.hrtimer_tag);
+	lws_gs_destroy(pt->glib.idle);
+	lws_gs_destroy(pt->glib.hrtimer);
 
 	if (!pt->event_loop_foreign) {
 		g_main_loop_quit(pt_to_loop(pt));
-		g_source_remove(pt->glib.sigint_tag);
+		lws_gs_destroy(pt->glib.sigint);
 		g_main_loop_unref(pt_to_loop(pt));
 	}
 

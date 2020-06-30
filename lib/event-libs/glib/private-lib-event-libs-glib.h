@@ -30,11 +30,17 @@
 #endif
 #endif /* LWS_WITH_GLIB */
 
+typedef struct lws_glib_tag {
+	GSource			*gs;
+	guint			tag;
+} lws_glib_tag_t;
+
 struct lws_pt_eventlibs_glib {
-	GMainLoop	*loop;
-	guint		hrtimer_tag;
-	guint		sigint_tag;
-	guint		idle_tag;
+	GMainLoop		*loop;
+
+	lws_glib_tag_t		hrtimer;
+	lws_glib_tag_t		sigint;
+	lws_glib_tag_t		idle;
 };
 
 struct lws_io_watcher_glib_subclass {
