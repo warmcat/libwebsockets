@@ -62,7 +62,7 @@ lws_ss_set_metadata(struct lws_ss_handle *h, const char *name,
 	lws_ss_metadata_t *omd = lws_ss_policy_metadata(h->policy, name);
 
 	if (!omd) {
-		lwsl_err("%s: unknown metadata %s\n", __func__, name);
+		lwsl_info("%s: unknown metadata %s\n", __func__, name);
 		return 1;
 	}
 

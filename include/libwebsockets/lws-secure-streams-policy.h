@@ -251,6 +251,8 @@ typedef struct lws_ss_policy {
 
 	const lws_retry_bo_t	*retry_bo;   /**< retry policy to use */
 
+	uint32_t		timeout_ms;  /**< default message response
+					      * timeout in ms */
 	uint32_t		flags;	     /**< stream attribute flags */
 
 	uint16_t		port;	     /**< endpoint port */

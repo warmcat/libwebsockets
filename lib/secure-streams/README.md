@@ -221,6 +221,14 @@ ever drop.
 The name of the policy described in the `retry` section to apply to this
 connection for retry + backoff
 
+### `timeout_ms`
+
+Optional timeout associated with streams of this streamtype.
+
+If user code applies the `lws_ss_start_timeout()` api on a stream with a
+timeout of LWSSS_TIMEOUT_FROM_POLICY, the `timeout_ms` entry given in the
+policy is applied.
+
 ### `tls_trust_store`
 
 The name of the trust store described in the `trust_stores` section to apply

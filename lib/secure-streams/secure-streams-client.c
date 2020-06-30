@@ -174,11 +174,33 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!h)
 			break;
 
-		lwsl_notice("%s: WRITEABLE %p: (%s) state %d\n", __func__, wsi,
+		lwsl_debug("%s: WRITEABLE %p: (%s) state %d\n", __func__, wsi,
 				h->ssi.streamtype, h->state);
+
+		/*
+		 * Management of ss timeout can happen any time and doesn't
+		 * depend on wsi existence or state
+		 */
 
 		n = 0;
 		cp = s;
+
+		if (h->pending_timeout_update) {
+			s[0] = LWSSS_SER_TXPRE_TIMEOUT_UPDATE;
+			s[1] = 0;
+			s[2] = 4;
+			/*
+			 *          0: use policy timeout value
+			 * 0xffffffff: cancel the timeout
+			 */
+			lws_ser_wu32be(&s[3], h->timeout_ms);
+			/* in case anything else to write */
+			lws_callback_on_writable(h->cwsi);
+			h->pending_timeout_update = 0;
+			n = 7;
+			goto do_write;
+		}
+
 		s[1] = 0;
 		switch (h->state) {
 		case LPCS_SENDING_INITIAL_TX:
@@ -261,7 +283,9 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 			len = sizeof(pkt) - LWS_PRE - 19;
 			flags = 0;
-			if (h->ssi.tx(m, h->ord++, pkt + LWS_PRE + 19, &len, &flags))
+			n = h->ssi.tx(m, h->ord++, pkt + LWS_PRE + 19, &len,
+				      &flags);
+			if (n == LWSSSSRET_TX_DONT_SEND)
 				break;
 
 			h->txc.tx_cr -= len;
@@ -291,6 +315,7 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!n)
 			break;
 
+do_write:
 		n = lws_write(wsi, (uint8_t *)cp, n, LWS_WRITE_RAW);
 		if (n < 0) {
 			lwsl_notice("%s: WRITEABLE: %d\n", __func__, n);
@@ -577,4 +602,18 @@ int
 lws_sspc_get_est_peer_tx_credit(struct lws_sspc_handle *h)
 {
 	return h->txc.peer_tx_cr_est;
+}
+
+void
+lws_sspc_start_timeout(struct lws_sspc_handle *h, unsigned int timeout_ms)
+{
+	h->timeout_ms = (uint32_t)timeout_ms;
+	h->pending_timeout_update = 1;
+	lws_callback_on_writable(h->cwsi);
+}
+
+void
+lws_sspc_cancel_timeout(struct lws_sspc_handle *h)
+{
+	lws_sspc_start_timeout(h, (unsigned int)-1);
 }

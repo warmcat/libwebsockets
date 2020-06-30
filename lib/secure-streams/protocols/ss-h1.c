@@ -197,6 +197,8 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
 		if (!h)
 			break;
+
+		lws_sul_cancel(&h->sul_timeout);
 		lwsl_info("%s: h: %p, %s LWS_CALLBACK_CLOSED_CLIENT_HTTP\n",
 			  __func__, h,
 			  h->policy ? h->policy->streamtype : "no policy");
@@ -451,6 +453,7 @@ malformed:
 			h->info.rx(ss_to_userobj(h), NULL, 0, LWSSS_FLAG_EOM);
 
 		wsi->http.writeable_len = h->writeable_len = 0;
+		lws_sul_cancel(&h->sul_timeout);
 
 		if (h->u.http.good_respcode) {
 			if (lws_ss_event_helper(h, LWSSSCS_QOS_ACK_REMOTE))

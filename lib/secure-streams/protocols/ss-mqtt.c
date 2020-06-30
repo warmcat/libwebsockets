@@ -55,6 +55,7 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	case LWS_CALLBACK_MQTT_CLIENT_CLOSED:
 		if (!h)
 			break;
+		lws_sul_cancel(&h->sul_timeout);
 		f = lws_ss_event_helper(h, LWSSSCS_DISCONNECTED);
 		if (h->wsi)
 			lws_set_opaque_user_data(h->wsi, NULL);
@@ -116,6 +117,7 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		break;
 
 	case LWS_CALLBACK_MQTT_ACK:
+		lws_sul_cancel(&h->sul_timeout);
 		lws_ss_event_helper(h, LWSSSCS_QOS_ACK_REMOTE);
 		break;
 

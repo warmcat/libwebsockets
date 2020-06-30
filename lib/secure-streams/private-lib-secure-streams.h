@@ -63,6 +63,7 @@ typedef struct lws_ss_handle {
 	struct lws_ss_handle	*h_sink;  /**< sink we are bound to, or NULL */
 	void 			*sink_obj;/**< sink's private object representing us */
 
+	lws_sorted_usec_list_t	sul_timeout;
 	lws_sorted_usec_list_t	sul;
 	lws_ss_tx_ordinal_t	txord;
 
@@ -254,9 +255,10 @@ typedef struct lws_sspc_handle {
 
 	lws_ss_conn_states_t	state;
 
-	int16_t			temp16;
-
+	uint32_t		timeout_ms;
 	uint32_t		ord;
+
+	int16_t			temp16;
 
 	uint8_t			rideshare_ofs[4];
 	uint8_t			conn_req;
@@ -265,6 +267,7 @@ typedef struct lws_sspc_handle {
 	uint8_t			destroying:1;
 	uint8_t			non_wsi:1;
 	uint8_t			ignore_txc:1;
+	uint8_t			pending_timeout_update:1;
 } lws_sspc_handle_t;
 
 typedef struct backoffs {

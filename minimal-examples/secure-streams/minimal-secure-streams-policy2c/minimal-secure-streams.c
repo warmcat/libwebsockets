@@ -521,6 +521,8 @@ int main(int argc, const char **argv)
 			printf("\t.retry_bo = &_rbo_%zu,\n", a->offset);
 		}
 
+		if (pol->timeout_ms)
+			printf("\t.timeout_ms = %u,\n", pol->timeout_ms);
 		if (pol->flags)
 			printf("\t.flags = 0x%x,\n", pol->flags);
 		if (pol->port)

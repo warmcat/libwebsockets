@@ -41,18 +41,20 @@
  */
 
 #if defined(LWS_SS_USE_SSPC)
-#define lws_ss_handle lws_sspc_handle
-#define lws_ss_create lws_sspc_create
-#define lws_ss_destroy lws_sspc_destroy
-#define lws_ss_request_tx lws_sspc_request_tx
-#define lws_ss_client_connect lws_sspc_client_connect
-#define lws_ss_get_sequencer lws_sspc_get_sequencer
-#define lws_ss_proxy_create lws_sspc_proxy_create
-#define lws_ss_get_context lws_sspc_get_context
-#define lws_ss_rideshare lws_sspc_rideshare
-#define lws_ss_set_metadata lws_sspc_set_metadata
-#define lws_ss_add_peer_tx_credit lws_sspc_add_peer_tx_credit
-#define lws_ss_get_est_peer_tx_credit lws_sspc_get_est_peer_tx_credit
+#define lws_ss_handle			lws_sspc_handle
+#define lws_ss_create			lws_sspc_create
+#define lws_ss_destroy			lws_sspc_destroy
+#define lws_ss_request_tx		lws_sspc_request_tx
+#define lws_ss_client_connect		lws_sspc_client_connect
+#define lws_ss_get_sequencer		lws_sspc_get_sequencer
+#define lws_ss_proxy_create		lws_sspc_proxy_create
+#define lws_ss_get_context		lws_sspc_get_context
+#define lws_ss_rideshare		lws_sspc_rideshare
+#define lws_ss_set_metadata		lws_sspc_set_metadata
+#define lws_ss_add_peer_tx_credit	lws_sspc_add_peer_tx_credit
+#define lws_ss_get_est_peer_tx_credit	lws_sspc_get_est_peer_tx_credit
+#define lws_ss_start_timeout		lws_sspc_start_timeout
+#define lws_ss_cancel_timeout		lws_sspc_cancel_timeout
 #endif
 
 
@@ -170,3 +172,9 @@ lws_sspc_add_peer_tx_credit(struct lws_sspc_handle *h, int32_t add);
 
 LWS_VISIBLE LWS_EXTERN int
 lws_sspc_get_est_peer_tx_credit(struct lws_sspc_handle *h);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_sspc_start_timeout(struct lws_sspc_handle *h, unsigned int timeout_ms);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_sspc_cancel_timeout(struct lws_sspc_handle *h);

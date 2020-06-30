@@ -39,6 +39,7 @@
 
 static int interrupted, bad = 1, force_cpd_fail_portal,
 	   force_cpd_fail_no_internet;
+static unsigned int timeout_ms = 3000;
 static lws_state_notify_link_t nl;
 
 /*
@@ -266,6 +267,7 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 
 	switch (state) {
 	case LWSSSCS_CREATING:
+		lws_ss_start_timeout(m->ss, timeout_ms);
 		lws_ss_set_metadata(m->ss, "uptag", "myuptag123", 10);
 		lws_ss_set_metadata(m->ss, "ctype", "myctype", 7);
 		lws_ss_client_connect(m->ss);
@@ -276,6 +278,10 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		break;
 	case LWSSSCS_QOS_ACK_REMOTE:
 		lwsl_notice("%s: LWSSSCS_QOS_ACK_REMOTE\n", __func__);
+		break;
+
+	case LWSSSCS_TIMEOUT:
+		lwsl_notice("%s: LWSSSCS_TIMEOUT\n", __func__);
 		break;
 	default:
 		break;
@@ -397,6 +403,7 @@ int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	struct lws_context *context;
+	const char *p;
 	int n = 0;
 
 	signal(SIGINT, sigint_handler);
@@ -413,6 +420,9 @@ int main(int argc, const char **argv)
 
 	if (lws_cmdline_option(argc, argv, "--force-no-internet"))
 		force_cpd_fail_no_internet = 1;
+
+	if ((p = lws_cmdline_option(argc, argv, "--timeout_ms")))
+		timeout_ms = atoi(p);
 
 	info.fd_limit_per_thread = 1 + 6 + 1;
 	info.port = CONTEXT_PORT_NO_LISTEN;

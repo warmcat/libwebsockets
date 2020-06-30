@@ -63,6 +63,7 @@ static const char *state_names[] = {
 	"LWSSSCS_QOS_NACK_REMOTE",
 	"LWSSSCS_QOS_ACK_LOCAL",
 	"LWSSSCS_QOS_NACK_LOCAL",
+	"LWSSSCS_TIMEOUT",
 };
 
 const char *
@@ -712,6 +713,7 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 	*ppss = NULL;
 	lws_dll2_remove(&h->list);
 	lws_dll2_remove(&h->to_list);
+	lws_sul_cancel(&h->sul_timeout);
 	/* no need to worry about return code since we are anyway destroying */
 	lws_ss_event_helper(h, LWSSSCS_DESTROYING);
 	lws_pt_unlock(pt);
@@ -844,4 +846,40 @@ lws_ss_get_est_peer_tx_credit(struct lws_ss_handle *h)
 		return ssp->tx_cr_est(h);
 
 	return 0;
+}
+
+/*
+ * protocol-independent handler for ss timeout
+ */
+
+static void
+lws_ss_to_cb(lws_sorted_usec_list_t *sul)
+{
+	lws_ss_handle_t *h = lws_container_of(sul, lws_ss_handle_t, sul_timeout);
+
+	lwsl_info("%s: ss %p timeout fired\n", __func__, h);
+
+	if (lws_ss_event_helper(h, LWSSSCS_TIMEOUT) == LWSSSSRET_DESTROY_ME)
+		/*
+		 * We're called from the sul handler, caller doesn't have any
+		 * copy of the ss handle
+		 */
+		lws_ss_destroy(&h);
+}
+
+void
+lws_ss_start_timeout(struct lws_ss_handle *h, unsigned int timeout_ms)
+{
+	if (!timeout_ms && !h->policy->timeout_ms)
+		return;
+
+	lws_sul_schedule(h->context, 0, &h->sul_timeout, lws_ss_to_cb,
+			 (timeout_ms ? timeout_ms : h->policy->timeout_ms) *
+			 LWS_US_PER_MS);
+}
+
+void
+lws_ss_cancel_timeout(struct lws_ss_handle *h)
+{
+	lws_sul_cancel(&h->sul_timeout);
 }

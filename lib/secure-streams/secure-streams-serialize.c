@@ -72,6 +72,8 @@ typedef enum {
 
 	RPAR_TXCR0,
 
+	RPAR_TIMEOUT0,
+
 	RPAR_RESULT_CREATION,
 
 	RPAR_STATEINDEX,
@@ -379,16 +381,24 @@ lws_ss_deserialize_parse(struct lws_ss_serialization_parser *par,
 				par->ctr = 0;
 				break;
 
+			case LWSSS_SER_TXPRE_TIMEOUT_UPDATE:
+				if (client)
+					goto hangup;
+				if (par->rem != 4)
+					goto hangup;
+				par->ps = RPAR_TIMEOUT0;
+				par->ctr = 0;
+				break;
+
 			/* client side */
 
 			case LWSSS_SER_RXPRE_RX_PAYLOAD:
 				if (!client)
 					goto hangup;
 				if (*state != LPCS_OPERATIONAL &&
-				    *state != LPCS_LOCAL_CONNECTED) {
-					lwsl_err("rx in state %d\n", *state);
+				    *state != LPCS_LOCAL_CONNECTED)
 					goto hangup;
-				}
+
 				par->rideshare[0] = '\0';
 				par->ps = RPAR_FLAG_B3;
 				break;
@@ -396,14 +406,12 @@ lws_ss_deserialize_parse(struct lws_ss_serialization_parser *par,
 			case LWSSS_SER_RXPRE_CREATE_RESULT:
 				if (!client)
 					goto hangup;
-				if (*state != LPCS_WAITING_CREATE_RESULT) {
-					lwsl_err("a2\n");
+				if (*state != LPCS_WAITING_CREATE_RESULT)
 					goto hangup;
-				}
-				if (par->rem < 1) {
-					lwsl_err("a3\n");
+
+				if (par->rem < 1)
 					goto hangup;
-				}
+
 				par->ps = RPAR_RESULT_CREATION;
 				break;
 
@@ -411,14 +419,12 @@ lws_ss_deserialize_parse(struct lws_ss_serialization_parser *par,
 				if (!client)
 					goto hangup;
 				if (*state != LPCS_LOCAL_CONNECTED &&
-				    *state != LPCS_OPERATIONAL) {
-					lwsl_err("a4\n");
+				    *state != LPCS_OPERATIONAL)
 					goto hangup;
-				}
-				if (par->rem < 4) {
-					lwsl_err("a5\n");
+
+				if (par->rem < 4)
 					goto hangup;
-				}
+
 				par->ps = RPAR_STATEINDEX;
 				break;
 
@@ -690,6 +696,35 @@ payload_ff:
 			par->ps = RPAR_TYPE;
 			break;
 
+		case RPAR_TIMEOUT0:
+
+			par->temp32 = (par->temp32 << 8) | *cp++;
+			if (++par->ctr < 4) {
+				if (!--par->rem)
+					goto hangup;
+				break;
+			}
+
+			if (--par->rem)
+				goto hangup;
+
+			if ((unsigned int)par->temp32 == 0xffffffff) {
+				lwsl_notice("%s: cancel ss timeout\n", __func__);
+				lws_ss_cancel_timeout(*pss);
+			} else {
+
+				if (!par->temp32)
+					par->temp32 = (*pss)->policy->timeout_ms;
+
+				lwsl_notice("%s: set ss timeout for +%ums\n",
+						__func__, par->temp32);
+
+				lws_ss_start_timeout((*pss), par->temp32);
+			}
+
+			par->ps = RPAR_TYPE;
+			break;
+
 		case RPAR_METADATA_NAMELEN:
 			if (!--par->rem)
 				goto hangup;
@@ -916,11 +951,13 @@ payload_ff:
 				lws_ss_serialize_state_transition(state,
 						LPCS_OPERATIONAL);
 				break;
+			case LWSSSCS_TIMEOUT:
+				break;
 			default:
 				break;
 			}
 
-			if (par->ctr < 0 || par->ctr > 9)
+			if (par->ctr < 0 || par->ctr > 16)
 				goto hangup;
 
 #if defined(_DEBUG)

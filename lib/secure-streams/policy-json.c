@@ -54,6 +54,7 @@ static const char * const lejp_tokens_policy[] = {
 	"s[].*.urgent_rx",
 	"s[].*.long_poll",
 	"s[].*.retry",
+	"s[].*.timeout_ms",
 	"s[].*.tls_trust_store",
 	"s[].*.metadata",
 	"s[].*.metadata[].*",
@@ -121,6 +122,7 @@ typedef enum {
 	LSSPPT_URGENT_RX,
 	LSSPPT_LONG_POLL,
 	LSSPPT_RETRYPTR,
+	LSSPPT_DEFAULT_TIMEOUT_MS,
 	LSSPPT_TRUST,
 	LSSPPT_METADATA,
 	LSSPPT_METADATA_ITEM,
@@ -473,6 +475,10 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 
 	case LSSPPT_HTTP_EXPECT:
 		a->curr[LTY_POLICY].p->u.http.resp_expect = atoi(ctx->buf);
+		break;
+
+	case LSSPPT_DEFAULT_TIMEOUT_MS:
+		a->curr[LTY_POLICY].p->timeout_ms = atoi(ctx->buf);
 		break;
 
 	case LSSPPT_OPPORTUNISTIC:

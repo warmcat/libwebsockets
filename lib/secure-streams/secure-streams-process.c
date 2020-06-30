@@ -286,17 +286,21 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_RAW_CLOSE:
 		lwsl_info("LWS_CALLBACK_RAW_CLOSE:\n");
 
-		/*
-		 * the client unix domain socket connection has closed...
-		 * eg, client has exited or otherwise has definitively finished
-		 * with the proxying and onward connection
-		 */
-
 		if (!conn)
 			break;
 
+		/*
+		 * the client unix domain socket connection (wsi / conn->wsi)
+		 * has closed... eg, client has exited or otherwise has
+		 * definitively finished with the proxying and onward connection
+		 *
+		 * But right now, the SS and possibly the SS onward wsi are
+		 * still live...
+		 */
+
 		if (conn->ss) {
-			lwsl_info("%s: destroying ss\n", __func__);
+			lwsl_info("%s: destroying ss.h=%p, ss.wsi=%p\n",
+					__func__, conn->ss, conn->ss->wsi);
 			/* sever relationship with ss about to be deleted */
 			lws_set_opaque_user_data(wsi, NULL);
 

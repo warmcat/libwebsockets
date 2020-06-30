@@ -84,9 +84,22 @@
  *
  *   -  0: LWSSS_SER_TXPRE_METADATA
  *   -  1: 2-byte MSB-first rest-of-frame length
- *   -  2: 1-byte metadata name length
- *   -  3: metadata name
+ *   -  3: 1-byte metadata name length
+ *   -  4: metadata name
  *   -  ...: metadata value (for rest of packet)
+ *
+ * - TX credit management - sent when using tx credit apis, cf METADATA
+ *
+ *   - 0: LWSSS_SER_TXPRE_TXCR_UPDATE
+ *   - 1: 2-byte MSB-first rest-of-frame length 00, 04
+ *   - 3: 4-byte additional tx credit adjust value
+ *
+ * - Stream timeout management - forwarded when user applying or cancelling t.o.
+ *
+ *   -  0: LWSSS_SER_TXPRE_TIMEOUT_UPDATE
+ *   -  1: 2-byte MSB-first rest-of-frame length 00, 04
+ *   -  3: 4-byte MSB-first unsigned 32-bit timeout, 0 = use policy, -1 = cancel
+ *
  *
  * Proxy to client
  *
@@ -165,6 +178,7 @@ typedef enum {
 	LWSSSCS_QOS_NACK_REMOTE,
 	LWSSSCS_QOS_ACK_LOCAL,		/* local proxy accepted our tx */
 	LWSSSCS_QOS_NACK_LOCAL,		/* local proxy refused our tx */
+	LWSSSCS_TIMEOUT,		/* optional timeout timer fired */
 
 	LWSSSCS_SINK_JOIN,		/* sinks get this when a new source
 					 * stream joins the sink */
@@ -215,6 +229,7 @@ enum {
 	LWSSS_SER_TXPRE_TX_PAYLOAD,
 	LWSSS_SER_TXPRE_METADATA,
 	LWSSS_SER_TXPRE_TXCR_UPDATE,
+	LWSSS_SER_TXPRE_TIMEOUT_UPDATE,
 	LWSSS_SER_TXPRE_TLSNEG_ENCLAVE_SIGNED,
 };
 
@@ -378,7 +393,6 @@ lws_ss_request_tx(struct lws_ss_handle *pss);
 LWS_VISIBLE LWS_EXTERN void
 lws_ss_request_tx_len(struct lws_ss_handle *pss, unsigned long len);
 
-
 /**
  * lws_ss_client_connect() - Attempt the client connect
  *
@@ -442,6 +456,36 @@ lws_ss_state_name(int state);
  */
 LWS_VISIBLE LWS_EXTERN struct lws_context *
 lws_ss_get_context(struct lws_ss_handle *h);
+
+#define LWSSS_TIMEOUT_FROM_POLICY				0
+
+/**
+ * lws_ss_start_timeout() - start or restart the timeout on the stream
+ *
+ * \param h: secure streams handle
+ * \param timeout_ms: LWSSS_TIMEOUT_FROM_POLICY for policy value, else use timeout_ms
+ *
+ * Starts or restarts the stream's own timeout timer.  If the specified time
+ * passes without lws_ss_cancel_timeout() being called on the stream, then the
+ * stream state callback receives LWSSSCS_TIMEOUT
+ *
+ * The process being protected by the timeout is up to the user code, it may be
+ * arbitrarily long and cross multiple protocol transactions or involve other
+ * streams.  It's up to the user to decide when to start and when / if to cancel
+ * the stream timeout.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_ss_start_timeout(struct lws_ss_handle *h, unsigned int timeout_ms);
+
+/**
+ * lws_ss_cancel_timeout() - remove any timeout on the stream
+ *
+ * \param h: secure streams handle
+ *
+ * Disable any timeout that was applied to the stream by lws_ss_start_timeout().
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_ss_cancel_timeout(struct lws_ss_handle *h);
 
 /**
  * lws_ss_to_user_object() - convenience helper to get user object from handle

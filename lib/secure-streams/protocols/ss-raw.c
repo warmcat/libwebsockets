@@ -51,6 +51,7 @@ secstream_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	case LWS_CALLBACK_RAW_CLOSE:
 		if (!h)
 			break;
+		lws_sul_cancel(&h->sul_timeout);
 		lwsl_info("%s: h: %p, %s LWS_CALLBACK_CLOSED_CLIENT_HTTP\n",
 			  __func__, h,
 			  h->policy ? h->policy->streamtype : "no policy");
