@@ -1105,6 +1105,7 @@ swallow:
 
 			if (!wsi->mux_substream && !ah->unk_pos) {
 				ah->unk_pos = ah->pos;
+
 #if defined(LWS_WITH_CUSTOM_HEADERS)
 				/*
 				 * Prepare new unknown header linked-list entry
@@ -1283,6 +1284,9 @@ nope:
 				goto forbid;
 			}
 			if (ah->lextable_pos < 0) {
+				/*
+				 * It's not a header that lws knows about...
+				 */
 #if defined(LWS_WITH_CUSTOM_HEADERS)
 				if (!wsi->mux_substream)
 					goto unknown_hdr;
@@ -1309,11 +1313,21 @@ nope:
 						return LPR_FAIL;
 					}
 
+				if (!wsi->mux_substream) {
+					/*
+					 * Whether we are collecting unknown names or not,
+					 * if we matched an internal header we can dispense
+					 * with the header name part we were keeping
+					 */
+					ah->pos = ah->unk_pos;
+					ah->unk_pos = 0;
+				}
+
+#if defined(LWS_ROLE_WS)
 				/*
 				 * WSORIGIN is protocol equiv to ORIGIN,
 				 * JWebSocket likes to send it, map to ORIGIN
 				 */
-#if defined(LWS_ROLE_WS)
 				if (n == WSI_TOKEN_SWORIGIN)
 					n = WSI_TOKEN_ORIGIN;
 #endif
