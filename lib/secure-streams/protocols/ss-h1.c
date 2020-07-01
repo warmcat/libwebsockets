@@ -459,7 +459,6 @@ malformed:
 			if (lws_ss_event_helper(h, LWSSSCS_QOS_NACK_REMOTE))
 				break;
 
-		h->wsi = NULL;
 		h->txn_ok = 1;
 
 		//bad = status != 200;
