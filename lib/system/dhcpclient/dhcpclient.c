@@ -1,7 +1,7 @@
  /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -234,22 +234,6 @@ lws_dhcpc_retry_write(struct lws_sorted_usec_list *sul)
 		lws_callback_on_writable(r->wsi_raw);
 }
 
-#if 0
-static int
-lws_sys_dhcpc_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *l,
-		        int current, int target)
-{
-	lws_dhcpc_req_t *r = lws_container_of(l, lws_dhcpc_req_t, notify_link);
-
-	if (target != LWS_SYSTATE_TIME_VALID || v->set_time)
-		return 0;
-
-	/* it's trying to do it ever since the protocol / vhost was set up */
-
-	return 1;
-}
-#endif
-
 static int
 lws_dhcpc_prep(uint8_t *start, int bufsiz, lws_dhcpc_req_t *r, int op)
 {
@@ -337,8 +321,8 @@ callback_dhcpc(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		lws_sul_cancel(&r->sul_write);
 		if (r->state != LDHC_BOUND) {
 			r->state = LDHC_INIT;
-			lws_retry_sul_schedule(r->context, 0, &r->sul_conn, &bo2,
-					       lws_dhcpc_retry_conn,
+			lws_retry_sul_schedule(r->context, 0, &r->sul_conn,
+					       &bo2, lws_dhcpc_retry_conn,
 					       &r->retry_count_conn);
 		}
 		break;
@@ -479,7 +463,8 @@ broken:
 #if defined(_DEBUG)
 			/* dump what we have parsed out */
 
-			for (n = 0; n < (int)LWS_ARRAY_SIZE(dhcp_entry_names); n++)
+			for (n = 0; n < (int)LWS_ARRAY_SIZE(dhcp_entry_names);
+									    n++)
 				if (n >= IPV4_LEASE_SECS)
 					lwsl_info("%s: %s: %ds\n", __func__,
 						    dhcp_entry_names[n],
@@ -644,13 +629,6 @@ retry_conn:
 	}
 
 	return 0;
-
-#if 0
-cancel_conn_timer:
-	lws_sul_cancel(&r->sul_conn);
-
-	return 0;
-#endif
 }
 
 struct lws_protocols lws_system_protocol_dhcpc =
@@ -683,7 +661,8 @@ lws_dhcpc_status(struct lws_context *context, lws_sockaddr46 *sa46)
 			if (sa46) {
 				memset(sa46, 0, sizeof(*sa46));
 				sa46->sa4.sin_family = AF_INET;
-				sa46->sa4.sin_addr.s_addr = r->ipv4[IPV4_DNS_SRV_1];
+				sa46->sa4.sin_addr.s_addr =
+						r->ipv4[IPV4_DNS_SRV_1];
 			}
 			return 1;
 		}

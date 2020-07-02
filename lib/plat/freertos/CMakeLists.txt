@@ -41,8 +41,10 @@ list(APPEND SOURCES
 	misc/romfs.c)
 
 if (LWS_ESP_PLATFORM AND LWS_WITH_DRIVERS)
-	list(APPEND SOURCES plat/freertos/esp32/drivers/settings.c)
-	list(APPEND SOURCES plat/freertos/esp32/drivers/netdev/wifi.c)
+	list(APPEND SOURCES plat/freertos/esp32/drivers/settings-esp32.c)
+	if (LWS_WITH_NETWORK)
+		list(APPEND SOURCES plat/freertos/esp32/drivers/netdev/wifi-esp32.c)
+	endif()
 endif()
 if (LWS_WITH_ESP32_HELPER)
 	list(APPEND SOURCES plat/freertos/esp32/esp32-helpers.c)

@@ -68,7 +68,7 @@ secstream_h2(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		h->txn_ok = 1;
 		//bad = status != 200;
 		lws_cancel_service(lws_get_context(wsi)); /* abort poll wait */
-		break;
+		return 0;
 
 	case LWS_CALLBACK_WSI_TX_CREDIT_GET:
 		/*

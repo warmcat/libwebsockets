@@ -13,6 +13,12 @@ list(APPEND SOURCES
 	drivers/settings/settings.c
 )
 
+if (LWS_WITH_NETWORK)
+	list(APPEND SOURCES
+		drivers/netdev/netdev.c
+		drivers/netdev/wifi.c)
+endif()
+
 if (LWS_ESP_PLATFORM)
 	list(APPEND SOURCES
 		plat/freertos/esp32/drivers/gpio-esp32.c

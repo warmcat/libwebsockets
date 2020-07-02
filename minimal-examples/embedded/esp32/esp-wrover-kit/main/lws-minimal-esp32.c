@@ -29,7 +29,6 @@ extern struct lws_led_state *lls;
 extern lws_display_state_t lds;
 extern struct lws_button_state *bcs;
 extern lws_netdev_instance_wifi_t *wnd;
-int interrupted;
 
 extern int init_plat_devices(struct lws_context *);
 
@@ -205,16 +204,14 @@ app_main(void)
 	lds.disp->blit(lds.disp, logo, 0, 0, 320, 240);
 	lws_display_state_active(&lds);
 
+	/* the lws event loop */
+
 	do {
 		taskYIELD();
-	} while (lws_service(context, 0) >= 0 && !interrupted);
+	} while (lws_service(context, 0) >= 0);
 
 	lwsl_notice("%s: exited event loop\n", __func__);
 
-	lws_context_destroy(context);
-
-//	fflush(stdout);
-//	esp_restart();
 
 spin:
 	vTaskDelay(10);

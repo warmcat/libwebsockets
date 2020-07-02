@@ -154,8 +154,12 @@ static const lws_display_ili9341_t disp = {
 };
 
 /*
- *
+ * Settings stored in platform nv
  */
+
+static const lws_settings_ops_t sett = {
+	lws_settings_ops_plat
+};
 
 /*
  * Wifi
@@ -166,25 +170,62 @@ static const lws_netdev_ops_t wifi_ops = {
 };
 
 int
-init_plat_devices(struct lws_context *context)
+init_plat_devices(struct lws_context *ctx)
 {
+	lws_settings_instance_t *si;
+	lws_netdevs_t *netdevs = lws_netdevs_from_ctx(ctx);
+
+	si = lws_settings_init(&sett, (void *)"nvs");
+	if (!si) {
+		lwsl_err("%s: failed to create settings instance\n", __func__);
+		return 1;
+	}
+	netdevs->si = si;
+
+#if 0
+	/*
+	 * This is a temp hack to bootstrap the settings to contain the test
+	 * AP ssid and passphrase for one time, so the settings can be stored
+	 * while there's no UI atm
+	 */
+	{
+		lws_wifi_creds_t creds;
+
+		memset(&creds, 0, sizeof(creds));
+
+		lws_strncpy(creds.ssid, "xxx", sizeof(creds.ssid));
+		lws_strncpy(creds.passphrase, "yyy", sizeof(creds.passphrase));
+		lws_dll2_add_tail(&creds.list, &netdevs->owner_creds);
+
+		if (lws_netdev_credentials_settings_set(netdevs)) {
+			lwsl_err("%s: failed to write bootstrap creds\n",
+					__func__);
+			return 1;
+		}
+	}
+#endif
+
+//	if (lws_netdev_instance_wifi_settings_get(si, "netdev.wl0", &niw, &ac)) {
+//		lwsl_err("%s: unable to fetch wl0 settings\n", __func__);
+//		return 1;
+//	}
+
 	/* create the wifi network device and configure it */
 
 	wnd = (lws_netdev_instance_wifi_t *)
-			wifi_ops.create(context, &wifi_ops, "wl0", NULL);
+				wifi_ops.create(ctx, &wifi_ops, "wl0", NULL);
 	if (!wnd) {
 		lwsl_err("%s: failed to create wifi object\n", __func__);
 		return 1;
 	}
 
-	strcpy(wnd->sta.creds.ssid, "xxx");
-	strcpy(wnd->sta.creds.passphrase, "yyy");
 	wnd->flags |= LNDIW_MODE_STA;
 
 	if (wifi_ops.configure(&wnd->inst, NULL)) {
 		lwsl_err("%s: failed to configure wifi object\n", __func__);
 		return 1;
 	}
+
 	wifi_ops.up(&wnd->inst);
 
 	/* bring up the led controller */
@@ -201,7 +242,7 @@ init_plat_devices(struct lws_context *context)
 
 	/* ... and the button controller */
 
-	bcs = lws_button_controller_create(context, &bc);
+	bcs = lws_button_controller_create(ctx, &bc);
 	if (!bcs) {
 		lwsl_err("%s: could not create buttons\n", __func__);
 		return 1;
@@ -212,7 +253,7 @@ init_plat_devices(struct lws_context *context)
 	/* ... bring up spi bb and the display */
 
 	lbspi.bb_ops.init(&lbspi.bb_ops);
-	lws_display_state_init(&lds, context, 30000, 10000, lls, &disp.disp);
+	lws_display_state_init(&lds, ctx, 30000, 10000, lls, &disp.disp);
 
 	/*
 	 * Make the RGB LED do something using sequenced PWM... pressing the

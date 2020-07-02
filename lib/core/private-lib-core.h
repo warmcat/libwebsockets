@@ -362,6 +362,11 @@ struct lws_context {
 #endif
 
 #if defined(LWS_WITH_NETWORK)
+
+/*
+ * LWS_WITH_NETWORK =====>
+ */
+
 #if defined(LWS_WITH_LIBEV)
 	struct lws_context_eventlibs_libev ev;
 #endif
@@ -374,13 +379,19 @@ struct lws_context {
 #if defined(LWS_WITH_GLIB)
 	struct lws_context_eventlibs_glib glib;
 #endif
-
 #if defined(LWS_WITH_TLS)
 	struct lws_context_tls tls;
 #endif
+#if defined(LWS_WITH_DRIVERS)
+	lws_netdevs_t			netdevs;
+#endif
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
-	lws_async_dns_t		async_dns;
+	lws_async_dns_t			async_dns;
+#endif
+
+#if defined(LWS_WITH_SYS_NTPCLIENT)
+	void				*ntpclient_priv;
 #endif
 
 	struct lws_ss_handle		*hss_fetch_policy;
@@ -430,6 +441,11 @@ struct lws_context {
 	struct lws **lws_lookup;
 
 #endif
+
+/*
+ * <====== LWS_WITH_NETWORK end
+ */
+
 #endif /* NETWORK */
 
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)

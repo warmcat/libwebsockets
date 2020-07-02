@@ -24,8 +24,10 @@
 
 #include <private-lib-core.h>
 
+#include <nvs_flash.h>
+
 int
-lws_settings_plat_get(lws_settings_instance_t si, const char *name,
+lws_settings_plat_get(lws_settings_instance_t *si, const char *name,
 		      uint8_t *dest, size_t *max_actual)
 {
 	int n;
@@ -50,10 +52,10 @@ lws_settings_plat_get(lws_settings_instance_t si, const char *name,
 }
 
 int
-lws_settings_plat_set(lws_settings_instance_t si, const char *name,
-	   const uint8_t *src, size_t len)
+lws_settings_plat_set(lws_settings_instance_t *si, const char *name,
+		      const uint8_t *src, size_t len)
 {
-	n = nvs_flash_init_partition((const char *)si->opaque_plat);
+	int n = nvs_flash_init_partition((const char *)si->opaque_plat);
 
 	lwsl_notice("%s: init partition %d\n", __func__, n);
 	if (n == ESP_ERR_NOT_FOUND)
@@ -68,4 +70,6 @@ lws_settings_plat_set(lws_settings_instance_t si, const char *name,
 
 	nvs_commit((nvs_handle_t)si->handle_plat);
 	nvs_close((nvs_handle_t)si->handle_plat);
+
+	return 0;
 }

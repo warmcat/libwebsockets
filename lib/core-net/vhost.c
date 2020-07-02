@@ -895,7 +895,7 @@ lws_cancel_service(struct lws_context *context)
 	if (context->being_destroyed1)
 		return;
 
-	lwsl_info("%s\n", __func__);
+	lwsl_debug("%s\n", __func__);
 
 	while (m--) {
 		if (pt->pipe_wsi)

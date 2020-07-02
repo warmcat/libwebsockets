@@ -1450,6 +1450,53 @@ lws_plat_mbedtls_net_recv(void *ctx, unsigned char *buf, size_t len);
 lws_usec_t
 lws_sul_nonmonotonic_adjust(struct lws_context *ctx, int64_t step_us);
 
+void
+lws_netdev_instance_remove_destroy(struct lws_netdev_instance *ni);
+
+int
+lws_netdev_smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
+		  void *buf, size_t len);
+
+void
+lws_netdev_instance_create(lws_netdev_instance_t *ni, struct lws_context *ctx,
+			   const lws_netdev_ops_t *ops, const char *name,
+			   void *platinfo);
+
+int
+lws_netdev_wifi_rssi_sort_compare(const lws_dll2_t *d, const lws_dll2_t *i);
+void
+lws_netdev_wifi_scan_empty(lws_netdev_instance_wifi_t *wnd);
+
+lws_wifi_sta_t *
+lws_netdev_wifi_scan_find(lws_netdev_instance_wifi_t *wnd, const char *ssid,
+			  const uint8_t *bssid);
+
+int
+lws_netdev_wifi_scan_select(lws_netdev_instance_wifi_t *wnd);
+
+lws_wifi_creds_t *
+lws_netdev_credentials_find(lws_netdevs_t *netdevs, const char *ssid,
+			    const uint8_t *bssid);
+
+int
+lws_netdev_wifi_redo_last(lws_netdev_instance_wifi_t *wnd);
+
+void
+lws_ntpc_trigger(struct lws_context *ctx);
+
+void
+lws_netdev_wifi_scan(lws_sorted_usec_list_t *sul);
+
+#define lws_netdevs_from_ndi(ni) \
+		lws_container_of((ni)->list.owner, lws_netdevs_t, owner)
+
+#define lws_context_from_netdevs(nd) \
+		lws_container_of(nd, struct lws_context, netdevs)
+
+/* get the owner of the ni, then compute the context the owner is embedded in */
+#define netdev_instance_to_ctx(ni) \
+		lws_container_of(lws_netdevs_from_ndi(ni), \
+				 struct lws_context, netdevs)
 
 enum {
 	LW5CHS_RET_RET0,

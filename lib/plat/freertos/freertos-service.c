@@ -57,19 +57,19 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 
 		if (m > context->time_last_state_dump) {
 			context->time_last_state_dump = m;
-#if defined(LWS_AMAZON_RTOS)
-			n = xPortGetFreeHeapSize();
-#else
+#if defined(LWS_ESP_PLATFORM)
 			n = esp_get_free_heap_size();
+#else
+			n = xPortGetFreeHeapSize();
 #endif
 			if ((unsigned int)n != context->last_free_heap) {
 				if ((unsigned int)n > context->last_free_heap)
-					lwsl_notice(" heap :%ld (+%ld)\n",
+					lwsl_debug(" heap :%ld (+%ld)\n",
 						    (unsigned long)n,
 						    (unsigned long)(n -
 						      context->last_free_heap));
 				else
-					lwsl_notice(" heap :%ld (-%ld)\n",
+					lwsl_debug(" heap :%ld (-%ld)\n",
 						    (unsigned long)n,
 						    (unsigned long)(
 						      context->last_free_heap -

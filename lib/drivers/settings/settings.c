@@ -22,8 +22,10 @@
  * IN THE SOFTWARE.
  */
 
+#include <private-lib-core.h>
+
 lws_settings_instance_t *
-lws_settings_init(lws_settings_ops_t *so, void *opaque_plat)
+lws_settings_init(const lws_settings_ops_t *so, void *opaque_plat)
 {
 	lws_settings_instance_t *si = lws_zalloc(sizeof(*si), __func__);
 
@@ -41,4 +43,27 @@ lws_settings_deinit(lws_settings_instance_t **si)
 {
 	lws_free(*si);
 	*si = NULL;
+}
+
+int
+lws_settings_plat_printf(lws_settings_instance_t *si, const char *name,
+			 const char *format, ...)
+{
+	va_list ap;
+	uint8_t *p;
+	int n;
+
+	va_start(ap, format);
+	n = vsnprintf(NULL, 0, format, ap);
+	va_end(ap);
+
+	p = lws_malloc(n + 2, __func__);
+	va_start(ap, format);
+	vsnprintf((char *)p, n + 2, format, ap);
+	va_end(ap);
+
+	n = si->so->set(si, name, p, n);
+	lws_free(p);
+
+	return n;
 }

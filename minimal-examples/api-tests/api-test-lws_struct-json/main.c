@@ -1,7 +1,7 @@
 /*
  * lws-api-test-lws_struct-json
  *
- * Written in 2010-2019 by Andy Green <andy@warmcat.com>
+ * Written in 2010-2020 by Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
@@ -325,6 +325,34 @@ static const char *t2 =
 	"{\"schema\":\"com.warmcat.sai.taskcan\","
 	 "\"uuid\": \"071ab46ab4296e5de674c628fec17c55088254679f7714ad991f8c4873dca\"}\x01\x02\xff\xff\xff\xff";
 
+typedef struct xlws_wifi_creds {
+	lws_dll2_t	list;
+	char 		ssid[33];
+	char		passphrase[64];
+	int		alg;
+	char		bssid[6];
+} xlws_wifi_creds_t;
+
+typedef struct xlws_netdevs {
+	lws_dll2_owner_t	owner_creds;
+} xlws_netdevs_t;
+
+static const lws_struct_map_t lsm_wifi_creds[] = {
+	LSM_CARRAY	(xlws_wifi_creds_t, ssid,		"ssid"),
+	LSM_CARRAY	(xlws_wifi_creds_t, passphrase,		"passphrase"),
+	LSM_UNSIGNED	(xlws_wifi_creds_t, alg,			"alg"),
+	LSM_STRING_PTR	(xlws_wifi_creds_t, bssid,		"bssid"),
+};
+
+static const lws_struct_map_t lsm_netdev_credentials[] = {
+	LSM_LIST	(xlws_netdevs_t, owner_creds, xlws_wifi_creds_t, list,
+			 NULL, lsm_wifi_creds,			"credentials"),
+};
+
+static const lws_struct_map_t lsm_netdev_schema[] = {
+	LSM_SCHEMA	(xlws_netdevs_t, NULL, lsm_netdev_credentials,
+					      "com.warmcat.sai.taskinfo"),
+};
 
 
 static int
@@ -535,6 +563,40 @@ done:
 
 	if (test2())
 		goto bail;
+
+	{
+		lws_struct_serialize_t *js;
+		xlws_wifi_creds_t creds;
+		xlws_netdevs_t netdevs;
+		unsigned char *buf;
+		size_t w;
+		int n;
+
+		memset(&creds, 0, sizeof(creds));
+		memset(&netdevs, 0, sizeof(netdevs));
+
+		lws_strncpy(creds.ssid, "xxx", sizeof(creds.ssid));
+		lws_strncpy(creds.passphrase, "yyy", sizeof(creds.passphrase));
+		lws_dll2_add_tail(&creds.list, &netdevs.owner_creds);
+
+		buf = malloc(2048); /* length should be computed */
+
+		js = lws_struct_json_serialize_create(lsm_netdev_schema,
+			LWS_ARRAY_SIZE(lsm_netdev_schema), 0, &netdevs);
+		if (!js)
+			goto bail;
+
+		n = lws_struct_json_serialize(js, buf, 2048, &w);
+		lws_struct_json_serialize_destroy(&js);
+		if (n != LSJS_RESULT_FINISH)
+			goto bail;
+		if (strcmp("{\"schema\":\"com.warmcat.sai.taskinfo\",\"credentials\":[{\"ssid\":\"xxx\",\"passphrase\":\"yyy\",\"alg\":0}]}", (const char *)buf)) {
+			puts((const char *)buf);
+			goto bail;
+		}
+		free(buf);
+	}
+
 
 	lwsl_user("Completed: PASS\n");
 

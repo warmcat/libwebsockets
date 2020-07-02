@@ -135,6 +135,15 @@ lws_state_notify_protocol_init(struct lws_state_manager *mgr,
 	}
 #endif
 
+#if defined(LWS_WITH_SYS_NTPCLIENT)
+	if (target == LWS_SYSTATE_TIME_VALID &&
+	    lws_now_secs() < 1594017754) /* 06:42 Mon Jul 6 2020 UTC */ {
+		lws_ntpc_trigger(context);
+
+		return 1;
+	}
+#endif
+
 #if defined(LWS_WITH_SECURE_STREAMS) && defined(LWS_WITH_SECURE_STREAMS_SYS_AUTH_API_AMAZON_COM)
 	/*
 	 * Skip this if we are running something without the policy for it
@@ -160,19 +169,22 @@ lws_state_notify_protocol_init(struct lws_state_manager *mgr,
 #endif
 
 #if defined(LWS_WITH_SECURE_STREAMS)
+#if defined(LWS_WITH_DRIVERS)
 	/*
 	 * See if we should do the SS Captive Portal Detection
 	 */
 	if (target == LWS_SYSTATE_CPD_PRE_TIME) {
-		if (lws_system_cpd_state_get(context))
+		if (lws_system_cpd_state_get(context) == LWS_CPD_INTERNET_OK)
 			return 0; /* allow it */
 
-		lwsl_info("%s: LWS_SYSTATE_CPD_PRE_TIME\n", __func__);
-		if (!lws_system_cpd_start(context))
-			return 1;
+		/*
+		 * Don't allow it to move past here until we get an IP and
+		 * CPD passes, driven by SMD
+		 */
 
-		/* it failed, eg, no streamtype for it in the policy */
+		return 1;
 	}
+#endif
 
 #if !defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
 	/*
@@ -226,11 +238,40 @@ lws_system_smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
 	if (_class != LWSSMDCL_NETWORK)
 		return 0;
 
-	if (!lws_json_simple_strcmp(buf, len, "\"trigger\":", "cpdcheck")) {
-		lwsl_notice("%s: SMD -> Captive Portal Detect request\n",
-			    __func__);
+	/* something external requested CPD check */
+
+	if (!lws_json_simple_strcmp(buf, len, "\"trigger\":", "cpdcheck"))
 		lws_system_cpd_start(cx);
-	}
+	else
+		/*
+		 * IP acquisition on any interface triggers captive portal
+		 * check on default route
+		 */
+		if (!lws_json_simple_strcmp(buf, len, "\"type\":", "ipacq"))
+			lws_system_cpd_start(cx);
+
+#if defined(LWS_WITH_SYS_NTPCLIENT)
+	/*
+	 * Captive portal detect showing internet workable triggers NTP Client
+	 */
+	if (!lws_json_simple_strcmp(buf, len, "\"type\":", "cps") &&
+	    !lws_json_simple_strcmp(buf, len, "\"result\":", "OK") &&
+	    lws_now_secs() < 1594017754) /* 06:42 Mon Jul 6 2020 UTC */
+		lws_ntpc_trigger(cx);
+#endif
+
+#if defined(LWS_WITH_SYS_DHCP_CLIENT)
+	/*
+	 * Any network interface linkup triggers DHCP
+	 */
+	if (!lws_json_simple_strcmp(buf, len, "\"type\":", "linkup"))
+		lws_ntpc_trigger(cx);
+
+#endif
+
+#if defined(LWS_WITH_DRIVERS) && defined(LWS_WITH_NETWORK)
+	lws_netdev_smd_cb(opaque, _class, timestamp, buf, len);
+#endif
 
 	return 0;
 }

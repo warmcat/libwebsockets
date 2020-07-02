@@ -395,7 +395,7 @@ lws_buflist_aware_read(struct lws_context_per_thread *pt, struct lws *wsi,
 	ebuf->token = ep;
 	ebuf->len = n = lws_ssl_capable_read(wsi, ep, e);
 
-	lwsl_info("%s: wsi %p: %s: ssl_capable_read %d\n", __func__,
+	lwsl_debug("%s: wsi %p: %s: ssl_capable_read %d\n", __func__,
 			wsi, hint, ebuf->len);
 
 	if (!bns && /* only acknowledge error when we handled buflist content */

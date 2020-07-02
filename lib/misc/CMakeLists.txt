@@ -75,8 +75,11 @@ endif()
 
 if (LWS_WITH_LWSAC)
 	list(APPEND SOURCES
-		misc/lwsac/lwsac.c
-		misc/lwsac/cached-file.c)
+		misc/lwsac/lwsac.c)
+	if (NOT LWS_PLAT_FREERTOS)
+		list(APPEND SOURCES
+			misc/lwsac/cached-file.c)
+	endif()
 endif()
 
 if (NOT LWS_WITHOUT_BUILTIN_SHA1)

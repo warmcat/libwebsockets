@@ -1,7 +1,7 @@
  /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -34,7 +34,6 @@ struct vhd_ntpc {
 	const struct lws_protocols	*protocol;
 	lws_sorted_usec_list_t		sul_conn;
 	lws_sorted_usec_list_t		sul_write; /* track write retries */
-	lws_state_notify_link_t		notify_link;
 	const char			*ntp_server_ads;
 	struct lws			*wsi_udp;
 	uint16_t			retry_count_conn;
@@ -106,20 +105,6 @@ lws_ntpc_retry_write(struct lws_sorted_usec_list *sul)
 }
 
 static int
-lws_sys_ntpc_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *l,
-		       int current, int target)
-{
-	struct vhd_ntpc *v = lws_container_of(l, struct vhd_ntpc, notify_link);
-
-	if (target != LWS_SYSTATE_TIME_VALID || v->set_time)
-		return 0;
-
-	/* it's trying to do it ever since the protocol / vhost was set up */
-
-	return 1;
-}
-
-static int
 callback_ntpc(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	      void *in, size_t len)
 {
@@ -146,6 +131,8 @@ callback_ntpc(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		v->vhost = lws_get_vhost(wsi);
 		v->protocol = lws_get_protocol(wsi);
 
+		v->context->ntpclient_priv = v;
+
 		if (!lws_system_get_ops(wsi->context) ||
 		    !lws_system_get_ops(wsi->context)->set_clock) {
 #if !defined(LWS_ESP_PLATFORM)
@@ -158,10 +145,6 @@ callback_ntpc(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		/* register our lws_system notifier */
 
-		v->notify_link.notify_cb = lws_sys_ntpc_notify_cb;
-		v->notify_link.name = "ntpclient";
-		lws_state_reg_notifier(&wsi->context->mgr_system, &v->notify_link);
-
 		v->ntp_server_ads = "pool.ntp.org";
 		lws_plat_ntpclient_config(v->context);
 		lws_system_blob_get_single_ptr(lws_system_get_blob(
@@ -172,8 +155,6 @@ callback_ntpc(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		lwsl_info("%s: using ntp server %s\n", __func__,
 			  v->ntp_server_ads);
-
-		lws_ntpc_retry_conn(&v->sul_conn);
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY: /* per vhost */
@@ -181,7 +162,6 @@ callback_ntpc(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			break;
 		if (v->wsi_udp)
 			lws_set_timeout(v->wsi_udp, 1, LWS_TO_KILL_ASYNC);
-		lws_state_reg_deregister(&v->notify_link);
 		v->wsi_udp = NULL;
 		goto cancel_conn_timer;
 
@@ -237,7 +217,7 @@ do_close:
 
 		lwsl_notice("%s: Unix time: %llu, step: %lldus\n", __func__,
 				(unsigned long long)ns / 1000000000,
-				delta_us);
+				(long long)delta_us);
 
 #if defined(LWS_PLAT_FREERTOS)
 		{
@@ -313,6 +293,16 @@ cancel_conn_timer:
 	lws_sul_cancel(&v->sul_conn);
 
 	return 0;
+}
+
+void
+lws_ntpc_trigger(struct lws_context *ctx)
+{
+	struct vhd_ntpc *v = (struct vhd_ntpc *)ctx->ntpclient_priv;
+
+	lwsl_notice("%s\n", __func__);
+	v->retry_count_conn = 0;
+	lws_ntpc_retry_conn(&v->sul_conn);
 }
 
 struct lws_protocols lws_system_protocol_ntpc =

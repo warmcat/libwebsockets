@@ -40,6 +40,8 @@ typedef enum {
 	LADNS_RET_CONTINUING
 } lws_async_dns_retcode_t;
 
+struct addrinfo;
+
 typedef struct lws * (*lws_async_dns_cb_t)(struct lws *wsi, const char *ads,
 					   const struct addrinfo *result, int n,
 					   void *opaque);

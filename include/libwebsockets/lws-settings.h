@@ -54,19 +54,59 @@ typedef struct lws_settings_ops {
 		   const uint8_t *src, size_t len);
 } lws_settings_ops_t;
 
+/**
+ * lws_settings_plat_get() - read a named blob from a settings instance
+ *
+ * \param si: the settings instance
+ * \param name: the name of the setting blob in the instance
+ * \param dest: NULL, or the buffer to copy the setting blob info
+ * \param max_actual: point to size of dest, or zero; actual blob size on exit
+ *
+ * If the named blob doesn't exist in the si, or can't read, returns nonzero.
+ * Otherwise, returns 0 and sets *max_actual to the true blob size.  If dest is
+ * non-NULL, as much of the blob as will fit in the amount specified by
+ * *max_actual on entry is copied to dest.
+ */
 LWS_VISIBLE LWS_EXTERN int
 lws_settings_plat_get(lws_settings_instance_t *si, const char *name,
 		      uint8_t *dest, size_t *max_actual);
+
+/**
+ * lws_settings_plat_get() - read a named blob from a settings instance
+ *
+ * \param si: the settings instance
+ * \param name: the name of the setting blob in the instance
+ * \param src: blob to copy to settings instance
+ * \param len: length of blob to copy
+ *
+ * Creates or replaces a settings blob of the given name made up of the \p len
+ * bytes of data from \p src.
+ */
 LWS_VISIBLE LWS_EXTERN int
 lws_settings_plat_set(lws_settings_instance_t *si, const char *name,
 		      const uint8_t *src, size_t len);
+
+/**
+ * lws_settings_plat_printf() - read a named blob from a settings instance
+ *
+ * \param si: the settings instance
+ * \param name: the name of the setting blob in the instance
+ * \param format: printf-style format string
+ *
+ * Creates or replaces a settings blob of the given name from the printf-style
+ * format string and arguments provided.  There's no specific limit to the size,
+ * the size is computed and then a temp heap buffer used.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_settings_plat_printf(lws_settings_instance_t *si, const char *name,
+		         const char *format, ...) LWS_FORMAT(3);
 
 #define lws_settings_ops_plat \
 	.get		= lws_settings_plat_get, \
 	.set		= lws_settings_plat_set,
 
 LWS_VISIBLE LWS_EXTERN lws_settings_instance_t *
-lws_settings_init(lws_settings_ops_t *so, void *opaque_plat);
+lws_settings_init(const lws_settings_ops_t *so, void *opaque_plat);
 
 LWS_VISIBLE LWS_EXTERN void
 lws_settings_deinit(lws_settings_instance_t **si);
