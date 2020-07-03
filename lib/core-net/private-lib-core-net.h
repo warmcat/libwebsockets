@@ -1447,6 +1447,9 @@ lws_plat_mbedtls_net_send(void *ctx, const uint8_t *buf, size_t len);
 int
 lws_plat_mbedtls_net_recv(void *ctx, unsigned char *buf, size_t len);
 
+lws_usec_t
+lws_sul_nonmonotonic_adjust(struct lws_context *ctx, int64_t step_us);
+
 
 enum {
 	LW5CHS_RET_RET0,

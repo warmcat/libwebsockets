@@ -103,7 +103,7 @@ __lws_sul_service_ripe(lws_dll2_owner_t *own, int own_len, lws_usec_t usnow)
 		lws_system_do_attach(pt);
 
 	/* must be at least 1 */
-	assert(own_len);
+	assert(own_len > 0);
 
 	/*
 	 * Of the own_len sul owning lists, the earliest next sul could be on
@@ -150,6 +150,72 @@ __lws_sul_service_ripe(lws_dll2_owner_t *own, int own_len, lws_usec_t usnow)
 	} while (1);
 
 	/* unreachable */
+
+	return 0;
+}
+
+/*
+ * Normally we use the OS monotonic time, which does not step when the
+ * gettimeofday() time is adjusted after, eg, ntpclient.  But on some OSes,
+ * high resolution monotonic time doesn't exist; sul time is computed from and
+ * compared against gettimeofday() time and breaks when that steps.
+ *
+ * For those cases, this allows us to retrospectively adjust existing suls on
+ * all owning lists by the step amount, at the same time we adjust the
+ * nonmonotonic clock.  Then nothing breaks so long as we do this when the
+ * gettimeofday() clock is stepped.
+ *
+ * Linux and so on offer Posix MONOTONIC, which lws uses.  FreeRTOS doesn't
+ * have a high-resolution monotonic clock and has to use gettimeofday(), which
+ * requires this adjustment when it is stepped.
+ */
+
+lws_usec_t
+lws_sul_nonmonotonic_adjust(struct lws_context *ctx, int64_t step_us)
+{
+	struct lws_context_per_thread *pt = &ctx->pt[0];
+	int n, m;
+
+	/*
+	 * for each pt
+	 */
+
+	for (m = 0; m < ctx->count_threads; m++) {
+
+		/*
+		 * For each owning list...
+		 */
+
+		lws_pt_lock(pt, __func__);
+
+		for (n = 0; n < LWS_COUNT_PT_SUL_OWNERS; n++) {
+
+			if (!pt->pt_sul_owner[n].count)
+				continue;
+
+			/* ... and for every existing sul on a list... */
+
+			lws_start_foreach_dll(struct lws_dll2 *, p,
+					      lws_dll2_get_head(
+							&pt->pt_sul_owner[n])) {
+				lws_sorted_usec_list_t *sul = lws_container_of(
+					       p, lws_sorted_usec_list_t, list);
+
+				/*
+				 * ... retrospectively step its ripe time by the
+				 * step we will adjust the gettimeofday() clock
+				 * with
+				 */
+
+				sul->us += step_us;
+
+			} lws_end_foreach_dll(p);
+		}
+
+		lws_pt_unlock(pt);
+
+		pt++;
+	}
 
 	return 0;
 }

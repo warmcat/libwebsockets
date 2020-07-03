@@ -127,6 +127,8 @@ callback_ntpc(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
 						 lws_get_protocol(wsi));
 	uint8_t pkt[LWS_PRE + 48];
+	struct timeval t1;
+	int64_t delta_us;
 	uint64_t ns;
 
 	switch (reason) {
@@ -224,15 +226,27 @@ do_close:
 		ns = lws_ser_ru32be(((uint8_t *)in) + 40) - 2208988800;
 		ns = (ns * 1000000000) + lws_ser_ru32be(((uint8_t *)in) + 44);
 
-		lwsl_notice("%s: Unix time: %llu\n", __func__,
-				(unsigned long long)ns / 1000000000);
+		/*
+		 * Compute the step
+		 */
 
-#if defined(LWS_ESP_PLATFORM)
+		gettimeofday(&t1, NULL);
+
+		delta_us = (ns / 1000) -
+				((t1.tv_sec * LWS_US_PER_SEC) + t1.tv_usec);
+
+		lwsl_notice("%s: Unix time: %llu, step: %lldus\n", __func__,
+				(unsigned long long)ns / 1000000000,
+				delta_us);
+
+#if defined(LWS_PLAT_FREERTOS)
 		{
 			struct timeval t;
 
 			t.tv_sec = (unsigned long long)ns / 1000000000;
 			t.tv_usec = (ns % 1000000000) / 1000;
+
+			lws_sul_nonmonotonic_adjust(wsi->context, delta_us);
 
 			settimeofday(&t, NULL);
 		}
