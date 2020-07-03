@@ -455,14 +455,14 @@ malformed:
 		wsi->http.writeable_len = h->writeable_len = 0;
 		lws_sul_cancel(&h->sul_timeout);
 
+		h->txn_ok = 1;
+
 		if (h->u.http.good_respcode) {
 			if (lws_ss_event_helper(h, LWSSSCS_QOS_ACK_REMOTE))
-				break;
+				return -1;
 		} else
 			if (lws_ss_event_helper(h, LWSSSCS_QOS_NACK_REMOTE))
-				break;
-
-		h->txn_ok = 1;
+				return -1;
 
 		//bad = status != 200;
 		lws_cancel_service(lws_get_context(wsi)); /* abort poll wait */
