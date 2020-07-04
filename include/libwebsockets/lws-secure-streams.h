@@ -257,6 +257,8 @@ enum lws_ss_state_return_t {
 	LWSSSSRET_OK			=  0,
 	LWSSSSRET_DISCONNECT_ME		= -1,
 	LWSSSSRET_DESTROY_ME		= -2,
+
+	LWSSSSRET_SS_HANDLE_DESTROYED	= -3,
 };
 
 /**

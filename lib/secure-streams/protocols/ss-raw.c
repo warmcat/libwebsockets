@@ -46,6 +46,7 @@ secstream_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		lws_ss_event_helper(h, LWSSSCS_UNREACHABLE);
 		h->wsi = NULL;
 		lws_ss_backoff(h);
+		/* may have been destroyed */
 		break;
 
 	case LWS_CALLBACK_RAW_CLOSE:
@@ -58,9 +59,11 @@ secstream_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		h->wsi = NULL;
 		if (h->policy && !(h->policy->flags & LWSSSPOLF_OPPORTUNISTIC) &&
 		    !h->txn_ok && !wsi->context->being_destroyed)
-			lws_ss_backoff(h);
-		if (lws_ss_event_helper(h, LWSSSCS_DISCONNECTED))
-			lws_ss_destroy(&h);
+			if (lws_ss_backoff(h))
+				/* has been destroyed */
+				break;
+		/* wsi is going down anyway */
+		lws_ss_event_helper(h, LWSSSCS_DISCONNECTED);
 		break;
 
 	case LWS_CALLBACK_RAW_CONNECTED:

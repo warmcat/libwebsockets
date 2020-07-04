@@ -41,31 +41,30 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			 in ? (char *)in : "(null)");
 		if (!h)
 			break;
-		if (lws_ss_event_helper(h, LWSSSCS_UNREACHABLE)) {
-			lws_ss_destroy(&h);
+		if (lws_ss_event_helper(h, LWSSSCS_UNREACHABLE))
+			/* h has been destroyed */
 			break;
-		}
+
 		h->wsi = NULL;
 		lws_ss_backoff(h);
+		/* may have been destroyed */
 		break;
 
 	case LWS_CALLBACK_CLIENT_CLOSED:
 		if (!h)
 			break;
 		lws_sul_cancel(&h->sul_timeout);
-		f = lws_ss_event_helper(h, LWSSSCS_DISCONNECTED);
+		if (lws_ss_event_helper(h, LWSSSCS_DISCONNECTED))
+			/* has been destroyed */
+			break;
 		if (h->wsi)
 			lws_set_opaque_user_data(h->wsi, NULL);
 		h->wsi = NULL;
 
-		if (f) {
-			lws_ss_destroy(&h);
-			break;
-		}
-
 		if (h->policy && !(h->policy->flags & LWSSSPOLF_OPPORTUNISTIC) &&
 		    !h->txn_ok && !wsi->context->being_destroyed)
 			lws_ss_backoff(h);
+		/* may have been destroyed */
 		break;
 
 	case LWS_CALLBACK_CLIENT_ESTABLISHED:

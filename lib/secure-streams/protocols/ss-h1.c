@@ -178,13 +178,15 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		lwsl_info("%s: h: %p, %s CLIENT_CONNECTION_ERROR: %s\n", __func__,
 			  h, h->policy->streamtype, in ? (char *)in : "(null)");
 		/* already disconnected, no action for DISCONNECT_ME */
-		if (lws_ss_event_helper(h, LWSSSCS_UNREACHABLE) ==
-							LWSSSSRET_DESTROY_ME) {
-			lws_ss_destroy(&h);
+		if (lws_ss_event_helper(h, LWSSSCS_UNREACHABLE))
+			/* h has been destroyed */
 			break;
-		}
+
 		h->wsi = NULL;
-		lws_ss_backoff(h);
+		lwsl_notice("a4\n");
+		if (lws_ss_backoff(h))
+			/* was destroyed */
+			return -1;
 		break;
 
 	case LWS_CALLBACK_CLIENT_HTTP_REDIRECT:
@@ -206,14 +208,14 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		//bad = status != 200;
 		//lws_cancel_service(lws_get_context(wsi)); /* abort poll wait */
 		if (h->policy && !(h->policy->flags & LWSSSPOLF_OPPORTUNISTIC) &&
-		    !h->txn_ok && !wsi->context->being_destroyed)
-			lws_ss_backoff(h);
-		else
+		    !h->txn_ok && !wsi->context->being_destroyed) {
+			if (lws_ss_backoff(h))
+				break;
+		} else
 			h->seqstate = SSSEQ_IDLE;
 		/* already disconnected, no action for DISCONNECT_ME */
-		if (lws_ss_event_helper(h, LWSSSCS_DISCONNECTED) ==
-							LWSSSSRET_DESTROY_ME)
-			lws_ss_destroy(&h);
+		lws_ss_event_helper(h, LWSSSCS_DISCONNECTED);
+		/* may have been destroyed */
 		break;
 
 
@@ -243,9 +245,9 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		h->retry = 0;
 		h->seqstate = SSSEQ_CONNECTED;
 		lws_sul_cancel(&h->sul);
-		if (lws_ss_event_helper(h, LWSSSCS_CONNECTED)) {
+		if (lws_ss_event_helper(h, LWSSSCS_CONNECTED))
+			/* was destroyed */
 			return -1;
-		}
 
 		/*
 		 * Since it's an http transaction we initiated... this is
@@ -459,9 +461,11 @@ malformed:
 
 		if (h->u.http.good_respcode) {
 			if (lws_ss_event_helper(h, LWSSSCS_QOS_ACK_REMOTE))
+				/* was destroyed */
 				return -1;
 		} else
 			if (lws_ss_event_helper(h, LWSSSCS_QOS_NACK_REMOTE))
+				/* was destroyed */
 				return -1;
 
 		//bad = status != 200;

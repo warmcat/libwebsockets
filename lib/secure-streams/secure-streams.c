@@ -99,6 +99,7 @@ lws_ss_event_helper(lws_ss_handle_t *h, lws_ss_constate_t cs)
 			lws_set_timeout(h->wsi, 1, LWS_TO_KILL_ASYNC);
 			h->wsi = NULL; /* stop destroy trying to repeat this */
 			if (n == LWSSSSRET_DESTROY_ME) {
+				lwsl_info("%s: DESTROYING ss %p\n", __func__, h);
 				lws_ss_destroy(&h);
 				return 1;
 			}
@@ -114,7 +115,7 @@ lws_ss_event_helper(lws_ss_handle_t *h, lws_ss_constate_t cs)
 			if (h->wsi)
 				lws_set_timeout(h->wsi, 1, LWS_TO_KILL_ASYNC);
 			if (n == LWSSSSRET_DESTROY_ME) {
-				lwsl_info("%s: ss %p asks to be destroyed\n", __func__, h);
+				lwsl_info("%s: DESTROYING ss %p\n", __func__, h);
 				/* disconnect ss from the wsi */
 				if (h->wsi)
 					lws_set_opaque_user_data(h->wsi, NULL);
@@ -209,7 +210,9 @@ lws_ss_backoff(lws_ss_handle_t *h)
 	if (!conceal) {
 		lwsl_info("%s: ss %p: abandon conn attempt \n",__func__, h);
 		h->seqstate = SSSEQ_IDLE;
-		lws_ss_event_helper(h, LWSSSCS_ALL_RETRIES_FAILED);
+		if (lws_ss_event_helper(h, LWSSSCS_ALL_RETRIES_FAILED))
+			lwsl_notice("%s: was desroyed on ARF event\n", __func__);
+		/* may have been destroyed */
 		return 1;
 	}
 
@@ -461,11 +464,16 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry)
 
 	h->txn_ok = 0;
 	if (lws_ss_event_helper(h, LWSSSCS_CONNECTING))
-		return -1;
+		return LWSSSSRET_SS_HANDLE_DESTROYED;
 
 	if (!lws_client_connect_via_info(&i)) {
-		lws_ss_event_helper(h, LWSSSCS_UNREACHABLE);
-		lws_ss_backoff(h);
+		if (lws_ss_event_helper(h, LWSSSCS_UNREACHABLE)) {
+			/* was destroyed */
+			lwsl_err("%s: client connect UNREACHABLE destroyed the ss\n", __func__);
+			return LWSSSSRET_SS_HANDLE_DESTROYED;
+		}
+		if (lws_ss_backoff(h))
+			return LWSSSSRET_SS_HANDLE_DESTROYED;
 
 		return 1;
 	}
@@ -667,8 +675,11 @@ late_bail:
 				)
 #endif
 			    ))
-		if (_lws_ss_client_connect(h, 0))
-			lws_ss_backoff(h);
+		if (_lws_ss_client_connect(h, 0)) {
+			if (lws_ss_backoff(h))
+				/* has been destroyed */
+				return 1;
+		}
 
 	return 0;
 }
@@ -714,7 +725,7 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 	lws_dll2_remove(&h->list);
 	lws_dll2_remove(&h->to_list);
 	lws_sul_cancel(&h->sul_timeout);
-	/* no need to worry about return code since we are anyway destroying */
+
 	lws_ss_event_helper(h, LWSSSCS_DESTROYING);
 	lws_pt_unlock(pt);
 
@@ -736,6 +747,8 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 void
 lws_ss_request_tx(lws_ss_handle_t *h)
 {
+	int n;
+
 	lwsl_info("%s: wsi %p\n", __func__, h->wsi);
 
 	if (h->wsi) {
@@ -771,7 +784,11 @@ lws_ss_request_tx(lws_ss_handle_t *h)
 	 * Retries operate via lws_ss_request_tx(), explicitly ask for a
 	 * reconnection to clear the retry limit
 	 */
-	if (_lws_ss_client_connect(h, 1))
+	n = _lws_ss_client_connect(h, 1);
+	if (n == LWSSSSRET_SS_HANDLE_DESTROYED)
+		return;
+
+	if (n)
 		lws_ss_backoff(h);
 }
 
@@ -859,12 +876,9 @@ lws_ss_to_cb(lws_sorted_usec_list_t *sul)
 
 	lwsl_info("%s: ss %p timeout fired\n", __func__, h);
 
-	if (lws_ss_event_helper(h, LWSSSCS_TIMEOUT) == LWSSSSRET_DESTROY_ME)
-		/*
-		 * We're called from the sul handler, caller doesn't have any
-		 * copy of the ss handle
-		 */
-		lws_ss_destroy(&h);
+	lws_ss_event_helper(h, LWSSSCS_TIMEOUT);
+
+	/* may have been destroyed */
 }
 
 void
