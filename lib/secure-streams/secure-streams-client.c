@@ -617,3 +617,9 @@ lws_sspc_cancel_timeout(struct lws_sspc_handle *h)
 {
 	lws_sspc_start_timeout(h, (unsigned int)-1);
 }
+
+void *
+lws_sspc_to_user_object(struct lws_sspc_handle *h)
+{
+	return (void *)&h[1];
+}

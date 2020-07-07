@@ -55,6 +55,7 @@
 #define lws_ss_get_est_peer_tx_credit	lws_sspc_get_est_peer_tx_credit
 #define lws_ss_start_timeout		lws_sspc_start_timeout
 #define lws_ss_cancel_timeout		lws_sspc_cancel_timeout
+#define lws_ss_to_user_object		lws_sspc_to_user_object
 #endif
 
 
@@ -178,3 +179,7 @@ lws_sspc_start_timeout(struct lws_sspc_handle *h, unsigned int timeout_ms);
 
 LWS_VISIBLE LWS_EXTERN void
 lws_sspc_cancel_timeout(struct lws_sspc_handle *h);
+
+LWS_VISIBLE LWS_EXTERN void *
+lws_sspc_to_user_object(struct lws_sspc_handle *h);
+
