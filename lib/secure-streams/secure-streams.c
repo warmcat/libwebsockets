@@ -285,7 +285,8 @@ lws_ss_smd_tx_cb(lws_sorted_usec_list_t *sul)
 	_class = (lws_smd_class_t)lws_ser_ru64be(buf);
 	p = lws_smd_msg_alloc(h->context, _class, len - LWS_SMD_SS_RX_HEADER_LEN);
 	if (!p) {
-		lwsl_notice("%s: failed to alloc\n", __func__);
+		// this can be rejected if nobody listening for this class
+		//lwsl_notice("%s: failed to alloc\n", __func__);
 		return;
 	}
 
