@@ -2902,6 +2902,7 @@ int lws_serve_http_file_fragment(struct lws *wsi)
 			poss -= 10 + 128;
 		}
 
+		amount = 0;
 		if (lws_vfs_file_read(wsi->http.fop_fd, &amount, p, poss) < 0)
 			goto file_had_it; /* caller will close */
 
