@@ -94,7 +94,7 @@ _lws_smd_msg_assess_peers_interested(lws_smd_t *smd, lws_smd_msg_t *msg)
 		    (!pr->timestamp_left || /* if zombie, only contribute to
 					     * refcount if msg from before we
 					     * left */
-		     pr->timestamp_left < msg->timestamp) &&
+		     pr->timestamp_left >= msg->timestamp) &&
 		    (msg->_class & pr->_class_filter))
 			/*
 			 * This peer wants to consume it
