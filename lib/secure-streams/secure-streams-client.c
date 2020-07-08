@@ -167,7 +167,8 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 					     (lws_ss_handle_t **)m, &h->ssi, 1))
 			return -1;
 
-		if (wsi && h->state == LPCS_LOCAL_CONNECTED)
+		if (wsi && (h->state == LPCS_LOCAL_CONNECTED ||
+			    h->state == LPCS_ONWARD_CONNECT))
 			lws_set_timeout(wsi, 0, 0);
 
 		break;
