@@ -245,6 +245,21 @@ LWS_VISIBLE LWS_EXTERN void
 lws_dll2_add_sorted(lws_dll2_t *d, lws_dll2_owner_t *own,
 		    int (*compare)(const lws_dll2_t *d, const lws_dll2_t *i));
 
+LWS_VISIBLE LWS_EXTERN void *
+_lws_dll2_search_sz_pl(lws_dll2_owner_t *own, const char *name, size_t namelen,
+		      size_t dll2_ofs, size_t ptr_ofs);
+
+/*
+ * Searches objects in an owner list linearly and returns one with a given
+ * member C-string matching a supplied length-provided string if it exists, else
+ * NULL.
+ */
+
+#define lws_dll2_search_sz_pl(own, name, namelen, type, membd2list, membptr) \
+		((type *)_lws_dll2_search_sz_pl(own, name, namelen, \
+				       offsetof(type, membd2list), \
+				       offsetof(type, membptr)))
+
 #if defined(_DEBUG)
 void
 lws_dll2_describe(struct lws_dll2_owner *owner, const char *desc);

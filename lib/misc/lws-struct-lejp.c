@@ -256,7 +256,7 @@ lws_struct_default_lejp_cb(struct lejp_ctx *ctx, char reason)
 
 			return 1;
 		}
-		lwsl_notice("%s: created '%s' object size %d\n", __func__,
+		lwsl_info("%s: created '%s' object size %d\n", __func__,
 				pmap->colname, (int)pmap->aux);
 
 		if (pmap->type == LSMT_LIST) {

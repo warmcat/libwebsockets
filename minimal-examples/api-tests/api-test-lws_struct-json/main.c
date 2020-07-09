@@ -597,6 +597,38 @@ done:
 		free(buf);
 	}
 
+	{
+		struct x { lws_dll2_t list; const char *sz; };
+		struct x x1, x2, *xp;
+		lws_dll2_owner_t o;
+
+		lws_dll2_owner_clear(&o);
+		memset(&x1, 0, sizeof(x1));
+		memset(&x2, 0, sizeof(x2));
+
+		x1.sz = "nope";
+		x2.sz = "yes";
+
+		lws_dll2_add_tail(&x1.list, &o);
+		lws_dll2_add_tail(&x2.list, &o);
+
+		xp = lws_dll2_search_sz_pl(&o, "yes", 3, struct x, list, sz);
+		if (xp != &x2) {
+			lwsl_err("%s: 1 xp %p\n", __func__, xp);
+			goto bail;
+		}
+		xp = lws_dll2_search_sz_pl(&o, "nope", 4, struct x, list, sz);
+		if (xp != &x1) {
+			lwsl_err("%s: 2 xp %p\n", __func__, xp);
+			goto bail;
+		}
+		xp = lws_dll2_search_sz_pl(&o, "wrong", 4, struct x, list, sz);
+		if (xp) {
+			lwsl_err("%s: 3 xp %p\n", __func__, xp);
+			goto bail;
+		}
+	}
+
 
 	lwsl_user("Completed: PASS\n");
 

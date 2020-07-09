@@ -209,6 +209,25 @@ lws_dll2_add_sorted(lws_dll2_t *d, lws_dll2_owner_t *own,
 	lws_dll2_add_tail(d, own);
 }
 
+void *
+_lws_dll2_search_sz_pl(lws_dll2_owner_t *own, const char *name, size_t namelen,
+		       size_t dll2_ofs, size_t ptr_ofs)
+{
+	lws_start_foreach_dll(struct lws_dll2 *, p, lws_dll2_get_head(own)) {
+		uint8_t *ref = ((uint8_t *)p) - dll2_ofs;
+		/*
+		 * We have to read the const char * at the computed place and
+		 * the string is where that points
+		 */
+		const char *str = *((const char **)(ref + ptr_ofs));
+
+		if (str && !strncmp(str, name, namelen) && !str[namelen])
+			return (void *)ref;
+	} lws_end_foreach_dll(p);
+
+	return NULL;
+}
+
 #if defined(_DEBUG)
 
 void
