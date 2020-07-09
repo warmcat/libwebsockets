@@ -106,8 +106,8 @@ matched:
 		a->map_st[ctx->pst_sp] = map->child_map;
 		a->map_entries_st[ctx->pst_sp] = map->child_map_size;
 
-		lwsl_notice("%s: child map ofs_clist %d\n", __func__,
-				(int)a->map_st[ctx->pst_sp]->ofs_clist);
+		// lwsl_notice("%s: child map ofs_clist %d\n", __func__,
+		// 		(int)a->map_st[ctx->pst_sp]->ofs_clist);
 
 		if (imp)
 			return cb(ctx, reason);
@@ -153,10 +153,10 @@ lws_struct_default_lejp_cb(struct lejp_ctx *ctx, char reason)
 		return 0;
 	}
 
-	if (reason == LEJPCB_ARRAY_START) {
+	if (reason == LEJPCB_ARRAY_START && ctx->path_match) {
 		map = &args->map_st[ctx->pst_sp][ctx->path_match - 1];
 
-		if (map->type == LSMT_LIST)
+		if (map->type == LSMT_LIST && ctx->path[0])
 			lws_struct_lejp_push(ctx, args, map, NULL);
 
 		return 0;
@@ -165,7 +165,7 @@ lws_struct_default_lejp_cb(struct lejp_ctx *ctx, char reason)
 	if (ctx->pst_sp)
 		pmap = &args->map_st[ctx->pst_sp - 1]
 	                 [ctx->pst[ctx->pst_sp - 1].path_match - 1];
-	map = &args->map_st[ctx->pst_sp][ctx->path_match - 1];
+	map = &args->map_st[ctx->pst_sp][ctx->path_match ? ctx->path_match - 1 : 0];
 	n = args->map_entries_st[ctx->pst_sp];
 
 	if (reason == LEJPCB_OBJECT_START) {
