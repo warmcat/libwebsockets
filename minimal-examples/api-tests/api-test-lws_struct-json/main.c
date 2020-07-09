@@ -16,6 +16,145 @@
 
 #include <libwebsockets.h>
 
+typedef struct {
+	lws_dll2_t		list;
+
+	struct gpiod_line	*line;
+
+	const char		*name;
+	const char		*wire;
+
+	int			chip_idx;
+	int			offset;
+	int			safe;
+} sai_jig_gpio_t;
+
+typedef struct {
+	lws_dll2_t		list;
+	sai_jig_gpio_t		*gpio; /* null = wait ms */
+	const char		*gpio_name;
+	int			value;
+} sai_jig_seq_item_t;
+
+typedef struct {
+	lws_dll2_t		list;
+	lws_dll2_owner_t	seq_owner;
+	const char		*name;
+} sai_jig_sequence_t;
+
+typedef struct {
+	lws_dll2_t		list;
+	lws_dll2_owner_t	gpio_owner;
+	lws_dll2_owner_t	seq_owner;
+
+	lws_sorted_usec_list_t	sul;		/* next step in ongoing seq */
+	sai_jig_seq_item_t	*current;	/* next seq step */
+
+	const char		*name;
+
+	struct lws		*wsi;
+} sai_jig_target_t;
+
+typedef struct {
+	lws_dll2_owner_t	target_owner;
+	struct gpiod_chip	*chip[16];
+	struct lwsac		*ac_conf;
+	int			port;
+	const char		*iface;
+	struct lws_context	*ctx;
+} sai_jig_t;
+
+/*
+ * We read the JSON config using lws_struct... instrument the related structures
+ */
+
+static const lws_struct_map_t lsm_sai_jig_gpio[] = {
+	LSM_UNSIGNED	(sai_jig_gpio_t, chip_idx,		"chip_idx"),
+	LSM_UNSIGNED	(sai_jig_gpio_t, offset,		"offset"),
+	LSM_UNSIGNED	(sai_jig_gpio_t, safe,			"safe"),
+	LSM_STRING_PTR	(sai_jig_gpio_t, name,			"name"),
+	LSM_STRING_PTR	(sai_jig_gpio_t, wire,			"wire"),
+};
+
+static const lws_struct_map_t lsm_sai_jig_seq_item[] = {
+	LSM_STRING_PTR	(sai_jig_seq_item_t, gpio_name,		"gpio_name"),
+	LSM_UNSIGNED	(sai_jig_seq_item_t, value,		"value"),
+};
+
+static const lws_struct_map_t lsm_sai_jig_sequence[] = {
+	LSM_STRING_PTR	(sai_jig_sequence_t, name,		"name"),
+	LSM_LIST	(sai_jig_sequence_t, seq_owner,
+			 sai_jig_seq_item_t, list,
+			 NULL, lsm_sai_jig_seq_item,		"seq"),
+};
+
+static const lws_struct_map_t lsm_sai_jig_target[] = {
+	LSM_STRING_PTR	(sai_jig_target_t, name,		"name"),
+	LSM_LIST	(sai_jig_target_t, gpio_owner, sai_jig_gpio_t, list,
+			 NULL, lsm_sai_jig_gpio,		"gpios"),
+	LSM_LIST	(sai_jig_target_t, seq_owner, sai_jig_sequence_t, list,
+			 NULL, lsm_sai_jig_sequence,		"sequences"),
+};
+
+static const lws_struct_map_t lsm_sai_jig[] = {
+	LSM_STRING_PTR	(sai_jig_t, iface,			"iface"),
+	LSM_UNSIGNED	(sai_jig_t, port,			"port"),
+	LSM_LIST	(sai_jig_t, target_owner, sai_jig_target_t, list,
+			 NULL, lsm_sai_jig_target,		"targets"),
+};
+
+static const lws_struct_map_t lsm_jig_schema[] = {
+        LSM_SCHEMA      (sai_jig_t, NULL, lsm_sai_jig,		"sai-jig"),
+};
+
+static const char * const jig_conf =
+"{"
+	"\"schema\":	\"sai-jig\","
+	"\"port\":		44000,"
+	"\"targets\":	["
+		"{"
+			"\"name\": \"linkit-7697-1\","
+                	"\"gpios\": ["
+                	        "{"
+					"\"chip_index\":	0,"
+					"\"name\":		\"nReset\","
+                                	"\"offset\":	17,"
+                                	"\"wire\":		\"RST\","
+					"\"safe\":		0"
+	                        "}, {"
+					"\"name\":		\"usr\","
+	                                "\"chip_index\":	0,"
+                                	"\"offset\":	22,"
+                                	"\"wire\":		\"P6\","
+					"\"safe\":		0"
+				"}"
+                        "], \"sequences\": ["
+                        	"{"
+					"\"name\":		\"reset\","
+					"\"seq\": ["
+		                                "{ \"gpio_name\": \"nReset\", 	\"value\": 0 },"
+		                                "{ \"gpio_name\": \"usr\",		\"value\": 0 },"
+	        	                        "{				\"value\": 300 },"
+		                                "{ \"gpio_name\": \"nReset\",	\"value\": 1 }"
+					"]"
+                        	"}, {"
+					"\"name\":		\"flash\","
+					"\"seq\": ["
+		                                "{ \"gpio_name\": \"nReset\",	\"value\": 0 },"
+		                                "{ \"gpio_name\": \"usr\",		\"value\": 1 },"
+	        	                        "{				\"value\": 300 },"
+		                                "{ \"gpio_name\": \"nReset\",	\"value\": 1 },"
+	        	                        "{				\"value\": 100 },"
+		                                "{ \"gpio_name\": \"usr\",		\"value\": 0 }"
+					"]"
+                        	"}"
+                	"]"
+		"}"
+	"]"
+"}";
+
+
+
 extern int test2(void);
 
 /*
@@ -629,6 +768,26 @@ done:
 		}
 	}
 
+	{
+		lws_struct_args_t a;
+		struct lejp_ctx ctx;
+		int m;
+
+		memset(&a, 0, sizeof(a));
+		a.map_st[0] = lsm_jig_schema;
+		a.map_entries_st[0] = LWS_ARRAY_SIZE(lsm_jig_schema);
+		a.ac_block_size = 512;
+
+		lws_struct_json_init_parse(&ctx, NULL, &a);
+
+		m = lejp_parse(&ctx, (uint8_t *)jig_conf, strlen(jig_conf));
+
+		if (m < 0 || !a.dest) {
+			lwsl_err("%s: line %d: JSON decode failed '%s'\n",
+				    __func__, ctx.line, lejp_error_to_string(m));
+			goto bail;
+		}
+	}
 
 	lwsl_user("Completed: PASS\n");
 
