@@ -24,6 +24,9 @@
 
 #include "private-lib-core.h"
 
+/* max individual proxied header payload size */
+#define MAXHDRVAL 1024
+
 #if defined(LWS_WITH_HTTP_PROXY)
 static int
 proxy_header(struct lws *wsi, struct lws *par, unsigned char *temp,
@@ -33,16 +36,23 @@ proxy_header(struct lws *wsi, struct lws *par, unsigned char *temp,
 
 	if (n < 1) {
 		lwsl_debug("%s: no index %d:\n", __func__, index);
+
 		return 0;
 	}
 
-	if (lws_hdr_copy(par, (char *)temp, temp_len, index) < 0)
+	if (lws_hdr_copy(par, (char *)temp, temp_len, index) < 0) {
+		lwsl_notice("%s: unable to copy par hdr idx %d (len %d)\n",
+				__func__, index, n);
 		return -1;
+	}
 
 	lwsl_debug("%s: index %d: %s\n", __func__, index, (char *)temp);
 
-	if (lws_add_http_header_by_token(wsi, index, temp, n, p, end))
+	if (lws_add_http_header_by_token(wsi, index, temp, n, p, end)) {
+		lwsl_notice("%s: unable to append par hdr idx %d (len %d)\n",
+				__func__, index, n);
 		return -1;
+	}
 
 	return 0;
 }
@@ -133,7 +143,7 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
 	{
 		unsigned char **p = (unsigned char **)in, *end = (*p) + len,
-				    tmp[128];
+				    tmp[MAXHDRVAL];
 
 		proxy_header(wsi, wsi->parent, tmp, sizeof(tmp),
 			      WSI_TOKEN_HTTP_ACCEPT_LANGUAGE, p, end);
@@ -249,6 +259,7 @@ const struct lws_protocols lws_ws_proxy = {
 };
 
 #endif
+
 
 int
 lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
@@ -482,7 +493,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			return 0;
 
 		start = p = (unsigned char *)buf + LWS_PRE;
-		end = p + sizeof(buf) - LWS_PRE - 256;
+		end = p + sizeof(buf) - LWS_PRE - MAXHDRVAL;
 
 		if (lws_add_http_header_status(lws_get_parent(wsi),
 				lws_http_client_http_response(wsi), &p, end))
@@ -492,21 +503,21 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		 * copy these headers from the client connection to the parent
 		 */
 
-		proxy_header(parent, wsi, end, 256,
+		proxy_header(parent, wsi, end, MAXHDRVAL,
 			     WSI_TOKEN_HTTP_CONTENT_LENGTH, &p, end);
-		proxy_header(parent, wsi, end, 256,
+		proxy_header(parent, wsi, end, MAXHDRVAL,
 			     WSI_TOKEN_HTTP_CONTENT_TYPE, &p, end);
-		proxy_header(parent, wsi, end, 256,
+		proxy_header(parent, wsi, end, MAXHDRVAL,
 			     WSI_TOKEN_HTTP_ETAG, &p, end);
-		proxy_header(parent, wsi, end, 256,
+		proxy_header(parent, wsi, end, MAXHDRVAL,
 			     WSI_TOKEN_HTTP_ACCEPT_LANGUAGE, &p, end);
-		proxy_header(parent, wsi, end, 256,
+		proxy_header(parent, wsi, end, MAXHDRVAL,
 			     WSI_TOKEN_HTTP_CONTENT_ENCODING, &p, end);
-		proxy_header(parent, wsi, end, 256,
+		proxy_header(parent, wsi, end, MAXHDRVAL,
 			     WSI_TOKEN_HTTP_CACHE_CONTROL, &p, end);
-		proxy_header(parent, wsi, end, 256,
+		proxy_header(parent, wsi, end, MAXHDRVAL,
 			     WSI_TOKEN_HTTP_SET_COOKIE, &p, end);
-		proxy_header(parent, wsi, end, 256,
+		proxy_header(parent, wsi, end, MAXHDRVAL,
 			     WSI_TOKEN_HTTP_LOCATION, &p, end);
 
 		if (!parent->mux_substream)
