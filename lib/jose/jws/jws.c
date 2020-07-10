@@ -951,14 +951,15 @@ lws_jws_write_compact(struct lws_jws *jws, char *compact, size_t len)
 }
 
 int
-lws_jwt_signed_validate(struct lws_context *ctx, const char *alg_list,
-			struct lws_jwk *jwk, const char *com, size_t len,
+lws_jwt_signed_validate(struct lws_context *ctx, struct lws_jwk *jwk,
+			const char *alg_list, const char *com, size_t len,
 			char *temp, int tl, char *out, size_t *out_len)
 {
 	struct lws_tokenize ts;
 	struct lws_jose jose;
 	struct lws_jws jws;
 	size_t n, r = 1;
+	int otl = tl;
 
 	memset(&jws, 0, sizeof(jws));
 	lws_jose_init(&jose);
@@ -974,13 +975,15 @@ lws_jwt_signed_validate(struct lws_context *ctx, const char *alg_list,
 		goto bail;
 	}
 
+	temp += otl - tl;
+	otl = tl;
+
 	/*
 	 * Parse the JOSE header
 	 */
 
 	if (lws_jws_parse_jose(&jose, jws.map.buf[LJWS_JOSE],
-			       jws.map.len[LJWS_JOSE],
-			       lws_concat_temp(temp, tl), &tl) < 0) {
+			       jws.map.len[LJWS_JOSE], temp, &tl) < 0) {
 		lwsl_err("%s: JOSE parse failed\n", __func__);
 		goto bail;
 	}
@@ -1029,6 +1032,115 @@ lws_jwt_signed_validate(struct lws_context *ctx, const char *alg_list,
 	r = 0;
 
 bail:
+	lws_jws_destroy(&jws);
+	lws_jose_destroy(&jose);
+
+	return r;
+}
+
+int
+lws_jwt_sign_compact(struct lws_context *ctx, struct lws_jwk *jwk,
+		     const char *alg, char *out, size_t *out_len, char *temp,
+		     int tl, const char *format, ...)
+{
+	int n, r = 1, otl = tl;
+	struct lws_jose jose;
+	struct lws_jws jws;
+	va_list ap;
+	char *q;
+
+	lws_jws_init(&jws, jwk, ctx);
+	lws_jose_init(&jose);
+
+	if (lws_gencrypto_jws_alg_to_definition(alg, &jose.alg)) {
+		lwsl_err("%s: unknown alg %s\n", __func__, alg);
+
+		goto bail;
+	}
+
+	/* create JOSE header, also needed for output */
+
+	if (lws_jws_alloc_element(&jws.map, LJWS_JOSE, temp, &tl,
+				  strlen(alg) + 10, 0)) {
+		lwsl_err("%s: temp space too small\n", __func__);
+		return 1;
+	}
+
+	jws.map.len[LJWS_JOSE] = lws_snprintf((char *)jws.map.buf[LJWS_JOSE],
+					      tl, "{\"alg\":\"%s\"}", alg);
+
+	temp += otl - tl;
+	otl = tl;
+
+	va_start(ap, format);
+	n = vsnprintf(NULL, 0, format, ap);
+	va_end(ap);
+	if (n + 2 >= tl)
+		goto bail;
+
+	q = lws_malloc(n + 2, __func__);
+	if (!q)
+		goto bail;
+
+	va_start(ap, format);
+	vsnprintf(q, n + 2, format, ap);
+	va_end(ap);
+
+	/* add the plaintext from stdin to the map and a b64 version */
+
+	jws.map.buf[LJWS_PYLD] = q;
+	jws.map.len[LJWS_PYLD] = n;
+
+	if (lws_jws_encode_b64_element(&jws.map_b64, LJWS_PYLD, temp, &tl,
+				       jws.map.buf[LJWS_PYLD],
+				       jws.map.len[LJWS_PYLD]))
+		goto bail1;
+
+	temp += otl - tl;
+	otl = tl;
+
+	/* add the b64 JOSE header to the b64 map */
+
+	if (lws_jws_encode_b64_element(&jws.map_b64, LJWS_JOSE, temp, &tl,
+				       jws.map.buf[LJWS_JOSE],
+				       jws.map.len[LJWS_JOSE]))
+		goto bail1;
+
+	temp += otl - tl;
+	otl = tl;
+
+	/* prepare the space for the b64 signature in the map */
+
+	if (lws_jws_alloc_element(&jws.map_b64, LJWS_SIG, temp, &tl,
+				  lws_base64_size(LWS_JWE_LIMIT_KEY_ELEMENT_BYTES),
+				  0))
+		goto bail1;
+
+	/* sign the plaintext */
+
+	n = lws_jws_sign_from_b64(&jose, &jws,
+				  (char *)jws.map_b64.buf[LJWS_SIG],
+				  jws.map_b64.len[LJWS_SIG]);
+	if (n < 0)
+		goto bail1;
+
+	/* set the actual b64 signature size */
+	jws.map_b64.len[LJWS_SIG] = n;
+
+	/* create the compact JWS representation */
+	if (lws_jws_write_compact(&jws, out, *out_len))
+		goto bail1;
+
+	*out_len = strlen(out);
+
+	r = 0;
+
+bail1:
+	lws_free(q);
+
+bail:
+	jws.map.buf[LJWS_PYLD] = NULL;
+	jws.map.len[LJWS_PYLD] = 0;
 	lws_jws_destroy(&jws);
 	lws_jose_destroy(&jose);
 
