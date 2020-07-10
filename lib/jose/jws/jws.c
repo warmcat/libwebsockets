@@ -949,3 +949,88 @@ lws_jws_write_compact(struct lws_jws *jws, char *compact, size_t len)
 
 	return n >= len - 1;
 }
+
+int
+lws_jwt_signed_validate(struct lws_context *ctx, const char *alg_list,
+			struct lws_jwk *jwk, const char *com, size_t len,
+			char *temp, int tl, char *out, size_t *out_len)
+{
+	struct lws_tokenize ts;
+	struct lws_jose jose;
+	struct lws_jws jws;
+	size_t n, r = 1;
+
+	memset(&jws, 0, sizeof(jws));
+	lws_jose_init(&jose);
+
+	/*
+	 * Decode the b64.b64[.b64] compact serialization
+	 * blocks
+	 */
+
+	n = lws_jws_compact_decode(com, len, &jws.map, &jws.map_b64, temp, &tl);
+	if (n != 3) {
+		lwsl_err("%s: concat_map failed: %d\n", __func__, (int)n);
+		goto bail;
+	}
+
+	/*
+	 * Parse the JOSE header
+	 */
+
+	if (lws_jws_parse_jose(&jose, jws.map.buf[LJWS_JOSE],
+			       jws.map.len[LJWS_JOSE],
+			       lws_concat_temp(temp, tl), &tl) < 0) {
+		lwsl_err("%s: JOSE parse failed\n", __func__);
+		goto bail;
+	}
+
+	/*
+	 * Insist to see an alg in there that we list as acceptable
+	 */
+
+	lws_tokenize_init(&ts, alg_list, LWS_TOKENIZE_F_COMMA_SEP_LIST |
+					 LWS_TOKENIZE_F_RFC7230_DELIMS);
+	n = strlen(jose.alg->alg);
+
+	do {
+		ts.e = lws_tokenize(&ts);
+		if (ts.e == LWS_TOKZE_TOKEN && ts.token_len == n &&
+		    !strncmp(jose.alg->alg, ts.token, ts.token_len))
+			break;
+	} while (ts.e != LWS_TOKZE_ENDED);
+
+	if (ts.e != LWS_TOKZE_TOKEN) {
+		lwsl_err("%s: JOSE using alg %s (accepted: %s)\n", __func__,
+			 jose.alg->alg, alg_list);
+		goto bail;
+	}
+
+	/* we liked the alg... now how about the crypto? */
+
+	if (lws_jws_sig_confirm(&jws.map_b64, &jws.map, jwk, ctx) < 0) {
+		lwsl_notice("%s: confirm JWT sig failed\n",
+			    __func__);
+		goto bail;
+	}
+
+	/* yeah, it's validated... see about copying it out */
+
+	if (*out_len < jws.map.len[LJWS_PYLD] + 1) {
+		/* we don't have enough room */
+		r = 2;
+		goto bail;
+	}
+
+	memcpy(out, jws.map.buf[LJWS_PYLD], jws.map.len[LJWS_PYLD]);
+	*out_len = jws.map.len[LJWS_PYLD];
+	out[jws.map.len[LJWS_PYLD]] = '\0';
+
+	r = 0;
+
+bail:
+	lws_jws_destroy(&jws);
+	lws_jose_destroy(&jose);
+
+	return r;
+}
