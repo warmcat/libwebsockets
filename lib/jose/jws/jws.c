@@ -934,9 +934,15 @@ lws_jws_write_compact(struct lws_jws *jws, char *compact, size_t len)
 	lws_strnncpy(compact + n, jws->map_b64.buf[LJWS_JOSE],
 		     jws->map_b64.len[LJWS_JOSE], len - n);
 	n += strlen(compact + n);
+	if (n >= len - 1)
+		return 1;
+	compact[n++] = '.';
 	lws_strnncpy(compact + n, jws->map_b64.buf[LJWS_PYLD],
 		     jws->map_b64.len[LJWS_PYLD], len - n);
 	n += strlen(compact + n);
+	if (n >= len - 1)
+		return 1;
+	compact[n++] = '.';
 	lws_strnncpy(compact + n, jws->map_b64.buf[LJWS_SIG],
 		     jws->map_b64.len[LJWS_SIG], len - n);
 	n += strlen(compact + n);
