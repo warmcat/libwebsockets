@@ -398,8 +398,35 @@ lws_jws_base64_enc(const char *in, size_t in_len, char *out, size_t out_max);
  * Returns either -1 if problems, or the number of bytes written to \p out.
  * If the section is not the first one, '.' is prepended.
  */
-
 LWS_VISIBLE LWS_EXTERN int
 lws_jws_encode_section(const char *in, size_t in_len, int first, char **p,
 		       char *end);
+
+/**
+ * lws_jwt_signed_validate() - check a compact JWT against a key and alg
+ *
+ * \param ctx: the lws_context
+ * \param alg_list: the expected alg name, like "ES512"
+ * \param jwk: the key for checking the signature
+ * \param com: the compact JWT
+ * \param len: the length of com
+ * \param temp: a temp scratchpad
+ * \param tl: available length of temp scratchpad
+ * \param out: the output buffer to hold the validated plaintext
+ * \param out_len: on entry, max length of out; on exit, used length of out
+ *
+ * Returns nonzero if the JWT cannot be validated or the plaintext can't fit the
+ * provided output buffer, or 0 if it is validated as being signed by the
+ * provided jwk.
+ *
+ * If validated, the plaintext in the JWT is copied into out and out_len set to
+ * the used length.
+ *
+ * temp can be discarded or reused after the call returned, it's used to hold
+ * transformations of the B64 JWS in the JWT.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_jwt_signed_validate(struct lws_context *ctx, const char *alg_list,
+			struct lws_jwk *jwk, const char *com, size_t len,
+			char *temp, int tl, char *out, size_t *out_len);
 ///@}
