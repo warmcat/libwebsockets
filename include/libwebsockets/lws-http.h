@@ -851,6 +851,26 @@ LWS_VISIBLE LWS_EXTERN int
 lws_http_is_redirected_to_get(struct lws *wsi);
 
 /**
+ * lws_http_cookie_get() - return copy of named cookie if present
+ *
+ * \param wsi: the wsi to check
+ * \param name: name of the cookie
+ * \param buf: buffer to store the cookie contents into
+ * \param max_len: on entry, maximum length of buf... on exit, used len of buf
+ *
+ * If no cookie header, or no cookie of the requested name, or the value is
+ * larger than can fit in buf, returns nonzero.
+ *
+ * If the cookie is found, copies its value into buf with a terminating NUL,
+ * sets *max_len to the used length, and returns 0.
+ *
+ * This handles the parsing of the possibly multi-cookie header string and
+ * terminating the requested cookie at the next ; if present.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_http_cookie_get(struct lws *wsi, const char *name, char *buf, size_t *max);
+
+/**
  * lws_http_client_http_error() - determine if the response code indicates an error
  *
  * \param code: the response code to test

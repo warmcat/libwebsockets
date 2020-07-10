@@ -1459,3 +1459,41 @@ forbid:
 	return LPR_FORBIDDEN;
 }
 
+int
+lws_http_cookie_get(struct lws *wsi, const char *name, char *buf,
+		    size_t *max_len)
+{
+	int n, bl = (int)strlen(name);
+	size_t max = *max_len;
+	char *p, *bo = buf;
+
+	n = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE);
+	if (n < bl + 1)
+		return 1;
+
+	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COOKIE);
+	if (!p)
+		return 1;
+
+	p += bl;
+	n -= bl;
+	while (n-- > bl) {
+		if (*p == '=' && !memcmp(p - bl, name, bl)) {
+			p++;
+			while (*p != ';' && n-- && max) {
+				*buf++ = *p++;
+				max--;
+			}
+			if (!max)
+				return 2;
+
+			*buf = '\0';
+			*max_len = lws_ptr_diff(buf, bo);
+
+			return 0;
+		}
+		p++;
+	}
+
+	return 1;
+}
