@@ -344,8 +344,8 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 					offsetof(ss_proxy_t, conn);
 			ssi.rx = ss_proxy_onward_rx;
 			ssi.tx = ss_proxy_onward_tx;
-			ssi.state = ss_proxy_onward_state;
 		}
+		ssi.state = ss_proxy_onward_state;
 
 		if (lws_ss_deserialize_parse(&conn->parser,
 				lws_get_context(wsi), conn->dsh, in, len,
