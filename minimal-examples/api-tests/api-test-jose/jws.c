@@ -685,6 +685,43 @@ test_jws_ES512(struct lws_context *context)
 		goto bail1;
 	}
 
+	/* jwt test */
+
+	{
+		unsigned long long ull = lws_now_secs();
+		char buf[8192];
+		size_t cml = 2048, cml2 = 2048;
+
+		if (lws_jwt_sign_compact(context, &jwk, "ES512",
+					(char *)buf, &cml2,
+					(char *)buf + 2048, 4096,
+					"{\"iss\":\"warmcat.com\",\"aud\":"
+					"\"https://libwebsockets.org/sai\","
+					"\"iat\":%llu,"
+					"\"nbf\":%llu,"
+					"\"exp\":%llu,"
+					"\"sub\":\"manage\"}", ull,
+					ull - 60, ull + (30 * 24 * 3600)
+				     )) {
+			lwsl_err("%s: failed to create JWT\n", __func__);
+			goto bail1;
+		}
+
+		lwsl_notice("%s: jwt test '%s'\n", __func__, buf);
+
+		if (lws_jwt_signed_validate(context, &jwk, "ES512",
+					     (const char *)buf, cml2,
+					     (char *)buf + 2048, 2048,
+					     (char *)buf + 4096, &cml)) {
+			lwsl_err("%s: failed to parse JWT\n", __func__);
+
+			goto bail1;
+		}
+
+		lwsl_notice("%s: jwt valid, payload '%s'\n",
+				__func__, buf + 4096);
+	}
+
 	/* end */
 	ret =  0;
 

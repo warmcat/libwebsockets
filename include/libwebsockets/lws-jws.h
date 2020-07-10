@@ -406,8 +406,8 @@ lws_jws_encode_section(const char *in, size_t in_len, int first, char **p,
  * lws_jwt_signed_validate() - check a compact JWT against a key and alg
  *
  * \param ctx: the lws_context
- * \param alg_list: the expected alg name, like "ES512"
  * \param jwk: the key for checking the signature
+ * \param alg_list: the expected alg name, like "ES512"
  * \param com: the compact JWT
  * \param len: the length of com
  * \param temp: a temp scratchpad
@@ -426,7 +426,32 @@ lws_jws_encode_section(const char *in, size_t in_len, int first, char **p,
  * transformations of the B64 JWS in the JWT.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_jwt_signed_validate(struct lws_context *ctx, const char *alg_list,
-			struct lws_jwk *jwk, const char *com, size_t len,
+lws_jwt_signed_validate(struct lws_context *ctx, struct lws_jwk *jwk,
+			const char *alg_list, const char *com, size_t len,
 			char *temp, int tl, char *out, size_t *out_len);
+
+/**
+ * lws_jwt_sign_compact() - generate a compact JWT using a key and alg
+ *
+ * \param ctx: the lws_context
+ * \param jwk: the signing key
+ * \param alg: the signing alg name, like "ES512"
+ * \param out: the output buffer to hold the signed JWT in compact form
+ * \param out_len: on entry, the length of out; on exit, the used amount of out
+ * \param temp: a temp scratchpad
+ * \param tl: available length of temp scratchpad
+ * \param format: a printf style format specification
+ * \param ...: zero or more args for the format specification
+ *
+ * Creates a JWT in a single step, from the format string and args through to
+ * outputting a well-formed compact JWT representation in out.
+ *
+ * Returns 0 if all is well and *out_len is the amount of data in out, else
+ * nonzero if failed.  Temp must be large enough to hold various intermediate
+ * representations.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_jwt_sign_compact(struct lws_context *ctx, struct lws_jwk *jwk,
+		     const char *alg, char *out, size_t *out_len, char *temp,
+		     int tl, const char *format, ...) LWS_FORMAT(8);
 ///@}
