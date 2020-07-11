@@ -1468,12 +1468,15 @@ lws_http_cookie_get(struct lws *wsi, const char *name, char *buf,
 	char *p, *bo = buf;
 
 	n = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE);
+	lwsl_notice("%s: cookie hdr len %d\n", __func__, n);
 	if (n < bl + 1)
 		return 1;
 
 	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COOKIE);
 	if (!p)
 		return 1;
+
+	lwsl_hexdump_notice(p, n);
 
 	p += bl;
 	n -= bl;
@@ -1497,3 +1500,117 @@ lws_http_cookie_get(struct lws *wsi, const char *name, char *buf,
 
 	return 1;
 }
+
+#if defined(LWS_WITH_JOSE)
+
+#define MAX_JWT_SIZE 1024
+
+int
+lws_jwt_get_http_cookie_validate_jwt(struct lws *wsi,
+				     struct lws_jwt_sign_set_cookie *i,
+				     char *out, size_t *out_len)
+{
+	char temp[MAX_JWT_SIZE * 2];
+	size_t cml = *out_len;
+	const char *cp;
+
+	/* first use out to hold the encoded JWT */
+
+	if (lws_http_cookie_get(wsi, i->cookie_name, out, out_len)) {
+		lwsl_notice("%s: cookie %s not provided\n", __func__,
+				i->cookie_name);
+		return 1;
+	}
+
+	/* decode the JWT into temp */
+
+	if (lws_jwt_signed_validate(wsi->context, i->jwk, i->alg, out,
+				    *out_len, temp, sizeof(temp), out, &cml)) {
+		lwsl_notice("%s: jwt validation failed\n", __func__);
+		return 1;
+	}
+
+	/*
+	 * Copy out the decoded JWT payload into out, overwriting the
+	 * original encoded JWT taken from the cookie (that has long ago been
+	 * translated into allocated buffers in the JOSE object)
+	 */
+
+	if (lws_jwt_token_sanity(out, cml, i->iss, i->aud, i->csrf_in,
+				 i->sub, sizeof(i->sub),
+				 &i->expiry_unix_time)) {
+		lwsl_notice("%s: jwt sanity failed\n", __func__);
+		return 1;
+	}
+
+	/*
+	 * If he's interested in his private JSON part, point him to that in
+	 * the args struct (it's pointing to the data in out
+	 */
+
+	cp = lws_json_simple_find(out, cml, "\"ext\":", &i->extra_json_len);
+	if (cp)
+		i->extra_json = cp;
+
+	if (cp)
+		lwsl_hexdump_notice(cp, i->extra_json_len);
+	else
+		lwsl_notice("%s: no ext JWT payload\n", __func__);
+
+	return 0;
+}
+
+int
+lws_jwt_sign_token_set_http_cookie(struct lws *wsi,
+				   const struct lws_jwt_sign_set_cookie *i,
+				   uint8_t **p, uint8_t *end)
+{
+	char plain[MAX_JWT_SIZE + 1], temp[MAX_JWT_SIZE * 2], csrf[17];
+	size_t pl = sizeof(plain);
+	unsigned long long ull;
+	int n;
+
+	/*
+	 * Create a 16-char random csrf token with the same lifetime as the JWT
+	 */
+
+	lws_hex_random(wsi->context, csrf, sizeof(csrf));
+	ull = lws_now_secs();
+	if (lws_jwt_sign_compact(wsi->context, i->jwk, i->alg, plain, &pl,
+			         temp, sizeof(temp),
+			         "{\"iss\":\"%s\",\"aud\":\"%s\","
+			          "\"iat\":%llu,\"nbf\":%llu,\"exp\":%llu,"
+			          "\"csrf\":\"%s\",\"sub\":\"%s\"%s%s%s}",
+			         i->iss, i->aud, ull, ull - 60,
+			         ull + i->expiry_unix_time,
+			         csrf, i->sub,
+			         i->extra_json ? ",\"ext\":{" : "",
+			         i->extra_json ? i->extra_json : "",
+			         i->extra_json ? "}" : "")) {
+		lwsl_err("%s: failed to create JWT\n", __func__);
+
+		return 1;
+	}
+
+	/*
+	 * There's no point the browser holding on to a JWT beyond the JWT's
+	 * expiry time, so set it to be the same.
+	 */
+
+	n = lws_snprintf(temp, sizeof(temp), "__Host-%s=%s;"
+			 "HttpOnly;"
+			 "Secure;"
+			 "SameSite=strict;"
+			 "Path=/;"
+			 "Max-Age=%lu",
+			 i->cookie_name, plain, i->expiry_unix_time);
+
+	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_SET_COOKIE,
+					 (uint8_t *)temp, n, p, end)) {
+		lwsl_err("%s: failed to add JWT cookie header\n", __func__);
+		return 1;
+	}
+
+	return 0;
+}
+#endif

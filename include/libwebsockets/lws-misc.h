@@ -261,6 +261,26 @@ lws_json_simple_strcmp(const char *buf, size_t len, const char *name, const char
 LWS_VISIBLE LWS_EXTERN int
 lws_hex_to_byte_array(const char *h, uint8_t *dest, int max);
 
+
+/**
+ * lws_hex_random(): generate len - 1 or - 2 characters of random ascii hex
+ *
+ * \param context: the lws_context used to get the random
+ * \param dest: destination for hex ascii chars
+ * \param len: the number of bytes the buffer dest points to can hold
+ *
+ * This creates random ascii-hex strings up to a given length, with a
+ * terminating NUL.  Hex characters are produced in pairs, if the length of
+ * the destination buffer is even, after accounting for the NUL there will be
+ * an unused byte at the end after the NUL.  So lengths should be odd to get
+ * length - 1 characters exactly followed by the NUL.
+ *
+ * There will not be any characters produced that are not 0-9, a-f, so it's
+ * safe to go straight into, eg, JSON.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_hex_random(struct lws_context *context, char *dest, size_t len);
+
 /*
  * lws_timingsafe_bcmp(): constant time memcmp
  *
