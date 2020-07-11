@@ -957,9 +957,9 @@ lws_jwt_signed_validate(struct lws_context *ctx, struct lws_jwk *jwk,
 {
 	struct lws_tokenize ts;
 	struct lws_jose jose;
+	int otl = tl, r = 1;
 	struct lws_jws jws;
-	size_t n, r = 1;
-	int otl = tl;
+	size_t n;
 
 	memset(&jws, 0, sizeof(jws));
 	lws_jose_init(&jose);
@@ -969,7 +969,8 @@ lws_jwt_signed_validate(struct lws_context *ctx, struct lws_jwk *jwk,
 	 * blocks
 	 */
 
-	n = lws_jws_compact_decode(com, len, &jws.map, &jws.map_b64, temp, &tl);
+	n = lws_jws_compact_decode(com, (int)len, &jws.map, &jws.map_b64,
+				   temp, &tl);
 	if (n != 3) {
 		lwsl_err("%s: concat_map failed: %d\n", __func__, (int)n);
 		goto bail;
@@ -1145,4 +1146,91 @@ bail:
 	lws_jose_destroy(&jose);
 
 	return r;
+}
+
+int
+lws_jwt_token_sanity(const char *in, size_t in_len,
+		     const char *iss, const char *aud,
+		     const char *csrf_in,
+		     char *sub, size_t sub_len, unsigned long *expiry_unix_time)
+{
+	unsigned long now = lws_now_secs(), exp;
+	const char *cp;
+	size_t len;
+
+	/*
+	 * It has our issuer?
+	 */
+
+	if (lws_json_simple_strcmp(in, in_len, "\"iss\":", iss)) {
+		lwsl_notice("%s: iss mismatch\n", __func__);
+		return 1;
+	}
+
+	/*
+	 * ... it is indended for us to consume? (this is set
+	 * to the public base url for this sai instance)
+	 */
+	if (lws_json_simple_strcmp(in, in_len, "\"aud\":", aud)) {
+		lwsl_notice("%s: aud mismatch\n", __func__);
+		return 1;
+	}
+
+	/*
+	 * ...it's not too early for it?
+	 */
+	cp = lws_json_simple_find(in, in_len, "\"nbf\":", &len);
+	if (!cp || (unsigned long)atol(cp) > now) {
+		lwsl_notice("%s: nbf fail\n", __func__);
+		return 1;
+	}
+
+	/*
+	 * ... and not too late for it?
+	 */
+	cp = lws_json_simple_find(in, in_len, "\"exp\":", &len);
+	exp = (unsigned long)atol(cp);
+	if (!cp || (unsigned long)atol(cp) < now) {
+		lwsl_notice("%s: exp fail %lu vs %lu\n", __func__,
+				cp ? (unsigned long)atol(cp) : 0, now);
+		return 1;
+	}
+
+	/*
+	 * Caller cares about subject?  Then we must have it, and it can't be
+	 * empty.
+	 */
+
+	if (sub) {
+		cp = lws_json_simple_find(in, in_len, "\"sub\":", &len);
+		if (!cp || !len) {
+			lwsl_notice("%s: missing subject\n", __func__);
+			return 1;
+		}
+		lws_strnncpy(sub, cp, len, sub_len);
+	}
+
+	/*
+	 * If caller has been told a Cross Site Request Forgery (CSRF) nonce,
+	 * require this JWT to express the same CSRF... this makes generated
+	 * links for dangerous privileged auth'd actions expire with the JWT
+	 * that was accessing the site when the links were generated.  And it
+	 * leaves an attacker not knowing what links to synthesize unless he
+	 * can read the token or pages generated with it.
+	 *
+	 * Using this is very good for security, but it implies you must refresh
+	 * generated pages still when the auth token is expiring (and the user
+	 * must log in again).
+	 */
+
+	if (csrf_in &&
+	    lws_json_simple_strcmp(in, in_len, "\"csrf\":", csrf_in)) {
+		lwsl_notice("%s: csrf mismatch\n", __func__);
+		return 1;
+	}
+
+	if (expiry_unix_time)
+		*expiry_unix_time = exp;
+
+	return 0;
 }

@@ -454,4 +454,106 @@ LWS_VISIBLE LWS_EXTERN int
 lws_jwt_sign_compact(struct lws_context *ctx, struct lws_jwk *jwk,
 		     const char *alg, char *out, size_t *out_len, char *temp,
 		     int tl, const char *format, ...) LWS_FORMAT(8);
+
+/**
+ * lws_jwt_token_sanity() - check a validated jwt payload for sanity
+ *
+ * \param in: the JWT payload
+ * \param in_len: the length of the JWT payload
+ * \param iss: the expected issuer of the token
+ * \param aud: the expected audience of the token
+ * \param csrf_in: NULL, or the csrf token that came in on a URL
+ * \param sub: a buffer to hold the subject name in the JWT (eg, account name)
+ * \param sub_len: the max length of the sub buffer
+ * \param secs_left: set to the number of seconds of valid auth left if valid
+ *
+ * This performs some generic sanity tests on validated JWT payload...
+ *
+ *  - the issuer is as expected
+ *  - the audience is us
+ *  - current time is OK for nbf ("not before") in the token
+ *  - current time is OK for exp ("expiry") in the token
+ *  - if csrf_in is not NULL, that the JWK has a csrf and it matches it
+ *  - if sub is not NULL, that the JWK provides a subject (and copies it to sub)
+ *
+ * If the tests pass, *secs_left is set to the number of remaining seconds the
+ * auth is valid.
+ *
+ * Returns 0 if no inconsistency, else nonzero.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_jwt_token_sanity(const char *in, size_t in_len,
+		     const char *iss, const char *aud, const char *csrf_in,
+		     char *sub, size_t sub_len, unsigned long *exp_unix_time);
+
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+
+struct lws_jwt_sign_set_cookie {
+	struct lws_jwk			*jwk;
+	/**< entry: required signing key */
+	const char			*alg;
+	/**< entry: required signing alg, eg, "ES512" */
+	const char 			*iss;
+	/**< entry: issuer name to use */
+	const char			*aud;
+	/**< entry: audience */
+	const char			*cookie_name;
+	/**< entry: the name of the cookie */
+	char				sub[33];
+	/**< sign-entry, validate-exit: subject */
+	const char			*extra_json;
+	/**< sign-entry, validate-exit:
+	 * optional "ext" JSON object contents for the JWT */
+	size_t				extra_json_len;
+	/**< validate-exit:
+	 * length of optional "ext" JSON object contents for the JWT */
+	const char			*csrf_in;
+	/**< validate-entry:
+	 * NULL, or an external CSRF token to check against what is in the JWT */
+	unsigned long			expiry_unix_time;
+	/**< sign-entry: seconds the JWT and cookie may live,
+	 * validate-exit: expiry unix time */
+};
+
+/**
+ * lws_jwt_sign_token_set_cookie() - creates sets a JWT in a wsi cookie
+ *
+ * \param wsi: the wsi to create the cookie header on
+ * \param i: structure describing what should be in the JWT
+ * \param p: wsi headers area
+ * \param end: end of wsi headers area
+ *
+ * Creates a JWT specified \p i, and attaches it to the outgoing headers on
+ * wsi.  Returns 0 if successful.
+ *
+ * Best-practice security restrictions are applied to the cookie set action,
+ * including forcing httponly, and __Host- prefix.  As required by __Host-, the
+ * cookie Path is set to /.  __Host- is applied by the function, the cookie_name
+ * should just be "xyz" for "__Host-xyz".
+ *
+ * \p extra_json should just be the bare JSON, a { } is provided around it by
+ * the function if it's non-NULL.  For example, "\"authorization\": 1".
+ *
+ * It's recommended the secs parameter is kept as small as consistent with one
+ * user session on the site if possible, eg, 10 minutes or 20 minutes.  At the
+ * server, it can determine how much time is left in the auth and inform the
+ * client; if the JWT validity expires, the page should reload so the UI always
+ * reflects what's possible to do with the authorization state correctly.  If
+ * the JWT expires, the user can log back in using credentials usually stored in
+ * the browser and auto-filled-in, so this is not very inconvenient.
+ *
+ * This is a helper on top of the other JOSE and JWT apis that somewhat crosses
+ * over between JWT and HTTP, since it knows about cookies.  So it is only built
+ * if both LWS_WITH_JOSE and one of the http-related roles enabled.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_jwt_sign_token_set_http_cookie(struct lws *wsi,
+				   const struct lws_jwt_sign_set_cookie *i,
+				   uint8_t **p, uint8_t *end);
+LWS_VISIBLE LWS_EXTERN int
+lws_jwt_get_http_cookie_validate_jwt(struct lws *wsi,
+				     struct lws_jwt_sign_set_cookie *i,
+				     char *out, size_t *out_len);
+#endif
+
 ///@}

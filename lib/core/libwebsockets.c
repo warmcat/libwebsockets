@@ -153,6 +153,27 @@ lws_hex_to_byte_array(const char *h, uint8_t *dest, int max)
 	return lws_ptr_diff(dest, odest);
 }
 
+static char *hexch = "0123456789abcdef";
+
+int
+lws_hex_random(struct lws_context *context, char *dest, size_t len)
+{
+	size_t n = (len - 1) / 2;
+	uint8_t b, *r = (uint8_t *)dest + len - n;
+
+	if (lws_get_random(context, r, n) != n)
+		return 1;
+
+	while (n--) {
+		b = *r++;
+		*dest++ = hexch[b >> 4];
+		*dest++ = hexch[b & 0xf];
+	}
+
+	*dest = '\0';
+
+	return 0;
+}
 
 #if !defined(LWS_PLAT_OPTEE)
 
