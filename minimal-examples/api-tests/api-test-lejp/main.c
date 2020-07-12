@@ -184,6 +184,27 @@ int main(int argc, const char **argv)
 		}
 	}
 
+	{
+		const char *cs;
+		size_t cslen;
+		cs = lws_json_simple_find("{\"blah\":123,\"ext\":{\"authorized\":1}}", 35,
+					    "\"ext\":", &cslen);
+		if (!cs) {
+			lwsl_err("%s: simple_find failed\n", __func__);
+			e++;
+		} else {
+			if (lws_json_simple_strcmp(cs, cslen,
+					"\"authorized\":", "1"))
+				e++;
+		}
+		cs = lws_json_simple_find("{\"blah\":123,\"auth_user\":\"andy@warmcat.com\",\"thing\":\"yeah\"}", 57,
+					    "\"auth_user\":", &cslen);
+		if (cslen != 16) {
+			lwsl_err("%s: wrong string len %d isolated\n", __func__, (int)cslen);
+			e++;
+		}
+	}
+
 	if (e)
 		goto bail;
 
