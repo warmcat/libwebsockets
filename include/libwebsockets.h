@@ -353,9 +353,6 @@ struct lws_pollfd {
 
 #if defined(LWS_PLAT_FREERTOS)
 #include <libwebsockets/lws-freertos.h>
-#if defined(LWS_WITH_ESP32)
-#include <libwebsockets/lws-esp32.h>
-#endif
 #else
 typedef int lws_sockfd_type;
 typedef int lws_filefd_type;

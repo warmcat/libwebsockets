@@ -170,7 +170,6 @@ option(LWS_STATIC_PIC "Build the static version of the library with position-ind
 # Specific platforms
 #
 option(LWS_WITH_ESP32 "Build for ESP32" OFF)
-option(LWS_WITH_ESP32_HELPER "Build ESP32 helper" OFF)
 option(LWS_PLAT_OPTEE "Build for OPTEE" OFF)
 option(LWS_PLAT_FREERTOS "Build for FreeRTOS" OFF)
 option(LWS_PLAT_ANDROID "Android flavour of unix platform" OFF)
