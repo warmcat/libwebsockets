@@ -90,8 +90,6 @@ if (LWS_ROLE_WS)
 			      "protocol_lws_mirror.c" "" "")
 		create_plugin(protocol_lws_status ""
 			      "protocol_lws_status.c" "" "")
-		create_plugin(protocol_lws_table_dirlisting ""
-			      "generic-table/protocol_table_dirlisting.c" "" "")
 		if (NOT WIN32)
 			create_plugin(protocol_lws_raw_test ""
 			      "protocol_lws_raw_test.c" "" "")
@@ -143,29 +141,6 @@ if (LWS_WITH_ACME)
 		      "acme-client/protocol_lws_acme_client.c" "" "")
 endif()
 
-if (LWS_WITH_GENERIC_SESSIONS AND LWS_ROLE_WS AND LWS_WITH_TLS)
-	create_plugin(protocol_generic_sessions ""
-                      "generic-sessions/protocol_generic_sessions.c"
-		      "generic-sessions/utils.c"
-		      "generic-sessions/handlers.c")
-
-	if (WIN32)
-		target_link_libraries(protocol_generic_sessions ${LWS_SQLITE3_LIBRARIES})
-	else()
-		target_link_libraries(protocol_generic_sessions sqlite3 )
-	endif(WIN32)
-
-		create_plugin(protocol_lws_messageboard ""
-			      "generic-sessions/protocol_lws_messageboard.c" "" "")
-	if (WIN32)
-		target_link_libraries(protocol_lws_messageboard ${LWS_SQLITE3_LIBRARIES})
-	else()
-		target_link_libraries(protocol_lws_messageboard sqlite3 )
-	endif(WIN32)
-
-endif(LWS_WITH_GENERIC_SESSIONS AND LWS_ROLE_WS AND LWS_WITH_TLS)
-
-
 endif(LWS_WITH_PLUGINS AND LWS_WITH_SHARED)
 
 
@@ -189,36 +164,4 @@ if (LWS_WITH_SERVER_STATUS)
 		DESTINATION share/libwebsockets-test-server/server-status
 			COMPONENT examples)
 endif()
-if (LWS_WITH_GENERIC_SESSIONS)
-	install(FILES
-		      generic-sessions/assets/lwsgs-logo.png
-		      generic-sessions/assets/seats.jpg
-		      generic-sessions/assets/failed-login.html
-		      generic-sessions/assets/lwsgs.js
-		      generic-sessions/assets/lwsgs.css
-		      generic-sessions/assets/post-register-fail.html
-		      generic-sessions/assets/post-register-ok.html
-		      generic-sessions/assets/post-verify-ok.html
-		      generic-sessions/assets/post-verify-fail.html
-		      generic-sessions/assets/sent-forgot-ok.html
-		      generic-sessions/assets/sent-forgot-fail.html
-		      generic-sessions/assets/post-forgot-ok.html
-		      generic-sessions/assets/post-forgot-fail.html
-		      generic-sessions/assets/index.html
-		DESTINATION share/libwebsockets-test-server/generic-sessions
-			COMPONENT examples)
-	install(FILES generic-sessions/assets/successful-login.html 
-		DESTINATION share/libwebsockets-test-server/generic-sessions/needauth
-			COMPONENT examples)
-	install(FILES generic-sessions/assets/admin-login.html
-		DESTINATION share/libwebsockets-test-server/generic-sessions/needadmin
-			COMPONENT examples)
-endif()
-
-	install(FILES
-		      generic-table/assets/lwsgt.js
-		      generic-table/assets/index.html
-		DESTINATION share/libwebsockets-test-server/generic-table
-			COMPONENT examples)
-
 endif()
