@@ -2,7 +2,7 @@
 
 # Libwebsockets
 
-Libwebsockets is a simple-to-use, pure C library providing client and server
+Libwebsockets is a simple-to-use, MIT-license, pure C library providing client and server
 for **http/1**, **http/2**, **websockets**, **MQTT** and other protocols in a security-minded,
 lightweight, configurable, scalable and flexible way.  It's easy to build and
 cross-build via cmake and is suitable for tasks from embedded RTOS through mass
@@ -15,6 +15,96 @@ various scenarios, CC0-licensed (public domain) for cut-and-paste, allow you to 
 
 News
 ----
+
+## v4.1.0-rc1 is available for testing
+
+If you are interested in consuming released versions, please take a moment to test this
+release candidate and report any bugs so that the release can have improved quality.
+
+See the [changelog](https://libwebsockets.org/git/libwebsockets/tree/changelog), summary
+
+ - NEW: travis / appveyor / bintray are replaced by Sai
+   https://libwebsockets.org/sai/ which for lws currently does 167 builds per
+   git push on 16 platforms, all self-hosted.  The homebrew bash scripts used
+   to select Minimal examples are replaced by CTest.  Platforms currently
+   include Fedora/AMD/GCC, Windows/AMD/mingw32, Windows/AMD/mingw64, Android/
+   aarch64/LLVM, esp-idf (on WROVER-KIT and HELTEC physical boards), Fedora/
+   RISCV (on QEMU)/GCC, CentOS8/AMD/GCC, Gentoo/AMD/GCC, Bionic/AMD/GCC,
+   Linkit 7697, Focal/AMD/GCC, Windows (on QEMU)/AMD/MSVC,
+   Focal/aarch64-RPI4/GCC, iOS/aarch64/LLVM and OSX/AMD/LLVM.
+
+ - NEW: The single CMakeLists.txt has been refactored and modernized into smaller
+ CMakeLists.txt in the subdirectory along with the code that is being managed
+ for build by it.  Build options are still listed in the top level as before
+ but the new way is much more maintainable.
+
+ - NEW: Captive Portal Detection.  Lws can determine if the active default
+ route is able to connect to the internet, or is in a captive portal type
+ situation, by trying to connect to a remote server that will respond in an
+ unusual way, like provide a 204.
+
+ - NEW: Secure streams: Support system trust store if it exists
+                        Build on Windows
+			Support lws raw socket protocol in SS
+			Support Unix Domain Socket transport
+
+ - NEW: Windows: Support Unix Domain Sockets same as other platforms
+
+ - NEW: Windows: Build using native pthreads, async dns, ipv6 on MSVC
+
+ - NEW: lws_struct: BLOB support
+
+ - NEW: lws_sul: Now provides two sorted timer domains, a default one as
+ before, and another whose scheduled events are capable to wake the system from suspend
+
+ - NEW: System Message Distribution: lws_smd provides a very lightweight way
+ to pass short messages between subsystems both in RTOS type case where the
+ subsystems are all on the lws event loop, and in the case participants are in
+ different processes, using Secure Streams proxying.   Participants register a bitmap
+ of message classes they care about; if no particpant cares about a particular message,
+ it is rejected at allocation time for the sender, making it cheap to provide messages
+ speculatively.  See lib/system/smd/README.md for full details.
+
+ - NEW: lws_drivers: wrappers for SDK driver abstractions (or actual drivers)
+		 See lib/drivers/README.md, example implementations
+		 minimal-examples/embedded/esp32/esp-wrover-kit
+                     - generic gpio
+		     - generic LED (by name)    lib/drivers/led/README.md
+		     - generic PWM, sophisticated interpolated table
+		                    sequencers with crossfade  
+		     - generic button (by name), with debounce and press classification
+		                       emitting rich SMD click, long-click, double-click,
+				       down, repeat, up JSON messages
+				       lib/drivers/button/README.md
+		     - bitbang i2c on generic gpio (hw support can use same
+		                       abstract API)
+		     - bitbang spi on generic gpio (hw support can use same
+		                       abstract API)
+		     - generic display object, can be wired up to controller
+		                  drivers that hook up by generic i2c or spi,
+				  generic backlight PWM sequencing and
+				  blanking timer support
+		     - generic settings storage: get and set blobs by name
+		     - generic network device: netdev abstract class with
+	                                       WIFI / Ethernet implementations
+					       using underlying SDK APIs;
+					       generic 80211 Scan managements
+					       and credentials handling via
+					       lws_settings
+		     This is the new way to provide embedded platform
+		     functionality that was in the past done like
+		     esp32-factory.  Unlike the old way, the new way has no
+		     native apis in it and can be built on other SDK / SoCs
+		     the same.
+
+ - NEW: Security-aware JWS JWT (JSON Web Tokens) apis are provided on top of the existing
+ JOSE / JWS apis.  All the common algorithms are available along with some
+ high level apis like lws http cookie -> JWT struct -> lws http cookie.
+
+ - REMOVED: esp32-helper and friends used by esp32-factory now lws_drivers
+ exists
+
+ - REMOVED: generic sessions and friends now JWT is provided
 
 ## v4.0 is released
 
