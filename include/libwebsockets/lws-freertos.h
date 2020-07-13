@@ -74,6 +74,10 @@ struct pollfd {
 #if defined(LWS_ESP_PLATFORM)
 #include "lwip/sockets.h"
 #include "lwip/netdb.h"
+#if defined(LWS_WITH_DRIVERS)
+#include "libwebsockets/lws-gpio.h"
+extern const lws_gpio_ops_t lws_gpio_plat;
+#endif
 #endif
 
 #endif /* LWS_AMAZON_RTOS */
