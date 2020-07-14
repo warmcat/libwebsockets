@@ -27,11 +27,9 @@
  */
 
 #include "private-lib-core.h"
-/* #include "lws-mqtt.h" */
 
 #include <string.h>
 #include <sys/types.h>
-#include <fcntl.h>
 #include <assert.h>
 
 
