@@ -30,6 +30,6 @@ if (ESP_PLATFORM)
 	add_test(NAME boot COMMAND /usr/local/bin/sai-expect)
 	set_tests_properties(boot PROPERTIES
 			     DEPENDS flashing
-			     TIMEOUT 20)
+			     TIMEOUT 60)
 
 endif()
