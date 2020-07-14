@@ -152,6 +152,8 @@ callback_lws_server_status(struct lws *wsi, enum lws_callback_reasons reason,
 				v->period_s = 5;
 			if (!strcmp(pvo->name, "filepath")) {
 				fp = malloc(sizeof(*fp));
+				if (!fp)
+					return -1;
 				fp->next = NULL;
 				lws_snprintf(&fp->filepath[0],
 					     sizeof(fp->filepath), "%s",
