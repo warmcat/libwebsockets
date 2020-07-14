@@ -122,7 +122,8 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!wsi->h1_ws_proxied || !wsi->parent)
 			break;
 
-		lws_process_ws_upgrade2(wsi->parent);
+		if (lws_process_ws_upgrade2(wsi->parent))
+			return -1;
 
 #if defined(LWS_WITH_HTTP2)
 		if (wsi->parent->mux_substream)

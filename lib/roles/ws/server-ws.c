@@ -375,7 +375,10 @@ lws_process_ws_upgrade2(struct lws *wsi)
 		break;
 	}
 
-	lws_server_init_wsi_for_ws(wsi);
+	if (lws_server_init_wsi_for_ws(wsi)) {
+		lwsl_notice("%s: user ESTABLISHED failed connection\n", __func__);
+		return 1;
+	}
 	lwsl_parser("accepted v%02d connection\n", wsi->ws->ietf_spec_revision);
 
 #if defined(LWS_WITH_ACCESS_LOG)
