@@ -302,6 +302,35 @@ lws_sul_earliest_wakeable_event(struct lws_context *ctx, lws_usec_t *pearliest);
 		lws_sul2_schedule(ctx, tsi, LWSSULLI_WAKE_IF_SUSPENDED, sul); \
 	}}
 
+#if defined(LWS_WITH_SUL_DEBUGGING)
+/**
+ * lws_sul_debug_zombies() - assert there are no scheduled sul in a given object
+ *
+ * \param ctx: lws_context
+ * \param po: pointer to the object that is about to be destroyed
+ * \param len: length of the object that is about to be destroyed
+ * \param destroy_description: string clue what any failure is related to
+ *
+ * This is an optional debugging helper that walks the sul scheduler lists
+ * confirming that there are no suls scheduled that live inside the object
+ * footprint described by po and len.  When internal objects are about to be
+ * destroyed, like wsi / user_data or secure stream handles, if
+ * LWS_WITH_SUL_DEBUGGING is enabled the scheduler is checked for anything
+ * in the object being destroyed.  If something found, an error is printed and
+ * an assert fired.
+ *
+ * Internal sul like timeouts should always be cleaned up correctly, but user
+ * suls in, eg, wsi user_data area, or in secure stream user allocation, may be
+ * the cause of difficult to find bugs if valgrind not available and the user
+ * code left a sul in the scheduler after destroying the object the sul was
+ * living in.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_sul_debug_zombies(struct lws_context *ctx, void *po, size_t len,
+		      const char *destroy_description);
+#else
+#define lws_sul_debug_zombies(_a, _b, _c, _d)
+#endif
 
 /*
  * lws_validity_confirmed() - reset the validity timer for a network connection

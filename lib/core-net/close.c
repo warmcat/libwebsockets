@@ -79,8 +79,12 @@ __lws_reset_wsi(struct lws *wsi)
 	 * or by specified the user. We should only free what we allocated.
 	 */
 	if (wsi->protocol && wsi->protocol->per_session_data_size &&
-	    wsi->user_space && !wsi->user_space_externally_allocated)
+	    wsi->user_space && !wsi->user_space_externally_allocated) {
+		/* confirm no sul left scheduled in user data itself */
+		lws_sul_debug_zombies(wsi->context, wsi->user_space,
+				wsi->protocol->per_session_data_size, __func__);
 		lws_free_set_NULL(wsi->user_space);
+	}
 
 	/*
 	 * Don't let buflist content or state from the wsi's previous life
@@ -91,7 +95,12 @@ __lws_reset_wsi(struct lws *wsi)
 	lws_dll2_remove(&wsi->dll_buflist);
 	lws_buflist_destroy_all_segments(&wsi->buflist_out);
 #if defined(LWS_WITH_UDP)
-	lws_free_set_NULL(wsi->udp);
+	if (wsi->udp) {
+		/* confirm no sul left scheduled in wsi->udp itself */
+		lws_sul_debug_zombies(wsi->context, wsi->udp,
+				      sizeof(*wsi->udp), "close udp wsi");
+		lws_free_set_NULL(wsi->udp);
+	}
 #endif
 	wsi->retry = 0;
 
@@ -160,6 +169,9 @@ __lws_free_wsi(struct lws *wsi)
 	lwsl_debug("%s: %p, remaining wsi %d, tsi fds count %d\n", __func__, wsi,
 			wsi->context->count_wsi_allocated,
 			wsi->context->pt[(int)wsi->tsi].fds_count);
+
+	/* confirm no sul left scheduled in wsi itself */
+	lws_sul_debug_zombies(wsi->context, wsi, sizeof(wsi), __func__);
 
 	lws_free(wsi);
 }
@@ -434,8 +446,13 @@ just_kill_connection:
 		lws_buflist_destroy_all_segments(&wsi->http.buflist_post_body);
 #endif
 #if defined(LWS_WITH_UDP)
-	if (wsi->udp)
+	if (wsi->udp) {
+		/* confirm no sul left scheduled in wsi->udp itself */
+		lws_sul_debug_zombies(wsi->context, wsi->udp,
+					sizeof(*wsi->udp), "close udp wsi");
+
 		lws_free_set_NULL(wsi->udp);
+	}
 #endif
 
 	if (wsi->role_ops->close_kill_connection)

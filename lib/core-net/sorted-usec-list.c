@@ -259,3 +259,63 @@ lws_sul_earliest_wakeable_event(struct lws_context *ctx, lws_usec_t *pearliest)
 
 	return 0;
 }
+
+#if defined(LWS_WITH_SUL_DEBUGGING)
+
+/*
+ * Sanity checker for any sul left scheduled when its containing object is
+ * freed... code scheduling suls must take care to cancel them when destroying
+ * their object.  This optional debugging helper checks that when an object is
+ * being destroyed, there is no live sul scheduled from inside the object.
+ */
+
+void
+lws_sul_debug_zombies(struct lws_context *ctx, void *po, size_t len,
+		      const char *destroy_description)
+{
+	struct lws_context_per_thread *pt;
+	int n, m;
+
+	for (n = 0; n < ctx->count_threads; n++) {
+		pt = &ctx->pt[n];
+
+		lws_pt_lock(pt, __func__);
+
+		for (m = 0; m < LWS_COUNT_PT_SUL_OWNERS; m++) {
+
+			lws_start_foreach_dll(struct lws_dll2 *, p,
+				      lws_dll2_get_head(&pt->pt_sul_owner[m])) {
+				lws_sorted_usec_list_t *sul =
+					lws_container_of(p,
+						lws_sorted_usec_list_t, list);
+
+				/*
+				 * Is the sul resident inside the object that is
+				 * indicated as being deleted?
+				 */
+
+				if (sul >= po && lws_ptr_diff(sul, po) < len) {
+					lwsl_err("%s: ERROR: Zombie Sul "
+						 "(on list %d) %s\n", __func__,
+						 m, destroy_description);
+					/*
+					 * This assert fires if you have left
+					 * a sul scheduled to fire later, but
+					 * are about to destroy the object the
+					 * sul lives in.  You must take care to
+					 * do lws_sul_cancel(&sul) on any suls
+					 * that may be scheduled before
+					 * destroying the object the sul lives
+					 * inside.
+					 */
+					assert(0);
+				}
+
+			} lws_end_foreach_dll(p);
+		}
+
+		lws_pt_unlock(pt);
+	}
+}
+
+#endif

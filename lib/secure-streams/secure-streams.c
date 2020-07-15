@@ -742,6 +742,10 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 
 	lws_sul_cancel(&h->sul);
 
+	/* confirm no sul left scheduled in handle or user allocation object */
+	lws_sul_debug_zombies(h->context, h, sizeof(*h) + h->info.user_alloc,
+			      __func__);
+
 	lws_free_set_NULL(h);
 }
 
