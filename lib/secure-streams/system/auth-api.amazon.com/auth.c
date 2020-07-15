@@ -31,7 +31,6 @@ typedef struct ss_api_amazon_auth {
 	void			*opaque_data;
 	/* ... application specific state ... */
 	struct lejp_ctx		jctx;
-	lws_sorted_usec_list_t	sul;
 	size_t			pos;
 	int			expires_secs;
 } ss_api_amazon_auth_t;
@@ -230,13 +229,9 @@ ss_api_amazon_auth_state(void *userobj, void *sh, lws_ss_constate_t state,
 			lws_sul_schedule(context, 0,
 					 &context->sul_api_amazon_com_kick,
 					 lws_ss_sys_auth_api_amazon_com_kick, 1);
-		lws_ss_destroy(&m->ss);
+
 		context->hss_auth = NULL;
-
-		break;
-
-	case LWSSSCS_DESTROYING:
-		break;
+		return LWSSSSRET_DESTROY_ME;
 
 	default:
 		break;
