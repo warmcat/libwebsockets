@@ -322,8 +322,13 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 		/* we are not a network connection, but a handler for CGI io */
 		if (wsi->parent && wsi->parent->http.cgi) {
 
-			if (wsi->parent->child_list == wsi && !wsi->sibling_list)
-				lws_cgi_remove_and_kill(wsi->parent);
+			/*
+			 * We need to keep the logical cgi around so we can
+			 * drain it
+			 */
+
+//			if (wsi->parent->child_list == wsi && !wsi->sibling_list)
+//				lws_cgi_remove_and_kill(wsi->parent);
 
 			/* end the binding between us and master */
 			if (wsi->parent->http.cgi && wsi->parent->http.cgi->lsp)
