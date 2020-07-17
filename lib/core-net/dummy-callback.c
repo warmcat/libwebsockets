@@ -326,7 +326,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 				lwsl_debug("AUX_BF__CGI forcing close\n");
 				return -1;
 			}
-			if (!n && wsi->http.cgi &&
+			if (!n && wsi->http.cgi && wsi->http.cgi->lsp &&
 			    wsi->http.cgi->lsp->stdwsi[LWS_STDOUT])
 				lws_rx_flow_control(
 					wsi->http.cgi->lsp->stdwsi[LWS_STDOUT], 1);
@@ -649,8 +649,9 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			/* TBD stdin rx flow control */
 			break;
 		case LWS_STDOUT:
-			/* quench POLLIN on STDOUT until MASTER got writeable */
-			lws_rx_flow_control(args->stdwsi[LWS_STDOUT], 0);
+			if (args->stdwsi[LWS_STDOUT])
+				/* quench POLLIN on STDOUT until MASTER got writeable */
+				lws_rx_flow_control(args->stdwsi[LWS_STDOUT], 0);
 			wsi->reason_bf |= LWS_CB_REASON_AUX_BF__CGI;
 			/* when writing to MASTER would not block */
 			lws_callback_on_writable(wsi);
@@ -785,33 +786,35 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			lwsl_notice("LWS_CALLBACK_CGI_STDIN_DATA: "
 				    "sent %d only %d went", n, args->len);
 
+		lwsl_notice("%s: proxied %d bytes\n", __func__, n);
+
 		if (wsi->http.cgi->post_in_expected && args->stdwsi[LWS_STDIN] &&
 		    args->stdwsi[LWS_STDIN]->desc.filefd > 0) {
 			wsi->http.cgi->post_in_expected -= n;
 			if (!wsi->http.cgi->post_in_expected) {
 				struct lws *siwsi = args->stdwsi[LWS_STDIN];
 
-				lwsl_debug("%s: expected POST in end: "
+				/*
+				 * The situation here is that we finished
+				 * proxying the incoming body from the net to
+				 * the STDIN stdwsi... and we want to close it
+				 * so it can understand we are done (necessary
+				 * if no content-length)...
+				 */
+
+				lwsl_notice("%s: expected POST in end: "
 					   "closing stdin wsi %p, fd %d\n",
 					   __func__, siwsi, siwsi->desc.sockfd);
 
-				__remove_wsi_socket_from_fds(siwsi);
-				lwsi_set_state(siwsi, LRS_DEAD_SOCKET);
-				siwsi->socket_is_permanently_unusable = 1;
-//				lws_remove_child_from_any_parent(siwsi);
-				if (wsi->context->event_loop_ops->
-							close_handle_manually) {
+				/*
+				 * We don't want the child / parent relationship
+				 * to be handled in close, since we want the
+				 * rest of the cgi and children to stay up
+				 */
 
-					wsi->context->event_loop_ops->
-						close_handle_manually(siwsi);
-					siwsi->told_event_loop_closed = 1;
-				} else {
-					compatible_close(siwsi->desc.sockfd);
-					__lws_free_wsi(siwsi);
-				}
-				wsi->http.cgi->lsp->pipe_fds[LWS_STDIN][1] = -1;
-
-//				args->stdwsi[LWS_STDIN] = NULL;
+				lws_remove_child_from_any_parent(siwsi);
+				lws_wsi_close(siwsi, LWS_TO_KILL_ASYNC);
+				wsi->http.cgi->lsp->stdwsi[LWS_STDIN] = NULL;
 			}
 		}
 
