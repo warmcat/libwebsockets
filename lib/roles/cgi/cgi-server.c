@@ -68,6 +68,43 @@ urlencode(const char *in, int inlen, char *out, int outlen)
 	return out - start;
 }
 
+static void
+lws_cgi_grace(lws_sorted_usec_list_t *sul)
+{
+	struct lws_cgi *cgi = lws_container_of(sul, struct lws_cgi, sul_grace);
+
+	/* act on the reap cb from earlier */
+
+	lwsl_notice("%s: wsi %p\n", __func__, cgi->wsi);
+
+	if (!cgi->wsi->http.cgi->post_in_expected)
+		cgi->wsi->http.cgi->cgi_transaction_over = 1;
+
+	lws_callback_on_writable(cgi->wsi);
+}
+
+
+static void
+lws_cgi_reap_cb(void *opaque, lws_usec_t *accounting, siginfo_t *si,
+		 int we_killed_him)
+{
+	struct lws *wsi = (struct lws *)opaque;
+
+	/*
+	 * The cgi has come to an end, by itself or with a signal...
+	 */
+
+	lwsl_notice("%s: wsi %p post_in_expected %d\n", __func__, wsi,
+			(int)wsi->http.cgi->post_in_expected);
+
+	/*
+	 * Grace period to handle the incoming stdout
+	 */
+
+	lws_sul_schedule(wsi->context, wsi->tsi, &wsi->http.cgi->sul_grace,
+			 lws_cgi_grace, 1 * LWS_US_PER_SEC);
+}
+
 int
 lws_cgi(struct lws *wsi, const char * const *exec_array,
 	int script_uri_path_len, int timeout_secs,
@@ -357,6 +394,8 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 	info.vh = wsi->vhost;
 	info.ops = &role_ops_cgi;
 	info.plsp = &wsi->http.cgi->lsp;
+	info.opaque = wsi;
+	info.reap_cb = lws_cgi_reap_cb;
 
 	/*
 	 * Actually having made the env, as a cgi we don't need the ah
@@ -386,6 +425,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 	return 0;
 
 bail:
+	lws_sul_cancel(&wsi->http.cgi->sul_grace);
 	lws_free_set_NULL(wsi->http.cgi);
 
 	lwsl_err("%s: failed\n", __func__);
@@ -561,7 +601,7 @@ post_hpack_recode:
 
 			cmd = LWS_WRITE_HTTP_HEADERS_CONTINUATION;
 			if (wsi->http.cgi->headers_dumped + n !=
-			    wsi->http.cgi->headers_pos) {
+						wsi->http.cgi->headers_pos) {
 				lwsl_notice("adding no fin flag\n");
 				cmd |= LWS_WRITE_NO_FIN;
 			}
@@ -578,14 +618,21 @@ post_hpack_recode:
 			    wsi->http.cgi->headers_pos) {
 				wsi->hdr_state = LHCS_PAYLOAD;
 				lws_free_set_NULL(wsi->http.cgi->headers_buf);
-				lwsl_debug("freed cgi headers\n");
+				lwsl_debug("%s: freed cgi headers\n", __func__);
+
+				if (wsi->http.cgi->post_in_expected) {
+					lwsl_notice("%s: post data still expected, asking for writeable\n", __func__);
+					lws_callback_on_writable(wsi);
+				}
+
 			} else {
 				wsi->reason_bf |=
 					LWS_CB_REASON_AUX_BF__CGI_HEADERS;
 				lws_callback_on_writable(wsi);
 			}
 
-			/* writeability becomes uncertain now we wrote
+			/*
+			 * writeability becomes uncertain now we wrote
 			 * something, we must return to the event loop
 			 */
 			return 0;
@@ -962,7 +1009,7 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 		cgi = *pcgi;
 		pcgi = &(*pcgi)->cgi_list;
 
-		if (cgi->lsp->child_pid <= 0)
+		if (!cgi || !cgi->lsp || cgi->lsp->child_pid <= 0)
 			continue;
 
 		/* we deferred killing him after reaping his PID */
@@ -1040,7 +1087,7 @@ lws_cgi_remove_and_kill(struct lws *wsi)
 		pcgi = &(*pcgi)->cgi_list;
 	}
 	if (wsi->http.cgi->headers_buf) {
-		lwsl_debug("close: freed cgi headers\n");
+		lwsl_debug("%s: close: freed cgi headers\n", __func__);
 		lws_free_set_NULL(wsi->http.cgi->headers_buf);
 	}
 	/* we have a cgi going, we must kill it */

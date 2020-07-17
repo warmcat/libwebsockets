@@ -683,6 +683,7 @@ __lws_close_free_wsi_final(struct lws *wsi)
 #ifdef LWS_WITH_CGI
 	if (wsi->http.cgi) {
 		lws_spawn_piped_destroy(&wsi->http.cgi->lsp);
+		lws_sul_cancel(&wsi->http.cgi->sul_grace);
 		lws_free_set_NULL(wsi->http.cgi);
 	}
 #endif
