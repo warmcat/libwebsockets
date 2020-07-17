@@ -428,7 +428,8 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	}
 
 #if defined(__linux__)
-	prctl(PR_SET_PDEATHSIG, SIGTERM);
+	if (!lsp->child_pid)
+		prctl(PR_SET_PDEATHSIG, SIGTERM);
 #endif
 
 	if (lsp->info.disable_ctrlc)
