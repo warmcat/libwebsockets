@@ -511,7 +511,7 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	}
 
 #if !defined(LWS_HAVE_VFORK) || !defined(LWS_HAVE_EXECVPE)
-#if defined(__linux__)
+#if defined(__linux__) || defined(__APPLE__)
 	m = 0;
 	while (i->env_array[m]){
 		char *p = strchr(i->env_array[m], '=');
