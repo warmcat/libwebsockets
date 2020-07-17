@@ -46,6 +46,27 @@ rops_handle_POLLIN_cgi(struct lws_context_per_thread *pt, struct lws *wsi,
 		return LWS_HPI_RET_WSI_ALREADY_DIED;
 	}
 
+	if (!wsi->parent) {
+		lwsl_notice("%s: stdwsi content with parent\n",
+				__func__);
+
+		return LWS_HPI_RET_HANDLED;
+	}
+
+	if (!wsi->parent->http.cgi) {
+		lwsl_notice("%s: stdwsi content with deleted cgi object\n",
+				__func__);
+
+		return LWS_HPI_RET_HANDLED;
+	}
+
+	if (!wsi->parent->http.cgi->lsp) {
+		lwsl_notice("%s: stdwsi content with reaped lsp\n",
+				__func__);
+
+		return LWS_HPI_RET_HANDLED;
+	}
+
 	args.ch = wsi->lsp_channel;
 	args.stdwsi = &wsi->parent->http.cgi->lsp->stdwsi[0];
 	args.hdr_state = wsi->hdr_state;

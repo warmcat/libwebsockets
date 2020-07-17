@@ -337,12 +337,16 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			else
 				wsi->reason_bf &= ~LWS_CB_REASON_AUX_BF__CGI;
 
-			if (wsi->http.cgi && wsi->http.cgi->cgi_transaction_over)
+			if (wsi->http.cgi && wsi->http.cgi->cgi_transaction_over) {
+				lwsl_notice("%s: txn over\n", __func__);
 				return -1;
+			}
+
 			break;
 		}
 
-		if (wsi->reason_bf & LWS_CB_REASON_AUX_BF__CGI_CHUNK_END) {
+		if ((wsi->http.cgi && wsi->http.cgi->cgi_transaction_over) ||
+		    (wsi->reason_bf & LWS_CB_REASON_AUX_BF__CGI_CHUNK_END)) {
 			if (!wsi->mux_substream) {
 				memcpy(buf + LWS_PRE, "0\x0d\x0a\x0d\x0a", 5);
 				lwsl_debug("writing chunk term and exiting\n");
@@ -791,6 +795,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		if (wsi->http.cgi->post_in_expected && args->stdwsi[LWS_STDIN] &&
 		    args->stdwsi[LWS_STDIN]->desc.filefd > 0) {
 			wsi->http.cgi->post_in_expected -= n;
+
 			if (!wsi->http.cgi->post_in_expected) {
 				struct lws *siwsi = args->stdwsi[LWS_STDIN];
 
@@ -803,8 +808,9 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 				 */
 
 				lwsl_notice("%s: expected POST in end: "
-					   "closing stdin wsi %p, fd %d\n",
-					   __func__, siwsi, siwsi->desc.sockfd);
+					    "closing stdin wsi %p, fd %d\n",
+					    __func__, siwsi,
+					    siwsi->desc.sockfd);
 
 				/*
 				 * We don't want the child / parent relationship
@@ -815,6 +821,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_remove_child_from_any_parent(siwsi);
 				lws_wsi_close(siwsi, LWS_TO_KILL_ASYNC);
 				wsi->http.cgi->lsp->stdwsi[LWS_STDIN] = NULL;
+				lws_spawn_stdwsi_closed(wsi->http.cgi->lsp, siwsi);
 			}
 		}
 

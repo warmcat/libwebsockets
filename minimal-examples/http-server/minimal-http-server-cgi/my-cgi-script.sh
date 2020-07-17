@@ -31,6 +31,6 @@ fi
 
 echo "<br/>done"
 echo "</body></html>"
-
+sleep 0.5
 exit 0
 
