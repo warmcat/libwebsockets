@@ -307,7 +307,7 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry)
 	const struct ss_pcols *ssp;
 	size_t used_in, used_out;
 	union lws_ss_contemp ct;
-	char path[128], ep[96];
+	char path[1024], ep[96];
 	int port, _port, tls;
 	lws_strexp_t exp;
 
