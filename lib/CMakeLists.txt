@@ -258,6 +258,18 @@ set(CPACK_COMPONENT_DEV_DISPLAY_NAME "Development files" PARENT_SCOPE)
 
 if (UNIX)
 
+# figure out pkfcfg required libs here
+
+set(lws_requires "")
+if (LWS_HAVE_LIBCAP)
+	if (NOT lws_requires STREQUAL "")
+		set(lws_requires "${lws_requires},libpcap")
+	else()
+		set(lws_requires "libpcap")
+	endif()
+endif()
+
+
 # Generate and install pkgconfig.
 # (This is not indented, because the tabs will be part of the output)
 file(WRITE "${PROJECT_BINARY_DIR}/libwebsockets.pc"
@@ -271,8 +283,13 @@ Description: Websockets server and client library
 Version: ${CPACK_PACKAGE_VERSION_MAJOR}.${CPACK_PACKAGE_VERSION_MINOR}.${CPACK_PACKAGE_VERSION_PATCH}
 
 Libs: -L\${libdir} -lwebsockets
-Cflags: -I\${includedir}"
+Cflags: -I\${includedir}
+"
 )
+if (NOT ${lws_requires} STREQUAL "")
+        file(APPEND "${PROJECT_BINARY_DIR}/libwebsockets.pc" "Requires: ${lws_requires}")
+endif()
+
 
 	install(FILES "${PROJECT_BINARY_DIR}/libwebsockets.pc"
 		DESTINATION lib${LIB_SUFFIX}/pkgconfig)
@@ -289,8 +306,14 @@ Version: ${CPACK_PACKAGE_VERSION_MAJOR}.${CPACK_PACKAGE_VERSION_MINOR}.${CPACK_P
 
 Libs: -L\${libdir} -lwebsockets_static
 Libs.private:
-Cflags: -I\${includedir}"
+Cflags: -I\${includedir}
+"
 )
+
+if (NOT ${lws_requires} STREQUAL "")
+        file(APPEND "${PROJECT_BINARY_DIR}/libwebsockets_static.pc" "Requires: ${lws_requires}")
+endif()
+
 
 	install(FILES "${PROJECT_BINARY_DIR}/libwebsockets_static.pc"
 		DESTINATION lib${LIB_SUFFIX}/pkgconfig)
