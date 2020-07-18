@@ -342,23 +342,23 @@ struct lws_context {
 #endif
 
 #if defined(LWS_WITH_NETWORK)
-	struct lws_context_per_thread pt[LWS_MAX_SMP];
-	lws_retry_bo_t	default_retry;
-	lws_sorted_usec_list_t sul_system_state;
+	struct lws_context_per_thread		pt[LWS_MAX_SMP];
+	lws_retry_bo_t				default_retry;
+	lws_sorted_usec_list_t			sul_system_state;
 
 #if defined(LWS_PLAT_FREERTOS)
-	struct sockaddr_in frt_pipe_si;
+	struct sockaddr_in			frt_pipe_si;
 #endif
 
 #if defined(LWS_WITH_HTTP2)
-	struct http2_settings set;
+	struct http2_settings			set;
 #endif
 
 #if defined(LWS_WITH_SERVER_STATUS)
-	struct lws_conn_stats conn_stats;
+	struct lws_conn_stats			conn_stats;
 #endif
 #if LWS_MAX_SMP > 1
-	struct lws_mutex_refcount mr;
+	struct lws_mutex_refcount		mr;
 #endif
 
 #if defined(LWS_WITH_NETWORK)
@@ -368,19 +368,19 @@ struct lws_context {
  */
 
 #if defined(LWS_WITH_LIBEV)
-	struct lws_context_eventlibs_libev ev;
+	struct lws_context_eventlibs_libev	ev;
 #endif
 #if defined(LWS_WITH_LIBUV)
-	struct lws_context_eventlibs_libuv uv;
+	struct lws_context_eventlibs_libuv	uv;
 #endif
 #if defined(LWS_WITH_LIBEVENT)
-	struct lws_context_eventlibs_libevent event;
+	struct lws_context_eventlibs_libevent	event;
 #endif
 #if defined(LWS_WITH_GLIB)
-	struct lws_context_eventlibs_glib glib;
+	struct lws_context_eventlibs_glib	glib;
 #endif
 #if defined(LWS_WITH_TLS)
-	struct lws_context_tls tls;
+	struct lws_context_tls			tls;
 #endif
 #if defined(LWS_WITH_DRIVERS)
 	lws_netdevs_t			netdevs;
@@ -394,11 +394,13 @@ struct lws_context {
 	void				*ntpclient_priv;
 #endif
 
+#if defined(LWS_WITH_SECURE_STREAMS)
 	struct lws_ss_handle		*hss_fetch_policy;
 #if defined(LWS_WITH_SECURE_STREAMS_SYS_AUTH_API_AMAZON_COM)
 	struct lws_ss_handle		*hss_auth;
 	lws_sorted_usec_list_t		sul_api_amazon_com;
 	lws_sorted_usec_list_t		sul_api_amazon_com_kick;
+#endif
 #endif
 
 #if defined(LWS_WITH_SYS_STATE)
@@ -412,27 +414,27 @@ struct lws_context {
 
 	/* pointers */
 
-	struct lws_vhost *vhost_list;
-	struct lws_vhost *no_listener_vhost_list;
-	struct lws_vhost *vhost_pending_destruction_list;
-	struct lws_vhost *vhost_system;
+	struct lws_vhost		*vhost_list;
+	struct lws_vhost		*no_listener_vhost_list;
+	struct lws_vhost		*vhost_pending_destruction_list;
+	struct lws_vhost		*vhost_system;
 
 #if defined(LWS_WITH_SERVER)
-	const char *server_string;
+	const char			*server_string;
 #endif
 
-	struct lws_event_loop_ops *event_loop_ops;
+	struct lws_event_loop_ops	*event_loop_ops;
 #endif
 
 #if defined(LWS_WITH_TLS)
-	const struct lws_tls_ops *tls_ops;
+	const struct lws_tls_ops	*tls_ops;
 #endif
 
 #if defined(LWS_WITH_DETAILED_LATENCY)
-	det_lat_buf_cb_t detailed_latency_cb;
+	det_lat_buf_cb_t		detailed_latency_cb;
 #endif
 #if defined(LWS_WITH_PLUGINS)
-	struct lws_plugin *plugin_list;
+	struct lws_plugin		*plugin_list;
 #endif
 #ifdef _WIN32
 /* different implementation between unix and windows */
@@ -458,7 +460,9 @@ struct lws_context {
 #endif
 
 	struct lws_context **pcontext_finalize;
+#if !defined(LWS_PLAT_FREERTOS)
 	const char *username, *groupname;
+#endif
 #if defined(LWS_WITH_DETAILED_LATENCY)
 	const char *detailed_latency_filepath;
 #endif
@@ -481,16 +485,16 @@ struct lws_context {
 	time_t				next_cull;
 #endif
 
-	const lws_system_ops_t *system_ops;
+	const lws_system_ops_t		*system_ops;
 
 #if defined(LWS_WITH_SECURE_STREAMS)
 #if !defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
-	const char *pss_policies_json;
-	struct lwsac *ac_policy;
-	void *pol_args;
+	const char			*pss_policies_json;
+	struct lwsac			*ac_policy;
+	void				*pol_args;
 #endif
-	const lws_ss_policy_t *pss_policies;
-	const lws_ss_plugin_t **pss_plugins;
+	const lws_ss_policy_t		*pss_policies;
+	const lws_ss_plugin_t		**pss_plugins;
 #endif
 
 	void *external_baggage_free_on_destroy;
@@ -500,7 +504,9 @@ struct lws_context {
 	const struct lws_protocol_vhost_options *reject_service_keywords;
 	lws_reload_func deprecation_cb;
 #endif
+#if !defined(LWS_PLAT_FREERTOS)
 	void (*eventlib_signal_cb)(void *event_lib_handle, int signum);
+#endif
 
 #if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
 	cap_value_t caps[4];
@@ -519,18 +525,21 @@ struct lws_context {
 #endif
 
 	int max_fds;
-	int count_event_loop_static_asset_handles;
 #if !defined(LWS_NO_DAEMONIZE)
 	pid_t started_with_parent;
 #endif
-	int uid, gid;
 
+#if !defined(LWS_PLAT_FREERTOS)
+	int uid, gid;
+	int count_event_loop_static_asset_handles;
 	int fd_random;
+	int count_cgi_spawned;
+#endif
+
 #if defined(LWS_WITH_DETAILED_LATENCY)
 	int latencies_fd;
 #endif
 	int count_wsi_allocated;
-	int count_cgi_spawned;
 	unsigned int fd_limit_per_thread;
 	unsigned int timeout_secs;
 	unsigned int pt_serv_buf_size;
