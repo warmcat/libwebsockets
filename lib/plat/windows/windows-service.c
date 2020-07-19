@@ -77,13 +77,13 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	pt = &context->pt[tsi];
 
 	if (!pt->service_tid_detected && context->vhost_list) {
-		struct lws _lws;
+		lws_fakewsi_def_plwsa(pt);
 
-		memset(&_lws, 0, sizeof(_lws));
-		_lws.context = context;
+		lws_fakewsi_prep_plwsa_ctx(context);
 
 		pt->service_tid = context->vhost_list->
-			protocols[0].callback(&_lws, LWS_CALLBACK_GET_THREAD_ID,
+			protocols[0].callback((struct lws *)plwsa,
+					LWS_CALLBACK_GET_THREAD_ID,
 						  NULL, NULL, 0);
 		pt->service_tid_detected = 1;
 	}

@@ -50,7 +50,7 @@ __lws_reset_wsi(struct lws *wsi)
 	 * if we have wsi in our transaction queue, if we are closing we
 	 * must go through and close all those first
 	 */
-	if (wsi->vhost) {
+	if (wsi->a.vhost) {
 
 		/* we are no longer an active client connection that can piggyback */
 		lws_dll2_remove(&wsi->dll_cli_active_conns);
@@ -71,18 +71,18 @@ __lws_reset_wsi(struct lws *wsi)
 	}
 #endif
 
-	if (wsi->vhost)
+	if (wsi->a.vhost)
 		lws_dll2_remove(&wsi->vh_awaiting_socket);
 
 	/*
 	 * Protocol user data may be allocated either internally by lws
 	 * or by specified the user. We should only free what we allocated.
 	 */
-	if (wsi->protocol && wsi->protocol->per_session_data_size &&
+	if (wsi->a.protocol && wsi->a.protocol->per_session_data_size &&
 	    wsi->user_space && !wsi->user_space_externally_allocated) {
 		/* confirm no sul left scheduled in user data itself */
-		lws_sul_debug_zombies(wsi->context, wsi->user_space,
-				wsi->protocol->per_session_data_size, __func__);
+		lws_sul_debug_zombies(wsi->a.context, wsi->user_space,
+				wsi->a.protocol->per_session_data_size, __func__);
 		lws_free_set_NULL(wsi->user_space);
 	}
 
@@ -97,7 +97,7 @@ __lws_reset_wsi(struct lws *wsi)
 #if defined(LWS_WITH_UDP)
 	if (wsi->udp) {
 		/* confirm no sul left scheduled in wsi->udp itself */
-		lws_sul_debug_zombies(wsi->context, wsi->udp,
+		lws_sul_debug_zombies(wsi->a.context, wsi->udp,
 				      sizeof(*wsi->udp), "close udp wsi");
 		lws_free_set_NULL(wsi->udp);
 	}
@@ -118,13 +118,13 @@ __lws_reset_wsi(struct lws *wsi)
 		lws_buflist_destroy_all_segments(&wsi->http.buflist_post_body);
 #endif
 
-	if (wsi->vhost && wsi->vhost->lserv_wsi == wsi)
-		wsi->vhost->lserv_wsi = NULL;
+	if (wsi->a.vhost && wsi->a.vhost->lserv_wsi == wsi)
+		wsi->a.vhost->lserv_wsi = NULL;
 #if defined(LWS_WITH_CLIENT)
-	if (wsi->vhost)
+	if (wsi->a.vhost)
 		lws_dll2_remove(&wsi->dll_cli_active_conns);
 #endif
-	wsi->context->count_wsi_allocated--;
+	wsi->a.context->count_wsi_allocated--;
 
 	__lws_same_vh_protocol_remove(wsi);
 #if defined(LWS_WITH_CLIENT)
@@ -133,7 +133,7 @@ __lws_reset_wsi(struct lws *wsi)
 #endif
 
 #if defined(LWS_WITH_PEER_LIMITS)
-	lws_peer_track_wsi_close(wsi->context, wsi->peer);
+	lws_peer_track_wsi_close(wsi->a.context, wsi->peer);
 	wsi->peer = NULL;
 #endif
 
@@ -161,17 +161,17 @@ __lws_free_wsi(struct lws *wsi)
 	__lws_reset_wsi(wsi);
 	__lws_wsi_remove_from_sul(wsi);
 
-	if (wsi->context->event_loop_ops->destroy_wsi)
-		wsi->context->event_loop_ops->destroy_wsi(wsi);
+	if (wsi->a.context->event_loop_ops->destroy_wsi)
+		wsi->a.context->event_loop_ops->destroy_wsi(wsi);
 
 	lws_vhost_unbind_wsi(wsi);
 
 	lwsl_debug("%s: %p, remaining wsi %d, tsi fds count %d\n", __func__, wsi,
-			wsi->context->count_wsi_allocated,
-			wsi->context->pt[(int)wsi->tsi].fds_count);
+			wsi->a.context->count_wsi_allocated,
+			wsi->a.context->pt[(int)wsi->tsi].fds_count);
 
 	/* confirm no sul left scheduled in wsi itself */
-	lws_sul_debug_zombies(wsi->context, wsi, sizeof(wsi), __func__);
+	lws_sul_debug_zombies(wsi->a.context, wsi, sizeof(wsi), __func__);
 
 	lws_free(wsi);
 }
@@ -193,8 +193,8 @@ lws_remove_child_from_any_parent(struct lws *wsi)
 			lwsl_info("%s: detach %p from parent %p\n", __func__,
 				  wsi, wsi->parent);
 
-			if (wsi->parent->protocol)
-				wsi->parent->protocol->callback(wsi,
+			if (wsi->parent->a.protocol)
+				wsi->parent->a.protocol->callback(wsi,
 						LWS_CALLBACK_CHILD_CLOSING,
 					       wsi->parent->user_space, wsi, 0);
 
@@ -220,14 +220,14 @@ lws_inform_client_conn_fail(struct lws *wsi, void *arg, size_t len)
 		return;
 
 	wsi->already_did_cce = 1;
-	lws_stats_bump(&wsi->context->pt[(int)wsi->tsi],
+	lws_stats_bump(&wsi->a.context->pt[(int)wsi->tsi],
 		       LWSSTATS_C_CONNS_CLIENT_FAILED, 1);
 
-	if (!wsi->protocol)
+	if (!wsi->a.protocol)
 		return;
 
 	if (!wsi->client_suppress_CONNECTION_ERROR)
-		wsi->protocol->callback(wsi,
+		wsi->a.protocol->callback(wsi,
 					LWS_CALLBACK_CLIENT_CONNECTION_ERROR,
 					wsi->user_space, arg, len);
 }
@@ -270,7 +270,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 		lwsl_info("%s: wsi %p: going down with stuff in buflist\n",
 				__func__, wsi); }
 
-	context = wsi->context;
+	context = wsi->a.context;
 	pt = &context->pt[(int)wsi->tsi];
 	lws_stats_bump(pt, LWSSTATS_C_API_CLOSE, 1);
 
@@ -305,8 +305,8 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	if (wsi->role_ops == &role_ops_raw_file) {
 		lws_remove_child_from_any_parent(wsi);
 		__remove_wsi_socket_from_fds(wsi);
-		if (wsi->protocol)
-			wsi->protocol->callback(wsi, wsi->role_ops->close_cb[0],
+		if (wsi->a.protocol)
+			wsi->a.protocol->callback(wsi, wsi->role_ops->close_cb[0],
 					wsi->user_space, NULL, 0);
 		goto async_close;
 	}
@@ -409,9 +409,9 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	    lwsi_state(wsi) == LRS_H1C_ISSUE_HANDSHAKE)
 		goto just_kill_connection;
 
-	if (!wsi->told_user_closed && wsi->user_space && wsi->protocol &&
+	if (!wsi->told_user_closed && wsi->user_space && wsi->a.protocol &&
 	    wsi->protocol_bind_balance) {
-		wsi->protocol->callback(wsi,
+		wsi->a.protocol->callback(wsi,
 				wsi->role_ops->protocol_unbind_cb[
 				       !!lwsi_role_server(wsi)],
 				       wsi->user_space, (void *)__func__, 0);
@@ -453,7 +453,7 @@ just_kill_connection:
 #if defined(LWS_WITH_UDP)
 	if (wsi->udp) {
 		/* confirm no sul left scheduled in wsi->udp itself */
-		lws_sul_debug_zombies(wsi->context, wsi->udp,
+		lws_sul_debug_zombies(wsi->a.context, wsi->udp,
 					sizeof(*wsi->udp), "close udp wsi");
 
 		lws_free_set_NULL(wsi->udp);
@@ -466,11 +466,11 @@ just_kill_connection:
 	n = 0;
 
 	if (!wsi->told_user_closed && wsi->user_space &&
-	    wsi->protocol_bind_balance && wsi->protocol) {
+	    wsi->protocol_bind_balance && wsi->a.protocol) {
 		lwsl_debug("%s: %p: DROP_PROTOCOL %s\n", __func__, wsi,
-			   wsi->protocol ? wsi->protocol->name: "NULL");
-		if (wsi->protocol)
-			wsi->protocol->callback(wsi,
+			   wsi->a.protocol ? wsi->a.protocol->name: "NULL");
+		if (wsi->a.protocol)
+			wsi->a.protocol->callback(wsi,
 				wsi->role_ops->protocol_unbind_cb[
 				       !!lwsi_role_server(wsi)],
 				       wsi->user_space, (void *)__func__, 0);
@@ -481,7 +481,7 @@ just_kill_connection:
 	if ((lwsi_state(wsi) == LRS_WAITING_SERVER_REPLY ||
 	     lwsi_state(wsi) == LRS_WAITING_DNS ||
 	     lwsi_state(wsi) == LRS_WAITING_CONNECT) &&
-	     !wsi->already_did_cce && wsi->protocol) {
+	     !wsi->already_did_cce && wsi->a.protocol) {
 		static const char _reason[] = "closed before established";
 
 		lwsl_debug("%s: closing in unestablished state 0x%x\n",
@@ -617,7 +617,7 @@ just_kill_connection:
 		 */
 		ccb = 1;
 
-	pro = wsi->protocol;
+	pro = wsi->a.protocol;
 
 #if defined(LWS_WITH_CLIENT)
 	if (!ccb && (lwsi_state_PRE_CLOSE(wsi) & LWSIFS_NOT_EST) &&
@@ -627,8 +627,8 @@ just_kill_connection:
 #endif
 	if (ccb) {
 
-		if (!wsi->protocol && wsi->vhost && wsi->vhost->protocols)
-			pro = &wsi->vhost->protocols[0];
+		if (!wsi->a.protocol && wsi->a.vhost && wsi->a.vhost->protocols)
+			pro = &wsi->a.vhost->protocols[0];
 
 		if (pro)
 			pro->callback(wsi,
@@ -643,8 +643,8 @@ async_close:
 	lws_remove_child_from_any_parent(wsi);
 	wsi->socket_is_permanently_unusable = 1;
 
-	if (wsi->context->event_loop_ops->wsi_logical_close)
-		if (wsi->context->event_loop_ops->wsi_logical_close(wsi))
+	if (wsi->a.context->event_loop_ops->wsi_logical_close)
+		if (wsi->a.context->event_loop_ops->wsi_logical_close(wsi))
 			return;
 
 	__lws_close_free_wsi_final(wsi);
@@ -664,20 +664,20 @@ __lws_close_free_wsi_final(struct lws *wsi)
 
 		__remove_wsi_socket_from_fds(wsi);
 		if (lws_socket_is_valid(wsi->desc.sockfd))
-			delete_from_fd(wsi->context, wsi->desc.sockfd);
+			delete_from_fd(wsi->a.context, wsi->desc.sockfd);
 
 #if !defined(LWS_PLAT_FREERTOS) && !defined(WIN32) && !defined(LWS_PLAT_OPTEE)
-		delete_from_fdwsi(wsi->context, wsi);
+		delete_from_fdwsi(wsi->a.context, wsi);
 #endif
 
-		sanity_assert_no_sockfd_traces(wsi->context, wsi->desc.sockfd);
+		sanity_assert_no_sockfd_traces(wsi->a.context, wsi->desc.sockfd);
 
 		wsi->desc.sockfd = LWS_SOCK_INVALID;
 	}
 
 	/* outermost destroy notification for wsi (user_space still intact) */
-	if (wsi->vhost)
-		wsi->vhost->protocols[0].callback(wsi, LWS_CALLBACK_WSI_DESTROY,
+	if (wsi->a.vhost)
+		wsi->a.vhost->protocols[0].callback(wsi, LWS_CALLBACK_WSI_DESTROY,
 						  wsi->user_space, NULL, 0);
 
 #ifdef LWS_WITH_CGI
@@ -689,7 +689,7 @@ __lws_close_free_wsi_final(struct lws *wsi)
 #endif
 
 	__lws_wsi_remove_from_sul(wsi);
-	sanity_assert_no_wsi_traces(wsi->context, wsi);
+	sanity_assert_no_wsi_traces(wsi->a.context, wsi);
 	__lws_free_wsi(wsi);
 }
 
@@ -697,7 +697,7 @@ __lws_close_free_wsi_final(struct lws *wsi)
 void
 lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *caller)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 
 	lws_pt_lock(pt, __func__);
 	__lws_close_free_wsi(wsi, reason, caller);

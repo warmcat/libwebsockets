@@ -27,7 +27,7 @@
 int
 lws_callback_as_writeable(struct lws *wsi)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	int n, m;
 
 	lws_stats_bump(pt, LWSSTATS_C_WRITEABLE_CB, 1);
@@ -42,7 +42,7 @@ lws_callback_as_writeable(struct lws *wsi)
 	}
 #endif
 #if defined(LWS_WITH_DETAILED_LATENCY)
-	if (wsi->context->detailed_latency_cb && lwsi_state_est(wsi)) {
+	if (wsi->a.context->detailed_latency_cb && lwsi_state_est(wsi)) {
 		lws_usec_t us = lws_now_usecs();
 
 		wsi->detlat.earliest_write_req_pre_write =
@@ -53,7 +53,7 @@ lws_callback_as_writeable(struct lws *wsi)
 	}
 #endif
 	n = wsi->role_ops->writeable_cb[lwsi_role_server(wsi)];
-	m = user_callback_handle_rxflow(wsi->protocol->callback,
+	m = user_callback_handle_rxflow(wsi->a.protocol->callback,
 					wsi, (enum lws_callback_reasons) n,
 					wsi->user_space, NULL, 0);
 
@@ -245,7 +245,7 @@ bail_die:
 int
 lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	uint8_t *buffered;
 	size_t blen;
 	int ret = LWSRXFC_CACHED, m;
@@ -371,8 +371,8 @@ lws_buflist_aware_read(struct lws_context_per_thread *pt, struct lws *wsi,
 	if (!ebuf->token)
 		ebuf->token = pt->serv_buf + LWS_PRE;
 	if (!ebuf->len ||
-	    (unsigned int)ebuf->len > wsi->context->pt_serv_buf_size - LWS_PRE)
-		ebuf->len = wsi->context->pt_serv_buf_size - LWS_PRE;
+	    (unsigned int)ebuf->len > wsi->a.context->pt_serv_buf_size - LWS_PRE)
+		ebuf->len = wsi->a.context->pt_serv_buf_size - LWS_PRE;
 
 	e = ebuf->len;
 	ep = ebuf->token;
@@ -450,7 +450,7 @@ int
 lws_buflist_aware_finished_consuming(struct lws *wsi, struct lws_tokens *ebuf,
 				     int used, int buffered, const char *hint)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	int m;
 
 	//lwsl_debug("%s %s consuming buffered %d used %zu / %zu\n", __func__, hint,

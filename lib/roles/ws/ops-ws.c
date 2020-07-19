@@ -156,7 +156,7 @@ handle_first:
 		switch (wsi->ws->opcode) {
 		case LWSWSOPC_TEXT_FRAME:
 			wsi->ws->check_utf8 = lws_check_opt(
-				wsi->context->options,
+				wsi->a.context->options,
 				LWS_SERVER_OPTION_VALIDATE_UTF8);
 			/* fallthru */
 		case LWSWSOPC_BINARY_FRAME:
@@ -422,12 +422,12 @@ handle_first:
 		 * if there's no protocol max frame size given, we are
 		 * supposed to default to context->pt_serv_buf_size
 		 */
-		if (!wsi->protocol->rx_buffer_size &&
-		    wsi->ws->rx_ubuf_head != wsi->context->pt_serv_buf_size)
+		if (!wsi->a.protocol->rx_buffer_size &&
+		    wsi->ws->rx_ubuf_head != wsi->a.context->pt_serv_buf_size)
 			break;
 
-		if (wsi->protocol->rx_buffer_size &&
-		    wsi->ws->rx_ubuf_head != wsi->protocol->rx_buffer_size)
+		if (wsi->a.protocol->rx_buffer_size &&
+		    wsi->ws->rx_ubuf_head != wsi->a.protocol->rx_buffer_size)
 			break;
 
 		/* spill because we filled our rx buffer */
@@ -437,7 +437,7 @@ spill:
 		 * layer?  If so service it and hide it from the user callback
 		 */
 
-		lwsl_parser("spill on %s\n", wsi->protocol->name);
+		lwsl_parser("spill on %s\n", wsi->a.protocol->name);
 
 		switch (wsi->ws->opcode) {
 		case LWSWSOPC_CLOSE:
@@ -448,7 +448,7 @@ spill:
 			wsi->ws->peer_has_sent_close = 1;
 
 			pp = &wsi->ws->rx_ubuf[LWS_PRE];
-			if (lws_check_opt(wsi->context->options,
+			if (lws_check_opt(wsi->a.context->options,
 					  LWS_SERVER_OPTION_VALIDATE_UTF8) &&
 			    wsi->ws->rx_ubuf_head > 2 &&
 			    lws_check_utf8(&wsi->ws->utf8, pp + 2,
@@ -498,7 +498,7 @@ spill:
 			}
 
 			if (user_callback_handle_rxflow(
-					wsi->protocol->callback, wsi,
+					wsi->a.protocol->callback, wsi,
 					LWS_CALLBACK_WS_PEER_INITIATED_CLOSE,
 					wsi->user_space,
 					&wsi->ws->rx_ubuf[LWS_PRE],
@@ -706,14 +706,14 @@ utf8_fail:
 				if (pmdrx.eb_out.len)
 					pmdrx.eb_out.token[pmdrx.eb_out.len] = '\0';
 
-				if (wsi->protocol->callback &&
+				if (wsi->a.protocol->callback &&
 				    !(already_processed & ALREADY_PROCESSED_NO_CB)) {
 					if (callback_action ==
 						      LWS_CALLBACK_RECEIVE_PONG)
 						lwsl_info("Doing pong callback\n");
 
 					ret = user_callback_handle_rxflow(
-						wsi->protocol->callback, wsi,
+						wsi->a.protocol->callback, wsi,
 						(enum lws_callback_reasons)
 							     callback_action,
 						wsi->user_space,
@@ -764,7 +764,7 @@ void
 lws_add_wsi_to_draining_ext_list(struct lws *wsi)
 {
 #if !defined(LWS_WITHOUT_EXTENSIONS)
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 
 	if (wsi->ws->rx_draining_ext)
 		return;
@@ -781,7 +781,7 @@ void
 lws_remove_wsi_from_draining_ext_list(struct lws *wsi)
 {
 #if !defined(LWS_WITHOUT_EXTENSIONS)
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	struct lws **w = &pt->ws.rx_draining_ext_list;
 
 	if (!wsi->ws->rx_draining_ext)
@@ -836,9 +836,9 @@ lws_server_init_wsi_for_ws(struct lws *wsi)
 	 * a big default for compatibility
 	 */
 
-	n = (int)wsi->protocol->rx_buffer_size;
+	n = (int)wsi->a.protocol->rx_buffer_size;
 	if (!n)
-		n = wsi->context->pt_serv_buf_size;
+		n = wsi->a.context->pt_serv_buf_size;
 	n += LWS_PRE;
 	wsi->ws->rx_ubuf = lws_malloc(n + 4 /* 0x0000ffff zlib */, "rx_ubuf");
 	if (!wsi->ws->rx_ubuf) {
@@ -849,8 +849,8 @@ lws_server_init_wsi_for_ws(struct lws *wsi)
 
 	/* notify user code that we're ready to roll */
 
-	if (wsi->protocol->callback)
-		if (wsi->protocol->callback(wsi, LWS_CALLBACK_ESTABLISHED,
+	if (wsi->a.protocol->callback)
+		if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_ESTABLISHED,
 					    wsi->user_space,
 #ifdef LWS_WITH_TLS
 					    wsi->tls.ssl,
@@ -954,7 +954,7 @@ rops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
 
-	// lwsl_notice("%s: %s\n", __func__, wsi->protocol->name);
+	// lwsl_notice("%s: %s\n", __func__, wsi->a.protocol->name);
 
 	//lwsl_info("%s: wsistate 0x%x, pollout %d\n", __func__,
 	//	   wsi->wsistate, pollfd->revents & LWS_POLLOUT);
@@ -1123,10 +1123,10 @@ read:
 		if (lwsi_role_ws(wsi))
 			ebuf.len = wsi->ws->rx_ubuf_alloc;
 		else
-			ebuf.len = wsi->context->pt_serv_buf_size;
+			ebuf.len = wsi->a.context->pt_serv_buf_size;
 
-		if ((unsigned int)ebuf.len > wsi->context->pt_serv_buf_size)
-			ebuf.len = wsi->context->pt_serv_buf_size;
+		if ((unsigned int)ebuf.len > wsi->a.context->pt_serv_buf_size)
+			ebuf.len = wsi->a.context->pt_serv_buf_size;
 
 		if ((int)pending > ebuf.len)
 			pending = ebuf.len;
@@ -1214,8 +1214,8 @@ drain:
 			pending = pending > wsi->ws->rx_ubuf_alloc ?
 				wsi->ws->rx_ubuf_alloc : pending;
 		else
-			pending = pending > wsi->context->pt_serv_buf_size ?
-				wsi->context->pt_serv_buf_size : pending;
+			pending = pending > wsi->a.context->pt_serv_buf_size ?
+				wsi->a.context->pt_serv_buf_size : pending;
 		goto read;
 	}
 
@@ -1246,7 +1246,7 @@ int rops_handle_POLLOUT_ws(struct lws *wsi)
 
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	lwsl_debug("%s: %s: wsi->ws->tx_draining_ext %d\n", __func__,
-			wsi->protocol->name, wsi->ws->tx_draining_ext);
+			wsi->a.protocol->name, wsi->ws->tx_draining_ext);
 #endif
 
 	/* Priority 3: pending control packets (pong or close)
@@ -1317,7 +1317,7 @@ int rops_handle_POLLOUT_ws(struct lws *wsi)
 	    wsi->ws->send_check_ping) {
 
 		lwsl_info("%s: issuing ping on wsi %p: %s %s h2: %d\n", __func__, wsi,
-				wsi->role_ops->name, wsi->protocol->name,
+				wsi->role_ops->name, wsi->a.protocol->name,
 				wsi->mux_substream);
 		wsi->ws->send_check_ping = 0;
 		n = lws_write(wsi, &wsi->ws->ping_payload_buf[LWS_PRE],
@@ -1565,7 +1565,7 @@ rops_write_role_protocol_ws(struct lws *wsi, unsigned char *buf, size_t len,
 			    enum lws_write_protocol *wp)
 {
 #if !defined(LWS_WITHOUT_EXTENSIONS)
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	enum lws_write_protocol wpt;
 #endif
 	struct lws_ext_pm_deflate_rx_ebufs pmdrx;

@@ -61,7 +61,7 @@ __lws_ssl_remove_wsi_from_buffered_list(struct lws *wsi)
 void
 lws_ssl_remove_wsi_from_buffered_list(struct lws *wsi)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 
 	lws_pt_lock(pt, __func__);
 	__lws_ssl_remove_wsi_from_buffered_list(wsi);
@@ -175,10 +175,10 @@ lws_tls_cert_updated(struct lws_context *context, const char *certpath,
 {
 	struct lws wsi;
 
-	wsi.context = context;
+	wsi.a.context = context;
 
 	lws_start_foreach_ll(struct lws_vhost *, v, context->vhost_list) {
-		wsi.vhost = v; /* not a real bound wsi */
+		wsi.a.vhost = v; /* not a real bound wsi */
 		if (v->tls.alloc_cert_path && v->tls.key_path &&
 		    !strcmp(v->tls.alloc_cert_path, certpath) &&
 		    !strcmp(v->tls.key_path, keypath)) {

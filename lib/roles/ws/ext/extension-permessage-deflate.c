@@ -52,9 +52,9 @@ lws_extension_pmdeflate_restrict_args(struct lws *wsi,
 
 	/* cap the RX buf at the nearest power of 2 to protocol rx buf */
 
-	n = wsi->context->pt_serv_buf_size;
-	if (wsi->protocol->rx_buffer_size)
-		n = (int)wsi->protocol->rx_buffer_size;
+	n = wsi->a.context->pt_serv_buf_size;
+	if (wsi->a.protocol->rx_buffer_size)
+		n = (int)wsi->a.protocol->rx_buffer_size;
 
 	extra = 7;
 	while (n >= 1 << (extra + 1))
@@ -130,13 +130,13 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 	case LWS_EXT_CB_CONSTRUCT:
 
 		n = context->pt_serv_buf_size;
-		if (wsi->protocol->rx_buffer_size)
-			n = (int)wsi->protocol->rx_buffer_size;
+		if (wsi->a.protocol->rx_buffer_size)
+			n = (int)wsi->a.protocol->rx_buffer_size;
 
 		if (n < 128) {
 			lwsl_info(" permessage-deflate requires the protocol "
 				  "(%s) to have an RX buffer >= 128\n",
-				  wsi->protocol->name);
+				  wsi->a.protocol->name);
 			return -1;
 		}
 
@@ -379,7 +379,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 			n = deflateInit2(&priv->tx, priv->args[PMD_COMP_LEVEL],
 					 Z_DEFLATED,
 					 -priv->args[PMD_SERVER_MAX_WINDOW_BITS +
-						(wsi->vhost->listen_port <= 0)],
+						(wsi->a.vhost->listen_port <= 0)],
 					 priv->args[PMD_MEM_LEVEL],
 					 Z_DEFAULT_STRATEGY);
 			if (n != Z_OK) {

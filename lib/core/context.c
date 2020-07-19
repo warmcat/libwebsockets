@@ -352,7 +352,10 @@ lws_create_context(const struct lws_context_creation_info *info)
 		s1 = info->pt_serv_buf_size;
 
 	/* pt fakewsi and the pt serv buf allocations ride after the context */
-	size += count_threads * (s1 + sizeof(struct lws));
+	size += count_threads * s1;
+#if !defined(LWS_PLAT_FREERTOS)
+	size += (count_threads * sizeof(struct lws));
+#endif
 #endif
 
 	context = lws_zalloc(size, "context");
@@ -704,6 +707,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 		context->pt[n].context = context;
 		context->pt[n].tid = n;
 
+#if !defined(LWS_PLAT_FREERTOS)
 		/*
 		 * We overallocated for a fakewsi (can't compose it in the
 		 * pt because size isn't known at that time).  point to it
@@ -715,6 +719,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 		u += sizeof(struct lws);
 
 		memset(context->pt[n].fake_wsi, 0, sizeof(struct lws));
+#endif
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 		context->pt[n].http.ah_list = NULL;

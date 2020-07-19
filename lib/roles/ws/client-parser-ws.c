@@ -82,7 +82,7 @@ int lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 #endif
 				wsi->ws->continuation_possible = 1;
 				wsi->ws->check_utf8 = lws_check_opt(
-					wsi->context->options,
+					wsi->a.context->options,
 					LWS_SERVER_OPTION_VALIDATE_UTF8);
 				wsi->ws->utf8 = 0;
 				wsi->ws->first_fragment = 1;
@@ -362,12 +362,12 @@ int lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 		 * if there's no protocol max frame size given, we are
 		 * supposed to default to context->pt_serv_buf_size
 		 */
-		if (!wsi->protocol->rx_buffer_size &&
-		    wsi->ws->rx_ubuf_head != wsi->context->pt_serv_buf_size)
+		if (!wsi->a.protocol->rx_buffer_size &&
+		    wsi->ws->rx_ubuf_head != wsi->a.context->pt_serv_buf_size)
 			break;
 
-		if (wsi->protocol->rx_buffer_size &&
-		    wsi->ws->rx_ubuf_head != wsi->protocol->rx_buffer_size)
+		if (wsi->a.protocol->rx_buffer_size &&
+		    wsi->ws->rx_ubuf_head != wsi->a.protocol->rx_buffer_size)
 			break;
 
 		/* spill because we filled our rx buffer */
@@ -386,7 +386,7 @@ spill:
 		switch (wsi->ws->opcode) {
 		case LWSWSOPC_CLOSE:
 			pp = &wsi->ws->rx_ubuf[LWS_PRE];
-			if (lws_check_opt(wsi->context->options,
+			if (lws_check_opt(wsi->a.context->options,
 					  LWS_SERVER_OPTION_VALIDATE_UTF8) &&
 			    wsi->ws->rx_ubuf_head > 2 &&
 			    lws_check_utf8(&wsi->ws->utf8, pp + 2,
@@ -422,7 +422,7 @@ spill:
 				}
 			}
 			if (user_callback_handle_rxflow(
-					wsi->protocol->callback, wsi,
+					wsi->a.protocol->callback, wsi,
 					LWS_CALLBACK_WS_PEER_INITIATED_CLOSE,
 					wsi->user_space, pp,
 					wsi->ws->rx_ubuf_head))
@@ -619,7 +619,7 @@ utf8_fail:
 
 			pmdrx.eb_out.token[pmdrx.eb_out.len] = '\0';
 
-			if (!wsi->protocol->callback)
+			if (!wsi->a.protocol->callback)
 				goto already_done;
 
 			if (callback_action == LWS_CALLBACK_CLIENT_RECEIVE_PONG)
@@ -651,7 +651,7 @@ utf8_fail:
 			)
 				pmdrx.eb_in.len -= pmdrx.eb_out.len;
 
-			m = wsi->protocol->callback(wsi,
+			m = wsi->a.protocol->callback(wsi,
 					(enum lws_callback_reasons)callback_action,
 					wsi->user_space, pmdrx.eb_out.token,
 					pmdrx.eb_out.len);

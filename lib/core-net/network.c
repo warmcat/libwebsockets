@@ -153,7 +153,7 @@ lws_get_peer_addresses(struct lws *wsi, lws_sockfd_type fd, char *name,
 	name[0] = '\0';
 
 #ifdef LWS_WITH_IPV6
-	if (LWS_IPV6_ENABLED(wsi->vhost)) {
+	if (LWS_IPV6_ENABLED(wsi->a.vhost)) {
 		len = sizeof(sin6);
 		p = &sin6;
 	} else
@@ -168,7 +168,7 @@ lws_get_peer_addresses(struct lws *wsi, lws_sockfd_type fd, char *name,
 		goto bail;
 	}
 
-	lws_get_addresses(wsi->vhost, p, name, name_len, rip, rip_len);
+	lws_get_addresses(wsi->a.vhost, p, name, name_len, rip, rip_len);
 
 bail:
 #endif
@@ -430,7 +430,7 @@ int
 lws_retry_sul_schedule_retry_wsi(struct lws *wsi, lws_sorted_usec_list_t *sul,
 				 sul_cb_t cb, uint16_t *ctry)
 {
-	return lws_retry_sul_schedule(wsi->context, wsi->tsi, sul,
+	return lws_retry_sul_schedule(wsi->a.context, wsi->tsi, sul,
 				      wsi->retry_policy, cb, ctry);
 }
 

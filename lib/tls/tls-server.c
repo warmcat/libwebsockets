@@ -44,7 +44,9 @@ lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 			    struct lws_vhost *vhost)
 {
 	struct lws_context *context = vhost->context;
-	struct lws *wsi = context->pt[0].fake_wsi;
+	lws_fakewsi_def_plwsa(&vhost->context->pt[0]);
+
+	lws_fakewsi_prep_plwsa_ctx(vhost->context);
 
 	if (!lws_check_opt(info->options,
 			   LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT)) {
@@ -81,9 +83,7 @@ lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 	 * give him a fake wsi with context + vhost set, so he can use
 	 * lws_get_context() in the callback
 	 */
-	wsi->vhost = vhost; /* not a real bound wsi */
-	wsi->context = context;
-	wsi->protocol = NULL;
+	plwsa->vhost = vhost; /* not a real bound wsi */
 
 	/*
 	 * as a server, if we are requiring clients to identify themselves
@@ -99,12 +99,12 @@ lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 	 * allowing it to verify incoming client certs
 	 */
 	if (vhost->tls.use_ssl) {
-		if (lws_tls_server_vhost_backend_init(info, vhost, wsi))
+		if (lws_tls_server_vhost_backend_init(info, vhost, (struct lws *)plwsa))
 			return -1;
 
 		lws_tls_server_client_cert_verify_config(vhost);
 
-		if (vhost->protocols[0].callback(wsi,
+		if (vhost->protocols[0].callback((struct lws *)plwsa,
 			    LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS,
 			    vhost->tls.ssl_ctx, vhost, 0))
 			return -1;
@@ -127,12 +127,12 @@ lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 int
 lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char from_pollin)
 {
-	struct lws_context *context = wsi->context;
+	struct lws_context *context = wsi->a.context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	struct lws_vhost *vh;
 	int n;
 
-	if (!LWS_SSL_ENABLED(wsi->vhost))
+	if (!LWS_SSL_ENABLED(wsi->a.vhost))
 		return 0;
 
 	switch (lwsi_state(wsi)) {
@@ -187,7 +187,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 			goto fail;
 		}
 
-		if (wsi->vhost->tls.allow_non_ssl_on_ssl_port && !wsi->skip_fallback) {
+		if (wsi->a.vhost->tls.allow_non_ssl_on_ssl_port && !wsi->skip_fallback) {
 			/*
 			 * We came here by POLLIN, so there is supposed to be
 			 * something to read...
@@ -240,7 +240,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 				 */
 				wsi->tls.ssl = NULL;
 
-				if (lws_check_opt(wsi->vhost->options,
+				if (lws_check_opt(wsi->a.vhost->options,
 				    LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS)) {
 					lwsl_info("%s: redirecting from http "
 						  "to https\n", __func__);
@@ -248,7 +248,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 					goto notls_accepted;
 				}
 
-				if (lws_check_opt(wsi->vhost->options,
+				if (lws_check_opt(wsi->a.vhost->options,
 				LWS_SERVER_OPTION_ALLOW_HTTP_ON_HTTPS_LISTENER)) {
 					lwsl_info("%s: allowing unencrypted "
 						  "http service on tls port\n",
@@ -256,7 +256,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 					goto notls_accepted;
 				}
 
-				if (lws_check_opt(wsi->vhost->options,
+				if (lws_check_opt(wsi->a.vhost->options,
 		    LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG)) {
 					if (lws_http_to_fallback(wsi, NULL, 0))
 						goto fail;
@@ -267,7 +267,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 
 				lwsl_notice("%s: client did not send a valid "
 					    "tls hello (default vhost %s)\n",
-					    __func__, wsi->vhost->name);
+					    __func__, wsi->a.vhost->name);
 				goto fail;
 			}
 			if (!n) {
@@ -356,7 +356,7 @@ punt:
 				lws_now_usecs() -
 				wsi->detlat.earliest_write_req_pre_write;
 			wsi->detlat.latencies[LAT_DUR_USERCB] = 0;
-			lws_det_lat_cb(wsi->context, &wsi->detlat);
+			lws_det_lat_cb(wsi->a.context, &wsi->detlat);
 		}
 #endif
 

@@ -208,7 +208,7 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		//bad = status != 200;
 		//lws_cancel_service(lws_get_context(wsi)); /* abort poll wait */
 		if (h->policy && !(h->policy->flags & LWSSSPOLF_OPPORTUNISTIC) &&
-		    !h->txn_ok && !wsi->context->being_destroyed) {
+		    !h->txn_ok && !wsi->a.context->being_destroyed) {
 			if (lws_ss_backoff(h))
 				break;
 		} else
@@ -345,7 +345,7 @@ malformed:
 
 			buflen = sizeof(buf) - o - 2;
 			n = lws_system_blob_get(
-				lws_system_get_blob(wsi->context, blob_idx[m], 0),
+				lws_system_get_blob(wsi->a.context, blob_idx[m], 0),
 						    buf + o, &buflen, 0);
 			if (n < 0)
 				return -1;
@@ -532,7 +532,7 @@ malformed:
 				conceal_eom = 0;
 #endif
 			} else {
-				h->rideshare = lws_ss_policy_lookup(wsi->context,
+				h->rideshare = lws_ss_policy_lookup(wsi->a.context,
 						h->rideshare->rideshare_streamtype);
 				lws_callback_on_writable(wsi);
 			}

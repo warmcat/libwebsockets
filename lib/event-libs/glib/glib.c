@@ -129,11 +129,11 @@ lws_glib_dispatch(GSource *src, GSourceFunc x, gpointer userData)
 	lwsl_debug("%s: wsi %p: fd %d, events %d\n", __func__, sub->wsi,
 			eventfd.fd, eventfd.revents);
 
-	pt = &sub->wsi->context->pt[(int)sub->wsi->tsi];
+	pt = &sub->wsi->a.context->pt[(int)sub->wsi->tsi];
 	if (pt->is_destroyed)
 		return G_SOURCE_CONTINUE;
 
-	lws_service_fd_tsi(sub->wsi->context, &eventfd, sub->wsi->tsi);
+	lws_service_fd_tsi(sub->wsi->a.context, &eventfd, sub->wsi->tsi);
 
 	if (!lws_gs_valid(pt->glib.idle))
 		lws_glib_set_idle(pt);
@@ -255,7 +255,7 @@ elops_init_context_glib(struct lws_context *context,
 static int
 elops_accept_glib(struct lws *wsi)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	int fd;
 
 	assert(!wsi_to_subclass(wsi));
@@ -266,7 +266,7 @@ elops_accept_glib(struct lws *wsi)
 	if (!wsi_to_subclass(wsi))
 		return 1;
 
-	wsi->w_read.context = wsi->context;
+	wsi->w_read.context = wsi->a.context;
 	wsi_to_subclass(wsi)->wsi = wsi;
 
 	if (wsi->role_ops->file_handle)
@@ -279,7 +279,7 @@ elops_accept_glib(struct lws *wsi)
 	wsi->w_read.actual_events = LWS_POLLIN;
 
 	g_source_set_callback(wsi_to_gsource(wsi),
-			G_SOURCE_FUNC(lws_service_fd), wsi->context, NULL);
+			G_SOURCE_FUNC(lws_service_fd), wsi->a.context, NULL);
 
 	g_source_attach(wsi_to_gsource(wsi), pt_to_g_main_context(pt));
 
@@ -338,10 +338,10 @@ elops_init_pt_glib(struct lws_context *context, void *_loop, int tsi)
 static void
 elops_io_glib(struct lws *wsi, int flags)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	GIOCondition cond = wsi->w_read.actual_events | G_IO_ERR;
 
-	if (!pt_to_loop(pt) || wsi->context->being_destroyed || pt->is_destroyed)
+	if (!pt_to_loop(pt) || wsi->a.context->being_destroyed || pt->is_destroyed)
 		return;
 
 	if (!wsi_to_subclass(wsi))
@@ -392,7 +392,7 @@ elops_destroy_wsi_glib(struct lws *wsi)
 	if (!wsi)
 		return;
 
-	pt = &wsi->context->pt[(int)wsi->tsi];
+	pt = &wsi->a.context->pt[(int)wsi->tsi];
 	if (pt->is_destroyed)
 		return;
 

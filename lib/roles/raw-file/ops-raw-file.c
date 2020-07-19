@@ -41,7 +41,7 @@ rops_handle_POLLIN_raw_file(struct lws_context_per_thread *pt, struct lws *wsi,
 	}
 
 	if (pollfd->revents & LWS_POLLIN) {
-		if (user_callback_handle_rxflow(wsi->protocol->callback,
+		if (user_callback_handle_rxflow(wsi->a.protocol->callback,
 						wsi, LWS_CALLBACK_RAW_RX_FILE,
 						wsi->user_space, NULL, 0)) {
 			lwsl_debug("raw rx callback closed it\n");
@@ -67,12 +67,12 @@ rops_adoption_bind_raw_file(struct lws *wsi, int type, const char *vh_prot_name)
 	lws_role_transition(wsi, 0, LRS_ESTABLISHED, &role_ops_raw_file);
 
 	if (!vh_prot_name) {
-		if (wsi->vhost->default_protocol_index >=
-		    wsi->vhost->count_protocols)
+		if (wsi->a.vhost->default_protocol_index >=
+		    wsi->a.vhost->count_protocols)
 			return 0;
 
-		wsi->protocol = &wsi->vhost->protocols[
-					wsi->vhost->default_protocol_index];
+		wsi->a.protocol = &wsi->a.vhost->protocols[
+					wsi->a.vhost->default_protocol_index];
 	}
 
 	return 1; /* bound */

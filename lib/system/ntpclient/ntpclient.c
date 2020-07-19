@@ -123,18 +123,18 @@ callback_ntpc(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			break;
 
 		lwsl_debug("%s: LWS_CALLBACK_PROTOCOL_INIT:\n", __func__);
-		lws_protocol_vh_priv_zalloc(wsi->vhost, wsi->protocol,
+		lws_protocol_vh_priv_zalloc(wsi->a.vhost, wsi->a.protocol,
 					    sizeof(*v));
-		v = (struct vhd_ntpc *)lws_protocol_vh_priv_get(wsi->vhost,
-								wsi->protocol);
+		v = (struct vhd_ntpc *)lws_protocol_vh_priv_get(wsi->a.vhost,
+								wsi->a.protocol);
 		v->context = lws_get_context(wsi);
 		v->vhost = lws_get_vhost(wsi);
 		v->protocol = lws_get_protocol(wsi);
 
 		v->context->ntpclient_priv = v;
 
-		if (!lws_system_get_ops(wsi->context) ||
-		    !lws_system_get_ops(wsi->context)->set_clock) {
+		if (!lws_system_get_ops(wsi->a.context) ||
+		    !lws_system_get_ops(wsi->a.context)->set_clock) {
 #if !defined(LWS_ESP_PLATFORM)
 			lwsl_err("%s: set up system ops for set_clock\n",
 					__func__);
@@ -226,17 +226,17 @@ do_close:
 			t.tv_sec = (unsigned long long)ns / 1000000000;
 			t.tv_usec = (ns % 1000000000) / 1000;
 
-			lws_sul_nonmonotonic_adjust(wsi->context, delta_us);
+			lws_sul_nonmonotonic_adjust(wsi->a.context, delta_us);
 
 			settimeofday(&t, NULL);
 		}
 #endif
-		if (lws_system_get_ops(wsi->context) &&
-		    lws_system_get_ops(wsi->context)->set_clock)
-			lws_system_get_ops(wsi->context)->set_clock(ns / 1000);
+		if (lws_system_get_ops(wsi->a.context) &&
+		    lws_system_get_ops(wsi->a.context)->set_clock)
+			lws_system_get_ops(wsi->a.context)->set_clock(ns / 1000);
 
 		v->set_time = 1;
-		lws_state_transition_steps(&wsi->context->mgr_system,
+		lws_state_transition_steps(&wsi->a.context->mgr_system,
 					   LWS_SYSTATE_OPERATIONAL);
 
 		/* close the wsi */
@@ -276,7 +276,7 @@ do_close:
 		lwsl_err("%s: Failed to write ntp client req\n", __func__);
 
 retry_conn:
-		lws_retry_sul_schedule(wsi->context, 0, &v->sul_conn, &bo,
+		lws_retry_sul_schedule(wsi->a.context, 0, &v->sul_conn, &bo,
 				       lws_ntpc_retry_conn,
 				       &v->retry_count_conn);
 

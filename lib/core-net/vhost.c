@@ -147,18 +147,18 @@ lws_role_call_adoption_bind(struct lws *wsi, int type, const char *prot)
 	 * if the vhost is told to bind accepted sockets to a given role,
 	 * then look it up by name and try to bind to the specific role.
 	 */
-	if (lws_check_opt(wsi->vhost->options,
+	if (lws_check_opt(wsi->a.vhost->options,
 			  LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG) &&
-	    wsi->vhost->listen_accept_role) {
+	    wsi->a.vhost->listen_accept_role) {
 		const struct lws_role_ops *role =
-			lws_role_by_name(wsi->vhost->listen_accept_role);
+			lws_role_by_name(wsi->a.vhost->listen_accept_role);
 
 		if (!prot)
-			prot = wsi->vhost->listen_accept_protocol;
+			prot = wsi->a.vhost->listen_accept_protocol;
 
 		if (!role)
 			lwsl_err("%s: can't find role '%s'\n", __func__,
-				  wsi->vhost->listen_accept_role);
+				  wsi->a.vhost->listen_accept_role);
 
 		if (role && role->adoption_bind) {
 			n = role->adoption_bind(wsi, type, prot);
@@ -177,7 +177,7 @@ lws_role_call_adoption_bind(struct lws *wsi, int type, const char *prot)
 
 		lwsl_warn("%s: adoption bind to role '%s', "
 			  "protocol '%s', type 0x%x, failed\n", __func__,
-			  wsi->vhost->listen_accept_role, prot, type);
+			  wsi->a.vhost->listen_accept_role, prot, type);
 	}
 
 	/*
@@ -313,16 +313,17 @@ int
 lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 {
 	const struct lws_protocol_vhost_options *pvo, *pvo1;
-	struct lws *wsi = vh->context->pt[0].fake_wsi;
+	lws_fakewsi_def_plwsa(&vh->context->pt[0]);
 	int n;
 
-	wsi->context = vh->context;
-	wsi->vhost = vh;
+	lws_fakewsi_prep_plwsa_ctx(vh->context);
+
+	plwsa->vhost = vh;
 
 	/* initialize supported protocols on this vhost */
 
 	for (n = 0; n < vh->count_protocols; n++) {
-		wsi->protocol = &vh->protocols[n];
+		plwsa->protocol = &vh->protocols[n];
 		if (!vh->protocols[n].name)
 			continue;
 		pvo = lws_vhost_protocol_options(vh, vh->protocols[n].name);
@@ -372,10 +373,10 @@ lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 		 * inform all the protocols that they are doing their
 		 * one-time initialization if they want to.
 		 *
-		 * NOTE the wsi is all zeros except for the context, vh
-		 * + protocol ptrs so lws_get_context(wsi) etc can work
+		 * NOTE the fakewsi is garbage, except the key pointers that are
+		 * prepared in case the protocol handler wants to touch them
 		 */
-		if (vh->protocols[n].callback(wsi,
+		if (vh->protocols[n].callback((struct lws *)plwsa,
 				LWS_CALLBACK_PROTOCOL_INIT, NULL,
 				(void *)pvo, 0)) {
 			if (vh->protocol_vh_privs[n]) {
@@ -929,11 +930,11 @@ lws_create_event_pipes(struct lws_context *context)
 			lwsl_err("%s: Out of mem\n", __func__);
 			return 1;
 		}
-		wsi->context = context;
+		wsi->a.context = context;
 		lws_role_transition(wsi, 0, LRS_UNCONNECTED, &role_ops_pipe);
-		wsi->protocol = NULL;
+		wsi->a.protocol = NULL;
 		wsi->tsi = n;
-		wsi->vhost = NULL;
+		wsi->a.vhost = NULL;
 		wsi->event_pipe = 1;
 		wsi->desc.sockfd = LWS_SOCK_INVALID;
 		context->pt[n].pipe_wsi = wsi;
@@ -972,17 +973,17 @@ lws_destroy_event_pipe(struct lws *wsi)
 	if (lws_socket_is_valid(wsi->desc.sockfd))
 		__remove_wsi_socket_from_fds(wsi);
 
-	if (!wsi->context->event_loop_ops->destroy_wsi &&
-	    wsi->context->event_loop_ops->wsi_logical_close) {
-		wsi->context->event_loop_ops->wsi_logical_close(wsi);
+	if (!wsi->a.context->event_loop_ops->destroy_wsi &&
+	    wsi->a.context->event_loop_ops->wsi_logical_close) {
+		wsi->a.context->event_loop_ops->wsi_logical_close(wsi);
 		lws_plat_pipe_close(wsi);
 		return;
 	}
 
-	if (wsi->context->event_loop_ops->destroy_wsi)
-		wsi->context->event_loop_ops->destroy_wsi(wsi);
+	if (wsi->a.context->event_loop_ops->destroy_wsi)
+		wsi->a.context->event_loop_ops->destroy_wsi(wsi);
 	lws_plat_pipe_close(wsi);
-	wsi->context->count_wsi_allocated--;
+	wsi->a.context->count_wsi_allocated--;
 	lws_free(wsi);
 }
 
@@ -1113,13 +1114,13 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 	 */
 
 	memset(&wsi, 0, sizeof(wsi));
-	wsi.context = vh->context;
-	wsi.vhost = vh; /* not a real bound wsi */
+	wsi.a.context = vh->context;
+	wsi.a.vhost = vh; /* not a real bound wsi */
 	protocol = vh->protocols;
 	if (protocol && vh->created_vhost_protocols) {
 		n = 0;
 		while (n < vh->count_protocols) {
-			wsi.protocol = protocol;
+			wsi.a.protocol = protocol;
 
 			if (protocol->callback)
 				protocol->callback(&wsi, LWS_CALLBACK_PROTOCOL_DESTROY,
@@ -1292,7 +1293,7 @@ lws_check_deferred_free(struct lws_context *context, int tsi, int force)
 				struct lws *wsi = wsi_from_fd(context, pt->fds[n].fd);
 				if (!wsi)
 					continue;
-				if (wsi->vhost != v)
+				if (wsi->a.vhost != v)
 					continue;
 
 				__lws_close_free_wsi(wsi,
@@ -1389,7 +1390,7 @@ lws_context_deprecate(struct lws_context *context, lws_reload_func cb)
 		if (wsi) {
 			wsi->socket_is_permanently_unusable = 1;
 			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "ctx deprecate");
-			wsi->context->deprecation_pending_listen_close_count++;
+			wsi->a.context->deprecation_pending_listen_close_count++;
 			/*
 			 * other vhosts can share the listen port, they
 			 * point to the same wsi.  So zap those too.
@@ -1463,10 +1464,10 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 	}
 #endif
 
-	lws_vhost_lock(wsi->vhost); /* ----------------------------------- { */
+	lws_vhost_lock(wsi->a.vhost); /* ----------------------------------- { */
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				   wsi->vhost->dll_cli_active_conns_owner.head) {
+				   wsi->a.vhost->dll_cli_active_conns_owner.head) {
 		struct lws *w = lws_container_of(d, struct lws,
 						 dll_cli_active_conns);
 
@@ -1522,7 +1523,7 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 
 				wsi->client_h2_alpn = 1;
 				lws_wsi_h2_adopt(w, wsi);
-				lws_vhost_unlock(wsi->vhost); /* } ---------- */
+				lws_vhost_unlock(wsi->a.vhost); /* } ---------- */
 
 				*nwsi = w;
 
@@ -1544,7 +1545,7 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 					lws_dll2_remove(&wsi->dll2_cli_txn_queue);
 					wsi->client_mux_substream = 1;
 
-					lws_vhost_unlock(wsi->vhost); /* } ---------- */
+					lws_vhost_unlock(wsi->a.vhost); /* } ---------- */
 
 
 					return ACTIVE_CONNS_MUXED;
@@ -1577,7 +1578,7 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 			 * and wait for our turn at client transaction_complete
 			 * to take over parsing the rx.
 			 */
-			lws_vhost_unlock(wsi->vhost); /* } ---------- */
+			lws_vhost_unlock(wsi->a.vhost); /* } ---------- */
 
 			*nwsi = w;
 
@@ -1587,7 +1588,7 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 	} lws_end_foreach_dll_safe(d, d1);
 
 solo:
-	lws_vhost_unlock(wsi->vhost); /* } ---------------------------------- */
+	lws_vhost_unlock(wsi->a.vhost); /* } ---------------------------------- */
 
 	/* there is nobody already connected in the same way */
 
