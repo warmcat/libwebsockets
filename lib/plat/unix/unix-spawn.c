@@ -84,7 +84,7 @@ lws_create_basic_wsi(struct lws_context *context, int tsi,
 	}
 
 	new_wsi->tsi = tsi;
-	new_wsi->context = context;
+	new_wsi->a.context = context;
 	new_wsi->pending_timeout = NO_PENDING_TIMEOUT;
 	new_wsi->rxflow_change_to = LWS_RXFLOW_ALLOW;
 
@@ -361,8 +361,8 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		}
 		lsp->stdwsi[n]->lsp_channel = n;
 		lws_vhost_bind_wsi(i->vh, lsp->stdwsi[n]);
-		lsp->stdwsi[n]->protocol = pcol;
-		lsp->stdwsi[n]->opaque_user_data = i->opaque;
+		lsp->stdwsi[n]->a.protocol = pcol;
+		lsp->stdwsi[n]->a.opaque_user_data = i->opaque;
 
 		lwsl_debug("%s: lsp stdwsi %p: pipe idx %d -> fd %d / %d\n", __func__,
 			   lsp->stdwsi[n], n, lsp->pipe_fds[n][n == 0],

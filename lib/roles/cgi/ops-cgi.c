@@ -74,7 +74,7 @@ rops_handle_POLLIN_cgi(struct lws_context_per_thread *pt, struct lws *wsi,
 	lwsl_debug("CGI LWS_STDOUT %p wsistate 0x%x\n",
 		   wsi->parent, wsi->wsistate);
 
-	if (user_callback_handle_rxflow(wsi->parent->protocol->callback,
+	if (user_callback_handle_rxflow(wsi->parent->a.protocol->callback,
 					wsi->parent, LWS_CALLBACK_CGI,
 					wsi->parent->user_space,
 					(void *)&args, 0))

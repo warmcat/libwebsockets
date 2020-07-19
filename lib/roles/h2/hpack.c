@@ -283,7 +283,7 @@ static int lws_frag_append(struct lws *wsi, unsigned char c)
 	ah->data[ah->pos++] = c;
 	ah->frags[ah->nfrag].len++;
 
-	return (int)ah->pos >= wsi->context->max_http_header_data;
+	return (int)ah->pos >= wsi->a.context->max_http_header_data;
 }
 
 static int lws_frag_end(struct lws *wsi)
@@ -597,27 +597,27 @@ lws_hpack_dynamic_size(struct lws *wsi, int size)
 	dyn = &nwsi->h2.h2n->hpack_dyn_table;
 	lwsl_info("%s: from %d to %d, lim %u\n", __func__,
 		  (int)dyn->num_entries, size,
-		  (unsigned int)nwsi->vhost->h2.set.s[H2SET_HEADER_TABLE_SIZE]);
+		  (unsigned int)nwsi->a.vhost->h2.set.s[H2SET_HEADER_TABLE_SIZE]);
 
 	if (!size) {
 		size = dyn->num_entries * 8;
 		lws_hpack_destroy_dynamic_header(wsi);
 	}
 
-	if (size > (int)nwsi->vhost->h2.set.s[H2SET_HEADER_TABLE_SIZE]) {
+	if (size > (int)nwsi->a.vhost->h2.set.s[H2SET_HEADER_TABLE_SIZE]) {
 		lwsl_info("rejecting hpack dyn size %u vs %u\n", size,
-			  (unsigned int)nwsi->vhost->h2.set.s[H2SET_HEADER_TABLE_SIZE]);
+			  (unsigned int)nwsi->a.vhost->h2.set.s[H2SET_HEADER_TABLE_SIZE]);
 
 		// this seems necessary to work with some browsers
 
-		if (nwsi->vhost->h2.set.s[H2SET_HEADER_TABLE_SIZE] == 65536 &&
+		if (nwsi->a.vhost->h2.set.s[H2SET_HEADER_TABLE_SIZE] == 65536 &&
 				size == 65537) { /* h2spec */
 			lws_h2_goaway(nwsi, H2_ERR_COMPRESSION_ERROR,
 				  "Asked for header table bigger than we told");
 			goto bail;
 		}
 
-		size = nwsi->vhost->h2.set.s[H2SET_HEADER_TABLE_SIZE];
+		size = nwsi->a.vhost->h2.set.s[H2SET_HEADER_TABLE_SIZE];
 	}
 
 	dyn->virtual_payload_max = size;

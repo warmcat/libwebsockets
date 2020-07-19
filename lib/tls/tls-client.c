@@ -87,7 +87,9 @@ int lws_context_init_client_ssl(const struct lws_context_creation_info *info,
 	const char *cert_filepath = info->ssl_cert_filepath;
 	const char *ca_filepath = info->ssl_ca_filepath;
 	const char *cipher_list = info->ssl_cipher_list;
-	struct lws *wsi = vhost->context->pt[0].fake_wsi;
+	lws_fakewsi_def_plwsa(&vhost->context->pt[0]);
+
+	lws_fakewsi_prep_plwsa_ctx(vhost->context);
 
 	if (vhost->options & LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG)
 		return 0;
@@ -149,11 +151,9 @@ int lws_context_init_client_ssl(const struct lws_context_creation_info *info,
 	 * lws_get_context() in the callback
 	 */
 
-	wsi->vhost = vhost; /* not a real bound wsi */
-	wsi->context = vhost->context;
-	wsi->protocol = NULL;
+	plwsa->vhost = vhost; /* not a real bound wsi */
 
-	vhost->protocols[0].callback(wsi,
+	vhost->protocols[0].callback((struct lws *)plwsa,
 			LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS,
 				     vhost->tls.ssl_client_ctx, NULL, 0);
 

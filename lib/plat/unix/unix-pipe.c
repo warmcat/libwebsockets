@@ -31,7 +31,7 @@
 int
 lws_plat_pipe_create(struct lws *wsi)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 #if defined(LWS_HAVE_EVENTFD)
 	pt->dummy_pipe_fds[0] = eventfd(0, EFD_CLOEXEC|EFD_NONBLOCK);
 	pt->dummy_pipe_fds[1] = -1;
@@ -46,7 +46,7 @@ lws_plat_pipe_create(struct lws *wsi)
 int
 lws_plat_pipe_signal(struct lws *wsi)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 #if defined(LWS_HAVE_EVENTFD)
 	eventfd_t value = 1;
 	return eventfd_write(pt->dummy_pipe_fds[0], value);
@@ -63,7 +63,7 @@ lws_plat_pipe_signal(struct lws *wsi)
 void
 lws_plat_pipe_close(struct lws *wsi)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 
 	if (pt->dummy_pipe_fds[0] && pt->dummy_pipe_fds[0] != -1)
 		close(pt->dummy_pipe_fds[0]);

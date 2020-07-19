@@ -203,7 +203,7 @@ read:
 		ebuf.token = pt->serv_buf;
 		ebuf.len = lws_ssl_capable_read(wsi,
 					ebuf.token,
-					wsi->context->pt_serv_buf_size);
+					wsi->a.context->pt_serv_buf_size);
 		switch (ebuf.len) {
 		case 0:
 			lwsl_info("%s: zero length read\n", __func__);
@@ -248,7 +248,7 @@ drain:
 		 * callback and drain / re-enable it there
 		 */
 		if (user_callback_handle_rxflow(
-				wsi->protocol->callback,
+				wsi->a.protocol->callback,
 				wsi, LWS_CALLBACK_RECEIVE_CLIENT_HTTP,
 				wsi->user_space, NULL, 0)) {
 			lwsl_info("RECEIVE_CLIENT_HTTP closed it\n");
@@ -403,8 +403,8 @@ rops_write_role_protocol_h2(struct lws *wsi, unsigned char *buf, size_t len,
 	)) {
 		//assert(0);
 		lwsl_notice("%s: binning wsistate 0x%x %d: %s\n", __func__,
-				(unsigned int)wsi->wsistate, *wp, wsi->protocol ?
-					wsi->protocol->name : "no protocol");
+				(unsigned int)wsi->wsistate, *wp, wsi->a.protocol ?
+					wsi->a.protocol->name : "no protocol");
 
 		return 0;
 	}
@@ -502,7 +502,7 @@ rops_check_upgrades_h2(struct lws *wsi)
 	 * SETTINGS saying that we support it though.
 	 */
 	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_METHOD);
-	if (!wsi->vhost->h2.set.s[H2SET_ENABLE_CONNECT_PROTOCOL] ||
+	if (!wsi->a.vhost->h2.set.s[H2SET_ENABLE_CONNECT_PROTOCOL] ||
 	    !wsi->mux_substream || !p || strcmp(p, "CONNECT"))
 		return LWS_UPG_RET_CONTINUE;
 
@@ -511,7 +511,7 @@ rops_check_upgrades_h2(struct lws *wsi)
 		return LWS_UPG_RET_CONTINUE;
 
 #if defined(LWS_WITH_SERVER_STATUS)
-	wsi->vhost->conn_stats.ws_upg++;
+	wsi->a.vhost->conn_stats.ws_upg++;
 #endif
 	lwsl_info("Upgrade h2 to ws\n");
 	lws_mux_mark_immortal(wsi);
@@ -609,7 +609,7 @@ rops_tx_credit_h2(struct lws *wsi, char peer_to_us, int add)
 static int
 rops_destroy_role_h2(struct lws *wsi)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	struct allocated_headers *ah;
 
 	/* we may not have an ah, but may be on the waiting list... */
@@ -652,7 +652,7 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 
 		wsi->http.proxy_clientside = 0;
 
-		if (user_callback_handle_rxflow(wsi->protocol->callback,
+		if (user_callback_handle_rxflow(wsi->a.protocol->callback,
 						wsi,
 					    LWS_CALLBACK_COMPLETED_CLIENT_HTTP,
 						wsi->user_space, NULL, 0))
@@ -785,7 +785,7 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 			if (hit->protocol)
 				name = hit->protocol;
 
-			pp = lws_vhost_name_to_protocol(wsi->vhost, name);
+			pp = lws_vhost_name_to_protocol(wsi->a.vhost, name);
 			if (!pp) {
 				lwsl_info("Unable to find protocol '%s'\n", name);
 				return 1;
@@ -796,7 +796,7 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 		}
 
 		lwsl_info("%s: setting LRS_BODY from 0x%x (%s)\n", __func__,
-			    (int)wsi->wsistate, wsi->protocol->name);
+			    (int)wsi->wsistate, wsi->a.protocol->name);
 		lwsi_set_state(wsi, LRS_BODY);
 	}
 
@@ -1155,7 +1155,7 @@ rops_alpn_negotiated_h2(struct lws *wsi, const char *alpn)
 
 	wsi->upgraded_to_http2 = 1;
 #if defined(LWS_WITH_SERVER_STATUS)
-	wsi->vhost->conn_stats.h2_alpn++;
+	wsi->a.vhost->conn_stats.h2_alpn++;
 #endif
 
 	/* adopt the header info */

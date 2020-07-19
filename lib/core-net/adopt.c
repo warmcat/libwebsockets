@@ -70,7 +70,7 @@ lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi)
 		   vhost->name, new_wsi->tsi);
 
 	lws_vhost_bind_wsi(vhost, new_wsi);
-	new_wsi->context = vhost->context;
+	new_wsi->a.context = vhost->context;
 	new_wsi->pending_timeout = NO_PENDING_TIMEOUT;
 	new_wsi->rxflow_change_to = LWS_RXFLOW_ALLOW;
 	new_wsi->retry_policy = vhost->retry_policy;
@@ -95,7 +95,7 @@ lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi)
 	 * to the start of the supported list, so it can look
 	 * for matching ones during the handshake
 	 */
-	new_wsi->protocol = vhost->protocols;
+	new_wsi->a.protocol = vhost->protocols;
 	new_wsi->user_space = NULL;
 	new_wsi->desc.sockfd = LWS_SOCK_INVALID;
 	new_wsi->position_in_fds_table = LWS_NO_FDS_POS;
@@ -138,7 +138,7 @@ lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 	if (!new_wsi)
 		return NULL;
 
-	new_wsi->opaque_user_data = opaque;
+	new_wsi->a.opaque_user_data = opaque;
 
 	pt = &context->pt[(int)new_wsi->tsi];
 	lws_stats_bump(pt, LWSSTATS_C_CONNECTIONS, 1);
@@ -150,11 +150,11 @@ lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 	}
 
 	if (vh_prot_name) {
-		new_wsi->protocol = lws_vhost_name_to_protocol(new_wsi->vhost,
+		new_wsi->a.protocol = lws_vhost_name_to_protocol(new_wsi->a.vhost,
 							       vh_prot_name);
-		if (!new_wsi->protocol) {
+		if (!new_wsi->a.protocol) {
 			lwsl_err("Protocol %s not enabled on vhost %s\n",
-				 vh_prot_name, new_wsi->vhost->name);
+				 vh_prot_name, new_wsi->a.vhost->name);
 			goto bail;
 		}
 		if (lws_ensure_user_space(new_wsi)) {
@@ -174,7 +174,7 @@ lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 	 * he gets another identity (he may do async dns now...)
 	 */
 	lws_dll2_add_head(&new_wsi->vh_awaiting_socket,
-			  &new_wsi->vhost->vh_awaiting_socket_owner);
+			  &new_wsi->a.vhost->vh_awaiting_socket_owner);
 
 	return new_wsi;
 
@@ -198,7 +198,7 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 			    lws_sock_file_fd_type fd)
 {
 	struct lws_context_per_thread *pt =
-			&new_wsi->context->pt[(int)new_wsi->tsi];
+			&new_wsi->a.context->pt[(int)new_wsi->tsi];
 	int n;
 
 	/* enforce that every fd is nonblocking */
@@ -221,7 +221,7 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 
 	new_wsi->desc = fd;
 
-	if (!LWS_SSL_ENABLED(new_wsi->vhost) ||
+	if (!LWS_SSL_ENABLED(new_wsi->a.vhost) ||
 	    !(type & LWS_ADOPT_SOCKET))
 		type &= ~LWS_ADOPT_ALLOW_SSL;
 
@@ -236,8 +236,8 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 	if (new_wsi->role_ops->adoption_cb[lwsi_role_server(new_wsi)])
 		n = new_wsi->role_ops->adoption_cb[lwsi_role_server(new_wsi)];
 
-	if (new_wsi->context->event_loop_ops->sock_accept)
-		if (new_wsi->context->event_loop_ops->sock_accept(new_wsi))
+	if (new_wsi->a.context->event_loop_ops->sock_accept)
+		if (new_wsi->a.context->event_loop_ops->sock_accept(new_wsi))
 			goto fail;
 
 #if LWS_MAX_SMP > 1
@@ -251,7 +251,7 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 
 	if (!(type & LWS_ADOPT_ALLOW_SSL)) {
 		lws_pt_lock(pt, __func__);
-		if (__insert_wsi_socket_into_fds(new_wsi->context, new_wsi)) {
+		if (__insert_wsi_socket_into_fds(new_wsi->a.context, new_wsi)) {
 			lws_pt_unlock(pt);
 			lwsl_err("%s: fail inserting socket\n", __func__);
 			goto fail;
@@ -278,14 +278,14 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 	 *  by deferring callback to this point, after insertion to fds,
 	 * lws_callback_on_writable() can work from the callback
 	 */
-	if ((new_wsi->protocol->callback)(new_wsi, n, new_wsi->user_space,
+	if ((new_wsi->a.protocol->callback)(new_wsi, n, new_wsi->user_space,
 					  NULL, 0))
 		goto fail;
 
 	/* role may need to do something after all adoption completed */
 
 	lws_role_call_adoption_bind(new_wsi, type | _LWS_ADOPT_FINISH,
-				    new_wsi->protocol->name);
+				    new_wsi->a.protocol->name);
 
 #if LWS_MAX_SMP > 1
 	/* its actual pt can service it now */
@@ -409,7 +409,7 @@ adopt_socket_readbuf(struct lws *wsi, const char *readbuf, size_t len)
 	if (wsi->position_in_fds_table == LWS_NO_FDS_POS)
 		return wsi;
 
-	pt = &wsi->context->pt[(int)wsi->tsi];
+	pt = &wsi->a.context->pt[(int)wsi->tsi];
 
 	n = lws_buflist_append_segment(&wsi->buflist, (const uint8_t *)readbuf,
 				       len);
@@ -441,7 +441,7 @@ adopt_socket_readbuf(struct lws *wsi, const char *readbuf, size_t len)
 		pfd = &pt->fds[wsi->position_in_fds_table];
 		pfd->revents |= LWS_POLLIN;
 		lwsl_err("%s: calling service\n", __func__);
-		if (lws_service_fd_tsi(wsi->context, pfd, wsi->tsi))
+		if (lws_service_fd_tsi(wsi->a.context, pfd, wsi->tsi))
 			/* service closed us */
 			return NULL;
 

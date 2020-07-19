@@ -390,11 +390,13 @@ struct lws_context_per_thread {
 	lws_sorted_usec_list_t sul_peer_limits;
 #endif
 
+#if !defined(LWS_PLAT_FREERTOS)
+	struct lws *fake_wsi;   /* used for callbacks where there's no wsi */
+#endif
+
 #if defined(LWS_WITH_TLS)
 	struct lws_pt_tls tls;
 #endif
-	struct lws *fake_wsi;	/* used for callbacks where there's no wsi */
-
 	struct lws_context *context;
 
 	/*
@@ -638,7 +640,50 @@ lws_wsi_mux_apply_queue(struct lws *wsi);
  * struct lws
  */
 
+/*
+ * These pieces are very commonly used (via accessors) in user protocol handlers
+ * and have to be valid, even in the case no real wsi is available for the cb.
+ *
+ * We put all this category of pointers in there and compose it at the top of
+ * struct lws, so a dummy wsi providing these only needs to be this big, while
+ * still being castable for being a struct wsi *
+ */
+
+struct lws_a {
+	struct lws_context		*context;
+	struct lws_vhost		*vhost;
+	const struct lws_protocols	*protocol;
+	void				*opaque_user_data;
+};
+
+/*
+ * For RTOS-class platforms, their code is relatively new, post-minimal examples
+ * and tend to not have legacy user protocol handler baggage touching unexpected
+ * things in fakewsi unconditionally... we can use an lws_a on the stack and
+ * don't need to define the rest of the wsi content, just cast it, this saves
+ * a wsi footprint in heap (typ 800 bytes nowadays even on RTOS).
+ *
+ * For other platforms that have been around for years and have thousands of
+ * different user protocol handler implementations, it's likely some of them
+ * will be touching the struct lws content unconditionally in the handler even
+ * when we are calling back with a non wsi-specific reason, and may react badly
+ * to it being garbage.  So continue to implement those as a full, zero-ed down
+ * prepared fakewsi on heap at context creation time.
+ */
+
+#if defined(LWS_PLAT_FREERTOS)
+#define lws_fakewsi_def_plwsa(pt) struct lws_a lwsa, *plwsa = &lwsa
+#else
+#define lws_fakewsi_def_plwsa(pt) struct lws_a *plwsa = &(pt)->fake_wsi->a
+#endif
+/* since we reuse the pt version, also correct to zero down the lws_a part */
+#define lws_fakewsi_prep_plwsa_ctx(_c) \
+		memset(plwsa, 0, sizeof(*plwsa)); plwsa->context = _c
+
 struct lws {
+
+	struct lws_a			a;
+
 	/* structs */
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
@@ -699,13 +744,10 @@ struct lws {
 #endif
 	/* pointers */
 
-	struct lws_context		*context;
-	struct lws_vhost		*vhost;
 	struct lws			*parent; /* points to parent, if any */
 	struct lws			*child_list; /* points to first child */
 	struct lws			*sibling_list; /* subsequent children at same level */
 	const struct lws_role_ops	*role_ops;
-	const struct lws_protocols	*protocol;
 	struct lws_sequencer		*seq;	/* associated sequencer if any */
 	const lws_retry_bo_t		*retry_policy;
 
@@ -728,7 +770,6 @@ struct lws {
 #endif
 	void				*user_space;
 	void				*opaque_parent_data;
-	void				*opaque_user_data;
 
 	struct lws_buflist		*buflist; /* input-side buflist */
 	struct lws_buflist		*buflist_out; /* output-side buflist */

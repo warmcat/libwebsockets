@@ -268,9 +268,9 @@ elops_accept_event(struct lws *wsi)
 static void
 elops_io_event(struct lws *wsi, int flags)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 
-	if (!pt->event.io_loop || wsi->context->being_destroyed ||
+	if (!pt->event.io_loop || wsi->a.context->being_destroyed ||
 	    pt->is_destroyed)
 		return;
 
@@ -353,7 +353,7 @@ elops_destroy_wsi_event(struct lws *wsi)
 	if (!wsi)
 		return;
 
-	pt = &wsi->context->pt[(int)wsi->tsi];
+	pt = &wsi->a.context->pt[(int)wsi->tsi];
 	if (pt->is_destroyed)
 		return;
 
@@ -387,10 +387,10 @@ elops_init_vhost_listen_wsi_event(struct lws *wsi)
 		return 0;
 	}
 
-	wsi->w_read.context = wsi->context;
-	wsi->w_write.context = wsi->context;
+	wsi->w_read.context = wsi->a.context;
+	wsi->w_write.context = wsi->a.context;
 
-	pt = &wsi->context->pt[(int)wsi->tsi];
+	pt = &wsi->a.context->pt[(int)wsi->tsi];
 
 	if (wsi->role_ops->file_handle)
 		fd = wsi->desc.filefd;

@@ -28,7 +28,7 @@ static int
 rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 			  struct lws_pollfd *pollfd)
 {
-	struct lws_context *context = wsi->context;
+	struct lws_context *context = wsi->a.context;
 	lws_sockfd_type accept_fd = LWS_SOCK_INVALID;
 	lws_sock_file_fd_type fd;
 	struct sockaddr_storage cli_addr;
@@ -38,7 +38,7 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 
 	/* if our vhost is going down, ignore it */
 
-	if (wsi->vhost->being_destroyed)
+	if (wsi->a.vhost->being_destroyed)
 		return LWS_HPI_RET_HANDLED;
 
 	/* pollin means a client has connected to us then
@@ -61,7 +61,7 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 		 * another vhost may also have had POLLIN on his
 		 * listener this round and used it up already
 		 */
-		if (wsi->vhost->tls.use_ssl &&
+		if (wsi->a.vhost->tls.use_ssl &&
 		    context->simultaneous_ssl_restriction &&
 		    context->simultaneous_ssl ==
 				  context->simultaneous_ssl_restriction)
@@ -99,7 +99,7 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}
 
-		lws_plat_set_socket_options(wsi->vhost, accept_fd, 0);
+		lws_plat_set_socket_options(wsi->a.vhost, accept_fd, 0);
 
 #if defined(LWS_WITH_IPV6)
 		lwsl_debug("accepted new conn port %u on fd=%d\n",
@@ -124,7 +124,7 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 		 * protocol selected yet so we issue this to
 		 * protocols[0]
 		 */
-		if ((wsi->vhost->protocols[0].callback)(wsi,
+		if ((wsi->a.vhost->protocols[0].callback)(wsi,
 				LWS_CALLBACK_FILTER_NETWORK_CONNECTION,
 				NULL,
 				(void *)(lws_intptr_t)accept_fd, 0)) {
@@ -133,21 +133,21 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 			return LWS_HPI_RET_HANDLED;
 		}
 
-		if (!(wsi->vhost->options &
+		if (!(wsi->a.vhost->options &
 			LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG))
 			opts |= LWS_ADOPT_HTTP;
 
 #if defined(LWS_WITH_TLS)
-		if (!wsi->vhost->tls.use_ssl)
+		if (!wsi->a.vhost->tls.use_ssl)
 #endif
 			opts &= ~LWS_ADOPT_ALLOW_SSL;
 
 		fd.sockfd = accept_fd;
-		cwsi = lws_adopt_descriptor_vhost(wsi->vhost, opts, fd,
-				wsi->vhost->listen_accept_protocol, NULL);
+		cwsi = lws_adopt_descriptor_vhost(wsi->a.vhost, opts, fd,
+				wsi->a.vhost->listen_accept_protocol, NULL);
 		if (!cwsi) {
 			lwsl_info("%s: vh %s: adopt failed\n", __func__,
-					wsi->vhost->name);
+					wsi->a.vhost->name);
 
 			/* already closed cleanly as necessary */
 			return LWS_HPI_RET_WSI_ALREADY_DIED;

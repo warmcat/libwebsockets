@@ -42,7 +42,7 @@ lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1)
 
 #if defined(LWS_WITH_TLS)
 			if (!wsi->transaction_from_pipeline_queue &&
-			    lws_tls_restrict_borrow(wsi->context)) {
+			    lws_tls_restrict_borrow(wsi->a.context)) {
 				*pcce = "tls restriction limit";
 				return CCTLS_RETURN_ERROR;
 			}
@@ -52,13 +52,13 @@ lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1)
 		if (!do_c1)
 			return 0;
 
-		n = lws_ssl_client_connect1(wsi, (char *)wsi->context->pt[(int)wsi->tsi].serv_buf,
-					    wsi->context->pt_serv_buf_size);
+		n = lws_ssl_client_connect1(wsi, (char *)wsi->a.context->pt[(int)wsi->tsi].serv_buf,
+					    wsi->a.context->pt_serv_buf_size);
 		lwsl_debug("%s: lws_ssl_client_connect1: %d\n", __func__, n);
 		if (!n)
 			return CCTLS_RETURN_RETRY; /* caller should return 0 */
 		if (n < 0) {
-			*pcce = (const char *)wsi->context->pt[(int)wsi->tsi].serv_buf;
+			*pcce = (const char *)wsi->a.context->pt[(int)wsi->tsi].serv_buf;
 			return CCTLS_RETURN_ERROR;
 		}
 	} else
@@ -99,7 +99,7 @@ lws_client_http_body_pending(struct lws *wsi, int something_left_to_send)
 int
 lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 {
-	struct lws_context *context = wsi->context;
+	struct lws_context *context = wsi->a.context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	char *p = (char *)&pt->serv_buf[0];
 #if defined(LWS_WITH_TLS)
@@ -250,7 +250,7 @@ start_ws_handshake:
 				lws_now_usecs() -
 				wsi->detlat.earliest_write_req_pre_write;
 			wsi->detlat.latencies[LAT_DUR_USERCB] = 0;
-			lws_det_lat_cb(wsi->context, &wsi->detlat);
+			lws_det_lat_cb(wsi->a.context, &wsi->detlat);
 		}
 #endif
 #if defined (LWS_WITH_HTTP2)
@@ -356,7 +356,7 @@ start_ws_handshake:
 		}
 
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
-				wsi->context->timeout_secs);
+				wsi->a.context->timeout_secs);
 
 		lws_callback_on_writable(wsi);
 
@@ -505,9 +505,9 @@ lws_http_transaction_completed_client(struct lws *wsi)
 {
 	int n;
 
-	lwsl_info("%s: wsi: %p (%s)\n", __func__, wsi, wsi->protocol->name);
+	lwsl_info("%s: wsi: %p (%s)\n", __func__, wsi, wsi->a.protocol->name);
 
-	if (user_callback_handle_rxflow(wsi->protocol->callback, wsi,
+	if (user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
 					LWS_CALLBACK_COMPLETED_CLIENT_HTTP,
 					wsi->user_space, NULL, 0)) {
 		lwsl_debug("%s: Completed call returned nonzero (role 0x%lx)\n",
@@ -552,7 +552,7 @@ lws_http_transaction_completed_client(struct lws *wsi)
 	wsi->http.ah->unk_pos = 0;
 
 	lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
-			wsi->context->timeout_secs);
+			wsi->a.context->timeout_secs);
 
 	/* If we're (re)starting on headers, need other implied init */
 	wsi->http.ah->ues = URIES_IDLE;
@@ -690,7 +690,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 
 		/* let's let the user code know, if he cares */
 
-		if (wsi->protocol->callback(wsi,
+		if (wsi->a.protocol->callback(wsi,
 					    LWS_CALLBACK_CLIENT_HTTP_REDIRECT,
 					    wsi->user_space, p, n)) {
 			cce = "HS: user code rejected redirect";
@@ -821,7 +821,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			 */
 			wsi->keepalive_rejected = 1;
 
-			lws_vhost_lock(wsi->vhost);
+			lws_vhost_lock(wsi->a.vhost);
 			lws_start_foreach_dll_safe(struct lws_dll2 *,
 						   d, d1,
 			  wsi->dll2_cli_txn_queue_owner.head) {
@@ -848,7 +848,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 #endif
 				ww->user_space = NULL;
 			} lws_end_foreach_dll_safe(d, d1);
-			lws_vhost_unlock(wsi->vhost);
+			lws_vhost_unlock(wsi->a.vhost);
 		}
 	}
 
@@ -897,7 +897,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		 * before the ws upgrade code discard it. ie: download reply body in case
 		 * of any other response code than 101.
 		 */
-		if (wsi->protocol->callback(wsi,
+		if (wsi->a.protocol->callback(wsi,
 					  LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP,
 					  wsi->user_space, NULL, 0)) {
 
@@ -919,7 +919,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		 */
 		ah1 = wsi->http.ah;
 		wsi->http.ah = ah;
-		if (wsi->protocol->callback(wsi,
+		if (wsi->a.protocol->callback(wsi,
 				LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH,
 					    wsi->user_space, NULL, 0)) {
 			wsi->http.ah = ah1;
@@ -933,7 +933,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		wsi->rxflow_change_to = LWS_RXFLOW_ALLOW;
 
 		/* call him back to inform him he is up */
-		if (wsi->protocol->callback(wsi,
+		if (wsi->a.protocol->callback(wsi,
 					    LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP,
 					    wsi->user_space, NULL, 0)) {
 			wsi->http.ah = ah1;
@@ -987,7 +987,7 @@ bail3:
 	close_reason = LWS_CLOSE_STATUS_NOSTATUS;
 
 bail2:
-	if (wsi->protocol) {
+	if (wsi->a.protocol) {
 		n = 0;
 		if (cce)
 			n = (int)strlen(cce);
@@ -996,8 +996,8 @@ bail2:
 	}
 
 	lwsl_info("closing connection (prot %s) "
-		  "due to bail2 connection error: %s\n", wsi->protocol ?
-				  wsi->protocol->name : "unknown", cce);
+		  "due to bail2 connection error: %s\n", wsi->a.protocol ?
+				  wsi->a.protocol->name : "unknown", cce);
 
 	/* closing will free up his parsing allocations */
 	lws_close_free_wsi(wsi, close_reason, "c hs interp");
@@ -1016,7 +1016,7 @@ lws_http_multipart_headers(struct lws *wsi, uint8_t *p)
 	char buf[10], arg[48];
 	int n;
 
-	lws_get_random(wsi->context, (uint8_t *)buf, sizeof(buf));
+	lws_get_random(wsi->a.context, (uint8_t *)buf, sizeof(buf));
 	lws_b64_encode_string(buf, sizeof(buf),
 			       wsi->http.multipart_boundary,
 			       sizeof(wsi->http.multipart_boundary));
@@ -1096,7 +1096,7 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 		if (pp) {
 			const struct lws_protocols *pr;
 
-			pr = lws_vhost_name_to_protocol(wsi->vhost, pp);
+			pr = lws_vhost_name_to_protocol(wsi->a.vhost, pp);
 
 			if (!pr) {
 				lwsl_err("protocol %s not enabled on vhost\n",
@@ -1107,7 +1107,7 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 			lws_bind_protocol(wsi, pr, __func__);
 		}
 
-		if ((wsi->protocol->callback)(wsi, LWS_CALLBACK_RAW_ADOPT,
+		if ((wsi->a.protocol->callback)(wsi, LWS_CALLBACK_RAW_ADOPT,
 					      wsi->user_space, NULL, 0))
 			return NULL;
 
@@ -1141,7 +1141,7 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 		     lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST));
 
 	if (lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_ORIGIN)) {
-		if (lws_check_opt(wsi->context->options,
+		if (lws_check_opt(wsi->a.context->options,
 				  LWS_SERVER_OPTION_JUST_USE_RAW_ORIGIN))
 			p += lws_snprintf(p, 128, "Origin: %s\x0d\x0a",
 				     lws_hdr_simple_ptr(wsi,
@@ -1194,10 +1194,10 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 
 	/* give userland a chance to append, eg, cookies */
 
-	if (wsi->protocol->callback(wsi,
+	if (wsi->a.protocol->callback(wsi,
 			LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER,
 			wsi->user_space, &p,
-			(pkt + wsi->context->pt_serv_buf_size) - p - 12))
+			(pkt + wsi->a.context->pt_serv_buf_size) - p - 12))
 		return NULL;
 
 	if (wsi->flags & LCCSCF_HTTP_X_WWW_FORM_URLENCODED) {
@@ -1245,7 +1245,7 @@ lws_http_basic_auth_gen(const char *user, const char *pw, char *buf, size_t len)
 int
 lws_http_client_read(struct lws *wsi, char **buf, int *len)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	struct lws_tokens eb;
 	int buffered, n, consumed = 0;
 
@@ -1425,7 +1425,7 @@ spin_chunks:
 		    !!wsi->protocol_bind_balance
 #endif
 		  ) {
-			if (user_callback_handle_rxflow(wsi->protocol->callback,
+			if (user_callback_handle_rxflow(wsi->a.protocol->callback,
 				wsi, LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ,
 				wsi->user_space, *buf, n)) {
 				lwsl_info("%s: RECEIVE_CLIENT_HTTP_READ returned -1\n",

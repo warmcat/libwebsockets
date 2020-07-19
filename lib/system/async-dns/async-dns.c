@@ -472,7 +472,7 @@ cancel(struct lws_dll2 *d, void *user)
 void
 lws_async_dns_cancel(struct lws *wsi)
 {
-	lws_async_dns_t *dns = &wsi->context->async_dns;
+	lws_async_dns_t *dns = &wsi->a.context->async_dns;
 
 	lws_dll2_foreach_safe(&dns->waiting, wsi, cancel);
 }

@@ -83,7 +83,7 @@ lws_create_basic_wsi(struct lws_context *context, int tsi,
 	}
 
 	new_wsi->tsi = tsi;
-	new_wsi->context = context;
+	new_wsi->a.context = context;
 	new_wsi->pending_timeout = NO_PENDING_TIMEOUT;
 	new_wsi->rxflow_change_to = LWS_RXFLOW_ALLOW;
 
@@ -296,7 +296,7 @@ windows_pipe_poll_hack(lws_sorted_usec_list_t *sul)
 			return;
 		} else
 			if (br)
-				wsi->protocol->callback(wsi,
+				wsi->a.protocol->callback(wsi,
 							LWS_CALLBACK_RAW_RX_FILE,
 							NULL, NULL, 0);
 	}

@@ -258,7 +258,7 @@ lws_mqtt_set_client_established(struct lws *wsi)
 	lws_role_transition(wsi, LWSIFR_CLIENT, LRS_ESTABLISHED,
 			    &role_ops_mqtt);
 
-	if (user_callback_handle_rxflow(wsi->protocol->callback,
+	if (user_callback_handle_rxflow(wsi->a.protocol->callback,
 					wsi, LWS_CALLBACK_MQTT_CLIENT_ESTABLISHED,
 					wsi->user_space, NULL, 0) < 0) {
 		lwsl_err("%s: MQTT_ESTABLISHED failed\n", __func__);
@@ -990,7 +990,7 @@ cmd_completion:
 				/* we were under SENT_CLIENT_HANDSHAKE timeout */
 				lws_set_timeout(wsi, 0, 0);
 
-				w = lws_create_new_server_wsi(wsi->vhost,
+				w = lws_create_new_server_wsi(wsi->a.vhost,
 							      wsi->tsi);
 				if (!w) {
 					lwsl_notice("%s: sid 1 migrate failed\n",
@@ -1020,7 +1020,7 @@ cmd_completion:
 				if (!wsi->mqtt)
 					return -1;
 				w->mqtt->wsi = w;
-				w->protocol = wsi->protocol;
+				w->a.protocol = wsi->a.protocol;
 				if (w->user_space &&
 				    !w->user_space_externally_allocated)
 					lws_free_set_NULL(w->user_space);
@@ -1030,8 +1030,8 @@ cmd_completion:
 					wsi->user_space_externally_allocated;
 				if (lws_ensure_user_space(w))
 					goto bail1;
-				w->opaque_user_data = wsi->opaque_user_data;
-				wsi->opaque_user_data = NULL;
+				w->a.opaque_user_data = wsi->a.opaque_user_data;
+				wsi->a.opaque_user_data = NULL;
 				w->stash = wsi->stash;
 				wsi->stash = NULL;
 
@@ -1041,7 +1041,7 @@ cmd_completion:
 						__func__, wsi, w);
 
 			#if defined(LWS_WITH_SERVER_STATUS)
-				wsi->vhost->conn_stats.h2_subs++;
+				wsi->a.vhost->conn_stats.h2_subs++;
 			#endif
 
 				/*
@@ -1065,11 +1065,11 @@ bail1:
 				wsi->mux.child_list = w->mux.sibling_list;
 				wsi->mux.child_count--;
 
-				w->context->count_wsi_allocated--;
+				w->a.context->count_wsi_allocated--;
 
 				if (w->user_space)
 					lws_free_set_NULL(w->user_space);
-				w->vhost->protocols[0].callback(w,
+				w->a.vhost->protocols[0].callback(w,
 							LWS_CALLBACK_WSI_DESTROY,
 							NULL, NULL, 0);
 				lws_vhost_unbind_wsi(w);
@@ -1094,7 +1094,7 @@ bail1:
 
 						w->mqtt->unacked_publish = 0;
 						if (user_callback_handle_rxflow(
-							    w->protocol->callback,
+							    w->a.protocol->callback,
 							    w, LWS_CALLBACK_MQTT_ACK,
 							    w->user_space, NULL, 0) < 0) {
 							lwsl_info("%s: MQTT_ACK requests close\n",
@@ -1160,7 +1160,7 @@ bail1:
 					    w->mqtt->ack_pkt_id == par->cpkt_id) {
 						w->mqtt->inside_subscribe = 0;
 						if (user_callback_handle_rxflow(
-							    w->protocol->callback,
+							    w->a.protocol->callback,
 							    w, LWS_CALLBACK_MQTT_SUBSCRIBED,
 							    w->user_space, NULL, 0) < 0) {
 							lwsl_err("%s: MQTT_SUBSCRIBE failed\n",
@@ -1210,7 +1210,7 @@ bail1:
 
 						w->mqtt->inside_unsubscribe = 0;
 						if (user_callback_handle_rxflow(
-							    w->protocol->callback,
+							    w->a.protocol->callback,
 							    w, LWS_CALLBACK_MQTT_UNSUBSCRIBED,
 							    w->user_space, NULL, 0) < 0) {
 							lwsl_info("%s: MQTT_UNSUBACK requests close\n",
@@ -1272,7 +1272,7 @@ bail1:
 						      wsi->mux.child_list) {
 					if (lws_mqtt_find_sub(w->mqtt,
 							      pub->topic))
-						if (w->protocol->callback(
+						if (w->a.protocol->callback(
 							    w, n,
 							    w->user_space,
 							    (void *)pub,
@@ -1582,7 +1582,7 @@ lws_mqtt_publish_resend(struct lws_sorted_usec_list *sul)
 
 	lwsl_notice("%s: wsi %p\n", __func__, mqtt->wsi);
 
-	if (mqtt->wsi->protocol->callback(mqtt->wsi, LWS_CALLBACK_MQTT_RESEND,
+	if (mqtt->wsi->a.protocol->callback(mqtt->wsi, LWS_CALLBACK_MQTT_RESEND,
 				mqtt->wsi->user_space, NULL, 0))
 		lws_set_timeout(mqtt->wsi, 1, LWS_TO_KILL_ASYNC);
 }
@@ -1591,7 +1591,7 @@ int
 lws_mqtt_client_send_publish(struct lws *wsi, lws_mqtt_publish_param_t *pub,
 			     const void *buf, uint32_t len, int is_complete)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	uint8_t *b = (uint8_t *)pt->serv_buf, *start, *p;
 	struct lws *nwsi = lws_get_network_wsi(wsi);
 	lws_mqtt_str_t mqtt_vh_payload;
@@ -1644,7 +1644,7 @@ lws_mqtt_client_send_publish(struct lws *wsi, lws_mqtt_publish_param_t *pub,
 
 	/* Will the chunk of payload fit? */
 	if ((vh_len + len) >=
-	    (wsi->context->pt_serv_buf_size - LWS_PRE)) {
+	    (wsi->a.context->pt_serv_buf_size - LWS_PRE)) {
 		lwsl_err("%s: Payload is too big\n", __func__);
 		return 1;
 	}
@@ -1728,7 +1728,7 @@ do_write:
 		 * so the user callback logic is the same for QoS0 or
 		 * QoS1
 		 */
-		if (wsi->protocol->callback(wsi, LWS_CALLBACK_MQTT_ACK,
+		if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_MQTT_ACK,
 					    wsi->user_space, NULL, 0)) {
 			lwsl_err("%s: ACK callback exited\n", __func__);
 			return 1;
@@ -1750,7 +1750,7 @@ do_write:
 int
 lws_mqtt_client_send_subcribe(struct lws *wsi, lws_mqtt_subscribe_param_t *sub)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	uint8_t *b = (uint8_t *)pt->serv_buf + LWS_PRE, *start = b, *p = start;
 	struct lws *nwsi = lws_get_network_wsi(wsi);
 	lws_mqtt_str_t mqtt_vh_payload;
@@ -1814,7 +1814,7 @@ lws_mqtt_client_send_subcribe(struct lws *wsi, lws_mqtt_subscribe_param_t *sub)
 			 */
 			lwsl_notice("%s: all topics already subscribed\n", __func__);
 			if (user_callback_handle_rxflow(
-				    wsi->protocol->callback,
+				    wsi->a.protocol->callback,
 				    wsi, LWS_CALLBACK_MQTT_SUBSCRIBED,
 				    wsi->user_space, NULL, 0) < 0) {
 				lwsl_err("%s: MQTT_SUBSCRIBE failed\n",
@@ -1853,7 +1853,7 @@ lws_mqtt_client_send_subcribe(struct lws *wsi, lws_mqtt_subscribe_param_t *sub)
 		p += lws_mqtt_vbi_encode(rem_len, p);
 
 		if ((rem_len + lws_ptr_diff(p, start)) >=
-					       wsi->context->pt_serv_buf_size) {
+					       wsi->a.context->pt_serv_buf_size) {
 			lwsl_err("%s: Payload is too big\n", __func__);
 			return 1;
 		}
@@ -1931,7 +1931,7 @@ int
 lws_mqtt_client_send_unsubcribe(struct lws *wsi,
 				const lws_mqtt_subscribe_param_t *unsub)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	uint8_t *b = (uint8_t *)pt->serv_buf + LWS_PRE, *start = b, *p = start;
 	struct lws *nwsi = lws_get_network_wsi(wsi);
 	lws_mqtt_str_t mqtt_vh_payload;
@@ -1970,7 +1970,7 @@ lws_mqtt_client_send_unsubcribe(struct lws *wsi,
 			 */
 			lwsl_notice("%s: unsubscribed!\n", __func__);
 			if (user_callback_handle_rxflow(
-				    wsi->protocol->callback,
+				    wsi->a.protocol->callback,
 				    wsi, LWS_CALLBACK_MQTT_UNSUBSCRIBED,
 				    wsi->user_space, NULL, 0) < 0) {
 				/*
@@ -2016,7 +2016,7 @@ lws_mqtt_client_send_unsubcribe(struct lws *wsi,
 		p += lws_mqtt_vbi_encode(rem_len, p);
 
 		if ((rem_len + lws_ptr_diff(p, start)) >=
-					       wsi->context->pt_serv_buf_size) {
+					       wsi->a.context->pt_serv_buf_size) {
 			lwsl_err("%s: Payload is too big\n", __func__);
 			return 1;
 		}
@@ -2104,7 +2104,7 @@ lws_wsi_mqtt_adopt(struct lws *parent_wsi, struct lws *wsi)
 	lws_callback_on_writable(wsi);
 
 #if defined(LWS_WITH_SERVER_STATUS)
-	wsi->vhost->conn_stats.mqtt_subs++;
+	wsi->a.vhost->conn_stats.mqtt_subs++;
 #endif
 
 	return wsi;
@@ -2117,7 +2117,7 @@ bail1:
 	if (wsi->user_space)
 		lws_free_set_NULL(wsi->user_space);
 
-	wsi->protocol->callback(wsi, LWS_CALLBACK_WSI_DESTROY, NULL, NULL, 0);
+	wsi->a.protocol->callback(wsi, LWS_CALLBACK_WSI_DESTROY, NULL, NULL, 0);
 	lws_free(wsi);
 
 	return NULL;

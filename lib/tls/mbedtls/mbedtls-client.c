@@ -34,7 +34,7 @@ int
 lws_ssl_client_bio_create(struct lws *wsi)
 {
 	char hostname[128], *p;
-	const char *alpn_comma = wsi->context->tls.alpn_default;
+	const char *alpn_comma = wsi->a.context->tls.alpn_default;
 	struct alpn_ctx protos;
 
 	if (wsi->stash)
@@ -60,13 +60,13 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		p++;
 	}
 
-	wsi->tls.ssl = SSL_new(wsi->vhost->tls.ssl_client_ctx);
+	wsi->tls.ssl = SSL_new(wsi->a.vhost->tls.ssl_client_ctx);
 	if (!wsi->tls.ssl) {
 		lwsl_info("%s: SSL_new() failed\n", __func__);
 		return -1;
 	}
 
-	if (wsi->vhost->tls.ssl_info_event_mask)
+	if (wsi->a.vhost->tls.ssl_info_event_mask)
 		SSL_set_info_callback(wsi->tls.ssl, lws_ssl_info_callback);
 
 	if (!(wsi->tls.use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK)) {
@@ -77,8 +77,8 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		X509_VERIFY_PARAM_set1_host(param, hostname, 0);
 	}
 
-	if (wsi->vhost->tls.alpn)
-		alpn_comma = wsi->vhost->tls.alpn;
+	if (wsi->a.vhost->tls.alpn)
+		alpn_comma = wsi->a.vhost->tls.alpn;
 
 	if (wsi->stash) {
 		lws_strncpy(hostname, wsi->stash->cis[CIS_HOST], sizeof(hostname));
@@ -108,7 +108,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	SSL_set_fd(wsi->tls.ssl, wsi->desc.sockfd);
 
 	if (wsi->sys_tls_client_cert) {
-		lws_system_blob_t *b = lws_system_get_blob(wsi->context,
+		lws_system_blob_t *b = lws_system_get_blob(wsi->a.context,
 					LWS_SYSBLOB_TYPE_CLIENT_CERT_DER,
 					wsi->sys_tls_client_cert - 1);
 		const uint8_t *data;
@@ -131,7 +131,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		if (SSL_use_certificate_ASN1(wsi->tls.ssl, data, size) != 1)
 			goto no_client_cert;
 
-		b = lws_system_get_blob(wsi->context,
+		b = lws_system_get_blob(wsi->a.context,
 					LWS_SYSBLOB_TYPE_CLIENT_KEY_DER,
 					wsi->sys_tls_client_cert - 1);
 		if (!b)
@@ -201,7 +201,7 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, int ebuf_len)
 {
 	int n;
 	X509 *peer = SSL_get_peer_certificate(wsi->tls.ssl);
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	char *sb = (char *)&pt->serv_buf[0];
 
 	if (!peer) {

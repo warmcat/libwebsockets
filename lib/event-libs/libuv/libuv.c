@@ -82,7 +82,7 @@ static void
 lws_io_cb(uv_poll_t *watcher, int status, int revents)
 {
 	struct lws *wsi = (struct lws *)((uv_handle_t *)watcher)->data;
-	struct lws_context *context = wsi->context;
+	struct lws_context *context = wsi->a.context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	struct lws_pollfd eventfd;
 
@@ -614,9 +614,9 @@ elops_close_handle_manually_uv(struct lws *wsi)
 static int
 elops_accept_uv(struct lws *wsi)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 
-	wsi->w_read.context = wsi->context;
+	wsi->w_read.context = wsi->a.context;
 
 	wsi->w_read.uv.pwatcher =
 		lws_malloc(sizeof(*wsi->w_read.uv.pwatcher), "uvh");
@@ -639,7 +639,7 @@ elops_accept_uv(struct lws *wsi)
 static void
 elops_io_uv(struct lws *wsi, int flags)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	struct lws_io_watcher *w = &wsi->w_read;
 	int current_events = w->actual_events & (UV_READABLE | UV_WRITABLE);
 
@@ -700,11 +700,11 @@ elops_init_vhost_listen_wsi_uv(struct lws *wsi)
 	if (wsi->w_read.context)
 		return 0;
 
-	pt = &wsi->context->pt[(int)wsi->tsi];
+	pt = &wsi->a.context->pt[(int)wsi->tsi];
 	if (!pt->uv.io_loop)
 		return 0;
 
-	wsi->w_read.context = wsi->context;
+	wsi->w_read.context = wsi->a.context;
 
 	wsi->w_read.uv.pwatcher =
 		lws_malloc(sizeof(*wsi->w_read.uv.pwatcher), "uvh");
@@ -873,7 +873,7 @@ lws_libuv_closewsi(uv_handle_t* handle)
 	 */
 
 #if defined(LWS_WITH_SERVER)
-	if (wsi->role_ops == &role_ops_listen && wsi->context->deprecated) {
+	if (wsi->role_ops == &role_ops_listen && wsi->a.context->deprecated) {
 		lspd = 1;
 		context->deprecation_pending_listen_close_count--;
 		if (!context->deprecation_pending_listen_close_count)

@@ -44,7 +44,7 @@ static const uint8_t *code = (const uint8_t *)
 static int
 lws_mqtt_generate_id(struct lws* wsi, lws_mqtt_str_t **ms, const char *client_id)
 {
-	struct lws_context *context = wsi->context;
+	struct lws_context *context = wsi->a.context;
 	uint16_t ran[24]; /* 16-bit so wrap bias from %62 diluted by ~1000 */
 	size_t n, len;
 	uint8_t *buf;
@@ -171,7 +171,7 @@ int
 lws_mqtt_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 			  struct lws *wsi_conn)
 {
-	struct lws_context *context = wsi->context;
+	struct lws_context *context = wsi->a.context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	int n = 0, m = 0;
 	struct lws_tokens ebuf;
@@ -266,7 +266,7 @@ lws_mqtt_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 				lws_now_usecs() -
 				wsi->detlat.earliest_write_req_pre_write;
 			wsi->detlat.latencies[LAT_DUR_USERCB] = 0;
-			lws_det_lat_cb(wsi->context, &wsi->detlat);
+			lws_det_lat_cb(wsi->a.context, &wsi->detlat);
 		}
 #endif
 #if 0
@@ -325,10 +325,10 @@ start_ws_handshake:
 	case LRS_MQTTC_AWAIT_CONNACK:
 		buffered = 0;
 		ebuf.token = pt->serv_buf;
-		ebuf.len = wsi->context->pt_serv_buf_size;
+		ebuf.len = wsi->a.context->pt_serv_buf_size;
 
-		if ((unsigned int)ebuf.len > wsi->context->pt_serv_buf_size)
-			ebuf.len = wsi->context->pt_serv_buf_size;
+		if ((unsigned int)ebuf.len > wsi->a.context->pt_serv_buf_size)
+			ebuf.len = wsi->a.context->pt_serv_buf_size;
 
 		if ((int)pending > ebuf.len)
 			pending = ebuf.len;

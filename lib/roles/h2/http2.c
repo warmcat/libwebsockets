@@ -133,7 +133,7 @@ lws_h2_new_pps(enum lws_h2_protocol_send_type type)
 
 void lws_h2_init(struct lws *wsi)
 {
-	wsi->h2.h2n->our_set = wsi->vhost->h2.set;
+	wsi->h2.h2n->our_set = wsi->a.vhost->h2.set;
 	wsi->h2.h2n->peer_set = lws_h2_defaults;
 }
 
@@ -261,12 +261,12 @@ lws_wsi_server_new(struct lws_vhost *vh, struct lws *parent_wsi,
 	lwsi_set_state(wsi, LRS_ESTABLISHED);
 	lwsi_set_role(wsi, lwsi_role(parent_wsi));
 
-	wsi->protocol = &vh->protocols[0];
+	wsi->a.protocol = &vh->protocols[0];
 	if (lws_ensure_user_space(wsi))
 		goto bail1;
 
 #if defined(LWS_WITH_SERVER_STATUS)
-	wsi->vhost->conn_stats.h2_subs++;
+	wsi->a.vhost->conn_stats.h2_subs++;
 #endif
 
 	/* get the ball rolling */
@@ -344,7 +344,7 @@ lws_wsi_h2_adopt(struct lws *parent_wsi, struct lws *wsi)
 	lws_callback_on_writable(wsi);
 
 #if defined(LWS_WITH_SERVER_STATUS)
-	wsi->vhost->conn_stats.h2_subs++;
+	wsi->a.vhost->conn_stats.h2_subs++;
 #endif
 
 	return wsi;
@@ -356,7 +356,7 @@ bail1:
 
 	if (wsi->user_space)
 		lws_free_set_NULL(wsi->user_space);
-	wsi->protocol->callback(wsi, LWS_CALLBACK_WSI_DESTROY, NULL, NULL, 0);
+	wsi->a.protocol->callback(wsi, LWS_CALLBACK_WSI_DESTROY, NULL, NULL, 0);
 	lws_free(wsi);
 
 	return NULL;
@@ -540,7 +540,7 @@ lws_h2_settings(struct lws *wsi, struct http2_settings *settings,
 
 			break;
 		case H2SET_MAX_FRAME_SIZE:
-			if (b < wsi->vhost->h2.set.s[H2SET_MAX_FRAME_SIZE]) {
+			if (b < wsi->a.vhost->h2.set.s[H2SET_MAX_FRAME_SIZE]) {
 				lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR,
 					      "Frame size < initial");
 				return 1;
@@ -766,7 +766,7 @@ int lws_h2_do_pps_send(struct lws *wsi)
 			if (lws_is_ssl(lws_get_network_wsi(wsi)))
 				break;
 
-			if (wsi->vhost->options &
+			if (wsi->a.vhost->options &
 				LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE)
 				break;
 
@@ -774,7 +774,7 @@ int lws_h2_do_pps_send(struct lws *wsi)
 			 * we need to treat the headers from the upgrade as the
 			 * first job.  So these need to get shifted to sid 1.
 			 */
-			h2n->swsi = lws_wsi_server_new(wsi->vhost, wsi, 1);
+			h2n->swsi = lws_wsi_server_new(wsi->a.vhost, wsi, 1);
 			if (!h2n->swsi)
 				goto bail;
 
@@ -794,7 +794,7 @@ int lws_h2_do_pps_send(struct lws *wsi)
 			lwsl_info("servicing initial http request\n");
 
 #if defined(LWS_WITH_SERVER_STATUS)
-			wsi->vhost->conn_stats.h2_trans++;
+			wsi->a.vhost->conn_stats.h2_trans++;
 #endif
 #if defined(LWS_WITH_SERVER)
 			if (lws_http_action(h2n->swsi))
@@ -867,7 +867,7 @@ int lws_h2_do_pps_send(struct lws *wsi)
 		if (cwsi) {
 			lwsl_debug("%s: closing cwsi %p %s %s (wsi %p)\n",
 				   __func__, cwsi, cwsi->role_ops->name,
-				   cwsi->protocol->name, wsi);
+				   cwsi->a.protocol->name, wsi);
 			lws_close_free_wsi(cwsi, 0, "reset stream");
 		}
 		break;
@@ -935,8 +935,8 @@ lws_h2_parse_frame_header(struct lws *wsi)
 
 	if (!wsi->immortal_substream_count)
 		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE,
-				wsi->vhost->keepalive_timeout ?
-					wsi->vhost->keepalive_timeout : 31);
+				wsi->a.vhost->keepalive_timeout ?
+					wsi->a.vhost->keepalive_timeout : 31);
 
 	if (h2n->sid)
 		h2n->swsi = lws_wsi_mux_from_id(wsi, h2n->sid);
@@ -1223,7 +1223,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 			 * of a new stream
 			 */
 
-			h2n->swsi = lws_wsi_server_new(wsi->vhost, wsi,
+			h2n->swsi = lws_wsi_server_new(wsi->a.vhost, wsi,
 						       h2n->sid);
 			if (!h2n->swsi) {
 				lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
@@ -1269,7 +1269,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 			assert(w->mux.sibling_list != w);
 		} lws_end_foreach_ll(w, mux.sibling_list);
 
-		if (lws_check_opt(h2n->swsi->vhost->options,
+		if (lws_check_opt(h2n->swsi->a.vhost->options,
 			       LWS_SERVER_OPTION_VH_H2_HALF_CLOSED_LONG_POLL)) {
 
 			/*
@@ -1401,7 +1401,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			 * we need to treat the headers from the upgrade as the
 			 * first job.  So these need to get shifted to sid 1.
 			 */
-			h2n->swsi = lws_wsi_server_new(wsi->vhost, wsi, 1);
+			h2n->swsi = lws_wsi_server_new(wsi->a.vhost, wsi, 1);
 			if (!h2n->swsi)
 				return 1;
 			h2n->sid = 1;
@@ -1424,15 +1424,15 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			h2n->swsi->flags = wsi->flags;
 #endif
 
-			h2n->swsi->protocol = wsi->protocol;
+			h2n->swsi->a.protocol = wsi->a.protocol;
 			if (h2n->swsi->user_space &&
 			    !h2n->swsi->user_space_externally_allocated)
 				lws_free(h2n->swsi->user_space);
 			h2n->swsi->user_space = wsi->user_space;
 			h2n->swsi->user_space_externally_allocated =
 					wsi->user_space_externally_allocated;
-			h2n->swsi->opaque_user_data = wsi->opaque_user_data;
-			wsi->opaque_user_data = NULL;
+			h2n->swsi->a.opaque_user_data = wsi->a.opaque_user_data;
+			wsi->a.opaque_user_data = NULL;
 			h2n->swsi->txc.manual_initial_tx_credit =
 					wsi->txc.manual_initial_tx_credit;
 
@@ -1635,7 +1635,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 #endif
 
 #if defined(LWS_WITH_SERVER_STATUS)
-		wsi->vhost->conn_stats.h2_trans++;
+		wsi->a.vhost->conn_stats.h2_trans++;
 #endif
 		p = lws_hdr_simple_ptr(h2n->swsi, WSI_TOKEN_HTTP_COLON_METHOD);
 		/*
@@ -1753,7 +1753,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			break; /* ignore */
 		}
 
-		if (eff_wsi->vhost->options &
+		if (eff_wsi->a.vhost->options &
 		        LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW &&
 		    (uint64_t)eff_wsi->txc.tx_cr + (uint64_t)h2n->hpack_e_dep >
 		    (uint64_t)0x7fffffff)
@@ -2011,8 +2011,8 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 				if (!wsi->immortal_substream_count)
 					lws_set_timeout(wsi,
 					PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE,
-						wsi->vhost->keepalive_timeout ?
-					    wsi->vhost->keepalive_timeout : 31);
+						wsi->a.vhost->keepalive_timeout ?
+					    wsi->a.vhost->keepalive_timeout : 31);
 
 				if (!h2n->swsi)
 					break;
@@ -2055,7 +2055,7 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 				}
 #if defined(LWS_WITH_CLIENT)
 				if (h2n->swsi->client_mux_substream) {
-					if (!h2n->swsi->protocol) {
+					if (!h2n->swsi->a.protocol) {
 						lwsl_err("%s: swsi %p doesn't have protocol\n",
 							 __func__, h2n->swsi);
 						m = 1;
@@ -2066,7 +2066,7 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 							__func__,
 							h2n->swsi->mux.my_sid);
 					m = user_callback_handle_rxflow(
-						h2n->swsi->protocol->callback,
+						h2n->swsi->a.protocol->callback,
 						h2n->swsi,
 					  LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ,
 						h2n->swsi->user_space,
@@ -2096,7 +2096,7 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 					if (m) {
 						struct lws_context_per_thread *pt;
 
-						pt = &wsi->context->pt[(int)wsi->tsi];
+						pt = &wsi->a.context->pt[(int)wsi->tsi];
 						lwsl_debug("%s: added %p to rxflow list\n",
 							   __func__, wsi);
 						lws_dll2_add_head(
@@ -2320,7 +2320,7 @@ fail:
 int
 lws_h2_client_handshake(struct lws *wsi)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	uint8_t *buf, *start, *p, *p1, *end;
 	char *meth = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD),
 	     *uri = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI);
@@ -2354,7 +2354,7 @@ lws_h2_client_handshake(struct lws *wsi)
 			__func__, wsi->mux.my_sid);
 
 	p = start = buf = pt->serv_buf + LWS_PRE;
-	end = start + (wsi->context->pt_serv_buf_size / 2) - LWS_PRE - 1;
+	end = start + (wsi->a.context->pt_serv_buf_size / 2) - LWS_PRE - 1;
 
 	/* it's time for us to send our client stream headers */
 
@@ -2418,7 +2418,7 @@ lws_h2_client_handshake(struct lws *wsi)
 
 	/* give userland a chance to append, eg, cookies */
 
-	if (wsi->protocol->callback(wsi,
+	if (wsi->a.protocol->callback(wsi,
 				LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER,
 				wsi->user_space, &p, (end - p) - 12))
 		goto fail_length;
@@ -2511,10 +2511,10 @@ lws_h2_ws_handshake(struct lws *wsi)
 		 *  - one came in, and ... */
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_PROTOCOL) &&
 		    /*  - it is not an empty string */
-		    wsi->protocol->name && wsi->protocol->name[0]) {
+		    wsi->a.protocol->name && wsi->a.protocol->name[0]) {
 			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_PROTOCOL,
-				(unsigned char *)wsi->protocol->name,
-				(int)strlen(wsi->protocol->name), &p, end))
+				(unsigned char *)wsi->a.protocol->name,
+				(int)strlen(wsi->a.protocol->name), &p, end))
 			return -1;
 		}
 	}
@@ -2544,7 +2544,7 @@ lws_h2_ws_handshake(struct lws *wsi)
 	hit = lws_find_mount(wsi, uri_ptr, n);
 
 	if (hit && hit->cgienv &&
-	    wsi->protocol->callback(wsi, LWS_CALLBACK_HTTP_PMO, wsi->user_space,
+	    wsi->a.protocol->callback(wsi, LWS_CALLBACK_HTTP_PMO, wsi->user_space,
 				    (void *)hit->cgienv, 0))
 		return 1;
 

@@ -36,7 +36,7 @@ lws_plat_pipe_create(struct lws *wsi)
 int
 lws_plat_pipe_signal(struct lws *wsi)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 
 	EnterCriticalSection(&pt->interrupt_lock);
 	pt->interrupt_requested = 1;
