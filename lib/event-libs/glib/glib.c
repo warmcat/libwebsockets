@@ -37,7 +37,7 @@
 
 #define lws_gs_valid(t)		  (t.gs)
 #define lws_gs_destroy(t)	  if (lws_gs_valid(t)) { \
-					g_source_remove(t.tag); \
+					g_source_destroy(t.gs); \
 					g_source_unref(t.gs); \
 					t.gs = NULL; t.tag = 0; }
 
