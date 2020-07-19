@@ -799,6 +799,11 @@ if (LWS_WITH_HUBBUB)
 	list(APPEND LIB_LIST ${LIBHUBBUB_LIBRARIES} )
 endif()
 
+if (LWS_HAVE_LIBCAP)
+	find_library(LIBCAP_LIBRARIES NAMES cap)
+	list(APPEND LIB_LIST ${LIBCAP_LIBRARIES} )
+endif()
+
 
 #
 # Append the "at end" pieces to the lib list
