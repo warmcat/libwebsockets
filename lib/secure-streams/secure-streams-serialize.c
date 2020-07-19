@@ -206,7 +206,7 @@ lws_ss_deserialize_tx_payload(struct lws_dsh *dsh, struct lws *wsi,
 	*flags = lws_ser_ru32be(&p[3]);
 
 #if defined(LWS_WITH_DETAILED_LATENCY)
-	if (wsi && wsi->context->detailed_latency_cb) {
+	if (wsi && wsi->a.context->detailed_latency_cb) {
 		/*
 		 * use the proxied latency information to compute the client
 		 * and our delays, and apply to wsi.

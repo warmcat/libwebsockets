@@ -59,7 +59,7 @@ OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 	else
 		lwsl_info("%s: couldn't get client cert CN\n", __func__);
 
-	n = wsi->vhost->protocols[0].callback(wsi,
+	n = wsi->a.vhost->protocols[0].callback(wsi,
 			LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION,
 					   x509_ctx, ssl, preverify_ok);
 
@@ -565,7 +565,7 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 
 	errno = 0;
 	ERR_clear_error();
-	wsi->tls.ssl = SSL_new(wsi->vhost->tls.ssl_ctx);
+	wsi->tls.ssl = SSL_new(wsi->a.vhost->tls.ssl_ctx);
 	if (wsi->tls.ssl == NULL) {
 		lwsl_err("SSL_new failed: %d (errno %d)\n",
 			 lws_ssl_get_error(wsi, 0), errno);
@@ -600,7 +600,7 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 #endif
 
 #if defined (LWS_HAVE_SSL_SET_INFO_CALLBACK)
-		if (wsi->vhost->tls.ssl_info_event_mask)
+		if (wsi->a.vhost->tls.ssl_info_event_mask)
 			SSL_set_info_callback(wsi->tls.ssl, lws_ssl_info_callback);
 #endif
 
@@ -619,7 +619,7 @@ lws_tls_server_abort_connection(struct lws *wsi)
 enum lws_ssl_capable_status
 lws_tls_server_accept(struct lws *wsi)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	union lws_tls_cert_info_results ir;
 	int m, n;
 

@@ -265,8 +265,8 @@ elops_accept_ev(struct lws *wsi)
 	else
 		fd = wsi->desc.sockfd;
 
-	wsi->w_read.context = wsi->context;
-	wsi->w_write.context = wsi->context;
+	wsi->w_read.context = wsi->a.context;
+	wsi->w_write.context = wsi->a.context;
 
 	ev_io_init(&wsi->w_read.ev.watcher, lws_accept_cb, fd, EV_READ);
 	ev_io_init(&wsi->w_write.ev.watcher, lws_accept_cb, fd, EV_WRITE);
@@ -277,7 +277,7 @@ elops_accept_ev(struct lws *wsi)
 static void
 elops_io_ev(struct lws *wsi, int flags)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 
 	if (!pt->ev.io_loop || pt->is_destroyed)
 		return;
@@ -350,8 +350,8 @@ elops_init_vhost_listen_wsi_ev(struct lws *wsi)
 		return 0;
 	}
 
-	wsi->w_read.context = wsi->context;
-	wsi->w_write.context = wsi->context;
+	wsi->w_read.context = wsi->a.context;
+	wsi->w_write.context = wsi->a.context;
 
 	if (wsi->role_ops->file_handle)
 		fd = wsi->desc.filefd;
@@ -369,7 +369,7 @@ elops_init_vhost_listen_wsi_ev(struct lws *wsi)
 static void
 elops_destroy_wsi_ev(struct lws *wsi)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 
 	ev_io_stop(pt->ev.io_loop, &wsi->w_read.ev.watcher);
 	ev_io_stop(pt->ev.io_loop, &wsi->w_write.ev.watcher);

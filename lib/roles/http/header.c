@@ -326,7 +326,7 @@ lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 			return 1;
 	}
 
-	headers = wsi->vhost->headers;
+	headers = wsi->a.vhost->headers;
 	while (headers) {
 		if (lws_add_http_header_by_name(wsi,
 				(const unsigned char *)headers->name,
@@ -337,7 +337,7 @@ lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 		headers = headers->next;
 	}
 
-	if (wsi->vhost->options &
+	if (wsi->a.vhost->options &
 	    LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE) {
 		headers = &pvo_hsbph[LWS_ARRAY_SIZE(pvo_hsbph) - 1];
 		while (headers) {
@@ -351,16 +351,16 @@ lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 		}
 	}
 
-	if (wsi->context->server_string &&
+	if (wsi->a.context->server_string &&
 	    !(_code & LWSAHH_FLAG_NO_SERVER_NAME)) {
-		assert(wsi->context->server_string_len > 0);
+		assert(wsi->a.context->server_string_len > 0);
 		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_SERVER,
-				(unsigned char *)wsi->context->server_string,
-				wsi->context->server_string_len, p, end))
+				(unsigned char *)wsi->a.context->server_string,
+				wsi->a.context->server_string_len, p, end))
 			return 1;
 	}
 
-	if (wsi->vhost->options & LWS_SERVER_OPTION_STS)
+	if (wsi->a.vhost->options & LWS_SERVER_OPTION_STS)
 		if (lws_add_http_header_by_name(wsi, (unsigned char *)
 				"Strict-Transport-Security:",
 				(unsigned char *)"max-age=15768000 ; "
@@ -389,19 +389,19 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 	int n = 0, m = 0, len;
 	char slen[20];
 
-	if (!wsi->vhost) {
+	if (!wsi->a.vhost) {
 		lwsl_err("%s: wsi not bound to vhost\n", __func__);
 
 		return 1;
 	}
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	if (!wsi->handling_404 &&
-	    wsi->vhost->http.error_document_404 &&
+	    wsi->a.vhost->http.error_document_404 &&
 	    code == HTTP_STATUS_NOT_FOUND)
 		/* we should do a redirect, and do the 404 there */
 		if (lws_http_redirect(wsi, HTTP_STATUS_FOUND,
-			       (uint8_t *)wsi->vhost->http.error_document_404,
-			       (int)strlen(wsi->vhost->http.error_document_404),
+			       (uint8_t *)wsi->a.vhost->http.error_document_404,
+			       (int)strlen(wsi->a.vhost->http.error_document_404),
 			       &p, end) > 0)
 			return 0;
 #endif
@@ -570,9 +570,9 @@ lws_sul_http_ah_lifecheck(lws_sorted_usec_list_t *sul)
 		const unsigned char *c;
 
 		if (!ah->in_use || !ah->wsi || !ah->assigned ||
-		    (ah->wsi->vhost &&
+		    (ah->wsi->a.vhost &&
 		     (now - ah->assigned) <
-		     ah->wsi->vhost->timeout_secs_ah_idle + 360)) {
+		     ah->wsi->a.vhost->timeout_secs_ah_idle + 360)) {
 			ah = ah->next;
 			continue;
 		}

@@ -68,7 +68,7 @@ struct lws_protocols {
 	 * to the selected protocol.  For example if this protocol was
 	 * called "myprotocol-v2", you might set id to 2, and the user
 	 * code that acts differently according to the version can do so by
-	 * switch (wsi->protocol->id), user code might use some bits as
+	 * switch (wsi->a.protocol->id), user code might use some bits as
 	 * capability flags based on selected protocol version, etc. */
 	void *user; /**< ignored by lws, but user code can pass a pointer
 			here it can later access from the protocol callback */

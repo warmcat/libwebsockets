@@ -34,7 +34,7 @@ rops_handle_POLLIN_mqtt(struct lws_context_per_thread *pt, struct lws *wsi,
 	char buffered = 0;
 
 	lwsl_debug("%s: wsistate 0x%x, %s pollout %d\n", __func__,
-		   (unsigned int)wsi->wsistate,  wsi->protocol->name,
+		   (unsigned int)wsi->wsistate,  wsi->a.protocol->name,
 		   pollfd->revents);
 
 	/*
@@ -119,10 +119,10 @@ read:
 
 		buffered = 0;
 		ebuf.token = pt->serv_buf;
-		ebuf.len = wsi->context->pt_serv_buf_size;
+		ebuf.len = wsi->a.context->pt_serv_buf_size;
 
-		if ((unsigned int)ebuf.len > wsi->context->pt_serv_buf_size)
-			ebuf.len = wsi->context->pt_serv_buf_size;
+		if ((unsigned int)ebuf.len > wsi->a.context->pt_serv_buf_size)
+			ebuf.len = wsi->a.context->pt_serv_buf_size;
 
 		if ((int)pending > ebuf.len)
 			pending = ebuf.len;
@@ -175,8 +175,8 @@ drain:
 
 	pending = lws_ssl_pending(wsi);
 	if (pending) {
-		pending = pending > wsi->context->pt_serv_buf_size ?
-			wsi->context->pt_serv_buf_size : pending;
+		pending = pending > wsi->a.context->pt_serv_buf_size ?
+			wsi->a.context->pt_serv_buf_size : pending;
 		goto read;
 	}
 
@@ -215,11 +215,11 @@ rops_adoption_bind_mqtt(struct lws *wsi, int type, const char *vh_prot_name)
 				LRS_ESTABLISHED, &role_ops_mqtt);
 
 	if (vh_prot_name)
-		lws_bind_protocol(wsi, wsi->protocol, __func__);
+		lws_bind_protocol(wsi, wsi->a.protocol, __func__);
 	else
 		/* this is the only time he will transition */
 		lws_bind_protocol(wsi,
-			&wsi->vhost->protocols[wsi->vhost->mqtt_protocol_index],
+			&wsi->a.vhost->protocols[wsi->a.vhost->mqtt_protocol_index],
 			__func__);
 
 	return 1; /* bound */

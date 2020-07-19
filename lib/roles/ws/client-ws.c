@@ -156,7 +156,7 @@ lws_generate_client_ws_handshake(struct lws *wsi, char *p, const char *conn1)
 	/*
 	 * create the random key
 	 */
-	if (lws_get_random(wsi->context, hash, 16) != 16) {
+	if (lws_get_random(wsi->a.context, hash, 16) != 16) {
 		lwsl_err("Unable to read from random dev %s\n",
 			 SYSTEM_RANDOM_FILEPATH);
 		return NULL;
@@ -179,10 +179,10 @@ lws_generate_client_ws_handshake(struct lws *wsi, char *p, const char *conn1)
 	/* tell the server what extensions we could support */
 
 #if !defined(LWS_WITHOUT_EXTENSIONS)
-	ext = wsi->vhost->ws.extensions;
+	ext = wsi->a.vhost->ws.extensions;
 	while (ext && ext->callback) {
 
-		n = wsi->vhost->protocols[0].callback(wsi,
+		n = wsi->a.vhost->protocols[0].callback(wsi,
 			LWS_CALLBACK_CLIENT_CONFIRM_EXTENSION_SUPPORTED,
 				wsi->user_space, (char *)ext->name, 0);
 
@@ -234,14 +234,14 @@ lws_generate_client_ws_handshake(struct lws *wsi, char *p, const char *conn1)
 int
 lws_client_ws_upgrade(struct lws *wsi, const char **cce)
 {
-	struct lws_context *context = wsi->context;
+	struct lws_context *context = wsi->a.context;
 	struct lws_tokenize ts;
 	int n, len, okay = 0;
 	lws_tokenize_elem e;
 	char *p, buf[64];
 	const char *pc;
 #if !defined(LWS_WITHOUT_EXTENSIONS)
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	char *sb = (char *)&pt->serv_buf[0];
 	const struct lws_ext_options *opts;
 	const struct lws_extension *ext;
@@ -349,15 +349,15 @@ bad_conn_format:
 		 * default to first protocol
 		 */
 
-		if (wsi->protocol) {
-			p = (char *)wsi->protocol->name;
+		if (wsi->a.protocol) {
+			p = (char *)wsi->a.protocol->name;
 			goto identify_protocol;
 		}
 
 		/* no choice but to use the default protocol */
 
 		n = 0;
-		wsi->protocol = &wsi->vhost->protocols[0];
+		wsi->a.protocol = &wsi->a.vhost->protocols[0];
 		goto check_extensions;
 	}
 
@@ -395,18 +395,18 @@ identify_protocol:
 	n = 0;
 	/* keep client connection pre-bound protocol */
 	if (!lwsi_role_client(wsi))
-		wsi->protocol = NULL;
+		wsi->a.protocol = NULL;
 
-	while (n < wsi->vhost->count_protocols) {
-		if (!wsi->protocol &&
-		    strcmp(p, wsi->vhost->protocols[n].name) == 0) {
-			wsi->protocol = &wsi->vhost->protocols[n];
+	while (n < wsi->a.vhost->count_protocols) {
+		if (!wsi->a.protocol &&
+		    strcmp(p, wsi->a.vhost->protocols[n].name) == 0) {
+			wsi->a.protocol = &wsi->a.vhost->protocols[n];
 			break;
 		}
 		n++;
 	}
 
-	if (n == wsi->vhost->count_protocols) { /* no match */
+	if (n == wsi->a.vhost->count_protocols) { /* no match */
 		/* if server, that's already fatal */
 		if (!lwsi_role_client(wsi)) {
 			lwsl_info("%s: fail protocol %s\n", __func__, p);
@@ -417,19 +417,19 @@ identify_protocol:
 		/* for client, find the index of our pre-bound protocol */
 
 		n = 0;
-		while (wsi->vhost->protocols[n].callback) {
-			if (wsi->protocol && strcmp(wsi->protocol->name,
-				   wsi->vhost->protocols[n].name) == 0) {
-				wsi->protocol = &wsi->vhost->protocols[n];
+		while (wsi->a.vhost->protocols[n].callback) {
+			if (wsi->a.protocol && strcmp(wsi->a.protocol->name,
+				   wsi->a.vhost->protocols[n].name) == 0) {
+				wsi->a.protocol = &wsi->a.vhost->protocols[n];
 				break;
 			}
 			n++;
 		}
 
-		if (!wsi->vhost->protocols[n].callback) {
-			if (wsi->protocol)
+		if (!wsi->a.vhost->protocols[n].callback) {
+			if (wsi->a.protocol)
 				lwsl_err("Failed to match protocol %s\n",
-						wsi->protocol->name);
+						wsi->a.protocol->name);
 			else
 				lwsl_err("No protocol on client\n");
 			*cce = "ws protocol no match";
@@ -437,7 +437,7 @@ identify_protocol:
 		}
 	}
 
-	lwsl_debug("Selected protocol %s\n", wsi->protocol->name);
+	lwsl_debug("Selected protocol %s\n", wsi->a.protocol->name);
 
 check_extensions:
 	/*
@@ -507,7 +507,7 @@ check_extensions:
 		lwsl_notice("checking client ext %s\n", ext_name);
 
 		n = 0;
-		ext = wsi->vhost->ws.extensions;
+		ext = wsi->a.vhost->ws.extensions;
 		while (ext && ext->callback) {
 			if (strcmp(ext_name, ext->name)) {
 				ext++;
@@ -539,7 +539,7 @@ check_extensions:
 			 * wants to
 			 */
 			ext_name[0] = '\0';
-			if (user_callback_handle_rxflow(wsi->protocol->callback,
+			if (user_callback_handle_rxflow(wsi->a.protocol->callback,
 					wsi, LWS_CALLBACK_WS_EXT_DEFAULTS,
 					(char *)ext->name, ext_name,
 					sizeof(ext_name))) {
@@ -623,7 +623,7 @@ check_accept:
 	 * we seem to be good to go, give client last chance to check
 	 * headers and OK it
 	 */
-	if (wsi->protocol->callback(wsi,
+	if (wsi->a.protocol->callback(wsi,
 				    LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH,
 				    wsi->user_space, NULL, 0)) {
 		*cce = "HS: Rejected by filter cb";
@@ -646,7 +646,7 @@ check_accept:
 	 * size mentioned in the protocol definition.  If 0 there, then
 	 * use a big default for compatibility
 	 */
-	n = (int)wsi->protocol->rx_buffer_size;
+	n = (int)wsi->a.protocol->rx_buffer_size;
 	if (!n)
 		n = context->pt_serv_buf_size;
 	n += LWS_PRE;
@@ -659,11 +659,11 @@ check_accept:
 	}
 	wsi->ws->rx_ubuf_alloc = n;
 
-	lwsl_debug("handshake OK for protocol %s\n", wsi->protocol->name);
+	lwsl_debug("handshake OK for protocol %s\n", wsi->a.protocol->name);
 
 	/* call him back to inform him he is up */
 
-	if (wsi->protocol->callback(wsi, LWS_CALLBACK_CLIENT_ESTABLISHED,
+	if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_CLIENT_ESTABLISHED,
 				    wsi->user_space, NULL, 0)) {
 		*cce = "HS: Rejected at CLIENT_ESTABLISHED";
 		goto bail3;

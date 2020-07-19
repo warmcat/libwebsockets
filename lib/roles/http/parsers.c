@@ -124,7 +124,7 @@ __lws_header_table_reset(struct lws *wsi, int autoservice)
 
 	/* while we hold the ah, keep a timeout on the wsi */
 	__lws_set_timeout(wsi, PENDING_TIMEOUT_HOLDING_AH,
-			  wsi->vhost->timeout_secs_ah_idle);
+			  wsi->a.vhost->timeout_secs_ah_idle);
 
 	time(&ah->assigned);
 
@@ -133,7 +133,7 @@ __lws_header_table_reset(struct lws *wsi, int autoservice)
 	    autoservice) {
 		lwsl_debug("%s: service on readbuf ah\n", __func__);
 
-		pt = &wsi->context->pt[(int)wsi->tsi];
+		pt = &wsi->a.context->pt[(int)wsi->tsi];
 		/*
 		 * Unlike a normal connect, we have the headers already
 		 * (or the first part of them anyway)
@@ -141,14 +141,14 @@ __lws_header_table_reset(struct lws *wsi, int autoservice)
 		pfd = &pt->fds[wsi->position_in_fds_table];
 		pfd->revents |= LWS_POLLIN;
 		lwsl_err("%s: calling service\n", __func__);
-		lws_service_fd_tsi(wsi->context, pfd, wsi->tsi);
+		lws_service_fd_tsi(wsi->a.context, pfd, wsi->tsi);
 	}
 }
 
 void
 lws_header_table_reset(struct lws *wsi, int autoservice)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 
 	lws_pt_lock(pt, __func__);
 
@@ -160,7 +160,7 @@ lws_header_table_reset(struct lws *wsi, int autoservice)
 static void
 _lws_header_ensure_we_are_on_waiting_list(struct lws *wsi)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	struct lws_pollargs pa;
 	struct lws **pwsi = &pt->http.ah_wait_list;
 
@@ -183,7 +183,7 @@ _lws_header_ensure_we_are_on_waiting_list(struct lws *wsi)
 static int
 __lws_remove_from_ah_waiting_list(struct lws *wsi)
 {
-        struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+        struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	struct lws **pwsi =&pt->http.ah_wait_list;
 
 	while (*pwsi) {
@@ -206,7 +206,7 @@ __lws_remove_from_ah_waiting_list(struct lws *wsi)
 int LWS_WARN_UNUSED_RESULT
 lws_header_table_attach(struct lws *wsi, int autoservice)
 {
-	struct lws_context *context = wsi->context;
+	struct lws_context *context = wsi->a.context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	struct lws_pollargs pa;
 	int n;
@@ -308,7 +308,7 @@ bail:
 
 int __lws_header_table_detach(struct lws *wsi, int autoservice)
 {
-	struct lws_context *context = wsi->context;
+	struct lws_context *context = wsi->a.context;
 	struct allocated_headers *ah = wsi->http.ah;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	struct lws_pollargs pa;
@@ -451,7 +451,7 @@ nobody_usable_waiting:
 
 int lws_header_table_detach(struct lws *wsi, int autoservice)
 {
-	struct lws_context *context = wsi->context;
+	struct lws_context *context = wsi->a.context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	int n;
 
@@ -659,10 +659,10 @@ lws_pos_in_bounds(struct lws *wsi)
 		return -1;
 
 	if (wsi->http.ah->pos <
-	    (unsigned int)wsi->context->max_http_header_data)
+	    (unsigned int)wsi->a.context->max_http_header_data)
 		return 0;
 
-	if ((int)wsi->http.ah->pos >= wsi->context->max_http_header_data - 1) {
+	if ((int)wsi->http.ah->pos >= wsi->a.context->max_http_header_data - 1) {
 		lwsl_err("Ran out of header data space\n");
 		return 1;
 	}
@@ -673,7 +673,7 @@ lws_pos_in_bounds(struct lws *wsi)
 	 */
 	lwsl_err("%s: pos %ld, limit %ld\n", __func__,
 		 (unsigned long)wsi->http.ah->pos,
-		 (unsigned long)wsi->context->max_http_header_data);
+		 (unsigned long)wsi->a.context->max_http_header_data);
 	assert(0);
 
 	return 1;
@@ -961,7 +961,7 @@ lws_parser_return_t LWS_WARN_UNUSED_RESULT
 lws_parse(struct lws *wsi, unsigned char *buf, int *len)
 {
 	struct allocated_headers *ah = wsi->http.ah;
-	struct lws_context *context = wsi->context;
+	struct lws_context *context = wsi->a.context;
 	unsigned int n, m;
 	unsigned char c;
 	int r, pos;
@@ -1282,7 +1282,7 @@ nope:
 				 * Are we set up to transition to another role
 				 * in these cases?
 				 */
-				if (lws_check_opt(wsi->vhost->options,
+				if (lws_check_opt(wsi->a.vhost->options,
 		    LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG)) {
 					lwsl_notice("%s: http fail fallback\n",
 						    __func__);
@@ -1352,7 +1352,7 @@ nope:
 							      ah->parser_state];
 				else
 					ah->current_token_limit =
-						wsi->context->max_http_header_data;
+						wsi->a.context->max_http_header_data;
 
 				if (ah->parser_state == WSI_TOKEN_CHALLENGE)
 					goto set_parsing_complete;
@@ -1524,7 +1524,7 @@ lws_jwt_get_http_cookie_validate_jwt(struct lws *wsi,
 
 	/* decode the JWT into temp */
 
-	if (lws_jwt_signed_validate(wsi->context, i->jwk, i->alg, out,
+	if (lws_jwt_signed_validate(wsi->a.context, i->jwk, i->alg, out,
 				    *out_len, temp, sizeof(temp), out, &cml)) {
 		lwsl_notice("%s: jwt validation failed\n", __func__);
 		return 1;
@@ -1574,9 +1574,9 @@ lws_jwt_sign_token_set_http_cookie(struct lws *wsi,
 	 * Create a 16-char random csrf token with the same lifetime as the JWT
 	 */
 
-	lws_hex_random(wsi->context, csrf, sizeof(csrf));
+	lws_hex_random(wsi->a.context, csrf, sizeof(csrf));
 	ull = lws_now_secs();
-	if (lws_jwt_sign_compact(wsi->context, i->jwk, i->alg, plain, &pl,
+	if (lws_jwt_sign_compact(wsi->a.context, i->jwk, i->alg, plain, &pl,
 			         temp, sizeof(temp),
 			         "{\"iss\":\"%s\",\"aud\":\"%s\","
 			          "\"iat\":%llu,\"nbf\":%llu,\"exp\":%llu,"

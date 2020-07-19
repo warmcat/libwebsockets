@@ -58,7 +58,7 @@ secstream_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			  h->policy ? h->policy->streamtype : "no policy");
 		h->wsi = NULL;
 		if (h->policy && !(h->policy->flags & LWSSSPOLF_OPPORTUNISTIC) &&
-		    !h->txn_ok && !wsi->context->being_destroyed)
+		    !h->txn_ok && !wsi->a.context->being_destroyed)
 			if (lws_ss_backoff(h))
 				/* has been destroyed */
 				break;

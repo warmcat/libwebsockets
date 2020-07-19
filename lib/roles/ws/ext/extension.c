@@ -220,10 +220,10 @@ int lws_ext_cb_all_exts(struct lws_context *context, struct lws *wsi,
 	int n = 0, m, handled = 0;
 	const struct lws_extension *ext;
 
-	if (!wsi || !wsi->vhost || !wsi->ws)
+	if (!wsi || !wsi->a.vhost || !wsi->ws)
 		return 0;
 
-	ext = wsi->vhost->ws.extensions;
+	ext = wsi->a.vhost->ws.extensions;
 
 	while (ext && ext->callback && !handled) {
 		m = ext->callback(context, ext, wsi, reason,
@@ -333,7 +333,7 @@ int
 lws_any_extension_handled(struct lws *wsi, enum lws_extension_callback_reasons r,
 			  void *v, size_t len)
 {
-	struct lws_context *context = wsi->context;
+	struct lws_context *context = wsi->a.context;
 	int n, handled = 0;
 
 	if (!wsi->ws)
@@ -376,7 +376,7 @@ lws_set_extension_option(struct lws *wsi, const char *ext_name,
 	oa.start = opt_val;
 	oa.len = 0;
 
-	return wsi->ws->active_extensions[idx]->callback(wsi->context,
+	return wsi->ws->active_extensions[idx]->callback(wsi->a.context,
 			wsi->ws->active_extensions[idx], wsi,
 			LWS_EXT_CB_NAMED_OPTION_SET, wsi->ws->act_ext_user[idx],
 			&oa, 0);

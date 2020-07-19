@@ -101,7 +101,7 @@ lws_cgi_reap_cb(void *opaque, lws_usec_t *accounting, siginfo_t *si,
 	 * Grace period to handle the incoming stdout
 	 */
 
-	lws_sul_schedule(wsi->context, wsi->tsi, &wsi->http.cgi->sul_grace,
+	lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->http.cgi->sul_grace,
 			 lws_cgi_grace, 1 * LWS_US_PER_SEC);
 }
 
@@ -110,7 +110,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 	int script_uri_path_len, int timeout_secs,
 	const struct lws_protocol_vhost_options *mp_cgienv)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	struct lws_spawn_piped_info info;
 	char *env_array[30], cgi_path[500], e[1024], *p = e,
 	     *end = p + sizeof(e) - 1, tok[256], *t, *sum, *sumend;
@@ -391,7 +391,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 	info.opt_parent = wsi;
 	info.timeout_us = 5 * 60 * LWS_US_PER_SEC;
 	info.tsi = wsi->tsi;
-	info.vh = wsi->vhost;
+	info.vh = wsi->a.vhost;
 	info.ops = &role_ops_cgi;
 	info.plsp = &wsi->http.cgi->lsp;
 	info.opaque = wsi;
@@ -414,10 +414,10 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 
 	/* we are the parent process */
 
-	wsi->context->count_cgi_spawned++;
+	wsi->a.context->count_cgi_spawned++;
 
 	/* inform cgi owner of the child PID */
-	n = user_callback_handle_rxflow(wsi->protocol->callback, wsi,
+	n = user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
 				    LWS_CALLBACK_CGI_PROCESS_ATTACH,
 				    wsi->user_space, NULL, cgi->lsp->child_pid);
 	(void)n;
@@ -914,7 +914,7 @@ lws_cgi_kill(struct lws *wsi)
 
 	if (pid != -1) {
 		m = wsi->http.cgi->being_closed;
-		n = user_callback_handle_rxflow(wsi->protocol->callback, wsi,
+		n = user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
 						LWS_CALLBACK_CGI_TERMINATED,
 						wsi->user_space, (void *)&args,
 						pid);
@@ -1073,7 +1073,7 @@ lws_cgi_get_stdwsi(struct lws *wsi, enum lws_enum_stdinouterr ch)
 void
 lws_cgi_remove_and_kill(struct lws *wsi)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	struct lws_cgi **pcgi = &pt->http.cgi_list;
 
 	/* remove us from the cgi list */

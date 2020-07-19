@@ -80,7 +80,7 @@ rops_handle_POLLIN_raw_proxy(struct lws_context_per_thread *pt, struct lws *wsi,
 		case LWS_SSL_CAPABLE_MORE_SERVICE:
 			goto try_pollout;
 		}
-		n = user_callback_handle_rxflow(wsi->protocol->callback,
+		n = user_callback_handle_rxflow(wsi->a.protocol->callback,
 						wsi, lwsi_role_client(wsi) ?
 						 LWS_CALLBACK_RAW_PROXY_CLI_RX :
 						 LWS_CALLBACK_RAW_PROXY_SRV_RX,
@@ -145,11 +145,11 @@ rops_adoption_bind_raw_proxy(struct lws *wsi, int type,
 			    &role_ops_raw_proxy);
 
 	if (vh_prot_name)
-		lws_bind_protocol(wsi, wsi->protocol, __func__);
+		lws_bind_protocol(wsi, wsi->a.protocol, __func__);
 	else
 		/* this is the only time he will transition */
 		lws_bind_protocol(wsi,
-			&wsi->vhost->protocols[wsi->vhost->raw_protocol_index],
+			&wsi->a.vhost->protocols[wsi->a.vhost->raw_protocol_index],
 			__func__);
 
 	return 1; /* bound */

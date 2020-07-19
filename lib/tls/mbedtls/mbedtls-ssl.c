@@ -44,7 +44,7 @@ lws_ssl_destroy(struct lws_vhost *vhost)
 int
 lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 {
-	struct lws_context *context = wsi->context;
+	struct lws_context *context = wsi->a.context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	int n = 0, m;
 
@@ -109,8 +109,8 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 	lws_stats_bump(pt, LWSSTATS_B_READ, n);
 
 #if defined(LWS_WITH_SERVER_STATUS)
-	if (wsi->vhost)
-		wsi->vhost->conn_stats.rx += n;
+	if (wsi->a.vhost)
+		wsi->a.vhost->conn_stats.rx += n;
 #endif
 #if defined(LWS_WITH_DETAILED_LATENCY)
 	if (context->detailed_latency_cb) {
@@ -120,7 +120,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 		wsi->detlat.latencies[LAT_DUR_PROXY_RX_TO_ONWARD_TX] =
 			lws_now_usecs() - pt->ust_left_poll;
 		wsi->detlat.latencies[LAT_DUR_USERCB] = 0;
-		lws_det_lat_cb(wsi->context, &wsi->detlat);
+		lws_det_lat_cb(wsi->a.context, &wsi->detlat);
 	}
 #endif
 	/*
@@ -210,13 +210,13 @@ lws_ssl_info_callback(const SSL *ssl, int where, int ret)
 	if (!wsi)
 		return;
 
-	if (!(where & wsi->vhost->tls.ssl_info_event_mask))
+	if (!(where & wsi->a.vhost->tls.ssl_info_event_mask))
 		return;
 
 	si.where = where;
 	si.ret = ret;
 
-	if (user_callback_handle_rxflow(wsi->protocol->callback,
+	if (user_callback_handle_rxflow(wsi->a.protocol->callback,
 					wsi, LWS_CALLBACK_SSL_INFO,
 					wsi->user_space, &si, 0))
 		lws_set_timeout(wsi, PENDING_TIMEOUT_KILLED_BY_SSL_INFO, -1);
@@ -235,7 +235,7 @@ lws_ssl_close(struct lws *wsi)
 	/* kill ssl callbacks, becausse we will remove the fd from the
 	 * table linking it to the wsi
 	 */
-	if (wsi->vhost->tls.ssl_info_event_mask)
+	if (wsi->a.vhost->tls.ssl_info_event_mask)
 		SSL_set_info_callback(wsi->tls.ssl, NULL);
 #endif
 
@@ -246,7 +246,7 @@ lws_ssl_close(struct lws *wsi)
 	SSL_free(wsi->tls.ssl);
 	wsi->tls.ssl = NULL;
 
-	lws_tls_restrict_return(wsi->context);
+	lws_tls_restrict_return(wsi->a.context);
 
 	return 1; /* handled */
 }

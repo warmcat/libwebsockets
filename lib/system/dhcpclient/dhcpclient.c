@@ -220,7 +220,7 @@ lws_dhcpc_retry_conn(struct lws_sorted_usec_list *sul)
 	r->wsi_raw->user_space = r;
 	r->wsi_raw->user_space_externally_allocated = 1;
 
-	lws_get_random(r->wsi_raw->context, r->xid, 4);
+	lws_get_random(r->wsi_raw->a.context, r->xid, 4);
 }
 
 static void
@@ -544,7 +544,7 @@ broken:
 					(const char *)&r[1]);
 			r->state = LDHC_BOUND;
 
-			lws_state_transition_steps(&wsi->context->mgr_system,
+			lws_state_transition_steps(&wsi->a.context->mgr_system,
 						   LWS_SYSTATE_OPERATIONAL);
 
 			r->cb(r->opaque, r->af,
@@ -618,7 +618,7 @@ bcast:
 		return 0;
 
 retry_conn:
-		lws_retry_sul_schedule(wsi->context, 0, &r->sul_conn, &bo2,
+		lws_retry_sul_schedule(wsi->a.context, 0, &r->sul_conn, &bo2,
 				       lws_dhcpc_retry_conn,
 				       &r->retry_count_conn);
 

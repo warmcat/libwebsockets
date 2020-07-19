@@ -100,7 +100,7 @@ OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 		return 0;
 	}
 
-	n = lws_get_context_protocol(wsi->context, 0).callback(wsi,
+	n = lws_get_context_protocol(wsi->a.context, 0).callback(wsi,
 			LWS_CALLBACK_OPENSSL_PERFORM_SERVER_CERT_VERIFICATION,
 			x509_ctx, ssl, preverify_ok);
 
@@ -138,7 +138,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 #if defined(LWS_HAVE_SSL_set_alpn_protos) && \
     defined(LWS_HAVE_SSL_get0_alpn_selected)
 	uint8_t openssl_alpn[40];
-	const char *alpn_comma = wsi->context->tls.alpn_default;
+	const char *alpn_comma = wsi->a.context->tls.alpn_default;
 	int n;
 #endif
 
@@ -173,7 +173,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		p++;
 	}
 
-	wsi->tls.ssl = SSL_new(wsi->vhost->tls.ssl_client_ctx);
+	wsi->tls.ssl = SSL_new(wsi->a.vhost->tls.ssl_client_ctx);
 	if (!wsi->tls.ssl) {
 		lwsl_err("SSL_new failed: %s\n",
 		         ERR_error_string(lws_ssl_get_error(wsi, 0), NULL));
@@ -182,7 +182,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	}
 
 #if defined (LWS_HAVE_SSL_SET_INFO_CALLBACK)
-	if (wsi->vhost->tls.ssl_info_event_mask)
+	if (wsi->a.vhost->tls.ssl_info_event_mask)
 		SSL_set_info_callback(wsi->tls.ssl, lws_ssl_info_callback);
 #endif
 
@@ -275,8 +275,8 @@ lws_ssl_client_bio_create(struct lws *wsi)
 
 #if defined(LWS_HAVE_SSL_set_alpn_protos) && \
     defined(LWS_HAVE_SSL_get0_alpn_selected)
-	if (wsi->vhost->tls.alpn)
-		alpn_comma = wsi->vhost->tls.alpn;
+	if (wsi->a.vhost->tls.alpn)
+		alpn_comma = wsi->a.vhost->tls.alpn;
 	if (wsi->stash)
 		alpn_comma = wsi->stash->cis[CIS_ALPN];
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
@@ -297,7 +297,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 			wsi);
 
 	if (wsi->sys_tls_client_cert) {
-		lws_system_blob_t *b = lws_system_get_blob(wsi->context,
+		lws_system_blob_t *b = lws_system_get_blob(wsi->a.context,
 					LWS_SYSBLOB_TYPE_CLIENT_CERT_DER,
 					wsi->sys_tls_client_cert - 1);
 		const uint8_t *data;
@@ -327,7 +327,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 			goto no_client_cert;
 		}
 
-		b = lws_system_get_blob(wsi->context,
+		b = lws_system_get_blob(wsi->a.context,
 					LWS_SYSBLOB_TYPE_CLIENT_KEY_DER,
 					wsi->sys_tls_client_cert - 1);
 		if (!b)
@@ -446,7 +446,7 @@ int
 lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, int ebuf_len)
 {
 #if !defined(USE_WOLFSSL)
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	char *p = (char *)&pt->serv_buf[0];
 	char *sb = p;
 	int n;

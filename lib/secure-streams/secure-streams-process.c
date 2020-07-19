@@ -227,7 +227,7 @@ static int
 callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		  void *user, void *in, size_t len)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	struct raw_pss *pss = (struct raw_pss *)user;
 	const lws_ss_policy_t *rsp;
 	struct conn *conn = NULL;
@@ -399,7 +399,7 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 						s[n++] = ',';
 					n += lws_snprintf(&s[n], sizeof(s) - n,
 							"%s", rsp->streamtype);
-					rsp = lws_ss_policy_lookup(wsi->context,
+					rsp = lws_ss_policy_lookup(wsi->a.context,
 						rsp->rideshare_streamtype);
 				}
 			}
@@ -415,7 +415,7 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 
 #if defined(LWS_WITH_DETAILED_LATENCY)
 			if (cp[0] == LWSSS_SER_RXPRE_RX_PAYLOAD &&
-			    wsi->context->detailed_latency_cb) {
+			    wsi->a.context->detailed_latency_cb) {
 
 				/*
 				 * we're fulfilling rx that came in on ss

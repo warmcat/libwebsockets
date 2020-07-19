@@ -27,8 +27,8 @@
 int
 lws_plat_pipe_create(struct lws *wsi)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
-	struct sockaddr_in *si = &wsi->context->frt_pipe_si;
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	struct sockaddr_in *si = &wsi->a.context->frt_pipe_si;
 	lws_sockfd_type *fd = pt->dummy_pipe_fds;
 
 	/*
@@ -69,8 +69,8 @@ bail:
 int
 lws_plat_pipe_signal(struct lws *wsi)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
-	struct sockaddr_in *si = &wsi->context->frt_pipe_si;
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	struct sockaddr_in *si = &wsi->a.context->frt_pipe_si;
 	lws_sockfd_type *fd = pt->dummy_pipe_fds;
 	uint8_t u = 0;
 	int n;
@@ -95,7 +95,7 @@ lws_plat_pipe_signal(struct lws *wsi)
 void
 lws_plat_pipe_close(struct lws *wsi)
 {
-	struct lws_context_per_thread *pt = &wsi->context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	lws_sockfd_type *fd = pt->dummy_pipe_fds;
 
 	if (fd[0] && fd[0] != -1)
