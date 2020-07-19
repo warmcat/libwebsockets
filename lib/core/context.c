@@ -28,7 +28,7 @@
 #define LWS_BUILD_HASH "unknown-build-hash"
 #endif
 
-static const char *library_version = LWS_LIBRARY_VERSION " " LWS_BUILD_HASH;
+static const char *library_version = LWS_LIBRARY_VERSION;
 
 #if defined(__linux__)
 /* for setrlimit */
@@ -281,10 +281,55 @@ lws_system_smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
 
 #endif /* NETWORK */
 
+#if !defined(LWS_WITH_NO_LOGS)
+
+static const char * const opts_str =
+#if defined(LWS_WITH_NETWORK)
+			"NET "
+#else
+			"NoNET "
+#endif
+#if defined(LWS_ROLE_H1)
+			"H1 "
+#endif
+#if defined(LWS_ROLE_H2)
+			"H2 "
+#endif
+#if defined(LWS_ROLE_WS)
+			"WS "
+#endif
+#if defined(LWS_ROLE_MQTT)
+			"MQTT "
+#endif
+#if defined(LWS_WITH_SECURE_STREAMS) && !defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
+			"SS-JSON-POL "
+#endif
+#if defined(LWS_WITH_SECURE_STREAMS) && defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
+			"SS-STATIC-POL "
+#endif
+#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
+			"SSPROX "
+#endif
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+			"ASYNC_DNS "
+#endif
+#if defined(LWS_WITH_SYS_NTPCLIENT)
+			"NTPCLIENT "
+#endif
+#if defined(LWS_WITH_SYS_DHCP_CLIENT)
+			"DHCP_CLIENT "
+#endif
+;
+
+#endif
+
 struct lws_context *
 lws_create_context(const struct lws_context_creation_info *info)
 {
 	struct lws_context *context = NULL;
+#if !defined(LWS_WITH_NO_LOGS)
+	const char *s = "IPv6-absent";
+#endif
 #if defined(LWS_WITH_FILE_OPS)
 	struct lws_plat_file_ops *prev;
 #endif
@@ -292,14 +337,14 @@ lws_create_context(const struct lws_context_creation_info *info)
 	pid_t pid_daemon = get_daemonize_pid();
 #endif
 #if defined(LWS_WITH_NETWORK)
-	int n, count_threads = 1;
+	int count_threads = 1;
 	uint8_t *u;
 #endif
 #if defined(__ANDROID__)
 	struct rlimit rt;
 #endif
 	size_t s1 = 4096, size = sizeof(struct lws_context);
-	int lpf = info->fd_limit_per_thread;
+	int n, lpf = info->fd_limit_per_thread;
 
 	if (lpf) {
 		lpf+= 2;
@@ -314,30 +359,21 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 	}
 
-	lwsl_info("Initial logging level %d\n", log_level);
-	lwsl_info("Libwebsockets version: %s\n", library_version);
+	lwsl_notice("LWS: %s, loglevel %d\n", library_version, log_level);
 
-#ifdef LWS_WITH_IPV6
+#if defined(LWS_WITH_IPV6) && !defined(LWS_WITH_NO_LOGS)
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DISABLE_IPV6))
-		lwsl_info("IPV6 compiled in and enabled\n");
+		s = "IPV6-on";
 	else
-		lwsl_info("IPV6 compiled in but disabled\n");
-#else
-	lwsl_info("IPV6 not compiled in\n");
+		s = "IPV6-off";
 #endif
 
-	lwsl_info(" LWS_DEF_HEADER_LEN    : %u\n", LWS_DEF_HEADER_LEN);
-	lwsl_info(" LWS_MAX_SMP           : %u\n", LWS_MAX_SMP);
-	lwsl_info(" sizeof (*info)        : %ld\n", (long)sizeof(*info));
 #if defined(LWS_WITH_STATS)
 	lwsl_info(" LWS_WITH_STATS        : on\n");
 #endif
-	lwsl_info(" SYSTEM_RANDOM_FILEPATH: '%s'\n", SYSTEM_RANDOM_FILEPATH);
-#if defined(LWS_WITH_HTTP2)
-	lwsl_info(" HTTP2 support         : available\n");
-#else
-	lwsl_info(" HTTP2 support         : not configured\n");
-#endif
+
+	lwsl_notice("%s%s\n", opts_str, s);
+
 	if (lws_plat_context_early_init())
 		return NULL;
 
@@ -364,10 +400,12 @@ lws_create_context(const struct lws_context_creation_info *info)
 		return NULL;
 	}
 
+#if !defined(LWS_PLAT_FREERTOS)
 	context->uid = info->uid;
 	context->gid = info->gid;
 	context->username = info->username;
 	context->groupname = info->groupname;
+#endif
 	context->system_ops = info->system_ops;
 	context->pt_serv_buf_size = (unsigned int)s1;
 
@@ -420,7 +458,6 @@ lws_create_context(const struct lws_context_creation_info *info)
 	if (lws_plat_drop_app_privileges(context, 0))
 		goto bail;
 
-	lwsl_info("context created\n");
 #if defined(LWS_WITH_TLS) && defined(LWS_WITH_NETWORK)
 #if defined(LWS_WITH_MBEDTLS)
 	context->tls_ops = &tls_ops_mbedtls;
@@ -618,7 +655,6 @@ lws_create_context(const struct lws_context_creation_info *info)
 		context->tls.alpn_default = context->tls.alpn_discovered;
 	}
 
-	lwsl_info("Default ALPN advertisment: %s\n", context->tls.alpn_default);
 #endif
 #if defined(LWS_WITH_NETWORK)
 	if (info->timeout_secs)
@@ -626,8 +662,6 @@ lws_create_context(const struct lws_context_creation_info *info)
 	else
 #endif
 		context->timeout_secs = 5;
-
-	lwsl_info(" default timeout (secs): %u\n", context->timeout_secs);
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	if (info->max_http_header_data)
@@ -677,6 +711,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	}
 #endif
 
+n = 0;
 #if defined(LWS_WITH_NETWORK)
 
 	context->default_retry.retry_ms_table = default_backoff_table;
@@ -741,9 +776,6 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 	}
 
-	lwsl_info(" Threads: %d each %d fds\n", context->count_threads,
-		    context->fd_limit_per_thread);
-
 	if (!info->ka_interval && info->ka_time > 0) {
 		lwsl_err("info->ka_interval can't be 0 if ka_time used\n");
 		return NULL;
@@ -765,19 +797,6 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->pl_notify_cb = info->pl_notify_cb;
 #endif
 
-	lwsl_info(" mem: context:         %5lu B (%ld ctx + (%ld thr x %d))\n",
-		  (long)sizeof(struct lws_context) +
-		  (context->count_threads * context->pt_serv_buf_size),
-		  (long)sizeof(struct lws_context),
-		  (long)context->count_threads,
-		  context->pt_serv_buf_size);
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-	lwsl_info(" mem: http hdr size:   (%u + %lu), max count %u\n",
-		    context->max_http_header_data,
-		    (long)sizeof(struct allocated_headers),
-		    context->max_http_header_pool);
-#endif
-
 	/*
 	 * fds table contains pollfd structs for as many pollfds as we can
 	 * handle... spread across as many service threads as we have going
@@ -789,8 +808,28 @@ lws_create_context(const struct lws_context_creation_info *info)
 		lwsl_err("OOM allocating %d fds\n", context->max_fds);
 		goto bail;
 	}
-	lwsl_info(" mem: pollfd map:      %5u B\n", n);
 #endif
+
+	lwsl_info(" ctx: %5luB (%ld ctx + pt(%ld thr x %d)), "
+		  "pt-fds: %d, fdmap: %d\n",
+		  (long)sizeof(struct lws_context) +
+		  (context->count_threads * context->pt_serv_buf_size),
+		  (long)sizeof(struct lws_context),
+		  (long)context->count_threads,
+		  context->pt_serv_buf_size,
+		  context->fd_limit_per_thread, n);
+
+#if defined(LWS_WITH_NETWORK)
+	lwsl_info("wsi: %5luB\n", (long)sizeof(struct lws));
+#endif
+
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+	lwsl_info(" http: ah_data: %u, ah: %lu, max count %u\n",
+		    context->max_http_header_data,
+		    (long)sizeof(struct allocated_headers),
+		    context->max_http_header_pool);
+#endif
+
 #if defined(LWS_WITH_SERVER)
 	if (info->server_string) {
 		context->server_string = info->server_string;
