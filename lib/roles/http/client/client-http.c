@@ -1425,13 +1425,16 @@ spin_chunks:
 		    !!wsi->protocol_bind_balance
 #endif
 		  ) {
-			if (user_callback_handle_rxflow(wsi->a.protocol->callback,
-				wsi, LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ,
-				wsi->user_space, *buf, n)) {
-				lwsl_info("%s: RECEIVE_CLIENT_HTTP_READ returned -1\n",
-						__func__);
+			int q;
 
-				return -1;
+			q = user_callback_handle_rxflow(wsi->a.protocol->callback,
+				wsi, LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ,
+				wsi->user_space, *buf, n);
+			if (q) {
+				lwsl_info("%s: RECEIVE_CLIENT_HTTP_READ returned %d\n",
+						__func__, q);
+
+				return q;
 			}
 		} else
 			lwsl_notice("%s: swallowed read (%d)\n", __func__, n);

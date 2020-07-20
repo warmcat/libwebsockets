@@ -431,7 +431,10 @@ malformed:
 	//	lwsl_notice("%s: HTTP_READ: client side sent len %d fl 0x%x\n",
 	//		    __func__, (int)len, (int)f);
 
-		if (h->info.rx(ss_to_userobj(h), (const uint8_t *)in, len, f) < 0)
+		m = h->info.rx(ss_to_userobj(h), (const uint8_t *)in, len, f);
+		if (m == LWSSSSRET_DESTROY_ME)
+			goto do_destroy_me;
+		if (m < 0)
 			return -1;
 
 		return 0; /* don't passthru */
@@ -501,6 +504,7 @@ malformed:
 			return -1; /* close connection */
 
 		case LWSSSSRET_DESTROY_ME:
+do_destroy_me:
 			lws_set_opaque_user_data(wsi, NULL);
 			h->wsi = NULL;
 			lws_ss_destroy(&h);
