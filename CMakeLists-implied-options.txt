@@ -74,42 +74,42 @@ if (LWS_FOR_GITOHASHI)
 endif()
 
 if(LWS_WITH_DISTRO_RECOMMENDED)
-	set(LWS_WITH_HTTP2 1)
-	set(LWS_WITH_LWSWS 1)
-	set(LWS_WITH_CGI 1)
-	set(LWS_IPV6 1)
-	set(LWS_WITH_ZIP_FOPS 1)
-	set(LWS_WITH_SOCKS5 1)
-	set(LWS_WITH_RANGES 1)
-	set(LWS_WITH_ACME 1)
-	set(LWS_WITH_SERVER_STATUS 1)
-	set(LWS_WITH_GLIB 1)
-	set(LWS_WITH_LIBUV 1)
-	set(LWS_WITH_LIBEV 1)
+	set(LWS_WITH_HTTP2 1)				# selfcontained
+	set(LWS_WITH_LWSWS 1)				# libuv
+	set(LWS_WITH_CGI 1)				# selfcontained
+	set(LWS_IPV6 1)					# selfcontained
+	set(LWS_WITH_ZIP_FOPS 1)			# libz
+	set(LWS_WITH_SOCKS5 1)				# selfcontained
+	set(LWS_WITH_RANGES 1)				# selfcontained
+	set(LWS_WITH_ACME 1)				# selfcontained / tls
+	set(LWS_WITH_SERVER_STATUS 1)			# selfcontained
+	set(LWS_WITH_GLIB 1)				# glib
+	set(LWS_WITH_LIBUV 1)				# libuv
+	set(LWS_WITH_LIBEV 1)				# libev
 	# libev + libevent cannot coexist at build-time
 	set(LWS_WITH_LIBEVENT 0)
-	set(LWS_WITHOUT_EXTENSIONS 0)
-	set(LWS_ROLE_DBUS 1)
-	set(LWS_WITH_FTS 1)
-	set(LWS_WITH_THREADPOOL 1)
-	set(LWS_UNIX_SOCK 1)
-	set(LWS_WITH_HTTP_PROXY 1)
-	set(LWS_WITH_DISKCACHE 1)
-	set(LWS_WITH_LWSAC 1)
-	set(LWS_WITH_LEJP_CONF 1)
-	set(LWS_WITH_PLUGINS 1)
-	set(LWS_ROLE_RAW_PROXY 1)
-	set(LWS_WITH_GENCRYPTO 1)
-	set(LWS_WITH_JOSE 1)
-	set(LWS_WITH_STRUCT_JSON 1)
-	set(LWS_WITH_STRUCT_SQLITE3 1)
-	set(LWS_WITH_SPAWN 1)
+	set(LWS_WITHOUT_EXTENSIONS 0)			# libz
+	set(LWS_ROLE_DBUS 1)				# dbus-related libs
+	set(LWS_WITH_FTS 1)				# selfcontained
+	set(LWS_WITH_THREADPOOL 1)			# pthreads
+	set(LWS_UNIX_SOCK 1)				# selfcontained
+	set(LWS_WITH_HTTP_PROXY 1)			# selfcontained
+	set(LWS_WITH_DISKCACHE 1)			# selfcontained
+	set(LWS_WITH_LWSAC 1)				# selfcontained
+	set(LWS_WITH_LEJP_CONF 1)			# selfcontained
+	set(LWS_WITH_PLUGINS 1)				# libdl
+	set(LWS_ROLE_RAW_PROXY 1)			# selfcontained
+	set(LWS_WITH_GENCRYPTO 1)			# selfcontained / tls
+	set(LWS_WITH_JOSE 1)				# selfcontained
+	set(LWS_WITH_STRUCT_JSON 1)			# selfcontained
+	set(LWS_WITH_STRUCT_SQLITE3 1)			# sqlite3
+	set(LWS_WITH_SPAWN 1)				# selfcontained
 # libmount is problematic on Centos 8 / RHEL 8
 #	set(LWS_WITH_FSMOUNT 1)
-	set(LWS_ROLE_MQTT 1)
-	set(LWS_WITH_SECURE_STREAMS 1)
-	set(LWS_WITH_SECURE_STREAMS_PROXY_API 1)
-	set(LWS_WITH_DIR 1)
+	set(LWS_ROLE_MQTT 1)				# selfcontained
+	set(LWS_WITH_SECURE_STREAMS 1)			# selfcontained
+	set(LWS_WITH_SECURE_STREAMS_PROXY_API 1)	# selfcontained
+	set(LWS_WITH_DIR 1)				# selfcontained
 endif()
 
 if (LWS_WITH_SECURE_STREAMS_PROXY_API)
