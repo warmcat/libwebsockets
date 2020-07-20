@@ -598,6 +598,12 @@ struct lws_vhost {
 	int log_fd;
 #endif
 
+#if defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
+	int8_t		ss_refcount;
+	/**< refcount of number of ss connections with streamtypes using this
+	 * trust store */
+#endif
+
 	uint8_t allocated_vhost_protocols:1;
 	uint8_t created_vhost_protocols:1;
 	uint8_t being_destroyed:1;

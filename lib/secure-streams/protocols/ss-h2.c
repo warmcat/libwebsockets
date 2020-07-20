@@ -63,11 +63,18 @@ secstream_h2(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
 		// lwsl_err("%s: h2 COMPLETED_CLIENT_HTTP\n", __func__);
-		h->info.rx(ss_to_userobj(h), NULL, 0, LWSSS_FLAG_EOM);
+		n = h->info.rx(ss_to_userobj(h), NULL, 0, LWSSS_FLAG_EOM);
+		/* decouple the fates of the wsi and the ss */
 		h->wsi = NULL;
 		h->txn_ok = 1;
 		//bad = status != 200;
 		lws_cancel_service(lws_get_context(wsi)); /* abort poll wait */
+		if (n == LWSSSSRET_DESTROY_ME) {
+			lws_set_opaque_user_data(wsi, NULL);
+			lwsl_info("%s: destroying ss handle\n", __func__);
+			lws_ss_destroy(&h);
+			return -1;
+		}
 		return 0;
 
 	case LWS_CALLBACK_WSI_TX_CREDIT_GET:

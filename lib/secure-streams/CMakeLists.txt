@@ -22,8 +22,6 @@
 # IN THE SOFTWARE.
 #
 
-# secure streams plugins
-
 include_directories(.)
 
 if (LWS_WITH_CLIENT)
@@ -116,9 +114,12 @@ if (LWS_WITH_CLIENT)
 
 		add_library( ${NAME} STATIC
 			     ${SSP_HDR} ${SSP_PUBLIC_HDR} ${SSP_SRCS} )
+
 		target_include_directories(${NAME} PRIVATE "${LWS_LIB_INCLUDES}" ${LWS_LIB_BUILD_INC_PATHS})
 
-                add_dependencies(${NAME} websockets_shared)
+		if (NOT LWS_PLAT_FREERTOS)
+	                add_dependencies(${NAME} websockets_shared)
+		endif()
 		list(APPEND SS_PLUGINS_LIST ${NAME})
 	endmacro()
 

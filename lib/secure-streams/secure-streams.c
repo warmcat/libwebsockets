@@ -412,7 +412,8 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry)
 			i.vhost = lws_get_vhost_by_name(h->context,
 							h->policy->trust_store->name);
 			if (!i.vhost) {
-				lwsl_err("%s: missing vh for policy ca\n", __func__);
+				lwsl_err("%s: missing vh for policy %s\n",
+					 __func__, h->policy->trust_store->name);
 
 				return -1;
 			}
@@ -658,6 +659,24 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 		 */
 	}
 
+#if defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
+
+	/*
+	 * For static policy case, dynamically ref / instantiate the related
+	 * trust store and vhost.  We do it by logical ss rather than connection
+	 * because we don't want to expose the latency of creating the x.509
+	 * trust store at the first connection.
+	 *
+	 * But it might be given the tls linkup takes time anyway, it can move
+	 * to the ss connect code instead.
+	 */
+
+	if (!lws_ss_policy_ref_trust_store(context, h->policy, 1 /* do the ref */)) {
+		lwsl_err("%s: unable to get vhost / trust store\n", __func__);
+		goto late_bail;
+	}
+#endif
+
 	if (lws_ss_event_helper(h, LWSSSCS_CREATING)) {
 late_bail:
 		lws_pt_lock(pt, __func__);
@@ -741,6 +760,22 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 	}
 
 	lws_sul_cancel(&h->sul);
+
+#if defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
+
+	/*
+	 * For static policy case, dynamically ref / instantiate the related
+	 * trust store and vhost.  We do it by logical ss rather than connection
+	 * because we don't want to expose the latency of creating the x.509
+	 * trust store at the first connection.
+	 *
+	 * But it might be given the tls linkup takes time anyway, it can move
+	 * to the ss connect code instead.
+	 */
+
+
+	lws_ss_policy_unref_trust_store(h->context, h->policy);
+#endif
 
 	/* confirm no sul left scheduled in handle or user allocation object */
 	lws_sul_debug_zombies(h->context, h, sizeof(*h) + h->info.user_alloc,

@@ -29,6 +29,8 @@ macro(add_subdir_include_dirs arg1)
 	list(APPEND LWS_LIB_BUILD_INC_PATHS ${_CMAKE_INC_LIST}) 
 endmacro()
 
+set(LWS_LIB_INCLUDES "")
+
 #
 # Plat specific build items
 #

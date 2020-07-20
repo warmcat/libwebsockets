@@ -30,13 +30,19 @@ extern lws_display_state_t lds;
 extern struct lws_button_state *bcs;
 extern lws_netdev_instance_wifi_t *wnd;
 
+lws_sorted_usec_list_t		sul_pass;
+
 extern int init_plat_devices(struct lws_context *);
 
 static const uint8_t logo[] = {
 #include "cat-565.h"
 };
 
+#if defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
+#include "static-policy.h"
+#else
 #include "policy.h"
+#endif
 
 static uint8_t flip;
 
@@ -49,6 +55,23 @@ typedef struct myss {
 	size_t				amount;
 
 } myss_t;
+
+/*
+ * When we're actually happy we passed, we schedule the actual pass
+ * string to happen a few seconds later, so we can observe what the
+ * code did after the pass.
+ */
+
+static void
+completion_sul_cb(lws_sorted_usec_list_t *sul)
+{
+	/*
+	 * In CI, we use sai-expect to look for this
+	 * string for success
+	 */
+
+	lwsl_notice("Completed: PASS\n");
+}
 
 static int
 myss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
@@ -64,17 +87,19 @@ myss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 		/*
 		 * If we received the whole message, for our example it means
 		 * we are done.
+		 *
+		 * Howevere we want to record what happened after we received
+		 * the last bit so we can see anything unexpected coming.  So
+		 * wait a couple of seconds before sending the PASS magic.
 		 */
 
-		lwsl_notice("%s: received %u bytes\n", __func__,
-			    (unsigned int)m->amount);
+		lwsl_notice("%s: received %u bytes, passing in 10s\n",
+			    __func__, (unsigned int)m->amount);
 
-		/*
-		 * In CI, we use sai-expect to look for this
-		 * string for success
-		 */
+		lws_sul_schedule(context, 0, &sul_pass, completion_sul_cb,
+				 10 * LWS_US_PER_SEC);
 
-		lwsl_notice("Completed: PASS\n");
+		return LWSSSSRET_DESTROY_ME;
 	}
 
 	return 0;
@@ -172,7 +197,11 @@ app_main(void)
 
 	lwsl_notice("LWS test for Espressif ESP32 WROVER KIT\n");
 
+#if !defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
 	info->pss_policies_json		= ss_policy;
+#else
+	info->pss_policies		= &_ss_static_policy_entry;
+#endif
 	info->options			= LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 					  LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info->port			= CONTEXT_PORT_NO_LISTEN;

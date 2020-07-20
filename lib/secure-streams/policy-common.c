@@ -112,6 +112,7 @@ lws_ss_policy_metadata_index(const lws_ss_policy_t *p, size_t index)
 	return NULL;
 }
 
+#if !defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
 static int
 fe_lws_ss_destroy(struct lws_dll2 *d, void *user)
 {
@@ -121,21 +122,133 @@ fe_lws_ss_destroy(struct lws_dll2 *d, void *user)
 
 	return 0;
 }
+#endif
+
+/*
+ * Dynamic policy: we want to one-time create the vhost for the policy and the
+ * trust store behind it.
+ *
+ * Static policy: We want to make use of a trust store / vhost from the policy and add to its
+ * ss-refcount.
+ */
+
+struct lws_vhost *
+lws_ss_policy_ref_trust_store(struct lws_context *context,
+			      const lws_ss_policy_t *pol, char doref)
+{
+	struct lws_context_creation_info i;
+	struct lws_vhost *v;
+	int n;
+
+	memset(&i, 0, sizeof(i));
+
+	if (!pol->trust_store) {
+		v = lws_get_vhost_by_name(context, "_ss_default");
+		if (!v) {
+			/* corner case... there's no trust store used */
+			i.options = context->options;
+			i.vhost_name = "_ss_default";
+			i.port = CONTEXT_PORT_NO_LISTEN;
+			v = lws_create_vhost(context, &i);
+			if (!v) {
+				lwsl_err("%s: failed to create vhost %s\n",
+					 __func__, i.vhost_name);
+
+				return NULL;
+			}
+		}
+
+		goto accepted;
+	}
+	v = lws_get_vhost_by_name(context, pol->trust_store->name);
+	if (v) {
+		lwsl_notice("%s: vh already exists\n", __func__);
+		goto accepted;
+	}
+
+	i.options = context->options;
+	i.vhost_name = pol->trust_store->name;
+	lwsl_debug("%s: %s\n", __func__, i.vhost_name);
+#if defined(LWS_WITH_TLS) && defined(LWS_WITH_CLIENT)
+	i.client_ssl_ca_mem = pol->trust_store->ssx509[0]->ca_der;
+	i.client_ssl_ca_mem_len = (unsigned int)
+			pol->trust_store->ssx509[0]->ca_der_len;
+#endif
+	i.port = CONTEXT_PORT_NO_LISTEN;
+	lwsl_notice("%s: %s trust store initial '%s'\n", __func__,
+		  i.vhost_name, pol->trust_store->ssx509[0]->vhost_name);
+
+	v = lws_create_vhost(context, &i);
+	if (!v) {
+		lwsl_err("%s: failed to create vhost %s\n",
+			 __func__, i.vhost_name);
+		return NULL;
+	} else
+		v->from_ss_policy = 1;
+
+	for (n = 1; v && n < pol->trust_store->count; n++) {
+		lwsl_info("%s: add '%s' to trust store\n", __func__,
+			  pol->trust_store->ssx509[n]->vhost_name);
+#if defined(LWS_WITH_TLS)
+		if (lws_tls_client_vhost_extra_cert_mem(v,
+				pol->trust_store->ssx509[n]->ca_der,
+				pol->trust_store->ssx509[n]->ca_der_len)) {
+			lwsl_err("%s: add extra cert failed\n",
+					__func__);
+			return NULL;
+		}
+#endif
+	}
+
+accepted:
+#if defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
+	if (doref)
+		v->ss_refcount++;
+#endif
+
+	return v;
+}
+
+#if defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
+int
+lws_ss_policy_unref_trust_store(struct lws_context *context,
+				const lws_ss_policy_t *pol)
+{
+	struct lws_vhost *v;
+	const char *name = "_ss_default";
+
+	if (pol->trust_store)
+		name = pol->trust_store->name;
+
+	v = lws_get_vhost_by_name(context, name);
+	if (!v || !v->from_ss_policy)
+		return 0;
+
+	assert(v->ss_refcount);
+
+	v->ss_refcount--;
+	if (!v->ss_refcount) {
+		lwsl_notice("%s: destroying vh %s\n", __func__, name);
+		lws_vhost_destroy(v);
+	}
+
+	return 1;
+}
+#endif
 
 int
 lws_ss_policy_set(struct lws_context *context, const char *name)
 {
-#if !defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
-	struct policy_cb_args *args = (struct policy_cb_args *)context->pol_args;
-	lws_ss_x509_t *x;
-	char buf[16];
-	int m;
-#endif
-	const lws_ss_policy_t *pol;
-	struct lws_vhost *v;
 	int ret = 0;
 
 #if !defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
+	struct policy_cb_args *args = (struct policy_cb_args *)context->pol_args;
+	const lws_ss_policy_t *pol;
+	struct lws_vhost *v;
+	lws_ss_x509_t *x;
+	char buf[16];
+	int m;
+
 	/*
 	 * Parsing seems to have succeeded, and we're going to use the new
 	 * policy that's laid out in args->ac
@@ -201,80 +314,24 @@ lws_ss_policy_set(struct lws_context *context, const char *name)
 		m = 0;
 
 	lwsl_info("%s: %s, pad %d%c: %s\n", __func__, buf, m, '%', name);
-#endif
 
 	/* Create vhosts for each type of trust store */
 
+	/*
+	 * We get called from context creation... instantiates
+	 * vhosts with client tls contexts set up for each unique CA.
+	 *
+	 * For compatibility with static policy, we create the vhosts
+	 * by walking streamtype list and create vhosts using trust
+	 * store name if it doesn't already exist.
+	 */
+
 	pol = context->pss_policies;
 	while (pol) {
-		struct lws_context_creation_info i;
-		int n;
-
-		memset(&i, 0, sizeof(i));
-
-		/*
-		 * We get called from context creation... instantiates
-		 * vhosts with client tls contexts set up for each unique CA.
-		 *
-		 * For compatibility with static policy, we create the vhosts
-		 * by walking streamtype list and create vhosts using trust
-		 * store name if it doesn't already exist.
-		 */
-
-		if (!pol->trust_store) {
-			pol = pol->next;
-			if (!pol) {
-				/* corner case... there's no trust store used */
-				i.options = context->options;
-				i.vhost_name = "_ss_default";
-				i.port = CONTEXT_PORT_NO_LISTEN;
-				v = lws_create_vhost(context, &i);
-				if (!v)
-					lwsl_err("%s: failed to create vhost %s\n",
-						 __func__, i.vhost_name);
-			}
-			continue;
-		}
-		v = lws_get_vhost_by_name(context, pol->trust_store->name);
-		if (v) {
-			/* vhost for this trust store already exists, skip */
-			pol = pol->next;
-			continue;
-		}
-
-		i.options = context->options;
-		i.vhost_name = pol->trust_store->name;
-		lwsl_debug("%s: %s\n", __func__, i.vhost_name);
-#if defined(LWS_WITH_TLS) && defined(LWS_WITH_CLIENT)
-		i.client_ssl_ca_mem = pol->trust_store->ssx509[0]->ca_der;
-		i.client_ssl_ca_mem_len = (unsigned int)
-				pol->trust_store->ssx509[0]->ca_der_len;
-#endif
-		i.port = CONTEXT_PORT_NO_LISTEN;
-		lwsl_info("%s: %s trust store initial '%s'\n", __func__,
-			  i.vhost_name, pol->trust_store->ssx509[0]->vhost_name);
-
-		v = lws_create_vhost(context, &i);
-		if (!v) {
-			lwsl_err("%s: failed to create vhost %s\n",
-				 __func__, i.vhost_name);
+		v = lws_ss_policy_ref_trust_store(context, pol,
+						  0 /* no refcount inc */);
+		if (!v)
 			ret = 1;
-		} else
-			v->from_ss_policy = 1;
-
-		for (n = 1; v && n < pol->trust_store->count; n++) {
-			lwsl_info("%s: add '%s' to trust store\n", __func__,
-				  pol->trust_store->ssx509[n]->vhost_name);
-#if defined(LWS_WITH_TLS)
-			if (lws_tls_client_vhost_extra_cert_mem(v,
-					pol->trust_store->ssx509[n]->ca_der,
-					pol->trust_store->ssx509[n]->ca_der_len)) {
-				lwsl_err("%s: add extra cert failed\n",
-						__func__);
-				ret = 1;
-			}
-#endif
-		}
 
 		pol = pol->next;
 	}
@@ -298,8 +355,6 @@ lws_ss_policy_set(struct lws_context *context, const char *name)
 		lwsl_notice("%s: global socks5 proxy: %s\n", __func__,
 			    args->socks5_proxy);
 #endif
-
-#if !defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
 
 	/*
 	 * For dynamic policy case, now we processed the x.509 CAs, we can free
@@ -325,4 +380,3 @@ lws_ss_policy_set(struct lws_context *context, const char *name)
 
 	return ret;
 }
-

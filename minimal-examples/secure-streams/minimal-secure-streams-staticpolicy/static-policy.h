@@ -221,7 +221,9 @@
 }
 
 
- Original JSON size: 15491
+
+
+ Original JSON size: 15493
 #endif
 
 static const uint32_t _rbo_bo_0[] = {
@@ -1341,7 +1343,7 @@ _ssp_mqtt_test1 = {
 	.port = 443,
 	.protocol = 3,
 	.client_cert = 1,
-	.trust_store = &_ss_ts_mqtt_amz_iot,
+	.trust = {.store = &_ss_ts_mqtt_amz_iot},
 },
 _ssp_mqtt_test = {
 	.next = (void *)&_ssp_mqtt_test1,
@@ -1358,7 +1360,7 @@ _ssp_mqtt_test = {
 	.port = 443,
 	.protocol = 3,
 	.client_cert = 1,
-	.trust_store = &_ss_ts_mqtt_amz_iot,
+	.trust = {.store = &_ss_ts_mqtt_amz_iot},
 },
 _ssp_minpost = {
 	.next = (void *)&_ssp_mqtt_test,
@@ -1374,7 +1376,7 @@ _ssp_minpost = {
 	.flags = 0x11,
 	.port = 443,
 	.protocol = 0,
-	.trust_store = &_ss_ts_le_via_isrg,
+	.trust = {.store = &_ss_ts_le_via_isrg},
 },
 _ssp_mintest_fail = {
 	.next = (void *)&_ssp_minpost,
@@ -1390,7 +1392,7 @@ _ssp_mintest_fail = {
 	.flags = 0x11,
 	.port = 22,
 	.protocol = 0,
-	.trust_store = &_ss_ts_le_via_isrg,
+	.trust = {.store = &_ss_ts_le_via_isrg},
 },
 _ssp_h2longpolltest = {
 	.next = (void *)&_ssp_mintest_fail,
@@ -1406,7 +1408,7 @@ _ssp_h2longpolltest = {
 	.flags = 0x32,
 	.port = 443,
 	.protocol = 1,
-	.trust_store = &_ss_ts_le_via_isrg,
+	.trust = {.store = &_ss_ts_le_via_isrg},
 },
 _ssp_mintest = {
 	.next = (void *)&_ssp_h2longpolltest,
@@ -1424,7 +1426,7 @@ _ssp_mintest = {
 	.port = 443,
 	.metadata_count = 3,
 	.protocol = 0,
-	.trust_store = &_ss_ts_le_via_isrg,
+	.trust = {.store = &_ss_ts_le_via_isrg},
 },
 _ssp_avs_audio = {
 	.next = (void *)&_ssp_mintest,
@@ -1446,7 +1448,7 @@ _ssp_avs_audio = {
 	.flags = 0xa90,
 	.port = 443,
 	.protocol = 1,
-	.trust_store = &_ss_ts_avs_via_starfield,
+	.trust = {.store = &_ss_ts_avs_via_starfield},
 },
 _ssp_avs_metadata = {
 	.next = (void *)&_ssp_avs_audio,
@@ -1469,7 +1471,7 @@ _ssp_avs_metadata = {
 	.flags = 0xa91,
 	.port = 443,
 	.protocol = 1,
-	.trust_store = &_ss_ts_avs_via_starfield,
+	.trust = {.store = &_ss_ts_avs_via_starfield},
 },
 _ssp_avs_event = {
 	.next = (void *)&_ssp_avs_metadata,
@@ -1489,7 +1491,7 @@ _ssp_avs_event = {
 	.flags = 0x2b2,
 	.port = 443,
 	.protocol = 1,
-	.trust_store = &_ss_ts_avs_via_starfield,
+	.trust = {.store = &_ss_ts_avs_via_starfield},
 },
 _ssp_api_amazon_com_auth = {
 	.next = (void *)&_ssp_avs_event,
@@ -1505,7 +1507,7 @@ _ssp_api_amazon_com_auth = {
 	.flags = 0x1291,
 	.port = 443,
 	.protocol = 0,
-	.trust_store = &_ss_ts_api_amazon_com,
+	.trust = {.store = &_ss_ts_api_amazon_com},
 };
 #define _ss_static_policy_entry _ssp_api_amazon_com_auth
-/* estimated footprint 10928 (when sizeof void * = 8) */
+/* estimated footprint 10720 (when sizeof void * = 8) */

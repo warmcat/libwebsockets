@@ -148,7 +148,7 @@ int main(int argc, const char **argv)
 	 */
 
 	pol = lws_ss_policy_get(context);
-	lwsl_notice("%s: pol %p\n", __func__, pol);
+
 	while (pol) {
 
 		/*
@@ -363,7 +363,6 @@ int main(int argc, const char **argv)
 	 */
 
 	pol = lws_ss_policy_get(context);
-	lwsl_notice("%s: pol %p\n", __func__, pol);
 
 	printf("\nstatic const lws_ss_policy_t ");
 	prev[0] = '\0';

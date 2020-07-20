@@ -445,8 +445,9 @@ malformed:
 			char *px = (char *)buf + LWS_PRE; /* guarantees LWS_PRE */
 			int lenx = sizeof(buf) - LWS_PRE;
 
-			if (lws_http_client_read(wsi, &px, &lenx) < 0)
-				return -1;
+			m = lws_http_client_read(wsi, &px, &lenx);
+			if (m < 0)
+				return m;
 		}
 		lws_set_timeout(wsi, 99, 30);
 

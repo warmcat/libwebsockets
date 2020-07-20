@@ -22,9 +22,6 @@ static const char * const ss_policy =
 	  "\"certs\": [" /* named individual certificates in BASE64 DER */
 		/*
 		 * Let's Encrypt certs for warmcat.com / libwebsockets.org
-		 *
-		 * We fetch the real policy from there using SS and switch to
-		 * using that.
 		 */
 		"{\"isrg_root_x1\": \"" /* ISRG ROOT X1 */
 	"MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw"

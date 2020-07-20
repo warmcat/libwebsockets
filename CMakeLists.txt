@@ -252,7 +252,7 @@ option(LWS_WITH_SUL_DEBUGGING "Enable zombie lws_sul checking on object deletion
 
 # sets of sub-options implied by other options
 #
-set(LIB_LIST)
+set(LIB_LIST "")
 set(LIB_LIST_AT_END)
 set(LWS_LIBRARIES)
 set(LWS_OPENSSL_SUPPORT 0)

@@ -349,7 +349,14 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if defined(__ANDROID__)
 	struct rlimit rt;
 #endif
-	size_t s1 = 4096, size = sizeof(struct lws_context);
+	size_t
+#if defined(LWS_PLAT_FREERTOS)
+		/* smaller default, can set in info->pt_serv_buf_size */
+		s1 = 2048,
+#else
+		s1 = 4096,
+#endif
+		size = sizeof(struct lws_context);
 	int n, lpf = info->fd_limit_per_thread;
 
 	if (lpf) {
@@ -824,10 +831,6 @@ n = 0;
 		  (long)context->count_threads,
 		  context->pt_serv_buf_size,
 		  context->fd_limit_per_thread, n);
-
-#if defined(LWS_WITH_NETWORK)
-	lwsl_info("wsi: %5luB\n", (long)sizeof(struct lws));
-#endif
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	lwsl_info(" http: ah_data: %u, ah: %lu, max count %u\n",

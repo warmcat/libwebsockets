@@ -383,6 +383,16 @@ lws_ss_exp_cb_metadata(void *priv, const char *name, char *out, size_t *pos,
 int
 _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry);
 
+struct lws_vhost *
+lws_ss_policy_ref_trust_store(struct lws_context *context,
+			      const lws_ss_policy_t *pol, char doref);
+
+#if defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
+int
+lws_ss_policy_unref_trust_store(struct lws_context *context,
+				const lws_ss_policy_t *pol);
+#endif
+
 int
 lws_ss_sys_cpd(struct lws_context *cx);
 
