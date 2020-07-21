@@ -298,6 +298,11 @@ lws_async_dns_init(struct lws_context *context)
 	char ads[48];
 	int n;
 
+	if (!context->vhost_list) { /* coverity... system vhost always present */
+		lwsl_err("%s: no system vhost\n", __func__);
+		return 1;
+	}
+
 	memset(&dns->sa46, 0, sizeof(dns->sa46));
 
 #if defined(LWS_WITH_SYS_DHCP_CLIENT)
