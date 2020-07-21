@@ -166,6 +166,8 @@ lws_esp32_scan_update(lws_netdev_instance_wifi_t *wnd)
 
 		if (w->rssi_count == LWS_ARRAY_SIZE(w->rssi))
 			w->rssi_avg -= w->rssi[w->rssi_next];
+		else
+			w->rssi_count++;
 		w->rssi[w->rssi_next] = ar->rssi;
 		w->rssi_avg += w->rssi[w->rssi_next++];
 		w->rssi_next = w->rssi_next & (LWS_ARRAY_SIZE(w->rssi) - 1);

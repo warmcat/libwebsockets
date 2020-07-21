@@ -29,8 +29,9 @@
 int
 lws_netdev_wifi_rssi_sort_compare(const lws_dll2_t *d, const lws_dll2_t *i)
 {
-	return (int)((lws_wifi_sta_t *)d)->rssi_avg >
-	       (int)((lws_wifi_sta_t *)i)->rssi_avg;
+	const lws_wifi_sta_t *wsd = (const lws_wifi_sta_t *)d,
+			     *wsi = (const lws_wifi_sta_t *)i;
+	return rssi_averaged(wsd) > rssi_averaged(wsi);
 }
 
 void
@@ -105,7 +106,7 @@ lws_netdev_wifi_scan_select(lws_netdev_instance_wifi_t *wnd)
 		lwsl_notice("%s: %s, %02X:%02X:%02X:%02X:%02X:%02X, ch %d, rssi %d\n",
 			    __func__, (const char *)&w[1], w->bssid[0],
 			    w->bssid[1], w->bssid[2], w->bssid[3], w->bssid[4],
-			    w->bssid[5], w->ch, w->rssi_avg);
+			    w->bssid[5], w->ch, rssi_averaged(w));
 
 	} lws_end_foreach_dll(p);
 

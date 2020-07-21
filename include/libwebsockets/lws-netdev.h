@@ -222,6 +222,10 @@ typedef struct lws_wifi_sta {
 	/* ssid overallocated afterwards */
 } lws_wifi_sta_t;
 
+#define rssi_averaged(_x) (_x->rssi_count ? \
+		((int)_x->rssi_avg / (int)_x->rssi_count) : \
+			-200)
+
 LWS_VISIBLE LWS_EXTERN lws_netdevs_t *
 lws_netdevs_from_ctx(struct lws_context *ctx);
 
