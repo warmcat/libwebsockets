@@ -345,6 +345,6 @@ secstream_connect_munge_mqtt(lws_ss_handle_t *h, char *buf, size_t len,
 const struct ss_pcols ss_pcol_mqtt = {
 	"MQTT",
 	"x-amzn-mqtt-ca", //"mqtt/3.1.1",
-	"lws-secstream-mqtt",
+	&protocol_secstream_mqtt,
 	secstream_connect_munge_mqtt
 };

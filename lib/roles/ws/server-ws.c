@@ -297,9 +297,36 @@ lws_process_ws_upgrade2(struct lws *wsi)
 
 	lws_pt_lock(pt, __func__);
 
-	if (!wsi->h2_stream_carries_ws)
+	/*
+	 * Switch roles if we're upgrading away from http
+	 */
+
+	if (!wsi->h2_stream_carries_ws) {
 		lws_role_transition(wsi, LWSIFR_SERVER, LRS_ESTABLISHED,
 				    &role_ops_ws);
+
+#if defined(LWS_WITH_SECURE_STREAMS) && defined(LWS_WITH_SERVER)
+
+		/*
+		 * If we're a SS server object, we have to switch to ss-ws
+		 * protocol handler too
+		 */
+		if (wsi->a.vhost->ss_handle) {
+			lwsl_info("%s: Server SS %p switching to ws protocol\n",
+					__func__, wsi->a.vhost->ss_handle);
+			wsi->a.protocol = &protocol_secstream_ws;
+
+			/*
+			 * inform the SS user code that this has done a one-way
+			 * upgrade to some other protocol... it will likely
+			 * want to treat subsequent payloads differently
+			 */
+
+			lws_ss_event_helper(wsi->a.vhost->ss_handle,
+						LWSSSCS_SERVER_UPGRADE);
+		}
+#endif
+	}
 
 	lws_pt_unlock(pt);
 
@@ -535,6 +562,33 @@ lws_process_ws_upgrade(struct lws *wsi)
 		goto alloc_ws;
 	}
 
+#if defined(LWS_WITH_SECURE_STREAMS) && defined(LWS_WITH_SERVER)
+	if (wsi->a.vhost->ss_handle) {
+		lws_ss_handle_t *sssh = wsi->a.vhost->ss_handle;
+
+		/*
+		 * At the moment, once we see it's a ss ws server, whatever
+		 * he asked for we bind him to the ss-ws protocol handler.
+		 *
+		 * In the response subprotocol header, we need to name
+		 *
+		 * sssh->policy->u.http.u.ws.subprotocol
+		 *
+		 * though...
+		 */
+
+		if (sssh->policy->u.http.u.ws.subprotocol) {
+			pcol = lws_vhost_name_to_protocol(wsi->a.vhost,
+							  "lws-secstream-ws");
+			if (pcol) {
+				lws_bind_protocol(wsi, pcol, "ss ws upg pcol");
+
+				goto alloc_ws;
+			}
+		}
+	}
+#endif
+
 	/* otherwise go through the user-provided protocol list */
 
 	do {
@@ -649,6 +703,26 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 #if defined(LWS_WITH_HTTP_PROXY)
 		if (wsi->proxied_ws_parent && wsi->child_list)
 			prot = wsi->child_list->ws->actual_protocol;
+#endif
+
+#if defined(LWS_WITH_SECURE_STREAMS) && defined(LWS_WITH_SERVER)
+		{
+			lws_ss_handle_t *sssh = wsi->a.vhost->ss_handle;
+
+			/*
+			 * At the moment, once we see it's a ss ws server, whatever
+			 * he asked for we bind him to the ss-ws protocol handler.
+			 *
+			 * In the response subprotocol header, we need to name
+			 *
+			 * sssh->policy->u.http.u.ws.subprotocol
+			 *
+			 * though...
+			 */
+
+			if (sssh->policy->u.http.u.ws.subprotocol)
+				prot = sssh->policy->u.http.u.ws.subprotocol;
+		}
 #endif
 
 		LWS_CPYAPP(p, "\x0d\x0aSec-WebSocket-Protocol: ");
@@ -945,7 +1019,6 @@ lws_parse_ws(struct lws *wsi, unsigned char **buf, size_t len)
 				 * We dealt with it by trimming the existing
 				 * rxflow cache HEAD to account for what we used.
 				 *
-				 * indicate we didn't use anything to the caller
 				 * so he doesn't do any consumed processing
 				 */
 				lwsl_info("%s: trimming inside rxflow cache\n",

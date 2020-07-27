@@ -269,6 +269,11 @@ lws_wsi_server_new(struct lws_vhost *vh, struct lws *parent_wsi,
 	wsi->a.vhost->conn_stats.h2_subs++;
 #endif
 
+#if defined(LWS_WITH_SERVER) && defined(LWS_WITH_SECURE_STREAMS)
+	if (lws_adopt_ss_server_accept(wsi))
+		goto bail1;
+#endif
+
 	/* get the ball rolling */
 	lws_validity_confirmed(wsi);
 
@@ -2512,10 +2517,48 @@ lws_h2_ws_handshake(struct lws *wsi)
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_PROTOCOL) &&
 		    /*  - it is not an empty string */
 		    wsi->a.protocol->name && wsi->a.protocol->name[0]) {
+
+#if defined(LWS_WITH_SECURE_STREAMS) && defined(LWS_WITH_SERVER)
+
+		/*
+		 * This is the h2 version of server-ws.c understanding that it
+		 * did the ws upgrade on a ss server object, therefore it needs
+		 * to pass back to the peer the policy ws-protocol name, not
+		 * the generic ss-ws.c protocol name
+		 */
+
+		if (wsi->a.vhost->ss_handle->policy->u.http.u.ws.subprotocol) {
+			lws_ss_handle_t *h =
+				(lws_ss_handle_t *)wsi->a.opaque_user_data;
+
+			lwsl_notice("%s: Server SS %p .wsi %p switching to ws protocol\n",
+					__func__, h, h->wsi);
+
+			wsi->a.protocol = &protocol_secstream_ws;
+
+			/*
+			 * inform the SS user code that this has done a one-way
+			 * upgrade to some other protocol... it will likely
+			 * want to treat subsequent payloads differently
+			 */
+
+			lws_ss_event_helper(h, LWSSSCS_SERVER_UPGRADE);
+
+			lws_mux_mark_immortal(wsi);
+
+			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_PROTOCOL,
+				(unsigned char *)wsi->a.vhost->ss_handle->policy->
+						u.http.u.ws.subprotocol,
+				(int)strlen(wsi->a.vhost->ss_handle->policy->
+						u.http.u.ws.subprotocol), &p, end))
+					return -1;
+		} else
+#endif
+
 			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_PROTOCOL,
 				(unsigned char *)wsi->a.protocol->name,
 				(int)strlen(wsi->a.protocol->name), &p, end))
-			return -1;
+					return -1;
 		}
 	}
 

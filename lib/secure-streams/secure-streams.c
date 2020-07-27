@@ -64,6 +64,8 @@ static const char *state_names[] = {
 	"LWSSSCS_QOS_ACK_LOCAL",
 	"LWSSSCS_QOS_NACK_LOCAL",
 	"LWSSSCS_TIMEOUT",
+	"LWSSSCS_SERVER_TXN",
+	"LWSSSCS_SERVER_UPGRADE",
 };
 
 const char *
@@ -93,6 +95,7 @@ lws_ss_event_helper(lws_ss_handle_t *h, lws_ss_constate_t cs)
 				    (void *)h, NULL);
 #endif
 
+#if 0
 	if (h->h_sink && h->h_sink->info.state) {
 		n = h->h_sink->info.state(h->sink_obj, h->h_sink, cs, 0);
 		if (n) {
@@ -105,9 +108,15 @@ lws_ss_event_helper(lws_ss_handle_t *h, lws_ss_constate_t cs)
 			}
 		}
 	}
+#endif
 
 	if (h->info.state) {
 		n = h->info.state(ss_to_userobj(h), NULL, cs, 0);
+#if defined(LWS_WITH_SERVER)
+		if ((h->info.flags & LWSSSINFLAGS_ACCEPTED) &&
+		    cs == LWSSSCS_DISCONNECTED)
+			n = LWSSSSRET_DESTROY_ME;
+#endif
 		if (n) {
 			if (cs == LWSSSCS_CREATING)
 				/* just let caller handle it */
@@ -321,8 +330,8 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry)
 	 * We are already bound to a sink?
 	 */
 
-	if (h->h_sink)
-		return 0;
+//	if (h->h_sink)
+//		return 0;
 
 	if (!is_retry)
 		h->retry = 0;
@@ -405,15 +414,16 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry)
 		lwsl_info("%s: using tls\n", __func__);
 		i.ssl_connection = LCCSCF_USE_SSL;
 
-		if (!h->policy->trust_store)
+		if (!h->policy->trust.store)
 			lwsl_info("%s: using platform trust store\n", __func__);
 		else {
 
 			i.vhost = lws_get_vhost_by_name(h->context,
-							h->policy->trust_store->name);
+					h->policy->trust.store->name);
 			if (!i.vhost) {
 				lwsl_err("%s: missing vh for policy %s\n",
-					 __func__, h->policy->trust_store->name);
+					 __func__,
+					 h->policy->trust.store->name);
 
 				return -1;
 			}
@@ -450,7 +460,7 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry)
 	 * the protocol-specific munge callback below if not http
 	 */
 	i.method = h->policy->u.http.method;
-	i.protocol = ssp->protocol_name; /* lws protocol name */
+	i.protocol = ssp->protocol->name; /* lws protocol name */
 	i.local_protocol_name = i.protocol;
 
 	if (ssp->munge) /* eg, raw doesn't use; endpoint strexp already done */
@@ -458,8 +468,10 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry)
 
 	i.pwsi = &h->wsi;
 
+#if defined(LWS_WITH_SSPLUGINS)
 	if (h->policy->plugins[0] && h->policy->plugins[0]->munge)
 		h->policy->plugins[0]->munge(h, path, sizeof(path));
+#endif
 
 	lwsl_info("%s: connecting %s, '%s' '%s' %s\n", __func__, i.method,
 			i.alpn, i.address, i.path);
@@ -557,10 +569,12 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 	 */
 
 	size = sizeof(*h) + ssi->user_alloc + strlen(ssi->streamtype) + 1;
+#if defined(LWS_WITH_SSPLUGINS)
 	if (pol->plugins[0])
 		size += pol->plugins[0]->alloc;
 	if (pol->plugins[1])
 		size += pol->plugins[1]->alloc;
+#endif
 	size += pol->metadata_count * sizeof(lws_ss_metadata_t);
 
 	h = lws_zalloc(size, __func__);
@@ -586,6 +600,7 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 
 	p += ssi->user_alloc;
 
+#if defined(LWS_WITH_SSPLUGINS)
 	if (pol->plugins[0]) {
 		h->nauthi = p;
 		p += pol->plugins[0]->alloc;
@@ -594,6 +609,7 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 		h->sauthi = p;
 		p += pol->plugins[1]->alloc;
 	}
+#endif
 
 	if (pol->metadata_count) {
 		h->metadata = (lws_ss_metadata_t *)p;
@@ -614,6 +630,9 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 	}
 
 	memcpy(p, ssi->streamtype, strlen(ssi->streamtype) + 1);
+	/* don't mark accepted ss as being the server */
+	if (ssi->flags & LWSSSINFLAGS_SERVER)
+		h->info.flags &= ~LWSSSINFLAGS_SERVER;
 	h->info.streamtype = p;
 
 	lws_pt_lock(pt, __func__);
@@ -625,6 +644,12 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 
 	if (ppayload_fmt)
 		*ppayload_fmt = pol->payload_fmt;
+
+	if (ssi->flags & LWSSSINFLAGS_SERVER)
+		/*
+		 * return early for accepted connection flow
+		 */
+		return 0;
 
 #if defined(LWS_WITH_SYS_SMD)
 	/*
@@ -653,11 +678,72 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 	}
 #endif
 
-	if (ssi->flags & LWSSSINFLAGS_REGISTER_SINK) {
+#if defined(LWS_WITH_SERVER)
+	if (h->policy->flags & LWSSSPOLF_SERVER) {
+		const struct lws_protocols *pprot[3], **ppp = &pprot[0];
+		struct lws_context_creation_info i;
+		struct lws_vhost *vho;
+
+		lwsl_info("%s: creating server\n", __func__);
+
 		/*
-		 *
+		 * This streamtype represents a server, we're being asked to
+		 * instantiate a corresponding vhost for it
 		 */
+
+		memset(&i, 0, sizeof i);
+
+		i.iface		= h->policy->endpoint;
+		i.vhost_name	= h->policy->streamtype;
+		i.port		= h->policy->port;
+
+		if (!ss_pcols[h->policy->protocol]) {
+			lwsl_err("%s: unsupp protocol", __func__);
+			goto late_bail;
+		}
+
+		*ppp++ = ss_pcols[h->policy->protocol]->protocol;
+#if defined(LWS_ROLE_WS)
+		if (h->policy->u.http.u.ws.subprotocol)
+			/*
+			 * He names a ws subprotocol, ie, we want to support
+			 * ss-ws protocol in this vhost
+			 */
+			*ppp++ = &protocol_secstream_ws;
+#endif
+		*ppp = NULL;
+		i.pprotocols = pprot;
+
+		if (h->policy->flags & LWSSSPOLF_TLS) {
+			i.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+			i.server_ssl_cert_mem =
+				h->policy->trust.server.cert->ca_der;
+			i.server_ssl_cert_mem_len = (unsigned int)
+				h->policy->trust.server.cert->ca_der_len;
+			i.server_ssl_private_key_mem =
+				h->policy->trust.server.key->ca_der;
+			i.server_ssl_private_key_mem_len = (unsigned int)
+				h->policy->trust.server.key->ca_der_len;
+		}
+
+		vho = lws_create_vhost(context, &i);
+		if (!vho) {
+			lwsl_err("%s: failed to create vh", __func__);
+			goto late_bail;
+		}
+
+		/*
+		 * Mark this vhost as having to apply ss server semantics to
+		 * any incoming accepted connection
+		 */
+		vho->ss_handle = h;
+
+		lwsl_notice("%s: created server %s\n", __func__,
+				h->policy->streamtype);
+
+		return 0;
 	}
+#endif
 
 #if defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
 
@@ -777,6 +863,21 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 	lws_ss_policy_unref_trust_store(h->context, h->policy);
 #endif
 
+#if defined(LWS_WITH_SERVER)
+	if (h->policy->flags & LWSSSPOLF_SERVER) {
+		struct lws_vhost *v = lws_get_vhost_by_name(h->context,
+							h->policy->streamtype);
+
+		/*
+		 * For server, the policy describes a vhost that implements the
+		 * server, when we take down the ss, we take down the related
+		 * vhost (if it got that far)
+		 */
+		if (v)
+			lws_vhost_destroy(v);
+	}
+#endif
+
 	/* confirm no sul left scheduled in handle or user allocation object */
 	lws_sul_debug_zombies(h->context, h, sizeof(*h) + h->info.user_alloc,
 			      __func__);
@@ -785,17 +886,28 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 }
 
 void
+lws_ss_server_ack(struct lws_ss_handle *h, int nack)
+{
+	h->txn_resp = nack;
+	h->txn_resp_set = 1;
+}
+
+void
 lws_ss_request_tx(lws_ss_handle_t *h)
 {
 	int n;
 
-	lwsl_info("%s: wsi %p\n", __func__, h->wsi);
+	// lwsl_notice("%s: h %p, wsi %p\n", __func__, h, h->wsi);
 
 	if (h->wsi) {
 		lws_callback_on_writable(h->wsi);
 
 		return;
 	}
+
+	/*
+	 * there's currently no wsi / connection associated with the ss handle
+	 */
 
 #if defined(LWS_WITH_SYS_SMD)
 	if (h->policy == &pol_smd) {

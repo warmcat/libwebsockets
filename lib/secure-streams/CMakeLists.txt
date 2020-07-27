@@ -123,7 +123,7 @@ if (LWS_WITH_CLIENT)
 		list(APPEND SS_PLUGINS_LIST ${NAME})
 	endmacro()
 
-	create_ss_plugin(ssp-h1url "h1url.c" "" "" "" "")
+	#	create_ss_plugin(ssp-h1url "h1url.c" "" "" "" "")
 endif()
 
 #

@@ -35,8 +35,15 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	size_t real_len = len;
 	unsigned int n, m;
 
-	// lwsl_notice("%s: len %d\n", __func__, (int)len);
-	// lwsl_hexdump_level(LLL_NOTICE, buf, len);
+#if 0
+	/*
+	 * This is the last place data going out over tls tunnels can be dumped
+	 * before encryption, in order to understand what's being sent "raw"
+	 */
+
+	lwsl_notice("%s: wsi: %p, len: %d\n", __func__, wsi, (int)len);
+	lwsl_hexdump_notice(buf, len);
+#endif
 
 	/*
 	 * Detect if we got called twice without going through the

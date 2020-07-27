@@ -152,6 +152,55 @@ around:
 }
 #endif
 
+static int
+lws_apply_metadata(lws_ss_handle_t *h, struct lws *wsi, uint8_t *buf,
+		   uint8_t **pp, uint8_t *end)
+{
+	int m;
+
+	for (m = 0; m < h->policy->metadata_count; m++) {
+		lws_ss_metadata_t *polmd;
+
+		/* has to have a header string listed */
+		if (!h->metadata[m].value)
+			continue;
+
+		polmd = lws_ss_policy_metadata_index(h->policy, m);
+
+		assert(polmd);
+		/* has to have a value */
+		if (polmd->value && ((uint8_t *)polmd->value)[0]) {
+			if (lws_add_http_header_by_name(wsi,
+					polmd->value,
+					h->metadata[m].value,
+					(int)h->metadata[m].length, pp, end))
+			return -1;
+		}
+	}
+
+	/*
+	 * Content-length on POST / PUT if we have the length information
+	 */
+
+	if (h->policy->u.http.method && (
+		(!strcmp(h->policy->u.http.method, "POST") ||
+	         !strcmp(h->policy->u.http.method, "PUT"))) &&
+	    wsi->http.writeable_len) {
+		if (!(h->policy->flags &
+			LWSSSPOLF_HTTP_NO_CONTENT_LENGTH)) {
+			int n = lws_snprintf((char *)buf, 20, "%u",
+				(unsigned int)wsi->http.writeable_len);
+			if (lws_add_http_header_by_token(wsi,
+					WSI_TOKEN_HTTP_CONTENT_LENGTH,
+					buf, n, pp, end))
+				return -1;
+		}
+		lws_client_http_body_pending(wsi, 1);
+	}
+
+	return 0;
+}
+
 static const uint8_t blob_idx[] = {
 	LWS_SYSBLOB_TYPE_AUTH,
 	LWS_SYSBLOB_TYPE_DEVICE_SERIAL,
@@ -165,6 +214,9 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 {
 	lws_ss_handle_t *h = (lws_ss_handle_t *)lws_get_opaque_user_data(wsi);
 	uint8_t buf[LWS_PRE + 1520], *p = &buf[LWS_PRE],
+#if defined(LWS_WITH_SERVER)
+			*start = p,
+#endif
 		*end = &buf[sizeof(buf) - 1];
 	int f = 0, m, status;
 	char conceal_eom = 0;
@@ -196,6 +248,7 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		/* don't follow it */
 		return 1;
 
+	case LWS_CALLBACK_CLOSED_HTTP: /* server */
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
 		if (!h)
 			break;
@@ -208,6 +261,9 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		//bad = status != 200;
 		//lws_cancel_service(lws_get_context(wsi)); /* abort poll wait */
 		if (h->policy && !(h->policy->flags & LWSSSPOLF_OPPORTUNISTIC) &&
+#if defined(LWS_WITH_SERVER)
+		    !(h->info.flags & LWSSSINFLAGS_ACCEPTED) && /* not server */
+#endif
 		    !h->txn_ok && !wsi->a.context->being_destroyed) {
 			if (lws_ss_backoff(h))
 				break;
@@ -363,44 +419,8 @@ malformed:
 		 * metadata-based headers
 		 */
 
-		for (m = 0; m < h->policy->metadata_count; m++) {
-			lws_ss_metadata_t *polmd;
-
-			/* has to have a header string listed */
-			if (!h->metadata[m].value)
-				continue;
-
-			polmd = lws_ss_policy_metadata_index(h->policy, m);
-
-			assert(polmd);
-			/* has to have a value */
-			if (polmd->value && ((uint8_t *)polmd->value)[0]) {
-				if (lws_add_http_header_by_name(wsi,
-						polmd->value,
-						h->metadata[m].value,
-						(int)h->metadata[m].length, p, end))
-				return -1;
-			}
-		}
-
-		/*
-		 * Content-length on POST / PUT if we have the length information
-		 */
-
-		if ((!strcmp(h->policy->u.http.method, "POST") ||
-		     !strcmp(h->policy->u.http.method, "PUT")) &&
-		    wsi->http.writeable_len) {
-			if (!(h->policy->flags &
-				LWSSSPOLF_HTTP_NO_CONTENT_LENGTH)) {
-				int n = lws_snprintf((char *)buf, 20, "%u",
-					(unsigned int)wsi->http.writeable_len);
-				if (lws_add_http_header_by_token(wsi,
-						WSI_TOKEN_HTTP_CONTENT_LENGTH,
-						buf, n, p, end))
-					return -1;
-			}
-			lws_client_http_body_pending(wsi, 1);
-		}
+		if (lws_apply_metadata(h, wsi, buf, p, end))
+			return -1;
 
 		(void)oin;
 		// if (*p != oin)
@@ -411,6 +431,7 @@ malformed:
 		break;
 
 	/* chunks of chunked content, with header removed */
+	case LWS_CALLBACK_HTTP_BODY:
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
 		lwsl_debug("%s: RECEIVE_CLIENT_HTTP_READ: read %d\n",
 				__func__, (int)len);
@@ -476,16 +497,62 @@ malformed:
 		lws_cancel_service(lws_get_context(wsi)); /* abort poll wait */
 		break;
 
+	case LWS_CALLBACK_HTTP_WRITEABLE:
 	case LWS_CALLBACK_CLIENT_HTTP_WRITEABLE:
-		lwsl_info("%s: LWS_CALLBACK_CLIENT_HTTP_WRITEABLE\n", __func__);
-		if (!h || !h->info.tx)
+		//lwsl_info("%s: wsi %p, par %p, HTTP_WRITEABLE\n", __func__,
+		//		wsi, wsi->mux.parent_wsi);
+		if (!h || !h->info.tx) {
+			lwsl_notice("%s: no handle / tx %p\n", __func__, h);
 			return 0;
+		}
 
-		if (!h->rideshare)
+#if defined(LWS_WITH_SERVER)
+		if (h->txn_resp_pending) {
+			/*
+			 * If we're going to start sending something, we need to
+			 * to take care of the http response header for it first
+			 */
+			h->txn_resp_pending = 0;
+
+			if (lws_add_http_common_headers(wsi,
+					h->txn_resp_set ?
+						(h->txn_resp ? h->txn_resp : 200) :
+						HTTP_STATUS_NOT_FOUND,
+					NULL, h->wsi->http.writeable_len,
+					&p, end))
+				return 1;
+
+			/*
+			 * metadata-based headers
+			 */
+
+			if (lws_apply_metadata(h, wsi, buf, &p, end))
+				return -1;
+
+			if (lws_finalize_write_http_header(wsi, start, &p, end))
+				return 1;
+
+			/* write the body separately */
+			lws_callback_on_writable(wsi);
+
+			return 0;
+		}
+#endif
+
+		if (
+#if defined(LWS_WITH_SERVER)
+		    !(h->info.flags & LWSSSINFLAGS_ACCEPTED) && /* not accepted */
+#endif
+		    !h->rideshare)
+
 			h->rideshare = h->policy;
 
 #if defined(LWS_WITH_SS_RIDESHARE)
-		if (!h->inside_msg && h->rideshare->u.http.multipart_name)
+		if (
+#if defined(LWS_WITH_SERVER)
+		    !(h->info.flags & LWSSSINFLAGS_ACCEPTED) && /* not accepted */
+#endif
+		    !h->inside_msg && h->rideshare->u.http.multipart_name)
 			lws_client_http_multipart(wsi,
 				h->rideshare->u.http.multipart_name,
 				h->rideshare->u.http.multipart_filename,
@@ -498,7 +565,6 @@ malformed:
 #else
 		buflen = lws_ptr_diff(end, p);
 #endif
-
 		switch(h->info.tx(ss_to_userobj(h),  h->txord++, p, &buflen, &f)) {
 		case LWSSSSRET_DISCONNECT_ME:
 			lwsl_debug("%s: tx handler asked to close conn\n", __func__);
@@ -519,13 +585,15 @@ do_destroy_me:
 			break;
 		}
 
-		lwsl_info("%s: WRITEABLE: user tx says len %d fl 0x%x\n",
-			    __func__, (int)buflen, (int)f);
+		// lwsl_notice("%s: WRITEABLE: user tx says len %d fl 0x%x\n",
+		//	    __func__, (int)buflen, (int)f);
 
 		p += buflen;
 
 		if (f & LWSSS_FLAG_EOM) {
-
+#if defined(LWS_WITH_SERVER)
+		    if (!(h->info.flags & LWSSSINFLAGS_ACCEPTED)) {
+#endif
 			conceal_eom = 1;
 			/* end of rideshares */
 			if (!h->rideshare->rideshare_streamtype) {
@@ -541,6 +609,9 @@ do_destroy_me:
 						h->rideshare->rideshare_streamtype);
 				lws_callback_on_writable(wsi);
 			}
+#if defined(LWS_WITH_SERVER)
+		    }
+#endif
 
 			h->inside_msg = 0;
 		} else {
@@ -562,8 +633,63 @@ do_destroy_me:
 			return -1;
 		}
 
+#if defined(LWS_WITH_SERVER)
+		if (!(h->info.flags & LWSSSINFLAGS_ACCEPTED) &&
+		    (f & LWSSS_FLAG_EOM) &&
+		     lws_http_transaction_completed(wsi))
+			return -1;
+#else
 		lws_set_timeout(wsi, 0, 0);
+#endif
 		break;
+
+#if defined(LWS_WITH_SERVER)
+	case LWS_CALLBACK_HTTP:
+
+		lwsl_notice("%s: LWS_CALLBACK_HTTP\n", __func__);
+		{
+
+			h->txn_resp_set = 0;
+			h->txn_resp_pending = 1;
+			h->writeable_len = 0;
+
+#if defined(LWS_ROLE_H2)
+			m = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_METHOD);
+			if (m) {
+				lws_ss_set_metadata(h, "method",
+						    lws_hdr_simple_ptr(wsi,
+						     WSI_TOKEN_HTTP_COLON_METHOD), m);
+				m = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH);
+				lws_ss_set_metadata(h, "path",
+						    lws_hdr_simple_ptr(wsi,
+						     WSI_TOKEN_HTTP_COLON_PATH), m);
+			} else
+#endif
+			{
+				m = lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI);
+				if (m) {
+					lws_ss_set_metadata(h, "path",
+							lws_hdr_simple_ptr(wsi,
+								WSI_TOKEN_GET_URI), m);
+					lws_ss_set_metadata(h, "method", "GET", 3);
+				} else {
+					m = lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI);
+					if (m) {
+						lws_ss_set_metadata(h, "path",
+								lws_hdr_simple_ptr(wsi,
+									WSI_TOKEN_POST_URI), m);
+						lws_ss_set_metadata(h, "method", "POST", 4);
+					}
+				}
+			}
+		}
+
+		if (lws_ss_event_helper(h, LWSSSCS_SERVER_TXN))
+			/* was destroyed */
+			return -1;
+
+		return 0;
+#endif
 
 	default:
 		break;
@@ -631,7 +757,7 @@ secstream_connect_munge_h1(lws_ss_handle_t *h, char *buf, size_t len,
 const struct ss_pcols ss_pcol_h1 = {
 	"h1",
 	"http/1.1",
-	"lws-secstream-h1",
+	&protocol_secstream_h1,
 	secstream_connect_munge_h1,
 	NULL
 };

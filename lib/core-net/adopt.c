@@ -193,6 +193,99 @@ bail:
 	return NULL;
 }
 
+#if defined(LWS_WITH_SERVER) && defined(LWS_WITH_SECURE_STREAMS)
+
+/*
+ * If the incoming wsi is bound to a vhost that is a ss server, this creates
+ * an accepted ss bound to the wsi.
+ *
+ * For h1 or raw, we can do the binding here, but for muxed protocols like h2
+ * or mqtt we have to do it not on the nwsi but on the stream.  And for h2 we
+ * start off bound to h1 role, since we don't know if we will upgrade to h2
+ * until we meet the server.
+ *
+ * 1) No tls is assumed to mean no muxed protocol so can do it at adopt.
+ *
+ * 2) After alpn if not muxed we can do it.
+ *
+ * 3) For muxed, do it at the nwsi migration and on new stream
+ */
+
+int
+lws_adopt_ss_server_accept(struct lws *new_wsi)
+{
+	lws_ss_handle_t *h;
+	void *pv, **ppv;
+
+	if (!new_wsi->a.vhost->ss_handle)
+		return 0;
+
+	pv = (char *)&new_wsi->a.vhost->ss_handle[1];
+
+	/*
+	 * Yes... the vhost is pointing to its secure stream representing the
+	 * server... we want to create an accepted SS and bind it to new_wsi,
+	 * the info/ssi from the server SS (so the SS callbacks defined there),
+	 * the opaque_user_data of the server object and the policy of it.
+	 */
+
+	ppv = (void **)((char *)pv +
+	      new_wsi->a.vhost->ss_handle->info.opaque_user_data_offset);
+
+	/*
+	 * indicate we are an accepted connection referencing the
+	 * server object
+	 */
+
+	new_wsi->a.vhost->ss_handle->info.flags |= LWSSSINFLAGS_SERVER;
+
+	if (lws_ss_create(new_wsi->a.context, new_wsi->tsi,
+			  &new_wsi->a.vhost->ss_handle->info,
+			  *ppv, &h, NULL, NULL)) {
+		lwsl_err("%s: accept ss creation failed\n", __func__);
+		goto fail1;
+	}
+
+	/*
+	 * We made a fresh accepted SS conn from the server pieces,
+	 * now bind the wsi... the problem is, this is the nwsi if it's
+	 * h2.
+	 */
+
+	h->wsi = new_wsi;
+	new_wsi->a.opaque_user_data = h;
+	h->info.flags |= LWSSSINFLAGS_ACCEPTED;
+
+	// lwsl_notice("%s: opaq %p, role %s\n", __func__,
+	//		new_wsi->a.opaque_user_data, new_wsi->role_ops->name);
+
+	h->policy = new_wsi->a.vhost->ss_handle->policy;
+
+	/*
+	 * Let's give it appropriate state notifications
+	 */
+
+	if (lws_ss_event_helper(h, LWSSSCS_CREATING))
+		goto fail;
+	if (lws_ss_event_helper(h, LWSSSCS_CONNECTING))
+		goto fail;
+	if (lws_ss_event_helper(h, LWSSSCS_CONNECTED))
+		goto fail;
+
+	// lwsl_notice("%s: accepted ss complete, pcol %s\n", __func__,
+	//		new_wsi->a.protocol->name);
+
+	return 0;
+
+fail:
+	lws_ss_destroy(&h);
+fail1:
+	return 1;
+}
+
+#endif
+
+
 static struct lws *
 lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 			    lws_sock_file_fd_type fd)
@@ -286,6 +379,22 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 
 	lws_role_call_adoption_bind(new_wsi, type | _LWS_ADOPT_FINISH,
 				    new_wsi->a.protocol->name);
+
+#if defined(LWS_WITH_SERVER) && defined(LWS_WITH_SECURE_STREAMS)
+	/*
+	 * Did we come from an accepted client connection to a ss server?
+	 *
+	 * !!! For mux protocols, this will cause an additional inactive ss
+	 * representing the nwsi.  Doing that allows us to support both h1
+	 * (here) and h2 (at lws_wsi_server_new())
+	 */
+
+	lwsl_notice("%s: wsi %p, vhost %s ss_handle %p\n", __func__, new_wsi,
+			new_wsi->a.vhost->name, new_wsi->a.vhost->ss_handle);
+
+	if (lws_adopt_ss_server_accept(new_wsi))
+		goto fail;
+#endif
 
 #if LWS_MAX_SMP > 1
 	/* its actual pt can service it now */

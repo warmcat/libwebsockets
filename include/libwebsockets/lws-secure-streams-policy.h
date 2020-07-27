@@ -51,6 +51,7 @@ typedef int (*plugin_auth_status_cb)(struct lws_ss_handle *ss, int status);
  * has the LWSSSPOLF_NAILED_UP flag.
  */
 
+#if defined(LWS_WITH_SSPLUGINS)
 typedef struct lws_ss_plugin {
 	struct lws_ss_plugin	*next;
 	const char		*name;	/**< auth plugin name */
@@ -74,13 +75,14 @@ typedef struct lws_ss_plugin {
 				     add http headers) this callback will give
 				     it the opportunity to do so */
 } lws_ss_plugin_t;
-
+#endif
 
 typedef struct lws_ss_x509 {
 	struct lws_ss_x509	*next;
 	const char		*vhost_name; /**< vhost name using cert ctx */
 	const uint8_t		*ca_der;	/**< DER x.509 cert */
 	size_t			ca_der_len;	/**< length of DER cert */
+	uint8_t			keep:1; /**< ie, if used in server tls */
 } lws_ss_x509_t;
 
 enum {
@@ -120,6 +122,8 @@ enum {
 	/**< this stream's idle validity checks are critical enough we
 	 * should arrange to wake from suspend to perform them
 	 */
+	LWSSSPOLF_SERVER					= (1 << 15),
+	/**< we listen on a socket as a server */
 };
 
 typedef struct lws_ss_trust_store {
@@ -135,6 +139,7 @@ enum {
 	LWSSSP_H2,
 	LWSSSP_WS,
 	LWSSSP_MQTT,
+	LWSSSP_RAW,
 
 
 	LWSSS_HBI_AUTH = 0,
@@ -242,12 +247,29 @@ typedef struct lws_ss_policy {
 		/* details for non-http related protocols... */
 	} u;
 
+#if defined(LWS_WITH_SSPLUGINS)
 	const
 	struct lws_ss_plugin	*plugins[2]; /**< NULL or auth plugin */
 	const void		*plugins_info[2];   /**< plugin-specific data */
+#endif
 
-	const lws_ss_trust_store_t *trust_store; /**< CA certs needed for conn
-	       validation, only set between policy parsing and vhost creation */
+	/*
+	 * We're either a client connection policy that wants a trust store,
+	 * or we're a server policy that wants a mem cert and key... Hold
+	 * these mutually-exclusive things in a union.
+	 */
+
+	union {
+		const lws_ss_trust_store_t		*store;
+		/**< CA certs needed for conn validation, only set between
+		 * policy parsing and vhost creation */
+		struct {
+			const lws_ss_x509_t		*cert;
+			/**< the server's signed cert with the pubkey */
+			const lws_ss_x509_t		*key;
+			/**< the server's matching private key */
+		} server;
+	} trust;
 
 	const lws_retry_bo_t	*retry_bo;   /**< retry policy to use */
 

@@ -82,6 +82,9 @@ static const char * const lejp_tokens_policy[] = {
 	"s[].*.ws_subprotocol",
 	"s[].*.ws_binary",
 	"s[].*.local_sink",
+	"s[].*.server",
+	"s[].*.server_cert",
+	"s[].*.server_key",
 	"s[].*.mqtt_topic",
 	"s[].*.mqtt_subscribe",
 	"s[].*.mqtt_qos",
@@ -149,6 +152,9 @@ typedef enum {
 	LSSPPT_WS_SUBPROTOCOL,
 	LSSPPT_WS_BINARY,
 	LSSPPT_LOCAL_SINK,
+	LSSPPT_SERVER,
+	LSSPPT_SERVER_CERT,
+	LSSPPT_SERVER_KEY,
 	LSSPPT_MQTT_TOPIC,
 	LSSPPT_MQTT_SUBSCRIBE,
 	LSSPPT_MQTT_QOS,
@@ -159,12 +165,13 @@ typedef enum {
 	LSSPPT_MQTT_WILL_QOS,
 	LSSPPT_MQTT_WILL_RETAIN,
 	LSSPPT_SWAKE_VALIDITY,
-	LSSPPT_STREAMTYPES
+	LSSPPT_STREAMTYPES,
+
 } policy_token_t;
 
 #define POL_AC_INITIAL	2048
 #define POL_AC_GRAIN	800
-#define MAX_CERT_TEMP	2048 /* used to discover actual cert size for realloc */
+#define MAX_CERT_TEMP	3072 /* used to discover actual cert size for realloc */
 
 static uint8_t sizes[] = {
 	sizeof(backoff_t),
@@ -185,14 +192,16 @@ static signed char
 lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 {
 	struct policy_cb_args *a = (struct policy_cb_args *)ctx->user;
+#if defined(LWS_WITH_SSPLUGINS)
 	const lws_ss_plugin_t **pin;
+#endif
 	char **pp, dotstar[32], *q;
 	lws_ss_trust_store_t *ts;
 	lws_ss_metadata_t *pmd;
+	lws_ss_x509_t *x, **py;
 	lws_ss_policy_t *p2;
 	lws_retry_bo_t *b;
 	size_t inl, outl;
-	lws_ss_x509_t *x;
 	uint8_t *extant;
 	backoff_t *bot;
 	int n = -1;
@@ -232,7 +241,10 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		/*
 		 * Allocate a just-the-right-size buf for the cert DER now
 		 * we decoded it into the a->p temp buffer and know the exact
-		 * size
+		 * size.
+		 *
+		 * The struct *x is in the lwsac... the ca_der it points to
+		 * is individually allocated from the heap
 		 */
 		a->curr[LTY_X509].x->ca_der = lws_malloc(a->count, "ssx509");
 		if (!a->curr[LTY_X509].x->ca_der)
@@ -416,6 +428,56 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 			 dotstar);
 		goto oom;
 
+	case LSSPPT_SERVER_CERT:
+	case LSSPPT_SERVER_KEY:
+
+		/* iterate through the certs */
+
+		py = &a->heads[LTY_X509].x;
+		x = a->heads[LTY_X509].x;
+		while (x) {
+			if (!strncmp(x->vhost_name, ctx->buf, ctx->npos) &&
+					!x->vhost_name[ctx->npos]) {
+				if ((ctx->path_match - 1) == LSSPPT_SERVER_CERT)
+					a->curr[LTY_POLICY].p->trust.server.cert = x;
+				else
+					a->curr[LTY_POLICY].p->trust.server.key = x;
+				/*
+				 * Certs that are for servers need to stick
+				 * around in DER form, so the vhost can be
+				 * instantiated when the server is brought up
+				 */
+				x->keep = 1;
+				lwsl_notice("%s: server '%s' keep %d %p\n",
+					    __func__, x->vhost_name,
+						ctx->path_match - 1, x);
+
+				/*
+				 * Server DER we need to move it to another
+				 * list just for destroying it when the context
+				 * is destroyed... snip us out of the live
+				 * X.509 list
+				 */
+
+				*py = x->next;
+
+				/*
+				 * ... and instead put us on the list of things
+				 * to keep hold of for context destruction
+				 */
+
+				x->next = a->context->server_der_list;
+				a->context->server_der_list = x;
+
+				return 0;
+			}
+			py = &x->next;
+			x = x->next;
+		}
+		lws_strnncpy(dotstar, ctx->buf, ctx->npos, sizeof(dotstar));
+		lwsl_err("%s: unknown cert / key %s\n", __func__, dotstar);
+		goto oom;
+
 	case LSSPPT_ENDPOINT:
 		pp = (char **)&a->curr[LTY_POLICY].p->endpoint;
 		goto string2;
@@ -445,6 +507,7 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		goto string2;
 
 	case LSSPPT_PLUGINS:
+#if defined(LWS_WITH_SSPLUGINS)
 		pin = a->context->pss_plugins;
 		if (a->count ==
 			  (int)LWS_ARRAY_SIZE(a->curr[LTY_POLICY].p->plugins)) {
@@ -463,6 +526,9 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		}
 		lwsl_err("%s: unknown plugin\n", __func__);
 		goto oom;
+#else
+		break;
+#endif
 
 	case LSSPPT_TLS:
 		if (reason == LEJPCB_VAL_TRUE)
@@ -530,7 +596,7 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		ts = a->heads[LTY_TRUSTSTORE].t;
 		while (ts) {
 			if (!strncmp(ctx->buf, ts->name, ctx->npos)) {
-				a->curr[LTY_POLICY].p->trust_store = ts;
+				a->curr[LTY_POLICY].p->trust.store = ts;
 				return 0;
 			}
 			ts = ts->next;
@@ -629,6 +695,11 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 	case LSSPPT_LOCAL_SINK:
 		if (reason == LEJPCB_VAL_TRUE)
 			a->curr[LTY_POLICY].p->flags |= LWSSSPOLF_LOCAL_SINK;
+		break;
+
+	case LSSPPT_SERVER:
+		if (reason == LEJPCB_VAL_TRUE)
+			a->curr[LTY_POLICY].p->flags |= LWSSSPOLF_SERVER;
 		break;
 
 #if defined(LWS_ROLE_MQTT)
@@ -783,9 +854,10 @@ lws_ss_policy_parse(struct lws_context *context, const uint8_t *buf, size_t len)
 	if (m == LEJP_CONTINUE || m >= 0)
 		return m;
 
-	lwsl_err("%s: parse failed: %d: %s\n", __func__, m,
-		 lejp_error_to_string(m));
+	lwsl_err("%s: parse failed line %u: %d: %s\n", __func__,
+			args->jctx.line, m, lejp_error_to_string(m));
 	lws_ss_policy_parse_abandon(context);
+	assert(0);
 
 	return m;
 }

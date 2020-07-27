@@ -401,6 +401,9 @@ struct lws_context {
 	lws_sorted_usec_list_t		sul_api_amazon_com;
 	lws_sorted_usec_list_t		sul_api_amazon_com_kick;
 #endif
+#if !defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
+	struct lws_ss_x509		*server_der_list;
+#endif
 #endif
 
 #if defined(LWS_WITH_SYS_STATE)
@@ -494,7 +497,9 @@ struct lws_context {
 	void				*pol_args;
 #endif
 	const lws_ss_policy_t		*pss_policies;
+#if defined(LWS_WITH_SSPLUGINS)
 	const lws_ss_plugin_t		**pss_plugins;
+#endif
 #endif
 
 	void *external_baggage_free_on_destroy;

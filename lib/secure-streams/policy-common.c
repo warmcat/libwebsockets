@@ -142,7 +142,7 @@ lws_ss_policy_ref_trust_store(struct lws_context *context,
 
 	memset(&i, 0, sizeof(i));
 
-	if (!pol->trust_store) {
+	if (!pol->trust.store) {
 		v = lws_get_vhost_by_name(context, "_ss_default");
 		if (!v) {
 			/* corner case... there's no trust store used */
@@ -160,23 +160,23 @@ lws_ss_policy_ref_trust_store(struct lws_context *context,
 
 		goto accepted;
 	}
-	v = lws_get_vhost_by_name(context, pol->trust_store->name);
+	v = lws_get_vhost_by_name(context, pol->trust.store->name);
 	if (v) {
 		lwsl_notice("%s: vh already exists\n", __func__);
 		goto accepted;
 	}
 
 	i.options = context->options;
-	i.vhost_name = pol->trust_store->name;
+	i.vhost_name = pol->trust.store->name;
 	lwsl_debug("%s: %s\n", __func__, i.vhost_name);
 #if defined(LWS_WITH_TLS) && defined(LWS_WITH_CLIENT)
-	i.client_ssl_ca_mem = pol->trust_store->ssx509[0]->ca_der;
+	i.client_ssl_ca_mem = pol->trust.store->ssx509[0]->ca_der;
 	i.client_ssl_ca_mem_len = (unsigned int)
-			pol->trust_store->ssx509[0]->ca_der_len;
+			pol->trust.store->ssx509[0]->ca_der_len;
 #endif
 	i.port = CONTEXT_PORT_NO_LISTEN;
 	lwsl_notice("%s: %s trust store initial '%s'\n", __func__,
-		  i.vhost_name, pol->trust_store->ssx509[0]->vhost_name);
+		  i.vhost_name, pol->trust.store->ssx509[0]->vhost_name);
 
 	v = lws_create_vhost(context, &i);
 	if (!v) {
@@ -186,13 +186,13 @@ lws_ss_policy_ref_trust_store(struct lws_context *context,
 	} else
 		v->from_ss_policy = 1;
 
-	for (n = 1; v && n < pol->trust_store->count; n++) {
+	for (n = 1; v && n < pol->trust.store->count; n++) {
 		lwsl_info("%s: add '%s' to trust store\n", __func__,
-			  pol->trust_store->ssx509[n]->vhost_name);
+			  pol->trust.store->ssx509[n]->vhost_name);
 #if defined(LWS_WITH_TLS)
 		if (lws_tls_client_vhost_extra_cert_mem(v,
-				pol->trust_store->ssx509[n]->ca_der,
-				pol->trust_store->ssx509[n]->ca_der_len)) {
+				pol->trust.store->ssx509[n]->ca_der,
+				pol->trust.store->ssx509[n]->ca_der_len)) {
 			lwsl_err("%s: add extra cert failed\n",
 					__func__);
 			return NULL;
@@ -217,8 +217,8 @@ lws_ss_policy_unref_trust_store(struct lws_context *context,
 	struct lws_vhost *v;
 	const char *name = "_ss_default";
 
-	if (pol->trust_store)
-		name = pol->trust_store->name;
+	if (pol->trust.store)
+		name = pol->trust.store->name;
 
 	v = lws_get_vhost_by_name(context, name);
 	if (!v || !v->from_ss_policy)
@@ -321,17 +321,19 @@ lws_ss_policy_set(struct lws_context *context, const char *name)
 	 * We get called from context creation... instantiates
 	 * vhosts with client tls contexts set up for each unique CA.
 	 *
-	 * For compatibility with static policy, we create the vhosts
-	 * by walking streamtype list and create vhosts using trust
-	 * store name if it doesn't already exist.
+	 * We create the vhosts by walking streamtype list and create vhosts
+	 * using trust store name if it's a client connection that doesn't
+	 * already exist.
 	 */
 
 	pol = context->pss_policies;
 	while (pol) {
-		v = lws_ss_policy_ref_trust_store(context, pol,
+		if (!(pol->flags & LWSSSPOLF_SERVER)) {
+			v = lws_ss_policy_ref_trust_store(context, pol,
 						  0 /* no refcount inc */);
-		if (!v)
-			ret = 1;
+			if (!v)
+				ret = 1;
+		}
 
 		pol = pol->next;
 	}
@@ -365,11 +367,14 @@ lws_ss_policy_set(struct lws_context *context, const char *name)
 	x = args->heads[LTY_X509].x;
 	while (x) {
 		/*
-		 * Free all the DER buffers now they have been parsed into
-		 * tls library X.509 objects
+		 * Free all the client DER buffers now they have been parsed
+		 * into tls library X.509 objects
 		 */
-		lws_free((void *)x->ca_der);
-		x->ca_der = NULL;
+		if (!x->keep) { /* used for server */
+			lws_free((void *)x->ca_der);
+			x->ca_der = NULL;
+		}
+
 		x = x->next;
 	}
 

@@ -180,6 +180,9 @@ typedef enum {
 	LWSSSCS_QOS_NACK_LOCAL,		/* local proxy refused our tx */
 	LWSSSCS_TIMEOUT,		/* optional timeout timer fired */
 
+	LWSSSCS_SERVER_TXN,
+	LWSSSCS_SERVER_UPGRADE,		/* the server protocol upgraded */
+
 	LWSSSCS_SINK_JOIN,		/* sinks get this when a new source
 					 * stream joins the sink */
 	LWSSSCS_SINK_PART,		/* sinks get this when a new source
@@ -281,6 +284,13 @@ enum {
 	 */
 	LWSSSINFLAGS_PROXIED				=	(1 << 1),
 	/**< Set if the stream is being created as a stand-in at the proxy */
+	LWSSSINFLAGS_SERVER				=	(1 << 2),
+	/**< Set on the server object copy of the ssi / info to indicate that
+	 * stream creation using this ssi is for Accepted connections belonging
+	 * to a server */
+	LWSSSINFLAGS_ACCEPTED				=	(1 << 3),
+	/**< Set on the accepted object copy of the ssi / info to indicate that
+	 * we are an accepted connection from a server's listening socket */
 };
 
 typedef struct lws_ss_info {
@@ -546,6 +556,27 @@ LWS_VISIBLE LWS_EXTERN int
 lws_ss_set_metadata(struct lws_ss_handle *h, const char *name,
 		    const void *value, size_t len);
 
+/*
+ * lws_ss_server_ack() - indicate how we feel about what the server has sent
+ *
+ * \param h: ss handle of accepted connection
+ * \param nack: 0 means we are OK with it, else some problem
+ *
+ * For SERVER secure streams
+ *
+ * Depending on the protocol, the server sending us something may be
+ * transactional, ie, built into it sending something is the idea we will
+ * respond somehow out-of-band; HTTP is like this with, eg, 200 response code.
+ *
+ * Calling this with nack=0 indicates that when we later respond, we want to
+ * acknowledge the transaction (eg, it means a 200 if http underneath), if
+ * nonzero that the transaction should act like it failed.
+ *
+ * If the underlying protocol doesn't understand transactions (eg, ws) then this
+ * has no effect either way.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_ss_server_ack(struct lws_ss_handle *h, int nack);
 
 /**
  * lws_ss_change_handlers() - helper for dynamically changing stream handlers

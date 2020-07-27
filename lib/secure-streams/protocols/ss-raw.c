@@ -155,7 +155,7 @@ const struct lws_protocols protocol_secstream_raw = {
 const struct ss_pcols ss_pcol_raw = {
 	"raw",
 	"",
-	"lws-secstream-raw",
+	&protocol_secstream_raw,
 	secstream_connect_munge_raw,
 	NULL
 };

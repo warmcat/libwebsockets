@@ -1,16 +1,17 @@
-project(lws-minimal-secure-streams-sink C)
+project(lws-minimal-secure-streams-server C)
 cmake_minimum_required(VERSION 2.8)
 find_package(libwebsockets CONFIG REQUIRED)
 list(APPEND CMAKE_MODULE_PATH ${LWS_CMAKE_DIR})
 include(CheckCSourceCompiles)
 include(LwsCheckRequirements)
 
-set(SAMP lws-minimal-secure-streams-sink)
-set(SRCS main.c)
+set(SAMP lws-minimal-secure-streams-server)
+set(SRCS main.c ss-client.c ss-server.c)
 
 set(requirements 1)
 require_lws_config(LWS_ROLE_H1 1 requirements)
-require_lws_config(LWS_WITHOUT_CLIENT 0 requirements)
+require_lws_config(LWS_WITH_CLIENT 1 requirements)
+require_lws_config(LWS_WITH_SERVER 1 requirements)
 require_lws_config(LWS_WITH_SECURE_STREAMS 1 requirements)
 require_lws_config(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY 0 requirements)
 

@@ -256,10 +256,10 @@ int main(int argc, const char **argv)
 		 * How about his trust store, it's new to us?
 		 */
 
-		if (pol->trust_store) {
+		if (pol->trust.store) {
 			a = trustmap;
 			while (a) {
-				if (a->orig == (const char *)pol->trust_store)
+				if (a->orig == (const char *)pol->trust.store)
 					break;
 
 				a = a->next;
@@ -274,7 +274,7 @@ int main(int argc, const char **argv)
 					goto bail;
 				a->next = trustmap;
 				a->offset = 0; /* don't care, just track seen */
-				a->orig = (const char *)pol->trust_store;
+				a->orig = (const char *)pol->trust.store;
 				trustmap = a;
 
 				/*
@@ -282,12 +282,12 @@ int main(int argc, const char **argv)
 				 * any that're new to us?
 				 */
 
-				for (n = 0; n < pol->trust_store->count; n++) {
-					if (!pol->trust_store->ssx509[n])
+				for (n = 0; n < pol->trust.store->count; n++) {
+					if (!pol->trust.store->ssx509[n])
 						continue;
 					a1 = certmap;
 					while (a1) {
-						if (a1->orig == (const char *)pol->trust_store->ssx509[n])
+						if (a1->orig == (const char *)pol->trust.store->ssx509[n])
 							break;
 						a1 = a1->next;
 					}
@@ -303,48 +303,48 @@ int main(int argc, const char **argv)
 							goto bail;
 						a1->next = certmap;
 						a1->offset = 0; /* don't care, just track seen */
-						a1->orig = (const char *)pol->trust_store->ssx509[n];
+						a1->orig = (const char *)pol->trust.store->ssx509[n];
 						certmap = a1;
 
 						printf("static const uint8_t _ss_der_%s[] = {\n",
-							purify_csymbol(pol->trust_store->ssx509[n]->vhost_name,
+							purify_csymbol(pol->trust.store->ssx509[n]->vhost_name,
 									buf, sizeof(buf)));
 
-						for (m = 0; m < (int)pol->trust_store->ssx509[n]->ca_der_len; m++) {
+						for (m = 0; m < (int)pol->trust.store->ssx509[n]->ca_der_len; m++) {
 							if ((m & 7) == 0)
 								printf("\t/* 0x%3x */ ", m);
 
-							printf("0x%02X, ", pol->trust_store->ssx509[n]->ca_der[m]);
+							printf("0x%02X, ", pol->trust.store->ssx509[n]->ca_der[m]);
 							if ((m & 7) == 7)
 								printf("\n");
 						}
 
 						printf("\n};\nstatic const lws_ss_x509_t _ss_x509_%s = {\n",
-								purify_csymbol(pol->trust_store->ssx509[n]->vhost_name,
+								purify_csymbol(pol->trust.store->ssx509[n]->vhost_name,
 								buf, sizeof(buf)));
-						printf("\t.vhost_name = \"%s\",\n", pol->trust_store->ssx509[n]->vhost_name);
+						printf("\t.vhost_name = \"%s\",\n", pol->trust.store->ssx509[n]->vhost_name);
 						printf("\t.ca_der = _ss_der_%s,\n",
-							purify_csymbol(pol->trust_store->ssx509[n]->vhost_name,
+							purify_csymbol(pol->trust.store->ssx509[n]->vhost_name,
 								buf, sizeof(buf)));
-						printf("\t.ca_der_len = %zu,\n", pol->trust_store->ssx509[n]->ca_der_len);
+						printf("\t.ca_der_len = %zu,\n", pol->trust.store->ssx509[n]->ca_der_len);
 						printf("};\n");
 
-						est += sizeof(lws_ss_x509_t) + pol->trust_store->ssx509[n]->ca_der_len;
+						est += sizeof(lws_ss_x509_t) + pol->trust.store->ssx509[n]->ca_der_len;
 					}
 
 				}
 
 
 				printf("static const lws_ss_trust_store_t _ss_ts_%s = {\n",
-					purify_csymbol(pol->trust_store->name,
+					purify_csymbol(pol->trust.store->name,
 							buf, sizeof(buf)));
 
-				printf("\t.name = \"%s\",\n", pol->trust_store->name);
+				printf("\t.name = \"%s\",\n", pol->trust.store->name);
 				printf("\t.ssx509 = {\n");
 
-				for (n = pol->trust_store->count - 1; n >= 0 ; n--)
+				for (n = pol->trust.store->count - 1; n >= 0 ; n--)
 					printf("\t\t&_ss_x509_%s,\n",
-						pol->trust_store->ssx509[n]->vhost_name);
+						pol->trust.store->ssx509[n]->vhost_name);
 
 				printf("\t}\n};\n");
 
@@ -532,9 +532,10 @@ int main(int argc, const char **argv)
 		if (pol->client_cert)
 			printf("\t.client_cert = %u,\n", pol->client_cert);
 
-		if (pol->trust_store)
-			printf("\t.trust_store = &_ss_ts_%s,\n",
-				purify_csymbol(pol->trust_store->name, buf, sizeof(buf)));
+		if (pol->trust.store)
+			printf("\t.trust = {.store = &_ss_ts_%s},\n",
+				purify_csymbol(pol->trust.store->name,
+							buf, sizeof(buf)));
 
 
 		printf("}");

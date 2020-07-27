@@ -464,7 +464,9 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if !defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
 	context->pss_policies_json = info->pss_policies_json;
 #endif
+#if defined(LWS_WITH_SSPLUGINS)
 	context->pss_plugins = info->pss_plugins;
+#endif
 #endif
 
 	/* if he gave us names, set the uid / gid */
@@ -1269,6 +1271,15 @@ lws_context_destroy3(struct lws_context *context)
 	lws_mutex_refcount_destroy(&context->mr);
 #endif
 
+	/* drop any lingering deferred vhost frees */
+
+	while (context->deferred_free_list) {
+		struct lws_deferred_free *df = context->deferred_free_list;
+
+		context->deferred_free_list = df->next;
+		lws_free(df);
+	};
+
 	lws_free(context);
 	lwsl_debug("%s: ctx %p freed\n", __func__, context);
 
@@ -1311,6 +1322,14 @@ lws_context_destroy2(struct lws_context *context)
 #if defined(LWS_WITH_SECURE_STREAMS)
 		lws_dll2_foreach_safe(&pt->ss_owner, NULL, lws_ss_destroy_dll);
 #if !defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
+
+		while (context->server_der_list) {
+			struct lws_ss_x509 *x = context->server_der_list;
+
+			context->server_der_list = x->next;
+			lws_free((void *)x->ca_der);
+		}
+
 		if (context->ac_policy)
 			lwsac_free(&context->ac_policy);
 #endif

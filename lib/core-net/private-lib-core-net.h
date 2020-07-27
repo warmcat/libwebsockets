@@ -544,6 +544,10 @@ struct lws_vhost {
 
 	const lws_retry_bo_t *retry_policy;
 
+#if defined(LWS_WITH_SERVER) && defined(LWS_WITH_SECURE_STREAMS)
+	lws_ss_handle_t		*ss_handle; /* ss handle for the server obj */
+#endif
+
 	struct lws *lserv_wsi;
 	const char *name;
 	const char *iface;
@@ -1321,6 +1325,10 @@ int
 lws_plat_change_pollfd(struct lws_context *context, struct lws *wsi,
 		       struct lws_pollfd *pfd);
 
+#if defined(LWS_WITH_SERVER) && defined(LWS_WITH_SECURE_STREAMS)
+int
+lws_adopt_ss_server_accept(struct lws *new_wsi);
+#endif
 
 int
 lws_plat_pipe_create(struct lws *wsi);

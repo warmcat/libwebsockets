@@ -54,14 +54,16 @@ typedef struct lws_ss_handle {
 	struct lws_sequencer	*seq;	  /**< owning sequencer if any */
 	struct lws		*wsi;	  /**< the stream wsi if any */
 
+#if defined(LWS_WITH_SSPLUGINS)
 	void			*nauthi;  /**< the nauth plugin instance data */
 	void			*sauthi;  /**< the sauth plugin instance data */
+#endif
 
 	lws_ss_metadata_t	*metadata;
 	const lws_ss_policy_t	*rideshare;
 
-	struct lws_ss_handle	*h_sink;  /**< sink we are bound to, or NULL */
-	void 			*sink_obj;/**< sink's private object representing us */
+	//struct lws_ss_handle	*h_sink;  /**< sink we are bound to, or NULL */
+	//void 			*sink_obj;/**< sink's private object representing us */
 
 	lws_sorted_usec_list_t	sul_timeout;
 	lws_sorted_usec_list_t	sul;
@@ -135,6 +137,10 @@ typedef struct lws_ss_handle {
 	lws_ss_constate_t	connstate;/**< public connection state */
 	lws_ss_seq_state_t	seqstate; /**< private connection state */
 
+#if defined(LWS_WITH_SERVER)
+	int			txn_resp;
+#endif
+
 	uint16_t		retry;	  /**< retry / backoff tracking */
 	int16_t			temp16;
 
@@ -142,6 +148,8 @@ typedef struct lws_ss_handle {
 	uint8_t			subseq;	  /**< emulate SOM tracking */
 	uint8_t			txn_ok;	  /**< 1 = transaction was OK */
 
+	uint8_t			txn_resp_set:1; /**< user code set one */
+	uint8_t			txn_resp_pending:1; /**< we have yet to send */
 	uint8_t			hanging_som:1;
 	uint8_t			inside_msg:1;
 	uint8_t			being_serialized:1; /* we are not the consumer */
@@ -407,7 +415,7 @@ typedef int (* const secstream_protocol_get_txcr_t)(lws_ss_handle_t *h);
 struct ss_pcols {
 	const char					*name;
 	const char					*alpn;
-	const char					*protocol_name;
+	const struct lws_protocols			*protocol;
 	secstream_protocol_connect_munge_t		munge;
 	secstream_protocol_add_txcr_t			tx_cr_add;
 	secstream_protocol_get_txcr_t			tx_cr_est;

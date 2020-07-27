@@ -59,6 +59,8 @@ int lws_ssl_get_error(struct lws *wsi, int n)
 	m = SSL_get_error(wsi->tls.ssl, n);
 	lwsl_debug("%s: %p %d -> %d (errno %d)\n", __func__, wsi->tls.ssl, n, m,
 		   errno);
+	if (m == SSL_ERROR_SSL)
+		lws_tls_err_describe_clear();
 
 	// assert (errno != 9);
 

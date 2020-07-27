@@ -1,30 +1,21 @@
 # Secure Streams
 
-Secure Streams is a client api that strictly separates payload from any metadata.
-That includes the endpoint address for the connection, the tls CA and even the
-protocol used to connect to the endpoint.
+Secure Streams is a networking api that strictly separates payload from any
+metadata.  That includes the client endpoint address for the connection, the tls
+trust chain and even the protocol used to connect to the endpoint.
 
-The user api just receives and transmits payload, and receives advisory connection
-state information.
+The user api just receives and transmits payload, and receives advisory
+connection state information.
 
 The details about how the connections for different types of secure stream should
 be made are held in JSON "policy database" initially passed in to the context
 creation, but able to be updated from a remote copy.
 
-![overview](../doc-assets/ss-explain.png)
+Both client and server networking can be handled using Secure Streams APIS.
 
-## Convention for rx and tx callback return
+![overview](../doc-assets/ss-operation-modes.png)
 
-Function|Return|Meaning
----|---|---
-tx|`LWSSSSRET_OK`|Send the amount of `buf` stored in `*len`
-tx|`LWSSSSRET_TX_DONT_SEND`|Do not send anything
-tx|`LWSSSSRET_DISCONNECT_ME`|Close the current connection
-tx|`LWSSSSRET_DESTROY_ME`|Destroy the Secure Stream
-rx|>=0|accepted
-rx|<0|Close the current connection
-
-## Secure Streams State lifecycle
+## Secure Streams CLIENT State lifecycle
 
 ![overview](../doc-assets/ss-state-flow.png)
 
@@ -46,6 +37,63 @@ an `LWSSSCS_QOS_ACK_REMOTE` or `LWSSSCS_QOS_NACK_REMOTE`.
 State callbacks and tx() can indicate they want to drop the connection
 (`LWSSSRET_DISCONNECT_ME`) or destroy the whole logical Secure Stream
 (`LWSSSRET_DESTROY_ME`).
+
+## Secure Streams SERVER State lifecycle
+
+![overview](../doc-assets/ss-state-flow-server.png)
+
+You can also run servers defined using Secure Streams, the main difference is
+that the user code must assertively create a secure stream of the server type
+in order to create the vhost and listening socket.  When this stream is
+destroyed, the vhost is destroyed and the listen socket closed, otherwise it
+does not perform any rx or tx, it just represents the server lifecycle.
+
+When client connections randomly arrive at the listen socket, new Secure Stream
+objects are created along with accept sockets to represent each client
+connection.  As they represent the incoming connection, their lifecycle is the
+same as that of the underlying connection.  There is no retry concept since as
+with eg, http servers, the clients may typically not be routable for new
+connections initiated by the server.
+
+Since connections at socket level are already established, new connections are
+immediately taken through CREATING, CONNECTING, CONNECTED states for
+consistency.
+
+Some underlying protocols like http are "transactional", the server receives
+a logical request and must reply with a logical response.  The additional
+state `LWSSSCS_SERVER_TXN` provides a point where the user code can set
+transaction metadata before or in place of sending any payload.  It's also
+possible to defer this until any rx related to the transaction was received,
+but commonly with http requests, there is no rx / body.  Configuring the
+response there may look like
+
+```
+		/*
+		 * We do want to ack the transaction...
+		 */
+		lws_ss_server_ack(m->ss, 0);
+		/*
+		 * ... it's going to be text/html...
+		 */
+		lws_ss_set_metadata(m->ss, "mime", "text/html", 9);
+		/*
+		 * ...it's going to be 128 byte (and request tx)
+		 */
+		lws_ss_request_tx_len(m->ss, 128);
+```
+
+Otherwise the general api usage is very similar to client usage.
+
+## Convention for rx and tx callback return
+
+Function|Return|Meaning
+---|---|---
+tx|`LWSSSSRET_OK`|Send the amount of `buf` stored in `*len`
+tx|`LWSSSSRET_TX_DONT_SEND`|Do not send anything
+tx|`LWSSSSRET_DISCONNECT_ME`|Close the current connection
+tx|`LWSSSSRET_DESTROY_ME`|Destroy the Secure Stream
+rx|>=0|accepted
+rx|<0|Close the current connection
 
 # JSON Policy Database
 
@@ -151,9 +199,14 @@ Entries should be named using "name" and the stack array defined using "stack"
 
 These are an array of policies for the supported stream type names.
 
+### `server`
+
+**SERVER ONLY**: if set to `true`, the policy describes a secure streams
+server.
+
 ### `endpoint`
 
-The DNS address the secure stream should connect to.
+**CLIENT**: The DNS address the secure stream should connect to.
 
 This may contain string symbols which will be replaced with the
 corresponding streamtype metadata value at runtime.  Eg, if the
@@ -169,14 +222,19 @@ Namespace and doesn't have a filesystem footprint.  This is only
 supported on unix-type and windows platforms and when lws was
 configured with `-DLWS_UNIX_SOCK=1`
 
+**SERVER**: If given, the network interface name or IP address the listen socket
+should bind to.
+
 ### `port`
 
-The port number as an integer on the endpoint to connect to
+**CLIENT**: The port number as an integer on the endpoint to connect to
+
+**SERVER**: The port number the server will listen on
 
 ### `protocol`
 
-The wire protocol to connect to the endpoint with.  Currently supported
-streamtypes are
+**CLIENT**: The wire protocol to connect to the endpoint with.  Currently
+supported streamtypes are
 
 |Wire protocol|Description|
 |---|---|
@@ -233,6 +291,16 @@ policy is applied.
 
 The name of the trust store described in the `trust_stores` section to apply
 to validate the remote server cert.
+
+### `server_cert`
+
+**SERVER ONLY**: subject to change... the name of the x.509 cert that is the
+server's tls certificate
+
+### `server_key`
+
+**SERVER ONLY**: subject to change... the name of the x.509 cert that is the
+server's tls key
 
 ### `swake_validity`
 
@@ -361,7 +429,9 @@ protocol.  Eg, a single multipart mime transaction carries content from two or m
 
 ### `ws_subprotocol`
 
-Name of the ws subprotocol to use.
+** CLIENT **: Name of the ws subprotocol to request from the server
+
+** SERVER **: Name of the subprotocol we will accept
 
 ### `ws_binary`
 
@@ -620,3 +690,18 @@ you're not otherwise using it, saving an additional couple of KB).
 Notice policy2c example tool must be built with `LWS_ROLE_H1`, `LWS_ROLE_H2`, `LWS_ROLE_WS`
 and `LWS_ROLE_MQTT` enabled so it can handle any kind of policy.
 
+## HTTP and ws serving
+
+All ws servers start out as http servers... for that reason ws serving is
+handled as part of http serving, if you give the `ws_subprotocol` entry to the
+streamtype additionally, the server will also accept upgrades to ws.
+
+To help the user code understand if the upgrade occurred, there's a special
+state `LWSSSCS_SERVER_UPGRADE`, so subsequent rx and tx can be understood to
+have come from the upgraded protocol.  To allow separation of rx and tx
+handling between http and ws, there's a ss api `lws_ss_change_handlers()`
+which allows dynamically setting SS handlers.
+
+Since the http and ws upgrade identity is encapsulated in one streamtype, the
+user object for the server streamtype should contain related user data for both
+http and ws underlying protocol identity.

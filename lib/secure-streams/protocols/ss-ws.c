@@ -30,7 +30,7 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 {
 	lws_ss_handle_t *h = (lws_ss_handle_t *)lws_get_opaque_user_data(wsi);
 	uint8_t buf[LWS_PRE + 1400];
-	int f = 0, f1;
+	int f = 0, f1, n;
 	size_t buflen;
 
 	switch (reason) {
@@ -50,6 +50,7 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		/* may have been destroyed */
 		break;
 
+	case LWS_CALLBACK_CLOSED: /* server */
 	case LWS_CALLBACK_CLIENT_CLOSED:
 		if (!h)
 			break;
@@ -61,12 +62,19 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			lws_set_opaque_user_data(h->wsi, NULL);
 		h->wsi = NULL;
 
-		if (h->policy && !(h->policy->flags & LWSSSPOLF_OPPORTUNISTIC) &&
-		    !h->txn_ok && !wsi->a.context->being_destroyed)
-			lws_ss_backoff(h);
+		if (reason == LWS_CALLBACK_CLIENT_CLOSED) {
+			if (h->policy &&
+			    !(h->policy->flags & LWSSSPOLF_OPPORTUNISTIC) &&
+#if defined(LWS_WITH_SERVER)
+			    !(h->info.flags & LWSSSINFLAGS_ACCEPTED) && /* not server */
+#endif
+			    !h->txn_ok && !wsi->a.context->being_destroyed)
+				lws_ss_backoff(h);
+		}
 		/* may have been destroyed */
 		break;
 
+	case LWS_CALLBACK_ESTABLISHED:
 	case LWS_CALLBACK_CLIENT_ESTABLISHED:
 		h->retry = 0;
 		h->seqstate = SSSEQ_CONNECTED;
@@ -75,6 +83,7 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			return -1;
 		break;
 
+	case LWS_CALLBACK_RECEIVE:
 	case LWS_CALLBACK_CLIENT_RECEIVE:
 		// lwsl_user("LWS_CALLBACK_CLIENT_RECEIVE: read %d\n", (int)len);
 		if (!h || !h->info.rx)
@@ -92,10 +101,11 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		return 0; /* don't passthru */
 
+	case LWS_CALLBACK_SERVER_WRITEABLE:
 	case LWS_CALLBACK_CLIENT_WRITEABLE:
+		// lwsl_notice("%s: ss %p: WRITEABLE\n", __func__, h);
 		if (!h || !h->info.tx)
 			return 0;
-		// lwsl_notice("%s: ss %p: WRITEABLE\n", __func__, h);
 
 		if (h->seqstate != SSSEQ_CONNECTED) {
 			lwsl_warn("%s: seqstate %d\n", __func__, h->seqstate);
@@ -103,8 +113,10 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		}
 
 		buflen = sizeof(buf) - LWS_PRE;
-		switch(h->info.tx(ss_to_userobj(h),  h->txord++, buf + LWS_PRE,
-				  &buflen, &f)) {
+		n = h->info.tx(ss_to_userobj(h),  h->txord++, buf + LWS_PRE,
+				  &buflen, &f);
+
+		switch (n) {
 		case LWSSSSRET_DISCONNECT_ME:
 			lwsl_debug("%s: tx handler asked to close conn\n", __func__);
 			return -1; /* close connection */
@@ -128,8 +140,11 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 					!!(f & LWSSS_FLAG_SOM),
 					!!(f & LWSSS_FLAG_EOM));
 
-		if (lws_write(wsi, buf + LWS_PRE, buflen, f1) < (int)buflen) {
-			lwsl_info("%s: write failed\n", __func__);
+		n = lws_write(wsi, buf + LWS_PRE, buflen, f1);
+		if (n < (int)buflen) {
+			lwsl_info("%s: write failed %d %d\n", __func__,
+					n, (int)buflen);
+
 			return -1;
 		}
 
@@ -197,5 +212,5 @@ secstream_connect_munge_ws(lws_ss_handle_t *h, char *buf, size_t len,
 }
 
 const struct ss_pcols ss_pcol_ws = {
-	"ws",  "http/1.1",  "lws-secstream-ws", secstream_connect_munge_ws
+	"ws",  "http/1.1",  &protocol_secstream_ws, secstream_connect_munge_ws
 };
