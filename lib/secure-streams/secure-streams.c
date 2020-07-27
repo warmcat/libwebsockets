@@ -937,3 +937,19 @@ lws_ss_cancel_timeout(struct lws_ss_handle *h)
 {
 	lws_sul_cancel(&h->sul_timeout);
 }
+
+void
+lws_ss_change_handlers(struct lws_ss_handle *h,
+	int (*rx)(void *userobj, const uint8_t *buf, size_t len, int flags),
+	int (*tx)(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf,
+		  size_t *len, int *flags),
+	int (*state)(void *userobj, void *h_src /* ss handle type */,
+		     lws_ss_constate_t state, lws_ss_tx_ordinal_t ack))
+{
+	if (rx)
+		h->info.rx = rx;
+	if (tx)
+		h->info.tx = tx;
+	if (state)
+		h->info.state = state;
+}

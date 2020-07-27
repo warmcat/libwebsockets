@@ -548,6 +548,39 @@ lws_ss_set_metadata(struct lws_ss_handle *h, const char *name,
 
 
 /**
+ * lws_ss_change_handlers() - helper for dynamically changing stream handlers
+ *
+ * \param h: ss handle
+ * \param rx: the new RX handler
+ * \param tx: the new TX handler
+ * \param state: the new state handler
+ *
+ * Handlers set to NULL are left unchanged.
+ *
+ * This works on any handle, client or server and takes effect immediately.
+ *
+ * Depending on circumstances this may be helpful when
+ *
+ * a) a server stream undergoes an LWSSSCS_SERVER_UPGRADE (as in http -> ws) and
+ * the payloads in the new protocol have a different purpose that is best
+ * handled in their own rx and tx callbacks, and
+ *
+ * b) you may want to serve several different, possibly large things based on
+ * what was requested.  Setting a customized handler allows clean encapsulation
+ * of the different serving strategies.
+ *
+ * If the stream is long-lived, like ws, you should set the changed handler back
+ * to the default when the transaction wanting it is completed.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_ss_change_handlers(struct lws_ss_handle *h,
+	int (*rx)(void *userobj, const uint8_t *buf, size_t len, int flags),
+	int (*tx)(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf,
+		  size_t *len, int *flags),
+	int (*state)(void *userobj, void *h_src /* ss handle type */,
+		     lws_ss_constate_t state, lws_ss_tx_ordinal_t ack));
+
+/**
  * lws_ss_add_peer_tx_credit() - allow peer to transmit more to us
  *
  * \param h: secure streams handle

@@ -631,3 +631,19 @@ lws_sspc_to_user_object(struct lws_sspc_handle *h)
 {
 	return (void *)&h[1];
 }
+
+void
+lws_sspc_change_handlers(struct lws_sspc_handle *h,
+	int (*rx)(void *userobj, const uint8_t *buf, size_t len, int flags),
+	int (*tx)(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf,
+		  size_t *len, int *flags),
+	int (*state)(void *userobj, void *h_src /* ss handle type */,
+		     lws_ss_constate_t state, lws_ss_tx_ordinal_t ack))
+{
+	if (rx)
+		h->ssi.rx = rx;
+	if (tx)
+		h->ssi.tx = tx;
+	if (state)
+		h->ssi.state = state;
+}

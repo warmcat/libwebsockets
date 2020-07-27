@@ -56,6 +56,7 @@
 #define lws_ss_start_timeout		lws_sspc_start_timeout
 #define lws_ss_cancel_timeout		lws_sspc_cancel_timeout
 #define lws_ss_to_user_object		lws_sspc_to_user_object
+#define lws_ss_change_handlers		lws_sspc_change_handlers
 #endif
 
 
@@ -182,4 +183,12 @@ lws_sspc_cancel_timeout(struct lws_sspc_handle *h);
 
 LWS_VISIBLE LWS_EXTERN void *
 lws_sspc_to_user_object(struct lws_sspc_handle *h);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_sspc_change_handlers(struct lws_sspc_handle *h,
+	int (*rx)(void *userobj, const uint8_t *buf, size_t len, int flags),
+	int (*tx)(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf,
+		  size_t *len, int *flags),
+	int (*state)(void *userobj, void *h_src /* ss handle type */,
+		     lws_ss_constate_t state, lws_ss_tx_ordinal_t ack));
 
