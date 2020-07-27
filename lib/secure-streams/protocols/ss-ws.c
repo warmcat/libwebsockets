@@ -123,12 +123,13 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			break;
 		}
 
-		f1 = lws_write_ws_flags(LWS_WRITE_BINARY,
+		f1 = lws_write_ws_flags(h->policy->u.http.u.ws.binary ?
+					   LWS_WRITE_BINARY : LWS_WRITE_TEXT,
 					!!(f & LWSSS_FLAG_SOM),
 					!!(f & LWSSS_FLAG_EOM));
 
-		if (lws_write(wsi, buf + LWS_PRE, buflen, f1) != (int)buflen) {
-			lwsl_err("%s: write failed\n", __func__);
+		if (lws_write(wsi, buf + LWS_PRE, buflen, f1) < (int)buflen) {
+			lwsl_info("%s: write failed\n", __func__);
 			return -1;
 		}
 
