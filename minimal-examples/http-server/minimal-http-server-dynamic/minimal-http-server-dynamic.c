@@ -49,11 +49,27 @@ callback_dynamic_http(struct lws *wsi, enum lws_callback_reasons reason,
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
 
-		/* in contains the url part after our mountpoint /dyn, if any */
-		lws_snprintf(pss->path, sizeof(pss->path), "%s", (const char *)in);
+		/*
+		 * If you want to know the full url path used, you can get it
+		 * like this
+		 *
+		 * n = lws_hdr_copy(wsi, buf, sizeof(buf), WSI_TOKEN_GET_URI);
+		 *
+		 * The base path is the first (n - strlen((const char *)in))
+		 * chars in buf.
+		 */
+
+		/*
+		 * In contains the url part after the place the mount was
+		 * positioned at, eg, if positioned at "/dyn" and given
+		 * "/dyn/mypath", in will contain /mypath
+		 */
+		lws_snprintf(pss->path, sizeof(pss->path), "%s",
+				(const char *)in);
 
 		lws_get_peer_simple(wsi, (char *)buf, sizeof(buf));
-		lwsl_notice("%s: HTTP: connection %s\n", __func__, (const char *)buf);
+		lwsl_notice("%s: HTTP: connection %s, path %s\n", __func__,
+				(const char *)buf, pss->path);
 
 		/*
 		 * prepare and write http headers... with regards to content-
@@ -178,10 +194,11 @@ callback_dynamic_http(struct lws *wsi, enum lws_callback_reasons reason,
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
 }
 
-static const struct lws_protocols protocol =
+static const struct lws_protocols defprot =
+	{ "defprot", lws_callback_http_dummy, 0, 0 }, protocol =
 	{ "http", callback_dynamic_http, sizeof(struct pss), 0 };
 
-static const struct lws_protocols *pprotocols[] = { &protocol, NULL };
+static const struct lws_protocols *pprotocols[] = { &defprot, &protocol, NULL };
 
 /* override the default mount for /dyn in the URL space */
 
