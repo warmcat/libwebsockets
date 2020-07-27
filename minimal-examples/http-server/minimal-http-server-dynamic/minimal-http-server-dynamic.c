@@ -20,6 +20,9 @@
 #include <signal.h>
 #include <time.h>
 
+#define DMNT "/dyn" /* mountpoint for dynamic http */
+#define DLEN sizeof(DMNT) - 1 /* == strlen(DMNT) */
+
 /*
  * Unlike ws, http is a stateless protocol.  This pss only exists for the
  * duration of a single http transaction.  With http/1.1 keep-alive and http/2,
@@ -46,10 +49,20 @@ callback_dynamic_http(struct lws *wsi, enum lws_callback_reasons reason,
 	time_t t;
 	int n;
 
+	char url_buf[DLEN + 32];
+	int l;
+
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
 
-		/* in contains the url part after our mountpoint /dyn, if any */
+		/* check if the first part of the url is our mountpoint DMNT */
+		l = lws_hdr_copy(wsi, url_buf, sizeof(url_buf), WSI_TOKEN_GET_URI);
+		if (l < DLEN || memcmp(url_buf, DMNT, DLEN) != 0)
+			break;
+		if (l != DLEN && url_buf[DLEN] != '/')
+			break;
+
+		/* in contains the url part after our mountpoint DMNT, if any */
 		lws_snprintf(pss->path, sizeof(pss->path), "%s", (const char *)in);
 
 		lws_get_peer_simple(wsi, (char *)buf, sizeof(buf));
@@ -183,11 +196,11 @@ static const struct lws_protocols protocol =
 
 static const struct lws_protocols *pprotocols[] = { &protocol, NULL };
 
-/* override the default mount for /dyn in the URL space */
+/* override the default mount for DMNT in the URL space */
 
 static const struct lws_http_mount mount_dyn = {
 	/* .mount_next */		NULL,		/* linked-list "next" */
-	/* .mountpoint */		"/dyn",		/* mountpoint URL */
+	/* .mountpoint */		DMNT,		/* mountpoint URL */
 	/* .origin */			NULL,	/* protocol */
 	/* .def */			NULL,
 	/* .protocol */			"http",
@@ -201,7 +214,7 @@ static const struct lws_http_mount mount_dyn = {
 	/* .cache_revalidate */		0,
 	/* .cache_intermediaries */	0,
 	/* .origin_protocol */		LWSMPRO_CALLBACK, /* dynamic */
-	/* .mountpoint_len */		4,		/* char count */
+	/* .mountpoint_len */		DLEN,		/* char count */
 	/* .basic_auth_login_file */	NULL,
 };
 
