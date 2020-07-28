@@ -907,6 +907,15 @@ rops_adoption_bind_h1(struct lws *wsi, int type, const char *vh_prot_name)
 		return 1;
 	}
 
+#if defined(LWS_WITH_SERVER) && defined(LWS_WITH_SECURE_STREAMS)
+	if (wsi->a.vhost->ss_handle &&
+	    wsi->a.vhost->ss_handle->policy->protocol == LWSSSP_RAW) {
+		lws_role_transition(wsi, LWSIFR_SERVER, (type & LWS_ADOPT_ALLOW_SSL) ?
+				LRS_SSL_INIT : LRS_ESTABLISHED, &role_ops_raw_skt);
+		return 1;
+	}
+#endif
+
 	/* If Non-TLS and HTTP2 prior knowledge is enabled, skip to clear text HTTP2 */
 
 #if defined(LWS_WITH_HTTP2)

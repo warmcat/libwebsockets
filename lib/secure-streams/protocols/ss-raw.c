@@ -58,6 +58,9 @@ secstream_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			  h->policy ? h->policy->streamtype : "no policy");
 		h->wsi = NULL;
 		if (h->policy && !(h->policy->flags & LWSSSPOLF_OPPORTUNISTIC) &&
+#if defined(LWS_WITH_SERVER)
+			    !(h->info.flags & LWSSSINFLAGS_ACCEPTED) && /* not server */
+#endif
 		    !h->txn_ok && !wsi->a.context->being_destroyed)
 			if (lws_ss_backoff(h))
 				/* has been destroyed */
@@ -75,6 +78,10 @@ secstream_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		lws_ss_event_helper(h, LWSSSCS_CONNECTED);
 
 		lws_validity_confirmed(wsi);
+		break;
+
+	case LWS_CALLBACK_RAW_ADOPT:
+		lwsl_info("%s: RAW_ADOPT\n", __func__);
 		break;
 
 	/* chunks of chunked content, with header removed */
@@ -131,7 +138,7 @@ secstream_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		break;
 	}
 
-	return lws_callback_http_dummy(wsi, reason, user, in, len);
+	return 0;
 }
 
 static int
