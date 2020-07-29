@@ -313,6 +313,10 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 #if defined(LWS_WITH_SS_RIDESHARE)
 
+		/*
+		 * We should only especially process multipart ourselves if
+		 */
+
 		if (lws_hdr_copy(wsi, (char *)buf, sizeof(buf),
 				 WSI_TOKEN_HTTP_CONTENT_TYPE) > 0 &&
 		/* multipart/form-data;
