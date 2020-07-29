@@ -203,9 +203,13 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 	struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)addr;
 #endif
 
-	getifaddrs(&ifr);
+	if (getifaddrs(&ifr)) {
+		lwsl_err("%s: unable to getifaddrs: errno %d\n", __func__, errno);
+
+		return LWS_ITOSA_USABLE;
+	}
 	for (ifc = ifr; ifc != NULL && rc; ifc = ifc->ifa_next) {
-		if (!ifc->ifa_addr)
+		if (!ifc->ifa_addr || !ifc->ifa_name)
 			continue;
 
 		lwsl_debug(" interface %s vs %s (fam %d) ipv6 %d\n",
