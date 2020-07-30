@@ -57,14 +57,14 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2))
 		endif()
 		if (WIN32)
 			list(APPEND TEST_SRCS
-				../${WIN32_HELPERS_PATH}/getopt.c
-				../${WIN32_HELPERS_PATH}/getopt_long.c
-				../${WIN32_HELPERS_PATH}/gettimeofday.c
+				${WIN32_HELPERS_PATH}/getopt.c
+				${WIN32_HELPERS_PATH}/getopt_long.c
+				${WIN32_HELPERS_PATH}/gettimeofday.c
 			)
 
 			list(APPEND TEST_HDR
-				../${WIN32_HELPERS_PATH}/getopt.h
-				../${WIN32_HELPERS_PATH}/gettimeofday.h
+				${WIN32_HELPERS_PATH}/getopt.h
+				${WIN32_HELPERS_PATH}/gettimeofday.h
 			)
 		endif(WIN32)
 

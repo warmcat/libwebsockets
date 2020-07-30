@@ -44,14 +44,14 @@ if (LWS_WITH_PLUGINS AND LWS_WITH_SHARED)
 
 	if (WIN32)
 		list(APPEND PLUGIN_SRCS
-			../${WIN32_HELPERS_PATH}/getopt.c
-			../${WIN32_HELPERS_PATH}/getopt_long.c
-			../${WIN32_HELPERS_PATH}/gettimeofday.c
+			${WIN32_HELPERS_PATH}/getopt.c
+			${WIN32_HELPERS_PATH}/getopt_long.c
+			${WIN32_HELPERS_PATH}/gettimeofday.c
 		)
 
 		list(APPEND PLUGIN_HDR
-			../${WIN32_HELPERS_PATH}/getopt.h
-			../${WIN32_HELPERS_PATH}/gettimeofday.h
+			${WIN32_HELPERS_PATH}/getopt.h
+			${WIN32_HELPERS_PATH}/gettimeofday.h
 		)
 	endif(WIN32)
 
