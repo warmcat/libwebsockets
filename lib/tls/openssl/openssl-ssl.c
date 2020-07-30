@@ -290,14 +290,21 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 		/* keep on trucking it seems */
 	}
 
+#if 0
+	/*
+	 * If using openssl type tls library, this is the earliest point for all
+	 * paths to dump what was received as decrypted data from the tls tunnel
+	 */
+	lwsl_notice("%s: len %d\n", __func__, len);
+	lwsl_hexdump_notice(buf, len);
+#endif
+
 	lws_stats_bump(pt, LWSSTATS_B_READ, n);
 
 #if defined(LWS_WITH_SERVER_STATUS)
 	if (wsi->a.vhost)
 		wsi->a.vhost->conn_stats.rx += n;
 #endif
-
-	// lwsl_hexdump_err(buf, n);
 
 #if defined(LWS_WITH_DETAILED_LATENCY)
 	if (context->detailed_latency_cb) {
@@ -351,8 +358,15 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, int len)
 {
 	int n, m;
 
-	// lwsl_notice("%s: len %d\n", __func__, len);
-	// lwsl_hexdump_notice(buf, len);
+#if 0
+	/*
+	 * If using OpenSSL type tls library, this is the last point for all
+	 * paths before sending data into the tls tunnel, where you can dump it
+	 * and see what is being sent.
+	 */
+	lwsl_notice("%s: len %d\n", __func__, len);
+	lwsl_hexdump_notice(buf, len);
+#endif
 
 	if (!wsi->tls.ssl)
 		return lws_ssl_capable_write_no_ssl(wsi, buf, len);

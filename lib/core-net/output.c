@@ -35,15 +35,15 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	size_t real_len = len;
 	unsigned int n, m;
 
-#if 0
 	/*
-	 * This is the last place data going out over tls tunnels can be dumped
-	 * before encryption, in order to understand what's being sent "raw"
+	 * If you're looking to dump data being sent down the tls tunnel, see
+	 * lws_ssl_capable_write() in lib/tls/mbedtls/mbedtls-ssl.c or
+	 * lib/tls/openssl/openssl-ssl.c.
+	 *
+	 * There's also a corresponding lws_ssl_capable_read() in those files
+	 * where you can enable a dump of decrypted data as soon as it was
+	 * read.
 	 */
-
-	lwsl_notice("%s: wsi: %p, len: %d\n", __func__, wsi, (int)len);
-	lwsl_hexdump_notice(buf, len);
-#endif
 
 	/*
 	 * Detect if we got called twice without going through the
