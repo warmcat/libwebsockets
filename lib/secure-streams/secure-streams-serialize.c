@@ -986,6 +986,12 @@ payload_ff:
 			case LWSSSCS_CONNECTED:
 				lwsl_info("%s: CONNECTED %s\n", __func__,
 					    ssi->streamtype);
+				if (*state == LPCSCLI_OPERATIONAL)
+					/*
+					 * Don't allow to see connected more
+					 * than once for one connection
+					 */
+					goto swallow;
 				lws_ss_serialize_state_transition(state,
 						LPCSCLI_OPERATIONAL);
 				((lws_sspc_handle_t *)*pss)->conn_req_state =
@@ -1006,6 +1012,7 @@ payload_ff:
 #endif
 			if (ssi->state((void *)pss, NULL, par->ctr, par->flags))
 				goto hangup;
+swallow:
 			break;
 
 

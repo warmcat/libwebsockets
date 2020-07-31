@@ -23,6 +23,7 @@
 #include <libwebsockets.h>
 #include <string.h>
 #include <signal.h>
+#include <assert.h>
 
 /*
  * uncomment to force network traffic through 127.0.0.1:1080

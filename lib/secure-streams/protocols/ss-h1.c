@@ -225,7 +225,8 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	switch (reason) {
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
-		assert(h);
+		if (!h)
+			break;
 		assert(h->policy);
 		lwsl_info("%s: h: %p, %s CLIENT_CONNECTION_ERROR: %s\n", __func__,
 			  h, h->policy->streamtype, in ? (char *)in : "(null)");
@@ -293,14 +294,17 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			lwsl_info("%s: Connected streamtype %s, %d\n", __func__,
 				  h->policy->streamtype, status);
 		else
-			lwsl_warn("%s: Connected streamtype %s, BAD %d\n", __func__,
-				  h->policy->streamtype, status);
+			if (h->u.http.good_respcode)
+				lwsl_warn("%s: Connected streamtype %s, BAD %d\n",
+					  __func__, h->policy->streamtype,
+					  status);
 
 		h->hanging_som = 0;
 
 		h->retry = 0;
 		h->seqstate = SSSEQ_CONNECTED;
 		lws_sul_cancel(&h->sul);
+
 		if (lws_ss_event_helper(h, LWSSSCS_CONNECTED))
 			/* was destroyed */
 			return -1;
@@ -414,8 +418,8 @@ malformed:
 			lwsl_debug("%s: adding blob %d: %s\n", __func__, m, buf);
 
 			if (lws_add_http_header_by_name(wsi,
-					 (uint8_t *)h->policy->u.http.blob_header[m],
-					 buf, (int)(buflen + o), p, end))
+				 (uint8_t *)h->policy->u.http.blob_header[m],
+				 buf, (int)(buflen + o), p, end))
 				return -1;
 		}
 
@@ -431,6 +435,18 @@ malformed:
 		//	lwsl_hexdump_notice(oin, lws_ptr_diff(*p, oin));
 
 		}
+
+		/*
+		 * So when proxied, for POST we have to synthesize a CONNECTED
+		 * state, so it can request a writeable and deliver the POST
+		 * body
+		 */
+		if ((h->policy->protocol == LWSSSP_H1 ||
+		     h->policy->protocol == LWSSSP_H2) &&
+		     h->being_serialized &&
+				!strcmp(h->policy->u.http.method, "POST"))
+			if (lws_ss_event_helper(h, LWSSSCS_CONNECTED))
+				return LWSSSSRET_SS_HANDLE_DESTROYED;
 
 		break;
 
