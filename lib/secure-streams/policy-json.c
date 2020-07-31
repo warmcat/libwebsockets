@@ -50,6 +50,7 @@ static const char * const lejp_tokens_policy[] = {
 	"s[].*.client_cert",
 	"s[].*.opportunistic",
 	"s[].*.nailed_up",
+	"s[].*.allow_redirects",
 	"s[].*.urgent_tx",
 	"s[].*.urgent_rx",
 	"s[].*.long_poll",
@@ -121,6 +122,7 @@ typedef enum {
 	LSSPPT_TLS_CLIENT_CERT,
 	LSSPPT_OPPORTUNISTIC,
 	LSSPPT_NAILED_UP,
+	LSSPPT_ALLOW_REDIRECTS,
 	LSSPPT_URGENT_TX,
 	LSSPPT_URGENT_RX,
 	LSSPPT_LONG_POLL,
@@ -576,6 +578,11 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		if (reason == LEJPCB_VAL_TRUE)
 			a->curr[LTY_POLICY].p->flags |=
 					LWSSSPOLF_WAKE_SUSPEND__VALIDITY;
+		break;
+	case LSSPPT_ALLOW_REDIRECTS:
+		if (reason == LEJPCB_VAL_TRUE)
+			a->curr[LTY_POLICY].p->flags |=
+						LWSSSPOLF_ALLOW_REDIRECTS;
 		break;
 
 	case LSSPPT_RETRYPTR:

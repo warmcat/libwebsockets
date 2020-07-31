@@ -124,6 +124,8 @@ enum {
 	 */
 	LWSSSPOLF_SERVER					= (1 << 15),
 	/**< we listen on a socket as a server */
+	LWSSSPOLF_ALLOW_REDIRECTS				= (1 << 16),
+	/**< follow redirects */
 };
 
 typedef struct lws_ss_trust_store {

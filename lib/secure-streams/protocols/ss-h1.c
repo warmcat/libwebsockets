@@ -245,8 +245,8 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (h->policy->u.http.fail_redirect)
 			lws_system_cpd_set(lws_get_context(wsi),
 					   LWS_CPD_CAPTIVE_PORTAL);
-		/* don't follow it */
-		return 1;
+		/* unless it's explicitly allowed, reject to follow it */
+		return !(h->policy->flags & LWSSSPOLF_ALLOW_REDIRECTS);
 
 	case LWS_CALLBACK_CLOSED_HTTP: /* server */
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:

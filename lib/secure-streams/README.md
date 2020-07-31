@@ -251,9 +251,10 @@ arbitrarily fragmented by any intermediary, such streams have to be regarded as 
 ordered bytestream that may be fragmented at any byte without any meaning in terms
 of message boundaries, for that reason SOM and EOM are ignored with raw.
 
-### `plugins`
+### `allow_redirects`
 
-Array of plugin names to apply to the stream, if any
+By default redirects are not followed, if you wish a streamtype to observe them, eg,
+because that's how it responds to a POST, set `"allow_redirects": true`
 
 ### `tls`
 
