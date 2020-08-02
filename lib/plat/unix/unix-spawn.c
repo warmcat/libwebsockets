@@ -191,7 +191,7 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	 */
 
 	if (!lsp->ungraceful && lsp->pipes_alive) {
-		lwsl_notice("%s: %d stdwsi alive, not reaping\n", __func__,
+		lwsl_info("%s: %d stdwsi alive, not reaping\n", __func__,
 				lsp->pipes_alive);
 		return 0;
 	}
@@ -218,7 +218,7 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	temp = *lsp;
 	n = waitid(P_PID, lsp->child_pid, &temp.si, WEXITED | WNOHANG);
 	temp.si.si_status &= 0xff; /* we use b8 + for flags */
-	lwsl_notice("%s: waitd says %d, process exit %d\n",
+	lwsl_info("%s: waitd says %d, process exit %d\n",
 		    __func__, n, temp.si.si_status);
 
 	lsp->child_pid = -1;
@@ -411,7 +411,7 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	if (lws_change_pollfd(lsp->stdwsi[LWS_STDERR], LWS_POLLOUT, LWS_POLLIN))
 		goto bail3;
 
-	lwsl_notice("%s: fds in %d, out %d, err %d\n", __func__,
+	lwsl_info("%s: fds in %d, out %d, err %d\n", __func__,
 		   lsp->stdwsi[LWS_STDIN]->desc.sockfd,
 		   lsp->stdwsi[LWS_STDOUT]->desc.sockfd,
 		   lsp->stdwsi[LWS_STDERR]->desc.sockfd);

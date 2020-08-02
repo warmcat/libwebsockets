@@ -235,7 +235,7 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			break;
 
 		h->wsi = NULL;
-		lwsl_notice("a4\n");
+		lwsl_debug("a4\n");
 		if (lws_ss_backoff(h))
 			/* was destroyed */
 			return -1;

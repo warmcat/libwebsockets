@@ -338,7 +338,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 				wsi->reason_bf &= ~LWS_CB_REASON_AUX_BF__CGI;
 
 			if (wsi->http.cgi && wsi->http.cgi->cgi_transaction_over) {
-				lwsl_notice("%s: txn over\n", __func__);
+				lwsl_info("%s: txn over\n", __func__);
 				return -1;
 			}
 

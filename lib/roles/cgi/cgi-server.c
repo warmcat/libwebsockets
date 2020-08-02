@@ -75,7 +75,7 @@ lws_cgi_grace(lws_sorted_usec_list_t *sul)
 
 	/* act on the reap cb from earlier */
 
-	lwsl_notice("%s: wsi %p\n", __func__, cgi->wsi);
+	lwsl_info("%s: wsi %p\n", __func__, cgi->wsi);
 
 	if (!cgi->wsi->http.cgi->post_in_expected)
 		cgi->wsi->http.cgi->cgi_transaction_over = 1;
@@ -94,7 +94,7 @@ lws_cgi_reap_cb(void *opaque, lws_usec_t *accounting, siginfo_t *si,
 	 * The cgi has come to an end, by itself or with a signal...
 	 */
 
-	lwsl_notice("%s: wsi %p post_in_expected %d\n", __func__, wsi,
+	lwsl_info("%s: wsi %p post_in_expected %d\n", __func__, wsi,
 			(int)wsi->http.cgi->post_in_expected);
 
 	/*
@@ -868,7 +868,7 @@ agin:
 		if (!wsi->mux_substream && m) {
 			uint8_t term[LWS_PRE + 6];
 
-			lwsl_notice("%s: sent trailer\n", __func__);
+			lwsl_info("%s: sent trailer\n", __func__);
 			memcpy(term + LWS_PRE, (uint8_t *)"0\x0d\x0a\x0d\x0a", 5);
 
 			if (lws_write(wsi, term + LWS_PRE, 5,

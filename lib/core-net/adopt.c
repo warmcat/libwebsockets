@@ -389,7 +389,7 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 	 * (here) and h2 (at lws_wsi_server_new())
 	 */
 
-	lwsl_notice("%s: wsi %p, vhost %s ss_handle %p\n", __func__, new_wsi,
+	lwsl_info("%s: wsi %p, vhost %s ss_handle %p\n", __func__, new_wsi,
 			new_wsi->a.vhost->name, new_wsi->a.vhost->ss_handle);
 
 	if (lws_adopt_ss_server_accept(new_wsi))
