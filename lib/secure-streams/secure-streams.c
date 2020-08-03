@@ -947,10 +947,14 @@ lws_ss_request_tx(lws_ss_handle_t *h)
 void
 lws_ss_request_tx_len(lws_ss_handle_t *h, unsigned long len)
 {
-	if (h->wsi)
+	if (h->wsi &&
+	    (h->policy->protocol == LWSSSP_H1 ||
+	     h->policy->protocol == LWSSSP_H2 ||
+	     h->policy->protocol == LWSSSP_WS))
 		h->wsi->http.writeable_len = len;
 	else
 		h->writeable_len = len;
+
 	lws_ss_request_tx(h);
 }
 

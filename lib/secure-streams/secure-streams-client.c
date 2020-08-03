@@ -248,30 +248,49 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 				cp = p;
 				n = lws_sspc_serialize_metadata(md, p);
 
-				/* in case anything else to write */
-				lws_callback_on_writable(h->cwsi);
+				lwsl_debug("%s: (local_conn) metadata\n", __func__);
 
+				goto req_write_and_issue;
+			}
+
+			if (h->pending_writeable_len) {
+				lwsl_debug("%s: (local_conn) PAYLOAD_LENGTH_HINT %u\n",
+					   __func__, (unsigned int)h->writeable_len);
+				s[0] = LWSSS_SER_TXPRE_PAYLOAD_LENGTH_HINT;
+				lws_ser_wu16be(&s[1], 4);
+				lws_ser_wu32be(&s[3], h->writeable_len);
+				h->pending_writeable_len = 0;
+				n = 7;
+				goto req_write_and_issue;
+			}
+
+			if (h->conn_req_state >= LWSSSPC_ONW_ONGOING) {
+				lwsl_info("%s: conn_req_state %d\n", __func__,
+						h->conn_req_state);
 				break;
 			}
 
+			lwsl_info("%s: (local_conn) onward connect\n", __func__);
 
-			h->conn_req = 0;
+			h->conn_req_state = LWSSSPC_ONW_ONGOING;
+
 			s[0] = LWSSS_SER_TXPRE_ONWARD_CONNECT;
 			s[1] = 0;
 			s[2] = 0;
 			n = 3;
 			break;
 
-		case LPCS_OPERATIONAL:
+		case LPCSCLI_OPERATIONAL:
+
+			lwsl_notice("%s: LPCSCLI_OPERATIONAL\n", __func__);
 
 			/*
-			 * Do we want to adjust the peer's ability to write
-			 * to us?
-			 */
-
-			/*
-			 * Do we need to prioritize sending any metadata
-			 * changes?
+			 *
+			 * - Do we need to prioritize sending any metadata
+			 *   changes?  (includes txcr updates)
+			 *
+			 * - Do we need to forward a hint about the payload
+			 *   length?
 			 */
 
 			if (h->metadata_owner.count) {
@@ -282,12 +301,19 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 				cp = p;
 				n = lws_sspc_serialize_metadata(md, p);
 
-				/* in case anything else to write */
-				lws_callback_on_writable(h->cwsi);
-
-				break;
+				goto req_write_and_issue;
 			}
 
+			if (h->pending_writeable_len) {
+				lwsl_info("%s: PAYLOAD_LENGTH_HINT %u\n",
+					   __func__, (unsigned int)h->writeable_len);
+				s[0] = LWSSS_SER_TXPRE_PAYLOAD_LENGTH_HINT;
+				lws_ser_wu16be(&s[1], 4);
+				lws_ser_wu32be(&s[3], h->writeable_len);
+				h->pending_writeable_len = 0;
+				n = 7;
+				goto req_write_and_issue;
+			}
 
 			/* we can't write anything if we don't have credit */
 			if (!h->ignore_txc && h->txc.tx_cr <= 0) {
@@ -328,6 +354,8 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 		}
 
+do_write_nz:
+
 		if (!n)
 			break;
 
@@ -350,6 +378,11 @@ hangup:
 	lwsl_warn("hangup\n");
 	/* hang up on him */
 	return -1;
+
+req_write_and_issue:
+	/* in case anything else to write */
+	lws_callback_on_writable(h->cwsi);
+	goto do_write_nz;
 }
 
 const struct lws_protocols lws_sspc_protocols[] = {
@@ -484,17 +517,72 @@ lws_sspc_request_tx(lws_sspc_handle_t *h)
 	if (!h->us_earliest_write_req)
 		h->us_earliest_write_req = lws_now_usecs();
 
+	if (h->state == LPCSCLI_LOCAL_CONNECTED &&
+	    h->conn_req_state == LWSSSPC_ONW_NONE)
+		h->conn_req_state = LWSSSPC_ONW_REQ;
+
+	lws_callback_on_writable(h->cwsi);
+}
+
+/*
+ * Currently we fulfil the writeable part locally by just enabling POLLOUT on
+ * the UDS link, without serialization footprint, which is reasonable as far as
+ * it goes.
+ *
+ * But for the ..._len() variant, the expected payload length hint we are being
+ * told is something that must be serialized to the onward peer, since either
+ * that guy or someone upstream of him is the guy who will compose the framing
+ * with it that actually goes out.
+ *
+ * This information is needed at the upstream guy before we have sent any
+ * payload, eg, for http POST, he has to prepare the content-length in the
+ * headers, before any payload.  So we have to issue a serialization of the
+ * length at this point.
+ */
+
+void
+lws_sspc_request_tx_len(lws_sspc_handle_t *h, unsigned long len)
+{
+	/*
+	 * for client conns, they cannot even complete creation of the handle
+	 * without the onwared connection to the proxy, it's not legal to start
+	 * using it until it's operation and has the onward connection (and has
+	 * called CREATED state)
+	 */
+
+	if (!h)
+		return;
+
+	lwsl_notice("%s: setting h %p writeable_len %u\n", __func__, h,
+			(unsigned int)len);
+	h->writeable_len = len;
+	h->pending_writeable_len = 1;
+
+	if (!h->us_earliest_write_req)
+		h->us_earliest_write_req = lws_now_usecs();
+
+	if (h->state == LPCSCLI_LOCAL_CONNECTED &&
+	    h->conn_req_state == LWSSSPC_ONW_NONE)
+		h->conn_req_state = LWSSSPC_ONW_REQ;
+
+	/*
+	 * We're going to use this up with serializing h->writeable_len... that
+	 * will request again.
+	 */
+
 	lws_callback_on_writable(h->cwsi);
 }
 
 int
 lws_sspc_client_connect(lws_sspc_handle_t *h)
 {
-	if (!h || h->state == LPCS_OPERATIONAL)
+	if (!h || h->state == LPCSCLI_OPERATIONAL)
 		return 0;
 
-	assert(h->state == LPCS_LOCAL_CONNECTED);
-	h->conn_req = 1;
+	assert(h->state == LPCSCLI_LOCAL_CONNECTED);
+	if (h->state == LPCSCLI_LOCAL_CONNECTED &&
+	    h->conn_req_state == LWSSSPC_ONW_NONE)
+		h->conn_req_state = LWSSSPC_ONW_REQ;
 	if (h->cwsi)
 		lws_callback_on_writable(h->cwsi);
 

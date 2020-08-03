@@ -1,5 +1,5 @@
 /*
- * lws-minimal-secure-streams
+ * lws-minimal-secure-streams-post
  *
  * Written in 2010-2020 by Andy Green <andy@warmcat.com>
  *
@@ -41,6 +41,20 @@ static int interrupted, bad = 1, force_cpd_fail_portal,
 	   force_cpd_fail_no_internet;
 static unsigned int timeout_ms = 3000;
 static lws_state_notify_link_t nl;
+
+static const char * const postbody =
+	"--boundary\r\n"
+	"Content-Disposition: form-data; name=\"text\"\r\n"
+	"\r\n"
+	"value1\r\n"
+	"--boundary\r\n"
+	"Content-Disposition: form-data; "
+		"name=\"field2\"; filename=\"example.txt\"\r\n"
+	"\r\n"
+	"value2\r\n"
+	"--boundary--\r\n";
+
+#define POSTBODY_SIZE strlen(postbody)
 
 /*
  * If the -proxy app is fulfilling our connection, then we don't need to have
@@ -251,11 +265,22 @@ static int
 myss_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf, size_t *len,
 	int *flags)
 {
-	//myss_t *m = (myss_t *)userobj;
+	// myss_t *m = (myss_t *)userobj;
 
-	/* in this example, we don't send stuff */
+	/*
+	 * A more flexible solution would send incrementally tracking the
+	 * status in members in m above.
+	 */
 
-	return LWSSSSRET_TX_DONT_SEND;
+	if (*len < POSTBODY_SIZE)
+		return LWSSSSRET_TX_DONT_SEND;
+
+	*flags = LWSSS_FLAG_SOM | LWSSS_FLAG_EOM;
+
+	memcpy(buf, postbody, strlen(postbody));
+	*len = POSTBODY_SIZE;
+
+	return 0;
 }
 
 static int
@@ -264,15 +289,26 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 {
 	myss_t *m = (myss_t *)userobj;
 
-	lwsl_user("%s: %s, ord 0x%x\n", __func__, lws_ss_state_name(state),
-		  (unsigned int)ack);
+	lwsl_user("%s: h %p, %s, ord 0x%x\n", __func__, m->ss,
+			lws_ss_state_name(state), (unsigned int)ack);
 
 	switch (state) {
 	case LWSSSCS_CREATING:
-		lws_ss_start_timeout(m->ss, timeout_ms);
-		lws_ss_set_metadata(m->ss, "uptag", "myuptag123", 10);
-		lws_ss_set_metadata(m->ss, "ctype", "myctype", 7);
-		lws_ss_client_connect(m->ss);
+
+		/*
+		 * CREATING is only coming after we have asked the upstream
+		 * proxy to create the stream and it has been allowed.
+		 */
+
+		lws_ss_set_metadata(m->ss, "ctype",
+				    "multipart/form-data;boundary=\"boundary\"",
+				    39);
+
+		/* provide a hint about the payload size */
+		lws_ss_request_tx_len(m->ss, strlen(postbody));
+		break;
+	case LWSSSCS_CONNECTED:
+		lws_ss_request_tx(m->ss);
 		break;
 	case LWSSSCS_ALL_RETRIES_FAILED:
 		/* if we're out of retries, we want to close the app and FAIL */
@@ -313,42 +349,6 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 
 #if !defined(LWS_SS_USE_SSPC)
 
-	/*
-	 * The proxy takes responsibility for this stuff if we get things
-	 * done through that
-	 */
-
-	case LWS_SYSTATE_INITIALIZED: /* overlay on the hardcoded policy */
-	case LWS_SYSTATE_POLICY_VALID: /* overlay on the loaded policy */
-
-		if (target != current)
-			break;
-
-		if (force_cpd_fail_portal)
-
-			/* this makes it look like we're behind a captive portal
-			 * because the overriden address does a redirect */
-
-			lws_ss_policy_overlay(context,
-				      "{\"s\": [{\"captive_portal_detect\": {"
-				         "\"endpoint\": \"google.com\","
-					 "\"http_url\": \"/\","
-					 "\"port\": 80"
-				      "}}]}");
-
-		if (force_cpd_fail_no_internet)
-
-			/* this looks like no internet, because the overridden
-			 * port doesn't have anything that will connect to us */
-
-			lws_ss_policy_overlay(context,
-				      "{\"s\": [{\"captive_portal_detect\": {"
-					 "\"endpoint\": \"warmcat.com\","
-					 "\"http_url\": \"/\","
-					 "\"port\": 999"
-				      "}}]}");
-		break;
-
 	case LWS_SYSTATE_REGISTERED:
 		size = lws_system_blob_get_size(ab);
 		if (size)
@@ -376,7 +376,7 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 			ssi.tx = myss_tx;
 			ssi.state = myss_state;
 			ssi.user_alloc = sizeof(myss_t);
-			ssi.streamtype = "mintest";
+			ssi.streamtype = "minpost";
 
 			if (lws_ss_create(context, 0, &ssi, NULL, NULL,
 					  NULL, NULL)) {

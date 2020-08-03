@@ -74,6 +74,8 @@ typedef enum {
 
 	RPAR_TIMEOUT0,
 
+	RPAR_PAYLEN0,
+
 	RPAR_RESULT_CREATION,
 
 	RPAR_STATEINDEX,
@@ -389,6 +391,15 @@ lws_ss_deserialize_parse(struct lws_ss_serialization_parser *par,
 				if (par->rem != 4)
 					goto hangup;
 				par->ps = RPAR_TIMEOUT0;
+				par->ctr = 0;
+				break;
+
+			case LWSSS_SER_TXPRE_PAYLOAD_LENGTH_HINT:
+				if (client)
+					goto hangup;
+				if (par->rem != 4)
+					goto hangup;
+				par->ps = RPAR_PAYLEN0;
 				par->ctr = 0;
 				break;
 
@@ -723,6 +734,29 @@ payload_ff:
 
 				lws_ss_start_timeout((*pss), par->temp32);
 			}
+
+			par->ps = RPAR_TYPE;
+			break;
+
+		case RPAR_PAYLEN0:
+			/*
+			 * It's the length from lws_ss_request_tx_len() being
+			 * passed up to us
+			 */
+			par->temp32 = (par->temp32 << 8) | *cp++;
+			if (++par->ctr < 4) {
+				if (!--par->rem)
+					goto hangup;
+				break;
+			}
+
+			if (--par->rem)
+				goto hangup;
+
+			lwsl_notice("%s: set payload len %u\n", __func__,
+				    par->temp32);
+
+			lws_ss_request_tx_len(*pss, par->temp32);
 
 			par->ps = RPAR_TYPE;
 			break;

@@ -269,6 +269,8 @@ typedef struct lws_sspc_handle {
 
 	lws_usec_t		us_earliest_write_req;
 
+	unsigned long		writeable_len;
+
 	lws_ss_conn_states_t	state;
 
 	uint32_t		timeout_ms;

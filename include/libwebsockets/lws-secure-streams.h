@@ -100,6 +100,11 @@
  *   -  1: 2-byte MSB-first rest-of-frame length 00, 04
  *   -  3: 4-byte MSB-first unsigned 32-bit timeout, 0 = use policy, -1 = cancel
  *
+ * - Passing up payload length hint
+ *
+ *   -  0: LWSSS_SER_TXPRE_PAYLOAD_LENGTH_HINT
+ *   -  1: 2-byte MSB-first rest-of-frame length 00, 04
+ *   -  3: 4-byte MSB-first unsigned 32-bit payload length hint
  *
  * Proxy to client
  *
@@ -233,6 +238,7 @@ enum {
 	LWSSS_SER_TXPRE_METADATA,
 	LWSSS_SER_TXPRE_TXCR_UPDATE,
 	LWSSS_SER_TXPRE_TIMEOUT_UPDATE,
+	LWSSS_SER_TXPRE_PAYLOAD_LENGTH_HINT,
 	LWSSS_SER_TXPRE_TLSNEG_ENCLAVE_SIGNED,
 };
 
