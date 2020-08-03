@@ -299,11 +299,22 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		 */
 
 		if (conn->ss) {
+			struct lws *cw = conn->ss->wsi;
+			/*
+			 * The onward connection is around
+			 */
 			lwsl_info("%s: destroying ss.h=%p, ss.wsi=%p\n",
 					__func__, conn->ss, conn->ss->wsi);
 			/* sever relationship with ss about to be deleted */
 			lws_set_opaque_user_data(wsi, NULL);
-
+			if (wsi != cw)
+				/*
+				 * The wsi doing the onward connection can no
+				 * longer relate to the conn... otherwise when
+				 * he gets callbacks he wants to bind to
+				 * the ss we are about to delete
+				 */
+				lws_wsi_close(cw, LWS_TO_KILL_ASYNC);
 			conn->wsi = NULL;
 
 
