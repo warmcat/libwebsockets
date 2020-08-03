@@ -241,6 +241,14 @@ typedef struct lws_sspc_metadata {
 	/* the value of length .len is overallocated after this */
 } lws_sspc_metadata_t;
 
+/* state of the upstream proxy onward connection */
+
+enum {
+	LWSSSPC_ONW_NONE,
+	LWSSSPC_ONW_REQ,
+	LWSSSPC_ONW_ONGOING,
+	LWSSSPC_ONW_CONN,
+};
 
 typedef struct lws_sspc_handle {
 	char			rideshare_list[128];
@@ -269,13 +277,14 @@ typedef struct lws_sspc_handle {
 	int16_t			temp16;
 
 	uint8_t			rideshare_ofs[4];
-	uint8_t			conn_req;
 	uint8_t			rsidx;
 
+	uint8_t			conn_req_state:2;
 	uint8_t			destroying:1;
 	uint8_t			non_wsi:1;
 	uint8_t			ignore_txc:1;
 	uint8_t			pending_timeout_update:1;
+	uint8_t			pending_writeable_len:1;
 } lws_sspc_handle_t;
 
 typedef struct backoffs {

@@ -162,7 +162,7 @@ lws_ss_policy_ref_trust_store(struct lws_context *context,
 	}
 	v = lws_get_vhost_by_name(context, pol->trust.store->name);
 	if (v) {
-		lwsl_notice("%s: vh already exists\n", __func__);
+		lwsl_debug("%s: vh already exists\n", __func__);
 		goto accepted;
 	}
 
