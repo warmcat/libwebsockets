@@ -2040,6 +2040,10 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 				    h2n->swsi->http.rx_content_remain <
 						    inlen + 1 && /* last */
 				    h2n->inside < h2n->length) {
+					lwsl_warn("%s: rem %d, inlen %d\n",
+						  __func__,
+						  (int)h2n->swsi->http.rx_content_remain,
+						  (int)inlen + 1);
 					/* unread data in frame */
 					lws_h2_goaway(wsi,
 						      H2_ERR_PROTOCOL_ERROR,

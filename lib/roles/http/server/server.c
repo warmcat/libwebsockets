@@ -2334,7 +2334,7 @@ lws_http_transaction_completed(struct lws *wsi)
 		peer[0] = '\0';
 #endif
 		peer[sizeof(peer) - 1] = '\0';
-		lwsl_notice("%s: (from %s) ignoring, ah parsing incomplete\n",
+		lwsl_info("%s: (from %s) ignoring, ah parsing incomplete\n",
 				__func__, peer);
 		return 0;
 	}

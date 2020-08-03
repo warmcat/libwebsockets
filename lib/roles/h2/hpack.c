@@ -1391,8 +1391,15 @@ int lws_add_http2_header_by_name(struct lws *wsi, const unsigned char *name,
 {
 	int len;
 
-	lwsl_header("%s: %p  %s:%s (len %d)\n", __func__, *p, name, value,
-					length);
+#if defined(_DEBUG)
+	/* value does not have to be NUL-terminated... %.*s not available on
+	 * all platforms */
+	lws_strnncpy((char *)*p, (const char *)value, length,
+			lws_ptr_diff(end, (*p)));
+
+	lwsl_header("%s: %p  %s:%s (len %d)\n", __func__, *p, name,
+			(const char *)*p, length);
+#endif
 
 	len = (int)strlen((char *)name);
 	if (len)
