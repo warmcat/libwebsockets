@@ -128,7 +128,7 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 			return -1;
 		lwsl_info("%s: CONNECTED (%s)\n", __func__, h->ssi.streamtype);
 
-		h->state = LPCS_SENDING_INITIAL_TX;
+		h->state = LPCSCLI_SENDING_INITIAL_TX;
 		h->dsh = lws_dsh_create(NULL, (LWS_PRE + LWS_SS_MTU) * 160, 1);
 		if (!h->dsh)
 			return -1;
@@ -167,8 +167,8 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 					     (lws_ss_handle_t **)m, &h->ssi, 1))
 			return -1;
 
-		if (wsi && (h->state == LPCS_LOCAL_CONNECTED ||
-			    h->state == LPCS_ONWARD_CONNECT))
+		if (wsi && (h->state == LPCSCLI_LOCAL_CONNECTED ||
+			    h->state == LPCSCLI_ONWARD_CONNECT))
 			lws_set_timeout(wsi, 0, 0);
 
 		break;
@@ -210,8 +210,16 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		s[1] = 0;
+		/*
+		 * This is the state of the link that connects us to the onward
+		 * proxy
+		 */
 		switch (h->state) {
-		case LPCS_SENDING_INITIAL_TX:
+		case LPCSCLI_SENDING_INITIAL_TX:
+			/*
+			 * We are negotating the opening of a particular
+			 * streamtype
+			 */
 			n = strlen(h->ssi.streamtype) + 4;
 
 			s[0] = LWSSS_SER_TXPRE_STREAMTYPE;
@@ -220,12 +228,12 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 			//h->txcr_out = txc;
 			lws_strncpy((char *)&s[7], h->ssi.streamtype, sizeof(s) - 7);
 			n += 3;
-			h->state = LPCS_WAITING_CREATE_RESULT;
+			h->state = LPCSCLI_WAITING_CREATE_RESULT;
 			break;
 
-		case LPCS_LOCAL_CONNECTED:
-			if (!h->conn_req)
-				break;
+		case LPCSCLI_LOCAL_CONNECTED:
+
+			lwsl_notice("%s: LPCSCLI_LOCAL_CONNECTED\n", __func__);
 
 			/*
 			 * Do we need to prioritize sending any metadata

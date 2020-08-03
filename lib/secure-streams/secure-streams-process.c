@@ -124,7 +124,7 @@ ss_proxy_onward_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf,
 	void *p;
 	size_t si;
 
-	if (!m->conn->ss || m->conn->state != LPCS_OPERATIONAL) {
+	if (!m->conn->ss || m->conn->state != LPCSPROX_OPERATIONAL) {
 		lwsl_notice("%s: ss not ready\n", __func__);
 		*len = 0;
 
@@ -272,7 +272,7 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		pss->conn->wsi = wsi;
-		pss->conn->state = LPCS_WAIT_INITIAL_TX;
+		pss->conn->state = LPCSPROX_WAIT_INITIAL_TX;
 
 		/*
 		 * Client is expected to follow the unix domain socket
@@ -312,7 +312,7 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 		}
 
-		if (conn->state == LPCS_DESTROYED || !conn->ss) {
+		if (conn->state == LPCSPROX_DESTROYED || !conn->ss) {
 			/*
 			 * There's no onward secure stream and our client
 			 * connection is closing.  Destroy the conn.
@@ -336,7 +336,7 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 
 		// lwsl_hexdump_info(in, len);
 
-		if (conn->state == LPCS_WAIT_INITIAL_TX) {
+		if (conn->state == LPCSPROX_WAIT_INITIAL_TX) {
 			memset(&ssi, 0, sizeof(ssi));
 			ssi.user_alloc = sizeof(ss_proxy_t);
 			ssi.handle_offset = offsetof(ss_proxy_t, ss);
@@ -354,8 +354,8 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 			return -1;
 		}
 
-		if (conn->state == LPCS_REPORTING_FAIL ||
-		    conn->state == LPCS_REPORTING_OK)
+		if (conn->state == LPCSPROX_REPORTING_FAIL ||
+		    conn->state == LPCSPROX_REPORTING_OK)
 			lws_callback_on_writable(conn->wsi);
 
 		break;
@@ -376,10 +376,10 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		s[3] = 0;
 		cp = (const uint8_t *)s;
 		switch (conn->state) {
-		case LPCS_REPORTING_FAIL:
+		case LPCSPROX_REPORTING_FAIL:
 			s[3] = 1;
 			/* fallthru */
-		case LPCS_REPORTING_OK:
+		case LPCSPROX_REPORTING_OK:
 			s[0] = LWSSS_SER_RXPRE_CREATE_RESULT;
 			s[1] = 0;
 			s[2] = 1;
@@ -404,10 +404,10 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 				}
 			}
 			s[2] = n - 3;
-			conn->state = LPCS_OPERATIONAL;
+			conn->state = LPCSPROX_OPERATIONAL;
 			lws_set_timeout(wsi, 0, 0);
 			break;
-		case LPCS_OPERATIONAL:
+		case LPCSPROX_OPERATIONAL:
 			if (lws_dsh_get_head(conn->dsh, KIND_SS_TO_P,
 					     (void **)&p, &si))
 				break;
@@ -461,9 +461,9 @@ again:
 		}
 
 		switch (conn->state) {
-		case LPCS_REPORTING_FAIL:
+		case LPCSPROX_REPORTING_FAIL:
 			goto hangup;
-		case LPCS_OPERATIONAL:
+		case LPCSPROX_OPERATIONAL:
 			if (pay)
 				lws_dsh_free((void **)&p);
 			if (!lws_dsh_get_head(conn->dsh, KIND_SS_TO_P,
@@ -490,7 +490,7 @@ again:
 
 hangup:
 	//lws_ss_destroy(&conn->ss);
-	//conn->state = LPCS_DESTROYED;
+	//conn->state = LPCSPROX_DESTROYED;
 
 	/* hang up on him */
 	return -1;

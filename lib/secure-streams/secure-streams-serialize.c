@@ -87,16 +87,17 @@ typedef enum {
 static const char *sn[] = {
 	"unset",
 
-	"LPCS_WAIT_INITIAL_TX",
-	"LPCS_REPORTING_FAIL",
-	"LPCS_REPORTING_OK",
-	"LPCS_OPERATIONAL",
-	"LPCS_DESTROYED",
+	"LPCSPROX_WAIT_INITIAL_TX",
+	"LPCSPROX_REPORTING_FAIL",
+	"LPCSPROX_REPORTING_OK",
+	"LPCSPROX_OPERATIONAL",
+	"LPCSPROX_DESTROYED",
 
-	"LPCS_SENDING_INITIAL_TX",
-	"LPCS_WAITING_CREATE_RESULT",
-	"LPCS_LOCAL_CONNECTED",
-	"LPCS_ONWARD_CONNECT",
+	"LPCSCLI_SENDING_INITIAL_TX",
+	"LPCSCLI_WAITING_CREATE_RESULT",
+	"LPCSCLI_LOCAL_CONNECTED",
+	"LPCSCLI_ONWARD_CONNECT",
+	"LPCSCLI_OPERATIONAL",
 };
 #endif
 
@@ -334,7 +335,7 @@ lws_ss_deserialize_parse(struct lws_ss_serialization_parser *par,
 			case LWSSS_SER_TXPRE_TX_PAYLOAD:
 				if (client)
 					goto hangup;
-				if (*state != LPCS_OPERATIONAL)
+				if (*state != LPCSPROX_OPERATIONAL)
 					goto hangup;
 				par->ps = RPAR_FLAG_B3;
 				break;
@@ -349,17 +350,18 @@ lws_ss_deserialize_parse(struct lws_ss_serialization_parser *par,
 			case LWSSS_SER_TXPRE_ONWARD_CONNECT:
 				if (client)
 					goto hangup;
-				if (*state != LPCS_OPERATIONAL)
+				if (*state != LPCSPROX_OPERATIONAL)
 					goto hangup;
 				par->ps = RPAR_TYPE;
-				if (*pss)
+				lwsl_notice("%s: LWSSS_SER_TXPRE_ONWARD_CONNECT\n", __func__);
+				if (*pss && ! (*pss)->wsi)
 					_lws_ss_client_connect(*pss, 0);
 				break;
 
 			case LWSSS_SER_TXPRE_STREAMTYPE:
 				if (client)
 					goto hangup;
-				if (*state != LPCS_WAIT_INITIAL_TX)
+				if (*state != LPCSPROX_WAIT_INITIAL_TX)
 					goto hangup;
 				if (par->rem < 4)
 					goto hangup;
@@ -395,8 +397,8 @@ lws_ss_deserialize_parse(struct lws_ss_serialization_parser *par,
 			case LWSSS_SER_RXPRE_RX_PAYLOAD:
 				if (!client)
 					goto hangup;
-				if (*state != LPCS_OPERATIONAL &&
-				    *state != LPCS_LOCAL_CONNECTED)
+				if (*state != LPCSCLI_OPERATIONAL &&
+				    *state != LPCSCLI_LOCAL_CONNECTED)
 					goto hangup;
 
 				par->rideshare[0] = '\0';
@@ -406,7 +408,7 @@ lws_ss_deserialize_parse(struct lws_ss_serialization_parser *par,
 			case LWSSS_SER_RXPRE_CREATE_RESULT:
 				if (!client)
 					goto hangup;
-				if (*state != LPCS_WAITING_CREATE_RESULT)
+				if (*state != LPCSCLI_WAITING_CREATE_RESULT)
 					goto hangup;
 
 				if (par->rem < 1)
@@ -418,8 +420,8 @@ lws_ss_deserialize_parse(struct lws_ss_serialization_parser *par,
 			case LWSSS_SER_RXPRE_CONNSTATE:
 				if (!client)
 					goto hangup;
-				if (*state != LPCS_LOCAL_CONNECTED &&
-				    *state != LPCS_OPERATIONAL)
+				if (*state != LPCSCLI_LOCAL_CONNECTED &&
+				    *state != LPCSCLI_OPERATIONAL)
 					goto hangup;
 
 				if (par->rem < 4)
@@ -828,11 +830,11 @@ payload_ff:
 				 */
 				lwsl_err("%s: create '%s' fail\n",
 					__func__, par->streamtype);
-				*state = LPCS_REPORTING_FAIL;
+				*state = LPCSPROX_REPORTING_FAIL;
 			} else {
 				lwsl_debug("%s: create '%s' OK\n",
 					__func__, par->streamtype);
-				*state = LPCS_REPORTING_OK;
+				*state = LPCSPROX_REPORTING_OK;
 			}
 
 			if (*pss) {
@@ -865,7 +867,7 @@ payload_ff:
 			}
 
 			lws_ss_serialize_state_transition(state,
-							  LPCS_LOCAL_CONNECTED);
+							  LPCSCLI_LOCAL_CONNECTED);
 			h = lws_container_of(par, lws_sspc_handle_t, parser);
 			if (h->cwsi)
 				lws_callback_on_writable(h->cwsi);
@@ -943,13 +945,17 @@ payload_ff:
 			case LWSSSCS_UNREACHABLE:
 			case LWSSSCS_AUTH_FAILED:
 				lws_ss_serialize_state_transition(state,
-						LPCS_LOCAL_CONNECTED);
+						LPCSCLI_LOCAL_CONNECTED);
+				((lws_sspc_handle_t *)*pss)->conn_req_state =
+							LWSSSPC_ONW_NONE;
 				break;
 			case LWSSSCS_CONNECTED:
 				lwsl_info("%s: CONNECTED %s\n", __func__,
 					    ssi->streamtype);
 				lws_ss_serialize_state_transition(state,
-						LPCS_OPERATIONAL);
+						LPCSCLI_OPERATIONAL);
+				((lws_sspc_handle_t *)*pss)->conn_req_state =
+						LWSSSPC_ONW_CONN;
 				break;
 			case LWSSSCS_TIMEOUT:
 				break;
@@ -962,7 +968,7 @@ payload_ff:
 
 #if defined(_DEBUG)
 			lwsl_info("%s: forwarding proxied state %s\n",
-					__func__, sn[par->ctr]);
+					__func__, lws_ss_state_name(par->ctr));
 #endif
 			if (ssi->state((void *)pss, NULL, par->ctr, par->flags))
 				goto hangup;

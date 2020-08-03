@@ -237,16 +237,17 @@ enum {
 };
 
 typedef enum {
-	LPCS_WAIT_INITIAL_TX = 1, /* after connect, must send streamtype */
-	LPCS_REPORTING_FAIL, /* stream creation failed, wait to to tell */
-	LPCS_REPORTING_OK, /* stream creation succeeded, wait to to tell */
-	LPCS_OPERATIONAL, /* ready for payloads */
-	LPCS_DESTROYED,
+	LPCSPROX_WAIT_INITIAL_TX = 1, /* after connect, must send streamtype */
+	LPCSPROX_REPORTING_FAIL, /* stream creation failed, wait to to tell */
+	LPCSPROX_REPORTING_OK, /* stream creation succeeded, wait to to tell */
+	LPCSPROX_OPERATIONAL, /* ready for payloads */
+	LPCSPROX_DESTROYED,
 
-	LPCS_SENDING_INITIAL_TX = 1,  /* after connect, must send streamtype */
-	LPCS_WAITING_CREATE_RESULT,   /* wait to hear if proxy ss create OK */
-	LPCS_LOCAL_CONNECTED,	      /* we are in touch with the proxy */
-	LPCS_ONWARD_CONNECT,	      /* request onward ss connection */
+	LPCSCLI_SENDING_INITIAL_TX,  /* after connect, must send streamtype */
+	LPCSCLI_WAITING_CREATE_RESULT,   /* wait to hear if proxy ss create OK */
+	LPCSCLI_LOCAL_CONNECTED,	      /* we are in touch with the proxy */
+	LPCSCLI_ONWARD_CONNECT,	      /* request onward ss connection */
+	LPCSCLI_OPERATIONAL, /* ready for payloads */
 
 } lws_ss_conn_states_t;
 
