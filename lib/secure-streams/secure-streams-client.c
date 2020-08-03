@@ -317,10 +317,10 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 			/* we can't write anything if we don't have credit */
 			if (!h->ignore_txc && h->txc.tx_cr <= 0) {
-				lwsl_notice("%s: WRITEABLE / OPERATIONAL:"
+				lwsl_info("%s: WRITEABLE / OPERATIONAL:"
 					    " lack credit (%d)\n", __func__,
 					    h->txc.tx_cr);
-				break;
+				// break;
 			}
 
 			len = sizeof(pkt) - LWS_PRE - 19;
