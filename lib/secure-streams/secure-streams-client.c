@@ -62,7 +62,7 @@ lws_sspc_sul_retry_cb(lws_sorted_usec_list_t *sul)
 }
 
 static int
-lws_sspc_serialize_metadata(lws_sspc_metadata_t *md, uint8_t *p)
+lws_sspc_serialize_metadata(lws_sspc_metadata_t *md, uint8_t *p, uint8_t *end)
 {
 	int n, txc;
 
@@ -84,6 +84,12 @@ lws_sspc_serialize_metadata(lws_sspc_metadata_t *md, uint8_t *p)
 		p[0] = LWSSS_SER_TXPRE_METADATA;
 		txc = strlen(md->name);
 		n = txc + 1 + md->len;
+		if (n > 0xffff)
+			/* we can't serialize this metadata in 16b length */
+			return -1;
+		if (n > lws_ptr_diff(end, &p[4]))
+			/* we don't have space for this metadata */
+			return -1;
 		lws_ser_wu16be(&p[1], n);
 		p[3] = txc;
 		memcpy(&p[4], md->name, txc);
@@ -102,7 +108,8 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 		     void *user, void *in, size_t len)
 {
 	lws_sspc_handle_t *h = (lws_sspc_handle_t *)lws_get_opaque_user_data(wsi);
-	uint8_t s[32], pkt[LWS_PRE + 1400], *p = pkt + LWS_PRE;
+	uint8_t s[32], pkt[LWS_PRE + 1400], *p = pkt + LWS_PRE,
+		*end = p + sizeof(pkt) - LWS_PRE;
 	void *m = (void *)((uint8_t *)&h[1]);
 	const uint8_t *cp;
 	lws_usec_t us;
@@ -246,7 +253,9 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 					lws_sspc_metadata_t, list);
 
 				cp = p;
-				n = lws_sspc_serialize_metadata(md, p);
+				n = lws_sspc_serialize_metadata(md, p, end);
+				if (n < 0)
+					goto metadata_hangup;
 
 				lwsl_debug("%s: (local_conn) metadata\n", __func__);
 
@@ -299,7 +308,9 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 					lws_sspc_metadata_t, list);
 
 				cp = p;
-				n = lws_sspc_serialize_metadata(md, p);
+				n = lws_sspc_serialize_metadata(md, p, end);
+				if (n < 0)
+					goto metadata_hangup;
 
 				goto req_write_and_issue;
 			}
@@ -373,6 +384,9 @@ do_write:
 	}
 
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
+
+metadata_hangup:
+	lwsl_err("%s: metadata too large\n", __func__);
 
 hangup:
 	lwsl_warn("hangup\n");
