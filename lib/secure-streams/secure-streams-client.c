@@ -108,7 +108,7 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 		     void *user, void *in, size_t len)
 {
 	lws_sspc_handle_t *h = (lws_sspc_handle_t *)lws_get_opaque_user_data(wsi);
-	uint8_t s[32], pkt[LWS_PRE + 1400], *p = pkt + LWS_PRE,
+	uint8_t s[32], pkt[LWS_PRE + 8192], *p = pkt + LWS_PRE,
 		*end = p + sizeof(pkt) - LWS_PRE;
 	void *m = (void *)((uint8_t *)&h[1]);
 	const uint8_t *cp;
