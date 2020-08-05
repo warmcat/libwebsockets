@@ -2137,7 +2137,7 @@ endif()
 if (WINCE)
 	list(APPEND LIB_LIST ws2.lib)
 elseif (WIN32)
-	list(APPEND LIB_LIST ws2_32.lib userenv.lib psapi.lib iphlpapi.lib)
+	list(APPEND LIB_LIST ws2_32.lib userenv.lib psapi.lib iphlpapi.lib crypt32.lib)
 endif()
 
 if (${CMAKE_SYSTEM_NAME} MATCHES "QNX")
