@@ -712,7 +712,7 @@ endif()
 if (WINCE)
 	list(APPEND LIB_LIST_AT_END ws2.lib)
 elseif (WIN32)
-	list(APPEND LIB_LIST_AT_END ws2_32.lib userenv.lib psapi.lib iphlpapi.lib)
+	list(APPEND LIB_LIST_AT_END ws2_32.lib userenv.lib psapi.lib iphlpapi.lib crypt32.lib)
 endif()
 
 if (MSVC)
