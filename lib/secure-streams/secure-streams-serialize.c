@@ -777,6 +777,7 @@ payload_ff:
 			par->metadata_name[par->ctr++] = *cp++;
 			if (par->ctr != par->slen)
 				break;
+			par->metadata_name[par->ctr] = '\0';
 			par->ps = RPAR_METADATA_VALUE;
 
 			/* only non-client side can receive these */
