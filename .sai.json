@@ -94,6 +94,10 @@
 			"cmake":	"cmake .. -DLWS_WITH_BORINGSSL=1 -DLWS_OPENSSL_INCLUDE_DIRS=\"/usr/local/src/boringssl/include\" -DLWS_OPENSSL_LIBRARIES=\"/usr/local/src/boringssl/build/ssl/libssl.so;/usr/local/src/boringssl/build/crypto/libcrypto.so\" -DLWS_WITH_MINIMAL_EXAMPLES=1",
 			"platforms":	"none,linux-fedora-32/x86_64-amd/gcc"
 		},
+		"default-wolfssl": {
+			"cmake":	"-DLWS_WITH_WOLFSSL=1 -DLWS_WOLFSSL_INCLUDE_DIRS=/usr/local/include -DLWS_WOLFSSL_LIBRARIES=/usr/local/lib/libwolfssl.so -DLWS_WITH_MINIMAL_EXAMPLES=1",
+			"platforms":	"none,linux-fedora-32/x86_64-amd/gcc"
+		},
 		"default-examples": {
 			"cmake":	"-DLWS_WITH_MINIMAL_EXAMPLES=1",
 			"platforms":	"windows-10/x86_64-amd/msvc, linux-ubuntu-2004/aarch64-a72-bcm2711-rpi4/gcc"

@@ -346,7 +346,7 @@ main(int argc, const char **argv)
 		       LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
 	info.protocols = protocols;
 
-#if defined(LWS_WITH_MBEDTLS)
+#if defined(LWS_WITH_MBEDTLS) || defined(USE_WOLFSSL)
 	/*
 	 * OpenSSL uses the system trust store.  mbedTLS has to be told which
 	 * CA to trust explicitly.

@@ -90,7 +90,7 @@
    #ifdef LWS_HAVE_OPENSSL_ECDH_H
     #include <openssl/ecdh.h>
    #endif
-   #if !defined(LWS_HAVE_EVP_MD_CTX_free)
+   #if !defined(LWS_HAVE_EVP_MD_CTX_free) && !defined(USE_WOLFSSL)
     #define EVP_MD_CTX_free EVP_MD_CTX_destroy
    #endif
    #include <openssl/x509v3.h>

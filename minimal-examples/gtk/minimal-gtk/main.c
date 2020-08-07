@@ -156,7 +156,7 @@ t1_main (gpointer user_data)
 	info.foreign_loops = foreign_loops;
 	info.register_notifier_list = na;
 
-#if defined(LWS_WITH_MBEDTLS)
+#if defined(LWS_WITH_MBEDTLS) || defined(USE_WOLFSSL)
 	/*
 	 * OpenSSL uses the system trust store.  mbedTLS has to be told which
 	 * CA to trust explicitly.

@@ -186,19 +186,21 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		SSL_set_info_callback(wsi->tls.ssl, lws_ssl_info_callback);
 #endif
 
-#if defined LWS_HAVE_X509_VERIFY_PARAM_set1_host
+#if defined(LWS_HAVE_X509_VERIFY_PARAM_set1_host)
 	if (!(wsi->tls.use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK)) {
+#if !defined(USE_WOLFSSL)
+
 		X509_VERIFY_PARAM *param = SSL_get0_param(wsi->tls.ssl);
 
-#if !defined(USE_WOLFSSL)
 		/* Enable automatic hostname checks */
 		X509_VERIFY_PARAM_set_hostflags(param,
 					X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
-#endif
 		/* Handle the case where the hostname is an IP address */
 		if (!X509_VERIFY_PARAM_set1_ip_asc(param, hostname))
 			X509_VERIFY_PARAM_set1_host(param, hostname,
 					strnlen(hostname, sizeof(hostname)));
+#endif
+
 	}
 #else
 	if (!(wsi->tls.use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK)) {
@@ -251,10 +253,10 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	 * Otherwise the connect will simply fail with error code -155
 	 */
 #ifdef USE_OLD_CYASSL
-	if (wsi->tls.use_ssl == 2)
+	if (wsi->tls.use_ssl & LCCSCF_ALLOW_SELFSIGNED)
 		CyaSSL_set_verify(wsi->tls.ssl, SSL_VERIFY_NONE, NULL);
 #else
-	if (wsi->tls.use_ssl == 2)
+	if (wsi->tls.use_ssl & LCCSCF_ALLOW_SELFSIGNED)
 		wolfSSL_set_verify(wsi->tls.ssl, SSL_VERIFY_NONE, NULL);
 #endif
 #endif /* USE_WOLFSSL */
