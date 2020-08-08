@@ -720,7 +720,8 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 			 * though...
 			 */
 
-			if (sssh->policy->u.http.u.ws.subprotocol)
+			if (sssh && sssh->policy &&
+			    sssh->policy->u.http.u.ws.subprotocol)
 				prot = sssh->policy->u.http.u.ws.subprotocol;
 		}
 #endif

@@ -2531,7 +2531,8 @@ lws_h2_ws_handshake(struct lws *wsi)
 		 * the generic ss-ws.c protocol name
 		 */
 
-		if (wsi->a.vhost->ss_handle->policy->u.http.u.ws.subprotocol) {
+		if (wsi->a.vhost && wsi->a.vhost->ss_handle &&
+		    wsi->a.vhost->ss_handle->policy->u.http.u.ws.subprotocol) {
 			lws_ss_handle_t *h =
 				(lws_ss_handle_t *)wsi->a.opaque_user_data;
 
