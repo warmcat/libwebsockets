@@ -147,6 +147,10 @@ typedef unsigned long long lws_intptr_t;
 #endif
 #endif
 
+#if defined(__FreeBSD__)
+#include <sys/signal.h>
+#endif
+
 #if defined(__GNUC__)
 
 /* warn_unused_result attribute only supported by GCC 3.4 or later */
