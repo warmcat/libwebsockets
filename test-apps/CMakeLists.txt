@@ -72,6 +72,10 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2))
 		source_group("Sources"   FILES ${TEST_SRCS})
 		add_executable(${TEST_NAME} ${TEST_SRCS} ${TEST_HDR})
 
+		foreach(libpath ${LWS_DEP_LIB_PATHS})
+			target_link_directories(${TEST_NAME} ${libpath})
+		endforeach()
+
 		if (LWS_LINK_TESTAPPS_DYNAMIC)
 			if (NOT LWS_WITH_SHARED)
 				message(FATAL_ERROR "Build of the shared library is disabled. LWS_LINK_TESTAPPS_DYNAMIC must be combined with LWS_WITH_SHARED.")

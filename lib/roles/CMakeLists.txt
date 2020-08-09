@@ -86,3 +86,5 @@ endif()
 #
 
 exports_to_parent_scope()
+set(LWS_DEPS_LIB_PATHS ${LWS_DEPS_LIB_PATHS} PARENT_SCOPE)
+

@@ -47,7 +47,7 @@ else()
 		${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
 		wcs_srv $<TARGET_FILE:test-server>
 			-r ${CMAKE_SOURCE_DIR}/destdir/usr/local/share/libwebsockets-test-server/
-			-s --port ${PORT_WCS_SRV})
+			-s --port ${PORT_WCS_SRV} --ignore-sigterm)
 	add_test(NAME ki_wcs_srv COMMAND
 		${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh
 		wcs_srv $<TARGET_FILE_NAME:test-server> --port ${PORT_WCS_SRV})

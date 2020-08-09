@@ -58,7 +58,11 @@ if (LWS_WITH_PLUGINS AND LWS_WITH_SHARED)
 	source_group("Headers Private"   FILES ${PLUGIN_HDR})
 	source_group("Sources"   FILES ${PLUGIN_SRCS})
 	add_library(${PLUGIN_NAME} SHARED ${PLUGIN_SRCS} ${PLUGIN_HDR})
-	
+
+	foreach(libpath ${LWS_DEP_LIB_PATHS})
+		target_link_directories(${TEST_NAME} ${libpath})
+	endforeach()
+
 	target_link_libraries(${PLUGIN_NAME} websockets_shared)
 	add_dependencies(${PLUGIN_NAME} websockets_shared)
 

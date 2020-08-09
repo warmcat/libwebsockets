@@ -61,8 +61,10 @@
 		"linux-fedora-32/riscv64-virt/gcc": {
 			"build":	"mkdir build destdir;cd build;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G RPM\";cmake .. ${cmake} && make -j12 && make -j12 DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}",
 			"default":	false
+		},
+		"freebsd-12/x86_64-amd/llvm": {
+			"build":	"mkdir build destdir;cd build;export CCACHE_DISABLE=1;cmake .. ${cmake} && make -j12 && make -j12 DESTDIR=../destdir install"
 		}
-
 	},
 
 	"configurations": {
@@ -95,7 +97,7 @@
 			"platforms":	"none,linux-fedora-32/x86_64-amd/gcc"
 		},
 		"default-wolfssl": {
-			"cmake":	"-DLWS_WITH_WOLFSSL=1 -DLWS_WOLFSSL_INCLUDE_DIRS=/usr/local/include -DLWS_WOLFSSL_LIBRARIES=/usr/local/lib/libwolfssl.so -DLWS_WITH_MINIMAL_EXAMPLES=1",
+			"cmake":	"-DLWS_WITH_WOLFSSL=1 -DLWS_WOLFSSL_INCLUDE_DIRS=/usr/local/include -DLWS_WOLFSSL_LIBRARIES=/usr/local/lib/libwolfssl.so",
 			"platforms":	"none,linux-fedora-32/x86_64-amd/gcc"
 		},
 		"default-examples": {
@@ -120,7 +122,7 @@
 		},
 		"distro_recommended": {
 			"cmake":	"-DLWS_WITH_DISTRO_RECOMMENDED=1",
-			"platforms":	"not linkit-cross, not windows-10/x86_64-amd/msvc, linux-ubuntu-2004/aarch64-a72-bcm2711-rpi4/gcc, linux-fedora-32/riscv64-virt/gcc",
+			"platforms":	"not freebsd-12/x86_64-amd/llvm, not linkit-cross, not windows-10/x86_64-amd/msvc, linux-ubuntu-2004/aarch64-a72-bcm2711-rpi4/gcc, linux-fedora-32/riscv64-virt/gcc",
 			"cpack":	"&& cpack $SAI_CPACK",
 			"artifacts":	"build/*.rpm, build/*.deb, build/*.zip"
 		},
