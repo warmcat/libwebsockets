@@ -30,7 +30,7 @@
 
 static const char *library_version = LWS_LIBRARY_VERSION;
 
-#if defined(__linux__)
+#if defined(__linux__) || defined(__FreeBSD__) || defined(__illumos__)
 /* for setrlimit */
 #include <sys/resource.h>
 #endif

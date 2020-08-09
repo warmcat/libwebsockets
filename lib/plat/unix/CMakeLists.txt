@@ -37,7 +37,6 @@ execute_process( COMMAND grep -c illumos /lib/ld.so.1
 string(REGEX REPLACE "[\n]+" "" ILLUMOS "${ILLUMOS}")
 
 if (NOT ${ILLUMOS} MATCHES "0")
-	add_definitions( "-D__illumos__" )
 	set(ILLUMOS 1)
 endif()
 
