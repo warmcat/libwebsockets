@@ -443,8 +443,9 @@ malformed:
 		 */
 		if ((h->policy->protocol == LWSSSP_H1 ||
 		     h->policy->protocol == LWSSSP_H2) &&
-		     h->being_serialized &&
-				!strcmp(h->policy->u.http.method, "POST"))
+		     h->being_serialized && (
+				!strcmp(h->policy->u.http.method, "PUT") ||
+				!strcmp(h->policy->u.http.method, "POST")))
 			if (lws_ss_event_helper(h, LWSSSCS_CONNECTED))
 				return LWSSSSRET_SS_HANDLE_DESTROYED;
 
