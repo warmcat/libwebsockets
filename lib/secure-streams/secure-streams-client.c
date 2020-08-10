@@ -240,7 +240,7 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 		case LPCSCLI_LOCAL_CONNECTED:
 
-			lwsl_notice("%s: LPCSCLI_LOCAL_CONNECTED\n", __func__);
+			// lwsl_notice("%s: LPCSCLI_LOCAL_CONNECTED\n", __func__);
 
 			/*
 			 * Do we need to prioritize sending any metadata
@@ -338,8 +338,10 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 			flags = 0;
 			n = h->ssi.tx(m, h->ord++, pkt + LWS_PRE + 19, &len,
 				      &flags);
-			if (n == LWSSSSRET_TX_DONT_SEND)
+			if (n == LWSSSSRET_TX_DONT_SEND) {
+				n = 0;
 				break;
+			}
 
 			h->txc.tx_cr -= len;
 
