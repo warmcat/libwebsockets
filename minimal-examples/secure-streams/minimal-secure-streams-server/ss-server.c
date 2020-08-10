@@ -10,9 +10,10 @@
 #include <libwebsockets.h>
 #include <assert.h>
 
-extern int interrupted, bad;
+extern int interrupted, bad, multipart;
 
 static const char *html =
+		/* normally we serve this... */
 	"<head><meta content=\"text/html;charset=utf-8\" "
 			"http-equiv=\"Content-Type\"><script>"
 	" var ws = new WebSocket(\"wss://localhost:7681\", \"mywsprotocol\");"
@@ -25,7 +26,23 @@ static const char *html =
 	"</script></head><html><body>"
 	  "Hello from the web server<br>"
 	  "<div id=\"wsd\"></div>"
-	"</body></html>";
+	"</body></html>",
+
+*multipart_html =
+	/*
+	 * If you use -m commandline switch we send this instead, as
+	 * multipart/form-data
+	 */
+	"--aBoundaryString\r\n"
+	"Content-Disposition: form-data; name=\"myFile\"; filename=\"xxx.txt\"\r\n"
+	"Content-Type: text/plain\r\n"
+	"\r\n"
+	"The file contents\r\n"
+	"--aBoundaryString\r\n"
+	"Content-Disposition: form-data; name=\"myField\"\r\n"
+	"\r\n"
+	"(data)\r\n"
+	"--aBoundaryString--\r\n";
 
 
 typedef struct myss {
@@ -68,14 +85,18 @@ myss_srv_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf, size_t *len,
 	int *flags)
 {
 	myss_srv_t *m = (myss_srv_t *)userobj;
+	const char *send = html;
 
 	if (m->upgraded)
 		return LWSSSSRET_TX_DONT_SEND;
 
+	if (multipart)
+		send = multipart_html;
+
 	*flags = LWSSS_FLAG_SOM | LWSSS_FLAG_EOM;
 
-	lws_strncpy((char *)buf, html, *len);
-	*len = strlen(html);
+	lws_strncpy((char *)buf, send, *len);
+	*len = strlen(send);
 
 	return 0;
 }
@@ -168,13 +189,18 @@ myss_srv_state(void *userobj, void *sh, lws_ss_constate_t state,
 		 */
 		lws_ss_server_ack(m->ss, 0);
 		/*
-		 * ... it's going to be text/html...
+		 * ... it's going to be either text/html or multipart ...
 		 */
-		lws_ss_set_metadata(m->ss, "mime", "text/html", 9);
+		if (multipart)
+			lws_ss_set_metadata(m->ss, "mime",
+			   "multipart/form-data; boundary=aBoundaryString", 45);
+		else
+			lws_ss_set_metadata(m->ss, "mime", "text/html", 9);
 		/*
-		 * ...it's going to be 128 byte (and request tx)
+		 * ...it's going to be whatever size it is (and request tx)
 		 */
-		lws_ss_request_tx_len(m->ss, strlen(html));
+		lws_ss_request_tx_len(m->ss, multipart ? strlen(multipart_html) :
+							 strlen(html));
 		break;
 
 	case LWSSSCS_SERVER_UPGRADE:

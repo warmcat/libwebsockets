@@ -14,7 +14,7 @@
 extern const lws_ss_info_t ssi_client, ssi_server;
 
 static struct lws_context *context;
-int interrupted, bad = 1;
+int interrupted, bad = 1, multipart;
 static const char * const default_ss_policy =
 	"{"
 	  "\"release\":"			"\"01234567\","
@@ -302,6 +302,10 @@ int main(int argc, const char **argv)
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
+
+	if (lws_cmdline_option(argc, argv, "-m"))
+		multipart = 1;
+
 	lwsl_user("LWS Secure Streams Server\n");
 
 	info.options			= LWS_SERVER_OPTION_EXPLICIT_VHOSTS |

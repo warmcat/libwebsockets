@@ -126,6 +126,8 @@ enum {
 	/**< we listen on a socket as a server */
 	LWSSSPOLF_ALLOW_REDIRECTS				= (1 << 16),
 	/**< follow redirects */
+	LWSSSPOLF_HTTP_MULTIPART_IN				= (1 << 17),
+	/**< handle inbound multipart mime at SS level */
 };
 
 typedef struct lws_ss_trust_store {

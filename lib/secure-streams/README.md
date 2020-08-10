@@ -403,6 +403,10 @@ sent an `END_STREAM`, even though we have sent headers with `END_HEADERS`.
 Set this to `true` if the peer server has the quirk it sends an maximum initial tx credit
 of 0x7fffffff and then later increments it illegally.
 
+### `http_multipart_ss_in`
+
+Indicates that SS should parse any incoming multipart mime on this stream
+
 ### `http_multipart_name`
 
 Indicates this stream goes out using multipart mime, and provides the name part of the

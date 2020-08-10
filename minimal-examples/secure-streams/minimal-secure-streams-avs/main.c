@@ -195,6 +195,9 @@ static const char * const default_ss_policy =
 			"\"http_auth_preamble\":"	"\"Bearer \","
 			"\"http_multipart_name\":"	"\"metadata\","
 			"\"http_mime_content_type\":"	"\"application/json; charset=UTF-8\","
+#if 1
+			"\"http_multipart_ss_in\":"	"true,"
+#endif
 			"\"rideshare\":"		"\"avs_audio\","
 			"\"retry\":"			"\"default\","
 			"\"plugins\":"			"[],"
@@ -211,6 +214,9 @@ static const char * const default_ss_policy =
 			"\"plugins\":"			"[],"
 			"\"tls\":"			"true,"
 			"\"h2q_oflow_txcr\":"		"true,"
+#if 1
+			"\"http_multipart_ss_in\":"	"true,"
+#endif
 			"\"http_auth_header\":"		"\"authorization:\","
 			"\"http_auth_preamble\":"	"\"Bearer \","
 			"\"http_multipart_name\":"	"\"audio\","

@@ -120,7 +120,9 @@ ss_avs_metadata_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 
 	lwsl_notice("%s: rideshare %s, len %d, flags 0x%x\n", __func__,
 			lws_ss_rideshare(m->ss), (int)len, flags);
-	// lwsl_hexdump_warn(buf, len);
+#if 0
+	lwsl_hexdump_warn(buf, len);
+#endif
 
 	n = sizeof(m->buf) - ((m->head - m->tail) % sizeof(m->buf));
 	lwsl_info("%s: len %d, buf h %d, t %d, space %d\n", __func__,

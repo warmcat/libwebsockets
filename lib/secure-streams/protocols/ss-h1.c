@@ -318,7 +318,11 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 #if defined(LWS_WITH_SS_RIDESHARE)
 
 		/*
-		 * We should only especially process multipart ourselves if
+		 * There are two ways we might want to deal with multipart,
+		 * one is pass it through raw (although the user code needs
+		 * a helping hand for learning the boundary), and the other
+		 * is to deframe it and provide basically submessages in the
+		 * different parts.
 		 */
 
 		if (lws_hdr_copy(wsi, (char *)buf, sizeof(buf),
@@ -367,7 +371,8 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 			/* inform the ss that a related message group begins */
 
-			if (h->u.http.boundary[0])
+			if ((h->policy->flags & LWSSSPOLF_HTTP_MULTIPART_IN) &&
+			    h->u.http.boundary[0])
 				h->info.rx(ss_to_userobj(h), NULL, 0,
 					   LWSSS_FLAG_RELATED_START);
 
@@ -460,7 +465,8 @@ malformed:
 			return 0;
 
 #if defined(LWS_WITH_SS_RIDESHARE)
-		if (h->u.http.boundary[0])
+		if ((h->policy->flags & LWSSSPOLF_HTTP_MULTIPART_IN) &&
+		    h->u.http.boundary[0])
 			return ss_http_multipart_parser(h, in, len);
 #endif
 
