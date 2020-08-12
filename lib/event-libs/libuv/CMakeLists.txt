@@ -33,20 +33,21 @@ include_directories(.)
 set(LWS_LIBUV_LIBRARIES CACHE PATH "Path to the libuv library")
 set(LWS_LIBUV_INCLUDE_DIRS CACHE PATH "Path to the libuv include directory")
 
-if (NOT LIBUV_FOUND)
-	find_path(LIBUV_INCLUDE_DIRS NAMES uv.h)
-	find_library(LIBUV_LIBRARIES NAMES uv)
-endif()
-message("libuv include dir: ${LIBUV_INCLUDE_DIRS}")
-message("libuv libraries: ${LIBUV_LIBRARIES}")
-include_directories("${LIBUV_INCLUDE_DIRS}")
-list(APPEND LIB_LIST ${LIBUV_LIBRARIES})
-
 if ("${LWS_LIBUV_LIBRARIES}" STREQUAL "" OR "${LWS_LIBUV_INCLUDE_DIRS}" STREQUAL "")
+	if (NOT LIBUV_FOUND)
+		find_path(LIBUV_INCLUDE_DIRS NAMES uv.h)
+		find_library(LIBUV_LIBRARIES NAMES uv)
+	endif()
 else()
 	set(LIBUV_LIBRARIES ${LWS_LIBUV_LIBRARIES})
 	set(LIBUV_INCLUDE_DIRS ${LWS_LIBUV_INCLUDE_DIRS})
 endif()
+
+message("libuv include dir: ${LIBUV_INCLUDE_DIRS}")
+message("libuv libraries: ${LIBUV_LIBRARIES}")
+
+include_directories("${LIBUV_INCLUDE_DIRS}")
+list(APPEND LIB_LIST ${LIBUV_LIBRARIES})
 
 CHECK_INCLUDE_FILE(uv-version.h LWS_HAVE_UV_VERSION_H)
   # libuv changed the location in 1.21.0. Retain both
