@@ -60,6 +60,7 @@ gai_strerror(int);
 #endif
  #include "timers.h"
  #include <esp_attr.h>
+ #include <semphr.h>
 #else
  #include "freertos/timers.h"
  #include <esp_attr.h>
