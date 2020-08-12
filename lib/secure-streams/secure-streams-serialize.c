@@ -721,18 +721,28 @@ payload_ff:
 			if (--par->rem)
 				goto hangup;
 
-			if ((unsigned int)par->temp32 == 0xffffffff) {
-				lwsl_notice("%s: cancel ss timeout\n", __func__);
-				lws_ss_cancel_timeout(*pss);
-			} else {
+			/*
+			 * *pss may have gone away asynchronously inbetweentimes
+			 */
 
-				if (!par->temp32)
-					par->temp32 = (*pss)->policy->timeout_ms;
+			if (*pss) {
 
-				lwsl_notice("%s: set ss timeout for +%ums\n",
+				if ((unsigned int)par->temp32 == 0xffffffff) {
+					lwsl_notice("%s: cancel ss timeout\n",
+							__func__);
+					lws_ss_cancel_timeout(*pss);
+				} else {
+
+					if (!par->temp32)
+						par->temp32 =
+						     (*pss)->policy->timeout_ms;
+
+					lwsl_notice("%s: set ss timeout for +%ums\n",
 						__func__, par->temp32);
 
-				lws_ss_start_timeout((*pss), par->temp32);
+					lws_ss_start_timeout((*pss),
+								par->temp32);
+				}
 			}
 
 			par->ps = RPAR_TYPE;
