@@ -190,7 +190,9 @@ lws_ss_deserialize_tx_payload(struct lws_dsh *dsh, struct lws *wsi,
 
 	if (*len <= si - 23 || si < 23) {
 		/*
-		 * What comes out of the dsh needs to fit in the tx buffer
+		 * What comes out of the dsh needs to fit in the tx buffer...
+		 * we have arrangements at the proxy rx of the client UDS to
+		 * chop chunks larger than 1380 into seuqential lumps of 1380
 		 */
 		lwsl_err("%s: *len = %d, si = %d\n", __func__, (int)*len, (int)si);
 		assert(0);
@@ -533,17 +535,44 @@ payload_ff:
 			n = (int)len + 1;
 			if (n > par->rem)
 				n = par->rem;
+			/*
+			 * We get called with a serialized buffer of a size
+			 * chosen by the client.  We can only create dsh entries
+			 * with up to 1380 payload, to guarantee we can emit
+			 * them on the onward connection atomically.
+			 *
+			 * If 1380 isn't enough to cover what was handed to us,
+			 * we'll stop at 1380 and go around again and create
+			 * more dsh entries for the rest, with their own
+			 * headers.
+			 */
+
 			if (n > 1380)
 				n = 1380;
 
-			/* deal with refragmented SOM / EOM flags */
+			/*
+			 * Since we're in the business of fragmenting client
+			 * serialized payloads at 1380, we have to deal with
+			 * refragmenting the SOM / EOM flags that covered the
+			 * whole client serialized packet, so they apply to
+			 * each dsh entry we split it into correctly
+			 */
 
 			flags = par->flags & LWSSS_FLAG_RELATED_START;
 			if (par->frag1)
+				/*
+				 * Only set the first time we came to this
+				 * state after deserialization of the header
+				 */
 				flags |= par->flags &
 				    (LWSSS_FLAG_SOM | LWSSS_FLAG_POLL);
 
 			if (par->rem == n)
+				/*
+				 * We are going to complete the advertised
+				 * payload length from the client on this dsh,
+				 * so give him the EOM type flags if any
+				 */
 				flags |= par->flags & (LWSSS_FLAG_EOM |
 						LWSSS_FLAG_RELATED_END);
 
@@ -556,8 +585,9 @@ payload_ff:
 				 * the client.
 				 *
 				 * The header for buffering private to the
-				 * proxy is 23 bytes vs 19 to hold the
+				 * proxy is 23 bytes vs 19, so we can hold the
 				 * current time when it was buffered
+				 * additionally
 				 */
 
 				lwsl_info("%s: C2P RX: len %d\n", __func__, (int)n);
@@ -619,6 +649,11 @@ payload_ff:
 				cp += n;
 				par->rem -= n;
 				len = (len + 1) - n;
+				/*
+				 * if we didn't consume it all, we'll come
+				 * around again and produce more dsh entries up
+				 * to 1380 each until it is gone
+				 */
 			}
 			if (!par->rem)
 				par->ps = RPAR_TYPE;

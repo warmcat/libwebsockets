@@ -73,7 +73,7 @@
  *   -  3: 4-byte MSB-first flags
  *   -  7: 4-byte MSB-first us between client requested write and wrote to proxy
  *   - 11: 8-byte MSB-first us resolution unix time client wrote to proxy
- *   - 17: payload
+ *   - 19: payload
  *
  * - Proxied secure stream destroy
  *

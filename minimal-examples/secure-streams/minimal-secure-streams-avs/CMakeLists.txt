@@ -26,7 +26,7 @@ if (requirements)
 
 	CHECK_C_SOURCE_COMPILES("#include <libwebsockets.h>\nint main(void) {\ni#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)\n return 0;\n #else\n fail\n #endif\n return 0;\n}\n" HAS_LWS_WITH_SECURE_STREAMS_PROXY_API)
 
-	if (HAS_LWS_WITH_SECURE_STREAMS_PROXY_API)
+	if (HAS_LWS_WITH_SECURE_STREAMS_PROXY_API OR LWS_WITH_SECURE_STREAMS_PROXY_API)
 		add_compile_options(-DLWS_SS_USE_SSPC)
 
 		add_executable(${SAMP}-client main-client.c avs.c)

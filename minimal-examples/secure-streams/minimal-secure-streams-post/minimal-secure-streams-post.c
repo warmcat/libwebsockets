@@ -53,9 +53,87 @@ static const char * const postbody =
 		"name=\"field2\"; filename=\"example.txt\"\r\n"
 	"\r\n"
 	"value2\r\n"
+	"00-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"01-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"02-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"03-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"04-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"05-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"06-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"07-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"08-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"09-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"0a-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"0b-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"0c-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"0d-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"0e-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"0f-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"10-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"11-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"12-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"13-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"14-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"15-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"16-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"17-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"18-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"19-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"1a-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"1b-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"1c-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"1d-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"1e-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"1f-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"20-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"21-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"22-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"23-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"24-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"25-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"26-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"27-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"28-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"29-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"2a-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"2b-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"2c-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"2d-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"2e-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"2f-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"30-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"31-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"32-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"33-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"34-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"35-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"36-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"37-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"38-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"39-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"3a-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"3b-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"3c-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"3d-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"3e-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"3f-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"40-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"41-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"42-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"43-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"44-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"45-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"46-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"47-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"48-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"49-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"4a-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"4b-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"4c-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"4d-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"4e-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
+	"4f-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n"
 	"--boundary--\r\n";
-
-#define POSTBODY_SIZE strlen(postbody)
 
 /*
  * If the -proxy app is fulfilling our connection, then we don't need to have
@@ -220,6 +298,9 @@ typedef struct myss {
 	void				*opaque_data;
 	/* ... application specific state ... */
 	lws_sorted_usec_list_t		sul;
+
+	size_t pos;
+	size_t len;
 } myss_t;
 
 #if !defined(LWS_SS_USE_SSPC)
@@ -266,20 +347,27 @@ static int
 myss_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf, size_t *len,
 	int *flags)
 {
-	// myss_t *m = (myss_t *)userobj;
+	myss_t *m = (myss_t *)userobj;
 
-	/*
-	 * A more flexible solution would send incrementally tracking the
-	 * status in members in m above.
-	 */
-
-	if (*len < POSTBODY_SIZE)
+	if (m->pos == m->len)
 		return LWSSSSRET_TX_DONT_SEND;
 
-	*flags = LWSSS_FLAG_SOM | LWSSS_FLAG_EOM;
+	if (m->len - m->pos < *len)
+		*len = m->len - m->pos;
 
-	memcpy(buf, postbody, strlen(postbody));
-	*len = POSTBODY_SIZE;
+	*flags = 0;
+	if (!m->pos)
+		*flags |= LWSSS_FLAG_SOM;
+
+	memcpy(buf, postbody + m->pos, *len);
+
+	m->pos += *len;
+	if (m->pos == m->len)
+		*flags |= LWSSS_FLAG_EOM;
+	else
+		lws_ss_request_tx(m->ss);
+
+	lwsl_notice("%s: write %d flags %d\n", __func__, (int)*len, (int)*flags);
 
 	return 0;
 }
@@ -306,6 +394,8 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 				    39);
 
 		/* provide a hint about the payload size */
+		m->pos = 0;
+		m->len = strlen(postbody);
 		lws_ss_request_tx_len(m->ss, strlen(postbody));
 		break;
 	case LWSSSCS_CONNECTED:
