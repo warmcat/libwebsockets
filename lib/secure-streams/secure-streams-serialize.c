@@ -842,6 +842,15 @@ payload_ff:
 				goto hangup;
 
 			/*
+			 * We can only expect to get this if we ourselves are
+			 * in the state that we're waiting for it.  If it comes
+			 * later it's a protocol error.
+			 */
+
+			if (*state != LPCSPROX_WAIT_INITIAL_TX)
+				goto hangup;
+
+			/*
 			 * We're the proxy, creating an SS on behalf of a
 			 * client
 			 */
