@@ -595,7 +595,7 @@ payload_ff:
 				p = pre;
 				pre[0] = LWSSS_SER_TXPRE_TX_PAYLOAD;
 				lws_ser_wu16be(&p[1], n + 23 - 3);
-				lws_ser_wu32be(&p[3], par->flags);
+				lws_ser_wu32be(&p[3], flags);
 				/* us held at client before written */
 				lws_ser_wu32be(&p[7], par->usd_phandling);
 				/* us taken for transit to proxy */
