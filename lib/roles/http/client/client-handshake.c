@@ -907,6 +907,13 @@ lws_client_connect_2_dnsreq(struct lws *wsi)
 	adsin = lws_wsi_client_stash_item(wsi, CIS_ADDRESS,
 					  _WSI_TOKEN_CLIENT_PEER_ADDRESS);
 
+	if (!adsin)
+		/*
+		 * This cannot happen since user code must provide the client
+		 * address to get this far, it's here to satisfy Coverity
+		 */
+		return NULL;
+
 	switch (lws_vhost_active_conns(wsi, &w, adsin)) {
 	case ACTIVE_CONNS_SOLO:
 		break;
