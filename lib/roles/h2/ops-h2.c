@@ -768,12 +768,22 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 
 	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_METHOD);
 	if (p && !strcmp(p, "POST")) {
-		const struct lws_http_mount *hit =
-				lws_find_mount(wsi,
-					lws_hdr_simple_ptr(wsi,
-					    WSI_TOKEN_HTTP_COLON_PATH),
-					lws_hdr_total_length(wsi,
-					    WSI_TOKEN_HTTP_COLON_PATH));
+		const struct lws_http_mount *hit;
+
+		if (!lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH) ||
+		    !lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_PATH))
+			/*
+			 * There must be a path.  Actually this is checked at
+			 * http2.c along with the other required header
+			 * presence before we can get here.
+			 *
+			 * But Coverity insists to see us check it.
+			 */
+			return 1;
+
+		hit = lws_find_mount(wsi,
+			  lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_PATH),
+			  lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH));
 
 		lwsl_debug("%s: %s: hit %p: %s\n", __func__,
 			    lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_PATH),
