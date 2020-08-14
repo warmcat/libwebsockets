@@ -81,7 +81,11 @@ lws_mqtt_generate_id(struct lws* wsi, lws_mqtt_str_t **ms, const char *client_id
 		buf[len] = '\0';
 	}
 
-	lws_mqtt_str_advance(*ms, (uint16_t)len);
+	if (lws_mqtt_str_advance(*ms, (uint16_t)len)) {
+		lws_mqtt_str_free(ms);
+
+		return 1;
+	}
 
 	return 0;
 }
