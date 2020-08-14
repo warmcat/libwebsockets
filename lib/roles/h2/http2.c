@@ -2398,6 +2398,8 @@ lws_h2_client_handshake(struct lws *wsi)
 		goto fail_length;
 
 	if (!wsi->client_h2_alpn &&
+	    lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST) && /* coverity */
+	    lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_HOST) && /* coverity */
 	    lws_add_http_header_by_token(wsi, WSI_TOKEN_HOST,
 				(unsigned char *)lws_hdr_simple_ptr(wsi,
 						_WSI_TOKEN_CLIENT_HOST),
