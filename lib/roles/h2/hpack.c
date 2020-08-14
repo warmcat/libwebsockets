@@ -403,7 +403,7 @@ lws_token_from_index(struct lws *wsi, int index, const char **arg, int *len,
 	}
 
 	index -= (int)LWS_ARRAY_SIZE(static_token);
-	index = (dyn->pos - 1 - index) % dyn->num_entries;
+	index = lws_safe_modulo(dyn->pos - 1 - index, dyn->num_entries);
 	if (index < 0)
 		index += dyn->num_entries;
 
@@ -441,7 +441,7 @@ lws_h2_dynamic_table_dump(struct lws *wsi)
 		    dyn->virtual_payload_usage, dyn->virtual_payload_max);
 
 	for (n = 0; n < dyn->used_entries; n++) {
-		m = (dyn->pos - 1 - n) % dyn->num_entries;
+		m = lws_safe_modulo(dyn->pos - 1 - n, dyn->num_entries);
 		if (m < 0)
 			m += dyn->num_entries;
 		if (dyn->entries[m].lws_hdr_idx != LWS_HPACK_IGNORE_ENTRY)
@@ -506,7 +506,7 @@ lws_dynamic_token_insert(struct lws *wsi, int hdr_len,
 	}
 	lws_h2_dynamic_table_dump(wsi);
 
-	new_index = (dyn->pos) % dyn->num_entries;
+	new_index = lws_safe_modulo(dyn->pos, dyn->num_entries);
 	if (dyn->num_entries && dyn->used_entries == dyn->num_entries) {
 		if (dyn->virtual_payload_usage < dyn->virtual_payload_max)
 			lwsl_err("Dropping header content before limit!\n");
@@ -524,7 +524,8 @@ lws_dynamic_token_insert(struct lws *wsi, int hdr_len,
 	       dyn->used_entries &&
 	       dyn->virtual_payload_usage + hdr_len + len >
 				dyn->virtual_payload_max + 1024) {
-		int n = (dyn->pos - dyn->used_entries) % dyn->num_entries;
+		int n = lws_safe_modulo(dyn->pos - dyn->used_entries,
+						dyn->num_entries);
 		if (n < 0)
 			n += dyn->num_entries;
 		lws_dynamic_free(dyn, n);
@@ -559,7 +560,7 @@ lws_dynamic_token_insert(struct lws *wsi, int hdr_len,
 		  lws_hdr_index, hdr_len, dyn->entries[new_index].value ?
 				 dyn->entries[new_index].value : "null", len);
 
-	dyn->pos = (dyn->pos + 1) % dyn->num_entries;
+	dyn->pos = lws_safe_modulo(dyn->pos + 1, dyn->num_entries);
 
 	lws_h2_dynamic_table_dump(wsi);
 
@@ -641,7 +642,7 @@ lws_hpack_dynamic_size(struct lws *wsi, int size)
 
 	while (dyn->virtual_payload_usage && dyn->used_entries &&
 	       dyn->virtual_payload_usage > dyn->virtual_payload_max) {
-		n = (dyn->pos - dyn->used_entries) % dyn->num_entries;
+		n = lws_safe_modulo(dyn->pos - dyn->used_entries, dyn->num_entries);
 		if (n < 0)
 			n += dyn->num_entries;
 		lws_dynamic_free(dyn, n);
@@ -666,7 +667,7 @@ lws_hpack_dynamic_size(struct lws *wsi, int size)
 	dyn->num_entries = size;
 	dyn->used_entries = min;
 	if (size)
-		dyn->pos = min % size;
+		dyn->pos = lws_safe_modulo(min, size);
 	else
 		dyn->pos = 0;
 

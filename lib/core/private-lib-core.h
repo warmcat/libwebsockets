@@ -188,7 +188,7 @@ struct lws_tx_credit {
 extern "C" {
 #endif
 
-
+#define lws_safe_modulo(_a, _b) ((_b) ? ((_a) % (_b)) : 0)
 
 #if defined(__clang__)
 #define lws_memory_barrier() __sync_synchronize()
