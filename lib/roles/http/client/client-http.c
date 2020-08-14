@@ -1016,7 +1016,10 @@ lws_http_multipart_headers(struct lws *wsi, uint8_t *p)
 	char buf[10], arg[48];
 	int n;
 
-	lws_get_random(wsi->a.context, (uint8_t *)buf, sizeof(buf));
+	if (lws_get_random(wsi->a.context, (uint8_t *)buf, sizeof(buf)) !=
+			sizeof(buf))
+		return NULL;
+
 	lws_b64_encode_string(buf, sizeof(buf),
 			       wsi->http.multipart_boundary,
 			       sizeof(wsi->http.multipart_boundary));
