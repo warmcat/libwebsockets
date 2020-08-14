@@ -1277,6 +1277,13 @@ fin:
 			/* header length is determined by known index */
 			m = lws_token_from_index(wsi, h2n->hdr_idx, NULL, NULL,
 					&h2n->hpack_hdr_len);
+			if (m < 0)
+				/*
+				 * The peer may only send known 6-bit indexes,
+				 * there's still the possibility it sends an unset
+				 * dynamic index that we can't succeed to look up
+				 */
+				return 1;
 			goto add_it;
 		/* NEW literal hdr with value */
 		case HPKT_LITERAL_HDR_VALUE_INCR:
