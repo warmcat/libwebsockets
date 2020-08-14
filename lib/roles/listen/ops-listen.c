@@ -90,7 +90,7 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 			    LWS_ERRNO == LWS_EWOULDBLOCK) {
 				break;
 			}
-			lwsl_err("accept: %s\n", strerror(LWS_ERRNO));
+			lwsl_err("accept: errno %d\n", LWS_ERRNO);
 			return LWS_HPI_RET_HANDLED;
 		}
 
