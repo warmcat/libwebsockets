@@ -333,6 +333,14 @@ struct policy_cb_args {
 extern const lws_ss_policy_t pol_smd;
 #endif
 
+
+/*
+ * returns one of
+ *
+ * 	LWSSSSRET_OK
+ *	LWSSSSRET_DISCONNECT_ME
+ *	LWSSSSRET_DESTROY_ME
+ */
 int
 lws_ss_deserialize_parse(struct lws_ss_serialization_parser *par,
 			 struct lws_context *context,

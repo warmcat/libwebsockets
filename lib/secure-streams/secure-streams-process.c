@@ -337,6 +337,9 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_RAW_RX:
+		/*
+		 * ie, the proxy is receiving something from a client
+		 */
 		lwsl_info("%s: RX: rx %d\n", __func__, (int)len);
 
 		if (!conn || !conn->wsi) {
@@ -357,11 +360,19 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 			ssi.tx = ss_proxy_onward_tx;
 		}
 		ssi.state = ss_proxy_onward_state;
+		ssi.flags = 0;
 
-		if (lws_ss_deserialize_parse(&conn->parser,
+		n = lws_ss_deserialize_parse(&conn->parser,
 				lws_get_context(wsi), conn->dsh, in, len,
-				&conn->state, conn, &conn->ss, &ssi, 0)) {
-			lwsl_err("%s: RAW_RX: deserialize_parse fail\n", __func__);
+				&conn->state, conn, &conn->ss, &ssi, 0);
+		switch (n) {
+		case LWSSSSRET_OK:
+			break;
+		case LWSSSSRET_DISCONNECT_ME:
+			return -1;
+		case LWSSSSRET_DESTROY_ME:
+			if (conn->ss)
+				lws_ss_destroy(&conn->ss);
 			return -1;
 		}
 

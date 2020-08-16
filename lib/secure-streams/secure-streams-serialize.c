@@ -307,6 +307,12 @@ lws_ss_serialize_txcr(struct lws_dsh *dsh, int txcr)
  *         handle
  *
  * proxy: pss is pointing to &conn->ss, a pointer to the ss handle
+ *
+ * Returns one of
+ *
+ * 	LWSSSSRET_OK
+ *	LWSSSSRET_DISCONNECT_ME
+ *	LWSSSSRET_DESTROY_ME
  */
 
 /* convert userdata ptr _pss to handle pointer, allowing for any layout in
@@ -636,7 +642,7 @@ payload_ff:
 					lwsl_err("%s: unable to alloc in dsh 3\n",
 						 __func__);
 
-					return 1;
+					return LWSSSSRET_DISCONNECT_ME;
 				}
 
 				if (proxy_pss_to_ss_h(pss))
@@ -1130,20 +1136,28 @@ payload_ff:
 			lwsl_info("%s: forwarding proxied state %s\n",
 					__func__, lws_ss_state_name(par->ctr));
 #endif
-			if (ssi->state(client_pss_to_userdata(pss),
-						NULL, par->ctr, par->flags))
+
+			n = ssi->state(client_pss_to_userdata(pss),
+						NULL, par->ctr, par->flags);
+			switch (n) {
+			case LWSSSSRET_OK:
+				break;
+			case LWSSSSRET_DISCONNECT_ME:
 				goto hangup;
+			case LWSSSSRET_DESTROY_ME:
+				return LWSSSSRET_DESTROY_ME;
+			}
+
 swallow:
 			break;
-
 
 		default:
 			goto hangup;
 		}
 	}
 
-	return 0;
+	return LWSSSSRET_OK;
 
 hangup:
-	return -1;
+	return LWSSSSRET_DISCONNECT_ME;
 }

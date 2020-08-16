@@ -161,6 +161,9 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_RAW_RX:
+		/*
+		 * ie, the proxy has sent us something
+		 */
 		lwsl_info("%s: RAW_RX: rx %d\n", __func__, (int)len);
 
 		if (!h || !h->cwsi) {
@@ -169,10 +172,18 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 			return -1;
 		}
 
-		if (lws_ss_deserialize_parse(&h->parser, lws_get_context(wsi),
+		n = lws_ss_deserialize_parse(&h->parser, lws_get_context(wsi),
 					     h->dsh, in, len, &h->state, h,
-					     (lws_ss_handle_t **)m, &h->ssi, 1))
+					     (lws_ss_handle_t **)m, &h->ssi, 1);
+		switch (n) {
+		case LWSSSSRET_OK:
+			break;
+		case LWSSSSRET_DISCONNECT_ME:
 			return -1;
+		case LWSSSSRET_DESTROY_ME:
+			lws_sspc_destroy(&h);
+			return -1;
+		}
 
 		if (wsi && (h->state == LPCSCLI_LOCAL_CONNECTED ||
 			    h->state == LPCSCLI_ONWARD_CONNECT))
