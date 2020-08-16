@@ -1508,9 +1508,11 @@ lws_sul_nonmonotonic_adjust(struct lws_context *ctx, int64_t step_us);
 void
 lws_netdev_instance_remove_destroy(struct lws_netdev_instance *ni);
 
+#if defined(LWS_WITH_SYS_SMD)
 int
 lws_netdev_smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
 		  void *buf, size_t len);
+#endif
 
 void
 lws_netdev_instance_create(lws_netdev_instance_t *ni, struct lws_context *ctx,

@@ -819,10 +819,12 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 	 * if we bound an smd registration to the SS, unregister it
 	 */
 
+#if defined(LWS_WITH_SYS_SMD)
 	if (h->policy == &pol_smd && h->u.smd.smd_peer) {
 		lws_smd_unregister(h->u.smd.smd_peer);
 		h->u.smd.smd_peer = NULL;
 	}
+#endif
 
 	pt = &h->context->pt[h->tsi];
 

@@ -12,6 +12,7 @@ set(requirements 1)
 require_lws_config(LWS_ROLE_H1 1 requirements)
 require_lws_config(LWS_WITH_CLIENT 1 requirements)
 require_lws_config(LWS_WITH_SERVER 1 requirements)
+require_lws_config(LWS_WITH_SYS_SMD 1 requirements)
 require_lws_config(LWS_WITH_SECURE_STREAMS 1 requirements)
 require_lws_config(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY 0 requirements)
 
