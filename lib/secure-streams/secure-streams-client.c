@@ -514,7 +514,7 @@ lws_sspc_destroy(lws_sspc_handle_t **ph)
 	if (h->cwsi) {
 		struct lws *wsi = h->cwsi;
 		h->cwsi = NULL;
-		if (h->cwsi)
+		if (wsi)
 			lws_set_timeout(wsi, 1, LWS_TO_KILL_SYNC);
 	}
 
