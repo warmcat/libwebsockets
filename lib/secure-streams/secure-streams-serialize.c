@@ -590,7 +590,8 @@ payload_ff:
 				 * additionally
 				 */
 
-				lwsl_info("%s: C2P RX: len %d\n", __func__, (int)n);
+				lwsl_info("%s: C2P RX: len %d\n", __func__,
+						(int)n);
 
 				p = pre;
 				pre[0] = LWSSS_SER_TXPRE_TX_PAYLOAD;
@@ -611,7 +612,8 @@ payload_ff:
 					return 1;
 				}
 
-				lws_ss_request_tx(*pss);
+				if (*pss)
+					lws_ss_request_tx(*pss);
 			} else {
 
 				/*
@@ -620,12 +622,15 @@ payload_ff:
 				 * Pass whatever payload we have to ss user
 				 */
 
-				lwsl_info("%s: P2C RX: len %d\n", __func__, (int)n);
+				lwsl_info("%s: P2C RX: len %d\n", __func__,
+						(int)n);
 
-				h = lws_container_of(par, lws_sspc_handle_t, parser);
+				h = lws_container_of(par, lws_sspc_handle_t,
+						     parser);
 				h->txc.peer_tx_cr_est -= n;
 
-				ssi->rx((void *)pss, (uint8_t *)cp, n, flags);
+				if (*pss)
+					ssi->rx((void *)pss, (uint8_t *)cp, n, flags);
 
 #if defined(LWS_WITH_DETAILED_LATENCY)
 				if (lws_det_lat_active(context)) {
@@ -717,7 +722,7 @@ payload_ff:
 				 * on the onward connection towards it.
 				 */
 #if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT)
-				if ((*pss)->wsi) {
+				if (*pss && (*pss)->wsi) {
 					lws_wsi_tx_credit((*pss)->wsi,
 							  LWSTXCR_PEER_TO_US,
 							  par->temp32);
@@ -735,7 +740,8 @@ payload_ff:
 				 * remote peer, allowing the client to write to
 				 * it.
 				 */
-				h = lws_container_of(par, lws_sspc_handle_t, parser);
+				h = lws_container_of(par, lws_sspc_handle_t,
+						     parser);
 				h->txc.tx_cr += par->temp32;
 				lwsl_info("%s: client RX_PEER_TXCR: %d\n",
 							__func__, par->temp32);
@@ -801,7 +807,8 @@ payload_ff:
 			lwsl_notice("%s: set payload len %u\n", __func__,
 				    par->temp32);
 
-			lws_ss_request_tx_len(*pss, par->temp32);
+			if (*pss)
+				lws_ss_request_tx_len(*pss, par->temp32);
 
 			par->ps = RPAR_TYPE;
 			break;
@@ -826,6 +833,9 @@ payload_ff:
 			par->ps = RPAR_METADATA_VALUE;
 
 			/* only non-client side can receive these */
+
+			if (!*pss)
+				goto hangup;
 
 			/*
 			 * This is the policy's metadata list for the given
@@ -1029,6 +1039,14 @@ payload_ff:
 			 * we received a proxied state change
 			 */
 
+			if (!*pss)
+				/*
+				 * Since we're being informed we need to have
+				 * a stream to inform.  Assume whatever set this
+				 * to NULL has started to close it.
+				 */
+				break;
+
 			switch (par->ctr) {
 			case LWSSSCS_DISCONNECTED:
 			case LWSSSCS_UNREACHABLE:
@@ -1049,6 +1067,7 @@ payload_ff:
 					goto swallow;
 				lws_ss_serialize_state_transition(state,
 						LPCSCLI_OPERATIONAL);
+
 				((lws_sspc_handle_t *)*pss)->conn_req_state =
 						LWSSSPC_ONW_CONN;
 				break;
