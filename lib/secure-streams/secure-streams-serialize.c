@@ -301,7 +301,31 @@ lws_ss_serialize_txcr(struct lws_dsh *dsh, int txcr)
  * event loop side is consuming serialized data from the client via dsh, parse
  * it using a bytewise parser for the serialization header(s)...
  * it's possibly coalesced
+ *
+ * client: pss is pointing to the start of userdata.  We can use
+ *         pss_to_sspc_h(_pss, _ssi) to convert that to a pointer to the sspc
+ *         handle
+ *
+ * proxy: pss is pointing to &conn->ss, a pointer to the ss handle
  */
+
+/* convert userdata ptr _pss to handle pointer, allowing for any layout in
+ * userdata */
+#define client_pss_to_sspc_h(_pss, _ssi) (*((lws_sspc_handle_t **) \
+				     ((uint8_t *)_pss) + _ssi->handle_offset))
+/* client pss to sspc userdata */
+#define client_pss_to_userdata(_pss) ((void *)_pss)
+/* proxy convert pss to ss handle */
+#define proxy_pss_to_ss_h(_pss) (*_pss)
+
+/* convert userdata ptr _pss to handle pointer, allowing for any layout in
+ * userdata */
+#define client_pss_to_sspc_h(_pss, _ssi) (*((lws_sspc_handle_t **) \
+				     ((uint8_t *)_pss) + _ssi->handle_offset))
+/* client pss to sspc userdata */
+#define client_pss_to_userdata(_pss) ((void *)_pss)
+/* proxy convert pss to ss handle */
+#define proxy_pss_to_ss_h(_pss) (*_pss)
 
 int
 lws_ss_deserialize_parse(struct lws_ss_serialization_parser *par,
@@ -341,6 +365,7 @@ lws_ss_deserialize_parse(struct lws_ss_serialization_parser *par,
 					goto hangup;
 				if (*state != LPCSPROX_OPERATIONAL)
 					goto hangup;
+
 				par->ps = RPAR_FLAG_B3;
 				break;
 
@@ -358,8 +383,10 @@ lws_ss_deserialize_parse(struct lws_ss_serialization_parser *par,
 					goto hangup;
 				par->ps = RPAR_TYPE;
 				lwsl_notice("%s: LWSSS_SER_TXPRE_ONWARD_CONNECT\n", __func__);
-				if (*pss && ! (*pss)->wsi)
-					_lws_ss_client_connect(*pss, 0);
+				if (proxy_pss_to_ss_h(pss) &&
+				    !proxy_pss_to_ss_h(pss)->wsi)
+					_lws_ss_client_connect(
+						proxy_pss_to_ss_h(pss), 0);
 				break;
 
 			case LWSSS_SER_TXPRE_STREAMTYPE:
@@ -612,8 +639,9 @@ payload_ff:
 					return 1;
 				}
 
-				if (*pss)
-					lws_ss_request_tx(*pss);
+				if (proxy_pss_to_ss_h(pss))
+					lws_ss_request_tx(
+						proxy_pss_to_ss_h(pss));
 			} else {
 
 				/*
@@ -629,8 +657,10 @@ payload_ff:
 						     parser);
 				h->txc.peer_tx_cr_est -= n;
 
-				if (*pss)
-					ssi->rx((void *)pss, (uint8_t *)cp, n, flags);
+				if (client_pss_to_sspc_h(pss, ssi))
+					/* we still have an sspc handle */
+					ssi->rx(client_pss_to_userdata(pss),
+						(uint8_t *)cp, n, flags);
 
 #if defined(LWS_WITH_DETAILED_LATENCY)
 				if (lws_det_lat_active(context)) {
@@ -722,14 +752,17 @@ payload_ff:
 				 * on the onward connection towards it.
 				 */
 #if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT)
-				if (*pss && (*pss)->wsi) {
-					lws_wsi_tx_credit((*pss)->wsi,
+				if (proxy_pss_to_ss_h(pss) &&
+				    proxy_pss_to_ss_h(pss)->wsi) {
+					lws_wsi_tx_credit(
+						proxy_pss_to_ss_h(pss)->wsi,
 							  LWSTXCR_PEER_TO_US,
 							  par->temp32);
 					lwsl_notice("%s: proxy RX_PEER_TXCR: +%d (est %d)\n",
 						 __func__, par->temp32,
-						 (*pss)->wsi->txc.peer_tx_cr_est);
-					lws_ss_request_tx(*pss);
+						 proxy_pss_to_ss_h(pss)->wsi->
+							 txc.peer_tx_cr_est);
+					lws_ss_request_tx(proxy_pss_to_ss_h(pss));
 				} else
 #endif
 					lwsl_info("%s: dropping TXCR\n", __func__);
@@ -763,25 +796,30 @@ payload_ff:
 				goto hangup;
 
 			/*
+			 * Proxy...
+			 *
 			 * *pss may have gone away asynchronously inbetweentimes
 			 */
 
-			if (*pss) {
+			if (proxy_pss_to_ss_h(pss)) {
 
 				if ((unsigned int)par->temp32 == 0xffffffff) {
 					lwsl_notice("%s: cancel ss timeout\n",
 							__func__);
-					lws_ss_cancel_timeout(*pss);
+					lws_ss_cancel_timeout(
+						proxy_pss_to_ss_h(pss));
 				} else {
 
 					if (!par->temp32)
 						par->temp32 =
-						     (*pss)->policy->timeout_ms;
+						   proxy_pss_to_ss_h(pss)->
+							   policy->timeout_ms;
 
 					lwsl_notice("%s: set ss timeout for +%ums\n",
 						__func__, par->temp32);
 
-					lws_ss_start_timeout((*pss),
+					lws_ss_start_timeout(
+						proxy_pss_to_ss_h(pss),
 								par->temp32);
 				}
 			}
@@ -792,7 +830,7 @@ payload_ff:
 		case RPAR_PAYLEN0:
 			/*
 			 * It's the length from lws_ss_request_tx_len() being
-			 * passed up to us
+			 * passed up to the proxy
 			 */
 			par->temp32 = (par->temp32 << 8) | *cp++;
 			if (++par->ctr < 4) {
@@ -807,8 +845,9 @@ payload_ff:
 			lwsl_notice("%s: set payload len %u\n", __func__,
 				    par->temp32);
 
-			if (*pss)
-				lws_ss_request_tx_len(*pss, par->temp32);
+			if (proxy_pss_to_ss_h(pss))
+				lws_ss_request_tx_len(proxy_pss_to_ss_h(pss),
+							par->temp32);
 
 			par->ps = RPAR_TYPE;
 			break;
@@ -832,16 +871,16 @@ payload_ff:
 			par->metadata_name[par->ctr] = '\0';
 			par->ps = RPAR_METADATA_VALUE;
 
-			/* only non-client side can receive these */
+			/* only proxy side can receive these */
 
-			if (!*pss)
+			if (!proxy_pss_to_ss_h(pss))
 				goto hangup;
 
 			/*
 			 * This is the policy's metadata list for the given
 			 * name
 			 */
-			pm = lws_ss_policy_metadata((*pss)->policy,
+			pm = lws_ss_policy_metadata(proxy_pss_to_ss_h(pss)->policy,
 						    par->metadata_name);
 			if (!pm) {
 				lwsl_err("%s: metadata %s not in proxy policy\n",
@@ -850,7 +889,7 @@ payload_ff:
 				goto hangup;
 			}
 
-			par->ssmd = &(*pss)->metadata[pm->length];
+			par->ssmd = &proxy_pss_to_ss_h(pss)->metadata[pm->length];
 
 			if (par->ssmd->value_on_lws_heap)
 				lws_free_set_NULL(par->ssmd->value);
@@ -881,6 +920,9 @@ payload_ff:
 			break;
 
 		case RPAR_STREAMTYPE:
+
+			/* only the proxy can get these */
+
 			if (client)
 				goto hangup;
 			if (par->ctr == sizeof(par->streamtype) - 1)
@@ -965,6 +1007,10 @@ payload_ff:
 				goto hangup;
 			}
 
+			/*
+			 * Client
+			 */
+
 			lws_ss_serialize_state_transition(state,
 							  LPCSCLI_LOCAL_CONNECTED);
 			h = lws_container_of(par, lws_sspc_handle_t, parser);
@@ -1036,10 +1082,10 @@ payload_ff:
 			par->ps = RPAR_TYPE;
 
 			/*
-			 * we received a proxied state change
+			 * Client received a proxied state change
 			 */
 
-			if (!*pss)
+			if (!client_pss_to_sspc_h(pss, ssi))
 				/*
 				 * Since we're being informed we need to have
 				 * a stream to inform.  Assume whatever set this
@@ -1053,7 +1099,7 @@ payload_ff:
 			case LWSSSCS_AUTH_FAILED:
 				lws_ss_serialize_state_transition(state,
 						LPCSCLI_LOCAL_CONNECTED);
-				((lws_sspc_handle_t *)*pss)->conn_req_state =
+				client_pss_to_sspc_h(pss, ssi)->conn_req_state =
 							LWSSSPC_ONW_NONE;
 				break;
 			case LWSSSCS_CONNECTED:
@@ -1068,7 +1114,7 @@ payload_ff:
 				lws_ss_serialize_state_transition(state,
 						LPCSCLI_OPERATIONAL);
 
-				((lws_sspc_handle_t *)*pss)->conn_req_state =
+				client_pss_to_sspc_h(pss, ssi)->conn_req_state =
 						LWSSSPC_ONW_CONN;
 				break;
 			case LWSSSCS_TIMEOUT:
@@ -1084,7 +1130,8 @@ payload_ff:
 			lwsl_info("%s: forwarding proxied state %s\n",
 					__func__, lws_ss_state_name(par->ctr));
 #endif
-			if (ssi->state((void *)pss, NULL, par->ctr, par->flags))
+			if (ssi->state(client_pss_to_userdata(pss),
+						NULL, par->ctr, par->flags))
 				goto hangup;
 swallow:
 			break;
