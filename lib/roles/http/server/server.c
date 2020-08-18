@@ -2001,6 +2001,10 @@ raw_transition:
 			goto bail_nuke_ah;
 		}
 
+		/* coverity... */
+		if (!wsi->http.ah)
+			goto bail_nuke_ah;
+
 		if (wsi->http.ah->parser_state != WSI_PARSING_COMPLETE)
 			continue;
 
