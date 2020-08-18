@@ -1703,6 +1703,10 @@ lws_http_action(struct lws *wsi)
 					lws_vhost_name_to_protocol(
 						wsi->a.vhost, hit->protocol);
 
+			/* coverity */
+			if (!pp)
+				return 1;
+
 			lwsi_set_state(wsi, LRS_DOING_TRANSACTION);
 
 			if (lws_bind_protocol(wsi, pp, "http_action HTTP"))
