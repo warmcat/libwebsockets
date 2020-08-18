@@ -831,7 +831,10 @@ lws_create_vhost(struct lws_context *context,
 		goto bail1;
 	}
 #endif
+
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
 	n = !!context->vhost_list;
+#endif
 
 	while (1) {
 		if (!(*vh1)) {
