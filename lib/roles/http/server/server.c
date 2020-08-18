@@ -1920,7 +1920,8 @@ lws_http_to_fallback(struct lws *wsi, unsigned char *obuf, size_t olen)
 
 	lwsl_notice("%s: vh %s, peer: %s, role %s, "
 		    "protocol %s, cb %d, ah %p\n", __func__, wsi->a.vhost->name,
-		    ipbuf, role->name, protocol->name, n, wsi->http.ah);
+		    ipbuf, role ? role->name : "null", protocol->name, n,
+		    wsi->http.ah);
 
 	if ((wsi->a.protocol->callback)(wsi, n, wsi->user_space, NULL, 0))
 		return 1;
