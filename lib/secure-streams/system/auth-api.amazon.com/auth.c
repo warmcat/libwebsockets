@@ -175,6 +175,9 @@ ss_api_amazon_auth_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf,
 	 */
 
 	ab = lws_system_get_blob(context, LWS_SYSBLOB_TYPE_AUTH, AUTH_IDX_ROOT);
+	if (!ab)
+		return LWSSSSRET_DESTROY_ME;
+
 	total = lws_system_blob_get_size(ab);
 
 	n = lws_system_blob_get(ab, buf, len, m->pos);
