@@ -504,7 +504,6 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	 * Priority 1: connect to http proxy */
 
 	if (wsi->a.vhost->http.http_proxy_port) {
-		ads = wsi->a.vhost->http.http_proxy_address;
 		port = wsi->a.vhost->http.http_proxy_port;
 #else
 		if (0) {
