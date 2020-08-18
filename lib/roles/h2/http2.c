@@ -1542,9 +1542,12 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 #endif
 
 		if (lws_hdr_extant(h2n->swsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
-			h2n->swsi->http.rx_content_length  = atoll(
-				lws_hdr_simple_ptr(h2n->swsi,
-				      WSI_TOKEN_HTTP_CONTENT_LENGTH));
+			const char *simp = lws_hdr_simple_ptr(h2n->swsi,
+					      WSI_TOKEN_HTTP_CONTENT_LENGTH);
+
+			if (!simp) /* coverity */
+				return 1;
+			h2n->swsi->http.rx_content_length  = atoll(simp);
 			h2n->swsi->http.rx_content_remain =
 					h2n->swsi->http.rx_content_length;
 			lwsl_info("setting rx_content_length %lld\n",
@@ -1627,6 +1630,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			n = lws_hdr_total_length(h2n->swsi, WSI_TOKEN_TE);
 
 			if (n != 8 ||
+			    !lws_hdr_simple_ptr(h2n->swsi, WSI_TOKEN_TE) ||
 			    strncmp(lws_hdr_simple_ptr(h2n->swsi, WSI_TOKEN_TE),
 				  "trailers", n)) {
 				lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
@@ -1648,7 +1652,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		 * index, so that it looks the same as h1 in the ah
 		 */
 		for (n = 0; n < (int)LWS_ARRAY_SIZE(method_names); n++)
-			if (!strcasecmp(p, method_names[n])) {
+			if (p && !strcasecmp(p, method_names[n])) {
 				h2n->swsi->http.ah->frag_index[method_index[n]] =
 						h2n->swsi->http.ah->frag_index[
 				                     WSI_TOKEN_HTTP_COLON_PATH];
