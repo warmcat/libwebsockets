@@ -452,8 +452,13 @@ client_http_body_sent:
 								 buffered,
 								 __func__))
 			        return -1;
-			eb.token += m;
-			eb.len -= m;
+
+			/*
+			 * coverity: uncomment if extended
+			 *
+			 * eb.token += m;
+			 * eb.len -= m;
+			 */
 
 			if (n) {
 				assert(wsi->http.ah->parser_state ==
