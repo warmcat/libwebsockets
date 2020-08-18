@@ -1150,11 +1150,13 @@ void
 lws_wsi_mux_close_children(struct lws *wsi, int reason)
 {
 	struct lws *wsi2;
+	struct lws **w;
 
 	if (!wsi->mux.child_list)
 		return;
 
-	lws_start_foreach_llp(struct lws **, w, wsi->mux.child_list) {
+	w = &wsi->mux.child_list;
+	while (*w) {
 		lwsl_info("   closing child %p\n", *w);
 		/* disconnect from siblings */
 		wsi2 = (*w)->mux.sibling_list;
@@ -1163,8 +1165,7 @@ lws_wsi_mux_close_children(struct lws *wsi, int reason)
 		(*w)->socket_is_permanently_unusable = 1;
 		__lws_close_free_wsi(*w, reason, "mux child recurse");
 		*w = wsi2;
-		continue;
-	} lws_end_foreach_llp(w, mux.sibling_list);
+	}
 }
 
 
