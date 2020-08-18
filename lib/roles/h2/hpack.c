@@ -333,9 +333,11 @@ static void lws_dump_header(struct lws *wsi, int hdr)
 		strcpy(s, "(too big to show)");
 	else
 		s[len] = '\0';
+#if defined(_DEBUG)
 	p = lws_token_to_string(hdr);
 	lwsl_header("  hdr tok %d (%s) = '%s' (len %d)\n", hdr,
 		   p ? (char *)p : (char *)"null", s, len);
+#endif
 }
 
 /*
