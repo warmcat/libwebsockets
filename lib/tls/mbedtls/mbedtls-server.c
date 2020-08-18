@@ -153,9 +153,6 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 		 */
 		cert = NULL;
 		private_key = NULL;
-
-		if (!mem_cert)
-			return 1;
 	}
 	if (lws_tls_alloc_pem_to_der_file(vhost->context, cert, mem_cert,
 					  mem_cert_len, &p, &flen)) {
