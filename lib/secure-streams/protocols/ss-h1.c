@@ -402,6 +402,7 @@ malformed:
 		 */
 
 		for (m = 0; m < _LWSSS_HBI_COUNT; m++) {
+			lws_system_blob_t *ab;
 			int o = 0, n;
 
 			if (!h->policy->u.http.blob_header[m])
@@ -415,10 +416,12 @@ malformed:
 			if (o > (int)sizeof(buf) - 2)
 				return -1;
 
+			ab = lws_system_get_blob(wsi->a.context, blob_idx[m], 0);
+			if (!ab)
+				return -1;
+
 			buflen = sizeof(buf) - o - 2;
-			n = lws_system_blob_get(
-				lws_system_get_blob(wsi->a.context, blob_idx[m], 0),
-						    buf + o, &buflen, 0);
+			n = lws_system_blob_get(ab, buf + o, &buflen, 0);
 			if (n < 0)
 				return -1;
 
