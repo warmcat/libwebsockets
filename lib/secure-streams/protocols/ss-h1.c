@@ -168,6 +168,9 @@ lws_apply_metadata(lws_ss_handle_t *h, struct lws *wsi, uint8_t *buf,
 		polmd = lws_ss_policy_metadata_index(h->policy, m);
 
 		assert(polmd);
+		if (!polmd)
+			return -1;
+
 		/* has to have a value */
 		if (polmd->value && ((uint8_t *)polmd->value)[0]) {
 			if (lws_add_http_header_by_name(wsi,
