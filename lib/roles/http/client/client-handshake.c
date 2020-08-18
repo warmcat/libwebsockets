@@ -376,8 +376,8 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 				      LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE);
 #endif
 	const struct sockaddr *psa = NULL;
-	const char *cce = "", *iface;
 	uint16_t port = wsi->c_port;
+	const char *cce, *iface;
 	lws_sockaddr46 sa46;
 	ssize_t plen = 0;
 	char ni[48];
