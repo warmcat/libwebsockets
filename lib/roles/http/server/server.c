@@ -1680,8 +1680,8 @@ lws_http_action(struct lws *wsi)
 	wsi->cache_revalidate = hit->cache_revalidate;
 	wsi->cache_intermediaries = hit->cache_intermediaries;
 
-	m = 1;
 #if defined(LWS_WITH_FILE_OPS)
+	m = 1;
 	if (hit->origin_protocol == LWSMPRO_FILE)
 		m = lws_http_serve(wsi, s, hit->origin, hit);
 
