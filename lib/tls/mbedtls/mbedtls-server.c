@@ -184,14 +184,6 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 		return 1;
 	}
 
-	if (!private_key && !mem_privkey && vhost->protocols[0].callback(wsi,
-			LWS_CALLBACK_OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY,
-			vhost->tls.ssl_ctx, NULL, 0)) {
-		lwsl_err("ssl private key not set\n");
-
-		return 1;
-	}
-
 	vhost->tls.skipped_certs = 0;
 
 	return 0;
