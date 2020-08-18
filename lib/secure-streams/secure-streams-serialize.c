@@ -132,6 +132,8 @@ lws_ss_serialize_rx_payload(struct lws_dsh *dsh, const uint8_t *buf,
 		 * on a non-default rideshare
 		 */
 		assert(rsp);
+		if (!rsp)
+			return 1;
 		l = strlen(rsp);
 		est += 1 + l;
 	} else
