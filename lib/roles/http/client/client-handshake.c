@@ -145,6 +145,10 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 #endif
 #endif
 
+	/* coverity */
+	if (!wsi->a.protocol)
+		return NULL;
+
 #if defined(LWS_WITH_SOCKS5)
 	if (lwsi_state(wsi) != 	LRS_ESTABLISHED)
 		switch (lws_socks5c_greet(wsi, &cce)) {
