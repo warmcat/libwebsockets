@@ -113,6 +113,9 @@ lws_state_notify_protocol_init(struct lws_state_manager *mgr,
 {
 	struct lws_context *context = lws_container_of(mgr, struct lws_context,
 						       mgr_system);
+#if defined(LWS_WITH_SECURE_STREAMS) && defined(LWS_WITH_SECURE_STREAMS_SYS_AUTH_API_AMAZON_COM)
+	lws_system_blob_t *ab0, *ab1;
+#endif
 	int n;
 
 	/*
@@ -150,14 +153,14 @@ lws_state_notify_protocol_init(struct lws_state_manager *mgr,
 	 *
 	 * If root token is empty, skip too.
 	 */
+
+	ab0 = lws_system_get_blob(context, LWS_SYSBLOB_TYPE_AUTH, 0);
+	ab1 = lws_system_get_blob(context, LWS_SYSBLOB_TYPE_AUTH, 1);
+
 	if (target == LWS_SYSTATE_AUTH1 &&
-	    context->pss_policies &&
-	    !lws_system_blob_get_size(lws_system_get_blob(context,
-						          LWS_SYSBLOB_TYPE_AUTH,
-						          0)) &&
-	    lws_system_blob_get_size(lws_system_get_blob(context,
-						          LWS_SYSBLOB_TYPE_AUTH,
-						          1))) {
+	    context->pss_policies && ab0 && ab1 &&
+	    !lws_system_blob_get_size(ab0) &&
+	    lws_system_blob_get_size(ab1)) {
 		lwsl_info("%s: AUTH1 state triggering api.amazon.com auth\n", __func__);
 		/*
 		 * Start trying to acquire it if it's not already in progress
