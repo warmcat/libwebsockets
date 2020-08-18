@@ -1507,6 +1507,9 @@ lws_http_action(struct lws *wsi)
 		if (!n || n > 128)
 			goto bail_nuke_ah;
 
+		if (!lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST))
+			goto bail_nuke_ah;
+
 		p += lws_snprintf((char *)p, lws_ptr_diff(end, p), "https://");
 		memcpy(p, lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST), n);
 		p += n;
