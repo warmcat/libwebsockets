@@ -74,6 +74,7 @@ auth_api_amazon_com_parser_cb(struct lejp_ctx *ctx, char reason)
 {
 	ss_api_amazon_auth_t *m = (ss_api_amazon_auth_t *)ctx->user;
 	struct lws_context *context = (struct lws_context *)m->opaque_data;
+	lws_system_blob_t *blob;
 
 	if (!(reason & LEJP_FLAG_CB_IS_VALUE) || !ctx->path_match)
 		return 0;
@@ -82,12 +83,17 @@ auth_api_amazon_com_parser_cb(struct lejp_ctx *ctx, char reason)
 	case LSSPPT_ACCESS_TOKEN:
 		if (!ctx->npos)
 			break;
-		if (lws_system_blob_heap_append(lws_system_get_blob(context,
-						LWS_SYSBLOB_TYPE_AUTH,
-						AUTH_IDX_LWA),
+
+		blob = lws_system_get_blob(context, LWS_SYSBLOB_TYPE_AUTH,
+					   AUTH_IDX_LWA);
+		if (!blob)
+			return -1;
+
+		if (lws_system_blob_heap_append(blob,
 						(const uint8_t *)ctx->buf,
 						ctx->npos)) {
 			lwsl_err("%s: unable to store auth token\n", __func__);
+
 			return -1;
 		}
 		break;
