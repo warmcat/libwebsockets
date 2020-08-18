@@ -71,7 +71,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	volatile struct lws_context_per_thread *vpt;
 	struct lws_context_per_thread *pt;
 	lws_usec_t timeout_us, us;
-	int n = -1;
+	int n;
 #if (defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)) || defined(LWS_WITH_TLS)
 	int m;
 #endif
