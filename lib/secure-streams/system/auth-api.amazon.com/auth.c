@@ -120,6 +120,9 @@ ss_api_amazon_auth_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	int n;
 
 	ab = lws_system_get_blob(context, LWS_SYSBLOB_TYPE_AUTH, AUTH_IDX_LWA);
+	/* coverity */
+	if (!ab)
+		return -1;
 
 	if (buf) {
 		if (flags & LWSSS_FLAG_SOM) {
