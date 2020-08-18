@@ -214,9 +214,8 @@ lws_state_notify_protocol_init(struct lws_state_manager *mgr,
 		return 0;
 
 	lwsl_info("%s: doing protocol init on POLICY_VALID\n", __func__);
-	lws_protocol_init(context);
 
-	return 0;
+	return lws_protocol_init(context);
 }
 
 static void
