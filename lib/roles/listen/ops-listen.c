@@ -29,7 +29,7 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 			  struct lws_pollfd *pollfd)
 {
 	struct lws_context *context = wsi->a.context;
-	lws_sockfd_type accept_fd = LWS_SOCK_INVALID;
+	lws_sockfd_type accept_fd;
 	lws_sock_file_fd_type fd;
 	struct sockaddr_storage cli_addr;
 	socklen_t clilen;
