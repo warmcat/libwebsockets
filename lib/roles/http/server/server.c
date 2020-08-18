@@ -2112,7 +2112,6 @@ raw_transition:
 
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_CONNECT)) {
 			lwsl_info("Changing to RAW mode\n");
-			m = 0;
 			goto raw_transition;
 		}
 
