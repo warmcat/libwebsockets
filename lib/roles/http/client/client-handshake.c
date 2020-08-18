@@ -995,6 +995,14 @@ solo:
 		ads = wsi->stash->cis[CIS_ADDRESS];
 	else
 		ads = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS);
+
+	/*
+	 * Since address must be given at client creation, should not be
+	 * possible, but necessary to satisfy coverity
+	 */
+	if (!ads)
+		return NULL;
+
 #if defined(LWS_WITH_UNIX_SOCK)
 	if (*ads == '+') {
 		wsi->unix_skt = 1;
