@@ -1201,7 +1201,8 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	 */
 
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(hnames2); n++)
-		if (lws_hdr_total_length(wsi, hnames2[n])) {
+		if (lws_hdr_total_length(wsi, hnames2[n]) &&
+		    lws_hdr_simple_ptr(wsi, hnames2[n])) {
 			memcpy(p, lws_hdr_simple_ptr(wsi, hnames2[n]), (size_t)(
 			       lws_hdr_total_length(wsi, hnames2[n]) + 1));
 			p += (size_t)(lws_hdr_total_length(wsi, hnames2[n]) + 1);
