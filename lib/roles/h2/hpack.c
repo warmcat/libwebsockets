@@ -1251,8 +1251,6 @@ fin:
 			}
 		}
 
-		n = 8;
-
 		/* we have the header */
 		if (!h2n->value) {
 			h2n->value = 1;
