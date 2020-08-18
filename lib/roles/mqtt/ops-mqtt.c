@@ -160,7 +160,6 @@ drain:
 			lwsl_notice("%s: lws_read_mqtt returned %d\n",
 					__func__, n);
 			/* we closed wsi */
-			n = 0;
 			goto fail;
                 }
 		// lws_buflist_describe(&wsi->buflist, wsi, __func__);
