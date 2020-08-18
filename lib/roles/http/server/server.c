@@ -1382,8 +1382,11 @@ lws_http_action(struct lws *wsi)
 	enum http_conn_type conn_type;
 	char content_length_str[32];
 	char http_version_str[12];
-	char *uri_ptr = NULL, *s;
 	char http_conn_str[25];
+	char *uri_ptr = NULL;
+#if defined(LWS_WITH_FILE_OPS)
+	char *s;
+#endif
 	unsigned int n;
 
 	meth = lws_http_get_uri_and_method(wsi, &uri_ptr, &uri_len);
@@ -1545,7 +1548,9 @@ lws_http_action(struct lws *wsi)
 		goto after;
 	}
 
+#if defined(LWS_WITH_FILE_OPS)
 	s = uri_ptr + hit->mountpoint_len;
+#endif
 	n = lws_http_redirect_hit(pt, wsi, hit, uri_ptr, uri_len, &ha);
 	if (ha)
 		return n;
@@ -1669,11 +1674,13 @@ lws_http_action(struct lws *wsi)
 	}
 #endif
 
+#if defined(LWS_WITH_FILE_OPS)
 	n = uri_len - lws_ptr_diff(s, uri_ptr);
 	if (s[0] == '\0' || (n == 1 && s[n - 1] == '/'))
 		s = (char *)hit->def;
 	if (!s)
 		s = "index.html";
+#endif
 
 	wsi->cache_secs = hit->cache_max_age;
 	wsi->cache_reuse = hit->cache_reusable;
