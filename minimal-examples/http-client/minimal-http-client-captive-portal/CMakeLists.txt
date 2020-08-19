@@ -1,4 +1,4 @@
-project(lws-minimal-http-client-captive-portal)
+project(lws-minimal-http-client-captive-portal C)
 cmake_minimum_required(VERSION 2.8)
 find_package(libwebsockets CONFIG REQUIRED)
 list(APPEND CMAKE_MODULE_PATH ${LWS_CMAKE_DIR})
