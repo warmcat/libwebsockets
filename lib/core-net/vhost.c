@@ -1146,8 +1146,10 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 
 	/* add ourselves to the pending destruction list */
 
-	vh->vhost_next = vh->context->vhost_pending_destruction_list;
-	vh->context->vhost_pending_destruction_list = vh;
+	if (vh->context->vhost_pending_destruction_list != vh) {
+		vh->vhost_next = vh->context->vhost_pending_destruction_list;
+		vh->context->vhost_pending_destruction_list = vh;
+	}
 
 	lwsl_info("%s: %p\n", __func__, vh);
 
