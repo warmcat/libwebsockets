@@ -28,10 +28,10 @@
 #include <mbedtls/version.h>
 
 #if (MBEDTLS_VERSION_NUMBER >= 0x02070000)
-#define MBA(fn) fn##_ret
-#else
-#define MBA(fn) fn
-#endif
+
+/*
+ * We have the _ret variants available, check the return codes on everything
+ */
 
 int
 lws_genhash_init(struct lws_genhash_ctx *ctx, enum lws_genhash_types type)
@@ -41,23 +41,28 @@ lws_genhash_init(struct lws_genhash_ctx *ctx, enum lws_genhash_types type)
 	switch (ctx->type) {
 	case LWS_GENHASH_TYPE_MD5:
 		mbedtls_md5_init(&ctx->u.md5);
-		MBA(mbedtls_md5_starts)(&ctx->u.md5);
+		if (mbedtls_md5_starts_ret(&ctx->u.md5))
+			return 1;
 		break;
 	case LWS_GENHASH_TYPE_SHA1:
 		mbedtls_sha1_init(&ctx->u.sha1);
-		MBA(mbedtls_sha1_starts)(&ctx->u.sha1);
+		if (mbedtls_sha1_starts_ret(&ctx->u.sha1))
+			return 1;
 		break;
 	case LWS_GENHASH_TYPE_SHA256:
 		mbedtls_sha256_init(&ctx->u.sha256);
-		MBA(mbedtls_sha256_starts)(&ctx->u.sha256, 0);
+		if (mbedtls_sha256_starts_ret(&ctx->u.sha256, 0))
+			return 1;
 		break;
 	case LWS_GENHASH_TYPE_SHA384:
 		mbedtls_sha512_init(&ctx->u.sha512);
-		MBA(mbedtls_sha512_starts)(&ctx->u.sha512, 1 /* is384 */);
+		if (mbedtls_sha512_starts_ret(&ctx->u.sha512, 1 /* is384 */))
+			return 1;
 		break;
 	case LWS_GENHASH_TYPE_SHA512:
 		mbedtls_sha512_init(&ctx->u.sha512);
-		MBA(mbedtls_sha512_starts)(&ctx->u.sha512, 0);
+		if (mbedtls_sha512_starts_ret(&ctx->u.sha512, 0))
+			return 1;
 		break;
 	default:
 		return 1;
@@ -74,19 +79,24 @@ lws_genhash_update(struct lws_genhash_ctx *ctx, const void *in, size_t len)
 
 	switch (ctx->type) {
 	case LWS_GENHASH_TYPE_MD5:
-		MBA(mbedtls_md5_update)(&ctx->u.md5, in, len);
+		if (mbedtls_md5_update_ret(&ctx->u.md5, in, len))
+			return 1;
 		break;
 	case LWS_GENHASH_TYPE_SHA1:
-		MBA(mbedtls_sha1_update)(&ctx->u.sha1, in, len);
+		if (mbedtls_sha1_update_ret(&ctx->u.sha1, in, len))
+			return 1;
 		break;
 	case LWS_GENHASH_TYPE_SHA256:
-		MBA(mbedtls_sha256_update)(&ctx->u.sha256, in, len);
+		if (mbedtls_sha256_update_ret(&ctx->u.sha256, in, len))
+			return 1;
 		break;
 	case LWS_GENHASH_TYPE_SHA384:
-		MBA(mbedtls_sha512_update)(&ctx->u.sha512, in, len);
+		if (mbedtls_sha512_update_ret(&ctx->u.sha512, in, len))
+			return 1;
 		break;
 	case LWS_GENHASH_TYPE_SHA512:
-		MBA(mbedtls_sha512_update)(&ctx->u.sha512, in, len);
+		if (mbedtls_sha512_update_ret(&ctx->u.sha512, in, len))
+			return 1;
 		break;
 	}
 
@@ -98,29 +108,131 @@ lws_genhash_destroy(struct lws_genhash_ctx *ctx, void *result)
 {
 	switch (ctx->type) {
 	case LWS_GENHASH_TYPE_MD5:
-		MBA(mbedtls_md5_finish)(&ctx->u.md5, result);
+		if (mbedtls_md5_finish_ret(&ctx->u.md5, result))
+			return 1;
 		mbedtls_md5_free(&ctx->u.md5);
 		break;
 	case LWS_GENHASH_TYPE_SHA1:
-		MBA(mbedtls_sha1_finish)(&ctx->u.sha1, result);
+		if (mbedtls_sha1_finish_ret(&ctx->u.sha1, result))
+			return 1;
 		mbedtls_sha1_free(&ctx->u.sha1);
 		break;
 	case LWS_GENHASH_TYPE_SHA256:
-		MBA(mbedtls_sha256_finish)(&ctx->u.sha256, result);
+		if (mbedtls_sha256_finish_ret(&ctx->u.sha256, result))
+			return 1;
 		mbedtls_sha256_free(&ctx->u.sha256);
 		break;
 	case LWS_GENHASH_TYPE_SHA384:
-		MBA(mbedtls_sha512_finish)(&ctx->u.sha512, result);
+		if (mbedtls_sha512_finish_ret(&ctx->u.sha512, result))
+			return 1;
 		mbedtls_sha512_free(&ctx->u.sha512);
 		break;
 	case LWS_GENHASH_TYPE_SHA512:
-		MBA(mbedtls_sha512_finish)(&ctx->u.sha512, result);
+		if (mbedtls_sha512_finish_ret(&ctx->u.sha512, result))
+			return 1;
 		mbedtls_sha512_free(&ctx->u.sha512);
 		break;
 	}
 
 	return 0;
 }
+
+#else
+
+/*
+ * mbedtls is too old to have the _ret variants
+ */
+
+int
+lws_genhash_init(struct lws_genhash_ctx *ctx, enum lws_genhash_types type)
+{
+	ctx->type = type;
+
+	switch (ctx->type) {
+	case LWS_GENHASH_TYPE_MD5:
+		mbedtls_md5_init(&ctx->u.md5);
+		mbedtls_md5_starts(&ctx->u.md5);
+		break;
+	case LWS_GENHASH_TYPE_SHA1:
+		mbedtls_sha1_init(&ctx->u.sha1);
+		mbedtls_sha1_starts(&ctx->u.sha1);
+		break;
+	case LWS_GENHASH_TYPE_SHA256:
+		mbedtls_sha256_init(&ctx->u.sha256);
+		mbedtls_sha256_starts(&ctx->u.sha256, 0);
+		break;
+	case LWS_GENHASH_TYPE_SHA384:
+		mbedtls_sha512_init(&ctx->u.sha512);
+		mbedtls_sha512_starts(&ctx->u.sha512, 1 /* is384 */);
+		break;
+	case LWS_GENHASH_TYPE_SHA512:
+		mbedtls_sha512_init(&ctx->u.sha512);
+		mbedtls_sha512_starts(&ctx->u.sha512, 0);
+		break;
+	default:
+		return 1;
+	}
+
+	return 0;
+}
+
+int
+lws_genhash_update(struct lws_genhash_ctx *ctx, const void *in, size_t len)
+{
+	if (!len)
+		return 0;
+
+	switch (ctx->type) {
+	case LWS_GENHASH_TYPE_MD5:
+		mbedtls_md5_update(&ctx->u.md5, in, len);
+		break;
+	case LWS_GENHASH_TYPE_SHA1:
+		mbedtls_sha1_update(&ctx->u.sha1, in, len);
+		break;
+	case LWS_GENHASH_TYPE_SHA256:
+		mbedtls_sha256_update(&ctx->u.sha256, in, len);
+		break;
+	case LWS_GENHASH_TYPE_SHA384:
+		mbedtls_sha512_update(&ctx->u.sha512, in, len);
+		break;
+	case LWS_GENHASH_TYPE_SHA512:
+		mbedtls_sha512_update(&ctx->u.sha512, in, len);
+		break;
+	}
+
+	return 0;
+}
+
+int
+lws_genhash_destroy(struct lws_genhash_ctx *ctx, void *result)
+{
+	switch (ctx->type) {
+	case LWS_GENHASH_TYPE_MD5:
+		mbedtls_md5_finish(&ctx->u.md5, result);
+		mbedtls_md5_free(&ctx->u.md5);
+		break;
+	case LWS_GENHASH_TYPE_SHA1:
+		mbedtls_sha1_finish(&ctx->u.sha1, result);
+		mbedtls_sha1_free(&ctx->u.sha1);
+		break;
+	case LWS_GENHASH_TYPE_SHA256:
+		mbedtls_sha256_finish(&ctx->u.sha256, result);
+		mbedtls_sha256_free(&ctx->u.sha256);
+		break;
+	case LWS_GENHASH_TYPE_SHA384:
+		mbedtls_sha512_finish(&ctx->u.sha512, result);
+		mbedtls_sha512_free(&ctx->u.sha512);
+		break;
+	case LWS_GENHASH_TYPE_SHA512:
+		mbedtls_sha512_finish(&ctx->u.sha512, result);
+		mbedtls_sha512_free(&ctx->u.sha512);
+		break;
+	}
+
+	return 0;
+}
+
+#endif
 
 int
 lws_genhmac_init(struct lws_genhmac_ctx *ctx, enum lws_genhmac_types type,
