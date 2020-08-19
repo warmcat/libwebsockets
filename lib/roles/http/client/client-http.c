@@ -595,7 +595,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	const char *prot, *ads = NULL, *path, *cce = NULL;
 	struct allocated_headers *ah, *ah1;
 	struct lws *nwsi = lws_get_network_wsi(wsi);
-	char *p = NULL, *q;
+	char *p = NULL, *q, *simp;
 	char new_path[300];
 
 	lws_free_set_NULL(wsi->stash);
@@ -870,20 +870,26 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	/* he may choose to send us stuff in chunked transfer-coding */
 	wsi->chunked = 0;
 	wsi->chunk_remaining = 0; /* ie, next thing is chunk size */
-	if (lws_hdr_total_length(wsi,
-				WSI_TOKEN_HTTP_TRANSFER_ENCODING)) {
-		wsi->chunked = !strcmp(lws_hdr_simple_ptr(wsi,
-				       WSI_TOKEN_HTTP_TRANSFER_ENCODING),
-					"chunked");
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_TRANSFER_ENCODING)) {
+		simp = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_TRANSFER_ENCODING);
+
+		/* cannot be NULL, since it has nonzero length... coverity */
+		if (!simp)
+			goto bail2;
+		wsi->chunked = !strcmp(simp, "chunked");
 		/* first thing is hex, after payload there is crlf */
 		wsi->chunk_parser = ELCP_HEX;
 	}
 
 	wsi->http.content_length_given = 0;
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
-		wsi->http.rx_content_length =
-				atoll(lws_hdr_simple_ptr(wsi,
-					WSI_TOKEN_HTTP_CONTENT_LENGTH));
+		simp = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH);
+
+		/* cannot be NULL, since it has nonzero length... coverity */
+		if (!simp)
+			goto bail2;
+
+		wsi->http.rx_content_length = atoll(simp);
 		lwsl_info("%s: incoming content length %llu\n",
 			    __func__, (unsigned long long)
 				    wsi->http.rx_content_length);
