@@ -172,7 +172,9 @@ lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop)
 				     context->count_caps);
 #endif
 
-		initgroups(p->pw_name, context->gid);
+		if (initgroups(p->pw_name, context->gid))
+			return 1;
+
 		if (setuid(context->uid)) {
 			lwsl_err("%s: setuid: %s failed\n", __func__,
 				  strerror(LWS_ERRNO));
