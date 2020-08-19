@@ -101,7 +101,8 @@ lws_plat_write_cert(struct lws_vhost *vhost, int is_key, int fd, void *buf,
 
 	n = write(fd, buf, len);
 
-	fsync(fd);
+	if (fsync(fd))
+		return 1;
 	if (lseek(fd, 0, SEEK_SET) < 0)
 		return 1;
 
