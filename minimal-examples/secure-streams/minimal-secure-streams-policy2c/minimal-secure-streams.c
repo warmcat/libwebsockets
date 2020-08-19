@@ -74,6 +74,7 @@ int main(int argc, const char **argv)
 	struct lws_context_creation_info info;
 	size_t json_size = 0, est = 0;
 	struct lws_context *context;
+	const lws_ss_auth_t *auth;
 	char prev[128], curr[128];
 	int unique_rbo = 0, m, n;
 	char buf[64], buf1[64];
@@ -362,6 +363,7 @@ int main(int argc, const char **argv)
 		pol = pol->next;
 	}
 
+
 	/* dump any streamtype's http resp map */
 
 	pol = lws_ss_policy_get(context);
@@ -407,6 +409,41 @@ int main(int argc, const char **argv)
 		printf(";\n");
 
 	/*
+	 * The auth map
+	 */
+
+	auth = lws_ss_auth_get(context);
+	if (auth)
+		printf("\nstatic const lws_ss_auth_t ");
+	prev[0] = '\0';
+
+	while (auth) {
+		lws_snprintf(curr, sizeof(curr), "_ssau_%s",
+			purify_csymbol(auth->name, buf, sizeof(buf)));
+
+		printf("%s = {\n", curr);
+		if (prev[0])
+			printf("\t.next = (void *)&%s,\n", prev);
+
+		printf("\t.name = \"%s\",\n", auth->name);
+		printf("\t.streamtype = \"%s\",\n", auth->streamtype);
+		printf("\t.blob = %d,\n", auth->blob_index);
+		printf("}");
+		if (auth->next)
+			printf(",");
+		else
+			printf(";");
+		printf("\n");
+
+		lws_strncpy(prev, curr, sizeof(prev));
+
+		auth = auth->next;
+	}
+
+	if (lws_ss_auth_get(context))
+		printf("\n");
+
+	/*
 	 * The streamtypes
 	 */
 
@@ -439,6 +476,10 @@ int main(int argc, const char **argv)
 		if (pol->socks5_proxy)
 			printf("\t.socks5_proxy = \"%s\",\n",
 				pol->socks5_proxy);
+
+		if (pol->auth)
+			printf("\t.auth = &_ssau_%s,\n",
+			       purify_csymbol(pol->auth->name, buf, sizeof(buf)));
 
 		{
 			lws_ss_metadata_t *nv = pol->metadata, *last = NULL;

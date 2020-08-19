@@ -554,6 +554,7 @@ struct lws_context {
 	void				*pol_args;
 #endif
 	const lws_ss_policy_t		*pss_policies;
+	const lws_ss_auth_t		*pss_auths;
 #if defined(LWS_WITH_SSPLUGINS)
 	const lws_ss_plugin_t		**pss_plugins;
 #endif

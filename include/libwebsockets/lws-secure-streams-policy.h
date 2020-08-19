@@ -178,6 +178,20 @@ typedef struct lws_ss_http_respmap {
 	uint16_t		state;	/* low 16-bits of associated state */
 } lws_ss_http_respmap_t;
 
+/*
+ * This is a mapping between an auth streamtype and a name and other information
+ * that can be independently instantiated.  Other streamtypes can indicate they
+ * require this authentication on their connection.
+ */
+
+typedef struct lws_ss_auth {
+	struct lws_ss_auth	*next;
+	const char		*name;
+
+	const char		*streamtype;
+	uint8_t			blob_index;
+} lws_ss_auth_t;
+
 /**
  * lws_ss_policy_t: policy database entry for a stream type
  *
@@ -202,6 +216,7 @@ typedef struct lws_ss_policy {
 	const char		*payload_fmt;
 	const char		*socks5_proxy;
 	lws_ss_metadata_t	*metadata; /* linked-list of metadata */
+	const lws_ss_auth_t	*auth; /* NULL or auth object we bind to */
 
 	/* protocol-specific connection policy details */
 
@@ -326,10 +341,14 @@ LWS_VISIBLE LWS_EXTERN int
 lws_ss_policy_overlay(struct lws_context *context, const char *overlay);
 
 /*
- * You almost certainly don't want this, it returns the first policy object
- * in a linked-list of objects created by lws_ss_policy_parse above
+ * You almost certainly don't want these, they return the first policy or auth
+ * object in a linked-list of objects created by lws_ss_policy_parse above,
+ * they are exported to generate static policy with
  */
 LWS_VISIBLE LWS_EXTERN const lws_ss_policy_t *
 lws_ss_policy_get(struct lws_context *context);
+
+LWS_VISIBLE LWS_EXTERN const lws_ss_auth_t *
+lws_ss_auth_get(struct lws_context *context);
 
 #endif

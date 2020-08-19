@@ -1006,19 +1006,19 @@ static const lws_ss_trust_store_t _ss_ts_le_via_isrg = {
 
 static const lws_ss_metadata_t _md_mintest_xctype = {
 	.name = "xctype",
-	.value = (void *)"X-Content-Type:",
+	.value__may_own_heap = (void *)"X-Content-Type:",
 	.length = 0,
 },
 _md_mintest_ctype = {
 	.next = (void *)&_md_mintest_xctype, 
 	.name = "ctype",
-	.value = (void *)"Content-Type:",
+	.value__may_own_heap = (void *)"Content-Type:",
 	.length = 1,
 },
 _md_mintest_uptag = {
 	.next = (void *)&_md_mintest_ctype, 
 	.name = "uptag",
-	.value = (void *)"X-Upload-Tag:",
+	.value__may_own_heap = (void *)"X-Upload-Tag:",
 	.length = 2,
 };
 

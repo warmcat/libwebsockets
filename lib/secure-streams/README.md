@@ -210,6 +210,34 @@ with one of these to enforce validity checking of the remote server.
 
 Entries should be named using "name" and the stack array defined using "stack"
 
+### `auth`
+
+Optional section describing a map of available authentication streamtypes to
+auth token blob indexes.
+
+```
+...
+ "auth": [{"name":"lwa","streamtype":"api_amazon_com_lwa","blob":0}]
+...
+```
+
+Streams can indicate they depend on a valid auth token from one of these schemes
+by using the `"use_auth": "name"` member in the streamtype definition, where name
+is, eg, "lwa" in the example above.
+
+### `auth[].name`
+
+This is the name of the authentication scheme used by other streamtypes
+
+### `auth[].streamtype`
+
+This is the auth streamtype to be used to refresh the authentication token
+
+### `auth[].blob`
+
+This is the auth blob index the authentication token is stored into and retreived
+from
+
 ### `s`
 
 These are an array of policies for the supported stream type names.
@@ -307,6 +335,11 @@ policy is applied.
 
 The name of the trust store described in the `trust_stores` section to apply
 to validate the remote server cert.
+
+### `use_auth`
+
+Indicate that the streamtype should use the named auth type from the `auth`
+array in the policy
 
 ### `server_cert`
 
