@@ -1021,12 +1021,13 @@ rops_client_bind_h1(struct lws *wsi, const struct lws_client_connect_info *i)
 #if defined(LWS_ROLE_WS)
 		if (lws_create_client_ws_object(i, wsi))
 			goto fail_wsi;
+
+		goto bind_h1;
 #else
 		lwsl_err("%s: ws role not configured\n", __func__);
 
 		goto fail_wsi;
 #endif
-		goto bind_h1;
 	}
 
 	/* if a recognized http method, bind to it */
