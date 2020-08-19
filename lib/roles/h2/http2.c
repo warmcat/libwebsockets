@@ -2336,7 +2336,7 @@ lws_h2_client_handshake(struct lws *wsi)
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	uint8_t *buf, *start, *p, *p1, *end;
 	char *meth = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD),
-	     *uri = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI);
+	     *uri = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI), *simp;
 	struct lws *nwsi = lws_get_network_wsi(wsi);
 	int n, m;
 	/*
@@ -2386,29 +2386,25 @@ lws_h2_client_handshake(struct lws *wsi)
 				&p, end))
 		goto fail_length;
 
-	if (lws_add_http_header_by_token(wsi,
+	n = lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_URI);
+	if (n && lws_add_http_header_by_token(wsi,
 				WSI_TOKEN_HTTP_COLON_PATH,
-				(unsigned char *)uri,
-				lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_URI),
-				&p, end))
+				(unsigned char *)uri, n, &p, end))
 		goto fail_length;
 
-	if (lws_add_http_header_by_token(wsi,
+	n = lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_ORIGIN);
+	simp = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_ORIGIN);
+	if (n && simp && lws_add_http_header_by_token(wsi,
 				WSI_TOKEN_HTTP_COLON_AUTHORITY,
-				(unsigned char *)lws_hdr_simple_ptr(wsi,
-						_WSI_TOKEN_CLIENT_ORIGIN),
-			lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_ORIGIN),
-				&p, end))
+				(unsigned char *)simp, n, &p, end))
 		goto fail_length;
 
-	if (!wsi->client_h2_alpn &&
-	    lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST) && /* coverity */
-	    lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_HOST) && /* coverity */
+	n = lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_HOST);
+	simp = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST);
+
+	if (!wsi->client_h2_alpn && n && simp &&
 	    lws_add_http_header_by_token(wsi, WSI_TOKEN_HOST,
-				(unsigned char *)lws_hdr_simple_ptr(wsi,
-						_WSI_TOKEN_CLIENT_HOST),
-			lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_HOST),
-				&p, end))
+				(unsigned char *)simp, n, &p, end))
 		goto fail_length;
 
 	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_USER_AGENT,
