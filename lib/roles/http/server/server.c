@@ -3071,8 +3071,10 @@ lws_server_get_canonical_hostname(struct lws_context *context,
 		return;
 #if !defined(LWS_PLAT_FREERTOS)
 	/* find canonical hostname */
-	gethostname((char *)context->canonical_hostname,
-		    sizeof(context->canonical_hostname) - 1);
+	if (gethostname((char *)context->canonical_hostname,
+		        sizeof(context->canonical_hostname) - 1))
+		lws_strncpy((char *)context->canonical_hostname, "unknown",
+			    sizeof(context->canonical_hostname));
 
 	lwsl_info(" canonical_hostname = %s\n", context->canonical_hostname);
 #else
