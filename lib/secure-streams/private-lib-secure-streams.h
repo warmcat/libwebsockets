@@ -296,10 +296,11 @@ typedef struct backoffs {
 } backoff_t;
 
 union u {
-	backoff_t *b;
-	lws_ss_x509_t *x;
-	lws_ss_trust_store_t *t;
-	lws_ss_policy_t *p;
+	backoff_t		*b;
+	lws_ss_x509_t		*x;
+	lws_ss_trust_store_t	*t;
+	lws_ss_policy_t		*p;
+	lws_ss_auth_t		*a;
 };
 
 enum {
@@ -307,6 +308,7 @@ enum {
 	LTY_X509,
 	LTY_TRUSTSTORE,
 	LTY_POLICY,
+	LTY_AUTH,
 
 	_LTY_COUNT /* always last */
 };

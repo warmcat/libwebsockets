@@ -97,7 +97,12 @@ static const char * const lejp_tokens_policy[] = {
 	"s[].*.mqtt_will_qos",
 	"s[].*.mqtt_will_retain",
 	"s[].*.swake_validity",
+	"s[].*.use_auth",
 	"s[].*",
+	"auth[].name",
+	"auth[].streamtype",
+	"auth[].blob",
+	"auth[]",
 };
 
 typedef enum {
@@ -169,7 +174,12 @@ typedef enum {
 	LSSPPT_MQTT_WILL_QOS,
 	LSSPPT_MQTT_WILL_RETAIN,
 	LSSPPT_SWAKE_VALIDITY,
+	LSSPPT_USE_AUTH,
 	LSSPPT_STREAMTYPES,
+	LSSPPT_AUTH_NAME,
+	LSSPPT_AUTH_STREAMTYPE,
+	LSSPPT_AUTH_BLOB,
+	LSSPPT_AUTH,
 
 } policy_token_t;
 
@@ -182,15 +192,34 @@ static uint8_t sizes[] = {
 	sizeof(lws_ss_x509_t),
 	sizeof(lws_ss_trust_store_t),
 	sizeof(lws_ss_policy_t),
+	sizeof(lws_ss_auth_t),
 };
 
-static const char *protonames[] = {
+static const char * const protonames[] = {
 	"h1",		/* LWSSSP_H1 */
 	"h2",		/* LWSSSP_H2 */
 	"ws",		/* LWSSSP_WS */
 	"mqtt",		/* LWSSSP_MQTT */
 	"raw",		/* LWSSSP_RAW */
 };
+
+static const lws_ss_auth_t *
+lws_ss_policy_find_auth_by_name(struct policy_cb_args *a,
+				const char *name, size_t len)
+{
+	const lws_ss_auth_t *auth = a->heads[LTY_AUTH].a;
+
+	while (auth) {
+		if (auth->name &&
+		    len == strlen(auth->name) &&
+		    !strncmp(auth->name, name, len))
+			return auth;
+
+		auth = auth->next;
+	}
+
+	return NULL;
+}
 
 static signed char
 lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
@@ -210,8 +239,8 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 	backoff_t *bot;
 	int n = -1;
 
-	lwsl_debug("%s: %d %d %s\n", __func__, reason, ctx->path_match - 1,
-		   ctx->path);
+//	lwsl_debug("%s: %d %d %s\n", __func__, reason, ctx->path_match - 1,
+//		   ctx->path);
 
 	switch (ctx->path_match - 1) {
 	case LSSPPT_RETRY:
@@ -227,12 +256,26 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 	case LSSPPT_STREAMTYPES:
 		n = LTY_POLICY;
 		break;
+	case LSSPPT_AUTH:
+		n = LTY_AUTH;
+		break;
 	}
 
 	if (reason == LEJPCB_ARRAY_START &&
 	    (ctx->path_match - 1 == LSSPPT_PLUGINS ||
 	     ctx->path_match - 1 == LSSPPT_METADATA))
 		a->count = 0;
+
+	if (reason == LEJPCB_OBJECT_START && n == LTY_AUTH) {
+		a->curr[n].b = lwsac_use_zero(&a->ac, sizes[n], POL_AC_GRAIN);
+		if (!a->curr[n].b)
+			goto oom;
+
+		a->curr[n].b->next = a->heads[n].b;
+		a->heads[n].b = a->curr[n].b;
+
+		return 0;
+	}
 
 	if (reason == LEJPCB_ARRAY_END &&
 	    ctx->path_match - 1 == LSSPPT_TRUST_STORES_STACK && !a->count) {
@@ -264,7 +307,8 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		return 0;
 	}
 
-	if (reason == LEJPCB_PAIR_NAME && n != -1 && n != LTY_TRUSTSTORE) {
+	if (reason == LEJPCB_PAIR_NAME && n != -1 &&
+	    (n != LTY_TRUSTSTORE && n != LTY_AUTH)) {
 
 		p2 = NULL;
 		if (n == LTY_POLICY) {
@@ -543,6 +587,10 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		a->curr[LTY_POLICY].p->client_cert = atoi(ctx->buf) + 1;
 		break;
 
+	case LSSPPT_AUTH_BLOB:
+		a->curr[LTY_AUTH].a->blob_index = atoi(ctx->buf);
+		break;
+
 	case LSSPPT_HTTP_EXPECT:
 		a->curr[LTY_POLICY].p->u.http.resp_expect = atoi(ctx->buf);
 		break;
@@ -624,6 +672,16 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 	case LSSPPT_METADATA:
 		break;
 
+	case LSSPPT_USE_AUTH:
+		a->curr[LTY_POLICY].p->auth =
+			lws_ss_policy_find_auth_by_name(a, ctx->buf, ctx->npos);
+		if (!a->curr[LTY_POLICY].p->auth) {
+			lws_strnncpy(dotstar, ctx->buf, ctx->npos, sizeof(dotstar));
+			lwsl_err("%s: unknown auth '%s'\n", __func__, dotstar);
+			return -1;
+		}
+		break;
+
 	case LSSPPT_METADATA_ITEM:
 		pmd = a->curr[LTY_POLICY].p->metadata;
 		a->curr[LTY_POLICY].p->metadata = lwsac_use_zero(&a->ac,
@@ -686,6 +744,14 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 	case LSSPPT_HTTP_MULTIPART_CONTENT_TYPE:
 		a->curr[LTY_POLICY].p->flags |= LWSSSPOLF_HTTP_MULTIPART;
 		pp = (char **)&a->curr[LTY_POLICY].p->u.http.multipart_content_type;
+		goto string2;
+
+	case LSSPPT_AUTH_NAME:
+		pp = (char **)&a->curr[LTY_AUTH].a->name;
+		goto string2;
+
+	case LSSPPT_AUTH_STREAMTYPE:
+		pp = (char **)&a->curr[LTY_AUTH].a->streamtype;
 		goto string2;
 
 	case LSSPPT_HTTP_FAIL_REDIRECT:
@@ -893,4 +959,15 @@ lws_ss_policy_get(struct lws_context *context)
 		return NULL;
 
 	return args->heads[LTY_POLICY].p;
+}
+
+const lws_ss_auth_t *
+lws_ss_auth_get(struct lws_context *context)
+{
+	struct policy_cb_args *args = (struct policy_cb_args *)context->pol_args;
+
+	if (!args)
+		return NULL;
+
+	return args->heads[LTY_AUTH].a;
 }
