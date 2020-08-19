@@ -1,4 +1,4 @@
-project(lws-minimal-ws-client-pmd-bulk)
+project(lws-minimal-ws-client-pmd-bulk C)
 cmake_minimum_required(VERSION 2.8.9)
 find_package(libwebsockets CONFIG REQUIRED)
 list(APPEND CMAKE_MODULE_PATH ${LWS_CMAKE_DIR})

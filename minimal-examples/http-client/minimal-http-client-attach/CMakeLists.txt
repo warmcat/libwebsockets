@@ -1,4 +1,4 @@
-project(lws-minimal-http-client-attach)
+project(lws-minimal-http-client-attach C)
 cmake_minimum_required(VERSION 2.8)
 find_package(libwebsockets CONFIG REQUIRED)
 list(APPEND CMAKE_MODULE_PATH ${LWS_CMAKE_DIR})
@@ -6,7 +6,6 @@ include(CheckIncludeFile)
 include(CheckCSourceCompiles)
 include(LwsCheckRequirements)
 
-Project(lws-minimal-http-client-attach)
 set(SAMP lws-minimal-http-client-attach)
 set(SRCS minimal-http-client-attach.c)
 
