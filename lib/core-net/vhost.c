@@ -433,8 +433,9 @@ next:
 	context->protocol_init_done = 1;
 
 #if defined(LWS_WITH_SERVER)
-	if (any)
+	if (any) {
 		lws_tls_check_all_cert_lifetimes(context);
+	}
 #endif
 
 	return 0;
