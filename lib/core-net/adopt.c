@@ -163,6 +163,10 @@ lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 		}
 	}
 
+	if (!LWS_SSL_ENABLED(new_wsi->a.vhost) ||
+	    !(type & LWS_ADOPT_SOCKET))
+		type &= ~LWS_ADOPT_ALLOW_SSL;
+
 	if (lws_role_call_adoption_bind(new_wsi, type, vh_prot_name)) {
 		lwsl_err("%s: no role for desc type 0x%x\n", __func__, type);
 		goto bail;
