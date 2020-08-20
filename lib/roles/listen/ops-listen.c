@@ -29,12 +29,10 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 			  struct lws_pollfd *pollfd)
 {
 	struct lws_context *context = wsi->a.context;
-	lws_sockfd_type accept_fd;
+	struct lws_filter_network_conn_args filt;
 	lws_sock_file_fd_type fd;
-	struct sockaddr_storage cli_addr;
-	socklen_t clilen;
 
-	memset(&cli_addr, 0, sizeof(cli_addr));
+	memset(&filt, 0, sizeof(filt));
 
 	/* if our vhost is going down, ignore it */
 
@@ -74,7 +72,7 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 #endif
 		/* listen socket got an unencrypted connection... */
 
-		clilen = sizeof(cli_addr);
+		filt.clilen = sizeof(filt.cli_addr);
 
 		/*
 		 * We cannot identify the peer who is in the listen
@@ -83,38 +81,41 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 		 * block the connect queue for other legit peers.
 		 */
 
-		accept_fd = accept((int)pollfd->fd,
-				   (struct sockaddr *)&cli_addr, &clilen);
-		if (accept_fd == LWS_SOCK_INVALID) {
+		filt.accept_fd = accept((int)pollfd->fd,
+					(struct sockaddr *)&filt.cli_addr,
+					&filt.clilen);
+		if (filt.accept_fd == LWS_SOCK_INVALID) {
 			if (LWS_ERRNO == LWS_EAGAIN ||
 			    LWS_ERRNO == LWS_EWOULDBLOCK) {
 				break;
 			}
 			lwsl_err("accept: errno %d\n", LWS_ERRNO);
+
 			return LWS_HPI_RET_HANDLED;
 		}
 
 		if (context->being_destroyed) {
-			compatible_close(accept_fd);
+			compatible_close(filt.accept_fd);
+
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}
 
-		lws_plat_set_socket_options(wsi->a.vhost, accept_fd, 0);
+		lws_plat_set_socket_options(wsi->a.vhost, filt.accept_fd, 0);
 
 #if defined(LWS_WITH_IPV6)
 		lwsl_debug("accepted new conn port %u on fd=%d\n",
-			((cli_addr.ss_family == AF_INET6) ?
-			ntohs(((struct sockaddr_in6 *) &cli_addr)->sin6_port) :
-			ntohs(((struct sockaddr_in *) &cli_addr)->sin_port)),
-			accept_fd);
+			((filt.cli_addr.ss_family == AF_INET6) ?
+			ntohs(((struct sockaddr_in6 *) &filt.cli_addr)->sin6_port) :
+			ntohs(((struct sockaddr_in *) &filt.cli_addr)->sin_port)),
+			filt.accept_fd);
 #else
 		{
 		struct sockaddr_in sain;
 
-		memcpy(&sain, &cli_addr, sizeof(sain));
+		memcpy(&sain, &filt.cli_addr, sizeof(sain));
 		lwsl_debug("accepted new conn port %u on fd=%d\n",
 			   ntohs(sain.sin_port),
-			   accept_fd);
+			   filt.accept_fd);
 		}
 #endif
 
@@ -126,10 +127,10 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 		 */
 		if ((wsi->a.vhost->protocols[0].callback)(wsi,
 				LWS_CALLBACK_FILTER_NETWORK_CONNECTION,
-				NULL,
-				(void *)(lws_intptr_t)accept_fd, 0)) {
+				(void *)&filt,
+				(void *)(lws_intptr_t)filt.accept_fd, 0)) {
 			lwsl_debug("Callback denied net connection\n");
-			compatible_close(accept_fd);
+			compatible_close(filt.accept_fd);
 			return LWS_HPI_RET_HANDLED;
 		}
 
@@ -142,7 +143,7 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 #endif
 			opts &= ~LWS_ADOPT_ALLOW_SSL;
 
-		fd.sockfd = accept_fd;
+		fd.sockfd = filt.accept_fd;
 		cwsi = lws_adopt_descriptor_vhost(wsi->a.vhost, opts, fd,
 				wsi->a.vhost->listen_accept_protocol, NULL);
 		if (!cwsi) {
