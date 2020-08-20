@@ -81,6 +81,17 @@ struct lws_acme_cert_aging_args {
 };
 
 /*
+ * With LWS_CALLBACK_FILTER_NETWORK_CONNECTION callback, user_data pointer
+ * points to one of these
+ */
+
+struct lws_filter_network_conn_args {
+	struct sockaddr_storage		cli_addr;
+	socklen_t			clilen;
+	lws_sockfd_type			accept_fd;
+};
+
+/*
  * NOTE: These public enums are part of the abi.  If you want to add one,
  * add it at where specified so existing users are unaffected.
  */
@@ -581,9 +592,17 @@ enum lws_callback_reasons {
 	/**< called when a client connects to
 	 * the server at network level; the connection is accepted but then
 	 * passed to this callback to decide whether to hang up immediately
-	 * or not, based on the client IP.  in contains the connection
-	 * socket's descriptor. Since the client connection information is
-	 * not available yet, wsi still pointing to the main server socket.
+	 * or not, based on the client IP.
+	 *
+	 * user_data in the callback points to a
+	 * struct lws_filter_network_conn_args that is prepared with the
+	 * sockfd, and the peer's address information.
+	 *
+	 * in contains the connection socket's descriptor.
+	 *
+	 * Since the client connection information is not available yet,
+	 * wsi still pointing to the main server socket.
+	 *
 	 * Return non-zero to terminate the connection before sending or
 	 * receiving anything. Because this happens immediately after the
 	 * network connection from the client, there's no websocket protocol
