@@ -714,6 +714,7 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 		*ppp = NULL;
 		i.pprotocols = pprot;
 
+#if defined(LWS_WITH_TLS)
 		if (h->policy->flags & LWSSSPOLF_TLS) {
 			i.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 			i.server_ssl_cert_mem =
@@ -725,6 +726,7 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 			i.server_ssl_private_key_mem_len = (unsigned int)
 				h->policy->trust.server.key->ca_der_len;
 		}
+#endif
 
 		vho = lws_create_vhost(context, &i);
 		if (!vho) {
