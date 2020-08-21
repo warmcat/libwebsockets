@@ -206,7 +206,16 @@ lws_ss_deserialize_tx_payload(struct lws_dsh *dsh, struct lws *wsi,
 	}
 
 	*len = lws_ser_ru16be(&p[1]) - (23 - 3);
-	assert(*len == si - 23);
+	if (*len != si - 23) {
+		/*
+		 * We cannot accept any length that doesn't reflect the actual
+		 * length of what came in from the dsh, either something nasty
+		 * happened with truncation or we are being attacked
+		 */
+		assert(0);
+
+		return 1;
+	}
 
 	memcpy(buf, p + 23, si - 23);
 
