@@ -510,7 +510,7 @@ static const struct lws_protocols protocols[] = {
 	{ NULL, NULL, 0, 0 } /* end */
 };
 
-#if defined(LWS_ROLE_WS)
+#if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
 static const struct lws_extension exts[] = {
 	{
 		"permessage-deflate",
@@ -704,7 +704,7 @@ int main(int argc, char **argv)
 	info.protocols = protocols;
 	info.gid = -1;
 	info.uid = -1;
-#if defined(LWS_ROLE_WS)
+#if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
 	info.extensions = exts;
 #endif
 
