@@ -206,7 +206,7 @@ void sighandler(int sig)
 	lws_cancel_service(context);
 }
 
-#if defined(LWS_ROLE_WS)
+#if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
 static const struct lws_extension exts[] = {
 	{
 		"permessage-deflate",
@@ -536,7 +536,7 @@ int main(int argc, char **argv)
 	info.gid = gid;
 	info.uid = uid;
 	info.options = opts | LWS_SERVER_OPTION_VALIDATE_UTF8 | LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
-#if defined(LWS_ROLE_WS)
+#if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
 	info.extensions = exts;
 #endif
 	info.timeout_secs = 5;
