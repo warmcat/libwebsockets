@@ -560,8 +560,8 @@ rops_pt_init_destroy_h2(struct lws_context *context,
 
 		pt->sul_ah_lifecheck.cb = lws_sul_http_ah_lifecheck;
 
-		__lws_sul_insert(&pt->pt_sul_owner, &pt->sul_ah_lifecheck,
-				 30 * LWS_US_PER_SEC);
+		__lws_sul_insert_us(&pt->pt_sul_owner[LWSSULLI_MISS_IF_SUSPENDED],
+				 &pt->sul_ah_lifecheck, 30 * LWS_US_PER_SEC);
 	} else
 		lws_dll2_remove(&pt->sul_ah_lifecheck.list);
 #endif
