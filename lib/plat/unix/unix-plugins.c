@@ -65,7 +65,8 @@ lws_plat_plugins_init(struct lws_context * context, const char * const *d)
 		n = scandir(*d, &namelist, filter, alphasort);
 		if (n < 0) {
 			lwsl_err("Scandir on %s failed\n", *d);
-			return 1;
+			d++;
+			continue;
 		}
 
 		for (i = 0; i < n; i++) {

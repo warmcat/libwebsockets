@@ -346,7 +346,8 @@ lws_uv_plugins_init(struct lws_context *context, const char * const *d)
 		m =uv_fs_scandir(&context->uv.loop, &req, *d, 0, NULL);
 		if (m < 1) {
 			lwsl_err("Scandir on %s failed\n", *d);
-			return 1;
+			d++;
+			continue;
 		}
 
 		while (uv_fs_scandir_next(&req, &dent) != UV_EOF) {
