@@ -61,6 +61,17 @@ enum lws_client_connect_ssl_connection_flags {
 	LCCSCF_H2_PRIOR_KNOWLEDGE		= (1 << 18),
 	LCCSCF_WAKE_SUSPEND__VALIDITY		= (1 << 19),
 	/* our validity checks are important enough to wake from suspend */
+	LCCSCF_PRIORITIZE_READS			= (1 << 20),
+	/**<
+	 * Normally lws balances reads and writes on all connections, so both
+	 * are possible even on busy connections, and we go around the event
+	 * loop more often to facilitate that, even if there is pending data.
+	 *
+	 * This flag indicates that you want to handle any pending reads on this
+	 * connection without yielding the service loop for anything else.  This
+	 * means you may block other connection processing in favour of incoming
+	 * data processing on this one if it receives back to back incoming rx.
+	 */
 };
 
 /** struct lws_client_connect_info - parameters to connect with when using

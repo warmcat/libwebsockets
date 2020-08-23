@@ -1209,6 +1209,13 @@ drain:
 	}
 
 	pending = lws_ssl_pending(wsi);
+
+#if defined(LWS_WITH_CLIENT)
+	if (!pending && (wsi->flags & LCCSCF_PRIORITIZE_READS) &&
+	    lws_buflist_total_len(&wsi->buflist))
+		pending = 9999999;
+#endif
+
 	if (pending) {
 		if (lws_is_ws_with_ext(wsi))
 			pending = pending > wsi->ws->rx_ubuf_alloc ?
