@@ -33,6 +33,7 @@ secstream_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	lws_ss_handle_t *h = (lws_ss_handle_t *)lws_get_opaque_user_data(wsi);
 	uint8_t buf[LWS_PRE + 1520], *p = &buf[LWS_PRE],
 		*end = &buf[sizeof(buf) - 1];
+	lws_ss_state_return_t r;
 	size_t buflen;
 	int f = 0;
 
@@ -43,10 +44,13 @@ secstream_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		assert(h->policy);
 		lwsl_info("%s: h: %p, %s CLIENT_CONNECTION_ERROR: %s\n", __func__,
 			  h, h->policy->streamtype, in ? (char *)in : "(null)");
-		lws_ss_event_helper(h, LWSSSCS_UNREACHABLE);
+		r = lws_ss_event_helper(h, LWSSSCS_UNREACHABLE);
+		if (r == LWSSSSRET_DESTROY_ME)
+			return _lws_ss_handle_state_ret(r, wsi, &h);
 		h->wsi = NULL;
-		lws_ss_backoff(h);
-		/* may have been destroyed */
+		r = lws_ss_backoff(h);
+		if (r != LWSSSSRET_OK)
+			return _lws_ss_handle_state_ret(r, wsi, &h);
 		break;
 
 	case LWS_CALLBACK_RAW_CLOSE:
@@ -61,12 +65,16 @@ secstream_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 #if defined(LWS_WITH_SERVER)
 			    !(h->info.flags & LWSSSINFLAGS_ACCEPTED) && /* not server */
 #endif
-		    !h->txn_ok && !wsi->a.context->being_destroyed)
-			if (lws_ss_backoff(h))
-				/* has been destroyed */
-				break;
+		    !h->txn_ok && !wsi->a.context->being_destroyed) {
+			r = lws_ss_backoff(h);
+			if (r != LWSSSSRET_OK)
+				return _lws_ss_handle_state_ret(r, wsi, &h);
+			break;
+		}
 		/* wsi is going down anyway */
-		lws_ss_event_helper(h, LWSSSCS_DISCONNECTED);
+		r = lws_ss_event_helper(h, LWSSSCS_DISCONNECTED);
+		if (r == LWSSSSRET_DESTROY_ME)
+			return _lws_ss_handle_state_ret(r, wsi, &h);
 		break;
 
 	case LWS_CALLBACK_RAW_CONNECTED:
@@ -75,7 +83,9 @@ secstream_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		h->retry = 0;
 		h->seqstate = SSSEQ_CONNECTED;
 		lws_sul_cancel(&h->sul);
-		lws_ss_event_helper(h, LWSSSCS_CONNECTED);
+		r = lws_ss_event_helper(h, LWSSSCS_CONNECTED);
+		if (r != LWSSSSRET_OK)
+			return _lws_ss_handle_state_ret(r, wsi, &h);
 
 		lws_validity_confirmed(wsi);
 		break;
@@ -89,8 +99,9 @@ secstream_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (!h || !h->info.rx)
 			return 0;
 
-		if (h->info.rx(ss_to_userobj(h), (const uint8_t *)in, len, 0) < 0)
-			return -1;
+		r = h->info.rx(ss_to_userobj(h), (const uint8_t *)in, len, 0);
+		if (r != LWSSSSRET_OK)
+			return _lws_ss_handle_state_ret(r, wsi, &h);
 
 		return 0; /* don't passthru */
 
@@ -100,24 +111,11 @@ secstream_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			return 0;
 
 		buflen = lws_ptr_diff(end, p);
-		switch(h->info.tx(ss_to_userobj(h),  h->txord++, p, &buflen, &f)) {
-		case LWSSSSRET_DISCONNECT_ME:
-			lwsl_debug("%s: tx handler asked to close conn\n", __func__);
-			return -1; /* close connection */
-
-		case LWSSSSRET_DESTROY_ME:
-			lws_set_opaque_user_data(wsi, NULL);
-			h->wsi = NULL;
-			lws_ss_destroy(&h);
-			return -1; /* close connection */
-
-		case LWSSSSRET_TX_DONT_SEND:
-			/* don't want to send anything */
-			lwsl_debug("%s: dont want to write\n", __func__);
+		r = h->info.tx(ss_to_userobj(h),  h->txord++, p, &buflen, &f);
+		if (r == LWSSSSRET_TX_DONT_SEND)
 			return 0;
-		default:
-			break;
-		}
+		if (r < 0)
+			return _lws_ss_handle_state_ret(r, wsi, &h);
 
 		/*
 		 * flags are ignored with raw, there are no protocol payload

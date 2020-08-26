@@ -31,6 +31,7 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	lws_ss_handle_t *h = (lws_ss_handle_t *)lws_get_opaque_user_data(wsi);
 	lws_mqtt_publish_param_t mqpp, *pmqpp;
 	uint8_t buf[LWS_PRE + 1400];
+	lws_ss_state_return_t r;
 	size_t buflen;
 	int f = 0;
 
@@ -42,22 +43,28 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			 in ? (char *)in : "(null)");
 		if (!h)
 			break;
-		lws_ss_event_helper(h, LWSSSCS_UNREACHABLE);
+		r = lws_ss_event_helper(h, LWSSSCS_UNREACHABLE);
 		h->wsi = NULL;
+
 		if (h->u.mqtt.heap_baggage) {
 			lws_free(h->u.mqtt.heap_baggage);
 			h->u.mqtt.heap_baggage = NULL;
 		}
 
-		lws_ss_backoff(h);
-		/* may have been destroyed */
+		if (r == LWSSSSRET_DESTROY_ME)
+			return _lws_ss_handle_state_ret(r, wsi, &h);
+
+		r = lws_ss_backoff(h);
+		if (r != LWSSSSRET_OK)
+			return _lws_ss_handle_state_ret(r, wsi, &h);
+
 		break;
 
 	case LWS_CALLBACK_MQTT_CLIENT_CLOSED:
 		if (!h)
 			break;
 		lws_sul_cancel(&h->sul_timeout);
-		f = lws_ss_event_helper(h, LWSSSCS_DISCONNECTED);
+		r= lws_ss_event_helper(h, LWSSSCS_DISCONNECTED);
 		if (h->wsi)
 			lws_set_opaque_user_data(h->wsi, NULL);
 		h->wsi = NULL;
@@ -67,16 +74,15 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			h->u.mqtt.heap_baggage = NULL;
 		}
 
-		if (f) {
-			lws_ss_destroy(&h);
-			break;
-		}
+		if (r)
+			return _lws_ss_handle_state_ret(r, wsi, &h);
 
 		if (h->policy && !(h->policy->flags & LWSSSPOLF_OPPORTUNISTIC) &&
-		    !h->txn_ok && !wsi->a.context->being_destroyed)
-			if (lws_ss_backoff(h))
-				/* has been destroyed */
-				return -1;
+		    !h->txn_ok && !wsi->a.context->being_destroyed) {
+			r = lws_ss_backoff(h);
+			if (r != LWSSSSRET_OK)
+				return _lws_ss_handle_state_ret(r, wsi, &h);
+		}
 		break;
 
 	case LWS_CALLBACK_MQTT_CLIENT_ESTABLISHED:
@@ -88,7 +94,9 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		h->retry = 0;
 		h->seqstate = SSSEQ_CONNECTED;
 		lws_sul_cancel(&h->sul);
-		lws_ss_event_helper(h, LWSSSCS_CONNECTED);
+		r = lws_ss_event_helper(h, LWSSSCS_CONNECTED);
+		if (r != LWSSSSRET_OK)
+			return _lws_ss_handle_state_ret(r, wsi, &h);
 		if (h->policy->u.mqtt.topic)
 			lws_callback_on_writable(wsi);
 		break;
@@ -108,9 +116,10 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		h->subseq = 1;
 
-		if (h->info.rx(ss_to_userobj(h), (const uint8_t *)pmqpp->payload,
-			   len, f) < 0)
-			return -1;
+		r = h->info.rx(ss_to_userobj(h), (const uint8_t *)pmqpp->payload,
+			   len, f);
+		if (r != LWSSSSRET_OK)
+			return _lws_ss_handle_state_ret(r, wsi, &h);
 
 		return 0; /* don't passthru */
 
@@ -121,7 +130,9 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 	case LWS_CALLBACK_MQTT_ACK:
 		lws_sul_cancel(&h->sul_timeout);
-		lws_ss_event_helper(h, LWSSSCS_QOS_ACK_REMOTE);
+		r = lws_ss_event_helper(h, LWSSSCS_QOS_ACK_REMOTE);
+		if (r != LWSSSSRET_OK)
+			return _lws_ss_handle_state_ret(r, wsi, &h);
 		break;
 
 	case LWS_CALLBACK_MQTT_CLIENT_WRITEABLE:
@@ -163,25 +174,13 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 
 		buflen = sizeof(buf) - LWS_PRE;
-		switch(h->info.tx(ss_to_userobj(h),  h->txord++,  buf + LWS_PRE,
-				  &buflen, &f)) {
-		case LWSSSSRET_DISCONNECT_ME:
-			lwsl_debug("%s: tx handler asked to close conn\n", __func__);
-			return -1; /* close connection */
-
-		case LWSSSSRET_DESTROY_ME:
-			lws_set_opaque_user_data(wsi, NULL);
-			h->wsi = NULL;
-			lws_ss_destroy(&h);
-			return -1; /* close connection */
-
-		case LWSSSSRET_TX_DONT_SEND:
-			/* don't want to send anything */
-			lwsl_debug("%s: dont want to write\n", __func__);
+		r = h->info.tx(ss_to_userobj(h),  h->txord++,  buf + LWS_PRE,
+				  &buflen, &f);
+		if (r == LWSSSSRET_TX_DONT_SEND)
 			return 0;
-		default:
-			break;
-		}
+
+		if (r < 0)
+			return _lws_ss_handle_state_ret(r, wsi, &h);
 
 		memset(&mqpp, 0, sizeof(mqpp));
 		/* this is the string-substituted h->policy->u.mqtt.topic */

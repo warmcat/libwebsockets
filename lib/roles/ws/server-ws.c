@@ -322,7 +322,7 @@ lws_process_ws_upgrade2(struct lws *wsi)
 			 * want to treat subsequent payloads differently
 			 */
 
-			lws_ss_event_helper(wsi->a.vhost->ss_handle,
+			(void)lws_ss_event_helper(wsi->a.vhost->ss_handle,
 						LWSSSCS_SERVER_UPGRADE);
 		}
 #endif

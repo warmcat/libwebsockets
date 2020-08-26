@@ -535,11 +535,11 @@ lws_sspc_destroy(lws_sspc_handle_t **ph)
 	free(h);
 }
 
-void
+lws_ss_state_return_t
 lws_sspc_request_tx(lws_sspc_handle_t *h)
 {
 	if (!h || !h->cwsi)
-		return;
+		return LWSSSSRET_OK;
 
 	if (!h->us_earliest_write_req)
 		h->us_earliest_write_req = lws_now_usecs();
@@ -549,6 +549,8 @@ lws_sspc_request_tx(lws_sspc_handle_t *h)
 		h->conn_req_state = LWSSSPC_ONW_REQ;
 
 	lws_callback_on_writable(h->cwsi);
+
+	return LWSSSSRET_OK;
 }
 
 /*
@@ -567,7 +569,7 @@ lws_sspc_request_tx(lws_sspc_handle_t *h)
  * length at this point.
  */
 
-void
+lws_ss_state_return_t
 lws_sspc_request_tx_len(lws_sspc_handle_t *h, unsigned long len)
 {
 	/*
@@ -578,7 +580,7 @@ lws_sspc_request_tx_len(lws_sspc_handle_t *h, unsigned long len)
 	 */
 
 	if (!h)
-		return;
+		return LWSSSSRET_OK;
 
 	lwsl_notice("%s: setting h %p writeable_len %u\n", __func__, h,
 			(unsigned int)len);
@@ -598,6 +600,8 @@ lws_sspc_request_tx_len(lws_sspc_handle_t *h, unsigned long len)
 	 */
 
 	lws_callback_on_writable(h->cwsi);
+
+	return LWSSSSRET_OK;
 }
 
 int
@@ -757,10 +761,10 @@ lws_sspc_to_user_object(struct lws_sspc_handle *h)
 
 void
 lws_sspc_change_handlers(struct lws_sspc_handle *h,
-	int (*rx)(void *userobj, const uint8_t *buf, size_t len, int flags),
-	int (*tx)(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf,
+	lws_ss_state_return_t (*rx)(void *userobj, const uint8_t *buf, size_t len, int flags),
+	lws_ss_state_return_t (*tx)(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf,
 		  size_t *len, int *flags),
-	int (*state)(void *userobj, void *h_src /* ss handle type */,
+	lws_ss_state_return_t (*state)(void *userobj, void *h_src /* ss handle type */,
 		     lws_ss_constate_t state, lws_ss_tx_ordinal_t ack))
 {
 	if (rx)

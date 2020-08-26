@@ -84,7 +84,7 @@ typedef struct ss_proxy_onward {
 
 /* secure streams payload interface */
 
-static int
+static lws_ss_state_return_t
 ss_proxy_onward_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 {
 	ss_proxy_t *m = (ss_proxy_t *)userobj;
@@ -116,7 +116,7 @@ ss_proxy_onward_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
  * we are transmitting buffered payload originally from the client on to the ss
  */
 
-static int
+static lws_ss_state_return_t
 ss_proxy_onward_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf,
 		   size_t *len, int *flags)
 {
@@ -161,7 +161,7 @@ ss_proxy_onward_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf,
 	return 0;
 }
 
-static int
+static lws_ss_state_return_t
 ss_proxy_onward_state(void *userobj, void *sh,
 		      lws_ss_constate_t state, lws_ss_tx_ordinal_t ack)
 {

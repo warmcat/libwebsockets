@@ -34,7 +34,7 @@ typedef struct ss_cpd {
 	lws_sorted_usec_list_t	sul;
 } ss_cpd_t;
 
-static int
+static lws_ss_state_return_t
 ss_cpd_state(void *userobj, void *sh, lws_ss_constate_t state,
 	     lws_ss_tx_ordinal_t ack)
 {

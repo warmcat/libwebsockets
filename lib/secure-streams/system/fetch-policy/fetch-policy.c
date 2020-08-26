@@ -38,7 +38,7 @@ typedef struct ss_fetch_policy {
 
 /* secure streams payload interface */
 
-static int
+static lws_ss_state_return_t
 ss_fetch_policy_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 {
 	ss_fetch_policy_t *m = (ss_fetch_policy_t *)userobj;
@@ -46,12 +46,12 @@ ss_fetch_policy_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 
 	if (flags & LWSSS_FLAG_SOM) {
 		if (lws_ss_policy_parse_begin(context, 0))
-			return 1;
+			return LWSSSSRET_OK;
 		m->partway = 1;
 	}
 
 	if (len && lws_ss_policy_parse(context, buf, len) < 0)
-		return 1;
+		return LWSSSSRET_OK;
 
 	if (flags & LWSSS_FLAG_EOM)
 		m->partway = 2;
@@ -59,7 +59,7 @@ ss_fetch_policy_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	return 0;
 }
 
-static int
+static lws_ss_state_return_t
 ss_fetch_policy_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf,
 		   size_t *len, int *flags)
 {
@@ -90,7 +90,7 @@ policy_set(lws_sorted_usec_list_t *sul)
 	}
 }
 
-static int
+static lws_ss_state_return_t
 ss_fetch_policy_state(void *userobj, void *sh, lws_ss_constate_t state,
 		      lws_ss_tx_ordinal_t ack)
 {

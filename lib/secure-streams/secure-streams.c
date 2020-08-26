@@ -77,13 +77,13 @@ lws_ss_state_name(int state)
 	return state_names[state];
 }
 
-int
+lws_ss_state_return_t
 lws_ss_event_helper(lws_ss_handle_t *h, lws_ss_constate_t cs)
 {
-	int n;
+	lws_ss_state_return_t r;
 
 	if (!h)
-		return 0;
+		return LWSSSSRET_OK;
 
 #if defined(LWS_WITH_SEQUENCER)
 	/*
@@ -95,48 +95,31 @@ lws_ss_event_helper(lws_ss_handle_t *h, lws_ss_constate_t cs)
 				    (void *)h, NULL);
 #endif
 
-#if 0
-	if (h->h_sink && h->h_sink->info.state) {
-		n = h->h_sink->info.state(h->sink_obj, h->h_sink, cs, 0);
-		if (n) {
-			lws_set_timeout(h->wsi, 1, LWS_TO_KILL_ASYNC);
-			h->wsi = NULL; /* stop destroy trying to repeat this */
-			if (n == LWSSSSRET_DESTROY_ME) {
-				lwsl_info("%s: DESTROYING ss %p\n", __func__, h);
-				lws_ss_destroy(&h);
-				return 1;
-			}
-		}
-	}
-#endif
-
 	if (h->info.state) {
-		n = h->info.state(ss_to_userobj(h), NULL, cs, 0);
+		r = h->info.state(ss_to_userobj(h), NULL, cs, 0);
 #if defined(LWS_WITH_SERVER)
 		if ((h->info.flags & LWSSSINFLAGS_ACCEPTED) &&
 		    cs == LWSSSCS_DISCONNECTED)
-			n = LWSSSSRET_DESTROY_ME;
+			r = LWSSSSRET_DESTROY_ME;
 #endif
-		if (n) {
-			if (cs == LWSSSCS_CREATING)
-				/* just let caller handle it */
-				return 1;
-			if (h->wsi)
-				lws_set_timeout(h->wsi, 1, LWS_TO_KILL_ASYNC);
-			if (n == LWSSSSRET_DESTROY_ME) {
-				lwsl_info("%s: DESTROYING ss %p\n", __func__, h);
-				/* disconnect ss from the wsi */
-				if (h->wsi)
-					lws_set_opaque_user_data(h->wsi, NULL);
-				h->wsi = NULL; /* stop destroy trying to repeat this */
-				lws_ss_destroy(&h);
-				return 1;
-			}
-			h->wsi = NULL; /* stop destroy trying to repeat this */
-		}
+		return r;
 	}
 
-	return 0;
+	return LWSSSSRET_OK;
+}
+
+int
+_lws_ss_handle_state_ret(lws_ss_state_return_t r, struct lws *wsi,
+			 lws_ss_handle_t **ph)
+{
+	if (r == LWSSSSRET_DESTROY_ME) {
+		if (wsi)
+			lws_set_opaque_user_data(wsi, NULL);
+		(*ph)->wsi = NULL;
+		lws_ss_destroy(ph);
+	}
+
+	return -1; /* close connection */
 }
 
 static void
@@ -202,14 +185,14 @@ lws_ss_set_timeout_us(lws_ss_handle_t *h, lws_usec_t us)
 	return 0;
 }
 
-int
+lws_ss_state_return_t
 lws_ss_backoff(lws_ss_handle_t *h)
 {
 	uint64_t ms;
 	char conceal;
 
 	if (h->seqstate == SSSEQ_RECONNECT_WAIT)
-		return 0;
+		return LWSSSSRET_OK;
 
 	/* figure out what we should do about another retry */
 
@@ -219,10 +202,8 @@ lws_ss_backoff(lws_ss_handle_t *h)
 	if (!conceal) {
 		lwsl_info("%s: ss %p: abandon conn attempt \n",__func__, h);
 		h->seqstate = SSSEQ_IDLE;
-		if (lws_ss_event_helper(h, LWSSSCS_ALL_RETRIES_FAILED))
-			lwsl_notice("%s: was desroyed on ARF event\n", __func__);
-		/* may have been destroyed */
-		return 1;
+
+		return lws_ss_event_helper(h, LWSSSCS_ALL_RETRIES_FAILED);
 	}
 
 	h->seqstate = SSSEQ_RECONNECT_WAIT;
@@ -230,7 +211,7 @@ lws_ss_backoff(lws_ss_handle_t *h)
 
 	lwsl_info("%s: ss %p: retry wait %"PRIu64"ms\n", __func__, h, ms);
 
-	return 0;
+	return LWSSSSRET_OK;
 }
 
 #if defined(LWS_WITH_SYS_SMD)
@@ -317,6 +298,7 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry)
 	size_t used_in, used_out;
 	union lws_ss_contemp ct;
 	char path[1024], ep[96];
+	lws_ss_state_return_t r;
 	int port, _port, tls;
 	lws_strexp_t exp;
 
@@ -339,10 +321,8 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry)
 #if defined(LWS_WITH_SYS_SMD)
 	if (h->policy == &pol_smd) {
 
-		if (h->u.smd.smd_peer) {
-			// lwsl_notice("%s: peer already set\n", __func__);
+		if (h->u.smd.smd_peer)
 			return 0;
-		}
 
 		// lwsl_notice("%s: received connect for _lws_smd, registering for class mask 0x%x\n",
 		//		__func__, h->info.manual_initial_tx_credit);
@@ -477,17 +457,18 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry)
 			i.alpn, i.address, i.path);
 
 	h->txn_ok = 0;
-	if (lws_ss_event_helper(h, LWSSSCS_CONNECTING))
-		return LWSSSSRET_SS_HANDLE_DESTROYED;
+	r = lws_ss_event_helper(h, LWSSSCS_CONNECTING);
+	if (r)
+		return r;
 
 	if (!lws_client_connect_via_info(&i)) {
-		if (lws_ss_event_helper(h, LWSSSCS_UNREACHABLE)) {
-			/* was destroyed */
-			lwsl_err("%s: client connect UNREACHABLE destroyed the ss\n", __func__);
-			return LWSSSSRET_SS_HANDLE_DESTROYED;
-		}
-		if (lws_ss_backoff(h))
-			return LWSSSSRET_SS_HANDLE_DESTROYED;
+		r = lws_ss_event_helper(h, LWSSSCS_UNREACHABLE);
+		if (r)
+			return r;
+
+		r = lws_ss_backoff(h);
+		if (r)
+			return r;
 
 		return 1;
 	}
@@ -657,6 +638,7 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 	 */
 	if (!(ssi->flags & LWSSSINFLAGS_PROXIED) &&
 	    pol == &pol_smd) {
+		lws_ss_state_return_t r;
 		/*
 		 * So he has asked to be wired up to SMD over a SS link.
 		 * Register him as an smd participant in his own right.
@@ -671,10 +653,12 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 		if (!h->u.smd.smd_peer)
 			goto late_bail;
 		lwsl_info("%s: registered SS SMD\n", __func__);
-		if (lws_ss_event_helper(h, LWSSSCS_CONNECTING))
-			return -1;
-		if (lws_ss_event_helper(h, LWSSSCS_CONNECTED))
-			return -1;
+		r = lws_ss_event_helper(h, LWSSSCS_CONNECTING);
+		if (r)
+			return r;
+		r = lws_ss_event_helper(h, LWSSSCS_CONNECTED);
+		if (r)
+			return r;
 	}
 #endif
 
@@ -842,7 +826,7 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 	lws_dll2_remove(&h->to_list);
 	lws_sul_cancel(&h->sul_timeout);
 
-	lws_ss_event_helper(h, LWSSSCS_DESTROYING);
+	(void)lws_ss_event_helper(h, LWSSSCS_DESTROYING);
 	lws_pt_unlock(pt);
 
 	/* in proxy case, metadata value on heap may need cleaning up */
@@ -902,17 +886,17 @@ lws_ss_server_ack(struct lws_ss_handle *h, int nack)
 	h->txn_resp_set = 1;
 }
 
-void
+lws_ss_state_return_t
 lws_ss_request_tx(lws_ss_handle_t *h)
 {
-	int n;
+	lws_ss_state_return_t r;
 
 	// lwsl_notice("%s: h %p, wsi %p\n", __func__, h, h->wsi);
 
 	if (h->wsi) {
 		lws_callback_on_writable(h->wsi);
 
-		return;
+		return LWSSSSRET_OK;
 	}
 
 	/*
@@ -931,30 +915,34 @@ lws_ss_request_tx(lws_ss_handle_t *h)
 		lws_sul_schedule(h->context, 0, &h->u.smd.sul_write,
 				 lws_ss_smd_tx_cb, 1);
 
-		return;
+		return LWSSSSRET_OK;
 	}
 #endif
 
 	if (h->seqstate != SSSEQ_IDLE &&
 	    h->seqstate != SSSEQ_DO_RETRY)
-		return;
+		return LWSSSSRET_OK;
 
 	h->seqstate = SSSEQ_TRY_CONNECT;
-	lws_ss_event_helper(h, LWSSSCS_POLL);
+	r = lws_ss_event_helper(h, LWSSSCS_POLL);
+	if (r)
+		return r;
 
 	/*
 	 * Retries operate via lws_ss_request_tx(), explicitly ask for a
 	 * reconnection to clear the retry limit
 	 */
-	n = _lws_ss_client_connect(h, 1);
-	if (n == LWSSSSRET_SS_HANDLE_DESTROYED)
-		return;
+	r = _lws_ss_client_connect(h, 1);
+	if (r == LWSSSSRET_DESTROY_ME)
+		return r;
 
-	if (n)
-		lws_ss_backoff(h);
+	if (r)
+		return lws_ss_backoff(h);
+
+	return LWSSSSRET_OK;
 }
 
-void
+lws_ss_state_return_t
 lws_ss_request_tx_len(lws_ss_handle_t *h, unsigned long len)
 {
 	if (h->wsi &&
@@ -965,7 +953,7 @@ lws_ss_request_tx_len(lws_ss_handle_t *h, unsigned long len)
 	else
 		h->writeable_len = len;
 
-	lws_ss_request_tx(h);
+	return lws_ss_request_tx(h);
 }
 
 /*
@@ -1039,12 +1027,16 @@ static void
 lws_ss_to_cb(lws_sorted_usec_list_t *sul)
 {
 	lws_ss_handle_t *h = lws_container_of(sul, lws_ss_handle_t, sul_timeout);
+	lws_ss_state_return_t r;
 
 	lwsl_info("%s: ss %p timeout fired\n", __func__, h);
 
-	lws_ss_event_helper(h, LWSSSCS_TIMEOUT);
-
-	/* may have been destroyed */
+	r = lws_ss_event_helper(h, LWSSSCS_TIMEOUT);
+	if (r == LWSSSSRET_DESTROY_ME) {
+		if (h->wsi)
+			lws_set_timeout(h->wsi, 1, LWS_TO_KILL_ASYNC);
+		_lws_ss_handle_state_ret(r, NULL, &h);
+	}
 }
 
 void
@@ -1066,11 +1058,13 @@ lws_ss_cancel_timeout(struct lws_ss_handle *h)
 
 void
 lws_ss_change_handlers(struct lws_ss_handle *h,
-	int (*rx)(void *userobj, const uint8_t *buf, size_t len, int flags),
-	int (*tx)(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf,
-		  size_t *len, int *flags),
-	int (*state)(void *userobj, void *h_src /* ss handle type */,
-		     lws_ss_constate_t state, lws_ss_tx_ordinal_t ack))
+	lws_ss_state_return_t (*rx)(void *userobj, const uint8_t *buf,
+				    size_t len, int flags),
+	lws_ss_state_return_t (*tx)(void *userobj, lws_ss_tx_ordinal_t ord,
+				    uint8_t *buf, size_t *len, int *flags),
+	lws_ss_state_return_t (*state)(void *userobj, void *h_src /* ss handle type */,
+				       lws_ss_constate_t state,
+				       lws_ss_tx_ordinal_t ack))
 {
 	if (rx)
 		h->info.rx = rx;

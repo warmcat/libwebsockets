@@ -87,7 +87,7 @@ lws_sspc_destroy(struct lws_sspc_handle **ppss);
  * write on this stream, the *tx callback will occur with an empty buffer for
  * the stream owner to fill in.
  */
-LWS_VISIBLE LWS_EXTERN void
+LWS_VISIBLE LWS_EXTERN lws_ss_state_return_t
 lws_sspc_request_tx(struct lws_sspc_handle *pss);
 
 /**
@@ -107,7 +107,7 @@ lws_sspc_request_tx(struct lws_sspc_handle *pss);
  * hint to its upstream proxy, where it's available for use to produce the
  * internet-capable protocol framing.
  */
-LWS_VISIBLE LWS_EXTERN void
+LWS_VISIBLE LWS_EXTERN lws_ss_state_return_t
 lws_sspc_request_tx_len(struct lws_sspc_handle *h, unsigned long len);
 
 /**
@@ -207,9 +207,12 @@ lws_sspc_to_user_object(struct lws_sspc_handle *h);
 
 LWS_VISIBLE LWS_EXTERN void
 lws_sspc_change_handlers(struct lws_sspc_handle *h,
-	int (*rx)(void *userobj, const uint8_t *buf, size_t len, int flags),
-	int (*tx)(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf,
-		  size_t *len, int *flags),
-	int (*state)(void *userobj, void *h_src /* ss handle type */,
-		     lws_ss_constate_t state, lws_ss_tx_ordinal_t ack));
+	lws_ss_state_return_t (*rx)(void *userobj, const uint8_t *buf,
+				    size_t len, int flags),
+	lws_ss_state_return_t (*tx)(void *userobj, lws_ss_tx_ordinal_t ord,
+				    uint8_t *buf, size_t *len, int *flags),
+	lws_ss_state_return_t (*state)(void *userobj, void *h_src
+					/* ss handle type */,
+				       lws_ss_constate_t state,
+				       lws_ss_tx_ordinal_t ack));
 

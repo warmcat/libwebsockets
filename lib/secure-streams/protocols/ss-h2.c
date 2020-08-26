@@ -33,6 +33,7 @@ secstream_h2(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	     void *in, size_t len)
 {
 	lws_ss_handle_t *h = (lws_ss_handle_t *)lws_get_opaque_user_data(wsi);
+	lws_ss_state_return_t r;
 	int n;
 
 	switch (reason) {
@@ -63,18 +64,13 @@ secstream_h2(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
 		// lwsl_err("%s: h2 COMPLETED_CLIENT_HTTP\n", __func__);
-		n = h->info.rx(ss_to_userobj(h), NULL, 0, LWSSS_FLAG_EOM);
+		r = h->info.rx(ss_to_userobj(h), NULL, 0, LWSSS_FLAG_EOM);
 		/* decouple the fates of the wsi and the ss */
 		h->wsi = NULL;
 		h->txn_ok = 1;
-		//bad = status != 200;
 		lws_cancel_service(lws_get_context(wsi)); /* abort poll wait */
-		if (n == LWSSSSRET_DESTROY_ME) {
-			lws_set_opaque_user_data(wsi, NULL);
-			lwsl_info("%s: destroying ss handle\n", __func__);
-			lws_ss_destroy(&h);
-			return -1;
-		}
+		if (r != LWSSSSRET_OK)
+			return _lws_ss_handle_state_ret(r, wsi, &h);
 		return 0;
 
 	case LWS_CALLBACK_WSI_TX_CREDIT_GET:

@@ -262,14 +262,13 @@ typedef enum {
  * wants to do
  */
 
-enum lws_ss_state_return_t {
+typedef enum lws_ss_state_return {
 	LWSSSSRET_TX_DONT_SEND		=  1, /* (*tx) only */
-	LWSSSSRET_OK			=  0,
-	LWSSSSRET_DISCONNECT_ME		= -1,
-	LWSSSSRET_DESTROY_ME		= -2,
 
-	LWSSSSRET_SS_HANDLE_DESTROYED	= -3,
-};
+	LWSSSSRET_OK			=  0, /* no error */
+	LWSSSSRET_DISCONNECT_ME		= -1, /* caller should disconnect us */
+	LWSSSSRET_DESTROY_ME		= -2, /* caller should destroy us */
+} lws_ss_state_return_t;
 
 /**
  * lws_ss_info_t: information about stream to be created
@@ -309,15 +308,15 @@ typedef struct lws_ss_info {
 	/**< offset of opaque user data ptr in user_alloc type, set to
 	     offsetof(mytype, opaque_ud_member) */
 
-	int	    (*rx)(void *userobj, const uint8_t *buf, size_t len,
-			  int flags);
+	lws_ss_state_return_t (*rx)(void *userobj, const uint8_t *buf,
+				    size_t len, int flags);
 	/**< callback with rx payload for this stream */
-	int	    (*tx)(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf,
-			  size_t *len, int *flags);
+	lws_ss_state_return_t (*tx)(void *userobj, lws_ss_tx_ordinal_t ord,
+				    uint8_t *buf, size_t *len, int *flags);
 	/**< callback to send payload on this stream... 0 = send as set in
 	 * len and flags, 1 = do not send anything (ie, not even 0 len frame) */
-	int	    (*state)(void *userobj, void *h_src /* ss handle type */,
-			     lws_ss_constate_t state, lws_ss_tx_ordinal_t ack);
+	lws_ss_state_return_t (*state)(void *userobj, void *h_src /* ss handle type */,
+			      lws_ss_constate_t state, lws_ss_tx_ordinal_t ack);
 	/**< advisory cb about state of stream and QoS status if applicable...
 	 * h_src is only used with sinks and LWSSSCS_SINK_JOIN/_PART events.
 	 * Return nonzero to indicate you want to destroy the stream. */
@@ -392,8 +391,10 @@ lws_ss_destroy(struct lws_ss_handle **ppss);
  * Schedules a write on the stream represented by \p pss.  When it's possible to
  * write on this stream, the *tx callback will occur with an empty buffer for
  * the stream owner to fill in.
+ *
+ * Returns 0 or LWSSSSRET_SS_HANDLE_DESTROYED
  */
-LWS_VISIBLE LWS_EXTERN void
+LWS_VISIBLE LWS_EXTERN lws_ss_state_return_t
 lws_ss_request_tx(struct lws_ss_handle *pss);
 
 /**
@@ -409,7 +410,7 @@ lws_ss_request_tx(struct lws_ss_handle *pss);
  * This api variant should be used when it's possible the payload will go out
  * over h1 with x-web-form-urlencoded or similar Content-Type.
  */
-LWS_VISIBLE LWS_EXTERN void
+LWS_VISIBLE LWS_EXTERN lws_ss_state_return_t
 lws_ss_request_tx_len(struct lws_ss_handle *pss, unsigned long len);
 
 /**

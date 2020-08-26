@@ -110,7 +110,7 @@ auth_api_amazon_com_parser_cb(struct lejp_ctx *ctx, char reason)
 
 /* secure streams payload interface */
 
-static int
+static lws_ss_state_return_t
 ss_api_amazon_auth_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 {
 	ss_api_amazon_auth_t *m = (ss_api_amazon_auth_t *)userobj;
@@ -159,7 +159,7 @@ ss_api_amazon_auth_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	return 0;
 }
 
-static int
+static lws_ss_state_return_t
 ss_api_amazon_auth_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf,
 		      size_t *len, int *flags)
 {
@@ -197,7 +197,7 @@ ss_api_amazon_auth_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf,
 	return 0;
 }
 
-static int
+static lws_ss_state_return_t
 ss_api_amazon_auth_state(void *userobj, void *sh, lws_ss_constate_t state,
 			 lws_ss_tx_ordinal_t ack)
 {

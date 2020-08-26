@@ -378,11 +378,15 @@ lws_ss_policy_set(struct lws_context *context, const char *name);
 int
 lws_ss_sys_fetch_policy(struct lws_context *context);
 
-int
+lws_ss_state_return_t
 lws_ss_event_helper(lws_ss_handle_t *h, lws_ss_constate_t cs);
 
-int
+lws_ss_state_return_t
 lws_ss_backoff(lws_ss_handle_t *h);
+
+int
+_lws_ss_handle_state_ret(lws_ss_state_return_t r, struct lws *wsi,
+			 lws_ss_handle_t **ph);
 
 int
 lws_ss_set_timeout_us(lws_ss_handle_t *h, lws_usec_t us);

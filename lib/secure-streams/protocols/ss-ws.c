@@ -30,6 +30,7 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 {
 	lws_ss_handle_t *h = (lws_ss_handle_t *)lws_get_opaque_user_data(wsi);
 	uint8_t buf[LWS_PRE + 1400];
+	lws_ss_state_return_t r;
 	int f = 0, f1, n;
 	size_t buflen;
 
@@ -41,13 +42,14 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			 in ? (char *)in : "(null)");
 		if (!h)
 			break;
-		if (lws_ss_event_helper(h, LWSSSCS_UNREACHABLE))
-			/* h has been destroyed */
-			break;
+		r = lws_ss_event_helper(h, LWSSSCS_UNREACHABLE);
+		if (r == LWSSSSRET_DESTROY_ME)
+			return _lws_ss_handle_state_ret(r, wsi, &h);
 
 		h->wsi = NULL;
-		lws_ss_backoff(h);
-		/* may have been destroyed */
+		r = lws_ss_backoff(h);
+		if (r != LWSSSSRET_OK)
+			return _lws_ss_handle_state_ret(r, wsi, &h);
 		break;
 
 	case LWS_CALLBACK_CLOSED: /* server */
@@ -55,9 +57,10 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (!h)
 			break;
 		lws_sul_cancel(&h->sul_timeout);
-		if (lws_ss_event_helper(h, LWSSSCS_DISCONNECTED))
-			/* has been destroyed */
-			break;
+		r = lws_ss_event_helper(h, LWSSSCS_DISCONNECTED);
+		if (r == LWSSSSRET_DESTROY_ME)
+			return _lws_ss_handle_state_ret(r, wsi, &h);
+
 		if (h->wsi)
 			lws_set_opaque_user_data(h->wsi, NULL);
 		h->wsi = NULL;
@@ -68,10 +71,13 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 #if defined(LWS_WITH_SERVER)
 			    !(h->info.flags & LWSSSINFLAGS_ACCEPTED) && /* not server */
 #endif
-			    !h->txn_ok && !wsi->a.context->being_destroyed)
-				lws_ss_backoff(h);
+			    !h->txn_ok && !wsi->a.context->being_destroyed) {
+				r = lws_ss_backoff(h);
+				if (r != LWSSSSRET_OK)
+					return _lws_ss_handle_state_ret(r, wsi, &h);
+				break;
+			}
 		}
-		/* may have been destroyed */
 		break;
 
 	case LWS_CALLBACK_ESTABLISHED:
@@ -79,8 +85,9 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		h->retry = 0;
 		h->seqstate = SSSEQ_CONNECTED;
 		lws_sul_cancel(&h->sul);
-		if (lws_ss_event_helper(h, LWSSSCS_CONNECTED))
-			return -1;
+		r = lws_ss_event_helper(h, LWSSSCS_CONNECTED);
+		if (r != LWSSSSRET_OK)
+			return _lws_ss_handle_state_ret(r, wsi, &h);
 		break;
 
 	case LWS_CALLBACK_RECEIVE:
@@ -96,8 +103,9 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		h->subseq = 1;
 
-		if (h->info.rx(ss_to_userobj(h), (const uint8_t *)in, len, f) < 0)
-			return -1;
+		r = h->info.rx(ss_to_userobj(h), (const uint8_t *)in, len, f);
+		if (r != LWSSSSRET_OK)
+			return _lws_ss_handle_state_ret(r, wsi, &h);
 
 		return 0; /* don't passthru */
 
@@ -113,27 +121,12 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		}
 
 		buflen = sizeof(buf) - LWS_PRE;
-		n = h->info.tx(ss_to_userobj(h),  h->txord++, buf + LWS_PRE,
+		r = h->info.tx(ss_to_userobj(h),  h->txord++, buf + LWS_PRE,
 				  &buflen, &f);
-
-		switch (n) {
-		case LWSSSSRET_DISCONNECT_ME:
-			lwsl_debug("%s: tx handler asked to close conn\n", __func__);
-			return -1; /* close connection */
-
-		case LWSSSSRET_DESTROY_ME:
-			lws_set_opaque_user_data(wsi, NULL);
-			h->wsi = NULL;
-			lws_ss_destroy(&h);
-			return -1; /* close connection */
-
-		case LWSSSSRET_TX_DONT_SEND:
-			/* don't want to send anything */
-			lwsl_debug("%s: dont want to write\n", __func__);
+		if (r == LWSSSSRET_TX_DONT_SEND)
 			return 0;
-		default:
-			break;
-		}
+		if (r != LWSSSSRET_OK)
+			return _lws_ss_handle_state_ret(r, wsi, &h);
 
 		f1 = lws_write_ws_flags(h->policy->u.http.u.ws.binary ?
 					   LWS_WRITE_BINARY : LWS_WRITE_TEXT,

@@ -34,9 +34,24 @@ If the underlying protocol gives indications of transaction success, such as,
 eg, a 200 for http, or an ACK from MQTT, the stream state is called back with
 an `LWSSSCS_QOS_ACK_REMOTE` or `LWSSSCS_QOS_NACK_REMOTE`.
 
-State callbacks and tx() can indicate they want to drop the connection
-(`LWSSSRET_DISCONNECT_ME`) or destroy the whole logical Secure Stream
-(`LWSSSRET_DESTROY_ME`).
+## SS Callback return handling
+
+SS state(), rx() and tx() can indicate with their return code some common
+situations that should be handled by the caller.
+
+Constant|Scope|Meaning
+---|---|---
+LWSSSSRET_TX_DONT_SEND|tx|This opportunity to send something was passed on
+LWSSSSRET_OK|state, rx, tx|No error, continue doing what we're doing
+LWSSSSRET_DISCONNECT_ME|state, rx|assertively disconnect from peer
+LWSSSSRET_DESTROY_ME|state, rx|Caller should now destroy the stream itself
+LWSSSSRET_SS_HANDLE_DESTROYED|state|Something handled a request to destroy the stream
+
+Destruction of the stream we're calling back on inside the callback is tricky,
+it's preferable to return `LWSSSSRET_DESTROY_ME` if it is required, and let the
+caller handle it.  But in some cases, helpers called from the callbacks may
+destroy the handle themselves, in that case the handler should return
+`LWSSSSRET_SS_HANDLE_DESTROYED` indicating that the handle is already destroyed.
 
 ## Secure Streams SERVER State lifecycle
 
@@ -592,6 +607,9 @@ In those cases, you run a proxy process (minimal-secure-streams-proxy) that
 listens on a Unix Domain Socket and is connected to by one or more other
 processes that pass their SS API activity to the proxy for fulfilment (or
 onward proxying).
+
+Each Secure Stream that is created then in turn creates a private Unix Domain
+Socket connection to the proxy for each stream.
 
 In this case the proxy uses secure-streams.c and policy.c as before to fulfil
 the inbound proxy streams, but uses secure-streams-serialize.c to serialize and
