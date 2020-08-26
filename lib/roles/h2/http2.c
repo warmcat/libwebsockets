@@ -1106,7 +1106,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		}
 
 		if (!(h2n->flags & LWS_H2_FLAG_SETTINGS_ACK)) {
-			if ((!h2n->length) || h2n->length % 6) {
+			if (h2n->length % 6) {
 				lws_h2_goaway(wsi, H2_ERR_FRAME_SIZE_ERROR,
 						 "Settings length error");
 				break;
