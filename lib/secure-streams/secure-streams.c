@@ -808,6 +808,12 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 	if (!h)
 		return;
 
+	if (h->destroying) {
+		lwsl_info("%s: reentrant destroy\n", __func__);
+		return;
+	}
+	h->destroying = 1;
+
 	if (h->wsi) {
 		/*
 		 * Don't let the wsi point to us any more,
