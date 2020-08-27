@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -23,20 +23,26 @@
  */
 
 #include "private-lib-core.h"
+#include "private-lib-event-libs-libev.h"
+
+#define pt_to_priv_ev(_pt) ((struct lws_pt_eventlibs_libev *)(_pt)->evlib_pt)
+#define vh_to_priv_ev(_vh) ((struct lws_vh_eventlibs_libev *)(_vh)->evlib_vh)
+#define wsi_to_priv_ev(_w) ((struct lws_wsi_eventlibs_libev *)(_w)->evlib_wsi)
 
 static void
 lws_ev_hrtimer_cb(struct ev_loop *loop, struct ev_timer *watcher, int revents)
 {
-	struct lws_context_per_thread *pt =
-			(struct lws_context_per_thread *)watcher->data;
+	struct lws_pt_eventlibs_libev *ptpr = lws_container_of(watcher,
+					struct lws_pt_eventlibs_libev, hrtimer);
+	struct lws_context_per_thread *pt = ptpr->pt;
 	lws_usec_t us;
 
 	lws_pt_lock(pt, __func__);
 	us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
 				    lws_now_usecs());
 	if (us) {
-		ev_timer_set(&pt->ev.hrtimer, ((float)us) / 1000000.0, 0);
-		ev_timer_start(pt->ev.io_loop, &pt->ev.hrtimer);
+		ev_timer_set(&ptpr->hrtimer, ((float)us) / 1000000.0, 0);
+		ev_timer_start(ptpr->io_loop, &ptpr->hrtimer);
 	}
 	lws_pt_unlock(pt);
 }
@@ -44,10 +50,11 @@ lws_ev_hrtimer_cb(struct ev_loop *loop, struct ev_timer *watcher, int revents)
 static void
 lws_ev_idle_cb(struct ev_loop *loop, struct ev_idle *handle, int revents)
 {
-	struct lws_context_per_thread *pt = lws_container_of(handle,
-					struct lws_context_per_thread, ev.idle);
-	lws_usec_t us;
+	struct lws_pt_eventlibs_libev *ptpr = lws_container_of(handle,
+					struct lws_pt_eventlibs_libev, idle);
+	struct lws_context_per_thread *pt = ptpr->pt;
 	int reschedule = 0;
+	lws_usec_t us;
 
 	lws_service_do_ripe_rxflow(pt);
 
@@ -64,8 +71,8 @@ lws_ev_idle_cb(struct ev_loop *loop, struct ev_idle *handle, int revents)
 	us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
 				    lws_now_usecs());
 	if (us) {
-		ev_timer_set(&pt->ev.hrtimer, ((float)us) / 1000000.0, 0);
-		ev_timer_start(pt->ev.io_loop, &pt->ev.hrtimer);
+		ev_timer_set(&ptpr->hrtimer, ((float)us) / 1000000.0, 0);
+		ev_timer_start(ptpr->io_loop, &ptpr->hrtimer);
 	}
 	lws_pt_unlock(pt);
 
@@ -80,9 +87,10 @@ lws_ev_idle_cb(struct ev_loop *loop, struct ev_idle *handle, int revents)
 static void
 lws_accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents)
 {
-	struct lws_io_watcher *lws_io = lws_container_of(watcher,
-					struct lws_io_watcher, ev.watcher);
+	struct lws_io_watcher_libev *lws_io = lws_container_of(watcher,
+					struct lws_io_watcher_libev, watcher);
 	struct lws_context *context = lws_io->context;
+	struct lws_pt_eventlibs_libev *ptpr;
 	struct lws_context_per_thread *pt;
 	struct lws_pollfd eventfd;
 	struct lws *wsi;
@@ -105,10 +113,11 @@ lws_accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents)
 
 	wsi = wsi_from_fd(context, watcher->fd);
 	pt = &context->pt[(int)wsi->tsi];
+	ptpr = pt_to_priv_ev(pt);
 
 	lws_service_fd_tsi(context, &eventfd, (int)wsi->tsi);
 
-	ev_idle_start(pt->ev.io_loop, &pt->ev.idle);
+	ev_idle_start(ptpr->io_loop, &ptpr->idle);
 }
 
 void
@@ -128,7 +137,8 @@ static int
 elops_init_pt_ev(struct lws_context *context, void *_loop, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
-	struct ev_signal *w_sigint = &context->pt[tsi].w_sigint.ev.watcher;
+	struct lws_pt_eventlibs_libev *ptpr = pt_to_priv_ev(pt);
+	struct ev_signal *w_sigint = &ptpr->w_sigint.watcher;
 	struct ev_loop *loop = (struct ev_loop *)_loop;
 	struct lws_vhost *vh = context->vhost_list;
 	const char *backend_name;
@@ -136,6 +146,8 @@ elops_init_pt_ev(struct lws_context *context, void *_loop, int tsi)
 	int backend;
 
 	lwsl_info("%s: loop %p\n", __func__, _loop);
+
+	ptpr->pt = pt;
 
 	if (!loop)
 		loop = ev_loop_new(0);
@@ -148,7 +160,7 @@ elops_init_pt_ev(struct lws_context *context, void *_loop, int tsi)
 		return -1;
 	}
 
-	pt->ev.io_loop = loop;
+	ptpr->io_loop = loop;
 
 	/*
 	 * Initialize the accept w_accept with all the listening sockets
@@ -156,13 +168,17 @@ elops_init_pt_ev(struct lws_context *context, void *_loop, int tsi)
 	 */
 	while (vh) {
 		if (vh->lserv_wsi) {
-			vh->lserv_wsi->w_read.context = context;
-			vh->w_accept.context = context;
+			struct lws_wsi_eventlibs_libev *w =
+						wsi_to_priv_ev(vh->lserv_wsi);
 
-			ev_io_init(&vh->w_accept.ev.watcher, lws_accept_cb,
+			w->w_read.context = context;
+			w->w_write.context = context;
+			vh_to_priv_ev(vh)->w_accept.context = context;
+
+			ev_io_init(&vh_to_priv_ev(vh)->w_accept.watcher,
+				   lws_accept_cb,
 				   vh->lserv_wsi->desc.sockfd, EV_READ);
-			ev_io_start(loop, &vh->w_accept.ev.watcher);
-
+			ev_io_start(loop, &vh_to_priv_ev(vh)->w_accept.watcher);
 		}
 		vh = vh->vhost_next;
 	}
@@ -212,10 +228,10 @@ elops_init_pt_ev(struct lws_context *context, void *_loop, int tsi)
 	lwsl_info(" libev backend: %s\n", backend_name);
 	(void)backend_name;
 
-	ev_timer_init(&pt->ev.hrtimer, lws_ev_hrtimer_cb, 0, 0);
-	pt->ev.hrtimer.data = pt;
+	ev_timer_init(&ptpr->hrtimer, lws_ev_hrtimer_cb, 0, 0);
+	ptpr->hrtimer.data = pt;
 
-	ev_idle_init(&pt->ev.idle, lws_ev_idle_cb);
+	ev_idle_init(&ptpr->idle, lws_ev_idle_cb);
 
 	return status;
 }
@@ -224,21 +240,23 @@ static void
 elops_destroy_pt_ev(struct lws_context *context, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
+	struct lws_pt_eventlibs_libev *ptpr = pt_to_priv_ev(pt);
 	struct lws_vhost *vh = context->vhost_list;
 
 	while (vh) {
 		if (vh->lserv_wsi)
-			ev_io_stop(pt->ev.io_loop, &vh->w_accept.ev.watcher);
+			ev_io_stop(ptpr->io_loop,
+				   &vh_to_priv_ev(vh)->w_accept.watcher);
 		vh = vh->vhost_next;
 	}
 
 	/* static assets */
 
-	ev_timer_stop(pt->ev.io_loop, &pt->ev.hrtimer);
-	ev_idle_stop(pt->ev.io_loop, &pt->ev.idle);
+	ev_timer_stop(ptpr->io_loop, &ptpr->hrtimer);
+	ev_idle_stop(ptpr->io_loop, &ptpr->idle);
 
 	if (!pt->event_loop_foreign)
-		ev_signal_stop(pt->ev.io_loop, &pt->w_sigint.ev.watcher);
+		ev_signal_stop(ptpr->io_loop, &ptpr->w_sigint.watcher);
 }
 
 static int
@@ -250,7 +268,7 @@ elops_init_context_ev(struct lws_context *context,
 	context->eventlib_signal_cb = info->signal_cb;
 
 	for (n = 0; n < context->count_threads; n++)
-		context->pt[n].w_sigint.context = context;
+		pt_to_priv_ev(&context->pt[n])->w_sigint.context = context;
 
 	return 0;
 }
@@ -258,18 +276,21 @@ elops_init_context_ev(struct lws_context *context,
 static int
 elops_accept_ev(struct lws *wsi)
 {
+	struct lws_wsi_eventlibs_libev *w = wsi_to_priv_ev(wsi);
 	int fd;
+
+	lwsl_notice("%s\n", __func__);
 
 	if (wsi->role_ops->file_handle)
 		fd = wsi->desc.filefd;
 	else
 		fd = wsi->desc.sockfd;
 
-	wsi->w_read.context = wsi->a.context;
-	wsi->w_write.context = wsi->a.context;
+	w->w_read.context = wsi->a.context;
+	w->w_write.context = wsi->a.context;
 
-	ev_io_init(&wsi->w_read.ev.watcher, lws_accept_cb, fd, EV_READ);
-	ev_io_init(&wsi->w_write.ev.watcher, lws_accept_cb, fd, EV_WRITE);
+	ev_io_init(&w->w_read.watcher, lws_accept_cb, fd, EV_READ);
+	ev_io_init(&w->w_write.watcher, lws_accept_cb, fd, EV_WRITE);
 
 	return 0;
 }
@@ -278,8 +299,14 @@ static void
 elops_io_ev(struct lws *wsi, int flags)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	struct lws_pt_eventlibs_libev *ptpr = pt_to_priv_ev(pt);
+	struct lws_wsi_eventlibs_libev *w = wsi_to_priv_ev(wsi);
 
-	if (!pt->ev.io_loop || pt->is_destroyed)
+	lwsl_notice("%s: wsi %p %s flags 0x%x %p %d\n", __func__,
+				wsi, wsi->role_ops->name, flags,
+				ptpr->io_loop, pt->is_destroyed);
+
+	if (!ptpr->io_loop || pt->is_destroyed)
 		return;
 
 	assert((flags & (LWS_EV_START | LWS_EV_STOP)) &&
@@ -287,14 +314,14 @@ elops_io_ev(struct lws *wsi, int flags)
 
 	if (flags & LWS_EV_START) {
 		if (flags & LWS_EV_WRITE)
-			ev_io_start(pt->ev.io_loop, &wsi->w_write.ev.watcher);
+			ev_io_start(ptpr->io_loop, &w->w_write.watcher);
 		if (flags & LWS_EV_READ)
-			ev_io_start(pt->ev.io_loop, &wsi->w_read.ev.watcher);
+			ev_io_start(ptpr->io_loop, &w->w_read.watcher);
 	} else {
 		if (flags & LWS_EV_WRITE)
-			ev_io_stop(pt->ev.io_loop, &wsi->w_write.ev.watcher);
+			ev_io_stop(ptpr->io_loop, &w->w_write.watcher);
 		if (flags & LWS_EV_READ)
-			ev_io_stop(pt->ev.io_loop, &wsi->w_read.ev.watcher);
+			ev_io_stop(ptpr->io_loop, &w->w_read.watcher);
 	}
 
 	if (pt->destroy_self)
@@ -304,14 +331,15 @@ elops_io_ev(struct lws *wsi, int flags)
 static void
 elops_run_pt_ev(struct lws_context *context, int tsi)
 {
-	if (context->pt[tsi].ev.io_loop)
-		ev_run(context->pt[tsi].ev.io_loop, 0);
+	if (pt_to_priv_ev(&context->pt[tsi])->io_loop)
+		ev_run(pt_to_priv_ev(&context->pt[tsi])->io_loop, 0);
 }
 
 static int
 elops_destroy_context2_ev(struct lws_context *context)
 {
 	struct lws_context_per_thread *pt;
+	struct lws_pt_eventlibs_libev *ptpr;
 	int n, m;
 
 	lwsl_debug("%s\n", __func__);
@@ -320,21 +348,22 @@ elops_destroy_context2_ev(struct lws_context *context)
 		int budget = 1000;
 
 		pt = &context->pt[n];
+		ptpr = pt_to_priv_ev(pt);
 
 		/* only for internal loops... */
 
-		if (pt->event_loop_foreign || !pt->ev.io_loop)
+		if (pt->event_loop_foreign || !ptpr->io_loop)
 			continue;
 
 		if (!context->finalize_destroy_after_internal_loops_stopped) {
-			ev_break(pt->ev.io_loop, EVBREAK_ONE);
+			ev_break(ptpr->io_loop, EVBREAK_ONE);
 			continue;
 		}
 		while (budget-- &&
-		       (m = ev_run(pt->ev.io_loop, 0)))
+		       (m = ev_run(ptpr->io_loop, 0)))
 			;
 
-		ev_loop_destroy(pt->ev.io_loop);
+		ev_loop_destroy(ptpr->io_loop);
 	}
 
 	return 0;
@@ -343,6 +372,7 @@ elops_destroy_context2_ev(struct lws_context *context)
 static int
 elops_init_vhost_listen_wsi_ev(struct lws *wsi)
 {
+	struct lws_wsi_eventlibs_libev *w;
 	int fd;
 
 	if (!wsi) {
@@ -350,16 +380,17 @@ elops_init_vhost_listen_wsi_ev(struct lws *wsi)
 		return 0;
 	}
 
-	wsi->w_read.context = wsi->a.context;
-	wsi->w_write.context = wsi->a.context;
+	w = wsi_to_priv_ev(wsi);
+	w->w_read.context = wsi->a.context;
+	w->w_write.context = wsi->a.context;
 
 	if (wsi->role_ops->file_handle)
 		fd = wsi->desc.filefd;
 	else
 		fd = wsi->desc.sockfd;
 
-	ev_io_init(&wsi->w_read.ev.watcher, lws_accept_cb, fd, EV_READ);
-	ev_io_init(&wsi->w_write.ev.watcher, lws_accept_cb, fd, EV_WRITE);
+	ev_io_init(&w->w_read.watcher, lws_accept_cb, fd, EV_READ);
+	//ev_io_init(&w->w_write.watcher, lws_accept_cb, fd, EV_WRITE);
 
 	elops_io_ev(wsi, LWS_EV_START | LWS_EV_READ);
 
@@ -370,12 +401,14 @@ static void
 elops_destroy_wsi_ev(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	struct lws_pt_eventlibs_libev *ptpr = pt_to_priv_ev(pt);
+	struct lws_wsi_eventlibs_libev *w = wsi_to_priv_ev(wsi);
 
-	ev_io_stop(pt->ev.io_loop, &wsi->w_read.ev.watcher);
-	ev_io_stop(pt->ev.io_loop, &wsi->w_write.ev.watcher);
+	ev_io_stop(ptpr->io_loop, &w->w_read.watcher);
+	ev_io_stop(ptpr->io_loop, &w->w_write.watcher);
 }
 
-struct lws_event_loop_ops event_loop_ops_ev = {
+static const struct lws_event_loop_ops event_loop_ops_ev = {
 	/* name */			"libev",
 	/* init_context */		elops_init_context_ev,
 	/* destroy_context1 */		NULL,
@@ -392,4 +425,22 @@ struct lws_event_loop_ops event_loop_ops_ev = {
 	/* destroy wsi */		elops_destroy_wsi_ev,
 
 	/* flags */			0,
+
+	/* evlib_size_ctx */	0,
+	/* evlib_size_pt */	sizeof(struct lws_pt_eventlibs_libev),
+	/* evlib_size_vh */	sizeof(struct lws_vh_eventlibs_libev),
+	/* evlib_size_wsi */	sizeof(struct lws_wsi_eventlibs_libev),
+};
+
+#if defined(LWS_WITH_EVLIB_PLUGINS)
+LWS_VISIBLE
+#endif
+const lws_plugin_evlib_t evlib_ev = {
+	.hdr = {
+		"libev event loop",
+		"lws_evlib_plugin",
+		LWS_PLUGIN_API_MAGIC
+	},
+
+	.ops	= &event_loop_ops_ev
 };

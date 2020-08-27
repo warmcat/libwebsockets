@@ -167,7 +167,8 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd);
  * APIs specific to libuv event loop itegration
  */
 ///@{
-#ifdef LWS_WITH_LIBUV
+#if defined(LWS_WITH_LIBUV) && defined(UV_ERRNO_MAP)
+
 /*
  * Any direct libuv allocations in lws protocol handlers must participate in the
  * lws reference counting scheme.  Two apis are provided:

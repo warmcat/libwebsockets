@@ -27,7 +27,8 @@
 #endif
 #include "private-lib-core.h"
 
-#if defined(LWS_WITH_PLUGINS) && (UV_VERSION_MAJOR > 0)
+#if (defined(LWS_WITH_PLUGINS) || defined(LWS_WITH_EVLIB_PLUGINS)) && \
+						(UV_VERSION_MAJOR > 0)
 
 const lws_plugin_header_t *
 lws_plat_dlopen(struct lws_plugin **pplugin, const char *libpath,
@@ -116,11 +117,13 @@ protocol_plugin_cb(struct lws_plugin *pin, void *each_user)
 
 	return 0;
 }
+#endif
 
 int
 lws_plat_plugins_init(struct lws_context *context, const char * const *d)
 {
-#if defined(LWS_WITH_PLUGINS) && (UV_VERSION_MAJOR > 0)
+#if (defined(LWS_WITH_PLUGINS) || defined(LWS_WITH_EVLIB_PLUGINS)) && \
+						(UV_VERSION_MAJOR > 0)
 	if (info->plugin_dirs) {
 		uv_loop_init(&context->uv.loop);
 		lws_plugins_init(&context->plugin_list, info->plugin_dirs,
@@ -135,7 +138,8 @@ lws_plat_plugins_init(struct lws_context *context, const char * const *d)
 int
 lws_plat_plugins_destroy(struct lws_context * context)
 {
-#if defined(LWS_WITH_PLUGINS) && (UV_VERSION_MAJOR > 0)
+#if (defined(LWS_WITH_PLUGINS) || defined(LWS_WITH_EVLIB_PLUGINS)) && \
+						(UV_VERSION_MAJOR > 0)
 	if (lws_check_opt(context->options, LWS_SERVER_OPTION_LIBUV) &&
 	    context->plugin_list) {
 		lws_plugins_destroy(&context->plugin_list, NULL, NULL);

@@ -850,8 +850,7 @@ _lws_generic_transaction_completed_active_conn(struct lws **_wsi, char take_vh_l
 	 * new guy and snuff out the old guy's magic spark at that level as well
 	 */
 
-#if defined(LWS_WITH_LIBEV) || defined(LWS_WITH_LIBUV) || \
-    defined(LWS_WITH_LIBEVENT) || defined(LWS_WITH_GLIB)
+#if defined(LWS_WITH_EVENT_LIBS)
 	if (wsi->a.context->event_loop_ops->destroy_wsi)
 		wsi->a.context->event_loop_ops->destroy_wsi(wsi);
 	if (wsi->a.context->event_loop_ops->sock_accept)

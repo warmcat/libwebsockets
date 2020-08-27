@@ -331,6 +331,22 @@ static const char * const opts_str =
 
 #endif
 
+#if defined(LWS_WITH_EVLIB_PLUGINS) && defined(LWS_WITH_EVENT_LIBS)
+static const struct lws_evlib_map {
+	uint64_t	flag;
+	const char	*name;
+} map[] = {
+	{ LWS_SERVER_OPTION_LIBUV,    "evlib_uv" },
+	{ LWS_SERVER_OPTION_LIBEVENT, "evlib_event" },
+	{ LWS_SERVER_OPTION_GLIB,     "evlib_glib" },
+	{ LWS_SERVER_OPTION_LIBEV,    "evlib_ev" },
+};
+static const char * const dlist[] = {
+	LWS_INSTALL_LIBDIR,
+	NULL
+};
+#endif
+
 struct lws_context *
 lws_create_context(const struct lws_context_creation_info *info)
 {
@@ -360,6 +376,10 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 		size = sizeof(struct lws_context);
 	int n, lpf = info->fd_limit_per_thread;
+	const lws_plugin_evlib_t *plev = NULL;
+#if defined(LWS_WITH_EVLIB_PLUGINS) && defined(LWS_WITH_EVENT_LIBS)
+	struct lws_plugin		*evlib_plugin_list = NULL;
+#endif
 
 	if (lpf) {
 		lpf+= 2;
@@ -407,6 +427,102 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if !defined(LWS_PLAT_FREERTOS)
 	size += (count_threads * sizeof(struct lws));
 #endif
+#endif /* network */
+
+#if defined(LWS_WITH_POLL)
+	{
+		extern const lws_plugin_evlib_t evlib_poll;
+		plev = &evlib_poll;
+	}
+#endif
+
+#if defined(LWS_WITH_EVLIB_PLUGINS) && defined(LWS_WITH_EVENT_LIBS)
+
+	/*
+	 * New style dynamically loaded event lib support
+	 *
+	 * We have to pick and load the event lib plugin before we allocate
+	 * the context object, so we can overallocate it correctly
+	 */
+
+	lwsl_info("%s: ev lib path %s\n", __func__, LWS_INSTALL_LIBDIR);
+
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(map); n++) {
+		if (!lws_check_opt(info->options, map[n].flag))
+			continue;
+
+		if (lws_plugins_init(&evlib_plugin_list,
+				     dlist, "lws_evlib_plugin",
+				     map[n].name, NULL, NULL)) {
+			lwsl_err("%s: failed to load %s\n", __func__,
+					map[n].name);
+			goto bail;
+		}
+
+		if (!evlib_plugin_list) {
+			lwsl_err("%s: unable to load evlib plugin %s\n",
+					__func__, map[n].name);
+
+			goto bail;
+		}
+		plev = (const lws_plugin_evlib_t *)evlib_plugin_list->hdr;
+		break;
+	}
+#else
+#if defined(LWS_WITH_EVENT_LIBS)
+	/*
+	 * set the context event loops ops struct
+	 *
+	 * after this, all event_loop actions use the generic ops
+	 */
+
+	/*
+	 * oldstyle built-in event lib support
+	 *
+	 * We have composed them into the libwebsockets lib itself, we can
+	 * just pick the ops we want and done
+	 */
+
+#if defined(LWS_WITH_LIBUV)
+	if (lws_check_opt(info->options, LWS_SERVER_OPTION_LIBUV)) {
+		extern const lws_plugin_evlib_t evlib_uv;
+		plev = &evlib_uv;
+	}
+#endif
+
+#if defined(LWS_WITH_LIBEVENT)
+	if (lws_check_opt(info->options, LWS_SERVER_OPTION_LIBEVENT)) {
+		extern const lws_plugin_evlib_t evlib_event;
+		plev = &evlib_event;
+	}
+#endif
+
+#if defined(LWS_WITH_GLIB)
+	if (lws_check_opt(info->options, LWS_SERVER_OPTION_GLIB)) {
+		extern const lws_plugin_evlib_t evlib_glib;
+		plev = &evlib_glib;
+	}
+#endif
+
+#if defined(LWS_WITH_LIBEV)
+	if (lws_check_opt(info->options, LWS_SERVER_OPTION_LIBEV)) {
+		extern const lws_plugin_evlib_t evlib_ev;
+		plev = &evlib_ev;
+	}
+#endif
+
+#endif /* with event libs */
+
+#endif /* not with ev plugins */
+
+	if (!plev)
+		goto fail_event_libs;
+
+#if defined(LWS_WITH_NETWORK)
+	size += plev->ops->evlib_size_ctx /* the ctx evlib priv */ +
+		(count_threads * plev->ops->evlib_size_pt) /* the pt evlib priv */;
+
+	lwsl_info("Event loop: %s\n", plev->ops->name);
 #endif
 
 	context = lws_zalloc(size, "context");
@@ -414,6 +530,18 @@ lws_create_context(const struct lws_context_creation_info *info)
 		lwsl_err("No memory for websocket context\n");
 		return NULL;
 	}
+
+#if defined(LWS_WITH_NETWORK)
+	context->event_loop_ops = plev->ops;
+#endif
+#if defined(LWS_WITH_EVENT_LIBS)
+	/* at the very end */
+	context->evlib_ctx = (uint8_t *)context + size -
+					plev->ops->evlib_size_ctx;
+#endif
+#if defined(LWS_WITH_EVLIB_PLUGINS) && defined(LWS_WITH_EVENT_LIBS)
+	context->evlib_plugin_list = evlib_plugin_list;
+#endif
 
 #if !defined(LWS_PLAT_FREERTOS)
 	context->uid = info->uid;
@@ -460,7 +588,7 @@ lws_create_context(const struct lws_context_creation_info *info)
         if (info->extensions)
                 lwsl_warn("%s: LWS_WITHOUT_EXTENSIONS but extensions ptr set\n", __func__);
 #endif
-#endif
+#endif /* network */
 
 #if defined(LWS_WITH_SECURE_STREAMS)
 #if !defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
@@ -603,52 +731,9 @@ lws_create_context(const struct lws_context_creation_info *info)
 	}
 
 #if defined(LWS_WITH_NETWORK)
-
 	context->token_limits = info->token_limits;
-
-	/*
-	 * set the context event loops ops struct
-	 *
-	 * after this, all event_loop actions use the generic ops
-	 */
-
-#if defined(LWS_WITH_POLL)
-	context->event_loop_ops = &event_loop_ops_poll;
 #endif
 
-	if (lws_check_opt(context->options, LWS_SERVER_OPTION_LIBUV))
-#if defined(LWS_WITH_LIBUV)
-		context->event_loop_ops = &event_loop_ops_uv;
-#else
-		goto fail_event_libs;
-#endif
-
-	if (lws_check_opt(context->options, LWS_SERVER_OPTION_LIBEV))
-#if defined(LWS_WITH_LIBEV)
-		context->event_loop_ops = &event_loop_ops_ev;
-#else
-		goto fail_event_libs;
-#endif
-
-	if (lws_check_opt(context->options, LWS_SERVER_OPTION_LIBEVENT))
-#if defined(LWS_WITH_LIBEVENT)
-		context->event_loop_ops = &event_loop_ops_event;
-#else
-		goto fail_event_libs;
-#endif
-
-	if (lws_check_opt(context->options, LWS_SERVER_OPTION_GLIB))
-#if defined(LWS_WITH_GLIB)
-		context->event_loop_ops = &event_loop_ops_glib;
-#else
-		goto fail_event_libs;
-#endif
-
-	if (!context->event_loop_ops)
-		goto fail_event_libs;
-
-	lwsl_info("Using event loop: %s\n", context->event_loop_ops->name);
-#endif
 
 #if defined(LWS_WITH_TLS) && defined(LWS_WITH_NETWORK)
 	time(&context->tls.last_cert_check_s);
@@ -728,7 +813,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	}
 #endif
 
-n = 0;
+	n = 0;
 #if defined(LWS_WITH_NETWORK)
 
 	context->default_retry.retry_ms_table = default_backoff_table;
@@ -771,6 +856,11 @@ n = 0;
 		u += sizeof(struct lws);
 
 		memset(context->pt[n].fake_wsi, 0, sizeof(struct lws));
+#endif
+
+#if defined(LWS_WITH_EVENT_LIBS)
+		context->pt[n].evlib_pt = u;
+		u += plev->ops->evlib_size_pt;
 #endif
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
@@ -1100,19 +1190,9 @@ bail:
 
 	return NULL;
 
-#if defined(LWS_WITH_NETWORK)
 fail_event_libs:
-	lwsl_err("Requested event library support not configured, available:\n");
-	{
-		extern const struct lws_event_loop_ops *available_event_libs[];
-		const struct lws_event_loop_ops **elops = available_event_libs;
+	lwsl_err("Requested event library support not configured\n");
 
-		while (*elops) {
-			lwsl_err("  - %s\n", (*elops)->name);
-			elops++;
-		}
-	}
-#endif
 	lws_free(context);
 
 	return NULL;
@@ -1281,6 +1361,11 @@ lws_context_destroy3(struct lws_context *context)
 		context->deferred_free_list = df->next;
 		lws_free(df);
 	};
+
+#if defined(LWS_WITH_EVLIB_PLUGINS) && defined(LWS_WITH_EVENT_LIBS)
+	if (context->evlib_plugin_list)
+		lws_plugins_destroy(&context->evlib_plugin_list, NULL, NULL);
+#endif
 
 	lws_free(context);
 	lwsl_debug("%s: ctx %p freed\n", __func__, context);

@@ -396,7 +396,7 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		/* provide a hint about the payload size */
 		m->pos = 0;
 		m->len = strlen(postbody);
-		lws_ss_request_tx_len(m->ss, strlen(postbody));
+		lws_ss_request_tx_len(m->ss, (unsigned long)strlen(postbody));
 		break;
 	case LWSSSCS_CONNECTED:
 		lws_ss_request_tx(m->ss);

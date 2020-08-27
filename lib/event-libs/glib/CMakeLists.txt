@@ -52,13 +52,24 @@ endif()
 message("glib include dir: ${GLIB_INCLUDE_DIRS}")
 message("glib libraries: ${GLIB_LIBRARIES}")
 include_directories("${GLIB_INCLUDE_DIRS}")
-list(APPEND LIB_LIST ${GLIB_LIBRARIES})
 
-if (LWS_WITH_NETWORK)
-	list(APPEND SOURCES
-		event-libs/glib/glib.c)
+if (LWS_WITH_EVLIB_PLUGINS)
+
+	create_evlib_plugin(evlib_glib
+			    glib.c
+			    private-lib-event-libs-glib.h
+			    ${GLIB_LIBRARIES})
+
+else()
+
+	list(APPEND LIB_LIST ${GLIB_LIBRARIES})
+	
+	if (LWS_WITH_NETWORK)
+		list(APPEND SOURCES
+			event-libs/glib/glib.c)
+	endif()
+
 endif()
-
 #
 # Keep explicit parent scope exports at end
 #

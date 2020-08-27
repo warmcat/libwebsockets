@@ -190,21 +190,17 @@ typedef unsigned long long lws_intptr_t;
 #endif
 #endif
 
-#if defined(LWS_WITH_LIBEV)
-#include <ev.h>
-#endif /* LWS_WITH_LIBEV */
-#ifdef LWS_WITH_LIBUV
+#if defined(LWS_WITH_LIBUV_INTERNAL)
 #include <uv.h>
+
 #ifdef LWS_HAVE_UV_VERSION_H
 #include <uv-version.h>
 #endif
+
 #ifdef LWS_HAVE_NEW_UV_VERSION_H
 #include <uv/version.h>
 #endif
-#endif /* LWS_WITH_LIBUV */
-#if defined(LWS_WITH_LIBEVENT)
-#include <event2/event.h>
-#endif /* LWS_WITH_LIBEVENT */
+#endif
 
 #if defined(LWS_WITH_TLS)
 
@@ -610,6 +606,7 @@ struct lws;
 
 #endif
 
+#include <libwebsockets/lws-eventlib-exports.h>
 #include <libwebsockets/lws-i2c.h>
 #include <libwebsockets/lws-spi.h>
 #include <libwebsockets/lws-gpio.h>

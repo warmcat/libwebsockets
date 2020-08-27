@@ -194,8 +194,6 @@ lws_pvo_get_str(void *in, const char *name, const char **result);
 LWS_VISIBLE LWS_EXTERN int
 lws_protocol_init(struct lws_context *context);
 
-#ifdef LWS_WITH_PLUGINS
-
 #define LWS_PLUGIN_API_MAGIC 190
 
 /*
@@ -244,7 +242,7 @@ struct lws_plugin {
 	const lws_plugin_header_t *hdr;
 
 	union {
-#if defined(LWS_WITH_LIBUV)
+#if defined(LWS_WITH_LIBUV) && defined(UV_ERRNO_MAP)
 #if (UV_VERSION_MAJOR > 0)
 		uv_lib_t lib; /**< shared library pointer */
 #endif
@@ -252,6 +250,16 @@ struct lws_plugin {
 		void *l; /**<  */
 	} u;
 };
+
+/*
+ * Event lib library plugin type (when LWS_WITH_EVLIB_PLUGINS)
+ * Public so new event libs can equally be supported outside lws itself
+ */
+
+typedef struct lws_plugin_evlib {
+	lws_plugin_header_t hdr;
+	const struct lws_event_loop_ops *ops;
+} lws_plugin_evlib_t;
 
 typedef int (*each_plugin_cb_t)(struct lws_plugin *p, void *user);
 
@@ -297,6 +305,5 @@ lws_plugins_init(struct lws_plugin **pplugin, const char * const *d,
 LWS_VISIBLE LWS_EXTERN int
 lws_plugins_destroy(struct lws_plugin **pplugin, each_plugin_cb_t each,
 		    void *each_user);
-#endif
 
 ///@}

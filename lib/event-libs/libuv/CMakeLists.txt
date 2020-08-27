@@ -47,7 +47,6 @@ message("libuv include dir: ${LIBUV_INCLUDE_DIRS}")
 message("libuv libraries: ${LIBUV_LIBRARIES}")
 
 include_directories("${LIBUV_INCLUDE_DIRS}")
-list(APPEND LIB_LIST ${LIBUV_LIBRARIES})
 
 CHECK_INCLUDE_FILE(uv-version.h LWS_HAVE_UV_VERSION_H)
   # libuv changed the location in 1.21.0. Retain both
@@ -55,11 +54,27 @@ CHECK_INCLUDE_FILE(uv-version.h LWS_HAVE_UV_VERSION_H)
   if (NOT LWS_HAVE_UV_VERSION_H)
     CHECK_INCLUDE_FILE(uv/version.h LWS_HAVE_NEW_UV_VERSION_H)
   endif()
+  
+  if (LWS_WITH_EVLIB_PLUGINS AND LWS_WITH_LIBUV)
 
-if (LWS_WITH_NETWORK)
-	list(APPEND SOURCES
-		event-libs/libuv/libuv.c)
-endif()
+	create_evlib_plugin(evlib_uv
+			    libuv.c
+			    private-lib-event-libs-libuv.h
+			    ${LIBUV_LIBRARIES})
+   endif()
+
+   # wanting libuv in the library is a separate question than
+   # wanting libuv as a selectable event loop plugin
+   # we only came here because LWS_WITH_LIBUV or LWS_WITH_LIBUV_INTERNAL
+
+  if ((NOT LWS_WITH_EVLIB_PLUGINS) OR LWS_WITH_LIBUV_INTERNAL)
+	list(APPEND LIB_LIST ${LIBUV_LIBRARIES})
+
+	if (LWS_WITH_NETWORK)
+		list(APPEND SOURCES
+			event-libs/libuv/libuv.c)
+	endif()
+  endif()
 
 #
 # Keep explicit parent scope exports at end

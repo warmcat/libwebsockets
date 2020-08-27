@@ -199,8 +199,9 @@ myss_srv_state(void *userobj, void *sh, lws_ss_constate_t state,
 		/*
 		 * ...it's going to be whatever size it is (and request tx)
 		 */
-		lws_ss_request_tx_len(m->ss, multipart ? strlen(multipart_html) :
-							 strlen(html));
+		lws_ss_request_tx_len(m->ss, (unsigned long)
+				(multipart ? strlen(multipart_html) :
+							 strlen(html)));
 		break;
 
 	case LWSSSCS_SERVER_UPGRADE:

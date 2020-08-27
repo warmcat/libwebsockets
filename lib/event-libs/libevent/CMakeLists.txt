@@ -40,18 +40,29 @@ endif()
 message("libevent include dir: ${LIBEVENT_INCLUDE_DIRS}")
 message("libevent libraries: ${LIBEVENT_LIBRARIES}")
 include_directories("${LIBEVENT_INCLUDE_DIRS}")
-list(APPEND LIB_LIST ${LIBEVENT_LIBRARIES})
 
 if ("${LWS_LIBEVENT_LIBRARIES}" STREQUAL "" OR "${LWS_LIBEVENT_INCLUDE_DIRS}" STREQUAL "")
 else()
 	set(LIBEVENT_LIBRARIES ${LWS_LIBEVENT_LIBRARIES})
 	set(LIBEVENT_INCLUDE_DIRS ${LWS_LIBEVENT_INCLUDE_DIRS})
-	set(LIBEVENT_FOUND 1 PARENT_SCOPE)
 endif()
 
-if (LWS_WITH_NETWORK)
-	list(APPEND SOURCES
-		event-libs/libevent/libevent.c)
+
+if (LWS_WITH_EVLIB_PLUGINS)
+
+	create_evlib_plugin(evlib_event
+			    libevent.c
+			    private-lib-event-libs-libevent.h
+			    ${LIBEVENT_LIBRARIES})
+
+else()
+
+	list(APPEND LIB_LIST ${LIBEVENT_LIBRARIES})
+	set(LIBEVENT_FOUND 1 PARENT_SCOPE)
+	if (LWS_WITH_NETWORK)
+		list(APPEND SOURCES
+			event-libs/libevent/libevent.c)
+	endif()
 endif()
 
 #

@@ -153,6 +153,13 @@ option(LWS_WITH_LIBUV "Compile with support for libuv" OFF)
 option(LWS_WITH_LIBEVENT "Compile with support for libevent" OFF)
 option(LWS_WITH_GLIB "Compile with support for glib event loop" OFF)
 
+if (UNIX)
+# since v4.1, on unix platforms default is build any event libs as runtime plugins
+option(LWS_WITH_EVLIB_PLUGINS "Compile event lib support into runtime-selected plugins" ON)
+else()
+# otherwise default to linking the event lib(s) to libwebsockets.so
+option(LWS_WITH_EVLIB_PLUGINS "Compile event lib support into runtime-selected plugins" OFF)
+endif()
 #
 # LWS Drivers
 #
@@ -353,15 +360,19 @@ set(VERSION "${CPACK_PACKAGE_VERSION}")
 
 set(CPACK_RPM_PACKAGE_RELEASE_DIST ON)
 set(CPACK_RPM_FILE_NAME "RPM-DEFAULT")
-set(CPACK_RPM_DEBUGINFO_PACKAGE ON)
+# below makes path length problems in CI
+set(CPACK_RPM_DEBUGINFO_PACKAGE OFF)
 # below makes some kind of chimera rpm with binaries and sources
 set(CPACK_RPM_PACKAGE_SOURCES OFF)
 set(CPACK_RPM_INSTALL_WITH_EXEC ON)
+set(CPACK_RPM_COMPONENT_INSTALL ON)
 
 set(CPACK_DEBIAN_FILE_NAME "DEB-DEFAULT")
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
 set(CPACK_DEBIAN_DEBUGINFO_PACKAGE ON)
 set(CPACK_DEBIAN_PACKAGE_SOURCE ON)
+set(CPACK_DEBIAN_COMPONENT_INSTALL ON)
+
 
 set(LWS_LIBRARY_VERSION ${CPACK_PACKAGE_VERSION})
 set(LWS_LIBRARY_VERSION_MAJOR ${CPACK_PACKAGE_VERSION_MAJOR})
@@ -916,9 +927,9 @@ endif()
 export(PACKAGE libwebsockets)
 
 install(DIRECTORY include/libwebsockets
-	DESTINATION "${LWS_INSTALL_INCLUDE_DIR}" COMPONENT dev_headers)
+	DESTINATION "${LWS_INSTALL_INCLUDE_DIR}" COMPONENT dev)
 install(FILES ${PROJECT_BINARY_DIR}/include/libwebsockets.h ${PROJECT_BINARY_DIR}/include/lws_config.h
-	DESTINATION "${LWS_INSTALL_INCLUDE_DIR}" COMPONENT dev_headers)
+	DESTINATION "${LWS_INSTALL_INCLUDE_DIR}" COMPONENT dev)
 
 # Generate the config file for the installation tree.
 get_filename_component(LWS_ABSOLUTE_INSTALL_CMAKE_DIR ${LWS_INSTALL_CMAKE_DIR} ABSOLUTE)

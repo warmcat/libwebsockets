@@ -271,10 +271,21 @@ done_list:
 			goto deal;
 		}
 
-		wsi = lws_zalloc(sizeof(struct lws), "listen wsi");
-		if (wsi == NULL) {
-			lwsl_err("Out of mem\n");
-			goto bail;
+		{
+			size_t s = sizeof(struct lws);
+
+#if defined(LWS_WITH_EVENT_LIBS)
+			s += vhost->context->event_loop_ops->evlib_size_wsi;
+#endif
+
+			wsi = lws_zalloc(s, "listen wsi");
+			if (wsi == NULL) {
+				lwsl_err("Out of mem\n");
+				goto bail;
+			}
+#if defined(LWS_WITH_EVENT_LIBS)
+			wsi->evlib_wsi = (uint8_t *)wsi + sizeof(*wsi);
+#endif
 		}
 
 #ifdef LWS_WITH_UNIX_SOCK

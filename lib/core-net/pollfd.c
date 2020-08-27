@@ -27,8 +27,7 @@
 int
 _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 {
-#if !defined(LWS_WITH_LIBUV) && !defined(LWS_WITH_LIBEV) && \
-    !defined(LWS_WITH_LIBEVENT) && !defined(LWS_WITH_GLIB)
+#if !defined(LWS_WITH_EVENT_LIBS)
 	volatile struct lws_context_per_thread *vpt;
 #endif
 	struct lws_context_per_thread *pt;
@@ -72,8 +71,7 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 
 	assert(wsi->position_in_fds_table < (int)pt->fds_count);
 
-#if !defined(LWS_WITH_LIBUV) && !defined(LWS_WITH_LIBEV) && \
-    !defined(LWS_WITH_LIBEVENT) && !defined(LWS_WITH_GLIB)
+#if !defined(LWS_WITH_EVENT_LIBS)
 	/*
 	 * This only applies when we use the default poll() event loop.
 	 *

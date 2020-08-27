@@ -80,6 +80,7 @@ lws_sul_plat_unix(lws_sorted_usec_list_t *sul)
 }
 #endif
 
+#if defined(LWS_WITH_PLUGINS)
 static int
 protocol_plugin_cb(struct lws_plugin *pin, void *each_user)
 {
@@ -92,6 +93,7 @@ protocol_plugin_cb(struct lws_plugin *pin, void *each_user)
 
 	return 0;
 }
+#endif
 
 int
 lws_plat_init(struct lws_context *context,

@@ -40,7 +40,6 @@ endif()
 message("libev include dir: ${LIBEV_INCLUDE_DIRS}")
 message("libev libraries: ${LIBEV_LIBRARIES}")
 include_directories("${LIBEV_INCLUDE_DIRS}")
-list(APPEND LIB_LIST ${LIBEV_LIBRARIES})
 
 if ("${LWS_LIBEV_LIBRARIES}" STREQUAL "" OR "${LWS_LIBEV_INCLUDE_DIRS}" STREQUAL "")
 else()
@@ -48,13 +47,26 @@ else()
 	set(LIBEV_INCLUDE_DIRS ${LWS_LIBEV_INCLUDE_DIRS})
 endif()
 
-list(APPEND SOURCES
-	event-libs/libev/libev.c)
+if (LWS_WITH_EVLIB_PLUGINS)
+
+	create_evlib_plugin(
+		evlib_ev
+		libev.c
+		private-lib-event-libs-libev.h
+		${LIBEV_LIBRARIES})
+
+else()
+
+	list(APPEND LIB_LIST ${LIBEV_LIBRARIES})
+
+	list(APPEND SOURCES
+			event-libs/libev/libev.c)
 # see README.build.md for discussion of why of the supported event libs,
 # only libev cannot cope with -Werror
-set_source_files_properties(event-libs/libev/libev.c
-			    PROPERTIES COMPILE_FLAGS "-Wno-error" )
-			    
+	set_source_files_properties(event-libs/libev/libev.c
+				    PROPERTIES COMPILE_FLAGS "-Wno-error" )
+endif()
+
 set(CMAKE_REQUIRED_LIBRARIES ${LIB_LIST})
 
 CHECK_C_SOURCE_COMPILES(

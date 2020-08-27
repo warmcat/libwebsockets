@@ -780,7 +780,7 @@ done:
 
 		lws_struct_json_init_parse(&ctx, NULL, &a);
 
-		m = lejp_parse(&ctx, (uint8_t *)jig_conf, strlen(jig_conf));
+		m = lejp_parse(&ctx, (uint8_t *)jig_conf, (int)strlen(jig_conf));
 
 		if (m < 0 || !a.dest) {
 			lwsl_err("%s: line %d: JSON decode failed '%s'\n",

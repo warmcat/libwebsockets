@@ -46,22 +46,6 @@ const struct lws_role_ops *available_roles[] = {
 	NULL
 };
 
-const struct lws_event_loop_ops *available_event_libs[] = {
-#if defined(LWS_WITH_POLL)
-	&event_loop_ops_poll,
-#endif
-#if defined(LWS_WITH_LIBUV)
-	&event_loop_ops_uv,
-#endif
-#if defined(LWS_WITH_LIBEVENT)
-	&event_loop_ops_event,
-#endif
-#if defined(LWS_WITH_LIBEV)
-	&event_loop_ops_ev,
-#endif
-	NULL
-};
-
 #if defined(LWS_WITH_ABSTRACT)
 const struct lws_protocols *available_abstract_protocols[] = {
 #if defined(LWS_ROLE_RAW)
@@ -471,8 +455,7 @@ struct lws_vhost *
 lws_create_vhost(struct lws_context *context,
 		 const struct lws_context_creation_info *info)
 {
-	struct lws_vhost *vh = lws_zalloc(sizeof(*vh), "create vhost"),
-			 **vh1 = &context->vhost_list;
+	struct lws_vhost *vh, **vh1 = &context->vhost_list;
 	const struct lws_http_mount *mounts;
 	const struct lws_protocols *pcols = info->protocols;
 #ifdef LWS_WITH_PLUGINS
@@ -490,8 +473,18 @@ lws_create_vhost(struct lws_context *context,
 #endif
 	int n;
 
+
+	vh = lws_zalloc(sizeof(*vh)
+#if defined(LWS_WITH_EVENT_LIBS)
+			+ context->event_loop_ops->evlib_size_vh
+#endif
+			, __func__);
 	if (!vh)
 		return NULL;
+
+#if defined(LWS_WITH_EVENT_LIBS)
+	vh->evlib_vh = (void *)&vh[1];
+#endif
 
 #if LWS_MAX_SMP > 1
 	pthread_mutex_init(&vh->lock, NULL);
@@ -915,6 +908,7 @@ lws_cancel_service(struct lws_context *context)
 int
 lws_create_event_pipes(struct lws_context *context)
 {
+	size_t s = sizeof(struct lws);
 	struct lws *wsi;
 	int n;
 
@@ -932,11 +926,18 @@ lws_create_event_pipes(struct lws_context *context)
 		if (context->pt[n].pipe_wsi)
 			return 0;
 
-		wsi = lws_zalloc(sizeof(*wsi), "event pipe wsi");
+#if defined(LWS_WITH_EVENT_LIBS)
+		s += context->event_loop_ops->evlib_size_wsi;
+#endif
+
+		wsi = lws_zalloc(s, "event pipe wsi");
 		if (!wsi) {
 			lwsl_err("%s: Out of mem\n", __func__);
 			return 1;
 		}
+#if defined(LWS_WITH_EVENT_LIBS)
+		wsi->evlib_wsi = (uint8_t *)wsi + sizeof(*wsi);
+#endif
 		wsi->a.context = context;
 		lws_role_transition(wsi, 0, LRS_UNCONNECTED, &role_ops_pipe);
 		wsi->a.protocol = NULL;

@@ -31,6 +31,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	const char *local = i->protocol;
 	struct lws *wsi, *safe = NULL;
 	const struct lws_protocols *p;
+	size_t s = sizeof(struct lws);
 	const char *cisin[CIS_COUNT];
 	int tid = 0, n, m;
 	size_t size;
@@ -54,9 +55,17 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 
 	/* PHASE 1: create a bare wsi */
 
-	wsi = lws_zalloc(sizeof(struct lws), "client wsi");
+#if defined(LWS_WITH_EVENT_LIBS)
+	s += i->context->event_loop_ops->evlib_size_wsi;
+#endif
+
+	wsi = lws_zalloc(s, "client wsi");
 	if (wsi == NULL)
 		goto bail;
+
+#if defined(LWS_WITH_EVENT_LIBS)
+	wsi->evlib_wsi = (uint8_t *)wsi + sizeof(*wsi);
+#endif
 
 	/*
 	 * Until we exit, we can report connection failure directly to the

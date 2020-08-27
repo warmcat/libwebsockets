@@ -428,22 +428,8 @@ struct lws_context_per_thread {
 #endif
 	/* --- event library based members --- */
 
-#if defined(LWS_WITH_LIBEV)
-	struct lws_pt_eventlibs_libev ev;
-#endif
-#if defined(LWS_WITH_LIBUV)
-	struct lws_pt_eventlibs_libuv uv;
-#endif
-#if defined(LWS_WITH_LIBEVENT)
-	struct lws_pt_eventlibs_libevent event;
-#endif
-#if defined(LWS_WITH_GLIB)
-	struct lws_pt_eventlibs_glib glib;
-#endif
-
-#if defined(LWS_WITH_LIBEV) || defined(LWS_WITH_LIBUV) || \
-    defined(LWS_WITH_LIBEVENT) || defined(LWS_WITH_GLIB)
-	struct lws_signal_watcher w_sigint;
+#if defined(LWS_WITH_EVENT_LIBS)
+	void		*evlib_pt; /* overallocated */
 #endif
 
 #if defined(LWS_WITH_DETAILED_LATENCY)
@@ -530,8 +516,8 @@ struct lws_vhost {
 	char socks_user[96];
 	char socks_password[96];
 #endif
-#if defined(LWS_WITH_LIBEV)
-	struct lws_io_watcher w_accept;
+#if defined(LWS_WITH_EVENT_LIBS)
+	void		*evlib_vh; /* overallocated */
 #endif
 #if defined(LWS_WITH_SERVER_STATUS)
 	struct lws_conn_stats conn_stats;
@@ -719,12 +705,8 @@ struct lws {
 
 	/* lifetime members */
 
-#if defined(LWS_WITH_LIBEV) || defined(LWS_WITH_LIBUV) || \
-    defined(LWS_WITH_LIBEVENT) || defined(LWS_WITH_GLIB)
-	struct lws_io_watcher		w_read;
-#endif
-#if defined(LWS_WITH_LIBEV) || defined(LWS_WITH_LIBEVENT)
-	struct lws_io_watcher		w_write;
+#if defined(LWS_WITH_EVENT_LIBS)
+	void				*evlib_wsi; /* overallocated */
 #endif
 
 #if defined(LWS_WITH_DETAILED_LATENCY)
@@ -1158,6 +1140,7 @@ lws_libuv_closehandle(struct lws *wsi);
 int
 lws_libuv_check_watcher_active(struct lws *wsi);
 
+#if defined(LWS_WITH_EVLIB_PLUGINS) || defined(LWS_WITH_PLUGINS)
 const lws_plugin_header_t *
 lws_plat_dlopen(struct lws_plugin **pplugin, const char *libpath,
 		const char *sofilename, const char *_class,
@@ -1165,6 +1148,7 @@ lws_plat_dlopen(struct lws_plugin **pplugin, const char *libpath,
 
 int
 lws_plat_destroy_dl(struct lws_plugin *p);
+#endif
 
 struct lws *
 lws_adopt_socket_vhost(struct lws_vhost *vh, lws_sockfd_type accept_fd);

@@ -12,7 +12,7 @@
 			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G DEB\";cmake .. ${cmake} && make -j && make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}"
 		},
 		"linux-fedora-32/x86_64-amd/gcc": {
-			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G RPM\";cmake .. ${cmake} && make -j && make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}"
+			"build": "rm -rf build destdir ; mkdir build destdir;cd build;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G RPM\";cmake .. ${cmake} && make -j && make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}"
 		},
 		"linux-gentoo/x86_64-amd/gcc": {
 			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G ZIP\";cmake .. ${cmake} && make -j && make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}"

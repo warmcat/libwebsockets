@@ -86,8 +86,8 @@ if(LWS_WITH_DISTRO_RECOMMENDED)
 	set(LWS_WITH_GLIB 1)				# glib
 	set(LWS_WITH_LIBUV 1)				# libuv
 	set(LWS_WITH_LIBEV 1)				# libev
-	# libev + libevent cannot coexist at build-time
-	set(LWS_WITH_LIBEVENT 0)
+	set(LWS_WITH_LIBEVENT 1)			# libevent
+	set(LWS_WITH_EVLIB_PLUGINS 1)			# event libraries created as plugins / individual packages
 	set(LWS_WITHOUT_EXTENSIONS 0)			# libz
 	set(LWS_ROLE_DBUS 1)				# dbus-related libs
 	set(LWS_WITH_FTS 1)				# selfcontained
@@ -110,6 +110,17 @@ if(LWS_WITH_DISTRO_RECOMMENDED)
 	set(LWS_WITH_SECURE_STREAMS 1)			# selfcontained
 	set(LWS_WITH_SECURE_STREAMS_PROXY_API 1)	# selfcontained
 	set(LWS_WITH_DIR 1)				# selfcontained
+endif()
+
+# LWS_WITH_EVENT_LIBS is set if any event lib selected
+
+if (LWS_WITH_LIBEV OR
+    LWS_WITH_LIBUV OR
+    LWS_WITH_LIBEVENT OR
+    LWS_WITH_GLIB)
+	set(LWS_WITH_EVENT_LIBS 1)
+else()
+	unset(LWS_WITH_EVENT_LIBS)
 endif()
 
 if (LWS_WITH_SECURE_STREAMS_PROXY_API)
@@ -184,10 +195,14 @@ if (NOT LWS_ROLE_WS)
 	set(LWS_WITHOUT_EXTENSIONS 1)
 endif()
 
+unset(LWS_WITH_LIBUV_INTERNAL)
+
 if (LWS_WITH_LWSWS)
  message(STATUS "LWS_WITH_LWSWS --> Enabling LWS_WITH_PLUGINS and LWS_WITH_LIBUV")
  set(LWS_WITH_PLUGINS 1)
  set(LWS_WITH_LIBUV 1)
+ set(LWS_WITH_LIBUV_INTERNAL 1)
+ set(LWS_WITH_EVENT_LIBS 1) # implied by LIBUV_INTERNAL
  set(LWS_WITH_ACCESS_LOG 1)
  set(LWS_WITH_SERVER_STATUS 1)
  set(LWS_WITH_LEJP 1)
@@ -249,6 +264,9 @@ endif()
 
 if (WIN32)
 set(LWS_MAX_SMP 1)
+if (LWS_WITH_PLUGINS)
+set(LWS_WITH_LIBUV_INTERNAL 1)
+endif()
 endif()
 
 if (LWS_WITHOUT_SERVER)
@@ -355,7 +373,7 @@ endif()
 #	set(LWS_WITH_ABSTRACT 1)
 #endif()
 
-if (LWS_WITH_LIBEV AND LWS_WITH_LIBEVENT)
+if (NOT LWS_WITH_EVLIB_PLUGINS AND (LWS_WITH_LIBEV AND LWS_WITH_LIBEVENT))
 	message(FATAL_ERROR "Sorry libev and libevent conflict with each others' namespace, you can only have one or the other")
 endif()
 

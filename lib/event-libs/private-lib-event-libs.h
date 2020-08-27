@@ -60,27 +60,9 @@ struct lws_event_loop_ops {
 	void (*destroy_wsi)(struct lws *wsi);
 
 	uint8_t	flags;
+
+	uint16_t	evlib_size_ctx;
+	uint16_t	evlib_size_pt;
+	uint16_t	evlib_size_vh;
+	uint16_t	evlib_size_wsi;
 };
-
-/* bring in event libs private declarations */
-
-#if defined(LWS_WITH_POLL)
-#include "private-lib-event-libs-poll.h"
-#endif
-
-#if defined(LWS_WITH_LIBUV)
-#include "private-lib-event-libs-libuv.h"
-#endif
-
-#if defined(LWS_WITH_LIBEVENT)
-#include "private-lib-event-libs-libevent.h"
-#endif
-
-#if defined(LWS_WITH_GLIB)
-#include "private-lib-event-libs-glib.h"
-#endif
-
-#if defined(LWS_WITH_LIBEV)
-#include "private-lib-event-libs-libev.h"
-#endif
-

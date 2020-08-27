@@ -72,6 +72,7 @@
 #endif
 
 #include <string.h>
+#include <fcntl.h>
 
 struct per_vhost_data__raw_test {
 	struct lws_context *context;

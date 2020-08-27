@@ -23,6 +23,10 @@
  */
 
 #include "private-lib-core.h"
+#include "private-lib-event-libs-libuv.h"
+
+#define pt_to_priv_uv(_pt) ((struct lws_pt_eventlibs_libuv *)(_pt)->evlib_pt)
+#define wsi_to_priv_uv(_w) ((struct lws_wsi_eventlibs_libuv *)(_w)->evlib_wsi)
 
 static void
 lws_uv_sultimer_cb(uv_timer_t *timer
@@ -31,15 +35,17 @@ lws_uv_sultimer_cb(uv_timer_t *timer
 #endif
 )
 {
-	struct lws_context_per_thread *pt = lws_container_of(timer,
-				struct lws_context_per_thread, uv.sultimer);
+	struct lws_pt_eventlibs_libuv *ptpr = lws_container_of(timer,
+				struct lws_pt_eventlibs_libuv, sultimer);
+	struct lws_context_per_thread *pt = lws_container_of(ptpr,
+				struct lws_context_per_thread, evlib_pt);
 	lws_usec_t us;
 
 	lws_pt_lock(pt, __func__);
 	us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
 				    lws_now_usecs());
 	if (us)
-		uv_timer_start(&pt->uv.sultimer, lws_uv_sultimer_cb,
+		uv_timer_start(&pt_to_priv_uv(pt)->sultimer, lws_uv_sultimer_cb,
 			       LWS_US_TO_MS(us), 0);
 	lws_pt_unlock(pt);
 }
@@ -50,9 +56,10 @@ lws_uv_idle(uv_idle_t *handle
 		, int status
 #endif
 )
-{
-	struct lws_context_per_thread *pt = lws_container_of(handle,
-					struct lws_context_per_thread, uv.idle);
+{	struct lws_pt_eventlibs_libuv *ptpr = lws_container_of(handle,
+		struct lws_pt_eventlibs_libuv, idle);
+	struct lws_context_per_thread *pt = lws_container_of(ptpr,
+		struct lws_context_per_thread, evlib_pt);
 	lws_usec_t us;
 
 	lws_service_do_ripe_rxflow(pt);
@@ -70,7 +77,7 @@ lws_uv_idle(uv_idle_t *handle
 	us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
 				    lws_now_usecs());
 	if (us)
-		uv_timer_start(&pt->uv.sultimer, lws_uv_sultimer_cb,
+		uv_timer_start(&pt_to_priv_uv(pt)->sultimer, lws_uv_sultimer_cb,
 			       LWS_US_TO_MS(us), 0);
 	lws_pt_unlock(pt);
 
@@ -126,7 +133,7 @@ lws_io_cb(uv_poll_t *watcher, int status, int revents)
 		return;
 	}
 
-	uv_idle_start(&pt->uv.idle, lws_uv_idle);
+	uv_idle_start(&pt_to_priv_uv(pt)->idle, lws_uv_idle);
 }
 
 /*
@@ -161,7 +168,7 @@ lws_libuv_stop(struct lws_context *context)
 		pt = &context->pt[m];
 
 		if (pt->pipe_wsi) {
-			uv_poll_stop(pt->pipe_wsi->w_read.uv.pwatcher);
+			uv_poll_stop(wsi_to_priv_uv(pt->pipe_wsi)->w_read.pwatcher);
 			lws_destroy_event_pipe(pt->pipe_wsi);
 			pt->pipe_wsi = NULL;
 		}
@@ -231,8 +238,8 @@ lws_uv_close_cb_sa(uv_handle_t *handle)
 	for (n = 0; n < context->count_threads; n++) {
 		struct lws_context_per_thread *pt = &context->pt[n];
 
-		if (pt->uv.io_loop && !pt->event_loop_foreign)
-			uv_stop(pt->uv.io_loop);
+		if (pt_to_priv_uv(pt)->io_loop && !pt->event_loop_foreign)
+			uv_stop(pt_to_priv_uv(pt)->io_loop);
 	}
 
 	if (!context->pt[0].event_loop_foreign) {
@@ -286,8 +293,8 @@ lws_close_all_handles_in_loop(uv_loop_t *loop)
 void
 lws_libuv_stop_without_kill(const struct lws_context *context, int tsi)
 {
-	if (context->pt[tsi].uv.io_loop)
-		uv_stop(context->pt[tsi].uv.io_loop);
+	if (pt_to_priv_uv(&context->pt[tsi])->io_loop)
+		uv_stop(pt_to_priv_uv(&context->pt[tsi])->io_loop);
 }
 
 
@@ -295,8 +302,8 @@ lws_libuv_stop_without_kill(const struct lws_context *context, int tsi)
 uv_loop_t *
 lws_uv_getloop(struct lws_context *context, int tsi)
 {
-	if (context->pt[tsi].uv.io_loop)
-		return context->pt[tsi].uv.io_loop;
+	if (pt_to_priv_uv(&context->pt[tsi])->io_loop)
+		return pt_to_priv_uv(&context->pt[tsi])->io_loop;
 
 	return NULL;
 }
@@ -304,7 +311,7 @@ lws_uv_getloop(struct lws_context *context, int tsi)
 int
 lws_libuv_check_watcher_active(struct lws *wsi)
 {
-	uv_handle_t *h = (uv_handle_t *)wsi->w_read.uv.pwatcher;
+	uv_handle_t *h = (uv_handle_t *)wsi_to_priv_uv(wsi)->w_read.pwatcher;
 
 	if (!h)
 		return 0;
@@ -321,7 +328,7 @@ elops_init_context_uv(struct lws_context *context,
 	context->eventlib_signal_cb = info->signal_cb;
 
 	for (n = 0; n < context->count_threads; n++)
-		context->pt[n].w_sigint.context = context;
+		pt_to_priv_uv(&context->pt[n])->w_sigint.context = context;
 
 	return 0;
 }
@@ -340,7 +347,7 @@ elops_destroy_context1_uv(struct lws_context *context)
 
 		if (!pt->event_loop_foreign) {
 
-			while (budget-- && (m = uv_run(pt->uv.io_loop,
+			while (budget-- && (m = uv_run(pt_to_priv_uv(pt)->io_loop,
 						  UV_RUN_NOWAIT)))
 					;
 			if (m)
@@ -365,15 +372,15 @@ elops_destroy_context2_uv(struct lws_context *context)
 
 		/* only for internal loops... */
 
-		if (!pt->event_loop_foreign && pt->uv.io_loop) {
+		if (!pt->event_loop_foreign && pt_to_priv_uv(pt)->io_loop) {
 			internal = 1;
 			if (!context->finalize_destroy_after_internal_loops_stopped)
-				uv_stop(pt->uv.io_loop);
+				uv_stop(pt_to_priv_uv(pt)->io_loop);
 			else {
 #if UV_VERSION_MAJOR > 0
-				uv_loop_close(pt->uv.io_loop);
+				uv_loop_close(pt_to_priv_uv(pt)->io_loop);
 #endif
-				lws_free_set_NULL(pt->uv.io_loop);
+				lws_free_set_NULL(pt_to_priv_uv(pt)->io_loop);
 			}
 		}
 	}
@@ -385,14 +392,14 @@ static int
 elops_wsi_logical_close_uv(struct lws *wsi)
 {
 	if (!lws_socket_is_valid(wsi->desc.sockfd) &&
-	    wsi->role_ops != &role_ops_raw_file)
+	    wsi->role_ops && strcmp(wsi->role_ops->name, "raw-file"))
 		return 0;
 
 	if (wsi->listener || wsi->event_pipe) {
 		lwsl_debug("%s: %p: %d %d stop listener / pipe poll\n",
 			   __func__, wsi, wsi->listener, wsi->event_pipe);
-		if (wsi->w_read.uv.pwatcher)
-			uv_poll_stop(wsi->w_read.uv.pwatcher);
+		if (wsi_to_priv_uv(wsi)->w_read.pwatcher)
+			uv_poll_stop(wsi_to_priv_uv(wsi)->w_read.pwatcher);
 	}
 	lwsl_debug("%s: lws_libuv_closehandle: wsi %p\n", __func__, wsi);
 	/*
@@ -426,7 +433,7 @@ lws_libuv_closewsi_m(uv_handle_t* handle)
 static void
 elops_close_handle_manually_uv(struct lws *wsi)
 {
-	uv_handle_t *h = (uv_handle_t *)wsi->w_read.uv.pwatcher;
+	uv_handle_t *h = (uv_handle_t *)wsi_to_priv_uv(wsi)->w_read.pwatcher;
 
 	lwsl_debug("%s: lws_libuv_closehandle: wsi %p\n", __func__, wsi);
 
@@ -442,7 +449,7 @@ elops_close_handle_manually_uv(struct lws *wsi)
 	 */
 
 	wsi->desc.sockfd = LWS_SOCK_INVALID;
-	wsi->w_read.uv.pwatcher = NULL;
+	wsi_to_priv_uv(wsi)->w_read.pwatcher = NULL;
 	wsi->told_event_loop_closed = 1;
 
 	uv_close(h, lws_libuv_closewsi_m);
@@ -452,23 +459,22 @@ static int
 elops_accept_uv(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	struct lws_io_watcher_libuv *w_read = &wsi_to_priv_uv(wsi)->w_read;
 
-	wsi->w_read.context = wsi->a.context;
+	w_read->context = wsi->a.context;
 
-	wsi->w_read.uv.pwatcher =
-		lws_malloc(sizeof(*wsi->w_read.uv.pwatcher), "uvh");
-	if (!wsi->w_read.uv.pwatcher)
+	w_read->pwatcher = lws_malloc(sizeof(*w_read->pwatcher), "uvh");
+	if (!w_read->pwatcher)
 		return -1;
 
 	if (wsi->role_ops->file_handle)
-		uv_poll_init(pt->uv.io_loop, wsi->w_read.uv.pwatcher,
+		uv_poll_init(pt_to_priv_uv(pt)->io_loop, w_read->pwatcher,
 			     (int)(lws_intptr_t)wsi->desc.filefd);
 	else
-		uv_poll_init_socket(pt->uv.io_loop,
-				    wsi->w_read.uv.pwatcher,
-				    wsi->desc.sockfd);
+		uv_poll_init_socket(pt_to_priv_uv(pt)->io_loop,
+				    w_read->pwatcher, wsi->desc.sockfd);
 
-	((uv_handle_t *)wsi->w_read.uv.pwatcher)->data = (void *)wsi;
+	((uv_handle_t *)w_read->pwatcher)->data = (void *)wsi;
 
 	return 0;
 }
@@ -477,14 +483,14 @@ static void
 elops_io_uv(struct lws *wsi, int flags)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-	struct lws_io_watcher *w = &wsi->w_read;
+	struct lws_io_watcher_libuv *w = &(wsi_to_priv_uv(wsi)->w_read);
 	int current_events = w->actual_events & (UV_READABLE | UV_WRITABLE);
 
 	lwsl_debug("%s: %p: %d\n", __func__, wsi, flags);
 
 	/* w->context is set after the loop is initialized */
 
-	if (!pt->uv.io_loop || !w->context) {
+	if (!pt_to_priv_uv(pt)->io_loop || !w->context) {
 		lwsl_info("%s: no io loop yet\n", __func__);
 		return;
 	}
@@ -495,7 +501,7 @@ elops_io_uv(struct lws *wsi, int flags)
 		assert(0);
 	}
 
-	if (!w->uv.pwatcher || wsi->told_event_loop_closed) {
+	if (!w->pwatcher || wsi->told_event_loop_closed) {
 		lwsl_info("%s: no watcher\n", __func__);
 
 		return;
@@ -508,7 +514,7 @@ elops_io_uv(struct lws *wsi, int flags)
 		if (flags & LWS_EV_READ)
 			current_events |= UV_READABLE;
 
-		uv_poll_start(w->uv.pwatcher, current_events, lws_io_cb);
+		uv_poll_start(w->pwatcher, current_events, lws_io_cb);
 	} else {
 		if (flags & LWS_EV_WRITE)
 			current_events &= ~UV_WRITABLE;
@@ -517,10 +523,9 @@ elops_io_uv(struct lws *wsi, int flags)
 			current_events &= ~UV_READABLE;
 
 		if (!(current_events & (UV_READABLE | UV_WRITABLE)))
-			uv_poll_stop(w->uv.pwatcher);
+			uv_poll_stop(w->pwatcher);
 		else
-			uv_poll_start(w->uv.pwatcher, current_events,
-				      lws_io_cb);
+			uv_poll_start(w->pwatcher, current_events, lws_io_cb);
 	}
 
 	w->actual_events = current_events;
@@ -530,26 +535,26 @@ static int
 elops_init_vhost_listen_wsi_uv(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt;
+	struct lws_io_watcher_libuv *w_read = &wsi_to_priv_uv(wsi)->w_read;
 	int n;
 
 	if (!wsi)
 		return 0;
-	if (wsi->w_read.context)
+	if (w_read->context)
 		return 0;
 
 	pt = &wsi->a.context->pt[(int)wsi->tsi];
-	if (!pt->uv.io_loop)
+	if (!pt_to_priv_uv(pt)->io_loop)
 		return 0;
 
-	wsi->w_read.context = wsi->a.context;
+	w_read->context = wsi->a.context;
 
-	wsi->w_read.uv.pwatcher =
-		lws_malloc(sizeof(*wsi->w_read.uv.pwatcher), "uvh");
-	if (!wsi->w_read.uv.pwatcher)
+	w_read->pwatcher = lws_malloc(sizeof(*w_read->pwatcher), "uvh");
+	if (!w_read->pwatcher)
 		return -1;
 
-	n = uv_poll_init_socket(pt->uv.io_loop, wsi->w_read.uv.pwatcher,
-				   wsi->desc.sockfd);
+	n = uv_poll_init_socket(pt_to_priv_uv(pt)->io_loop,
+				w_read->pwatcher, wsi->desc.sockfd);
 	if (n) {
 		lwsl_err("uv_poll_init failed %d, sockfd=%p\n", n,
 				(void *)(lws_intptr_t)wsi->desc.sockfd);
@@ -557,7 +562,7 @@ elops_init_vhost_listen_wsi_uv(struct lws *wsi)
 		return -1;
 	}
 
-	((uv_handle_t *)wsi->w_read.uv.pwatcher)->data = (void *)wsi;
+	((uv_handle_t *)w_read->pwatcher)->data = (void *)wsi;
 
 	elops_io_uv(wsi, LWS_EV_START | LWS_EV_READ);
 
@@ -567,8 +572,8 @@ elops_init_vhost_listen_wsi_uv(struct lws *wsi)
 static void
 elops_run_pt_uv(struct lws_context *context, int tsi)
 {
-	if (context->pt[tsi].uv.io_loop)
-		uv_run(context->pt[tsi].uv.io_loop, 0);
+	if (pt_to_priv_uv(&context->pt[tsi])->io_loop)
+		uv_run(pt_to_priv_uv(&context->pt[tsi])->io_loop, 0);
 }
 
 static void
@@ -582,7 +587,7 @@ elops_destroy_pt_uv(struct lws_context *context, int tsi)
 	if (!lws_check_opt(context->options, LWS_SERVER_OPTION_LIBUV))
 		return;
 
-	if (!pt->uv.io_loop)
+	if (!pt_to_priv_uv(pt)->io_loop)
 		return;
 
 	if (pt->event_loop_destroy_processing_done)
@@ -591,7 +596,7 @@ elops_destroy_pt_uv(struct lws_context *context, int tsi)
 	pt->event_loop_destroy_processing_done = 1;
 
 	if (!pt->event_loop_foreign) {
-		uv_signal_stop(&pt->w_sigint.uv.watcher);
+		uv_signal_stop(&pt_to_priv_uv(pt)->w_sigint.watcher);
 
 		ns = LWS_ARRAY_SIZE(sigs);
 		if (lws_check_opt(context->options,
@@ -599,18 +604,18 @@ elops_destroy_pt_uv(struct lws_context *context, int tsi)
 			ns = 2;
 
 		for (m = 0; m < ns; m++) {
-			uv_signal_stop(&pt->uv.signals[m]);
-			uv_close((uv_handle_t *)&pt->uv.signals[m],
+			uv_signal_stop(&pt_to_priv_uv(pt)->signals[m]);
+			uv_close((uv_handle_t *)&pt_to_priv_uv(pt)->signals[m],
 				 lws_uv_close_cb_sa);
 		}
 	} else
 		lwsl_debug("%s: not closing pt signals\n", __func__);
 
-	uv_timer_stop(&pt->uv.sultimer);
-	uv_close((uv_handle_t *)&pt->uv.sultimer, lws_uv_close_cb_sa);
+	uv_timer_stop(&pt_to_priv_uv(pt)->sultimer);
+	uv_close((uv_handle_t *)&pt_to_priv_uv(pt)->sultimer, lws_uv_close_cb_sa);
 
-	uv_idle_stop(&pt->uv.idle);
-	uv_close((uv_handle_t *)&pt->uv.idle, lws_uv_close_cb_sa);
+	uv_idle_stop(&pt_to_priv_uv(pt)->idle);
+	uv_close((uv_handle_t *)&pt_to_priv_uv(pt)->idle, lws_uv_close_cb_sa);
 }
 
 /*
@@ -624,11 +629,12 @@ int
 elops_init_pt_uv(struct lws_context *context, void *_loop, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
+	struct lws_pt_eventlibs_libuv *ptpriv = pt_to_priv_uv(pt);
 	struct lws_vhost *vh = context->vhost_list;
 	int status = 0, n, ns, first = 1;
 	uv_loop_t *loop = (uv_loop_t *)_loop;
 
-	if (!pt->uv.io_loop) {
+	if (!ptpriv->io_loop) {
 		if (!loop) {
 			loop = lws_malloc(sizeof(*loop), "libuv loop");
 			if (!loop) {
@@ -647,9 +653,9 @@ elops_init_pt_uv(struct lws_context *context, void *_loop, int tsi)
 			pt->event_loop_foreign = 1;
 		}
 
-		pt->uv.io_loop = loop;
-		uv_idle_init(loop, &pt->uv.idle);
-		LWS_UV_REFCOUNT_STATIC_HANDLE_NEW(&pt->uv.idle, context);
+		ptpriv->io_loop = loop;
+		uv_idle_init(loop, &ptpriv->idle);
+		LWS_UV_REFCOUNT_STATIC_HANDLE_NEW(&ptpriv->idle, context);
 
 
 		ns = LWS_ARRAY_SIZE(sigs);
@@ -658,13 +664,13 @@ elops_init_pt_uv(struct lws_context *context, void *_loop, int tsi)
 			ns = 2;
 
 		if (!pt->event_loop_foreign) {
-			assert(ns <= (int)LWS_ARRAY_SIZE(pt->uv.signals));
+			assert(ns <= (int)LWS_ARRAY_SIZE(ptpriv->signals));
 			for (n = 0; n < ns; n++) {
-				uv_signal_init(loop, &pt->uv.signals[n]);
-				LWS_UV_REFCOUNT_STATIC_HANDLE_NEW(&pt->uv.signals[n],
+				uv_signal_init(loop, &ptpriv->signals[n]);
+				LWS_UV_REFCOUNT_STATIC_HANDLE_NEW(&ptpriv->signals[n],
 								  context);
-				pt->uv.signals[n].data = pt->context;
-				uv_signal_start(&pt->uv.signals[n],
+				ptpriv->signals[n].data = pt->context;
+				uv_signal_start(&ptpriv->signals[n],
 						lws_uv_signal_handler, sigs[n]);
 			}
 		}
@@ -687,8 +693,8 @@ elops_init_pt_uv(struct lws_context *context, void *_loop, int tsi)
 	if (!first)
 		return status;
 
-	uv_timer_init(pt->uv.io_loop, &pt->uv.sultimer);
-	LWS_UV_REFCOUNT_STATIC_HANDLE_NEW(&pt->uv.sultimer, context);
+	uv_timer_init(ptpriv->io_loop, &ptpriv->sultimer);
+	LWS_UV_REFCOUNT_STATIC_HANDLE_NEW(&ptpriv->sultimer, context);
 
 	return status;
 }
@@ -710,7 +716,8 @@ lws_libuv_closewsi(uv_handle_t* handle)
 	 */
 
 #if defined(LWS_WITH_SERVER)
-	if (wsi->role_ops == &role_ops_listen && wsi->a.context->deprecated) {
+	if (wsi->role_ops && !strcmp(wsi->role_ops->name, "listen") &&
+	    wsi->a.context->deprecated) {
 		lspd = 1;
 		context->deprecation_pending_listen_close_count--;
 		if (!context->deprecation_pending_listen_close_count)
@@ -773,8 +780,9 @@ void
 lws_libuv_closehandle(struct lws *wsi)
 {
 	uv_handle_t* handle;
+	struct lws_io_watcher_libuv *w_read = &wsi_to_priv_uv(wsi)->w_read;
 
-	if (!wsi->w_read.uv.pwatcher)
+	if (!w_read->pwatcher)
 		return;
 
 	if (wsi->told_event_loop_closed) {
@@ -791,16 +799,16 @@ lws_libuv_closehandle(struct lws *wsi)
 	 * handle->data.
 	 */
 
-	handle = (uv_handle_t *)wsi->w_read.uv.pwatcher;
+	handle = (uv_handle_t *)w_read->pwatcher;
 
 	/* ensure we can only do this once */
 
-	wsi->w_read.uv.pwatcher = NULL;
+	w_read->pwatcher = NULL;
 
 	uv_close(handle, lws_libuv_closewsi);
 }
 
-struct lws_event_loop_ops event_loop_ops_uv = {
+static const struct lws_event_loop_ops event_loop_ops_uv = {
 	/* name */			"libuv",
 	/* init_context */		elops_init_context_uv,
 	/* destroy_context1 */		elops_destroy_context1_uv,
@@ -817,4 +825,23 @@ struct lws_event_loop_ops event_loop_ops_uv = {
 	/* destroy wsi */		NULL,
 
 	/* flags */			0,
+
+	/* evlib_size_ctx */	sizeof(struct lws_context_eventlibs_libuv),
+	/* evlib_size_pt */	sizeof(struct lws_pt_eventlibs_libuv),
+	/* evlib_size_vh */	0,
+	/* evlib_size_wsi */	sizeof(struct lws_io_watcher_libuv),
 };
+
+#if defined(LWS_WITH_EVLIB_PLUGINS)
+LWS_VISIBLE
+#endif
+const lws_plugin_evlib_t evlib_uv = {
+	.hdr = {
+		"libuv event loop",
+		"lws_evlib_plugin",
+		LWS_PLUGIN_API_MAGIC
+	},
+
+	.ops	= &event_loop_ops_uv
+};
+

@@ -66,6 +66,7 @@ lws_create_basic_wsi(struct lws_context *context, int tsi,
 		     const struct lws_role_ops *ops)
 {
 	struct lws *new_wsi;
+	size_t s = sizeof(*new_wsi);
 
 	if (!context->vhost_list)
 		return NULL;
@@ -76,11 +77,19 @@ lws_create_basic_wsi(struct lws_context *context, int tsi,
 		return NULL;
 	}
 
-	new_wsi = lws_zalloc(sizeof(*new_wsi), "new wsi");
+#if defined(LWS_WITH_EVENT_LIBS)
+	s += vhost->context->event_loop_ops->evlib_size_wsi;
+#endif
+
+	new_wsi = lws_zalloc(s, "new wsi");
 	if (new_wsi == NULL) {
 		lwsl_err("Out of memory for new connection\n");
 		return NULL;
 	}
+
+#if defined(LWS_WITH_EVENT_LIBS)
+	new_wsi->evlib_wsi = (uint8_t *)new_wsi + sizeof(*new_wsi);
+#endif
 
 	new_wsi->tsi = tsi;
 	new_wsi->a.context = context;
@@ -324,7 +333,7 @@ windows_pipe_poll_hack(lws_sorted_usec_list_t *sul)
 			 */
 		} else
 			if (br)
-				wsi1->protocol->callback(wsi1,
+				wsi1->a.protocol->callback(wsi1,
 							LWS_CALLBACK_RAW_RX_FILE,
 							NULL, NULL, 0);
 	}
@@ -417,8 +426,8 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		}
 		lsp->stdwsi[n]->lsp_channel = n;
 		lws_vhost_bind_wsi(i->vh, lsp->stdwsi[n]);
-		lsp->stdwsi[n]->protocol = pcol;
-		lsp->stdwsi[n]->opaque_user_data = i->opaque;
+		lsp->stdwsi[n]->a.protocol = pcol;
+		lsp->stdwsi[n]->a.opaque_user_data = i->opaque;
 
 		lsp->stdwsi[n]->desc.filefd = lsp->pipe_fds[n][!n];
 		lsp->stdwsi[n]->file_desc = 1;

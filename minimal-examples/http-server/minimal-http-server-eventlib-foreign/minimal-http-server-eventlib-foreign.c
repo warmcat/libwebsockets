@@ -23,11 +23,12 @@
 #include <string.h>
 #include <signal.h>
 
-struct lws_context_creation_info info;
-static struct lws_context *context;
-static int lifetime = 5, reported;
+#include "private.h"
 
-static void foreign_timer_service(void *foreign_loop);
+static struct lws_context_creation_info info;
+static const struct ops *ops = NULL;
+struct lws_context *context;
+int lifetime = 5, reported;
 
 enum {
 	TEST_STATE_CREATE_LWS_CONTEXT,
@@ -57,7 +58,7 @@ static const struct lws_http_mount mount = {
 	/* .basic_auth_login_file */	NULL,
 };
 
-static void
+void
 signal_cb(int signum)
 {
 	lwsl_notice("Signal %d caught, exiting...\n", signum);
@@ -73,268 +74,9 @@ signal_cb(int signum)
 	lws_context_destroy(context);
 }
 
-/*
- * The event-loop specific foreign loop code, one set for each event loop lib
- *
- * Only the code in this section is specific to the event library used.
- */
-
-#if defined(LWS_WITH_LIBUV)
-
-static uv_loop_t loop_uv;
-static uv_timer_t timer_outer_uv;
-static uv_signal_t sighandler_uv;
-
-static void
-timer_cb_uv(uv_timer_t *t)
-{
-	foreign_timer_service(&loop_uv);
-}
-
-static void
-signal_cb_uv(uv_signal_t *watcher, int signum)
-{
-	signal_cb(signum);
-}
-
-static void
-foreign_event_loop_init_and_run_libuv(void)
-{
-	/* we create and start our "foreign loop" */
-
-#if (UV_VERSION_MAJOR > 0) // Travis...
-	uv_loop_init(&loop_uv);
-#endif
-	uv_signal_init(&loop_uv, &sighandler_uv);
-	uv_signal_start(&sighandler_uv, signal_cb_uv, SIGINT);
-
-	uv_timer_init(&loop_uv, &timer_outer_uv);
-#if (UV_VERSION_MAJOR > 0) // Travis...
-	uv_timer_start(&timer_outer_uv, timer_cb_uv, 0, 1000);
-#else
-	(void)timer_cb_uv;
-#endif
-
-	uv_run(&loop_uv, UV_RUN_DEFAULT);
-}
-
-static void
-foreign_event_loop_stop_libuv(void)
-{
-	uv_stop(&loop_uv);
-}
-
-static void
-foreign_event_loop_cleanup_libuv(void)
-{
-	/* cleanup the foreign loop assets */
-
-	uv_timer_stop(&timer_outer_uv);
-	uv_close((uv_handle_t*)&timer_outer_uv, NULL);
-	uv_signal_stop(&sighandler_uv);
-	uv_close((uv_handle_t *)&sighandler_uv, NULL);
-
-	uv_run(&loop_uv, UV_RUN_DEFAULT);
-#if (UV_VERSION_MAJOR > 0) // Travis...
-	uv_loop_close(&loop_uv);
-#endif
-}
-
-#endif
-
-#if defined(LWS_WITH_LIBEVENT)
-
-static struct event_base *loop_event;
-static struct event *timer_outer_event;
-static struct event *sighandler_event;
-
-static void
-timer_cb_event(int fd, short event, void *arg)
-{
-	foreign_timer_service(loop_event);
-}
-
-static void
-signal_cb_event(int fd, short event, void *arg)
-{
-	signal_cb((int)(lws_intptr_t)arg);
-}
-
-static void
-foreign_event_loop_init_and_run_libevent(void)
-{
-	struct timeval tv;
-
-	/* we create and start our "foreign loop" */
-
-	tv.tv_sec = 1;
-	tv.tv_usec = 0;
-
-	loop_event = event_base_new();
-
-	sighandler_event = evsignal_new(loop_event, SIGINT, signal_cb_event,
-					(void*)SIGINT);
-
-	timer_outer_event = event_new(loop_event, -1, EV_PERSIST,
-				      timer_cb_event, NULL);
-	//evtimer_new(loop_event, timer_cb_event, NULL);
-	evtimer_add(timer_outer_event, &tv);
-
-	event_base_loop(loop_event, 0);
-}
-
-static void
-foreign_event_loop_stop_libevent(void)
-{
-	event_base_loopexit(loop_event, NULL);
-}
-
-static void
-foreign_event_loop_cleanup_libevent(void)
-{
-	/* cleanup the foreign loop assets */
-
-	evtimer_del(timer_outer_event);
-	event_free(timer_outer_event);
-	evsignal_del(sighandler_event);
-	event_free(sighandler_event);
-
-	event_base_loop(loop_event, 0);
-	event_base_free(loop_event);
-}
-
-#endif
-
-#if defined(LWS_WITH_GLIB)
-
-#include <glib-2.0/glib.h>
-#include <glib-unix.h>
-
-typedef struct lws_glib_tag {
-	GSource			*gs;
-	guint			tag;
-} lws_glib_tag_t;
-
-#define lws_gs_valid(t)		  (t.gs)
-#define lws_gs_destroy(t)	  if (lws_gs_valid(t)) { \
-					g_source_remove(t.tag); \
-					g_source_unref(t.gs); \
-					t.gs = NULL; t.tag = 0; }
-
-static GMainLoop *loop_glib;
-static lws_glib_tag_t timer_outer_glib, sighandler_glib;
-
-static int
-timer_cb_glib(void *p)
-{
-	foreign_timer_service(loop_glib);
-	return 1;
-}
-
-static void
-signal_cb_glib(void *p)
-{
-	signal_cb(SIGINT);
-}
-
-static void
-foreign_event_loop_init_and_run_glib(void)
-{
-	/* we create and start our "foreign loop" */
-
-	loop_glib = g_main_loop_new(NULL, 0);
-
-	sighandler_glib.gs = g_unix_signal_source_new(SIGINT);
-	g_source_set_callback(sighandler_glib.gs, G_SOURCE_FUNC(signal_cb_glib),
-			      NULL, NULL);
-	sighandler_glib.tag = g_source_attach(sighandler_glib.gs,
-					    g_main_loop_get_context(loop_glib));
-
-	timer_outer_glib.gs = g_timeout_source_new(1000);
-	g_source_set_callback(timer_outer_glib.gs, timer_cb_glib, NULL, NULL);
-	timer_outer_glib.tag = g_source_attach(timer_outer_glib.gs,
-					   g_main_loop_get_context(loop_glib));
-
-	g_main_loop_run(loop_glib);
-}
-
-static void
-foreign_event_loop_stop_glib(void)
-{
-	g_main_loop_quit(loop_glib);
-}
-
-static void
-foreign_event_loop_cleanup_glib(void)
-{
-	/* cleanup the foreign loop assets */
-
-	lws_gs_destroy(sighandler_glib);
-	lws_gs_destroy(timer_outer_glib);
-
-	g_main_loop_unref(loop_glib);
-	loop_glib = NULL;
-}
-
-#endif
-
-#if defined(LWS_WITH_LIBEV)
-
-static struct ev_loop *loop_ev;
-static struct ev_timer timer_outer_ev;
-static struct ev_signal sighandler_ev;
-
-static void
-timer_cb_ev(struct ev_loop *loop, struct ev_timer *watcher, int revents)
-{
-	foreign_timer_service(loop_ev);
-}
-
-static void
-signal_cb_ev(struct ev_loop *loop, struct ev_signal *watcher, int revents)
-{
-	signal_cb(watcher->signum);
-}
-
-static void
-foreign_event_loop_init_and_run_libev(void)
-{
-	/* we create and start our "foreign loop" */
-
-	loop_ev = ev_loop_new(0);
-
-	ev_signal_init(&sighandler_ev, signal_cb_ev, SIGINT);
-	ev_signal_start(loop_ev, &sighandler_ev);
-
-	ev_timer_init(&timer_outer_ev, timer_cb_ev, 0, 1);
-	ev_timer_start(loop_ev, &timer_outer_ev);
-
-	ev_run(loop_ev, 0);
-}
-
-static void
-foreign_event_loop_stop_libev(void)
-{
-	ev_break(loop_ev, EVBREAK_ALL);
-}
-
-static void
-foreign_event_loop_cleanup_libev(void)
-{
-	/* cleanup the foreign loop assets */
-
-	ev_timer_stop(loop_ev, &timer_outer_ev);
-	ev_signal_stop(loop_ev, &sighandler_ev);
-
-	ev_run(loop_ev, 0);
-	ev_loop_destroy(loop_ev);
-}
-
-#endif
-
 /* this is called at 1Hz using a foreign loop timer */
 
-static void
+void
 foreign_timer_service(void *foreign_loop)
 {
 	void *foreign_loops[1];
@@ -377,22 +119,7 @@ foreign_timer_service(void *foreign_loop)
 
 	case TEST_STATE_EXIT:
 		lwsl_user("Deciding to exit foreign loop too\n");
-#if defined(LWS_WITH_LIBUV)
-		if (info.options & LWS_SERVER_OPTION_LIBUV)
-			foreign_event_loop_stop_libuv();
-#endif
-#if defined(LWS_WITH_LIBEVENT)
-		if (info.options & LWS_SERVER_OPTION_LIBEVENT)
-			foreign_event_loop_stop_libevent();
-#endif
-#if defined(LWS_WITH_LIBEV)
-		if (info.options & LWS_SERVER_OPTION_LIBEV)
-			foreign_event_loop_stop_libev();
-#endif
-#if defined(LWS_WITH_GLIB)
-		if (info.options & LWS_SERVER_OPTION_GLIB)
-			foreign_event_loop_stop_glib();
-#endif
+		ops->stop();
 		break;
 	default:
 		break;
@@ -437,23 +164,45 @@ int main(int argc, const char **argv)
 		info.ssl_private_key_filepath = "localhost-100y.key";
 	}
 
-	if (lws_cmdline_option(argc, argv, "--uv"))
+	/*
+	 * We configure lws to use the chosen event loop, and select the
+	 * matching event-lib specific code for our demo operations
+	 */
+
+#if defined(LWS_WITH_LIBUV)
+	if (lws_cmdline_option(argc, argv, "--uv")) {
 		info.options |= LWS_SERVER_OPTION_LIBUV;
-	else
-		if (lws_cmdline_option(argc, argv, "--event"))
+		ops = &ops_libuv;
+		lwsl_notice("%s: using libuv event loop\n", __func__);
+	} else
+#endif
+#if defined(LWS_WITH_LIBEVENT)
+		if (lws_cmdline_option(argc, argv, "--event")) {
 			info.options |= LWS_SERVER_OPTION_LIBEVENT;
-		else
-			if (lws_cmdline_option(argc, argv, "--ev"))
+			ops = &ops_libevent;
+			lwsl_notice("%s: using libevent loop\n", __func__);
+		} else
+#endif
+#if defined(LWS_WITH_LIBEV)
+			if (lws_cmdline_option(argc, argv, "--ev")) {
 				info.options |= LWS_SERVER_OPTION_LIBEV;
-			else
-				if (lws_cmdline_option(argc, argv, "--glib"))
+				ops = &ops_libev;
+				lwsl_notice("%s: using libev loop\n", __func__);
+			} else
+#endif
+#if defined(LWS_WITH_GLIB)
+				if (lws_cmdline_option(argc, argv, "--glib")) {
 					info.options |= LWS_SERVER_OPTION_GLIB;
-				else {
+					ops = &ops_glib;
+					lwsl_notice("%s: using glib loop\n", __func__);
+				} else
+#endif
+				{
 				lwsl_err("This app only makes sense when used\n");
 				lwsl_err(" with a foreign loop, --uv, --event, --glib, or --ev\n");
 
 				return 1;
-			}
+				}
 
 	lwsl_user("  This app creates a foreign event loop with a timer +\n");
 	lwsl_user("  signalhandler, and performs a test in three phases:\n");
@@ -469,43 +218,13 @@ int main(int argc, const char **argv)
 
 	/* foreign loop specific startup and run */
 
-#if defined(LWS_WITH_LIBUV)
-	if (info.options & LWS_SERVER_OPTION_LIBUV)
-		foreign_event_loop_init_and_run_libuv();
-#endif
-#if defined(LWS_WITH_LIBEVENT)
-	if (info.options & LWS_SERVER_OPTION_LIBEVENT)
-		foreign_event_loop_init_and_run_libevent();
-#endif
-#if defined(LWS_WITH_LIBEV)
-	if (info.options & LWS_SERVER_OPTION_LIBEV)
-		foreign_event_loop_init_and_run_libev();
-#endif
-#if defined(LWS_WITH_GLIB)
-	if (info.options & LWS_SERVER_OPTION_GLIB)
-		foreign_event_loop_init_and_run_glib();
-#endif
+	ops->init_and_run();
 
 	lws_context_destroy(context);
 
 	/* foreign loop specific cleanup and exit */
 
-#if defined(LWS_WITH_LIBUV)
-	if (info.options & LWS_SERVER_OPTION_LIBUV)
-		foreign_event_loop_cleanup_libuv();
-#endif
-#if defined(LWS_WITH_LIBEVENT)
-	if (info.options & LWS_SERVER_OPTION_LIBEVENT)
-		foreign_event_loop_cleanup_libevent();
-#endif
-#if defined(LWS_WITH_LIBEV)
-	if (info.options & LWS_SERVER_OPTION_LIBEV)
-		foreign_event_loop_cleanup_libev();
-#endif
-#if defined(LWS_WITH_GLIB)
-	if (info.options & LWS_SERVER_OPTION_GLIB)
-		foreign_event_loop_cleanup_glib();
-#endif
+	ops->cleanup();
 
 	lwsl_user("%s: exiting...\n", __func__);
 

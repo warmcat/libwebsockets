@@ -48,6 +48,7 @@
 static struct lws *
 __lws_shadow_wsi(struct lws_dbus_ctx *ctx, DBusWatch *w, int fd, int create_ok)
 {
+	size_t s = sizeof(struct lws);
 	struct lws *wsi;
 
 	if (fd < 0 || fd >= (int)ctx->vh->context->fd_limit_per_thread) {
@@ -68,11 +69,19 @@ __lws_shadow_wsi(struct lws_dbus_ctx *ctx, DBusWatch *w, int fd, int create_ok)
 	if (!create_ok)
 		return NULL;
 
-	wsi = lws_zalloc(sizeof(*wsi), "shadow wsi");
+#if defined(LWS_WITH_EVENT_LIBS)
+	s += ctx->vh->context->event_loop_ops->evlib_size_wsi;
+#endif
+
+	wsi = lws_zalloc(s, "shadow wsi");
 	if (wsi == NULL) {
 		lwsl_err("Out of mem\n");
 		return NULL;
 	}
+
+#if defined(LWS_WITH_EVENT_LIBS)
+	wsi->evlib_wsi = (uint8_t *)wsi + sizeof(*wsi);
+#endif
 
 	lwsl_info("%s: creating shadow wsi\n", __func__);
 

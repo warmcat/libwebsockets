@@ -175,9 +175,9 @@ lws_json_dump_context(const struct lws_context *context, char *buf, int len,
 	struct lws_cgi * const *pcgi;
 #endif
 
-#ifdef LWS_WITH_LIBUV
-	uv_uptime(&d);
-#endif
+//#ifdef LWS_WITH_LIBUV &&
+//	uv_uptime(&d);
+//#endif
 
 	buf += lws_snprintf(buf, end - buf, "{ "
 			    "\"version\":\"%s\",\n"

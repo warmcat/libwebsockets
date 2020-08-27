@@ -50,7 +50,7 @@
 #endif
 #endif /* win32 */
 
-#define COMBO_SIZEOF 256
+#define COMBO_SIZEOF 512
 
 #if !defined(LWS_PLAT_FREERTOS)
 
@@ -189,7 +189,7 @@ lws_dir(const char *dirpath, void *user, lws_dir_callback_function cb)
 		}
 #endif
 		if (cb(dirpath, user, &lde)) {
-			while (i++ < n)
+			while (++i < n)
 				free(namelist[i]);
 			goto bail;
 		}
@@ -265,7 +265,16 @@ lws_dir_rm_rf_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 	lws_snprintf(path, sizeof(path), "%s%c%s", dirpath, csep, lde->name);
 
 	if (lde->type == LDOT_DIR) {
-		lws_dir(path, NULL, lws_dir_rm_rf_cb);
+#if !defined(WIN32) && !defined(_WIN32)
+		char dummy[8];
+		/*
+		 * hm... eg, recursive dir symlinks can show up a LDOT_DIR
+		 * here
+		 */
+		if (readlink(path, dummy, sizeof(dummy)) < 0)
+#endif
+			lws_dir(path, NULL, lws_dir_rm_rf_cb);
+
 		if (rmdir(path))
 			lwsl_warn("%s: rmdir %s failed %d\n", __func__, path, errno);
 	} else {
@@ -287,7 +296,8 @@ lws_dir_rm_rf_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 
 #endif
 
-#if defined(LWS_WITH_PLUGINS)
+#if defined(LWS_WITH_PLUGINS) || \
+	(defined(LWS_WITH_EVLIB_PLUGINS) && defined(LWS_WITH_EVENT_LIBS))
 
 struct lws_plugins_args {
 	struct lws_plugin **pplugin;
@@ -301,19 +311,38 @@ static int
 lws_plugins_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 {
 	struct lws_plugins_args *pa = (struct lws_plugins_args *)user;
-	char path[256];
+	char path[256], base[64], *q = base;
+	const char *p;
 
 	if (strlen(lde->name) < 7)
 		return 0;
 
-	/* if he's given a filter, only match if name + 3 matches it */
-	if (pa->filter && strncmp(lde->name + 3, pa->filter, strlen(pa->filter)))
+	/*
+	 * The actual plugin names for protocol plugins look like
+	 * "libprotocol_lws_ssh_base.so" and for event libs
+	 * "libwebsockets-evlib_ev.so"... to recover the base name of
+	 * "lws_ssh_base" and "evlib_ev" we strip from the left to after the
+	 * first _ or -, and then truncate at the first .
+	 */
+
+	p = lde->name;
+	while (*p && *p != '_' && *p != '-')
+		p++;
+	if (!*p)
+		return 0;
+	p++;
+	while (*p && *p != '.' && lws_ptr_diff(q, base) < (int)sizeof(base) - 1)
+		*q++ = *p++;
+	*q = '\0';
+
+	/* if he's given a filter, only match if base matches it */
+	if (pa->filter && strcmp(base, pa->filter))
 		return 0;
 
 	lws_snprintf(path, sizeof(path) - 1, "%s/%s", dirpath, lde->name);
 	lwsl_notice("   %s\n", path);
 
-	return !lws_plat_dlopen(pa->pplugin, path, lde->name + 3, pa->_class,
+	return !lws_plat_dlopen(pa->pplugin, path, base, pa->_class,
 				pa->each, pa->each_user);
 }
 

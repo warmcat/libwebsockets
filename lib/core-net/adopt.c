@@ -49,6 +49,7 @@ lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi)
 {
 	struct lws *new_wsi;
 	int n = fixed_tsi;
+	size_t s = sizeof(struct lws);
 
 	if (n < 0)
 		n = lws_get_idlest_tsi(vhost->context);
@@ -58,11 +59,19 @@ lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi)
 		return NULL;
 	}
 
-	new_wsi = lws_zalloc(sizeof(struct lws), "new server wsi");
+#if defined(LWS_WITH_EVENT_LIBS)
+	s += vhost->context->event_loop_ops->evlib_size_wsi;
+#endif
+
+	new_wsi = lws_zalloc(s, "new server wsi");
 	if (new_wsi == NULL) {
 		lwsl_err("Out of memory for new connection\n");
 		return NULL;
 	}
+
+#if defined(LWS_WITH_EVENT_LIBS)
+	new_wsi->evlib_wsi = (uint8_t *)new_wsi + sizeof(*new_wsi);
+#endif
 
 	new_wsi->wsistate |= LWSIFR_SERVER;
 	new_wsi->tsi = n;

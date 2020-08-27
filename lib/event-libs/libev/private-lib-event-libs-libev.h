@@ -33,22 +33,30 @@
 		(--(LWS_UV_REFCOUNT_STATIC_HANDLE_TO_CONTEXT(_x)-> \
 				count_event_loop_static_asset_handles))
 
+struct lws_signal_watcher_libev {
+	ev_signal watcher;
+	struct lws_context *context;
+};
+
 struct lws_pt_eventlibs_libev {
 	struct ev_loop *io_loop;
 	struct ev_timer hrtimer;
 	struct ev_idle idle;
+	struct lws_signal_watcher_libev w_sigint;
+	struct lws_context_per_thread *pt;
 };
 
 struct lws_io_watcher_libev {
 	ev_io watcher;
+	struct lws_context *context;
 };
 
-struct lws_signal_watcher_libev {
-	ev_signal watcher;
+struct lws_vh_eventlibs_libev {
+	struct lws_io_watcher_libev w_accept;
 };
 
-struct lws_context_eventlibs_libev {
-	int placeholder;
+struct lws_wsi_eventlibs_libev {
+	struct lws_io_watcher_libev w_read;
+	struct lws_io_watcher_libev w_write;
 };
 
-extern struct lws_event_loop_ops event_loop_ops_ev;

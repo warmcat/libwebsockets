@@ -46,11 +46,17 @@
 		(--(LWS_UV_REFCOUNT_STATIC_HANDLE_TO_CONTEXT(_x)-> \
 				count_event_loop_static_asset_handles))
 
+struct lws_signal_watcher_libuv {
+	uv_signal_t watcher;
+	struct lws_context *context;
+};
+
 struct lws_pt_eventlibs_libuv {
 	uv_loop_t *io_loop;
 	uv_signal_t signals[8];
 	uv_timer_t sultimer;
 	uv_idle_t idle;
+	struct lws_signal_watcher_libuv w_sigint;
 };
 
 struct lws_context_eventlibs_libuv {
@@ -59,13 +65,13 @@ struct lws_context_eventlibs_libuv {
 
 struct lws_io_watcher_libuv {
 	uv_poll_t *pwatcher;
+	struct lws_context *context;
+	uint8_t actual_events;
 };
 
-struct lws_signal_watcher_libuv {
-	uv_signal_t watcher;
+struct lws_wsi_eventlibs_libuv {
+	struct lws_io_watcher_libuv w_read;
 };
-
-extern struct lws_event_loop_ops event_loop_ops_uv;
 
 uv_loop_t *
 lws_uv_getloop(struct lws_context *context, int tsi);

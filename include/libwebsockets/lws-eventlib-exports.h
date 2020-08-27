@@ -1,7 +1,7 @@
- /*
+/*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -19,42 +19,43 @@
  * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
  * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
- * IN THE SOFTWARE
+ * IN THE SOFTWARE.
+ *
+ * These are exports needed by event lib plugins.
+ *
+ * You should consider these opaque for normal user code.
  */
 
-#include <private-lib-core.h>
-#include "private-lib-event-libs-poll.h"
+LWS_VISIBLE LWS_EXTERN void *
+lws_realloc(void *ptr, size_t size, const char *reason);
 
-struct lws_event_loop_ops event_loop_ops_poll = {
-	/* name */			"poll",
-	/* init_context */		NULL,
-	/* destroy_context1 */		NULL,
-	/* destroy_context2 */		NULL,
-	/* init_vhost_listen_wsi */	NULL,
-	/* init_pt */			NULL,
-	/* wsi_logical_close */		NULL,
-	/* check_client_connect_ok */	NULL,
-	/* close_handle_manually */	NULL,
-	/* accept */			NULL,
-	/* io */			NULL,
-	/* run */			NULL,
-	/* destroy_pt */		NULL,
-	/* destroy wsi */		NULL,
+LWS_VISIBLE LWS_EXTERN void
+lws_vhost_destroy1(struct lws_vhost *vh);
 
-	/* flags */			LELOF_ISPOLL,
+LWS_VISIBLE LWS_EXTERN void
+lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
+		   const char *caller);
 
-	/* evlib_size_ctx */	0,
-	/* evlib_size_pt */	0,
-	/* evlib_size_vh */	0,
-	/* evlib_size_wsi */	0,
-};
+struct lws_context_per_thread;
+LWS_VISIBLE LWS_EXTERN void
+lws_service_do_ripe_rxflow(struct lws_context_per_thread *pt);
 
-const lws_plugin_evlib_t evlib_poll = {
-	.hdr = {
-		"poll",
-		"lws_evlib_plugin",
-		LWS_PLUGIN_API_MAGIC
-	},
+#if !defined(wsi_from_fd) && !defined(WIN32) && !defined(_WIN32)
+struct lws_context;
+LWS_VISIBLE LWS_EXTERN struct lws *
+wsi_from_fd(const struct lws_context *context, int fd);
+#endif
 
-	.ops	= &event_loop_ops_poll
-};
+LWS_VISIBLE LWS_EXTERN int
+_lws_plat_service_forced_tsi(struct lws_context *context, int tsi);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_context_destroy2(struct lws_context *context);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_destroy_event_pipe(struct lws *wsi);
+
+LWS_VISIBLE LWS_EXTERN void
+__lws_close_free_wsi_final(struct lws *wsi);
+
+

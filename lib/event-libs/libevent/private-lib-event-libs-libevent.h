@@ -24,23 +24,26 @@
 
 #include <event2/event.h>
 
+struct lws_signal_watcher_libevent {
+	struct event *watcher;
+	struct lws_context *context;
+};
+
 struct lws_pt_eventlibs_libevent {
 	struct event_base *io_loop;
 	struct event *hrtimer;
 	struct event *idle_timer;
+	struct lws_signal_watcher_libevent w_sigint;
 };
 
 struct lws_io_watcher_libevent {
 	struct event *watcher;
+	struct lws_context *context;
+	uint8_t actual_events;
 	char		set;
 };
 
-struct lws_signal_watcher_libevent {
-	struct event *watcher;
+struct lws_wsi_eventlibs_libevent {
+	struct lws_io_watcher_libevent w_read;
+	struct lws_io_watcher_libevent w_write;
 };
-
-struct lws_context_eventlibs_libevent {
-	int placeholder;
-};
-
-extern struct lws_event_loop_ops event_loop_ops_event;
