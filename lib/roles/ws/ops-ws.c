@@ -1967,11 +1967,14 @@ rops_init_vhost_ws(struct lws_vhost *vh,
 		       sizeof(struct lws_extension) * m);
 		plugin = vh->context->plugin_list;
 		while (plugin) {
+			const lws_plugin_protocol_t *plpr =
+				(const lws_plugin_protocol_t *)plugin->hdr;
+
 			memcpy((struct lws_extension *)&vh->ws.extensions[m],
-				plugin->caps.extensions,
+				plpr->extensions,
 			       sizeof(struct lws_extension) *
-			       plugin->caps.count_extensions);
-			m += plugin->caps.count_extensions;
+			       plpr->count_extensions);
+			m += plpr->count_extensions;
 			plugin = plugin->list;
 		}
 	} else

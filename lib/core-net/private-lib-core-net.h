@@ -1158,11 +1158,13 @@ lws_libuv_closehandle(struct lws *wsi);
 int
 lws_libuv_check_watcher_active(struct lws *wsi);
 
-LWS_VISIBLE LWS_EXTERN int
-lws_plat_plugins_init(struct lws_context * context, const char * const *d);
+const lws_plugin_header_t *
+lws_plat_dlopen(struct lws_plugin **pplugin, const char *libpath,
+		const char *sofilename, const char *_class,
+		each_plugin_cb_t each, void *each_user);
 
-LWS_VISIBLE LWS_EXTERN int
-lws_plat_plugins_destroy(struct lws_context * context);
+int
+lws_plat_destroy_dl(struct lws_plugin *p);
 
 struct lws *
 lws_adopt_socket_vhost(struct lws_vhost *vh, lws_sockfd_type accept_fd);

@@ -55,6 +55,19 @@ lws_plat_context_early_init(void)
 	return 1;
 }
 
+static int
+protocol_plugin_cb(struct lws_plugin *pin, void *each_user)
+{
+	struct lws_context *context = (struct lws_context *)each_user;
+	const lws_plugin_protocol_t *plpr =
+			(const lws_plugin_protocol_t *)pin->hdr;
+
+	context->plugin_protocol_count += plpr->count_protocols;
+	context->plugin_extension_count += plpr->count_extensions;
+
+	return 0;
+}
+
 int
 lws_plat_init(struct lws_context *context,
 	      const struct lws_context_creation_info *info)
@@ -81,9 +94,11 @@ lws_plat_init(struct lws_context *context,
 
 	context->fd_random = 0;
 
-#ifdef LWS_WITH_PLUGINS
+#if defined(LWS_WITH_PLUGINS)
 	if (info->plugin_dirs)
-		lws_plat_plugins_init(context, info->plugin_dirs);
+		lws_plat_plugins_init(&context->plugin_list, info->plugin_dirs,
+				      "lws_protocol_plugin",
+				      protocol_plugin_cb, context);
 #endif
 
 	return 0;
@@ -106,6 +121,11 @@ void
 lws_plat_context_late_destroy(struct lws_context *context)
 {
 	int n;
+
+#ifdef LWS_WITH_PLUGINS
+	if (context->plugin_list)
+		lws_plugins_destroy(&context->plugin_list);
+#endif
 
 	for (n = 0; n < FD_HASHTABLE_MODULUS; n++) {
 		if (context->fd_hashtable[n].wsi)

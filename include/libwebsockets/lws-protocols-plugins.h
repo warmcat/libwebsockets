@@ -196,34 +196,107 @@ lws_protocol_init(struct lws_context *context);
 
 #ifdef LWS_WITH_PLUGINS
 
-/* PLUGINS implies LIBUV */
+#define LWS_PLUGIN_API_MAGIC 190
 
-#define LWS_PLUGIN_API_MAGIC 180
+/*
+ * Abstract plugin header for any kind of plugin class, always at top of
+ * actual class plugin export type.
+ *
+ * The export type object must be exported with the same name as the plugin
+ * file, eg, libmyplugin.so must export a const one of these as the symbol
+ * "myplugin".
+ *
+ * That is the only expected export from the plugin.
+ */
 
-/** struct lws_plugin_capability - how a plugin introduces itself to lws */
-struct lws_plugin_capability {
-	unsigned int api_magic;	/**< caller fills this in, plugin fills rest */
+typedef struct lws_plugin_header {
+	const char *name;
+	const char *_class;
+
+	unsigned int api_magic;
+	/* set to LWS_PLUGIN_API_MAGIC at plugin build time */
+
+	/* plugin-class specific superclass data follows */
+} lws_plugin_header_t;
+
+/*
+ * "lws_protocol_plugin" class export, for lws_protocol implementations done
+ * as plugins
+ */
+typedef struct lws_plugin_protocol {
+	lws_plugin_header_t hdr;
+
 	const struct lws_protocols *protocols; /**< array of supported protocols provided by plugin */
-	int count_protocols; /**< how many protocols */
 	const struct lws_extension *extensions; /**< array of extensions provided by plugin */
+	int count_protocols; /**< how many protocols */
 	int count_extensions; /**< how many extensions */
-};
+} lws_plugin_protocol_t;
 
-typedef int (*lws_plugin_init_func)(struct lws_context *,
-				    struct lws_plugin_capability *);
-typedef int (*lws_plugin_destroy_func)(struct lws_context *);
 
-/** struct lws_plugin */
+/*
+ * This is the dynamic, runtime created part of the plugin instantiation.
+ * These are kept in a linked-list and destroyed with the context.
+ */
+
 struct lws_plugin {
 	struct lws_plugin *list; /**< linked list */
+
+	const lws_plugin_header_t *hdr;
+
+	union {
+#if defined(LWS_WITH_LIBUV)
 #if (UV_VERSION_MAJOR > 0)
-	uv_lib_t lib; /**< shared library pointer */
+		uv_lib_t lib; /**< shared library pointer */
 #endif
-	void *l; /**< so we can compile on ancient libuv */
-	char name[64]; /**< name of the plugin */
-	struct lws_plugin_capability caps; /**< plugin capabilities */
+#endif
+		void *l; /**<  */
+	} u;
 };
 
+typedef int (*each_plugin_cb_t)(struct lws_plugin *p, void *user);
+
+/**
+ * lws_plugins_init() - dynamically load plugins of matching class from dirs
+ *
+ * \param pplugin:	pointer to linked-list for this kind of plugin
+ * \param d: array of directory paths to look in
+ * \param _class: class string that plugin must declare
+ * \param filter: NULL, or a string that must appear after the third char of the plugin filename
+ * \param each: NULL, or each_plugin_cb_t callback for each instantiated plugin
+ * \param each_user: pointer passed to each callback
+ *
+ * Allows you to instantiate a class of plugins to a specified linked-list.
+ * The each callback allows you to init each inistantiated callback and pass a
+ * pointer each_user to it.
+ *
+ * To take down the plugins, pass a pointer to the linked-list head to
+ * lws_plugins_destroy.
+ *
+ * This is used for lws protocol plugins but you can define your own plugin
+ * class name like "mypluginclass", declare it in your plugin headers, and load
+ * your own plugins to your own list using this api the same way.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_plugins_init(struct lws_plugin **pplugin, const char * const *d,
+		 const char *_class, const char *filter,
+		 each_plugin_cb_t each, void *each_user);
+
+/**
+ * lws_plugins_destroy() - dynamically unload list of plugins
+ *
+ * \param pplugin:	pointer to linked-list for this kind of plugin
+ * \param each: NULL, or each_plugin_cb_t callback for each instantiated plugin
+ * \param each_user: pointer passed to each callback
+ *
+ * Allows you to destroy a class of plugins from a specified linked-list
+ * created by a call to lws_plugins_init().
+ *
+ * The each callback allows you to deinit each inistantiated callback and pass a
+ * pointer each_user to it, just before its footprint is destroyed.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_plugins_destroy(struct lws_plugin **pplugin, each_plugin_cb_t each,
+		    void *each_user);
 #endif
 
 ///@}

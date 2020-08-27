@@ -286,3 +286,76 @@ lws_dir_rm_rf_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 
 
 #endif
+
+#if defined(LWS_WITH_PLUGINS)
+
+struct lws_plugins_args {
+	struct lws_plugin **pplugin;
+	const char *_class;
+	const char *filter;
+	each_plugin_cb_t each;
+	void *each_user;
+};
+
+static int
+lws_plugins_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
+{
+	struct lws_plugins_args *pa = (struct lws_plugins_args *)user;
+	char path[256];
+
+	if (strlen(lde->name) < 7)
+		return 0;
+
+	/* if he's given a filter, only match if name + 3 matches it */
+	if (pa->filter && strncmp(lde->name + 3, pa->filter, strlen(pa->filter)))
+		return 0;
+
+	lws_snprintf(path, sizeof(path) - 1, "%s/%s", dirpath, lde->name);
+	lwsl_notice("   %s\n", path);
+
+	return !lws_plat_dlopen(pa->pplugin, path, lde->name + 3, pa->_class,
+				pa->each, pa->each_user);
+}
+
+int
+lws_plugins_init(struct lws_plugin **pplugin, const char * const *d,
+		 const char *_class, const char *filter,
+		 each_plugin_cb_t each, void *each_user)
+{
+	struct lws_plugins_args pa;
+
+	pa.pplugin = pplugin;
+	pa._class = _class;
+	pa.each = each;
+	pa.each_user = each_user;
+	pa.filter = filter;
+
+	while (d && *d) {
+		lws_dir(*d, &pa, lws_plugins_dir_cb);
+		d++;
+	}
+
+	return 0;
+}
+
+int
+lws_plugins_destroy(struct lws_plugin **pplugin, each_plugin_cb_t each,
+		    void *each_user)
+{
+	struct lws_plugin *p = *pplugin, *p1;
+
+	while (p) {
+		if (each)
+			each(p, each_user);
+		lws_plat_destroy_dl(p);
+		p1 = p->list;
+		p->list = NULL;
+		lws_free(p);
+		p = p1;
+	}
+
+	*pplugin = NULL;
+
+	return 0;
+}
+#endif

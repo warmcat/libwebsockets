@@ -2565,27 +2565,17 @@ const struct lws_protocols protocols_sshd[] = {
 
 #if !defined (LWS_PLUGIN_STATIC)
 
-LWS_VISIBLE int
-init_protocol_lws_ssh_base(struct lws_context *context,
-			     struct lws_plugin_capability *c)
-{
-	if (c->api_magic != LWS_PLUGIN_API_MAGIC) {
-		lwsl_err("Plugin API %d, library API %d", LWS_PLUGIN_API_MAGIC,
-			 c->api_magic);
-		return 1;
-	}
+LWS_VISIBLE const lws_plugin_protocol_t protocol_lws_ssh_base = {
+	.hdr = {
+		"ssh base",
+		"lws_protocol_plugin",
+		LWS_PLUGIN_API_MAGIC
+	},
 
-	c->protocols = protocols_sshd;
-	c->count_protocols = LWS_ARRAY_SIZE(protocols_sshd);
-	c->extensions = NULL;
-	c->count_extensions = 0;
+	.protocols = protocols_sshd,
+	.count_protocols = LWS_ARRAY_SIZE(protocols_sshd),
+	.extensions = NULL,
+	.count_extensions = 0,
+};
 
-	return 0;
-}
-
-LWS_VISIBLE int
-destroy_protocol_lws_ssh_base(struct lws_context *context)
-{
-	return 0;
-}
 #endif

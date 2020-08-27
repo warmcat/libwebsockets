@@ -685,15 +685,18 @@ lws_create_vhost(struct lws_context *context,
 #ifdef LWS_WITH_PLUGINS
 	if (plugin) {
 		while (plugin) {
-			for (n = 0; n < plugin->caps.count_protocols; n++) {
+			const lws_plugin_protocol_t *plpr =
+				(const lws_plugin_protocol_t *)plugin->hdr;
+
+			for (n = 0; n < plpr->count_protocols; n++) {
 				/*
 				 * for compatibility's sake, no pvo implies
 				 * allow all protocols
 				 */
 				if (f || lws_vhost_protocol_options(vh,
-				    plugin->caps.protocols[n].name)) {
+						plpr->protocols[n].name)) {
 					memcpy(&lwsp[m],
-					       &plugin->caps.protocols[n],
+					       &plpr->protocols[n],
 					       sizeof(struct lws_protocols));
 					m++;
 					vh->count_protocols++;

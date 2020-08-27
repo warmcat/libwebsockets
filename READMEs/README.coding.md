@@ -1,7 +1,7 @@
 Notes about coding with lws
 ===========================
 
-@section era Old lws and lws v2.0
+@section era Old lws and lws v2.0+
 
 Originally lws only supported the "manual" method of handling everything in the
 user callback found in test-server.c / test-server-http.c.

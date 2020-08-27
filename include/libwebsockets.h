@@ -546,7 +546,6 @@ struct lws;
 #include <libwebsockets/lws-ws-state.h>
 #include <libwebsockets/lws-ws-ext.h>
 #include <libwebsockets/lws-protocols-plugins.h>
-#include <libwebsockets/lws-plugin-generic-sessions.h>
 
 #include <libwebsockets/lws-context-vhost.h>
 
