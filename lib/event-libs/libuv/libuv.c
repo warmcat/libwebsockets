@@ -535,11 +535,14 @@ static int
 elops_init_vhost_listen_wsi_uv(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt;
-	struct lws_io_watcher_libuv *w_read = &wsi_to_priv_uv(wsi)->w_read;
+	struct lws_io_watcher_libuv *w_read;
 	int n;
 
 	if (!wsi)
 		return 0;
+
+	w_read = &wsi_to_priv_uv(wsi)->w_read;
+
 	if (w_read->context)
 		return 0;
 

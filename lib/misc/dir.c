@@ -265,11 +265,19 @@ lws_dir_rm_rf_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 	lws_snprintf(path, sizeof(path), "%s%c%s", dirpath, csep, lde->name);
 
 	if (lde->type == LDOT_DIR) {
-#if !defined(WIN32) && !defined(_WIN32)
+#if !defined(WIN32) && !defined(_WIN32) && !defined(__COVERITY__)
 		char dummy[8];
 		/*
 		 * hm... eg, recursive dir symlinks can show up a LDOT_DIR
-		 * here
+		 * here.  If it's a symlink, don't recurse into it.
+		 *
+		 * Notice we immediately discard dummy without looking in it.
+		 * There is no way to get into trouble from its lack of NUL
+		 * termination in dummy[].  We just wanted to know if it was
+		 * a symlink at all.
+		 *
+		 * Hide this from Coverity since it flags any use of readlink()
+		 * even if safe.
 		 */
 		if (readlink(path, dummy, sizeof(dummy)) < 0)
 #endif

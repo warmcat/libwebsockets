@@ -519,8 +519,8 @@ lws_create_context(const struct lws_context_creation_info *info)
 		goto fail_event_libs;
 
 #if defined(LWS_WITH_NETWORK)
-	size += plev->ops->evlib_size_ctx /* the ctx evlib priv */ +
-		(count_threads * plev->ops->evlib_size_pt) /* the pt evlib priv */;
+	size += (size_t)plev->ops->evlib_size_ctx /* the ctx evlib priv */ +
+		(count_threads * (size_t)plev->ops->evlib_size_pt) /* the pt evlib priv */;
 
 	lwsl_info("Event loop: %s\n", plev->ops->name);
 #endif
