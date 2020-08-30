@@ -692,17 +692,21 @@ if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX OR COMPILER_IS_CLANG)
 		set(CMAKE_C_FLAGS "-fanalyzer ${CMAKE_C_FLAGS}" )
 	endif()
 
-	# always warn all and generate debug info
-    if (UNIX AND NOT LWS_PLAT_FREERTOS)
-	    set(CMAKE_C_FLAGS "-g -Wall -Wsign-compare -Wstrict-aliasing -Wuninitialized ${VISIBILITY_FLAG} -Wundef ${GCOV_FLAGS} ${CMAKE_C_FLAGS} ${ASAN_FLAGS}" )
-    else()
-	    set(CMAKE_C_FLAGS "-g -Wall -Wsign-compare -Wuninitialized ${VISIBILITY_FLAG} ${GCOV_FLAGS} ${CMAKE_C_FLAGS}" )
-    endif()
-	    if ("${DISABLE_WERROR}" STREQUAL "OFF")
-		    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror")
-	    endif()
-endif ()
+	if (CMAKE_COMPILER_IS_CLANG OR CMAKE_C_COMPILER_VERSION VERSION_GREATER 4.3)
+		set(CMAKE_C_FLAGS "-Wuninitialized ${CMAKE_C_FLAGS}")
+	endif()
 
+	# always warn all and generate debug info
+	if (UNIX AND NOT LWS_PLAT_FREERTOS)
+		set(CMAKE_C_FLAGS "-g -Wall -Wsign-compare -Wstrict-aliasing ${VISIBILITY_FLAG} -Wundef ${GCOV_FLAGS} ${CMAKE_C_FLAGS} ${ASAN_FLAGS}" )
+	else()
+		set(CMAKE_C_FLAGS "-g -Wall -Wsign-compare ${VISIBILITY_FLAG} ${GCOV_FLAGS} ${CMAKE_C_FLAGS}" )
+	endif()
+
+	if ("${DISABLE_WERROR}" STREQUAL "OFF")
+		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror")
+	endif()
+endif ()
 
 if ((CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX) AND NOT LWS_WITHOUT_TESTAPPS)
 	if (UNIX AND LWS_HAVE_PTHREAD_H)
