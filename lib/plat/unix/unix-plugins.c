@@ -29,10 +29,7 @@
 
 #include <pwd.h>
 #include <grp.h>
-
-#if defined(LWS_WITH_PLUGINS) || defined(LWS_WITH_EVLIB_PLUGINS)
 #include <dlfcn.h>
-#endif
 
 const lws_plugin_header_t *
 lws_plat_dlopen(struct lws_plugin **pplugin, const char *libpath,

@@ -193,4 +193,5 @@
 #cmakedefine LWS_WITH_EVENT_LIBS
 #cmakedefine LWS_WITH_EVLIB_PLUGINS
 #cmakedefine LWS_WITH_LIBUV_INTERNAL
+#cmakedefine LWS_WITH_PLUGINS_API
 

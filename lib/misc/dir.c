@@ -304,15 +304,14 @@ lws_dir_rm_rf_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 
 #endif
 
-#if defined(LWS_WITH_PLUGINS) || \
-	(defined(LWS_WITH_EVLIB_PLUGINS) && defined(LWS_WITH_EVENT_LIBS))
+#if defined(LWS_WITH_PLUGINS_API)
 
 struct lws_plugins_args {
-	struct lws_plugin **pplugin;
-	const char *_class;
-	const char *filter;
-	each_plugin_cb_t each;
-	void *each_user;
+	struct lws_plugin	**pplugin;
+	const char		*_class;
+	const char		*filter;
+	each_plugin_cb_t	each;
+	void			*each_user;
 };
 
 static int
