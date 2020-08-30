@@ -21,6 +21,13 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
  */
+#if defined LWS_HAVE_X509_VERIFY_PARAM_set1_host
+#include <features.h>
+/* Before glibc 2.10, strnlen required _GNU_SOURCE */
+#if __GLIBC__ < 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ < 10)
+#define _GNU_SOURCE
+#endif
+#endif
 #include <string.h>
 
 #include "private-lib-core.h"
