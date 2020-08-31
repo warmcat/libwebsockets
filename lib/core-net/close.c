@@ -71,8 +71,11 @@ __lws_reset_wsi(struct lws *wsi)
 	}
 #endif
 
-	if (wsi->a.vhost)
+	if (wsi->a.vhost) {
+		lws_vhost_lock(wsi->a.vhost);
 		lws_dll2_remove(&wsi->vh_awaiting_socket);
+		lws_vhost_unlock(wsi->a.vhost);
+	}
 
 	/*
 	 * Protocol user data may be allocated either internally by lws

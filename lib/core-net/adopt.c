@@ -186,8 +186,10 @@ lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 	 * join him to the vhost's list of these kinds of incomplete wsi until
 	 * he gets another identity (he may do async dns now...)
 	 */
+	lws_vhost_lock(new_wsi->a.vhost);
 	lws_dll2_add_head(&new_wsi->vh_awaiting_socket,
 			  &new_wsi->a.vhost->vh_awaiting_socket_owner);
+	lws_vhost_unlock(new_wsi->a.vhost);
 
 	return new_wsi;
 
@@ -377,8 +379,10 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 		}
 #endif
 
+	lws_vhost_lock(new_wsi->a.vhost);
 	/* he has fds visibility now, remove from vhost orphan list */
 	lws_dll2_remove(&new_wsi->vh_awaiting_socket);
+	lws_vhost_unlock(new_wsi->a.vhost);
 
 	/*
 	 *  by deferring callback to this point, after insertion to fds,
