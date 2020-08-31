@@ -271,6 +271,8 @@ __insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 
 //	__dump_fds(pt, "pre insert");
 
+	lws_pt_assert_lock_held(pt);
+
 	lwsl_debug("%s: %p: tsi=%d, sock=%d, pos-in-fds=%d\n",
 		  __func__, wsi, wsi->tsi, wsi->desc.sockfd, pt->fds_count);
 
@@ -351,6 +353,8 @@ __remove_wsi_socket_from_fds(struct lws *wsi)
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	struct lws *end_wsi;
 	int v, m, ret = 0;
+
+	lws_pt_assert_lock_held(pt);
 
 //	__dump_fds(pt, "pre remove");
 

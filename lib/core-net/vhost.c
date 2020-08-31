@@ -908,6 +908,7 @@ lws_cancel_service(struct lws_context *context)
 int
 lws_create_event_pipes(struct lws_context *context)
 {
+	struct lws_context_per_thread *pt;
 	size_t s = sizeof(struct lws);
 	struct lws *wsi;
 	int n;
@@ -923,7 +924,9 @@ lws_create_event_pipes(struct lws_context *context)
 	n = 0;
 	{
 #endif
-		if (context->pt[n].pipe_wsi)
+		pt = &context->pt[n];
+
+		if (pt->pipe_wsi)
 			return 0;
 
 #if defined(LWS_WITH_EVENT_LIBS)
@@ -948,6 +951,8 @@ lws_create_event_pipes(struct lws_context *context)
 		context->pt[n].pipe_wsi = wsi;
 		context->count_wsi_allocated++;
 
+		lws_pt_lock(pt, __func__); /* -------------- pt { */
+
 		if (!lws_plat_pipe_create(wsi)) {
 			/*
 			 * platform code returns 0 if it actually created pipes
@@ -963,14 +968,21 @@ lws_create_event_pipes(struct lws_context *context)
 
 			if (context->event_loop_ops->sock_accept)
 				if (context->event_loop_ops->sock_accept(wsi))
-					return 1;
+					goto bail;
 
 			if (__insert_wsi_socket_into_fds(context, wsi))
-				return 1;
+				goto bail;
 		}
+
+		lws_pt_unlock(pt);
 	}
 
 	return 0;
+
+bail:
+	lws_pt_unlock(pt);
+
+	return 1;
 }
 
 void

@@ -1194,6 +1194,12 @@ lws_mutex_refcount_unlock(struct lws_mutex_refcount *mr)
 	pthread_mutex_unlock(&mr->lock);
 }
 
+void
+lws_mutex_refcount_assert_held(struct lws_mutex_refcount *mr)
+{
+	assert(mr->lock_owner == pthread_self() && mr->lock_depth);
+}
+
 #endif /* SMP */
 
 

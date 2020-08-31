@@ -52,6 +52,7 @@ int
 _lws_vhost_init_server(const struct lws_context_creation_info *info,
 		       struct lws_vhost *vhost)
 {
+	struct lws_context_per_thread *pt;
 	int n, opt = 1, limit = 1;
 	lws_sockfd_type sockfd;
 	struct lws_vhost *vh;
@@ -309,13 +310,18 @@ done_list:
 		if (wsi->a.context->event_loop_ops->init_vhost_listen_wsi)
 			wsi->a.context->event_loop_ops->init_vhost_listen_wsi(wsi);
 
+		pt = &vhost->context->pt[m];
+		lws_pt_lock(pt, __func__);
+
 		if (__insert_wsi_socket_into_fds(vhost->context, wsi)) {
 			lwsl_notice("inserting wsi socket into fds failed\n");
+			lws_pt_unlock(pt);
 			goto bail;
 		}
 
 		vhost->context->count_wsi_allocated++;
 		vhost->lserv_wsi = wsi;
+		lws_pt_unlock(pt);
 
 		n = listen(wsi->desc.sockfd, LWS_SOMAXCONN);
 		if (n < 0) {

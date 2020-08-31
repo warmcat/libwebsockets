@@ -275,6 +275,9 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 
 	context = wsi->a.context;
 	pt = &context->pt[(int)wsi->tsi];
+
+	lws_pt_assert_lock_held(pt);
+
 	lws_stats_bump(pt, LWSSTATS_C_API_CLOSE, 1);
 
 #if defined(LWS_WITH_CLIENT)

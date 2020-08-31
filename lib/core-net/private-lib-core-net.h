@@ -999,6 +999,7 @@ lws_pt_mutex_destroy(struct lws_context_per_thread *pt)
 
 #define lws_pt_lock(pt, reason) lws_mutex_refcount_lock(&pt->mr, reason)
 #define lws_pt_unlock(pt) lws_mutex_refcount_unlock(&pt->mr)
+#define lws_pt_assert_lock_held(pt) lws_mutex_refcount_assert_held(&pt->mr)
 
 static LWS_INLINE void
 lws_pt_stats_lock(struct lws_context_per_thread *pt)

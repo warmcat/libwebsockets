@@ -251,6 +251,9 @@ void
 lws_mutex_refcount_lock(struct lws_mutex_refcount *mr, const char *reason);
 
 void
+lws_mutex_refcount_assert_held(struct lws_mutex_refcount *mr);
+
+void
 lws_mutex_refcount_unlock(struct lws_mutex_refcount *mr);
 #endif
 
@@ -644,6 +647,7 @@ lws_vhost_unlock(struct lws_vhost *vhost)
 #define lws_pt_mutex_init(_a) (void)(_a)
 #define lws_pt_mutex_destroy(_a) (void)(_a)
 #define lws_pt_lock(_a, b) (void)(_a)
+#define lws_pt_assert_lock_held(_a) (void)(_a)
 #define lws_pt_unlock(_a) (void)(_a)
 #define lws_context_lock(_a, _b) (void)(_a)
 #define lws_context_unlock(_a) (void)(_a)

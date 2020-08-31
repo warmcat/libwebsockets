@@ -118,7 +118,9 @@ lws_sul_wsitimeout_cb(lws_sorted_usec_list_t *sul)
 			(void *)"Timed out waiting SSL", 21);
 #endif
 
+	lws_pt_lock(pt, __func__);
 	__lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "timeout");
+	lws_pt_unlock(pt);
 }
 
 void

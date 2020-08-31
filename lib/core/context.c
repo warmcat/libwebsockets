@@ -1540,8 +1540,10 @@ lws_pt_destroy(struct lws_context_per_thread *pt)
 	}
 	vpt->foreign_pfd_list = NULL;
 
+	lws_pt_lock(pt, __func__);
 	if (pt->pipe_wsi)
 		lws_destroy_event_pipe(pt->pipe_wsi);
+	lws_pt_unlock(pt);
 	pt->pipe_wsi = NULL;
 
 	while (pt->fds_count) {
