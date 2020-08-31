@@ -375,6 +375,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 				      LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY |
 				      LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE);
 #endif
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	const struct sockaddr *psa = NULL;
 	uint16_t port = wsi->c_port;
 	const char *cce, *iface;
@@ -652,8 +653,12 @@ ads_known:
 			if (wsi->a.context->event_loop_ops->sock_accept(wsi))
 				goto try_next_result_closesock;
 
-		if (__insert_wsi_socket_into_fds(wsi->a.context, wsi))
+		lws_pt_lock(pt, __func__);
+		if (__insert_wsi_socket_into_fds(wsi->a.context, wsi)) {
+			lws_pt_unlock(pt);
 			goto try_next_result_closesock;
+		}
+		lws_pt_unlock(pt);
 
 		/*
 		 * The fd + wsi combination is entered into the wsi tables

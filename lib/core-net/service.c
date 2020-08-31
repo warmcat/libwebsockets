@@ -714,8 +714,8 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	case LWS_HPI_RET_HANDLED:
 		break;
 	case LWS_HPI_RET_PLEASE_CLOSE_ME:
-		lwsl_notice("%s: %s pollin says please close me\n", __func__,
-				wsi->role_ops->name);
+		//lwsl_notice("%s: %s pollin says please close me\n", __func__,
+		//		wsi->role_ops->name);
 close_and_handled:
 		lwsl_debug("%p: Close and handled\n", wsi);
 		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,

@@ -508,6 +508,7 @@ bail3:
 int LWS_WARN_UNUSED_RESULT
 lws_http_transaction_completed_client(struct lws *wsi)
 {
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	int n;
 
 	lwsl_info("%s: wsi: %p (%s)\n", __func__, wsi, wsi->a.protocol->name);
@@ -526,7 +527,9 @@ lws_http_transaction_completed_client(struct lws *wsi)
 	 * For h1, wsi may pass some assets on to a queued child and be
 	 * destroyed during this.
 	 */
+	lws_pt_lock(pt, __func__);
 	n = _lws_generic_transaction_completed_active_conn(&wsi, 1);
+	lws_pt_unlock(pt);
 
 	if (wsi->http.ah) {
 		if (wsi->client_mux_substream)
