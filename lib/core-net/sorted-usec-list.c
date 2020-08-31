@@ -79,6 +79,8 @@ lws_sul2_schedule(struct lws_context *context, int tsi, int flags,
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 
+	lws_pt_assert_lock_held(pt);
+
 	__lws_sul_insert(
 		&pt->pt_sul_owner[!!(flags & LWSSULLI_WAKE_IF_SUSPENDED)], sul);
 }
@@ -101,6 +103,8 @@ __lws_sul_service_ripe(lws_dll2_owner_t *own, int own_len, lws_usec_t usnow)
 
 	if (pt->attach_owner.count)
 		lws_system_do_attach(pt);
+
+	lws_pt_assert_lock_held(pt);
 
 	/* must be at least 1 */
 	assert(own_len > 0);
@@ -258,6 +262,45 @@ lws_sul_earliest_wakeable_event(struct lws_context *ctx, lws_usec_t *pearliest)
 	*pearliest = lowest;
 
 	return 0;
+}
+
+void
+lws_sul_schedule(struct lws_context *ctx, int tsi, lws_sorted_usec_list_t *sul,
+		 sul_cb_t _cb, lws_usec_t _us)
+{
+	struct lws_context_per_thread *_pt = &ctx->pt[tsi];
+
+	lws_pt_lock(_pt, __func__);
+
+	if (_us == (lws_usec_t)LWS_SET_TIMER_USEC_CANCEL)
+		lws_sul_cancel(sul);
+	else {
+		sul->cb = _cb;
+		sul->us = lws_now_usecs() + _us;
+		lws_sul2_schedule(ctx, tsi, LWSSULLI_MISS_IF_SUSPENDED, sul);
+	}
+
+	lws_pt_unlock(_pt);
+}
+
+void
+lws_sul_schedule_wakesuspend(struct lws_context *ctx, int tsi,
+			     lws_sorted_usec_list_t *sul, sul_cb_t _cb,
+			     lws_usec_t _us)
+{
+	struct lws_context_per_thread *_pt = &ctx->pt[tsi];
+
+	lws_pt_lock(_pt, __func__);
+
+	if (_us == (lws_usec_t)LWS_SET_TIMER_USEC_CANCEL)
+		lws_sul_cancel(sul);
+	else {
+		sul->cb = _cb;
+		sul->us = lws_now_usecs() + _us;
+		lws_sul2_schedule(ctx, tsi, LWSSULLI_WAKE_IF_SUSPENDED, sul);
+	}
+
+	lws_pt_unlock(_pt);
 }
 
 #if defined(LWS_WITH_SUL_DEBUGGING)

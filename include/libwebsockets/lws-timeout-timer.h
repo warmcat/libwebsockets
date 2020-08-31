@@ -288,23 +288,13 @@ lws_sul_earliest_wakeable_event(struct lws_context *ctx, lws_usec_t *pearliest);
  * New code can use lws_sul_cancel()
  */
 
-#define lws_sul_schedule(ctx, tsi, sul, _cb, _us) {\
-	if ((lws_usec_t)_us == (lws_usec_t)LWS_SET_TIMER_USEC_CANCEL) \
-		lws_sul_cancel(sul); \
-	else { \
-		(sul)->cb = _cb; \
-		(sul)->us = lws_now_usecs() + _us; \
-		lws_sul2_schedule(ctx, tsi, LWSSULLI_MISS_IF_SUSPENDED, sul); \
-	}}
-
-#define lws_sul_schedule_wakesuspend(ctx, tsi, sul, _cb, _us) {\
-	if ((lws_usec_t)_us == (lws_usec_t)LWS_SET_TIMER_USEC_CANCEL) \
-		lws_sul_cancel(sul); \
-	else { \
-		(sul)->cb = _cb; \
-		(sul)->us = lws_now_usecs() + _us; \
-		lws_sul2_schedule(ctx, tsi, LWSSULLI_WAKE_IF_SUSPENDED, sul); \
-	}}
+LWS_VISIBLE LWS_EXTERN void
+lws_sul_schedule(struct lws_context *ctx, int tsi, lws_sorted_usec_list_t *sul,
+		 sul_cb_t _cb, lws_usec_t _us);
+LWS_VISIBLE LWS_EXTERN void
+lws_sul_schedule_wakesuspend(struct lws_context *ctx, int tsi,
+			     lws_sorted_usec_list_t *sul, sul_cb_t _cb,
+			     lws_usec_t _us);
 
 #if defined(LWS_WITH_SUL_DEBUGGING)
 /**
