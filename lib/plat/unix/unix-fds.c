@@ -81,6 +81,13 @@ int
 sanity_assert_no_sockfd_traces(const struct lws_context *context,
 			       lws_sockfd_type sfd)
 {
+#if LWS_MAX_SMP > 1
+	/*
+	 * We can't really do this test... another thread can accept and
+	 * reuse the closed fd
+	 */
+	return 0;
+#else
 	struct lws **p, **done;
 
 	if (sfd == LWS_SOCK_INVALID)
@@ -108,6 +115,7 @@ sanity_assert_no_sockfd_traces(const struct lws_context *context,
 	assert(0); /* this fd is still in the tables */
 
 	return 1;
+#endif
 }
 #endif
 
