@@ -163,16 +163,6 @@ if (LWS_WITH_STATIC)
 			OUTPUT_NAME websockets_static)
 	endif()
 	
-	if (UNIX AND LWS_WITH_PLUGINS)
-	set (CMAKE_POSITION_INDEPENDENT_CODE ON)
-	if (NOT((${CMAKE_SYSTEM_NAME} MATCHES "FreeBSD") OR
-	   (${CMAKE_SYSTEM_NAME} MATCHES "QNX")))
-		if (LWS_WITH_STATIC)
-			target_link_libraries(websockets dl)
-		endif()
-	endif()
-endif()
-
 endif()
 
 if (LWS_WITH_SHARED)
@@ -202,6 +192,16 @@ if (LWS_WITH_SHARED)
 
 	if (APPLE)
 		set_property(TARGET websockets_shared PROPERTY MACOSX_RPATH YES)
+	endif()
+
+	if (UNIX AND LWS_WITH_PLUGINS_API)
+		set (CMAKE_POSITION_INDEPENDENT_CODE ON)
+		if (NOT((${CMAKE_SYSTEM_NAME} MATCHES "FreeBSD") OR
+		   (${CMAKE_SYSTEM_NAME} MATCHES "QNX")))
+		   if (LWS_WITH_SHARED)
+				target_link_libraries(websockets_shared dl)
+			endif()
+		endif()
 	endif()
 
 endif()
