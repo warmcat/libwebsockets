@@ -397,6 +397,13 @@ if (LWS_WITH_PLUGINS AND NOT LWS_WITH_SHARED)
 endif()
 
 
+# if we're only building static, we don't want event lib plugins
+#
+if (LWS_WITH_EVLIB_PLUGINS AND NOT LWS_WITH_SHARED)
+	message("Deselecting EVLIB_PLUGINS since building static")
+	set(LWS_WITH_EVLIB_PLUGINS 0)
+endif()
+
 if (LWS_WITH_PLUGINS OR (LWS_WITH_EVLIB_PLUGINS AND LWS_WITH_EVENT_LIBS))
 	set(LWS_WITH_PLUGINS_API 1)
 endif()
