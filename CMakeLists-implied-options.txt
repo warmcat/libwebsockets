@@ -390,6 +390,12 @@ endif()
 if (NOT LWS_WITH_SSL)
 	set(LWS_WITHOUT_BUILTIN_SHA1 OFF)
 endif()
+# protocol plugins dont make any sense either
+if (LWS_WITH_PLUGINS AND NOT LWS_WITH_SHARED)
+	message("Deselecting PLUGINS since building static")
+	set(LWS_WITH_PLUGINS 0)
+endif()
+
 
 if (LWS_WITH_PLUGINS OR (LWS_WITH_EVLIB_PLUGINS AND LWS_WITH_EVENT_LIBS))
 	set(LWS_WITH_PLUGINS_API 1)

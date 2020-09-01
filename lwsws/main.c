@@ -77,10 +77,12 @@ static const struct lws_extension exts[] = {
 	{ NULL, NULL, NULL /* terminator */ }
 };
 
+#if defined(LWS_WITH_PLUGINS)
 static const char * const plugin_dirs[] = {
 	INSTALL_DATADIR"/libwebsockets-test-server/plugins/",
 	NULL
 };
+#endif
 
 #if defined(LWS_HAS_GETOPT_LONG) || defined(WIN32)
 static struct option options[] = {
@@ -150,7 +152,9 @@ context_creation(void)
 			      LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 			      LWS_SERVER_OPTION_LIBUV;
 
+#if defined(LWS_WITH_PLUGINS)
 	info.plugin_dirs = plugin_dirs;
+#endif
 	lwsl_notice("Using config dir: \"%s\"\n", config_dir);
 
 	/*
