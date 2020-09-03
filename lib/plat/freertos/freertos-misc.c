@@ -66,6 +66,7 @@ lws_get_random(struct lws_context *context, void *buf, size_t len)
 
 	return pb - (uint8_t *)buf;
 #else
+#if defined(LWS_WITH_MBEDTLS)
 	int n;
 
 	n = mbedtls_ctr_drbg_random(&context->mcdc, buf, len);
@@ -75,7 +76,7 @@ lws_get_random(struct lws_context *context, void *buf, size_t len)
 	/* failed */
 
 	lwsl_err("%s: mbedtls_ctr_drbg_random returned 0x%x\n", __func__, n);
-
+#endif
 	return 0;
 #endif
 }

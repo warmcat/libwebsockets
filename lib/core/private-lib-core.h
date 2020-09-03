@@ -435,7 +435,7 @@ struct lws_context {
 	const char *detailed_latency_filepath;
 #endif
 
-#if defined(LWS_AMAZON_RTOS)
+#if defined(LWS_AMAZON_RTOS) && defined(LWS_WITH_MBEDTLS)
 	mbedtls_entropy_context mec;
 	mbedtls_ctr_drbg_context mcdc;
 #endif

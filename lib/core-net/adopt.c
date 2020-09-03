@@ -747,7 +747,9 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 		h.ai_family = AF_UNSPEC;    /* Allow IPv4 or IPv6 */
 		h.ai_socktype = SOCK_DGRAM;
 		h.ai_protocol = IPPROTO_UDP;
+#if defined(AI_PASSIVE)
 		h.ai_flags = AI_PASSIVE;
+#endif
 #ifdef AI_ADDRCONFIG
 		h.ai_flags |= AI_ADDRCONFIG;
 #endif

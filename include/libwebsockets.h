@@ -243,9 +243,11 @@ typedef unsigned long long lws_intptr_t;
 #define MBEDTLS_CONFIG_FILE <mbedtls/esp_config.h>
 #endif
 #endif
+#if defined(LWS_WITH_TLS)
 #include <mbedtls/ssl.h>
 #include <mbedtls/entropy.h>
 #include <mbedtls/ctr_drbg.h>
+#endif
 #else
 #include <openssl/ssl.h>
 #if !defined(LWS_WITH_MBEDTLS)
