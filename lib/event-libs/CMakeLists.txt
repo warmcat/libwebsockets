@@ -32,6 +32,10 @@ macro(create_evlib_plugin PLUGIN_NAME MAIN_SRC PLUGIN_HDR EVLIB)
 	source_group("Sources"   FILES ${MAIN_SRC})
 	add_library(websockets-${PLUGIN_NAME} SHARED ${MAIN_SRC} ${PLUGIN_HDR})
 
+	if (APPLE)
+		set_property(TARGET websockets-${PLUGIN_NAME} PROPERTY MACOSX_RPATH YES)
+	endif()
+
 	foreach(libpath ${LWS_DEP_LIB_PATHS})
 		target_link_directories(${TEST_NAME} ${libpath})
 	endforeach()
