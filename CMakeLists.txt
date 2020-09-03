@@ -1026,7 +1026,10 @@ if (LWS_HAVE_PTHREAD_H)
 	if ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
 		set(CMAKE_REQUIRED_FLAGS "-pthread -Wno-error=unused-command-line-argument")
 	else()
+                # In QNX Pthread library is already present in libc
+                if (NOT (${CMAKE_SYSTEM_NAME} MATCHES "QNX"))
 		set(CMAKE_REQUIRED_FLAGS "-pthread")
+                endif()
 	endif()
 
 	CHECK_C_SOURCE_COMPILES("#define _GNU_SOURCE
@@ -1773,7 +1776,10 @@ if ((CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX) AND NOT LWS_WITHOUT_TE
 	if (UNIX AND LWS_HAVE_PTHREAD_H)
 	# jeez clang understands -pthread but dies if he sees it at link time!
 	# http://stackoverflow.com/questions/2391194/what-is-gs-pthread-equiv-in-clang
+        # # In QNX Pthread library is already present in libc
+        if (NOT (${CMAKE_SYSTEM_NAME} MATCHES "QNX"))
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -pthread" )
+        endif()
     endif()
 endif()
 
@@ -2168,7 +2174,10 @@ if (LWS_HAVE_LIBCAP)
 endif()
 
 if (UNIX)
-	list(APPEND LIB_LIST dl)
+  # In QNX Pthread library is already present in libc
+  if (NOT (${CMAKE_SYSTEM_NAME} MATCHES "QNX"))
+    list(APPEND LIB_LIST dl)
+  endif()
 endif()
 
 if (LWS_WITH_ZLIB AND NOT LWS_WITH_BUNDLED_ZLIB)
@@ -2213,7 +2222,10 @@ CHECK_FUNCTION_EXISTS(${VARIA}HMAC_CTX_new LWS_HAVE_HMAC_CTX_new)
 CHECK_FUNCTION_EXISTS(${VARIA}SSL_CTX_set_ciphersuites LWS_HAVE_SSL_CTX_set_ciphersuites)
 if (LWS_WITH_SSL AND NOT LWS_WITH_MBEDTLS)
  if (UNIX)
- set(CMAKE_REQUIRED_LIBRARIES ${CMAKE_REQUIRED_LIBRARIES} dl)
+  # In QNX dl is already present in libc
+  if(NOT (${CMAKE_SYSTEM_NAME} MATCHES "QNX"))
+  set(CMAKE_REQUIRED_LIBRARIES ${CMAKE_REQUIRED_LIBRARIES} dl)
+  endif()
  endif()
 CHECK_C_SOURCE_COMPILES("#include <openssl/ssl.h>\nint main(void) { STACK_OF(X509) *c = NULL; SSL_CTX *ctx = NULL; return (int)SSL_CTX_get_extra_chain_certs_only(ctx, &c); }\n" LWS_HAVE_SSL_EXTRA_CHAIN_CERTS)
 CHECK_C_SOURCE_COMPILES("#include <openssl/ssl.h>\nint main(void) { EVP_MD_CTX *md_ctx = NULL; EVP_MD_CTX_free(md_ctx); return 0; }\n" LWS_HAVE_EVP_MD_CTX_free)
@@ -2418,7 +2430,10 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2) AND NOT LWS_WITHOUT_TESTAPPS)
 			target_link_libraries(${TEST_NAME} websockets)
 			add_dependencies(${TEST_NAME} websockets)
 			if (UNIX AND LWS_WITH_SSL AND NOT LWS_WITH_MBEDTLS)
-				target_link_libraries(${TEST_NAME} dl)
+                               # In QNX Pthread library is already present in libc
+                               if (NOT (${CMAKE_SYSTEM_NAME} MATCHES "QNX"))
+				 target_link_libraries(${TEST_NAME} dl)
+                               endif()  
 			endif()
 		endif()
 
