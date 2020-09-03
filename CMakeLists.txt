@@ -539,7 +539,7 @@ if (LWS_WITH_ZLIB AND NOT LWS_WITH_BUNDLED_ZLIB)
 	list(APPEND LIB_LIST_AT_END "${ZLIB_LIBRARIES}")
 endif()
 
-if (LWS_WITH_PLUGINS_API AND UNIX)
+if (LWS_WITH_PLUGINS_API AND UNIX AND NOT (${CMAKE_SYSTEM_NAME} MATCHES "QNX"))
 	list(APPEND LIB_LIST_AT_END "dl")
 endif()
 
@@ -612,7 +612,9 @@ if (LWS_HAVE_PTHREAD_H AND NOT LWS_PLAT_FREERTOS)
 		if (COMPILER_IS_CLANG)
 			set(LWS_PTHR_FLAGS "-pthread")# -Wno-error=unused-command-line-argument")
 		else()
-			set(LWS_PTHR_FLAGS "-pthread")
+			if (NOT (${CMAKE_SYSTEM_NAME} MATCHES "QNX"))
+				set(LWS_PTHR_FLAGS "-pthread")
+			endif()
 		endif()
 	
 		#		set(CMAKE_REQUIRED_LIBRARIES ${CMAKE_REQUIRED_LIBRARIES} ${LWS_PTHR_FLAGS})
@@ -714,7 +716,7 @@ if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX OR COMPILER_IS_CLANG)
 endif ()
 
 if ((CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX) AND NOT LWS_WITHOUT_TESTAPPS)
-	if (UNIX AND LWS_HAVE_PTHREAD_H)
+	if (UNIX AND LWS_HAVE_PTHREAD_H AND NOT (${CMAKE_SYSTEM_NAME} MATCHES "QNX"))
 	# jeez clang understands -pthread but dies if he sees it at link time!
 	# http://stackoverflow.com/questions/2391194/what-is-gs-pthread-equiv-in-clang
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -pthread" )
