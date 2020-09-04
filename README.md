@@ -16,7 +16,7 @@ various scenarios, CC0-licensed (public domain) for cut-and-paste, allow you to 
 News
 ----
 
-## v4.0.0 and v4.1-stable are released
+## v4.1.0 and v4.1-stable are released
 
 See the [changelog](https://libwebsockets.org/git/libwebsockets/tree/changelog), summary
 
