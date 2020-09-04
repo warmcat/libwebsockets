@@ -5,7 +5,7 @@ v4.1.0
 ======
 
  - NEW: travis / appveyor / bintray are replaced by Sai
-   https://libwebsockets.org/sai/ which for lws currently does 167 builds per
+   https://libwebsockets.org/sai/ which for lws currently does 193 builds per
    git push on 16 platforms, all self-hosted.  The homebrew bash scripts used
    to select Minimal examples are replaced by CTest.  Platforms currently
    include Fedora/AMD/GCC, Windows/AMD/mingw32, Windows/AMD/mingw64, Android/
@@ -18,6 +18,12 @@ v4.1.0
  CMakeLists.txt in the subdirectory along with the code that is being managed
  for build by it.  Build options are still listed in the top level as before
  but the new way is much more maintainable.
+
+ - NEW: event lib support on Unix is now built into dynamically loaded plugins
+ and brought in at runtime, allowing all of the support to be built in
+ isolation without conflicts, and separately packaged with individual
+ dependencies.  See ./READMEs/event-libs.md for details and how to force
+ the old static build into lws method.
 
  - NEW: Captive Portal Detection.  Lws can determine if the active default
  route is able to connect to the internet, or is in a captive portal type

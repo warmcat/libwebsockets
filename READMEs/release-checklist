@@ -36,45 +36,25 @@ Release Checklist
    set(CPACK_PACKAGE_VERSION_MINOR "6")
    set(CPACK_PACKAGE_VERSION_PATCH "0")
 
-5) specfile
+5) Announce latest version on README.md
 
- a) rpm version bump to match CMake one
+6) Make sure all new READMEs and public headers are in libwebsockets.dox
 
-  scripts/libwebsockets.spec
-
-   Version: 1.6.0
-
- b) Summarize changelog
-
-  scripts/libwebsockets.spec
-
-%changelog
-* Sun Jan 17 2016 Andrew Cooks <acooks@linux.com> 1.6.4-1
-- Bump version to 1.6.4
-- MINOR fix xyz
-
- c) Use -DLWS_WITH_DISTRO_RECOMMENDED=1 then make package and adapt the .spec
-    to match the file list
-
-6) Announce latest version on README.md
-
-7) Make sure all new READMEs and public headers are in libwebsockets.dox
-
-8) signed tag
+7) signed tag
 
   git tag -s vX.Y[.Z]
 
-9) git
+8) git
 
  a) push
  
  b) final CI check, if fail delete tag, kill pushed tags, restart flow
 
-10) website
+9) website
 
  a) update latest tag for release branch
 
-11) post-relase version bump
+10) post-relase version bump
 
 Bump the PATCH part of the version to 99
 
