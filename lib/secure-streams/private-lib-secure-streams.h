@@ -288,6 +288,7 @@ typedef struct lws_sspc_handle {
 	uint8_t			ignore_txc:1;
 	uint8_t			pending_timeout_update:1;
 	uint8_t			pending_writeable_len:1;
+	uint8_t			creating_cb_done:1;
 } lws_sspc_handle_t;
 
 typedef struct backoffs {

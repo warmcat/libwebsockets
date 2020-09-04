@@ -1031,8 +1031,6 @@ payload_ff:
 			lws_ss_serialize_state_transition(state,
 							  LPCSCLI_LOCAL_CONNECTED);
 			h = lws_container_of(par, lws_sspc_handle_t, parser);
-			if (h->cwsi)
-				lws_callback_on_writable(h->cwsi);
 
 			/*
 			 * This is telling us that the streamtype could be (and
@@ -1041,11 +1039,38 @@ payload_ff:
 			 *
 			 * We'll get a proxied state() coming later that informs
 			 * us about the situation with that.
+			 *
+			 * However at this point, we should choose to inform
+			 * the client that his stream was created... we will
+			 * later get a proxied CREATING state from the peer
+			 * but we should do it now and suppress the later one.
+			 *
+			 * The reason is he may set metadata in CREATING, and
+			 * we will try to do writeables to sync the stream to
+			 * master and ultimately bring up the onward connection now
+			 * now we are in LOCAL_CONNECTED.  We need to do the
+			 * CREATING now so we'll know the metadata to sync.
 			 */
+
+			h->creating_cb_done = 1;
+
+			n = ssi->state(client_pss_to_userdata(pss),
+						NULL, LWSSSCS_CREATING, 0);
+			switch (n) {
+			case LWSSSSRET_OK:
+				break;
+			case LWSSSSRET_DISCONNECT_ME:
+				goto hangup;
+			case LWSSSSRET_DESTROY_ME:
+				return LWSSSSRET_DESTROY_ME;
+			}
+
+			if (h->cwsi)
+				lws_callback_on_writable(h->cwsi);
 
 			par->rsl_pos = 0;
 			par->rsl_idx = 0;
-			h = lws_container_of(par, lws_sspc_handle_t, parser);
+
 			memset(&h->rideshare_ofs[0], 0, sizeof(h->rideshare_ofs[0]));
 			h->rideshare_list[0] = '\0';
 			h->rsidx = 0;
@@ -1147,6 +1172,19 @@ payload_ff:
 			lwsl_info("%s: forwarding proxied state %s\n",
 					__func__, lws_ss_state_name(par->ctr));
 #endif
+
+			if (par->ctr == LWSSSCS_CREATING) {
+				if (h->creating_cb_done)
+					/*
+					 * We have told him he's CREATING when
+					 * we heard we had linked up to the
+					 * proxy, so suppress the remote
+					 * CREATING so that he only sees it once
+					 */
+				break;
+
+				h->creating_cb_done = 1;
+			}
 
 			n = ssi->state(client_pss_to_userdata(pss),
 						NULL, par->ctr, par->flags);
