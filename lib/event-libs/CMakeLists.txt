@@ -42,6 +42,7 @@ macro(create_evlib_plugin PLUGIN_NAME MAIN_SRC PLUGIN_HDR EVLIB)
 
 	target_link_libraries(websockets-${PLUGIN_NAME} websockets_shared ${EVLIB})
 	add_dependencies(websockets-${PLUGIN_NAME} websockets_shared)
+	target_compile_definitions(websockets-${PLUGIN_NAME} PRIVATE LWS_BUILDING_SHARED)
 
 	target_include_directories(websockets-${PLUGIN_NAME} PRIVATE
 			${PLUGIN_INCLUDE} ${LWS_LIB_BUILD_INC_PATHS})

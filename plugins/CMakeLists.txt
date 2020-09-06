@@ -58,31 +58,19 @@ if (LWS_WITH_PLUGINS AND LWS_WITH_SHARED)
 	source_group("Headers Private"   FILES ${PLUGIN_HDR})
 	source_group("Sources"   FILES ${PLUGIN_SRCS})
 	add_library(${PLUGIN_NAME} SHARED ${PLUGIN_SRCS} ${PLUGIN_HDR})
-
-	foreach(libpath ${LWS_DEP_LIB_PATHS})
-		target_link_directories(${TEST_NAME} ${libpath})
-	endforeach()
-
 	target_link_libraries(${PLUGIN_NAME} websockets_shared)
 	add_dependencies(${PLUGIN_NAME} websockets_shared)
 
-	target_include_directories(${PLUGIN_NAME} PRIVATE ${PLUGIN_INCLUDE} ${LWS_LIB_BUILD_INC_PATHS})
-
-	# Set test app specific defines.
+	# doesn't work inside macro :-O
+	# target_compile_definitions(${PLUGIN_NAME} PRIVATE LWS_BUILDING_SHARED)
+	target_include_directories(${PLUGIN_NAME} PRIVATE ${PLUGIN_INCLUDE}
+							  ${LWS_LIB_BUILD_INC_PATHS})
 	set_property(TARGET ${PLUGIN_NAME}
 		     PROPERTY COMPILE_DEFINITIONS
 		     INSTALL_DATADIR="${CMAKE_INSTALL_PREFIX}/plugins"
 	)
 
 	set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-
-#	SET_TARGET_PROPERTIES(${PLUGIN_NAME}
-#                      PROPERTIES COMPILE_FLAGS ${CMAKE_C_FLAGS})
-
-#	set_target_properties(${PLUGIN_NAME}
-#		PROPERTIES
-#		OUTPUT_NAME ${PLUGIN_NAME})
-
 	list(APPEND PLUGINS_LIST ${PLUGIN_NAME})
 
 	endmacro()
@@ -90,50 +78,73 @@ if (LWS_WITH_PLUGINS AND LWS_WITH_SHARED)
 if (LWS_ROLE_WS)
 		create_plugin(protocol_dumb_increment ""
 			      "protocol_dumb_increment.c" "" "")
+		target_compile_definitions(protocol_dumb_increment PRIVATE LWS_BUILDING_SHARED)
+
 		create_plugin(protocol_lws_mirror ""
 			      "protocol_lws_mirror.c" "" "")
+		target_compile_definitions(protocol_lws_mirror PRIVATE LWS_BUILDING_SHARED)
+
 		create_plugin(protocol_lws_status ""
 			      "protocol_lws_status.c" "" "")
+		target_compile_definitions(protocol_lws_status PRIVATE LWS_BUILDING_SHARED)
+
 		if (NOT WIN32)
 			create_plugin(protocol_lws_raw_test ""
 			      "protocol_lws_raw_test.c" "" "")
+			target_compile_definitions(protocol_lws_raw_test PRIVATE LWS_BUILDING_SHARED)
+
 
 		      if (UNIX AND LWS_HAVE_PTHREAD_H)
 				create_plugin(protocol_deaddrop ""
 				      "deaddrop/protocol_lws_deaddrop.c" "" "")
+				target_compile_definitions(protocol_deaddrop PRIVATE LWS_BUILDING_SHARED)
+
 			endif()
 		endif()
 
 	if (LWS_WITH_SERVER_STATUS)
 			create_plugin(protocol_lws_server_status ""
 				      "protocol_lws_server_status.c" "" "")
+			target_compile_definitions(protocol_lws_server_status PRIVATE LWS_BUILDING_SHARED)
+
 	endif()
 
 	if (NOT LWS_WITHOUT_CLIENT)
 			create_plugin(protocol_client_loopback_test ""
         	                      "protocol_client_loopback_test.c" "" "")
+			target_compile_definitions(protocol_client_loopback_test PRIVATE LWS_BUILDING_SHARED)
+
 	endif()
 
 endif(LWS_ROLE_WS)
 
 	create_plugin(protocol_post_demo ""
 		      "protocol_post_demo.c" "" "")
+	target_compile_definitions(protocol_post_demo PRIVATE LWS_BUILDING_SHARED)
+
 
 if (LWS_ROLE_RAW_PROXY)
 	create_plugin(protocol_lws_raw_proxy ""
 		      "raw-proxy/protocol_lws_raw_proxy.c" "" "")
+	target_compile_definitions(protocol_lws_raw_proxy PRIVATE LWS_BUILDING_SHARED)
+
 endif()
 
 if (LWS_WITH_FTS)
 	create_plugin(protocol_fulltext_demo ""
 		      "protocol_fulltext_demo.c" "" "")
+	target_compile_definitions(protocol_fulltext_demo PRIVATE LWS_BUILDING_SHARED)
+
 endif()
 
 
 if (LWS_WITH_SSL)
 	create_plugin(protocol_lws_ssh_base "ssh-base/include"
 		      "ssh-base/sshd.c;ssh-base/telnet.c;ssh-base/kex-25519.c" "ssh-base/crypto/chacha.c;ssh-base/crypto/ed25519.c;ssh-base/crypto/fe25519.c;ssh-base/crypto/ge25519.c;ssh-base/crypto/poly1305.c;ssh-base/crypto/sc25519.c;ssh-base/crypto/smult_curve25519_ref.c" "")
+	target_compile_definitions(protocol_lws_ssh_base PRIVATE LWS_BUILDING_SHARED)
+
 	create_plugin(protocol_lws_sshd_demo "ssh-base/include" "protocol_lws_sshd_demo.c" "" "")
+	target_compile_definitions(protocol_lws_sshd_demo PRIVATE LWS_BUILDING_SHARED)
 
 	include_directories("${PROJECT_SOURCE_DIR}/plugins/ssh-base/include")
 endif()
@@ -143,6 +154,7 @@ endif()
 if (LWS_WITH_ACME)
 	create_plugin(protocol_lws_acme_client ""
 		      "acme-client/protocol_lws_acme_client.c" "" "")
+	target_compile_definitions(protocol_lws_acme_client PRIVATE LWS_BUILDING_SHARED)
 endif()
 
 endif(LWS_WITH_PLUGINS AND LWS_WITH_SHARED)

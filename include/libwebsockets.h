@@ -93,7 +93,7 @@ typedef unsigned long long lws_intptr_t;
 #define LWS_WARN_DEPRECATED
 #define LWS_FORMAT(string_index)
 
-#if !defined(LWS_EXTERN)
+#if !defined(LWS_EXTERN) && defined(LWS_BUILDING_SHARED)
 #ifdef LWS_DLL
 #ifdef LWS_INTERNAL
 #define LWS_EXTERN extern __declspec(dllexport)
@@ -101,6 +101,11 @@ typedef unsigned long long lws_intptr_t;
 #define LWS_EXTERN extern __declspec(dllimport)
 #endif
 #endif
+#endif
+
+#if !defined(LWS_INTERNAL) && !defined(LWS_EXTERN)
+#define LWS_EXTERN
+#define LWS_VISIBLE
 #endif
 
 #define LWS_INVALID_FILE INVALID_HANDLE_VALUE
@@ -150,7 +155,6 @@ typedef unsigned long long lws_intptr_t;
 #if defined(__FreeBSD__)
 #include <sys/signal.h>
 #endif
-
 #if defined(__GNUC__)
 
 /* warn_unused_result attribute only supported by GCC 3.4 or later */
@@ -160,25 +164,44 @@ typedef unsigned long long lws_intptr_t;
 #define LWS_WARN_UNUSED_RESULT
 #endif
 
+#if defined(LWS_BUILDING_SHARED)
+/* this is only set when we're building lws itself shared */
 #define LWS_VISIBLE __attribute__((visibility("default")))
+#define LWS_EXTERN extern
+
+#else /* not shared */
+#if defined(WIN32) || defined(_WIN32) || defined(__MINGW32__)
+#define LWS_VISIBLE
+#define LWS_EXTERN extern
+#else
+/*
+ * If we explicitly say hidden here, symbols exist as T but
+ * cannot be imported at link-time.
+ */
+#define LWS_VISIBLE
+#define LWS_EXTERN
+#endif
+
+#endif /* not shared */
+
 #define LWS_WARN_DEPRECATED __attribute__ ((deprecated))
 #define LWS_FORMAT(string_index) __attribute__ ((format(printf, string_index, string_index+1)))
-#else
+#else /* not GNUC */
+
 #define LWS_VISIBLE
 #define LWS_WARN_UNUSED_RESULT
 #define LWS_WARN_DEPRECATED
 #define LWS_FORMAT(string_index)
+#if !defined(LWS_EXTERN)
+#define LWS_EXTERN extern
 #endif
+#endif
+
 
 #if defined(__ANDROID__)
 #include <netinet/in.h>
 #include <unistd.h>
 #endif
-
-#endif
-
-#ifndef LWS_EXTERN
-#define LWS_EXTERN extern
 #endif
 
 #ifdef _WIN32

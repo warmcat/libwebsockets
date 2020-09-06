@@ -24,7 +24,7 @@
  *  lws_genhash provides a hash / hmac abstraction api in lws that works the
  *  same whether you are using openssl or mbedtls hash functions underneath.
  */
-#include "libwebsockets.h"
+#include <private-lib-core.h>
 #include <openssl/obj_mac.h>
 /*
  * Care: many openssl apis return 1 for success.  These are translated to the

@@ -154,6 +154,7 @@ if (LWS_WITH_STATIC)
 	set_target_properties(websockets PROPERTIES LINKER_LANGUAGE C)
 	list(APPEND LWS_LIBRARIES websockets)
 	target_include_directories(websockets PRIVATE ${LWS_LIB_BUILD_INC_PATHS})
+	target_compile_definitions(websockets PRIVATE LWS_BUILDING_STATIC)
 
 	if (WIN32)
 		# Windows uses the same .lib ending for static libraries and shared
@@ -174,6 +175,7 @@ if (LWS_WITH_SHARED)
 	set_target_properties(websockets_shared PROPERTIES LINKER_LANGUAGE C)
 	list(APPEND LWS_LIBRARIES websockets_shared)
 	target_include_directories(websockets_shared PRIVATE ${LWS_LIB_BUILD_INC_PATHS})
+	target_compile_definitions(websockets_shared PRIVATE LWS_BUILDING_SHARED)
 
 	# We want the shared lib to be named "libwebsockets"
 	# not "libwebsocket_shared".

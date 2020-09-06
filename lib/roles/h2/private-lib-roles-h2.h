@@ -322,58 +322,58 @@ struct _lws_h2_related {
 int
 lws_h2_rst_stream(struct lws *wsi, uint32_t err, const char *reason);
 struct lws * lws_h2_get_nth_child(struct lws *wsi, int n);
-LWS_EXTERN void lws_h2_init(struct lws *wsi);
-LWS_EXTERN int
+void lws_h2_init(struct lws *wsi);
+int
 lws_h2_settings(struct lws *nwsi, struct http2_settings *settings,
 		unsigned char *buf, int len);
-LWS_EXTERN int
+int
 lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 	      lws_filepos_t *inused);
-LWS_EXTERN int
+int
 lws_h2_do_pps_send(struct lws *wsi);
-LWS_EXTERN int
+int
 lws_h2_frame_write(struct lws *wsi, int type, int flags, unsigned int sid,
 		   unsigned int len, unsigned char *buf);
-LWS_EXTERN struct lws *
+struct lws *
 lws_wsi_mux_from_id(struct lws *wsi, unsigned int sid);
-LWS_EXTERN int
+int
 lws_hpack_interpret(struct lws *wsi, unsigned char c);
-LWS_EXTERN int
+int
 lws_add_http2_header_by_name(struct lws *wsi,
 			     const unsigned char *name,
 			     const unsigned char *value, int length,
 			     unsigned char **p, unsigned char *end);
-LWS_EXTERN int
+int
 lws_add_http2_header_by_token(struct lws *wsi,
 			      enum lws_token_indexes token,
 			      const unsigned char *value, int length,
 			      unsigned char **p, unsigned char *end);
-LWS_EXTERN int
+int
 lws_add_http2_header_status(struct lws *wsi,
 			    unsigned int code, unsigned char **p,
 			    unsigned char *end);
-LWS_EXTERN void
+void
 lws_hpack_destroy_dynamic_header(struct lws *wsi);
-LWS_EXTERN int
+int
 lws_hpack_dynamic_size(struct lws *wsi, int size);
-LWS_EXTERN int
+int
 lws_h2_goaway(struct lws *wsi, uint32_t err, const char *reason);
-LWS_EXTERN int
+int
 lws_h2_tx_cr_get(struct lws *wsi);
-LWS_EXTERN void
+void
 lws_h2_tx_cr_consume(struct lws *wsi, int consumed);
-LWS_EXTERN int
+int
 lws_hdr_extant(struct lws *wsi, enum lws_token_indexes h);
-LWS_EXTERN void
+void
 lws_pps_schedule(struct lws *wsi, struct lws_h2_protocol_send *pss);
 
-LWS_EXTERN const struct http2_settings lws_h2_defaults;
-LWS_EXTERN int
+extern const struct http2_settings lws_h2_defaults;
+int
 lws_h2_ws_handshake(struct lws *wsi);
-LWS_EXTERN int lws_h2_issue_preface(struct lws *wsi);
-LWS_EXTERN int
+int lws_h2_issue_preface(struct lws *wsi);
+int
 lws_h2_client_handshake(struct lws *wsi);
-LWS_EXTERN struct lws *
+struct lws *
 lws_wsi_h2_adopt(struct lws *parent_wsi, struct lws *wsi);
 int
 lws_handle_POLLOUT_event_h2(struct lws *wsi);

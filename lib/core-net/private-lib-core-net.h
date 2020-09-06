@@ -1086,11 +1086,11 @@ lws_change_pollfd(struct lws *wsi, int _and, int _or);
 #if defined(LWS_WITH_SERVER)
  int _lws_vhost_init_server(const struct lws_context_creation_info *info,
 			      struct lws_vhost *vhost);
- LWS_EXTERN struct lws_vhost *
+struct lws_vhost *
  lws_select_vhost(struct lws_context *context, int port, const char *servername);
- LWS_EXTERN int LWS_WARN_UNUSED_RESULT
+int LWS_WARN_UNUSED_RESULT
  lws_parse_ws(struct lws *wsi, unsigned char **buf, size_t len);
- LWS_EXTERN void
+void
  lws_server_get_canonical_hostname(struct lws_context *context,
 				   const struct lws_context_creation_info *info);
 #else

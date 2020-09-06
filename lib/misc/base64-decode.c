@@ -36,11 +36,10 @@
  * of libwebsockets
  */
 
-#include <libwebsockets.h>
+#include "private-lib-core.h"
 
 #include <stdio.h>
 #include <string.h>
-#include "private-lib-core.h"
 
 static const char encode_orig[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 			     "abcdefghijklmnopqrstuvwxyz0123456789+/";

@@ -134,9 +134,9 @@ typedef X509 lws_tls_x509;
 #include "private-network.h"
 #endif
 
-LWS_EXTERN int
+int
 lws_context_init_ssl_library(const struct lws_context_creation_info *info);
-LWS_EXTERN void
+void
 lws_context_deinit_ssl_library(struct lws_context *context);
 #define LWS_SSL_ENABLED(vh) (vh && vh->tls.use_ssl)
 
@@ -147,25 +147,24 @@ struct lws_ec_valid_curves {
 	const char *jwa_name; /* list terminates with NULL jwa_name */
 };
 
-LWS_EXTERN enum lws_tls_extant
+enum lws_tls_extant
 lws_tls_use_any_upgrade_check_extant(const char *name);
-LWS_EXTERN int openssl_websocket_private_data_index;
+extern int openssl_websocket_private_data_index;
 
-
-LWS_EXTERN void
+void
 lws_tls_err_describe_clear(void);
 
-LWS_EXTERN int
+int
 lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 			  union lws_tls_cert_info_results *buf, size_t len);
-LWS_EXTERN int
+int
 lws_tls_check_all_cert_lifetimes(struct lws_context *context);
 
-LWS_EXTERN int
+int
 lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
 			      const char *inbuf, lws_filepos_t inlen,
 			      uint8_t **buf, lws_filepos_t *amount);
-LWS_EXTERN char *
+char *
 lws_ssl_get_error_string(int status, int ret, char *buf, size_t len);
 
 int
@@ -179,7 +178,7 @@ lws_gencrypto_destroy_elements(struct lws_gencrypto_keyelem *el, int m);
 struct lws_gencrypto_keyelem;
 struct lws_ec_curves;
 
-LWS_EXTERN const struct lws_ec_curves lws_ec_curves[4];
+extern const struct lws_ec_curves lws_ec_curves[4];
 const struct lws_ec_curves *
 lws_genec_curve(const struct lws_ec_curves *table, const char *name);
 LWS_VISIBLE void

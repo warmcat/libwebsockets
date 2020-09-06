@@ -132,6 +132,7 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2))
 				""
 				""
 				"")
+			target_compile_definitions(test-server PRIVATE LWS_BUILDING_SHARED)
 
 			if (LWS_WITH_CGI AND LWS_WITH_TLS)
 			create_test_app(test-sshd "test-sshd.c"
@@ -141,7 +142,7 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2))
 				""
 				"")
 			target_include_directories(test-sshd PRIVATE "${PROJECT_SOURCE_DIR}/plugins/ssh-base/include")
-
+			target_compile_definitions(test-sshd PRIVATE LWS_BUILDING_SHARED)
 			endif()
 
 		endif()
@@ -157,6 +158,7 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2))
 				""
 				""
 				"")
+			target_compile_definitions(test-server-extpoll PRIVATE LWS_BUILDING_SHARED)
 			# Set defines for this executable only.
 			set_property(
 				TARGET test-server-extpoll
@@ -180,6 +182,7 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2))
 				""
 				""
 				"")
+			target_compile_definitions(test-lejp PRIVATE LWS_BUILDING_STATIC)
 		endif()
 
 		# Data files for running the test server.
