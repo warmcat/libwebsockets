@@ -53,6 +53,7 @@ struct lws_signal_watcher_libuv {
 
 struct lws_pt_eventlibs_libuv {
 	uv_loop_t *io_loop;
+	struct lws_context_per_thread *pt;
 	uv_signal_t signals[8];
 	uv_timer_t sultimer;
 	uv_idle_t idle;
