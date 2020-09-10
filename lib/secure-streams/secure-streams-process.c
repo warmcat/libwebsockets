@@ -231,12 +231,13 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 	struct raw_pss *pss = (struct raw_pss *)user;
 	const lws_ss_policy_t *rsp;
 	struct conn *conn = NULL;
+	lws_ss_metadata_t *md;
 	lws_ss_info_t ssi;
 	const uint8_t *cp;
 #if defined(LWS_WITH_DETAILED_LATENCY)
 	lws_usec_t us;
 #endif
-	char s[128];
+	char s[256];
 	uint8_t *p;
 	size_t si;
 	char pay;
@@ -430,6 +431,48 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_set_timeout(wsi, 0, 0);
 			break;
 		case LPCSPROX_OPERATIONAL:
+
+			/*
+			 * rx metadata has priority
+			 */
+
+			md = conn->ss->metadata;
+			while (md) {
+				// lwsl_notice("%s: check %s: %d\n", __func__,
+				// md->name, md->pending_onward);
+				if (md->pending_onward) {
+					size_t naml = strlen(md->name);
+
+					// lwsl_notice("%s: proxy issuing rxmd\n", __func__);
+
+					if (4 + naml + md->length > sizeof(s)) {
+						lwsl_err("%s: rxmdata too big\n",
+								__func__);
+						goto hangup;
+					}
+					md->pending_onward = 0;
+					p = (uint8_t *)s;
+					p[0] = LWSSS_SER_RXPRE_METADATA;
+					lws_ser_wu16be(&p[1], 1 + naml +
+							      md->length);
+					p[3] = (uint8_t)naml;
+					memcpy(&p[4], md->name, naml);
+					p += 4 + naml;
+					memcpy(p, md->value, md->length);
+					p += md->length;
+
+					n = lws_ptr_diff(p, cp);
+					goto again;
+				}
+
+				md = md->next;
+			}
+
+			/*
+			 * if no fresh rx metadata, just pass through incoming
+			 * dsh
+			 */
+
 			if (lws_dsh_get_head(conn->dsh, KIND_SS_TO_P,
 					     (void **)&p, &si))
 				break;
@@ -511,10 +554,8 @@ again:
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
 
 hangup:
-	//lws_ss_destroy(&conn->ss);
-	//conn->state = LPCSPROX_DESTROYED;
-
 	/* hang up on him */
+
 	return -1;
 }
 

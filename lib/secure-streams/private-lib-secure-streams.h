@@ -200,6 +200,7 @@ struct lws_ss_serialization_parser {
 	uint64_t		ust_pwait;
 
 	lws_ss_metadata_t	*ssmd;
+	uint8_t			*rxmetaval;
 
 	int			ps;
 	int			ctr;
@@ -259,6 +260,7 @@ typedef struct lws_sspc_handle {
 	struct lws_ss_serialization_parser parser;
 
 	lws_dll2_owner_t	metadata_owner;
+	lws_dll2_owner_t	metadata_owner_rx;
 
 	struct lws_dll2		client_list;
 	struct lws_tx_credit	txc;
@@ -372,6 +374,9 @@ lws_ss_destroy_dll(struct lws_dll2 *d, void *user);
 
 int
 lws_sspc_destroy_dll(struct lws_dll2 *d, void *user);
+
+void
+lws_sspc_rxmetadata_destroy(lws_sspc_handle_t *h);
 
 int
 lws_ss_policy_set(struct lws_context *context, const char *name);

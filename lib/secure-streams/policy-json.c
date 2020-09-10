@@ -642,8 +642,20 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		a->curr[LTY_POLICY].p->metadata->value = q;
 		memcpy(q, ctx->buf, ctx->npos);
 
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+		/*
+		 * Check the metadata value part to see if it's a well-known
+		 * http header... if so, 0xff means no header string match else
+		 * it's the well-known header index
+		 */
+		a->curr[LTY_POLICY].p->metadata->value_is_http_token = (uint8_t)
+			lws_http_string_to_known_header(ctx->buf, ctx->npos);
+#endif
+
 		a->curr[LTY_POLICY].p->metadata->length = /* the index in handle->metadata */
 				a->curr[LTY_POLICY].p->metadata_count++;
+
+		a->curr[LTY_POLICY].p->metadata->value_length = ctx->npos;
 		break;
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)

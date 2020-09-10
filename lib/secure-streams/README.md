@@ -326,6 +326,33 @@ interval described in the associated retry / backoff selection, are important
 enough to wake the whole system from low power suspend so they happen on
 schedule.
 
+### `metadata`
+
+This allows declaring basically dynamic symbol names to be used by the streamtype,
+along with an optional mapping to a protocol-specific entity such as a given
+http header.  Eg:
+
+```
+		"metadata": [ { "myname": "" }, { "ctype": "content-type:" } ],
+```
+
+In this example "ctype" is associated with the http header "content-type" while
+"myname" doesn't have any association to a header.
+
+Symbol names may be used in the other policy for the streamtype for string
+substitution using the syntax like `xxx${myname}yyy`, forward references are
+valid but the scope of the symbols is just the streamtype the metadata is
+defined for.
+
+Client code can set metadata by name, using the `lws_ss_set_metadata()` api, this
+should be done before a transaction.  And for metadata associated with a
+protocol-specific entity, like http headers, if incoming responses contain the
+mentioned header, the metadata symbol is set to that value at the client before
+any rx proceeds.
+
+Metadata continues to work the same for the client in the case it is proxying its
+connectivity, metadata is passed in both directions serialized over the proxy link.
+
 ## http transport
 
 ### `http_method`

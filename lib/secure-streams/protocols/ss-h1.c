@@ -152,26 +152,21 @@ around:
 }
 #endif
 
+/*
+ * This converts any set metadata items into outgoing http headers
+ */
+
 static int
 lws_apply_metadata(lws_ss_handle_t *h, struct lws *wsi, uint8_t *buf,
 		   uint8_t **pp, uint8_t *end)
 {
-	int m;
+	lws_ss_metadata_t *polmd = h->policy->metadata;
+	int m = 0;
 
-	for (m = 0; m < h->policy->metadata_count; m++) {
-		lws_ss_metadata_t *polmd;
+	while (polmd) {
 
-		/* has to have a header string listed */
-		if (!h->metadata[m].value)
-			continue;
+		/* has to have a non-empty header string */
 
-		polmd = lws_ss_policy_metadata_index(h->policy, m);
-
-		assert(polmd);
-		if (!polmd)
-			return -1;
-
-		/* has to have a value */
 		if (polmd->value && ((uint8_t *)polmd->value)[0]) {
 			if (lws_add_http_header_by_name(wsi,
 					polmd->value,
@@ -179,6 +174,9 @@ lws_apply_metadata(lws_ss_handle_t *h, struct lws *wsi, uint8_t *buf,
 					(int)h->metadata[m].length, pp, end))
 			return -1;
 		}
+
+		m++;
+		polmd = polmd->next;
 	}
 
 	/*
@@ -199,6 +197,111 @@ lws_apply_metadata(lws_ss_handle_t *h, struct lws *wsi, uint8_t *buf,
 				return -1;
 		}
 		lws_client_http_body_pending(wsi, 1);
+	}
+
+	return 0;
+}
+
+
+/*
+ * Check if any metadata headers present in the server headers, and record
+ * them into the associated metadata item if so.
+ */
+
+static int
+lws_extract_metadata(lws_ss_handle_t *h, struct lws *wsi)
+{
+	lws_ss_metadata_t *polmd = h->policy->metadata, *omd;
+	int n, m = 0;
+
+	while (polmd) {
+
+		if (polmd->value_is_http_token != 0xff) {
+
+			/* it's a well-known header token */
+
+			n = lws_hdr_total_length(wsi, polmd->value_is_http_token);
+			if (n) {
+				const char *cp = lws_hdr_simple_ptr(wsi,
+						polmd->value_is_http_token);
+
+				/*
+				 * it's present on the wsi, we want to
+				 * set the related metadata name to it then
+				 */
+
+				lws_ss_set_metadata(h, polmd->name, cp, n);
+
+				/*
+				 * ...and because we are doing it from parsing
+				 * onward rx, we want to mark the metadata as
+				 * needing passing to the client
+				 */
+
+				omd = lws_ss_get_handle_metadata(h, polmd->name);
+				assert(!strcmp(omd->name, polmd->name));
+#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
+				omd->pending_onward = 1;
+#endif
+			}
+		}
+
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+		else
+
+			/* has to have a non-empty header string */
+
+			if (polmd->value && ((uint8_t *)polmd->value)[0]) {
+				char *p;
+
+				/*
+				 * Can it be a custom header?
+				 */
+
+				n = lws_hdr_custom_length(wsi,
+						(const char *)polmd->value,
+							polmd->value_length);
+				if (n > 0) {
+
+					p = lws_malloc(n + 1, __func__);
+					if (!p)
+						return 1;
+
+					/* if needed, free any previous value */
+
+					if (polmd->value_on_lws_heap) {
+						lws_free(polmd->value);
+						polmd->value_on_lws_heap = 0;
+					}
+
+					/*
+					 * copy the named custom header value into the
+					 * malloc'd buffer
+					 */
+
+					if (lws_hdr_custom_copy(wsi, p, n + 1,
+						     (const char *)polmd->value,
+						     polmd->value_length) < 0) {
+						lws_free(p);
+
+						return 1;
+					}
+
+					omd = lws_ss_get_handle_metadata(h,
+								   polmd->name);
+
+#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
+					omd->pending_onward = 1;
+#endif
+					omd->value = p;
+					omd->length = (size_t)n;
+					omd->value_on_lws_heap = 1;
+				}
+			}
+#endif
+
+		m++;
+		polmd = polmd->next;
 	}
 
 	return 0;
@@ -294,6 +397,12 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		else
 			h->u.http.good_respcode = (status >= 200 && status < 300);
 		// lwsl_err("%s: good resp %d %d\n", __func__, status, h->u.http.good_respcode);
+
+		if (lws_extract_metadata(h, wsi)) {
+			lwsl_info("%s: rx metadata extract failed\n", __func__);
+
+			return -1;
+		}
 
 		if (h->u.http.good_respcode)
 			lwsl_info("%s: Connected streamtype %s, %d\n", __func__,
@@ -746,6 +855,9 @@ secstream_connect_munge_h1(lws_ss_handle_t *h, char *buf, size_t len,
 
 	if (!pbasis)
 		return 0;
+
+	/* uncomment to force h1 */
+	// i->alpn = "http/1.1";
 
 #if defined(LWS_WITH_SS_RIDESHARE)
 	if (h->policy->flags & LWSSSPOLF_HTTP_MULTIPART)

@@ -327,6 +327,9 @@ lws_sul_http_ah_lifecheck(lws_sorted_usec_list_t *sul);
 uint8_t *
 lws_http_multipart_headers(struct lws *wsi, uint8_t *p);
 
+int
+lws_http_string_to_known_header(const char *s, size_t slen);
+
 enum {
 	CCTLS_RETURN_ERROR		= -1,
 	CCTLS_RETURN_DONE		= 0,

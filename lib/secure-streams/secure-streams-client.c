@@ -302,8 +302,6 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 		case LPCSCLI_OPERATIONAL:
 
-			lwsl_notice("%s: LPCSCLI_OPERATIONAL\n", __func__);
-
 			/*
 			 *
 			 * - Do we need to prioritize sending any metadata
@@ -486,6 +484,19 @@ lws_sspc_destroy_dll(struct lws_dll2 *d, void *user)
 	return 0;
 }
 
+void
+lws_sspc_rxmetadata_destroy(lws_sspc_handle_t *h)
+{
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+			lws_dll2_get_head(&h->metadata_owner_rx)) {
+		lws_sspc_metadata_t *md =
+				lws_container_of(d, lws_sspc_metadata_t, list);
+
+		lws_dll2_remove(&md->list);
+		lws_free(md);
+
+	} lws_end_foreach_dll_safe(d, d1);
+}
 
 void
 lws_sspc_destroy(lws_sspc_handle_t **ph)
@@ -529,6 +540,8 @@ lws_sspc_destroy(lws_sspc_handle_t **ph)
 		lws_free(md);
 
 	} lws_end_foreach_dll_safe(d, d1);
+
+	lws_sspc_rxmetadata_destroy(h);
 
 	h->ssi.state(m, NULL, LWSSSCS_DESTROYING, 0);
 	*ph = NULL;
@@ -724,6 +737,36 @@ lws_sspc_set_metadata(struct lws_sspc_handle *h, const char *name,
 		      const void *value, size_t len)
 {
 	return _lws_sspc_set_metadata(h, name, value, len, 0);
+}
+
+int
+lws_sspc_get_metadata(struct lws_sspc_handle *h, const char *name,
+		      const void **value, size_t *len)
+{
+	lws_sspc_metadata_t *md;
+
+	/*
+	 * client side does not have access to policy
+	 * and any metadata are new to it each time,
+	 * we allocate them, removing any existing with
+	 * the same name first
+	 */
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+			lws_dll2_get_head(&h->metadata_owner_rx)) {
+		md = lws_container_of(d,
+			   lws_sspc_metadata_t, list);
+
+		if (!strcmp(md->name, name)) {
+			*len = md->len;
+			*value = &md[1];
+
+			return 0;
+		}
+
+	} lws_end_foreach_dll_safe(d, d1);
+
+	return 1;
 }
 
 int

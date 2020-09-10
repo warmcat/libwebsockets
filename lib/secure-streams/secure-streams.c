@@ -142,7 +142,8 @@ lws_ss_exp_cb_metadata(void *priv, const char *name, char *out, size_t *pos,
 	lws_ss_handle_t *h = (lws_ss_handle_t *)priv;
 	const char *replace = NULL;
 	size_t total, budget;
-	lws_ss_metadata_t *md = lws_ss_policy_metadata(h->policy, name);
+	lws_ss_metadata_t *md = lws_ss_policy_metadata(h->policy, name),
+			*hmd = lws_ss_get_handle_metadata(h, name);
 
 	if (!md) {
 		lwsl_err("%s: Unknown metadata %s\n", __func__, name);
@@ -150,10 +151,8 @@ lws_ss_exp_cb_metadata(void *priv, const char *name, char *out, size_t *pos,
 		return LSTRX_FATAL_NAME_UNKNOWN;
 	}
 
-	lwsl_info("%s %s %d\n", __func__, name, (int)md->length);
-
-	replace = h->metadata[md->length].value;
-	total = h->metadata[md->length].length;
+	replace = hmd->value;
+	total = hmd->length;
 	// lwsl_hexdump_err(replace, total);
 
 	budget = olen - *pos;

@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -33,6 +33,22 @@ lws_token_to_string(enum lws_token_indexes token)
 		return NULL;
 
 	return (unsigned char *)set[token];
+}
+
+/*
+ * Return http header index if one matches slen chars of s, or -1
+ */
+
+int
+lws_http_string_to_known_header(const char *s, size_t slen)
+{
+	int n;
+
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(set); n++)
+		if (!strncmp(set[n], s, slen))
+			return n;
+
+	return -1;
 }
 
 int

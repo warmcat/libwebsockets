@@ -181,10 +181,15 @@ int main(int argc, const char **argv)
 
 				printf("\t.name = \"%s\",\n", (const char *)md->name);
 				if (md->value)
-					printf("\t.value = (void *)\"%s\",\n", (const char *)md->value);
+					printf("\t.value = (void *)\"%s\",\n",
+							(const char *)md->value);
 
 				printf("\t.length = %d,\n", idx++); // md->length);
-
+				printf("\t.value_length = 0x%x,\n",
+						(unsigned int)strlen(
+							(const char *)md->value));
+				printf("\t.value_is_http_token = 0x%x,\n",
+					(unsigned int)md->value_is_http_token);
 				printf("}");
 				if (md->next)
 					printf(",\n");

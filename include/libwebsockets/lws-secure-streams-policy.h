@@ -154,13 +154,23 @@ enum {
 	_LWSSS_HBI_COUNT /* always last */
 };
 
+/*
+ * This does for both the static policy metadata entry, and the runtime metadata
+ * handling object.
+ */
+
 typedef struct lws_ss_metadata {
 	struct lws_ss_metadata	*next;
 	const char		*name;
 	void			*value;
 	size_t			length;
 
-	uint8_t			value_on_lws_heap; /* proxy does this */
+	uint8_t			value_on_lws_heap; /* proxy + rx metadata does this */
+	uint8_t			value_is_http_token; /* valid if set by policy */
+	uint8_t			value_length; /* only valid if set by policy */
+#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
+	uint8_t			pending_onward:1;
+#endif
 } lws_ss_metadata_t;
 
 

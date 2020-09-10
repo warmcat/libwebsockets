@@ -230,9 +230,16 @@ static const char *canned_root_token_payload =
 static int
 myss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 {
-//	myss_t *m = (myss_t *)userobj;
+	myss_t *m = (myss_t *)userobj;
+	const char *md_srv = NULL, *md_test = NULL;
+	size_t md_len;
 
-	lwsl_user("%s: len %d, flags: %d\n", __func__, (int)len, flags);
+	lws_ss_get_metadata(m->ss, "srv", (const void **)&md_srv, &md_len);
+	lws_ss_get_metadata(m->ss, "test", (const void **)&md_test, &md_len);
+
+	lwsl_user("%s: len %d, flags: %d, srv: %s, test: %s\n", __func__,
+			(int)len, flags, md_srv ? md_srv : "not set",
+			md_test ? md_test : "not set");
 	lwsl_hexdump_info(buf, len);
 
 	/*

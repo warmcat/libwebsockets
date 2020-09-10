@@ -132,6 +132,14 @@
  *   -  1: 00, 04
  *   -  3: 4-byte MSB-first addition tx credit bytes
  *
+ * - Proxied rx metadata
+ *
+ *   -  0: LWSSS_SER_RXPRE_METADATA
+ *   -  1: 2-byte MSB-first rest-of-frame length
+ *   -  3: 1-byte metadata name length
+ *   -  4: metadata name
+ *   -  ...: metadata value (for rest of packet)
+ *
  * - Proxied state
  *
  *   -  0: LWSSS_SER_RXPRE_CONNSTATE
@@ -227,6 +235,7 @@ enum {
 	LWSSS_SER_RXPRE_CREATE_RESULT,
 	LWSSS_SER_RXPRE_CONNSTATE,
 	LWSSS_SER_RXPRE_TXCR_UPDATE,
+	LWSSS_SER_RXPRE_METADATA,
 	LWSSS_SER_RXPRE_TLSNEG_ENCLAVE_SIGN,
 
 	/* tx (send by client) prepends for proxied connections */
@@ -563,6 +572,37 @@ lws_ss_rideshare(struct lws_ss_handle *h);
 LWS_VISIBLE LWS_EXTERN int
 lws_ss_set_metadata(struct lws_ss_handle *h, const char *name,
 		    const void *value, size_t len);
+
+/**
+ * lws_ss_get_metadata() - get current value of stream metadata item
+ *
+ * \param h: secure streams handle
+ * \param name: metadata name from the policy
+ * \param value: pointer to pointer to be set to point at the value
+ * \param len: pointer to size_t to set to the length of the value
+ *
+ * Binds user-managed data to the named metadata item from the ss policy.
+ * If present, the metadata item is handled in a protocol-specific way using
+ * the associated policy information.  For example, in the policy
+ *
+ *  	"\"metadata\":"		"["
+ *		"{\"uptag\":"  "\"X-Upload-Tag:\"},"
+ *		"{\"ctype\":"  "\"Content-Type:\"},"
+ *		"{\"xctype\":" "\"\"}"
+ *	"],"
+ *
+ * when the policy is using h1 is interpreted to add h1 headers of the given
+ * name with the value of the metadata on the left.
+ *
+ * Return 0 if *value and *len set OK, or nonzero if, eg, metadata name does
+ * not exist on the streamtype.
+ *
+ * The pointed-to values may only exist until the next time around the event
+ * loop.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_ss_get_metadata(struct lws_ss_handle *h, const char *name,
+		    const void **value, size_t *len);
 
 /*
  * lws_ss_server_ack() - indicate how we feel about what the server has sent

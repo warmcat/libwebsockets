@@ -1,5 +1,5 @@
 /*
- * lws-minimal-secure-streams
+ * lws-minimal-secure-streams-staticpolicy
  *
  * Written in 2010-2020 by Andy Green <andy@warmcat.com>
  *
@@ -276,7 +276,7 @@ int main(int argc, const char **argv)
 
 	lws_system_blob_heap_append(lws_system_get_blob(context,
 				    LWS_SYSBLOB_TYPE_DEVICE_TYPE, 0),
-				   (const uint8_t *)"spacerocket", 11);
+				    (const uint8_t *)"spacerocket", 11);
 
 	/* the event loop */
 
