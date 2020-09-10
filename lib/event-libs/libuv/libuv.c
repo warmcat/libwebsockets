@@ -37,8 +37,7 @@ lws_uv_sultimer_cb(uv_timer_t *timer
 {
 	struct lws_pt_eventlibs_libuv *ptpr = lws_container_of(timer,
 				struct lws_pt_eventlibs_libuv, sultimer);
-	struct lws_context_per_thread *pt = lws_container_of(ptpr,
-				struct lws_context_per_thread, evlib_pt);
+	struct lws_context_per_thread *pt = ptpr->pt;
 	lws_usec_t us;
 
 	lws_pt_lock(pt, __func__);
@@ -58,8 +57,7 @@ lws_uv_idle(uv_idle_t *handle
 )
 {	struct lws_pt_eventlibs_libuv *ptpr = lws_container_of(handle,
 		struct lws_pt_eventlibs_libuv, idle);
-	struct lws_context_per_thread *pt = lws_container_of(ptpr,
-		struct lws_context_per_thread, evlib_pt);
+	struct lws_context_per_thread *pt = ptpr->pt;
 	lws_usec_t us;
 
 	lws_service_do_ripe_rxflow(pt);
@@ -637,6 +635,8 @@ elops_init_pt_uv(struct lws_context *context, void *_loop, int tsi)
 	int status = 0, n, ns, first = 1;
 	uv_loop_t *loop = (uv_loop_t *)_loop;
 
+	ptpriv->pt = pt;
+
 	if (!ptpriv->io_loop) {
 		if (!loop) {
 			loop = lws_malloc(sizeof(*loop), "libuv loop");
@@ -659,7 +659,7 @@ elops_init_pt_uv(struct lws_context *context, void *_loop, int tsi)
 		ptpriv->io_loop = loop;
 		uv_idle_init(loop, &ptpriv->idle);
 		LWS_UV_REFCOUNT_STATIC_HANDLE_NEW(&ptpriv->idle, context);
-
+		uv_idle_start(&ptpriv->idle, lws_uv_idle);
 
 		ns = LWS_ARRAY_SIZE(sigs);
 		if (lws_check_opt(context->options,
