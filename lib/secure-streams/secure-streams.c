@@ -899,6 +899,9 @@ lws_ss_request_tx(lws_ss_handle_t *h)
 		return LWSSSSRET_OK;
 	}
 
+	if (h->policy->flags & LWSSSPOLF_SERVER)
+		return LWSSSSRET_OK;
+
 	/*
 	 * there's currently no wsi / connection associated with the ss handle
 	 */
