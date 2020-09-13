@@ -837,6 +837,9 @@ struct lws {
 	unsigned int			could_have_pending:1; /* detect back-to-back writes */
 	unsigned int			outer_will_close:1;
 	unsigned int			shadow:1; /* we do not control fd lifecycle at all */
+#if defined(LWS_WITH_SECURE_STREAMS)
+	unsigned int			for_ss:1;
+#endif
 
 #ifdef LWS_WITH_ACCESS_LOG
 	unsigned int			access_log_pending:1;

@@ -483,6 +483,23 @@ just_kill_connection:
 		wsi->protocol_bind_balance = 0;
 	}
 
+#if defined(LWS_WITH_SECURE_STREAMS) && defined(LWS_WITH_SERVER)
+	if (wsi->for_ss) {
+		/*
+		 * We were adopted for a particular ss, but, eg, we may not
+		 * have succeeded with the connection... we are closing which is
+		 * good, but we have to invalidate any pointer the related ss
+		 * handle may be holding on us
+		 */
+		lws_ss_handle_t *h = (lws_ss_handle_t *)wsi->a.opaque_user_data;
+
+		if (h) {
+			h->wsi = NULL;
+			wsi->a.opaque_user_data = NULL;
+		}
+	}
+#endif
+
 #if defined(LWS_WITH_CLIENT)
 	if ((lwsi_state(wsi) == LRS_WAITING_SERVER_REPLY ||
 	     lwsi_state(wsi) == LRS_WAITING_DNS ||

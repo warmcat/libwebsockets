@@ -270,6 +270,7 @@ lws_adopt_ss_server_accept(struct lws *new_wsi)
 	h->wsi = new_wsi;
 	new_wsi->a.opaque_user_data = h;
 	h->info.flags |= LWSSSINFLAGS_ACCEPTED;
+	new_wsi->for_ss = 1; /* indicate wsi should invalidate any ss link to it on close */
 
 	// lwsl_notice("%s: opaq %p, role %s\n", __func__,
 	//		new_wsi->a.opaque_user_data, new_wsi->role_ops->name);
