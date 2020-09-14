@@ -409,7 +409,6 @@ lws_plat_ifconfig_ip(const char *ifname, int fd, uint8_t *ip, uint8_t *mask_ip,
 			uint8_t *gateway_ip)
 {
 #if defined(__linux__)
-	struct sockaddr_in *addr;
 	struct sockaddr_in sin;
 	struct rtentry route;
 	struct ifreq ifr;
@@ -440,17 +439,12 @@ lws_plat_ifconfig_ip(const char *ifname, int fd, uint8_t *ip, uint8_t *mask_ip,
 
 	lws_plat_if_up(ifname, fd, 1);
 
-	addr = (struct sockaddr_in *)&route.rt_gateway;
-	addr->sin_family = AF_INET;
-	addr->sin_addr.s_addr = htonl(*(uint32_t *)gateway_ip);
+	sin.sin_addr.s_addr = htonl(*(uint32_t *)gateway_ip);
+	memcpy(&route.rt_gateway, &sin, sizeof(struct sockaddr));
 
-	addr = (struct sockaddr_in *)&route.rt_dst;
-	addr->sin_family = AF_INET;
-	addr->sin_addr.s_addr = 0;
-
-	addr = (struct sockaddr_in *)&route.rt_genmask;
-	addr->sin_family = AF_INET;
-	addr->sin_addr.s_addr = 0;
+	sin.sin_addr.s_addr = 0;
+	memcpy(&route.rt_dst, &sin, sizeof(struct sockaddr));
+	memcpy(&route.rt_genmask, &sin, sizeof(struct sockaddr));
 
 	route.rt_flags = RTF_UP | RTF_GATEWAY;
 	route.rt_metric = 100;
