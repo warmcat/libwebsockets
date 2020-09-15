@@ -111,8 +111,11 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		lws_system_blob_t *b = lws_system_get_blob(wsi->a.context,
 					LWS_SYSBLOB_TYPE_CLIENT_CERT_DER,
 					wsi->sys_tls_client_cert - 1);
-		const uint8_t *data;
+		const uint8_t *pem_data = NULL;
+		uint8_t *data = NULL;
+		lws_filepos_t flen;
 		size_t size;
+		int err = 0;
 
 		if (!b)
 			goto no_client_cert;
@@ -125,10 +128,18 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		if (!size)
 			goto no_client_cert;
 
-		if (lws_system_blob_get_single_ptr(b, &data))
+		if (lws_system_blob_get_single_ptr(b, &pem_data))
 			goto no_client_cert;
 
-		if (SSL_use_certificate_ASN1(wsi->tls.ssl, data, size) != 1)
+		if (lws_tls_alloc_pem_to_der_file(wsi->a.context, NULL,
+						  (const char *)pem_data, size,
+						  &data, &flen))
+			goto no_client_cert;
+		size = (size_t) flen;
+
+		err = SSL_use_certificate_ASN1(wsi->tls.ssl, data, size);
+		lws_free_set_NULL(data);
+		if (err != 1)
 			goto no_client_cert;
 
 		b = lws_system_get_blob(wsi->a.context,
@@ -140,10 +151,18 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		if (!size)
 			goto no_client_cert;
 
-		if (lws_system_blob_get_single_ptr(b, &data))
+		if (lws_system_blob_get_single_ptr(b, &pem_data))
 			goto no_client_cert;
 
-		if (SSL_use_PrivateKey_ASN1(0, wsi->tls.ssl, data, size) != 1)
+		if (lws_tls_alloc_pem_to_der_file(wsi->a.context, NULL,
+						  (const char *)pem_data, size,
+						  &data, &flen))
+			goto no_client_cert;
+		size = (size_t) flen;
+
+		err = SSL_use_PrivateKey_ASN1(0, wsi->tls.ssl, data, size);
+		lws_free_set_NULL(data);
+		if (err != 1)
 			goto no_client_cert;
 
 		/* no wrapper api for check key */
