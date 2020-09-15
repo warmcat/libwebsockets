@@ -132,6 +132,7 @@ lws_dir(const char *dirpath, void *user, lws_dir_callback_function cb)
 	}
 
 	for (i = 0; i < n; i++) {
+		unsigned int type = namelist[i]->d_type;
 		if (strchr(namelist[i]->d_name, '~'))
 			goto skip;
 		lde.name = namelist[i]->d_name;
@@ -148,44 +149,23 @@ lws_dir(const char *dirpath, void *user, lws_dir_callback_function cb)
 		 * XFS on Linux doesn't fill in d_type at all, always zero.
 		 */
 
-		switch (namelist[i]->d_type) {
-#if DT_BLK != DT_UNKNOWN
-		case DT_BLK:
+		if (DT_BLK != DT_UNKNOWN && type == DT_BLK)
 			lde.type = LDOT_BLOCK;
-			break;
-#endif
-#if DT_CHR != DT_UNKNOWN
-		case DT_CHR:
+		else if (DT_CHR != DT_UNKNOWN && type == DT_CHR)
 			lde.type = LDOT_CHAR;
-			break;
-#endif
-#if DT_DIR != DT_UNKNOWN
-		case DT_DIR:
+		else if (DT_DIR != DT_UNKNOWN && type == DT_DIR)
 			lde.type = LDOT_DIR;
-			break;
-#endif
-#if DT_FIFO != DT_UNKNOWN
-		case DT_FIFO:
+		else if (DT_FIFO != DT_UNKNOWN && type == DT_FIFO)
 			lde.type = LDOT_FIFO;
-			break;
-#endif
-#if DT_LNK != DT_UNKNOWN
-		case DT_LNK:
+		else if (DT_LNK != DT_UNKNOWN && type == DT_LNK)
 			lde.type = LDOT_LINK;
-			break;
-#endif
-		case DT_REG:
+		else if (DT_REG != DT_UNKNOWN && type == DT_REG)
 			lde.type = LDOT_FILE;
-			break;
-#if DT_SOCK != DT_UNKNOWN
-		case DT_SOCK:
+		else if (DT_SOCK != DT_UNKNOWN && type == DT_SOCK)
 			lde.type = LDOTT_SOCKET;
-			break;
-#endif
-		default:
+		else {
 			lde.type = LDOT_UNKNOWN;
 			lws_dir_via_stat(combo, l, namelist[i]->d_name, &lde);
-			break;
 		}
 #endif
 		if (cb(dirpath, user, &lde)) {
