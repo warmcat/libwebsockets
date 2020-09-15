@@ -120,7 +120,7 @@ __lws_sul_service_ripe(lws_dll2_owner_t *own, int own_len, lws_usec_t usnow)
 
 	do {
 		lws_sorted_usec_list_t *hit = NULL;
-		lws_usec_t lowest;
+		lws_usec_t lowest = 0;
 		int n = 0;
 
 		for (n = 0; n < own_len; n++) {
@@ -233,7 +233,7 @@ lws_sul_earliest_wakeable_event(struct lws_context *ctx, lws_usec_t *pearliest)
 {
 	struct lws_context_per_thread *pt;
 	int n = 0, hit = -1;
-	lws_usec_t lowest;
+	lws_usec_t lowest = 0;
 
 	for (n = 0; n < ctx->count_threads; n++) {
 		pt = &ctx->pt[n];
