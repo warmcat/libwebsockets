@@ -172,7 +172,7 @@ lws_smd_msg_printf(struct lws_context *ctx, lws_smd_class_t _class,
 {
 	lws_smd_msg_t *msg;
 	va_list ap;
-	char *p;
+	void *p;
 	int n;
 
 	if (!(ctx->smd._class_filter & _class))
@@ -196,7 +196,7 @@ lws_smd_msg_printf(struct lws_context *ctx, lws_smd_class_t _class,
 								sizeof(*msg));
 	msg->length = (uint16_t)n;
 	va_start(ap, format);
-	vsnprintf(p, n + 2, format, ap);
+	vsnprintf((char*)p, n + 2, format, ap);
 	va_end(ap);
 
 	/*
@@ -204,7 +204,7 @@ lws_smd_msg_printf(struct lws_context *ctx, lws_smd_class_t _class,
 	 */
 
 	if (lws_smd_msg_send(ctx, p)) {
-		lws_smd_msg_free((void **)&p);
+		lws_smd_msg_free(&p);
 		return 1;
 	}
 
