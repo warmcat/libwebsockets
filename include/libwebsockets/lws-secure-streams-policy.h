@@ -173,6 +173,10 @@ typedef struct lws_ss_metadata {
 #endif
 } lws_ss_metadata_t;
 
+typedef struct lws_ss_http_respmap {
+	uint16_t		resp;	/* the http response code */
+	uint16_t		state;	/* low 16-bits of associated state */
+} lws_ss_http_respmap_t;
 
 /**
  * lws_ss_policy_t: policy database entry for a stream type
@@ -221,6 +225,8 @@ typedef struct lws_ss_policy {
 			const char	*blob_header[_LWSSS_HBI_COUNT];
 			const char	*auth_preamble;
 
+			const lws_ss_http_respmap_t *respmap;
+
 			union {
 //				struct { /* LWSSSP_H1 */
 //				} h1;
@@ -234,6 +240,7 @@ typedef struct lws_ss_policy {
 			} u;
 
 			uint16_t	resp_expect;
+			uint8_t		count_respmap;
 			uint8_t		fail_redirect:1;
 		} http;
 

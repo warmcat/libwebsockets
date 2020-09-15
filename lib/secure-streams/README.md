@@ -389,6 +389,21 @@ ${metadataname} will be replaced by the current value of the
 same metadata name.  The metadata names must be listed in the
 "metadata": [ ] section.
 
+### `http_resp_map`
+
+If your server overloads the meaning of the http transport response code with
+server-custom application codes, you can map these to discrete Secure Streams
+state callbacks using a JSON map, eg
+
+```
+		"http_resp_map": [ { "530": 1530 }, { "531": 1531 } ],
+```
+
+It's not recommended to abuse the transport layer http response code by
+mixing it with application state information like this, but if it's dealing
+with legacy serverside that takes this approach, it's possible to handle it
+in SS this way while removing the dependency on http.
+
 ### `http_auth_header`
 
 The name of the header that takes the auth token, with a trailing ':', eg

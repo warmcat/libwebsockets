@@ -325,12 +325,15 @@ struct policy_cb_args {
 
 	struct lws_b64state b64;
 
+	lws_ss_http_respmap_t respmap[16];
+
 	union u heads[_LTY_COUNT];
 	union u curr[_LTY_COUNT];
 
 	uint8_t *p;
 
 	int count;
+	char pending_respmap;
 };
 
 #if defined(LWS_WITH_SYS_SMD)

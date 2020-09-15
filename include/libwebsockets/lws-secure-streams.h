@@ -200,6 +200,8 @@ typedef enum {
 					 * stream joins the sink */
 	LWSSSCS_SINK_PART,		/* sinks get this when a new source
 					 * stream leaves the sink */
+
+	LWSSSCS_USER_BASE = 1000
 } lws_ss_constate_t;
 
 enum {

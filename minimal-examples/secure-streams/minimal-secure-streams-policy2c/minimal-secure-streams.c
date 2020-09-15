@@ -180,14 +180,15 @@ int main(int argc, const char **argv)
 					printf("\t.next = (void *)&%s, \n", prev);
 
 				printf("\t.name = \"%s\",\n", (const char *)md->name);
-				if (md->value)
+				if (md->value) {
 					printf("\t.value = (void *)\"%s\",\n",
 							(const char *)md->value);
-
-				printf("\t.length = %d,\n", idx++); // md->length);
-				printf("\t.value_length = 0x%x,\n",
+					printf("\t.value_length = 0x%x,\n",
 						(unsigned int)strlen(
 							(const char *)md->value));
+				}
+
+				printf("\t.length = %d,\n", idx++); // md->length);
 				printf("\t.value_is_http_token = 0x%x,\n",
 					(unsigned int)md->value_is_http_token);
 				printf("}");
@@ -361,7 +362,49 @@ int main(int argc, const char **argv)
 		pol = pol->next;
 	}
 
+	/* dump any streamtype's http resp map */
 
+	pol = lws_ss_policy_get(context);
+	m = 0;
+
+	while (pol) {
+
+		lws_snprintf(curr, sizeof(curr), "_ssp_%s",
+			purify_csymbol(pol->streamtype, buf, sizeof(buf)));
+
+		/* if relevant, dump http resp map */
+
+		switch (pol->protocol) {
+		case LWSSSP_H1:
+		case LWSSSP_H2:
+		case LWSSSP_WS:
+
+			if (!pol->u.http.count_respmap)
+				break;
+
+			if (!m)
+				printf("\nstatic const lws_ss_http_respmap_t ");
+			else
+				printf(",\n");
+			m++;
+
+			printf("%s_http_respmap[] = {\n", curr);
+			for (n = 0; n < pol->u.http.count_respmap; n++) {
+				printf("\t{ %d, 0x%x },\n",
+						pol->u.http.respmap[n].resp,
+						pol->u.http.respmap[n].state);
+
+				est += sizeof(lws_ss_http_respmap_t);
+			}
+			printf("}");
+			break;
+		}
+
+		pol = pol->next;
+	}
+
+	if (m)
+		printf(";\n");
 
 	/*
 	 * The streamtypes
@@ -378,8 +421,8 @@ int main(int argc, const char **argv)
 
 		lws_snprintf(curr, sizeof(curr), "_ssp_%s",
 			purify_csymbol(pol->streamtype, buf, sizeof(buf)));
-		printf("%s = {\n", curr);
 
+		printf("%s = {\n", curr);
 
 		if (prev[0])
 			printf("\t.next = (void *)&%s,\n", prev);
@@ -436,6 +479,13 @@ int main(int argc, const char **argv)
 			if (pol->u.http.auth_preamble)
 				printf("\t\t\t.auth_preamble = \"%s\",\n",
 					pol->u.http.auth_preamble);
+
+			if (pol->u.http.respmap) {
+				printf("\t\t\t.respmap = &%s_http_respmap,\n",
+						curr);
+				printf("\t\t\t.count_respmap = %d,\n",
+						pol->u.http.count_respmap);
+			}
 
 			if (pol->u.http.blob_header[0]) {
 				printf("\t\t\t.blob_header = {\n");

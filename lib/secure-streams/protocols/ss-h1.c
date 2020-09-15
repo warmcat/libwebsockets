@@ -153,6 +153,25 @@ around:
 #endif
 
 /*
+ * Returns 0, or the ss state resp maps on to
+ */
+
+static int
+lws_ss_http_resp_to_state(lws_ss_handle_t *h, int resp)
+{
+	const lws_ss_http_respmap_t *r = h->policy->u.http.respmap;
+	int n = h->policy->u.http.count_respmap;
+
+	while (n--)
+		if (resp == r->resp)
+			return r->state;
+		else
+			r++;
+
+	return 0; /* no hit */
+}
+
+/*
  * This converts any set metadata items into outgoing http headers
  */
 
@@ -402,6 +421,23 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			lwsl_info("%s: rx metadata extract failed\n", __func__);
 
 			return -1;
+		}
+
+		if (status) {
+			/*
+			 * Check and see if it's something from the response
+			 * map, if so, generate the requested status.  If we're
+			 * the proxy onward connection, metadata has priority
+			 * over state updates on the serialization, so the
+			 * state callback will see the right metadata.
+			 */
+			int n = lws_ss_http_resp_to_state(h, status);
+			if (n) {
+				r = lws_ss_event_helper(h, n);
+				if (r != LWSSSSRET_OK)
+					return _lws_ss_handle_state_ret(r, wsi,
+									&h);
+			}
 		}
 
 		if (h->u.http.good_respcode)

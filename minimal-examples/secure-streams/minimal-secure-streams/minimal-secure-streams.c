@@ -38,7 +38,7 @@
 // #define VIA_LOCALHOST_SOCKS
 
 static int interrupted, bad = 1, force_cpd_fail_portal,
-	   force_cpd_fail_no_internet;
+	   force_cpd_fail_no_internet, test_respmap;
 static unsigned int timeout_ms = 3000;
 static lws_state_notify_link_t nl;
 
@@ -169,7 +169,7 @@ static const char * const default_ss_policy =
 #if defined(VIA_LOCALHOST_SOCKS)
 			"\"http_url\":"		"\"policy/minimal-proxy-socks.json\","
 #else
-			"\"http_url\":"		"\"policy/minimal-proxy.json\","
+			"\"http_url\":"		"\"policy/minimal-proxy-2.json\","
 #endif
 			"\"tls\":"		"true,"
 			"\"opportunistic\":"	"true,"
@@ -271,8 +271,8 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 {
 	myss_t *m = (myss_t *)userobj;
 
-	lwsl_user("%s: %s, ord 0x%x\n", __func__, lws_ss_state_name(state),
-		  (unsigned int)ack);
+	lwsl_user("%s: %s (%d), ord 0x%x\n", __func__,
+		  lws_ss_state_name(state), state, (unsigned int)ack);
 
 	switch (state) {
 	case LWSSSCS_CREATING:
@@ -292,6 +292,11 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 	case LWSSSCS_TIMEOUT:
 		lwsl_notice("%s: LWSSSCS_TIMEOUT\n", __func__);
 		break;
+
+	case LWSSSCS_USER_BASE:
+		lwsl_notice("%s: LWSSSCS_USER_BASE\n", __func__);
+		break;
+
 	default:
 		break;
 	}
@@ -383,7 +388,7 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 			ssi.tx = myss_tx;
 			ssi.state = myss_state;
 			ssi.user_alloc = sizeof(myss_t);
-			ssi.streamtype = "mintest";
+			ssi.streamtype = test_respmap ? "respmap" : "mintest";
 
 			if (lws_ss_create(context, 0, &ssi, NULL, NULL,
 					  NULL, NULL)) {
@@ -429,6 +434,9 @@ int main(int argc, const char **argv)
 
 	if (lws_cmdline_option(argc, argv, "--force-no-internet"))
 		force_cpd_fail_no_internet = 1;
+
+	if (lws_cmdline_option(argc, argv, "--respmap"))
+		test_respmap = 1;
 
 	if ((p = lws_cmdline_option(argc, argv, "--timeout_ms")))
 		timeout_ms = atoi(p);

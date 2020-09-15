@@ -59,6 +59,8 @@ static const char * const lejp_tokens_policy[] = {
 	"s[].*.tls_trust_store",
 	"s[].*.metadata",
 	"s[].*.metadata[].*",
+	"s[].*.http_resp_map",
+	"s[].*.http_resp_map[].*",
 
 	"s[].*.http_auth_header",
 	"s[].*.http_dsn_header",
@@ -132,6 +134,8 @@ typedef enum {
 	LSSPPT_TRUST,
 	LSSPPT_METADATA,
 	LSSPPT_METADATA_ITEM,
+	LSSPPT_HTTPRESPMAP,
+	LSSPPT_HTTPRESPMAP_ITEM,
 
 	LSSPPT_HTTP_AUTH_HEADER,
 	LSSPPT_HTTP_DSN_HEADER,
@@ -231,7 +235,8 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 
 	if (reason == LEJPCB_ARRAY_START &&
 	    (ctx->path_match - 1 == LSSPPT_PLUGINS ||
-	     ctx->path_match - 1 == LSSPPT_METADATA))
+	     ctx->path_match - 1 == LSSPPT_METADATA ||
+	     ctx->path_match - 1 == LSSPPT_HTTPRESPMAP))
 		a->count = 0;
 
 	if (reason == LEJPCB_ARRAY_END &&
@@ -239,6 +244,25 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		lwsl_err("%s: at least one cert required in trust store\n",
 				__func__);
 		goto oom;
+	}
+
+	if (reason == LEJPCB_ARRAY_END && a->count && a->pending_respmap) {
+
+		// lwsl_notice("%s: allocating respmap %d\n", __func__, a->count);
+
+		a->curr[LTY_POLICY].p->u.http.respmap = lwsac_use_zero(&a->ac,
+			sizeof(lws_ss_http_respmap_t) * a->count, POL_AC_GRAIN);
+
+		if (!a->curr[LTY_POLICY].p->u.http.respmap)
+			goto oom;
+
+		memcpy((void *)a->curr[LTY_POLICY].p->u.http.respmap,
+		       a->respmap, sizeof(lws_ss_http_respmap_t) * a->count);
+		a->curr[LTY_POLICY].p->u.http.count_respmap = (uint8_t)a->count;
+		a->count = 0;
+		a->pending_respmap = 0;
+
+		return 0;
 	}
 
 	if (reason == LEJPCB_OBJECT_END && a->p) {
@@ -297,7 +321,8 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		if (p2) /* we may be overriding existing streamtype... */
 			a->curr[n].b = (backoff_t *)p2;
 		else
-			a->curr[n].b = lwsac_use_zero(&a->ac, sizes[n], POL_AC_GRAIN);
+			a->curr[n].b = lwsac_use_zero(&a->ac, sizes[n],
+							POL_AC_GRAIN);
 		if (!a->curr[n].b)
 			goto oom;
 
@@ -659,6 +684,19 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		break;
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+
+	case LSSPPT_HTTPRESPMAP_ITEM:
+		if (a->count >= (int)LWS_ARRAY_SIZE(a->respmap)) {
+			lwsl_err("%s: respmap too big\n", __func__);
+			return -1;
+		}
+		a->respmap[a->count].resp =
+				atoi(ctx->path + ctx->st[ctx->sp - 2].p + 1);
+		a->respmap[a->count].state = atoi(ctx->buf);
+		a->pending_respmap = 1;
+		a->count++;
+		break;
+
 	case LSSPPT_HTTP_AUTH_HEADER:
 	case LSSPPT_HTTP_DSN_HEADER:
 	case LSSPPT_HTTP_FWV_HEADER:

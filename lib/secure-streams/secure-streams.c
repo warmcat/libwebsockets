@@ -71,6 +71,9 @@ static const char *state_names[] = {
 const char *
 lws_ss_state_name(int state)
 {
+	if (state >= LWSSSCS_USER_BASE)
+		return "user state";
+
 	if (state >= (int)LWS_ARRAY_SIZE(state_names))
 		return "unknown";
 
