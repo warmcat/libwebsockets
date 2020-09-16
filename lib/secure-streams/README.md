@@ -13,11 +13,11 @@ creation, but able to be updated from a remote copy.
 
 Both client and server networking can be handled using Secure Streams APIS.
 
-![overview](../doc-assets/ss-operation-modes.png)
+![overview](/doc-assets/ss-operation-modes.png)
 
 ## Secure Streams CLIENT State lifecycle
 
-![overview](../doc-assets/ss-state-flow.png)
+![overview](/doc-assets/ss-state-flow.png)
 
 Secure Streams are created using `lws_ss_create()`, after that they may acquire
 underlying connections, and lose them, but the lifecycle of the Secure Stream
@@ -55,7 +55,7 @@ destroy the handle themselves, in that case the handler should return
 
 ## Secure Streams SERVER State lifecycle
 
-![overview](../doc-assets/ss-state-flow-server.png)
+![overview](/doc-assets/ss-state-flow-server.png)
 
 You can also run servers defined using Secure Streams, the main difference is
 that the user code must assertively create a secure stream of the server type

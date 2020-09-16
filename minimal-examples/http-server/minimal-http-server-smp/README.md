@@ -4,7 +4,7 @@ Lws supports multithreaded service... build lws with `-DLWS_MAP_SMP=<max number 
 default is 1.  If nonzero, some extra pthreads locking is built into lws and it supports multiple
 independent service threads.
 
-![lws-smp-overview](../../doc-assets/lws-smp-ov.png)
+![lws-smp-overview](/doc-assets/lws-smp-ov.png)
 
 When an incoming connection is accepted, it is bound to the pt with the lowest current wsi
 count, to keep the load on the threads balanced.  Only the pt the wsi is bound to can service
@@ -13,7 +13,7 @@ service threads, a wsi can only be service by the pt it is bound to.
 
 The effectiveness of the scalability depends on the load.  Here is an example of roughly what can be expected
 
-![lws-smp-example](../../doc-assets/lws-smp-example.png)
+![lws-smp-example](/doc-assets/lws-smp-example.png)
 
 ## build
 
