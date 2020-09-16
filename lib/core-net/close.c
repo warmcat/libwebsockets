@@ -501,7 +501,15 @@ just_kill_connection:
 #endif
 
 #if defined(LWS_WITH_CLIENT)
-	if ((lwsi_state(wsi) == LRS_WAITING_SERVER_REPLY ||
+	if ((
+#if defined(LWS_ROLE_WS)
+		/*
+		 * If our goal is a ws upgrade, effectively we did not reach
+		 * ESTABLISHED if we did not get the upgrade server reply
+		 */
+		(lwsi_state(wsi) == LRS_WAITING_SERVER_REPLY &&
+		 wsi->role_ops == &role_ops_ws) ||
+#endif
 	     lwsi_state(wsi) == LRS_WAITING_DNS ||
 	     lwsi_state(wsi) == LRS_WAITING_CONNECT) &&
 	     !wsi->already_did_cce && wsi->a.protocol) {
@@ -641,6 +649,13 @@ just_kill_connection:
 		ccb = 1;
 
 	pro = wsi->a.protocol;
+
+	if (wsi->already_did_cce)
+		/*
+		 * If we handled this by CLIENT_CONNECTION_ERROR, it's
+		 * mutually exclusive with CLOSE
+		 */
+		ccb = 0;
 
 #if defined(LWS_WITH_CLIENT)
 	if (!ccb && (lwsi_state_PRE_CLOSE(wsi) & LWSIFS_NOT_EST) &&
