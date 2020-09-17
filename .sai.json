@@ -45,11 +45,11 @@
 			"default": false
 		},
 		"windows-10/x86_64-amd/mingw32": {
-			"build": "mkdir build && cd build && cmake .. -DCMAKE_TOOLCHAIN_FILE=../contrib/cross-w32.cmake -DLWS_UNIX_SOCK=0 ${cmake} && cmake --build . --config DEBUG",
+			"build": "mkdir build && cd build && cmake .. -DCMAKE_TOOLCHAIN_FILE=../contrib/cross-w32.cmake ${cmake} && cmake --build . --config DEBUG",
 			"default": false
 		},
 		"windows-10/x86_64-amd/mingw64": {
-			"build": "mkdir build && cd build && cmake .. -DCMAKE_TOOLCHAIN_FILE=../contrib/cross-w64.cmake -DLWS_UNIX_SOCK=0 ${cmake} && cmake --build . --config DEBUG",
+			"build": "mkdir build && cd build && cmake .. -DCMAKE_TOOLCHAIN_FILE=../contrib/cross-w64.cmake ${cmake} && cmake --build . --config DEBUG",
 			"default": false
 		},
 		"freertos-espidf/xl6-esp32/gcc": {
