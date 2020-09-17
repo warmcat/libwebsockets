@@ -346,6 +346,7 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	lws_ss_state_return_t r;
 	int f = 0, m, status;
 	char conceal_eom = 0;
+	lws_usec_t inter;
 	size_t buflen;
 
 	switch (reason) {
@@ -409,6 +410,24 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	//	if (!status)
 			/* it's just telling use we connected / joined the nwsi */
 	//		break;
+
+		if (status == HTTP_STATUS_SERVICE_UNAVAILABLE /* 503 */ ) {
+			/*
+			 * We understand this attempt failed, and that we should
+			 * conceal this attempt.  If there's a specified
+			 * retry-after, we should use that if larger than our
+			 * computed backoff
+			 */
+
+			inter = 0;
+			lws_http_check_retry_after(wsi, &inter);
+
+			r = _lws_ss_backoff(h, inter);
+			if (r != LWSSSSRET_OK)
+				return _lws_ss_handle_state_ret(r, wsi, &h);
+
+			return -1; /* end this stream */
+		}
 
 		if (h->policy->u.http.resp_expect)
 			h->u.http.good_respcode =

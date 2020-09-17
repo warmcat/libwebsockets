@@ -188,7 +188,7 @@ lws_ss_set_timeout_us(lws_ss_handle_t *h, lws_usec_t us)
 }
 
 lws_ss_state_return_t
-lws_ss_backoff(lws_ss_handle_t *h)
+_lws_ss_backoff(lws_ss_handle_t *h, lws_usec_t us_override)
 {
 	uint64_t ms;
 	char conceal;
@@ -208,12 +208,24 @@ lws_ss_backoff(lws_ss_handle_t *h)
 		return lws_ss_event_helper(h, LWSSSCS_ALL_RETRIES_FAILED);
 	}
 
-	h->seqstate = SSSEQ_RECONNECT_WAIT;
-	lws_ss_set_timeout_us(h, ms * LWS_US_PER_MS);
+	/* Only increase our planned backoff, or go with it */
 
-	lwsl_info("%s: ss %p: retry wait %"PRIu64"ms\n", __func__, h, ms);
+	if (us_override < (lws_usec_t)ms * LWS_US_PER_MS)
+		us_override = ms * LWS_US_PER_MS;
+
+	h->seqstate = SSSEQ_RECONNECT_WAIT;
+	lws_ss_set_timeout_us(h, us_override);
+
+	lwsl_info("%s: ss %p: retry wait %dms\n", __func__, h,
+						  (int)(us_override / 1000));
 
 	return LWSSSSRET_OK;
+}
+
+lws_ss_state_return_t
+lws_ss_backoff(lws_ss_handle_t *h)
+{
+	return _lws_ss_backoff(h, 0);
 }
 
 #if defined(LWS_WITH_SYS_SMD)

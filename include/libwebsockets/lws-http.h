@@ -732,6 +732,53 @@ lws_urldecode(char *string, const char *escaped, int len);
 ///@}
 
 /**
+ * lws_http_date_render_from_unix() - render unixtime as RFC7231 date string
+ *
+ * \param buf:		Destination string buffer
+ * \param len:		avilable length of dest string buffer in bytes
+ * \param t:		pointer to the time_t to render
+ *
+ * Returns 0 if time_t is rendered into the string buffer successfully, else
+ * nonzero.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_http_date_render_from_unix(char *buf, size_t len, const time_t *t);
+
+/**
+ * lws_http_date_parse_unix() - parse a RFC7231 date string into unixtime
+ *
+ * \param b:		Source string buffer
+ * \param len:		avilable length of source string buffer in bytes
+ * \param t:		pointer to the destination time_t to set
+ *
+ * Returns 0 if string buffer parsed as RFC7231 time successfully, and
+ * *t set to the parsed unixtime, else return nonzero.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_http_date_parse_unix(const char *b, size_t len, time_t *t);
+
+/**
+ * lws_http_check_retry_after() - increase a timeout if retry-after present
+ *
+ * \param wsi:		http stream this relates to
+ * \param us_interval_in_out: default us retry interval on entry may be updated
+ *
+ * This function may extend the incoming retry interval if the server has
+ * requested that using retry-after: header.  It won't reduce the incoming
+ * retry interval, only leave it alone or increase it.
+ *
+ * *us_interval_in_out should be set to a default retry interval on entry, if
+ * the wsi has a retry-after time or interval that resolves to an interval
+ * longer than the entry *us_interval_in_out, that will be updated to the longer
+ * interval and return 0.
+ *
+ * If no usable retry-after or the time is now or in the past,
+ * *us_interval_in_out is left alone and the function returns nonzero.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_http_check_retry_after(struct lws *wsi, lws_usec_t *us_interval_in_out);
+
+/**
  * lws_return_http_status() - Return simple http status
  * \param wsi:		Websocket instance (available from user callback)
  * \param code:		Status index, eg, 404

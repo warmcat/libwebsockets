@@ -330,6 +330,12 @@ lws_http_multipart_headers(struct lws *wsi, uint8_t *p);
 int
 lws_http_string_to_known_header(const char *s, size_t slen);
 
+int
+lws_http_date_render_from_unix(char *buf, size_t len, const time_t *t);
+
+int
+lws_http_date_parse_unix(const char *b, size_t len, time_t *t);
+
 enum {
 	CCTLS_RETURN_ERROR		= -1,
 	CCTLS_RETURN_DONE		= 0,

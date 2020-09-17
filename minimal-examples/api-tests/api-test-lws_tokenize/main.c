@@ -600,6 +600,35 @@ int main(int argc, const char **argv)
 		printf("\t}\n");
 	}
 
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+	{
+		time_t t;
+
+		if (lws_http_date_parse_unix("Tue, 15 Nov 1994 08:12:31 GMT", 29, &t)) {
+			lwsl_err("%s: date parse failed\n", __func__);
+			fail++;
+		} else {
+			/* lwsl_notice("%s: %llu\n", __func__, (unsigned long long)t); */
+			if (t != (time_t)784887151) {
+				lwsl_err("%s: date parse wrong\n", __func__);
+				fail++;
+			} else {
+				char s[30];
+
+				if (lws_http_date_render_from_unix(s, sizeof(s), &t)) {
+					lwsl_err("%s: failed date render\n", __func__);
+					fail++;
+				} else {
+					if (!strcmp(s, "Tue, 15 Nov 1994 08:12:31 GMT")) {
+						lwsl_err("%s: date render wrong\n", __func__);
+						fail++;
+					}
+				}
+			}
+		}
+	}
+#endif
+
 	lwsl_user("Completed: PASS: %d, FAIL: %d\n", ok, fail);
 
 	return !(ok && !fail);

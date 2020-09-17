@@ -391,6 +391,9 @@ lws_ss_state_return_t
 lws_ss_event_helper(lws_ss_handle_t *h, lws_ss_constate_t cs);
 
 lws_ss_state_return_t
+_lws_ss_backoff(lws_ss_handle_t *h, lws_usec_t us_override);
+
+lws_ss_state_return_t
 lws_ss_backoff(lws_ss_handle_t *h);
 
 int
