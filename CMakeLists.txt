@@ -569,7 +569,8 @@ if (WIN32 OR MSVC)
 				 int main() { return 0; }" LWS_HAVE_WIN32_AFUNIX_H)
 
 	if (LWS_UNIX_SOCK AND NOT LWS_HAVE_WIN32_AFUNIX_H)
-		message(FATAL_ERROR "No afunix.h in toolchain for LWS_UNIX_SOCK")
+		message("No afunix.h found. Disabling LWS_UNIX_SOCK.")
+		set(LWS_WITH_UNIX_SOCK OFF)
 	endif()
 endif()
 
