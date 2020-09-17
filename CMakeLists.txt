@@ -609,21 +609,6 @@ if ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR
 endif()
 
 if (LWS_HAVE_PTHREAD_H AND NOT LWS_PLAT_FREERTOS)
-	if (NOT WIN32 AND NOT MSVC)
-		if (COMPILER_IS_CLANG)
-			set(LWS_PTHR_FLAGS "-pthread")# -Wno-error=unused-command-line-argument")
-		else()
-			if (NOT (${CMAKE_SYSTEM_NAME} MATCHES "QNX"))
-				set(LWS_PTHR_FLAGS "-pthread")
-			endif()
-		endif()
-	
-		#		set(CMAKE_REQUIRED_LIBRARIES ${CMAKE_REQUIRED_LIBRARIES} ${LWS_PTHR_FLAGS})
-		#		if (NOT WIN32 AND NOT MSVC)
-		#	list(APPEND LIB_LIST_AT_END ${LWS_PTHR_FLAGS})
-		#endif()
-	endif()
-
 	CHECK_C_SOURCE_COMPILES("#define _GNU_SOURCE
 		#include <pthread.h>
 		int main(void) {
