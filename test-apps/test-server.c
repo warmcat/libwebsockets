@@ -55,26 +55,7 @@ char crl_path[1024] = "";
 
 /*
  * This demonstrates how to use the clean protocol service separation of
- * plugins, but with static inclusion instead of runtime dynamic loading
- * (which requires libuv).
- *
- * dumb-increment doesn't use the plugin, both to demonstrate how to
- * do the protocols directly, and because it wants libuv for a timer.
- *
- * Please consider using test-server-v2.0.c instead of this: it has the
- * same functionality but
- *
- * 1) uses lws built-in http handling so you don't need to deal with it in
- * your callback
- *
- * 2) Links with libuv and uses the plugins at runtime
- *
- * 3) Uses advanced lws features like mounts to bind parts of the filesystem
- * to the served URL space
- *
- * Another option is lwsws, this operates like test-server-v2,0.c but is
- * configured using JSON, do you do not need to provide any code for the
- * serving action at all, just implement your protocols in plugins.
+ * plugins, in this case by statically including them at build-time.
  */
 
 #define LWS_PLUGIN_STATIC
@@ -85,15 +66,71 @@ char crl_path[1024] = "";
 #endif
 #include "../plugins/protocol_post_demo.c"
 
+#if defined(LWS_WITH_EXTERNAL_POLL)
+static struct lws_pollfd *
+ext_find_fd(lws_sockfd_type fd)
+{
+	int n;
+
+	for (n = 0; n < max_poll_elements; n++)
+		if (pollfds[n].fd == fd)
+			return &pollfds[n];
+
+	return NULL;
+}
+#endif
+
 static int
 lws_callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		  void *in, size_t len)
 {
 	const unsigned char *c;
+#if defined(LWS_WITH_EXTERNAL_POLL)
+	struct lws_pollargs *pa;
+	struct lws_pollfd *pfd;
+#endif
 	char buf[1024];
 	int n = 0, hlen;
 
 	switch (reason) {
+#if defined(LWS_WITH_EXTERNAL_POLL)
+	case LWS_CALLBACK_ADD_POLL_FD:
+		pa = (struct lws_pollargs *)in;
+		lwsl_debug("%s: ADD fd %d, ev %d\n", __func__, pa->fd, pa->events);
+		pfd = ext_find_fd(pa->fd);
+		if (pfd) {
+			lwsl_notice("%s: ADD fd %d already in ext table\n",
+					__func__, pa->fd);
+		} else {
+			pfd = ext_find_fd(LWS_SOCK_INVALID);
+			if (!pfd)
+				return -1;
+		}
+		pfd->fd = pa->fd;
+		pfd->events = pa->events;
+		pfd->revents = 0;
+		/* high water mark... */
+		count_pollfds = (pfd - pollfds) + 1;
+		break;
+	case LWS_CALLBACK_DEL_POLL_FD:
+		pa = (struct lws_pollargs *)in;
+		lwsl_debug("%s: DEL fd %d\n", __func__, pa->fd);
+		pfd = ext_find_fd(pa->fd);
+		if (!pfd)
+			return -1;
+		pfd->fd = LWS_SOCK_INVALID;
+		break;
+	case LWS_CALLBACK_CHANGE_MODE_POLL_FD:
+		pa = (struct lws_pollargs *)in;
+		lwsl_debug("%s: CH fd %d\n", __func__, pa->fd);
+		pfd = ext_find_fd(pa->fd);
+		if (!pfd) {
+			lwsl_err("%s: unknown fd %d\n", __func__, pa->fd);
+			return -1;
+		}
+		pfd->events = pa->events;
+		break;
+#endif
 	case LWS_CALLBACK_HTTP:
 
 		/* non-mount-handled accesses will turn up here */
@@ -501,6 +538,9 @@ int main(int argc, char **argv)
 		lwsl_err("Out of memory pollfds=%d\n", max_poll_elements);
 		return -1;
 	}
+	for (n = 0; n < max_poll_elements; n++)
+		pollfds[n].fd = LWS_SOCK_INVALID;
+	count_pollfds = 0;
 #endif
 
 	info.iface = iface;
@@ -617,7 +657,11 @@ int main(int argc, char **argv)
 		 * this represents an existing server's single poll action
 		 * which also includes libwebsocket sockets
 		 */
-		n = poll(pollfds, count_pollfds, 50);
+
+		/* if needed, force-service wsis that may not have read all input */
+		n = lws_service_adjust_timeout(context, 5000, 0);
+
+		n = poll(pollfds, count_pollfds, n);
 		if (n < 0)
 			continue;
 
@@ -630,15 +674,11 @@ int main(int argc, char **argv)
 					* control
 					*/
 					if (lws_service_fd(context,
-								  &pollfds[n]) < 0)
+							   &pollfds[n]) < 0)
 						goto done;
-
-			/* if needed, force-service wsis that may not have read all input */
-			while (!lws_service_adjust_timeout(context, 1, 0)) {
-				lwsl_notice("extpoll doing forced service!\n");
-				lws_service_tsi(context, -1, 0);
-			}
 		}
+
+		lws_service_tsi(context, -1, 0);
 #else
 		/*
 		 * If libwebsockets sockets are all we care about,
