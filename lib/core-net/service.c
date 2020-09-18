@@ -309,6 +309,15 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 
 	pt = &context->pt[tsi];
 
+#if defined(LWS_WITH_EXTERNAL_POLL)
+	{
+		lws_usec_t u = __lws_sul_service_ripe(pt->pt_sul_owner,
+				      LWS_COUNT_PT_SUL_OWNERS, lws_now_usecs());
+		if (u < timeout_ms * 1000)
+			timeout_ms = u / 1000;
+	}
+#endif
+
 	/*
 	 * Figure out if we really want to wait in poll()... we only need to
 	 * wait if really nothing already to do and we have to wait for
