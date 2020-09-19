@@ -1244,7 +1244,7 @@ lws_http_client_connect_via_info2(struct lws *wsi);
 
 #if defined(LWS_WITH_CLIENT)
 int
-lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd);
+lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd);
 
 int LWS_WARN_UNUSED_RESULT
 lws_http_transaction_completed_client(struct lws *wsi);

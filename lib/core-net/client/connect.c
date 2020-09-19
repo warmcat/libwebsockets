@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -23,6 +23,63 @@
  */
 
 #include "private-lib-core.h"
+
+static const uint8_t hnames[] = {
+	_WSI_TOKEN_CLIENT_PEER_ADDRESS,
+	_WSI_TOKEN_CLIENT_URI,
+	_WSI_TOKEN_CLIENT_HOST,
+	_WSI_TOKEN_CLIENT_ORIGIN,
+	_WSI_TOKEN_CLIENT_SENT_PROTOCOLS,
+	_WSI_TOKEN_CLIENT_METHOD,
+	_WSI_TOKEN_CLIENT_IFACE,
+	_WSI_TOKEN_CLIENT_ALPN
+};
+
+struct lws *
+lws_http_client_connect_via_info2(struct lws *wsi)
+{
+	struct client_info_stash *stash = wsi->stash;
+	int n;
+
+	lwsl_debug("%s: %p (stash %p)\n", __func__, wsi, stash);
+
+	if (!stash)
+		return wsi;
+
+	wsi->a.opaque_user_data = wsi->stash->opaque_user_data;
+
+	if (stash->cis[CIS_METHOD] && (!strcmp(stash->cis[CIS_METHOD], "RAW") ||
+				      !strcmp(stash->cis[CIS_METHOD], "MQTT")))
+		goto no_ah;
+
+	/*
+	 * we're not necessarily in a position to action these right away,
+	 * stash them... we only need during connect phase so into a temp
+	 * allocated stash
+	 */
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(hnames); n++)
+		if (hnames[n] && stash->cis[n] &&
+		    lws_hdr_simple_create(wsi, hnames[n], stash->cis[n]))
+			goto bail1;
+
+#if defined(LWS_WITH_SOCKS5)
+	if (!wsi->a.vhost->socks_proxy_port)
+		lws_free_set_NULL(wsi->stash);
+#endif
+
+no_ah:
+	wsi->a.context->count_wsi_allocated++;
+
+	return lws_client_connect_2_dnsreq(wsi);
+
+bail1:
+#if defined(LWS_WITH_SOCKS5)
+	if (!wsi->a.vhost->socks_proxy_port)
+		lws_free_set_NULL(wsi->stash);
+#endif
+
+	return NULL;
+}
 
 struct lws *
 lws_client_connect_via_info(const struct lws_client_connect_info *i)
@@ -115,8 +172,8 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	}
 
 #if LWS_MAX_SMP > 1
-	tid = wsi->a.vhost->protocols[0].callback(wsi, LWS_CALLBACK_GET_THREAD_ID,
-						NULL, NULL, 0);
+	tid = wsi->a.vhost->protocols[0].callback(wsi,
+				LWS_CALLBACK_GET_THREAD_ID, NULL, NULL, 0);
 #endif
 
 	/*
@@ -174,7 +231,8 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	wsi->sys_tls_client_cert = i->sys_tls_client_cert;
 
 #if defined(LWS_ROLE_H2)
-	wsi->txc.manual_initial_tx_credit = (int32_t)i->manual_initial_tx_credit;
+	wsi->txc.manual_initial_tx_credit =
+			(int32_t)i->manual_initial_tx_credit;
 #endif
 
 	wsi->a.protocol = &wsi->a.vhost->protocols[0];
@@ -193,7 +251,8 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	}
 
 	if (local) {
-		lwsl_info("%s: vh %s protocol binding to %s\n", __func__, wsi->a.vhost->name, local);
+		lwsl_info("%s: vh %s protocol binding to %s\n", __func__,
+				wsi->a.vhost->name, local);
 		p = lws_vhost_name_to_protocol(wsi->a.vhost, local);
 		if (p)
 			lws_bind_protocol(wsi, p, __func__);

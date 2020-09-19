@@ -24,72 +24,6 @@
 
 #include "private-lib-core.h"
 
-#if defined(LWS_WITH_TLS)
-int
-lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1)
-{
-
-	/* we can retry this... just cook the SSL BIO the first time */
-
-	if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
-		int n;
-
-		if (!wsi->tls.ssl) {
-			if (lws_ssl_client_bio_create(wsi) < 0) {
-				*pcce = "bio_create failed";
-				return CCTLS_RETURN_ERROR;
-			}
-
-#if defined(LWS_WITH_TLS)
-			if (!wsi->transaction_from_pipeline_queue &&
-			    lws_tls_restrict_borrow(wsi->a.context)) {
-				*pcce = "tls restriction limit";
-				return CCTLS_RETURN_ERROR;
-			}
-#endif
-		}
-
-		if (!do_c1)
-			return 0;
-
-		n = lws_ssl_client_connect1(wsi, (char *)wsi->a.context->pt[(int)wsi->tsi].serv_buf,
-					    wsi->a.context->pt_serv_buf_size);
-		lwsl_debug("%s: lws_ssl_client_connect1: %d\n", __func__, n);
-		if (!n)
-			return CCTLS_RETURN_RETRY; /* caller should return 0 */
-		if (n < 0) {
-			*pcce = (const char *)wsi->a.context->pt[(int)wsi->tsi].serv_buf;
-			return CCTLS_RETURN_ERROR;
-		}
-	} else
-		wsi->tls.ssl = NULL;
-
-#if defined (LWS_WITH_HTTP2)
-	if (wsi->client_h2_alpn) {
-		/*
-		 * We connected to the server and set up tls, and
-		 * negotiated "h2".
-		 *
-		 * So this is it, we are an h2 master client connection
-		 * now, not an h1 client connection.
-		 */
-#if defined(LWS_WITH_TLS)
-		lws_tls_server_conn_alpn(wsi);
-#endif
-
-		/* send the H2 preface to legitimize the connection */
-		if (lws_h2_issue_preface(wsi)) {
-			*pcce = "error sending h2 preface";
-			return CCTLS_RETURN_ERROR;
-		}
-	}
-#endif
-
-	return CCTLS_RETURN_DONE; /* OK */
-}
-
-#endif
-
 void
 lws_client_http_body_pending(struct lws *wsi, int something_left_to_send)
 {
@@ -97,7 +31,7 @@ lws_client_http_body_pending(struct lws *wsi, int something_left_to_send)
 }
 
 int
-lws_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
+lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 {
 	struct lws_context *context = wsi->a.context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
@@ -1506,3 +1440,220 @@ account_and_ret:
 }
 
 #endif
+
+static uint8_t hnames2[] = {
+	_WSI_TOKEN_CLIENT_ORIGIN,
+	_WSI_TOKEN_CLIENT_SENT_PROTOCOLS,
+	_WSI_TOKEN_CLIENT_METHOD,
+	_WSI_TOKEN_CLIENT_IFACE,
+	_WSI_TOKEN_CLIENT_ALPN
+};
+
+/**
+ * lws_client_reset() - retarget a connected wsi to start over with a new
+ * 			connection (ie, redirect)
+ *			this only works if still in HTTP, ie, not upgraded yet
+ * wsi:		connection to reset
+ * address:	network address of the new server
+ * port:	port to connect to
+ * path:	uri path to connect to on the new server
+ * host:	host header to send to the new server
+ */
+struct lws *
+lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
+		 const char *path, const char *host, char weak)
+{
+#if defined(LWS_ROLE_WS)
+	struct _lws_websocket_related *ws;
+#endif
+	char *stash, *p;
+	struct lws *wsi;
+	size_t size = 0;
+	int n;
+
+	if (!pwsi)
+		return NULL;
+
+	wsi = *pwsi;
+
+	lwsl_debug("%s: wsi %p: redir %d: %s\n", __func__, wsi, wsi->redirects,
+			address);
+
+	if (wsi->redirects == 3) {
+		lwsl_err("%s: Too many redirects\n", __func__);
+		return NULL;
+	}
+	wsi->redirects++;
+
+	/*
+	 * goal is to close our role part, close the sockfd, detach the ah
+	 * but leave our wsi extant and still bound to whatever vhost it was
+	 */
+
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(hnames2); n++)
+		size += lws_hdr_total_length(wsi, hnames2[n]) + (size_t)1;
+
+	if (size < (size_t)lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_URI) + 1)
+		size = lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_URI) + (size_t)1;
+
+	/*
+	 * The incoming address and host can be from inside the existing ah
+	 * we are going to detach and reattch
+	 */
+
+	size += strlen(path) + 1 + strlen(address) + 1 + strlen(host) + 1 + 1;
+
+	p = stash = lws_malloc(size, __func__);
+	if (!stash)
+		return NULL;
+
+	/*
+	 * _WSI_TOKEN_CLIENT_ORIGIN,
+	 * _WSI_TOKEN_CLIENT_SENT_PROTOCOLS,
+	 * _WSI_TOKEN_CLIENT_METHOD,
+	 * _WSI_TOKEN_CLIENT_IFACE,
+	 * _WSI_TOKEN_CLIENT_ALPN
+	 * address
+	 * host
+	 * path
+	 */
+
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(hnames2); n++)
+		if (lws_hdr_total_length(wsi, hnames2[n]) &&
+		    lws_hdr_simple_ptr(wsi, hnames2[n])) {
+			memcpy(p, lws_hdr_simple_ptr(wsi, hnames2[n]), (size_t)(
+			       lws_hdr_total_length(wsi, hnames2[n]) + 1));
+			p += (size_t)(lws_hdr_total_length(wsi, hnames2[n]) + 1);
+		} else
+			*p++ = '\0';
+
+	memcpy(p, address, strlen(address) + (size_t)1);
+	address = p;
+	p += strlen(address) + 1;
+	memcpy(p, host, strlen(host) + (size_t)1);
+	host = p;
+	p += strlen(host) + 1;
+	memcpy(p, path, strlen(path) + (size_t)1);
+	path = p;
+
+	if (!port) {
+		lwsl_info("%s: forcing port 443\n", __func__);
+
+		port = 443;
+		ssl = 1;
+	}
+
+	lwsl_info("redirect ads='%s', port=%d, path='%s', ssl = %d, pifds %d\n",
+		   address, port, path, ssl, wsi->position_in_fds_table);
+
+	__remove_wsi_socket_from_fds(wsi);
+#if defined(LWS_ROLE_WS)
+	if (weak) {
+		ws = wsi->ws;
+		wsi->ws = NULL;
+	}
+#endif
+	__lws_reset_wsi(wsi); /* detaches ah here */
+#if defined(LWS_ROLE_WS)
+	if (weak)
+		wsi->ws = ws;
+#endif
+	wsi->client_pipeline = 1;
+
+	/* close the connection by hand */
+
+#if defined(LWS_WITH_TLS)
+	lws_ssl_close(wsi);
+#endif
+
+	if (wsi->role_ops && wsi->role_ops->close_kill_connection)
+		wsi->role_ops->close_kill_connection(wsi, 1);
+
+	if (wsi->a.context->event_loop_ops->close_handle_manually)
+		wsi->a.context->event_loop_ops->close_handle_manually(wsi);
+	else
+		if (wsi->desc.sockfd != LWS_SOCK_INVALID)
+			compatible_close(wsi->desc.sockfd);
+
+#if defined(LWS_WITH_TLS)
+	if (!ssl)
+		wsi->tls.use_ssl &= ~LCCSCF_USE_SSL;
+	else
+		wsi->tls.use_ssl |= LCCSCF_USE_SSL;
+#else
+	if (ssl) {
+		lwsl_err("%s: not configured for ssl\n", __func__);
+		goto bail;
+	}
+#endif
+
+	if (wsi->a.protocol && wsi->role_ops && wsi->protocol_bind_balance) {
+		wsi->a.protocol->callback(wsi,
+				wsi->role_ops->protocol_unbind_cb[
+				       !!lwsi_role_server(wsi)],
+				       wsi->user_space, (void *)__func__, 0);
+
+		wsi->protocol_bind_balance = 0;
+	}
+
+	wsi->desc.sockfd = LWS_SOCK_INVALID;
+	lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED, &role_ops_h1);
+//	wsi->a.protocol = NULL;
+	if (wsi->a.protocol)
+		lws_bind_protocol(wsi, wsi->a.protocol, "client_reset");
+	wsi->pending_timeout = NO_PENDING_TIMEOUT;
+	wsi->c_port = port;
+	wsi->hdr_parsing_completed = 0;
+
+	if (lws_header_table_attach(wsi, 0)) {
+		lwsl_err("%s: failed to get ah\n", __func__);
+		goto bail;
+	}
+	//_lws_header_table_reset(wsi->http.ah);
+
+	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS, address))
+		goto bail;
+
+	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_HOST, host))
+		goto bail;
+
+	/*
+	 * _WSI_TOKEN_CLIENT_ORIGIN,
+	 * _WSI_TOKEN_CLIENT_SENT_PROTOCOLS,
+	 * _WSI_TOKEN_CLIENT_METHOD,
+	 * _WSI_TOKEN_CLIENT_IFACE,
+	 * _WSI_TOKEN_CLIENT_ALPN
+	 * address
+	 * host
+	 * path
+	 */
+
+	p = stash;
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(hnames2); n++) {
+		if (lws_hdr_simple_create(wsi, hnames2[n], p))
+			goto bail;
+		p += lws_hdr_total_length(wsi, hnames2[n]) + (size_t)1;
+	}
+
+	stash[0] = '/';
+	memmove(&stash[1], path, size - 1 < strlen(path) + 1 ?
+					size - 1 : strlen(path) + (size_t)1);
+	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_URI, stash))
+		goto bail;
+
+	lws_free_set_NULL(stash);
+
+#if defined(LWS_WITH_HTTP2)
+	if (wsi->client_mux_substream)
+		wsi->h2.END_STREAM = wsi->h2.END_HEADERS = 0;
+#endif
+
+	*pwsi = lws_client_connect_2_dnsreq(wsi);
+
+	return *pwsi;
+
+bail:
+	lws_free_set_NULL(stash);
+
+	return NULL;
+}

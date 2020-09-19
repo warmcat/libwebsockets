@@ -160,3 +160,65 @@ int lws_context_init_client_ssl(const struct lws_context_creation_info *info,
 	return 0;
 }
 
+int
+lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1)
+{
+
+	/* we can retry this... just cook the SSL BIO the first time */
+
+	if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
+		int n;
+
+		if (!wsi->tls.ssl) {
+			if (lws_ssl_client_bio_create(wsi) < 0) {
+				*pcce = "bio_create failed";
+				return CCTLS_RETURN_ERROR;
+			}
+
+#if defined(LWS_WITH_TLS)
+			if (!wsi->transaction_from_pipeline_queue &&
+			    lws_tls_restrict_borrow(wsi->a.context)) {
+				*pcce = "tls restriction limit";
+				return CCTLS_RETURN_ERROR;
+			}
+#endif
+		}
+
+		if (!do_c1)
+			return 0;
+
+		n = lws_ssl_client_connect1(wsi, (char *)wsi->a.context->pt[(int)wsi->tsi].serv_buf,
+					    wsi->a.context->pt_serv_buf_size);
+		lwsl_debug("%s: lws_ssl_client_connect1: %d\n", __func__, n);
+		if (!n)
+			return CCTLS_RETURN_RETRY; /* caller should return 0 */
+		if (n < 0) {
+			*pcce = (const char *)wsi->a.context->pt[(int)wsi->tsi].serv_buf;
+			return CCTLS_RETURN_ERROR;
+		}
+	} else
+		wsi->tls.ssl = NULL;
+
+#if defined (LWS_WITH_HTTP2)
+	if (wsi->client_h2_alpn) {
+		/*
+		 * We connected to the server and set up tls, and
+		 * negotiated "h2".
+		 *
+		 * So this is it, we are an h2 master client connection
+		 * now, not an h1 client connection.
+		 */
+#if defined(LWS_WITH_TLS)
+		lws_tls_server_conn_alpn(wsi);
+#endif
+
+		/* send the H2 preface to legitimize the connection */
+		if (lws_h2_issue_preface(wsi)) {
+			*pcce = "error sending h2 preface";
+			return CCTLS_RETURN_ERROR;
+		}
+	}
+#endif
+
+	return CCTLS_RETURN_DONE; /* OK */
+}

@@ -567,7 +567,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->pss_policies = info->pss_policies;
 #endif
 
-#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
+#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API) && defined(LWS_WITH_CLIENT)
 	context->ss_proxy_bind = info->ss_proxy_bind;
 	context->ss_proxy_port = info->ss_proxy_port;
 	context->ss_proxy_address = info->ss_proxy_address;
@@ -1422,7 +1422,7 @@ lws_context_destroy2(struct lws_context *context)
 #endif
 #endif
 
-#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
+#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API) && defined(LWS_WITH_CLIENT)
 		lws_dll2_foreach_safe(&pt->ss_client_owner, NULL, lws_sspc_destroy_dll);
 #endif
 
