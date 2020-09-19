@@ -1590,6 +1590,11 @@ enum {
 	LW5CHS_RET_NOTHING
 };
 
+void
+lws_4to6(uint8_t *v6addr, const uint8_t *v4addr);
+void
+lws_sa46_4to6(lws_sockaddr46 *sa46, const uint8_t *v4addr, uint16_t port);
+
 #ifdef __cplusplus
 };
 #endif
