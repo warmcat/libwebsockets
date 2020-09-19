@@ -138,7 +138,7 @@ unsigned char filter_array[] = {
 
 static unsigned char lws_header_implies_psuedoheader_map[] = {
 	0x07, 0x00, 0x00, 0x00, 0xf8, 0x00, 0x00, 0x00, 0x00 /* <-64 */,
-	0x0e /* <- 72 */, 0x04 /* <- 80 */, 0, 0, 0, 0
+	0x0e /* <- 72 */, 0x24 /* <- 80 */, 0, 0, 0, 0
 };
 
 /*
