@@ -876,6 +876,30 @@ lws_sa46_compare_ads(const lws_sockaddr46 *sa46a, const lws_sockaddr46 *sa46b)
 	return 0;
 }
 
+void
+lws_4to6(uint8_t *v6addr, const uint8_t *v4addr)
+{
+	memset(v6addr, 0, 10);
+
+	v6addr[10] = v6addr[11] = 0xff;
+	v6addr[12] = v4addr[0];
+	v6addr[13] = v4addr[1];
+	v6addr[14] = v4addr[2];
+	v6addr[15] = v4addr[3];
+}
+
+#if defined(LWS_WITH_IPV6)
+void
+lws_sa46_4to6(lws_sockaddr46 *sa46, const uint8_t *v4addr, uint16_t port)
+{
+	sa46->sa4.sin_family = AF_INET6;
+
+	lws_4to6((uint8_t *)&sa46->sa6.sin6_addr.s6_addr[0], v4addr);
+
+	sa46->sa6.sin6_port = htons(port);
+}
+#endif
+
 int
 lws_sa46_on_net(const lws_sockaddr46 *sa46a, const lws_sockaddr46 *sa46_net,
 		int net_len)
@@ -887,12 +911,8 @@ lws_sa46_on_net(const lws_sockaddr46 *sa46a, const lws_sockaddr46 *sa46_net,
 		p1 = (uint8_t *)&sa46a->sa4.sin_addr;
 		if (sa46_net->sa4.sin_family == AF_INET6) {
 			/* ip is v4, net is v6, promote ip to v6 */
-			memset(norm, 0, 10);
-			norm[10] = norm[11] = 0xff;
-			norm[12] = p1[0];
-			norm[13] = p1[1];
-			norm[14] = p1[2];
-			norm[15] = p1[3];
+
+			lws_4to6(norm, p1);
 			p1 = norm;
 		}
 #if defined(LWS_WITH_IPV6)
@@ -907,12 +927,8 @@ lws_sa46_on_net(const lws_sockaddr46 *sa46a, const lws_sockaddr46 *sa46_net,
 		p2 = (uint8_t *)&sa46_net->sa4.sin_addr;
 		if (sa46a->sa4.sin_family == AF_INET6) {
 			/* ip is v6, net is v4, promote net to v6 */
-			memset(norm, 0, 10);
-			norm[10] = norm[11] = 0xff;
-			norm[12] = p2[0];
-			norm[13] = p2[1];
-			norm[14] = p2[2];
-			norm[15] = p2[3];
+
+			lws_4to6(norm, p2);
 			p2 = norm;
 			/* because the mask length is for net v4 address */
 			net_len += 12 * 8;
