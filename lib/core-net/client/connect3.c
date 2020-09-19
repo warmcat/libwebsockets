@@ -39,6 +39,69 @@ lws_client_conn_wait_timeout(lws_sorted_usec_list_t *sul)
 	lws_client_connect_3_connect(wsi, NULL, NULL, 0, NULL);
 }
 
+/*
+ * Figure out if an ongoing connect() has arrived at a final disposition or not
+ *
+ * We can check using getsockopt if our connect actually completed.
+ * Posix connect() allows nonblocking to redo the connect to
+ * find out if it succeeded.
+ */
+
+typedef enum {
+	LCCCR_CONNECTED			= 1,
+	LCCCR_CONTINUE			= 0,
+	LCCCR_FAILED			= -1,
+} lcccr_t;
+
+static lcccr_t
+lws_client_connect_check(struct lws *wsi)
+{
+#if !defined(WIN32)
+	socklen_t sl = sizeof(int);
+	int e = 0;
+
+	/*
+	 * This resets SO_ERROR after reading it.  If there's an error
+	 * condition, the connect definitively failed.
+	 */
+
+	if (!getsockopt(wsi->desc.sockfd, SOL_SOCKET, SO_ERROR, &e, &sl)) {
+		if (!e) {
+			lwsl_debug("%s: getsockopt check: conn OK errno %d\n",
+				   __func__, errno);
+
+			return LCCCR_CONNECTED;
+		}
+
+		lwsl_debug("%s: getsockopt fd %d says err %d\n", __func__,
+			   wsi->desc.sockfd, e);
+	}
+
+#else
+	if (!connect(wsi->desc.sockfd, NULL, 0))
+		return LCCCR_CONNECTED;
+
+	if (!LWS_ERRNO || LWS_ERRNO == WSAEINVAL ||
+			  LWS_ERRNO == WSAEWOULDBLOCK ||
+			  LWS_ERRNO == WSAEALREADY) {
+		lwsl_info("%s: errno %d\n", __func__, errno);
+
+		return LCCCR_CONTINUE;
+	}
+#endif
+
+	lwsl_info("%s: connect check take as FAILED\n", __func__);
+
+	return LCCCR_FAILED;
+}
+
+/*
+ * We come here to fire off a connect, and to check its disposition later.
+ *
+ * If it did not complete before the individual attempt timeout, we will try to
+ * connect again with the next dns result.
+ */
+
 struct lws *
 lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 			     const struct addrinfo *result, int n, void *opaque)
@@ -57,7 +120,6 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	const char *cce, *iface;
 	lws_sockaddr46 sa46;
 	ssize_t plen = 0;
-	char ni[48];
 	int m;
 
        if (n == LWS_CONNECT_COMPLETION_GOOD)
@@ -77,61 +139,31 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 		return wsi;
 
 	/*
-	* We can check using getsockopt if our connect actually completed.
-	* Posix connect() allows nonblocking to redo the connect to
-	* find out if it succeeded, for win32 we have to use this path
-	* and take WSAEALREADY as a successful connect.
-	*/
+	 * We come back here again when we think the connect() may have
+	 * completed one way or the other, we can't proceed until we know we
+	 * actually connected.
+	 */
 
 	if (lwsi_state(wsi) == LRS_WAITING_CONNECT &&
 	    lws_socket_is_valid(wsi->desc.sockfd)) {
-#if !defined(WIN32)
-		socklen_t sl = sizeof(int);
-		int e = 0;
-#endif
 
-		if (!result && /* no dns results... */
-		    /* no ongoing connect timeout */
-		    !wsi->sul_connect_timeout.list.owner)
+		if (!result && !wsi->sul_connect_timeout.list.owner)
+			/* no dns results and no ongoing timeout for one */
 			goto connect_to;
-#if defined(WIN32)
-		if (!connect(wsi->desc.sockfd, NULL, 0)) {
+
+		switch (lws_client_connect_check(wsi)) {
+		case LCCCR_CONNECTED:
+			/*
+			 * Oh, it has happened...
+			 */
 			goto conn_good;
-               } else {
-			if (!LWS_ERRNO ||
-			    LWS_ERRNO == WSAEINVAL ||
-			    LWS_ERRNO == WSAEWOULDBLOCK ||
-			    LWS_ERRNO == WSAEALREADY) {
-				lwsl_info("%s: errno %d\n", __func__, errno);
-				return NULL;
-			}
-			lwsl_info("%s: connect check take as FAILED\n",
-				  __func__);
+		case LCCCR_CONTINUE:
+			return NULL;
+		default:
+			lwsl_debug("%s: getsockopt check: conn fail: errno %d\n",
+					__func__, LWS_ERRNO);
+			goto try_next_dns_result_fds;
 		}
-#else
-		/*
-		* this resets SO_ERROR after reading it.  If there's an error
-		* condition the connect definitively failed.
-		*/
-
-		if (!getsockopt(wsi->desc.sockfd, SOL_SOCKET, SO_ERROR,
-				&e, &sl)) {
-			if (!e) {
-				lwsl_debug("%s: getsockopt check: "
-					   "conn OK errno %d\n", __func__,
-					   errno);
-
-				goto conn_good;
-			}
-
-			lwsl_debug("%s: getsockopt fd %d says err %d\n",
-				   __func__, wsi->desc.sockfd, e);
-		}
-#endif
-
-		lwsl_debug("%s: getsockopt check: conn fail: errno %d\n",
-				__func__, LWS_ERRNO);
-		goto try_next_result_fds;
 	}
 
 #if defined(LWS_WITH_UNIX_SOCK)
@@ -182,12 +214,14 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 		wsi->detlat.earliest_write_req_pre_write = lws_now_usecs();
 	}
 #endif
-#if defined(LWS_CLIENT_HTTP_PROXYING) && \
-	(defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2))
+#if defined(LWS_CLIENT_HTTP_PROXYING) && (defined(LWS_ROLE_H1) || \
+					  defined(LWS_ROLE_H2))
 
-	/* Decide what it is we need to connect to:
+	/*
+	 * Decide what it is we need to connect to:
 	 *
-	 * Priority 1: connect to http proxy */
+	 * Priority 1: connect to http proxy
+	 */
 
 	if (wsi->a.vhost->http.http_proxy_port) {
 		port = wsi->a.vhost->http.http_proxy_port;
@@ -197,7 +231,9 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 
 #if defined(LWS_WITH_SOCKS5)
 
-	/* Priority 2: Connect to SOCK5 Proxy */
+	/*
+	 * Priority 2: Connect to SOCK5 Proxy
+	 */
 
 	} else if (wsi->a.vhost->socks_proxy_port) {
 		if (lws_socks5c_generate_msg(wsi, SOCKS_MSG_GREETING, &plen)) {
@@ -211,49 +247,36 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 #endif
 	}
 
-	memset(&sa46, 0, sizeof(sa46));
-
 	if (n || !wsi->dns_results) {
 		/* lws_getaddrinfo46 failed, there is no usable result */
-		lwsl_notice("%s: lws_getaddrinfo46 failed %d\n",
-				__func__, n);
+		lwsl_notice("%s: lws_getaddrinfo46 failed %d\n", __func__, n);
 
 		cce = "ipv6 lws_getaddrinfo46 failed";
 		goto oom4;
 	}
 
 	/*
-	 * Let's try connecting to each of the results in turn until one works
-	 * or we run out of results
+	 * Let's try directly connecting to each of the results in turn until
+	 * one works, or we run out of results...
 	 */
 
-next_result:
+next_dns_result:
+
+	/*
+	 * Make a possibly 4->6 adapted copy of the next dns result in sa46
+	 */
 
 	psa = (const struct sockaddr *)&sa46;
-	n = sizeof(sa46);
+	n = sizeof(struct sockaddr_in6);
 	memset(&sa46, 0, sizeof(sa46));
 
 	switch (wsi->dns_results_next->ai_family) {
 	case AF_INET:
 #if defined(LWS_WITH_IPV6)
 		if (ipv6only) {
-			sa46.sa4.sin_family = AF_INET6;
-
-			/* map IPv4 to IPv6 */
-			memset((char *)&sa46.sa6.sin6_addr, 0,
-						sizeof(sa46.sa6.sin6_addr));
-			sa46.sa6.sin6_addr.s6_addr[10] = 0xff;
-			sa46.sa6.sin6_addr.s6_addr[11] = 0xff;
-			memcpy(&sa46.sa6.sin6_addr.s6_addr[12],
-				&((struct sockaddr_in *)
-				    wsi->dns_results_next->ai_addr)->sin_addr,
-							sizeof(struct in_addr));
-			sa46.sa6.sin6_port = htons(port);
-			ni[0] = '\0';
-			lws_write_numeric_address(sa46.sa6.sin6_addr.s6_addr,
-						  16, ni, sizeof(ni));
-			lwsl_info("%s: %s ipv4->ipv6 %s\n", __func__,
-				  ads ? ads : "(null)", ni);
+			lws_sa46_4to6(&sa46, &((struct sockaddr_in *)
+				      wsi->dns_results_next->ai_addr)->sin_addr,
+				      port);
 			break;
 		}
 #endif
@@ -261,34 +284,25 @@ next_result:
 		sa46.sa4.sin_addr.s_addr =
 			((struct sockaddr_in *)wsi->dns_results_next->ai_addr)->
 								sin_addr.s_addr;
-		memset(&sa46.sa4.sin_zero, 0, sizeof(sa46.sa4.sin_zero));
 		sa46.sa4.sin_port = htons(port);
 		n = sizeof(struct sockaddr_in);
-		lws_write_numeric_address((uint8_t *)&sa46.sa4.sin_addr.s_addr,
-					  4, ni, sizeof(ni));
-		lwsl_info("%s: %s ipv4 %s\n", __func__,
-					ads ? ads : "(null)", ni);
 		break;
 	case AF_INET6:
 #if defined(LWS_WITH_IPV6)
 		if (!wsi->ipv6)
-			goto try_next_result;
-		sa46.sa4.sin_family = AF_INET6;
-		memcpy(&sa46.sa6.sin6_addr,
-		       &((struct sockaddr_in6 *)
+			goto try_next_dns_result;
+
+		lws_sa46_copy_address(&sa46, &((struct sockaddr_in6 *)
 				       wsi->dns_results_next->ai_addr)->
-				       sin6_addr, sizeof(struct in6_addr));
+					       sin6_addr, AF_INET6);
+
 		sa46.sa6.sin6_scope_id = ((struct sockaddr_in6 *)
 				wsi->dns_results_next->ai_addr)->sin6_scope_id;
 		sa46.sa6.sin6_flowinfo = ((struct sockaddr_in6 *)
 				wsi->dns_results_next->ai_addr)->sin6_flowinfo;
 		sa46.sa6.sin6_port = htons(port);
-		lws_write_numeric_address((uint8_t *)&sa46.sa6.sin6_addr,
-				16, ni, sizeof(ni));
-		lwsl_info("%s: %s ipv6 %s\n", __func__,
-				ads ? ads : "(null)", ni);
 #else
-		goto try_next_result;	/* ipv4 only can't use this */
+		goto try_next_dns_result;	/* ipv4 only can't use this */
 #endif
 		break;
 	}
@@ -297,7 +311,10 @@ next_result:
 ads_known:
 #endif
 
-	/* now we decided on ipv4 or ipv6, set the port and create socket*/
+	/*
+	 * Now we prepared sa46, if not already connecting, create the related
+	 * socket and add to the fds
+	 */
 
 	if (!lws_socket_is_valid(wsi->desc.sockfd)) {
 
@@ -318,7 +335,7 @@ ads_known:
 
 		if (!lws_socket_is_valid(wsi->desc.sockfd)) {
 			lwsl_warn("Unable to open socket\n");
-			goto try_next_result;
+			goto try_next_dns_result;
 		}
 
 		if (lws_plat_set_socket_options(wsi->a.vhost, wsi->desc.sockfd,
@@ -328,7 +345,7 @@ ads_known:
 						0)) {
 #endif
 			lwsl_err("Failed to set wsi socket options\n");
-			goto try_next_result_closesock;
+			goto try_next_dns_result_closesock;
 		}
 
 		lwsl_debug("%s: %p: WAITING_CONNECT\n", __func__, wsi);
@@ -336,12 +353,12 @@ ads_known:
 
 		if (wsi->a.context->event_loop_ops->sock_accept)
 			if (wsi->a.context->event_loop_ops->sock_accept(wsi))
-				goto try_next_result_closesock;
+				goto try_next_dns_result_closesock;
 
 		lws_pt_lock(pt, __func__);
 		if (__insert_wsi_socket_into_fds(wsi->a.context, wsi)) {
 			lws_pt_unlock(pt);
-			goto try_next_result_closesock;
+			goto try_next_dns_result_closesock;
 		}
 		lws_pt_unlock(pt);
 
@@ -357,7 +374,7 @@ ads_known:
 		 */
 
 		if (lws_change_pollfd(wsi, 0, LWS_POLLIN))
-			goto try_next_result_fds;
+			goto try_next_dns_result_fds;
 
 		if (!wsi->a.protocol)
 			wsi->a.protocol = &wsi->a.vhost->protocols[0];
@@ -372,7 +389,7 @@ ads_known:
 			m = lws_socket_bind(wsi->a.vhost, wsi->desc.sockfd, 0,
 					    iface, wsi->ipv6);
 			if (m < 0)
-				goto try_next_result_fds;
+				goto try_next_dns_result_fds;
 		}
 	}
 
@@ -388,7 +405,7 @@ ads_known:
 #endif
 
 	if (!psa) /* coverity */
-		goto try_next_result_fds;
+		goto try_next_dns_result_fds;
 
 	/*
 	 * The actual connection attempt
@@ -409,42 +426,60 @@ ads_known:
 #endif
 		memcpy(&wsi->sa46_peer, psa, n);
 
+	/*
+	 * Finally, make the actual connection attempt
+	 */
+
 	m = connect(wsi->desc.sockfd, (const struct sockaddr *)psa, n);
 	if (m == -1) {
+		/*
+		 * Since we're nonblocking, connect not having completed is not
+		 * necessarily indicating any problem... we have to look at
+		 * either errno or the socket to understand if we actually
+		 * failed already...
+		 */
+
 		int errno_copy = LWS_ERRNO;
 
-		lwsl_debug("%s: connect says errno: %d\n", __func__,
-								errno_copy);
+		lwsl_debug("%s: connect: errno: %d\n", __func__, errno_copy);
 
-		if (errno_copy && errno_copy != LWS_EALREADY &&
+		if (errno_copy &&
+		    errno_copy != LWS_EALREADY &&
 		    errno_copy != LWS_EINPROGRESS &&
 		    errno_copy != LWS_EWOULDBLOCK
 #ifdef _WIN32
-			&& errno_copy != WSAEINVAL
-                       && errno_copy != WSAEISCONN
+		 && errno_copy != WSAEINVAL
+                 && errno_copy != WSAEISCONN
 #endif
 		) {
+			/*
+			 * The connect() failed immediately...
+			 */
+
 #if defined(_DEBUG)
 			char nads[48];
+
 			lws_sa46_write_numeric_address(&sa46, nads,
-								sizeof(nads));
-			lwsl_info("%s: Connect failed: %s port %d\n",
-				    __func__, nads, port);
+						       sizeof(nads));
+			lwsl_info("%s: Connect failed: %s port %d\n", __func__,
+				  nads, port);
 #endif
-			goto try_next_result_fds;
+
+			goto try_next_dns_result_fds;
 		}
 
 #if defined(WIN32)
 		if (lws_plat_check_connection_error(wsi))
-			goto try_next_result_fds;
-               if (errno_copy == WSAEISCONN)
-                       goto conn_good;
+			goto try_next_dns_result_fds;
+
+		if (errno_copy == WSAEISCONN)
+			goto conn_good;
 #endif
 
 		/*
-		 * Let's set a specialized timeout for this connect attempt
-		 * completion, it uses wsi->sul_connect_timeout just for this
-		 * purpose
+		 * The connection attempt is ongoing asynchronously... let's set
+		 * a specialized timeout for this connect attempt completion, it
+		 * uses wsi->sul_connect_timeout just for this purpose
 		 */
 
 		lws_sul_schedule(wsi->a.context, 0, &wsi->sul_connect_timeout,
@@ -452,23 +487,26 @@ ads_known:
 				 wsi->a.context->timeout_secs *
 						 LWS_USEC_PER_SEC);
 
+#if !defined(WIN32)
 		/*
 		 * must do specifically a POLLOUT poll to hear
 		 * about the connect completion
 		 */
-#if !defined(WIN32)
 		if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
-			goto try_next_result_fds;
+			goto try_next_dns_result_fds;
 #endif
 
 		return wsi;
 	}
 
 conn_good:
+
+	/*
+	 * The connection has happened
+	 */
+
 	lws_sul_cancel(&wsi->sul_connect_timeout);
 	lwsl_info("%s: Connection started %p\n", __func__, wsi->dns_results);
-
-	/* the tcp connection has happend */
 
 #if defined(LWS_WITH_DETAILED_LATENCY)
 	if (wsi->a.context->detailed_latency_cb) {
@@ -488,7 +526,7 @@ conn_good:
 
 	if (wsi->a.protocol)
 		wsi->a.protocol->callback(wsi, LWS_CALLBACK_WSI_CREATE,
-					wsi->user_space, NULL, 0);
+					  wsi->user_space, NULL, 0);
 
 	lwsl_debug("%s: going into connect_4\n", __func__);
 	return lws_client_connect_4_established(wsi, NULL, plen);
@@ -535,31 +573,29 @@ connect_to:
 	 */
 	lwsl_info("%s: abandoning connect due to timeout\n", __func__);
 
-try_next_result_fds:
+try_next_dns_result_fds:
 	__remove_wsi_socket_from_fds(wsi);
 
-try_next_result_closesock:
+try_next_dns_result_closesock:
 	/*
 	 * We are killing the socket but leaving
 	 */
 	compatible_close(wsi->desc.sockfd);
 	wsi->desc.sockfd = LWS_SOCK_INVALID;
 
-try_next_result:
+try_next_dns_result:
 	lws_sul_cancel(&wsi->sul_connect_timeout);
 	if (wsi->dns_results_next) {
 		wsi->dns_results_next = wsi->dns_results_next->ai_next;
 		if (wsi->dns_results_next)
-			goto next_result;
+			goto next_dns_result;
 	}
 	lws_addrinfo_clean(wsi);
 	cce = "Unable to connect";
-
-//failed:
 	lws_inform_client_conn_fail(wsi, (void *)cce, strlen(cce));
 
 failed1:
-	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "client_connect2");
+	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "client_connect3");
 
 	return NULL;
 }
