@@ -719,6 +719,13 @@ struct lws {
 	struct lws_dll2			dll_cli_active_conns;
 	struct lws_dll2			dll2_cli_txn_queue;
 	struct lws_dll2_owner		dll2_cli_txn_queue_owner;
+
+	lws_dll2_t			speculative_list;
+	lws_dll2_owner_t		speculative_connect_owner;
+	/* wsis: additional connection candidates */
+	lws_dll2_owner_t		dns_sorted_list;
+	/* lws_dns_sort_t: dns results wrapped and sorted in a linked-list...
+	 * deleted as they are tried, list empty == everything tried */
 #endif
 
 	lws_sockaddr46			sa46_peer;
@@ -746,8 +753,6 @@ struct lws {
 #if defined(LWS_WITH_CLIENT)
 	struct client_info_stash	*stash;
 	char				*cli_hostname_copy;
-	const struct addrinfo		*dns_results;
-	const struct addrinfo		*dns_results_next;
 #endif
 	void				*user_space;
 	void				*opaque_parent_data;
@@ -1397,6 +1402,17 @@ _lws_route_est_outgoing(struct lws_context_per_thread *pt,
 		        const lws_sockaddr46 *dest);
 
 int
+lws_sort_dns(struct lws *wsi, const struct addrinfo *result);
+
+int
+_lws_route_pt_close_route_users(struct lws_context_per_thread *pt,
+			        lws_route_uidx_t uidx);
+
+lws_route_t *
+_lws_route_est_outgoing(struct lws_context_per_thread *pt,
+		        const lws_sockaddr46 *dest);
+
+int
 lws_broadcast(struct lws_context_per_thread *pt, int reason, void *in, size_t len);
 
 #if defined(LWS_WITH_STATS)
@@ -1535,6 +1551,10 @@ lws_sul_nonmonotonic_adjust(struct lws_context *ctx, int64_t step_us);
 
 void
 lws_netdev_instance_remove_destroy(struct lws_netdev_instance *ni);
+
+int
+lws_score_dns_results(struct lws_context *ctx,
+			     const struct addrinfo **result);
 
 #if defined(LWS_WITH_SYS_SMD)
 int

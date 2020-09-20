@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -66,6 +66,13 @@ typedef struct lws_route {
 
 	uint8_t			source_ads:1;
 } lws_route_t;
+
+/*
+ * We reuse the route object as the dns sort granule, so there's only one
+ * struct needs to know all the gnarly ipv6 details
+ */
+
+typedef lws_route_t lws_dns_sort_t;
 
 /**
  * lws_canonical_hostname() - returns this host's hostname
