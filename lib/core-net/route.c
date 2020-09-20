@@ -72,11 +72,16 @@ _lws_routing_table_dump(struct lws_context_per_thread *pt)
  *
  * It's OK if the route uidx wraps, we explicitly confirm nobody else is using
  * the uidx before assigning one to a new route.
+ *
+ * We won't use uidx 0, so it can be understood to mean the uidx was never set.
  */
 
 lws_route_uidx_t
 _lws_route_get_uidx(struct lws_context_per_thread *pt)
 {
+	if (!pt->route_uidx)
+		pt->route_uidx++;
+
 	while (1) {
 		char again = 0;
 
@@ -89,6 +94,8 @@ _lws_route_get_uidx(struct lws_context_per_thread *pt)
 			if (rou->uidx == pt->route_uidx) {
 				/* if so, bump and restart the check */
 				pt->route_uidx++;
+				if (!pt->route_uidx)
+					pt->route_uidx++;
 				again = 1;
 			}
 		} lws_end_foreach_dll(d);
@@ -236,10 +243,6 @@ _lws_route_check_wsi(struct lws *wsi)
 	return !_lws_route_est_outgoing(pt, &wsi->sa46_peer);
 }
 
-/*
- * priority_deleted_route should be -1 if no deleted route
- */
-
 int
 _lws_route_pt_close_unroutable(struct lws_context_per_thread *pt)
 {
@@ -270,6 +273,11 @@ _lws_route_pt_close_route_users(struct lws_context_per_thread *pt,
 {
 	struct lws *wsi;
 	unsigned int n;
+
+	if (!uidx)
+		return 0;
+
+	lwsl_info("%s: closing users of route %d\n", __func__, uidx);
 
 	for (n = 0; n < pt->fds_count; n++) {
 		wsi = wsi_from_fd(pt->context, pt->fds[n].fd);

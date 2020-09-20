@@ -180,6 +180,9 @@ int main(int argc, const char **argv)
 	if ((p = lws_cmdline_option(argc, argv, "-p")))
 		port = atoi(p);
 
+	if (lws_cmdline_option(argc, argv, "-n"))
+		ssl_connection &= ~LCCSCF_USE_SSL;
+
 	if (lws_cmdline_option(argc, argv, "-j"))
 		ssl_connection |= LCCSCF_ALLOW_SELFSIGNED;
 

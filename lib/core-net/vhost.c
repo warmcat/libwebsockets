@@ -184,6 +184,8 @@ lws_role_call_adoption_bind(struct lws *wsi, int type, const char *prot)
 
 #if defined(LWS_ROLE_RAW_FILE)
 
+	lwsl_notice("%s: falling back to raw file role bind\n", __func__);
+
 	/* fall back to raw file role if, eg, h1 not configured */
 
 	if (role_ops_raw_file.adoption_bind &&

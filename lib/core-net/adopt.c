@@ -610,17 +610,20 @@ bail:
 
 #if defined(LWS_WITH_UDP)
 #if defined(LWS_WITH_CLIENT)
+
+/*
+ * This is the ASYNC_DNS callback target for udp client, it's analogous to
+ * connect3()
+ */
+
 static struct lws *
 lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 		      const struct addrinfo *r, int n, void *opaque)
 {
 	lws_sock_file_fd_type sock;
-	int bc = 1;
+	int bc = 1, m;
 
 	assert(wsi);
-
-	if (!wsi->dns_results)
-		wsi->dns_results_next = wsi->dns_results = r;
 
 	if (ads && (n < 0 || !r)) {
 		/*
@@ -629,16 +632,28 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 		 */
 		lwsl_notice("%s: bad: n %d, r %p\n", __func__, n, r);
 
-		/*
-		 * We didn't get a callback on a cache item and bump the
-		 * refcount.  So don't let the cleanup continue to think it
-		 * needs to decrement any refcount.
-		 */
-		wsi->dns_results_next = wsi->dns_results = NULL;
 		goto bail;
 	}
 
-	while (wsi->dns_results_next) {
+	m = lws_sort_dns(wsi, r);
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+	lws_async_dns_freeaddrinfo(&r);
+#else
+	freeaddrinfo((struct addrinfo *)r);
+#endif
+	if (m)
+		goto bail;
+
+	while (lws_dll2_get_head(&wsi->dns_sorted_list)) {
+		lws_dns_sort_t *s = lws_container_of(
+				lws_dll2_get_head(&wsi->dns_sorted_list),
+				lws_dns_sort_t, list);
+
+		/*
+		 * Remove it from the head, but don't free it yet... we are
+		 * taking responsibility to free it
+		 */
+		lws_dll2_remove(&s->list);
 
 		/*
 		 * We have done the dns lookup, identify the result we want
@@ -651,30 +666,35 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 		 */
 
 #if !defined(__linux__)
-		/* PF_PACKET is linux-only */
-		sock.sockfd = socket(wsi->dns_results_next->ai_family,
+		sock.sockfd = socket(s->dest.sa4.sin_family,
 				     SOCK_DGRAM, IPPROTO_UDP);
 #else
+		/* PF_PACKET is linux-only */
 		sock.sockfd = socket(wsi->pf_packet ? PF_PACKET :
-					wsi->dns_results_next->ai_family,
+						s->dest.sa4.sin_family,
 				     SOCK_DGRAM, wsi->pf_packet ?
 					htons(0x800) : IPPROTO_UDP);
 #endif
 		if (sock.sockfd == LWS_SOCK_INVALID)
 			goto resume;
 
-		((struct sockaddr_in *)wsi->dns_results_next->ai_addr)->sin_port =
-				htons(wsi->c_port);
+		/* ipv6 udp!!! */
 
-		if (setsockopt(sock.sockfd, SOL_SOCKET, SO_REUSEADDR, (const char *)&bc,
-			       sizeof(bc)) < 0)
+		if (s->af == AF_INET)
+			s->dest.sa4.sin_port = htons(wsi->c_port);
+#if defined(LWS_WITH_IPV6)
+		else
+			s->dest.sa6.sin6_port = htons(wsi->c_port);
+#endif
+
+		if (setsockopt(sock.sockfd, SOL_SOCKET, SO_REUSEADDR,
+			       (const char *)&bc, sizeof(bc)) < 0)
 			lwsl_err("%s: failed to set reuse\n", __func__);
 
 		if (wsi->do_broadcast &&
-		    setsockopt(sock.sockfd, SOL_SOCKET, SO_BROADCAST, (const char *)&bc,
-			       sizeof(bc)) < 0)
-				lwsl_err("%s: failed to set broadcast\n",
-						__func__);
+		    setsockopt(sock.sockfd, SOL_SOCKET, SO_BROADCAST,
+			       (const char *)&bc, sizeof(bc)) < 0)
+			lwsl_err("%s: failed to set broadcast\n", __func__);
 
 		/* Bind the udp socket to a particular network interface */
 
@@ -683,52 +703,53 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 			goto resume;
 
 		if (wsi->do_bind &&
-		    bind(sock.sockfd, wsi->dns_results_next->ai_addr,
+		    bind(sock.sockfd, sa46_sockaddr(&s->dest),
 #if defined(_WIN32)
-			 (int)wsi->dns_results_next->ai_addrlen
+			 (int)sa46_socklen(&s->dest)
 #else
-			 sizeof(struct sockaddr)//wsi->dns_results_next->ai_addrlen
+			 sizeof(struct sockaddr)
 #endif
-								    ) == -1) {
+		) == -1) {
 			lwsl_err("%s: bind failed\n", __func__);
 			goto resume;
 		}
 
 		if (!wsi->do_bind && !wsi->pf_packet) {
 #if !defined(__APPLE__)
-			if (connect(sock.sockfd, wsi->dns_results_next->ai_addr,
-				     (socklen_t)wsi->dns_results_next->ai_addrlen) == -1) {
+			if (connect(sock.sockfd, sa46_sockaddr(&s->dest),
+				    sa46_socklen(&s->dest)) == -1) {
 				lwsl_err("%s: conn fd %d fam %d %s:%u failed "
-					 "(salen %d) errno %d\n", __func__,
-					 sock.sockfd,
-					 wsi->dns_results_next->ai_addr->sa_family,
+					 "errno %d\n", __func__, sock.sockfd,
+					 s->dest.sa4.sin_family,
 					 ads ? ads : "null", wsi->c_port,
-					 (int)wsi->dns_results_next->ai_addrlen,
 					 LWS_ERRNO);
 				compatible_close(sock.sockfd);
 				goto resume;
 			}
 #endif
-			memcpy(&wsi->udp->sa46,
-			       wsi->dns_results_next->ai_addr,
-			       wsi->dns_results_next->ai_addrlen);
 		}
+
+		if (wsi->udp)
+			wsi->udp->sa46 = s->dest;
+		wsi->sa46_peer = s->dest;
 
 		/* we connected: complete the udp socket adoption flow */
 
+		lws_free(s);
 		lws_addrinfo_clean(wsi);
 		return lws_adopt_descriptor_vhost2(wsi,
 						LWS_ADOPT_RAW_SOCKET_UDP, sock);
 
 resume:
-		wsi->dns_results_next = wsi->dns_results_next->ai_next;
+		lws_free(s);
 	}
 
 	lwsl_err("%s: unable to create INET socket %d\n", __func__, LWS_ERRNO);
 	lws_addrinfo_clean(wsi);
 
 bail:
-	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "adopt udp2 fail");
+
+	/* caller must close */
 
 	return NULL;
 }
@@ -747,12 +768,15 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 
 	/* create the logical wsi without any valid fd */
 
-	wsi = lws_adopt_descriptor_vhost1(vhost, LWS_ADOPT_RAW_SOCKET_UDP,
+	wsi = lws_adopt_descriptor_vhost1(vhost, LWS_ADOPT_SOCKET | LWS_ADOPT_RAW_SOCKET_UDP,
 					  protocol_name, parent_wsi, opaque);
 	if (!wsi) {
 		lwsl_err("%s: udp wsi creation failed\n", __func__);
 		goto bail;
 	}
+
+	// lwsl_notice("%s: role %s\n", __func__, wsi->role_ops->name);
+
 	wsi->do_bind = !!(flags & LWS_CAUDP_BIND);
 	wsi->do_broadcast = !!(flags & LWS_CAUDP_BROADCAST);
 	wsi->pf_packet = !!(flags & LWS_CAUDP_PF_PACKET);
@@ -814,8 +838,9 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 		 */
 		n = lws_async_dns_query(vhost->context, 0, ads,
 					LWS_ADNS_RECORD_A,
-					lws_create_adopt_udp2, wsi, (void *)ifname);
-		lwsl_debug("%s: dns query returned %d\n", __func__, n);
+					lws_create_adopt_udp2, wsi,
+					(void *)ifname);
+		// lwsl_notice("%s: dns query returned %d\n", __func__, n);
 		if (n == LADNS_RET_FAILED) {
 			lwsl_err("%s: async dns failed\n", __func__);
 			wsi = NULL;
@@ -832,7 +857,7 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 
 	/* dns lookup is happening asynchronously */
 
-	lwsl_debug("%s: returning wsi %p\n", __func__, wsi);
+	// lwsl_notice("%s: returning wsi %p\n", __func__, wsi);
 	return wsi;
 #endif
 #if !defined(LWS_WITH_SYS_ASYNC_DNS)

@@ -348,8 +348,9 @@ int
 lws_role_call_adoption_bind(struct lws *wsi, int type, const char *prot);
 
 struct lws *
-lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback, ssize_t plen);
+lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
+				 ssize_t plen);
 
 struct lws *
 lws_client_connect_3_connect(struct lws *wsi, const char *ads,
-			const struct addrinfo *result, int n, void *opaque);
+			     const struct addrinfo *result, int n, void *opaque);

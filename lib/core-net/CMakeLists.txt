@@ -73,6 +73,7 @@ if (LWS_WITH_CLIENT)
 		core-net/client/connect2.c
 		core-net/client/connect3.c
 		core-net/client/connect4.c
+		core-net/client/sort-dns.c
 	)
 endif()
 

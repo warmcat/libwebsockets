@@ -285,10 +285,13 @@ solo:
 	wsi->detlat.earliest_write_req_pre_write = lws_now_usecs();
 #endif
 #if !defined(LWS_WITH_SYS_ASYNC_DNS)
-	if (wsi->dns_results)
-		n = 0;
-	else
+	n = 0;
+	if (!wsi->dns_sorted_list.count) {
+		/*
+		 * blocking dns resolution
+		 */
 		n = lws_getaddrinfo46(wsi, ads, &result);
+	}
 #else
 	lwsi_set_state(wsi, LRS_WAITING_DNS);
 	/* this is either FAILED, CONTINUING, or already called connect_4 */

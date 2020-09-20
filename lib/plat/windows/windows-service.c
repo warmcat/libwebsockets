@@ -270,7 +270,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 				 * the connection has definitively failed... but
 				 * do we have more DNS entries to try?
 				 */
-				if (wsi_from_fd(context, pfd->fd)->dns_results_next) {
+				if (wsi_from_fd(context, pfd->fd)->dns_sorted_list.count) {
 					lws_sul_schedule(context, 0,
 						&wsi_from_fd(context, pfd->fd)->
 							sul_connect_timeout,

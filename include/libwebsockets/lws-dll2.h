@@ -245,6 +245,11 @@ LWS_VISIBLE LWS_EXTERN void
 lws_dll2_add_sorted(lws_dll2_t *d, lws_dll2_owner_t *own,
 		    int (*compare)(const lws_dll2_t *d, const lws_dll2_t *i));
 
+LWS_VISIBLE LWS_EXTERN void
+lws_dll2_add_sorted_priv(lws_dll2_t *d, lws_dll2_owner_t *own, void *priv,
+			 int (*compare3)(void *priv, const lws_dll2_t *d,
+					 const lws_dll2_t *i));
+
 LWS_VISIBLE LWS_EXTERN void *
 _lws_dll2_search_sz_pl(lws_dll2_owner_t *own, const char *name, size_t namelen,
 		      size_t dll2_ofs, size_t ptr_ofs);
