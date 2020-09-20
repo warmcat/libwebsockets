@@ -140,12 +140,12 @@
  *   -  4: metadata name
  *   -  ...: metadata value (for rest of packet)
  *
- * - Proxied state
+ * - Proxied state (8 or 11 byte packet)
  *
  *   -  0: LWSSS_SER_RXPRE_CONNSTATE
- *   -  1: 00, 05
- *   -  3: 1 byte state index
- *   -  7: 4-byte MSB-first ordinal
+ *   -  1: 00, 05 if state < 256, else 00, 08
+ *   -  3: 1 byte state index if state < 256, else 4-byte MSB-first state index
+ *   -  4 or 7: 4-byte MSB-first ordinal
  *
  *
  * Proxied tx may be read by the proxy but rejected due to lack of buffer space
