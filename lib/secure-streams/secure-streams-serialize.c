@@ -263,17 +263,26 @@ lws_ss_serialize_state(struct lws_dsh *dsh, lws_ss_constate_t state,
 		       lws_ss_tx_ordinal_t ack)
 {
 	uint8_t pre[8];
+	int n = 4;
 
 	lwsl_info("%s: %s, ord 0x%x\n", __func__, lws_ss_state_name(state),
 		  (unsigned int)ack);
 
 	pre[0] = LWSSS_SER_RXPRE_CONNSTATE;
 	pre[1] = 0;
-	pre[2] = 5;
-	pre[3] = (uint8_t)state;
-	lws_ser_wu32be(&pre[4], ack);
 
-	if (lws_dsh_alloc_tail(dsh, KIND_SS_TO_P, pre, 8, NULL, 0)) {
+	if (state > 255) {
+		pre[2] = 8;
+		lws_ser_wu32be(&pre[3], ack);
+		n = 7;
+	} else {
+		pre[2] = 5;
+		pre[3] = (uint8_t)state;
+	}
+
+	lws_ser_wu32be(&pre[n], ack);
+
+	if (lws_dsh_alloc_tail(dsh, KIND_SS_TO_P, pre, n + 4, NULL, 0)) {
 		lwsl_err("%s: unable to alloc in dsh 2\n", __func__);
 
 		return 1;
@@ -481,10 +490,11 @@ lws_ss_deserialize_parse(struct lws_ss_serialization_parser *par,
 				    *state != LPCSCLI_OPERATIONAL)
 					goto hangup;
 
-				if (par->rem < 4)
+				if (par->rem < 5 || par->rem > 8)
 					goto hangup;
 
 				par->ps = RPAR_STATEINDEX;
+				par->ctr = 0;
 				break;
 
 			case LWSSS_SER_RXPRE_TXCR_UPDATE:
@@ -1099,8 +1109,9 @@ payload_ff:
 			break;
 
 		case RPAR_STATEINDEX:
-			par->ctr = *cp++;
-			par->ps = RPAR_ORD3;
+			par->ctr = (par->ctr << 8) | (*cp++);
+			if (--par->rem == 4)
+				par->ps = RPAR_ORD3;
 			break;
 
 		case RPAR_ORD3:
