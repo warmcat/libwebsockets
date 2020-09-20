@@ -183,6 +183,8 @@ delete_from_fd(const struct lws_context *context, int fd);
  * but happily have something equivalent in the SO_NOSIGPIPE flag.
  */
 #ifdef __APPLE__
+/* iOS SDK 12+ seems to define it, undef it for compatibility both ways */
+#undef MSG_NOSIGNAL
 #define MSG_NOSIGNAL SO_NOSIGPIPE
 #endif
 
