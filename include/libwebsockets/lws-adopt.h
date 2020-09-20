@@ -86,27 +86,38 @@ typedef union {
 typedef union {
 #if defined(LWS_WITH_IPV6)
 	struct sockaddr_in6 sa6;
+#else
+#if defined(LWS_ESP_PLATFORM)
+	uint8_t _pad_sa6[28];
+#endif
 #endif
 	struct sockaddr_in sa4;
 } lws_sockaddr46;
 
 #define sa46_sockaddr(_sa46) ((struct sockaddr *)(_sa46))
 
-#define sa46_address(_sa46) ((uint8_t *)((_sa46)->sa4.sin_family == AF_INET ? \
-			     &_sa46->sa4.sin_addr : &_sa46->sa6.sin6_addr ))
-
-#define sa46_address_len(_sa46) ((_sa46)->sa4.sin_family == AF_INET ? 4 : 16)
-
-#define sa46_socklen(_sa46) ((_sa46)->sa4.sin_family == AF_INET ? \
+#if defined(LWS_WITH_IPV6)
+#define sa46_socklen(_sa46) (socklen_t)((_sa46)->sa4.sin_family == AF_INET ? \
 				sizeof(struct sockaddr_in) : \
 				sizeof(struct sockaddr_in6))
+#define sa46_sockport(_sa46, _sp)  { if ((_sa46)->sa4.sin_family == AF_INET) \
+					(_sa46)->sa4.sin_port = (_sp); else \
+					(_sa46)->sa6.sin6_port = (_sp); }
+#define sa46_address(_sa46) ((uint8_t *)((_sa46)->sa4.sin_family == AF_INET ? \
+		     &_sa46->sa4.sin_addr : &_sa46->sa6.sin6_addr ))
+#else
+#define sa46_socklen(_sa46) (socklen_t)sizeof(struct sockaddr_in)
+#define sa46_sockport(_sa46, _sp)  (_sa46)->sa4.sin_port = (_sp)
+#define sa46_address(_sa46) (uint8_t *)&_sa46->sa4.sin_addr
+#endif
+
+#define sa46_address_len(_sa46) ((_sa46)->sa4.sin_family == AF_INET ? 4 : 16)
 
 #if defined(LWS_WITH_UDP)
 struct lws_udp {
 	lws_sockaddr46		sa46;
 	lws_sockaddr46		sa46_pending;
 };
-
 #endif
 
 /**

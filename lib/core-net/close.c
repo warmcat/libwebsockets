@@ -240,15 +240,17 @@ void
 lws_addrinfo_clean(struct lws *wsi)
 {
 #if defined(LWS_WITH_CLIENT)
-	if (!wsi->dns_results)
-		return;
+	struct lws_dll2 *d = lws_dll2_get_head(&wsi->dns_sorted_list), *d1;
 
-#if defined(LWS_WITH_SYS_ASYNC_DNS)
-	lws_async_dns_freeaddrinfo(&wsi->dns_results);
-#else
-	freeaddrinfo((struct addrinfo *)wsi->dns_results);
-#endif
-	wsi->dns_results = NULL;
+	while (d) {
+		lws_dns_sort_t *r = lws_container_of(d, lws_dns_sort_t, list);
+
+		d1 = d->next;
+		lws_dll2_remove(d);
+		lws_free(r);
+
+		d = d1;
+	}
 #endif
 }
 
@@ -275,6 +277,11 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 
 	context = wsi->a.context;
 	pt = &context->pt[(int)wsi->tsi];
+
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+	if (wsi == context->async_dns.wsi)
+		context->async_dns.wsi = NULL;
+#endif
 
 	lws_pt_assert_lock_held(pt);
 

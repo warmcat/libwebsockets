@@ -184,6 +184,31 @@ lws_dll2_owner_clear(struct lws_dll2_owner *d)
 }
 
 void
+lws_dll2_add_sorted_priv(lws_dll2_t *d, lws_dll2_owner_t *own, void *priv,
+			 int (*compare3)(void *priv, const lws_dll2_t *d,
+					const lws_dll2_t *i))
+{
+	lws_start_foreach_dll_safe(struct lws_dll2 *, p, tp,
+				   lws_dll2_get_head(own)) {
+		assert(p != d);
+
+		if (compare3(priv, p, d) >= 0) {
+			/* drop us in before this guy */
+			lws_dll2_add_before(d, p);
+
+			return;
+		}
+	} lws_end_foreach_dll_safe(p, tp);
+
+	/*
+	 * Either nobody on the list yet to compare him to, or he's the
+	 * furthest away timeout... stick him at the tail end
+	 */
+
+	lws_dll2_add_tail(d, own);
+}
+
+void
 lws_dll2_add_sorted(lws_dll2_t *d, lws_dll2_owner_t *own,
 		    int (*compare)(const lws_dll2_t *d, const lws_dll2_t *i))
 {
@@ -194,8 +219,6 @@ lws_dll2_add_sorted(lws_dll2_t *d, lws_dll2_owner_t *own,
 		if (compare(p, d) >= 0) {
 			/* drop us in before this guy */
 			lws_dll2_add_before(d, p);
-
-			// lws_dll2_describe(own, "post-insert");
 
 			return;
 		}

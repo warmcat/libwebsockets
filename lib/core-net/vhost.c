@@ -130,6 +130,8 @@ lws_role_call_adoption_bind(struct lws *wsi, int type, const char *prot)
 {
 	int n;
 
+	lwsl_notice("%s: incoming type 0x%x\n", __func__, type);
+
 	/*
 	 * if the vhost is told to bind accepted sockets to a given role,
 	 * then look it up by name and try to bind to the specific role.
@@ -184,6 +186,8 @@ lws_role_call_adoption_bind(struct lws *wsi, int type, const char *prot)
 		return 0;
 
 #if defined(LWS_ROLE_RAW_FILE)
+
+	lwsl_notice("%s: falling back to raw file role bind\n", __func__);
 
 	/* fall back to raw file role if, eg, h1 not configured */
 

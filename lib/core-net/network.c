@@ -879,13 +879,14 @@ lws_sa46_compare_ads(const lws_sockaddr46 *sa46a, const lws_sockaddr46 *sa46b)
 void
 lws_4to6(uint8_t *v6addr, const uint8_t *v4addr)
 {
-	memset(v6addr, 0, 10);
-
-	v6addr[10] = v6addr[11] = 0xff;
 	v6addr[12] = v4addr[0];
 	v6addr[13] = v4addr[1];
 	v6addr[14] = v4addr[2];
 	v6addr[15] = v4addr[3];
+
+	memset(v6addr, 0, 10);
+
+	v6addr[10] = v6addr[11] = 0xff;
 }
 
 #if defined(LWS_WITH_IPV6)

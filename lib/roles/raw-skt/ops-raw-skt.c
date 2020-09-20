@@ -234,17 +234,24 @@ fail:
 static int
 rops_adoption_bind_raw_skt(struct lws *wsi, int type, const char *vh_prot_name)
 {
+
+	// lwsl_notice("%s: bind type %d\n", __func__, type);
+
 	/* no http but socket... must be raw skt */
 	if ((type & LWS_ADOPT_HTTP) || !(type & LWS_ADOPT_SOCKET) ||
-	    (type & _LWS_ADOPT_FINISH))
+	    ((type & _LWS_ADOPT_FINISH) && (!(type & LWS_ADOPT_FLAG_UDP))))
 		return 0; /* no match */
 
 #if defined(LWS_WITH_UDP)
-	if (type & LWS_ADOPT_FLAG_UDP)
+	if ((type & LWS_ADOPT_FLAG_UDP) && !wsi->udp) {
 		/*
 		 * these can be >128 bytes, so just alloc for UDP
 		 */
 		wsi->udp = lws_malloc(sizeof(*wsi->udp), "udp struct");
+		if (!wsi->udp)
+			return 0;
+		memset(wsi->udp, 0, sizeof(*wsi->udp));
+	}
 #endif
 
 	lws_role_transition(wsi, 0, (type & LWS_ADOPT_ALLOW_SSL) ? LRS_SSL_INIT :

@@ -43,8 +43,7 @@ typedef enum {
 struct addrinfo;
 
 typedef struct lws * (*lws_async_dns_cb_t)(struct lws *wsi, const char *ads,
-					   const struct addrinfo *result, int n,
-					   void *opaque);
+		const struct addrinfo *result, int n, void *opaque);
 
 /**
  * lws_async_dns_query() - perform a dns lookup using async dns

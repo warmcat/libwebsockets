@@ -115,6 +115,11 @@ option(LWS_WITH_HTTP_BASIC_AUTH "Support Basic Auth" ON)
 option(LWS_WITH_HTTP_UNCOMMON_HEADERS "Include less common http header support" ON)
 option(LWS_WITH_SYS_STATE "lws_system state support" ON)
 option(LWS_WITH_SYS_SMD "Lws System Message Distribution" ON)
+if (LWS_IPV6)
+	option(LWS_WITH_RFC6724 "Enable RFC6724 DNS result sorting" ON)
+else()
+	option(LWS_WITH_RFC6724 "Enable RFC6724 DNS result sorting" OFF)
+endif()
 
 #
 # Secure Streams

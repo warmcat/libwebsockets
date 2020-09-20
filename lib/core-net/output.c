@@ -362,6 +362,7 @@ lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 				goto post_send;
 			}
 		}
+
 		if (lws_has_buffered_out(wsi))
 			n = sendto(wsi->desc.sockfd, (const char *)buf,
 				   len, 0, sa46_sockaddr(&wsi->udp->sa46_pending),

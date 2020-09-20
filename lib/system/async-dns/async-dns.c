@@ -25,7 +25,7 @@
 #include "private-lib-core.h"
 #include "private-lib-async-dns.h"
 
-static const uint32_t botable[] = { 500, 1000, 1250, 5000
+static const uint32_t botable[] = { 300, 500, 700, 1250, 5000
 				/* in case everything just dog slow */ };
 static const lws_retry_bo_t retry_policy = {
 	botable, LWS_ARRAY_SIZE(botable), LWS_ARRAY_SIZE(botable),
@@ -88,8 +88,13 @@ lws_async_dns_complete(lws_adns_q_t *q, lws_adns_cache_t *c)
 				    __func__, q, c, c->refcount, c->refcount + 1);
 			c->refcount++;
 		}
-		w->adns_cb(w, (const char *)&q[1], c ? c->results : NULL, 0,
-				q->opaque);
+		if (w->adns_cb(w, (const char *)&q[1], c ? c->results : NULL, 0,
+				q->opaque) == NULL)
+			lwsl_notice("%s: failed\n", __func__);
+	//		lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
+	//				   "adopt udp2 fail");
+
+		lws_set_timeout(w, NO_PENDING_TIMEOUT, 0);
 	} lws_end_foreach_dll_safe(d, d1);
 
 	if (q->standalone_cb) {
@@ -110,8 +115,6 @@ static void
 lws_async_dns_sul_cb_retry(struct lws_sorted_usec_list *sul)
 {
 	lws_adns_q_t *q = lws_container_of(sul, lws_adns_q_t, sul);
-
-	// lwsl_notice("%s\n", __func__);
 
 	lws_callback_on_writable(q->dns->wsi);
 }
@@ -203,8 +206,7 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 		goto qfail;
 	}
 
-	lws_ser_wu16be(p, which ? LWS_ADNS_RECORD_AAAA :
-				     LWS_ADNS_RECORD_A);
+	lws_ser_wu16be(p, which ? LWS_ADNS_RECORD_AAAA : LWS_ADNS_RECORD_A);
 	p += 2;
 
 	lws_ser_wu16be(p, 1); /* IN class */
@@ -212,6 +214,7 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 
 	assert(p < pkt + sizeof(pkt) - LWS_PRE);
 	n = lws_ptr_diff(p, pkt + LWS_PRE);
+
 	m = lws_write(wsi, pkt + LWS_PRE, n, 0);
 	if (m != n) {
 		lwsl_notice("%s: dns write failed %d %d errno %d\n", __func__,
@@ -267,7 +270,6 @@ callback_async_dns(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_RAW_WRITEABLE:
-		// lwsl_notice("%s: WRITABLE\n", __func__);
 
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 					   dns->waiting.head) {
@@ -298,6 +300,9 @@ lws_async_dns_init(struct lws_context *context)
 	char ads[48];
 	int n;
 
+	if (dns->wsi)
+		return 0;
+
 	if (!context->vhost_list) { /* coverity... system vhost always present */
 		lwsl_err("%s: no system vhost\n", __func__);
 		return 1;
@@ -327,13 +332,15 @@ ok:
 	lws_write_numeric_address((uint8_t *)&dns->sa46.sa4.sin_addr.s_addr, 4,
 				  ads, sizeof(ads));
 
-	context->async_dns.wsi = lws_create_adopt_udp(context->vhost_list, ads,
-				      53, 0, lws_async_dns_protocol.name, NULL,
-				      NULL, NULL, &retry_policy);
+	dns->wsi = lws_create_adopt_udp(context->vhost_list, ads, 53, 0,
+					lws_async_dns_protocol.name, NULL,
+				        NULL, NULL, &retry_policy);
 	if (!dns->wsi) {
 		lwsl_err("%s: foreign socket adoption failed\n", __func__);
 		return 1;
 	}
+
+	context->async_dns.wsi->udp->sa46 = dns->sa46;
 
 	dns->dns_server_set = 1;
 
@@ -588,7 +595,7 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	}
 
 	/*
-	 * It's a 1.2.3.4 type IP address already?  We don't need a dns
+	 * It's a 1.2.3.4 or ::1 type IP address already?  We don't need a dns
 	 * server set up to be able to create an addrinfo result for that.
 	 *
 	 * Create it as a cached object so it follows the refcount lifecycle
@@ -743,11 +750,12 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 
 	lws_dll2_add_head(&q->list, &dns->waiting);
 
-	lwsl_debug("%s: created new query\n", __func__);
+	lwsl_info("%s: created new query\n", __func__);
 
 	return LADNS_RET_CONTINUING;
 
 failed:
+	lwsl_notice("%s: failed\n", __func__);
 	cb(wsi, NULL, NULL, LADNS_RET_FAILED, opaque);
 
 	return LADNS_RET_FAILED;
