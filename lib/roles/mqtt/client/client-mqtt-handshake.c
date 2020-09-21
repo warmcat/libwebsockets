@@ -104,10 +104,6 @@ lws_mqtt_client_send_connect(struct lws *wsi)
 			*p++ = 0;
 		}
 
-		if ((c->conn_flags & ~LMQCFT_CLEAN_START) == 0) {
-			*p++ = 0; /* no properties */
-			break;
-		}
 		if (c->conn_flags & LMQCFT_WILL_FLAG) {
 			if (lws_mqtt_str_is_not_empty(c->will.topic)) {
 				lws_ser_wu16be(p, c->will.topic->len);
