@@ -1176,7 +1176,7 @@ payload_ff:
 				break;
 			}
 
-			if (par->ctr < 0 || par->ctr > 16)
+			if (par->ctr < 0)
 				goto hangup;
 
 #if defined(_DEBUG)
