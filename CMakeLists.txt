@@ -49,8 +49,10 @@ endif()
 #   debug builds include source level debug info and extra logging
 
 set(LWS_WITH_BUNDLED_ZLIB_DEFAULT OFF)
+set(LWS_UNIX_SOCK_DEFAULT ON)
 if(WIN32)
 	set(LWS_WITH_BUNDLED_ZLIB_DEFAULT ON)
+	set(LWS_UNIX_SOCK_DEFAULT OFF)
 endif()
 
 set(LWS_ROLE_RAW 1)
@@ -91,7 +93,7 @@ option(LWS_WITH_HTTP2 "Compile with server support for HTTP/2" ON)
 option(LWS_WITH_LWSWS "Libwebsockets Webserver" OFF)
 option(LWS_WITH_CGI "Include CGI (spawn process with network-connected stdin/out/err) APIs" OFF)
 option(LWS_IPV6 "Compile with support for ipv6" OFF)
-option(LWS_UNIX_SOCK "Compile with support for UNIX domain socket if OS supports it" ON)
+option(LWS_UNIX_SOCK "Compile with support for UNIX domain socket if OS supports it" ${LWS_UNIX_SOCK_DEFAULT})
 option(LWS_WITH_PLUGINS "Support plugins for protocols and extensions (implies LWS_WITH_PLUGINS_API)" OFF)
 option(LWS_WITH_HTTP_PROXY "Support for active HTTP proxying" OFF)
 option(LWS_WITH_ZIP_FOPS "Support serving pre-zipped files" OFF)
@@ -563,14 +565,13 @@ CHECK_INCLUDE_FILE(malloc.h LWS_HAVE_MALLOC_H)
 CHECK_INCLUDE_FILE(pthread.h LWS_HAVE_PTHREAD_H)
 CHECK_INCLUDE_FILE(inttypes.h LWS_HAVE_INTTYPES_H)
 
-if (WIN32 OR MSVC)
+if (WIN32 AND LWS_UNIX_SOCK)
 	CHECK_C_SOURCE_COMPILES("#include <winsock2.h>
 				 #include <afunix.h>
 				 int main() { return 0; }" LWS_HAVE_WIN32_AFUNIX_H)
 
-	if (LWS_UNIX_SOCK AND NOT LWS_HAVE_WIN32_AFUNIX_H)
-		message("No afunix.h found. Disabling LWS_UNIX_SOCK.")
-		set(LWS_WITH_UNIX_SOCK OFF)
+	if (NOT LWS_HAVE_WIN32_AFUNIX_H)
+		message(FATAL_ERROR "No afunix.h in toolchain for LWS_UNIX_SOCK")
 	endif()
 endif()
 
