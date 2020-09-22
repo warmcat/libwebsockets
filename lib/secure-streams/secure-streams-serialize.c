@@ -262,7 +262,7 @@ int
 lws_ss_serialize_state(struct lws_dsh *dsh, lws_ss_constate_t state,
 		       lws_ss_tx_ordinal_t ack)
 {
-	uint8_t pre[8];
+	uint8_t pre[12];
 	int n = 4;
 
 	lwsl_info("%s: %s, ord 0x%x\n", __func__, lws_ss_state_name(state),
@@ -273,7 +273,7 @@ lws_ss_serialize_state(struct lws_dsh *dsh, lws_ss_constate_t state,
 
 	if (state > 255) {
 		pre[2] = 8;
-		lws_ser_wu32be(&pre[3], ack);
+		lws_ser_wu32be(&pre[3], state);
 		n = 7;
 	} else {
 		pre[2] = 5;
