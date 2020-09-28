@@ -327,6 +327,8 @@ typedef lws_ss_state_return_t (*lws_sscb_state)(void *userobj, void *h_src,
 						lws_ss_constate_t state,
 						lws_ss_tx_ordinal_t ack);
 
+struct lws_ss_policy;
+
 typedef struct lws_ss_info {
 	const char *streamtype; /**< type of stream we want to create */
 	size_t	    user_alloc; /**< size of user allocation */
@@ -335,6 +337,12 @@ typedef struct lws_ss_info {
 	size_t	    opaque_user_data_offset;
 	/**< offset of opaque user data ptr in user_alloc type, set to
 	     offsetof(mytype, opaque_ud_member) */
+
+#if defined(LWS_WITH_SECURE_STREAMS_CPP)
+	const struct lws_ss_policy	*policy;
+	/**< Normally NULL, or a locally-generated policy to apply to this
+	 * connection instead of a named streamtype */
+#endif
 
 	lws_sscb_rx rx;
 	/**< callback with rx payload for this stream */

@@ -517,12 +517,19 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 	char *p;
 	int n;
 
-	pol = lws_ss_policy_lookup(context, ssi->streamtype);
+#if defined(LWS_WITH_SECURE_STREAMS_CPP)
+	pol = ssi->policy;
 	if (!pol) {
-		lwsl_info("%s: unknown stream type %s\n", __func__,
-			  ssi->streamtype);
-		return 1;
+#endif
+		pol = lws_ss_policy_lookup(context, ssi->streamtype);
+		if (!pol) {
+			lwsl_info("%s: unknown stream type %s\n", __func__,
+				  ssi->streamtype);
+			return 1;
+		}
+#if defined(LWS_WITH_SECURE_STREAMS_CPP)
 	}
+#endif
 
 	if (ssi->flags & LWSSSINFLAGS_REGISTER_SINK) {
 		/*
@@ -562,7 +569,8 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 	 * ... when we come to destroy it, just one free to do.
 	 */
 
-	size = sizeof(*h) + ssi->user_alloc + strlen(ssi->streamtype) + 1;
+	size = sizeof(*h) + ssi->user_alloc +
+			(ssi->streamtype ? strlen(ssi->streamtype): 0) + 1;
 #if defined(LWS_WITH_SSPLUGINS)
 	if (pol->plugins[0])
 		size += pol->plugins[0]->alloc;
@@ -623,7 +631,8 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 		smd = smd->next;
 	}
 
-	memcpy(p, ssi->streamtype, strlen(ssi->streamtype) + 1);
+	if (ssi->streamtype)
+		memcpy(p, ssi->streamtype, strlen(ssi->streamtype) + 1);
 	/* don't mark accepted ss as being the server */
 	if (ssi->flags & LWSSSINFLAGS_SERVER)
 		h->info.flags &= ~LWSSSINFLAGS_SERVER;
@@ -804,6 +813,9 @@ void
 lws_ss_destroy(lws_ss_handle_t **ppss)
 {
 	struct lws_context_per_thread *pt;
+#if defined(LWS_WITH_SERVER)
+	struct lws_vhost *v = NULL;
+#endif
 	lws_ss_handle_t *h = *ppss;
 	lws_ss_metadata_t *pmd;
 
@@ -847,7 +859,18 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 	lws_dll2_remove(&h->to_list);
 	lws_sul_cancel(&h->sul_timeout);
 
+	/*
+	 * for lss, DESTROYING deletes the C++ lss object, making the
+	 * self-defined h->policy radioactive
+	 */
+
+#if defined(LWS_WITH_SERVER)
+	if (h->policy->flags & LWSSSPOLF_SERVER)
+		v = lws_get_vhost_by_name(h->context, h->policy->streamtype);
+#endif
+
 	(void)lws_ss_event_helper(h, LWSSSCS_DESTROYING);
+
 	lws_pt_unlock(pt);
 
 	/* in proxy case, metadata value on heap may need cleaning up */
@@ -879,18 +902,13 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 #endif
 
 #if defined(LWS_WITH_SERVER)
-	if (h->policy->flags & LWSSSPOLF_SERVER) {
-		struct lws_vhost *v = lws_get_vhost_by_name(h->context,
-							h->policy->streamtype);
-
+	if (v)
 		/*
 		 * For server, the policy describes a vhost that implements the
 		 * server, when we take down the ss, we take down the related
 		 * vhost (if it got that far)
 		 */
-		if (v)
-			lws_vhost_destroy(v);
-	}
+		lws_vhost_destroy(v);
 #endif
 
 	/* confirm no sul left scheduled in handle or user allocation object */
