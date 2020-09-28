@@ -80,6 +80,9 @@ if (LWS_WITH_LWSAC)
 		list(APPEND SOURCES
 			misc/lwsac/cached-file.c)
 	endif()
+	if (LWS_WITH_SECURE_STREAMS_CPP)
+		list(APPEND SOURCES misc/lwsac/lwsac.cxx)
+	endif()
 endif()
 
 if (NOT LWS_WITHOUT_BUILTIN_SHA1)

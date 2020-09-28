@@ -197,9 +197,6 @@ delete_from_fd(const struct lws_context *context, int fd);
 #endif
 
 int
-lws_plat_BINDTODEVICE(int fd, const char *ifname);
-
-int
 lws_plat_rawudp_broadcast(uint8_t *p, const uint8_t *canned, int canned_len,
 			  int n, int fd, const char *iface);
 
