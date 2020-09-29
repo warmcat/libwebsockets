@@ -333,6 +333,7 @@ lws_ss_policy_set(struct lws_context *context, const char *name)
 	else
 		m = 0;
 
+	(void)m;
 	lwsl_info("%s: %s, pad %d%c: %s\n", __func__, buf, m, '%', name);
 
 	/* Create vhosts for each type of trust store */
