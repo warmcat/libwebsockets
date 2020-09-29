@@ -373,7 +373,7 @@ See `READMEs/README.detailed-latency.md` for how to use it.
 
 ## Client connection logic rewrite
 
-Lws master now makes much better use of the DNS results for ipv4 and ipv6... it
+Lws now makes much better use of the DNS results for ipv4 and ipv6... it
 will iterate through them automatically making the best use it can of what's
 provided and attempting new connections for each potentially usable one in turn
 before giving up on the whole client connection attempt.
@@ -405,7 +405,7 @@ H1 is not so simple to parse because the header length is not known until it
 has been fully parsed.  The next header, or http body may be directly coalesced
 with the header as well.  Lws has supported bulk h1 parsing from a buffer for a
 long time, but on clientside due to interactions with http proxying it had
-been stuck parsing the header bytewise out of the tls buffer.  In master,
+been stuck parsing the header bytewise out of the tls buffer.  Now,
 everything now bulk parses from a buffer and uses a buflist to pass leftovers
 through the event loop cleanly.
 
@@ -423,7 +423,7 @@ schedule your own arbitrary callbacks using this system.
 
 ## Master is now MIT-licensed
 
-Libwebsockets master is now under the MIT license. See ./LICENSE.
+Libwebsockets is now under the MIT license. See ./LICENSE.
 
 ## Support
 
@@ -440,5 +440,5 @@ You can get the latest version of the library from git:
 
 - https://libwebsockets.org/git
 
-Doxygen API docs for master: https://libwebsockets.org/lws-api-doc-master/html/index.html
+Doxygen API docs for development: https://libwebsockets.org/lws-api-doc-master/html/index.html
 

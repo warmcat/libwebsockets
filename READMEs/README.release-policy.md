@@ -9,9 +9,9 @@ nobody dare think about updating it.
 
 The stable releases go on to a branch like v4.0-stable as described below, over
 time these attract dozens or even hundreds of minor or major fix patches
-backported from master.  So you should not consume tags like v4.0.0 but build
-into your planning that you will need to follow v4.0-stable in order to stay on
-top of known bugs.
+backported from the development branch.  So you should not consume tags like
+v4.0.0 but build into your planning that you will need to follow v4.0-stable in
+order to stay on top of known bugs.
 
 And we only backport fixes to the last stable release, although we will make
 exceptions for important fixes.  So after a while, trying to stick with one
@@ -21,13 +21,13 @@ should build into your planning that you will follow lws release upgrades.
 If you find problems and create fixes, please upstream them, simplifying your
 life so you can just directly consume the upstream tree with no private changes.
 
-## Master branch
+## Development
 
 Master branch is the default and all new work happens there.  It's unstable and
 subject to history rewrites, patches moving about and being squashed etc.  In
 terms of it working, it is subject to passing CI tests including a battery of
 runtime tests, so if it is passing CI as it usually is then it's probably in
-usable shape.  See "Why no history on master" below for why it's managed like
+usable shape.  See "Why no history on development" below for why it's managed like
 that.
 
 ![all work happens on master](../doc-assets/lws-relpol-1.svg)
@@ -42,10 +42,10 @@ patches there.  Instead use a flow like this:
  $ git fetch https://libwebsockets.org/repo/libwebsockets +master:m && git reset --hard m
 ```
 
-This fetches current remote master into local branch `m`, and then forces your
+This fetches current remote development branch into local branch `m`, and then forces your
 local checkout to exactly match `m`.  This replaces your checked-out tree
 including any of your local changes, so stash those first, or use stgit or so
-to pop them before updating your basis against lws master.
+to pop them before updating your basis against lws development.
 
 ## Stable branches
 
@@ -53,23 +53,23 @@ Master is very useful for coordinating development, and integrating WIP,
 but for distros or integration into large user projects some stability is often
 more desirable than the latest development work.
 
-Periodically, when master seems in good shape and various new developments seem
-to be working, it's copied out into a versioned stable branch, like `v3.0-stable`.
+Periodically, when development seems in good shape and various new developments seem
+to be working, it's copied out into a versioned stable branch, like `v4.0-stable`.
 
-![stable branches are copied from master](../doc-assets/lws-relpol-2.svg)
+![stable branches are copied from development](../doc-assets/lws-relpol-2.svg)
 
-The initial copy is tagged with, eg, `v3.0.0`.
+The initial copy is tagged with, eg, `v4.0.0`.
 
-(At that time, master's logical version is set to "...99", eg, `v3.0.99` so
-version comparisons show that version of master is "later" than any other
-v3.0 version, which will never reach 99 point releases itself, but "earlier"
-than, eg, v3.1.)
+(At that time, development's logical version is set to "...99", eg, `v4.0.99` so
+version comparisons show that development version is "later" than any other
+v4.0 version, which will never reach 99 point releases itself, but "earlier"
+than, eg, v4.1.)
 
 ## Backport policy
 
-Work continues on master, and as part of that usually bugs are reported and / or
-fixes found that may apply not just to current master, but the version of master
-that was copied to form the last -stable branch.
+Development continues, and as part of that usually bugs are reported and / or
+fixes found that may apply not just to current development, but the version of
+the development branch that was copied to form the last -stable branch.
 
 In that case, the patch may be backported to the last stable branch to also fix
 the bug there.  In the case of refactors or major internal improvements, these
@@ -108,11 +108,11 @@ uncommon though.
 
 ![backport to multiple stable branches](../doc-assets/lws-relpol-5.svg)
 
-## Why no history on master
+## Why no history on the development branch
 
 Git is a wonderful tool that can be understood to have two main modes of operation,
 merge and rebase that are mutually exclusive.  Most devs only use merge / pull,
-but rebase / fetch is much more flexible.  Running master via rebases allows me to
+but rebase / fetch is much more flexible.  Developing via rebases allows me to
 dispense with feature branches during development and enables tracking multiple
 in-progress patches in-tree by updating them in place.  If this doesn't make
 sense or seems heretical to you, it's OK I don't need devsplain'ing about it,

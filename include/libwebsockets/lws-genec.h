@@ -72,7 +72,7 @@ struct lws_ec_curves {
  * \param context: your lws_context (for RNG access)
  * \param curve_table: NULL, enabling P-256, P-384 and P-521, or a replacement
  *		       struct lws_ec_curves array, terminated by an entry with
- *		       .name = NULL, of curves you want to whitelist
+ *		       .name = NULL, of curves you want to allow
  *
  * Initializes a genecdh
  */
@@ -118,7 +118,7 @@ lws_genecdh_compute_shared_secret(struct lws_genec_ctx *ctx, uint8_t *ss,
  * \param context: your lws_context (for RNG access)
  * \param curve_table: NULL, enabling P-256, P-384 and P-521, or a replacement
  *		       struct lws_ec_curves array, terminated by an entry with
- *		       .name = NULL, of curves you want to whitelist
+ *		       .name = NULL, of curves you want to allow
  *
  * Initializes a genecdh
  */

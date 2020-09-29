@@ -17,7 +17,7 @@ CSP lets the origin server define what is legitimate for the page it
 served and everything else is denied.
 
 The CSP for warmcat.com and libwebsockets.org looks like this,
-I removed a handful of whitelisted image sources like travis
+I removed a handful of approved image sources like travis
 status etc for clarity...
 
 ```
@@ -40,7 +40,7 @@ provide a very significant increase in client security.
 ### Implications of strict CSP
 
 Halfhearted CSP isn't worth much.  The only useful approach is to start
-with `default-src 'none'` which disables everything, and then whitelist the
+with `default-src 'none'` which disables everything, and then allow the
 minimum needed for the pages to operate.
 
 "Minimum needed for the pages to operate" doesn't mean defeat the protections
@@ -63,7 +63,7 @@ files referenced in the document `<head>` section, along these lines:
 #### Inline styles must die
 
 All styling must go in one or more `.css` file(s) best served by the same
-server... while you can whitelist other sources in the CSP if you have to,
+server... while you can approve other sources in the CSP if you have to,
 unless you control that server as well, you are allowing whoever gains
 access to that server access to your users.
 

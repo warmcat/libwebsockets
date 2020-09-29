@@ -26,7 +26,7 @@
 #define __LWS_DISPLAY_SSD1306_I2C_H__
 
 /*
- * D/C# pin on SSD1306 sets the I2C slave ads
+ * D/C# pin on SSD1306 sets the I2C device ads
  * from these two options (7-bit address)
  */
 

@@ -159,7 +159,7 @@ typedef enum {
 	LWSNDVWIFI_STATE_STAT,
 		/*
 		 * trying to connect to another non-group AP. If we don't get an
-		 * IP within a timeout and retries, blacklist it and go back
+		 * IP within a timeout and retries, mark it as unusable it and go back
 		 */
 	LWSNDVWIFI_STATE_STAT_HAPPY,
 } lws_netdev_wifi_state_t;
