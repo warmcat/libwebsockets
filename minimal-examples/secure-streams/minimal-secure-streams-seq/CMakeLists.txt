@@ -11,6 +11,7 @@ set(SRCS minimal-secure-streams.c)
 set(requirements 1)
 require_lws_config(LWS_ROLE_H1 1 requirements)
 require_lws_config(LWS_WITHOUT_CLIENT 0 requirements)
+require_lws_config(LWS_WITH_SEQUENCER 1 requirements)
 require_lws_config(LWS_WITH_SECURE_STREAMS 1 requirements)
 require_lws_config(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY 0 requirements)
 
