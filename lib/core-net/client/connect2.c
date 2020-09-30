@@ -145,7 +145,6 @@ lws_client_connect_2_dnsreq(struct lws *wsi)
 	}
 
 solo:
-	wsi->addrinfo_idx = 0;
 
 	/*
 	 * clients who will create their own fresh connection keep a copy of
