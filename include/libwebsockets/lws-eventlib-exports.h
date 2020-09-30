@@ -58,4 +58,29 @@ lws_destroy_event_pipe(struct lws *wsi);
 LWS_VISIBLE LWS_EXTERN void
 __lws_close_free_wsi_final(struct lws *wsi);
 
+#if LWS_MAX_SMP > 1
 
+struct lws_mutex_refcount {
+	pthread_mutex_t lock;
+	pthread_t lock_owner;
+	const char *last_lock_reason;
+	char lock_depth;
+	char metadata;
+};
+
+LWS_VISIBLE LWS_EXTERN void
+lws_mutex_refcount_assert_held(struct lws_mutex_refcount *mr);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_mutex_refcount_init(struct lws_mutex_refcount *mr);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_mutex_refcount_destroy(struct lws_mutex_refcount *mr);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_mutex_refcount_lock(struct lws_mutex_refcount *mr, const char *reason);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_mutex_refcount_unlock(struct lws_mutex_refcount *mr);
+
+#endif
