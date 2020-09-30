@@ -138,7 +138,7 @@ struct lws_fd_hashtable {
 	int length;
 };
 
-
+#if !defined(LWS_EXTERN)
 #ifdef LWS_DLL
 #ifdef LWS_INTERNAL
 #define LWS_EXTERN extern __declspec(dllexport)
@@ -146,7 +146,8 @@ struct lws_fd_hashtable {
 #define LWS_EXTERN extern __declspec(dllimport)
 #endif
 #else
-#define LWS_EXTERN extern
+#define LWS_EXTERN
+#endif
 #endif
 
 typedef SOCKET lws_sockfd_type;

@@ -109,6 +109,10 @@ typedef unsigned long long lws_intptr_t;
 #define LWS_VISIBLE
 #endif
 
+#if !defined(LWS_EXTERN)
+#define LWS_EXTERN
+#endif
+
 #define LWS_INVALID_FILE INVALID_HANDLE_VALUE
 #define LWS_SOCK_INVALID (INVALID_SOCKET)
 #define LWS_O_RDONLY _O_RDONLY

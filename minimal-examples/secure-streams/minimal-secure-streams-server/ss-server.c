@@ -60,7 +60,7 @@ typedef struct myss {
  * This is the Secure Streams Server RX and TX for HTTP(S)
  */
 
-static int
+static lws_ss_state_return_t
 myss_srv_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 {
 //	myss_srv_t *m = (myss_srv_t *)userobj;
@@ -80,7 +80,7 @@ myss_srv_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	return 0;
 }
 
-static int
+static lws_ss_state_return_t
 myss_srv_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf, size_t *len,
 	int *flags)
 {
@@ -107,7 +107,7 @@ myss_srv_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf, size_t *len,
  * rx and tx handlers to here.
  */
 
-static int
+static lws_ss_state_return_t
 myss_ws_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 {
 //	myss_srv_t *m = (myss_srv_t *)userobj;
@@ -140,7 +140,7 @@ spam_sul_cb(struct lws_sorted_usec_list *sul)
 			 100 * LWS_US_PER_MS);
 }
 
-static int
+static lws_ss_state_return_t
 myss_ws_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf, size_t *len,
 	int *flags)
 {
@@ -156,7 +156,7 @@ myss_ws_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf, size_t *len,
 	return 0;
 }
 
-static int
+static lws_ss_state_return_t
 myss_srv_state(void *userobj, void *sh, lws_ss_constate_t state,
 	   lws_ss_tx_ordinal_t ack)
 {

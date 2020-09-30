@@ -70,7 +70,7 @@ typedef struct myss {
 
 /* secure streams payload interface */
 
-static int
+static lws_ss_state_return_t
 myss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 {
 //	myss_t *m = (myss_t *)userobj;
@@ -92,7 +92,7 @@ sul_tx_periodic_cb(lws_sorted_usec_list_t *sul)
 	lws_ss_request_tx(m->ss);
 }
 
-static int
+static lws_ss_state_return_t
 myss_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf, size_t *len,
 	int *flags)
 {
@@ -137,7 +137,7 @@ myss_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf, size_t *len,
 	return 0;
 }
 
-static int
+static lws_ss_state_return_t
 myss_state(void *userobj, void *h_src, lws_ss_constate_t state,
 	   lws_ss_tx_ordinal_t ack)
 {

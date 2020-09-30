@@ -111,7 +111,7 @@ use_buffer_50ms(lws_sorted_usec_list_t *sul)
 			 50 * LWS_US_PER_MS);
 }
 
-static int
+static lws_ss_state_return_t
 ss_avs_metadata_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 {
 	ss_avs_metadata_t *m = (ss_avs_metadata_t *)userobj;
@@ -154,7 +154,7 @@ ss_avs_metadata_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	return 0;
 }
 
-static int
+static lws_ss_state_return_t
 ss_avs_metadata_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf,
 		   size_t *len, int *flags)
 {
@@ -219,7 +219,7 @@ ss_avs_metadata_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf,
 	return 0;
 }
 
-static int
+static lws_ss_state_return_t
 ss_avs_metadata_state(void *userobj, void *sh,
 		      lws_ss_constate_t state, lws_ss_tx_ordinal_t ack)
 {
@@ -262,7 +262,7 @@ ss_avs_metadata_state(void *userobj, void *sh,
  * avs event
  */
 
-static int
+static lws_ss_state_return_t
 ss_avs_event_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 {
 	ss_avs_event_t *m = (ss_avs_event_t *)userobj;
@@ -278,7 +278,7 @@ ss_avs_event_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	return 0;
 }
 
-static int
+static lws_ss_state_return_t
 ss_avs_event_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf,
 		      size_t *len, int *flags)
 {
@@ -288,7 +288,7 @@ ss_avs_event_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf,
 	return 1; /* don't transmit anything */
 }
 
-static int
+static lws_ss_state_return_t
 ss_avs_event_state(void *userobj, void *sh,
 		   lws_ss_constate_t state, lws_ss_tx_ordinal_t ack)
 {
