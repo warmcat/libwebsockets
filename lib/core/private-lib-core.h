@@ -231,32 +231,6 @@ struct lws_foreign_thread_pollfd {
 };
 #endif /* network */
 
-#if LWS_MAX_SMP > 1
-
-struct lws_mutex_refcount {
-	pthread_mutex_t lock;
-	pthread_t lock_owner;
-	const char *last_lock_reason;
-	char lock_depth;
-	char metadata;
-};
-
-void
-lws_mutex_refcount_init(struct lws_mutex_refcount *mr);
-
-void
-lws_mutex_refcount_destroy(struct lws_mutex_refcount *mr);
-
-void
-lws_mutex_refcount_lock(struct lws_mutex_refcount *mr, const char *reason);
-
-void
-lws_mutex_refcount_assert_held(struct lws_mutex_refcount *mr);
-
-void
-lws_mutex_refcount_unlock(struct lws_mutex_refcount *mr);
-#endif
-
 #if defined(LWS_WITH_NETWORK)
 #include "private-lib-core-net.h"
 #endif
