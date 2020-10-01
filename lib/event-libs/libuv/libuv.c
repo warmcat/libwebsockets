@@ -40,6 +40,7 @@ lws_uv_sultimer_cb(uv_timer_t *timer
 	struct lws_context_per_thread *pt = ptpr->pt;
 	lws_usec_t us;
 
+	lws_context_lock(pt->context, __func__);
 	lws_pt_lock(pt, __func__);
 	us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
 				    lws_now_usecs());
@@ -47,6 +48,7 @@ lws_uv_sultimer_cb(uv_timer_t *timer
 		uv_timer_start(&pt_to_priv_uv(pt)->sultimer, lws_uv_sultimer_cb,
 			       LWS_US_TO_MS(us), 0);
 	lws_pt_unlock(pt);
+	lws_context_unlock(pt->context);
 }
 
 static void
@@ -62,6 +64,9 @@ lws_uv_idle(uv_idle_t *handle
 
 	lws_service_do_ripe_rxflow(pt);
 
+	lws_context_lock(pt->context, __func__);
+	lws_pt_lock(pt, __func__);
+
 	/*
 	 * is there anybody with pending stuff that needs service forcing?
 	 */
@@ -71,16 +76,17 @@ lws_uv_idle(uv_idle_t *handle
 
 	/* account for sultimer */
 
-	lws_pt_lock(pt, __func__);
 	us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
 				    lws_now_usecs());
 	if (us)
 		uv_timer_start(&pt_to_priv_uv(pt)->sultimer, lws_uv_sultimer_cb,
 			       LWS_US_TO_MS(us), 0);
-	lws_pt_unlock(pt);
 
 	/* there is nobody who needs service forcing, shut down idle */
 	uv_idle_stop(handle);
+
+	lws_pt_unlock(pt);
+	lws_context_unlock(pt->context);
 }
 
 static void
@@ -91,8 +97,11 @@ lws_io_cb(uv_poll_t *watcher, int status, int revents)
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	struct lws_pollfd eventfd;
 
+	lws_context_lock(pt->context, __func__);
+	lws_pt_lock(pt, __func__);
+
 	if (pt->is_destroyed)
-		return;
+		goto bail;
 
 #if defined(WIN32) || defined(_WIN32)
 	eventfd.fd = watcher->socket;
@@ -110,7 +119,7 @@ lws_io_cb(uv_poll_t *watcher, int status, int revents)
 		 * You might want to return; instead of servicing the fd in
 		 * some cases */
 		if (status == UV_EAGAIN)
-			return;
+			goto bail;
 
 		eventfd.events |= LWS_POLLHUP;
 		eventfd.revents |= LWS_POLLHUP;
@@ -124,6 +133,10 @@ lws_io_cb(uv_poll_t *watcher, int status, int revents)
 			eventfd.revents |= LWS_POLLOUT;
 		}
 	}
+
+	lws_pt_unlock(pt);
+	lws_context_unlock(pt->context);
+
 	lws_service_fd_tsi(context, &eventfd, wsi->tsi);
 
 	if (pt->destroy_self) {
@@ -132,6 +145,11 @@ lws_io_cb(uv_poll_t *watcher, int status, int revents)
 	}
 
 	uv_idle_start(&pt_to_priv_uv(pt)->idle, lws_uv_idle);
+	return;
+
+bail:
+	lws_pt_unlock(pt);
+	lws_context_unlock(pt->context);
 }
 
 /*
@@ -714,6 +732,8 @@ lws_libuv_closewsi(uv_handle_t* handle)
 
 	lwsl_info("%s: %p\n", __func__, wsi);
 
+	lws_context_lock(context, __func__);
+
 	/*
 	 * We get called back here for every wsi that closes
 	 */
@@ -774,9 +794,13 @@ lws_libuv_closewsi(uv_handle_t* handle)
 		if (!context->count_event_loop_static_asset_handles &&
 		    context->pt[0].event_loop_foreign) {
 			lwsl_info("%s: call lws_context_destroy2\n", __func__);
+			lws_context_unlock(context);
 			lws_context_destroy2(context);
+			return;
 		}
 	}
+
+	lws_context_unlock(context);
 }
 
 void
