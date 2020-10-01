@@ -640,6 +640,13 @@ lws_wsi_user(struct lws *wsi)
 	return wsi->user_space;
 }
 
+int
+lws_wsi_tsi(struct lws *wsi)
+{
+	return wsi->tsi;
+}
+
+
 void
 lws_set_wsi_user(struct lws *wsi, void *data)
 {
