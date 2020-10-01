@@ -336,6 +336,15 @@ LWS_VISIBLE LWS_EXTERN void *
 lws_wsi_user(struct lws *wsi);
 
 /**
+ * lws_wsi_tsi() - get the service thread index the wsi is bound to
+ * \param wsi: lws connection
+ *
+ * Only useful is LWS_MAX_SMP > 1
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_wsi_tsi(struct lws *wsi);
+
+/**
  * lws_set_wsi_user() - set the user data associated with the client connection
  * \param wsi: lws connection
  * \param user: user data
