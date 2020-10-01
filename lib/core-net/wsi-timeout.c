@@ -143,15 +143,17 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 
+	lws_context_lock(pt->context, __func__);
 	lws_pt_lock(pt, __func__);
 	lws_dll2_remove(&wsi->sul_timeout.list);
 	lws_pt_unlock(pt);
 
 	if (!secs)
-		return;
+		goto bail;
 
 	if (secs == LWS_TO_KILL_SYNC) {
 		lwsl_debug("synchronously killing %p\n", wsi);
+		lws_context_unlock(pt->context);
 		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
 				   "to sync kill");
 		return;
@@ -167,6 +169,9 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 	lws_pt_lock(pt, __func__);
 	__lws_set_timeout(wsi, reason, secs);
 	lws_pt_unlock(pt);
+
+bail:
+	lws_context_unlock(pt->context);
 }
 
 void

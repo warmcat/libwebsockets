@@ -1508,14 +1508,14 @@ lws_context_destroy2(struct lws_context *context)
 
 	lwsl_debug("%p: post dc2\n", __func__);
 
-	if (!context->pt[0].event_loop_foreign) {
-		int n;
+//	if (!context->pt[0].event_loop_foreign) {
+//		int n;
 		for (n = 0; n < context->count_threads; n++)
 			if (context->pt[n].inside_service) {
 				lwsl_debug("%p: bailing as inside service\n", __func__);
 				return;
 			}
-	}
+//	}
 #endif
 
 	lws_context_destroy3(context);

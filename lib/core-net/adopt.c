@@ -140,16 +140,22 @@ lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 	 * we initialize it, it may become "live" concurrently unexpectedly...
 	 */
 
+	lws_context_lock(vh->context, __func__);
+
 	n = -1;
 	if (parent)
 		n = parent->tsi;
 	new_wsi = lws_create_new_server_wsi(vh, n);
-	if (!new_wsi)
+	if (!new_wsi) {
+		lws_context_unlock(vh->context);
 		return NULL;
+	}
 
 	new_wsi->a.opaque_user_data = opaque;
 
 	pt = &context->pt[(int)new_wsi->tsi];
+	lws_pt_lock(pt, __func__);
+
 	lws_stats_bump(pt, LWSSTATS_C_CONNECTIONS, 1);
 
 	if (parent) {
@@ -181,6 +187,8 @@ lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 		goto bail;
 	}
 
+	lws_pt_unlock(pt);
+
 	/*
 	 * he's an allocated wsi, but he's not on any fds list or child list,
 	 * join him to the vhost's list of these kinds of incomplete wsi until
@@ -190,6 +198,8 @@ lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 	lws_dll2_add_head(&new_wsi->vh_awaiting_socket,
 			  &new_wsi->a.vhost->vh_awaiting_socket_owner);
 	lws_vhost_unlock(new_wsi->a.vhost);
+
+	lws_context_unlock(vh->context);
 
 	return new_wsi;
 
@@ -203,7 +213,11 @@ bail:
 	vh->context->count_wsi_allocated--;
 
 	lws_vhost_unbind_wsi(new_wsi);
+
 	lws_free(new_wsi);
+
+	lws_pt_unlock(pt);
+	lws_context_unlock(vh->context);
 
 	return NULL;
 }
