@@ -33,12 +33,39 @@
 #include <lwip/sockets.h>
 #endif
 
-typedef union {
-#if defined(LWS_WITH_IPV6)
-	struct sockaddr_in6 sa6;
-#endif
-	struct sockaddr_in sa4;
-} lws_sockaddr46;
+typedef uint8_t lws_route_uidx_t;
+
+typedef struct lws_dns_score {
+	uint8_t precedence;
+	uint8_t label;
+} lws_dns_score_t;
+
+/*
+ * This represents an entry in the system routing table
+ */
+
+typedef struct lws_route {
+	lws_dll2_t		list;
+
+	lws_sockaddr46		dest;
+	lws_sockaddr46		gateway;
+
+	struct lws_route	*source; /* when used as lws_dns_sort_t */
+	lws_dns_score_t		score; /* when used as lws_dns_sort_t */
+
+	int			if_idx;
+	int			priority;
+	int			ifa_flags; /* if source_ads */
+
+	lws_route_uidx_t	uidx; /* unique index for this route */
+
+	uint8_t			proto;
+	uint8_t			dest_len;
+	uint8_t			scope; /* if source_ads */
+	uint8_t			af; /* if source_ads */
+
+	uint8_t			source_ads:1;
+} lws_route_t;
 
 /**
  * lws_canonical_hostname() - returns this host's hostname

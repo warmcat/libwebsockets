@@ -52,23 +52,6 @@ struct lws_muxable {
 extern "C" {
 #endif
 
-/*
- * All lws_tls...() functions must return this type, converting the
- * native backend result and doing the extra work to determine which one
- * as needed.
- *
- * Native TLS backend return codes are NOT ALLOWED outside the backend.
- *
- * Non-SSL mode also uses these types.
- */
-enum lws_ssl_capable_status {
-	LWS_SSL_CAPABLE_ERROR			= -1, /* it failed */
-	LWS_SSL_CAPABLE_DONE			= 0,  /* it succeeded */
-	LWS_SSL_CAPABLE_MORE_SERVICE_READ	= -2, /* retry WANT_READ */
-	LWS_SSL_CAPABLE_MORE_SERVICE_WRITE	= -3, /* retry WANT_WRITE */
-	LWS_SSL_CAPABLE_MORE_SERVICE		= -4, /* general retry */
-};
-
 #define __lws_sul_insert_us(owner, sul, _us) \
 		(sul)->us = lws_now_usecs() + _us; \
 		__lws_sul_insert(owner, sul)
@@ -416,6 +399,11 @@ struct lws_context_per_thread {
 	lws_sockfd_type dummy_pipe_fds[2];
 	struct lws *pipe_wsi;
 
+#if defined(LWS_WITH_NETLINK)
+	lws_dll2_owner_t			routing_table;
+	struct lws				*netlink;
+#endif
+
 	/* --- role based members --- */
 
 #if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
@@ -455,6 +443,10 @@ struct lws_context_per_thread {
 	volatile unsigned char foreign_spinlock;
 
 	unsigned char tid;
+
+#if defined(LWS_WITH_NETLINK)
+	lws_route_uidx_t			route_uidx;
+#endif
 
 	unsigned char inside_service:1;
 	unsigned char inside_lws_service:1;
@@ -896,6 +888,10 @@ struct lws {
 #if defined(LWS_WITH_STATS) && defined(LWS_WITH_TLS)
 	char seen_rx;
 #endif
+#if defined(LWS_WITH_NETLINK)
+	lws_route_uidx_t		peer_route_uidx;
+	/**< unique index of the route the connection is estimated to take */
+#endif
 	uint8_t immortal_substream_count;
 	/* volatile to make sure code is aware other thread can change */
 	volatile char handling_pollout;
@@ -1242,6 +1238,16 @@ struct lws *
 lws_http_client_connect_via_info2(struct lws *wsi);
 
 
+struct lws *
+lws_wsi_create_with_role(struct lws_context *context, int tsi,
+			 const struct lws_role_ops *ops);
+int
+lws_wsi_inject_to_loop(struct lws_context_per_thread *pt, struct lws *wsi);
+
+int
+lws_wsi_extract_from_loop(struct lws *wsi);
+
+
 #if defined(LWS_WITH_CLIENT)
 int
 lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd);
@@ -1357,6 +1363,38 @@ lws_same_vh_protocol_insert(struct lws *wsi, int n);
 
 void
 lws_seq_destroy_all_on_pt(struct lws_context_per_thread *pt);
+
+void
+lws_addrinfo_clean(struct lws *wsi);
+
+int
+_lws_route_pt_close_unroutable(struct lws_context_per_thread *pt);
+
+void
+_lws_routing_entry_dump(lws_route_t *rou);
+
+void
+_lws_routing_table_dump(struct lws_context_per_thread *pt);
+
+int
+_lws_route_remove(struct lws_context_per_thread *pt, lws_route_t *robj);
+
+void
+_lws_route_table_empty(struct lws_context_per_thread *pt);
+
+void
+_lws_route_table_ifdown(struct lws_context_per_thread *pt, int idx);
+
+lws_route_uidx_t
+_lws_route_get_uidx(struct lws_context_per_thread *pt);
+
+int
+_lws_route_pt_close_route_users(struct lws_context_per_thread *pt,
+			        lws_route_uidx_t uidx);
+
+lws_route_t *
+_lws_route_est_outgoing(struct lws_context_per_thread *pt,
+		        const lws_sockaddr46 *dest);
 
 int
 lws_broadcast(struct lws_context_per_thread *pt, int reason, void *in, size_t len);

@@ -274,7 +274,8 @@ struct lws_role_ops {
 
 /* core roles */
 extern const struct lws_role_ops role_ops_raw_skt, role_ops_raw_file,
-				 role_ops_listen, role_ops_pipe;
+				 role_ops_listen, role_ops_pipe,
+				 role_ops_netlink;
 
 /* bring in role private declarations */
 

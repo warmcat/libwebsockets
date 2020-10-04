@@ -113,7 +113,8 @@ lws_state_notify_protocol_init(struct lws_state_manager *mgr,
 {
 	struct lws_context *context = lws_container_of(mgr, struct lws_context,
 						       mgr_system);
-#if defined(LWS_WITH_SECURE_STREAMS) && defined(LWS_WITH_SECURE_STREAMS_SYS_AUTH_API_AMAZON_COM)
+#if defined(LWS_WITH_SECURE_STREAMS) && \
+    defined(LWS_WITH_SECURE_STREAMS_SYS_AUTH_API_AMAZON_COM)
 	lws_system_blob_t *ab0, *ab1;
 #endif
 	int n;
@@ -147,7 +148,24 @@ lws_state_notify_protocol_init(struct lws_state_manager *mgr,
 	}
 #endif
 
-#if defined(LWS_WITH_SECURE_STREAMS) && defined(LWS_WITH_SECURE_STREAMS_SYS_AUTH_API_AMAZON_COM)
+#if defined(LWS_WITH_NETLINK)
+	/*
+	 * If we're going to use netlink routing data for DNS, we have to
+	 * wait to collect it asynchronously from the platform first.  Netlink
+	 * role init starts a ctx sul for 350ms (reset to 100ms each time some
+	 * new netlink data comes) that sets nl_initial_done and tries to move
+	 * us to OPERATIONAL
+	 */
+
+	if (target == LWS_SYSTATE_IFACE_COLDPLUG && !context->nl_initial_done) {
+		lwsl_notice("%s: waiting for netlink coldplug\n", __func__);
+
+		return 1;
+	}
+#endif
+
+#if defined(LWS_WITH_SECURE_STREAMS) && \
+    defined(LWS_WITH_SECURE_STREAMS_SYS_AUTH_API_AMAZON_COM)
 	/*
 	 * Skip this if we are running something without the policy for it
 	 *
@@ -161,7 +179,8 @@ lws_state_notify_protocol_init(struct lws_state_manager *mgr,
 	    context->pss_policies && ab0 && ab1 &&
 	    !lws_system_blob_get_size(ab0) &&
 	    lws_system_blob_get_size(ab1)) {
-		lwsl_info("%s: AUTH1 state triggering api.amazon.com auth\n", __func__);
+		lwsl_info("%s: AUTH1 state triggering api.amazon.com auth\n",
+			  __func__);
 		/*
 		 * Start trying to acquire it if it's not already in progress
 		 * returns nonzero if we determine it's not needed
@@ -872,12 +891,6 @@ lws_create_context(const struct lws_context_creation_info *info)
 		lws_seq_pt_init(&context->pt[n]);
 #endif
 
-		LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar) {
-			if (ar->pt_init_destroy)
-				ar->pt_init_destroy(context, info,
-						    &context->pt[n], 0);
-		} LWS_FOR_EVERY_AVAILABLE_ROLE_END;
-
 #if defined(LWS_WITH_CGI)
 		role_ops_cgi.pt_init_destroy(context, info, &context->pt[n], 0);
 #endif
@@ -970,6 +983,14 @@ lws_create_context(const struct lws_context_creation_info *info)
 
 	if (lws_create_event_pipes(context))
 		goto bail;
+
+	for (n = 0; n < context->count_threads; n++) {
+		LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar) {
+			if (ar->pt_init_destroy)
+				ar->pt_init_destroy(context, info,
+						    &context->pt[n], 0);
+		} LWS_FOR_EVERY_AVAILABLE_ROLE_END;
+	}
 #endif
 
 	lws_context_init_ssl_library(info);
@@ -1056,6 +1077,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 			goto bail;
 #endif
 	}
+
 #endif
 
 #if defined(LWS_WITH_SYS_STATE)

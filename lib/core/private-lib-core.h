@@ -165,6 +165,24 @@ struct lws_tx_credit {
 
 #undef X509_NAME
 
+/*
+ * All lws_tls...() functions must return this type, converting the
+ * native backend result and doing the extra work to determine which one
+ * as needed.
+ *
+ * Native TLS backend return codes are NOT ALLOWED outside the backend.
+ *
+ * Non-SSL mode also uses these types.
+ */
+enum lws_ssl_capable_status {
+	LWS_SSL_CAPABLE_ERROR			= -1, /* it failed */
+	LWS_SSL_CAPABLE_DONE			= 0,  /* it succeeded */
+	LWS_SSL_CAPABLE_MORE_SERVICE_READ	= -2, /* retry WANT_READ */
+	LWS_SSL_CAPABLE_MORE_SERVICE_WRITE	= -3, /* retry WANT_WRITE */
+	LWS_SSL_CAPABLE_MORE_SERVICE		= -4, /* general retry */
+};
+
+
 #if defined(LWS_WITH_TLS)
 #include "private-lib-tls.h"
 #endif
@@ -291,6 +309,9 @@ struct lws_context {
 	struct lws_context_per_thread		pt[LWS_MAX_SMP];
 	lws_retry_bo_t				default_retry;
 	lws_sorted_usec_list_t			sul_system_state;
+#if defined(LWS_WITH_NETLINK)
+	lws_sorted_usec_list_t			sul_nl_coldplug;
+#endif
 
 #if defined(LWS_PLAT_FREERTOS)
 	struct sockaddr_in			frt_pipe_si;
@@ -509,6 +530,9 @@ struct lws_context {
 	unsigned int finalize_destroy_after_internal_loops_stopped:1;
 	unsigned int max_fds_unrelated_to_ulimit:1;
 	unsigned int policy_updated:1;
+#if defined(LWS_WITH_NETLINK)
+	unsigned int nl_initial_done:1;
+#endif
 
 	short count_threads;
 	short plugin_protocol_count;

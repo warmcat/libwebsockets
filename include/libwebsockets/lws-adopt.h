@@ -79,6 +79,13 @@ typedef union {
 	lws_filefd_type filefd;
 } lws_sock_file_fd_type;
 
+typedef union {
+#if defined(LWS_WITH_IPV6)
+	struct sockaddr_in6 sa6;
+#endif
+	struct sockaddr_in sa4;
+} lws_sockaddr46;
+
 #if defined(LWS_WITH_UDP)
 struct lws_udp {
 	struct sockaddr		sa;
