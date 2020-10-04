@@ -40,6 +40,27 @@ typedef union {
 	struct sockaddr_in sa4;
 } lws_sockaddr46;
 
+/*
+ * This represents an entry in the system routing table
+ */
+
+typedef struct lws_route {
+	lws_dll2_t		list;
+
+	lws_sockaddr46		dest;
+	lws_sockaddr46		gateway;
+
+	int			if_idx;
+	int			priority;
+	int			ifa_flags; /* if source_ads */
+
+	uint8_t			proto;
+	uint8_t			dest_len;
+	uint8_t			scope; /* if source_ads */
+	uint8_t			af; /* if source_ads */
+	uint8_t			source_ads:1;
+} lws_route_t;
+
 /**
  * lws_canonical_hostname() - returns this host's hostname
  *

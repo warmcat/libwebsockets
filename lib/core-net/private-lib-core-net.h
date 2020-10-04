@@ -416,6 +416,11 @@ struct lws_context_per_thread {
 	lws_sockfd_type dummy_pipe_fds[2];
 	struct lws *pipe_wsi;
 
+#if defined(LWS_WITH_NETLINK)
+	lws_dll2_owner_t			routing_table;
+	struct lws				*netlink;
+#endif
+
 	/* --- role based members --- */
 
 #if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
@@ -1242,6 +1247,16 @@ struct lws *
 lws_http_client_connect_via_info2(struct lws *wsi);
 
 
+struct lws *
+lws_wsi_create_with_role(struct lws_context *context, int tsi,
+			 const struct lws_role_ops *ops);
+int
+lws_wsi_inject_to_loop(struct lws_context_per_thread *pt, struct lws *wsi);
+
+int
+lws_wsi_extract_from_loop(struct lws *wsi);
+
+
 #if defined(LWS_WITH_CLIENT)
 int
 lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd);
@@ -1357,6 +1372,28 @@ lws_same_vh_protocol_insert(struct lws *wsi, int n);
 
 void
 lws_seq_destroy_all_on_pt(struct lws_context_per_thread *pt);
+
+int
+lws_route_pt_close_unroutable(struct lws_context_per_thread *pt,
+			int priority_deleted_route);
+
+void
+lws_routing_entry_dump(lws_route_t *rou);
+
+void
+lws_routing_table_dump(struct lws_context_per_thread *pt);
+
+int
+lws_route_remove(struct lws_context_per_thread *pt, lws_route_t *robj);
+
+void
+lws_route_table_empty(struct lws_context_per_thread *pt);
+
+void
+lws_route_table_ifdown(struct lws_context_per_thread *pt, int idx);
+
+void
+lws_addrinfo_clean(struct lws *wsi);
 
 int
 lws_broadcast(struct lws_context_per_thread *pt, int reason, void *in, size_t len);
