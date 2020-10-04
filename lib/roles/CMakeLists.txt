@@ -80,6 +80,10 @@ if (LWS_WITH_CLIENT AND (LWS_ROLE_H1 OR LWS_ROLE_H2))
 		roles/http/client/client-http.c)
 endif()
 
+if (LWS_WITH_NETLINK)
+	list(APPEND SOURCES roles/netlink/ops-netlink.c)
+endif()
+
 #
 # Keep explicit parent scope exports at end
 #

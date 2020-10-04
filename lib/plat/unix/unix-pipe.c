@@ -75,4 +75,3 @@ lws_plat_pipe_close(struct lws *wsi)
 
 	pt->dummy_pipe_fds[0] = pt->dummy_pipe_fds[1] = -1;
 }
-

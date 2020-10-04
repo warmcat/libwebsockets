@@ -43,6 +43,9 @@ const struct lws_role_ops *available_roles[] = {
 #if defined(LWS_ROLE_MQTT) && defined(LWS_WITH_CLIENT)
 	&role_ops_mqtt,
 #endif
+#if defined(LWS_WITH_NETLINK)
+	&role_ops_netlink,
+#endif
 	NULL
 };
 
@@ -909,7 +912,6 @@ int
 lws_create_event_pipes(struct lws_context *context)
 {
 	struct lws_context_per_thread *pt;
-	size_t s = sizeof(struct lws);
 	struct lws *wsi;
 	int n;
 
@@ -929,29 +931,12 @@ lws_create_event_pipes(struct lws_context *context)
 		if (pt->pipe_wsi)
 			return 0;
 
-#if defined(LWS_WITH_EVENT_LIBS)
-		s += context->event_loop_ops->evlib_size_wsi;
-#endif
-
-		wsi = lws_zalloc(s, "event pipe wsi");
-		if (!wsi) {
-			lwsl_err("%s: Out of mem\n", __func__);
+		wsi = lws_wsi_create_with_role(context, n, &role_ops_pipe);
+		if (!wsi)
 			return 1;
-		}
-#if defined(LWS_WITH_EVENT_LIBS)
-		wsi->evlib_wsi = (uint8_t *)wsi + sizeof(*wsi);
-#endif
-		wsi->a.context = context;
-		lws_role_transition(wsi, 0, LRS_UNCONNECTED, &role_ops_pipe);
-		wsi->a.protocol = NULL;
-		wsi->tsi = n;
-		wsi->a.vhost = NULL;
-		wsi->event_pipe = 1;
-		wsi->desc.sockfd = LWS_SOCK_INVALID;
-		context->pt[n].pipe_wsi = wsi;
-		context->count_wsi_allocated++;
 
-		lws_pt_lock(pt, __func__); /* -------------- pt { */
+		wsi->event_pipe = 1;
+		pt->pipe_wsi = wsi;
 
 		if (!lws_plat_pipe_create(wsi)) {
 			/*
@@ -966,21 +951,14 @@ lws_create_event_pipes(struct lws_context *context)
 			wsi->desc.sockfd = context->pt[n].dummy_pipe_fds[0];
 			lwsl_debug("event pipe fd %d\n", wsi->desc.sockfd);
 
-			if (context->event_loop_ops->sock_accept)
-				if (context->event_loop_ops->sock_accept(wsi))
+			if (lws_wsi_inject_to_loop(pt, wsi))
 					goto bail;
-
-			if (__insert_wsi_socket_into_fds(context, wsi))
-				goto bail;
 		}
-
-		lws_pt_unlock(pt);
 	}
 
 	return 0;
 
 bail:
-	lws_pt_unlock(pt);
 
 	return 1;
 }
@@ -988,23 +966,14 @@ bail:
 void
 lws_destroy_event_pipe(struct lws *wsi)
 {
+	int n;
+
 	lwsl_info("%s\n", __func__);
 
-	if (lws_socket_is_valid(wsi->desc.sockfd))
-		__remove_wsi_socket_from_fds(wsi);
-
-	if (!wsi->a.context->event_loop_ops->destroy_wsi &&
-	    wsi->a.context->event_loop_ops->wsi_logical_close) {
-		wsi->a.context->event_loop_ops->wsi_logical_close(wsi);
-		lws_plat_pipe_close(wsi);
-		return;
-	}
-
-	if (wsi->a.context->event_loop_ops->destroy_wsi)
-		wsi->a.context->event_loop_ops->destroy_wsi(wsi);
+	n = lws_wsi_extract_from_loop(wsi);
 	lws_plat_pipe_close(wsi);
-	wsi->a.context->count_wsi_allocated--;
-	lws_free(wsi);
+	if (!n)
+		lws_free(wsi);
 }
 
 

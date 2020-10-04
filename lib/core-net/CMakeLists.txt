@@ -45,6 +45,12 @@ if (LWS_WITH_SYS_STATE)
 	)
 endif()
 
+if (LWS_WITH_NETLINK)
+	list(APPEND SOURCES
+		core-net/route.c
+	)
+endif()
+
 if (LWS_WITH_DETAILED_LATENCY)
 	list(APPEND SOURCES
 		core-net/detailed-latency.c)
