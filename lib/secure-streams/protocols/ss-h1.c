@@ -236,7 +236,7 @@ lws_extract_metadata(lws_ss_handle_t *h, struct lws *wsi)
 
 	while (polmd) {
 
-		if (polmd->value_is_http_token != 0xff) {
+		if (polmd->value_is_http_token != LWS_HTTP_NO_KNOWN_HEADER) {
 
 			/* it's a well-known header token */
 
@@ -299,8 +299,8 @@ lws_extract_metadata(lws_ss_handle_t *h, struct lws *wsi)
 					}
 
 					/*
-					 * copy the named custom header value into the
-					 * malloc'd buffer
+					 * copy the named custom header value
+					 * into the malloc'd buffer
 					 */
 
 					if (lws_hdr_custom_copy(wsi, p, n + 1,

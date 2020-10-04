@@ -165,9 +165,9 @@ typedef struct lws_ss_metadata {
 	void			*value__may_own_heap;
 	size_t			length;
 
-	uint8_t			value_on_lws_heap; /* proxy + rx metadata does this */
-	uint8_t			value_is_http_token; /* valid if set by policy */
 	uint8_t			value_length; /* only valid if set by policy */
+	uint8_t			value_is_http_token; /* valid if set by policy */
+	uint8_t			value_on_lws_heap:1; /* proxy + rx metadata does this */
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
 	uint8_t			pending_onward:1;
 #endif

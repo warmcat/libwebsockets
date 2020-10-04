@@ -94,6 +94,8 @@ void
 lws_ranges_reset(struct lws_range_parsing *rp);
 #endif
 
+#define LWS_HTTP_NO_KNOWN_HEADER 0xff
+
 /*
  * these are assigned from a pool held in the context.
  * Both client and server mode uses them for http header analysis

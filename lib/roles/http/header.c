@@ -48,7 +48,7 @@ lws_http_string_to_known_header(const char *s, size_t slen)
 		if (!strncmp(set[n], s, slen))
 			return n;
 
-	return -1;
+	return LWS_HTTP_NO_KNOWN_HEADER;
 }
 
 int
