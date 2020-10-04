@@ -872,12 +872,6 @@ lws_create_context(const struct lws_context_creation_info *info)
 		lws_seq_pt_init(&context->pt[n]);
 #endif
 
-		LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar) {
-			if (ar->pt_init_destroy)
-				ar->pt_init_destroy(context, info,
-						    &context->pt[n], 0);
-		} LWS_FOR_EVERY_AVAILABLE_ROLE_END;
-
 #if defined(LWS_WITH_CGI)
 		role_ops_cgi.pt_init_destroy(context, info, &context->pt[n], 0);
 #endif
@@ -970,6 +964,14 @@ lws_create_context(const struct lws_context_creation_info *info)
 
 	if (lws_create_event_pipes(context))
 		goto bail;
+
+	for (n = 0; n < context->count_threads; n++) {
+		LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar) {
+			if (ar->pt_init_destroy)
+				ar->pt_init_destroy(context, info,
+						    &context->pt[n], 0);
+		} LWS_FOR_EVERY_AVAILABLE_ROLE_END;
+	}
 #endif
 
 	lws_context_init_ssl_library(info);
