@@ -151,6 +151,36 @@ click|The button activity resulted in a classification as a single-click
 longclick|The button activity resulted in a classification as a long-click
 doubleclick|The button activity resulted in a classification as a double-click
 
+### Routing Table Change
+
+Class: `LWSSMDCL_NETWORK`
+
+If able to subscribe to OS routing table changes (eg, by rtnetlink on Linux
+which is supported), lws announces there have been changes using SMD.
+
+If Captive Portal Detect is enabled, and routing tables changes can be seen,
+then a new CPD is requested automatically and the results will be seen over SMD
+when that completes.
+
+Schema:
+
+```
+	{
+	  "rt":      "add|del",   "add" if being added
+	}
+```
+
+When the context / pts are created, if linux then lws attempts to get the
+routing table sent, which requires root.  This is done before the permissions
+are dropped after protocols init.
+
+Lws maintains a cache of the routing table in each pt.  Upon changes, existing
+connections are reassessed to see if their peer can still be routed to, if not
+the connection is closed.
+
+If a gateway route changes, `{"trigger":"cpdcheck","src":"gw-change"}` is
+issued on SMD as well.
+
 ### Captive Portal Detection
 
 Class: `LWSSMDCL_NETWORK`
