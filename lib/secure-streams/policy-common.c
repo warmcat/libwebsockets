@@ -113,7 +113,7 @@ lws_ss_get_metadata(struct lws_ss_handle *h, const char *name,
 lws_ss_metadata_t *
 lws_ss_get_handle_metadata(struct lws_ss_handle *h, const char *name)
 {
-	int n = 0;
+	int n;
 
 	for (n = 0; n < h->policy->metadata_count; n++)
 		if (!strcmp(name, h->metadata[n].name))

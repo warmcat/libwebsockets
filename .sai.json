@@ -41,7 +41,7 @@
 			"default": false
 		},
 		"windows-10/x86_64-amd/msvc": {
-			"build": "mkdir build && cd build && set SAI_CPACK=\"-G ZIP\" && cmake .. -DLWS_OPENSSL_LIBRARIES=\"C:\\Program Files\\OpenSSL\\lib\\libssl.lib;C:\\Program Files\\OpenSSL\\lib\\libcrypto.lib\" -DLWS_OPENSSL_INCLUDE_DIRS=\"C:\\Program Files\\OpenSSL\\include\" -DLWS_EXT_PTHREAD_INCLUDE_DIR=\"C:\\Program Files (x86)\\pthreads\\include\" -DLWS_EXT_PTHREAD_LIBRARIES=\"C:\\Program Files (x86)\\pthreads\\lib\\x64\\libpthreadGC2.a\" ${cmake} && cmake --build . --config DEBUG && set CTEST_OUTPUT_ON_FAILURE=1 && ctest . -C DEBUG -j4 --output-on-failure",
+			"build": "mkdir build && cd build && set SAI_CPACK=\"-G ZIP\" && cmake .. -DLWS_OPENSSL_LIBRARIES=\"C:\\Program Files\\OpenSSL\\lib\\libssl.lib;C:\\Program Files\\OpenSSL\\lib\\libcrypto.lib\" -DLWS_OPENSSL_INCLUDE_DIRS=\"C:\\Program Files\\OpenSSL\\include\" -DLWS_EXT_PTHREAD_INCLUDE_DIR=\"C:\\Program Files (x86)\\pthreads\\include\" -DLWS_EXT_PTHREAD_LIBRARIES=\"C:\\Program Files (x86)\\pthreads\\lib\\x64\\libpthreadGC2.a\" ${cmake} && cmake --build . --config DEBUG && set CTEST_OUTPUT_ON_FAILURE=1 && ctest . -C DEBUG -j1 --output-on-failure",
 			"default": false
 		},
 		"windows-10/x86_64-amd/mingw32": {

@@ -310,6 +310,16 @@ enum {
 	 * we are an accepted connection from a server's listening socket */
 };
 
+typedef lws_ss_state_return_t (*lws_sscb_rx)(void *userobj, const uint8_t *buf,
+					     size_t len, int flags);
+typedef lws_ss_state_return_t (*lws_sscb_tx)(void *userobj,
+					     lws_ss_tx_ordinal_t ord,
+					     uint8_t *buf, size_t *len,
+					     int *flags);
+typedef lws_ss_state_return_t (*lws_sscb_state)(void *userobj, void *h_src,
+			       lws_ss_constate_t state,
+			       lws_ss_tx_ordinal_t ack);
+
 typedef struct lws_ss_info {
 	const char *streamtype; /**< type of stream we want to create */
 	size_t	    user_alloc; /**< size of user allocation */
@@ -319,15 +329,12 @@ typedef struct lws_ss_info {
 	/**< offset of opaque user data ptr in user_alloc type, set to
 	     offsetof(mytype, opaque_ud_member) */
 
-	lws_ss_state_return_t (*rx)(void *userobj, const uint8_t *buf,
-				    size_t len, int flags);
+	lws_sscb_rx rx;
 	/**< callback with rx payload for this stream */
-	lws_ss_state_return_t (*tx)(void *userobj, lws_ss_tx_ordinal_t ord,
-				    uint8_t *buf, size_t *len, int *flags);
+	lws_sscb_tx tx;
 	/**< callback to send payload on this stream... 0 = send as set in
 	 * len and flags, 1 = do not send anything (ie, not even 0 len frame) */
-	lws_ss_state_return_t (*state)(void *userobj, void *h_src /* ss handle type */,
-			      lws_ss_constate_t state, lws_ss_tx_ordinal_t ack);
+	lws_sscb_state state;
 	/**< advisory cb about state of stream and QoS status if applicable...
 	 * h_src is only used with sinks and LWSSSCS_SINK_JOIN/_PART events.
 	 * Return nonzero to indicate you want to destroy the stream. */
@@ -654,12 +661,8 @@ lws_ss_server_ack(struct lws_ss_handle *h, int nack);
  * to the default when the transaction wanting it is completed.
  */
 LWS_VISIBLE LWS_EXTERN void
-lws_ss_change_handlers(struct lws_ss_handle *h,
-	int (*rx)(void *userobj, const uint8_t *buf, size_t len, int flags),
-	int (*tx)(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf,
-		  size_t *len, int *flags),
-	int (*state)(void *userobj, void *h_src /* ss handle type */,
-		     lws_ss_constate_t state, lws_ss_tx_ordinal_t ack));
+lws_ss_change_handlers(struct lws_ss_handle *h, lws_sscb_rx rx, lws_sscb_tx tx,
+		       lws_sscb_state state);
 
 /**
  * lws_ss_add_peer_tx_credit() - allow peer to transmit more to us
