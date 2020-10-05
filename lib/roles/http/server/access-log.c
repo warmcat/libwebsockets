@@ -43,7 +43,7 @@ static const char * const hver[] = {
 void
 lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int meth)
 {
-	char da[64], uri[256];
+	char da[64], uri[256], ta[64];
 	time_t t = time(NULL);
 	struct lws *nwsi;
 	const char *me;
@@ -89,10 +89,14 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int met
 
 	nwsi = lws_get_network_wsi(wsi);
 
+	if (wsi->sa46_peer.sa4.sin_family)
+		lws_sa46_write_numeric_address(&nwsi->sa46_peer, ta, sizeof(ta));
+	else
+		strncpy(ta, "unknown", sizeof(ta));
+
 	lws_snprintf(wsi->http.access_log.header_log, l,
 		     "%s - - [%s] \"%s %s %s\"",
-		     nwsi->simple_ip[0] ? nwsi->simple_ip : "unknown", da, me, uri,
-			hver[wsi->http.request_version]);
+		     ta, da, me, uri, hver[wsi->http.request_version]);
 
 	//lwsl_notice("%s\n", wsi->http.access_log.header_log);
 
