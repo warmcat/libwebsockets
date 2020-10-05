@@ -404,7 +404,10 @@ ads_known:
 #endif
 
 	/* grab a copy for peer tracking */
-	wsi->sa46_peer = *psa;
+#if defined(LWS_WITH_UNIX_SOCK)
+	if (!wsi->unix_skt)
+#endif
+		memcpy(&wsi->sa46_peer, psa, n);
 
 	m = connect(wsi->desc.sockfd, (const struct sockaddr *)psa, n);
 	if (m == -1) {

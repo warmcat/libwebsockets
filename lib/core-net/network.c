@@ -870,7 +870,85 @@ lws_sa46_compare_ads(const lws_sockaddr46 *sa46a, const lws_sockaddr46 *sa46b)
 		return memcmp(&sa46a->sa6.sin6_addr, &sa46b->sa6.sin6_addr, 16);
 #endif
 
-	return sa46a->sa4.sin_addr.s_addr != sa46b->sa4.sin_addr.s_addr;
+	if (sa46a->sa4.sin_family == AF_INET)
+		return sa46a->sa4.sin_addr.s_addr != sa46b->sa4.sin_addr.s_addr;
+
+	return 0;
+}
+
+int
+lws_sa46_on_net(const lws_sockaddr46 *sa46a, const lws_sockaddr46 *sa46_net,
+		int net_len)
+{
+	uint8_t mask = 0xff, norm[16];
+	const uint8_t *p1, *p2;
+
+	if (sa46a->sa4.sin_family == AF_INET) {
+		p1 = (uint8_t *)&sa46a->sa4.sin_addr;
+		if (sa46_net->sa4.sin_family == AF_INET6) {
+			/* ip is v4, net is v6, promote ip to v6 */
+			memset(norm, 0, 10);
+			norm[10] = norm[11] = 0xff;
+			norm[12] = p1[0];
+			norm[13] = p1[1];
+			norm[14] = p1[2];
+			norm[15] = p1[3];
+			p1 = norm;
+		}
+#if defined(LWS_WITH_IPV6)
+	} else
+		if (sa46a->sa4.sin_family == AF_INET6) {
+			p1 = (uint8_t *)&sa46a->sa6.sin6_addr;
+#endif
+		} else
+			return 1;
+
+	if (sa46_net->sa4.sin_family == AF_INET) {
+		p2 = (uint8_t *)&sa46_net->sa4.sin_addr;
+		if (sa46a->sa4.sin_family == AF_INET6) {
+			/* ip is v6, net is v4, promote net to v6 */
+			memset(norm, 0, 10);
+			norm[10] = norm[11] = 0xff;
+			norm[12] = p2[0];
+			norm[13] = p2[1];
+			norm[14] = p2[2];
+			norm[15] = p2[3];
+			p2 = norm;
+			/* because the mask length is for net v4 address */
+			net_len += 12 * 8;
+		}
+#if defined(LWS_WITH_IPV6)
+	} else
+		if (sa46a->sa4.sin_family == AF_INET6) {
+			p2 = (uint8_t *)&sa46_net->sa6.sin6_addr;
+#endif
+		} else
+			return 1;
+
+	while (net_len > 0) {
+		if (net_len < 8)
+			mask <<= 8 - net_len;
+
+		if (((*p1++) & mask) != ((*p2++) & mask))
+			return 1;
+
+		net_len -= 8;
+	}
+
+	return 0;
+}
+
+void
+lws_sa46_copy_address(lws_sockaddr46 *sa46a, const void *in, int af)
+{
+	sa46a->sa4.sin_family = af;
+
+	if (af == AF_INET)
+		memcpy(&sa46a->sa4.sin_addr, in, 4);
+#if defined(LWS_WITH_IPV6)
+	else if (af == AF_INET6)
+		memcpy(&sa46a->sa6.sin6_addr, in, sizeof(sa46a->sa6.sin6_addr));
+#endif
 }
 
 #if defined(LWS_WITH_SYS_STATE)

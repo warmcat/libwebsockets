@@ -124,10 +124,27 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
  * \param sa46a: first
  * \param sa46b: second
  *
- * Returns 0 if the address family and address are the same, otherwise nonzero.
+ * Returns 0 if the address family is INET or INET6 and the address is the same,
+ * or if the AF is the same but not INET or INET6, otherwise nonzero.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_sa46_compare_ads(const lws_sockaddr46 *sa46a, const lws_sockaddr46 *sa46b);
+
+/**
+ * lws_sa46_on_net() - checks if an sa46 is on the subnet represented by another
+ *
+ * \param sa46a: first
+ * \param sa46_net: network
+ * \param net_len: length of network non-mask
+ *
+ * Returns 0 if sa46a belongs on network sa46_net/net_len
+ *
+ * If there is an ipv4 / v6 mismatch between the ip and the net, the ipv4
+ * address is promoted to ::ffff:x.x.x.x before the comparison.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_sa46_on_net(const lws_sockaddr46 *sa46a, const lws_sockaddr46 *sa46_net,
+			int net_len);
 
 /*
  * lws_parse_numeric_address() - converts numeric ipv4 or ipv6 to byte address
