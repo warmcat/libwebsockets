@@ -384,12 +384,8 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 #if defined(LWS_WITH_SERVER)
 	 else
 		if (lws_server_socket_service_ssl(new_wsi, fd.sockfd, 0)) {
-#if defined(LWS_WITH_ACCESS_LOG)
-			lwsl_notice("%s: fail ssl negotiation: %s\n", __func__,
-					new_wsi->simple_ip);
-#else
 			lwsl_info("%s: fail ssl negotiation\n", __func__);
-#endif
+
 			goto fail;
 		}
 #endif
@@ -470,7 +466,14 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 struct lws *
 lws_adopt_descriptor_vhost_via_info(const lws_adopt_desc_t *info)
 {
+	socklen_t slen = sizeof(sa46);
 	struct lws *new_wsi;
+
+	if (info->type & LWS_ADOPT_SOCKET &&
+	    getpeername(info->fd.sockfd, (struct sockaddr *)&wsi->sa46_peer,
+								    &slen) < 0)
+		lwsl_info("%s: getpeername failed\n", __func__);
+
 #if defined(LWS_WITH_PEER_LIMITS)
 	struct lws_peer *peer = NULL;
 
@@ -503,11 +506,6 @@ lws_adopt_descriptor_vhost_via_info(const lws_adopt_desc_t *info)
 			compatible_close(info->fd.sockfd);
 		return NULL;
 	}
-
-#if defined(LWS_WITH_ACCESS_LOG)
-		lws_get_peer_simple_fd(info->fd.sockfd, new_wsi->simple_ip,
-					sizeof(new_wsi->simple_ip));
-#endif
 
 #if defined(LWS_WITH_PEER_LIMITS)
 	if (peer)
