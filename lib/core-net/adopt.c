@@ -466,13 +466,8 @@ lws_adopt_descriptor_vhost(struct lws_vhost *vh, lws_adoption_type type,
 struct lws *
 lws_adopt_descriptor_vhost_via_info(const lws_adopt_desc_t *info)
 {
-	socklen_t slen = sizeof(sa46);
+	socklen_t slen = sizeof(lws_sockaddr46);
 	struct lws *new_wsi;
-
-	if (info->type & LWS_ADOPT_SOCKET &&
-	    getpeername(info->fd.sockfd, (struct sockaddr *)&wsi->sa46_peer,
-								    &slen) < 0)
-		lwsl_info("%s: getpeername failed\n", __func__);
 
 #if defined(LWS_WITH_PEER_LIMITS)
 	struct lws_peer *peer = NULL;
@@ -506,6 +501,11 @@ lws_adopt_descriptor_vhost_via_info(const lws_adopt_desc_t *info)
 			compatible_close(info->fd.sockfd);
 		return NULL;
 	}
+
+	if (info->type & LWS_ADOPT_SOCKET &&
+	    getpeername(info->fd.sockfd, (struct sockaddr *)&new_wsi->sa46_peer,
+								    &slen) < 0)
+		lwsl_info("%s: getpeername failed\n", __func__);
 
 #if defined(LWS_WITH_PEER_LIMITS)
 	if (peer)
