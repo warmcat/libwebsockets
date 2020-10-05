@@ -402,6 +402,10 @@ ads_known:
 #if defined(LWS_ESP_PLATFORM)
 	errno = 0;
 #endif
+
+	/* grab a copy for peer tracking */
+	wsi->sa46_peer = *psa;
+
 	m = connect(wsi->desc.sockfd, (const struct sockaddr *)psa, n);
 	if (m == -1) {
 		int errno_copy = LWS_ERRNO;
