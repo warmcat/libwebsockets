@@ -4,7 +4,7 @@
 # To build without tls
 #
 #  cd build/
-#  cmake .. -DCMAKE_INSTALL_PREFIX:PATH=/opt/linkit/cross-root \
+#  cmake .. -DCMAKE_INSTALL_PREFIX:PATH=/opt/atmel/cross-root \
 #           -DCMAKE_TOOLCHAIN_FILE=../contrib/cross-atmel.cmake \
 #           -DLWS_PLAT_FREERTOS=1 \
 #           -DLWS_WITH_ZLIB=0 \
@@ -12,7 +12,8 @@
 #           -DLWS_WITH_ZIP_FOPS=0 \
 #           -DLWS_WITH_HTTP_STREAM_COMPRESSION=0 \
 #           -DLWS_WITH_MBEDTLS=0 \
-#           -DLWS_WITH_SSL=0
+#           -DLWS_WITH_SSL=0 \
+#           -DLWS_WITH_FILE_OPS=0
 #
 
 # I had to edit /opt/xdk-asf-3.48.0/thirdparty/lwip/lwip-port-1.4.1-dev/sam/include/arch/cc.h
