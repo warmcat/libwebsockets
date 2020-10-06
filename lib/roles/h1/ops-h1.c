@@ -203,7 +203,7 @@ postbody_completion:
 					 */
 
 					if (lws_http_transaction_completed(wsi))
-						return -1;
+						goto bail;
 					break;
 				}
 #endif
