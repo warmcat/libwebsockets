@@ -56,6 +56,30 @@ lws_ss_policy_lookup(const struct lws_context *context, const char *streamtype)
 }
 
 int
+_lws_ss_set_metadata(lws_ss_metadata_t *omd, const char *name,
+		     const void *value, size_t len)
+{
+	/*
+	 * If there was already a heap-based value, it's about to go out of
+	 * scope due to us trashing the pointer.  So free it first and clear
+	 * its flag indicating it's heap-based.
+	 */
+
+	if (omd->value_on_lws_heap) {
+		lws_free_set_NULL(omd->value);
+		omd->value_on_lws_heap = 0;
+	}
+
+	// lwsl_notice("%s: %s %s\n", __func__, name, (const char *)value);
+
+	omd->name = name;
+	omd->value = (void *)value;
+	omd->length = len;
+
+	return 0;
+}
+
+int
 lws_ss_set_metadata(struct lws_ss_handle *h, const char *name,
 		    const void *value, size_t len)
 {
@@ -66,13 +90,7 @@ lws_ss_set_metadata(struct lws_ss_handle *h, const char *name,
 		return 1;
 	}
 
-	// lwsl_notice("%s: %s %s\n", __func__, name, (const char *)value);
-
-	omd->name = name;
-	omd->value = (void *)value;
-	omd->length = len;
-
-	return 0;
+	return _lws_ss_set_metadata(omd, name, value, len);
 }
 
 int

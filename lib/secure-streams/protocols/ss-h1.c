@@ -243,23 +243,25 @@ lws_extract_metadata(lws_ss_handle_t *h, struct lws *wsi)
 			if (n) {
 				const char *cp = lws_hdr_simple_ptr(wsi,
 						polmd->value_is_http_token);
+				omd = lws_ss_get_handle_metadata(h, polmd->name);
+				if (!omd)
+					return 1;
+
+				assert(!strcmp(omd->name, polmd->name));
 
 				/*
 				 * it's present on the wsi, we want to
 				 * set the related metadata name to it then
 				 */
 
-				lws_ss_set_metadata(h, polmd->name, cp, n);
+				_lws_ss_set_metadata(omd, polmd->name, cp, n);
 
+#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
 				/*
 				 * ...and because we are doing it from parsing
 				 * onward rx, we want to mark the metadata as
 				 * needing passing to the client
 				 */
-
-				omd = lws_ss_get_handle_metadata(h, polmd->name);
-				assert(!strcmp(omd->name, polmd->name));
-#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
 				omd->pending_onward = 1;
 #endif
 			}
@@ -309,12 +311,13 @@ lws_extract_metadata(lws_ss_handle_t *h, struct lws *wsi)
 					omd = lws_ss_get_handle_metadata(h,
 								   polmd->name);
 
+					_lws_ss_set_metadata(omd, polmd->name,
+							     p, (size_t)n);
+					omd->value_on_lws_heap = 1;
+
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
 					omd->pending_onward = 1;
 #endif
-					omd->value = p;
-					omd->length = (size_t)n;
-					omd->value_on_lws_heap = 1;
 				}
 			}
 #endif

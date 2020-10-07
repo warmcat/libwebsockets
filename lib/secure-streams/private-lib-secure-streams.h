@@ -425,6 +425,10 @@ lws_ss_exp_cb_metadata(void *priv, const char *name, char *out, size_t *pos,
 			size_t olen, size_t *exp_ofs);
 
 int
+_lws_ss_set_metadata(lws_ss_metadata_t *omd, const char *name,
+		     const void *value, size_t len);
+
+int
 _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry);
 
 struct lws_vhost *
