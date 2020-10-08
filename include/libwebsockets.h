@@ -345,6 +345,7 @@ struct lws_pollfd {
 	lws_sockfd_type fd; /**< file descriptor */
 	SHORT events; /**< which events to respond to */
 	SHORT revents; /**< which events happened */
+	uint8_t write_blocked;
 };
 #define LWS_POLLHUP (FD_CLOSE)
 #define LWS_POLLIN (FD_READ | FD_ACCEPT)
