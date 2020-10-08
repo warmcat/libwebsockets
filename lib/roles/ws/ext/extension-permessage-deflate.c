@@ -192,10 +192,20 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		lwsl_ext(" %s: LWS_EXT_CB_PAYLOAD_RX: in %d, existing in %d\n",
 			 __func__, pmdrx->eb_in.len, priv->rx.avail_in);
 
-		/* if this frame is not marked as compressed, we ignore it */
+		/*
+		 * If this frame is not marked as compressed,
+		 * there is nothing we should do with it
+		 */
 
 		if (!(wsi->ws->rsv_first_msg & 0x40) || (wsi->ws->opcode & 8))
-			return PMDR_DID_NOTHING;
+			/*
+			 * This is a bit different than DID_NOTHING... we have
+			 * identified using ext-private bits in the packet, or
+			 * by it being a control fragment that we SHOULD not do
+			 * anything to it, parent should continue as if we
+			 * processed it
+			 */
+			return PMDR_NOTHING_WE_SHOULD_DO;
 
 		/*
 		 * we shouldn't come back in here if we already applied the

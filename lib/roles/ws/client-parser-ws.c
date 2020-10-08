@@ -554,6 +554,7 @@ drain_extension:
 				return -1;
 			}
 			if (n == PMDR_DID_NOTHING)
+				/* ie, not PMDR_NOTHING_WE_SHOULD_DO */
 				break;
 #endif
 			lwsl_ext("%s: post inflate ebuf in len %d / out len %d\n",
