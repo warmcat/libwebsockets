@@ -30,11 +30,15 @@ lws_plat_pipe_create(struct lws *wsi)
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	struct sockaddr_in *si = &wsi->a.context->frt_pipe_si;
 	lws_sockfd_type *fd = pt->dummy_pipe_fds;
+	socklen_t sl;
 
 	/*
 	 * There's no pipe abstraction on lwip / freertos... use a UDP socket
-	 * listening on 127.0.0.1:54321 and send a byte to it from a second UDP
+	 * listening on 127.0.0.1:xxxx and send a byte to it from a second UDP
 	 * socket to cancel the wait.
+	 *
+	 * Set the port to 0 at the bind, so lwip will choose a free one in the
+	 * ephemeral range for us.
 	 */
 
 	fd[0] = socket(AF_INET, SOCK_DGRAM, 0);
@@ -53,10 +57,25 @@ lws_plat_pipe_create(struct lws *wsi)
 
 	si->sin_family = AF_INET;
 	si->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-	si->sin_port = htons(54321);
+	si->sin_port = 0;
 
 	if (bind(fd[0], (const struct sockaddr *)si, sizeof(*si)) < 0)
 		goto bail;
+
+	/*
+	 * Query the socket to set context->frt_pipe_si to the full sockaddr it
+	 * wants to be addressed by, including the port that lwip chose.
+	 *
+	 * Afterwards, we can use this prepared sockaddr stashed in the context
+	 * to trigger the "pipe" without any other preliminaries.
+	 */
+
+	sl = sizeof(*si);
+	if (getsockname(fd[0], (struct sockaddr *)si, &sl))
+		goto bail;
+
+	lwsl_info("%s: cancel UDP skt port %d\n", __func__,
+		  ntohs(si->sin_port));
 
 	return 0;
 
