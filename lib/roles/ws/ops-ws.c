@@ -692,7 +692,8 @@ utf8_fail:
 
 			/* if pmd not enabled, in == out */
 
-			if (n == PMDR_DID_NOTHING
+			if (n == PMDR_DID_NOTHING ||
+			    n == PMDR_NOTHING_WE_SHOULD_DO
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 					||
 			    n == PMDR_NOTHING_WE_SHOULD_DO ||
