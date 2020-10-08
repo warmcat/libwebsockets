@@ -87,8 +87,10 @@ lws_plat_init(struct lws_context *context,
 	}
 
 	while (n--) {
+               int m;
 		pt->fds_count = 0;
-		pt->events = WSACreateEvent(); /* the cancel event */
+               for (m = 0; m < WSA_MAXIMUM_WAIT_EVENTS; m++)
+                       pt->events[m] = WSACreateEvent();
 		InitializeCriticalSection(&pt->interrupt_lock);
 
 		pt++;

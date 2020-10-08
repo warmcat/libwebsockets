@@ -67,8 +67,6 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	unsigned int i;
 	DWORD ev;
 	int n;
-	unsigned int eIdx;
-	int interrupt_requested;
 
 	/* stay dead once we are dead */
 	if (context == NULL)
@@ -148,31 +146,61 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	/*
 	 * is there anybody with pending stuff that needs service forcing?
 	 */
+
 	if (!lws_service_adjust_timeout(context, 1, tsi))
 		timeout_us = 0;
 
-	for (n = 0; n < (int)pt->fds_count; n++)
-		WSAEventSelect(pt->fds[n].fd, pt->events,
-		       FD_READ | (!!(pt->fds[n].events & LWS_POLLOUT) * FD_WRITE) |
-		       FD_OOB | FD_ACCEPT |
-		       FD_CONNECT | FD_CLOSE | FD_QOS |
-		       FD_ROUTING_INTERFACE_CHANGE |
-		       FD_ADDRESS_LIST_CHANGE);
+	/*
+	 * WSA cannot actually tell us this from the wait... if anyone wants
+	 * POLLOUT and is not blocked for it, no need to wait since we will want
+	 * to service at least those.   Still enter the wait so we can pick up
+	 * other pending things...
+	 */
 
-	ev = WSAWaitForMultipleEvents(1, &pt->events, FALSE,
-				      (DWORD)(timeout_us / LWS_US_PER_MS), FALSE);
-	if (ev != WSA_WAIT_EVENT_0)
+	for (n = 0; n < (int)pt->fds_count; n++)
+		if (pt->fds[n].fd != LWS_SOCK_INVALID &&
+		    pt->fds[n].events & LWS_POLLOUT &&
+		    !pt->fds[n].write_blocked) {
+			timeout_us = 0;
+			break;
+		}
+
+	// lwsl_notice("%s: to %dms\n", __func__, (int)(timeout_us / 1000));
+	ev = WSAWaitForMultipleEvents(pt->fds_count + 1, pt->events, FALSE,
+				      (DWORD)(timeout_us / LWS_US_PER_MS),
+				      FALSE);
+	//lwsl_notice("%s: ev 0x%x\n", __func__, ev);
+
+	/*
+	 * The wait returns indicating the one event that had something, or
+	 * that we timed out, or something broken.
+	 *
+	 * Amazingly WSA can only handle 64 events, because the errors start
+	 * at ordinal 64.
+	 */
+
+	if (ev >= WSA_MAXIMUM_WAIT_EVENTS &&
+	    ev != WSA_WAIT_TIMEOUT)
+		/* some kind of error */
 		return 0;
 
-	EnterCriticalSection(&pt->interrupt_lock);
-	interrupt_requested = pt->interrupt_requested;
-	pt->interrupt_requested = 0;
-	LeaveCriticalSection(&pt->interrupt_lock);
-	if (interrupt_requested) {
-		lws_broadcast(pt, LWS_CALLBACK_EVENT_WAIT_CANCELLED,
-			      NULL, 0);
+       if (!ev) {
+	       /*
+	        * The zero'th event is the cancel event specifically.  Lock
+	        * the event reset so we are definitely clearing it while we
+	        * try to clear it.
+	        */
+		EnterCriticalSection(&pt->interrupt_lock);
+		WSAResetEvent(pt->events[0]);
+		LeaveCriticalSection(&pt->interrupt_lock);
+		lws_broadcast(pt, LWS_CALLBACK_EVENT_WAIT_CANCELLED, NULL, 0);
+
 		return 0;
 	}
+
+       /*
+        * Otherwise at least fds[ev - 1] has something to do...
+        */
 
 #if defined(LWS_WITH_TLS)
 	if (pt->context->tls_ops &&
@@ -180,28 +208,61 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		pt->context->tls_ops->fake_POLLIN_for_buffered(pt);
 #endif
 
-	for (eIdx = 0; eIdx < pt->fds_count; ++eIdx) {
+	/*
+	 * POLLOUT for any fds that can
+	 */
+
+	for (n = 0; n < (int)pt->fds_count; n++)
+		if (pt->fds[n].fd != LWS_SOCK_INVALID &&
+		    pt->fds[n].events & LWS_POLLOUT &&
+		    !pt->fds[n].write_blocked) {
+			struct timeval tv;
+			fd_set se;
+
+			/*
+			 * We have to check if it is blocked...
+			 * if not, do the POLLOUT handling
+			 */
+
+			FD_ZERO(&se);
+			FD_SET(pt->fds[n].fd, &se);
+			tv.tv_sec = tv.tv_usec = 0;
+			if (select(1, NULL, &se, NULL, &tv) != 1)
+				pt->fds[n].write_blocked = 1;
+			else {
+				pt->fds[n].revents |= LWS_POLLOUT;
+				lws_service_fd_tsi(context, &pt->fds[n], tsi);
+			}
+		}
+
+       if (ev && ev < WSA_MAXIMUM_WAIT_EVENTS) {
 		unsigned int err;
 
-		if (WSAEnumNetworkEvents(pt->fds[eIdx].fd, pt->events,
+		/* handle fds[ev - 1] */
+
+               if (WSAEnumNetworkEvents(pt->fds[ev - 1].fd, pt->events[ev],
 				&networkevents) == SOCKET_ERROR) {
 			lwsl_err("WSAEnumNetworkEvents() failed "
 				 "with error %d\n", LWS_ERRNO);
 			return -1;
 		}
 
-		if (!networkevents.lNetworkEvents)
-			networkevents.lNetworkEvents = LWS_POLLOUT;
-
-		pfd = &pt->fds[eIdx];
+		pfd = &pt->fds[ev - 1];
 		pfd->revents = (short)networkevents.lNetworkEvents;
 
+	        if (!pfd->write_blocked && pfd->revents & FD_WRITE)
+	        	 pfd->write_blocked = 0;
+
 		err = networkevents.iErrorCode[FD_CONNECT_BIT];
-               if ((networkevents.lNetworkEvents & FD_CONNECT) && wsi_from_fd(context, pfd->fd) && !wsi_from_fd(context, pfd->fd)->udp) {
-                       lwsl_debug("%s: FD_CONNECT: %p\n", __func__, wsi_from_fd(context, pfd->fd));
+		if ((networkevents.lNetworkEvents & FD_CONNECT) &&
+		    wsi_from_fd(context, pfd->fd) &&
+		    !wsi_from_fd(context, pfd->fd)->udp) {
+                       lwsl_debug("%s: FD_CONNECT: %p\n", __func__,
+                		  wsi_from_fd(context, pfd->fd));
 			pfd->revents &= ~LWS_POLLOUT;
 			if (err && err != LWS_EALREADY &&
-			    err != LWS_EINPROGRESS && err != LWS_EWOULDBLOCK &&
+			    err != LWS_EINPROGRESS &&
+			    err != LWS_EWOULDBLOCK &&
 			    err != WSAEINVAL) {
 				lwsl_debug("Unable to connect errno=%d\n", err);
 
@@ -210,10 +271,11 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 				 * do we have more DNS entries to try?
 				 */
 				if (wsi_from_fd(context, pfd->fd)->dns_results_next) {
-					lws_sul_schedule(context, 0, &wsi_from_fd(context, pfd->fd)->
-									sul_connect_timeout,
-							 lws_client_conn_wait_timeout, 1);
-					continue;
+					lws_sul_schedule(context, 0,
+						&wsi_from_fd(context, pfd->fd)->
+							sul_connect_timeout,
+						lws_client_conn_wait_timeout, 1);
+                                       return 0;
                                } else
 					pfd->revents |= LWS_POLLHUP;
 			} else
@@ -221,9 +283,11 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
                                        if (wsi_from_fd(context, pfd->fd)->udp)
                                                pfd->revents |= LWS_POLLHUP;
                                        else
-                                               lws_client_connect_3_connect(wsi_from_fd(context, pfd->fd),
-								NULL, NULL, LWS_CONNECT_COMPLETION_GOOD,
-								NULL);
+                                               lws_client_connect_3_connect(
+                                        	  wsi_from_fd(context, pfd->fd),
+						  NULL, NULL,
+						  LWS_CONNECT_COMPLETION_GOOD,
+						  NULL);
                                }
 		}
 
@@ -232,9 +296,6 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 			if (wsi)
 				wsi->sock_send_blocking = 0;
 		}
-		 /* if something closed, retry this slot */
-		if (pfd->revents & LWS_POLLHUP)
-			--eIdx;
 
 		if (pfd->revents) {
 			/*
