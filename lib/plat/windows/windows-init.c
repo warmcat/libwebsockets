@@ -115,7 +115,9 @@ lws_plat_context_early_destroy(struct lws_context *context)
 	int n = context->count_threads;
 
 	while (n--) {
-		WSACloseEvent(pt->events);
+		int m;
+		for (m = 0; m < WSA_MAXIMUM_WAIT_EVENTS; m++)
+			WSACloseEvent(pt->events[m]);
 		DeleteCriticalSection(&pt->interrupt_lock);
 		pt++;
 	}
