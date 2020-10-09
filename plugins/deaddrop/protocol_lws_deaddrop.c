@@ -689,7 +689,7 @@ static const struct lws_protocols protocols[] = {
 	LWS_PLUGIN_PROTOCOL_DEADDROP
 };
 
-LWS_VISIBLE const lws_plugin_protocol_t protocol_deaddrop = {
+LWS_VISIBLE const lws_plugin_protocol_t deaddrop = {
 	.hdr = {
 		"deaddrop",
 		"lws_protocol_plugin",

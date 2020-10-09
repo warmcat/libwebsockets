@@ -266,7 +266,7 @@ static const struct lws_protocols protocols[] = {
 	LWS_PLUGIN_PROTOCOL_FULLTEXT_DEMO
 };
 
-LWS_VISIBLE const lws_plugin_protocol_t protocol_fulltext_demo = {
+LWS_VISIBLE const lws_plugin_protocol_t fulltext_demo = {
 	.hdr = {
 		"fulltext demo",
 		"lws_protocol_plugin",

@@ -279,7 +279,7 @@ static const struct lws_protocols protocols[] = {
 	LWS_PLUGIN_PROTOCOL_RAW_TEST
 };
 
-LWS_VISIBLE const lws_plugin_protocol_t protocol_lws_raw_test = {
+LWS_VISIBLE const lws_plugin_protocol_t lws_raw_test = {
 	.hdr = {
 		"lws raw test",
 		"lws_protocol_plugin",

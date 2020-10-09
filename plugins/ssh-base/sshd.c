@@ -2565,7 +2565,7 @@ const struct lws_protocols protocols_sshd[] = {
 
 #if !defined (LWS_PLUGIN_STATIC)
 
-LWS_VISIBLE const lws_plugin_protocol_t protocol_lws_ssh_base = {
+LWS_VISIBLE const lws_plugin_protocol_t lws_ssh_base = {
 	.hdr = {
 		"ssh base",
 		"lws_protocol_plugin",

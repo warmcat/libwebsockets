@@ -173,7 +173,7 @@ static const struct lws_protocols protocols[] = {
 	},
 };
 
-LWS_VISIBLE const lws_plugin_protocol_t protocol_client_loopback_test = {
+LWS_VISIBLE const lws_plugin_protocol_t client_loopback_test = {
 	.hdr = {
 		"client loopback test",
 		"lws_protocol_plugin",

@@ -204,7 +204,7 @@ static const struct lws_protocols protocols[] = {
 	},
 };
 
-LWS_VISIBLE const lws_plugin_protocol_t protocol_lws_server_status = {
+LWS_VISIBLE const lws_plugin_protocol_t lws_server_status = {
 	.hdr = {
 		"lws server status",
 		"lws_protocol_plugin",
