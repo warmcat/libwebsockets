@@ -66,6 +66,7 @@ static struct lws *
 lws_create_basic_wsi(struct lws_context *context, int tsi,
 		     const struct lws_role_ops *ops)
 {
+	size_t s = sizeof(struct lws);
 	struct lws *new_wsi;
 
 	if (!context->vhost_list)
@@ -77,11 +78,19 @@ lws_create_basic_wsi(struct lws_context *context, int tsi,
 		return NULL;
 	}
 
-	new_wsi = lws_zalloc(sizeof(*new_wsi), "new wsi");
+#if defined(LWS_WITH_EVENT_LIBS)
+	s += context->event_loop_ops->evlib_size_wsi;
+#endif
+
+	new_wsi = lws_zalloc(s, "new wsi");
 	if (new_wsi == NULL) {
 		lwsl_err("Out of memory for new connection\n");
 		return NULL;
 	}
+
+#if defined(LWS_WITH_EVENT_LIBS)
+	new_wsi->evlib_wsi = (uint8_t *)new_wsi + sizeof(*new_wsi);
+#endif
 
 	new_wsi->tsi = tsi;
 	new_wsi->a.context = context;
