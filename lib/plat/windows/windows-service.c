@@ -304,7 +304,8 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 			 * on the TCP connection.  But it breaks UDP, so only
 			 * do it on non-UDP.
 			 */
-			if (!wsi_from_fd(context, pfd->fd)->udp)
+			wsi = wsi_from_fd(context, pfd->fd);
+			if (wsi && !wsi->udp)
 				recv(pfd->fd, NULL, 0, 0);
 
 			lws_service_fd_tsi(context, pfd, tsi);
