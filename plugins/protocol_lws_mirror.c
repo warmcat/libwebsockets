@@ -482,7 +482,7 @@ static const struct lws_protocols protocols[] = {
 	LWS_PLUGIN_PROTOCOL_MIRROR
 };
 
-LWS_VISIBLE const lws_plugin_protocol_t protocol_lws_mirror = {
+LWS_VISIBLE const lws_plugin_protocol_t lws_mirror = {
 	.hdr = {
 		"lws mirror",
 		"lws_protocol_plugin",

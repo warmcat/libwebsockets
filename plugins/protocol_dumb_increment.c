@@ -121,7 +121,7 @@ static const struct lws_protocols protocols[] = {
 	LWS_PLUGIN_PROTOCOL_DUMB_INCREMENT
 };
 
-LWS_VISIBLE const lws_plugin_protocol_t protocol_dumb_increment = {
+LWS_VISIBLE const lws_plugin_protocol_t dumb_increment = {
 	.hdr = {
 		"dumb increment",
 		"lws_protocol_plugin",

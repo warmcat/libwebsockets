@@ -562,7 +562,7 @@ static const struct lws_protocols protocols[] = {
 	LWS_PLUGIN_PROTOCOL_RAW_PROXY
 };
 
-LWS_VISIBLE const lws_plugin_protocol_t protocol_lws_raw_proxy = {
+LWS_VISIBLE const lws_plugin_protocol_t lws_raw_proxy = {
 	.hdr = {
 		"raw proxy",
 		"lws_protocol_plugin",
