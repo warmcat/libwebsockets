@@ -448,6 +448,7 @@ just_kill_connection:
 		lws_vfs_file_close(&wsi->http.fop_fd);
 #endif
 
+	lws_sul_cancel(&wsi->sul_connect_timeout);
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 	lws_async_dns_cancel(wsi);
 #endif
