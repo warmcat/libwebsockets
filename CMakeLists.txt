@@ -632,6 +632,11 @@ CHECK_C_SOURCE_COMPILES("#include <stddef.h>
 		return p != NULL;
 	}" LWS_HAS_GETOPT_LONG)
 
+CHECK_C_SOURCE_COMPILES("#include <linux/rtnetlink.h>
+	int main(void) {
+		int test = RTA_PREF;
+		return 0;
+	}" LWS_HAVE_RTA_PREF)
 
 if (NOT PID_T_SIZE)
 	set(pid_t int)

@@ -196,4 +196,5 @@
 #cmakedefine LWS_WITH_EVLIB_PLUGINS
 #cmakedefine LWS_WITH_LIBUV_INTERNAL
 #cmakedefine LWS_WITH_PLUGINS_API
+#cmakedefine LWS_HAVE_RTA_PREF
 
