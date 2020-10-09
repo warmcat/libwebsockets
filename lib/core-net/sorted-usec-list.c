@@ -337,7 +337,7 @@ lws_sul_debug_zombies(struct lws_context *ctx, void *po, size_t len,
 				 * indicated as being deleted?
 				 */
 
-				if (sul >= po && lws_ptr_diff(sul, po) < len) {
+				if ((void*)sul >= po && lws_ptr_diff(sul, po) < len) {
 					lwsl_err("%s: ERROR: Zombie Sul "
 						 "(on list %d) %s\n", __func__,
 						 m, destroy_description);
