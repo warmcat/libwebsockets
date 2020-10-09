@@ -158,8 +158,10 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 				break;
 			case RTA_CACHEINFO: /* struct rta_cacheinfo */
 				break;
+#if defined(LWS_HAVE_RTA_PREF)
 			case RTA_PREF: /* char: RFC4191 v6 router preference */
 				break;
+#endif
 			case RTA_TABLE: /* int */
 				break;
 
