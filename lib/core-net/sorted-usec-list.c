@@ -337,10 +337,12 @@ lws_sul_debug_zombies(struct lws_context *ctx, void *po, size_t len,
 				 * indicated as being deleted?
 				 */
 
-				if (sul >= po && lws_ptr_diff(sul, po) < len) {
+				if ((void *)sul >= po &&
+				    (size_t)lws_ptr_diff(sul, po) < len) {
 					lwsl_err("%s: ERROR: Zombie Sul "
-						 "(on list %d) %s\n", __func__,
-						 m, destroy_description);
+						 "(on list %d) %s, cb %p\n",
+						 __func__, m,
+						 destroy_description, sul->cb);
 					/*
 					 * This assert fires if you have left
 					 * a sul scheduled to fire later, but
@@ -350,6 +352,12 @@ lws_sul_debug_zombies(struct lws_context *ctx, void *po, size_t len,
 					 * that may be scheduled before
 					 * destroying the object the sul lives
 					 * inside.
+					 *
+					 * You can look up the cb pointer in
+					 * your mapfile to find out which
+					 * callback function the sul was using
+					 * which usually tells you which sul
+					 * it is.
 					 */
 					assert(0);
 				}
