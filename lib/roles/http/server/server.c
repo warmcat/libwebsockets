@@ -804,6 +804,9 @@ lws_find_mount(struct lws *wsi, const char *uri_ptr, int uri_len)
 			    ((hm->origin_protocol == LWSMPRO_CGI ||
 			     lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI) ||
 			     lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI) ||
+			     lws_hdr_total_length(wsi, WSI_TOKEN_PUT_URI) ||
+			     lws_hdr_total_length(wsi, WSI_TOKEN_PATCH_URI) ||
+			     lws_hdr_total_length(wsi, WSI_TOKEN_DELETE_URI) ||
 			     lws_hdr_total_length(wsi, WSI_TOKEN_HEAD_URI) ||
 #if defined(LWS_ROLE_H2)
 			     (wsi->mux_substream &&
