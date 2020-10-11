@@ -458,7 +458,7 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 					p[3] = (uint8_t)naml;
 					memcpy(&p[4], md->name, naml);
 					p += 4 + naml;
-					memcpy(p, md->value, md->length);
+					memcpy(p, md->value__may_own_heap, md->length);
 					p += md->length;
 
 					n = lws_ptr_diff(p, cp);

@@ -162,7 +162,7 @@ enum {
 typedef struct lws_ss_metadata {
 	struct lws_ss_metadata	*next;
 	const char		*name;
-	void			*value;
+	void			*value__may_own_heap;
 	size_t			length;
 
 	uint8_t			value_on_lws_heap; /* proxy + rx metadata does this */

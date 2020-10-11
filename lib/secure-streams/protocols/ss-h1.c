@@ -186,10 +186,11 @@ lws_apply_metadata(lws_ss_handle_t *h, struct lws *wsi, uint8_t *buf,
 
 		/* has to have a non-empty header string */
 
-		if (polmd->value && ((uint8_t *)polmd->value)[0]) {
+		if (polmd->value__may_own_heap &&
+		    ((uint8_t *)polmd->value__may_own_heap)[0]) {
 			if (lws_add_http_header_by_name(wsi,
-					polmd->value,
-					h->metadata[m].value,
+					polmd->value__may_own_heap,
+					h->metadata[m].value__may_own_heap,
 					(int)h->metadata[m].length, pp, end))
 			return -1;
 		}
@@ -272,16 +273,17 @@ lws_extract_metadata(lws_ss_handle_t *h, struct lws *wsi)
 
 			/* has to have a non-empty header string */
 
-			if (polmd->value && ((uint8_t *)polmd->value)[0]) {
+			if (polmd->value__may_own_heap &&
+			    ((uint8_t *)polmd->value__may_own_heap)[0]) {
 				char *p;
 
 				/*
 				 * Can it be a custom header?
 				 */
 
-				n = lws_hdr_custom_length(wsi,
-						(const char *)polmd->value,
-							polmd->value_length);
+				n = lws_hdr_custom_length(wsi, (const char *)
+						    polmd->value__may_own_heap,
+						    polmd->value_length);
 				if (n > 0) {
 
 					p = lws_malloc(n + 1, __func__);
@@ -291,7 +293,8 @@ lws_extract_metadata(lws_ss_handle_t *h, struct lws *wsi)
 					/* if needed, free any previous value */
 
 					if (polmd->value_on_lws_heap) {
-						lws_free(polmd->value);
+						lws_free(
+						    polmd->value__may_own_heap);
 						polmd->value_on_lws_heap = 0;
 					}
 
@@ -301,7 +304,8 @@ lws_extract_metadata(lws_ss_handle_t *h, struct lws *wsi)
 					 */
 
 					if (lws_hdr_custom_copy(wsi, p, n + 1,
-						     (const char *)polmd->value,
+						     (const char *)
+						     polmd->value__may_own_heap,
 						     polmd->value_length) < 0) {
 						lws_free(p);
 

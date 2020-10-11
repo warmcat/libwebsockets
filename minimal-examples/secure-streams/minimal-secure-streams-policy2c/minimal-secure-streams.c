@@ -180,12 +180,12 @@ int main(int argc, const char **argv)
 					printf("\t.next = (void *)&%s, \n", prev);
 
 				printf("\t.name = \"%s\",\n", (const char *)md->name);
-				if (md->value) {
-					printf("\t.value = (void *)\"%s\",\n",
-							(const char *)md->value);
+				if (md->value__may_own_heap) {
+					printf("\t.value__may_own_heap = (void *)\"%s\",\n",
+							(const char *)md->value__may_own_heap);
 					printf("\t.value_length = 0x%x,\n",
 						(unsigned int)strlen(
-							(const char *)md->value));
+							(const char *)md->value__may_own_heap));
 				}
 
 				printf("\t.length = %d,\n", idx++); // md->length);

@@ -988,16 +988,16 @@ payload_ff:
 					par->metadata_name);
 
 			if (par->ssmd->value_on_lws_heap)
-				lws_free_set_NULL(par->ssmd->value);
+				lws_free_set_NULL(par->ssmd->value__may_own_heap);
 			par->ssmd->value_on_lws_heap = 0;
 
-			par->ssmd->value = lws_malloc(par->rem + 1, "metadata");
-			if (!par->ssmd->value) {
+			par->ssmd->value__may_own_heap = lws_malloc(par->rem + 1, "metadata");
+			if (!par->ssmd->value__may_own_heap) {
 				lwsl_err("%s: OOM mdv\n", __func__);
 				goto hangup;
 			}
 			par->ssmd->length = par->rem;
-			((uint8_t *)par->ssmd->value)[par->rem] = '\0';
+			((uint8_t *)par->ssmd->value__may_own_heap)[par->rem] = '\0';
 			/* mark it as needing cleanup */
 			par->ssmd->value_on_lws_heap = 1;
 			par->ctr = 0;
@@ -1009,7 +1009,7 @@ payload_ff:
 			if (client) {
 				*par->rxmetaval++ = *cp++;
 			} else
-				((uint8_t *)(par->ssmd->value))[par->ctr++] = *cp++;
+				((uint8_t *)(par->ssmd->value__may_own_heap))[par->ctr++] = *cp++;
 
 			if (--par->rem)
 				break;
@@ -1022,7 +1022,7 @@ payload_ff:
 				lwsl_info("%s: RPAR_METADATA_VALUE for %s (len %d)\n",
 				  __func__, par->ssmd->name,
 				  (int)par->ssmd->length);
-				lwsl_hexdump_info(par->ssmd->value, par->ssmd->length);
+				lwsl_hexdump_info(par->ssmd->value__may_own_heap, par->ssmd->length);
 			}
 			par->ps = RPAR_TYPE;
 			break;

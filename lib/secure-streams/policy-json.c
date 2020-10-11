@@ -664,7 +664,7 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		       ctx->path_match_len - ctx->st[ctx->sp - 2].p);
 
 		q += ctx->path_match_len - ctx->st[ctx->sp - 2].p;
-		a->curr[LTY_POLICY].p->metadata->value = q;
+		a->curr[LTY_POLICY].p->metadata->value__may_own_heap = q;
 		memcpy(q, ctx->buf, ctx->npos);
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)

@@ -66,14 +66,14 @@ _lws_ss_set_metadata(lws_ss_metadata_t *omd, const char *name,
 	 */
 
 	if (omd->value_on_lws_heap) {
-		lws_free_set_NULL(omd->value);
+		lws_free_set_NULL(omd->value__may_own_heap);
 		omd->value_on_lws_heap = 0;
 	}
 
 	// lwsl_notice("%s: %s %s\n", __func__, name, (const char *)value);
 
 	omd->name = name;
-	omd->value = (void *)value;
+	omd->value__may_own_heap = (void *)value;
 	omd->length = len;
 
 	return 0;
@@ -104,7 +104,7 @@ lws_ss_get_metadata(struct lws_ss_handle *h, const char *name,
 		return 1;
 	}
 
-	*value = omd->value;
+	*value = omd->value__may_own_heap;
 	*len = omd->length;
 
 	return 0;
