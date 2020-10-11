@@ -273,28 +273,6 @@ lws_mqtt_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 			lws_det_lat_cb(wsi->a.context, &wsi->detlat);
 		}
 #endif
-#if 0
-		if (wsi->client_h2_alpn) {
-			/*
-			 * We connected to the server and set up tls, and
-			 * negotiated "h2".
-			 *
-			 * So this is it, we are an h2 master client connection
-			 * now, not an h1 client connection.
-			 */
-#if defined(LWS_WITH_TLS)
-			lws_tls_server_conn_alpn(wsi);
-#endif
-
-			/* send the H2 preface to legitimize the connection */
-			if (lws_h2_issue_preface(wsi)) {
-				cce = "error sending h2 preface";
-				goto bail3;
-			}
-
-			break;
-		}
-#endif
 
 		/* fallthru */
 

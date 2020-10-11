@@ -545,7 +545,7 @@ All "foreign" cross-built binaries are sent into `/tmp/cross` so they cannot be 
 
 1) `cd /tmp`
 
-2) `wget -O mytoolchainfile https://raw.githubusercontent.com/warmcat/libwebsockets/master/contrib/cross-arm-linux-gnueabihf.cmake` 
+2) `wget -O mytoolchainfile https://raw.githubusercontent.com/warmcat/libwebsockets/main/contrib/cross-arm-linux-gnueabihf.cmake` 
 
 3) Edit `/tmp/mytoolchainfile` adapting `CROSS_PATH`, `CMAKE_C_COMPILER` and `CMAKE_CXX_COMPILER` to reflect your toolchain install dir and path to your toolchain C and C++ compilers respectively.  For my case:
 

@@ -8,15 +8,15 @@ Older versions of lws don't attract any new work after they are released
 (see [the release policy](https://libwebsockets.org/git/libwebsockets/tree/READMEs/README.release-policy.md) for details);
 for a while they will get backported bugfixes but that's it.
 
-All new work and bugfixes happen on master branch.
+All new work and bugfixes happen on `main` branch.
 
 Old, old versions may be convenient for you to use for some reason.  But unless
 you pay for support or have contributed work to lws so we feel we owe you some
 consideration, nobody else has any reason to particularly care about solving
-issues on ancient versions.  Whereas if the problem exists on master, and can be
+issues on ancient versions.  Whereas if the problem exists on `main`, and can be
 reproduced by developers, it usually gets attention, often immediately.
 
-If the problem doesn't exist on master, you can either use master or check also
+If the problem doesn't exist on `main`, you can either use `main` or check also
 the -stable branch of the last released version to see if it was already solved
 there.
 

@@ -118,7 +118,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 	int n, m = 0, i, uritok = -1, c;
 
 	/*
-	 * give the master wsi a cgi struct
+	 * give the cgi stream wsi a cgi struct
 	 */
 
 	wsi->http.cgi = lws_zalloc(sizeof(*wsi->http.cgi), "new cgi");

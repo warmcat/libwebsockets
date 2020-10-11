@@ -220,7 +220,7 @@ reload_handler(int signum)
 	case SIGINT:
 	case SIGTERM:
 	case SIGKILL:
-		fprintf(stderr, "master process waiting 2s...\n");
+		fprintf(stderr, "parent process waiting 2s...\n");
 		sleep(2); /* give children a chance to deal with the signal */
 		fprintf(stderr, "killing service processes\n");
 		for (m = 0; m < (int)LWS_ARRAY_SIZE(pids); m++)

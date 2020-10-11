@@ -1,8 +1,9 @@
 ** What version of lws **
 
-"vx.y.z" or "01234567 from master thismorning" etc
+"vx.y.z" or "01234567 from `main` thismorning" etc
 
-If it's much older than last stable release, we will likely suggest you try that or master.
+If it's much older than last stable release, we will likely suggest you try that
+or `main`.
 
 ** What platform and arch? **
 

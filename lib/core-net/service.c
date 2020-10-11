@@ -126,8 +126,8 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 
 #ifdef LWS_WITH_CGI
 	/*
-	 * A cgi master's wire protocol remains h1 or h2.  He is just getting
-	 * his data from his child cgis.
+	 * A cgi connection's wire protocol remains h1 or h2.  He is just
+	 * getting his data from his child cgis.
 	 */
 	if (wsi->http.cgi) {
 		/* also one shot */

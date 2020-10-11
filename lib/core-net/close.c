@@ -336,7 +336,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 //			if (wsi->parent->child_list == wsi && !wsi->sibling_list)
 //				lws_cgi_remove_and_kill(wsi->parent);
 
-			/* end the binding between us and master */
+			/* end the binding between us and network connection */
 			if (wsi->parent->http.cgi && wsi->parent->http.cgi->lsp)
 				wsi->parent->http.cgi->lsp->stdwsi[(int)wsi->lsp_channel] =
 									NULL;

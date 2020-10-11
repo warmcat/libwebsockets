@@ -1461,7 +1461,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 				     h2n->peer_set.s[H2SET_INITIAL_WINDOW_SIZE];
 
 				lwsl_info("%s: initial tx credit for us to "
-					  "write on master %p: %d\n", __func__,
+					  "write on nwsi %p: %d\n", __func__,
 					  wsi, (int)wsi->txc.tx_cr);
 				wsi->h2.initialized = 1;
 			}

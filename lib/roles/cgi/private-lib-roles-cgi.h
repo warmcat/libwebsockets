@@ -50,7 +50,7 @@ enum {
 
 struct lws;
 
-/* wsi who is master of the cgi points to an lws_cgi */
+/* wsi who is owns the cgi points to an lws_cgi */
 
 struct lws_cgi {
 	struct lws_cgi *cgi_list;

@@ -81,7 +81,7 @@ background and return immediately.  In this daemonized mode all stderr is
 disabled and logging goes only to syslog, eg, `/var/log/messages` or similar.
 
 The server maintains a lockfile at `/tmp/.lwsts-lock` that contains the pid
-of the master process, and deletes this file when the master process
+of the parent process, and deletes this file when the parent process
 terminates.
 
 To stop the daemon, do

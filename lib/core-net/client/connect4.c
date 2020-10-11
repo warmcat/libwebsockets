@@ -150,7 +150,7 @@ send_hs:
 		 * for anybody on his client transaction queue that is in
 		 * LRS_H1C_ISSUE_HANDSHAKE2, and let them write.
 		 *
-		 * If we are trying to do this too early, before the master
+		 * If we are trying to do this too early, before the network
 		 * connection has written his own headers, then it will just
 		 * wait in the queue until it's possible to send them.
 		 */

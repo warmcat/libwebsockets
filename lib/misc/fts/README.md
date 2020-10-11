@@ -124,7 +124,7 @@ Peak alloc|78MiB
 Serialization time|202ms
 Trie File size|347MiB
 
-To index libwebsockets master under the same conditions:
+To index libwebsockets main branch under the same conditions:
 
 Name|Value
 ---|---

@@ -30,16 +30,16 @@ runtime tests, so if it is passing CI as it usually is then it's probably in
 usable shape.  See "Why no history on development" below for why it's managed like
 that.
 
-![all work happens on master](../doc-assets/lws-relpol-1.svg)
+![all work happens on main](../doc-assets/lws-relpol-1.svg)
 
-If you have patches (you are a hero) they should be targeted at master.
+If you have patches (you are a hero) they should be targeted at `main`.
 
 To follow such a branch, `git pull` is the wrong tool... the starting point
 of what you currently have may no longer exist remotely due to rearranging the
 patches there.  Instead use a flow like this:
 
 ```
- $ git fetch https://libwebsockets.org/repo/libwebsockets +master:m && git reset --hard m
+ $ git fetch https://libwebsockets.org/repo/libwebsockets +main:m && git reset --hard m
 ```
 
 This fetches current remote development branch into local branch `m`, and then forces your
@@ -83,7 +83,7 @@ madness.
 When new stable releases are made, the soname is bumped reflecting the API is
 different than that of previous versions.
 
-![backports from master to stable](../doc-assets/lws-relpol-3.svg)
+![backports from main to stable](../doc-assets/lws-relpol-3.svg)
 
 If there is something you need in a later lws version that is not backported,
 you need to either backport it yourself or use a later lws version.

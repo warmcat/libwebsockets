@@ -247,7 +247,7 @@ struct _lws_http_mode_related {
 	struct lws_access_log access_log;
 #endif
 #ifdef LWS_WITH_CGI
-	struct lws_cgi *cgi; /* wsi being cgi master have one of these */
+	struct lws_cgi *cgi; /* wsi being cgi stream have one of these */
 #endif
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
 	struct lws_compression_support *lcs;

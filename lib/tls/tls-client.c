@@ -205,7 +205,7 @@ lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1)
 		 * We connected to the server and set up tls, and
 		 * negotiated "h2".
 		 *
-		 * So this is it, we are an h2 master client connection
+		 * So this is it, we are an h2 nwsi client connection
 		 * now, not an h1 client connection.
 		 */
 #if defined(LWS_WITH_TLS)

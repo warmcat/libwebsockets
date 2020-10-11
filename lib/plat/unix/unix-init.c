@@ -102,7 +102,7 @@ lws_plat_init(struct lws_context *context,
 	int fd;
 #if defined(LWS_WITH_NETWORK)
 	/*
-	 * master context has the process-global fd lookup array.  This can be
+	 * context has the process-global fd lookup array.  This can be
 	 * done two different ways now; one or the other is done depending on if
 	 * info->fd_limit_per_thread was snonzero
 	 *

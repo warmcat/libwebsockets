@@ -194,7 +194,7 @@ start_ws_handshake:
 			 * negotiated "h2" or connected as clear text
 			 * with http/2 prior knowledge.
 			 *
-			 * So this is it, we are an h2 master client connection
+			 * So this is it, we are an h2 nwsi client connection
 			 * now, not an h1 client connection.
 			 */
 

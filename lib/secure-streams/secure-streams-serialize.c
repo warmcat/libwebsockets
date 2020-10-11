@@ -1138,7 +1138,7 @@ payload_ff:
 			 *
 			 * The reason is he may set metadata in CREATING, and
 			 * we will try to do writeables to sync the stream to
-			 * master and ultimately bring up the onward connection now
+			 * proxy and ultimately bring up the onward connection
 			 * now we are in LOCAL_CONNECTED.  We need to do the
 			 * CREATING now so we'll know the metadata to sync.
 			 */

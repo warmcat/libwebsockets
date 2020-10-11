@@ -198,7 +198,7 @@ lws_plat_init(struct lws_context *context,
 	      const struct lws_context_creation_info *info)
 {
 #if defined(LWS_WITH_NETWORK)
-	/* master context has the global fd lookup array */
+	/* context has the global fd lookup array */
 	context->lws_lookup = lws_zalloc(sizeof(struct lws *) *
 					 context->max_fds, "lws_lookup");
 	if (context->lws_lookup == NULL) {

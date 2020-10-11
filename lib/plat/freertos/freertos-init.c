@@ -90,7 +90,7 @@ lws_plat_init(struct lws_context *context,
 	}
 #endif
 
-	/* master context has the global fd lookup array */
+	/* context has the global fd lookup array */
 	context->lws_lookup = lws_zalloc(sizeof(struct lws *) *
 					 context->max_fds, "esp32 lws_lookup");
 	if (context->lws_lookup == NULL) {
