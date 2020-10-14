@@ -218,11 +218,9 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	lws_stats_bump(pt, LWSSTATS_B_PARTIALS_ACCEPTED_PARTS, m);
 
 #if defined(LWS_WITH_UDP)
-	if (lws_wsi_is_udp(wsi)) {
+	if (lws_wsi_is_udp(wsi))
 		/* stash original destination for fulfilling UDP partials */
-		wsi->udp->sa_pending = wsi->udp->sa;
-		wsi->udp->salen_pending = wsi->udp->salen;
-	}
+		wsi->udp->sa46_pending = wsi->udp->sa46;
 #endif
 
 	/* since something buffered, force it to get another chance to send */
@@ -301,9 +299,10 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 	errno = 0;
 #if defined(LWS_WITH_UDP)
 	if (lws_wsi_is_udp(wsi)) {
-		wsi->udp->salen = sizeof(wsi->udp->sa);
+		socklen_t slt = sizeof(wsi->udp->sa46);
+
 		n = recvfrom(wsi->desc.sockfd, (char *)buf, len, 0,
-			     &wsi->udp->sa, &wsi->udp->salen);
+				sa46_sockaddr(&wsi->udp->sa46), &slt);
 	} else
 #endif
 		n = recv(wsi->desc.sockfd, (char *)buf, len, 0);
@@ -365,11 +364,12 @@ lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 		}
 		if (lws_has_buffered_out(wsi))
 			n = sendto(wsi->desc.sockfd, (const char *)buf,
-				   len, 0, &wsi->udp->sa_pending,
-				   wsi->udp->salen_pending);
+				   len, 0, sa46_sockaddr(&wsi->udp->sa46_pending),
+				   sa46_socklen(&wsi->udp->sa46_pending));
 		else
 			n = sendto(wsi->desc.sockfd, (const char *)buf,
-				   len, 0, &wsi->udp->sa, wsi->udp->salen);
+				   len, 0, sa46_sockaddr(&wsi->udp->sa46),
+				   sa46_socklen(&wsi->udp->sa46));
 	} else
 #endif
 		if (wsi->role_ops->file_handle)
