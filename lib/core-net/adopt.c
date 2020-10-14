@@ -709,9 +709,9 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 				goto resume;
 			}
 #endif
-			memcpy(&wsi->udp->sa, wsi->dns_results_next->ai_addr,
+			memcpy(&wsi->udp->sa46,
+			       wsi->dns_results_next->ai_addr,
 			       wsi->dns_results_next->ai_addrlen);
-			wsi->udp->salen = (socklen_t)wsi->dns_results_next->ai_addrlen;
 		}
 
 		/* we connected: complete the udp socket adoption flow */
