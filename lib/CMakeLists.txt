@@ -171,7 +171,7 @@ if (LWS_WITH_SHARED)
 		set(RESOURCES "")
 	endif()
 	
-	add_library(websockets_shared SHARED ${SOURCES})# ${RESOURCES} ${HDR_PUBLIC})
+	add_library(websockets_shared SHARED ${SOURCES} ${RESOURCES})# ${HDR_PUBLIC})
 	set_target_properties(websockets_shared PROPERTIES LINKER_LANGUAGE C)
 	list(APPEND LWS_LIBRARIES websockets_shared)
 	target_include_directories(websockets_shared PRIVATE ${LWS_LIB_BUILD_INC_PATHS})
