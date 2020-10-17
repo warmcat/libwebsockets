@@ -158,7 +158,7 @@ void
 lws_event_sigint_cb(evutil_socket_t sock_fd, short revents, void *ctx)
 {
 	struct lws_context_per_thread *pt = ctx;
-	struct event *signal = (struct event *)ctx;
+	struct event *signal = pt_to_priv_event(pt)->w_sigint.watcher;
 
 	if (pt->context->eventlib_signal_cb) {
 		pt->context->eventlib_signal_cb((void *)(lws_intptr_t)sock_fd,
