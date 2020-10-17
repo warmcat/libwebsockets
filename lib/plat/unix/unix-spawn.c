@@ -528,16 +528,19 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 #if defined(__linux__) || defined(__APPLE__)
 	m = 0;
 	while (i->env_array[m]){
-		char *p = strchr(i->env_array[m], '=');
-		*p++ = '\0';
-		setenv(i->env_array[m], p, 1);
+		const char *p = strchr(i->env_array[m], '=');
+		int naml = lws_ptr_diff(p, i->env_array[m]);
+		char enam[32];
+
+		lws_strnncpy(enam, i->env_array[m], naml, sizeof(enam));
+		setenv(enam, p, 1);
 		m++;
 	}
 #endif
 	execvp(i->exec_array[0], (char * const *)&i->exec_array[0]);
 #else
 	execvpe(i->exec_array[0], (char * const *)&i->exec_array[0],
-		&i->env_array[0]);
+		(char **)&i->env_array[0]);
 #endif
 
 	lwsl_err("%s: child exec of %s failed %d\n", __func__, i->exec_array[0],

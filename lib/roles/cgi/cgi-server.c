@@ -385,7 +385,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 #endif
 
 	memset(&info, 0, sizeof(info));
-	info.env_array = env_array;
+	info.env_array = (const char **)env_array;
 	info.exec_array = exec_array;
 	info.max_log_lines = 20000;
 	info.opt_parent = wsi;

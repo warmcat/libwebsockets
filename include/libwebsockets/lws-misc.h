@@ -895,7 +895,7 @@ struct lws_spawn_piped_info {
 	struct lws			*opt_parent;
 
 	const char * const		*exec_array;
-	char				**env_array;
+	const char			**env_array;
 	const char			*protocol_name;
 	const char			*chroot_path;
 	const char			*wd;
