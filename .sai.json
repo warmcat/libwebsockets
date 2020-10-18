@@ -87,11 +87,10 @@
 			"cpack":	"esp-wrover-kit",
 			"platforms":	"none, freertos-espidf/xl6-esp32/gcc"
 		},
-
-#		"default-examples-openssl-v3": {
-#			"cmake":	"-DLWS_OPENSSL_LIBRARIES=\"/usr/local/src/openssl/v3/usr/local/lib64/libssl.a;/usr/local/src/openssl/v3/usr/local/lib64/libcrypto.a\" -DLWS_OPENSSL_INCLUDE_DIRS=\"/usr/local/src/openssl/v3/usr/local/include/\" -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_GENCRYPTO=1",
-#			"platforms":	"none,linux-fedora-32/x86_64-amd/gcc"
-#		},
+		"default-examples-openssl-v3-nogencrypto": {
+			"cmake":	"-DLWS_OPENSSL_LIBRARIES=\"/usr/local/src/openssl/v3/usr/local/lib64/libssl.a;/usr/local/src/openssl/v3/usr/local/lib64/libcrypto.a\" -DLWS_OPENSSL_INCLUDE_DIRS=\"/usr/local/src/openssl/v3/usr/local/include/\" -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_GENCRYPTO=0",
+			"platforms":	"none,linux-fedora-32/x86_64-amd/gcc"
+		},
 		"default-examples-boringssl": {
 			"cmake":	"cmake .. -DLWS_WITH_BORINGSSL=1 -DLWS_OPENSSL_INCLUDE_DIRS=\"/usr/local/src/boringssl/include\" -DLWS_OPENSSL_LIBRARIES=\"/usr/local/src/boringssl/build/ssl/libssl.so;/usr/local/src/boringssl/build/crypto/libcrypto.so\" -DLWS_WITH_MINIMAL_EXAMPLES=1",
 			"platforms":	"none,linux-fedora-32/x86_64-amd/gcc"
