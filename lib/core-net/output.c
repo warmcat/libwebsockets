@@ -261,10 +261,12 @@ lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 #endif
 
 	assert(wsi->role_ops);
-	if (!wsi->role_ops->write_role_protocol)
+
+	if (!lws_rops_fidx(wsi->role_ops, LWS_ROPS_write_role_protocol))
 		return lws_issue_raw(wsi, buf, len);
 
-	m = wsi->role_ops->write_role_protocol(wsi, buf, len, &wp);
+	m = lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_write_role_protocol).
+			write_role_protocol(wsi, buf, len, &wp);
 	if (m < 0)
 		return m;
 

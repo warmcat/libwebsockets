@@ -436,29 +436,39 @@ bail:
 	return 1;
 }
 
+static const lws_rops_t rops_table_netlink[] = {
+	/*  1 */ { .pt_init_destroy	= rops_pt_init_destroy_netlink },
+	/*  2 */ { .handle_POLLIN	= rops_handle_POLLIN_netlink },
+};
+
 const struct lws_role_ops role_ops_netlink = {
 	/* role name */			"netlink",
 	/* alpn id */			NULL,
-	/* check_upgrades */		NULL,
-	/* pt_init_destroy */		rops_pt_init_destroy_netlink,
-	/* init_vhost */		NULL,
-	/* destroy_vhost */		NULL,
-	/* service_flag_pending */	NULL,
-	/* handle_POLLIN */		rops_handle_POLLIN_netlink,
-	/* handle_POLLOUT */		NULL,
-	/* perform_user_POLLOUT */	NULL,
-	/* callback_on_writable */	NULL,
-	/* tx_credit */			NULL,
-	/* write_role_protocol */	NULL,
-	/* encapsulation_parent */	NULL,
-	/* alpn_negotiated */		NULL,
-	/* close_via_role_protocol */	NULL,
-	/* close_role */		NULL,
-	/* close_kill_connection */	NULL,
-	/* destroy_role */		NULL,
-	/* adoption_bind */		NULL,
-	/* client_bind */		NULL,
-	/* issue_keepalive */		NULL,
+
+	/* rops_table */		rops_table_netlink,
+	/* rops_idx */			{
+	  /* LWS_ROPS_check_upgrades */
+	  /* LWS_ROPS_pt_init_destroy */		0x01,
+	  /* LWS_ROPS_init_vhost */
+	  /* LWS_ROPS_destroy_vhost */			0x00,
+	  /* LWS_ROPS_service_flag_pending */
+	  /* LWS_ROPS_handle_POLLIN */			0x02,
+	  /* LWS_ROPS_handle_POLLOUT */
+	  /* LWS_ROPS_perform_user_POLLOUT */		0x00,
+	  /* LWS_ROPS_callback_on_writable */
+	  /* LWS_ROPS_tx_credit */			0x00,
+	  /* LWS_ROPS_write_role_protocol */
+	  /* LWS_ROPS_encapsulation_parent */		0x00,
+	  /* LWS_ROPS_alpn_negotiated */
+	  /* LWS_ROPS_close_via_role_protocol */	0x00,
+	  /* LWS_ROPS_close_role */
+	  /* LWS_ROPS_close_kill_connection */		0x00,
+	  /* LWS_ROPS_destroy_role */
+	  /* LWS_ROPS_adoption_bind */			0x00,
+	  /* LWS_ROPS_client_bind */
+	  /* LWS_ROPS_issue_keepalive */		0x00,
+					},
+
 	/* adoption_cb clnt, srv */	{ 0, 0 },
 	/* rx_cb clnt, srv */		{ 0, 0 },
 	/* writeable cb clnt, srv */	{ 0, 0 },

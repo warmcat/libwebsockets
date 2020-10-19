@@ -170,107 +170,189 @@ void lwsi_set_state(struct lws *wsi, lws_wsi_state_t lrs);
 #define _LWS_ADOPT_FINISH (1 << 24)
 
 /*
- * internal role-specific ops
+ * Internal role-specific ops
+ *
+ * Many roles are sparsely filled with callbacks, rather than has 20 x
+ * function pointers in the ops struct, let's have a 20 nybble array telling us
+ * if the pointer doesn't exist, or its offset in a smaller "just pointers that
+ * exist" array.
+ *
+ * We can support up to 15 valid pointers in the role that way and only have to
+ * provide pointers that exist for that role, at the cost of a 10-byte nybble
+ * table.
+ *
+ * For x86_64, a set 196 byte allocation becomes 60 + 8 bytes per defined ptr,
+ * where the ops table is sparse this is a considable .rodata saving, for 32-bit
+ * 52 + 4 bytes per defined ptr accounting for padding.
  */
+
+/*
+ * After http headers have parsed, this is the last chance for a role
+ * to upgrade the connection to something else using the headers.
+ * ws-over-h2 is upgraded from h2 like this.
+ */
+typedef int (*lws_rops_check_upgrades_t)(struct lws *wsi);
+/* role-specific context init during context creation */
+typedef int (*lws_rops_pt_init_destroy_t)(struct lws_context *context,
+				const struct lws_context_creation_info *info,
+				struct lws_context_per_thread *pt, int destroy);
+/* role-specific per-vhost init during vhost creation */
+typedef int (*lws_rops_init_vhost_t)(struct lws_vhost *vh,
+				  const struct lws_context_creation_info *info);
+/* role-specific per-vhost destructor during vhost destroy */
+typedef int (*lws_rops_destroy_vhost_t)(struct lws_vhost *vh);
+/* chance for the role to force POLLIN without network activity */
+typedef int (*lws_rops_service_flag_pending_t)(struct lws_context *context,
+					       int tsi);
+/* an fd using this role has POLLIN signalled */
+typedef int (*lws_rops_handle_POLLIN_t)(struct lws_context_per_thread *pt,
+					struct lws *wsi,
+					struct lws_pollfd *pollfd);
+/* an fd using the role wanted a POLLOUT callback and now has it */
+typedef int (*lws_rops_handle_POLLOUT_t)(struct lws *wsi);
+/* perform user pollout */
+typedef int (*lws_rops_perform_user_POLLOUT_t)(struct lws *wsi);
+/* do effective callback on writeable */
+typedef int (*lws_rops_callback_on_writable_t)(struct lws *wsi);
+/* connection-specific tx credit in bytes */
+typedef int (*lws_rops_tx_credit_t)(struct lws *wsi, char peer_to_us, int add);
+/* role-specific write formatting */
+typedef int (*lws_rops_write_role_protocol_t)(struct lws *wsi,
+					      unsigned char *buf, size_t len,
+					      enum lws_write_protocol *wp);
+
+/* get encapsulation parent */
+typedef struct lws * (*lws_rops_encapsulation_parent_t)(struct lws *wsi);
+
+/* role-specific destructor */
+typedef int (*lws_rops_alpn_negotiated_t)(struct lws *wsi, const char *alpn);
+
+/* chance for the role to handle close in the protocol */
+typedef int (*lws_rops_close_via_role_protocol_t)(struct lws *wsi,
+						  enum lws_close_status reason);
+/* role-specific close processing */
+typedef int (*lws_rops_close_role_t)(struct lws_context_per_thread *pt,
+				     struct lws *wsi);
+/* role-specific connection close processing */
+typedef int (*lws_rops_close_kill_connection_t)(struct lws *wsi,
+						enum lws_close_status reason);
+/* role-specific destructor */
+typedef int (*lws_rops_destroy_role_t)(struct lws *wsi);
+
+/* role-specific socket-adopt */
+typedef int (*lws_rops_adoption_bind_t)(struct lws *wsi, int type,
+					const char *prot);
+/* role-specific client-bind:
+ * ret 1 = bound, 0 = not bound, -1 = fail out
+ * i may be NULL, indicating client_bind is being called after
+ * a successful bind earlier, to finalize the binding.  In that
+ * case ret 0 = OK, 1 = fail, wsi needs freeing, -1 = fail, wsi freed */
+typedef int (*lws_rops_client_bind_t)(struct lws *wsi,
+				      const struct lws_client_connect_info *i);
+/* isvalid = 0: request a role-specific keepalive (PING etc)
+ *         = 1: reset any related validity timer */
+typedef int (*lws_rops_issue_keepalive_t)(struct lws *wsi, int isvalid);
+
+#define LWS_COUNT_ROLE_OPS			20
+
+typedef union lws_rops {
+	lws_rops_check_upgrades_t		check_upgrades;
+	lws_rops_pt_init_destroy_t		pt_init_destroy;
+	lws_rops_init_vhost_t			init_vhost;
+	lws_rops_destroy_vhost_t		destroy_vhost;
+	lws_rops_service_flag_pending_t		service_flag_pending;
+	lws_rops_handle_POLLIN_t		handle_POLLIN;
+	lws_rops_handle_POLLOUT_t		handle_POLLOUT;
+	lws_rops_perform_user_POLLOUT_t		perform_user_POLLOUT;
+	lws_rops_callback_on_writable_t		callback_on_writable;
+	lws_rops_tx_credit_t			tx_credit;
+	lws_rops_write_role_protocol_t		write_role_protocol;
+	lws_rops_encapsulation_parent_t		encapsulation_parent;
+	lws_rops_alpn_negotiated_t		alpn_negotiated;
+	lws_rops_close_via_role_protocol_t	close_via_role_protocol;
+	lws_rops_close_role_t			close_role;
+	lws_rops_close_kill_connection_t	close_kill_connection;
+	lws_rops_destroy_role_t			destroy_role;
+	lws_rops_adoption_bind_t		adoption_bind;
+	lws_rops_client_bind_t			client_bind;
+	lws_rops_issue_keepalive_t		issue_keepalive;
+} lws_rops_t;
+
+typedef enum {
+	LWS_ROPS_check_upgrades,
+	LWS_ROPS_pt_init_destroy,
+	LWS_ROPS_init_vhost,
+	LWS_ROPS_destroy_vhost,
+	LWS_ROPS_service_flag_pending,
+	LWS_ROPS_handle_POLLIN,
+	LWS_ROPS_handle_POLLOUT,
+	LWS_ROPS_perform_user_POLLOUT,
+	LWS_ROPS_callback_on_writable,
+	LWS_ROPS_tx_credit,
+	LWS_ROPS_write_role_protocol,
+	LWS_ROPS_encapsulation_parent,
+	LWS_ROPS_alpn_negotiated,
+	LWS_ROPS_close_via_role_protocol,
+	LWS_ROPS_close_role,
+	LWS_ROPS_close_kill_connection,
+	LWS_ROPS_destroy_role,
+	LWS_ROPS_adoption_bind,
+	LWS_ROPS_client_bind,
+	LWS_ROPS_issue_keepalive,
+} lws_rops_func_idx_t;
+
 struct lws_context_per_thread;
+
 struct lws_role_ops {
-	const char *name;
-	const char *alpn;
-	/*
-	 * After http headers have parsed, this is the last chance for a role
-	 * to upgrade the connection to something else using the headers.
-	 * ws-over-h2 is upgraded from h2 like this.
-	 */
-	int (*check_upgrades)(struct lws *wsi);
-	/* role-specific context init during context creation */
-	int (*pt_init_destroy)(struct lws_context *context,
-			    const struct lws_context_creation_info *info,
-			    struct lws_context_per_thread *pt, int destroy);
-	/* role-specific per-vhost init during vhost creation */
-	int (*init_vhost)(struct lws_vhost *vh,
-			  const struct lws_context_creation_info *info);
-	/* role-specific per-vhost destructor during vhost destroy */
-	int (*destroy_vhost)(struct lws_vhost *vh);
-	/* chance for the role to force POLLIN without network activity */
-	int (*service_flag_pending)(struct lws_context *context, int tsi);
-	/* an fd using this role has POLLIN signalled */
-	int (*handle_POLLIN)(struct lws_context_per_thread *pt, struct lws *wsi,
-			     struct lws_pollfd *pollfd);
-	/* an fd using the role wanted a POLLOUT callback and now has it */
-	int (*handle_POLLOUT)(struct lws *wsi);
-	/* perform user pollout */
-	int (*perform_user_POLLOUT)(struct lws *wsi);
-	/* do effective callback on writeable */
-	int (*callback_on_writable)(struct lws *wsi);
-	/* connection-specific tx credit in bytes */
-	int (*tx_credit)(struct lws *wsi, char peer_to_us, int add);
-	/* role-specific write formatting */
-	int (*write_role_protocol)(struct lws *wsi, unsigned char *buf,
-				   size_t len, enum lws_write_protocol *wp);
+	const char		*name;
+	const char		*alpn;
 
-	/* get encapsulation parent */
-	struct lws * (*encapsulation_parent)(struct lws *wsi);
-
-	/* role-specific destructor */
-	int (*alpn_negotiated)(struct lws *wsi, const char *alpn);
-
-	/* chance for the role to handle close in the protocol */
-	int (*close_via_role_protocol)(struct lws *wsi,
-				       enum lws_close_status reason);
-	/* role-specific close processing */
-	int (*close_role)(struct lws_context_per_thread *pt, struct lws *wsi);
-	/* role-specific connection close processing */
-	int (*close_kill_connection)(struct lws *wsi,
-				     enum lws_close_status reason);
-	/* role-specific destructor */
-	int (*destroy_role)(struct lws *wsi);
-
-	/* role-specific socket-adopt */
-	int (*adoption_bind)(struct lws *wsi, int type, const char *prot);
-	/* role-specific client-bind:
-	 * ret 1 = bound, 0 = not bound, -1 = fail out
-	 * i may be NULL, indicating client_bind is being called after
-	 * a successful bind earlier, to finalize the binding.  In that
-	 * case ret 0 = OK, 1 = fail, wsi needs freeing, -1 = fail, wsi freed */
-	int (*client_bind)(struct lws *wsi,
-			   const struct lws_client_connect_info *i);
-	/* isvalid = 0: request a role-specific keepalive (PING etc)
-	 *         = 1: reset any related validity timer */
-	int (*issue_keepalive)(struct lws *wsi, int isvalid);
+	const lws_rops_t	*rops_table;
+	/**< the occupied role ops func ptrs */
+	uint8_t			rops_idx[(LWS_COUNT_ROLE_OPS + 1) / 2];
+	/**< translates role index into .rops[] offset */
 
 	/*
 	 * the callback reasons for adoption for client, server
 	 * (just client applies if no concept of client or server)
 	 */
-	uint16_t adoption_cb[2];
+	uint8_t			adoption_cb[2];
 	/*
 	 * the callback reasons for adoption for client, server
 	 * (just client applies if no concept of client or server)
 	 */
-	uint16_t rx_cb[2];
+	uint8_t			rx_cb[2];
 	/*
 	 * the callback reasons for WRITEABLE for client, server
 	 * (just client applies if no concept of client or server)
 	 */
-	uint16_t writeable_cb[2];
+	uint8_t			writeable_cb[2];
 	/*
 	 * the callback reasons for CLOSE for client, server
 	 * (just client applies if no concept of client or server)
 	 */
-	uint16_t close_cb[2];
+	uint8_t			close_cb[2];
 	/*
 	 * the callback reasons for protocol bind for client, server
 	 * (just client applies if no concept of client or server)
 	 */
-	uint16_t protocol_bind_cb[2];
+	uint8_t			protocol_bind_cb[2];
 	/*
 	 * the callback reasons for protocol unbind for client, server
 	 * (just client applies if no concept of client or server)
 	 */
-	uint16_t protocol_unbind_cb[2];
+	uint8_t			protocol_unbind_cb[2];
 
-	unsigned int file_handle:1; /* role operates on files not sockets */
+	uint8_t			file_handle:1;
+	/* role operates on files not sockets */
 };
+
+#define lws_rops_fidx(_rops, fidx) \
+		((fidx & 1) ? (_rops)->rops_idx[fidx / 2] & 0xf : \
+			      (_rops)->rops_idx[fidx / 2] >> 4)
+
+#define lws_rops_func_fidx(_rops, fidx) \
+		((_rops)->rops_table[lws_rops_fidx(_rops, fidx) - 1])
 
 /* core roles */
 extern const struct lws_role_ops role_ops_raw_skt, role_ops_raw_file,

@@ -16,7 +16,7 @@ You inherit all the well-maintained lws core functionality around:
 
  - connection lifecycle sequencing in a valgrind-clean way
 
- - proxy support, HTTP and Socks5
+ - client connection proxy support, for HTTP and Socks5
 
  - tls support working equally on mbedTLS and OpenSSL and derivatives without any code in the role
 
@@ -158,4 +158,13 @@ The core support for wsis in lws has some generic concepts
 
  - You set the initial binding, role flags and state using `lws_role_transition()`.  Afterwards
    you can adjust the state using `lwsi_set_state()`.
+
+### Role ops compression
+
+Since the role ops struct is typically only sparsely filled, rather than have 20 function
+pointers most of which may be NULL, there is a separate array of a union of function
+pointers that is just long enough for functions that exist in the role, and a nybble index
+table with a nybble for each possible op, either 0 indicating that the operation is not
+provided in this role, or 1 - 15 indicating the position of the function pointer in the
+array.
 
