@@ -353,8 +353,10 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	 * see important info things via wsi->stash
 	 */
 
-	if (wsi->role_ops->client_bind) {
-		int n = wsi->role_ops->client_bind(wsi, NULL);
+	if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_client_bind)) {
+
+		int n = lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_client_bind).
+							client_bind(wsi, NULL);
 
 		if (n && i->parent_wsi) {
 			/* unpick from parent */

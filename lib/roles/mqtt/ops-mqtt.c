@@ -552,39 +552,51 @@ rops_close_kill_connection_mqtt(struct lws *wsi, enum lws_close_status reason)
 	return 0;
 }
 
+static const lws_rops_t rops_table_mqtt[] = {
+	/*  1 */ { .handle_POLLIN	  = rops_handle_POLLIN_mqtt },
+	/*  2 */ { .handle_POLLOUT	  = rops_handle_POLLOUT_mqtt },
+	/*  3 */ { .callback_on_writable  = rops_callback_on_writable_mqtt },
+	/*  4 */ { .close_role		  = rops_close_role_mqtt },
+	/*  5 */ { .close_kill_connection = rops_close_kill_connection_mqtt },
+#if defined(LWS_WITH_CLIENT)
+	/*  6 */ { .client_bind		  = rops_client_bind_mqtt },
+	/*  7 */ { .issue_keepalive	  = rops_issue_keepalive_mqtt },
+#endif
+};
 
 struct lws_role_ops role_ops_mqtt = {
 	/* role name */			"mqtt",
 	/* alpn id */			"x-amzn-mqtt-ca", /* "mqtt/3.1.1" */
-	/* check_upgrades */		NULL,
-	/* pt_init_destroy */		NULL,
-	/* init_vhost */		NULL,
-	/* destroy_vhost */		NULL,
-	/* service_flag_pending */	NULL,
-	.handle_POLLIN =		rops_handle_POLLIN_mqtt,
-	.handle_POLLOUT =		rops_handle_POLLOUT_mqtt,
-	/* perform_user_POLLOUT */	NULL,
-	/* callback_on_writable */	rops_callback_on_writable_mqtt,
-	/* tx_credit */			NULL,
-	.write_role_protocol =		NULL,
-	/* encapsulation_parent */	NULL,
-	/* alpn_negotiated */		NULL,
-	/* close_via_role_protocol */	NULL,
-	.close_role =			rops_close_role_mqtt,
-	.close_kill_connection =	rops_close_kill_connection_mqtt,
-	/* destroy_role */		NULL,
-#if 0  /* defined(LWS_WITH_SERVER) */
-	/* adoption_bind */		rops_adoption_bind_mqtt,
-#else
-					NULL,
-#endif
+
+	/* rops_table */		rops_table_mqtt,
+	/* rops_idx */			{
+	  /* LWS_ROPS_check_upgrades */
+	  /* LWS_ROPS_pt_init_destroy */		0x00,
+	  /* LWS_ROPS_init_vhost */
+	  /* LWS_ROPS_destroy_vhost */			0x00,
+	  /* LWS_ROPS_service_flag_pending */
+	  /* LWS_ROPS_handle_POLLIN */			0x01,
+	  /* LWS_ROPS_handle_POLLOUT */
+	  /* LWS_ROPS_perform_user_POLLOUT */		0x20,
+	  /* LWS_ROPS_callback_on_writable */
+	  /* LWS_ROPS_tx_credit */			0x30,
+	  /* LWS_ROPS_write_role_protocol */
+	  /* LWS_ROPS_encapsulation_parent */		0x00,
+	  /* LWS_ROPS_alpn_negotiated */
+	  /* LWS_ROPS_close_via_role_protocol */	0x00,
+	  /* LWS_ROPS_close_role */
+	  /* LWS_ROPS_close_kill_connection */		0x45,
+	  /* LWS_ROPS_destroy_role */
+	  /* LWS_ROPS_adoption_bind */			0x00,
+
+	  /* LWS_ROPS_client_bind */
 #if defined(LWS_WITH_CLIENT)
-	.client_bind =			rops_client_bind_mqtt,
-	.issue_keepalive =		rops_issue_keepalive_mqtt,
+	  /* LWS_ROPS_issue_keepalive */		0x67,
 #else
-	.client_bind =			NULL,
-	.issue_keepalive = 		NULL,
+	  /* LWS_ROPS_issue_keepalive */		0x00,
 #endif
+					},
+
 	.adoption_cb =			{ LWS_CALLBACK_MQTT_NEW_CLIENT_INSTANTIATED,
 					  LWS_CALLBACK_MQTT_NEW_CLIENT_INSTANTIATED },
 	.rx_cb =			{ LWS_CALLBACK_MQTT_CLIENT_RX,

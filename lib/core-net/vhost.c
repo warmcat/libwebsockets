@@ -118,8 +118,10 @@ lws_role_call_alpn_negotiated(struct lws *wsi, const char *alpn)
 #endif
 
 	LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar)
-		if (ar->alpn && !strcmp(ar->alpn, alpn) && ar->alpn_negotiated)
-			return ar->alpn_negotiated(wsi, alpn);
+		if (ar->alpn && !strcmp(ar->alpn, alpn) &&
+		    lws_rops_fidx(ar, LWS_ROPS_alpn_negotiated))
+			return (lws_rops_func_fidx(ar, LWS_ROPS_alpn_negotiated)).
+						   alpn_negotiated(wsi, alpn);
 	LWS_FOR_EVERY_AVAILABLE_ROLE_END;
 #endif
 	return 0;
@@ -147,8 +149,9 @@ lws_role_call_adoption_bind(struct lws *wsi, int type, const char *prot)
 			lwsl_err("%s: can't find role '%s'\n", __func__,
 				  wsi->a.vhost->listen_accept_role);
 
-		if (role && role->adoption_bind) {
-			n = role->adoption_bind(wsi, type, prot);
+		if (role && lws_rops_fidx(role, LWS_ROPS_adoption_bind)) {
+			n = (lws_rops_func_fidx(role, LWS_ROPS_adoption_bind)).
+						adoption_bind(wsi, type, prot);
 			if (n < 0)
 				return -1;
 			if (n) /* did the bind */
@@ -172,14 +175,17 @@ lws_role_call_adoption_bind(struct lws *wsi, int type, const char *prot)
 	 */
 
 	LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar)
-		if (ar->adoption_bind && ar->adoption_bind(wsi, type, prot))
+		if (lws_rops_fidx(ar, LWS_ROPS_adoption_bind) &&
+		    (lws_rops_func_fidx(ar, LWS_ROPS_adoption_bind)).
+					    adoption_bind(wsi, type, prot))
 			return 0;
 	LWS_FOR_EVERY_AVAILABLE_ROLE_END;
 
 	/* fall back to raw socket role if, eg, h1 not configured */
 
-	if (role_ops_raw_skt.adoption_bind &&
-	    role_ops_raw_skt.adoption_bind(wsi, type, prot))
+	if (lws_rops_fidx(&role_ops_raw_skt, LWS_ROPS_adoption_bind) &&
+	    (lws_rops_func_fidx(&role_ops_raw_skt, LWS_ROPS_adoption_bind)).
+				    adoption_bind(wsi, type, prot))
 		return 0;
 
 #if defined(LWS_ROLE_RAW_FILE)
@@ -188,8 +194,9 @@ lws_role_call_adoption_bind(struct lws *wsi, int type, const char *prot)
 
 	/* fall back to raw file role if, eg, h1 not configured */
 
-	if (role_ops_raw_file.adoption_bind &&
-	    role_ops_raw_file.adoption_bind(wsi, type, prot))
+	if (lws_rops_fidx(&role_ops_raw_file, LWS_ROPS_adoption_bind) &&
+	    (lws_rops_func_fidx(&role_ops_raw_file, LWS_ROPS_adoption_bind)).
+				    adoption_bind(wsi, type, prot))
 		return 0;
 #endif
 
@@ -202,8 +209,10 @@ lws_role_call_client_bind(struct lws *wsi,
 			  const struct lws_client_connect_info *i)
 {
 	LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar)
-		if (ar->client_bind) {
-			int m = ar->client_bind(wsi, i);
+		if (lws_rops_fidx(ar, LWS_ROPS_client_bind)) {
+			int m = (lws_rops_func_fidx(ar, LWS_ROPS_client_bind)).
+							client_bind(wsi, i);
+
 			if (m < 0)
 				return m;
 			if (m)
@@ -213,8 +222,9 @@ lws_role_call_client_bind(struct lws *wsi,
 
 	/* fall back to raw socket role if, eg, h1 not configured */
 
-	if (role_ops_raw_skt.client_bind &&
-	    role_ops_raw_skt.client_bind(wsi, i))
+	if (lws_rops_fidx(&role_ops_raw_skt, LWS_ROPS_client_bind) &&
+	    (lws_rops_func_fidx(&role_ops_raw_skt, LWS_ROPS_client_bind)).
+					client_bind(wsi, i))
 		return 0;
 
 	return 1;
@@ -554,9 +564,9 @@ lws_create_vhost(struct lws_context *context,
 	vh->unix_socket_perms = info->unix_socket_perms;
 
 	LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar)
-		if (ar->init_vhost)
-			if (ar->init_vhost(vh, info))
-				return NULL;
+	if (lws_rops_fidx(ar, LWS_ROPS_init_vhost) &&
+	    (lws_rops_func_fidx(ar, LWS_ROPS_init_vhost)).init_vhost(vh, info))
+		return NULL;
 	LWS_FOR_EVERY_AVAILABLE_ROLE_END;
 
 
@@ -1193,8 +1203,9 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 		lws_free((void *)vh->protocols);
 #if defined(LWS_WITH_NETWORK)
 	LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar)
-		if (ar->destroy_vhost)
-			ar->destroy_vhost(vh);
+	if (lws_rops_fidx(ar, LWS_ROPS_destroy_vhost))
+		lws_rops_func_fidx(ar, LWS_ROPS_destroy_vhost).
+							destroy_vhost(vh);
 	LWS_FOR_EVERY_AVAILABLE_ROLE_END;
 #endif
 

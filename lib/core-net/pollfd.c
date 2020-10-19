@@ -536,8 +536,10 @@ lws_callback_on_writable(struct lws *wsi)
 	}
 #endif
 
-	if (wsi->role_ops->callback_on_writable) {
-		int q = wsi->role_ops->callback_on_writable(wsi);
+	if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_callback_on_writable)) {
+		int q = lws_rops_func_fidx(wsi->role_ops,
+					   LWS_ROPS_callback_on_writable).
+						      callback_on_writable(wsi);
 		//lwsl_notice("%s: rops_cow says %d\n", __func__, q);
 		if (q)
 			return 1;

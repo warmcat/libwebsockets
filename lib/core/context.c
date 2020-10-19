@@ -903,7 +903,10 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 
 #if defined(LWS_WITH_CGI)
-		role_ops_cgi.pt_init_destroy(context, info, &context->pt[n], 0);
+		if (lws_rops_fidx(&role_ops_cgi, LWS_ROPS_pt_init_destroy))
+			(lws_rops_func_fidx(&role_ops_cgi, LWS_ROPS_pt_init_destroy)).
+				pt_init_destroy(context, info,
+						&context->pt[n], 0);
 #endif
 	}
 
@@ -997,9 +1000,10 @@ lws_create_context(const struct lws_context_creation_info *info)
 
 	for (n = 0; n < context->count_threads; n++) {
 		LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar) {
-			if (ar->pt_init_destroy)
-				ar->pt_init_destroy(context, info,
-						    &context->pt[n], 0);
+			if (lws_rops_fidx(ar, LWS_ROPS_pt_init_destroy))
+				(lws_rops_func_fidx(ar, LWS_ROPS_pt_init_destroy)).
+					pt_init_destroy(context, info,
+							&context->pt[n], 0);
 		} LWS_FOR_EVERY_AVAILABLE_ROLE_END;
 	}
 #endif
@@ -1339,16 +1343,15 @@ lws_context_destroy3(struct lws_context *context)
 		lws_seq_destroy_all_on_pt(pt);
 #endif
 		LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar) {
-			if (ar->pt_init_destroy)
-				ar->pt_init_destroy(context, NULL, pt, 1);
+			if (lws_rops_fidx(ar, LWS_ROPS_pt_init_destroy))
+				(lws_rops_func_fidx(ar, LWS_ROPS_pt_init_destroy)).
+						pt_init_destroy(context, NULL, pt, 1);
 		} LWS_FOR_EVERY_AVAILABLE_ROLE_END;
 
 #if defined(LWS_WITH_CGI)
-		role_ops_cgi.pt_init_destroy(context, NULL, pt, 1);
-#endif
-#if 0
-		if (context->event_loop_ops->destroy_pt)
-			context->event_loop_ops->destroy_pt(context, n);
+		if (lws_rops_fidx(&role_ops_cgi, LWS_ROPS_pt_init_destroy))
+			(lws_rops_func_fidx(&role_ops_cgi, LWS_ROPS_pt_init_destroy)).
+				pt_init_destroy(context, NULL, pt, 1);
 #endif
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
@@ -1463,12 +1466,15 @@ lws_context_destroy2(struct lws_context *context)
 		lws_seq_destroy_all_on_pt(pt);
 #endif
 		LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar) {
-			if (ar->pt_init_destroy)
-				ar->pt_init_destroy(context, NULL, pt, 1);
+			if (lws_rops_fidx(ar, LWS_ROPS_pt_init_destroy))
+				(lws_rops_func_fidx(ar, LWS_ROPS_pt_init_destroy)).
+						pt_init_destroy(context, NULL, pt, 1);
 		} LWS_FOR_EVERY_AVAILABLE_ROLE_END;
 
 #if defined(LWS_WITH_CGI)
-		role_ops_cgi.pt_init_destroy(context, NULL, pt, 1);
+		if (lws_rops_fidx(&role_ops_cgi, LWS_ROPS_pt_init_destroy))
+			(lws_rops_func_fidx(&role_ops_cgi, LWS_ROPS_pt_init_destroy)).
+				pt_init_destroy(context, NULL, pt, 1);
 #endif
 
 		if (context->event_loop_ops->destroy_pt)

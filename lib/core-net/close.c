@@ -147,8 +147,9 @@ __lws_reset_wsi(struct lws *wsi)
 #endif
 	__lws_wsi_remove_from_sul(wsi);
 
-	if (wsi->role_ops->destroy_role)
-		wsi->role_ops->destroy_role(wsi);
+	if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_destroy_role))
+		lws_rops_func_fidx(wsi->role_ops,
+				   LWS_ROPS_destroy_role).destroy_role(wsi);
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	__lws_header_table_detach(wsi, 0);
@@ -443,8 +444,9 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	 * LRS_AWAITING_CLOSE_ACK and will skip doing this a second time.
 	 */
 
-	if (wsi->role_ops->close_via_role_protocol &&
-	    wsi->role_ops->close_via_role_protocol(wsi, reason))
+	if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_close_via_role_protocol) &&
+	    lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_close_via_role_protocol).
+					 close_via_role_protocol(wsi, reason))
 		return;
 
 just_kill_connection:
@@ -474,8 +476,10 @@ just_kill_connection:
 	}
 #endif
 
-	if (wsi->role_ops->close_kill_connection)
-		wsi->role_ops->close_kill_connection(wsi, reason);
+	if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_close_kill_connection))
+		lws_rops_func_fidx(wsi->role_ops,
+				   LWS_ROPS_close_kill_connection).
+					    close_kill_connection(wsi, reason);
 
 	n = 0;
 
@@ -624,8 +628,9 @@ just_kill_connection:
 	lws_buflist_destroy_all_segments(&wsi->buflist);
 	lws_dll2_remove(&wsi->dll_buflist);
 
-	if (wsi->role_ops->close_role)
-	    wsi->role_ops->close_role(pt, wsi);
+	if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_close_role))
+		lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_close_role).
+							close_role(pt, wsi);
 
 	/* tell the user it's all over for this guy */
 

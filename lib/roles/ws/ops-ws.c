@@ -1847,7 +1847,10 @@ do_more_inside_frame:
 		struct lws *encap = lws_get_network_wsi(wsi);
 
 		assert(encap != wsi);
-		return encap->role_ops->write_role_protocol(wsi, buf - pre,
+
+		return lws_rops_func_fidx(encap->role_ops,
+				   LWS_ROPS_write_role_protocol).
+					write_role_protocol(wsi, buf - pre,
 							    len + pre, wp);
 	}
 
@@ -1916,7 +1919,9 @@ rops_close_kill_connection_ws(struct lws *wsi, enum lws_close_status reason)
 	/* deal with ws encapsulation in h2 */
 #if defined(LWS_WITH_HTTP2)
 	if (wsi->mux_substream && wsi->h2_stream_carries_ws)
-		return role_ops_h2.close_kill_connection(wsi, reason);
+		return lws_rops_func_fidx(&role_ops_h2,
+				   LWS_ROPS_close_kill_connection).
+				close_kill_connection(wsi, reason);
 
 	return 0;
 #else
@@ -1930,10 +1935,14 @@ rops_callback_on_writable_ws(struct lws *wsi)
 #if defined(LWS_WITH_HTTP2)
 	if (lwsi_role_h2_ENCAPSULATION(wsi)) {
 		/* we know then that it has an h2 parent */
-		struct lws *enc = role_ops_h2.encapsulation_parent(wsi);
+		struct lws *enc = lws_rops_func_fidx(&role_ops_h2,
+						     LWS_ROPS_encapsulation_parent).
+						     encapsulation_parent(wsi);
 
 		assert(enc);
-		if (enc->role_ops->callback_on_writable(wsi))
+		if (lws_rops_func_fidx(enc->role_ops,
+				       LWS_ROPS_callback_on_writable).
+						callback_on_writable(wsi))
 			return 1;
 	}
 #endif
@@ -2030,10 +2039,13 @@ rops_issue_keepalive_ws(struct lws *wsi, int isvalid)
 #if defined(LWS_WITH_HTTP2)
 	if (lwsi_role_h2_ENCAPSULATION(wsi)) {
 		/* we know then that it has an h2 parent */
-		struct lws *enc = role_ops_h2.encapsulation_parent(wsi);
+		struct lws *enc = lws_rops_func_fidx(&role_ops_h2,
+						     LWS_ROPS_encapsulation_parent).
+						     encapsulation_parent(wsi);
 
 		assert(enc);
-		if (enc->role_ops->issue_keepalive(enc, isvalid))
+		if (lws_rops_func_fidx(enc->role_ops, LWS_ROPS_issue_keepalive).
+						  issue_keepalive(enc, isvalid))
 			return 1;
 	}
 #endif
@@ -2050,29 +2062,49 @@ rops_issue_keepalive_ws(struct lws *wsi, int isvalid)
 	return 0;
 }
 
+static const lws_rops_t rops_table_ws[] = {
+	/*  1 */ { .init_vhost		    = rops_init_vhost_ws },
+	/*  2 */ { .destroy_vhost	    = rops_destroy_vhost_ws },
+	/*  3 */ { .service_flag_pending    = rops_service_flag_pending_ws },
+	/*  4 */ { .handle_POLLIN	    = rops_handle_POLLIN_ws },
+	/*  5 */ { .handle_POLLOUT	    = rops_handle_POLLOUT_ws },
+	/*  6 */ { .callback_on_writable    = rops_callback_on_writable_ws },
+	/*  7 */ { .write_role_protocol	    = rops_write_role_protocol_ws },
+	/*  8 */ { .close_via_role_protocol = rops_close_via_role_protocol_ws },
+	/*  9 */ { .close_role		    = rops_close_role_ws },
+	/* 10 */ { .close_kill_connection   = rops_close_kill_connection_ws },
+	/* 11 */ { .destroy_role	    = rops_destroy_role_ws },
+	/* 12 */ { .issue_keepalive	    = rops_issue_keepalive_ws },
+};
+
 const struct lws_role_ops role_ops_ws = {
 	/* role name */			"ws",
 	/* alpn id */			NULL,
-	/* check_upgrades */		NULL,
-	/* pt_init_destroy */		NULL,
-	/* init_vhost */		rops_init_vhost_ws,
-	/* destroy_vhost */		rops_destroy_vhost_ws,
-	/* service_flag_pending */	rops_service_flag_pending_ws,
-	/* handle_POLLIN */		rops_handle_POLLIN_ws,
-	/* handle_POLLOUT */		rops_handle_POLLOUT_ws,
-	/* perform_user_POLLOUT */	NULL,
-	/* callback_on_writable */	rops_callback_on_writable_ws,
-	/* tx_credit */			NULL,
-	/* write_role_protocol */	rops_write_role_protocol_ws,
-	/* encapsulation_parent */	NULL,
-	/* alpn_negotiated */		NULL,
-	/* close_via_role_protocol */	rops_close_via_role_protocol_ws,
-	/* close_role */		rops_close_role_ws,
-	/* close_kill_connection */	rops_close_kill_connection_ws,
-	/* destroy_role */		rops_destroy_role_ws,
-	/* adoption_bind */		NULL,
-	/* client_bind */		NULL,
-	/* issue_keepalive */		rops_issue_keepalive_ws,
+
+	/* rops_table */		rops_table_ws,
+	/* rops_idx */			{
+	  /* LWS_ROPS_check_upgrades */
+	  /* LWS_ROPS_pt_init_destroy */		0x00,
+	  /* LWS_ROPS_init_vhost */
+	  /* LWS_ROPS_destroy_vhost */			0x12,
+	  /* LWS_ROPS_service_flag_pending */
+	  /* LWS_ROPS_handle_POLLIN */			0x34,
+	  /* LWS_ROPS_handle_POLLOUT */
+	  /* LWS_ROPS_perform_user_POLLOUT */		0x50,
+	  /* LWS_ROPS_callback_on_writable */
+	  /* LWS_ROPS_tx_credit */			0x60,
+	  /* LWS_ROPS_write_role_protocol */
+	  /* LWS_ROPS_encapsulation_parent */		0x70,
+	  /* LWS_ROPS_alpn_negotiated */
+	  /* LWS_ROPS_close_via_role_protocol */	0x08,
+	  /* LWS_ROPS_close_role */
+	  /* LWS_ROPS_close_kill_connection */		0x9a,
+	  /* LWS_ROPS_destroy_role */
+	  /* LWS_ROPS_adoption_bind */			0xb0,
+	  /* LWS_ROPS_client_bind */
+	  /* LWS_ROPS_issue_keepalive */		0x0c,
+					},
+
 	/* adoption_cb clnt, srv */	{ LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED,
 					  LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED },
 	/* rx_cb clnt, srv */		{ LWS_CALLBACK_CLIENT_RECEIVE,

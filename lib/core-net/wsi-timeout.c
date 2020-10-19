@@ -308,8 +308,9 @@ lws_validity_cb(lws_sorted_usec_list_t *sul)
 
 	lwsl_info("%s: wsi %p: scheduling validity check\n", __func__, wsi);
 
-	if (wsi->role_ops && wsi->role_ops->issue_keepalive)
-		wsi->role_ops->issue_keepalive(wsi, 0);
+	if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_issue_keepalive))
+		lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_issue_keepalive).
+							issue_keepalive(wsi, 0);
 
 	/*
 	 * We arrange to come back here after the additional ping to hangup time
@@ -368,6 +369,8 @@ lws_validity_confirmed(struct lws *wsi)
 	 * validity was confirmed.
 	 */
 	if (!wsi->h2_stream_carries_ws && /* only if not encapsulated */
-	    wsi->role_ops && wsi->role_ops->issue_keepalive)
-		wsi->role_ops->issue_keepalive(wsi, 1);
+	    wsi->role_ops &&
+	    lws_rops_fidx(wsi->role_ops, LWS_ROPS_issue_keepalive))
+		lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_issue_keepalive).
+							issue_keepalive(wsi, 1);
 }
