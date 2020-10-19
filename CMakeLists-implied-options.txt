@@ -77,6 +77,7 @@ if(LWS_WITH_DISTRO_RECOMMENDED)
 	set(LWS_WITH_HTTP2 1)				# selfcontained
 	set(LWS_WITH_LWSWS 1)				# libuv
 	set(LWS_WITH_CGI 1)				# selfcontained
+	set(LWS_WITH_HTTP_STREAM_COMPRESSION 1)		# libz and brotli if avail
 	set(LWS_IPV6 1)					# selfcontained
 	set(LWS_WITH_ZIP_FOPS 1)			# libz
 	set(LWS_WITH_SOCKS5 1)				# selfcontained
