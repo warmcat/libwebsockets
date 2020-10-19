@@ -1566,8 +1566,10 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	lws_ssl_close(wsi);
 #endif
 
-	if (wsi->role_ops && wsi->role_ops->close_kill_connection)
-		wsi->role_ops->close_kill_connection(wsi, 1);
+	if (wsi->role_ops &&
+	    lws_rops_fidx(wsi->role_ops, LWS_ROPS_close_kill_connection))
+		lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_close_kill_connection).
+						close_kill_connection(wsi, 1);
 
 	if (wsi->a.context->event_loop_ops->close_handle_manually)
 		wsi->a.context->event_loop_ops->close_handle_manually(wsi);

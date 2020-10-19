@@ -516,9 +516,11 @@ lws_partial_buffered(struct lws *wsi)
 lws_fileofs_t
 lws_get_peer_write_allowance(struct lws *wsi)
 {
-	if (!wsi->role_ops->tx_credit)
+	if (!lws_rops_fidx(wsi->role_ops, LWS_ROPS_tx_credit))
 		return -1;
-	return wsi->role_ops->tx_credit(wsi, LWSTXCR_US_TO_PEER, 0);
+
+	return lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_tx_credit).
+				   tx_credit(wsi, LWSTXCR_US_TO_PEER, 0);
 }
 
 void
@@ -1417,8 +1419,9 @@ lws_wsi_txc_describe(struct lws_tx_credit *txc, const char *at, uint32_t sid)
 int
 lws_wsi_tx_credit(struct lws *wsi, char peer_to_us, int add)
 {
-	if (wsi->role_ops && wsi->role_ops->tx_credit)
-		return wsi->role_ops->tx_credit(wsi, peer_to_us, add);
+	if (wsi->role_ops && lws_rops_fidx(wsi->role_ops, LWS_ROPS_tx_credit))
+		return lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_tx_credit).
+				   tx_credit(wsi, peer_to_us, add);
 
 	return 0;
 }
