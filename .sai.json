@@ -5,6 +5,15 @@
 	# has somewhere to go to find its /usr/share content like certs
 
 	"platforms": {
+		"linux-debian-buster/x86_64-amd/gcc": {
+			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G DEB\";cmake .. ${cmake} && make -j && make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}"
+		},
+		"linux-debian-sid/x86_64-amd/gcc": {
+			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G DEB\";cmake .. ${cmake} && make -j && make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}"
+		},
+		"linux-debian-sid/x86-amd/gcc": {
+			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G DEB\";cmake .. ${cmake} && make -j && make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}"
+		},
 		"linux-ubuntu-1804/x86_64-amd/gcc": {
 			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G DEB\";cmake .. ${cmake} && make -j && make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}"
 		},
