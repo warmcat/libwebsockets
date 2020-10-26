@@ -74,6 +74,8 @@
 #include <string.h>
 #include <fcntl.h>
 
+#include <sys/stat.h>
+
 struct per_vhost_data__raw_test {
 	struct lws_context *context;
 	struct lws_vhost *vhost;
