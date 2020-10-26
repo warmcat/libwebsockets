@@ -117,6 +117,10 @@
 			"cmake":	"-DUNIX_SOCK=1",
 			"platforms":	"windows-10/x86_64-amd/msvc"
 		},
+		"plugins": {
+			"cmake":	"-DLWS_WITH_PLUGINS=1",
+			"platforms":	"none,linux-fedora-32/x86_64-amd/gcc,linux-debian-sid/x86-amd/gcc,linux-debian-sid/x86_64-amd/gcc"
+		},
 		"lws_system": {
 			"cmake":	"-DLWS_WITH_ACME=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DCMAKE_BUILD_TYPE=RELEASE -DLWS_WITH_GENCRYPTO=1 -DLWS_WITH_JOSE=1 -DLWS_WITH_SYS_ASYNC_DNS=1 -DLWS_WITH_SYS_NTPCLIENT=1",
 			"platforms":	"windows-10/x86_64-amd/msvc"
