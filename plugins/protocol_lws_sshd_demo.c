@@ -29,6 +29,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <fcntl.h>
 
 #define TEST_SERVER_KEY_PATH "/etc/lws-test-sshd-server-key"
 
