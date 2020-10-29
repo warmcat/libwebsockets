@@ -159,7 +159,7 @@
 			"platforms":	"not linux-centos-8/x86_64-amd/gcc"
 		},
 		"noserver": {
-			"cmake":	"-DLWS_WITHOUT_SERVER=ON -DLWS_WITH_MINIMAL_EXAMPLES=1"
+			"cmake":	"-DLWS_WITHOUT_SERVER=ON -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_SECURE_STREAMS=1"
 		},
 		"noclient": {
 			"cmake":	"-DLWS_WITHOUT_CLIENT=ON -DLWS_WITH_MINIMAL_EXAMPLES=1"

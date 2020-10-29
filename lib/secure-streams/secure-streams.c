@@ -879,12 +879,14 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 	lws_free_set_NULL(h);
 }
 
+#if defined(LWS_WITH_SERVER)
 void
 lws_ss_server_ack(struct lws_ss_handle *h, int nack)
 {
 	h->txn_resp = nack;
 	h->txn_resp_set = 1;
 }
+#endif
 
 lws_ss_state_return_t
 lws_ss_request_tx(lws_ss_handle_t *h)
