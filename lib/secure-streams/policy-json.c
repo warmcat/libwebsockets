@@ -869,7 +869,7 @@ lws_ss_policy_parse(struct lws_context *context, const uint8_t *buf, size_t len)
 		return m;
 
 	lwsl_err("%s: parse failed line %u: %d: %s\n", __func__,
-			args->jctx.line, m, lejp_error_to_string(m));
+		 (unsigned int)args->jctx.line, m, lejp_error_to_string(m));
 	lws_ss_policy_parse_abandon(context);
 	assert(0);
 
