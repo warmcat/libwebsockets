@@ -411,3 +411,8 @@ if (LWS_WITH_PLUGINS OR (LWS_WITH_EVLIB_PLUGINS AND LWS_WITH_EVENT_LIBS))
 	set(LWS_WITH_PLUGINS_API 1)
 endif()
 
+if (WIN32 AND NOT LWS_EXT_PTHREAD_LIBRARIES)
+        message("SMD requires pthreads")
+        set(LWS_WITH_SYS_SMD 0)
+endif()
+
