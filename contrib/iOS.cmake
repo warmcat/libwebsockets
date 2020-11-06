@@ -4,7 +4,7 @@
 
 # Options:
 #
-# IOS_PLATFORM = OS (default) or SIMULATOR or SIMULATOR64
+# IOS_PLATFORM = OS (default) or OS32 or SIMULATOR or SIMULATOR64
 #   This decides if SDKS will be selected from the iPhoneOS.platform or iPhoneSimulator.platform folders
 #   OS - the default, used to build for iPhone and iPad physical devices, which have an arm arch.
 #   SIMULATOR - used to build for the Simulator platforms, which have an x86 arch.
@@ -122,6 +122,11 @@ if (${IOS_PLATFORM} STREQUAL "OS")
 
 	# This causes the installers to properly locate the output libraries
 	set (CMAKE_XCODE_EFFECTIVE_PLATFORMS "-iphoneos")
+elseif (${IOS_PLATFORM} STREQUAL "OS32")
+	set (IOS_PLATFORM_LOCATION "iPhoneOS.platform")
+
+	# This causes the installers to properly locate the output libraries
+	set (CMAKE_XCODE_EFFECTIVE_PLATFORMS "-iphoneos")
 elseif (${IOS_PLATFORM} STREQUAL "SIMULATOR")
     set (IS_SIMULATOR true)
 	set (IOS_PLATFORM_LOCATION "iPhoneSimulator.platform")
@@ -172,6 +177,8 @@ set (CMAKE_OSX_SYSROOT ${CMAKE_IOS_SDK_ROOT} CACHE PATH "Sysroot used for iOS su
 # set the architecture for iOS 
 if (${IOS_PLATFORM} STREQUAL "OS")
     set (IOS_ARCH arm64)
+elseif (${IOS_PLATFORM} STREQUAL "OS32")
+	set (IOS_ARCH armv7)
 elseif (${IOS_PLATFORM} STREQUAL "SIMULATOR")
     set (IOS_ARCH i386)
 elseif (${IOS_PLATFORM} STREQUAL "SIMULATOR64")
