@@ -694,6 +694,11 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 		i.vhost_name	= h->policy->streamtype;
 		i.port		= h->policy->port;
 
+		if (i.iface[0] == '+') {
+			i.iface++;
+			i.options |= LWS_SERVER_OPTION_UNIX_SOCK;
+		}
+
 		if (!ss_pcols[h->policy->protocol]) {
 			lwsl_err("%s: unsupp protocol", __func__);
 			goto late_bail;
