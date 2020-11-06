@@ -1468,15 +1468,12 @@ lws_http_cookie_get(struct lws *wsi, const char *name, char *buf,
 	char *p, *bo = buf;
 
 	n = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE);
-	lwsl_notice("%s: cookie hdr len %d\n", __func__, n);
 	if (n < bl + 1)
 		return 1;
 
 	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COOKIE);
 	if (!p)
 		return 1;
-
-	lwsl_hexdump_notice(p, n);
 
 	p += bl;
 	n -= bl;
@@ -1517,7 +1514,7 @@ lws_jwt_get_http_cookie_validate_jwt(struct lws *wsi,
 	/* first use out to hold the encoded JWT */
 
 	if (lws_http_cookie_get(wsi, i->cookie_name, out, out_len)) {
-		lwsl_notice("%s: cookie %s not provided\n", __func__,
+		lwsl_debug("%s: cookie %s not provided\n", __func__,
 				i->cookie_name);
 		return 1;
 	}
@@ -1526,7 +1523,7 @@ lws_jwt_get_http_cookie_validate_jwt(struct lws *wsi,
 
 	if (lws_jwt_signed_validate(wsi->a.context, i->jwk, i->alg, out,
 				    *out_len, temp, sizeof(temp), out, &cml)) {
-		lwsl_notice("%s: jwt validation failed\n", __func__);
+		lwsl_info("%s: jwt validation failed\n", __func__);
 		return 1;
 	}
 
@@ -1552,9 +1549,7 @@ lws_jwt_get_http_cookie_validate_jwt(struct lws *wsi,
 	if (cp)
 		i->extra_json = cp;
 
-	if (cp)
-		lwsl_hexdump_notice(cp, i->extra_json_len);
-	else
+	if (!cp)
 		lwsl_notice("%s: no ext JWT payload\n", __func__);
 
 	return 0;

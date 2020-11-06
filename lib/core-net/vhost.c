@@ -161,7 +161,6 @@ lws_role_call_adoption_bind(struct lws *wsi, int type, const char *prot)
 			return 0;
 		}
 
-
 		lwsl_warn("%s: adoption bind to role '%s', "
 			  "protocol '%s', type 0x%x, failed\n", __func__,
 			  wsi->a.vhost->listen_accept_role, prot, type);
