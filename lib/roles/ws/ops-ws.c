@@ -1848,7 +1848,7 @@ do_more_inside_frame:
 
 		assert(encap != wsi);
 
-		lws_rops_func_fidx(encap->role_ops,
+		return lws_rops_func_fidx(encap->role_ops,
 				   LWS_ROPS_write_role_protocol).
 					write_role_protocol(wsi, buf - pre,
 							    len + pre, wp);
