@@ -110,6 +110,47 @@ lws_buflist_linear_copy(struct lws_buflist **head, size_t ofs, uint8_t *buf,
 			size_t len);
 
 /**
+ * lws_buflist_linear_use(): copy and consume from buflist head
+ *
+ * \param head: list head
+ * \param buf: buffer to copy linearly into
+ * \param len: length of buffer available
+ *
+ * Copies a possibly fragmented buflist from the head into the linear output
+ * buffer \p buf for up to length \p len, and consumes the buflist content that
+ * was copied out.
+ *
+ * Since it was consumed, calling again will resume copying out and consuming
+ * from as far as it got the first time.
+ *
+ * Returns the number of bytes written into \p buf.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_buflist_linear_use(struct lws_buflist **head, uint8_t *buf, size_t len);
+
+/**
+ * lws_buflist_fragment_use(): copy and consume <= 1 frag from buflist head
+ *
+ * \param head: list head
+ * \param buf: buffer to copy linearly into
+ * \param len: length of buffer available
+ * \param frag_first: pointer to char written on exit to if this is start of frag
+ * \param frag_fin: pointer to char written on exit to if this is end of frag
+ *
+ * Copies all or part of the fragment at the start of a buflist from the head
+ * into the output buffer \p buf for up to length \p len, and consumes the
+ * buflist content that was copied out.
+ *
+ * Since it was consumed, calling again will resume copying out and consuming
+ * from as far as it got the first time.
+ *
+ * Returns the number of bytes written into \p buf.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_buflist_fragment_use(struct lws_buflist **head, uint8_t *buf,
+			 size_t len, char *frag_first, char *frag_fin);
+
+/**
  * lws_buflist_destroy_all_segments(): free all segments on the list
  *
  * \param head: list head

@@ -197,6 +197,54 @@ lws_buflist_linear_copy(struct lws_buflist **head, size_t ofs, uint8_t *buf,
 	return lws_ptr_diff(buf, obuf);
 }
 
+int
+lws_buflist_linear_use(struct lws_buflist **head, uint8_t *buf, size_t len)
+{
+	uint8_t *obuf = buf;
+	size_t s;
+
+	while (*head && len) {
+		s = (*head)->len - (*head)->pos;
+		if (s > len)
+			s = len;
+		memcpy(buf, ((uint8_t *)((*head) + 1)) +
+			    LWS_PRE + (*head)->pos, s);
+		len -= s;
+		buf += s;
+		lws_buflist_use_segment(head, s);
+	}
+
+	return lws_ptr_diff(buf, obuf);
+}
+
+int
+lws_buflist_fragment_use(struct lws_buflist **head, uint8_t *buf,
+			 size_t len, char *frag_first, char *frag_fin)
+{
+	uint8_t *obuf = buf;
+	size_t s;
+
+	if (!*head)
+		return 0;
+
+	s = (*head)->len - (*head)->pos;
+	if (s > len)
+		s = len;
+
+	if (frag_first)
+		*frag_first = !(*head)->pos;
+
+	if (frag_fin)
+		*frag_fin = (*head)->pos + s == (*head)->len;
+
+	memcpy(buf, ((uint8_t *)((*head) + 1)) + LWS_PRE + (*head)->pos, s);
+	len -= s;
+	buf += s;
+	lws_buflist_use_segment(head, s);
+
+	return lws_ptr_diff(buf, obuf);
+}
+
 #if defined(_DEBUG)
 void
 lws_buflist_describe(struct lws_buflist **head, void *id, const char *reason)
