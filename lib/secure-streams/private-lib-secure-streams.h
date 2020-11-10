@@ -43,8 +43,12 @@ typedef enum {
 
 typedef struct lws_ss_handle {
 	lws_ss_info_t		info;	  /**< copy of stream creation info */
+
 	struct lws_dll2		list;	  /**< pt lists active ss */
 	struct lws_dll2		to_list;  /**< pt lists ss with pending to-s */
+#if defined(LWS_WITH_SERVER)
+	struct lws_dll2		cli_list;  /**< same server clients list */
+#endif
 
 	struct lws_dll2_owner	src_list; /**< sink's list of bound sources */
 

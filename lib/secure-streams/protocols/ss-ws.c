@@ -28,6 +28,9 @@ static int
 secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	     void *in, size_t len)
 {
+#if defined(LWS_WITH_SERVER)
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+#endif
 	lws_ss_handle_t *h = (lws_ss_handle_t *)lws_get_opaque_user_data(wsi);
 	uint8_t buf[LWS_PRE + 1400];
 	lws_ss_state_return_t r;
@@ -64,6 +67,12 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (h->wsi)
 			lws_set_opaque_user_data(h->wsi, NULL);
 		h->wsi = NULL;
+
+#if defined(LWS_WITH_SERVER)
+		lws_pt_lock(pt, __func__);
+		lws_dll2_remove(&h->cli_list);
+		lws_pt_unlock(pt);
+#endif
 
 		if (reason == LWS_CALLBACK_CLIENT_CLOSED) {
 			if (h->policy &&

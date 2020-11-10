@@ -841,6 +841,9 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 	lws_pt_lock(pt, __func__);
 	*ppss = NULL;
 	lws_dll2_remove(&h->list);
+#if defined(LWS_WITH_SERVER)
+		lws_dll2_remove(&h->cli_list);
+#endif
 	lws_dll2_remove(&h->to_list);
 	lws_sul_cancel(&h->sul_timeout);
 
@@ -903,6 +906,19 @@ lws_ss_server_ack(struct lws_ss_handle *h, int nack)
 {
 	h->txn_resp = nack;
 	h->txn_resp_set = 1;
+}
+
+void
+lws_ss_server_foreach_client(struct lws_ss_handle *h, lws_sssfec_cb cb,
+			     void *arg)
+{
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, h->src_list.head) {
+		struct lws_ss_handle *h =
+			lws_container_of(d, struct lws_ss_handle, cli_list);
+
+		cb(h, arg);
+
+	} lws_end_foreach_dll_safe(d, d1);
 }
 #endif
 

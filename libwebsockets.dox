@@ -28,7 +28,6 @@ INHERIT_DOCS           = YES
 SEPARATE_MEMBER_PAGES  = NO
 TAB_SIZE               = 8
 ALIASES                =
-TCL_SUBST              =
 OPTIMIZE_OUTPUT_FOR_C  = YES
 OPTIMIZE_OUTPUT_JAVA   = NO
 OPTIMIZE_FOR_FORTRAN   = NO
@@ -117,7 +116,6 @@ INPUT                  = include/libwebsockets.h \
 			 include/libwebsockets/lws-display.h \
 			 include/libwebsockets/lws-dll2.h \
 			 include/libwebsockets/lws-dsh.h \
-			 include/libwebsockets/lws-esp32.h \
 			 include/libwebsockets/lws-eventlib-exports.h \
 			 include/libwebsockets/lws-freertos.h \
 			 include/libwebsockets/lws-fts.h \
@@ -184,8 +182,6 @@ INPUT                  = include/libwebsockets.h \
 			 ./READMEs/README.crypto-apis.md \
 			 ./READMEs/README.detailed-latency.md \
 			 ./READMEs/README.esp32.md \
-			 ./READMEs/README.generic-sessions.md \
-			 ./READMEs/README.generic-table.md \
 			 ./READMEs/README.h2-long-poll.md \
 			 ./READMEs/README.http-fallback.md \
 			 ./READMEs/README.lws_dll.md \
@@ -245,7 +241,7 @@ HTML_FILE_EXTENSION    = .html
 HTML_HEADER            =
 HTML_FOOTER            =
 HTML_STYLESHEET        =
-HTML_EXTRA_STYLESHEET  =
+HTML_EXTRA_STYLESHEET  = scripts/dox-extra.css
 HTML_EXTRA_FILES       =
 HTML_COLORSTYLE_HUE    = 220
 HTML_COLORSTYLE_SAT    = 100
@@ -376,12 +372,10 @@ GENERATE_TAGFILE       =
 ALLEXTERNALS           = NO
 EXTERNAL_GROUPS        = YES
 EXTERNAL_PAGES         = YES
-PERL_PATH              = /usr/bin/perl
 #---------------------------------------------------------------------------
 # Configuration options related to the dot tool
 #---------------------------------------------------------------------------
 CLASS_DIAGRAMS         = YES
-MSCGEN_PATH            =
 DIA_PATH               =
 HIDE_UNDOC_RELATIONS   = YES
 HAVE_DOT               = NO

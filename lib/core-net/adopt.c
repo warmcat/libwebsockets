@@ -243,6 +243,8 @@ bail:
 int
 lws_adopt_ss_server_accept(struct lws *new_wsi)
 {
+	struct lws_context_per_thread *pt =
+			&new_wsi->a.context->pt[(int)new_wsi->tsi];
 	lws_ss_handle_t *h;
 	void *pv, **ppv;
 
@@ -284,12 +286,21 @@ lws_adopt_ss_server_accept(struct lws *new_wsi)
 	h->wsi = new_wsi;
 	new_wsi->a.opaque_user_data = h;
 	h->info.flags |= LWSSSINFLAGS_ACCEPTED;
-	new_wsi->for_ss = 1; /* indicate wsi should invalidate any ss link to it on close */
+	/* indicate wsi should invalidate any ss link to it on close */
+	new_wsi->for_ss = 1;
 
 	// lwsl_notice("%s: opaq %p, role %s\n", __func__,
 	//		new_wsi->a.opaque_user_data, new_wsi->role_ops->name);
 
 	h->policy = new_wsi->a.vhost->ss_handle->policy;
+
+	/*
+	 * add us to the list of clients that came in from the server
+	 */
+
+	lws_pt_lock(pt, __func__);
+	lws_dll2_add_tail(&h->cli_list, &new_wsi->a.vhost->ss_handle->src_list);
+	lws_pt_unlock(pt);
 
 	/*
 	 * Let's give it appropriate state notifications

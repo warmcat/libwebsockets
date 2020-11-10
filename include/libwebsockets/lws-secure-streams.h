@@ -169,6 +169,13 @@
  *    (*rx) with the client stream's
  */
 
+/** \defgroup secstr Secure Streams
+* ##Secure Streams
+*
+* Secure Streams related apis
+*/
+///@{
+
 #define LWS_SS_MTU 1540
 
 struct lws_ss_handle;
@@ -317,8 +324,8 @@ typedef lws_ss_state_return_t (*lws_sscb_tx)(void *userobj,
 					     uint8_t *buf, size_t *len,
 					     int *flags);
 typedef lws_ss_state_return_t (*lws_sscb_state)(void *userobj, void *h_src,
-			       lws_ss_constate_t state,
-			       lws_ss_tx_ordinal_t ack);
+						lws_ss_constate_t state,
+						lws_ss_tx_ordinal_t ack);
 
 typedef struct lws_ss_info {
 	const char *streamtype; /**< type of stream we want to create */
@@ -362,7 +369,7 @@ typedef struct lws_ss_info {
  *			name from the policy
  *
  * Requests a new secure stream described by \p ssi be created.  If successful,
- * the stream is created, its state callback called with LWSSSCS_CREATING, *ppss
+ * the stream is created, its state callback called with LWSSSCS_CREATING, \p *ppss
  * is set to point to the handle, and it returns 0.  If it failed, it returns
  * nonzero.
  *
@@ -396,7 +403,7 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
  *
  * \param ppss: pointer to lws_ss_t pointer to be destroyed
  *
- * Destroys the lws_ss_t pointed to by *ppss, and sets *ppss to NULL.
+ * Destroys the lws_ss_t pointed to by \p *ppss, and sets \p *ppss to NULL.
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_ss_destroy(struct lws_ss_handle **ppss);
@@ -407,7 +414,7 @@ lws_ss_destroy(struct lws_ss_handle **ppss);
  * \param pss: pointer to lws_ss_t representing stream that wants to transmit
  *
  * Schedules a write on the stream represented by \p pss.  When it's possible to
- * write on this stream, the *tx callback will occur with an empty buffer for
+ * write on this stream, the \p *tx callback will occur with an empty buffer for
  * the stream owner to fill in.
  *
  * Returns 0 or LWSSSSRET_SS_HANDLE_DESTROYED
@@ -422,7 +429,7 @@ lws_ss_request_tx(struct lws_ss_handle *pss);
  * \param len: the length of the write in bytes
  *
  * Schedules a write on the stream represented by \p pss.  When it's possible to
- * write on this stream, the *tx callback will occur with an empty buffer for
+ * write on this stream, the \p *tx callback will occur with an empty buffer for
  * the stream owner to fill in.
  *
  * This api variant should be used when it's possible the payload will go out
@@ -603,7 +610,7 @@ lws_ss_set_metadata(struct lws_ss_handle *h, const char *name,
  * when the policy is using h1 is interpreted to add h1 headers of the given
  * name with the value of the metadata on the left.
  *
- * Return 0 if *value and *len set OK, or nonzero if, eg, metadata name does
+ * Return 0 if \p *value and \p *len set OK, or nonzero if, eg, metadata \p name does
  * not exist on the streamtype.
  *
  * The pointed-to values may only exist until the next time around the event
@@ -613,7 +620,7 @@ LWS_VISIBLE LWS_EXTERN int
 lws_ss_get_metadata(struct lws_ss_handle *h, const char *name,
 		    const void **value, size_t *len);
 
-/*
+/**
  * lws_ss_server_ack() - indicate how we feel about what the server has sent
  *
  * \param h: ss handle of accepted connection
@@ -634,6 +641,24 @@ lws_ss_get_metadata(struct lws_ss_handle *h, const char *name,
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_ss_server_ack(struct lws_ss_handle *h, int nack);
+
+typedef void (*lws_sssfec_cb)(struct lws_ss_handle *h, void *arg);
+
+/**
+ * lws_ss_server_foreach_client() - callback for each live client connected to server
+ *
+ * \param h: server ss handle
+ * \param cb: the callback
+ * \param arg: arg passed to callback
+ *
+ * For SERVER secure streams
+ *
+ * Call the callback \p cb once for each client ss connected to the server,
+ * passing \p arg as an additional callback argument each time.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_ss_server_foreach_client(struct lws_ss_handle *h, lws_sssfec_cb cb,
+			     void *arg);
 
 /**
  * lws_ss_change_handlers() - helper for dynamically changing stream handlers
@@ -688,3 +713,6 @@ lws_ss_add_peer_tx_credit(struct lws_ss_handle *h, int32_t add);
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_ss_get_est_peer_tx_credit(struct lws_ss_handle *h);
+
+///@}
+
