@@ -181,6 +181,7 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 		case LWSSSSRET_DISCONNECT_ME:
 			return -1;
 		case LWSSSSRET_DESTROY_ME:
+			lws_set_opaque_user_data(wsi, NULL);
 			lws_sspc_destroy(&h);
 			return -1;
 		}
