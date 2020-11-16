@@ -725,7 +725,18 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if defined(WIN32) || defined(_WIN32) || defined(LWS_AMAZON_RTOS) || defined(LWS_ESP_PLATFORM)
 	context->max_fds = getdtablesize();
 #else
-	context->max_fds = sysconf(_SC_OPEN_MAX);
+	{
+		long l = sysconf(_SC_OPEN_MAX);
+
+		context->max_fds = 2560;
+
+		if (l > 10000000)
+			lwsl_warn("%s: unreasonable ulimit -n workaround\n",
+				  __func__);
+		else
+			if (l != -1l)
+				context->max_fds = (int)l;
+	}
 #endif
 	if (context->max_fds < 0) {
 		lwsl_err("%s: problem getting process max files\n",
