@@ -302,7 +302,7 @@ elops_io_ev(struct lws *wsi, int flags)
 	struct lws_pt_eventlibs_libev *ptpr = pt_to_priv_ev(pt);
 	struct lws_wsi_eventlibs_libev *w = wsi_to_priv_ev(wsi);
 
-	lwsl_notice("%s: wsi %p %s flags 0x%x %p %d\n", __func__,
+	lwsl_debug("%s: wsi %p %s flags 0x%x %p %d\n", __func__,
 				wsi, wsi->role_ops->name, flags,
 				ptpr->io_loop, pt->is_destroyed);
 
@@ -355,7 +355,7 @@ elops_destroy_context2_ev(struct lws_context *context)
 		if (pt->event_loop_foreign || !ptpr->io_loop)
 			continue;
 
-		if (!context->finalize_destroy_after_internal_loops_stopped) {
+		if (!context->evlib_finalize_destroy_after_int_loops_stop) {
 			ev_break(ptpr->io_loop, EVBREAK_ONE);
 			continue;
 		}

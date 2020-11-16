@@ -319,7 +319,7 @@ done_list:
 			goto bail;
 		}
 
-		vhost->context->count_wsi_allocated++;
+		pt->count_wsi_allocated++;
 		vhost->lserv_wsi = wsi;
 		lws_pt_unlock(pt);
 
@@ -327,7 +327,7 @@ done_list:
 		if (n < 0) {
 			lwsl_err("listen failed with error %d\n", LWS_ERRNO);
 			vhost->lserv_wsi = NULL;
-			vhost->context->count_wsi_allocated--;
+			pt->count_wsi_allocated--;
 			__remove_wsi_socket_from_fds(wsi);
 			goto bail;
 		}

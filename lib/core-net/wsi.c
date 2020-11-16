@@ -194,6 +194,7 @@ struct lws *
 lws_wsi_create_with_role(struct lws_context *context, int tsi,
 			 const struct lws_role_ops *ops)
 {
+	struct lws_context_per_thread *pt = &context->pt[tsi];
 	size_t s = sizeof(struct lws);
 	struct lws *wsi;
 
@@ -218,7 +219,9 @@ lws_wsi_create_with_role(struct lws_context *context, int tsi,
 	wsi->a.vhost = NULL;
 	wsi->desc.sockfd = LWS_SOCK_INVALID;
 
-	context->count_wsi_allocated++;
+	lws_pt_lock(pt, __func__);
+	pt->count_wsi_allocated++;
+	lws_pt_unlock(pt);
 
 	return wsi;
 }
@@ -253,10 +256,14 @@ bail:
 int
 lws_wsi_extract_from_loop(struct lws *wsi)
 {
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+
 	if (lws_socket_is_valid(wsi->desc.sockfd))
 		__remove_wsi_socket_from_fds(wsi);
 
-	wsi->a.context->count_wsi_allocated--;
+	lws_pt_lock(pt, __func__);
+	pt->count_wsi_allocated--;
+	lws_pt_unlock(pt);
 
 	if (!wsi->a.context->event_loop_ops->destroy_wsi &&
 	    wsi->a.context->event_loop_ops->wsi_logical_close) {

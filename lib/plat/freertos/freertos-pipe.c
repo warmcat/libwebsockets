@@ -86,10 +86,10 @@ bail:
 }
 
 int
-lws_plat_pipe_signal(struct lws *wsi)
+lws_plat_pipe_signal(struct lws_context *ctx, int tsi)
 {
-	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-	struct sockaddr_in *si = &wsi->a.context->frt_pipe_si;
+	struct lws_context_per_thread *pt = &ctx->pt[tsi];
+	struct sockaddr_in *si = &ctx->frt_pipe_si;
 	lws_sockfd_type *fd = pt->dummy_pipe_fds;
 	uint8_t u = 0;
 	int n;

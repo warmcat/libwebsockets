@@ -156,9 +156,6 @@ lws_stats_log_dump(struct lws_context *context)
 			context->simultaneous_ssl,
 			context->simultaneous_ssl_restriction);
 
-	lwsl_notice("Live wsi:                      %8d\n",
-			context->count_wsi_allocated);
-
 	while (v) {
 		if (v->lserv_wsi &&
 		    v->lserv_wsi->position_in_fds_table != LWS_NO_FDS_POS) {
@@ -172,6 +169,8 @@ lws_stats_log_dump(struct lws_context *context)
 			lwsl_notice("  Listen port %d actual POLLIN:   %d\n",
 				    v->listen_port,
 				    (int)pfd->events & LWS_POLLIN);
+			lwsl_notice("  Live wsi:                      %8d\n",
+					pt->count_wsi_allocated);
 		}
 
 		v = v->vhost_next;

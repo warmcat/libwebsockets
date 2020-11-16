@@ -455,7 +455,7 @@ elops_destroy_context2_event(struct lws_context *context)
 		if (pt->event_loop_foreign || !ptpr->io_loop)
 			continue;
 
-		if (!context->finalize_destroy_after_internal_loops_stopped) {
+		if (!context->evlib_finalize_destroy_after_int_loops_stop) {
 			event_base_loopexit(ptpr->io_loop, NULL);
 			continue;
 		}

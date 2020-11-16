@@ -1065,7 +1065,7 @@ bail1:
 				wsi->mux.child_list = w->mux.sibling_list;
 				wsi->mux.child_count--;
 
-				w->a.context->count_wsi_allocated--;
+				w->a.context->pt[(int)w->tsi].count_wsi_allocated--;
 
 				if (w->user_space)
 					lws_free_set_NULL(w->user_space);

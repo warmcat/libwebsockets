@@ -173,7 +173,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd);
  * Any direct libuv allocations in lws protocol handlers must participate in the
  * lws reference counting scheme.  Two apis are provided:
  *
- * - lws_libuv_static_refcount_add(handle, context) to mark the handle with
+ * - lws_libuv_static_refcount_add(handle, context, tsi) to mark the handle with
  *  a pointer to the context and increment the global uv object counter
  *
  * - lws_libuv_static_refcount_del() which should be used as the close callback
@@ -187,7 +187,8 @@ LWS_VISIBLE LWS_EXTERN uv_loop_t *
 lws_uv_getloop(struct lws_context *context, int tsi);
 
 LWS_VISIBLE LWS_EXTERN void
-lws_libuv_static_refcount_add(uv_handle_t *, struct lws_context *context);
+lws_libuv_static_refcount_add(uv_handle_t *, struct lws_context *context,
+				int tsi);
 
 LWS_VISIBLE LWS_EXTERN void
 lws_libuv_static_refcount_del(uv_handle_t *);
@@ -195,7 +196,7 @@ lws_libuv_static_refcount_del(uv_handle_t *);
 #endif /* LWS_WITH_LIBUV */
 
 #if defined(LWS_PLAT_FREERTOS)
-#define lws_libuv_static_refcount_add(_a, _b)
+#define lws_libuv_static_refcount_add(_a, _b, _c)
 #define lws_libuv_static_refcount_del NULL
 #endif
 ///@}

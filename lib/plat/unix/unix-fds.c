@@ -174,7 +174,8 @@ delete_from_fd(const struct lws_context *context, int fd)
 	struct lws **p, **done;
 
 	if (!context->max_fds_unrelated_to_ulimit) {
-		context->lws_lookup[fd - lws_plat_socket_offset()] = NULL;
+		if (context->lws_lookup)
+			context->lws_lookup[fd - lws_plat_socket_offset()] = NULL;
 
 		return;
 	}

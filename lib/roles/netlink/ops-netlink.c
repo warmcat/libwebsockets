@@ -330,6 +330,7 @@ rops_pt_init_destroy_netlink(struct lws_context *context,
 	int n;
 
 	if (destroy) {
+
 		/*
 		 * pt netlink wsi closed + freed as part of pt's destroy
 		 * wsi mass close, just need to take down the routing table
@@ -340,6 +341,10 @@ rops_pt_init_destroy_netlink(struct lws_context *context,
 	}
 
 	if (pt->netlink)
+		return 0;
+
+	if (pt > &context->pt[0])
+		/* we can only have one netlink socket */
 		return 0;
 
 	lwsl_info("%s: creating netlink skt\n", __func__);
@@ -376,11 +381,11 @@ rops_pt_init_destroy_netlink(struct lws_context *context,
 	if (lws_wsi_inject_to_loop(pt, wsi))
 		goto bail2;
 
-	if (lws_change_pollfd(wsi, 0, LWS_POLLIN)) {
+/*	if (lws_change_pollfd(wsi, 0, LWS_POLLIN)) {
 		lwsl_err("%s: pollfd in fail\n", __func__);
 		goto bail2;
 	}
-
+*/
 	/*
 	 * Since we're starting the PT, ask to be sent all the existing routes.
 	 *

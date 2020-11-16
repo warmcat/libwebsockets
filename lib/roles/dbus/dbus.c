@@ -102,7 +102,7 @@ __lws_shadow_wsi(struct lws_dbus_ctx *ctx, DBusWatch *w, int fd, int create_ok)
 		return NULL;
 	}
 
-	ctx->vh->context->count_wsi_allocated++;
+	ctx->vh->context->pt[(int)ctx->tsi].count_wsi_allocated++;
 
 	return wsi;
 }
@@ -123,7 +123,7 @@ __lws_shadow_wsi_destroy(struct lws_dbus_ctx *ctx, struct lws *wsi)
 		return 1;
 	}
 
-	ctx->vh->context->count_wsi_allocated--;
+	ctx->vh->context->pt[(int)ctx->tsi].count_wsi_allocated--;
 	lws_vhost_unbind_wsi(wsi);
 
 	lws_free(wsi);

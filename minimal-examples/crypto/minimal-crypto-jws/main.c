@@ -35,7 +35,9 @@ int main(int argc, const char **argv)
 	lwsl_user("LWS JWS example tool\n");
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
+#if defined(LWS_WITH_NETWORK)
 	info.port = CONTEXT_PORT_NO_LISTEN;
+#endif
 	info.options = 0;
 
 	context = lws_create_context(&info);

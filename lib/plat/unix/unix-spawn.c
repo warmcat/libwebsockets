@@ -66,6 +66,7 @@ static struct lws *
 lws_create_basic_wsi(struct lws_context *context, int tsi,
 		     const struct lws_role_ops *ops)
 {
+	struct lws_context_per_thread *pt = &context->pt[tsi];
 	size_t s = sizeof(struct lws);
 	struct lws *new_wsi;
 
@@ -113,7 +114,9 @@ lws_create_basic_wsi(struct lws_context *context, int tsi,
 
 	new_wsi->user_space = NULL;
 	new_wsi->desc.sockfd = LWS_SOCK_INVALID;
-	context->count_wsi_allocated++;
+	lws_pt_lock(pt, __func__);
+	pt->count_wsi_allocated++;
+	lws_pt_unlock(pt);
 
 	return new_wsi;
 }

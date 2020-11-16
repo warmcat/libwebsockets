@@ -47,6 +47,7 @@ lws_get_idlest_tsi(struct lws_context *context)
 struct lws *
 lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi)
 {
+	struct lws_context_per_thread *pt;
 	struct lws *new_wsi;
 	int n = fixed_tsi;
 	size_t s = sizeof(struct lws);
@@ -75,6 +76,7 @@ lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi)
 
 	new_wsi->wsistate |= LWSIFR_SERVER;
 	new_wsi->tsi = n;
+	pt = &vhost->context->pt[n];
 	lwsl_debug("new wsi %p joining vhost %s, tsi %d\n", new_wsi,
 		   vhost->name, new_wsi->tsi);
 
@@ -109,7 +111,9 @@ lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi)
 	new_wsi->desc.sockfd = LWS_SOCK_INVALID;
 	new_wsi->position_in_fds_table = LWS_NO_FDS_POS;
 
-	vhost->context->count_wsi_allocated++;
+	lws_pt_lock(pt, __func__);
+	pt->count_wsi_allocated++;
+	lws_pt_unlock(pt);
 
 	/*
 	 * outermost create notification for wsi
@@ -210,7 +214,9 @@ bail:
 	if (new_wsi->user_space)
 		lws_free(new_wsi->user_space);
 
-	vh->context->count_wsi_allocated--;
+	lws_pt_lock(pt, __func__);
+	pt->count_wsi_allocated--;
+	lws_pt_unlock(pt);
 
 	lws_vhost_unbind_wsi(new_wsi);
 

@@ -158,7 +158,7 @@ lws_state_notify_protocol_init(struct lws_state_manager *mgr,
 	 */
 
 	if (target == LWS_SYSTATE_IFACE_COLDPLUG && !context->nl_initial_done) {
-		lwsl_notice("%s: waiting for netlink coldplug\n", __func__);
+		lwsl_info("%s: waiting for netlink coldplug\n", __func__);
 
 		return 1;
 	}
@@ -597,7 +597,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 
 #if defined(LWS_WITH_NETWORK)
-	context->count_threads = count_threads;
+	context->undestroyed_threads = context->count_threads = count_threads;
 #if defined(LWS_WITH_DETAILED_LATENCY)
 	context->detailed_latency_cb = info->detailed_latency_cb;
 	context->detailed_latency_filepath = info->detailed_latency_filepath;
@@ -1320,131 +1320,327 @@ lws_context_is_deprecated(struct lws_context *cx)
  *     destroys the context itself, setting what was info.pcontext to NULL.
  */
 
-/*
- * destroy the actual context itself
- */
-
-static void
-lws_context_destroy3(struct lws_context *context)
-{
-	struct lws_context **pcontext_finalize = context->pcontext_finalize;
-	int n;
 
 #if defined(LWS_WITH_NETWORK)
-
-	context->finalize_destroy_after_internal_loops_stopped = 1;
-	if (context->event_loop_ops->destroy_context2)
-		context->event_loop_ops->destroy_context2(context);
-
-	for (n = 0; n < context->count_threads; n++) {
-		struct lws_context_per_thread *pt = &context->pt[n];
-		(void)pt;
-#if defined(LWS_WITH_SEQUENCER)
-		lws_seq_destroy_all_on_pt(pt);
-#endif
-		LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar) {
-			if (lws_rops_fidx(ar, LWS_ROPS_pt_init_destroy))
-				(lws_rops_func_fidx(ar, LWS_ROPS_pt_init_destroy)).
-						pt_init_destroy(context, NULL, pt, 1);
-		} LWS_FOR_EVERY_AVAILABLE_ROLE_END;
-
+static void
+lws_pt_destroy(struct lws_context_per_thread *pt)
+{
+	volatile struct lws_foreign_thread_pollfd *ftp, *next;
+	volatile struct lws_context_per_thread *vpt;
 #if defined(LWS_WITH_CGI)
+	lws_ctx_t ctx = pt->context;
+
 		if (lws_rops_fidx(&role_ops_cgi, LWS_ROPS_pt_init_destroy))
 			(lws_rops_func_fidx(&role_ops_cgi, LWS_ROPS_pt_init_destroy)).
-				pt_init_destroy(context, NULL, pt, 1);
+				pt_init_destroy(ctx, NULL, pt, 1);
 #endif
+	vpt = (volatile struct lws_context_per_thread *)pt;
+	ftp = vpt->foreign_pfd_list;
+	while (ftp) {
+		next = ftp->next;
+		lws_free((void *)ftp);
+		ftp = next;
+	}
+	vpt->foreign_pfd_list = NULL;
+
+	lws_pt_lock(pt, __func__);
+	if (pt->pipe_wsi) {
+		lws_destroy_event_pipe(pt->pipe_wsi);
+		pt->pipe_wsi = NULL;
+	}
+
+#if defined(LWS_WITH_SECURE_STREAMS)
+	lws_dll2_foreach_safe(&pt->ss_owner, NULL, lws_ss_destroy_dll);
+
+#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API) && defined(LWS_WITH_CLIENT)
+	lws_dll2_foreach_safe(&pt->ss_client_owner, NULL, lws_sspc_destroy_dll);
+#endif
+
+#if defined(LWS_WITH_SEQUENCER)
+	lws_seq_destroy_all_on_pt(pt);
+#endif
+
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 		while (pt->http.ah_list)
 			_lws_destroy_ah(pt, pt->http.ah_list);
 #endif
-	}
 
-#if defined(LWS_WITH_SYS_SMD)
-	_lws_smd_destroy(context);
 #endif
 
-#if defined(LWS_WITH_SYS_ASYNC_DNS)
-	lws_async_dns_deinit(&context->async_dns);
-#endif
-#if defined(LWS_WITH_SYS_DHCP_CLIENT)
-	lws_dhcpc_remove(context, NULL);
-#endif
+	lws_pt_unlock(pt);
+	pt->pipe_wsi = NULL;
 
-	if (context->pt[0].fds)
-		lws_free_set_NULL(context->pt[0].fds);
-#endif
-	lws_context_deinit_ssl_library(context);
-
-#if defined(LWS_WITH_DETAILED_LATENCIES)
-	if (context->latencies_fd != -1)
-		compatible_close(context->latencies_fd);
-#endif
-
-	for (n = 0; n < LWS_SYSBLOB_TYPE_COUNT; n++)
-		lws_system_blob_destroy(
-				lws_system_get_blob(context, n, 0));
-
-#if LWS_MAX_SMP > 1
-	lws_mutex_refcount_destroy(&context->mr);
-#endif
-
-	/* drop any lingering deferred vhost frees */
-
-	while (context->deferred_free_list) {
-		struct lws_deferred_free *df = context->deferred_free_list;
-
-		context->deferred_free_list = df->next;
-		lws_free(df);
-	};
-
-#if defined(LWS_WITH_EVLIB_PLUGINS) && defined(LWS_WITH_EVENT_LIBS)
-	if (context->evlib_plugin_list)
-		lws_plugins_destroy(&context->evlib_plugin_list, NULL, NULL);
-#endif
-
-	lws_free(context);
-	lwsl_debug("%s: ctx %p freed\n", __func__, context);
-
-	if (pcontext_finalize)
-		*pcontext_finalize = NULL;
 }
+#endif
 
 /*
- * really start destroying things
+ * Context destruction is now a state machine that's aware of SMP pts and
+ * various event lib approaches.
+ *
+ * lws_context_destroy() expects to be called at the end of the user code's
+ * usage of it.  But it can also be called non-finally, as a way to stop
+ * service and exit the outer user service loop, and then complete in the
+ * final call.
+ *
+ * For libuv, with async close, it must decide by refcounting the hamdles on
+ * the loop if it has extricated itself from the loop and can be destroyed.
+ *
+ * The various entry states for the staged destroy
+ *
+ * LWSCD_NO_DESTROY: begin destroy process
+ * 	- mark context as starting destroy process
+ * 	- start vhost destroy
+ * 	- stop any further user protocol service
+ *
+ * LWSCD_PT_WAS_DEFERRED: come back here if any pt inside service
+ * 	- Check for pts that are inside service loop, mark deferral needed if so
+ * 	- If not, close all wsi on the pt loop and start logical pt destroy
+ * 	- If any deferred, set state to LWSCD_PT_WAS_DEFERRED and exit
+ *
+ * LWSCD_PT_WAIT_ALL_DESTROYED: come back here for async loop / pt closes
+ * 	- exit if any pt not marked as unused, or destroyed
+ * 	- if all pt down, call into evlib to advance context destroy
+ * 	- finalize vhost destruction
+ * 	- finalize pt destruction
+ *	- if foreign loops, set state to LWSCD_FINALIZATION and exit
+ *
+ * LWSCD_FINALIZATION: come back here at final lws_destroy_context() call
+ *	- destroy sundries
+ *	- destroy and free the actual context
  */
 
 void
-lws_context_destroy2(struct lws_context *context)
+lws_context_destroy(struct lws_context *context)
 {
+	struct lws_context **pcontext_finalize;
 #if defined(LWS_WITH_NETWORK)
+	struct lws_context_per_thread *pt;
 	struct lws_vhost *vh = NULL, *vh1;
-	int n;
+	int alive = 0, deferred_pt = 0;
 #endif
 #if defined(LWS_WITH_PEER_LIMITS)
 	uint32_t nu;
 #endif
+	int n;
 
-	lwsl_info("%s: ctx %p\n", __func__, context);
+	if (!context || context->inside_context_destroy)
+		return;
 
-	lws_context_lock(context, "context destroy 2"); /* ------ context { */
+	pcontext_finalize = context->pcontext_finalize;
 
-	context->being_destroyed2 = 1;
+	lws_context_lock(context, __func__);
+	context->inside_context_destroy = 1;
+
+	lwsl_info("%s: destroy_state %d\n", __func__, context->destroy_state);
+
+	switch (context->destroy_state) {
+	case LWSCD_NO_DESTROY:
+		/*
+		 * We're getting started
+		 */
+
+		lwsl_info("%s: starting context destroy flow\n", __func__);
+		context->being_destroyed = 1;
+
+#if defined(LWS_WITH_NETWORK)
+		/*
+		 * Close any vhost listen wsi
+		 *
+		 * inform all the protocols that they are done and will have no
+		 * more callbacks.
+		 *
+		 * We can't free things until after the event loop shuts down.
+		 */
+
+		if (context->protocol_init_done)
+			vh = context->vhost_list;
+
+		while (vh) {
+			lwsl_info("%s: vh %s start close\n", __func__, vh->name);
+			vh1 = vh->vhost_next;
+			lws_vhost_destroy1(vh);
+			vh = vh1;
+		}
+#endif
+
+		lws_plat_context_early_destroy(context);
+
+		context->service_no_longer_possible = 1;
+		context->requested_stop_internal_loops = 1;
+
+		/* fallthru */
+
+	case LWSCD_PT_WAS_DEFERRED:
+
 #if defined(LWS_WITH_NETWORK)
 
-	/*
-	 * We're going to trash things like vhost-protocols
-	 * So we need to finish dealing with wsi close that
-	 * might make callbacks first
-	 */
-	for (n = 0; n < context->count_threads; n++) {
-		struct lws_context_per_thread *pt = &context->pt[n];
+		/*
+		 * We want to mark the pts as their destruction having been
+		 * initiated, so they will reject any new wsi, and iterate all
+		 * existing pt wsi starting to close them.
+		 *
+		 * If the event loop has async close, we have to return after
+		 * this and try again when all the loops stop after all the
+		 * refcounted wsi are gone.
+		 */
 
-		(void)pt;
+		pt = context->pt;
+		for (n = 0; n < context->count_threads; n++) {
+			lws_pt_lock(pt, __func__);
 
-#if defined(LWS_WITH_SECURE_STREAMS)
-		lws_dll2_foreach_safe(&pt->ss_owner, NULL, lws_ss_destroy_dll);
-#if !defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
+			/* evlib will realize it needs to destroy pt */
+			pt->destroy_self = 1;
+
+			if (pt->inside_lws_service) {
+				pt->event_loop_pt_unused = 1;
+				deferred_pt = 1;
+				goto next;
+			}
+
+			/*
+			 * Close every handle in the fds
+			 */
+
+			while (pt->fds_count) {
+				struct lws *wsi = wsi_from_fd(context,
+							      pt->fds[0].fd);
+
+				if (wsi) {
+
+					lwsl_debug("%s: pt %d: closing wsi %p\n",
+							__func__, n, wsi);
+
+					lws_close_free_wsi(wsi,
+						LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY,
+						"ctx destroy"
+						/* no protocol close */);
+
+					if (pt->pipe_wsi == wsi)
+						pt->pipe_wsi = NULL;
+				}
+			}
+
+#if defined(LWS_WITH_CGI)
+			(lws_rops_func_fidx(&role_ops_cgi,
+					    LWS_ROPS_pt_init_destroy)).
+					    pt_init_destroy(context, NULL,
+							    pt, 1);
+#endif
+
+			/*
+			 * This closes handles that belong to the evlib pt
+			 * footprint, eg, timers, idle
+			 */
+
+			if (context->event_loop_ops->destroy_pt) {
+				lwsl_info("%s: calling evlib destroy_pt %d\n",
+						__func__, n);
+				context->event_loop_ops->destroy_pt(context, n);
+			}
+
+next:
+			lws_pt_unlock(pt);
+
+			pt++;
+		}
+
+		if (deferred_pt) {
+			context->destroy_state = LWSCD_PT_WAS_DEFERRED;
+			lwsl_notice("%s: destroy from inside service\n", __func__);
+			lws_cancel_service(context);
+			goto bail;
+		}
+#endif
+		context->destroy_state = LWSCD_PT_WAIT_ALL_DESTROYED;
+
+		/*
+		 * We have different needs depending if foreign loop or not.
+		 *
+		 * 1) If foreign loop, we really want to advance the
+		 *    destroy_context() past here, and block only for libuv-
+		 *    style async close completion.
+		 *
+		 * 2a) If poll, and we exited by ourselves and are calling a
+		 *     final destroy_context() outside of any service already,
+		 *     we want to advance all the way in one step.
+		 *
+		 * 2b) If poll, and we are reacting to a SIGINT, service
+		 *     thread(s) may be in poll wait or servicing.  We can't
+		 *     advance the destroy_context() to the point it's freeing
+		 *     things; we have to leave that for the final
+		 *     destroy_context() after the service thread(s) are
+		 *     finished calling for service.
+		 */
+
+#if defined(LWS_WITH_NETWORK)
+		if (context->event_loop_ops->destroy_context1) {
+			lwsl_info("%s: do evlib destroy_context1 and wait\n",
+					__func__);
+			context->event_loop_ops->destroy_context1(context);
+
+			goto bail;
+		}
+
+		/*
+		 * ...if the more typical sync close, we can clean up the pts
+		 * now ourselves...
+		 */
+
+		lwsl_info("%s: manually destroying pts\n", __func__);
+
+		pt = context->pt;
+		for (n = 0; n < context->count_threads; n++, pt++) {
+			pt->event_loop_pt_unused = 1;
+			lws_pt_destroy(pt);
+		}
+#endif
+		/* fallthru */
+
+	case LWSCD_PT_WAIT_ALL_DESTROYED:
+
+#if defined(LWS_WITH_NETWORK)
+
+		for (n = 0; n < context->count_threads; n++)
+			if (!context->pt[n].is_destroyed &&
+			    !context->pt[n].event_loop_pt_unused)
+				alive++;
+
+		lwsl_info("%s: PT_WAIT_ALL_DESTROYED: %d alive\n", __func__,
+				alive);
+
+		if (alive)
+			break;
+
+		/*
+		 * With foreign loops, removing all our fds from the loop
+		 * means there are no more ways for the foreign loop to give
+		 * us any further CPU once we leave here... so we must make
+		 * sure related service threads are exiting so we can pick up
+		 * again at the original app thread and do the context
+		 * destroy completion
+		 */
+
+		/*
+		 * evlib specific loop destroy?
+		 */
+		if (context->event_loop_ops->destroy_context2)
+			/*
+			 * He returns nonzero to indicate the evlib must
+			 * continue around the loop before destroy of it is
+			 * completed so it can be freed
+			 */
+			context->event_loop_ops->destroy_context2(context);
+		context->requested_stop_internal_loops = 1;
+#endif
+
+		/*
+		 * Every pt and wsi that may depend on the logical vhosts
+		 * is destroyed.  We can remove the logical vhosts.
+		 */
+
+#if defined(LWS_WITH_NETWORK) && defined(LWS_WITH_SECURE_STREAMS) && \
+	!defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
 
 		while (context->server_der_list) {
 			struct lws_ss_x509 *x = context->server_der_list;
@@ -1456,288 +1652,217 @@ lws_context_destroy2(struct lws_context *context)
 		if (context->ac_policy)
 			lwsac_free(&context->ac_policy);
 #endif
-#endif
 
-#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API) && defined(LWS_WITH_CLIENT)
-		lws_dll2_foreach_safe(&pt->ss_client_owner, NULL, lws_sspc_destroy_dll);
-#endif
-
-#if defined(LWS_WITH_SEQUENCER)
-		lws_seq_destroy_all_on_pt(pt);
-#endif
-		LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar) {
-			if (lws_rops_fidx(ar, LWS_ROPS_pt_init_destroy))
-				(lws_rops_func_fidx(ar, LWS_ROPS_pt_init_destroy)).
-						pt_init_destroy(context, NULL, pt, 1);
-		} LWS_FOR_EVERY_AVAILABLE_ROLE_END;
-
-#if defined(LWS_WITH_CGI)
-		if (lws_rops_fidx(&role_ops_cgi, LWS_ROPS_pt_init_destroy))
-			(lws_rops_func_fidx(&role_ops_cgi, LWS_ROPS_pt_init_destroy)).
-				pt_init_destroy(context, NULL, pt, 1);
-#endif
-
-		if (context->event_loop_ops->destroy_pt)
-			context->event_loop_ops->destroy_pt(context, n);
-
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-		while (pt->http.ah_list)
-			_lws_destroy_ah(pt, pt->http.ah_list);
-#endif
-	}
-
-	/*
-	 * free all the per-vhost allocations
-	 */
-
-	vh = context->vhost_list;
-	while (vh) {
-		vh1 = vh->vhost_next;
-		__lws_vhost_destroy2(vh);
-		vh = vh1;
-	}
-
-	lwsl_debug("%p: post vh listl\n", __func__);
-
-	/* remove ourselves from the pending destruction list */
-
-	while (context->vhost_pending_destruction_list)
-		/* removes itself from list */
-		__lws_vhost_destroy2(context->vhost_pending_destruction_list);
-#endif
-
-	lwsl_debug("%p: post pdl\n", __func__);
-
-	lws_stats_log_dump(context);
-#if defined(LWS_WITH_NETWORK)
-	lws_ssl_context_destroy(context);
-#endif
-	lws_plat_context_late_destroy(context);
-
-#if defined(LWS_WITH_PEER_LIMITS)
-	for (nu = 0; nu < context->pl_hash_elements; nu++)	{
-		lws_start_foreach_llp(struct lws_peer **, peer,
-				      context->pl_hash_table[nu]) {
-			struct lws_peer *df = *peer;
-			*peer = df->next;
-			lws_free(df);
-			continue;
-		} lws_end_foreach_llp(peer, next);
-	}
-	lws_free(context->pl_hash_table);
-#endif
-
-	lwsl_debug("%p: baggage\n", __func__);
-
-	if (context->external_baggage_free_on_destroy)
-		free(context->external_baggage_free_on_destroy);
-
-#if defined(LWS_WITH_NETWORK)
-	lws_check_deferred_free(context, 0, 1);
-#endif
-
-	lws_context_unlock(context); /* } context ------ */
-
-#if defined(LWS_WITH_NETWORK)
-	if (context->event_loop_ops->destroy_context2)
-		if (context->event_loop_ops->destroy_context2(context)) {
-			context->finalize_destroy_after_internal_loops_stopped = 1;
-			return;
-		}
-
-	lwsl_debug("%p: post dc2\n", __func__);
-
-//	if (!context->pt[0].event_loop_foreign) {
-//		int n;
-		for (n = 0; n < context->count_threads; n++)
-			if (context->pt[n].inside_service) {
-				lwsl_debug("%p: bailing as inside service\n", __func__);
-				return;
-			}
-//	}
-#endif
-
-	lws_context_destroy3(context);
-}
-
-#if defined(LWS_WITH_NETWORK)
-static void
-lws_pt_destroy(struct lws_context_per_thread *pt)
-{
-	volatile struct lws_foreign_thread_pollfd *ftp, *next;
-	volatile struct lws_context_per_thread *vpt;
-
-	assert(!pt->is_destroyed);
-	pt->destroy_self = 0;
-
-	vpt = (volatile struct lws_context_per_thread *)pt;
-	ftp = vpt->foreign_pfd_list;
-	while (ftp) {
-		next = ftp->next;
-		lws_free((void *)ftp);
-		ftp = next;
-	}
-	vpt->foreign_pfd_list = NULL;
-
-	lws_pt_lock(pt, __func__);
-	if (pt->pipe_wsi)
-		lws_destroy_event_pipe(pt->pipe_wsi);
-	lws_pt_unlock(pt);
-	pt->pipe_wsi = NULL;
-
-	while (pt->fds_count) {
-		struct lws *wsi = wsi_from_fd(pt->context, pt->fds[0].fd);
-
-		if (!wsi)
-			break;
-
-		lws_close_free_wsi(wsi,
-				LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY,
-				"ctx destroy"
-				/* no protocol close */);
-	}
-	lws_pt_mutex_destroy(pt);
-
-	pt->is_destroyed = 1;
-
-	lwsl_info("%s: pt destroyed\n", __func__);
-}
-#endif
-
-/*
- * Begin the context takedown
- */
-
-void
-lws_context_destroy(struct lws_context *context)
-{
-#if defined(LWS_WITH_NETWORK)
-	struct lws_vhost *vh = NULL;
-	int m, deferred_pt = 0;
-#endif
-
-	if (!context || context->inside_context_destroy)
-		return;
-
-	context->inside_context_destroy = 1;
-
-#if defined(LWS_WITH_NETWORK)
-	if (context->finalize_destroy_after_internal_loops_stopped) {
-		if (context->event_loop_ops->destroy_context2)
-			context->event_loop_ops->destroy_context2(context);
-		lws_context_destroy3(context);
-		/* context is invalid, no need to reset inside flag */
-		return;
-	}
-#endif
-	if (context->being_destroyed1) {
-		if (!context->being_destroyed2) {
-			lws_context_destroy2(context);
-
-			return;
-		}
-		lwsl_info("%s: ctx %p: already being destroyed\n",
-			    __func__, context);
-
-		lws_context_destroy3(context);
-		/* context is invalid, no need to reset inside flag */
-		return;
-	}
-
-	lwsl_info("%s: ctx %p\n", __func__, context);
-
-	context->being_destroyed = 1;
-
-#if defined(LWS_WITH_NETWORK)
-#if defined(LWS_WITH_SYS_STATE)
+#if defined(LWS_WITH_SYS_STATE) && defined(LWS_WITH_NETWORK)
 	lws_state_transition(&context->mgr_system, LWS_SYSTATE_POLICY_INVALID);
 #endif
-	m = context->count_threads;
 
-	while (m--) {
-		struct lws_context_per_thread *pt = &context->pt[m];
+#if defined(LWS_WITH_NETWORK)
+		/*
+		 * free all the per-vhost allocations
+		 */
 
-		if (pt->is_destroyed)
-			continue;
-
-		if (pt->inside_lws_service) {
-			pt->destroy_self = 1;
-			deferred_pt = 1;
-			continue;
+		vh = context->vhost_list;
+		while (vh) {
+			vh1 = vh->vhost_next;
+			lwsl_debug("%s: vh %s destroy2\n", __func__, vh->name);
+			__lws_vhost_destroy2(vh);
+			vh = vh1;
 		}
 
-		lws_pt_destroy(pt);
-	}
+		/* remove ourselves from the pending destruction list */
 
-	if (deferred_pt) {
-		lwsl_info("%s: waiting for deferred pt close\n", __func__);
-		lws_cancel_service(context);
-		goto out;
-	}
+		while (context->vhost_pending_destruction_list)
+			/* removes itself from list */
+			__lws_vhost_destroy2(context->vhost_pending_destruction_list);
 
-	context->being_destroyed1 = 1;
-	context->requested_kill = 1;
-
-	/*
-	 * inform all the protocols that they are done and will have no more
-	 * callbacks.
-	 *
-	 * We can't free things until after the event loop shuts down.
-	 */
-	if (context->protocol_init_done)
-		vh = context->vhost_list;
-	while (vh) {
-		struct lws_vhost *vhn = vh->vhost_next;
-		lws_vhost_destroy1(vh);
-		vh = vhn;
-	}
+		lwsl_debug("%p: post pdl\n", __func__);
 #endif
 
-	lws_plat_context_early_destroy(context);
+		lws_stats_log_dump(context);
+#if defined(LWS_WITH_NETWORK)
+		lws_ssl_context_destroy(context);
+#endif
+		lws_plat_context_late_destroy(context);
+
+#if defined(LWS_WITH_PEER_LIMITS)
+		for (nu = 0; nu < context->pl_hash_elements; nu++)	{
+			lws_start_foreach_llp(struct lws_peer **, peer,
+					      context->pl_hash_table[nu]) {
+				struct lws_peer *df = *peer;
+				*peer = df->next;
+				lws_free(df);
+				continue;
+			} lws_end_foreach_llp(peer, next);
+		}
+		lws_free(context->pl_hash_table);
+#endif
+
+		/* drop any lingering deferred vhost frees */
+
+		while (context->deferred_free_list) {
+			struct lws_deferred_free *df = context->deferred_free_list;
+
+			context->deferred_free_list = df->next;
+		        lws_free(df);
+		};
 
 #if defined(LWS_WITH_NETWORK)
 
-	/*
-	 * We face two different needs depending if foreign loop or not.
-	 *
-	 * 1) If foreign loop, we really want to advance the destroy_context()
-	 *    past here, and block only for libuv-style async close completion.
-	 *
-	 * 2a) If poll, and we exited by ourselves and are calling a final
-	 *     destroy_context() outside of any service already, we want to
-	 *     advance all the way in one step.
-	 *
-	 * 2b) If poll, and we are reacting to a SIGINT, service thread(s) may
-	 *     be in poll wait or servicing.  We can't advance the
-	 *     destroy_context() to the point it's freeing things; we have to
-	 *     leave that for the final destroy_context() after the service
-	 *     thread(s) are finished calling for service.
-	 */
+		context->evlib_finalize_destroy_after_int_loops_stop = 1;
+		if (context->event_loop_ops->destroy_context2)
+			context->event_loop_ops->destroy_context2(context);
 
-	if (context->event_loop_ops->destroy_context1) {
-		context->event_loop_ops->destroy_context1(context);
-
-		goto out;
-	}
+		for (n = 0; n < context->count_threads; n++) {
+			struct lws_context_per_thread *pt = &context->pt[n];
+			(void)pt;
+#if defined(LWS_WITH_SEQUENCER)
+			lws_seq_destroy_all_on_pt(pt);
 #endif
+			LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar) {
+				if (lws_rops_fidx(ar, LWS_ROPS_pt_init_destroy))
+					(lws_rops_func_fidx(ar, LWS_ROPS_pt_init_destroy)).
+						pt_init_destroy(context, NULL, pt, 1);
+			} LWS_FOR_EVERY_AVAILABLE_ROLE_END;
+
+#if defined(LWS_WITH_CGI)
+			lws_rops_func_fidx(&role_ops_cgi,
+					   LWS_ROPS_pt_init_destroy).
+					        pt_init_destroy(context, NULL,
+					        		pt, 1);
+#endif
+
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+			while (pt->http.ah_list)
+				_lws_destroy_ah(pt, pt->http.ah_list);
+#endif
+			lwsl_info("%s: pt destroy %d\n", __func__, n);
+			lws_pt_destroy(pt);
+		}
+#endif /* NETWORK */
+
+		context->destroy_state = LWSCD_FINALIZATION;
+
+#if defined(LWS_WITH_NETWORK)
+
+		if (context->pt[0].event_loop_foreign &&
+		    context->event_loop_ops->destroy_context1) {
+
+			lwsl_info("%s: leaving final context destruction"
+					" for final call\n", __func__);
+			goto bail;
+		}
+
+#endif
+
+	case LWSCD_FINALIZATION:
+
+#if defined(LWS_WITH_NETWORK)
+
+		/*
+		 * finalize destroy of pt and things hanging off it
+		 */
+
+		for (n = 0; n < context->count_threads; n++) {
+			struct lws_context_per_thread *pt = &context->pt[n];
+
+			/*
+			 * Destroy the pt-roles
+			 */
+
+			LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar) {
+				if (lws_rops_fidx(ar, LWS_ROPS_pt_init_destroy))
+					(lws_rops_func_fidx(ar, LWS_ROPS_pt_init_destroy)).
+							pt_init_destroy(context, NULL, pt, 1);
+			} LWS_FOR_EVERY_AVAILABLE_ROLE_END;
+
+		#if defined(LWS_WITH_CGI)
+			lws_rops_func_fidx(&role_ops_cgi, LWS_ROPS_pt_init_destroy).
+						pt_init_destroy(context, NULL, pt, 1);
+		#endif
+
+			lws_pt_mutex_destroy(pt);
+			assert(!pt->is_destroyed);
+			pt->destroy_self = 0;
+			pt->is_destroyed = 1;
+
+			lwsl_info("%s: pt %d fully destroyed\n", __func__,
+					(int)(pt - pt->context->pt));
+		}
+
+		/*
+		 * wsis are gone, pts are gone, vhosts are gone.
+		 *
+		 * clean up the context and things hanging off it
+		 */
+
+#if defined(LWS_WITH_SYS_SMD)
+		_lws_smd_destroy(context);
+#endif
+
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+		lws_async_dns_deinit(&context->async_dns);
+#endif
+#if defined(LWS_WITH_SYS_DHCP_CLIENT)
+		lws_dhcpc_remove(context, NULL);
+#endif
+
+		if (context->pt[0].fds)
+			lws_free_set_NULL(context->pt[0].fds);
+#endif
+		lws_context_deinit_ssl_library(context);
+
+#if defined(LWS_WITH_DETAILED_LATENCIES)
+		if (context->latencies_fd != -1)
+			compatible_close(context->latencies_fd);
+#endif
+
+		for (n = 0; n < LWS_SYSBLOB_TYPE_COUNT; n++)
+			lws_system_blob_destroy(
+					lws_system_get_blob(context, n, 0));
+
+		/*
+		 * Context lock is about to go away
+		 */
+
+		lws_context_unlock(context);
+
+#if LWS_MAX_SMP > 1
+		lws_mutex_refcount_destroy(&context->mr);
+#endif
+
+		if (context->external_baggage_free_on_destroy)
+			free(context->external_baggage_free_on_destroy);
 
 #if defined(LWS_PLAT_FREERTOS)
 #if defined(LWS_AMAZON_RTOS)
-	context->last_free_heap = xPortGetFreeHeapSize();
+		context->last_free_heap = xPortGetFreeHeapSize();
 #else
-	context->last_free_heap = esp_get_free_heap_size();
+		context->last_free_heap = esp_get_free_heap_size();
 #endif
 #endif
 
-	context->inside_context_destroy = 0;
-	lws_context_destroy2(context);
+#if defined(LWS_WITH_EVLIB_PLUGINS) && defined(LWS_WITH_EVENT_LIBS)
+		if (context->evlib_plugin_list)
+			lws_plugins_destroy(&context->evlib_plugin_list,
+					    NULL, NULL);
+#endif
 
-	return;
+		lws_free(context);
+		lwsl_debug("%s: ctx %p freed\n", __func__, context);
+
+		if (pcontext_finalize)
+			*pcontext_finalize = NULL;
+
+		return;
+	}
 
 #if defined(LWS_WITH_NETWORK)
-out:
-	context->inside_context_destroy = 0;
+bail:
 #endif
+	lwsl_info("%s: leaving\n", __func__);
+	context->inside_context_destroy = 0;
+	lws_context_unlock(context);
 }
 
 #if defined(LWS_WITH_SYS_STATE)

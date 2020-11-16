@@ -46,9 +46,9 @@ lws_plat_pipe_create(struct lws *wsi)
 }
 
 int
-lws_plat_pipe_signal(struct lws *wsi)
+lws_plat_pipe_signal(struct lws_context *ctx, int tsi)
 {
-	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &ctx->pt[tsi];
 #if defined(LWS_HAVE_EVENTFD)
 	eventfd_t value = 1;
 

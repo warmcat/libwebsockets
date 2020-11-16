@@ -87,7 +87,9 @@ int main(int argc, const char **argv)
 	lwsl_user("LWS API selftest: lws_struct SQLite\n");
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
+#if defined(LWS_WITH_NETWORK)
 	info.port = CONTEXT_PORT_NO_LISTEN;
+#endif
 	context = lws_create_context(&info);
 	if (!context) {
 		lwsl_err("lws init failed\n");

@@ -127,7 +127,7 @@ __lws_reset_wsi(struct lws *wsi)
 	if (wsi->a.vhost)
 		lws_dll2_remove(&wsi->dll_cli_active_conns);
 #endif
-	wsi->a.context->count_wsi_allocated--;
+	wsi->a.context->pt[(int)wsi->tsi].count_wsi_allocated--;
 
 	__lws_same_vh_protocol_remove(wsi);
 #if defined(LWS_WITH_CLIENT)
@@ -171,7 +171,7 @@ __lws_free_wsi(struct lws *wsi)
 	lws_vhost_unbind_wsi(wsi);
 
 	lwsl_debug("%s: %p, remaining wsi %d, tsi fds count %d\n", __func__, wsi,
-			wsi->a.context->count_wsi_allocated,
+			wsi->a.context->pt[(int)wsi->tsi].count_wsi_allocated,
 			wsi->a.context->pt[(int)wsi->tsi].fds_count);
 
 	/* confirm no sul left scheduled in wsi itself */

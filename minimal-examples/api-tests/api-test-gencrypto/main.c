@@ -28,7 +28,9 @@ int main(int argc, const char **argv)
 	lwsl_user("LWS gencrypto apis tests\n");
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
+#if defined(LWS_WITH_NETWORK)
 	info.port = CONTEXT_PORT_NO_LISTEN;
+#endif
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 
 	context = lws_create_context(&info);

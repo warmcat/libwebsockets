@@ -898,23 +898,23 @@ lws_init_vhost_client_ssl(const struct lws_context_creation_info *info,
 void
 lws_cancel_service_pt(struct lws *wsi)
 {
-	lws_plat_pipe_signal(wsi);
+	lws_plat_pipe_signal(wsi->a.context, wsi->tsi);
 }
 
 void
 lws_cancel_service(struct lws_context *context)
 {
 	struct lws_context_per_thread *pt = &context->pt[0];
-	short m = context->count_threads;
+	short m;
 
-	if (context->being_destroyed1)
+	if (context->service_no_longer_possible)
 		return;
 
 	lwsl_debug("%s\n", __func__);
 
-	while (m--) {
+	for (m = 0; m < context->count_threads; m++) {
 		if (pt->pipe_wsi)
-			lws_plat_pipe_signal(pt->pipe_wsi);
+			lws_plat_pipe_signal(pt->context, m);
 		pt++;
 	}
 }
@@ -1095,6 +1095,7 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 		struct lws *w =
 			lws_container_of(d, struct lws, vh_awaiting_socket);
 
+		lwsl_debug("%s: closing aso\n", __func__);
 		lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 				   "awaiting skt");
 
@@ -1122,6 +1123,8 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 		while (n < vh->count_protocols) {
 			wsi.a.protocol = protocol;
 
+			lwsl_debug("%s: protocol destroy\n", __func__);
+
 			if (protocol->callback)
 				protocol->callback(&wsi, LWS_CALLBACK_PROTOCOL_DESTROY,
 					   NULL, NULL, 0);
@@ -1148,7 +1151,7 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 		vh->context->vhost_pending_destruction_list = vh;
 	}
 
-	lwsl_info("%s: %p\n", __func__, vh);
+	lwsl_debug("%s: do dfl '%s'\n", __func__, vh->name);
 
 	/* if we are still on deferred free list, remove ourselves */
 
@@ -1247,7 +1250,7 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 	lws_dll2_foreach_safe(&vh->abstract_instances_owner, NULL, destroy_ais);
 #endif
 
-	lwsl_info("  %s: Freeing vhost %p\n", __func__, vh);
+	lwsl_debug("  %s: Freeing vhost %p\n", __func__, vh);
 
 	memset(vh, 0, sizeof(*vh));
 	lws_free(vh);

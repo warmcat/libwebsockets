@@ -438,6 +438,10 @@ struct lws_context_per_thread {
 	 */
 	volatile int service_tid;
 	int service_tid_detected;
+#if !defined(LWS_PLAT_FREERTOS)
+	int count_event_loop_static_asset_handles;
+#endif
+	int count_wsi_allocated;
 
 	volatile unsigned char inside_poll;
 	volatile unsigned char foreign_spinlock;
@@ -452,6 +456,7 @@ struct lws_context_per_thread {
 	unsigned char inside_lws_service:1;
 	unsigned char event_loop_foreign:1;
 	unsigned char event_loop_destroy_processing_done:1;
+	unsigned char event_loop_pt_unused:1;
 	unsigned char destroy_self:1;
 	unsigned char is_destroyed:1;
 };
@@ -1334,7 +1339,7 @@ lws_adopt_ss_server_accept(struct lws *new_wsi);
 int
 lws_plat_pipe_create(struct lws *wsi);
 int
-lws_plat_pipe_signal(struct lws *wsi);
+lws_plat_pipe_signal(struct lws_context *ctx, int tsi);
 void
 lws_plat_pipe_close(struct lws *wsi);
 

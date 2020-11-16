@@ -42,6 +42,7 @@ lws_sul_plat_unix(lws_sorted_usec_list_t *sul)
 	struct lws_context_per_thread *pt =
 		lws_container_of(sul, struct lws_context_per_thread, sul_plat);
 	struct lws_context *context = pt->context;
+	int n = 0, m = 0;
 
 #if !defined(LWS_NO_DAEMONIZE)
 	/* if our parent went down, don't linger around */
@@ -50,7 +51,10 @@ lws_sul_plat_unix(lws_sorted_usec_list_t *sul)
 		kill(getpid(), SIGTERM);
 #endif
 
-	if (pt->context->deprecated && !pt->context->count_wsi_allocated) {
+	for (n = 0; n < context->count_threads; n++)
+		m |= pt->count_wsi_allocated;
+
+	if (context->deprecated && !m) {
 		lwsl_notice("%s: ending deprecated context\n", __func__);
 		kill(getpid(), SIGINT);
 		return;

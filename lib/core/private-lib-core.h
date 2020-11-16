@@ -182,6 +182,12 @@ enum lws_ssl_capable_status {
 	LWS_SSL_CAPABLE_MORE_SERVICE		= -4, /* general retry */
 };
 
+enum lws_context_destroy {
+	LWSCD_NO_DESTROY,		/* running */
+	LWSCD_PT_WAS_DEFERRED,		/* destroy from inside service */
+	LWSCD_PT_WAIT_ALL_DESTROYED,	/* libuv ends up here later */
+	LWSCD_FINALIZATION		/* the final destruction of context */
+};
 
 #if defined(LWS_WITH_TLS)
 #include "private-lib-tls.h"
@@ -496,7 +502,6 @@ struct lws_context {
 
 #if !defined(LWS_PLAT_FREERTOS)
 	int uid, gid;
-	int count_event_loop_static_asset_handles;
 	int fd_random;
 	int count_cgi_spawned;
 #endif
@@ -504,7 +509,6 @@ struct lws_context {
 #if defined(LWS_WITH_DETAILED_LATENCY)
 	int latencies_fd;
 #endif
-	int count_wsi_allocated;
 	unsigned int fd_limit_per_thread;
 	unsigned int timeout_secs;
 	unsigned int pt_serv_buf_size;
@@ -521,13 +525,13 @@ struct lws_context {
 	unsigned int deprecated:1;
 	unsigned int inside_context_destroy:1;
 	unsigned int being_destroyed:1;
-	unsigned int being_destroyed1:1;
+	unsigned int service_no_longer_possible:1;
 	unsigned int being_destroyed2:1;
-	unsigned int requested_kill:1;
+	unsigned int requested_stop_internal_loops:1;
 	unsigned int protocol_init_done:1;
 	unsigned int doing_protocol_init:1;
 	unsigned int done_protocol_destroy_cb:1;
-	unsigned int finalize_destroy_after_internal_loops_stopped:1;
+	unsigned int evlib_finalize_destroy_after_int_loops_stop:1;
 	unsigned int max_fds_unrelated_to_ulimit:1;
 	unsigned int policy_updated:1;
 #if defined(LWS_WITH_NETLINK)
@@ -535,6 +539,7 @@ struct lws_context {
 #endif
 
 	short count_threads;
+	short undestroyed_threads;
 	short plugin_protocol_count;
 	short plugin_extension_count;
 	short server_string_len;
@@ -548,6 +553,8 @@ struct lws_context {
 	uint8_t udp_loss_sim_rx_pc;
 	uint8_t captive_portal_detect;
 	uint8_t captive_portal_detect_type;
+
+	uint8_t		destroy_state; /* enum lws_context_destroy */
 
 #if defined(LWS_WITH_STATS)
 	uint8_t updated;

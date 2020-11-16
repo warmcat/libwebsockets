@@ -641,10 +641,13 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	struct lws_context_per_thread *pt;
 	struct lws *wsi;
 
-	if (!context || context->being_destroyed1)
+	if (!context || context->service_no_longer_possible)
 		return -1;
 
 	pt = &context->pt[tsi];
+
+	if (pt->event_loop_pt_unused)
+		return -1;
 
 	if (!pollfd) {
 		/*
