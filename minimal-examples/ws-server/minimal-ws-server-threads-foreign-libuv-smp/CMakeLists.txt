@@ -1,4 +1,4 @@
-project(lws-minimal-ws-server-threads-foreign-smp C)
+project(lws-minimal-ws-server-threads-foreign-libuv-smp C)
 cmake_minimum_required(VERSION 2.8)
 find_package(libwebsockets CONFIG REQUIRED)
 list(APPEND CMAKE_MODULE_PATH ${LWS_CMAKE_DIR})

@@ -1,5 +1,5 @@
 /*
- * lws-minimal-ws-server
+ * lws-minimal-ws-server-threads-foreign-smp
  *
  * Written in 2010-2020 by Andy Green <andy@warmcat.com>
  *
@@ -44,6 +44,7 @@ static struct lws_protocols protocols[] = {
 static struct lws_context *context;
 static int interrupted;
 static uv_loop_t loop[COUNT_THREADS];
+static uv_signal_t *s, signal_outer[COUNT_THREADS];
 
 static const struct lws_http_mount mount = {
 	/* .mount_next */		NULL,		/* linked-list "next" */
@@ -90,38 +91,54 @@ static const struct lws_protocol_vhost_options pvo = {
 
 void *thread_service(void *threadid)
 {
+	/*
+	 * This is a foreign thread context for each event loop... lws doesn't
+	 * know about it, except that it's getting called into from the event
+	 * lib bound to each of these.
+	 *
+	 * When closing, at the point we have detached everything related to
+	 * lws from the loop and destroyed the context we can as the "foreign
+	 * app" take care of stopping the foreign loop and cloing this thread.
+	 *
+	 * The call to lws_service_tsi just starts the related event loop
+	 */
 	while (lws_service_tsi(context, 0,
 			       (int)(lws_intptr_t)threadid) >= 0 &&
 	       !interrupted)
 		lwsl_notice("%s\n", __func__);
+
+	lwsl_info("%s: thr %d: exiting\n", __func__, (int)(lws_intptr_t)threadid);
 
 	pthread_exit(NULL);
 
 	return NULL;
 }
 
-void signal_cb(uv_signal_t *watcher, int signum)
+static void
+signal_cb(uv_signal_t *watcher, int signum)
 {
 	int n;
 
-	if (interrupted)
-		return;
+	n = (int)(watcher - signal_outer);
 
-	lwsl_notice("signal_cb: signal %d caught\n", watcher->signum);
-	interrupted = 1;
+	lwsl_notice("%s: thr %d: signal %d caught\n", __func__, n,
+			watcher->signum);
+
 	uv_signal_stop(watcher);
-	lws_context_destroy(context);
-	for (n = 0; n < COUNT_THREADS; n++)
-		uv_stop(&loop[n]);
+	uv_close((uv_handle_t *)&signal_outer[n], NULL);
+	if (!interrupted) {
+		interrupted = 1;
+		lws_context_destroy(context);
+	}
 }
 
 int main(int argc, const char **argv)
 {
 	int n, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
-	uv_signal_t *s, signal_outer[3 * COUNT_THREADS];
 	pthread_t pthread_service[COUNT_THREADS];
 	struct lws_context_creation_info info;
 	void *foreign_loops[COUNT_THREADS];
+	int actual_threads;
 	const char *p;
 	void *retval;
 
@@ -132,15 +149,11 @@ int main(int argc, const char **argv)
 	lwsl_user("LWS minimal ws server + threads + smp | visit http://localhost:7681\n");
 
 	for (n = 0; n < COUNT_THREADS; n++) {
-		int m;
-
 		uv_loop_init(&loop[n]);
 
-		for (m = 0; m < 3; m++) {
-			s = &signal_outer[n * 3 + m];
-			uv_signal_init(&loop[n], s);
-			uv_signal_start(s, signal_cb, SIGINT);
-		}
+		s = &signal_outer[n];
+		uv_signal_init(&loop[n], s);
+		uv_signal_start(s, signal_cb, SIGINT);
 
 		foreign_loops[n] = &loop[n];
 	}
@@ -162,11 +175,12 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
-	lwsl_notice("  Service threads: %d\n", lws_get_count_threads(context));
+	actual_threads = lws_get_count_threads(context);
+	lwsl_notice("  Service threads: %d\n", actual_threads);
 
 	/* start all the service threads */
 
-	for (n = 0; n < lws_get_count_threads(context); n++)
+	for (n = 0; n < actual_threads; n++)
 		if (pthread_create(&pthread_service[n], NULL, thread_service,
 				   (void *)(lws_intptr_t)n))
 			lwsl_err("Failed to start service thread\n");
@@ -177,6 +191,14 @@ int main(int argc, const char **argv)
 		pthread_join(pthread_service[n], &retval);
 
 	lws_context_destroy(context);
+
+	for (n = 0; n < COUNT_THREADS; n++) {
+		int m;
+
+		m = uv_loop_close(&loop[n]);
+		if (m)
+			lwsl_notice("%s: uv_close_loop %d: %d\n", __func__, n, m);
+	}
 
 	return 0;
 }
