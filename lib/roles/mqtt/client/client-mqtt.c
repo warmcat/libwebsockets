@@ -52,10 +52,7 @@ lws_mqtt_generate_id(struct lws* wsi, lws_mqtt_str_t **ms, const char *client_id
 	if (client_id)
 		len = strlen(client_id);
 	else
-		len = 23;
-
-	if (len > 23) /* 3.1.3.1-5: Server MUST... between 1 and 23 chars... */
-		return 1;
+		len = LWS_MQTT_RANDOM_CIDLEN;
 
 	*ms = lws_mqtt_str_create((uint16_t)(len + 1));
 	if (!*ms)
@@ -120,8 +117,10 @@ lws_create_client_mqtt_object(const struct lws_client_connect_info *i,
 	lwsl_info("%s: using client id '%.*s'\n", __func__, c->id->len,
 			(const char *)c->id->buf);
 
-	if (cp->clean_start || !cp->client_id[0])
+	if (cp->clean_start || !(cp->client_id &&
+				 cp->client_id[0]))
 		c->conn_flags = LMQCFT_CLEAN_START;
+	lws_free((void *)cp->client_id);
 
 	c->keep_alive_secs = cp->keep_alive;
 
@@ -148,12 +147,14 @@ lws_create_client_mqtt_object(const struct lws_client_connect_info *i,
 		if (!c->username)
 			goto oom3;
 		c->conn_flags |= LMQCFT_USERNAME;
+		lws_free((void *)cp->username);
 		if (cp->password) {
 			c->password =
 				lws_mqtt_str_create_cstr_dup(cp->password, 0);
 			if (!c->password)
 				goto oom4;
 			c->conn_flags |= LMQCFT_PASSWORD;
+			lws_free((void *)cp->password);
 		}
 	}
 

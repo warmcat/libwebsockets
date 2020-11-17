@@ -136,6 +136,11 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		break;
 
 	case LWS_CALLBACK_MQTT_CLIENT_WRITEABLE:
+	{
+		size_t used_in, used_out;
+		lws_strexp_t exp;
+		char expbuf[128];
+
 		if (!h || !h->info.tx)
 			return 0;
 		lwsl_notice("%s: ss %p: WRITEABLE\n", __func__, h);
@@ -147,6 +152,14 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		if (h->policy->u.mqtt.subscribe &&
 		    !wsi->mqtt->done_subscribe) {
+			lws_strexp_init(&exp, (void *)h, lws_ss_exp_cb_metadata, expbuf, sizeof(expbuf));
+
+			if (lws_strexp_expand(&exp, h->policy->u.mqtt.subscribe,
+					      strlen(h->policy->u.mqtt.subscribe),
+					      &used_in, &used_out) != LSTRX_DONE)
+				return 1;
+			lwsl_notice("%s, expbuf - %s\n", __func__, expbuf);
+			h->u.mqtt.sub_top.name = expbuf;
 
 			/*
 			 * The policy says to subscribe to something, and we
@@ -155,10 +168,8 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			 */
 
 			lwsl_notice("%s: subscribing %s\n", __func__,
-						h->u.mqtt.subscribe_to);
+				                h->u.mqtt.sub_top.name);
 
-			memset(&h->u.mqtt.sub_top, 0, sizeof(h->u.mqtt.sub_top));
-			h->u.mqtt.sub_top.name = h->u.mqtt.subscribe_to;
 			h->u.mqtt.sub_top.qos = h->policy->u.mqtt.qos;
 			memset(&h->u.mqtt.sub_info, 0, sizeof(h->u.mqtt.sub_info));
 			h->u.mqtt.sub_info.num_topics = 1;
@@ -185,6 +196,15 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		memset(&mqpp, 0, sizeof(mqpp));
 		/* this is the string-substituted h->policy->u.mqtt.topic */
 		mqpp.topic = (char *)h->u.mqtt.topic_qos.name;
+		lws_strexp_init(&exp, (void *)h, lws_ss_exp_cb_metadata, expbuf, sizeof(expbuf));
+
+		if (lws_strexp_expand(&exp, h->policy->u.mqtt.topic,
+				      strlen(h->policy->u.mqtt.topic),
+				      &used_in, &used_out) != LSTRX_DONE)
+			return 1;
+		lwsl_notice("%s, expbuf - %s\n", __func__, expbuf);
+		mqpp.topic = (char *)expbuf;
+
 		mqpp.topic_len = strlen(mqpp.topic);
 		mqpp.packet_id = h->txord - 1;
 		mqpp.payload = buf + LWS_PRE;
@@ -207,7 +227,7 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		}
 
 		return 0;
-
+	}
 	default:
 		break;
 	}
@@ -253,12 +273,69 @@ secstream_connect_munge_mqtt(lws_ss_handle_t *h, char *buf, size_t len,
 	};
 	size_t used_in, olen[4] = { 0, 0, 0, 0 }, tot = 0;
 	lws_strexp_t exp;
-	char *p, *ps[4];
-	int n;
+	char *ps[4];
+	uint8_t *p = NULL;
+	int n = -1;
+	size_t blen;
+	lws_system_blob_t *b = NULL;
 
 	memset(&ct->ccp, 0, sizeof(ct->ccp));
+	b = lws_system_get_blob(i->context,
+				LWS_SYSBLOB_TYPE_MQTT_CLIENT_ID, 0);
 
-	ct->ccp.client_id		= "lwsMqttClient";
+	/* If LWS_SYSBLOB_TYPE_MQTT_CLIENT_ID is set */
+	if (b && (blen = lws_system_blob_get_size(b))) {
+		if (blen > LWS_MQTT_MAX_CIDLEN) {
+			lwsl_err("%s - Client ID too long.\n",
+				 __func__);
+			return -1;
+		}
+		p = (uint8_t *)lws_zalloc(blen+1, __func__);
+		n = lws_system_blob_get(b, p, &blen, 0);
+		if (n) {
+			ct->ccp.client_id = NULL;
+		} else {
+			ct->ccp.client_id = (const char *)p;
+			lwsl_notice("%s - Client ID = %s\n",
+				    __func__, ct->ccp.client_id);
+		}
+	} else {
+		/* Default (Random) client ID */
+		ct->ccp.client_id = NULL;
+	}
+
+	b = lws_system_get_blob(i->context,
+				LWS_SYSBLOB_TYPE_MQTT_USERNAME, 0);
+
+	/* If LWS_SYSBLOB_TYPE_MQTT_USERNAME is set */
+	if (b && (blen = lws_system_blob_get_size(b))) {
+		p = (uint8_t *)lws_zalloc(blen+1, __func__);
+		n = lws_system_blob_get(b, p, &blen, 0);
+		if (n) {
+			ct->ccp.username = NULL;
+		} else {
+			ct->ccp.username = (const char *)p;
+			lwsl_notice("%s - Username ID = %s\n",
+				    __func__, ct->ccp.username);
+		}
+	}
+
+	b = lws_system_get_blob(i->context,
+				LWS_SYSBLOB_TYPE_MQTT_PASSWORD, 0);
+
+	/* If LWS_SYSBLOB_TYPE_MQTT_PASSWORD is set */
+	if (b && (blen = lws_system_blob_get_size(b))) {
+		p = (uint8_t *)lws_zalloc(blen+1, __func__);
+		n = lws_system_blob_get(b, p, &blen, 0);
+		if (n) {
+			ct->ccp.password = NULL;
+		} else {
+			ct->ccp.password = (const char *)p;
+			lwsl_notice("%s - Password ID = %s\n",
+				    __func__, ct->ccp.password);
+		}
+	}
+
 	ct->ccp.keep_alive		= h->policy->u.mqtt.keep_alive;
 	ct->ccp.clean_start		= h->policy->u.mqtt.clean_start;
 	ct->ccp.will_param.qos		= h->policy->u.mqtt.will_qos;
@@ -310,8 +387,8 @@ secstream_connect_munge_mqtt(lws_ss_handle_t *h, char *buf, size_t len,
 	p = h->u.mqtt.heap_baggage;
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(sources); n++) {
 		lws_strexp_init(&exp, (void *)h, lws_ss_exp_cb_metadata,
-				p, (size_t)-1);
-		ps[n] = p;
+				(char *)p, (size_t)-1);
+		ps[n] = (char *)p;
 		if (lws_strexp_expand(&exp, sources[n], strlen(sources[n]),
 				      &used_in, &olen[n]) != LSTRX_DONE)
 			return 1;
