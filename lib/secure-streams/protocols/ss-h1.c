@@ -187,7 +187,8 @@ lws_apply_metadata(lws_ss_handle_t *h, struct lws *wsi, uint8_t *buf,
 		/* has to have a non-empty header string */
 
 		if (polmd->value__may_own_heap &&
-		    ((uint8_t *)polmd->value__may_own_heap)[0]) {
+		    ((uint8_t *)polmd->value__may_own_heap)[0] &&
+		    h->metadata[m].value__may_own_heap) {
 			if (lws_add_http_header_by_name(wsi,
 					polmd->value__may_own_heap,
 					h->metadata[m].value__may_own_heap,
