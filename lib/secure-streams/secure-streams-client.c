@@ -589,8 +589,8 @@ lws_sspc_request_tx_len(lws_sspc_handle_t *h, unsigned long len)
 	/*
 	 * for client conns, they cannot even complete creation of the handle
 	 * without the onwared connection to the proxy, it's not legal to start
-	 * using it until it's operation and has the onward connection (and has
-	 * called CREATED state)
+	 * using it until it's operation and has the onward connection (and the
+	 * link has called CREATED state)
 	 */
 
 	if (!h)
@@ -613,7 +613,8 @@ lws_sspc_request_tx_len(lws_sspc_handle_t *h, unsigned long len)
 	 * will request again.
 	 */
 
-	lws_callback_on_writable(h->cwsi);
+	if (h->cwsi)
+		lws_callback_on_writable(h->cwsi);
 
 	return LWSSSSRET_OK;
 }
@@ -786,6 +787,9 @@ lws_sspc_get_est_peer_tx_credit(struct lws_sspc_handle *h)
 void
 lws_sspc_start_timeout(struct lws_sspc_handle *h, unsigned int timeout_ms)
 {
+	if (!h->cwsi)
+		/* we can't fulfil it */
+		return;
 	h->timeout_ms = (uint32_t)timeout_ms;
 	h->pending_timeout_update = 1;
 	lws_callback_on_writable(h->cwsi);
