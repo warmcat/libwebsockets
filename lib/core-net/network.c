@@ -442,7 +442,17 @@ lws_retry_sul_schedule_retry_wsi(struct lws *wsi, lws_sorted_usec_list_t *sul,
 		return 1;
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-	if (wsi->role_ops == &role_ops_h1 || wsi->role_ops == &role_ops_h2)
+	if (
+#if defined(LWS_ROLE_H1)
+		wsi->role_ops == &role_ops_h1
+#endif
+#if defined(LWS_ROLE_H1) && defined(LWS_ROLE_H2)
+		||
+#endif
+#if defined(LWS_ROLE_H2)
+		wsi->role_ops == &role_ops_h2
+#endif
+		)
 		/*
 		 * Since we're doing it by wsi, we're in a position to check for
 		 * http retry-after, it will increase us accordingly if found
