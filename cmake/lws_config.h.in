@@ -150,6 +150,7 @@
 #cmakedefine LWS_WITH_LIBEV
 #cmakedefine LWS_WITH_LIBEVENT
 #cmakedefine LWS_WITH_LIBUV
+#cmakedefine LWS_WITH_SDEVENT
 #cmakedefine LWS_WITH_LWSAC
 #cmakedefine LWS_LOGS_TIMESTAMP
 #cmakedefine LWS_WITH_MBEDTLS

@@ -91,6 +91,10 @@ if (LWS_WITH_LIBEV)
 	set(LWS_HAVE_EVBACKEND_IOURING ${LWS_HAVE_EVBACKEND_IOURING} PARENT_SCOPE)
 endif()
 
+if (LWS_WITH_SDEVENT)
+	add_subdir_include_directories(sdevent)
+endif()
+
 
 
 #
