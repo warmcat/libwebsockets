@@ -361,7 +361,8 @@ static const struct lws_evlib_map {
 	{ LWS_SERVER_OPTION_LIBEV,    "evlib_ev" },
 };
 static const char * const dlist[] = {
-	LWS_INSTALL_LIBDIR,
+	".",				/* Priority 1: plugins in cwd */
+	LWS_INSTALL_LIBDIR,		/* Priority 2: plugins in install dir */
 	NULL
 };
 #endif
@@ -398,6 +399,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	const lws_plugin_evlib_t *plev = NULL;
 #if defined(LWS_WITH_EVLIB_PLUGINS) && defined(LWS_WITH_EVENT_LIBS)
 	struct lws_plugin		*evlib_plugin_list = NULL;
+	char		*ld_env;
 #endif
 
 	if (lpf) {
@@ -464,15 +466,61 @@ lws_create_context(const struct lws_context_creation_info *info)
 	 * the context object, so we can overallocate it correctly
 	 */
 
-	lwsl_info("%s: ev lib path %s\n", __func__, LWS_INSTALL_LIBDIR);
+	ld_env = getenv("LD_LIBRARY_PATH");
+	lwsl_info("%s: ev lib path %s, '%s'\n", __func__,
+			LWS_INSTALL_LIBDIR, ld_env);
 
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(map); n++) {
+		char ok = 0;
+
 		if (!lws_check_opt(info->options, map[n].flag))
 			continue;
 
 		if (lws_plugins_init(&evlib_plugin_list,
 				     dlist, "lws_evlib_plugin",
 				     map[n].name, NULL, NULL)) {
+
+			/*
+			 * No joy in the canned paths, try LD_LIBRARY_PATH
+			 */
+
+			if (ld_env) {
+				char temp[128];
+				struct lws_tokenize ts;
+				const char * tok[2] = { temp, NULL };
+
+				memset(&ts, 0, sizeof(ts));
+				ts.start = ld_env;
+				ts.len = strlen(ld_env);
+				ts.flags = LWS_TOKENIZE_F_SLASH_NONTERM |
+					   LWS_TOKENIZE_F_DOT_NONTERM |
+					   LWS_TOKENIZE_F_NO_INTEGERS |
+					   LWS_TOKENIZE_F_NO_FLOATS;
+
+				do {
+					ts.e = lws_tokenize(&ts);
+					if (ts.e != LWS_TOKZE_TOKEN)
+						continue;
+
+					lws_strnncpy(temp, ts.token,
+						     ts.token_len,
+						     sizeof(temp));
+
+					if (!lws_plugins_init(
+							&evlib_plugin_list, tok,
+							     "lws_evlib_plugin",
+							     map[n].name,
+							     NULL, NULL)) {
+						ok = 1;
+						break;
+					}
+
+				} while (ts.e > 0);
+			}
+		} else
+			ok = 1;
+
+		if (!ok) {
 			lwsl_err("%s: failed to load %s\n", __func__,
 					map[n].name);
 			goto bail;
