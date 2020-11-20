@@ -1516,15 +1516,17 @@ lws_http_action(struct lws *wsi)
 	if (!wsi->mux_stream_immortal)
 		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
 				wsi->a.context->timeout_secs);
-#ifdef LWS_WITH_TLS
+#if defined(LWS_WITH_TLS)
 	if (wsi->tls.redirect_to_https) {
 		/*
-		 * we accepted http:// only so we could redirect to
+		 * We accepted http:// only so we could redirect to
 		 * https://, so issue the redirect.  Create the redirection
-		 * URI from the host: header and ignore the path part
+		 * URI from the host: header, and regenerate the path part from
+		 * the parsed pieces
 		 */
 		unsigned char *start = pt->serv_buf + LWS_PRE, *p = start,
-			      *end = p + wsi->a.context->pt_serv_buf_size - LWS_PRE;
+			      *end = p + wsi->a.context->pt_serv_buf_size -
+				     LWS_PRE;
 
 		n = lws_hdr_total_length(wsi, WSI_TOKEN_HOST);
 		if (!n || n > 128)
@@ -1537,7 +1539,25 @@ lws_http_action(struct lws *wsi)
 		memcpy(p, lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST), n);
 		p += n;
 		*p++ = '/';
-		*p = '\0';
+		if (uri_len >= lws_ptr_diff(end, p))
+			goto bail_nuke_ah;
+
+		if (uri_ptr[0])
+			p--;
+		memcpy(p, uri_ptr, uri_len);
+		p += uri_len;
+
+		n = 0;
+		while (lws_hdr_copy_fragment(wsi, (char *)p + 1,
+					     lws_ptr_diff(end, p) - 2,
+					     WSI_TOKEN_HTTP_URI_ARGS, n) > 0) {
+			*p = n ? '&' : '?';
+			p += strlen((char *)p);
+			if (p >= end - 2)
+				goto bail_nuke_ah;
+			n++;
+		}
+
 		n = lws_ptr_diff(p, start);
 
 		p += LWS_PRE;
