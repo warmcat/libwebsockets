@@ -115,15 +115,37 @@ static void close_handle_manually_sd(struct lws *wsi) {
     printf("%s(%d) [%lu] %s not implemented\n", __FILE__, __LINE__, pt_id, __func__);
 }
 
-static int sock_accept_sd(struct lws *wsi) {
+static int sock_accept_handler(sd_event_source *s, int fd, uint32_t revents, void *userdata) {
     pthread_t pt_id = pthread_self();
     printf("%s(%d) [%lu] %s not implemented\n", __FILE__, __LINE__, pt_id, __func__);
+    return 0;
+}
+
+static int sock_accept_sd(struct lws *wsi) {
+    pthread_t pt_id = pthread_self();
+    printf("%s(%d) [%lu] %s entered\n", __FILE__, __LINE__, pt_id, __func__);
+
+    struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+
+    uint32_t events = (unsigned) EPOLLIN | (unsigned) EPOLLOUT;
+    void *userdata = NULL;
+
+    // TODO the sd_event_source should be stored with the WSI
+    sd_event_source *source;
+
+    if (wsi->role_ops->file_handle)
+        sd_event_add_io(pt_to_priv_sd(pt)->io_loop, &source, wsi->desc.filefd, events, sock_accept_handler, userdata);
+    else
+        sd_event_add_io(pt_to_priv_sd(pt)->io_loop, &source, wsi->desc.sockfd, events, sock_accept_handler, userdata);
+
     return 0;
 }
 
 static void io_sd(struct lws *wsi, int flags) {
     pthread_t pt_id = pthread_self();
     printf("%s(%d) [%lu] %s not implemented\n", __FILE__, __LINE__, pt_id, __func__);
+
+    struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 
     // extra info, can be removed
     printf("%s(%d) %s wsi is %p\n", __FILE__, __LINE__, __func__, wsi);
