@@ -29,7 +29,7 @@
 #define wsi_to_priv_event(_w) ((struct lws_wsi_eventlibs_libevent *)(_w)->evlib_wsi)
 
 static void
-lws_event_hrtimer_cb(int fd, short event, void *p)
+lws_event_hrtimer_cb(evutil_socket_t fd, short event, void *p)
 {
 	struct lws_context_per_thread *pt = (struct lws_context_per_thread *)p;
 	struct lws_pt_eventlibs_libevent *ptpr = pt_to_priv_event(pt);
@@ -48,7 +48,7 @@ lws_event_hrtimer_cb(int fd, short event, void *p)
 }
 
 static void
-lws_event_idle_timer_cb(int fd, short event, void *p)
+lws_event_idle_timer_cb(evutil_socket_t fd, short event, void *p)
 {
 	struct lws_context_per_thread *pt = (struct lws_context_per_thread *)p;
 	struct lws_pt_eventlibs_libevent *ptpr = pt_to_priv_event(pt);
@@ -255,7 +255,7 @@ elops_accept_event(struct lws *wsi)
 	struct lws_context_per_thread *pt;
 	struct lws_pt_eventlibs_libevent *ptpr;
 	struct lws_wsi_eventlibs_libevent *wpr = wsi_to_priv_event(wsi);
-	int fd;
+       evutil_socket_t fd;
 
 	wpr->w_read.context = context;
 	wpr->w_write.context = context;
@@ -265,7 +265,7 @@ elops_accept_event(struct lws *wsi)
 	ptpr = pt_to_priv_event(pt);
 
 	if (wsi->role_ops->file_handle)
-		fd = wsi->desc.filefd;
+               fd = (ev_intptr_t) wsi->desc.filefd;
 	else
 		fd = wsi->desc.sockfd;
 
@@ -404,7 +404,7 @@ elops_init_vhost_listen_wsi_event(struct lws *wsi)
 	struct lws_context_per_thread *pt;
 	struct lws_pt_eventlibs_libevent *ptpr;
 	struct lws_wsi_eventlibs_libevent *w;
-	int fd;
+       evutil_socket_t fd;
 
 	if (!wsi) {
 		assert(0);
@@ -420,7 +420,7 @@ elops_init_vhost_listen_wsi_event(struct lws *wsi)
 	ptpr = pt_to_priv_event(pt);
 
 	if (wsi->role_ops->file_handle)
-		fd = wsi->desc.filefd;
+               fd = (evutil_socket_t) wsi->desc.filefd;
 	else
 		fd = wsi->desc.sockfd;
 

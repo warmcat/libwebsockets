@@ -131,7 +131,7 @@ lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 
 		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 
-		/* fallthru */
+               /* fallthrough */
 
 #endif
 

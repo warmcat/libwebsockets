@@ -50,7 +50,7 @@ if (LWS_WITH_SPAWN)
 endif()
 
 if (LWS_WITH_ZLIB AND LWS_WITH_BUNDLED_ZLIB)
-	set(WIN32_ZLIB_PATH "win32port/zlib")
+       set(WIN32_ZLIB_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../../win32port/zlib")
 	set(ZLIB_SRCS
 		${WIN32_ZLIB_PATH}/adler32.c
 		${WIN32_ZLIB_PATH}/compress.c
@@ -68,7 +68,7 @@ if (LWS_WITH_ZLIB AND LWS_WITH_BUNDLED_ZLIB)
 		${WIN32_ZLIB_PATH}/zutil.c)
 	add_library(zlib_internal STATIC ${ZLIB_SRCS})
 	set(ZLIB_INCLUDE_DIRS ${WIN32_ZLIB_PATH})
-	get_property(ZLIB_LIBRARIES TARGET zlib_internal PROPERTY LOCATION)
+       set(ZLIB_LIBRARIES "")
 	set(ZLIB_FOUND 1)
 	# Make sure zlib_internal is compiled before the libs.
 	foreach (lib ${LWS_LIBRARIES})
