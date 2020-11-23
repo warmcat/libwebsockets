@@ -51,6 +51,8 @@ static int init_vhost_listen_wsi_sd(struct lws *wsi) {
 }
 
 static int init_pt_sd(struct lws_context *context, void *_loop, int tsi) {
+    pthread_t pt_id = pthread_self();
+    printf("%s(%d) [%lu] %s entered\n", __FILE__, __LINE__, pt_id, __func__);
 
     struct lws_context_per_thread *pt = &context->pt[tsi];
     struct lws_pt_eventlibs_sdevent *ptpriv = pt_to_priv_sd(pt);
@@ -81,6 +83,7 @@ static int init_pt_sd(struct lws_context *context, void *_loop, int tsi) {
     }
 
     // initialize accept/read for vhosts
+    // Note: default vhost usually not included here
     for (struct lws_vhost *vh = context->vhost_list; vh; vh = vh->vhost_next) {
         // call lws_event_loop_ops->init_vhost_listen_wsi
         if (init_vhost_listen_wsi_sd(vh->lserv_wsi) == -1) {
