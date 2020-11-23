@@ -19,6 +19,8 @@ struct lws_vh_eventlibs_sdevent {
 };
 
 struct lws_wsi_watcher_sdevent {
+    struct sd_event_source *source;
+    uint32_t events;
 };
 
 static int init_context_sd(struct lws_context *context, const struct lws_context_creation_info *info) {
@@ -127,29 +129,73 @@ static int sock_accept_sd(struct lws *wsi) {
 
     struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 
-    uint32_t events = (unsigned) EPOLLIN | (unsigned) EPOLLOUT;
     void *userdata = NULL;
 
-    // TODO the sd_event_source should be stored with the WSI
-    sd_event_source *source;
-
     if (wsi->role_ops->file_handle)
-        sd_event_add_io(pt_to_priv_sd(pt)->io_loop, &source, wsi->desc.filefd, events, sock_accept_handler, userdata);
+        sd_event_add_io(
+                pt_to_priv_sd(pt)->io_loop,
+                &wsi_to_priv_sd(wsi)->source,
+                wsi->desc.filefd,
+                wsi_to_priv_sd(wsi)->events,
+                sock_accept_handler,
+                userdata
+        );
     else
-        sd_event_add_io(pt_to_priv_sd(pt)->io_loop, &source, wsi->desc.sockfd, events, sock_accept_handler, userdata);
+        sd_event_add_io(
+                pt_to_priv_sd(pt)->io_loop,
+                &wsi_to_priv_sd(wsi)->source,
+                wsi->desc.sockfd,
+                wsi_to_priv_sd(wsi)->events,
+                sock_accept_handler,
+                userdata
+        );
 
     return 0;
 }
 
 static void io_sd(struct lws *wsi, int flags) {
     pthread_t pt_id = pthread_self();
-    printf("%s(%d) [%lu] %s not implemented\n", __FILE__, __LINE__, pt_id, __func__);
+    printf("%s(%d) [%lu] %s entered for wsi %p with flags %d\n", __FILE__, __LINE__, pt_id, __func__, wsi, flags);
 
     struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 
-    // extra info, can be removed
-    printf("%s(%d) %s wsi is %p\n", __FILE__, __LINE__, __func__, wsi);
-    printf("%s(%d) %s flags is %x\n", __FILE__, __LINE__, __func__, flags);
+    // only manipulate if there is an event source
+    if (!pt_to_priv_sd(pt)->io_loop || !wsi_to_priv_sd(wsi)->source) {
+        lwsl_info("%s: no io loop yet\n", __func__);
+        return;
+    }
+
+    // assert that the requested flags do not contain anything unexpected
+    if (!((flags & (LWS_EV_START | LWS_EV_STOP)) &&
+          (flags & (LWS_EV_READ | LWS_EV_WRITE)))) {
+        lwsl_err("%s: assert: flags %d", __func__, flags);
+        assert(0);
+    }
+
+    // we are overdoing a bit here, so it resembles the structure in libuv.c
+    if (flags & LWS_EV_START) {
+        if (flags & LWS_EV_WRITE)
+            wsi_to_priv_sd(wsi)->events |= EPOLLOUT;
+
+        if (flags & LWS_EV_READ)
+            wsi_to_priv_sd(wsi)->events |= EPOLLIN;
+
+        sd_event_source_set_io_events(wsi_to_priv_sd(wsi)->source, wsi_to_priv_sd(wsi)->events);
+        sd_event_source_set_enabled(wsi_to_priv_sd(wsi)->source, SD_EVENT_ON);
+    } else {
+        if (flags & LWS_EV_WRITE)
+            wsi_to_priv_sd(wsi)->events &= ~EPOLLOUT;
+
+        if (flags & LWS_EV_READ)
+            wsi_to_priv_sd(wsi)->events &= ~EPOLLIN;
+
+        sd_event_source_set_io_events(wsi_to_priv_sd(wsi)->source, wsi_to_priv_sd(wsi)->events);
+
+        if (!(wsi_to_priv_sd(wsi)->events & (EPOLLIN | EPOLLOUT)))
+            sd_event_source_set_enabled(wsi_to_priv_sd(wsi)->source, SD_EVENT_ON);
+        else
+            sd_event_source_set_enabled(wsi_to_priv_sd(wsi)->source, SD_EVENT_OFF);
+    }
 }
 
 static void run_pt_sd(struct lws_context *context, int tsi) {
