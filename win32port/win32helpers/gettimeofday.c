@@ -1,11 +1,12 @@
 #include <time.h>
-#include <windows.h> //I've omitted context line
+#include <windows.h>
 
 #include "gettimeofday.h"
 
+#ifndef LWS_MINGW_SUPPORT
 int gettimeofday(struct timeval *tv, struct timezone *tz)
 {
-	FILETIME ft;
+       FILETIME ft;
 	unsigned __int64 tmpres = 0;
 	static int tzflag;
 
@@ -19,11 +20,11 @@ int gettimeofday(struct timeval *tv, struct timezone *tz)
 		/*converting file time to unix epoch*/
 		tmpres /= 10;  /*convert into microseconds*/
 		tmpres -= DELTA_EPOCH_IN_MICROSECS;
-		tv->tv_sec = (long)(tmpres / 1000000UL);
-		tv->tv_usec = (long)(tmpres % 1000000UL);
-	}
- 
-	if (NULL != tz) {
+               tv->tv_sec = (long)(tmpres / 1000000UL);
+               tv->tv_usec = (long)(tmpres % 1000000UL);
+       }
+
+       if (NULL != tz) {
 		if (!tzflag) {
 			_tzset();
 			tzflag++;
@@ -32,5 +33,6 @@ int gettimeofday(struct timeval *tv, struct timezone *tz)
 		tz->tz_dsttime = _daylight;
 	}
 
-	return 0;
+       return 0;
 }
+#endif
