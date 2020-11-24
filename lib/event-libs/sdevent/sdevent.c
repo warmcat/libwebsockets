@@ -125,10 +125,19 @@ static int sock_accept_handler(sd_event_source *s, int fd, uint32_t revents, voi
     }
 
     // fire idle handler
-    sd_event_source_set_time(pt_to_priv_sd(pt)->idletimer, (uint64_t) 0);
-    sd_event_source_set_enabled(pt_to_priv_sd(pt)->idletimer, SD_EVENT_ON);
+    struct sd_event_source *idletimer = pt_to_priv_sd(pt)->idletimer;
+    if (idletimer) {
+        sd_event_source_set_time(idletimer, (uint64_t) 0);
+        sd_event_source_set_enabled(idletimer, SD_EVENT_ON);
+    }
 
-    sd_event_source_set_enabled(s, SD_EVENT_ONESHOT);
+    // allow further events
+    // Note: do not move the assignment up, lws_service_fd_tsi may invalidate it!
+    struct sd_event_source *watcher = wsi_to_priv_sd(wsi)->source;
+    if (watcher) {
+        sd_event_source_set_enabled(watcher, SD_EVENT_ONESHOT);
+    }
+
     return 0;
 
 bail:
@@ -142,8 +151,8 @@ static void io_sd(struct lws *wsi, int flags) {
 
     struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 
-    // only manipulate if there is an event source
-    if (!pt_to_priv_sd(pt)->io_loop || !wsi_to_priv_sd(wsi)->source) {
+    // only manipulate if there is an event source and if the pt is still alive
+    if (!pt_to_priv_sd(pt)->io_loop || !wsi_to_priv_sd(wsi)->source || pt->is_destroyed) {
         return;
     }
 
