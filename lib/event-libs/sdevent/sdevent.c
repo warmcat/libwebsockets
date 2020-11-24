@@ -142,6 +142,7 @@ static int sock_accept_handler(sd_event_source *s, int fd, uint32_t revents, voi
     sd_event_source_set_time(pt_to_priv_sd(pt)->idletimer, (uint64_t) 0);
     sd_event_source_set_enabled(pt_to_priv_sd(pt)->idletimer, SD_EVENT_ON);
 
+    sd_event_source_set_enabled(s, SD_EVENT_ONESHOT);
     return 0;
 
 bail:
