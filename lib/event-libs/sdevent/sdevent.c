@@ -13,6 +13,7 @@ struct lws_context_eventlibs_sdevent {
 struct lws_pt_eventlibs_sdevent {
     struct lws_context_per_thread *pt;
     struct sd_event *io_loop;
+    struct sd_event_source *sultimer;
 };
 
 struct lws_vh_eventlibs_sdevent {
@@ -47,6 +48,12 @@ static int destroy_context2_sd(struct lws_context *context) {
 }
 
 static int init_vhost_listen_wsi_sd(struct lws *wsi) {
+    pthread_t pt_id = pthread_self();
+    printf("%s(%d) [%lu] %s not implemented\n", __FILE__, __LINE__, pt_id, __func__);
+    return 0;
+}
+
+static int sultimer_handler(sd_event_source *s, uint64_t usec, void *userdata) {
     pthread_t pt_id = pthread_self();
     printf("%s(%d) [%lu] %s not implemented\n", __FILE__, __LINE__, pt_id, __func__);
     return 0;
@@ -95,6 +102,17 @@ static int init_pt_sd(struct lws_context *context, void *_loop, int tsi) {
 
     if (first) {
         // TODO init sultimer
+        if (0 > sd_event_add_time(
+                loop,
+                &ptpriv->sultimer,
+                CLOCK_MONOTONIC,
+                UINT64_MAX,
+                0,
+                sultimer_handler,
+                NULL
+        )) {
+            return -1;
+        }
     }
 
     return 0;
