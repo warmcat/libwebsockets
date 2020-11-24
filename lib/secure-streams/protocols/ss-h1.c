@@ -194,6 +194,18 @@ lws_apply_metadata(lws_ss_handle_t *h, struct lws *wsi, uint8_t *buf,
 					h->metadata[m].value__may_own_heap,
 					(int)h->metadata[m].length, pp, end))
 			return -1;
+
+			/*
+			 * Check for the case he's setting a non-zero
+			 * content-length "via the backdoor" metadata-
+			 * driven headers, and set the body_pending()
+			 * state if so...
+			 */
+
+			if (!strncmp(polmd->value__may_own_heap,
+				     "content-length", 14) &&
+			    atoi(h->metadata[m].value__may_own_heap))
+				lws_client_http_body_pending(wsi, 1);
 		}
 
 		m++;
