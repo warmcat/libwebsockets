@@ -1,4 +1,3 @@
-#include <pthread.h>
 #include <systemd/sd-event.h>
 
 #include <private-lib-core.h>
@@ -25,8 +24,7 @@ struct lws_wsi_watcher_sdevent {
 };
 
 static int init_context_sd(struct lws_context *context, const struct lws_context_creation_info *info) {
-    pthread_t pt_id = pthread_self();
-    printf("%s(%d) [%lu] %s not implemented\n", __FILE__, __LINE__, pt_id, __func__);
+    printf("%s(%d) entered (not impl!) %s\n", __FILE__, __LINE__, __func__);
 
     // extra info, can be removed
     printf("%s(%d) %s info->signal_cb is %p\n", __FILE__, __LINE__, __func__, info->signal_cb);
@@ -36,32 +34,27 @@ static int init_context_sd(struct lws_context *context, const struct lws_context
 }
 
 static int destroy_context1_sd(struct lws_context *context) {
-    pthread_t pt_id = pthread_self();
-    printf("%s(%d) [%lu] %s not implemented\n", __FILE__, __LINE__, pt_id, __func__);
+    printf("%s(%d) entered (not impl!) %s\n", __FILE__, __LINE__, __func__);
     return 0;
 }
 
 static int destroy_context2_sd(struct lws_context *context) {
-    pthread_t pt_id = pthread_self();
-    printf("%s(%d) [%lu] %s not implemented\n", __FILE__, __LINE__, pt_id, __func__);
+    printf("%s(%d) entered (not impl!) %s\n", __FILE__, __LINE__, __func__);
     return 0;
 }
 
 static int init_vhost_listen_wsi_sd(struct lws *wsi) {
-    pthread_t pt_id = pthread_self();
-    printf("%s(%d) [%lu] %s not implemented\n", __FILE__, __LINE__, pt_id, __func__);
+    printf("%s(%d) entered (not impl!) %s\n", __FILE__, __LINE__, __func__);
     return 0;
 }
 
 static int sultimer_handler(sd_event_source *s, uint64_t usec, void *userdata) {
-    pthread_t pt_id = pthread_self();
-    printf("%s(%d) [%lu] %s not implemented\n", __FILE__, __LINE__, pt_id, __func__);
+    printf("%s(%d) entered (not impl!) %s\n", __FILE__, __LINE__, __func__);
     return 0;
 }
 
 static int init_pt_sd(struct lws_context *context, void *_loop, int tsi) {
-    pthread_t pt_id = pthread_self();
-    printf("%s(%d) [%lu] %s entered\n", __FILE__, __LINE__, pt_id, __func__);
+    printf("%s(%d) entered %s\n", __FILE__, __LINE__, __func__);
 
     struct lws_context_per_thread *pt = &context->pt[tsi];
     struct lws_pt_eventlibs_sdevent *ptpriv = pt_to_priv_sd(pt);
@@ -101,7 +94,6 @@ static int init_pt_sd(struct lws_context *context, void *_loop, int tsi) {
     }
 
     if (first) {
-        // TODO init sultimer
         if (0 > sd_event_add_time(
                 loop,
                 &ptpriv->sultimer,
@@ -119,25 +111,21 @@ static int init_pt_sd(struct lws_context *context, void *_loop, int tsi) {
 }
 
 static int wsi_logical_close_sd(struct lws *wsi) {
-    pthread_t pt_id = pthread_self();
-    printf("%s(%d) [%lu] %s not implemented\n", __FILE__, __LINE__, pt_id, __func__);
+    printf("%s(%d) entered (not impl!) %s\n", __FILE__, __LINE__, __func__);
     return 0;
 }
 
 static int check_client_connect_ok_sd(struct lws *wsi) {
-    pthread_t pt_id = pthread_self();
-    printf("%s(%d) [%lu] %s not implemented\n", __FILE__, __LINE__, pt_id, __func__);
+    printf("%s(%d) entered (not impl!) %s\n", __FILE__, __LINE__, __func__);
     return 0;
 }
 
 static void close_handle_manually_sd(struct lws *wsi) {
-    pthread_t pt_id = pthread_self();
-    printf("%s(%d) [%lu] %s not implemented\n", __FILE__, __LINE__, pt_id, __func__);
+    printf("%s(%d) entered (not impl!) %s\n", __FILE__, __LINE__, __func__);
 }
 
 static int sock_accept_handler(sd_event_source *s, int fd, uint32_t revents, void *userdata) {
-    pthread_t pt_id = pthread_self();
-    printf("%s(%d) [%lu] %s entered\n", __FILE__, __LINE__, pt_id, __func__);
+    printf("%s(%d) entered %s\n", __FILE__, __LINE__, __func__);
 
     struct lws *wsi = (struct lws*) userdata;
     struct lws_context *context = wsi->a.context;
@@ -169,6 +157,7 @@ static int sock_accept_handler(sd_event_source *s, int fd, uint32_t revents, voi
     lws_pt_unlock(pt);
     lws_context_unlock(pt->context);
 
+    printf("%s(%d) called lws_service_fd_tsi\n", __FILE__, __LINE__);
     lws_service_fd_tsi(context, &eventfd, wsi->tsi);
 
     if (pt->destroy_self) {
@@ -185,8 +174,7 @@ bail:
 }
 
 static int sock_accept_sd(struct lws *wsi) {
-    pthread_t pt_id = pthread_self();
-    printf("%s(%d) [%lu] %s entered\n", __FILE__, __LINE__, pt_id, __func__);
+    printf("%s(%d) entered %s\n", __FILE__, __LINE__, __func__);
 
     struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 
@@ -215,8 +203,7 @@ static int sock_accept_sd(struct lws *wsi) {
 }
 
 static void io_sd(struct lws *wsi, int flags) {
-    pthread_t pt_id = pthread_self();
-    printf("%s(%d) [%lu] %s entered for wsi %p with flags %d\n", __FILE__, __LINE__, pt_id, __func__, wsi, flags);
+    printf("%s(%d) entered %s\n", __FILE__, __LINE__, __func__);
 
     struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 
@@ -260,8 +247,7 @@ static void io_sd(struct lws *wsi, int flags) {
 }
 
 static void run_pt_sd(struct lws_context *context, int tsi) {
-    pthread_t pt_id = pthread_self();
-    printf("%s(%d) [%lu] %s entered\n", __FILE__, __LINE__, pt_id, __func__);
+    printf("%s(%d) entered %s\n", __FILE__, __LINE__, __func__);
 
     struct lws_context_per_thread *pt = &context->pt[tsi];
     struct lws_pt_eventlibs_sdevent *ptpriv = pt_to_priv_sd(pt);
@@ -271,13 +257,11 @@ static void run_pt_sd(struct lws_context *context, int tsi) {
 }
 
 static void destroy_pt_sd(struct lws_context *context, int tsi) {
-    pthread_t pt_id = pthread_self();
-    printf("%s(%d) [%lu] %s not implemented\n", __FILE__, __LINE__, pt_id, __func__);
+    printf("%s(%d) entered (not impl!) %s\n", __FILE__, __LINE__, __func__);
 }
 
 static void destroy_wsi_sd(struct lws *wsi) {
-    pthread_t pt_id = pthread_self();
-    printf("%s(%d) [%lu] %s not implemented\n", __FILE__, __LINE__, pt_id, __func__);
+    printf("%s(%d) entered (not impl!) %s\n", __FILE__, __LINE__, __func__);
 }
 
 const struct lws_event_loop_ops event_loop_ops_sdevent = {
