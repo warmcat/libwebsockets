@@ -1005,7 +1005,11 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		}
 	}
 
-	if (h2n->swsi && h2n->sid &&
+	if (h2n->type >= LWS_H2_FRAME_TYPE_COUNT)
+		/* we MUST ignore frames we don't understand */
+		h2n->type = LWS_H2_FRAME_TYPE_COUNT;
+
+	if (h2n->swsi && h2n->sid && h2n->type != LWS_H2_FRAME_TYPE_COUNT &&
 	    !(http2_rx_validity[h2n->swsi->h2.h2_state] & (1 << h2n->type))) {
 		lwsl_info("%s: wsi %p, State: %s, ILLEGAL cmdrx %d (OK 0x%x)\n",
 			  __func__, h2n->swsi,
