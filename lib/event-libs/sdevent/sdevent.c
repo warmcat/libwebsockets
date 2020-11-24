@@ -315,7 +315,14 @@ static int init_pt_sd(struct lws_context *context, void *_loop, int tsi) {
 }
 
 static int wsi_logical_close_sd(struct lws *wsi) {
-    printf("%s(%d) entered (not impl!) %s\n", __FILE__, __LINE__, __func__);
+    printf("%s(%d) entered %s\n", __FILE__, __LINE__, __func__);
+
+    if (wsi_to_priv_sd(wsi)->source) {
+        sd_event_source_set_enabled(wsi_to_priv_sd(wsi)->source, SD_EVENT_OFF);
+        sd_event_source_unref(wsi_to_priv_sd(wsi)->source);
+        wsi_to_priv_sd(wsi)->source = NULL;
+    }
+
     return 0;
 }
 
