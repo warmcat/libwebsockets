@@ -210,10 +210,17 @@ static int init_pt_sd(struct lws_context *context, void *_loop, int tsi) {
                 loop,
                 &ptpriv->sultimer,
                 CLOCK_MONOTONIC,
-                UINT64_MAX,
+                0,
                 0,
                 sultimer_handler,
                 NULL
+        )) {
+            return -1;
+        }
+
+        if (0 > sd_event_source_set_priority(
+                ptpriv->sultimer,
+                SD_EVENT_PRIORITY_IDLE
         )) {
             return -1;
         }
