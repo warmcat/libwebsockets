@@ -119,7 +119,50 @@ static void close_handle_manually_sd(struct lws *wsi) {
 
 static int sock_accept_handler(sd_event_source *s, int fd, uint32_t revents, void *userdata) {
     pthread_t pt_id = pthread_self();
-    printf("%s(%d) [%lu] %s not implemented\n", __FILE__, __LINE__, pt_id, __func__);
+    printf("%s(%d) [%lu] %s entered\n", __FILE__, __LINE__, pt_id, __func__);
+
+    struct lws *wsi = (struct lws*) userdata;
+    struct lws_context *context = wsi->a.context;
+    struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+    struct lws_pollfd eventfd;
+
+    lws_context_lock(pt->context, __func__);
+    lws_pt_lock(pt, __func__);
+
+    if (pt->is_destroyed)
+        goto bail;
+
+    eventfd.fd = fd;
+    eventfd.events = 0;
+    eventfd.revents = 0;
+
+    // TODO handle revents error bits
+
+    if (revents & EPOLLIN) {
+        eventfd.events |= LWS_POLLIN;
+        eventfd.revents |= LWS_POLLIN;
+    }
+
+    if (revents & EPOLLOUT) {
+        eventfd.events |= LWS_POLLOUT;
+        eventfd.revents |= LWS_POLLOUT;
+    }
+
+    lws_pt_unlock(pt);
+    lws_context_unlock(pt->context);
+
+    lws_service_fd_tsi(context, &eventfd, wsi->tsi);
+
+    if (pt->destroy_self) {
+        lws_context_destroy(pt->context);
+    }
+
+    return 0;
+
+bail:
+    lws_pt_unlock(pt);
+    lws_context_unlock(pt->context);
+
     return 0;
 }
 
@@ -129,7 +172,7 @@ static int sock_accept_sd(struct lws *wsi) {
 
     struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 
-    void *userdata = NULL;
+    void *userdata = wsi;
 
     if (wsi->role_ops->file_handle)
         sd_event_add_io(
@@ -200,8 +243,13 @@ static void io_sd(struct lws *wsi, int flags) {
 
 static void run_pt_sd(struct lws_context *context, int tsi) {
     pthread_t pt_id = pthread_self();
-    printf("%s(%d) [%lu] %s not implemented\n", __FILE__, __LINE__, pt_id, __func__);
-    sleep(1);
+    printf("%s(%d) [%lu] %s entered\n", __FILE__, __LINE__, pt_id, __func__);
+
+    struct lws_context_per_thread *pt = &context->pt[tsi];
+    struct lws_pt_eventlibs_sdevent *ptpriv = pt_to_priv_sd(pt);
+    if(ptpriv->io_loop) {
+        sd_event_run(ptpriv->io_loop, (uint64_t) -1);
+    }
 }
 
 static void destroy_pt_sd(struct lws_context *context, int tsi) {
