@@ -25,15 +25,12 @@ struct lws_wsi_watcher_sdevent {
 };
 
 static int sultimer_handler(sd_event_source *s, uint64_t usec, void *userdata) {
-    printf("%s(%d) entered %s\n", __FILE__, __LINE__, __func__);
-
     struct lws_context_per_thread *pt = (struct lws_context_per_thread*) userdata;
 
     lws_usec_t us;
 
     lws_context_lock(pt->context, __func__);
     lws_pt_lock(pt, __func__);
-    printf("%s(%d) calling __lws_sul_service_ripe\n", __FILE__, __LINE__);
     us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
                                 lws_now_usecs());
     if (us) {
@@ -42,7 +39,6 @@ static int sultimer_handler(sd_event_source *s, uint64_t usec, void *userdata) {
         alarmTime += us;
         sd_event_source_set_time(pt_to_priv_sd(pt)->sultimer, alarmTime);
         sd_event_source_set_enabled(pt_to_priv_sd(pt)->sultimer, SD_EVENT_ONESHOT);
-        printf("%s(%d) self, next in %lu\n", __FILE__, __LINE__, us);
     }
 
     lws_pt_unlock(pt);
@@ -52,13 +48,10 @@ static int sultimer_handler(sd_event_source *s, uint64_t usec, void *userdata) {
 }
 
 static int idle_handler(sd_event_source *s, uint64_t usec, void *userdata) {
-    printf("%s(%d) entered %s\n", __FILE__, __LINE__, __func__);
-
     struct lws_context_per_thread *pt = (struct lws_context_per_thread*) userdata;
 
     lws_usec_t us;
 
-    printf("%s(%d) calling lws_service_do_ripe_rxflow\n", __FILE__, __LINE__);
     lws_service_do_ripe_rxflow(pt);
 
     lws_context_lock(pt->context, __func__);
@@ -67,16 +60,13 @@ static int idle_handler(sd_event_source *s, uint64_t usec, void *userdata) {
     /*
      * is there anybody with pending stuff that needs service forcing?
      */
-    printf("%s(%d) calling lws_service_adjust_timeout\n", __FILE__, __LINE__);
     if (!lws_service_adjust_timeout(pt->context, 1, pt->tid)) {
-        printf("%s(%d) calling _lws_plat_service_forced_tsi\n", __FILE__, __LINE__);
         /* -1 timeout means just do forced service */
         _lws_plat_service_forced_tsi(pt->context, pt->tid);
     }
 
     /* account for sultimer */
 
-    printf("%s(%d) calling __lws_sul_service_ripe\n", __FILE__, __LINE__);
     us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
                                 lws_now_usecs());
 
@@ -86,7 +76,6 @@ static int idle_handler(sd_event_source *s, uint64_t usec, void *userdata) {
         alarmTime += us;
         sd_event_source_set_time(pt_to_priv_sd(pt)->sultimer, alarmTime);
         sd_event_source_set_enabled(pt_to_priv_sd(pt)->sultimer, SD_EVENT_ONESHOT);
-        printf("%s(%d) idle, next in %lu\n", __FILE__, __LINE__, us);
     }
 
     sd_event_source_set_enabled(pt_to_priv_sd(pt)->idletimer, SD_EVENT_OFF);
@@ -98,8 +87,6 @@ static int idle_handler(sd_event_source *s, uint64_t usec, void *userdata) {
 }
 
 static int sock_accept_handler(sd_event_source *s, int fd, uint32_t revents, void *userdata) {
-    printf("%s(%d) entered %s\n", __FILE__, __LINE__, __func__);
-
     struct lws *wsi = (struct lws*) userdata;
     struct lws_context *context = wsi->a.context;
     struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
@@ -130,7 +117,6 @@ static int sock_accept_handler(sd_event_source *s, int fd, uint32_t revents, voi
     lws_pt_unlock(pt);
     lws_context_unlock(pt->context);
 
-    printf("%s(%d) calling lws_service_fd_tsi\n", __FILE__, __LINE__);
     lws_service_fd_tsi(context, &eventfd, wsi->tsi);
 
     if (pt->destroy_self) {
@@ -150,26 +136,6 @@ bail:
     lws_context_unlock(pt->context);
 
     return -1;
-}
-
-static int init_context_sd(struct lws_context *context, const struct lws_context_creation_info *info) {
-    printf("%s(%d) entered (not impl!) %s\n", __FILE__, __LINE__, __func__);
-
-    // extra info, can be removed
-    printf("%s(%d) %s info->signal_cb is %p\n", __FILE__, __LINE__, __func__, info->signal_cb);
-    printf("%s(%d) %s context->count_threads is %d\n", __FILE__, __LINE__, __func__, context->count_threads);
-
-    return 0;
-}
-
-static int destroy_context1_sd(struct lws_context *context) {
-    printf("%s(%d) entered (not impl!) %s\n", __FILE__, __LINE__, __func__);
-    return 0;
-}
-
-static int destroy_context2_sd(struct lws_context *context) {
-    printf("%s(%d) entered (not impl!) %s\n", __FILE__, __LINE__, __func__);
-    return 0;
 }
 
 static void io_sd(struct lws *wsi, int flags) {
@@ -215,8 +181,6 @@ static void io_sd(struct lws *wsi, int flags) {
 }
 
 static int init_vhost_listen_wsi_sd(struct lws *wsi) {
-    printf("%s(%d) entered %s wsi=%p\n", __FILE__, __LINE__, __func__, wsi);
-
     if (!wsi)
         return 0;
 
@@ -239,8 +203,6 @@ static int init_vhost_listen_wsi_sd(struct lws *wsi) {
 }
 
 static int init_pt_sd(struct lws_context *context, void *_loop, int tsi) {
-    printf("%s(%d) entered %s\n", __FILE__, __LINE__, __func__);
-
     struct lws_context_per_thread *pt = &context->pt[tsi];
     struct lws_pt_eventlibs_sdevent *ptpriv = pt_to_priv_sd(pt);
 
@@ -318,8 +280,6 @@ static int init_pt_sd(struct lws_context *context, void *_loop, int tsi) {
 }
 
 static int wsi_logical_close_sd(struct lws *wsi) {
-    printf("%s(%d) entered %s\n", __FILE__, __LINE__, __func__);
-
     if (wsi) {
         io_sd(wsi, LWS_EV_STOP | (LWS_EV_READ | LWS_EV_WRITE));
 
@@ -333,18 +293,7 @@ static int wsi_logical_close_sd(struct lws *wsi) {
     return 0;
 }
 
-static int check_client_connect_ok_sd(struct lws *wsi) {
-    printf("%s(%d) entered (not impl!) %s\n", __FILE__, __LINE__, __func__);
-    return 0;
-}
-
-static void close_handle_manually_sd(struct lws *wsi) {
-    printf("%s(%d) entered (not impl!) %s\n", __FILE__, __LINE__, __func__);
-}
-
 static int sock_accept_sd(struct lws *wsi) {
-    printf("%s(%d) entered %s wsi=%p\n", __FILE__, __LINE__, __func__, wsi);
-
     struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 
     void *userdata = wsi;
@@ -372,8 +321,6 @@ static int sock_accept_sd(struct lws *wsi) {
 }
 
 static void run_pt_sd(struct lws_context *context, int tsi) {
-    printf("%s(%d) entered %s\n", __FILE__, __LINE__, __func__);
-
     struct lws_context_per_thread *pt = &context->pt[tsi];
     struct lws_pt_eventlibs_sdevent *ptpriv = pt_to_priv_sd(pt);
     if(ptpriv->io_loop) {
@@ -382,8 +329,6 @@ static void run_pt_sd(struct lws_context *context, int tsi) {
 }
 
 static void destroy_pt_sd(struct lws_context *context, int tsi) {
-    printf("%s(%d) entered %s\n", __FILE__, __LINE__, __func__);
-
     struct lws_context_per_thread *pt = &context->pt[tsi];
     struct lws_pt_eventlibs_sdevent *ptpriv = pt_to_priv_sd(pt);
 
@@ -408,25 +353,21 @@ static void destroy_pt_sd(struct lws_context *context, int tsi) {
     }
 }
 
-static void destroy_wsi_sd(struct lws *wsi) {
-    printf("%s(%d) entered (not impl!) %s\n", __FILE__, __LINE__, __func__);
-}
-
 const struct lws_event_loop_ops event_loop_ops_sdevent = {
         .name = "sdevent",
-        .init_context = init_context_sd,
-        .destroy_context1 = destroy_context1_sd,
-        .destroy_context2 = destroy_context2_sd,
+        .init_context = NULL,
+        .destroy_context1 = NULL,
+        .destroy_context2 = NULL,
         .init_vhost_listen_wsi = init_vhost_listen_wsi_sd,
         .init_pt = init_pt_sd,
         .wsi_logical_close = wsi_logical_close_sd,
-        .check_client_connect_ok = check_client_connect_ok_sd,
-        .close_handle_manually = close_handle_manually_sd,
+        .check_client_connect_ok = NULL,
+        .close_handle_manually = NULL,
         .sock_accept = sock_accept_sd,
         .io = io_sd,
         .run_pt = run_pt_sd,
         .destroy_pt = destroy_pt_sd,
-        .destroy_wsi = destroy_wsi_sd,
+        .destroy_wsi = NULL,
 
         .flags = 0,
 
