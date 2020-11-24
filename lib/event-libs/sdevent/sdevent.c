@@ -38,9 +38,11 @@ static int sultimer_handler(sd_event_source *s, uint64_t usec, void *userdata) {
                                 lws_now_usecs());
     if (us) {
         uint64_t alarmTime;
-        sd_event_source_get_time(pt_to_priv_sd(pt)->sultimer, &alarmTime);
+        sd_event_now(sd_event_source_get_event(s), CLOCK_MONOTONIC, &alarmTime);
         alarmTime += us;
         sd_event_source_set_time(pt_to_priv_sd(pt)->sultimer, alarmTime);
+        sd_event_source_set_enabled(pt_to_priv_sd(pt)->sultimer, SD_EVENT_ONESHOT);
+        printf("%s(%d) self, next in %lu\n", __FILE__, __LINE__, us);
     }
 
     lws_pt_unlock(pt);
@@ -83,6 +85,8 @@ static int idle_handler(sd_event_source *s, uint64_t usec, void *userdata) {
         sd_event_now(sd_event_source_get_event(s), CLOCK_MONOTONIC, &alarmTime);
         alarmTime += us;
         sd_event_source_set_time(pt_to_priv_sd(pt)->sultimer, alarmTime);
+        sd_event_source_set_enabled(pt_to_priv_sd(pt)->sultimer, SD_EVENT_ONESHOT);
+        printf("%s(%d) idle, next in %lu\n", __FILE__, __LINE__, us);
     }
 
     sd_event_source_set_enabled(pt_to_priv_sd(pt)->idletimer, SD_EVENT_OFF);
