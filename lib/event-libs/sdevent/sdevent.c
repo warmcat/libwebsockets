@@ -13,6 +13,7 @@ struct lws_pt_eventlibs_sdevent {
     struct lws_context_per_thread *pt;
     struct sd_event *io_loop;
     struct sd_event_source *sultimer;
+    struct sd_event_source *idletimer;
 };
 
 struct lws_vh_eventlibs_sdevent {
@@ -22,6 +23,67 @@ struct lws_wsi_watcher_sdevent {
     struct sd_event_source *source;
     uint32_t events;
 };
+
+static int sultimer_handler(sd_event_source *s, uint64_t usec, void *userdata) {
+    printf("%s(%d) entered %s\n", __FILE__, __LINE__, __func__);
+
+    struct lws_context_per_thread *pt = (struct lws_context_per_thread*) userdata;
+
+    lws_usec_t us;
+
+    lws_context_lock(pt->context, __func__);
+    lws_pt_lock(pt, __func__);
+    us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
+                                lws_now_usecs());
+    if (us) {
+        uint64_t alarmTime;
+        sd_event_source_get_time(pt_to_priv_sd(pt)->sultimer, &alarmTime);
+        alarmTime += us;
+        sd_event_source_set_time(pt_to_priv_sd(pt)->sultimer, alarmTime);
+    }
+
+    lws_pt_unlock(pt);
+    lws_context_unlock(pt->context);
+
+    return 0;
+}
+
+static int idle_handler(sd_event_source *s, uint64_t usec, void *userdata) {
+    printf("%s(%d) entered %s\n", __FILE__, __LINE__, __func__);
+
+    struct lws_context_per_thread *pt = (struct lws_context_per_thread*) userdata;
+
+    lws_usec_t us;
+
+    lws_service_do_ripe_rxflow(pt);
+
+    lws_context_lock(pt->context, __func__);
+    lws_pt_lock(pt, __func__);
+
+    /*
+     * is there anybody with pending stuff that needs service forcing?
+     */
+    if (!lws_service_adjust_timeout(pt->context, 1, pt->tid))
+        /* -1 timeout means just do forced service */
+        _lws_plat_service_forced_tsi(pt->context, pt->tid);
+
+    /* account for sultimer */
+
+    us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
+                                lws_now_usecs());
+
+    if (us) {
+        uint64_t alarmTime;
+        sd_event_source_get_time(pt_to_priv_sd(pt)->sultimer, &alarmTime);
+        alarmTime += us;
+        sd_event_source_set_time(pt_to_priv_sd(pt)->sultimer, alarmTime);
+    }
+
+    lws_pt_unlock(pt);
+    lws_context_unlock(pt->context);
+
+    return 0;
+}
 
 static int sock_accept_handler(sd_event_source *s, int fd, uint32_t revents, void *userdata) {
     printf("%s(%d) entered %s\n", __FILE__, __LINE__, __func__);
@@ -63,6 +125,8 @@ static int sock_accept_handler(sd_event_source *s, int fd, uint32_t revents, voi
         lws_context_destroy(pt->context);
     }
 
+    // fire idle handler
+    sd_event_source_set_time(pt_to_priv_sd(pt)->idletimer, (uint64_t) 0);
     return 0;
 
     bail:
@@ -160,11 +224,6 @@ static int init_vhost_listen_wsi_sd(struct lws *wsi) {
     return 0;
 }
 
-static int sultimer_handler(sd_event_source *s, uint64_t usec, void *userdata) {
-    printf("%s(%d) entered (not impl!) %s\n", __FILE__, __LINE__, __func__);
-    return 0;
-}
-
 static int init_pt_sd(struct lws_context *context, void *_loop, int tsi) {
     printf("%s(%d) entered %s\n", __FILE__, __LINE__, __func__);
 
@@ -206,20 +265,33 @@ static int init_pt_sd(struct lws_context *context, void *_loop, int tsi) {
     }
 
     if (first) {
+
         if (0 > sd_event_add_time(
                 loop,
                 &ptpriv->sultimer,
                 CLOCK_MONOTONIC,
-                0,
+                UINT64_MAX,
                 0,
                 sultimer_handler,
-                NULL
+                (void*) pt
+        )) {
+            return -1;
+        }
+
+        if (0 > sd_event_add_time(
+                loop,
+                &ptpriv->idletimer,
+                CLOCK_MONOTONIC,
+                0,
+                0,
+                idle_handler,
+                (void*) pt
         )) {
             return -1;
         }
 
         if (0 > sd_event_source_set_priority(
-                ptpriv->sultimer,
+                ptpriv->idletimer,
                 SD_EVENT_PRIORITY_IDLE
         )) {
             return -1;
