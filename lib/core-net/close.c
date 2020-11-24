@@ -162,6 +162,20 @@ __lws_free_wsi(struct lws *wsi)
 	if (!wsi)
 		return;
 
+#if defined(LWS_WITH_SECURE_STREAMS) && defined(LWS_WITH_SERVER)
+	if (wsi->for_ss) {
+		/*
+		 * Make certain it is disconnected from the ss by now
+		 */
+		lws_ss_handle_t *h = (lws_ss_handle_t *)wsi->a.opaque_user_data;
+
+		if (h) {
+			h->wsi = NULL;
+			wsi->a.opaque_user_data = NULL;
+		}
+	}
+#endif
+
 	__lws_reset_wsi(wsi);
 	__lws_wsi_remove_from_sul(wsi);
 
@@ -497,6 +511,7 @@ just_kill_connection:
 
 #if defined(LWS_WITH_SECURE_STREAMS) && defined(LWS_WITH_SERVER)
 	if (wsi->for_ss) {
+		lwsl_debug("%s: for_ss\n", __func__);
 		/*
 		 * We were adopted for a particular ss, but, eg, we may not
 		 * have succeeded with the connection... we are closing which is
@@ -505,7 +520,7 @@ just_kill_connection:
 		 */
 		lws_ss_handle_t *h = (lws_ss_handle_t *)wsi->a.opaque_user_data;
 
-		if (h) {
+		if (h  && !(h->info.flags & LWSSSINFLAGS_ACCEPTED)) {
 			h->wsi = NULL;
 			wsi->a.opaque_user_data = NULL;
 		}

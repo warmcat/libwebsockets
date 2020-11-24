@@ -86,6 +86,18 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 					return _lws_ss_handle_state_ret(r, wsi, &h);
 				break;
 			}
+
+#if defined(LWS_WITH_SERVER)
+			if (h->info.flags & LWSSSINFLAGS_ACCEPTED) {
+				/*
+				 * was an accepted client connection to
+				 * our server, so the stream is over now
+				 */
+				lws_ss_destroy(&h);
+				return 0;
+			}
+#endif
+
 		}
 		break;
 
