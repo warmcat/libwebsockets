@@ -173,13 +173,11 @@ static int destroy_context2_sd(struct lws_context *context) {
 }
 
 static void io_sd(struct lws *wsi, int flags) {
-    printf("%s(%d) entered %s\n", __FILE__, __LINE__, __func__);
 
     struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 
     // only manipulate if there is an event source
     if (!pt_to_priv_sd(pt)->io_loop || !wsi_to_priv_sd(wsi)->source) {
-        lwsl_info("%s: no io loop yet\n", __func__);
         return;
     }
 
@@ -199,7 +197,7 @@ static void io_sd(struct lws *wsi, int flags) {
             wsi_to_priv_sd(wsi)->events |= EPOLLIN;
 
         sd_event_source_set_io_events(wsi_to_priv_sd(wsi)->source, wsi_to_priv_sd(wsi)->events);
-        sd_event_source_set_enabled(wsi_to_priv_sd(wsi)->source, SD_EVENT_ON);
+        sd_event_source_set_enabled(wsi_to_priv_sd(wsi)->source, SD_EVENT_ONESHOT);
     } else {
         if (flags & LWS_EV_WRITE)
             wsi_to_priv_sd(wsi)->events &= ~EPOLLOUT;
@@ -210,7 +208,7 @@ static void io_sd(struct lws *wsi, int flags) {
         sd_event_source_set_io_events(wsi_to_priv_sd(wsi)->source, wsi_to_priv_sd(wsi)->events);
 
         if (!(wsi_to_priv_sd(wsi)->events & (EPOLLIN | EPOLLOUT)))
-            sd_event_source_set_enabled(wsi_to_priv_sd(wsi)->source, SD_EVENT_ON);
+            sd_event_source_set_enabled(wsi_to_priv_sd(wsi)->source, SD_EVENT_ONESHOT);
         else
             sd_event_source_set_enabled(wsi_to_priv_sd(wsi)->source, SD_EVENT_OFF);
     }
@@ -322,10 +320,14 @@ static int init_pt_sd(struct lws_context *context, void *_loop, int tsi) {
 static int wsi_logical_close_sd(struct lws *wsi) {
     printf("%s(%d) entered %s\n", __FILE__, __LINE__, __func__);
 
-    if (wsi_to_priv_sd(wsi)->source) {
-        sd_event_source_set_enabled(wsi_to_priv_sd(wsi)->source, SD_EVENT_OFF);
-        sd_event_source_unref(wsi_to_priv_sd(wsi)->source);
-        wsi_to_priv_sd(wsi)->source = NULL;
+    if (wsi) {
+        io_sd(wsi, LWS_EV_STOP | (LWS_EV_READ | LWS_EV_WRITE));
+
+        if (wsi_to_priv_sd(wsi)->source) {
+            sd_event_source_set_enabled(wsi_to_priv_sd(wsi)->source, SD_EVENT_OFF);
+            sd_event_source_unref(wsi_to_priv_sd(wsi)->source);
+            wsi_to_priv_sd(wsi)->source = NULL;
+        }
     }
 
     return 0;
@@ -380,7 +382,30 @@ static void run_pt_sd(struct lws_context *context, int tsi) {
 }
 
 static void destroy_pt_sd(struct lws_context *context, int tsi) {
-    printf("%s(%d) entered (not impl!) %s\n", __FILE__, __LINE__, __func__);
+    printf("%s(%d) entered %s\n", __FILE__, __LINE__, __func__);
+
+    struct lws_context_per_thread *pt = &context->pt[tsi];
+    struct lws_pt_eventlibs_sdevent *ptpriv = pt_to_priv_sd(pt);
+
+    for (struct lws_vhost *vh = context->vhost_list; vh; vh = vh->vhost_next) {
+        if (vh->lserv_wsi) {
+            wsi_logical_close_sd(vh->lserv_wsi);
+        }
+        if (ptpriv->sultimer) {
+            sd_event_source_set_enabled(ptpriv->sultimer, SD_EVENT_OFF);
+            sd_event_source_unref(ptpriv->sultimer);
+            ptpriv->sultimer = NULL;
+        }
+        if (ptpriv->idletimer) {
+            sd_event_source_set_enabled(ptpriv->sultimer, SD_EVENT_OFF);
+            sd_event_source_unref(ptpriv->sultimer);
+            ptpriv->sultimer = NULL;
+        }
+        if (ptpriv->io_loop) {
+            sd_event_unref(ptpriv->io_loop);
+            ptpriv->io_loop = NULL;
+        }
+    }
 }
 
 static void destroy_wsi_sd(struct lws *wsi) {
