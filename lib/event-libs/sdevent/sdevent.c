@@ -33,6 +33,7 @@ static int sultimer_handler(sd_event_source *s, uint64_t usec, void *userdata) {
 
     lws_context_lock(pt->context, __func__);
     lws_pt_lock(pt, __func__);
+    printf("%s(%d) calling __lws_sul_service_ripe\n", __FILE__, __LINE__);
     us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
                                 lws_now_usecs());
     if (us) {
@@ -55,6 +56,7 @@ static int idle_handler(sd_event_source *s, uint64_t usec, void *userdata) {
 
     lws_usec_t us;
 
+    printf("%s(%d) calling lws_service_do_ripe_rxflow\n", __FILE__, __LINE__);
     lws_service_do_ripe_rxflow(pt);
 
     lws_context_lock(pt->context, __func__);
@@ -63,21 +65,27 @@ static int idle_handler(sd_event_source *s, uint64_t usec, void *userdata) {
     /*
      * is there anybody with pending stuff that needs service forcing?
      */
-    if (!lws_service_adjust_timeout(pt->context, 1, pt->tid))
+    printf("%s(%d) calling lws_service_adjust_timeout\n", __FILE__, __LINE__);
+    if (!lws_service_adjust_timeout(pt->context, 1, pt->tid)) {
+        printf("%s(%d) calling _lws_plat_service_forced_tsi\n", __FILE__, __LINE__);
         /* -1 timeout means just do forced service */
         _lws_plat_service_forced_tsi(pt->context, pt->tid);
+    }
 
     /* account for sultimer */
 
+    printf("%s(%d) calling __lws_sul_service_ripe\n", __FILE__, __LINE__);
     us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
                                 lws_now_usecs());
 
     if (us) {
         uint64_t alarmTime;
-        sd_event_source_get_time(pt_to_priv_sd(pt)->sultimer, &alarmTime);
+        sd_event_now(sd_event_source_get_event(s), CLOCK_MONOTONIC, &alarmTime);
         alarmTime += us;
         sd_event_source_set_time(pt_to_priv_sd(pt)->sultimer, alarmTime);
     }
+
+    sd_event_source_set_enabled(pt_to_priv_sd(pt)->idletimer, SD_EVENT_OFF);
 
     lws_pt_unlock(pt);
     lws_context_unlock(pt->context);
@@ -118,22 +126,25 @@ static int sock_accept_handler(sd_event_source *s, int fd, uint32_t revents, voi
     lws_pt_unlock(pt);
     lws_context_unlock(pt->context);
 
-    printf("%s(%d) called lws_service_fd_tsi\n", __FILE__, __LINE__);
+    printf("%s(%d) calling lws_service_fd_tsi\n", __FILE__, __LINE__);
     lws_service_fd_tsi(context, &eventfd, wsi->tsi);
 
     if (pt->destroy_self) {
         lws_context_destroy(pt->context);
+        return -1;
     }
 
     // fire idle handler
     sd_event_source_set_time(pt_to_priv_sd(pt)->idletimer, (uint64_t) 0);
+    sd_event_source_set_enabled(pt_to_priv_sd(pt)->idletimer, SD_EVENT_ON);
+
     return 0;
 
-    bail:
+bail:
     lws_pt_unlock(pt);
     lws_context_unlock(pt->context);
 
-    return 0;
+    return -1;
 }
 
 static int init_context_sd(struct lws_context *context, const struct lws_context_creation_info *info) {
@@ -289,6 +300,8 @@ static int init_pt_sd(struct lws_context *context, void *_loop, int tsi) {
         )) {
             return -1;
         }
+
+        sd_event_source_set_enabled(ptpriv->idletimer, SD_EVENT_ON);
 
         if (0 > sd_event_source_set_priority(
                 ptpriv->idletimer,
