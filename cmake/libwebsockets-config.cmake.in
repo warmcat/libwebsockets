@@ -12,6 +12,7 @@ set(LIBWEBSOCKETS_INCLUDE_DIRS "@LWS__INCLUDE_DIRS@")
 
 # Include the project Targets file, this contains definitions for IMPORTED targets.
 include(${LWS_CMAKE_DIR}/LibwebsocketsTargets.cmake)
+include(${LWS_CMAKE_DIR}/LwsCheckRequirements.cmake)
 
 # IMPORTED targets from LibwebsocketsTargets.cmake
 set(LIBWEBSOCKETS_LIBRARIES websockets websockets_shared)

@@ -859,6 +859,14 @@ endif()
 configure_file(${PROJECT_SOURCE_DIR}/cmake/libwebsockets-config.cmake.in
                 ${PROJECT_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/libwebsockets-config.cmake 
                 @ONLY)
+                
+configure_file(${PROJECT_SOURCE_DIR}/cmake/LwsCheckRequirements.cmake
+		${PROJECT_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/LwsCheckRequirements.cmake
+		@ONLY)
+		
+configure_file(${PROJECT_SOURCE_DIR}/cmake/LwsCheckRequirements.cmake
+		${PROJECT_BINARY_DIR}/LwsCheckRequirements.cmake
+		@ONLY)  
 
 # Generate version info for both build-tree and install-tree.
 configure_file(${PROJECT_SOURCE_DIR}/cmake/libwebsockets-config-version.cmake.in
@@ -962,7 +970,7 @@ set_target_properties(${LWS_LIBRARIES}
 install(FILES
                "${PROJECT_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/libwebsockets-config.cmake"
                "${PROJECT_BINARY_DIR}/libwebsockets-config-version.cmake"
-               "${PROJECT_SOURCE_DIR}/cmake/LwsCheckRequirements.cmake"
+               "${PROJECT_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/LwsCheckRequirements.cmake"
                DESTINATION "${LWS_INSTALL_CMAKE_DIR}" COMPONENT dev)
 
 # Install exports for the install-tree.
