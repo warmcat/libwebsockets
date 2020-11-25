@@ -294,7 +294,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
 #if defined(LWS_WITH_HTTP_PROXY)
 		if (wsi->child_list) {
-			lwsl_user("%s: LWS_CALLBACK_HTTP_BODY_COMPLETION: %d\n", __func__, (int)len);
+			lwsl_info("%s: LWS_CALLBACK_HTTP_BODY_COMPLETION: %d\n", __func__, (int)len);
 			break;
 		}
 #endif
@@ -308,7 +308,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 #if defined(LWS_WITH_HTTP_PROXY)
 	case LWS_CALLBACK_HTTP_BODY:
 		if (wsi->child_list) {
-			lwsl_user("%s: LWS_CALLBACK_HTTP_BODY: stashing %d\n", __func__, (int)len);
+			lwsl_info("%s: LWS_CALLBACK_HTTP_BODY: stashing %d\n", __func__, (int)len);
 			if (lws_buflist_append_segment(&wsi->http.buflist_post_body, in, len) < 0)
 				return -1;
 			lws_callback_on_writable(wsi->child_list);
@@ -790,7 +790,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			lwsl_notice("LWS_CALLBACK_CGI_STDIN_DATA: "
 				    "sent %d only %d went", n, args->len);
 
-		lwsl_notice("%s: proxied %d bytes\n", __func__, n);
+		lwsl_info("%s: proxied %d bytes\n", __func__, n);
 
 		if (wsi->http.cgi->post_in_expected && args->stdwsi[LWS_STDIN] &&
 		    args->stdwsi[LWS_STDIN]->desc.filefd > 0) {
@@ -807,7 +807,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 				 * if no content-length)...
 				 */
 
-				lwsl_notice("%s: expected POST in end: "
+				lwsl_info("%s: expected POST in end: "
 					    "closing stdin wsi %p, fd %d\n",
 					    __func__, siwsi,
 					    siwsi->desc.sockfd);
