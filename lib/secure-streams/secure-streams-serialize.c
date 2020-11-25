@@ -693,10 +693,19 @@ payload_ff:
 						     parser);
 				h->txc.peer_tx_cr_est -= n;
 
-				if (client_pss_to_sspc_h(pss, ssi))
+				if (client_pss_to_sspc_h(pss, ssi)) {
 					/* we still have an sspc handle */
-					ssi->rx(client_pss_to_userdata(pss),
+					int ret = ssi->rx(client_pss_to_userdata(pss),
 						(uint8_t *)cp, n, flags);
+					switch (ret) {
+					case LWSSSSRET_OK:
+						break;
+					case LWSSSSRET_DISCONNECT_ME:
+						goto hangup;
+					case LWSSSSRET_DESTROY_ME:
+						return LWSSSSRET_DESTROY_ME;
+					}
+				}
 
 #if defined(LWS_WITH_DETAILED_LATENCY)
 				if (lws_det_lat_active(context)) {
