@@ -1071,11 +1071,13 @@ lws_ss_to_cb(lws_sorted_usec_list_t *sul)
 	lwsl_info("%s: ss %p timeout fired\n", __func__, h);
 
 	r = lws_ss_event_helper(h, LWSSSCS_TIMEOUT);
-	if (r == LWSSSSRET_DESTROY_ME) {
-		if (h->wsi)
-			lws_set_timeout(h->wsi, 1, LWS_TO_KILL_ASYNC);
-		_lws_ss_handle_state_ret(r, NULL, &h);
-	}
+	if (r != LWSSSSRET_DISCONNECT_ME && r != LWSSSSRET_DESTROY_ME)
+		return;
+
+	if (h->wsi)
+		lws_set_timeout(h->wsi, 1, LWS_TO_KILL_ASYNC);
+
+	_lws_ss_handle_state_ret(r, NULL, &h);
 }
 
 void
