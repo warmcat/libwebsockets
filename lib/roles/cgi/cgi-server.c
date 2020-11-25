@@ -621,7 +621,9 @@ post_hpack_recode:
 				lwsl_debug("%s: freed cgi headers\n", __func__);
 
 				if (wsi->http.cgi->post_in_expected) {
-					lwsl_notice("%s: post data still expected, asking for writeable\n", __func__);
+					lwsl_info("%s: post data still expected, "
+						  "asking for writeable\n",
+						  __func__);
 					lws_callback_on_writable(wsi);
 				}
 

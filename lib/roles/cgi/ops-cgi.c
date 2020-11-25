@@ -47,7 +47,7 @@ rops_handle_POLLIN_cgi(struct lws_context_per_thread *pt, struct lws *wsi,
 	}
 
 	if (!wsi->parent) {
-		lwsl_notice("%s: stdwsi content with parent\n",
+		lwsl_debug("%s: stdwsi content with parent\n",
 				__func__);
 
 		return LWS_HPI_RET_HANDLED;

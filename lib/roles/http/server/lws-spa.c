@@ -145,7 +145,7 @@ lws_urldecode_s_create(struct lws_spa *spa, struct lws *wsi, char *out,
 					s->mime_boundary[m++] = *p++;
 				s->mime_boundary[m] = '\0';
 
-				lwsl_notice("boundary '%s'\n", s->mime_boundary);
+				// lwsl_notice("boundary '%s'\n", s->mime_boundary);
 			}
 		}
 	}
@@ -598,7 +598,7 @@ lws_spa_create_via_info(struct lws *wsi, const lws_spa_create_info_t *i)
 			goto bail5;
 	}
 
-	lwsl_notice("%s: Created SPA %p\n", __func__, spa);
+	// lwsl_notice("%s: Created SPA %p\n", __func__, spa);
 
 	return spa;
 
