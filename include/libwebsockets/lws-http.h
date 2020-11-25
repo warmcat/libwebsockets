@@ -548,7 +548,7 @@ lws_add_http_header_status(struct lws *wsi,
  * lws_add_http_header_by_name() - append named header and value
  *
  * \param wsi: the connection to check
- * \param name: the hdr name, like "my-header"
+ * \param name: the hdr name, like "my-header:"
  * \param value: the value after the = for this header
  * \param length: the length of the value
  * \param p: pointer to current position in buffer pointer
