@@ -348,8 +348,16 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 			flags = 0;
 			n = h->ssi.tx(m, h->ord++, pkt + LWS_PRE + 19, &len,
 				      &flags);
-			if (n == LWSSSSRET_TX_DONT_SEND) {
+			switch (n) {
+			case LWSSSSRET_TX_DONT_SEND:
 				n = 0;
+				goto do_write_nz;
+	
+			case LWSSSSRET_DISCONNECT_ME:
+			case LWSSSSRET_DESTROY_ME:
+				lwsl_notice("%s: sspc tx DISCONNECT/DESTROY unimplemented\n", __func__);
+				break;
+			default:
 				break;
 			}
 
