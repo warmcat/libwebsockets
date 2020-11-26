@@ -193,6 +193,18 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		EnterCriticalSection(&pt->interrupt_lock);
 		WSAResetEvent(pt->events[0]);
 		LeaveCriticalSection(&pt->interrupt_lock);
+
+#if defined(LWS_WITH_THREADPOOL)
+		/*
+		 * threadpools that need to call for on_writable callbacks do it by
+		 * marking the task as needing one for its wsi, then cancelling service.
+		 *
+		 * Each tsi will call this to perform the actual callback_on_writable
+		 * from the correct service thread context
+		 */
+		lws_threadpool_tsi_context(pt->context, pt->tid);
+#endif
+
 		lws_broadcast(pt, LWS_CALLBACK_EVENT_WAIT_CANCELLED, NULL, 0);
 
 		return 0;
