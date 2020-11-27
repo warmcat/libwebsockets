@@ -40,7 +40,11 @@ lws_sspc_sul_retry_cb(lws_sorted_usec_list_t *sul)
 		if (h->context->ss_proxy_bind)
 			i.address = h->context->ss_proxy_bind;
 		else
+#if defined(__linux__)
 			i.address = "+@proxy.ss.lws";
+#else
+			i.address = "+/tmp/proxy.ss.lws";
+#endif
 	}
 	i.host = i.address;
 	i.origin = i.address;

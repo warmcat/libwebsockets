@@ -585,11 +585,18 @@ lws_ss_proxy_create(struct lws_context *context, const char *bind, int port)
 	info.port = port;
 	if (!port) {
 		if (!bind)
+#if defined(__linux__)
 			bind = "@proxy.ss.lws";
+#else
+			bind = "/tmp/proxy.ss.lws";
+#endif
 		info.options |= LWS_SERVER_OPTION_UNIX_SOCK;
 	}
 	info.iface			= bind;
+#if defined(__linux__)
 	info.unix_socket_perms		= "root:root";
+#else
+#endif
 	info.listen_accept_role		= "raw-skt";
 	info.listen_accept_protocol	= "ssproxy-protocol";
 	info.protocols			= protocols;

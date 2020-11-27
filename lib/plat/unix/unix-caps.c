@@ -78,7 +78,7 @@ lws_plat_user_colon_group_to_ids(const char *u_colon_g, uid_t *puid, gid_t *pgid
 
 	p = getpwnam(u);
 	if (!p) {
-		lwsl_err("%s: unknown group '%s'\n", __func__, u);
+		lwsl_err("%s: unknown user '%s'\n", __func__, u);
 
 		return 1;
 	}
