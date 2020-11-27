@@ -140,7 +140,7 @@
 			"platforms":	"windows-10/x86_64-amd/msvc, windows-10/x86_64-amd/noptmsvc"
 		},
 		"secure-streams-proxy": {
-			"cmake":	"-DLWS_WITH_SECURE_STREAMS=1 -DLWS_WITH_SECURE_STREAMS_PROXY_API=1",
+			"cmake":	"-DLWS_WITH_SECURE_STREAMS=1 -DLWS_WITH_SECURE_STREAMS_PROXY_API=1 -DLWS_WITH_MINIMAL_EXAMPLES=1",
 			"platforms":	"not windows-10/x86_64-amd/msvc"
 		},
 		"distro_recommended": {
