@@ -380,6 +380,9 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if defined(LWS_WITH_EVLIB_PLUGINS) && defined(LWS_WITH_EVENT_LIBS)
 	struct lws_plugin		*evlib_plugin_list = NULL;
 #endif
+#if defined(LWS_WITH_LIBUV)
+	char fatal_exit_defer = 0;
+#endif
 
 	if (lpf) {
 		lpf+= 2;
@@ -459,6 +462,11 @@ lws_create_context(const struct lws_context_creation_info *info)
 			goto bail;
 		}
 
+#if defined(LWS_WITH_LIBUV)
+		if (!n) /* libuv */
+			fatal_exit_defer = !!info->foreign_loops;
+#endif
+
 		if (!evlib_plugin_list) {
 			lwsl_err("%s: unable to load evlib plugin %s\n",
 					__func__, map[n].name);
@@ -487,6 +495,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	if (lws_check_opt(info->options, LWS_SERVER_OPTION_LIBUV)) {
 		extern const lws_plugin_evlib_t evlib_uv;
 		plev = &evlib_uv;
+		fatal_exit_defer = !!info->foreign_loops;
 	}
 #endif
 
@@ -699,7 +708,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	if (n == -1) {
 		lwsl_err("Get RLIMIT_NOFILE failed!\n");
 
-		return NULL;
+		goto free_context_fail;
 	}
 	context->max_fds = rt.rlim_cur;
 #else
@@ -723,7 +732,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 		lwsl_err("%s: problem getting process max files\n",
 			 __func__);
 
-		return NULL;
+		goto free_context_fail;
 	}
 #endif
 
@@ -959,13 +968,19 @@ lws_create_context(const struct lws_context_creation_info *info)
 				     context->fd_limit_per_thread;
 #endif
 
+
+	/*
+	 * Past here, we may have added handles to the event lib
+	 * loop and if libuv,  have to take care about how to unpick them...
+	 */
+
 	if (lws_plat_init(context, info))
-		goto bail;
+		goto bail_libuv_aware;
 
 #if defined(LWS_WITH_NETWORK)
 	if (context->event_loop_ops->init_context)
 		if (context->event_loop_ops->init_context(context, info))
-			goto bail;
+			goto bail_libuv_aware;
 
 
 	if (context->event_loop_ops->init_pt)
@@ -976,11 +991,11 @@ lws_create_context(const struct lws_context_creation_info *info)
 				lp = info->foreign_loops[n];
 
 			if (context->event_loop_ops->init_pt(context, lp, n))
-				goto bail;
+				goto bail_libuv_aware;
 		}
 
 	if (lws_create_event_pipes(context))
-		goto bail;
+		goto bail_libuv_aware;
 #endif
 
 	lws_context_init_ssl_library(info);
@@ -1053,18 +1068,18 @@ lws_create_context(const struct lws_context_creation_info *info)
 		if (!vh) {
 			lwsl_err("%s: failed to create system vhost\n",
 				 __func__);
-			goto bail;
+			goto bail_libuv_aware;
 		}
 
 		context->vhost_system = vh;
 
 		if (lws_protocol_init_vhost(vh, NULL)) {
 			lwsl_err("%s: failed to init system vhost\n", __func__);
-			goto bail;
+			goto bail_libuv_aware;
 		}
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 		if (lws_async_dns_init(context))
-			goto bail;
+			goto bail_libuv_aware;
 #endif
 	}
 #endif
@@ -1124,17 +1139,17 @@ lws_create_context(const struct lws_context_creation_info *info)
 		       LWS_SERVER_OPTION_EXPLICIT_VHOSTS));
 
 		if (lws_ss_policy_parse_begin(context, 0))
-			goto bail;
+			goto bail_libuv_aware;
 
 		n = lws_ss_policy_parse(context,
 					(uint8_t *)context->pss_policies_json,
 					strlen(context->pss_policies_json));
 		if (n != LEJP_CONTINUE && n < 0)
-			goto bail;
+			goto bail_libuv_aware;
 
 		if (lws_ss_policy_set(context, "hardcoded")) {
 			lwsl_err("%s: policy set failed\n", __func__);
-			goto bail;
+			goto bail_libuv_aware;
 		}
 	} else
 #else
@@ -1143,7 +1158,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 
 		if (lws_ss_policy_set(context, "hardcoded")) {
 			lwsl_err("%s: policy set failed\n", __func__);
-			goto bail;
+			goto bail_libuv_aware;
 		}
 	} //else
 #endif
@@ -1162,7 +1177,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	 */
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS))
 		if (lws_plat_drop_app_privileges(context, 1))
-			goto bail;
+			goto bail_libuv_aware;
 
 #if defined(LWS_WITH_SYS_STATE)
 	/*
@@ -1186,6 +1201,14 @@ lws_create_context(const struct lws_context_creation_info *info)
 
 #if defined(LWS_WITH_NETWORK)
 fail_clean_pipes:
+
+#if defined(LWS_WITH_LIBUV)
+	if (fatal_exit_defer) {
+		lws_context_destroy(context);
+		return context;
+	}
+#endif
+
 	for (n = 0; n < context->count_threads; n++)
 		lws_destroy_event_pipe(context->pt[n].pipe_wsi);
 
@@ -1201,9 +1224,18 @@ bail:
 
 	return NULL;
 
+bail_libuv_aware:
+	lws_context_destroy(context);
+#if defined(LWS_WITH_LIBUV)
+	return fatal_exit_defer ? context : NULL;
+#else
+	return NULL;
+#endif
+
 fail_event_libs:
 	lwsl_err("Requested event library support not configured\n");
 
+free_context_fail:
 	lws_free(context);
 
 	return NULL;
