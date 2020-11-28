@@ -334,18 +334,6 @@ if (LWS_WITHOUT_DAEMONIZE OR WIN32)
 	set(LWS_NO_DAEMONIZE 1)
 endif()
 
-if (LWS_WITH_LIBEV)
-	set(LWS_WITH_LIBEV 1)
-endif()
-
-if (LWS_WITH_LIBUV)
-	set(LWS_WITH_LIBUV 1)
-endif()
-
-if (LWS_WITH_LIBEVENT)
-	set(LWS_WITH_LIBEVENT 1)
-endif()
-
 if (LWS_IPV6)
 	set(LWS_WITH_IPV6 1)
 endif()
