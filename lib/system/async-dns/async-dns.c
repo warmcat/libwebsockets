@@ -88,8 +88,16 @@ lws_async_dns_complete(lws_adns_q_t *q, lws_adns_cache_t *c)
 				    __func__, q, c, c->refcount, c->refcount + 1);
 			c->refcount++;
 		}
-		w->adns_cb(w, (const char *)&q[1], c ? c->results : NULL, 0,
-				q->opaque);
+		lws_set_timeout(w, NO_PENDING_TIMEOUT, 0);
+		/*
+		 * This may decide to close / delete w
+		 */
+		if (w->adns_cb(w, (const char *)&q[1], c ? c->results : NULL, 0,
+				q->opaque) == NULL)
+			lwsl_notice("%s: failed\n", __func__);
+	//		lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
+	//				   "adopt udp2 fail");
+
 	} lws_end_foreach_dll_safe(d, d1);
 
 	if (q->standalone_cb) {
@@ -582,7 +590,8 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 		m = c->results ? LADNS_RET_FOUND : LADNS_RET_FAILED;
 		if (c->results)
 			c->refcount++;
-		cb(wsi, name, c->results, m, opaque);
+		if (cb(wsi, name, c->results, m, opaque) == NULL)
+			return LADNS_RET_FAILED_WSI_CLOSED;
 
 		return m;
 	}
