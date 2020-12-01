@@ -955,8 +955,16 @@ lws_h2_parse_frame_header(struct lws *wsi)
 	if (h2n->we_told_goaway && h2n->sid > h2n->highest_sid)
 		h2n->type = LWS_H2_FRAME_TYPE_COUNT; /* ie, IGNORE */
 
-	if (h2n->type == LWS_H2_FRAME_TYPE_COUNT)
-		return 0;
+	if (h2n->type >= LWS_H2_FRAME_TYPE_COUNT) {
+		lwsl_info("%s: ignoring unknown frame type %d (len %d)\n", __func__, h2n->type, (unsigned int)h2n->length);
+		/* we MUST ignore frames we don't understand */
+		h2n->type = LWS_H2_FRAME_TYPE_COUNT;
+	}
+
+	/*
+	 * Even if we have decided to logically ignore this frame, we must
+	 * consume the correct "frame length" amount of data to retain sync
+	 */
 
 	if (h2n->length > h2n->our_set.s[H2SET_MAX_FRAME_SIZE]) {
 		/*
@@ -1005,10 +1013,6 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		}
 	}
 
-	if (h2n->type >= LWS_H2_FRAME_TYPE_COUNT)
-		/* we MUST ignore frames we don't understand */
-		h2n->type = LWS_H2_FRAME_TYPE_COUNT;
-
 	if (h2n->swsi && h2n->sid && h2n->type != LWS_H2_FRAME_TYPE_COUNT &&
 	    !(http2_rx_validity[h2n->swsi->h2.h2_state] & (1 << h2n->type))) {
 		lwsl_info("%s: wsi %p, State: %s, ILLEGAL cmdrx %d (OK 0x%x)\n",
@@ -1026,7 +1030,8 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		return 0;
 	}
 
-	if (h2n->cont_exp && (h2n->cont_exp_sid != h2n->sid ||
+	if (h2n->cont_exp && h2n->type != LWS_H2_FRAME_TYPE_COUNT &&
+	    (h2n->cont_exp_sid != h2n->sid ||
 			      h2n->type != LWS_H2_FRAME_TYPE_CONTINUATION)) {
 		lwsl_info("%s: expected cont on sid %u (got %d on sid %u)\n",
 			  __func__, (unsigned int)h2n->cont_exp_sid, h2n->type,
@@ -1328,6 +1333,10 @@ cleanup_wsi:
 		lwsl_info("LWS_H2_FRAME_TYPE_WINDOW_UPDATE\n");
 		break;
 	case LWS_H2_FRAME_TYPE_COUNT:
+		if (h2n->length == 0)
+			lws_h2_parse_end_of_frame(wsi);
+		else
+			lwsl_debug("%s: going on to deal with unknown frame remaining len %d\n", __func__, (unsigned int)h2n->length);
 		break;
 	default:
 		lwsl_info("%s: ILLEGAL FRAME TYPE %d\n", __func__, h2n->type);
@@ -1876,7 +1885,7 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 
 		c = *in++;
 
-		// lwsl_notice("%s: 0x%x\n", __func__, c);
+		lwsl_debug("%s: 0x%x, count %u, len %u (type %d)\n", __func__, c, (unsigned int)h2n->count, (unsigned int)h2n->length, h2n->type);
 
 		switch (lwsi_state(wsi)) {
 		case LRS_H2_AWAIT_PREFACE:
@@ -1906,6 +1915,7 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 		case LRS_H2_WAITING_TO_SEND_HEADERS:
 		case LRS_ESTABLISHED:
 		case LRS_H2_AWAIT_SETTINGS:
+
 			if (h2n->frame_state != LWS_H2_FRAME_HEADER_LENGTH)
 				goto try_frame_start;
 
@@ -1913,6 +1923,12 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 			 * post-header, preamble / payload / padding part
 			 */
 			h2n->count++;
+
+			if (h2n->type == LWS_H2_FRAME_TYPE_COUNT) { /* IGNORING FRAME */
+				lwsl_debug("%s: consuming for ignored %u %u\n", __func__, (unsigned int)h2n->count, (unsigned int)h2n->length);
+				goto frame_end;
+			}
+
 
 			if (h2n->flags & LWS_H2_FLAG_PADDED &&
 			    !h2n->pad_length) {
@@ -2242,6 +2258,8 @@ do_windows:
 				break;
 
 			case LWS_H2_FRAME_TYPE_COUNT: /* IGNORING FRAME */
+				lwsl_debug("%s: consuming for ignored %u %u\n", __func__, (unsigned int)h2n->count, (unsigned int)h2n->length);
+				h2n->count++;
 				break;
 
 			default:
@@ -2253,13 +2271,13 @@ do_windows:
 
 frame_end:
 			if (h2n->count > h2n->length) {
-				lwsl_notice("%s: count > length %u %u\n",
+				lwsl_notice("%s: count > length %u %u (type %d)\n",
 					    __func__, (unsigned int)h2n->count,
-					    (unsigned int)h2n->length);
-				goto fail;
-			}
-			if (h2n->count != h2n->length)
-				break;
+					    (unsigned int)h2n->length, h2n->type);
+
+			} else
+				if (h2n->count != h2n->length)
+					break;
 
 			/*
 			 * end of frame just happened
@@ -2303,12 +2321,16 @@ try_frame_start:
 				}
 			}
 
-			if (h2n->frame_state == LWS_H2_FRAME_HEADER_LENGTH)
-				if (lws_h2_parse_frame_header(wsi))
-					goto fail;
+			if (h2n->frame_state == LWS_H2_FRAME_HEADER_LENGTH &&
+			    lws_h2_parse_frame_header(wsi))
+				goto fail;
 			break;
 
 		default:
+			if (h2n->type == LWS_H2_FRAME_TYPE_COUNT) { /* IGNORING FRAME */
+				lwsl_debug("%s: consuming for ignored %u %u\n", __func__, (unsigned int)h2n->count, (unsigned int)h2n->length);
+				h2n->count++;
+			}
 			break;
 		}
 	}
