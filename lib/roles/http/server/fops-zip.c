@@ -341,7 +341,7 @@ lws_fops_zip_open(const struct lws_plat_file_ops *fops, const char *vfs_path,
 
 	priv->zip_fop_fd = fops->LWS_FOP_OPEN(fops, rp, NULL, &local_flags);
 	if (!priv->zip_fop_fd) {
-		lwsl_err("unable to open zip %s\n", rp);
+		lwsl_err("%s: unable to open zip %s\n", __func__, rp);
 		goto bail1;
 	}
 
