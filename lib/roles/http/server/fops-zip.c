@@ -144,6 +144,9 @@ enum {
 	LWS_FZ_ERR_SEEK_COMPRESSED,
 };
 
+#define eff_size(_priv) (_priv->hdr.method == ZIP_COMPRESSION_METHOD_STORE ? \
+				  _priv->hdr.uncomp_size : _priv->hdr.comp_size)
+
 static uint16_t
 get_u16(void *p)
 {
@@ -526,11 +529,8 @@ lws_fops_zip_read(lws_fop_fd_t fd, lws_filepos_t *amount, uint8_t *buf,
 spin:
 		if (!priv->inflate.avail_in) {
 			rlen = sizeof(priv->rbuf);
-			if (rlen > priv->hdr.comp_size -
-				   (cur - priv->content_start))
-				rlen = priv->hdr.comp_size -
-				       (priv->hdr.comp_size -
-					priv->content_start);
+			if (rlen > eff_size(priv) - (cur - priv->content_start))
+				rlen = eff_size(priv) - (cur - priv->content_start);
 
 			if (priv->zip_fop_fd->fops->LWS_FOP_READ(
 					priv->zip_fop_fd, &ramount, priv->rbuf,
@@ -632,13 +632,14 @@ spin:
 
 	lwsl_info("%s: store\n", __func__);
 
-	if (len > priv->hdr.uncomp_size - (cur - priv->content_start))
-		len = priv->hdr.comp_size - (priv->hdr.comp_size -
-					     priv->content_start);
+	if (len > eff_size(priv) - cur)
+		len = eff_size(priv) - cur;
 
 	if (priv->zip_fop_fd->fops->LWS_FOP_READ(priv->zip_fop_fd,
 						 amount, buf, len))
 		return LWS_FZ_ERR_READ_CONTENT;
+
+	fd->pos += *amount;
 
 	return 0;
 }

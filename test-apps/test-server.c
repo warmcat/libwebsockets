@@ -255,11 +255,33 @@ static const struct lws_extension exts[] = {
 #endif
 
 /*
- * mount handlers for sections of the URL space
+ * mount a filesystem directory into the URL space at /
+ * point it to our /usr/share directory with our assets in
+ * stuff from here is autoserved by the library
  */
 
-static const struct lws_http_mount mount_ziptest = {
+static const struct lws_http_mount mount_ziptest_uncomm = {
 	NULL,			/* linked-list pointer to next*/
+	"/uncommziptest",		/* mountpoint in URL namespace on this vhost */
+	LOCAL_RESOURCE_PATH"/candide-uncompressed.zip",	/* handler */
+	NULL,	/* default filename if none given */
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	0,
+	0,
+	0,
+	0,
+	0,
+	0,
+	LWSMPRO_FILE,	/* origin points to a callback */
+	14,			/* strlen("/ziptest"), ie length of the mountpoint */
+	NULL,
+
+	{ NULL, NULL } // sentinel
+}, mount_ziptest = {
+	(struct lws_http_mount *)&mount_ziptest_uncomm,			/* linked-list pointer to next*/
 	"/ziptest",		/* mountpoint in URL namespace on this vhost */
 	LOCAL_RESOURCE_PATH"/candide.zip",	/* handler */
 	NULL,	/* default filename if none given */
@@ -278,9 +300,7 @@ static const struct lws_http_mount mount_ziptest = {
 	NULL,
 
 	{ NULL, NULL } // sentinel
-};
-
-static const struct lws_http_mount mount_post = {
+}, mount_post = {
 	(struct lws_http_mount *)&mount_ziptest, /* linked-list pointer to next*/
 	"/formtest",		/* mountpoint in URL namespace on this vhost */
 	"protocol-post-demo",	/* handler */
@@ -300,35 +320,26 @@ static const struct lws_http_mount mount_post = {
 	NULL,
 
 	{ NULL, NULL } // sentinel
+}, mount = {
+	/* .mount_next */		&mount_post,	/* linked-list "next" */
+	/* .mountpoint */		"/",		/* mountpoint URL */
+	/* .origin */			LOCAL_RESOURCE_PATH, /* serve from dir */
+	/* .def */			"test.html",	/* default filename */
+	/* .protocol */			NULL,
+	/* .cgienv */			NULL,
+	/* .extra_mimetypes */		NULL,
+	/* .interpret */		NULL,
+	/* .cgi_timeout */		0,
+	/* .cache_max_age */		0,
+	/* .auth_mask */		0,
+	/* .cache_reusable */		0,
+	/* .cache_revalidate */		0,
+	/* .cache_intermediaries */	0,
+	/* .origin_protocol */		LWSMPRO_FILE,	/* files in a dir */
+	/* .mountpoint_len */		1,		/* char count */
+	/* .basic_auth_login_file */	NULL,
 };
 
-/*
- * mount a filesystem directory into the URL space at /
- * point it to our /usr/share directory with our assets in
- * stuff from here is autoserved by the library
- */
-
-static const struct lws_http_mount mount = {
-	(struct lws_http_mount *)&mount_post,	/* linked-list pointer to next*/
-	"/",		/* mountpoint in URL namespace on this vhost */
-	LOCAL_RESOURCE_PATH, /* where to go on the filesystem for that */
-	"test.html",	/* default filename if none given */
-	NULL,
-	NULL,
-	NULL,
-	NULL,
-	0,
-	0,
-	0,
-	0,
-	0,
-	0,
-	LWSMPRO_FILE,	/* mount type is a directory in a filesystem */
-	1,		/* strlen("/"), ie length of the mountpoint */
-	NULL,
-
-	{ NULL, NULL } // sentinel
-};
 
 static const struct lws_protocol_vhost_options pvo_options = {
 	NULL,
