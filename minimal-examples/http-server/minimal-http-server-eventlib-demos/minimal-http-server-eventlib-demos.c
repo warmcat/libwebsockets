@@ -44,7 +44,7 @@ static struct lws_protocols protocols[] = {
 static const struct lws_http_mount mount_ziptest = {
 	NULL,			/* linked-list pointer to next*/
 	"/ziptest",		/* mountpoint in URL namespace on this vhost */
-	"candide.zip",	/* handler */
+	"./mount-origin/candide.zip",	/* handler */
 	NULL,	/* default filename if none given */
 	NULL,
 	NULL,
