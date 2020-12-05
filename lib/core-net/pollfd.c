@@ -138,8 +138,10 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 	lws_memory_barrier();
 #endif
 
-#if !defined(__linux__)
-	/* OSX couldn't see close on stdin pipe side otherwise */
+#if !defined(__linux__) && !defined(WIN32)
+	/* OSX couldn't see close on stdin pipe side otherwise; WSAPOLL
+	 * blows up if we give it POLLHUP
+	 */
 	_or |= LWS_POLLHUP;
 #endif
 
@@ -190,6 +192,7 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 	 *         then cancel it to force a restart with our changed events
 	 */
 	pa_events = pa->prev_events != pa->events;
+	pfd->events = (short)pa->events;
 
 	if (pa_events) {
 		if (lws_plat_change_pollfd(context, wsi, pfd)) {

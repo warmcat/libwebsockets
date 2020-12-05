@@ -369,15 +369,11 @@ typedef SOCKET lws_sockfd_type;
 typedef HANDLE lws_filefd_type;
 #endif
 
-struct lws_pollfd {
-	lws_sockfd_type fd; /**< file descriptor */
-	SHORT events; /**< which events to respond to */
-	SHORT revents; /**< which events happened */
-	uint8_t write_blocked;
-};
-#define LWS_POLLHUP (FD_CLOSE)
-#define LWS_POLLIN (FD_READ | FD_ACCEPT)
-#define LWS_POLLOUT (FD_WRITE)
+
+#define lws_pollfd pollfd
+#define LWS_POLLHUP	(POLLHUP)
+#define LWS_POLLIN	(POLLRDNORM | POLLRDBAND)
+#define LWS_POLLOUT	(POLLWRNORM)
 
 #else
 

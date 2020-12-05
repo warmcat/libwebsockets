@@ -222,21 +222,7 @@ int
 lws_plat_change_pollfd(struct lws_context *context, struct lws *wsi,
 		       struct lws_pollfd *pfd)
 {
-	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	long e = LWS_POLLHUP | FD_CONNECT | FD_ACCEPT | FD_CLOSE | FD_WRITE;
-
-	/*
-	 * On windows, FD_WRITE is only coming to indicate that we are writable
-	 * again after being choked.  So we must always listen for it.
-	 */
-
-	if (pfd->events & LWS_POLLIN)
-		e |= FD_READ;
-
-	if (WSAEventSelect(wsi->desc.sockfd, pt->events[(pfd - pt->fds) + 1], e)) {
-		lwsl_err("WSAEventSelect() failed with error %d\n", LWS_ERRNO);
-		return 1;
-	}
+	//struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 
 	return 0;
 }

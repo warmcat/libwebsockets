@@ -1510,7 +1510,7 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 		    !(newconn_cannot_use_h1 && w->role_ops != &role_ops_h1) &&
 		    !strcmp(adsin, w->cli_hostname_copy) &&
 #if defined(LWS_WITH_TLS)
-		    (!(wsi->tls.use_ssl & LCCSCF_USE_SSL) || !my_alpn || (my_alpn && strstr(my_alpn, "http/1.1"))) &&
+		   (!(wsi->tls.use_ssl & LCCSCF_USE_SSL) || !my_alpn || (my_alpn && strstr(my_alpn, "http/1.1"))) &&
 		    (wsi->tls.use_ssl & LCCSCF_USE_SSL) ==
 		     (w->tls.use_ssl & LCCSCF_USE_SSL) &&
 #endif

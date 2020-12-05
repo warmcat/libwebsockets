@@ -56,41 +56,57 @@ typedef enum {
 static lcccr_t
 lws_client_connect_check(struct lws *wsi)
 {
-#if !defined(WIN32)
-	socklen_t sl = sizeof(int);
 	int e = 0;
+	int en = 0;
+	socklen_t sl = sizeof(e);
 
 	/*
 	 * This resets SO_ERROR after reading it.  If there's an error
 	 * condition, the connect definitively failed.
 	 */
 
-	if (!getsockopt(wsi->desc.sockfd, SOL_SOCKET, SO_ERROR, &e, &sl)) {
+	if (!getsockopt(wsi->desc.sockfd, SOL_SOCKET, SO_ERROR,
+#if defined(WIN32)
+			(char *)
+#endif
+			&e, &sl)) {
+		en = LWS_ERRNO;
 		if (!e) {
 			lwsl_debug("%s: getsockopt check: conn OK errno %d\n",
-				   __func__, errno);
+				   __func__, en);
 
 			return LCCCR_CONNECTED;
 		}
 
-		lwsl_debug("%s: getsockopt fd %d says err %d\n", __func__,
+		lwsl_notice("%s: getsockopt fd %d says err %d\n", __func__,
 			   wsi->desc.sockfd, e);
 	}
 
-#else
+#if defined(WIN32)
+
 	if (!connect(wsi->desc.sockfd, NULL, 0))
 		return LCCCR_CONNECTED;
 
-	if (!LWS_ERRNO || LWS_ERRNO == WSAEINVAL ||
-			  LWS_ERRNO == WSAEWOULDBLOCK ||
-			  LWS_ERRNO == WSAEALREADY) {
-		lwsl_info("%s: errno %d\n", __func__, errno);
+	en = LWS_ERRNO;
 
+	if (en == WSAEISCONN) /* already connected */
+		return LCCCR_CONNECTED;
+
+	if (en == WSAEALREADY) {
+		/* reset the POLLOUT wait */
+		if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
+			lwsl_notice("pollfd failed\n");
+	}
+
+	if (!en || en == WSAEINVAL ||
+		   en == WSAEWOULDBLOCK ||
+		   en == WSAEALREADY) {
+		lwsl_debug("%s: errno %d\n", __func__, en);
 		return LCCCR_CONTINUE;
 	}
 #endif
 
-	lwsl_info("%s: connect check take as FAILED\n", __func__);
+	lwsl_notice("%s: connect check take as FAILED: errno %d\n", __func__, en);
 
 	return LCCCR_FAILED;
 }
@@ -136,9 +152,6 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 #endif
 		result = NULL;
 	}
-
-	if (n == LWS_CONNECT_COMPLETION_GOOD)
-               goto conn_good;
 
 #if defined(LWS_WITH_IPV6) && defined(__ANDROID__)
 	ipv6only = 0;
@@ -455,14 +468,12 @@ ads_known:
 				 wsi->a.context->timeout_secs *
 						 LWS_USEC_PER_SEC);
 
-#if !defined(WIN32)
 		/*
 		 * must do specifically a POLLOUT poll to hear
 		 * about the connect completion
 		 */
 		if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
 			goto try_next_dns_result_fds;
-#endif
 
 		return wsi;
 	}

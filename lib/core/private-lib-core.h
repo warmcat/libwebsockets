@@ -410,7 +410,7 @@ struct lws_context {
 	lws_sorted_usec_list_t			sul_nl_coldplug;
 #endif
 
-#if defined(LWS_PLAT_FREERTOS)
+#if defined(LWS_PLAT_FREERTOS) || defined(WIN32)
 	struct sockaddr_in			frt_pipe_si;
 #endif
 

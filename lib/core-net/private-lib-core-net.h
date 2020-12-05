@@ -392,10 +392,7 @@ struct lws_context_per_thread {
 
 	struct lws_pollfd *fds;
 	volatile struct lws_foreign_thread_pollfd * volatile foreign_pfd_list;
-#ifdef _WIN32
-       WSAEVENT events[WSA_MAXIMUM_WAIT_EVENTS];
-	CRITICAL_SECTION interrupt_lock;
-#endif
+
 	lws_sockfd_type dummy_pipe_fds[2];
 	struct lws *pipe_wsi;
 
