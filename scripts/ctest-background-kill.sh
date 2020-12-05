@@ -15,10 +15,10 @@ echo "Stage 1 kill $J 'kill $PI'" >> /tmp/ctklog
 # We expect our background process to still be around
 #
 
-set +e
-set +E
 kill -0 $PI 2>&1 >> /tmp/ctklog
 GONESKI=$?
+set +e
+set +E
 
 if [ $GONESKI -eq 0 ] ; then
 	kill $PI 2>&1 >> /tmp/ctklog
@@ -50,5 +50,6 @@ else
 	echo "Process already dead" >> /tmp/ctklog
 fi
 
-exit $GONESKI
+exit 0
+#exit $GONESKI
 
