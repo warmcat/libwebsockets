@@ -89,7 +89,7 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2))
 			target_link_libraries(${TEST_NAME} websockets)
 			add_dependencies(${TEST_NAME} websockets)
 			if (UNIX AND LWS_WITH_SSL AND NOT LWS_WITH_MBEDTLS)
-				target_link_libraries(${TEST_NAME} dl)
+				target_link_libraries(${TEST_NAME} ${CMAKE_DL_LIBS})
 			endif()
 		endif()
 		

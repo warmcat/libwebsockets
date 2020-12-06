@@ -96,7 +96,7 @@ if (${CMAKE_SYSTEM_NAME} MATCHES "QNX")
 	list(APPEND LIB_LIST_AT_END socket)
 endif()
 
-list(APPEND LIB_LIST_AT_END dl)
+list(APPEND LIB_LIST_AT_END ${CMAKE_DL_LIBS})
 
 #
 # Keep explicit parent scope exports at end
