@@ -1885,8 +1885,6 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 
 		c = *in++;
 
-		lwsl_debug("%s: 0x%x, count %u, len %u (type %d)\n", __func__, c, (unsigned int)h2n->count, (unsigned int)h2n->length, h2n->type);
-
 		switch (lwsi_state(wsi)) {
 		case LRS_H2_AWAIT_PREFACE:
 			if (preface[h2n->count++] != c)
