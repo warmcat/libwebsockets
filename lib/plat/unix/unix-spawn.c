@@ -447,7 +447,7 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	if (lsp->info.disable_ctrlc)
 		/* stops non-daemonized main processess getting SIGINT
 		 * from TTY */
-#if defined(__FreeBSD__)
+#if defined(__FreeBSD__) || defined(__NetBSD__)
 		setpgid(0, 0);
 #else
 		setpgrp();

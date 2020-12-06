@@ -413,6 +413,16 @@ if (GENCERTS)
 			message("SUCCSESFULLY generated SSL certificate")
 		endif()
 	else()
+               if (CMAKE_HOST_SYSTEM_NAME MATCHES "NetBSD")
+                execute_process(
+                        COMMAND "${OPENSSL_EXECUTABLE}"
+                                req -new -newkey rsa:2048 -days 10000 -nodes -x509 -subj "/O=lws" -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
+                        RESULT_VARIABLE OPENSSL_RETURN_CODE
+                        #               OUTPUT_QUIET ERROR_QUIET
+                        )
+
+               else()
+	
 		# Unix.
 		execute_process(
 			COMMAND printf "GB\\nErewhon\\nAll around\\nlibwebsockets-test\\n\\nlocalhost\\nnone@invalid.org\\n"
@@ -421,6 +431,8 @@ if (GENCERTS)
 			RESULT_VARIABLE OPENSSL_RETURN_CODE
 			#		OUTPUT_QUIET ERROR_QUIET
 			)
+			
+		endif()
 
 		if (OPENSSL_RETURN_CODE)
 			message(WARNING "!!! Failed to generate SSL certificate for Test Server!!!:\nOpenSSL return code = ${OPENSSL_RETURN_CODE}")
