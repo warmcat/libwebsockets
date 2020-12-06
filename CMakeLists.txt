@@ -58,13 +58,25 @@ set(LWS_WITH_POLL 1)
 
 if (ESP_PLATFORM)
 	set(LWS_ESP_PLATFORM 1)
-	set(CMAKE_TOOLCHAIN_FILE contrib/cross-esp32.cmake)
+	#set(CMAKE_TOOLCHAIN_FILE contrib/cross-esp32.cmake)
 	set(LWIP_PROVIDE_ERRNO 1)
 endif()
 
 # it's at this point any toolchain file is brought in
 project(libwebsockets C)
 include(CTest)
+
+if (ESP_PLATFORM)
+       include_directories(
+       ${IDF_PATH}/components/freertos/port/xtensa/include/
+       ${IDF_PATH}/components/hal/include
+       ${IDF_PATH}/components/soc/${CONFIG_IDF_TARGET}/include/ 
+       ${IDF_PATH}/components/soc/include/ 
+       ${IDF_PATH}/components/esp_hw_support/include
+       ${IDF_PATH}/components/hal/${CONFIG_IDF_TARGET}/include/
+       )
+endif()
+
 
 #
 # Select features recommended for PC distro packaging
