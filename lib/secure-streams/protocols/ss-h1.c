@@ -440,7 +440,8 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			/* it's just telling use we connected / joined the nwsi */
 	//		break;
 
-		if (status == HTTP_STATUS_SERVICE_UNAVAILABLE /* 503 */ ) {
+		if (status == HTTP_STATUS_SERVICE_UNAVAILABLE /* 503 */ ||
+		    status == 429 /* Too many requests */) {
 			/*
 			 * We understand this attempt failed, and that we should
 			 * conceal this attempt.  If there's a specified
