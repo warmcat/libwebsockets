@@ -404,8 +404,8 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			break;
 
 		lws_sul_cancel(&h->sul_timeout);
-		lwsl_info("%s: h: %p, %s LWS_CALLBACK_CLOSED_CLIENT_HTTP\n",
-			  __func__, h,
+		lwsl_notice("%s: wsi: %p, h: %p, %s LWS_CALLBACK_CLOSED_CLIENT_HTTP\n",
+			  __func__, wsi, h,
 			  h->policy ? h->policy->streamtype : "no policy");
 		h->wsi = NULL;
 

@@ -261,6 +261,7 @@ int main(int argc, const char **argv)
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
+		       LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW |
 		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.fd_limit_per_thread = 1 + 6 + 1;
 	info.pss_policies_json = default_ss_policy;

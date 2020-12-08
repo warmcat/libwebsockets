@@ -1745,7 +1745,7 @@ next:
 		vh = context->vhost_list;
 		while (vh) {
 			vh1 = vh->vhost_next;
-			lwsl_debug("%s: vh %s destroy2\n", __func__, vh->name);
+		//	lwsl_debug("%s: vh %s destroy2\n", __func__, vh->name);
 			__lws_vhost_destroy2(vh);
 			vh = vh1;
 		}

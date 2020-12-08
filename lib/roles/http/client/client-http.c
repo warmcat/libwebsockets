@@ -1426,7 +1426,7 @@ spin_chunks:
 completed:
 
 	if (lws_http_transaction_completed_client(wsi)) {
-		lwsl_notice("%s: transaction completed says -1\n", __func__);
+		lwsl_info("%s: transaction completed says -1\n", __func__);
 		return -1;
 	}
 

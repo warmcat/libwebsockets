@@ -152,7 +152,7 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 		/*
 		 * our ss proxy Unix Domain socket has closed...
 		 */
-		lwsl_notice("%s: LWS_CALLBACK_RAW_CLOSE: proxy conn down\n",
+		lwsl_info("%s: LWS_CALLBACK_RAW_CLOSE: proxy conn down\n",
 			    __func__);
 		if (h) {
 			h->cwsi = NULL;

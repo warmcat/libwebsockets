@@ -116,8 +116,17 @@ _lws_ss_handle_state_ret(lws_ss_state_return_t r, struct lws *wsi,
 			 lws_ss_handle_t **ph)
 {
 	if (r == LWSSSSRET_DESTROY_ME) {
-		if (wsi)
+		lwsl_info("%s: DESTROY ME: wsi %p, h->wsi %p\n", __func__,
+				wsi, (*ph)->wsi);
+		if (wsi) {
 			lws_set_opaque_user_data(wsi, NULL);
+			lws_set_timeout(wsi, 1, LWS_TO_KILL_ASYNC);
+		} else {
+			if ((*ph)->wsi) {
+				lws_set_opaque_user_data((*ph)->wsi, NULL);
+				lws_set_timeout((*ph)->wsi, 1, LWS_TO_KILL_ASYNC);
+			}
+		}
 		(*ph)->wsi = NULL;
 		lws_ss_destroy(ph);
 	}
@@ -910,6 +919,8 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 		 */
 		lws_vhost_destroy(v);
 #endif
+
+	lws_sul_cancel(&h->sul_timeout);
 
 	/* confirm no sul left scheduled in handle or user allocation object */
 	lws_sul_debug_zombies(h->context, h, sizeof(*h) + h->info.user_alloc,
