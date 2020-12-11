@@ -457,13 +457,13 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, int ebuf_len)
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	char *p = (char *)&pt->serv_buf[0];
 	char *sb = p;
-	int n;
+	long n;
 
 	errno = 0;
 	ERR_clear_error();
 	n = SSL_get_verify_result(wsi->tls.ssl);
 
-	lwsl_debug("get_verify says %d\n", n);
+	lwsl_debug("get_verify says %zd\n", n);
 
 	if (n == X509_V_OK)
 		return 0;
@@ -487,7 +487,7 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, int ebuf_len)
 		return 0;
 	}
 	lws_snprintf(ebuf, ebuf_len,
-		"server's cert didn't look good, X509_V_ERR = %d: %s\n",
+		"server's cert didn't look good, X509_V_ERR = %ld: %s\n",
 		 n, ERR_error_string(n, sb));
 	lwsl_info("%s\n", ebuf);
 	lws_tls_err_describe_clear();

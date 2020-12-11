@@ -55,7 +55,7 @@ lws_plat_pipe_signal(struct lws_context *ctx, int tsi)
 	return eventfd_write(pt->dummy_pipe_fds[0], value);
 #else
 	char buf = 0;
-	int n;
+	ssize_t n;
 
 	n = write(pt->dummy_pipe_fds[1], &buf, 1);
 

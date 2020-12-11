@@ -930,7 +930,8 @@ lwsws_get_config(void *user, const char *f, const char * const *paths,
 {
 	unsigned char buf[128];
 	struct lejp_ctx ctx;
-	int n, m = 0, fd;
+    ssize_t n = 0;
+	int m = 0, fd;
 
 	fd = lws_open(f, O_RDONLY);
 	if (fd < 0) {
@@ -942,18 +943,18 @@ lwsws_get_config(void *user, const char *f, const char * const *paths,
 
 	do {
 		n = read(fd, buf, sizeof(buf));
-		if (!n)
+		if (!n || n > INT_MAX)
 			break;
 
-		m = lejp_parse(&ctx, buf, n);
+		m = lejp_parse(&ctx, buf, (int)n);
 	} while (m == LEJP_CONTINUE);
 
 	close(fd);
-	n = ctx.line;
+	n = (ssize_t)ctx.line;
 	lejp_destruct(&ctx);
 
 	if (m < 0) {
-		lwsl_err("%s(%u): parsing error %d: %s\n", f, n, m,
+		lwsl_err("%s(%zd): parsing error %d: %s\n", f, n, m,
 			 lejp_error_to_string(m));
 		return 2;
 	}

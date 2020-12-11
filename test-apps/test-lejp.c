@@ -88,7 +88,8 @@ cb(struct lejp_ctx *ctx, char reason)
 int
 main(int argc, char *argv[])
 {
-	int fd, n = 1, ret = 1, m = 0;
+    ssize_t n = 1;
+	int fd, ret = 1, m = 0;
 	struct lejp_ctx ctx;
 	char buf[128];
 
@@ -103,10 +104,10 @@ main(int argc, char *argv[])
 
 	while (n > 0) {
 		n = read(fd, buf, sizeof(buf));
-		if (n <= 0)
+		if (n <= 0 || n > INT_MAX)
 			continue;
 
-		m = lejp_parse(&ctx, (uint8_t *)buf, n);
+		m = lejp_parse(&ctx, (uint8_t *)buf, (int)n);
 		if (m < 0 && m != LEJP_CONTINUE) {
 			lwsl_err("parse failed %d\n", m);
 			goto bail;

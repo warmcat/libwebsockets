@@ -294,7 +294,7 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 {
 	struct lws_context *context = wsi->a.context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	int n = 0;
+	ssize_t n = 0;
 
 	lws_stats_bump(pt, LWSSTATS_C_API_READ, 1);
 
@@ -309,7 +309,7 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 #endif
 		n = recv(wsi->desc.sockfd, (char *)buf, len, 0);
 
-	if (n >= 0) {
+	if (n >= 0 && n <= INT_MAX) {
 
 		if (!n && wsi->unix_skt)
 			return LWS_SSL_CAPABLE_ERROR;
@@ -325,9 +325,9 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 		if (wsi->a.vhost)
 			wsi->a.vhost->conn_stats.rx += n;
 #endif
-		lws_stats_bump(pt, LWSSTATS_B_READ, n);
+		lws_stats_bump(pt, LWSSTATS_B_READ, (int)n);
 
-		return n;
+		return (int)n;
 	}
 
 	if (LWS_ERRNO == LWS_EAGAIN ||
@@ -342,7 +342,7 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 int
 lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 {
-	int n = 0;
+	ssize_t n = 0;
 #if defined(LWS_PLAT_OPTEE)
 	ssize_t send(int sockfd, const void *buf, size_t len, int flags);
 #endif
@@ -384,8 +384,8 @@ lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, int len)
 #if defined(LWS_WITH_UDP)
 post_send:
 #endif
-	if (n >= 0)
-		return n;
+	if (n >= 0 && n <= INT_MAX)
+		return (int)n;
 
 	if (LWS_ERRNO == LWS_EAGAIN ||
 	    LWS_ERRNO == LWS_EWOULDBLOCK ||
@@ -397,7 +397,7 @@ post_send:
 		return LWS_SSL_CAPABLE_MORE_SERVICE;
 	}
 
-	lwsl_debug("ERROR writing len %d to skt fd %d err %d / errno %d\n",
+	lwsl_debug("ERROR writing len %d to skt fd %d err %zd / errno %d\n",
 		   len, wsi->desc.sockfd, n, LWS_ERRNO);
 
 	return LWS_SSL_CAPABLE_ERROR;

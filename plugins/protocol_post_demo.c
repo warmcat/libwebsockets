@@ -68,7 +68,7 @@ file_upload_cb(void *data, const char *name, const char *filename,
 	struct per_session_data__post_demo *pss =
 			(struct per_session_data__post_demo *)data;
 #if !defined(LWS_WITH_ESP32)
-	int n;
+	ssize_t n;
 
 	(void)n;
 #endif
@@ -95,7 +95,7 @@ file_upload_cb(void *data, const char *name, const char *filename,
 
 #if !defined(LWS_WITH_ESP32)
 			n = write((int)(lws_intptr_t)pss->fd, buf, len);
-			lwsl_info("%s: write %d says %d\n", __func__, len, n);
+			lwsl_info("%s: write %d says %zd\n", __func__, len, n);
 #else
 			lwsl_notice("%s: Received chunk size %d\n", __func__, len);
 #endif

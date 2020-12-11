@@ -352,7 +352,8 @@ static int
 lws_tls_extant(const char *name)
 {
 	/* it exists if we can open it... */
-	int fd = open(name, O_RDONLY), n;
+        ssize_t n;
+	int fd = open(name, O_RDONLY);
 	char buf[1];
 
 	if (fd < 0)

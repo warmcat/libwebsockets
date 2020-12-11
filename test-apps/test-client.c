@@ -281,7 +281,7 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 			/* Enable CRL checking of the server certificate */
 			X509_STORE *store;
 			X509_LOOKUP *lookup;
-			int n;
+			unsigned long n;
 			X509_VERIFY_PARAM *param = X509_VERIFY_PARAM_new();
 			X509_VERIFY_PARAM_set_flags(param, X509_V_FLAG_CRL_CHECK);
 			SSL_CTX_set1_param((SSL_CTX*)user, param);
@@ -295,7 +295,7 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 				char errbuf[256];
 				n = ERR_get_error();
 				lwsl_err("EXTRA_CLIENT_VERIFY_CERTS: "
-					 "SSL error: %s (%d)\n",
+					 "SSL error: %s (%lu)\n",
 					 ERR_error_string(n, errbuf), n);
 				return 1;
 			}
@@ -567,7 +567,7 @@ static int ratelimit_connects(unsigned int *last, unsigned int secs)
 	if (tv.tv_sec - (*last) < secs)
 		return 0;
 
-	*last = tv.tv_sec;
+	*last = (unsigned int)tv.tv_sec;
 
 	return 1;
 }

@@ -41,7 +41,7 @@ lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 #endif
 	const char *cce = NULL;
 	char *sb = p;
-	int n = 0;
+	ssize_t n = 0;
 
 	switch (lwsi_state(wsi)) {
 

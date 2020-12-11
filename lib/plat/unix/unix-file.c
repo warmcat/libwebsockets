@@ -46,9 +46,9 @@ int lws_plat_apply_FD_CLOEXEC(int n)
 int
 lws_plat_write_file(const char *filename, void *buf, int len)
 {
-	int m, fd;
+	ssize_t m;
 
-	fd = lws_open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+	int fd = lws_open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0600);
 
 	if (fd == -1)
 		return 1;
@@ -62,14 +62,17 @@ lws_plat_write_file(const char *filename, void *buf, int len)
 int
 lws_plat_read_file(const char *filename, void *buf, int len)
 {
-	int n, fd = lws_open(filename, O_RDONLY);
+        ssize_t n;
+	int fd = lws_open(filename, O_RDONLY);
 	if (fd == -1)
 		return -1;
 
 	n = read(fd, buf, len);
 	close(fd);
 
-	return n;
+        if (n <= INT_MAX)
+            return (int)n;
+        return -1;
 }
 
 lws_fop_fd_t

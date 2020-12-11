@@ -130,7 +130,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 	struct lws_context *context = wsi->a.context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	struct lws_vhost *vh;
-	int n;
+	ssize_t n;
 
 	if (!LWS_SSL_ENABLED(wsi->a.vhost))
 		return 0;
@@ -325,13 +325,13 @@ punt:
 		errno = 0;
 		lws_stats_bump(pt, LWSSTATS_C_SSL_ACCEPT_SPIN, 1);
 		n = lws_tls_server_accept(wsi);
-		lwsl_info("SSL_accept says %d\n", n);
+		lwsl_info("SSL_accept says %zd\n", n);
 		switch (n) {
 		case LWS_SSL_CAPABLE_DONE:
 			break;
 		case LWS_SSL_CAPABLE_ERROR:
 			lws_stats_bump(pt, LWSSTATS_C_SSL_CONNECTIONS_FAILED, 1);
-	                lwsl_info("%s: SSL_accept failed socket %u: %d\n",
+	                lwsl_info("%s: SSL_accept failed socket %u: %zd\n",
 	                		__func__, wsi->desc.sockfd, n);
 			wsi->socket_is_permanently_unusable = 1;
 			goto fail;

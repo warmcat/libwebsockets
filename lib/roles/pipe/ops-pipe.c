@@ -40,7 +40,7 @@ rops_handle_POLLIN_pipe(struct lws_context_per_thread *pt, struct lws *wsi,
 	}
 #elif !defined(WIN32) && !defined(_WIN32)
 	char s[100];
-	int n;
+	ssize_t n;
 
 	/*
 	 * discard the byte(s) that signaled us

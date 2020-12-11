@@ -131,7 +131,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 
 	vpt->inside_poll = 1;
 	lws_memory_barrier();
-	n = poll(pt->fds, pt->fds_count, timeout_us /* ms now */ );
+	n = poll(pt->fds, pt->fds_count, (int)timeout_us /* ms now */ );
 	vpt->inside_poll = 0;
 	lws_memory_barrier();
 
