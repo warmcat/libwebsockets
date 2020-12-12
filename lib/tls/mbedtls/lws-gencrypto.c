@@ -30,7 +30,7 @@
 mbedtls_md_type_t
 lws_gencrypto_mbedtls_hash_to_MD_TYPE(enum lws_genhash_types hash_type)
 {
-	mbedtls_md_type_t h = -1;
+	mbedtls_md_type_t h = (mbedtls_md_type_t)-1;
 
 	switch (hash_type) {
 	case LWS_GENHASH_TYPE_MD5:

@@ -164,7 +164,7 @@ ssh_ops_tx(void *_priv, int stdch, uint8_t *buf, size_t len)
 		return 0;
 
 	if ((size_t)(priv->len - priv->pos) < chunk)
-		chunk = priv->len - priv->pos;
+		chunk = (size_t)(priv->len - priv->pos);
 
 	if (!chunk)
 		return 0;
@@ -211,13 +211,13 @@ ssh_ops_get_server_key(struct lws *wsi, uint8_t *buf, size_t len)
 
 	if (lseek(vhd->privileged_fd, 0, SEEK_SET) < 0)
 		return 0;
-	n = read(vhd->privileged_fd, buf, (int)len);
+	n = (int)read(vhd->privileged_fd, buf, len);
 	if (n < 0) {
 		lwsl_err("%s: read failed: %d\n", __func__, n);
 		n = 0;
 	}
 
-	return n;
+	return (size_t)n;
 }
 
 static size_t
@@ -229,13 +229,13 @@ ssh_ops_set_server_key(struct lws *wsi, uint8_t *buf, size_t len)
 						 lws_get_protocol(wsi));
 	int n;
 
-	n = write(vhd->privileged_fd, buf, (int)len);
+	n = (int)write(vhd->privileged_fd, buf, len);
 	if (n < 0) {
 		lwsl_err("%s: read failed: %d\n", __func__, errno);
 		n = 0;
 	}
 
-	return n;
+	return (size_t)n;
 }
 
 /* ops: auth */
@@ -266,7 +266,7 @@ ssh_ops_is_pubkey_authorized(const char *username, const char *type,
 	}
 	p = aps;
 
-	if (strncmp(p, type, n)) {
+	if (strncmp(p, type, (unsigned int)n)) {
 		lwsl_notice("lead-in string  does not match %s\n", type);
 		goto bail_p1;
 	}
@@ -278,7 +278,7 @@ ssh_ops_is_pubkey_authorized(const char *username, const char *type,
 	}
 
 	p++;
-	ps = malloc(alen);
+	ps = malloc((unsigned int)alen);
 	if (!ps) {
 		lwsl_notice("OOM 2\n");
 		free(aps);
@@ -301,7 +301,7 @@ ssh_ops_is_pubkey_authorized(const char *username, const char *type,
 	 * once we are past that, it's the same <len32>name
 	 * <len32>E<len32>N that the peer sends us
 	 */
-	if (memcmp(peer, ps, peer_len)) {
+	if (memcmp(peer, ps, (unsigned int)peer_len)) {
 		lwsl_info("%s: factors mismatch, rejecting key\n", __func__);
 		goto bail;
 	}
@@ -345,7 +345,7 @@ ssh_ops_banner(char *buf, size_t max_len, char *lang, size_t max_lang_len)
 
 	lws_snprintf(lang, max_lang_len, "en/US");
 
-	return n;
+	return (size_t)n;
 }
 
 static void

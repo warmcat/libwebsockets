@@ -53,7 +53,7 @@ extern "C" {
 #endif
 
 #define __lws_sul_insert_us(owner, sul, _us) \
-		(sul)->us = lws_now_usecs() + _us; \
+		(sul)->us = lws_now_usecs() + (lws_usec_t)(_us); \
 		__lws_sul_insert(owner, sul)
 
 
@@ -603,7 +603,7 @@ __lws_vhost_destroy2(struct lws_vhost *vh);
 #define mux_to_wsi(_m) lws_container_of(_m, struct lws, mux)
 
 void
-lws_wsi_mux_insert(struct lws *wsi, struct lws *parent_wsi, int sid);
+lws_wsi_mux_insert(struct lws *wsi, struct lws *parent_wsi, unsigned int sid);
 int
 lws_wsi_mux_mark_parents_needing_writeable(struct lws *wsi);
 struct lws *
@@ -1125,7 +1125,7 @@ int
 _lws_plat_service_forced_tsi(struct lws_context *context, int tsi);
 
 int
-lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len);
+lws_rxflow_cache(struct lws *wsi, unsigned char *buf, size_t n, size_t len);
 
 int
 lws_service_flag_pending(struct lws_context *context, int tsi);
@@ -1365,7 +1365,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi);
 int
 lws_pthread_self_to_tsi(struct lws_context *context);
 const char * LWS_WARN_UNUSED_RESULT
-lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt);
+lws_plat_inet_ntop(int af, const void *src, char *dst, socklen_t cnt);
 int LWS_WARN_UNUSED_RESULT
 lws_plat_inet_pton(int af, const char *src, void *dst);
 

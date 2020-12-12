@@ -339,7 +339,7 @@ lws_struct_default_lejp_cb(struct lejp_ctx *ctx, char reason)
 			if (map->aux == sizeof(signed char)) {
 				signed char *pc;
 				pc = (signed char *)(u + map->ofs);
-				*pc = atoi(ctx->buf);
+				*pc = (signed char)atoi(ctx->buf);
 				break;
 			}
 			if (map->aux == sizeof(int)) {
@@ -363,23 +363,23 @@ lws_struct_default_lejp_cb(struct lejp_ctx *ctx, char reason)
 			if (map->aux == sizeof(unsigned char)) {
 				unsigned char *pc;
 				pc = (unsigned char *)(u + map->ofs);
-				*pc = atoi(ctx->buf);
+				*pc = (unsigned char)(unsigned int)atoi(ctx->buf);
 				break;
 			}
 			if (map->aux == sizeof(unsigned int)) {
 				unsigned int *pi;
 				pi = (unsigned int *)(u + map->ofs);
-				*pi = atoi(ctx->buf);
+				*pi = (unsigned int)atoi(ctx->buf);
 				break;
 			}
 			if (map->aux == sizeof(unsigned long)) {
 				unsigned long *pl;
 				pl = (unsigned long *)(u + map->ofs);
-				*pl = atol(ctx->buf);
+				*pl = (unsigned long)atol(ctx->buf);
 			} else {
 				unsigned long long *pll;
 				pll = (unsigned long long *)(u + map->ofs);
-				*pll = atoll(ctx->buf);
+				*pll = (unsigned long long)atoll(ctx->buf);
 			}
 			break;
 
@@ -398,7 +398,7 @@ lws_struct_default_lejp_cb(struct lejp_ctx *ctx, char reason)
 			} else {
 				uint64_t *p64;
 				p64 = (uint64_t *)(u + map->ofs);
-				*p64 = li;
+				*p64 = (uint64_t)li;
 			}
 			break;
 
@@ -423,7 +423,7 @@ chunk_copy:
 				lejp_collation_t *coll = (lejp_collation_t *)p;
 
 				if (lim) {
-					b = coll->len;
+					b = (unsigned int)coll->len;
 					if (b > lim)
 						b = lim;
 					memcpy(s, coll->buf, b);
@@ -593,7 +593,7 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 			n = lws_snprintf((char *)buf, len, "\"%s\":",
 					    map->colname);
 			buf += n;
-			len -= n;
+			len = len - (unsigned int)n;
 			if (js->flags & LSSERJ_FLAG_PRETTY) {
 				*buf++ = ' ';
 				len--;
@@ -618,10 +618,10 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 			q = dbuf;
 
 			if (map->type == LSMT_BOOLEAN) {
-				budget = lws_snprintf(dbuf, sizeof(dbuf),
+				budget = (unsigned int)lws_snprintf(dbuf, sizeof(dbuf),
 						"%s", uli ? "true" : "false");
 			} else
-				budget = lws_snprintf(dbuf, sizeof(dbuf),
+				budget = (unsigned int)lws_snprintf(dbuf, sizeof(dbuf),
 						      "%llu", uli);
 			break;
 
@@ -639,7 +639,7 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 				}
 			}
 			q = dbuf;
-			budget = lws_snprintf(dbuf, sizeof(dbuf), "%lld", li);
+			budget = (unsigned int)lws_snprintf(dbuf, sizeof(dbuf), "%lld", li);
 			break;
 
 		case LSMT_STRING_CHAR_ARRAY:
@@ -669,7 +669,7 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 
 			n = j->idt;
 			j = &js->st[++js->sp];
-			j->idt = n + 2;
+			j->idt = (char)(n + 2);
 			j->map = map->child_map;
 			j->map_entries = map->child_map_size;
 			j->size = map->aux;
@@ -694,7 +694,7 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 
 			n = j->idt;
 			j = &js->st[++js->sp];
-			j->idt = n + 2;
+			j->idt = (char)(n + 2);
 			j->map = map->child_map;
 			j->map_entries = map->child_map_size;
 			j->size = map->aux;
@@ -714,11 +714,11 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 			j = &js->st[++js->sp];
 			lws_struct_pretty(js, &buf, &len);
 			if (!(js->flags & LSSERJ_FLAG_OMIT_SCHEMA)) {
-				budget = lws_snprintf(dbuf, 15, "\"schema\":");
+				budget = (unsigned int)lws_snprintf(dbuf, 15, "\"schema\":");
 				if (js->flags & LSSERJ_FLAG_PRETTY)
 					dbuf[budget++] = ' ';
 
-				budget += lws_snprintf(dbuf + budget,
+				budget += (unsigned int)lws_snprintf(dbuf + budget,
 						       sizeof(dbuf) - budget,
 						       "\"%s\"", map->colname);
 			}
@@ -766,8 +766,8 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 			m = strlen((const char *)buf);
 			buf += m;
 			len -= m;
-			js->remaining = budget - used;
-			js->offset = used;
+			js->remaining = budget - (unsigned int)used;
+			js->offset = (unsigned int)used;
 			if (!js->remaining)
 				js->offset = 0;
 

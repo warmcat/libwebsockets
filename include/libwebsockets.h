@@ -88,6 +88,14 @@ typedef unsigned long long lws_intptr_t;
 #define O_RDONLY	_O_RDONLY
 #endif
 
+typedef int uid_t;
+typedef int gid_t;
+typedef unsigned short sa_family_t;
+#if !defined(LWS_HAVE_SUSECONDS_T)
+typedef unsigned int useconds_t;
+typedef int suseconds_t;
+#endif
+
 #define LWS_INLINE __inline
 #define LWS_VISIBLE
 #define LWS_WARN_UNUSED_RESULT

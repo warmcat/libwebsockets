@@ -65,7 +65,7 @@ urlencode(const char *in, int inlen, char *out, int outlen)
 	if (out >= end - 4)
 		return -1;
 
-	return out - start;
+	return lws_ptr_diff(out, start);
 }
 
 static void
@@ -145,7 +145,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 	cgi->cgi_list = pt->http.cgi_list;
 	pt->http.cgi_list = cgi;
 
-	sum += lws_snprintf(sum, sumend - sum, "%s ", exec_array[0]);
+	sum += lws_snprintf(sum, lws_ptr_diff_size_t(sumend, sum), "%s ", exec_array[0]);
 
 	if (0) {
 		char *pct = lws_hdr_simple_ptr(wsi,
@@ -161,7 +161,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 
 	if (lws_is_ssl(wsi)) {
 		env_array[n++] = p;
-		p += lws_snprintf(p, end - p, "HTTPS=ON");
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "HTTPS=ON");
 		p++;
 	}
 
@@ -205,17 +205,17 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 		if (m >= 0) {
 			env_array[n++] = p;
 			if (m < (int)LWS_ARRAY_SIZE(meths) - 1) {
-				p += lws_snprintf(p, end - p,
+				p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
 						  "REQUEST_METHOD=%s",
 						  meth_names[m]);
-				sum += lws_snprintf(sum, sumend - sum, "%s ",
+				sum += lws_snprintf(sum, lws_ptr_diff_size_t(sumend, sum), "%s ",
 						    meth_names[m]);
 #if defined(LWS_ROLE_H2)
 			} else {
-				p += lws_snprintf(p, end - p,
+				p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
 						  "REQUEST_METHOD=%s",
 			  lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_METHOD));
-				sum += lws_snprintf(sum, sumend - sum, "%s ",
+				sum += lws_snprintf(sum, lws_ptr_diff_size_t(sumend, sum), "%s ",
 					lws_hdr_simple_ptr(wsi,
 						  WSI_TOKEN_HTTP_COLON_METHOD));
 #endif
@@ -224,11 +224,11 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 		}
 
 		if (uritok >= 0)
-			sum += lws_snprintf(sum, sumend - sum, "%s ",
-					    lws_hdr_simple_ptr(wsi, uritok));
+			sum += lws_snprintf(sum, lws_ptr_diff_size_t(sumend, sum), "%s ",
+					    lws_hdr_simple_ptr(wsi, (enum lws_token_indexes)uritok));
 
 		env_array[n++] = p;
-		p += lws_snprintf(p, end - p, "QUERY_STRING=");
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "QUERY_STRING=");
 		/* dump the individual URI Arg parameters */
 		m = 0;
 		while (script_uri_path_len >= 0) {
@@ -241,7 +241,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 				*p++ = *t++;
 			if (*t == '=')
 				*p++ = *t++;
-			i = urlencode(t, i- (t - tok), p, end - p);
+			i = urlencode(t, i - lws_ptr_diff(t, tok), p, lws_ptr_diff(end, p));
 			if (i > 0) {
 				p += i;
 				*p++ = '&';
@@ -255,7 +255,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 		if (uritok >= 0) {
 			strcpy(cgi_path, "REQUEST_URI=");
 			c = lws_hdr_copy(wsi, cgi_path + 12,
-					 sizeof(cgi_path) - 12, uritok);
+					 sizeof(cgi_path) - 12, (enum lws_token_indexes)uritok);
 			if (c < 0)
 				goto bail;
 
@@ -263,11 +263,11 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 			env_array[n++] = cgi_path;
 		}
 
-		sum += lws_snprintf(sum, sumend - sum, "%s", env_array[n - 1]);
+		sum += lws_snprintf(sum, lws_ptr_diff_size_t(sumend, sum), "%s", env_array[n - 1]);
 
 		if (script_uri_path_len >= 0) {
 			env_array[n++] = p;
-			p += lws_snprintf(p, end - p, "PATH_INFO=%s",
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "PATH_INFO=%s",
 				      cgi_path + 12 + script_uri_path_len);
 			p++;
 		}
@@ -276,7 +276,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 	if (script_uri_path_len >= 0 &&
 	    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_REFERER)) {
 		env_array[n++] = p;
-		p += lws_snprintf(p, end - p, "HTTP_REFERER=%s",
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "HTTP_REFERER=%s",
 			      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_REFERER));
 		p++;
 	}
@@ -284,15 +284,15 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 	if (script_uri_path_len >= 0 &&
 	    lws_hdr_total_length(wsi, WSI_TOKEN_HOST)) {
 		env_array[n++] = p;
-		p += lws_snprintf(p, end - p, "HTTP_HOST=%s",
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "HTTP_HOST=%s",
 			      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST));
 		p++;
 	}
 	if (script_uri_path_len >= 0 &&
 	    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE)) {
 		env_array[n++] = p;
-		p += lws_snprintf(p, end - p, "HTTP_COOKIE=");
-		m = lws_hdr_copy(wsi, p, end - p, WSI_TOKEN_HTTP_COOKIE);
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "HTTP_COOKIE=");
+		m = lws_hdr_copy(wsi, p, lws_ptr_diff(end, p), WSI_TOKEN_HTTP_COOKIE);
 		if (m > 0)
 			p += lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE);
 		*p++ = '\0';
@@ -301,7 +301,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 	if (script_uri_path_len >= 0 &&
 	    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_USER_AGENT)) {
 		env_array[n++] = p;
-		p += lws_snprintf(p, end - p, "HTTP_USER_AGENT=%s",
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "HTTP_USER_AGENT=%s",
 			    lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_USER_AGENT));
 		p++;
 	}
@@ -309,21 +309,21 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 	if (script_uri_path_len >= 0 &&
 	    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_ENCODING)) {
 		env_array[n++] = p;
-		p += lws_snprintf(p, end - p, "HTTP_CONTENT_ENCODING=%s",
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "HTTP_CONTENT_ENCODING=%s",
 		      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_CONTENT_ENCODING));
 		p++;
 	}
 	if (script_uri_path_len >= 0 &&
 	    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_ACCEPT)) {
 		env_array[n++] = p;
-		p += lws_snprintf(p, end - p, "HTTP_ACCEPT=%s",
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "HTTP_ACCEPT=%s",
 			      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_ACCEPT));
 		p++;
 	}
 	if (script_uri_path_len >= 0 &&
 	    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING)) {
 		env_array[n++] = p;
-		p += lws_snprintf(p, end - p, "HTTP_ACCEPT_ENCODING=%s",
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "HTTP_ACCEPT_ENCODING=%s",
 		      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING));
 		p++;
 	}
@@ -331,37 +331,37 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 	    uritok == WSI_TOKEN_POST_URI) {
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE)) {
 			env_array[n++] = p;
-			p += lws_snprintf(p, end - p, "CONTENT_TYPE=%s",
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "CONTENT_TYPE=%s",
 			  lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE));
 			p++;
 		}
 		if (!wsi->http.cgi->gzip_inflate &&
 		    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
 			env_array[n++] = p;
-			p += lws_snprintf(p, end - p, "CONTENT_LENGTH=%s",
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "CONTENT_LENGTH=%s",
 					  lws_hdr_simple_ptr(wsi,
 					  WSI_TOKEN_HTTP_CONTENT_LENGTH));
 			p++;
 		}
 
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH))
-			wsi->http.cgi->post_in_expected =
+			wsi->http.cgi->post_in_expected = (lws_filepos_t)
 				atoll(lws_hdr_simple_ptr(wsi,
 						WSI_TOKEN_HTTP_CONTENT_LENGTH));
 	}
 
 
 	env_array[n++] = p;
-	p += lws_snprintf(p, end - p, "PATH=/bin:/usr/bin:/usr/local/bin:/var/www/cgi-bin");
+	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "PATH=/bin:/usr/bin:/usr/local/bin:/var/www/cgi-bin");
 	p++;
 
 	env_array[n++] = p;
-	p += lws_snprintf(p, end - p, "SCRIPT_PATH=%s", exec_array[0]);
+	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "SCRIPT_PATH=%s", exec_array[0]);
 	p++;
 
 	while (mp_cgienv) {
 		env_array[n++] = p;
-		p += lws_snprintf(p, end - p, "%s=%s", mp_cgienv->name,
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "%s=%s", mp_cgienv->name,
 			      mp_cgienv->value);
 		if (!strcmp(mp_cgienv->name, "GIT_PROJECT_ROOT")) {
 			wsi->http.cgi->implied_chunked = 1;
@@ -374,7 +374,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 	}
 
 	env_array[n++] = p;
-	p += lws_snprintf(p, end - p, "SERVER_SOFTWARE=lws");
+	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "SERVER_SOFTWARE=lws");
 	p++;
 
 	env_array[n] = NULL;
@@ -419,7 +419,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 	/* inform cgi owner of the child PID */
 	n = user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
 				    LWS_CALLBACK_CGI_PROCESS_ATTACH,
-				    wsi->user_space, NULL, cgi->lsp->child_pid);
+				    wsi->user_space, NULL, (unsigned int)cgi->lsp->child_pid);
 	(void)n;
 
 	return 0;
@@ -472,7 +472,7 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 			lwsl_debug("LHCS_RESPONSE: issuing response %d\n",
 				   wsi->http.cgi->response_code);
 			if (lws_add_http_header_status(wsi,
-						   wsi->http.cgi->response_code,
+						   (unsigned int)wsi->http.cgi->response_code,
 						       &p, end))
 				return 1;
 			if (!wsi->http.cgi->explicitly_chunked &&
@@ -487,7 +487,7 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 						(unsigned char *)"close", 5,
 						&p, end))
 					return 1;
-			n = lws_write(wsi, start, p - start,
+			n = lws_write(wsi, start, lws_ptr_diff_size_t(p, start),
 				      LWS_WRITE_HTTP_HEADERS | LWS_WRITE_NO_FIN);
 
 			/*
@@ -522,8 +522,8 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 						return -1;
 					if (*p != ':') {
 						if (*p >= 'A' && *p <= 'Z')
-							*name++ = (*p++) +
-								  ('a' - 'A');
+							*name++ = (unsigned char)((*p++) +
+								  ('a' - 'A'));
 						else
 							*name++ = *p++;
 					} else {
@@ -561,7 +561,7 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 								   buf, value);
 							if (
 					lws_add_http_header_by_name(wsi, buf,
-					(unsigned char *)value, name - value,
+					(unsigned char *)value, lws_ptr_diff(name, value),
 					(unsigned char **)&wsi->http.cgi->headers_pos,
 					(unsigned char *)wsi->http.cgi->headers_end))
 								return 1;
@@ -592,8 +592,8 @@ post_hpack_recode:
 
 		case LHCS_DUMP_HEADERS:
 
-			n = wsi->http.cgi->headers_pos -
-			    wsi->http.cgi->headers_dumped;
+			n = (int)(wsi->http.cgi->headers_pos -
+			    wsi->http.cgi->headers_dumped);
 			if (n > 512)
 				n = 512;
 
@@ -608,7 +608,7 @@ post_hpack_recode:
 
 			m = lws_write(wsi,
 				 (unsigned char *)wsi->http.cgi->headers_dumped,
-				      n, cmd);
+				      (unsigned int)n, (enum lws_write_protocol)cmd);
 			if (m < 0) {
 				lwsl_debug("%s: write says %d\n", __func__, m);
 				return -1;
@@ -645,7 +645,7 @@ post_hpack_recode:
 			n = 2048;
 			if (wsi->mux_substream)
 				n = 4096;
-			wsi->http.cgi->headers_buf = lws_malloc(n + LWS_PRE,
+			wsi->http.cgi->headers_buf = lws_malloc((unsigned int)n + LWS_PRE,
 							   "cgi hdr buf");
 			if (!wsi->http.cgi->headers_buf) {
 				lwsl_err("OOM\n");
@@ -669,7 +669,7 @@ post_hpack_recode:
 		n = lws_get_socket_fd(wsi->http.cgi->lsp->stdwsi[LWS_STDOUT]);
 		if (n < 0)
 			return -1;
-		n = read(n, &c, 1);
+		n = (int)read(n, &c, 1);
 		if (n < 0) {
 			if (errno != EAGAIN) {
 				lwsl_debug("%s: read says %d\n", __func__, n);
@@ -708,11 +708,11 @@ post_hpack_recode:
 					switch (n) {
 					case SIGNIFICANT_HDR_CONTENT_LENGTH:
 						wsi->http.cgi->content_length =
-							atoll(wsi->http.cgi->l);
+							(lws_filepos_t)atoll(wsi->http.cgi->l);
 						break;
 					case SIGNIFICANT_HDR_STATUS:
 						wsi->http.cgi->response_code =
-							atol(wsi->http.cgi->l);
+							atoi(wsi->http.cgi->l);
 						lwsl_debug("Status set to %d\n",
 						   wsi->http.cgi->response_code);
 						break;
@@ -735,7 +735,7 @@ post_hpack_recode:
 				wsi->hdr_state = LCHS_SINGLE_0A;
 				*wsi->http.cgi->headers_pos++ = '\x0d';
 			}
-			*wsi->http.cgi->headers_pos++ = c;
+			*wsi->http.cgi->headers_pos++ = (unsigned char)c;
 			if (c == '\x0d')
 				wsi->hdr_state = LCHS_LF1;
 
@@ -756,7 +756,7 @@ post_hpack_recode:
 			}
 			break;
 		case LCHS_LF1:
-			*wsi->http.cgi->headers_pos++ = c;
+			*wsi->http.cgi->headers_pos++ = (unsigned char)c;
 			if (c == '\x0a') {
 				wsi->hdr_state = LCHS_CR2;
 				break;
@@ -796,7 +796,7 @@ post_hpack_recode:
 				/* we got \r\n\r[^\n]... unreasonable */
 				return -1;
 			/* we got \x0anext header, it's reasonable */
-			*wsi->http.cgi->headers_pos++ = c;
+			*wsi->http.cgi->headers_pos++ = (unsigned char)c;
 			wsi->hdr_state = LCHS_HEADER;
 			for (n = 0; n < SIGNIFICANT_HDR_COUNT; n++)
 				wsi->http.cgi->match[n] = 0;
@@ -820,7 +820,7 @@ agin:
 	n = lws_get_socket_fd(wsi->http.cgi->lsp->stdwsi[LWS_STDOUT]);
 	if (n < 0)
 		return -1;
-	n = read(n, start, sizeof(buf) - LWS_PRE);
+	n = (int)read(n, start, sizeof(buf) - LWS_PRE);
 
 	if (n < 0 && errno != EAGAIN) {
 		lwsl_debug("%s: stdout read says %d\n", __func__, n);
@@ -833,8 +833,8 @@ agin:
 			char chdr[LWS_HTTP_CHUNK_HDR_SIZE];
 			m = lws_snprintf(chdr, LWS_HTTP_CHUNK_HDR_SIZE - 3,
 					 "%X\x0d\x0a", n);
-			memmove(start + m, start, n);
-			memcpy(start, chdr, m);
+			memmove(start + m, start, (unsigned int)n);
+			memcpy(start, chdr, (unsigned int)m);
 			memcpy(start + m + n, "\x0d\x0a", 2);
 			n += m + 2;
 		}
@@ -854,17 +854,17 @@ agin:
 #endif
 
 		cmd = LWS_WRITE_HTTP;
-		if (wsi->http.cgi->content_length_seen + n ==
+		if (wsi->http.cgi->content_length_seen + (unsigned int)n ==
 						wsi->http.cgi->content_length)
 			cmd = LWS_WRITE_HTTP_FINAL;
 
-		m = lws_write(wsi, (unsigned char *)start, n, cmd);
+		m = lws_write(wsi, (unsigned char *)start, (unsigned int)n, (enum lws_write_protocol)cmd);
 		//lwsl_notice("write %d\n", m);
 		if (m < 0) {
 			lwsl_debug("%s: stdout write says %d\n", __func__, m);
 			return -1;
 		}
-		wsi->http.cgi->content_length_seen += n;
+		wsi->http.cgi->content_length_seen += (unsigned int)n;
 	} else {
 
 		if (!wsi->mux_substream && m) {
@@ -919,7 +919,7 @@ lws_cgi_kill(struct lws *wsi)
 		n = user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
 						LWS_CALLBACK_CGI_TERMINATED,
 						wsi->user_space, (void *)&args,
-						pid);
+						(unsigned int)pid);
 		if (n && !m)
 			lws_close_free_wsi(wsi, 0, "lws_cgi_kill");
 	}

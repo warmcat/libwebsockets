@@ -71,9 +71,9 @@ file_upload_cb(void *data, const char *name, const char *filename,
 		if (len) {
 			int n;
 
-			pss->file_length += len;
+			pss->file_length += (unsigned int)len;
 
-			n = write(pss->fd, buf, len);
+			n = (int)write(pss->fd, buf, (unsigned int)len);
 			if (n < len) {
 				lwsl_notice("Problem writing file %d\n", errno);
 			}

@@ -100,8 +100,8 @@ lws_mqtt_vbi_r(lws_mqtt_vbi *vbi, const uint8_t **in, size_t *len)
 
 		(*len)--;
 		vbi->consumed++;
-		vbi->value += (u & 0x7f) << multiplier;
-		multiplier += 7;
+		vbi->value = vbi->value + (uint32_t)((u & 0x7f) << multiplier);
+		multiplier = (uint8_t)(multiplier + 7);
 		if (!(u & 0x80))
 			return LMSPR_COMPLETED; /* finished */
 	}
@@ -208,7 +208,7 @@ uint8_t *
 lws_mqtt_str_next(lws_mqtt_str_t *s, uint16_t *budget)
 {
 	if (budget)
-		*budget = s->limit - s->pos;
+		*budget = (uint16_t)(s->limit - s->pos);
 
 	return &s->buf[s->pos];
 }
@@ -222,8 +222,8 @@ lws_mqtt_str_advance(lws_mqtt_str_t *s, int n)
 		return 1;
 	}
 
-	s->pos += n;
-	s->len += n;
+	s->pos = (uint16_t)(s->pos + (uint16_t)n);
+	s->len = (uint16_t)(s->len + (uint16_t)n);
 
 	return 0;
 }
@@ -266,7 +266,7 @@ lws_mqtt_str_parse(lws_mqtt_str_t *s, const uint8_t **in, size_t *len)
 
 	/* handle the length + allocation if needed */
 	while (*len && !s->len_valid && s->pos < 2) {
-		s->len = (s->len << 8) | *((*in)++);
+		s->len = (uint16_t)((s->len << 8) | *((*in)++));
 		(*len)--;
 		oin = *in;
 		if (++s->pos == 2) {
@@ -291,17 +291,17 @@ lws_mqtt_str_parse(lws_mqtt_str_t *s, const uint8_t **in, size_t *len)
 
 	/* handle copying bulk data into allocation */
 	if (s->len_valid && *len) {
-		uint16_t span = s->len - s->pos;
+		uint16_t span = (uint16_t)(s->len - s->pos);
 
 		if (span > *len)
 			span = (uint16_t)*len;
 
 		memcpy(s->buf + s->pos, *in, span);
 		*in += span;
-		s->pos += span;
+		s->pos = (uint16_t)(s->pos + (uint16_t)span);
 	}
 
-	*len -= *in - oin;
+	*len -= (unsigned long)(*in - oin);
 
 	return s->buf && s->pos == s->len ? LMSPR_COMPLETED : LMSPR_NEED_MORE;
 }

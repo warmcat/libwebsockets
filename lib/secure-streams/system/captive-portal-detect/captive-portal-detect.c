@@ -41,7 +41,7 @@ ss_cpd_state(void *userobj, void *sh, lws_ss_constate_t state,
 	ss_cpd_t *m = (ss_cpd_t *)userobj;
 	struct lws_context *cx = (struct lws_context *)m->opaque_data;
 
-	lwsl_info("%s: %s, ord 0x%x\n", __func__, lws_ss_state_name(state),
+	lwsl_info("%s: %s, ord 0x%x\n", __func__, lws_ss_state_name((int)state),
 		  (unsigned int)ack);
 
 	switch (state) {

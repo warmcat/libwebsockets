@@ -234,7 +234,7 @@ lws_fops_zip_scan(lws_fops_zip_t priv, const char *name, int len)
 			return LWS_FZ_ERR_NAME_TOO_LONG;
 
 		if (priv->zip_fop_fd->fops->LWS_FOP_READ(priv->zip_fop_fd,
-							&amount, buf, len))
+							&amount, buf, (unsigned int)len))
 			return LWS_FZ_ERR_NAME_READ;
 		if ((int)amount != len)
 			return LWS_FZ_ERR_NAME_READ;
@@ -267,7 +267,7 @@ lws_fops_zip_scan(lws_fops_zip_t priv, const char *name, int len)
 			return LWS_FZ_ERR_CONTENT_SANITY;
 
 		if (lws_vfs_file_seek_set(priv->zip_fop_fd,
-					  priv->content_start) < 0)
+					  (lws_fileofs_t)priv->content_start) < 0)
 			return LWS_FZ_ERR_CONTENT_SEEK;
 
 		/* we are aligned at the start of the content */
@@ -278,11 +278,11 @@ lws_fops_zip_scan(lws_fops_zip_t priv, const char *name, int len)
 
 next:
 		if (i && lws_vfs_file_seek_set(priv->zip_fop_fd,
-					       priv->content_start +
-					       ZC_DIRECTORY_LENGTH +
+					       (lws_fileofs_t)priv->content_start +
+					       (ZC_DIRECTORY_LENGTH +
 					       priv->hdr.filename_len +
 					       priv->hdr.extra +
-					       priv->hdr.file_com_len) < 0)
+					       priv->hdr.file_com_len)) < 0)
 			return LWS_FZ_ERR_SCAN_SEEK;
 	}
 
@@ -306,7 +306,7 @@ lws_fops_zip_reset_inflate(lws_fops_zip_t priv)
 		return LWS_FZ_ERR_ZLIB_INIT;
 	}
 
-	if (lws_vfs_file_seek_set(priv->zip_fop_fd, priv->content_start) < 0)
+	if (lws_vfs_file_seek_set(priv->zip_fop_fd, (lws_fileofs_t)priv->content_start) < 0)
 		return LWS_FZ_ERR_CONTENT_SEEK;
 
 	priv->exp_uncomp_pos = 0;
@@ -338,7 +338,7 @@ lws_fops_zip_open(const struct lws_plat_file_ops *fops, const char *vfs_path,
 	m = sizeof(rp) - 1;
 	if ((vpath - vfs_path - 1) < m)
 		m = lws_ptr_diff(vpath, vfs_path) - 1;
-	lws_strncpy(rp, vfs_path, m + 1);
+	lws_strncpy(rp, vfs_path, (unsigned int)m + 1);
 
 	/* open the zip file itself using the incoming fops, not fops_zip */
 
@@ -488,9 +488,9 @@ lws_fops_zip_close(lws_fop_fd_t *fd)
 static lws_fileofs_t
 lws_fops_zip_seek_cur(lws_fop_fd_t fd, lws_fileofs_t offset_from_cur_pos)
 {
-	fd->pos += offset_from_cur_pos;
+	fd->pos = (lws_filepos_t)((lws_fileofs_t)fd->pos + offset_from_cur_pos);
 
-	return fd->pos;
+	return (lws_fileofs_t)fd->pos;
 }
 
 static int

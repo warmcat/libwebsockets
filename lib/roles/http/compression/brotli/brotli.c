@@ -27,7 +27,7 @@
 static int
 lcs_init_compression_brotli(lws_comp_ctx_t *ctx, int decomp)
 {
-	ctx->is_decompression = decomp;
+	ctx->is_decompression = (unsigned char)!!decomp;
 
 	if (!decomp) {
 		ctx->u.br_en = BrotliEncoderCreateInstance(NULL, NULL, NULL);

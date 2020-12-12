@@ -51,7 +51,7 @@ struct lws_event_loop_ops {
 	/* event loop accept processing  */
 	int (*sock_accept)(struct lws *wsi);
 	/* control wsi active events  */
-	void (*io)(struct lws *wsi, int flags);
+	void (*io)(struct lws *wsi, unsigned int flags);
 	/* run the event loop for a pt */
 	void (*run_pt)(struct lws_context *context, int tsi);
 	/* called before pt is destroyed */

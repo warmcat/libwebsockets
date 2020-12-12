@@ -53,7 +53,7 @@ static void freeze(unsigned int a[32])
 
   for (j = 0;j < 32;++j) aorig[j] = a[j];
   add(a,a,minusp);
-  negative = -(int)((a[31] >> 7) & 1);
+  negative = (unsigned int)-(int)((a[31] >> 7) & 1);
   for (j = 0;j < 32;++j) a[j] ^= negative & (aorig[j] ^ a[j]);
 }
 
@@ -150,7 +150,7 @@ static void mainloop(unsigned int work[64],const unsigned char e[32])
   for (j = 1;j < 64;++j) xzm[j] = 0;
 
   for (pos = 254;pos >= 0;--pos) {
-    b = e[pos / 8] >> (pos & 7);
+    b = (unsigned int)(e[pos / 8] >> (pos & 7));
     b &= 1;
     smc_select(xzmb,xzm1b,xzm,xzm1,b);
     add(a0,xzmb,xzmb + 32);
@@ -260,6 +260,6 @@ int crypto_scalarmult_curve25519(unsigned char *q,
   recip(work + 32,work + 32);
   mult(work + 64,work,work + 32);
   freeze(work + 64);
-  for (i = 0;i < 32;++i) q[i] = work[64 + i];
+  for (i = 0;i < 32;++i) q[i] = (unsigned char)work[64 + i];
   return 0;
 }

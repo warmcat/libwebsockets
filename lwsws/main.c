@@ -149,9 +149,9 @@ context_creation(void)
 
 	info.external_baggage_free_on_destroy = config_strings;
 	info.pt_serv_buf_size = 8192;
-	info.options = opts | LWS_SERVER_OPTION_VALIDATE_UTF8 |
+	info.options = (uint64_t)((uint64_t)opts | LWS_SERVER_OPTION_VALIDATE_UTF8 |
 			      LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
-			      LWS_SERVER_OPTION_LIBUV;
+			      LWS_SERVER_OPTION_LIBUV);
 
 #if defined(LWS_WITH_PLUGINS)
 	if (default_plugin_path)

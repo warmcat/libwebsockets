@@ -265,9 +265,9 @@ drain:
 		n = 0;
 		if (lwsi_role_h2(wsi) && lwsi_state(wsi) != LRS_BODY &&
 		    lwsi_state(wsi) != LRS_DISCARD_BODY)
-			n = lws_read_h2(wsi, ebuf.token, ebuf.len);
+			n = lws_read_h2(wsi, ebuf.token, (unsigned int)ebuf.len);
 		else
-			n = lws_read_h1(wsi, ebuf.token, ebuf.len);
+			n = lws_read_h1(wsi, ebuf.token, (unsigned int)ebuf.len);
 
 		if (n < 0) {
 			/* we closed wsi */
@@ -285,11 +285,11 @@ drain:
 				lws_dll2_remove(&wsi->dll_buflist);
 			}
 		} else
-			if (n && n != ebuf.len) {
+			if (n && n < ebuf.len && ebuf.len > 0) {
 				// lwsl_notice("%s: h2 append seg %d\n", __func__, ebuf.len - n);
 				m = lws_buflist_append_segment(&wsi->buflist,
 						ebuf.token + n,
-						ebuf.len - n);
+						(unsigned int)(ebuf.len - n));
 				if (m < 0)
 					return LWS_HPI_RET_PLEASE_CLOSE_ME;
 				if (m) {
@@ -323,7 +323,7 @@ drain:
 	}
 #endif
 
-	pending = lws_ssl_pending(wsi);
+	pending = (unsigned int)lws_ssl_pending(wsi);
 	if (pending) {
 		// lwsl_info("going around\n");
 		goto read;
@@ -430,7 +430,7 @@ rops_write_role_protocol_h2(struct lws *wsi, unsigned char *buf, size_t len,
 		base = (*wp) & 0x1f;
 
 		if (!len)
-			return olen;
+			return (int)olen;
 	}
 #endif
 
@@ -481,7 +481,7 @@ rops_write_role_protocol_h2(struct lws *wsi, unsigned char *buf, size_t len,
 		wsi->h2.send_END_STREAM = 1;
 	}
 
-	n = lws_h2_frame_write(wsi, n, flags, wsi->mux.my_sid, (int)len, buf);
+	n = lws_h2_frame_write(wsi, n, flags, wsi->mux.my_sid, (unsigned int)len, buf);
 	if (n < 0)
 		return n;
 
@@ -584,7 +584,7 @@ rops_tx_credit_h2(struct lws *wsi, char peer_to_us, int add)
 			 * We want to tell the peer they can write an additional
 			 * "add" bytes to us
 			 */
-			return lws_h2_update_peer_txcredit(wsi, -1, add);
+			return lws_h2_update_peer_txcredit(wsi, (unsigned int)-1, add);
 		}
 
 		/*
@@ -684,7 +684,7 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 			lwsl_info(" parent %s: closing children: list:\n", lws_wsi_tag(wsi));
 			lws_wsi_mux_dump_children(wsi);
 		}
-		lws_wsi_mux_close_children(wsi, reason);
+		lws_wsi_mux_close_children(wsi, (int)reason);
 	}
 
 	if (wsi->upgraded_to_http2) {
@@ -1088,7 +1088,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 					     LWS_WRITE_H2_STREAM_END;
 
 			n = lws_write(w, &w->ws->ping_payload_buf[LWS_PRE],
-				      w->ws->ping_payload_len, write_type);
+				      w->ws->ping_payload_len, (enum lws_write_protocol)write_type);
 			if (n < 0)
 				return -1;
 
@@ -1205,7 +1205,7 @@ rops_alpn_negotiated_h2(struct lws *wsi, const char *alpn)
 	/* HTTP2 union */
 
 	lws_hpack_dynamic_size(wsi,
-			   wsi->h2.h2n->our_set.s[H2SET_HEADER_TABLE_SIZE]);
+			   (int)wsi->h2.h2n->our_set.s[H2SET_HEADER_TABLE_SIZE]);
 	wsi->txc.tx_cr = 65535;
 
 	lwsl_info("%s: %s: configured for h2\n", __func__, lws_wsi_tag(wsi));
@@ -1218,7 +1218,7 @@ rops_issue_keepalive_h2(struct lws *wsi, int isvalid)
 {
 	struct lws *nwsi = lws_get_network_wsi(wsi);
 	struct lws_h2_protocol_send *pps;
-	uint64_t us = lws_now_usecs();
+	uint64_t us = (uint64_t)lws_now_usecs();
 
 	if (isvalid) {
 		_lws_validity_confirmed_role(nwsi);

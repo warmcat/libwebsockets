@@ -657,6 +657,12 @@ CHECK_C_SOURCE_COMPILES("#include <linux/rtnetlink.h>
 		return 0;
 	}" LWS_HAVE_RTA_PREF)
 
+CHECK_C_SOURCE_COMPILES("#include <sys/types.h>
+	int main(void) {
+		suseconds_t x = 0;
+		return (int)x;
+	}" LWS_HAVE_SUSECONDS_T)
+
 if (NOT PID_T_SIZE)
 	set(pid_t int)
 endif()
@@ -722,7 +728,7 @@ if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX OR COMPILER_IS_CLANG)
 
 	# always warn all and generate debug info
 	if (UNIX AND NOT LWS_PLAT_FREERTOS)
-		set(CMAKE_C_FLAGS "-Wall -Wsign-compare -Wstrict-aliasing ${VISIBILITY_FLAG} -Wundef ${GCOV_FLAGS} ${CMAKE_C_FLAGS} ${ASAN_FLAGS}" )
+		set(CMAKE_C_FLAGS "-Wall -Wconversion -Wsign-compare -Wstrict-aliasing ${VISIBILITY_FLAG} -Wundef ${GCOV_FLAGS} ${CMAKE_C_FLAGS} ${ASAN_FLAGS}" )
 	else()
 		set(CMAKE_C_FLAGS "-Wall -Wsign-compare ${VISIBILITY_FLAG} ${GCOV_FLAGS} ${CMAKE_C_FLAGS}" )
 	endif()

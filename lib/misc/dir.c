@@ -120,7 +120,7 @@ lws_dir(const char *dirpath, void *user, lws_dir_callback_function cb)
 	char combo[COMBO_SIZEOF];
 	size_t l;
 
-	l = lws_snprintf(combo, COMBO_SIZEOF - 2, "%s", dirpath);
+	l = (size_t)(ssize_t)lws_snprintf(combo, COMBO_SIZEOF - 2, "%s", dirpath);
 	combo[l++] = csep;
 	combo[l] = '\0';
 

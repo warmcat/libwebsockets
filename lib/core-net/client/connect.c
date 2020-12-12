@@ -91,7 +91,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	struct lws *wsi, *safe = NULL;
 	const struct lws_protocols *p;
 	const char *cisin[CIS_COUNT];
-	int tid = 0, n, m, tsi = 0;
+	int tid = 0, n, tsi = 0;
 	size_t size;
 	char *pc;
 
@@ -220,7 +220,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	wsi->user_space = NULL;
 	wsi->pending_timeout = NO_PENDING_TIMEOUT;
 	wsi->position_in_fds_table = LWS_NO_FDS_POS;
-	wsi->ocport = wsi->c_port = i->port;
+	wsi->ocport = wsi->c_port = (uint16_t)(unsigned int)i->port;
 	wsi->sys_tls_client_cert = i->sys_tls_client_cert;
 
 #if defined(LWS_ROLE_H2)
@@ -268,7 +268,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	}
 
 #if defined(LWS_WITH_TLS)
-	wsi->tls.use_ssl = i->ssl_connection;
+	wsi->tls.use_ssl = (unsigned int)i->ssl_connection;
 #else
 	if (i->ssl_connection & LCCSCF_USE_SSL) {
 		lwsl_err("%s: lws not configured for tls\n", __func__);
@@ -354,10 +354,11 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 
 	for (n = 0; n < CIS_COUNT; n++)
 		if (cisin[n]) {
+			size_t mm;
 			wsi->stash->cis[n] = pc;
-			m = (int)strlen(cisin[n]) + 1;
-			memcpy(pc, cisin[n], m);
-			pc += m;
+			mm = strlen(cisin[n]) + 1;
+			memcpy(pc, cisin[n], mm);
+			pc += mm;
 		}
 
 	/*

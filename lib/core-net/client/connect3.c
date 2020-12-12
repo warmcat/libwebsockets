@@ -60,6 +60,8 @@ lws_client_connect_check(struct lws *wsi)
 	int en = 0;
 	socklen_t sl = sizeof(e);
 
+	(void)en;
+
 	/*
 	 * This resets SO_ERROR after reading it.  If there's an error
 	 * condition, the connect definitively failed.
@@ -239,8 +241,8 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	    wsi->a.context->detailed_latency_cb) {
 		wsi->detlat.type = LDLT_NAME_RESOLUTION;
 		wsi->detlat.latencies[LAT_DUR_PROXY_CLIENT_REQ_TO_WRITE] =
-			lws_now_usecs() -
-			wsi->detlat.earliest_write_req_pre_write;
+			(uint32_t)(lws_now_usecs() -
+			wsi->detlat.earliest_write_req_pre_write);
 		wsi->detlat.latencies[LAT_DUR_USERCB] = 0;
 		lws_det_lat_cb(wsi->a.context, &wsi->detlat);
 		wsi->detlat.earliest_write_req_pre_write = lws_now_usecs();
@@ -279,7 +281,7 @@ next_dns_result:
 	sa46_sockport(&wsi->sa46_peer, htons(port));
 
 	psa = sa46_sockaddr(&wsi->sa46_peer);
-	n = sa46_socklen(&wsi->sa46_peer);
+	n = (int)sa46_socklen(&wsi->sa46_peer);
 
 #if defined(LWS_WITH_UNIX_SOCK)
 ads_known:
@@ -404,7 +406,7 @@ ads_known:
 	 * Finally, make the actual connection attempt
 	 */
 
-	m = connect(wsi->desc.sockfd, (const struct sockaddr *)psa, n);
+	m = connect(wsi->desc.sockfd, (const struct sockaddr *)psa, (unsigned int)n);
 	if (m == -1) {
 		/*
 		 * Since we're nonblocking, connect not having completed is not
@@ -490,8 +492,8 @@ conn_good:
 	if (wsi->a.context->detailed_latency_cb) {
 		wsi->detlat.type = LDLT_CONNECTION;
 		wsi->detlat.latencies[LAT_DUR_PROXY_CLIENT_REQ_TO_WRITE] =
-			lws_now_usecs() -
-			wsi->detlat.earliest_write_req_pre_write;
+			(uint32_t)(lws_now_usecs() -
+			wsi->detlat.earliest_write_req_pre_write);
 		wsi->detlat.latencies[LAT_DUR_USERCB] = 0;
 		lws_det_lat_cb(wsi->a.context, &wsi->detlat);
 		wsi->detlat.earliest_write_req =

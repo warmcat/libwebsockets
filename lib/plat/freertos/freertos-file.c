@@ -154,7 +154,7 @@ lws_find_string_in_file(const char *filename, const char *string, int stringlen)
 
 #if !defined(LWS_AMAZON_RTOS)
 int
-lws_plat_write_file(const char *filename, void *buf, int len)
+lws_plat_write_file(const char *filename, void *buf, size_t len)
 {
 	nvs_handle nvh;
 	int n;
@@ -179,7 +179,7 @@ lws_plat_write_file(const char *filename, void *buf, int len)
 
 int
 lws_plat_write_cert(struct lws_vhost *vhost, int is_key, int fd, void *buf,
-			int len)
+			size_t len)
 {
 	const char *name = vhost->tls.alloc_cert_path;
 
@@ -190,7 +190,7 @@ lws_plat_write_cert(struct lws_vhost *vhost, int is_key, int fd, void *buf,
 }
 
 int
-lws_plat_read_file(const char *filename, void *buf, int len)
+lws_plat_read_file(const char *filename, void *buf, size_t len)
 {
 	nvs_handle nvh;
 	size_t s = 0;
@@ -204,7 +204,7 @@ lws_plat_read_file(const char *filename, void *buf, int len)
 	ESP_ERROR_CHECK(nvs_open("lws-station", NVS_READWRITE, &nvh));
 	if (nvs_get_blob(nvh, filename, NULL, &s) != ESP_OK)
 		goto bail;
-	if (s > (size_t)len)
+	if (s > len)
 		goto bail;
 
 	n = nvs_get_blob(nvh, filename, buf, &s);

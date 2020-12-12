@@ -89,7 +89,7 @@ fe_modified_sort(lws_list_ptr a, lws_list_ptr b)
 {
 	struct file_entry *p1 = lp_to_fe(a, sorted), *p2 = lp_to_fe(b, sorted);
 
-	return p2->modified - p1->modified;
+	return (int)((long)p2->modified - (long)p1->modified);
 }
 
 struct lws_diskcache_scan *
@@ -118,27 +118,27 @@ lws_diskcache_destroy(struct lws_diskcache_scan **lds)
 }
 
 int
-lws_diskcache_prepare(const char *cache_base_dir, int mode, int uid)
+lws_diskcache_prepare(const char *cache_base_dir, int mode, uid_t uid)
 {
 	char dir[256];
 	int n, m;
 
-	(void)mkdir(cache_base_dir, mode);
-	if (chown(cache_base_dir, uid, -1))
+	(void)mkdir(cache_base_dir, (unsigned short)mode);
+	if (chown(cache_base_dir, uid, (gid_t)-1))
 		lwsl_err("%s: %s: unable to chown %d\n", __func__,
 			 cache_base_dir, uid);
 
 	for (n = 0; n < 16; n++) {
 		lws_snprintf(dir, sizeof(dir), "%s/%c", cache_base_dir, hex[n]);
-		(void)mkdir(dir, mode);
-		if (chown(dir, uid, -1))
+		(void)mkdir(dir, (mode_t)mode);
+		if (chown(dir, uid, (uid_t)-1))
 			lwsl_err("%s: %s: unable to chown %d\n", __func__,
 						 dir, uid);
 		for (m = 0; m < 16; m++) {
 			lws_snprintf(dir, sizeof(dir), "%s/%c/%c",
 				     cache_base_dir, hex[n], hex[m]);
-			(void)mkdir(dir, mode);
-			if (chown(dir, uid, -1))
+			(void)mkdir(dir, (mode_t)mode);
+			if (chown(dir, uid, (uid_t)-1))
 				lwsl_err("%s: %s: unable to chown %d\n",
 					 __func__, dir, uid);
 		}
@@ -187,7 +187,7 @@ lws_diskcache_query(struct lws_diskcache_scan *lds, int is_bot,
 	if (!is_bot)
 		lds->cache_tries++;
 
-	n = lws_snprintf(cache, cache_len, "%s/%c/%c/%s", lds->cache_dir_base,
+	n = lws_snprintf(cache, (size_t)cache_len, "%s/%c/%c/%s", lds->cache_dir_base,
 			 hash_hex[0], hash_hex[1], hash_hex);
 
 	lwsl_info("%s: job cache %s\n", __func__, cache);
@@ -221,7 +221,7 @@ lws_diskcache_query(struct lws_diskcache_scan *lds, int is_bot,
 
 	/* let's create it first with a unique temp name */
 
-	lws_snprintf(cache + n, cache_len - n, "~%d-%p", (int)getpid(),
+	lws_snprintf(cache + n, (size_t)cache_len - (unsigned int)n, "~%d-%p", (int)getpid(),
 		     extant_cache_len);
 
 	*_fd = open(cache, O_RDWR | O_CREAT | O_TRUNC, 0600);
@@ -271,7 +271,7 @@ lws_diskcache_secs_to_idle(struct lws_diskcache_scan *lds)
 int
 lws_diskcache_trim(struct lws_diskcache_scan *lds)
 {
-	size_t cache_size_limit = lds->cache_size_limit;
+	size_t cache_size_limit = (size_t)lds->cache_size_limit;
 	char dirpath[132], filepath[132 + 32];
 	lws_list_ptr lp, op = NULL;
 	int files_trimmed = 0;
@@ -338,7 +338,7 @@ lws_diskcache_trim(struct lws_diskcache_scan *lds)
 			continue;
 		}
 
-		lds->agg_size += s.st_size;
+		lds->agg_size += (uint64_t)s.st_size;
 
 		if (lds->batch_in_use == BATCH_COUNT) {
 			/*
@@ -365,7 +365,7 @@ lws_diskcache_trim(struct lws_diskcache_scan *lds)
 		strncpy(p->name, de->d_name, sizeof(p->name) - 1);
 		p->name[sizeof(p->name) - 1] = '\0';
 		p->modified = s.st_mtime;
-		p->size = s.st_size;
+		p->size = (size_t)s.st_size;
 
 		lws_list_ptr_insert(&lds->head, &p->sorted, fe_modified_sort);
 	} while (de);
@@ -429,7 +429,7 @@ lws_diskcache_trim(struct lws_diskcache_scan *lds)
 	}
 
 	if (lds->agg_size && lds->agg_file_count)
-		lds->avg_size = lds->agg_size / lds->agg_file_count;
+		lds->avg_size = lds->agg_size / (uint64_t)lds->agg_file_count;
 
 	/*
 	 * estimate how long we can go before scanning again... default we need
@@ -444,7 +444,7 @@ lws_diskcache_trim(struct lws_diskcache_scan *lds)
 
 		/* let's use 80% of the real average for margin */
 		if (lds->agg_size && lds->agg_file_count)
-			avg = ((lds->agg_size * 8) / lds->agg_file_count) / 10;
+			avg = ((lds->agg_size * 8) / (uint64_t)lds->agg_file_count) / 10;
 
 		/*
 		 * if we collected BATCH_COUNT files of the average size,
@@ -459,8 +459,8 @@ lws_diskcache_trim(struct lws_diskcache_scan *lds)
 		projected = (lds->agg_size * 11) / 10;
 		if (projected < cache_size_limit)
 			/* no... */
-			lds->secs_waiting  = (256 / 2) * ((cache_size_limit -
-						    projected) / capacity);
+			lds->secs_waiting  = (int)((256 / 2) * ((cache_size_limit -
+						    projected) / capacity));
 
 		/*
 		 * large waits imply we may not have enough info yet, so

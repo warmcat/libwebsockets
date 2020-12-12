@@ -154,7 +154,7 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	/* check if exited, do not reap yet */
 
 	memset(&lsp->si, 0, sizeof(lsp->si));
-	n = waitid(P_PID, lsp->child_pid, &lsp->si, WEXITED | WNOHANG | WNOWAIT);
+	n = waitid(P_PID, (id_t)lsp->child_pid, &lsp->si, WEXITED | WNOHANG | WNOWAIT);
 	if (n < 0) {
 		lwsl_info("%s: child %d still running\n", __func__, lsp->child_pid);
 		return 0;
@@ -205,14 +205,14 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 		/*
 		 * Cpu accounting in us
 		 */
-		lsp->accounting[0] = ((uint64_t)tms.tms_cstime * 1000000) / hz;
-		lsp->accounting[1] = ((uint64_t)tms.tms_cutime * 1000000) / hz;
-		lsp->accounting[2] = ((uint64_t)tms.tms_stime * 1000000) / hz;
-		lsp->accounting[3] = ((uint64_t)tms.tms_utime * 1000000) / hz;
+		lsp->accounting[0] = (lws_usec_t)((uint64_t)tms.tms_cstime * 1000000) / hz;
+		lsp->accounting[1] = (lws_usec_t)((uint64_t)tms.tms_cutime * 1000000) / hz;
+		lsp->accounting[2] = (lws_usec_t)((uint64_t)tms.tms_stime * 1000000) / hz;
+		lsp->accounting[3] = (lws_usec_t)((uint64_t)tms.tms_utime * 1000000) / hz;
 	}
 
 	temp = *lsp;
-	n = waitid(P_PID, lsp->child_pid, &temp.si, WEXITED | WNOHANG);
+	n = waitid(P_PID, (id_t)lsp->child_pid, &temp.si, WEXITED | WNOHANG);
 	temp.si.si_status &= 0xff; /* we use b8 + for flags */
 	lwsl_info("%s: waitd says %d, process exit %d\n",
 		    __func__, n, temp.si.si_status);

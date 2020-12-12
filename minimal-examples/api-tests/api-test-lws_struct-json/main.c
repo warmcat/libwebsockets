@@ -611,7 +611,7 @@ int main(int argc, const char **argv)
 		}
 
 		do {
-			n = lws_struct_json_serialize(ser, buf, sizeof(buf),
+			n = (int)lws_struct_json_serialize(ser, buf, sizeof(buf),
 						      &written);
 			switch (n) {
 			case LSJS_RESULT_FINISH:
@@ -658,7 +658,7 @@ done:
 
 	}
 	do {
-		n = lws_struct_json_serialize(ser, buf, sizeof(buf), &written);
+		n = (int)lws_struct_json_serialize(ser, buf, sizeof(buf), &written);
 		switch (n) {
 		case LSJS_RESULT_CONTINUE:
 		case LSJS_RESULT_FINISH:
@@ -725,7 +725,7 @@ done:
 		if (!js)
 			goto bail;
 
-		n = lws_struct_json_serialize(js, buf, 2048, &w);
+		n = (int)lws_struct_json_serialize(js, buf, 2048, &w);
 		lws_struct_json_serialize_destroy(&js);
 		if (n != LSJS_RESULT_FINISH)
 			goto bail;

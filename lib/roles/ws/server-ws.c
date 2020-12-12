@@ -53,7 +53,7 @@ lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 	 * and go through them
 	 */
 
-	if (lws_hdr_copy(wsi, (char *)pt->serv_buf, context->pt_serv_buf_size,
+	if (lws_hdr_copy(wsi, (char *)pt->serv_buf, (int)context->pt_serv_buf_size,
 			 WSI_TOKEN_EXTENSIONS) < 0)
 		return 1;
 
@@ -177,7 +177,7 @@ lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 			else
 				LWS_CPYAPP(*p,
 					  "\x0d\x0aSec-WebSocket-Extensions: ");
-			*p += lws_snprintf(*p, (end - *p), "%s", ext_name);
+			*p += lws_snprintf(*p, lws_ptr_diff_size_t(end, *p), "%s", ext_name);
 
 			/*
 			 * The client may send a bunch of different option
@@ -216,10 +216,10 @@ lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 						LWS_EXT_CB_OPTION_SET,
 						wsi->ws->act_ext_user[
 							wsi->ws->count_act_ext],
-							  &oa, (end - *p))) {
+							  &oa, lws_ptr_diff_size_t(end, *p))) {
 
 						*p += lws_snprintf(*p,
-								   (end - *p),
+								   lws_ptr_diff_size_t(end, *p),
 							      "; %s", po->name);
 						lwsl_debug("adding option %s\n",
 							   po->name);
@@ -339,7 +339,7 @@ lws_process_ws_upgrade2(struct lws *wsi)
 	}
 
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_VERSION))
-		wsi->ws->ietf_spec_revision =
+		wsi->ws->ietf_spec_revision = (uint8_t)
 			       atoi(lws_hdr_simple_ptr(wsi, WSI_TOKEN_VERSION));
 
 	/* allocate wsi->user storage */
@@ -465,7 +465,7 @@ lws_process_ws_upgrade(struct lws *wsi)
 		n = lws_hdr_copy(wsi, buf, sizeof(buf) - 1, WSI_TOKEN_CONNECTION);
 		if (n <= 0)
 			goto bad_conn_format;
-		ts.len = n;
+		ts.len = (unsigned int)n;
 
 		do {
 			e = lws_tokenize(&ts);
@@ -534,7 +534,7 @@ lws_process_ws_upgrade(struct lws *wsi)
 		lwsl_err("%s: protocol list too long\n", __func__);
 		return 1;
 	}
-	ts.len = n;
+	ts.len = (unsigned int)n;
 	if (!ts.len) {
 		int n = wsi->a.vhost->default_protocol_index;
 		/*
@@ -665,10 +665,10 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 		    "%s258EAFA5-E914-47DA-95CA-C5AB0DC85B11",
 		    lws_hdr_simple_ptr(wsi, WSI_TOKEN_KEY));
 
-	lws_SHA1(pt->serv_buf, n, hash);
+	lws_SHA1(pt->serv_buf, (unsigned int)n, hash);
 
 	accept_len = lws_b64_encode_string((char *)hash, 20,
-			(char *)pt->serv_buf, context->pt_serv_buf_size);
+			(char *)pt->serv_buf, (int)context->pt_serv_buf_size);
 	if (accept_len < 0) {
 		lwsl_warn("Base64 encoded hash too long\n");
 		goto bail;
@@ -763,9 +763,9 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 #if defined(DEBUG)
 	fwrite(response, 1,  p - response, stderr);
 #endif
-	n = lws_write(wsi, (unsigned char *)response, p - response,
+	n = lws_write(wsi, (unsigned char *)response, lws_ptr_diff_size_t(p, response),
 		      LWS_WRITE_HTTP_HEADERS);
-	if (n != (p - response)) {
+	if (n != lws_ptr_diff(p, response)) {
 		lwsl_info("%s: ERROR writing to socket %d\n", __func__, n);
 		goto bail;
 	}
@@ -808,7 +808,7 @@ lws_ws_frame_rest_is_payload(struct lws *wsi, uint8_t **buf, size_t len)
 	unsigned int avail = (unsigned int)len;
 	uint8_t *buffer = *buf, mask[4];
 #if !defined(LWS_WITHOUT_EXTENSIONS)
-	unsigned int old_packet_length = (int)wsi->ws->rx_packet_length;
+	unsigned int old_packet_length = (unsigned int)wsi->ws->rx_packet_length;
 #endif
 	int n = 0;
 
@@ -825,7 +825,7 @@ lws_ws_frame_rest_is_payload(struct lws *wsi, uint8_t **buf, size_t len)
 #endif
 	{
 		if (wsi->a.protocol->rx_buffer_size)
-			avail = (int)wsi->a.protocol->rx_buffer_size;
+			avail = (unsigned int)wsi->a.protocol->rx_buffer_size;
 		else
 			avail = wsi->a.context->pt_serv_buf_size;
 	}
@@ -842,9 +842,9 @@ lws_ws_frame_rest_is_payload(struct lws *wsi, uint8_t **buf, size_t len)
 		return 0;
 
 	pmdrx.eb_in.token = buffer;
-	pmdrx.eb_in.len = avail;
+	pmdrx.eb_in.len = (int)avail;
 	pmdrx.eb_out.token = buffer;
-	pmdrx.eb_out.len = avail;
+	pmdrx.eb_out.len = (int)avail;
 
 	if (!wsi->ws->all_zero_nonce) {
 
@@ -852,7 +852,7 @@ lws_ws_frame_rest_is_payload(struct lws *wsi, uint8_t **buf, size_t len)
 			mask[n] = wsi->ws->mask[(wsi->ws->mask_idx + n) & 3];
 
 		/* deal with 4-byte chunks using unwrapped loop */
-		n = avail >> 2;
+		n = (int)(avail >> 2);
 		while (n--) {
 			*(buffer) = *(buffer) ^ mask[0];
 			buffer++;
@@ -924,7 +924,7 @@ lws_ws_frame_rest_is_payload(struct lws *wsi, uint8_t **buf, size_t len)
 						wsi->user_space, NULL, 0))
 			return -1;
 
-		return avail;
+		return (int)avail;
 	}
 
 	/*
@@ -932,7 +932,7 @@ lws_ws_frame_rest_is_payload(struct lws *wsi, uint8_t **buf, size_t len)
 	 * length receive.  Otherwise we're more willing.
 	 */
 	if (wsi->ws->count_act_ext && !pmdrx.eb_out.len)
-		return avail;
+		return (int)avail;
 
 	if (n == PMDR_HAS_PENDING)
 		/* extension had more... main loop will come back */
@@ -945,7 +945,7 @@ lws_ws_frame_rest_is_payload(struct lws *wsi, uint8_t **buf, size_t len)
 	    wsi->ws->check_utf8 && !wsi->ws->defeat_check_utf8) {
 		if (lws_check_utf8(&wsi->ws->utf8,
 				   pmdrx.eb_out.token,
-				   pmdrx.eb_out.len)) {
+				   (unsigned int)pmdrx.eb_out.len)) {
 			lws_close_reason(wsi, LWS_CLOSE_STATUS_INVALID_PAYLOAD,
 					 (uint8_t *)"bad utf8", 8);
 			goto utf8_fail;
@@ -960,7 +960,7 @@ lws_ws_frame_rest_is_payload(struct lws *wsi, uint8_t **buf, size_t len)
 
 utf8_fail:
 			lwsl_info("utf8 error\n");
-			lwsl_hexdump_info(pmdrx.eb_out.token, pmdrx.eb_out.len);
+			lwsl_hexdump_info(pmdrx.eb_out.token, (size_t)pmdrx.eb_out.len);
 
 			return -1;
 		}
@@ -971,7 +971,7 @@ utf8_fail:
 						LWS_CALLBACK_RECEIVE,
 						wsi->user_space,
 						pmdrx.eb_out.token,
-						pmdrx.eb_out.len))
+						(unsigned int)pmdrx.eb_out.len))
 			return -1;
 
 	wsi->ws->first_fragment = 0;
@@ -982,7 +982,7 @@ utf8_fail:
 		  wsi->ws->rx_draining_ext);
 #endif
 
-	return avail; /* how much we used from the input */
+	return (int)avail; /* how much we used from the input */
 }
 
 
@@ -1014,7 +1014,7 @@ lws_parse_ws(struct lws *wsi, unsigned char **buf, size_t len)
 			 * effectively "putting it back in the cache", we have
 			 * leave it where it is, already pointed to by the head.
 			 */
-			if (lws_rxflow_cache(wsi, *buf, 0, (int)len) ==
+			if (lws_rxflow_cache(wsi, *buf, 0, len) ==
 							LWSRXFC_TRIMMED) {
 				/*
 				 * We dealt with it by trimming the existing
@@ -1051,7 +1051,7 @@ lws_parse_ws(struct lws *wsi, unsigned char **buf, size_t len)
 			bulk = 1;
 			m = lws_ws_frame_rest_is_payload(wsi, buf, len);
 			assert((int)lws_ptr_diff(*buf, bin) <= (int)len);
-			len -= lws_ptr_diff(*buf, bin);
+			len -= lws_ptr_diff_size_t(*buf, bin);
 
 			if (!m) {
 

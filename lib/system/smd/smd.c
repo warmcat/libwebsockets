@@ -141,7 +141,7 @@ lws_smd_msg_send(struct lws_context *ctx, void *pay)
 	if (!ctx->smd.delivering)
 		lws_mutex_lock(ctx->smd.lock_peers); /* +++++++++++++++ peers */
 
-	msg->refcount = _lws_smd_msg_assess_peers_interested(&ctx->smd, msg);
+	msg->refcount = (uint16_t)_lws_smd_msg_assess_peers_interested(&ctx->smd, msg);
 
 	lws_mutex_lock(ctx->smd.lock_messages); /* +++++++++++++++++ messages */
 	lws_dll2_add_tail(&msg->list, &ctx->smd.owner_messages);
@@ -199,7 +199,7 @@ lws_smd_msg_printf(struct lws_context *ctx, lws_smd_class_t _class,
 								sizeof(*msg));
 	msg->length = (uint16_t)n;
 	va_start(ap, format);
-	vsnprintf((char*)p, n + 2, format, ap);
+	vsnprintf((char *)p, (unsigned int)n + 2, format, ap);
 	va_end(ap);
 
 	/*
@@ -384,7 +384,7 @@ lws_smd_msg_distribute(struct lws_context *ctx)
 			lws_smd_peer_t *pr = lws_container_of(p, lws_smd_peer_t, list);
 
 			/* may destroy pr if zombie, hence _safe iterator */
-			more |= _lws_smd_msg_deliver_peer(ctx, pr);
+			more |= (char)!!_lws_smd_msg_deliver_peer(ctx, pr);
 
 		} lws_end_foreach_dll_safe(p, p1);
 

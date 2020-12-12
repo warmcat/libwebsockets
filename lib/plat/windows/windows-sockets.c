@@ -228,7 +228,7 @@ lws_plat_change_pollfd(struct lws_context *context, struct lws *wsi,
 }
 
 const char *
-lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
+lws_plat_inet_ntop(int af, const void *src, char *dst, socklen_t cnt)
 {
 	WCHAR *buffer;
 	size_t bufferlen = (size_t)cnt;
@@ -343,8 +343,8 @@ lws_plat_ifname_to_hwaddr(int fd, const char *ifname, uint8_t *hwaddr, int len)
 }
 
 int
-lws_plat_rawudp_broadcast(uint8_t *p, const uint8_t *canned, int canned_len,
-			  int n, int fd, const char *iface)
+lws_plat_rawudp_broadcast(uint8_t *p, const uint8_t *canned, size_t canned_len,
+			  size_t n, int fd, const char *iface)
 {
 	lwsl_err("%s: UNIMPLEMENTED on this platform\n", __func__);
 

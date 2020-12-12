@@ -197,8 +197,8 @@ delete_from_fd(const struct lws_context *context, int fd);
 #endif
 
 int
-lws_plat_rawudp_broadcast(uint8_t *p, const uint8_t *canned, int canned_len,
-			  int n, int fd, const char *iface);
+lws_plat_rawudp_broadcast(uint8_t *p, const uint8_t *canned, size_t canned_len,
+			  size_t n, int fd, const char *iface);
 
 int
 lws_plat_if_up(const char *ifname, int fd, int up);

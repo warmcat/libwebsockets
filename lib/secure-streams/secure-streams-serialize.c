@@ -109,7 +109,7 @@ lws_ss_serialize_state_transition(lws_ss_conn_states_t *state, int new_state)
 #if defined(_DEBUG)
 	lwsl_info("%s: %s -> %s\n", __func__, sn[*state], sn[new_state]);
 #endif
-	*state = new_state;
+	*state = (lws_ss_conn_states_t)new_state;
 }
 
 
@@ -134,7 +134,7 @@ lws_ss_serialize_rx_payload(struct lws_dsh *dsh, const uint8_t *buf,
 		assert(rsp);
 		if (!rsp)
 			return 1;
-		l = strlen(rsp);
+		l = (int)strlen(rsp);
 		est += 1 + l;
 	} else
 		assert(!rsp);
@@ -143,10 +143,10 @@ lws_ss_serialize_rx_payload(struct lws_dsh *dsh, const uint8_t *buf,
 	// lwsl_hexdump_info(buf, len);
 
 	pre[0] = LWSSS_SER_RXPRE_RX_PAYLOAD;
-	lws_ser_wu16be(&pre[1], len + est - 3);
-	lws_ser_wu32be(&pre[3], flags);
+	lws_ser_wu16be(&pre[1], (uint16_t)(len + (size_t)est - 3));
+	lws_ser_wu32be(&pre[3], (uint32_t)flags);
 	lws_ser_wu32be(&pre[7], 0);	/* write will compute latency here... */
-	lws_ser_wu64be(&pre[11], us);	/* ... and set this to the write time */
+	lws_ser_wu64be(&pre[11], (uint64_t)us);	/* ... and set this to the write time */
 
 	/*
 	 * If we are on a non-default rideshare, append the non-default name to
@@ -155,10 +155,10 @@ lws_ss_serialize_rx_payload(struct lws_dsh *dsh, const uint8_t *buf,
 
 	if (flags & LWSSS_FLAG_RIDESHARE) {
 		pre[19] = (uint8_t)l;
-		memcpy(&pre[20], rsp, l);
+		memcpy(&pre[20], rsp, (unsigned int)l);
 	}
 
-	if (lws_dsh_alloc_tail(dsh, KIND_SS_TO_P, pre, est, buf, len)) {
+	if (lws_dsh_alloc_tail(dsh, KIND_SS_TO_P, pre, (unsigned int)est, buf, len)) {
 		lwsl_err("%s: unable to alloc in dsh 1\n", __func__);
 
 		return 1;
@@ -205,7 +205,7 @@ lws_ss_deserialize_tx_payload(struct lws_dsh *dsh, struct lws *wsi,
 		return 1;
 	}
 
-	*len = lws_ser_ru16be(&p[1]) - (23 - 3);
+	*len = (size_t)(lws_ser_ru16be(&p[1]) - (23 - 3));
 	if (*len != si - 23) {
 		/*
 		 * We cannot accept any length that doesn't reflect the actual
@@ -219,7 +219,7 @@ lws_ss_deserialize_tx_payload(struct lws_dsh *dsh, struct lws *wsi,
 
 	memcpy(buf, p + 23, si - 23);
 
-	*flags = lws_ser_ru32be(&p[3]);
+	*flags = (int)lws_ser_ru32be(&p[3]);
 
 #if defined(LWS_WITH_DETAILED_LATENCY)
 	if (wsi && wsi->a.context->detailed_latency_cb) {
@@ -265,7 +265,7 @@ lws_ss_serialize_state(struct lws_dsh *dsh, lws_ss_constate_t state,
 	uint8_t pre[12];
 	int n = 4;
 
-	lwsl_info("%s: %s, ord 0x%x\n", __func__, lws_ss_state_name(state),
+	lwsl_info("%s: %s, ord 0x%x\n", __func__, lws_ss_state_name((int)state),
 		  (unsigned int)ack);
 
 	pre[0] = LWSSS_SER_RXPRE_CONNSTATE;
@@ -282,7 +282,7 @@ lws_ss_serialize_state(struct lws_dsh *dsh, lws_ss_constate_t state,
 
 	lws_ser_wu32be(&pre[n], ack);
 
-	if (lws_dsh_alloc_tail(dsh, KIND_SS_TO_P, pre, n + 4, NULL, 0)) {
+	if (lws_dsh_alloc_tail(dsh, KIND_SS_TO_P, pre, (unsigned int)n + 4, NULL, 0)) {
 		lwsl_err("%s: unable to alloc in dsh 2\n", __func__);
 
 		return 1;
@@ -306,7 +306,7 @@ lws_ss_serialize_txcr(struct lws_dsh *dsh, int txcr)
 	pre[0] = LWSSS_SER_RXPRE_TXCR_UPDATE;
 	pre[1] = 0;
 	pre[2] = 4;
-	lws_ser_wu32be(&pre[3], txcr);
+	lws_ser_wu32be(&pre[3], (uint32_t)txcr);
 
 	if (lws_dsh_alloc_tail(dsh, KIND_SS_TO_P, pre, 7, NULL, 0)) {
 		lwsl_err("%s: unable to alloc in dsh 2\n", __func__);
@@ -376,12 +376,12 @@ lws_ss_deserialize_parse(struct lws_ss_serialization_parser *par,
 			break;
 
 		case RPAR_LEN_MSB: /* this is remaining frame length */
-			par->rem = (*cp++) << 8;
+			par->rem = (uint16_t)((*cp++) << 8);
 			par->ps++;
 			break;
 
 		case RPAR_LEN_LSB:
-			par->rem |= *cp++;
+			par->rem |= (uint16_t)*cp++;
 			switch (par->type) {
 
 			/* event loop side */
@@ -603,7 +603,7 @@ lws_ss_deserialize_parse(struct lws_ss_serialization_parser *par,
 			break;
 
 		case RPAR_RIDESHARE:
-			par->rideshare[par->ctr++] = *cp++;
+			par->rideshare[par->ctr++] = (char)*cp++;
 			if (!par->rem--)
 				goto hangup;
 			if (par->ctr != par->slen)
@@ -679,17 +679,17 @@ payload_ff:
 
 				p = pre;
 				pre[0] = LWSSS_SER_TXPRE_TX_PAYLOAD;
-				lws_ser_wu16be(&p[1], n + 23 - 3);
+				lws_ser_wu16be(&p[1], (uint16_t)((unsigned int)n + 23 - 3));
 				lws_ser_wu32be(&p[3], flags);
 				/* us held at client before written */
 				lws_ser_wu32be(&p[7], par->usd_phandling);
 				/* us taken for transit to proxy */
-				lws_ser_wu32be(&p[11], us - par->ust_pwait);
+				lws_ser_wu32be(&p[11], (uint32_t)(us - (lws_usec_t)par->ust_pwait));
 				/* time used later to find proxy hold time */
-				lws_ser_wu64be(&p[15], us);
+				lws_ser_wu64be(&p[15], (uint64_t)us);
 
 				if (lws_dsh_alloc_tail(dsh, KIND_C_TO_P, pre,
-						       23, cp, n)) {
+						       23, cp, (unsigned int)n)) {
 					lwsl_err("%s: unable to alloc in dsh 3\n",
 						 __func__);
 
@@ -717,7 +717,7 @@ payload_ff:
 				if (client_pss_to_sspc_h(pss, ssi)) {
 					/* we still have an sspc handle */
 					int ret = ssi->rx(client_pss_to_userdata(pss),
-						(uint8_t *)cp, n, flags);
+						(uint8_t *)cp, (unsigned int)n, (int)flags);
 					switch (ret) {
 					case LWSSSSRET_OK:
 						break;
@@ -748,8 +748,8 @@ payload_ff:
 
 			if (n) {
 				cp += n;
-				par->rem -= n;
-				len = (len + 1) - n;
+				par->rem = (uint16_t)(par->rem - (uint16_t)(unsigned int)n);
+				len = (len + 1) - (unsigned int)n;
 				/*
 				 * if we didn't consume it all, we'll come
 				 * around again and produce more dsh entries up
@@ -877,7 +877,7 @@ payload_ff:
 				} else {
 
 					if (!par->temp32)
-						par->temp32 =
+						par->temp32 = (int)
 						   proxy_pss_to_ss_h(pss)->
 							   policy->timeout_ms;
 
@@ -885,7 +885,7 @@ payload_ff:
 						__func__, par->temp32);
 
 					lws_ss_start_timeout(
-						proxy_pss_to_ss_h(pss),
+						proxy_pss_to_ss_h(pss), (unsigned int)
 								par->temp32);
 				}
 			}
@@ -913,7 +913,7 @@ payload_ff:
 
 			if (proxy_pss_to_ss_h(pss))
 				lws_ss_request_tx_len(proxy_pss_to_ss_h(pss),
-							par->temp32);
+							(unsigned long)par->temp32);
 
 			par->ps = RPAR_TYPE;
 			break;
@@ -933,7 +933,7 @@ payload_ff:
 			/* both client and proxy */
 			if (!--par->rem)
 				goto hangup;
-			par->metadata_name[par->ctr++] = *cp++;
+			par->metadata_name[par->ctr++] = (char)*cp++;
 			if (par->ctr != par->slen)
 				break;
 			par->metadata_name[par->ctr] = '\0';
@@ -1021,7 +1021,7 @@ payload_ff:
 				lws_free_set_NULL(par->ssmd->value__may_own_heap);
 			par->ssmd->value_on_lws_heap = 0;
 
-			par->ssmd->value__may_own_heap = lws_malloc(par->rem + 1, "metadata");
+			par->ssmd->value__may_own_heap = lws_malloc((unsigned int)par->rem + 1, "metadata");
 			if (!par->ssmd->value__may_own_heap) {
 				lwsl_err("%s: OOM mdv\n", __func__);
 				goto hangup;
@@ -1080,7 +1080,7 @@ payload_ff:
 			 * client
 			 */
 
-			par->streamtype[par->ctr++] = *cp++;
+			par->streamtype[par->ctr++] = (char)*cp++;
 			if (--par->rem)
 				break;
 
@@ -1214,7 +1214,7 @@ payload_ff:
 					goto hangup;
 				h->rideshare_ofs[++par->rsl_idx] = par->rsl_pos;
 			} else
-				h->rideshare_list[par->rsl_pos++] = *cp++;
+				h->rideshare_list[par->rsl_pos++] = (char)*cp++;
 			if (!--par->rem)
 				par->ps = RPAR_TYPE;
 			break;
@@ -1226,22 +1226,22 @@ payload_ff:
 			break;
 
 		case RPAR_ORD3:
-			par->flags = (*cp++) << 24;
+			par->flags = (uint32_t)((*cp++) << 24);
 			par->ps++;
 			break;
 
 		case RPAR_ORD2:
-			par->flags |= (*cp++) << 16;
+			par->flags |= (uint32_t)((*cp++) << 16);
 			par->ps++;
 			break;
 
 		case RPAR_ORD1:
-			par->flags |= (*cp++) << 8;
+			par->flags |= (uint32_t)((*cp++) << 8);
 			par->ps++;
 			break;
 
 		case RPAR_ORD0:
-			par->flags |= *cp++;
+			par->flags |= (uint32_t)(*cp++);
 			par->ps++;
 			par->ps = RPAR_TYPE;
 

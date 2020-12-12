@@ -132,7 +132,7 @@ callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
 		switch (pss->walk) {
 		case WALK_INITIAL:
 			n = LWS_WRITE_TEXT | LWS_WRITE_NO_FIN;
-			p += lws_snprintf(p, end - p,
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
 				      "{ \"version\":\"%s\","
 				      " \"wss_over_h2\":\"%d\","
 				      " \"hostname\":\"%s\","
@@ -171,7 +171,7 @@ callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
 
 			strcpy(ip, "unknown");
 			lws_get_peer_simple(pss->walk_next->wsi, ip, sizeof(ip));
-			p += lws_snprintf(p, end - p,
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
 					"{\"peer\":\"%s\",\"time\":\"%ld\","
 					"\"ua\":\"%s\"}",
 					ip, (unsigned long)pss->walk_next->time_est,
@@ -196,7 +196,7 @@ walk_final:
 			return 0;
 		}
 
-		m = lws_write(wsi, (unsigned char *)start, p - start, n);
+		m = lws_write(wsi, (unsigned char *)start, lws_ptr_diff_size_t(p, start), (unsigned int)n);
 		if (m < 0) {
 			lwsl_err("ERROR %d writing to di socket\n", m);
 			return -1;

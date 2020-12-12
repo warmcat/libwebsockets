@@ -69,7 +69,7 @@ rops_handle_POLLIN_cgi(struct lws_context_per_thread *pt, struct lws *wsi,
 
 	args.ch = wsi->lsp_channel;
 	args.stdwsi = &wsi->parent->http.cgi->lsp->stdwsi[0];
-	args.hdr_state = wsi->hdr_state;
+	args.hdr_state = (enum lws_cgi_hdr_state)wsi->hdr_state;
 
 	lwsl_debug("CGI LWS_STDOUT %p wsistate 0x%x\n",
 		   wsi->parent, wsi->wsistate);

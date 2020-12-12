@@ -129,7 +129,7 @@ __lws_threadpool_task_dump(struct lws_threadpool_task *task, char *buf, int len)
 	int syncms = 0, runms = 0;
 
 	if (!task->acquired) {
-		buf += lws_snprintf(buf, end - buf,
+		buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf),
 				    "task: %s, QUEUED queued: %dms",
 				    task->name, ms_delta(now, task->created));
 
@@ -143,7 +143,7 @@ __lws_threadpool_task_dump(struct lws_threadpool_task *task, char *buf, int len)
 		syncms = (int)task->acc_syncing;
 
 	if (!task->done) {
-		buf += lws_snprintf(buf, end - buf,
+		buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf),
 			"task: %s, ONGOING state %d (%dms) alive: %dms "
 			"(queued %dms, acquired: %dms, "
 			"run: %d%%, sync: %d%%)", task->name, task->status,
@@ -157,7 +157,7 @@ __lws_threadpool_task_dump(struct lws_threadpool_task *task, char *buf, int len)
 		return;
 	}
 
-	lws_snprintf(buf, end - buf,
+	lws_snprintf(buf, lws_ptr_diff_size_t(end, buf),
 		"task: %s, DONE state %d lived: %dms "
 		"(queued %dms, on thread: %dms, "
 		"ran: %d%%, synced: %d%%)", task->name, task->status,
@@ -586,7 +586,7 @@ lws_threadpool_worker(void *d)
 			}
 
 			then = lws_now_usecs();
-			n = task->args.task(task->args.user, task->status);
+			n = (int)task->args.task(task->args.user, task->status);
 			lwsl_debug("   %d, status %d\n", n, task->status);
 			us_accrue(&task->acc_running, then);
 			if (n & LWS_TP_RETURN_FLAG_OUTLIVE)
@@ -688,12 +688,12 @@ lws_threadpool_create(struct lws_context *context,
 	va_list ap;
 	int n;
 
-	tp = lws_malloc(sizeof(*tp) + (sizeof(struct lws_pool) * args->threads),
+	tp = lws_malloc(sizeof(*tp) + (sizeof(struct lws_pool) * (unsigned int)args->threads),
 			"threadpool alloc");
 	if (!tp)
 		return NULL;
 
-	memset(tp, 0, sizeof(*tp) + (sizeof(struct lws_pool) * args->threads));
+	memset(tp, 0, sizeof(*tp) + (sizeof(struct lws_pool) * (unsigned int)args->threads));
 	tp->pool_list = (struct lws_pool *)(tp + 1);
 	tp->max_queue_depth = args->max_queue_depth;
 

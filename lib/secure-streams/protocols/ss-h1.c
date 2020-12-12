@@ -77,9 +77,9 @@ ss_http_multipart_parser(lws_ss_handle_t *h, void *in, size_t len)
 			    (h->u.http.any ? 2 : 0) + 1)
 				h->info.rx(ss_to_userobj(h),
 					   &q[pending_issue],
-					   n - pending_issue -
+					   (unsigned int)(n - pending_issue -
 					   h->u.http.boundary_len - 1 -
-					   (h->u.http.any ? 2 : 0) /* crlf */,
+					   (h->u.http.any ? 2 : 0) /* crlf */),
 				   (!h->u.http.som ? LWSSS_FLAG_SOM : 0) |
 				   LWSSS_FLAG_EOM | LWSSS_FLAG_RELATED_END);
 
@@ -125,9 +125,9 @@ ss_http_multipart_parser(lws_ss_handle_t *h, void *in, size_t len)
 			if (n >= pending_issue + h->u.http.boundary_len +
 			    (h->u.http.any ? 2 : 0))
 				h->info.rx(ss_to_userobj(h), &q[pending_issue],
-					   n - pending_issue -
+					   (unsigned int)(n - pending_issue -
 					       h->u.http.boundary_len -
-					       (h->u.http.any ? 2 /* crlf */ : 0),
+					       (h->u.http.any ? 2 /* crlf */ : 0)),
 					   (!h->u.http.som ? LWSSS_FLAG_SOM : 0) |
 					   LWSSS_FLAG_EOM);
 		}
@@ -142,7 +142,8 @@ around:
 	}
 
 	if (pending_issue != n) {
-		h->info.rx(ss_to_userobj(h), &q[pending_issue], n - pending_issue,
+		h->info.rx(ss_to_userobj(h), &q[pending_issue],
+				(unsigned int)(n - pending_issue),
 			   (!h->u.http.som ? LWSSS_FLAG_SOM : 0));
 		h->u.http.any = 1;
 		h->u.http.som = 1;
@@ -268,7 +269,7 @@ lws_extract_metadata(lws_ss_handle_t *h, struct lws *wsi)
 				 * set the related metadata name to it then
 				 */
 
-				_lws_ss_set_metadata(omd, polmd->name, cp, n);
+				_lws_ss_set_metadata(omd, polmd->name, cp, (unsigned int)n);
 
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
 				/*
@@ -299,7 +300,7 @@ lws_extract_metadata(lws_ss_handle_t *h, struct lws *wsi)
 						    polmd->value_length);
 				if (n > 0) {
 
-					p = lws_malloc(n + 1, __func__);
+					p = lws_malloc((unsigned int)n + 1, __func__);
 					if (!p)
 						return 1;
 
@@ -491,7 +492,7 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			 */
 			int n = lws_ss_http_resp_to_state(h, status);
 			if (n) {
-				r = lws_ss_event_helper(h, n);
+				r = lws_ss_event_helper(h, (lws_ss_constate_t)n);
 				if (r != LWSSSSRET_OK)
 					return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi,
 									&h);
@@ -627,17 +628,17 @@ malformed:
 			if (!ab)
 				return -1;
 
-			buflen = sizeof(buf) - o - 2;
+			buflen = sizeof(buf) - (unsigned int)o - 2u;
 			n = lws_system_blob_get(ab, buf + o, &buflen, 0);
 			if (n < 0)
 				return -1;
 
-			buf[o + buflen] = '\0';
+			buf[(unsigned int)o + buflen] = '\0';
 			lwsl_debug("%s: adding blob %d: %s\n", __func__, m, buf);
 
 			if (lws_add_http_header_by_name(wsi,
 				 (uint8_t *)h->policy->u.http.blob_header[m],
-				 buf, (int)(buflen + o), p, end))
+				 buf, (int)((int)buflen + o), p, end))
 				return -1;
 		}
 
@@ -756,9 +757,9 @@ malformed:
 			h->txn_resp_pending = 0;
 
 			if (lws_add_http_common_headers(wsi,
-					h->txn_resp_set ?
+					(unsigned int)(h->txn_resp_set ?
 						(h->txn_resp ? h->txn_resp : 200) :
-						HTTP_STATUS_NOT_FOUND,
+						HTTP_STATUS_NOT_FOUND),
 					NULL, h->wsi->http.writeable_len,
 					&p, end))
 				return 1;
@@ -800,13 +801,13 @@ malformed:
 				h->rideshare->u.http.multipart_content_type,
 				(char **)&p, (char *)end);
 
-		buflen = lws_ptr_diff(end, p);
+		buflen = lws_ptr_diff_size_t(end, p);
 		if (h->policy->u.http.multipart_name)
 			buflen -= 24; /* allow space for end of multipart */
 #else
-		buflen = lws_ptr_diff(end, p);
+		buflen = lws_ptr_diff_size_t(end, p);
 #endif
-		r = h->info.tx(ss_to_userobj(h),  h->txord++, p, &buflen, &f);
+		r = h->info.tx(ss_to_userobj(h), h->txord++, p, &buflen, &f);
 		if (r == LWSSSSRET_TX_DONT_SEND)
 			return 0;
 		if (r < 0)
@@ -852,7 +853,7 @@ malformed:
 		lwsl_info("%s: lws_write %d %d\n", __func__,
 			  lws_ptr_diff(p, buf + LWS_PRE), f);
 
-		if (lws_write(wsi, buf + LWS_PRE, lws_ptr_diff(p, buf + LWS_PRE),
+		if (lws_write(wsi, buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE),
 			 (!conceal_eom && (f & LWSSS_FLAG_EOM)) ?
 				    LWS_WRITE_HTTP_FINAL : LWS_WRITE_HTTP) !=
 				(int)lws_ptr_diff(p, buf + LWS_PRE)) {
@@ -888,11 +889,11 @@ malformed:
 			if (m) {
 				lws_ss_set_metadata(h, "method",
 						    lws_hdr_simple_ptr(wsi,
-						     WSI_TOKEN_HTTP_COLON_METHOD), m);
+						     WSI_TOKEN_HTTP_COLON_METHOD), (unsigned int)m);
 				m = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH);
 				lws_ss_set_metadata(h, "path",
 						    lws_hdr_simple_ptr(wsi,
-						     WSI_TOKEN_HTTP_COLON_PATH), m);
+						     WSI_TOKEN_HTTP_COLON_PATH), (unsigned int)m);
 			} else
 #endif
 			{
@@ -900,14 +901,14 @@ malformed:
 				if (m) {
 					lws_ss_set_metadata(h, "path",
 							lws_hdr_simple_ptr(wsi,
-								WSI_TOKEN_GET_URI), m);
+								WSI_TOKEN_GET_URI), (unsigned int)m);
 					lws_ss_set_metadata(h, "method", "GET", 3);
 				} else {
 					m = lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI);
 					if (m) {
 						lws_ss_set_metadata(h, "path",
 								lws_hdr_simple_ptr(wsi,
-									WSI_TOKEN_POST_URI), m);
+									WSI_TOKEN_POST_URI), (unsigned int)m);
 						lws_ss_set_metadata(h, "method", "POST", 4);
 					}
 				}

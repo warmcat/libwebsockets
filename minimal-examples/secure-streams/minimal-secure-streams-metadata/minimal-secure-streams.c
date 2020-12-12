@@ -219,7 +219,7 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 {
 	myss_t *m = (myss_t *)userobj;
 
-	lwsl_user("%s: %s, ord 0x%x\n", __func__, lws_ss_state_name(state),
+	lwsl_user("%s: %s, ord 0x%x\n", __func__, lws_ss_state_name((int)state),
 		  (unsigned int)ack);
 
 	switch (state) {
@@ -326,7 +326,7 @@ int main(int argc, const char **argv)
 	/* connect to ssproxy via UDS by default, else via
 	 * tcp connection to this port */
 	if ((p = lws_cmdline_option(argc, argv, "-p")))
-		info.ss_proxy_port = atoi(p);
+		info.ss_proxy_port = (uint16_t)atoi(p);
 
 	/* UDS "proxy.ss.lws" in abstract namespace, else this socket
 	 * path; when -p given this can specify the network interface

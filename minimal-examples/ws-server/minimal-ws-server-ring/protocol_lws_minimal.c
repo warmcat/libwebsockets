@@ -129,7 +129,7 @@ cull_lagging_clients(struct per_vhost_data__minimal *vhd)
 	 */
 
 	lws_ring_consume_and_update_oldest_tail(vhd->ring,
-		struct per_session_data__minimal, &old_pss->tail, before - most,
+		struct per_session_data__minimal, &old_pss->tail, (size_t)(before - most),
 		vhd->pss_list, tail, pss_list);
 
 	lwsl_user("%s: shrunk ring from %d to %d\n", __func__, before, most);

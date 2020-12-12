@@ -59,7 +59,7 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_gencrypto_keyelem *el,
 	mbedtls_rsa_init(ctx->ctx, mode_map[mode], 0);
 
 	ctx->ctx->padding = mode_map[mode];
-	ctx->ctx->hash_id = lws_gencrypto_mbedtls_hash_to_MD_TYPE(oaep_hashid);
+	ctx->ctx->hash_id = (int)lws_gencrypto_mbedtls_hash_to_MD_TYPE(oaep_hashid);
 
 	{
 		int n;
@@ -134,7 +134,7 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 
 	mbedtls_rsa_init(ctx->ctx, mode_map[mode], 0);
 
-	n = mbedtls_rsa_gen_key(ctx->ctx, _rngf, context, bits, 65537);
+	n = mbedtls_rsa_gen_key(ctx->ctx, _rngf, context, (unsigned int)bits, 65537);
 	if (n) {
 		lwsl_err("mbedtls_rsa_gen_key failed 0x%x\n", -n);
 		goto cleanup_1;
@@ -153,7 +153,7 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 					mbedtls_mpi_size(mpi[n]), "genrsakey");
 				if (!el[n].buf)
 					goto cleanup;
-				el[n].len = mbedtls_mpi_size(mpi[n]);
+				el[n].len = (uint32_t)mbedtls_mpi_size(mpi[n]);
 				if (mbedtls_mpi_write_binary(mpi[n], el[n].buf,
 							 el[n].len))
 					goto cleanup;
@@ -209,7 +209,7 @@ lws_genrsa_public_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 		return -1;
 	}
 
-	return olen;
+	return (int)olen;
 }
 
 int
@@ -249,7 +249,7 @@ lws_genrsa_private_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 		return -1;
 	}
 
-	return olen;
+	return (int)olen;
 }
 
 int
@@ -286,7 +286,7 @@ lws_genrsa_public_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 		return -1;
 	}
 
-	return mbedtls_mpi_size(&ctx->ctx->N);
+	return (int)mbedtls_mpi_size(&ctx->ctx->N);
 }
 
 int
@@ -323,7 +323,7 @@ lws_genrsa_private_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 		return -1;
 	}
 
-	return mbedtls_mpi_size(&ctx->ctx->N);
+	return (int)mbedtls_mpi_size(&ctx->ctx->N);
 }
 
 int
@@ -331,7 +331,7 @@ lws_genrsa_hash_sig_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			 enum lws_genhash_types hash_type, const uint8_t *sig,
 			 size_t sig_len)
 {
-	int n, h = lws_gencrypto_mbedtls_hash_to_MD_TYPE(hash_type);
+	int n, h = (int)lws_gencrypto_mbedtls_hash_to_MD_TYPE(hash_type);
 
 	if (h < 0)
 		return -1;
@@ -344,12 +344,12 @@ lws_genrsa_hash_sig_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	case LGRSAM_PKCS1_1_5:
 		n = mbedtls_rsa_rsassa_pkcs1_v15_verify(ctx->ctx, NULL, NULL,
 							MBEDTLS_RSA_PUBLIC,
-							h, 0, in, sig);
+							(mbedtls_md_type_t)h, 0, in, sig);
 		break;
 	case LGRSAM_PKCS1_OAEP_PSS:
 		n = mbedtls_rsa_rsassa_pss_verify(ctx->ctx, NULL, NULL,
 						  MBEDTLS_RSA_PUBLIC,
-						  h, 0, in, sig);
+						  (mbedtls_md_type_t)h, 0, in, sig);
 		break;
 	default:
 		return -1;
@@ -368,7 +368,7 @@ lws_genrsa_hash_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 		       enum lws_genhash_types hash_type, uint8_t *sig,
 		       size_t sig_len)
 {
-	int n, h = lws_gencrypto_mbedtls_hash_to_MD_TYPE(hash_type);
+	int n, h = (int)lws_gencrypto_mbedtls_hash_to_MD_TYPE(hash_type);
 
 	if (h < 0)
 		return -1;
@@ -388,12 +388,12 @@ lws_genrsa_hash_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	case LGRSAM_PKCS1_1_5:
 		n = mbedtls_rsa_rsassa_pkcs1_v15_sign(ctx->ctx, NULL, NULL,
 						      MBEDTLS_RSA_PRIVATE,
-						      h, 0, in, sig);
+						      (mbedtls_md_type_t)h, 0, in, sig);
 		break;
 	case LGRSAM_PKCS1_OAEP_PSS:
 		n = mbedtls_rsa_rsassa_pss_sign(ctx->ctx, NULL, NULL,
 						MBEDTLS_RSA_PRIVATE,
-						h, 0, in, sig);
+						(mbedtls_md_type_t)h, 0, in, sig);
 		break;
 	default:
 		return -1;
@@ -405,7 +405,7 @@ lws_genrsa_hash_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 		return -1;
 	}
 
-	return ctx->ctx->len;
+	return (int)ctx->ctx->len;
 }
 
 int
@@ -446,44 +446,44 @@ lws_genrsa_render_pkey_asn1(struct lws_genrsa_ctx *ctx, int _private,
 	*p++ = 0x00;
 
 	for (n = 0; n < LWS_GENCRYPTO_RSA_KEYEL_COUNT; n++) {
-		int m = mbedtls_mpi_size(mpi[n]);
+		int m = (int)mbedtls_mpi_size(mpi[n]);
 		uint8_t *elen;
 
 		*p++ = 0x02;
 		elen = p;
 		if (m < 0x7f)
-			*p++ = m;
+			*p++ = (uint8_t)m;
 		else {
 			*p++ = 0x82;
-			*p++ = m >> 8;
-			*p++ = m & 0xff;
+			*p++ = (uint8_t)(m >> 8);
+			*p++ = (uint8_t)(m & 0xff);
 		}
 
 		if (p + m > end)
 			return -1;
 
-		if (mbedtls_mpi_write_binary(mpi[n], p, m))
+		if (mbedtls_mpi_write_binary(mpi[n], p, (unsigned int)m))
 			return -1;
 		if (p[0] & 0x80) {
 			p[0] = 0x00;
-			if (mbedtls_mpi_write_binary(mpi[n], &p[1], m))
+			if (mbedtls_mpi_write_binary(mpi[n], &p[1], (unsigned int)m))
 				return -1;
 			m++;
 		}
 		if (m < 0x7f)
-			*elen = m;
+			*elen = (uint8_t)m;
 		else {
 			*elen++ = 0x82;
-			*elen++ = m >> 8;
-			*elen = m & 0xff;
+			*elen++ = (uint8_t)(m >> 8);
+			*elen = (uint8_t)(m & 0xff);
 		}
 		p += m;
 	}
 
 	n = lws_ptr_diff(p, pkey_asn1);
 
-	*totlen++ = (n - 4) >> 8;
-	*totlen = (n - 4) & 0xff;
+	*totlen++ = (uint8_t)((n - 4) >> 8);
+	*totlen = (uint8_t)((n - 4) & 0xff);
 
 	return n;
 }

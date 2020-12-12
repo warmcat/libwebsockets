@@ -82,7 +82,7 @@ __mirror_rxflow_instance(struct mirror_instance *mi, int enable)
 		lws_rx_flow_control(pss->wsi, enable);
 	} lws_end_foreach_ll(pss, same_mi_pss_list);
 
-	mi->rx_enabled = enable;
+	mi->rx_enabled = (char)enable;
 }
 
 /*

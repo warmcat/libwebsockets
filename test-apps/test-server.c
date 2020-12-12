@@ -138,19 +138,19 @@ lws_callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		/* dump the headers */
 
 		do {
-			c = lws_token_to_string(n);
+			c = lws_token_to_string((enum lws_token_indexes)n);
 			if (!c) {
 				n++;
 				continue;
 			}
 
-			hlen = lws_hdr_total_length(wsi, n);
+			hlen = lws_hdr_total_length(wsi, (enum lws_token_indexes)n);
 			if (!hlen || hlen > (int)sizeof(buf) - 1) {
 				n++;
 				continue;
 			}
 
-			if (lws_hdr_copy(wsi, buf, sizeof buf, n) < 0)
+			if (lws_hdr_copy(wsi, buf, sizeof buf, (enum lws_token_indexes)n) < 0)
 				fprintf(stderr, "    %s (too big)\n", (char *)c);
 			else {
 				buf[sizeof(buf) - 1] = '\0';
@@ -399,13 +399,14 @@ int main(int argc, char **argv)
 	char cert_path[1024] = "";
 	char key_path[1024] = "";
 	char ca_path[1024] = "";
-	int uid = -1, gid = -1;
-	int use_ssl = 0;
-	int opts = 0;
-	int n = 0;
 #ifndef LWS_NO_DAEMONIZE
 	int daemonize = 0;
 #endif
+	uint64_t opts = 0;
+	int use_ssl = 0;
+	uid_t uid = (uid_t)-1;
+	gid_t gid = (gid_t)-1;
+	int n = 0;
 
 	/*
 	 * take care to zero down the info struct, he contains random garbaage
@@ -432,10 +433,10 @@ int main(int argc, char **argv)
 			break;
 #endif
 		case 'u':
-			uid = atoi(optarg);
+			uid = (uid_t)atoi(optarg);
 			break;
 		case 'g':
-			gid = atoi(optarg);
+			gid = (gid_t)atoi(optarg);
 			break;
 		case 'd':
 			debug_level = atoi(optarg);

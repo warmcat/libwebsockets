@@ -43,7 +43,7 @@ void lwsi_set_role(struct lws *wsi, lws_wsi_state_t role)
 
 void lwsi_set_state(struct lws *wsi, lws_wsi_state_t lrs)
 {
-	wsi->wsistate = (wsi->wsistate & (~LRS_MASK)) | lrs;
+	wsi->wsistate = (wsi->wsistate & (unsigned int)(~LRS_MASK)) | lrs;
 
 	lwsl_debug("lwsi_set_state(%s, 0x%lx)\n", lws_wsi_tag(wsi),
 					(unsigned long)wsi->wsistate);
@@ -144,8 +144,9 @@ lws_callback_all_protocol(struct lws_context *context,
 			if (!wsi)
 				continue;
 			if (wsi->a.protocol == protocol)
-				protocol->callback(wsi, reason, wsi->user_space,
-						   NULL, 0);
+				protocol->callback(wsi,
+					(enum lws_callback_reasons)reason,
+					wsi->user_space, NULL, 0);
 		}
 		pt++;
 	}
@@ -170,7 +171,7 @@ lws_callback_all_protocol_vhost_args(struct lws_vhost *vh,
 				continue;
 			if (wsi->a.vhost == vh && (wsi->a.protocol == protocol ||
 						 !protocol))
-				wsi->a.protocol->callback(wsi, reason,
+				wsi->a.protocol->callback(wsi, (enum lws_callback_reasons)reason,
 						wsi->user_space, argp, len);
 		}
 		pt++;
@@ -187,12 +188,12 @@ lws_callback_all_protocol_vhost(struct lws_vhost *vh,
 }
 
 int
-lws_callback_vhost_protocols(struct lws *wsi, int reason, void *in, int len)
+lws_callback_vhost_protocols(struct lws *wsi, int reason, void *in, size_t len)
 {
 	int n;
 
 	for (n = 0; n < wsi->a.vhost->count_protocols; n++)
-		if (wsi->a.vhost->protocols[n].callback(wsi, reason, NULL, in, len))
+		if (wsi->a.vhost->protocols[n].callback(wsi, (enum lws_callback_reasons)reason, NULL, in, len))
 			return 1;
 
 	return 0;
@@ -232,7 +233,7 @@ __lws_wsi_create_with_role(struct lws_context *context, int tsi,
 	lws_role_transition(wsi, 0, LRS_UNCONNECTED, ops);
 	wsi->pending_timeout = NO_PENDING_TIMEOUT;
 	wsi->a.protocol = NULL;
-	wsi->tsi = tsi;
+	wsi->tsi = (char)tsi;
 	wsi->a.vhost = NULL;
 	wsi->desc.sockfd = LWS_SOCK_INVALID;
 	wsi->position_in_fds_table = LWS_NO_FDS_POS;
@@ -313,7 +314,7 @@ lws_callback_vhost_protocols_vhost(struct lws_vhost *vh, int reason, void *in,
 
 	for (n = 0; n < wsi->a.vhost->count_protocols; n++) {
 		wsi->a.protocol = &vh->protocols[n];
-		if (wsi->a.protocol->callback(wsi, reason, NULL, in, len)) {
+		if (wsi->a.protocol->callback(wsi, (enum lws_callback_reasons)reason, NULL, in, len)) {
 			lws_free(wsi);
 			return 1;
 		}
@@ -352,9 +353,9 @@ lws_rx_flow_control(struct lws *wsi, int _enable)
 
 	/* any bit set in rxflow_bitmap DISABLEs rxflow control */
 	if (en & LWS_RXFLOW_REASON_APPLIES_ENABLE_BIT)
-		wsi->rxflow_bitmap &= ~(en & 0xff);
+		wsi->rxflow_bitmap &= (uint8_t)~(en & 0xff);
 	else
-		wsi->rxflow_bitmap |= en & 0xff;
+		wsi->rxflow_bitmap |= (uint8_t)(en & 0xff);
 
 	if ((LWS_RXFLOW_PENDING_CHANGE | (!wsi->rxflow_bitmap)) ==
 	    wsi->rxflow_change_to)
@@ -448,7 +449,7 @@ __lws_rx_flow_control(struct lws *wsi)
 
 	/* now the pending is cleared, we can change rxflow state */
 
-	wsi->rxflow_change_to &= ~LWS_RXFLOW_PENDING_CHANGE;
+	wsi->rxflow_change_to &= (~LWS_RXFLOW_PENDING_CHANGE) & 3;
 
 	lwsl_info("rxflow: %s change_to %d\n", lws_wsi_tag(wsi),
 		  wsi->rxflow_change_to & LWS_RXFLOW_ALLOW);
@@ -560,7 +561,7 @@ lws_role_transition(struct lws *wsi, enum lwsi_role role, enum lwsi_state state,
 #if (_LWS_ENABLED_LOGS & LLL_DEBUG) 
 	const char *name = "(unset)";
 #endif
-	wsi->wsistate = role | state;
+	wsi->wsistate = (unsigned int)role | (unsigned int)state;
 	if (ops)
 		wsi->role_ops = ops;
 #if (_LWS_ENABLED_LOGS & LLL_DEBUG)
@@ -630,7 +631,8 @@ lws_parse_uri(char *p, const char **prot, const char **ads, int *port,
 const char *
 lws_get_urlarg_by_name(struct lws *wsi, const char *name, char *buf, int len)
 {
-	int n = 0, sl = (int)strlen(name);
+	int n = 0;
+	size_t sl = strlen(name);
 
 	while (lws_hdr_copy_fragment(wsi, buf, len,
 			  WSI_TOKEN_HTTP_URI_ARGS, n) >= 0) {
@@ -724,7 +726,7 @@ lws_broadcast(struct lws_context_per_thread *pt, int reason, void *in, size_t le
 
 	lws_fakewsi_prep_plwsa_ctx(pt->context);
 #if !defined(LWS_PLAT_FREERTOS) && LWS_MAX_SMP > 1
-	((struct lws *)plwsa)->tsi = (int)(pt - &pt->context->pt[0]);
+	((struct lws *)plwsa)->tsi = (char)(int)(pt - &pt->context->pt[0]);
 #endif
 
 	while (v) {
@@ -735,7 +737,7 @@ lws_broadcast(struct lws_context_per_thread *pt, int reason, void *in, size_t le
 		for (n = 0; n < v->count_protocols; n++) {
 			plwsa->protocol = p;
 			if (p->callback &&
-			    p->callback((struct lws *)plwsa, reason, NULL, in, len))
+			    p->callback((struct lws *)plwsa, (enum lws_callback_reasons)reason, NULL, in, len))
 				ret |= 1;
 			p++;
 		}
@@ -1209,7 +1211,7 @@ lws_wsi_client_stash_item(struct lws *wsi, int stash_idx, int hdr_idx)
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	/* if not, use the ah stash if applicable */
-	return lws_hdr_simple_ptr(wsi, hdr_idx);
+	return lws_hdr_simple_ptr(wsi, (enum lws_token_indexes)hdr_idx);
 #else
 	return NULL;
 #endif
@@ -1219,7 +1221,7 @@ lws_wsi_client_stash_item(struct lws *wsi, int stash_idx, int hdr_idx)
 #if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT)
 
 void
-lws_wsi_mux_insert(struct lws *wsi, struct lws *parent_wsi, int sid)
+lws_wsi_mux_insert(struct lws *wsi, struct lws *parent_wsi, unsigned int sid)
 {
 	lwsl_info("%s: %s, par %s: assign sid %d (curr %d)\n", __func__,
 		  lws_wsi_tag(wsi), lws_wsi_tag(parent_wsi), sid, wsi->mux.my_sid);
@@ -1285,7 +1287,7 @@ lws_wsi_mux_close_children(struct lws *wsi, int reason)
 		assert (wsi2 != *w);
 		(*w)->mux.sibling_list = NULL;
 		(*w)->socket_is_permanently_unusable = 1;
-		__lws_close_free_wsi(*w, reason, "mux child recurse");
+		__lws_close_free_wsi(*w, (enum lws_close_status)reason, "mux child recurse");
 		*w = wsi2;
 	}
 }

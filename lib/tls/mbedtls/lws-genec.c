@@ -76,7 +76,7 @@ lws_genec_keypair_import(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 		return -23;
 
 	mbedtls_ecp_keypair_init(&kp);
-	if (mbedtls_ecp_group_load(&kp.grp, curve->tls_lib_nid))
+	if (mbedtls_ecp_group_load(&kp.grp, (mbedtls_ecp_group_id)curve->tls_lib_nid))
 		goto bail1;
 
 	ctx->has_private = !!el[LWS_GENCRYPTO_EC_KEYEL_D].len;
@@ -243,7 +243,7 @@ lws_genecdh_new_keypair(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 	}
 
 	mbedtls_ecdsa_init(&ecdsa);
-	n = mbedtls_ecdsa_genkey(&ecdsa, curve->tls_lib_nid,
+	n = mbedtls_ecdsa_genkey(&ecdsa, (mbedtls_ecp_group_id)curve->tls_lib_nid,
 				 lws_gencrypto_mbedtls_rngf,
 				 ctx->context);
 	if (n) {
@@ -269,7 +269,7 @@ lws_genecdh_new_keypair(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 	mpi[1] = &kp->d;
 	mpi[2] = &kp->Q.Y;
 
-	el[LWS_GENCRYPTO_EC_KEYEL_CRV].len = strlen(curve_name) + 1;
+	el[LWS_GENCRYPTO_EC_KEYEL_CRV].len = (uint32_t)strlen(curve_name) + 1;
 	el[LWS_GENCRYPTO_EC_KEYEL_CRV].buf =
 			lws_malloc(el[LWS_GENCRYPTO_EC_KEYEL_CRV].len, "ec");
 	if (!el[LWS_GENCRYPTO_EC_KEYEL_CRV].buf)
@@ -325,7 +325,7 @@ lws_genecdsa_new_keypair(struct lws_genec_ctx *ctx, const char *curve_name,
 	}
 
 	//mbedtls_ecdsa_init(ctx->u.ctx_ecdsa);
-	n = mbedtls_ecdsa_genkey(ctx->u.ctx_ecdsa, curve->tls_lib_nid,
+	n = mbedtls_ecdsa_genkey(ctx->u.ctx_ecdsa, (mbedtls_ecp_group_id)curve->tls_lib_nid,
 				 lws_gencrypto_mbedtls_rngf, ctx->context);
 	if (n) {
 		lwsl_err("mbedtls_ecdsa_genkey failed 0x%x\n", -n);
@@ -343,7 +343,7 @@ lws_genecdsa_new_keypair(struct lws_genec_ctx *ctx, const char *curve_name,
 	mpi[1] = &kp->d;
 	mpi[2] = &kp->Q.Y;
 
-	el[LWS_GENCRYPTO_EC_KEYEL_CRV].len = strlen(curve_name) + 1;
+	el[LWS_GENCRYPTO_EC_KEYEL_CRV].len = (uint32_t)strlen(curve_name) + 1;
 	el[LWS_GENCRYPTO_EC_KEYEL_CRV].buf =
 			lws_malloc(el[LWS_GENCRYPTO_EC_KEYEL_CRV].len, "ec");
 	if (!el[LWS_GENCRYPTO_EC_KEYEL_CRV].buf)
@@ -422,10 +422,10 @@ lws_genecdsa_hash_sign_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
 		goto bail2;
 	}
 
-	if (mbedtls_mpi_write_binary(&mpi_r, sig, keybytes))
+	if (mbedtls_mpi_write_binary(&mpi_r, sig, (unsigned int)keybytes))
 		goto bail2;
 	mbedtls_mpi_free(&mpi_r);
-	if (mbedtls_mpi_write_binary(&mpi_s, sig + keybytes, keybytes))
+	if (mbedtls_mpi_write_binary(&mpi_s, sig + keybytes, (unsigned int)keybytes))
 		goto bail1;
 	mbedtls_mpi_free(&mpi_s);
 
@@ -471,9 +471,9 @@ lws_genecdsa_hash_sig_verify_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
 	mbedtls_mpi_init(&mpi_r);
 	mbedtls_mpi_init(&mpi_s);
 
-	if (mbedtls_mpi_read_binary(&mpi_r, sig, keybytes))
+	if (mbedtls_mpi_read_binary(&mpi_r, sig, (unsigned int)keybytes))
 		return -1;
-	if (mbedtls_mpi_read_binary(&mpi_s, sig + keybytes, keybytes))
+	if (mbedtls_mpi_read_binary(&mpi_s, sig + keybytes, (unsigned int)keybytes))
 		goto bail1;
 
 	n = mbedtls_ecdsa_verify(&ctx->u.ctx_ecdsa->grp, in, hlen,
@@ -511,7 +511,7 @@ lws_genecdh_compute_shared_secret(struct lws_genec_ctx *ctx, uint8_t *ss,
 		return -1;
 	}
 
-	n = mbedtls_ecdh_calc_secret(ctx->u.ctx_ecdh, &st, ss, *ss_len,
+	n = mbedtls_ecdh_calc_secret(ctx->u.ctx_ecdh, &st, ss, (size_t)*ss_len,
 			lws_gencrypto_mbedtls_rngf, ctx->context);
 	if (n)
 		return -1;

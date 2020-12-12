@@ -92,7 +92,7 @@ lws_read_mqtt(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 {
 	lws_mqttc_t *c = &wsi->mqtt->client;
 
-	return _lws_mqtt_rx_parser(wsi, &c->par, buf, len);
+	return _lws_mqtt_rx_parser(wsi, &c->par, buf, (size_t)len);
 }
 
 int
@@ -137,8 +137,8 @@ lws_create_client_mqtt_object(const struct lws_client_connect_info *i,
 			if (!c->will.message)
 				goto oom2;
 		}
-		c->conn_flags |= (cp->will_param.qos << 3) & LMQCFT_WILL_QOS_MASK;
-		c->conn_flags |= (!!cp->will_param.retain) * LMQCFT_WILL_RETAIN;
+		c->conn_flags = (uint8_t)(unsigned int)(c->conn_flags | ((cp->will_param.qos << 3) & LMQCFT_WILL_QOS_MASK));
+		c->conn_flags |= (uint8_t)((!!cp->will_param.retain) * LMQCFT_WILL_RETAIN);
 	}
 
 	if (cp->username &&
@@ -181,7 +181,7 @@ lws_mqtt_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 	int n = 0, m = 0;
 	struct lws_tokens ebuf;
 	int buffered = 0;
-	char pending = 0;
+	int pending = 0;
 #if defined(LWS_WITH_TLS)
 	char erbuf[128];
 #endif
@@ -268,8 +268,8 @@ lws_mqtt_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 		if (context->detailed_latency_cb) {
 			wsi->detlat.type = LDLT_TLS_NEG_CLIENT;
 			wsi->detlat.latencies[LAT_DUR_PROXY_CLIENT_REQ_TO_WRITE] =
-				lws_now_usecs() -
-				wsi->detlat.earliest_write_req_pre_write;
+				(uint32_t)(lws_now_usecs() -
+				wsi->detlat.earliest_write_req_pre_write);
 			wsi->detlat.latencies[LAT_DUR_USERCB] = 0;
 			lws_det_lat_cb(wsi->a.context, &wsi->detlat);
 		}
@@ -282,7 +282,7 @@ start_ws_handshake:
 #endif
 		lwsi_set_state(wsi, LRS_MQTTC_IDLE);
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
-				context->timeout_secs);
+				(int)context->timeout_secs);
 
 		/* fallthru */
 
@@ -308,17 +308,17 @@ start_ws_handshake:
 	case LRS_MQTTC_AWAIT_CONNACK:
 		buffered = 0;
 		ebuf.token = pt->serv_buf;
-		ebuf.len = wsi->a.context->pt_serv_buf_size;
+		ebuf.len = (int)wsi->a.context->pt_serv_buf_size;
 
 		if ((unsigned int)ebuf.len > wsi->a.context->pt_serv_buf_size)
-			ebuf.len = wsi->a.context->pt_serv_buf_size;
+			ebuf.len = (int)wsi->a.context->pt_serv_buf_size;
 
 		if ((int)pending > ebuf.len)
-			pending = ebuf.len;
+			pending = (char)ebuf.len;
 
 		ebuf.len = lws_ssl_capable_read(wsi, ebuf.token,
-						pending ? (int)pending :
-						ebuf.len);
+						(unsigned int)(pending ? pending :
+						ebuf.len));
 		switch (ebuf.len) {
 		case 0:
 			lwsl_info("%s: zero length read\n",
@@ -336,7 +336,7 @@ start_ws_handshake:
 		if (ebuf.len < 0)
 			n = -1;
 		else
-			n = lws_read_mqtt(wsi, ebuf.token, ebuf.len);
+			n = lws_read_mqtt(wsi, ebuf.token, (unsigned int)ebuf.len);
 		if (n < 0) {
 			lwsl_err("%s: Parsing packet failed\n", __func__);
 			goto fail;

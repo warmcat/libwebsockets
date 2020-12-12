@@ -19,7 +19,7 @@ read_pem(const char *filename, char *pembuf, int pembuf_len)
 	if (fd == -1)
 		return -1;
 
-	n = read(fd, pembuf, pembuf_len - 1);
+	n = (int)read(fd, pembuf, (unsigned int)pembuf_len - 1);
 	close(fd);
 
 	pembuf[n++] = '\0';
@@ -43,7 +43,7 @@ read_pem_c509_cert(struct lws_x509_cert **x509, const char *filename,
 		return -1;
 	}
 
-	if (lws_x509_parse_from_pem(*x509, pembuf, n) < 0) {
+	if (lws_x509_parse_from_pem(*x509, pembuf, (unsigned int)n) < 0) {
 		lwsl_err("%s: unable to parse PEM %s\n", __func__, filename);
 		lws_x509_destroy(x509);
 
@@ -166,7 +166,7 @@ int main(int argc, const char **argv)
 
 			goto bail3;
 		}
-		if (lws_x509_jwk_privkey_pem(&jwk, pembuf, n, NULL)) {
+		if (lws_x509_jwk_privkey_pem(&jwk, pembuf, (unsigned int)n, NULL)) {
 			lwsl_err("%s: unable to parse privkey %s\n",
 					__func__, p);
 

@@ -42,8 +42,9 @@ lws_tls_fake_POLLIN_for_buffered(struct lws_context_per_thread *pt)
 
 		if (wsi->position_in_fds_table >= 0) {
 
-			pt->fds[wsi->position_in_fds_table].revents |=
-					pt->fds[wsi->position_in_fds_table].events & LWS_POLLIN;
+			pt->fds[wsi->position_in_fds_table].revents = (short)
+				(pt->fds[wsi->position_in_fds_table].revents |
+				 (pt->fds[wsi->position_in_fds_table].events & LWS_POLLIN));
 			ret |= pt->fds[wsi->position_in_fds_table].revents & LWS_POLLIN;
 		}
 
@@ -141,10 +142,10 @@ lws_tls_generic_cert_checks(struct lws_vhost *vhost, const char *cert,
 	if (!cert || !private_key)
 		return LWS_TLS_EXTANT_NO;
 
-	n = lws_tls_use_any_upgrade_check_extant(cert);
+	n = (int)lws_tls_use_any_upgrade_check_extant(cert);
 	if (n == LWS_TLS_EXTANT_ALTERNATIVE)
 		return LWS_TLS_EXTANT_ALTERNATIVE;
-	m = lws_tls_use_any_upgrade_check_extant(private_key);
+	m = (int)lws_tls_use_any_upgrade_check_extant(private_key);
 	if (m == LWS_TLS_EXTANT_ALTERNATIVE)
 		return LWS_TLS_EXTANT_ALTERNATIVE;
 
@@ -240,17 +241,17 @@ lws_alpn_comma_to_openssl(const char *comma, uint8_t *os, int len)
 		}
 
 		if (*comma == ',') {
-			*plen = lws_ptr_diff(os, plen + 1);
+			*plen = (uint8_t)lws_ptr_diff(os, plen + 1);
 			plen = NULL;
 			comma++;
 		} else {
-			*os++ = *comma++;
+			*os++ = (uint8_t)*comma++;
 			len--;
 		}
 	}
 
 	if (plen)
-		*plen = lws_ptr_diff(os, plen + 1);
+		*plen = (uint8_t)lws_ptr_diff(os, plen + 1);
 
 	*os = 0;
 

@@ -30,7 +30,7 @@
 
 static int
 lws_adns_parse_label(const uint8_t *pkt, int len, const uint8_t *ls, int budget,
-		     char **dest, int dl)
+		     char **dest, size_t dl)
 {
 	const uint8_t *e = pkt + len, *ols = ls;
 	char pointer = 0, first = 1;
@@ -87,7 +87,7 @@ again1:
 		return -1;
 	}
 
-	if (ll + 2 > dl) {
+	if ((unsigned int)ll + 2 > dl) {
 		lwsl_notice("%s: qname too large\n", __func__);
 
 		return -1;
@@ -204,7 +204,7 @@ start:
 
 		n = lws_adns_parse_label(pkt, len, p, len, &sp,
 					 sizeof(stack[0].name) -
-					 lws_ptr_diff(sp, stack[0].name));
+					 lws_ptr_diff_size_t(sp, stack[0].name));
 		/* includes case name won't fit */
 		if (n < 0)
 			return -1;
@@ -262,7 +262,7 @@ start:
 			m--;
 
 		if (n < 1 || n != m ||
-		    strncmp(stack[0].name, stack[stp].name, n)) {
+		    strncmp(stack[0].name, stack[stp].name, (unsigned int)n)) {
 			lwsl_notice("%s: skipping %s vs %s\n", __func__,
 					stack[0].name, stack[stp].name);
 			goto skip;
@@ -331,7 +331,7 @@ do_cb:
 			/* get the cname alias */
 			n = lws_adns_parse_label(pkt, len, p, rrpaylen, &sp,
 						 sizeof(stack[stp].name) -
-						 lws_ptr_diff(sp, stack[stp].name));
+						 lws_ptr_diff_size_t(sp, stack[stp].name));
 			/* includes case name won't fit */
 			if (n < 0)
 				return -1;
@@ -416,7 +416,7 @@ skip:
 		char *cp = (char *)&q[1];
 
 		while (stack[stp].name[n])
-			*cp++ = tolower(stack[stp].name[n++]);
+			*cp++ = (char)tolower(stack[stp].name[n++]);
 		/* trim the following . if any */
 		if (n && cp[-1] == '.')
 			cp--;
@@ -493,7 +493,7 @@ lws_async_dns_store(const char *name, void *opaque, uint32_t ttl,
 
 		i = sizeof(*in6);
 		memset(in6, 0, i);
-		in6->sin6_family = adst->pos->ai_family;
+		in6->sin6_family = (sa_family_t)adst->pos->ai_family;
 		memcpy(in6->sin6_addr.s6_addr, payload, 16);
 		adst->flags |= 2;
 	} else
@@ -503,7 +503,7 @@ lws_async_dns_store(const char *name, void *opaque, uint32_t ttl,
 
 		i = sizeof(*in);
 		memset(in, 0, i);
-		in->sin_family = adst->pos->ai_family;
+		in->sin_family = (sa_family_t)adst->pos->ai_family;
 		memcpy(&in->sin_addr.s_addr, payload, 4);
 		adst->flags |= 1;
 	}
@@ -568,7 +568,7 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 		goto fail_out;
 	}
 
-	q->responded |= n;
+	q->responded |= (uint8_t)n;
 
 	/* we want to confirm the results against what we last requested... */
 
@@ -585,7 +585,7 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 
 	ncname = (int)strlen(nmcname) + 1;
 
-	est = sizeof(lws_adns_cache_t) + ncname;
+	est = sizeof(lws_adns_cache_t) + (unsigned int)ncname;
 	if (lws_ser_ru16be(pkt + DHO_NANSWERS)) {
 		int ir = lws_adns_iterate(q, pkt, (int)len, nmcname,
 					  lws_async_dns_estimate, &est);
@@ -612,7 +612,7 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 
 	/* place it at end, no need to care about alignment padding */
 	adst.name = ((const char *)c) + est - n;
-	memcpy((char *)adst.name, nm, n);
+	memcpy((char *)adst.name, nm, (unsigned int)n);
 
 	/*
 	 * Then walk the packet again, placing the objects we accounted for

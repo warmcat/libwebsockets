@@ -253,13 +253,13 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		// lwsl_notice("%s: allocating respmap %d\n", __func__, a->count);
 
 		a->curr[LTY_POLICY].p->u.http.respmap = lwsac_use_zero(&a->ac,
-			sizeof(lws_ss_http_respmap_t) * a->count, POL_AC_GRAIN);
+			sizeof(lws_ss_http_respmap_t) * (unsigned int)a->count, POL_AC_GRAIN);
 
 		if (!a->curr[LTY_POLICY].p->u.http.respmap)
 			goto oom;
 
 		memcpy((void *)a->curr[LTY_POLICY].p->u.http.respmap,
-		       a->respmap, sizeof(lws_ss_http_respmap_t) * a->count);
+		       a->respmap, sizeof(lws_ss_http_respmap_t) * (unsigned int)a->count);
 		a->curr[LTY_POLICY].p->u.http.count_respmap = (uint8_t)a->count;
 		a->count = 0;
 		a->pending_respmap = 0;
@@ -276,11 +276,11 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		 * The struct *x is in the lwsac... the ca_der it points to
 		 * is individually allocated from the heap
 		 */
-		a->curr[LTY_X509].x->ca_der = lws_malloc(a->count, "ssx509");
+		a->curr[LTY_X509].x->ca_der = lws_malloc((unsigned int)a->count, "ssx509");
 		if (!a->curr[LTY_X509].x->ca_der)
 			goto oom;
-		memcpy((uint8_t *)a->curr[LTY_X509].x->ca_der, a->p, a->count);
-		a->curr[LTY_X509].x->ca_der_len = a->count;
+		memcpy((uint8_t *)a->curr[LTY_X509].x->ca_der, a->p, (unsigned int)a->count);
+		a->curr[LTY_X509].x->ca_der_len = (unsigned int)a->count;
 
 		/*
 		 * ... and then we can free the temp buffer
@@ -305,8 +305,8 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 			while (p2) {
 				if (!strncmp(p2->streamtype,
 					     ctx->path + ctx->st[ctx->sp].p,
-					     ctx->path_match_len -
-						          ctx->st[ctx->sp].p)) {
+					     (unsigned int)(ctx->path_match_len -
+						          ctx->st[ctx->sp].p))) {
 					lwsl_info("%s: overriding s[] %s\n",
 						  __func__, p2->streamtype);
 					break;
@@ -382,23 +382,23 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		}
 
 		((uint32_t *)b->retry_ms_table)
-				[b->retry_ms_table_count++] = atoi(ctx->buf);
+				[b->retry_ms_table_count++] = (uint32_t)atoi(ctx->buf);
 		break;
 
 	case LSSPPT_CONCEAL:
-		a->curr[LTY_BACKOFF].b->r.conceal_count = atoi(ctx->buf);
+		a->curr[LTY_BACKOFF].b->r.conceal_count = (uint16_t)atoi(ctx->buf);
 		break;
 
 	case LSSPPT_JITTERPC:
-		a->curr[LTY_BACKOFF].b->r.jitter_percent = atoi(ctx->buf);
+		a->curr[LTY_BACKOFF].b->r.jitter_percent = (uint8_t)atoi(ctx->buf);
 		break;
 
 	case LSSPPT_VALIDPING_S:
-		a->curr[LTY_BACKOFF].b->r.secs_since_valid_ping = atoi(ctx->buf);
+		a->curr[LTY_BACKOFF].b->r.secs_since_valid_ping = (uint16_t)atoi(ctx->buf);
 		break;
 
 	case LSSPPT_VALIDHUP_S:
-		a->curr[LTY_BACKOFF].b->r.secs_since_valid_hangup = atoi(ctx->buf);
+		a->curr[LTY_BACKOFF].b->r.secs_since_valid_hangup = (uint16_t)atoi(ctx->buf);
 		break;
 
 	case LSSPPT_CERTS:
@@ -407,7 +407,7 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 			goto oom;
 		}
 		inl = ctx->npos;
-		outl = MAX_CERT_TEMP - a->count;
+		outl = MAX_CERT_TEMP - (unsigned int)a->count;
 
 		lws_b64_decode_stateful(&a->b64, ctx->buf, &inl,
 					a->p + a->count, &outl,
@@ -518,7 +518,7 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		goto string2;
 
 	case LSSPPT_PORT:
-		a->curr[LTY_POLICY].p->port = atoi(ctx->buf);
+		a->curr[LTY_POLICY].p->port = (uint16_t)atoi(ctx->buf);
 		break;
 
 	case LSSPPT_PROXY_BUFLEN:
@@ -571,15 +571,15 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		break;
 
 	case LSSPPT_TLS_CLIENT_CERT:
-		a->curr[LTY_POLICY].p->client_cert = atoi(ctx->buf) + 1;
+		a->curr[LTY_POLICY].p->client_cert = (uint8_t)(atoi(ctx->buf) + 1);
 		break;
 
 	case LSSPPT_HTTP_EXPECT:
-		a->curr[LTY_POLICY].p->u.http.resp_expect = atoi(ctx->buf);
+		a->curr[LTY_POLICY].p->u.http.resp_expect = (uint16_t)atoi(ctx->buf);
 		break;
 
 	case LSSPPT_DEFAULT_TIMEOUT_MS:
-		a->curr[LTY_POLICY].p->timeout_ms = atoi(ctx->buf);
+		a->curr[LTY_POLICY].p->timeout_ms = (uint32_t)atoi(ctx->buf);
 		break;
 
 	case LSSPPT_OPPORTUNISTIC:
@@ -659,7 +659,7 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		pmd = a->curr[LTY_POLICY].p->metadata;
 		a->curr[LTY_POLICY].p->metadata = lwsac_use_zero(&a->ac,
 			sizeof(lws_ss_metadata_t) + ctx->npos +
-			(ctx->path_match_len - ctx->st[ctx->sp - 2].p + 1) + 2,
+			(unsigned int)(ctx->path_match_len - ctx->st[ctx->sp - 2].p + 1) + 2,
 			POL_AC_GRAIN);
 		a->curr[LTY_POLICY].p->metadata->next = pmd;
 
@@ -667,7 +667,7 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 				sizeof(lws_ss_metadata_t);
 		a->curr[LTY_POLICY].p->metadata->name = q;
 		memcpy(q, ctx->path + ctx->st[ctx->sp - 2].p + 1,
-		       ctx->path_match_len - ctx->st[ctx->sp - 2].p);
+		       (unsigned int)(ctx->path_match_len - ctx->st[ctx->sp - 2].p));
 
 		q += ctx->path_match_len - ctx->st[ctx->sp - 2].p;
 		a->curr[LTY_POLICY].p->metadata->value__may_own_heap = q;
@@ -696,9 +696,9 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 			lwsl_err("%s: respmap too big\n", __func__);
 			return -1;
 		}
-		a->respmap[a->count].resp =
+		a->respmap[a->count].resp = (uint16_t)
 				atoi(ctx->path + ctx->st[ctx->sp - 2].p + 1);
-		a->respmap[a->count].state = atoi(ctx->buf);
+		a->respmap[a->count].state = (uint16_t)atoi(ctx->buf);
 		a->pending_respmap = 1;
 		a->count++;
 		break;
@@ -782,11 +782,11 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		goto string2;
 
 	case LSSPPT_MQTT_QOS:
-		a->curr[LTY_POLICY].p->u.mqtt.qos = atoi(ctx->buf);
+		a->curr[LTY_POLICY].p->u.mqtt.qos = (uint8_t)atoi(ctx->buf);
 		break;
 
 	case LSSPPT_MQTT_KEEPALIVE:
-		a->curr[LTY_POLICY].p->u.mqtt.keep_alive = atoi(ctx->buf);
+		a->curr[LTY_POLICY].p->u.mqtt.keep_alive = (uint16_t)atoi(ctx->buf);
 		break;
 
 	case LSSPPT_MQTT_CLEAN_START:
@@ -802,7 +802,7 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		goto string2;
 
 	case LSSPPT_MQTT_WILL_QOS:
-		a->curr[LTY_POLICY].p->u.mqtt.will_qos = atoi(ctx->buf);
+		a->curr[LTY_POLICY].p->u.mqtt.will_qos = (uint8_t)atoi(ctx->buf);
 		break;
 	case LSSPPT_MQTT_WILL_RETAIN:
 		a->curr[LTY_POLICY].p->u.mqtt.will_retain =
@@ -834,13 +834,13 @@ string2:
 	 * If we can do const string folding, reuse the existing string rather
 	 * than make a new entry
 	 */
-	extant = lwsac_scan_extant(a->ac, (uint8_t *)ctx->buf, ctx->npos, 1);
+	extant = lwsac_scan_extant(a->ac, (uint8_t *)ctx->buf, (size_t)ctx->npos, 1);
 	if (extant) {
 		*pp = (char *)extant;
 
 		return 0;
 	}
-	*pp = lwsac_use_backfill(&a->ac, ctx->npos + 1, POL_AC_GRAIN);
+	*pp = lwsac_use_backfill(&a->ac, (size_t)(ctx->npos + 1), POL_AC_GRAIN);
 	if (!*pp)
 		goto oom;
 	memcpy(*pp, ctx->buf, ctx->npos);
@@ -850,11 +850,11 @@ string2:
 
 string1:
 	n = ctx->st[ctx->sp].p;
-	*pp = lwsac_use_backfill(&a->ac, ctx->path_match_len + 1 - n,
+	*pp = lwsac_use_backfill(&a->ac, (size_t)ctx->path_match_len + (size_t)1 - (size_t)n,
 				 POL_AC_GRAIN);
 	if (!*pp)
 		goto oom;
-	memcpy(*pp, ctx->path + n, ctx->path_match_len - n);
+	memcpy(*pp, ctx->path + n, ctx->path_match_len - (unsigned int)n);
 	(*pp)[ctx->path_match_len - n] = '\0';
 
 	return 0;

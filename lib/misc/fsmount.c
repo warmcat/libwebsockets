@@ -99,16 +99,16 @@ lws_fsmount_mount(struct lws_fsmount *fsm)
 			if (n != 9)
 				opts[n++] = ':';
 
-			n += lws_snprintf(&opts[n], sizeof(opts) - n,
+			n += lws_snprintf(&opts[n], (size_t)(sizeof(opts) - (unsigned int)n),
 					  "%s/%s/%s", fsm->layers_path,
 					  fsm->distro, fsm->layers[m]);
 		}
 
-	n += lws_snprintf(&opts[n], sizeof(opts) - n,
+	n += lws_snprintf(&opts[n], (size_t)(sizeof(opts) - (unsigned int)n),
 			  ",upperdir=%s/overlays/%s/session",
 			  fsm->overlay_path, fsm->ovname);
 
-	n += lws_snprintf(&opts[n], sizeof(opts) - n,
+	n += lws_snprintf(&opts[n], (size_t)(sizeof(opts) - (unsigned int)n),
 			  ",workdir=%s/overlays/%s/work",
 			  fsm->overlay_path, fsm->ovname);
 

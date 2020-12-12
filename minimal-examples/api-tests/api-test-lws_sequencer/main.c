@@ -90,7 +90,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
 		if (!s)
 			return 1;
-		s->http_resp = lws_http_client_http_response(wsi);
+		s->http_resp = (int)lws_http_client_http_response(wsi);
 		lwsl_info("Connected with server response: %d\n", s->http_resp);
 		break;
 

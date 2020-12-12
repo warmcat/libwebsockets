@@ -80,10 +80,10 @@ poly1305_donna_16bytes:
 	t3 = U8TO32_LE(m - 4);
 
 	h0 += t0 & 0x3ffffff;
-	h1 += ((((uint64_t)t1 << 32) | t0) >> 26) & 0x3ffffff;
-	h2 += ((((uint64_t)t2 << 32) | t1) >> 20) & 0x3ffffff;
-	h3 += ((((uint64_t)t3 << 32) | t2) >> 14) & 0x3ffffff;
-	h4 += (t3 >> 8) | (1 << 24);
+	h1 += (uint32_t)(((((uint64_t)t1 << 32) | t0) >> 26) & 0x3ffffff);
+	h2 += (uint32_t)(((((uint64_t)t2 << 32) | t1) >> 20) & 0x3ffffff);
+	h3 += (uint32_t)(((((uint64_t)t3 << 32) | t2) >> 14) & 0x3ffffff);
+	h4 += (uint32_t)((t3 >> 8) | (1 << 24));
 
 poly1305_donna_mul:
 	t[0]  = mul32x32_64(h0,r0) + mul32x32_64(h1,s4) +
@@ -130,10 +130,10 @@ poly1305_donna_atmost15bytes:
 	t3 = U8TO32_LE(mp + 12);
 
 	h0 += t0 & 0x3ffffff;
-	h1 += ((((uint64_t)t1 << 32) | t0) >> 26) & 0x3ffffff;
-	h2 += ((((uint64_t)t2 << 32) | t1) >> 20) & 0x3ffffff;
-	h3 += ((((uint64_t)t3 << 32) | t2) >> 14) & 0x3ffffff;
-	h4 += (t3 >> 8);
+	h1 += (uint32_t)(((((uint64_t)t1 << 32) | t0) >> 26) & 0x3ffffff);
+	h2 += (uint32_t)(((((uint64_t)t2 << 32) | t1) >> 20) & 0x3ffffff);
+	h3 += (uint32_t)(((((uint64_t)t3 << 32) | t2) >> 14) & 0x3ffffff);
+	h4 += (uint32_t)(t3 >> 8);
 
 	goto poly1305_donna_mul;
 

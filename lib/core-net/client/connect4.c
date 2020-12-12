@@ -93,9 +93,9 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 					_WSI_TOKEN_CLIENT_PEER_ADDRESS,
 					wsi->a.vhost->http.http_proxy_address))
 			goto failed;
-		wsi->c_port = wsi->a.vhost->http.http_proxy_port;
+		wsi->c_port = (uint16_t)wsi->a.vhost->http.http_proxy_port;
 
-		n = send(wsi->desc.sockfd, (char *)pt->serv_buf, (int)plen,
+		n = (int)send(wsi->desc.sockfd, (char *)pt->serv_buf, (unsigned int)plen,
 			 MSG_NOSIGNAL);
 		if (n < 0) {
 			lwsl_debug("ERROR writing to proxy socket\n");
@@ -104,7 +104,7 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 		}
 
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_PROXY_RESPONSE,
-				wsi->a.context->timeout_secs);
+				(int)wsi->a.context->timeout_secs);
 
 		lwsi_set_state(wsi, LRS_WAITING_PROXY_REPLY);
 
@@ -220,7 +220,7 @@ send_hs:
 						LRS_H1C_ISSUE_HANDSHAKE2);
 				lws_set_timeout(wsi,
 					PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
-						wsi->a.context->timeout_secs);
+						(int)wsi->a.context->timeout_secs);
 
 				goto provoke_service;
 			}
@@ -233,7 +233,7 @@ send_hs:
 			if (m) {
 				n = user_callback_handle_rxflow(
 						wsi->a.protocol->callback, wsi,
-						m, wsi->user_space, NULL, 0);
+						(enum lws_callback_reasons)m, wsi->user_space, NULL, 0);
 				if (n < 0) {
 					lwsl_info("RAW_PROXY_CLI_ADOPT err\n");
 					goto failed;
@@ -260,7 +260,7 @@ send_hs:
 				 */
 				lws_set_timeout(wsi,
 					PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE,
-						wsi->a.context->timeout_secs);
+						(int)wsi->a.context->timeout_secs);
 
 				assert(lws_socket_is_valid(wsi->desc.sockfd));
 
@@ -301,7 +301,7 @@ send_hs:
 provoke_service:
 #endif
 		lws_set_timeout(wsi, PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE,
-				wsi->a.context->timeout_secs);
+				(int)wsi->a.context->timeout_secs);
 
 		assert(lws_socket_is_valid(wsi->desc.sockfd));
 

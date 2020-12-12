@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -61,7 +61,7 @@ lws_jwe_encrypt_aeskw_cbc_hs(struct lws_jwe *jwe, char *temp, int *temp_len)
 	/* Allocate temp space for ATAG and IV */
 
 	if (lws_jws_alloc_element(&jwe->jws.map, LJWE_ATAG, temp + (ot - *temp_len),
-				  temp_len, hlen / 2, 0))
+				  temp_len, (unsigned int)hlen / 2, 0))
 		return -1;
 
 	if (lws_jws_alloc_element(&jwe->jws.map, LJWE_IV, temp + (ot - *temp_len),
@@ -74,7 +74,7 @@ lws_jwe_encrypt_aeskw_cbc_hs(struct lws_jwe *jwe, char *temp, int *temp_len)
 
 	n = lws_jwe_encrypt_cbc_hs(jwe, (uint8_t *)jwe->jws.map.buf[LJWE_EKEY],
 				   (uint8_t *)jwe->jws.map_b64.buf[LJWE_JOSE],
-				   jwe->jws.map_b64.len[LJWE_JOSE]);
+				   (int)jwe->jws.map_b64.len[LJWE_JOSE]);
 	if (n < 0) {
 		lwsl_err("%s: lws_jwe_encrypt_cbc_hs failed\n", __func__);
 		return -1;
@@ -110,7 +110,7 @@ lws_jwe_encrypt_aeskw_cbc_hs(struct lws_jwe *jwe, char *temp, int *temp_len)
 	memcpy((uint8_t *)jwe->jws.map.buf[LJWE_EKEY], enc_cek,
 	       jwe->jws.map.len[LJWE_EKEY]);
 
-	return jwe->jws.map.len[LJWE_CTXT];
+	return (int)jwe->jws.map.len[LJWE_CTXT];
 }
 
 
@@ -164,14 +164,14 @@ lws_jwe_auth_and_decrypt_aeskw_cbc_hs(struct lws_jwe *jwe)
 
 	n = lws_jwe_auth_and_decrypt_cbc_hs(jwe, enc_cek,
 			     (uint8_t *)jwe->jws.map_b64.buf[LJWE_JOSE],
-			     jwe->jws.map_b64.len[LJWE_JOSE]);
+			     (int)jwe->jws.map_b64.len[LJWE_JOSE]);
 	if (n < 0) {
 		lwsl_err("%s: lws_jwe_auth_and_decrypt_cbc_hs failed\n",
 				__func__);
 		return -1;
 	}
 
-	return jwe->jws.map.len[LJWE_CTXT];
+	return (int)jwe->jws.map.len[LJWE_CTXT];
 }
 
 

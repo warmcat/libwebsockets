@@ -78,7 +78,11 @@ lws_tls_err_describe_clear(void)
 		if (!l)
 			break;
 
-		ERR_error_string_n(l, buf, sizeof(buf));
+		ERR_error_string_n(
+#if defined(LWS_WITH_BORINGSSL)
+				(uint32_t)
+#endif
+				l, buf, sizeof(buf));
 		lwsl_info("   openssl error: %s\n", buf);
 	} while (l);
 	lwsl_info("\n");

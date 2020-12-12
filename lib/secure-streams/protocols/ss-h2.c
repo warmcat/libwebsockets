@@ -189,7 +189,7 @@ secstream_tx_credit_add_h2(lws_ss_handle_t *h, int add)
 {
 	lwsl_info("%s: %s: add %d\n", __func__, lws_ss_tag(h), add);
 	if (h->wsi)
-		return lws_h2_update_peer_txcredit(h->wsi, LWS_H2_STREAM_SID, add);
+		return lws_h2_update_peer_txcredit(h->wsi, (unsigned int)LWS_H2_STREAM_SID, add);
 
 	return 0;
 }

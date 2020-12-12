@@ -116,7 +116,7 @@ lws_glib_dispatch(GSource *src, GSourceFunc x, gpointer userData)
 	GIOCondition cond;
 
 	cond = g_source_query_unix_fd(src, sub->tag);
-	eventfd.revents = cond;
+	eventfd.revents = (short)cond;
 
 	/* translate from glib event namespace to platform */
 
@@ -177,7 +177,7 @@ lws_glib_hrtimer_cb(void *p)
 	us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
 				    lws_now_usecs());
 	if (us) {
-		ms = us / LWS_US_PER_MS;
+		ms = (unsigned int)(us / LWS_US_PER_MS);
 		if (!ms)
 			ms = 1;
 
@@ -344,7 +344,7 @@ elops_init_pt_glib(struct lws_context *context, void *_loop, int tsi)
  */
 
 static void
-elops_io_glib(struct lws *wsi, int flags)
+elops_io_glib(struct lws *wsi, unsigned int flags)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	struct lws_wsi_eventlibs_glib *wsipr = wsi_to_priv_glib(wsi);
@@ -364,19 +364,19 @@ elops_io_glib(struct lws *wsi, int flags)
 
 	if (flags & LWS_EV_READ) {
 		if (flags & LWS_EV_STOP)
-			cond &= ~(G_IO_IN | G_IO_HUP);
+			cond &= (unsigned int)~(G_IO_IN | G_IO_HUP);
 		else
 			cond |= G_IO_IN | G_IO_HUP;
 	}
 
 	if (flags & LWS_EV_WRITE) {
 		if (flags & LWS_EV_STOP)
-			cond &= ~G_IO_OUT;
+			cond &= (unsigned int)~G_IO_OUT;
 		else
 			cond |= G_IO_OUT;
 	}
 
-	wsipr->w_read.actual_events = cond;
+	wsipr->w_read.actual_events = (uint8_t)cond;
 
 	lwsl_debug("%s: %s, fd %d, 0x%x/0x%x\n", __func__, lws_wsi_tag(wsi),
 			wsi->desc.sockfd, flags, (int)cond);

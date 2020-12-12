@@ -92,7 +92,7 @@ lws_poly_rand(struct lws_poly_gen *p)
 	p->cyc[1] = (p->cyc[1] & 1) ? (p->cyc[1] >> 1) ^ 0x7a5bc2e3 :
 				      p->cyc[1] >> 1;
 
-	return p->cyc[0] ^ p->cyc[1];
+	return (uint8_t)(p->cyc[0] ^ p->cyc[1]);
 }
 
 static void show_http_content(const char *p, size_t l)
@@ -293,10 +293,18 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 			X509_VERIFY_PARAM_free(param);
 			if (n != 1) {
 				char errbuf[256];
-				n = ERR_get_error();
+				const char *es;
+
+				n = (int)ERR_get_error();
+				es = ERR_error_string(
+#if defined(LWS_WITH_BORINGSSL)
+							 (uint32_t)
+#else
+							 (unsigned long)
+#endif
+							 n, errbuf);
 				lwsl_err("EXTRA_CLIENT_VERIFY_CERTS: "
-					 "SSL error: %s (%d)\n",
-					 ERR_error_string(n, errbuf), n);
+					 "SSL error: %s (%d)\n", es, n);
 				return 1;
 			}
 		}
@@ -339,7 +347,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		lws_get_random(lws_get_context(wsi), rands, sizeof(rands[0]));
-		mirror_lifetime = 16384 + (rands[0] & 65535);
+		mirror_lifetime = (int)(16384 + (rands[0] & 65535));
 		/* useful to test single connection stability */
 		if (longlived)
 			mirror_lifetime += 500000;
@@ -406,7 +414,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 					(rands[3] & 31) + 1);	/* radius */
 		}
 
-		n = lws_write(wsi, &buf[LWS_PRE], l,
+		n = (int)lws_write(wsi, &buf[LWS_PRE], (unsigned int)l,
 			      opts | LWS_WRITE_TEXT);
 		if (n < 0)
 			return -1;
@@ -433,7 +441,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 			p = (unsigned char *)in;
 			for (n = 0; n < (int)len; n++)
 				if (*p++ != lws_poly_rand(&rx)) {
-					lwsl_err("mismatch at rxb %d offset %d\n", rxb + (n / block_size), n % block_size);
+					lwsl_err("mismatch at rxb %d offset %d\n", (int)rxb + (n / block_size), n % block_size);
 					errs++;
 					force_exit = 1;
 					return -1;
@@ -564,10 +572,10 @@ static int ratelimit_connects(unsigned int *last, unsigned int secs)
 
 	gettimeofday(&tv, NULL);
 
-	if (tv.tv_sec - (*last) < secs)
+	if ((unsigned long)tv.tv_sec - (unsigned long)(*last) < (unsigned long)secs)
 		return 0;
 
-	*last = tv.tv_sec;
+	*last = (unsigned int)tv.tv_sec;
 
 	return 1;
 }
@@ -702,8 +710,8 @@ int main(int argc, char **argv)
 
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.protocols = protocols;
-	info.gid = -1;
-	info.uid = -1;
+	info.gid = (gid_t)-1;
+	info.uid = (uid_t)-1;
 #if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
 	info.extensions = exts;
 #endif

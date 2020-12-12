@@ -198,7 +198,7 @@ lws_seq_sul_pending_cb(lws_sorted_usec_list_t *sul)
 	dh = lws_dll2_get_head(&seq->seq_event_owner);
 	seqe = lws_container_of(dh, lws_seq_event_t, seq_event_list);
 
-	n = seq->cb(seq, (void *)&seq[1], seqe->e, seqe->data, seqe->aux);
+	n = (int)seq->cb(seq, (void *)&seq[1], (int)seqe->e, seqe->data, seqe->aux);
 
 	/* ... have to lock here though, because we will change the list */
 

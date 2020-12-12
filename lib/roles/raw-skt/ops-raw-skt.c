@@ -160,7 +160,7 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 			n = user_callback_handle_rxflow(wsi->a.protocol->callback,
 							wsi, LWS_CALLBACK_RAW_RX,
 							wsi->user_space, ebuf.token,
-							ebuf.len);
+							(unsigned int)ebuf.len);
 #if defined(LWS_WITH_UDP) || defined(LWS_WITH_SOCKS5)
 post_rx:
 #endif

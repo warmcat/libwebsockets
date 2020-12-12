@@ -94,7 +94,7 @@ file_upload_cb(void *data, const char *name, const char *filename,
 				return 1;
 
 #if !defined(LWS_WITH_ESP32)
-			n = write((int)(lws_intptr_t)pss->fd, buf, len);
+			n = (int)write((int)(lws_intptr_t)pss->fd, buf, (unsigned int)len);
 			lwsl_info("%s: write %d says %d\n", __func__, len, n);
 #else
 			lwsl_notice("%s: Received chunk size %d\n", __func__, len);
@@ -128,7 +128,7 @@ format_result(struct per_session_data__post_demo *pss)
 	start = p;
 	end = p + sizeof(pss->result) - LWS_PRE - 1;
 
-	p += lws_snprintf((char *)p, end -p,
+	p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
 			"<!DOCTYPE html><html lang=\"en\"><head>"
 			"<meta charset=utf-8 http-equiv=\"Content-Language\" "
 			"content=\"en\"/>"
@@ -138,12 +138,12 @@ format_result(struct per_session_data__post_demo *pss)
 
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(param_names); n++) {
 		if (!lws_spa_get_string(pss->spa, n))
-			p += lws_snprintf((char *)p, end - p,
+			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
 			    "<tr><td><b>%s</b></td><td>0"
 			    "</td><td>NULL</td></tr>",
 			    param_names[n]);
 		else
-			p += lws_snprintf((char *)p, end - p,
+			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
 			    "<tr><td><b>%s</b></td><td>%d"
 			    "</td><td>%s</td></tr>",
 			    param_names[n],
@@ -151,12 +151,12 @@ format_result(struct per_session_data__post_demo *pss)
 			    lws_spa_get_string(pss->spa, n));
 	}
 
-	p += lws_snprintf((char *)p, end - p,
+	p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
 			"</table><br><b>filename:</b> %s, "
 			"<b>length</b> %ld",
 			pss->filename, pss->file_length);
 
-	p += lws_snprintf((char *)p, end - p, "</body></html>");
+	p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "</body></html>");
 
 	return (int)lws_ptr_diff(p, start);
 }
@@ -218,13 +218,13 @@ callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
 					(unsigned char *)"text/html", 9,
 					&p, end))
 				goto bail;
-			if (lws_add_http_header_content_length(wsi, n, &p, end))
+			if (lws_add_http_header_content_length(wsi, (unsigned int)n, &p, end))
 				goto bail;
 			if (lws_finalize_http_header(wsi, &p, end))
 				goto bail;
 
 			/* first send the headers ... */
-			n = lws_write(wsi, start, lws_ptr_diff(p, start),
+			n = lws_write(wsi, start, lws_ptr_diff_size_t(p, start),
 				      LWS_WRITE_HTTP_HEADERS);
 			if (n < 0)
 				goto bail;
@@ -237,7 +237,7 @@ callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!pss->sent_body) {
 			n = format_result(pss);
 
-			n = lws_write(wsi, (unsigned char *)start, n,
+			n = lws_write(wsi, (unsigned char *)start, (unsigned int)n,
 				      LWS_WRITE_HTTP_FINAL);
 
 			pss->sent_body = 1;

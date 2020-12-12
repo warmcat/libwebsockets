@@ -30,7 +30,7 @@ lws_close_trans_q_leader(struct lws_dll2 *d, void *user)
 {
 	struct lws *w = lws_container_of(d, struct lws, dll2_cli_txn_queue);
 
-	__lws_close_free_wsi(w, -1, "trans q leader closing");
+	__lws_close_free_wsi(w, (enum lws_close_status)-1, "trans q leader closing");
 
 	return 0;
 }
@@ -594,7 +594,7 @@ just_kill_connection:
 			__lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN);
 			lwsi_set_state(wsi, LRS_SHUTDOWN);
 			__lws_set_timeout(wsi, PENDING_TIMEOUT_SHUTDOWN_FLUSH,
-					  context->timeout_secs);
+					  (int)context->timeout_secs);
 
 			return;
 		}

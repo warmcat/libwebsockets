@@ -94,7 +94,7 @@ lws_context_init_alpn(struct lws_vhost *vhost)
 
 	lwsl_info(" Server '%s' advertising ALPN: %s\n",
 		    vhost->name, alpn_comma);
-	vhost->tls.alpn_ctx.len = lws_alpn_comma_to_openssl(alpn_comma,
+	vhost->tls.alpn_ctx.len = (uint8_t)lws_alpn_comma_to_openssl(alpn_comma,
 					vhost->tls.alpn_ctx.data,
 					sizeof(vhost->tls.alpn_ctx.data) - 1);
 
@@ -182,6 +182,7 @@ int alloc_file(struct lws_context *context, const char *filename, uint8_t **buf,
 {
 	FILE *f;
 	size_t s;
+	ssize_t m;
 	int n = 0;
 
 	f = fopen(filename, "rb");
@@ -195,11 +196,12 @@ int alloc_file(struct lws_context *context, const char *filename, uint8_t **buf,
 		goto bail;
 	}
 
-	s = ftell(f);
-	if (s == (size_t)-1) {
+	m = ftell(f);
+	if (m == -1l) {
 		n = 1;
 		goto bail;
 	}
+	s = (size_t)m;
 
 	if (fseek(f, 0, SEEK_SET) != 0) {
 		n = 1;
@@ -330,7 +332,7 @@ lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
 	if (filename)
 		*q = '\0';
 
-	*amount = lws_b64_decode_string_len((char *)p, lws_ptr_diff(q, p),
+	*amount = (unsigned int)lws_b64_decode_string_len((char *)p, lws_ptr_diff(q, p),
 					    (char *)pem, (int)(long long)len);
 	*buf = (uint8_t *)pem;
 
@@ -352,8 +354,9 @@ static int
 lws_tls_extant(const char *name)
 {
 	/* it exists if we can open it... */
-	int fd = open(name, O_RDONLY), n;
+	int fd = open(name, O_RDONLY);
 	char buf[1];
+	ssize_t n;
 
 	if (fd < 0)
 		return 1;

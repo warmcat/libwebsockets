@@ -92,8 +92,10 @@ protocol_plugin_cb(struct lws_plugin *pin, void *each_user)
 	const lws_plugin_protocol_t *plpr =
 			(const lws_plugin_protocol_t *)pin->hdr;
 
-	context->plugin_protocol_count += plpr->count_protocols;
-	context->plugin_extension_count += plpr->count_extensions;
+	context->plugin_protocol_count = (short)(context->plugin_protocol_count +
+						 plpr->count_protocols);
+	context->plugin_extension_count = (short)(context->plugin_extension_count +
+						  plpr->count_extensions);
 
 	return 0;
 }

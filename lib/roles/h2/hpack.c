@@ -280,10 +280,10 @@ static int lws_frag_append(struct lws *wsi, unsigned char c)
 {
 	struct allocated_headers *ah = wsi->http.ah;
 
-	ah->data[ah->pos++] = c;
+	ah->data[ah->pos++] = (char)c;
 	ah->frags[ah->nfrag].len++;
 
-	return (int)ah->pos >= wsi->a.context->max_http_header_data;
+	return (unsigned int)ah->pos >= wsi->a.context->max_http_header_data;
 }
 
 static int lws_frag_end(struct lws *wsi)
@@ -328,13 +328,13 @@ static void lws_dump_header(struct lws *wsi, int hdr)
 
 	(void)p;
 
-	len = lws_hdr_copy(wsi, s, sizeof(s) - 1, hdr);
+	len = lws_hdr_copy(wsi, s, sizeof(s) - 1, (enum lws_token_indexes)hdr);
 	if (len < 0)
 		strcpy(s, "(too big to show)");
 	else
 		s[len] = '\0';
 #if defined(_DEBUG)
-	p = lws_token_to_string(hdr);
+	p = lws_token_to_string((enum lws_token_indexes)hdr);
 	lwsl_header("  hdr tok %d (%s) = '%s' (len %d)\n", hdr,
 		   p ? (char *)p : (char *)"null", s, len);
 #endif
@@ -464,8 +464,8 @@ static void
 lws_dynamic_free(struct hpack_dynamic_table *dyn, int idx)
 {
 	lwsl_header("freeing %d for reuse\n", idx);
-	dyn->virtual_payload_usage -=  dyn->entries[idx].value_len +
-				dyn->entries[idx].hdr_len;
+	dyn->virtual_payload_usage = (uint32_t)((unsigned int)dyn->virtual_payload_usage - (unsigned int)(dyn->entries[idx].value_len +
+				dyn->entries[idx].hdr_len));
 	lws_free_set_NULL(dyn->entries[idx].value);
 	dyn->entries[idx].value = NULL;
 	dyn->entries[idx].value_len = 0;
@@ -490,7 +490,7 @@ lws_dynamic_free(struct hpack_dynamic_table *dyn, int idx)
 
 static int
 lws_dynamic_token_insert(struct lws *wsi, int hdr_len,
-			 int lws_hdr_index, char *arg, int len)
+			 int lws_hdr_index, char *arg, size_t len)
 {
 	struct hpack_dynamic_table *dyn;
 	int new_index;
@@ -524,7 +524,7 @@ lws_dynamic_token_insert(struct lws *wsi, int hdr_len,
 
 	while (dyn->virtual_payload_usage &&
 	       dyn->used_entries &&
-	       dyn->virtual_payload_usage + hdr_len + len >
+	       dyn->virtual_payload_usage + (unsigned int)hdr_len + len >
 				dyn->virtual_payload_max + 1024) {
 		int n = lws_safe_modulo(dyn->pos - dyn->used_entries,
 						dyn->num_entries);
@@ -548,21 +548,22 @@ lws_dynamic_token_insert(struct lws *wsi, int hdr_len,
 
 		memcpy(dyn->entries[new_index].value, arg, len);
 		dyn->entries[new_index].value[len] = '\0';
-		dyn->entries[new_index].value_len = len;
+		dyn->entries[new_index].value_len = (uint16_t)len;
 	} else
 		dyn->entries[new_index].value = NULL;
 
-	dyn->entries[new_index].lws_hdr_idx = lws_hdr_index;
-	dyn->entries[new_index].hdr_len = hdr_len;
+	dyn->entries[new_index].lws_hdr_idx = (uint16_t)lws_hdr_index;
+	dyn->entries[new_index].hdr_len = (uint16_t)hdr_len;
 
-	dyn->virtual_payload_usage += hdr_len + len;
+	dyn->virtual_payload_usage = (uint32_t)(dyn->virtual_payload_usage +
+					(unsigned int)hdr_len + len);
 
 	lwsl_info("%s: index %ld: lws_hdr_index 0x%x, hdr len %d, '%s' len %d\n",
 		  __func__, (long)LWS_ARRAY_SIZE(static_token),
 		  lws_hdr_index, hdr_len, dyn->entries[new_index].value ?
-				 dyn->entries[new_index].value : "null", len);
+				 dyn->entries[new_index].value : "null", (int)len);
 
-	dyn->pos = lws_safe_modulo(dyn->pos + 1, dyn->num_entries);
+	dyn->pos = (uint16_t)lws_safe_modulo(dyn->pos + 1, dyn->num_entries);
 
 	lws_h2_dynamic_table_dump(wsi);
 
@@ -620,10 +621,10 @@ lws_hpack_dynamic_size(struct lws *wsi, int size)
 			goto bail;
 		}
 
-		size = nwsi->a.vhost->h2.set.s[H2SET_HEADER_TABLE_SIZE];
+		size = (int)nwsi->a.vhost->h2.set.s[H2SET_HEADER_TABLE_SIZE];
 	}
 
-	dyn->virtual_payload_max = size;
+	dyn->virtual_payload_max = (uint32_t)size;
 
 	size = size / 8;
 	min = size;
@@ -638,7 +639,7 @@ lws_hpack_dynamic_size(struct lws *wsi, int size)
 
 	// lwsl_notice("dte requested size %d\n", size);
 
-	dte = lws_zalloc(sizeof(*dte) * (size + 1), "dynamic table entries");
+	dte = lws_zalloc(sizeof(*dte) * (unsigned int)(size + 1), "dynamic table entries");
 	if (!dte)
 		goto bail;
 
@@ -666,10 +667,10 @@ lws_hpack_dynamic_size(struct lws *wsi, int size)
 	}
 
 	dyn->entries = dte;
-	dyn->num_entries = size;
-	dyn->used_entries = min;
+	dyn->num_entries = (uint16_t)size;
+	dyn->used_entries = (uint16_t)min;
 	if (size)
-		dyn->pos = lws_safe_modulo(min, size);
+		dyn->pos = (uint16_t)lws_safe_modulo(min, size);
 	else
 		dyn->pos = 0;
 
@@ -730,7 +731,7 @@ lws_hpack_use_idx_hdr(struct lws *wsi, int idx, int known_token)
 			   tok);
 	} else
 		lwsl_header("writing indexed hdr %d (tok %d '%s')\n", idx, tok,
-				lws_token_to_string(tok));
+				lws_token_to_string((enum lws_token_indexes)tok));
 
 	if (tok == LWS_HPACK_IGNORE_ENTRY)
 		return 0;
@@ -746,7 +747,7 @@ lws_hpack_use_idx_hdr(struct lws *wsi, int idx, int known_token)
 
 	if (p)
 		while (*p && len--)
-			if (lws_frag_append(wsi, *p++))
+			if (lws_frag_append(wsi, (unsigned char)*p++))
 				return 1;
 
 	if (lws_frag_end(wsi))
@@ -878,7 +879,7 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 					return 1;
 			}
 
-			m = lws_token_from_index(wsi, h2n->hdr_idx,
+			m = lws_token_from_index(wsi, (int)h2n->hdr_idx,
 						 NULL, NULL, NULL);
 			if (lws_hpack_handle_pseudo_rules(nwsi, wsi, m))
 				return 1;
@@ -983,16 +984,16 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 				break;
 			}
 			h2n->last_action_dyntable_resize = 1;
-			if (lws_hpack_dynamic_size(wsi, h2n->hpack_len))
+			if (lws_hpack_dynamic_size(wsi, (int)h2n->hpack_len))
 				return 1;
 			break;
 		}
 		break;
 
 	case HPKS_IDX_EXT:
-		h2n->hpack_len = h2n->hpack_len |
-				 ((c & 0x7f) << h2n->ext_count);
-		h2n->ext_count += 7;
+		h2n->hpack_len = (uint32_t)((unsigned int)h2n->hpack_len |
+				(unsigned int)((c & 0x7f) << h2n->ext_count));
+		h2n->ext_count = (uint8_t)(h2n->ext_count + 7);
 		if (c & 0x80) /* extended int not complete yet */
 			break;
 
@@ -1002,8 +1003,8 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 
 		switch (h2n->hpack_type) {
 		case HPKT_INDEXED_HDR_7:
-			if (lws_hpack_use_idx_hdr(wsi, h2n->hpack_len,
-						  h2n->hdr_idx)) {
+			if (lws_hpack_use_idx_hdr(wsi, (int)h2n->hpack_len,
+						  (int)h2n->hdr_idx)) {
 				lwsl_notice("%s: hd7 use fail\n", __func__);
 				return 1;
 			}
@@ -1012,7 +1013,7 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 
 		case HPKT_SIZE_5:
 			h2n->last_action_dyntable_resize = 1;
-			if (lws_hpack_dynamic_size(wsi, h2n->hpack_len))
+			if (lws_hpack_dynamic_size(wsi, (int)h2n->hpack_len))
 				return 1;
 			h2n->hpack = HPKS_TYPE;
 			break;
@@ -1064,11 +1065,11 @@ pre_data:
 			n = ah->parser_state;
 			if (n == 255) {
 				n = -1;
-				h2n->hdr_idx = -1;
+				h2n->hdr_idx = (uint32_t)-1;
 			} else
 				h2n->hdr_idx = 1;
 		} else {
-			n = lws_token_from_index(wsi, h2n->hdr_idx, NULL,
+			n = lws_token_from_index(wsi, (int)h2n->hdr_idx, NULL,
 						 NULL, NULL);
 			lwsl_header("  lws_tok_from_idx(%u) says %d\n",
 				   (unsigned int)h2n->hdr_idx, n);
@@ -1100,9 +1101,9 @@ pre_data:
 		break;
 
 	case HPKS_HLEN_EXT:
-		h2n->hpack_len = h2n->hpack_len |
-				 ((c & 0x7f) << h2n->ext_count);
-		h2n->ext_count += 7;
+		h2n->hpack_len = (uint32_t)((unsigned int)h2n->hpack_len |
+				(unsigned int)((c & 0x7f) << h2n->ext_count));
+		h2n->ext_count = (uint8_t)(h2n->ext_count + 7);
 		if (c & 0x80) /* extended integer not complete yet */
 			break;
 
@@ -1117,9 +1118,9 @@ pre_data:
 			if (h2n->huff) {
 				char b = (c >> 7) & 1;
 				prev = h2n->hpack_pos;
-				h2n->hpack_pos = huftable_decode(
-						h2n->hpack_pos, b);
-				c <<= 1;
+				h2n->hpack_pos = (uint16_t)huftable_decode(
+						(int)h2n->hpack_pos, b);
+				c = (unsigned char)(c << 1);
 				if (h2n->hpack_pos == 0xffff) {
 					lwsl_notice("Huffman err\n");
 					return 1;
@@ -1130,7 +1131,7 @@ pre_data:
 					h2n->huff_pad++;
 					continue;
 				}
-				c1 = h2n->hpack_pos & 0x7fff;
+				c1 = (uint8_t)(h2n->hpack_pos & 0x7fff);
 				h2n->hpack_pos = 0;
 				h2n->huff_pad = 0;
 				h2n->zero_huff_padding = 0;
@@ -1191,7 +1192,7 @@ pre_data:
 				h2n->hpack_hdr_len++;
 				if (h2n->is_first_header_char) {
 					h2n->is_first_header_char = 0;
-					h2n->first_hdr_char = c1;
+					h2n->first_hdr_char = (char)c1;
 				}
 				lwsl_header("parser: %c\n", c1);
 				/* uppercase header names illegal */
@@ -1249,7 +1250,7 @@ fin:
 #endif
 			    ah->parser_state == WSI_TOKEN_SKIPPING) {
 				h2n->unknown_header = 1;
-				ah->parser_state = -1;
+				ah->parser_state = 0xff;
 				wsi->seen_nonpseudoheader = 1;
 			}
 		}
@@ -1276,7 +1277,7 @@ fin:
 		/* NEW indexed hdr with value */
 		case HPKT_INDEXED_HDR_6_VALUE_INCR:
 			/* header length is determined by known index */
-			m = lws_token_from_index(wsi, h2n->hdr_idx, NULL, NULL,
+			m = lws_token_from_index(wsi, (int)h2n->hdr_idx, NULL, NULL,
 					&h2n->hpack_hdr_len);
 			if (m < 0)
 				/*
@@ -1316,7 +1317,7 @@ add_it:
 			 */
 			ah->frags[ah->nfrag].flags |= 1;
 
-			if (lws_dynamic_token_insert(wsi, h2n->hpack_hdr_len, m,
+			if (lws_dynamic_token_insert(wsi, (int)h2n->hpack_hdr_len, m,
 					&ah->data[ah->frags[ah->nfrag].offset],
 					ah->frags[ah->nfrag].len)) {
 				lwsl_notice("%s: tok_insert fail\n", __func__);
@@ -1340,7 +1341,7 @@ add_it:
 				if (m == 255)
 					m = -1;
 			} else
-				m = lws_token_from_index(wsi, h2n->hdr_idx,
+				m = lws_token_from_index(wsi, (int)h2n->hdr_idx,
 							 NULL, NULL, NULL);
 		}
 
@@ -1360,13 +1361,13 @@ add_it:
 
 
 
-static int
+static unsigned int
 lws_h2_num_start(int starting_bits, unsigned long num)
 {
-	unsigned int mask = (1 << starting_bits) - 1;
+	unsigned int mask = (unsigned int)((1 << starting_bits) - 1);
 
 	if (num < mask)
-		return (int)num;
+		return (unsigned int)num;
 
 	return mask;
 }
@@ -1375,7 +1376,7 @@ static int
 lws_h2_num(int starting_bits, unsigned long num,
 			 unsigned char **p, unsigned char *end)
 {
-	unsigned int mask = (1 << starting_bits) - 1;
+	unsigned int mask = (unsigned int)((1 << starting_bits) - 1);
 
 	if (num < mask)
 		return 0;
@@ -1383,9 +1384,9 @@ lws_h2_num(int starting_bits, unsigned long num,
 	num -= mask;
 	do {
 		if (num > 127)
-			*((*p)++) = 0x80 | (num & 0x7f);
+			*((*p)++) = (uint8_t)(0x80 | (num & 0x7f));
 		else
-			*((*p)++) = 0x00 | (num & 0x7f);
+			*((*p)++) = (uint8_t)(0x00 | (num & 0x7f));
 		if (*p >= end)
 			return 1;
 		num >>= 7;
@@ -1416,7 +1417,7 @@ int lws_add_http2_header_by_name(struct lws *wsi, const unsigned char *name,
 			len--;
 
 	if (wsi->mux_substream && !strncmp((const char *)name,
-					     "transfer-encoding", len)) {
+					     "transfer-encoding", (unsigned int)len)) {
 		lwsl_header("rejecting %s\n", name);
 
 		return 0;
@@ -1427,21 +1428,21 @@ int lws_add_http2_header_by_name(struct lws *wsi, const unsigned char *name,
 
 	*((*p)++) = 0; /* literal hdr, literal name,  */
 
-	*((*p)++) = 0 | lws_h2_num_start(7, len); /* non-HUF */
-	if (lws_h2_num(7, len, p, end))
+	*((*p)++) = 0 | (uint8_t)lws_h2_num_start(7, (unsigned long)len); /* non-HUF */
+	if (lws_h2_num(7, (unsigned long)len, p, end))
 		return 1;
 
 	/* upper-case header names are verboten in h2, but OK on h1, so
 	 * they're not illegal per se.  Silently convert them for h2... */
 
 	while(len--)
-		*((*p)++) = tolower((int)*name++);
+		*((*p)++) = (uint8_t)tolower((int)*name++);
 
-	*((*p)++) = 0 | lws_h2_num_start(7, length); /* non-HUF */
-	if (lws_h2_num(7, length, p, end))
+	*((*p)++) = 0 | (uint8_t)lws_h2_num_start(7, (unsigned long)length); /* non-HUF */
+	if (lws_h2_num(7, (unsigned long)length, p, end))
 		return 1;
 
-	memcpy(*p, value, length);
+	memcpy(*p, value, (unsigned int)length);
 	*p += length;
 
 	return 0;

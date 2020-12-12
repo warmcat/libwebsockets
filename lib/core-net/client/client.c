@@ -43,10 +43,10 @@ lws_set_proxy(struct lws_vhost *vhost, const char *proxy)
 	p = strrchr(proxy, '@');
 	if (p) { /* auth is around */
 
-		if ((unsigned int)(p - proxy) > sizeof(authstring) - 1)
+		if (lws_ptr_diff_size_t(p, proxy) > sizeof(authstring) - 1)
 			goto auth_too_long;
 
-		lws_strncpy(authstring, proxy, p - proxy + 1);
+		lws_strncpy(authstring, proxy, lws_ptr_diff_size_t(p, proxy) + 1);
 		// null termination not needed on input
 		if (lws_b64_encode_string(authstring, lws_ptr_diff(p, proxy),
 				vhost->proxy_basic_auth_token,
@@ -104,7 +104,7 @@ lws_set_proxy(struct lws_vhost *vhost, const char *proxy)
 	}
 	if (p) {
 		*p = '\0';
-		vhost->http.http_proxy_port = atoi(p + 1);
+		vhost->http.http_proxy_port = (unsigned int)atoi(p + 1);
 	}
 
 	lwsl_info(" Proxy %s:%u\n", vhost->http.http_proxy_address,

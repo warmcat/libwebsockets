@@ -151,7 +151,7 @@ lws_h2_state(struct lws *wsi, enum lws_h2_states s)
 }
 
 int
-lws_h2_update_peer_txcredit(struct lws *wsi, int sid, int bump)
+lws_h2_update_peer_txcredit(struct lws *wsi, unsigned int sid, int bump)
 {
 	struct lws *nwsi = lws_get_network_wsi(wsi);
 	struct lws_h2_protocol_send *pps;
@@ -161,7 +161,7 @@ lws_h2_update_peer_txcredit(struct lws *wsi, int sid, int bump)
 	if (!bump)
 		return 0;
 
-	if (sid == -1)
+	if (sid == (unsigned int)-1)
 		sid = wsi->mux.my_sid;
 
 	lwsl_info("%s: sid %d: bump %d -> %d\n", __func__, sid, bump,
@@ -171,8 +171,8 @@ lws_h2_update_peer_txcredit(struct lws *wsi, int sid, int bump)
 	if (!pps)
 		return 1;
 
-	pps->u.update_window.sid = sid;
-	pps->u.update_window.credit = bump;
+	pps->u.update_window.sid = (unsigned int)sid;
+	pps->u.update_window.credit = (unsigned int)bump;
 	wsi->txc.peer_tx_cr_est += bump;
 
 	lws_wsi_txc_describe(&wsi->txc, __func__, wsi->mux.my_sid);
@@ -184,7 +184,7 @@ lws_h2_update_peer_txcredit(struct lws *wsi, int sid, int bump)
 		return 1;
 
 	pps->u.update_window.sid = 0;
-	pps->u.update_window.credit = bump;
+	pps->u.update_window.credit = (unsigned int)bump;
 	nwsi->txc.peer_tx_cr_est += bump;
 
 	lws_wsi_txc_describe(&nwsi->txc, __func__, nwsi->mux.my_sid);
@@ -202,7 +202,7 @@ lws_h2_get_peer_txcredit_estimate(struct lws *wsi)
 }
 
 static int
-lws_h2_update_peer_txcredit_thresh(struct lws *wsi, int sid, int threshold, int bump)
+lws_h2_update_peer_txcredit_thresh(struct lws *wsi, unsigned int sid, int threshold, int bump)
 {
 	if (wsi->txc.peer_tx_cr_est > threshold)
 		return 0;
@@ -256,9 +256,9 @@ lws_wsi_server_new(struct lws_vhost *vh, struct lws *parent_wsi,
 	wsi->mux_substream = 1;
 	wsi->seen_nonpseudoheader = 0;
 
-	wsi->txc.tx_cr = nwsi->h2.h2n->peer_set.s[H2SET_INITIAL_WINDOW_SIZE];
+	wsi->txc.tx_cr = (int32_t)nwsi->h2.h2n->peer_set.s[H2SET_INITIAL_WINDOW_SIZE];
 	wsi->txc.peer_tx_cr_est =
-			nwsi->h2.h2n->our_set.s[H2SET_INITIAL_WINDOW_SIZE];
+			(int32_t)nwsi->h2.h2n->our_set.s[H2SET_INITIAL_WINDOW_SIZE];
 
 	lwsi_set_state(wsi, LRS_ESTABLISHED);
 	lwsi_set_role(wsi, lwsi_role(parent_wsi));
@@ -336,8 +336,8 @@ lws_wsi_h2_adopt(struct lws *parent_wsi, struct lws *wsi)
 
 	lws_wsi_mux_insert(wsi, parent_wsi, wsi->mux.my_sid);
 
-	wsi->txc.tx_cr = nwsi->h2.h2n->peer_set.s[H2SET_INITIAL_WINDOW_SIZE];
-	wsi->txc.peer_tx_cr_est =
+	wsi->txc.tx_cr = (int32_t)nwsi->h2.h2n->peer_set.s[H2SET_INITIAL_WINDOW_SIZE];
+	wsi->txc.peer_tx_cr_est = (int32_t)
 			nwsi->h2.h2n->our_set.s[H2SET_INITIAL_WINDOW_SIZE];
 
 	lws_wsi_txc_describe(&wsi->txc, __func__, wsi->mux.my_sid);
@@ -483,10 +483,10 @@ lws_h2_settings(struct lws *wsi, struct http2_settings *settings,
 		return 1;
 
 	while (len >= LWS_H2_SETTINGS_LEN) {
-		a = (buf[0] << 8) | buf[1];
+		a = (unsigned int)((buf[0] << 8) | buf[1]);
 		if (!a || a >= H2SET_COUNT)
 			goto skip;
-		b = buf[2] << 24 | buf[3] << 16 | buf[4] << 8 | buf[5];
+		b = (unsigned int)(buf[2] << 24 | buf[3] << 16 | buf[4] << 8 | buf[5]);
 
 		switch (a) {
 		case H2SET_HEADER_TABLE_SIZE:
@@ -538,9 +538,9 @@ lws_h2_settings(struct lws *wsi, struct http2_settings *settings,
 				lwsl_info("%s: adi child tc cr %d +%d -> %d",
 					  __func__, (int)w->txc.tx_cr,
 					  b - (unsigned int)settings->s[a],
-					  (int)w->txc.tx_cr + b -
-						  (unsigned int)settings->s[a]);
-				w->txc.tx_cr += b - settings->s[a];
+					  (int)(w->txc.tx_cr + (int)b -
+						  (int)settings->s[a]));
+				w->txc.tx_cr += (int)b - (int)settings->s[a];
 				if (w->txc.tx_cr > 0 &&
 				    w->txc.tx_cr <=
 						  (int32_t)(b - settings->s[a]))
@@ -639,15 +639,15 @@ int lws_h2_frame_write(struct lws *wsi, int type, int flags,
 	//if (wsi->h2_stream_carries_ws)
 	// lwsl_hexdump_level(LLL_NOTICE, buf, len);
 
-	*p++ = len >> 16;
-	*p++ = len >> 8;
-	*p++ = len;
-	*p++ = type;
-	*p++ = flags;
-	*p++ = sid >> 24;
-	*p++ = sid >> 16;
-	*p++ = sid >> 8;
-	*p++ = sid;
+	*p++ = (uint8_t)(len >> 16);
+	*p++ = (uint8_t)(len >> 8);
+	*p++ = (uint8_t)len;
+	*p++ = (uint8_t)type;
+	*p++ = (uint8_t)flags;
+	*p++ = (uint8_t)(sid >> 24);
+	*p++ = (uint8_t)(sid >> 16);
+	*p++ = (uint8_t)(sid >> 8);
+	*p++ = (uint8_t)sid;
 
 	lwsl_debug("%s: %s (eff %s). typ %d, fl 0x%x, sid=%d, len=%d, "
 		   "txcr=%d, nwsi->txcr=%d\n", __func__, lws_wsi_tag(wsi),
@@ -656,10 +656,11 @@ int lws_h2_frame_write(struct lws *wsi, int type, int flags,
 
 	if (type == LWS_H2_FRAME_TYPE_DATA) {
 		if (wsi->txc.tx_cr < (int)len)
+
 			lwsl_info("%s: %s: sending payload len %d"
 				 " but tx_cr only %d!\n", __func__,
 				 lws_wsi_tag(wsi), len, (int)wsi->txc.tx_cr);
-		lws_h2_tx_cr_consume(wsi, len);
+				lws_h2_tx_cr_consume(wsi, (int)len);
 	}
 
 	n = lws_issue_raw(nwsi, &buf[-LWS_H2_FRAME_HEADER_LENGTH],
@@ -675,12 +676,12 @@ int lws_h2_frame_write(struct lws *wsi, int type, int flags,
 
 static void lws_h2_set_bin(struct lws *wsi, int n, unsigned char *buf)
 {
-	*buf++ = n >> 8;
-	*buf++ = n;
-	*buf++ = wsi->h2.h2n->our_set.s[n] >> 24;
-	*buf++ = wsi->h2.h2n->our_set.s[n] >> 16;
-	*buf++ = wsi->h2.h2n->our_set.s[n] >> 8;
-	*buf = wsi->h2.h2n->our_set.s[n];
+	*buf++ = (uint8_t)(n >> 8);
+	*buf++ = (uint8_t)n;
+	*buf++ = (uint8_t)(wsi->h2.h2n->our_set.s[n] >> 24);
+	*buf++ = (uint8_t)(wsi->h2.h2n->our_set.s[n] >> 16);
+	*buf++ = (uint8_t)(wsi->h2.h2n->our_set.s[n] >> 8);
+	*buf = (uint8_t)wsi->h2.h2n->our_set.s[n];
 }
 
 /* we get called on the network connection */
@@ -726,10 +727,10 @@ int lws_h2_do_pps_send(struct lws *wsi)
 						   wsi->h2.h2n->our_set.s[n]);
 
 				lws_h2_set_bin(wsi, n, &set[LWS_PRE + m]);
-				m += sizeof(h2n->one_setting);
+				m += (int)sizeof(h2n->one_setting);
 			}
 		n = lws_h2_frame_write(wsi, LWS_H2_FRAME_TYPE_SETTINGS,
-				       flags, LWS_H2_STREAM_ID_MASTER, m,
+				       flags, LWS_H2_STREAM_ID_MASTER, (unsigned int)m,
 		     		       &set[LWS_PRE]);
 		if (n != m) {
 			lwsl_info("send %d %d\n", n, m);
@@ -739,12 +740,12 @@ int lws_h2_do_pps_send(struct lws *wsi)
 
 	case LWS_H2_PPS_SETTINGS_INITIAL_UPDATE_WINDOW:
 		q = &set[LWS_PRE];
-		*q++ = H2SET_INITIAL_WINDOW_SIZE >> 8;
-		*q++ = H2SET_INITIAL_WINDOW_SIZE;
-		*q++ = pps->u.update_window.credit >> 24;
-		*q++ = pps->u.update_window.credit >> 16;
-		*q++ = pps->u.update_window.credit >> 8;
-		*q = pps->u.update_window.credit;
+		*q++ = (uint8_t)(H2SET_INITIAL_WINDOW_SIZE >> 8);
+		*q++ = (uint8_t)(H2SET_INITIAL_WINDOW_SIZE);
+		*q++ = (uint8_t)(pps->u.update_window.credit >> 24);
+		*q++ = (uint8_t)(pps->u.update_window.credit >> 16);
+		*q++ = (uint8_t)(pps->u.update_window.credit >> 8);
+		*q = (uint8_t)(pps->u.update_window.credit);
 
 		lwsl_debug("%s: resetting initial window to %d\n", __func__,
 				(int)pps->u.update_window.credit);
@@ -795,7 +796,7 @@ int lws_h2_do_pps_send(struct lws *wsi)
 
 			lwsl_info("%s: inherited headers %p\n", __func__,
 				  h2n->swsi->http.ah);
-			h2n->swsi->txc.tx_cr =
+			h2n->swsi->txc.tx_cr = (int32_t)
 				h2n->our_set.s[H2SET_INITIAL_WINDOW_SIZE];
 			lwsl_info("initial tx credit on %s: %d\n",
 				  lws_wsi_tag(h2n->swsi),
@@ -840,14 +841,14 @@ int lws_h2_do_pps_send(struct lws *wsi)
 
 	case LWS_H2_PPS_GOAWAY:
 		lwsl_info("LWS_H2_PPS_GOAWAY\n");
-		*p++ = pps->u.ga.highest_sid >> 24;
-		*p++ = pps->u.ga.highest_sid >> 16;
-		*p++ = pps->u.ga.highest_sid >> 8;
-		*p++ = pps->u.ga.highest_sid;
-		*p++ = pps->u.ga.err >> 24;
-		*p++ = pps->u.ga.err >> 16;
-		*p++ = pps->u.ga.err >> 8;
-		*p++ = pps->u.ga.err;
+		*p++ = (uint8_t)(pps->u.ga.highest_sid >> 24);
+		*p++ = (uint8_t)(pps->u.ga.highest_sid >> 16);
+		*p++ = (uint8_t)(pps->u.ga.highest_sid >> 8);
+		*p++ = (uint8_t)(pps->u.ga.highest_sid);
+		*p++ = (uint8_t)(pps->u.ga.err >> 24);
+		*p++ = (uint8_t)(pps->u.ga.err >> 16);
+		*p++ = (uint8_t)(pps->u.ga.err >> 8);
+		*p++ = (uint8_t)(pps->u.ga.err);
 		q = (unsigned char *)pps->u.ga.str;
 		n = 0;
 		while (*q && n++ < (int)sizeof(pps->u.ga.str))
@@ -855,7 +856,7 @@ int lws_h2_do_pps_send(struct lws *wsi)
 		h2n->we_told_goaway = 1;
 		n = lws_h2_frame_write(wsi, LWS_H2_FRAME_TYPE_GOAWAY, 0,
 				       LWS_H2_STREAM_ID_MASTER,
-				       lws_ptr_diff(p, &set[LWS_PRE]),
+				       (unsigned int)lws_ptr_diff(p, &set[LWS_PRE]),
 				       &set[LWS_PRE]);
 		if (n != 4) {
 			lwsl_info("send %d %d\n", n, m);
@@ -865,10 +866,10 @@ int lws_h2_do_pps_send(struct lws *wsi)
 
 	case LWS_H2_PPS_RST_STREAM:
 		lwsl_info("LWS_H2_PPS_RST_STREAM\n");
-		*p++ = pps->u.rs.err >> 24;
-		*p++ = pps->u.rs.err >> 16;
-		*p++ = pps->u.rs.err >> 8;
-		*p++ = pps->u.rs.err;
+		*p++ = (uint8_t)(pps->u.rs.err >> 24);
+		*p++ = (uint8_t)(pps->u.rs.err >> 16);
+		*p++ = (uint8_t)(pps->u.rs.err >> 8);
+		*p++ = (uint8_t)(pps->u.rs.err);
 		n = lws_h2_frame_write(wsi, LWS_H2_FRAME_TYPE_RST_STREAM,
 				       0, pps->u.rs.sid, 4, &set[LWS_PRE]);
 		if (n != 4) {
@@ -889,10 +890,10 @@ int lws_h2_do_pps_send(struct lws *wsi)
 		lwsl_info("Issuing LWS_H2_PPS_UPDATE_WINDOW: sid %d: add %d\n",
 			    (int)pps->u.update_window.sid,
 			    (int)pps->u.update_window.credit);
-		*p++ = (pps->u.update_window.credit >> 24) & 0x7f; /* 31b */
-		*p++ = pps->u.update_window.credit >> 16;
-		*p++ = pps->u.update_window.credit >> 8;
-		*p++ = pps->u.update_window.credit;
+		*p++ = (uint8_t)((pps->u.update_window.credit >> 24) & 0x7f); /* 31b */
+		*p++ = (uint8_t)(pps->u.update_window.credit >> 16);
+		*p++ = (uint8_t)(pps->u.update_window.credit >> 8);
+		*p++ = (uint8_t)(pps->u.update_window.credit);
 		n = lws_h2_frame_write(wsi, LWS_H2_FRAME_TYPE_WINDOW_UPDATE,
 				       0, pps->u.update_window.sid, 4,
 				       &set[LWS_PRE]);
@@ -1038,7 +1039,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 			n = H2_ERR_STREAM_CLOSED;
 		else
 			n = H2_ERR_PROTOCOL_ERROR;
-		lws_h2_goaway(wsi, n, "invalid rx for state");
+		lws_h2_goaway(wsi, (unsigned int)n, "invalid rx for state");
 
 		return 0;
 	}
@@ -1054,7 +1055,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 			n = H2_ERR_COMPRESSION_ERROR;
 		else
 			n = H2_ERR_PROTOCOL_ERROR;
-		lws_h2_goaway(wsi, n, "Continuation hdrs State");
+		lws_h2_goaway(wsi, (unsigned int)n, "Continuation hdrs State");
 
 		return 0;
 	}
@@ -1478,7 +1479,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 			lwsl_info("%s: MIGRATING nwsi %s -> swsi %s\n", __func__,
 				  lws_wsi_tag(wsi), lws_wsi_tag(h2n->swsi));
-			h2n->swsi->txc.tx_cr =
+			h2n->swsi->txc.tx_cr = (int32_t)
 				h2n->peer_set.s[H2SET_INITIAL_WINDOW_SIZE];
 			lwsl_info("%s: initial tx credit on %s: %d\n",
 				  __func__, lws_wsi_tag(h2n->swsi),
@@ -1487,7 +1488,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 			/* set our initial window size */
 			if (!wsi->h2.initialized) {
-				wsi->txc.tx_cr =
+				wsi->txc.tx_cr = (int32_t)
 				     h2n->peer_set.s[H2SET_INITIAL_WINDOW_SIZE];
 
 				lwsl_info("%s: initial tx credit for us to "
@@ -1578,7 +1579,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 			if (!simp) /* coverity */
 				return 1;
-			h2n->swsi->http.rx_content_length  = atoll(simp);
+			h2n->swsi->http.rx_content_length = (unsigned long long)atoll(simp);
 			h2n->swsi->http.rx_content_remain =
 					h2n->swsi->http.rx_content_length;
 			lwsl_info("setting rx_content_length %lld\n",
@@ -1591,20 +1592,20 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			const unsigned char *c;
 
 			do {
-				c = lws_token_to_string(n);
+				c = lws_token_to_string((enum lws_token_indexes)n);
 				if (!c) {
 					n++;
 					continue;
 				}
 
-				len = lws_hdr_total_length(h2n->swsi, n);
+				len = lws_hdr_total_length(h2n->swsi, (enum lws_token_indexes)n);
 				if (!len || len > (int)sizeof(buf) - 1) {
 					n++;
 					continue;
 				}
 
 				if (lws_hdr_copy(h2n->swsi, buf, sizeof buf,
-						 n) < 0) {
+						(enum lws_token_indexes)n) < 0) {
 					lwsl_info("    %s !oversize!\n",
 						  (char *)c);
 				} else {
@@ -1664,7 +1665,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			if (n != 8 ||
 			    !lws_hdr_simple_ptr(h2n->swsi, WSI_TOKEN_TE) ||
 			    strncmp(lws_hdr_simple_ptr(h2n->swsi, WSI_TOKEN_TE),
-				  "trailers", n)) {
+				  "trailers", (unsigned int)n)) {
 				lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
 					      "Illegal transfer-encoding");
 				break;
@@ -1798,7 +1799,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		        LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW &&
 		    (uint64_t)eff_wsi->txc.tx_cr + (uint64_t)h2n->hpack_e_dep >
 		    (uint64_t)0x7fffffff)
-			h2n->hpack_e_dep = 0x7fffffff - eff_wsi->txc.tx_cr;
+			h2n->hpack_e_dep = (uint32_t)(0x7fffffff - eff_wsi->txc.tx_cr);
 
 		if ((uint64_t)eff_wsi->txc.tx_cr + (uint64_t)h2n->hpack_e_dep >
 		    (uint64_t)0x7fffffff) {
@@ -1818,7 +1819,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			break;
 		}
 		n = eff_wsi->txc.tx_cr;
-		eff_wsi->txc.tx_cr += h2n->hpack_e_dep;
+		eff_wsi->txc.tx_cr += (int32_t)h2n->hpack_e_dep;
 
 		lws_wsi_txc_report_manual_txcr_in(eff_wsi,
 						  (int32_t)h2n->hpack_e_dep);
@@ -1993,7 +1994,7 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 			switch(h2n->type) {
 
 			case LWS_H2_FRAME_TYPE_SETTINGS:
-				n = (h2n->count - 1 - h2n->preamble) %
+				n = (int)(h2n->count - 1u - h2n->preamble) %
 				     LWS_H2_SETTINGS_LEN;
 				h2n->one_setting[n] = c;
 				if (n != LWS_H2_SETTINGS_LEN - 1)
@@ -2037,7 +2038,7 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 					if (h2n->inside - 9 <
 					    sizeof(h2n->goaway_str) - 1)
 						h2n->goaway_str[
-						           h2n->inside - 9] = c;
+						           h2n->inside - 9] = (char)c;
 					h2n->goaway_str[
 					    sizeof(h2n->goaway_str) - 1] = '\0';
 					break;
@@ -2096,7 +2097,9 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 
 				n = (int)lws_ptr_diff_size_t(iend, in)  + 1;
 				if (n > (int)(h2n->length - h2n->count + 1)) {
-					n = h2n->length - h2n->count + 1;
+					if (h2n->count > h2n->length)
+						goto close_swsi_and_return;
+					n = (int)(h2n->length - h2n->count) + 1;
 					lwsl_debug("---- restricting len to %d "
 						   "\n", n);
 				}
@@ -2117,7 +2120,7 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 						h2n->swsi,
 					  LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ,
 						h2n->swsi->user_space,
-						in - 1, n);
+						in - 1, (unsigned int)n);
 					}
 
 					in += n - 1;
@@ -2136,7 +2139,7 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 
 				if (lwsi_state(h2n->swsi) == LRS_DEFERRING_ACTION) {
 					m = lws_buflist_append_segment(
-						&h2n->swsi->buflist, in - 1, n);
+						&h2n->swsi->buflist, in - 1, (unsigned int)n);
 					if (m < 0)
 						return -1;
 					if (m) {
@@ -2164,7 +2167,7 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 				 * more waiting leave it for next time around
 				 */
 
-				n = lws_read_h1(h2n->swsi, in - 1, n);
+				n = lws_read_h1(h2n->swsi, in - 1, (unsigned int)n);
 				// lwsl_notice("%s: lws_read_h1 %d\n", __func__, n);
 				h2n->swsi->outer_will_close = 0;
 				/*
@@ -2350,7 +2353,7 @@ try_frame_start:
 		}
 	}
 
-	*inused = in - oldin;
+	*inused = (lws_filepos_t)lws_ptr_diff_size_t(in, oldin);
 
 	return 0;
 
@@ -2362,12 +2365,12 @@ close_swsi_and_return:
 	h2n->count = 0;
 
 // already_closed_swsi:
-	*inused = in - oldin;
+	*inused = (lws_filepos_t)lws_ptr_diff_size_t(in, oldin);
 
 	return 2;
 
 fail:
-	*inused = in - oldin;
+	*inused = (lws_filepos_t)lws_ptr_diff_size_t(in, oldin);
 
 	return 1;
 }
@@ -2390,7 +2393,7 @@ lws_h2_client_handshake(struct lws *wsi)
 	 * receives an unexpected stream identifier MUST respond with a
 	 * connection error (Section 5.4.1) of type PROTOCOL_ERROR.
 	 */
-	int sid = nwsi->h2.h2n->highest_sid_opened + 2;
+	unsigned int sid = nwsi->h2.h2n->highest_sid_opened + 2;
 
 	lwsl_debug("%s\n", __func__);
 
@@ -2475,7 +2478,7 @@ lws_h2_client_handshake(struct lws *wsi)
 
 	if (wsi->a.protocol->callback(wsi,
 				LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER,
-				wsi->user_space, &p, (end - p) - 12))
+				wsi->user_space, &p, lws_ptr_diff_size_t(end, p) - 12))
 		goto fail_length;
 
 	if (lws_finalize_http_header(wsi, &p, end))
@@ -2496,9 +2499,9 @@ lws_h2_client_handshake(struct lws *wsi)
 
 	// lwsl_hexdump_notice(start, p - start);
 
-	n = lws_write(wsi, start, p - start, m);
+	n = lws_write(wsi, start, lws_ptr_diff_size_t(p, start), (enum lws_write_protocol)m);
 
-	if (n != (p - start)) {
+	if (n != lws_ptr_diff(p, start)) {
 		lwsl_err("_write returned %d from %ld\n", n,
 			 (long)(p - start));
 		return -1;
@@ -2542,7 +2545,8 @@ lws_h2_ws_handshake(struct lws *wsi)
 		*end = &buf[sizeof(buf) - 1];
 	const struct lws_http_mount *hit;
 	const char * uri_ptr;
-	int n, m;
+	size_t m;
+	int n;
 
 	if (lws_add_http_header_status(wsi, HTTP_STATUS_OK, &p, end))
 		return -1;
@@ -2616,11 +2620,11 @@ lws_h2_ws_handshake(struct lws *wsi)
 	if (lws_finalize_http_header(wsi, &p, end))
 		return -1;
 
-	m = lws_ptr_diff(p, start);
+	m = lws_ptr_diff_size_t(p, start);
 	// lwsl_hexdump_notice(start, m);
 	n = lws_write(wsi, start, m, LWS_WRITE_HTTP_HEADERS);
-	if (n != m) {
-		lwsl_err("_write returned %d from %d\n", n, m);
+	if (n != (int)m) {
+		lwsl_err("_write returned %d from %d\n", n, (int)m);
 
 		return -1;
 	}
@@ -2674,7 +2678,7 @@ lws_read_h2(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 		 * we were accepting input but now we stopped doing so
 		 */
 		if (lws_is_flowcontrolled(wsi)) {
-			lws_rxflow_cache(wsi, buf, 0, (int)len);
+			lws_rxflow_cache(wsi, buf, 0, (size_t)len);
 			buf += len;
 			break;
 		}

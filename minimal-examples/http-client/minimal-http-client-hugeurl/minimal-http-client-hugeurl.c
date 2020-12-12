@@ -77,7 +77,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
-		status = lws_http_client_http_response(wsi);
+		status = (int)lws_http_client_http_response(wsi);
 		lwsl_user("Connected with server response: %d\n", status);
 		break;
 

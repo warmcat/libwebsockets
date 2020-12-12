@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -86,7 +86,7 @@ lws_jwe_encrypt_gcm(struct lws_jwe *jwe,
 
 	/* aad */
 
-	n = lws_genaes_crypt(&aesctx, aad, aad_len, NULL,
+	n = lws_genaes_crypt(&aesctx, aad, (unsigned int)aad_len, NULL,
 			     (uint8_t *)jwe->jws.map.buf[LJWE_IV],
 			     (uint8_t *)jwe->jws.map.buf[LJWE_ATAG], &ivs,
 			     LWS_AESGCM_TAG);
@@ -110,7 +110,7 @@ lws_jwe_encrypt_gcm(struct lws_jwe *jwe,
 		return -1;
 	}
 
-	return jwe->jws.map.len[LJWE_CTXT];
+	return (int)jwe->jws.map.len[LJWE_CTXT];
 }
 
 int
@@ -149,7 +149,7 @@ lws_jwe_auth_and_decrypt_gcm(struct lws_jwe *jwe,
 		return -1;
 	}
 
-	n = lws_genaes_crypt(&aesctx, aad, aad_len,
+	n = lws_genaes_crypt(&aesctx, aad, (unsigned int)aad_len,
 			     NULL,
 			     (uint8_t *)jwe->jws.map.buf[LJWE_IV],
 			     (uint8_t *)jwe->jws.map.buf[LJWE_ATAG], &ivs, 16);
@@ -169,5 +169,5 @@ lws_jwe_auth_and_decrypt_gcm(struct lws_jwe *jwe,
 		return -1;
 	}
 
-	return jwe->jws.map.len[LJWE_CTXT];
+	return (int)jwe->jws.map.len[LJWE_CTXT];
 }

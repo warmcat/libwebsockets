@@ -1,7 +1,7 @@
 /*
  * lws-api-test-lws_tokenize
  *
- * Written in 2010-2019 by Andy Green <andy@warmcat.com>
+ * Written in 2010-2020 by Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
@@ -494,7 +494,7 @@ int main(int argc, const char **argv)
 		memset(&ts, 0, sizeof(ts));
 		ts.start = tests[n].string;
 		ts.len = strlen(ts.start);
-		ts.flags = tests[n].flags;
+		ts.flags = (uint16_t)tests[n].flags;
 
 		do {
 			e = lws_tokenize(&ts);
@@ -543,7 +543,7 @@ int main(int argc, const char **argv)
 	if (p) {
 		ts.start = p;
 		ts.len = strlen(p);
-		ts.flags = flags;
+		ts.flags = (uint16_t)flags;
 
 		printf("\t{\n\t\t\"%s\",\n"
 		       "\t\texpected%d, LWS_ARRAY_SIZE(expected%d),\n\t\t",

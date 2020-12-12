@@ -235,7 +235,7 @@ lws_dhcpc_retry_write(struct lws_sorted_usec_list *sul)
 }
 
 static int
-lws_dhcpc_prep(uint8_t *start, int bufsiz, lws_dhcpc_req_t *r, int op)
+lws_dhcpc_prep(uint8_t *start, unsigned int bufsiz, lws_dhcpc_req_t *r, int op)
 {
 	uint8_t *p = start;
 
@@ -266,7 +266,7 @@ lws_dhcpc_prep(uint8_t *start, int bufsiz, lws_dhcpc_req_t *r, int op)
 
 	*p++ = LWSDHCPOPT_MESSAGE_TYPE;
 	*p++ = 1;	/* length */
-	*p++ = op;
+	*p++ = (uint8_t)op;
 
 	switch (op) {
 	case LWSDHCPDISCOVER:
@@ -419,7 +419,7 @@ callback_dhcpc(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 					m = IPV4_DNS_SRV_1;
 					while (l && m - IPV4_DNS_SRV_1 < 4) {
 						r->ipv4[m++] = lws_ser_ru32be(p);
-						l -= 4;
+						l = (uint8_t)(l - 4);
 						p += 4;
 					}
 					break;
@@ -427,7 +427,7 @@ callback_dhcpc(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 					m = l;
 					if (m > (int)sizeof(r->domain) - 1)
 						m = sizeof(r->domain) - 1;
-					memcpy(r->domain, p, m);
+					memcpy(r->domain, p, (unsigned int)m);
 					r->domain[m] = '\0';
 					break;
 
@@ -470,7 +470,7 @@ broken:
 						    dhcp_entry_names[n],
 						    r->ipv4[n]);
 				else {
-					m = ntohl(r->ipv4[n]);
+					m = (int)ntohl(r->ipv4[n]);
 					lws_write_numeric_address((uint8_t *)&m,
 							     4,(char *)pkt, 20);
 					lwsl_info("%s: %s: %s\n", __func__,
@@ -594,8 +594,8 @@ broken:
 
 			/* fallthru */
 bcast:
-			n = lws_dhcpc_prep(p + 28, sizeof(pkt) - LWS_PRE - 28,
-					   r, n);
+			n = lws_dhcpc_prep(p + 28, (unsigned int)
+					(sizeof(pkt) - LWS_PRE - 28), r, n);
 			if (n < 0) {
 				lwsl_err("%s: failed to prep\n", __func__);
 				break;
@@ -603,7 +603,7 @@ bcast:
 
 			m = lws_plat_rawudp_broadcast(p, rawdisc,
 						      LWS_ARRAY_SIZE(rawdisc),
-						      n + 28,
+						      (size_t)(n + 28),
 						      r->wsi_raw->desc.sockfd,
 						      (const char *)&r[1]);
 			if (m < 0)
@@ -709,13 +709,13 @@ lws_dhcpc_request(struct lws_context *context, const char *iface, int af,
 
 	/* nope... let's create a request object as he asks */
 
-	n = strlen(iface);
-	r = lws_zalloc(sizeof(*r) + n + 1, __func__);
+	n = (int)strlen(iface);
+	r = lws_zalloc(sizeof(*r) + (unsigned int)n + 1u, __func__);
 	if (!r)
 		return 1;
 
-	memcpy(&r[1], iface, n + 1);
-	r->af = af;
+	memcpy(&r[1], iface, (unsigned int)n + 1);
+	r->af = (uint8_t)af;
 	r->cb = cb;
 	r->opaque = opaque;
 	r->context = context;

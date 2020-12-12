@@ -144,7 +144,7 @@ int main(int argc, const char **argv)
 	int n = 0, logs =
 			LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
 #ifndef WIN32
-	srandom(time(0));
+	srandom((unsigned int)time(0));
 #endif
 
 	memset(msg, 'x', sizeof(msg));
@@ -201,7 +201,7 @@ int main(int argc, const char **argv)
 		lwsl_notice("Message delay: %d\n", connection_delay);
 	}
 
-	info.fd_limit_per_thread = 1 + nclients + 1;
+	info.fd_limit_per_thread = (unsigned int)(1 + nclients + 1);
 
 	context = lws_create_context(&info);
 	if (!context) {

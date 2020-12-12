@@ -87,7 +87,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			break;
 		n = lws_snprintf((char *)p, sizeof(buf) - LWS_PRE, "%llu",
 				 (unsigned long long)lws_now_usecs());
-		m = lws_write(wsi, p, n, LWS_WRITE_HTTP);
+		m = lws_write(wsi, p, (unsigned int)n, LWS_WRITE_HTTP);
 		if (m < n) {
 			lwsl_err("ERROR %d writing to socket\n", n);
 			return -1;

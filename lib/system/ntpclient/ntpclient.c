@@ -203,7 +203,7 @@ do_close:
 		 * and add in the ns
 		 */
 
-		ns = lws_ser_ru32be(((uint8_t *)in) + 40) - 2208988800;
+		ns = (uint64_t)lws_ser_ru32be(((uint8_t *)in) + 40) - (uint64_t)2208988800;
 		ns = (ns * 1000000000) + lws_ser_ru32be(((uint8_t *)in) + 44);
 
 		/*
@@ -212,7 +212,7 @@ do_close:
 
 		gettimeofday(&t1, NULL);
 
-		delta_us = (ns / 1000) -
+		delta_us = ((int64_t)ns / 1000) -
 				((t1.tv_sec * LWS_US_PER_SEC) + t1.tv_usec);
 
 		lwsl_notice("%s: Unix time: %llu, step: %lldus\n", __func__,
@@ -233,7 +233,7 @@ do_close:
 #endif
 		if (lws_system_get_ops(wsi->a.context) &&
 		    lws_system_get_ops(wsi->a.context)->set_clock)
-			lws_system_get_ops(wsi->a.context)->set_clock(ns / 1000);
+			lws_system_get_ops(wsi->a.context)->set_clock((int64_t)ns / 1000);
 
 		v->set_time = 1;
 		lws_state_transition_steps(&wsi->a.context->mgr_system,

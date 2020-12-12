@@ -142,8 +142,8 @@ elops_init_pt_ev(struct lws_context *context, void *_loop, int tsi)
 	struct ev_loop *loop = (struct ev_loop *)_loop;
 	struct lws_vhost *vh = context->vhost_list;
 	const char *backend_name;
+	unsigned int backend;
 	int status = 0;
-	int backend;
 
 	lwsl_info("%s: loop %p\n", __func__, _loop);
 
@@ -296,7 +296,7 @@ elops_accept_ev(struct lws *wsi)
 }
 
 static void
-elops_io_ev(struct lws *wsi, int flags)
+elops_io_ev(struct lws *wsi, unsigned int flags)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	struct lws_pt_eventlibs_libev *ptpr = pt_to_priv_ev(pt);

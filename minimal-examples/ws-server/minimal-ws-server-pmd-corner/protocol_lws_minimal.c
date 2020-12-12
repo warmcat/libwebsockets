@@ -241,10 +241,10 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 				corner_lengths[pss->last - 1]);
 
 		memcpy(buf + LWS_PRE, uncompressible,
-		       corner_lengths[pss->last - 1]);
+		       (unsigned int)corner_lengths[pss->last - 1]);
 
 		/* notice we allowed for LWS_PRE in the payload already */
-		m = lws_write(wsi, buf + LWS_PRE, corner_lengths[pss->last - 1],
+		m = lws_write(wsi, buf + LWS_PRE, (unsigned int)corner_lengths[pss->last - 1],
 				LWS_WRITE_BINARY);
 		if (m < corner_lengths[pss->last - 1]) {
 			lwsl_err("ERROR %d writing to ws socket\n", m);

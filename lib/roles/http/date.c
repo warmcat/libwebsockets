@@ -142,7 +142,7 @@ lws_http_date_parse_unix(const char *b, size_t len, time_t *t)
 int
 lws_http_check_retry_after(struct lws *wsi, lws_usec_t *us_interval_in_out)
 {
-	size_t len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_RETRY_AFTER);
+	size_t len = (unsigned int)lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_RETRY_AFTER);
 	char *p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_RETRY_AFTER);
 	lws_usec_t u;
 	time_t t, td;
@@ -173,7 +173,7 @@ lws_http_check_retry_after(struct lws *wsi, lws_usec_t *us_interval_in_out)
 		 */
 
 		time(&td);
-		len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_DATE);
+		len = (unsigned int)lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_DATE);
 		if (len) {
 			p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_DATE);
 			/* if this fails, it leaves td as client time */

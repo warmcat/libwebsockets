@@ -36,7 +36,7 @@
 void
 lws_msleep(unsigned int ms)
 {
-        usleep(ms * LWS_US_PER_MS);
+        usleep((unsigned int)(ms * LWS_US_PER_MS));
 }
 
 lws_usec_t
@@ -95,18 +95,18 @@ void lwsl_emit_syslog(int level, const char *line)
 
 int
 lws_plat_write_cert(struct lws_vhost *vhost, int is_key, int fd, void *buf,
-			int len)
+			size_t len)
 {
-	int n;
+	ssize_t n;
 
 	n = write(fd, buf, len);
 
-	if (fsync(fd))
+	if (n < 0 || fsync(fd))
 		return 1;
 	if (lseek(fd, 0, SEEK_SET) < 0)
 		return 1;
 
-	return n != len;
+	return (size_t)n != len;
 }
 
 

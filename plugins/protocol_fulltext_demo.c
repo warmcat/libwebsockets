@@ -158,11 +158,11 @@ reply_404:
 
 		n = LWS_WRITE_HTTP;
 		if (pss->first)
-			p += lws_snprintf((char *)p, lws_ptr_diff(end, p),
+			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
 				"{\"indexed\": %d, \"ac\": [", !!pss->result);
 
 		while (pss->ac && lws_ptr_diff(end, p) > 256) {
-			p += lws_snprintf((char *)p, lws_ptr_diff(end, p),
+			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
 				"%c{\"ac\": \"%s\",\"matches\": %d,"
 				"\"agg\": %d, \"elided\": %d}",
 				pss->first ? ' ' : ',', (char *)(pss->ac + 1),
@@ -176,14 +176,14 @@ reply_404:
 		if (!pss->ac_done && !pss->ac && pss->fp) {
 			pss->ac_done = 1;
 
-			p += lws_snprintf((char *)p, lws_ptr_diff(end, p),
+			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
 					  "], \"fp\": [");
 		}
 
-		while (pss->fp && lws_ptr_diff(end, p) > 256) {
+		while (pss->fp && lws_ptr_diff_size_t(end, p) > 256) {
 			if (!pss->fp_init_done) {
 				p += lws_snprintf((char *)p,
-					lws_ptr_diff(end, p),
+						lws_ptr_diff_size_t(end, p),
 					"%c{\"path\": \"%s\",\"matches\": %d,"
 					"\"origlines\": %d,"
 					"\"hits\": [", pss->first ? ' ' : ',',
@@ -201,7 +201,7 @@ reply_404:
 				       lws_ptr_diff(end, p) > 256) {
 
 					p += lws_snprintf((char *)p,
-						lws_ptr_diff(end, p),
+							lws_ptr_diff_size_t(end, p),
 						"%c\n{\"l\":%d,\"o\":%d,"
 						"\"s\":\"%s\"}",
 						!pss->done ? ' ' : ',',
@@ -224,12 +224,12 @@ reply_404:
 
 		if (!pss->ac && !pss->fp) {
 			n = LWS_WRITE_HTTP_FINAL;
-			p += lws_snprintf((char *)p, lws_ptr_diff(end, p),
+			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
 						"]}");
 		}
 
 		if (lws_write(wsi, (uint8_t *)start,
-			      lws_ptr_diff(p, start), n) !=
+				lws_ptr_diff_size_t(p, start), (enum lws_write_protocol)n) !=
 					      lws_ptr_diff(p, start))
 			return 1;
 

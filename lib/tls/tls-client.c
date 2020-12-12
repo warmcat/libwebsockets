@@ -24,8 +24,8 @@
 
 #include "private-lib-core.h"
 
-int
-lws_ssl_client_connect1(struct lws *wsi, char *errbuf, int len)
+static int
+lws_ssl_client_connect1(struct lws *wsi, char *errbuf, size_t len)
 {
 	int n;
 
@@ -48,7 +48,7 @@ lws_ssl_client_connect1(struct lws *wsi, char *errbuf, int len)
 }
 
 int
-lws_ssl_client_connect2(struct lws *wsi, char *errbuf, int len)
+lws_ssl_client_connect2(struct lws *wsi, char *errbuf, size_t len)
 {
 	int n;
 

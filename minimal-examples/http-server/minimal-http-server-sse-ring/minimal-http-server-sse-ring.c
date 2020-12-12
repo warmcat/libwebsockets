@@ -112,14 +112,14 @@ thread_spam(void *d)
 			goto wait_unlock;
 		}
 
-		amsg.payload = malloc(len);
+		amsg.payload = malloc((unsigned int)len);
 		if (!amsg.payload) {
 			lwsl_user("OOM: dropping\n");
 			goto wait_unlock;
 		}
-		n = lws_snprintf((char *)amsg.payload, len,
+		n = lws_snprintf((char *)amsg.payload, (unsigned int)len,
 			         "%s: tid: %d, msg: %d", __func__, whoami, index++);
-		amsg.len = n;
+		amsg.len = (unsigned int)n;
 		n = (int)lws_ring_insert(vhd->ring, &amsg, 1);
 		if (n != 1) {
 			__minimal_destroy_message(&amsg);
@@ -136,7 +136,7 @@ wait_unlock:
 
 wait:
 		/* rand() would make more sense but coverity shrieks */
-		usleep(100000 + (time(NULL) & 0xffff));
+		usleep((useconds_t)(100000 + (time(NULL) & 0xffff)));
 
 	} while (!vhd->finished);
 
@@ -262,11 +262,11 @@ callback_sse(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (!pmsg)
 			break;
 
-		p += lws_snprintf((char *)p, end - p,
+		p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
 				  "data: %s\x0d\x0a\x0d\x0a",
 				  (const char *)pmsg->payload);
 
-		if (lws_write(wsi, (uint8_t *)start, lws_ptr_diff(p, start),
+		if (lws_write(wsi, (uint8_t *)start, lws_ptr_diff_size_t(p, start),
 			      LWS_WRITE_HTTP) != lws_ptr_diff(p, start))
 			return 1;
 

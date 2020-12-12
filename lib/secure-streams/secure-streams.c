@@ -229,7 +229,7 @@ _lws_ss_backoff(lws_ss_handle_t *h, lws_usec_t us_override)
 	/* Only increase our planned backoff, or go with it */
 
 	if (us_override < (lws_usec_t)ms * LWS_US_PER_MS)
-		us_override = ms * LWS_US_PER_MS;
+		us_override = (lws_usec_t)(ms * LWS_US_PER_MS);
 
 	h->seqstate = SSSEQ_RECONNECT_WAIT;
 	lws_ss_set_timeout_us(h, us_override);
@@ -274,7 +274,7 @@ lws_smd_ss_cb(void *opaque, lws_smd_class_t _class,
 	 */
 
 	lws_ser_wu64be(p, _class);
-	lws_ser_wu64be(p + 8, timestamp);
+	lws_ser_wu64be(p + 8, (uint64_t)timestamp);
 
 	if (h->info.rx)
 		h->info.rx((void *)&h[1], p, len + LWS_SMD_SS_RX_HEADER_LEN,
@@ -362,7 +362,7 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 		h->u.smd.smd_peer = lws_smd_register(h->context, h,
 					(h->info.flags & LWSSSINFLAGS_PROXIED) ?
 						LWSSMDREG_FLAG_PROXIED_SS : 0,
-					h->info.manual_initial_tx_credit,
+					(lws_smd_class_t)h->info.manual_initial_tx_credit,
 					lws_smd_ss_cb);
 		if (!h->u.smd.smd_peer)
 			return LWSSSSRET_TX_DONT_SEND;
@@ -623,7 +623,7 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 	h->info = *ssi;
 	h->policy = pol;
 	h->context = context;
-	h->tsi = tsi;
+	h->tsi = (uint8_t)tsi;
 	h->seq = seq_owner;
 
 	if (h->info.flags & LWSSSINFLAGS_PROXIED)
@@ -675,7 +675,7 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 		memcpy(p, ssi->streamtype, strlen(ssi->streamtype) + 1);
 	/* don't mark accepted ss as being the server */
 	if (ssi->flags & LWSSSINFLAGS_SERVER)
-		h->info.flags &= ~LWSSSINFLAGS_SERVER;
+		h->info.flags &= (uint8_t)~LWSSSINFLAGS_SERVER;
 	h->info.streamtype = p;
 
 	lws_pt_lock(pt, __func__);
@@ -710,7 +710,7 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 		 * format as well)
 		 */
 		h->u.smd.smd_peer = lws_smd_register(context, h, 0,
-						     ssi->manual_initial_tx_credit,
+						     (lws_smd_class_t)ssi->manual_initial_tx_credit,
 						     lws_smd_ss_cb);
 		if (!h->u.smd.smd_peer)
 			goto late_bail;

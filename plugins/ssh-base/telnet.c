@@ -187,7 +187,7 @@ lws_callback_raw_telnet(struct lws *wsi, enum lws_callback_reasons reason,
 				pu++;
 
 			if (n > 100 || !len)
-				pss->vhd->ops->rx(pss->priv, wsi, buf, n);
+				pss->vhd->ops->rx(pss->priv, wsi, buf, (uint32_t)n);
 		}
 		break;
 
@@ -206,7 +206,7 @@ lws_callback_raw_telnet(struct lws *wsi, enum lws_callback_reasons reason,
 			 */
 			pu = buf + LWS_PRE + 400;
 			m = (int)pss->vhd->ops->tx(pss->priv, LWS_STDOUT, pu,
-					((int)sizeof(buf) - LWS_PRE - n - 401) / 2);
+					(size_t)((int)sizeof(buf) - LWS_PRE - n - 401) / 2);
 
 			/*
 			 * apply telnet line discipline and copy into place
@@ -219,7 +219,7 @@ lws_callback_raw_telnet(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 		}
 		if (n > 0) {
-			m = lws_write(wsi, (unsigned char *)buf + LWS_PRE, n,
+			m = lws_write(wsi, (unsigned char *)buf + LWS_PRE, (unsigned int)n,
 				      LWS_WRITE_HTTP);
 	                if (m < 0) {
 	                        lwsl_err("ERROR %d writing to di socket\n", m);

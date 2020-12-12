@@ -153,7 +153,7 @@ lws_lc_tag(lws_lifecycle_t *lc)
 
 #if defined(LWS_LOGS_TIMESTAMP)
 int
-lwsl_timestamp(int level, char *p, int len)
+lwsl_timestamp(int level, char *p, size_t len)
 {
 #ifndef LWS_PLAT_OPTEE
 	time_t o_now;
@@ -167,7 +167,7 @@ lwsl_timestamp(int level, char *p, int len)
 
 	gettimeofday(&tv, NULL);
 	o_now = tv.tv_sec;
-	now = ((unsigned long long)tv.tv_sec * 10000) + (tv.tv_usec / 100);
+	now = ((unsigned long long)tv.tv_sec * 10000) + (unsigned int)(tv.tv_usec / 100);
 
 #ifndef _WIN32_WCE
 #ifdef WIN32
@@ -231,7 +231,7 @@ _lwsl_emit_stderr(int level, const char *line, int ts)
 	int n, m = LWS_ARRAY_SIZE(colours) - 1;
 
 	if (!tty)
-		tty = isatty(2) | 2;
+		tty = (char)(isatty(2) | 2);
 
 	buf[0] = '\0';
 #if defined(LWS_LOGS_TIMESTAMP)
@@ -353,7 +353,7 @@ lwsl_hexdump_level(int hexdump_level, const void *vbuf, size_t len)
 
 		for (m = 0; m < 16 && (start + m) < len; m++) {
 			if (buf[start + m] >= ' ' && buf[start + m] < 127)
-				*p++ = buf[start + m];
+				*p++ = (char)buf[start + m];
 			else
 				*p++ = '.';
 		}

@@ -80,7 +80,7 @@ lws_tls_mbedtls_get_x509_name(mbedtls_x509_name *name,
 
 		memcpy(&buf->ns.name[0], name->val.p, name->val.len);
 		buf->ns.name[name->val.len] = '\0';
-		buf->ns.len = name->val.len;
+		buf->ns.len = (int)name->val.len;
 
 		return 0;
 	}
@@ -280,7 +280,7 @@ int
 lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
 		       const char *curves, int rsa_min_bits)
 {
-	int kt = mbedtls_pk_get_type(&x509->cert.pk), n, count = 0, ret = -1;
+	int kt = (int)mbedtls_pk_get_type(&x509->cert.pk), n, count = 0, ret = -1;
 	mbedtls_rsa_context *rsactx;
 	mbedtls_ecp_keypair *ecpctx;
 	mbedtls_mpi *mpi[LWS_GENCRYPTO_RSA_KEYEL_COUNT];
@@ -315,7 +315,7 @@ lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
 		mpi[LWS_GENCRYPTO_EC_KEYEL_Y] = &ecpctx->Q.Y;
 
 		if (lws_genec_confirm_curve_allowed_by_tls_id(curves,
-				ecpctx->grp.id, jwk))
+				(int)ecpctx->grp.id, jwk))
 			/* already logged */
 			goto bail;
 
@@ -335,7 +335,7 @@ lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
 		jwk->e[n].buf = lws_malloc(mbedtls_mpi_size(mpi[n]), "certjwk");
 		if (!jwk->e[n].buf)
 			goto bail;
-		jwk->e[n].len = mbedtls_mpi_size(mpi[n]);
+		jwk->e[n].len = (uint32_t)mbedtls_mpi_size(mpi[n]);
 		mbedtls_mpi_write_binary(mpi[n], jwk->e[n].buf, jwk->e[n].len);
 	}
 
@@ -363,8 +363,8 @@ lws_x509_jwk_privkey_pem(struct lws_jwk *jwk, void *pem, size_t len,
 
 	n = 0;
 	if (passphrase)
-		n = strlen(passphrase);
-	n = mbedtls_pk_parse_key(&pk, pem, len, (uint8_t *)passphrase, n);
+		n = (int)strlen(passphrase);
+	n = mbedtls_pk_parse_key(&pk, pem, len, (uint8_t *)passphrase, (unsigned int)n);
 	if (n) {
 		lwsl_err("%s: parse PEM key failed: -0x%x\n", __func__, -n);
 
@@ -410,7 +410,7 @@ lws_x509_jwk_privkey_pem(struct lws_jwk *jwk, void *pem, size_t len,
 		jwk->e[n].buf = lws_malloc(mbedtls_mpi_size(mpi[n]), "certjwk");
 		if (!jwk->e[n].buf)
 			goto bail;
-		jwk->e[n].len = mbedtls_mpi_size(mpi[n]);
+		jwk->e[n].len = (uint32_t)mbedtls_mpi_size(mpi[n]);
 		mbedtls_mpi_write_binary(mpi[n], jwk->e[n].buf, jwk->e[n].len);
 	}
 

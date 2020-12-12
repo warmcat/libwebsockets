@@ -101,7 +101,7 @@ auth_api_amazon_com_parser_cb(struct lejp_ctx *ctx, char reason)
 		m->expires_secs = atoi(ctx->buf);
 		lws_sul_schedule(context, 0, &context->sul_api_amazon_com,
 				 lws_ss_sys_auth_api_amazon_com_renew,
-				 (uint64_t)m->expires_secs * LWS_US_PER_SEC);
+				 (lws_usec_t)m->expires_secs * LWS_US_PER_SEC);
 		break;
 	}
 
@@ -206,7 +206,7 @@ ss_api_amazon_auth_state(void *userobj, void *sh, lws_ss_constate_t state,
 	lws_system_blob_t *ab;
 	size_t s;
 
-	lwsl_info("%s: %s, ord 0x%x\n", __func__, lws_ss_state_name(state),
+	lwsl_info("%s: %s, ord 0x%x\n", __func__, lws_ss_state_name((int)state),
 		  (unsigned int)ack);
 
 	ab = lws_system_get_blob(context, LWS_SYSBLOB_TYPE_AUTH, AUTH_IDX_ROOT);

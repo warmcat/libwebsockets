@@ -111,7 +111,7 @@ lws_ranges_next(struct lws_range_parsing *rp)
 				rp->state = LWSRS_SYNTAX;
 				return 0;
 			}
-			rp->start = (rp->start * 10) + (c - '0');
+			rp->start = (unsigned long long)(((unsigned long long)rp->start * 10) + (unsigned long long)(c - '0'));
 			rp->start_valid = 1;
 			break;
 
@@ -153,7 +153,7 @@ lws_ranges_next(struct lws_range_parsing *rp)
 				rp->state = LWSRS_SYNTAX;
 				return 0;
 			}
-			rp->end = (rp->end * 10) + (c - '0');
+			rp->end = (unsigned long long)(((unsigned long long)rp->end * 10) + (unsigned long long)(c - '0'));
 			rp->end_valid = 1;
 			break;
 		}

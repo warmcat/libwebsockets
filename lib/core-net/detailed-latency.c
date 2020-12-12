@@ -61,7 +61,7 @@ lws_det_lat_plot_cb(struct lws_context *context, const lws_detlat_t *d)
 			return 1;
 	}
 
-	p += lws_snprintf(p, lws_ptr_diff(end, p),
+	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
 			  "%llu %c %u %u %u %u %u %zu %zu\n",
 			  (unsigned long long)lws_now_usecs(), types[d->type],
 			  d->latencies[LAT_DUR_PROXY_CLIENT_REQ_TO_WRITE],
@@ -73,7 +73,7 @@ lws_det_lat_plot_cb(struct lws_context *context, const lws_detlat_t *d)
 			  d->latencies[LAT_DUR_PROXY_RX_TO_ONWARD_TX],
 			  d->acc_size, d->req_size);
 
-	write(context->latencies_fd, buf, lws_ptr_diff(p, buf));
+	write(context->latencies_fd, buf, lws_ptr_diff_size_t(p, buf));
 
 	return 0;
 }

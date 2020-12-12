@@ -88,14 +88,14 @@ use_buffer_50ms(lws_sorted_usec_list_t *sul)
 	 */
 
 	/* remaining data in buffer */
-	n = ((m->head - m->tail) % sizeof(m->buf));
+	n = ((size_t)(m->head - m->tail) % sizeof(m->buf));
 	lwsl_info("%s: avail %d\n", __func__, (int)n);
 
 	if (n < 401)
 		lwsl_err("%s: underrun\n", __func__);
 
-	m->tail = (m->tail + 401) % sizeof(m->buf);
-	n = ((m->head - m->tail) % sizeof(m->buf));
+	m->tail = ((size_t)m->tail + 401) % sizeof(m->buf);
+	n = ((size_t)(m->head - m->tail) % sizeof(m->buf));
 
 	e = lws_ss_get_est_peer_tx_credit(m->ss);
 
@@ -103,8 +103,8 @@ use_buffer_50ms(lws_sorted_usec_list_t *sul)
 
 	if (n < (sizeof(m->buf) * 2) / 3 && e < (int)(sizeof(m->buf) - 1 - n)) {
 		lwsl_info("%s: requesting additional %d\n", __func__,
-				(int)(sizeof(m->buf) - 1 - e - n));
-		lws_ss_add_peer_tx_credit(m->ss, (int32_t)(sizeof(m->buf) - 1 - e - n));
+				(int)sizeof(m->buf) - 1 - e - (int)n);
+		lws_ss_add_peer_tx_credit(m->ss, (int32_t)((int)sizeof(m->buf) - 1 - e - (int)n));
 	}
 
 	lws_sul_schedule(context, 0, &m->sul, use_buffer_50ms,
@@ -124,7 +124,7 @@ ss_avs_metadata_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	lwsl_hexdump_warn(buf, len);
 #endif
 
-	n = sizeof(m->buf) - ((m->head - m->tail) % sizeof(m->buf));
+	n = sizeof(m->buf) - ((size_t)(m->head - m->tail) % sizeof(m->buf));
 	lwsl_info("%s: len %d, buf h %d, t %d, space %d\n", __func__,
 		    (int)len, (int)m->head, (int)m->tail, (int)n);
 	lws_ss_get_est_peer_tx_credit(m->ss);
@@ -138,7 +138,7 @@ ss_avs_metadata_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	if (m->head < m->tail)				/* |****h-------t**| */
 		memcpy(&m->buf[m->head], buf, len);
 	else {						/* |---t*****h-----| */
-		n1 = sizeof(m->buf) - m->head;
+		n1 = sizeof(m->buf) - (size_t)m->head;
 		if (len < n1)
 			n1 = len;
 		memcpy(&m->buf[m->head], buf, n1);
@@ -146,7 +146,7 @@ ss_avs_metadata_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 			memcpy(m->buf, buf, len - n1);
 	}
 
-	m->head = (m->head + len) % sizeof(m->buf);
+	m->head = (((size_t)m->head) + len) % sizeof(m->buf);
 
 	lws_sul_schedule(context, 0, &m->sul, use_buffer_50ms,
 			 50 * LWS_US_PER_MS);
@@ -185,7 +185,7 @@ ss_avs_metadata_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf,
 		if (m->pos == wav_len) {
 			*flags |= LWSSS_FLAG_EOM;
 			lwsl_info("%s: tx done\n", __func__);
-			m->pos = (long)-1l; /* ban subsequent until new stream */
+			m->pos = (size_t)-1l; /* ban subsequent until new stream */
 		} else
 			lws_ss_request_tx(m->ss);
 
@@ -227,7 +227,7 @@ ss_avs_metadata_state(void *userobj, void *sh,
 	ss_avs_metadata_t *m = (ss_avs_metadata_t *)userobj;
 	// struct lws_context *context = (struct lws_context *)m->opaque_data;
 
-	lwsl_user("%s: %s, ord 0x%x\n", __func__, lws_ss_state_name(state),
+	lwsl_user("%s: %s, ord 0x%x\n", __func__, lws_ss_state_name((int)state),
 		  (unsigned int)ack);
 
 	switch (state) {
@@ -296,7 +296,7 @@ ss_avs_event_state(void *userobj, void *sh,
 	struct lws_context *context = (struct lws_context *)m->opaque_data;
 	lws_ss_info_t ssi;
 
-	lwsl_user("%s: %s, ord 0x%x\n", __func__, lws_ss_state_name(state),
+	lwsl_user("%s: %s, ord 0x%x\n", __func__, lws_ss_state_name((int)state),
 		  (unsigned int)ack);
 
 	switch (state) {
@@ -382,7 +382,7 @@ avs_example_start(struct lws_context *context)
 		goto bail;
 	}
 
-	wav_len = stat.st_size;
+	wav_len = (size_t)stat.st_size;
 	wav = malloc(wav_len);
 	if (!wav) {
 		lwsl_err("%s: failed to alloc wav buffer", __func__);

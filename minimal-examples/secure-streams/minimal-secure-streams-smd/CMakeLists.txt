@@ -15,9 +15,19 @@ require_lws_config(LWS_WITH_SYS_STATE 1 requirements)
 
 if (requirements)
 	add_executable(${PROJECT_NAME} minimal-secure-streams-smd.c)
+	
+	find_program(VALGRIND "valgrind")
 
-	if (LWS_CTEST_INTERNET_AVAILABLE)
-		add_test(NAME ss-smd COMMAND lws-minimal-secure-streams-smd)
+	if (LWS_CTEST_INTERNET_AVAILABLE AND NOT WIN32)
+	
+		if (VALGRIND)
+			add_test(NAME ss-smd COMMAND
+				${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
+				$<TARGET_FILE:lws-minimal-secure-streams-smd>)
+		else()
+	
+			add_test(NAME ss-smd COMMAND lws-minimal-secure-streams-smd)
+		endif()
 		set_tests_properties(ss-smd
 				     PROPERTIES
 				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/secure-streams/minimal-secure-streams-smd

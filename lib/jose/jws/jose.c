@@ -364,19 +364,19 @@ append_string:
 	if (reason == LEJPCB_VAL_STR_END) {
 		n = lws_b64_decode_string_len(
 			(const char *)args->jose->e[ctx->path_match - 1].buf,
-			args->jose->e[ctx->path_match - 1].len,
+			(int)args->jose->e[ctx->path_match - 1].len,
 			(char *)args->jose->e[ctx->path_match - 1].buf,
-			args->jose->e[ctx->path_match - 1].len + 1);
+			(int)args->jose->e[ctx->path_match - 1].len + 1);
 		if (n < 0) {
 			lwsl_err("%s: b64 decode failed\n", __func__);
 			return -1;
 		}
 
-		args->temp -= args->jose->e[ctx->path_match - 1].len - n - 1;
+		args->temp -= (int)args->jose->e[ctx->path_match - 1].len - n - 1;
 		*args->temp_len +=
-			args->jose->e[ctx->path_match - 1].len - n - 1;
+			(int)args->jose->e[ctx->path_match - 1].len - n - 1;
 
-		args->jose->e[ctx->path_match - 1].len = n;
+		args->jose->e[ctx->path_match - 1].len = (uint32_t)n;
 	}
 
 	return 0;
@@ -419,13 +419,13 @@ lws_jose_parse(struct lws_jose *jose, const uint8_t *buf, int n,
 				 &jose->recipient[jose->recipients].jwk_ephemeral,
 				 NULL, NULL);
 
-	args.is_jwe = is_jwe;
-	args.temp = temp;
-	args.temp_len = temp_len;
-	args.jose = jose;
-	args.recip = 0;
-	args.recipients_array = 0;
-	jose->recipients = 0;
+	args.is_jwe		= (unsigned int)is_jwe;
+	args.temp		= temp;
+	args.temp_len		= temp_len;
+	args.jose		= jose;
+	args.recip		= 0;
+	args.recipients_array	= 0;
+	jose->recipients	= 0;
 
 	lejp_construct(&jctx, lws_jws_jose_cb, &args, jws_jose,
 		       LWS_ARRAY_SIZE(jws_jose));
@@ -488,7 +488,7 @@ lws_jose_render(struct lws_jose *jose, struct lws_jwk *aux_jwk,
 		case LJJHI_ENC:	/* JWE only: Optional: string */
 		case LJJHI_ZIP:	/* JWE only: Optional: string ("DEF"=deflate) */
 			if (jose->e[n].buf) {
-				out += lws_snprintf(out, end - out,
+				out += lws_snprintf(out, lws_ptr_diff_size_t(end, out),
 					"%s\"%s\":\"%s\"", sub ? ",\n" : "",
 					jws_jose[n], jose->e[n].buf);
 				sub = 1;
@@ -503,17 +503,17 @@ lws_jose_render(struct lws_jose *jose, struct lws_jwk *aux_jwk,
 		case LJJHI_TAG:	/* Additional arg for JWE AES:   b64url */
 		case LJJHI_P2S:	/* Additional arg for JWE PBES2: b64url: salt */
 			if (jose->e[n].buf) {
-				out += lws_snprintf(out, end - out,
+				out += lws_snprintf(out, lws_ptr_diff_size_t(end, out),
 					"%s\"%s\":\"", sub ? ",\n" : "",
 						jws_jose[n]);
 				sub = 1;
 				m = lws_b64_encode_string_url((const char *)
-						jose->e[n].buf, jose->e[n].len,
+						jose->e[n].buf, (int)jose->e[n].len,
 						out, lws_ptr_diff(end, out));
 				if (m < 0)
 					return -1;
 				out += m;
-				out += lws_snprintf(out, end - out, "\"");
+				out += lws_snprintf(out, lws_ptr_diff_size_t(end, out), "\"");
 			}
 			break;
 
@@ -522,17 +522,17 @@ lws_jose_render(struct lws_jose *jose, struct lws_jwk *aux_jwk,
 
 		case LJJHI_X5C:	/* Optional: base64 (NOT -url): actual cert */
 			if (jose->e[n].buf) {
-				out += lws_snprintf(out, end - out,
+				out += lws_snprintf(out, lws_ptr_diff_size_t(end, out),
 					"%s\"%s\":\"", sub ? ",\n" : "",
 							jws_jose[n]);
 				sub = 1;
 				m = lws_b64_encode_string((const char *)
-						jose->e[n].buf, jose->e[n].len,
+						jose->e[n].buf, (int)jose->e[n].len,
 						out, lws_ptr_diff(end, out));
 				if (m < 0)
 					return -1;
 				out += m;
-				out += lws_snprintf(out, end - out, "\"");
+				out += lws_snprintf(out, lws_ptr_diff_size_t(end, out), "\"");
 			}
 			break;
 
@@ -543,7 +543,7 @@ lws_jose_render(struct lws_jose *jose, struct lws_jwk *aux_jwk,
 			if (!jwk || !jwk->kty)
 				break;
 
-			out += lws_snprintf(out, end - out, "%s\"%s\":",
+			out += lws_snprintf(out, lws_ptr_diff_size_t(end, out), "%s\"%s\":",
 					    sub ? ",\n" : "", jws_jose[n]);
 			sub = 1;
 			vl = lws_ptr_diff(end, out);
@@ -562,7 +562,7 @@ lws_jose_render(struct lws_jose *jose, struct lws_jwk *aux_jwk,
 			if (!jose->e[n].buf)
 				break;
 
-			out += lws_snprintf(out, end - out,
+			out += lws_snprintf(out, lws_ptr_diff_size_t(end, out),
 				"%s\"%s\":[", sub ? ",\n" : "", jws_jose[n]);
 			sub = 1;
 
@@ -585,7 +585,7 @@ lws_jose_render(struct lws_jose *jose, struct lws_jwk *aux_jwk,
 					f = 0;
 				}
 
-				*out++ = jose->e[n].buf[m];
+				*out++ = (char)jose->e[n].buf[m];
 				m++;
 			}
 

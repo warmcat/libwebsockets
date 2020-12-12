@@ -36,7 +36,7 @@ strtolower(char *s)
 		int tolower_optee(int c);
 		*s = tolower_optee((int)*s);
 #else
-		*s = tolower((int)*s);
+		*s = (char)tolower((int)*s);
 #endif
 		s++;
 	}
@@ -60,7 +60,7 @@ lws_create_client_ws_object(const struct lws_client_connect_info *i,
 	    i->ietf_version_or_minus_one)
 		v = i->ietf_version_or_minus_one;
 
-	wsi->ws->ietf_spec_revision = v;
+	wsi->ws->ietf_spec_revision = (uint8_t)v;
 
 	return 0;
 }
@@ -94,7 +94,7 @@ lws_ws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 			 * effectively "putting it back in the cache", we have
 			 * to place it at the cache head, not the tail as usual.
 			 */
-			if (lws_rxflow_cache(wsi, *buf, 0, (int)len) ==
+			if (lws_rxflow_cache(wsi, *buf, 0, len) ==
 							LWSRXFC_TRIMMED) {
 				/*
 				 * we dealt with it by trimming the existing
@@ -222,7 +222,7 @@ lws_generate_client_ws_handshake(struct lws *wsi, char *p, const char *conn1)
 	n = sprintf(buf, "%s258EAFA5-E914-47DA-95CA-C5AB0DC85B11",
 			  key_b64);
 
-	lws_SHA1((unsigned char *)buf, n, (unsigned char *)hash);
+	lws_SHA1((unsigned char *)buf, (unsigned int)n, (unsigned char *)hash);
 
 	lws_b64_encode_string(hash, 20,
 		  wsi->http.ah->initial_handshake_hash_base64,
@@ -306,7 +306,7 @@ lws_client_ws_upgrade(struct lws *wsi, const char **cce)
 	n = lws_hdr_copy(wsi, buf, sizeof(buf) - 1, WSI_TOKEN_CONNECTION);
 	if (n <= 0) /* won't fit, or absent */
 		goto bad_conn_format;
-	ts.len = n;
+	ts.len = (unsigned int)n;
 
 	do {
 		e = lws_tokenize(&ts);
@@ -365,7 +365,7 @@ bad_conn_format:
 	len = (int)strlen(p);
 
 	while (pc && *pc && !okay) {
-		if (!strncmp(pc, p, len) &&
+		if (!strncmp(pc, p, (unsigned int)len) &&
 		    (pc[len] == ',' || pc[len] == '\0')) {
 			okay = 1;
 			continue;
@@ -463,7 +463,7 @@ check_extensions:
 	 * and go through matching them or identifying bogons
 	 */
 
-	if (lws_hdr_copy(wsi, sb, context->pt_serv_buf_size,
+	if (lws_hdr_copy(wsi, sb, (int)context->pt_serv_buf_size,
 			 WSI_TOKEN_EXTENSIONS) < 0) {
 		lwsl_warn("ext list from server failed to copy\n");
 		*cce = "HS: EXT: list too big";
@@ -648,16 +648,16 @@ check_accept:
 	 */
 	n = (int)wsi->a.protocol->rx_buffer_size;
 	if (!n)
-		n = context->pt_serv_buf_size;
+		n = (int)context->pt_serv_buf_size;
 	n += LWS_PRE;
-	wsi->ws->rx_ubuf = lws_malloc(n + 4 /* 0x0000ffff zlib */,
+	wsi->ws->rx_ubuf = lws_malloc((unsigned int)n + 4 /* 0x0000ffff zlib */,
 				"client frame buffer");
 	if (!wsi->ws->rx_ubuf) {
 		lwsl_err("Out of Mem allocating rx buffer %d\n", n);
 		*cce = "HS: OOM";
 		goto bail2;
 	}
-	wsi->ws->rx_ubuf_alloc = n;
+	wsi->ws->rx_ubuf_alloc = (unsigned int)n;
 
 	lwsl_debug("handshake OK for protocol %s\n", wsi->a.protocol->name);
 

@@ -96,7 +96,7 @@ lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 		 * Figure out how much was read, so that we can proceed
 		 * appropriately:
 		 */
-		len -= (buf - last_char);
+		len -= (unsigned int)lws_ptr_diff(buf, last_char);
 
 		if (!wsi->hdr_parsing_completed)
 			/* More header content on the way */
@@ -150,10 +150,10 @@ http_postbody:
 				args.ch = LWS_STDIN;
 				args.stdwsi = &wsi->http.cgi->lsp->stdwsi[0];
 				args.data = buf;
-				args.len = body_chunk_len;
+				args.len = (int)(unsigned int)body_chunk_len;
 
 				/* returns how much used */
-				n = user_callback_handle_rxflow(
+				n = (unsigned int)user_callback_handle_rxflow(
 					wsi->a.protocol->callback,
 					wsi, LWS_CALLBACK_CGI_STDIN_DATA,
 					wsi->user_space,
@@ -199,7 +199,7 @@ http_postbody:
 			if (wsi->http.rx_content_remain)  {
 				lws_set_timeout(wsi,
 						PENDING_TIMEOUT_HTTP_CONTENT,
-						wsi->a.context->timeout_secs);
+						(int)wsi->a.context->timeout_secs);
 				break;
 			}
 			/* he sent all the content in time */
@@ -211,7 +211,7 @@ postbody_completion:
 			 */
 			if (wsi->http.cgi)
 				lws_set_timeout(wsi, PENDING_TIMEOUT_CGI,
-						wsi->a.context->timeout_secs);
+						(int)wsi->a.context->timeout_secs);
 			else
 #endif
 			lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
@@ -235,7 +235,7 @@ postbody_completion:
 				lwsl_info("HTTP_BODY_COMPLETION: %s (%s)\n",
 					  lws_wsi_tag(wsi), wsi->a.protocol->name);
 
-				n = wsi->a.protocol->callback(wsi,
+				n = (unsigned int)wsi->a.protocol->callback(wsi,
 					LWS_CALLBACK_HTTP_BODY_COMPLETION,
 					wsi->user_space, NULL, 0);
 				if (n) {
@@ -438,10 +438,10 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 		 */
 #if defined(LWS_ROLE_H2)
 		if (lwsi_role_h2(wsi) && lwsi_state(wsi) != LRS_BODY)
-			n = lws_read_h2(wsi, ebuf.token, ebuf.len);
+			n = lws_read_h2(wsi, ebuf.token, (unsigned int)ebuf.len);
 		else
 #endif
-			n = lws_read_h1(wsi, ebuf.token, ebuf.len);
+			n = lws_read_h1(wsi, ebuf.token, (unsigned int)ebuf.len);
 		if (n < 0) /* we closed wsi */
 			return LWS_HPI_RET_WSI_ALREADY_DIED;
 
@@ -782,7 +782,7 @@ rops_handle_POLLOUT_h1(struct lws *wsi)
 #endif
 				lwsi_set_state(wsi, LRS_WAITING_SERVER_REPLY);
 				lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
-						wsi->a.context->timeout_secs);
+						(int)wsi->a.context->timeout_secs);
 			}
 		}
 #endif
@@ -824,7 +824,7 @@ rops_write_role_protocol_h1(struct lws *wsi, unsigned char *buf, size_t len,
 			   (int)o, (int)*wp, wsi->http.comp_ctx.may_have_more);
 
 		if (!o)
-			return olen;
+			return (int)olen;
 
 		if (wsi->http.comp_ctx.chunking) {
 			char c[LWS_HTTP_CHUNK_HDR_MAX_SIZE + 2];
@@ -835,8 +835,8 @@ rops_write_role_protocol_h1(struct lws *wsi, unsigned char *buf, size_t len,
 			n = lws_snprintf(c, sizeof(c), "%X\x0d\x0a", (int)o);
 			lwsl_info("%s: chunk (%d) %s", __func__, (int)o, c);
 			out -= n;
-			o += n;
-			memcpy(out, c, n);
+			o += (unsigned int)n;
+			memcpy(out, c, (unsigned int)n);
 			out[o++] = '\x0d';
 			out[o++] = '\x0a';
 
@@ -974,7 +974,7 @@ rops_adoption_bind_h1(struct lws *wsi, int type, const char *vh_prot_name)
 
 	/* the transport is accepted... give him time to negotiate */
 	lws_set_timeout(wsi, PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
-			wsi->a.context->timeout_secs);
+			(int)wsi->a.context->timeout_secs);
 
 	return 1; /* bound */
 }

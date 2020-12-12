@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -67,7 +67,7 @@ lws_jwe_encrypt_rsa_aes_gcm(struct lws_jwe *jwe, char *temp, int *temp_len)
 	 * just reuse it.  It will be cleansed in the JWE destroy.
 	 */
 	if (!jwe->cek_valid) {
-		if (lws_get_random(jwe->jws.context, jwe->cek, ekbytes) !=
+		if (lws_get_random(jwe->jws.context, jwe->cek, (unsigned int)ekbytes) !=
 							      (size_t)ekbytes) {
 			lwsl_err("%s: Problem getting random\n", __func__);
 			return -1;
@@ -77,14 +77,14 @@ lws_jwe_encrypt_rsa_aes_gcm(struct lws_jwe *jwe, char *temp, int *temp_len)
 
 	if (lws_jws_dup_element(&jwe->jws.map, LJWE_EKEY,
 			        temp + (ot - *temp_len), temp_len,
-			        jwe->cek, ekbytes, 0))
+			        jwe->cek, (unsigned int)ekbytes, 0))
 		return -1;
 
 	/* encrypt the payload */
 
 	n = lws_jwe_encrypt_gcm(jwe, (uint8_t *)jwe->jws.map.buf[LJWE_EKEY],
 				(uint8_t *)jwe->jws.map_b64.buf[LJWE_JOSE],
-				jwe->jws.map_b64.len[LJWE_JOSE]);
+				(int)jwe->jws.map_b64.len[LJWE_JOSE]);
 	if (n < 0) {
 		lwsl_err("%s: lws_jwe_encrypt_gcm failed\n",
 			 __func__);
@@ -102,7 +102,7 @@ lws_jwe_encrypt_rsa_aes_gcm(struct lws_jwe *jwe, char *temp, int *temp_len)
 		goto bail;
 	}
 
-	n = lws_genrsa_public_encrypt(&rsactx, jwe->cek, ekbytes,
+	n = lws_genrsa_public_encrypt(&rsactx, jwe->cek, (unsigned int)ekbytes,
 				      (uint8_t *)jwe->jws.map.buf[LJWE_EKEY]);
 	lws_genrsa_destroy(&rsactx);
 	if (n < 0) {
@@ -111,9 +111,9 @@ lws_jwe_encrypt_rsa_aes_gcm(struct lws_jwe *jwe, char *temp, int *temp_len)
 	}
 
 	/* set the EKEY length to the actual enciphered length */
-	jwe->jws.map.len[LJWE_EKEY] = n;
+	jwe->jws.map.len[LJWE_EKEY] = (unsigned int)n;
 
-	ret = jwe->jws.map.len[LJWE_CTXT];
+	ret = (int32_t)jwe->jws.map.len[LJWE_CTXT];
 
 bail:
 
@@ -163,7 +163,7 @@ lws_jwe_auth_and_decrypt_rsa_aes_gcm(struct lws_jwe *jwe)
 
 	n = lws_jwe_auth_and_decrypt_gcm(jwe, enc_cek,
 			(uint8_t *)jwe->jws.map_b64.buf[LJWE_JOSE],
-				jwe->jws.map_b64.len[LJWE_JOSE]);
+				(int)jwe->jws.map_b64.len[LJWE_JOSE]);
 	if (n < 0) {
 		lwsl_err("%s: lws_jwe_auth_and_decrypt_gcm_hs failed\n",
 			 __func__);
@@ -179,5 +179,5 @@ lws_jwe_auth_and_decrypt_rsa_aes_gcm(struct lws_jwe *jwe)
 	jwe->jws.map.len[LJWE_CTXT] -= n;
 #endif
 
-	return jwe->jws.map.len[LJWE_CTXT];
+	return (int)jwe->jws.map.len[LJWE_CTXT];
 }

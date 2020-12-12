@@ -52,7 +52,7 @@ lws_http_compression_validate(struct lws *wsi)
 
 	for (n = 0; n < LWS_ARRAY_SIZE(lcs_available); n++)
 		if (strstr(a, lcs_available[n]->encoding_name))
-			wsi->http.comp_accept_mask |= 1 << n;
+			wsi->http.comp_accept_mask |= (uint8_t)(1 << n);
 
 	return 0;
 }
@@ -91,11 +91,11 @@ lws_http_compression_apply(struct lws *wsi, const char *name,
 	wsi->http.comp_ctx.may_have_more = 0;
 	wsi->http.comp_ctx.final_on_input_side = 0;
 	wsi->http.comp_ctx.chunking = 0;
-	wsi->http.comp_ctx.is_decompression = decomp;
+	wsi->http.comp_ctx.is_decompression = !!decomp;
 
 	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_ENCODING,
 			(unsigned char *)lcs_available[n]->encoding_name,
-			strlen(lcs_available[n]->encoding_name), p, end))
+			(int)strlen(lcs_available[n]->encoding_name), p, end))
 		return -1;
 
 	lwsl_info("%s: %s: applied %s content-encoding\n", __func__,
@@ -151,7 +151,7 @@ lws_http_compression_transform(struct lws *wsi, unsigned char *buf,
 		 * to a non-final for now.
 		 */
 		ctx->final_on_input_side = 1;
-		*wp = LWS_WRITE_HTTP | ((*wp) & ~0x1f);
+		*wp = (unsigned int)(LWS_WRITE_HTTP | ((*wp) & ~0x1fu));
 	}
 
 	if (ctx->buflist_comp) {
@@ -190,7 +190,8 @@ lws_http_compression_transform(struct lws *wsi, unsigned char *buf,
 	}
 
 	if (!ctx->may_have_more && ctx->final_on_input_side)
-		*wp = LWS_WRITE_HTTP_FINAL | ((*wp) & ~0x1f);
+
+		*wp = (unsigned int)(LWS_WRITE_HTTP_FINAL | ((*wp) & ~0x1fu));
 
 	lwsl_debug("%s: %s: more %d, ilen_iused %d\n", __func__, lws_wsi_tag(wsi),
 		   ctx->may_have_more, (int)ilen_iused);

@@ -563,10 +563,10 @@ struct lws_context_creation_info {
 	 * 0 defaults to 10s. */
 #endif /* WITH_NETWORK */
 
-	int gid;
+	gid_t gid;
 	/**< CONTEXT: group id to change to after setting listen socket,
 	 *   or -1. See also .username below. */
-	int uid;
+	uid_t uid;
 	/**< CONTEXT: user id to change to after setting listen socket,
 	 *   or -1.  See also .groupname below. */
 	uint64_t options;

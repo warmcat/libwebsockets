@@ -234,7 +234,7 @@ lws_header_table_attach(struct lws *wsi, int autoservice)
 		goto reset;
 	}
 
-	n = pt->http.ah_count_in_use == context->max_http_header_pool;
+	n = pt->http.ah_count_in_use == (int)context->max_http_header_pool;
 #if defined(LWS_WITH_PEER_LIMITS)
 	if (!n) {
 		n = lws_peer_confirm_ah_attach_ok(context, wsi->peer);
@@ -594,7 +594,7 @@ lws_hdr_custom_length(struct lws *wsi, const char *name, int nlen)
 			return -1;
 		if (nlen == lws_ser_ru16be(
 			(uint8_t *)&wsi->http.ah->data[ll + UHO_NLEN]) &&
-		    !strncmp(name, &wsi->http.ah->data[ll + UHO_NAME], nlen))
+		    !strncmp(name, &wsi->http.ah->data[ll + UHO_NAME], (unsigned int)nlen))
 			return lws_ser_ru16be(
 				(uint8_t *)&wsi->http.ah->data[ll + UHO_VLEN]);
 
@@ -622,12 +622,12 @@ lws_hdr_custom_copy(struct lws *wsi, char *dst, int len, const char *name,
 			return -1;
 		if (nlen == lws_ser_ru16be(
 			(uint8_t *)&wsi->http.ah->data[ll + UHO_NLEN]) &&
-		    !strncmp(name, &wsi->http.ah->data[ll + UHO_NAME], nlen)) {
+		    !strncmp(name, &wsi->http.ah->data[ll + UHO_NAME], (unsigned int)nlen)) {
 			n = lws_ser_ru16be(
 				(uint8_t *)&wsi->http.ah->data[ll + UHO_VLEN]);
 			if (n + 1 > len)
 				return -1;
-			strncpy(dst, &wsi->http.ah->data[ll + UHO_NAME + nlen], n);
+			strncpy(dst, &wsi->http.ah->data[ll + UHO_NAME + (unsigned int)nlen], (unsigned int)n);
 			dst[n] = '\0';
 
 			return n;
@@ -663,7 +663,7 @@ lws_pos_in_bounds(struct lws *wsi)
 	    (unsigned int)wsi->a.context->max_http_header_data)
 		return 0;
 
-	if ((int)wsi->http.ah->pos >= wsi->a.context->max_http_header_data - 1) {
+	if ((int)wsi->http.ah->pos >= (int)wsi->a.context->max_http_header_data - 1) {
 		lwsl_err("Ran out of header data space\n");
 		return 1;
 	}
@@ -732,7 +732,7 @@ issue_char(struct lws *wsi, unsigned char c)
 	 */
 	if (!wsi->http.ah->current_token_limit ||
 	    frag_len < wsi->http.ah->current_token_limit) {
-		wsi->http.ah->data[wsi->http.ah->pos++] = c;
+		wsi->http.ah->data[wsi->http.ah->pos++] = (char)c;
 		if (c)
 			wsi->http.ah->frags[wsi->http.ah->nfrag].len++;
 		return 0;
@@ -773,21 +773,21 @@ lws_parse_urldecode(struct lws *wsi, uint8_t *_c)
 		}
 		break;
 	case URIES_SEEN_PERCENT:
-		if (char_to_hex(c) < 0)
+		if (char_to_hex((char)c) < 0)
 			/* illegal post-% char */
 			goto forbid;
 
-		ah->esc_stash = c;
+		ah->esc_stash = (char)c;
 		ah->ues = URIES_SEEN_PERCENT_H1;
 		goto swallow;
 
 	case URIES_SEEN_PERCENT_H1:
-		if (char_to_hex(c) < 0)
+		if (char_to_hex((char)c) < 0)
 			/* illegal post-% char */
 			goto forbid;
 
-		*_c = (char_to_hex(ah->esc_stash) << 4) |
-				char_to_hex(c);
+		*_c = (uint8_t)(unsigned int)((char_to_hex(ah->esc_stash) << 4) |
+				char_to_hex((char)c));
 		c = *_c;
 		enc = 1;
 		ah->ues = URIES_IDLE;
@@ -812,7 +812,7 @@ lws_parse_urldecode(struct lws *wsi, uint8_t *_c)
 			if (issue_char(wsi, '\0') < 0)
 				return -1;
 			/* link to next fragment */
-			ah->frags[ah->nfrag].nfrag = ah->nfrag + 1;
+			ah->frags[ah->nfrag].nfrag = (uint8_t)(ah->nfrag + 1);
 			ah->nfrag++;
 			if (ah->nfrag >= LWS_ARRAY_SIZE(ah->frags))
 				goto excessive;
@@ -981,7 +981,7 @@ lws_parse(struct lws *wsi, unsigned char *buf, int *len)
 				break;
 			if (c == '\n') {
 				lws_ser_wu16be((uint8_t *)&ah->data[ah->unk_pos + 2],
-					       ah->pos - ah->unk_value_pos);
+					       (uint16_t)(ah->pos - ah->unk_value_pos));
 				ah->parser_state = WSI_TOKEN_NAME_PART;
 				ah->unk_pos = 0;
 				ah->lextable_pos = 0;
@@ -995,7 +995,7 @@ lws_parse(struct lws *wsi, unsigned char *buf, int *len)
 				if (lws_pos_in_bounds(wsi))
 					return LPR_FAIL;
 
-				ah->data[ah->pos++] = c;
+				ah->data[ah->pos++] = (char)c;
 			}
 			pos = ah->lextable_pos;
 			break;
@@ -1073,7 +1073,8 @@ check_eol:
 				if (c == '\x0a') {
 					/* broken peer */
 					ah->parser_state = WSI_TOKEN_NAME_PART;
-					ah->unk_pos = ah->lextable_pos = 0;
+					ah->unk_pos = 0;
+					ah->lextable_pos = 0;
 				} else
 					ah->parser_state = WSI_TOKEN_SKIPPING_SAW_CR;
 
@@ -1081,7 +1082,7 @@ check_eol:
 				lwsl_parser("*\n");
 			}
 
-			n = issue_char(wsi, c);
+			n = (unsigned int)issue_char(wsi, c);
 			if ((int)n < 0)
 				return LPR_FAIL;
 			if (n > 0)
@@ -1107,7 +1108,7 @@ swallow:
 				goto set_parsing_complete;
 
 			if (c >= 'A' && c <= 'Z')
-				c += 'a' - 'A';
+				c = (unsigned char)(c + 'a' - 'A');
 			/*
 			 * ...in case it's an unknown header, speculatively
 			 * store it as the name comes in.  If we recognize it as
@@ -1134,7 +1135,7 @@ swallow:
 			if (lws_pos_in_bounds(wsi))
 				return LPR_FAIL;
 
-			ah->data[ah->pos++] = c;
+			ah->data[ah->pos++] = (char)c;
 			pos = ah->lextable_pos;
 
 #if defined(LWS_WITH_CUSTOM_HEADERS)
@@ -1161,7 +1162,7 @@ swallow:
 				ah->unk_ll_tail = ah->unk_pos;
 
 #if defined(_DEBUG)
-				uhlen = ah->pos - (ah->unk_pos + UHO_NAME);
+				uhlen = (int)(ah->pos - (ah->unk_pos + UHO_NAME));
 				lws_strnncpy(dotstar,
 					&ah->data[ah->unk_pos + UHO_NAME],
 					uhlen, sizeof(dotstar));
@@ -1174,7 +1175,7 @@ swallow:
 				/* set the unknown header name part length */
 
 				lws_ser_wu16be((uint8_t *)&ah->data[ah->unk_pos],
-					       (ah->pos - ah->unk_pos) - UHO_NAME);
+					       (uint16_t)((ah->pos - ah->unk_pos) - UHO_NAME));
 
 				ah->unk_value_pos = ah->pos;
 
@@ -1202,7 +1203,7 @@ nope:
 					if (lextable_h1[pos] == FAIL_CHAR)
 						goto nope;
 
-					ah->lextable_pos = pos;
+					ah->lextable_pos = (int16_t)pos;
 					break;
 				}
 
@@ -1222,14 +1223,14 @@ nope:
 						ah->unk_pos = 0;
 					}
 
-					ah->lextable_pos = pos;
+					ah->lextable_pos = (int16_t)pos;
 					break;
 				}
 
 				if (lextable_h1[pos] == c) { /* goto */
-					ah->lextable_pos = pos +
+					ah->lextable_pos = (int16_t)(pos +
 						(lextable_h1[pos + 1]) +
-						(lextable_h1[pos + 2] << 8);
+						(lextable_h1[pos + 2] << 8));
 					break;
 				}
 
@@ -1343,7 +1344,7 @@ nope:
 					n = WSI_TOKEN_ORIGIN;
 #endif
 
-				ah->parser_state = (enum lws_token_indexes)
+				ah->parser_state = (uint8_t)
 							(WSI_TOKEN_GET_URI + n);
 				ah->ups = URIPS_IDLE;
 
@@ -1405,7 +1406,8 @@ excessive:
 			if (c == '\x0a') {
 				/* broken peer */
 				ah->parser_state = WSI_TOKEN_NAME_PART;
-				ah->unk_pos = ah->lextable_pos = 0;
+				ah->unk_pos = 0;
+				ah->lextable_pos = 0;
 			}
 
 			if (c == '\x0d')
@@ -1418,7 +1420,8 @@ excessive:
 				goto forbid;
 			if (c == '\x0a') {
 				ah->parser_state = WSI_TOKEN_NAME_PART;
-				ah->unk_pos = ah->lextable_pos = 0;
+				ah->unk_pos = 0;
+				ah->lextable_pos = 0;
 			} else
 				ah->parser_state = WSI_TOKEN_SKIPPING;
 			break;
@@ -1441,7 +1444,7 @@ set_parsing_complete:
 #if defined(LWS_ROLE_WS)
 		const char *pv = lws_hdr_simple_ptr(wsi, WSI_TOKEN_VERSION);
 		if (pv)
-			wsi->rx_frame_type = atoi(pv);
+			wsi->rx_frame_type = (char)atoi(pv);
 
 		lwsl_parser("v%02d hdrs done\n", wsi->rx_frame_type);
 #endif
@@ -1479,7 +1482,7 @@ lws_http_cookie_get(struct lws *wsi, const char *name, char *buf,
 	p += bl;
 	n -= bl;
 	while (n-- > bl) {
-		if (*p == '=' && !memcmp(p - bl, name, bl)) {
+		if (*p == '=' && !memcmp(p - bl, name, (unsigned int)bl)) {
 			p++;
 			while (*p != ';' && n-- && max) {
 				*buf++ = *p++;
@@ -1489,7 +1492,7 @@ lws_http_cookie_get(struct lws *wsi, const char *name, char *buf,
 				return 2;
 
 			*buf = '\0';
-			*max_len = lws_ptr_diff(buf, bo);
+			*max_len = lws_ptr_diff_size_t(buf, bo);
 
 			return 0;
 		}

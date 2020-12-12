@@ -134,19 +134,19 @@ _lws_plat_file_write(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 
 int
 lws_plat_write_cert(struct lws_vhost *vhost, int is_key, int fd, void *buf,
-			int len)
+			size_t len)
 {
 	int n;
 
-	n = write(fd, buf, len);
+	n = (int)write(fd, buf, (unsigned int)len);
 
 	lseek(fd, 0, SEEK_SET);
 
-	return n != len;
+	return (size_t)n != len;
 }
 
 int
-lws_plat_write_file(const char *filename, void *buf, int len)
+lws_plat_write_file(const char *filename, void *buf, size_t len)
 {
 	int m, fd;
 
@@ -155,20 +155,20 @@ lws_plat_write_file(const char *filename, void *buf, int len)
 	if (fd == -1)
 		return -1;
 
-	m = write(fd, buf, len);
+	m = (int)write(fd, buf, (unsigned int)len);
 	close(fd);
 
-	return m != len;
+	return (size_t)m != len;
 }
 
 int
-lws_plat_read_file(const char *filename, void *buf, int len)
+lws_plat_read_file(const char *filename, void *buf, size_t len)
 {
 	int n, fd = lws_open(filename, O_RDONLY);
 	if (fd == -1)
 		return -1;
 
-	n = read(fd, buf, len);
+	n = (int)read(fd, buf, (unsigned int)len);
 	close(fd);
 
 	return n;

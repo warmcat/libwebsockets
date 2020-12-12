@@ -100,7 +100,7 @@ EVP_PKEY *d2i_PrivateKey(int type,
         m = 1;
     }
 
-    ret = EVP_PKEY_METHOD_CALL(load, pkey, *pp, length);
+    ret = EVP_PKEY_METHOD_CALL(load, pkey, *pp, (int)length);
     if (ret) {
         SSL_DEBUG(SSL_PKEY_ERROR_LEVEL, "EVP_PKEY_METHOD_CALL(load) return %d", ret);
         goto failed2;

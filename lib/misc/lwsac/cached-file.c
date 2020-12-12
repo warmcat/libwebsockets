@@ -177,7 +177,7 @@ lwsac_cached_file(const char *filepath, lwsac_cached_file_t *cache, size_t *len)
 	 * it... reload in a new lac and then detach the old lac.
 	 */
 
-	all = sizeof(*info) + s.st_size + 2;
+	all = sizeof(*info) + (unsigned long)s.st_size + 2;
 
 	info = lwsac_use(&lac, all, all);
 	if (!info)
@@ -188,10 +188,10 @@ lwsac_cached_file(const char *filepath, lwsac_cached_file_t *cache, size_t *len)
 
 	a = (unsigned char *)(info + 1);
 
-	*len = s.st_size;
+	*len = (unsigned long)s.st_size;
 	a[s.st_size] = '\0';
 
-	rd = read(fd, a, s.st_size);
+	rd = read(fd, a, (unsigned long)s.st_size);
 	if (rd != s.st_size) {
 		lwsl_err("%s: cannot read %s (%d)\n", __func__, filepath,
 			 (int)rd);

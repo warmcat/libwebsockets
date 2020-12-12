@@ -75,7 +75,7 @@ lws_context_init_ssl_pem_passwd_cb(char *buf, int size, int rwflag,
 	struct lws_context_creation_info * info =
 			(struct lws_context_creation_info *)userdata;
 
-	strncpy(buf, info->ssl_private_key_password, size);
+	strncpy(buf, info->ssl_private_key_password, (unsigned int)size);
 	buf[size - 1] = '\0';
 
 	return (int)strlen(buf);
@@ -94,7 +94,7 @@ lws_context_init_ssl_pem_passwd_client_cb(char *buf, int size, int rwflag,
 	if (info->client_ssl_private_key_password)
 		p = info->client_ssl_private_key_password;
 
-	strncpy(buf, p, size);
+	strncpy(buf, p, (unsigned int)size);
 	buf[size - 1] = '\0';
 
 	return (int)strlen(buf);
@@ -200,7 +200,7 @@ lws_ssl_destroy(struct lws_vhost *vhost)
 }
 
 int
-lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
+lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 {
 	struct lws_context *context = wsi->a.context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
@@ -213,7 +213,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 
 	errno = 0;
 	ERR_clear_error();
-	n = SSL_read(wsi->tls.ssl, buf, len);
+	n = SSL_read(wsi->tls.ssl, buf, (int)(ssize_t)len);
 #if defined(LWS_PLAT_FREERTOS)
 	if (!n && errno == LWS_ENOTCONN) {
 		lwsl_debug("%s: SSL_read ENOTCONN\n", lws_wsi_tag(wsi));
@@ -299,20 +299,20 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 	lwsl_hexdump_notice(buf, n);
 #endif
 
-	lws_stats_bump(pt, LWSSTATS_B_READ, n);
+	lws_stats_bump(pt, LWSSTATS_B_READ, (unsigned int)n);
 
 #if defined(LWS_WITH_SERVER_STATUS)
 	if (wsi->a.vhost)
-		wsi->a.vhost->conn_stats.rx += n;
+		wsi->a.vhost->conn_stats.rx = (unsigned long long)(wsi->a.vhost->conn_stats.rx + (unsigned long long)(long long)n);
 #endif
 
 #if defined(LWS_WITH_DETAILED_LATENCY)
 	if (context->detailed_latency_cb) {
 		wsi->detlat.req_size = len;
-		wsi->detlat.acc_size = n;
+		wsi->detlat.acc_size = (unsigned int)n;
 		wsi->detlat.type = LDLT_READ;
 		wsi->detlat.latencies[LAT_DUR_PROXY_RX_TO_ONWARD_TX] =
-			lws_now_usecs() - pt->ust_left_poll;
+			(uint32_t)(lws_now_usecs() - pt->ust_left_poll);
 		wsi->detlat.latencies[LAT_DUR_USERCB] = 0;
 		lws_det_lat_cb(wsi->a.context, &wsi->detlat);
 	}
@@ -325,7 +325,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 	 * Because these won't signal at the network layer with POLLIN
 	 * and if we don't realize, this data will sit there forever
 	 */
-	if (n != len)
+	if (n != (int)(ssize_t)len)
 		goto bail;
 	if (!wsi->tls.ssl)
 		goto bail;
@@ -354,7 +354,7 @@ lws_ssl_pending(struct lws *wsi)
 }
 
 int
-lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, int len)
+lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 {
 	int n, m;
 
@@ -373,7 +373,7 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, int len)
 
 	errno = 0;
 	ERR_clear_error();
-	n = SSL_write(wsi->tls.ssl, buf, len);
+	n = SSL_write(wsi->tls.ssl, buf, (int)(ssize_t)len);
 	if (n > 0)
 		return n;
 
@@ -394,7 +394,7 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, int len)
 		}
 	}
 
-	lwsl_debug("%s failed: %s\n",__func__, ERR_error_string(m, NULL));
+	lwsl_debug("%s failed: %s\n",__func__, ERR_error_string((unsigned int)m, NULL));
 	lws_tls_err_describe_clear();
 
 	wsi->socket_is_permanently_unusable = 1;

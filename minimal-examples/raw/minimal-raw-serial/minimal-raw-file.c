@@ -89,12 +89,12 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 		cfsetispeed(&tio, B115200);
 		cfsetospeed(&tio, B115200);
 
-		tio.c_lflag &= ~(ISIG | ICANON | IEXTEN | ECHO |
+		tio.c_lflag &= (tcflag_t)~(ISIG | ICANON | IEXTEN | ECHO |
 #if defined(__linux__)
 				XCASE |
 #endif
 				 ECHOE | ECHOK | ECHONL | ECHOCTL | ECHOKE);
-		tio.c_iflag &= ~(INLCR | IGNBRK | IGNPAR | IGNCR | ICRNL |
+		tio.c_iflag &= (tcflag_t)~(INLCR | IGNBRK | IGNPAR | IGNCR | ICRNL |
 				 IMAXBEL | IXON | IXOFF | IXANY
 #if defined(__linux__)
 				 | IUCLC
@@ -105,7 +105,7 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 		tio.c_cc[VMIN]  = 1;
 		tio.c_cc[VTIME] = 0;
 		tio.c_cc[VEOF] = 1;
-		tio.c_cflag &=  ~(
+		tio.c_cflag = tio.c_cflag & (unsigned long) ~(
 #if defined(__linux__)
 				CBAUD |
 #endif
@@ -142,13 +142,13 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_RAW_RX_FILE:
 		lwsl_notice("LWS_CALLBACK_RAW_RX_FILE\n");
-		n = read(vhd->filefd, buf, sizeof(buf));
+		n = (int)read(vhd->filefd, buf, sizeof(buf));
 		if (n < 0) {
 			lwsl_err("Reading from %s failed\n", filepath);
 
 			return 1;
 		}
-		lwsl_hexdump_level(LLL_NOTICE, buf, n);
+		lwsl_hexdump_level(LLL_NOTICE, buf, (unsigned int)n);
 		break;
 
 	case LWS_CALLBACK_RAW_CLOSE_FILE:

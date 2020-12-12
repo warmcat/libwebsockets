@@ -224,7 +224,7 @@ lws_mqttc_state_transition(lws_mqttc_t *c, lwsgs_mqtt_states_t s)
 static int
 lws_mqtt_pconsume(lws_mqtt_parser_t *par, int consumed)
 {
-	par->consumed += consumed;
+	par->consumed += (unsigned int)consumed;
 
 	if (par->consumed > par->props_len)
 		return -1;
@@ -575,7 +575,7 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 				goto oom;
 			pub = (lws_mqtt_publish_param_t *)wsi->mqtt->rx_cpkt_param;
 
-			pub->topic_len = par->n;
+			pub->topic_len = (uint16_t)par->n;
 
 			/* Topic Name */
 			pub->topic = (char *)lws_zalloc((size_t)pub->topic_len + 1,
@@ -594,7 +594,7 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 			pub->payload_pos = 0;
 
 			pub->payload_len = par->cpkt_remlen -
-				(2 + pub->topic_len + ((pub->qos) ? 2 : 0));
+				(unsigned int)(2 + pub->topic_len + ((pub->qos) ? 2 : 0));
 
 			switch (pub->qos) {
 			case QOS0:
@@ -634,7 +634,7 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 			par->state = LMQCPP_PAYLOAD;
 			pub->payload_pos = 0;
 			pub->payload_len = par->cpkt_remlen -
-				(2 + pub->topic_len + ((pub->qos) ? 2 : 0));
+				(unsigned int)(2 + pub->topic_len + ((pub->qos) ? 2 : 0));
 			if (pub->payload_len == 0)
 				goto cmd_completion;
 
@@ -719,7 +719,7 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 			    (par->cpkt_flags & LMQCFT_SESSION_PRESENT))
 				goto send_protocol_error_and_close;
 
-			wsi->mqtt->session_resumed = (par->cpkt_flags &
+			wsi->mqtt->session_resumed = ((unsigned int)par->cpkt_flags &
 						      LMQCFT_SESSION_PRESENT);
 
 			/* Move on to Connect Return Code */
@@ -1275,7 +1275,7 @@ bail1:
 					if (lws_mqtt_find_sub(w->mqtt,
 							      pub->topic))
 						if (w->a.protocol->callback(
-							    w, n,
+							    w, (enum lws_callback_reasons)n,
 							    w->user_space,
 							    (void *)pub,
 							    chunk))
@@ -1325,7 +1325,7 @@ bail1:
 			case LMSPR_NEED_MORE:
 				break;
 			case LMSPR_COMPLETED:
-				par->consumed += par->vbit.consumed;
+				par->consumed = (uint32_t)((unsigned int)par->consumed + (unsigned int)par->vbit.consumed);
 				if (par->vbit.value >
 				    LWS_ARRAY_SIZE(property_valid)) {
 					lwsl_notice("%s: undef prop id 0x%x\n",
@@ -1341,11 +1341,11 @@ bail1:
 					goto send_protocol_error_and_close;
 				}
 				par->prop_id = par->vbit.value;
-				par->flag_prop_multi =
+				par->flag_prop_multi = !!(
 					par->props_seen[par->prop_id >> 3] &
-					(1 << (par->prop_id & 7));
+					(1 << (par->prop_id & 7)));
 				par->props_seen[par->prop_id >> 3] |=
-						(1 << (par->prop_id & 7));
+						(uint8_t)(1 << (par->prop_id & 7));
 				/*
 				 *  even if it's not a vbi property arg,
 				 * .consumed of this will be zero the first time
@@ -1515,7 +1515,7 @@ lws_mqtt_fill_fixed_header(uint8_t *p, lws_mqtt_control_packet_t ctrl_pkt_type,
 	lws_mqtt_fixed_hdr_t hdr;
 
 	hdr.bits = 0;
-	hdr.flags.ctrl_pkt_type = (uint8_t) ctrl_pkt_type;
+	hdr.flags.ctrl_pkt_type = ctrl_pkt_type & 0xf;
 
 	switch(ctrl_pkt_type) {
 	case LMQCP_PUBLISH:
@@ -1531,7 +1531,7 @@ lws_mqtt_fill_fixed_header(uint8_t *p, lws_mqtt_control_packet_t ctrl_pkt_type,
 				 __func__, qos);
 			return -1;
 		}
-		hdr.flags.qos = (uint8_t)qos;
+		hdr.flags.qos = qos & 3;
 		hdr.flags.retain = !!retain;
 		break;
 
@@ -1640,7 +1640,7 @@ lws_mqtt_client_send_publish(struct lws *wsi, lws_mqtt_publish_param_t *pub,
 	 * Topic len field + Topic len + Packet ID
 	 * (for QOS>0) + Payload len
 	 */
-	vh_len = 2 + pub->topic_len + ((pub->qos) ? 2 : 0);
+	vh_len = (unsigned int)(2 + pub->topic_len + ((pub->qos) ? 2 : 0));
 	rem_len = vh_len + pub->payload_len;
 	lwsl_debug("%s: Remaining len = %d\n", __func__, (int) rem_len);
 
@@ -1663,7 +1663,7 @@ lws_mqtt_client_send_publish(struct lws *wsi, lws_mqtt_publish_param_t *pub,
 	 * chuncked payload)
 	 */
 	lws_mqtt_str_init(&mqtt_vh_payload, (uint8_t *)p,
-			  (pub->topic_len + ((pub->qos) ? 2 : 0) + len),
+			  (uint16_t)(unsigned int)(pub->topic_len + ((pub->qos) ? 2u : 0u) + len),
 			  0);
 
 	p = lws_mqtt_str_next(&mqtt_vh_payload, NULL);
@@ -1692,7 +1692,7 @@ lws_mqtt_client_send_publish(struct lws *wsi, lws_mqtt_publish_param_t *pub,
 	if (pub->payload_len && len) {
 		p = lws_mqtt_str_next(&mqtt_vh_payload, NULL);
 		memcpy(p, buf, len);
-		if (lws_mqtt_str_advance(&mqtt_vh_payload, len))
+		if (lws_mqtt_str_advance(&mqtt_vh_payload, (int)len))
 			return 1;
 		p = lws_mqtt_str_next(&mqtt_vh_payload, NULL);
 	}
@@ -1704,7 +1704,7 @@ do_write:
 
 	// lwsl_hexdump_err(start, lws_ptr_diff(p, start));
 
-	if (lws_write(nwsi, start, lws_ptr_diff(p, start), LWS_WRITE_BINARY) !=
+	if (lws_write(nwsi, start, lws_ptr_diff_size_t(p, start), LWS_WRITE_BINARY) !=
 			lws_ptr_diff(p, start)) {
 		lwsl_err("%s: write failed\n", __func__);
 		return 1;
@@ -1845,7 +1845,7 @@ lws_mqtt_client_send_subcribe(struct lws *wsi, lws_mqtt_subscribe_param_t *sub)
 			if (!exists[n])
 				rem_len += (2 + (uint32_t)strlen(sub->topic[n].name) + (uint32_t)1);
 
-		wsi->mqtt->sub_size = rem_len;
+		wsi->mqtt->sub_size = (uint16_t)rem_len;
 
 #if defined(_DEBUG)
 		lwsl_debug("%s: Number of topics = %d, Remaining len = %d\n",
@@ -1854,14 +1854,14 @@ lws_mqtt_client_send_subcribe(struct lws *wsi, lws_mqtt_subscribe_param_t *sub)
 
 		p += lws_mqtt_vbi_encode(rem_len, p);
 
-		if ((rem_len + lws_ptr_diff(p, start)) >=
+		if ((rem_len + lws_ptr_diff_size_t(p, start)) >=
 					       wsi->a.context->pt_serv_buf_size) {
 			lwsl_err("%s: Payload is too big\n", __func__);
 			return 1;
 		}
 
 		/* Init lws_mqtt_str */
-		lws_mqtt_str_init(&mqtt_vh_payload, (uint8_t *)p, rem_len, 0);
+		lws_mqtt_str_init(&mqtt_vh_payload, (uint8_t *)p, (uint16_t)rem_len, 0);
 		p = lws_mqtt_str_next(&mqtt_vh_payload, NULL);
 
 		/* Packet ID */
@@ -1909,7 +1909,7 @@ lws_mqtt_client_send_subcribe(struct lws *wsi, lws_mqtt_subscribe_param_t *sub)
 			p = lws_mqtt_str_next(&mqtt_vh_payload, NULL);
 
 			/* QoS */
-			*p = sub->topic[n].qos;
+			*p = (uint8_t)sub->topic[n].qos;
 			if (lws_mqtt_str_advance(&mqtt_vh_payload, 1))
 				return 1;
 			p = lws_mqtt_str_next(&mqtt_vh_payload, NULL);
@@ -1920,7 +1920,7 @@ lws_mqtt_client_send_subcribe(struct lws *wsi, lws_mqtt_subscribe_param_t *sub)
 		return 1;
 	}
 
-	if (lws_write(nwsi, start, lws_ptr_diff(p, start), LWS_WRITE_BINARY) !=
+	if (lws_write(nwsi, start, lws_ptr_diff_size_t(p, start), LWS_WRITE_BINARY) !=
 					lws_ptr_diff(p, start))
 		return 1;
 
@@ -2010,21 +2010,21 @@ lws_mqtt_client_send_unsubcribe(struct lws *wsi,
 			if (send_unsub[n])
 				rem_len += (2 + (uint32_t)strlen(unsub->topic[n].name));
 
-		wsi->mqtt->sub_size = rem_len;
+		wsi->mqtt->sub_size = (uint16_t)rem_len;
 
 		lwsl_debug("%s: Number of topics = %d, Remaining len = %d\n",
 			   __func__, (int)tops, (int)rem_len);
 
 		p += lws_mqtt_vbi_encode(rem_len, p);
 
-		if ((rem_len + lws_ptr_diff(p, start)) >=
+		if ((rem_len + lws_ptr_diff_size_t(p, start)) >=
 					       wsi->a.context->pt_serv_buf_size) {
 			lwsl_err("%s: Payload is too big\n", __func__);
 			return 1;
 		}
 
 		/* Init lws_mqtt_str */
-		lws_mqtt_str_init(&mqtt_vh_payload, (uint8_t *)p, rem_len, 0);
+		lws_mqtt_str_init(&mqtt_vh_payload, (uint8_t *)p, (uint16_t)rem_len, 0);
 		p = lws_mqtt_str_next(&mqtt_vh_payload, NULL);
 
 		/* Packet ID */
@@ -2069,7 +2069,7 @@ lws_mqtt_client_send_unsubcribe(struct lws *wsi,
 		return 1;
 	}
 
-	if (lws_write(nwsi, start, lws_ptr_diff(p, start), LWS_WRITE_BINARY) !=
+	if (lws_write(nwsi, start, lws_ptr_diff_size_t(p, start), LWS_WRITE_BINARY) !=
 					lws_ptr_diff(p, start))
 		return 1;
 

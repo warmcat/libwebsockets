@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -70,7 +70,7 @@ lws_jwe_encrypt_rsa_aes_cbc_hs(struct lws_jwe *jwe,
 		return -1;
 
 	if (lws_jws_alloc_element(&jwe->jws.map, LJWE_ATAG, temp + (ot - *temp_len),
-				  temp_len, hlen / 2, 0))
+				  temp_len, (unsigned int)hlen / 2, 0))
 		return -1;
 
 	if (lws_jws_alloc_element(&jwe->jws.map, LJWE_IV, temp + (ot - *temp_len),
@@ -91,7 +91,7 @@ lws_jwe_encrypt_rsa_aes_cbc_hs(struct lws_jwe *jwe,
 
 	n = lws_jwe_encrypt_cbc_hs(jwe, (uint8_t *)jwe->jws.map.buf[LJWE_EKEY],
 				     (uint8_t *)jwe->jws.map_b64.buf[LJWE_JOSE],
-				     jwe->jws.map_b64.len[LJWE_JOSE]);
+				     (int)jwe->jws.map_b64.len[LJWE_JOSE]);
 	if (n < 0) {
 		lwsl_err("%s: lws_jwe_encrypt_cbc_hs failed\n", __func__);
 		return -1;
@@ -109,17 +109,17 @@ lws_jwe_encrypt_rsa_aes_cbc_hs(struct lws_jwe *jwe,
 	/* encrypt the CEK using RSA, mbedtls can't handle both in and out are
 	 * the EKEY, so copy the unencrypted ekey out temporarily */
 
-	memcpy(ekey, jwe->jws.map.buf[LJWE_EKEY], hlen);
+	memcpy(ekey, jwe->jws.map.buf[LJWE_EKEY], (unsigned int)hlen);
 
-	n = lws_genrsa_public_encrypt(&rsactx, (uint8_t *)ekey, hlen,
+	n = lws_genrsa_public_encrypt(&rsactx, (uint8_t *)ekey, (unsigned int)hlen,
 				      (uint8_t *)jwe->jws.map.buf[LJWE_EKEY]);
 	lws_genrsa_destroy(&rsactx);
-	lws_explicit_bzero(ekey, hlen); /* cleanse the temp CEK copy */
+	lws_explicit_bzero(ekey, (unsigned int)hlen); /* cleanse the temp CEK copy */
 	if (n < 0) {
 		lwsl_err("%s: encrypt cek fail\n", __func__);
 		return -1;
 	}
-	jwe->jws.map.len[LJWE_EKEY] = n; /* update to encrypted EKEY size */
+	jwe->jws.map.len[LJWE_EKEY] = (unsigned int)n; /* update to encrypted EKEY size */
 
 	/*
 	 * We end up with IV, ATAG, set, EKEY encrypted and CTXT is ciphertext,
@@ -172,7 +172,7 @@ lws_jwe_auth_and_decrypt_rsa_aes_cbc_hs(struct lws_jwe *jwe)
 
 	n = lws_jwe_auth_and_decrypt_cbc_hs(jwe, enc_cek,
 			     (uint8_t *)jwe->jws.map_b64.buf[LJWE_JOSE],
-			     jwe->jws.map_b64.len[LJWE_JOSE]);
+			     (int)jwe->jws.map_b64.len[LJWE_JOSE]);
 	if (n < 0) {
 		lwsl_err("%s: lws_jwe_auth_and_decrypt_cbc_hs failed\n",
 			 __func__);
@@ -192,5 +192,5 @@ lws_jwe_auth_and_decrypt_rsa_aes_cbc_hs(struct lws_jwe *jwe)
 	jwe->jws.map.len[LJWE_CTXT] -= n;
 #endif
 
-	return jwe->jws.map.len[LJWE_CTXT];
+	return (int)jwe->jws.map.len[LJWE_CTXT];
 }

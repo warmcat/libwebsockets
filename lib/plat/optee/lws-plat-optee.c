@@ -219,7 +219,7 @@ lws_plat_init(struct lws_context *context,
 }
 
 int
-lws_plat_write_file(const char *filename, void *buf, int len)
+lws_plat_write_file(const char *filename, void *buf, size_t len)
 {
 	return 1;
 }

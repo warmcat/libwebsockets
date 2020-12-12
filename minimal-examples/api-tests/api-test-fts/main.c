@@ -106,7 +106,7 @@ int main(int argc, char **argv)
 		while (optind < argc) {
 
 			fi = lws_fts_file_index(t, argv[optind],
-						strlen(argv[optind]), 1);
+						(int)strlen(argv[optind]), 1);
 			if (fi < 0) {
 				lwsl_err("%s: Failed to get file idx for %s\n",
 					 __func__, argv[optind]);
@@ -122,12 +122,12 @@ int main(int argc, char **argv)
 			}
 
 			do {
-				int n = read(fd, buf, sizeof(buf));
+				int n = (int)read(fd, buf, sizeof(buf));
 
 				if (n <= 0)
 					break;
 
-				if (lws_fts_fill(t, fi, buf, n)) {
+				if (lws_fts_fill(t, (uint32_t)fi, buf, (size_t)n)) {
 					lwsl_err("%s: lws_fts_fill failed\n",
 						 __func__);
 					close(fd);

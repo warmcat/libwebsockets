@@ -150,7 +150,7 @@ callback_minimal_spam(struct lws *wsi, enum lws_callback_reasons reason,
 		n = lws_snprintf((char *)ping + LWS_PRE, sizeof(ping) - LWS_PRE,
 					  "hello %d", pss->conn);
 
-		m = lws_write(wsi, ping + LWS_PRE, n, LWS_WRITE_TEXT);
+		m = lws_write(wsi, ping + LWS_PRE, (unsigned int)n, LWS_WRITE_TEXT);
 		if (m < n) {
 			lwsl_err("sending ping failed: %d\n", m);
 
@@ -248,7 +248,7 @@ int main(int argc, const char **argv)
 	 * It will just allocate for 1 internal and n (+ 1 http2 nwsi) that we
 	 * will use.
 	 */
-	info.fd_limit_per_thread = 1 + concurrent + 1;
+	info.fd_limit_per_thread = (unsigned int)(1 + concurrent + 1);
 
 	context = lws_create_context(&info);
 	if (!context) {

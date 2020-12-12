@@ -150,7 +150,7 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 	lwsl_debug("%s: %s: fd %d events %d -> %d\n", __func__, lws_wsi_tag(wsi),
 		   pa->fd, pfd->events, (pfd->events & ~_and) | _or);
 	pa->prev_events = pfd->events;
-	pa->events = pfd->events = (pfd->events & ~_and) | _or;
+	pa->events = pfd->events = (short)((pfd->events & ~_and) | _or);
 
 	if (wsi->mux_substream)
 		return 0;
@@ -287,7 +287,7 @@ __insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 
 #if !defined(_WIN32)
 	if (!wsi->a.context->max_fds_unrelated_to_ulimit &&
-	    wsi->desc.sockfd - lws_plat_socket_offset() >= context->max_fds) {
+	    wsi->desc.sockfd - lws_plat_socket_offset() >= (int)context->max_fds) {
 		lwsl_err("Socket fd %d is too high (%d) offset %d\n",
 			 wsi->desc.sockfd, context->max_fds,
 			 lws_plat_socket_offset());
@@ -315,7 +315,7 @@ __insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 	if (insert_wsi(context, wsi))
 		return -1;
 	pt->count_conns++;
-	wsi->position_in_fds_table = pt->fds_count;
+	wsi->position_in_fds_table = (int)pt->fds_count;
 
 	pt->fds[wsi->position_in_fds_table].fd = wsi->desc.sockfd;
 	pt->fds[wsi->position_in_fds_table].events = LWS_POLLIN;
@@ -368,7 +368,7 @@ __remove_wsi_socket_from_fds(struct lws *wsi)
 
 #if !defined(_WIN32)
 	if (!wsi->a.context->max_fds_unrelated_to_ulimit &&
-	    wsi->desc.sockfd - lws_plat_socket_offset() > context->max_fds) {
+	    wsi->desc.sockfd - lws_plat_socket_offset() > (int)context->max_fds) {
 		lwsl_err("fd %d too high (%d)\n", wsi->desc.sockfd,
 			 context->max_fds);
 
@@ -583,7 +583,7 @@ lws_same_vh_protocol_insert(struct lws *wsi, int n)
 	lws_dll2_add_head(&wsi->same_vh_protocol,
 			  &wsi->a.vhost->same_vh_protocol_owner[n]);
 
-	wsi->bound_vhost_index = n;
+	wsi->bound_vhost_index = (uint8_t)n;
 
 	lws_vhost_unlock(wsi->a.vhost);
 }

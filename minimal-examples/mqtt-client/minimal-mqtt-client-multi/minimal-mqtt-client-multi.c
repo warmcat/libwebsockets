@@ -285,7 +285,7 @@ callback_mqtt(struct lws *wsi, enum lws_callback_reasons reason,
 					(int)chunk, (int)pss->pos);
 
 			if (lws_mqtt_client_send_publish(wsi, &pss->pub_param,
-					test_string + pss->pos, chunk,
+					test_string + pss->pos, (uint32_t)chunk,
 					(pss->pos + chunk == TEST_STRING_LEN))) {
 				lwsl_notice("%s: publish failed\n", __func__);
 				return -1;

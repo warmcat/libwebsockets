@@ -54,13 +54,13 @@ lws_plat_user_colon_group_to_ids(const char *u_colon_g, uid_t *puid, gid_t *pgid
 	char *colon = strchr(u_colon_g, ':'), u[33];
 	struct passwd *p;
 	struct group *g;
-	int ulen;
+	size_t ulen;
 
 	if (!colon)
 		return 1;
 
-	ulen = lws_ptr_diff(colon, u_colon_g);
-	if (ulen < 2 || ulen > (int)sizeof(u) - 1)
+	ulen = (size_t)(unsigned int)lws_ptr_diff(colon, u_colon_g);
+	if (ulen < 2 || ulen > sizeof(u) - 1)
 		return 1;
 
 	memcpy(u, u_colon_g, ulen);
@@ -133,7 +133,7 @@ lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop)
 
 	/* if he gave us the gid or we have it from the groupname, set it */
 
-	if (context->gid && context->gid != -1) {
+	if (context->gid && context->gid != (gid_t)-1l) {
 		g = getgrgid(context->gid);
 
 		if (!g) {
@@ -158,7 +158,7 @@ lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop)
 
 	/* if he gave us the uid or we have it from the username, set it */
 
-	if (context->uid && context->uid != -1) {
+	if (context->uid && context->uid != (uid_t)-1l) {
 		p = getpwuid(context->uid);
 
 		if (!p) {
@@ -172,7 +172,11 @@ lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop)
 				     context->count_caps);
 #endif
 
-		if (initgroups(p->pw_name, context->gid))
+		if (initgroups(p->pw_name,
+#if defined(__APPLE__)
+				(int)
+#endif
+				context->gid))
 			return 1;
 
 		if (setuid(context->uid)) {

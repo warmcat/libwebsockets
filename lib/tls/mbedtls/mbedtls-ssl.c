@@ -42,7 +42,7 @@ lws_ssl_destroy(struct lws_vhost *vhost)
 }
 
 int
-lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
+lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 {
 	struct lws_context *context = wsi->a.context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
@@ -54,7 +54,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 	lws_stats_bump(pt, LWSSTATS_C_API_READ, 1);
 
 	errno = 0;
-	n = SSL_read(wsi->tls.ssl, buf, len);
+	n = SSL_read(wsi->tls.ssl, buf, (int)len);
 #if defined(LWS_PLAT_FREERTOS)
 	if (!n && errno == LWS_ENOTCONN) {
 		lwsl_debug("%s: SSL_read ENOTCONN\n", lws_wsi_tag(wsi));
@@ -115,11 +115,11 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 	lwsl_hexdump_notice(buf, n);
 #endif
 
-	lws_stats_bump(pt, LWSSTATS_B_READ, n);
+	lws_stats_bump(pt, LWSSTATS_B_READ, (uint64_t)n);
 
 #if defined(LWS_WITH_SERVER_STATUS)
 	if (wsi->a.vhost)
-		wsi->a.vhost->conn_stats.rx += n;
+		wsi->a.vhost->conn_stats.rx = wsi->a.vhost->conn_stats.rx + (unsigned long long)n;
 #endif
 #if defined(LWS_WITH_DETAILED_LATENCY)
 	if (context->detailed_latency_cb) {
@@ -139,7 +139,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 	 * Because these won't signal at the network layer with POLLIN
 	 * and if we don't realize, this data will sit there forever
 	 */
-	if (n != len)
+	if (n != (int)len)
 		goto bail;
 	if (!wsi->tls.ssl)
 		goto bail;
@@ -168,7 +168,7 @@ lws_ssl_pending(struct lws *wsi)
 }
 
 int
-lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, int len)
+lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 {
 	int n, m;
 
@@ -178,14 +178,14 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, int len)
 	 * paths before sending data into the tls tunnel, where you can dump it
 	 * and see what is being sent.
 	 */
-	lwsl_notice("%s: len %d\n", __func__, len);
+	lwsl_notice("%s: len %d\n", __func__, (int)len);
 	lwsl_hexdump_notice(buf, len);
 #endif
 
 	if (!wsi->tls.ssl)
 		return lws_ssl_capable_write_no_ssl(wsi, buf, len);
 
-	n = SSL_write(wsi->tls.ssl, buf, len);
+	n = SSL_write(wsi->tls.ssl, buf, (int)len);
 	if (n > 0)
 		return n;
 

@@ -37,7 +37,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
-		status = lws_http_client_http_response(wsi);
+		status = (int)lws_http_client_http_response(wsi);
 		lwsl_notice("lws_http_client_http_response %d\n", status);
 
 		if (!lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_COMMON_NAME,
@@ -62,7 +62,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 					    LWS_TLS_CERT_INFO_OPAQUE_PUBLIC_KEY,
 					    ci, sizeof(buf) - sizeof(*ci))) {
 			lwsl_notice(" Peer Cert public key:\n");
-			lwsl_hexdump_notice(ci->ns.name, ci->ns.len);
+			lwsl_hexdump_notice(ci->ns.name, (unsigned int)ci->ns.len);
 		}
 		break;
 

@@ -65,7 +65,7 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_RAW_RX_FILE:
 		lwsl_user("LWS_CALLBACK_RAW_RX_FILE\n");
-		waiting = read(0, buf, sizeof(buf));
+		waiting = (int)read(0, buf, sizeof(buf));
 		lwsl_notice("raw file read %d\n", waiting);
 		if (waiting < 0)
 			return -1;
@@ -107,7 +107,7 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 		// lwsl_hexdump_info(buf, waiting);
 		if (stdin_wsi)
 			lws_rx_flow_control(stdin_wsi, 1);
-		if (lws_write(wsi, buf, waiting, LWS_WRITE_RAW) != waiting) {
+		if (lws_write(wsi, buf, (unsigned int)waiting, LWS_WRITE_RAW) != waiting) {
 			lwsl_notice("%s: raw skt write failed\n", __func__);
 
 			return -1;

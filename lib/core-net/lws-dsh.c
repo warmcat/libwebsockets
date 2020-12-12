@@ -52,7 +52,7 @@ lws_dsh_align(size_t length)
 lws_dsh_t *
 lws_dsh_create(lws_dll2_owner_t *owner, size_t buf_len, int count_kinds)
 {
-	size_t oha_len = sizeof(lws_dsh_obj_head_t) * ++count_kinds;
+	size_t oha_len = sizeof(lws_dsh_obj_head_t) * (unsigned int)(++count_kinds);
 	lws_dsh_obj_t *obj;
 	lws_dsh_t *dsh;
 	int n;

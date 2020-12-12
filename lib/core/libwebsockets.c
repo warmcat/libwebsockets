@@ -55,13 +55,13 @@ lws_ser_wu64be(uint8_t *b, uint64_t u64)
 uint16_t
 lws_ser_ru16be(const uint8_t *b)
 {
-	return (b[0] << 8) | b[1];
+	return (uint16_t)((b[0] << 8) | b[1]);
 }
 
 uint32_t
 lws_ser_ru32be(const uint8_t *b)
 {
-	return (b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3];
+	return (unsigned int)((b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3]);
 }
 
 uint64_t
@@ -118,15 +118,15 @@ lws_vbi_decode(const void *buf, uint64_t *value, size_t len)
 signed char char_to_hex(const char c)
 {
 	if (c >= '0' && c <= '9')
-		return c - '0';
+		return (signed char)(c - '0');
 
 	if (c >= 'a' && c <= 'f')
-		return c - 'a' + 10;
+		return (signed char)(c - 'a' + 10);
 
 	if (c >= 'A' && c <= 'F')
-		return c - 'A' + 10;
+		return (signed char)(c - 'A' + 10);
 
-	return -1;
+	return (signed char)-1;
 }
 
 int
@@ -144,7 +144,7 @@ lws_hex_to_byte_array(const char *h, uint8_t *dest, int max)
 		if (t1 < 0)
 			return -1;
 
-		*dest++ = (t << 4) | t1;
+		*dest++ = (uint8_t)((t << 4) | t1);
 	}
 
 	if (max < 0)
@@ -254,7 +254,7 @@ lws_now_secs(void)
 
 	gettimeofday(&tv, NULL);
 
-	return tv.tv_sec;
+	return (unsigned long)tv.tv_sec;
 }
 
 #endif
@@ -453,7 +453,7 @@ lws_json_simple_find(const char *buf, size_t len, const char *name, size_t *alen
 		np++;
 	}
 
-	*alen = lws_ptr_diff(np, as);
+	*alen = (unsigned int)lws_ptr_diff(np, as);
 
 	return as;
 }
@@ -477,7 +477,7 @@ lws_json_simple_strcmp(const char *buf, size_t len, const char *name,
 static const char *hex = "0123456789ABCDEF";
 
 const char *
-lws_sql_purify(char *escaped, const char *string, int len)
+lws_sql_purify(char *escaped, const char *string, size_t len)
 {
 	const char *p = string;
 	char *q = escaped;
@@ -675,7 +675,7 @@ lws_urldecode(char *string, const char *escaped, int len)
 			if (n < 0)
 				return -1;
 			escaped++;
-			sum = n << 4;
+			sum = (char)(n << 4);
 			state++;
 			break;
 
@@ -684,7 +684,7 @@ lws_urldecode(char *string, const char *escaped, int len)
 			if (n < 0)
 				return -1;
 			escaped++;
-			*string++ = sum | n;
+			*string++ = (char)(sum | n);
 			len--;
 			state = 0;
 			break;
@@ -708,7 +708,7 @@ lws_finalize_startup(struct lws_context *context)
 
 #if !defined(LWS_PLAT_FREERTOS)
 void
-lws_get_effective_uid_gid(struct lws_context *context, int *uid, int *gid)
+lws_get_effective_uid_gid(struct lws_context *context, uid_t *uid, gid_t *gid)
 {
 	*uid = context->uid;
 	*gid = context->gid;
@@ -750,7 +750,7 @@ lws_timingsafe_bcmp(const void *a, const void *b, uint32_t len)
 	uint8_t sum = 0;
 
 	while (len--)
-		sum |= (*pa++ ^ *pb++);
+		sum |= (uint8_t)(*pa++ ^ *pb++);
 
 	return sum;
 }
@@ -791,7 +791,7 @@ lws_tokenize(struct lws_tokenize *ts)
 		c = *ts->start++;
 		ts->len--;
 
-		utf8 = lws_check_byte_utf8((unsigned char)utf8, c);
+		utf8 = lws_check_byte_utf8((unsigned char)utf8, (unsigned char)c);
 		if (utf8 < 0)
 			return LWS_TOKZE_ERR_BROKEN_UTF8;
 
@@ -1019,7 +1019,7 @@ lws_tokenize_init(struct lws_tokenize *ts, const char *start, int flags)
 {
 	ts->start = start;
 	ts->len = 0x7fffffff;
-	ts->flags = flags;
+	ts->flags = (uint16_t)(unsigned int)flags;
 	ts->delim = LWSTZ_DT_NEED_FIRST_CONTENT;
 }
 
@@ -1206,7 +1206,8 @@ lws_mutex_refcount_assert_held(struct lws_mutex_refcount *mr)
 const char *
 lws_cmdline_option(int argc, const char **argv, const char *val)
 {
-	int n = (int)strlen(val), c = argc;
+	size_t n = strlen(val);
+	int c = argc;
 
 	while (--c > 0) {
 
@@ -1263,10 +1264,10 @@ lws_cmdline_option_handle_builtin(int argc, const char **argv,
 			break;
 #if defined(LWS_WITH_UDP)
 		case 1:
-			info->udp_loss_sim_tx_pc = m;
+			info->udp_loss_sim_tx_pc = (uint8_t)m;
 			break;
 		case 2:
-			info->udp_loss_sim_rx_pc = m;
+			info->udp_loss_sim_rx_pc = (uint8_t)m;
 			break;
 		case 3:
 #else
@@ -1314,7 +1315,7 @@ decim(char *r, uint64_t v, char chars, char leading)
 
 	while (n >= 0) {
 		if (v / q)
-			*r-- = '0' + ((v / q) % 10);
+			*r-- = (char)('0' + (char)((v / q) % 10));
 		else
 			*r-- = leading ? '0' : ' ';
 		q = q * 10;
@@ -1329,7 +1330,7 @@ decim(char *r, uint64_t v, char chars, char leading)
 }
 
 int
-lws_humanize(char *p, int len, uint64_t v, const lws_humanize_unit_t *schema)
+lws_humanize(char *p, size_t len, uint64_t v, const lws_humanize_unit_t *schema)
 {
 	char *end = p + len;
 
@@ -1338,7 +1339,7 @@ lws_humanize(char *p, int len, uint64_t v, const lws_humanize_unit_t *schema)
 			if (schema->factor == 1) {
 				*p++ = ' ';
 				p += decim(p, v, 4, 0);
-				return lws_snprintf(p, lws_ptr_diff(end, p),
+				return lws_snprintf(p, (unsigned int)lws_ptr_diff(end, p),
 						    "%s    ", schema->name);
 			}
 
@@ -1348,7 +1349,7 @@ lws_humanize(char *p, int len, uint64_t v, const lws_humanize_unit_t *schema)
 			p += decim(p, (v % schema->factor) /
 					(schema->factor / 1000), 3, 1);
 
-			return lws_snprintf(p, lws_ptr_diff(end, p),
+			return lws_snprintf(p, (unsigned int)lws_ptr_diff(end, p),
 					    "%s", schema->name);
 		}
 		schema++;

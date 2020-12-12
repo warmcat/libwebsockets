@@ -65,7 +65,7 @@ lws_ext_parse_options(const struct lws_extension *ext, struct lws *wsi,
 				len = 1;
 				break;
 			}
-			match_map = (1 << count_options) - 1;
+			match_map = (unsigned int)(1 << count_options) - 1;
 			leap = LEAPS_EAT_NAME;
 			w = 0;
 
@@ -87,7 +87,7 @@ lws_ext_parse_options(const struct lws_extension *ext, struct lws *wsi,
 
 				if (*in == opts[n].name[w]) {
 					if (!opts[n].name[w + 1]) {
-						oa.option_index = n;
+						oa.option_index = (int)n;
 						lwsl_ext("hit %d\n",
 							 oa.option_index);
 						leap = LEAPS_SEEK_VAL;
@@ -96,7 +96,7 @@ lws_ext_parse_options(const struct lws_extension *ext, struct lws *wsi,
 						break;
 					}
 				} else {
-					match_map &= ~(1 << n);
+					match_map &= (unsigned int)~(1 << n);
 					if (!match_map) {
 						lwsl_ext("empty match map\n");
 						return -1;
@@ -198,7 +198,7 @@ int lws_ext_cb_active(struct lws *wsi, int reason, void *arg, int len)
 	for (n = 0; n < wsi->ws->count_act_ext; n++) {
 		m = wsi->ws->active_extensions[n]->callback(
 			lws_get_context(wsi), wsi->ws->active_extensions[n],
-			wsi, reason, wsi->ws->act_ext_user[n], arg, len);
+			wsi, (enum lws_extension_callback_reasons)reason, wsi->ws->act_ext_user[n], arg, (size_t)len);
 		if (m < 0) {
 			lwsl_ext("Ext '%s' failed to handle callback %d!\n",
 				 wsi->ws->active_extensions[n]->name, reason);
@@ -226,8 +226,8 @@ int lws_ext_cb_all_exts(struct lws_context *context, struct lws *wsi,
 	ext = wsi->a.vhost->ws.extensions;
 
 	while (ext && ext->callback && !handled) {
-		m = ext->callback(context, ext, wsi, reason,
-				  (void *)(lws_intptr_t)n, arg, len);
+		m = ext->callback(context, ext, wsi, (enum lws_extension_callback_reasons)reason,
+				  (void *)(lws_intptr_t)n, arg, (size_t)len);
 		if (m < 0) {
 			lwsl_ext("Ext '%s' failed to handle callback %d!\n",
 				 wsi->ws->active_extensions[n]->name, reason);
@@ -282,7 +282,7 @@ lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len)
 		/* assuming they left us something to send, send it */
 
 		if (ebuf.len) {
-			n = lws_issue_raw(wsi, ebuf.token, ebuf.len);
+			n = lws_issue_raw(wsi, ebuf.token, (size_t)ebuf.len);
 			if (n < 0) {
 				lwsl_info("closing from ext access\n");
 				return -1;
@@ -290,7 +290,7 @@ lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len)
 
 			/* always either sent it all or privately buffered */
 			if (wsi->ws->clean_buffer)
-				len = n;
+				len = (size_t)n;
 
 			lwsl_ext("%s: written %d bytes to client\n",
 				 __func__, n);

@@ -149,7 +149,7 @@ lws_buflist_use_segment(struct lws_buflist **head, size_t len)
 	assert(b->pos <= b->len);
 
 	if (b->pos < b->len)
-		return (int)(b->len - b->pos);
+		return (unsigned int)(b->len - b->pos);
 
 	if (lws_buflist_destroy_segment(head))
 		/* last segment was just destroyed */

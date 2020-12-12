@@ -181,7 +181,7 @@ lws_dbus_add_watch(DBusWatch *w, void *data)
 	lwsl_info("%s: %p, fd %d, data %p, fl %d\n", __func__, w,
 		  dbus_watch_get_unix_fd(w), data, lws_flags);
 
-	__lws_change_pollfd(wsi, 0, lws_flags);
+	__lws_change_pollfd(wsi, 0, (int)lws_flags);
 
 	lws_pt_unlock(pt);
 	lws_context_unlock(pt->context);
@@ -251,7 +251,7 @@ lws_dbus_remove_watch(DBusWatch *w, void *data)
 		  __func__, w, dbus_watch_get_unix_fd(w),
 		  data, lws_flags);
 
-	__lws_change_pollfd(wsi, lws_flags, 0);
+	__lws_change_pollfd(wsi, (int)lws_flags, 0);
 
 bail:
 	lws_pt_unlock(pt);

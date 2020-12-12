@@ -503,13 +503,13 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 				while (rsp) {
 					if (n != 4 && n < (int)sizeof(s) - 2)
 						s[n++] = ',';
-					n += lws_snprintf(&s[n], sizeof(s) - n,
+					n += lws_snprintf(&s[n], sizeof(s) - (unsigned int)n,
 							"%s", rsp->streamtype);
 					rsp = lws_ss_policy_lookup(wsi->a.context,
 						rsp->rideshare_streamtype);
 				}
 			}
-			s[2] = n - 3;
+			s[2] = (char)(n - 3);
 			conn->state = LPCSPROX_OPERATIONAL;
 			lws_set_timeout(wsi, 0, 0);
 			break;
@@ -536,8 +536,8 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 					md->pending_onward = 0;
 					p = (uint8_t *)s;
 					p[0] = LWSSS_SER_RXPRE_METADATA;
-					lws_ser_wu16be(&p[1], 1 + naml +
-							      md->length);
+					lws_ser_wu16be(&p[1], (uint16_t)(1 + naml +
+							      md->length));
 					p[3] = (uint8_t)naml;
 					memcpy(&p[4], md->name, naml);
 					p += 4 + naml;
@@ -601,7 +601,7 @@ again:
 		if (!n)
 			break;
 
-		n = lws_write(wsi, (uint8_t *)cp, n, LWS_WRITE_RAW);
+		n = lws_write(wsi, (uint8_t *)cp, (unsigned int)n, LWS_WRITE_RAW);
 		if (n < 0) {
 			lwsl_info("%s: WRITEABLE: %d\n", __func__, n);
 

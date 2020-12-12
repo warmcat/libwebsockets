@@ -81,9 +81,9 @@ struct lws_lws_tls {
 void
 lws_context_init_alpn(struct lws_vhost *vhost);
 int LWS_WARN_UNUSED_RESULT
-lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len);
+lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len);
 int LWS_WARN_UNUSED_RESULT
-lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, int len);
+lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len);
 int LWS_WARN_UNUSED_RESULT
 lws_ssl_pending(struct lws *wsi);
 int LWS_WARN_UNUSED_RESULT
@@ -101,10 +101,9 @@ LWS_VISIBLE void
 lws_ssl_remove_wsi_from_buffered_list(struct lws *wsi);
 int
 lws_ssl_client_bio_create(struct lws *wsi);
+
 int
-lws_ssl_client_connect1(struct lws *wsi, char *errbuf, int len);
-int
-lws_ssl_client_connect2(struct lws *wsi, char *errbuf, int len);
+lws_ssl_client_connect2(struct lws *wsi, char *errbuf, size_t len);
 int
 lws_tls_fake_POLLIN_for_buffered(struct lws_context_per_thread *pt);
 int
@@ -158,9 +157,9 @@ enum lws_ssl_capable_status
 __lws_tls_shutdown(struct lws *wsi);
 
 enum lws_ssl_capable_status
-lws_tls_client_connect(struct lws *wsi, char *errbuf, int len);
+lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len);
 int
-lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, int ebuf_len);
+lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len);
 int
 lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 			    const struct lws_context_creation_info *info,

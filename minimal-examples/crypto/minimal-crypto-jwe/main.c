@@ -1,7 +1,7 @@
 /*
  * lws-crypto-jwe
  *
- * Written in 2010-2019 by Andy Green <andy@warmcat.com>
+ * Written in 2010-2020 by Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
@@ -142,15 +142,15 @@ int main(int argc, const char **argv)
 			return 1;
 		}
 
-		jwe.jws.map.len[LJWS_JOSE] = lws_snprintf(
-				(char *)jwe.jws.map.buf[LJWS_JOSE], temp_len,
+		jwe.jws.map.len[LJWS_JOSE] = (uint32_t)lws_snprintf(
+				(char *)jwe.jws.map.buf[LJWS_JOSE], (unsigned int)temp_len,
 				"{\"alg\":\"%s\",\"enc\":\"%s\"}", p, sp + 1);
 
 		enc = 1;
 	}
 
 	in = lws_concat_temp(temp, temp_len);
-	n = read(0, in, temp_len);
+	n = (int)read(0, in, (unsigned int)temp_len);
 	if (n < 0) {
 		lwsl_err("Problem reading from stdin\n");
 		return 1;
@@ -158,7 +158,7 @@ int main(int argc, const char **argv)
 
 	/* account for padding as well */
 
-	temp_len -= (int)lws_gencrypto_padded_length(LWS_AES_CBC_BLOCKLEN, n);
+	temp_len -= (int)lws_gencrypto_padded_length(LWS_AES_CBC_BLOCKLEN, (unsigned int)n);
 
 	/* grab the key */
 
@@ -179,7 +179,7 @@ int main(int argc, const char **argv)
 		/* point CTXT to the plaintext we read from stdin */
 
 		jwe.jws.map.buf[LJWE_CTXT] = in;
-		jwe.jws.map.len[LJWE_CTXT] = n;
+		jwe.jws.map.len[LJWE_CTXT] = (uint32_t)n;
 
 		/*
 		 * Create a random CEK and set EKEY to it
@@ -189,7 +189,7 @@ int main(int argc, const char **argv)
 		n = lws_gencrypto_bits_to_bytes(jwe.jose.enc_alg->keybits_fixed);
 		if (lws_jws_randomize_element(context, &jwe.jws.map, LJWE_EKEY,
 					      lws_concat_temp(temp, temp_len),
-					      &temp_len, n,
+					      &temp_len, (unsigned int)n,
 					      LWS_JWE_LIMIT_KEY_ELEMENT_BYTES)) {
 			lwsl_err("Problem getting random\n");
 			goto bail1;

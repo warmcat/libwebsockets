@@ -229,7 +229,7 @@ lwsac_unreference(struct lwsac **head);
  * cases
  */
 LWS_VISIBLE LWS_EXTERN int
-lwsac_extend(struct lwsac *head, int amount);
+lwsac_extend(struct lwsac *head, size_t amount);
 
 /* helpers to keep a file cached in memory */
 

@@ -46,7 +46,7 @@ lws_uv_sultimer_cb(uv_timer_t *timer
 				    lws_now_usecs());
 	if (us)
 		uv_timer_start(&pt_to_priv_uv(pt)->sultimer, lws_uv_sultimer_cb,
-			       LWS_US_TO_MS(us), 0);
+			       LWS_US_TO_MS((uint64_t)us), 0);
 	lws_pt_unlock(pt);
 	lws_context_unlock(pt->context);
 }
@@ -80,7 +80,7 @@ lws_uv_idle(uv_idle_t *handle
 				    lws_now_usecs());
 	if (us)
 		uv_timer_start(&pt_to_priv_uv(pt)->sultimer, lws_uv_sultimer_cb,
-			       LWS_US_TO_MS(us), 0);
+			       LWS_US_TO_MS((uint64_t)us), 0);
 
 	/* there is nobody who needs service forcing, shut down idle */
 	uv_idle_stop(handle);
@@ -549,7 +549,7 @@ elops_accept_uv(struct lws *wsi)
 }
 
 static void
-elops_io_uv(struct lws *wsi, int flags)
+elops_io_uv(struct lws *wsi, unsigned int flags)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	struct lws_io_watcher_libuv *w = &(wsi_to_priv_uv(wsi)->w_read);
@@ -597,7 +597,7 @@ elops_io_uv(struct lws *wsi, int flags)
 			uv_poll_start(w->pwatcher, current_events, lws_io_cb);
 	}
 
-	w->actual_events = current_events;
+	w->actual_events = (uint8_t)current_events;
 }
 
 static int

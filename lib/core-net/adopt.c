@@ -27,7 +27,7 @@
 static int
 lws_get_idlest_tsi(struct lws_context *context)
 {
-	unsigned int lowest = ~0;
+	unsigned int lowest = ~0u;
 	int n = 0, hit = -1;
 
 	for (; n < context->count_threads; n++) {
@@ -69,7 +69,7 @@ lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi, const char *de
 	__lws_lc_tag(&vhost->context->lcg[LWSLCG_WSI], &new_wsi->lc, desc);
 
 	new_wsi->wsistate |= LWSIFR_SERVER;
-	new_wsi->tsi = n;
+	new_wsi->tsi = (char)n;
 	lwsl_debug("%s joining vhost %s, tsi %d\n", new_wsi->lc.gutag,
 		   vhost->name, new_wsi->tsi);
 
@@ -169,9 +169,9 @@ lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 
 	if (!LWS_SSL_ENABLED(new_wsi->a.vhost) ||
 	    !(type & LWS_ADOPT_SOCKET))
-		type &= ~LWS_ADOPT_ALLOW_SSL;
+		type &= (unsigned int)~LWS_ADOPT_ALLOW_SSL;
 
-	if (lws_role_call_adoption_bind(new_wsi, type, vh_prot_name)) {
+	if (lws_role_call_adoption_bind(new_wsi, (int)type, vh_prot_name)) {
 		lwsl_err("%s: no role for desc type 0x%x\n", __func__, type);
 		goto bail;
 	}
@@ -348,7 +348,7 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 
 	if (!LWS_SSL_ENABLED(new_wsi->a.vhost) ||
 	    !(type & LWS_ADOPT_SOCKET))
-		type &= ~LWS_ADOPT_ALLOW_SSL;
+		type &= (unsigned int)~LWS_ADOPT_ALLOW_SSL;
 
 	/*
 	 * A new connection was accepted. Give the user a chance to
@@ -401,13 +401,13 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 	 *  by deferring callback to this point, after insertion to fds,
 	 * lws_callback_on_writable() can work from the callback
 	 */
-	if ((new_wsi->a.protocol->callback)(new_wsi, n, new_wsi->user_space,
+	if ((new_wsi->a.protocol->callback)(new_wsi, (enum lws_callback_reasons)n, new_wsi->user_space,
 					  NULL, 0))
 		goto fail;
 
 	/* role may need to do something after all adoption completed */
 
-	lws_role_call_adoption_bind(new_wsi, type | _LWS_ADOPT_FINISH,
+	lws_role_call_adoption_bind(new_wsi, (int)type | _LWS_ADOPT_FINISH,
 				    new_wsi->a.protocol->name);
 
 #if defined(LWS_WITH_SERVER) && defined(LWS_WITH_SECURE_STREAMS)
@@ -771,7 +771,7 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 	wsi->do_bind = !!(flags & LWS_CAUDP_BIND);
 	wsi->do_broadcast = !!(flags & LWS_CAUDP_BROADCAST);
 	wsi->pf_packet = !!(flags & LWS_CAUDP_PF_PACKET);
-	wsi->c_port = port;
+	wsi->c_port = (uint16_t)(unsigned int)port;
 	if (retry_policy)
 		wsi->retry_policy = retry_policy;
 	else

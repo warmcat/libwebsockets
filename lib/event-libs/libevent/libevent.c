@@ -40,8 +40,13 @@ lws_event_hrtimer_cb(evutil_socket_t fd, short event, void *p)
 	us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
 				    lws_now_usecs());
 	if (us) {
-		tv.tv_sec = us / LWS_US_PER_SEC;
-		tv.tv_usec = us - (tv.tv_sec * LWS_US_PER_SEC);
+#if defined(__APPLE__)
+		tv.tv_sec = (int)(us / LWS_US_PER_SEC);
+		tv.tv_usec = (int)(us - (tv.tv_sec * LWS_US_PER_SEC));
+#else
+		tv.tv_sec = (long)(us / LWS_US_PER_SEC);
+		tv.tv_usec = (long)(us - (tv.tv_sec * LWS_US_PER_SEC));
+#endif
 		evtimer_add(ptpr->hrtimer, &tv);
 	}
 	lws_pt_unlock(pt);
@@ -86,8 +91,8 @@ lws_event_idle_timer_cb(evutil_socket_t fd, short event, void *p)
 	us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS,
 				    lws_now_usecs());
 	if (us) {
-		tv.tv_sec = us / LWS_US_PER_SEC;
-		tv.tv_usec = us - (tv.tv_sec * LWS_US_PER_SEC);
+		tv.tv_sec = (suseconds_t)(us / LWS_US_PER_SEC);
+		tv.tv_usec = (suseconds_t)(us - (tv.tv_sec * LWS_US_PER_SEC));
 		evtimer_add(ptpr->hrtimer, &tv);
 	}
 	lws_pt_unlock(pt);
@@ -265,7 +270,7 @@ elops_accept_event(struct lws *wsi)
 	ptpr = pt_to_priv_event(pt);
 
 	if (wsi->role_ops->file_handle)
-               fd = (ev_intptr_t) wsi->desc.filefd;
+               fd = (evutil_socket_t)(ev_intptr_t) wsi->desc.filefd;
 	else
 		fd = wsi->desc.sockfd;
 
@@ -278,7 +283,7 @@ elops_accept_event(struct lws *wsi)
 }
 
 static void
-elops_io_event(struct lws *wsi, int flags)
+elops_io_event(struct lws *wsi, unsigned int flags)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	struct lws_pt_eventlibs_libevent *ptpr = pt_to_priv_event(pt);

@@ -158,7 +158,7 @@ flow_control(struct conn *conn, int side, int enable)
 	if (lws_rx_flow_control(conn->wsi[side], enable))
 		return 1;
 
-	conn->rx_enabled[side] = enable;
+	conn->rx_enabled[side] = (char)enable;
 	lwsl_info("%s: %s side: %s\n", __func__, side ? "ONW" : "ACC",
 		  enable ? "rx enabled" : "rx flow controlled");
 
@@ -223,7 +223,7 @@ callback_raw_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 				e = lws_tokenize(&ts);
 				if (e != LWS_TOKZE_INTEGER)
 					goto bad_onward;
-				vhd->port = atoi(ts.token);
+				vhd->port = (uint16_t)atoi(ts.token);
 				e = lws_tokenize(&ts);
 			}
 			if (e != LWS_TOKZE_ENDED)
@@ -298,7 +298,7 @@ bad_onward:
 			lwsl_notice("OOM: dropping\n");
 			return -1;
 		}
-		pkt.len = len;
+		pkt.len = (uint32_t)len;
 		pkt.ticket = conn->ticket_next++;
 
 		memcpy(pkt.payload, in, len);
@@ -455,7 +455,7 @@ bad_onward:
 			lwsl_notice("OOM: dropping\n");
 			return -1;
 		}
-		pkt.len = len;
+		pkt.len = (uint32_t)len;
 		pkt.ticket = conn->ticket_next++;
 
 		memcpy(pkt.payload, in, len);

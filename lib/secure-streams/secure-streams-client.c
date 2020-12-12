@@ -79,7 +79,7 @@ lws_sspc_serialize_metadata(lws_sspc_metadata_t *md, uint8_t *p, uint8_t *end)
 
 		p[0] = LWSSS_SER_TXPRE_TXCR_UPDATE;
 		lws_ser_wu16be(&p[1], 4);
-		lws_ser_wu32be(&p[3], md->tx_cr_adjust);
+		lws_ser_wu32be(&p[3], (uint32_t)md->tx_cr_adjust);
 
 		n = 7;
 
@@ -88,19 +88,19 @@ lws_sspc_serialize_metadata(lws_sspc_metadata_t *md, uint8_t *p, uint8_t *end)
 		lwsl_info("%s: sending metadata\n", __func__);
 
 		p[0] = LWSSS_SER_TXPRE_METADATA;
-		txc = strlen(md->name);
-		n = txc + 1 + md->len;
+		txc = (int)strlen(md->name);
+		n = txc + 1 + (int)md->len;
 		if (n > 0xffff)
 			/* we can't serialize this metadata in 16b length */
 			return -1;
 		if (n > lws_ptr_diff(end, &p[4]))
 			/* we don't have space for this metadata */
 			return -1;
-		lws_ser_wu16be(&p[1], n);
-		p[3] = txc;
-		memcpy(&p[4], md->name, txc);
+		lws_ser_wu16be(&p[1], (uint16_t)n);
+		p[3] = (uint8_t)txc;
+		memcpy(&p[4], md->name, (unsigned int)txc);
 		memcpy(&p[4 + txc], &md[1], md->len);
-		n = 4 + txc + md->len;
+		n = 4 + txc + (int)md->len;
 	}
 
 	lws_dll2_remove(&md->list);
@@ -248,11 +248,11 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 			 * We are negotating the opening of a particular
 			 * streamtype
 			 */
-			n = strlen(h->ssi.streamtype) + 4;
+			n = (int)strlen(h->ssi.streamtype) + 4;
 
 			s[0] = LWSSS_SER_TXPRE_STREAMTYPE;
-			lws_ser_wu16be(&s[1], n);
-			lws_ser_wu32be(&s[3], h->txc.peer_tx_cr_est);
+			lws_ser_wu16be(&s[1], (uint16_t)n);
+			lws_ser_wu32be(&s[3], (uint32_t)h->txc.peer_tx_cr_est);
 			//h->txcr_out = txc;
 			lws_strncpy((char *)&s[7], h->ssi.streamtype, sizeof(s) - 7);
 			n += 3;
@@ -288,7 +288,7 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 					   __func__, (unsigned int)h->writeable_len);
 				s[0] = LWSSS_SER_TXPRE_PAYLOAD_LENGTH_HINT;
 				lws_ser_wu16be(&s[1], 4);
-				lws_ser_wu32be(&s[3], h->writeable_len);
+				lws_ser_wu32be(&s[3], (uint32_t)h->writeable_len);
 				h->pending_writeable_len = 0;
 				n = 7;
 				goto req_write_and_issue;
@@ -339,7 +339,7 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 					   __func__, (unsigned int)h->writeable_len);
 				s[0] = LWSSS_SER_TXPRE_PAYLOAD_LENGTH_HINT;
 				lws_ser_wu16be(&s[1], 4);
-				lws_ser_wu32be(&s[3], h->writeable_len);
+				lws_ser_wu32be(&s[3], (uint32_t)h->writeable_len);
 				h->pending_writeable_len = 0;
 				n = 7;
 				goto req_write_and_issue;
@@ -370,18 +370,18 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 				break;
 			}
 
-			h->txc.tx_cr -= len;
+			h->txc.tx_cr = h->txc.tx_cr - (int)len;
 
 			cp = p;
-			n = len + 19;
+			n = (int)(len + 19);
 			us = lws_now_usecs();
 			p[0] = LWSSS_SER_TXPRE_TX_PAYLOAD;
-			lws_ser_wu16be(&p[1], len + 19 - 3);
-			lws_ser_wu32be(&p[3], flags);
+			lws_ser_wu16be(&p[1], (uint16_t)(len + 19 - 3));
+			lws_ser_wu32be(&p[3], (uint32_t)flags);
 			/* time spent here waiting to send this */
-			lws_ser_wu32be(&p[7], us - h->us_earliest_write_req);
+			lws_ser_wu32be(&p[7], (uint32_t)(us - h->us_earliest_write_req));
 			/* ust that the client write happened */
-			lws_ser_wu64be(&p[11], us);
+			lws_ser_wu64be(&p[11], (uint64_t)us);
 			h->us_earliest_write_req = 0;
 
 			if (flags & LWSSS_FLAG_EOM)
@@ -400,7 +400,7 @@ do_write_nz:
 			break;
 
 do_write:
-		n = lws_write(wsi, (uint8_t *)cp, n, LWS_WRITE_RAW);
+		n = lws_write(wsi, (uint8_t *)cp, (unsigned int)n, LWS_WRITE_RAW);
 		if (n < 0) {
 			lwsl_notice("%s: WRITEABLE: %d\n", __func__, n);
 

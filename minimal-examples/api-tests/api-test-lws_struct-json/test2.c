@@ -207,7 +207,7 @@ test2(void)
 	}
 
 	do {
-		n = lws_struct_json_serialize(ser, buf, sizeof(buf), &written);
+		n = (int)lws_struct_json_serialize(ser, buf, sizeof(buf), &written);
 		switch (n) {
 		case LSJS_RESULT_FINISH:
 			puts((const char *)buf);

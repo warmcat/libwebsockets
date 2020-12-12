@@ -47,7 +47,7 @@ rops_handle_POLLIN_pipe(struct lws_context_per_thread *pt, struct lws *wsi,
 	 * We really don't care about the number of bytes, but coverity
 	 * thinks we should.
 	 */
-	n = read(wsi->desc.sockfd, s, sizeof(s));
+	n = (int)read(wsi->desc.sockfd, s, sizeof(s));
 	(void)n;
 	if (n < 0)
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;

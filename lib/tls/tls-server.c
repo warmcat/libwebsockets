@@ -130,6 +130,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 	struct lws_context *context = wsi->a.context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 	struct lws_vhost *vh;
+	ssize_t s;
 	int n;
 
 	if (!LWS_SSL_ENABLED(wsi->a.vhost))
@@ -174,7 +175,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 		lws_pt_unlock(pt);
 
 		lws_set_timeout(wsi, PENDING_TIMEOUT_SSL_ACCEPT,
-				context->timeout_secs);
+				(int)context->timeout_secs);
 
 		lwsl_debug("inserted SSL accept into fds, trying SSL_accept\n");
 
@@ -193,7 +194,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 			 * something to read...
 			 */
 
-			n = recv(wsi->desc.sockfd, (char *)pt->serv_buf,
+			s = recv(wsi->desc.sockfd, (char *)pt->serv_buf,
 				 context->pt_serv_buf_size, MSG_PEEK);
 			/*
 			 * We have LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT..
@@ -220,7 +221,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 			 *     continue with that
 			 */
 
-			if (n >= 1 && pt->serv_buf[0] >= ' ') {
+			if (s >= 1 && pt->serv_buf[0] >= ' ') {
 				/*
 				* TLS content-type for Handshake is 0x16, and
 				* for ChangeCipherSpec Record, it's 0x14
@@ -270,7 +271,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 					    __func__, wsi->a.vhost->name);
 				goto fail;
 			}
-			if (!n) {
+			if (!s) {
 				/*
 				 * POLLIN but nothing to read is supposed to
 				 * mean the connection is gone, we should
@@ -294,7 +295,7 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 
 				goto fail;
 			}
-			if (n < 0 && (LWS_ERRNO == LWS_EAGAIN ||
+			if (s < 0 && (LWS_ERRNO == LWS_EAGAIN ||
 				      LWS_ERRNO == LWS_EWOULDBLOCK)) {
 
 punt:
@@ -353,8 +354,8 @@ punt:
 		if (context->detailed_latency_cb) {
 			wsi->detlat.type = LDLT_TLS_NEG_SERVER;
 			wsi->detlat.latencies[LAT_DUR_PROXY_RX_TO_ONWARD_TX] =
-				lws_now_usecs() -
-				wsi->detlat.earliest_write_req_pre_write;
+				(uint32_t)(lws_now_usecs() -
+				wsi->detlat.earliest_write_req_pre_write);
 			wsi->detlat.latencies[LAT_DUR_USERCB] = 0;
 			lws_det_lat_cb(wsi->a.context, &wsi->detlat);
 		}
@@ -374,7 +375,7 @@ punt:
 
 		/* OK, we are accepted... give him some time to negotiate */
 		lws_set_timeout(wsi, PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
-				context->timeout_secs);
+				(int)context->timeout_secs);
 
 		lwsi_set_state(wsi, LRS_ESTABLISHED);
 		if (lws_tls_server_conn_alpn(wsi)) {

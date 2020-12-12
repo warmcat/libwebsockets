@@ -178,7 +178,7 @@ callback_minimal_client_echo(struct lws *wsi, enum lws_callback_reasons reason,
 
 		/* notice we allowed for LWS_PRE in the payload already */
 		m = lws_write(wsi, ((unsigned char *)pmsg->payload) +
-			      LWS_PRE, pmsg->len, flags);
+			      LWS_PRE, pmsg->len, (enum lws_write_protocol)flags);
 		if (m < (int)pmsg->len) {
 			lwsl_err("ERROR %d writing to ws socket\n", m);
 			return -1;
@@ -217,9 +217,9 @@ callback_minimal_client_echo(struct lws *wsi, enum lws_callback_reasons reason,
 
 		// lwsl_hexdump_notice(in, len);
 
-		amsg.first = lws_is_first_fragment(wsi);
-		amsg.final = lws_is_final_fragment(wsi);
-		amsg.binary = lws_frame_is_binary(wsi);
+		amsg.first = (char)lws_is_first_fragment(wsi);
+		amsg.final = (char)lws_is_final_fragment(wsi);
+		amsg.binary = (char)lws_frame_is_binary(wsi);
 		n = (int)lws_ring_get_count_free_elements(pss->ring);
 		if (!n) {
 			lwsl_user("dropping!\n");

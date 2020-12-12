@@ -93,7 +93,7 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_gencrypto_keyelem *el,
 	 */
 
 	for (n = 0; n < 5; n++) {
-		ctx->bn[n] = BN_bin2bn(el[n].buf, el[n].len, NULL);
+		ctx->bn[n] = BN_bin2bn(el[n].buf, (int)el[n].len, NULL);
 		if (!ctx->bn[n]) {
 			lwsl_notice("mpi load failed\n");
 			goto bail;
@@ -193,10 +193,10 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 		for (n = 0; n < 5; n++)
 			if (BN_num_bytes(mpi[n])) {
 				el[n].buf = lws_malloc(
-					BN_num_bytes(mpi[n]), "genrsakey");
+					(unsigned int)BN_num_bytes(mpi[n]), "genrsakey");
 				if (!el[n].buf)
 					goto cleanup;
-				el[n].len = BN_num_bytes(mpi[n]);
+				el[n].len = (unsigned int)BN_num_bytes(mpi[n]);
 				BN_bn2bin(mpi[n], el[n].buf);
 			}
 	}
@@ -293,7 +293,7 @@ lws_genrsa_hash_sig_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 
 	switch(ctx->mode) {
 	case LGRSAM_PKCS1_1_5:
-		n = RSA_verify(n, in, h, (uint8_t *)sig, (int)sig_len, ctx->rsa);
+		n = RSA_verify(n, in, (unsigned int)h, (uint8_t *)sig, (unsigned int)sig_len, ctx->rsa);
 		break;
 	case LGRSAM_PKCS1_OAEP_PSS:
 		md = lws_gencrypto_openssl_hash_to_EVP_MD(hash_type);
@@ -338,7 +338,7 @@ lws_genrsa_hash_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 
 	switch(ctx->mode) {
 	case LGRSAM_PKCS1_1_5:
-		if (RSA_sign(n, in, h, sig, &used, ctx->rsa) != 1) {
+		if (RSA_sign(n, in, (unsigned int)h, sig, &used, ctx->rsa) != 1) {
 			lwsl_err("%s: RSA_sign failed\n", __func__);
 
 			goto bail;
@@ -368,7 +368,7 @@ lws_genrsa_hash_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 
 			goto bail;
 		}
-		if (EVP_DigestSignUpdate(mdctx, in, EVP_MD_size(md))) {
+		if (EVP_DigestSignUpdate(mdctx, in, (unsigned int)EVP_MD_size(md))) {
 			lwsl_err("%s: EVP_DigestSignUpdate failed\n", __func__);
 
 			goto bail;
@@ -379,14 +379,14 @@ lws_genrsa_hash_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			goto bail;
 		}
 		EVP_MD_CTX_free(mdctx);
-		used = (int)sig_len;
+		used = (unsigned int)sig_len;
 		break;
 
 	default:
 		return -1;
 	}
 
-	return used;
+	return (int)used;
 
 bail:
 	if (mdctx)

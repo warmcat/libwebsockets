@@ -267,7 +267,7 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 		task = lws_threadpool_get_task_wsi(wsi);
 		if (!task)
 			break;
-		n = lws_threadpool_task_status(task, &_user);
+		n = (int)lws_threadpool_task_status(task, &_user);
 		lwsl_debug("%s: LWS_CALLBACK_SERVER_WRITEABLE: status %d\n",
 			   __func__, n);
 		switch(n) {
@@ -292,7 +292,7 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 
 		n = (int)strlen(priv->result + LWS_PRE);
 		m = lws_write(wsi, (unsigned char *)priv->result + LWS_PRE,
-			      n, LWS_WRITE_TEXT);
+			      (unsigned int)n, LWS_WRITE_TEXT);
 		if (m < n) {
 			lwsl_err("ERROR %d writing to ws socket\n", m);
 			lws_threadpool_task_sync(task, 1);

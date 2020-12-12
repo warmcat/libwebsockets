@@ -222,7 +222,7 @@ lws_jwk_dump(struct lws_jwk *jwk)
 }
 
 static int
-_lws_jwk_set_el_jwk(struct lws_gencrypto_keyelem *e, char *in, int len)
+_lws_jwk_set_el_jwk(struct lws_gencrypto_keyelem *e, char *in, size_t len)
 {
 	e->buf = lws_malloc(len + 1, "jwk");
 	if (!e->buf)
@@ -230,7 +230,7 @@ _lws_jwk_set_el_jwk(struct lws_gencrypto_keyelem *e, char *in, int len)
 
 	memcpy(e->buf, in, len);
 	e->buf[len] = '\0';
-	e->len = len;
+	e->len = (uint32_t)len;
 
 	return 0;
 }
@@ -238,7 +238,8 @@ _lws_jwk_set_el_jwk(struct lws_gencrypto_keyelem *e, char *in, int len)
 static int
 _lws_jwk_set_el_jwk_b64(struct lws_gencrypto_keyelem *e, char *in, int len)
 {
-	int dec_size = lws_base64_size(len), n;
+	size_t dec_size = (unsigned int)lws_base64_size(len);
+	int n;
 
 	e->buf = lws_malloc(dec_size, "jwk");
 	if (!e->buf)
@@ -246,10 +247,10 @@ _lws_jwk_set_el_jwk_b64(struct lws_gencrypto_keyelem *e, char *in, int len)
 
 	/* same decoder accepts both url or original styles */
 
-	n = lws_b64_decode_string_len(in, len, (char *)e->buf, dec_size - 1);
+	n = lws_b64_decode_string_len(in, len, (char *)e->buf, (int)dec_size - 1);
 	if (n < 0)
 		return -1;
-	e->len = n;
+	e->len = (uint32_t)n;
 
 	return 0;
 }
@@ -257,7 +258,8 @@ _lws_jwk_set_el_jwk_b64(struct lws_gencrypto_keyelem *e, char *in, int len)
 static int
 _lws_jwk_set_el_jwk_b64u(struct lws_gencrypto_keyelem *e, char *in, int len)
 {
-	int dec_size = lws_base64_size(len), n;
+	size_t dec_size = (size_t)lws_base64_size(len);
+	int n;
 
 	e->buf = lws_malloc(dec_size, "jwk");
 	if (!e->buf)
@@ -265,10 +267,10 @@ _lws_jwk_set_el_jwk_b64u(struct lws_gencrypto_keyelem *e, char *in, int len)
 
 	/* same decoder accepts both url or original styles */
 
-	n = lws_b64_decode_string_len(in, len, (char *)e->buf, dec_size - 1);
+	n = lws_b64_decode_string_len(in, len, (char *)e->buf, (int)dec_size - 1);
 	if (n < 0)
 		return -1;
-	e->len = n;
+	e->len = (uint32_t)n;
 
 	return 0;
 }
@@ -299,7 +301,8 @@ cb_jwk(struct lejp_ctx *ctx, char reason)
 {
 	struct lws_jwk_parse_state *jps = (struct lws_jwk_parse_state *)ctx->user;
 	struct lws_jwk *jwk = jps->jwk;
-	unsigned int idx, poss, n;
+	unsigned int idx, n;
+	unsigned short poss;
 	char dotstar[64];
 
 	if (reason == LEJPCB_VAL_STR_START)
@@ -485,7 +488,7 @@ cont:
 
 		if (idx & F_META) {
 			if (_lws_jwk_set_el_jwk(&jwk->meta[idx & 0x7f],
-						jps->b64, jps->pos) < 0)
+						jps->b64, (unsigned int)jps->pos) < 0)
 				goto bail;
 
 			break;
@@ -516,7 +519,7 @@ cont:
 		}
 
 			if (_lws_jwk_set_el_jwk(&jwk->e[idx & 0x7f],
-						jps->b64, jps->pos) < 0)
+						jps->b64, (unsigned int)jps->pos) < 0)
 				goto bail;
 		break;
 	}
@@ -553,14 +556,16 @@ lws_jwk_init_jps(struct lejp_ctx *jctx, struct lws_jwk_parse_state *jps,
 int
 lws_jwk_dup_oct(struct lws_jwk *jwk, const void *key, int len)
 {
-	jwk->e[LWS_GENCRYPTO_KTY_OCT].buf = lws_malloc(len, __func__);
+	unsigned int ulen = (unsigned int)len;
+
+	jwk->e[LWS_GENCRYPTO_KTY_OCT].buf = lws_malloc(ulen, __func__);
 	if (!jwk->e[LWS_GENCRYPTO_KTY_OCT].buf)
 		return -1;
 
 	jwk->kty = LWS_GENCRYPTO_KTY_OCT;
-	jwk->e[LWS_GENCRYPTO_OCT_KEYEL_K].len = len;
+	jwk->e[LWS_GENCRYPTO_OCT_KEYEL_K].len = ulen;
 
-	memcpy(jwk->e[LWS_GENCRYPTO_KTY_OCT].buf, key, len);
+	memcpy(jwk->e[LWS_GENCRYPTO_KTY_OCT].buf, key, ulen);
 
 	return 0;
 }
@@ -574,7 +579,7 @@ lws_jwk_generate(struct lws_context *context, struct lws_jwk *jwk,
 
 	memset(jwk, 0, sizeof(*jwk));
 
-	jwk->kty = kty;
+	jwk->kty = (int)kty;
 	jwk->private_key = 1;
 
 	switch (kty) {
@@ -593,7 +598,7 @@ lws_jwk_generate(struct lws_context *context, struct lws_jwk *jwk,
 	}
 		break;
 	case LWS_GENCRYPTO_KTY_OCT:
-		sn = lws_gencrypto_bits_to_bytes(bits);
+		sn = (unsigned int)lws_gencrypto_bits_to_bytes(bits);
 		jwk->e[LWS_GENCRYPTO_OCT_KEYEL_K].buf = lws_malloc(sn, "oct");
 		jwk->e[LWS_GENCRYPTO_OCT_KEYEL_K].len = (uint32_t)sn;
 		if (lws_get_random(context,
@@ -682,7 +687,7 @@ lws_jwk_export(struct lws_jwk *jwk, int flags, char *p, int *len)
 	 * ie, meta and key data elements appear interleaved in name alpha order
 	 */
 
-	p += lws_snprintf(p, end - p, "{");
+	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "{");
 
 	switch (jwk->kty) {
 	case LWS_GENCRYPTO_KTY_OCT:
@@ -716,7 +721,7 @@ lws_jwk_export(struct lws_jwk *jwk, int flags, char *p, int *len)
 				if (!first)
 					*p++ = ',';
 				first = 0;
-				p += lws_snprintf(p, end - p, "\"%s\":\"%s\"",
+				p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\"%s\":\"%s\"",
 						  l->name, kty_names[jwk->kty]);
 				break;
 			case JWK_META_KEY_OPS:
@@ -726,7 +731,7 @@ lws_jwk_export(struct lws_jwk *jwk, int flags, char *p, int *len)
 				q = (const char *)jwk->meta[l->idx].buf;
 				q_end = q + jwk->meta[l->idx].len;
 
-				p += lws_snprintf(p, end - p,
+				p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
 						  "\"%s\":[", l->name);
 				/*
 				 * For the public version, usages that
@@ -748,7 +753,7 @@ lws_jwk_export(struct lws_jwk *jwk, int flags, char *p, int *len)
 						if (!f)
 							*p++ = ',';
 						f = 0;
-						p += lws_snprintf(p, end - p,
+						p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
 							"\"%s\"", tok);
 					}
 					q++;
@@ -766,12 +771,12 @@ lws_jwk_export(struct lws_jwk *jwk, int flags, char *p, int *len)
 				if (!first)
 					*p++ = ',';
 				first = 0;
-				p += lws_snprintf(p, end - p, "\"%s\":\"",
+				p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\"%s\":\"",
 						  l->name);
 				lws_strnncpy(p, (const char *)jwk->meta[l->idx].buf,
 					     jwk->meta[l->idx].len, end - p);
 				p += strlen(p);
-				p += lws_snprintf(p, end - p, "\"");
+				p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\"");
 				break;
 			}
 		}
@@ -782,7 +787,7 @@ lws_jwk_export(struct lws_jwk *jwk, int flags, char *p, int *len)
 				*p++ = ',';
 			first = 0;
 
-			p += lws_snprintf(p, end - p, "\"%s\":\"", l->name);
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\"%s\":\"", l->name);
 
 			if (jwk->kty == LWS_GENCRYPTO_KTY_EC &&
 			    l->idx == (int)LWS_GENCRYPTO_EC_KEYEL_CRV) {
@@ -793,19 +798,19 @@ lws_jwk_export(struct lws_jwk *jwk, int flags, char *p, int *len)
 			} else
 				m = lws_jws_base64_enc(
 					(const char *)jwk->e[l->idx].buf,
-					jwk->e[l->idx].len, p, end - p - 4);
+					jwk->e[l->idx].len, p, lws_ptr_diff_size_t(end, p) - 4);
 			if (m < 0) {
 				lwsl_notice("%s: enc failed\n", __func__);
 				return -1;
 			}
 			p += m;
-			p += lws_snprintf(p, end - p, "\"");
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\"");
 		}
 
 		l++;
 	}
 
-	p += lws_snprintf(p, end - p,
+	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
 			  (flags & LWSJWKF_EXPORT_NOCRLF) ? "}" : "}\n");
 
 	*len -= lws_ptr_diff(p, start);
@@ -817,19 +822,20 @@ int
 lws_jwk_rfc7638_fingerprint(struct lws_jwk *jwk, char *digest32)
 {
 	struct lws_genhash_ctx hash_ctx;
-	int tmpsize = 2536, n;
+	size_t tmpsize = 2536;
 	char *tmp;
+	int n, m = (int)tmpsize;
 
 	tmp = lws_malloc(tmpsize, "rfc7638 tmp");
 
-	n = lws_jwk_export(jwk, LWSJWKF_EXPORT_NOCRLF, tmp, &tmpsize);
+	n = lws_jwk_export(jwk, LWSJWKF_EXPORT_NOCRLF, tmp, &m);
 	if (n < 0)
 		goto bail;
 
 	if (lws_genhash_init(&hash_ctx, LWS_GENHASH_TYPE_SHA256))
 		goto bail;
 
-	if (lws_genhash_update(&hash_ctx, tmp, n)) {
+	if (lws_genhash_update(&hash_ctx, tmp, (unsigned int)n)) {
 		lws_genhash_destroy(&hash_ctx, NULL);
 
 		goto bail;
@@ -851,11 +857,11 @@ int
 lws_jwk_strdup_meta(struct lws_jwk *jwk, enum enum_jwk_meta_tok idx,
 		    const char *in, int len)
 {
-	jwk->meta[idx].buf = lws_malloc(len, __func__);
+	jwk->meta[idx].buf = lws_malloc((unsigned int)len, __func__);
 	if (!jwk->meta[idx].buf)
 		return 1;
-	jwk->meta[idx].len = len;
-	memcpy(jwk->meta[idx].buf, in, len);
+	jwk->meta[idx].len = (uint32_t)(unsigned int)len;
+	memcpy(jwk->meta[idx].buf, in, (unsigned int)len);
 
 	return 0;
 }
@@ -864,7 +870,7 @@ int
 lws_jwk_load(struct lws_jwk *jwk, const char *filename,
 	     lws_jwk_key_import_callback cb, void *user)
 {
-	int buflen = 4096;
+	unsigned int buflen = 4096;
 	char *buf = lws_malloc(buflen, "jwk-load");
 	int n;
 
@@ -875,7 +881,7 @@ lws_jwk_load(struct lws_jwk *jwk, const char *filename,
 	if (n < 0)
 		goto bail;
 
-	n = lws_jwk_import(jwk, cb, user, buf, n);
+	n = lws_jwk_import(jwk, cb, user, buf, (unsigned int)n);
 	lws_free(buf);
 
 	return n;
@@ -889,7 +895,7 @@ int
 lws_jwk_save(struct lws_jwk *jwk, const char *filename)
 {
 	int buflen = 4096;
-	char *buf = lws_malloc(buflen, "jwk-save");
+	char *buf = lws_malloc((unsigned int)buflen, "jwk-save");
 	int n, m;
 
 	if (!buf)
@@ -899,7 +905,7 @@ lws_jwk_save(struct lws_jwk *jwk, const char *filename)
 	if (n < 0)
 		goto bail;
 
-	m = lws_plat_write_file(filename, buf, n);
+	m = lws_plat_write_file(filename, buf, (size_t)n);
 
 	lws_free(buf);
 	if (m)

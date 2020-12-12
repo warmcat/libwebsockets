@@ -1,7 +1,7 @@
 /*
  * lws-api-test-jose - RFC7515 jws tests
  *
- * Written in 2010-2019 by Andy Green <andy@warmcat.com>
+ * Written in 2010-2020 by Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
@@ -61,7 +61,7 @@ test_jws_none(struct lws_context *context)
 
 	/* parse the JOSE header */
 	if (lws_jws_parse_jose(&jose, map.buf[LJWS_JOSE],
-			       map.len[LJWS_JOSE],
+			       (int)map.len[LJWS_JOSE],
 			       (char *)lws_concat_temp(temp, temp_len),
 			       &temp_len) < 0 || !jose.alg) {
 		lwsl_err("%s: JOSE parse failed\n", __func__);
@@ -180,7 +180,7 @@ test_jws_HS256(struct lws_context *context)
 			     jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf,
 			     jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].len))
 		goto bail;
-	if (lws_genhmac_update(&ctx, (uint8_t *)buf, p - buf))
+	if (lws_genhmac_update(&ctx, (uint8_t *)buf, lws_ptr_diff_size_t(p, buf)))
 		goto bail_destroy_hmac;
 	lws_genhmac_destroy(&ctx, digest);
 
@@ -198,7 +198,7 @@ test_jws_HS256(struct lws_context *context)
 
 	/* 1.5: Check we can agree the signature matches the payload */
 
-	if (lws_jws_sig_confirm_compact_b64(buf, p - buf, &map, &jwk, context,
+	if (lws_jws_sig_confirm_compact_b64(buf, lws_ptr_diff_size_t(p, buf), &map, &jwk, context,
 			lws_concat_temp(temp, temp_len), &temp_len) < 0) {
 		lwsl_notice("%s: confirm sig failed\n", __func__);
 		goto bail;
@@ -326,7 +326,7 @@ test_jws_RS256(struct lws_context *context)
 	l = (int)strlen(rfc7515_rsa_a1);
 	if (temp_len < l + 1)
 		goto bail;
-	memcpy(in, rfc7515_rsa_a1, l + 1);
+	memcpy(in, rfc7515_rsa_a1, (unsigned int)l + 1);
 	temp_len -= l + 1;
 
 	if (lws_jws_b64_compact_map(in, l, &jws.map_b64) != 3) {
@@ -342,12 +342,13 @@ test_jws_RS256(struct lws_context *context)
 		lwsl_err("%s: failed signing test packet\n", __func__);
 		goto bail;
 	}
-	jws.map_b64.len[LJWS_SIG] = n;
+	jws.map_b64.len[LJWS_SIG] = (unsigned int)n;
 
 	/* 2.4: confirm our signature can be verified */
 
 	in[l] = '\0';
-	if (lws_jws_sig_confirm_compact_b64(in, l, &map, &jwk, context, lws_concat_temp(temp, temp_len), &temp_len) < 0) {
+	if (lws_jws_sig_confirm_compact_b64(in, (unsigned int)l, &map, &jwk,
+			context, lws_concat_temp(temp, temp_len), &temp_len) < 0) {
 		lwsl_notice("%s: 2.2: confirm rsa sig failed\n", __func__);
 		goto bail;
 	}
@@ -446,7 +447,7 @@ test_jws_ES256(struct lws_context *context)
 
 	/* parse the JOSE header */
 	if (lws_jws_parse_jose(&jose, jws.map.buf[LJWS_JOSE],
-			       jws.map.len[LJWS_JOSE],
+			       (int)jws.map.len[LJWS_JOSE],
 			       (char *)lws_concat_temp(temp, temp_len), &temp_len) < 0) {
 		lwsl_err("%s: JOSE parse failed\n", __func__);
 		goto bail;
@@ -485,7 +486,7 @@ test_jws_ES256(struct lws_context *context)
 	if (temp_len < l + 1)
 		goto bail1;
 	p = lws_concat_temp(temp, temp_len);
-	memcpy(p, es256_cser, l + 1);
+	memcpy(p, es256_cser, (unsigned int)l + 1);
 	temp_len -= l + 1;
 
 	/* scan the b64 compact serialization string to map the blocks */
@@ -515,7 +516,7 @@ test_jws_ES256(struct lws_context *context)
 		lwsl_err("%s: failed signing test packet\n", __func__);
 		goto bail1;
 	}
-	jws.map_b64.len[LJWS_SIG] = n;
+	jws.map_b64.len[LJWS_SIG] = (unsigned int)n;
 
 	lwsl_hexdump(jws.map_b64.buf[LJWS_SIG], jws.map_b64.len[LJWS_SIG]);
 
@@ -523,7 +524,8 @@ test_jws_ES256(struct lws_context *context)
 
 //	lwsl_err("p %p, l %d\n", p, (int)l);
 	p[l] = '\0';
-	if (lws_jws_sig_confirm_compact_b64(p, l, &map, &jwk, context, lws_concat_temp(temp, temp_len), &temp_len) < 0) {
+	if (lws_jws_sig_confirm_compact_b64(p, (unsigned int)l, &map, &jwk,
+			context, lws_concat_temp(temp, temp_len), &temp_len) < 0) {
 		lwsl_notice("%s: confirm our EC sig failed\n", __func__);
 		goto bail1;
 	}
@@ -607,7 +609,7 @@ test_jws_ES512(struct lws_context *context)
 
 	/* parse the JOSE header */
 	if (lws_jws_parse_jose(&jose, jws.map.buf[LJWS_JOSE],
-			      jws.map.len[LJWS_JOSE],
+			      (int)jws.map.len[LJWS_JOSE],
 			      lws_concat_temp(temp, temp_len), &temp_len) < 0) {
 		lwsl_err("%s: JOSE parse failed\n", __func__);
 		goto bail;
@@ -646,7 +648,7 @@ test_jws_ES512(struct lws_context *context)
 	if (temp_len < l)
 		goto bail1;
 	p = lws_concat_temp(temp, temp_len);
-	memcpy(p, es512_cser, l + 1);
+	memcpy(p, es512_cser, (unsigned int)l + 1);
 	temp_len -= (l + 1);
 
 	/* scan the b64 compact serialization string to map the blocks */
@@ -673,13 +675,13 @@ test_jws_ES512(struct lws_context *context)
 		lwsl_err("%s: failed signing test packet\n", __func__);
 		goto bail1;
 	}
-	jws.map_b64.len[LJWS_SIG] = n;
+	jws.map_b64.len[LJWS_SIG] = (unsigned int)n;
 
 	/* 2.4: confirm our generated signature can be verified */
 
 	p[l] = '\0';
 
-	if (lws_jws_sig_confirm_compact_b64(p, l, &map, &jwk, context,
+	if (lws_jws_sig_confirm_compact_b64(p, (unsigned int)l, &map, &jwk, context,
 			lws_concat_temp(temp, temp_len), &temp_len) < 0) {
 		lwsl_notice("%s: confirm our ECDSA sig failed\n", __func__);
 		goto bail1;

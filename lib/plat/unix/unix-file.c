@@ -44,9 +44,10 @@ int lws_plat_apply_FD_CLOEXEC(int n)
 }
 
 int
-lws_plat_write_file(const char *filename, void *buf, int len)
+lws_plat_write_file(const char *filename, void *buf, size_t len)
 {
-	int m, fd;
+	ssize_t m;
+	int fd;
 
 	fd = lws_open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0600);
 
@@ -56,20 +57,25 @@ lws_plat_write_file(const char *filename, void *buf, int len)
 	m = write(fd, buf, len);
 	close(fd);
 
-	return m != len;
+	if (m < 0)
+		return 1;
+
+	return (size_t)m != len;
 }
 
 int
-lws_plat_read_file(const char *filename, void *buf, int len)
+lws_plat_read_file(const char *filename, void *buf, size_t len)
 {
-	int n, fd = lws_open(filename, O_RDONLY);
+	int fd = lws_open(filename, O_RDONLY);
+	ssize_t n;
+
 	if (fd == -1)
 		return -1;
 
 	n = read(fd, buf, len);
 	close(fd);
 
-	return n;
+	return (int)n;
 }
 
 lws_fop_fd_t
@@ -94,7 +100,7 @@ _lws_plat_file_open(const struct lws_plat_file_ops *fops, const char *filename,
 	fop_fd->flags = *flags;
 	fop_fd->fd = ret;
 	fop_fd->filesystem_priv = NULL; /* we don't use it */
-	fop_fd->len = stat_buf.st_size;
+	fop_fd->len = (lws_filepos_t)stat_buf.st_size;
 	fop_fd->pos = 0;
 
 	return fop_fd;
@@ -122,15 +128,15 @@ _lws_plat_file_seek_cur(lws_fop_fd_t fop_fd, lws_fileofs_t offset)
 
 	if (offset > 0 &&
 	    offset > (lws_fileofs_t)fop_fd->len - (lws_fileofs_t)fop_fd->pos)
-		offset = fop_fd->len - fop_fd->pos;
+		offset = (lws_fileofs_t)(fop_fd->len - fop_fd->pos);
 
 	if ((lws_fileofs_t)fop_fd->pos + offset < 0)
-		offset = -fop_fd->pos;
+		offset = (lws_fileofs_t)(-fop_fd->pos);
 
-	r = lseek(fop_fd->fd, offset, SEEK_CUR);
+	r = lseek(fop_fd->fd, (off_t)offset, SEEK_CUR);
 
 	if (r >= 0)
-		fop_fd->pos = r;
+		fop_fd->pos = (lws_filepos_t)r;
 	else
 		lwsl_err("error seeking from cur %ld, offset %ld\n",
                         (long)fop_fd->pos, (long)offset);
@@ -142,17 +148,18 @@ int
 _lws_plat_file_read(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 		    uint8_t *buf, lws_filepos_t len)
 {
-	long n;
+	ssize_t n;
 
-	n = read((int)fop_fd->fd, buf, len);
-	if (n == -1) {
+	n = read((int)fop_fd->fd, buf, (size_t)len);
+	if (n == -1l) {
 		*amount = 0;
 		return -1;
 	}
-	fop_fd->pos += n;
-	lwsl_debug("%s: read %ld of req %ld, pos %ld, len %ld\n", __func__, n,
-                  (long)len, (long)fop_fd->pos, (long)fop_fd->len);
-	*amount = n;
+	fop_fd->pos += (size_t)n;
+	lwsl_debug("%s: read %ld of req %ld, pos %ld, len %ld\n", __func__,
+			(long)n, (long)len, (long)fop_fd->pos,
+			(long)fop_fd->len);
+	*amount = (size_t)n;
 
 	return 0;
 }
@@ -161,16 +168,16 @@ int
 _lws_plat_file_write(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 		     uint8_t *buf, lws_filepos_t len)
 {
-	long n;
+	ssize_t n;
 
-	n = write((int)fop_fd->fd, buf, len);
+	n = write((int)fop_fd->fd, buf, (size_t)len);
 	if (n == -1) {
 		*amount = 0;
 		return -1;
 	}
 
-	fop_fd->pos += n;
-	*amount = n;
+	fop_fd->pos += (size_t)n;
+	*amount = (size_t)n;
 
 	return 0;
 }

@@ -222,7 +222,7 @@ callback_mqtt(struct lws *wsi, enum lws_callback_reasons reason,
 				chunk = TEST_STRING_LEN - pss->pos;
 
 			if (lws_mqtt_client_send_publish(wsi, &pub_param,
-					test_string + pss->pos, chunk,
+					test_string + pss->pos, (uint32_t)chunk,
 					(pss->pos + chunk == TEST_STRING_LEN)))
 				return -1;
 

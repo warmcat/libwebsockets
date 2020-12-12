@@ -64,7 +64,7 @@ enum lwsi_role {
 	LWSI_ROLE_ENCAP_MASK	=			     (0x0f00 << _RS),
 };
 
-#define lwsi_role(wsi) (wsi->wsistate & LWSI_ROLE_MASK)
+#define lwsi_role(wsi) (wsi->wsistate & (unsigned int)LWSI_ROLE_MASK)
 #if !defined (_DEBUG)
 #define lwsi_set_role(wsi, role) wsi->wsistate = \
 				(wsi->wsistate & (~LWSI_ROLE_MASK)) | role
@@ -162,7 +162,7 @@ enum lwsi_state {
 #define lwsi_state_can_handle_POLLOUT(wsi) (wsi->wsistate & LWSIFS_POCB)
 #if !defined (_DEBUG)
 #define lwsi_set_state(wsi, lrs) wsi->wsistate = \
-			  (wsi->wsistate & (~LRS_MASK)) | lrs
+			  (wsi->wsistate & (lws_wsi_state_t)(~LRS_MASK)) | lrs
 #else
 void lwsi_set_state(struct lws *wsi, lws_wsi_state_t lrs);
 #endif

@@ -954,7 +954,7 @@ lws_http_cookie_get(struct lws *wsi, const char *name, char *buf, size_t *max);
  */
 #define LWS_H2_STREAM_SID -1
 LWS_VISIBLE LWS_EXTERN int
-lws_h2_update_peer_txcredit(struct lws *wsi, int sid, int bump);
+lws_h2_update_peer_txcredit(struct lws *wsi, unsigned int sid, int bump);
 
 
 /**

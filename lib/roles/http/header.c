@@ -73,7 +73,7 @@ lws_add_http_header_by_name(struct lws *wsi, const unsigned char *name,
 	if (*p + length + 3 >= end)
 		return 1;
 
-	memcpy(*p, value, length);
+	memcpy(*p, value, (unsigned int)length);
 	*p += length;
 	*((*p)++) = '\x0d';
 	*((*p)++) = '\x0a';
@@ -114,7 +114,7 @@ lws_finalize_write_http_header(struct lws *wsi, unsigned char *start,
 #if defined(LWS_WITH_DETAILED_LATENCY)
 	wsi->detlat.earliest_write_req_pre_write = lws_now_usecs();
 #endif
-	if (lws_write(wsi, start, len, LWS_WRITE_HTTP_HEADERS) != len)
+	if (lws_write(wsi, start, (unsigned int)len, LWS_WRITE_HTTP_HEADERS) != len)
 		return 1;
 
 	return 0;
@@ -232,7 +232,7 @@ lws_add_http_common_headers(struct lws *wsi, unsigned int code,
 						 (int)strlen(ka[t]), p, end))
 				return 1;
 
-			wsi->http.conn_type = types[t];
+			wsi->http.conn_type = (enum http_conn_type)types[t];
 		}
 	}
 
@@ -303,7 +303,7 @@ lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 	int n;
 
 #ifdef LWS_WITH_ACCESS_LOG
-	wsi->http.access_log.response = code;
+	wsi->http.access_log.response = (int)code;
 #endif
 
 #ifdef LWS_WITH_HTTP2
@@ -471,7 +471,7 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 #if defined(LWS_WITH_DETAILED_LATENCY)
 		wsi->detlat.earliest_write_req_pre_write = lws_now_usecs();
 #endif
-		m = lws_write(wsi, start, lws_ptr_diff(p, start),
+		m = lws_write(wsi, start, lws_ptr_diff_size_t(p, start),
 			      LWS_WRITE_HTTP_HEADERS);
 		if (m != lws_ptr_diff(p, start))
 			return 1;
@@ -480,10 +480,10 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 		 * ... but stash the body and send it as a priority next
 		 * handle_POLLOUT
 		 */
-		wsi->http.tx_content_length = len;
-		wsi->http.tx_content_remain = len;
+		wsi->http.tx_content_length = (unsigned int)len;
+		wsi->http.tx_content_remain = (unsigned int)len;
 
-		wsi->h2.pending_status_body = lws_malloc(len + LWS_PRE + 1,
+		wsi->h2.pending_status_body = lws_malloc((unsigned int)len + LWS_PRE + 1,
 							"pending status body");
 		if (!wsi->h2.pending_status_body)
 			return -1;
@@ -501,8 +501,8 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 		 */
 
 		n = lws_ptr_diff(p, start) + len;
-		memcpy(p, body, len);
-		m = lws_write(wsi, start, n, LWS_WRITE_HTTP);
+		memcpy(p, body, (unsigned int)len);
+		m = lws_write(wsi, start, (unsigned int)n, LWS_WRITE_HTTP);
 		if (m != n)
 			return 1;
 	}
@@ -516,7 +516,7 @@ lws_http_redirect(struct lws *wsi, int code, const unsigned char *loc, int len,
 {
 	unsigned char *start = *p;
 
-	if (lws_add_http_header_status(wsi, code, p, end))
+	if (lws_add_http_header_status(wsi, (unsigned int)code, p, end))
 		return -1;
 
 	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION, loc, len,
@@ -538,8 +538,8 @@ lws_http_redirect(struct lws *wsi, int code, const unsigned char *loc, int len,
 	if (lws_finalize_http_header(wsi, p, end))
 		return -1;
 
-	return lws_write(wsi, start, *p - start, LWS_WRITE_HTTP_HEADERS |
-						 LWS_WRITE_H2_STREAM_END);
+	return lws_write(wsi, start, lws_ptr_diff_size_t(*p, start),
+			 LWS_WRITE_HTTP_HEADERS | LWS_WRITE_H2_STREAM_END);
 }
 #endif
 
@@ -614,19 +614,19 @@ lws_sul_http_ah_lifecheck(lws_sorted_usec_list_t *sul)
 		buf[0] = '\0';
 		m = 0;
 		do {
-			c = lws_token_to_string(m);
+			c = lws_token_to_string((enum lws_token_indexes)m);
 			if (!c)
 				break;
 			if (!(*c))
 				break;
 
-			len = lws_hdr_total_length(wsi, m);
+			len = lws_hdr_total_length(wsi, (enum lws_token_indexes)m);
 			if (!len || len > (int)sizeof(buf) - 1) {
 				m++;
 				continue;
 			}
 
-			if (lws_hdr_copy(wsi, buf, sizeof buf, m) > 0) {
+			if (lws_hdr_copy(wsi, buf, sizeof buf, (enum lws_token_indexes)m) > 0) {
 				buf[sizeof(buf) - 1] = '\0';
 
 				lwsl_notice("   %s = %s\n",

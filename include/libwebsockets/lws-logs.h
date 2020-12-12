@@ -59,7 +59,7 @@
  * returns length written in p
  */
 LWS_VISIBLE LWS_EXTERN int
-lwsl_timestamp(int level, char *p, int len);
+lwsl_timestamp(int level, char *p, size_t len);
 
 #if defined(LWS_PLAT_OPTEE) && !defined(LWS_WITH_NETWORK)
 #define _lws_log(aaa, ...) SMSG(__VA_ARGS__)

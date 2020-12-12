@@ -111,13 +111,13 @@ lws_genec_eckey_import(int nid, EVP_PKEY *pkey, struct lws_gencrypto_keyelem *el
 	 */
 
 	bn_x = BN_bin2bn(el[LWS_GENCRYPTO_EC_KEYEL_X].buf,
-			 el[LWS_GENCRYPTO_EC_KEYEL_X].len, NULL);
+			 (int)el[LWS_GENCRYPTO_EC_KEYEL_X].len, NULL);
 	if (!bn_x) {
 		lwsl_err("%s: BN_bin2bn (x) fail\n", __func__);
 		goto bail;
 	}
 	bn_y = BN_bin2bn(el[LWS_GENCRYPTO_EC_KEYEL_Y].buf,
-			 el[LWS_GENCRYPTO_EC_KEYEL_Y].len, NULL);
+			(int)el[LWS_GENCRYPTO_EC_KEYEL_Y].len, NULL);
 	if (!bn_y) {
 		lwsl_err("%s: BN_bin2bn (y) fail\n", __func__);
 		goto bail1;
@@ -135,7 +135,7 @@ lws_genec_eckey_import(int nid, EVP_PKEY *pkey, struct lws_gencrypto_keyelem *el
 
 	if (el[LWS_GENCRYPTO_EC_KEYEL_D].len) {
 		bn_d = BN_bin2bn(el[LWS_GENCRYPTO_EC_KEYEL_D].buf,
-				 el[LWS_GENCRYPTO_EC_KEYEL_D].len, NULL);
+				(int)el[LWS_GENCRYPTO_EC_KEYEL_D].len, NULL);
 		if (!bn_d) {
 			lwsl_err("%s: BN_bin2bn (d) fail\n", __func__);
 			goto bail;
@@ -383,7 +383,7 @@ lws_genec_new_keypair(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 		if (!el[n].buf)
 			goto bail2;
 
-		m = BN_bn2binpad(bn[n - 1], el[n].buf, el[n].len);
+		m = BN_bn2binpad(bn[n - 1], el[n].buf, (int32_t)el[n].len);
 		if ((uint32_t)m != el[n].len)
 			goto bail2;
 	}
@@ -651,7 +651,7 @@ lws_genecdh_compute_shared_secret(struct lws_genec_ctx *ctx, uint8_t *ss,
 
 	len = (EC_GROUP_get_degree(EC_KEY_get0_group(eckey[LDHS_OURS])) + 7) / 8;
 	if (len <= *ss_len) {
-		*ss_len = ECDH_compute_key(ss, len,
+		*ss_len = ECDH_compute_key(ss, (unsigned int)len,
 				EC_KEY_get0_public_key(eckey[LDHS_THEIRS]),
 				eckey[LDHS_OURS], NULL);
 		ret = -(*ss_len < 0);

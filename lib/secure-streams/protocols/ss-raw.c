@@ -118,7 +118,7 @@ secstream_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (!h || !h->info.tx)
 			return 0;
 
-		buflen = lws_ptr_diff(end, p);
+		buflen = lws_ptr_diff_size_t(end, p);
 		r = h->info.tx(ss_to_userobj(h),  h->txord++, p, &buflen, &f);
 		if (r == LWSSSSRET_TX_DONT_SEND)
 			return 0;
@@ -131,8 +131,8 @@ secstream_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		 */
 
 		p += buflen;
-		if (lws_write(wsi, buf + LWS_PRE, lws_ptr_diff(p, buf + LWS_PRE),
-			 LWS_WRITE_HTTP) != (int)lws_ptr_diff(p, buf + LWS_PRE)) {
+		if (lws_write(wsi, buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE),
+			 LWS_WRITE_HTTP) != lws_ptr_diff(p, buf + LWS_PRE)) {
 			lwsl_err("%s: write failed\n", __func__);
 			return -1;
 		}

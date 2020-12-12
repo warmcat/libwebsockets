@@ -119,17 +119,17 @@ read:
 
 		buffered = 0;
 		ebuf.token = pt->serv_buf;
-		ebuf.len = wsi->a.context->pt_serv_buf_size;
+		ebuf.len = (int)wsi->a.context->pt_serv_buf_size;
 
 		if ((unsigned int)ebuf.len > wsi->a.context->pt_serv_buf_size)
-			ebuf.len = wsi->a.context->pt_serv_buf_size;
+			ebuf.len = (int)wsi->a.context->pt_serv_buf_size;
 
 		if ((int)pending > ebuf.len)
-			pending = ebuf.len;
+			pending = (unsigned int)ebuf.len;
 
 		ebuf.len = lws_ssl_capable_read(wsi, ebuf.token,
-						pending ? (int)pending :
-						ebuf.len);
+						pending ? pending :
+						(unsigned int)ebuf.len);
 		switch (ebuf.len) {
 		case 0:
 			lwsl_info("%s: zero length read\n",
@@ -155,7 +155,7 @@ drain:
 	/* service incoming data */
 	//lws_buflist_describe(&wsi->buflist, wsi, __func__);
 	if (ebuf.len) {
-		n = lws_read_mqtt(wsi, ebuf.token, ebuf.len);
+		n = lws_read_mqtt(wsi, ebuf.token, (unsigned int)ebuf.len);
 		if (n < 0) {
 			lwsl_notice("%s: lws_read_mqtt returned %d\n",
 					__func__, n);
@@ -172,7 +172,7 @@ drain:
 	ebuf.token = NULL;
 	ebuf.len = 0;
 
-	pending = lws_ssl_pending(wsi);
+	pending = (unsigned int)lws_ssl_pending(wsi);
 	if (pending) {
 		pending = pending > wsi->a.context->pt_serv_buf_size ?
 			wsi->a.context->pt_serv_buf_size : pending;
@@ -541,7 +541,7 @@ rops_close_kill_connection_mqtt(struct lws *wsi, enum lws_close_status reason)
 			lws_wsi_mux_dump_children(wsi);
 		}
 
-		lws_wsi_mux_close_children(wsi, reason);
+		lws_wsi_mux_close_children(wsi, (int)reason);
 	}
 
 	if ((

@@ -117,12 +117,12 @@ myss_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf, size_t *len,
 		/*
 		 * after a few, let's request a CPD check
 		 */
-		*len = LWS_SMD_SS_RX_HEADER_LEN +
+		*len = LWS_SMD_SS_RX_HEADER_LEN + (unsigned int)
 			lws_snprintf((char *)buf + LWS_SMD_SS_RX_HEADER_LEN, *len,
 				    "{\"trigger\": \"cpdcheck\", \"src\":\"SS-test\"}");
 	} else
 
-		*len = LWS_SMD_SS_RX_HEADER_LEN +
+		*len = LWS_SMD_SS_RX_HEADER_LEN + (unsigned int)
 			lws_snprintf((char *)buf + LWS_SMD_SS_RX_HEADER_LEN, *len,
 				     (m->alternate & 1) ? "{\"class\":\"NETWORK\"}" :
 						    "{\"class\":\"INTERACTION\"}");

@@ -72,13 +72,13 @@ struct linetable {
 static uint32_t
 b32(unsigned char *b)
 {
-	return (b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3];
+	return (uint32_t)((b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3]);
 }
 
 static uint16_t
 b16(unsigned char *b)
 {
-	return (b[0] << 8) | b[1];
+	return (uint16_t)((b[0] << 8) | b[1]);
 }
 
 static int
@@ -94,25 +94,25 @@ lws_fts_filepath(struct lws_fts_file *jtf, int filepath_index, char *result,
 	if (filepath_index > jtf->filepaths)
 		return 1;
 
-	if (lseek(jtf->fd, jtf->filepath_table + (4 * filepath_index),
+	if (lseek(jtf->fd, (off_t)(jtf->filepath_table + (4 * (unsigned int)filepath_index)),
 			SEEK_SET) < 0) {
 		lwsl_err("%s: unable to seek\n", __func__);
 
 		return 1;
 	}
 
-	ra = read(jtf->fd, buf, 4);
+	ra = (int)read(jtf->fd, buf, 4);
 	if (ra < 0)
 		return 1;
 
-	o = (unsigned int)b32(buf);
+	o = (off_t)b32(buf);
 	if (lseek(jtf->fd, o, SEEK_SET) < 0) {
 		lwsl_err("%s: unable to seek\n", __func__);
 
 		return 1;
 	}
 
-	ra = read(jtf->fd, buf, sizeof(buf));
+	ra = (int)read(jtf->fd, buf, sizeof(buf));
 	if (ra < 0)
 		return 1;
 
@@ -170,7 +170,7 @@ lws_fts_adopt(struct lws_fts_file *jtf)
 
 		goto bail;
 	}
-	jtf->flen = ot;
+	jtf->flen = (jg2_file_offset)ot;
 
 	if (jtf->flen != b32(&buf[8])) {
 		lwsl_err("%s: file size doesn't match expected\n", __func__);
@@ -179,7 +179,7 @@ lws_fts_adopt(struct lws_fts_file *jtf)
 	}
 
 	jtf->filepath_table = b32(&buf[12]);
-	jtf->filepaths = b32(&buf[16]);
+	jtf->filepaths = (int)b32(&buf[16]);
 
 	return jtf->fd;
 
@@ -224,13 +224,13 @@ lws_fts_close(struct lws_fts_file *jtf)
 
 #define grab(_pos, _size) { \
 		bp = 0; \
-		if (lseek(jtf->fd, _pos, SEEK_SET) < 0) { \
+		if (lseek(jtf->fd, (off_t)(_pos), SEEK_SET) < 0) { \
 			lwsl_err("%s: unable to seek\n", __func__); \
 \
 			goto bail; \
 		} \
 \
-		ra = read(jtf->fd, buf, _size); \
+		ra = (int)read(jtf->fd, buf, (size_t)(_size)); \
 		if (ra < 0) \
 			goto bail; \
 }
@@ -262,12 +262,12 @@ lws_fts_cache_chunktable(struct lws_fts_file *jtf, uint32_t ofs_linetable,
 
 		lt->chunk_line_number_start = line;
 		lt->chunk_line_number_count = b16(&buf[bp + 2]);
-		lt->vli_ofs_in_index = ofs_linetable + 8;
+		lt->vli_ofs_in_index = (off_t)(ofs_linetable + 8);
 		lt->chunk_filepos_start = cfs;
 
 		line += lt->chunk_line_number_count;
 
-		cfs += b32(&buf[bp + 4]);
+		cfs += (int32_t)b32(&buf[bp + 4]);
 		ofs_linetable += b16(&buf[bp]);
 
 	} while (b16(&buf[bp]));
@@ -314,7 +314,7 @@ lws_fts_getfileoffset(struct lws_fts_file *jtf, struct linetable *ltstart,
 	bp = 0;
 	while (line) {
 		bp += rq32(&buf[bp], &ll);
-		ofs += ll;
+		ofs += (int32_t)ll;
 		line--;
 	}
 
@@ -347,7 +347,7 @@ ac_record(struct lws_fts_file *jtf, struct lwsac **results_head,
 	for (n = 1; n <= sp; n++)
 		m += s[n].ch[s[n].child - 1].name_length;
 
-	ac = lwsac_use(results_head, sizeof(*ac) + m + 1, 0);
+	ac = lwsac_use(results_head, sizeof(*ac) + (unsigned int)m + 1, 0);
 	if (!ac)
 		return -1;
 
@@ -356,19 +356,19 @@ ac_record(struct lws_fts_file *jtf, struct lwsac **results_head,
 	**ppac = ac;
 	ac->next = NULL;
 	*ppac = &ac->next;
-	ac->instances = instances;
-	ac->agg_instances = agg_instances;
+	ac->instances = (int)instances;
+	ac->agg_instances = (int)agg_instances;
 	ac->ac_length = m;
 	ac->has_children = !!children;
 	ac->elided = 0;
 
-	memcpy(p, needle, pos);
+	memcpy(p, needle, (size_t)pos);
 	p += pos;
 
 	for (n = 1; n <= sp; n++) {
 		int w = s[n].child - 1;
 
-		memcpy(p, s[n].ch[w].name, s[n].ch[w].name_length);
+		memcpy(p, s[n].ch[w].name, (size_t)s[n].ch[w].name_length);
 		p += s[n].ch[w].name_length;
 	}
 	p = (char *)(ac + 1);
@@ -380,8 +380,8 @@ ac_record(struct lws_fts_file *jtf, struct lwsac **results_head,
 	 * best results (children are sorted best-first)
 	 */
 	for (n = sp; n >= 0; n--) {
-		s[n].ch[s[n].child - 1].child_agg -= instances;
-		s[n].agg -= instances;
+		s[n].ch[s[n].child - 1].child_agg -= (int)instances;
+		s[n].agg -= (int)instances;
 	}
 
 	return 0;
@@ -393,7 +393,7 @@ lws_fts_search(struct lws_fts_file *jtf, struct lws_fts_search_params *ftsp)
 	uint32_t children, instances, co, sl, agg, slt, chunk,
 		 fileofs_tif_start, desc, agg_instances;
 	int pos = 0, n, m, nl, bp, base = 0, ra, palm, budget, sp, ofd = -1;
-	unsigned long long tf = lws_now_usecs();
+	unsigned long long tf = (unsigned long long)lws_now_usecs();
 	struct lws_fts_result_autocomplete **pac = NULL;
 	char stasis, nac = 0, credible, needle[32];
 	struct lws_fts_result_filepath *fp;
@@ -426,10 +426,10 @@ lws_fts_search(struct lws_fts_file *jtf, struct lws_fts_search_params *ftsp)
 	palm = 0;
 
 	for (n = 0; n < nl; n++)
-		needle[n] = tolower(ftsp->needle[n]);
+		needle[n] = (char)tolower(ftsp->needle[n]);
 	needle[nl] = '\0';
 
-	o = jtf->root;
+	o = (off_t)jtf->root;
 	do {
 		bp = 0;
 		base = 0;
@@ -458,7 +458,7 @@ lws_fts_search(struct lws_fts_file *jtf, struct lws_fts_search_params *ftsp)
 
 			/* we leave with bp positioned at the instance list */
 
-			o = fileofs_tif_start;
+			o = (off_t)fileofs_tif_start;
 			grab(o, sizeof(buf));
 			break;
 		}
@@ -493,7 +493,7 @@ lws_fts_search(struct lws_fts_file *jtf, struct lws_fts_search_params *ftsp)
 				 * our needle string (but that leaves it as a
 				 * perfectly fine autocomplete candidate)
 				 */
-				size_t g = nl - pos;
+				size_t g = (size_t)(nl - pos);
 
 				/*
 				 * "credible" means at least one child matches
@@ -512,7 +512,7 @@ lws_fts_search(struct lws_fts_file *jtf, struct lws_fts_search_params *ftsp)
 					agg_instances -= agg;
 
 				nac = 0;
-				bp += sl;
+				bp += (int)sl;
 				slt = 0;
 				pos = palm;
 				goto ensure;
@@ -531,7 +531,7 @@ lws_fts_search(struct lws_fts_file *jtf, struct lws_fts_search_params *ftsp)
 				 * not needed due to a match fail.
 				 */
 
-				chunk = ra - bp;
+				chunk = (uint32_t)(ra - bp);
 				if (chunk > slt)
 					chunk = slt;
 
@@ -543,21 +543,21 @@ lws_fts_search(struct lws_fts_file *jtf, struct lws_fts_search_params *ftsp)
 					 * it doesn't match... so nothing can
 					 * autocomplete this...
 					 */
-					bp += slt;
+					bp += (int)slt;
 					slt = 0;
 					nac = 1;
 					goto ensure;
 				}
 
 				slt -= chunk;
-				pos += chunk;
-				bp += chunk;
+				pos += (int)chunk;
+				bp += (int)chunk;
 
 				/* so far, it matches */
 
 				if (!slt) {
 					/* we matched the whole thing */
-					o = co;
+					o = (int32_t)co;
 					if (!co)
 						goto bail;
 					n = (int)children;
@@ -598,7 +598,7 @@ ensure:
 		}
 	} while(1);
 
-	result->duration_ms = (int)((lws_now_usecs() - tf) / 1000);
+	result->duration_ms = (int)(((uint64_t)lws_now_usecs() - tf) / 1000);
 
 	if (!instances && !children)
 		return result;
@@ -626,16 +626,16 @@ ensure:
 		ofd = -1;
 		grab(o, sizeof(buf));
 
-		ro = o;
+		ro = (uint32_t)o;
 		bp += rq32(&buf[bp], &_o);
-		o = _o;
+		o = (off_t)_o;
 
 		assert(!o || o > TRIE_FILE_HDR_SIZE);
 
 		bp += rq32(&buf[bp], &fi);
 		bp += rq32(&buf[bp], &tot);
 
-		if (lws_fts_filepath(jtf, fi, path, sizeof(path) - 1,
+		if (lws_fts_filepath(jtf, (int)fi, path, sizeof(path) - 1,
 				     &ofs_linetable, &lines)) {
 			lwsl_err("can't get filepath index %d\n", fi);
 			goto bail;
@@ -656,27 +656,27 @@ ensure:
 			}
 		}
 
-		fplen = (int)strlen(path);
-		footprint = sizeof(*fp) + fplen + 1;
+		fplen = (uint32_t)strlen(path);
+		footprint = (int)(sizeof(*fp) + fplen + 1);
 		if (ftsp->flags & LWSFTS_F_QUERY_FILE_LINES) {
 			/* line number and offset in file */
-			footprint += 2 * sizeof(uint32_t) * tot;
+			footprint += (int)(2 * sizeof(uint32_t) * tot);
 
 			if (ftsp->flags & LWSFTS_F_QUERY_QUOTE_LINE)
 				/* pointer to quote string */
-				footprint += sizeof(void *) * tot;
+				footprint += (int)(sizeof(void *) * tot);
 		}
 
-		fp = lwsac_use(&ftsp->results_head, footprint, 0);
+		fp = lwsac_use(&ftsp->results_head, (unsigned int)footprint, 0);
 		if (!fp) {
 			lwsac_free(&lt_head);
 			goto bail;
 		}
 
-		fp->filepath_length = fplen;
-		fp->lines_in_file = lines;
-		fp->matches = tot;
-		fp->matches_length = footprint - sizeof(*fp) - (fplen + 1);
+		fp->filepath_length = (int)fplen;
+		fp->lines_in_file = (int)lines;
+		fp->matches = (int)tot;
+		fp->matches_length = footprint - (int)sizeof(*fp) - (int)(fplen + 1);
 		fp->next = result->filepath_head;
 		result->filepath_head = fp;
 
@@ -697,13 +697,13 @@ ensure:
 
 				if ((ra - bp) < 8) {
 					base += bp;
-					grab(ro + base, sizeof(buf));
+					grab((int32_t)ro + base, sizeof(buf));
 				}
 
 				bp += rq32(&buf[bp], &line);
 				*u++ = line;
 
-				if (lws_fts_getfileoffset(jtf, ltst, line, &fo))
+				if (lws_fts_getfileoffset(jtf, ltst, (int)line, &fo))
 					continue;
 
 				*u++ = (uint32_t)fo;
@@ -714,7 +714,7 @@ ensure:
 				if (lseek(ofd, fo, SEEK_SET) < 0)
 					continue;
 
-				m = read(ofd, lbuf, sizeof(lbuf) - 1);
+				m = (int)read(ofd, lbuf, sizeof(lbuf) - 1);
 				if (m < 0)
 					continue;
 				lbuf[sizeof(lbuf) - 1] = '\0';
@@ -732,13 +732,13 @@ ensure:
 						sizeof(ebuf) - 1, NULL);
 				m = (int)strlen(ebuf);
 
-				p = lwsac_use(&ftsp->results_head, m + 1, 0);
+				p = lwsac_use(&ftsp->results_head, (unsigned int)m + 1, 0);
 				if (!p) {
 					lwsac_free(&lt_head);
 					goto bail;
 				}
 
-				memcpy(p, ebuf, m);
+				memcpy(p, ebuf, (unsigned int)m);
 				p[m] = '\0';
 				v = (const char **)u;
 				*v = (const char *)p;
@@ -830,7 +830,7 @@ autocomp:
 
 	s[sp].child = 1;
 	s[sp].tifs = fileofs_tif_start;
-	s[sp].self = child_ofs;
+	s[sp].self = (jg2_file_offset)child_ofs;
 	s[sp].ch[0].effpos = pos;
 
 	if (pos == nl)
@@ -852,8 +852,8 @@ autocomp:
 		    tch->effpos + tch->name_length >= nl &&
 		    tch->inst && fileofs_tif_start) {
 			n = ac_record(jtf, &ftsp->results_head, needle, pos, s,
-				      sp, tch->inst, tch->child_agg,
-				      tch->descendents, &pac);
+				      sp, (uint32_t)tch->inst, (uint32_t)tch->child_agg,
+				      (uint32_t)tch->descendents, &pac);
 			if (n < 0)
 				goto bail;
 			if (!n)
@@ -866,7 +866,7 @@ autocomp:
 			sp++;
 			memset(&s[sp], 0, sizeof(s[sp]));
 			s[sp].tifs = fileofs_tif_start;
-			s[sp].self = child_ofs;
+			s[sp].self = (jg2_file_offset)child_ofs;
 
 			for (n = 0; n < (int)children && s[sp].child_count <
 					    (int)LWS_ARRAY_SIZE(s[0].ch); n++) {
@@ -886,16 +886,16 @@ autocomp:
 					max = sizeof(ch->name) - 1;
 
 				strncpy(ch->name, (char *)&buf[bp], max);
-				bp += slen;
+				bp += (int)slen;
 
 				ch->name_length = (int)max;
 				ch->name[sizeof(ch->name) - 1] = '\0';
-				ch->inst = inst;
+				ch->inst = (int)inst;
 				ch->effpos =
 				       s[sp - 1].ch[s[sp - 1].child - 1].effpos;
 
-				ch->child_agg = agg;
-				ch->descendents = desc;
+				ch->child_agg = (int)agg;
+				ch->descendents = (int)desc;
 
 				/*
 				 * if we have more needle chars than we matched
@@ -909,7 +909,7 @@ autocomp:
 					m = ch->name_length;
 
 				if (m > 0 &&
-				    strncmp(&needle[ch->effpos], ch->name, m))
+				    strncmp(&needle[ch->effpos], ch->name, (unsigned int)m))
 					continue;
 
 				ch->effpos += m;
@@ -951,7 +951,7 @@ autocomp:
 				for (m = n; m < sp + 1; m++)
 					s[m].done_children = 0;
 				sp = n;
-				child_ofs = s[sp].ch[s[sp].child++].ofs;
+				child_ofs = (off_t)s[sp].ch[s[sp].child++].ofs;
 				nobump = 1;
 			}
 
@@ -961,7 +961,7 @@ autocomp:
 		if (nobump || sp < 0)
 			continue;
 
-		child_ofs = s[sp].ch[s[sp].child++].ofs;
+		child_ofs = (off_t)s[sp].ch[s[sp].child++].ofs;
 	}
 
 	/* let's do a final sort into agg order */

@@ -49,7 +49,7 @@ lws_callback_as_writeable(struct lws *wsi)
 					wsi->detlat.earliest_write_req;
 		wsi->detlat.earliest_write_req = 0;
 		wsi->detlat.latencies[LAT_DUR_PROXY_RX_TO_ONWARD_TX] =
-		      ((uint32_t)us - wsi->detlat.earliest_write_req_pre_write);
+		      (uint32_t)(us - wsi->detlat.earliest_write_req_pre_write);
 	}
 #endif
 	n = wsi->role_ops->writeable_cb[lwsi_role_server(wsi)];
@@ -249,7 +249,7 @@ bail_die:
 }
 
 int
-lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len)
+lws_rxflow_cache(struct lws *wsi, unsigned char *buf, size_t n, size_t len)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	uint8_t *buffered;
@@ -279,7 +279,7 @@ lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len)
 
 	/* a new rxflow, buffer it and warn caller */
 
-	lwsl_debug("%s: rxflow append %d\n", __func__, len - n);
+	lwsl_debug("%s: rxflow append %d\n", __func__, (int)(len - n));
 	m = lws_buflist_append_segment(&wsi->buflist, buf + n, len - n);
 
 	if (m < 0)
@@ -391,7 +391,7 @@ lws_buflist_aware_read(struct lws_context_per_thread *pt, struct lws *wsi,
 		ebuf->token = pt->serv_buf + LWS_PRE;
 	if (!ebuf->len ||
 	    (unsigned int)ebuf->len > wsi->a.context->pt_serv_buf_size - LWS_PRE)
-		ebuf->len = wsi->a.context->pt_serv_buf_size - LWS_PRE;
+		ebuf->len = (int)(wsi->a.context->pt_serv_buf_size - LWS_PRE);
 
 	e = ebuf->len;
 	ep = ebuf->token;
@@ -412,7 +412,7 @@ lws_buflist_aware_read(struct lws_context_per_thread *pt, struct lws *wsi,
 	/* we're going to read something */
 
 	ebuf->token = ep;
-	ebuf->len = n = lws_ssl_capable_read(wsi, ep, e);
+	ebuf->len = n = lws_ssl_capable_read(wsi, ep, (size_t)e);
 
 	lwsl_debug("%s: %s: %s: ssl_capable_read %d\n", __func__,
 			lws_wsi_tag(wsi), hint, ebuf->len);
@@ -437,7 +437,7 @@ lws_buflist_aware_read(struct lws_context_per_thread *pt, struct lws *wsi,
 		 * Stash what we read, since there's earlier buflist material
 		 */
 
-		n = lws_buflist_append_segment(&wsi->buflist, ebuf->token, ebuf->len);
+		n = lws_buflist_append_segment(&wsi->buflist, ebuf->token, (size_t)ebuf->len);
 		if (n < 0)
 			return -1;
 		if (n && lws_dll2_is_detached(&wsi->dll_buflist))
@@ -498,12 +498,12 @@ lws_buflist_aware_finished_consuming(struct lws *wsi, struct lws_tokens *ebuf,
 
 	/* any remainder goes on the buflist */
 
-	if (used != ebuf->len) {
+	if (used < ebuf->len && ebuf->len >= 0 && used >= 0) {
 		// lwsl_notice("%s %s bac appending %d\n", __func__, hint,
 		//		ebuf->len - used);
 		m = lws_buflist_append_segment(&wsi->buflist,
 					       ebuf->token + used,
-					       ebuf->len - used);
+					       (unsigned int)(ebuf->len - used));
 		if (m < 0)
 			return 1; /* OOM */
 		if (m) {
@@ -618,9 +618,10 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 
 		if (wsi->position_in_fds_table >= 0) {
 
-			pt->fds[wsi->position_in_fds_table].revents |=
-				pt->fds[wsi->position_in_fds_table].events &
-								LWS_POLLIN;
+			pt->fds[wsi->position_in_fds_table].revents = (short)(
+					pt->fds[wsi->position_in_fds_table].revents |
+				(pt->fds[wsi->position_in_fds_table].events &
+								LWS_POLLIN));
 			if (pt->fds[wsi->position_in_fds_table].revents &
 								LWS_POLLIN)
 				/*

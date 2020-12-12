@@ -145,7 +145,7 @@ callback_dynamic_http(struct lws *wsi, enum lws_callback_reasons reason,
 			 * to work with http/2, we must take care about LWS_PRE
 			 * valid behind the buffer we will send.
 			 */
-			p += lws_snprintf((char *)p, end - p, "<html>"
+			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "<html>"
 				"<head><meta charset=utf-8 "
 				"http-equiv=\"Content-Language\" "
 				"content=\"en\"/></head><body>"
@@ -162,15 +162,15 @@ callback_dynamic_http(struct lws *wsi, enum lws_callback_reasons reason,
 			 */
 
 			while (lws_ptr_diff(end, p) > 80)
-				p += lws_snprintf((char *)p, end - p,
+				p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
 					"%d.%d: this is some content... ",
 					pss->times, pss->content_lines++);
 
-			p += lws_snprintf((char *)p, end - p, "<br><br>");
+			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "<br><br>");
 		}
 
 		pss->times++;
-		if (lws_write(wsi, (uint8_t *)start, lws_ptr_diff(p, start), n) !=
+		if (lws_write(wsi, (uint8_t *)start, lws_ptr_diff_size_t(p, start), (enum lws_write_protocol)n) !=
 				lws_ptr_diff(p, start))
 			return 1;
 

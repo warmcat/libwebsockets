@@ -60,7 +60,7 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int met
 	if (wsi->access_log_pending)
 		lws_access_log(wsi);
 
-	wsi->http.access_log.header_log = lws_malloc(l, "access log");
+	wsi->http.access_log.header_log = lws_malloc((unsigned int)l, "access log");
 	if (!wsi->http.access_log.header_log)
 		return;
 
@@ -84,7 +84,7 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int met
 	if (m > (int)sizeof(uri) - 1)
 		m = sizeof(uri) - 1;
 
-	strncpy(uri, uri_ptr, m);
+	strncpy(uri, uri_ptr, (unsigned int)m);
 	uri[m] = '\0';
 
 	nwsi = lws_get_network_wsi(wsi);
@@ -94,7 +94,7 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int met
 	else
 		strncpy(ta, "unknown", sizeof(ta));
 
-	lws_snprintf(wsi->http.access_log.header_log, l,
+	lws_snprintf(wsi->http.access_log.header_log, (size_t)l,
 		     "%s - - [%s] \"%s %s %s\"",
 		     ta, da, me, uri, hver[wsi->http.request_version]);
 
@@ -103,7 +103,7 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int met
 	l = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_USER_AGENT);
 	if (l) {
 		wsi->http.access_log.user_agent =
-				lws_malloc(l + 5, "access log");
+				lws_malloc((unsigned int)l + 5, "access log");
 		if (!wsi->http.access_log.user_agent) {
 			lwsl_err("OOM getting user agent\n");
 			lws_free_set_NULL(wsi->http.access_log.header_log);
@@ -119,7 +119,7 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int met
 	}
 	l = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_REFERER);
 	if (l) {
-		wsi->http.access_log.referrer = lws_malloc(l + 5, "referrer");
+		wsi->http.access_log.referrer = lws_malloc((unsigned int)l + 5, "referrer");
 		if (!wsi->http.access_log.referrer) {
 			lwsl_err("OOM getting referrer\n");
 			lws_free_set_NULL(wsi->http.access_log.user_agent);
@@ -172,15 +172,15 @@ lws_access_log(struct lws *wsi)
 			 wsi->http.access_log.header_log,
 			 wsi->http.access_log.response,
 			 wsi->http.access_log.sent, p1);
-	if (strlen(p) > sizeof(ass) - 6 - l) {
-		p[sizeof(ass) - 6 - l] = '\0';
+	if (strlen(p) > sizeof(ass) - 6 - (unsigned int)l) {
+		p[sizeof(ass) - 6 - (unsigned int)l] = '\0';
 		l--;
 	}
-	l += lws_snprintf(ass + l, sizeof(ass) - 1 - l, "\" \"%s\"\n", p);
+	l += lws_snprintf(ass + (unsigned int)l, sizeof(ass) - 1 - (unsigned int)l, "\" \"%s\"\n", p);
 
 	ass[sizeof(ass) - 1] = '\0';
 
-	if (write(wsi->a.vhost->log_fd, ass, l) != l)
+	if ((int)write(wsi->a.vhost->log_fd, ass, (size_t)l) != l)
 		lwsl_err("Failed to write log\n");
 
 	if (wsi->http.access_log.header_log) {

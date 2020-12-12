@@ -110,7 +110,7 @@ next_test_cb(lws_sorted_usec_list_t *sul)
 
 	m = lws_async_dns_query(context, 0,
 				adt[dtest].dns_name,
-				adt[dtest].recordtype, cb1, NULL,
+				(adns_query_type_t)adt[dtest].recordtype, cb1, NULL,
 				context);
 	if (m != LADNS_RET_CONTINUING && m != LADNS_RET_FOUND) {
 		lwsl_err("%s: adns 1 failed: %d\n", __func__, m);
@@ -169,7 +169,7 @@ cb1(struct lws *wsi_unused, const char *ads, const struct addrinfo *a, int n,
 #endif
 		}
 		if (alen == adt[dtest - 1].addrlen &&
-		    !memcmp(adt[dtest - 1].ads, addr, alen)) {
+		    !memcmp(adt[dtest - 1].ads, addr, (unsigned int)alen)) {
 			ok++;
 			goto next;
 		}
@@ -247,10 +247,10 @@ main(int argc, const char **argv)
 		}
 
 		if (m > 0) {
-			if (memcmp(ipt[n].b, u, m)) {
+			if (memcmp(ipt[n].b, u, (unsigned int)m)) {
 				lwsl_err("%s: fail %s compare\n", __func__,
 						ipt[n].test);
-				lwsl_hexdump_notice(u, m);
+				lwsl_hexdump_notice(u, (unsigned int)m);
 				fail++;
 				continue;
 			}
@@ -281,7 +281,7 @@ main(int argc, const char **argv)
 			if (strcmp(ipt[n].emit_test, buf)) {
 				lwsl_err("%s: fail %s compare\n", __func__,
 						ipt[n].test);
-				lwsl_hexdump_notice(buf, m);
+				lwsl_hexdump_notice(buf, (unsigned int)m);
 				fail++;
 				continue;
 			}

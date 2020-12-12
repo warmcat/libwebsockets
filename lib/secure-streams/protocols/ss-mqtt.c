@@ -205,13 +205,13 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		lwsl_notice("%s, expbuf - %s\n", __func__, expbuf);
 		mqpp.topic = (char *)expbuf;
 
-		mqpp.topic_len = strlen(mqpp.topic);
-		mqpp.packet_id = h->txord - 1;
+		mqpp.topic_len = (uint16_t)strlen(mqpp.topic);
+		mqpp.packet_id = (uint16_t)(h->txord - 1);
 		mqpp.payload = buf + LWS_PRE;
 		if (h->writeable_len)
-			mqpp.payload_len = h->writeable_len;
+			mqpp.payload_len = (uint32_t)h->writeable_len;
 		else
-			mqpp.payload_len = buflen;
+			mqpp.payload_len = (uint32_t)buflen;
 
 		lwsl_notice("%s: payload len %d\n", __func__,
 				(int)mqpp.payload_len);
@@ -219,7 +219,8 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		mqpp.qos = h->policy->u.mqtt.qos;
 
 		if (lws_mqtt_client_send_publish(wsi, &mqpp,
-						 (const char *)buf + LWS_PRE, buflen,
+						 (const char *)buf + LWS_PRE,
+						 (uint32_t)buflen,
 						 f & LWSSS_FLAG_EOM)) {
 			lwsl_notice("%s: failed to publish\n", __func__);
 

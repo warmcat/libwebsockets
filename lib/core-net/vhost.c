@@ -240,7 +240,7 @@ lws_protocol_vh_priv_zalloc(struct lws_vhost *vhost,
 	/* allocate the vh priv array only on demand */
 	if (!vhost->protocol_vh_privs) {
 		vhost->protocol_vh_privs = (void **)lws_zalloc(
-				vhost->count_protocols * sizeof(void *),
+				(size_t)vhost->count_protocols * sizeof(void *),
 				"protocol_vh_privs");
 		if (!vhost->protocol_vh_privs)
 			return NULL;
@@ -259,7 +259,7 @@ lws_protocol_vh_priv_zalloc(struct lws_vhost *vhost,
 			return NULL;
 	}
 
-	vhost->protocol_vh_privs[n] = lws_zalloc(size, "vh priv");
+	vhost->protocol_vh_privs[n] = lws_zalloc((size_t)size, "vh priv");
 	return vhost->protocol_vh_privs[n];
 }
 
@@ -347,14 +347,14 @@ lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 					   "protocol for vh %s to %s\n",
 					   vh->name,
 					   vh->protocols[n].name);
-					vh->default_protocol_index = n;
+					vh->default_protocol_index = (unsigned char)n;
 				}
 				if (!strcmp(pvo->name, "raw")) {
 					lwsl_info("Setting raw "
 					   "protocol for vh %s to %s\n",
 					   vh->name,
 					   vh->protocols[n].name);
-					vh->raw_protocol_index = n;
+					vh->raw_protocol_index = (unsigned char)n;
 				}
 				pvo = pvo->next;
 			}
@@ -529,7 +529,7 @@ lws_create_vhost(struct lws_context *context,
 #endif
 #if defined(LWS_WITH_CLIENT)
 	if (info->connect_timeout_secs)
-		vh->connect_timeout_secs = info->connect_timeout_secs;
+		vh->connect_timeout_secs = (int)info->connect_timeout_secs;
 	else
 		vh->connect_timeout_secs = 20;
 #endif
@@ -579,7 +579,7 @@ lws_create_vhost(struct lws_context *context,
 		vh->keepalive_timeout = 5;
 
 	if (info->timeout_secs_ah_idle)
-		vh->timeout_secs_ah_idle = info->timeout_secs_ah_idle;
+		vh->timeout_secs_ah_idle = (int)info->timeout_secs_ah_idle;
 	else
 		vh->timeout_secs_ah_idle = 10;
 
@@ -601,11 +601,11 @@ lws_create_vhost(struct lws_context *context,
 
 	if (n) {
 		vh->tls.key_path = vh->tls.alloc_cert_path =
-					lws_malloc(n, "vh paths");
+					lws_malloc((unsigned int)n, "vh paths");
 		if (info->ssl_cert_filepath) {
 			n = (int)strlen(info->ssl_cert_filepath) + 1;
 			memcpy(vh->tls.alloc_cert_path,
-			       info->ssl_cert_filepath, n);
+			       info->ssl_cert_filepath, (unsigned int)n);
 			vh->tls.key_path += n;
 		}
 		if (info->ssl_private_key_filepath)
@@ -633,10 +633,11 @@ lws_create_vhost(struct lws_context *context,
 	 * - his user protocols
 	 */
 	lwsp = lws_zalloc(sizeof(struct lws_protocols) *
-				(vh->count_protocols +
-				   abs_pcol_count + sec_pcol_count +
-				   context->plugin_protocol_count +
-				   fx + 1),
+				((unsigned int)vh->count_protocols +
+				   (unsigned int)abs_pcol_count +
+				   (unsigned int)sec_pcol_count +
+				   (unsigned int)context->plugin_protocol_count +
+				   (unsigned int)fx + 1),
 			  "vhost-specific plugin table");
 	if (!lwsp) {
 		lwsl_err("OOM\n");
@@ -652,7 +653,7 @@ lws_create_vhost(struct lws_context *context,
 		for (n = 0; n < m; n++)
 			memcpy(&lwsp[n], info->pprotocols[n], sizeof(lwsp[0]));
 	} else
-		memcpy(lwsp, pcols, sizeof(struct lws_protocols) * m);
+		memcpy(lwsp, pcols, sizeof(struct lws_protocols) * (unsigned int)m);
 
 	/*
 	 * 2: abstract protocols
@@ -727,7 +728,7 @@ lws_create_vhost(struct lws_context *context,
 
 	vh->same_vh_protocol_owner = (struct lws_dll2_owner *)
 			lws_zalloc(sizeof(struct lws_dll2_owner) *
-				   vh->count_protocols, "same vh list");
+				   (unsigned int)vh->count_protocols, "same vh list");
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	vh->http.mount_list = info->mounts;
 #endif
@@ -819,7 +820,7 @@ lws_create_vhost(struct lws_context *context,
 			goto bail;
 		}
 #ifndef WIN32
-		if (context->uid != -1)
+		if (context->uid != (uid_t)-1)
 			if (chown(info->log_filepath, context->uid,
 				  context->gid) == -1)
 				lwsl_err("unable to chown log file %s\n",
@@ -1356,7 +1357,7 @@ lws_vhost_destroy(struct lws_vhost *vh)
 	/* part 2 is deferred to allow all the handle closes to complete */
 
 	df->next = vh->context->deferred_free_list;
-	df->deadline = lws_now_secs();
+	df->deadline = (long)lws_now_secs();
 	df->payload = vh;
 	vh->context->deferred_free_list = df;
 

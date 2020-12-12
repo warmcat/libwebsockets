@@ -100,7 +100,7 @@ lws_diskcache_destroy(struct lws_diskcache_scan **lds);
  * will transition to use when it drops root privileges.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_diskcache_prepare(const char *cache_base_dir, int mode, int uid);
+lws_diskcache_prepare(const char *cache_base_dir, int mode, uid_t uid);
 
 #define LWS_DISKCACHE_QUERY_NO_CACHE	0
 #define LWS_DISKCACHE_QUERY_EXISTS	1

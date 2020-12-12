@@ -151,18 +151,18 @@ static void cmov_aff(ge25519_aff *r, const ge25519_aff *p, unsigned char b)
 
 static unsigned char ge_equal(signed char b,signed char c)
 {
-  unsigned char ub = b;
-  unsigned char uc = c;
+  unsigned char ub = (unsigned char)b;
+  unsigned char uc = (unsigned char)c;
   unsigned char x = ub ^ uc; /* 0: yes; 1..255: no */
   uint32_t y = x; /* 0: yes; 1..255: no */
   y -= 1; /* 4294967295: yes; 0..254: no */
   y >>= 31; /* 1: yes; 0: no */
-  return y;
+  return (unsigned char)y;
 }
 
 static unsigned char negative(signed char b)
 {
-  unsigned long long x = b; /* 18446744073709551361..18446744073709551615: yes; 0..255: no */
+  unsigned long long x = (unsigned long long)b; /* 18446744073709551361..18446744073709551615: yes; 0..255: no */
   x >>= 63; /* 1: yes; 0: no */
   return (unsigned char)x;
 }
@@ -247,7 +247,7 @@ void ge25519_pack(unsigned char r[32], const ge25519_p3 *p)
   fe25519_mul(&tx, &p->x, &zi);
   fe25519_mul(&ty, &p->y, &zi);
   fe25519_pack(r, &ty);
-  r[31] ^= fe25519_getparity(&tx) << 7;
+  r[31] ^= (unsigned char)(fe25519_getparity(&tx) << 7);
 }
 
 int ge25519_isneutral_vartime(const ge25519_p3 *p)

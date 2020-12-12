@@ -195,13 +195,13 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 
 	do {
 		if (*name == '.' || !*name) {
-			*pl = lws_ptr_diff(p, pl + 1);
+			*pl = (uint8_t)(unsigned int)lws_ptr_diff(p, pl + 1);
 			pl = p;
 			*p++ = 0; /* also serves as terminal length */
 			if (!*name++)
 				break;
 		} else
-			*p++ = *name++;
+			*p++ = (uint8_t)*name++;
 	} while (p + 6 < e);
 
 	if (p + 6 >= e) {
@@ -219,7 +219,7 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 	assert(p < pkt + sizeof(pkt) - LWS_PRE);
 	n = lws_ptr_diff(p, pkt + LWS_PRE);
 
-	m = lws_write(wsi, pkt + LWS_PRE, n, 0);
+	m = lws_write(wsi, pkt + LWS_PRE, (unsigned int)n, 0);
 	if (m != n) {
 		lwsl_notice("%s: dns write failed %d %d errno %d\n", __func__,
 			    m, n, errno);
@@ -647,7 +647,7 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 		ai->ai_family = sa46->sa4.sin_family = AF_INET;
 		ai->ai_addrlen = sizeof(sa46->sa4);
 		ai->ai_addr = (struct sockaddr *)&sa46->sa4;
-		memcpy(&sa46->sa4.sin_addr, ads, m);
+		memcpy(&sa46->sa4.sin_addr, ads, (unsigned int)m);
 
 		lws_async_dns_complete(&tmq.tq, c);
 
@@ -659,7 +659,7 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 		ai->ai_family = sa46->sa6.sin6_family = AF_INET6;
 		ai->ai_addrlen = sizeof(sa46->sa6);
 		ai->ai_addr = (struct sockaddr *)&sa46->sa6;
-		memcpy(&sa46->sa6.sin6_addr, ads, m);
+		memcpy(&sa46->sa6.sin6_addr, ads, (unsigned int)m);
 
 		lws_async_dns_complete(&tmq.tq, c);
 
@@ -725,7 +725,7 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 
 	q->tid &= 0xfffe;
 	q->context = context;
-	q->tsi = tsi;
+	q->tsi = (uint8_t)tsi;
 	q->opaque = opaque;
 	q->dns = dns;
 
@@ -745,7 +745,7 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 
 	p = (char *)&q[1];
 	while (nlen--) {
-		*p++ = tolower(*name++);
+		*p++ = (char)tolower(*name++);
 		p[DNS_MAX - 1] = p[-1];
 	}
 	*p = '\0';

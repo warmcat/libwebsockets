@@ -159,7 +159,7 @@ lejp_check_path_match(struct lejp_ctx *ctx)
 		ctx->wildcount = 0;
 		p = ctx->path;
 
-		q = *((char **)(((char *)ctx->pst[ctx->pst_sp].paths) + (n * s)));
+		q = *((char **)(((char *)ctx->pst[ctx->pst_sp].paths) + ((unsigned int)n * s)));
 
 		while (*p && *q) {
 			if (*q != '*') {
@@ -169,7 +169,7 @@ lejp_check_path_match(struct lejp_ctx *ctx)
 				q++;
 				continue;
 			}
-			ctx->wild[ctx->wildcount++] = lws_ptr_diff(p, ctx->path);
+			ctx->wild[ctx->wildcount++] = (uint16_t)lws_ptr_diff_size_t(p, ctx->path);
 			q++;
 			/*
 			 * if * has something after it, match to .
@@ -185,7 +185,7 @@ lejp_check_path_match(struct lejp_ctx *ctx)
 		if (*p || *q)
 			continue;
 
-		ctx->path_match = n + 1;
+		ctx->path_match = (uint8_t)(n + 1);
 		ctx->path_match_len = ctx->pst[ctx->pst_sp].ppos;
 		return;
 	}
@@ -245,13 +245,13 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 
 	while (len--) {
 		c = *json++;
-		s = ctx->st[ctx->sp].s;
+		s = (unsigned char)ctx->st[ctx->sp].s;
 
 		/* skip whitespace unless we should care */
 		if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '#') {
 			if (c == '\n') {
 				ctx->line++;
-				ctx->st[ctx->sp].s &= ~LEJP_FLAG_WS_COMMENTLINE;
+				ctx->st[ctx->sp].s &= (char)~LEJP_FLAG_WS_COMMENTLINE;
 			}
 			if (!(s & LEJP_FLAG_WS_KEEP)) {
 				if (c == '#')
@@ -349,7 +349,7 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 				if (c != esc_char[n])
 					continue;
 				/* found it */
-				c = esc_tran[n];
+				c = (unsigned char)esc_tran[n];
 				ctx->st[ctx->sp].s = LEJP_MP_STRING;
 				goto emit_string_char;
 			}
@@ -361,15 +361,15 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 		case LEJP_MP_STRING_ESC_U2:
 		case LEJP_MP_STRING_ESC_U3:
 		case LEJP_MP_STRING_ESC_U4:
-			ctx->uni <<= 4;
+			ctx->uni = (uint16_t)(ctx->uni << 4);
 			if (c >= '0' && c <= '9')
-				ctx->uni |= c - '0';
+				ctx->uni |= (uint16_t)(c - '0');
 			else
 				if (c >= 'a' && c <= 'f')
-					ctx->uni |= c - 'a' + 10;
+					ctx->uni |= (uint16_t)(c - 'a' + 10);
 				else
 					if (c >= 'A' && c <= 'F')
-						ctx->uni |= c - 'A' + 10;
+						ctx->uni |= (uint16_t)(c - 'A' + 10);
 					else {
 						ret = LEJP_REJECT_ILLEGAL_HEX;
 						goto reject;
@@ -383,7 +383,7 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 				 * 0x08-0xff (0x0800 - 0xffff)
 				 * emit 3-byte UTF-8
 				 */
-				c = 0xe0 | ((ctx->uni >> 4) & 0xf);
+				c = (unsigned char)(0xe0 | ((ctx->uni >> 4) & 0xf));
 				goto emit_string_char;
 
 			case LEJP_MP_STRING_ESC_U3:
@@ -393,7 +393,7 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 					 * middle 3-byte seq
 					 * send ....XXXXXX..
 					 */
-					c = 0x80 | ((ctx->uni >> 2) & 0x3f);
+					c = (unsigned char)(0x80 | ((ctx->uni >> 2) & 0x3f));
 					goto emit_string_char;
 				}
 				if (ctx->uni < 0x008)
@@ -402,13 +402,13 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 				 * 0x008 - 0x7f (0x0080 - 0x07ff)
 				 * start 2-byte seq
 				 */
-				c = 0xc0 | (ctx->uni >> 2);
+				c = (unsigned char)(0xc0 | (ctx->uni >> 2));
 				goto emit_string_char;
 
 			case LEJP_MP_STRING_ESC_U4:
 				if (ctx->uni >= 0x0080)
 					/* end of 2 or 3-byte seq */
-					c = 0x80 | (ctx->uni & 0x3f);
+					c = (unsigned char)(0x80 | (ctx->uni & 0x3f));
 				else
 					/* literal */
 					c = (unsigned char)ctx->uni;
@@ -493,9 +493,9 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 				}
 				/* drop the path [n] bit */
 				if (ctx->sp) {
-					ctx->pst[ctx->pst_sp].ppos =
+					ctx->pst[ctx->pst_sp].ppos = (unsigned char)
 							ctx->st[ctx->sp - 1].p;
-					ctx->ipos = ctx->st[ctx->sp - 1].i;
+					ctx->ipos = (unsigned char)ctx->st[ctx->sp - 1].i;
 				}
 				ctx->path[ctx->pst[ctx->pst_sp].ppos] = '\0';
 				if (ctx->path_match &&
@@ -647,7 +647,7 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 					ctx->path_match = 0;
 					break;
 				}
-				ctx->pst[ctx->pst_sp].ppos = ctx->st[ctx->sp - 1].p;
+				ctx->pst[ctx->pst_sp].ppos = (unsigned char)ctx->st[ctx->sp - 1].p;
 				ctx->path[ctx->pst[ctx->pst_sp].ppos] = '\0';
 				if (ctx->path_match &&
 				    ctx->pst[ctx->pst_sp].ppos <= ctx->path_match_len)
@@ -679,9 +679,9 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 
 				/* drop the path [n] bit */
 				if (ctx->sp) {
-					ctx->pst[ctx->pst_sp].ppos =
+					ctx->pst[ctx->pst_sp].ppos = (unsigned char)
 							ctx->st[ctx->sp - 1].p;
-					ctx->ipos = ctx->st[ctx->sp - 1].i;
+					ctx->ipos = (unsigned char)ctx->st[ctx->sp - 1].i;
 				}
 				ctx->path[ctx->pst[ctx->pst_sp].ppos] = '\0';
 				if (ctx->path_match &&
@@ -708,7 +708,7 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 				n = LEJPCB_OBJECT_END;
 completed:
 				lejp_check_path_match(ctx);
-				if (ctx->pst[ctx->pst_sp].callback(ctx, n) ||
+				if (ctx->pst[ctx->pst_sp].callback(ctx, (char)n) ||
 				    ctx->pst[ctx->pst_sp].callback(ctx,
 							    LEJPCB_COMPLETE))
 					goto reject_callback;
@@ -721,8 +721,8 @@ completed:
 pop_level:
 			ctx->sp--;
 			if (ctx->sp) {
-				ctx->pst[ctx->pst_sp].ppos = ctx->st[ctx->sp].p;
-				ctx->ipos = ctx->st[ctx->sp].i;
+				ctx->pst[ctx->pst_sp].ppos = (unsigned char)ctx->st[ctx->sp].p;
+				ctx->ipos = (unsigned char)ctx->st[ctx->sp].i;
 			}
 			ctx->path[ctx->pst[ctx->pst_sp].ppos] = '\0';
 			if (ctx->path_match &&
@@ -748,7 +748,7 @@ array_end:
 					ctx->i[ctx->ipos - 1]++;
 				ctx->st[ctx->sp].s = LEJP_MP_VALUE;
 				if (ctx->sp)
-					ctx->pst[ctx->pst_sp].ppos =
+					ctx->pst[ctx->pst_sp].ppos = (unsigned char)
 							ctx->st[ctx->sp - 1].p;
 				ctx->path[ctx->pst[ctx->pst_sp].ppos] = '\0';
 				break;
@@ -768,7 +768,7 @@ array_end:
 emit_string_char:
 		if (!ctx->sp || ctx->st[ctx->sp - 1].s != LEJP_MP_DELIM) {
 			/* assemble the string value into chunks */
-			ctx->buf[ctx->npos++] = c;
+			ctx->buf[ctx->npos++] = (char)c;
 			if (ctx->npos == sizeof(ctx->buf) - 1) {
 				if (ctx->pst[ctx->pst_sp].callback(ctx,
 							  LEJPCB_VAL_STR_CHUNK))
@@ -778,7 +778,7 @@ emit_string_char:
 			continue;
 		}
 		/* name part of name:value pair */
-		ctx->path[ctx->pst[ctx->pst_sp].ppos++] = c;
+		ctx->path[ctx->pst[ctx->pst_sp].ppos++] = (char)c;
 		continue;
 
 add_stack_level:
@@ -788,14 +788,14 @@ add_stack_level:
 		    ctx->st[ctx->sp].s != LEJP_MP_ARRAY_END)
 			ctx->path[ctx->pst[ctx->pst_sp].ppos++] = '.';
 
-		ctx->st[ctx->sp].p = ctx->pst[ctx->pst_sp].ppos;
-		ctx->st[ctx->sp].i = ctx->ipos;
+		ctx->st[ctx->sp].p = (char)ctx->pst[ctx->pst_sp].ppos;
+		ctx->st[ctx->sp].i = (char)ctx->ipos;
 		if (++ctx->sp == LWS_ARRAY_SIZE(ctx->st)) {
 			ret = LEJP_REJECT_STACK_OVERFLOW;
 			goto reject;
 		}
 		ctx->path[ctx->pst[ctx->pst_sp].ppos] = '\0';
-		ctx->st[ctx->sp].s = c;
+		ctx->st[ctx->sp].s = (char)c;
 		ctx->st[ctx->sp].b = 0;
 		continue;
 
@@ -804,7 +804,7 @@ append_npos:
 			ret = LEJP_REJECT_NUM_TOO_LONG;
 			goto reject;
 		}
-		ctx->buf[ctx->npos++] = c;
+		ctx->buf[ctx->npos++] = (char)c;
 		continue;
 
 redo_character:

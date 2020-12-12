@@ -150,13 +150,13 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 						      &p, end))
 				return -1;
 			/* notice every usage of the boundary starts with -- */
-			p += lws_snprintf(p, end - p, "my text field\xd\xa");
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "my text field\xd\xa");
 			break;
 		case 1:
 			if (lws_client_http_multipart(wsi, "file", "myfile.txt",
 						      "text/plain", &p, end))
 				return -1;
-			p += lws_snprintf(p, end - p,
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
 					"This is the contents of the "
 					"uploaded file.\xd\xa"
 					"\xd\xa");
@@ -179,7 +179,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 			return 0;
 		}
 
-		if (lws_write(wsi, (uint8_t *)start, lws_ptr_diff(p, start), n)
+		if (lws_write(wsi, (uint8_t *)start, lws_ptr_diff_size_t(p, start), (enum lws_write_protocol)n)
 				!= lws_ptr_diff(p, start))
 			return 1;
 
@@ -266,7 +266,7 @@ unsigned long long us(void)
 
 	gettimeofday(&t, NULL);
 
-	return (t.tv_sec * 1000000ull) + t.tv_usec;
+	return ((unsigned long long)t.tv_sec * 1000000ull) + (unsigned long long)t.tv_usec;
 }
 
 static void
@@ -309,9 +309,9 @@ stagger_cb(lws_sorted_usec_list_t *sul)
 	if (stagger_idx == count)
 		return;
 
-	next = 300 * LWS_US_PER_MS;
+	next = 150 * LWS_US_PER_MS;
 	if (stagger_idx == count - 1)
-		next += 700 * LWS_US_PER_MS;
+		next += 400 * LWS_US_PER_MS;
 
 	lws_sul_schedule(context, 0, &sul_stagger, stagger_cb, next);
 }
@@ -462,7 +462,7 @@ int main(int argc, const char **argv)
 		 * delay the connections slightly
 		 */
 		lws_sul_schedule(context, 0, &sul_stagger, stagger_cb,
-				 100 * LWS_US_PER_MS);
+				 50 * LWS_US_PER_MS);
 
 	start = us();
 	while (!intr && !lws_service(context, 0))

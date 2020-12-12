@@ -64,7 +64,7 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 	struct nlmsghdr		*h;
 	struct msghdr		msg;
 	struct iovec		iov;
-	int			n;
+	unsigned int			n;
 
 	if (!(pollfd->revents & LWS_POLLIN))
 		return LWS_HPI_RET_HANDLED;
@@ -91,31 +91,17 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 	msg.msg_iov		= &iov;
 	msg.msg_iovlen		= 1;
 
-	n = recvmsg(wsi->desc.sockfd, &msg, 0);
-	if (n < 0)
+	n = (unsigned int)recvmsg(wsi->desc.sockfd, &msg, 0);
+	if ((int)n < 0)
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
 	h = (struct nlmsghdr *)s;
 
-/*
- * On some platforms nlh->nlmsg_len is a uint32_t but len is expected to be
- * an int.  This causes the last comparison to blow with
- *
- * comparison of integers of different signs: '__u32' (aka 'unsigned int') and
- * 'int' [-Werror,-Wsign-compare]
- *
- * rtnetlink messages cannot be huge, solve it by casting nmmsg_len to int
- */
-
-#define LWS_NLMSG_OK(nlh, len) ((len) >= (int) sizeof(struct nlmsghdr) && \
-			       (nlh)->nlmsg_len >= sizeof(struct nlmsghdr) && \
-			       (int)(nlh)->nlmsg_len <= (len))
-
-	for ( ; LWS_NLMSG_OK(h, n); h = NLMSG_NEXT(h, n)) {
+	for ( ; NLMSG_OK(h, n); h = NLMSG_NEXT(h, n)) {
 		struct ifaddrmsg *ifam;
 		struct rtattr *ra;
 		struct rtmsg *rm;
-		int ra_len;
+		unsigned int ra_len;
 		uint8_t *p;
 
 		/*
@@ -157,18 +143,23 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 
 			robj.source_ads = 1;
 			robj.dest_len = ifam->ifa_prefixlen;
-			robj.if_idx = ifam->ifa_index;
+			robj.if_idx = (int)ifam->ifa_index;
 			robj.scope = ifam->ifa_scope;
 			robj.ifa_flags = ifam->ifa_flags;
 			robj.dest.sa4.sin_family = ifam->ifa_family;
 
 			/* address attributes */
 			ra = (struct rtattr *)IFA_RTA(ifam);
-			ra_len = IFA_PAYLOAD(h);
+			ra_len = (unsigned int)IFA_PAYLOAD(h);
 		} else {
+
+			if (h->nlmsg_type != RTM_NEWROUTE &&
+			    h->nlmsg_type != RTM_DELROUTE)
+				continue;
+
 			/* route attributes */
 			ra = (struct rtattr *)RTM_RTA(rm);
-			ra_len = RTM_PAYLOAD(h);
+			ra_len = (unsigned int)RTM_PAYLOAD(h);
 		}
 
 		robj.proto = rm->rtm_protocol;
@@ -370,7 +361,7 @@ rops_pt_init_destroy_netlink(struct lws_context *context,
 
 	memset(&sanl, 0, sizeof(sanl));
 	sanl.nl_family		= AF_NETLINK;
-	sanl.nl_pid		= getpid();
+	sanl.nl_pid		= (uint32_t)getpid();
 	sanl.nl_groups		= RTMGRP_LINK | RTMGRP_IPV4_ROUTE
 #if defined(LWS_WITH_IPV6)
 				  | RTMGRP_IPV6_ROUTE
@@ -408,7 +399,7 @@ rops_pt_init_destroy_netlink(struct lws_context *context,
 	req.hdr.nlmsg_type	= RTM_GETROUTE;
 	req.hdr.nlmsg_flags	= NLM_F_REQUEST | NLM_F_DUMP;
 	req.hdr.nlmsg_seq	= 1;
-	req.hdr.nlmsg_pid	= getpid();
+	req.hdr.nlmsg_pid	= (uint32_t)getpid();
 	req.gen.rtm_family	= AF_PACKET;
 	req.gen.rtm_table	= RT_TABLE_DEFAULT;
 
@@ -419,7 +410,7 @@ rops_pt_init_destroy_netlink(struct lws_context *context,
 	msg.msg_name		= &sanl;
 	msg.msg_namelen		= sizeof(sanl);
 
-	n = sendmsg(wsi->desc.sockfd, (struct msghdr *)&msg, 0);
+	n = (int)sendmsg(wsi->desc.sockfd, (struct msghdr *)&msg, 0);
 	if (n < 0) {
 		lwsl_notice("%s: rt dump req failed... permissions? errno %d\n",
 				__func__, LWS_ERRNO);

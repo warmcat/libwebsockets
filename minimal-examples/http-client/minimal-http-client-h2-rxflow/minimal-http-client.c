@@ -66,7 +66,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 			char buf[128];
 
 			lws_get_peer_simple(wsi, buf, sizeof(buf));
-			status = lws_http_client_http_response(wsi);
+			status = (int)lws_http_client_http_response(wsi);
 
 			lwsl_user("Connected to %s, http response: %d\n",
 					buf, status);

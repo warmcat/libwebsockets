@@ -739,10 +739,10 @@ callback_minimal_dbus_wsproxy(struct lws *wsi, enum lws_callback_reasons reason,
 
 		{
 			char strbuf[256];
-			int l = len;
+			size_t l = len;
 
-			if (l > (int)sizeof(strbuf) - 1)
-				l = sizeof(strbuf) - 1;
+			if (l > sizeof(strbuf) - 1u)
+				l = sizeof(strbuf) - 1u;
 
 			memcpy(strbuf, in, l);
 			strbuf[l] = '\0';

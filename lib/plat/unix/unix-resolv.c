@@ -30,8 +30,9 @@ lws_plat_asyncdns_init(struct lws_context *context, lws_sockaddr46 *sa46)
 	lws_async_dns_server_check_t s = LADNS_CONF_SERVER_CHANGED;
 	lws_sockaddr46 sa46t;
 	lws_tokenize_t ts;
-	int fd, n, ns = 0;
 	char ads[48], *r;
+	int fd, ns = 0;
+	ssize_t n;
 
 	r = (char *)context->pt[0].serv_buf;
 
@@ -53,7 +54,7 @@ lws_plat_asyncdns_init(struct lws_context *context, lws_sockaddr46 *sa46)
 				  LWS_TOKENIZE_F_MINUS_NONTERM |
 				  LWS_TOKENIZE_F_HASH_COMMENT);
 	do {
-		ts.e = lws_tokenize(&ts);
+		ts.e = (int8_t)lws_tokenize(&ts);
 		if (ts.e != LWS_TOKZE_TOKEN) {
 			ns = 0;
 			continue;

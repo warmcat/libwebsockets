@@ -54,10 +54,10 @@ lws_g32(uint8_t **p)
 uint32_t
 lws_p32(uint8_t *p, uint32_t v)
 {
-	*p++ = v >> 24;
-	*p++ = v >> 16;
-	*p++ = v >> 8;
-	*p++ = v;
+	*p++ = (uint8_t)(v >> 24);
+	*p++ = (uint8_t)(v >> 16);
+	*p++ = (uint8_t)(v >> 8);
+	*p++ = (uint8_t)v;
 
 	return v;
 }
@@ -93,7 +93,7 @@ void
 write_task(struct per_session_data__sshd *pss, struct lws_ssh_channel *ch,
 	   int task)
 {
-	pss->write_task[pss->wt_head] = task;
+	pss->write_task[pss->wt_head] = (uint8_t)task;
 	pss->write_channel[pss->wt_head] = ch;
 	pss->wt_head = (pss->wt_head + 1) & 7;
 	lws_callback_on_writable(pss->wsi);
@@ -104,7 +104,7 @@ write_task_insert(struct per_session_data__sshd *pss, struct lws_ssh_channel *ch
 	   int task)
 {
 	pss->wt_tail = (pss->wt_tail - 1) & 7;
-	pss->write_task[pss->wt_tail] = task;
+	pss->write_task[pss->wt_tail] = (uint8_t)task;
 	pss->write_channel[pss->wt_tail] = ch;
 	lws_callback_on_writable(pss->wsi);
 }
@@ -114,15 +114,15 @@ void
 lws_pad_set_length(struct per_session_data__sshd *pss, void *start, uint8_t **p,
 		   struct lws_ssh_keys *keys)
 {
-	uint32_t len = lws_ptr_diff(*p, start);
+	uint32_t len = (uint32_t)lws_ptr_diff(*p, start);
 	uint8_t padc = 4, *bs = start;
 
 	if (keys->full_length)
 		len -= 4;
 
-	if ((len + padc) & (keys->padding_alignment - 1))
-		padc += keys->padding_alignment -
-			((len + padc) & (keys->padding_alignment - 1));
+	if ((len + padc) & (uint32_t)(keys->padding_alignment - 1))
+		padc = (uint8_t)((uint8_t)padc + (uint8_t)(keys->padding_alignment -
+			((len + padc) & (uint32_t)(keys->padding_alignment - 1))));
 
 	bs[4] = padc;
 	len += padc;
@@ -155,7 +155,7 @@ offer(struct per_session_data__sshd *pss, uint8_t *p, uint32_t len, int first,
 		return 1;
 	}
 	lwsl_info("keylen %d\n", keylen);
-	n = ed25519_key_parse(keybuf, keylen,
+	n = ed25519_key_parse(keybuf, (unsigned int)keylen,
 			      keyt, sizeof(keyt), NULL, NULL);
 	if (n) {
 		lwsl_notice("unable to parse server key: %d\n", n);
@@ -189,61 +189,61 @@ offer(struct per_session_data__sshd *pss, uint8_t *p, uint32_t len, int first,
 
 	lp = p;
 	p += 4;
-	n = lws_snprintf((char *)p, end - p, "curve25519-sha256@libssh.org");
-	p += lws_p32(lp, n);
+	n = lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "curve25519-sha256@libssh.org");
+	p += lws_p32(lp, (uint32_t)n);
 
 	/* Server Host Key Algorithms */
 
 	lp = p;
 	p += 4;
-	n = lws_snprintf((char *)p, end - p, "%s", keyt);
-	p += lws_p32(lp, n);
+	n = lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "%s", keyt);
+	p += lws_p32(lp, (uint32_t)n);
 
 	/* Encryption Algorithms: C -> S */
 
 	lp = p;
 	p += 4;
 //	n = lws_snprintf((char *)p, end - p, "aes256-gcm@openssh.com");
-	n = lws_snprintf((char *)p, end - p, "chacha20-poly1305@openssh.com");
-	p += lws_p32(lp, n);
+	n = lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "chacha20-poly1305@openssh.com");
+	p += lws_p32(lp, (uint32_t)n);
 
 	/* Encryption Algorithms: S -> C */
 
 	lp = p;
 	p += 4;
 //	n = lws_snprintf((char *)p, end - p, "aes256-gcm@openssh.com");
-	n = lws_snprintf((char *)p, end - p, "chacha20-poly1305@openssh.com");
-	p += lws_p32(lp, n);
+	n = lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "chacha20-poly1305@openssh.com");
+	p += lws_p32(lp, (uint32_t)n);
 
 	/* MAC Algorithms: C -> S */
 
 	lp = p;
 	p += 4;
 	/* bogus: chacha20 does not use MACs, but 'none' is not offered */
-	n = lws_snprintf((char *)p, end - p, "hmac-sha2-256");
-	p += lws_p32(lp, n);
+	n = lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "hmac-sha2-256");
+	p += lws_p32(lp, (uint32_t)n);
 
 	/* MAC Algorithms: S -> C */
 
 	lp = p;
 	p += 4;
 	/* bogus: chacha20 does not use MACs, but 'none' is not offered */
-	n = lws_snprintf((char *)p, end - p, "hmac-sha2-256");
-	p += lws_p32(lp, n);
+	n = lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "hmac-sha2-256");
+	p += lws_p32(lp, (uint32_t)n);
 
 	/* Compression Algorithms: C -> S */
 
 	lp = p;
 	p += 4;
-	n = lws_snprintf((char *)p, end - p, "none");
-	p += lws_p32(lp, n);
+	n = lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "none");
+	p += lws_p32(lp, (uint32_t)n);
 
 	/* Compression Algorithms: S -> C */
 
 	lp = p;
 	p += 4;
-	n = lws_snprintf((char *)p, end - p, "none");
-	p += lws_p32(lp, n);
+	n = lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "none");
+	p += lws_p32(lp, (uint32_t)n);
 
 	if (p - op < 13 + padc + 8)
 		return 0;
@@ -273,18 +273,18 @@ offer(struct per_session_data__sshd *pss, uint8_t *p, uint32_t len, int first,
 	*p++ = 0;
 	*p++ = 0;
 
-	len = lws_ptr_diff(p, op);
+	len = (uint32_t)lws_ptr_diff(p, op);
 	if (payload_len)
 		/* starts at buf + 5 and excludes padding */
-		*payload_len = len - 5;
+		*payload_len = (int)(len - 5);
 
 	/* we must give at least 4 bytes of 00 padding */
 
-	if ((len + padc) & 7)
-		padc += 8 - ((len + padc) & 7);
+	if (((int)len + padc) & 7)
+		padc += 8 - (((int)len + padc) & 7);
 
-	op[4] = padc;
-	len += padc;
+	op[4] = (uint8_t)padc;
+	len += (uint32_t)padc;
 
 	while (padc--)
 		*p++ = 0;
@@ -312,7 +312,7 @@ handle_name(struct per_session_data__sshd *pss)
 		len = (int)get_gen_server_key_25519(pss, keybuf, (int)sizeof(keybuf));
 		if (!len)
 			break;
-		if (ed25519_key_parse(keybuf, len,
+		if (ed25519_key_parse(keybuf, (unsigned int)len,
 				      keyt, sizeof(keyt),
 				      NULL, NULL)) {
 			lwsl_err("Unable to parse host key %d\n", n);
@@ -445,21 +445,21 @@ static void
 state_get_string_alloc(struct per_session_data__sshd *pss, int next)
 {
 	pss->parser_state = SSHS_GET_STRING_LEN_ALLOC;
-        pss->state_after_string = next;
+        pss->state_after_string = (char)next;
 }
 
 static void
 state_get_string(struct per_session_data__sshd *pss, int next)
 {
 	pss->parser_state = SSHS_GET_STRING_LEN;
-        pss->state_after_string = next;
+        pss->state_after_string = (char)next;
 }
 
 static void
 state_get_u32(struct per_session_data__sshd *pss, int next)
 {
 	pss->parser_state = SSHS_GET_U32;
-        pss->state_after_string = next;
+        pss->state_after_string = (char)next;
 }
 
 static struct lws_ssh_channel *
@@ -556,7 +556,7 @@ again:
 				break;
 			}
 			if (pss->npos < sizeof(pss->V_C) - 1)
-				pss->V_C[pss->npos++] = *p;
+				pss->V_C[pss->npos++] = (char)*p;
 			p++;
 			break;
 
@@ -577,7 +577,7 @@ again:
 			if (pss->active_keys_cts.valid) {
 				uint8_t b[4];
 
-				POKE_U32(b, pss->msg_len);
+				POKE_U32(b, (uint32_t)pss->msg_len);
 				pss->msg_len = lws_chachapoly_get_length(
 					&pss->active_keys_cts,
 					pss->ssh_sequence_ctr_cts, b);
@@ -868,7 +868,7 @@ again:
 		case SSH_KEX_NL_LSTC_ALGS:
 			if (*p != ',') {
 				if (pss->npos < sizeof(pss->name) - 1)
-					pss->name[pss->npos++] = *p;
+					pss->name[pss->npos++] = (char)*p;
 			} else {
 				pss->name[pss->npos] = '\0';
 				pss->npos = 0;
@@ -968,7 +968,7 @@ again:
 				lwsl_notice("non-alloc string too big\n");
 				goto bail;
 			}
-			pss->name[pss->npos++] = *p++;
+			pss->name[pss->npos++] = (char)*p++;
 			if (pss->npos != pss->len)
 				break;
 
@@ -1080,7 +1080,7 @@ again:
 
 		case SSHS_DO_UAR_SIG_PRESENT:
 			lwsl_info("SSHS_DO_UAR_SIG_PRESENT\n");
-			pss->ua->sig_present = *p++;
+			pss->ua->sig_present = (char)*p++;
 			state_get_string_alloc(pss, SSHS_NVC_DO_UAR_ALG);
 			/* destroyed with UA struct */
 			break;
@@ -1117,7 +1117,7 @@ again:
 			if (pss->vhd->ops && pss->vhd->ops->is_pubkey_authorized)
 				n = pss->vhd->ops->is_pubkey_authorized(
 					pss->ua->username, pss->ua->alg,
-					pss->ua->pubkey, pss->ua->pubkey_len);
+					pss->ua->pubkey, (int)pss->ua->pubkey_len);
 			if (n) {
 				lwsl_info("rejecting peer pubkey\n");
 				goto ua_fail;
@@ -1193,7 +1193,7 @@ again:
 			    4 + (int)strlen(pss->ua->alg) +
 			    4 + (int)pss->ua->pubkey_len;
 
-			ps = sshd_zalloc(n);
+			ps = sshd_zalloc((unsigned int)n);
 			if (!ps) {
 				lwsl_notice("OOM 4\n");
 				goto ua_fail;
@@ -1212,13 +1212,13 @@ again:
 			/* Next hash the plaintext */
 
 			if (lws_genhash_init(&pss->ua->hash_ctx,
-				rsa_hash_alg_from_ident(pss->ua->alg))) {
+				(enum lws_genhash_types)rsa_hash_alg_from_ident(pss->ua->alg))) {
 				lwsl_notice("genhash init failed\n");
 				free(ps);
 				goto ua_fail;
 			}
 
-			if (lws_genhash_update(&pss->ua->hash_ctx, ps, pp - ps)) {
+			if (lws_genhash_update(&pss->ua->hash_ctx, ps, lws_ptr_diff_size_t(pp, ps))) {
 				lwsl_notice("genhash update failed\n");
 				free(ps);
 				goto ua_fail;
@@ -1275,8 +1275,8 @@ again:
 					if (otmp[m] == 0x04 &&
 					    otmp[m + 1] == lws_genhash_size(
 						  pss->ua->hash_ctx.type)) {
-						m = memcmp(&otmp[m + 2], hash,
-						lws_genhash_size(pss->ua->hash_ctx.type));
+						m = (uint32_t)memcmp(&otmp[m + 2], hash,
+							(unsigned int)lws_genhash_size(pss->ua->hash_ctx.type));
 						break;
 					}
 					/* go into these */
@@ -1285,7 +1285,7 @@ again:
 						continue;
 					}
 					/* otherwise skip payloads */
-					m += otmp[m + 1] + 2;
+					m += (uint32_t)(otmp[m + 1] + 2);
 				}
 			}
 
@@ -1380,13 +1380,13 @@ again:
 			break;
 		case SSHS_NVC_CHOPEN_WINSIZE:
 			lwsl_info("Initial window set to %d\n", pss->len);
-			pss->ch_temp->window = pss->len;
+			pss->ch_temp->window = (int32_t)pss->len;
 			state_get_u32(pss, SSHS_NVC_CHOPEN_PKTSIZE);
 			break;
 		case SSHS_NVC_CHOPEN_PKTSIZE:
 			pss->ch_temp->max_pkt = pss->len;
 			pss->ch_temp->peer_window_est = LWS_SSH_INITIAL_WINDOW;
-			pss->ch_temp->server_ch = pss->next_ch_num++;
+			pss->ch_temp->server_ch = (uint32_t)pss->next_ch_num++;
 			/*
 			 * add us to channel list... leave as ch_temp
 			 * as write task needs it and will NULL down
@@ -1635,7 +1635,7 @@ again:
 			pss->ch_recip = pss->len;
 
 			ch = ssh_get_server_ch(pss, pss->ch_recip);
-			ch->peer_window_est -= pss->msg_len;
+			ch->peer_window_est -= (int32_t)pss->msg_len;
 
 			if (pss->msg_len < sizeof(pss->name))
 				state_get_string(pss, SSHS_NVC_CD_DATA);
@@ -1676,7 +1676,7 @@ again:
 							pss->parser_state = SSHS_MSG_EAT_PADDING;
 							break;
 						}
-						scp->len = atoll((const char *)pp);
+						scp->len = (uint64_t)atoll((const char *)pp);
 						lwsl_notice("scp payload %llu expected\n",
 							    (unsigned long long)scp->len);
 						scp->ips = SSHS_SCP_PAYLOADIN;
@@ -1729,7 +1729,7 @@ again:
 		case SSHS_NVC_WA_ADD:
 			ch = ssh_get_server_ch(pss, pss->ch_recip);
 			if (ch) {
-				ch->window += pss->len;
+				ch->window += (int32_t)pss->len;
 				lwsl_notice("got additional window %d (now %d)\n",
 						pss->len, ch->window);
 			}
@@ -1904,7 +1904,7 @@ parse(struct per_session_data__sshd *pss, uint8_t *p, size_t len)
 				return 0;
 
 			/* decrypt it */
-			cp = lws_chacha_decrypt(&pss->active_keys_cts,
+			cp = (uint32_t)lws_chacha_decrypt(&pss->active_keys_cts,
 					        pss->ssh_sequence_ctr_cts++,
 					        pss->packet_assembly,
 					        pss->pa_pos, pt);
@@ -1944,7 +1944,7 @@ pad_and_encrypt(uint8_t *dest, void *ps, uint8_t *pp,
 
 	if (!skip_pad)
 		lws_pad_set_length(pss, ps, &pp, &pss->active_keys_stc);
-	n = lws_ptr_diff(pp, ps);
+	n = (uint32_t)lws_ptr_diff(pp, ps);
 
 	if (!pss->active_keys_stc.valid) {
 		memcpy(dest, ps, n);
@@ -2126,7 +2126,7 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 			if (!pss->vhd)
 				break;
 			m = 0;
-			n = offer(pss, buf + LWS_PRE,
+			n = (int)offer(pss, buf + LWS_PRE,
 				  sizeof(buf) - LWS_PRE, 0, &m);
 			if (n == 0) {
 				lwsl_notice("Too small\n");
@@ -2143,20 +2143,20 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 			/* we need a copy of it to generate the hash later */
 			if (pss->kex->I_S)
 				free(pss->kex->I_S);
-			pss->kex->I_S = sshd_zalloc(m);
+			pss->kex->I_S = sshd_zalloc((unsigned int)m);
 			if (!pss->kex->I_S) {
 				lwsl_notice("OOM 5: %d\n", m);
 
 				return -1;
 			}
 			/* without length + padcount part */
-			memcpy(pss->kex->I_S, buf + LWS_PRE + 5, m);
-			pss->kex->I_S_payload_len = m; /* without padding */
+			memcpy(pss->kex->I_S, buf + LWS_PRE + 5, (unsigned int)m);
+			pss->kex->I_S_payload_len = (uint32_t)m; /* without padding */
 			break;
 
 		case SSH_WT_OFFER_REPLY:
 			memcpy(ps, pss->kex->kex_r, pss->kex->kex_r_len);
-			n = pad_and_encrypt(&buf[LWS_PRE], ps,
+			n = (int)pad_and_encrypt(&buf[LWS_PRE], ps,
 					    ps + pss->kex->kex_r_len, pss, 1);
 			pss->kex_state = KEX_STATE_REPLIED_TO_OFFER;
 			/* afterwards, must do newkeys */
@@ -2202,7 +2202,7 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 				n = (int)pss->vhd->ops->banner((char *)&buf[650],
 							  150 - 1,
 							  lang, (int)sizeof(lang));
-			lws_p32(pp, n);
+			lws_p32(pp, (uint32_t)n);
 			pp += 4;
 			strcpy((char *)pp, (char *)&buf[650]);
 			pp += n;
@@ -2220,12 +2220,12 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 			 *    string    public key alg name from the request
 			 *    string    public key blob from the request
       			 */
-			n = 74 + pss->ua->pubkey_len;
+			n = 74 + (int)pss->ua->pubkey_len;
 			if (n > (int)sizeof(buf) - LWS_PRE) {
 				lwsl_notice("pubkey too large\n");
 				goto bail;
 			}
-			ps1 = sshd_zalloc(n);
+			ps1 = sshd_zalloc((unsigned int)n);
 			if (!ps1)
 				goto bail;
 			ps = ps1;
@@ -2351,7 +2351,7 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 			strcpy((char *)pp, "exit-status");
 			pp += 11;
 			*pp++ = 0;
-			lws_p32(pp, ch->retcode);
+			lws_p32(pp, (uint32_t)ch->retcode);
 			pp += 4;
 			lwsl_info("send SSH_MSG_CHANNEL_EXIT_STATUS\n");
 			goto pac;
@@ -2404,9 +2404,10 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 			/* ps + 14 / + 18 */
 
 			pp += pss->vhd->ops->tx(ch->priv, n, pp,
-						&buf[sizeof(buf) - 1] - pp);
+						lws_ptr_diff_size_t(
+							&buf[sizeof(buf) - 1], pp));
 
-			lws_p32(ps + m - 4, lws_ptr_diff(pp, (ps + m)));
+			lws_p32(ps + m - 4, (uint32_t)lws_ptr_diff(pp, (ps + m)));
 
 			if (pss->vhd->ops->tx_waiting(ch->priv) > 0)
 				lws_callback_on_writable(wsi);
@@ -2418,7 +2419,7 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 pac:
 			if (!pss->vhd)
 				break;
-			n = pad_and_encrypt(&buf[LWS_PRE], ps, pp, pss, 0);
+			n = (int)pad_and_encrypt(&buf[LWS_PRE], ps, pp, pss, 0);
 			break;
 
 bail:
@@ -2430,7 +2431,7 @@ bail:
 		}
 
 		if (n > 0) {
-			m = lws_write(wsi, (unsigned char *)buf + LWS_PRE, n,
+			m = lws_write(wsi, (unsigned char *)buf + LWS_PRE, (unsigned int)n,
 				      LWS_WRITE_HTTP);
 
 			switch(o) {
@@ -2513,7 +2514,7 @@ bail:
 			break;
 		ch = ssh_get_server_ch(pss, pss->channel_doing_spawn);
 		if (ch) {
-			ch->spawn_pid = (int)len; /* child process PID */
+			ch->spawn_pid = (uint32_t)len; /* child process PID */
 			lwsl_notice("associated PID %d to ch %d\n", (int)len,
 				    pss->channel_doing_spawn);
 		}

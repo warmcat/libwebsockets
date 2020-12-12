@@ -67,20 +67,20 @@ update(struct lws_sorted_usec_list *sul)
 	     *end = v->d.buf + sizeof(v->d.buf) - LWS_PRE - 1;
 	int n, first = 1, fd;
 
-	p += lws_snprintf(p, lws_ptr_diff(end, p), "{\"i\":");
+	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "{\"i\":");
 	p += lws_json_dump_context(v->context, p, lws_ptr_diff(end, p),
 				   v->hide_vhosts);
-	p += lws_snprintf(p, lws_ptr_diff(end, p), ", \"files\": [");
+	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), ", \"files\": [");
 
 	fp = v->fp;
 	while (fp) {
 		if (!first)
-			p += lws_snprintf(p, lws_ptr_diff(end, p), ",");
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), ",");
 
 		strcpy(pure, "(unknown)");
 		fd = lws_open(fp->filepath, LWS_O_RDONLY);
 		if (fd >= 0) {
-			n = read(fd, contents, sizeof(contents) - 1);
+			n = (int)read(fd, contents, sizeof(contents) - 1);
 			close(fd);
 			if (n >= 0) {
 				contents[n] = '\0';
@@ -88,15 +88,15 @@ update(struct lws_sorted_usec_list *sul)
 			}
 		}
 
-		p += lws_snprintf(p, lws_ptr_diff(end, p),
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
 				"{\"path\":\"%s\",\"val\":\"%s\"}",
 					fp->filepath, pure);
 		first = 0;
 
 		fp = fp->next;
 	}
-	p += lws_snprintf(p, lws_ptr_diff(end, p), "]}");
-	v->d.length = p - (v->d.buf + LWS_PRE);
+	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "]}");
+	v->d.length = lws_ptr_diff(p, (v->d.buf + LWS_PRE));
 
 	lws_callback_on_writable_all_protocol(v->context, &protocols[0]);
 
@@ -183,7 +183,7 @@ callback_lws_server_status(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
 		m = lws_write(wsi, (unsigned char *)v->d.buf + LWS_PRE,
-			      v->d.length, LWS_WRITE_TEXT);
+			      (size_t)v->d.length, LWS_WRITE_TEXT);
 		if (m < 0)
 			return -1;
 		break;

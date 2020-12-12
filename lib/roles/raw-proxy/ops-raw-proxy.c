@@ -85,7 +85,7 @@ rops_handle_POLLIN_raw_proxy(struct lws_context_per_thread *pt, struct lws *wsi,
 						 LWS_CALLBACK_RAW_PROXY_CLI_RX :
 						 LWS_CALLBACK_RAW_PROXY_SRV_RX,
 						wsi->user_space, ebuf.token,
-						ebuf.len);
+						(size_t)ebuf.len);
 		if (n < 0) {
 			lwsl_info("LWS_CALLBACK_RAW_PROXY_*_RX fail\n");
 			goto fail;

@@ -103,15 +103,15 @@ thread_spam(void *d)
 			goto wait_unlock;
 		}
 
-		amsg.payload = malloc(LWS_PRE + len);
+		amsg.payload = malloc((unsigned int)(LWS_PRE + len));
 		if (!amsg.payload) {
 			lwsl_user("OOM: dropping\n");
 			goto wait_unlock;
 		}
-		n = lws_snprintf((char *)amsg.payload + LWS_PRE, len,
+		n = lws_snprintf((char *)amsg.payload + LWS_PRE, (unsigned int)len,
 			         "%s: spam tid: %d, msg: %d", vhd->config,
 			         whoami, index++);
-		amsg.len = n;
+		amsg.len = (unsigned int)n;
 		n = (int)lws_ring_insert(vhd->ring, &amsg, 1);
 		if (n != 1) {
 			__minimal_destroy_message(&amsg);
@@ -238,7 +238,7 @@ init_fail:
 			      (char *)pmsg->payload + LWS_PRE);
 
 		/* notice we allowed for LWS_PRE in the payload already */
-		m = lws_write(wsi, (unsigned char *)temp + LWS_PRE, n,
+		m = lws_write(wsi, (unsigned char *)temp + LWS_PRE, (unsigned int)n,
 			      LWS_WRITE_TEXT);
 		if (m < n) {
 			pthread_mutex_unlock(&vhd->lock_ring); /* } ring lock ------- */

@@ -57,7 +57,7 @@ lws_get_addresses(struct lws_vhost *vh, void *ads, char *name,
 	if (LWS_IPV6_ENABLED(vh)) {
 		if (!lws_plat_inet_ntop(AF_INET6,
 					&((struct sockaddr_in6 *)ads)->sin6_addr,
-					rip, rip_len)) {
+					rip, (socklen_t)rip_len)) {
 			lwsl_err("inet_ntop: %s", strerror(LWS_ERRNO));
 			return -1;
 		}
@@ -67,7 +67,7 @@ lws_get_addresses(struct lws_vhost *vh, void *ads, char *name,
 			memmove(rip, rip + 7, strlen(rip) - 6);
 
 		getnameinfo((struct sockaddr *)ads, sizeof(struct sockaddr_in6),
-			    name, name_len, NULL, 0, 0);
+			    name, (socklen_t)name_len, NULL, 0, 0);
 
 		return 0;
 	} else
@@ -81,7 +81,7 @@ lws_get_addresses(struct lws_vhost *vh, void *ads, char *name,
 #if !defined(LWS_PLAT_FREERTOS)
 		if (getnameinfo((struct sockaddr *)ads,
 				sizeof(struct sockaddr_in),
-				name, name_len, NULL, 0, 0))
+				name, (unsigned int)name_len, NULL, 0, 0))
 			return -1;
 #endif
 
@@ -106,7 +106,7 @@ lws_get_addresses(struct lws_vhost *vh, void *ads, char *name,
 	if (addr4.sin_family == AF_UNSPEC)
 		return -1;
 
-	if (lws_plat_inet_ntop(AF_INET, &addr4.sin_addr, rip, rip_len) == NULL)
+	if (lws_plat_inet_ntop(AF_INET, &addr4.sin_addr, rip, (unsigned int)rip_len) == NULL)
 		return -1;
 
 	return 0;
@@ -243,7 +243,7 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 		memset(&serv_addr6, 0, sizeof(serv_addr6));
 		if (iface) {
 			m = interface_to_sa(vhost, iface,
-				    (struct sockaddr_in *)v, n, 1);
+				    (struct sockaddr_in *)v, (unsigned int)n, 1);
 			if (m == LWS_ITOSA_NOT_USABLE) {
 				lwsl_info("%s: netif %s: Not usable\n",
 					 __func__, iface);
@@ -254,11 +254,11 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 					 __func__, iface);
 				return m;
 			}
-			serv_addr6.sin6_scope_id = lws_get_addr_scope(iface);
+			serv_addr6.sin6_scope_id = (unsigned int)lws_get_addr_scope(iface);
 		}
 
 		serv_addr6.sin6_family = AF_INET6;
-		serv_addr6.sin6_port = htons(port);
+		serv_addr6.sin6_port = (uint16_t)htons((uint16_t)port);
 	} else
 #endif
 	{
@@ -271,7 +271,7 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 #if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE)
 		if (iface) {
 		    m = interface_to_sa(vhost, iface,
-				    (struct sockaddr_in *)v, n, 0);
+				    (struct sockaddr_in *)v, (unsigned int)n, 0);
 			if (m == LWS_ITOSA_NOT_USABLE) {
 				lwsl_info("%s: netif %s: Not usable\n",
 					 __func__, iface);
@@ -284,14 +284,14 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 			}
 		}
 #endif
-		serv_addr4.sin_port = htons(port);
+		serv_addr4.sin_port = htons((uint16_t)(unsigned int)port);
 	} /* ipv4 */
 
 	/* just checking for the interface extant */
 	if (sockfd == LWS_SOCK_INVALID)
 		return LWS_ITOSA_USABLE;
 
-	n = bind(sockfd, v, n);
+	n = bind(sockfd, v, (unsigned int)n);
 #ifdef LWS_WITH_UNIX_SOCK
 	if (n < 0 && LWS_UNIX_SOCK_ENABLED(vhost)) {
 		lwsl_err("ERROR on binding fd %d to \"%s\" (%d %d)\n",
@@ -423,7 +423,7 @@ lws_retry_sul_schedule(struct lws_context *context, int tid,
 	lwsl_info("%s: sul %p: scheduling retry in %dms\n", __func__, sul,
 			(int)ms);
 
-	lws_sul_schedule(context, tid, sul, cb, ms * 1000);
+	lws_sul_schedule(context, tid, sul, cb, (int64_t)(ms * 1000));
 
 	return 0;
 }
@@ -655,7 +655,7 @@ lws_parse_numeric_address(const char *ads, uint8_t *result, size_t max_len)
 		memset(result, 0, max_len);
 
 	do {
-		ts.e = lws_tokenize(&ts);
+		ts.e = (int8_t)lws_tokenize(&ts);
 		switch (ts.e) {
 		case LWS_TOKZE_TOKEN:
 			dm = 0;
@@ -733,10 +733,10 @@ lws_parse_numeric_address(const char *ads, uint8_t *result, size_t max_len)
 				 */
 				if (ow == 16)
 					return 16;
-				memcpy(temp, &orig[skip_point], ow - skip_point);
-				memset(&orig[skip_point], 0, 16 - skip_point);
+				memcpy(temp, &orig[skip_point], (unsigned int)(ow - skip_point));
+				memset(&orig[skip_point], 0, (unsigned int)(16 - skip_point));
 				memcpy(&orig[16 - (ow - skip_point)], temp,
-						   ow - skip_point);
+						   (unsigned int)(ow - skip_point));
 
 				return 16;
 			}
@@ -788,7 +788,7 @@ lws_sa46_parse_numeric_address(const char *ads, lws_sockaddr46 *sa46)
 int
 lws_write_numeric_address(const uint8_t *ads, int size, char *buf, size_t len)
 {
-	char c, elided = 0, soe = 0, zb = -1, n, ipv4 = 0;
+	char c, elided = 0, soe = 0, zb = (char)-1, n, ipv4 = 0;
 	const char *e = buf + len;
 	char *obuf = buf;
 	int q = 0;
@@ -801,7 +801,7 @@ lws_write_numeric_address(const uint8_t *ads, int size, char *buf, size_t len)
 		return -1;
 
 	for (c = 0; c < (char)size / 2; c++) {
-		uint16_t v = (ads[q] << 8) | ads[q + 1];
+		uint16_t v = (uint16_t)((ads[q] << 8) | ads[q + 1]);
 
 		if (buf + 8 > e)
 			return -1;
@@ -819,7 +819,7 @@ lws_write_numeric_address(const uint8_t *ads, int size, char *buf, size_t len)
 			}
 
 		if (ipv4) {
-			n = lws_snprintf(buf, e - buf, "%u.%u",
+			n = (char)lws_snprintf(buf, lws_ptr_diff_size_t(e, buf), "%u.%u",
 					ads[q - 2], ads[q - 1]);
 			buf += n;
 			if (c == 6)
@@ -830,7 +830,7 @@ lws_write_numeric_address(const uint8_t *ads, int size, char *buf, size_t len)
 			if (c)
 				*buf++ = ':';
 
-			buf += lws_snprintf(buf, e - buf, "%x", v);
+			buf += lws_snprintf(buf, lws_ptr_diff_size_t(e, buf), "%x", v);
 
 			if (soe && v) {
 				soe = 0;
@@ -954,7 +954,7 @@ lws_sa46_on_net(const lws_sockaddr46 *sa46a, const lws_sockaddr46 *sa46_net,
 
 	while (net_len > 0) {
 		if (net_len < 8)
-			mask <<= 8 - net_len;
+			mask = (uint8_t)(mask << (8 - net_len));
 
 		if (((*p1++) & mask) != ((*p2++) & mask))
 			return 1;
@@ -968,7 +968,7 @@ lws_sa46_on_net(const lws_sockaddr46 *sa46a, const lws_sockaddr46 *sa46_net,
 void
 lws_sa46_copy_address(lws_sockaddr46 *sa46a, const void *in, int af)
 {
-	sa46a->sa4.sin_family = af;
+	sa46a->sa4.sin_family = (sa_family_t)af;
 
 	if (af == AF_INET)
 		memcpy(&sa46a->sa4.sin_addr, in, 4);

@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -79,7 +79,7 @@ lws_jwe_encrypt_cbc_hs(struct lws_jwe *jwe, uint8_t *cek,
 
 	/* second half is the AES ENC_KEY */
 	el.buf = cek + (hlen / 2);
-	el.len = hlen / 2;
+	el.len = (uint32_t)(hlen / 2);
 
 	if (lws_genaes_create(&aesctx, LWS_GAESO_ENC, LWS_GAESM_CBC, &el,
 			      LWS_GAESP_WITH_PADDING, NULL)) {
@@ -113,11 +113,11 @@ lws_jwe_encrypt_cbc_hs(struct lws_jwe *jwe, uint8_t *cek,
 	 *     Additional Authenticated Data A expressed as a 64-bit unsigned
 	 *     big-endian integer.
 	 */
-	lws_jwe_be64(aad_len * 8, al);
+	lws_jwe_be64((unsigned int)aad_len * 8, al);
 
 	/* first half of the CEK is the MAC key */
 	if (lws_genhmac_init(&hmacctx, jwe->jose.enc_alg->hmac_type,
-				cek, hlen / 2))
+				cek, (unsigned int)hlen / 2))
 		return -1;
 
 	/*
@@ -134,7 +134,7 @@ lws_jwe_encrypt_cbc_hs(struct lws_jwe *jwe, uint8_t *cek,
 	 *    M are used as T.
 	 */
 
-	if (lws_genhmac_update(&hmacctx, aad, aad_len) ||
+	if (lws_genhmac_update(&hmacctx, aad, (unsigned int)aad_len) ||
 	    lws_genhmac_update(&hmacctx, jwe->jws.map.buf[LJWE_IV],
 			       LWS_JWE_AES_IV_BYTES) ||
 	    /* since we encrypted it, this is the ciphertext */
@@ -153,9 +153,9 @@ lws_jwe_encrypt_cbc_hs(struct lws_jwe *jwe, uint8_t *cek,
 	}
 
 	/* create tag */
-	memcpy((void *)jwe->jws.map.buf[LJWE_ATAG], digest, hlen / 2);
+	memcpy((void *)jwe->jws.map.buf[LJWE_ATAG], digest, (unsigned int)hlen / 2);
 
-	return jwe->jws.map.len[LJWE_CTXT];
+	return (int)jwe->jws.map.len[LJWE_CTXT];
 }
 
 int
@@ -197,16 +197,16 @@ lws_jwe_auth_and_decrypt_cbc_hs(struct lws_jwe *jwe, uint8_t *enc_cek,
 	 *
 	 */
 
-	lws_jwe_be64(aad_len * 8, al);
+	lws_jwe_be64((unsigned int)aad_len * 8, al);
 
 	/* first half of enc_cek is the MAC key */
 	if (lws_genhmac_init(&hmacctx, jwe->jose.enc_alg->hmac_type, enc_cek,
-			     hlen / 2)) {
+			     (unsigned int)hlen / 2)) {
 		lwsl_err("%s: lws_genhmac_init fail\n", __func__);
 		return -1;
 	}
 
-	if (lws_genhmac_update(&hmacctx, aad, aad_len) ||
+	if (lws_genhmac_update(&hmacctx, aad, (unsigned int)aad_len) ||
 	    lws_genhmac_update(&hmacctx, (uint8_t *)jwe->jws.map.buf[LJWE_IV],
 					 jwe->jws.map.len[LJWE_IV]) ||
 	    lws_genhmac_update(&hmacctx, (uint8_t *)jwe->jws.map.buf[LJWE_CTXT],
@@ -224,17 +224,17 @@ lws_jwe_auth_and_decrypt_cbc_hs(struct lws_jwe *jwe, uint8_t *enc_cek,
 
 	/* first half of digest is the auth tag */
 
-	if (lws_timingsafe_bcmp(digest, jwe->jws.map.buf[LJWE_ATAG], hlen / 2)) {
+	if (lws_timingsafe_bcmp(digest, jwe->jws.map.buf[LJWE_ATAG], (unsigned int)hlen / 2)) {
 		lwsl_err("%s: auth failed: hmac tag (%d) != ATAG (%d)\n",
 			 __func__, hlen / 2, jwe->jws.map.len[LJWE_ATAG]);
-		lwsl_hexdump_notice(jwe->jws.map.buf[LJWE_ATAG], hlen / 2);
-		lwsl_hexdump_notice(digest, hlen / 2);
+		lwsl_hexdump_notice(jwe->jws.map.buf[LJWE_ATAG], (unsigned int)hlen / 2);
+		lwsl_hexdump_notice(digest, (unsigned int)hlen / 2);
 		return -1;
 	}
 
 	/* second half of enc cek is the CEK KEY */
 	el.buf = enc_cek + (hlen / 2);
-	el.len = hlen / 2;
+	el.len = (unsigned int)hlen / 2;
 
 	if (lws_genaes_create(&aesctx, LWS_GAESO_DEC, LWS_GAESM_CBC,
 			      &el, LWS_GAESP_NO_PADDING, NULL)) {
@@ -257,8 +257,8 @@ lws_jwe_auth_and_decrypt_cbc_hs(struct lws_jwe *jwe, uint8_t *enc_cek,
 				__func__, jwe->jws.map.len[LJWE_CTXT]);
 		return -1;
 	}
-	jwe->jws.map.len[LJWE_CTXT] -= jwe->jws.map.buf[LJWE_CTXT][
-						jwe->jws.map.len[LJWE_CTXT] - 1];
+	jwe->jws.map.len[LJWE_CTXT] = (uint32_t)((int)jwe->jws.map.len[LJWE_CTXT] -
+		jwe->jws.map.buf[LJWE_CTXT][jwe->jws.map.len[LJWE_CTXT] - 1]);
 
 	n |= lws_genaes_destroy(&aesctx, NULL, 0);
 	if (n) {
@@ -266,6 +266,6 @@ lws_jwe_auth_and_decrypt_cbc_hs(struct lws_jwe *jwe, uint8_t *enc_cek,
 		return -1;
 	}
 
-	return jwe->jws.map.len[LJWE_CTXT];
+	return (int)jwe->jws.map.len[LJWE_CTXT];
 }
 

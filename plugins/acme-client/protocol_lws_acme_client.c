@@ -157,8 +157,8 @@ callback_chall_http01(struct lws *wsi, enum lws_callback_reasons reason,
 			return -1;
 		}
 
-		n = strlen(ac->key_auth);
-		if (lws_add_http_header_content_length(wsi, n, &p, end)) {
+		n = (int)strlen(ac->key_auth);
+		if (lws_add_http_header_content_length(wsi, (lws_filepos_t)n, &p, end)) {
 			lwsl_notice("%s: add content_length failed\n",
 					__func__);
 			return -1;
@@ -182,9 +182,9 @@ callback_chall_http01(struct lws *wsi, enum lws_callback_reasons reason,
 		return 0;
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
-		p += lws_snprintf((char *)p, end - p, "%s", ac->key_auth);
+		p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "%s", ac->key_auth);
 		lwsl_notice("%s: len %d\n", __func__, lws_ptr_diff(p, start));
-		if (lws_write(wsi, (uint8_t *)start, lws_ptr_diff(p, start),
+		if (lws_write(wsi, (uint8_t *)start, lws_ptr_diff_size_t(p, start),
 			      LWS_WRITE_HTTP_FINAL) != lws_ptr_diff(p, start)) {
 			lwsl_err("_write content failed\n");
 			return 1;
@@ -225,7 +225,7 @@ jws_create_packet(struct lws_jwe *jwe, const char *payload, size_t len,
 	 * here temporarily.
 	 */
 	n = LWS_PRE + 2048;
-	buf = malloc(n);
+	buf = malloc((unsigned int)n);
 	if (!buf) {
 		lwsl_notice("%s: malloc %d failed\n", __func__, n);
 		return -1;
@@ -240,12 +240,12 @@ jws_create_packet(struct lws_jwe *jwe, const char *payload, size_t len,
 	if (!jwe->jose.alg || !jwe->jose.alg->alg)
 		goto bail;
 
-	p += lws_snprintf(p, end - p, "{\"alg\":\"RS256\"");
+	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "{\"alg\":\"RS256\"");
 	if (kid)
-		p += lws_snprintf(p, end - p, ",\"kid\":\"%s\"", kid);
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), ",\"kid\":\"%s\"", kid);
 	else {
-		p += lws_snprintf(p, end - p, ",\"jwk\":");
-		m = end - p;
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), ",\"jwk\":");
+		m = lws_ptr_diff(end, p);
 		n = lws_jwk_export(&jwe->jwk, 0, p, &m);
 		if (n < 0) {
 			lwsl_notice("failed to export jwk\n");
@@ -253,8 +253,8 @@ jws_create_packet(struct lws_jwe *jwe, const char *payload, size_t len,
 		}
 		p += n;
 	}
-	p += lws_snprintf(p, end - p, ",\"url\":\"%s\"", url);
-	p += lws_snprintf(p, end - p, ",\"nonce\":\"%s\"}", nonce);
+	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), ",\"url\":\"%s\"", url);
+	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), ",\"nonce\":\"%s\"}", nonce);
 
 	/*
 	 * prepare the signed outer JSON with all the parts in
@@ -262,47 +262,47 @@ jws_create_packet(struct lws_jwe *jwe, const char *payload, size_t len,
 	p1 = out;
 	end1 = out + out_len - 1;
 
-	p1 += lws_snprintf(p1, end1 - p1, "{\"protected\":\"");
+	p1 += lws_snprintf(p1, lws_ptr_diff_size_t(end1, p1), "{\"protected\":\"");
 	jws.map_b64.buf[LJWS_JOSE] = p1;
-	n = lws_jws_base64_enc(start, p - start, p1, end1 - p1);
+	n = lws_jws_base64_enc(start, lws_ptr_diff_size_t(p, start), p1, lws_ptr_diff_size_t(end1, p1));
 	if (n < 0) {
 		lwsl_notice("%s: failed to encode protected\n", __func__);
 		goto bail;
 	}
-	jws.map_b64.len[LJWS_JOSE] = n;
+	jws.map_b64.len[LJWS_JOSE] = (uint32_t)n;
 	p1 += n;
 
-	p1 += lws_snprintf(p1, end1 - p1, "\",\"payload\":\"");
+	p1 += lws_snprintf(p1, lws_ptr_diff_size_t(end1, p1), "\",\"payload\":\"");
 	jws.map_b64.buf[LJWS_PYLD] = p1;
-	n = lws_jws_base64_enc(payload, len, p1, end1 - p1);
+	n = lws_jws_base64_enc(payload, len, p1, lws_ptr_diff_size_t(end1, p1));
 	if (n < 0) {
 		lwsl_notice("%s: failed to encode payload\n", __func__);
 		goto bail;
 	}
-	jws.map_b64.len[LJWS_PYLD] = n;
+	jws.map_b64.len[LJWS_PYLD] = (uint32_t)n;
 	p1 += n;
 
-	p1 += lws_snprintf(p1, end1 - p1, "\",\"signature\":\"");
+	p1 += lws_snprintf(p1, lws_ptr_diff_size_t(end1, p1), "\",\"signature\":\"");
 
 	/*
 	 * taking the b64 protected header and the b64 payload, sign them
 	 * and place the signature into the packet
 	 */
-	n = lws_jws_sign_from_b64(&jwe->jose, &jws, p1, end1 - p1);
+	n = lws_jws_sign_from_b64(&jwe->jose, &jws, p1, lws_ptr_diff_size_t(end1, p1));
 	if (n < 0) {
 		lwsl_notice("sig gen failed\n");
 
 		goto bail;
 	}
 	jws.map_b64.buf[LJWS_SIG] = p1;
-	jws.map_b64.len[LJWS_SIG] = n;
+	jws.map_b64.len[LJWS_SIG] = (uint32_t)n;
 
 	p1 += n;
-	p1 += lws_snprintf(p1, end1 - p1, "\"}");
+	p1 += lws_snprintf(p1, lws_ptr_diff_size_t(end1, p1), "\"}");
 
 	free(buf);
 
-	return p1 - out;
+	return lws_ptr_diff(p1, out);
 
 bail:
 	lws_jws_destroy(&jws);
@@ -570,7 +570,7 @@ static int
 lws_acme_report_status(struct lws_vhost *v, int state, const char *json)
 {
 	lws_callback_vhost_protocols_vhost(v, LWS_CALLBACK_VHOST_CERT_UPDATE,
-					   (void *)json, state);
+					   (void *)json, (unsigned int)state);
 
 	return 0;
 }
@@ -799,18 +799,18 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 		m = 0;
 		pvo = (const struct lws_protocol_vhost_options *)in;
 		while (pvo) {
-			m += strlen(pvo->value) + 1;
+			m += (int)strlen(pvo->value) + 1;
 			pvo = pvo->next;
 		}
-		p = vhd->pvo_data = malloc(m);
+		p = vhd->pvo_data = malloc((unsigned int)m);
 		if (!p)
 			return -1;
 
 		pvo = (const struct lws_protocol_vhost_options *)in;
 		while (pvo) {
 			start = p;
-			n = strlen(pvo->value) + 1;
-			memcpy(start, pvo->value, n);
+			n = (int)strlen(pvo->value) + 1;
+			memcpy(start, pvo->value, (unsigned int)n);
 			p += n;
 
 			for (m = 0; m < (int)LWS_ARRAY_SIZE(pvo_names); m++)
@@ -941,7 +941,7 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 				ac->state, lws_http_client_http_response(wsi));
 		if (!ac)
 			break;
-		ac->resp = lws_http_client_http_response(wsi);
+		ac->resp = (int)lws_http_client_http_response(wsi);
 		/* we get a new nonce each time */
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_REPLAY_NONCE) &&
 				lws_hdr_copy(wsi, ac->replay_nonce,
@@ -1046,7 +1046,7 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 
 		case ACME_STATE_NEW_ACCOUNT:
-			p += lws_snprintf(p, end - p, "{"
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "{"
 				"\"termsOfServiceAgreed\":true"
 				",\"contact\": [\"mailto:%s\"]}",
 				vhd->pvop_active[LWS_TLS_REQ_ELEMENT_EMAIL]);
@@ -1063,7 +1063,7 @@ pkt_add_hdrs:
 			jwe.jwk = vhd->jwk;
 
 			ac->len = jws_create_packet(&jwe,
-					start, p - start,
+					start, lws_ptr_diff_size_t(p, start),
 					ac->replay_nonce,
 					ac->active_url,
 					ac->kid,
@@ -1103,7 +1103,7 @@ pkt_add_hdrs:
 			break;
 
 		case ACME_STATE_NEW_ORDER:
-			p += lws_snprintf(p, end - p,
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
 					"{"
 					"\"identifiers\":[{"
 					"\"type\":\"dns\","
@@ -1125,7 +1125,7 @@ pkt_add_hdrs:
 			p = start;
 			end = &buf[sizeof(buf) - 1];
 
-			p += lws_snprintf(p, end - p, "{}");
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "{}");
 			puts(start);
 			strcpy(ac->active_url, ac->challenge_uri);
 			goto pkt_add_hdrs;
@@ -1138,10 +1138,10 @@ pkt_add_hdrs:
 			if (ac->goes_around)
 				break;
 
-			p += lws_snprintf(p, end - p, "{\"csr\":\"");
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "{\"csr\":\"");
 			n = lws_tls_acme_sni_csr_create(vhd->context,
 					&vhd->pvop_active[0],
-					(uint8_t *)p, end - p,
+					(uint8_t *)p, lws_ptr_diff_size_t(end, p),
 					&ac->alloc_privkey_pem,
 					&ac->len_privkey_pem);
 			if (n < 0) {
@@ -1149,7 +1149,7 @@ pkt_add_hdrs:
 				goto failed;
 			}
 			p += n;
-			p += lws_snprintf(p, end - p, "\"}");
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\"}");
 			puts(start);
 			strcpy(ac->active_url, ac->finalize_url);
 			goto pkt_add_hdrs;
@@ -1175,7 +1175,7 @@ pkt_add_hdrs:
 
 		ac->buf[LWS_PRE + ac->len] = '\0';
 		if (lws_write(wsi, (uint8_t *)ac->buf + LWS_PRE,
-					ac->len, LWS_WRITE_HTTP_FINAL) < 0)
+					(size_t)ac->len, LWS_WRITE_HTTP_FINAL) < 0)
 			return -1;
 		lwsl_notice("wrote %d\n", ac->len);
 		ac->pos = ac->len;
@@ -1196,7 +1196,7 @@ pkt_add_hdrs:
 		case ACME_STATE_DIRECTORY:
 			((char *)in)[len] = '\0';
 			puts(in);
-			m = lejp_parse(&ac->jctx, (uint8_t *)in, len);
+			m = lejp_parse(&ac->jctx, (uint8_t *)in, (int)len);
 			if (m < 0 && m != LEJP_CONTINUE) {
 				lwsl_notice("lejp parse failed %d\n", m);
 				goto failed;
@@ -1210,12 +1210,12 @@ pkt_add_hdrs:
 			((char *)in)[len] = '\0';
 			puts(in);
 			/* it should be the DER cert! */
-			if (ac->cpos + len > sizeof(ac->buf)) {
+			if ((unsigned int)ac->cpos + len > sizeof(ac->buf)) {
 				lwsl_notice("Incoming cert is too large!\n");
 				goto failed;
 			}
 			memcpy(&ac->buf[ac->cpos], in, len);
-			ac->cpos += len;
+			ac->cpos += (int)len;
 			break;
 		default:
 			break;
@@ -1346,9 +1346,9 @@ pkt_add_hdrs:
 			p = ac->key_auth;
 			end = p + sizeof(ac->key_auth) - 1;
 
-			p += lws_snprintf(p, end - p, "%s.", ac->chall_token);
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "%s.", ac->chall_token);
 			lws_jwk_rfc7638_fingerprint(&vhd->jwk, digest);
-			n = lws_jws_base64_enc(digest, 32, p, end - p);
+			n = lws_jws_base64_enc(digest, 32, p, lws_ptr_diff_size_t(end, p));
 			if (n < 0)
 				goto failed;
 
@@ -1362,7 +1362,7 @@ pkt_add_hdrs:
 			memset(&ac->mount, 0, sizeof (struct lws_http_mount));
 			ac->mount.protocol = "http";
 			ac->mount.mountpoint = ac->http01_mountpoint;
-			ac->mount.mountpoint_len =
+			ac->mount.mountpoint_len = (unsigned char)
 				strlen(ac->http01_mountpoint);
 			ac->mount.origin_protocol = LWSMPRO_CALLBACK;
 
@@ -1548,7 +1548,7 @@ poll_again:
 			n = lws_plat_write_cert(vhd->vhost, 0,
 					vhd->fd_updated_cert,
 					ac->buf,
-					ac->cpos);
+					(size_t)ac->cpos);
 			if (n) {
 				lwsl_err("unable to write ACME cert! %d\n", n);
 				goto failed;
@@ -1580,7 +1580,7 @@ poll_again:
 			if (lws_tls_cert_updated(vhd->context,
 					vhd->pvop_active[LWS_TLS_SET_CERT_PATH],
 					vhd->pvop_active[LWS_TLS_SET_KEY_PATH],
-						ac->buf, ac->cpos,
+						ac->buf, (size_t)ac->cpos,
 						ac->alloc_privkey_pem,
 						ac->len_privkey_pem)) {
 				lwsl_notice("problem setting certs\n");

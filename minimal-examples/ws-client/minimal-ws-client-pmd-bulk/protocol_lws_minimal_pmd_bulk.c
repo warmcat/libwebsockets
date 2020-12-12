@@ -179,9 +179,9 @@ callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
 				size_t s;
 
 				m = pss->position_tx % REPEAT_STRING_LEN;
-				s = REPEAT_STRING_LEN - m;
+				s = (unsigned int)(REPEAT_STRING_LEN - m);
 				if (s > (size_t)n)
-					s = n;
+					s = (unsigned int)n;
 				memcpy(p, &redundant_string[m], s);
 				pss->position_tx += (int)s;
 				p += s;
@@ -194,7 +194,7 @@ callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		n = lws_ptr_diff(p, start);
-		m = lws_write(wsi, start, n, flags);
+		m = lws_write(wsi, start, (unsigned int)n, (enum lws_write_protocol)flags);
 		if (m < n) {
 			lwsl_err("ERROR %d writing ws\n", m);
 			return -1;
@@ -222,7 +222,7 @@ callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
 				size_t s;
 
 				m = pss->position_rx % REPEAT_STRING_LEN;
-				s = REPEAT_STRING_LEN - m;
+				s = (unsigned int)(REPEAT_STRING_LEN - m);
 				if (s > len)
 					s = len;
 				if (memcmp(in, &redundant_string[m], s)) {

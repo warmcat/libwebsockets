@@ -241,7 +241,7 @@ ssh_ops_get_server_key(struct lws *wsi, uint8_t *buf, size_t len)
 		return 0;
 	}
 
-	n = read(fd, buf, len);
+	n = (int)read(fd, buf, len);
 	if (n < 0) {
 		lwsl_err("%s: read failed: %d\n", __func__, n);
 		n = 0;
@@ -249,7 +249,7 @@ ssh_ops_get_server_key(struct lws *wsi, uint8_t *buf, size_t len)
 
 	close(fd);
 
-	return n;
+	return (size_t)n;
 }
 
 static size_t
@@ -266,7 +266,7 @@ ssh_ops_set_server_key(struct lws *wsi, uint8_t *buf, size_t len)
 		return 0;
 	}
 
-	n = write(fd, buf, len);
+	n = (int)write(fd, buf, len);
 	if (n < 0) {
 		lwsl_err("%s: read failed: %d\n", __func__, errno);
 		n = 0;
@@ -274,7 +274,7 @@ ssh_ops_set_server_key(struct lws *wsi, uint8_t *buf, size_t len)
 
 	close(fd);
 
-	return n;
+	return (size_t)n;
 }
 
 /* ops: auth */
@@ -284,7 +284,7 @@ ssh_ops_is_pubkey_authorized(const char *username, const char *type,
 				 const uint8_t *peer, int peer_len)
 {
 	char *aps, *p, *ps;
-	int n = strlen(type), alen = 2048, ret = 2, len;
+	int n = (int)strlen(type), alen = 2048, ret = 2, len;
 	size_t s = 0;
 
 	lwsl_info("%s: checking pubkey for %s\n", __func__, username);
@@ -305,7 +305,7 @@ ssh_ops_is_pubkey_authorized(const char *username, const char *type,
 	}
 	p = aps;
 
-	if (strncmp(p, type, n)) {
+	if (strncmp(p, type, (unsigned int)n)) {
 		lwsl_notice("lead-in string  does not match %s\n", type);
 		goto bail_p1;
 	}
@@ -318,7 +318,7 @@ ssh_ops_is_pubkey_authorized(const char *username, const char *type,
 
 
 	p++;
-	ps = malloc(alen);
+	ps = malloc((unsigned int)alen);
 	if (!ps) {
 		lwsl_notice("OOM 2\n");
 		free(aps);
@@ -342,7 +342,7 @@ ssh_ops_is_pubkey_authorized(const char *username, const char *type,
 	 * <len32>E<len32>N that the peer sends us
 	 */
 
-	if (lws_timingsafe_bcmp(peer, ps, peer_len)) {
+	if (lws_timingsafe_bcmp(peer, ps, (uint32_t)peer_len)) {
 		lwsl_info("factors mismatch\n");
 		goto bail;
 	}
@@ -425,10 +425,10 @@ ssh_ops_pty_req(void *_priv, struct lws_ssh_pty *pty)
 			break;
 		opc = *p++;
 
-		arg = *p++ << 24;
-		arg |= *p++ << 16;
-		arg |= *p++ << 8;
-		arg |= *p++;
+		arg = (uint32_t)(*p++ << 24);
+		arg |= (uint32_t)(*p++ << 16);
+		arg |= (uint32_t)(*p++ << 8);
+		arg |= (uint32_t)(*p++);
 
 		lwsl_debug("pty opc %d: 0x%x\n", opc, arg);
 
@@ -483,7 +483,7 @@ ssh_ops_child_process_io(void *_priv, struct lws *wsi,
 			uint8_t buf[256], *p, *d;
 
 			if (bytes != 1)
-				n = bytes / 2;
+				n = (int)(bytes / 2);
 			else
 				n = 1;
 			if (n > (int)sizeof(buf))
@@ -495,7 +495,7 @@ ssh_ops_child_process_io(void *_priv, struct lws *wsi,
 			m = lws_get_socket_fd(args->stdwsi[args->ch]);
 			if (m < 0)
 				return -1;
-			n = read(m, buf, n);
+			n = (int)read(m, buf, (unsigned int)n);
 			if (n < 0)
 				return -1;
 			if (n == 0) {
@@ -515,7 +515,7 @@ ssh_ops_child_process_io(void *_priv, struct lws *wsi,
 
 				*p++ = *d++;
 			}
-			n = (void *)p - rp;
+			n = lws_ptr_diff((void *)p, rp);
 			if (n < (int)bytes && priv->insert_lf) {
 				priv->insert_lf = 0;
 				*p++ = 0x0d;
@@ -525,14 +525,14 @@ ssh_ops_child_process_io(void *_priv, struct lws *wsi,
 			n = lws_get_socket_fd(args->stdwsi[args->ch]);
 			if (n < 0)
 				return -1;
-			n = read(n, rp, bytes);
+			n = (int)read(n, rp, bytes);
 			if (n < 0)
 				return -1;
 		}
 
 		lws_rx_flow_control(args->stdwsi[args->ch], 0);
 
-		lws_ring_bump_head(r, n);
+		lws_ring_bump_head(r, (unsigned int)n);
 		lws_callback_on_writable(wsi);
 		break;
 	}
@@ -584,11 +584,11 @@ ssh_ops_banner(char *buf, size_t max_len, char *lang, size_t max_lang_len)
 	int n = lws_snprintf(buf, max_len, "\n"
 		      " |\\---/|  lws-ssh Test Server\n"
 		      " | o_o |  SSH Terminal Server\n"
-		      "  \\_^_/   Copyright (C) 2017 Crash Barrier Ltd\n\n");
+		      "  \\_^_/   Copyright (C) 2017-2020 Crash Barrier Ltd\n\n");
 
 	lws_snprintf(lang, max_lang_len, "en/US");
 
-	return n;
+	return (size_t)n;
 }
 
 static void

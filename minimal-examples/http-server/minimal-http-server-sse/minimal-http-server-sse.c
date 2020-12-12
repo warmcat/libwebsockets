@@ -98,12 +98,12 @@ callback_sse(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		 * own private data and timer.
 		 */
 
-		p += lws_snprintf((char *)p, end - p,
+		p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
 				  "data: %llu\x0d\x0a\x0d\x0a",
-				  (unsigned long long)time(NULL) -
-				  pss->established);
+				  (unsigned long long)(time(NULL) -
+				  pss->established));
 
-		if (lws_write(wsi, (uint8_t *)start, lws_ptr_diff(p, start),
+		if (lws_write(wsi, (uint8_t *)start, lws_ptr_diff_size_t(p, start),
 			      LWS_WRITE_HTTP) != lws_ptr_diff(p, start))
 			return 1;
 

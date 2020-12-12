@@ -59,7 +59,7 @@ _lws_b64_encode_string(const char *encode, const char *in, int in_len,
 		int len = 0;
 		for (i = 0; i < 3; i++) {
 			if (in_len) {
-				triple[i] = *in++;
+				triple[i] = (unsigned char)*in++;
 				len++;
 				in_len--;
 			} else
@@ -121,20 +121,20 @@ lws_b64_decode_stateful(struct lws_b64state *s, const char *in, size_t *in_len,
 			v = 0;
 			s->c = 0;
 			while (in < end_in && *in && !v) {
-				s->c = v = *in++;
+				s->c = v = (unsigned char)*in++;
 				/* support the url base64 variant too */
 				if (v == '-')
 					s->c = v = '+';
 				if (v == '_')
 					s->c = v = '/';
-				v = (v < 43 || v > 122) ? 0 : decode[v - 43];
+				v = (uint8_t)((v < 43 || v > 122) ? 0 : decode[v - 43]);
 				if (v)
-					v = (v == '$') ? 0 : v - 61;
+					v = (uint8_t)((v == '$') ? 0 : v - 61);
 			}
 			if (s->c) {
 				s->len++;
 				if (v)
-					s->quad[s->i] = v - 1;
+					s->quad[s->i] = (uint8_t)(v - 1);
 			} else
 				s->quad[s->i] = 0;
 		}
@@ -154,19 +154,19 @@ lws_b64_decode_stateful(struct lws_b64state *s, const char *in, size_t *in_len,
 			s->len--;
 
 		if (s->len >= 2)
-			*out++ = s->quad[0] << 2 | s->quad[1] >> 4;
+			*out++ = (uint8_t)(s->quad[0] << 2 | s->quad[1] >> 4);
 		if (s->len >= 3)
-			*out++ = s->quad[1] << 4 | s->quad[2] >> 2;
+			*out++ = (uint8_t)(s->quad[1] << 4 | s->quad[2] >> 2);
 		if (s->len >= 4)
-			*out++ = ((s->quad[2] << 6) & 0xc0) | s->quad[3];
+			*out++ = (uint8_t)(((s->quad[2] << 6) & 0xc0) | s->quad[3]);
 
 		s->done += s->len - 1;
 		s->len = 0;
 	}
 
 	*out = '\0';
-	*in_len = in - orig_in;
-	*out_size = out - orig_out;
+	*in_len = (unsigned int)(in - orig_in);
+	*out_size = (unsigned int)(out - orig_out);
 
 	return 0;
 }
@@ -181,7 +181,7 @@ lws_b64_decode_stateful(struct lws_b64state *s, const char *in, size_t *in_len,
  */
 
 static size_t
-_lws_b64_decode_string(const char *in, int in_len, char *out, int out_size)
+_lws_b64_decode_string(const char *in, int in_len, char *out, size_t out_size)
 {
 	struct lws_b64state state;
 	size_t il = (size_t)in_len, ol = out_size;
@@ -201,13 +201,13 @@ _lws_b64_decode_string(const char *in, int in_len, char *out, int out_size)
 int
 lws_b64_decode_string(const char *in, char *out, int out_size)
 {
-	return (int)_lws_b64_decode_string(in, -1, out, out_size);
+	return (int)_lws_b64_decode_string(in, -1, out, (unsigned int)out_size);
 }
 
 int
 lws_b64_decode_string_len(const char *in, int in_len, char *out, int out_size)
 {
-	return (int)_lws_b64_decode_string(in, in_len, out, out_size);
+	return (int)_lws_b64_decode_string(in, in_len, out, (unsigned int)out_size);
 }
 
 #if 0

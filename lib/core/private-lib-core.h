@@ -586,13 +586,14 @@ struct lws_context {
 	uint32_t last_free_heap;
 #endif
 
-	int max_fds;
+	unsigned int max_fds;
 #if !defined(LWS_NO_DAEMONIZE)
 	pid_t started_with_parent;
 #endif
 
 #if !defined(LWS_PLAT_FREERTOS)
-	int uid, gid;
+	uid_t uid;
+	gid_t gid;
 	int fd_random;
 	int count_cgi_spawned;
 #endif
@@ -603,8 +604,8 @@ struct lws_context {
 	unsigned int fd_limit_per_thread;
 	unsigned int timeout_secs;
 	unsigned int pt_serv_buf_size;
-	int max_http_header_data;
-	int max_http_header_pool;
+	unsigned int max_http_header_data;
+	unsigned int max_http_header_pool;
 	int simultaneous_ssl_restriction;
 	int simultaneous_ssl;
 #if defined(LWS_WITH_PEER_LIMITS)
@@ -629,8 +630,8 @@ struct lws_context {
 	unsigned int nl_initial_done:1;
 #endif
 
-	short count_threads;
-	short undestroyed_threads;
+	unsigned short count_threads;
+	unsigned short undestroyed_threads;
 	short plugin_protocol_count;
 	short plugin_extension_count;
 	short server_string_len;
@@ -756,10 +757,10 @@ lws_vhost_unlock(struct lws_vhost *vhost)
 #endif
 
 int LWS_WARN_UNUSED_RESULT
-lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, int len);
+lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, size_t len);
 
 int LWS_WARN_UNUSED_RESULT
-lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, int len);
+lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, size_t len);
 
 int LWS_WARN_UNUSED_RESULT
 lws_ssl_pending_no_ssl(struct lws *wsi);

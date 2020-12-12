@@ -178,7 +178,7 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			char buf[256];
 			int n;
 			
-			n = read(vhd->fifo, buf, sizeof(buf) - 1);
+			n = (int)read(vhd->fifo, buf, sizeof(buf) - 1);
 			if (n < 0) {
 				lwsl_err("FIFO read failed\n");
 				return 1;
@@ -247,7 +247,7 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (len > sizeof(pss->buf))
 			len = sizeof(pss->buf);
 		memcpy(pss->buf, in, len);
-		pss->len = len;
+		pss->len = (int)len;
 		lws_callback_on_writable(wsi);
 		break;
 
@@ -257,7 +257,7 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 	case LWS_CALLBACK_RAW_WRITEABLE:
 		lwsl_notice("LWS_CALLBACK_RAW_WRITEABLE\n");
-		lws_write(wsi, pss->buf, pss->len, LWS_WRITE_HTTP);
+		lws_write(wsi, pss->buf, (size_t)pss->len, LWS_WRITE_HTTP);
 		break;
 
 	default:

@@ -40,7 +40,8 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		*end = &buf[sizeof(buf) - LWS_PRE - 1];
 	struct pss *pss = (struct pss *)user;
 	char value[32], *pr = &pss->result[LWS_PRE];
-	int n, e = sizeof(pss->result) - LWS_PRE;
+	size_t e = sizeof(pss->result) - LWS_PRE;
+	int n;
 
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
@@ -63,18 +64,18 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 					"%s: DNT length %d<br>", __func__, n);
 			n = lws_hdr_custom_copy(wsi, value, sizeof(value), "dnt:", 4);
 			if (n < 0)
-				pss->len += lws_snprintf(pr + pss->len, e - pss->len,
+				pss->len += lws_snprintf(pr + pss->len, e - (unsigned int)pss->len,
 					"%s: unable to get DNT value\n", __func__);
 			else
 
-				pss->len += lws_snprintf(pr + pss->len , e - pss->len,
+				pss->len += lws_snprintf(pr + pss->len , e - (unsigned int)pss->len,
 					"%s: DNT value '%s'\n", __func__, value);
 		}
 
 		lwsl_user("%s\n", pr);
 
 		if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
-				"text/html", pss->len, &p, end))
+				"text/html", (lws_filepos_t)pss->len, &p, end))
 			return 1;
 
 		if (lws_finalize_write_http_header(wsi, start, &p, end))
@@ -89,7 +90,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 
 		strcpy((char *)start, "hello");
 
-		if (lws_write(wsi, (uint8_t *)pr, pss->len, LWS_WRITE_HTTP_FINAL) != pss->len)
+		if (lws_write(wsi, (uint8_t *)pr, (unsigned int)pss->len, LWS_WRITE_HTTP_FINAL) != pss->len)
 			return 1;
 
 		if (lws_http_transaction_completed(wsi))

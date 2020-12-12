@@ -154,7 +154,7 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 					!!(f & LWSSS_FLAG_SOM),
 					!!(f & LWSSS_FLAG_EOM));
 
-		n = lws_write(wsi, buf + LWS_PRE, buflen, f1);
+		n = lws_write(wsi, buf + LWS_PRE, buflen, (enum lws_write_protocol)f1);
 		if (n < (int)buflen) {
 			lwsl_info("%s: write failed %d %d\n", __func__,
 					n, (int)buflen);

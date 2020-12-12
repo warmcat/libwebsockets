@@ -166,7 +166,7 @@ int crypto_verify_32(const unsigned char *x,const unsigned char *y)
   F(29)
   F(30)
   F(31)
-  return (1 & ((differentbits - 1) >> 8)) - 1;
+  return (int)((1 & ((differentbits - 1) >> 8)) - 1);
 }
 
 int crypto_sign_ed25519_open(

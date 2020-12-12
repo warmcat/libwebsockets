@@ -144,7 +144,7 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 			opts &= ~LWS_ADOPT_ALLOW_SSL;
 
 		fd.sockfd = filt.accept_fd;
-		cwsi = lws_adopt_descriptor_vhost(wsi->a.vhost, opts, fd,
+		cwsi = lws_adopt_descriptor_vhost(wsi->a.vhost, (lws_adoption_type)opts, fd,
 				wsi->a.vhost->listen_accept_protocol, NULL);
 		if (!cwsi) {
 			lwsl_info("%s: vh %s: adopt failed\n", __func__,

@@ -64,7 +64,7 @@ child_handler(int signum)
 			exit(0);
 		}
 		len = sprintf(sz, "%u", (unsigned int)pid_daemon);
-		sent = write(fd, sz, len);
+		sent = (int)write(fd, sz, (size_t)len);
 		if (sent != len)
 			fprintf(stderr,
 			  "unable to write pid to lock file %s, code=%d (%s)\n",
@@ -117,7 +117,7 @@ lws_daemonize(const char *_lock_path)
 		if (fd >= 0) {
 			char buf[10];
 
-			n = read(fd, buf, sizeof(buf));
+			n = (int)read(fd, buf, sizeof(buf));
 			close(fd);
 			if (n) {
 				int ret;
@@ -136,8 +136,8 @@ lws_daemonize(const char *_lock_path)
 			}
 		}
 
-		n = strlen(_lock_path) + 1;
-		lock_path = lws_malloc(n, "daemonize lock");
+		n = (int)strlen(_lock_path) + 1;
+		lock_path = lws_malloc((unsigned int)n, "daemonize lock");
 		if (!lock_path) {
 			fprintf(stderr, "Out of mem in lws_daemonize\n");
 			return 1;

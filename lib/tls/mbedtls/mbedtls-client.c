@@ -92,7 +92,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	lwsl_info("%s: %s: client conn sending ALPN list '%s'\n",
 		  __func__, lws_wsi_tag(wsi), alpn_comma);
 
-	protos.len = lws_alpn_comma_to_openssl(alpn_comma, protos.data,
+	protos.len = (uint8_t)lws_alpn_comma_to_openssl(alpn_comma, protos.data,
 					       sizeof(protos.data) - 1);
 
 	/* with mbedtls, protos is not pointed to after exit from this call */
@@ -137,7 +137,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 			goto no_client_cert;
 		size = (size_t) flen;
 
-		err = SSL_use_certificate_ASN1(wsi->tls.ssl, data, size);
+		err = SSL_use_certificate_ASN1(wsi->tls.ssl, data, (int)size);
 		lws_free_set_NULL(data);
 		if (err != 1)
 			goto no_client_cert;
@@ -160,7 +160,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 			goto no_client_cert;
 		size = (size_t) flen;
 
-		err = SSL_use_PrivateKey_ASN1(0, wsi->tls.ssl, data, size);
+		err = SSL_use_PrivateKey_ASN1(0, wsi->tls.ssl, data, (int)size);
 		lws_free_set_NULL(data);
 		if (err != 1)
 			goto no_client_cert;
@@ -186,7 +186,7 @@ int ERR_get_error(void)
 }
 
 enum lws_ssl_capable_status
-lws_tls_client_connect(struct lws *wsi, char *errbuf, int elen)
+lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 {
 	int m, n = SSL_connect(wsi->tls.ssl);
 	const unsigned char *prot;
@@ -216,7 +216,7 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, int elen)
 }
 
 int
-lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, int ebuf_len)
+lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 {
 	int n;
 	X509 *peer = SSL_get_peer_certificate(wsi->tls.ssl);
@@ -231,7 +231,7 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, int ebuf_len)
 	}
 	lwsl_info("peer provided cert\n");
 
-	n = SSL_get_verify_result(wsi->tls.ssl);
+	n = (int)SSL_get_verify_result(wsi->tls.ssl);
         lwsl_debug("get_verify says %d\n", n);
 
 	if (n == X509_V_OK)
@@ -258,7 +258,7 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, int ebuf_len)
 	}
 	lws_snprintf(ebuf, ebuf_len,
 		"server's cert didn't look good, (use_ssl 0x%x) X509_V_ERR = %d: %s\n",
-		(unsigned int)wsi->tls.use_ssl, n, ERR_error_string(n, sb));
+		(unsigned int)wsi->tls.use_ssl, n, ERR_error_string((unsigned long)n, sb));
 	lwsl_info("%s\n", ebuf);
 	lws_tls_err_describe_clear();
 
@@ -286,7 +286,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 	int n;
 
 	if (!method) {
-		error = ERR_get_error();
+		error = (unsigned long)ERR_get_error();
 		lwsl_err("problem creating ssl method %lu: %s\n",
 			error, ERR_error_string(error,
 				      (char *)vh->context->pt[0].serv_buf));
@@ -295,7 +295,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 	/* create context */
 	vh->tls.ssl_client_ctx = SSL_CTX_new(method);
 	if (!vh->tls.ssl_client_ctx) {
-		error = ERR_get_error();
+		error = (unsigned long)ERR_get_error();
 		lwsl_err("problem creating ssl context %lu: %s\n",
 			error, ERR_error_string(error,
 				      (char *)vh->context->pt[0].serv_buf));
@@ -314,12 +314,12 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 			lwsl_err("Load CA cert file %s failed\n", ca_filepath);
 			return 1;
 		}
-		vh->tls.x509_client_CA = d2i_X509(NULL, buf, len);
+		vh->tls.x509_client_CA = d2i_X509(NULL, buf, (long)len);
 		free(buf);
 		lwsl_notice("Loading client CA for verification %s\n", ca_filepath);
 #endif
 	} else {
-		vh->tls.x509_client_CA = d2i_X509(NULL, (uint8_t*)ca_mem, ca_mem_len);
+		vh->tls.x509_client_CA = d2i_X509(NULL, (uint8_t*)ca_mem, (long)ca_mem_len);
 		lwsl_notice("%s: using mem client CA cert %d\n",
 			    __func__, ca_mem_len);
 	}
@@ -354,10 +354,10 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		buf[amount++] = '\0';
 
 		SSL_CTX_use_PrivateKey_ASN1(0, vh->tls.ssl_client_ctx,
-				buf, amount);
+				buf, (long)amount);
 
 		n = SSL_CTX_use_certificate_ASN1(vh->tls.ssl_client_ctx,
-				amount, buf);
+				(int)amount, buf);
 		lws_free(buf);
 		if (n < 1) {
 			lwsl_err("problem %d getting cert '%s'\n", n,
@@ -371,9 +371,9 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 	} else if (cert_mem && cert_mem_len) {
 		/* lwsl_hexdump_notice(cert_mem, cert_mem_len - 1); */
 		SSL_CTX_use_PrivateKey_ASN1(0, vh->tls.ssl_client_ctx,
-				cert_mem, cert_mem_len - 1);
+				cert_mem, (long)cert_mem_len - 1);
 		n = SSL_CTX_use_certificate_ASN1(vh->tls.ssl_client_ctx,
-						 cert_mem_len, cert_mem);
+						 (int)cert_mem_len, cert_mem);
 		if (n < 1) {
 			lwsl_err("%s: (mbedtls) problem interpreting client cert\n",
 				 __func__);
@@ -391,7 +391,7 @@ int
 lws_tls_client_vhost_extra_cert_mem(struct lws_vhost *vh,
                 const uint8_t *der, size_t der_len)
 {
-	if (SSL_CTX_add_client_CA_ASN1(vh->tls.ssl_client_ctx, der_len, der) != 1) {
+	if (SSL_CTX_add_client_CA_ASN1(vh->tls.ssl_client_ctx, (int)der_len, der) != 1) {
 		lwsl_err("%s: failed\n", __func__);
 			return 1;
 	}

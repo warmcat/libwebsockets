@@ -160,7 +160,7 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, int fd, int unix_skt)
 	if (!unix_skt && vhost->bind_iface && vhost->iface) {
 		lwsl_info("binding listen skt to %s using SO_BINDTODEVICE\n", vhost->iface);
 		if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, vhost->iface,
-				strlen(vhost->iface)) < 0) {
+				(socklen_t)strlen(vhost->iface)) < 0) {
 			lwsl_warn("Failed to bind to device %s\n", vhost->iface);
 			return 1;
 		}
@@ -276,7 +276,7 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 
 
 const char *
-lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
+lws_plat_inet_ntop(int af, const void *src, char *dst, socklen_t cnt)
 {
 	return inet_ntop(af, src, dst, cnt);
 }
@@ -310,8 +310,8 @@ lws_plat_ifname_to_hwaddr(int fd, const char *ifname, uint8_t *hwaddr, int len)
 }
 
 int
-lws_plat_rawudp_broadcast(uint8_t *p, const uint8_t *canned, int canned_len,
-			  int n, int fd, const char *iface)
+lws_plat_rawudp_broadcast(uint8_t *p, const uint8_t *canned, size_t canned_len,
+			  size_t n, int fd, const char *iface)
 {
 #if defined(__linux__)
 	struct sockaddr_ll sll;
@@ -320,8 +320,8 @@ lws_plat_rawudp_broadcast(uint8_t *p, const uint8_t *canned, int canned_len,
 
 	memcpy(p, canned, canned_len);
 
-	p[2] = n >> 8;
-	p[3] = n;
+	p[2] = (uint8_t)(n >> 8);
+	p[3] = (uint8_t)(n);
 
 	while (p16 < (uint16_t *)(p + 20))
 		ucs += ntohs(*p16++);
@@ -329,19 +329,19 @@ lws_plat_rawudp_broadcast(uint8_t *p, const uint8_t *canned, int canned_len,
 	ucs += ucs >> 16;
 	ucs ^= 0xffff;
 
-	p[10] = ucs >> 8;
-	p[11] = ucs;
-	p[24] = (n - 20) >> 8;
-	p[25] = (n - 20);
+	p[10] = (uint8_t)(ucs >> 8);
+	p[11] = (uint8_t)(ucs);
+	p[24] = (uint8_t)((n - 20) >> 8);
+	p[25] = (uint8_t)((n - 20));
 
 	memset(&sll, 0, sizeof(sll));
 	sll.sll_family = AF_PACKET;
 	sll.sll_protocol = htons(0x800);
 	sll.sll_halen = 6;
-	sll.sll_ifindex = if_nametoindex(iface);
+	sll.sll_ifindex = (int)if_nametoindex(iface);
 	memset(sll.sll_addr, 0xff, 6);
 
-	return sendto(fd, p, n, 0, (struct sockaddr *)&sll, sizeof(sll));
+	return (int)sendto(fd, p, n, 0, (struct sockaddr *)&sll, sizeof(sll));
 #else
 	lwsl_err("%s: UNIMPLEMENTED on this platform\n", __func__);
 
@@ -474,7 +474,7 @@ lws_plat_mbedtls_net_send(void *ctx, const uint8_t *buf, size_t len)
 	if (fd < 0)
 		return MBEDTLS_ERR_NET_INVALID_CONTEXT;
 
-	ret = write(fd, buf, len);
+	ret = (int)write(fd, buf, len);
 	if (ret >= 0)
 		return ret;
 

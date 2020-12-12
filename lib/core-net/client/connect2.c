@@ -259,8 +259,8 @@ solo:
 	    wsi->a.context->detailed_latency_cb) {
 		wsi->detlat.type = LDLT_NAME_RESOLUTION;
 		wsi->detlat.latencies[LAT_DUR_PROXY_CLIENT_REQ_TO_WRITE] =
-			lws_now_usecs() -
-			wsi->detlat.earliest_write_req_pre_write;
+			(uint32_t)(lws_now_usecs() -
+			wsi->detlat.earliest_write_req_pre_write);
 		wsi->detlat.latencies[LAT_DUR_USERCB] = 0;
 		lws_det_lat_cb(wsi->a.context, &wsi->detlat);
 		wsi->detlat.earliest_write_req_pre_write = lws_now_usecs();
@@ -276,7 +276,7 @@ solo:
 
 	if (wsi->a.vhost->http.http_proxy_port) {
 		ads = wsi->a.vhost->http.http_proxy_address;
-		port = wsi->a.vhost->http.http_proxy_port;
+		port = (int)wsi->a.vhost->http.http_proxy_port;
 #else
 		if (0) {
 #endif
@@ -288,7 +288,7 @@ solo:
 	} else if (wsi->a.vhost->socks_proxy_port) {
 		lwsl_client("Sending SOCKS Greeting\n");
 		ads = wsi->a.vhost->socks_proxy_address;
-		port = wsi->a.vhost->socks_proxy_port;
+		port = (int)wsi->a.vhost->socks_proxy_port;
 #endif
 	} else {
 

@@ -90,7 +90,7 @@ void fe25519_freeze(fe25519 *r)
     m &= fe_equal(r->v[i],255);
   m &= ge(r->v[0],237);
 
-  m = -(int32_t)m;
+  m = (uint32_t)-(int32_t)m;
 
   r->v[31] -= m&127;
   for(i=30;i>0;i--)
@@ -112,7 +112,7 @@ void fe25519_pack(unsigned char r[32], const fe25519 *x)
   fe25519 y = *x;
   fe25519_freeze(&y);
   for(i=0;i<32;i++) 
-    r[i] = y.v[i];
+    r[i] = (unsigned char)y.v[i];
 }
 
 int fe25519_iszero(const fe25519 *x)
@@ -121,9 +121,9 @@ int fe25519_iszero(const fe25519 *x)
   int r;
   fe25519 t = *x;
   fe25519_freeze(&t);
-  r = fe_equal(t.v[0],0);
+  r = (int)fe_equal(t.v[0],0);
   for(i=1;i<32;i++) 
-    r &= fe_equal(t.v[i],0);
+    r &= (int)fe_equal(t.v[i],0);
   return r;
 }
 
@@ -143,7 +143,7 @@ void fe25519_cmov(fe25519 *r, const fe25519 *x, unsigned char b)
 {
   int i;
   uint32_t mask = b;
-  mask = -(int32_t)mask;
+  mask = (uint32_t)-(int32_t)mask;
   for(i=0;i<32;i++) r->v[i] ^= mask & (x->v[i] ^ r->v[i]);
 }
 

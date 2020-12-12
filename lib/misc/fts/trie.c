@@ -168,23 +168,23 @@ struct lws_fts {
 #define TRIE_LWSAC_BLOCK_SIZE (1024 * 1024)
 
 #define spill(margin, force) \
-	if (bp && ((uint32_t)bp >= (sizeof(buf) - (margin)) || (force))) { \
-		if (write(t->fd, buf, bp) != bp) { \
+	if (bp && ((uint32_t)bp >= (sizeof(buf) - (size_t)(margin)) || (force))) { \
+		if ((int)write(t->fd, buf, (size_t)bp) != bp) { \
 			lwsl_err("%s: write %d failed (%d)\n", __func__, \
 				 bp, errno); \
 			return 1; \
 		} \
-		t->c += bp; \
+		t->c += (unsigned int)bp; \
 		bp = 0; \
 	}
 
 static int
 g32(unsigned char *b, uint32_t d)
 {
-	*b++ = (d >> 24) & 0xff;
-	*b++ = (d >> 16) & 0xff;
-	*b++ = (d >> 8) & 0xff;
-	*b = d & 0xff;
+	*b++ = (uint8_t)((d >> 24) & 0xff);
+	*b++ = (uint8_t)((d >> 16) & 0xff);
+	*b++ = (uint8_t)((d >> 8) & 0xff);
+	*b = (uint8_t)(d & 0xff);
 
 	return 4;
 }
@@ -192,8 +192,8 @@ g32(unsigned char *b, uint32_t d)
 static int
 g16(unsigned char *b, int d)
 {
-	*b++ = (d >> 8) & 0xff;
-	*b = d & 0xff;
+	*b++ = (uint8_t)((d >> 8) & 0xff);
+	*b = (uint8_t)(d & 0xff);
 
 	return 2;
 }
@@ -204,20 +204,20 @@ wq32(unsigned char *b, uint32_t d)
 	unsigned char *ob = b;
 
 	if (d > (1 << 28) - 1)
-		*b++ = ((d >> 28) | 0x80) & 0xff;
+		*b++ = (uint8_t)(((d >> 28) | 0x80) & 0xff);
 
 	if (d > (1 << 21) - 1)
-		*b++ = ((d >> 21) | 0x80) & 0xff;
+		*b++ = (uint8_t)(((d >> 21) | 0x80) & 0xff);
 
 	if (d > (1 << 14) - 1)
-		*b++ = ((d >> 14) | 0x80) & 0xff;
+		*b++ = (uint8_t)(((d >> 14) | 0x80) & 0xff);
 
 	if (d > (1 << 7) - 1)
-		*b++ = ((d >> 7) | 0x80) & 0xff;
+		*b++ = (uint8_t)(((d >> 7) | 0x80) & 0xff);
 
-	*b++ = d & 0x7f;
+	*b++ = (uint8_t)(d & 0x7f);
 
-	return (int)(b - ob);
+	return lws_ptr_diff(b, ob);
 }
 
 
@@ -403,9 +403,9 @@ finalize_per_input(struct lws_fts *t)
 	bp += g16(&buf[bp], 0);
 	bp += g16(&buf[bp], 0);
 	bp += g32(&buf[bp], 0);
-	if (write(t->fd, buf, bp) != bp)
+	if ((int)write(t->fd, buf, (size_t)bp) != bp)
 		return 1;
-	t->c += bp;
+	t->c += (unsigned int)bp;
 	bp = 0;
 
 	/*
@@ -432,7 +432,7 @@ finalize_per_input(struct lws_fts *t)
 
 		temp = tif->owner->ofs_last_inst_file;
 		if (tif->total)
-			tif->owner->ofs_last_inst_file = t->c + bp;
+			tif->owner->ofs_last_inst_file = t->c + (unsigned int)bp;
 
 		assert(!temp || (temp > TRIE_FILE_HDR_SIZE && temp < t->c));
 
@@ -444,13 +444,13 @@ finalize_per_input(struct lws_fts *t)
 		/* remove any pointers into this disposable lac footprint */
 		tif->owner->inst_file_list = NULL;
 
-		memcpy(&buf[bp], &tif->vli, tif->count);
+		memcpy(&buf[bp], &tif->vli, (size_t)tif->count);
 		bp += tif->count;
 
 		i = tif->lines_list;
 		while (i) {
 			spill(i->count, 0);
-			memcpy(&buf[bp], &i->vli, i->count);
+			memcpy(&buf[bp], &i->vli, (size_t)i->count);
 			bp += i->count;
 
 			i = i->lines_next;
@@ -543,7 +543,7 @@ int
 lws_fts_fill(struct lws_fts *t, uint32_t file_index, const char *buf,
 	     size_t len)
 {
-	unsigned long long tf = lws_now_usecs();
+	unsigned long long tf = (unsigned long long)lws_now_usecs();
 	unsigned char c, linetable[256], vlibuf[8];
 	struct lws_fts_entry *e, *e1, *dcl;
 	struct lws_fts_instance_file *tif;
@@ -556,7 +556,7 @@ lws_fts_fill(struct lws_fts *t, uint32_t file_index, const char *buf,
 	if ((int)file_index != t->last_file_index) {
 		if (t->last_file_index >= 0)
 			finalize_per_input(t);
-		t->last_file_index = file_index;
+		t->last_file_index = (int)file_index;
 		t->line_number = 1;
 		t->chars_in_line = 0;
 		t->lines_in_unsealed_linetable = 0;
@@ -567,7 +567,7 @@ lws_fts_fill(struct lws_fts *t, uint32_t file_index, const char *buf,
 resume:
 
 	chars = 0;
-	lbh = t->c;
+	lbh = (off_t)t->c;
 	sline = t->line_number;
 	bp += g16(&linetable[bp], 0);
 	bp += g16(&linetable[bp], 0);
@@ -589,14 +589,14 @@ resume:
 			t->lines_in_unsealed_linetable++;
 			t->line_number++;
 
-			bp += wq32(&linetable[bp], t->chars_in_line);
+			bp += wq32(&linetable[bp], (uint32_t)t->chars_in_line);
 			if ((unsigned int)bp > sizeof(linetable) - 6) {
-				if (write(t->fd, linetable, bp) != bp) {
+				if ((int)write(t->fd, linetable, (unsigned int)bp) != bp) {
 					lwsl_err("%s: linetable write failed\n",
 							__func__);
 					return 1;
 				}
-				t->c += bp;
+				t->c += (unsigned int)bp;
 				bp = 0;
 				// assert(lseek(t->fd, 0, SEEK_END) == t->c);
 			}
@@ -634,7 +634,7 @@ resume:
 		if (!m)
 			goto seal;
 		if (m == 2)
-			c += 'a' - 'A';
+			c = (unsigned char)((char)c + 'a' - 'A');
 
 		if (t->aggregate) {
 
@@ -826,12 +826,12 @@ seal:
 			 */
 
 			dcl = t->parser->child_list;
-			m = t->parser->child_count;
+			m = (int)t->parser->child_count;
 
 			t->parser->child_list = NULL;
 			t->parser->child_count = 0;
 
-			e = lws_fts_entry_child_add(t,
+			e = lws_fts_entry_child_add(t, (unsigned char)
 					osuff[t->str_match_pos - 1], t->parser);
 			if (!e) {
 				lwsl_err("%s: lws_fts_entry_child_add fail1\n",
@@ -840,7 +840,7 @@ seal:
 			}
 
 			e->child_list = dcl;
-			e->child_count = m;
+			e->child_count = (uint32_t)m;
 			/*
 			 * any children we took over must point to us as the
 			 * parent now they appear on our child list
@@ -942,7 +942,7 @@ seal:
 			}
 
 			/* add the first char at the beginning */
-			*t->parser->suffix = t->parser->c;
+			*t->parser->suffix = (char)t->parser->c;
 			/* and then add the agg buffer stuff */
 			memcpy(t->parser->suffix + 1, t->agg, t->agg_pos);
 			t->parser->suffix_len = t->agg_pos + 1;
@@ -988,14 +988,14 @@ seal:
 		 * more vli space and continues chaining those if needed.
 		 */
 
-		n = wq32(vlibuf, t->line_number);
+		n = (unsigned int)wq32(vlibuf, (uint32_t)t->line_number);
 		tif = t->parser->inst_file_list;
 
 		if (!tif->lines_list) {
 			/* we are still trying to use the file inst vli */
-			if (LWS_ARRAY_SIZE(tif->vli) - tif->count >= n) {
-				tif->count += wq32(tif->vli + tif->count,
-						   t->line_number);
+			if (LWS_ARRAY_SIZE(tif->vli) - (size_t)tif->count >= n) {
+				tif->count = (char)((char)tif->count + (char)wq32(tif->vli + tif->count,
+						   (uint32_t)t->line_number));
 				goto after;
 			}
 			/* we are going to have to allocate */
@@ -1004,10 +1004,10 @@ seal:
 		/* can we add to an existing line numbers struct? */
 		if (tif->lines_tail &&
 		    LWS_ARRAY_SIZE(tif->lines_tail->vli) -
-		    	    tif->lines_tail->count >= n) {
-			tif->lines_tail->count += wq32(tif->lines_tail->vli +
+				(unsigned char)tif->lines_tail->count >= n) {
+			tif->lines_tail->count = (char)((char)tif->lines_tail->count + (char)wq32(tif->lines_tail->vli +
 						       tif->lines_tail->count,
-						       t->line_number);
+						       (uint32_t)t->line_number));
 			goto after;
 		}
 
@@ -1028,7 +1028,7 @@ seal:
 		if (!tif->lines_list)
 			tif->lines_list = tl;
 
-		tl->count = wq32(tl->vli, t->line_number);
+		tl->count = (char)wq32(tl->vli, (uint32_t)t->line_number);
 after:
 		tif->total++;
 #if 0
@@ -1050,9 +1050,9 @@ after:
 	/* seal off the line length table block */
 
 	if (bp) {
-		if (write(t->fd, linetable, bp) != bp)
+		if ((int)write(t->fd, linetable, (size_t)bp) != bp)
 			return 1;
-		t->c += bp;
+		t->c += (unsigned int)bp;
 		bp = 0;
 	}
 
@@ -1062,17 +1062,17 @@ after:
 		return 1;
 	}
 
-	g16(linetable, t->c - lbh);
-	g16(linetable + 2, t->line_number - sline);
-	g32(linetable + 4, chars);
-	if (write(t->fd, linetable, 8) != 8) {
+	g16(linetable, (uint16_t)(t->c - (jg2_file_offset)lbh));
+	g16(linetable + 2, (uint16_t)(t->line_number - sline));
+	g32(linetable + 4, (uint32_t)chars);
+	if ((int)write(t->fd, linetable, 8) != 8) {
 		lwsl_err("%s: write linetable header failed\n", __func__);
 		return 1;
 	}
 
 	assert(lseek(t->fd, 0, SEEK_END) == (off_t)t->c);
 
-	if (lseek(t->fd, t->c, SEEK_SET) < 0) {
+	if (lseek(t->fd, (off_t)t->c, SEEK_SET) < 0) {
 		lwsl_err("%s: end seek failed\n", __func__);
 		return 1;
 	}
@@ -1086,7 +1086,7 @@ after:
 
 	/* dump the collected per-input instance and line data, and free it */
 
-	t->agg_trie_creation_us += lws_now_usecs() - tf;
+	t->agg_trie_creation_us += (uint64_t)((uint64_t)lws_now_usecs() - tf);
 
 	return 0;
 }
@@ -1097,7 +1097,7 @@ int
 lws_fts_serialize(struct lws_fts *t)
 {
 	struct lws_fts_filepath *fp = t->filepath_list, *ofp;
-	unsigned long long tf = lws_now_usecs();
+	unsigned long long tf = (unsigned long long)lws_now_usecs();
 	struct lws_fts_entry *e, *e1, *s[256];
 	unsigned char buf[8192], stasis;
 	int n, bp, sp = 0, do_parent;
@@ -1163,14 +1163,14 @@ lws_fts_serialize(struct lws_fts *t)
 	bp = 0;
 	while (fp) {
 
-		fp->ofs = t->c + bp;
+		fp->ofs = t->c + (unsigned int)bp;
 		n = (int)strlen(fp->filepath);
 		spill(15 + n, 0);
 
 		bp += wq32(&buf[bp], fp->line_table_ofs);
-		bp += wq32(&buf[bp], fp->total_lines);
-		bp += wq32(&buf[bp], n);
-		memcpy(&buf[bp], fp->filepath, n);
+		bp += wq32(&buf[bp], (uint32_t)fp->total_lines);
+		bp += wq32(&buf[bp], (uint32_t)n);
+		memcpy(&buf[bp], fp->filepath, (unsigned int)n);
 		bp += n;
 
 		fp->prev = ofp;
@@ -1185,12 +1185,12 @@ lws_fts_serialize(struct lws_fts *t)
 	if (lseek(t->fd, 0xc, SEEK_SET) < 0)
 		goto bail_seek;
 
-	g32(buf, t->c + bp);
-	g32(buf + 4, t->next_file_index);
-	if (write(t->fd, buf, 8) != 8)
+	g32(buf, t->c + (unsigned int)bp);
+	g32(buf + 4, (uint32_t)t->next_file_index);
+	if ((int)write(t->fd, buf, 8) != 8)
 		goto bail;
 
-	if (lseek(t->fd, t->c + bp, SEEK_SET) < 0)
+	if (lseek(t->fd, (off_t)(t->c + (unsigned int)bp), SEEK_SET) < 0)
 		goto bail_seek;
 
 	/* dump the filepath map, starting from index 0, which is at the tail */
@@ -1235,7 +1235,7 @@ lws_fts_serialize(struct lws_fts *t)
 		/* leaf nodes with no children */
 
 		e = s[sp];
-		e->ofs = t->c + bp;
+		e->ofs = t->c + (unsigned int)bp;
 
 		/* write the trie entry header */
 
@@ -1289,7 +1289,7 @@ lws_fts_serialize(struct lws_fts *t)
 			if (e1->suffix) { /* string  */
 				bp += wq32(&buf[bp], e1->suffix_len);
 				memmove(&buf[bp], e1->suffix, e1->suffix_len);
-				bp += e1->suffix_len;
+				bp += (int)e1->suffix_len;
 			} else { /* char */
 				bp += wq32(&buf[bp], 1);
 				buf[bp++] = e1->c;
@@ -1357,7 +1357,7 @@ lws_fts_serialize(struct lws_fts *t)
 		    (int)(t->agg_trie_creation_us / 1000),
 		    (int)(lwsac_total_alloc(t->lwsac_head) / 1024),
 		    (int)(t->worst_lwsac_input_size / 1024),
-		    (int)((lws_now_usecs() - tf) / 1000),
+		    (int)(((uint64_t)lws_now_usecs() - tf) / 1000),
 		    (int)(t->c / 1024));
 
 	return 0;

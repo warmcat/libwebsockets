@@ -39,7 +39,7 @@ static void sc_reduce_add_sub(sc25519 *r)
   {
     pb += m[i];
     b = lt(r->v[i],pb);
-    t[i] = r->v[i]-pb+(b<<8);
+    t[i] = (unsigned char)(r->v[i]-pb+(b<<8));
     pb = b;
   }
   mask = b - 1;
@@ -134,7 +134,7 @@ void sc25519_from_shortsc(sc25519 *r, const shortsc25519 *x)
 void sc25519_to32bytes(unsigned char r[32], const sc25519 *x)
 {
   int i;
-  for(i=0;i<32;i++) r[i] = x->v[i];
+  for(i=0;i<32;i++) r[i] = (unsigned char)x->v[i];
 }
 
 int sc25519_iszero_vartime(const sc25519 *x)
@@ -170,8 +170,8 @@ void sc25519_add(sc25519 *r, const sc25519 *x, const sc25519 *y)
   for(i=0;i<32;i++) r->v[i] = x->v[i] + y->v[i];
   for(i=0;i<31;i++)
   {
-    carry = r->v[i] >> 8;
-    r->v[i+1] += carry;
+    carry = (int)r->v[i] >> 8;
+    r->v[i+1] += (uint32_t)carry;
     r->v[i] &= 0xff;
   }
   sc_reduce_add_sub(r);
@@ -202,8 +202,8 @@ void sc25519_mul(sc25519 *r, const sc25519 *x, const sc25519 *y)
   /* Reduce coefficients */
   for(i=0;i<63;i++)
   {
-    carry = t[i] >> 8;
-    t[i+1] += carry;
+    carry = (int)t[i] >> 8;
+    t[i+1] += (uint32_t)carry;
     t[i] &= 0xff;
   }
 
@@ -226,18 +226,18 @@ void sc25519_window3(signed char r[85], const sc25519 *s)
     r[8*i+0]  =  s->v[3*i+0]       & 7;
     r[8*i+1]  = (s->v[3*i+0] >> 3) & 7;
     r[8*i+2]  = (s->v[3*i+0] >> 6) & 7;
-    r[8*i+2] ^= (s->v[3*i+1] << 2) & 7;
+    r[8*i+2] =  (signed char)(r[8*i+2] ^ (int)((s->v[3*i+1] << 2) & 7));
     r[8*i+3]  = (s->v[3*i+1] >> 1) & 7;
     r[8*i+4]  = (s->v[3*i+1] >> 4) & 7;
     r[8*i+5]  = (s->v[3*i+1] >> 7) & 7;
-    r[8*i+5] ^= (s->v[3*i+2] << 1) & 7;
+    r[8*i+5] =  (signed char)(r[8*i+5] ^ (int)((s->v[3*i+2] << 1) & 7));
     r[8*i+6]  = (s->v[3*i+2] >> 2) & 7;
     r[8*i+7]  = (s->v[3*i+2] >> 5) & 7;
   }
   r[8*i+0]  =  s->v[3*i+0]       & 7;
   r[8*i+1]  = (s->v[3*i+0] >> 3) & 7;
   r[8*i+2]  = (s->v[3*i+0] >> 6) & 7;
-  r[8*i+2] ^= (s->v[3*i+1] << 2) & 7;
+  r[8*i+2]  = (signed char)(r[8*i+2] ^ (int)((s->v[3*i+1] << 2) & 7));
   r[8*i+3]  = (s->v[3*i+1] >> 1) & 7;
   r[8*i+4]  = (s->v[3*i+1] >> 4) & 7;
 
@@ -245,13 +245,13 @@ void sc25519_window3(signed char r[85], const sc25519 *s)
   carry = 0;
   for(i=0;i<84;i++)
   {
-    r[i] += carry;
-    r[i+1] += r[i] >> 3;
+    r[i] = (signed char)(r[i] + carry);
+    r[i+1] = (signed char)(r[i + 1] + (r[i] >> 3));
     r[i] &= 7;
-    carry = r[i] >> 2;
-    r[i] -= carry<<3;
+    carry = (char)(r[i] >> 2);
+    r[i] = (signed char)(r[i] - (carry<<3));
   }
-  r[84] += carry;
+  r[84] = (signed char)(r[84] + (signed char)carry);
 }
 
 void sc25519_window5(signed char r[51], const sc25519 *s)
@@ -262,33 +262,33 @@ void sc25519_window5(signed char r[51], const sc25519 *s)
   {
     r[8*i+0]  =  s->v[5*i+0]       & 31;
     r[8*i+1]  = (s->v[5*i+0] >> 5) & 31;
-    r[8*i+1] ^= (s->v[5*i+1] << 3) & 31;
+    r[8*i+1] = (signed char)(r[8*i+1] ^ (int)((s->v[5*i+1] << 3) & 31));
     r[8*i+2]  = (s->v[5*i+1] >> 2) & 31;
     r[8*i+3]  = (s->v[5*i+1] >> 7) & 31;
-    r[8*i+3] ^= (s->v[5*i+2] << 1) & 31;
+    r[8*i+3] = (signed char)(r[8*i+3] ^ (int)((s->v[5*i+2] << 1) & 31));
     r[8*i+4]  = (s->v[5*i+2] >> 4) & 31;
-    r[8*i+4] ^= (s->v[5*i+3] << 4) & 31;
+    r[8*i+4] = (signed char)(r[8*i+4] ^ (int)((s->v[5*i+3] << 4) & 31));
     r[8*i+5]  = (s->v[5*i+3] >> 1) & 31;
     r[8*i+6]  = (s->v[5*i+3] >> 6) & 31;
-    r[8*i+6] ^= (s->v[5*i+4] << 2) & 31;
+    r[8*i+6] = (signed char)(r[8*i+6] ^ (int)((s->v[5*i+4] << 2) & 31));
     r[8*i+7]  = (s->v[5*i+4] >> 3) & 31;
   }
   r[8*i+0]  =  s->v[5*i+0]       & 31;
   r[8*i+1]  = (s->v[5*i+0] >> 5) & 31;
-  r[8*i+1] ^= (s->v[5*i+1] << 3) & 31;
+  r[8*i+1] = (signed char)(r[8*i+1] ^ (int)((s->v[5*i+1] << 3) & 31));
   r[8*i+2]  = (s->v[5*i+1] >> 2) & 31;
 
   /* Making it signed */
   carry = 0;
   for(i=0;i<50;i++)
   {
-    r[i] += carry;
-    r[i+1] += r[i] >> 5;
+    r[i] = (signed char)(r[i] + (signed char)carry);
+    r[i+1] = (signed char)(r[i + 1] + (r[i] >> 5));
     r[i] &= 31;
-    carry = r[i] >> 4;
-    r[i] -= carry<<5;
+    carry = (char)(r[i] >> 4);
+    r[i] = (signed char)(r[i] - (carry<<5));
   }
-  r[50] += carry;
+  r[50] = (signed char)(r[50] + carry);
 }
 
 void sc25519_2interleave2(unsigned char r[127], const sc25519 *s1, const sc25519 *s2)
@@ -296,12 +296,12 @@ void sc25519_2interleave2(unsigned char r[127], const sc25519 *s1, const sc25519
   int i;
   for(i=0;i<31;i++)
   {
-    r[4*i]   = ( s1->v[i]       & 3) ^ (( s2->v[i]       & 3) << 2);
-    r[4*i+1] = ((s1->v[i] >> 2) & 3) ^ (((s2->v[i] >> 2) & 3) << 2);
-    r[4*i+2] = ((s1->v[i] >> 4) & 3) ^ (((s2->v[i] >> 4) & 3) << 2);
-    r[4*i+3] = ((s1->v[i] >> 6) & 3) ^ (((s2->v[i] >> 6) & 3) << 2);
+    r[4*i]   = (unsigned char)(( s1->v[i]       & 3) ^ (( s2->v[i]       & 3) << 2));
+    r[4*i+1] = (unsigned char)(((s1->v[i] >> 2) & 3) ^ (((s2->v[i] >> 2) & 3) << 2));
+    r[4*i+2] = (unsigned char)(((s1->v[i] >> 4) & 3) ^ (((s2->v[i] >> 4) & 3) << 2));
+    r[4*i+3] = (unsigned char)(((s1->v[i] >> 6) & 3) ^ (((s2->v[i] >> 6) & 3) << 2));
   }
-  r[124] = ( s1->v[31]       & 3) ^ (( s2->v[31]       & 3) << 2);
-  r[125] = ((s1->v[31] >> 2) & 3) ^ (((s2->v[31] >> 2) & 3) << 2);
-  r[126] = ((s1->v[31] >> 4) & 3) ^ (((s2->v[31] >> 4) & 3) << 2);
+  r[124] = (unsigned char)(( s1->v[31]       & 3) ^ (( s2->v[31]       & 3) << 2));
+  r[125] = (unsigned char)(((s1->v[31] >> 2) & 3) ^ (((s2->v[31] >> 2) & 3) << 2));
+  r[126] = (unsigned char)(((s1->v[31] >> 4) & 3) ^ (((s2->v[31] >> 4) & 3) << 2));
 }

@@ -29,7 +29,7 @@ lcs_init_compression_deflate(lws_comp_ctx_t *ctx, int decomp)
 {
 	int n;
 
-	ctx->is_decompression = decomp;
+	ctx->is_decompression = !!decomp;
 	ctx->u.deflate = lws_malloc(sizeof(*ctx->u.deflate), __func__);
 
 	if (!ctx->u.deflate)
@@ -63,10 +63,10 @@ lcs_process_deflate(lws_comp_ctx_t *ctx, const void *in, size_t *ilen_iused,
 	int n;
 
 	ctx->u.deflate->next_in = (void *)in;
-	ctx->u.deflate->avail_in = *ilen_iused;
+	ctx->u.deflate->avail_in = (unsigned int)*ilen_iused;
 
 	ctx->u.deflate->next_out = out;
-	ctx->u.deflate->avail_out = *olen_oused;
+	ctx->u.deflate->avail_out = (unsigned int)*olen_oused;
 
 	if (!ctx->is_decompression)
 		n = deflate(ctx->u.deflate, Z_SYNC_FLUSH);

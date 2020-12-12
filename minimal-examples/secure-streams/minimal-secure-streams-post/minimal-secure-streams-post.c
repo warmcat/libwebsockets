@@ -379,7 +379,7 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 	myss_t *m = (myss_t *)userobj;
 
 	lwsl_user("%s: h %p, %s, ord 0x%x\n", __func__, m->ss,
-			lws_ss_state_name(state), (unsigned int)ack);
+			lws_ss_state_name((int)state), (unsigned int)ack);
 
 	switch (state) {
 	case LWSSSCS_CREATING:
@@ -515,7 +515,7 @@ int main(int argc, const char **argv)
 		force_cpd_fail_no_internet = 1;
 
 	if ((p = lws_cmdline_option(argc, argv, "--timeout_ms")))
-		timeout_ms = atoi(p);
+		timeout_ms = (unsigned int)atoi(p);
 
 	info.fd_limit_per_thread = 1 + 6 + 1;
 	info.port = CONTEXT_PORT_NO_LISTEN;
@@ -527,7 +527,7 @@ int main(int argc, const char **argv)
 		/* connect to ssproxy via UDS by default, else via
 		 * tcp connection to this port */
 		if ((p = lws_cmdline_option(argc, argv, "-p")))
-			info.ss_proxy_port = atoi(p);
+			info.ss_proxy_port = (uint16_t)atoi(p);
 
 		/* UDS "proxy.ss.lws" in abstract namespace, else this socket
 		 * path; when -p given this can specify the network interface

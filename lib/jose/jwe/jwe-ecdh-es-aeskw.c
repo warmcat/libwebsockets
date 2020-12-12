@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -293,7 +293,7 @@ lws_jwe_encrypt_ecdh(struct lws_jwe *jwe, char *temp, int *temp_len,
 
 		/* generate the actual CEK in cek */
 
-		if (lws_get_random(jwe->jws.context, cek, enc_hlen) !=
+		if (lws_get_random(jwe->jws.context, cek, (unsigned int)enc_hlen) !=
 							(size_t)enc_hlen) {
 			lwsl_err("Problem getting random\n");
 			goto bail;
@@ -302,7 +302,7 @@ lws_jwe_encrypt_ecdh(struct lws_jwe *jwe, char *temp, int *temp_len,
 		/* wrap with the derived key */
 
 		el.buf = derived;
-		el.len = enc_hlen / 2;
+		el.len = (unsigned int)enc_hlen / 2;
 
 		if (lws_genaes_create(&aesctx, LWS_GAESO_ENC, LWS_GAESM_KW, &el,
 					1, NULL)) {
@@ -313,7 +313,7 @@ lws_jwe_encrypt_ecdh(struct lws_jwe *jwe, char *temp, int *temp_len,
 
 		/* wrap CEK into EKEY */
 
-		n = lws_genaes_crypt(&aesctx, cek, enc_hlen,
+		n = lws_genaes_crypt(&aesctx, cek, (unsigned int)enc_hlen,
 				     (void *)jwe->jws.map.buf[LJWE_EKEY],
 				     NULL, NULL, NULL, 0);
 		m = lws_genaes_destroy(&aesctx, NULL, 0);
@@ -326,18 +326,18 @@ lws_jwe_encrypt_ecdh(struct lws_jwe *jwe, char *temp, int *temp_len,
 			goto bail;
 		}
 
-		jwe->jws.map.len[LJWE_EKEY] = enc_hlen + 8;
+		jwe->jws.map.len[LJWE_EKEY] = (unsigned int)enc_hlen + 8;
 
 		/* Wrapped CEK is in EKEY. Random CEK is in cek. */
 
 	} else /* direct derived CEK is in cek */
-		memcpy(cek, derived, enc_hlen);
+		memcpy(cek, derived, (unsigned int)enc_hlen);
 
 	/* rewrite the protected JOSE header to have the epk pieces */
 
 	jwe->jws.map.buf[LJWE_JOSE] = temp;
 
-	m = n = lws_snprintf(temp, *temp_len,
+	m = n = lws_snprintf(temp, (size_t)*temp_len,
 			     "{\"alg\":\"%s\", \"enc\":\"%s\", \"epk\":",
 			     jwe->jose.alg->alg, jwe->jose.enc_alg->alg);
 	*temp_len -= n;
@@ -349,10 +349,10 @@ lws_jwe_encrypt_ecdh(struct lws_jwe *jwe, char *temp, int *temp_len,
 	}
 	m += n;
 
-	n = lws_snprintf(temp + (ot - *temp_len), *temp_len, "}");
+	n = lws_snprintf(temp + (ot - *temp_len), (size_t)*temp_len, "}");
 	*temp_len -= n + 1;
 	m += n;
-	jwe->jws.map.len[LJWE_JOSE] = m;
+	jwe->jws.map.len[LJWE_JOSE] = (unsigned int)m;
 
 	/* create a b64 version of the JOSE header, needed later for AAD */
 
@@ -368,8 +368,8 @@ bail:
 	lws_genec_destroy(&ecctx);
 
 	/* cleanse the shared secret (watch out for cek at parent too) */
-	lws_explicit_bzero(shared_secret, ekbytes);
-	lws_explicit_bzero(derived, ekbytes);
+	lws_explicit_bzero(shared_secret, (unsigned int)ekbytes);
+	lws_explicit_bzero(derived, (unsigned int)ekbytes);
 
 	return ret;
 }
@@ -388,7 +388,7 @@ lws_jwe_encrypt_ecdh_cbc_hs(struct lws_jwe *jwe, char *temp, int *temp_len)
 	if (jwe->jose.alg->algtype_crypto != LWS_JOSE_ENCTYPE_NONE) {
 		if (lws_jws_alloc_element(&jwe->jws.map, LJWE_EKEY,
 					  temp + (ot - *temp_len), temp_len,
-					  enc_hlen + 8, 0))
+					  (unsigned int)enc_hlen + 8, 0))
 			goto bail;
 	}
 
@@ -406,7 +406,7 @@ lws_jwe_encrypt_ecdh_cbc_hs(struct lws_jwe *jwe, char *temp, int *temp_len)
 
 	if (lws_jws_alloc_element(&jwe->jws.map, LJWE_ATAG,
 				  temp + (ot - *temp_len),
-				  temp_len, enc_hlen / 2, 0))
+				  temp_len, (unsigned int)enc_hlen / 2, 0))
 		goto bail;
 
 	if (lws_jws_alloc_element(&jwe->jws.map, LJWE_IV,
@@ -419,7 +419,7 @@ lws_jwe_encrypt_ecdh_cbc_hs(struct lws_jwe *jwe, char *temp, int *temp_len)
 
 	n = lws_jwe_encrypt_cbc_hs(jwe, cek,
 				   (uint8_t *)jwe->jws.map_b64.buf[LJWE_JOSE],
-				   jwe->jws.map_b64.len[LJWE_JOSE]);
+				   (int)jwe->jws.map_b64.len[LJWE_JOSE]);
 	if (n < 0) {
 		lwsl_notice("%s: lws_jwe_encrypt_cbc_hs failed\n", __func__);
 		goto bail;
@@ -436,7 +436,7 @@ bail:
 		jwe->jws.map.len[LJWE_EKEY] = 0;
 	}
 
-	lws_explicit_bzero(cek, ekbytes);
+	lws_explicit_bzero(cek, (unsigned int)ekbytes);
 
 	return ret;
 }
@@ -551,7 +551,7 @@ lws_jwe_auth_and_decrypt_ecdh(struct lws_jwe *jwe)
 		/* unwrap with the KEK we derived */
 
 		el.buf = derived;
-		el.len = enc_hlen / 2;
+		el.len = (unsigned int)enc_hlen / 2;
 
 		if (lws_genaes_create(&aesctx, LWS_GAESO_DEC, LWS_GAESM_KW,
 				      &el, 1, NULL)) {
@@ -577,13 +577,13 @@ lws_jwe_auth_and_decrypt_ecdh(struct lws_jwe *jwe)
 			goto bail;
 		}
 	} else
-		memcpy(shared_secret, derived, enc_hlen);
+		memcpy(shared_secret, derived, (unsigned int)enc_hlen);
 
 	/* either way, the recovered CEK is in shared_secret */
 
 	if (lws_jwe_auth_and_decrypt_cbc_hs(jwe, shared_secret,
 			(uint8_t *)jwe->jws.map_b64.buf[LJWE_JOSE],
-			jwe->jws.map_b64.len[LJWE_JOSE]) < 0) {
+			(int)jwe->jws.map_b64.len[LJWE_JOSE]) < 0) {
 		lwsl_err("%s: lws_jwe_auth_and_decrypt_cbc_hs fail\n", __func__);
 		goto bail;
 	}
@@ -593,9 +593,9 @@ lws_jwe_auth_and_decrypt_ecdh(struct lws_jwe *jwe)
 
 bail:
 	/* cleanse wrapped on stack that contained the CEK / wrapped key */
-	lws_explicit_bzero(derived, ekbytes);
+	lws_explicit_bzero(derived, (unsigned int)ekbytes);
 	/* cleanse the shared secret */
-	lws_explicit_bzero(shared_secret, ekbytes);
+	lws_explicit_bzero(shared_secret, (unsigned int)ekbytes);
 
 	return ret;
 }

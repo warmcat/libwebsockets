@@ -16,11 +16,11 @@
 #include <ctype.h>
 
 typedef struct range {
-	lws_usec_t		sum;
-	lws_usec_t		lowest;
-	lws_usec_t		highest;
+	uint64_t		sum;
+	uint64_t		lowest;
+	uint64_t		highest;
 
-	int			samples;
+	unsigned int		samples;
 } range_t;
 
 /*
@@ -167,7 +167,7 @@ get_us_timeofday(void)
 
 	gettimeofday(&tv, NULL);
 
-	return ((lws_usec_t)tv.tv_sec * LWS_US_PER_SEC) + tv.tv_usec;
+	return (uint64_t)((lws_usec_t)tv.tv_sec * LWS_US_PER_SEC) + (uint64_t)tv.tv_usec;
 }
 
 static void
@@ -211,7 +211,7 @@ pennies(const char *s)
 	s = strchr(s, '.');
 
 	if (s && isdigit(s[1]) && isdigit(s[2]))
-		price += (10 * (s[1] - '0')) + (s[2] - '0');
+		price = price + (uint64_t)((10 * (s[1] - '0')) + (s[2] - '0'));
 
 	return price;
 }
@@ -221,7 +221,8 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 		 void *user, void *in, size_t len)
 {
 	struct my_conn *mco = (struct my_conn *)user;
-	lws_usec_t latency_us, now_us, price;
+	uint64_t latency_us, now_us;
+	uint64_t price;
 	char numbuf[16];
 	const char *p;
 	size_t alen;
@@ -241,7 +242,7 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 
 		// lwsl_hexdump_notice(in, len);
 
-		now_us = get_us_timeofday();
+		now_us = (uint64_t)get_us_timeofday();
 
 		p = lws_json_simple_find((const char *)in, len,
 					 "\"depthUpdate\"", &alen);
@@ -259,7 +260,7 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 		lws_strnncpy(numbuf, p, alen, sizeof(numbuf));
 		latency_us = now_us -
-				((lws_usec_t)atoll(numbuf) * LWS_US_PER_MS);
+				((uint64_t)atoll(numbuf) * LWS_US_PER_MS);
 
 		if (latency_us < mco->e_lat_range.lowest)
 			mco->e_lat_range.lowest = latency_us;
@@ -357,7 +358,7 @@ int main(int argc, const char **argv)
 	 * told which CA to trust explicitly.
 	 */
 	info.client_ssl_ca_mem = ca_pem_digicert_global_root;
-	info.client_ssl_ca_mem_len = strlen(ca_pem_digicert_global_root);
+	info.client_ssl_ca_mem_len = (unsigned int)strlen(ca_pem_digicert_global_root);
 #endif
 
 	context = lws_create_context(&info);
