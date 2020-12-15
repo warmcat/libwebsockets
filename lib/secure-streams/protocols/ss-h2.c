@@ -62,6 +62,11 @@ secstream_h2(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		}
 		return n;
 
+	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+		if (lws_get_network_wsi(wsi) == wsi)
+			return 0;
+		break;
+
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
 		// lwsl_err("%s: h2 COMPLETED_CLIENT_HTTP\n", __func__);
 		r = h->info.rx(ss_to_userobj(h), NULL, 0, LWSSS_FLAG_EOM);
