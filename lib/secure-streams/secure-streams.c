@@ -1095,7 +1095,7 @@ lws_ss_to_cb(lws_sorted_usec_list_t *sul)
 	if (h->wsi)
 		lws_set_timeout(h->wsi, 1, LWS_TO_KILL_ASYNC);
 
-	_lws_ss_handle_state_ret(r, NULL, &h);
+	_lws_ss_handle_state_ret(r, h->wsi, &h);
 }
 
 void
