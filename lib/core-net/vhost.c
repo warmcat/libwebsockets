@@ -1151,7 +1151,7 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 		vh->context->vhost_pending_destruction_list = vh;
 	}
 
-	lwsl_debug("%s: do dfl '%s'\n", __func__, vh->name);
+	//lwsl_debug("%s: do dfl '%s'\n", __func__, vh->name);
 
 	/* if we are still on deferred free list, remove ourselves */
 
@@ -1449,6 +1449,17 @@ lws_get_vhost_by_name(struct lws_context *context, const char *name)
 int
 lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 {
+#if defined(LWS_WITH_TLS)
+	const char *my_alpn = lws_wsi_client_stash_item(wsi, CIS_ALPN,
+							_WSI_TOKEN_CLIENT_ALPN);
+#endif
+	char newconn_cannot_use_h1 = 0;
+#if defined(LWS_WITH_TLS)
+	if ((wsi->tls.use_ssl & LCCSCF_USE_SSL) &&
+	    (my_alpn && !strstr(my_alpn, "http/1.1")))
+		newconn_cannot_use_h1 = 1;
+#endif
+
 	if (!lws_dll2_is_detached(&wsi->dll2_cli_txn_queue)) {
 		struct lws *w = lws_container_of(
 				wsi->dll2_cli_txn_queue.owner, struct lws,
@@ -1483,13 +1494,18 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 		if (w != wsi &&
 		    /*
 		     * "same internet protocol"... this is a bit tricky,
-		     * since h2 start out as h1
+		     * since h2 start out as h1, and may stay at h1.
+		     *
+		     * But an idle h1 connection cannot be used by a connection
+		     * request that doesn't have http/1.1 in its alpn list...
 		     */
 		    (w->role_ops == wsi->role_ops ||
 		     (lwsi_role_http(w) && lwsi_role_http(wsi))) &&
 		    w->cli_hostname_copy &&
+		    !(newconn_cannot_use_h1 && w->role_ops != &role_ops_h1) &&
 		    !strcmp(adsin, w->cli_hostname_copy) &&
 #if defined(LWS_WITH_TLS)
+		    (!(wsi->tls.use_ssl & LCCSCF_USE_SSL) || !my_alpn || (my_alpn && strstr(my_alpn, "http/1.1"))) &&
 		    (wsi->tls.use_ssl & LCCSCF_USE_SSL) ==
 		     (w->tls.use_ssl & LCCSCF_USE_SSL) &&
 #endif
