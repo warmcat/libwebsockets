@@ -557,7 +557,7 @@ lws_sort_dns_dump(struct lws *wsi)
 	(void)n; /* nologs */
 
 	if (!lws_dll2_get_head(&wsi->dns_sorted_list))
-		lwsl_notice("%s: empty\n", __func__);
+		lwsl_info("%s: empty\n", __func__);
 
 	lws_start_foreach_dll(struct lws_dll2 *, d,
 			      lws_dll2_get_head(&wsi->dns_sorted_list)) {
@@ -567,7 +567,7 @@ lws_sort_dns_dump(struct lws *wsi)
 		lws_sa46_write_numeric_address(&s->dest, dest, sizeof(dest));
 		lws_sa46_write_numeric_address(&s->gateway, gw, sizeof(gw));
 
-		lwsl_notice("%s: %d: (%d)%s, gw (%d)%s, idi: %d, "
+		lwsl_info("%s: %d: (%d)%s, gw (%d)%s, idi: %d, "
 				"lbl: %d, prec: %d\n",
 			    __func__, n++, s->dest.sa4.sin_family, dest,
 			    s->gateway.sa4.sin_family, gw,
