@@ -758,6 +758,11 @@ secstream_connect_munge_h1(lws_ss_handle_t *h, char *buf, size_t len,
 	/* protocol aux is the path part */
 
 	i->path = buf;
+
+	/* skip the unnessary '/' */
+	if (*pbasis == '/')
+		pbasis = pbasis + 1;
+
 	buf[0] = '/';
 
 	lws_strexp_init(&exp, (void *)h, lws_ss_exp_cb_metadata, buf + 1, len - 1);
