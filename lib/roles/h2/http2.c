@@ -2029,8 +2029,8 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 
 			case LWS_H2_FRAME_TYPE_DATA:
 
-				lwsl_info("%s: LWS_H2_FRAME_TYPE_DATA: fl 0x%x\n",
-					  __func__, h2n->flags);
+			//	lwsl_info("%s: LWS_H2_FRAME_TYPE_DATA: fl 0x%x\n",
+			//		  __func__, h2n->flags);
 
 				/*
 				 * let the network wsi live a bit longer if

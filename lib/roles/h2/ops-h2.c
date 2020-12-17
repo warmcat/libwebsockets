@@ -1172,7 +1172,7 @@ rops_alpn_negotiated_h2(struct lws *wsi, const char *alpn)
 
 	ah = wsi->http.ah;
 
-	lws_role_transition(wsi, LWSIFR_SERVER, LRS_H2_AWAIT_PREFACE,
+	lws_role_transition(wsi, lwsi_role_client(wsi) ? LWSIFR_CLIENT : LWSIFR_SERVER, LRS_H2_AWAIT_PREFACE,
 			    &role_ops_h2);
 
 	/* http2 union member has http union struct at start */
