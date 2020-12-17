@@ -81,7 +81,7 @@
 			"default":	false
 		},
 		"freebsd-12/x86_64-amd/llvm": {
-			"build":	"mkdir build destdir;cd build;export CCACHE_DISABLE=1;cmake .. ${cmake} && make -j12 && make -j12 DESTDIR=../destdir install"
+			"build":	"mkdir build destdir;cd build;export CCACHE_DISABLE=1;cmake .. ${cmake} && make -j3 && make -j3 DESTDIR=../destdir install"
 		},
                 "netbsd/aarch64BE-bcm2837-a53/gcc": {
                         "build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;cmake .. ${cmake};make -j4 && make -j4 DESTDIR=../destdir install",
