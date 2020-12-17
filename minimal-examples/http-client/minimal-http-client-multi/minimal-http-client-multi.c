@@ -384,6 +384,14 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
+#if defined(LWS_ROLE_H2) && defined(LWS_ROLE_H1)
+	i.alpn = "h2,http/1.1";
+#elif defined(LWS_ROLE_H2)
+	i.alpn = "h2";
+#elif defined(LWS_ROLE_H1)
+	i.alpn = "http/1.1";
+#endif
+
 	i.context = context;
 	i.ssl_connection = LCCSCF_USE_SSL |
 			   LCCSCF_H2_QUIRK_OVERFLOWS_TXCR |
