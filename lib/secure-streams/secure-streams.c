@@ -211,6 +211,10 @@ _lws_ss_backoff(lws_ss_handle_t *h, lws_usec_t us_override)
 				    &h->retry, &conceal);
 	if (!conceal) {
 		lwsl_info("%s: ss %p: abandon conn attempt \n",__func__, h);
+
+		if (h->seqstate == SSSEQ_IDLE) /* been here? */
+			return LWSSSSRET_OK;
+
 		h->seqstate = SSSEQ_IDLE;
 
 		return lws_ss_event_helper(h, LWSSSCS_ALL_RETRIES_FAILED);
@@ -485,10 +489,14 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry)
 
 	if (!lws_client_connect_via_info(&i)) {
 		r = lws_ss_event_helper(h, LWSSSCS_UNREACHABLE);
+		if (r == LWSSSSRET_DESTROY_ME)
+			return !!_lws_ss_handle_state_ret(r, NULL, &h);
 		if (r)
 			return r;
 
 		r = lws_ss_backoff(h);
+		if (r == LWSSSSRET_DESTROY_ME)
+			return !!_lws_ss_handle_state_ret(r, NULL, &h);
 		if (r)
 			return r;
 
