@@ -27,7 +27,7 @@ static const struct lws_http_mount mount = {
 	/* .mountpoint */		"/",		/* mountpoint URL */
 	/* .origin */			"./mount-origin", /* serve from dir */
 	/* .def */			"index.html",	/* default filename */
-	/* .protocol */			NULL,
+	/* .protocol */			"http-only",
 	/* .cgienv */			NULL,
 	/* .extra_mimetypes */		NULL,
 	/* .interpret */		NULL,
