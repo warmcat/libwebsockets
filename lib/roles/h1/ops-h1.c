@@ -181,7 +181,8 @@ http_postbody:
 			if (lwsi_role_h2(wsi) && !wsi->http.content_length_given) {
 				struct lws *w = lws_get_network_wsi(wsi);
 
-				lwsl_info("%s: h2: nwsi h2 flags %d\n", __func__, 
+				if (w)
+					lwsl_info("%s: h2: nwsi h2 flags %d\n", __func__,
 						w->h2.h2n ? w->h2.h2n->flags: -1);
 
 				if (w && w->h2.h2n && !(w->h2.h2n->flags & 1)) {

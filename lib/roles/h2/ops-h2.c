@@ -963,6 +963,18 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 
 			lws_h2_bind_for_post_before_action(w);
 
+			/*
+			 * Well, we could be getting a POST from the client, it
+			 * may not have any content-length.  In that case, we
+			 * will be in LRS_BODY state, we can't actually start
+			 * the action until we had the body and the stream is
+			 * half-closed, indicating that we can reply
+			 */
+
+			if (lwsi_state(w) == LRS_BODY &&
+			    w->h2.h2_state != LWS_H2_STATE_HALF_CLOSED_REMOTE)
+				goto next_child;
+
 			lwsl_info("  h2 action start...\n");
 			n = lws_http_action(w);
 			if (n < 0)

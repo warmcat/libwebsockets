@@ -137,6 +137,8 @@ lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 
 	case LRS_H1C_ISSUE_HANDSHAKE:
 
+		lwsl_notice("%s: LRS_H1C_ISSUE_HANDSHAKE\n", __func__);
+
 		/*
 		 * we are under PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE
 		 * timeout protection set in client-handshake.c
@@ -150,12 +152,36 @@ start_ws_handshake:
 		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0))
 			return -1;
 
+#if defined(LWS_ROLE_H2) || defined(LWS_WITH_TLS)
+		if (
+#if defined(LWS_WITH_TLS)
+		    !(wsi->tls.use_ssl & LCCSCF_USE_SSL)
+#endif
+#if defined(LWS_ROLE_H2) && defined(LWS_WITH_TLS)
+		    &&
+#endif
+#if defined(LWS_ROLE_H2)
+		    !(wsi->flags & LCCSCF_H2_PRIOR_KNOWLEDGE)
+#endif
+		    )
+			goto hs2;
+#endif
+
 #if defined(LWS_WITH_TLS)
 		n = lws_client_create_tls(wsi, &cce, 1);
-		if (n < 0)
+		if (n == CCTLS_RETURN_ERROR)
 			goto bail3;
-		if (n == 1)
+		if (n == CCTLS_RETURN_RETRY)
 			return 0;
+
+		/*
+		 * lws_client_create_tls() can already have done the
+		 * whole tls setup and preface send... if so he set our state
+		 * to LRS_H1C_ISSUE_HANDSHAKE2... let's proceed but be prepared
+		 * to notice our state and not resend the preface...
+		 */
+
+		lwsl_notice("%s: LRS_H1C_ISSUE_HANDSHAKE fallthru\n", __func__);
 
 		/* fallthru */
 
@@ -171,7 +197,7 @@ start_ws_handshake:
 			}
 		} else {
 			wsi->tls.ssl = NULL;
-			if(wsi->flags & LCCSCF_H2_PRIOR_KNOWLEDGE) {
+			if (wsi->flags & LCCSCF_H2_PRIOR_KNOWLEDGE) {
 				lwsl_info("h2 prior knowledge\n");
 				lws_role_call_alpn_negotiated(wsi, "h2");
 			}
@@ -187,8 +213,9 @@ start_ws_handshake:
 			lws_det_lat_cb(wsi->a.context, &wsi->detlat);
 		}
 #endif
+
 #if defined (LWS_WITH_HTTP2)
-		if (wsi->client_h2_alpn) {
+		if (wsi->client_h2_alpn && lwsi_state(wsi) != LRS_H1C_ISSUE_HANDSHAKE2) {
 			/*
 			 * We connected to the server and set up tls and
 			 * negotiated "h2" or connected as clear text
@@ -199,9 +226,8 @@ start_ws_handshake:
 			 */
 
 #if defined(LWS_WITH_TLS)
-			if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
+			if (wsi->tls.use_ssl & LCCSCF_USE_SSL)
 				lws_tls_server_conn_alpn(wsi);
-			}
 #endif
 
 			/* send the H2 preface to legitimize the connection */
@@ -221,6 +247,9 @@ start_ws_handshake:
 		/* fallthru */
 
 	case LRS_H1C_ISSUE_HANDSHAKE2:
+
+hs2:
+
 		p = lws_generate_client_handshake(wsi, p);
 		if (p == NULL) {
 			if (wsi->role_ops == &role_ops_raw_skt
@@ -335,6 +364,10 @@ client_http_body_sent:
 			cce = "Peer hung up";
 			goto bail3;
 		}
+
+		if (pollfd->revents & LWS_POLLOUT)
+			if (lws_change_pollfd(wsi, LWS_POLLOUT, 0))
+				return -1;
 
 		if (!(pollfd->revents & LWS_POLLIN))
 			break;

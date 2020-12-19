@@ -88,11 +88,11 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		 * Tell lws we are going to send the body next...
 		 */
 		if (posting && !lws_http_is_redirected_to_get(wsi)) {
-			lwsl_user("%s: doing POST flow\n", __func__);
+			lwsl_user("%s: conn %d, doing POST flow\n", __func__, idx);
 			lws_client_http_body_pending(wsi, 1);
 			lws_callback_on_writable(wsi);
 		} else
-			lwsl_user("%s: doing GET flow\n", __func__);
+			lwsl_user("%s: conn %d, doing GET flow\n", __func__, idx);
 		break;
 
 	/* uninterpreted http content */

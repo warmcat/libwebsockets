@@ -1192,7 +1192,8 @@ drain:
 			}
 			//lws_buflist_describe(&wsi->buflist, wsi, __func__);
 			//lwsl_notice("%s: consuming %d / %d\n", __func__, n, ebuf.len);
-			if (lws_buflist_aware_finished_consuming(wsi, &ebuf, n,
+			if (ebuf.len < 0 ||
+			    lws_buflist_aware_finished_consuming(wsi, &ebuf, n,
 							buffered, __func__))
 				return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}

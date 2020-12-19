@@ -370,10 +370,13 @@ bail1:
 }
 
 
-int lws_h2_issue_preface(struct lws *wsi)
+int
+lws_h2_issue_preface(struct lws *wsi)
 {
 	struct lws_h2_netconn *h2n = wsi->h2.h2n;
 	struct lws_h2_protocol_send *pps;
+
+	lwsl_notice("%s: wsi %p: fd %d\n", __func__, wsi, (int)wsi->desc.sockfd);
 
 	if (lws_issue_raw(wsi, (uint8_t *)preface, strlen(preface)) !=
 		(int)strlen(preface))
@@ -997,9 +1000,14 @@ lws_h2_parse_frame_header(struct lws *wsi)
 				/* ie, IGNORE */
 				h2n->type = LWS_H2_FRAME_TYPE_COUNT;
 			} else {
+				lwsl_info("%s: received %d bytes data for unknown sid %d, highest known %d\n",
+						__func__, (int)h2n->length, (int)h2n->sid, (int)h2n->highest_sid_opened);
+
+//				if (h2n->sid > h2n->highest_sid_opened) {
 				lws_h2_goaway(wsi, H2_ERR_STREAM_CLOSED,
 				      "Data for nonexistent sid");
 				return 0;
+//				}
 			}
 		}
 		/* if the sid is credible, treat as wsi for it closed */

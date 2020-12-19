@@ -199,6 +199,7 @@ lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1)
 	} else
 		wsi->tls.ssl = NULL;
 
+#if 0
 #if defined (LWS_WITH_HTTP2)
 	if (wsi->client_h2_alpn) {
 		/*
@@ -217,7 +218,10 @@ lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1)
 			*pcce = "error sending h2 preface";
 			return CCTLS_RETURN_ERROR;
 		}
+
+		lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE2);
 	}
+#endif
 #endif
 
 	return CCTLS_RETURN_DONE; /* OK */
