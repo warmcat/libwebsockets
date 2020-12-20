@@ -125,18 +125,22 @@ lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 	case LRS_DISCARD_BODY:
 	case LRS_BODY:
 http_postbody:
-		lwsl_debug("%s: http post body: remain %d\n", __func__,
-			    (int)wsi->http.rx_content_remain);
+		lwsl_info("%s: http post body: cl set %d, remain %d, len %d\n", __func__,
+			    (int)wsi->http.content_length_given,
+			    (int)wsi->http.rx_content_remain, (int)len);
 
-		if (!wsi->http.rx_content_remain)
+		if (wsi->http.content_length_given && !wsi->http.rx_content_remain)
 			goto postbody_completion;
 
-		while (len && wsi->http.rx_content_remain) {
+		while (len && (!wsi->http.content_length_given || wsi->http.rx_content_remain)) {
 			/* Copy as much as possible, up to the limit of:
 			 * what we have in the read buffer (len)
 			 * remaining portion of the POST body (content_remain)
 			 */
-			body_chunk_len = min(wsi->http.rx_content_remain, len);
+			if (wsi->http.content_length_given)
+				body_chunk_len = min(wsi->http.rx_content_remain, len);
+			else
+				body_chunk_len = len;
 			wsi->http.rx_content_remain -= body_chunk_len;
 			// len -= body_chunk_len;
 #ifdef LWS_WITH_CGI
@@ -159,17 +163,37 @@ http_postbody:
 			} else {
 #endif
 				if (lwsi_state(wsi) != LRS_DISCARD_BODY) {
-				n = wsi->a.protocol->callback(wsi,
-					LWS_CALLBACK_HTTP_BODY, wsi->user_space,
-					buf, (size_t)body_chunk_len);
-				if (n)
-					goto bail;
+					lwsl_info("%s: HTTP_BODY %d\n", __func__, (int)body_chunk_len);
+					n = (unsigned int)wsi->a.protocol->callback(wsi,
+						LWS_CALLBACK_HTTP_BODY, wsi->user_space,
+						buf, (size_t)body_chunk_len);
+					if (n)
+						goto bail;
 				}
 				n = (size_t)body_chunk_len;
 #ifdef LWS_WITH_CGI
 			}
 #endif
+			lwsl_info("%s: advancing buf by %d\n", __func__, (int)n);
 			buf += n;
+
+#if defined(LWS_ROLE_H2)
+			if (lwsi_role_h2(wsi) && !wsi->http.content_length_given) {
+				struct lws *w = lws_get_network_wsi(wsi);
+
+				lwsl_info("%s: h2: nwsi h2 flags %d\n", __func__, 
+						w->h2.h2n ? w->h2.h2n->flags: -1);
+
+				if (w && w->h2.h2n && !(w->h2.h2n->flags & 1)) {
+					lwsl_info("%s: h2, no cl, not END_STREAM, continuing\n", __func__);
+					lws_set_timeout(wsi,
+						PENDING_TIMEOUT_HTTP_CONTENT,
+						(int)wsi->a.context->timeout_secs);
+					break;
+				}
+				goto postbody_completion;
+			}
+#endif
 
 			if (wsi->http.rx_content_remain)  {
 				lws_set_timeout(wsi,
@@ -213,8 +237,10 @@ postbody_completion:
 				n = wsi->a.protocol->callback(wsi,
 					LWS_CALLBACK_HTTP_BODY_COMPLETION,
 					wsi->user_space, NULL, 0);
-				if (n)
+				if (n) {
+					lwsl_info("%s: bailing after BODY_COMPLETION\n", __func__);
 					goto bail;
+				}
 
 				if (wsi->mux_substream)
 					lwsi_set_state(wsi, LRS_ESTABLISHED);
