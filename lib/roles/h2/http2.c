@@ -760,7 +760,7 @@ int lws_h2_do_pps_send(struct lws *wsi)
 				       LWS_H2_STREAM_ID_MASTER, 0,
 				       &set[LWS_PRE]);
 		if (n) {
-			lwsl_err("ack tells %d\n", n);
+			lwsl_err("%s: writing settings ack frame failed %d\n", __func__, n);
 			goto bail;
 		}
 		wsi->h2_acked_settings = 0;
@@ -933,7 +933,9 @@ lws_h2_parse_frame_header(struct lws *wsi)
 	h2n->sid = h2n->sid & 0x7fffffff;
 
 	if (h2n->sid && !(h2n->sid & 1)) {
-		lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR, "Even Stream ID");
+		char pes[32];
+		lws_snprintf(pes, sizeof(pes), "Even Stream ID 0x%x", (unsigned int)h2n->sid);
+		lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR, pes);
 
 		return 0;
 	}
@@ -1428,9 +1430,9 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 			assert(lws_wsi_mux_from_id(wsi, 1) == h2n->swsi);
 
-			lws_role_transition(wsi, LWSIFR_CLIENT,
-					    LRS_H2_WAITING_TO_SEND_HEADERS,
-					    &role_ops_h2);
+		//	lws_role_transition(wsi, LWSIFR_CLIENT,
+		//			    LRS_H2_WAITING_TO_SEND_HEADERS,
+		//			    &role_ops_h2);
 
 			lws_role_transition(h2n->swsi, LWSIFR_CLIENT,
 					    LRS_H2_WAITING_TO_SEND_HEADERS,
@@ -1870,18 +1872,18 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
  * close it all.  If it needs to close an swsi, it can do it here.
  */
 int
-lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
+lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 	      lws_filepos_t *inused)
 {
 	struct lws_h2_netconn *h2n = wsi->h2.h2n;
 	struct lws_h2_protocol_send *pps;
-	unsigned char c, *oldin = in;
+	unsigned char c, *oldin = in, *iend = in + (size_t)_inlen;
 	int n, m;
 
 	if (!h2n)
 		goto fail;
 
-	while (inlen--) {
+	while (in < iend) {
 
 		c = *in++;
 
@@ -2062,12 +2064,9 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 					     WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
 				    h2n->swsi->http.rx_content_length &&
 				    h2n->swsi->http.rx_content_remain <
-						    inlen + 1 && /* last */
+						    lws_ptr_diff_size_t(iend, in) + 1 && /* last */
 				    h2n->inside < h2n->length) {
-					lwsl_warn("%s: rem %d, inlen %d\n",
-						  __func__,
-						  (int)h2n->swsi->http.rx_content_remain,
-						  (int)inlen + 1);
+
 					/* unread data in frame */
 					lws_h2_goaway(wsi,
 						      H2_ERR_PROTOCOL_ERROR,
@@ -2080,11 +2079,11 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 				 * hand may exceed the current frame.
 				 */
 
-				n = (int)inlen + 1;
+				n = (int)lws_ptr_diff_size_t(iend, in)  + 1;
 				if (n > (int)(h2n->length - h2n->count + 1)) {
 					n = h2n->length - h2n->count + 1;
 					lwsl_debug("---- restricting len to %d "
-						   "vs %ld\n", n, (long)inlen + 1);
+						   "\n", n);
 				}
 #if defined(LWS_WITH_CLIENT)
 				if (h2n->swsi->client_mux_substream) {
@@ -2107,9 +2106,8 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 					}
 
 					in += n - 1;
-					h2n->inside += n;
-					h2n->count += n - 1;
-					inlen -= n - 1;
+					h2n->inside += (unsigned int)n;
+					h2n->count += (unsigned int)n - 1;
 
 					if (m) {
 						lwsl_info("RECEIVE_CLIENT_HTTP "
@@ -2137,9 +2135,8 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 							&pt->dll_buflist_owner);
 					}
 					in += n - 1;
-					h2n->inside += n;
-					h2n->count += n - 1;
-					inlen -= n - 1;
+					h2n->inside += (unsigned int)n;
+					h2n->count += (unsigned int)n - 1;
 
 					lwsl_debug("%s: deferred %d\n", __func__, n);
 					goto do_windows;
@@ -2160,7 +2157,7 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 				 * content len exhausted somehow.
 				 */
 				if (n < 0 ||
-				    (!n && !lws_buflist_next_segment_len(
+				    (!n && h2n->swsi->http.content_length_given && !lws_buflist_next_segment_len(
 						    &wsi->buflist, NULL))) {
 					lwsl_info("%s: lws_read_h1 told %d %u / %u\n",
 						__func__, n,
@@ -2175,10 +2172,15 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t inlen,
 					goto close_swsi_and_return;
 				}
 
-				inlen -= n - 1;
-				in += n - 1;
-				h2n->inside += n;
-				h2n->count += n - 1;
+				lwsl_info("%s: lws_read_h1 telling %d %u / %u\n",
+						__func__, n,
+						(unsigned int)h2n->count,
+						(unsigned int)h2n->length);
+
+				in += (unsigned int)n - 1;
+				h2n->inside += (unsigned int)n;
+				h2n->count += (unsigned int)n - 1;
+
 				h2n->swsi->txc.peer_tx_cr_est -= n;
 				wsi->txc.peer_tx_cr_est -= n;
 
