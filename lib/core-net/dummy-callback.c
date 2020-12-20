@@ -298,6 +298,10 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 		}
 #endif
+		if (lws_return_http_status(wsi, 200, NULL))
+			return -1;
+		break;
+
 		/* fallthru */
 	case LWS_CALLBACK_HTTP_FILE_COMPLETION:
 		if (lws_http_transaction_completed(wsi))
