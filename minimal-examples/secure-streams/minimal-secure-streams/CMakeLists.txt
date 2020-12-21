@@ -17,8 +17,18 @@ require_lws_config(LWS_WITH_SYS_STATE 1 requirements)
 if (requirements)
 	add_executable(${SAMP} minimal-secure-streams.c)
 
+	find_program(VALGRIND "valgrind")
+
 	if (LWS_CTEST_INTERNET_AVAILABLE AND NOT WIN32)
-		add_test(NAME ss-warmcat COMMAND lws-minimal-secure-streams)
+		if (VALGRIND)
+			message("testing via valgrind")
+			add_test(NAME ss-warmcat COMMAND
+				${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
+				$<TARGET_FILE:lws-minimal-secure-streams>)
+		else()
+			add_test(NAME ss-warmcat COMMAND lws-minimal-secure-streams)
+		endif()
+
 		set_tests_properties(ss-warmcat
 				     PROPERTIES
 				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/secure-streams/minimal-secure-streams
@@ -54,7 +64,14 @@ if (requirements)
 			# the client part that will connect to the proxy
 			#
 
-			add_test(NAME sspc-minimal COMMAND lws-minimal-secure-streams-client -i +${CTEST_SOCKET_PATH})
+			if (VALGRIND)
+				message("testing via valgrind")
+				add_test(NAME sspc-minimal COMMAND
+					${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
+					$<TARGET_FILE:lws-minimal-secure-streams> -i +${CTEST_SOCKET_PATH})
+			else()
+				add_test(NAME sspc-minimal COMMAND lws-minimal-secure-streams-client -i +${CTEST_SOCKET_PATH})
+			endif()
 			set_tests_properties(sspc-minimal PROPERTIES
 				WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/secure-streams/minimal-secure-streams
 				FIXTURES_REQUIRED "ssproxy"
