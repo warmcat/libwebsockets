@@ -171,7 +171,7 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_info("%s: RAW_RX: rx %d\n", __func__, (int)len);
 
 		if (!h || !h->cwsi) {
-			lwsl_err("%s: rx with bad conn state\n", __func__);
+			lwsl_info("%s: rx when client ss destroyed\n", __func__);
 
 			return -1;
 		}
@@ -535,8 +535,10 @@ lws_sspc_destroy(lws_sspc_handle_t **ph)
 
 	if (h->dsh)
 		lws_dsh_destroy(&h->dsh);
-	if (h->cwsi)
+	if (h->cwsi) {
+		lws_set_opaque_user_data(h->cwsi, NULL);
 		h->cwsi = NULL;
+	}
 
 	/* clean out any pending metadata changes that didn't make it */
 

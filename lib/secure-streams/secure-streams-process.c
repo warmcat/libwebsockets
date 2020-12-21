@@ -317,7 +317,7 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 				 */
 				lws_wsi_close(cw, LWS_TO_KILL_ASYNC);
 			conn->wsi = NULL;
-
+			conn->ss->wsi = NULL;
 
 			lws_ss_destroy(&conn->ss);
 			/* conn may have gone */

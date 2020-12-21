@@ -66,9 +66,9 @@ if (requirements)
 			if (VALGRIND)
 				add_test(NAME sspc-minimaltf COMMAND
 					${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
-					$<TARGET_FILE:lws-minimal-secure-streams-testsfail-client> -i +${CTEST_SOCKET_PATH})
+					$<TARGET_FILE:lws-minimal-secure-streams-testsfail-client> -i +${CTEST_SOCKET_PATH} -d1039)
 			else()
-				add_test(NAME sspc-minimaltf COMMAND lws-minimal-secure-streams-testsfail-client -i +${CTEST_SOCKET_PATH})
+				add_test(NAME sspc-minimaltf COMMAND lws-minimal-secure-streams-testsfail-client -i +${CTEST_SOCKET_PATH} -d1039)
 			endif()
 		
 			set_tests_properties(sspc-minimaltf PROPERTIES
