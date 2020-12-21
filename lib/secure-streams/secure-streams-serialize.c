@@ -1275,6 +1275,7 @@ payload_ff:
 #endif
 
 			if (par->ctr == LWSSSCS_CREATING) {
+				h = lws_container_of(par, lws_sspc_handle_t, parser);
 				if (h->creating_cb_done)
 					/*
 					 * We have told him he's CREATING when
