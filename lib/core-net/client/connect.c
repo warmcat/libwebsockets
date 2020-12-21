@@ -326,6 +326,12 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 
 	wsi->a.opaque_user_data = wsi->stash->opaque_user_data =
 		i->opaque_user_data;
+
+#if defined(LWS_WITH_SECURE_STREAMS)
+	wsi->for_ss = !!(i->ssl_connection & LCCSCF_SECSTREAM_CLIENT);
+		/* implies our opaque user ptr is the ss handle */
+#endif
+
 	pc = (char *)&wsi->stash[1];
 
 	for (n = 0; n < CIS_COUNT; n++)

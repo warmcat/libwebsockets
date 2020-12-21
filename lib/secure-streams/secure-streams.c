@@ -439,6 +439,8 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry)
 	if (h->policy->flags & LWSSSPOLF_WAKE_SUSPEND__VALIDITY)
 		i.ssl_connection |= LCCSCF_WAKE_SUSPEND__VALIDITY;
 
+	i.ssl_connection |= LCCSCF_SECSTREAM_CLIENT;
+
 	i.address		= ads;
 	i.port			= port;
 	i.host			= i.address;

@@ -72,6 +72,8 @@ enum lws_client_connect_ssl_connection_flags {
 	 * means you may block other connection processing in favour of incoming
 	 * data processing on this one if it receives back to back incoming rx.
 	 */
+	LCCSCF_SECSTREAM_CLIENT			= (1 << 21),
+	/**< used to mark client wsi as bound to secure stream */
 };
 
 /** struct lws_client_connect_info - parameters to connect with when using

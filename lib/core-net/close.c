@@ -162,7 +162,7 @@ __lws_free_wsi(struct lws *wsi)
 	if (!wsi)
 		return;
 
-#if defined(LWS_WITH_SECURE_STREAMS) && defined(LWS_WITH_SERVER)
+#if defined(LWS_WITH_SECURE_STREAMS)
 	if (wsi->for_ss) {
 		/*
 		 * Make certain it is disconnected from the ss by now
@@ -520,7 +520,7 @@ just_kill_connection:
 		 */
 		lws_ss_handle_t *h = (lws_ss_handle_t *)wsi->a.opaque_user_data;
 
-		if (h  && !(h->info.flags & LWSSSINFLAGS_ACCEPTED)) {
+		if (h && (h->info.flags & LWSSSINFLAGS_ACCEPTED)) {
 			h->wsi = NULL;
 			wsi->a.opaque_user_data = NULL;
 		}
