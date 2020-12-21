@@ -24,6 +24,10 @@
 
 #include "private-lib-core.h"
 
+#if !defined(WIN32)
+#include <netdb.h>
+#endif
+
 #if !defined(LWS_WITH_SYS_ASYNC_DNS)
 static int
 lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
@@ -49,7 +53,29 @@ lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
 		hints.ai_family = PF_UNSPEC;
 	}
 
+	wsi->dns_reachability = 0;
 	n = getaddrinfo(ads, NULL, &hints, result);
+
+	/*
+	 * Which EAI_* are available and the meanings are highly platform-
+	 * dependent, even different linux distros differ.
+	 */
+
+	if (0
+#if defined(EAI_SYSTEM)
+			|| n == EAI_SYSTEM
+#endif
+#if defined(EAI_NODATA)
+			|| n == EAI_NODATA
+#endif
+#if defined(EAI_FAIL)
+			|| n == EAI_FAIL
+#endif
+			) {
+		wsi->dns_reachability = 1;
+		lwsl_notice("%s: asking to recheck CPD\n", __func__);
+		lws_system_cpd_start(wsi->a.context);
+	}
 
 	lwsl_info("%s: getaddrinfo '%s' says %d\n", __func__, ads, n);
 
