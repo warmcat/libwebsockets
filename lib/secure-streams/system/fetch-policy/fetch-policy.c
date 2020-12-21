@@ -107,8 +107,16 @@ ss_fetch_policy_state(void *userobj, void *sh, lws_ss_constate_t state,
 	case LWSSSCS_CONNECTING:
 		break;
 
+	case LWSSSCS_QOS_ACK_REMOTE:
+		switch (m->partway) {
+		case 2:
+			lws_sul_schedule(context, 0, &m->sul, policy_set, 1);
+			break;
+		}
+		break;
+
 	case LWSSSCS_DISCONNECTED:
-		lwsl_info("%s: DISCONNECTED\n", __func__);
+		lwsl_notice("%s: DISCONNECTED\n", __func__);
 		switch (m->partway) {
 		case 1:
 			lws_ss_policy_parse_abandon(context);
@@ -154,10 +162,14 @@ lws_ss_sys_fetch_policy(struct lws_context *context)
 		 * running on a proxied client with no policy of its own,
 		 * it's OK.
 		 */
-		lwsl_info("%s: Create LWA auth ss failed (policy?)\n", __func__);
+		lwsl_info("%s: Policy fetch ss failed (stub policy?)\n", __func__);
 
-		return 1;
+		return 0;
 	}
 
-	return 0;
+	lwsl_info("%s: policy fetching ongoing\n", __func__);
+
+	/* fetching it is ongoing */
+
+	return 1;
 }

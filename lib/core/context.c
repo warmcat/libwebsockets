@@ -214,12 +214,22 @@ lws_state_notify_protocol_init(struct lws_state_manager *mgr,
 	 */
 	if (target == LWS_SYSTATE_POLICY_VALID &&
 	    context->pss_policies && !context->policy_updated) {
+
+		if (context->hss_fetch_policy)
+			return 1;
+
+		lwsl_debug("%s: starting policy fetch\n", __func__);
 		/*
 		 * Start trying to acquire it if it's not already in progress
 		 * returns nonzero if we determine it's not needed
 		 */
 		if (!lws_ss_sys_fetch_policy(context))
-			return 1;
+			/* we have it */
+			return 0;
+
+		/* deny while we fetch it */
+
+		return 1;
 	}
 #endif
 #endif
