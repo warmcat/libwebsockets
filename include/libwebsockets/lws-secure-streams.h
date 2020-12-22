@@ -187,7 +187,8 @@ typedef uint32_t lws_ss_tx_ordinal_t;
 typedef enum {
 	LWSSSCS_CREATING,
 	LWSSSCS_DISCONNECTED,
-	LWSSSCS_UNREACHABLE,
+	LWSSSCS_UNREACHABLE,		/* oridinal arg = 1 = caused by dns
+					 * server reachability failure */
 	LWSSSCS_AUTH_FAILED,
 	LWSSSCS_CONNECTED,
 	LWSSSCS_CONNECTING,

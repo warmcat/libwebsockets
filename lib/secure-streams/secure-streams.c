@@ -99,7 +99,9 @@ lws_ss_event_helper(lws_ss_handle_t *h, lws_ss_constate_t cs)
 #endif
 
 	if (h->info.state) {
-		r = h->info.state(ss_to_userobj(h), NULL, cs, 0);
+		r = h->info.state(ss_to_userobj(h), NULL, cs,
+			cs == LWSSSCS_UNREACHABLE &&
+			h->wsi && h->wsi->dns_reachability);
 #if defined(LWS_WITH_SERVER)
 		if ((h->info.flags & LWSSSINFLAGS_ACCEPTED) &&
 		    cs == LWSSSCS_DISCONNECTED)
