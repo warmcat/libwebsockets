@@ -263,7 +263,7 @@ int main(int argc, const char **argv)
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 		       LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW |
 		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
-	info.fd_limit_per_thread = 1 + 6 + 1;
+	info.fd_limit_per_thread = 1 + 32 + 1;
 	info.pss_policies_json = default_ss_policy;
 	info.port = CONTEXT_PORT_NO_LISTEN;
 #if defined(LWS_WITH_DETAILED_LATENCY)
