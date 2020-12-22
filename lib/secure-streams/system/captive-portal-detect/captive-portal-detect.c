@@ -46,12 +46,16 @@ ss_cpd_state(void *userobj, void *sh, lws_ss_constate_t state,
 
 	switch (state) {
 	case LWSSSCS_CREATING:
+		lws_ss_start_timeout(m->ss, 3 * LWS_US_PER_SEC);
 		lws_ss_request_tx(m->ss);
 		break;
+
 	case LWSSSCS_QOS_ACK_REMOTE:
 		lws_system_cpd_set(cx, LWS_CPD_INTERNET_OK);
+		cx->ss_cpd = NULL;
 		return LWSSSSRET_DESTROY_ME;
 
+	case LWSSSCS_TIMEOUT:
 	case LWSSSCS_ALL_RETRIES_FAILED:
 	case LWSSSCS_DISCONNECTED:
 		/*
@@ -59,6 +63,7 @@ ss_cpd_state(void *userobj, void *sh, lws_ss_constate_t state,
 		 * cover the situation we didn't connect to anything
 		 */
 		lws_system_cpd_set(cx, LWS_CPD_NO_INTERNET);
+		cx->ss_cpd = NULL;
 		return LWSSSSRET_DESTROY_ME;
 
 	default:
@@ -79,7 +84,12 @@ static const lws_ss_info_t ssi_cpd = {
 int
 lws_ss_sys_cpd(struct lws_context *cx)
 {
-	if (lws_ss_create(cx, 0, &ssi_cpd, cx, NULL, NULL, NULL)) {
+	if (cx->ss_cpd) {
+		lwsl_notice("%s: CPD already ongoing\n", __func__);
+		return 0;
+	}
+
+	if (lws_ss_create(cx, 0, &ssi_cpd, cx, &cx->ss_cpd, NULL, NULL)) {
 		lwsl_info("%s: Create stream failed (policy?)\n", __func__);
 
 		return 1;

@@ -308,7 +308,10 @@ struct lws_context {
 	lws_system_blob_t system_blobs[LWS_SYSBLOB_TYPE_COUNT];
 
 #if defined(LWS_WITH_SYS_SMD)
-	lws_smd_t		smd;
+	lws_smd_t				smd;
+#endif
+#if defined(LWS_WITH_SECURE_STREAMS)
+	struct lws_ss_handle			*ss_cpd;
 #endif
 
 #if defined(LWS_WITH_NETWORK)
