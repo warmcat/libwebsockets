@@ -75,7 +75,7 @@ secstream_h2(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		h->txn_ok = 1;
 		lws_cancel_service(lws_get_context(wsi)); /* abort poll wait */
 		if (r != LWSSSSRET_OK)
-			return _lws_ss_handle_state_ret(r, wsi, &h);
+			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 		break;
 
 	case LWS_CALLBACK_WSI_TX_CREDIT_GET:

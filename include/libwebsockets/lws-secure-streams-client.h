@@ -119,7 +119,7 @@ lws_sspc_request_tx_len(struct lws_sspc_handle *h, unsigned long len);
  * Starts the connection process for the secure stream.  Returns 0 if OK or
  * nonzero if we have already failed.
  */
-LWS_VISIBLE LWS_EXTERN int
+LWS_VISIBLE LWS_EXTERN lws_ss_state_return_t
 lws_sspc_client_connect(struct lws_sspc_handle *h);
 
 /**

@@ -227,8 +227,8 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		lwsl_notice("%s: CREATING: setting servername metadata to %s\n",
 				__func__, server_name_or_url);
 		lws_ss_set_metadata(m->ss, "servername", server_name_or_url, strlen(server_name_or_url));
-		lws_ss_client_connect(m->ss);
-		break;
+		return lws_ss_client_connect(m->ss);
+
 	case LWSSSCS_ALL_RETRIES_FAILED:
 		/* if we're out of retries, we want to close the app and FAIL */
 		interrupted = 1;

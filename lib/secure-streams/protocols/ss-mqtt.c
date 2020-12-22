@@ -52,11 +52,11 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		}
 
 		if (r == LWSSSSRET_DESTROY_ME)
-			return _lws_ss_handle_state_ret(r, wsi, &h);
+			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 
 		r = lws_ss_backoff(h);
 		if (r != LWSSSSRET_OK)
-			return _lws_ss_handle_state_ret(r, wsi, &h);
+			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 
 		break;
 
@@ -75,13 +75,13 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		}
 
 		if (r)
-			return _lws_ss_handle_state_ret(r, wsi, &h);
+			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 
 		if (h->policy && !(h->policy->flags & LWSSSPOLF_OPPORTUNISTIC) &&
 		    !h->txn_ok && !wsi->a.context->being_destroyed) {
 			r = lws_ss_backoff(h);
 			if (r != LWSSSSRET_OK)
-				return _lws_ss_handle_state_ret(r, wsi, &h);
+				return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 		}
 		break;
 
@@ -96,7 +96,7 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		lws_sul_cancel(&h->sul);
 		r = lws_ss_event_helper(h, LWSSSCS_CONNECTED);
 		if (r != LWSSSSRET_OK)
-			return _lws_ss_handle_state_ret(r, wsi, &h);
+			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 		if (h->policy->u.mqtt.topic)
 			lws_callback_on_writable(wsi);
 		break;
@@ -119,7 +119,7 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		r = h->info.rx(ss_to_userobj(h), (const uint8_t *)pmqpp->payload,
 			   len, f);
 		if (r != LWSSSSRET_OK)
-			return _lws_ss_handle_state_ret(r, wsi, &h);
+			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 
 		return 0; /* don't passthru */
 
@@ -132,7 +132,7 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		lws_sul_cancel(&h->sul_timeout);
 		r = lws_ss_event_helper(h, LWSSSCS_QOS_ACK_REMOTE);
 		if (r != LWSSSSRET_OK)
-			return _lws_ss_handle_state_ret(r, wsi, &h);
+			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 		break;
 
 	case LWS_CALLBACK_MQTT_CLIENT_WRITEABLE:
@@ -191,7 +191,7 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			return 0;
 
 		if (r < 0)
-			return _lws_ss_handle_state_ret(r, wsi, &h);
+			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 
 		memset(&mqpp, 0, sizeof(mqpp));
 		/* this is the string-substituted h->policy->u.mqtt.topic */

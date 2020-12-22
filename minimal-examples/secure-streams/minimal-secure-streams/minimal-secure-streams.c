@@ -279,8 +279,8 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		lws_ss_start_timeout(m->ss, timeout_ms);
 		lws_ss_set_metadata(m->ss, "uptag", "myuptag123", 10);
 		lws_ss_set_metadata(m->ss, "ctype", "myctype", 7);
-		lws_ss_client_connect(m->ss);
-		break;
+		return lws_ss_client_connect(m->ss);
+
 	case LWSSSCS_ALL_RETRIES_FAILED:
 		/* if we're out of retries, we want to close the app and FAIL */
 		interrupted = 1;

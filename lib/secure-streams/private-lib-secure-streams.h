@@ -401,7 +401,7 @@ lws_ss_state_return_t
 lws_ss_backoff(lws_ss_handle_t *h);
 
 int
-_lws_ss_handle_state_ret(lws_ss_state_return_t r, struct lws *wsi,
+_lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(lws_ss_state_return_t r, struct lws *wsi,
 			 lws_ss_handle_t **ph);
 
 int
@@ -432,7 +432,7 @@ int
 _lws_ss_set_metadata(lws_ss_metadata_t *omd, const char *name,
 		     const void *value, size_t len);
 
-int
+lws_ss_state_return_t
 _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry);
 
 struct lws_vhost *

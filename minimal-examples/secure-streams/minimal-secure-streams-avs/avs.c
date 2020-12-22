@@ -233,14 +233,14 @@ ss_avs_metadata_state(void *userobj, void *sh,
 	switch (state) {
 	case LWSSSCS_CREATING:
 		lwsl_user("%s: CREATING\n", __func__);
-		lws_ss_client_connect(m->ss);
 		m->pos = 0;
-		break;
+		return lws_ss_client_connect(m->ss);
+
 	case LWSSSCS_CONNECTING:
 		break;
 	case LWSSSCS_CONNECTED:
-		lws_ss_request_tx(m->ss);
-		break;
+		return lws_ss_request_tx(m->ss);
+
 	case LWSSSCS_ALL_RETRIES_FAILED:
 		/* for this demo app, we want to exit on fail to connect */
 	case LWSSSCS_DISCONNECTED:

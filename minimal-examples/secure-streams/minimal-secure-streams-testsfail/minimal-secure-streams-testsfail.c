@@ -594,7 +594,7 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		 * We have definitively failed on an unexpected state received
 		 */
 
-		lwsl_user("%s: failing on unexpected state %s\n",
+		lwsl_warn("%s: failing on unexpected state %s\n",
 				__func__, lws_ss_state_name((int)state));
 
 fail:
@@ -634,8 +634,8 @@ fail:
 					(unsigned int)curr_test->eom_pass);
 			lws_ss_set_metadata(m->ss, "amount", buf, sl);
 		}
-		lws_ss_client_connect(m->ss);
-		break;
+		return lws_ss_client_connect(m->ss);
+
 	case LWSSSCS_DESTROYING:
 		if (!m->result_reported) {
 			lwsl_user("%s: failing on unexpected destruction\n",
@@ -663,8 +663,10 @@ tests_start_next(lws_sorted_usec_list_t *sul)
 
 	/* destroy the old one */
 
-	if (h)
+	if (h) {
+		lwsl_notice("%s: destroying previous stream\n", __func__);
 		lws_ss_destroy(&h);
+	}
 
 	if ((unsigned int)tests >= LWS_ARRAY_SIZE(tests_seq)) {
 		lwsl_notice("Completed all tests\n");
@@ -690,6 +692,7 @@ tests_start_next(lws_sorted_usec_list_t *sul)
 	if (lws_ss_create(context, 0, &ssi, ts, &h, NULL, NULL)) {
 		lwsl_err("%s: failed to create secure stream\n",
 			 __func__);
+		tests_fail++;
 		interrupted = 1;
 		return;
 	}
@@ -745,7 +748,7 @@ main(int argc, const char **argv)
 
 	lwsl_user("LWS secure streams error path tests [-d<verb>]\n");
 
-	info.fd_limit_per_thread = 1 + 6 + 1;
+	info.fd_limit_per_thread = 1 + 16 + 1;
 	info.port = CONTEXT_PORT_NO_LISTEN;
 #if defined(LWS_SS_USE_SSPC)
 	info.protocols = lws_sspc_protocols;
@@ -790,8 +793,7 @@ main(int argc, const char **argv)
 
 	/* the event loop */
 
-	do {
-	} while(lws_service(context, 0) >= 0 && !interrupted);
+	do { } while(lws_service(context, 0) >= 0 && !interrupted);
 
 	lws_context_destroy(context);
 

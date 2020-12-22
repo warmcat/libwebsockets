@@ -537,15 +537,15 @@ ss_avs_metadata_state(void *userobj, void *sh,
 
 	switch (state) {
 	case LWSSSCS_CREATING:
-		lws_ss_client_connect(m->ss);
-		break;
+		return lws_ss_client_connect(m->ss);
+
 	case LWSSSCS_CONNECTING:
 		m->pos = 0;
 		break;
 	case LWSSSCS_CONNECTED:
 		lwsl_info("%s: CONNECTED\n", __func__);
-		lws_ss_request_tx(m->ss);
-		break;
+		return lws_ss_request_tx(m->ss);
+
 	case LWSSSCS_DISCONNECTED:
 		lws_sul_cancel(&m->sul);
 		//if (m->mh) {

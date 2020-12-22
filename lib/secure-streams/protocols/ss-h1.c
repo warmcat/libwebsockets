@@ -383,12 +383,12 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		/* already disconnected, no action for DISCONNECT_ME */
 		r = lws_ss_event_helper(h, LWSSSCS_UNREACHABLE);
 		if (r)
-			return _lws_ss_handle_state_ret(r, wsi, &h);
+			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 
 		h->wsi = NULL;
 		r = lws_ss_backoff(h);
 		if (r != LWSSSSRET_OK)
-			return _lws_ss_handle_state_ret(r, wsi, &h);
+			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 		break;
 
 	case LWS_CALLBACK_CLIENT_HTTP_REDIRECT:
@@ -422,14 +422,14 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		    !h->txn_ok && !wsi->a.context->being_destroyed) {
 			r = lws_ss_backoff(h);
 			if (r != LWSSSSRET_OK)
-				return _lws_ss_handle_state_ret(r, wsi, &h);
+				return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 			break;
 		} else
 			h->seqstate = SSSEQ_IDLE;
 		/* already disconnected, no action for DISCONNECT_ME */
 		r = lws_ss_event_helper(h, LWSSSCS_DISCONNECTED);
 		if (r != LWSSSSRET_OK)
-			return _lws_ss_handle_state_ret(r, wsi, &h);
+			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 		break;
 
 
@@ -454,7 +454,7 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 			r = _lws_ss_backoff(h, inter);
 			if (r != LWSSSSRET_OK)
-				return _lws_ss_handle_state_ret(r, wsi, &h);
+				return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 
 			return -1; /* end this stream */
 		}
@@ -484,7 +484,7 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			if (n) {
 				r = lws_ss_event_helper(h, n);
 				if (r != LWSSSSRET_OK)
-					return _lws_ss_handle_state_ret(r, wsi,
+					return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi,
 									&h);
 			}
 		}
@@ -506,7 +506,7 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		r = lws_ss_event_helper(h, LWSSSCS_CONNECTED);
 		if (r != LWSSSSRET_OK)
-			return _lws_ss_handle_state_ret(r, wsi, &h);
+			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 
 		/*
 		 * Since it's an http transaction we initiated... this is
@@ -655,7 +655,7 @@ malformed:
 				!strcmp(h->policy->u.http.method, "POST"))) {
 			r = lws_ss_event_helper(h, LWSSSCS_CONNECTED);
 			if (r)
-				return _lws_ss_handle_state_ret(r, wsi, &h);
+				return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 		}
 
 		break;
@@ -685,7 +685,7 @@ malformed:
 
 		r = h->info.rx(ss_to_userobj(h), (const uint8_t *)in, len, f);
 		if (r != LWSSSSRET_OK)
-			return _lws_ss_handle_state_ret(r, wsi, &h);
+			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 
 		return 0; /* don't passthru */
 
@@ -717,7 +717,7 @@ malformed:
 						LWSSSCS_QOS_ACK_REMOTE :
 						LWSSSCS_QOS_NACK_REMOTE);
 		if (r != LWSSSSRET_OK)
-			return _lws_ss_handle_state_ret(r, wsi, &h);
+			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 
 		lws_cancel_service(lws_get_context(wsi)); /* abort poll wait */
 		break;
@@ -794,7 +794,7 @@ malformed:
 		if (r == LWSSSSRET_TX_DONT_SEND)
 			return 0;
 		if (r < 0)
-			return _lws_ss_handle_state_ret(r, wsi, &h);
+			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 
 		// lwsl_notice("%s: WRITEABLE: user tx says len %d fl 0x%x\n",
 		//	    __func__, (int)buflen, (int)f);
@@ -897,7 +897,7 @@ malformed:
 
 		r = lws_ss_event_helper(h, LWSSSCS_SERVER_TXN);
 		if (r)
-			return _lws_ss_handle_state_ret(r, wsi, &h);
+			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 		return 0;
 #endif
 

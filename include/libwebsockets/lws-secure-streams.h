@@ -281,7 +281,7 @@ typedef enum {
  */
 
 typedef enum lws_ss_state_return {
-	LWSSSSRET_TX_DONT_SEND		=  1, /* (*tx) only */
+	LWSSSSRET_TX_DONT_SEND		=  1, /* (*tx) only, or failure */
 
 	LWSSSSRET_OK			=  0, /* no error */
 	LWSSSSRET_DISCONNECT_ME		= -1, /* caller should disconnect us */
@@ -451,10 +451,15 @@ lws_ss_request_tx_len(struct lws_ss_handle *pss, unsigned long len);
  *
  * \param h: secure streams handle
  *
- * Starts the connection process for the secure stream.  Returns 0 if OK or
- * nonzero if we have already failed.
+ * Starts the connection process for the secure stream.
+ *
+ * Can return any of the lws_ss_state_return_t values depending on user
+ * state callback returns.
+ *
+ * LWSSSSRET_OK means the connection is ongoing.
+ *
  */
-LWS_VISIBLE LWS_EXTERN int
+LWS_VISIBLE LWS_EXTERN lws_ss_state_return_t
 lws_ss_client_connect(struct lws_ss_handle *h);
 
 /**

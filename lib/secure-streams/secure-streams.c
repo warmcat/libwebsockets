@@ -112,7 +112,7 @@ lws_ss_event_helper(lws_ss_handle_t *h, lws_ss_constate_t cs)
 }
 
 int
-_lws_ss_handle_state_ret(lws_ss_state_return_t r, struct lws *wsi,
+_lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(lws_ss_state_return_t r, struct lws *wsi,
 			 lws_ss_handle_t **ph)
 {
 	if (r == LWSSSSRET_DESTROY_ME) {
@@ -315,7 +315,7 @@ lws_ss_smd_tx_cb(lws_sorted_usec_list_t *sul)
 
 #endif
 
-int
+lws_ss_state_return_t
 _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry)
 {
 	const char *prot, *_prot, *ipath, *_ipath, *ads, *_ads;
@@ -331,7 +331,7 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry)
 	if (!h->policy) {
 		lwsl_err("%s: ss with no policy\n", __func__);
 
-		return -1;
+		return LWSSSSRET_OK;
 	}
 
 	/*
@@ -348,7 +348,7 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry)
 	if (h->policy == &pol_smd) {
 
 		if (h->u.smd.smd_peer)
-			return 0;
+			return LWSSSSRET_OK;
 
 		// lwsl_notice("%s: received connect for _lws_smd, registering for class mask 0x%x\n",
 		//		__func__, h->info.manual_initial_tx_credit);
@@ -359,14 +359,14 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry)
 					h->info.manual_initial_tx_credit,
 					lws_smd_ss_cb);
 		if (!h->u.smd.smd_peer)
-			return -1;
+			return LWSSSSRET_TX_DONT_SEND;
 
 		if (lws_ss_event_helper(h, LWSSSCS_CONNECTING))
-			return -1;
+			return LWSSSSRET_TX_DONT_SEND;
 		// lwsl_err("%s: registered SS SMD\n", __func__);
 		if (lws_ss_event_helper(h, LWSSSCS_CONNECTED))
-			return -1;
-		return 0;
+			return LWSSSSRET_TX_DONT_SEND;
+		return LWSSSSRET_OK;
 	}
 #endif
 
@@ -382,7 +382,7 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry)
 			      &used_in, &used_out) != LSTRX_DONE) {
 		lwsl_err("%s: address strexp failed\n", __func__);
 
-		return -1;
+		return LWSSSSRET_TX_DONT_SEND;
 	}
 
 	/*
@@ -459,7 +459,7 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry)
 	if (!ssp) {
 		lwsl_err("%s: unsupported protocol\n", __func__);
 
-		return -1;
+		return LWSSSSRET_TX_DONT_SEND;
 	}
 	i.alpn = ssp->alpn;
 
@@ -490,25 +490,26 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry)
 		return r;
 
 	if (!lws_client_connect_via_info(&i)) {
+		/*
+		 * We already found that we could not connect, without even
+		 * having to go around the event loop
+		 */
+
 		r = lws_ss_event_helper(h, LWSSSCS_UNREACHABLE);
-		if (r == LWSSSSRET_DESTROY_ME)
-			return !!_lws_ss_handle_state_ret(r, NULL, &h);
 		if (r)
 			return r;
 
 		r = lws_ss_backoff(h);
-		if (r == LWSSSSRET_DESTROY_ME)
-			return !!_lws_ss_handle_state_ret(r, NULL, &h);
 		if (r)
 			return r;
 
-		return 1;
+		return LWSSSSRET_TX_DONT_SEND;
 	}
 
-	return 0;
+	return LWSSSSRET_OK;
 }
 
-int
+lws_ss_state_return_t
 lws_ss_client_connect(lws_ss_handle_t *h)
 {
 	return _lws_ss_client_connect(h, 0);
@@ -529,6 +530,7 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	const lws_ss_policy_t *pol;
+	lws_ss_state_return_t r;
 	lws_ss_metadata_t *smd;
 	lws_ss_handle_t *h;
 	size_t size;
@@ -795,7 +797,10 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 	}
 #endif
 
-	if (lws_ss_event_helper(h, LWSSSCS_CREATING)) {
+	r = lws_ss_event_helper(h, LWSSSCS_CREATING);
+	lwsl_info("%s: CREATING returned status %d\n", __func__, (int)r);
+	if (r == LWSSSSRET_DESTROY_ME) {
+
 late_bail:
 		lws_pt_lock(pt, __func__);
 		lws_dll2_remove(&h->list);
@@ -813,10 +818,18 @@ late_bail:
 				)
 #endif
 			    ))
-		if (_lws_ss_client_connect(h, 0)) {
+		switch (_lws_ss_client_connect(h, 0)) {
+		case LWSSSSRET_OK:
+			break;
+		case LWSSSSRET_TX_DONT_SEND:
+		case LWSSSSRET_DISCONNECT_ME:
 			if (lws_ss_backoff(h))
 				/* has been destroyed */
 				return 1;
+			break;
+		case LWSSSSRET_DESTROY_ME:
+			lws_ss_destroy(&h);
+			return 1;
 		}
 
 	return 0;
@@ -1116,7 +1129,7 @@ lws_ss_to_cb(lws_sorted_usec_list_t *sul)
 	if (h->wsi)
 		lws_set_timeout(h->wsi, 1, LWS_TO_KILL_ASYNC);
 
-	_lws_ss_handle_state_ret(r, h->wsi, &h);
+	_lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, h->wsi, &h);
 }
 
 void

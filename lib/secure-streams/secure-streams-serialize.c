@@ -407,12 +407,33 @@ lws_ss_deserialize_parse(struct lws_ss_serialization_parser *par,
 					goto hangup;
 				if (*state != LPCSPROX_OPERATIONAL)
 					goto hangup;
+
 				par->ps = RPAR_TYPE;
 				lwsl_notice("%s: LWSSS_SER_TXPRE_ONWARD_CONNECT\n", __func__);
+
 				if (proxy_pss_to_ss_h(pss) &&
 				    !proxy_pss_to_ss_h(pss)->wsi)
-					_lws_ss_client_connect(
-						proxy_pss_to_ss_h(pss), 0);
+					/*
+					 * We're going to try to do the onward
+					 * connect, but that could end in any
+					 * of the ways like DESTROY_ME etc
+					 */
+					switch (_lws_ss_client_connect(
+						proxy_pss_to_ss_h(pss), 0)) {
+					case LWSSSSRET_OK:
+						/* well, connect is ongoing */
+						break;
+					case LWSSSSRET_TX_DONT_SEND:
+						/* it has failed already... */
+						break;
+					case LWSSSSRET_DISCONNECT_ME:
+//						if (lws_ss_backoff(h))
+//							/* has been destroyed */
+//							return 1;
+						break;
+					case LWSSSSRET_DESTROY_ME:
+						goto hangup;
+					}
 				break;
 
 			case LWSSS_SER_TXPRE_STREAMTYPE:

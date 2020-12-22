@@ -49,11 +49,11 @@ secstream_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			  h, h->policy->streamtype, in ? (char *)in : "(null)");
 		r = lws_ss_event_helper(h, LWSSSCS_UNREACHABLE);
 		if (r == LWSSSSRET_DESTROY_ME)
-			return _lws_ss_handle_state_ret(r, wsi, &h);
+			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 		h->wsi = NULL;
 		r = lws_ss_backoff(h);
 		if (r != LWSSSSRET_OK)
-			return _lws_ss_handle_state_ret(r, wsi, &h);
+			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 		break;
 
 	case LWS_CALLBACK_RAW_CLOSE:
@@ -76,13 +76,13 @@ secstream_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		    !h->txn_ok && !wsi->a.context->being_destroyed) {
 			r = lws_ss_backoff(h);
 			if (r != LWSSSSRET_OK)
-				return _lws_ss_handle_state_ret(r, wsi, &h);
+				return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 			break;
 		}
 		/* wsi is going down anyway */
 		r = lws_ss_event_helper(h, LWSSSCS_DISCONNECTED);
 		if (r == LWSSSSRET_DESTROY_ME)
-			return _lws_ss_handle_state_ret(r, wsi, &h);
+			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 		break;
 
 	case LWS_CALLBACK_RAW_CONNECTED:
@@ -93,7 +93,7 @@ secstream_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		lws_sul_cancel(&h->sul);
 		r = lws_ss_event_helper(h, LWSSSCS_CONNECTED);
 		if (r != LWSSSSRET_OK)
-			return _lws_ss_handle_state_ret(r, wsi, &h);
+			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 
 		lws_validity_confirmed(wsi);
 		break;
@@ -109,7 +109,7 @@ secstream_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		r = h->info.rx(ss_to_userobj(h), (const uint8_t *)in, len, 0);
 		if (r != LWSSSSRET_OK)
-			return _lws_ss_handle_state_ret(r, wsi, &h);
+			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 
 		return 0; /* don't passthru */
 
@@ -123,7 +123,7 @@ secstream_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (r == LWSSSSRET_TX_DONT_SEND)
 			return 0;
 		if (r < 0)
-			return _lws_ss_handle_state_ret(r, wsi, &h);
+			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 
 		/*
 		 * flags are ignored with raw, there are no protocol payload
