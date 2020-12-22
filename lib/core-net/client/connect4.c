@@ -178,7 +178,7 @@ send_hs:
 			/* for a method = "RAW" connection, this makes us
 			 * established */
 
-#if defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS)
+#if defined(LWS_WITH_TLS)// && !defined(LWS_WITH_MBEDTLS)
 
 			/* we have connected if we got here */
 
@@ -297,7 +297,7 @@ send_hs:
 		 * and won't until many retries from main loop.  To stop that
 		 * becoming endless, cover with a timeout.
 		 */
-#if defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS)
+#if defined(LWS_WITH_TLS) //&& !defined(LWS_WITH_MBEDTLS)
 provoke_service:
 #endif
 		lws_set_timeout(wsi, PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE,
