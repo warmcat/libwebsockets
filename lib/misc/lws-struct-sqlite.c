@@ -190,6 +190,7 @@ lws_struct_sq3_deserialize(sqlite3 *pdb, const char *filter, const char *order,
 		order = "_lws_idx";
 
 	memset(&a, 0, sizeof(a));
+	a.ac = *ac;
 	a.cb_arg = o; /* lws_dll2_owner tracking query result objects */
 	a.map_st[0]  = schema->child_map;
 	a.map_entries_st[0] = schema->child_map_size;
