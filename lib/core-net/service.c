@@ -304,6 +304,10 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 	if (!context)
 		return 1;
 
+        if (!context->protocol_init_done)
+                if (lws_protocol_init(context))
+                        return 1;
+
 #if defined(LWS_WITH_SYS_SMD)
 	if (!tsi && lws_smd_message_pending(context)) {
 		lws_smd_msg_distribute(context);
