@@ -62,3 +62,9 @@ doc
 /q/
 /b1/
 /destdir/
+
+/.idea/
+
+/cmake-build-debug/
+
+/cmake-build-release/
