@@ -1068,7 +1068,10 @@ lws_create_context(const struct lws_context_creation_info *info)
 				goto bail_libuv_aware;
 		}
 
-	if (lws_create_event_pipes(context))
+	lws_context_lock(context, __func__);
+	n = __lws_create_event_pipes(context);
+	lws_context_unlock(context);
+	if (n)
 		goto bail_libuv_aware;
 
 	for (n = 0; n < context->count_threads; n++) {

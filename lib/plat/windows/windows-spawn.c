@@ -67,7 +67,6 @@ lws_create_basic_wsi(struct lws_context *context, int tsi,
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	struct lws *new_wsi;
-	size_t s = sizeof(*new_wsi);
 
 	if (!context->vhost_list)
 		return NULL;
@@ -78,23 +77,14 @@ lws_create_basic_wsi(struct lws_context *context, int tsi,
 		return NULL;
 	}
 
-#if defined(LWS_WITH_EVENT_LIBS)
-	s += vhost->context->event_loop_ops->evlib_size_wsi;
-#endif
-
-	new_wsi = lws_zalloc(s, "new wsi");
+	lws_context_lock(context, __func__);
+	new_wsi = __lws_wsi_create_with_role(context, tsi, ops);
+	lws_context_unlock(context);
 	if (new_wsi == NULL) {
 		lwsl_err("Out of memory for new connection\n");
 		return NULL;
 	}
 
-#if defined(LWS_WITH_EVENT_LIBS)
-	new_wsi->evlib_wsi = (uint8_t *)new_wsi + sizeof(*new_wsi);
-#endif
-
-	new_wsi->tsi = tsi;
-	new_wsi->a.context = context;
-	new_wsi->pending_timeout = NO_PENDING_TIMEOUT;
 	new_wsi->rxflow_change_to = LWS_RXFLOW_ALLOW;
 
 	/* initialize the instance struct */

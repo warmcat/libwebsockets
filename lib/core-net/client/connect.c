@@ -90,9 +90,8 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	const char *local = i->protocol;
 	struct lws *wsi, *safe = NULL;
 	const struct lws_protocols *p;
-	size_t s = sizeof(struct lws);
 	const char *cisin[CIS_COUNT];
-	int tid = 0, n, m;
+	int tid = 0, n, m, tsi = 0;
 	size_t size;
 	char *pc;
 
@@ -112,18 +111,39 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 
 	lws_stats_bump(&i->context->pt[tid], LWSSTATS_C_CONNS_CLIENT, 1);
 
-	/* PHASE 1: create a bare wsi */
 
-#if defined(LWS_WITH_EVENT_LIBS)
-	s += i->context->event_loop_ops->evlib_size_wsi;
+	lws_context_lock(i->context, __func__);
+	/*
+	 * PHASE 1: if SMP, find out the tsi related to current service thread
+	 */
+
+#if LWS_MAX_SMP > 1
+
+	for (n = 0; n < i->context->count_threads; n++)
+		if (i->context->pt[n].service_tid == tid) {
+			lwsl_info("%s: client binds to caller tsi %d\n",
+				  __func__, n);
+			tsi = n;
+
+			break;
+		}
+
+	/*
+	 * this binding is sort of provisional, since when we try to insert
+	 * into the pt fds, there may be no space and it will fail
+	 */
+
 #endif
 
-	wsi = lws_zalloc(s, "client wsi");
+	/* PHASE 2: create a bare wsi */
+
+	wsi = __lws_wsi_create_with_role(i->context, tsi, NULL);
+	lws_context_unlock(i->context);
 	if (wsi == NULL)
 		goto bail;
 
-#if defined(LWS_WITH_EVENT_LIBS)
-	wsi->evlib_wsi = (uint8_t *)wsi + sizeof(*wsi);
+#if defined(LWS_WITH_DETAILED_LATENCY) && LWS_MAX_SMP > 1
+	wsi->detlat.tsi = tsi;
 #endif
 
 	/*
@@ -137,8 +157,6 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	else
 		wsi->keep_warm_secs = 5;
 
-	wsi->a.context = i->context;
-	wsi->desc.sockfd = LWS_SOCK_INVALID;
 	wsi->seq = i->seq;
 	wsi->flags = i->ssl_connection;
 	if (i->retry_and_idle_policy)
@@ -154,7 +172,6 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	if (i->ssl_connection & LCCSCF_WAKE_SUSPEND__VALIDITY)
 		wsi->conn_validity_wakesuspend = 1;
 
-	wsi->a.vhost = NULL;
 	if (!i->vhost) {
 		struct lws_vhost *v = i->context->vhost_list;
 
@@ -177,33 +194,6 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 #if LWS_MAX_SMP > 1
 	tid = wsi->a.vhost->protocols[0].callback(wsi,
 				LWS_CALLBACK_GET_THREAD_ID, NULL, NULL, 0);
-#endif
-
-	/*
-	 * PHASE 2: if SMP, bind the client to whatever tsi the current thread
-	 * represents
-	 */
-
-#if LWS_MAX_SMP > 1
-	lws_context_lock(i->context, "client find tsi");
-
-	for (n = 0; n < i->context->count_threads; n++)
-		if (i->context->pt[n].service_tid == tid) {
-			lwsl_info("%s: client binds to caller tsi %d\n",
-				  __func__, n);
-			wsi->tsi = n;
-#if defined(LWS_WITH_DETAILED_LATENCY)
-			wsi->detlat.tsi = n;
-#endif
-			break;
-		}
-
-	/*
-	 * this binding is sort of provisional, since when we try to insert
-	 * into the pt fds, there may be no space and it will fail
-	 */
-
-	lws_context_unlock(i->context);
 #endif
 
 	/*

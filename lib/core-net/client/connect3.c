@@ -524,9 +524,9 @@ oom4:
 		struct lws_vhost *vhost = wsi->a.vhost;
 		lws_sockfd_type sfd = wsi->desc.sockfd;
 
-		lws_vhost_lock(vhost);
-		__lws_free_wsi(wsi);
-		lws_vhost_unlock(vhost);
+		//lws_vhost_lock(vhost);
+		__lws_free_wsi(wsi); /* acquires vhost lock in wsi reset */
+		//lws_vhost_unlock(vhost);
 
 		sanity_assert_no_wsi_traces(vhost->context, wsi);
 		sanity_assert_no_sockfd_traces(vhost->context, sfd);

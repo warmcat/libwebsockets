@@ -1250,7 +1250,7 @@ lws_http_client_connect_via_info2(struct lws *wsi);
 
 
 struct lws *
-lws_wsi_create_with_role(struct lws_context *context, int tsi,
+__lws_wsi_create_with_role(struct lws_context *context, int tsi,
 			 const struct lws_role_ops *ops);
 int
 lws_wsi_inject_to_loop(struct lws_context_per_thread *pt, struct lws *wsi);

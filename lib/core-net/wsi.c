@@ -190,13 +190,19 @@ lws_callback_vhost_protocols(struct lws *wsi, int reason, void *in, int len)
 	return 0;
 }
 
+/*
+ * We need the context lock
+ */
+
 struct lws *
-lws_wsi_create_with_role(struct lws_context *context, int tsi,
+__lws_wsi_create_with_role(struct lws_context *context, int tsi,
 			 const struct lws_role_ops *ops)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	size_t s = sizeof(struct lws);
 	struct lws *wsi;
+
+	lws_context_assert_lock_held(context);
 
 #if defined(LWS_WITH_EVENT_LIBS)
 	s += context->event_loop_ops->evlib_size_wsi;
@@ -214,14 +220,19 @@ lws_wsi_create_with_role(struct lws_context *context, int tsi,
 #endif
 	wsi->a.context = context;
 	lws_role_transition(wsi, 0, LRS_UNCONNECTED, ops);
+	wsi->pending_timeout = NO_PENDING_TIMEOUT;
 	wsi->a.protocol = NULL;
 	wsi->tsi = tsi;
 	wsi->a.vhost = NULL;
 	wsi->desc.sockfd = LWS_SOCK_INVALID;
+	wsi->position_in_fds_table = LWS_NO_FDS_POS;
 
 	lws_pt_lock(pt, __func__);
 	pt->count_wsi_allocated++;
 	lws_pt_unlock(pt);
+
+	lwsl_notice("%s: tsi %d: role: %s\n", __func__, tsi,
+			ops ? ops->name : "none");
 
 	return wsi;
 }

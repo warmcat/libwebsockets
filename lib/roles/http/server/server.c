@@ -272,21 +272,16 @@ done_list:
 			goto deal;
 		}
 
-		{
-			size_t s = sizeof(struct lws);
+		/*
+		 * Create the listen wsi and customize it
+		 */
 
-#if defined(LWS_WITH_EVENT_LIBS)
-			s += vhost->context->event_loop_ops->evlib_size_wsi;
-#endif
-
-			wsi = lws_zalloc(s, "listen wsi");
-			if (wsi == NULL) {
-				lwsl_err("Out of mem\n");
-				goto bail;
-			}
-#if defined(LWS_WITH_EVENT_LIBS)
-			wsi->evlib_wsi = (uint8_t *)wsi + sizeof(*wsi);
-#endif
+		lws_context_lock(vhost->context, __func__);
+		wsi = __lws_wsi_create_with_role(vhost->context, m, &role_ops_listen);
+		lws_context_unlock(vhost->context);
+		if (wsi == NULL) {
+			lwsl_err("Out of mem\n");
+			goto bail;
 		}
 
 #ifdef LWS_WITH_UNIX_SOCK
@@ -299,11 +294,8 @@ done_list:
 			lwsl_debug("%s: lws_socket_bind says %d\n", __func__, is);
 		}
 
-		wsi->a.context = vhost->context;
 		wsi->desc.sockfd = sockfd;
-		lws_role_transition(wsi, 0, LRS_UNCONNECTED, &role_ops_listen);
 		wsi->a.protocol = vhost->protocols;
-		wsi->tsi = m;
 		lws_vhost_bind_wsi(vhost, wsi);
 		wsi->listener = 1;
 
@@ -319,7 +311,6 @@ done_list:
 			goto bail;
 		}
 
-		pt->count_wsi_allocated++;
 		vhost->lserv_wsi = wsi;
 		lws_pt_unlock(pt);
 

@@ -637,6 +637,7 @@ void lwsl_emit_stderr(int level, const char *line);
 #if LWS_MAX_SMP > 1
 #define lws_context_lock(c, reason) lws_mutex_refcount_lock(&c->mr, reason)
 #define lws_context_unlock(c) lws_mutex_refcount_unlock(&c->mr)
+#define lws_context_assert_lock_held(c) lws_mutex_refcount_assert_held(&c->mr)
 
 static LWS_INLINE void
 lws_vhost_lock(struct lws_vhost *vhost)
@@ -659,6 +660,7 @@ lws_vhost_unlock(struct lws_vhost *vhost)
 #define lws_pt_unlock(_a) (void)(_a)
 #define lws_context_lock(_a, _b) (void)(_a)
 #define lws_context_unlock(_a) (void)(_a)
+#define lws_context_assert_lock_held(_a) (void)(_a)
 #define lws_vhost_lock(_a) (void)(_a)
 #define lws_vhost_unlock(_a) (void)(_a)
 #define lws_pt_stats_lock(_a) (void)(_a)
@@ -713,7 +715,7 @@ void lws_free(void *p);
 #endif
 
 int
-lws_create_event_pipes(struct lws_context *context);
+__lws_create_event_pipes(struct lws_context *context);
 
 int
 lws_plat_apply_FD_CLOEXEC(int n);

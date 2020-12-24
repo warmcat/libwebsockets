@@ -352,8 +352,11 @@ rops_pt_init_destroy_netlink(struct lws_context *context,
 	/*
 	 * We want a netlink socket per pt as well
 	 */
-	wsi = lws_wsi_create_with_role(context, (int)(pt - &context->pt[0]),
+
+	lws_context_lock(context, __func__);
+	wsi = __lws_wsi_create_with_role(context, (int)(pt - &context->pt[0]),
 				       &role_ops_netlink);
+	lws_context_unlock(context);
 	if (!wsi)
 		goto bail;
 

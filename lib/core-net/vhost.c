@@ -920,7 +920,7 @@ lws_cancel_service(struct lws_context *context)
 }
 
 int
-lws_create_event_pipes(struct lws_context *context)
+__lws_create_event_pipes(struct lws_context *context)
 {
 	struct lws_context_per_thread *pt;
 	struct lws *wsi;
@@ -942,7 +942,7 @@ lws_create_event_pipes(struct lws_context *context)
 		if (pt->pipe_wsi)
 			return 0;
 
-		wsi = lws_wsi_create_with_role(context, n, &role_ops_pipe);
+		wsi = __lws_wsi_create_with_role(context, n, &role_ops_pipe);
 		if (!wsi)
 			return 1;
 

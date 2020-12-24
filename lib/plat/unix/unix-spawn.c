@@ -63,39 +63,28 @@ lws_spawn_sul_reap(struct lws_sorted_usec_list *sul)
 }
 
 static struct lws *
-lws_create_basic_wsi(struct lws_context *context, int tsi,
+lws_create_stdwsi(struct lws_context *context, int tsi,
 		     const struct lws_role_ops *ops)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
-	size_t s = sizeof(struct lws);
 	struct lws *new_wsi;
 
 	if (!context->vhost_list)
 		return NULL;
 
-	if ((unsigned int)context->pt[tsi].fds_count ==
-	    context->fd_limit_per_thread - 1) {
+	if ((unsigned int)pt->fds_count == context->fd_limit_per_thread - 1) {
 		lwsl_err("no space for new conn\n");
 		return NULL;
 	}
 
-#if defined(LWS_WITH_EVENT_LIBS)
-	s += context->event_loop_ops->evlib_size_wsi;
-#endif
-
-	new_wsi = lws_zalloc(s, "new wsi");
+	lws_context_lock(context, __func__);
+	new_wsi = __lws_wsi_create_with_role(context, tsi, ops);
+	lws_context_unlock(context);
 	if (new_wsi == NULL) {
 		lwsl_err("Out of memory for new connection\n");
 		return NULL;
 	}
 
-#if defined(LWS_WITH_EVENT_LIBS)
-	new_wsi->evlib_wsi = (uint8_t *)new_wsi + sizeof(*new_wsi);
-#endif
-
-	new_wsi->tsi = tsi;
-	new_wsi->a.context = context;
-	new_wsi->pending_timeout = NO_PENDING_TIMEOUT;
 	new_wsi->rxflow_change_to = LWS_RXFLOW_ALLOW;
 
 	/* initialize the instance struct */
@@ -103,7 +92,6 @@ lws_create_basic_wsi(struct lws_context *context, int tsi,
 	lws_role_transition(new_wsi, 0, LRS_ESTABLISHED, ops);
 
 	new_wsi->hdr_parsing_completed = 0;
-	new_wsi->position_in_fds_table = LWS_NO_FDS_POS;
 
 	/*
 	 * these can only be set once the protocol is known
@@ -113,10 +101,6 @@ lws_create_basic_wsi(struct lws_context *context, int tsi,
 	 */
 
 	new_wsi->user_space = NULL;
-	new_wsi->desc.sockfd = LWS_SOCK_INVALID;
-	lws_pt_lock(pt, __func__);
-	pt->count_wsi_allocated++;
-	lws_pt_unlock(pt);
 
 	return new_wsi;
 }
@@ -365,7 +349,7 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	/* create wsis for each stdin/out/err fd */
 
 	for (n = 0; n < 3; n++) {
-		lsp->stdwsi[n] = lws_create_basic_wsi(i->vh->context, i->tsi,
+		lsp->stdwsi[n] = lws_create_stdwsi(i->vh->context, i->tsi,
 					  i->ops ? i->ops : &role_ops_raw_file);
 		if (!lsp->stdwsi[n]) {
 			lwsl_err("%s: unable to create lsp stdwsi\n", __func__);

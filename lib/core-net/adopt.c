@@ -47,10 +47,8 @@ lws_get_idlest_tsi(struct lws_context *context)
 struct lws *
 lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi)
 {
-	struct lws_context_per_thread *pt;
 	struct lws *new_wsi;
 	int n = fixed_tsi;
-	size_t s = sizeof(struct lws);
 
 	if (n < 0)
 		n = lws_get_idlest_tsi(vhost->context);
@@ -60,29 +58,20 @@ lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi)
 		return NULL;
 	}
 
-#if defined(LWS_WITH_EVENT_LIBS)
-	s += vhost->context->event_loop_ops->evlib_size_wsi;
-#endif
-
-	new_wsi = lws_zalloc(s, "new server wsi");
+	lws_context_lock(vhost->context, __func__);
+	new_wsi = __lws_wsi_create_with_role(vhost->context, fixed_tsi, NULL);
+	lws_context_unlock(vhost->context);
 	if (new_wsi == NULL) {
 		lwsl_err("Out of memory for new connection\n");
 		return NULL;
 	}
 
-#if defined(LWS_WITH_EVENT_LIBS)
-	new_wsi->evlib_wsi = (uint8_t *)new_wsi + sizeof(*new_wsi);
-#endif
-
 	new_wsi->wsistate |= LWSIFR_SERVER;
 	new_wsi->tsi = n;
-	pt = &vhost->context->pt[n];
 	lwsl_debug("new wsi %p joining vhost %s, tsi %d\n", new_wsi,
 		   vhost->name, new_wsi->tsi);
 
 	lws_vhost_bind_wsi(vhost, new_wsi);
-	new_wsi->a.context = vhost->context;
-	new_wsi->pending_timeout = NO_PENDING_TIMEOUT;
 	new_wsi->rxflow_change_to = LWS_RXFLOW_ALLOW;
 	new_wsi->retry_policy = vhost->retry_policy;
 
@@ -108,12 +97,6 @@ lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi)
 	 */
 	new_wsi->a.protocol = vhost->protocols;
 	new_wsi->user_space = NULL;
-	new_wsi->desc.sockfd = LWS_SOCK_INVALID;
-	new_wsi->position_in_fds_table = LWS_NO_FDS_POS;
-
-	lws_pt_lock(pt, __func__);
-	pt->count_wsi_allocated++;
-	lws_pt_unlock(pt);
 
 	/*
 	 * outermost create notification for wsi

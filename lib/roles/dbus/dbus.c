@@ -42,13 +42,12 @@
 /*
  * retreives existing or creates new shadow wsi for fd owned by dbus stuff.
  *
- * Requires vhost lock
+ * Requires context + vhost lock
  */
 
 static struct lws *
 __lws_shadow_wsi(struct lws_dbus_ctx *ctx, DBusWatch *w, int fd, int create_ok)
 {
-	size_t s = sizeof(struct lws);
 	struct lws *wsi;
 
 	if (fd < 0 || fd >= (int)ctx->vh->context->fd_limit_per_thread) {
@@ -69,27 +68,18 @@ __lws_shadow_wsi(struct lws_dbus_ctx *ctx, DBusWatch *w, int fd, int create_ok)
 	if (!create_ok)
 		return NULL;
 
-#if defined(LWS_WITH_EVENT_LIBS)
-	s += ctx->vh->context->event_loop_ops->evlib_size_wsi;
-#endif
-
-	wsi = lws_zalloc(s, "shadow wsi");
+	/* requires context lock */
+	wsi = __lws_wsi_create_with_role(ctx->vh->context, ctx->tsi, NULL);
 	if (wsi == NULL) {
 		lwsl_err("Out of mem\n");
 		return NULL;
 	}
 
-#if defined(LWS_WITH_EVENT_LIBS)
-	wsi->evlib_wsi = (uint8_t *)wsi + sizeof(*wsi);
-#endif
-
 	lwsl_info("%s: creating shadow wsi\n", __func__);
 
-	wsi->a.context = ctx->vh->context;
 	wsi->desc.sockfd = fd;
 	lws_role_transition(wsi, 0, LRS_ESTABLISHED, &role_ops_dbus);
 	wsi->a.protocol = ctx->vh->protocols;
-	wsi->tsi = ctx->tsi;
 	wsi->shadow = 1;
 	wsi->opaque_parent_data = ctx;
 	ctx->w[0] = w;
@@ -97,12 +87,11 @@ __lws_shadow_wsi(struct lws_dbus_ctx *ctx, DBusWatch *w, int fd, int create_ok)
 	lws_vhost_bind_wsi(ctx->vh, wsi);
 	if (__insert_wsi_socket_into_fds(ctx->vh->context, wsi)) {
 		lwsl_err("inserting wsi socket into fds failed\n");
+		ctx->vh->context->pt[(int)ctx->tsi].count_wsi_allocated--;
 		lws_vhost_unbind_wsi(wsi);
 		lws_free(wsi);
 		return NULL;
 	}
-
-	ctx->vh->context->pt[(int)ctx->tsi].count_wsi_allocated++;
 
 	return wsi;
 }
@@ -157,11 +146,13 @@ lws_dbus_add_watch(DBusWatch *w, void *data)
 	struct lws *wsi;
 	int n;
 
+	lws_context_lock(pt->context, __func__);
 	lws_pt_lock(pt, __func__);
 
 	wsi = __lws_shadow_wsi(ctx, w, dbus_watch_get_unix_fd(w), 1);
 	if (!wsi) {
 		lws_pt_unlock(pt);
+		lws_context_unlock(pt->context);
 		lwsl_err("%s: unable to get wsi\n", __func__);
 
 		return FALSE;
@@ -193,6 +184,7 @@ lws_dbus_add_watch(DBusWatch *w, void *data)
 	__lws_change_pollfd(wsi, 0, lws_flags);
 
 	lws_pt_unlock(pt);
+	lws_context_unlock(pt->context);
 
 	return TRUE;
 }
@@ -233,6 +225,7 @@ lws_dbus_remove_watch(DBusWatch *w, void *data)
 	struct lws *wsi;
 	int n;
 
+	lws_context_lock(pt->context, __func__);
 	lws_pt_lock(pt, __func__);
 
 	wsi = __lws_shadow_wsi(ctx, w, dbus_watch_get_unix_fd(w), 0);
@@ -261,6 +254,7 @@ lws_dbus_remove_watch(DBusWatch *w, void *data)
 
 bail:
 	lws_pt_unlock(pt);
+	lws_context_unlock(pt->context);
 }
 
 static void
