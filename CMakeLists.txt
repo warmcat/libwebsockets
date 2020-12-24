@@ -865,14 +865,6 @@ if(WIN32 AND NOT CYGWIN)
 else()
   set(DEF_INSTALL_CMAKE_DIR lib${LIB_SUFFIX}/cmake/libwebsockets)
 endif()
-
-if (DEFINED REL_INCLUDE_DIR)
-    set(LWS__INCLUDE_DIRS "\${LWS_CMAKE_DIR}/${REL_INCLUDE_DIR}")
-endif() 
-
-configure_file(${PROJECT_SOURCE_DIR}/cmake/libwebsockets-config.cmake.in
-                ${PROJECT_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/libwebsockets-config.cmake 
-                @ONLY)
                 
 configure_file(${PROJECT_SOURCE_DIR}/cmake/LwsCheckRequirements.cmake
 		${PROJECT_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/LwsCheckRequirements.cmake
@@ -976,6 +968,14 @@ file(RELATIVE_PATH
     REL_INCLUDE_DIR 
     "${LWS_ABSOLUTE_INSTALL_CMAKE_DIR}"
     "${LWS_ABSOLUTE_INSTALL_INCLUDE_DIR}") # Calculate the relative directory from the cmake dir.
+
+if (DEFINED REL_INCLUDE_DIR)
+    set(LWS__INCLUDE_DIRS "\${LWS_CMAKE_DIR}/${REL_INCLUDE_DIR}")
+endif()
+
+configure_file(${PROJECT_SOURCE_DIR}/cmake/libwebsockets-config.cmake.in
+                ${PROJECT_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/libwebsockets-config.cmake
+                @ONLY)
 
 set_target_properties(${LWS_LIBRARIES}
 		PROPERTIES PUBLIC_HEADER "${HDR_PUBLIC}")
