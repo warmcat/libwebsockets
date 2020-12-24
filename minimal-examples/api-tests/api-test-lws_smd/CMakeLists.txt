@@ -11,7 +11,7 @@ require_lws_config(LWS_WITH_SYS_SMD 1 requirements)
 
 if (requirements)
 	add_executable(${PROJECT_NAME} main.c)
-	add_test(NAME api-test-lws_smd COMMAND lws-api-test-lws_smd -d1039)
+	add_test(NAME api-test-lws_smd COMMAND lws-api-test-lws_smd -d1151)
 	set_tests_properties(api-test-lws_smd
 			     PROPERTIES
 			     RUN_SERIAL TRUE

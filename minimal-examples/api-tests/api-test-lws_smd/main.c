@@ -58,19 +58,23 @@ smd_cb2int(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
 static void *
 _thread_spam(void *d)
 {
-	int n;
+	int n, atm = 0;
 
 	n = 0;
 	while (n++ < 100) {
 
+		atm++;
 		if (lws_smd_msg_printf(context, LWSSMDCL_SYSTEM_STATE,
 					       "{\"s\":\"state\",\"msg\":%d}",
 					       (unsigned int)n)) {
-			lwsl_info("%s: send failed\n", __func__);
+			lwsl_err("%s: send attempt %d failed\n", __func__, atm);
 			n--;
 			fail++;
-			interrupted = 1;
-			lws_cancel_service(context);
+			if (fail >= 3) {
+				interrupted = 1;
+				lws_cancel_service(context);
+				break;
+			}
 		}
 #if defined(WIN32)
 		Sleep(3);
