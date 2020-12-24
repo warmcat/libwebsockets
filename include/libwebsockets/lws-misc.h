@@ -186,6 +186,9 @@ lws_buflist_describe(struct lws_buflist **head, void *id, const char *reason);
 #define lws_ptr_diff(head, tail) \
 			((int)((char *)(head) - (char *)(tail)))
 
+#define lws_ptr_diff_size_t(head, tail) \
+			((size_t)(ssize_t)((char *)(head) - (char *)(tail)))
+
 /**
  * lws_snprintf(): snprintf that truncates the returned length too
  *
