@@ -42,7 +42,7 @@ lws_http_client_connect_via_info2(struct lws *wsi)
 	struct client_info_stash *stash = wsi->stash;
 	int n;
 
-	lwsl_debug("%s: %p (stash %p)\n", __func__, wsi, stash);
+	lwsl_debug("%s: %s (stash %p)\n", __func__, lws_lc_tag(&wsi->lc), stash);
 
 	if (!stash)
 		return wsi;
@@ -252,8 +252,8 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 		else
 			lwsl_info("%s: unknown protocol %s\n", __func__, local);
 
-		lwsl_info("%s: wsi %p: %s %s entry\n",
-			    __func__, wsi, wsi->role_ops->name,
+		lwsl_info("%s: %s: %s %s entry\n",
+			    __func__, lws_wsi_tag(wsi), wsi->role_ops->name,
 			    wsi->a.protocol ? wsi->a.protocol->name : "none");
 	}
 
@@ -320,7 +320,27 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 #if defined(LWS_WITH_SECURE_STREAMS)
 	wsi->for_ss = !!(i->ssl_connection & LCCSCF_SECSTREAM_CLIENT);
 		/* implies our opaque user ptr is the ss handle */
+	if (wsi->for_ss) {
+		/* it's related to ss... the options are
+		 *
+		 * LCCSCF_SECSTREAM_PROXY_LINK  : client SSPC link to proxy
+		 * LCCSCF_SECSTREAM_PROXY_ONWARD: proxy's onward connection
+		 */
+		__lws_lc_tag(&i->context->lcg[
+#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
+		         i->ssl_connection & LCCSCF_SECSTREAM_PROXY_LINK ? LWSLCG_WSI_SSP_CLIENT :
+		         (i->ssl_connection & LCCSCF_SECSTREAM_PROXY_ONWARD ? LWSLCG_WSI_SSP_ONWARD : LWSLCG_WSI_CLIENT)],
+#else
+				LWSLCG_WSI_CLIENT],
 #endif
+			&wsi->lc, "%s/%s/%s/(%s)", i->method ? i->method : "WS",
+			wsi->role_ops->name, i->address,
+			lws_ss_tag(((lws_ss_handle_t *)i->opaque_user_data)));
+	} else
+#endif
+		__lws_lc_tag(&i->context->lcg[LWSLCG_WSI_CLIENT], &wsi->lc,
+			     "%s/%s/%s", i->method ? i->method : "WS",
+			     wsi->role_ops->name, i->address);
 
 	pc = (char *)&wsi->stash[1];
 
@@ -384,8 +404,8 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	if (wsi->role_ops != &role_ops_raw_skt ||
 	    (i->local_protocol_name &&
 	     !strcmp(i->local_protocol_name, "raw-proxy"))) {
-		lwsl_debug("%s: wsi %p: adoption cb %d to %s %s\n", __func__,
-			   wsi, wsi->role_ops->adoption_cb[0],
+		lwsl_debug("%s: %s: adoption cb %d to %s %s\n", __func__,
+			   lws_wsi_tag(wsi), wsi->role_ops->adoption_cb[0],
 			   wsi->role_ops->name, wsi->a.protocol->name);
 
 		wsi->a.protocol->callback(wsi, wsi->role_ops->adoption_cb[0],

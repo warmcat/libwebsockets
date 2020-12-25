@@ -728,5 +728,8 @@ lws_ss_add_peer_tx_credit(struct lws_ss_handle *h, int32_t add);
 LWS_VISIBLE LWS_EXTERN int
 lws_ss_get_est_peer_tx_credit(struct lws_ss_handle *h);
 
+LWS_VISIBLE LWS_EXTERN const char *
+lws_ss_tag(struct lws_ss_handle *h);
+
 ///@}
 

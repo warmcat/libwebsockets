@@ -206,7 +206,7 @@ solo:
 	    lws_dll2_is_detached(&wsi->dll2_cli_txn_queue) &&
 	    lws_dll2_is_detached(&wsi->dll_cli_active_conns)) {
 		lws_vhost_lock(wsi->a.vhost);
-		lwsl_info("%s: adding active conn %p\n", __func__, wsi);
+		lwsl_info("%s: adding active conn %s\n", __func__, lws_wsi_tag(wsi));
 		/* caution... we will have to unpick this on oom4 path */
 		lws_dll2_add_head(&wsi->dll_cli_active_conns,
 				 &wsi->a.vhost->dll_cli_active_conns_owner);
@@ -304,7 +304,7 @@ solo:
 	 */
 	lwsi_set_state(wsi, LRS_WAITING_DNS);
 
-	lwsl_info("%s: %p: lookup %s:%u\n", __func__, wsi, ads, port);
+	lwsl_info("%s: %s: lookup %s:%u\n", __func__, wsi->lc.gutag, ads, port);
 	(void)port;
 
 #if defined(LWS_WITH_DETAILED_LATENCY)

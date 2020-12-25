@@ -143,7 +143,7 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		if (!h || !h->info.tx)
 			return 0;
-		lwsl_notice("%s: ss %p: WRITEABLE\n", __func__, h);
+		lwsl_notice("%s: %s: WRITEABLE\n", __func__, lws_ss_tag(h));
 
 		if (h->seqstate != SSSEQ_CONNECTED) {
 			lwsl_warn("%s: seqstate %d\n", __func__, h->seqstate);

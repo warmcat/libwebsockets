@@ -465,12 +465,12 @@ elops_wsi_logical_close_uv(struct lws *wsi)
 		return 0;
 
 	if (wsi->listener || wsi->event_pipe) {
-		lwsl_debug("%s: %p: %d %d stop listener / pipe poll\n",
-			   __func__, wsi, wsi->listener, wsi->event_pipe);
+		lwsl_debug("%s: %s: %d %d stop listener / pipe poll\n",
+			   __func__, lws_wsi_tag(wsi), wsi->listener, wsi->event_pipe);
 		if (wsi_to_priv_uv(wsi)->w_read.pwatcher)
 			uv_poll_stop(wsi_to_priv_uv(wsi)->w_read.pwatcher);
 	}
-	lwsl_debug("%s: lws_libuv_closehandle: wsi %p\n", __func__, wsi);
+	lwsl_debug("%s: lws_libuv_closehandle: %s\n", __func__, lws_wsi_tag(wsi));
 	/*
 	 * libuv has to do his own close handle processing asynchronously
 	 */
@@ -504,7 +504,7 @@ elops_close_handle_manually_uv(struct lws *wsi)
 {
 	uv_handle_t *h = (uv_handle_t *)wsi_to_priv_uv(wsi)->w_read.pwatcher;
 
-	lwsl_debug("%s: lws_libuv_closehandle: wsi %p\n", __func__, wsi);
+	lwsl_debug("%s: lws_libuv_closehandle: %s\n", __func__, lws_wsi_tag(wsi));
 
 	/*
 	 * the "manual" variant only closes the handle itself and the
@@ -555,7 +555,7 @@ elops_io_uv(struct lws *wsi, int flags)
 	struct lws_io_watcher_libuv *w = &(wsi_to_priv_uv(wsi)->w_read);
 	int current_events = w->actual_events & (UV_READABLE | UV_WRITABLE);
 
-	lwsl_debug("%s: %p: %d\n", __func__, wsi, flags);
+	lwsl_debug("%s: %s: %d\n", __func__, lws_wsi_tag(wsi), flags);
 
 	/* w->context is set after the loop is initialized */
 
@@ -783,7 +783,7 @@ lws_libuv_closewsi(uv_handle_t* handle)
 	int lspd = 0;
 #endif
 
-	lwsl_info("%s: %p\n", __func__, wsi);
+	lwsl_info("%s: %s\n", __func__, lws_wsi_tag(wsi));
 
 	lws_context_lock(context, __func__);
 
@@ -856,7 +856,7 @@ lws_libuv_closehandle(struct lws *wsi)
 		return;
 	}
 
-	lwsl_debug("%s: %p\n", __func__, wsi);
+	lwsl_debug("%s: %s\n", __func__, lws_wsi_tag(wsi));
 
 	wsi->told_event_loop_closed = 1;
 

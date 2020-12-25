@@ -45,8 +45,8 @@ secstream_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		assert(h);
 		assert(h->policy);
-		lwsl_info("%s: h: %p, %s CLIENT_CONNECTION_ERROR: %s\n", __func__,
-			  h, h->policy->streamtype, in ? (char *)in : "(null)");
+		lwsl_info("%s: %s, %s CLIENT_CONNECTION_ERROR: %s\n", __func__,
+			  lws_ss_tag(h), h->policy->streamtype, in ? (char *)in : "(null)");
 		r = lws_ss_event_helper(h, LWSSSCS_UNREACHABLE);
 		if (r == LWSSSSRET_DESTROY_ME)
 			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
@@ -60,8 +60,8 @@ secstream_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (!h)
 			break;
 		lws_sul_cancel(&h->sul_timeout);
-		lwsl_info("%s: h: %p, %s LWS_CALLBACK_CLOSED_CLIENT_HTTP\n",
-			  __func__, h,
+		lwsl_info("%s: %s, %s LWS_CALLBACK_CLOSED_CLIENT_HTTP\n",
+			  __func__, lws_ss_tag(h),
 			  h->policy ? h->policy->streamtype : "no policy");
 		h->wsi = NULL;
 #if defined(LWS_WITH_SERVER)

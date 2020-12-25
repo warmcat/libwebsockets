@@ -71,7 +71,7 @@ lws_ntpc_retry_conn(struct lws_sorted_usec_list *sul)
 {
 	struct vhd_ntpc *v = lws_container_of(sul, struct vhd_ntpc, sul_conn);
 
-	lwsl_debug("%s: wsi_udp: %p\n", __func__, v->wsi_udp);
+	lwsl_debug("%s: wsi_udp: %s\n", __func__, lws_wsi_tag(v->wsi_udp));
 
 	if (v->wsi_udp || !lws_dll2_is_detached(&v->sul_conn.list))
 		return;
@@ -84,7 +84,7 @@ lws_ntpc_retry_conn(struct lws_sorted_usec_list *sul)
 	v->wsi_udp = lws_create_adopt_udp(v->vhost, v->ntp_server_ads, 123, 0,
 					  v->protocol->name, NULL, NULL, NULL,
 					  &bo2);
-	lwsl_debug("%s: created wsi_udp: %p\n", __func__, v->wsi_udp);
+	lwsl_debug("%s: created wsi_udp: %s\n", __func__, lws_wsi_tag(v->wsi_udp));
 	if (!v->wsi_udp) {
 		lwsl_err("%s: unable to create udp skt\n", __func__);
 

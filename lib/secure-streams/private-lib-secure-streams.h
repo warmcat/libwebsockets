@@ -44,6 +44,8 @@ typedef enum {
 typedef struct lws_ss_handle {
 	lws_ss_info_t		info;	  /**< copy of stream creation info */
 
+	lws_lifecycle_t		lc;
+
 	struct lws_dll2		list;	  /**< pt lists active ss */
 	struct lws_dll2		to_list;  /**< pt lists ss with pending to-s */
 #if defined(LWS_WITH_SERVER)
@@ -258,6 +260,9 @@ enum {
 
 typedef struct lws_sspc_handle {
 	char			rideshare_list[128];
+
+	lws_lifecycle_t		lc;
+
 	lws_ss_info_t		ssi;
 	lws_sorted_usec_list_t	sul_retry;
 
@@ -434,6 +439,9 @@ _lws_ss_set_metadata(lws_ss_metadata_t *omd, const char *name,
 
 lws_ss_state_return_t
 _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry);
+
+void
+__lws_ss_proxy_bind_ss_to_conn_wsi(void * parconn);
 
 struct lws_vhost *
 lws_ss_policy_ref_trust_store(struct lws_context *context,

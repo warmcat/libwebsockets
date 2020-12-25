@@ -259,8 +259,8 @@ lws_threadpool_task_cleanup_destroy(struct lws_threadpool_task *task)
 
 	lws_dll2_remove(&task->list);
 
-	lwsl_thread("%s: tp %p: cleaned finished task for wsi %p\n",
-		    __func__, task->tp, task_to_wsi(task));
+	lwsl_thread("%s: tp %p: cleaned finished task for %s\n",
+		    __func__, task->tp, lws_wsi_tag(task_to_wsi(task)));
 
 	lws_free(task);
 }
@@ -283,8 +283,8 @@ __lws_threadpool_reap(struct lws_threadpool_task *task)
 				t->task_queue_next = NULL;
 				tp->done_queue_depth--;
 
-				lwsl_thread("%s: tp %s: reaped task wsi %p\n", __func__,
-					   tp->name, task_to_wsi(task));
+				lwsl_thread("%s: tp %s: reaped task %s\n", __func__,
+					   tp->name, lws_wsi_tag(task_to_wsi(task)));
 
 				break;
 			}
@@ -401,8 +401,8 @@ lws_threadpool_worker_sync(struct lws_pool *pool,
 	lwsl_debug("%s: %p: LWS_TP_RETURN_SYNC in\n", __func__, task);
 	pthread_mutex_lock(&pool->lock); /* ======================= pool lock */
 
-	lwsl_info("%s: %s: task %p (%s): syncing with wsi %p\n", __func__,
-		    pool->tp->name, task, task->name, task_to_wsi(task));
+	lwsl_info("%s: %s: task %p (%s): syncing with %s\n", __func__,
+		    pool->tp->name, task, task->name, lws_wsi_tag(task_to_wsi(task)));
 
 	temp = task->status;
 	state_transition(task, LWS_TP_STATUS_SYNCING);
@@ -458,9 +458,9 @@ lws_threadpool_worker_sync(struct lws_pool *pool,
 			task->late_sync_retries++;
 			if (!tries) {
 				lwsl_err("%s: %s: task %p (%s): SYNC timed out "
-					 "(associated wsi %p)\n",
+					 "(associated %s)\n",
 					 __func__, pool->tp->name, task,
-					 task->name, task_to_wsi(task));
+					 task->name, lws_wsi_tag(task_to_wsi(task)));
 
 				state_transition(task, LWS_TP_STATUS_STOPPING);
 				goto done;
@@ -872,8 +872,8 @@ lws_threadpool_dequeue_task(struct lws_threadpool_task *task)
 			tp->done_queue_depth++;
 			task->done = lws_now_usecs();
 
-			lwsl_debug("%s: tp %p: removed queued task wsi %p\n",
-				    __func__, tp, task_to_wsi(task));
+			lwsl_debug("%s: tp %p: removed queued task %s\n",
+				    __func__, tp, lws_wsi_tag(task_to_wsi(task)));
 
 			break;
 		}
@@ -924,15 +924,16 @@ lws_threadpool_dequeue_task(struct lws_threadpool_task *task)
 		pthread_mutex_unlock(&tp->pool_list[n].lock);
 
 		lwsl_debug("%s: tp %p: request stop running task "
-			    "for wsi %p\n", __func__, tp, task_to_wsi(task));
+			    "for %s\n", __func__, tp,
+			    lws_wsi_tag(task_to_wsi(task)));
 
 		break;
 	}
 
 	if (n == tp->threads_in_pool) {
 		/* can't find it */
-		lwsl_notice("%s: tp %p: no task for wsi %p, decoupling\n",
-			    __func__, tp, task_to_wsi(task));
+		lwsl_notice("%s: tp %p: no task for %s, decoupling\n",
+			    __func__, tp, lws_wsi_tag(task_to_wsi(task)));
 		lws_dll2_remove(&task->list);
 		task->args.wsi = NULL;
 #if defined(LWS_WITH_SECURE_STREAMS)
@@ -1029,9 +1030,9 @@ lws_threadpool_enqueue(struct lws_threadpool *tp,
 #endif
 		lws_dll2_add_tail(&task->list, &args->wsi->tp_task_owner);
 
-	lwsl_thread("%s: tp %s: enqueued task %p (%s) for wsi %p, depth %d\n",
-		    __func__, tp->name, task, task->name, task_to_wsi(task),
-		    tp->queue_depth);
+	lwsl_thread("%s: tp %s: enqueued task %p (%s) for %s, depth %d\n",
+		    __func__, tp->name, task, task->name,
+		    lws_wsi_tag(task_to_wsi(task)), tp->queue_depth);
 
 	/* alert any idle thread there's something new on the task list */
 

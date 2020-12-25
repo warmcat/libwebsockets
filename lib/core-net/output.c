@@ -52,9 +52,9 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	 */
 	if (0 && buf && wsi->could_have_pending) {
 		lwsl_hexdump_level(LLL_INFO, buf, len);
-		lwsl_info("** %p: vh: %s, prot: %s, role %s: "
+		lwsl_info("** %s: vh: %s, prot: %s, role %s: "
 			  "Inefficient back-to-back write of %lu detected...\n",
-			  wsi, wsi->a.vhost ? wsi->a.vhost->name : "no vhost",
+			  lws_wsi_tag(wsi), lws_vh_tag(wsi->a.vhost),
 			  wsi->a.protocol->name, wsi->role_ops->name,
 			  (unsigned long)len);
 	}
@@ -71,8 +71,8 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 		return (int)len;
 
 	if (buf && lws_has_buffered_out(wsi)) {
-		lwsl_info("** %p: vh: %s, prot: %s, incr buflist_out by %lu\n",
-			  wsi, wsi->a.vhost ? wsi->a.vhost->name : "no vhost",
+		lwsl_info("** %s: vh: %s, prot: %s, incr buflist_out by %lu\n",
+			  lws_wsi_tag(wsi), lws_vh_tag(wsi->a.vhost),
 			  wsi->a.protocol->name, (unsigned long)len);
 
 		/*
@@ -101,7 +101,7 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 		return 0;
 
 	if (!wsi->mux_substream && !lws_socket_is_valid(wsi->desc.sockfd))
-		lwsl_err("%s: invalid sock %p\n", __func__, wsi);
+		lwsl_err("%s: %s invalid sock\n", __func__, lws_wsi_tag(wsi));
 
 	/* limit sending */
 	if (wsi->a.protocol->tx_packet_size)
@@ -148,18 +148,19 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	 */
 	if (lws_has_buffered_out(wsi)) {
 		if (m) {
-			lwsl_info("%p partial adv %d (vs %ld)\n", wsi, m,
-					(long)real_len);
+			lwsl_info("%s partial adv %d (vs %ld)\n",
+					lws_wsi_tag(wsi), m, (long)real_len);
 			lws_buflist_use_segment(&wsi->buflist_out, m);
 		}
 
 		if (!lws_has_buffered_out(wsi)) {
-			lwsl_info("%s: wsi %p: buflist_out flushed\n",
-				  __func__, wsi);
+			lwsl_info("%s: %s: buflist_out flushed\n",
+				  __func__, lws_wsi_tag(wsi));
 
 			m = (int)real_len;
 			if (lwsi_state(wsi) == LRS_FLUSHING_BEFORE_CLOSE) {
-				lwsl_info("*%p signalling to close now\n", wsi);
+				lwsl_info("*%s signalling to close now\n",
+						lws_wsi_tag(wsi));
 				return -1; /* retry closing now */
 			}
 
@@ -207,8 +208,8 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	 * buffering the unsent remainder on it.
 	 * (it will get first priority next time the socket is writable).
 	 */
-	lwsl_debug("%p new partial sent %d from %lu total\n", wsi, m,
-		    (unsigned long)real_len);
+	lwsl_debug("%s new partial sent %d from %lu total\n", lws_wsi_tag(wsi),
+			m, (unsigned long)real_len);
 
 	if (lws_buflist_append_segment(&wsi->buflist_out, buf + m,
 				       real_len - m) < 0)

@@ -560,7 +560,8 @@ myss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	m->rx_seen += len;
 
 	if (flags & LWSSS_FLAG_EOM)
-		lwsl_notice("%s: received %u bytes\n", __func__,
+		lwsl_notice("%s: %s len %d, fl %d, received %u bytes\n",
+				__func__, lws_ss_tag(m->ss), (int)len, flags,
 				(unsigned int)m->rx_seen);
 
 	return 0;
@@ -586,7 +587,7 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 	char buf[8];
 	size_t sl;
 
-	lwsl_info("%s: ss %p: %s (%d), ord 0x%x\n", __func__, m->ss,
+	lwsl_info("%s: %s: %s (%d), ord 0x%x\n", __func__, lws_ss_tag(m->ss),
 		  lws_ss_state_name((int)state), state, (unsigned int)ack);
 
 	if (curr_test->mask_unexpected & (1u << state)) {
@@ -615,7 +616,7 @@ fail:
 			goto fail;
 		}
 
-		lwsl_notice("%s: saw expected state %s\n",
+		lwsl_warn("%s: saw expected state %s\n",
 				__func__, lws_ss_state_name((int)state));
 		m->result_reported = 1;
 		tests_pass++;
@@ -664,7 +665,7 @@ tests_start_next(lws_sorted_usec_list_t *sul)
 	/* destroy the old one */
 
 	if (h) {
-		lwsl_notice("%s: destroying previous stream\n", __func__);
+		lwsl_info("%s: destroying previous stream\n", __func__);
 		lws_ss_destroy(&h);
 	}
 

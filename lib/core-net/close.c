@@ -184,13 +184,15 @@ __lws_free_wsi(struct lws *wsi)
 
 	lws_vhost_unbind_wsi(wsi);
 
-	lwsl_debug("%s: %p, remaining wsi %d, tsi fds count %d\n", __func__, wsi,
+	lwsl_debug("%s: %s, remaining wsi %d, tsi fds count %d\n", __func__,
+			lws_wsi_tag(wsi),
 			wsi->a.context->pt[(int)wsi->tsi].count_wsi_allocated,
 			wsi->a.context->pt[(int)wsi->tsi].fds_count);
 
 	/* confirm no sul left scheduled in wsi itself */
 	lws_sul_debug_zombies(wsi->a.context, wsi, sizeof(wsi), __func__);
 
+	__lws_lc_untag(&wsi->lc);
 	lws_free(wsi);
 }
 
@@ -208,8 +210,8 @@ lws_remove_child_from_any_parent(struct lws *wsi)
 	pwsi = &wsi->parent->child_list;
 	while (*pwsi) {
 		if (*pwsi == wsi) {
-			lwsl_info("%s: detach %p from parent %p\n", __func__,
-				  wsi, wsi->parent);
+			lwsl_info("%s: detach %s from parent %s\n", __func__,
+					lws_wsi_tag(wsi), lws_wsi_tag(wsi->parent));
 
 			if (wsi->parent->a.protocol)
 				wsi->parent->a.protocol->callback(wsi,
@@ -279,7 +281,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	struct lws *wsi1, *wsi2;
 	int n, ccb;
 
-	lwsl_info("%s: %p: caller: %s\n", __func__, wsi, caller);
+	lwsl_info("%s: %s: caller: %s\n", __func__, lws_wsi_tag(wsi), caller);
 
 	if (!wsi)
 		return;
@@ -287,8 +289,8 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	lws_access_log(wsi);
 
 	if (!lws_dll2_is_detached(&wsi->dll_buflist)) {
-		lwsl_info("%s: wsi %p: going down with stuff in buflist\n",
-				__func__, wsi); }
+		lwsl_info("%s: %s: going down with stuff in buflist\n",
+				__func__, lws_wsi_tag(wsi)); }
 
 	context = wsi->a.context;
 	pt = &context->pt[(int)wsi->tsi];
@@ -414,7 +416,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 			lws_callback_on_writable(wsi);
 			return;
 		}
-		lwsl_info("%p: end LRS_FLUSHING_BEFORE_CLOSE\n", wsi);
+		lwsl_info("%s: %s: end LRS_FLUSHING_BEFORE_CLOSE\n", __func__, lws_wsi_tag(wsi));
 		goto just_kill_connection;
 	default:
 		if (lws_has_buffered_out(wsi)
@@ -423,7 +425,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 		    wsi->http.comp_ctx.may_have_more
 #endif
 		) {
-			lwsl_info("%p: LRS_FLUSHING_BEFORE_CLOSE\n", wsi);
+			lwsl_info("%s: %s: LRS_FLUSHING_BEFORE_CLOSE\n", __func__, lws_wsi_tag(wsi));
 			lwsi_set_state(wsi, LRS_FLUSHING_BEFORE_CLOSE);
 			__lws_set_timeout(wsi,
 				PENDING_FLUSH_STORED_SEND_BEFORE_CLOSE, 5);
@@ -499,7 +501,7 @@ just_kill_connection:
 
 	if (!wsi->told_user_closed && wsi->user_space &&
 	    wsi->protocol_bind_balance && wsi->a.protocol) {
-		lwsl_debug("%s: %p: DROP_PROTOCOL %s\n", __func__, wsi,
+		lwsl_debug("%s: %s: DROP_PROTOCOL %s\n", __func__, lws_wsi_tag(wsi),
 			   wsi->a.protocol ? wsi->a.protocol->name: "NULL");
 		if (wsi->a.protocol)
 			wsi->a.protocol->callback(wsi,
@@ -578,8 +580,8 @@ just_kill_connection:
 		} else
 #endif
 		{
-			lwsl_info("%s: shutdown conn: %p (sk %d, state 0x%x)\n",
-				  __func__, wsi, (int)(lws_intptr_t)wsi->desc.sockfd,
+			lwsl_info("%s: shutdown conn: %s (sk %d, state 0x%x)\n",
+				  __func__, lws_wsi_tag(wsi), (int)(lws_intptr_t)wsi->desc.sockfd,
 				  lwsi_state(wsi));
 			if (!wsi->socket_is_permanently_unusable &&
 			    lws_socket_is_valid(wsi->desc.sockfd)) {
@@ -611,8 +613,8 @@ just_kill_connection:
 #endif
 	}
 
-	lwsl_debug("%s: real just_kill_connection: %p (sockfd %d)\n", __func__,
-		   wsi, wsi->desc.sockfd);
+	lwsl_debug("%s: real just_kill_connection: %s (sockfd %d)\n", __func__,
+			lws_wsi_tag(wsi), wsi->desc.sockfd);
 
 #ifdef LWS_WITH_HUBBUB
 	if (wsi->http.rw) {
@@ -633,8 +635,6 @@ just_kill_connection:
 
 	//if (wsi->told_event_loop_closed) // cgi std close case (dummy-callback)
 	//	return;
-
-	// lwsl_notice("%s: wsi %p, fd %d\n", __func__, wsi, wsi->desc.sockfd);
 
 	/* checking return redundant since we anyway close */
 	__remove_wsi_socket_from_fds(wsi);
@@ -723,7 +723,8 @@ __lws_close_free_wsi_final(struct lws *wsi)
 
 	if (!wsi->shadow &&
 	    lws_socket_is_valid(wsi->desc.sockfd) && !lws_ssl_close(wsi)) {
-		lwsl_debug("%s: wsi %p: fd %d\n", __func__, wsi, wsi->desc.sockfd);
+		lwsl_debug("%s: wsi %s: fd %d\n", __func__, lws_wsi_tag(wsi),
+				wsi->desc.sockfd);
 		n = compatible_close(wsi->desc.sockfd);
 		if (n)
 			lwsl_debug("closing: close ret %d\n", LWS_ERRNO);

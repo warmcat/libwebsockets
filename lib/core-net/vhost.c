@@ -513,6 +513,9 @@ lws_create_vhost(struct lws_context *context,
 	else
 		vh->name = info->vhost_name;
 
+	__lws_lc_tag(&context->lcg[LWSLCG_VHOST], &vh->lc, "%s|%s|%d", vh->name,
+			info->iface ? info->iface : "", info->port);
+
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	vh->http.error_document_404 = info->error_document_404;
 #endif
@@ -946,6 +949,8 @@ __lws_create_event_pipes(struct lws_context *context)
 		if (!wsi)
 			return 1;
 
+		__lws_lc_tag(&context->lcg[LWSLCG_WSI], &wsi->lc, "pipe");
+
 		wsi->event_pipe = 1;
 		pt->pipe_wsi = wsi;
 
@@ -1250,8 +1255,7 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 	lws_dll2_foreach_safe(&vh->abstract_instances_owner, NULL, destroy_ais);
 #endif
 
-	lwsl_debug("  %s: Freeing vhost %p\n", __func__, vh);
-
+	__lws_lc_untag(&vh->lc);
 	memset(vh, 0, sizeof(*vh));
 	lws_free(vh);
 }
@@ -1488,7 +1492,8 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 		struct lws *w = lws_container_of(d, struct lws,
 						 dll_cli_active_conns);
 
-		lwsl_debug("%s: check %p %p %s %s %d %d\n", __func__, wsi, w,
+		lwsl_debug("%s: check %s %s %s %s %d %d\n", __func__,
+				lws_wsi_tag(wsi), lws_wsi_tag(w),
 			    adsin, w->cli_hostname_copy, wsi->c_port, w->c_port);
 
 		if (w != wsi &&
@@ -1581,8 +1586,9 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 			 * to get there or fail.
 			 */
 
-			lwsl_notice("%s: apply %p to txn queue on %p state 0x%lx\n",
-				  __func__, wsi, w, (unsigned long)w->wsistate);
+			lwsl_notice("%s: apply %s to txn queue on %s state 0x%lx\n",
+				  __func__, lws_wsi_tag(wsi), lws_wsi_tag(w),
+				  (unsigned long)w->wsistate);
 			/*
 			 * ...let's add ourselves to his transaction queue...
 			 * we are adding ourselves at the TAIL
@@ -1618,3 +1624,9 @@ solo:
 }
 #endif
 #endif
+
+const char *
+lws_vh_tag(struct lws_vhost *vh)
+{
+	return lws_lc_tag(&vh->lc);
+}

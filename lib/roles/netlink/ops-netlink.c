@@ -366,6 +366,8 @@ rops_pt_init_destroy_netlink(struct lws_context *context,
 		goto bail1;
 	}
 
+	__lws_lc_tag(&context->lcg[LWSLCG_VHOST], &wsi->lc, "netlink");
+
 	memset(&sanl, 0, sizeof(sanl));
 	sanl.nl_family		= AF_NETLINK;
 	sanl.nl_pid		= getpid();

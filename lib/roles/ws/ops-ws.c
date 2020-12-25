@@ -1302,8 +1302,8 @@ int rops_handle_POLLOUT_ws(struct lws *wsi)
 				wsi->ws->ping_pending_flag = 0;
 				return LWS_HP_RET_BAIL_OK;
 			}
-			lwsl_info("issuing pong %d on wsi %p\n",
-				  wsi->ws->ping_payload_len, wsi);
+			lwsl_info("issuing pong %d on %s\n",
+				  wsi->ws->ping_payload_len, lws_wsi_tag(wsi));
 		}
 
 		n = lws_write(wsi, &wsi->ws->ping_payload_buf[LWS_PRE],
@@ -1326,7 +1326,8 @@ int rops_handle_POLLOUT_ws(struct lws *wsi)
 	if (!wsi->socket_is_permanently_unusable &&
 	    wsi->ws->send_check_ping) {
 
-		lwsl_info("%s: issuing ping on wsi %p: %s %s h2: %d\n", __func__, wsi,
+		lwsl_info("%s: issuing ping on wsi %s: %s %s h2: %d\n", __func__,
+				lws_wsi_tag(wsi),
 				wsi->role_ops->name, wsi->a.protocol->name,
 				wsi->mux_substream);
 		wsi->ws->send_check_ping = 0;

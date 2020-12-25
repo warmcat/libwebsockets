@@ -160,12 +160,12 @@ send_hs:
 				wsi->detlat.earliest_write_req_pre_write =
 								lws_now_usecs();
 #endif
-		lwsl_info("%s: wsi %p: waiting to send hdrs (par state 0x%x)\n",
-			    __func__, wsi, lwsi_state(wsi_piggyback));
+		lwsl_info("%s: %s: waiting to send hdrs (par state 0x%x)\n",
+			    __func__, wsi->lc.gutag, lwsi_state(wsi_piggyback));
 	} else {
-		lwsl_info("%s: wsi %p: %s %s client created own conn "
+		lwsl_info("%s: %s: %s %s client created own conn "
 			  "(raw %d) vh %sm st 0x%x\n",
-			    __func__, wsi, wsi->role_ops->name,
+			    __func__, wsi->lc.gutag, wsi->role_ops->name,
 			    wsi->a.protocol->name, rawish, wsi->a.vhost->name,
 			    lwsi_state(wsi));
 
@@ -210,9 +210,9 @@ send_hs:
 				 * LRS_H2_WAITING_TO_SEND_HEADERS already.
 				 */
 
-				lwsl_notice("%s: wsi %p: "
+				lwsl_notice("%s: %s: "
 					    "tls established st 0x%x\n",
-					    __func__, wsi, lwsi_state(wsi));
+					    __func__, wsi->lc.gutag, lwsi_state(wsi));
 
 				if (lwsi_state(wsi) !=
 						LRS_H2_WAITING_TO_SEND_HEADERS)

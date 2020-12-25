@@ -170,7 +170,7 @@ _lws_header_ensure_we_are_on_waiting_list(struct lws *wsi)
 		pwsi = &(*pwsi)->http.ah_wait_list;
 	}
 
-	lwsl_info("%s: wsi: %p\n", __func__, wsi);
+	lwsl_info("%s: wsi: %s\n", __func__, lws_wsi_tag(wsi));
 	wsi->http.ah_wait_list = pt->http.ah_wait_list;
 	pt->http.ah_wait_list = wsi;
 	pt->http.ah_wait_list_length++;
@@ -188,7 +188,7 @@ __lws_remove_from_ah_waiting_list(struct lws *wsi)
 
 	while (*pwsi) {
 		if (*pwsi == wsi) {
-			lwsl_info("%s: wsi %p\n", __func__, wsi);
+			lwsl_info("%s: wsi %s\n", __func__, lws_wsi_tag(wsi));
 			/* point prev guy to our next */
 			*pwsi = wsi->http.ah_wait_list;
 			/* we shouldn't point anywhere now */
@@ -216,8 +216,8 @@ lws_header_table_attach(struct lws *wsi, int autoservice)
 		goto connect_via_info2;
 #endif
 
-	lwsl_info("%s: wsi %p: ah %p (tsi %d, count = %d) in\n", __func__,
-		  (void *)wsi, (void *)wsi->http.ah, wsi->tsi,
+	lwsl_info("%s: %s: ah %p (tsi %d, count = %d) in\n", __func__,
+		  lws_wsi_tag(wsi), (void *)wsi->http.ah, wsi->tsi,
 		  pt->http.ah_count_in_use);
 
 	if (!lwsi_role_http(wsi)) {
@@ -278,8 +278,8 @@ lws_header_table_attach(struct lws *wsi, int autoservice)
 
 	_lws_change_pollfd(wsi, 0, LWS_POLLIN, &pa);
 
-	lwsl_info("%s: did attach wsi %p: ah %p: count %d (on exit)\n", __func__,
-		  (void *)wsi, (void *)wsi->http.ah, pt->http.ah_count_in_use);
+	lwsl_info("%s: did attach wsi %s: ah %p: count %d (on exit)\n", __func__,
+		  lws_wsi_tag(wsi), (void *)wsi->http.ah, pt->http.ah_count_in_use);
 
 reset:
 	__lws_header_table_reset(wsi, autoservice);
@@ -320,8 +320,8 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 	if (!ah)
 		return 0;
 
-	lwsl_info("%s: wsi %p: ah %p (tsi=%d, count = %d)\n", __func__,
-		  (void *)wsi, (void *)ah, wsi->tsi,
+	lwsl_info("%s: %s: ah %p (tsi=%d, count = %d)\n", __func__,
+		  lws_wsi_tag(wsi), (void *)ah, wsi->tsi,
 		  pt->http.ah_count_in_use);
 
 	/* we did have an ah attached */
@@ -331,8 +331,9 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 		 * we're detaching the ah, but it was held an
 		 * unreasonably long time
 		 */
-		lwsl_debug("%s: wsi %p: ah held %ds, role/state 0x%lx 0x%x,"
-			    "\n", __func__, wsi, (int)(now - ah->assigned),
+		lwsl_debug("%s: %s: ah held %ds, role/state 0x%lx 0x%x,"
+			    "\n", __func__, lws_wsi_tag(wsi),
+			    (int)(now - ah->assigned),
 			    (unsigned long)lwsi_role(wsi), lwsi_state(wsi));
 	}
 
@@ -361,7 +362,7 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 	 * at least one wsi on the same tsi is waiting, give it to oldest guy
 	 * who is allowed to take it (if any)
 	 */
-	lwsl_info("pt wait list %p\n", *pwsi);
+	lwsl_info("%s: pt wait list %s\n", __func__, lws_wsi_tag(*pwsi));
 	wsi = NULL;
 	pwsi_eligible = NULL;
 
@@ -387,7 +388,7 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 		goto nobody_usable_waiting;
 
 	lwsl_info("%s: transferring ah to last eligible wsi in wait list "
-		  "%p (wsistate 0x%lx)\n", __func__, wsi,
+		  "%s (wsistate 0x%lx)\n", __func__, lws_wsi_tag(wsi),
 		  (unsigned long)wsi->wsistate);
 
 	wsi->http.ah = ah;
@@ -404,7 +405,7 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 
 	/* clients acquire the ah and then insert themselves in fds table... */
 	if (wsi->position_in_fds_table != LWS_NO_FDS_POS) {
-		lwsl_info("%s: Enabling %p POLLIN\n", __func__, wsi);
+		lwsl_info("%s: Enabling %s POLLIN\n", __func__, lws_wsi_tag(wsi));
 
 		/* he has been stuck waiting for an ah, but now his wait is
 		 * over, let him progress */
@@ -436,8 +437,8 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 	assert(!!pt->http.ah_wait_list_length ==
 			!!(lws_intptr_t)pt->http.ah_wait_list);
 bail:
-	lwsl_info("%s: wsi %p: ah %p (tsi=%d, count = %d)\n", __func__,
-		  (void *)wsi, (void *)ah, pt->tid, pt->http.ah_count_in_use);
+	lwsl_info("%s: %s: ah %p (tsi=%d, count = %d)\n", __func__,
+		  lws_wsi_tag(wsi), (void *)ah, pt->tid, pt->http.ah_count_in_use);
 
 	return 0;
 

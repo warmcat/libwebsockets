@@ -74,6 +74,10 @@ enum lws_client_connect_ssl_connection_flags {
 	 */
 	LCCSCF_SECSTREAM_CLIENT			= (1 << 21),
 	/**< used to mark client wsi as bound to secure stream */
+	LCCSCF_SECSTREAM_PROXY_LINK		= (1 << 22),
+	/**< client is a link between SS client and SS proxy */
+	LCCSCF_SECSTREAM_PROXY_ONWARD		= (1 << 23),
+	/**< client the SS proxy's onward connection */
 };
 
 /** struct lws_client_connect_info - parameters to connect with when using

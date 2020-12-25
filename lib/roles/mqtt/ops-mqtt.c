@@ -181,7 +181,7 @@ drain:
 
 	if (buffered && /* were draining, now nothing left */
 	    !lws_buflist_next_segment_len(&wsi->buflist, NULL)) {
-		lwsl_info("%s: %p flow buf: drained\n", __func__, wsi);
+		lwsl_info("%s: %s flow buf: drained\n", __func__, lws_wsi_tag(wsi));
 		/* having drained the rxflow buffer, can rearm POLLIN */
 #if !defined(LWS_WITH_SERVER)
 		n =
@@ -343,8 +343,8 @@ rops_handle_POLLOUT_mqtt(struct lws *wsi)
 			goto next_child;
 		}
 
-		lwsl_debug("%s: child %p (wsistate 0x%x)\n", __func__, w,
-			    (unsigned int)w->wsistate);
+		lwsl_debug("%s: child %s (wsistate 0x%x)\n", __func__,
+			   lws_wsi_tag(w), (unsigned int)w->wsistate);
 
 		if (lwsi_state(wsi) == LRS_ESTABLISHED &&
 		    !wsi->mqtt->inside_payload &&
@@ -372,7 +372,7 @@ rops_handle_POLLOUT_mqtt(struct lws *wsi)
 		}
 
 		if (lws_callback_as_writeable(w)) {
-			lwsl_notice("%s: Closing child %p\n", __func__, w);
+			lwsl_notice("%s: Closing child %s\n", __func__, lws_wsi_tag(w));
 			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 					   "mqtt pollout handle");
 			wa = &wsi->mux.child_list;
@@ -470,7 +470,8 @@ rops_callback_on_writable_mqtt(struct lws *wsi)
 #endif
 	int already;
 
-	lwsl_debug("%s: %p (wsistate 0x%x)\n", __func__, wsi, (unsigned int)wsi->wsistate);
+	lwsl_debug("%s: %s (wsistate 0x%x)\n", __func__, lws_wsi_tag(wsi),
+			(unsigned int)wsi->wsistate);
 
 	if (wsi->mux.requested_POLLOUT
 #if defined(LWS_WITH_CLIENT)
@@ -520,8 +521,9 @@ rops_callback_on_writable_mqtt(struct lws *wsi)
 static int
 rops_close_kill_connection_mqtt(struct lws *wsi, enum lws_close_status reason)
 {
-	lwsl_info(" wsi: %p, his parent %p: child list %p, siblings:\n", wsi,
-			wsi->mux.parent_wsi, wsi->mux.child_list);
+	lwsl_info(" %s, his parent %s: child list %p, siblings:\n",
+			lws_wsi_tag(wsi),
+			lws_wsi_tag(wsi->mux.parent_wsi), wsi->mux.child_list);
 	//lws_wsi_mux_dump_children(wsi);
 
 	if (wsi->mux_substream
@@ -529,11 +531,13 @@ rops_close_kill_connection_mqtt(struct lws *wsi, enum lws_close_status reason)
 			|| wsi->client_mux_substream
 #endif
 	) {
-		lwsl_info("closing %p: parent %p: first child %p\n", wsi,
-				wsi->mux.parent_wsi, wsi->mux.child_list);
+		lwsl_info("closing %s: parent %s: first child %p\n",
+				lws_wsi_tag(wsi),
+				lws_wsi_tag(wsi->mux.parent_wsi),
+				wsi->mux.child_list);
 
 		if (wsi->mux.child_list && lwsl_visible(LLL_INFO)) {
-			lwsl_info(" parent %p: closing children: list:\n", wsi);
+			lwsl_info(" parent %s: closing children: list:\n", lws_wsi_tag(wsi));
 			lws_wsi_mux_dump_children(wsi);
 		}
 

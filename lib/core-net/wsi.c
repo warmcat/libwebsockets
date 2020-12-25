@@ -24,12 +24,18 @@
 
 #include "private-lib-core.h"
 
+const char *
+lws_wsi_tag(struct lws *wsi)
+{
+	return lws_lc_tag(&wsi->lc);
+}
+
 #if defined (_DEBUG)
 void lwsi_set_role(struct lws *wsi, lws_wsi_state_t role)
 {
 	wsi->wsistate = (wsi->wsistate & (~LWSI_ROLE_MASK)) | role;
 
-	lwsl_debug("lwsi_set_role(%p, 0x%lx)\n", wsi,
+	lwsl_debug("lwsi_set_role(%s, 0x%lx)\n", lws_wsi_tag(wsi),
 					(unsigned long)wsi->wsistate);
 }
 
@@ -37,7 +43,7 @@ void lwsi_set_state(struct lws *wsi, lws_wsi_state_t lrs)
 {
 	wsi->wsistate = (wsi->wsistate & (~LRS_MASK)) | lrs;
 
-	lwsl_debug("lwsi_set_state(%p, 0x%lx)\n", wsi,
+	lwsl_debug("lwsi_set_state(%s, 0x%lx)\n", lws_wsi_tag(wsi),
 					(unsigned long)wsi->wsistate);
 }
 #endif
@@ -196,11 +202,13 @@ lws_callback_vhost_protocols(struct lws *wsi, int reason, void *in, int len)
 
 struct lws *
 __lws_wsi_create_with_role(struct lws_context *context, int tsi,
-			 const struct lws_role_ops *ops)
+			   const struct lws_role_ops *ops)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	size_t s = sizeof(struct lws);
 	struct lws *wsi;
+
+	assert(tsi >= 0 && tsi < LWS_MAX_SMP);
 
 	lws_context_assert_lock_held(context);
 
@@ -231,8 +239,8 @@ __lws_wsi_create_with_role(struct lws_context *context, int tsi,
 	pt->count_wsi_allocated++;
 	lws_pt_unlock(pt);
 
-	lwsl_notice("%s: tsi %d: role: %s\n", __func__, tsi,
-			ops ? ops->name : "none");
+//	lwsl_debug("%s: tsi %d: role: %s\n", __func__, tsi,
+//			ops ? ops->name : "none");
 
 	return wsi;
 }
@@ -326,7 +334,7 @@ lws_rx_flow_control(struct lws *wsi, int _enable)
 	    lwsi_role_h2_ENCAPSULATION(wsi))
 		return 0; // !!!
 
-	lwsl_info("%s: %p 0x%x\n", __func__, wsi, _enable);
+	lwsl_info("%s: %s 0x%x\n", __func__, lws_wsi_tag(wsi), _enable);
 
 	if (!(_enable & LWS_RXFLOW_REASON_APPLIES)) {
 		/*
@@ -353,7 +361,8 @@ lws_rx_flow_control(struct lws *wsi, int _enable)
 	wsi->rxflow_change_to = LWS_RXFLOW_PENDING_CHANGE |
 				(!wsi->rxflow_bitmap);
 
-	lwsl_info("%s: %p: bitmap 0x%x: en 0x%x, ch 0x%x\n", __func__, wsi,
+	lwsl_info("%s: %s: bitmap 0x%x: en 0x%x, ch 0x%x\n", __func__,
+		  lws_wsi_tag(wsi),
 		  wsi->rxflow_bitmap, en, wsi->rxflow_change_to);
 
 	if (_enable & LWS_RXFLOW_REASON_FLAG_PROCESS_NOW ||
@@ -439,7 +448,7 @@ __lws_rx_flow_control(struct lws *wsi)
 
 	wsi->rxflow_change_to &= ~LWS_RXFLOW_PENDING_CHANGE;
 
-	lwsl_info("rxflow: wsi %p change_to %d\n", wsi,
+	lwsl_info("rxflow: %s change_to %d\n", lws_wsi_tag(wsi),
 		  wsi->rxflow_change_to & LWS_RXFLOW_ALLOW);
 
 	/* adjust the pollfd for this wsi */
@@ -482,8 +491,9 @@ lws_ensure_user_space(struct lws *wsi)
 			return 1;
 		}
 	} else
-		lwsl_debug("%s: %p protocol pss %lu, user_space=%p\n", __func__,
-			   wsi, (long)wsi->a.protocol->per_session_data_size,
+		lwsl_debug("%s: %s protocol pss %lu, user_space=%p\n", __func__,
+			   lws_wsi_tag(wsi),
+			   (long)wsi->a.protocol->per_session_data_size,
 			   wsi->user_space);
 	return 0;
 }
@@ -554,8 +564,8 @@ lws_role_transition(struct lws *wsi, enum lwsi_role role, enum lwsi_state state,
 #if (_LWS_ENABLED_LOGS & LLL_DEBUG)
 	if (wsi->role_ops)
 		name = wsi->role_ops->name;
-	lwsl_debug("%s: %p: wsistate 0x%lx, ops %s\n", __func__, wsi,
-		   (unsigned long)wsi->wsistate, name);
+	lwsl_debug("%s: %s: wsistate 0x%lx, ops %s\n", __func__,
+		   lws_wsi_tag(wsi), (unsigned long)wsi->wsistate, name);
 #endif
 }
 
@@ -1025,8 +1035,8 @@ _lws_generic_transaction_completed_active_conn(struct lws **_wsi, char take_vh_l
 	/* after the first one, they can only be coming from the queue */
 	wnew->transaction_from_pipeline_queue = 1;
 
-	lwsl_notice("%s: pipeline queue passed wsi %p on to queued wsi %p\n",
-			__func__, wsi, wnew);
+	lwsl_notice("%s: pipeline queue passed %s on to queued %s\n",
+			__func__, lws_wsi_tag(wsi), lws_wsi_tag(wnew));
 
 	*_wsi = wnew; /* inform caller we swapped */
 
@@ -1046,7 +1056,8 @@ lws_raw_transaction_completed(struct lws *wsi)
 		 * Defer the close until the last part of the partial is sent.
 		 *
 		 */
-		lwsl_debug("%s: %p: deferring due to partial\n", __func__, wsi);
+		lwsl_debug("%s: %s: deferring due to partial\n", __func__,
+				lws_wsi_tag(wsi));
 		wsi->close_when_buffered_out_drained = 1;
 		lws_callback_on_writable(wsi);
 
@@ -1125,7 +1136,7 @@ lws_http_close_immortal(struct lws *wsi)
 	wsi->mux_stream_immortal = 0;
 
 	nwsi = lws_get_network_wsi(wsi);
-	lwsl_debug("%s: %p %p %d\n", __func__, wsi, nwsi,
+	lwsl_debug("%s: %s %s %d\n", __func__, lws_wsi_tag(wsi), lws_wsi_tag(nwsi),
 				     nwsi->immortal_substream_count);
 	assert(nwsi->immortal_substream_count);
 	nwsi->immortal_substream_count--;
@@ -1159,7 +1170,7 @@ lws_mux_mark_immortal(struct lws *wsi)
 	if (!nwsi)
 		return;
 
-	lwsl_debug("%s: %p %p %d\n", __func__, wsi, nwsi,
+	lwsl_debug("%s: %s %s %d\n", __func__, lws_wsi_tag(wsi), lws_wsi_tag(nwsi),
 				     nwsi->immortal_substream_count);
 
 	wsi->mux_stream_immortal = 1;
@@ -1208,8 +1219,8 @@ lws_wsi_client_stash_item(struct lws *wsi, int stash_idx, int hdr_idx)
 void
 lws_wsi_mux_insert(struct lws *wsi, struct lws *parent_wsi, int sid)
 {
-	lwsl_info("%s: wsi %p, par %p: assign sid %d (curr %d)\n", __func__,
-		  wsi, parent_wsi, sid, wsi->mux.my_sid);
+	lwsl_info("%s: %s, par %s: assign sid %d (curr %d)\n", __func__,
+		  lws_wsi_tag(wsi), lws_wsi_tag(parent_wsi), sid, wsi->mux.my_sid);
 
 	if (wsi->mux.my_sid && wsi->mux.my_sid != (unsigned int)sid)
 		assert(0);
@@ -1247,8 +1258,9 @@ lws_wsi_mux_dump_children(struct lws *wsi)
 
 	lws_start_foreach_llp(struct lws **, w,
 			      wsi->mux.parent_wsi->mux.child_list) {
-		lwsl_info("   \\---- child %s %p\n",
-			  (*w)->role_ops ? (*w)->role_ops->name : "?", *w);
+		lwsl_info("   \\---- child %s %s\n",
+			  (*w)->role_ops ? (*w)->role_ops->name : "?",
+					  lws_wsi_tag(*w));
 		assert(*w != (*w)->mux.sibling_list);
 	} lws_end_foreach_llp(w, mux.sibling_list);
 #endif
@@ -1265,7 +1277,7 @@ lws_wsi_mux_close_children(struct lws *wsi, int reason)
 
 	w = &wsi->mux.child_list;
 	while (*w) {
-		lwsl_info("   closing child %p\n", *w);
+		lwsl_info("   closing child %s\n", lws_wsi_tag(*w));
 		/* disconnect from siblings */
 		wsi2 = (*w)->mux.sibling_list;
 		assert (wsi2 != *w);
@@ -1290,8 +1302,8 @@ lws_wsi_mux_sibling_disconnect(struct lws *wsi)
 			wsi2 = (*w)->mux.sibling_list;
 			(*w)->mux.sibling_list = NULL;
 			*w = wsi2;
-			lwsl_debug("  %p disentangled from sibling %p\n",
-				  wsi, wsi2);
+			lwsl_debug("  %s disentangled from sibling %s\n",
+				  lws_wsi_tag(wsi), lws_wsi_tag(wsi2));
 			break;
 		}
 	} lws_end_foreach_llp(w, mux.sibling_list);
@@ -1304,14 +1316,14 @@ void
 lws_wsi_mux_dump_waiting_children(struct lws *wsi)
 {
 #if defined(_DEBUG)
-	lwsl_info("%s: %p: children waiting for POLLOUT service:\n",
-		  __func__, wsi);
+	lwsl_info("%s: %s: children waiting for POLLOUT service:\n",
+		  __func__, lws_wsi_tag(wsi));
 
 	wsi = wsi->mux.child_list;
 	while (wsi) {
-		lwsl_info("  %c %p: sid %u: 0x%x %s %s\n",
+		lwsl_info("  %c %s: sid %u: 0x%x %s %s\n",
 			  wsi->mux.requested_POLLOUT ? '*' : ' ',
-			  wsi, wsi->mux.my_sid, lwsi_state(wsi),
+			  lws_wsi_tag(wsi), wsi->mux.my_sid, lwsi_state(wsi),
 			  wsi->role_ops->name,
 			  wsi->a.protocol ? wsi->a.protocol->name : "noprotocol");
 
@@ -1331,8 +1343,8 @@ lws_wsi_mux_mark_parents_needing_writeable(struct lws *wsi)
 	wsi2 = wsi;
 	while (wsi2) {
 		wsi2->mux.requested_POLLOUT = 1;
-		lwsl_info("%s: mark wsi: %p, sid %u, pending writable\n",
-			  __func__, wsi2, wsi2->mux.my_sid);
+		lwsl_info("%s: mark: %s, sid %u, pending writable\n",
+			  __func__, lws_wsi_tag(wsi2), wsi2->mux.my_sid);
 		wsi2 = wsi2->mux.parent_wsi;
 	}
 
@@ -1346,7 +1358,8 @@ lws_wsi_mux_move_child_to_tail(struct lws **wsi2)
 
 	while (w) {
 		if (!w->mux.sibling_list) { /* w is the current last */
-			lwsl_debug("w=%p, *wsi2 = %p\n", w, *wsi2);
+			lwsl_debug("w=%s, *wsi2 = %s\n", lws_wsi_tag(w),
+					lws_wsi_tag(*wsi2));
 
 			if (w == *wsi2) /* we are already last */
 				break;
@@ -1481,7 +1494,8 @@ lws_wsi_mux_apply_queue(struct lws *wsi)
 #if defined(LWS_ROLE_H2)
 		if (lwsi_role_http(wsi) &&
 		    lwsi_state(w) == LRS_H2_WAITING_TO_SEND_HEADERS) {
-			lwsl_info("%s: cli pipeq %p to be h2\n", __func__, w);
+			lwsl_info("%s: cli pipeq %s to be h2\n", __func__,
+					lws_wsi_tag(w));
 
 			lwsi_set_state(w, LRS_H1C_ISSUE_HANDSHAKE2);
 
@@ -1496,7 +1510,8 @@ lws_wsi_mux_apply_queue(struct lws *wsi)
 #if defined(LWS_ROLE_MQTT)
 		if (lwsi_role_mqtt(wsi) &&
 		    lwsi_state(wsi) == LRS_ESTABLISHED) {
-			lwsl_info("%s: cli pipeq %p to be mqtt\n", __func__, w);
+			lwsl_info("%s: cli pipeq %s to be mqtt\n", __func__,
+					lws_wsi_tag(w));
 
 			/* remove ourselves from client queue */
 			lws_dll2_remove(&w->dll2_cli_txn_queue);

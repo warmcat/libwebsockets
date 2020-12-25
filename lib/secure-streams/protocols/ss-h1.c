@@ -375,11 +375,13 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	switch (reason) {
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
-		if (!h)
+		if (!h) {
+			lwsl_err("%s: CCE with no ss handle %s\n", __func__, lws_wsi_tag(wsi));
 			break;
+		}
 		assert(h->policy);
-		lwsl_info("%s: h: %p, %s CLIENT_CONNECTION_ERROR: %s\n", __func__,
-			  h, h->policy->streamtype, in ? (char *)in : "(null)");
+		lwsl_info("%s: %s CLIENT_CONNECTION_ERROR: %s\n", __func__,
+			  h->lc.gutag, in ? (const char *)in : "none");
 		/* already disconnected, no action for DISCONNECT_ME */
 		r = lws_ss_event_helper(h, LWSSSCS_UNREACHABLE);
 		if (r)
@@ -404,9 +406,8 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			break;
 
 		lws_sul_cancel(&h->sul_timeout);
-		lwsl_notice("%s: wsi: %p, h: %p, %s LWS_CALLBACK_CLOSED_CLIENT_HTTP\n",
-			  __func__, wsi, h,
-			  h->policy ? h->policy->streamtype : "no policy");
+		lwsl_notice("%s: %s LWS_CALLBACK_CLOSED_CLIENT_HTTP\n",
+				__func__, wsi->lc.gutag);
 		h->wsi = NULL;
 
 #if defined(LWS_WITH_SERVER)
@@ -726,10 +727,9 @@ malformed:
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
 	case LWS_CALLBACK_CLIENT_HTTP_WRITEABLE:
-		//lwsl_info("%s: wsi %p, par %p, HTTP_WRITEABLE\n", __func__,
-		//		wsi, wsi->mux.parent_wsi);
+
 		if (!h || !h->info.tx) {
-			lwsl_notice("%s: no handle / tx %p\n", __func__, h);
+			lwsl_notice("%s: %s no handle / tx\n", __func__, h->lc.gutag);
 			return 0;
 		}
 

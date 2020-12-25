@@ -75,7 +75,7 @@ lws_cgi_grace(lws_sorted_usec_list_t *sul)
 
 	/* act on the reap cb from earlier */
 
-	lwsl_info("%s: wsi %p\n", __func__, cgi->wsi);
+	lwsl_info("%s: %s\n", __func__, lws_wsi_tag(cgi->wsi));
 
 	if (!cgi->wsi->http.cgi->post_in_expected)
 		cgi->wsi->http.cgi->cgi_transaction_over = 1;
@@ -94,7 +94,7 @@ lws_cgi_reap_cb(void *opaque, lws_usec_t *accounting, siginfo_t *si,
 	 * The cgi has come to an end, by itself or with a signal...
 	 */
 
-	lwsl_info("%s: wsi %p post_in_expected %d\n", __func__, wsi,
+	lwsl_info("%s: %s post_in_expected %d\n", __func__, lws_wsi_tag(wsi),
 			(int)wsi->http.cgi->post_in_expected);
 
 	/*
@@ -903,7 +903,7 @@ lws_cgi_kill(struct lws *wsi)
 	pid_t pid;
 	int n, m;
 
-	lwsl_debug("%s: %p\n", __func__, wsi);
+	lwsl_debug("%s: %s\n", __func__, lws_wsi_tag(wsi));
 
 	if (!wsi->http.cgi || !wsi->http.cgi->lsp)
 		return 0;
@@ -960,9 +960,9 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 				continue;
 
 			if (cgi->content_length) {
-				lwsl_debug("%s: wsi %p: expected content "
+				lwsl_debug("%s: %s: expected content "
 					   "length seen: %lld\n", __func__,
-					   cgi->wsi,
+					   lws_wsi_tag(cgi->wsi),
 				(unsigned long long)cgi->content_length_seen);
 			}
 
@@ -1031,10 +1031,10 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 			continue;
 
 		if (cgi->content_length)
-			lwsl_debug("%s: wsi %p: expected "
+			lwsl_debug("%s: %s: expected "
 				   "content len seen: %lld\n", __func__,
-				   cgi->wsi,
-				(unsigned long long)cgi->content_length_seen);
+				   lws_wsi_tag(cgi->wsi),
+				  (unsigned long long)cgi->content_length_seen);
 
 		/* reap it */
 		if (waitpid(cgi->lsp->child_pid, &status, WNOHANG) > 0) {

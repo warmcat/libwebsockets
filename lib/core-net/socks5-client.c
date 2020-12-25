@@ -260,8 +260,8 @@ lws_socks5c_handle_state(struct lws *wsi, struct lws_pollfd *pollfd,
 	/* handle proxy hung up on us */
 
 	if (pollfd->revents & LWS_POLLHUP) {
-		lwsl_warn("SOCKS connection %p (fd=%d) dead\n",
-			  (void *)wsi, pollfd->fd);
+		lwsl_warn("SOCKS conn %s (fd=%d) dead\n",
+			  lws_wsi_tag(wsi), pollfd->fd);
 		*pcce = "socks conn dead";
 		return LW5CHS_RET_BAIL3;
 	}

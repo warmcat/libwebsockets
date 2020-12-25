@@ -436,8 +436,8 @@ lws_h2_dynamic_table_dump(struct lws *wsi)
 		return 1;
 	dyn = &nwsi->h2.h2n->hpack_dyn_table;
 
-	lwsl_header("Dump dyn table for nwsi %p (%d / %d members, pos = %d, "
-		    "start index %d, virt used %d / %d)\n", nwsi,
+	lwsl_header("Dump dyn table for nwsi %s (%d / %d members, pos = %d, "
+		    "start index %d, virt used %d / %d)\n", lws_wsi_tag(nwsi),
 		    dyn->used_entries, dyn->num_entries, dyn->pos,
 		    (uint32_t)LWS_ARRAY_SIZE(static_token),
 		    dyn->virtual_payload_usage, dyn->virtual_payload_max);

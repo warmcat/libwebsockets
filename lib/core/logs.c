@@ -44,6 +44,107 @@ static void (*lwsl_emit)(int level, const char *line)
 static const char * log_level_names ="EWNIDPHXCLUT??";
 #endif
 
+/*
+ * Name an instance tag and attach to a group
+ */
+
+void
+__lws_lc_tag(lws_lifecycle_group_t *grp, lws_lifecycle_t *lc,
+	     const char *format, ...)
+{
+	va_list ap;
+	int n;
+
+	assert(grp->tag_prefix); /* lc group must have a tag prefix string */
+
+	n = lws_snprintf(lc->gutag, sizeof(lc->gutag) - 1u, "[%s|%lx|",
+		     grp->tag_prefix, (unsigned long)grp->ordinal++);
+
+	va_start(ap, format);
+	n += vsnprintf(&lc->gutag[n], sizeof(lc->gutag) - (unsigned int)n -
+			1u, format, ap);
+	va_end(ap);
+
+	if (n < (int)sizeof(lc->gutag) - 2) {
+		lc->gutag[n++] = ']';
+		lc->gutag[n++] = '\0';
+	} else {
+		lc->gutag[sizeof(lc->gutag) - 2] = ']';
+		lc->gutag[sizeof(lc->gutag) - 1] = '\0';
+	}
+
+	lc->us_creation = (uint64_t)lws_now_usecs();
+	lws_dll2_add_tail(&lc->list, &grp->owner);
+
+	lwsl_notice(" ++ %s (%d)\n", lc->gutag, (int)grp->owner.count);
+}
+
+/*
+ * Normally we want to set the tag one time at creation.  But sometimes we
+ * don't have enough information at that point to give it a meaningful tag, eg,
+ * it's an accepted, served connection but we haven't read data from it yet
+ * to find out what it wants to be.
+ *
+ * This allows you to append some extra info to the tag in those cases, the
+ * initial tag remains the same on the lhs so it can be tracked correctly.
+ */
+
+void
+__lws_lc_tag_append(lws_lifecycle_t *lc, const char *app)
+{
+	int n = (int)strlen(lc->gutag);
+
+	if (n && lc->gutag[n - 1] == ']')
+		n--;
+
+	n += lws_snprintf(&lc->gutag[n], sizeof(lc->gutag) - 2u - (unsigned int)n,
+			"|%s]", app);
+
+	if ((unsigned int)n >= sizeof(lc->gutag) - 2u) {
+		lc->gutag[sizeof(lc->gutag) - 2] = ']';
+		lc->gutag[sizeof(lc->gutag) - 1] = '\0';
+	}
+}
+
+/*
+ * Remove instance from group
+ */
+
+void
+__lws_lc_untag(lws_lifecycle_t *lc)
+{
+	//lws_lifecycle_group_t *grp;
+	char buf[24];
+
+	if (!lc->gutag[0]) { /* we never tagged this object... */
+		lwsl_err("%s: %s never tagged\n", __func__, lc->gutag);
+		assert(0);
+		return;
+	}
+
+	if (!lc->list.owner) { /* we already untagged this object... */
+		lwsl_err("%s: %s untagged twice\n", __func__, lc->gutag);
+		assert(0);
+		return;
+	}
+
+	//grp = lws_container_of(lc->list.owner, lws_lifecycle_group_t, owner);
+
+	lws_humanize(buf, sizeof(buf), (uint64_t)lws_now_usecs() - lc->us_creation,
+			humanize_schema_us);
+
+	lwsl_notice(" -- %s (%d) %s\n", lc->gutag, (int)lc->list.owner->count - 1, buf);
+
+	lws_dll2_remove(&lc->list);
+}
+
+const char *
+lws_lc_tag(lws_lifecycle_t *lc)
+{
+	return lc->gutag;
+}
+
+
 #if defined(LWS_LOGS_TIMESTAMP)
 int
 lwsl_timestamp(int level, char *p, int len)

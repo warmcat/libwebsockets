@@ -417,6 +417,10 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 			lwsl_err("%s: unable to create lsp stdwsi\n", __func__);
 			goto bail2;
 		}
+
+                __lws_lc_tag(&i->vh->context->lcg[LWSLCG_WSI], &lsp->stdwsi[n]->lc,
+                             "nspawn-stdwsi-%d", n);
+
 		lsp->stdwsi[n]->lsp_channel = n;
 		lws_vhost_bind_wsi(i->vh, lsp->stdwsi[n]);
 		lsp->stdwsi[n]->a.protocol = pcol;

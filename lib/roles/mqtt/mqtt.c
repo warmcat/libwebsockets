@@ -383,8 +383,9 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 			 */
 			if ((n & LMQCP_LUT_FLAG_RESERVED_FLAGS) &&
 			    ((par->packet_type_flags & 0x0f) != (n & 0x0f))) {
-				lwsl_notice("%s: wsi %p: bad flags, 0x%02x mask 0x%02x (len %d)\n",
-						__func__, wsi, par->packet_type_flags, n, (int)len + 1);
+				lwsl_notice("%s: %s: bad flags, 0x%02x mask 0x%02x (len %d)\n",
+					    __func__, lws_wsi_tag(wsi),
+					    par->packet_type_flags, n, (int)len + 1);
 				lwsl_hexdump_err(buf - 1, len + 1);
 				goto send_protocol_error_and_close;
 			}
@@ -991,7 +992,7 @@ cmd_completion:
 				lws_set_timeout(wsi, 0, 0);
 
 				w = lws_create_new_server_wsi(wsi->a.vhost,
-							      wsi->tsi);
+							      wsi->tsi, "mqtt");
 				if (!w) {
 					lwsl_notice("%s: sid 1 migrate failed\n",
 							__func__);
@@ -1037,8 +1038,9 @@ cmd_completion:
 
 				lws_mux_mark_immortal(w);
 
-				lwsl_notice("%s: migrated nwsi %p to sid 1 %p\n",
-						__func__, wsi, w);
+				lwsl_notice("%s: migrated nwsi %s to sid 1 %s\n",
+						__func__, lws_wsi_tag(wsi),
+						lws_wsi_tag(w));
 
 			#if defined(LWS_WITH_SERVER_STATUS)
 				wsi->a.vhost->conn_stats.h2_subs++;
@@ -1580,7 +1582,7 @@ lws_mqtt_publish_resend(struct lws_sorted_usec_list *sul)
 	struct _lws_mqtt_related *mqtt = lws_container_of(sul,
 			struct _lws_mqtt_related, sul_qos1_puback_wait);
 
-	lwsl_notice("%s: wsi %p\n", __func__, mqtt->wsi);
+	lwsl_notice("%s: %s\n", __func__, lws_wsi_tag(mqtt->wsi));
 
 	if (mqtt->wsi->a.protocol->callback(mqtt->wsi, LWS_CALLBACK_MQTT_RESEND,
 				mqtt->wsi->user_space, NULL, 0))
@@ -1603,8 +1605,8 @@ lws_mqtt_client_send_publish(struct lws *wsi, lws_mqtt_publish_param_t *pub,
 		   __func__, (int)len, (int)is_complete);
 
 	if (lwsi_state(wsi) != LRS_ESTABLISHED) {
-		lwsl_err("%s: wsi %p: unknown state 0x%x\n", __func__, wsi,
-			 lwsi_state(wsi));
+		lwsl_err("%s: %s: unknown state 0x%x\n", __func__,
+				lws_wsi_tag(wsi), lwsi_state(wsi));
 		assert(0);
 		return 1;
 	}

@@ -132,7 +132,7 @@ lws_glib_dispatch(GSource *src, GSourceFunc x, gpointer userData)
 	eventfd.events = eventfd.revents;
 	eventfd.fd = sub->wsi->desc.sockfd;
 
-	lwsl_debug("%s: wsi %p: fd %d, events %d\n", __func__, sub->wsi,
+	lwsl_debug("%s: %s: fd %d, events %d\n", __func__, lws_wsi_tag(sub->wsi),
 			eventfd.fd, eventfd.revents);
 
 	pt = &sub->wsi->a.context->pt[(int)sub->wsi->tsi];
@@ -378,7 +378,7 @@ elops_io_glib(struct lws *wsi, int flags)
 
 	wsipr->w_read.actual_events = cond;
 
-	lwsl_debug("%s: wsi %p, fd %d, 0x%x/0x%x\n", __func__, wsi,
+	lwsl_debug("%s: %s, fd %d, 0x%x/0x%x\n", __func__, lws_wsi_tag(wsi),
 			wsi->desc.sockfd, flags, (int)cond);
 
 	g_source_modify_unix_fd(wsi_to_gsource(wsi), wsi_to_subclass(wsi)->tag,

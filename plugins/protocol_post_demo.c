@@ -190,7 +190,7 @@ callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
-		lwsl_debug("LWS_CALLBACK_HTTP_BODY_COMPLETION: %p\n", wsi);
+		lwsl_debug("LWS_CALLBACK_HTTP_BODY_COMPLETION: %s\n", lws_wsi_tag(wsi));
 		/* call to inform no more payload data coming */
 		lws_spa_finalize(pss->spa);
 

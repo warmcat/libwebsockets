@@ -280,8 +280,8 @@ drain:
 			lwsl_info("%s: draining rxflow: used %d, next %d\n",
 				    __func__, n, m);
 			if (!m) {
-				lwsl_notice("%s: removed %p from dll_buflist\n",
-					    __func__, wsi);
+				lwsl_notice("%s: removed %s from dll_buflist\n",
+					    __func__, lws_wsi_tag(wsi));
 				lws_dll2_remove(&wsi->dll_buflist);
 			}
 		} else
@@ -293,8 +293,8 @@ drain:
 				if (m < 0)
 					return LWS_HPI_RET_PLEASE_CLOSE_ME;
 				if (m) {
-					lwsl_debug("%s: added %p to rxflow list\n",
-							__func__, wsi);
+					lwsl_debug("%s: added %s to rxflow list\n",
+						   __func__, lws_wsi_tag(wsi));
 					if (lws_dll2_is_detached(&wsi->dll_buflist))
 						lws_dll2_add_head(&wsi->dll_buflist,
 							 &pt->dll_buflist_owner);
@@ -420,9 +420,9 @@ rops_write_role_protocol_h2(struct lws *wsi, unsigned char *buf, size_t len,
 		if (n)
 			return n;
 
-		lwsl_info("%s: %p: transformed %d bytes to %d "
+		lwsl_info("%s: %s: transformed %d bytes to %d "
 			   "(wp 0x%x, more %d)\n", __func__,
-			   wsi, (int)len, (int)o, (int)*wp,
+			   lws_wsi_tag(wsi), (int)len, (int)o, (int)*wp,
 			   wsi->http.comp_ctx.may_have_more);
 
 		buf = out;
@@ -465,7 +465,8 @@ rops_write_role_protocol_h2(struct lws *wsi, unsigned char *buf, size_t len,
 	     base == LWS_WRITE_HTTP_FINAL) &&
 	     wsi->http.tx_content_length) {
 		wsi->http.tx_content_remain -= len;
-		lwsl_info("%s: wsi %p: tx_content_rem = %llu\n", __func__, wsi,
+		lwsl_info("%s: %s: tx_content_rem = %llu\n", __func__,
+			  lws_wsi_tag(wsi),
 			  (unsigned long long)wsi->http.tx_content_remain);
 		if (!wsi->http.tx_content_remain) {
 			lwsl_info("%s: selecting final write mode\n", __func__);
@@ -474,7 +475,8 @@ rops_write_role_protocol_h2(struct lws *wsi, unsigned char *buf, size_t len,
 	}
 
 	if (base == LWS_WRITE_HTTP_FINAL || ((*wp) & LWS_WRITE_H2_STREAM_END)) {
-		lwsl_info("%s: %p: setting END_STREAM\n", __func__, wsi);
+		lwsl_info("%s: %s: setting END_STREAM\n", __func__,
+				lws_wsi_tag(wsi));
 		flags |= LWS_H2_FLAG_END_STREAM;
 		wsi->h2.send_END_STREAM = 1;
 	}
@@ -613,14 +615,14 @@ rops_destroy_role_h2(struct lws *wsi)
 	struct allocated_headers *ah;
 
 	/* we may not have an ah, but may be on the waiting list... */
-	lwsl_info("%s: wsi %p: ah det due to close\n", __func__, wsi);
+	lwsl_info("%s: %s: ah det due to close\n", __func__, lws_wsi_tag(wsi));
 	__lws_header_table_detach(wsi, 0);
 
 	ah = pt->http.ah_list;
 
 	while (ah) {
 		if (ah->in_use && ah->wsi == wsi) {
-			lwsl_err("%s: ah leak: wsi %p\n", __func__, wsi);
+			lwsl_err("%s: ah leak: %s\n", __func__, lws_wsi_tag(wsi));
 			ah->in_use = 0;
 			ah->wsi = NULL;
 			pt->http.ah_count_in_use--;
@@ -667,7 +669,7 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 			lws_h2_rst_stream(wsi, H2_ERR_STREAM_CLOSED, "swsi got closed");
 */
 
-	lwsl_info(" wsi: %p, his parent %p: siblings:\n", wsi, wsi->mux.parent_wsi);
+	lwsl_info(" %s, his parent %s: siblings:\n", lws_wsi_tag(wsi), lws_wsi_tag(wsi->mux.parent_wsi));
 	lws_wsi_mux_dump_children(wsi);
 
 	if (wsi->upgraded_to_http2 || wsi->mux_substream
@@ -675,10 +677,11 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 			|| wsi->client_mux_substream
 #endif
 	) {
-		lwsl_info("closing %p: parent %p\n", wsi, wsi->mux.parent_wsi);
+		lwsl_info("closing %s: parent %s\n", lws_wsi_tag(wsi),
+				lws_wsi_tag(wsi->mux.parent_wsi));
 
 		if (wsi->mux.child_list && lwsl_visible(LLL_INFO)) {
-			lwsl_info(" parent %p: closing children: list:\n", wsi);
+			lwsl_info(" parent %s: closing children: list:\n", lws_wsi_tag(wsi));
 			lws_wsi_mux_dump_children(wsi);
 		}
 		lws_wsi_mux_close_children(wsi, reason);
@@ -862,7 +865,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 		 * move him to be the last child
 		 */
 
-		lwsl_debug("servicing child %p\n", *wsi2);
+		lwsl_debug("servicing child %s\n", lws_wsi_tag(*wsi2));
 
 		w = lws_wsi_mux_move_child_to_tail(wsi2);
 
@@ -871,8 +874,9 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			goto next_child;
 		}
 
-		lwsl_info("%s: child wsi %p, sid %d, (wsistate 0x%x)\n",
-			  __func__, w, w->mux.my_sid, (unsigned int)w->wsistate);
+		lwsl_info("%s: child %s, sid %d, (wsistate 0x%x)\n",
+			  __func__, lws_wsi_tag(w), w->mux.my_sid,
+			  (unsigned int)w->wsistate);
 
 		/* priority 1: post compression-transform buffered output */
 
@@ -1030,7 +1034,8 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			 * DATA here... if so close the actual wsi
 			 */
 			if (n < 0 || w->h2.send_END_STREAM) {
-				lwsl_debug("Closing POLLOUT child %p\n", w);
+				lwsl_debug("Closing POLLOUT child %s\n",
+						lws_wsi_tag(w));
 				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 						   "h2 end stream file");
 				wa = &wsi->mux.child_list;
@@ -1122,12 +1127,12 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 
 			if (!rops_write_role_protocol_h2(w, buf + LWS_PRE, 0,
 							 &wp)) {
-				lwsl_info("%s: wsi %p: entering ro long poll\n",
-					  __func__, w);
+				lwsl_info("%s: %s: entering ro long poll\n",
+					  __func__, lws_wsi_tag(w));
 				lws_mux_mark_immortal(w);
 			} else
-				lwsl_err("%s: wsi %p: failed to set long poll\n",
-						__func__, w);
+				lwsl_err("%s: %s: failed to set long poll\n",
+						__func__, lws_wsi_tag(w));
 			goto next_child;
 		}
 
@@ -1203,7 +1208,7 @@ rops_alpn_negotiated_h2(struct lws *wsi, const char *alpn)
 			   wsi->h2.h2n->our_set.s[H2SET_HEADER_TABLE_SIZE]);
 	wsi->txc.tx_cr = 65535;
 
-	lwsl_info("%s: wsi %p: configured for h2\n", __func__, wsi);
+	lwsl_info("%s: %s: configured for h2\n", __func__, lws_wsi_tag(wsi));
 
 	return 0;
 }

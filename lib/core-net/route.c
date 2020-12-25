@@ -259,7 +259,7 @@ _lws_route_pt_close_unroutable(struct lws_context_per_thread *pt)
 			continue;
 
 		if (_lws_route_check_wsi(wsi)) {
-			lwsl_info("%s: culling wsi %p\n", __func__, wsi);
+			lwsl_info("%s: culling wsi %s\n", __func__, lws_wsi_tag(wsi));
 			lws_wsi_close(wsi, LWS_TO_KILL_ASYNC);
 		}
 	}
@@ -287,7 +287,7 @@ _lws_route_pt_close_route_users(struct lws_context_per_thread *pt,
 		if (wsi->desc.sockfd != LWS_SOCK_INVALID &&
 		    wsi->sa46_peer.sa4.sin_family &&
 		    wsi->peer_route_uidx == uidx) {
-			lwsl_info("%s: culling wsi %p\n", __func__, wsi);
+			lwsl_info("%s: culling wsi %s\n", __func__, lws_wsi_tag(wsi));
 			lws_wsi_close(wsi, LWS_TO_KILL_ASYNC);
 		}
 	}

@@ -506,6 +506,8 @@ struct lws_vhost {
 	struct lws_vhost_role_ws ws;
 #endif
 
+	lws_lifecycle_t		lc;
+
 #if defined(LWS_WITH_SOCKS5)
 	char socks_proxy_address[128];
 	char socks_user[96];
@@ -697,6 +699,8 @@ struct lws {
 	struct lws_muxable		mux;
 	struct lws_tx_credit		txc;
 #endif
+
+	lws_lifecycle_t			lc;
 
 	/* lifetime members */
 
@@ -1237,7 +1241,7 @@ lws_client_reset(struct lws **wsi, int ssl, const char *address, int port,
 		 const char *path, const char *host, char weak);
 
 struct lws * LWS_WARN_UNUSED_RESULT
-lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi);
+lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi, const char *desc);
 
 char * LWS_WARN_UNUSED_RESULT
 lws_generate_client_handshake(struct lws *wsi, char *pkt);

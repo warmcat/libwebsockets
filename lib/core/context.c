@@ -648,6 +648,53 @@ lws_create_context(const struct lws_context_creation_info *info)
 			  context->udp_loss_sim_rx_pc);
 #endif
 
+#if defined(LWS_WITH_NETWORK)
+	context->lcg[LWSLCG_WSI].tag_prefix = "wsi";
+	context->lcg[LWSLCG_VHOST].tag_prefix = "vh";
+
+#if defined(LWS_WITH_SERVER)
+	context->lcg[LWSLCG_WSI_SERVER].tag_prefix = "wsisrv";
+#endif
+#if defined(LWS_WITH_CLIENT)
+	context->lcg[LWSLCG_WSI_CLIENT].tag_prefix = "wsicli";
+#endif
+
+#if defined(LWS_WITH_SECURE_STREAMS)
+#if defined(LWS_WITH_CLIENT)
+	context->lcg[LWSLCG_SS_CLIENT].tag_prefix = "SScli";
+#endif
+#if defined(LWS_WITH_SERVER)
+	context->lcg[LWSLCG_SS_SERVER].tag_prefix = "SSsrv";
+#endif
+#if defined(LWS_WITH_CLIENT)
+	context->lcg[LWSLCG_WSI_SS_CLIENT].tag_prefix = "wsiSScli";
+#endif
+#if defined(LWS_WITH_SERVER)
+	context->lcg[LWSLCG_WSI_SS_SERVER].tag_prefix = "wsiSSsrv";
+#endif
+#endif
+#endif
+
+	/*
+	 * Proxy group
+	 */
+
+#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
+#if defined(LWS_WITH_CLIENT)
+	context->lcg[LWSLCG_SSP_CLIENT].tag_prefix = "SSPcli";
+#endif
+#if defined(LWS_WITH_SERVER)
+	context->lcg[LWSLCG_SSP_ONWARD].tag_prefix = "SSPonw";
+#endif
+#if defined(LWS_WITH_CLIENT)
+	context->lcg[LWSLCG_WSI_SSP_CLIENT].tag_prefix = "wsiSSPcli";
+#endif
+#if defined(LWS_WITH_SERVER)
+	context->lcg[LWSLCG_WSI_SSP_ONWARD].tag_prefix = "wsiSSPonw";
+#endif
+#endif
+
+
 #if defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
 	/* directly use the user-provided policy object list */
 	context->pss_policies = info->pss_policies;
@@ -1601,8 +1648,8 @@ lws_context_destroy(struct lws_context *context)
 
 				if (wsi) {
 
-					lwsl_debug("%s: pt %d: closing wsi %p\n",
-							__func__, n, wsi);
+					lwsl_debug("%s: pt %d: closing wsi %p: role %s\n",
+							__func__, n, wsi, wsi->role_ops->name);
 
 					lws_close_free_wsi(wsi,
 						LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY,

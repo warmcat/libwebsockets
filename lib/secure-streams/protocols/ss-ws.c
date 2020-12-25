@@ -132,7 +132,7 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
 	case LWS_CALLBACK_CLIENT_WRITEABLE:
-		// lwsl_notice("%s: ss %p: WRITEABLE\n", __func__, h);
+		// lwsl_notice("%s: %s: WRITEABLE\n", __func__, lws_ss_tag(h));
 		if (!h || !h->info.tx)
 			return 0;
 

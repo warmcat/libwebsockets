@@ -230,6 +230,9 @@
 	/**< (CTX) Disable lws_system state, eg, because we are a secure streams
 	 * proxy client that is not trying to track system state by itself. */
 
+#define LWS_SERVER_OPTION_SS_PROXY				 (1ll << 36)
+	/**< (VH) We are being a SS Proxy listen socket for the vhost */
+
 	/****** add new things just above ---^ ******/
 
 
@@ -1112,6 +1115,9 @@ lws_vhost_user(struct lws_vhost *vhost);
  */
 LWS_VISIBLE LWS_EXTERN void *
 lws_context_user(struct lws_context *context);
+
+LWS_VISIBLE LWS_EXTERN const char *
+lws_vh_tag(struct lws_vhost *vh);
 
 /*! \defgroup vhost-mounts Vhost mounts and options
  * \ingroup context-and-vhost-creation

@@ -111,7 +111,6 @@
  #define strerror(x) ""
 #endif
 
-
  /*
   *
   *  ------ private platform defines ------
@@ -140,6 +139,41 @@
 
 #include "libwebsockets.h"
 
+ /*
+  *
+  *  ------ lifecycle defines ------
+  *
+  */
+
+typedef struct lws_lifecycle_group {
+	lws_dll2_owner_t		owner; /* active count / list */
+	uint64_t			ordinal; /* monotonic uid count */
+	const char			*tag_prefix; /* eg, "wsi" */
+} lws_lifecycle_group_t;
+
+typedef struct lws_lifecycle {
+#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
+	/* we append parent streams on the tag */
+	char				gutag[96]; /* object unique tag + relationship info */
+#else
+	char				gutag[32];
+#endif
+	lws_dll2_t			list; /* group list membership */
+	uint64_t			us_creation; /* creation timestamp */
+} lws_lifecycle_t;
+
+void
+__lws_lc_tag(lws_lifecycle_group_t *grp, lws_lifecycle_t *lc,
+		    const char *format, ...);
+
+void
+__lws_lc_tag_append(lws_lifecycle_t *lc, const char *app);
+
+void
+__lws_lc_untag(lws_lifecycle_t *lc);
+
+const char *
+lws_lc_tag(lws_lifecycle_t *lc);
 
 /*
  * Generic bidi tx credit management
@@ -286,6 +320,57 @@ typedef struct lws_attach_item {
 } lws_attach_item_t;
 
 /*
+ * These are the context's lifecycle group indexes that exist in this build
+ * configuration.  If you add some, make sure to also add the tag_prefix in
+ * context.c context creation with matching preprocessor conditionals.
+ */
+
+enum {
+	LWSLCG_WSI,			/* generic wsi, eg, pipe, listen */
+	LWSLCG_VHOST,
+
+#if defined(LWS_WITH_SERVER)
+	LWSLCG_WSI_SERVER,		/* server wsi */
+#endif
+#if defined(LWS_WITH_CLIENT)
+	LWSLCG_WSI_CLIENT,		/* client wsi */
+#endif
+
+#if defined(LWS_WITH_SECURE_STREAMS)
+#if defined(LWS_WITH_CLIENT)
+	LWSLCG_SS_CLIENT,		/* secstream client handle */
+#endif
+#if defined(LWS_WITH_SERVER)
+	LWSLCG_SS_SERVER,		/* secstream server handle */
+#endif
+#if defined(LWS_WITH_CLIENT)
+	LWSLCG_WSI_SS_CLIENT,		/* wsi bound to ss client handle */
+#endif
+#if defined(LWS_WITH_SERVER)
+	LWSLCG_WSI_SS_SERVER,		/* wsi bound to ss server handle */
+#endif
+#endif
+
+#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
+#if defined(LWS_WITH_CLIENT)
+	LWSLCG_SSP_CLIENT,		/* SSPC handle client connection to proxy */
+#endif
+#if defined(LWS_WITH_SERVER)
+	LWSLCG_SSP_ONWARD,		/* SS handle at proxy for onward conn */
+#endif
+#if defined(LWS_WITH_CLIENT)
+	LWSLCG_WSI_SSP_CLIENT,		/* wsi bound to SSPC cli conn to proxy */
+#endif
+#if defined(LWS_WITH_SERVER)
+	LWSLCG_WSI_SSP_ONWARD,		/* wsi bound to Proxy onward connection */
+#endif
+#endif
+
+	/* always last */
+	LWSLCG_COUNT
+};
+
+/*
  * the rest is managed per-context, that includes
  *
  *  - processwide single fd -> wsi lookup
@@ -318,6 +403,9 @@ struct lws_context {
 	struct lws_context_per_thread		pt[LWS_MAX_SMP];
 	lws_retry_bo_t				default_retry;
 	lws_sorted_usec_list_t			sul_system_state;
+
+	lws_lifecycle_group_t			lcg[LWSLCG_COUNT];
+
 #if defined(LWS_WITH_NETLINK)
 	lws_sorted_usec_list_t			sul_nl_coldplug;
 #endif

@@ -54,6 +54,8 @@ lws_sspc_sul_retry_cb(lws_sorted_usec_list_t *sul)
 	i.path = "";
 	i.pwsi = &h->cwsi;
 	i.opaque_user_data = (void *)h;
+	i.ssl_connection = LCCSCF_SECSTREAM_PROXY_LINK;
+	/* this wsi is the link to the proxy */
 
 	if (!lws_client_connect_via_info(&i)) {
 		lws_sul_schedule(h->context, 0, &h->sul_retry,
@@ -62,7 +64,7 @@ lws_sspc_sul_retry_cb(lws_sorted_usec_list_t *sul)
 		return;
 	}
 
-	lwsl_notice("%s: sspc ss wsi %p\n", __func__, h->cwsi);
+	lwsl_notice("%s: %s\n", __func__, h->cwsi->lc.gutag);
 }
 
 static int
@@ -207,8 +209,8 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!h)
 			break;
 
-		lwsl_debug("%s: WRITEABLE %p: (%s) state %d\n", __func__, wsi,
-				h->ssi.streamtype, h->state);
+		lwsl_debug("%s: WRITEABLE %s, state %d\n", __func__,
+			   wsi->lc.gutag, h->state);
 
 		/*
 		 * Management of ss timeout can happen any time and doesn't
@@ -444,8 +446,6 @@ lws_sspc_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 	uint8_t *ua;
 	char *p;
 
-	lwsl_notice("%s: streamtype %s\n", __func__, ssi->streamtype);
-
 	/* allocate the handle (including ssi), the user alloc,
 	 * and the streamname */
 
@@ -454,6 +454,9 @@ lws_sspc_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 	if (!h)
 		return 1;
 	memset(h, 0, sizeof(*h));
+
+	__lws_lc_tag(&context->lcg[LWSLCG_SSP_CLIENT], &h->lc, ssi->streamtype);
+
 	memcpy(&h->ssi, ssi, sizeof(*ssi));
 	ua = (uint8_t *)&h[1];
 	memset(ua, 0, ssi->user_alloc);
@@ -558,6 +561,8 @@ lws_sspc_destroy(lws_sspc_handle_t **ph)
 
 	h->ssi.state(m, NULL, LWSSSCS_DESTROYING, 0);
 	*ph = NULL;
+
+	__lws_lc_untag(&h->lc);
 	free(h);
 }
 
@@ -608,7 +613,7 @@ lws_sspc_request_tx_len(lws_sspc_handle_t *h, unsigned long len)
 	if (!h)
 		return LWSSSSRET_OK;
 
-	lwsl_notice("%s: setting h %p writeable_len %u\n", __func__, h,
+	lwsl_notice("%s: setting %s writeable_len %u\n", __func__, h->lc.gutag,
 			(unsigned int)len);
 	h->writeable_len = len;
 	h->pending_writeable_len = 1;
@@ -833,4 +838,10 @@ lws_sspc_change_handlers(struct lws_sspc_handle *h,
 		h->ssi.tx = tx;
 	if (state)
 		h->ssi.state = state;
+}
+
+const char *
+lws_sspc_tag(struct lws_sspc_handle *h)
+{
+	return lws_lc_tag(&h->lc);
 }

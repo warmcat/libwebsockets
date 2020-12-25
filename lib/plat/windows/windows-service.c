@@ -269,8 +269,8 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		if ((networkevents.lNetworkEvents & FD_CONNECT) &&
 		    wsi_from_fd(context, pfd->fd) &&
 		    !wsi_from_fd(context, pfd->fd)->udp) {
-                       lwsl_debug("%s: FD_CONNECT: %p\n", __func__,
-                		  wsi_from_fd(context, pfd->fd));
+                       lwsl_debug("%s: FD_CONNECT: %s\n", __func__,
+                		  lws_wsi_tag(wsi_from_fd(context, pfd->fd)));
 			pfd->revents &= ~LWS_POLLOUT;
 			if (err && err != LWS_EALREADY &&
 			    err != LWS_EINPROGRESS &&

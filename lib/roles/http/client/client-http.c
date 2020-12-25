@@ -50,7 +50,7 @@ lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 		 * we are under PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE
 		 * timeout protection set in client-handshake.c
 		 */
-		lwsl_err("%s: wsi %p: WAITING_DNS\n", __func__, wsi);
+		lwsl_err("%s: %s: WAITING_DNS\n", __func__, lws_wsi_tag(wsi));
 		if (!lws_client_connect_2_dnsreq(wsi)) {
 			/* closed */
 			lwsl_client("closed\n");
@@ -97,8 +97,8 @@ lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 
 		if (pollfd->revents & LWS_POLLHUP) {
 
-			lwsl_warn("Proxy connection %p (fd=%d) dead\n",
-				  (void *)wsi, pollfd->fd);
+			lwsl_warn("Proxy conn %s (fd=%d) dead\n",
+				  lws_wsi_tag(wsi), pollfd->fd);
 
 			cce = "proxy conn dead";
 			goto bail3;
@@ -137,7 +137,7 @@ lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 
 	case LRS_H1C_ISSUE_HANDSHAKE:
 
-		lwsl_notice("%s: LRS_H1C_ISSUE_HANDSHAKE\n", __func__);
+		lwsl_debug("%s: LRS_H1C_ISSUE_HANDSHAKE\n", __func__);
 
 		/*
 		 * we are under PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE
@@ -267,10 +267,10 @@ hs2:
 
 		/* send our request to the server */
 
-		lwsl_info("%s: HANDSHAKE2: %p: sending headers "
+		lwsl_info("%s: HANDSHAKE2: %s: sending headers "
 			  "(wsistate 0x%lx), w sock %d\n",
-			  __func__, wsi, (unsigned long)wsi->wsistate,
-			  wsi->desc.sockfd);
+			  __func__, lws_wsi_tag(wsi),
+			  (unsigned long)wsi->wsistate, wsi->desc.sockfd);
 #if defined(LWS_WITH_DETAILED_LATENCY)
 		wsi->detlat.earliest_write_req_pre_write = lws_now_usecs();
 #endif
@@ -359,8 +359,8 @@ client_http_body_sent:
 		if ((pollfd->revents & (LWS_POLLIN | LWS_POLLHUP)) ==
 								LWS_POLLHUP) {
 
-			lwsl_debug("Server connection %p (fd=%d) dead\n",
-				(void *)wsi, pollfd->fd);
+			lwsl_debug("Server conn %s (fd=%d) dead\n",
+					lws_wsi_tag(wsi), pollfd->fd);
 			cce = "Peer hung up";
 			goto bail3;
 		}
@@ -452,8 +452,8 @@ client_http_body_sent:
 		return lws_client_interpret_server_handshake(wsi);
 
 bail3:
-		lwsl_info("%s: closing conn at LWS_CONNMODE...SERVER_REPLY, wsi %p, state 0x%x\n",
-				__func__, wsi, lwsi_state(wsi));
+		lwsl_info("%s: closing conn at LWS_CONNMODE...SERVER_REPLY, %s, state 0x%x\n",
+				__func__, lws_wsi_tag(wsi), lwsi_state(wsi));
 		if (cce)
 			lwsl_info("reason: %s\n", cce);
 		else
@@ -478,7 +478,8 @@ lws_http_transaction_completed_client(struct lws *wsi)
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	int n;
 
-	lwsl_info("%s: wsi: %p (%s)\n", __func__, wsi, wsi->a.protocol->name);
+	lwsl_info("%s: %s (%s)\n", __func__, lws_wsi_tag(wsi),
+			wsi->a.protocol->name);
 
 	if (user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
 					LWS_CALLBACK_COMPLETED_CLIENT_HTTP,
@@ -533,7 +534,7 @@ lws_http_transaction_completed_client(struct lws *wsi)
 	wsi->http.ah->ues = URIES_IDLE;
 	lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE2);
 
-	lwsl_info("%s: %p: new queued transaction\n", __func__, wsi);
+	lwsl_info("%s: %s: new queued transaction\n", __func__, lws_wsi_tag(wsi));
 	lws_callback_on_writable(wsi);
 
 	return 0;
@@ -576,8 +577,8 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		 */
 #if defined(LWS_ROLE_H2)
 		if (wsi->client_h2_alpn || wsi->client_mux_substream) {
-			lwsl_debug("%s: %p: transitioning to h2 client\n",
-				   __func__, wsi);
+			lwsl_debug("%s: %s: transitioning to h2 client\n",
+				   __func__, lws_wsi_tag(wsi));
 			lws_role_transition(wsi, LWSIFR_CLIENT,
 					    LRS_ESTABLISHED, &role_ops_h2);
 		} else
@@ -585,8 +586,8 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		{
 #if defined(LWS_ROLE_H1)
 			{
-			lwsl_debug("%s: %p: transitioning to h1 client\n",
-				   __func__, wsi);
+			lwsl_debug("%s: %s: transitioning to h1 client\n",
+				   __func__, lws_wsi_tag(wsi));
 			lws_role_transition(wsi, LWSIFR_CLIENT,
 					    LRS_ESTABLISHED, &role_ops_h1);
 			}
@@ -924,7 +925,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 
 		wsi->http.ah = ah1;
 
-		lwsl_info("%s: wsi %p: client connection up\n", __func__, wsi);
+		lwsl_info("%s: %s: client conn up\n", __func__, lws_wsi_tag(wsi));
 
 		/*
 		 * Did we get a response from the server with an explicit
@@ -1509,8 +1510,8 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 
 	wsi = *pwsi;
 
-	lwsl_debug("%s: wsi %p: redir %d: %s\n", __func__, wsi, wsi->redirects,
-			address);
+	lwsl_debug("%s: %s: redir %d: %s\n", __func__, lws_wsi_tag(wsi),
+			wsi->redirects, address);
 
 	if (wsi->redirects == 3) {
 		lwsl_err("%s: Too many redirects\n", __func__);

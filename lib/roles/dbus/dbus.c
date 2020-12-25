@@ -178,7 +178,7 @@ lws_dbus_add_watch(DBusWatch *w, void *data)
 	if (flags & DBUS_WATCH_WRITABLE)
 		lws_flags |= LWS_POLLOUT;
 
-	lwsl_info("%s: w %p, fd %d, data %p, flags %d\n", __func__, w,
+	lwsl_info("%s: %p, fd %d, data %p, fl %d\n", __func__, w,
 		  dbus_watch_get_unix_fd(w), data, lws_flags);
 
 	__lws_change_pollfd(wsi, 0, lws_flags);
@@ -247,8 +247,9 @@ lws_dbus_remove_watch(DBusWatch *w, void *data)
 	if ((~flags) & DBUS_WATCH_WRITABLE)
 		lws_flags |= LWS_POLLOUT;
 
-	lwsl_info("%s: w %p, fd %d, data %p, clearing lws flags %d\n",
-		  __func__, w, dbus_watch_get_unix_fd(w), data, lws_flags);
+	lwsl_info("%s: %p, fd %d, data %p, clearing lws flags %d\n",
+		  __func__, w, dbus_watch_get_unix_fd(w),
+		  data, lws_flags);
 
 	__lws_change_pollfd(wsi, lws_flags, 0);
 

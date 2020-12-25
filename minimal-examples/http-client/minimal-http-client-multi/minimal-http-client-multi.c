@@ -108,13 +108,13 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		return 0; /* don't passthru */
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
-		lwsl_user("LWS_CALLBACK_COMPLETED_CLIENT_HTTP %p: idx %d\n",
-			  wsi, idx);
+		lwsl_user("LWS_CALLBACK_COMPLETED_CLIENT_HTTP %s: idx %d\n",
+			  lws_wsi_tag(wsi), idx);
 		client_wsi[idx] = NULL;
 		goto finished;
 
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
-		lwsl_info("%s: closed: %p\n", __func__, client_wsi[idx]);
+		lwsl_info("%s: closed: %s\n", __func__, lws_wsi_tag(client_wsi[idx]));
 		if (client_wsi[idx]) {
 			/*
 			 * If it completed normally, it will have been set to
@@ -132,8 +132,8 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 		if (lws_http_is_redirected_to_get(wsi))
 			break;
-		lwsl_info("LWS_CALLBACK_CLIENT_HTTP_WRITEABLE: %p, idx %d,"
-				" part %d\n", wsi, idx, pss->body_part);
+		lwsl_info("LWS_CALLBACK_CLIENT_HTTP_WRITEABLE: %s, idx %d,"
+				" part %d\n", lws_wsi_tag(wsi), idx, pss->body_part);
 
 		n = LWS_WRITE_HTTP;
 
@@ -290,8 +290,8 @@ lws_try_client_connection(struct lws_client_connect_info *i, int m)
 			lws_context_destroy(context);
 		}
 	} else
-		lwsl_user("started connection %p: idx %d (%s)\n",
-			  client_wsi[m], m, i->path);
+		lwsl_user("started connection %s: idx %d (%s)\n",
+			  lws_wsi_tag(client_wsi[m]), m, i->path);
 }
 
 static void

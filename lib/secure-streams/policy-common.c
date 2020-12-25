@@ -329,7 +329,7 @@ lws_ss_policy_set(struct lws_context *context, const char *name)
 		while (v) {
 			if (v->from_ss_policy) {
 				struct lws_vhost *vh = v->vhost_next;
-				lwsl_debug("%s: destroying vh %p\n", __func__, v);
+				lwsl_debug("%s: destroying %s\n", __func__, lws_vh_tag(v));
 				lws_vhost_destroy(v);
 				v = vh;
 				continue;

@@ -45,7 +45,7 @@ lws_get_idlest_tsi(struct lws_context *context)
 }
 
 struct lws *
-lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi)
+lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi, const char *desc)
 {
 	struct lws *new_wsi;
 	int n = fixed_tsi;
@@ -59,16 +59,18 @@ lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi)
 	}
 
 	lws_context_lock(vhost->context, __func__);
-	new_wsi = __lws_wsi_create_with_role(vhost->context, fixed_tsi, NULL);
+	new_wsi = __lws_wsi_create_with_role(vhost->context, n, NULL);
 	lws_context_unlock(vhost->context);
 	if (new_wsi == NULL) {
 		lwsl_err("Out of memory for new connection\n");
 		return NULL;
 	}
 
+	__lws_lc_tag(&vhost->context->lcg[LWSLCG_WSI], &new_wsi->lc, desc);
+
 	new_wsi->wsistate |= LWSIFR_SERVER;
 	new_wsi->tsi = n;
-	lwsl_debug("new wsi %p joining vhost %s, tsi %d\n", new_wsi,
+	lwsl_debug("%s joining vhost %s, tsi %d\n", new_wsi->lc.gutag,
 		   vhost->name, new_wsi->tsi);
 
 	lws_vhost_bind_wsi(vhost, new_wsi);
@@ -132,7 +134,7 @@ lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 	n = -1;
 	if (parent)
 		n = parent->tsi;
-	new_wsi = lws_create_new_server_wsi(vh, n);
+	new_wsi = lws_create_new_server_wsi(vh, n, "adopted");
 	if (!new_wsi) {
 		lws_context_unlock(vh->context);
 		return NULL;
@@ -417,8 +419,8 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 	 * (here) and h2 (at lws_wsi_server_new())
 	 */
 
-	lwsl_info("%s: wsi %p, vhost %s ss_handle %p\n", __func__, new_wsi,
-			new_wsi->a.vhost->name, new_wsi->a.vhost->ss_handle);
+	lwsl_info("%s: %s, vhost %s\n", __func__, new_wsi->lc.gutag,
+			new_wsi->a.vhost->lc.gutag);
 
 	if (lws_adopt_ss_server_accept(new_wsi))
 		goto fail;

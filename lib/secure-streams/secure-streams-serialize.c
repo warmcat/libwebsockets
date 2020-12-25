@@ -1116,6 +1116,8 @@ payload_ff:
 				*state = LPCSPROX_REPORTING_OK;
 			}
 
+			__lws_ss_proxy_bind_ss_to_conn_wsi(parconn);
+
 			if (*pss) {
 				(*pss)->being_serialized = 1;
 #if defined(LWS_WITH_SYS_SMD)

@@ -442,7 +442,7 @@ lws_async_dns_trim_cache(lws_async_dns_t *dns)
 	c1 = lws_container_of(lws_dll2_get_tail(&dns->cached),
 						lws_adns_cache_t, list);
 	if (c1->refcount)
-		lwsl_notice("%s: wsi %p: refcount %d on purge\n",
+		lwsl_notice("%s: acache %p: refcount %d on purge\n",
 				__func__, c1, c1->refcount);
 	else
 		lws_adns_cache_destroy(c1);
@@ -578,8 +578,8 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 
 	if (wsi) {
 		if (!lws_dll2_is_detached(&wsi->adns)) {
-			lwsl_err("%s: wsi %p already bound to query %p\n",
-					__func__, wsi, wsi->adns.owner);
+			lwsl_err("%s: %s already bound to query %p\n", __func__,
+					lws_wsi_tag(wsi), wsi->adns.owner);
 			goto failed;
 		}
 		wsi->adns_cb = cb;
@@ -589,7 +589,7 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 
 	c = lws_adns_get_cache(dns, name);
 	if (c) {
-		lwsl_err("%s: using cached, c->results %p\n", __func__, c->results);
+		lwsl_info("%s: using cached, c->results %p\n", __func__, c->results);
 		m = c->results ? LADNS_RET_FOUND : LADNS_RET_FAILED;
 		if (c->results)
 			c->refcount++;

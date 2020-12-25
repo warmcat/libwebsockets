@@ -66,7 +66,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	volatile struct lws *vwsi = (volatile struct lws *)wsi;
 	int n;
 
-	// lwsl_notice("%s: %p\n", __func__, wsi);
+	// lwsl_notice("%s: %s\n", __func__, lws_wsi_tag(wsi));
 
 	vwsi->leave_pollout_active = 0;
 	vwsi->handling_pollout = 1;
@@ -214,7 +214,8 @@ user_service_go_again:
 			goto bail_ok;
 	}
 
-	lwsl_debug("%s: %p: non mux: wsistate 0x%lx, ops %s\n", __func__, wsi,
+	lwsl_debug("%s: %s: non mux: wsistate 0x%lx, ops %s\n", __func__,
+		   lws_wsi_tag(wsi),
 		   (unsigned long)wsi->wsistate, wsi->role_ops->name);
 
 	vwsi = (volatile struct lws *)wsi;
@@ -284,7 +285,7 @@ lws_rxflow_cache(struct lws *wsi, unsigned char *buf, int n, int len)
 	if (m < 0)
 		return LWSRXFC_ERROR;
 	if (m) {
-		lwsl_debug("%s: added %p to rxflow list\n", __func__, wsi);
+		lwsl_debug("%s: added %s to rxflow list\n", __func__, lws_wsi_tag(wsi));
 		if (lws_dll2_is_detached(&wsi->dll_buflist))
 			lws_dll2_add_head(&wsi->dll_buflist, &pt->dll_buflist_owner);
 	}
@@ -382,7 +383,7 @@ lws_buflist_aware_read(struct lws_context_per_thread *pt, struct lws *wsi,
 	int n, e, bns;
 	uint8_t *ep, *b;
 
-	// lwsl_debug("%s: wsi %p: %s: prior %d\n", __func__, wsi, hint, prior);
+	// lwsl_debug("%s: %s: %s: prior %d\n", __func__, lws_wsi_tag(wsi), hint, prior);
 	// lws_buflist_describe(&wsi->buflist, wsi, __func__);
 
 	(void)hint;
@@ -413,8 +414,8 @@ lws_buflist_aware_read(struct lws_context_per_thread *pt, struct lws *wsi,
 	ebuf->token = ep;
 	ebuf->len = n = lws_ssl_capable_read(wsi, ep, e);
 
-	lwsl_debug("%s: wsi %p: %s: ssl_capable_read %d\n", __func__,
-			wsi, hint, ebuf->len);
+	lwsl_debug("%s: %s: %s: ssl_capable_read %d\n", __func__,
+			lws_wsi_tag(wsi), hint, ebuf->len);
 
 	if (!bns && /* only acknowledge error when we handled buflist content */
 	    n == LWS_SSL_CAPABLE_ERROR) {
@@ -506,8 +507,8 @@ lws_buflist_aware_finished_consuming(struct lws *wsi, struct lws_tokens *ebuf,
 		if (m < 0)
 			return 1; /* OOM */
 		if (m) {
-			lwsl_debug("%s: added %p to rxflow list\n",
-				   __func__, wsi);
+			lwsl_debug("%s: added %s to rxflow list\n",
+				   __func__, lws_wsi_tag(wsi));
 			if (lws_dll2_is_detached(&wsi->dll_buflist))
 				lws_dll2_add_head(&wsi->dll_buflist,
 					 &pt->dll_buflist_owner);
@@ -541,8 +542,8 @@ lws_service_do_ripe_rxflow(struct lws_context_per_thread *pt)
 		pfd.revents = LWS_POLLIN;
 		pfd.fd = -1;
 
-		lwsl_debug("%s: rxflow processing: %p fc=%d, 0x%lx\n", __func__,
-			   wsi, lws_is_flowcontrolled(wsi),
+		lwsl_debug("%s: rxflow processing: %s fc=%d, 0x%lx\n", __func__,
+			   lws_wsi_tag(wsi), lws_is_flowcontrolled(wsi),
 			   (unsigned long)wsi->wsistate);
 
 		if (!lws_is_flowcontrolled(wsi) &&
@@ -688,8 +689,8 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	if ((!(pollfd->revents & pollfd->events & LWS_POLLIN)) &&
 	    (pollfd->revents & LWS_POLLHUP)) {
 		wsi->socket_is_permanently_unusable = 1;
-		lwsl_debug("Session Socket %p (fd=%d) dead\n",
-			   (void *)wsi, pollfd->fd);
+		lwsl_debug("Session Socket %s (fd=%d) dead\n",
+			   lws_wsi_tag(wsi), pollfd->fd);
 
 		goto close_and_handled;
 	}
@@ -743,7 +744,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		//lwsl_notice("%s: %s pollin says please close me\n", __func__,
 		//		wsi->role_ops->name);
 close_and_handled:
-		lwsl_debug("%p: Close and handled\n", wsi);
+		lwsl_debug("%s: %s: Close and handled\n", __func__, lws_wsi_tag(wsi));
 		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
 				   "close_and_handled");
 #if defined(_DEBUG) && defined(LWS_WITH_LIBUV)

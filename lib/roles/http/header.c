@@ -153,8 +153,8 @@ lws_add_http_header_content_length(struct lws *wsi,
 	wsi->http.tx_content_length = content_length;
 	wsi->http.tx_content_remain = content_length;
 
-	lwsl_info("%s: wsi %p: tx_content_length/remain %llu\n", __func__,
-			wsi, (unsigned long long)content_length);
+	lwsl_info("%s: %s: tx_content_length/remain %llu\n", __func__,
+		  lws_wsi_tag(wsi), (unsigned long long)content_length);
 
 	return 0;
 }
@@ -607,10 +607,10 @@ lws_sul_http_ah_lifecheck(lws_sorted_usec_list_t *sul)
 #else
 		buf[0] = '\0';
 #endif
-		lwsl_notice("ah excessive hold: wsi %p\n"
+		lwsl_notice("%s: ah excessive hold: wsi %p\n"
 			    "  peer address: %s\n"
-			    "  ah pos %lu\n",
-			    wsi, buf, (unsigned long)ah->pos);
+			    "  ah pos %lu\n", __func__, lws_wsi_tag(wsi),
+			    buf, (unsigned long)ah->pos);
 		buf[0] = '\0';
 		m = 0;
 		do {

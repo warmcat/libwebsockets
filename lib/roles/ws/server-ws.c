@@ -312,8 +312,8 @@ lws_process_ws_upgrade2(struct lws *wsi)
 		 * protocol handler too
 		 */
 		if (wsi->a.vhost->ss_handle) {
-			lwsl_info("%s: Server SS %p switching to ws protocol\n",
-					__func__, wsi->a.vhost->ss_handle);
+			lwsl_info("%s: %s switching to ws protocol\n",
+				  __func__, lws_ss_tag(wsi->a.vhost->ss_handle));
 			wsi->a.protocol = &protocol_secstream_ws;
 
 			/*
@@ -429,7 +429,7 @@ lws_process_ws_upgrade2(struct lws *wsi)
 	}
 #endif
 
-	lwsl_info("%s: %p: dropping ah on ws upgrade\n", __func__, wsi);
+	lwsl_info("%s: %s: dropping ah on ws upgrade\n", __func__, lws_wsi_tag(wsi));
 	lws_header_table_detach(wsi, 1);
 
 	return 0;

@@ -290,8 +290,8 @@ start_ws_handshake:
 		/*
 		 * we should be ready to send out MQTT CONNECT
 		 */
-		lwsl_info("%s: wsi %p: Transport established, send out CONNECT\n",
-				__func__, wsi);
+		lwsl_info("%s: %s: Transport established, send out CONNECT\n",
+				__func__, lws_wsi_tag(wsi));
 		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0))
 			return -1;
 		if (!lws_mqtt_client_send_connect(wsi)) {

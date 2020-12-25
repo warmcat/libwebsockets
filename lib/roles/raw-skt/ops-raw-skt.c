@@ -55,7 +55,7 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 #if defined(LWS_WITH_SERVER)
 	if (!lwsi_role_client(wsi) &&  lwsi_state(wsi) != LRS_ESTABLISHED) {
 
-		lwsl_debug("%s: %p: wsistate 0x%x\n", __func__, wsi,
+		lwsl_debug("%s: %s: wsistate 0x%x\n", __func__, lws_wsi_tag(wsi),
 			   (int)wsi->wsistate);
 
 		if (lwsi_state(wsi) != LRS_SSL_INIT)
@@ -72,8 +72,8 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 	    !(wsi->favoured_pollin &&
 	      (pollfd->revents & pollfd->events & LWS_POLLOUT))) {
 
-		lwsl_debug("%s: POLLIN: wsi %p, state 0x%x\n", __func__,
-			   wsi, lwsi_state(wsi));
+		lwsl_debug("%s: POLLIN: %s, state 0x%x\n", __func__,
+			   lws_wsi_tag(wsi), lwsi_state(wsi));
 
 		switch (lwsi_state(wsi)) {
 

@@ -118,8 +118,8 @@ _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(lws_ss_state_return_t r, struct lws 
 			 lws_ss_handle_t **ph)
 {
 	if (r == LWSSSSRET_DESTROY_ME) {
-		lwsl_info("%s: DESTROY ME: wsi %p, h->wsi %p\n", __func__,
-				wsi, (*ph)->wsi);
+		lwsl_info("%s: DESTROY ME: %s, %s\n", __func__,
+				lws_wsi_tag(wsi), lws_ss_tag(*ph));
 		if (wsi) {
 			lws_set_opaque_user_data(wsi, NULL);
 			lws_set_timeout(wsi, 1, LWS_TO_KILL_ASYNC);
@@ -141,8 +141,7 @@ lws_ss_timeout_sul_check_cb(lws_sorted_usec_list_t *sul)
 {
 	lws_ss_handle_t *h = lws_container_of(sul, lws_ss_handle_t, sul);
 
-	lwsl_notice("%s: retrying ss h %p (%s) after backoff\n", __func__, h,
-		 h->policy->streamtype);
+	lwsl_info("%s: retrying %s after backoff\n", __func__, lws_ss_tag(h));
 	/* we want to retry... */
 	h->seqstate = SSSEQ_DO_RETRY;
 
@@ -208,11 +207,11 @@ _lws_ss_backoff(lws_ss_handle_t *h, lws_usec_t us_override)
 
 	/* figure out what we should do about another retry */
 
-	lwsl_info("%s: ss %p: retry backoff after failure\n", __func__, h);
+	lwsl_info("%s: %s: retry backoff after failure\n", __func__, lws_ss_tag(h));
 	ms = lws_retry_get_delay_ms(h->context, h->policy->retry_bo,
 				    &h->retry, &conceal);
 	if (!conceal) {
-		lwsl_info("%s: ss %p: abandon conn attempt \n",__func__, h);
+		lwsl_info("%s: %s: abandon conn attempt \n",__func__, lws_ss_tag(h));
 
 		if (h->seqstate == SSSEQ_IDLE) /* been here? */
 			return LWSSSSRET_OK;
@@ -230,7 +229,7 @@ _lws_ss_backoff(lws_ss_handle_t *h, lws_usec_t us_override)
 	h->seqstate = SSSEQ_RECONNECT_WAIT;
 	lws_ss_set_timeout_us(h, us_override);
 
-	lwsl_info("%s: ss %p: retry wait %dms\n", __func__, h,
+	lwsl_info("%s: %s: retry wait %dms\n", __func__, lws_ss_tag(h),
 						  (int)(us_override / 1000));
 
 	return LWSSSSRET_OK;
@@ -606,6 +605,8 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 	if (!h)
 		return 2;
 
+	__lws_lc_tag(&context->lcg[LWSLCG_WSI_SS_CLIENT], &h->lc, ssi->streamtype ? ssi->streamtype : "nostreamtype");
+
 	h->info = *ssi;
 	h->policy = pol;
 	h->context = context;
@@ -951,6 +952,7 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 	lws_sul_debug_zombies(h->context, h, sizeof(*h) + h->info.user_alloc,
 			      __func__);
 
+	__lws_lc_untag(&h->lc);
 	lws_free_set_NULL(h);
 }
 
@@ -1122,7 +1124,7 @@ lws_ss_to_cb(lws_sorted_usec_list_t *sul)
 	lws_ss_handle_t *h = lws_container_of(sul, lws_ss_handle_t, sul_timeout);
 	lws_ss_state_return_t r;
 
-	lwsl_info("%s: ss %p timeout fired\n", __func__, h);
+	lwsl_info("%s: %s timeout fired\n", __func__, lws_ss_tag(h));
 
 	r = lws_ss_event_helper(h, LWSSSCS_TIMEOUT);
 	if (r != LWSSSSRET_DISCONNECT_ME && r != LWSSSSRET_DESTROY_ME)
@@ -1167,4 +1169,10 @@ lws_ss_change_handlers(struct lws_ss_handle *h,
 		h->info.tx = tx;
 	if (state)
 		h->info.state = state;
+}
+
+const char *
+lws_ss_tag(struct lws_ss_handle *h)
+{
+	return lws_lc_tag(&h->lc);
 }

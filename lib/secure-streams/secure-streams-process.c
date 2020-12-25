@@ -82,6 +82,17 @@ typedef struct ss_proxy_onward {
 } ss_proxy_t;
 
 
+void
+__lws_ss_proxy_bind_ss_to_conn_wsi(void * parconn)
+{
+	struct conn *conn = (struct conn *)parconn;
+
+	if (!conn || !conn->wsi || !conn->ss)
+		return;
+
+	__lws_lc_tag_append(&conn->wsi->lc, lws_ss_tag(conn->ss));
+}
+
 /* secure streams payload interface */
 
 static lws_ss_state_return_t
@@ -304,11 +315,12 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 			/*
 			 * The onward connection is around
 			 */
-			lwsl_info("%s: destroying ss.h=%p, ss.wsi=%p\n",
-					__func__, conn->ss, conn->ss->wsi);
+			lwsl_info("%s: destroying %s, wsi %s\n",
+					__func__, lws_ss_tag(conn->ss),
+					lws_wsi_tag(conn->ss->wsi));
 			/* sever relationship with ss about to be deleted */
 			lws_set_opaque_user_data(wsi, NULL);
-			if (wsi != cw)
+			if (cw && wsi != cw)
 				/*
 				 * The wsi doing the onward connection can no
 				 * longer relate to the conn... otherwise when
@@ -333,7 +345,7 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 			free(conn);
 			pss->conn = NULL;
 		} else
-			lwsl_debug("%s: CLOSE; ss=%p\n", __func__, conn->ss);
+			lwsl_debug("%s: CLOSE; %s\n", __func__, lws_ss_tag(conn->ss));
 
 		break;
 
@@ -581,7 +593,8 @@ lws_ss_proxy_create(struct lws_context *context, const char *bind, int port)
 	memset(&info, 0, sizeof(info));
 
 	info.vhost_name			= "ssproxy";
-	info.options = LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG;
+	info.options = LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG |
+			LWS_SERVER_OPTION_SS_PROXY;
 	info.port = port;
 	if (!port) {
 		if (!bind)

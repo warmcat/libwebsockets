@@ -299,4 +299,9 @@ lwsl_emit_stderr_notimestamp(int level, const char *line);
 LWS_VISIBLE LWS_EXTERN int
 lwsl_visible(int level);
 
+struct lws;
+
+LWS_VISIBLE LWS_EXTERN const char *
+lws_wsi_tag(struct lws *wsi);
+
 ///@}

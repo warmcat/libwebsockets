@@ -145,7 +145,7 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 
 	pfd = &pt->fds[wsi->position_in_fds_table];
 	pa->fd = wsi->desc.sockfd;
-	lwsl_debug("%s: wsi %p: fd %d events %d -> %d\n", __func__, wsi,
+	lwsl_debug("%s: %s: fd %d events %d -> %d\n", __func__, lws_wsi_tag(wsi),
 		   pa->fd, pfd->events, (pfd->events & ~_and) | _or);
 	pa->prev_events = pfd->events;
 	pa->events = pfd->events = (pfd->events & ~_and) | _or;
@@ -251,8 +251,8 @@ __dump_fds(struct lws_context_per_thread *pt, const char *s)
 	for (n = 0; n < pt->fds_count; n++) {
 		struct lws *wsi = wsi_from_fd(pt->context, pt->fds[n].fd);
 
-		lwsl_warn("  %d: fd %d, wsi %p, pos_in_fds: %d\n",
-			n + 1, pt->fds[n].fd, wsi,
+		lwsl_warn("  %d: fd %d, wsi %s, pos_in_fds: %d\n",
+			n + 1, pt->fds[n].fd, lws_wsi_tag(wsi),
 			wsi ? wsi->position_in_fds_table : -1);
 	}
 }
@@ -273,8 +273,8 @@ __insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 
 	lws_pt_assert_lock_held(pt);
 
-	lwsl_debug("%s: %p: tsi=%d, sock=%d, pos-in-fds=%d\n",
-		  __func__, wsi, wsi->tsi, wsi->desc.sockfd, pt->fds_count);
+	lwsl_debug("%s: %s: tsi=%d, sock=%d, pos-in-fds=%d\n",
+		  __func__, lws_wsi_tag(wsi), wsi->tsi, wsi->desc.sockfd, pt->fds_count);
 
 	if ((unsigned int)pt->fds_count >= context->fd_limit_per_thread) {
 		lwsl_err("Too many fds (%d vs %d)\n", context->max_fds,
@@ -392,8 +392,8 @@ __remove_wsi_socket_from_fds(struct lws *wsi)
 				  LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE |
 				  LWS_EV_PREPARE_DELETION);
 /*
-	lwsl_notice("%s: wsi=%p, skt=%d, fds pos=%d, end guy pos=%d, endfd=%d\n",
-		  __func__, wsi, wsi->desc.sockfd, wsi->position_in_fds_table,
+	lwsl_notice("%s: wsi=%s, skt=%d, fds pos=%d, end guy pos=%d, endfd=%d\n",
+		  __func__, lws_wsi_tag(wsi), wsi->desc.sockfd, wsi->position_in_fds_table,
 		  pt->fds_count, pt->fds[pt->fds_count - 1].fd); */
 
 	if (m != LWS_NO_FDS_POS) {
@@ -552,7 +552,8 @@ lws_callback_on_writable(struct lws *wsi)
 			return -1;
 		}
 
-	//lwsl_notice("%s: marking for POLLOUT %p (wsi %p)\n", __func__, w, wsi);
+	// lwsl_notice("%s: marking for POLLOUT %s (%s)\n", __func__,
+	// lws_wsi_tag(w), lws_wsi_tag(wsi));
 
 	if (__lws_change_pollfd(w, 0, LWS_POLLOUT))
 		return -1;

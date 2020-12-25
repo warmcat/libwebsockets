@@ -322,6 +322,13 @@ done_list:
 			__remove_wsi_socket_from_fds(wsi);
 			goto bail;
 		}
+
+		if (wsi)
+			__lws_lc_tag(&vhost->context->lcg[LWSLCG_WSI],
+				     &wsi->lc, "listen|%s|%s|%d", vhost->name,
+				     vhost->iface ? vhost->iface : "",
+				     (int)vhost->listen_port);
+
 	} /* for each thread able to independently listen */
 
 	if (!lws_check_opt(vhost->context->options,
@@ -1271,8 +1278,8 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 		return 1;
 	}
 
-	lwsl_info("%s: setting proxy clientside on %p (parent %p)\n",
-		  __func__, cwsi, lws_get_parent(cwsi));
+	lwsl_info("%s: setting proxy clientside on %s (parent %s)\n",
+		  __func__, lws_wsi_tag(cwsi), lws_wsi_tag(lws_get_parent(cwsi)));
 
 	cwsi->http.proxy_clientside = 1;
 	if (ws) {
@@ -1813,8 +1820,8 @@ deal_body:
 
 	if (lwsi_state(wsi) != LRS_DISCARD_BODY) {
 		lwsi_set_state(wsi, LRS_BODY);
-		lwsl_info("%s: %p: LRS_BODY state set (0x%x)\n", __func__, wsi,
-			  (int)wsi->wsistate);
+		lwsl_info("%s: %s: LRS_BODY state set (0x%x)\n", __func__,
+			  lws_wsi_tag(wsi), (int)wsi->wsistate);
 	}
 	wsi->http.rx_content_remain = wsi->http.rx_content_length;
 
@@ -2223,7 +2230,7 @@ raw_transition:
 
 		/* no upgrade ack... he remained as HTTP */
 
-		lwsl_info("%s: %p: No upgrade\n", __func__, wsi);
+		lwsl_info("%s: %s: No upgrade\n", __func__, lws_wsi_tag(wsi));
 
 		lwsi_set_state(wsi, LRS_ESTABLISHED);
 #if defined(LWS_WITH_FILE_OPS)
@@ -2234,7 +2241,7 @@ raw_transition:
 		lws_http_compression_validate(wsi);
 #endif
 
-		lwsl_debug("%s: wsi %p: ah %p\n", __func__, (void *)wsi,
+		lwsl_debug("%s: %s: ah %p\n", __func__, lws_wsi_tag(wsi),
 			   (void *)wsi->http.ah);
 
 		n = lws_http_action(wsi);
@@ -2337,7 +2344,8 @@ lws_http_transaction_completed(struct lws *wsi)
 		 * Defer the transaction completed until the last part of the
 		 * partial is sent.
 		 */
-		lwsl_debug("%s: %p: deferring due to partial\n", __func__, wsi);
+		lwsl_debug("%s: %s: deferring due to partial\n", __func__,
+				lws_wsi_tag(wsi));
 		wsi->http.deferred_transaction_completed = 1;
 		lws_callback_on_writable(wsi);
 
@@ -2366,7 +2374,7 @@ lws_http_transaction_completed(struct lws *wsi)
 		return 0;
 	}
 
-	lwsl_info("%s: wsi %p\n", __func__, wsi);
+	lwsl_info("%s: %s\n", __func__, lws_wsi_tag(wsi));
 
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
 	lws_http_compression_destroy(wsi);
@@ -2412,7 +2420,7 @@ lws_http_transaction_completed(struct lws *wsi)
 		return 1;
 
 	if (wsi->http.conn_type != HTTP_CONNECTION_KEEP_ALIVE) {
-		lwsl_info("%s: %p: close connection\n", __func__, wsi);
+		lwsl_info("%s: %s: close connection\n", __func__, lws_wsi_tag(wsi));
 		return 1;
 	}
 
@@ -2425,8 +2433,8 @@ lws_http_transaction_completed(struct lws *wsi)
 	 * until we can verify POLLOUT.  The part of this that confirms POLLOUT
 	 * with no partials is in lws_server_socket_service() below.
 	 */
-	lwsl_debug("%s: %p: setting DEF_ACT from 0x%x: %p\n", __func__,
-		   wsi, (int)wsi->wsistate, wsi->buflist);
+	lwsl_debug("%s: %s: setting DEF_ACT from 0x%x: %p\n", __func__,
+		   lws_wsi_tag(wsi), (int)wsi->wsistate, wsi->buflist);
 	lwsi_set_state(wsi, LRS_DEFERRING_ACTION);
 	wsi->http.tx_content_length = 0;
 	wsi->http.tx_content_remain = 0;
@@ -2461,8 +2469,8 @@ lws_http_transaction_completed(struct lws *wsi)
 	if (wsi->http.ah) {
 		// lws_buflist_describe(&wsi->buflist, wsi, __func__);
 		if (!lws_buflist_next_segment_len(&wsi->buflist, NULL)) {
-			lwsl_debug("%s: %p: nothing in buflist, detaching ah\n",
-				  __func__, wsi);
+			lwsl_debug("%s: %s: nothing in buflist, detaching ah\n",
+				  __func__, lws_wsi_tag(wsi));
 			lws_header_table_detach(wsi, 1);
 #ifdef LWS_WITH_TLS
 			/*
@@ -2481,8 +2489,8 @@ lws_http_transaction_completed(struct lws *wsi)
 			}
 #endif
 		} else {
-			lwsl_info("%s: %p: resetting/keeping ah as pipeline\n",
-				  __func__, wsi);
+			lwsl_info("%s: %s: resetting/keeping ah as pipeline\n",
+				  __func__, lws_wsi_tag(wsi));
 			lws_header_table_reset(wsi, 0);
 			/*
 			 * If we kept the ah, we should restrict the amount
@@ -2503,8 +2511,8 @@ lws_http_transaction_completed(struct lws *wsi)
 			if (lws_header_table_attach(wsi, 0))
 				lwsl_debug("acquired ah\n");
 
-	lwsl_debug("%s: %p: keep-alive await new transaction (state 0x%x)\n",
-		   __func__, wsi, (int)wsi->wsistate);
+	lwsl_debug("%s: %s: keep-alive await new transaction (state 0x%x)\n",
+		   __func__, lws_wsi_tag(wsi), (int)wsi->wsistate);
 	lws_callback_on_writable(wsi);
 
 	return 0;
@@ -2929,8 +2937,8 @@ int lws_serve_http_file_fragment(struct lws *wsi)
 				 * We shouldn't've been able to get the
 				 * WRITEABLE if we are skint
 				 */
-				lwsl_notice("%s: %p: no tx credit\n", __func__,
-						wsi);
+				lwsl_notice("%s: %s: no tx credit\n", __func__,
+						lws_wsi_tag(wsi));
 
 				return 0;
 			}

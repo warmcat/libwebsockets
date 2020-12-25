@@ -309,7 +309,7 @@ ads_known:
 			goto try_next_dns_result_closesock;
 		}
 
-		lwsl_debug("%s: %p: WAITING_CONNECT\n", __func__, wsi);
+		lwsl_debug("%s: %s: WAITING_CONNECT\n", __func__, wsi->lc.gutag);
 		lwsi_set_state(wsi, LRS_WAITING_CONNECT);
 
 		if (wsi->a.context->event_loop_ops->sock_accept)

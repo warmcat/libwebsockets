@@ -41,7 +41,7 @@ int lws_openssl_describe_cipher(struct lws *wsi)
 	SSL *s = wsi->tls.ssl;
 
 	SSL_get_cipher_bits(s, &np);
-	lwsl_info("%s: wsi %p: %s, %s, %d bits, %s\n", __func__, wsi,
+	lwsl_info("%s: %s: %s, %s, %d bits, %s\n", __func__, lws_wsi_tag(wsi),
 			SSL_get_cipher_name(s), SSL_get_cipher(s), np,
 			SSL_get_cipher_version(s));
 #endif
@@ -216,7 +216,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 	n = SSL_read(wsi->tls.ssl, buf, len);
 #if defined(LWS_PLAT_FREERTOS)
 	if (!n && errno == LWS_ENOTCONN) {
-		lwsl_debug("%p: SSL_read ENOTCONN\n", wsi);
+		lwsl_debug("%s: SSL_read ENOTCONN\n", lws_wsi_tag(wsi));
 		return LWS_SSL_CAPABLE_ERROR;
 	}
 #endif
@@ -231,7 +231,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 #endif
 
 
-	lwsl_debug("%p: SSL_read says %d\n", wsi, n);
+	lwsl_debug("%s: SSL_read says %d\n", lws_wsi_tag(wsi), n);
 	/* manpage: returning 0 means connection shut down
 	 *
 	 * 2018-09-10: https://github.com/openssl/openssl/issues/1903
@@ -258,7 +258,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 	 */
 	if (n <= 0) {
 		m = lws_ssl_get_error(wsi, n);
-		lwsl_debug("%p: ssl err %d errno %d\n", wsi, m, errno);
+		lwsl_debug("%s: ssl err %d errno %d\n", lws_wsi_tag(wsi), m, errno);
 		if (m == SSL_ERROR_ZERO_RETURN) /* cleanly shut down */
 			return LWS_SSL_CAPABLE_ERROR;
 
@@ -278,12 +278,12 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, int len)
 
 		if (SSL_want_read(wsi->tls.ssl)) {
 			lwsl_debug("%s: WANT_READ\n", __func__);
-			lwsl_debug("%p: LWS_SSL_CAPABLE_MORE_SERVICE\n", wsi);
+			lwsl_debug("%s: LWS_SSL_CAPABLE_MORE_SERVICE\n", lws_wsi_tag(wsi));
 			return LWS_SSL_CAPABLE_MORE_SERVICE;
 		}
 		if (SSL_want_write(wsi->tls.ssl)) {
 			lwsl_debug("%s: WANT_WRITE\n", __func__);
-			lwsl_debug("%p: LWS_SSL_CAPABLE_MORE_SERVICE\n", wsi);
+			lwsl_debug("%s: LWS_SSL_CAPABLE_MORE_SERVICE\n", lws_wsi_tag(wsi));
 			return LWS_SSL_CAPABLE_MORE_SERVICE;
 		}
 

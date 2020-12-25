@@ -351,32 +351,7 @@ deal with fragmented messages.
 
 @section debuglog Debug Logging
 
-Also using `lws_set_log_level` api you may provide a custom callback to actually
-emit the log string.  By default, this points to an internal emit function
-that sends to stderr.  Setting it to `NULL` leaves it as it is instead.
-
-A helper function `lwsl_emit_syslog()` is exported from the library to simplify
-logging to syslog.  You still need to use `setlogmask`, `openlog` and `closelog`
-in your user code.
-
-The logging apis are made available for user code.
-
-- `lwsl_err(...)`
-- `lwsl_warn(...)`
-- `lwsl_notice(...)`
-- `lwsl_info(...)`
-- `lwsl_debug(...)`
-
-The difference between notice and info is that notice will be logged by default
-whereas info is ignored by default.
-
-If you are not building with _DEBUG defined, ie, without this
-
-```
-	$ cmake .. -DCMAKE_BUILD_TYPE=DEBUG
-```
-
-then log levels below notice do not actually get compiled in.
+See ./READMEs/README.logging.md
 
 @section asan Building with ASAN
 

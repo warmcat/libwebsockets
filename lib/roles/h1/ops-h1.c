@@ -232,8 +232,8 @@ postbody_completion:
 					break;
 				}
 #endif
-				lwsl_info("HTTP_BODY_COMPLETION: %p (%s)\n",
-					  wsi, wsi->a.protocol->name);
+				lwsl_info("HTTP_BODY_COMPLETION: %s (%s)\n",
+					  lws_wsi_tag(wsi), wsi->a.protocol->name);
 
 				n = wsi->a.protocol->callback(wsi,
 					LWS_CALLBACK_HTTP_BODY_COMPLETION,
@@ -371,8 +371,8 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 	     lwsi_state(wsi) == LRS_BODY)) {
 
 		if (!wsi->http.ah && lws_header_table_attach(wsi, 0)) {
-			lwsl_info("%s: wsi %p: ah not available\n", __func__,
-				  wsi);
+			lwsl_info("%s: %s: ah not available\n", __func__,
+				  lws_wsi_tag(wsi));
 			goto try_pollout;
 		}
 
@@ -665,8 +665,8 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 	if (!lwsi_role_client(wsi)) {
 		int n;
 
-		lwsl_debug("%s: %p: wsistate 0x%x\n", __func__, wsi,
-			   (int)wsi->wsistate);
+		lwsl_debug("%s: %s: wsistate 0x%x\n", __func__, lws_wsi_tag(wsi),
+			   (unsigned int)wsi->wsistate);
 		n = lws_h1_server_socket_service(wsi, pollfd);
 		if (n != LWS_HPI_RET_HANDLED)
 			return n;
@@ -751,8 +751,8 @@ rops_handle_POLLOUT_h1(struct lws *wsi)
 
 				memcpy(prebuf + LWS_PRE, buf, len);
 
-				lwsl_debug("%s: %p: proxying body %d %d %d %d %d\n",
-						__func__, wsi, (int)len,
+				lwsl_debug("%s: %s: proxying body %d %d %d %d %d\n",
+						__func__, lws_wsi_tag(wsi), (int)len,
 						(int)wsi->http.tx_content_length,
 						(int)wsi->http.tx_content_remain,
 						(int)wsi->http.rx_content_length,
@@ -818,8 +818,9 @@ rops_write_role_protocol_h1(struct lws *wsi, unsigned char *buf, size_t len,
 		if (n)
 			return n;
 
-		lwsl_info("%s: %p: transformed %d bytes to %d "
-			   "(wp 0x%x, more %d)\n", __func__, wsi, (int)len,
+		lwsl_info("%s: %s: transformed %d bytes to %d "
+			   "(wp 0x%x, more %d)\n", __func__,
+			   lws_wsi_tag(wsi), (int)len,
 			   (int)o, (int)*wp, wsi->http.comp_ctx.may_have_more);
 
 		if (!o)
@@ -897,7 +898,8 @@ rops_destroy_role_h1(struct lws *wsi)
 
 	while (ah) {
 		if (ah->in_use && ah->wsi == wsi) {
-			lwsl_err("%s: ah leak: wsi %p\n", __func__, wsi);
+			lwsl_err("%s: ah leak: wsi %s\n", __func__,
+					lws_wsi_tag(wsi));
 			ah->in_use = 0;
 			ah->wsi = NULL;
 			pt->http.ah_count_in_use--;

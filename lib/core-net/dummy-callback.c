@@ -136,7 +136,7 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 	case LWS_CALLBACK_CLIENT_CLOSED:
-		lwsl_info("%s: client closed: parent %p\n", __func__, wsi->parent);
+		lwsl_info("%s: client closed: parent %s\n", __func__, lws_wsi_tag(wsi->parent));
 		if (wsi->parent)
                        lws_set_timeout(wsi->parent, 1, LWS_TO_KILL_ASYNC);
 		break;
@@ -377,8 +377,9 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			if (!wsi->http.prh_content_length)
 				n |= LWS_WRITE_H2_STREAM_END;
 
-			lwsl_debug("%s: %p: issuing proxy headers: clen %d\n",
-				    __func__, wsi, (int)wsi->http.prh_content_length);
+			lwsl_debug("%s: %s: issuing proxy headers: clen %d\n",
+				    __func__, lws_wsi_tag(wsi),
+				    (int)wsi->http.prh_content_length);
 			n = lws_write(wsi, wsi->http.pending_return_headers +
 					   LWS_PRE,
 				      wsi->http.pending_return_headers_len, n);
@@ -591,8 +592,9 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		break; }
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
-		lwsl_info("%s: COMPLETED_CLIENT_HTTP: %p (parent %p)\n",
-					__func__, wsi, lws_get_parent(wsi));
+		lwsl_info("%s: COMPLETED_CLIENT_HTTP: %s (parent %s)\n",
+					__func__, lws_wsi_tag(wsi),
+					lws_wsi_tag(lws_get_parent(wsi)));
 		if (!lws_get_parent(wsi))
 			break;
 		lws_get_parent(wsi)->reason_bf |=
@@ -812,8 +814,8 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 				 */
 
 				lwsl_info("%s: expected POST in end: "
-					    "closing stdin wsi %p, fd %d\n",
-					    __func__, siwsi,
+					    "closing stdin wsi %s, fd %d\n",
+					    __func__, lws_wsi_tag(siwsi),
 					    siwsi->desc.sockfd);
 
 				/*

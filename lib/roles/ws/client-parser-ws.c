@@ -483,7 +483,7 @@ ping_drop:
 			break;
 
 		case LWSWSOPC_PONG:
-			lwsl_info("%s: client %p received pong\n", __func__, wsi);
+			lwsl_info("%s: %s received pong\n", __func__, lws_wsi_tag(wsi));
 			lwsl_hexdump(&wsi->ws->rx_ubuf[LWS_PRE],
 				     wsi->ws->rx_ubuf_head);
 

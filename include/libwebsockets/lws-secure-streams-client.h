@@ -59,6 +59,7 @@
 #define lws_ss_cancel_timeout		lws_sspc_cancel_timeout
 #define lws_ss_to_user_object		lws_sspc_to_user_object
 #define lws_ss_change_handlers		lws_sspc_change_handlers
+#define lws_ss_tag			lws_sspc_tag
 #endif
 
 
@@ -221,3 +222,5 @@ lws_sspc_change_handlers(struct lws_sspc_handle *h,
 				       lws_ss_constate_t state,
 				       lws_ss_tx_ordinal_t ack));
 
+const char *
+lws_sspc_tag(struct lws_sspc_handle *h);

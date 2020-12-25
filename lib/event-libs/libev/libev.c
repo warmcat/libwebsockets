@@ -302,8 +302,8 @@ elops_io_ev(struct lws *wsi, int flags)
 	struct lws_pt_eventlibs_libev *ptpr = pt_to_priv_ev(pt);
 	struct lws_wsi_eventlibs_libev *w = wsi_to_priv_ev(wsi);
 
-	lwsl_debug("%s: wsi %p %s flags 0x%x %p %d\n", __func__,
-				wsi, wsi->role_ops->name, flags,
+	lwsl_debug("%s: %s %s flags 0x%x %p %d\n", __func__,
+				lws_wsi_tag(wsi), wsi->role_ops->name, flags,
 				ptpr->io_loop, pt->is_destroyed);
 
 	if (!ptpr->io_loop || pt->is_destroyed)

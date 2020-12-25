@@ -160,8 +160,8 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 			return LWS_HPI_RET_WSI_ALREADY_DIED;
 		}
 
-		lwsl_info("%s: new wsi %p: wsistate 0x%lx, role_ops %s\n",
-			    __func__, cwsi, (unsigned long)cwsi->wsistate,
+		lwsl_info("%s: new %s: wsistate 0x%lx, role_ops %s\n",
+			    __func__, lws_wsi_tag(cwsi), (unsigned long)cwsi->wsistate,
 			    cwsi->role_ops->name);
 */
 
