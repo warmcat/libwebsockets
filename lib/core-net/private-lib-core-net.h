@@ -845,6 +845,7 @@ struct lws {
 	unsigned int			for_ss:1;
 	unsigned int			bound_ss_proxy_conn:1;
 	unsigned int			client_bound_sspc:1;
+	unsigned int			client_proxy_onward:1;
 #endif
 
 #ifdef LWS_WITH_ACCESS_LOG

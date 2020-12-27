@@ -56,7 +56,6 @@ lws_ss_sys_auth_api_amazon_com_kick(lws_sorted_usec_list_t *sul)
 	struct lws_context *context = lws_container_of(sul, struct lws_context,
 							sul_api_amazon_com_kick);
 
-	lwsl_notice("%s\n", __func__);
 	lws_state_transition_steps(&context->mgr_system,
 				   LWS_SYSTATE_OPERATIONAL);
 }

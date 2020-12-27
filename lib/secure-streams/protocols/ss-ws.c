@@ -80,7 +80,7 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 #if defined(LWS_WITH_SERVER)
 			    !(h->info.flags & LWSSSINFLAGS_ACCEPTED) && /* not server */
 #endif
-			    !h->txn_ok && !wsi->a.context->being_destroyed) {
+			    !wsi->a.context->being_destroyed) {
 				r = lws_ss_backoff(h);
 				if (r != LWSSSSRET_OK)
 					return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);

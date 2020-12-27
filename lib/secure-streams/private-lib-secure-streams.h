@@ -161,6 +161,7 @@ typedef struct lws_ss_handle {
 	uint8_t			being_serialized:1; /* we are not the consumer */
 	uint8_t			destroying:1;
 	uint8_t			ss_dangling_connected:1;
+	uint8_t			proxy_onward:1; /* opaque is conn */
 } lws_ss_handle_t;
 
 /* connection helper that doesn't need to hang around after connection starts */
@@ -440,7 +441,7 @@ _lws_ss_set_metadata(lws_ss_metadata_t *omd, const char *name,
 		     const void *value, size_t len);
 
 lws_ss_state_return_t
-_lws_ss_client_connect(lws_ss_handle_t *h, int is_retry);
+_lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw);
 
 int
 __lws_ss_proxy_bind_ss_to_conn_wsi(void *parconn, size_t dsh_size);
@@ -448,6 +449,9 @@ __lws_ss_proxy_bind_ss_to_conn_wsi(void *parconn, size_t dsh_size);
 struct lws_vhost *
 lws_ss_policy_ref_trust_store(struct lws_context *context,
 			      const lws_ss_policy_t *pol, char doref);
+
+void
+lws_proxy_clean_conn_ss(struct lws *wsi);
 
 #if defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
 int

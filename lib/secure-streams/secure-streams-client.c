@@ -156,8 +156,8 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 		/*
 		 * our ss proxy Unix Domain socket has closed...
 		 */
-		lwsl_info("%s: LWS_CALLBACK_RAW_CLOSE: proxy conn down\n",
-			    __func__);
+		lwsl_info("%s: LWS_CALLBACK_RAW_CLOSE: %s proxy conn down, sspc h %s\n",
+			    __func__, lws_wsi_tag(wsi), lws_sspc_tag(h));
 		if (h) {
 			h->cwsi = NULL;
 			/*
@@ -165,7 +165,8 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 			 */
 			lws_sul_schedule(h->context, 0, &h->sul_retry,
 					 lws_sspc_sul_retry_cb, LWS_US_PER_SEC);
-		}
+		} else
+			lwsl_notice("%s: no sspc on client proxy link close\n", __func__);
 		break;
 
 	case LWS_CALLBACK_RAW_RX:
@@ -547,6 +548,7 @@ lws_sspc_destroy(lws_sspc_handle_t **ph)
 		lws_dsh_destroy(&h->dsh);
 	if (h->cwsi) {
 		lws_set_opaque_user_data(h->cwsi, NULL);
+		lws_wsi_close(h->cwsi, LWS_TO_KILL_ASYNC);
 		h->cwsi = NULL;
 	}
 

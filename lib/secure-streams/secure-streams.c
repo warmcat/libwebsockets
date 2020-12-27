@@ -322,7 +322,7 @@ lws_ss_smd_tx_cb(lws_sorted_usec_list_t *sul)
 #endif
 
 lws_ss_state_return_t
-_lws_ss_client_connect(lws_ss_handle_t *h, int is_retry)
+_lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 {
 	const char *prot, *_prot, *ipath, *_ipath, *ads, *_ads;
 	struct lws_client_connect_info i;
@@ -447,6 +447,12 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry)
 
 	i.ssl_connection |= LCCSCF_SECSTREAM_CLIENT;
 
+	if (conn_if_sspc_onw) {
+		i.ssl_connection |= LCCSCF_SECSTREAM_PROXY_ONWARD;
+	//	i.opaque_user_data	= conn_if_sspc_onw;
+	}
+
+
 	i.address		= ads;
 	i.port			= port;
 	i.host			= i.address;
@@ -518,7 +524,7 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry)
 lws_ss_state_return_t
 lws_ss_client_connect(lws_ss_handle_t *h)
 {
-	return _lws_ss_client_connect(h, 0);
+	return _lws_ss_client_connect(h, 0, 0);
 }
 
 /*
@@ -558,6 +564,7 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 	}
 #endif
 
+#if 0
 	if (ssi->flags & LWSSSINFLAGS_REGISTER_SINK) {
 		/*
 		 * This can register a secure streams sink as well as normal
@@ -583,6 +590,7 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 		}
 //		lws_dll2_foreach_safe(&pt->ss_owner, NULL, lws_ss_destroy_dll);
 	}
+#endif
 
 	/*
 	 * We overallocate and point to things in the overallocation...
@@ -617,6 +625,9 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 	h->context = context;
 	h->tsi = tsi;
 	h->seq = seq_owner;
+
+	if (h->info.flags & LWSSSINFLAGS_PROXIED)
+		h->proxy_onward = 1;
 
 	/* start of overallocated area */
 	p = (char *)&h[1];
@@ -826,7 +837,7 @@ late_bail:
 				)
 #endif
 			    ))
-		switch (_lws_ss_client_connect(h, 0)) {
+		switch (_lws_ss_client_connect(h, 0, 0)) {
 		case LWSSSSRET_OK:
 			break;
 		case LWSSSSRET_TX_DONT_SEND:
@@ -1035,7 +1046,7 @@ lws_ss_request_tx(lws_ss_handle_t *h)
 	 * Retries operate via lws_ss_request_tx(), explicitly ask for a
 	 * reconnection to clear the retry limit
 	 */
-	r = _lws_ss_client_connect(h, 1);
+	r = _lws_ss_client_connect(h, 1, 0);
 	if (r == LWSSSSRET_DESTROY_ME)
 		return r;
 

@@ -419,7 +419,7 @@ lws_ss_deserialize_parse(struct lws_ss_serialization_parser *par,
 					 * of the ways like DESTROY_ME etc
 					 */
 					switch (_lws_ss_client_connect(
-						proxy_pss_to_ss_h(pss), 0)) {
+						proxy_pss_to_ss_h(pss), 0, parconn)) {
 					case LWSSSSRET_OK:
 						/* well, connect is ongoing */
 						break;

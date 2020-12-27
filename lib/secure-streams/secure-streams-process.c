@@ -84,6 +84,21 @@ typedef struct ss_proxy_onward {
 	struct conn		*conn;
 } ss_proxy_t;
 
+void
+lws_proxy_clean_conn_ss(struct lws *wsi)
+{
+#if 0
+	struct conn *conn;
+
+	if (!wsi)
+		return;
+
+	conn = (struct conn *)wsi->a.opaque_user_data;
+
+	if (conn && conn->ss)
+		conn->ss->wsi = NULL;
+#endif
+}
 
 int
 __lws_ss_proxy_bind_ss_to_conn_wsi(void *parconn, size_t dsh_size)
@@ -314,7 +329,8 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		/* dsh is allocated when the onward ss is done */
 
 		pss->conn->wsi = wsi;
-		wsi->bound_ss_proxy_conn = 1;
+		wsi->bound_ss_proxy_conn = 1; /* opaque is conn */
+
 		pss->conn->state = LPCSPROX_WAIT_INITIAL_TX;
 
 		/*

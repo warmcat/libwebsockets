@@ -462,10 +462,16 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 
 	if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_close_via_role_protocol) &&
 	    lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_close_via_role_protocol).
-					 close_via_role_protocol(wsi, reason))
+					 close_via_role_protocol(wsi, reason)) {
+		lwsl_info("%s: clsoe_via_role took over: %s (sockfd %d)\n", __func__,
+				lws_wsi_tag(wsi), wsi->desc.sockfd);
 		return;
+	}
 
 just_kill_connection:
+
+	lwsl_debug("%s: real just_kill_connection A: %s (sockfd %d)\n", __func__,
+		lws_wsi_tag(wsi), wsi->desc.sockfd);
 
 #if defined(LWS_WITH_FILE_OPS) && (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2))
 	if (lwsi_role_http(wsi) && lwsi_role_server(wsi) &&
@@ -510,40 +516,6 @@ just_kill_connection:
 				       wsi->user_space, (void *)__func__, 0);
 		wsi->protocol_bind_balance = 0;
 	}
-
-#if defined(LWS_WITH_SECURE_STREAMS) && defined(LWS_WITH_SERVER)
-	if (wsi->for_ss) {
-		lwsl_debug("%s: for_ss\n", __func__);
-		/*
-		 * We were adopted for a particular ss, but, eg, we may not
-		 * have succeeded with the connection... we are closing which is
-		 * good, but we have to invalidate any pointer the related ss
-		 * handle may be holding on us
-		 */
-#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
-		if (wsi->client_bound_sspc) {
-			lws_sspc_handle_t *h = (lws_sspc_handle_t *)wsi->a.opaque_user_data;
-
-			if (h) { // && (h->info.flags & LWSSSINFLAGS_ACCEPTED)) {
-				h->cwsi = NULL;
-				wsi->a.opaque_user_data = NULL;
-			}
-		} else
-#endif
-		{
-			lws_ss_handle_t *h = (lws_ss_handle_t *)wsi->a.opaque_user_data;
-
-			if (h) { // && (h->info.flags & LWSSSINFLAGS_ACCEPTED)) {
-
-				if (h->ss_dangling_connected)
-					(void)lws_ss_event_helper(h, LWSSSCS_DISCONNECTED);
-
-				h->wsi = NULL;
-				wsi->a.opaque_user_data = NULL;
-			}
-		}
-	}
-#endif
 
 #if defined(LWS_WITH_CLIENT)
 	if ((
@@ -629,7 +601,7 @@ just_kill_connection:
 #endif
 	}
 
-	lwsl_debug("%s: real just_kill_connection: %s (sockfd %d)\n", __func__,
+	lwsl_info("%s: real just_kill_connection: %s (sockfd %d)\n", __func__,
 			lws_wsi_tag(wsi), wsi->desc.sockfd);
 
 #ifdef LWS_WITH_HUBBUB
@@ -692,6 +664,8 @@ just_kill_connection:
 		 */
 		ccb = 1;
 
+	lwsl_info("%s: %s: cce=%d\n", __func__, lws_wsi_tag(wsi), ccb);
+
 	pro = wsi->a.protocol;
 
 	if (wsi->already_did_cce)
@@ -722,6 +696,56 @@ just_kill_connection:
 #if defined(LWS_ROLE_RAW_FILE)
 async_close:
 #endif
+
+#if defined(LWS_WITH_SECURE_STREAMS) && defined(LWS_WITH_SERVER)
+	if (wsi->for_ss) {
+		lwsl_debug("%s: for_ss\n", __func__);
+		/*
+		 * We were adopted for a particular ss, but, eg, we may not
+		 * have succeeded with the connection... we are closing which is
+		 * good, but we have to invalidate any pointer the related ss
+		 * handle may be holding on us
+		 */
+#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
+
+		if (wsi->client_proxy_onward) {
+			/*
+			 * We are an onward proxied wsi at the proxy,
+			 * opaque is proxing "conn", we must remove its pointer
+			 * to us since we are destroying
+			 */
+			lws_proxy_clean_conn_ss(wsi);
+		} else
+
+			if (wsi->client_bound_sspc) {
+				lws_sspc_handle_t *h = (lws_sspc_handle_t *)wsi->a.opaque_user_data;
+
+				if (h) { // && (h->info.flags & LWSSSINFLAGS_ACCEPTED)) {
+					h->cwsi = NULL;
+					//wsi->a.opaque_user_data = NULL;
+				}
+			} else
+#endif
+		{
+			lws_ss_handle_t *h = (lws_ss_handle_t *)wsi->a.opaque_user_data;
+
+			if (h) { // && (h->info.flags & LWSSSINFLAGS_ACCEPTED)) {
+
+				h->wsi = NULL;
+				wsi->a.opaque_user_data = NULL;
+
+				if (h->ss_dangling_connected &&
+				    lws_ss_event_helper(h, LWSSSCS_DISCONNECTED) ==
+						    LWSSSSRET_DESTROY_ME) {
+
+					lws_ss_destroy(&h);
+				}
+			}
+		}
+	}
+#endif
+
+
 	lws_remove_child_from_any_parent(wsi);
 	wsi->socket_is_permanently_unusable = 1;
 
