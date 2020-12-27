@@ -131,9 +131,12 @@ lws_smd_msg_send(struct lws_context *ctx, void *pay)
 	lws_smd_msg_t *msg = (lws_smd_msg_t *)(((uint8_t *)pay) -
 				LWS_SMD_SS_RX_HEADER_LEN_EFF - sizeof(*msg));
 
-	if (ctx->smd.owner_messages.count >= LWS_SMD_MAX_QUEUE_DEPTH)
+	if (ctx->smd.owner_messages.count >= LWS_SMD_MAX_QUEUE_DEPTH) {
+		lwsl_warn("%s: rejecting message on queue depth %d\n",
+				__func__, (int)ctx->smd.owner_messages.count);
 		/* reject the message due to max queue depth reached */
 		return 1;
+	}
 
 	if (!ctx->smd.delivering)
 		lws_mutex_lock(ctx->smd.lock_peers); /* +++++++++++++++ peers */

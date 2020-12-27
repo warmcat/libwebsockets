@@ -30,7 +30,7 @@
 #define LWS_SMD_INFLIGHT_GRACE_SECS	(2)
 #endif
 #if !defined(LWS_SMD_MAX_QUEUE_DEPTH)
-#define LWS_SMD_MAX_QUEUE_DEPTH		(12)
+#define LWS_SMD_MAX_QUEUE_DEPTH		(20)
 #endif
 
 #if defined(LWS_WITH_SECURE_STREAMS)

@@ -68,6 +68,9 @@ _thread_spam(void *d)
 					       (unsigned int)n)) {
 			lwsl_info("%s: send failed\n", __func__);
 			n--;
+			fail++;
+			interrupted = 1;
+			lws_cancel_service(context);
 		}
 #if defined(WIN32)
 		Sleep(3);
