@@ -114,7 +114,7 @@ void
 lws_set_timeout_us(struct lws *wsi, enum pending_timeout reason, lws_usec_t us);
 
 /* helper for clearer LWS_TO_KILL_ASYNC / LWS_TO_KILL_SYNC usage */
-#define lws_wsi_close(w, to_kill) lws_set_timeout(wsi, 1, to_kill)
+#define lws_wsi_close(w, to_kill) lws_set_timeout(w, 1, to_kill)
 
 
 #define LWS_SET_TIMER_USEC_CANCEL ((lws_usec_t)-1ll)
