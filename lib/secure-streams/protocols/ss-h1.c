@@ -705,8 +705,10 @@ malformed:
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
 		lwsl_debug("%s: LWS_CALLBACK_COMPLETED_CLIENT_HTTP\n", __func__);
-		if (h->hanging_som)
+		if (h->hanging_som) {
 			h->info.rx(ss_to_userobj(h), NULL, 0, LWSSS_FLAG_EOM);
+			h->hanging_som = 0;
+		}
 
 		wsi->http.writeable_len = h->writeable_len = 0;
 		lws_sul_cancel(&h->sul_timeout);
