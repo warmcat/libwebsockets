@@ -843,6 +843,8 @@ struct lws {
 	unsigned int			shadow:1; /* we do not control fd lifecycle at all */
 #if defined(LWS_WITH_SECURE_STREAMS)
 	unsigned int			for_ss:1;
+	unsigned int			bound_ss_proxy_conn:1;
+	unsigned int			client_bound_sspc:1;
 #endif
 
 #ifdef LWS_WITH_ACCESS_LOG

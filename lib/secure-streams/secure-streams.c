@@ -88,6 +88,11 @@ lws_ss_event_helper(lws_ss_handle_t *h, lws_ss_constate_t cs)
 	if (!h)
 		return LWSSSSRET_OK;
 
+	if (cs == LWSSSCS_CONNECTED)
+		h->ss_dangling_connected = 1;
+	if (cs == LWSSSCS_DISCONNECTED)
+		h->ss_dangling_connected = 0;
+
 #if defined(LWS_WITH_SEQUENCER)
 	/*
 	 * A parent sequencer for the ss is optional, if we have one, keep it
@@ -904,6 +909,9 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 		v = lws_get_vhost_by_name(h->context, h->policy->streamtype);
 #endif
 
+	if (h->ss_dangling_connected)
+		(void)lws_ss_event_helper(h, LWSSSCS_DISCONNECTED);
+
 	(void)lws_ss_event_helper(h, LWSSSCS_DESTROYING);
 
 	lws_pt_unlock(pt);
@@ -1174,5 +1182,7 @@ lws_ss_change_handlers(struct lws_ss_handle *h,
 const char *
 lws_ss_tag(struct lws_ss_handle *h)
 {
+	if (!h)
+		return "[null ss]";
 	return lws_lc_tag(&h->lc);
 }

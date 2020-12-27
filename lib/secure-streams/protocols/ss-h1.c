@@ -394,6 +394,10 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		break;
 
 	case LWS_CALLBACK_CLIENT_HTTP_REDIRECT:
+
+		if (!h)
+			return -1;
+
 		if (h->policy->u.http.fail_redirect)
 			lws_system_cpd_set(lws_get_context(wsi),
 					   LWS_CPD_CAPTIVE_PORTAL);
@@ -435,7 +439,11 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
-		status = lws_http_client_http_response(wsi);
+
+		if (!h)
+			return -1;
+
+		status = (int)lws_http_client_http_response(wsi);
 		lwsl_info("%s: LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP: %d\n", __func__, status);
 	//	if (!status)
 			/* it's just telling use we connected / joined the nwsi */
@@ -587,6 +595,8 @@ malformed:
 #endif
 
 	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
+		if (!h)
+			return -1;
 		if (h->writeable_len)
 			wsi->http.writeable_len = h->writeable_len;
 
@@ -706,6 +716,10 @@ malformed:
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
 		lwsl_debug("%s: LWS_CALLBACK_COMPLETED_CLIENT_HTTP\n", __func__);
+
+		if (!h)
+			return -1;
+
 		if (h->hanging_som) {
 			h->info.rx(ss_to_userobj(h), NULL, 0, LWSSS_FLAG_EOM);
 			h->hanging_som = 0;
@@ -858,6 +872,9 @@ malformed:
 
 #if defined(LWS_WITH_SERVER)
 	case LWS_CALLBACK_HTTP:
+
+		if (!h)
+			return -1;
 
 		lwsl_notice("%s: LWS_CALLBACK_HTTP\n", __func__);
 		{

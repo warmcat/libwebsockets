@@ -56,6 +56,7 @@ lws_ss_sys_auth_api_amazon_com_kick(lws_sorted_usec_list_t *sul)
 	struct lws_context *context = lws_container_of(sul, struct lws_context,
 							sul_api_amazon_com_kick);
 
+	lwsl_notice("%s\n", __func__);
 	lws_state_transition_steps(&context->mgr_system,
 				   LWS_SYSTATE_OPERATIONAL);
 }
@@ -122,7 +123,7 @@ ss_api_amazon_auth_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	ab = lws_system_get_blob(context, LWS_SYSBLOB_TYPE_AUTH, AUTH_IDX_LWA);
 	/* coverity */
 	if (!ab)
-		return -1;
+		return LWSSSSRET_DISCONNECT_ME;
 
 	if (buf) {
 		if (flags & LWSSS_FLAG_SOM) {
@@ -140,11 +141,11 @@ ss_api_amazon_auth_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 						    LWS_SYSBLOB_TYPE_AUTH,
 						    AUTH_IDX_LWA));
 
-			return -1;
+			return LWSSSSRET_DISCONNECT_ME;
 		}
 	}
 	if (!(flags & LWSSS_FLAG_EOM))
-		return 0;
+		return LWSSSSRET_OK;
 
 	/* we should have the auth token now */
 
@@ -156,7 +157,7 @@ ss_api_amazon_auth_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 
 	/* we move the system state at auth connection close */
 
-	return 0;
+	return LWSSSSRET_DISCONNECT_ME;
 }
 
 static lws_ss_state_return_t
@@ -182,7 +183,7 @@ ss_api_amazon_auth_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf,
 
 	n = lws_system_blob_get(ab, buf, len, m->pos);
 	if (n < 0)
-		return 1;
+		return LWSSSSRET_TX_DONT_SEND;
 
 	if (!m->pos)
 		*flags |= LWSSS_FLAG_SOM;
@@ -194,7 +195,7 @@ ss_api_amazon_auth_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf,
 		m->pos = 0; /* for next time */
 	}
 
-	return 0;
+	return LWSSSSRET_OK;
 }
 
 static lws_ss_state_return_t
@@ -253,7 +254,7 @@ ss_api_amazon_auth_state(void *userobj, void *sh, lws_ss_constate_t state,
 		break;
 	}
 
-	return 0;
+	return LWSSSSRET_OK;
 }
 
 int

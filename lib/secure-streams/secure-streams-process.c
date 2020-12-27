@@ -55,6 +55,9 @@
  * Because both sides of the connection share the conn, we allocate it
  * during accepted adoption, and both sides point to it.
  *
+ * When .ss or .wsi close, they must NULL their entry here so no dangling
+ * refereneces.
+ *
  * The last one of the accepted side and the onward side to close frees it.
  */
 
@@ -62,7 +65,7 @@ struct conn {
 	struct lws_ss_serialization_parser parser;
 
 	lws_dsh_t		*dsh;	/* unified buffer for both sides */
-	struct lws		*wsi;	/* the client side */
+	struct lws		*wsi;	/* the proxy's client side */
 	lws_ss_handle_t		*ss;	/* the onward, ss side */
 
 	lws_ss_conn_states_t	state;
@@ -284,6 +287,7 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		pss->conn->wsi = wsi;
+		wsi->bound_ss_proxy_conn = 1;
 		pss->conn->state = LPCSPROX_WAIT_INITIAL_TX;
 
 		/*
@@ -310,17 +314,39 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		 * still live...
 		 */
 
+		assert(conn->wsi == wsi);
+		conn->wsi = NULL;
+
+		lwsl_notice("%s: cli->prox link %s closing\n",
+				__func__, lws_wsi_tag(wsi));
+
+		/* sever relationship with conn */
+		lws_set_opaque_user_data(wsi, NULL);
+
+		/*
+		 * The current wsi is decoupled from the pss / conn and
+		 * the conn no longer has a pointer on it
+		 */
+
 		if (conn->ss) {
 			struct lws *cw = conn->ss->wsi;
 			/*
-			 * The onward connection is around
+			 * conn->ss is the onward connection SS
 			 */
+
 			lwsl_info("%s: destroying %s, wsi %s\n",
 					__func__, lws_ss_tag(conn->ss),
 					lws_wsi_tag(conn->ss->wsi));
 			/* sever relationship with ss about to be deleted */
 			lws_set_opaque_user_data(wsi, NULL);
-			if (cw && wsi != cw)
+			conn->ss->wsi = NULL;
+
+			if (cw && wsi != cw) {
+
+				/* disconnect onward SS from its wsi */
+
+				lws_set_opaque_user_data(cw, NULL);
+
 				/*
 				 * The wsi doing the onward connection can no
 				 * longer relate to the conn... otherwise when
@@ -328,11 +354,13 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 				 * the ss we are about to delete
 				 */
 				lws_wsi_close(cw, LWS_TO_KILL_ASYNC);
-			conn->wsi = NULL;
-			conn->ss->wsi = NULL;
+			}
 
 			lws_ss_destroy(&conn->ss);
-			/* conn may have gone */
+			/*
+			 * Conn may have gone, at ss destroy handler in
+			 * ssi.state for proxied ss
+			 */
 			break;
 		}
 

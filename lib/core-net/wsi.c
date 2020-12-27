@@ -27,6 +27,8 @@
 const char *
 lws_wsi_tag(struct lws *wsi)
 {
+	if (!wsi)
+		return "[null wsi]";
 	return lws_lc_tag(&wsi->lc);
 }
 

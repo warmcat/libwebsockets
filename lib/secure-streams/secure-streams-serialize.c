@@ -1311,15 +1311,25 @@ payload_ff:
 				h->creating_cb_done = 1;
 			}
 
-			n = ssi->state(client_pss_to_userdata(pss),
-						NULL, par->ctr, par->flags);
-			switch (n) {
-			case LWSSSSRET_OK:
-				break;
-			case LWSSSSRET_DISCONNECT_ME:
-				goto hangup;
-			case LWSSSSRET_DESTROY_ME:
-				return LWSSSSRET_DESTROY_ME;
+			if (ssi->state) {
+				h = lws_container_of(par, lws_sspc_handle_t, parser);
+				lws_ss_constate_t cs = (lws_ss_constate_t)par->ctr;
+
+				if (cs == LWSSSCS_CONNECTED)
+					h->ss_dangling_connected = 1;
+				if (cs == LWSSSCS_DISCONNECTED)
+					h->ss_dangling_connected = 0;
+
+				n = ssi->state(client_pss_to_userdata(pss),
+					NULL, (lws_ss_constate_t)par->ctr, par->flags);
+				switch (n) {
+				case LWSSSSRET_OK:
+					break;
+				case LWSSSSRET_DISCONNECT_ME:
+					goto hangup;
+				case LWSSSSRET_DESTROY_ME:
+					return LWSSSSRET_DESTROY_ME;
+				}
 			}
 
 swallow:

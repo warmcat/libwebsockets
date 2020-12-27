@@ -535,6 +535,11 @@ lws_sspc_destroy(lws_sspc_handle_t **ph)
 
 	h->destroying = 1;
 
+	if (h->ss_dangling_connected && h->ssi.state) {
+		h->ssi.state(m, NULL, LWSSSCS_DISCONNECTED, 0);
+		h->ss_dangling_connected = 0;
+	}
+
 	lws_sul_cancel(&h->sul_retry);
 	lws_dll2_remove(&h->client_list);
 
@@ -843,5 +848,7 @@ lws_sspc_change_handlers(struct lws_sspc_handle *h,
 const char *
 lws_sspc_tag(struct lws_sspc_handle *h)
 {
+	if (!h)
+		return "[null sspc]";
 	return lws_lc_tag(&h->lc);
 }

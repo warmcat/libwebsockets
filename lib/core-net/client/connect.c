@@ -318,7 +318,9 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 		i->opaque_user_data;
 
 #if defined(LWS_WITH_SECURE_STREAMS)
-	wsi->for_ss = !!(i->ssl_connection & LCCSCF_SECSTREAM_CLIENT);
+	wsi->for_ss = !!(i->ssl_connection & (LCCSCF_SECSTREAM_CLIENT | LCCSCF_SECSTREAM_PROXY_LINK | LCCSCF_SECSTREAM_PROXY_ONWARD));
+
+	wsi->client_bound_sspc = !!(i->ssl_connection & LCCSCF_SECSTREAM_PROXY_LINK); /* so wsi close understands need to remove sspc ptr to wsi */
 		/* implies our opaque user ptr is the ss handle */
 	if (wsi->for_ss) {
 		/* it's related to ss... the options are
@@ -335,6 +337,9 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 #endif
 			&wsi->lc, "%s/%s/%s/(%s)", i->method ? i->method : "WS",
 			wsi->role_ops->name, i->address,
+#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
+			wsi->client_bound_sspc ? lws_sspc_tag((lws_sspc_handle_t *)i->opaque_user_data) :
+#endif
 			lws_ss_tag(((lws_ss_handle_t *)i->opaque_user_data)));
 	} else
 #endif

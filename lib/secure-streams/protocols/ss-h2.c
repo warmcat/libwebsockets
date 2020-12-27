@@ -40,6 +40,9 @@ secstream_h2(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
 
+		if (!h)
+			return -1;
+
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
 		if (h->being_serialized) {
 			/*
@@ -68,6 +71,10 @@ secstream_h2(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		break;
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
+
+		if (!h)
+			return -1;
+
 		// lwsl_err("%s: h2 COMPLETED_CLIENT_HTTP\n", __func__);
 		if (h->hanging_som)
 			r = h->info.rx(ss_to_userobj(h), NULL, 0, LWSSS_FLAG_EOM);
@@ -81,6 +88,10 @@ secstream_h2(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		break;
 
 	case LWS_CALLBACK_WSI_TX_CREDIT_GET:
+
+		if (!h)
+			return -1;
+
 		/*
 		 * The peer has sent us additional tx credit...
 		 */

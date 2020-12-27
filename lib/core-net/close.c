@@ -520,11 +520,27 @@ just_kill_connection:
 		 * good, but we have to invalidate any pointer the related ss
 		 * handle may be holding on us
 		 */
-		lws_ss_handle_t *h = (lws_ss_handle_t *)wsi->a.opaque_user_data;
+#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
+		if (wsi->client_bound_sspc) {
+			lws_sspc_handle_t *h = (lws_sspc_handle_t *)wsi->a.opaque_user_data;
 
-		if (h && (h->info.flags & LWSSSINFLAGS_ACCEPTED)) {
-			h->wsi = NULL;
-			wsi->a.opaque_user_data = NULL;
+			if (h) { // && (h->info.flags & LWSSSINFLAGS_ACCEPTED)) {
+				h->cwsi = NULL;
+				wsi->a.opaque_user_data = NULL;
+			}
+		} else
+#endif
+		{
+			lws_ss_handle_t *h = (lws_ss_handle_t *)wsi->a.opaque_user_data;
+
+			if (h) { // && (h->info.flags & LWSSSINFLAGS_ACCEPTED)) {
+
+				if (h->ss_dangling_connected)
+					(void)lws_ss_event_helper(h, LWSSSCS_DISCONNECTED);
+
+				h->wsi = NULL;
+				wsi->a.opaque_user_data = NULL;
+			}
 		}
 	}
 #endif
