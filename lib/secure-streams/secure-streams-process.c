@@ -85,15 +85,24 @@ typedef struct ss_proxy_onward {
 } ss_proxy_t;
 
 
-void
-__lws_ss_proxy_bind_ss_to_conn_wsi(void * parconn)
+int
+__lws_ss_proxy_bind_ss_to_conn_wsi(void *parconn, size_t dsh_size)
 {
 	struct conn *conn = (struct conn *)parconn;
+	struct lws_context_per_thread *pt;
 
 	if (!conn || !conn->wsi || !conn->ss)
-		return;
+		return -1;
+
+	pt = &conn->wsi->a.context->pt[(int)conn->wsi->tsi];
+
+	conn->dsh = lws_dsh_create(&pt->ss_dsh_owner, dsh_size, 2);
+	if (!conn->dsh)
+		return -1;
 
 	__lws_lc_tag_append(&conn->wsi->lc, lws_ss_tag(conn->ss));
+
+	return 0;
 }
 
 /* secure streams payload interface */
@@ -180,9 +189,34 @@ ss_proxy_onward_state(void *userobj, void *sh,
 		      lws_ss_constate_t state, lws_ss_tx_ordinal_t ack)
 {
 	ss_proxy_t *m = (ss_proxy_t *)userobj;
+	size_t dsh_size;
 
 	switch (state) {
 	case LWSSSCS_CREATING:
+
+		/*
+		 * conn is private to -process.c, call thru to a) adjust
+		 * the accepted incoming proxy link wsi tag name to be
+		 * appended with the onward ss tag information now we
+		 * have it, and b) allocate the dsh buffer now we
+		 * can find out the policy about it for the streamtype.
+		 */
+
+		dsh_size = m->ss->policy->proxy_buflen ?
+				m->ss->policy->proxy_buflen : 32768;
+
+		lwsl_notice("%s: %s: initializing dsh max len %lu\n",
+				__func__, lws_ss_tag(m->ss),
+				(unsigned long)dsh_size);
+
+		if (__lws_ss_proxy_bind_ss_to_conn_wsi(m->conn, dsh_size)) {
+
+			/* failed to allocate the dsh */
+
+			lwsl_notice("%s: dsh init failed\n", __func__);
+
+			return LWSSSSRET_DESTROY_ME;
+		}
 		break;
 
 	case LWSSSCS_DESTROYING:
@@ -208,7 +242,7 @@ ss_proxy_onward_state(void *userobj, void *sh,
 	if (!m->conn) {
 		lwsl_warn("%s: dropping state due to conn not up\n", __func__);
 
-		return 0;
+		return LWSSSSRET_OK;
 	}
 
 	lws_ss_serialize_state(m->conn->dsh, state, ack);
@@ -216,7 +250,7 @@ ss_proxy_onward_state(void *userobj, void *sh,
 	if (m->conn->wsi) /* if possible, request client conn write */
 		lws_callback_on_writable(m->conn->wsi);
 
-	return 0;
+	return LWSSSSRET_OK;
 }
 
 void
@@ -241,7 +275,6 @@ static int
 callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		  void *user, void *in, size_t len)
 {
-	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	struct raw_pss *pss = (struct raw_pss *)user;
 	const lws_ss_policy_t *rsp;
 	struct conn *conn = NULL;
@@ -278,13 +311,7 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 			return -1;
 		memset(pss->conn, 0, sizeof(*pss->conn));
 
-		pss->conn->dsh = lws_dsh_create(&pt->ss_dsh_owner,
-						LWS_SS_MTU * 160, 2);
-		if (!pss->conn->dsh) {
-			free(pss->conn);
-
-			return -1;
-		}
+		/* dsh is allocated when the onward ss is done */
 
 		pss->conn->wsi = wsi;
 		wsi->bound_ss_proxy_conn = 1;

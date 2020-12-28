@@ -442,8 +442,8 @@ _lws_ss_set_metadata(lws_ss_metadata_t *omd, const char *name,
 lws_ss_state_return_t
 _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry);
 
-void
-__lws_ss_proxy_bind_ss_to_conn_wsi(void * parconn);
+int
+__lws_ss_proxy_bind_ss_to_conn_wsi(void *parconn, size_t dsh_size);
 
 struct lws_vhost *
 lws_ss_policy_ref_trust_store(struct lws_context *context,

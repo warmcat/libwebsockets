@@ -326,6 +326,13 @@ interval described in the associated retry / backoff selection, are important
 enough to wake the whole system from low power suspend so they happen on
 schedule.
 
+### `proxy_buflen`
+
+Only used when the streamtype is proxied... sets the maximum size of the
+payload buffering (in bytes) the proxy will hold for this type of stream.  If
+the endpoint dumps a lot of data without any flow control, this may need to
+be correspondingly large.  Default is 16KB.
+
 ### `metadata`
 
 This allows declaring basically dynamic symbol names to be used by the streamtype,

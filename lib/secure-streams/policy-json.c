@@ -57,6 +57,7 @@ static const char * const lejp_tokens_policy[] = {
 	"s[].*.retry",
 	"s[].*.timeout_ms",
 	"s[].*.tls_trust_store",
+	"s[].*.proxy_buflen",
 	"s[].*.metadata",
 	"s[].*.metadata[].*",
 	"s[].*.http_resp_map",
@@ -132,6 +133,7 @@ typedef enum {
 	LSSPPT_RETRYPTR,
 	LSSPPT_DEFAULT_TIMEOUT_MS,
 	LSSPPT_TRUST,
+	LSSPPT_PROXY_BUFLEN,
 	LSSPPT_METADATA,
 	LSSPPT_METADATA_ITEM,
 	LSSPPT_HTTPRESPMAP,
@@ -517,6 +519,10 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 
 	case LSSPPT_PORT:
 		a->curr[LTY_POLICY].p->port = atoi(ctx->buf);
+		break;
+
+	case LSSPPT_PROXY_BUFLEN:
+		a->curr[LTY_POLICY].p->proxy_buflen = (uint32_t)atol(ctx->buf);
 		break;
 
 	case LSSPPT_HTTP_METHOD:

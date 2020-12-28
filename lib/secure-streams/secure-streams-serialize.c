@@ -363,8 +363,8 @@ lws_ss_deserialize_parse(struct lws_ss_serialization_parser *par,
 	lws_ss_metadata_t *pm;
 	lws_sspc_handle_t *h;
 	uint8_t pre[23];
-	lws_usec_t us;
 	uint32_t flags;
+	lws_usec_t us;
 	uint8_t *p;
 	int n;
 
@@ -1115,8 +1115,6 @@ payload_ff:
 					__func__, par->streamtype);
 				*state = LPCSPROX_REPORTING_OK;
 			}
-
-			__lws_ss_proxy_bind_ss_to_conn_wsi(parconn);
 
 			if (*pss) {
 				(*pss)->being_serialized = 1;
