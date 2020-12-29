@@ -893,9 +893,13 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 	 */
 
 #if defined(LWS_WITH_SYS_SMD)
-	if (h->policy == &pol_smd && h->u.smd.smd_peer) {
-		lws_smd_unregister(h->u.smd.smd_peer);
-		h->u.smd.smd_peer = NULL;
+	if (h->policy == &pol_smd) {
+		lws_sul_cancel(&h->u.smd.sul_write);
+
+		if (h->u.smd.smd_peer) {
+			lws_smd_unregister(h->u.smd.smd_peer);
+			h->u.smd.smd_peer = NULL;
+		}
 	}
 #endif
 
