@@ -316,11 +316,11 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		}
 		vh->tls.x509_client_CA = d2i_X509(NULL, buf, (long)len);
 		free(buf);
-		lwsl_notice("Loading client CA for verification %s\n", ca_filepath);
+		lwsl_info("Loading client CA for verification %s\n", ca_filepath);
 #endif
 	} else {
 		vh->tls.x509_client_CA = d2i_X509(NULL, (uint8_t*)ca_mem, (long)ca_mem_len);
-		lwsl_notice("%s: using mem client CA cert %d\n",
+		lwsl_info("%s: using mem client CA cert %d\n",
 			    __func__, ca_mem_len);
 	}
 
@@ -366,7 +366,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 			return 1;
 		}
 
-		lwsl_notice("Loaded client cert %s\n", cert_filepath);
+		lwsl_info("Loaded client cert %s\n", cert_filepath);
 #endif
 	} else if (cert_mem && cert_mem_len) {
 		/* lwsl_hexdump_notice(cert_mem, cert_mem_len - 1); */
@@ -380,7 +380,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 			lws_tls_err_describe_clear();
 			return 1;
 		}
-		lwsl_notice("%s: using mem client cert %d\n",
+		lwsl_info("%s: using mem client cert %d\n",
 			    __func__, cert_mem_len);
 	}
 

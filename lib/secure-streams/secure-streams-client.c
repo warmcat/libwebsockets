@@ -166,7 +166,7 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_sul_schedule(h->context, 0, &h->sul_retry,
 					 lws_sspc_sul_retry_cb, LWS_US_PER_SEC);
 		} else
-			lwsl_notice("%s: no sspc on client proxy link close\n", __func__);
+			lwsl_info("%s: no sspc on client proxy link close\n", __func__);
 		break;
 
 	case LWS_CALLBACK_RAW_RX:

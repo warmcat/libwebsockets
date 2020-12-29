@@ -26,6 +26,11 @@
 #include <string.h>
 #include <signal.h>
 
+#if defined(__APPLE__) || defined(__linux__)
+#include <execinfo.h>
+#include <assert.h>
+#endif
+
 static int interrupted, bad = 1, port = 0 /* unix domain socket */;
 static const char *ibind = NULL; /* default to unix domain skt "proxy.ss.lws" */
 static lws_state_notify_link_t nl;
@@ -234,6 +239,26 @@ sigint_handler(int sig)
 	interrupted = 1;
 }
 
+static void
+assert_bt(int sig)
+{
+#if defined(__APPLE__) || defined(__linux__)
+	  void *array[20];
+	  char **strings;
+	  int size, i;
+
+	  size = backtrace (array, 10);
+	  strings = backtrace_symbols (array, size);
+	  if (!strings)
+		  return;
+
+	    for (i = 0; i < size; i++)
+	      printf("%s\n", strings[i]);
+
+	  free (strings);
+#endif
+}
+
 int main(int argc, const char **argv)
 {
 	int n = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
@@ -242,6 +267,7 @@ int main(int argc, const char **argv)
 	const char *p;
 
 	signal(SIGINT, sigint_handler);
+	signal(SIGABRT, assert_bt);
 
 	if ((p = lws_cmdline_option(argc, argv, "-d")))
 		logs = atoi(p);

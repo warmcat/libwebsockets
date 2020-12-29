@@ -891,7 +891,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 			lws_tls_err_describe_clear();
 			return 1;
 		}
-		lwsl_notice("Loaded client cert %s\n", cert_filepath);
+		lwsl_info("Loaded client cert %s\n", cert_filepath);
 
 	} else if (cert_mem && cert_mem_len) {
 		lws_filepos_t flen;

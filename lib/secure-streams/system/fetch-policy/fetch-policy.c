@@ -117,7 +117,6 @@ ss_fetch_policy_state(void *userobj, void *sh, lws_ss_constate_t state,
 		break;
 
 	case LWSSSCS_DISCONNECTED:
-		lwsl_notice("%s: DISCONNECTED\n", __func__);
 		if (m->partway == 1) {
 			lws_ss_policy_parse_abandon(context);
 			break;

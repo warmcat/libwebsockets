@@ -181,7 +181,7 @@ start_ws_handshake:
 		 * to notice our state and not resend the preface...
 		 */
 
-		lwsl_notice("%s: LRS_H1C_ISSUE_HANDSHAKE fallthru\n", __func__);
+		lwsl_debug("%s: LRS_H1C_ISSUE_HANDSHAKE fallthru\n", __func__);
 
 		/* fallthru */
 
