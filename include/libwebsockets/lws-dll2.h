@@ -207,8 +207,8 @@ typedef struct lws_dll2_owner {
 	uint32_t		count;
 } lws_dll2_owner_t;
 
-static LWS_INLINE int
-lws_dll2_is_detached(const struct lws_dll2 *d) { return !d->owner; }
+LWS_VISIBLE LWS_EXTERN int
+lws_dll2_is_detached(const struct lws_dll2 *d);
 
 static LWS_INLINE const struct lws_dll2_owner *
 lws_dll2_owner(const struct lws_dll2 *d) { return d->owner; }

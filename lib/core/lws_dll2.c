@@ -29,6 +29,31 @@
 #endif
 
 int
+lws_dll2_is_detached(const struct lws_dll2 *d)
+{
+	if (d->owner)
+		return 0;
+
+	if (d->next || d->prev) {
+		lwsl_err("%s: dll2 %p: detached but next %p, prev %p\n",
+				__func__, d, d->next, d->prev);
+		/*
+		 * New lws_dll2 objects and removed lws_dll2 objects
+		 * have .owner, .next and .prev all set to NULL, so we
+		 * can just check .owner to see if we are detached.
+		 *
+		 * We assert here if we encounter an lws_dll2 in the illegal
+		 * state of NULL .owner, but non-NULL in .next or .prev,
+		 * it's evidence of corruption, use-after-free, threads
+		 * contending on accessing without locking etc.
+		 */
+		assert(0);
+	}
+
+	return 1;
+}
+
+int
 lws_dll2_foreach_safe(struct lws_dll2_owner *owner, void *user,
 		      int (*cb)(struct lws_dll2 *d, void *user))
 {
