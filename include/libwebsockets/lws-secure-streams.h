@@ -731,5 +731,47 @@ lws_ss_get_est_peer_tx_credit(struct lws_ss_handle *h);
 LWS_VISIBLE LWS_EXTERN const char *
 lws_ss_tag(struct lws_ss_handle *h);
 
+
+#if defined(LWS_WITH_SECURE_STREAMS_AUTH_SIGV4)
+/**
+ * lws_ss_sigv4_set_aws_key() - set aws credential into system blob
+ *
+ * \param context: lws_context
+ * \param idx:     the system blob index specified in the policy, currently
+ *                  up to 4 blobs.
+ * \param keyid:   aws access keyid
+ * \param key:     aws access key
+ *
+ * Return 0 if OK or nonzero if e.g. idx is invalid; system blob heap appending
+ * fails.
+ */
+
+LWS_VISIBLE LWS_EXTERN int
+lws_ss_sigv4_set_aws_key(struct lws_context* context, uint8_t idx,
+		                const char * keyid, const char * key);
+
+/**
+ * lws_aws_filesystem_credentials_helper() - read aws credentials from file
+ *
+ * \param path: path to read, ~ at start is converted to $HOME contents if any
+ * \param kid: eg, "aws_access_key_id"
+ * \param ak: eg, "aws_secret_access_key"
+ * \param aws_keyid: pointer to pointer for allocated keyid from credentials file
+ * \param aws_key: pointer to pointer for allocated key from credentials file
+ *
+ * Return 0 if both *aws_keyid and *aws_key allocated from the config file, else
+ * nonzero, and neither *aws_keyid or *aws_key are allocated.
+ *
+ * If *aws_keyid and *aws_key are set, it's the user's responsibility to
+ * free() them when they are no longer needed.
+ */
+
+LWS_VISIBLE LWS_EXTERN int
+lws_aws_filesystem_credentials_helper(const char *path, const char *kid,
+				      const char *ak, char **aws_keyid,
+				      char **aws_key);
+
+#endif
+
 ///@}
 

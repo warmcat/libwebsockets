@@ -217,17 +217,22 @@ auth token blob indexes.
 
 ```
 ...
- "auth": [{"name":"lwa","streamtype":"api_amazon_com_lwa","blob":0}]
+ "auth": [{"name":"newauth","type":"sigv4", "blob":0}]
 ...
 ```
 
 Streams can indicate they depend on a valid auth token from one of these schemes
 by using the `"use_auth": "name"` member in the streamtype definition, where name
-is, eg, "lwa" in the example above.
+is, eg, "sigv4" in the example above.  If "use_auth" is not in the streamtype
+definition, default auth is lwa if "http_auth_header" is there.
 
 ### `auth[].name`
 
 This is the name of the authentication scheme used by other streamtypes
+
+### `auth[].type`
+
+Indicate the auth type, e.g. sigv4
 
 ### `auth[].streamtype`
 
@@ -236,7 +241,8 @@ This is the auth streamtype to be used to refresh the authentication token
 ### `auth[].blob`
 
 This is the auth blob index the authentication token is stored into and retreived
-from
+from system blob, currently up to 4 blobs.
+
 
 ### `s`
 
@@ -340,6 +346,12 @@ to validate the remote server cert.
 
 Indicate that the streamtype should use the named auth type from the `auth`
 array in the policy
+
+### `aws_region`
+Indicate which metadata should be used to set aws region for certain streamtype
+
+### `aws_service`
+Indicate which metadata should be used to set aws service for certain streamtype
 
 ### `server_cert`
 
@@ -742,7 +754,7 @@ proxy to get to the SS proxy, which then goes out to the internet
 
 ### 1 Start the SS proxy
 
-Tell it to listen on lo interface on port 1234 
+Tell it to listen on lo interface on port 1234
 
 ```
 $ ./bin/lws-minimal-secure-streams-proxy -p 1234 -i lo

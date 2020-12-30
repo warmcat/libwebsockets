@@ -1037,11 +1037,13 @@ lws_vhost_destroy1(struct lws_vhost *vh)
 				 * swap it to a vhost that has the same
 				 * iface + port, but is not closing.
 				 */
-				assert(v->lserv_wsi == NULL);
-				v->lserv_wsi = vh->lserv_wsi;
 
 				lwsl_notice("%s: listen skt from %s to %s\n",
-					    __func__, vh->name, v->name);
+					    __func__, lws_vh_tag(vh),
+					    lws_vh_tag(v));
+
+				assert(v->lserv_wsi == NULL);
+				v->lserv_wsi = vh->lserv_wsi;
 
 				if (v->lserv_wsi) {
 					lws_vhost_unbind_wsi(vh->lserv_wsi);

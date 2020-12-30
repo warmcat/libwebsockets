@@ -616,6 +616,14 @@ malformed:
 			if (!h->policy->u.http.blob_header[m])
 				continue;
 
+			/*
+			 * To be backward compatible, default is system-wide LWA auth,
+			 * and "http_auth_header" is for default LWA auth, current users do not
+			 * need any change in their policy.
+			 * If user wants different auth/token, need to specify the "use_auth"
+			 * and will be handled after metadata headers are applied.
+			 */
+
 			if (m == LWSSS_HBI_AUTH &&
 			    h->policy->u.http.auth_preamble)
 				o = lws_snprintf((char *)buf, sizeof(buf), "%s",
@@ -649,9 +657,19 @@ malformed:
 		if (lws_apply_metadata(h, wsi, buf, p, end))
 			return -1;
 
+#if defined(LWS_WITH_SECURE_STREAMS_AUTH_SIGV4)
+		if (h->policy->auth && h->policy->auth->type &&
+				!strcmp(h->policy->auth->type, "sigv4")) {
+
+			if (lws_ss_apply_sigv4(wsi, h, p, end))
+				return -1;
+		}
+#endif
+
+
 		(void)oin;
-		// if (*p != oin)
-		//	lwsl_hexdump_notice(oin, lws_ptr_diff(*p, oin));
+		//if (*p != oin)
+		//	lwsl_hexdump_notice(oin, lws_ptr_diff_size_t(*p, oin));
 
 		}
 

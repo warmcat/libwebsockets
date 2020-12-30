@@ -101,8 +101,11 @@ static const char * const lejp_tokens_policy[] = {
 	"s[].*.mqtt_will_retain",
 	"s[].*.swake_validity",
 	"s[].*.use_auth",
+	"s[].*.aws_region",
+	"s[].*.aws_service",
 	"s[].*",
 	"auth[].name",
+	"auth[].type",
 	"auth[].streamtype",
 	"auth[].blob",
 	"auth[]",
@@ -181,8 +184,11 @@ typedef enum {
 	LSSPPT_MQTT_WILL_RETAIN,
 	LSSPPT_SWAKE_VALIDITY,
 	LSSPPT_USE_AUTH,
+	LSSPPT_AWS_REGION,
+	LSSPPT_AWS_SERVICE,
 	LSSPPT_STREAMTYPES,
 	LSSPPT_AUTH_NAME,
+	LSSPPT_AUTH_TYPE,
 	LSSPPT_AUTH_STREAMTYPE,
 	LSSPPT_AUTH_BLOB,
 	LSSPPT_AUTH,
@@ -621,7 +627,6 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 	case LSSPPT_AUTH_BLOB:
 		a->curr[LTY_AUTH].a->blob_index = (uint8_t)atoi(ctx->buf);
 		break;
-
 	case LSSPPT_HTTP_EXPECT:
 		a->curr[LTY_POLICY].p->u.http.resp_expect = (uint16_t)atoi(ctx->buf);
 		break;
@@ -712,6 +717,7 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 			return -1;
 		}
 		break;
+
 
 	case LSSPPT_METADATA_ITEM:
 		pmd = a->curr[LTY_POLICY].p->metadata;
@@ -809,11 +815,23 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 	case LSSPPT_AUTH_STREAMTYPE:
 		pp = (char **)&a->curr[LTY_AUTH].a->streamtype;
 		goto string2;
-
+	case LSSPPT_AUTH_TYPE:
+		pp = (char **)&a->curr[LTY_AUTH].a->type;
+		goto string2;
 	case LSSPPT_HTTP_FAIL_REDIRECT:
 		a->curr[LTY_POLICY].p->u.http.fail_redirect =
 						reason == LEJPCB_VAL_TRUE;
 		break;
+#if defined(LWS_WITH_SECURE_STREAMS_AUTH_SIGV4)
+	case LSSPPT_AWS_REGION:
+		pp = (char **)&a->curr[LTY_POLICY].p->aws_region;
+		goto string2;
+
+	case LSSPPT_AWS_SERVICE:
+		pp = (char **)&a->curr[LTY_POLICY].p->aws_service;
+		goto string2;
+#endif
+
 #endif
 
 #if defined(LWS_ROLE_WS)

@@ -464,6 +464,11 @@ lws_ss_policy_unref_trust_store(struct lws_context *context,
 int
 lws_ss_sys_cpd(struct lws_context *cx);
 
+#if defined(LWS_WITH_SECURE_STREAMS_AUTH_SIGV4)
+int lws_ss_apply_sigv4(struct lws *wsi, struct lws_ss_handle *h,
+		       unsigned char **p, unsigned char *end);
+#endif
+
 typedef int (* const secstream_protocol_connect_munge_t)(lws_ss_handle_t *h,
 		char *buf, size_t len, struct lws_client_connect_info *i,
 		union lws_ss_contemp *ct);

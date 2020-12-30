@@ -188,6 +188,7 @@ typedef struct lws_ss_auth {
 	struct lws_ss_auth	*next;
 	const char		*name;
 
+	const char		*type;
 	const char		*streamtype;
 	uint8_t			blob_index;
 } lws_ss_auth_t;
@@ -289,6 +290,11 @@ typedef struct lws_ss_policy {
 	const void		*plugins_info[2];   /**< plugin-specific data */
 #endif
 
+#if defined(LWS_WITH_SECURE_STREAMS_AUTH_SIGV4)
+	/* directly point to the metadata name, no need to expand */
+	const char *aws_region;
+	const char *aws_service;
+#endif
 	/*
 	 * We're either a client connection policy that wants a trust store,
 	 * or we're a server policy that wants a mem cert and key... Hold

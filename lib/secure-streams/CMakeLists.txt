@@ -78,6 +78,13 @@ if (LWS_WITH_CLIENT)
 			)
 		endif()
 
+		if (LWS_WITH_SECURE_STREAMS_AUTH_SIGV4)
+			list(APPEND SOURCES
+				secure-streams/system/auth-sigv4/sign.c
+			)
+		endif()
+
+
 		if (LWS_WITH_SECURE_STREAMS_CPP)
 			list(APPEND SOURCES secure-streams/cpp/lss.cxx)
 

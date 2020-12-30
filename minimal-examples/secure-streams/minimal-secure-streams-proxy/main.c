@@ -177,6 +177,11 @@ static const char *canned_root_token_payload =
 	"&client_id="
 		"amzn1.application-oa2-client.4823334c434b4190a2b5a42c07938a2d";
 
+#if defined(LWS_WITH_SECURE_STREAMS_AUTH_SIGV4)
+static char *aws_keyid = NULL,
+	    *aws_key = NULL;
+#endif
+
 static int
 app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 		    int current, int target)
@@ -203,7 +208,18 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 				strlen(canned_root_token_payload));
 		break;
 	case LWS_SYSTATE_OPERATIONAL:
-		if (current == LWS_SYSTATE_OPERATIONAL)
+		if (current == LWS_SYSTATE_OPERATIONAL) {
+#if defined(LWS_WITH_SECURE_STREAMS_AUTH_SIGV4)
+
+			if (lws_aws_filesystem_credentials_helper(
+						  "~/.aws/credentials",
+						  "aws_access_key_id",
+						  "aws_secret_access_key",
+						  &aws_keyid, &aws_key))
+				return -1;
+
+			lws_ss_sigv4_set_aws_key(context, 0, aws_keyid, aws_key);
+#endif
 			/*
 			 * At this point we have DHCP, ntp, system auth token
 			 * and we can reasonably create the proxy
@@ -213,6 +229,7 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 						__func__);
 				return -1;
 			}
+		}
 		break;
 	case LWS_SYSTATE_POLICY_INVALID:
 		/*
@@ -314,6 +331,13 @@ int main(int argc, const char **argv)
 		n = lws_service(context, 0);
 
 	bad = 0;
+
+#if defined(LWS_WITH_SECURE_STREAMS_AUTH_SIGV4)
+	if (aws_keyid)
+		free(aws_keyid);
+	if (aws_key)
+		free(aws_key);
+#endif
 
 	lws_context_destroy(context);
 	lwsl_user("Completed: %s\n", bad ? "failed" : "OK");

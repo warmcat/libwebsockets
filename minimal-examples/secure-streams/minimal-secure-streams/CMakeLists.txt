@@ -68,7 +68,7 @@ if (requirements)
 				message("testing via valgrind")
 				add_test(NAME sspc-minimal COMMAND
 					${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
-					$<TARGET_FILE:lws-minimal-secure-streams> -i +${CTEST_SOCKET_PATH})
+					$<TARGET_FILE:lws-minimal-secure-streams-client> -i +${CTEST_SOCKET_PATH})
 			else()
 				add_test(NAME sspc-minimal COMMAND lws-minimal-secure-streams-client -i +${CTEST_SOCKET_PATH})
 			endif()
