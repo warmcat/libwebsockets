@@ -271,6 +271,8 @@ _lws_smd_msg_next_matching_filter(lws_dll2_t *tail, lws_smd_class_t filter)
  * This is done so if multiple messages queued, we don't get a situation where
  * one participant gets them all spammed, then the next etc.  Instead they are
  * delivered round-robin.
+ *
+ * Requires peer lock, may take message lock
  */
 
 static int
@@ -326,9 +328,12 @@ _lws_smd_msg_deliver_peer(struct lws_context *ctx, lws_smd_peer_t *pr)
 		}
 #endif
 
+		lwsl_info("%s: deliver cl 0x%x, len %d, refc %d, to peer %p\n",
+			   __func__, (unsigned int)msg->_class, (int)msg->length,
+			   (int)msg->refcount, pr);
+
 		pr->cb(pr->opaque, msg->_class, msg->timestamp,
-		       ((uint8_t *)&msg[1]) +
-			       LWS_SMD_SS_RX_HEADER_LEN_EFF,
+		       ((uint8_t *)&msg[1]) + LWS_SMD_SS_RX_HEADER_LEN_EFF,
 		       (size_t)msg->length);
 	}
 
@@ -341,14 +346,17 @@ _lws_smd_msg_deliver_peer(struct lws_context *ctx, lws_smd_peer_t *pr)
 	pr->tail = _lws_smd_msg_next_matching_filter(
 			    &pr->tail->list, pr->_class_filter);
 
+	lws_mutex_lock(ctx->smd.lock_messages); /* +++++++++ messages */
 	if (!--msg->refcount) {
 		/*
 		 * We have fully delivered the message now, it
 		 * can be unlinked and destroyed
 		 */
+		lwsl_info("%s: destroy msg %p\n", __func__, msg);
 		lws_dll2_remove(&msg->list);
 		lws_free(msg);
 	}
+	lws_mutex_unlock(ctx->smd.lock_messages); /* messages ------- */
 
 	/*
 	 * Wait out the grace period even if no live messages
