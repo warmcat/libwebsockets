@@ -218,6 +218,7 @@ struct lws_ss_serialization_parser {
 
 	uint32_t		usd_phandling;
 	uint32_t		flags;
+	uint32_t		client_pid;
 	int32_t			temp32;
 
 	int32_t			txcr_out;

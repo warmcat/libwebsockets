@@ -69,6 +69,7 @@ typedef enum {
 
 	RPAR_STREAMTYPE,
 	RPAR_INIT_PROVERS,
+	RPAR_INIT_PID,
 	RPAR_INITTXC0,
 
 	RPAR_TXCR0,
@@ -803,6 +804,20 @@ payload_ff:
 			if (!--par->rem)
 				goto hangup;
 			par->ctr = 0;
+			par->ps = RPAR_INIT_PID;
+			break;
+
+
+		case RPAR_INIT_PID:
+			if (!--par->rem)
+				goto hangup;
+
+			par->temp32 = (par->temp32 << 8) | *cp++;
+			if (++par->ctr < 4)
+				break;
+
+			par->client_pid = (uint32_t)par->temp32;
+			par->ctr = 0;
 			par->ps = RPAR_INITTXC0;
 			break;
 
@@ -1127,6 +1142,8 @@ payload_ff:
 
 			ssi->flags |= LWSSSINFLAGS_PROXIED;
 			ssi->sss_protocol_version = par->protocol_version;
+			ssi->client_pid = par->client_pid;
+
 			if (lws_ss_create(context, 0, ssi, parconn, pss,
 					  NULL, NULL)) {
 				/*
