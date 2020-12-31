@@ -416,7 +416,7 @@ if (GENCERTS)
                if (CMAKE_HOST_SYSTEM_NAME MATCHES "NetBSD")
                 execute_process(
                         COMMAND "${OPENSSL_EXECUTABLE}"
-                                req -new -newkey rsa:2048 -days 10000 -nodes -x509 -subj "/O=lws" -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
+                                req -new -newkey rsa:2048 -days 10000 -nodes -x509 -subj "/O=lws/CN=localhost" -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
                         RESULT_VARIABLE OPENSSL_RETURN_CODE
                         #               OUTPUT_QUIET ERROR_QUIET
                         )

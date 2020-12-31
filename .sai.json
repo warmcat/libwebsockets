@@ -84,7 +84,7 @@
 			"build":	"mkdir build destdir;cd build;export CCACHE_DISABLE=1;cmake .. ${cmake} && make -j3 && make -j3 DESTDIR=../destdir install"
 		},
                 "netbsd/aarch64BE-bcm2837-a53/gcc": {
-                        "build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;cmake .. ${cmake};make -j4 && make -j4 DESTDIR=../destdir install",
+                        "build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;cmake .. ${cmake};make -j6 && make -j6 DESTDIR=../destdir install && /usr/pkg/bin/ctest -j4 --output-on-failure",
                         "default": false
                 }
 	},
@@ -147,7 +147,7 @@
 		},
 		"secure-streams-proxy": {
 			"cmake":	"-DLWS_WITH_SECURE_STREAMS=1 -DLWS_WITH_SECURE_STREAMS_PROXY_API=1 -DLWS_WITH_MINIMAL_EXAMPLES=1",
-			"platforms":	"not windows-10/x86_64-amd/msvc"
+			"platforms":	"not windows-10/x86_64-amd/msvc, netbsd/aarch64BE-bcm2837-a53/gcc"
 		},
 		"distro_recommended": { # minimal examples also needed for ctest
 			"cmake":	"-DLWS_WITH_DISTRO_RECOMMENDED=1 -DLWS_WITH_MINIMAL_EXAMPLES=1",

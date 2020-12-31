@@ -39,8 +39,17 @@ if [ $GONESKI -eq 0 ] ; then
 			A2=$2
 		fi
 
+               PSARGS=-Af
+               Q=`ps -f`
+
+               if [ $? -ne 0 ] ; then
+                       PSARGS=`-dAww`
+               fi
+
+	       ps $PSARGS >> /tmp/ctklog
+
 		# sed is there to match up bsd/osx ps with linux
-		KL=`ps -Af | grep -v ctest-background-kill | grep -v grep | grep $2 | grep $A1 | grep $A2 | tr -s ' ' | sed "s/^\ //g" | cut -d' ' -f2`
+		KL=`ps $PSARGS | grep -v ctest-background-kill | grep -v grep | grep $2 | grep $A1 | grep $A2 | tr -s ' ' | sed "s/^\ //g" | cut -d' ' -f2`
 		if [ ! -z "$KL" ] ; then
 			echo "Stage 2 kill $J 'kill $KL'" >> /tmp/ctklog
 			kill $KL 2>&1 >> /tmp/ctklog
