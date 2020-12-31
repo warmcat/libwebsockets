@@ -63,8 +63,9 @@
  *
  *   -  0: LWSSS_SER_TXPRE_STREAMTYPE
  *   -  1: 2-byte MSB-first rest-of-frame length
- *   -  3: 4 byte MSB-first initial tx credit
- *   -  7: the streamtype name with no NUL
+ *   -  3: 1-byte Client SSS protocol version (introduced in SSSv1)
+ *   -  4: 4-byte MSB-first initial tx credit
+ *   -  8: the streamtype name with no NUL
  *
  * - Proxied tx
  *
@@ -362,7 +363,14 @@ typedef struct lws_ss_info {
 	 * In the special case of _lws_smd streamtype, this is used to indicate
 	 * the connection's rx class mask.
 	 * */
-	uint8_t	    flags;
+	uint8_t		flags;
+	uint8_t		sss_protocol_version;
+	/**< used in proxy / serialization case to hold the SS serialization
+	 * protocol level to use with this peer... clients automatically request
+	 * the most recent version they were built with
+	 * (LWS_SSS_CLIENT_PROTOCOL_VERSION) and the proxy stores the requested
+	 * version in here
+	 */
 
 } lws_ss_info_t;
 

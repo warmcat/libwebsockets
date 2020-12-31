@@ -68,6 +68,7 @@ typedef enum {
 	RPAR_RX_TXCR_UPDATE,
 
 	RPAR_STREAMTYPE,
+	RPAR_INIT_PROVERS,
 	RPAR_INITTXC0,
 
 	RPAR_TXCR0,
@@ -441,10 +442,9 @@ lws_ss_deserialize_parse(struct lws_ss_serialization_parser *par,
 					goto hangup;
 				if (*state != LPCSPROX_WAIT_INITIAL_TX)
 					goto hangup;
-				if (par->rem < 4)
+				if (par->rem < 1 + 4 + 1)
 					goto hangup;
-				par->ctr = 0;
-				par->ps = RPAR_INITTXC0;
+				par->ps = RPAR_INIT_PROVERS;
 				break;
 
 			case LWSSS_SER_TXPRE_METADATA:
@@ -781,6 +781,31 @@ payload_ff:
 			par->ps = RPAR_TYPE;
 			break;
 
+		case RPAR_INIT_PROVERS:
+			/* Protocol version byte for this connection */
+			par->protocol_version = *cp++;
+
+			/*
+			 * So we have to know what versions of the serialization
+			 * protocol we can support at the proxy side, and
+			 * reject anythng we don't know how to deal with
+			 * noisily in the logs.
+			 */
+
+			if (par->protocol_version != 1) {
+				lwsl_err("%s: Rejecting client with "
+					 "unsupported SSv%d protocol\n",
+					 __func__, par->protocol_version);
+
+				goto hangup;
+			}
+
+			if (!--par->rem)
+				goto hangup;
+			par->ctr = 0;
+			par->ps = RPAR_INITTXC0;
+			break;
+
 		case RPAR_INITTXC0:
 			if (!--par->rem)
 				goto hangup;
@@ -1086,8 +1111,9 @@ payload_ff:
 
 			par->ps = RPAR_TYPE;
 			par->streamtype[par->ctr] = '\0';
-			lwsl_notice("%s: creating proxied ss '%s', txcr %d\n",
-				    __func__, par->streamtype, par->txcr_out);
+			lwsl_info("%s: proxy ss '%s', sssv%d, txcr %d\n",
+				    __func__, par->streamtype,
+				    par->protocol_version, par->txcr_out);
 
 			ssi->streamtype = par->streamtype;
 			if (par->txcr_out) // !!!
@@ -1100,6 +1126,7 @@ payload_ff:
 			 */
 
 			ssi->flags |= LWSSSINFLAGS_PROXIED;
+			ssi->sss_protocol_version = par->protocol_version;
 			if (lws_ss_create(context, 0, ssi, parconn, pss,
 					  NULL, NULL)) {
 				/*

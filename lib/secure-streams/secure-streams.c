@@ -618,7 +618,13 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 	if (!h)
 		return 2;
 
-	__lws_lc_tag(&context->lcg[LWSLCG_WSI_SS_CLIENT], &h->lc, ssi->streamtype ? ssi->streamtype : "nostreamtype");
+	if (ssi->sss_protocol_version)
+		__lws_lc_tag(&context->lcg[LWSLCG_WSI_SS_CLIENT], &h->lc, "%s|v%u",
+			     ssi->streamtype ? ssi->streamtype : "nostreamtype",
+			     (unsigned int)ssi->sss_protocol_version);
+	else
+		__lws_lc_tag(&context->lcg[LWSLCG_WSI_SS_CLIENT], &h->lc, "%s",
+				ssi->streamtype ? ssi->streamtype : "nostreamtype");
 
 	h->info = *ssi;
 	h->policy = pol;

@@ -248,15 +248,18 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 			 * We are negotating the opening of a particular
 			 * streamtype
 			 */
-			n = (int)strlen(h->ssi.streamtype) + 4;
+			n = (int)strlen(h->ssi.streamtype) + 5;
 
 			s[0] = LWSSS_SER_TXPRE_STREAMTYPE;
 			lws_ser_wu16be(&s[1], (uint16_t)n);
-			lws_ser_wu32be(&s[3], (uint32_t)h->txc.peer_tx_cr_est);
+			/* SSSv1: add protocol version byte (initially 1) */
+			s[3] = (uint8_t)LWS_SSS_CLIENT_PROTOCOL_VERSION;
+			lws_ser_wu32be(&s[4], (uint32_t)h->txc.peer_tx_cr_est);
 			//h->txcr_out = txc;
-			lws_strncpy((char *)&s[7], h->ssi.streamtype, sizeof(s) - 7);
+			lws_strncpy((char *)&s[8], h->ssi.streamtype, sizeof(s) - 8);
 			n += 3;
 			h->state = LPCSCLI_WAITING_CREATE_RESULT;
+
 			break;
 
 		case LPCSCLI_LOCAL_CONNECTED:

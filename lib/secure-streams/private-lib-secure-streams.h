@@ -22,6 +22,9 @@
  * IN THE SOFTWARE.
  */
 
+/* current SS Serialization protocol version */
+#define LWS_SSS_CLIENT_PROTOCOL_VERSION 1
+
 /*
  * Secure Stream state
  */
@@ -226,6 +229,7 @@ struct lws_ss_serialization_parser {
 	uint8_t			slen;
 	uint8_t			rsl_pos;
 	uint8_t			rsl_idx;
+	uint8_t			protocol_version;
 };
 
 /*
