@@ -115,8 +115,10 @@
  *   -  0: LWSSS_SER_RXPRE_CREATE_RESULT
  *   -  1: 2 byte MSB-first rest-of-frame length (usually 00, 03)
  *   -  3: 1 byte result, 0 = success.  On failure, proxy will close connection.
- *   -  4: 2 byte MSB-first initial tx credit
- *   -  6: if present, comma-sep list of rideshare types from policy
+ *   -  4: 4 byte client dsh allocation recommended for stream type, from policy
+ *         (introduced in SSSv1)
+ *   -  8: 2 byte MSB-first initial tx credit
+ *   - 10: if present, comma-sep list of rideshare types from policy
  *
  * - Proxied rx
  *

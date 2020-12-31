@@ -57,6 +57,7 @@ typedef enum {
 	RPAR_RIDESHARE_LEN,
 	RPAR_RIDESHARE,
 
+	RPAR_RESULT_CREATION_DSH,
 	RPAR_RESULT_CREATION_RIDESHARE,
 
 	RPAR_METADATA_NAMELEN,
@@ -1189,13 +1190,32 @@ payload_ff:
 				goto hangup;
 			}
 
+			if (--par->rem < 4)
+				goto hangup;
+
+			par->ps = RPAR_RESULT_CREATION_DSH;
+			par->ctr = 0;
+			break;
+
+		case RPAR_RESULT_CREATION_DSH:
+
+			par->temp32 = (par->temp32 << 8) | (*cp++);
+			if (!par->rem--)
+				goto hangup;
+			if (++par->ctr < 4)
+				break;
+
+
 			/*
-			 * Client
+			 * Client (par->temp32 == dsh alloc)
 			 */
 
 			lws_ss_serialize_state_transition(state,
 							  LPCSCLI_LOCAL_CONNECTED);
 			h = lws_container_of(par, lws_sspc_handle_t, parser);
+
+			if (h->dsh)
+				goto hangup;
 
 			/*
 			 * This is telling us that the streamtype could be (and
@@ -1230,6 +1250,11 @@ payload_ff:
 				return LWSSSSRET_DESTROY_ME;
 			}
 
+			h->dsh = lws_dsh_create(NULL, (size_t)(par->temp32 ?
+						par->temp32 : 32768), 1);
+			if (!h->dsh)
+				goto hangup;
+
 			if (h->cwsi)
 				lws_callback_on_writable(h->cwsi);
 
@@ -1240,9 +1265,10 @@ payload_ff:
 			h->rideshare_list[0] = '\0';
 			h->rsidx = 0;
 
-			if (!--par->rem)
-				par->ps = RPAR_TYPE;
-			else {
+			/* no rideshare data is OK */
+			par->ps = RPAR_TYPE;
+
+			if (par->rem) {
 				par->ps = RPAR_RESULT_CREATION_RIDESHARE;
 				if (par->rem >= sizeof(h->rideshare_list))
 					goto hangup;

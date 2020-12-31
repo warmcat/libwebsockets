@@ -479,6 +479,7 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 
 		n = 0;
 		pay = 0;
+
 		s[3] = 0;
 		cp = (const uint8_t *)s;
 		switch (conn->state) {
@@ -490,7 +491,9 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 			s[1] = 0;
 			s[2] = 1;
 
-			n = 4;
+			n = 8;
+
+			lws_ser_wu32be((uint8_t *)&s[4], conn->ss->policy->client_buflen);
 
 			/*
 			 * If there's rideshare sequencing, it's added after the

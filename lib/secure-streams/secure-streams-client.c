@@ -142,12 +142,10 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_info("%s: CONNECTED (%s)\n", __func__, h->ssi.streamtype);
 
 		h->state = LPCSCLI_SENDING_INITIAL_TX;
-		if (!h->dsh) {
-			h->dsh = lws_dsh_create(NULL, (LWS_PRE + LWS_SS_MTU) * 160, 1);
-			if (!h->dsh)
-				return -1;
-		}
-
+		/*
+		 * We create the dsh at the response to the initial tx, which
+		 * will let us know the policy's max size for it
+		 */
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND, 3);
 		lws_callback_on_writable(wsi);
                 break;

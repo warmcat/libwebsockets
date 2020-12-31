@@ -59,6 +59,7 @@ lws_dsh_create(lws_dll2_owner_t *owner, size_t buf_len, int count_kinds)
 
 	assert(buf_len);
 	assert(count_kinds > 1);
+	assert(buf_len > sizeof(lws_dsh_t) + oha_len);
 
 	dsh = lws_malloc(sizeof(lws_dsh_t) + buf_len + oha_len, __func__);
 	if (!dsh)

@@ -376,7 +376,14 @@ schedule.
 Only used when the streamtype is proxied... sets the maximum size of the
 payload buffering (in bytes) the proxy will hold for this type of stream.  If
 the endpoint dumps a lot of data without any flow control, this may need to
-be correspondingly large.  Default is 16KB.
+be correspondingly large.  Default is 32KB.
+
+### `client_buflen`
+
+Only used when the streamtype is proxied... sets the maximum size of the
+payload buffering (in bytes) the client will hold for this type of stream.  If
+the client sends a lot of data without any flow control, this may need to
+be correspondingly large.  Default is 32KB.
 
 ### `metadata`
 
