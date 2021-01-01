@@ -48,7 +48,7 @@ lws_plat_ntpclient_config(struct lws_context *context)
 {
 	lws_system_blob_heap_append(lws_system_get_blob(context,
 				    LWS_SYSBLOB_TYPE_NTP_SERVER, 0),
-				    (const uint8_t *)"pool.ntp.org", 12);
+				    (const uint8_t *)"pool.ntp.org", 13);
 
 	return 0;
 }

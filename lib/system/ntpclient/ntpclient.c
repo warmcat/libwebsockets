@@ -78,7 +78,7 @@ lws_ntpc_retry_conn(struct lws_sorted_usec_list *sul)
 
 	/* create the UDP socket aimed at the server */
 
-	lwsl_debug("%s: server %s\n", __func__, v->ntp_server_ads);
+	lwsl_notice("%s: server %s\n", __func__, v->ntp_server_ads);
 
 	v->retry_count_write = 0;
 	v->wsi_udp = lws_create_adopt_udp(v->vhost, v->ntp_server_ads, 123, 0,
@@ -153,7 +153,7 @@ callback_ntpc(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (!v->ntp_server_ads || v->ntp_server_ads[0] == '\0')
 			v->ntp_server_ads = "pool.ntp.org";
 
-		lwsl_info("%s: using ntp server %s\n", __func__,
+		lwsl_notice("%s: using ntp server %s\n", __func__,
 			  v->ntp_server_ads);
 		break;
 

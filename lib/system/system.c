@@ -118,7 +118,7 @@ lws_system_blob_get_single_ptr(lws_system_blob_t *b, const uint8_t **ptr)
 	if (b->u.bl->next)
 		return -1;  /* multipart buflist, no single pointer to it all */
 
-	*ptr = (const uint8_t *)&b->u.bl[1];
+	*ptr = (const uint8_t *)&b->u.bl[1] + LWS_PRE;
 
 	return 0;
 }
