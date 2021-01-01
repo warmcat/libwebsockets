@@ -44,13 +44,18 @@ appear as soon as a participant appears that wants them.  The message generation
 action should be bypassed without error in the case lws_smd_msg_alloc()
 returns NULL.
 
+Various well-known high level classes are defined but also a bit index
+`LWSSMDCL_USER_BASE_BITNUM`, which can be used by user code to define up to 8
+private classes, with class bit values `(1 << LWSSMDCL_USER_BASE_BITNUM)` thru
+`(1 << (LWSSMDCL_USER_BASE_BITNUM + 7))`
+
 ## Messaging guarantees
 
 Sent messages are delivered to all registered participants whose class mask
 indicates they want it, including the sender.  The send apis are threadsafe.
 
 Locally-delivered message delivery callbacks occur from lws event loop thread
-context 0 (the only one in the default case LWS_MAX_SMP = 1).  Clients in
+context 0 (the only one in the default case `LWS_MAX_SMP` = 1).  Clients in
 different processes receive callbacks from the thread context of their UDS
 networking thread.
 

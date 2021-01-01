@@ -52,6 +52,8 @@ enum {
 	 * Something happened on the network, eg, link-up or DHCP, or captive
 	 * portal state update
 	 */
+
+	LWSSMDCL_USER_BASE_BITNUM				= 24
 };
 
 /**
