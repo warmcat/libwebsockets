@@ -53,12 +53,18 @@ __lws_lc_tag(lws_lifecycle_group_t *grp, lws_lifecycle_t *lc,
 	     const char *format, ...)
 {
 	va_list ap;
-	int n;
+	int n = 1;
 
 	assert(grp->tag_prefix); /* lc group must have a tag prefix string */
 
-	n = lws_snprintf(lc->gutag, sizeof(lc->gutag) - 1u, "[%s|%lx|",
-		     grp->tag_prefix, (unsigned long)grp->ordinal++);
+	lc->gutag[0] = '[';
+
+#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API) /* ie, will have getpid if set */
+	n += lws_snprintf(&lc->gutag[n], sizeof(lc->gutag) - (unsigned int)n - 1u,
+			"%u|", getpid());
+#endif
+	n += lws_snprintf(&lc->gutag[n], sizeof(lc->gutag) - (unsigned int)n - 1u,
+			"%s|%lx|", grp->tag_prefix, (unsigned long)grp->ordinal++);
 
 	va_start(ap, format);
 	n += vsnprintf(&lc->gutag[n], sizeof(lc->gutag) - (unsigned int)n -
