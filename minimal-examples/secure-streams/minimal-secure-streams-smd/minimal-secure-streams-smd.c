@@ -92,7 +92,7 @@ sul_tx_periodic_cb(lws_sorted_usec_list_t *sul)
 {
 	myss_t *m = lws_container_of(sul, myss_t, sul);
 
-	lwsl_notice("%s: requesting TX\n", __func__);
+	lwsl_info("%s: requesting TX\n", __func__);
 	lws_ss_request_tx(m->ss);
 }
 
@@ -102,7 +102,7 @@ myss_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf, size_t *len,
 {
 	myss_t *m = (myss_t *)userobj;
 
-	lwsl_notice("%s: sending SS smd\n", __func__);
+	lwsl_info("%s: sending SS smd\n", __func__);
 
 	/*
 	 * The SS RX isn't going to see INTERACTION messages, because its class
@@ -139,7 +139,7 @@ myss_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf, size_t *len,
 	count_tx++;
 
 	lws_sul_schedule(lws_ss_get_context(m->ss), 0, &m->sul,
-			 sul_tx_periodic_cb, 250 * LWS_US_PER_MS);
+			 sul_tx_periodic_cb, 200 * LWS_US_PER_MS);
 
 	return LWSSSSRET_OK;
 }
@@ -244,6 +244,8 @@ sigint_handler(int sig)
 	interrupted = 1;
 }
 
+extern int smd_ss_multi_test(int argc, const char **argv);
+
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
@@ -252,6 +254,12 @@ int main(int argc, const char **argv)
 	signal(SIGINT, sigint_handler);
 
 	memset(&info, 0, sizeof info);
+
+#if defined(LWS_SS_USE_SSPC)
+	if (lws_cmdline_option(argc, argv, "--multi"))
+		return smd_ss_multi_test(argc, argv);
+#endif
+
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 
 	lwsl_user("LWS Secure Streams SMD test client [-d<verb>]\n");
@@ -262,6 +270,24 @@ int main(int argc, const char **argv)
 	info.pss_policies_json		= default_ss_policy;
 #else
 	info.protocols			= lws_sspc_protocols;
+	{
+		const char *p;
+
+		/* connect to ssproxy via UDS by default, else via
+		 * tcp connection to this port */
+		if ((p = lws_cmdline_option(argc, argv, "-p")))
+			info.ss_proxy_port = (uint16_t)atoi(p);
+
+		/* UDS "proxy.ss.lws" in abstract namespace, else this socket
+		 * path; when -p given this can specify the network interface
+		 * to bind to */
+		if ((p = lws_cmdline_option(argc, argv, "-i")))
+			info.ss_proxy_bind = p;
+
+		/* if -p given, -a specifies the proxy address to connect to */
+		if ((p = lws_cmdline_option(argc, argv, "-a")))
+			info.ss_proxy_address = p;
+	}
 #endif
 	info.options			= LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 					  LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;

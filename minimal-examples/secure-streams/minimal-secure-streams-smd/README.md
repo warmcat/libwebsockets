@@ -60,6 +60,11 @@ CPD detect trigger.  The SS link is set up to only accept messages of classes
 LWSSMDCL_SYSTEM_STATE and LWSSMDCL_NETWORK, INTERACTION type messages are
 not accepted.
 
+### multi via proxy
+
+If the -client version is run with `--multi`, it spawns four worker processes
+which send and confirm SMD messages between each other via the SS proxy.
+
 ## build
 
 ```
@@ -71,6 +76,7 @@ not accepted.
 Commandline option|Meaning
 ---|---
 -d <loglevel>|Debug verbosity in decimal, eg, -d15
+--multi|Fork four worker processes that send and check messages to each other over sspc proxy
 
 ```
 $ ./bin/lws-minimal-secure-streams-smd -d 1151
