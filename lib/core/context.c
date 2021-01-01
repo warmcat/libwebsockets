@@ -1196,6 +1196,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 		memset(&ii, 0, sizeof(ii));
 		ii.vhost_name = "system";
 		ii.pprotocols = pp;
+		ii.port = CONTEXT_PORT_NO_LISTEN;
 
 		vh = lws_create_vhost(context, &ii);
 		if (!vh) {
