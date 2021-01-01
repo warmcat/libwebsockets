@@ -357,6 +357,11 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 			len = sizeof(pkt) - LWS_PRE - 19;
 			flags = 0;
+			if (!h->ssi.tx) {
+				n = 0;
+				goto do_write_nz;
+			}
+
 			n = h->ssi.tx(m, h->ord++, pkt + LWS_PRE + 19, &len,
 				      &flags);
 			switch (n) {
@@ -568,7 +573,8 @@ lws_sspc_destroy(lws_sspc_handle_t **ph)
 
 	lws_sspc_rxmetadata_destroy(h);
 
-	h->ssi.state(m, NULL, LWSSSCS_DESTROYING, 0);
+	if (h->ssi.state)
+		h->ssi.state(m, NULL, LWSSSCS_DESTROYING, 0);
 	*ph = NULL;
 
 	__lws_lc_untag(&h->lc);

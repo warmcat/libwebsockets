@@ -1239,15 +1239,17 @@ payload_ff:
 
 			h->creating_cb_done = 1;
 
-			n = ssi->state(client_pss_to_userdata(pss),
-						NULL, LWSSSCS_CREATING, 0);
-			switch (n) {
-			case LWSSSSRET_OK:
-				break;
-			case LWSSSSRET_DISCONNECT_ME:
-				goto hangup;
-			case LWSSSSRET_DESTROY_ME:
-				return LWSSSSRET_DESTROY_ME;
+			if (ssi->state) {
+				n = ssi->state(client_pss_to_userdata(pss),
+							NULL, LWSSSCS_CREATING, 0);
+				switch (n) {
+				case LWSSSSRET_OK:
+					break;
+				case LWSSSSRET_DISCONNECT_ME:
+					goto hangup;
+				case LWSSSSRET_DESTROY_ME:
+					return LWSSSSRET_DESTROY_ME;
+				}
 			}
 
 			h->dsh = lws_dsh_create(NULL, (size_t)(par->temp32 ?
