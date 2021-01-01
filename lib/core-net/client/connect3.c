@@ -541,7 +541,9 @@ connect_to:
 	lwsl_info("%s: abandoning connect due to timeout\n", __func__);
 
 try_next_dns_result_fds:
+	lws_pt_lock(pt, __func__);
 	__remove_wsi_socket_from_fds(wsi);
+	lws_pt_unlock(pt);
 
 try_next_dns_result_closesock:
 	/*
