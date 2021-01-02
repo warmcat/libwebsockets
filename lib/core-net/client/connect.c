@@ -334,7 +334,14 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 		__lws_lc_tag(&i->context->lcg[
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
 		         i->ssl_connection & LCCSCF_SECSTREAM_PROXY_LINK ? LWSLCG_WSI_SSP_CLIENT :
-		         (i->ssl_connection & LCCSCF_SECSTREAM_PROXY_ONWARD ? LWSLCG_WSI_SSP_ONWARD : LWSLCG_WSI_CLIENT)],
+#if defined(LWS_WITH_SERVER)
+		         (i->ssl_connection & LCCSCF_SECSTREAM_PROXY_ONWARD ? LWSLCG_WSI_SSP_ONWARD :
+#endif
+			  LWSLCG_WSI_CLIENT
+#if defined(LWS_WITH_SERVER)
+			  )
+#endif
+		],
 #else
 				LWSLCG_WSI_CLIENT],
 #endif

@@ -301,8 +301,11 @@ lws_adopt_ss_server_accept(struct lws *new_wsi)
 		goto fail;
 	if (lws_ss_event_helper(h, LWSSSCS_CONNECTING))
 		goto fail;
-	if (lws_ss_event_helper(h, LWSSSCS_CONNECTED))
-		goto fail;
+
+	/* defer CONNECTED until we see if he is upgrading */
+
+//	if (lws_ss_event_helper(h, LWSSSCS_CONNECTED))
+//		goto fail;
 
 	// lwsl_notice("%s: accepted ss complete, pcol %s\n", __func__,
 	//		new_wsi->a.protocol->name);

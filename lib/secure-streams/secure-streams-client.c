@@ -19,6 +19,22 @@
  */
 #include <private-lib-core.h>
 
+lws_ss_state_return_t
+lws_sspc_event_helper(lws_sspc_handle_t *h, lws_ss_constate_t cs,
+		      lws_ss_tx_ordinal_t flags)
+{
+	if (!h)
+		return LWSSSSRET_OK;
+
+	if (lws_ss_check_next_state(&h->prev_ss_state, cs))
+		return LWSSSSRET_DESTROY_ME;
+
+	if (!h->ssi.state)
+		return LWSSSSRET_OK;
+
+	return h->ssi.state((void *)((uint8_t *)&h[1]), NULL, cs, flags);
+}
+
 static void
 lws_sspc_sul_retry_cb(lws_sorted_usec_list_t *sul)
 {
@@ -533,7 +549,6 @@ void
 lws_sspc_destroy(lws_sspc_handle_t **ph)
 {
 	lws_sspc_handle_t *h;
-	void *m;
 
 	lwsl_debug("%s\n", __func__);
 
@@ -541,7 +556,6 @@ lws_sspc_destroy(lws_sspc_handle_t **ph)
 		return;
 
 	h = *ph;
-	m = (void *)((uint8_t *)&h[1]);
 
 	if (h->destroying)
 		return;
@@ -549,7 +563,7 @@ lws_sspc_destroy(lws_sspc_handle_t **ph)
 	h->destroying = 1;
 
 	if (h->ss_dangling_connected && h->ssi.state) {
-		h->ssi.state(m, NULL, LWSSSCS_DISCONNECTED, 0);
+		lws_sspc_event_helper(h, LWSSSCS_DISCONNECTED, 0);
 		h->ss_dangling_connected = 0;
 	}
 
@@ -578,8 +592,7 @@ lws_sspc_destroy(lws_sspc_handle_t **ph)
 
 	lws_sspc_rxmetadata_destroy(h);
 
-	if (h->ssi.state)
-		h->ssi.state(m, NULL, LWSSSCS_DESTROYING, 0);
+	lws_sspc_event_helper(h, LWSSSCS_DESTROYING, 0);
 	*ph = NULL;
 
 	__lws_lc_untag(&h->lc);

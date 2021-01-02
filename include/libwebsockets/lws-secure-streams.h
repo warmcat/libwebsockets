@@ -187,9 +187,13 @@ typedef uint32_t lws_ss_tx_ordinal_t;
 
 /*
  * connection state events
+ *
+ * If you add states, take care about the state names and state transition
+ * validity enforcement tables too
  */
 typedef enum {
-	LWSSSCS_CREATING,
+	/* zero means unset */
+	LWSSSCS_CREATING		= 1,
 	LWSSSCS_DISCONNECTED,
 	LWSSSCS_UNREACHABLE,		/* oridinal arg = 1 = caused by dns
 					 * server reachability failure */

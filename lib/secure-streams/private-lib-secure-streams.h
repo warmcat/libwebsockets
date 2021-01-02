@@ -156,6 +156,7 @@ typedef struct lws_ss_handle {
 	uint8_t			tsi;	  /**< service thread idx, usually 0 */
 	uint8_t			subseq;	  /**< emulate SOM tracking */
 	uint8_t			txn_ok;	  /**< 1 = transaction was OK */
+	uint8_t			prev_ss_state;
 
 	uint8_t			txn_resp_set:1; /**< user code set one */
 	uint8_t			txn_resp_pending:1; /**< we have yet to send */
@@ -299,6 +300,8 @@ typedef struct lws_sspc_handle {
 
 	uint8_t			rideshare_ofs[4];
 	uint8_t			rsidx;
+
+	uint8_t			prev_ss_state;
 
 	uint8_t			conn_req_state:2;
 	uint8_t			destroying:1;
@@ -456,6 +459,13 @@ __lws_ss_proxy_bind_ss_to_conn_wsi(void *parconn, size_t dsh_size);
 struct lws_vhost *
 lws_ss_policy_ref_trust_store(struct lws_context *context,
 			      const lws_ss_policy_t *pol, char doref);
+
+lws_ss_state_return_t
+lws_sspc_event_helper(lws_sspc_handle_t *h, lws_ss_constate_t cs,
+		      lws_ss_tx_ordinal_t flags);
+
+int
+lws_ss_check_next_state(uint8_t *prevstate, lws_ss_constate_t cs);
 
 void
 lws_proxy_clean_conn_ss(struct lws *wsi);

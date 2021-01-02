@@ -50,6 +50,7 @@ static const struct ss_pcols *ss_pcols[] = {
 };
 
 static const char *state_names[] = {
+	"(unset)",
 	"LWSSSCS_CREATING",
 	"LWSSSCS_DISCONNECTED",
 	"LWSSSCS_UNREACHABLE",
@@ -67,6 +68,144 @@ static const char *state_names[] = {
 	"LWSSSCS_SERVER_TXN",
 	"LWSSSCS_SERVER_UPGRADE",
 };
+
+/*
+ * For each "current state", set bit offsets for valid "next states".
+ *
+ * Since there are complicated ways to arrive at state transitions like proxying
+ * and asynchronous destruction etc, so we monitor the state transitions we are
+ * giving the ss user code to ensure we never deliver illegal state transitions
+ * (because we will assert if we have bugs that do it)
+ */
+
+static const uint32_t ss_state_txn_validity[] = {
+
+	/* if we was last in this state...  we can legally go to these states */
+
+	[0]				= (1 << LWSSSCS_CREATING) |
+					  (1 << LWSSSCS_DESTROYING),
+
+	[LWSSSCS_CREATING]		= (1 << LWSSSCS_CONNECTING) |
+					  (1 << LWSSSCS_POLL) |
+					  (1 << LWSSSCS_SERVER_UPGRADE) |
+					  (1 << LWSSSCS_DESTROYING),
+
+	[LWSSSCS_DISCONNECTED]		= (1 << LWSSSCS_CONNECTING) |
+					  (1 << LWSSSCS_TIMEOUT) |
+					  (1 << LWSSSCS_POLL) |
+					  (1 << LWSSSCS_DESTROYING),
+
+	[LWSSSCS_UNREACHABLE]		= (1 << LWSSSCS_ALL_RETRIES_FAILED) |
+					  (1 << LWSSSCS_TIMEOUT) |
+					  (1 << LWSSSCS_POLL) |
+					  (1 << LWSSSCS_CONNECTING) |
+					  /* win conn failure > retry > succ */
+					  (1 << LWSSSCS_CONNECTED) |
+					  (1 << LWSSSCS_DESTROYING),
+
+	[LWSSSCS_AUTH_FAILED]		= (1 << LWSSSCS_ALL_RETRIES_FAILED) |
+					  (1 << LWSSSCS_TIMEOUT) |
+					  (1 << LWSSSCS_CONNECTING) |
+					  (1 << LWSSSCS_DESTROYING),
+
+	[LWSSSCS_CONNECTED]		= (1 << LWSSSCS_SERVER_UPGRADE) |
+					  (1 << LWSSSCS_AUTH_FAILED) |
+					  (1 << LWSSSCS_QOS_ACK_REMOTE) |
+					  (1 << LWSSSCS_QOS_NACK_REMOTE) |
+					  (1 << LWSSSCS_QOS_ACK_LOCAL) |
+					  (1 << LWSSSCS_QOS_NACK_LOCAL) |
+					  (1 << LWSSSCS_DISCONNECTED) |
+					  (1 << LWSSSCS_TIMEOUT) |
+					  (1 << LWSSSCS_DESTROYING),
+
+	[LWSSSCS_CONNECTING]		= (1 << LWSSSCS_UNREACHABLE) |
+					  (1 << LWSSSCS_AUTH_FAILED) |
+					  (1 << LWSSSCS_CONNECTING) |
+					  (1 << LWSSSCS_CONNECTED) |
+					  (1 << LWSSSCS_TIMEOUT) |
+					  (1 << LWSSSCS_DESTROYING),
+
+	[LWSSSCS_DESTROYING]		= 0,
+
+	[LWSSSCS_POLL]			= (1 << LWSSSCS_CONNECTING) |
+					  (1 << LWSSSCS_TIMEOUT) |
+					  (1 << LWSSSCS_DESTROYING),
+
+	[LWSSSCS_ALL_RETRIES_FAILED]	= (1 << LWSSSCS_CONNECTING) |
+					  (1 << LWSSSCS_TIMEOUT) |
+					  (1 << LWSSSCS_DESTROYING),
+
+	[LWSSSCS_QOS_ACK_REMOTE]	= (1 << LWSSSCS_DISCONNECTED) |
+					  (1 << LWSSSCS_TIMEOUT) |
+					  (1 << LWSSSCS_DESTROYING),
+
+	[LWSSSCS_QOS_NACK_REMOTE]	= (1 << LWSSSCS_DISCONNECTED) |
+					  (1 << LWSSSCS_TIMEOUT) |
+					  (1 << LWSSSCS_DESTROYING),
+
+	[LWSSSCS_QOS_ACK_LOCAL]		= (1 << LWSSSCS_DISCONNECTED) |
+					  (1 << LWSSSCS_TIMEOUT) |
+					  (1 << LWSSSCS_DESTROYING),
+
+	[LWSSSCS_QOS_NACK_LOCAL]	= (1 << LWSSSCS_DESTROYING) |
+					  (1 << LWSSSCS_TIMEOUT),
+
+	[LWSSSCS_TIMEOUT]		= (1 << LWSSSCS_CONNECTING) |
+					  (1 << LWSSSCS_POLL) |
+					  (1 << LWSSSCS_TIMEOUT) |
+					  (1 << LWSSSCS_DISCONNECTED) |
+					  (1 << LWSSSCS_DESTROYING),
+
+	[LWSSSCS_SERVER_TXN]		= (1 << LWSSSCS_DISCONNECTED) |
+					  (1 << LWSSSCS_TIMEOUT) |
+					  (1 << LWSSSCS_DESTROYING),
+
+	[LWSSSCS_SERVER_UPGRADE]	= (1 << LWSSSCS_SERVER_TXN) |
+					  (1 << LWSSSCS_TIMEOUT) |
+					  (1 << LWSSSCS_DISCONNECTED) |
+					  (1 << LWSSSCS_DESTROYING),
+};
+
+int
+lws_ss_check_next_state(uint8_t *prevstate, lws_ss_constate_t cs)
+{
+	if (cs >= LWSSSCS_USER_BASE)
+		/*
+		 * we can't judge user states, leave the old state and
+		 * just wave them through
+		 */
+		return 0;
+
+	if (cs >= LWS_ARRAY_SIZE(ss_state_txn_validity)) {
+		/* we don't recognize this state as usable */
+		lwsl_err("%s: bad new state %u\n", __func__, cs);
+		assert(0);
+		return 1;
+	}
+
+	if (*prevstate >= LWS_ARRAY_SIZE(ss_state_txn_validity)) {
+		/* existing state is broken */
+		lwsl_err("%s: bad existing state %u\n", __func__,
+				(unsigned int)*prevstate);
+		assert(0);
+		return 1;
+	}
+
+	if (ss_state_txn_validity[*prevstate] & (1u << cs)) {
+		/* this is explicitly allowed, update old state to new */
+		*prevstate = (uint8_t)cs;
+
+		return 0;
+	}
+
+	lwsl_err("%s: transition from %s -> %s is illegal\n", __func__,
+			lws_ss_state_name((int)*prevstate),
+			lws_ss_state_name((int)cs));
+
+	assert(0);
+
+	return 1;
+}
 
 const char *
 lws_ss_state_name(int state)
@@ -87,6 +226,9 @@ lws_ss_event_helper(lws_ss_handle_t *h, lws_ss_constate_t cs)
 
 	if (!h)
 		return LWSSSSRET_OK;
+
+	if (lws_ss_check_next_state(&h->prev_ss_state, cs))
+		return LWSSSSRET_DESTROY_ME;
 
 	if (cs == LWSSSCS_CONNECTED)
 		h->ss_dangling_connected = 1;
@@ -707,7 +849,7 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 	 */
 	if (!(ssi->flags & LWSSSINFLAGS_PROXIED) &&
 	    pol == &pol_smd) {
-		lws_ss_state_return_t r;
+
 		/*
 		 * So he has asked to be wired up to SMD over a SS link.
 		 * Register him as an smd participant in his own right.
@@ -722,12 +864,6 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 		if (!h->u.smd.smd_peer)
 			goto late_bail;
 		lwsl_info("%s: registered SS SMD\n", __func__);
-		r = lws_ss_event_helper(h, LWSSSCS_CONNECTING);
-		if (r)
-			return r;
-		r = lws_ss_event_helper(h, LWSSSCS_CONNECTED);
-		if (r)
-			return r;
 	}
 #endif
 
@@ -797,6 +933,11 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 		 * any incoming accepted connection
 		 */
 		vho->ss_handle = h;
+
+		r = lws_ss_event_helper(h, LWSSSCS_CREATING);
+		lwsl_info("%s: CREATING returned status %d\n", __func__, (int)r);
+		if (r == LWSSSSRET_DESTROY_ME)
+			goto late_bail;
 
 		lwsl_notice("%s: created server %s\n", __func__,
 				h->policy->streamtype);

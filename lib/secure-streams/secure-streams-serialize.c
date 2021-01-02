@@ -1240,6 +1240,11 @@ payload_ff:
 
 			h->creating_cb_done = 1;
 
+			if (lws_ss_check_next_state(&h->prev_ss_state, LWSSSCS_CREATING))
+				return LWSSSSRET_DESTROY_ME;
+
+			h->prev_ss_state = (uint8_t)LWSSSCS_CREATING;
+
 			if (ssi->state) {
 				n = ssi->state(client_pss_to_userdata(pss),
 							NULL, LWSSSCS_CREATING, 0);
@@ -1391,8 +1396,14 @@ payload_ff:
 				if (cs == LWSSSCS_DISCONNECTED)
 					h->ss_dangling_connected = 0;
 
+				if (lws_ss_check_next_state(&h->prev_ss_state, cs))
+					return LWSSSSRET_DESTROY_ME;
+
+				if (cs < LWSSSCS_USER_BASE)
+					h->prev_ss_state = (uint8_t)cs;
+
 				n = ssi->state(client_pss_to_userdata(pss),
-					NULL, (lws_ss_constate_t)par->ctr, par->flags);
+					NULL, cs, par->flags);
 				switch (n) {
 				case LWSSSSRET_OK:
 					break;

@@ -697,9 +697,10 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		if (wsi->mux_substream && !wsi->cgi_stdout_zero_length)
 			lws_write(wsi, (unsigned char *)buf + LWS_PRE, 0,
 						      LWS_WRITE_HTTP_FINAL);
-
+#if defined(LWS_WITH_SERVER)
 		if (lws_http_transaction_completed(wsi))
 			return -1;
+#endif
 		return 0;
 
 	case LWS_CALLBACK_CGI_STDIN_DATA:  /* POST body for stdin */
