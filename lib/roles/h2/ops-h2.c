@@ -767,7 +767,9 @@ rops_callback_on_writable_h2(struct lws *wsi)
 static int
 lws_h2_bind_for_post_before_action(struct lws *wsi)
 {
+	uint8_t *buffered;
 	const char *p;
+	size_t blen;
 
 	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_METHOD);
 	if (p && !strcmp(p, "POST")) {
@@ -808,9 +810,30 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 				return 1;
 		}
 
+		{
+			int uri_len = 0;
+			char *uri_ptr = NULL;
+
+			if (lws_http_get_uri_and_method(wsi, &uri_ptr, &uri_len) >= 0)
+				wsi->a.protocol->callback(wsi, LWS_CALLBACK_HTTP,
+					wsi->user_space, uri_ptr, (size_t)uri_len);
+		}
+
 		lwsl_info("%s: setting LRS_BODY from 0x%x (%s)\n", __func__,
 			    (int)wsi->wsistate, wsi->a.protocol->name);
+
 		lwsi_set_state(wsi, LRS_BODY);
+
+		/*
+		 * Dump any stashed body
+		 */
+
+		while ((blen = lws_buflist_next_segment_len(&wsi->buflist, &buffered))) {
+			if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_HTTP_BODY,
+					wsi->user_space, buffered, blen))
+				return 1;
+			lws_buflist_use_segment(&wsi->buflist, blen);
+		}
 	}
 
 	return 0;
