@@ -385,7 +385,7 @@ ads_known:
 #if defined(LWS_WITH_UNIX_SOCK)
 	if (!wsi->unix_skt)
 #endif
-		memcpy(&wsi->sa46_peer, psa, n);
+		memmove(&wsi->sa46_peer, psa, (unsigned int)n);
 
 	/*
 	 * Finally, make the actual connection attempt
