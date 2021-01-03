@@ -829,6 +829,20 @@ late_bail:
 		return 1;
 	}
 
+#if defined(LWS_WITH_SYS_SMD)
+	if (!(ssi->flags & LWSSSINFLAGS_PROXIED) &&
+	    pol == &pol_smd) {
+		lws_ss_state_return_t r;
+
+		r = lws_ss_event_helper(h, LWSSSCS_CONNECTING);
+		if (r)
+			return r;
+		r = lws_ss_event_helper(h, LWSSSCS_CONNECTED);
+		if (r)
+			return r;
+	}
+#endif
+
 	if (!(ssi->flags & LWSSSINFLAGS_REGISTER_SINK) &&
 	    ((h->policy->flags & LWSSSPOLF_NAILED_UP)
 #if defined(LWS_WITH_SYS_SMD)
