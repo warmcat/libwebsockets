@@ -144,7 +144,12 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 		h->state = LPCSCLI_SENDING_INITIAL_TX;
 		/*
 		 * We create the dsh at the response to the initial tx, which
-		 * will let us know the policy's max size for it
+		 * will let us know the policy's max size for it... let's
+		 * protect the connection with a promise to complete the
+		 * SS serialization streamtype negotation within a short period,
+		 * we will cancel this timeout when we have the proxy's ack
+		 * of the streamtype serialization, eg, it exists in the proxy
+		 * policy etc
 		 */
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND, 3);
 		lws_callback_on_writable(wsi);

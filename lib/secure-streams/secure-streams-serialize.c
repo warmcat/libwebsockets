@@ -1213,6 +1213,7 @@ payload_ff:
 			lws_ss_serialize_state_transition(state,
 							  LPCSCLI_LOCAL_CONNECTED);
 			h = lws_container_of(par, lws_sspc_handle_t, parser);
+			lws_set_timeout(h->cwsi, NO_PENDING_TIMEOUT, 0);
 
 			if (h->dsh)
 				goto hangup;
