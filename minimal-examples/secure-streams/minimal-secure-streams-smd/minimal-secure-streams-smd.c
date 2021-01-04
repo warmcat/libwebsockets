@@ -80,7 +80,7 @@ myss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 
 	count_p1++;
 
-	return 0;
+	return LWSSSSRET_OK;
 }
 
 static void
@@ -110,22 +110,24 @@ myss_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf, size_t *len,
 	 */
 
 	m->alternate++;
-	lws_ser_wu64be(buf, (m->alternate & 1) ? LWSSMDCL_NETWORK : LWSSMDCL_INTERACTION);
-	lws_ser_wu64be(buf + 8, 0); /* valgrind notices uninitialized if left */
 
 	if (m->alternate == 4) {
 		/*
 		 * after a few, let's request a CPD check
 		 */
-		*len = LWS_SMD_SS_RX_HEADER_LEN + (unsigned int)
-			lws_snprintf((char *)buf + LWS_SMD_SS_RX_HEADER_LEN, *len,
-				    "{\"trigger\": \"cpdcheck\", \"src\":\"SS-test\"}");
-	} else
 
-		*len = LWS_SMD_SS_RX_HEADER_LEN + (unsigned int)
-			lws_snprintf((char *)buf + LWS_SMD_SS_RX_HEADER_LEN, *len,
-				     (m->alternate & 1) ? "{\"class\":\"NETWORK\"}" :
-						    "{\"class\":\"INTERACTION\"}");
+		if (lws_smd_ss_msg_printf(lws_ss_tag(m->ss), buf, len, LWSSMDCL_NETWORK,
+					  "{\"trigger\": \"cpdcheck\", "
+					   "\"src\":\"SS-test\"}"))
+			return LWSSSSRET_TX_DONT_SEND;
+	} else
+		if (lws_smd_ss_msg_printf(lws_ss_tag(m->ss), buf, len,
+					  (m->alternate & 1) ? LWSSMDCL_NETWORK :
+							       LWSSMDCL_INTERACTION,
+					  (m->alternate & 1) ?
+					       "{\"class\":\"NETWORK\"}" :
+					       "{\"class\":\"INTERACTION\"}"))
+			return LWSSSSRET_TX_DONT_SEND;
 
 	*flags = LWSSS_FLAG_SOM | LWSSS_FLAG_EOM;
 
@@ -134,7 +136,7 @@ myss_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf, size_t *len,
 	lws_sul_schedule(lws_ss_get_context(m->ss), 0, &m->sul,
 			 sul_tx_periodic_cb, 250 * LWS_US_PER_MS);
 
-	return 0;
+	return LWSSSSRET_OK;
 }
 
 static lws_ss_state_return_t
@@ -148,17 +150,17 @@ myss_state(void *userobj, void *h_src, lws_ss_constate_t state,
 
 	if (state == LWSSSCS_DESTROYING) {
 		lws_sul_cancel(&m->sul);
-		return 0;
+		return LWSSSSRET_OK;
 	}
 
 	if (state == LWSSSCS_CONNECTED) {
 		lwsl_notice("%s: CONNECTED\n", __func__);
 		lws_sul_schedule(lws_ss_get_context(m->ss), 0, &m->sul,
 				 sul_tx_periodic_cb, 1);
-		return 0;
+		return LWSSSSRET_OK;
 	}
 
-	return 0;
+	return LWSSSSRET_OK;
 }
 
 static const lws_ss_info_t ssi_lws_smd = {

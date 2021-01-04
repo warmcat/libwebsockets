@@ -214,6 +214,38 @@ lws_smd_msg_printf(struct lws_context *ctx, lws_smd_class_t _class,
 	return 0;
 }
 
+#if defined(LWS_WITH_SECURE_STREAMS)
+int
+lws_smd_ss_msg_printf(const char *tag, uint8_t *buf, size_t *len,
+		      lws_smd_class_t _class, const char *format, ...)
+{
+	char *content = (char *)buf + LWS_SMD_SS_RX_HEADER_LEN;
+	va_list ap;
+	int n;
+
+	if (*len < LWS_SMD_SS_RX_HEADER_LEN)
+		return 1;
+
+	lws_ser_wu64be(buf, _class);
+	lws_ser_wu64be(buf + 8, 0); /* valgrind notices uninitialized if left */
+
+	va_start(ap, format);
+	n = vsnprintf(content, (*len) - LWS_SMD_SS_RX_HEADER_LEN, format, ap);
+	va_end(ap);
+
+	if (n > LWS_SMD_MAX_PAYLOAD ||
+	    (unsigned int)n > (*len) - LWS_SMD_SS_RX_HEADER_LEN)
+		/* too large to send */
+		return 1;
+
+	*len = LWS_SMD_SS_RX_HEADER_LEN + (unsigned int)n;
+
+	lwsl_notice("%s: %s send cl 0x%x, len %u\n", __func__, tag, _class,
+			(unsigned int)n);
+
+	return 0;
+}
+#endif
 
 static void
 _lws_smd_peer_finalize_destroy(lws_smd_peer_t *pr)

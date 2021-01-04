@@ -113,6 +113,16 @@ needs setting, the timestamp is fetched and added by lws.
 
  - MSB-first 64-bit class bitfield (currently only 32 least-sig in use) 
  - MSB-First Order 64-bit us-resolution timestamp
+ 
+A helper `lws_smd_ss_msg_printf()` is provided to format and create and smd
+message from the SS tx() callback in one step, using the same api layout as
+for direct messages via `lws_smd_msg_printf()`
+
+```
+int
+lws_smd_ss_msg_printf(const char *tag, uint8_t *buf, size_t *len,
+		      lws_smd_class_t _class, const char *format, ...);
+```
 
 ## Well-known message schema
 

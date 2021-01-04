@@ -132,6 +132,28 @@ LWS_VISIBLE LWS_EXTERN int
 lws_smd_msg_printf(struct lws_context *ctx, lws_smd_class_t _class,
 		   const char *format, ...) LWS_FORMAT(3);
 
+/**
+ * lws_smd_ss_msg_printf() - helper to prepare smd ss message tx
+ *
+ * \param h: the ss handle
+ * \param buf: the ss tx buffer
+ * \param len: on entry, points to the ss tx buffer length, on exit, set to used
+ * \param _class: the message class
+ * \param format: the format string to prepare the payload with
+ * \param ...: arguments for the format string, if any
+ *
+ * This helper lets you produce SMD messages on an SS link of the builtin
+ * streamtype LWS_SMD_STREAMTYPENAME, using the same api format as
+ * lws_smd_msg_prinf(), but writing the message into the ss tx buffer from
+ * its tx() callback.
+ */
+
+struct lws_ss_handle;
+LWS_VISIBLE LWS_EXTERN int
+lws_smd_ss_msg_printf(const char *tag, uint8_t *buf, size_t *len,
+		      lws_smd_class_t _class, const char *format, ...)
+		      LWS_FORMAT(5);
+
 typedef int (*lws_smd_notification_cb_t)(void *opaque, lws_smd_class_t _class,
 					 lws_usec_t timestamp, void *buf,
 					 size_t len);
