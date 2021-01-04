@@ -33,8 +33,8 @@ lws_smd_msg_alloc(struct lws_context *ctx, lws_smd_class_t _class, size_t len)
 	/* only allow it if someone wants to consume this class of event */
 
 	if (!(ctx->smd._class_filter & _class)) {
-		lwsl_info("%s: rejecting class 0x%x as no participant wants it\n", __func__,
-				(unsigned int)_class);
+		lwsl_info("%s: rejecting class 0x%x as no participant wants it\n",
+			  __func__, (unsigned int)_class);
 		return NULL;
 	}
 
@@ -74,7 +74,8 @@ lws_smd_msg_free(void **ppay)
  */
 
 static int
-_lws_smd_msg_assess_peers_interested(lws_smd_t *smd, lws_smd_msg_t *msg)
+_lws_smd_msg_assess_peers_interested(lws_smd_t *smd, lws_smd_msg_t *msg,
+				     struct lws_smd_peer *exc)
 {
 	struct lws_context *ctx = lws_container_of(smd, struct lws_context, smd);
 	int interested = 0;
@@ -90,7 +91,8 @@ _lws_smd_msg_assess_peers_interested(lws_smd_t *smd, lws_smd_msg_t *msg)
 		 * refcount of)
 		 */
 
-		if (pr->timestamp_joined <= msg->timestamp &&
+		if (pr != exc &&
+		    pr->timestamp_joined <= msg->timestamp &&
 		    (!pr->timestamp_left || /* if zombie, only contribute to
 					     * refcount if msg from before we
 					     * left */
@@ -126,7 +128,7 @@ _lws_smd_class_mask_union(lws_smd_t *smd)
 }
 
 int
-lws_smd_msg_send(struct lws_context *ctx, void *pay)
+_lws_smd_msg_send(struct lws_context *ctx, void *pay, struct lws_smd_peer *exc)
 {
 	lws_smd_msg_t *msg = (lws_smd_msg_t *)(((uint8_t *)pay) -
 				LWS_SMD_SS_RX_HEADER_LEN_EFF - sizeof(*msg));
@@ -141,7 +143,17 @@ lws_smd_msg_send(struct lws_context *ctx, void *pay)
 	if (!ctx->smd.delivering)
 		lws_mutex_lock(ctx->smd.lock_peers); /* +++++++++++++++ peers */
 
-	msg->refcount = (uint16_t)_lws_smd_msg_assess_peers_interested(&ctx->smd, msg);
+	msg->refcount = (uint16_t)_lws_smd_msg_assess_peers_interested(&ctx->smd, msg, exc);
+	if (!msg->refcount) {
+		/* possible, condsidering exc and no other participants */
+		lws_free(msg);
+		if (!ctx->smd.delivering)
+			lws_mutex_unlock(ctx->smd.lock_peers); /* ------------- peers */
+
+		return 0;
+	}
+
+	msg->exc = exc;
 
 	lws_mutex_lock(ctx->smd.lock_messages); /* +++++++++++++++++ messages */
 	lws_dll2_add_tail(&msg->list, &ctx->smd.owner_messages);
@@ -155,7 +167,8 @@ lws_smd_msg_send(struct lws_context *ctx, void *pay)
 	lws_start_foreach_dll(struct lws_dll2 *, p, ctx->smd.owner_peers.head) {
 		lws_smd_peer_t *pr = lws_container_of(p, lws_smd_peer_t, list);
 
-		if (!pr->tail && (pr->_class_filter & msg->_class))
+		if (pr != exc &&
+		    !pr->tail && (pr->_class_filter & msg->_class))
 			pr->tail = msg;
 
 	} lws_end_foreach_dll(p);
@@ -167,6 +180,12 @@ lws_smd_msg_send(struct lws_context *ctx, void *pay)
 	lws_cancel_service(ctx);
 
 	return 0;
+}
+
+int
+lws_smd_msg_send(struct lws_context *ctx, void *pay)
+{
+	return _lws_smd_msg_send(ctx, pay, NULL);
 }
 
 int
@@ -245,6 +264,93 @@ lws_smd_ss_msg_printf(const char *tag, uint8_t *buf, size_t *len,
 
 	return 0;
 }
+
+/*
+ * This is a helper that user rx handler for LWS_SMD_STREAMTYPENAME SS can
+ * call through to with the payload it received from the proxy.  It will then
+ * forward the recieved SMD message to all local (same-context) participants
+ * that are interested in that class (except ones with callback skip_cb, so
+ * we don't loop).
+ */
+
+static int
+_lws_smd_ss_rx_forward(struct lws_context *ctx, const char *tag,
+		       struct lws_smd_peer *pr, const uint8_t *buf, size_t len)
+{
+	lws_smd_class_t _class;
+	lws_smd_msg_t *msg;
+	void *p;
+
+	if (len < LWS_SMD_SS_RX_HEADER_LEN_EFF)
+		return 1;
+
+	if (len >= LWS_SMD_MAX_PAYLOAD + LWS_SMD_SS_RX_HEADER_LEN_EFF)
+		return 1;
+
+	_class = (lws_smd_class_t)lws_ser_ru64be(buf);
+
+	/* only locally forward messages that we care about in this process */
+
+	if (!(ctx->smd._class_filter & _class))
+		/*
+		 * There's nobody interested in messages of this class atm.
+		 * Don't bother generating it, and act like all is well.
+		 */
+		return 0;
+
+	p = lws_smd_msg_alloc(ctx, _class, len);
+	if (!p)
+		return 1;
+
+	msg = (lws_smd_msg_t *)(((uint8_t *)p) - LWS_SMD_SS_RX_HEADER_LEN_EFF -
+								sizeof(*msg));
+	msg->length = (uint16_t)(len - LWS_SMD_SS_RX_HEADER_LEN_EFF);
+	/* adopt the original source timestamp, not time we forwarded it */
+	msg->timestamp = (lws_usec_t)lws_ser_ru64be(buf + 8);
+
+	/* copy the message payload in */
+	memcpy(p, buf + LWS_SMD_SS_RX_HEADER_LEN_EFF, msg->length);
+
+	/*
+	 * locks taken and released in here
+	 */
+
+	if (_lws_smd_msg_send(ctx, p, pr)) {
+		/* we couldn't send it after all that... */
+		lws_smd_msg_free(&p);
+
+		return 1;
+	}
+
+	lwsl_notice("%s: %s send cl 0x%x, len %u, ts %llu\n", __func__,
+		    tag, _class, msg->length,
+		    (unsigned long long)msg->timestamp);
+
+	return 0;
+}
+
+int
+lws_smd_ss_rx_forward(void *ss_user, const uint8_t *buf, size_t len)
+{
+	struct lws_ss_handle *h = (struct lws_ss_handle *)
+					(((char *)ss_user) - sizeof(*h));
+	struct lws_context *ctx = lws_ss_get_context(h);
+
+	return _lws_smd_ss_rx_forward(ctx, lws_ss_tag(h), h->u.smd.smd_peer, buf, len);
+}
+
+#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
+int
+lws_smd_sspc_rx_forward(void *ss_user, const uint8_t *buf, size_t len)
+{
+	struct lws_sspc_handle *h = (struct lws_sspc_handle *)
+					(((char *)ss_user) - sizeof(*h));
+	struct lws_context *ctx = lws_sspc_get_context(h);
+
+	return _lws_smd_ss_rx_forward(ctx, lws_sspc_tag(h), NULL, buf, len);
+}
+#endif
+
 #endif
 
 static void
@@ -274,9 +380,12 @@ _lws_smd_peer_zombify(lws_smd_peer_t *pr)
 }
 
 static lws_smd_msg_t *
-_lws_smd_msg_next_matching_filter(lws_dll2_t *tail, lws_smd_class_t filter)
+_lws_smd_msg_next_matching_filter(lws_smd_peer_t *pr)
 {
 	lws_smd_msg_t *msg;
+
+	lws_dll2_t *tail = &pr->tail->list;
+	lws_smd_class_t filter = pr->_class_filter;
 
 	do {
 		tail = tail->next;
@@ -284,7 +393,7 @@ _lws_smd_msg_next_matching_filter(lws_dll2_t *tail, lws_smd_class_t filter)
 			return NULL;
 
 		msg = lws_container_of(tail, lws_smd_msg_t, list);
-		if (msg->_class & filter)
+		if (msg->exc != pr && (msg->_class & filter))
 			return msg;
 	} while (1);
 
@@ -375,8 +484,7 @@ _lws_smd_msg_deliver_peer(struct lws_context *ctx, lws_smd_peer_t *pr)
 	 * If there is one, move forward to the next queued
 	 * message that meets our filters
 	 */
-	pr->tail = _lws_smd_msg_next_matching_filter(
-			    &pr->tail->list, pr->_class_filter);
+	pr->tail = _lws_smd_msg_next_matching_filter(pr);
 
 	lws_mutex_lock(ctx->smd.lock_messages); /* +++++++++ messages */
 	if (!--msg->refcount) {

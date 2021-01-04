@@ -14,17 +14,31 @@ Message payloads are short, less than 384 bytes, below system limits for atomic
 pipe or UDS datagrams and consistent with heap usage on smaller systems, but
 large enough to carry JSON usefully.  Messages are typically low duty cycle.
 
+![SMD message](/doc-assets/smd-message.png)
+
 Messages may be sent by any registered participant, they are allocated on heap
-in a linked-list, and delivered no sooner than next time around the event loop.
-This retains the ability to handle multiple event queuing in one event loop trip
-while guaranteeing message handling is nonrecursive.  Messages are passed to all
-other registered participants before being destroyed.
+in a linked-list, and delivered to all other registered participants for that
+message class no sooner than next time around the event loop.  This retains the
+ability to handle multiple event queuing in one event loop trip while
+guaranteeing message handling is nonrecursive and so with modest stack usage.
+Messages are passed to all other registered participants before being destroyed.
+
+Messages are delivered to all particpants on the same lws_context by default.
+
+![SMD message](/doc-assets/smd-single-process.png)
 
 `lws_smd` apis allow publication and subscription of message objects between
 participants that are in a single process and are informed by callback from lws
-service thread context, and, via Secure Streams proxying as the IPC method, also
-between those in different processes.  Registering as a participant and sending
-messages are threadsafe APIs.
+service thread context.
+
+SMD messages can also broadcast between particpants in different lws_contexts in
+different processes, using existing Secure Streams proxying.  In this way
+different application processes can intercommunicate and all observe any system
+smd messages they are interested in.
+
+![SMD message](/doc-assets/smd-proxy.png)
+
+Registering as a participant and sending messages are threadsafe APIs.
 
 ## Message Class
 

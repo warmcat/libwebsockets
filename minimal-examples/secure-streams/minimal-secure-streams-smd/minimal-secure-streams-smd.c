@@ -73,10 +73,14 @@ typedef struct myss {
 static lws_ss_state_return_t
 myss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 {
-//	myss_t *m = (myss_t *)userobj;
+	/*
+	 * Call the helper to translate into a real smd message and forward to
+	 * this context / process smd participants... except us, since we
+	 * definitely already received it
+	 */
 
-	lwsl_notice("%s: len %d, flags: %d\n", __func__, (int)len, flags);
-	lwsl_hexdump_notice(buf, len);
+	if (lws_smd_ss_rx_forward(userobj, buf, len))
+		lwsl_warn("%s: forward failed\n", __func__);
 
 	count_p1++;
 
@@ -125,8 +129,9 @@ myss_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf, size_t *len,
 					  (m->alternate & 1) ? LWSSMDCL_NETWORK :
 							       LWSSMDCL_INTERACTION,
 					  (m->alternate & 1) ?
-					       "{\"class\":\"NETWORK\"}" :
-					       "{\"class\":\"INTERACTION\"}"))
+					       "{\"class\":\"NETWORK\",\"x\":%d}" :
+					       "{\"class\":\"INTERACTION\",\"x\":%d}",
+					       count_tx))
 			return LWSSSSRET_TX_DONT_SEND;
 
 	*flags = LWSSS_FLAG_SOM | LWSSS_FLAG_EOM;
@@ -183,9 +188,9 @@ direct_smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
 {
 	struct lws_context **pctx = (struct lws_context **)opaque;
 
-	lwsl_notice("%s: class: 0x%x, ts: %llu\n", __func__, _class,
-		  (unsigned long long)timestamp);
-	lwsl_hexdump_notice(buf, len);
+//	lwsl_notice("%s: class: 0x%x, ts: %llu\n", __func__, _class,
+//		  (unsigned long long)timestamp);
+//	lwsl_hexdump_notice(buf, len);
 
 	count_p2++;
 

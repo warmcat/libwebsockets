@@ -154,6 +154,29 @@ lws_smd_ss_msg_printf(const char *tag, uint8_t *buf, size_t *len,
 		      lws_smd_class_t _class, const char *format, ...)
 		      LWS_FORMAT(5);
 
+/**
+ * lws_smd_ss_rx_forward() - helper to forward smd messages that came in by SS
+ *
+ * \param ss_user: ss user pointer, as delivered to rx callback
+ * \param buf: the ss rx buffer
+ * \param len: the length of the ss rx buffer
+ *
+ * Proxied Secure Streams with the streamtype LWS_SMD_STREAMTYPENAME receive
+ * serialized SMD messages from the proxy, this helper allows them to be
+ * translated into deserialized SMD messages and forwarded to registered SMD
+ * participants in the local context in one step.
+ *
+ * Just pass through what arrived in the LWS_SMD_STREAMTYPENAME rx() callback
+ * to this api.
+ *
+ * Returns 0 if OK else nonzero if unable to queue the SMD message.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_smd_ss_rx_forward(void *ss_user, const uint8_t *buf, size_t len);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_smd_sspc_rx_forward(void *ss_user, const uint8_t *buf, size_t len);
+
 typedef int (*lws_smd_notification_cb_t)(void *opaque, lws_smd_class_t _class,
 					 lws_usec_t timestamp, void *buf,
 					 size_t len);

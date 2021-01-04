@@ -39,8 +39,12 @@
 #define LWS_SMD_SS_RX_HEADER_LEN_EFF	(0)
 #endif
 
+struct lws_smd_peer;
+
 typedef struct lws_smd_msg {
 	lws_dll2_t			list;
+
+	struct lws_smd_peer		*exc;
 
 	lws_usec_t			timestamp;
 	lws_smd_class_t			_class;
@@ -112,3 +116,6 @@ lws_smd_msg_distribute(struct lws_context *ctx);
 
 int
 _lws_smd_destroy(struct lws_context *ctx);
+
+int
+_lws_smd_msg_send(struct lws_context *ctx, void *pay, struct lws_smd_peer *exc);

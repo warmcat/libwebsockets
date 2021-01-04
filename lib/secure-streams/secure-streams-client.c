@@ -471,7 +471,7 @@ lws_sspc_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 	else
 		h->txc.peer_tx_cr_est = ssi->manual_initial_tx_credit;
 
-	if (!strcmp(ssi->streamtype, "_lws_smd"))
+	if (!strcmp(ssi->streamtype, LWS_SMD_STREAMTYPENAME))
 		h->ignore_txc = 1;
 
 	lws_dll2_add_head(&h->client_list, &context->pt[tsi].ss_client_owner);
