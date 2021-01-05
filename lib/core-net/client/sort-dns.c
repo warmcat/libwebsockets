@@ -463,6 +463,11 @@ lws_sort_dns_dcomp(const lws_dns_sort_t *da, const lws_dns_sort_t *db)
 	 * Label(Source(DB)) = Label(DB), then prefer DB
 	 */
 
+	if (!da->source)
+		return SAS_PREFER_B;
+	if (!db->source)
+		return SAS_PREFER_A;
+
 	lws_sort_dns_classify(&da->source->dest, &score_srca);
 	lws_sort_dns_classify(&db->source->dest, &score_srcb);
 
