@@ -149,8 +149,8 @@
 			"cmake":	"-DLWS_WITH_SECURE_STREAMS=1 -DLWS_WITH_SECURE_STREAMS_PROXY_API=1 -DLWS_WITH_MINIMAL_EXAMPLES=1",
 			"platforms":	"not windows-10/x86_64-amd/msvc"
 		},
-		"distro_recommended": {
-			"cmake":	"-DLWS_WITH_DISTRO_RECOMMENDED=1",
+		"distro_recommended": { # minimal examples also needed for ctest
+			"cmake":	"-DLWS_WITH_DISTRO_RECOMMENDED=1 -DLWS_WITH_MINIMAL_EXAMPLES=1",
 			"platforms":	"not freebsd-12/x86_64-amd/llvm, not linkit-cross, not windows-10/x86_64-amd/msvc, linux-ubuntu-2004/aarch64-a72-bcm2711-rpi4/gcc, linux-fedora-32/riscv64-virt/gcc",
 			"cpack":	"&& cpack $SAI_CPACK",
 			"artifacts":	"build/*.rpm, build/*.deb, build/*.zip"
