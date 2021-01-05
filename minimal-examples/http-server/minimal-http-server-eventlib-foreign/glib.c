@@ -19,6 +19,10 @@
 
 #include "private.h"
 
+#if !defined(G_SOURCE_FUNC)
+#define G_SOURCE_FUNC(f) ((GSourceFunc) (void (*)(void)) (f))
+#endif
+
 typedef struct lws_glib_tag {
 	GSource			*gs;
 	guint			tag;
