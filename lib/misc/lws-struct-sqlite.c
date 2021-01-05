@@ -74,13 +74,13 @@ lws_struct_sq3_deser_cb(void *priv, int cols, char **cv, char **cn)
 				if (map->aux == sizeof(int)) {
 					int *pi;
 					pi = (int *)(u + map->ofs);
-					*pi = atoi(cv[n]);
+					*pi = (int)atoll(cv[n]); /* 32-bit OS */
 					break;
 				}
 				if (map->aux == sizeof(long)) {
 					long *pl;
 					pl = (long *)(u + map->ofs);
-					*pl = atol(cv[n]);
+					*pl = (long)atoll(cv[n]); /* 32-bit OS */
 					break;
 				}
 				{
