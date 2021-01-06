@@ -6,6 +6,7 @@ Commandline option|Meaning
 --uv|Use the libuv event library (lws must have been configured with `-DLWS_WITH_LIBUV=1`)
 --event|Use the libevent library (lws must have been configured with `-DLWS_WITH_LIBEVENT=1`)
 --ev|Use the libev event library (lws must have been configured with `-DLWS_WITH_LIBEV=1`)
+--sd|Use the systemd event library (lws must have been configured with `-DLWS_WITH_SDEVENT=1`)
 
 Notice libevent and libev cannot coexist in the one library.  But all the other combinations are OK.
 

@@ -72,6 +72,16 @@ if (LWS_WITH_GLIB)
 	set(extralibs ${extralibs} ${GLIB_LIBRARIES})
 	list(APPEND SRCS glib.c)
 endif()
+if (LWS_WITH_SDEVENT)
+	find_path(LIBSYSTEMD_INCLUDE_DIRS NAMES systemd/sd-event.h)
+	find_library(LIBSYSTEMD_LIBRARIES NAMES systemd)
+	message("libsystemd include dir: ${LIBSYSTEMD_INCLUDE_DIRS}")
+	message("libsystemd libraries: ${LIBSYSTEMD_LIBRARIES}")
+	include_directories("${LIBSYSTEMD_INCLUDE_DIRS}")
+	set(extralibs ${extralibs} ${LIBSYSTEMD_LIBRARIES})
+	list(APPEND SRCS libsdevent.c)
+endif()
+
 
 message("Extra libs: ${extralibs}")
 
