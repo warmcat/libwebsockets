@@ -106,9 +106,6 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 					    lws_spa_get_string(pss->spa, n));
 			}
 
-		if (pss->spa && lws_spa_destroy(pss->spa))
-			return -1;
-
 		/*
 		 * Our response is to redirect to a static page.  We could
 		 * have generated a dynamic html page here instead.
