@@ -51,8 +51,6 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 	if (!wsi->tls.ssl)
 		return lws_ssl_capable_read_no_ssl(wsi, buf, len);
 
-	lws_stats_bump(pt, LWSSTATS_C_API_READ, 1);
-
 	errno = 0;
 	n = SSL_read(wsi->tls.ssl, buf, (int)len);
 #if defined(LWS_PLAT_FREERTOS)
@@ -61,15 +59,6 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 		return LWS_SSL_CAPABLE_ERROR;
 	}
 #endif
-#if defined(LWS_WITH_STATS)
-	if (!wsi->seen_rx && wsi->accept_start_us) {
-                lws_stats_bump(pt, LWSSTATS_US_SSL_RX_DELAY_AVG,
-			lws_now_usecs() - wsi->accept_start_us);
-                lws_stats_bump(pt, LWSSTATS_C_SSL_CONNS_HAD_RX, 1);
-		wsi->seen_rx = 1;
-	}
-#endif
-
 
 	lwsl_debug("%s: %s: SSL_read says %d\n", __func__, lws_wsi_tag(wsi), n);
 	/* manpage: returning 0 means connection shut down */
@@ -82,14 +71,13 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 	if (n < 0) {
 		m = SSL_get_error(wsi->tls.ssl, n);
 		lwsl_debug("%s: %s: ssl err %d errno %d\n", __func__, lws_wsi_tag(wsi), m, errno);
-		if (errno == LWS_ENOTCONN) {
+		if (errno == LWS_ENOTCONN)
 			/* If the socket isn't connected anymore, bail out. */
-			wsi->socket_is_permanently_unusable = 1;
-			return LWS_SSL_CAPABLE_ERROR;
-		}
+			goto do_err1;
+
 		if (m == SSL_ERROR_ZERO_RETURN ||
 		    m == SSL_ERROR_SYSCALL)
-			return LWS_SSL_CAPABLE_ERROR;
+			goto do_err;
 
 		if (m == SSL_ERROR_WANT_READ || SSL_want_read(wsi->tls.ssl)) {
 			lwsl_debug("%s: WANT_READ\n", __func__);
@@ -101,7 +89,15 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 			lwsl_debug("%s: LWS_SSL_CAPABLE_MORE_SERVICE\n", lws_wsi_tag(wsi));
 			return LWS_SSL_CAPABLE_MORE_SERVICE;
 		}
+
+do_err1:
 		wsi->socket_is_permanently_unusable = 1;
+
+do_err:
+#if defined(LWS_WITH_SYS_METRICS)
+	if (wsi->a.vhost)
+		lws_metric_event(wsi->a.vhost->mt_traffic_rx, METRES_NOGO, 0);
+#endif
 
 		return LWS_SSL_CAPABLE_ERROR;
 	}
@@ -115,23 +111,12 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 	lwsl_hexdump_notice(buf, n);
 #endif
 
-	lws_stats_bump(pt, LWSSTATS_B_READ, (uint64_t)n);
-
-#if defined(LWS_WITH_SERVER_STATUS)
+#if defined(LWS_WITH_SYS_METRICS)
 	if (wsi->a.vhost)
-		wsi->a.vhost->conn_stats.rx = wsi->a.vhost->conn_stats.rx + (unsigned long long)n;
+		lws_metric_event(wsi->a.vhost->mt_traffic_rx,
+				 METRES_GO /* rx */, (u_mt_t)n);
 #endif
-#if defined(LWS_WITH_DETAILED_LATENCY)
-	if (context->detailed_latency_cb) {
-		wsi->detlat.req_size = len;
-		wsi->detlat.acc_size = n;
-		wsi->detlat.type = LDLT_READ;
-		wsi->detlat.latencies[LAT_DUR_PROXY_RX_TO_ONWARD_TX] =
-			lws_now_usecs() - pt->ust_left_poll;
-		wsi->detlat.latencies[LAT_DUR_USERCB] = 0;
-		lws_det_lat_cb(wsi->a.context, &wsi->detlat);
-	}
-#endif
+
 	/*
 	 * if it was our buffer that limited what we read,
 	 * check if SSL has additional data pending inside SSL buffers.
@@ -186,8 +171,14 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 		return lws_ssl_capable_write_no_ssl(wsi, buf, len);
 
 	n = SSL_write(wsi->tls.ssl, buf, (int)len);
-	if (n > 0)
+	if (n > 0) {
+#if defined(LWS_WITH_SYS_METRICS)
+		if (wsi->a.vhost)
+			lws_metric_event(wsi->a.vhost->mt_traffic_tx,
+					 METRES_GO, (u_mt_t)n);
+#endif
 		return n;
+	}
 
 	m = SSL_get_error(wsi->tls.ssl, n);
 	if (m != SSL_ERROR_SYSCALL) {
@@ -207,6 +198,12 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 
 	lwsl_debug("%s failed: %d\n",__func__, m);
 	wsi->socket_is_permanently_unusable = 1;
+
+#if defined(LWS_WITH_SYS_METRICS)
+		if (wsi->a.vhost)
+			lws_metric_event(wsi->a.vhost->mt_traffic_tx,
+					 METRES_NOGO, (u_mt_t)n);
+#endif
 
 	return LWS_SSL_CAPABLE_ERROR;
 }

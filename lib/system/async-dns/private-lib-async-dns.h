@@ -58,6 +58,8 @@ typedef struct {
 	lws_sorted_usec_list_t	write_sul;	/* fail if unable to write by this time */
 	lws_dll2_t		list;
 
+	lws_metrics_caliper_compose(metcal)
+
 	lws_dll2_owner_t	wsi_adns;
 	lws_async_dns_cb_t	standalone_cb;	/* if not associated to wsi */
 	struct lws_context	*context;
@@ -83,6 +85,7 @@ typedef struct {
 
 	uint8_t			recursion;
 	uint8_t			tids;
+	uint8_t			go_nogo;
 
 	uint8_t			is_retry:1;
 

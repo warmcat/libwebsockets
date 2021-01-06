@@ -53,20 +53,6 @@ lws_get_library_version(void)
 	return library_version;
 }
 
-#if defined(LWS_WITH_STATS)
-static void
-lws_sul_stats_cb(lws_sorted_usec_list_t *sul)
-{
-	struct lws_context_per_thread *pt = lws_container_of(sul,
-			struct lws_context_per_thread, sul_stats);
-
-	lws_stats_log_dump(pt->context);
-
-	__lws_sul_insert_us(&pt->pt_sul_owner[LWSSULLI_MISS_IF_SUSPENDED],
-			    &pt->sul_stats, 10 * LWS_US_PER_SEC);
-}
-#endif
-
 #if defined(LWS_WITH_NETWORK)
 
 #if defined(LWS_WITH_SYS_STATE)
@@ -379,10 +365,11 @@ lws_create_context(const struct lws_context_creation_info *info)
 	pid_t pid_daemon = get_daemonize_pid();
 #endif
 #if defined(LWS_WITH_NETWORK)
+	const lws_plugin_evlib_t *plev = NULL;
 	unsigned short count_threads = 1;
 	uint8_t *u;
 	uint16_t us_wait_resolution = 0;
-#endif
+
 #if defined(__ANDROID__)
 	struct rlimit rt;
 #endif
@@ -394,9 +381,10 @@ lws_create_context(const struct lws_context_creation_info *info)
 		s1 = 4096,
 #endif
 		size = sizeof(struct lws_context);
+#endif
+
 	int n;
 	unsigned int lpf = info->fd_limit_per_thread;
-	const lws_plugin_evlib_t *plev = NULL;
 #if defined(LWS_WITH_EVLIB_PLUGINS) && defined(LWS_WITH_EVENT_LIBS)
 	struct lws_plugin		*evlib_plugin_list = NULL;
 #if defined(_DEBUG)
@@ -429,10 +417,6 @@ lws_create_context(const struct lws_context_creation_info *info)
 		s = "IPV6-off";
 #endif
 
-#if defined(LWS_WITH_STATS)
-	lwsl_info(" LWS_WITH_STATS        : on\n");
-#endif
-
 	lwsl_notice("%s%s\n", opts_str, s);
 
 	if (lws_plat_context_early_init())
@@ -453,7 +437,6 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if !defined(LWS_PLAT_FREERTOS)
 	size += (count_threads * sizeof(struct lws));
 #endif
-#endif /* network */
 
 #if defined(LWS_WITH_POLL)
 	{
@@ -655,6 +638,10 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->lcg[LWSLCG_VHOST].tag_prefix = "vh";
 	context->lcg[LWSLCG_WSI_SERVER].tag_prefix = "wsisrv"; /* adopted */
 
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT)
+	context->lcg[LWSLCG_WSI_MUX].tag_prefix = "mux", /* a mux child wsi */
+#endif
+
 #if defined(LWS_WITH_CLIENT)
 	context->lcg[LWSLCG_WSI_CLIENT].tag_prefix = "wsicli";
 #endif
@@ -674,6 +661,77 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 #endif
 #endif
+
+#if defined(LWS_WITH_SYS_METRICS)
+	/*
+	 * If we're not using secure streams, we can still pass in a linked-
+	 * list of metrics policies
+	 */
+	context->metrics_policies = info->metrics_policies;
+	context->metrics_prefix = info->metrics_prefix;
+
+	context->mt_service = lws_metric_create(context,
+					LWSMTFL_REPORT_DUTY_WALLCLOCK_US |
+					LWSMTFL_REPORT_ONLY_GO, "cpu.svc");
+
+#if defined(LWS_WITH_CLIENT)
+
+	context->mt_conn_dns = lws_metric_create(context,
+						 LWSMTFL_REPORT_MEAN |
+						 LWSMTFL_REPORT_DUTY_WALLCLOCK_US,
+						 "n.cn.dns");
+	context->mt_conn_tcp = lws_metric_create(context,
+						 LWSMTFL_REPORT_MEAN |
+						 LWSMTFL_REPORT_DUTY_WALLCLOCK_US,
+						 "n.cn.tcp");
+	context->mt_conn_tls = lws_metric_create(context,
+						 LWSMTFL_REPORT_MEAN |
+						 LWSMTFL_REPORT_DUTY_WALLCLOCK_US,
+						 "n.cn.tls");
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+	context->mt_http_txn = lws_metric_create(context,
+						 LWSMTFL_REPORT_MEAN |
+						 LWSMTFL_REPORT_DUTY_WALLCLOCK_US,
+						 "n.http.txn");
+#endif
+
+	context->mth_conn_failures = lws_metric_create(context,
+					LWSMTFL_REPORT_HIST, "n.cn.failures");
+
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+	context->mt_adns_cache = lws_metric_create(context,
+						   LWSMTFL_REPORT_MEAN |
+						   LWSMTFL_REPORT_DUTY_WALLCLOCK_US,
+						   "n.cn.adns");
+#endif
+#if defined(LWS_WITH_SECURE_STREAMS)
+	context->mth_ss_conn = lws_metric_create(context, LWSMTFL_REPORT_HIST,
+						 "n.ss.conn");
+#endif
+#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
+	context->mt_ss_cliprox_conn = lws_metric_create(context,
+			LWSMTFL_REPORT_HIST,
+							"n.ss.cliprox.conn");
+	context->mt_ss_cliprox_paylat = lws_metric_create(context,
+							  LWSMTFL_REPORT_MEAN |
+							  LWSMTFL_REPORT_DUTY_WALLCLOCK_US,
+							  "n.ss.cliprox.paylat");
+	context->mt_ss_proxcli_paylat = lws_metric_create(context,
+							  LWSMTFL_REPORT_MEAN |
+							  LWSMTFL_REPORT_DUTY_WALLCLOCK_US,
+							  "n.ss.proxcli.paylat");
+#endif
+
+#endif /* network + metrics + client */
+
+#if defined(LWS_WITH_SERVER)
+	context->mth_srv = lws_metric_create(context,
+					     LWSMTFL_REPORT_HIST, "n.srv");
+#endif /* network + metrics + server */
+
+#endif /* network + metrics */
+
+#endif /* network */
 
 	/*
 	 * Proxy group
@@ -713,11 +771,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if defined(LWS_WITH_NETWORK)
 	context->undestroyed_threads = count_threads;
 	context->count_threads = count_threads;
-#if defined(LWS_WITH_DETAILED_LATENCY)
-	context->detailed_latency_cb = info->detailed_latency_cb;
-	context->detailed_latency_filepath = info->detailed_latency_filepath;
-	context->latencies_fd = -1;
-#endif
+
 #if defined(LWS_ROLE_WS) && defined(LWS_WITHOUT_EXTENSIONS)
         if (info->extensions)
                 lwsl_warn("%s: LWS_WITHOUT_EXTENSIONS but extensions ptr set\n", __func__);
@@ -1144,12 +1198,6 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 #endif
 
-#if defined(LWS_WITH_STATS)
-	context->pt[0].sul_stats.cb = lws_sul_stats_cb;
-	__lws_sul_insert_us(&context->pt[0].pt_sul_owner[LWSSULLI_MISS_IF_SUSPENDED],
-			    &context->pt[0].sul_stats, 10 * LWS_US_PER_SEC);
-#endif
-
 #if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
 	memcpy(context->caps, info->caps, sizeof(context->caps));
 	context->count_caps = info->count_caps;
@@ -1364,8 +1412,10 @@ bail_libuv_aware:
 	return NULL;
 #endif
 
+#if defined(LWS_WITH_NETWORK)
 fail_event_libs:
 	lwsl_err("Requested event library support not configured\n");
+#endif
 
 free_context_fail:
 	lws_free(context);
@@ -1598,6 +1648,11 @@ lws_context_destroy(struct lws_context *context)
 		context->being_destroyed = 1;
 
 #if defined(LWS_WITH_NETWORK)
+
+#if defined(LWS_WITH_SYS_METRICS)
+		lws_metrics_dump(context);
+#endif
+
 		/*
 		 * Close any vhost listen wsi
 		 *
@@ -1819,7 +1874,6 @@ next:
 		lwsl_debug("%p: post pdl\n", __func__);
 #endif
 
-		lws_stats_log_dump(context);
 #if defined(LWS_WITH_NETWORK)
 		lws_ssl_context_destroy(context);
 #endif
@@ -1980,6 +2034,10 @@ next:
 
 #if LWS_MAX_SMP > 1
 		lws_mutex_refcount_destroy(&context->mr);
+#endif
+
+#if defined(LWS_WITH_SYS_METRICS) && defined(LWS_WITH_NETWORK)
+		lws_metrics_destroy(context);
 #endif
 
 		if (context->external_baggage_free_on_destroy)

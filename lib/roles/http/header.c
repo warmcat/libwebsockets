@@ -125,9 +125,6 @@ lws_finalize_write_http_header(struct lws *wsi, unsigned char *start,
 	p = *pp;
 	len = lws_ptr_diff(p, start);
 
-#if defined(LWS_WITH_DETAILED_LATENCY)
-	wsi->detlat.earliest_write_req_pre_write = lws_now_usecs();
-#endif
 	if (lws_write(wsi, start, (unsigned int)len, LWS_WRITE_HTTP_HEADERS) != len)
 		return 1;
 
@@ -316,6 +313,7 @@ lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 	unsigned char code_and_desc[60];
 	int n;
 
+	wsi->http.response_code = code;
 #ifdef LWS_WITH_ACCESS_LOG
 	wsi->http.access_log.response = (int)code;
 #endif
@@ -482,9 +480,6 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 		 *
 		 * Solve it by writing the headers now...
 		 */
-#if defined(LWS_WITH_DETAILED_LATENCY)
-		wsi->detlat.earliest_write_req_pre_write = lws_now_usecs();
-#endif
 		m = lws_write(wsi, start, lws_ptr_diff_size_t(p, start),
 			      LWS_WRITE_HTTP_HEADERS);
 		if (m != lws_ptr_diff(p, start))

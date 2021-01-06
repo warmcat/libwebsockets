@@ -64,7 +64,7 @@ static uv_signal_t signal_outer[2];
 static int pids[32];
 void lwsl_emit_stderr(int level, const char *line);
 
-#define LWSWS_CONFIG_STRING_SIZE (32 * 1024)
+#define LWSWS_CONFIG_STRING_SIZE (64 * 1024)
 
 static const struct lws_extension exts[] = {
 #if !defined(LWS_WITHOUT_EXTENSIONS)

@@ -55,6 +55,42 @@ __lws_lc_tag(lws_lifecycle_group_t *grp, lws_lifecycle_t *lc,
 	va_list ap;
 	int n = 1;
 
+	if (*lc->gutag == '[') {
+		/* appending inside [] */
+
+		char *cp = strchr(lc->gutag, ']');
+		char rend[96];
+		size_t ll, k;
+		int n;
+
+		if (!cp)
+			return;
+
+		/* length of closing brace and anything else after it */
+		k = strlen(cp);
+
+		/* compute the remaining gutag unused */
+		ll = sizeof(lc->gutag) - lws_ptr_diff_size_t(cp, lc->gutag) - k - 1;
+		if (ll > sizeof(rend) - 1)
+			ll = sizeof(rend) - 1;
+		va_start(ap, format);
+		n = vsnprintf(rend, ll, format, ap);
+		va_end(ap);
+
+		if ((unsigned int)n > ll)
+			n = (int)ll;
+
+		/* shove the trailer up by what we added */
+		memmove(cp + n, cp, k);
+		assert(k + (unsigned int)n < sizeof(lc->gutag));
+		cp[k + (unsigned int)n] = '\0';
+		/* copy what we added into place */
+		memcpy(cp, rend, (unsigned int)n);
+
+		return;
+	}
+
+	assert(grp);
 	assert(grp->tag_prefix); /* lc group must have a tag prefix string */
 
 	lc->gutag[0] = '[';

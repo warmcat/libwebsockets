@@ -100,11 +100,6 @@ int main(int argc, const char **argv)
 	info.protocols = lws_sspc_protocols;
 	info.port = CONTEXT_PORT_NO_LISTEN;
 
-#if defined(LWS_WITH_DETAILED_LATENCY)
-	info.detailed_latency_cb = lws_det_lat_plot_cb;
-	info.detailed_latency_filepath = "/tmp/lws-latency-ssproxy";
-#endif
-
 	/* integrate us with lws system state management when context created */
 	nl.name = "app";
 	nl.notify_cb = app_system_state_nf;

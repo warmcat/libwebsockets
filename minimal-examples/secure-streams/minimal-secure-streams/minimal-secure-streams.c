@@ -125,7 +125,7 @@ static const char * const default_ss_policy =
 #if defined(VIA_LOCALHOST_SOCKS)
 			"\"http_url\":"		"\"policy/minimal-proxy-socks.json\","
 #else
-			"\"http_url\":"		"\"policy/minimal-proxy-2.json\","
+			"\"http_url\":"		"\"policy/minimal-proxy-v4.2.json\","
 #endif
 			"\"tls\":"		"true,"
 			"\"opportunistic\":"	"true,"
@@ -363,6 +363,30 @@ static lws_state_notify_link_t * const app_notifier_list[] = {
 	&nl, NULL
 };
 
+#if defined(LWS_WITH_SYS_METRICS)
+
+static int
+my_metric_report(lws_metric_pub_t *mp)
+{
+	lws_metric_bucket_t *sub = mp->u.hist.head;
+	char buf[192];
+
+	do {
+		if (lws_metrics_format(mp, &sub, buf, sizeof(buf)))
+			lwsl_user("%s: %s\n", __func__, buf);
+	} while ((mp->flags & LWSMTFL_REPORT_HIST) && sub);
+
+	/* 0 = leave metric to accumulate, 1 = reset the metric */
+
+	return 1;
+}
+
+static const lws_system_ops_t system_ops = {
+	.metric_report = my_metric_report,
+};
+
+#endif
+
 static void
 sigint_handler(int sig)
 {
@@ -425,16 +449,18 @@ int main(int argc, const char **argv)
 		       LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW |
 		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 #endif
-#if defined(LWS_WITH_DETAILED_LATENCY)
-	info.detailed_latency_cb = lws_det_lat_plot_cb;
-	info.detailed_latency_filepath = "/tmp/lws-latency-ssproxy";
-#endif
 
 	/* integrate us with lws system state management when context created */
 
 	nl.name = "app";
 	nl.notify_cb = app_system_state_nf;
 	info.register_notifier_list = app_notifier_list;
+
+
+#if defined(LWS_WITH_SYS_METRICS)
+	info.system_ops = &system_ops;
+	info.metrics_prefix = "ssmex";
+#endif
 
 	/* create the context */
 

@@ -1422,7 +1422,7 @@ int lws_add_http2_header_by_name(struct lws *wsi, const unsigned char *name,
 
 	*((*p)++) = 0; /* literal hdr, literal name,  */
 
-	*((*p)++) = 0 | (uint8_t)lws_h2_num_start(7, (unsigned long)len); /* non-HUF */
+	*((*p)++) = (uint8_t)(0 | (uint8_t)lws_h2_num_start(7, (unsigned long)len)); /* non-HUF */
 	if (lws_h2_num(7, (unsigned long)len, p, end))
 		return 1;
 
@@ -1432,7 +1432,7 @@ int lws_add_http2_header_by_name(struct lws *wsi, const unsigned char *name,
 	while(len--)
 		*((*p)++) = (uint8_t)tolower((int)*name++);
 
-	*((*p)++) = 0 | (uint8_t)lws_h2_num_start(7, (unsigned long)length); /* non-HUF */
+	*((*p)++) = (uint8_t)(0 | (uint8_t)lws_h2_num_start(7, (unsigned long)length)); /* non-HUF */
 	if (lws_h2_num(7, (unsigned long)length, p, end))
 		return 1;
 

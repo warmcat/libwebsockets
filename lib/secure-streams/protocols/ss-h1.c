@@ -415,6 +415,7 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			break;
 		}
 		assert(h->policy);
+		lws_metrics_caliper_report_hist(h->cal_txn, wsi);
 		lwsl_info("%s: %s CLIENT_CONNECTION_ERROR: %s\n", __func__,
 			  h->lc.gutag, in ? (const char *)in : "none");
 		/* already disconnected, no action for DISCONNECT_ME */
@@ -445,8 +446,11 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			break;
 
 		lws_sul_cancel(&h->sul_timeout);
-		lwsl_notice("%s: %s LWS_CALLBACK_CLOSED_CLIENT_HTTP\n",
-				__func__, wsi->lc.gutag);
+
+		lws_metrics_caliper_report_hist(h->cal_txn, wsi);
+		//lwsl_notice("%s: %s LWS_CALLBACK_CLOSED_CLIENT_HTTP\n",
+		//		__func__, wsi->lc.gutag);
+
 		h->wsi = NULL;
 
 #if defined(LWS_WITH_SERVER)
@@ -486,6 +490,13 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	//	if (!status)
 			/* it's just telling use we connected / joined the nwsi */
 	//		break;
+
+#if defined(LWS_WITH_SYS_METRICS)
+		if (status) {
+			lws_snprintf((char *)buf, 10, "%d", status);
+			lws_metrics_tag_ss_add(h, "http_resp", (char *)buf);
+		}
+#endif
 
 		if (status == HTTP_STATUS_SERVICE_UNAVAILABLE /* 503 */ ||
 		    status == 429 /* Too many requests */) {
@@ -552,6 +563,7 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		lws_sul_cancel(&h->sul);
 
 		if (h->prev_ss_state != LWSSSCS_CONNECTED) {
+			lws_metrics_caliper_report_hist(h->cal_txn, wsi);
 			r = lws_ss_event_helper(h, LWSSSCS_CONNECTED);
 			if (r != LWSSSSRET_OK)
 				return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
@@ -722,6 +734,12 @@ malformed:
 		     h->being_serialized && (
 				!strcmp(h->policy->u.http.method, "PUT") ||
 				!strcmp(h->policy->u.http.method, "POST"))) {
+#if defined(LWS_WITH_SYS_METRICS)
+			/*
+			 * If any hanging caliper measurement, dump it, and free any tags
+			 */
+			lws_metrics_caliper_report_hist(h->cal_txn, (struct lws *)NULL);
+#endif
 			r = lws_ss_event_helper(h, LWSSSCS_CONNECTED);
 			if (r)
 				return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
@@ -773,7 +791,7 @@ malformed:
 		return 0; /* don't passthru */
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
-		lwsl_debug("%s: LWS_CALLBACK_COMPLETED_CLIENT_HTTP\n", __func__);
+		// lwsl_debug("%s: LWS_CALLBACK_COMPLETED_CLIENT_HTTP\n", __func__);
 
 		if (!h)
 			return -1;
@@ -919,7 +937,7 @@ malformed:
 		}
 
 #if defined(LWS_WITH_SERVER)
-		if (!(h->info.flags & LWSSSINFLAGS_ACCEPTED) &&
+		if ((h->info.flags & LWSSSINFLAGS_ACCEPTED) /* server */ &&
 		    (f & LWSSS_FLAG_EOM) &&
 		     lws_http_transaction_completed(wsi))
 			return -1;
@@ -973,6 +991,12 @@ malformed:
 		}
 
 		if (!h->ss_dangling_connected) {
+#if defined(LWS_WITH_SYS_METRICS)
+			/*
+			 * If any hanging caliper measurement, dump it, and free any tags
+			 */
+			lws_metrics_caliper_report_hist(h->cal_txn, (struct lws *)NULL);
+#endif
 			r = lws_ss_event_helper(h, LWSSSCS_CONNECTED);
 			if (r)
 				return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);

@@ -52,6 +52,11 @@ enum {
 	 * Something happened on the network, eg, link-up or DHCP, or captive
 	 * portal state update
 	 */
+	LWSSMDCL_METRICS					= (1 << 3),
+	/**<
+	 * An SS client process is reporting a metric to the proxy (this class
+	 * is special in that it is not rebroadcast by the proxy)
+	 */
 
 	LWSSMDCL_USER_BASE_BITNUM				= 24
 };

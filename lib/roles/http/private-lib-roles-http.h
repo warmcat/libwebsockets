@@ -248,6 +248,9 @@ struct _lws_http_mode_related {
 #ifdef LWS_WITH_ACCESS_LOG
 	struct lws_access_log access_log;
 #endif
+#if defined(LWS_WITH_SERVER)
+	unsigned int response_code;
+#endif
 #ifdef LWS_WITH_CGI
 	struct lws_cgi *cgi; /* wsi being cgi stream have one of these */
 #endif

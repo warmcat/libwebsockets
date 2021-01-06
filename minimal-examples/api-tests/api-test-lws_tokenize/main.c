@@ -204,7 +204,7 @@ struct tests tests[] = {
 	}, {
 		"fr-CH, fr;q=0.9, en;q=0.8, de;q=0.7, *;q=0.5",
 		expected7, LWS_ARRAY_SIZE(expected7),
-		LWS_TOKENIZE_F_RFC7230_DELIMS
+		LWS_TOKENIZE_F_ASTERISK_NONTERM | LWS_TOKENIZE_F_RFC7230_DELIMS
 	},
 	{
 		" Οὐχὶ ταὐτὰ παρίσταταί μοι γιγνώσκειν, ὦ ἄνδρες ᾿Αθηναῖοι, greek",
@@ -718,6 +718,10 @@ int main(int argc, const char **argv)
 	}
 	if (lws_strcmp_wildcard("*abc*d", 6, "xxabyyabcdd")) {
 		lwsl_user("%s: wc 15 fail\n", __func__);
+		fail++;
+	}
+	if (lws_strcmp_wildcard("ssproxy.n.cn.*", 14, "ssproxy.n.cn.failures")) {
+		lwsl_user("%s: wc 16 fail\n", __func__);
 		fail++;
 	}
 

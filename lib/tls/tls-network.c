@@ -204,10 +204,6 @@ lws_gate_accepts(struct lws_context *context, int on)
 
 	lwsl_notice("%s: on = %d\n", __func__, on);
 
-#if defined(LWS_WITH_STATS)
-	context->updated = 1;
-#endif
-
 	while (v) {
 		if (v->tls.use_ssl && v->lserv_wsi &&
 		    lws_change_pollfd(v->lserv_wsi, (LWS_POLLIN) * !on,

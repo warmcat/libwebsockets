@@ -51,26 +51,6 @@
 
 #include <private-lib-core.h>
 
-/*
- * Because both sides of the connection share the conn, we allocate it
- * during accepted adoption, and both sides point to it.
- *
- * When .ss or .wsi close, they must NULL their entry here so no dangling
- * refereneces.
- *
- * The last one of the accepted side and the onward side to close frees it.
- */
-
-struct conn {
-	struct lws_ss_serialization_parser parser;
-
-	lws_dsh_t		*dsh;	/* unified buffer for both sides */
-	struct lws		*wsi;	/* the proxy's client side */
-	lws_ss_handle_t		*ss;	/* the onward, ss side */
-
-	lws_ss_conn_states_t	state;
-};
-
 struct raw_pss {
 	struct conn		*conn;
 };
@@ -313,9 +293,6 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 	lws_ss_metadata_t *md;
 	lws_ss_info_t ssi;
 	const uint8_t *cp;
-#if defined(LWS_WITH_DETAILED_LATENCY)
-	lws_usec_t us;
-#endif
 	char s[256];
 	uint8_t *p;
 	size_t si;
@@ -588,7 +565,7 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 
 			cp = p;
 
-#if defined(LWS_WITH_DETAILED_LATENCY)
+#if 0
 			if (cp[0] == LWSSS_SER_RXPRE_RX_PAYLOAD &&
 			    wsi->a.context->detailed_latency_cb) {
 

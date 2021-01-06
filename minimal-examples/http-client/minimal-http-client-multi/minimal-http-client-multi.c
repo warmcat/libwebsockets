@@ -217,6 +217,30 @@ static const struct lws_protocols protocols[] = {
 	{ NULL, NULL, 0, 0 }
 };
 
+#if defined(LWS_WITH_SYS_METRICS)
+
+static int
+my_metric_report(lws_metric_pub_t *mp)
+{
+	lws_metric_bucket_t *sub = mp->u.hist.head;
+	char buf[192];
+
+	do {
+		if (lws_metrics_format(mp, &sub, buf, sizeof(buf)))
+			lwsl_user("%s: %s\n", __func__, buf);
+	} while ((mp->flags & LWSMTFL_REPORT_HIST) && sub);
+
+	/* 0 = leave metric to accumulate, 1 = reset the metric */
+
+	return 1;
+}
+
+static const lws_system_ops_t system_ops = {
+	.metric_report = my_metric_report,
+};
+
+#endif
+
 static void
 signal_cb(void *handle, int signum)
 {
@@ -362,6 +386,11 @@ int main(int argc, const char **argv)
 	 * network wsi) that we will use.
 	 */
 	info.fd_limit_per_thread = 1 + COUNT + 1;
+	info.pcontext = &context;
+
+#if defined(LWS_WITH_SYS_METRICS)
+	info.system_ops = &system_ops;
+#endif
 
 #if defined(LWS_WITH_MBEDTLS) || defined(USE_WOLFSSL)
 	/*
@@ -373,11 +402,6 @@ int main(int argc, const char **argv)
 
 	if ((p = lws_cmdline_option(argc, argv, "--limit")))
 		info.simultaneous_ssl_restriction = atoi(p);
-
-#if defined(LWS_WITH_DETAILED_LATENCY)
-	info.detailed_latency_cb = lws_det_lat_plot_cb;
-	info.detailed_latency_filepath = "/tmp/lws-latency-results";
-#endif
 
 	context = lws_create_context(&info);
 	if (!context) {

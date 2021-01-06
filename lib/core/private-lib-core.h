@@ -139,6 +139,41 @@
 
 #include "libwebsockets.h"
 
+/*
+ * lws_dsh
+*/
+
+typedef struct lws_dsh_obj_head {
+	lws_dll2_owner_t		owner;
+	size_t				total_size; /* for this kind in dsh */
+	int				kind;
+} lws_dsh_obj_head_t;
+
+typedef struct lws_dsh_obj {
+	lws_dll2_t			list;	/* must be first */
+	struct lws_dsh	  		*dsh;	/* invalid when on free list */
+	size_t				size;	/* invalid when on free list */
+	size_t				asize;
+	int				kind; /* so we can account at free */
+} lws_dsh_obj_t;
+
+typedef struct lws_dsh {
+	lws_dll2_t			list;
+	uint8_t				*buf;
+	lws_dsh_obj_head_t		*oha;	/* array of object heads/kind */
+	size_t				buffer_size;
+	size_t				locally_in_use;
+	size_t				locally_free;
+	int				count_kinds;
+	uint8_t				being_destroyed;
+	/*
+	 * Overallocations at create:
+	 *
+	 *  - the buffer itself
+	 *  - the object heads array
+	 */
+} lws_dsh_t;
+
  /*
   *
   *  ------ lifecycle defines ------
@@ -285,6 +320,9 @@ struct lws;
 #include "private-lib-system-fault-injection.h"
 #endif
 
+#include "private-lib-system-metrics.h"
+
+
 struct lws_foreign_thread_pollfd {
 	struct lws_foreign_thread_pollfd *next;
 	int fd_index;
@@ -327,6 +365,10 @@ enum {
 	LWSLCG_VHOST,
 
 	LWSLCG_WSI_SERVER,		/* server wsi */
+
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT)
+	LWSLCG_WSI_MUX,			/* a mux child wsi */
+#endif
 
 #if defined(LWS_WITH_CLIENT)
 	LWSLCG_WSI_CLIENT,		/* client wsi */
@@ -415,20 +457,52 @@ struct lws_context {
 	struct http2_settings			set;
 #endif
 
-#if defined(LWS_WITH_SERVER_STATUS)
-	struct lws_conn_stats			conn_stats;
-#endif
 #if LWS_MAX_SMP > 1
 	struct lws_mutex_refcount		mr;
 #endif
 
-#if defined(LWS_WITH_NETWORK)
+#if defined(LWS_WITH_SYS_METRICS)
+	lws_dll2_owner_t			owner_mtr_dynpol;
+	/**< owner for lws_metric_policy_dyn_t (dynamic part of metric pols) */
+	lws_dll2_owner_t			owner_mtr_no_pol;
+	/**< owner for lws_metric_pub_t with no policy to bind to */
+#endif
 
+#if defined(LWS_WITH_NETWORK)
 /*
  * LWS_WITH_NETWORK =====>
  */
 
 	lws_dll2_owner_t		owner_vh_being_destroyed;
+
+	lws_metric_t			*mt_service; /* doing service */
+	const lws_metric_policy_t	*metrics_policies;
+	const char			*metrics_prefix;
+
+#if defined(LWS_WITH_SYS_METRICS) && defined(LWS_WITH_CLIENT)
+	lws_metric_t			*mt_conn_tcp; /* client tcp conns */
+	lws_metric_t			*mt_conn_tls; /* client tcp conns */
+	lws_metric_t			*mt_conn_dns; /* client dns external lookups */
+	lws_metric_t			*mth_conn_failures; /* histogram of conn failure reasons */
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+	lws_metric_t			*mt_http_txn; /* client http transaction */
+#endif
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+	lws_metric_t			*mt_adns_cache; /* async dns lookup lat */
+#endif
+#if defined(LWS_WITH_SECURE_STREAMS)
+	lws_metric_t			*mth_ss_conn; /* SS connection outcomes */
+#endif
+#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
+	lws_metric_t			*mt_ss_cliprox_conn; /* SS cli->prox conn */
+	lws_metric_t			*mt_ss_cliprox_paylat; /* cli->prox payload latency */
+	lws_metric_t			*mt_ss_proxcli_paylat; /* prox->cli payload latency */
+#endif
+#endif /* client */
+
+#if defined(LWS_WITH_SERVER)
+	lws_metric_t			*mth_srv;
+#endif
 
 #if defined(LWS_WITH_EVENT_LIBS)
 	struct lws_plugin		*evlib_plugin_list;
@@ -495,9 +569,6 @@ struct lws_context {
 	const struct lws_tls_ops	*tls_ops;
 #endif
 
-#if defined(LWS_WITH_DETAILED_LATENCY)
-	det_lat_buf_cb_t		detailed_latency_cb;
-#endif
 #if defined(LWS_WITH_PLUGINS)
 	struct lws_plugin		*plugin_list;
 #endif
@@ -527,9 +598,6 @@ struct lws_context {
 	struct lws_context **pcontext_finalize;
 #if !defined(LWS_PLAT_FREERTOS)
 	const char *username, *groupname;
-#endif
-#if defined(LWS_WITH_DETAILED_LATENCY)
-	const char *detailed_latency_filepath;
 #endif
 
 #if defined(LWS_AMAZON_RTOS) && defined(LWS_WITH_MBEDTLS)
@@ -586,6 +654,9 @@ struct lws_context {
 	uint64_t options;
 
 	time_t last_ws_ping_pong_check_s;
+#if defined(LWS_WITH_SECURE_STREAMS)
+	time_t					last_policy;
+#endif
 
 #if defined(LWS_PLAT_FREERTOS)
 	unsigned long time_last_state_dump;
@@ -604,9 +675,6 @@ struct lws_context {
 	int count_cgi_spawned;
 #endif
 
-#if defined(LWS_WITH_DETAILED_LATENCY)
-	int latencies_fd;
-#endif
 	unsigned int fd_limit_per_thread;
 	unsigned int timeout_secs;
 	unsigned int pt_serv_buf_size;
@@ -660,10 +728,6 @@ struct lws_context {
 	uint8_t captive_portal_detect_type;
 
 	uint8_t		destroy_state; /* enum lws_context_destroy */
-
-#if defined(LWS_WITH_STATS)
-	uint8_t updated;
-#endif
 };
 
 #define lws_get_context_protocol(ctx, x) ctx->vhost_list->protocols[x]

@@ -264,17 +264,6 @@ lws_mqtt_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 			wsi->tls.ssl = NULL;
 #endif /* LWS_WITH_TLS */
 
-#if defined(LWS_WITH_DETAILED_LATENCY)
-		if (context->detailed_latency_cb) {
-			wsi->detlat.type = LDLT_TLS_NEG_CLIENT;
-			wsi->detlat.latencies[LAT_DUR_PROXY_CLIENT_REQ_TO_WRITE] =
-				(uint32_t)(lws_now_usecs() -
-				wsi->detlat.earliest_write_req_pre_write);
-			wsi->detlat.latencies[LAT_DUR_USERCB] = 0;
-			lws_det_lat_cb(wsi->a.context, &wsi->detlat);
-		}
-#endif
-
 		/* fallthru */
 
 #if defined(LWS_WITH_SOCKS5)

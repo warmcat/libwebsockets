@@ -881,6 +881,14 @@ lws_sa46_write_numeric_address(lws_sockaddr46 *sa46, char *buf, size_t len)
 		return lws_write_numeric_address(
 				(uint8_t *)&sa46->sa4.sin_addr, 4, buf, len);
 
+#if defined(LWS_WITH_UNIX_SOCK)
+	if (sa46->sa4.sin_family == AF_UNIX)
+		return lws_snprintf(buf, len, "(unix skt)");
+#endif
+
+	if (!sa46->sa4.sin_family)
+		return lws_snprintf(buf, len, "(unset)");
+
 	lws_snprintf(buf, len, "(bad AF %d)", (int)sa46->sa4.sin_family);
 
 	return -1;

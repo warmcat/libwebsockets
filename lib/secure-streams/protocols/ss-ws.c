@@ -106,6 +106,12 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		h->retry = 0;
 		h->seqstate = SSSEQ_CONNECTED;
 		lws_sul_cancel(&h->sul);
+#if defined(LWS_WITH_SYS_METRICS)
+		/*
+		 * If any hanging caliper measurement, dump it, and free any tags
+		 */
+		lws_metrics_caliper_report_hist(h->cal_txn, (struct lws *)NULL);
+#endif
 		r = lws_ss_event_helper(h, LWSSSCS_CONNECTED);
 		if (r != LWSSSSRET_OK)
 			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
