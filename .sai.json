@@ -195,6 +195,10 @@
 		"libglib": {
 			"cmake":	"-DLWS_WITH_GLIB=ON"
 		},
+		"sdevent": {
+			"cmake":	"-DLWS_WITH_SDEVENT=ON",
+			"platforms":	"none, linux-fedora-32/x86_64-amd/gcc"
+		},
 		"ipv6":	{
 			"cmake":	"-DLWS_IPV6=ON",
 			"platforms":	"windows-10/x86_64-amd/mingw64, windows-10/x86_64-amd/msvc"

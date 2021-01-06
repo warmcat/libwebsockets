@@ -8,7 +8,7 @@ and native WSA on windows.
 To get access to epoll() or other platform specific better poll waits, or to
 integrate with existing applications already using a specific event loop, it can
 be desirable for lws to use another external event library, like libuv, glib,
-libevent or libev.
+libevent, libev, or sdevent.
 
 Lws supports wholesale replacement of its wait selectable at runtime, either by
 building support for one or more event lib into the libwebsockets library, or by

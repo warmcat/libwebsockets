@@ -19,7 +19,7 @@ CHECK_C_SOURCE_COMPILES("#include <libwebsockets.h>\nint main(void) {\n#if defin
 CHECK_C_SOURCE_COMPILES("#include <libwebsockets.h>\nint main(void) {\n#if defined(LWS_WITH_LIBEVENT)\n return 0;\n#else\n fail;\n#endif\n return 0;\n}\n" LWS_WITH_LIBEVENT)
 CHECK_C_SOURCE_COMPILES("#include <libwebsockets.h>\nint main(void) {\n#if defined(LWS_WITH_LIBEV)\n return 0;\n#else\n fail;\n#endif\n return 0;\n}\n" LWS_WITH_LIBEV)
 CHECK_C_SOURCE_COMPILES("#include <libwebsockets.h>\nint main(void) {\n#if defined(LWS_WITH_GLIB)\n return 0;\n#else\n fail;\n#endif\n return 0;\n}\n" LWS_WITH_GLIB)
-
+CHECK_C_SOURCE_COMPILES("#include <libwebsockets.h>\nint main(void) {\n#if defined(LWS_WITH_SDEVENT)\n return 0;\n#else\n fail;\n#endif\n return 0;\n}\n" LWS_WITH_SDEVENT)
 
 if (LWS_WITH_LIBUV)
 	find_path(LIBUV_INCLUDE_DIRS NAMES uv.h)
@@ -72,6 +72,16 @@ if (LWS_WITH_GLIB)
 	set(extralibs ${extralibs} ${GLIB_LIBRARIES})
 	list(APPEND SRCS glib.c)
 endif()
+if (LWS_WITH_SDEVENT)
+	find_path(LIBSYSTEMD_INCLUDE_DIRS NAMES systemd/sd-event.h)
+	find_library(LIBSYSTEMD_LIBRARIES NAMES systemd)
+	message("libsystemd include dir: ${LIBSYSTEMD_INCLUDE_DIRS}")
+	message("libsystemd libraries: ${LIBSYSTEMD_LIBRARIES}")
+	include_directories("${LIBSYSTEMD_INCLUDE_DIRS}")
+	set(extralibs ${extralibs} ${LIBSYSTEMD_LIBRARIES})
+	list(APPEND SRCS libsdevent.c)
+endif()
+
 
 message("Extra libs: ${extralibs}")
 

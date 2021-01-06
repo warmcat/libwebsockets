@@ -233,6 +233,10 @@
 #define LWS_SERVER_OPTION_SS_PROXY				 (1ll << 36)
 	/**< (VH) We are being a SS Proxy listen socket for the vhost */
 
+#define LWS_SERVER_OPTION_SDEVENT			 	 (1ll << 37)
+	/**< (CTX) Use sd-event loop */
+
+
 	/****** add new things just above ---^ ******/
 
 

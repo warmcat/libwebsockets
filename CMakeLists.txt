@@ -171,6 +171,7 @@ option(LWS_WITH_LIBEV "Compile with support for libev" OFF)
 option(LWS_WITH_LIBUV "Compile with support for libuv" OFF)
 option(LWS_WITH_LIBEVENT "Compile with support for libevent" OFF)
 option(LWS_WITH_GLIB "Compile with support for glib event loop" OFF)
+option(LWS_WITH_SDEVENT "Compile with support for sd-event loop" OFF)
 
 if (UNIX)
 # since v4.1, on unix platforms default is build any event libs as runtime plugins

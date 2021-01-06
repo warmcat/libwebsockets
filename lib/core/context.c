@@ -369,6 +369,7 @@ static const struct lws_evlib_map {
 	{ LWS_SERVER_OPTION_LIBEVENT, "evlib_event" },
 	{ LWS_SERVER_OPTION_GLIB,     "evlib_glib" },
 	{ LWS_SERVER_OPTION_LIBEV,    "evlib_ev" },
+	{ LWS_SERVER_OPTION_SDEVENT,  "evlib_sd" },
 };
 static const char * const dlist[] = {
 	".",				/* Priority 1: plugins in cwd */
@@ -596,6 +597,13 @@ lws_create_context(const struct lws_context_creation_info *info)
 		extern const lws_plugin_evlib_t evlib_ev;
 		plev = &evlib_ev;
 	}
+#endif
+
+#if defined(LWS_WITH_SDEVENT)
+    if (lws_check_opt(info->options, LWS_SERVER_OPTION_SDEVENT)) {
+        extern const lws_plugin_evlib_t evlib_sd;
+        plev = &evlib_sd;
+    }
 #endif
 
 #endif /* with event libs */

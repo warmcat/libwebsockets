@@ -197,9 +197,16 @@ int main(int argc, const char **argv)
 					lwsl_notice("%s: using glib loop\n", __func__);
 				} else
 #endif
+#if defined(LWS_WITH_SDEVENT)
+					if (lws_cmdline_option(argc, argv, "--sd")) {
+						info.options |= LWS_SERVER_OPTION_SDEVENT;
+						ops = &ops_sdevent;
+						lwsl_notice("%s: using sd-event loop\n", __func__);
+					} else
+#endif
 				{
 				lwsl_err("This app only makes sense when used\n");
-				lwsl_err(" with a foreign loop, --uv, --event, --glib, or --ev\n");
+				lwsl_err(" with a foreign loop, --uv, --event, --glib, --ev or --sd\n");
 
 				return 1;
 				}
