@@ -56,6 +56,10 @@ if (LWS_WITH_NETWORK)
 		add_subdir_include_dirs(smd)
 	endif()
 
+	if (LWS_WITH_SYS_METRICS)
+		add_subdir_include_dirs(metrics)
+	endif()
+
 endif()
 
 #

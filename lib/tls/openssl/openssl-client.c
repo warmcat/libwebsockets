@@ -480,7 +480,8 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 #if !defined(USE_WOLFSSL)
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	char *p = (char *)&pt->serv_buf[0];
-	const char *es;
+	const char *es, *type = "";
+	unsigned int avoid = 0;
 	char *sb = p;
 	long n;
 
@@ -488,29 +489,41 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 	ERR_clear_error();
 	n = SSL_get_verify_result(wsi->tls.ssl);
 
-	lwsl_debug("get_verify says %ld\n", n);
-
-	if (n == X509_V_OK)
+	switch (n) {
+	case X509_V_OK:
 		return 0;
 
-	if ((n == X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT ||
-	     n == X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN) &&
-	     (wsi->tls.use_ssl & LCCSCF_ALLOW_SELFSIGNED)) {
-		lwsl_info("accepting self-signed certificate\n");
+	case X509_V_ERR_HOSTNAME_MISMATCH:
+		type = "tls/hostname";
+		avoid = LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+		break;
+
+	case X509_V_ERR_INVALID_CA:
+	case X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT:
+	case X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN:
+		type = "tls/invalidca";
+		avoid = LCCSCF_ALLOW_SELFSIGNED;
+		break;
+
+	case X509_V_ERR_CERT_NOT_YET_VALID:
+		type = "tls/notyetvalid";
+		avoid = LCCSCF_ALLOW_EXPIRED;
+		break;
+
+	case X509_V_ERR_CERT_HAS_EXPIRED:
+		type = "tls/expired";
+		avoid = LCCSCF_ALLOW_EXPIRED;
+		break;
+	}
+
+	lwsl_info("%s: cert problem: %s\n", __func__, type);
+	lws_metrics_hist_bump_priv_wsi(wsi, mth_conn_failures, type);
+	if (wsi->tls.use_ssl & avoid) {
+		lwsl_info("%s: allowing anyway\n", __func__);
 
 		return 0;
 	}
-	if ((n == X509_V_ERR_CERT_NOT_YET_VALID ||
-	     n == X509_V_ERR_CERT_HAS_EXPIRED) &&
-	     (wsi->tls.use_ssl & LCCSCF_ALLOW_EXPIRED)) {
-		lwsl_info("accepting expired certificate\n");
-		return 0;
-	}
-	if (n == X509_V_ERR_CERT_NOT_YET_VALID) {
-		lwsl_info("Cert is from the future... "
-			    "probably our clock... accepting...\n");
-		return 0;
-	}
+
 	es = ERR_error_string(
 	#if defined(LWS_WITH_BORINGSSL)
 					 (uint32_t)
@@ -519,8 +532,8 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 	#endif
 					 n, sb);
 	lws_snprintf(ebuf, ebuf_len,
-		"server's cert didn't look good, X509_V_ERR = %ld: %s\n",
-		 n, es);
+		"server's cert didn't look good, %s X509_V_ERR = %ld: %s\n",
+		 type, n, es);
 	lwsl_info("%s\n", ebuf);
 	lws_tls_err_describe_clear();
 

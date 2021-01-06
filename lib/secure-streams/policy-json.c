@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2019 - 2020 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2019 - 2021 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -41,6 +41,11 @@ static const char * const lejp_tokens_policy[] = {
 	"certs[].*",
 	"trust_stores[].name",
 	"trust_stores[].stack",
+	"metrics[].name",
+	"metrics[].us_schedule",
+	"metrics[].us_halflife",
+	"metrics[].min_outlier",
+	"metrics[].report",
 	"s[].*.endpoint",
 	"s[].*.via-socks5",
 	"s[].*.protocol",
@@ -126,6 +131,11 @@ typedef enum {
 	LSSPPT_CERTS,
 	LSSPPT_TRUST_STORES_NAME,
 	LSSPPT_TRUST_STORES_STACK,
+	LSSPPT_METRICS_NAME,
+	LSSPPT_METRICS_US_SCHEDULE,
+	LSSPPT_METRICS_US_HALFLIFE,
+	LSSPPT_METRICS_MIN_OUTLIER,
+	LSSPPT_METRICS_REPORT,
 	LSSPPT_ENDPOINT,
 	LSSPPT_VH_VIA_SOCKS5,
 	LSSPPT_PROTOCOL,
@@ -207,6 +217,7 @@ static uint8_t sizes[] = {
 	sizeof(lws_ss_trust_store_t),
 	sizeof(lws_ss_policy_t),
 	sizeof(lws_ss_auth_t),
+	sizeof(lws_metric_policy_t),
 };
 
 static const char * const protonames[] = {
@@ -233,6 +244,25 @@ lws_ss_policy_find_auth_by_name(struct policy_cb_args *a,
 	}
 
 	return NULL;
+}
+
+static int
+lws_ss_policy_alloc_helper(struct policy_cb_args *a, int type)
+{
+	/*
+	 * We do the pointers always as .b union member, all of the
+	 * participating structs begin with .next and .name the same
+	 */
+
+	a->curr[type].b = lwsac_use_zero(&a->ac,
+				sizes[type], POL_AC_GRAIN);
+	if (!a->curr[type].b)
+		return 1;
+
+	a->curr[type].b->next = a->heads[type].b;
+	a->heads[type].b = a->curr[type].b;
+
+	return 0;
 }
 
 static signed char
@@ -273,6 +303,13 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 	case LSSPPT_AUTH:
 		n = LTY_AUTH;
 		break;
+	case LSSPPT_METRICS_NAME:
+	case LSSPPT_METRICS_US_SCHEDULE:
+	case LSSPPT_METRICS_US_HALFLIFE:
+	case LSSPPT_METRICS_MIN_OUTLIER:
+	case LSSPPT_METRICS_REPORT:
+		n = LTY_METRICS;
+		break;
 	}
 
 	if (reason == LEJPCB_ARRAY_START &&
@@ -282,13 +319,8 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		a->count = 0;
 
 	if (reason == LEJPCB_OBJECT_START && n == LTY_AUTH) {
-		a->curr[n].b = lwsac_use_zero(&a->ac, sizes[n], POL_AC_GRAIN);
-		if (!a->curr[n].b)
+		if (lws_ss_policy_alloc_helper(a, LTY_AUTH))
 			goto oom;
-
-		a->curr[n].b->next = a->heads[n].b;
-		a->heads[n].b = a->curr[n].b;
-
 		return 0;
 	}
 
@@ -342,7 +374,7 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 	}
 
 	if (reason == LEJPCB_PAIR_NAME && n != -1 &&
-	    (n != LTY_TRUSTSTORE && n != LTY_AUTH)) {
+	    (n != LTY_TRUSTSTORE && n != LTY_AUTH && n != LTY_METRICS)) {
 
 		p2 = NULL;
 		if (n == LTY_POLICY) {
@@ -472,18 +504,10 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		break;
 
 	case LSSPPT_TRUST_STORES_NAME:
-		/*
-		 * We do the pointers always as .b, all of the participating
-		 * structs begin with .next and .name
-		 */
-		a->curr[LTY_TRUSTSTORE].b = lwsac_use_zero(&a->ac,
-					sizes[LTY_TRUSTSTORE], POL_AC_GRAIN);
-		if (!a->curr[LTY_TRUSTSTORE].b)
+		if (lws_ss_policy_alloc_helper(a, LTY_TRUSTSTORE))
 			goto oom;
 
 		a->count = 0;
-		a->curr[LTY_TRUSTSTORE].b->next = a->heads[LTY_TRUSTSTORE].b;
-		a->heads[LTY_TRUSTSTORE].b = a->curr[LTY_TRUSTSTORE].b;
 		pp = (char **)&a->curr[LTY_TRUSTSTORE].b->name;
 
 		goto string2;
@@ -510,6 +534,31 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		lwsl_err("%s: unknown trust store entry %s\n", __func__,
 			 dotstar);
 		goto oom;
+#if defined(LWS_WITH_SYS_METRICS)
+	case LSSPPT_METRICS_NAME:
+		if (lws_ss_policy_alloc_helper(a, LTY_METRICS))
+			goto oom;
+
+		pp = (char **)&a->curr[LTY_METRICS].b->name;
+
+		goto string2;
+
+	case LSSPPT_METRICS_US_SCHEDULE:
+		a->curr[LTY_METRICS].m->us_schedule = (uint32_t)atol(ctx->buf);
+		break;
+
+	case LSSPPT_METRICS_US_HALFLIFE:
+		a->curr[LTY_METRICS].m->us_decay_unit = (uint32_t)atol(ctx->buf);
+		break;
+
+	case LSSPPT_METRICS_MIN_OUTLIER:
+		a->curr[LTY_METRICS].m->min_contributors = (uint8_t)atoi(ctx->buf);
+		break;
+
+	case LSSPPT_METRICS_REPORT:
+		pp = (char **)&a->curr[LTY_METRICS].m->report;
+		goto string2;
+#endif
 
 	case LSSPPT_SERVER_CERT:
 	case LSSPPT_SERVER_KEY:

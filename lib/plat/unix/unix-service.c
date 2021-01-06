@@ -71,6 +71,9 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	volatile struct lws_context_per_thread *vpt;
 	struct lws_context_per_thread *pt;
 	lws_usec_t timeout_us, us;
+#if defined(LWS_WITH_SYS_METRICS)
+	lws_usec_t a, b;
+#endif
 	int n;
 #if (defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)) || defined(LWS_WITH_TLS)
 	int m;
@@ -81,10 +84,13 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	if (!context)
 		return 1;
 
+#if defined(LWS_WITH_SYS_METRICS)
+	b =
+#endif
+			us = lws_now_usecs();
+
 	pt = &context->pt[tsi];
 	vpt = (volatile struct lws_context_per_thread *)pt;
-
-	lws_stats_bump(pt, LWSSTATS_C_SERVICE_ENTRY, 1);
 
 	if (timeout_ms < 0)
 		timeout_ms = 0;
@@ -108,7 +114,6 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		pt->service_tid_detected = 1;
 	}
 
-	us = lws_now_usecs();
 	lws_pt_lock(pt, __func__);
 	/*
 	 * service ripe scheduled events, and limit wait to next expected one
@@ -135,21 +140,18 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 
 	timeout_us /= LWS_US_PER_MS; /* ms now */
 
+#if defined(LWS_WITH_SYS_METRICS)
+	a = lws_now_usecs() - b;
+#endif
 	vpt->inside_poll = 1;
 	lws_memory_barrier();
 	n = poll(pt->fds, pt->fds_count, (int)timeout_us /* ms now */ );
 	vpt->inside_poll = 0;
 	lws_memory_barrier();
 
-	#if defined(LWS_WITH_DETAILED_LATENCY)
-	/*
-	 * so we can track how long it took before we actually read a
-	 * POLLIN that was signalled when we last exited poll()
-	 */
-	if (context->detailed_latency_cb)
-		pt->ust_left_poll = lws_now_usecs();
+#if defined(LWS_WITH_SYS_METRICS)
+	b = lws_now_usecs();
 #endif
-
 	/* Collision will be rare and brief.  Spin until it completes */
 	while (vpt->foreign_spinlock)
 		;
@@ -204,14 +206,16 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 #if (defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)) || defined(LWS_WITH_TLS)
 		!m &&
 #endif
-		!n) { /* nothing to do */
+		!n) /* nothing to do */
 		lws_service_do_ripe_rxflow(pt);
+	else
+		if (_lws_plat_service_forced_tsi(context, tsi) < 0)
+			return -1;
 
-		return 0;
-	}
-
-	if (_lws_plat_service_forced_tsi(context, tsi) < 0)
-		return -1;
+#if defined(LWS_WITH_SYS_METRICS)
+	lws_metric_event(context->mt_service, METRES_GO,
+			 (u_mt_t) (a + (lws_now_usecs() - b)));
+#endif
 
 	if (pt->destroy_self) {
 		lws_context_destroy(pt->context);

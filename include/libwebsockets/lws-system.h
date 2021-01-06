@@ -1,7 +1,7 @@
  /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2021 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -151,7 +151,6 @@ typedef enum {
 	LWS_CPD_NO_INTERNET,	/* we couldn't touch anything */
 } lws_cpd_result_t;
 
-
 typedef void (*lws_attach_cb_t)(struct lws_context *context, int tsi, void *opaque);
 struct lws_attach_item;
 
@@ -181,6 +180,10 @@ typedef struct lws_system_ops {
 	 * Start the check that proceeds asynchronously, and report the results
 	 * by calling lws_captive_portal_detect_result() api
 	 */
+
+	int (*metric_report)(lws_metric_pub_t *mdata);
+	/**< metric \p item is reporting an event of kind \p rpt,
+	 * held in \p mdata... */
 
 	uint32_t	wake_latency_us;
 	/**< time taken for this device to wake from suspend, in us

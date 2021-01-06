@@ -350,6 +350,58 @@ static const char * const default_ss_policy =
 			"\"opportunistic\": true,"
 			"\"retry\": \"default\","
 			"\"tls_trust_store\": \"arca1\""
+
+		"}},{"
+
+		/*
+		 * Various kinds of tls failure
+		 *
+		 * hostname.badcert.warmcat.com: serves valid cert but for
+		 *				 warmcat.com
+		 *
+		 * warmcat.com:446: serves valid but expired cert
+		 *
+		 * I don't have an easy way to make the test for "not valid yet"
+		 * cert without root
+		 *
+		 * invalidca.badcert.warmcat.com:  selfsigned cert for that
+		 *				   hostname
+		 */
+
+		    "\"badcert_hostname\": {"
+			"\"endpoint\": \"hostname.badcert.warmcat.com\","
+			"\"port\": 443,"
+			"\"protocol\": \"h1\","
+			"\"http_method\": \"GET\","
+			"\"http_url\": \"/\","
+			"\"tls\": true,"
+			"\"opportunistic\": true,"
+			"\"retry\": \"default\","
+			"\"tls_trust_store\": \"le_via_dst\""
+		"}},{"
+		    "\"badcert_expired\": {"
+			"\"endpoint\": \"warmcat.com\","
+			"\"port\": 446,"
+			"\"protocol\": \"h1\","
+			"\"http_method\": \"GET\","
+			"\"http_url\": \"/\","
+			"\"tls\": true,"
+			"\"opportunistic\": true,"
+			"\"retry\": \"default\","
+			"\"tls_trust_store\": \"le_via_dst\""
+		"}},{"
+		    "\"badcert_selfsigned\": {"
+			"\"endpoint\": \"invalidca.badcert.warmcat.com\","
+			"\"port\": 443,"
+			"\"protocol\": \"h1\","
+			"\"http_method\": \"GET\","
+			"\"http_url\": \"/\","
+			"\"tls\": true,"
+			"\"nghttp2_quirk_end_stream\": true,"
+			"\"h2q_oflow_txcr\": true,"
+			"\"opportunistic\": true,"
+			"\"retry\": \"default\","
+			"\"tls_trust_store\": \"le_via_dst\""
                 "}}"
 	"]}"
 ;
@@ -493,6 +545,29 @@ struct tests_seq {
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 		(1 << LWSSSCS_ALL_RETRIES_FAILED),
 		12345
+	},
+
+	/*
+	 * Let's fail at the tls negotiation various ways
+	 */
+
+	{
+		"h1:badcert_hostname",
+		"badcert_hostname", 5 * LWS_US_PER_SEC, LWSSSCS_TIMEOUT,
+		(1 << LWSSSCS_QOS_NACK_REMOTE) |
+		(1 << LWSSSCS_ALL_RETRIES_FAILED)
+	},
+	{
+		"h1:badcert_expired",
+		"badcert_expired", 5 * LWS_US_PER_SEC, LWSSSCS_TIMEOUT,
+		(1 << LWSSSCS_QOS_NACK_REMOTE) |
+		(1 << LWSSSCS_ALL_RETRIES_FAILED)
+	},
+	{
+		"h1:badcert_selfsigned",
+		"badcert_selfsigned", 5 * LWS_US_PER_SEC, LWSSSCS_TIMEOUT,
+		(1 << LWSSSCS_QOS_NACK_REMOTE) |
+		(1 << LWSSSCS_ALL_RETRIES_FAILED)
 	},
 
 };
@@ -675,6 +750,25 @@ static lws_state_notify_link_t * const app_notifier_list[] = {
 	&nl, NULL
 };
 
+#if defined(LWS_WITH_SYS_METRICS)
+
+static int
+my_metric_report(lws_metric_pub_t *mp)
+{
+	char buf[128];
+
+	if (lws_metrics_format(mp, buf, sizeof(buf)))
+		lwsl_user("%s: %s\n", __func__, buf);
+
+	return 0;
+}
+
+static const lws_system_ops_t system_ops = {
+	.metric_report = my_metric_report,
+};
+
+#endif
+
 static void
 sigint_handler(int sig)
 {
@@ -739,6 +833,11 @@ main(int argc, const char **argv)
 	nl.name = "app";
 	nl.notify_cb = app_system_state_nf;
 	info.register_notifier_list = app_notifier_list;
+
+#if defined(LWS_WITH_SYS_METRICS)
+	info.system_ops = &system_ops;
+	info.metrics_prefix = "ssmex";
+#endif
 
 	/* create the context */
 

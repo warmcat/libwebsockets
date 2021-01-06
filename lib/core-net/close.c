@@ -238,8 +238,6 @@ lws_inform_client_conn_fail(struct lws *wsi, void *arg, size_t len)
 		return;
 
 	wsi->already_did_cce = 1;
-	lws_stats_bump(&wsi->a.context->pt[(int)wsi->tsi],
-		       LWSSTATS_C_CONNS_CLIENT_FAILED, 1);
 
 	if (!wsi->a.protocol)
 		return;
@@ -293,14 +291,17 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	context = wsi->a.context;
 	pt = &context->pt[(int)wsi->tsi];
 
+#if defined(LWS_WITH_CLIENT)
+	/* wsi level: only reports if dangling caliper */
+	lws_metrics_caliper_report(wsi->cal_conn, METRES_NOGO);
+#endif
+
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 	if (wsi == context->async_dns.wsi)
 		context->async_dns.wsi = NULL;
 #endif
 
 	lws_pt_assert_lock_held(pt);
-
-	lws_stats_bump(pt, LWSSTATS_C_API_CLOSE, 1);
 
 #if defined(LWS_WITH_CLIENT)
 
@@ -719,6 +720,13 @@ async_close:
 				lws_sspc_handle_t *h = (lws_sspc_handle_t *)wsi->a.opaque_user_data;
 
 				if (h) { // && (h->info.flags & LWSSSINFLAGS_ACCEPTED)) {
+
+					/*
+					 * ss level: only reports if dangling caliper
+					 * not already reported
+					 */
+					lws_metrics_caliper_report(h->cal_txn, METRES_NOGO);
+
 					h->cwsi = NULL;
 					//wsi->a.opaque_user_data = NULL;
 				}
@@ -728,6 +736,12 @@ async_close:
 			lws_ss_handle_t *h = (lws_ss_handle_t *)wsi->a.opaque_user_data;
 
 			if (h) { // && (h->info.flags & LWSSSINFLAGS_ACCEPTED)) {
+
+				/*
+				 * ss level: only reports if dangling caliper
+				 * not already reported
+				 */
+				lws_metrics_caliper_report(h->cal_txn, METRES_NOGO);
 
 				h->wsi = NULL;
 				wsi->a.opaque_user_data = NULL;

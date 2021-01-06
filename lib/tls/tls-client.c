@@ -34,6 +34,7 @@ lws_ssl_client_connect1(struct lws *wsi, char *errbuf, size_t len)
 	case LWS_SSL_CAPABLE_ERROR:
 		return -1;
 	case LWS_SSL_CAPABLE_DONE:
+		lws_metrics_caliper_report(wsi->cal_conn, METRES_GO);
 		return 1; /* connected */
 	case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
 		lws_callback_on_writable(wsi);
@@ -73,8 +74,12 @@ lws_ssl_client_connect2(struct lws *wsi, char *errbuf, size_t len)
 		}
 	}
 
-	if (lws_tls_client_confirm_peer_cert(wsi, errbuf, len))
+	if (lws_tls_client_confirm_peer_cert(wsi, errbuf, len)) {
+		lws_metrics_caliper_report(wsi->cal_conn, METRES_NOGO);
 		return -1;
+	}
+
+	lws_metrics_caliper_report(wsi->cal_conn, METRES_GO);
 
 	return 1;
 }
@@ -187,6 +192,8 @@ lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1)
 		if (!do_c1)
 			return 0;
 
+		lws_metrics_caliper_bind(wsi->cal_conn, wsi->a.context->mt_conn_tls);
+
 		n = lws_ssl_client_connect1(wsi, (char *)wsi->a.context->pt[(int)wsi->tsi].serv_buf,
 					    wsi->a.context->pt_serv_buf_size);
 		lwsl_debug("%s: lws_ssl_client_connect1: %d\n", __func__, n);
@@ -194,8 +201,10 @@ lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1)
 			return CCTLS_RETURN_RETRY; /* caller should return 0 */
 		if (n < 0) {
 			*pcce = (const char *)wsi->a.context->pt[(int)wsi->tsi].serv_buf;
+			lws_metrics_caliper_report(wsi->cal_conn, METRES_NOGO);
 			return CCTLS_RETURN_ERROR;
 		}
+		/* ...connect1 already handled caliper if SSL_accept done */
 	} else
 		wsi->tls.ssl = NULL;
 

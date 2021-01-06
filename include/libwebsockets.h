@@ -570,8 +570,8 @@ struct lws;
 #include <libwebsockets/lws-retry.h>
 #include <libwebsockets/lws-adopt.h>
 #include <libwebsockets/lws-network-helper.h>
+#include <libwebsockets/lws-metrics.h>
 #include <libwebsockets/lws-system.h>
-#include <libwebsockets/lws-detailed-latency.h>
 #include <libwebsockets/lws-ws-close.h>
 #include <libwebsockets/lws-callbacks.h>
 #include <libwebsockets/lws-ws-state.h>
@@ -600,7 +600,6 @@ struct lws;
 #include <libwebsockets/lws-vfs.h>
 #endif
 #include <libwebsockets/lws-lejp.h>
-#include <libwebsockets/lws-stats.h>
 #include <libwebsockets/lws-struct.h>
 #include <libwebsockets/lws-threadpool.h>
 #include <libwebsockets/lws-tokenize.h>

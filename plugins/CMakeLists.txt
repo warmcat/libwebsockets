@@ -102,13 +102,6 @@ if (LWS_ROLE_WS)
 			endif()
 		endif()
 
-	if (LWS_WITH_SERVER_STATUS)
-			create_plugin(protocol_lws_server_status ""
-				      "protocol_lws_server_status.c" "" "")
-			target_compile_definitions(protocol_lws_server_status PRIVATE LWS_BUILDING_SHARED)
-
-	endif()
-
 	if (NOT LWS_WITHOUT_CLIENT)
 			create_plugin(protocol_client_loopback_test ""
         	                      "protocol_client_loopback_test.c" "" "")
@@ -174,10 +167,4 @@ if (LWS_WITH_PLUGINS)
 			COMPONENT plugins)
 	endif()
 
-
-if (LWS_WITH_SERVER_STATUS)
-	install(FILES server-status.html;server-status.js;server-status.css;lwsws-logo.png
-		DESTINATION share/libwebsockets-test-server/server-status
-			COMPONENT examples)
-endif()
 endif()

@@ -552,6 +552,7 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		lws_sul_cancel(&h->sul);
 
 		if (h->prev_ss_state != LWSSSCS_CONNECTED) {
+			lws_metrics_caliper_report(h->cal_txn, METRES_GO);
 			r = lws_ss_event_helper(h, LWSSSCS_CONNECTED);
 			if (r != LWSSSSRET_OK)
 				return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
@@ -722,6 +723,7 @@ malformed:
 		     h->being_serialized && (
 				!strcmp(h->policy->u.http.method, "PUT") ||
 				!strcmp(h->policy->u.http.method, "POST"))) {
+			lws_metrics_caliper_report(h->cal_txn, METRES_GO);
 			r = lws_ss_event_helper(h, LWSSSCS_CONNECTED);
 			if (r)
 				return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
@@ -973,6 +975,7 @@ malformed:
 		}
 
 		if (!h->ss_dangling_connected) {
+			lws_metrics_caliper_report(h->cal_txn, METRES_GO);
 			r = lws_ss_event_helper(h, LWSSSCS_CONNECTED);
 			if (r)
 				return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);

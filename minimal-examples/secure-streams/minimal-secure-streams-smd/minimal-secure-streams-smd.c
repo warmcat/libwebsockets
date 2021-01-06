@@ -177,6 +177,7 @@ static const lws_ss_info_t ssi_lws_smd = {
 	.user_alloc		  = sizeof(myss_t),
 	.streamtype		  = LWS_SMD_STREAMTYPENAME,
 	.manual_initial_tx_credit = LWSSMDCL_SYSTEM_STATE |
+				    LWSSMDCL_METRICS |
 				    LWSSMDCL_NETWORK,
 };
 

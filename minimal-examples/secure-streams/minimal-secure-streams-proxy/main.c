@@ -110,7 +110,7 @@ static const char * const default_ss_policy =
 			"\"port\":"		"443,"
 			"\"protocol\":"		"\"h1\","
 			"\"http_method\":"	"\"GET\","
-			"\"http_url\":"		"\"policy/minimal-proxy.json\","
+			"\"http_url\":"		"\"policy/minimal-proxy-v4.2.json\","
 			"\"tls\":"		"true,"
 			"\"opportunistic\":"	"true,"
 			"\"retry\":"		"\"default\","
@@ -206,6 +206,25 @@ static lws_state_notify_link_t * const app_notifier_list[] = {
 	&nl, NULL
 };
 
+#if defined(LWS_WITH_SYS_METRICS)
+
+static int
+my_metric_report(lws_metric_pub_t *mp)
+{
+	char buf[128];
+
+	if (lws_metrics_format(mp, buf, sizeof(buf)))
+		lwsl_user("%s: %s\n", __func__, buf);
+
+	return 0;
+}
+
+static const lws_system_ops_t system_ops = {
+	.metric_report = my_metric_report,
+};
+
+#endif
+
 static void
 sigint_handler(int sig)
 {
@@ -265,15 +284,16 @@ int main(int argc, const char **argv)
 	info.fd_limit_per_thread = 1 + 32 + 1;
 	info.pss_policies_json = default_ss_policy;
 	info.port = CONTEXT_PORT_NO_LISTEN;
-#if defined(LWS_WITH_DETAILED_LATENCY)
-	info.detailed_latency_cb = lws_det_lat_plot_cb;
-	info.detailed_latency_filepath = "/tmp/lws-latency-ssproxy";
-#endif
 
 	/* integrate us with lws system state management when context created */
 	nl.name = "app";
 	nl.notify_cb = app_system_state_nf;
 	info.register_notifier_list = app_notifier_list;
+
+#if defined(LWS_WITH_SYS_METRICS)
+	info.system_ops = &system_ops;
+	info.metrics_prefix = "ssproxy";
+#endif
 
 	context = lws_create_context(&info);
 	if (!context) {

@@ -203,16 +203,6 @@ start_ws_handshake:
 			}
 		}
 #endif
-#if defined(LWS_WITH_DETAILED_LATENCY)
-		if (context->detailed_latency_cb) {
-			wsi->detlat.type = LDLT_TLS_NEG_CLIENT;
-			wsi->detlat.latencies[LAT_DUR_PROXY_CLIENT_REQ_TO_WRITE] =
-				(uint32_t)(lws_now_usecs() -
-				wsi->detlat.earliest_write_req_pre_write);
-			wsi->detlat.latencies[LAT_DUR_USERCB] = 0;
-			lws_det_lat_cb(wsi->a.context, &wsi->detlat);
-		}
-#endif
 
 #if defined (LWS_WITH_HTTP2)
 		if (wsi->client_h2_alpn && lwsi_state(wsi) != LRS_H1C_ISSUE_HANDSHAKE2) {
@@ -271,9 +261,7 @@ hs2:
 			  "(wsistate 0x%lx), w sock %d\n",
 			  __func__, lws_wsi_tag(wsi),
 			  (unsigned long)wsi->wsistate, wsi->desc.sockfd);
-#if defined(LWS_WITH_DETAILED_LATENCY)
-		wsi->detlat.earliest_write_req_pre_write = lws_now_usecs();
-#endif
+
 		n = lws_ssl_capable_write(wsi, (unsigned char *)sb, lws_ptr_diff_size_t(p, sb));
 		switch (n) {
 		case LWS_SSL_CAPABLE_ERROR:
@@ -480,6 +468,10 @@ lws_http_transaction_completed_client(struct lws *wsi)
 
 	lwsl_info("%s: %s (%s)\n", __func__, lws_wsi_tag(wsi),
 			wsi->a.protocol->name);
+
+	// if (wsi->http.ah && wsi->http.ah->http_response)
+	/* we're only judging if any (200, or 500 etc) http txn completed */
+	lws_metrics_caliper_report(wsi->cal_conn, METRES_GO);
 
 	if (user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
 					LWS_CALLBACK_COMPLETED_CLIENT_HTTP,
@@ -1195,6 +1187,8 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 
 	if (wsi->client_http_body_pending)
 		lws_callback_on_writable(wsi);
+
+	lws_metrics_caliper_bind(wsi->cal_conn, wsi->a.context->mt_http_txn);
 
 	// puts(pkt);
 

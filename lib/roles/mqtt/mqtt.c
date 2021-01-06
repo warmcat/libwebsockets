@@ -1042,10 +1042,6 @@ cmd_completion:
 						__func__, lws_wsi_tag(wsi),
 						lws_wsi_tag(w));
 
-			#if defined(LWS_WITH_SERVER_STATUS)
-				wsi->a.vhost->conn_stats.h2_subs++;
-			#endif
-
 				/*
 				 * It was the last thing we were waiting for
 				 * before we can be fully ESTABLISHED
@@ -2106,10 +2102,6 @@ lws_wsi_mqtt_adopt(struct lws *parent_wsi, struct lws *wsi)
 
 	lws_mqtt_set_client_established(wsi);
 	lws_callback_on_writable(wsi);
-
-#if defined(LWS_WITH_SERVER_STATUS)
-	wsi->a.vhost->conn_stats.mqtt_subs++;
-#endif
 
 	return wsi;
 

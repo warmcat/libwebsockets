@@ -77,6 +77,25 @@ typedef struct lws_ss_plugin {
 } lws_ss_plugin_t;
 #endif
 
+/* the public, const metrics policy definition */
+
+typedef struct lws_metric_policy {
+	/* order of first two mandated by JSON policy parsing scope union */
+	const struct lws_metric_policy	*next;
+	const char			*name;
+
+	const char			*report;
+
+	/**< the metrics policy name in the policy, used to bind to it */
+	uint32_t			us_schedule;
+	/**< us interval between lws_system metrics api reports */
+
+	uint32_t			us_decay_unit;
+	/**< how many us to decay avg by half, 0 = no decay */
+	uint8_t				min_contributors;
+	/**< before we can judge something is an outlier */
+} lws_metric_policy_t;
+
 typedef struct lws_ss_x509 {
 	struct lws_ss_x509	*next;
 	const char		*vhost_name; /**< vhost name using cert ctx */
@@ -217,6 +236,7 @@ typedef struct lws_ss_policy {
 	const char		*payload_fmt;
 	const char		*socks5_proxy;
 	lws_ss_metadata_t	*metadata; /* linked-list of metadata */
+	const lws_metric_policy_t *metrics; /* linked-list of metric policies */
 	const lws_ss_auth_t	*auth; /* NULL or auth object we bind to */
 
 	/* protocol-specific connection policy details */

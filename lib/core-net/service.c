@@ -27,31 +27,8 @@
 int
 lws_callback_as_writeable(struct lws *wsi)
 {
-	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	int n, m;
 
-	lws_stats_bump(pt, LWSSTATS_C_WRITEABLE_CB, 1);
-#if defined(LWS_WITH_STATS)
-	if (wsi->active_writable_req_us) {
-		uint64_t ul = lws_now_usecs() -
-			      wsi->active_writable_req_us;
-
-		lws_stats_bump(pt, LWSSTATS_US_WRITABLE_DELAY_AVG, ul);
-		lws_stats_max(pt, LWSSTATS_US_WORST_WRITABLE_DELAY, ul);
-		wsi->active_writable_req_us = 0;
-	}
-#endif
-#if defined(LWS_WITH_DETAILED_LATENCY)
-	if (wsi->a.context->detailed_latency_cb && lwsi_state_est(wsi)) {
-		lws_usec_t us = lws_now_usecs();
-
-		wsi->detlat.earliest_write_req_pre_write =
-					wsi->detlat.earliest_write_req;
-		wsi->detlat.earliest_write_req = 0;
-		wsi->detlat.latencies[LAT_DUR_PROXY_RX_TO_ONWARD_TX] =
-		      (uint32_t)(us - wsi->detlat.earliest_write_req_pre_write);
-	}
-#endif
 	n = wsi->role_ops->writeable_cb[lwsi_role_server(wsi)];
 	m = user_callback_handle_rxflow(wsi->a.protocol->callback,
 					wsi, (enum lws_callback_reasons) n,
@@ -804,7 +781,8 @@ lws_service(struct lws_context *context, int timeout_ms)
 	}
 	n = lws_plat_service(context, timeout_ms);
 
-	pt->inside_service = 0;
+	if (n != -1)
+		pt->inside_service = 0;
 
 	return n;
 }

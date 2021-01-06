@@ -77,11 +77,6 @@ lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi, const char *de
 	new_wsi->rxflow_change_to = LWS_RXFLOW_ALLOW;
 	new_wsi->retry_policy = vhost->retry_policy;
 
-#if defined(LWS_WITH_DETAILED_LATENCY)
-	if (vhost->context->detailed_latency_cb)
-		new_wsi->detlat.earliest_write_req_pre_write = lws_now_usecs();
-#endif
-
 	/* initialize the instance struct */
 
 	lwsi_set_state(new_wsi, LRS_UNCONNECTED);
@@ -144,8 +139,6 @@ lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 
 	pt = &context->pt[(int)new_wsi->tsi];
 	lws_pt_lock(pt, __func__);
-
-	lws_stats_bump(pt, LWSSTATS_C_CONNECTIONS, 1);
 
 	if (parent) {
 		new_wsi->parent = parent;
@@ -480,9 +473,6 @@ lws_adopt_descriptor_vhost_via_info(const lws_adopt_desc_t *info)
 		    peer->count_wsi >= info->vh->context->ip_limit_wsi) {
 			lwsl_info("Peer reached wsi limit %d\n",
 					info->vh->context->ip_limit_wsi);
-			lws_stats_bump(&info->vh->context->pt[0],
-					      LWSSTATS_C_PEER_LIMIT_WSI_DENIED,
-					      1);
 			if (info->vh->context->pl_notify_cb)
 				info->vh->context->pl_notify_cb(
 							info->vh->context,

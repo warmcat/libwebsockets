@@ -189,6 +189,7 @@
 #cmakedefine LWS_WITH_SQLITE3
 #cmakedefine LWS_WITH_SYS_NTPCLIENT
 #cmakedefine LWS_WITH_SYS_DHCP_CLIENT
+#cmakedefine LWS_WITH_SYS_METRICS
 #cmakedefine LWS_WITH_SYS_STATE
 #cmakedefine LWS_WITH_THREADPOOL
 #cmakedefine LWS_WITH_TLS

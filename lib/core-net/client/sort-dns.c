@@ -653,7 +653,7 @@ lws_sort_dns(struct lws *wsi, const struct addrinfo *result)
 			estr = _lws_route_est_outgoing(pt, &ds->dest);
 			if (!estr) {
 				lws_free(ds);
-				lwsl_notice("%s: no route out\n", __func__);
+				lwsl_notice("%s: %s has no route out\n", __func__, afip);
 				/*
 				 * There's no outbound route for this, it's
 				 * unusable, so don't add it to the list

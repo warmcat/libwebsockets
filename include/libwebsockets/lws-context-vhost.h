@@ -245,6 +245,7 @@
 struct lws_plat_file_ops;
 struct lws_ss_policy;
 struct lws_ss_plugin;
+struct lws_metric_policy;
 
 typedef int (*lws_context_ready_cb_t)(struct lws_context *context);
 
@@ -725,13 +726,6 @@ struct lws_context_creation_info {
 	const lws_system_ops_t *system_ops;
 	/**< CONTEXT: hook up lws_system_ apis to system-specific
 	 * implementations */
-#if defined(LWS_WITH_DETAILED_LATENCY)
-	det_lat_buf_cb_t detailed_latency_cb;
-	/**< CONTEXT: NULL, or callback to receive detailed latency information
-	 * collected for each read and write */
-	const char *detailed_latency_filepath;
-	/**< CONTEXT: NULL, or filepath to put latency data into */
-#endif
 	const lws_retry_bo_t *retry_and_idle_policy;
 	/**< VHOST: optional retry and idle policy to apply to this vhost.
 	 *   Currently only the idle parts are applied to the connections.
@@ -816,6 +810,18 @@ struct lws_context_creation_info {
 	 */
 	void					*early_smd_opaque;
 	lws_smd_class_t				early_smd_class_filter;
+#endif
+
+#if defined(LWS_WITH_SYS_METRICS)
+	const struct lws_metric_policy		*metrics_policies;
+	/**< non-SS policy metrics policies */
+	const char				*metrics_prefix;
+	/**< prefix for this context's metrics, used to distinguish metrics
+	 * pooled from different processes / applications, so, eg what would
+	 * be "cpu.svc" if this is NULL becomes "myapp.cpu.svc" is this is
+	 * set to "myapp".  Policies are applied using the name with the prefix,
+	 * if present.
+	 */
 #endif
 
 	/* Add new things just above here ---^

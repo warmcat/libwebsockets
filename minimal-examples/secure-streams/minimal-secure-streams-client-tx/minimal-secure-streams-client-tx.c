@@ -154,10 +154,6 @@ int main(int argc, const char **argv)
 	info.fd_limit_per_thread = 1 + 6 + 1;
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.protocols = lws_sspc_protocols;
-#if defined(LWS_WITH_DETAILED_LATENCY)
-	info.detailed_latency_cb = lws_det_lat_plot_cb;
-	info.detailed_latency_filepath = "/tmp/lws-latency-ssclient";
-#endif
 
 	context = lws_create_context(&info);
 	if (!context) {

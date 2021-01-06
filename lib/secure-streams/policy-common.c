@@ -297,6 +297,17 @@ lws_ss_policy_set(struct lws_context *context, const char *name)
 	if (context->ac_policy) {
 		int n;
 
+#if defined(LWS_WITH_SYS_METRICS)
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+					   context->owner_mtr_dynpol.head) {
+			lws_metric_policy_dyn_t *dm =
+				lws_container_of(d, lws_metric_policy_dyn_t, list);
+
+			lws_metric_policy_dyn_destroy(dm, 1); /* keep */
+
+		} lws_end_foreach_dll_safe(d, d1);
+#endif
+
 		/*
 		 * any existing ss created with the old policy have to go away
 		 * now, since they point to the shortly-to-be-destroyed old
@@ -431,9 +442,26 @@ lws_ss_policy_set(struct lws_context *context, const char *name)
 		x = x->next;
 	}
 
+	context->last_policy = time(NULL);
+#if defined(LWS_WITH_SYS_METRICS)
+	if (context->pss_policies)
+		((lws_ss_policy_t *)context->pss_policies)->metrics =
+						args->heads[LTY_METRICS].m;
+#endif
+
 	/* and we can discard the parsing args object now, invalidating args */
 
 	lws_free_set_NULL(context->pol_args);
+#endif
+
+#if defined(LWS_WITH_SYS_METRICS)
+	lws_metric_rebind_policies(context);
+#endif
+
+#if defined(LWS_WITH_SYS_SMD)
+	(void)lws_smd_msg_printf(context, LWSSMDCL_SYSTEM_STATE,
+				 "{\"policy\":\"updated\",\"ts\":%lu}",
+				   (long)context->last_policy);
 #endif
 
 	return ret;

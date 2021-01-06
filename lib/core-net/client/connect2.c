@@ -32,6 +32,7 @@
 static int
 lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
 {
+	lws_metrics_caliper_declare(cal, wsi->a.context->mt_conn_dns);
 	struct addrinfo hints;
 	int n;
 
@@ -79,11 +80,17 @@ lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
 
 #endif
 		wsi->dns_reachability = 1;
+		lws_metrics_caliper_report(cal, METRES_NOGO);
+		lws_metrics_hist_bump_priv_wsi(wsi, mth_conn_failures, "dns/badsrv");
 		lwsl_notice("%s: asking to recheck CPD in 1ms\n", __func__);
 		lws_system_cpd_start_defer(wsi->a.context, LWS_US_PER_MS);
 	}
 
 	lwsl_info("%s: getaddrinfo '%s' says %d\n", __func__, ads, n);
+
+	if (n < 0)
+		lws_metrics_hist_bump_priv_wsi(wsi, mth_conn_failures, "dns/nxdomain");
+	lws_metrics_caliper_report(cal, n >= 0 ? METRES_GO : METRES_NOGO);
 
 	return n;
 }
@@ -260,19 +267,6 @@ solo:
 	}
 #endif
 
-#if defined(LWS_WITH_DETAILED_LATENCY)
-	if (lwsi_state(wsi) == LRS_WAITING_DNS &&
-	    wsi->a.context->detailed_latency_cb) {
-		wsi->detlat.type = LDLT_NAME_RESOLUTION;
-		wsi->detlat.latencies[LAT_DUR_PROXY_CLIENT_REQ_TO_WRITE] =
-			(uint32_t)(lws_now_usecs() -
-			wsi->detlat.earliest_write_req_pre_write);
-		wsi->detlat.latencies[LAT_DUR_USERCB] = 0;
-		lws_det_lat_cb(wsi->a.context, &wsi->detlat);
-		wsi->detlat.earliest_write_req_pre_write = lws_now_usecs();
-	}
-#endif
-
 #if defined(LWS_CLIENT_HTTP_PROXYING) && \
 	(defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2))
 
@@ -313,9 +307,6 @@ solo:
 	lwsl_info("%s: %s: lookup %s:%u\n", __func__, wsi->lc.gutag, ads, port);
 	(void)port;
 
-#if defined(LWS_WITH_DETAILED_LATENCY)
-	wsi->detlat.earliest_write_req_pre_write = lws_now_usecs();
-#endif
 #if !defined(LWS_WITH_SYS_ASYNC_DNS)
 	n = 0;
 	if (!wsi->dns_sorted_list.count) {

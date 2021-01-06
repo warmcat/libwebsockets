@@ -51,11 +51,6 @@ if (LWS_WITH_NETLINK)
 	)
 endif()
 
-if (LWS_WITH_DETAILED_LATENCY)
-	list(APPEND SOURCES
-		core-net/detailed-latency.c)
-endif()
-
 if (LWS_WITH_LWS_DSH)
 	list(APPEND SOURCES
 		core-net/lws-dsh.c)
@@ -77,20 +72,9 @@ if (LWS_WITH_CLIENT)
 	)
 endif()
 
-if (NOT LWS_WITHOUT_SERVER)
-	list(APPEND SOURCES
-		core-net/server.c)
-endif()
-
 if (LWS_WITH_SOCKS5 AND NOT LWS_WITHOUT_CLIENT)
 	list(APPEND SOURCES
 		core-net/socks5-client.c)
-endif()
-
-if (LWS_WITH_NETWORK AND LWS_WITH_STATS)
-	list(APPEND SOURCES
-		core-net/stats.c
-	)
 endif()
 
 exports_to_parent_scope()

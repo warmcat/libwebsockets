@@ -236,11 +236,8 @@ lws_header_table_attach(struct lws *wsi, int autoservice)
 
 	n = pt->http.ah_count_in_use == (int)context->max_http_header_pool;
 #if defined(LWS_WITH_PEER_LIMITS)
-	if (!n) {
+	if (!n)
 		n = lws_peer_confirm_ah_attach_ok(context, wsi->peer);
-		if (n)
-			lws_stats_bump(pt, LWSSTATS_C_PEER_LIMIT_AH_DENIED, 1);
-	}
 #endif
 	if (n) {
 		/*
@@ -375,12 +372,7 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 			wsi = *pwsi;
 			pwsi_eligible = pwsi;
 		}
-#if defined(LWS_WITH_PEER_LIMITS)
-		else
-			if (!(*pwsi)->http.ah_wait_list)
-				lws_stats_bump(pt,
-					LWSSTATS_C_PEER_LIMIT_AH_DENIED, 1);
-#endif
+
 		pwsi = &(*pwsi)->http.ah_wait_list;
 	}
 

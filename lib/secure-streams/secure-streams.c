@@ -155,6 +155,7 @@ static const uint32_t ss_state_txn_validity[] = {
 					  (1 << LWSSSCS_POLL) |
 					  (1 << LWSSSCS_TIMEOUT) |
 					  (1 << LWSSSCS_DISCONNECTED) |
+					  (1 << LWSSSCS_UNREACHABLE) |
 					  (1 << LWSSSCS_DESTROYING),
 
 	[LWSSSCS_SERVER_TXN]		= (1 << LWSSSCS_DISCONNECTED) |
@@ -638,6 +639,8 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 
 	lwsl_info("%s: connecting %s, '%s' '%s' %s\n", __func__, i.method,
 			i.alpn, i.address, i.path);
+
+	lws_metrics_caliper_bind(h->cal_txn, h->context->mt_ss_conn);
 
 	h->txn_ok = 0;
 	r = lws_ss_event_helper(h, LWSSSCS_CONNECTING);

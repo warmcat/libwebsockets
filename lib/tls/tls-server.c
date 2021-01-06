@@ -157,9 +157,6 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 			goto fail;
 		}
 
-#if defined(LWS_WITH_STATS)
-		context->updated = 1;
-#endif
 		/*
 		 * we are not accepted yet, but we need to enter ourselves
 		 * as a live connection.  That way we can retry when more
@@ -318,20 +315,13 @@ punt:
 
 		/* normal SSL connection processing path */
 
-#if defined(LWS_WITH_STATS)
-		/* only set this the first time around */
-		if (!wsi->accept_start_us)
-			wsi->accept_start_us = lws_now_usecs();
-#endif
 		errno = 0;
-		lws_stats_bump(pt, LWSSTATS_C_SSL_ACCEPT_SPIN, 1);
 		n = lws_tls_server_accept(wsi);
 		lwsl_info("SSL_accept says %d\n", n);
 		switch (n) {
 		case LWS_SSL_CAPABLE_DONE:
 			break;
 		case LWS_SSL_CAPABLE_ERROR:
-			lws_stats_bump(pt, LWSSTATS_C_SSL_CONNECTIONS_FAILED, 1);
 	                lwsl_info("%s: SSL_accept failed socket %u: %d\n",
 	                		__func__, wsi->desc.sockfd, n);
 			wsi->socket_is_permanently_unusable = 1;
@@ -340,26 +330,6 @@ punt:
 		default: /* MORE_SERVICE */
 			return 0;
 		}
-
-		lws_stats_bump(pt, LWSSTATS_C_SSL_CONNECTIONS_ACCEPTED, 1);
-#if defined(LWS_WITH_STATS)
-		if (wsi->accept_start_us)
-			lws_stats_bump(pt,
-				      LWSSTATS_US_SSL_ACCEPT_LATENCY_AVG,
-				      lws_now_usecs() -
-					      wsi->accept_start_us);
-		wsi->accept_start_us = lws_now_usecs();
-#endif
-#if defined(LWS_WITH_DETAILED_LATENCY)
-		if (context->detailed_latency_cb) {
-			wsi->detlat.type = LDLT_TLS_NEG_SERVER;
-			wsi->detlat.latencies[LAT_DUR_PROXY_RX_TO_ONWARD_TX] =
-				(uint32_t)(lws_now_usecs() -
-				wsi->detlat.earliest_write_req_pre_write);
-			wsi->detlat.latencies[LAT_DUR_USERCB] = 0;
-			lws_det_lat_cb(wsi->a.context, &wsi->detlat);
-		}
-#endif
 
 		/* adapt our vhost to match the SNI SSL_CTX that was chosen */
 		vh = context->vhost_list;

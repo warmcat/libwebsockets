@@ -219,47 +219,63 @@ int
 lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 {
 	int n;
+	unsigned int avoid = 0;
 	X509 *peer = SSL_get_peer_certificate(wsi->tls.ssl);
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	const char *type = "";
 	char *sb = (char *)&pt->serv_buf[0];
 
 	if (!peer) {
+		lws_metrics_hist_bump_priv_wsi(wsi, mth_conn_failures, "tls/nocert");
 		lwsl_info("peer did not provide cert\n");
 		lws_snprintf(ebuf, ebuf_len, "no peer cert");
 
 		return -1;
 	}
-	lwsl_info("peer provided cert\n");
 
 	n = (int)SSL_get_verify_result(wsi->tls.ssl);
-        lwsl_debug("get_verify says %d\n", n);
+	lwsl_debug("get_verify says %d\n", n);
 
-	if (n == X509_V_OK)
+	switch (n) {
+	case X509_V_OK:
 		return 0;
 
-	if (n == X509_V_ERR_HOSTNAME_MISMATCH &&
-	    (wsi->tls.use_ssl & LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK)) {
-		lwsl_info("accepting certificate for invalid hostname\n");
+	case X509_V_ERR_HOSTNAME_MISMATCH:
+		type = "tls/hostname";
+		avoid = LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+		break;
+
+	case X509_V_ERR_INVALID_CA:
+		type = "tls/invalidca";
+		avoid = LCCSCF_ALLOW_SELFSIGNED;
+		break;
+
+	case X509_V_ERR_CERT_NOT_YET_VALID:
+		type = "tls/notyetvalid";
+		avoid = LCCSCF_ALLOW_EXPIRED;
+		break;
+
+	case X509_V_ERR_CERT_HAS_EXPIRED:
+		type = "tls/expired";
+		avoid = LCCSCF_ALLOW_EXPIRED;
+		break;
+	}
+
+	lwsl_info("%s: cert problem: %s\n", __func__, type);
+	lws_metrics_hist_bump_priv_wsi(wsi, mth_conn_failures, type);
+	if (wsi->tls.use_ssl & avoid) {
+		lwsl_info("%s: allowing anyway\n", __func__);
+
 		return 0;
 	}
 
-	if (n == X509_V_ERR_INVALID_CA &&
-	    (wsi->tls.use_ssl & LCCSCF_ALLOW_SELFSIGNED)) {
-		lwsl_info("accepting certificate from untrusted CA\n");
-		return 0;
-	}
-
-	if ((n == X509_V_ERR_CERT_NOT_YET_VALID ||
-	     n == X509_V_ERR_CERT_HAS_EXPIRED) &&
-	     (wsi->tls.use_ssl & LCCSCF_ALLOW_EXPIRED)) {
-		lwsl_info("accepting expired or not yet valid certificate\n");
-
-		return 0;
-	}
 	lws_snprintf(ebuf, ebuf_len,
-		"server's cert didn't look good, (use_ssl 0x%x) X509_V_ERR = %d: %s\n",
-		(unsigned int)wsi->tls.use_ssl, n, ERR_error_string((unsigned long)n, sb));
+		"server's cert didn't look good, %s (use_ssl 0x%x) X509_V_ERR = %d: %s\n",
+		type, (unsigned int)wsi->tls.use_ssl, n,
+		ERR_error_string((unsigned long)n, sb));
+
 	lwsl_info("%s\n", ebuf);
+
 	lws_tls_err_describe_clear();
 
 	return -1;

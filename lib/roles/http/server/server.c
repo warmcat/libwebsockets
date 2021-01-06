@@ -2070,17 +2070,9 @@ raw_transition:
 		} else
 			lwsl_info("no host\n");
 
-		if (!lwsi_role_h2(wsi) || !lwsi_role_server(wsi)) {
-#if defined(LWS_WITH_SERVER_STATUS)
-			wsi->a.vhost->conn_stats.h1_trans++;
-#endif
-			if (!wsi->conn_stat_done) {
-#if defined(LWS_WITH_SERVER_STATUS)
-				wsi->a.vhost->conn_stats.h1_conn++;
-#endif
-				wsi->conn_stat_done = 1;
-			}
-		}
+		if ((!lwsi_role_h2(wsi) || !lwsi_role_server(wsi)) &&
+		    (!wsi->conn_stat_done))
+			wsi->conn_stat_done = 1;
 
 		/* check for unwelcome guests */
 #if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
@@ -2115,9 +2107,6 @@ raw_transition:
 							uri_ptr, uri_len, meth);
 
 					/* wsi close will do the log */
-#endif
-#if defined(LWS_WITH_SERVER_STATUS)
-					wsi->a.vhost->conn_stats.rejected++;
 #endif
 					/*
 					 * We don't want anything from
@@ -2209,18 +2198,12 @@ raw_transition:
 
 			if (!strcasecmp(up, "websocket")) {
 #if defined(LWS_ROLE_WS)
-#if defined(LWS_WITH_SERVER_STATUS)
-				wsi->a.vhost->conn_stats.ws_upg++;
-#endif
 				lwsl_info("Upgrade to ws\n");
 				goto upgrade_ws;
 #endif
 			}
 #if defined(LWS_WITH_HTTP2)
 			if (!strcasecmp(up, "h2c")) {
-#if defined(LWS_WITH_SERVER_STATUS)
-				wsi->a.vhost->conn_stats.h2_upg++;
-#endif
 				lwsl_info("Upgrade to h2c\n");
 				goto upgrade_h2c;
 			}
