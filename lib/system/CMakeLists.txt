@@ -63,6 +63,8 @@ if (LWS_WITH_NETWORK)
 			system/fault-injection/fault-injection.c)
 	endif()
 
+	add_subdir_include_dirs(metrics)
+
 endif()
 
 #

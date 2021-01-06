@@ -378,7 +378,8 @@ with `api-tests/api-test-async-dns` minimal example.
 You can now opt to measure and store us-resolution statistics on effective
 latencies for client operations, and easily spool them to a file in a
 format suitable for gnuplot, or handle in your own callback.  Enable
-`-DLWS_WITH_DETAILED_LATENCY=1` in cmake to build it into lws.
+`-DLWS_WITH_DETAILED_LATENCY=1` in cmake to build it into lws. (NB 2021-01-12
+this has been replaced by the lws_metrics support)
 
 If you are concerned about operation latency or potential blocking from
 user code, or behaviour under load, or latency variability on specific

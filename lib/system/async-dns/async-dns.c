@@ -34,6 +34,8 @@ static const lws_retry_bo_t retry_policy = {
 void
 lws_adns_q_destroy(lws_adns_q_t *q)
 {
+	lws_metrics_caliper_report(q->metcal, (char)q->go_nogo);
+
 	lws_sul_cancel(&q->sul);
 	lws_sul_cancel(&q->write_sul);
 	lws_dll2_remove(&q->list);
@@ -703,12 +705,20 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 		if (c->results)
 			c->refcount++;
 
+#if defined(LWS_WITH_SYS_METRICS)
+		lws_metric_event(context->mt_adns_cache,  METRES_GO, 0);
+#endif
+
 		if (cb(wsi, name, c->results, m, opaque) == NULL)
 			return LADNS_RET_FAILED_WSI_CLOSED;
 
 		return m;
 	} else
 		lwsl_info("%s: %s uncached\n", __func__, name);
+
+#if defined(LWS_WITH_SYS_METRICS)
+	lws_metric_event(context->mt_adns_cache, METRES_NOGO, 0);
+#endif
 
 	/*
 	 * It's a 1.2.3.4 or ::1 type IP address already?  We don't need a dns
@@ -875,6 +885,10 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	lws_callback_on_writable(dns->wsi);
 
 	lws_dll2_add_head(&q->list, &dns->waiting);
+
+	lws_metrics_caliper_bind(q->metcal, context->mt_conn_dns);
+	q->go_nogo = METRES_NOGO;
+	/* caliper is reported in lws_adns_q_destroy */
 
 	lwsl_info("%s: created new query: %s\n", __func__, name);
 	lws_adns_dump(dns);

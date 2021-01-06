@@ -147,13 +147,12 @@ if (LWS_ROLE_WS)
 			endif()
 		endif()
 
-	if (LWS_WITH_SERVER_STATUS)
-			create_plugin(protocol_lws_server_status ""
-				      "protocol_lws_server_status.c" "" "")
+	if (LWS_WITH_SYS_METRICS)
+			create_plugin(protocol_lws_openmetrics_export ""
+				      "protocol_lws_openmetrics_export.c" "" "")
 			if (NOT LWS_WITH_PLUGINS_BUILTIN)
-				target_compile_definitions(protocol_lws_server_status PRIVATE LWS_BUILDING_SHARED)
+				target_compile_definitions(protocol_lws_openmetrics_export PRIVATE LWS_BUILDING_SHARED)
 			endif()
-
 	endif()
 
 	if (NOT LWS_WITHOUT_CLIENT)
@@ -237,11 +236,6 @@ if (LWS_WITH_PLUGINS AND NOT LWS_WITH_PLUGINS_BUILTIN)
 	endif()
 
 
-if (LWS_WITH_SERVER_STATUS)
-	install(FILES server-status.html;server-status.js;server-status.css;lwsws-logo.png
-		DESTINATION share/libwebsockets-test-server/server-status
-			COMPONENT examples)
-endif()
 endif()
 
 export_to_parent_intermediate()

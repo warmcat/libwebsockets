@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2021 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -119,9 +119,13 @@ lws_role_call_alpn_negotiated(struct lws *wsi, const char *alpn)
 
 	LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar)
 		if (ar->alpn && !strcmp(ar->alpn, alpn) &&
-		    lws_rops_fidx(ar, LWS_ROPS_alpn_negotiated))
+		    lws_rops_fidx(ar, LWS_ROPS_alpn_negotiated)) {
+#if defined(LWS_WITH_SERVER)
+			lws_metrics_tag_wsi_add(wsi, "upg", ar->name);
+#endif
 			return (lws_rops_func_fidx(ar, LWS_ROPS_alpn_negotiated)).
 						   alpn_negotiated(wsi, alpn);
+		}
 	LWS_FOR_EVERY_AVAILABLE_ROLE_END;
 #endif
 	return 0;
@@ -305,6 +309,8 @@ lws_vhd_find_by_pvo(struct lws_context *cx, const char *protname,
 	vh = cx->vhost_list;
 	while (vh) {
 
+		if (vh->protocol_vh_privs) {
+
 		for (n = 0; n < vh->count_protocols; n++) {
 			const struct lws_protocol_vhost_options *pv;
 
@@ -313,7 +319,11 @@ lws_vhd_find_by_pvo(struct lws_context *cx, const char *protname,
 
 			/* this vh has an instance of the required protocol */
 
-			pv = lws_pvo_search(vh->pvo, pvo_name);
+			pv = lws_pvo_search(vh->pvo, protname);
+			if (!pv)
+				continue;
+
+			pv = lws_pvo_search(pv->options, pvo_name);
 			if (!pv)
 				continue;
 
@@ -326,6 +336,8 @@ lws_vhd_find_by_pvo(struct lws_context *cx, const char *protname,
 				 */
 				return vh->protocol_vh_privs[n];
 		}
+		} else
+			lwsl_notice("%s: no privs yet on %s\n", __func__, lws_vh_tag(vh));
 		vh = vh->vhost_next;
 	}
 
@@ -460,7 +472,7 @@ lws_protocol_init(struct lws_context *context)
 
 	context->doing_protocol_init = 1;
 
-	lwsl_notice("%s\n", __func__);
+	lwsl_info("%s\n", __func__);
 
 	while (vh) {
 
@@ -538,10 +550,7 @@ lws_create_vhost(struct lws_context *context,
 	struct lws_protocols *lwsp;
 	int m, f = !info->pvo, fx = 0, abs_pcol_count = 0, sec_pcol_count = 0;
 	char buf[96];
-#if defined(LWS_CLIENT_HTTP_PROXYING) && defined(LWS_WITH_CLIENT) \
-	&& defined(LWS_HAVE_GETENV)
 	char *p;
-#endif
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 	extern struct lws_protocols lws_async_dns_protocol;
 #endif
@@ -572,6 +581,19 @@ lws_create_vhost(struct lws_context *context,
 		vh->name = "default";
 	else
 		vh->name = info->vhost_name;
+	{
+		char *end = buf + sizeof(buf) - 1;
+		p = buf;
+
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "%s", vh->name);
+		if (info->iface)
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "|%s", info->iface);
+		if (info->port && !(info->port & 0xffff))
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "|%u", info->port);
+	}
+
+	__lws_lc_tag(&context->lcg[LWSLCG_VHOST], &vh->lc, "%s|%s|%d", buf,
+			info->iface ? info->iface : "", info->port);
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	vh->fi.name = "vh";
@@ -583,9 +605,6 @@ lws_create_vhost(struct lws_context *context,
 		 */
 		lws_fi_import(&vh->fi, info->fi);
 #endif
-
-	__lws_lc_tag(&context->lcg[LWSLCG_VHOST], &vh->lc, "%s|%s|%d", vh->name,
-			info->iface ? info->iface : "", info->port);
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	vh->http.error_document_404 = info->error_document_404;
@@ -804,6 +823,23 @@ lws_create_vhost(struct lws_context *context,
 	vh->http.mount_list = info->mounts;
 #endif
 
+#if defined(LWS_WITH_SYS_METRICS) && defined(LWS_WITH_SERVER)
+	{
+		char *end = buf + sizeof(buf) - 1;
+		p = buf;
+
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "vh.%s", vh->name);
+		if (info->iface)
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), ".%s", info->iface);
+		if (info->port && !(info->port & 0xffff))
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), ".%u", info->port);
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), ".rx");
+		vh->mt_traffic_rx = lws_metric_create(context, 0, buf);
+		p[-2] = 't';
+		vh->mt_traffic_tx = lws_metric_create(context, 0, buf);
+	}
+#endif
+
 #ifdef LWS_WITH_UNIX_SOCK
 	if (LWS_UNIX_SOCK_ENABLED(vh)) {
 		lwsl_info("Creating Vhost '%s' path \"%s\", %d protocols\n",
@@ -909,7 +945,7 @@ lws_create_vhost(struct lws_context *context,
 		goto bail1;
 	}
 #if defined(LWS_WITH_SERVER)
-	lws_context_lock(context, "create_vhost");
+	lws_context_lock(context, __func__);
 	n = _lws_vhost_init_server(info, vh);
 	lws_context_unlock(context);
 	if (n < 0) {
@@ -1397,6 +1433,11 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 	lws_dll2_foreach_safe(&vh->abstract_instances_owner, NULL, destroy_ais);
 #endif
 
+#if defined(LWS_WITH_SERVER) && defined(LWS_WITH_SYS_METRICS)
+	lws_metric_destroy(&vh->mt_traffic_rx, 0);
+	lws_metric_destroy(&vh->mt_traffic_tx, 0);
+#endif
+
 	lws_dll2_remove(&vh->vh_being_destroyed_list);
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
@@ -1404,6 +1445,7 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 #endif
 
 	__lws_lc_untag(&vh->lc);
+
 	memset(vh, 0, sizeof(*vh));
 	lws_free(vh);
 }

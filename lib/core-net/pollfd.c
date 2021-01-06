@@ -515,7 +515,6 @@ lws_change_pollfd(struct lws *wsi, int _and, int _or)
 int
 lws_callback_on_writable(struct lws *wsi)
 {
-	struct lws_context_per_thread *pt;
 	struct lws *w = wsi;
 
 	if (lwsi_state(wsi) == LRS_SHUTDOWN)
@@ -523,21 +522,6 @@ lws_callback_on_writable(struct lws *wsi)
 
 	if (wsi->socket_is_permanently_unusable)
 		return 0;
-
-	pt = &wsi->a.context->pt[(int)wsi->tsi];
-
-#if defined(LWS_WITH_DETAILED_LATENCY)
-	if (!wsi->detlat.earliest_write_req)
-		wsi->detlat.earliest_write_req = lws_now_usecs();
-#endif
-
-	lws_stats_bump(pt, LWSSTATS_C_WRITEABLE_CB_REQ, 1);
-#if defined(LWS_WITH_STATS)
-	if (!wsi->active_writable_req_us) {
-		wsi->active_writable_req_us = lws_now_usecs();
-		lws_stats_bump(pt, LWSSTATS_C_WRITEABLE_CB_EFF_REQ, 1);
-	}
-#endif
 
 	if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_callback_on_writable)) {
 		int q = lws_rops_func_fidx(wsi->role_ops,

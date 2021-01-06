@@ -120,6 +120,8 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 			buffered = lws_buflist_aware_read(pt, wsi, &ebuf, 1, __func__);
 			switch (ebuf.len) {
 			case 0:
+				if (wsi->unix_skt)
+					break;
 				lwsl_info("%s: read 0 len\n", __func__);
 				wsi->seen_zero_length_recv = 1;
 				if (lws_change_pollfd(wsi, LWS_POLLIN, 0))
@@ -202,18 +204,6 @@ try_pollout:
 	/* clear back-to-back write detection */
 	wsi->could_have_pending = 0;
 
-	lws_stats_bump(pt, LWSSTATS_C_WRITEABLE_CB, 1);
-#if defined(LWS_WITH_STATS)
-	if (wsi->active_writable_req_us) {
-		uint64_t ul = lws_now_usecs() -
-				wsi->active_writable_req_us;
-
-		lws_stats_bump(pt, LWSSTATS_US_WRITABLE_DELAY_AVG, ul);
-		lws_stats_max(pt,
-			  LWSSTATS_US_WORST_WRITABLE_DELAY, ul);
-		wsi->active_writable_req_us = 0;
-	}
-#endif
 	n = user_callback_handle_rxflow(wsi->a.protocol->callback,
 			wsi, LWS_CALLBACK_RAW_WRITEABLE,
 			wsi->user_space, NULL, 0);

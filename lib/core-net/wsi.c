@@ -342,9 +342,9 @@ lws_rx_flow_control(struct lws *wsi, int _enable)
 
 	/* any bit set in rxflow_bitmap DISABLEs rxflow control */
 	if (en & LWS_RXFLOW_REASON_APPLIES_ENABLE_BIT)
-		wsi->rxflow_bitmap &= (uint8_t)~(en & 0xff);
+		wsi->rxflow_bitmap = (uint8_t)(wsi->rxflow_bitmap & ~(en & 0xff));
 	else
-		wsi->rxflow_bitmap |= (uint8_t)(en & 0xff);
+		wsi->rxflow_bitmap = (uint8_t)(wsi->rxflow_bitmap | (en & 0xff));
 
 	if ((LWS_RXFLOW_PENDING_CHANGE | (!wsi->rxflow_bitmap)) ==
 	    wsi->rxflow_change_to)

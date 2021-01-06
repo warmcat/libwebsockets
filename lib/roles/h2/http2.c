@@ -261,6 +261,11 @@ lws_wsi_server_new(struct lws_vhost *vh, struct lws *parent_wsi,
 		return NULL;
 	}
 
+#if defined(LWS_WITH_SERVER)
+	if (lwsi_role_server(parent_wsi))
+		lws_metrics_caliper_bind(wsi->cal_conn, wsi->a.context->mth_srv);
+#endif
+
 	h2n->highest_sid_opened = sid;
 
 	lws_wsi_mux_insert(wsi, parent_wsi, sid);
@@ -280,10 +285,6 @@ lws_wsi_server_new(struct lws_vhost *vh, struct lws *parent_wsi,
 	wsi->a.protocol = &vh->protocols[0];
 	if (lws_ensure_user_space(wsi))
 		goto bail1;
-
-#if defined(LWS_WITH_SERVER_STATUS)
-	wsi->a.vhost->conn_stats.h2_subs++;
-#endif
 
 #if defined(LWS_WITH_SERVER) && defined(LWS_WITH_SECURE_STREAMS)
 	if (lws_adopt_ss_server_accept(wsi))
@@ -361,10 +362,6 @@ lws_wsi_h2_adopt(struct lws *parent_wsi, struct lws *wsi)
 			    &role_ops_h2);
 
 	lws_callback_on_writable(wsi);
-
-#if defined(LWS_WITH_SERVER_STATUS)
-	wsi->a.vhost->conn_stats.h2_subs++;
-#endif
 
 	return wsi;
 
@@ -818,9 +815,6 @@ int lws_h2_do_pps_send(struct lws *wsi)
 			h2n->swsi->h2.END_STREAM = 1;
 			lwsl_info("servicing initial http request\n");
 
-#if defined(LWS_WITH_SERVER_STATUS)
-			wsi->a.vhost->conn_stats.h2_trans++;
-#endif
 #if defined(LWS_WITH_SERVER)
 			if (lws_http_action(h2n->swsi))
 				goto bail;
@@ -1713,9 +1707,6 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		lws_http_compression_validate(h2n->swsi);
 #endif
 
-#if defined(LWS_WITH_SERVER_STATUS)
-		wsi->a.vhost->conn_stats.h2_trans++;
-#endif
 		p = lws_hdr_simple_ptr(h2n->swsi, WSI_TOKEN_HTTP_COLON_METHOD);
 		/*
 		 * duplicate :path into the individual method uri header
@@ -2531,10 +2522,6 @@ lws_h2_client_handshake(struct lws *wsi)
 
 	if (lws_finalize_http_header(wsi, &p, end))
 		goto fail_length;
-
-#if defined(LWS_WITH_DETAILED_LATENCY)
-	wsi->detlat.earliest_write_req_pre_write = lws_now_usecs();
-#endif
 
 	m = LWS_WRITE_HTTP_HEADERS;
 #if defined(LWS_WITH_CLIENT)

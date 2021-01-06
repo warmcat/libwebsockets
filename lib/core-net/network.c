@@ -890,7 +890,7 @@ lws_sa46_write_numeric_address(lws_sockaddr46 *sa46, char *buf, size_t len)
 		return lws_snprintf(buf, len, "(unset)");
 
 	if (sa46->sa4.sin_family == AF_INET6)
-		lws_snprintf(buf, len, "(ipv6 unsupp)");
+		return lws_snprintf(buf, len, "(ipv6 unsupp)");
 
 	lws_snprintf(buf, len, "(AF%d unsupp)", (int)sa46->sa4.sin_family);
 

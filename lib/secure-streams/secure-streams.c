@@ -159,6 +159,7 @@ static const uint32_t ss_state_txn_validity[] = {
 					  (1 << LWSSSCS_POLL) |
 					  (1 << LWSSSCS_TIMEOUT) |
 					  (1 << LWSSSCS_DISCONNECTED) |
+					  (1 << LWSSSCS_UNREACHABLE) |
 					  (1 << LWSSSCS_DESTROYING),
 
 	[LWSSSCS_SERVER_TXN]		= (1 << LWSSSCS_DISCONNECTED) |
@@ -671,6 +672,14 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 	lwsl_info("%s: connecting %s, '%s' '%s' %s\n", __func__, i.method,
 			i.alpn, i.address, i.path);
 
+#if defined(LWS_WITH_SYS_METRICS)
+	/* possibly already hanging connect retry... */
+	if (!h->cal_txn.mt)
+		lws_metrics_caliper_bind(h->cal_txn, h->context->mth_ss_conn);
+
+	lws_metrics_tag_add(&h->cal_txn.mtags_owner, "ss", h->policy->streamtype);
+#endif
+
 	h->txn_ok = 0;
 	r = lws_ss_event_helper(h, LWSSSCS_CONNECTING);
 	if (r) {
@@ -1179,6 +1188,13 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	lws_fi_destroy(&h->fi);
+#endif
+
+#if defined(LWS_WITH_SYS_METRICS)
+	/*
+	 * If any hanging caliper measurement, dump it, and free any tags
+	 */
+	lws_metrics_caliper_report_hist(h->cal_txn, (struct lws *)NULL);
 #endif
 
 	lws_sul_cancel(&h->sul_timeout);

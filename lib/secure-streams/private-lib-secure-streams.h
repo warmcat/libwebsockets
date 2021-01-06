@@ -49,6 +49,10 @@ typedef struct lws_ss_handle {
 
 	lws_lifecycle_t		lc;
 
+#if defined(LWS_WITH_SYS_METRICS)
+	lws_metrics_caliper_compose(cal_txn)
+#endif
+
 	struct lws_dll2		list;	  /**< pt lists active ss */
 	struct lws_dll2		to_list;  /**< pt lists ss with pending to-s */
 #if defined(LWS_WITH_SERVER)
@@ -290,6 +294,10 @@ typedef struct lws_sspc_handle {
 	struct lws_dll2		client_list;
 	struct lws_tx_credit	txc;
 
+#if defined(LWS_WITH_SYS_METRICS)
+	lws_metrics_caliper_compose(cal_txn)
+#endif
+
 	struct lws		*cwsi;
 
 	struct lws_dsh		*dsh;
@@ -333,6 +341,7 @@ union u {
 	lws_ss_trust_store_t	*t;
 	lws_ss_policy_t		*p;
 	lws_ss_auth_t		*a;
+	lws_metric_policy_t	*m;
 };
 
 enum {
@@ -341,6 +350,7 @@ enum {
 	LTY_TRUSTSTORE,
 	LTY_POLICY,
 	LTY_AUTH,
+	LTY_METRICS,
 
 	_LTY_COUNT /* always last */
 };
@@ -508,6 +518,29 @@ struct ss_pcols {
 	secstream_protocol_connect_munge_t		munge;
 	secstream_protocol_add_txcr_t			tx_cr_add;
 	secstream_protocol_get_txcr_t			tx_cr_est;
+};
+
+/*
+ * Because both sides of the connection share the conn, we allocate it
+ * during accepted adoption, and both sides point to it.
+ *
+ * When .ss or .wsi close, they must NULL their entry here so no dangling
+ * refereneces.
+ *
+ * The last one of the accepted side and the onward side to close frees it.
+ */
+
+
+
+
+struct conn {
+	struct lws_ss_serialization_parser parser;
+
+	lws_dsh_t		*dsh;	/* unified buffer for both sides */
+	struct lws		*wsi;	/* the proxy's client side */
+	lws_ss_handle_t		*ss;	/* the onward, ss side */
+
+	lws_ss_conn_states_t	state;
 };
 
 extern const struct ss_pcols ss_pcol_h1;
