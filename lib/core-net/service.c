@@ -689,24 +689,22 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 
 	if ((!(pollfd->revents & pollfd->events & LWS_POLLIN)) &&
 	    (pollfd->revents & LWS_POLLHUP)) {
-		wsi->socket_is_permanently_unusable = 1;
-		lwsl_debug("Session Socket %s (fd=%d) dead\n",
-			   lws_wsi_tag(wsi), pollfd->fd);
 
-		goto close_and_handled;
+		if (lws_buflist_total_len(&wsi->buflist))
+			lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_ACK, 3);
+		else {
+			wsi->socket_is_permanently_unusable = 1;
+			lwsl_debug("Session Socket %s (fd=%d) dead\n",
+				   lws_wsi_tag(wsi), pollfd->fd);
+
+			goto close_and_handled;
+		}
 	}
 
 #ifdef _WIN32
 	if (pollfd->revents & LWS_POLLOUT)
 		wsi->sock_send_blocking = FALSE;
 #endif
-
-	if ((!(pollfd->revents & pollfd->events & LWS_POLLIN)) &&
-	    (pollfd->revents & LWS_POLLHUP)) {
-		lwsl_debug("pollhup\n");
-		wsi->socket_is_permanently_unusable = 1;
-		goto close_and_handled;
-	}
 
 #if defined(LWS_WITH_TLS)
 	if (lwsi_state(wsi) == LRS_SHUTDOWN &&
