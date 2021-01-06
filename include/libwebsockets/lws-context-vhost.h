@@ -230,6 +230,9 @@
 	/**< (CTX) Disable lws_system state, eg, because we are a secure streams
 	 * proxy client that is not trying to track system state by itself. */
 
+#define LWS_SERVER_OPTION_SDEVENT			 (1ll << 36)
+    /**< (CTX) Use sd-event loop */
+
 	/****** add new things just above ---^ ******/
 
 

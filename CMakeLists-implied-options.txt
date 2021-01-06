@@ -87,6 +87,7 @@ if(LWS_WITH_DISTRO_RECOMMENDED)
 	set(LWS_WITH_LIBUV 1)				# libuv
 	set(LWS_WITH_LIBEV 1)				# libev
 	set(LWS_WITH_LIBEVENT 1)			# libevent
+	set(LWS_WITH_SDEVENT 0)				# sd-event
 	set(LWS_WITH_EVLIB_PLUGINS 1)			# event libraries created as plugins / individual packages
 	set(LWS_WITHOUT_EXTENSIONS 0)			# libz
 	set(LWS_ROLE_DBUS 1)				# dbus-related libs
@@ -117,7 +118,8 @@ endif()
 if (LWS_WITH_LIBEV OR
     LWS_WITH_LIBUV OR
     LWS_WITH_LIBEVENT OR
-    LWS_WITH_GLIB)
+    LWS_WITH_GLIB OR
+    LWS_WITH_SDEVENT)
 	set(LWS_WITH_EVENT_LIBS 1)
 else()
 	unset(LWS_WITH_EVENT_LIBS)
