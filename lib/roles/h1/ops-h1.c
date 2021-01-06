@@ -521,19 +521,6 @@ try_pollout:
 			return LWS_HPI_RET_HANDLED;
 		}
 
-		lws_stats_bump(pt, LWSSTATS_C_WRITEABLE_CB, 1);
-#if defined(LWS_WITH_STATS)
-		if (wsi->active_writable_req_us) {
-			uint64_t ul = lws_now_usecs() -
-					wsi->active_writable_req_us;
-
-			lws_stats_bump(pt, LWSSTATS_US_WRITABLE_DELAY_AVG, ul);
-			lws_stats_max(pt,
-				  LWSSTATS_US_WORST_WRITABLE_DELAY, ul);
-			wsi->active_writable_req_us = 0;
-		}
-#endif
-
 		n = user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
 						LWS_CALLBACK_HTTP_WRITEABLE,
 						wsi->user_space, NULL, 0);
@@ -934,6 +921,7 @@ rops_adoption_bind_h1(struct lws *wsi, int type, const char *vh_prot_name)
 #if defined(LWS_WITH_HTTP2)
 	if ((!(type & LWS_ADOPT_ALLOW_SSL)) && (wsi->a.vhost->options & LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE)) {
 		lwsl_info("http/2 prior knowledge\n");
+		lws_metrics_tag_wsi_add(wsi, "upg", "h2_prior");
 		lws_role_call_alpn_negotiated(wsi, "h2");
 	}
 	else

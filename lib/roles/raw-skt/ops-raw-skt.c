@@ -202,18 +202,6 @@ try_pollout:
 	/* clear back-to-back write detection */
 	wsi->could_have_pending = 0;
 
-	lws_stats_bump(pt, LWSSTATS_C_WRITEABLE_CB, 1);
-#if defined(LWS_WITH_STATS)
-	if (wsi->active_writable_req_us) {
-		uint64_t ul = lws_now_usecs() -
-				wsi->active_writable_req_us;
-
-		lws_stats_bump(pt, LWSSTATS_US_WRITABLE_DELAY_AVG, ul);
-		lws_stats_max(pt,
-			  LWSSTATS_US_WORST_WRITABLE_DELAY, ul);
-		wsi->active_writable_req_us = 0;
-	}
-#endif
 	n = user_callback_handle_rxflow(wsi->a.protocol->callback,
 			wsi, LWS_CALLBACK_RAW_WRITEABLE,
 			wsi->user_space, NULL, 0);

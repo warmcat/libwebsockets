@@ -359,7 +359,22 @@ extern const struct lws_protocols lws_sshd_demo_protocols[1];
 extern const struct lws_protocols lws_acme_client_protocols[1];
 extern const struct lws_protocols client_loopback_test_protocols[1];
 extern const struct lws_protocols fulltext_demo_protocols[1];
+extern const struct lws_protocols lws_openmetrics_export_protocols[
+#if defined(LWS_WITH_SERVER) && defined(LWS_WITH_CLIENT) && defined(LWS_ROLE_WS)
+	4
+#else
+#if defined(LWS_WITH_SERVER)
+	3
+#else
+	1
+#endif
+#endif
+	];
 
+#define LWSOMPROIDX_DIRECT_HTTP_SERVER		0
+#define LWSOMPROIDX_PROX_HTTP_SERVER		1
+#define LWSOMPROIDX_PROX_WS_SERVER		2
+#define LWSOMPROIDX_PROX_WS_CLIENT		3
 
 #endif
 

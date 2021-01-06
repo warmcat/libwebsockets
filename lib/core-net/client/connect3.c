@@ -203,6 +203,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 		default:
 			lwsl_debug("%s: getsockopt check: conn fail: errno %d\n",
 					__func__, LWS_ERRNO);
+			lws_metrics_caliper_report(wsi->cal_conn, METRES_NOGO);
 			goto try_next_dns_result_fds;
 		}
 	}
@@ -233,19 +234,6 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 		 * with cleanup
 		 */
 		return NULL;
-	}
-#endif
-
-#if defined(LWS_WITH_DETAILED_LATENCY)
-	if (lwsi_state(wsi) == LRS_WAITING_DNS &&
-	    wsi->a.context->detailed_latency_cb) {
-		wsi->detlat.type = LDLT_NAME_RESOLUTION;
-		wsi->detlat.latencies[LAT_DUR_PROXY_CLIENT_REQ_TO_WRITE] =
-			(uint32_t)(lws_now_usecs() -
-			wsi->detlat.earliest_write_req_pre_write);
-		wsi->detlat.latencies[LAT_DUR_USERCB] = 0;
-		lws_det_lat_cb(wsi->a.context, &wsi->detlat);
-		wsi->detlat.earliest_write_req_pre_write = lws_now_usecs();
 	}
 #endif
 
@@ -393,11 +381,6 @@ ads_known:
 	 * The actual connection attempt
 	 */
 
-#if defined(LWS_WITH_DETAILED_LATENCY)
-	wsi->detlat.earliest_write_req =
-		wsi->detlat.earliest_write_req_pre_write = lws_now_usecs();
-#endif
-
 #if defined(LWS_ESP_PLATFORM)
 	errno = 0;
 #endif
@@ -412,6 +395,7 @@ ads_known:
 	 * Finally, make the actual connection attempt
 	 */
 
+	lws_metrics_caliper_bind(wsi->cal_conn, wsi->a.context->mt_conn_tcp);
 	m = connect(wsi->desc.sockfd, (const struct sockaddr *)psa, (unsigned int)n);
 	if (m == -1) {
 		/*
@@ -437,6 +421,8 @@ ads_known:
 			/*
 			 * The connect() failed immediately...
 			 */
+
+			lws_metrics_caliper_report(wsi->cal_conn, METRES_NOGO);
 
 #if defined(_DEBUG)
 #if defined(LWS_WITH_UNIX_SOCK)
@@ -511,20 +497,7 @@ conn_good:
 #endif
 
 	lws_sul_cancel(&wsi->sul_connect_timeout);
-
-#if defined(LWS_WITH_DETAILED_LATENCY)
-	if (wsi->a.context->detailed_latency_cb) {
-		wsi->detlat.type = LDLT_CONNECTION;
-		wsi->detlat.latencies[LAT_DUR_PROXY_CLIENT_REQ_TO_WRITE] =
-			(uint32_t)(lws_now_usecs() -
-			wsi->detlat.earliest_write_req_pre_write);
-		wsi->detlat.latencies[LAT_DUR_USERCB] = 0;
-		lws_det_lat_cb(wsi->a.context, &wsi->detlat);
-		wsi->detlat.earliest_write_req =
-			wsi->detlat.earliest_write_req_pre_write =
-							lws_now_usecs();
-	}
-#endif
+	lws_metrics_caliper_report(wsi->cal_conn, METRES_GO);
 
 	lws_addrinfo_clean(wsi);
 
@@ -549,6 +522,8 @@ oom4:
 	if (wsi->position_in_fds_table != LWS_NO_FDS_POS)
 		/* do the full wsi close flow */
 		goto failed1;
+
+	lws_metrics_caliper_report(wsi->cal_conn, METRES_NOGO);
 
 	/*
 	 * We can't be an active client connection any more, if we thought

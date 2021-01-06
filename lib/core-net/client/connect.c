@@ -86,7 +86,11 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	struct lws *wsi, *safe = NULL;
 	const struct lws_protocols *p;
 	const char *cisin[CIS_COUNT];
-	int tid = 0, n, tsi = 0;
+	int
+#if LWS_MAX_SMP > 1
+		tid = 0,
+#endif
+		n, tsi = 0;
 	size_t size;
 	char *pc;
 
@@ -103,9 +107,6 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	 */
 	if (i->local_protocol_name)
 		local = i->local_protocol_name;
-
-	lws_stats_bump(&i->context->pt[tid], LWSSTATS_C_CONNS_CLIENT, 1);
-
 
 	lws_context_lock(i->context, __func__);
 	/*
@@ -137,10 +138,6 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	if (wsi == NULL)
 		goto bail;
 
-#if defined(LWS_WITH_DETAILED_LATENCY) && LWS_MAX_SMP > 1
-	wsi->detlat.tsi = tsi;
-#endif
-
 	/*
 	 * Until we exit, we can report connection failure directly to the
 	 * caller without needing to call through to protocol CONNECTION_ERROR.
@@ -161,11 +158,6 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 		wsi->retry_policy = i->retry_and_idle_policy;
 	else
 		wsi->retry_policy = &i->context->default_retry;
-
-#if defined(LWS_WITH_DETAILED_LATENCY)
-	if (i->context->detailed_latency_cb)
-		wsi->detlat.earliest_write_req_pre_write = lws_now_usecs();
-#endif
 
 	if (i->ssl_connection & LCCSCF_WAKE_SUSPEND__VALIDITY)
 		wsi->conn_validity_wakesuspend = 1;
@@ -355,6 +347,8 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 			     "%s/%s/%s", i->method ? i->method : "WS",
 			     wsi->role_ops->name, i->address);
 
+	lws_metrics_tag_wsi_add(wsi, "vh", wsi->a.vhost->name);
+
 	pc = (char *)&wsi->stash[1];
 
 	for (n = 0; n < CIS_COUNT; n++)
@@ -508,8 +502,6 @@ bail2:
 
 	if (i->pwsi)
 		*i->pwsi = NULL;
-
-	lws_stats_bump(&i->context->pt[tid], LWSSTATS_C_CONNS_CLIENT_FAILED, 1);
 
 	return NULL;
 }

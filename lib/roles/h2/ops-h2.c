@@ -521,12 +521,11 @@ rops_check_upgrades_h2(struct lws *wsi)
 	if (!p || strcmp(p, "websocket"))
 		return LWS_UPG_RET_CONTINUE;
 
-#if defined(LWS_WITH_SERVER_STATUS)
-	wsi->a.vhost->conn_stats.ws_upg++;
-#endif
 	lwsl_info("Upgrade h2 to ws\n");
 	lws_mux_mark_immortal(wsi);
 	wsi->h2_stream_carries_ws = 1;
+
+	lws_metrics_tag_wsi_add(wsi, "upg", "ws_over_h2");
 
 	if (lws_process_ws_upgrade(wsi))
 		return LWS_UPG_RET_BAIL;
@@ -1254,9 +1253,6 @@ rops_alpn_negotiated_h2(struct lws *wsi, const char *alpn)
 #endif
 
 	wsi->upgraded_to_http2 = 1;
-#if defined(LWS_WITH_SERVER_STATUS)
-	wsi->a.vhost->conn_stats.h2_alpn++;
-#endif
 
 	/* adopt the header info */
 

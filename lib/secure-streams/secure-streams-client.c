@@ -71,9 +71,15 @@ lws_sspc_sul_retry_cb(lws_sorted_usec_list_t *sul)
 	i.pwsi = &h->cwsi;
 	i.opaque_user_data = (void *)h;
 	i.ssl_connection = LCCSCF_SECSTREAM_PROXY_LINK;
+
+	lws_metrics_caliper_bind(h->cal_txn, h->context->mt_ss_cliprox_conn);
+
 	/* this wsi is the link to the proxy */
 
 	if (!lws_client_connect_via_info(&i)) {
+
+		lws_metrics_caliper_report(h->cal_txn, METRES_NOGO);
+
 		lws_sul_schedule(h->context, 0, &h->sul_retry,
 				 lws_sspc_sul_retry_cb, LWS_US_PER_SEC);
 
@@ -146,6 +152,7 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		lwsl_warn("%s: CONNECTION_ERROR\n", __func__);
+		lws_metrics_caliper_report(h->cal_txn, METRES_NOGO);
 		lws_set_opaque_user_data(wsi, NULL);
 		h->cwsi = NULL;
 		lws_sul_schedule(h->context, 0, &h->sul_retry,
@@ -562,6 +569,8 @@ lws_sspc_destroy(lws_sspc_handle_t **ph)
 
 	h->destroying = 1;
 
+	/* if this caliper is still dangling at destroy, we failed */
+	lws_metrics_caliper_report(h->cal_txn, METRES_NOGO);
 	if (h->ss_dangling_connected && h->ssi.state) {
 		lws_sspc_event_helper(h, LWSSSCS_DISCONNECTED, 0);
 		h->ss_dangling_connected = 0;

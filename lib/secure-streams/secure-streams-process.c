@@ -313,9 +313,6 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 	lws_ss_metadata_t *md;
 	lws_ss_info_t ssi;
 	const uint8_t *cp;
-#if defined(LWS_WITH_DETAILED_LATENCY)
-	lws_usec_t us;
-#endif
 	char s[256];
 	uint8_t *p;
 	size_t si;
@@ -582,7 +579,7 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 
 			cp = p;
 
-#if defined(LWS_WITH_DETAILED_LATENCY)
+#if 0
 			if (cp[0] == LWSSS_SER_RXPRE_RX_PAYLOAD &&
 			    wsi->a.context->detailed_latency_cb) {
 

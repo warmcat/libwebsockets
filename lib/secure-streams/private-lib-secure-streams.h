@@ -49,6 +49,10 @@ typedef struct lws_ss_handle {
 
 	lws_lifecycle_t		lc;
 
+#if defined(LWS_WITH_SYS_METRICS)
+	lws_metrics_caliper_compose(cal_txn)
+#endif
+
 	struct lws_dll2		list;	  /**< pt lists active ss */
 	struct lws_dll2		to_list;  /**< pt lists ss with pending to-s */
 #if defined(LWS_WITH_SERVER)
@@ -283,6 +287,10 @@ typedef struct lws_sspc_handle {
 	struct lws_dll2		client_list;
 	struct lws_tx_credit	txc;
 
+#if defined(LWS_WITH_SYS_METRICS)
+	lws_metrics_caliper_compose(cal_txn)
+#endif
+
 	struct lws		*cwsi;
 
 	struct lws_dsh		*dsh;
@@ -326,6 +334,7 @@ union u {
 	lws_ss_trust_store_t	*t;
 	lws_ss_policy_t		*p;
 	lws_ss_auth_t		*a;
+	lws_metric_policy_t	*m;
 };
 
 enum {
@@ -334,6 +343,7 @@ enum {
 	LTY_TRUSTSTORE,
 	LTY_POLICY,
 	LTY_AUTH,
+	LTY_METRICS,
 
 	_LTY_COUNT /* always last */
 };

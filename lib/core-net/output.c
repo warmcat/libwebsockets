@@ -31,7 +31,6 @@ int
 lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 {
 	struct lws_context *context = lws_get_context(wsi);
-	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	size_t real_len = len;
 	unsigned int n, m;
 
@@ -58,8 +57,6 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 			  wsi->a.protocol->name, wsi->role_ops->name,
 			  (unsigned long)len);
 	}
-
-	lws_stats_bump(pt, LWSSTATS_C_API_WRITE, 1);
 
 	/* just ignore sends after we cleared the truncation buffer */
 	if (lwsi_state(wsi) == LRS_FLUSHING_BEFORE_CLOSE &&
@@ -215,9 +212,6 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 				       real_len - m) < 0)
 		return -1;
 
-	lws_stats_bump(pt, LWSSTATS_C_WRITE_PARTIALS, 1);
-	lws_stats_bump(pt, LWSSTATS_B_PARTIALS_ACCEPTED_PARTS, m);
-
 #if defined(LWS_WITH_UDP)
 	if (lws_wsi_is_udp(wsi))
 		/* stash original destination for fulfilling UDP partials */
@@ -234,13 +228,7 @@ int
 lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 	  enum lws_write_protocol wp)
 {
-	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-#if defined(LWS_WITH_DETAILED_LATENCY)
-	lws_usec_t us;
-#endif
 	int m;
-
-	lws_stats_bump(pt, LWSSTATS_C_API_LWS_WRITE, 1);
 
 	if ((int)len < 0) {
 		lwsl_err("%s: suspicious len int %d, ulong %lu\n", __func__,
@@ -248,43 +236,22 @@ lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 		return -1;
 	}
 
-	lws_stats_bump(pt, LWSSTATS_B_WRITE, len);
-
 #ifdef LWS_WITH_ACCESS_LOG
 	wsi->http.access_log.sent += len;
-#endif
-#if defined(LWS_WITH_SERVER_STATUS)
-	if (wsi->a.vhost)
-		wsi->a.vhost->conn_stats.tx += len;
-#endif
-#if defined(LWS_WITH_DETAILED_LATENCY)
-	us = lws_now_usecs();
 #endif
 
 	assert(wsi->role_ops);
 
 	if (!lws_rops_fidx(wsi->role_ops, LWS_ROPS_write_role_protocol))
-		return lws_issue_raw(wsi, buf, len);
+		m = lws_issue_raw(wsi, buf, len);
+	else
+		m = lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_write_role_protocol).
+				write_role_protocol(wsi, buf, len, &wp);
 
-	m = lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_write_role_protocol).
-			write_role_protocol(wsi, buf, len, &wp);
-	if (m < 0)
-		return m;
-
-#if defined(LWS_WITH_DETAILED_LATENCY)
-	if (wsi->a.context->detailed_latency_cb) {
-		wsi->detlat.req_size = len;
-		wsi->detlat.acc_size = (unsigned int)m;
-		wsi->detlat.type = LDLT_WRITE;
-		if (wsi->detlat.earliest_write_req_pre_write)
-			wsi->detlat.latencies[LAT_DUR_PROXY_PROXY_REQ_TO_WRITE] =
-					(uint32_t)(us - wsi->detlat.earliest_write_req_pre_write);
-		else
-			wsi->detlat.latencies[LAT_DUR_PROXY_PROXY_REQ_TO_WRITE] = 0;
-		wsi->detlat.latencies[LAT_DUR_USERCB] = (uint32_t)(lws_now_usecs() - us);
-		lws_det_lat_cb(wsi->a.context, &wsi->detlat);
-
-	}
+#if defined(LWS_WITH_SYS_METRICS)
+	if (wsi->a.vhost)
+		lws_metric_event(wsi->a.vhost->mt_traffic_tx, (char)
+				 (m < 0 ? METRES_NOGO : METRES_GO), len);
 #endif
 
 	return m;
@@ -317,18 +284,19 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, size_t len)
 	if (n >= 0) {
 
 		if (!n && wsi->unix_skt)
-			return LWS_SSL_CAPABLE_ERROR;
+			goto do_err;
 
 		/*
 		 * See https://libwebsockets.org/
 		 * pipermail/libwebsockets/2019-March/007857.html
 		 */
 		if (!n)
-			return LWS_SSL_CAPABLE_ERROR;
+			goto do_err;
 
-#if defined(LWS_WITH_SERVER_STATUS)
+#if defined(LWS_WITH_SYS_METRICS) && defined(LWS_WITH_SERVER)
 		if (wsi->a.vhost)
-			wsi->a.vhost->conn_stats.rx = (unsigned long long)(wsi->a.vhost->conn_stats.rx + (unsigned long long)(long long)n);
+			lws_metric_event(wsi->a.vhost->mt_traffic_rx,
+					 METRES_GO /* rx */, (unsigned int)n);
 #endif
 
 		return n;
@@ -338,6 +306,12 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, size_t len)
 	    en == LWS_EWOULDBLOCK ||
 	    en == LWS_EINTR)
 		return LWS_SSL_CAPABLE_MORE_SERVICE;
+
+do_err:
+#if defined(LWS_WITH_SYS_METRICS) && defined(LWS_WITH_SERVER)
+	if (wsi->a.vhost)
+		lws_metric_event(wsi->a.vhost->mt_traffic_rx, METRES_NOGO, 0u);
+#endif
 
 	lwsl_info("error on reading from skt : %d\n", en);
 

@@ -147,6 +147,8 @@ __lws_sul_service_ripe(lws_dll2_owner_t *own, int own_len, lws_usec_t usnow)
 		lws_dll2_remove(&hit->list);
 		hit->us = 0;
 
+		// lwsl_notice("%s: sul: %p\n", __func__, hit->cb);
+
 		pt->inside_lws_service = 1;
 		hit->cb(hit);
 		pt->inside_lws_service = 0;

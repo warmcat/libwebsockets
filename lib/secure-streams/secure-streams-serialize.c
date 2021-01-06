@@ -224,7 +224,7 @@ lws_ss_deserialize_tx_payload(struct lws_dsh *dsh, struct lws *wsi,
 
 	*flags = (int)lws_ser_ru32be(&p[3]);
 
-#if defined(LWS_WITH_DETAILED_LATENCY)
+#if 0
 	if (wsi && wsi->a.context->detailed_latency_cb) {
 		/*
 		 * use the proxied latency information to compute the client
@@ -730,7 +730,7 @@ payload_ff:
 					}
 				}
 
-#if defined(LWS_WITH_DETAILED_LATENCY)
+#if 0
 				if (lws_det_lat_active(context)) {
 					lws_detlat_t d;
 
@@ -1239,6 +1239,9 @@ payload_ff:
 			 */
 
 			h->creating_cb_done = 1;
+
+			/* at this point, we connected to the proxy OK */
+			lws_metrics_caliper_report(h->cal_txn, METRES_GO);
 
 			if (lws_ss_check_next_state(&h->prev_ss_state, LWSSSCS_CREATING))
 				return LWSSSSRET_DESTROY_ME;

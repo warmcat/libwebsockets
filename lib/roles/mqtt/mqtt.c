@@ -992,7 +992,7 @@ cmd_completion:
 				lws_set_timeout(wsi, 0, 0);
 
 				w = lws_create_new_server_wsi(wsi->a.vhost,
-							      wsi->tsi, "mqtt");
+							      wsi->tsi, "mqtt_sid1");
 				if (!w) {
 					lwsl_notice("%s: sid 1 migrate failed\n",
 							__func__);
@@ -1041,10 +1041,6 @@ cmd_completion:
 				lwsl_notice("%s: migrated nwsi %s to sid 1 %s\n",
 						__func__, lws_wsi_tag(wsi),
 						lws_wsi_tag(w));
-
-			#if defined(LWS_WITH_SERVER_STATUS)
-				wsi->a.vhost->conn_stats.h2_subs++;
-			#endif
 
 				/*
 				 * It was the last thing we were waiting for
@@ -2106,10 +2102,6 @@ lws_wsi_mqtt_adopt(struct lws *parent_wsi, struct lws *wsi)
 
 	lws_mqtt_set_client_established(wsi);
 	lws_callback_on_writable(wsi);
-
-#if defined(LWS_WITH_SERVER_STATUS)
-	wsi->a.vhost->conn_stats.mqtt_subs++;
-#endif
 
 	return wsi;
 

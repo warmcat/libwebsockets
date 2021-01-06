@@ -155,11 +155,7 @@ send_hs:
 		 * wait in the queue until it's possible to send them.
 		 */
 		lws_callback_on_writable(wsi_piggyback);
-#if defined(LWS_WITH_DETAILED_LATENCY)
-		wsi->detlat.earliest_write_req =
-				wsi->detlat.earliest_write_req_pre_write =
-								lws_now_usecs();
-#endif
+
 		lwsl_info("%s: %s: waiting to send hdrs (par state 0x%x)\n",
 			    __func__, wsi->lc.gutag, lwsi_state(wsi_piggyback));
 	} else {
