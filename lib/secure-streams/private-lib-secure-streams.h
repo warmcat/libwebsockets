@@ -97,6 +97,7 @@ typedef struct lws_ss_handle {
 			uint8_t boundary_post; /* swallow post CRLF */
 
 			uint8_t som:1;	/* SOM has been sent */
+			uint8_t eom:1;  /* EOM has been sent */
 			uint8_t any:1;	/* any content has been sent */
 
 

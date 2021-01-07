@@ -96,7 +96,7 @@ secstream_h2(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		 * The peer has sent us additional tx credit...
 		 */
 		lwsl_info("%s: LWS_CALLBACK_WSI_TX_CREDIT_GET: %d\n",
-			    __func__, (int32_t)len);
+			    __func__, (int)len);
 
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
 		if (h->being_serialized)

@@ -37,6 +37,7 @@ ss_http_multipart_parser(lws_ss_handle_t *h, void *in, size_t len)
 	uint8_t *q = (uint8_t *)in;
 	int pending_issue = 0, n = 0;
 
+
 	/* let's stick it in the boundary state machine first */
 	while (n < (int)len) {
 		if (h->u.http.boundary_seq != h->u.http.boundary_len) {
@@ -74,7 +75,7 @@ ss_http_multipart_parser(lws_ss_handle_t *h, void *in, size_t len)
 			 * remainder to send.
 			 */
 			if (n >= pending_issue + h->u.http.boundary_len +
-			    (h->u.http.any ? 2 : 0) + 1)
+			    (h->u.http.any ? 2 : 0) + 1) {
 				h->info.rx(ss_to_userobj(h),
 					   &q[pending_issue],
 					   (unsigned int)(n - pending_issue -
@@ -82,6 +83,8 @@ ss_http_multipart_parser(lws_ss_handle_t *h, void *in, size_t len)
 					   (h->u.http.any ? 2 : 0) /* crlf */),
 				   (!h->u.http.som ? LWSSS_FLAG_SOM : 0) |
 				   LWSSS_FLAG_EOM | LWSSS_FLAG_RELATED_END);
+				h->u.http.eom = 1;
+			}
 
 			/*
 			 * Peer may not END_STREAM us
@@ -123,28 +126,59 @@ ss_http_multipart_parser(lws_ss_handle_t *h, void *in, size_t len)
 			 * remainder to send.
 			 */
 			if (n >= pending_issue + h->u.http.boundary_len +
-			    (h->u.http.any ? 2 : 0))
+			    (h->u.http.any ? 2 : 0)) {
 				h->info.rx(ss_to_userobj(h), &q[pending_issue],
 					   (unsigned int)(n - pending_issue -
 					       h->u.http.boundary_len -
 					       (h->u.http.any ? 2 /* crlf */ : 0)),
 					   (!h->u.http.som ? LWSSS_FLAG_SOM : 0) |
 					   LWSSS_FLAG_EOM);
+				h->u.http.eom = 1;
+			}
 		}
 
 		/* Next message starts after this boundary */
 
 		pending_issue = n;
-		h->u.http.som = 0;
+		if (h->u.http.eom) {
+			/* reset only if we have sent eom */
+			h->u.http.som = 0;
+			h->u.http.eom = 0;
+		}
 
 around:
 		n++;
 	}
 
 	if (pending_issue != n) {
+		uint8_t oh = 0;
+
+		/*
+		 * handle the first or last "--boundaryCRLF" case which is not captured in the
+		 * previous loop, on the Bob downchannel (/directive)
+		 *
+		 * probably does not cover the case that one boundary term is separated in multipile
+		 * one callbacks though never see such case
+		 */
+
+		if ((n >= h->u.http.boundary_len) &&
+			h->u.http.boundary_seq == h->u.http.boundary_len &&
+			h->u.http.boundary_post == 2) {
+
+			oh = 1;
+		}
+
 		h->info.rx(ss_to_userobj(h), &q[pending_issue],
-				(unsigned int)(n - pending_issue),
-			   (!h->u.http.som ? LWSSS_FLAG_SOM : 0));
+				(unsigned int)(oh ?
+				(n - pending_issue - h->u.http.boundary_len -
+					(h->u.http.any ? 2 : 0)) :
+				(n - pending_issue)),
+			   (!h->u.http.som ? LWSSS_FLAG_SOM : 0) |
+			     (oh && h->u.http.any ? LWSSS_FLAG_EOM : 0));
+
+		if (oh && h->u.http.any)
+			h->u.http.eom = 1;
+
 		h->u.http.any = 1;
 		h->u.http.som = 1;
 	}
