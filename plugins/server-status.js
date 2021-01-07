@@ -71,7 +71,7 @@ function ws_open_server_status()
 
 		socket_status.onmessage =function got_packet(msg) {
 			var u, ci, n;
-			//document.getElementById("json").innerHTML = "<pre>"+msg.data+"</pre>";
+			// document.getElementById("json").innerHTML = "<pre>"+msg.data+"</pre>";
 			if (msg.data.length < 100)
 				return;
 			jso = JSON.parse(msg.data);
@@ -129,9 +129,7 @@ function ws_open_server_status()
 
 				s = s +
 				  "<br>" +
-				  "<span class=n>Listening wsi:</span> <span class=v>" + san(jso.i.contexts[ci].listen_wsi) + "</span>, " +
-				  "<span class=n>Current wsi alive:</span> <span class=v>" + (parseInt(san(jso.i.contexts[ci].wsi_alive), 10) -
-						  parseInt(san(jso.i.contexts[ci].listen_wsi), 10)) + "</span><br>" +
+				  "<span class=n>Tagged objects alive:</span> <span class=v>" + san(jso.i.contexts[ci].wsi_alive) + "</span><br>" +
 			  	  "<span class=n>Total Rx:</span> <span class=v>" + humanize(san(jso.i.contexts[ci].rx)) +"B</span>, " +
 			  	  "<span class=n>Total Tx:</span> <span class=v>" + humanize(san(jso.i.contexts[ci].tx)) +"B</span><br>" +
 			  	  

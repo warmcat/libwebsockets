@@ -226,7 +226,8 @@ lws_json_dump_context(const struct lws_context *context, char *buf, int len,
 				"\"cgi_spawned\":\"%d\",\n"
 				"\"pt_fd_max\":\"%d\",\n"
 				"\"ah_pool_max\":\"%d\",\n"
-				"\"deprecated\":\"%d\",\n",
+				"\"deprecated\":\"%d\",\n"
+				"\"wsi_alive\":\"",
 				(unsigned long long)(lws_now_usecs() - context->time_up) /
 					LWS_US_PER_SEC,
 				context->count_cgi_spawned,
@@ -234,7 +235,11 @@ lws_json_dump_context(const struct lws_context *context, char *buf, int len,
 				context->max_http_header_pool,
 				context->deprecated);
 
-	buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf), "\"pt\":[\n ");
+	for (n = 0; n < LWSLCG_COUNT; n++)
+		buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf), "%u ",
+				context->lcg[n].owner.count);
+
+	buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf), "\", \"pt\":[\n ");
 	for (n = 0; n < context->count_threads; n++) {
 		pt = &context->pt[n];
 		if (n)
@@ -243,13 +248,11 @@ lws_json_dump_context(const struct lws_context *context, char *buf, int len,
 				"\n  {\n"
 				"    \"fds_count\":\"%d\",\n"
 				"    \"ah_pool_inuse\":\"%d\",\n"
-				"    \"ah_wait_list\":\"%d\",\n"
-				"    \"wsi_alive\":\"%d\",\n"
+				"    \"ah_wait_list\":\"%d\"\n"
 				"    }",
 				pt->fds_count,
 				pt->http.ah_count_in_use,
-				pt->http.ah_wait_list_length,
-				pt->count_wsi_allocated);
+				pt->http.ah_wait_list_length);
 	}
 
 	buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf), "]");

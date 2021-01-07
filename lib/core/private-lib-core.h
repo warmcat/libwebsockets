@@ -329,9 +329,8 @@ enum {
 	LWSLCG_WSI,			/* generic wsi, eg, pipe, listen */
 	LWSLCG_VHOST,
 
-#if defined(LWS_WITH_SERVER)
 	LWSLCG_WSI_SERVER,		/* server wsi */
-#endif
+
 #if defined(LWS_WITH_CLIENT)
 	LWSLCG_WSI_CLIENT,		/* client wsi */
 #endif

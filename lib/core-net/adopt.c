@@ -66,7 +66,7 @@ lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi, const char *de
 		return NULL;
 	}
 
-	__lws_lc_tag(&vhost->context->lcg[LWSLCG_WSI], &new_wsi->lc, desc);
+	__lws_lc_tag(&vhost->context->lcg[LWSLCG_WSI_SERVER], &new_wsi->lc, desc);
 
 	new_wsi->wsistate |= LWSIFR_SERVER;
 	new_wsi->tsi = (char)n;
