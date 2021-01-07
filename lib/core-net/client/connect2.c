@@ -71,10 +71,16 @@ lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
 #if defined(EAI_FAIL)
 			|| n == EAI_FAIL
 #endif
+#if defined(EAI_AGAIN)
+			|| n == EAI_AGAIN
+#endif
 			) {
+#if defined(LWS_WITH_SECURE_STREAMS)
+
+#endif
 		wsi->dns_reachability = 1;
-		lwsl_notice("%s: asking to recheck CPD\n", __func__);
-		lws_system_cpd_start(wsi->a.context);
+		lwsl_notice("%s: asking to recheck CPD in 1ms\n", __func__);
+		lws_system_cpd_start_defer(wsi->a.context, LWS_US_PER_MS);
 	}
 
 	lwsl_info("%s: getaddrinfo '%s' says %d\n", __func__, ads, n);

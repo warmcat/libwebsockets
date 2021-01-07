@@ -397,6 +397,7 @@ struct lws_context {
 #if defined(LWS_WITH_SECURE_STREAMS)
 	struct lws_ss_handle			*ss_cpd;
 #endif
+	lws_sorted_usec_list_t			sul_cpd_defer;
 
 #if defined(LWS_WITH_NETWORK)
 	struct lws_context_per_thread		pt[LWS_MAX_SMP];

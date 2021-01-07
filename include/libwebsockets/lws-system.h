@@ -322,6 +322,9 @@ lws_dhcpc_status(struct lws_context *context, lws_sockaddr46 *sa46);
 LWS_EXTERN LWS_VISIBLE int
 lws_system_cpd_start(struct lws_context *context);
 
+LWS_EXTERN LWS_VISIBLE void
+lws_system_cpd_start_defer(struct lws_context *cx, lws_usec_t defer_us);
+
 
 /**
  * lws_system_cpd_set() - report the result of the captive portal detection

@@ -1401,6 +1401,22 @@ lws_system_cpd_start(struct lws_context *cx)
 #endif
 }
 
+static void
+lws_system_deferred_cb(lws_sorted_usec_list_t *sul)
+{
+	struct lws_context *cx =
+		     lws_container_of(sul, struct lws_context, sul_cpd_defer);
+
+	lws_system_cpd_start(cx);
+}
+
+void
+lws_system_cpd_start_defer(struct lws_context *cx, lws_usec_t defer_us)
+{
+	lws_sul_schedule(cx, 0, &cx->sul_cpd_defer,
+			 lws_system_deferred_cb, defer_us);
+}
+
 static const char *cname[] = { "Unknown", "OK", "Captive", "No internet" };
 
 void
