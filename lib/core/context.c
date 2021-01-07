@@ -652,10 +652,8 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if defined(LWS_WITH_NETWORK)
 	context->lcg[LWSLCG_WSI].tag_prefix = "wsi";
 	context->lcg[LWSLCG_VHOST].tag_prefix = "vh";
+	context->lcg[LWSLCG_WSI_SERVER].tag_prefix = "wsisrv"; /* adopted */
 
-#if defined(LWS_WITH_SERVER)
-	context->lcg[LWSLCG_WSI_SERVER].tag_prefix = "wsisrv";
-#endif
 #if defined(LWS_WITH_CLIENT)
 	context->lcg[LWSLCG_WSI_CLIENT].tag_prefix = "wsicli";
 #endif
