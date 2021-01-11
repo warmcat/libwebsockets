@@ -180,7 +180,7 @@ lws_add_http_common_headers(struct lws *wsi, unsigned int code,
 		return 1;
 
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
-	if (!wsi->http.lcs &&
+	if (!wsi->http.lcs && content_type &&
 	    (!strncmp(content_type, "text/", 5) ||
 	     !strcmp(content_type, "application/javascript") ||
 	     !strcmp(content_type, "image/svg+xml")))

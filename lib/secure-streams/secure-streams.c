@@ -109,6 +109,7 @@ static const uint32_t ss_state_txn_validity[] = {
 					  (1 << LWSSSCS_DESTROYING),
 
 	[LWSSSCS_CONNECTED]		= (1 << LWSSSCS_SERVER_UPGRADE) |
+					  (1 << LWSSSCS_SERVER_TXN) |
 					  (1 << LWSSSCS_AUTH_FAILED) |
 					  (1 << LWSSSCS_QOS_ACK_REMOTE) |
 					  (1 << LWSSSCS_QOS_NACK_REMOTE) |
@@ -886,7 +887,7 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 		i.vhost_name	= h->policy->streamtype;
 		i.port		= h->policy->port;
 
-		if (i.iface[0] == '+') {
+		if (i.iface && i.iface[0] == '+') {
 			i.iface++;
 			i.options |= LWS_SERVER_OPTION_UNIX_SOCK;
 		}

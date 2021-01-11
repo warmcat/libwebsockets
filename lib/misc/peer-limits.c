@@ -91,6 +91,9 @@ lws_get_or_create_peer(struct lws_vhost *vhost, lws_sockfd_type sockfd)
 	for (n = 0; n < (int)rlen; n++)
 		hash = (uint32_t)((((hash << 4) | (hash >> 28)) * (uint32_t)n) ^ q8[n]);
 
+	if (!context->pl_hash_elements)
+		return NULL;
+
 	hash = hash % context->pl_hash_elements;
 
 	lws_context_lock(context, "peer search"); /* <======================= */
