@@ -174,20 +174,14 @@ int SSL_CTX_add_client_CA(SSL_CTX *ctx, X509 *x)
 int SSL_CTX_add_client_CA_ASN1(SSL_CTX *ctx, int len,
                 const unsigned char *d)
 {
-	X509 *x;
+	SSL_ASSERT1(ctx);
 
-	x = d2i_X509(NULL, d, len);
-	if (!x) {
+	if (!d2i_X509(&ctx->client_CA, d, len)) {
 		SSL_DEBUG(SSL_PKEY_ERROR_LEVEL, "d2i_X509() return NULL");
 		return 0;
 	}
-    SSL_ASSERT1(ctx);
 
-    X509_free(ctx->client_CA);
-
-    ctx->client_CA = x;
-
-    return 1;
+	return 1;
 }
 
 /**

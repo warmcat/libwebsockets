@@ -641,18 +641,15 @@ int x509_pm_load(X509 *x, const unsigned char *buffer, int len)
     unsigned char *load_buf;
     struct x509_pm *x509_pm = (struct x509_pm *)x->x509_pm;
 
-	if (x509_pm->x509_crt)
-        mbedtls_x509_crt_free(x509_pm->x509_crt);
-
     if (!x509_pm->x509_crt) {
         x509_pm->x509_crt = ssl_mem_malloc(sizeof(mbedtls_x509_crt));
         if (!x509_pm->x509_crt) {
             SSL_DEBUG(SSL_PLATFORM_ERROR_LEVEL, "no enough memory > (x509_pm->x509_crt)");
             goto no_mem;
         }
+        mbedtls_x509_crt_init(x509_pm->x509_crt);
     }
 
-    mbedtls_x509_crt_init(x509_pm->x509_crt);
     if (buffer[0] != 0x30) {
 	    load_buf = ssl_mem_malloc((unsigned int)len + 1);
 	    if (!load_buf) {
@@ -665,11 +662,8 @@ int x509_pm_load(X509 *x, const unsigned char *buffer, int len)
 
 	    ret = mbedtls_x509_crt_parse(x509_pm->x509_crt, load_buf, (unsigned int)len + 1);
 	    ssl_mem_free(load_buf);
-    } else {
-	    // printf("parsing as der\n");
-
+    } else
 	    ret = mbedtls_x509_crt_parse_der(x509_pm->x509_crt, buffer, (unsigned int)len);
-    }
 
     if (ret) {
         printf("mbedtls_x509_crt_parse return -0x%x", -ret);
