@@ -1300,6 +1300,13 @@ lws_h2_parse_frame_header(struct lws *wsi)
 			assert(w->mux.sibling_list != w);
 		} lws_end_foreach_ll(w, mux.sibling_list);
 
+		h2n->cont_exp = !(h2n->flags & LWS_H2_FLAG_END_HEADERS);
+		h2n->cont_exp_sid = h2n->sid;
+		h2n->cont_exp_headers = 1;
+	//	lws_header_table_reset(h2n->swsi, 0);
+
+update_end_headers:
+
 		if (lws_check_opt(h2n->swsi->a.vhost->options,
 			       LWS_SERVER_OPTION_VH_H2_HALF_CLOSED_LONG_POLL)) {
 
@@ -1319,12 +1326,6 @@ lws_h2_parse_frame_header(struct lws *wsi)
 			  h2n->swsi->h2.END_STREAM);
 		}
 
-		h2n->cont_exp = !(h2n->flags & LWS_H2_FLAG_END_HEADERS);
-		h2n->cont_exp_sid = h2n->sid;
-		h2n->cont_exp_headers = 1;
-	//	lws_header_table_reset(h2n->swsi, 0);
-
-update_end_headers:
 		/* no END_HEADERS means CONTINUATION must come */
 		h2n->swsi->h2.END_HEADERS =
 				!!(h2n->flags & LWS_H2_FLAG_END_HEADERS);
