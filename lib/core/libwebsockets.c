@@ -1285,72 +1285,78 @@ lws_cmdline_option_handle_builtin(int argc, const char **argv,
 
 
 const lws_humanize_unit_t humanize_schema_si[] = {
-	{ "Pi ", LWS_PI }, { "Ti ", LWS_TI }, { "Gi ", LWS_GI },
-	{ "Mi ", LWS_MI }, { "Ki ", LWS_KI }, { "   ", 1 },
+	{ "Pi", LWS_PI }, { "Ti", LWS_TI }, { "Gi", LWS_GI },
+	{ "Mi", LWS_MI }, { "Ki", LWS_KI }, { "", 1 },
 	{ NULL, 0 }
 };
 const lws_humanize_unit_t humanize_schema_si_bytes[] = {
 	{ "PiB", LWS_PI }, { "TiB", LWS_TI }, { "GiB", LWS_GI },
-	{ "MiB", LWS_MI }, { "KiB", LWS_KI }, { "B  ", 1 },
+	{ "MiB", LWS_MI }, { "KiB", LWS_KI }, { "B", 1 },
 	{ NULL, 0 }
 };
 const lws_humanize_unit_t humanize_schema_us[] = {
-	{ "y  ",  (uint64_t)365 * 24 * 3600 * LWS_US_PER_SEC },
-	{ "d  ",  (uint64_t)24 * 3600 * LWS_US_PER_SEC },
-	{ "hr ", (uint64_t)3600 * LWS_US_PER_SEC },
+	{ "y",  (uint64_t)365 * 24 * 3600 * LWS_US_PER_SEC },
+	{ "d",  (uint64_t)24 * 3600 * LWS_US_PER_SEC },
+	{ "hr", (uint64_t)3600 * LWS_US_PER_SEC },
 	{ "min", 60 * LWS_US_PER_SEC },
-	{ "s  ", LWS_US_PER_SEC },
-	{ "ms ", LWS_US_PER_MS },
-	{ "us ", 1 },
+	{ "s", LWS_US_PER_SEC },
+	{ "ms", LWS_US_PER_MS },
+#if defined(WIN32)
+	{ "us", 1 },
+#else
+	{ "μs", 1 },
+#endif
 	{ NULL, 0 }
 };
+
+/* biggest ull is 18446744073709551615 (20 chars) */
 
 static int
 decim(char *r, uint64_t v, char chars, char leading)
 {
-	int n = chars - 1;
 	uint64_t q = 1;
+	char *ro = r;
+	int n = 1;
 
-	r += n;
-
-	while (n >= 0) {
-		if (v / q)
-			*r-- = (char)('0' + (char)((v / q) % 10));
-		else
-			*r-- = leading ? '0' : ' ';
+	while ((leading || v > (q * 10) - 1) && n < 20 && n < chars) {
 		q = q * 10;
-		n--;
+		n++;
 	}
 
-	if (v / q)
-		/* the number is bigger than the allowed chars! */
-		r[1] = '!';
+	/* n is how many chars needed */
 
-	return chars;
+	while (n--) {
+		*r++ = (char)('0' + (char)((v / q) % 10));
+		q = q / 10;
+	}
+
+	*r = '\0';
+
+	return lws_ptr_diff(r, ro);
 }
 
 int
 lws_humanize(char *p, size_t len, uint64_t v, const lws_humanize_unit_t *schema)
 {
-	char *end = p + len;
+	char *obuf = p, *end = p + len;
 
 	do {
 		if (v >= schema->factor || schema->factor == 1) {
 			if (schema->factor == 1) {
-				*p++ = ' ';
 				p += decim(p, v, 4, 0);
-				return lws_snprintf(p, (unsigned int)lws_ptr_diff(end, p),
-						    "%s    ", schema->name);
+				p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
+						    "%s", schema->name);
+				return lws_ptr_diff(p, obuf);
 			}
 
-			*p++ = ' ';
 			p += decim(p, v / schema->factor, 4, 0);
 			*p++ = '.';
 			p += decim(p, (v % schema->factor) /
 					(schema->factor / 1000), 3, 1);
 
-			return lws_snprintf(p, (unsigned int)lws_ptr_diff(end, p),
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
 					    "%s", schema->name);
+			return lws_ptr_diff(p, obuf);
 		}
 		schema++;
 	} while (schema->name);

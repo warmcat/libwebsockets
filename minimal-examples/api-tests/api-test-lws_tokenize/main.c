@@ -629,6 +629,37 @@ int main(int argc, const char **argv)
 	}
 #endif
 
+	{
+		char buf[24];
+		int m;
+
+		m = lws_humanize(buf, sizeof(buf), 0, humanize_schema_si);
+		if (m != 1 || strcmp(buf, "0")) {
+			lwsl_user("%s: humanize 1 fail '%s' (%d)\n", __func__, buf, m);
+			fail++;
+		}
+		m = lws_humanize(buf, sizeof(buf), 2, humanize_schema_si);
+		if (m != 1 || strcmp(buf, "2")) {
+			lwsl_user("%s: humanize 2 fail '%s' (%d)\n", __func__, buf, m);
+			fail++;
+		}
+		m = lws_humanize(buf, sizeof(buf), 999, humanize_schema_si);
+		if (m != 3 || strcmp(buf, "999")) {
+			lwsl_user("%s: humanize 3 fail '%s' (%d)\n", __func__, buf, m);
+			fail++;
+		}
+		m = lws_humanize(buf, sizeof(buf), 1000, humanize_schema_si);
+		if (m != 4 || strcmp(buf, "1000")) {
+			lwsl_user("%s: humanize 4 fail '%s' (%d)\n", __func__, buf, m);
+			fail++;
+		}
+		m = lws_humanize(buf, sizeof(buf), 1024, humanize_schema_si);
+		if (m != 7 || strcmp(buf, "1.000Ki")) {
+			lwsl_user("%s: humanize 5 fail '%s' (%d)\n", __func__, buf, m);
+			fail++;
+		}
+	}
+
 	lwsl_user("Completed: PASS: %d, FAIL: %d\n", ok, fail);
 
 	return !(ok && !fail);
