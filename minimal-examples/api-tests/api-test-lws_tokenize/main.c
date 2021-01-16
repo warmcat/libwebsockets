@@ -660,6 +660,67 @@ int main(int argc, const char **argv)
 		}
 	}
 
+	if (lws_strcmp_wildcard("allied", 6, "allied")) {
+		lwsl_user("%s: wc 1 fail\n", __func__);
+		fail++;
+	}
+	if (lws_strcmp_wildcard("a*", 2, "allied")) {
+		lwsl_user("%s: wc 2 fail\n", __func__);
+		fail++;
+	}
+	if (lws_strcmp_wildcard("all*", 4, "allied")) {
+		lwsl_user("%s: wc 3 fail\n", __func__);
+		fail++;
+	}
+	if (lws_strcmp_wildcard("all*d", 5, "allied")) {
+		lwsl_user("%s: wc 4 fail\n", __func__);
+		fail++;
+	}
+	if (!lws_strcmp_wildcard("b*", 2, "allied")) {
+		lwsl_user("%s: wc 5 fail\n", __func__);
+		fail++;
+	}
+	if (!lws_strcmp_wildcard("b*ed", 4, "allied")) {
+		lwsl_user("%s: wc 6 fail\n", __func__);
+		fail++;
+	}
+	if (!lws_strcmp_wildcard("allie", 5, "allied")) {
+		lwsl_user("%s: wc 7 fail\n", __func__);
+		fail++;
+	}
+	if (lws_strcmp_wildcard("allie*", 6, "allied")) {
+		lwsl_user("%s: wc 8 fail\n", __func__);
+		fail++;
+	}
+	if (lws_strcmp_wildcard("*llie*", 6, "allied")) {
+		lwsl_user("%s: wc 9 fail\n", __func__);
+		fail++;
+	}
+	if (lws_strcmp_wildcard("*llied", 6, "allied")) {
+		lwsl_user("%s: wc 10 fail\n", __func__);
+		fail++;
+	}
+	if (!lws_strcmp_wildcard("*llie", 5, "allied")) {
+		lwsl_user("%s: wc 11 fail\n", __func__);
+		fail++;
+	}
+	if (!lws_strcmp_wildcard("*nope", 5, "allied")) {
+		lwsl_user("%s: wc 12 fail\n", __func__);
+		fail++;
+	}
+	if (lws_strcmp_wildcard("*li*", 4, "allied")) {
+		lwsl_user("%s: wc 13 fail\n", __func__);
+		fail++;
+	}
+	if (lws_strcmp_wildcard("*", 1, "allied")) {
+		lwsl_user("%s: wc 14 fail\n", __func__);
+		fail++;
+	}
+	if (lws_strcmp_wildcard("*abc*d", 6, "xxabyyabcdd")) {
+		lwsl_user("%s: wc 15 fail\n", __func__);
+		fail++;
+	}
+
 	lwsl_user("Completed: PASS: %d, FAIL: %d\n", ok, fail);
 
 	return !(ok && !fail);

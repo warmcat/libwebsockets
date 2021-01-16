@@ -251,3 +251,15 @@ LWS_VISIBLE LWS_EXTERN int
 lws_strexp_expand(lws_strexp_t *exp, const char *in, size_t len,
 		  size_t *pused_in, size_t *pused_out);
 
+/**
+ * lws_strcmp_wildcard() - strcmp but the first arg can have wildcards
+ *
+ * \p wildcard: a string that may contain zero to three *, and may lack a NUL
+ * \p len: length of the wildcard string
+ * \p check: string to test to see if it matches wildcard
+ *
+ * Exactly like strcmp, but supports patterns like "a*", "a*b", "a*b*" etc
+ * where a and b are arbitrary substrings
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_strcmp_wildcard(const char *wildcard, size_t len, const char *check);

@@ -1135,6 +1135,82 @@ drain:
 	return LSTRX_DONE;
 }
 
+int
+lws_strcmp_wildcard(const char *wildcard, size_t len, const char *check)
+{
+	const char *match[3], *wc[3], *wc_end = wildcard + len;
+	int sp = 0;
+
+	do {
+
+		if (wildcard == wc_end) {
+			/*
+			 * We reached the end of wildcard, but not of check,
+			 * and the last thing in wildcard was not a * or we
+			 * would have completed already... if we can rewind,
+			 * let's try that...
+			 */
+			if (sp) {
+				wildcard = wc[sp - 1];
+				check = match[--sp];
+
+				continue;
+			}
+
+			/* otherwise it's the end of the road for this one */
+
+			return 1;
+		}
+
+		if (*wildcard == '*') {
+
+			if (++wildcard == wc_end)
+				 /*
+				  * Wildcard ended on a *, so we know we will
+				  * match unconditionally
+				  */
+				return 0;
+
+			/*
+			 * Now we need to stick wildcard here and see if there
+			 * is any remaining match exists, for eg b of "a*b"
+			 */
+
+			if (sp == LWS_ARRAY_SIZE(match)) {
+				lwsl_err("%s: exceeds * stack\n", __func__);
+				return 1; /* we can't deal with it */
+			}
+
+			wc[sp] = wildcard;
+			/* if we ever pop and come back here, pick up from +1 */
+			match[sp++] = check + 1;
+			continue;
+		}
+
+		if (*(check++) == *wildcard) {
+
+			if (wildcard == wc_end)
+				return 0;
+			/*
+			 * We're still compatible with wildcard... keep going
+			 */
+			wildcard++;
+
+			continue;
+		}
+
+		if (!sp)
+			/*
+			 * We're just trying to match literals, and failed...
+			 */
+			return 1;
+
+		/* we're looking for a post-* match... keep looking... */
+
+	} while (*check);
+
+	return !!*wildcard;
+}
 
 #if LWS_MAX_SMP > 1
 
