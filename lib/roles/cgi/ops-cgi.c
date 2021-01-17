@@ -105,7 +105,7 @@ rops_destroy_role_cgi(struct lws *wsi)
 	return 0;
 }
 
-static void
+void
 lws_cgi_sul_cb(lws_sorted_usec_list_t *sul)
 {
 	struct lws_context_per_thread *pt = lws_container_of(sul,
@@ -113,8 +113,9 @@ lws_cgi_sul_cb(lws_sorted_usec_list_t *sul)
 
 	lws_cgi_kill_terminated(pt);
 
-	lws_sul_schedule(pt->context, (int)(pt - pt->context->pt), &pt->sul_cgi,
-			 lws_cgi_sul_cb, 3 * LWS_US_PER_SEC);
+	if (pt->http.cgi_list)
+		lws_sul_schedule(pt->context, (int)(pt - pt->context->pt),
+				 &pt->sul_cgi, lws_cgi_sul_cb, 3 * LWS_US_PER_SEC);
 }
 
 static int
@@ -122,11 +123,8 @@ rops_pt_init_destroy_cgi(struct lws_context *context,
 		    const struct lws_context_creation_info *info,
 		    struct lws_context_per_thread *pt, int destroy)
 {
-	if (!destroy) {
-		lws_sul_schedule(context, (int)(pt - context->pt), &pt->sul_cgi,
-				 lws_cgi_sul_cb, 3 * LWS_US_PER_SEC);
-	} else
-		lws_sul_cancel(&pt->sul_cgi);
+
+	lws_sul_cancel(&pt->sul_cgi);
 
 	return 0;
 }

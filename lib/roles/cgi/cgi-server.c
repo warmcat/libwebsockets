@@ -35,6 +35,9 @@
 
 static const char *hex = "0123456789ABCDEF";
 
+void
+lws_cgi_sul_cb(lws_sorted_usec_list_t *sul);
+
 static int
 urlencode(const char *in, int inlen, char *out, int outlen)
 {
@@ -144,6 +147,11 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 	lwsl_debug("%s: adding cgi %p to list\n", __func__, wsi->http.cgi);
 	cgi->cgi_list = pt->http.cgi_list;
 	pt->http.cgi_list = cgi;
+
+	/* if it's not already running, start the cleanup timer */
+	if (!pt->sul_cgi.list.owner)
+		lws_sul_schedule(pt->context, (int)(pt - pt->context->pt), &pt->sul_cgi,
+				 lws_cgi_sul_cb, 3 * LWS_US_PER_SEC);
 
 	sum += lws_snprintf(sum, lws_ptr_diff_size_t(sumend, sum), "%s ", exec_array[0]);
 
@@ -1095,4 +1103,7 @@ lws_cgi_remove_and_kill(struct lws *wsi)
 	/* we have a cgi going, we must kill it */
 	wsi->http.cgi->being_closed = 1;
 	lws_cgi_kill(wsi);
+
+	if (!pt->http.cgi_list)
+		lws_sul_cancel(&pt->sul_cgi);
 }
