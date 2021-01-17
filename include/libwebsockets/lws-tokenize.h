@@ -43,6 +43,8 @@
 #define LWS_TOKENIZE_F_HASH_COMMENT	(1 << 7)
 /* Do not treat / as a terminal character, so "multipart/related" is one token */
 #define LWS_TOKENIZE_F_SLASH_NONTERM	(1 << 8)
+/* Do not treat * as a terminal character, so "myfile*" is one token */
+#define LWS_TOKENIZE_F_ASTERISK_NONTERM	(1 << 9)
 
 typedef enum {
 

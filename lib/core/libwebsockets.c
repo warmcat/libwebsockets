@@ -768,8 +768,8 @@ lws_tokenize(struct lws_tokenize *ts)
 {
 	const char *rfc7230_delims = "(),/:;<=>?@[\\]{}";
 	lws_tokenize_state state = LWS_TOKZS_LEADING_WHITESPACE;
-	char c, flo = 0, d_minus = '-', d_dot = '.', s_minus = '\0',
-	     s_dot = '\0', skipping = 0;
+	char c, flo = 0, d_minus = '-', d_dot = '.', d_star = '*', s_minus = '\0',
+	     s_dot = '\0', s_star = '\0', skipping = 0;
 	signed char num = (ts->flags & LWS_TOKENIZE_F_NO_INTEGERS) ? 0 : -1;
 	int utf8 = 0;
 
@@ -782,6 +782,10 @@ lws_tokenize(struct lws_tokenize *ts)
 	if (ts->flags & LWS_TOKENIZE_F_DOT_NONTERM) {
 		d_dot = '\0';
 		s_dot = '.';
+	}
+	if (ts->flags & LWS_TOKENIZE_F_ASTERISK_NONTERM) {
+		d_star = '\0';
+		s_star = '*';
 	}
 
 	ts->token = NULL;
@@ -905,8 +909,8 @@ lws_tokenize(struct lws_tokenize *ts)
 		    ((!(ts->flags & LWS_TOKENIZE_F_RFC7230_DELIMS) &&
 		     (c < '0' || c > '9') && (c < 'A' || c > 'Z') &&
 		     (c < 'a' || c > 'z') && c != '_') &&
-		     c != s_minus && c != s_dot) ||
-		    c == d_minus || c == d_dot
+		     c != s_minus && c != s_dot && c != s_star) ||
+		    c == d_minus || c == d_dot || c == d_star
 		    ) &&
 		    !((ts->flags & LWS_TOKENIZE_F_SLASH_NONTERM) && c == '/')) {
 			switch (state) {
