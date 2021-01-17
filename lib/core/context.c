@@ -66,19 +66,6 @@ lws_sul_stats_cb(lws_sorted_usec_list_t *sul)
 			    &pt->sul_stats, 10 * LWS_US_PER_SEC);
 }
 #endif
-#if defined(LWS_WITH_PEER_LIMITS)
-static void
-lws_sul_peer_limits_cb(lws_sorted_usec_list_t *sul)
-{
-	struct lws_context_per_thread *pt = lws_container_of(sul,
-			struct lws_context_per_thread, sul_peer_limits);
-
-	lws_peer_cull_peer_wait_list(pt->context);
-
-	__lws_sul_insert_us(&pt->pt_sul_owner[LWSSULLI_MISS_IF_SUSPENDED],
-			    &pt->sul_peer_limits, 10 * LWS_US_PER_SEC);
-}
-#endif
 
 #if defined(LWS_WITH_NETWORK)
 
@@ -1169,11 +1156,6 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->pt[0].sul_stats.cb = lws_sul_stats_cb;
 	__lws_sul_insert_us(&context->pt[0].pt_sul_owner[LWSSULLI_MISS_IF_SUSPENDED],
 			    &context->pt[0].sul_stats, 10 * LWS_US_PER_SEC);
-#endif
-#if defined(LWS_WITH_PEER_LIMITS)
-	context->pt[0].sul_peer_limits.cb = lws_sul_peer_limits_cb;
-	__lws_sul_insert_us(&context->pt[0].pt_sul_owner[LWSSULLI_MISS_IF_SUSPENDED],
-			    &context->pt[0].sul_peer_limits, 10 * LWS_US_PER_SEC);
 #endif
 
 #if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)

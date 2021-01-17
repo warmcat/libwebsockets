@@ -39,9 +39,24 @@ __lws_peer_remove_from_peer_wait_list(struct lws_context *context,
 			*p = df->peer_wait_list;
 			df->peer_wait_list = NULL;
 
+			if (!context->peer_wait_list)
+				lws_sul_cancel(&context->pt[0].sul_peer_limits);
+
 			return;
 		}
 	} lws_end_foreach_llp(p, peer_wait_list);
+}
+
+void
+lws_sul_peer_limits_cb(lws_sorted_usec_list_t *sul)
+{
+	struct lws_context_per_thread *pt = lws_container_of(sul,
+			struct lws_context_per_thread, sul_peer_limits);
+
+	lws_peer_cull_peer_wait_list(pt->context);
+
+	lws_sul_schedule(pt->context, 0, &pt->context->pt[0].sul_peer_limits,
+			 lws_sul_peer_limits_cb, 10 * LWS_US_PER_SEC);
 }
 
 /* requires context->lock */
@@ -53,6 +68,10 @@ __lws_peer_add_to_peer_wait_list(struct lws_context *context,
 
 	peer->peer_wait_list = context->peer_wait_list;
 	context->peer_wait_list = peer;
+
+	if (!context->pt[0].sul_peer_limits.list.owner)
+		lws_sul_schedule(context, 0, &context->pt[0].sul_peer_limits,
+				lws_sul_peer_limits_cb, 10 * LWS_US_PER_SEC);
 }
 
 
