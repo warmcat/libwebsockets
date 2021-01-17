@@ -267,6 +267,29 @@ lws_dbus_toggle_watch(DBusWatch *w, void *data)
 		lws_dbus_remove_watch(w, data);
 }
 
+static void
+lws_dbus_sul_cb(lws_sorted_usec_list_t *sul)
+{
+	struct lws_context_per_thread *pt = lws_container_of(sul,
+				struct lws_context_per_thread, dbus.sul);
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, rdt, nx,
+			 lws_dll2_get_head(&pt->dbus.timer_list_owner)) {
+		struct lws_role_dbus_timer *r = lws_container_of(rdt,
+					struct lws_role_dbus_timer, timer_list);
+
+		if (time(NULL) > r->fire) {
+			lwsl_notice("%s: firing timer\n", __func__);
+			dbus_timeout_handle(r->data);
+			lws_dll2_remove(rdt);
+			lws_free(rdt);
+		}
+	} lws_end_foreach_dll_safe(rdt, nx);
+
+	if (pt->dbus.timer_list_owner.count)
+		lws_sul_schedule(pt->context, pt->tid, &pt->dbus.sul,
+				 lws_dbus_sul_cb, 3 * LWS_US_PER_SEC);
+}
 
 static dbus_bool_t
 lws_dbus_add_timeout(DBusTimeout *t, void *data)
@@ -297,6 +320,10 @@ lws_dbus_add_timeout(DBusTimeout *t, void *data)
 	dbt->timer_list.owner = NULL;
 	lws_dll2_add_head(&dbt->timer_list, &pt->dbus.timer_list_owner);
 
+	if (!pt->dbus.sul.list.owner)
+		lws_sul_schedule(pt->context, pt->tid, &pt->dbus.sul,
+				 lws_dbus_sul_cb, 3 * LWS_US_PER_SEC);
+
 	ctx->timeouts++;
 
 	return TRUE;
@@ -321,6 +348,9 @@ lws_dbus_remove_timeout(DBusTimeout *t, void *data)
 			break;
 		}
 	} lws_end_foreach_dll_safe(rdt, nx);
+
+	if (!pt->dbus.timer_list_owner.count)
+		lws_sul_cancel(&pt->dbus.sul);
 }
 
 static void
@@ -476,38 +506,12 @@ rops_handle_POLLIN_dbus(struct lws_context_per_thread *pt, struct lws *wsi,
 	return LWS_HPI_RET_HANDLED;
 }
 
-static void
-lws_dbus_sul_cb(lws_sorted_usec_list_t *sul)
-{
-	struct lws_context_per_thread *pt = lws_container_of(sul,
-				struct lws_context_per_thread, dbus.sul);
-
-	lws_start_foreach_dll_safe(struct lws_dll2 *, rdt, nx,
-			 lws_dll2_get_head(&pt->dbus.timer_list_owner)) {
-		struct lws_role_dbus_timer *r = lws_container_of(rdt,
-					struct lws_role_dbus_timer, timer_list);
-
-		if (time(NULL) > r->fire) {
-			lwsl_notice("%s: firing timer\n", __func__);
-			dbus_timeout_handle(r->data);
-			lws_dll2_remove(rdt);
-			lws_free(rdt);
-		}
-	} lws_end_foreach_dll_safe(rdt, nx);
-
-	lws_sul_schedule(pt->context, pt->tid, &pt->dbus.sul, lws_dbus_sul_cb,
-			 3 * LWS_US_PER_SEC);
-}
-
 static int
 rops_pt_init_destroy_dbus(struct lws_context *context,
 		    const struct lws_context_creation_info *info,
 		    struct lws_context_per_thread *pt, int destroy)
 {
-	if (!destroy) {
-		lws_sul_schedule(context, pt->tid, &pt->dbus.sul, lws_dbus_sul_cb,
-				 3 * LWS_US_PER_SEC);
-	} else
+	if (destroy)
 		lws_sul_cancel(&pt->dbus.sul);
 
 	return 0;
