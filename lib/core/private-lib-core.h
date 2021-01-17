@@ -640,6 +640,8 @@ struct lws_context {
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
 	uint16_t	ss_proxy_port;
 #endif
+	/* 0 if not known, else us resolution of the poll wait */
+	uint16_t us_wait_resolution;
 
 	uint8_t max_fi;
 	uint8_t udp_loss_sim_tx_pc;

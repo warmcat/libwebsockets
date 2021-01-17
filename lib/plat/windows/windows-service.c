@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2021 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -133,7 +133,13 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 					    LWS_COUNT_PT_SUL_OWNERS,
 					    lws_now_usecs());
 		if (us && us < timeout_us)
-			timeout_us = us;
+			/*
+			 * If something wants zero wait, that's OK, but if the next sul
+			 * coming ripe is an interval less than our wait resolution,
+			 * bump it to be the wait resolution.
+			 */
+			timeout_us = us < context->us_wait_resolution ?
+					context->us_wait_resolution : us;
 
 		lws_pt_unlock(pt);
 	}

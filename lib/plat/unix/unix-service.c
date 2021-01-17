@@ -115,7 +115,13 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	 */
 	us = __lws_sul_service_ripe(pt->pt_sul_owner, LWS_COUNT_PT_SUL_OWNERS, us);
 	if (us && us < timeout_us)
-		timeout_us = us;
+		/*
+		 * If something wants zero wait, that's OK, but if the next sul
+		 * coming ripe is an interval less than our wait resolution,
+		 * bump it to be the wait resolution.
+		 */
+		timeout_us = us < context->us_wait_resolution ?
+					context->us_wait_resolution : us;
 
 	lws_pt_unlock(pt);
 

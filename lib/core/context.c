@@ -394,6 +394,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if defined(LWS_WITH_NETWORK)
 	unsigned short count_threads = 1;
 	uint8_t *u;
+	uint16_t us_wait_resolution = 0;
 #endif
 #if defined(__ANDROID__)
 	struct rlimit rt;
@@ -469,6 +470,13 @@ lws_create_context(const struct lws_context_creation_info *info)
 	{
 		extern const lws_plugin_evlib_t evlib_poll;
 		plev = &evlib_poll;
+#if !defined(LWS_PLAT_FREERTOS)
+		/*
+		 * ... freertos has us-resolution select()...
+		 * others are to ms-resolution poll()
+		 */
+		us_wait_resolution = 1000;
+#endif
 	}
 #endif
 
@@ -575,6 +583,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 		extern const lws_plugin_evlib_t evlib_uv;
 		plev = &evlib_uv;
 		fatal_exit_defer = !!info->foreign_loops;
+		us_wait_resolution = 0;
 	}
 #endif
 
@@ -582,6 +591,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	if (lws_check_opt(info->options, LWS_SERVER_OPTION_LIBEVENT)) {
 		extern const lws_plugin_evlib_t evlib_event;
 		plev = &evlib_event;
+		us_wait_resolution = 0;
 	}
 #endif
 
@@ -589,6 +599,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	if (lws_check_opt(info->options, LWS_SERVER_OPTION_GLIB)) {
 		extern const lws_plugin_evlib_t evlib_glib;
 		plev = &evlib_glib;
+		us_wait_resolution = 0;
 	}
 #endif
 
@@ -596,6 +607,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	if (lws_check_opt(info->options, LWS_SERVER_OPTION_LIBEV)) {
 		extern const lws_plugin_evlib_t evlib_ev;
 		plev = &evlib_ev;
+		us_wait_resolution = 0;
 	}
 #endif
 
@@ -603,6 +615,7 @@ lws_create_context(const struct lws_context_creation_info *info)
     if (lws_check_opt(info->options, LWS_SERVER_OPTION_SDEVENT)) {
         extern const lws_plugin_evlib_t evlib_sd;
         plev = &evlib_sd;
+        us_wait_resolution = 0;
     }
 #endif
 
@@ -628,6 +641,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 
 #if defined(LWS_WITH_NETWORK)
 	context->event_loop_ops = plev->ops;
+	context->us_wait_resolution = us_wait_resolution;
 #endif
 #if defined(LWS_WITH_EVENT_LIBS)
 	/* at the very end */
