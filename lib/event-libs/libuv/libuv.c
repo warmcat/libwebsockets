@@ -161,9 +161,6 @@ bail:
 static void
 lws_libuv_stop(struct lws_context *context)
 {
-	struct lws_context_per_thread *pt;
-	int n, m;
-
 	lwsl_err("%s\n", __func__);
 
 	if (context->requested_stop_internal_loops) {
@@ -172,38 +169,7 @@ lws_libuv_stop(struct lws_context *context)
 	}
 
 	context->requested_stop_internal_loops = 1;
-
-	m = context->count_threads;
-	context->being_destroyed = 1;
-
-	/*
-	 * Phase 1: start the close of every dynamic uv handle
-	 */
-
-	while (m--) {
-		pt = &context->pt[m];
-
-		if (pt->pipe_wsi) {
-			uv_poll_stop(wsi_to_priv_uv(pt->pipe_wsi)->w_read.pwatcher);
-			lws_destroy_event_pipe(pt->pipe_wsi);
-			pt->pipe_wsi = NULL;
-		}
-
-		for (n = 0; (unsigned int)n < context->pt[m].fds_count; n++) {
-			struct lws *wsi = wsi_from_fd(context, pt->fds[n].fd);
-
-			if (!wsi)
-				continue;
-			lws_close_free_wsi(wsi,
-				LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY,
-				__func__ /* no protocol close */);
-			n--;
-		}
-	}
-
-	lwsl_info("%s: started closing all wsi\n", __func__);
-
-	/* we cannot have completed... there are at least the cancel pipes */
+	lws_context_destroy(context);
 }
 
 static void
@@ -219,7 +185,7 @@ lws_uv_signal_handler(uv_signal_t *watcher, int signum)
 	}
 
 	lwsl_err("internal signal handler caught signal %d\n", signum);
-	lws_libuv_stop(watcher->data);
+	lws_libuv_stop(pt->context);
 }
 
 static int
