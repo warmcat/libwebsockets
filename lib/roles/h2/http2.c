@@ -1583,6 +1583,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			h2n->swsi->http.rx_content_length = (unsigned long long)atoll(simp);
 			h2n->swsi->http.rx_content_remain =
 					h2n->swsi->http.rx_content_length;
+			h2n->swsi->http.content_length_given = 1;
 			lwsl_info("setting rx_content_length %lld\n",
 				  (long long)h2n->swsi->http.rx_content_length);
 		}
@@ -2143,16 +2144,16 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 						&h2n->swsi->buflist, in - 1, (unsigned int)n);
 					if (m < 0)
 						return -1;
-					if (m) {
-						struct lws_context_per_thread *pt;
 
-						pt = &wsi->a.context->pt[(int)wsi->tsi];
-						lwsl_debug("%s: added %s to rxflow list\n",
-							   __func__, lws_wsi_tag(wsi));
-						lws_dll2_add_head(
-							&h2n->swsi->dll_buflist,
-							&pt->dll_buflist_owner);
-					}
+					/*
+					 * Since we're in an open-ended
+					 * DEFERRING_ACTION, don't add this swsi
+					 * to the pt list of wsi holding buflist
+					 * content yet, we are not in a position
+					 * to consume it until we get out of
+					 * DEFERRING_ACTION.
+					 */
+
 					in += n - 1;
 					h2n->inside += (unsigned int)n;
 					h2n->count += (unsigned int)n - 1;

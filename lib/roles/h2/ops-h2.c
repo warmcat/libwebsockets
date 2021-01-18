@@ -90,7 +90,8 @@ const struct http2_settings lws_h2_stock_settings = { {
 }};
 
 /*
- * The wsi at this level is the network wsi
+ * The wsi at this level is normally the network wsi... we can get called on
+ * another path via lws_service_do_ripe_rxflow() on mux children too tho...
  */
 
 static int
@@ -190,6 +191,14 @@ read:
 		lwsl_info("draining buflist (len %d)\n", ebuf.len);
 		buffered = 1;
 		goto drain;
+	} else {
+
+		if (wsi->mux_substream) {
+			lwsl_warn("%s: uh... %s mux child with nothing to drain\n", __func__, lws_wsi_tag(wsi));
+			// assert(0);
+			lws_dll2_remove(&wsi->dll_buflist);
+			return LWS_HPI_RET_HANDLED;
+		}
 	}
 
 	if (!lws_ssl_pending(wsi) &&
@@ -767,74 +776,97 @@ rops_callback_on_writable_h2(struct lws *wsi)
 static int
 lws_h2_bind_for_post_before_action(struct lws *wsi)
 {
+	const struct lws_http_mount *hit;
+	char *uri_ptr = NULL;
 	uint8_t *buffered;
+	int uri_len = 0;
 	const char *p;
 	size_t blen;
 
 	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_METHOD);
-	if (p && !strcmp(p, "POST")) {
-		const struct lws_http_mount *hit;
+	if (!p || strcmp(p, "POST"))
+		return 0;
 
-		if (!lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH) ||
-		    !lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_PATH))
-			/*
-			 * There must be a path.  Actually this is checked at
-			 * http2.c along with the other required header
-			 * presence before we can get here.
-			 *
-			 * But Coverity insists to see us check it.
-			 */
-			return 1;
 
-		hit = lws_find_mount(wsi,
-			  lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_PATH),
-			  lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH));
-
-		lwsl_debug("%s: %s: hit %p: %s\n", __func__,
-			    lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_PATH),
-			    hit, hit ? hit->origin : "null");
-		if (hit) {
-			const struct lws_protocols *pp;
-			const char *name = hit->origin;
-
-			if (hit->protocol)
-				name = hit->protocol;
-
-			pp = lws_vhost_name_to_protocol(wsi->a.vhost, name);
-			if (!pp) {
-				lwsl_info("Unable to find protocol '%s'\n", name);
-				return 1;
-			}
-
-			if (lws_bind_protocol(wsi, pp, __func__))
-				return 1;
-		}
-
-		{
-			int uri_len = 0;
-			char *uri_ptr = NULL;
-
-			if (lws_http_get_uri_and_method(wsi, &uri_ptr, &uri_len) >= 0)
-				wsi->a.protocol->callback(wsi, LWS_CALLBACK_HTTP,
-					wsi->user_space, uri_ptr, (size_t)uri_len);
-		}
-
-		lwsl_info("%s: setting LRS_BODY from 0x%x (%s)\n", __func__,
-			    (int)wsi->wsistate, wsi->a.protocol->name);
-
-		lwsi_set_state(wsi, LRS_BODY);
-
+	if (!lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH) ||
+	    !lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_PATH))
 		/*
-		 * Dump any stashed body
+		 * There must be a path.  Actually this is checked at
+		 * http2.c along with the other required header
+		 * presence before we can get here.
+		 *
+		 * But Coverity insists to see us check it.
 		 */
+		return 1;
 
-		while ((blen = lws_buflist_next_segment_len(&wsi->buflist, &buffered))) {
-			if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_HTTP_BODY,
-					wsi->user_space, buffered, blen))
-				return 1;
-			lws_buflist_use_segment(&wsi->buflist, blen);
+	hit = lws_find_mount(wsi,
+		  lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_PATH),
+		  lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH));
+
+	lwsl_debug("%s: %s: hit %p: %s\n", __func__,
+		    lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_PATH),
+		    hit, hit ? hit->origin : "null");
+	if (hit) {
+		const struct lws_protocols *pp;
+		const char *name = hit->origin;
+
+		if (hit->protocol)
+			name = hit->protocol;
+
+		pp = lws_vhost_name_to_protocol(wsi->a.vhost, name);
+		if (!pp) {
+			lwsl_info("Unable to find protocol '%s'\n", name);
+			return 1;
 		}
+
+		if (lws_bind_protocol(wsi, pp, __func__))
+			return 1;
 	}
+	if (lws_http_get_uri_and_method(wsi, &uri_ptr, &uri_len) >= 0)
+		wsi->a.protocol->callback(wsi, LWS_CALLBACK_HTTP,
+		wsi->user_space, uri_ptr, (size_t)uri_len);
+
+	lwsl_notice("%s: setting LRS_BODY from 0x%x (%s)\n", __func__,
+		    (int)wsi->wsistate, wsi->a.protocol->name);
+
+	lwsi_set_state(wsi, LRS_BODY);
+
+	if (wsi->http.content_length_explicitly_zero)
+		return 0;
+
+	/*
+	 * Dump any stashed body
+	 */
+
+	while (((!wsi->http.content_length_given) ||
+		  wsi->http.rx_content_length) &&
+	       (blen = lws_buflist_next_segment_len(&wsi->buflist, &buffered))) {
+
+		if ((size_t)wsi->http.rx_content_length < blen)
+			blen = (size_t)wsi->http.rx_content_length;
+
+		if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_HTTP_BODY,
+				wsi->user_space, buffered, blen))
+			return 1;
+		lws_buflist_use_segment(&wsi->buflist, blen);
+
+		wsi->http.rx_content_length -= blen;
+	}
+
+	if (!wsi->buflist)
+		/* Take us off the pt's "wsi holding input buflist" list */
+		lws_dll2_remove(&wsi->dll_buflist);
+
+	if (wsi->http.content_length_given && wsi->http.rx_content_length)
+		/* still a-ways to go */
+		return 0;
+
+	if (!wsi->http.content_length_given && !wsi->h2.END_STREAM)
+		return 0;
+
+	if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_HTTP_BODY_COMPLETION,
+				      wsi->user_space, NULL, 0))
+		return 1;
 
 	return 0;
 }
@@ -987,6 +1019,17 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			 */
 
 			lwsi_set_state(w, LRS_ESTABLISHED);
+
+			if (w->buflist) {
+				struct lws_context_per_thread *pt;
+
+				pt = &w->a.context->pt[(int)w->tsi];
+				lwsl_debug("%s: added %s to rxflow list\n",
+					   __func__, lws_wsi_tag(w));
+				lws_dll2_add_head(
+					&w->dll_buflist,
+					&pt->dll_buflist_owner);
+			}
 
 			lws_h2_bind_for_post_before_action(w);
 

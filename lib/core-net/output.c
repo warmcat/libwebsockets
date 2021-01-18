@@ -293,11 +293,7 @@ lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 int
 lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, size_t len)
 {
-	struct lws_context *context = wsi->a.context;
-	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	int n = 0;
-
-	lws_stats_bump(pt, LWSSTATS_C_API_READ, 1);
+	int n = 0, en;
 
 	errno = 0;
 #if defined(LWS_WITH_UDP)
@@ -317,7 +313,7 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, size_t len)
 				(int)
 #endif
 				len, 0);
-
+	en = LWS_ERRNO;
 	if (n >= 0) {
 
 		if (!n && wsi->unix_skt)
@@ -334,17 +330,17 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, size_t len)
 		if (wsi->a.vhost)
 			wsi->a.vhost->conn_stats.rx = (unsigned long long)(wsi->a.vhost->conn_stats.rx + (unsigned long long)(long long)n);
 #endif
-		lws_stats_bump(pt, LWSSTATS_B_READ, (unsigned int)n);
 
 		return n;
 	}
 
-	if (LWS_ERRNO == LWS_EAGAIN ||
-	    LWS_ERRNO == LWS_EWOULDBLOCK ||
-	    LWS_ERRNO == LWS_EINTR)
+	if (en == LWS_EAGAIN ||
+	    en == LWS_EWOULDBLOCK ||
+	    en == LWS_EINTR)
 		return LWS_SSL_CAPABLE_MORE_SERVICE;
 
-	lwsl_info("error on reading from skt : %d\n", LWS_ERRNO);
+	lwsl_info("error on reading from skt : %d\n", en);
+
 	return LWS_SSL_CAPABLE_ERROR;
 }
 
