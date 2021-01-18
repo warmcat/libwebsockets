@@ -296,6 +296,7 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLIENT_CLOSED:
+		lws_sul_cancel(&mco->sul_hz);
 		goto do_retry;
 
 	default:
