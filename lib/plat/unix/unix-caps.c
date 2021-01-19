@@ -32,7 +32,7 @@
 
 #if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
 static void
-_lws_plat_apply_caps(int mode, const cap_value_t *cv, int count)
+_lws_plat_apply_caps(unsigned int mode, const cap_value_t *cv, int count)
 {
 	cap_t caps;
 
@@ -41,7 +41,7 @@ _lws_plat_apply_caps(int mode, const cap_value_t *cv, int count)
 
 	caps = cap_get_proc();
 
-	cap_set_flag(caps, mode, count, cv, CAP_SET);
+	cap_set_flag(caps, (cap_flag_t)mode, count, cv, CAP_SET);
 	cap_set_proc(caps);
 	prctl(PR_SET_KEEPCAPS, 1, 0, 0, 0);
 	cap_free(caps);
