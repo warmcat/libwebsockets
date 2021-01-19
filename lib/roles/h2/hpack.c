@@ -264,12 +264,6 @@ static int lws_frag_start(struct lws *wsi, int hdr_token_idx)
 			n = ah->frags[n].nfrag;
 		/* and point it to continue in our continuation fragment */
 		ah->frags[n].nfrag = ah->nfrag;
-
-		/* cookie continuations need a separator token of ';' */
-		if (hdr_token_idx == WSI_TOKEN_HTTP_COOKIE) {
-			ah->data[ah->pos++] = ';';
-			ah->frags[ah->nfrag].len++;
-		}
 	} else
 		ah->frag_index[hdr_token_idx] = ah->nfrag;
 

@@ -559,8 +559,9 @@ int lws_hdr_copy(struct lws *wsi, char *dst, int len,
 		return 0;
 
 	do {
-		comma = (wsi->http.ah->frags[n].nfrag &&
-			h != WSI_TOKEN_HTTP_COOKIE) ? 1 : 0;
+		comma = (wsi->http.ah->frags[n].nfrag) ? 1 : 0;
+
+		//lwsl_notice("'%.*s'\n", (int)wsi->http.ah->frags[n].len, &wsi->http.ah->data[wsi->http.ah->frags[n].offset]);
 
 		if (wsi->http.ah->frags[n].len + comma >= len)
 			return -1;
@@ -570,8 +571,12 @@ int lws_hdr_copy(struct lws *wsi, char *dst, int len,
 		len -= wsi->http.ah->frags[n].len;
 		n = wsi->http.ah->frags[n].nfrag;
 
-		if (comma)
-			*dst++ = ',';
+		if (comma) {
+			if (h == WSI_TOKEN_HTTP_COOKIE || h == WSI_TOKEN_HTTP_SET_COOKIE)
+				*dst++ = ';';
+			else
+				*dst++ = ',';
+		}
 				
 	} while (n);
 	*dst = '\0';
@@ -1467,21 +1472,63 @@ int
 lws_http_cookie_get(struct lws *wsi, const char *name, char *buf,
 		    size_t *max_len)
 {
-	int n, bl = (int)strlen(name);
-	size_t max = *max_len;
+	size_t max = *max_len, bl = strlen(name);
 	char *p, *bo = buf;
+	int n;
 
 	n = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE);
-	if (n < bl + 1)
+	if ((unsigned int)n < bl + 1)
 		return 1;
+
+	/*
+	 * This can come to us two ways, in ah fragments (h2) or as a single
+	 * semicolon-delimited string (h1)
+	 */
+
+#if defined(LWS_ROLE_H2)
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_METHOD)) {
+
+		/*
+		 * The h2 way...
+		 */
+
+		int f = wsi->http.ah->frag_index[WSI_TOKEN_HTTP_COOKIE];
+		size_t fl;
+
+		while (f) {
+			p = wsi->http.ah->data + wsi->http.ah->frags[f].offset;
+			fl = (size_t)wsi->http.ah->frags[f].len;
+			if (fl >= bl + 1 &&
+			    p[bl] == '=' &&
+			    !memcmp(p, name, bl)) {
+				fl -= bl + 1;
+				if (max - 1 < fl)
+					fl = max - 1;
+				if (fl)
+					memcpy(buf, p + bl + 1, fl);
+				*max_len = fl;
+				buf[fl] = '\0';
+
+				return 0;
+			}
+			f = wsi->http.ah->frags[f].nfrag;
+		}
+
+		return -1;
+	}
+#endif
+
+	/*
+	 * The h1 way...
+	 */
 
 	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COOKIE);
 	if (!p)
 		return 1;
 
 	p += bl;
-	n -= bl;
-	while (n-- > bl) {
+	n -= (int)bl;
+	while (n-- > (int)bl) {
 		if (*p == '=' && !memcmp(p - bl, name, (unsigned int)bl)) {
 			p++;
 			while (*p != ';' && n-- && max) {
