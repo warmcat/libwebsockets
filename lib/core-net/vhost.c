@@ -1053,7 +1053,6 @@ lws_vhost_destroy1(struct lws_vhost *vh)
 				break;
 			}
 		} lws_end_foreach_ll(v, vhost_next);
-
 #endif
 
 	lws_vhost_unlock(vh); /* } vh -------------- */

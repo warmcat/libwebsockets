@@ -1123,6 +1123,24 @@ lws_context_user(struct lws_context *context);
 LWS_VISIBLE LWS_EXTERN const char *
 lws_vh_tag(struct lws_vhost *vh);
 
+/**
+ * lws_context_is_being_destroyed() - find out if context is being destroyed
+ *
+ * \param context: the struct lws_context pointer
+ *
+ * Returns nonzero if the context has had lws_context_destroy() called on it...
+ * when using event library loops the destroy process can be asynchronous.  In
+ * the special case of libuv foreign loops, the failure to create the context
+ * may have to do work on the foreign loop to reverse the partial creation,
+ * meaning a failed context create cannot unpick what it did and return NULL.
+ *
+ * In that condition, a valid context that is already started the destroy
+ * process is returned, and this test api will return nonzero as a way to
+ * find out the create is in the middle of failing.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_context_is_being_destroyed(struct lws_context *context);
+
 /*! \defgroup vhost-mounts Vhost mounts and options
  * \ingroup context-and-vhost-creation
  *

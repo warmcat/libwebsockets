@@ -1871,10 +1871,6 @@ next:
 
 #if defined(LWS_WITH_NETWORK)
 
-		context->evlib_finalize_destroy_after_int_loops_stop = 1;
-		if (context->event_loop_ops->destroy_context2)
-			context->event_loop_ops->destroy_context2(context);
-
 		for (n = 0; n < context->count_threads; n++) {
 			struct lws_context_per_thread *pt = &context->pt[n];
 			(void)pt;
@@ -1915,11 +1911,20 @@ next:
 			goto bail;
 		}
 
+		if (!context->pt[0].event_loop_foreign) {
+			lwsl_notice("%s: waiting for internal loop exit\n", __func__);
+
+			goto bail;
+		}
 #endif
 
 	case LWSCD_FINALIZATION:
 
+		context->evlib_finalize_destroy_after_int_loops_stop = 1;
+
 #if defined(LWS_WITH_NETWORK)
+		if (context->event_loop_ops->destroy_context2)
+			context->event_loop_ops->destroy_context2(context);
 
 		/*
 		 * finalize destroy of pt and things hanging off it
@@ -2025,6 +2030,12 @@ bail:
 	lwsl_info("%s: leaving\n", __func__);
 	context->inside_context_destroy = 0;
 	lws_context_unlock(context);
+}
+
+int
+lws_context_is_being_destroyed(struct lws_context *context)
+{
+	return !!context->being_destroyed;
 }
 
 #if defined(LWS_WITH_SYS_STATE)

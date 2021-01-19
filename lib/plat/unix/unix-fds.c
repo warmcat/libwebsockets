@@ -90,7 +90,7 @@ sanity_assert_no_sockfd_traces(const struct lws_context *context,
 #else
 	struct lws **p, **done;
 
-	if (sfd == LWS_SOCK_INVALID)
+	if (sfd == LWS_SOCK_INVALID || !context->lws_lookup)
 		return 0;
 
 	if (!context->max_fds_unrelated_to_ulimit &&
