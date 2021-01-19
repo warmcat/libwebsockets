@@ -51,6 +51,7 @@ struct alpn_ctx {
 struct lws_vhost_tls {
 	lws_tls_ctx *ssl_ctx;
 	lws_tls_ctx *ssl_client_ctx;
+	struct lws_tls_client_reuse *tcr;
 	const char *alpn;
 	struct lws_tls_ss_pieces *ss; /* for acme tls certs */
 	char *alloc_cert_path;

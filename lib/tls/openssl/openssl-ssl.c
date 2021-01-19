@@ -141,15 +141,10 @@ lws_ssl_bind_passphrase(SSL_CTX *ssl_ctx, int is_client,
 static void
 lws_ssl_destroy_client_ctx(struct lws_vhost *vhost)
 {
-	struct lws_tls_client_reuse *tcr;
-
 	if (vhost->tls.user_supplied_ssl_ctx || !vhost->tls.ssl_client_ctx)
 		return;
 
-	tcr = SSL_CTX_get_ex_data(vhost->tls.ssl_client_ctx,
-				  openssl_SSL_CTX_private_data_index);
-
-	if (!tcr || --tcr->refcount)
+	if (vhost->tls.tcr && --vhost->tls.tcr->refcount)
 		return;
 
 	SSL_CTX_free(vhost->tls.ssl_client_ctx);
@@ -157,8 +152,11 @@ lws_ssl_destroy_client_ctx(struct lws_vhost *vhost)
 
 	vhost->context->tls.count_client_contexts--;
 
-	lws_dll2_remove(&tcr->cc_list);
-	lws_free(tcr);
+	if (vhost->tls.tcr) {
+		lws_dll2_remove(&vhost->tls.tcr->cc_list);
+		lws_free(vhost->tls.tcr);
+		vhost->tls.tcr = NULL;
+	}
 }
 #endif
 void

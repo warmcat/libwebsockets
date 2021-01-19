@@ -695,6 +695,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 
 			tcr->refcount++;
 			vh->tls.ssl_client_ctx = tcr->ssl_client_ctx;
+			vh->tls.tcr = tcr;
 
 			lwsl_info("%s: vh %s: reusing client ctx %d: use %d\n",
 				   __func__, vh->name, tcr->index,
@@ -742,9 +743,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 
 	/* bind the tcr to the client context */
 
-	SSL_CTX_set_ex_data(vh->tls.ssl_client_ctx,
-			    openssl_SSL_CTX_private_data_index,
-			    (char *)tcr);
+	vh->tls.tcr = tcr;
 
 #ifdef SSL_OP_NO_COMPRESSION
 	SSL_CTX_set_options(vh->tls.ssl_client_ctx, SSL_OP_NO_COMPRESSION);
