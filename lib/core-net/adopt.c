@@ -199,10 +199,6 @@ bail:
 	if (new_wsi->user_space)
 		lws_free(new_wsi->user_space);
 
-	lws_pt_lock(pt, __func__);
-	pt->count_wsi_allocated--;
-	lws_pt_unlock(pt);
-
 	lws_vhost_unbind_wsi(new_wsi);
 
 	lws_free(new_wsi);

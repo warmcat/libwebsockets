@@ -38,7 +38,6 @@ static const uint8_t hnames[] = {
 struct lws *
 lws_http_client_connect_via_info2(struct lws *wsi)
 {
-	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	struct client_info_stash *stash = wsi->stash;
 	int n;
 
@@ -69,10 +68,6 @@ lws_http_client_connect_via_info2(struct lws *wsi)
 #endif
 
 no_ah:
-	lws_pt_lock(pt, __func__);
-	pt->count_wsi_allocated++;
-	lws_pt_unlock(pt);
-
 	return lws_client_connect_2_dnsreq(wsi);
 
 bail1:

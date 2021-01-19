@@ -58,6 +58,7 @@ struct lws_pt_eventlibs_libuv {
 	uv_timer_t sultimer;
 	uv_idle_t idle;
 	struct lws_signal_watcher_libuv w_sigint;
+	int extant_handles;
 };
 
 struct lws_context_eventlibs_libuv {

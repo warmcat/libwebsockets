@@ -52,7 +52,7 @@ lws_sul_plat_unix(lws_sorted_usec_list_t *sul)
 #endif
 
 	for (n = 0; n < context->count_threads; n++)
-		m |= pt->count_wsi_allocated;
+		m = m | (int)pt->fds_count;
 
 	if (context->deprecated && !m) {
 		lwsl_notice("%s: ending deprecated context\n", __func__);

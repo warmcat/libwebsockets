@@ -183,6 +183,8 @@ delete_from_fd(const struct lws_context *context, int fd)
 	/* slow fds handling */
 
 	p = context->lws_lookup;
+	assert(p);
+
 	done = &p[context->max_fds];
 
 	/* find the match */

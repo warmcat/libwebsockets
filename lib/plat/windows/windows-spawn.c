@@ -103,9 +103,6 @@ lws_create_basic_wsi(struct lws_context *context, int tsi,
 
 	new_wsi->user_space = NULL;
 	new_wsi->desc.sockfd = LWS_SOCK_INVALID;
-	lws_pt_lock(pt, __func__);
-	pt->count_wsi_allocated++;
-	lws_pt_unlock(pt);
 
 	return new_wsi;
 }

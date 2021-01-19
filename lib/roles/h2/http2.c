@@ -214,11 +214,9 @@ struct lws *
 lws_wsi_server_new(struct lws_vhost *vh, struct lws *parent_wsi,
 			    unsigned int sid)
 {
-	struct lws_context_per_thread *pt = &parent_wsi->a.context->pt[
-	                                                  (int)parent_wsi->tsi];
-	struct lws *wsi;
 	struct lws *nwsi = lws_get_network_wsi(parent_wsi);
 	struct lws_h2_netconn *h2n = nwsi->h2.h2n;
+	struct lws *wsi;
 
 	/*
 	 * The identifier of a newly established stream MUST be numerically
@@ -291,8 +289,6 @@ bail1:
 	/* undo the insert */
 	parent_wsi->mux.child_list = wsi->mux.sibling_list;
 	parent_wsi->mux.child_count--;
-
-	pt->count_wsi_allocated--;
 
 	if (wsi->user_space)
 		lws_free_set_NULL(wsi->user_space);

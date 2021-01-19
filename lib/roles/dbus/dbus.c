@@ -87,7 +87,6 @@ __lws_shadow_wsi(struct lws_dbus_ctx *ctx, DBusWatch *w, int fd, int create_ok)
 	lws_vhost_bind_wsi(ctx->vh, wsi);
 	if (__insert_wsi_socket_into_fds(ctx->vh->context, wsi)) {
 		lwsl_err("inserting wsi socket into fds failed\n");
-		ctx->vh->context->pt[(int)ctx->tsi].count_wsi_allocated--;
 		lws_vhost_unbind_wsi(wsi);
 		lws_free(wsi);
 		return NULL;
@@ -112,7 +111,6 @@ __lws_shadow_wsi_destroy(struct lws_dbus_ctx *ctx, struct lws *wsi)
 		return 1;
 	}
 
-	ctx->vh->context->pt[(int)ctx->tsi].count_wsi_allocated--;
 	lws_vhost_unbind_wsi(wsi);
 
 	lws_free(wsi);

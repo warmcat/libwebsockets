@@ -438,7 +438,6 @@ struct lws_context_per_thread {
 #if !defined(LWS_PLAT_FREERTOS)
 	int count_event_loop_static_asset_handles;
 #endif
-	int count_wsi_allocated;
 
 	volatile unsigned char inside_poll;
 	volatile unsigned char foreign_spinlock;

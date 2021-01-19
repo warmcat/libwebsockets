@@ -245,19 +245,20 @@ lws_uv_close_cb_sa(uv_handle_t *handle)
 {
 	struct lws_context_per_thread *pt =
 			LWS_UV_REFCOUNT_STATIC_HANDLE_TO_PT(handle);
+	struct lws_pt_eventlibs_libuv *ptpriv = pt_to_priv_uv(pt);
 	struct lws_context *context = pt->context;
 	int tsi = (int)(pt - &context->pt[0]);
 
 	lwsl_info("%s: thr %d: sa left %d: dyn left: %d (rk %d)\n", __func__,
 		    tsi,
 		    pt->count_event_loop_static_asset_handles - 1,
-		    pt->count_wsi_allocated,
+		    ptpriv->extant_handles,
 		    context->requested_stop_internal_loops);
 
 	/* any static assets left? */
 
 	if (LWS_UV_REFCOUNT_STATIC_HANDLE_DESTROYED(handle) ||
-	    pt->count_wsi_allocated)
+	    ptpriv->extant_handles)
 		return;
 
 	/*
@@ -269,7 +270,7 @@ lws_uv_close_cb_sa(uv_handle_t *handle)
 
 	lwsl_info("%s: thr %d: seen final static handle gone\n", __func__, tsi);
 
-	if (pt_to_priv_uv(pt)->io_loop && !pt->event_loop_foreign)
+	if (ptpriv->io_loop && !pt->event_loop_foreign)
 		uv_stop(pt_to_priv_uv(pt)->io_loop);
 
 	if (!pt->event_loop_foreign) {
@@ -494,7 +495,9 @@ static int
 elops_accept_uv(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	struct lws_pt_eventlibs_libuv *ptpriv = pt_to_priv_uv(pt);
 	struct lws_io_watcher_libuv *w_read = &wsi_to_priv_uv(wsi)->w_read;
+
 
 	w_read->context = wsi->a.context;
 
@@ -510,6 +513,8 @@ elops_accept_uv(struct lws *wsi)
 				    w_read->pwatcher, wsi->desc.sockfd);
 
 	((uv_handle_t *)w_read->pwatcher)->data = (void *)wsi;
+
+	ptpriv->extant_handles++;
 
 	return 0;
 }
@@ -745,11 +750,12 @@ lws_libuv_closewsi(uv_handle_t* handle)
 	struct lws *wsi = (struct lws *)handle->data;
 	struct lws_context *context = lws_get_context(wsi);
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+	struct lws_pt_eventlibs_libuv *ptpriv = pt_to_priv_uv(pt);
 #if defined(LWS_WITH_SERVER)
 	int lspd = 0;
 #endif
 
-	lwsl_info("%s: %s\n", __func__, lws_wsi_tag(wsi));
+	lwsl_notice("%s: %s\n", __func__, lws_wsi_tag(wsi));
 
 	lws_context_lock(context, __func__);
 
@@ -769,6 +775,8 @@ lws_libuv_closewsi(uv_handle_t* handle)
 
 	lws_pt_lock(pt, __func__);
 	__lws_close_free_wsi_final(wsi);
+	ptpriv->extant_handles--;
+	assert(ptpriv >= 0);
 	lws_pt_unlock(pt);
 
 	/* it's our job to close the handle finally */
@@ -781,10 +789,10 @@ lws_libuv_closewsi(uv_handle_t* handle)
 	}
 #endif
 
-	lwsl_info("%s: thr %d: sa left %d: dyn left: %d (rk %d)\n", __func__,
+	lwsl_notice("%s: thr %d: sa left %d: dyn left: %d (rk %d)\n", __func__,
 		    (int)(pt - &pt->context->pt[0]),
 		    pt->count_event_loop_static_asset_handles,
-		    pt->count_wsi_allocated,
+		    ptpriv->extant_handles,
 		    context->requested_stop_internal_loops);
 
 	/*
@@ -792,7 +800,7 @@ lws_libuv_closewsi(uv_handle_t* handle)
 	 */
 
 	if (context->requested_stop_internal_loops &&
-	    !pt->count_wsi_allocated &&
+	    !ptpriv->extant_handles &&
 	    !pt->count_event_loop_static_asset_handles) {
 
 		/*
