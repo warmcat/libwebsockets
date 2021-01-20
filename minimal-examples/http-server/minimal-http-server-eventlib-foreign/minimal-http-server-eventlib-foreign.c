@@ -152,6 +152,8 @@ int main(int argc, const char **argv)
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	info.port = 7681;
+	if ((p = lws_cmdline_option(argc, argv, "-p")))
+		info.port = atoi(p);
 	info.mounts = &mount;
 	info.error_document_404 = "/404.html";
 	info.pcontext = &context;

@@ -91,6 +91,28 @@ endif()
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
+	
+	#
+	# tests are running in the same machine context in parallel so they
+	# compete for the same ports.  Select a base port from which sai
+	# instance we are running in, add another digit at the actual test
+	# according to which subtest it is.  Then there can be no clashes
+	# regardless of how many build and tests in parallel.
+	#
+
+	set(PORT_HSEF_SRV "961")
+	if ("$ENV{SAI_INSTANCE_IDX}" STREQUAL "0")
+		set(PORT_HSEF_SRV 962)
+	endif()
+	if ("$ENV{SAI_INSTANCE_IDX}" STREQUAL "1")
+		set(PORT_HSEF_SRV 963)
+	endif()
+	if ("$ENV{SAI_INSTANCE_IDX}" STREQUAL "2")
+		set(PORT_HSEF_SRV 964)
+	endif()
+	if ("$ENV{SAI_INSTANCE_IDX}" STREQUAL "3")
+		set(PORT_HSEF_SRV 965)
+	endif()
 
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared ${extralibs} ${PTHREAD_LIB} ${LIBWEBSOCKETS_DEP_LIBS})
@@ -98,4 +120,49 @@ if (requirements)
 	else()
 		target_link_libraries(${SAMP} websockets ${extralibs} ${PTHREAD_LIB} ${LIBWEBSOCKETS_DEP_LIBS})
 	endif()
+	
+	# notice we override the evlib plugin source via LD_LIBRARY_PATH so
+	# we are using the evlibs we just built, if any
+	
+	if (LWS_WITH_LIBUV)
+		add_test(NAME hs_evlib_foreign_uv COMMAND lws-minimal-http-server-eventlib-foreign --uv -p ${PORT_HSEF_SRV}1)
+		set_tests_properties(hs_evlib_foreign_uv
+			     PROPERTIES
+			     ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/lib"
+			     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/http-server/minimal-http-server-eventlib-foreign
+			     TIMEOUT 50)
+	endif()
+	if (LWS_WITH_LIBEVENT)
+		add_test(NAME hs_evlib_foreign_event COMMAND lws-minimal-http-server-eventlib-foreign --event -p ${PORT_HSEF_SRV}2)
+		set_tests_properties(hs_evlib_foreign_event
+			     PROPERTIES
+			     ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/lib"
+			     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/http-server/minimal-http-server-eventlib-foreign
+			     TIMEOUT 50)
+	endif()
+	if (LWS_WITH_LIBEV)
+		add_test(NAME hs_evlib_foreign_ev COMMAND lws-minimal-http-server-eventlib-foreign --ev -p ${PORT_HSEF_SRV}3)
+		set_tests_properties(hs_evlib_foreign_ev
+			     PROPERTIES
+			     ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/lib"
+			     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/http-server/minimal-http-server-eventlib-foreign
+			     TIMEOUT 50)
+	endif()
+	if (LWS_WITH_GLIB)
+		add_test(NAME hs_evlib_foreign_glib COMMAND lws-minimal-http-server-eventlib-foreign --glib -p ${PORT_HSEF_SRV}4)
+		set_tests_properties(hs_evlib_foreign_glib
+			     PROPERTIES
+			     ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/lib"
+			     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/http-server/minimal-http-server-eventlib-foreign
+			     TIMEOUT 50)
+	endif()
+	if (LWS_WITH_SDEVENT)
+		add_test(NAME hs_evlib_foreign_sd COMMAND lws-minimal-http-server-eventlib-foreign --sd -p ${PORT_HSEF_SRV}5)
+		set_tests_properties(hs_evlib_foreign_sd
+			     PROPERTIES
+			     ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/lib"
+			     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/http-server/minimal-http-server-eventlib-foreign
+			     TIMEOUT 50)
+	endif()
+	
 endif()
