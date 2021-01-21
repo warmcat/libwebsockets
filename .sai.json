@@ -29,6 +29,9 @@
 		"linux-gentoo/x86_64-amd/gcc": {
 			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G ZIP\";cmake .. ${cmake} && make -j4 && make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}"
 		},
+		"linux-centos-7/x86_64-amd/gcc": {
+			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G RPM\";cmake .. ${cmake} && make -j4 && make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}"
+		},
 		"linux-centos-8/x86_64-amd/gcc": {
 			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G RPM\";cmake .. ${cmake} && make -j4 && make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}"
 		},
@@ -172,7 +175,7 @@
 		"mbedtls": {
 			"cmake":	"-DLWS_WITH_MBEDTLS=1 -DLWS_WITH_HTTP2=1 -DLWS_WITH_LWSWS=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_JOSE=1 -DCMAKE_BUILD_TYPE=DEBUG",
 			# no distro -devel package for mbedtls
-			"platforms":	"not linux-centos-8/x86_64-amd/gcc"
+			"platforms":	"not linux-centos-7/x86_64-amd/gcc, not linux-centos-8/x86_64-amd/gcc"
 		},
 		"noserver": {
 			"cmake":	"-DLWS_WITHOUT_SERVER=ON -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_SECURE_STREAMS=1"

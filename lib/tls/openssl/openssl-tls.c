@@ -158,8 +158,8 @@ lws_context_init_ssl_library(const struct lws_context_creation_info *info)
 		int n;
 
 		openssl_mutexes = (pthread_mutex_t *)
-				OPENSSL_malloc(CRYPTO_num_locks() *
-					       sizeof(openssl_mutexes[0]));
+				OPENSSL_malloc((size_t)((unsigned long)CRYPTO_num_locks() *
+					       (unsigned long)sizeof(openssl_mutexes[0])));
 
 		for (n = 0; n < CRYPTO_num_locks(); n++)
 			pthread_mutex_init(&openssl_mutexes[n], NULL);

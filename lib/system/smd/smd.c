@@ -532,7 +532,7 @@ lws_smd_msg_distribute(struct lws_context *ctx)
 			lws_smd_peer_t *pr = lws_container_of(p, lws_smd_peer_t, list);
 
 			/* may destroy pr if zombie, hence _safe iterator */
-			more |= (char)!!_lws_smd_msg_deliver_peer(ctx, pr);
+			more = (char)(more | !!_lws_smd_msg_deliver_peer(ctx, pr));
 
 		} lws_end_foreach_dll_safe(p, p1);
 

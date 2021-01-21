@@ -66,7 +66,7 @@ int BN_bn2binpad(const BIGNUM *a, unsigned char *to, int tolen)
 
     /* Add leading zeroes if necessary */
     if (tolen > i) {
-        memset(to, 0, tolen - i);
+        memset(to, 0, (size_t)(tolen - i));
         to += tolen - i;
     }
     while (i--) {

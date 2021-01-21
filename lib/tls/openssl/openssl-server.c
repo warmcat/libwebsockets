@@ -581,7 +581,11 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 #if defined(LWS_WITH_BORINGSSL)
 				(uint32_t)
 #else
-				(unsigned long)
+#if (OPENSSL_VERSION_NUMBER >= 0x10003000l) /* not documented by openssl */
+				    (unsigned long)
+#else
+				    (long)
+#endif
 #endif
 #endif
 				info->ssl_options_set);
@@ -593,7 +597,11 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 #if defined(LWS_WITH_BORINGSSL)
 				(uint32_t)
 #else
-				      (unsigned long)
+#if (OPENSSL_VERSION_NUMBER >= 0x10003000l) /* not documented by openssl */
+				    (unsigned long)
+#else
+				    (long)
+#endif
 #endif
 				      info->ssl_options_clear);
 #endif

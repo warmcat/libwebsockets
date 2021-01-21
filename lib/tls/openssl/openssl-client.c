@@ -762,7 +762,11 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 #if defined(LWS_WITH_BORINGSSL)
 				(uint32_t)
 #else
+#if (OPENSSL_VERSION_NUMBER >= 0x10003000l) /* not documented by openssl */
 				    (unsigned long)
+#else
+				    (long)
+#endif
 #endif
 #endif
 				    info->ssl_client_options_set);
@@ -774,7 +778,11 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 #if defined(LWS_WITH_BORINGSSL)
 				(uint32_t)
 #else
-				      (unsigned long)
+#if (OPENSSL_VERSION_NUMBER >= 0x10003000l) /* not documented by openssl */
+				    (unsigned long)
+#else
+				    (long)
+#endif
 #endif
 				      info->ssl_client_options_clear);
 #endif

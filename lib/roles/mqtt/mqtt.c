@@ -1323,7 +1323,7 @@ bail1:
 			case LMSPR_NEED_MORE:
 				break;
 			case LMSPR_COMPLETED:
-				par->consumed = (uint32_t)((unsigned int)par->consumed + (unsigned int)par->vbit.consumed);
+				par->consumed = (uint32_t)((unsigned int)par->consumed + (unsigned int)(unsigned char)par->vbit.consumed);
 				if (par->vbit.value >
 				    LWS_ARRAY_SIZE(property_valid)) {
 					lwsl_notice("%s: undef prop id 0x%x\n",

@@ -36,6 +36,10 @@
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
 
+/* work around CentOS 7 -Wconversion problem */
+#undef RTA_ALIGNTO
+#define RTA_ALIGNTO 4U
+
 static void
 lws_netlink_coldplug_done_cb(lws_sorted_usec_list_t *sul)
 {

@@ -384,7 +384,7 @@ lws_ss_deserialize_parse(struct lws_ss_serialization_parser *par,
 			break;
 
 		case RPAR_LEN_LSB:
-			par->rem |= (uint16_t)*cp++;
+			par->rem = (uint16_t)(par->rem | *cp++);
 			switch (par->type) {
 
 			/* event loop side */

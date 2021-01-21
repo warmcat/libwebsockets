@@ -98,7 +98,7 @@ struct acme_connection {
 
 	size_t len_privkey_pem;
 
-	unsigned int yes:2;
+	unsigned int yes;
 	unsigned int use:1;
 	unsigned int is_sni_02:1;
 };
@@ -496,7 +496,7 @@ cb_authz(struct lejp_ctx *ctx, char reason)
 		if (s->use) {
 			lws_strncpy(s->challenge_uri, ctx->buf,
 				    sizeof(s->challenge_uri));
-			s->yes |= 2;
+			s->yes = s->yes | 2;
 		}
 		break;
 	case JAAZ_CHALLENGES_TOKEN:
@@ -504,7 +504,7 @@ cb_authz(struct lejp_ctx *ctx, char reason)
 		if (s->use) {
 			lws_strncpy(s->chall_token, ctx->buf,
 				    sizeof(s->chall_token));
-			s->yes |= 1;
+			s->yes = s->yes | 1;
 		}
 		break;
 	}
@@ -552,11 +552,11 @@ cb_chac(struct lejp_ctx *ctx, char reason)
 		lws_strncpy(s->status, ctx->buf, sizeof(s->status));
 		break;
 	case JCAC_URI:
-		s->yes |= 2;
+		s->yes = s->yes | 2;
 		break;
 	case JCAC_TOKEN:
 		lws_strncpy(s->chall_token, ctx->buf, sizeof(s->chall_token));
-		s->yes |= 1;
+		s->yes = s->yes | 1;
 		break;
 	case JCAC_DETAIL:
 		lws_snprintf(s->detail, sizeof(s->detail), "%s", ctx->buf);

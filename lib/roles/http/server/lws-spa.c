@@ -366,7 +366,7 @@ retry_as_first:
 			}
 
 			if (*in == '\"') {
-				s->inside_quote ^= 1;
+				s->inside_quote = !!((s->inside_quote ^ 1) & 1);
 				goto done;
 			}
 
