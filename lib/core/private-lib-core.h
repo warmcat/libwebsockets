@@ -235,13 +235,6 @@ struct lws_foreign_thread_pollfd {
 #include "private-lib-core-net.h"
 #endif
 
-struct lws_deferred_free
-{
-	struct lws_deferred_free *next;
-	time_t deadline;
-	void *payload;
-};
-
 struct lws_system_blob {
 	union {
 		struct lws_buflist *bl;
@@ -312,6 +305,8 @@ struct lws_context {
 /*
  * LWS_WITH_NETWORK =====>
  */
+
+	lws_dll2_owner_t		owner_vh_being_destroyed;
 
 #if defined(LWS_WITH_EVENT_LIBS)
 	struct lws_plugin		*evlib_plugin_list;
@@ -413,8 +408,6 @@ struct lws_context {
 	mbedtls_entropy_context mec;
 	mbedtls_ctr_drbg_context mcdc;
 #endif
-
-	struct lws_deferred_free *deferred_free_list;
 
 #if defined(LWS_WITH_THREADPOOL)
 	struct lws_threadpool *tp_list_head;
@@ -529,9 +522,6 @@ struct lws_context {
 	uint8_t updated;
 #endif
 };
-
-int
-lws_check_deferred_free(struct lws_context *context, int tsi, int force);
 
 #define lws_get_context_protocol(ctx, x) ctx->vhost_list->protocols[x]
 #define lws_get_vh_protocol(vh, x) vh->protocols[x]

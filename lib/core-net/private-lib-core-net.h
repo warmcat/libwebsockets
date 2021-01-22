@@ -509,6 +509,8 @@ struct lws_vhost {
 	struct lws_vhost_role_ws ws;
 #endif
 
+	lws_dll2_t		vh_being_destroyed_list;
+
 #if defined(LWS_WITH_SOCKS5)
 	char socks_proxy_address[128];
 	char socks_user[96];
@@ -1492,6 +1494,9 @@ lws_plat_mbedtls_net_recv(void *ctx, unsigned char *buf, size_t len);
 
 lws_usec_t
 lws_sul_nonmonotonic_adjust(struct lws_context *ctx, int64_t step_us);
+
+void
+__lws_vhost_destroy_pt_wsi_dieback_start(struct lws_vhost *vh);
 
 void
 lws_netdev_instance_remove_destroy(struct lws_netdev_instance *ni);

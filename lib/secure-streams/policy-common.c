@@ -285,6 +285,22 @@ lws_ss_policy_set(struct lws_context *context, const char *name)
 		 * ...but when we did the trust stores, we created vhosts for
 		 * each.  We need to destroy those now too, and recreate new
 		 * ones from the new policy, perhaps with different X.509s.
+		 *
+		 * Vhost destruction is inherently async, it can't be destroyed
+		 * until all of the wsi bound to it have closed, and, eg, libuv
+		 * means their closure is deferred until a later go around the
+		 * event loop.  SMP means we also have to wait for all the pts
+		 * to close their wsis that are bound on the vhost too.
+		 *
+		 * This marks the vhost as being destroyed so new things won't
+		 * use it, and starts the close of all wsi on this pt that are
+		 * bound to the wsi, and deals with the listen socket if any.
+		 * "being-destroyed" vhosts can't be found using get_vhost_by_
+		 * name(), so if a new vhost of the same name exists that isn't
+		 * being destroyed that will be the one found.
+		 *
+		 * When the number of wsi bound to the vhost gets to zero a
+		 * short time later, the vhost is actually destroyed.
 		 */
 
 		v = context->vhost_list;
@@ -298,8 +314,6 @@ lws_ss_policy_set(struct lws_context *context, const char *name)
 			}
 			v = v->vhost_next;
 		}
-
-		lws_check_deferred_free(context, 0, 1);
 	}
 
 	context->pss_policies = args->heads[LTY_POLICY].p;

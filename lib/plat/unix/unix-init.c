@@ -45,18 +45,16 @@ lws_sul_plat_unix(lws_sorted_usec_list_t *sul)
 
 #if !defined(LWS_NO_DAEMONIZE)
 	/* if our parent went down, don't linger around */
-	if (pt->context->started_with_parent &&
-	    kill(pt->context->started_with_parent, 0) < 0)
+	if (context->started_with_parent &&
+	    kill(context->started_with_parent, 0) < 0)
 		kill(getpid(), SIGTERM);
 #endif
 
-	if (pt->context->deprecated && !pt->context->count_wsi_allocated) {
+	if (context->deprecated && !context->count_wsi_allocated) {
 		lwsl_notice("%s: ending deprecated context\n", __func__);
 		kill(getpid(), SIGINT);
 		return;
 	}
-
-	lws_check_deferred_free(context, 0, 0);
 
 #if defined(LWS_WITH_SERVER)
 	lws_context_lock(context, "periodic checks");

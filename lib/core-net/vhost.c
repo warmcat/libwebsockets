@@ -1007,6 +1007,90 @@ lws_destroy_event_pipe(struct lws *wsi)
 	lws_free(wsi);
 }
 
+/*
+ * Start close process for any wsi bound to this vhost that belong to the
+ * service thread we are called from.  Because of async event lib close, or
+ * protocol staged close on wsi, latency with pts joining in closing their
+ * wsi on the vhost, this may take some time.
+ *
+ * When the wsi count bound to the vhost (from all pts) drops to zero, the
+ * vhost destruction will be finalized.
+ */
+
+void
+__lws_vhost_destroy_pt_wsi_dieback_start(struct lws_vhost *vh)
+{
+#if LWS_MAX_SMP > 1
+	/* calling pt thread has done its wsi dieback */
+	int tsi = lws_pthread_self_to_tsi(vh->context);
+#else
+	int tsi = 0;
+#endif
+	struct lws_context *ctx = vh->context;
+	struct lws_context_per_thread *pt = &ctx->pt[tsi];
+	unsigned int n;
+
+#if LWS_MAX_SMP > 1
+	if (vh->close_flow_vs_tsi[lws_pthread_self_to_tsi(vh->context)])
+		/* this pt has already done its bit */
+		return;
+#endif
+
+	lwsl_info("%s: %s\n", __func__, vh->name);
+
+#if defined(LWS_WITH_CLIENT)
+	/*
+	 * destroy any wsi that are associated with us but have no socket
+	 * (and will otherwise be missed for destruction)
+	 */
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+			      vh->vh_awaiting_socket_owner.head) {
+		struct lws *w =
+			lws_container_of(d, struct lws, vh_awaiting_socket);
+
+		if (w->tsi == tsi) {
+
+			lwsl_debug("%s: closing aso\n", __func__);
+			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
+					   "awaiting skt");
+		}
+
+	} lws_end_foreach_dll_safe(d, d1);
+#endif
+
+	/*
+	 * Close any wsi on this pt bound to the vhost
+	 */
+
+	n = 0;
+	while (n < pt->fds_count) {
+		struct lws *wsi = wsi_from_fd(ctx, pt->fds[n].fd);
+
+		if (wsi && wsi->tsi == tsi && wsi->a.vhost == vh) {
+
+			lwsl_debug("%s: pt %d: closing wsi %p: role %s\n",
+					__func__, tsi, wsi, wsi->role_ops->name);
+
+			lws_wsi_close(wsi, LWS_TO_KILL_ASYNC);
+
+			if (pt->pipe_wsi == wsi)
+				pt->pipe_wsi = NULL;
+		}
+		n++;
+	}
+
+#if LWS_MAX_SMP > 1
+	/* calling pt thread has done its wsi dieback */
+	vh->close_flow_vs_tsi[lws_pthread_self_to_tsi(vh->context)] = 1;
+#endif
+}
+
+
+/*
+ * Mark the vhost as being destroyed, so things trying to use it abort.
+ *
+ * Dispose of the listen socket.
+ */
 
 void
 lws_vhost_destroy1(struct lws_vhost *vh)
@@ -1022,6 +1106,10 @@ lws_vhost_destroy1(struct lws_vhost *vh)
 
 	lws_vhost_lock(vh); /* -------------- vh { */
 
+	vh->being_destroyed = 1;
+	lws_dll2_add_tail(&vh->vh_being_destroyed_list,
+			  &context->owner_vh_being_destroyed);
+
 #if defined(LWS_WITH_NETWORK)
 	/*
 	 * PHASE 1: take down or reassign any listen wsi
@@ -1030,12 +1118,13 @@ lws_vhost_destroy1(struct lws_vhost *vh)
 	 * If so we need to hand the listen socket off to one of the others
 	 * so it will remain open.
 	 *
-	 * If not, leave it attached to the closing vhost, the vh being marked
-	 * being_destroyed will defeat any service and it will get closed in
-	 * later phases.
+	 * If not, close the listen socket now.
+	 *
+	 * Either way the listen socket response to the vhost close is
+	 * immediately performed.
 	 */
 
-	if (vh->lserv_wsi)
+	if (vh->lserv_wsi) {
 		lws_start_foreach_ll(struct lws_vhost *, v,
 				     context->vhost_list) {
 			if (v != vh &&
@@ -1051,32 +1140,37 @@ lws_vhost_destroy1(struct lws_vhost *vh)
 				 * swap it to a vhost that has the same
 				 * iface + port, but is not closing.
 				 */
+
+				lwsl_notice("%s: listen skt migrate %s -> %s\n",
+					    __func__, vh->name, v->name);
+
 				assert(v->lserv_wsi == NULL);
 				v->lserv_wsi = vh->lserv_wsi;
-
-				lwsl_notice("%s: listen skt from %s to %s\n",
-					    __func__, vh->name, v->name);
 
 				if (v->lserv_wsi) {
 					lws_vhost_unbind_wsi(vh->lserv_wsi);
 					lws_vhost_bind_wsi(v, v->lserv_wsi);
+					vh->lserv_wsi = NULL;
 				}
 
 				break;
 			}
 		} lws_end_foreach_ll(v, vhost_next);
 
+		if (vh->lserv_wsi) {
+			/*
+			 * we didn't pass it off to another vhost on the same
+			 * listen port... let's close it next time around the
+			 * event loop without waiting for the logical destroy
+			 * of the vhost itself
+			 */
+			lws_set_timeout(vh->lserv_wsi, 1, LWS_TO_KILL_ASYNC);
+			vh->lserv_wsi = NULL;
+		}
+	}
 #endif
 
 	lws_vhost_unlock(vh); /* } vh -------------- */
-
-	/*
-	 * lws_check_deferred_free() will notice there is a vhost that is
-	 * marked for destruction during the next 1s, for all tsi.
-	 *
-	 * It will start closing all wsi on this vhost.  When the last wsi
-	 * is closed, it will trigger lws_vhost_destroy2()
-	 */
 
 out:
 	lws_context_unlock(context); /* --------------------------- context { */
@@ -1094,32 +1188,22 @@ destroy_ais(struct lws_dll2 *d, void *user)
 }
 #endif
 
+/*
+ * Either start close or destroy any wsi on the vhost that belong to this pt,
+ * if SMP mark the vh that we have done it for
+ */
+
 void
 __lws_vhost_destroy2(struct lws_vhost *vh)
 {
 	const struct lws_protocols *protocol = NULL;
 	struct lws_context *context = vh->context;
-	struct lws_deferred_free *df;
 	struct lws wsi;
 	int n;
 
 	vh->being_destroyed = 0;
 
-#if defined(LWS_WITH_CLIENT)
-	/*
-	 * destroy any wsi that are associated with us but have no socket
-	 * (and will otherwise be missed for destruction)
-	 */
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-			      vh->vh_awaiting_socket_owner.head) {
-		struct lws *w =
-			lws_container_of(d, struct lws, vh_awaiting_socket);
-
-		lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
-				   "awaiting skt");
-
-	} lws_end_foreach_dll_safe(d, d1);
-#endif
+	lwsl_info("%s: %s\n", __func__, vh->name);
 
 #if defined(LWS_WITH_DEPRECATED_THINGS)
 	/*
@@ -1169,18 +1253,6 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 	}
 
 	lwsl_info("%s: %p\n", __func__, vh);
-
-	/* if we are still on deferred free list, remove ourselves */
-
-	lws_start_foreach_llp(struct lws_deferred_free **, pdf,
-			      context->deferred_free_list) {
-		if ((*pdf)->payload == vh) {
-			df = *pdf;
-			*pdf = df->next;
-			lws_free(df);
-			break;
-		}
-	} lws_end_foreach_llp(pdf, next);
 
 	/* remove ourselves from the pending destruction list */
 
@@ -1268,109 +1340,72 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 
 	lwsl_info("  %s: Freeing vhost %p\n", __func__, vh);
 
+	lws_dll2_remove(&vh->vh_being_destroyed_list);
+
 	memset(vh, 0, sizeof(*vh));
 	lws_free(vh);
 }
 
 /*
- * each service thread calls this once a second or so
+ * Starts the vhost destroy process
+ *
+ * Vhosts are not simple to deal with because they are an abstraction that
+ * crosses SMP thread boundaries, a wsi on any pt can bind to any vhost.  If we
+ * want another pt to do something to its wsis safely, we have to asynchronously
+ * ask it to do it.
+ *
+ * In addition, with event libs, closing any handles (which are bound to vhosts
+ * in their wsi) can happens asynchronously, so we can't just linearly do some
+ * cleanup flow and free it in one step.
+ *
+ * The vhost destroy is cut into two pieces:
+ *
+ * 1) dispose of the listen socket, either by passing it on to another vhost
+ *    that was already sharing it, or just closing it.
+ *
+ *    If any wsi bound to the vhost, mark the vhost as in the process of being
+ *    destroyed, triggering each pt to close all wsi bound to the vhost next
+ *    time around the event loop.  Call lws_cancel_service() so all the pts wake
+ *    to deal with this without long poll waits making delays.
+ *
+ * 2) When the number of wsis bound to the vhost reaches zero, do the final
+ *    vhost destroy flow, this can be triggered from any pt.
  */
-
-int
-lws_check_deferred_free(struct lws_context *context, int tsi, int force)
-{
-	struct lws_context_per_thread *pt;
-	int n;
-
-	/*
-	 * If we see a vhost is being destroyed, forcibly close every wsi on
-	 * this tsi associated with this vhost.  That will include the listen
-	 * socket if it is still associated with the closing vhost.
-	 *
-	 * For SMP, we do this once per tsi per destroyed vhost.  The reference
-	 * counting on the vhost as the bound wsi close will notice that there
-	 * are no bound wsi left, that vhost destruction can complete,
-	 * and perform it.  It doesn't matter which service thread does that
-	 * because there is nothing left using the vhost to conflict.
-	 */
-
-	lws_context_lock(context, "check deferred free"); /* ------ context { */
-
-	lws_start_foreach_ll_safe(struct lws_vhost *, v, context->vhost_list, vhost_next) {
-		if (v->being_destroyed
-#if LWS_MAX_SMP > 1
-			&& !v->close_flow_vs_tsi[tsi]
-#endif
-		) {
-
-			pt = &context->pt[tsi];
-
-			lws_pt_lock(pt, "vhost removal"); /* -------------- pt { */
-
-#if LWS_MAX_SMP > 1
-			v->close_flow_vs_tsi[tsi] = 1;
-#endif
-
-			for (n = 0; (unsigned int)n < pt->fds_count; n++) {
-				struct lws *wsi = wsi_from_fd(context, pt->fds[n].fd);
-				if (!wsi)
-					continue;
-				if (wsi->a.vhost != v)
-					continue;
-
-				__lws_close_free_wsi(wsi,
-					LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY,
-					"vh destroy"
-					/* no protocol close */);
-				n--;
-			}
-
-			lws_pt_unlock(pt); /* } pt -------------- */
-		}
-	} lws_end_foreach_ll_safe(v);
-
-
-	lws_context_unlock(context); /* } context ------------------- */
-
-	return 0;
-}
-
 
 void
 lws_vhost_destroy(struct lws_vhost *vh)
 {
-	struct lws_deferred_free *df = lws_malloc(sizeof(*df), "deferred free");
 	struct lws_context *context = vh->context;
-
-	if (!df)
-		return;
 
 	lws_context_lock(context, __func__); /* ------ context { */
 
+	/* dispose of the listen socket one way or another */
 	lws_vhost_destroy1(vh);
 
-	lwsl_debug("%s: count_bound_wsi %d\n", __func__, vh->count_bound_wsi);
+	/* start async closure of all wsi on this pt thread attached to vh */
+	__lws_vhost_destroy_pt_wsi_dieback_start(vh);
 
+	lwsl_notice("%s: count_bound_wsi %d\n", __func__, vh->count_bound_wsi);
+
+	/* if there are none, finalize now since no further chance */
 	if (!vh->count_bound_wsi) {
-		/*
-		 * After listen handoff, there are already no wsi bound to this
-		 * vhost by any pt: nothing can be servicing any wsi belonging
-		 * to it any more.
-		 *
-		 * Finalize the vh destruction immediately
-		 */
 		__lws_vhost_destroy2(vh);
-		lws_free(df);
 
 		goto out;
 	}
 
-	/* part 2 is deferred to allow all the handle closes to complete */
+	/*
+	 * We have some wsi bound to this vhost, we have to wait for these to
+	 * complete close and unbind before progressing the vhost removal.
+	 *
+	 * When the last bound wsi on this vh is destroyed we will auto-call
+	 * __lws_vhost_destroy2() to finalize vh destruction
+	 */
 
-	df->next = vh->context->deferred_free_list;
-	df->deadline = lws_now_secs();
-	df->payload = vh;
-	vh->context->deferred_free_list = df;
+#if LWS_MAX_SMP > 1
+	/* alert other pts they also need to do dieback flow for their wsi */
+	lws_cancel_service(context);
+#endif
 
 out:
 	lws_context_unlock(context); /* } context ------------------- */
@@ -1439,7 +1474,7 @@ lws_get_vhost_by_name(struct lws_context *context, const char *name)
 {
 	lws_start_foreach_ll(struct lws_vhost *, v,
 			     context->vhost_list) {
-		if (!strcmp(v->name, name))
+		if (!v->being_destroyed && !strcmp(v->name, name))
 			return v;
 
 	} lws_end_foreach_ll(v, vhost_next);
