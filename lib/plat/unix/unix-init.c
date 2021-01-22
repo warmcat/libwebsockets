@@ -60,8 +60,6 @@ lws_sul_plat_unix(lws_sorted_usec_list_t *sul)
 		return;
 	}
 
-	lws_check_deferred_free(context, 0, 0);
-
 #if defined(LWS_WITH_SERVER)
 	lws_context_lock(context, "periodic checks");
 	lws_start_foreach_llp(struct lws_vhost **, pv,

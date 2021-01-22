@@ -1861,15 +1861,6 @@ next:
 		lws_free(context->pl_hash_table);
 #endif
 
-		/* drop any lingering deferred vhost frees */
-
-		while (context->deferred_free_list) {
-			struct lws_deferred_free *df = context->deferred_free_list;
-
-			context->deferred_free_list = df->next;
-		        lws_free(df);
-		};
-
 #if defined(LWS_WITH_NETWORK)
 
 		for (n = 0; n < context->count_threads; n++) {
@@ -1912,7 +1903,8 @@ next:
 			goto bail;
 		}
 
-		if (!context->pt[0].event_loop_foreign) {
+		if (context->event_loop_ops->destroy_context1 &&
+		    !context->pt[0].event_loop_foreign) {
 			lwsl_notice("%s: waiting for internal loop exit\n", __func__);
 
 			goto bail;

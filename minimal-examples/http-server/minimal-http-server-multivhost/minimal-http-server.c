@@ -89,6 +89,7 @@ int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	struct lws_context *context;
+	struct lws_vhost *new_vhost;
 	const char *p;
 	int n = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE
 			/* for LLL_ verbosity above NOTICE to be built into lws,
@@ -147,9 +148,12 @@ int main(int argc, const char **argv)
 	info.error_document_404 = "/404.html";
 	info.vhost_name = "localhost2";
 
-	if (!lws_create_vhost(context, &info)) {
-		lwsl_err("Failed to create second vhost\n");
-		goto bail;
+	if (!lws_cmdline_option(argc, argv, "--kill-7682")) {
+
+		if (!lws_create_vhost(context, &info)) {
+			lwsl_err("Failed to create second vhost\n");
+			goto bail;
+		}
 	}
 
 	/* a second vhost listens on port 7682 */
@@ -159,10 +163,14 @@ int main(int argc, const char **argv)
 	info.finalize = vh_destruction_notification;
 	info.finalize_arg = NULL;
 
-	if (!lws_create_vhost(context, &info)) {
+	new_vhost = lws_create_vhost(context, &info);
+	if (!new_vhost) {
 		lwsl_err("Failed to create third vhost\n");
 		goto bail;
 	}
+
+	if (lws_cmdline_option(argc, argv, "--kill-7682"))
+		lws_vhost_destroy(new_vhost);
 
 	if (lws_cmdline_option(argc, argv, "--die-after-vhost")) {
 		lwsl_warn("bailing after creating vhosts\n");
