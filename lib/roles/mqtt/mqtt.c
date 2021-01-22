@@ -1276,8 +1276,12 @@ bail1:
 							    w, (enum lws_callback_reasons)n,
 							    w->user_space,
 							    (void *)pub,
-							    chunk))
-							return 1;
+							    chunk)) {
+								par->payload_consumed = 0;
+								lws_free_set_NULL(pub->topic);
+								lws_free_set_NULL(wsi->mqtt->rx_cpkt_param);
+								return 1;
+							}
 				} lws_end_foreach_ll(w, mux.sibling_list);
 
 
