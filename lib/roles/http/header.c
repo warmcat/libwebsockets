@@ -51,13 +51,27 @@ lws_http_string_to_known_header(const char *s, size_t slen)
 	return LWS_HTTP_NO_KNOWN_HEADER;
 }
 
+#ifdef LWS_WITH_HTTP2
+static int
+lws_wsi_is_h2(struct lws *wsi)
+{
+	return wsi->upgraded_to_http2 ||
+	       wsi->mux_substream ||
+#if defined(LWS_WITH_CLIENT)
+	       wsi->client_mux_substream ||
+#endif
+	       lwsi_role_h2(wsi) ||
+	       lwsi_role_h2_ENCAPSULATION(wsi);
+}
+#endif
+
 int
 lws_add_http_header_by_name(struct lws *wsi, const unsigned char *name,
 			    const unsigned char *value, int length,
 			    unsigned char **p, unsigned char *end)
 {
 #ifdef LWS_WITH_HTTP2
-	if (lwsi_role_h2(wsi) || lwsi_role_h2_ENCAPSULATION(wsi))
+	if (lws_wsi_is_h2(wsi))
 		return lws_add_http2_header_by_name(wsi, name,
 						    value, length, p, end);
 #else
@@ -85,7 +99,7 @@ int lws_finalize_http_header(struct lws *wsi, unsigned char **p,
 			     unsigned char *end)
 {
 #ifdef LWS_WITH_HTTP2
-	if (lwsi_role_h2(wsi) || lwsi_role_h2_ENCAPSULATION(wsi))
+	if (lws_wsi_is_h2(wsi))
 		return 0;
 #else
 	(void)wsi;
@@ -127,7 +141,7 @@ lws_add_http_header_by_token(struct lws *wsi, enum lws_token_indexes token,
 {
 	const unsigned char *name;
 #ifdef LWS_WITH_HTTP2
-	if (lwsi_role_h2(wsi) || lwsi_role_h2_ENCAPSULATION(wsi))
+	if (lws_wsi_is_h2(wsi))
 		return lws_add_http2_header_by_token(wsi, token, value,
 						     length, p, end);
 #endif
@@ -307,7 +321,7 @@ lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 #endif
 
 #ifdef LWS_WITH_HTTP2
-	if (lwsi_role_h2(wsi) || lwsi_role_h2_ENCAPSULATION(wsi)) {
+	if (lws_wsi_is_h2(wsi)) {
 		n = lws_add_http2_header_status(wsi, code, p, end);
 		if (n)
 			return n;
