@@ -1302,7 +1302,6 @@ lws_h2_parse_frame_header(struct lws *wsi)
 	//	lws_header_table_reset(h2n->swsi, 0);
 
 update_end_headers:
-
 		if (lws_check_opt(h2n->swsi->a.vhost->options,
 			       LWS_SERVER_OPTION_VH_H2_HALF_CLOSED_LONG_POLL)) {
 
@@ -1634,6 +1633,9 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			break;
 		case LWS_H2_STATE_HALF_CLOSED_LOCAL:
 			if (h2n->swsi->h2.END_STREAM)
+				/*
+				 * action the END_STREAM
+				 */
 				lws_h2_state(h2n->swsi, LWS_H2_STATE_CLOSED);
 			break;
 		}
@@ -1690,10 +1692,33 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 				break;
 			}
 
-		lwsl_debug("%s: setting DEF_ACT from 0x%x\n", __func__,
-			   (unsigned int)h2n->swsi->wsistate);
-		lwsi_set_state(h2n->swsi, LRS_DEFERRING_ACTION);
-		lws_callback_on_writable(h2n->swsi);
+#if defined(LWS_WITH_CLIENT)
+
+		/*
+		 * If we already had the END_STREAM along with the END_HEADERS,
+		 * we have already transitioned to STATE_CLOSED and we are not
+		 * going to be doing anything further on this stream.
+		 *
+		 * In that case handle the transaction completion and
+		 * finalize the stream for the peer
+		 */
+
+		if (h2n->swsi->h2.h2_state == LWS_H2_STATE_CLOSED &&
+		    h2n->swsi->client_mux_substream) {
+
+			lws_h2_rst_stream(h2n->swsi, H2_ERR_NO_ERROR,
+				  "client done");
+
+			if (lws_http_transaction_completed_client(h2n->swsi))
+				lwsl_debug("tx completed returned close\n");
+		} else
+#endif
+		{
+			lwsl_debug("%s: setting DEF_ACT from 0x%x\n", __func__,
+				   (unsigned int)h2n->swsi->wsistate);
+			lwsi_set_state(h2n->swsi, LRS_DEFERRING_ACTION);
+			lws_callback_on_writable(h2n->swsi);
+		}
 		break;
 
 	case LWS_H2_FRAME_TYPE_DATA:
