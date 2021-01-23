@@ -106,7 +106,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 		return LWS_SSL_CAPABLE_ERROR;
 	}
 
-#if 0
+#if defined(LWS_TLS_LOG_PLAINTEXT_RX)
 	/*
 	 * If using mbedtls type tls library, this is the earliest point for all
 	 * paths to dump what was received as decrypted data from the tls tunnel
@@ -172,7 +172,7 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 {
 	int n, m;
 
-#if 0
+#if defined(LWS_TLS_LOG_PLAINTEXT_TX)
 	/*
 	 * If using mbedtls type tls library, this is the last point for all
 	 * paths before sending data into the tls tunnel, where you can dump it
