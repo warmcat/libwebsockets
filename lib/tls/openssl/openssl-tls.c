@@ -26,7 +26,10 @@
 #include "private-lib-tls-openssl.h"
 
 extern int openssl_websocket_private_data_index,
-openssl_SSL_CTX_private_data_index;
+	   openssl_SSL_CTX_private_data_index;
+#if defined(LWS_WITH_NETWORK)
+static char openssl_ex_indexes_acquired;
+#endif
 
 char* lws_ssl_get_error_string(int status, int ret, char *buf, size_t len) {
 	switch (status) {
@@ -146,11 +149,15 @@ lws_context_init_ssl_library(const struct lws_context_creation_info *info)
 	OPENSSL_init_ssl(OPENSSL_INIT_LOAD_SSL_STRINGS, NULL);
 #endif
 #if defined(LWS_WITH_NETWORK)
-	openssl_websocket_private_data_index =
-		SSL_get_ex_new_index(0, "lws", NULL, NULL, NULL);
+	if (!openssl_ex_indexes_acquired) {
+		openssl_websocket_private_data_index =
+			SSL_get_ex_new_index(0, "lws", NULL, NULL, NULL);
 
-	openssl_SSL_CTX_private_data_index = SSL_CTX_get_ex_new_index(0,
-			NULL, NULL, NULL, NULL);
+		openssl_SSL_CTX_private_data_index =
+			SSL_CTX_get_ex_new_index(0, NULL, NULL, NULL, NULL);
+
+		openssl_ex_indexes_acquired = 1;
+	}
 #endif
 
 #if LWS_MAX_SMP != 1
