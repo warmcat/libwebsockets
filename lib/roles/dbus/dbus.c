@@ -179,7 +179,7 @@ lws_dbus_add_watch(DBusWatch *w, void *data)
 			}
 
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(ctx->w); n++)
-		if (ctx->w[n])
+		if (ctx->w[n] && dbus_watch_get_enabled(ctx->w[n]))
 			flags |= dbus_watch_get_flags(ctx->w[n]);
 
 	if (flags & DBUS_WATCH_READABLE)
@@ -190,7 +190,8 @@ lws_dbus_add_watch(DBusWatch *w, void *data)
 	lwsl_info("%s: w %p, fd %d, data %p, flags %d\n", __func__, w,
 		  dbus_watch_get_unix_fd(w), data, lws_flags);
 
-	__lws_change_pollfd(wsi, 0, lws_flags);
+	if (lws_flags)
+		__lws_change_pollfd(wsi, 0, (int)lws_flags);
 
 	lws_pt_unlock(pt);
 
