@@ -84,6 +84,8 @@ __lws_shadow_wsi(struct lws_dbus_ctx *ctx, DBusWatch *w, int fd, int create_ok)
 	wsi->opaque_parent_data = ctx;
 	ctx->w[0] = w;
 
+	__lws_lc_tag(&ctx->vh->context->lcg[LWSLCG_WSI], &wsi->lc, "dbus|%s", ctx->vh->name);
+
 	lws_vhost_bind_wsi(ctx->vh, wsi);
 	if (__insert_wsi_socket_into_fds(ctx->vh->context, wsi)) {
 		lwsl_err("inserting wsi socket into fds failed\n");
@@ -168,7 +170,7 @@ lws_dbus_add_watch(DBusWatch *w, void *data)
 			}
 
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(ctx->w); n++)
-		if (ctx->w[n])
+		if (ctx->w[n] && dbus_watch_get_enabled(ctx->w[n]))
 			flags |= dbus_watch_get_flags(ctx->w[n]);
 
 	if (flags & DBUS_WATCH_READABLE)
@@ -176,10 +178,12 @@ lws_dbus_add_watch(DBusWatch *w, void *data)
 	if (flags & DBUS_WATCH_WRITABLE)
 		lws_flags |= LWS_POLLOUT;
 
-	lwsl_info("%s: %p, fd %d, data %p, fl %d\n", __func__, w,
-		  dbus_watch_get_unix_fd(w), data, lws_flags);
+	lwsl_info("%s: %s: %p, fd %d, data %p, fl %d\n", __func__,
+		  lws_wsi_tag(wsi), w, dbus_watch_get_unix_fd(w),
+		  data, lws_flags);
 
-	__lws_change_pollfd(wsi, 0, (int)lws_flags);
+	if (lws_flags)
+		__lws_change_pollfd(wsi, 0, (int)lws_flags);
 
 	lws_pt_unlock(pt);
 	lws_context_unlock(pt->context);
