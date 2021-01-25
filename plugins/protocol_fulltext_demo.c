@@ -74,7 +74,7 @@ callback_fts(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
 			     lws_get_protocol(wsi),sizeof(struct vhd_fts_demo));
 		if (!vhd)
-			return 1;
+			return 0;
 		if (lws_pvo_get_str(in, "indexpath",
 				    (const char **)&vhd->indexpath))
 			return 1;
@@ -270,6 +270,7 @@ LWS_VISIBLE const lws_plugin_protocol_t fulltext_demo = {
 	.hdr = {
 		"fulltext demo",
 		"lws_protocol_plugin",
+		LWS_BUILD_HASH,
 		LWS_PLUGIN_API_MAGIC
 	},
 

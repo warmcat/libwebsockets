@@ -194,7 +194,7 @@ lws_pvo_get_str(void *in, const char *name, const char **result);
 LWS_VISIBLE LWS_EXTERN int
 lws_protocol_init(struct lws_context *context);
 
-#define LWS_PLUGIN_API_MAGIC 190
+#define LWS_PLUGIN_API_MAGIC 191
 
 /*
  * Abstract plugin header for any kind of plugin class, always at top of
@@ -210,6 +210,7 @@ lws_protocol_init(struct lws_context *context);
 typedef struct lws_plugin_header {
 	const char *name;
 	const char *_class;
+	const char *lws_build_hash; /* set to LWS_BUILD_HASH */
 
 	unsigned int api_magic;
 	/* set to LWS_PLUGIN_API_MAGIC at plugin build time */

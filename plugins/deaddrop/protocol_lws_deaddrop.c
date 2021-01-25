@@ -394,6 +394,8 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 		vhd = (struct vhd_deaddrop *)
 			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
 						 lws_get_protocol(wsi));
+		if (!vhd)
+			return 0;
 
 		vhd->context = lws_get_context(wsi);
 		vhd->vh = lws_get_vhost(wsi);
@@ -403,8 +405,8 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!lws_pvo_get_str(in, "max-size", &cp))
 			vhd->max_size = (unsigned long long)atoll(cp);
 		if (lws_pvo_get_str(in, "upload-dir", &vhd->upload_dir)) {
-			lwsl_err("%s: requires 'upload-dir' pvo\n", __func__);
-			return -1;
+			lwsl_warn("%s: requires 'upload-dir' pvo\n", __func__);
+			return 0;
 		}
 
 		scan_upload_dir(vhd);
@@ -415,7 +417,8 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
-		lwsac_free(&vhd->lwsac_head);
+		if (vhd)
+			lwsac_free(&vhd->lwsac_head);
 		break;
 
 	/* WS-related */
@@ -696,6 +699,7 @@ LWS_VISIBLE const lws_plugin_protocol_t deaddrop = {
 	.hdr = {
 		"deaddrop",
 		"lws_protocol_plugin",
+		LWS_BUILD_HASH,
 		LWS_PLUGIN_API_MAGIC
 	},
 

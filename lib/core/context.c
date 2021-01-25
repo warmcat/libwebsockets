@@ -486,47 +486,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 		if (!lws_check_opt(info->options, map[n].flag))
 			continue;
 
-		/*
-		 * Check LD_LIBRARY_PATH override path first if present
-		 */
-
-		if (ld_env) {
-			char temp[128];
-			struct lws_tokenize ts;
-			const char * tok[2] = { temp, NULL };
-
-			memset(&ts, 0, sizeof(ts));
-			ts.start = ld_env;
-			ts.len = strlen(ld_env);
-			ts.flags = LWS_TOKENIZE_F_SLASH_NONTERM |
-				   LWS_TOKENIZE_F_DOT_NONTERM |
-				   LWS_TOKENIZE_F_MINUS_NONTERM |
-				   LWS_TOKENIZE_F_NO_INTEGERS |
-				   LWS_TOKENIZE_F_NO_FLOATS;
-
-			do {
-				ts.e = (int8_t)lws_tokenize(&ts);
-				if (ts.e != LWS_TOKZE_TOKEN)
-					continue;
-
-				lws_strnncpy(temp, ts.token,
-					     ts.token_len,
-					     sizeof(temp));
-
-				if (!lws_plugins_init(
-						&evlib_plugin_list, tok,
-						     "lws_evlib_plugin",
-						     map[n].name,
-						     NULL, NULL)) {
-					ok = 1;
-					break;
-				}
-
-			} while (ts.e > 0);
-		}
-
-		if (!ok &&
-		    !lws_plugins_init(&evlib_plugin_list,
+		if (!lws_plugins_init(&evlib_plugin_list,
 				     dlist, "lws_evlib_plugin",
 				     map[n].name, NULL, NULL))
 			ok = 1;
@@ -918,7 +878,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 		context->timeout_secs = info->timeout_secs;
 	else
 #endif
-		context->timeout_secs = 10;
+		context->timeout_secs = 15;
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	if (info->max_http_header_data)

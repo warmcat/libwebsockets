@@ -6,37 +6,37 @@
 
 	"platforms": {
 		"linux-debian-buster/x86_64-amd/gcc": {
-			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G DEB\";cmake .. ${cmake} && make -j4 && make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}"
+			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib;export SAI_CPACK=\"-G DEB\";cmake .. ${cmake} && make -j4 && rm -rf ../destdir && make -j DESTDIR=../destdir install && ctest -j2 --output-on-failure ${cpack}"
 		},
 		"linux-debian-buster/x86-amd/gcc": {
-			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G DEB\";cmake .. ${cmake} && make -j4 && make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}"
+			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib;export SAI_CPACK=\"-G DEB\";cmake .. ${cmake} && make -j4 && rm -rf ../destdir && make -j DESTDIR=../destdir install && ctest -j2 --output-on-failure ${cpack}"
 		},
 		"linux-debian-sid/x86_64-amd/gcc": {
-			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G DEB\";cmake .. ${cmake} && make -j4 && make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}"
+			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib;export SAI_CPACK=\"-G DEB\";cmake .. ${cmake} && make -j4 && rm -rf ../destdir && make -j DESTDIR=../destdir install && ctest -j2 --output-on-failure ${cpack}"
 		},
 		"linux-debian-sid/x86-amd/gcc": {
-			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G DEB\";cmake .. ${cmake} && make -j4 && make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}"
+			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib;export SAI_CPACK=\"-G DEB\";cmake .. ${cmake} && make -j4 && rm -rf ../destdir && make -j DESTDIR=../destdir install && ctest -j2 --output-on-failure ${cpack}"
 		},
 		"linux-ubuntu-1804/x86_64-amd/gcc": {
-			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G DEB\";cmake .. ${cmake} && make -j4 && make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}"
+			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib;export SAI_CPACK=\"-G DEB\";cmake .. ${cmake} && make -j4 && rm -rf ../destdir && make -j DESTDIR=../destdir install && ctest -j2 --output-on-failure ${cpack}"
 		},
 		"linux-ubuntu-2004/x86_64-amd/gcc": {
-			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G DEB\";cmake .. ${cmake} && make -j4 && make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}"
+			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib;export SAI_CPACK=\"-G DEB\";cmake .. ${cmake} && make -j4 && rm -rf ../destdir && make -j DESTDIR=../destdir install && ctest -j2 --output-on-failure ${cpack}"
 		},
 		"linux-fedora-32/x86_64-amd/gcc": {
-			"build": "rm -rf build destdir ; mkdir build destdir;cd build;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G RPM\";cmake .. ${cmake} && make -j4 && make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}"
+			"build": "rm -rf build destdir ; mkdir build destdir;cd build;export CCACHE_DISABLE=1;export LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib;export SAI_CPACK=\"-G RPM\";cmake .. ${cmake} && make -j4 && rm -rf ../destdir && make -j DESTDIR=../destdir install && ctest -j2 --output-on-failure ${cpack}"
 		},
 		"linux-gentoo/x86_64-amd/gcc": {
-			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G ZIP\";cmake .. ${cmake} && make -j4 && make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}"
+			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib;export SAI_CPACK=\"-G ZIP\";cmake .. ${cmake} && make -j4 && rm -rf ../destdir && make -j DESTDIR=../destdir install && ctest -j2 --output-on-failure ${cpack}"
 		},
 		"linux-centos-7/x86_64-amd/gcc": {
-			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G RPM\";cmake .. ${cmake} && make -j4 && make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}"
+			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib;export SAI_CPACK=\"-G RPM\";cmake .. ${cmake} && make -j4 && rm -rf ../destdir && make -j DESTDIR=../destdir install && ctest -j2 --output-on-failure ${cpack}"
 		},
 		"linux-centos-8/x86_64-amd/gcc": {
-			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G RPM\";cmake .. ${cmake} && make -j4 && make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}"
+			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib;export SAI_CPACK=\"-G RPM\";cmake .. ${cmake} && make -j4 && rm -rf ../destdir && make -j DESTDIR=../destdir install && ctest -j2 --output-on-failure ${cpack}"
 		},
 		"linux-ubuntu-2004/aarch64-a72-bcm2711-rpi4/gcc": {
-			"build": "mkdir build;cd build;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G DEB\";cmake .. ${cmake} && make -j3 && make -j DESTDIR=../destdir install && ctest -j3 --output-on-failure ${cpack}",
+			"build": "mkdir build;cd build;export CCACHE_DISABLE=1;export LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib;export SAI_CPACK=\"-G DEB\";cmake .. ${cmake} && make -j3 && rm -rf ../destdir && make -j DESTDIR=../destdir install && ctest -j3 --output-on-failure ${cpack}",
 			"default": false
 		},
 		"linux-android/aarch64/llvm": {
@@ -48,10 +48,10 @@
 			"default": false
 		},
 		"netbsd-OSX-bigsur/x86_64-intel-i3/llvm": {
-			"build": "mkdir build destdir; cd build; export SAI_CPACK=\"-G ZIP\";export MACOSX_DEPLOYMENT_TARGET=10.15 ; cmake .. -DCMAKE_MAKE_PROGRAM=/usr/bin/make -DLWS_OPENSSL_INCLUDE_DIRS=/usr/local/opt/openssl@1.1/include -DLWS_OPENSSL_LIBRARIES=\"/usr/local/opt/openssl/lib/libssl.dylib;/usr/local/opt/openssl/lib/libcrypto.dylib\" ${cmake} && make -j4 && make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}"
+			"build": "mkdir build destdir; cd build; export LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib;export SAI_CPACK=\"-G ZIP\";export MACOSX_DEPLOYMENT_TARGET=10.15 ; cmake .. -DCMAKE_MAKE_PROGRAM=/usr/bin/make -DLWS_OPENSSL_INCLUDE_DIRS=/usr/local/opt/openssl@1.1/include -DLWS_OPENSSL_LIBRARIES=\"/usr/local/opt/openssl/lib/libssl.dylib;/usr/local/opt/openssl/lib/libcrypto.dylib\" ${cmake} && make -j4 && make -j DESTDIR=../destdir install && ctest -j2 --output-on-failure ${cpack}"
 		},
 		"netbsd-OSX-bigsur/aarch64-apple-m1/llvm": {
-			"build": "mkdir build destdir; cd build; export SAI_CPACK=\"-G ZIP\";export MACOSX_DEPLOYMENT_TARGET=10.15 ; cmake .. -DLWS_WITH_SUL_DEBUGGING=1 -DCMAKE_SYSTEM_PREFIX_PATH=/opt/homebrew -DLWS_OPENSSL_INCLUDE_DIRS=/opt/homebrew/Cellar/openssl@1.1/1.1.1h/include '-DLWS_OPENSSL_LIBRARIES=/opt/homebrew/Cellar/openssl@1.1/1.1.1h/lib/libssl.dylib;/opt/homebrew/Cellar/openssl@1.1/1.1.1h/lib/libcrypto.dylib' -DLWS_WITH_MINIMAL_EXAMPLES=1 ${cmake} && make -j4 && make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}"
+			"build": "mkdir build destdir; cd build; export LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib;export SAI_CPACK=\"-G ZIP\";export MACOSX_DEPLOYMENT_TARGET=10.15 ; cmake .. -DLWS_WITH_SUL_DEBUGGING=1 -DCMAKE_SYSTEM_PREFIX_PATH=/opt/homebrew -DLWS_OPENSSL_INCLUDE_DIRS=/opt/homebrew/Cellar/openssl@1.1/1.1.1h/include '-DLWS_OPENSSL_LIBRARIES=/opt/homebrew/Cellar/openssl@1.1/1.1.1h/lib/libssl.dylib;/opt/homebrew/Cellar/openssl@1.1/1.1.1h/lib/libcrypto.dylib' -DLWS_WITH_MINIMAL_EXAMPLES=1 ${cmake} && make -j6 && rm -rf ../destdir && make -j DESTDIR=../destdir install && ctest -j3 --output-on-failure ${cpack}"
 		},
 		"freertos-linkit/arm32-m4-mt7697-usi/gcc": {
 			"build": "mkdir build;cd build;export CCACHE_DISABLE=1;cmake .. -DCMAKE_INSTALL_PREFIX:PATH=/tmp -DCMAKE_TOOLCHAIN_FILE=../contrib/cross-linkit.cmake -DLWS_PLAT_FREERTOS=1 -DLWS_WITH_ZLIB=0 -DLWS_WITHOUT_EXTENSIONS=1 -DLWS_WITH_ZIP_FOPS=0 -DLWS_WITH_HTTP_STREAM_COMPRESSION=0 -DLWS_WITH_MBEDTLS=1 -DLWS_WITH_FILE_OPS=0 ${cmake};make -j",
@@ -80,14 +80,14 @@
 			"default":	false
 		},
 		"linux-fedora-32/riscv64-virt/gcc": {
-			"build":	"mkdir build destdir;cd build;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G RPM\";cmake .. ${cmake} && make -j12 && make -j12 DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}",
+			"build":	"mkdir build destdir;cd build;export LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G RPM\";cmake .. ${cmake} && make -j12 && rm -rf ../destdir && make -j12 DESTDIR=../destdir install && ctest -j3 --output-on-failure ${cpack}",
 			"default":	false
 		},
 		"freebsd-12/x86_64-amd/llvm": {
-			"build":	"mkdir build destdir;cd build;export CCACHE_DISABLE=1;cmake .. ${cmake} && make -j3 && make -j3 DESTDIR=../destdir install"
+			"build":	"mkdir build destdir;cd build;export LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib;export CCACHE_DISABLE=1;cmake .. ${cmake} && make -j3 && rm -rf ../destdir && make -j3 DESTDIR=../destdir install"
 		},
                 "netbsd/aarch64BE-bcm2837-a53/gcc": {
-                        "build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;cmake .. ${cmake};make -j6 && make -j6 DESTDIR=../destdir install && /usr/pkg/bin/ctest -j4 --output-on-failure",
+                        "build": "mkdir build destdir;cd build;export LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib;export CCACHE_DISABLE=1;cmake .. ${cmake};make -j6 && rm -rf ../destdir && make -j6 DESTDIR=../destdir install && /usr/pkg/bin/ctest -j3 --output-on-failure",
                         "default": false
                 }
 	},

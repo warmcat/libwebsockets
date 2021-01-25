@@ -109,7 +109,7 @@ endif()
 	#
 
 	add_test(NAME http-client-multi COMMAND lws-minimal-http-client-multi
-			-l --port ${PORT_HCM_SRV})
+			-l --port ${PORT_HCM_SRV} -d 1151)
 	add_test(NAME http-client-multi-h1 COMMAND lws-minimal-http-client-multi
 			--h1 -l --port ${PORT_HCM_SRV} -d1151)
 	add_test(NAME http-client-multi-pipe COMMAND lws-minimal-http-client-multi

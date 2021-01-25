@@ -237,6 +237,9 @@ lws_protocol_vh_priv_zalloc(struct lws_vhost *vhost,
 {
 	int n = 0;
 
+	if (!vhost || !prot)
+		return NULL;
+
 	/* allocate the vh priv array only on demand */
 	if (!vhost->protocol_vh_privs) {
 		vhost->protocol_vh_privs = (void **)lws_zalloc(
@@ -377,7 +380,7 @@ lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 		if (vh->protocols[n].callback((struct lws *)plwsa,
 				LWS_CALLBACK_PROTOCOL_INIT, NULL,
 				(void *)pvo, 0)) {
-			if (vh->protocol_vh_privs[n]) {
+			if (vh->protocol_vh_privs && vh->protocol_vh_privs[n]) {
 				lws_free(vh->protocol_vh_privs[n]);
 				vh->protocol_vh_privs[n] = NULL;
 			}
@@ -401,14 +404,14 @@ int
 lws_protocol_init(struct lws_context *context)
 {
 	struct lws_vhost *vh = context->vhost_list;
-	int any = 0;
+	int any = 0, r = 0;
 
 	if (context->doing_protocol_init)
 		return 0;
 
 	context->doing_protocol_init = 1;
 
-	lwsl_info("%s\n", __func__);
+	lwsl_notice("%s\n", __func__);
 
 	while (vh) {
 
@@ -417,18 +420,26 @@ lws_protocol_init(struct lws_context *context)
 		    (lws_check_opt(vh->options, LWS_SERVER_OPTION_SKIP_PROTOCOL_INIT)))
 			goto next;
 
-		if (lws_protocol_init_vhost(vh, &any))
-			return 1;
+		if (lws_protocol_init_vhost(vh, &any)) {
+			lwsl_warn("%s: init vhost %s failed\n", __func__, vh->name);
+			r = -1;
+		}
 next:
 		vh = vh->vhost_next;
 	}
 
 	context->doing_protocol_init = 0;
 
-	if (!context->protocol_init_done && lws_finalize_startup(context))
-		return 1;
+	if (r)
+		lwsl_warn("%s: some protocols did not init\n", __func__);
 
-	context->protocol_init_done = 1;
+	if (!context->protocol_init_done) {
+
+		context->protocol_init_done = 1;
+		lws_finalize_startup(context);
+
+		return 0;
+	}
 
 #if defined(LWS_WITH_SERVER)
 	if (any) {

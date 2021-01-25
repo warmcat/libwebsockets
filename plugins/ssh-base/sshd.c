@@ -1997,6 +1997,8 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
 						  lws_get_protocol(wsi),
 						  sizeof(struct per_vhost_data__sshd));
+		if (!vhd)
+			return 0;
 		vhd->context = lws_get_context(wsi);
 		vhd->protocol = lws_get_protocol(wsi);
 		vhd->vhost = lws_get_vhost(wsi);
@@ -2028,8 +2030,8 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		if (!vhd->ops) {
-			lwsl_err("ssh pvo \"ops\" is mandatory\n");
-			return 1;
+			lwsl_warn("ssh pvo \"ops\" is mandatory\n");
+			return 0;
 		}
 		/*
 		 * The user code ops api_version has to be current
@@ -2570,6 +2572,7 @@ LWS_VISIBLE const lws_plugin_protocol_t lws_ssh_base = {
 	.hdr = {
 		"ssh base",
 		"lws_protocol_plugin",
+		LWS_BUILD_HASH,
 		LWS_PLUGIN_API_MAGIC
 	},
 

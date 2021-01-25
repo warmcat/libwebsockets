@@ -392,6 +392,8 @@ callback_lws_sshd_demo(struct lws *wsi, enum lws_callback_reasons reason,
 		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
 						  lws_get_protocol(wsi),
 				sizeof(struct per_vhost_data__lws_sshd_demo));
+		if (!vhd)
+			return 0;
 		/*
 		 * During this we still have the privs / caps we were started
 		 * with.  So open an fd on the server key, either just for read
@@ -404,14 +406,15 @@ callback_lws_sshd_demo(struct lws *wsi, enum lws_callback_reasons reason,
 			vhd->privileged_fd = lws_open(TEST_SERVER_KEY_PATH,
 					O_CREAT | O_TRUNC | O_RDWR, 0600);
 		if (vhd->privileged_fd == -1) {
-			lwsl_err("%s: Can't open %s\n", __func__,
+			lwsl_warn("%s: Can't open %s\n", __func__,
 				 TEST_SERVER_KEY_PATH);
-			return -1;
+			return 0;
 		}
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
-		close(vhd->privileged_fd);
+		if (vhd)
+			close(vhd->privileged_fd);
 		break;
 
 	case LWS_CALLBACK_VHOST_CERT_AGING:
@@ -460,6 +463,7 @@ LWS_VISIBLE const lws_plugin_protocol_t lws_sshd_demo = {
 	.hdr = {
 		"lws sshd demo",
 		"lws_protocol_plugin",
+		LWS_BUILD_HASH,
 		LWS_PLUGIN_API_MAGIC
 	},
 

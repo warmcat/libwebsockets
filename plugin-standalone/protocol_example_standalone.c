@@ -131,6 +131,7 @@ LWS_VISIBLE const lws_plugin_protocol_t protocol_example_standalone = {
 	.hdr = {
 		"standalone",
 		"lws_protocol_plugin",
+		LWS_BUILD_HASH,
 		LWS_PLUGIN_API_MAGIC
 	},
 

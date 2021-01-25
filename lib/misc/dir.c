@@ -326,7 +326,6 @@ lws_plugins_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 		return 0; /* keep going */
 
 	lws_snprintf(path, sizeof(path) - 1, "%s/%s", dirpath, lde->name);
-	lwsl_notice("   %s\n", path);
 
 	pl = lws_plat_dlopen(pa->pplugin, path, base, pa->_class,
 			     pa->each, pa->each_user);
@@ -347,6 +346,7 @@ lws_plugins_init(struct lws_plugin **pplugin, const char * const *d,
 		 each_plugin_cb_t each, void *each_user)
 {
 	struct lws_plugins_args pa;
+	char *ld_env;
 	int ret = 1;
 
 	pa.pplugin = pplugin;
@@ -354,6 +354,40 @@ lws_plugins_init(struct lws_plugin **pplugin, const char * const *d,
 	pa.each = each;
 	pa.each_user = each_user;
 	pa.filter = filter;
+
+	/*
+	 * Check LD_LIBRARY_PATH override path first if present
+	 */
+
+	ld_env = getenv("LD_LIBRARY_PATH");
+	if (ld_env) {
+		char temp[128];
+		struct lws_tokenize ts;
+
+		memset(&ts, 0, sizeof(ts));
+		ts.start = ld_env;
+		ts.len = strlen(ld_env);
+		ts.flags = LWS_TOKENIZE_F_SLASH_NONTERM |
+			   LWS_TOKENIZE_F_DOT_NONTERM |
+			   LWS_TOKENIZE_F_MINUS_NONTERM |
+			   LWS_TOKENIZE_F_NO_INTEGERS |
+			   LWS_TOKENIZE_F_NO_FLOATS;
+
+		do {
+			ts.e = (int8_t)lws_tokenize(&ts);
+			if (ts.e != LWS_TOKZE_TOKEN)
+				continue;
+
+			lws_strnncpy(temp, ts.token,
+				     ts.token_len,
+				     sizeof(temp));
+
+			lwsl_info("%s: trying %s\n", __func__, temp);
+			if (!lws_dir(temp, &pa, lws_plugins_dir_cb))
+				ret = 0;
+
+		} while (ts.e > 0);
+	}
 
 	while (d && *d) {
 		lwsl_info("%s: trying %s\n", __func__, *d);

@@ -291,6 +291,7 @@ LWS_VISIBLE const lws_plugin_protocol_t post_demo = {
 	.hdr = {
 		"post demo",
 		"lws_protocol_plugin",
+		LWS_BUILD_HASH,
 		LWS_PLUGIN_API_MAGIC
 	},
 

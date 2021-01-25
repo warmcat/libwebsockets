@@ -895,6 +895,7 @@ const lws_plugin_evlib_t evlib_uv = {
 	.hdr = {
 		"libuv event loop",
 		"lws_evlib_plugin",
+		LWS_BUILD_HASH,
 		LWS_PLUGIN_API_MAGIC
 	},
 

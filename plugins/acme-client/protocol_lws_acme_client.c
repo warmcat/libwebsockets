@@ -791,6 +791,9 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
 				lws_get_protocol(wsi),
 				sizeof(struct per_vhost_data__lws_acme_client));
+		if (vhd)
+			return 0;
+
 		vhd->context = lws_get_context(wsi);
 		vhd->protocol = lws_get_protocol(wsi);
 		vhd->vhost = lws_get_vhost(wsi);
@@ -1634,6 +1637,7 @@ LWS_VISIBLE const lws_plugin_protocol_t protocol_lws_acme_client = {
 	.hdr = {
 		"acme client",
 		"lws_protocol_plugin",
+		LWS_BUILD_HASH,
 		LWS_PLUGIN_API_MAGIC
 	},
 

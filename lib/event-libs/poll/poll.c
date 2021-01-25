@@ -53,6 +53,7 @@ const lws_plugin_evlib_t evlib_poll = {
 	.hdr = {
 		"poll",
 		"lws_evlib_plugin",
+		"n/a",
 		LWS_PLUGIN_API_MAGIC
 	},
 

@@ -152,10 +152,23 @@ lws_plat_init(struct lws_context *context,
 	}
 
 #if defined(LWS_WITH_PLUGINS)
-	if (info->plugin_dirs)
-		lws_plugins_init(&context->plugin_list, info->plugin_dirs,
-				 "lws_protocol_plugin", NULL,
-				 protocol_plugin_cb, context);
+	{
+		char *ld_env = getenv("LD_LIBRARY_PATH");
+
+		if (ld_env) {
+			const char *pp[2] = { ld_env, NULL };
+
+			lws_plugins_init(&context->plugin_list, pp,
+					 "lws_protocol_plugin", NULL,
+					 protocol_plugin_cb, context);
+		}
+
+		if (info->plugin_dirs)
+			lws_plugins_init(&context->plugin_list,
+					 info->plugin_dirs,
+					 "lws_protocol_plugin", NULL,
+					 protocol_plugin_cb, context);
+	}
 #endif
 
 

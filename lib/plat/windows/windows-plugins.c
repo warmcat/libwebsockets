@@ -72,14 +72,32 @@ lws_plat_dlopen(struct lws_plugin **pplugin, const char *libpath,
 
 	hdr = (const lws_plugin_header_t *)v;
 	if (hdr->api_magic != LWS_PLUGIN_API_MAGIC) {
-		lwsl_err("%s: plugin %s has outdated api %d (vs %d)\n",
+		lwsl_info("%s: plugin %s has outdated api %d (vs %d)\n",
 			 __func__, libpath, hdr->api_magic,
 			 LWS_PLUGIN_API_MAGIC);
 		goto bail;
 	}
 
+	if (strcmp(hdr->lws_build_hash, LWS_BUILD_HASH))
+		goto bail;
+
 	if (strcmp(hdr->_class, _class))
 		goto bail;
+
+	/*
+	 * We don't already have one of these, right?
+	 */
+
+	pin = *pplugin;
+	while (pin) {
+		if (!strcmp(pin->hdr->name, hdr->name))
+			goto bail;
+		pin = pin->list;
+	}
+
+	/*
+	 * OK let's bring it in
+	 */
 
 	pin = lws_malloc(sizeof(*pin), __func__);
 	if (!pin)

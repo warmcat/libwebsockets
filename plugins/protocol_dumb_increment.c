@@ -55,7 +55,7 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_get_protocol(wsi),
 			sizeof(struct vhd__dumb_increment));
 		if (!vhd)
-			return -1;
+			return 0;
 		if ((opt = lws_pvo_search(
 				(const struct lws_protocol_vhost_options *)in,
 				"options")))
@@ -125,6 +125,7 @@ LWS_VISIBLE const lws_plugin_protocol_t dumb_increment = {
 	.hdr = {
 		"dumb increment",
 		"lws_protocol_plugin",
+		LWS_BUILD_HASH,
 		LWS_PLUGIN_API_MAGIC
 	},
 

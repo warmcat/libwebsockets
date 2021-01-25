@@ -187,6 +187,8 @@ callback_raw_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_PROTOCOL_INIT:
 		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
 				lws_get_protocol(wsi), sizeof(struct raw_vhd));
+		if (!vhd)
+			return 0;
 		if (lws_pvo_get_str(in, "onward", &cp)) {
 			lwsl_err("%s: vh %s: pvo 'onward' required\n", __func__,
 				 lws_get_vhost_name(lws_get_vhost(wsi)));
@@ -566,6 +568,7 @@ LWS_VISIBLE const lws_plugin_protocol_t lws_raw_proxy = {
 	.hdr = {
 		"raw proxy",
 		"lws_protocol_plugin",
+		LWS_BUILD_HASH,
 		LWS_PLUGIN_API_MAGIC
 	},
 

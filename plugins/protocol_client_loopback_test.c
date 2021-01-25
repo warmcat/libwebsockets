@@ -177,6 +177,7 @@ LWS_VISIBLE const lws_plugin_protocol_t client_loopback_test = {
 	.hdr = {
 		"client loopback test",
 		"lws_protocol_plugin",
+		LWS_BUILD_HASH,
 		LWS_PLUGIN_API_MAGIC
 	},
 

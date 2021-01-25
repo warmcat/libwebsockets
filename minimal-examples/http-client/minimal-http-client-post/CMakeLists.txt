@@ -14,6 +14,7 @@ require_lws_config(LWS_WITH_CLIENT 1 requirements)
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
+	find_program(VALGRIND "valgrind")
 	
 	#
 	# instantiate the server per sai builder instance, they are running in the same
@@ -44,15 +45,27 @@ if (WIN32)
 	add_test(NAME st_hcp_srv COMMAND cmd.exe /c start /b $<TARGET_FILE:test-server> -s --port ${PORT_HCP_SRV})
 	add_test(NAME ki_hcp_srv COMMAND taskkill /F /IM $<TARGET_FILE_NAME:test-server> /T)
 else()
-	add_test(NAME st_hcp_srv COMMAND
-		${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
-				hcp_srv
-				$<TARGET_FILE:test-server>
-				-r ${CMAKE_SOURCE_DIR}/destdir/usr/local/share/libwebsockets-test-server/
-				-s --port ${PORT_HCP_SRV} )
-	add_test(NAME ki_hcp_srv COMMAND
-		${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh hcp_srv
-				$<TARGET_FILE_NAME:test-server> --port ${PORT_HCP_SRV})
+	if (VALGRIND)
+		add_test(NAME st_hcp_srv COMMAND
+			${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
+					hcp_srv ${VALGRIND} --tool=memcheck 
+					$<TARGET_FILE:test-server>
+					-r ${CMAKE_SOURCE_DIR}/destdir/usr/local/share/libwebsockets-test-server/
+					-s --port ${PORT_HCP_SRV} -d1151)
+		add_test(NAME ki_hcp_srv COMMAND
+			${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh hcp_srv ${VALGRIND}
+					$<TARGET_FILE_NAME:test-server> --port ${PORT_HCP_SRV})
+	else()
+		add_test(NAME st_hcp_srv COMMAND
+			${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
+					hcp_srv
+					$<TARGET_FILE:test-server>
+					-r ${CMAKE_SOURCE_DIR}/destdir/usr/local/share/libwebsockets-test-server/
+					-s --port ${PORT_HCP_SRV} )
+		add_test(NAME ki_hcp_srv COMMAND
+			${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh hcp_srv
+					$<TARGET_FILE_NAME:test-server> --port ${PORT_HCP_SRV})
+	endif()
 endif()
 
 	set_tests_properties(st_hcp_srv PROPERTIES

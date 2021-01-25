@@ -348,6 +348,8 @@ bail1:
 			v = (struct per_vhost_data__lws_mirror *)
 				lws_protocol_vh_priv_get(lws_get_vhost(wsi),
 							 lws_get_protocol(wsi));
+			if (!v)
+				return 0;
 			lws_pthread_mutex_init(&v->lock);
 		}
 		break;
@@ -486,6 +488,7 @@ LWS_VISIBLE const lws_plugin_protocol_t lws_mirror = {
 	.hdr = {
 		"lws mirror",
 		"lws_protocol_plugin",
+		LWS_BUILD_HASH,
 		LWS_PLUGIN_API_MAGIC
 	},
 

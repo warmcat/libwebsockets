@@ -285,6 +285,7 @@ lws_try_client_connection(struct lws_client_connect_info *i, int m)
 
 	if (!lws_client_connect_via_info(i)) {
 		failed++;
+		lwsl_user("%s: failed: conn idx %d\n", __func__, m);
 		if (++completed == count) {
 			lwsl_user("Done: failed: %d\n", failed);
 			lws_context_destroy(context);

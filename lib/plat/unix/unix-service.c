@@ -135,6 +135,9 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 
 	timeout_us /= LWS_US_PER_MS; /* ms now */
 
+#if defined(LWS_WITH_SYS_METRICS)
+	a = lws_now_usecs() - b;
+#endif
 	vpt->inside_poll = 1;
 	lws_memory_barrier();
 	n = poll(pt->fds, pt->fds_count, (int)timeout_us /* ms now */ );
