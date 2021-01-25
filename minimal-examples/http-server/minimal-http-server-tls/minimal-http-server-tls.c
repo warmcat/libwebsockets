@@ -19,6 +19,7 @@
 #include <libwebsockets.h>
 #include <string.h>
 #include <signal.h>
+#include <errno.h>
 
 static int interrupted;
 
@@ -42,20 +43,43 @@ static const struct lws_http_mount mount = {
 	/* .basic_auth_login_file */	NULL,
 };
 
+#if !defined(WIN32)
+void sigint_handler(int sig, siginfo_t *siginfo, void *context)
+{
+	pid_t sender_pid = siginfo->si_pid;
+	lwsl_err("%s: sig %d from pid %lu\n", __func__, sig, (unsigned long)sender_pid);
+	interrupted = 1;
+}
+#else
 void sigint_handler(int sig)
 {
 	interrupted = 1;
 }
+#endif
 
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	struct lws_context *context;
+#if !defined(WIN32)
+	struct sigaction siga;
+#endif
 	const char *p;
 	int n = 0;
 
-	signal(SIGINT, sigint_handler);
+#if !defined(WIN32)
+	memset(&siga, 0, sizeof(siga));
+	siga.sa_sigaction = sigint_handler;
+	siga.sa_flags |= SA_SIGINFO; // get detail info
 
+	    // change signal action,
+	if (sigaction(SIGINT, &siga, NULL) != 0) {
+	        printf("error sigaction()");
+	        return errno;
+	    }
+#else
+	signal(SIGINT, sigint_handler);
+#endif
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 	lwsl_user("LWS minimal http server TLS | visit https://localhost:7681\n");

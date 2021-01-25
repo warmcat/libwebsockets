@@ -17,8 +17,8 @@ require_lws_config(LWS_WITH_TLS 1 requirements)
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
 	if (LWS_CTEST_INTERNET_AVAILABLE)
-		add_test(NAME http-client-h2-rxflow-warmcat COMMAND lws-minimal-http-client-h2-rxflow --ignore-sigterm)
-		add_test(NAME http-client-h2-rxflow-warmcat-h1 COMMAND lws-minimal-http-client-h2-rxflow --ignore-sigterm --h1)
+		add_test(NAME http-client-h2-rxflow-warmcat COMMAND lws-minimal-http-client-h2-rxflow)
+		add_test(NAME http-client-h2-rxflow-warmcat-h1 COMMAND lws-minimal-http-client-h2-rxflow --h1)
 		set_tests_properties(http-client-h2-rxflow-warmcat
 				     http-client-h2-rxflow-warmcat-h1
 				     PROPERTIES

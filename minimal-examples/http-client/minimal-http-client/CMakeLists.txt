@@ -17,8 +17,8 @@ if (requirements)
 	add_executable(${SAMP} ${SRCS})
 
 	#	if (LWS_CTEST_INTERNET_AVAILABLE)
-	#	add_test(NAME http-client-warmcat COMMAND lws-minimal-http-client --ignore-sigterm)
-	#	add_test(NAME http-client-warmcat-h1 COMMAND lws-minimal-http-client --ignore-sigterm --h1)
+	#	add_test(NAME http-client-warmcat COMMAND lws-minimal-http-client )
+	#	add_test(NAME http-client-warmcat-h1 COMMAND lws-minimal-http-client  --h1)
 	#	set_tests_properties(http-client-warmcat
 	#			     http-client-warmcat-h1
 	#			     PROPERTIES

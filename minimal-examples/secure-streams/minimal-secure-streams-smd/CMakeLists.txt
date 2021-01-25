@@ -71,13 +71,13 @@ if (requirements)
 		add_test(NAME st_ssprxsmd_sspc COMMAND
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
 			ssproxysmd_sspc $<TARGET_FILE:lws-minimal-secure-streams-proxy>
-			-i ${CTEST_SOCKET_PATH} --ignore-sigterm -d1039)
+			-i ${CTEST_SOCKET_PATH}  -d1039)
 		set_tests_properties(st_ssprxsmd_sspc PROPERTIES WORKING_DIRECTORY . FIXTURES_SETUP ssproxysmd_sspc TIMEOUT 800)
 
 		add_test(NAME ki_ssprxsmd_sspc COMMAND
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh
 			ssproxysmd_sspc $<TARGET_FILE:lws-minimal-secure-streams-proxy>
-			-i ${CTEST_SOCKET_PATH} --ignore-sigterm -d1039)
+			-i ${CTEST_SOCKET_PATH}  -d1039)
 		set_tests_properties(ki_ssprxsmd_sspc PROPERTIES FIXTURES_CLEANUP ssproxysmd_sspc)
 
 		#
@@ -114,13 +114,13 @@ if (requirements)
 		add_test(NAME st_mulssprxsmd_sspc COMMAND
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
 			mulssproxysmd_sspc $<TARGET_FILE:lws-minimal-secure-streams-proxy>
-			-i ${CTEST_SOCKET_PATH} --ignore-sigterm -d1039)
+			-i ${CTEST_SOCKET_PATH}  -d1039)
 		set_tests_properties(st_mulssprxsmd_sspc PROPERTIES WORKING_DIRECTORY . FIXTURES_SETUP mulssproxysmd_sspc TIMEOUT 800)
 
 		add_test(NAME ki_mulssprxsmd_sspc COMMAND
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh
 			mulssproxysmd_sspc $<TARGET_FILE:lws-minimal-secure-streams-proxy>
-			-i ${CTEST_SOCKET_PATH} --ignore-sigterm -d1039)
+			-i ${CTEST_SOCKET_PATH}  -d1039)
 		set_tests_properties(ki_mulssprxsmd_sspc PROPERTIES FIXTURES_CLEANUP mulssproxysmd_sspc)
 
 		#

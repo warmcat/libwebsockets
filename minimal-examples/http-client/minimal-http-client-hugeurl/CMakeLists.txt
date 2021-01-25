@@ -17,8 +17,8 @@ if (requirements)
 	add_executable(${SAMP} ${SRCS})
 
 	if (LWS_CTEST_INTERNET_AVAILABLE)
-		add_test(NAME http-client-hugeurl-warmcat COMMAND lws-minimal-http-client-hugeurl --ignore-sigterm)
-		add_test(NAME http-client-hugeurl-warmcat-h1 COMMAND lws-minimal-http-client-hugeurl --ignore-sigterm --h1)
+		add_test(NAME http-client-hugeurl-warmcat COMMAND lws-minimal-http-client-hugeurl )
+		add_test(NAME http-client-hugeurl-warmcat-h1 COMMAND lws-minimal-http-client-hugeurl  --h1)
 		set_tests_properties(http-client-hugeurl-warmcat
 				     http-client-hugeurl-warmcat-h1
 				     PROPERTIES

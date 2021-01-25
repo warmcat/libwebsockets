@@ -51,7 +51,7 @@ if (requirements)
 			add_test(NAME st_ssproxy COMMAND
 				${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
 				ssproxy $<TARGET_FILE:lws-minimal-secure-streams-proxy>
-				-i ${CTEST_SOCKET_PATH} --ignore-sigterm)
+				-i ${CTEST_SOCKET_PATH} )
 			set_tests_properties(st_ssproxy PROPERTIES WORKING_DIRECTORY . FIXTURES_SETUP ssproxy TIMEOUT 800)
 
 			add_test(NAME ki_ssproxy COMMAND

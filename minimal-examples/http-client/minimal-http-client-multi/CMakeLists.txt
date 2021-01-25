@@ -73,7 +73,7 @@ else()
 		add_test(NAME st_hcm_srv COMMAND
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
 				hcm_srv $<TARGET_FILE:lws-minimal-http-server-tls>
-				--port ${PORT_HCM_SRV} --ignore-sigterm)
+				--port ${PORT_HCM_SRV} )
 		add_test(NAME ki_hcm_srv COMMAND
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh
 				hcm_srv $<TARGET_FILE_NAME:lws-minimal-http-server-tls>
@@ -82,7 +82,7 @@ else()
 				${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
 					hcmp_srv $<TARGET_FILE:test-server> -s
 					-r ${CMAKE_SOURCE_DIR}/destdir/usr/local/share/libwebsockets-test-server/
-					--port 1${PORT_HCM_SRV} --ignore-sigterm)
+					--port 1${PORT_HCM_SRV} )
 		add_test(NAME ki_hcmp_srv COMMAND
 				${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh
 					hcmp_srv $<TARGET_FILE_NAME:test-server>
@@ -111,7 +111,7 @@ endif()
 	add_test(NAME http-client-multi COMMAND lws-minimal-http-client-multi
 			-l --port ${PORT_HCM_SRV})
 	add_test(NAME http-client-multi-h1 COMMAND lws-minimal-http-client-multi
-			--h1 -l --port ${PORT_HCM_SRV})
+			--h1 -l --port ${PORT_HCM_SRV} -d1151)
 	add_test(NAME http-client-multi-pipe COMMAND lws-minimal-http-client-multi
 			-p -l --port ${PORT_HCM_SRV})
 	add_test(NAME http-client-multi-h1-pipe COMMAND lws-minimal-http-client-multi

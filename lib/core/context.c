@@ -918,7 +918,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 		context->timeout_secs = info->timeout_secs;
 	else
 #endif
-		context->timeout_secs = 5;
+		context->timeout_secs = 10;
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	if (info->max_http_header_data)

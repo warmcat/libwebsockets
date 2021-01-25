@@ -5,60 +5,63 @@
 # $2  - executable
 # $3+ - args
 
-echo "$0 $1 $2 $3 $4" >> /tmp/ctklog
+echo "$0 $1 $2 $3 $4"
 
 J=`basename $2`.$1.$SAI_INSTANCE_IDX
 PI=`cat /tmp/sai-ctest-$J`
-echo "Stage 1 kill $J 'kill $PI'" >> /tmp/ctklog
 
 #
-# We expect our background process to still be around
+# We expect our background process to initially still be around
 #
 
-kill -0 $PI 2>&1 >> /tmp/ctklog
+kill -0 $PI
 GONESKI=$?
-set +e
-set +E
 
-if [ $GONESKI -eq 0 ] ; then
-	kill $PI 2>&1 >> /tmp/ctklog
-	kill -9 $PI 2>&1 >> /tmp/ctklog
+echo "Background task $PI: $J"
 
-	kill -0 $PI 2>&1
-	if [ $? -eq 0 ] ; then
-		#
-		# but in case it isn't enough, use ps to find the same executable started on the same port
-		# and kill that
-		#
-		A1=$3
-		if [ -z "$A1" ] ; then
-			A1=$2
-		fi
-		A2=$4
-		if [ -z "$A2" ] ; then
-			A2=$2
-		fi
-
-               PSARGS=-Af
-               Q=`ps -f`
-
-               if [ $? -ne 0 ] ; then
-                       PSARGS=`-dAww`
-               fi
-
-	       ps $PSARGS >> /tmp/ctklog
-
-		# sed is there to match up bsd/osx ps with linux
-		KL=`ps $PSARGS | grep -v ctest-background-kill | grep -v grep | grep $2 | grep $A1 | grep $A2 | tr -s ' ' | sed "s/^\ //g" | cut -d' ' -f2`
-		if [ ! -z "$KL" ] ; then
-			echo "Stage 2 kill $J 'kill $KL'" >> /tmp/ctklog
-			kill $KL 2>&1 >> /tmp/ctklog
-		fi
-	fi
-else
-	echo "Process already dead" >> /tmp/ctklog
+if [ $GONESKI -eq 1 ] ; then
+	echo "Background Process $PI unexpectedly dead already, their log"
+	cat /tmp/ctest-background-$J
+	exit 1
 fi
 
-exit 0
-#exit $GONESKI
+echo "Trying SIGTERM..."
 
+kill $PI
+
+#
+# 100ms intervals, 100 = 10s
+# need to allow time for valgrind case
+#
+BUDGET=100
+while [ $BUDGET -ne 0 ] ; do
+	sleep 0.1
+	kill -0 $PI 2>&1
+	if [ $? -eq 1 ] ; then
+		echo "Went down OK"
+		exit 0
+	fi
+	BUDGET=$(( $BUDGET - 1 ))
+done
+
+echo "Trying SIGKILL..."
+
+kill -9 $PI
+
+#
+# 100ms intervals, 100 = 10s
+# need to allow time for valgrind case
+#
+BUDGET=20
+while [ $BUDGET -ne 0 ] ; do
+	sleep 0.1
+	kill -0 $PI 2>&1
+	if [ $? -eq 1 ] ; then
+		echo "Went down OK after SIGKILL"
+		exit 0
+	fi
+	BUDGET=$(( $BUDGET - 1 ))
+done
+
+echo "Couldn't kill it"
+exit 1

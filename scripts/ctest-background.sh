@@ -11,6 +11,10 @@ echo $! > /tmp/sai-ctest-$J
 # really we want to loop until the listen port is up
 # on, eg, rpi it can be blocked at sd card and slow to start
 # due to parallel tests and disc cache flush
-sleep 1
+if [ ! -z "`echo $2 | grep valgrind`" ] ; then
+	sleep 5
+else
+	sleep 1
+fi
 exit 0
 

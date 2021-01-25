@@ -49,7 +49,7 @@ else()
 				hcp_srv
 				$<TARGET_FILE:test-server>
 				-r ${CMAKE_SOURCE_DIR}/destdir/usr/local/share/libwebsockets-test-server/
-				-s --port ${PORT_HCP_SRV} --ignore-sigterm)
+				-s --port ${PORT_HCP_SRV} )
 	add_test(NAME ki_hcp_srv COMMAND
 		${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh hcp_srv
 				$<TARGET_FILE_NAME:test-server> --port ${PORT_HCP_SRV})
