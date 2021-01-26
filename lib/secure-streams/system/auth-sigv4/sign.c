@@ -148,27 +148,6 @@ bin2hex(uint8_t *in, size_t len, char *out)
 }
 
 static int
-sha256hash(uint8_t *data, size_t len, char *out)
-{
-	struct lws_genhash_ctx hash_ctx;
-	uint8_t hash_bin[32];
-
-	if (lws_genhash_init(&hash_ctx, LWS_GENHASH_TYPE_SHA256) ||
-		  lws_genhash_update(&hash_ctx, (void *)data, len) ||
-		   lws_genhash_destroy(&hash_ctx, hash_bin))
-	{
-
-		lws_genhash_destroy(&hash_ctx, NULL);
-		lwsl_err("%s lws_genhash error \n", __func__);
-		return -1;
-	}
-
-	bin2hex(hash_bin, sizeof(hash_bin), out);
-
-	return 0;
-}
-
-static int
 hmacsha256(const uint8_t *key, size_t keylen, const uint8_t *txt,
 			size_t txtlen, uint8_t *digest)
 {
@@ -192,43 +171,85 @@ hmacsha256(const uint8_t *key, size_t keylen, const uint8_t *txt,
 	return 0;
 }
 
+/* cut the last byte of the str */
+static inline int hash_update_bite_str(struct lws_genhash_ctx *ctx, const char * str)
+{
+	int ret = 0;
+	if ((ret = lws_genhash_update(ctx, (void *)str, strlen(str)-1))) {
+		lws_genhash_destroy(ctx, NULL);
+		lwsl_err("%s err %d line \n", __func__, ret);
+	}
+	return ret;
+}
+
+static inline int hash_update_str(struct lws_genhash_ctx *ctx, const char * str)
+{
+	int ret = 0;
+	if ((ret = lws_genhash_update(ctx, (void *)str, strlen(str)))) {
+		lws_genhash_destroy(ctx, NULL);
+		lwsl_err("%s err %d \n", __func__, ret);
+	}
+	return ret;
+}
+
 static int
 build_sign_string(struct lws *wsi, char *buf, size_t bufsz,
 		struct lws_ss_handle *h, struct sigv4 *s)
 {
 	char hash[65], *end = &buf[bufsz - 1], *start;
-	int i;
+	struct lws_genhash_ctx hash_ctx;
+	uint8_t hash_bin[32];
+	int i, ret = 0;
 
 	start = buf;
 
+	if ((ret = lws_genhash_init(&hash_ctx, LWS_GENHASH_TYPE_SHA256))) {
+		lws_genhash_destroy(&hash_ctx, NULL);
+		lwsl_err("%s genhash init err %d \n", __func__, ret);
+		return -1;
+	}
 	/*
-	 * build canonical_request and hash it
+	 * hash canonical_request
 	 */
-	buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf), "%s\n%s\n",
-				h->policy->u.http.method,
-				lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI));
+
+	if (hash_update_str(&hash_ctx, h->policy->u.http.method) ||
+			hash_update_str(&hash_ctx, "\n"))
+		return -1;
+	if (hash_update_str(&hash_ctx, lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI)) ||
+			hash_update_str(&hash_ctx, "\n"))
+		return -1;
+
 	/* TODO, append query string */
-	buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf), "\n");
+	if (hash_update_str(&hash_ctx, "\n"))
+		return -1;
+
 	for (i = 0; i < s->hnum; i++) {
-		buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf), "%s%s\n",
-				s->headers[i].name, s->headers[i].value);
+		if (hash_update_str(&hash_ctx, s->headers[i].name) ||
+		    hash_update_str(&hash_ctx, s->headers[i].value) ||
+		    hash_update_str(&hash_ctx, "\n"))
+		return -1;
+
 	}
-	buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf), "\n");
-	for (i = 0; i < s->hnum; i++) {
-		buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf), "%s",
-				         s->headers[i].name);
-		buf--; /* remove ':' */
-		*buf++ = ';';
+	if (hash_update_str(&hash_ctx, "\n"))
+		return -1;
+
+	for (i = 0; i < s->hnum-1; i++) {
+		if (hash_update_bite_str(&hash_ctx, s->headers[i].name) ||
+		    hash_update_str(&hash_ctx, ";"))
+			return -1;
 	}
-	buf--; /* remove the trailing ';' */
-	buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf), "\n%s",
-				s->payload_hash);
-	*buf++ = '\0';
+	if (hash_update_bite_str(&hash_ctx, s->headers[i].name) ||
+	    hash_update_str(&hash_ctx, "\n") ||
+	    hash_update_str(&hash_ctx, s->payload_hash))
+		return -1;
 
-	assert(buf <= start + bufsz);
+	if ((ret = lws_genhash_destroy(&hash_ctx, hash_bin))) {
+		lws_genhash_destroy(&hash_ctx, NULL);
+		lwsl_err("%s lws_genhash error \n", __func__);
+		return -1;
+	}
 
-	sha256hash((uint8_t *)start, strlen(start), hash);
-
+	bin2hex(hash_bin, sizeof(hash_bin), hash);
 	/*
 	 * build sign string like the following
 	 *

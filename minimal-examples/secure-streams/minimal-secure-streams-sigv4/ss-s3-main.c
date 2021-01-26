@@ -75,7 +75,7 @@ static const char * const default_ss_policy =
 	  "],"
 	  "\"auth\": [" /* named cert chains */
 	       "{"
-			"\"name\": \"sigv4_brahms\","
+			"\"name\": \"sigv4_br\","
 			"\"type\": \"sigv4\","
 			"\"blob\": 0"
 		"}"
@@ -93,7 +93,7 @@ static const char * const default_ss_policy =
 			"\"tls_trust_store\":"	"\"s3-root-cert\","
 			"\"opportunistic\":" "true,"
 			"\"retry\":" "\"default\","
-			"\"use_auth\":" "\"sigv4_brahms\","
+			"\"use_auth\":" "\"sigv4_br\","
 			"\"aws_region\":" "\"region\","
 			"\"aws_service\":" "\"service\","
 			"\"metadata\": ["
