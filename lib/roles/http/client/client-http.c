@@ -359,10 +359,14 @@ client_http_body_sent:
 		if ((pollfd->revents & (LWS_POLLIN | LWS_POLLHUP)) ==
 								LWS_POLLHUP) {
 
-			lwsl_debug("Server conn %s (fd=%d) dead\n",
-					lws_wsi_tag(wsi), pollfd->fd);
-			cce = "Peer hung up";
-			goto bail3;
+			if (lws_buflist_total_len(&wsi->buflist))
+				lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_ACK, 3);
+			else {
+				lwsl_debug("Server conn %s (fd=%d) dead\n",
+						lws_wsi_tag(wsi), pollfd->fd);
+				cce = "Peer hung up";
+				goto bail3;
+			}
 		}
 
 		if (pollfd->revents & LWS_POLLOUT)
