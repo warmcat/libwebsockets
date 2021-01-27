@@ -555,16 +555,22 @@ int lws_hdr_copy(struct lws *wsi, char *dst, int len,
 		return -1;
 
 	n = wsi->http.ah->frag_index[h];
+	if (h == WSI_TOKEN_HTTP_URI_ARGS)
+		lwsl_err("%s: WSI_TOKEN_HTTP_URI_ARGS start frag %d\n", __func__, n);
+
+
 	if (!n)
 		return 0;
-
 	do {
 		comma = (wsi->http.ah->frags[n].nfrag) ? 1 : 0;
 
-		//lwsl_notice("'%.*s'\n", (int)wsi->http.ah->frags[n].len, &wsi->http.ah->data[wsi->http.ah->frags[n].offset]);
+		if (h == WSI_TOKEN_HTTP_URI_ARGS)
+			lwsl_notice("%s: WSI_TOKEN_HTTP_URI_ARGS '%.*s'\n", __func__, (int)wsi->http.ah->frags[n].len, &wsi->http.ah->data[wsi->http.ah->frags[n].offset]);
 
-		if (wsi->http.ah->frags[n].len + comma >= len)
+		if (wsi->http.ah->frags[n].len + comma >= len) {
+			lwsl_notice("blowout len\n");
 			return -1;
+		}
 		strncpy(dst, &wsi->http.ah->data[wsi->http.ah->frags[n].offset],
 		        wsi->http.ah->frags[n].len);
 		dst += wsi->http.ah->frags[n].len;
@@ -575,11 +581,17 @@ int lws_hdr_copy(struct lws *wsi, char *dst, int len,
 			if (h == WSI_TOKEN_HTTP_COOKIE || h == WSI_TOKEN_HTTP_SET_COOKIE)
 				*dst++ = ';';
 			else
-				*dst++ = ',';
+				if (h == WSI_TOKEN_HTTP_URI_ARGS)
+					*dst++ = '&';
+				else
+					*dst++ = ',';
 		}
 				
 	} while (n);
 	*dst = '\0';
+
+	if (h == WSI_TOKEN_HTTP_URI_ARGS)
+		lwsl_err("%s: WSI_TOKEN_HTTP_URI_ARGS toklen %d\n", __func__, (int)toklen);
 
 	return toklen;
 }

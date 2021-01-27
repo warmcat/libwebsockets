@@ -1161,11 +1161,16 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 		i.port = atoi(pcolon + 1);
 
 	n = lws_snprintf(rpath, sizeof(rpath) - 1, "/%s/%s",
-			 pslash + 1, uri_ptr + hit->mountpoint_len) - 2;
+			 pslash + 1, uri_ptr + hit->mountpoint_len) - 1;
 	lws_clean_url(rpath);
+	n = (int)strlen(rpath);
+	if (n && rpath[n - 1] == '/')
+		n--;
+
 	na = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_URI_ARGS);
 	if (na) {
 		char *p;
+		int budg;
 
 		if (!n) /* don't start with the ?... use the first / if so */
 			n++;
@@ -1181,18 +1186,17 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 		}
 
 		*p++ = '?';
-		if (lws_hdr_copy(wsi, p,
+		budg = lws_hdr_copy(wsi, p,
 			     (int)(&rpath[sizeof(rpath) - 1] - p),
-			     WSI_TOKEN_HTTP_URI_ARGS) > 0)
-			while (na--) {
-				if (*p == '\0')
-					*p = '&';
-				p++;
-			}
+			     WSI_TOKEN_HTTP_URI_ARGS);
+	       if (budg > 0)
+		       p += budg;
+
 		*p = '\0';
 	}
 
 	i.path = rpath;
+	lwsl_notice("%s: proxied path '%s'\n", __func__, i.path);
 
 	/* incoming may be h1 or h2... if he sends h1 HOST, use that
 	 * directly, otherwise we must convert h2 :authority to h1
