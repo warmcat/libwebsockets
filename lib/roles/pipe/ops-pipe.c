@@ -51,6 +51,13 @@ rops_handle_POLLIN_pipe(struct lws_context_per_thread *pt, struct lws *wsi,
 	(void)n;
 	if (n < 0)
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;
+#elif defined(WIN32)
+	char s[100];
+	int n;
+
+	n = recv(wsi->desc.sockfd, s, sizeof(s), 0);
+	if (n == SOCKET_ERROR)
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 #endif
 
 #if defined(LWS_WITH_THREADPOOL)
