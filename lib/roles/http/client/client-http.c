@@ -933,10 +933,12 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 
 		/*
 		 * Did we get a response from the server with an explicit
-		 * content-length of zero?  If so, this transaction is already
+		 * content-length of zero?  If so, and it's not H2 which will
+		 * notice it via END_STREAM, this transaction is already
 		 * completed at the end of the header processing...
 		 */
-		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
+		if (!wsi->mux_substream && !wsi->client_mux_substream &&
+		    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
 		    !wsi->http.rx_content_length)
 		        return !!lws_http_transaction_completed_client(wsi);
 

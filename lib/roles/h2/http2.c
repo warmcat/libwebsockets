@@ -1641,6 +1641,27 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		}
 
 #if defined(LWS_WITH_CLIENT)
+
+		/*
+		 * If we already had the END_STREAM along with the END_HEADERS,
+		 * we have already transitioned to STATE_CLOSED and we are not
+		 * going to be doing anything further on this stream.
+		 *
+		 * In that case handle the transaction completion and
+		 * finalize the stream for the peer
+		 */
+
+		if (h2n->swsi->h2.h2_state == LWS_H2_STATE_CLOSED &&
+			h2n->swsi->client_mux_substream) {
+
+			lws_h2_rst_stream(h2n->swsi, H2_ERR_NO_ERROR,
+				"client done");
+
+			if (lws_http_transaction_completed_client(h2n->swsi))
+				lwsl_debug("tx completed returned close\n");
+			break;
+		}
+
 		if (h2n->swsi->client_mux_substream) {
 			lwsl_info("%s: %s: headers: client path (h2 state %s)\n",
 				  __func__, lws_wsi_tag(wsi),
@@ -1692,27 +1713,6 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 				break;
 			}
 
-#if defined(LWS_WITH_CLIENT)
-
-		/*
-		 * If we already had the END_STREAM along with the END_HEADERS,
-		 * we have already transitioned to STATE_CLOSED and we are not
-		 * going to be doing anything further on this stream.
-		 *
-		 * In that case handle the transaction completion and
-		 * finalize the stream for the peer
-		 */
-
-		if (h2n->swsi->h2.h2_state == LWS_H2_STATE_CLOSED &&
-		    h2n->swsi->client_mux_substream) {
-
-			lws_h2_rst_stream(h2n->swsi, H2_ERR_NO_ERROR,
-				  "client done");
-
-			if (lws_http_transaction_completed_client(h2n->swsi))
-				lwsl_debug("tx completed returned close\n");
-		} else
-#endif
 		{
 			lwsl_debug("%s: setting DEF_ACT from 0x%x\n", __func__,
 				   (unsigned int)h2n->swsi->wsistate);
