@@ -386,7 +386,7 @@ lws_plat_mbedtls_net_send(void *ctx, const uint8_t *buf, size_t len)
 	if (fd < 0)
 		return MBEDTLS_ERR_NET_INVALID_CONTEXT;
 
-	ret = write(fd, buf, len);
+	ret = write(fd, buf, (unsigned int)len);
 	if (ret >= 0)
 		return ret;
 
@@ -408,7 +408,7 @@ lws_plat_mbedtls_net_recv(void *ctx, unsigned char *buf, size_t len)
 	if (fd < 0)
 		return MBEDTLS_ERR_NET_INVALID_CONTEXT;
 
-	ret = (int)read(fd, buf, len);
+	ret = (int)read(fd, buf, (unsigned int)len);
 	if (ret >= 0)
 		return ret;
 

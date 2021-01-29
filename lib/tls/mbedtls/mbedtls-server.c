@@ -262,7 +262,7 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 		return 1;
 	}
 
-	SSL_set_fd(wsi->tls.ssl, accept_fd);
+	SSL_set_fd(wsi->tls.ssl, (int)accept_fd);
 
 	if (wsi->a.vhost->tls.ssl_info_event_mask)
 		SSL_set_info_callback(wsi->tls.ssl, lws_ssl_info_callback);

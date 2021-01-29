@@ -239,7 +239,7 @@ void SSL_CTX_free(SSL_CTX* ctx)
     X509_free(ctx->client_CA);
 
     if (ctx->alpn_protos)
-	    ssl_mem_free(ctx->alpn_protos);
+	    ssl_mem_free((void *)ctx->alpn_protos);
 
     ssl_mem_free(ctx);
 }
@@ -354,7 +354,7 @@ void SSL_free(SSL *ssl)
     SSL_SESSION_free(ssl->session);
 
     if (ssl->alpn_protos)
-	    ssl_mem_free(ssl->alpn_protos);
+	    ssl_mem_free((void *)ssl->alpn_protos);
 
     ssl_mem_free(ssl);
 }
