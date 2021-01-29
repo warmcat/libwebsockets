@@ -749,7 +749,11 @@ struct lws_context_creation_info {
 #else
 	const char *pss_policies_json; /**< CONTEXT: point to a string
 	 * containing a JSON description of the secure streams policies.  Set
-	 * to NULL if not using Secure Streams. */
+	 * to NULL if not using Secure Streams.
+	 * If the platform supports files and the string does not begin with
+	 * '{', lws treats the string as a filepath to open to get the JSON
+	 * policy.
+	 */
 #endif
 	const struct lws_ss_plugin **pss_plugins; /**< CONTEXT: point to an array
 	 * of pointers to plugin structs here, terminated with a NULL ptr.

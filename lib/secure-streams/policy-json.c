@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2019 - 2020 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2019 - 2021 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -1004,11 +1004,59 @@ lws_ss_policy_parse_abandon(struct lws_context *context)
 	return 0;
 }
 
+#if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE)
+int
+lws_ss_policy_parse_file(struct lws_context *cx, const char *filepath)
+{
+	struct policy_cb_args *args = (struct policy_cb_args *)cx->pol_args;
+	uint8_t buf[512];
+	int n, m, fd = lws_open(filepath, LWS_O_RDONLY);
+
+	if (fd < 0)
+		return -1;
+
+	do {
+		n = (int)read(fd, buf, sizeof(buf));
+		if (n < 0) {
+			m = -1;
+			goto bail;
+		}
+
+		m = lejp_parse(&args->jctx, buf, n);
+		if (m != LEJP_CONTINUE && m < 0) {
+			lwsl_err("%s: parse failed line %u: %d: %s\n", __func__,
+				 (unsigned int)args->jctx.line, m,
+				 lejp_error_to_string(m));
+			lws_ss_policy_parse_abandon(cx);
+
+			m = -1;
+			goto bail;
+		}
+
+		if (m != LEJP_CONTINUE)
+			break;
+	} while (n);
+
+	m = 0;
+bail:
+	close(fd);
+
+	return m;
+}
+#endif
+
 int
 lws_ss_policy_parse(struct lws_context *context, const uint8_t *buf, size_t len)
 {
 	struct policy_cb_args *args = (struct policy_cb_args *)context->pol_args;
 	int m;
+
+#if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE)
+	if (!args->jctx.line && buf[0] != '{') {
+		puts((const char *)buf);
+		return lws_ss_policy_parse_file(context, (const char *)buf);
+	}
+#endif
 
 	m = lejp_parse(&args->jctx, buf, (int)len);
 	if (m == LEJP_CONTINUE || m >= 0)
