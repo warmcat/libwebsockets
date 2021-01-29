@@ -729,6 +729,10 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 		return LWS_HPI_RET_WSI_ALREADY_DIED;
 #endif
 
+	if (lwsi_state(wsi) == LRS_WAITING_CONNECT &&
+	    (pollfd->revents & LWS_POLLHUP))
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
+
 	return LWS_HPI_RET_HANDLED;
 }
 
