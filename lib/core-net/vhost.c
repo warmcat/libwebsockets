@@ -293,6 +293,45 @@ lws_protocol_vh_priv_get(struct lws_vhost *vhost,
 	return vhost->protocol_vh_privs[n];
 }
 
+void *
+lws_vhd_find_by_pvo(struct lws_context *cx, const char *protname,
+		    const char *pvo_name, const char *pvo_value)
+{
+	struct lws_vhost *vh;
+	int n;
+
+	/* let's go through all the vhosts */
+
+	vh = cx->vhost_list;
+	while (vh) {
+
+		for (n = 0; n < vh->count_protocols; n++) {
+			const struct lws_protocol_vhost_options *pv;
+
+			if (strcmp(vh->protocols[n].name, protname))
+				continue;
+
+			/* this vh has an instance of the required protocol */
+
+			pv = lws_pvo_search(vh->pvo, pvo_name);
+			if (!pv)
+				continue;
+
+			/* ... he also has a pvo of the right name... */
+			if (!strcmp(pv->value, pvo_value))
+				/*
+				 * ... yes, the pvo has the right value too,
+				 * return a pointer to this vhost-protocol
+				 * private alloc (ie, its "vhd")
+				 */
+				return vh->protocol_vh_privs[n];
+		}
+		vh = vh->vhost_next;
+	}
+
+	return NULL;
+}
+
 const struct lws_protocol_vhost_options *
 lws_vhost_protocol_options(struct lws_vhost *vh, const char *name)
 {
