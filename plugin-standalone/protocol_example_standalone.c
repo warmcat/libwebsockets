@@ -22,9 +22,15 @@
  * outside the library easily.
  */
 
+#if !defined (LWS_PLUGIN_STATIC)
+#if !defined(LWS_DLL)
 #define LWS_DLL
+#endif
+#if !defined(LWS_INTERNAL)
 #define LWS_INTERNAL
+#endif
 #include <libwebsockets.h>
+#endif
 
 #include <string.h>
 

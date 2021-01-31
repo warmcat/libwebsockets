@@ -66,8 +66,12 @@
  */
 
 #if !defined (LWS_PLUGIN_STATIC)
+#if !defined(LWS_DLL)
 #define LWS_DLL
+#endif
+#if !defined(LWS_INTERNAL)
 #define LWS_INTERNAL
+#endif
 #include <libwebsockets.h>
 #endif
 
@@ -279,7 +283,7 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 #if !defined (LWS_PLUGIN_STATIC)
 		
-static const struct lws_protocols protocols[] = {
+LWS_VISIBLE const struct lws_protocols lws_raw_test_protocols[] = {
 	LWS_PLUGIN_PROTOCOL_RAW_TEST
 };
 
@@ -291,8 +295,8 @@ LWS_VISIBLE const lws_plugin_protocol_t lws_raw_test = {
 		LWS_PLUGIN_API_MAGIC
 	},
 
-	.protocols = protocols,
-	.count_protocols = LWS_ARRAY_SIZE(protocols),
+	.protocols = lws_raw_test_protocols,
+	.count_protocols = LWS_ARRAY_SIZE(lws_raw_test_protocols),
 	.extensions = NULL,
 	.count_extensions = 0,
 };

@@ -19,8 +19,12 @@
  */
 
 #if !defined (LWS_PLUGIN_STATIC)
+#if !defined(LWS_DLL)
 #define LWS_DLL
+#endif
+#if !defined(LWS_INTERNAL)
 #define LWS_INTERNAL
+#endif
 #include <libwebsockets.h>
 #endif
 
@@ -211,7 +215,7 @@ ssh_ops_get_server_key(struct lws *wsi, uint8_t *buf, size_t len)
 
 	if (lseek(vhd->privileged_fd, 0, SEEK_SET) < 0)
 		return 0;
-	n = (int)read(vhd->privileged_fd, buf, len);
+	n = (int)read(vhd->privileged_fd, buf, (unsigned int)len);
 	if (n < 0) {
 		lwsl_err("%s: read failed: %d\n", __func__, n);
 		n = 0;
@@ -229,7 +233,7 @@ ssh_ops_set_server_key(struct lws *wsi, uint8_t *buf, size_t len)
 						 lws_get_protocol(wsi));
 	int n;
 
-	n = (int)write(vhd->privileged_fd, buf, len);
+	n = (int)write(vhd->privileged_fd, buf, (unsigned int)len);
 	if (n < 0) {
 		lwsl_err("%s: read failed: %d\n", __func__, errno);
 		n = 0;
@@ -455,7 +459,7 @@ callback_lws_sshd_demo(struct lws *wsi, enum lws_callback_reasons reason,
 
 #if !defined (LWS_PLUGIN_STATIC)
 		
-static const struct lws_protocols protocols[] = {
+LWS_VISIBLE const struct lws_protocols lws_sshd_demo_protocols[] = {
 		LWS_PLUGIN_PROTOCOL_LWS_SSHD_DEMO
 };
 
@@ -467,8 +471,8 @@ LWS_VISIBLE const lws_plugin_protocol_t lws_sshd_demo = {
 		LWS_PLUGIN_API_MAGIC
 	},
 
-	.protocols = protocols,
-	.count_protocols = LWS_ARRAY_SIZE(protocols),
+	.protocols = lws_sshd_demo_protocols,
+	.count_protocols = LWS_ARRAY_SIZE(lws_sshd_demo_protocols),
 	.extensions = NULL,
 	.count_extensions = 0,
 };

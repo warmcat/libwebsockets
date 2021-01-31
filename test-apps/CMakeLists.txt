@@ -134,7 +134,7 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2))
 				"")
 			target_compile_definitions(test-server PRIVATE LWS_BUILDING_SHARED)
 
-			if (LWS_WITH_CGI AND LWS_WITH_TLS)
+			if (LWS_WITH_CGI AND (LWS_WITH_PLUGINS OR LWS_WITH_PLUGINS_BUILTIN) AND LWS_WITH_TLS)
 			create_test_app(test-sshd "test-sshd.c"
 				""
 				""

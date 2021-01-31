@@ -342,4 +342,25 @@ LWS_VISIBLE LWS_EXTERN int
 lws_plugins_destroy(struct lws_plugin **pplugin, each_plugin_cb_t each,
 		    void *each_user);
 
+#if defined(LWS_WITH_PLUGINS_BUILTIN)
+
+/* provide exports for builtin plugin protocols */
+
+extern const struct lws_protocols post_demo_protocols[1];
+extern const struct lws_protocols lws_raw_proxy_protocols[1];
+extern const struct lws_protocols lws_status_protocols[1];
+extern const struct lws_protocols lws_mirror_protocols[1];
+extern const struct lws_protocols lws_ssh_base_protocols[2];
+extern const struct lws_protocols post_demo_protocols[1];
+extern const struct lws_protocols dumb_increment_protocols[1];
+extern const struct lws_protocols deaddrop_protocols[1];
+extern const struct lws_protocols lws_raw_test_protocols[1];
+extern const struct lws_protocols lws_sshd_demo_protocols[1];
+extern const struct lws_protocols lws_acme_client_protocols[1];
+extern const struct lws_protocols client_loopback_test_protocols[1];
+extern const struct lws_protocols fulltext_demo_protocols[1];
+
+
+#endif
+
 ///@}

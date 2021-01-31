@@ -18,8 +18,12 @@
  * Public Domain.
  */
 
+#if !defined(LWS_DLL)
 #define LWS_DLL
+#endif
+#if !defined(LWS_INTERNAL)
 #define LWS_INTERNAL
+#endif
 #include <libwebsockets.h>
 #include <string.h>
 
@@ -164,7 +168,7 @@ callback_client_loopback_test(struct lws *wsi, enum lws_callback_reasons reason,
 	return 0;
 }
 
-static const struct lws_protocols protocols[] = {
+LWS_VISIBLE const struct lws_protocols client_loopback_test_protocols[] = {
 	{
 		"client-loopback-test",
 		callback_client_loopback_test,
@@ -181,8 +185,8 @@ LWS_VISIBLE const lws_plugin_protocol_t client_loopback_test = {
 		LWS_PLUGIN_API_MAGIC
 	},
 
-	.protocols = protocols,
-	.count_protocols = LWS_ARRAY_SIZE(protocols),
+	.protocols = client_loopback_test_protocols,
+	.count_protocols = LWS_ARRAY_SIZE(client_loopback_test_protocols),
 	.extensions = NULL,
 	.count_extensions = 0,
 };

@@ -19,8 +19,12 @@
  */
 
 #if !defined (LWS_PLUGIN_STATIC)
+#if !defined(LWS_DLL)
 #define LWS_DLL
+#endif
+#if !defined(LWS_INTERNAL)
 #define LWS_INTERNAL
+#endif
 #include <libwebsockets.h>
 #endif
 
@@ -117,7 +121,7 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 
 #if !defined (LWS_PLUGIN_STATIC)
 		
-static const struct lws_protocols protocols[] = {
+LWS_VISIBLE const struct lws_protocols dumb_increment_protocols[] = {
 	LWS_PLUGIN_PROTOCOL_DUMB_INCREMENT
 };
 
@@ -129,8 +133,8 @@ LWS_VISIBLE const lws_plugin_protocol_t dumb_increment = {
 		LWS_PLUGIN_API_MAGIC
 	},
 
-	.protocols = protocols,
-	.count_protocols = LWS_ARRAY_SIZE(protocols),
+	.protocols = dumb_increment_protocols,
+	.count_protocols = LWS_ARRAY_SIZE(dumb_increment_protocols),
 	.extensions = NULL,
 	.count_extensions = 0,
 };

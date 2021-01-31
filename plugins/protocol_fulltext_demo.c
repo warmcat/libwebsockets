@@ -19,8 +19,12 @@
  */
 
 #if !defined (LWS_PLUGIN_STATIC)
+#if !defined(LWS_DLL)
 #define LWS_DLL
+#endif
+#if !defined(LWS_INTERNAL)
 #define LWS_INTERNAL
+#endif
 #include <libwebsockets.h>
 #endif
 
@@ -262,7 +266,7 @@ reply_404:
 
 #if !defined (LWS_PLUGIN_STATIC)
 
-static const struct lws_protocols protocols[] = {
+LWS_VISIBLE const struct lws_protocols fulltext_demo_protocols[] = {
 	LWS_PLUGIN_PROTOCOL_FULLTEXT_DEMO
 };
 
@@ -274,8 +278,8 @@ LWS_VISIBLE const lws_plugin_protocol_t fulltext_demo = {
 		LWS_PLUGIN_API_MAGIC
 	},
 
-	.protocols = protocols,
-	.count_protocols = LWS_ARRAY_SIZE(protocols),
+	.protocols = fulltext_demo_protocols,
+	.count_protocols = LWS_ARRAY_SIZE(fulltext_demo_protocols),
 	.extensions = NULL,
 	.count_extensions = 0,
 };

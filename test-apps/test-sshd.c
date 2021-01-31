@@ -677,7 +677,7 @@ int main()
 	info.port = 2200;
 	info.options = LWS_SERVER_OPTION_ONLY_RAW;
 	info.vhost_name = "sshd";
-	info.protocols = protocols_sshd;
+	info.protocols = lws_sshd_demo_protocols;
 	info.pvo = &pvo_ssh;
 
 	vh_sshd = lws_create_vhost(context, &info);

@@ -2561,7 +2561,7 @@ bail:
 		1024, 0, NULL, 900	\
 	}
 
-const struct lws_protocols protocols_sshd[] = {
+LWS_VISIBLE const struct lws_protocols lws_ssh_base_protocols[] = {
 	LWS_PLUGIN_PROTOCOL_LWS_RAW_SSHD,
 	{ NULL, NULL, 0, 0, 0, NULL, 0 } /* terminator */
 };
@@ -2576,8 +2576,8 @@ LWS_VISIBLE const lws_plugin_protocol_t lws_ssh_base = {
 		LWS_PLUGIN_API_MAGIC
 	},
 
-	.protocols = protocols_sshd,
-	.count_protocols = LWS_ARRAY_SIZE(protocols_sshd),
+	.protocols = lws_ssh_base_protocols,
+	.count_protocols = LWS_ARRAY_SIZE(lws_ssh_base_protocols),
 	.extensions = NULL,
 	.count_extensions = 0,
 };

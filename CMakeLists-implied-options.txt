@@ -98,7 +98,7 @@ if(LWS_WITH_DISTRO_RECOMMENDED)
 	set(LWS_WITH_DISKCACHE 1)			# selfcontained
 	set(LWS_WITH_LWSAC 1)				# selfcontained
 	set(LWS_WITH_LEJP_CONF 1)			# selfcontained
-	set(LWS_WITH_PLUGINS 1)				# libdl
+	set(LWS_WITH_PLUGINS_BUILTIN 1)			# selfcontained
 	set(LWS_ROLE_RAW_PROXY 1)			# selfcontained
 	set(LWS_WITH_GENCRYPTO 1)			# selfcontained / tls
 	set(LWS_WITH_JOSE 1)				# selfcontained

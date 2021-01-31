@@ -105,6 +105,7 @@ option(LWS_WITH_CGI "Include CGI (spawn process with network-connected stdin/out
 option(LWS_IPV6 "Compile with support for ipv6" OFF)
 option(LWS_UNIX_SOCK "Compile with support for UNIX domain socket if OS supports it" ON)
 option(LWS_WITH_PLUGINS "Support plugins for protocols and extensions (implies LWS_WITH_PLUGINS_API)" OFF)
+option(LWS_WITH_PLUGINS_BUILTIN "Build the plugin protocols directly into lws library" OFF)
 option(LWS_WITH_HTTP_PROXY "Support for active HTTP proxying" OFF)
 option(LWS_WITH_ZIP_FOPS "Support serving pre-zipped files" OFF)
 option(LWS_WITH_SOCKS5 "Allow use of SOCKS5 proxy on client connections" OFF)
@@ -857,6 +858,10 @@ if (LWS_HAVE_LIBCAP)
 	list(APPEND LIB_LIST ${LIBCAP_LIBRARIES} )
 endif()
 
+if (LWS_WITH_PLUGINS_BUILTIN)
+	add_subdirectory(plugins)
+endif()
+
 
 #
 # Append the "at end" pieces to the lib list
@@ -868,8 +873,8 @@ list(APPEND LIB_LIST ${LIB_LIST_AT_END})
 #
 
 include_directories("${PROJECT_SOURCE_DIR}/lib")
-add_subdirectory(lib)
 
+add_subdirectory(lib)
 
 
 if(WIN32 AND NOT CYGWIN)
@@ -921,7 +926,9 @@ if (NOT LWS_WITHOUT_TESTAPPS)
 	add_subdirectory(test-apps)
 endif()
 
+if (NOT LWS_WITH_PLUGINS_BUILTIN)
 add_subdirectory(plugins)
+endif()
 add_subdirectory(lwsws)
 
 # Generate the lws_config.h that includes all the public compilation settings.
