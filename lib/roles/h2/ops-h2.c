@@ -823,9 +823,14 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 			return 1;
 	}
 	if (lws_http_get_uri_and_method(wsi, &uri_ptr, &uri_len) >= 0)
-		wsi->a.protocol->callback(wsi, LWS_CALLBACK_HTTP,
-		wsi->user_space, hit ? uri_ptr + hit->mountpoint_len : uri_ptr,
-			(size_t)(hit ? uri_len - hit->mountpoint_len : uri_len));
+		if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_HTTP,
+					      wsi->user_space,
+					      hit ? uri_ptr +
+						  hit->mountpoint_len : uri_ptr,
+					      (size_t)(hit ? uri_len -
+							  hit->mountpoint_len :
+							  uri_len)))
+			return 1;
 
 	lwsl_info("%s: setting LRS_BODY from 0x%x (%s)\n", __func__,
 		    (int)wsi->wsistate, wsi->a.protocol->name);
@@ -1032,7 +1037,8 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 					&pt->dll_buflist_owner);
 			}
 
-			lws_h2_bind_for_post_before_action(w);
+			if (lws_h2_bind_for_post_before_action(w))
+				return -1;
 
 			/*
 			 * Well, we could be getting a POST from the client, it
