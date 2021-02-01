@@ -245,6 +245,7 @@ option(LWS_WITH_NO_LOGS "Disable all logging other than _err and _user from bein
 set(LWS_LOGGING_BITFIELD_SET 0 CACHE STRING "Bitfield describing which log levels to force included into the build")
 set(LWS_LOGGING_BITFIELD_CLEAR 0 CACHE STRING "Bitfield describing which log levels to force removed from the build")
 option(LWS_LOGS_TIMESTAMP "Timestamp at start of logs" ON)
+option(LWS_LOG_TAG_LIFECYCLE "Log tagged object lifecycle as NOTICE" ON)
 option(LWS_AVOID_SIGPIPE_IGN "Android 7+ reportedly needs this" OFF)
 option(LWS_WITH_STATS "Keep statistics of lws internal operations" OFF)
 option(LWS_WITH_JOSE "JSON Web Signature / Encryption / Keys (RFC7515/6/) API" OFF)

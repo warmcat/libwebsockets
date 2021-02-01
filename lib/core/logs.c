@@ -82,7 +82,9 @@ __lws_lc_tag(lws_lifecycle_group_t *grp, lws_lifecycle_t *lc,
 	lc->us_creation = (uint64_t)lws_now_usecs();
 	lws_dll2_add_tail(&lc->list, &grp->owner);
 
+#if defined(LWS_LOG_TAG_LIFECYCLE)
 	lwsl_notice(" ++ %s (%d)\n", lc->gutag, (int)grp->owner.count);
+#endif
 }
 
 /*
@@ -139,7 +141,9 @@ __lws_lc_untag(lws_lifecycle_t *lc)
 	lws_humanize(buf, sizeof(buf), (uint64_t)lws_now_usecs() - lc->us_creation,
 			humanize_schema_us);
 
+#if defined(LWS_LOG_TAG_LIFECYCLE)
 	lwsl_notice(" -- %s (%d) %s\n", lc->gutag, (int)lc->list.owner->count - 1, buf);
+#endif
 
 	lws_dll2_remove(&lc->list);
 }
