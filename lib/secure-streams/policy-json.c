@@ -58,7 +58,11 @@ static const char * const lejp_tokens_policy[] = {
 	"s[].*.timeout_ms",
 	"s[].*.tls_trust_store",
 	"s[].*.proxy_buflen",
+	"s[].*.proxy_buflen_rxflow_on_above",
+	"s[].*.proxy_buflen_rxflow_off_below",
 	"s[].*.client_buflen",
+	"s[].*.client_buflen_rxflow_on_above",
+	"s[].*.client_buflen_rxflow_off_below",
 	"s[].*.metadata",
 	"s[].*.metadata[].*",
 	"s[].*.http_resp_map",
@@ -143,7 +147,11 @@ typedef enum {
 	LSSPPT_DEFAULT_TIMEOUT_MS,
 	LSSPPT_TRUST,
 	LSSPPT_PROXY_BUFLEN,
+	LSSPPT_PROXY_BUFLEN_RXFLOW_ON_ABOVE,
+	LSSPPT_PROXY_BUFLEN_RXFLOW_OFF_BELOW,
 	LSSPPT_CLIENT_BUFLEN,
+	LSSPPT_CLIENT_BUFLEN_RXFLOW_ON_ABOVE,
+	LSSPPT_CLIENT_BUFLEN_RXFLOW_OFF_BELOW,
 	LSSPPT_METADATA,
 	LSSPPT_METADATA_ITEM,
 	LSSPPT_HTTPRESPMAP,
@@ -201,7 +209,7 @@ typedef enum {
 #define POL_AC_GRAIN	800
 #define MAX_CERT_TEMP	3072 /* used to discover actual cert size for realloc */
 
-static uint8_t sizes[] = {
+static uint16_t sizes[] = {
 	sizeof(backoff_t),
 	sizeof(lws_ss_x509_t),
 	sizeof(lws_ss_trust_store_t),
@@ -577,8 +585,26 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		a->curr[LTY_POLICY].p->proxy_buflen = (uint32_t)atol(ctx->buf);
 		break;
 
+	case LSSPPT_PROXY_BUFLEN_RXFLOW_ON_ABOVE:
+		a->curr[LTY_POLICY].p->proxy_buflen_rxflow_on_above =
+						(uint32_t)atol(ctx->buf);
+		break;
+	case LSSPPT_PROXY_BUFLEN_RXFLOW_OFF_BELOW:
+		a->curr[LTY_POLICY].p->proxy_buflen_rxflow_off_below =
+						(uint32_t)atol(ctx->buf);
+		break;
+
 	case LSSPPT_CLIENT_BUFLEN:
 		a->curr[LTY_POLICY].p->client_buflen = (uint32_t)atol(ctx->buf);
+		break;
+
+	case LSSPPT_CLIENT_BUFLEN_RXFLOW_ON_ABOVE:
+		a->curr[LTY_POLICY].p->client_buflen_rxflow_on_above =
+						(uint32_t)atol(ctx->buf);
+		break;
+	case LSSPPT_CLIENT_BUFLEN_RXFLOW_OFF_BELOW:
+		a->curr[LTY_POLICY].p->client_buflen_rxflow_off_below =
+						(uint32_t)atol(ctx->buf);
 		break;
 
 	case LSSPPT_HTTP_METHOD:

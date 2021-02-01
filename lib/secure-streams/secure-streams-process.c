@@ -144,6 +144,20 @@ ss_proxy_onward_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	if (n)
 		return n;
 
+	/*
+	 * Manage rx flow on the SS (onward) side according to our situation
+	 * in the dsh holding proxy->client serialized forwarding rx
+	 */
+
+	if (m->ss->policy->proxy_buflen_rxflow_on_above && m->ss->wsi &&
+	    m->conn->dsh->oha[KIND_SS_TO_P].total_size >
+				m->ss->policy->proxy_buflen_rxflow_on_above) {
+		lwsl_notice("%s: %s: rxflow disabling rx\n", __func__,
+				lws_wsi_tag(m->ss->wsi));
+		/* stop receiving taking in rx once above the threshold */
+		lws_rx_flow_control(m->ss->wsi, 0);
+	}
+
 	if (m->conn->wsi) /* if possible, request client conn write */
 		lws_callback_on_writable(m->conn->wsi);
 
@@ -166,23 +180,26 @@ ss_proxy_onward_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf,
 		lwsl_notice("%s: ss not ready\n", __func__);
 		*len = 0;
 
-		return 1;
+		return LWSSSSRET_TX_DONT_SEND;
 	}
 
 	/*
 	 * The onward secure stream says that we could send something to it
-	 * (by putting it in buf, and setting *len and *flags)
+	 * (by putting it in buf, and setting *len and *flags)... dredge the
+	 * next thing out of the dsh
 	 */
 
 	if (lws_ss_deserialize_tx_payload(m->conn->dsh, m->ss->wsi,
 					  ord, buf, len, flags))
-		return 1;
+		return LWSSSSRET_TX_DONT_SEND;
 
+	/* ... there's more we want to send? */
 	if (!lws_dsh_get_head(m->conn->dsh, KIND_C_TO_P, (void **)&p, &si))
 		lws_ss_request_tx(m->conn->ss);
 
 	if (!*len && !*flags)
-		return 1; /* we don't actually want to send anything */
+		/* we don't actually want to send anything */
+		return LWSSSSRET_TX_DONT_SEND;
 
 	lwsl_info("%s: onward tx %d fl 0x%x\n", __func__, (int)*len, *flags);
 
@@ -196,7 +213,7 @@ ss_proxy_onward_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf,
 	}
 #endif
 
-	return 0;
+	return LWSSSSRET_OK;
 }
 
 static lws_ss_state_return_t
@@ -562,6 +579,7 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 			if (lws_dsh_get_head(conn->dsh, KIND_SS_TO_P,
 					     (void **)&p, &si))
 				break;
+
 			cp = p;
 
 #if defined(LWS_WITH_DETAILED_LATENCY)
@@ -615,8 +633,28 @@ again:
 		case LPCSPROX_REPORTING_FAIL:
 			goto hangup;
 		case LPCSPROX_OPERATIONAL:
-			if (pay)
+			if (pay) {
 				lws_dsh_free((void **)&p);
+
+				/*
+				 * Did we go below the rx flow threshold for
+				 * this dsh?
+				 */
+
+				if (conn->ss->policy->proxy_buflen_rxflow_on_above &&
+				    conn->ss->wsi &&
+				    conn->dsh->oha[KIND_SS_TO_P].total_size <
+				      conn->ss->policy->proxy_buflen_rxflow_off_below) {
+					lwsl_notice("%s: %s: rxflow re-enabling rx\n",
+						    __func__,
+						    lws_wsi_tag(conn->ss->wsi));
+					/*
+					 * Resume receiving taking in rx once
+					 * below the low threshold
+					 */
+					lws_rx_flow_control(conn->ss->wsi, 1);
+				}
+			}
 			if (!lws_dsh_get_head(conn->dsh, KIND_SS_TO_P,
 					     (void **)&p, &si)) {
 				if (!lws_send_pipe_choked(wsi)) {

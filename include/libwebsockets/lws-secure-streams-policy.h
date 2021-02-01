@@ -316,7 +316,14 @@ typedef struct lws_ss_policy {
 	const lws_retry_bo_t	*retry_bo;   /**< retry policy to use */
 
 	uint32_t		proxy_buflen; /**< max dsh alloc for proxy */
+	uint32_t		proxy_buflen_rxflow_on_above;
+	uint32_t		proxy_buflen_rxflow_off_below;
+
 	uint32_t		client_buflen; /**< max dsh alloc for client */
+	uint32_t		client_buflen_rxflow_on_above;
+	uint32_t		client_buflen_rxflow_off_below;
+
+
 	uint32_t		timeout_ms;  /**< default message response
 					      * timeout in ms */
 	uint32_t		flags;	     /**< stream attribute flags */

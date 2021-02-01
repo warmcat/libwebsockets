@@ -378,6 +378,15 @@ payload buffering (in bytes) the proxy will hold for this type of stream.  If
 the endpoint dumps a lot of data without any flow control, this may need to
 be correspondingly large.  Default is 32KB.
 
+### `proxy_buflen_rxflow_on_above`, `proxy_buflen_rxflow_off_below`
+
+When `proxy_buflen` is set, you can also wire up the amount of buffered
+data intended for the client held at the proxy, to the onward ss wsi
+rx flow control state.  If more than `proxy_buflen_rxflow_on_above`
+bytes are buffered, rx flow control is set stopping further rx.  Once
+the dsh is drained below `proxy_buflen_rxflow_off_below`, the rx flow
+control is released and RX resumes.
+
 ### `client_buflen`
 
 Only used when the streamtype is proxied... sets the maximum size of the
