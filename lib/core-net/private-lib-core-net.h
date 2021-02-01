@@ -270,6 +270,7 @@ struct lws_timed_vh_protocol {
 
 typedef struct lws_dsh_obj_head {
 	lws_dll2_owner_t		owner;
+	size_t				total_size; /* for this kind in dsh */
 	int				kind;
 } lws_dsh_obj_head_t;
 
@@ -278,6 +279,7 @@ typedef struct lws_dsh_obj {
 	struct lws_dsh	  		*dsh;	/* invalid when on free list */
 	size_t				size;	/* invalid when on free list */
 	size_t				asize;
+	int				kind; /* so we can account at free */
 } lws_dsh_obj_t;
 
 typedef struct lws_dsh {
