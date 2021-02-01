@@ -1322,7 +1322,7 @@ static const lws_rops_t rops_table_h2[] = {
 #if defined(LWS_WITH_SERVER)
 	/*  1 */ { .check_upgrades	  = rops_check_upgrades_h2 },
 #else
-	/*  1 */ { },
+	/*  1 */ { .check_upgrades	  = NULL },
 #endif
 	/*  2 */ { .pt_init_destroy	  = rops_pt_init_destroy_h2 },
 	/*  3 */ { .init_vhost		  = rops_init_vhost_h2 },

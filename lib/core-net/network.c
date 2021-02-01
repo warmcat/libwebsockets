@@ -106,7 +106,8 @@ lws_get_addresses(struct lws_vhost *vh, void *ads, char *name,
 	if (addr4.sin_family == AF_UNSPEC)
 		return -1;
 
-	if (lws_plat_inet_ntop(AF_INET, &addr4.sin_addr, rip, (unsigned int)rip_len) == NULL)
+	if (lws_plat_inet_ntop(AF_INET, &addr4.sin_addr, rip,
+			       (socklen_t)rip_len) == NULL)
 		return -1;
 
 	return 0;
@@ -291,7 +292,7 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 	if (sockfd == LWS_SOCK_INVALID)
 		return LWS_ITOSA_USABLE;
 
-	n = bind(sockfd, v, (unsigned int)n);
+	n = bind(sockfd, v, (socklen_t)n);
 #ifdef LWS_WITH_UNIX_SOCK
 	if (n < 0 && LWS_UNIX_SOCK_ENABLED(vhost)) {
 		lwsl_err("ERROR on binding fd %d to \"%s\" (%d %d)\n",

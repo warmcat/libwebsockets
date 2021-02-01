@@ -301,7 +301,7 @@ static const lws_rops_t rops_table_raw_skt[] = {
 #if defined(LWS_WITH_SERVER)
 	/*  2 */ { .adoption_bind	  = rops_adoption_bind_raw_skt },
 #else
-	/*  2 */ { },
+	/*  2 */ { .adoption_bind	  = NULL },
 #endif
 #if defined(LWS_WITH_CLIENT)
 	/*  3 */ { .client_bind		  = rops_client_bind_raw_skt },

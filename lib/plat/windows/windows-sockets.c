@@ -181,10 +181,12 @@ lws_plat_insert_socket_into_fds(struct lws_context *context, struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 
+#if defined(LWS_WITH_UDP)
 	if (wsi->udp) {
 		lwsl_info("%s: UDP\n", __func__);
 		pt->fds[pt->fds_count].events |= LWS_POLLIN;
 	}
+#endif
 
 	pt->fds[pt->fds_count++].revents = 0;
 

@@ -102,6 +102,10 @@
 			"cmake":	"",
 			"platforms":	"w10/x86_64-amd/msvc, w10/x86_64-amd/noptmsvc, freertos-linkit/arm32-m4-mt7697-usi/gcc, linux-ubuntu-2004/aarch64-a72-bcm2711-rpi4/gcc, w10/x86_64-amd/mingw32, w10/x86_64-amd/mingw64, netbsd/aarch64BE-bcm2837-a53/gcc, w10/x86_64-amd/wmbedtls-msvc"
 		},
+		"default-noudp": {
+			"cmake":	"-DLWS_WITH_UDP=0",
+			"platforms":	"w10/x86_64-amd/msvc, w10/x86_64-amd/noptmsvc, freertos-linkit/arm32-m4-mt7697-usi/gcc, linux-ubuntu-2004/aarch64-a72-bcm2711-rpi4/gcc, w10/x86_64-amd/mingw32, w10/x86_64-amd/mingw64, netbsd/aarch64BE-bcm2837-a53/gcc, w10/x86_64-amd/wmbedtls-msvc"
+		},
 		"esp32-heltec": {
 			"cmake":	"",
 			"cpack":	"esp-heltec-wb32",
@@ -184,7 +188,8 @@
 			"platforms":	"not linux-centos-7/x86_64-amd/gcc, not linux-centos-8/x86_64-amd/gcc"
 		},
 		"noserver": {
-			"cmake":	"-DLWS_WITHOUT_SERVER=ON -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_SECURE_STREAMS=1"
+			"cmake":	"-DLWS_WITHOUT_SERVER=ON -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_SECURE_STREAMS=1",
+			"platforms":    "w10/x86_64-amd/msvc, w10/x86_64-amd/noptmsvc"
 		},
 		"noclient": {
 			"cmake":	"-DLWS_WITHOUT_CLIENT=ON -DLWS_WITH_MINIMAL_EXAMPLES=1"
@@ -206,6 +211,10 @@
 		},
 		"sdevent": {
 			"cmake":	"-DLWS_WITH_SDEVENT=ON",
+			"platforms":	"none, linux-fedora-32/x86_64-amd/gcc"
+		},
+		"uncommon_headers": {
+			"cmake":	"-DLWS_WITH_HTTP_BASIC_AUTH=0 -DLWS_WITH_HTTP_UNCOMMON_HEADERS=0 -DLWS_HTTP_HEADERS_ALL=0",
 			"platforms":	"none, linux-fedora-32/x86_64-amd/gcc"
 		},
 		"ipv6":	{

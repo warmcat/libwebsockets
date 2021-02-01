@@ -151,8 +151,11 @@ static const uint32_t ss_state_txn_validity[] = {
 	[LWSSSCS_QOS_NACK_LOCAL]	= (1 << LWSSSCS_DESTROYING) |
 					  (1 << LWSSSCS_TIMEOUT),
 
+	/* he can get the timeout at any point and take no action... */
 	[LWSSSCS_TIMEOUT]		= (1 << LWSSSCS_CONNECTING) |
 					  (1 << LWSSSCS_CONNECTED) |
+					  (1 << LWSSSCS_QOS_ACK_REMOTE) |
+					  (1 << LWSSSCS_QOS_NACK_REMOTE) |
 					  (1 << LWSSSCS_POLL) |
 					  (1 << LWSSSCS_TIMEOUT) |
 					  (1 << LWSSSCS_DISCONNECTED) |
@@ -970,7 +973,9 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 	lwsl_info("%s: CREATING returned status %d\n", __func__, (int)r);
 	if (r == LWSSSSRET_DESTROY_ME) {
 
+#if defined(LWS_WITH_SERVER) || defined(LWS_WITH_SYS_SMD)
 late_bail:
+#endif
 		lws_pt_lock(pt, __func__);
 		lws_dll2_remove(&h->list);
 		lws_pt_unlock(pt);
