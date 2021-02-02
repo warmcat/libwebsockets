@@ -910,8 +910,8 @@ lws_create_vhost(struct lws_context *context,
 	};
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
-	if (!n && lws_async_dns_init(context))
-		goto bail1;
+	if (!n)
+		lws_async_dns_init(context);
 #endif
 
 	/* for the case we are adding a vhost much later, after server init */

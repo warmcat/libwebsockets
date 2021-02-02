@@ -1178,8 +1178,8 @@ lws_create_context(const struct lws_context_creation_info *info)
 			goto bail_libuv_aware;
 		}
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
-		if (lws_async_dns_init(context))
-			goto bail_libuv_aware;
+		lws_async_dns_init(context);
+			//goto bail_libuv_aware;
 #endif
 	}
 
