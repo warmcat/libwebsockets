@@ -434,6 +434,7 @@ rops_pt_init_destroy_netlink(struct lws_context *context,
 	return 0;
 
 bail2:
+	__lws_lc_untag(&wsi->lc);
 	compatible_close(wsi->desc.sockfd);
 bail1:
 	lws_free(wsi);
