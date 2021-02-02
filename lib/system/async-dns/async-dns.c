@@ -34,7 +34,8 @@ static const lws_retry_bo_t retry_policy = {
 void
 lws_adns_q_destroy(lws_adns_q_t *q)
 {
-	lws_dll2_remove(&q->sul.list);
+	lws_sul_cancel(&q->sul);
+	lws_sul_cancel(&q->write_sul);
 	lws_dll2_remove(&q->list);
 	lws_free(q);
 }
@@ -130,7 +131,13 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 	int m, n, which;
 	const char *name;
 
-	// lwsl_notice("%s: %p\n", __func__, q);
+	lwsl_notice("%s: %p\n", __func__, q);
+
+	/*
+	 * We managed to get to the point of being WRITEABLE, which is not a
+	 * given if no routes.  So call off the write_sul timeout for that.
+	 */
+	lws_sul_cancel(&q->write_sul);
 
 	/*
 	 * UDP is not reliable, it can be locally dropped, or dropped
@@ -232,7 +239,7 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 #endif
 
 	/* if we did anything, check one more time */
-	lws_callback_on_writable(wsi);
+//	lws_callback_on_writable(wsi);
 
 	return;
 
@@ -260,27 +267,27 @@ callback_async_dns(struct lws *wsi, enum lws_callback_reasons reason,
 	/* callbacks related to raw socket descriptor */
 
         case LWS_CALLBACK_RAW_ADOPT:
-		// lwsl_user("LWS_CALLBACK_RAW_ADOPT\n");
+		lwsl_user("LWS_CALLBACK_RAW_ADOPT\n");
                 break;
 
 	case LWS_CALLBACK_RAW_CLOSE:
-		// lwsl_user("LWS_CALLBACK_RAW_CLOSE\n");
+		lwsl_user("LWS_CALLBACK_RAW_CLOSE\n");
 		break;
 
 	case LWS_CALLBACK_RAW_RX:
-		// lwsl_user("LWS_CALLBACK_RAW_RX (%d)\n", (int)len);
+		lwsl_user("LWS_CALLBACK_RAW_RX (%d)\n", (int)len);
 		// lwsl_hexdump_level(LLL_NOTICE, in, len);
 		lws_adns_parse_udp(dns, in, len);
 		break;
 
 	case LWS_CALLBACK_RAW_WRITEABLE:
-
+		lwsl_user("LWS_CALLBACK_RAW_WRITEABLE\n");
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 					   dns->waiting.head) {
 			lws_adns_q_t *q = lws_container_of(d, lws_adns_q_t,
 							   list);
 
-			if (lws_dll2_is_detached(&q->sul.list) &&
+			if (//lws_dll2_is_detached(&q->sul.list) &&
 			    (!q->asked || q->responded != q->asked))
 				lws_async_dns_writeable(wsi, q);
 		} lws_end_foreach_dll_safe(d, d1);
@@ -360,7 +367,7 @@ lws_adns_get_cache(lws_async_dns_t *dns, const char *name)
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 				   lws_dll2_get_head(&dns->cached)) {
 		c = lws_container_of(d, lws_adns_cache_t, list);
-		cn = (const char *)&c[1];
+		cn = lws_adns_cache_to_name(c);
 
 		if (name && !c->incomplete && !strcasecmp(name, cn)) {
 			/* Keep sorted by LRU: move to the head */
@@ -398,6 +405,24 @@ sul_cb_expire(struct lws_sorted_usec_list *sul)
 	lws_adns_cache_t *c = lws_container_of(sul, lws_adns_cache_t, sul);
 
 	lws_adns_cache_destroy(c);
+}
+
+void
+sul_cb_write(struct lws_sorted_usec_list *sul)
+{
+	lws_adns_q_t *q = lws_container_of(sul, lws_adns_q_t, write_sul);
+
+	lwsl_info("%s\n", __func__);
+
+	/*
+	 * Something's up, we couldn't even get from write request to
+	 * WRITEABLE within the timeout, let alone the result... fail
+	 * the query and everyone riding on it...
+	 */
+
+	lwsl_info("%s: failing\n", __func__);
+	lws_async_dns_complete(q, NULL);
+	lws_adns_q_destroy(q);
 }
 
 void
@@ -644,6 +669,8 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	}
 
 	if (m == 4) {
+		ai = (struct addrinfo *)&c[1];
+		sa46 = (lws_sockaddr46 *)&ai[1];
 		ai->ai_family = sa46->sa4.sin_family = AF_INET;
 		ai->ai_addrlen = sizeof(sa46->sa4);
 		ai->ai_addr = (struct sockaddr *)&sa46->sa4;
@@ -736,6 +763,9 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	if (lws_retry_sul_schedule_retry_wsi(dns->wsi, &q->sul,
 					 lws_async_dns_sul_cb_retry, &q->retry))
 		goto failed;
+
+	/* fail us if we can't write by this timeout */
+	lws_sul_schedule(context, 0, &q->write_sul, sul_cb_write, LWS_US_PER_SEC);
 
 	/*
 	 * We may rewrite the copy at +sizeof(*q) for CNAME recursion.  Keep
