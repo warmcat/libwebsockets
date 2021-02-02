@@ -118,7 +118,6 @@ next_test_cb(lws_sorted_usec_list_t *sul)
 	}
 }
 
-
 struct lws *
 cb1(struct lws *wsi_unused, const char *ads, const struct addrinfo *a, int n,
     void *opaque)
@@ -199,6 +198,58 @@ next:
 	return NULL;
 }
 
+static lws_sorted_usec_list_t sul_l;
+
+struct lws *
+cb_loop(struct lws *wsi_unused, const char *ads, const struct addrinfo *a, int n,
+		void *opaque)
+{
+	if (!a) {
+		lwsl_err("%s: no results\n", __func__);
+		return NULL;
+	}
+
+	lwsl_notice("%s: addrinfo %p\n", __func__, a);\
+	lws_async_dns_freeaddrinfo(&a);
+
+	return NULL;
+}
+
+
+static void
+sul_retry_l(struct lws_sorted_usec_list *sul)
+{
+	int m;
+
+	lwsl_user("%s: starting new query\n", __func__);
+
+	m = lws_async_dns_query(context, 0, "warmcat.com",
+				    (adns_query_type_t)LWS_ADNS_RECORD_A,
+				    cb_loop, NULL, context);
+	switch (m) {
+	case LADNS_RET_FAILED_WSI_CLOSED:
+		lwsl_warn("%s: LADNS_RET_FAILED_WSI_CLOSED "
+			  "(== from cache / success in this test)\n", __func__);
+		break;
+	case LADNS_RET_NXDOMAIN:
+		lwsl_warn("%s: LADNS_RET_NXDOMAIN\n", __func__);
+		break;
+	case LADNS_RET_TIMEDOUT:
+		lwsl_warn("%s: LADNS_RET_TIMEDOUT\n", __func__);
+		break;
+	case LADNS_RET_FAILED:
+		lwsl_warn("%s: LADNS_RET_FAILED\n", __func__);
+		break;
+	case LADNS_RET_FOUND:
+		lwsl_warn("%s: LADNS_RET_FOUND\n", __func__);
+		break;
+	case LADNS_RET_CONTINUING:
+		lwsl_warn("%s: LADNS_RET_CONTINUING\n", __func__);
+		break;
+	}
+
+	lws_sul_schedule(context, 0, &sul_l, sul_retry_l, 5 * LWS_US_PER_SEC);
+}
 
 void sigint_handler(int sig)
 {
@@ -230,6 +281,11 @@ main(int argc, const char **argv)
 	if (!context) {
 		lwsl_err("lws init failed\n");
 		return 1;
+	}
+
+	if (lws_cmdline_option(argc, argv, "-l")) {
+		lws_sul_schedule(context, 0, &sul_l, sul_retry_l, LWS_US_PER_SEC);
+		goto evloop;
 	}
 
 
@@ -297,6 +353,7 @@ main(int argc, const char **argv)
 
 	lws_sul_schedule(context, 0, &sul, next_test_cb, 1);
 
+evloop:
 	/* the usual lws event loop */
 
 	n = 1;

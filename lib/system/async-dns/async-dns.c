@@ -640,7 +640,7 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 
 		lws_dll2_add_head(&c->list, &dns->cached);
 		lws_sul_schedule(context, 0, &c->sul, sul_cb_expire,
-				 lws_now_usecs() + (3600ll * LWS_US_PER_SEC));
+				 3600ll * LWS_US_PER_SEC);
 	}
 
 	if (m == 4) {
