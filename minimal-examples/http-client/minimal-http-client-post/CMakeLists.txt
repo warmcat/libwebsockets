@@ -9,8 +9,11 @@ set(SAMP lws-minimal-http-client-post)
 set(SRCS minimal-http-client-post.c)
 
 set(requirements 1)
+set(MBEDTLS 0)
 require_lws_config(LWS_ROLE_H1 1 requirements)
 require_lws_config(LWS_WITH_CLIENT 1 requirements)
+
+require_lws_config(LWS_WITH_MBEDTLS 1 MBEDTLS)
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
@@ -45,7 +48,10 @@ if (WIN32)
 	add_test(NAME st_hcp_srv COMMAND cmd.exe /c start /b $<TARGET_FILE:test-server> -s --port ${PORT_HCP_SRV})
 	add_test(NAME ki_hcp_srv COMMAND taskkill /F /IM $<TARGET_FILE_NAME:test-server> /T)
 else()
-	if (VALGRIND)
+	#
+	# mbedtls is too slow to keep up on some targets, when ctest is in parallel
+	#
+	if (VALGRIND AND NOT MBEDTLS)
 		add_test(NAME st_hcp_srv COMMAND
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
 					hcp_srv ${VALGRIND} --tool=memcheck 
