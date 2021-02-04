@@ -256,6 +256,12 @@ lws_plat_inet_pton(int af, const char *src, void *dst)
 	return 1;
 }
 
+int
+lws_plat_set_socket_options_ip(int fd, uint8_t pri, unsigned int lws_flags)
+{
+	return 0;
+}
+
 #if defined(LWS_WITH_MBEDTLS)
 int
 lws_plat_mbedtls_net_send(void *ctx, const uint8_t *buf, size_t len)

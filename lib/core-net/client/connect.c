@@ -154,6 +154,9 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 
 	wsi->seq = i->seq;
 	wsi->flags = i->ssl_connection;
+
+	wsi->c_pri = i->priority;
+
 	if (i->retry_and_idle_policy)
 		wsi->retry_policy = i->retry_and_idle_policy;
 	else

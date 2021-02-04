@@ -46,6 +46,8 @@
 #endif
 #endif
 
+#include <netinet/ip.h>
+
 int
 lws_send_pipe_choked(struct lws *wsi)
 {
@@ -188,6 +190,69 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, int fd, int unix_skt)
 	return lws_plat_set_nonblocking(fd);
 }
 
+static const int ip_opt_lws_flags[] = {
+	LCCSCF_IP_LOW_LATENCY, LCCSCF_IP_HIGH_THROUGHPUT,
+	LCCSCF_IP_HIGH_RELIABILITY, LCCSCF_IP_LOW_COST
+}, ip_opt_val[] = {
+	IPTOS_LOWDELAY, IPTOS_THROUGHPUT, IPTOS_RELIABILITY, IPTOS_MINCOST
+};
+#if !defined(LWS_WITH_NO_LOGS)
+static const char *ip_opt_names[] = {
+	"LOWDELAY", "THROUGHPUT", "RELIABILITY", "MINCOST"
+};
+#endif
+
+int
+lws_plat_set_socket_options_ip(lws_sockfd_type fd, uint8_t pri, int lws_flags)
+{
+	int optval = (int)pri, ret = 0, n;
+	socklen_t optlen = sizeof(optval);
+#if !defined(LWS_WITH_NO_LOGS)
+	int en;
+#endif
+
+#if !defined(__APPLE__) && \
+      !defined(__FreeBSD__) && !defined(__FreeBSD_kernel__) &&        \
+      !defined(__NetBSD__) && \
+      !defined(__OpenBSD__) && \
+      !defined(__HAIKU__)
+
+	/* the BSDs don't have SO_PRIORITY */
+
+	if (pri) { /* 0 is the default already */
+		if (setsockopt(fd, SOL_SOCKET, SO_PRIORITY,
+				(const void *)&optval, optlen) < 0) {
+#if !defined(LWS_WITH_NO_LOGS)
+			en = errno;
+			lwsl_warn("%s: unable to set socket pri %d: errno %d\n",
+				  __func__, (int)pri, en);
+#endif
+			ret = 1;
+		} else
+			lwsl_notice("%s: set pri %u\n", __func__, pri);
+	}
+#endif
+
+	for (n = 0; n < 4; n++) {
+		if (!(lws_flags & ip_opt_lws_flags[n]))
+			continue;
+
+		optval = (int)ip_opt_val[n];
+		if (setsockopt(fd, IPPROTO_IP, IP_TOS, (const void *)&optval,
+			       optlen) < 0) {
+#if !defined(LWS_WITH_NO_LOGS)
+			en = errno;
+			lwsl_warn("%s: unable to set %s: errno %d\n", __func__,
+				  ip_opt_names[n], en);
+#endif
+			ret = 1;
+		} else
+			lwsl_notice("%s: set ip flag %s\n", __func__,
+				    ip_opt_names[n]);
+	}
+
+	return ret;
+}
 
 /* cast a struct sockaddr_in6 * into addr for ipv6 */
 

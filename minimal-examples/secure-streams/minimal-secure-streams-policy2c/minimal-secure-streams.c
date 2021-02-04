@@ -620,6 +620,8 @@ int main(int argc, const char **argv)
 			printf("\t.timeout_ms = %u,\n", pol->timeout_ms);
 		if (pol->flags)
 			printf("\t.flags = 0x%x,\n", pol->flags);
+		if (pol->flags)
+			printf("\t.priority = 0x%x,\n", (unsigned int)pol->priority);
 		if (pol->port)
 			printf("\t.port = %u,\n", pol->port);
 		if (pol->metadata_count)

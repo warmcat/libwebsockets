@@ -394,6 +394,39 @@ payload buffering (in bytes) the client will hold for this type of stream.  If
 the client sends a lot of data without any flow control, this may need to
 be correspondingly large.  Default is 32KB.
 
+### `attr_priority`
+
+A number between 0 (normal priority) and 6 (very high priority).  7 is also
+possible, but requires CAP_NET_ADMIN on Linux and is reserved for network
+administration packets.  Normally default priority is fine, but under some
+conditions when transporting over IP packets, you may want to control the
+IP packet ToS priority for the streamtype by using this.
+
+### `attr_low_latency`
+
+This is a flag indicating that the streamtype packets should be transported
+in a way that results in lower latency where there is a choice.  For IP packets,
+this sets the ToS "low delay" flag on packets from this streamtype.
+
+### `attr_high_throughput`
+
+This is a flag indicating that this streamtype should be expected to produce
+bulk content that requires high throughput.  For IP packets,
+this sets the ToS "high throughput" flag on packets from this streamtype.
+
+### `attr_high_reliability`
+
+This is a flag indicating that extra efforts should be made to deliver packets
+from this streamtype where possible.  For IP packets, this sets the ToS "high
+reliability" flag on packets from this streamtype.
+
+### `attr_low_cost`
+
+This is a flag indicating that packets from this streamtype should be routed as
+inexpensively as possible by trading off latency and reliability where there is
+a choice.  For IP packets, this sets the ToS "low cost" flag on packets from
+this streamtype.
+
 ### `metadata`
 
 This allows declaring basically dynamic symbol names to be used by the streamtype,

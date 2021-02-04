@@ -53,6 +53,11 @@ static const char * const lejp_tokens_policy[] = {
 	"s[].*.allow_redirects",
 	"s[].*.urgent_tx",
 	"s[].*.urgent_rx",
+	"s[].*.attr_priority",
+	"s[].*.attr_low_latency",
+	"s[].*.attr_high_throughput",
+	"s[].*.attr_high_reliability",
+	"s[].*.attr_low_cost",
 	"s[].*.long_poll",
 	"s[].*.retry",
 	"s[].*.timeout_ms",
@@ -142,6 +147,11 @@ typedef enum {
 	LSSPPT_ALLOW_REDIRECTS,
 	LSSPPT_URGENT_TX,
 	LSSPPT_URGENT_RX,
+	LSSPPT_ATTR_PRIORITY,
+	LSSPPT_ATTR_LOW_LATENCY,
+	LSSPPT_ATTR_HIGH_THROUGHPUT,
+	LSSPPT_ATTR_HIGH_RELIABILITY,
+	LSSPPT_ATTR_LOW_COST,
 	LSSPPT_LONG_POLL,
 	LSSPPT_RETRYPTR,
 	LSSPPT_DEFAULT_TIMEOUT_MS,
@@ -667,6 +677,10 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		a->curr[LTY_POLICY].p->timeout_ms = (uint32_t)atoi(ctx->buf);
 		break;
 
+	case LSSPPT_ATTR_PRIORITY:
+		a->curr[LTY_POLICY].p->priority = (uint8_t)atoi(ctx->buf);
+		break;
+
 	case LSSPPT_OPPORTUNISTIC:
 		if (reason == LEJPCB_VAL_TRUE)
 			a->curr[LTY_POLICY].p->flags |= LWSSSPOLF_OPPORTUNISTIC;
@@ -706,6 +720,29 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		if (reason == LEJPCB_VAL_TRUE)
 			a->curr[LTY_POLICY].p->flags |=
 						LWSSSPOLF_HTTP_MULTIPART_IN;
+		return 0;
+
+	case LSSPPT_ATTR_LOW_LATENCY:
+		if (reason == LEJPCB_VAL_TRUE)
+			a->curr[LTY_POLICY].p->flags |=
+						LWSSSPOLF_ATTR_LOW_LATENCY;
+		return 0;
+
+	case LSSPPT_ATTR_HIGH_THROUGHPUT:
+		if (reason == LEJPCB_VAL_TRUE)
+			a->curr[LTY_POLICY].p->flags |=
+						LWSSSPOLF_ATTR_HIGH_THROUGHPUT;
+		return 0;
+
+	case LSSPPT_ATTR_HIGH_RELIABILITY:
+		if (reason == LEJPCB_VAL_TRUE)
+			a->curr[LTY_POLICY].p->flags |=
+						LWSSSPOLF_ATTR_HIGH_RELIABILITY;
+		return 0;
+
+	case LSSPPT_ATTR_LOW_COST:
+		if (reason == LEJPCB_VAL_TRUE)
+			a->curr[LTY_POLICY].p->flags |= LWSSSPOLF_ATTR_LOW_COST;
 		return 0;
 
 	case LSSPPT_RETRYPTR:

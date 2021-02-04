@@ -898,6 +898,7 @@ struct lws {
 	char chunk_parser; /* enum lws_chunk_parser */
 	uint8_t addrinfo_idx;
 	uint8_t sys_tls_client_cert;
+	uint8_t c_pri;
 #endif
 #if defined(LWS_WITH_CGI) || defined(LWS_WITH_CLIENT)
 	char reason_bf; /* internal writeable callback reason bitfield */
@@ -1066,6 +1067,9 @@ lws_plat_set_nonblocking(lws_sockfd_type fd);
 int
 lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd,
 			    int unix_skt);
+
+int
+lws_plat_set_socket_options_ip(lws_sockfd_type fd, uint8_t pri, int lws_flags);
 
 int
 lws_plat_check_connection_error(struct lws *wsi);

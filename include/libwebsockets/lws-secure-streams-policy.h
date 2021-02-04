@@ -128,6 +128,15 @@ enum {
 	/**< follow redirects */
 	LWSSSPOLF_HTTP_MULTIPART_IN				= (1 << 17),
 	/**< handle inbound multipart mime at SS level */
+
+	LWSSSPOLF_ATTR_LOW_LATENCY				= (1 << 18),
+	/**< stream requires low latency */
+	LWSSSPOLF_ATTR_HIGH_THROUGHPUT				= (1 << 19),
+	/**< stream requires high throughput */
+	LWSSSPOLF_ATTR_HIGH_RELIABILITY				= (1 << 20),
+	/**< stream requires high reliability */
+	LWSSSPOLF_ATTR_LOW_COST					= (1 << 21),
+	/**< stream is not critical and should be handled as cheap as poss */
 };
 
 typedef struct lws_ss_trust_store {
@@ -334,6 +343,8 @@ typedef struct lws_ss_policy {
 	uint8_t			protocol;    /**< protocol index */
 	uint8_t			client_cert; /**< which client cert to apply
 						  0 = none, 1+ = cc 0+ */
+	uint8_t			priority;	/* 0 = normal, 6 = max normal,
+						 * 7 = network management */
 } lws_ss_policy_t;
 
 #if !defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)

@@ -281,6 +281,20 @@ lws_adopt_ss_server_accept(struct lws *new_wsi)
 
 	h->policy = new_wsi->a.vhost->ss_handle->policy;
 
+	/* apply requested socket options */
+	if (lws_plat_set_socket_options_ip(new_wsi->desc.sockfd,
+					   h->policy->priority,
+		      (LCCSCF_IP_LOW_LATENCY *
+		       !!(h->policy->flags & LWSSSPOLF_ATTR_LOW_LATENCY)) |
+		      (LCCSCF_IP_HIGH_THROUGHPUT *
+		       !!(h->policy->flags & LWSSSPOLF_ATTR_HIGH_THROUGHPUT)) |
+		      (LCCSCF_IP_HIGH_RELIABILITY *
+		       !!(h->policy->flags & LWSSSPOLF_ATTR_HIGH_RELIABILITY)) |
+		      (LCCSCF_IP_LOW_COST *
+		       !!(h->policy->flags & LWSSSPOLF_ATTR_LOW_COST))))
+		lwsl_warn("%s: %s: unable to set ip options\n",
+			  __func__, new_wsi->lc.gutag);
+
 	/*
 	 * add us to the list of clients that came in from the server
 	 */

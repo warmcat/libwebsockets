@@ -78,6 +78,18 @@ enum lws_client_connect_ssl_connection_flags {
 	/**< client is a link between SS client and SS proxy */
 	LCCSCF_SECSTREAM_PROXY_ONWARD		= (1 << 23),
 	/**< client the SS proxy's onward connection */
+
+	LCCSCF_IP_LOW_LATENCY			= (1 << 24),
+	/**< set the "low delay" bit on the IP packets of this connection */
+	LCCSCF_IP_HIGH_THROUGHPUT		= (1 << 25),
+	/**< set the "high throughput" bit on the IP packets of this
+	 *   connection */
+	LCCSCF_IP_HIGH_RELIABILITY		= (1 << 26),
+	/**< set the "high reliability" bit on the IP packets of this
+	 *   connection */
+	LCCSCF_IP_LOW_COST			= (1 << 27),
+	/**< set the "minimize monetary cost" bit on the IP packets of this
+	 *   connection */
 };
 
 /** struct lws_client_connect_info - parameters to connect with when using
@@ -175,6 +187,13 @@ struct lws_client_connect_info {
 	uint8_t		sys_tls_client_cert;
 	/**< 0 means no client cert.  1+ means apply lws_system client cert 0+
 	 * to the client connection.
+	 */
+
+	uint8_t		priority;
+	/**< 0 means normal priority... otherwise sets the IP priority on
+	 * packets coming from this connection, from 1 - 7.  Setting 7
+	 * (network management priority) requires CAP_NET_ADMIN capability but
+	 * the others can be set by anyone.
 	 */
 
 #if defined(LWS_ROLE_MQTT)

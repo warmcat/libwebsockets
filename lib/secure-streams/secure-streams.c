@@ -592,6 +592,21 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 	if (h->policy->flags & LWSSSPOLF_WAKE_SUSPEND__VALIDITY)
 		i.ssl_connection |= LCCSCF_WAKE_SUSPEND__VALIDITY;
 
+	/* translate policy attributes to IP ToS flags */
+
+	if (h->policy->flags & LCCSCF_IP_LOW_LATENCY)
+		i.ssl_connection |= LWSSSPOLF_ATTR_LOW_LATENCY;
+	if (h->policy->flags & LCCSCF_IP_HIGH_THROUGHPUT)
+		i.ssl_connection |= LWSSSPOLF_ATTR_HIGH_THROUGHPUT;
+	if (h->policy->flags & LCCSCF_IP_HIGH_RELIABILITY)
+		i.ssl_connection |= LWSSSPOLF_ATTR_HIGH_RELIABILITY;
+	if (h->policy->flags & LCCSCF_IP_LOW_COST)
+		i.ssl_connection |= LWSSSPOLF_ATTR_LOW_COST;
+
+	/* mark the connection with the streamtype priority from the policy */
+
+	i.priority = h->policy->priority;
+
 	i.ssl_connection |= LCCSCF_SECSTREAM_CLIENT;
 
 	if (conn_if_sspc_onw) {

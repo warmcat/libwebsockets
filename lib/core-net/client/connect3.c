@@ -324,6 +324,12 @@ ads_known:
 			goto try_next_dns_result_closesock;
 		}
 
+		/* apply requested socket options */
+		if (lws_plat_set_socket_options_ip(wsi->desc.sockfd,
+						   wsi->c_pri, wsi->flags))
+			lwsl_warn("%s: %s: unable to set ip options\n",
+				  __func__, wsi->lc.gutag);
+
 		lwsl_debug("%s: %s: WAITING_CONNECT\n", __func__, wsi->lc.gutag);
 		lwsi_set_state(wsi, LRS_WAITING_CONNECT);
 

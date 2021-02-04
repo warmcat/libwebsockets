@@ -144,6 +144,19 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd,
 	return lws_plat_set_nonblocking(fd);
 }
 
+int
+lws_plat_set_socket_options_ip(lws_sockfd_type fd, uint8_t pri, int lws_flags)
+{
+	/*
+	 * Seems to require "differeniated services" but no docs
+	 *
+	 * https://docs.microsoft.com/en-us/windows/win32/winsock/ipproto-ip-socket-options
+	 * https://docs.microsoft.com/en-us/previous-versions/windows/desktop/qos/differentiated-services
+	 */
+	lwsl_warn("%s: not implemented on windows platform\n", __func__);
+
+	return 0;
+}
 
 int
 lws_interface_to_sa(int ipv6,
