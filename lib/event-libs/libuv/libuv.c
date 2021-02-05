@@ -255,7 +255,9 @@ lws_uv_close_cb_sa(uv_handle_t *handle)
 			LWS_UV_REFCOUNT_STATIC_HANDLE_TO_PT(handle);
 	struct lws_pt_eventlibs_libuv *ptpriv = pt_to_priv_uv(pt);
 	struct lws_context *context = pt->context;
+#if !defined(LWS_WITH_NO_LOGS) && defined(_DEBUG)
 	int tsi = (int)(pt - &context->pt[0]);
+#endif
 
 	lwsl_info("%s: thr %d: sa left %d: dyn left: %d (rk %d)\n", __func__,
 		    tsi,

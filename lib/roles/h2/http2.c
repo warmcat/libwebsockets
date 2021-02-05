@@ -216,6 +216,8 @@ lws_wsi_server_new(struct lws_vhost *vh, struct lws *parent_wsi,
 {
 	struct lws *nwsi = lws_get_network_wsi(parent_wsi);
 	struct lws_h2_netconn *h2n = nwsi->h2.h2n;
+	char tmp[50], tmp1[50];
+	unsigned int n, b = 0;
 	struct lws *wsi;
 
 	/*
@@ -239,7 +241,20 @@ lws_wsi_server_new(struct lws_vhost *vh, struct lws *parent_wsi,
 		lwsl_notice("reached concurrent stream limit\n");
 		return NULL;
 	}
-	wsi = lws_create_new_server_wsi(vh, parent_wsi->tsi, "h2");
+
+	n = 0;
+	p = &parent_wsi->lc.gutag[1];
+	do {
+		if (*p == '|') {
+			b++;
+			if (b == 3)
+				continue;
+		}
+		tmp1[n++] = *p++;
+	} while (b < 3 && n < sizeof(tmp1) - 2);
+	tmp1[n] = '\0';
+	lws_snprintf(tmp, sizeof(tmp), "h2_sid%u_(%s)", sid, tmp1);
+	wsi = lws_create_new_server_wsi(vh, parent_wsi->tsi, tmp);
 	if (!wsi) {
 		lwsl_notice("new server wsi failed (%s)\n", lws_vh_tag(vh));
 		return NULL;

@@ -309,7 +309,8 @@ typedef struct lws_async_dns {
 	lws_dll2_owner_t	cached;
 	struct lws		*wsi;
 	time_t			time_set_server;
-	char			dns_server_set;
+	uint8_t			dns_server_set:1;
+	uint8_t			dns_server_connected:1;
 } lws_async_dns_t;
 
 typedef enum {
@@ -325,6 +326,9 @@ lws_aysnc_dns_completed(struct lws *wsi, void *sa, size_t salen,
 #endif
 void
 lws_async_dns_cancel(struct lws *wsi);
+
+void
+lws_async_dns_drop_server(struct lws_context *context);
 
 /*
  * so we can have n connections being serviced simultaneously,
@@ -736,6 +740,7 @@ struct lws {
 	 * deleted as they are tried, list empty == everything tried */
 #endif
 
+	lws_sockaddr46			sa46_local;
 	lws_sockaddr46			sa46_peer;
 
 	/* pointers */
@@ -979,8 +984,9 @@ const struct lws_role_ops *
 lws_role_by_name(const char *name);
 
 int
-lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
-		const char *iface, int ipv6_allowed);
+lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
+		lws_sockfd_type sockfd, int port, const char *iface,
+		int ipv6_allowed);
 
 #if defined(LWS_WITH_IPV6)
 unsigned long
@@ -1397,8 +1403,11 @@ _lws_routing_entry_dump(lws_route_t *rou);
 void
 _lws_routing_table_dump(struct lws_context_per_thread *pt);
 
+#define LRR_IGNORE_PRI			(1 << 0)
+#define LRR_MATCH_SRC			(1 << 1)
+
 int
-_lws_route_remove(struct lws_context_per_thread *pt, lws_route_t *robj);
+_lws_route_remove(struct lws_context_per_thread *pt, lws_route_t *robj, int flags);
 
 void
 _lws_route_table_empty(struct lws_context_per_thread *pt);

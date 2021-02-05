@@ -34,13 +34,15 @@
 void
 _lws_routing_entry_dump(lws_route_t *rou)
 {
-	char da[48], gw[48];
+	char sa[48], da[48], gw[48];
 
+	lws_sa46_write_numeric_address(&rou->src, sa, sizeof(sa));
 	lws_sa46_write_numeric_address(&rou->dest, da, sizeof(da));
 	lws_sa46_write_numeric_address(&rou->gateway, gw, sizeof(gw));
 
-	lwsl_info("  (%d)%s/%d, gw: (%d)%s, ifidx: %d, pri: %d, proto: %d\n",
+	lwsl_info(" dst: (%d)%s/%d, src: (%d)%s/%d, gw: (%d)%s, ifidx: %d, pri: %d, proto: %d\n",
 		    rou->dest.sa4.sin_family, da, rou->dest_len,
+		    rou->src.sa4.sin_family, sa, rou->src_len,
 		    rou->gateway.sa4.sin_family, gw,
 		    rou->if_idx, rou->priority, rou->proto);
 }
@@ -106,26 +108,28 @@ _lws_route_get_uidx(struct lws_context_per_thread *pt)
 }
 
 int
-_lws_route_remove(struct lws_context_per_thread *pt, lws_route_t *robj)
+_lws_route_remove(struct lws_context_per_thread *pt, lws_route_t *robj, int flags)
 {
-	lws_start_foreach_dll(struct lws_dll2 *, d,
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 			      lws_dll2_get_head(&pt->routing_table)) {
 		lws_route_t *rou = lws_container_of(d, lws_route_t, list);
 
-		if (!lws_sa46_compare_ads(&robj->dest, &rou->dest) &&
-		    !lws_sa46_compare_ads(&robj->gateway, &rou->gateway) &&
-		    robj->dest_len == rou->dest_len &&
+		if ((!(flags & LRR_MATCH_SRC) || !lws_sa46_compare_ads(&robj->src, &rou->src)) &&
+		    ((flags & LRR_MATCH_SRC) || !lws_sa46_compare_ads(&robj->dest, &rou->dest)) &&
+		    (!robj->gateway.sa4.sin_family ||
+		     !lws_sa46_compare_ads(&robj->gateway, &rou->gateway)) &&
+		    robj->dest_len <= rou->dest_len &&
 		    robj->if_idx == rou->if_idx &&
-		    robj->priority == rou->priority) {
-			// lwsl_debug("%s: deleting route\n", __func__);
+		    ((flags & LRR_IGNORE_PRI) ||
+		      robj->priority == rou->priority)
+		    ) {
+			lwsl_info("%s: deleting route\n", __func__);
 			_lws_route_pt_close_route_users(pt, robj->uidx);
 			lws_dll2_remove(&rou->list);
 			lws_free(rou);
-
-			return 0;
 		}
 
-	} lws_end_foreach_dll(d);
+	} lws_end_foreach_dll_safe(d, d1);
 
 	return 1;
 }
@@ -172,7 +176,9 @@ _lws_route_est_outgoing(struct lws_context_per_thread *pt,
 
 	/*
 	 * Given the dest address and the current routing table, select the
-	 * route we think it would go out on
+	 * route we think it would go out on... if we find a matching network
+	 * route, just return that, otherwise find the "best" gateway by
+	 * looking at the priority of them.
 	 */
 
 	lws_start_foreach_dll(struct lws_dll2 *, d,
@@ -182,21 +188,17 @@ _lws_route_est_outgoing(struct lws_context_per_thread *pt,
 		// _lws_routing_entry_dump(rou);
 
 		if (rou->dest.sa4.sin_family &&
-		    !lws_sa46_on_net(dest, &rou->dest, rou->dest_len)) {
+		    !lws_sa46_on_net(dest, &rou->dest, rou->dest_len))
 			/*
 			 * Yes, he has a matching network route, it beats out
 			 * any gateway route.  This is like finding a route for
 			 * 192.168.0.0/24 when dest is 192.168.0.1.
 			 */
-
-			// lwsl_notice("%s: returning %p\n", __func__, rou);
-
 			return rou;
-		}
 
 		lwsl_debug("%s: dest af %d, rou gw af %d, pri %d\n", __func__,
-				dest->sa4.sin_family,
-				rou->gateway.sa4.sin_family, rou->priority);
+			   dest->sa4.sin_family, rou->gateway.sa4.sin_family,
+			   rou->priority);
 
 		if (rou->gateway.sa4.sin_family &&
 
@@ -230,17 +232,72 @@ _lws_route_est_outgoing(struct lws_context_per_thread *pt,
 	return best_gw;
 }
 
+/*
+ * Determine if the source still exists
+ */
+
+lws_route_t *
+_lws_route_find_source(struct lws_context_per_thread *pt,
+		       const lws_sockaddr46 *src)
+{
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&pt->routing_table)) {
+		lws_route_t *rou = lws_container_of(d, lws_route_t, list);
+
+		// _lws_routing_entry_dump(rou);
+
+		if (rou->src.sa4.sin_family &&
+		    !lws_sa46_compare_ads(src, &rou->src))
+			/*
+			 * Source route still exists
+			 */
+			return rou;
+
+	} lws_end_foreach_dll(d);
+
+	return NULL;
+}
+
 int
 _lws_route_check_wsi(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	char buf[72];
 
 	if (!wsi->sa46_peer.sa4.sin_family ||
 	    wsi->desc.sockfd == LWS_SOCK_INVALID)
 		/* not a socket or not connected, leave it alone */
 		return 0; /* OK */
 
-	return !_lws_route_est_outgoing(pt, &wsi->sa46_peer);
+	/* the route to the peer is still workable? */
+
+	if (!_lws_route_est_outgoing(pt, &wsi->sa46_peer)) {
+		/* no way to talk to the peer */
+		lwsl_notice("%s: %s: dest route gone\n", __func__, wsi->lc.gutag);
+		return 1;
+	}
+
+	/* the source address is still workable? */
+
+	lws_sa46_write_numeric_address(&wsi->sa46_local,
+				       buf, sizeof(buf));
+	//lwsl_notice("%s: %s sa46_local %s fam %d\n", __func__, wsi->lc.gutag,
+	//		buf, wsi->sa46_local.sa4.sin_family);
+
+	if (wsi->sa46_local.sa4.sin_family &&
+	    !_lws_route_find_source(pt, &wsi->sa46_local)) {
+
+		lws_sa46_write_numeric_address(&wsi->sa46_local,
+					       buf, sizeof(buf));
+		lwsl_notice("%s: %s: source %s gone\n", __func__,
+			    wsi->lc.gutag, buf);
+
+		return 1;
+	}
+
+	lwsl_debug("%s: %s: source + dest OK\n", __func__, wsi->lc.gutag);
+
+	return 0;
 }
 
 int
@@ -252,6 +309,11 @@ _lws_route_pt_close_unroutable(struct lws_context_per_thread *pt)
 	if (!pt->context->nl_initial_done ||
 	    pt->context->mgr_system.state < LWS_SYSTATE_IFACE_COLDPLUG)
 		return 0;
+
+	lwsl_debug("%s\n", __func__);
+#if defined(_DEBUG)
+	_lws_routing_table_dump(pt);
+#endif
 
 	for (n = 0; n < pt->fds_count; n++) {
 		wsi = wsi_from_fd(pt->context, pt->fds[n].fd);

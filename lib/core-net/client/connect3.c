@@ -368,8 +368,8 @@ ads_known:
 						  _WSI_TOKEN_CLIENT_IFACE);
 
 		if (iface && *iface) {
-			m = lws_socket_bind(wsi->a.vhost, wsi->desc.sockfd, 0,
-					    iface, wsi->ipv6);
+			m = lws_socket_bind(wsi->a.vhost, wsi, wsi->desc.sockfd,
+					    0, iface, wsi->ipv6);
 			if (m < 0)
 				goto try_next_dns_result_fds;
 		}
@@ -491,6 +491,24 @@ conn_good:
 	/*
 	 * The connection has happened
 	 */
+
+#if !defined(LWS_PLAT_OPTEE)
+	{
+		socklen_t salen = sizeof(wsi->sa46_local);
+#if defined(_DEBUG)
+		char buf[64];
+#endif
+		if (getsockname((int)wsi->desc.sockfd,
+				(struct sockaddr *)&wsi->sa46_local,
+				&salen) == -1)
+			lwsl_warn("getsockname: %s\n", strerror(LWS_ERRNO));
+#if defined(_DEBUG)
+		lws_sa46_write_numeric_address(&wsi->sa46_local, buf, sizeof(buf));
+
+		lwsl_info("%s: %s: source ads %s\n", __func__, wsi->lc.gutag, buf);
+#endif
+	}
+#endif
 
 	lws_sul_cancel(&wsi->sul_connect_timeout);
 

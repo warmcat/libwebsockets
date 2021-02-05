@@ -156,7 +156,7 @@ typedef struct lws_lifecycle {
 	/* we append parent streams on the tag */
 	char				gutag[96]; /* object unique tag + relationship info */
 #else
-	char				gutag[32];
+	char				gutag[64];
 #endif
 	lws_dll2_t			list; /* group list membership */
 	uint64_t			us_creation; /* creation timestamp */

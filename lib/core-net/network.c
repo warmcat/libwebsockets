@@ -192,8 +192,9 @@ bail:
  */
 
 int
-lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
-		const char *iface, int ipv6_allowed)
+lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
+		lws_sockfd_type sockfd, int port, const char *iface,
+		int ipv6_allowed)
 {
 #ifdef LWS_WITH_UNIX_SOCK
 	struct sockaddr_un serv_unix;
@@ -209,10 +210,14 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 #if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE)
 	int m;
 #endif
-	struct sockaddr_storage sin;
+	struct sockaddr_storage sin, *psin = &sin;
 	struct sockaddr *v;
 
 	memset(&sin, 0, sizeof(sin));
+
+	/* if there's a wsi, we want to mark it with our source ads:port */
+	if (wsi)
+		psin = (struct sockaddr_storage *)&wsi->sa46_local;
 
 #if defined(LWS_WITH_UNIX_SOCK)
 	if (!port && LWS_UNIX_SOCK_ENABLED(vhost)) {
@@ -352,21 +357,30 @@ lws_socket_bind(struct lws_vhost *vhost, lws_sockfd_type sockfd, int port,
 #endif
 
 #ifndef LWS_PLAT_OPTEE
-	if (getsockname(sockfd, (struct sockaddr *)&sin, &len) == -1)
+	if (getsockname(sockfd, (struct sockaddr *)psin, &len) == -1)
 		lwsl_warn("getsockname: %s\n", strerror(LWS_ERRNO));
 	else
 #endif
 #if defined(LWS_WITH_IPV6)
 		port = (sin.ss_family == AF_INET6) ?
-			ntohs(((struct sockaddr_in6 *) &sin)->sin6_port) :
-			ntohs(((struct sockaddr_in *) &sin)->sin_port);
+			ntohs(((struct sockaddr_in6 *)psin)->sin6_port) :
+			ntohs(((struct sockaddr_in *)psin)->sin_port);
 #else
 		{
 			struct sockaddr_in sain;
-			memcpy(&sain, &sin, sizeof(sain));
+			memcpy(&sain, psin, sizeof(sain));
 			port = ntohs(sain.sin_port);
 		}
 #endif
+
+		{
+			char buf[72];
+			lws_sa46_write_numeric_address((lws_sockaddr46 *)psin,
+							buf, sizeof(buf));
+
+			lwsl_notice("%s: %s: source ads %s\n", __func__,
+					wsi ? wsi->lc.gutag : "nowsi", buf);
+		}
 
 	return port;
 }
@@ -866,6 +880,8 @@ lws_sa46_write_numeric_address(lws_sockaddr46 *sa46, char *buf, size_t len)
 	if (sa46->sa4.sin_family == AF_INET)
 		return lws_write_numeric_address(
 				(uint8_t *)&sa46->sa4.sin_addr, 4, buf, len);
+
+	lws_snprintf(buf, len, "(bad AF %d)", (int)sa46->sa4.sin_family);
 
 	return -1;
 }

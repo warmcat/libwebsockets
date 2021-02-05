@@ -47,6 +47,7 @@ typedef struct lws_dns_score {
 typedef struct lws_route {
 	lws_dll2_t		list;
 
+	lws_sockaddr46		src;
 	lws_sockaddr46		dest;
 	lws_sockaddr46		gateway;
 
@@ -61,6 +62,7 @@ typedef struct lws_route {
 
 	uint8_t			proto;
 	uint8_t			dest_len;
+	uint8_t			src_len;
 	uint8_t			scope; /* if source_ads */
 	uint8_t			af; /* if source_ads */
 

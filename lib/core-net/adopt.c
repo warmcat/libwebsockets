@@ -739,6 +739,11 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 
 		/* we connected: complete the udp socket adoption flow */
 
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+	if (wsi->a.context->async_dns.wsi == wsi)
+		wsi->a.context->async_dns.dns_server_connected = 1;
+#endif
+
 		lws_free(s);
 		lws_addrinfo_clean(wsi);
 		return lws_adopt_descriptor_vhost2(wsi,
@@ -750,6 +755,11 @@ resume:
 
 	lwsl_err("%s: unable to create INET socket %d\n", __func__, LWS_ERRNO);
 	lws_addrinfo_clean(wsi);
+
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+	if (wsi->a.context->async_dns.wsi == wsi)
+		lws_async_dns_drop_server(wsi->a.context);
+#endif
 
 bail:
 
@@ -820,8 +830,11 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 			//freeaddrinfo(r);
 			goto bail1;
 		}
-		/* complete it immediately after the blocking dns lookup
-		 * finished... free r when connect either completed or failed */
+		/*
+		 * With synchronous dns, complete it immediately after the
+		 * blocking dns lookup finished... free r when connect either
+		 * completed or failed
+		 */
 		wsi = lws_create_adopt_udp2(wsi, ads, r, 0, NULL);
 
 		return wsi;

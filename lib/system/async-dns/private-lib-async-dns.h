@@ -135,6 +135,7 @@ lws_async_dns_trim_cache(lws_async_dns_t *dns);
 int
 lws_async_dns_get_new_tid(struct lws_context *context, lws_adns_q_t *q);
 
+
 #if defined(_DEBUG)
 void
 lws_adns_dump(lws_async_dns_t *dns);
