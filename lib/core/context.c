@@ -399,7 +399,9 @@ lws_create_context(const struct lws_context_creation_info *info)
 	const lws_plugin_evlib_t *plev = NULL;
 #if defined(LWS_WITH_EVLIB_PLUGINS) && defined(LWS_WITH_EVENT_LIBS)
 	struct lws_plugin		*evlib_plugin_list = NULL;
+#if defined(_DEBUG)
 	char		*ld_env;
+#endif
 #endif
 #if defined(LWS_WITH_LIBUV)
 	char fatal_exit_defer = 0;
@@ -476,9 +478,11 @@ lws_create_context(const struct lws_context_creation_info *info)
 	 * the context object, so we can overallocate it correctly
 	 */
 
+#if defined(_DEBUG)
 	ld_env = getenv("LD_LIBRARY_PATH");
 	lwsl_info("%s: ev lib path %s, '%s'\n", __func__,
 			LWS_INSTALL_LIBDIR, ld_env);
+#endif
 
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(map); n++) {
 		char ok = 0;

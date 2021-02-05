@@ -76,6 +76,7 @@ secstream_h2(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			return -1;
 
 		// lwsl_err("%s: h2 COMPLETED_CLIENT_HTTP\n", __func__);
+		r = 0;
 		if (h->hanging_som)
 			r = h->info.rx(ss_to_userobj(h), NULL, 0, LWSSS_FLAG_EOM);
 		/* decouple the fates of the wsi and the ss */

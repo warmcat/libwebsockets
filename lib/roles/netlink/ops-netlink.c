@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2021 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -40,6 +40,9 @@
 #undef RTA_ALIGNTO
 #define RTA_ALIGNTO 4U
 
+//#define lwsl_netlink lwsl_notice
+#define lwsl_netlink lwsl_debug
+
 static void
 lws_netlink_coldplug_done_cb(lws_sorted_usec_list_t *sul)
 {
@@ -55,7 +58,7 @@ static int
 rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 			   struct lws_pollfd *pollfd)
 {
-	uint8_t s[512]
+	uint8_t s[4096]
 #if defined(_DEBUG)
 	        , route_change = 0
 #endif
@@ -68,7 +71,8 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 	struct nlmsghdr		*h;
 	struct msghdr		msg;
 	struct iovec		iov;
-	unsigned int			n;
+	unsigned int		n;
+	char			buf[72];
 
 	if (!(pollfd->revents & LWS_POLLIN))
 		return LWS_HPI_RET_HANDLED;
@@ -89,6 +93,7 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 
 	iov.iov_base		= (void *)s;
 	iov.iov_len		= sizeof(s);
+
 	msg.msg_name		= (void *)&(nladdr);
 	msg.msg_namelen		= sizeof(nladdr);
 
@@ -96,17 +101,38 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 	msg.msg_iovlen		= 1;
 
 	n = (unsigned int)recvmsg(wsi->desc.sockfd, &msg, 0);
-	if ((int)n < 0)
+	if ((int)n < 0) {
+		lwsl_notice("%s: recvmsg failed\n", __func__);
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;
+	}
+
+	// lwsl_hexdump_notice(s, (size_t)n);
 
 	h = (struct nlmsghdr *)s;
+
+	/* we can get a bunch of messages coalesced in one read*/
 
 	for ( ; NLMSG_OK(h, n); h = NLMSG_NEXT(h, n)) {
 		struct ifaddrmsg *ifam;
 		struct rtattr *ra;
 		struct rtmsg *rm;
+#if !defined(LWS_WITH_NO_LOGS) && defined(_DEBUG)
+		struct ndmsg *nd;
+#endif
 		unsigned int ra_len;
 		uint8_t *p;
+
+		struct ifinfomsg *ifi;
+		struct rtattr *attribute;
+		lws_sockaddr46 *sa46;
+		unsigned int len;
+
+		lwsl_netlink("%s: RTM %d\n", __func__, h->nlmsg_type);
+
+		memset(&robj, 0, sizeof(robj));
+		robj.if_idx = -1;
+		robj.priority = -1;
+		rm = (struct rtmsg *)NLMSG_DATA(h);
 
 		/*
 		 * We have to care about NEWLINK so we can understand when a
@@ -115,8 +141,43 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 		 * We don't get individual DELROUTEs for these.
 		 */
 
-		if (h->nlmsg_type == RTM_NEWLINK) {
-			struct ifinfomsg *ifi = NLMSG_DATA(h);
+		switch (h->nlmsg_type) {
+		case RTM_NEWLINK:
+
+			ifi = NLMSG_DATA(h);
+			len = (unsigned int)(h->nlmsg_len - NLMSG_LENGTH(sizeof(*ifi)));
+
+			/* loop over all attributes for the NEWLINK message */
+			for (attribute = IFLA_RTA(ifi); RTA_OK(attribute, len);
+					 attribute = RTA_NEXT(attribute, len)) {
+				lwsl_netlink("%s: if attr %d\n", __func__,
+					    (int)attribute->rta_type);
+				switch(attribute->rta_type) {
+				case IFLA_IFNAME:
+					lwsl_netlink("NETLINK ifidx %d : %s\n",
+						     ifi->ifi_index,
+						     (char *)RTA_DATA(attribute));
+					break;
+				case RTA_SRC:
+					sa46 = (lws_sockaddr46 *)RTA_DATA(attribute);
+					if (sa46->sa4.sin_family == 0xffff) {
+						lwsl_netlink("%s: down %d\n",
+							     __func__,
+							     ifi->ifi_index);
+						lws_pt_lock(pt, __func__);
+						_lws_route_table_ifdown(pt,
+								ifi->ifi_index);
+						_lws_route_pt_close_unroutable(pt);
+						lws_pt_unlock(pt);
+					}
+					break;
+				default:
+					break;
+				} /* switch */
+			} /* for loop */
+
+			lwsl_netlink("%s: NEWLINK ifi_index %d, flags 0x%x\n",
+				     __func__, ifi->ifi_index, ifi->ifi_flags);
 
 			/*
 			 * Despite "New"link this is actually telling us there
@@ -128,21 +189,17 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 				 * Interface is down, so scrub all routes that
 				 * applied to it
 				 */
+				lwsl_netlink("%s: NEWLINK: ifdown %d\n",
+						__func__, ifi->ifi_index);
 				lws_pt_lock(pt, __func__);
 				_lws_route_table_ifdown(pt, ifi->ifi_index);
 				lws_pt_unlock(pt);
 			}
-			continue;
-		}
+			continue; /* ie, not break, no second half */
 
-		memset(&robj, 0, sizeof(robj));
-		robj.if_idx = -1;
-		robj.priority = -1;
+		case RTM_NEWADDR:
+		case RTM_DELADDR:
 
-		rm = (struct rtmsg *)NLMSG_DATA(h);
-
-		if (h->nlmsg_type == RTM_NEWADDR ||
-		    h->nlmsg_type == RTM_DELADDR) {
 			ifam = (struct ifaddrmsg *)NLMSG_DATA(h);
 
 			robj.source_ads = 1;
@@ -155,25 +212,76 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 			/* address attributes */
 			ra = (struct rtattr *)IFA_RTA(ifam);
 			ra_len = (unsigned int)IFA_PAYLOAD(h);
-		} else {
 
-			if (h->nlmsg_type != RTM_NEWROUTE &&
-			    h->nlmsg_type != RTM_DELROUTE)
-				continue;
+			lwsl_netlink("%s: %s\n", __func__,
+				     h->nlmsg_type == RTM_NEWADDR ?
+						     "NEWADDR" : "DELADDR");
+			break;
+
+		case RTM_NEWROUTE:
+		case RTM_DELROUTE:
+
+			lwsl_netlink("%s: %s\n", __func__,
+				     h->nlmsg_type == RTM_NEWROUTE ?
+						     "NEWROUTE" : "DELROUTE");
 
 			/* route attributes */
 			ra = (struct rtattr *)RTM_RTA(rm);
 			ra_len = (unsigned int)RTM_PAYLOAD(h);
-		}
+			break;
+
+		case RTM_DELNEIGH:
+		case RTM_NEWNEIGH:
+			lwsl_netlink("%s: %s\n", __func__,
+				     h->nlmsg_type == RTM_NEWNEIGH ? "NEWNEIGH" :
+								     "DELNEIGH");
+#if !defined(LWS_WITH_NO_LOGS) && defined(_DEBUG)
+			nd = (struct ndmsg *)rm;
+			lwsl_netlink("%s: fam %u, ifidx %u, flags 0x%x\n",
+				    __func__, nd->ndm_family, nd->ndm_ifindex,
+				    nd->ndm_flags);
+#endif
+			ra = (struct rtattr *)RTM_RTA(rm);
+			ra_len = (unsigned int)RTM_PAYLOAD(h);
+			for ( ; RTA_OK(ra, ra_len); ra = RTA_NEXT(ra, ra_len)) {
+				lwsl_netlink("%s: atr %d\n", __func__, ra->rta_type);
+				switch (ra->rta_type) {
+				case NDA_DST:
+					lwsl_netlink("%s: dst len %d\n",
+						    __func__, ra->rta_len);
+					break;
+				}
+			}
+			lws_pt_lock(pt, __func__);
+			_lws_route_pt_close_unroutable(pt);
+			lws_pt_unlock(pt);
+			continue;
+
+		default:
+			lwsl_netlink("%s: *** Unknown RTM_%d\n", __func__,
+					h->nlmsg_type);
+			continue;
+		} /* switch */
 
 		robj.proto = rm->rtm_protocol;
 
 		for ( ; RTA_OK(ra, ra_len); ra = RTA_NEXT(ra, ra_len)) {
+			// lwsl_netlink("%s: atr %d\n", __func__, ra->rta_type);
 			switch (ra->rta_type) {
+			case RTA_PREFSRC: /* protocol ads: preferred src ads */
+			case RTA_SRC:
+				lws_sa46_copy_address(&robj.src, RTA_DATA(ra),
+							rm->rtm_family);
+				robj.src_len = rm->rtm_src_len;
+				lws_sa46_write_numeric_address(&robj.src, buf, sizeof(buf));
+				lwsl_netlink("%s: RTA_SRC: %s\n", __func__, buf);
+				break;
 			case RTA_DST:
 				lws_sa46_copy_address(&robj.dest, RTA_DATA(ra),
 							rm->rtm_family);
 				robj.dest_len = rm->rtm_dst_len;
+				lws_sa46_write_numeric_address(&robj.dest, buf, sizeof(buf));
+				lwsl_netlink("%s: RTA_DST: %s\n", __func__, buf);
 				break;
 			case RTA_GATEWAY:
 				lws_sa46_copy_address(&robj.gateway,
@@ -183,15 +291,18 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 				gateway_change = 1;
 #endif
 				break;
+			case RTA_IIF: /* int: input interface index */
 			case RTA_OIF: /* int: output interface index */
-				robj.if_idx = *(char*)RTA_DATA(ra);
+				if (h->nlmsg_type != RTM_NEWADDR &&
+				    h->nlmsg_type != RTM_DELADDR) {
+					robj.if_idx = *(int *)RTA_DATA(ra);
+					lwsl_netlink("%s: ifidx %d\n", __func__, robj.if_idx);
+				}
 				break;
 			case RTA_PRIORITY: /* int: priority of route */
 				p = RTA_DATA(ra);
 				robj.priority = p[3] << 24 | p[2] << 16 |
 						 p[1] << 8  | p[0];
-				break;
-			case RTA_PREFSRC: /* protocol ads: preferred src ads */
 				break;
 			case RTA_CACHEINFO: /* struct rta_cacheinfo */
 				break;
@@ -207,7 +318,12 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 						__func__, ra->rta_type);
 				break;
 			}
-		}
+		} /* for */
+
+		/*
+		 * the second half, once all the attributes were collected
+		 */
+
 
 		switch (h->nlmsg_type) {
 
@@ -215,12 +331,17 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 			/*
 			 * This will also take down wsi marked as using it
 			 */
+			lwsl_netlink("%s: DELROUTE: if_idx %d\n", __func__,
+					robj.if_idx);
 			lws_pt_lock(pt, __func__);
-			_lws_route_remove(pt, &robj);
+			_lws_route_remove(pt, &robj, 0);
 			lws_pt_unlock(pt);
 			goto inform;
 
 		case RTM_NEWROUTE:
+
+			lwsl_netlink("%s: NEWROUTE rtm_type %d\n", __func__,
+					rm->rtm_type);
 
 			/*
 			 * We don't want any routing debris like /32 or broadcast
@@ -235,9 +356,23 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 			if (rm->rtm_flags & RTM_F_CLONED)
 				break;
 
-			/* fallthru */
+			goto ana;
+
+		case RTM_DELADDR:
+			lwsl_notice("%s: DELADDR\n", __func__);
+#if defined(_DEBUG)
+			_lws_routing_entry_dump(&robj);
+#endif
+			lws_pt_lock(pt, __func__);
+			_lws_route_remove(pt, &robj, LRR_MATCH_SRC | LRR_IGNORE_PRI);
+			_lws_route_pt_close_unroutable(pt);
+			lws_pt_unlock(pt);
+			break;
 
 		case RTM_NEWADDR:
+
+			lwsl_netlink("%s: NEWADDR\n", __func__);
+ana:
 			rou = lws_malloc(sizeof(*rou), __func__);
 			if (!rou) {
 				lwsl_err("%s: oom\n", __func__);
@@ -283,7 +418,7 @@ inform:
 			//		h->nlmsg_type);
 			break;
 		}
-	}
+	} /* message iterator */
 
 #if defined(LWS_WITH_SYS_SMD)
 	if (gateway_change)
@@ -366,11 +501,14 @@ rops_pt_init_destroy_netlink(struct lws_context *context,
 	memset(&sanl, 0, sizeof(sanl));
 	sanl.nl_family		= AF_NETLINK;
 	sanl.nl_pid		= (uint32_t)getpid();
-	sanl.nl_groups		= RTMGRP_LINK | RTMGRP_IPV4_ROUTE
+	sanl.nl_groups		= (1 << (RTNLGRP_LINK - 1)) |
+				  (1 << (RTNLGRP_IPV4_ROUTE - 1)) |
+				  (1 << (RTNLGRP_IPV4_IFADDR - 1))
 #if defined(LWS_WITH_IPV6)
-				  | RTMGRP_IPV6_ROUTE
+				  | (1 << (RTNLGRP_IPV6_ROUTE - 1)) |
+				    (1 << (RTNLGRP_IPV6_IFADDR - 1))
 #endif
-				  ;
+				 ;
 
 	if (bind(wsi->desc.sockfd, (struct sockaddr*)&sanl, sizeof(sanl)) < 0) {
 		lwsl_err("%s: netlink bind failed\n", __func__);

@@ -117,6 +117,7 @@ typedef union {
 struct lws_udp {
 	lws_sockaddr46		sa46;
 	lws_sockaddr46		sa46_pending;
+	uint8_t			connected:1;
 };
 #endif
 
