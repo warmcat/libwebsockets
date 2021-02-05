@@ -136,8 +136,6 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 	int m, n, which;
 	const char *name;
 
-	lwsl_notice("%s: %p\n", __func__, q);
-
 	/*
 	 * We managed to get to the point of being WRITEABLE, which is not a
 	 * given if no routes.  So call off the write_sul timeout for that.
@@ -160,7 +158,7 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 	    lws_retry_sul_schedule_retry_wsi(wsi, &q->sul,
 				       lws_async_dns_sul_cb_retry, &q->retry)) {
 		/* we have reached the end of our concealed retries */
-		lwsl_notice("%s: failing query\n", __func__);
+		lwsl_info("%s: failing query\n", __func__);
 		/*
 		 * our policy is to force reloading the dns server info
 		 * if our connection ever timed out, in case it or the
@@ -256,7 +254,7 @@ qfail:
 	 * incomplete cache entry
 	 */
 	if (q->firstcache) {
-		lwsl_notice("%s: destroy firstcache\n", __func__);
+		lwsl_debug("%s: destroy firstcache\n", __func__);
 		lws_adns_cache_destroy(q->firstcache);
 		q->firstcache = NULL;
 	}
@@ -275,21 +273,21 @@ callback_async_dns(struct lws *wsi, enum lws_callback_reasons reason,
 	/* callbacks related to raw socket descriptor */
 
         case LWS_CALLBACK_RAW_ADOPT:
-		lwsl_user("LWS_CALLBACK_RAW_ADOPT\n");
+		//lwsl_user("LWS_CALLBACK_RAW_ADOPT\n");
                 break;
 
 	case LWS_CALLBACK_RAW_CLOSE:
-		lwsl_user("LWS_CALLBACK_RAW_CLOSE\n");
+		//lwsl_user("LWS_CALLBACK_RAW_CLOSE\n");
 		break;
 
 	case LWS_CALLBACK_RAW_RX:
-		lwsl_user("LWS_CALLBACK_RAW_RX (%d)\n", (int)len);
+		//lwsl_user("LWS_CALLBACK_RAW_RX (%d)\n", (int)len);
 		// lwsl_hexdump_level(LLL_NOTICE, in, len);
 		lws_adns_parse_udp(dns, in, len);
 		break;
 
 	case LWS_CALLBACK_RAW_WRITEABLE:
-		lwsl_user("LWS_CALLBACK_RAW_WRITEABLE\n");
+		//lwsl_user("LWS_CALLBACK_RAW_WRITEABLE\n");
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 					   dns->waiting.head) {
 			lws_adns_q_t *q = lws_container_of(d, lws_adns_q_t,
@@ -510,7 +508,7 @@ lws_async_dns_trim_cache(lws_async_dns_t *dns)
 	c1 = lws_container_of(lws_dll2_get_tail(&dns->cached),
 						lws_adns_cache_t, list);
 	if (c1->refcount)
-		lwsl_notice("%s: acache %p: refcount %d on purge\n",
+		lwsl_info("%s: acache %p: refcount %d on purge\n",
 				__func__, c1, c1->refcount);
 	else
 		lws_adns_cache_destroy(c1);
@@ -660,16 +658,18 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 
 	c = lws_adns_get_cache(dns, name);
 	if (c) {
-		lwsl_info("%s: %s: using cached, c->results %p\n", __func__, name, c->results);
+		lwsl_info("%s: %s: using cached, c->results %p\n", __func__,
+			  name, c->results);
 		m = c->results ? LADNS_RET_FOUND : LADNS_RET_FAILED;
 		if (c->results)
 			c->refcount++;
+
 		if (cb(wsi, name, c->results, m, opaque) == NULL)
 			return LADNS_RET_FAILED_WSI_CLOSED;
 
 		return m;
 	} else
-		lwsl_notice("%s: %s uncached\n", __func__, name);
+		lwsl_info("%s: %s uncached\n", __func__, name);
 
 	/*
 	 * It's a 1.2.3.4 or ::1 type IP address already?  We don't need a dns
@@ -843,7 +843,8 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 
 failed:
 	lwsl_notice("%s: failed\n", __func__);
-	cb(wsi, NULL, NULL, LADNS_RET_FAILED, opaque);
+	if (!cb(wsi, NULL, NULL, LADNS_RET_FAILED, opaque))
+		return LADNS_RET_FAILED_WSI_CLOSED;
 
 	return LADNS_RET_FAILED;
 }

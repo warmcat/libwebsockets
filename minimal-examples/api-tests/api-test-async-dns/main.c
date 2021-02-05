@@ -88,10 +88,10 @@ static const struct async_dns_tests {
 #if defined(LWS_WITH_IPV6)
 	{ "warmcat.com", LWS_ADNS_RECORD_AAAA, 16, /* check ipv6 */
 		{ 0x20, 0x01, 0x41, 0xd0, 0x00, 0x02, 0xee, 0x93,
-				0, 0, 0, 0, 0, 0, 0, 0, } },
+				0, 0, 0, 0, 0, 0, 0, 1, } },
 	{ "ipv6only.warmcat.com", LWS_ADNS_RECORD_AAAA, 16, /* check ipv6 */
 		{ 0x20, 0x01, 0x41, 0xd0, 0x00, 0x02, 0xee, 0x93,
-				0, 0, 0, 0, 0, 0, 0, 0, } },
+				0, 0, 0, 0, 0, 0, 0, 1, } },
 #endif
 };
 

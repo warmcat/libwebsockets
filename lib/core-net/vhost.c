@@ -1424,7 +1424,7 @@ lws_vhost_destroy(struct lws_vhost *vh)
 	/* start async closure of all wsi on this pt thread attached to vh */
 	__lws_vhost_destroy_pt_wsi_dieback_start(vh);
 
-	lwsl_notice("%s: count_bound_wsi %d\n", __func__, vh->count_bound_wsi);
+	lwsl_info("%s: count_bound_wsi %d\n", __func__, vh->count_bound_wsi);
 
 	/* if there are none, finalize now since no further chance */
 	if (!vh->count_bound_wsi) {

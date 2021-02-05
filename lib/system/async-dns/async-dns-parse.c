@@ -554,7 +554,7 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 	q = lws_adns_get_query(dns, 0, &dns->waiting,
 			       lws_ser_ru16be(pkt + DHO_TID), NULL);
 	if (!q) {
-		lwsl_notice("%s: dropping unknown query tid 0x%x\n",
+		lwsl_info("%s: dropping unknown query tid 0x%x\n",
 			    __func__, lws_ser_ru16be(pkt + DHO_TID));
 
 		return;
