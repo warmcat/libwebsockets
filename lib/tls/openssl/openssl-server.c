@@ -581,7 +581,7 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 #if defined(LWS_WITH_BORINGSSL)
 				(uint32_t)
 #else
-#if (OPENSSL_VERSION_NUMBER >= 0x10003000l) /* not documented by openssl */
+#if (OPENSSL_VERSION_NUMBER >= 0x10003000l) && !defined(LIBRESSL_VERSION_NUMBER) /* not documented by openssl */
 				    (unsigned long)
 #else
 				    (long)
@@ -597,7 +597,7 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 #if defined(LWS_WITH_BORINGSSL)
 				(uint32_t)
 #else
-#if (OPENSSL_VERSION_NUMBER >= 0x10003000l) /* not documented by openssl */
+#if (OPENSSL_VERSION_NUMBER >= 0x10003000l)  && !defined(LIBRESSL_VERSION_NUMBER)/* not documented by openssl */
 				    (unsigned long)
 #else
 				    (long)
