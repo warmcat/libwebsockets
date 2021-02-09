@@ -336,6 +336,7 @@ enum lws_token_indexes {
 	WSI_TOKEN_COLON_PROTOCOL,
 #endif
 	WSI_TOKEN_X_AUTH_TOKEN,
+	WSI_TOKEN_DSS_SIGNATURE,
 
 	/****** add new things just above ---^ ******/
 
