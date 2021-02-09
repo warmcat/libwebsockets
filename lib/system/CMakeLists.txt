@@ -49,7 +49,8 @@ if (LWS_WITH_NETWORK)
 
 	if (LWS_WITH_SYS_DHCP_CLIENT)
 		list(APPEND SOURCES
-			system/dhcpclient/dhcpclient.c)
+			system/dhcpclient/dhcpclient.c
+			system/dhcpclient/dhcpc4.c)
 	endif()
 
 	if (LWS_WITH_SYS_SMD)

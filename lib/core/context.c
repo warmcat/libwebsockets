@@ -278,7 +278,7 @@ lws_system_smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
 		lws_ntpc_trigger(cx);
 #endif
 
-#if defined(LWS_WITH_SYS_DHCP_CLIENT)
+#if defined(LWS_WITH_SYS_DHCP_CLIENT) && 0
 	/*
 	 * Any network interface linkup triggers DHCP
 	 */
@@ -1148,7 +1148,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 		extern const struct lws_protocols lws_system_protocol_ntpc;
 #endif
 #if defined(LWS_WITH_SYS_DHCP_CLIENT)
-		extern const struct lws_protocols lws_system_protocol_dhcpc;
+		extern const struct lws_protocols lws_system_protocol_dhcpc4;
 #endif
 
 		n = 0;
@@ -1159,7 +1159,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 		pp[n++] = &lws_system_protocol_ntpc;
 #endif
 #if defined(LWS_WITH_SYS_DHCP_CLIENT)
-		pp[n++] = &lws_system_protocol_dhcpc;
+		pp[n++] = &lws_system_protocol_dhcpc4;
 #endif
 		pp[n] = NULL;
 
@@ -1766,20 +1766,6 @@ next:
 		 * is destroyed.  We can remove the logical vhosts.
 		 */
 
-#if defined(LWS_WITH_NETWORK) && defined(LWS_WITH_SECURE_STREAMS) && \
-	!defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
-
-		while (context->server_der_list) {
-			struct lws_ss_x509 *x = context->server_der_list;
-
-			context->server_der_list = x->next;
-			lws_free((void *)x->ca_der);
-		}
-
-		if (context->ac_policy)
-			lwsac_free(&context->ac_policy);
-#endif
-
 #if defined(LWS_WITH_SYS_STATE) && defined(LWS_WITH_NETWORK)
 	lws_state_transition(&context->mgr_system, LWS_SYSTATE_POLICY_INVALID);
 #endif
@@ -1944,6 +1930,20 @@ next:
 		for (n = 0; n < LWS_SYSBLOB_TYPE_COUNT; n++)
 			lws_system_blob_destroy(
 					lws_system_get_blob(context, (lws_system_blob_item_t)n, 0));
+
+#if defined(LWS_WITH_NETWORK) && defined(LWS_WITH_SECURE_STREAMS) && \
+	!defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
+
+		while (context->server_der_list) {
+			struct lws_ss_x509 *x = context->server_der_list;
+
+			context->server_der_list = x->next;
+			lws_free((void *)x->ca_der);
+		}
+
+		if (context->ac_policy)
+			lwsac_free(&context->ac_policy);
+#endif
 
 		/*
 		 * Context lock is about to go away

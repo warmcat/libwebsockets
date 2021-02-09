@@ -161,9 +161,9 @@ wsi_from_fd(const struct lws_context *context, int fd);
 int
 insert_wsi(const struct lws_context *context, struct lws *wsi);
 
+struct lws_dhcpc_ifstate;
 int
-lws_plat_ifconfig_ip(const char *ifname, int fd, uint8_t *ip, uint8_t *mask_ip,
-			uint8_t *gateway_ip);
+lws_plat_ifconfig(int fd, struct lws_dhcpc_ifstate *is);
 
 void
 delete_from_fd(const struct lws_context *context, int fd);

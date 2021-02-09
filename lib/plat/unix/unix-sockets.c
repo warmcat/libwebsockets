@@ -470,56 +470,60 @@ lws_plat_BINDTODEVICE(lws_sockfd_type fd, const char *ifname)
 }
 
 int
-lws_plat_ifconfig_ip(const char *ifname, int fd, uint8_t *ip, uint8_t *mask_ip,
-			uint8_t *gateway_ip)
+lws_plat_ifconfig(int fd, lws_dhcpc_ifstate_t *is)
 {
 #if defined(__linux__)
-	struct sockaddr_in sin;
 	struct rtentry route;
 	struct ifreq ifr;
 
 	memset(&ifr, 0, sizeof(ifr));
 	memset(&route, 0, sizeof(route));
-	memset(&sin, 0, sizeof(sin));
 
-	lws_strncpy(ifr.ifr_name, ifname, IFNAMSIZ);
+	lws_strncpy(ifr.ifr_name, is->ifname, IFNAMSIZ);
 
-	lws_plat_if_up(ifname, fd, 0);
+	lws_plat_if_up(is->ifname, fd, 0);
 
-	sin.sin_family = AF_INET;
-	sin.sin_addr.s_addr = htonl(*(uint32_t *)ip);
-
-	memcpy(&ifr.ifr_addr, &sin, sizeof(struct sockaddr));
+	memcpy(&ifr.ifr_addr, &is->sa46[LWSDH_SA46_IP], sizeof(struct sockaddr));
 	if (ioctl(fd, SIOCSIFADDR, &ifr) < 0) {
 		lwsl_err("%s: SIOCSIFADDR fail\n", __func__);
 		return 1;
 	}
 
-	sin.sin_addr.s_addr = htonl(*(uint32_t *)mask_ip);
-	memcpy(&ifr.ifr_addr, &sin, sizeof(struct sockaddr));
-	if (ioctl(fd, SIOCSIFNETMASK, &ifr) < 0) {
-		lwsl_err("%s: SIOCSIFNETMASK fail\n", __func__);
-		return 1;
-	}
+	if (is->sa46[LWSDH_SA46_IP].sa4.sin_family == AF_INET) {
+		struct sockaddr_in sin;
 
-	lws_plat_if_up(ifname, fd, 1);
+		memset(&sin, 0, sizeof(sin));
+		sin.sin_family = AF_INET;
+		sin.sin_addr.s_addr = *(uint32_t *)&is->nums[LWSDH_IPV4_SUBNET_MASK];
+		memcpy(&ifr.ifr_addr, &sin, sizeof(struct sockaddr));
+		if (ioctl(fd, SIOCSIFNETMASK, &ifr) < 0) {
+			lwsl_err("%s: SIOCSIFNETMASK fail\n", __func__);
+			return 1;
+		}
 
-	sin.sin_addr.s_addr = htonl(*(uint32_t *)gateway_ip);
-	memcpy(&route.rt_gateway, &sin, sizeof(struct sockaddr));
+		lws_plat_if_up(is->ifname, fd, 1);
 
-	sin.sin_addr.s_addr = 0;
-	memcpy(&route.rt_dst, &sin, sizeof(struct sockaddr));
-	memcpy(&route.rt_genmask, &sin, sizeof(struct sockaddr));
+		memcpy(&route.rt_gateway,
+		       &is->sa46[LWSDH_SA46_IPV4_ROUTER].sa4,
+		       sizeof(struct sockaddr));
 
-	route.rt_flags = RTF_UP | RTF_GATEWAY;
-	route.rt_metric = 100;
-	route.rt_dev = (char *)ifname;
+		sin.sin_addr.s_addr = 0;
+		memcpy(&route.rt_dst, &sin, sizeof(struct sockaddr));
+		memcpy(&route.rt_genmask, &sin, sizeof(struct sockaddr));
 
-	if (ioctl(fd, SIOCADDRT, &route) < 0) {
-		lwsl_err("%s: SIOCADDRT 0x%x fail: %d\n", __func__,
-			(unsigned int)htonl(*(uint32_t *)gateway_ip), LWS_ERRNO);
-		return 1;
-	}
+		route.rt_flags = RTF_UP | RTF_GATEWAY;
+		route.rt_metric = 100;
+		route.rt_dev = (char *)is->ifname;
+
+		if (ioctl(fd, SIOCADDRT, &route) < 0) {
+			lwsl_err("%s: SIOCADDRT 0x%x fail: %d\n", __func__,
+				(unsigned int)htonl(*(uint32_t *)&is->
+					sa46[LWSDH_SA46_IPV4_ROUTER].
+						sa4.sin_addr.s_addr), LWS_ERRNO);
+			return 1;
+		}
+	} else
+		lws_plat_if_up(is->ifname, fd, 1);
 
 	return 0;
 #else
