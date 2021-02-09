@@ -129,6 +129,7 @@ static const char * const set[] = {
 #endif
 
 	"x-auth-token:",
+	"x-amzn-dss-signature:",
 
 	"", /* not matchable */
 
