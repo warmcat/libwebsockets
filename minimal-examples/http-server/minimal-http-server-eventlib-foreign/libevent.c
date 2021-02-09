@@ -23,13 +23,13 @@ static struct event *timer_outer_event;
 static struct event *sighandler_event;
 
 static void
-timer_cb_event(int fd, short event, void *arg)
+timer_cb_event(evutil_socket_t fd, short event, void *arg)
 {
 	foreign_timer_service(loop_event);
 }
 
 static void
-signal_cb_event(int fd, short event, void *arg)
+signal_cb_event(evutil_socket_t fd, short event, void *arg)
 {
 	signal_cb((int)(lws_intptr_t)arg);
 }
@@ -46,11 +46,11 @@ foreign_event_loop_init_and_run_libevent(void)
 
 	loop_event = event_base_new();
 
-	sighandler_event = evsignal_new(loop_event, SIGINT, signal_cb_event,
-					(void*)SIGINT);
+	sighandler_event = evsignal_new((struct event_base *)loop_event, SIGINT, signal_cb_event,
+                                       (void*)SIGINT);
 
-	timer_outer_event = event_new(loop_event, -1, EV_PERSIST,
-				      timer_cb_event, NULL);
+	timer_outer_event = event_new((struct event_base *)loop_event, -1, EV_PERSIST,
+                                     timer_cb_event, NULL);
 	//evtimer_new(loop_event, timer_cb_event, NULL);
 	evtimer_add(timer_outer_event, &tv);
 
