@@ -47,9 +47,13 @@ lws_adns_get_query(lws_async_dns_t *dns, adns_query_type_t qtype,
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 				   lws_dll2_get_head(owner)) {
 		lws_adns_q_t *q = lws_container_of(d, lws_adns_q_t, list);
+		int n = 0, nmax = q->tids >= LWS_ARRAY_SIZE(q->tid) ?
+				  LWS_ARRAY_SIZE(q->tid) : q->tids;
 
-		if (!name && (tid & 0xfffe) == (q->tid & 0xfffe))
-			return q;
+		if (!name)
+			for (n = 0; n < nmax; n++)
+				if ((tid & 0xfffe) == (q->tid[n] & 0xfffe))
+					return q;
 
 		if (name && q->qtype == ((tid & 1) ? LWS_ADNS_RECORD_AAAA :
 						     LWS_ADNS_RECORD_A) &&
@@ -126,7 +130,10 @@ lws_async_dns_sul_cb_retry(struct lws_sorted_usec_list *sul)
 	lwsl_info("%s\n", __func__);
 	lws_adns_dump(q->dns);
 
-	lws_callback_on_writable(q->dns->wsi);
+	if (q->dns && q->dns->wsi) {
+		q->is_retry = 1;
+		lws_callback_on_writable(q->dns->wsi);
+	}
 }
 
 static void
@@ -141,6 +148,15 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 	 * given if no routes.  So call off the write_sul timeout for that.
 	 */
 	lws_sul_cancel(&q->write_sul);
+
+	if (!q->is_retry && q->sent[0]
+#if defined(LWS_WITH_IPV6)
+	         && q->sent[0] == q->sent[1]
+#endif
+	)
+		return;
+
+	q->is_retry = 0;
 
 	/*
 	 * UDP is not reliable, it can be locally dropped, or dropped
@@ -187,13 +203,15 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 	q->asked = 1;
 #endif
 
+	lwsl_info("%s: %s, which %d\n", __func__, name, which);
+
 	/* we hack b0 of the tid to be 0 = A, 1 = AAAA */
 
 	lws_ser_wu16be(&p[DHO_TID],
 #if defined(LWS_WITH_IPV6)
-			which ? q->tid | 1 :
+			which ? (LADNS_MOST_RECENT_TID(q) | 1) :
 #endif
-			q->tid);
+					LADNS_MOST_RECENT_TID(q));
 	lws_ser_wu16be(&p[DHO_FLAGS], (1 << 8));
 	lws_ser_wu16be(&p[DHO_NQUERIES], 1);
 
@@ -237,12 +255,11 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 	}
 
 #if defined(LWS_WITH_IPV6)
-	if (!q->responded && q->sent[0] != q->sent[1])
+	if (!q->responded && q->sent[0] != q->sent[1]) {
+		lwsl_debug("%s: request writeable for ipv6\n", __func__);
 		lws_callback_on_writable(wsi);
+	}
 #endif
-
-	/* if we did anything, check one more time */
-//	lws_callback_on_writable(wsi);
 
 	return;
 
@@ -564,8 +581,15 @@ static int
 check_tid(struct lws_dll2 *d, void *user)
 {
 	lws_adns_q_t *q = lws_container_of(d, lws_adns_q_t, list);
+	int n = 0, nmax = q->tids >= LWS_ARRAY_SIZE(q->tid) ?
+			  LWS_ARRAY_SIZE(q->tid) : q->tids;
+	uint16_t check = (uint16_t)(intptr_t)user;
 
-	return q->tid == (uint16_t)(intptr_t)user;
+	for (n = 0; n < nmax; n++)
+		if (check == q->tid[n])
+			return 1;
+
+	return 0;
 }
 
 int
@@ -587,7 +611,8 @@ lws_async_dns_get_new_tid(struct lws_context *context, lws_adns_q_t *q)
 					  (void *)(intptr_t)tid, check_tid))
 			continue;
 
-		q->tid = tid;
+		q->tids++;
+		LADNS_MOST_RECENT_TID(q) = tid;
 
 		return 0;
 
@@ -801,7 +826,7 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 		goto failed;
 	}
 
-	q->tid &= 0xfffe;
+	LADNS_MOST_RECENT_TID(q) &= 0xfffe;
 	q->context = context;
 	q->tsi = (uint8_t)tsi;
 	q->opaque = opaque;

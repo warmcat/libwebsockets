@@ -72,7 +72,7 @@ typedef struct {
 	lws_adns_cache_t	*firstcache;
 
 	lws_async_dns_retcode_t	ret;
-	uint16_t		tid;
+	uint16_t		tid[3]; /* last 3 sent tid */
 	uint16_t		qtype;
 	uint16_t		retry;
 	uint8_t			tsi;
@@ -86,9 +86,15 @@ typedef struct {
 	uint8_t			responded;
 
 	uint8_t			recursion;
+	uint8_t			tids;
+
+	uint8_t			is_retry:1;
 
 	/* name overallocated here */
 } lws_adns_q_t;
+
+#define LADNS_MOST_RECENT_TID(_q) \
+		q->tid[(int)(_q->tids - 1) % (int)LWS_ARRAY_SIZE(q->tid)]
 
 enum {
 	DHO_TID,

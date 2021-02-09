@@ -392,7 +392,7 @@ skip:
 	if (lws_async_dns_get_new_tid(q->context, q))
 		return -1;
 
-	q->tid &= 0xfffe;
+	LADNS_MOST_RECENT_TID(q) &= 0xfffe;
 	q->asked = q->responded = 0;
 #if defined(LWS_WITH_IPV6)
 	q->sent[1] = 0;
