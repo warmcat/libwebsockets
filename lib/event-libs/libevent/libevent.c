@@ -226,6 +226,12 @@ elops_init_pt_event(struct lws_context *context, void *_loop, int tsi)
 
 	ptpr->idle_timer = event_new(loop, -1, 0,
 					 lws_event_idle_timer_cb, pt);
+	{
+		struct timeval tv;
+		tv.tv_sec = (long)0;
+		tv.tv_usec = (long)1000;
+		evtimer_add(ptpr->hrtimer, &tv);
+	}
 
 	/* Register the signal watcher unless it's a foreign loop */
 
