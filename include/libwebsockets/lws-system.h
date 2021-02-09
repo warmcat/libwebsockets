@@ -269,7 +269,36 @@ __lws_system_attach(struct lws_context *context, int tsi, lws_attach_cb_t cb,
 		    struct lws_attach_item **get);
 
 
-typedef int (*dhcpc_cb_t)(void *opaque, int af, uint8_t *ip, int ip_len);
+enum {
+	LWSDH_IPV4_SUBNET_MASK		= 0,
+	LWSDH_IPV4_BROADCAST,
+	LWSDH_LEASE_SECS,
+	LWSDH_REBINDING_SECS,
+	LWSDH_RENEWAL_SECS,
+
+	_LWSDH_NUMS_COUNT,
+
+	LWSDH_SA46_IP			= 0,
+	LWSDH_SA46_DNS_SRV_1,
+	LWSDH_SA46_DNS_SRV_2,
+	LWSDH_SA46_DNS_SRV_3,
+	LWSDH_SA46_DNS_SRV_4,
+	LWSDH_SA46_IPV4_ROUTER,
+	LWSDH_SA46_NTP_SERVER,
+	LWSDH_SA46_DHCP_SERVER,
+
+	_LWSDH_SA46_COUNT,
+};
+
+typedef struct lws_dhcpc_ifstate {
+	char				ifname[16];
+	char				domain[64];
+	uint8_t				mac[6];
+	uint32_t			nums[_LWSDH_NUMS_COUNT];
+	lws_sockaddr46			sa46[_LWSDH_SA46_COUNT];
+} lws_dhcpc_ifstate_t;
+
+typedef int (*dhcpc_cb_t)(void *opaque, lws_dhcpc_ifstate_t *is);
 
 /**
  * lws_dhcpc_request() - add a network interface to dhcpc management

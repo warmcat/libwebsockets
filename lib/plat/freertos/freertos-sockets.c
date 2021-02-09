@@ -317,8 +317,7 @@ lws_plat_BINDTODEVICE(lws_sockfd_type fd, const char *ifname)
 }
 
 int
-lws_plat_ifconfig_ip(const char *ifname, int fd, uint8_t *ip, uint8_t *mask_ip,
-			uint8_t *gateway_ip)
+lws_plat_ifconfig(int fd, lws_dhcpc_ifstate_t *is)
 {
 	lwsl_err("%s: UNIMPLEMENTED on this platform\n", __func__);
 
