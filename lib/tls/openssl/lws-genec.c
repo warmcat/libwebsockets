@@ -67,7 +67,9 @@ int BN_bn2binpad(const BIGNUM *a, unsigned char *to, int tolen)
     int i;
     BN_ULONG l;
 
+#if !defined(LIBRESSL_VERSION_NUMBER)
     bn_check_top(a);
+#endif
     i = BN_num_bytes(a);
 
     /* Add leading zeroes if necessary */
