@@ -29,6 +29,11 @@
 #include "private-lib-core.h"
 #include <unistd.h>
 
+#if defined(__OpenBSD__)
+#include <sys/resource.h>
+#include <sys/wait.h>
+#endif
+
 void
 lws_spawn_timeout(struct lws_sorted_usec_list *sul)
 {
@@ -146,6 +151,10 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	lsp_cb_t cb = lsp->info.reap_cb;
 	struct lws_spawn_piped temp;
 	struct tms tms;
+#if defined(__OpenBSD__)
+	struct rusage rusa;
+	int status;
+#endif
 	int n;
 
 	if (lsp->child_pid < 1)
@@ -154,7 +163,14 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	/* check if exited, do not reap yet */
 
 	memset(&lsp->si, 0, sizeof(lsp->si));
+#if defined(__OpenBSD__)
+	n = wait4(lsp->child_pid, &status, WNOHANG, &rusa);
+	if (!n)
+		return 0;
+	lsp->si.si_code = WIFEXITED(status);
+#else
 	n = waitid(P_PID, (id_t)lsp->child_pid, &lsp->si, WEXITED | WNOHANG | WNOWAIT);
+#endif
 	if (n < 0) {
 		lwsl_info("%s: child %d still running\n", __func__, lsp->child_pid);
 		return 0;
@@ -212,7 +228,15 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	}
 
 	temp = *lsp;
+#if defined(__OpenBSD__)
+	n = wait4(lsp->child_pid, &status, WNOHANG, &rusa);
+	if (!n)
+		return 0;
+	lsp->si.si_code = WIFEXITED(status);
+	temp.si.si_status = status & 0xff;
+#else
 	n = waitid(P_PID, (id_t)lsp->child_pid, &temp.si, WEXITED | WNOHANG);
+#endif
 	temp.si.si_status &= 0xff; /* we use b8 + for flags */
 	lwsl_info("%s: waitd says %d, process exit %d\n",
 		    __func__, n, temp.si.si_status);
@@ -435,7 +459,7 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	if (lsp->info.disable_ctrlc)
 		/* stops non-daemonized main processess getting SIGINT
 		 * from TTY */
-#if defined(__FreeBSD__) || defined(__NetBSD__)
+#if defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
 		setpgid(0, 0);
 #else
 		setpgrp();

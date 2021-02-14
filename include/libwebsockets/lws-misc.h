@@ -31,6 +31,10 @@
 #endif
 #endif
 
+#if defined(__OpenBSD__)
+#include <sys/siginfo.h>
+#endif
+
 /** \defgroup misc Miscellaneous APIs
 * ##Miscellaneous APIs
 *

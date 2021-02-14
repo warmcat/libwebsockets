@@ -192,13 +192,22 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, int fd, int unix_skt)
 
 static const int ip_opt_lws_flags[] = {
 	LCCSCF_IP_LOW_LATENCY, LCCSCF_IP_HIGH_THROUGHPUT,
-	LCCSCF_IP_HIGH_RELIABILITY, LCCSCF_IP_LOW_COST
+	LCCSCF_IP_HIGH_RELIABILITY
+#if !defined(__OpenBSD__)
+	, LCCSCF_IP_LOW_COST
+#endif
 }, ip_opt_val[] = {
-	IPTOS_LOWDELAY, IPTOS_THROUGHPUT, IPTOS_RELIABILITY, IPTOS_MINCOST
+	IPTOS_LOWDELAY, IPTOS_THROUGHPUT, IPTOS_RELIABILITY
+#if !defined(__OpenBSD__)
+	, IPTOS_MINCOST
+#endif
 };
 #if !defined(LWS_WITH_NO_LOGS)
 static const char *ip_opt_names[] = {
-	"LOWDELAY", "THROUGHPUT", "RELIABILITY", "MINCOST"
+	"LOWDELAY", "THROUGHPUT", "RELIABILITY"
+#if !defined(__OpenBSD__)
+	, "MINCOST"
+#endif
 };
 #endif
 
