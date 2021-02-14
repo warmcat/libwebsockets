@@ -125,6 +125,10 @@
 			"cmake":	"-DLWS_OPENSSL_LIBRARIES=\"/usr/local/src/openssl/v3/usr/local/lib64/libssl.a;/usr/local/src/openssl/v3/usr/local/lib64/libcrypto.a\" -DLWS_OPENSSL_INCLUDE_DIRS=\"/usr/local/src/openssl/v3/usr/local/include/\" -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_GENCRYPTO=0",
 			"platforms":	"none,linux-fedora-32/x86_64-amd/gcc"
 		},
+		"default-examples-openssl-v3-gencrypto": {
+			"cmake":	"-DLWS_SUPPRESS_DEPRECATED_API_WARNINGS=1 -DLWS_OPENSSL_LIBRARIES=\"/usr/local/src/openssl/v3/usr/local/lib64/libssl.a;/usr/local/src/openssl/v3/usr/local/lib64/libcrypto.a\" -DLWS_OPENSSL_INCLUDE_DIRS=\"/usr/local/src/openssl/v3/usr/local/include/\" -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_GENCRYPTO=1",
+			"platforms":	"none,linux-fedora-32/x86_64-amd/gcc"
+		},
 		"default-examples-boringssl": {
 			"cmake":	"cmake .. -DLWS_WITH_BORINGSSL=1 -DLWS_OPENSSL_INCLUDE_DIRS=\"/usr/local/src/boringssl/include\" -DLWS_OPENSSL_LIBRARIES=\"/usr/local/src/boringssl/build/ssl/libssl.so;/usr/local/src/boringssl/build/crypto/libcrypto.so\" -DLWS_WITH_MINIMAL_EXAMPLES=1",
 			"platforms":	"none,linux-fedora-32/x86_64-amd/gcc"
@@ -153,8 +157,9 @@
 			"cmake":	"-DLWS_WITH_PLUGINS=1",
 			"platforms":	"none,linux-fedora-32/x86_64-amd/gcc,linux-debian-sid/x86-amd/gcc,linux-debian-sid/x86_64-amd/gcc"
 		},
+		# WARN_DEPRECATED disabled for openssl v3 case on windows
 		"lws_system": {
-			"cmake":	"-DLWS_WITH_ACME=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DCMAKE_BUILD_TYPE=RELEASE -DLWS_WITH_GENCRYPTO=1 -DLWS_WITH_JOSE=1 -DLWS_WITH_SYS_ASYNC_DNS=1 -DLWS_WITH_SYS_NTPCLIENT=1",
+			"cmake":	"-DLWS_SUPPRESS_DEPRECATED_API_WARNINGS=1 -DLWS_WITH_ACME=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DCMAKE_BUILD_TYPE=RELEASE -DLWS_WITH_GENCRYPTO=1 -DLWS_WITH_JOSE=1 -DLWS_WITH_SYS_ASYNC_DNS=1 -DLWS_WITH_SYS_NTPCLIENT=1",
 			"platforms":	"w10/x86_64-amd/msvc, w10/x86_64-amd/noptmsvc"
 		},
 		"secure-streams": {
