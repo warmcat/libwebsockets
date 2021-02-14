@@ -198,6 +198,8 @@ option(LWS_WITH_STATIC "Build the static version of the library" ON)
 option(LWS_WITH_SHARED "Build the shared version of the library" ON)
 option(LWS_LINK_TESTAPPS_DYNAMIC "Link the test apps to the shared version of the library. Default is to link statically" OFF)
 option(LWS_STATIC_PIC "Build the static version of the library with position-independent code" OFF)
+option(LWS_SUPPRESS_DEPRECATED_API_WARNINGS "Turn off complaints about, eg, openssl deprecated api usage" OFF)
+
 #
 # Specific platforms
 #
@@ -717,6 +719,7 @@ if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX OR COMPILER_IS_CLANG)
 
 	check_c_compiler_flag("-Wignored-qualifiers" LWS_GCC_HAS_IGNORED_QUALIFIERS)
 	check_c_compiler_flag("-Wtype-limits" LWS_GCC_HAS_TYPE_LIMITS)
+	check_c_compiler_flag("-Wno-deprecated-declarations" LWS_GCC_HAS_NO_DEPRECATED_DECLARATIONS)
 
 	if (LWS_GCC_HAS_IGNORED_QUALIFIERS)
 		set(CMAKE_C_FLAGS "-Wignored-qualifiers ${CMAKE_C_FLAGS}" )
@@ -743,6 +746,13 @@ if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX OR COMPILER_IS_CLANG)
 
 	if ("${DISABLE_WERROR}" STREQUAL "OFF")
 		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror")
+	endif()
+
+	if (LWS_SUPPRESS_DEPRECATED_API_WARNINGS)
+		set(CMAKE_C_FLAGS "-Wno-deprecated ${CMAKE_C_FLAGS}")
+		if (LWS_GCC_HAS_NO_DEPRECATED_DECLARATIONS)
+			set(CMAKE_C_FLAGS "-Wno-deprecated-declarations ${CMAKE_C_FLAGS}")
+		endif()
 	endif()
 endif ()
 
