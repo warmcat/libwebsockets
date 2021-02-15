@@ -570,7 +570,9 @@ struct lws_context {
 #endif
 
 	lws_usec_t time_up; /* monotonic */
-
+#if defined(LWS_WITH_SYS_SMD)
+	lws_usec_t smd_ttl_us;
+#endif
 	uint64_t options;
 
 	time_t last_ws_ping_pong_check_s;
@@ -608,6 +610,11 @@ struct lws_context {
 	unsigned short ip_limit_ah;
 	unsigned short ip_limit_wsi;
 #endif
+
+#if defined(LWS_WITH_SYS_SMD)
+	uint16_t smd_queue_depth;
+#endif
+
 	unsigned int deprecated:1;
 	unsigned int inside_context_destroy:1;
 	unsigned int being_destroyed:1;

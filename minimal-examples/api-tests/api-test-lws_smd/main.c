@@ -15,6 +15,7 @@
 #include <signal.h>
 
 static int interrupted, ok, fail, _exp = 111;
+static unsigned int how_many_msg = 100, usec_interval = 1000;
 static lws_sorted_usec_list_t sul, sul_initial_drain;
 struct lws_context *context;
 static pthread_t thread_spam;
@@ -23,6 +24,7 @@ static void
 timeout_cb(lws_sorted_usec_list_t *sul)
 {
 	/* We should have completed the test before this fires */
+	lwsl_notice("%s: test period finished\n", __func__);
 	interrupted = 1;
 	lws_cancel_service(context);
 }
@@ -76,15 +78,21 @@ smd_cb3int(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
 static void *
 _thread_spam(void *d)
 {
-	int n, atm = 0;
+#if defined(WIN32)
+	unsigned int mypid = 0;
+#else
+	unsigned int mypid = (unsigned int)getpid();
+#endif
+	unsigned int n = 0, atm = 0;
 
-	n = 0;
-	while (n++ < 100) {
+	while (n++ < how_many_msg) {
 
 		atm++;
 		if (lws_smd_msg_printf(context, LWSSMDCL_SYSTEM_STATE,
-					       "{\"s\":\"state\",\"msg\":%d}",
-					       (unsigned int)n)) {
+					       "{\"s\":\"state\","
+						"\"pid\":%u,"
+						"\"msg\":%d}",
+					       mypid, (unsigned int)n)) {
 			lwsl_err("%s: send attempt %d failed\n", __func__, atm);
 			n--;
 			fail++;
@@ -97,7 +105,7 @@ _thread_spam(void *d)
 #if defined(WIN32)
 		Sleep(3);
 #else
-		usleep(1000);
+		usleep(usec_interval);
 #endif
 	}
 #if !defined(WIN32)
@@ -188,8 +196,15 @@ main(int argc, const char **argv)
 	if ((p = lws_cmdline_option(argc, argv, "-d")))
 		logs = atoi(p);
 
+	if ((p = lws_cmdline_option(argc, argv, "--count")))
+		how_many_msg = (unsigned int)atol(p);
+
+	if ((p = lws_cmdline_option(argc, argv, "--interval")))
+		usec_interval = (unsigned int)atol(p);
+
 	lws_set_log_level(logs, NULL);
-	lwsl_user("LWS API selftest: lws_smd\n");
+	lwsl_user("LWS API selftest: lws_smd: %u msgs at %uus interval\n",
+			how_many_msg, usec_interval);
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	info.port = CONTEXT_PORT_NO_LISTEN;
@@ -202,7 +217,10 @@ main(int argc, const char **argv)
 		return 1;
 	}
 
-	lws_sul_schedule(context, 0, &sul, timeout_cb, 5 * LWS_US_PER_SEC);
+	/* game over after this long */
+
+	lws_sul_schedule(context, 0, &sul, timeout_cb,
+			 (how_many_msg * (usec_interval + 1000)) + (4 * LWS_US_PER_SEC));
 
 	/* register a messaging participant to hear INTERACTION class */
 
