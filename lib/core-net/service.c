@@ -68,6 +68,9 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 
 	// lwsl_notice("%s: %s\n", __func__, lws_wsi_tag(wsi));
 
+	if (wsi->socket_is_permanently_unusable)
+		return 0;
+
 	vwsi->leave_pollout_active = 0;
 	vwsi->handling_pollout = 1;
 	/*
@@ -685,19 +688,39 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	 * zero down pollfd->revents after handling
 	 */
 
-	/* handle session socket closed */
+	/*
+	 * Whatever the situation with buffered rx packets, or explicitly read-
+	 * and-buffered rx going to be handled before we want to acknowledge the
+	 * socket is gone, any sign of HUP always immediately means no more tx
+	 * is possible.
+	 */
 
-	if ((!(pollfd->revents & pollfd->events & LWS_POLLIN)) &&
-	    (pollfd->revents & LWS_POLLHUP)) {
+	if (pollfd->revents & LWS_POLLHUP) {
+		wsi->socket_is_permanently_unusable = 1;
 
-		if (lws_buflist_total_len(&wsi->buflist))
+		if (!(pollfd->revents & pollfd->events & LWS_POLLIN)) {
+
+			/* ... there are no pending rx packets waiting... */
+
+			if (!lws_buflist_total_len(&wsi->buflist)) {
+
+				/*
+				 * ... nothing stashed in the buflist either,
+				 * so acknowledge the wsi is done
+				 */
+
+				lwsl_debug("Session Socket %s (fd=%d) dead\n",
+					   lws_wsi_tag(wsi), pollfd->fd);
+
+				goto close_and_handled;
+			}
+
+			/*
+			 * ... in fact we have some unread rx buffered in the
+			 * input buflist.  Hold off the closing a bit...
+			 */
+
 			lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_ACK, 3);
-		else {
-			wsi->socket_is_permanently_unusable = 1;
-			lwsl_debug("Session Socket %s (fd=%d) dead\n",
-				   lws_wsi_tag(wsi), pollfd->fd);
-
-			goto close_and_handled;
 		}
 	}
 
