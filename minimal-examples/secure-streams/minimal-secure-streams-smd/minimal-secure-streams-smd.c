@@ -16,6 +16,7 @@
 #include <signal.h>
 
 static int interrupted, bad = 1, count_p1, count_p2, count_tx;
+static unsigned int how_many_msg = 100, usec_interval = 1000;
 static lws_sorted_usec_list_t sul_timeout;
 
 /*
@@ -139,7 +140,7 @@ myss_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf, size_t *len,
 	count_tx++;
 
 	lws_sul_schedule(lws_ss_get_context(m->ss), 0, &m->sul,
-			 sul_tx_periodic_cb, 200 * LWS_US_PER_MS);
+			 sul_tx_periodic_cb, usec_interval);
 
 	return LWSSSSRET_OK;
 }
@@ -234,6 +235,7 @@ direct_smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
 static void
 sul_timeout_cb(lws_sorted_usec_list_t *sul)
 {
+	lwsl_notice("%s: test finishing\n", __func__);
 	interrupted = 1;
 }
 
@@ -250,6 +252,7 @@ int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	struct lws_context *context;
+	const char *p;
 
 	signal(SIGINT, sigint_handler);
 
@@ -262,7 +265,14 @@ int main(int argc, const char **argv)
 
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 
-	lwsl_user("LWS Secure Streams SMD test client [-d<verb>]\n");
+	if ((p = lws_cmdline_option(argc, argv, "--count")))
+		how_many_msg = (unsigned int)atol(p);
+
+	if ((p = lws_cmdline_option(argc, argv, "--interval")))
+		usec_interval = (unsigned int)atol(p);
+
+	lwsl_user("LWS Secure Streams SMD test client [-d<verb>]: "
+		  "%u msgs at %uus interval\n", how_many_msg, usec_interval);
 
 	info.fd_limit_per_thread	= 1 + 6 + 1;
 	info.port			= CONTEXT_PORT_NO_LISTEN;
@@ -271,8 +281,6 @@ int main(int argc, const char **argv)
 #else
 	info.protocols			= lws_sspc_protocols;
 	{
-		const char *p;
-
 		/* connect to ssproxy via UDS by default, else via
 		 * tcp connection to this port */
 		if ((p = lws_cmdline_option(argc, argv, "-p")))
@@ -314,7 +322,7 @@ int main(int argc, const char **argv)
 	/* set up the test timeout */
 
 	lws_sul_schedule(context, 0, &sul_timeout, sul_timeout_cb,
-			 4 * LWS_US_PER_SEC);
+			 (how_many_msg * (usec_interval + 1000)) + LWS_US_PER_SEC);
 
 	/* the event loop */
 

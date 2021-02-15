@@ -613,6 +613,22 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->system_ops = info->system_ops;
 	context->pt_serv_buf_size = (unsigned int)s1;
 
+#if defined(LWS_WITH_SYS_SMD)
+	context->smd_ttl_us = info->smd_ttl_us ? info->smd_ttl_us :
+#if defined(LWS_PLAT_FREERTOS)
+			5000000;
+#else
+			2000000;
+#endif
+	context->smd_queue_depth = info->smd_queue_depth ?
+						info->smd_queue_depth :
+#if defined(LWS_PLAT_FREERTOS)
+						20;
+#else
+						40;
+#endif
+#endif
+
 #if defined(LWS_WITH_UDP)
 	context->udp_loss_sim_tx_pc = info->udp_loss_sim_tx_pc;
 	context->udp_loss_sim_rx_pc = info->udp_loss_sim_rx_pc;

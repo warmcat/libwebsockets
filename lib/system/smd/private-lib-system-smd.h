@@ -22,16 +22,6 @@
  * IN THE SOFTWARE.
  */
 
-/*
- * Number of seconds registered peers must remain as zombies to handle in-flight
- * older messages correctly
- */
-#if !defined(LWS_SMD_INFLIGHT_GRACE_SECS)
-#define LWS_SMD_INFLIGHT_GRACE_SECS	(2)
-#endif
-#if !defined(LWS_SMD_MAX_QUEUE_DEPTH)
-#define LWS_SMD_MAX_QUEUE_DEPTH		(20)
-#endif
 
 #if defined(LWS_WITH_SECURE_STREAMS)
 #define LWS_SMD_SS_RX_HEADER_LEN_EFF	(LWS_SMD_SS_RX_HEADER_LEN)
@@ -55,21 +45,8 @@ typedef struct lws_smd_msg {
 	/* message itself is over-allocated after this */
 } lws_smd_msg_t;
 
-/*
- * The peer's relationship to the lws instance doing the distribution
- */
-
-typedef enum {
-	LSMDT_SAME_PROCESS,		/* we call him back ourselves */
-	LSMDT_SECURE_STREAMS_LOCAL,	/* we call him back ourselves */
-	LSMDT_SECURE_STREAMS_PROXIED,	/* we ask to write and wait */
-} lws_smd_type_t;
-
 typedef struct lws_smd_peer {
 	lws_dll2_t			list;
-
-	lws_usec_t			timestamp_joined;
-	lws_usec_t			timestamp_left;
 
 #if defined(LWS_WITH_SECURE_STREAMS)
 	lws_ss_handle_t			*ss_handle; /* LSMDT_SECURE_STREAMS */
@@ -82,7 +59,6 @@ typedef struct lws_smd_peer {
 	lws_smd_msg_t			*tail;
 
 	lws_smd_class_t			_class_filter;
-	lws_smd_type_t			type;
 } lws_smd_peer_t;
 
 /*
@@ -100,8 +76,6 @@ typedef struct lws_smd {
 
 	/* union of peer class filters, suppress creation of msg classes not set */
 	lws_smd_class_t			_class_filter;
-
-	lws_sorted_usec_list_t		sul_tail_stale;
 
 	char				delivering;
 } lws_smd_t;

@@ -820,6 +820,14 @@ struct lws_context_creation_info {
 	 */
 	void					*early_smd_opaque;
 	lws_smd_class_t				early_smd_class_filter;
+	lws_usec_t				smd_ttl_us;
+	/**< CONTEXT: SMD messages older than this many us are removed from the
+	 * queue and destroyed even if not fully delivered yet.  If zero,
+	 * defaults to 2 seconds (5 second for FREERTOS).
+	 */
+	uint16_t				smd_queue_depth;
+	/**< CONTEXT: Maximum queue depth, If zero defaults to 40
+	 * (20 for FREERTOS) */
 #endif
 
 	/* Add new things just above here ---^
