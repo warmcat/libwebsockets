@@ -402,12 +402,19 @@ lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 			}
 
 			pvo = pvo1->options;
-		}
+		} else
+			lwsl_debug("%s: not instantiating %s.%s\n",
+				   __func__, vh->name, vh->protocols[n].name);
 
 #if defined(LWS_WITH_TLS)
 		if (any)
 			*any |= !!vh->tls.ssl_ctx;
 #endif
+
+		plwsa->vhost = vh;
+		plwsa->protocol = &vh->protocols[n];
+
+		pvo = lws_vhost_protocol_options(vh, vh->protocols[n].name);
 
 		/*
 		 * inform all the protocols that they are doing their
@@ -416,17 +423,22 @@ lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 		 * NOTE the fakewsi is garbage, except the key pointers that are
 		 * prepared in case the protocol handler wants to touch them
 		 */
-		if (vh->protocols[n].callback((struct lws *)plwsa,
+
+		if (pvo || !vh->pvo) {
+			lwsl_info("%s: init %s.%s\n", __func__, vh->name,
+					vh->protocols[n].name);
+			if (vh->protocols[n].callback((struct lws *)plwsa,
 				LWS_CALLBACK_PROTOCOL_INIT, NULL,
 				(void *)pvo, 0)) {
-			if (vh->protocol_vh_privs && vh->protocol_vh_privs[n]) {
-				lws_free(vh->protocol_vh_privs[n]);
-				vh->protocol_vh_privs[n] = NULL;
-			}
+				if (vh->protocol_vh_privs && vh->protocol_vh_privs[n]) {
+					lws_free(vh->protocol_vh_privs[n]);
+					vh->protocol_vh_privs[n] = NULL;
+				}
 			lwsl_err("%s: protocol %s failed init\n",
 				 __func__, vh->protocols[n].name);
 
-			return 1;
+				return 1;
+			}
 		}
 	}
 
