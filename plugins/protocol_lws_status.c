@@ -102,8 +102,10 @@ callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
 		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
 				lws_get_protocol(wsi),
 				sizeof(struct per_vhost_data__lws_status));
-		if (!vhd)
+		if (!vhd) {
+			lwsl_notice("%s: PROTOCOL_INIT failed\n", __func__);
 			return 0;
+		}
 		vhd->context = lws_get_context(wsi);
 		vhd->protocol = lws_get_protocol(wsi);
 		vhd->vhost = lws_get_vhost(wsi);

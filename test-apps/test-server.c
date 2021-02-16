@@ -348,11 +348,37 @@ static const struct lws_protocol_vhost_options pvo_options = {
 	(void *)&test_options	/* pvo value */
 };
 
-static const struct lws_protocol_vhost_options pvo = {
-	NULL,				/* "next" pvo linked-list */
-	&pvo_options,		/* "child" pvo linked-list */
-	"dumb-increment-protocol",	/* protocol name we belong to on this vhost */
-	""				/* ignored */
+/*
+ * If we don't give any pvos, then for backwards compatibility all protocols
+ * are enabled on all vhosts.  If we give any pvos, then we must list in them
+ * the protocol names we want to enable, protocols that are not listed in the
+ * pvos are not instantiated on the vhost then.
+ */
+
+static const struct lws_protocol_vhost_options
+	pvo3 = {
+		NULL,				/* "next" pvo linked-list */
+		NULL,
+		"protocol-post-demo",	/* protocol name we belong to on this vhost */
+		""				/* not needed */
+	},
+	pvo2 = {
+		&pvo3,				/* "next" pvo linked-list */
+		NULL,
+		"lws-status",	/* protocol name we belong to on this vhost */
+		""				/* not needed */
+	},
+	pvo1 = {
+		&pvo2,				/* "next" pvo linked-list */
+		NULL,
+		"lws-mirror-protocol",	/* protocol name we belong to on this vhost */
+		""				/* not needed */
+	},
+	pvo = {
+		&pvo1,				/* "next" pvo linked-list */
+		&pvo_options,		/* "child" pvo linked-list */
+		"dumb-increment-protocol",	/* protocol name we belong to on this vhost */
+		""				/* not needed */
 };
 
 #if defined(LWS_HAS_GETOPT_LONG) || defined(WIN32)
