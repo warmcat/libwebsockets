@@ -613,6 +613,17 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->system_ops = info->system_ops;
 	context->pt_serv_buf_size = (unsigned int)s1;
 
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	context->fi.name = "ctx";
+	if (info->fi)
+		/*
+		 * This moves all the lws_fi_t from info->fi to the context fi,
+		 * leaving it empty, so no injection added to default vhost
+		 */
+		lws_fi_import(&context->fi, info->fi);
+#endif
+
+
 #if defined(LWS_WITH_SYS_SMD)
 	context->smd_ttl_us = info->smd_ttl_us ? info->smd_ttl_us :
 #if defined(LWS_PLAT_FREERTOS)
@@ -1986,6 +1997,10 @@ next:
 		if (context->evlib_plugin_list)
 			lws_plugins_destroy(&context->evlib_plugin_list,
 					    NULL, NULL);
+#endif
+
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+		lws_fi_destroy(&context->fi);
 #endif
 
 		lws_free(context);

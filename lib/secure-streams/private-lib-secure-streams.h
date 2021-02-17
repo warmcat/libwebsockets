@@ -54,6 +54,9 @@ typedef struct lws_ss_handle {
 #if defined(LWS_WITH_SERVER)
 	struct lws_dll2		cli_list;  /**< same server clients list */
 #endif
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	lws_fi_ctx_t		fi;	/**< Fault Injection context */
+#endif
 
 	struct lws_dll2_owner	src_list; /**< sink's list of bound sources */
 
@@ -276,6 +279,10 @@ typedef struct lws_sspc_handle {
 	lws_sorted_usec_list_t	sul_retry;
 
 	struct lws_ss_serialization_parser parser;
+
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	lws_fi_ctx_t		fi;	/**< Fault Injection context */
+#endif
 
 	lws_dll2_owner_t	metadata_owner;
 	lws_dll2_owner_t	metadata_owner_rx;

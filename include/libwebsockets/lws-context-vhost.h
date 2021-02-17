@@ -810,6 +810,16 @@ struct lws_context_creation_info {
 	 * to make disappear, in order to simulate and test udp retry flow */
 #endif
 
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	lws_fi_ctx_t				*fi;
+	/**< CONTEXT | VHOST: attach external Fault Injection context to the
+	 * lws_context or vhost.  If creating the context + default vhost in
+	 * one step, only the context binds to \p fi.  When creating a vhost
+	 * otherwise this can bind to the vhost so the faults can be injected
+	 * from the start.
+	 */
+#endif
+
 #if defined(LWS_WITH_SYS_SMD)
 	lws_smd_notification_cb_t		early_smd_cb;
 	/**< CONTEXT: NULL, or an smd notification callback that will be registered
@@ -829,6 +839,7 @@ struct lws_context_creation_info {
 	/**< CONTEXT: Maximum queue depth, If zero defaults to 40
 	 * (20 for FREERTOS) */
 #endif
+
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility

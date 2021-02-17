@@ -789,6 +789,13 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 		__lws_lc_tag(&context->lcg[LWSLCG_WSI_SS_CLIENT], &h->lc, "%s",
 				ssi->streamtype ? ssi->streamtype : "nostreamtype");
 
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	h->fi.name = "ss";
+	h->fi.parent = &context->fi;
+	if (ssi->fi)
+		lws_fi_import(&h->fi, ssi->fi);
+#endif
+
 	h->info = *ssi;
 	h->policy = pol;
 	h->context = context;
@@ -1151,6 +1158,10 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 		 * vhost (if it got that far)
 		 */
 		lws_vhost_destroy(v);
+#endif
+
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	lws_fi_destroy(&h->fi);
 #endif
 
 	lws_sul_cancel(&h->sul_timeout);

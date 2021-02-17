@@ -87,6 +87,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	const struct lws_protocols *p;
 	const char *cisin[CIS_COUNT];
 	int tid = 0, n, tsi = 0;
+	struct lws_vhost *vh;
 	size_t size;
 	char *pc;
 
@@ -136,6 +137,29 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	lws_context_unlock(i->context);
 	if (wsi == NULL)
 		goto bail;
+
+	vh = i->vhost;
+	if (!vh) {
+		vh = i->context->vhost_list;
+
+		if (!vh) { /* coverity */
+			lwsl_err("%s: no vhost\n", __func__);
+			goto bail;
+		}
+		if (!strcmp(vh->name, "system"))
+			vh = vh->vhost_next;
+	}
+
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	wsi->fi.name = "wsi";
+	wsi->fi.parent = &vh->fi;
+	if (i->fi)
+		/*
+		 * This moves all the lws_fi_t from info->fi to the vhost fi,
+		 * leaving it empty
+		 */
+		lws_fi_import(&wsi->fi, i->fi);
+#endif
 
 #if defined(LWS_WITH_DETAILED_LATENCY) && LWS_MAX_SMP > 1
 	wsi->detlat.tsi = tsi;

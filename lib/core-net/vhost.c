@@ -573,6 +573,17 @@ lws_create_vhost(struct lws_context *context,
 	else
 		vh->name = info->vhost_name;
 
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	vh->fi.name = "vh";
+	vh->fi.parent = &context->fi;
+	if (info->fi)
+		/*
+		 * This moves all the lws_fi_t from info->fi to the vhost fi,
+		 * leaving it empty
+		 */
+		lws_fi_import(&vh->fi, info->fi);
+#endif
+
 	__lws_lc_tag(&context->lcg[LWSLCG_VHOST], &vh->lc, "%s|%s|%d", vh->name,
 			info->iface ? info->iface : "", info->port);
 
@@ -1389,6 +1400,10 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 #endif
 
 	lws_dll2_remove(&vh->vh_being_destroyed_list);
+
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	lws_fi_destroy(&vh->fi);
+#endif
 
 	__lws_lc_untag(&vh->lc);
 	memset(vh, 0, sizeof(*vh));

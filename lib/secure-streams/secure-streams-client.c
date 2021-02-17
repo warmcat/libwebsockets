@@ -486,6 +486,13 @@ lws_sspc_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 
 	__lws_lc_tag(&context->lcg[LWSLCG_SSP_CLIENT], &h->lc, ssi->streamtype);
 
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	h->fi.name = "sspc";
+	h->fi.parent = &context->fi;
+	if (ssi->fi)
+		lws_fi_import(&h->fi, ssi->fi);
+#endif
+
 	memcpy(&h->ssi, ssi, sizeof(*ssi));
 	ua = (uint8_t *)&h[1];
 	memset(ua, 0, ssi->user_alloc);
@@ -566,6 +573,10 @@ lws_sspc_destroy(lws_sspc_handle_t **ph)
 		lws_sspc_event_helper(h, LWSSSCS_DISCONNECTED, 0);
 		h->ss_dangling_connected = 0;
 	}
+
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	lws_fi_destroy(&h->fi);
+#endif
 
 	lws_sul_cancel(&h->sul_retry);
 	lws_dll2_remove(&h->client_list);

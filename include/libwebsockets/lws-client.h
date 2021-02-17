@@ -202,6 +202,12 @@ struct lws_client_connect_info {
 	void		*mqtt_cp;
 #endif
 
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	lws_fi_ctx_t				*fi;
+	/**< Attach external Fault Injection context to the client wsi,
+	 * hierarchy is wsi -> vhost -> context */
+#endif
+
 	uint16_t	keep_warm_secs;
 	/**< 0 means 5s.  If the client connection to the endpoint becomes idle,
 	 * defer closing it for this many seconds in case another outgoing

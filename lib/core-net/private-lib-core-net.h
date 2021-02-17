@@ -523,6 +523,11 @@ struct lws_vhost {
 	struct lws_conn_stats conn_stats;
 #endif
 
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	lws_fi_ctx_t				fi;
+	/**< Fault Injection ctx for the vhost, hierarchy vhost->context */
+#endif
+
 	uint64_t options;
 
 	struct lws_context *context;
@@ -738,6 +743,11 @@ struct lws {
 	lws_dll2_owner_t		dns_sorted_list;
 	/* lws_dns_sort_t: dns results wrapped and sorted in a linked-list...
 	 * deleted as they are tried, list empty == everything tried */
+#endif
+
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	lws_fi_ctx_t				fi;
+	/**< Fault Injection ctx for the wsi, hierarchy wsi->vhost->context */
 #endif
 
 	lws_sockaddr46			sa46_local;

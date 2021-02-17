@@ -353,6 +353,12 @@ typedef struct lws_ss_info {
 	 * connection instead of a named streamtype */
 #endif
 
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	lws_fi_ctx_t				*fi;
+	/**< Attach external Fault Injection context to the stream, hierarchy
+	 * is ss->context */
+#endif
+
 	lws_sscb_rx rx;
 	/**< callback with rx payload for this stream */
 	lws_sscb_tx tx;

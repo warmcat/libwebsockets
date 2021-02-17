@@ -281,6 +281,10 @@ struct lws;
 #include "private-lib-system-smd.h"
 #endif
 
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+#include "private-lib-system-fault-injection.h"
+#endif
+
 struct lws_foreign_thread_pollfd {
 	struct lws_foreign_thread_pollfd *next;
 	int fd_index;
@@ -441,6 +445,12 @@ struct lws_context {
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 	lws_async_dns_t			async_dns;
 #endif
+
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	lws_fi_ctx_t			fi;
+	/**< Toplevel Fault Injection ctx */
+#endif
+
 
 #if defined(LWS_WITH_SYS_NTPCLIENT)
 	void				*ntpclient_priv;

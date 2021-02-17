@@ -793,6 +793,10 @@ __lws_close_free_wsi_final(struct lws *wsi)
 	}
 #endif
 
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	lws_fi_destroy(&wsi->fi);
+#endif
+
 	__lws_wsi_remove_from_sul(wsi);
 	sanity_assert_no_wsi_traces(wsi->a.context, wsi);
 	__lws_free_wsi(wsi);

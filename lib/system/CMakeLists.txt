@@ -56,6 +56,12 @@ if (LWS_WITH_NETWORK)
 	if (LWS_WITH_SYS_SMD)
 		add_subdir_include_dirs(smd)
 	endif()
+	
+	if (LWS_WITH_SYS_FAULT_INJECTION)
+		include_directories(./fault-injection)
+		list(APPEND SOURCES
+			system/fault-injection/fault-injection.c)
+	endif()
 
 endif()
 
