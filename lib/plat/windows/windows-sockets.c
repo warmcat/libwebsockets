@@ -238,6 +238,7 @@ lws_plat_change_pollfd(struct lws_context *context, struct lws *wsi,
 		       struct lws_pollfd *pfd)
 {
 	//struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+	lws_plat_pipe_signal(wsi->a.context, wsi->tsi);
 
 	return 0;
 }
