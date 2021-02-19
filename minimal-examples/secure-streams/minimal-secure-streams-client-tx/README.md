@@ -1,14 +1,9 @@
-# lws minimal secure streams
+# lws minimal secure streams client tx
 
-The application goes to https://warmcat.com and reads index.html there.
+The application connects to the secure stream proxy, and opens a streamtype
+"spam"... this is a websocket connection to libwebsockets.org.
 
-It does it using Secure Streams... the main code in minimal-secure-streams.c
-just sets up the context and opens a secure stream of type "mintest".
-
-The handler for state changes and payloads for "mintest" is in ss-myss.c
-
-The information about how a "mintest" stream should connect and the
-protocol it uses is kept separated in policy-database.c
+It then issues 100 x ws messages at 20Hz and exits.
 
 ## build
 
@@ -25,40 +20,21 @@ Commandline option|Meaning
 -p| Run as proxy server for clients to connect to over unix domain socket
 
 ```
-[2019/08/12 07:16:11:0045] USR: LWS minimal secure streams [-d<verbosity>] [-f]
-[2019/08/12 07:16:12:6102] USR: myss_state: LWSSSCS_CREATING, ord 0x0
-[2019/08/12 07:16:12:6107] USR: myss_state: LWSSSCS_POLL, ord 0x0
-[2019/08/12 07:16:12:6117] N: lws_ss_client_connect: connecting h1get warmcat.com /
-[2019/08/12 07:16:12:6118] USR: myss_state: LWSSSCS_CONNECTING, ord 0x0
-[2019/08/12 07:16:13:4171] USR: myss_state: LWSSSCS_CONNECTED, ord 0x0
-[2019/08/12 07:16:13:4222] USR: myss_rx: len 1024, flags: 1
-[2019/08/12 07:16:13:4243] USR: myss_rx: len 1024, flags: 0
-[2019/08/12 07:16:13:4244] USR: myss_rx: len 1024, flags: 0
-[2019/08/12 07:16:13:4244] USR: myss_rx: len 1024, flags: 0
-[2019/08/12 07:16:13:4245] USR: myss_rx: len 1024, flags: 0
-[2019/08/12 07:16:13:4246] USR: myss_rx: len 1024, flags: 0
-[2019/08/12 07:16:13:4247] USR: myss_rx: len 1024, flags: 0
-[2019/08/12 07:16:13:4252] USR: myss_rx: len 1015, flags: 0
-[2019/08/12 07:16:13:4264] USR: myss_rx: len 1024, flags: 0
-[2019/08/12 07:16:13:4265] USR: myss_rx: len 1024, flags: 0
-[2019/08/12 07:16:13:4266] USR: myss_rx: len 1024, flags: 0
-[2019/08/12 07:16:13:4267] USR: myss_rx: len 1024, flags: 0
-[2019/08/12 07:16:13:4268] USR: myss_rx: len 1024, flags: 0
-[2019/08/12 07:16:13:4268] USR: myss_rx: len 1024, flags: 0
-[2019/08/12 07:16:13:4269] USR: myss_rx: len 1024, flags: 0
-[2019/08/12 07:16:13:4270] USR: myss_rx: len 1015, flags: 0
-[2019/08/12 07:16:13:4278] USR: myss_rx: len 1024, flags: 0
-[2019/08/12 07:16:13:4279] USR: myss_rx: len 1024, flags: 0
-[2019/08/12 07:16:13:4280] USR: myss_rx: len 1024, flags: 0
-[2019/08/12 07:16:13:4281] USR: myss_rx: len 1024, flags: 0
-[2019/08/12 07:16:13:4282] USR: myss_rx: len 1024, flags: 0
-[2019/08/12 07:16:13:4283] USR: myss_rx: len 1024, flags: 0
-[2019/08/12 07:16:13:4283] USR: myss_rx: len 1024, flags: 0
-[2019/08/12 07:16:13:4284] USR: myss_rx: len 1015, flags: 0
-[2019/08/12 07:16:13:4287] USR: myss_rx: len 1024, flags: 0
-[2019/08/12 07:16:13:4288] USR: myss_rx: len 947, flags: 0
-[2019/08/12 07:16:13:4293] USR: myss_rx: len 0, flags: 2
-[2019/08/12 07:16:13:4399] USR: myss_state: LWSSSCS_DISCONNECTED, ord 0x0
-[2019/08/12 07:16:13:4761] USR: myss_state: LWSSSCS_DESTROYING, ord 0x0
-[2019/08/12 07:16:13:4781] USR: Completed: OK
+[2021/02/19 11:25:20:1396] U: LWS secure streams client TX [-d<verb>]
+[2021/02/19 11:25:20:1756] N: LWS: 4.1.99-v4.1.0-280-ga329c51485, loglevel 1031
+[2021/02/19 11:25:20:1761] N: NET CLI SRV H1 H2 WS SS-JSON-POL SSPROX IPV6-on
+[2021/02/19 11:25:20:2055] N:  ++ [1100944|wsi|0|pipe] (1)
+[2021/02/19 11:25:20:2133] N:  ++ [1100944|vh|0|netlink] (1)
+[2021/02/19 11:25:20:3647] N:  ++ [1100944|vh|1|default] (2)
+[2021/02/19 11:25:20:8590] N:  ++ [1100944|SSPcli|0|spam] (1)
+[2021/02/19 11:25:20:8810] N:  ++ [1100944|wsiSSPcli|0|RAW/raw-skt/+@proxy.ss.lws/([1100944|SSPcli|0|spam])] (1)
+[2021/02/19 11:25:20:9103] N: lws_sspc_sul_retry_cb: [1100944|wsiSSPcli|0|RAW/raw-skt/+@proxy.ss.lws/([1100944|SSPcli|0|spam|default])]
+[2021/02/19 11:25:20:9795] U: myss_state: LWSSSCS_CREATING, ord 0x0
+[2021/02/19 11:25:20:9869] U: myss_state: LWSSSCS_CONNECTING, ord 0x0
+[2021/02/19 11:25:21:0791] U: myss_state: LWSSSCS_CONNECTED, ord 0x0
+[2021/02/19 11:25:21:1444] U: myss_tx: sending pkt 1
+[2021/02/19 11:25:21:1945] U: myss_tx: sending pkt 2
+[2021/02/19 11:25:21:2459] U: myss_tx: sending pkt 3
+[2021/02/19 11:25:21:2971] U: myss_tx: sending pkt 4
+...
 ```
