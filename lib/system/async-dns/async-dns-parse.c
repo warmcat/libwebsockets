@@ -611,8 +611,8 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 	memset(c, 0, sizeof(*c));
 
 	/* place it at end, no need to care about alignment padding */
-	adst.name = ((const char *)c) + est - n;
-	memcpy((char *)adst.name, nm, (unsigned int)n);
+	c->name = adst.name = ((const char *)c) + est - n;
+	memcpy((char *)c->name, nm, (unsigned int)n);
 
 	/*
 	 * Then walk the packet again, placing the objects we accounted for
@@ -656,7 +656,7 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 	} else {
 
 		q->firstcache = c;
-		c->incomplete = q->responded != q->asked;
+		c->incomplete = !q->responded;// != q->asked;
 
 		/*
 		 * Only register the first one into the cache...

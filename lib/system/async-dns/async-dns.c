@@ -386,14 +386,19 @@ lws_adns_cache_t *
 lws_adns_get_cache(lws_async_dns_t *dns, const char *name)
 {
 	lws_adns_cache_t *c;
-	const char *cn;
+
+	if (!name) {
+		assert(0);
+		return NULL;
+	}
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 				   lws_dll2_get_head(&dns->cached)) {
 		c = lws_container_of(d, lws_adns_cache_t, list);
-		cn = lws_adns_cache_to_name(c);
 
-		if (name && !c->incomplete && !strcasecmp(name, cn)) {
+		lwsl_notice("%s vs %s (inc %d)\n", name, c->name, c->incomplete);
+
+		if (!c->incomplete && !strcasecmp(name, c->name)) {
 			/* Keep sorted by LRU: move to the head */
 			lws_dll2_remove(&c->list);
 			lws_dll2_add_head(&c->list, &dns->cached);
@@ -410,7 +415,6 @@ void
 lws_adns_dump(lws_async_dns_t *dns)
 {
 	lws_adns_cache_t *c;
-	const char *cn;
 
 	if (!dns)
 		return;
@@ -421,10 +425,9 @@ lws_adns_dump(lws_async_dns_t *dns)
 	lws_start_foreach_dll(struct lws_dll2 *, d,
 			      lws_dll2_get_head(&dns->cached)) {
 		c = lws_container_of(d, lws_adns_cache_t, list);
-		cn = lws_adns_cache_to_name(c);
 
 		lwsl_info("%s: cache: '%s', exp: %lldus, incomp %d, "
-			  "fl 0x%x, refc %d, res %p\n", __func__, cn,
+			  "fl 0x%x, refc %d, res %p\n", __func__, c->name,
 			  (long long)(c->sul.us - lws_now_usecs()),
 			  c->incomplete, c->flags, c->refcount, c->results);
 	} lws_end_foreach_dll(d);
@@ -733,7 +736,8 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 		sa46 = (lws_sockaddr46 *)&ai[1];
 
 		ai->ai_socktype = SOCK_STREAM;
-		memcpy(&sa46[1], name, nlen + 1);
+		c->name = (const char *)&sa46[1];
+		memcpy((char *)c->name, name, nlen + 1);
 		ai->ai_canonname = (char *)&sa46[1];
 
 		c->results = ai;

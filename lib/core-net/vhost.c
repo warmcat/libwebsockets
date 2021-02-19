@@ -1093,8 +1093,6 @@ __lws_vhost_destroy_pt_wsi_dieback_start(struct lws_vhost *vh)
 		return;
 #endif
 
-	lwsl_info("%s: %s\n", __func__, vh->name);
-
 #if defined(LWS_WITH_CLIENT)
 	/*
 	 * destroy any wsi that are associated with us but have no socket
@@ -1261,7 +1259,7 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 
 	vh->being_destroyed = 0;
 
-	lwsl_info("%s: %s\n", __func__, vh->name);
+	// lwsl_info("%s: %s\n", __func__, vh->name);
 
 #if defined(LWS_WITH_DEPRECATED_THINGS)
 	/*

@@ -42,16 +42,12 @@ typedef struct lws_adns_cache {
 	struct lws_adns_cache	*firstcache;
 	struct lws_adns_cache	*chain;
 	struct addrinfo		*results;
+	const char		*name;
 	uint8_t			flags;	/* b0 = has ipv4, b1 = has ipv6 */
 	char			refcount;
 	char			incomplete;
 	/* addrinfo, lws_sa46, then name overallocated here */
 } lws_adns_cache_t;
-
-#define lws_adns_cache_to_name(_a) (((const char *)_a) + \
-					sizeof(lws_adns_cache_t) + \
-					sizeof(struct addrinfo) + \
-					sizeof(lws_sockaddr46))
 
 /*
  * these objects are used while a query is ongoing...

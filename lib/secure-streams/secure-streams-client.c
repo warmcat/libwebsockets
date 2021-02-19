@@ -207,8 +207,12 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 		case LWSSSSRET_OK:
 			break;
 		case LWSSSSRET_DISCONNECT_ME:
+			lwsl_notice("%s: proxlicent RX ended with DISCONNECT_ME\n",
+					__func__);
 			return -1;
 		case LWSSSSRET_DESTROY_ME:
+			lwsl_notice("%s: proxlicent RX ended with DESTROY_ME\n",
+					__func__);
 			lws_set_opaque_user_data(wsi, NULL);
 			lws_sspc_destroy(&h);
 			return -1;

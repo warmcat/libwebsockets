@@ -325,12 +325,15 @@ solo:
 		n = lws_getaddrinfo46(wsi, ads, &result);
 	}
 #else
-	lwsi_set_state(wsi, LRS_WAITING_DNS);
 	/* this is either FAILED, CONTINUING, or already called connect_4 */
 
 	n = lws_async_dns_query(wsi->a.context, wsi->tsi, ads,
 				LWS_ADNS_RECORD_A, lws_client_connect_3_connect,
 				wsi, NULL);
+
+	lwsl_notice("%s: %s: post async dns, state 0x%x\n",
+			__func__, lws_wsi_tag(wsi), lwsi_state(wsi));
+
 	if (n == LADNS_RET_FAILED_WSI_CLOSED)
 		return NULL;
 
