@@ -633,6 +633,8 @@ again:
 		case LPCSPROX_REPORTING_FAIL:
 			goto hangup;
 		case LPCSPROX_OPERATIONAL:
+			if (!conn)
+				break;
 			if (pay) {
 				lws_dsh_free((void **)&p);
 

@@ -467,8 +467,12 @@ lws_dsh_free(void **pobj)
 int
 lws_dsh_get_head(lws_dsh_t *dsh, int kind, void **obj, size_t *size)
 {
-	lws_dsh_obj_t *_obj = (lws_dsh_obj_t *)
-			lws_dll2_get_head(&dsh->oha[kind + 1].owner);
+	lws_dsh_obj_t *_obj;
+
+	if (!dsh)
+		return 1;
+
+	_obj = (lws_dsh_obj_t *)lws_dll2_get_head(&dsh->oha[kind + 1].owner);
 
 	if (!_obj) {
 		*obj = 0;
