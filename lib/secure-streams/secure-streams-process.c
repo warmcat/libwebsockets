@@ -484,7 +484,8 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_RAW_WRITEABLE:
-		// lwsl_notice("LWS_CALLBACK_RAW_PROXY_SRV_WRITEABLE\n");
+		lwsl_debug("%s: %s: LWS_CALLBACK_RAW_WRITEABLE, state 0x%x\n",
+				__func__, lws_wsi_tag(wsi), lwsi_state(wsi));
 
 		/*
 		 * We can transmit something back to the client from the dsh

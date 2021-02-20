@@ -473,7 +473,8 @@ lws_sspc_event_helper(lws_sspc_handle_t *h, lws_ss_constate_t cs,
 		      lws_ss_tx_ordinal_t flags);
 
 int
-lws_ss_check_next_state(uint8_t *prevstate, lws_ss_constate_t cs);
+lws_ss_check_next_state(lws_lifecycle_t *lc, uint8_t *prevstate,
+			lws_ss_constate_t cs);
 
 void
 lws_proxy_clean_conn_ss(struct lws *wsi);

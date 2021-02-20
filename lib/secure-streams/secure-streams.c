@@ -172,7 +172,8 @@ static const uint32_t ss_state_txn_validity[] = {
 };
 
 int
-lws_ss_check_next_state(uint8_t *prevstate, lws_ss_constate_t cs)
+lws_ss_check_next_state(lws_lifecycle_t *lc, uint8_t *prevstate,
+			lws_ss_constate_t cs)
 {
 	if (cs >= LWSSSCS_USER_BASE)
 		/*
@@ -183,29 +184,34 @@ lws_ss_check_next_state(uint8_t *prevstate, lws_ss_constate_t cs)
 
 	if (cs >= LWS_ARRAY_SIZE(ss_state_txn_validity)) {
 		/* we don't recognize this state as usable */
-		lwsl_err("%s: bad new state %u\n", __func__, cs);
+		lwsl_err("%s: %s: bad new state %u\n", __func__, lc->gutag, cs);
 		assert(0);
 		return 1;
 	}
 
 	if (*prevstate >= LWS_ARRAY_SIZE(ss_state_txn_validity)) {
 		/* existing state is broken */
-		lwsl_err("%s: bad existing state %u\n", __func__,
-				(unsigned int)*prevstate);
+		lwsl_err("%s: %s: bad existing state %u\n", __func__,
+			 lc->gutag, (unsigned int)*prevstate);
 		assert(0);
 		return 1;
 	}
 
 	if (ss_state_txn_validity[*prevstate] & (1u << cs)) {
+
+		lwsl_notice("%s: %s: %s -> %s\n", __func__, lc->gutag,
+			    lws_ss_state_name((int)*prevstate),
+			    lws_ss_state_name((int)cs));
+
 		/* this is explicitly allowed, update old state to new */
 		*prevstate = (uint8_t)cs;
 
 		return 0;
 	}
 
-	lwsl_err("%s: transition from %s -> %s is illegal\n", __func__,
-			lws_ss_state_name((int)*prevstate),
-			lws_ss_state_name((int)cs));
+	lwsl_err("%s: %s: transition from %s -> %s is illegal\n", __func__,
+		 lc->gutag, lws_ss_state_name((int)*prevstate),
+		 lws_ss_state_name((int)cs));
 
 	assert(0);
 
@@ -232,7 +238,7 @@ lws_ss_event_helper(lws_ss_handle_t *h, lws_ss_constate_t cs)
 	if (!h)
 		return LWSSSSRET_OK;
 
-	if (lws_ss_check_next_state(&h->prev_ss_state, cs))
+	if (lws_ss_check_next_state(&h->lc, &h->prev_ss_state, cs))
 		return LWSSSSRET_DESTROY_ME;
 
 	if (cs == LWSSSCS_CONNECTED)

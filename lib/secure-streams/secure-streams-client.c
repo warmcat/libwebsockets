@@ -26,7 +26,7 @@ lws_sspc_event_helper(lws_sspc_handle_t *h, lws_ss_constate_t cs,
 	if (!h)
 		return LWSSSSRET_OK;
 
-	if (lws_ss_check_next_state(&h->prev_ss_state, cs))
+	if (lws_ss_check_next_state(&h->lc, &h->prev_ss_state, cs))
 		return LWSSSSRET_DESTROY_ME;
 
 	if (!h->ssi.state)
