@@ -167,7 +167,7 @@
 			"platforms":	"w10/x86_64-amd/msvc, w10/x86_64-amd/noptmsvc, openbsd/x86_64-amd/llvm"
 		},
 		"secure-streams": {
-			"cmake":	"-DLWS_WITH_SECURE_STREAMS=1",
+			"cmake":	"-DLWS_WITH_SECURE_STREAMS=1 -DLWS_WITH_MINIMAL_EXAMPLES=1",
 			"platforms":	"w10/x86_64-amd/msvc, w10/x86_64-amd/noptmsvc, openbsd/x86_64-amd/llvm"
 		},
 		"secure-streams-proxy": {

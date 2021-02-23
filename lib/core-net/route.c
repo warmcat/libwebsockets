@@ -50,6 +50,7 @@ _lws_routing_entry_dump(lws_route_t *rou)
 void
 _lws_routing_table_dump(struct lws_context_per_thread *pt)
 {
+	lwsl_info("%s\n", __func__);
 	lws_start_foreach_dll(struct lws_dll2 *, d,
 			      lws_dll2_get_head(&pt->routing_table)) {
 		lws_route_t *rou = lws_container_of(d, lws_route_t, list);
@@ -265,8 +266,13 @@ _lws_route_check_wsi(struct lws *wsi)
 	char buf[72];
 
 	if (!wsi->sa46_peer.sa4.sin_family ||
+#if defined(LWS_WITH_UNIX_SOCK)
+	     wsi->unix_skt ||
+	     wsi->sa46_peer.sa4.sin_family == AF_UNIX ||
+#endif
 	    wsi->desc.sockfd == LWS_SOCK_INVALID)
-		/* not a socket or not connected, leave it alone */
+		/* not a socket, cannot judge by route, or not connected,
+		 * leave it alone */
 		return 0; /* OK */
 
 	/* the route to the peer is still workable? */
@@ -347,9 +353,13 @@ _lws_route_pt_close_route_users(struct lws_context_per_thread *pt,
 			continue;
 
 		if (wsi->desc.sockfd != LWS_SOCK_INVALID &&
+#if defined(LWS_WITH_UNIX_SOCK)
+		    !wsi->unix_skt &&
+		    wsi->sa46_peer.sa4.sin_family != AF_UNIX &&
+#endif
 		    wsi->sa46_peer.sa4.sin_family &&
 		    wsi->peer_route_uidx == uidx) {
-			lwsl_info("%s: culling wsi %s\n", __func__, lws_wsi_tag(wsi));
+			lwsl_notice("%s: culling wsi %s\n", __func__, lws_wsi_tag(wsi));
 			lws_wsi_close(wsi, LWS_TO_KILL_ASYNC);
 		}
 	}

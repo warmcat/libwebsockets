@@ -721,7 +721,8 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 		if (!wsi->do_bind && !wsi->pf_packet) {
 #if !defined(__APPLE__)
 			if (connect(sock.sockfd, sa46_sockaddr(&s->dest),
-				    sa46_socklen(&s->dest)) == -1) {
+				    sa46_socklen(&s->dest)) == -1 &&
+			    errno != EADDRNOTAVAIL /* openbsd */ ) {
 				lwsl_err("%s: conn fd %d fam %d %s:%u failed "
 					 "errno %d\n", __func__, sock.sockfd,
 					 s->dest.sa4.sin_family,

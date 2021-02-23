@@ -20,6 +20,25 @@ if (requirements)
 	find_program(VALGRIND "valgrind")
 
 	if (LWS_CTEST_INTERNET_AVAILABLE AND NOT WIN32)
+	
+		#
+		# When running in CI, wait for a lease on the resources
+		# before starting this test, so the server does not get
+		# thousands of simultaneous tls connection attempts
+		#
+		# sai-resource holds the lease on the resources until
+		# the time given in seconds or the sai-resource instance
+		# exits, whichever happens first
+		#
+		# If running under Sai, creates a lock test called "res_sspcmin" 
+		#
+		
+		sai_resource(warmcat_conns 1 40 sspcmin)
+		
+		#
+		# simple test not via proxy
+		#
+	
 		if (VALGRIND)
 			message("testing via valgrind")
 			add_test(NAME ss-warmcat COMMAND
@@ -33,6 +52,9 @@ if (requirements)
 				     PROPERTIES
 				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/secure-streams/minimal-secure-streams
 				     TIMEOUT 20)
+		if (DEFINED ENV{SAI_OVN})
+			set_tests_properties(ss-warmcat PROPERTIES FIXTURES_REQUIRED "res_sspcmin")		     
+		endif()
 
 		if (HAS_LWS_WITH_SECURE_STREAMS_PROXY_API OR LWS_WITH_SECURE_STREAMS_PROXY_API)
 
@@ -72,9 +94,15 @@ if (requirements)
 			else()
 				add_test(NAME sspc-minimal COMMAND lws-minimal-secure-streams-client -i +${CTEST_SOCKET_PATH})
 			endif()
+			
+			set(fixlist "ssproxy")
+			if (DEFINED ENV{SAI_OVN})
+				list(APPEND fixlist "res_ssproxy")
+			endif()
+			
 			set_tests_properties(sspc-minimal PROPERTIES
 				WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/secure-streams/minimal-secure-streams
-				FIXTURES_REQUIRED "ssproxy"
+				FIXTURES_REQUIRED "${fixlist}"
 				TIMEOUT 40)
 
 		endif()

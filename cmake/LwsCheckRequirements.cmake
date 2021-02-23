@@ -74,3 +74,46 @@ MACRO(require_pthreads result)
 	endif()
 ENDMACRO()
 
+MACRO(sai_resource SR_NAME SR_AMOUNT SR_LEASE SR_SCOPE)
+	if (DEFINED ENV{SAI_OVN})
+
+		site_name(HOST_NAME)
+		
+		#
+		# Creates a "test" called res_${SR_SCOPE} that waits to be
+		# given a lease on ${SR_AMOUNT} of a resource ${SR_NAME}, for at
+		# most $SR_LEASE seconds, until the test dependent on it can
+		# proceed.
+		#
+		# We need to keep this sai-resource instance up for the
+		# duration of the actual test it is authorizing, when it
+		# is killed, the resource is then immediately released.
+		#
+		# The resource cookie has to be globally unique within the
+		# distributed builder sessions, so it includes the builder
+		# hostname and builder instance information
+		#
+
+		add_test(NAME st_res_${SR_SCOPE} COMMAND
+			 ${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
+			 res_${SR_SCOPE}
+			 sai-resource ${SR_NAME} ${SR_AMOUNT} ${SR_LEASE}
+			 ${HOST_NAME}-res_${SR_SCOPE}-$ENV{SAI_PROJECT}-$ENV{SAI_OVN})
+
+		# allow it to wait for up to 100s for the resource lease
+
+		set_tests_properties(st_res_${SR_SCOPE} PROPERTIES
+				     WORKING_DIRECTORY .
+				     FIXTURES_SETUP res_sspcmin
+				     TIMEOUT 100)
+
+		add_test(NAME ki_res_${SR_SCOPE} COMMAND
+			 ${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh
+			 res_${SR_SCOPE} sai-resource )
+
+		set_tests_properties(ki_res_${SR_SCOPE} PROPERTIES
+					FIXTURES_CLEANUP res_${SR_SCOPE})
+
+	endif()
+ENDMACRO()
+

@@ -17,6 +17,13 @@ if (requirements)
 	add_executable(${SAMP} ${SRCS})
 
 	if (LWS_CTEST_INTERNET_AVAILABLE)
+
+		#
+		# creates a fixture res_hchugeurlw to get a lease on the
+		# server resources
+		#
+		sai_resource(warmcat_conns 1 40 hchugeurlw)
+	
 		add_test(NAME http-client-hugeurl-warmcat COMMAND lws-minimal-http-client-hugeurl )
 		add_test(NAME http-client-hugeurl-warmcat-h1 COMMAND lws-minimal-http-client-hugeurl  --h1)
 		set_tests_properties(http-client-hugeurl-warmcat
@@ -24,6 +31,12 @@ if (requirements)
 				     PROPERTIES
 				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/http-client/minimal-http-client-hugeurl
 				     TIMEOUT 20)
+		if (DEFINED ENV{SAI_OVN})
+			set_tests_properties(http-client-hugeurl-warmcat
+					     http-client-hugeurl-warmcat-h1
+					     PROPERTIES
+						FIXTURES_REQUIRED "res_hchugeurlw")	
+		endif()
 
 	endif()
 
