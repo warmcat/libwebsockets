@@ -23,7 +23,7 @@
 #define PKT_SIZE 80
 #define RATE_US 50000
 
-static int interrupted, bad = 1;
+static int interrupted, bad = 1, reads = 100;
 
 typedef struct myss {
 	struct lws_ss_handle 	*ss;
@@ -54,7 +54,7 @@ txcb(struct lws_sorted_usec_list *sul)
 	 * this as a pass / fail test.
 	 */
 
-	if (m->count == 100) {
+	if (m->count == reads) {
 		interrupted = 1;
 		bad = 0;
 	} else {
@@ -149,6 +149,9 @@ int main(int argc, const char **argv)
 
 	if ((p = lws_cmdline_option(argc, argv, "-d")))
 		logs = atoi(p);
+
+	if ((p = lws_cmdline_option(argc, argv, "-c")))
+		reads = atoi(p);
 
 	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS secure streams client TX [-d<verb>]\n");
