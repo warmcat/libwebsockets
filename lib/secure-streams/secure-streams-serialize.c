@@ -1233,17 +1233,18 @@ payload_ff:
 			 * CREATING now so we'll know the metadata to sync.
 			 */
 
-			h->creating_cb_done = 1;
-
-			if (lws_ss_check_next_state(&h->lc, &h->prev_ss_state,
-						    LWSSSCS_CREATING))
-				return LWSSSSRET_DESTROY_ME;
-
-			h->prev_ss_state = (uint8_t)LWSSSCS_CREATING;
+			if (!h->creating_cb_done) {
+				if (lws_ss_check_next_state(&h->lc, &h->prev_ss_state,
+							    LWSSSCS_CREATING))
+					return LWSSSSRET_DESTROY_ME;
+				h->prev_ss_state = (uint8_t)LWSSSCS_CREATING;
+				h->creating_cb_done = 1;
+			} else
+				h->prev_ss_state = LWSSSCS_DISCONNECTED;
 
 			if (ssi->state) {
 				n = ssi->state(client_pss_to_userdata(pss),
-							NULL, LWSSSCS_CREATING, 0);
+					       NULL, h->prev_ss_state, 0);
 				switch (n) {
 				case LWSSSSRET_OK:
 					break;
@@ -1422,5 +1423,8 @@ swallow:
 	return LWSSSSRET_OK;
 
 hangup:
+
+	lwsl_notice("%s: hangup\n", __func__);
+
 	return LWSSSSRET_DISCONNECT_ME;
 }
