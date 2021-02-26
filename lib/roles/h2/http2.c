@@ -1842,6 +1842,10 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 		if ((uint64_t)eff_wsi->txc.tx_cr + (uint64_t)h2n->hpack_e_dep >
 		    (uint64_t)0x7fffffff) {
+			lwsl_warn("%s: WINDOW_UPDATE 0x%llx + 0x%llx = 0x%llx, too high\n",
+					__func__, (unsigned long long)eff_wsi->txc.tx_cr,
+					(unsigned long long)h2n->hpack_e_dep,
+					(unsigned long long)eff_wsi->txc.tx_cr + (unsigned long long)h2n->hpack_e_dep);
 			if (h2n->sid)
 				lws_h2_rst_stream(h2n->swsi,
 						  H2_ERR_FLOW_CONTROL_ERROR,
