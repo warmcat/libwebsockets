@@ -28,7 +28,7 @@ typedef struct chacha_ctx chacha_ctx;
 #define U8C(v) (v##U)
 #define U32C(v) (v##U)
 
-#define U8V(v) ((u8)(v) & U8C(0xFF))
+#define U8V(v) ((u8)((v) & U8C(0xFF)))
 #define U32V(v) ((u32)(v) & U32C(0xFFFFFFFF))
 
 #define ROTL32(v, n) \

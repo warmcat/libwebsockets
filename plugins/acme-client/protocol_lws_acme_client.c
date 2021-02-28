@@ -46,6 +46,9 @@
 #include <string.h>
 #include <stdlib.h>
 
+#include <sys/stat.h>
+#include <fcntl.h>
+
 typedef enum {
 	ACME_STATE_DIRECTORY,	/* get the directory JSON using GET + parse */
 	ACME_STATE_NEW_NONCE,	/* get the replay nonce */
