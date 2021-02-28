@@ -52,7 +52,9 @@ int main(void) {
 }" LWS_DBUS_CHECK_OK)
 
 message("dbus include dir 1: ${LWS_DBUS_INCLUDE1}")
+if (LWS_DBUS_INCLUDE1)
 include_directories("${LWS_DBUS_INCLUDE1}")
+endif()
 list(APPEND LIB_LIST ${LWS_DBUS_LIB})
 
 #

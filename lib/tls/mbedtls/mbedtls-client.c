@@ -188,7 +188,7 @@ int ERR_get_error(void)
 enum lws_ssl_capable_status
 lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 {
-	int m, n = SSL_connect(wsi->tls.ssl);
+	int m, n = SSL_connect(wsi->tls.ssl), en;
 	const unsigned char *prot;
 	unsigned int len;
 
@@ -199,6 +199,7 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 		return LWS_SSL_CAPABLE_DONE;
 	}
 
+	en = (int)LWS_ERRNO;
 	m = SSL_get_error(wsi->tls.ssl, n);
 
 	if (m == SSL_ERROR_WANT_READ || SSL_want_read(wsi->tls.ssl))
@@ -210,7 +211,10 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 	if (!n) /* we don't know what he wants, but he says to retry */
 		return LWS_SSL_CAPABLE_MORE_SERVICE;
 
-	lws_snprintf(errbuf, elen, "mbedtls connect %d %d %d", n, m, errno);
+	if (m == SSL_ERROR_SYSCALL && !en)
+		return LWS_SSL_CAPABLE_MORE_SERVICE;
+
+	lws_snprintf(errbuf, elen, "mbedtls connect %d %d %d", n, m, en);
 
 	return LWS_SSL_CAPABLE_ERROR;
 }

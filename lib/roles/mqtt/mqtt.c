@@ -1346,8 +1346,8 @@ bail1:
 				par->flag_prop_multi = !!(
 					par->props_seen[par->prop_id >> 3] &
 					(1 << (par->prop_id & 7)));
-				par->props_seen[par->prop_id >> 3] |=
-						(uint8_t)(1 << (par->prop_id & 7));
+				par->props_seen[par->prop_id >> 3] =
+						(uint8_t)((par->props_seen[par->prop_id >> 3]) | (1 << (par->prop_id & 7)));
 				/*
 				 *  even if it's not a vbi property arg,
 				 * .consumed of this will be zero the first time

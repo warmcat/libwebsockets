@@ -568,7 +568,7 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 		goto fail_out;
 	}
 
-	q->responded |= (uint8_t)n;
+	q->responded = (uint8_t)(q->responded | n);
 
 	/* we want to confirm the results against what we last requested... */
 

@@ -25,7 +25,9 @@ if (NOT MSVC AND NOT WIN32 AND requirements)
 		list(APPEND LWS_DBUS_LIB "${PC_DBUS1_LIBRARIES};dl")
 	endif()
 
-	include_directories("${LWS_DBUS_INCLUDE1}")
+	if (LWS_DBUS_INCLUDE1)
+		include_directories("${LWS_DBUS_INCLUDE1}")
+	endif()
 
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared ${LIBWEBSOCKETS_DEP_LIBS})
