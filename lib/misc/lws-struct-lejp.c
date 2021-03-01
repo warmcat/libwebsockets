@@ -51,10 +51,10 @@ lws_struct_schema_only_lejp_cb(struct lejp_ctx *ctx, char reason)
 		 */
 
 		while (n--) {
-			const lws_struct_map_t *child = map->child_map;
 			int m, child_members = (int)map->child_map_size;
 
 			for (m = 0; m < child_members; m++) {
+				const lws_struct_map_t *child = &map->child_map[m];
 				if (!strcmp(ctx->path, child->colname)) {
 					/*
 					 * We matched on him... map is pointing
