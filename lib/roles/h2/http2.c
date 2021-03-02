@@ -2123,8 +2123,13 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 					     WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
 				    h2n->swsi->http.rx_content_length &&
 				    h2n->swsi->http.rx_content_remain <
-						    lws_ptr_diff_size_t(iend, in) + 1 && /* last */
+						    lws_ptr_diff_size_t(iend, in) + 1 - 9 && /* last */
 				    h2n->inside < h2n->length) {
+
+					lwsl_warn("%s: %lu %lu %lu %lu\n", __func__,
+						  (unsigned long)h2n->swsi->http.rx_content_remain,
+						(unsigned long)(lws_ptr_diff_size_t(iend, in) + 1 - 9),
+						(unsigned long)h2n->inside, (unsigned long)h2n->length);
 
 					/* unread data in frame */
 					lws_h2_goaway(wsi,

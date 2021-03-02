@@ -158,17 +158,21 @@ static char *hexch = "0123456789abcdef";
 int
 lws_hex_random(struct lws_context *context, char *dest, size_t len)
 {
-	size_t n = (len - 1) / 2;
+	size_t n = ((len - 1) / 2) + 1;
 	uint8_t b, *r = (uint8_t *)dest + len - n;
 
 	if (lws_get_random(context, r, n) != n)
 		return 1;
 
-	while (n--) {
+	while (len >= 3) {
 		b = *r++;
 		*dest++ = hexch[b >> 4];
 		*dest++ = hexch[b & 0xf];
+		len -= 2;
 	}
+
+	if (len == 2)
+		*dest++ = hexch[(*r) >> 4];
 
 	*dest = '\0';
 

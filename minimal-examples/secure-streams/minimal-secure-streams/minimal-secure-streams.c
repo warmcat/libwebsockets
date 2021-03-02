@@ -422,6 +422,7 @@ int main(int argc, const char **argv)
 #else
 	info.pss_policies_json = default_ss_policy;
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
+		       LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW |
 		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 #endif
 #if defined(LWS_WITH_DETAILED_LATENCY)

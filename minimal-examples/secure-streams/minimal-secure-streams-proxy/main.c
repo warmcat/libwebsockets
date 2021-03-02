@@ -275,6 +275,9 @@ int main(int argc, const char **argv)
 	nl.notify_cb = app_system_state_nf;
 	info.register_notifier_list = app_notifier_list;
 
+	info.pt_serv_buf_size = (unsigned int)((6144 * 2) + 2048);
+	info.max_http_header_data = (unsigned short)(6144 + 2048);
+
 	context = lws_create_context(&info);
 	if (!context) {
 		lwsl_err("lws init failed\n");
