@@ -385,7 +385,10 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 
 		/*
 		 * The current wsi is decoupled from the pss / conn and
-		 * the conn no longer has a pointer on it
+		 * the conn no longer has a pointer on it.
+		 *
+		 * If there's an outgoing, proxied SS conn on our behalf, we
+		 * have to destroy those
 		 */
 
 		if (conn->ss) {
@@ -397,8 +400,9 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 			lwsl_info("%s: destroying %s, wsi %s\n",
 					__func__, lws_ss_tag(conn->ss),
 					lws_wsi_tag(conn->ss->wsi));
-			/* sever relationship with ss about to be deleted */
-			lws_set_opaque_user_data(wsi, NULL);
+
+			/* sever conn relationship with ss about to be deleted */
+
 			conn->ss->wsi = NULL;
 
 			if (cw && wsi != cw) {

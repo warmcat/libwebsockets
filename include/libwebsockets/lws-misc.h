@@ -318,10 +318,7 @@ lws_hex_to_byte_array(const char *h, uint8_t *dest, int max);
  * \param len: the number of bytes the buffer dest points to can hold
  *
  * This creates random ascii-hex strings up to a given length, with a
- * terminating NUL.  Hex characters are produced in pairs, if the length of
- * the destination buffer is even, after accounting for the NUL there will be
- * an unused byte at the end after the NUL.  So lengths should be odd to get
- * length - 1 characters exactly followed by the NUL.
+ * terminating NUL.
  *
  * There will not be any characters produced that are not 0-9, a-f, so it's
  * safe to go straight into, eg, JSON.

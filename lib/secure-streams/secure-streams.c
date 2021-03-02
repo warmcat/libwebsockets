@@ -482,10 +482,11 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 	const struct ss_pcols *ssp;
 	size_t used_in, used_out;
 	union lws_ss_contemp ct;
-	char path[1024], ep[96];
 	lws_ss_state_return_t r;
 	int port, _port, tls;
+	char *path, ep[96];
 	lws_strexp_t exp;
+	struct lws *wsi;
 
 	if (!h->policy) {
 		lwsl_err("%s: ss with no policy\n", __func__);
@@ -651,14 +652,20 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 	i.protocol = ssp->protocol->name; /* lws protocol name */
 	i.local_protocol_name = i.protocol;
 
+	path = lws_malloc(h->context->max_http_header_data, __func__);
+	if (!path) {
+		lwsl_warn("%s: OOM on path prealloc\n", __func__);
+		return LWSSSSRET_TX_DONT_SEND;
+	}
+
 	if (ssp->munge) /* eg, raw doesn't use; endpoint strexp already done */
-		ssp->munge(h, path, sizeof(path), &i, &ct);
+		ssp->munge(h, path, h->context->max_http_header_data, &i, &ct);
 
 	i.pwsi = &h->wsi;
 
 #if defined(LWS_WITH_SSPLUGINS)
 	if (h->policy->plugins[0] && h->policy->plugins[0]->munge)
-		h->policy->plugins[0]->munge(h, path, sizeof(path));
+		h->policy->plugins[0]->munge(h, path, h->context->max_http_header_data);
 #endif
 
 	lwsl_info("%s: connecting %s, '%s' '%s' %s\n", __func__, i.method,
@@ -666,10 +673,14 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 
 	h->txn_ok = 0;
 	r = lws_ss_event_helper(h, LWSSSCS_CONNECTING);
-	if (r)
+	if (r) {
+		lws_free(path);
 		return r;
+	}
 
-	if (!lws_client_connect_via_info(&i)) {
+	wsi = lws_client_connect_via_info(&i);
+	lws_free(path);
+	if (!wsi) {
 		/*
 		 * We already found that we could not connect, without even
 		 * having to go around the event loop

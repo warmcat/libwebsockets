@@ -1070,7 +1070,7 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 {
 	const char *meth, *pp = lws_hdr_simple_ptr(wsi,
 				_WSI_TOKEN_CLIENT_SENT_PROTOCOLS);
-	char *p = pkt, *p1;
+	char *p = pkt, *p1, *end = p + wsi->a.context->pt_serv_buf_size;
 
 	meth = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD);
 	if (!meth) {
@@ -1122,24 +1122,29 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 	 * Sec-WebSocket-Version: 4
 	 */
 
-	p += lws_snprintf(p, 2048, "%s %s HTTP/1.1\x0d\x0a", meth,
-		     lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI));
+	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
+			  "%s %s HTTP/1.1\x0d\x0a", meth,
+		          lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI));
 
-	p += lws_snprintf(p, 64, "Pragma: no-cache\x0d\x0a"
-			"Cache-Control: no-cache\x0d\x0a");
+	p += lws_snprintf(p,  lws_ptr_diff_size_t(end, p),
+			  "Pragma: no-cache\x0d\x0a"
+			  "Cache-Control: no-cache\x0d\x0a");
 
-	p += lws_snprintf(p, 128, "Host: %s\x0d\x0a",
-		     lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST));
+	p += lws_snprintf(p,  lws_ptr_diff_size_t(end, p),
+			  "Host: %s\x0d\x0a",
+			  lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST));
 
 	if (lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_ORIGIN)) {
 		if (lws_check_opt(wsi->a.context->options,
 				  LWS_SERVER_OPTION_JUST_USE_RAW_ORIGIN))
-			p += lws_snprintf(p, 128, "Origin: %s\x0d\x0a",
-				     lws_hdr_simple_ptr(wsi,
+			p += lws_snprintf(p,  lws_ptr_diff_size_t(end, p),
+					  "Origin: %s\x0d\x0a",
+					  lws_hdr_simple_ptr(wsi,
 						     _WSI_TOKEN_CLIENT_ORIGIN));
 		else
-			p += lws_snprintf(p, 128, "Origin: http://%s\x0d\x0a",
-				     lws_hdr_simple_ptr(wsi,
+			p += lws_snprintf(p,  lws_ptr_diff_size_t(end, p),
+					  "Origin: http://%s\x0d\x0a",
+					  lws_hdr_simple_ptr(wsi,
 						     _WSI_TOKEN_CLIENT_ORIGIN));
 	}
 
@@ -1153,19 +1158,22 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 #if defined(LWS_WITH_HTTP_PROXY)
 	if (wsi->parent &&
 	    lws_hdr_total_length(wsi->parent, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
-		p += lws_snprintf(p, 128, "Content-Length: %s\x0d\x0a",
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
+				  "Content-Length: %s\x0d\x0a",
 			lws_hdr_simple_ptr(wsi->parent, WSI_TOKEN_HTTP_CONTENT_LENGTH));
 		if (atoi(lws_hdr_simple_ptr(wsi->parent, WSI_TOKEN_HTTP_CONTENT_LENGTH)))
 			wsi->client_http_body_pending = 1;
 	}
 	if (wsi->parent &&
 	    lws_hdr_total_length(wsi->parent, WSI_TOKEN_HTTP_AUTHORIZATION)) {
-		p += lws_snprintf(p, 128, "Authorization: %s\x0d\x0a",
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
+				  "Authorization: %s\x0d\x0a",
 			lws_hdr_simple_ptr(wsi->parent, WSI_TOKEN_HTTP_AUTHORIZATION));
 	}
 	if (wsi->parent &&
 	    lws_hdr_total_length(wsi->parent, WSI_TOKEN_HTTP_CONTENT_TYPE)) {
-		p += lws_snprintf(p, 128, "Content-Type: %s\x0d\x0a",
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
+				  "Content-Type: %s\x0d\x0a",
 			lws_hdr_simple_ptr(wsi->parent, WSI_TOKEN_HTTP_CONTENT_TYPE));
 	}
 #endif
@@ -1192,12 +1200,12 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 		return NULL;
 
 	if (wsi->flags & LCCSCF_HTTP_X_WWW_FORM_URLENCODED) {
-		p += lws_snprintf(p, 128, "Content-Type: application/x-www-form-urlencoded\x0d\x0a");
-		p += lws_snprintf(p, 128, "Content-Length: %lu\x0d\x0a", wsi->http.writeable_len);
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "Content-Type: application/x-www-form-urlencoded\x0d\x0a");
+		p += lws_snprintf(p,  lws_ptr_diff_size_t(end, p), "Content-Length: %lu\x0d\x0a", wsi->http.writeable_len);
 		lws_client_http_body_pending(wsi, 1);
 	}
 
-	p += lws_snprintf(p, 4, "\x0d\x0a");
+	p += lws_snprintf(p,  lws_ptr_diff_size_t(end, p), "\x0d\x0a");
 
 	if (wsi->client_http_body_pending)
 		lws_callback_on_writable(wsi);

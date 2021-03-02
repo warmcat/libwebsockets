@@ -130,10 +130,11 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 		     void *user, void *in, size_t len)
 {
 	lws_sspc_handle_t *h = (lws_sspc_handle_t *)lws_get_opaque_user_data(wsi);
-	uint8_t s[32], pkt[LWS_PRE + 2048], *p = pkt + LWS_PRE,
-		*end = p + sizeof(pkt) - LWS_PRE;
+	size_t pktsize = wsi->a.context->max_http_header_data;
 	void *m = (void *)((uint8_t *)&h[1]);
+	uint8_t *pkt = NULL, *p = NULL, *end = NULL;
 	const uint8_t *cp;
+	uint8_t s[32];
 	lws_usec_t us;
 	int flags, n;
 
@@ -313,7 +314,12 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 					lws_dll2_get_tail(&h->metadata_owner),
 					lws_sspc_metadata_t, list);
 
-				cp = p;
+				pkt = lws_malloc(pktsize + LWS_PRE, __func__);
+				if (!pkt)
+					goto hangup;
+				cp = p = pkt + LWS_PRE;
+				end = p + pktsize;
+
 				n = lws_sspc_serialize_metadata(md, p, end);
 				if (n < 0)
 					goto metadata_hangup;
@@ -361,12 +367,17 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 			 *   length?
 			 */
 
+			pkt = lws_malloc(pktsize + LWS_PRE, __func__);
+			if (!pkt)
+				goto hangup;
+			cp = p = pkt + LWS_PRE;
+			end = p + pktsize;
+
 			if (h->metadata_owner.count) {
 				lws_sspc_metadata_t *md = lws_container_of(
 					lws_dll2_get_tail(&h->metadata_owner),
 					lws_sspc_metadata_t, list);
 
-				cp = p;
 				n = lws_sspc_serialize_metadata(md, p, end);
 				if (n < 0)
 					goto metadata_hangup;
@@ -393,7 +404,7 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 				// break;
 			}
 
-			len = sizeof(pkt) - LWS_PRE - 19;
+			len = pktsize - LWS_PRE - 19;
 			flags = 0;
 			if (!h->ssi.tx) {
 				n = 0;
@@ -457,12 +468,15 @@ do_write:
 		break;
 	}
 
+	lws_free(pkt);
+
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
 
 metadata_hangup:
 	lwsl_err("%s: metadata too large\n", __func__);
 
 hangup:
+	lws_free(pkt);
 	lwsl_warn("hangup\n");
 	/* hang up on him */
 	return -1;
