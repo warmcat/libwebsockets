@@ -30,7 +30,8 @@
 #if !defined(OPENSSL_NO_EC) && defined(LWS_HAVE_EC_KEY_new_by_curve_name) && \
     (OPENSSL_VERSION_NUMBER >= 0x30000000l) && \
      !defined(LWS_SUPPRESS_DEPRECATED_API_WARNINGS)
-#warning "You probably need LWS_SUPPRESS_DEPRECATED_API_WARNINGS"
+/* msvc doesn't have #warning... */
+#error "You probably need LWS_SUPPRESS_DEPRECATED_API_WARNINGS"
 #endif
 
 /*
