@@ -88,7 +88,7 @@
 			"default":	false
 		},
 		"linux-fedora-32/riscv64-virt/gcc": {
-			"build":	"mkdir build destdir;cd build;export LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G RPM\";cmake .. ${cmake} && make -j12 && rm -rf ../destdir && make -j12 DESTDIR=../destdir install && ctest -j3 --output-on-failure ${cpack}",
+			"build":	"mkdir build destdir;cd build;export LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G RPM\";cmake .. ${cmake} && make -j4 && rm -rf ../destdir && make -j12 DESTDIR=../destdir install && ctest -j3 --output-on-failure ${cpack}",
 			"default":	false
 		},
 		"freebsd-12/x86_64-amd/llvm": {
