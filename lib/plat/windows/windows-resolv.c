@@ -29,20 +29,30 @@ lws_async_dns_server_check_t
 lws_plat_asyncdns_init(struct lws_context *context, lws_sockaddr46 *sa46)
 {
 	unsigned long ul;
-	FIXED_INFO fi;
+	FIXED_INFO *fi;
 	int n;
 
 	ul = sizeof(fi);
-	if (GetNetworkParams(&fi, &ul) != NO_ERROR) {
-		lwsl_err("%s: can't get dns servers\n", __func__);
+	if (GetNetworkParams(NULL, &ul) != ERROR_BUFFER_OVERFLOW) {
+		printf("%s: GetNetworkParams length failed\n", __func__);
+		return LADNS_CONF_SERVER_UNKNOWN;
+	}
 
+	fi = (FIXED_INFO*) lws_malloc(ul, "GetNetworkParams");
+	if (fi == NULL) {
+		printf("%s: failed to allocate memory\n", __func__);
+		return LADNS_CONF_SERVER_UNKNOWN;
+	}
+
+	if (GetNetworkParams(fi, &ul) != NO_ERROR || fi == NULL) {
+		printf("%s: GetNetworkParams failed\n", __func__);
 		return LADNS_CONF_SERVER_UNKNOWN;
 	}
 
 	lwsl_info("%s: trying %s\n", __func__,
-			fi.DnsServerList.IpAddress.String);
+			fi->DnsServerList.IpAddress.String);
 	n = lws_sa46_parse_numeric_address(
-			fi.DnsServerList.IpAddress.String, sa46);
+			fi->DnsServerList.IpAddress.String, sa46);
 
 	return n == 0 ? LADNS_CONF_SERVER_CHANGED :
 			LADNS_CONF_SERVER_UNKNOWN;
