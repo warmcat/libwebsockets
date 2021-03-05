@@ -29,23 +29,50 @@ lws_async_dns_server_check_t
 lws_plat_asyncdns_init(struct lws_context *context, lws_sockaddr46 *sa46)
 {
 	unsigned long ul;
-	FIXED_INFO fi;
-	int n;
+	FIXED_INFO *fi;
+	int n = 0;
+	DWORD dw;
 
 	ul = sizeof(fi);
-	if (GetNetworkParams(&fi, &ul) != NO_ERROR) {
-		lwsl_err("%s: can't get dns servers\n", __func__);
 
-		return LADNS_CONF_SERVER_UNKNOWN;
-	}
+	do {
+		fi = (FIXED_INFO *)lws_malloc(ul, __func__);
+		if (!fi)
+			goto oom;
+
+		dw = GetNetworkParams(fi, &ul);
+		if (dw == NO_ERROR)
+			break;
+		if (dw != ERROR_BUFFER_OVERFLOW) {
+			lwsl_err("%s: GetNetworkParams says 0x%x\n", __func__,
+				 (unsigned int)dw);
+
+			return LADNS_CONF_SERVER_UNKNOWN;
+		}
+
+		lws_free(fi);
+		if (n++)
+			/* not twice or more */
+			goto oom;
+
+	} while (1);
+
+	/* if we got here, then we have it */
 
 	lwsl_info("%s: trying %s\n", __func__,
-			fi.DnsServerList.IpAddress.String);
+			fi->DnsServerList.IpAddress.String);
 	n = lws_sa46_parse_numeric_address(
-			fi.DnsServerList.IpAddress.String, sa46);
+			fi->DnsServerList.IpAddress.String, sa46);
+
+	lws_free(fi);
 
 	return n == 0 ? LADNS_CONF_SERVER_CHANGED :
 			LADNS_CONF_SERVER_UNKNOWN;
+
+oom:
+	lwsl_err("%s: OOM\n", __func__);
+
+	return LADNS_CONF_SERVER_UNKNOWN;
 }
 
 int
