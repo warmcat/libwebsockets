@@ -129,7 +129,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 #endif
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	const struct sockaddr *psa = NULL;
-	uint16_t port = wsi->c_port;
+	uint16_t port = wsi->conn_port;
 	const char *cce, *iface;
 	lws_dns_sort_t *curr;
 	ssize_t plen = 0;

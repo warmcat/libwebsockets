@@ -402,11 +402,6 @@ struct lws_context_per_thread {
 	lws_sockfd_type dummy_pipe_fds[2];
 	struct lws *pipe_wsi;
 
-#if defined(LWS_WITH_NETLINK)
-	lws_dll2_owner_t			routing_table;
-	struct lws				*netlink;
-#endif
-
 	/* --- role based members --- */
 
 #if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
@@ -449,10 +444,6 @@ struct lws_context_per_thread {
 	volatile unsigned char foreign_spinlock;
 
 	unsigned char tid;
-
-#if defined(LWS_WITH_NETLINK)
-	lws_route_uidx_t			route_uidx;
-#endif
 
 	unsigned char inside_service:1;
 	unsigned char inside_lws_service:1;
@@ -889,7 +880,7 @@ struct lws {
 	unsigned int sock_send_blocking:1;
 #endif
 
-	uint16_t			ocport, c_port;
+	uint16_t			ocport, c_port, conn_port;
 	uint16_t			retry;
 #if defined(LWS_WITH_CLIENT)
 	uint16_t			keep_warm_secs;
@@ -1411,7 +1402,7 @@ void
 _lws_routing_entry_dump(lws_route_t *rou);
 
 void
-_lws_routing_table_dump(struct lws_context_per_thread *pt);
+_lws_routing_table_dump(struct lws_context *cx);
 
 #define LRR_IGNORE_PRI			(1 << 0)
 #define LRR_MATCH_SRC			(1 << 1)
@@ -1426,7 +1417,7 @@ void
 _lws_route_table_ifdown(struct lws_context_per_thread *pt, int idx);
 
 lws_route_uidx_t
-_lws_route_get_uidx(struct lws_context_per_thread *pt);
+_lws_route_get_uidx(struct lws_context *cx);
 
 int
 _lws_route_pt_close_route_users(struct lws_context_per_thread *pt,

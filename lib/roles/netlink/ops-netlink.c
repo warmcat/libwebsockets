@@ -41,7 +41,7 @@
 #define RTA_ALIGNTO 4U
 
 //#define lwsl_netlink lwsl_notice
-#define lwsl_netlink lwsl_debug
+#define lwsl_netlink lwsl_info
 
 static void
 lws_netlink_coldplug_done_cb(lws_sorted_usec_list_t *sul)
@@ -58,6 +58,7 @@ static int
 rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 			   struct lws_pollfd *pollfd)
 {
+	struct lws_context	*cx = pt->context;
 	uint8_t s[4096]
 #if defined(_DEBUG)
 	        , route_change = 0
@@ -77,16 +78,16 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 	if (!(pollfd->revents & LWS_POLLIN))
 		return LWS_HPI_RET_HANDLED;
 
-	if (!pt->context->nl_initial_done && pt == &pt->context->pt[0]) {
+	if (!cx->nl_initial_done && pt == &cx->pt[0]) {
 		/*
 		 * While netlink info still coming, keep moving the timer for
 		 * calling it "done" to +100ms until after it stops coming
 		 */
-		lws_context_lock(pt->context, __func__);
-		lws_sul_schedule(pt->context, 0, &pt->context->sul_nl_coldplug,
+		lws_context_lock(cx, __func__);
+		lws_sul_schedule(cx, 0, &cx->sul_nl_coldplug,
 				 lws_netlink_coldplug_done_cb,
 				 100 * LWS_US_PER_MS);
-		lws_context_unlock(pt->context);
+		lws_context_unlock(cx);
 	}
 
 	memset(&msg, 0, sizeof(msg));
@@ -388,8 +389,8 @@ ana:
 			 * cannot race
 			 */
 
-			rou->uidx = _lws_route_get_uidx(pt);
-			lws_dll2_add_tail(&rou->list, &pt->routing_table);
+			rou->uidx = _lws_route_get_uidx(cx);
+			lws_dll2_add_tail(&rou->list, &cx->routing_table);
 
 			_lws_route_pt_close_unroutable(pt);
 
@@ -405,7 +406,7 @@ inform:
 			 * Participants interested can refer to the pt
 			 * routing table
 			 */
-			(void)lws_smd_msg_printf(pt->context, LWSSMDCL_NETWORK,
+			(void)lws_smd_msg_printf(cx, LWSSMDCL_NETWORK,
 				   "{\"rt\":\"%s\"}\n",
 				   (h->nlmsg_type == RTM_DELROUTE) ?
 						"del" : "add");
@@ -426,16 +427,16 @@ inform:
 		 * If a route with a gw was added or deleted, retrigger captive
 		 * portal detection if we have that
 		 */
-		(void)lws_smd_msg_printf(pt->context, LWSSMDCL_NETWORK,
+		(void)lws_smd_msg_printf(cx, LWSSMDCL_NETWORK,
 				   "{\"trigger\": \"cpdcheck\", "
 				   "\"src\":\"gw-change\"}");
 #endif
 
 #if defined(_DEBUG)
 	if (route_change) {
-		lws_pt_lock(pt, __func__);
-		_lws_routing_table_dump(pt);
-		lws_pt_unlock(pt);
+		lws_context_lock(cx, __func__);
+		_lws_routing_table_dump(cx);
+		lws_context_unlock(cx);
 	}
 #endif
 
@@ -470,7 +471,7 @@ rops_pt_init_destroy_netlink(struct lws_context *context,
 		return 0;
 	}
 
-	if (pt->netlink)
+	if (context->netlink)
 		return 0;
 
 	if (pt > &context->pt[0])
@@ -515,7 +516,7 @@ rops_pt_init_destroy_netlink(struct lws_context *context,
 		goto bail2;
 	}
 
-	pt->netlink = wsi;
+	context->netlink = wsi;
 	if (lws_wsi_inject_to_loop(pt, wsi))
 		goto bail2;
 

@@ -405,6 +405,9 @@ struct lws_context {
 
 #if defined(LWS_WITH_NETLINK)
 	lws_sorted_usec_list_t			sul_nl_coldplug;
+	/* process can only have one netlink socket, have to do it in ctx */
+	lws_dll2_owner_t			routing_table;
+	struct lws				*netlink;
 #endif
 
 #if defined(LWS_PLAT_FREERTOS) || defined(WIN32)
@@ -623,6 +626,10 @@ struct lws_context {
 
 #if defined(LWS_WITH_SYS_SMD)
 	uint16_t smd_queue_depth;
+#endif
+
+#if defined(LWS_WITH_NETLINK)
+	lws_route_uidx_t			route_uidx;
 #endif
 
 	unsigned int deprecated:1;

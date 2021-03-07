@@ -562,7 +562,7 @@ lws_sort_dns_dump(struct lws *wsi)
 	(void)n; /* nologs */
 
 	if (!lws_dll2_get_head(&wsi->dns_sorted_list))
-		lwsl_info("%s: empty\n", __func__);
+		lwsl_notice("%s: empty\n", __func__);
 
 	lws_start_foreach_dll(struct lws_dll2 *, d,
 			      lws_dll2_get_head(&wsi->dns_sorted_list)) {
@@ -572,7 +572,7 @@ lws_sort_dns_dump(struct lws *wsi)
 		lws_sa46_write_numeric_address(&s->dest, dest, sizeof(dest));
 		lws_sa46_write_numeric_address(&s->gateway, gw, sizeof(gw));
 
-		lwsl_info("%s: %d: (%d)%s, gw (%d)%s, idi: %d, "
+		lwsl_notice("%s: %d: (%d)%s, gw (%d)%s, idi: %d, "
 				"lbl: %d, prec: %d\n",
 			    __func__, n++, s->dest.sa4.sin_family, dest,
 			    s->gateway.sa4.sin_family, gw,
@@ -648,12 +648,13 @@ lws_sort_dns(struct lws *wsi, const struct addrinfo *result)
 		 * we don't have a way to use it if we listed it
 		 */
 
-		if (pt->routing_table.count) {
+		if (pt->context->routing_table.count) {
 
 			estr = _lws_route_est_outgoing(pt, &ds->dest);
 			if (!estr) {
 				lws_free(ds);
-				lwsl_info("%s: no route out\n", __func__);
+				lwsl_notice("%s: %s has no route out\n",
+					  __func__, afip);
 				/*
 				 * There's no outbound route for this, it's
 				 * unusable, so don't add it to the list
@@ -716,7 +717,7 @@ lws_sort_dns(struct lws *wsi, const struct addrinfo *result)
 		 */
 
 		lws_start_foreach_dll(struct lws_dll2 *, d,
-				      lws_dll2_get_head(&pt->routing_table)) {
+				      lws_dll2_get_head(&pt->context->routing_table)) {
 			lws_route_t *r = lws_container_of(d, lws_route_t, list);
 
 			/* gateway routes are skipped here */
@@ -731,7 +732,7 @@ lws_sort_dns(struct lws *wsi, const struct addrinfo *result)
 
 		/* bestsrc is the best source route, or NULL if none */
 
-		if (!bestsrc && pt->routing_table.count) {
+		if (!bestsrc && pt->context->routing_table.count) {
 			/* drop it, no usable source route */
 			lws_free(ds);
 			goto next;

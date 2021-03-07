@@ -311,7 +311,7 @@ solo:
 	lwsi_set_state(wsi, LRS_WAITING_DNS);
 
 	lwsl_info("%s: %s: lookup %s:%u\n", __func__, wsi->lc.gutag, ads, port);
-	(void)port;
+	wsi->conn_port = (uint16_t)port;
 
 #if defined(LWS_WITH_DETAILED_LATENCY)
 	wsi->detlat.earliest_write_req_pre_write = lws_now_usecs();
