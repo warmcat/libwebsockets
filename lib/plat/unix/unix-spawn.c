@@ -441,7 +441,7 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		   lsp->stdwsi[LWS_STDERR]->desc.sockfd);
 
 	/* we are ready with the redirection pipes... do the (v)fork */
-#if !defined(LWS_HAVE_VFORK) || !defined(LWS_HAVE_EXECVPE)
+#if defined(__sun) || !defined(LWS_HAVE_VFORK) || !defined(LWS_HAVE_EXECVPE)
 	lsp->child_pid = fork();
 #else
 	lsp->child_pid = vfork();
@@ -539,8 +539,8 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		close(lsp->pipe_fds[m][m != 0]);
 	}
 
-#if !defined(LWS_HAVE_VFORK) || !defined(LWS_HAVE_EXECVPE)
-#if defined(__linux__) || defined(__APPLE__)
+#if defined(__sun) || !defined(LWS_HAVE_VFORK) || !defined(LWS_HAVE_EXECVPE)
+#if defined(__linux__) || defined(__APPLE__) || defined(__sun)
 	m = 0;
 	while (i->env_array[m]){
 		const char *p = strchr(i->env_array[m], '=');
