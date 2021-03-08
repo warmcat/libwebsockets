@@ -131,7 +131,9 @@ lws_dir(const char *dirpath, void *user, lws_dir_callback_function cb)
 	}
 
 	for (i = 0; i < n; i++) {
+#if !defined(__sun)
 		unsigned int type = namelist[i]->d_type;
+#endif
 		if (strchr(namelist[i]->d_name, '~'))
 			goto skip;
 		lde.name = namelist[i]->d_name;
