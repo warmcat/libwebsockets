@@ -56,6 +56,10 @@
 		"netbsd-OSX-bigsur/aarch64-apple-m1/llvm": {
 			"build": "mkdir build destdir; cd build; export LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib;export SAI_CPACK=\"-G ZIP\";export MACOSX_DEPLOYMENT_TARGET=10.15 ; cmake .. -DLWS_WITH_SUL_DEBUGGING=1 -DCMAKE_SYSTEM_PREFIX_PATH=/opt/homebrew -DLWS_OPENSSL_INCLUDE_DIRS=/opt/homebrew/Cellar/openssl@1.1/1.1.1h/include '-DLWS_OPENSSL_LIBRARIES=/opt/homebrew/Cellar/openssl@1.1/1.1.1h/lib/libssl.dylib;/opt/homebrew/Cellar/openssl@1.1/1.1.1h/lib/libcrypto.dylib' -DLWS_WITH_MINIMAL_EXAMPLES=1 ${cmake} && make -j6 && rm -rf ../destdir && make -j DESTDIR=../destdir install && ctest -j3 --output-on-failure ${cpack}"
 		},
+		"solaris/x86_64-amd/gcc": {
+			"build": "mkdir build destdir; cd build; export SAI_CPACK=\"-G ZIP\";cmake .. ${cmake} && make -j 4 && make install DESTDIR=../destdir && ctest -j2 --output-on-failure ${cpack}",
+			"default": false
+		},
 		"freertos-linkit/arm32-m4-mt7697-usi/gcc": {
 			"build": "mkdir build;cd build;export CCACHE_DISABLE=1;cmake .. -DCMAKE_INSTALL_PREFIX:PATH=/tmp -DCMAKE_TOOLCHAIN_FILE=../contrib/cross-linkit.cmake -DLWS_PLAT_FREERTOS=1 -DLWS_WITH_ZLIB=0 -DLWS_WITHOUT_EXTENSIONS=1 -DLWS_WITH_ZIP_FOPS=0 -DLWS_WITH_HTTP_STREAM_COMPRESSION=0 -DLWS_WITH_MBEDTLS=1 -DLWS_WITH_FILE_OPS=0 ${cmake};make -j",
 			"default": false
@@ -107,7 +111,7 @@
 	"configurations": {
 		"default": {
 			"cmake":	"",
-			"platforms":	"w10/x86_64-amd/msvc, w10/x86_64-amd/noptmsvc, freertos-linkit/arm32-m4-mt7697-usi/gcc, linux-ubuntu-2004/aarch64-a72-bcm2711-rpi4/gcc, w10/x86_64-amd/mingw32, w10/x86_64-amd/mingw64, netbsd/aarch64BE-bcm2837-a53/gcc, w10/x86_64-amd/wmbedtls-msvc, openbsd/x86_64-amd/llvm"
+			"platforms":	"w10/x86_64-amd/msvc, w10/x86_64-amd/noptmsvc, freertos-linkit/arm32-m4-mt7697-usi/gcc, linux-ubuntu-2004/aarch64-a72-bcm2711-rpi4/gcc, w10/x86_64-amd/mingw32, w10/x86_64-amd/mingw64, netbsd/aarch64BE-bcm2837-a53/gcc, w10/x86_64-amd/wmbedtlsmsvc, openbsd/x86_64-amd/llvm, solaris/x86_64-amd/gcc"
 		},
 		"default-noudp": {
 			"cmake":	"-DLWS_WITH_UDP=0",
@@ -150,7 +154,7 @@
 		},
 		"default-examples": {
 			"cmake":	"-DLWS_WITH_MINIMAL_EXAMPLES=1",
-			"platforms":	"w10/x86_64-amd/msvc, w10/x86_64-amd/noptmsvc, linux-ubuntu-2004/aarch64-a72-bcm2711-rpi4/gcc, netbsd/aarch64BE-bcm2837-a53/gcc, openbsd/x86_64-amd/llvm"
+			"platforms":	"w10/x86_64-amd/msvc, w10/x86_64-amd/noptmsvc, linux-ubuntu-2004/aarch64-a72-bcm2711-rpi4/gcc, netbsd/aarch64BE-bcm2837-a53/gcc, openbsd/x86_64-amd/llvm, solaris/x86_64-amd/gcc"
 		},
 		"h1only-examples": {
 			"cmake":	"cmake .. -DLWS_WITH_HTTP2=0 -DLWS_WITH_MINIMAL_EXAMPLES=1",
@@ -171,11 +175,11 @@
 		},
 		"secure-streams": {
 			"cmake":	"-DLWS_WITH_SECURE_STREAMS=1 -DLWS_WITH_MINIMAL_EXAMPLES=1",
-			"platforms":	"w10/x86_64-amd/msvc, w10/x86_64-amd/noptmsvc, openbsd/x86_64-amd/llvm"
+			"platforms":	"w10/x86_64-amd/msvc, w10/x86_64-amd/noptmsvc, openbsd/x86_64-amd/llvm, solaris/x86_64-amd/gcc"
 		},
 		"secure-streams-proxy": {
 			"cmake":	"-DLWS_WITH_SECURE_STREAMS=1 -DLWS_WITH_SECURE_STREAMS_PROXY_API=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_SECURE_STREAMS_AUTH_SIGV4=1",
-			"platforms":	"not w10/x86_64-amd/msvc, netbsd/aarch64BE-bcm2837-a53/gcc, openbsd/x86_64-amd/llvm"
+			"platforms":	"not w10/x86_64-amd/msvc, netbsd/aarch64BE-bcm2837-a53/gcc, openbsd/x86_64-amd/llvm, solaris/x86_64-amd/gcc"
 		},
 
 		"distro_recommended": { # minimal examples also needed for ctest

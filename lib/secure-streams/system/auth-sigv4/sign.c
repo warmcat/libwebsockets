@@ -458,7 +458,8 @@ lws_ss_sigv4_set_aws_key(struct lws_context* context, uint8_t idx,
 }
 
 #if defined(__linux__) || defined(__APPLE__) || defined(WIN32) || \
-	defined(__FreeBSD__) || defined(__NetBSD__) || defined(__ANDROID__)
+	defined(__FreeBSD__) || defined(__NetBSD__) || defined(__ANDROID__) || \
+	defined(__sun)
 
 /* ie, if we have filesystem ops */
 
