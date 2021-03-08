@@ -198,14 +198,14 @@ static const int ip_opt_lws_flags[] = {
 #endif
 }, ip_opt_val[] = {
 	IPTOS_LOWDELAY, IPTOS_THROUGHPUT, IPTOS_RELIABILITY
-#if !defined(__OpenBSD__)
+#if !defined(__OpenBSD__) && !defined(__sun)
 	, IPTOS_MINCOST
 #endif
 };
 #if !defined(LWS_WITH_NO_LOGS)
 static const char *ip_opt_names[] = {
 	"LOWDELAY", "THROUGHPUT", "RELIABILITY"
-#if !defined(__OpenBSD__)
+#if !defined(__OpenBSD__) && !defined(__sun)
 	, "MINCOST"
 #endif
 };
@@ -224,6 +224,7 @@ lws_plat_set_socket_options_ip(lws_sockfd_type fd, uint8_t pri, int lws_flags)
       !defined(__FreeBSD__) && !defined(__FreeBSD_kernel__) &&        \
       !defined(__NetBSD__) && \
       !defined(__OpenBSD__) && \
+      !defined(__sun) && \
       !defined(__HAIKU__)
 
 	/* the BSDs don't have SO_PRIORITY */
