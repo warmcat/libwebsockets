@@ -181,7 +181,7 @@ lws_create(void *d)
 {
 	struct lws_context_creation_info info;
 
-	lwsl_user("%s: tid %p\n", __func__, (void *)pthread_self());
+       lwsl_user("%s: tid %p\n", __func__, (void *)(intptr_t)pthread_self());
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	info.port = CONTEXT_PORT_NO_LISTEN;
