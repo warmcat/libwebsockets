@@ -287,6 +287,11 @@ else()
 	set(LWS_WITH_NETLINK 0)
 endif()
 
+if (${CMAKE_SYSTEM_NAME} MATCHES "SunOS")
+       # its openssl has md5 deprecated
+       set(LWS_SUPPRESS_DEPRECATED_API_WARNINGS 1)
+endif()
+
 
 #
 # to use miniz, enable both LWS_WITH_ZLIB and LWS_WITH_MINIZ
