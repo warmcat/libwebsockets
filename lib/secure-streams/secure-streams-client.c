@@ -148,7 +148,7 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 	void *m = (void *)((uint8_t *)&h[1]);
 	uint8_t *pkt = NULL, *p = NULL, *end = NULL;
 	const uint8_t *cp;
-	uint8_t s[32];
+	uint8_t s[64];
 	lws_usec_t us;
 	int flags, n;
 
