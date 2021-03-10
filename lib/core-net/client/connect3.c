@@ -430,7 +430,9 @@ ads_known:
 	lws_metrics_caliper_bind(wsi->cal_conn, wsi->a.context->mt_conn_tcp);
 #endif
 
+	wsi->socket_is_permanently_unusable = 0;
 	m = connect(wsi->desc.sockfd, (const struct sockaddr *)psa, (unsigned int)n);
+
 	if (m == -1) {
 		/*
 		 * Since we're nonblocking, connect not having completed is not
