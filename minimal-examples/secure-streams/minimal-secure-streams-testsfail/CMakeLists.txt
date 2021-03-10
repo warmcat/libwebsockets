@@ -31,7 +31,7 @@ if (requirements)
 		set_tests_properties(ss-tf
 				     PROPERTIES
 				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/secure-streams/minimal-secure-streams-testsfail
-				     TIMEOUT 240)
+				     TIMEOUT 440)
 
 		if (HAS_LWS_WITH_SECURE_STREAMS_PROXY_API OR LWS_WITH_SECURE_STREAMS_PROXY_API)
 
@@ -74,7 +74,7 @@ if (requirements)
 			set_tests_properties(sspc-minimaltf PROPERTIES
 				WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/secure-streams/minimal-secure-streams-testsfail
 				FIXTURES_REQUIRED "sstfproxy"
-				TIMEOUT 240)
+				TIMEOUT 440)
 
 		endif()
 

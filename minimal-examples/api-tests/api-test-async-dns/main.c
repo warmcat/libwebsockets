@@ -112,8 +112,8 @@ next_test_cb(lws_sorted_usec_list_t *sul)
 				adt[dtest].dns_name,
 				(adns_query_type_t)adt[dtest].recordtype, cb1, NULL,
 				context);
-	if (m != LADNS_RET_CONTINUING && m != LADNS_RET_FOUND) {
-		lwsl_err("%s: adns 1 failed: %d\n", __func__, m);
+	if (m != LADNS_RET_CONTINUING && m != LADNS_RET_FOUND && m != LADNS_RET_FAILED_WSI_CLOSED) {
+		lwsl_err("%s: adns 1: %s failed: %d\n", __func__, adt[dtest].dns_name, m);
 		interrupted = 1;
 	}
 }

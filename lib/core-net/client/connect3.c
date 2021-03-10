@@ -39,6 +39,23 @@ lws_client_conn_wait_timeout(lws_sorted_usec_list_t *sul)
 	lws_client_connect_3_connect(wsi, NULL, NULL, 0, NULL);
 }
 
+void
+lws_client_dns_retry_timeout(lws_sorted_usec_list_t *sul)
+{
+	struct lws *wsi = lws_container_of(sul, struct lws,
+					   sul_connect_timeout);
+
+	/*
+	 * This limits the amount of dns lookups we will try before
+	 * giving up and failing... it reuses sul_connect_timeout, which
+	 * isn't officially used until we connected somewhere.
+	 */
+
+	lwsl_info("%s: dns retry\n", __func__);
+	if (!lws_client_connect_2_dnsreq(wsi))
+		lwsl_notice("%s: DNS lookup failed\n", __func__);
+}
+
 /*
  * Figure out if an ongoing connect() has arrived at a final disposition or not
  *
@@ -146,6 +163,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	 */
 
 	if (result) {
+		lws_sul_cancel(&wsi->sul_connect_timeout);
 		lws_sort_dns(wsi, result);
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 		lws_async_dns_freeaddrinfo(&result);
@@ -174,8 +192,19 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	    !wsi->speculative_connect_owner.count /* no spec attempt */ ) {
 		lwsl_notice("%s: dns lookup failed %d\n", __func__, n);
 
-		cce = "dns lookup failed";
-		goto oom4;
+		/*
+		 * DNS lookup itself failed... let's try again until we
+		 * timeout
+		 */
+
+		lwsi_set_state(wsi, LRS_UNCONNECTED);
+		lws_sul_schedule(wsi->a.context, 0, &wsi->sul_connect_timeout,
+				 lws_client_dns_retry_timeout,
+						 LWS_USEC_PER_SEC);
+		return wsi;
+
+//		cce = "dns lookup failed";
+//		goto oom4;
 	}
 
 	/*

@@ -263,8 +263,8 @@ start:
 
 		if (n < 1 || n != m ||
 		    strncmp(stack[0].name, stack[stp].name, (unsigned int)n)) {
-			lwsl_notice("%s: skipping %s vs %s\n", __func__,
-					stack[0].name, stack[stp].name);
+			//lwsl_notice("%s: skipping %s vs %s\n", __func__,
+			//		stack[0].name, stack[stp].name);
 			goto skip;
 		}
 
