@@ -333,9 +333,6 @@ solo:
 				LWS_ADNS_RECORD_A, lws_client_connect_3_connect,
 				wsi, NULL);
 
-	lwsl_notice("%s: %s: post async dns, state 0x%x\n",
-			__func__, lws_wsi_tag(wsi), lwsi_state(wsi));
-
 	if (n == LADNS_RET_FAILED_WSI_CLOSED)
 		return NULL;
 
