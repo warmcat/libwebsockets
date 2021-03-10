@@ -398,7 +398,7 @@ lws_adns_get_cache(lws_async_dns_t *dns, const char *name)
 				   lws_dll2_get_head(&dns->cached)) {
 		c = lws_container_of(d, lws_adns_cache_t, list);
 
-		lwsl_notice("%s vs %s (inc %d)\n", name, c->name, c->incomplete);
+		// lwsl_notice("%s vs %s (inc %d)\n", name, c->name, c->incomplete);
 
 		if (!c->incomplete && !strcasecmp(name, c->name)) {
 			/* Keep sorted by LRU: move to the head */

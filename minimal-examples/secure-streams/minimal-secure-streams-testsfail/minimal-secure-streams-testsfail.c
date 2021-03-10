@@ -48,9 +48,9 @@ static const char * const default_ss_policy =
 
 	  "\"retry\": ["	/* named backoff / retry strategies */
 		"{\"default\": {"
-			"\"backoff\": [	 1000, 1000, 1000, 1000, 1000"
+			"\"backoff\": [	 1000, 1000, 1000, 1000"
 				"],"
-			"\"conceal\":"		"5,"
+			"\"conceal\":"		"4,"
 			"\"jitterpc\":"		"20,"
 			"\"svalidping\":"	"30,"
 			"\"svalidhup\":"	"35"
@@ -499,26 +499,25 @@ struct tests_seq {
 
 	/*
 	 * We are talking to a nonexistant dns address "bogus.nope".  We expect
-	 * that if we stick around longer, retries will also end up all failing
+	 * that if we stick around longer, retries will also end up all failing.
+	 * We might see the timeout depending on blocking getaddrinfo
+	 * behaviour.
 	 */
 
 	{
 		"h1:80 NXDOMAIN exhaust retries",
-		"nxd_h1", 35 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
-		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
-		(1 << LWSSSCS_TIMEOUT)
+		"nxd_h1", 65 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
+		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE)
 	},
 	{
 		"h1:443 NXDOMAIN exhaust retries",
-		"nxd_h1_tls", 35 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
-		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
-		(1 << LWSSSCS_TIMEOUT)
+		"nxd_h1_tls", 65 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
+		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE)
 	},
 	{
 		"h2:443 NXDOMAIN exhaust retries",
-		"nxd_h2_tls", 35 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
-		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
-		(1 << LWSSSCS_TIMEOUT)
+		"nxd_h2_tls", 65 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
+		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE)
 	},
 
 	/*
@@ -553,21 +552,18 @@ struct tests_seq {
 
 	{
 		"h1:badcert_hostname",
-		"badcert_hostname", 5 * LWS_US_PER_SEC, LWSSSCS_TIMEOUT,
-		(1 << LWSSSCS_QOS_NACK_REMOTE) |
-		(1 << LWSSSCS_ALL_RETRIES_FAILED)
+		"badcert_hostname", 6 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
+		(1 << LWSSSCS_QOS_NACK_REMOTE)
 	},
 	{
 		"h1:badcert_expired",
-		"badcert_expired", 5 * LWS_US_PER_SEC, LWSSSCS_TIMEOUT,
-		(1 << LWSSSCS_QOS_NACK_REMOTE) |
-		(1 << LWSSSCS_ALL_RETRIES_FAILED)
+		"badcert_expired", 6 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
+		(1 << LWSSSCS_QOS_NACK_REMOTE)
 	},
 	{
 		"h1:badcert_selfsigned",
-		"badcert_selfsigned", 5 * LWS_US_PER_SEC, LWSSSCS_TIMEOUT,
-		(1 << LWSSSCS_QOS_NACK_REMOTE) |
-		(1 << LWSSSCS_ALL_RETRIES_FAILED)
+		"badcert_selfsigned", 6 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
+		(1 << LWSSSCS_QOS_NACK_REMOTE)
 	},
 
 };
