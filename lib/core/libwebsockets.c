@@ -773,7 +773,7 @@ lws_tokenize(struct lws_tokenize *ts)
 	const char *rfc7230_delims = "(),/:;<=>?@[\\]{}";
 	lws_tokenize_state state = LWS_TOKZS_LEADING_WHITESPACE;
 	char c, flo = 0, d_minus = '-', d_dot = '.', d_star = '*', s_minus = '\0',
-	     s_dot = '\0', s_star = '\0', skipping = 0;
+	     s_dot = '\0', s_star = '\0', d_eq = '=', s_eq = '\0', skipping = 0;
 	signed char num = (ts->flags & LWS_TOKENIZE_F_NO_INTEGERS) ? 0 : -1;
 	int utf8 = 0;
 
@@ -790,6 +790,10 @@ lws_tokenize(struct lws_tokenize *ts)
 	if (ts->flags & LWS_TOKENIZE_F_ASTERISK_NONTERM) {
 		d_star = '\0';
 		s_star = '*';
+	}
+	if (ts->flags & LWS_TOKENIZE_F_EQUALS_NONTERM) {
+		d_eq = '\0';
+		s_eq = '=';
 	}
 
 	ts->token = NULL;
@@ -864,7 +868,8 @@ lws_tokenize(struct lws_tokenize *ts)
 
 		/* token= aggregation */
 
-		if (c == '=' && (state == LWS_TOKZS_TOKEN_POST_TERMINAL ||
+		if (!(ts->flags & LWS_TOKENIZE_F_EQUALS_NONTERM) &&
+		    c == '=' && (state == LWS_TOKZS_TOKEN_POST_TERMINAL ||
 				 state == LWS_TOKZS_TOKEN)) {
 			if (num == 1)
 				return LWS_TOKZE_ERR_NUM_ON_LHS;
@@ -913,8 +918,8 @@ lws_tokenize(struct lws_tokenize *ts)
 		    ((!(ts->flags & LWS_TOKENIZE_F_RFC7230_DELIMS) &&
 		     (c < '0' || c > '9') && (c < 'A' || c > 'Z') &&
 		     (c < 'a' || c > 'z') && c != '_') &&
-		     c != s_minus && c != s_dot && c != s_star) ||
-		    c == d_minus || c == d_dot || c == d_star
+		     c != s_minus && c != s_dot && c != s_star && c != s_eq) ||
+		    c == d_minus || c == d_dot || c == d_star || c == d_eq
 		    ) &&
 		    !((ts->flags & LWS_TOKENIZE_F_SLASH_NONTERM) && c == '/')) {
 			switch (state) {

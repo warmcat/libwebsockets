@@ -45,6 +45,8 @@
 #define LWS_TOKENIZE_F_SLASH_NONTERM	(1 << 8)
 /* Do not treat * as a terminal character, so "myfile*" is one token */
 #define LWS_TOKENIZE_F_ASTERISK_NONTERM	(1 << 9)
+/* Do not treat = as a terminal character, so "x=y" is one token */
+#define LWS_TOKENIZE_F_EQUALS_NONTERM	(1 << 10)
 
 typedef enum {
 
