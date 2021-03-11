@@ -499,26 +499,25 @@ struct tests_seq {
 
 	/*
 	 * We are talking to a nonexistant dns address "bogus.nope".  We expect
-	 * that if we stick around longer, retries will also end up all failing
+	 * that if we stick around longer, retries will also end up all failing.
+	 * We might see the timeout depending on blocking getaddrinfo
+	 * behaviour.
 	 */
 
 	{
 		"h1:80 NXDOMAIN exhaust retries",
 		"nxd_h1", 65 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
-		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
-		(1 << LWSSSCS_TIMEOUT)
+		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE)
 	},
 	{
 		"h1:443 NXDOMAIN exhaust retries",
 		"nxd_h1_tls", 65 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
-		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
-		(1 << LWSSSCS_TIMEOUT)
+		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE)
 	},
 	{
 		"h2:443 NXDOMAIN exhaust retries",
 		"nxd_h2_tls", 65 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
-		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
-		(1 << LWSSSCS_TIMEOUT)
+		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE)
 	},
 
 	/*
