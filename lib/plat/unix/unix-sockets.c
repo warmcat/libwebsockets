@@ -543,6 +543,12 @@ lws_plat_ifconfig(int fd, lws_dhcpc_ifstate_t *is)
 #endif
 }
 
+int
+lws_plat_vhost_tls_client_ctx_init(struct lws_vhost *vhost)
+{
+	return 0;
+}
+
 #if defined(LWS_WITH_MBEDTLS)
 int
 lws_plat_mbedtls_net_send(void *ctx, const uint8_t *buf, size_t len)
