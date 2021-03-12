@@ -68,6 +68,10 @@
 #include <afunix.h>
 #endif
 
+#if defined(LWS_WITH_TLS)
+#include <wincrypt.h>
+#endif
+
 #if defined(LWS_HAVE_PTHREAD_H)
 #define lws_mutex_t		pthread_mutex_t
 #define lws_mutex_init(x)	pthread_mutex_init(&(x), NULL)

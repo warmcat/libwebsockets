@@ -35,6 +35,10 @@
 #endif
 #endif
 
+#ifdef LWS_SSL_CLIENT_USE_OS_CA_CERTS
+BOOL imported_native_ca = FALSE;
+#endif
+
 int
 lws_send_pipe_choked(struct lws *wsi)
 {	struct lws *wsi_eff;
@@ -140,7 +144,143 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd,
 		lwsl_warn("setsockopt TCP_NODELAY 1 failed with error %d\n", error);
 	}
 
+#ifdef LWS_SSL_CLIENT_USE_OS_CA_CERTS
+	/* only import certs once*/
+	if (!lws_check_opt(vhost->options, LWS_SERVER_OPTION_DISABLE_OS_CA_CERTS) && !imported_native_ca) {
+		/* adapted from curl openssl.c*/
+		/* Import certificates from the Windows root certificate store if requested.
+		https://stackoverflow.com/questions/9507184/
+		https://github.com/d3x0r/SACK/blob/master/src/netlib/ssl_layer.c#L1037
+		https://tools.ietf.org/html/rfc5280 */
 
+		X509_STORE* store = SSL_CTX_get_cert_store(vhost->tls.ssl_client_ctx);
+		HCERTSTORE hStore = CertOpenSystemStore((HCRYPTPROV_LEGACY)NULL,
+			TEXT("ROOT"));
+
+		if (hStore) {
+			PCCERT_CONTEXT pContext = NULL;
+			/* The array of enhanced key usage OIDs will vary per certificate and is
+				declared outside of the loop so that rather than malloc/free each
+				iteration we can grow it with realloc, when necessary. */
+			CERT_ENHKEY_USAGE* enhkey_usage = NULL;
+			DWORD enhkey_usage_size = 0;
+
+			/* This loop makes a best effort to import all valid certificates from
+				the MS root store. If a certificate cannot be imported it is skipped.
+				'result' is used to store only hard-fail conditions (such as out of
+				memory) that cause an early break. */
+			for (;;) {
+				X509* x509;
+				FILETIME now;
+				BYTE key_usage[2];
+				DWORD req_size = 0;
+				const unsigned char* encoded_cert;
+				char cert_name[256];
+
+				pContext = CertEnumCertificatesInStore(hStore, pContext);
+				if (!pContext)
+					break;
+
+				if (!CertGetNameStringA(pContext, CERT_NAME_SIMPLE_DISPLAY_TYPE, 0,
+					NULL, cert_name, sizeof(cert_name))) {
+					strcpy(cert_name, "Unknown");
+				}
+				lwsl_info("%s: Checking cert \"%s\"\n", __func__, cert_name);
+
+				encoded_cert = (const unsigned char*)pContext->pbCertEncoded;
+				if (!encoded_cert)
+					continue;
+
+				GetSystemTimeAsFileTime(&now);
+				if (CompareFileTime(&pContext->pCertInfo->NotBefore, &now) > 0 || CompareFileTime(&now, &pContext->pCertInfo->NotAfter) > 0)
+					continue;
+
+				/* If key usage exists check for signing attribute */
+				if (CertGetIntendedKeyUsage(pContext->dwCertEncodingType,
+					pContext->pCertInfo,
+					key_usage, sizeof(key_usage))) {
+					if (!(key_usage[0] & CERT_KEY_CERT_SIGN_KEY_USAGE))
+						continue;
+				}
+				else if (GetLastError())
+					continue;
+
+				/* If enhanced key usage exists check for server auth attribute.
+				*
+				* Note "In a Microsoft environment, a certificate might also have EKU
+				* extended properties that specify valid uses for the certificate."
+				* The call below checks both, and behavior varies depending on what is
+				* found. For more details see CertGetEnhancedKeyUsage doc.
+				*/
+				if (CertGetEnhancedKeyUsage(pContext, 0, NULL, &req_size)) {
+					if (req_size && req_size > enhkey_usage_size) {
+						void* tmp = lws_realloc(enhkey_usage, req_size, __func__);
+
+						if (!tmp) {
+							lwsl_err("%s: Out of memory allocating for OID list", __func__);
+							break;
+						}
+
+						enhkey_usage = (CERT_ENHKEY_USAGE*)tmp;
+						enhkey_usage_size = req_size;
+					}
+
+					if (CertGetEnhancedKeyUsage(pContext, 0, enhkey_usage, &req_size)) {
+						if (!enhkey_usage || (enhkey_usage && !enhkey_usage->cUsageIdentifier)) {
+							/* "If GetLastError returns CRYPT_E_NOT_FOUND, the certificate is
+								good for all uses. If it returns zero, the certificate has no
+								valid uses." */
+							if ((HRESULT)GetLastError() != CRYPT_E_NOT_FOUND)
+								continue;
+						}
+						else if (enhkey_usage) {
+							DWORD i;
+							BOOL found = FALSE;
+
+							for (i = 0; i < enhkey_usage->cUsageIdentifier; ++i) {
+								if (!strcmp("1.3.6.1.5.5.7.3.1" /* OID server auth */,
+									enhkey_usage->rgpszUsageIdentifier[i])) {
+									found = TRUE;
+									break;
+								}
+							}
+
+							if (!found)
+								continue;
+						}
+					}
+					else
+						continue;
+				}
+				else
+					continue;
+
+				x509 = d2i_X509(NULL, &encoded_cert, pContext->cbCertEncoded);
+				if (!x509)
+					continue;
+
+				/* Try to import the certificate. This may fail for legitimate reasons
+				such as duplicate certificate, which is allowed by MS but not
+				OpenSSL. */
+				if (X509_STORE_add_cert(store, x509) == 1) {
+					lwsl_info("%s: Imported cert \"%s\"\n", __func__, cert_name);
+					imported_native_ca = TRUE;
+				}
+				X509_free(x509);
+			}
+
+			free(enhkey_usage);
+			CertFreeCertificateContext(pContext);
+			CertCloseStore(hStore, 0);
+
+			if (imported_native_ca)
+				lwsl_info("%s: successfully imported windows ca store\n", __func__);
+			else
+				lwsl_info("%s: error importing windows ca store, continuing anyway\n", __func__);
+		}
+#endif
+
+	}
 	return lws_plat_set_nonblocking(fd);
 }
 
