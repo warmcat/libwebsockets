@@ -1381,8 +1381,10 @@ lws_ss_to_cb(lws_sorted_usec_list_t *sul)
 	if (r != LWSSSSRET_DISCONNECT_ME && r != LWSSSSRET_DESTROY_ME)
 		return;
 
-	if (h->wsi)
-		lws_set_timeout(h->wsi, 1, LWS_TO_KILL_ASYNC);
+	if (!h->wsi)
+		return;
+
+	lws_set_timeout(h->wsi, 1, LWS_TO_KILL_ASYNC);
 
 	_lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, h->wsi, &h);
 }
