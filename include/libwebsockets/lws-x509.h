@@ -42,6 +42,11 @@ enum lws_tls_cert_info {
 	 * same tls backend, ie, OpenSSL or mbedTLS.  The different backends
 	 * produce different, incompatible representations for the same cert.
 	 */
+	LWS_TLS_CERT_INFO_DER_RAW,
+	/**< the certificate's raw DER representation.  If it's too big,
+	 * -1 is returned and the size will be returned in buf->ns.len.
+	 * If the certificate cannot be found -1 is returned and 0 in
+	 * buf->ns.len. */
 };
 
 union lws_tls_cert_info_results {
