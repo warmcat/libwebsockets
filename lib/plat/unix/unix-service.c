@@ -43,6 +43,8 @@ _lws_plat_service_forced_tsi(struct lws_context *context, int tsi)
 
 	/* any socket with events to service? */
 	for (n = 0; n < (int)pt->fds_count; n++) {
+		lws_sockfd_type fd = pt->fds[n].fd;
+
 		if (!pt->fds[n].revents)
 			continue;
 
@@ -52,8 +54,9 @@ _lws_plat_service_forced_tsi(struct lws_context *context, int tsi)
 				 __func__, m);
 			return -1;
 		}
-		/* if something closed, retry this slot */
-		if (m)
+		/* if something closed, retry this slot since may have been
+		 * swapped with end fd */
+		if (m && pt->fds[n].fd != fd)
 			n--;
 	}
 
