@@ -1024,9 +1024,14 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 #if defined(LWS_WITH_SERVER) || defined(LWS_WITH_SYS_SMD)
 late_bail:
 #endif
+
+		if (ppss)
+			*ppss = NULL;
+
 		lws_pt_lock(pt, __func__);
 		lws_dll2_remove(&h->list);
 		lws_pt_unlock(pt);
+
 		__lws_lc_untag(&h->lc);
 		lws_free(h);
 
