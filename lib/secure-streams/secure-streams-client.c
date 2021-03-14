@@ -664,6 +664,8 @@ lws_sspc_destroy(lws_sspc_handle_t **ph)
 	lws_sspc_event_helper(h, LWSSSCS_DESTROYING, 0);
 	*ph = NULL;
 
+	lws_sul_cancel(&h->sul_retry);
+
 	__lws_lc_untag(&h->lc);
 	free(h);
 }
