@@ -493,7 +493,9 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 
 			n = 8;
 
-			lws_ser_wu32be((uint8_t *)&s[4], conn->ss ? conn->ss->policy->client_buflen : 0);
+			lws_ser_wu32be((uint8_t *)&s[4], conn->ss &&
+							 conn->ss->policy ?
+					conn->ss->policy->client_buflen : 0);
 
 			/*
 			 * If there's rideshare sequencing, it's added after the
