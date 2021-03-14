@@ -207,7 +207,7 @@ myss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 		interrupted = 1;
 	}
 
-	return 0;
+	return LWSSSSRET_OK;
 }
 
 static lws_ss_state_return_t
@@ -232,10 +232,18 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 
 	switch (state) {
 	case LWSSSCS_CREATING:
-		lws_ss_start_timeout(m->ss, timeout_ms);
-		lws_ss_set_metadata(m->ss, "uptag", "myuptag123", 10);
-		lws_ss_set_metadata(m->ss, "ctype", "myctype", 7);
 		return lws_ss_client_connect(m->ss);
+
+	case LWSSSCS_CONNECTING:
+		lws_ss_start_timeout(m->ss, timeout_ms);
+		if (lws_ss_set_metadata(m->ss, "uptag", "myuptag123", 10))
+			/* can fail, eg due to OOM, retry later if so */
+			return LWSSSSRET_DISCONNECT_ME;
+
+		if (lws_ss_set_metadata(m->ss, "ctype", "myctype", 7))
+			/* can fail, eg due to OOM, retry later if so */
+			return LWSSSSRET_DISCONNECT_ME;
+		break;
 
 	case LWSSSCS_ALL_RETRIES_FAILED:
 		/* if we're out of retries, we want to close the app and FAIL */
@@ -257,7 +265,7 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		break;
 	}
 
-	return 0;
+	return LWSSSSRET_OK;
 }
 
 static int

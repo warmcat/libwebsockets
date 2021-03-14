@@ -962,29 +962,35 @@ malformed:
 #if defined(LWS_ROLE_H2)
 			m = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_METHOD);
 			if (m) {
-				lws_ss_set_metadata(h, "method",
+				if (lws_ss_set_metadata(h, "method",
 						    lws_hdr_simple_ptr(wsi,
-						     WSI_TOKEN_HTTP_COLON_METHOD), (unsigned int)m);
+						     WSI_TOKEN_HTTP_COLON_METHOD), (unsigned int)m))
+					return -1;
 				m = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH);
-				lws_ss_set_metadata(h, "path",
+				if (lws_ss_set_metadata(h, "path",
 						    lws_hdr_simple_ptr(wsi,
-						     WSI_TOKEN_HTTP_COLON_PATH), (unsigned int)m);
+						     WSI_TOKEN_HTTP_COLON_PATH), (unsigned int)m))
+					return -1;
 			} else
 #endif
 			{
 				m = lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI);
 				if (m) {
-					lws_ss_set_metadata(h, "path",
+					if (lws_ss_set_metadata(h, "path",
 							lws_hdr_simple_ptr(wsi,
-								WSI_TOKEN_GET_URI), (unsigned int)m);
-					lws_ss_set_metadata(h, "method", "GET", 3);
+								WSI_TOKEN_GET_URI), (unsigned int)m))
+						return -1;
+					if (lws_ss_set_metadata(h, "method", "GET", 3))
+						return -1;
 				} else {
 					m = lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI);
 					if (m) {
-						lws_ss_set_metadata(h, "path",
+						if (lws_ss_set_metadata(h, "path",
 								lws_hdr_simple_ptr(wsi,
-									WSI_TOKEN_POST_URI), (unsigned int)m);
-						lws_ss_set_metadata(h, "method", "POST", 4);
+									WSI_TOKEN_POST_URI), (unsigned int)m))
+							return -1;
+						if (lws_ss_set_metadata(h, "method", "POST", 4))
+							return -1;
 					}
 				}
 			}

@@ -191,11 +191,13 @@ myss_srv_state(void *userobj, void *sh, lws_ss_constate_t state,
 		/*
 		 * ... it's going to be either text/html or multipart ...
 		 */
-		if (multipart)
-			lws_ss_set_metadata(m->ss, "mime",
-			   "multipart/form-data; boundary=aBoundaryString", 45);
-		else
-			lws_ss_set_metadata(m->ss, "mime", "text/html", 9);
+		if (multipart) {
+			if (lws_ss_set_metadata(m->ss, "mime",
+			   "multipart/form-data; boundary=aBoundaryString", 45))
+				return LWSSSSRET_DISCONNECT_ME;
+		} else
+			if (lws_ss_set_metadata(m->ss, "mime", "text/html", 9))
+				return LWSSSSRET_DISCONNECT_ME;
 		/*
 		 * ...it's going to be whatever size it is (and request tx)
 		 */

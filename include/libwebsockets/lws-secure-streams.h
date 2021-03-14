@@ -622,9 +622,10 @@ lws_ss_rideshare(struct lws_ss_handle *h);
  * name with the value of the metadata on the left.
  *
  * Return 0 if OK or nonzero if, eg, metadata name does not exist on the
- * streamtype.
+ * streamtype.  You must check the result of this, eg, transient OOM can cause
+ * these to fail and you should retry later.
  */
-LWS_VISIBLE LWS_EXTERN int
+LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_ss_set_metadata(struct lws_ss_handle *h, const char *name,
 		    const void *value, size_t len);
 
