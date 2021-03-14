@@ -1147,9 +1147,10 @@ payload_ff:
 				 * stream he asked for... schedule a chance to
 				 * inform him
 				 */
-				lwsl_err("%s: create '%s' fail\n",
-					__func__, par->streamtype);
+				lwsl_err("%s: create '%s' fail\n", __func__,
+					 par->streamtype);
 				*state = LPCSPROX_REPORTING_FAIL;
+				break;
 			} else {
 				lwsl_debug("%s: create '%s' OK\n",
 					__func__, par->streamtype);
