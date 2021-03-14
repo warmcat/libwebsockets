@@ -303,7 +303,8 @@ lws_extract_metadata(lws_ss_handle_t *h, struct lws *wsi)
 				 * set the related metadata name to it then
 				 */
 
-				_lws_ss_set_metadata(omd, polmd->name, cp, (unsigned int)n);
+				_lws_ss_alloc_set_metadata(omd, polmd->name, cp,
+							   (unsigned int)n);
 
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
 				/*
@@ -363,8 +364,8 @@ lws_extract_metadata(lws_ss_handle_t *h, struct lws *wsi)
 					omd = lws_ss_get_handle_metadata(h,
 								   polmd->name);
 
-					_lws_ss_set_metadata(omd, polmd->name,
-							     p, (size_t)n);
+					_lws_ss_set_metadata(omd,
+						polmd->name, p, (size_t)n);
 					omd->value_on_lws_heap = 1;
 
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
@@ -962,12 +963,12 @@ malformed:
 #if defined(LWS_ROLE_H2)
 			m = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_METHOD);
 			if (m) {
-				if (lws_ss_set_metadata(h, "method",
+				if (lws_ss_alloc_set_metadata(h, "method",
 						    lws_hdr_simple_ptr(wsi,
 						     WSI_TOKEN_HTTP_COLON_METHOD), (unsigned int)m))
 					return -1;
 				m = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH);
-				if (lws_ss_set_metadata(h, "path",
+				if (lws_ss_alloc_set_metadata(h, "path",
 						    lws_hdr_simple_ptr(wsi,
 						     WSI_TOKEN_HTTP_COLON_PATH), (unsigned int)m))
 					return -1;
@@ -976,20 +977,20 @@ malformed:
 			{
 				m = lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI);
 				if (m) {
-					if (lws_ss_set_metadata(h, "path",
+					if (lws_ss_alloc_set_metadata(h, "path",
 							lws_hdr_simple_ptr(wsi,
 								WSI_TOKEN_GET_URI), (unsigned int)m))
 						return -1;
-					if (lws_ss_set_metadata(h, "method", "GET", 3))
+					if (lws_ss_alloc_set_metadata(h, "method", "GET", 3))
 						return -1;
 				} else {
 					m = lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI);
 					if (m) {
-						if (lws_ss_set_metadata(h, "path",
+						if (lws_ss_alloc_set_metadata(h, "path",
 								lws_hdr_simple_ptr(wsi,
 									WSI_TOKEN_POST_URI), (unsigned int)m))
 							return -1;
-						if (lws_ss_set_metadata(h, "method", "POST", 4))
+						if (lws_ss_alloc_set_metadata(h, "method", "POST", 4))
 							return -1;
 					}
 				}

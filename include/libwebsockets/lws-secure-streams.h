@@ -630,6 +630,22 @@ lws_ss_set_metadata(struct lws_ss_handle *h, const char *name,
 		    const void *value, size_t len);
 
 /**
+ * lws_ss_alloc_set_metadata() - copy data and bind to ss metadata
+ *
+ * \param h: secure streams handle
+ * \param name: metadata name from the policy
+ * \param value: pointer to user-managed data to bind to name
+ * \param len: length of the user-managed data in value
+ *
+ * Same as lws_ss_set_metadata(), but allocates a heap buffer for the data
+ * first and takes a copy of it, so the original can go out of scope
+ * immediately after.
+ */
+LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
+lws_ss_alloc_set_metadata(struct lws_ss_handle *h, const char *name,
+			  const void *value, size_t len);
+
+/**
  * lws_ss_get_metadata() - get current value of stream metadata item
  *
  * \param h: secure streams handle
