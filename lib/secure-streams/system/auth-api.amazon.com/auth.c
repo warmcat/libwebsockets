@@ -54,7 +54,7 @@ static void
 lws_ss_sys_auth_api_amazon_com_kick(lws_sorted_usec_list_t *sul)
 {
 	struct lws_context *context = lws_container_of(sul, struct lws_context,
-							sul_api_amazon_com_kick);
+						       sul_api_amazon_com_kick);
 
 	lws_state_transition_steps(&context->mgr_system,
 				   LWS_SYSTATE_OPERATIONAL);
@@ -64,7 +64,7 @@ static void
 lws_ss_sys_auth_api_amazon_com_renew(lws_sorted_usec_list_t *sul)
 {
 	struct lws_context *context = lws_container_of(sul, struct lws_context,
-							sul_api_amazon_com);
+						       sul_api_amazon_com);
 
 	lws_ss_sys_auth_api_amazon_com(context);
 }
@@ -216,7 +216,8 @@ ss_api_amazon_auth_state(void *userobj, void *sh, lws_ss_constate_t state,
 
 	switch (state) {
 	case LWSSSCS_CREATING:
-        	lws_ss_set_metadata(m->ss, "ctype", "application/json", 16);
+        	if (lws_ss_set_metadata(m->ss, "ctype", "application/json", 16))
+        		return LWSSSSRET_DESTROY_ME;
 		/* fallthru */
 	case LWSSSCS_CONNECTING:
 		s = lws_system_blob_get_size(ab);

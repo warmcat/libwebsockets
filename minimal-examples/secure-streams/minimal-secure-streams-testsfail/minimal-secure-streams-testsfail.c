@@ -660,7 +660,8 @@ fail:
 		if (curr_test->eom_pass) {
 			sl = (size_t)lws_snprintf(buf, sizeof(buf), "%u",
 					(unsigned int)curr_test->eom_pass);
-			lws_ss_set_metadata(m->ss, "amount", buf, sl);
+			if (lws_ss_set_metadata(m->ss, "amount", buf, sl))
+				return LWSSSSRET_DISCONNECT_ME;
 		}
 		return lws_ss_client_connect(m->ss);
 

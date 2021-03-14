@@ -1027,6 +1027,7 @@ late_bail:
 		lws_pt_lock(pt, __func__);
 		lws_dll2_remove(&h->list);
 		lws_pt_unlock(pt);
+		__lws_lc_untag(&h->lc);
 		lws_free(h);
 
 		return 1;

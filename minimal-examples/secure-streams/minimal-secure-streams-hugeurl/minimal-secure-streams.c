@@ -281,7 +281,8 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 
 		lws_hex_random(lws_ss_get_context(m->ss), hugeurl,
 			       hugeurl_size + 1);
-		lws_ss_set_metadata(m->ss, "hugearg", hugeurl, hugeurl_size);
+		if (lws_ss_set_metadata(m->ss, "hugearg", hugeurl, hugeurl_size))
+			return LWSSSSRET_DISCONNECT_ME;
 
 		return lws_ss_client_connect(m->ss);
 

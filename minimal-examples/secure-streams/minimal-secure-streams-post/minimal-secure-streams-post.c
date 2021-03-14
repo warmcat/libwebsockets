@@ -345,9 +345,10 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		 * proxy to create the stream and it has been allowed.
 		 */
 
-		lws_ss_set_metadata(m->ss, "ctype",
+		if (lws_ss_set_metadata(m->ss, "ctype",
 				    "multipart/form-data;boundary=\"boundary\"",
-				    39);
+				    39))
+			return LWSSSSRET_DISCONNECT_ME;
 
 		/* provide a hint about the payload size */
 		m->pos = 0;

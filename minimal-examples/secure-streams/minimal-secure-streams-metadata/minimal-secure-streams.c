@@ -182,7 +182,9 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 	case LWSSSCS_CREATING:
 		lwsl_notice("%s: CREATING: setting servername metadata to %s\n",
 				__func__, server_name_or_url);
-		lws_ss_set_metadata(m->ss, "servername", server_name_or_url, strlen(server_name_or_url));
+		if (lws_ss_set_metadata(m->ss, "servername", server_name_or_url,
+					strlen(server_name_or_url)))
+			return LWSSSSRET_DISCONNECT_ME;
 		return lws_ss_client_connect(m->ss);
 
 	case LWSSSCS_ALL_RETRIES_FAILED:
