@@ -146,34 +146,32 @@ ss_s3_state(void *userobj, void *sh, lws_ss_constate_t state,
 
 	switch (state) {
 	case LWSSSCS_CREATING:
-		lws_ss_set_metadata(m->ss, "s3bucket",
-				    s3bucketName, strlen(s3bucketName));
-		lws_ss_set_metadata(m->ss, "s3Obj",
-				    s3ObjName, strlen(s3ObjName));
-		lws_ss_set_metadata(m->ss, "ctype",
-				    "text/plain", strlen("text/plain"));
 		create_payload(jpl, sizeof(jpl));
 		m->buf = (uint8_t *)jpl;
 		m->total = sizeof(jpl);
 
-		lws_ss_set_metadata(m->ss, "region",
-				    awsRegion, strlen(awsRegion));
-		lws_ss_set_metadata(m->ss, "service",
-				    awsService, strlen(awsService));
-
-		lws_ss_set_metadata(m->ss, "xacl",
-				    "bucket-owner-full-control",
-				    strlen("bucket-owner-full-control"));
-
 		sigv4_sha256hash_payload(m->buf, m->total, payload_hash);
-
-		lws_ss_set_metadata(m->ss, "xcsha256",
-				    payload_hash, strlen(payload_hash));
-
 		memset(timestamp, 0, sizeof(timestamp));
 		set_time(timestamp);
-		lws_ss_set_metadata(m->ss, "xdate",
-				    timestamp, strlen(timestamp));
+
+		if (lws_ss_set_metadata(m->ss, "s3bucket",
+				    s3bucketName, strlen(s3bucketName)) ||
+		   lws_ss_set_metadata(m->ss, "s3Obj",
+				    s3ObjName, strlen(s3ObjName)) ||
+		   lws_ss_set_metadata(m->ss, "ctype",
+				    "text/plain", strlen("text/plain")) ||
+		   lws_ss_set_metadata(m->ss, "region",
+				    awsRegion, strlen(awsRegion)) ||
+		   lws_ss_set_metadata(m->ss, "service",
+				    awsService, strlen(awsService)) ||
+		   lws_ss_set_metadata(m->ss, "xacl",
+				    "bucket-owner-full-control",
+				    strlen("bucket-owner-full-control")) ||
+		   lws_ss_set_metadata(m->ss, "xcsha256",
+				    payload_hash, strlen(payload_hash)) ||
+		   lws_ss_set_metadata(m->ss, "xdate",
+				    timestamp, strlen(timestamp)))
+			return LWSSSSRET_DESTROY_ME;
 
 		lws_ss_request_tx_len(m->ss, m->total);
 		break;

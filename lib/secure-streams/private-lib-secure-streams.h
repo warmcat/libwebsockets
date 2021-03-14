@@ -468,6 +468,10 @@ int
 _lws_ss_set_metadata(lws_ss_metadata_t *omd, const char *name,
 		     const void *value, size_t len);
 
+int
+_lws_ss_alloc_set_metadata(lws_ss_metadata_t *omd, const char *name,
+			   const void *value, size_t len);
+
 lws_ss_state_return_t
 _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw);
 

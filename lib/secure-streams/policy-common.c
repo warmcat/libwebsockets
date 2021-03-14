@@ -94,6 +94,49 @@ lws_ss_set_metadata(struct lws_ss_handle *h, const char *name,
 }
 
 int
+_lws_ss_alloc_set_metadata(lws_ss_metadata_t *omd, const char *name,
+			   const void *value, size_t len)
+{
+	uint8_t *p;
+	int n;
+
+	if (omd->value_on_lws_heap) {
+		lws_free_set_NULL(omd->value__may_own_heap);
+		omd->value_on_lws_heap = 0;
+	}
+
+	p = lws_malloc(len, __func__);
+	if (!p)
+		return 1;
+
+	n = _lws_ss_set_metadata(omd, name, p, len);
+	if (n) {
+		lws_free(p);
+		return n;
+	}
+
+	memcpy(p, value, len);
+
+	omd->value_on_lws_heap = 1;
+
+	return 0;
+}
+
+int
+lws_ss_alloc_set_metadata(struct lws_ss_handle *h, const char *name,
+			  const void *value, size_t len)
+{
+	lws_ss_metadata_t *omd = lws_ss_get_handle_metadata(h, name);
+
+	if (!omd) {
+		lwsl_info("%s: unknown metadata %s\n", __func__, name);
+		return 1;
+	}
+
+	return _lws_ss_alloc_set_metadata(omd, name, value, len);
+}
+
+int
 lws_ss_get_metadata(struct lws_ss_handle *h, const char *name,
 		    const void **value, size_t *len)
 {
