@@ -96,7 +96,9 @@ if (LWS_WITH_SDEVENT)
 	add_subdir_include_directories(sdevent)
 endif()
 
-
+if (LWS_WITH_ULOOP)
+	add_subdir_include_directories(uloop)
+endif()
 
 #
 # Keep explicit parent scope exports at end

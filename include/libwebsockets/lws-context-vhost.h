@@ -236,6 +236,9 @@
 #define LWS_SERVER_OPTION_SDEVENT			 	 (1ll << 37)
 	/**< (CTX) Use sd-event loop */
 
+#define LWS_SERVER_OPTION_ULOOP					 (1ll << 38)
+	/**< (CTX) Use libubox / uloop event loop */
+
 
 	/****** add new things just above ---^ ******/
 

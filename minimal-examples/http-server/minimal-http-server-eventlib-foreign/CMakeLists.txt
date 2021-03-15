@@ -20,6 +20,7 @@ CHECK_C_SOURCE_COMPILES("#include <libwebsockets.h>\nint main(void) {\n#if defin
 CHECK_C_SOURCE_COMPILES("#include <libwebsockets.h>\nint main(void) {\n#if defined(LWS_WITH_LIBEV)\n return 0;\n#else\n fail;\n#endif\n return 0;\n}\n" LWS_WITH_LIBEV)
 CHECK_C_SOURCE_COMPILES("#include <libwebsockets.h>\nint main(void) {\n#if defined(LWS_WITH_GLIB)\n return 0;\n#else\n fail;\n#endif\n return 0;\n}\n" LWS_WITH_GLIB)
 CHECK_C_SOURCE_COMPILES("#include <libwebsockets.h>\nint main(void) {\n#if defined(LWS_WITH_SDEVENT)\n return 0;\n#else\n fail;\n#endif\n return 0;\n}\n" LWS_WITH_SDEVENT)
+CHECK_C_SOURCE_COMPILES("#include <libwebsockets.h>\nint main(void) {\n#if defined(LWS_WITH_ULOOP)\n return 0;\n#else\n fail;\n#endif\n return 0;\n}\n" LWS_WITH_ULOOP)
 
 if (LWS_WITH_LIBUV)
 	find_path(LIBUV_INCLUDE_DIRS NAMES uv.h)
@@ -81,11 +82,19 @@ if (LWS_WITH_SDEVENT)
 	set(extralibs ${extralibs} ${LIBSYSTEMD_LIBRARIES})
 	list(APPEND SRCS libsdevent.c)
 endif()
-
+if (LWS_WITH_ULOOP)
+	find_path(LIBUBOX_INCLUDE_DIRS NAMES libubox/uloop.h)
+	find_library(LIBUBOX_LIBRARIES NAMES ubox)
+	message("libubox include dir: ${LIBUBOX_INCLUDE_DIRS}")
+	message("libubox libraries: ${LIBUBOX_LIBRARIES}")
+	include_directories("${LIBUBOX_INCLUDE_DIRS}")
+	set(extralibs ${extralibs} ${LIBUBOX_LIBRARIES})
+	list(APPEND SRCS uloop.c)
+endif()
 
 message("Extra libs: ${extralibs}")
 
-if (NOT LWS_WITH_LIBUV AND NOT LWS_WITH_LIBEVENT AND NOT LWS_WITH_LIBEV AND NOT LWS_WITH_GLIB)
+if (NOT LWS_WITH_LIBUV AND NOT LWS_WITH_LIBEVENT AND NOT LWS_WITH_LIBEV AND NOT LWS_WITH_GLIB AND NOT LWS_WITH_ULOOP)
 	set(requirements 0)
 endif()
 
@@ -159,6 +168,14 @@ if (requirements)
 	if (LWS_WITH_SDEVENT)
 		add_test(NAME hs_evlib_foreign_sd COMMAND lws-minimal-http-server-eventlib-foreign --sd -p ${PORT_HSEF_SRV}5)
 		set_tests_properties(hs_evlib_foreign_sd
+			     PROPERTIES
+			     ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/lib"
+			     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/http-server/minimal-http-server-eventlib-foreign
+			     TIMEOUT 50)
+	endif()
+	if (LWS_WITH_SDEVENT)
+		add_test(NAME hs_evlib_foreign_uloop COMMAND lws-minimal-http-server-eventlib-foreign --uloop -p ${PORT_HSEF_SRV}5)
+		set_tests_properties(hs_evlib_foreign_uloop
 			     PROPERTIES
 			     ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/lib"
 			     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/http-server/minimal-http-server-eventlib-foreign

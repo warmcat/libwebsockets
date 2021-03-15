@@ -170,8 +170,8 @@ lws_dir(const char *dirpath, void *user, lws_dir_callback_function cb)
 		}
 #endif
 		if (cb(dirpath, user, &lde)) {
-			while (++i < n)
-				free(namelist[i]);
+			while (i < n)
+				free(namelist[i++]);
 			ret = 0; /* told to stop by cb */
 			goto bail;
 		}

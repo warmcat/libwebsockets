@@ -202,6 +202,7 @@
 #cmakedefine LWS_WITH_THREADPOOL
 #cmakedefine LWS_WITH_TLS
 #cmakedefine LWS_WITH_UDP
+#cmakedefine LWS_WITH_ULOOP
 #cmakedefine LWS_WITH_UNIX_SOCK
 #cmakedefine LWS_WITH_ZIP_FOPS
 #cmakedefine USE_OLD_CYASSL
