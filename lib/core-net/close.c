@@ -46,6 +46,19 @@ __lws_reset_wsi(struct lws *wsi)
 
 	lws_free_set_NULL(wsi->cli_hostname_copy);
 
+#if defined(LWS_WITH_CONMON)
+
+	if (wsi->conmon.dns_results_copy) {
+		lws_conmon_addrinfo_destroy(wsi->conmon.dns_results_copy);
+		wsi->conmon.dns_results_copy = NULL;
+	}
+
+	wsi->conmon.ciu_dns =
+		wsi->conmon.ciu_sockconn =
+		wsi->conmon.ciu_tls =
+		wsi->conmon.ciu_txn_resp = 0;
+#endif
+
 	/*
 	 * if we have wsi in our transaction queue, if we are closing we
 	 * must go through and close all those first

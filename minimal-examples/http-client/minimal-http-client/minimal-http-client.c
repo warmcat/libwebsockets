@@ -16,7 +16,7 @@
 #include <string.h>
 #include <signal.h>
 
-static int interrupted, bad = 1, status;
+static int interrupted, bad = 1, status, conmon;
 #if defined(LWS_WITH_HTTP2)
 static int long_poll;
 #endif
@@ -27,6 +27,40 @@ static const lws_retry_bo_t retry = {
 	.secs_since_valid_ping = 3,
 	.secs_since_valid_hangup = 10,
 };
+
+#if defined(LWS_WITH_CONMON)
+void
+dump_conmon_data(struct lws *wsi)
+{
+	const struct addrinfo *ai;
+	struct lws_conmon cm;
+	char ads[48];
+
+	lws_conmon_wsi_take(wsi, &cm);
+
+	lws_sa46_write_numeric_address(&cm.peer46, ads, sizeof(ads));
+	lwsl_notice("%s: peer %s, dns: %uus, sockconn: %uus, tls: %uus, txn_resp: %uus\n",
+		    __func__, ads,
+		    (unsigned int)cm.ciu_dns,
+		    (unsigned int)cm.ciu_sockconn,
+		    (unsigned int)cm.ciu_tls,
+		    (unsigned int)cm.ciu_txn_resp);
+
+	ai = cm.dns_results_copy;
+	while (ai) {
+		lws_sa46_write_numeric_address((lws_sockaddr46 *)ai->ai_addr, ads, sizeof(ads));
+		lwsl_notice("%s: DNS %s\n", __func__, ads);
+		ai = ai->ai_next;
+	}
+
+	/*
+	 * This destroys the DNS list in the lws_conmon that we took
+	 * responsibility for when we used lws_conmon_wsi_take()
+	 */
+
+	lws_conmon_release(&cm);
+}
+#endif
 
 static int
 callback_http(struct lws *wsi, enum lws_callback_reasons reason,
@@ -39,6 +73,12 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_err("CLIENT_CONNECTION_ERROR: %s\n",
 			 in ? (char *)in : "(null)");
 		interrupted = 1;
+		lws_cancel_service(lws_get_context(wsi));
+
+#if defined(LWS_WITH_CONMON)
+	if (conmon)
+		dump_conmon_data(wsi);
+#endif
 		break;
 
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
@@ -128,6 +168,10 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		interrupted = 1;
 		bad = status != 200;
 		lws_cancel_service(lws_get_context(wsi)); /* abort poll wait */
+#if defined(LWS_WITH_CONMON)
+		if (conmon)
+			dump_conmon_data(wsi);
+#endif
 		break;
 
 	default:
@@ -233,6 +277,13 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 		lwsl_notice("%s: manual peer tx credit %d\n", __func__,
 				i.manual_initial_tx_credit);
 	}
+
+#if defined(LWS_WITH_CONMON)
+	if (lws_cmdline_option(a->argc, a->argv, "--conmon")) {
+		i.ssl_connection |= LCCSCF_CONMON;
+		conmon = 1;
+	}
+#endif
 
 	/* the default validity check is 5m / 5m10s... -v = 3s / 10s */
 

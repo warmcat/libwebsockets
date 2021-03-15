@@ -35,6 +35,10 @@ lws_ssl_client_connect1(struct lws *wsi, char *errbuf, size_t len)
 		return -1;
 	case LWS_SSL_CAPABLE_DONE:
 		lws_metrics_caliper_report(wsi->cal_conn, METRES_GO);
+#if defined(LWS_WITH_CONMON)
+	wsi->conmon.ciu_tls = (lws_conmon_interval_us_t)
+					(lws_now_usecs() - wsi->conmon_datum);
+#endif
 		return 1; /* connected */
 	case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
 		lws_callback_on_writable(wsi);
@@ -80,6 +84,10 @@ lws_ssl_client_connect2(struct lws *wsi, char *errbuf, size_t len)
 	}
 
 	lws_metrics_caliper_report(wsi->cal_conn, METRES_GO);
+#if defined(LWS_WITH_CONMON)
+	wsi->conmon.ciu_tls = (lws_conmon_interval_us_t)
+					(lws_now_usecs() - wsi->conmon_datum);
+#endif
 
 	return 1;
 }
@@ -194,6 +202,9 @@ lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1)
 
 		lws_metrics_caliper_report(wsi->cal_conn, METRES_GO);
 		lws_metrics_caliper_bind(wsi->cal_conn, wsi->a.context->mt_conn_tls);
+#if defined(LWS_WITH_CONMON)
+		wsi->conmon_datum = lws_now_usecs();
+#endif
 
 		n = lws_ssl_client_connect1(wsi, (char *)wsi->a.context->pt[(int)wsi->tsi].serv_buf,
 					    wsi->a.context->pt_serv_buf_size);

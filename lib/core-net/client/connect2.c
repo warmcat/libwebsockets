@@ -57,8 +57,17 @@ lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
 		hints.ai_family = PF_UNSPEC;
 	}
 
+#if defined(LWS_WITH_CONMON)
+	wsi->conmon_datum = lws_now_usecs();
+#endif
+
 	wsi->dns_reachability = 0;
 	n = getaddrinfo(ads, NULL, &hints, result);
+
+#if defined(LWS_WITH_CONMON)
+	wsi->conmon.ciu_dns = (lws_conmon_interval_us_t)
+					(lws_now_usecs() - wsi->conmon_datum);
+#endif
 
 	/*
 	 * Which EAI_* are available and the meanings are highly platform-

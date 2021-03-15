@@ -90,6 +90,9 @@ enum lws_client_connect_ssl_connection_flags {
 	LCCSCF_IP_LOW_COST			= (1 << 27),
 	/**< set the "minimize monetary cost" bit on the IP packets of this
 	 *   connection */
+	LCCSCF_CONMON				= (1 << 28),
+	/**< If LWS_WITH_CONMON enabled for build, keeps a copy of the
+	 * getaddrinfo results so they can be queried subsequently */
 };
 
 /** struct lws_client_connect_info - parameters to connect with when using

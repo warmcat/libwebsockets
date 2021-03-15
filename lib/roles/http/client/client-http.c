@@ -570,6 +570,11 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 
 	lws_free_set_NULL(wsi->stash);
 
+#if defined(LWS_WITH_CONMON)
+	wsi->conmon.ciu_txn_resp = (lws_conmon_interval_us_t)
+					(lws_now_usecs() - wsi->conmon_datum);
+#endif
+
 	ah = wsi->http.ah;
 	if (!wsi->do_ws) {
 		/* we are being an http client...
@@ -1206,6 +1211,9 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 		lws_callback_on_writable(wsi);
 
 	lws_metrics_caliper_bind(wsi->cal_conn, wsi->a.context->mt_http_txn);
+#if defined(LWS_WITH_CONMON)
+	wsi->conmon_datum = lws_now_usecs();
+#endif
 
 	// puts(pkt);
 

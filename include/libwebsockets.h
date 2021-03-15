@@ -585,6 +585,10 @@ struct lws;
 
 #include <libwebsockets/lws-context-vhost.h>
 
+#if defined(LWS_WITH_CONMON)
+#include <libwebsockets/lws-conmon.h>
+#endif
+
 #if defined(LWS_ROLE_MQTT)
 #include <libwebsockets/lws-mqtt.h>
 #endif

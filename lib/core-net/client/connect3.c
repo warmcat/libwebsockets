@@ -164,6 +164,12 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 
 	if (result) {
 		lws_sul_cancel(&wsi->sul_connect_timeout);
+
+#if defined(LWS_WITH_CONMON)
+		/* append a copy from before the sorting */
+		lws_conmon_append_copy_new_dns_results(wsi, result);
+#endif
+
 		lws_sort_dns(wsi, result);
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 		lws_async_dns_freeaddrinfo(&result);
@@ -433,6 +439,11 @@ ads_known:
 	wsi->socket_is_permanently_unusable = 0;
 	m = connect(wsi->desc.sockfd, (const struct sockaddr *)psa, (unsigned int)n);
 
+#if defined(LWS_WITH_CONMON)
+	wsi->conmon_datum = lws_now_usecs();
+	wsi->conmon.ciu_sockconn = 0;
+#endif
+
 	if (m == -1) {
 		/*
 		 * Since we're nonblocking, connect not having completed is not
@@ -458,6 +469,11 @@ ads_known:
 			 * The connect() failed immediately...
 			 */
 
+#if defined(LWS_WITH_CONMON)
+			wsi->conmon.ciu_sockconn = (lws_conmon_interval_us_t)
+					(lws_now_usecs() - wsi->conmon_datum);
+#endif
+
 			lws_metrics_caliper_report(wsi->cal_conn, METRES_NOGO);
 
 #if defined(_DEBUG)
@@ -471,6 +487,8 @@ ads_known:
 						       sizeof(nads));
 			lwsl_info("%s: Connect failed: %s port %d\n", __func__,
 				  nads, port);
+
+			wsi->sa46_peer.sa4.sin_family = 0;
 #if defined(LWS_WITH_UNIX_SOCK)
 			}
 #endif
@@ -513,6 +531,11 @@ conn_good:
 	/*
 	 * The connection has happened
 	 */
+
+#if defined(LWS_WITH_CONMON)
+	wsi->conmon.ciu_sockconn = (lws_conmon_interval_us_t)
+					(lws_now_usecs() - wsi->conmon_datum);
+#endif
 
 #if !defined(LWS_PLAT_OPTEE)
 	{

@@ -718,7 +718,12 @@ struct lws {
 #if defined(LWS_WITH_CLIENT)
 	struct client_info_stash	*stash;
 	char				*cli_hostname_copy;
+
+#if defined(LWS_WITH_CONMON)
+	struct lws_conmon		conmon;
+	lws_usec_t			conmon_datum;
 #endif
+#endif /* WITH_CLIENT */
 	void				*user_space;
 	void				*opaque_parent_data;
 
@@ -944,6 +949,13 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status, const char *caller)
 
 void
 __lws_free_wsi(struct lws *wsi);
+
+void
+lws_conmon_addrinfo_destroy(struct addrinfo *ai);
+
+int
+lws_conmon_append_copy_new_dns_results(struct lws *wsi,
+				       const struct addrinfo *cai);
 
 #if LWS_MAX_SMP > 1
 
