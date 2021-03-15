@@ -387,7 +387,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	unsigned int lpf = info->fd_limit_per_thread;
 #if defined(LWS_WITH_EVLIB_PLUGINS) && defined(LWS_WITH_EVENT_LIBS)
 	struct lws_plugin		*evlib_plugin_list = NULL;
-#if defined(_DEBUG)
+#if defined(_DEBUG) && !defined(LWS_WITH_NO_LOGS)
 	char		*ld_env;
 #endif
 #endif
@@ -461,7 +461,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	 * the context object, so we can overallocate it correctly
 	 */
 
-#if defined(_DEBUG)
+#if defined(_DEBUG) && !defined(LWS_WITH_NO_LOGS)
 	ld_env = getenv("LD_LIBRARY_PATH");
 	lwsl_info("%s: ev lib path %s, '%s'\n", __func__,
 			LWS_INSTALL_LIBDIR, ld_env);
@@ -1461,7 +1461,9 @@ lws_system_cpd_start_defer(struct lws_context *cx, lws_usec_t defer_us)
 			 lws_system_deferred_cb, defer_us);
 }
 
+#if (defined(LWS_WITH_SYS_STATE) && defined(LWS_WITH_SYS_SMD)) || !defined(LWS_WITH_NO_LOGS)
 static const char *cname[] = { "Unknown", "OK", "Captive", "No internet" };
+#endif
 
 void
 lws_system_cpd_set(struct lws_context *cx, lws_cpd_result_t result)
@@ -1469,7 +1471,9 @@ lws_system_cpd_set(struct lws_context *cx, lws_cpd_result_t result)
 	if (cx->captive_portal_detect != LWS_CPD_UNKNOWN)
 		return;
 
+#if !defined(LWS_WITH_NO_LOGS)
 	lwsl_notice("%s: setting CPD result %s\n", __func__, cname[result]);
+#endif
 
 	cx->captive_portal_detect = (uint8_t)result;
 

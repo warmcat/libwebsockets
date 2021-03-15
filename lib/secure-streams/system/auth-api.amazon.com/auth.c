@@ -116,7 +116,9 @@ ss_api_amazon_auth_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	ss_api_amazon_auth_t *m = (ss_api_amazon_auth_t *)userobj;
 	struct lws_context *context = (struct lws_context *)m->opaque_data;
 	lws_system_blob_t *ab;
+#if !defined(LWS_WITH_NO_LOGS)
 	size_t total;
+#endif
 	int n;
 
 	ab = lws_system_get_blob(context, LWS_SYSBLOB_TYPE_AUTH, AUTH_IDX_LWA);
@@ -148,9 +150,11 @@ ss_api_amazon_auth_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 
 	/* we should have the auth token now */
 
+#if !defined(LWS_WITH_NO_LOGS)
 	total = lws_system_blob_get_size(ab);
 	lwsl_notice("%s: acquired %u-byte api.amazon.com auth token, exp %ds\n",
 			__func__, (unsigned int)total, m->expires_secs);
+#endif
 
 	lejp_destruct(&m->jctx);
 

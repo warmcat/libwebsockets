@@ -45,7 +45,7 @@ callback(struct lws *wsi, enum lws_callback_reasons reason,
 {
 	int m= 0, n = 0;
 	short r;
-#if defined(_DEBUG)
+#if defined(_DEBUG) && !defined(LWS_WITH_NO_LOGS)
 	size_t remain;
 	int first = 0, final = 0;
 #endif
@@ -103,7 +103,7 @@ callback(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLIENT_RECEIVE:
-#if defined(_DEBUG)
+#if defined(_DEBUG) && !defined(LWS_WITH_NO_LOGS)
 		first = lws_is_first_fragment(wsi);
 		final = lws_is_final_fragment(wsi);
 		remain = lws_remaining_packet_payload(wsi);

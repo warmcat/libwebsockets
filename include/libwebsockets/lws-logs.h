@@ -82,7 +82,11 @@ LWS_VISIBLE LWS_EXTERN void _lws_logv(int filter, const char *format, va_list vl
    #define _LWS_LINIT ((1 << LLL_COUNT) - 1)
  #endif
 #else /* not _DEBUG */
+#if defined(LWS_WITH_NO_LOGS)
+#define _LWS_LINIT (LLL_ERR | LLL_USER)
+#else
  #define _LWS_LINIT (LLL_ERR | LLL_USER | LLL_WARN | LLL_NOTICE)
+#endif
 #endif /* _DEBUG */
 
 /*
