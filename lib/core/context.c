@@ -343,6 +343,7 @@ static const struct lws_evlib_map {
 	{ LWS_SERVER_OPTION_GLIB,     "evlib_glib" },
 	{ LWS_SERVER_OPTION_LIBEV,    "evlib_ev" },
 	{ LWS_SERVER_OPTION_SDEVENT,  "evlib_sd" },
+	{ LWS_SERVER_OPTION_ULOOP,    "evlib_uloop" },
 };
 static const char * const dlist[] = {
 	".",				/* Priority 1: plugins in cwd */
@@ -550,6 +551,14 @@ lws_create_context(const struct lws_context_creation_info *info)
     if (lws_check_opt(info->options, LWS_SERVER_OPTION_SDEVENT)) {
         extern const lws_plugin_evlib_t evlib_sd;
         plev = &evlib_sd;
+        us_wait_resolution = 0;
+    }
+#endif
+
+#if defined(LWS_WITH_ULOOP)
+    if (lws_check_opt(info->options, LWS_SERVER_OPTION_ULOOP)) {
+        extern const lws_plugin_evlib_t evlib_uloop;
+        plev = &evlib_uloop;
         us_wait_resolution = 0;
     }
 #endif
