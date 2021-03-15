@@ -85,7 +85,7 @@ typedef enum {
 	RPAR_ORD0,
 } rx_parser_t;
 
-#if defined(_DEBUG)
+#if defined(_DEBUG) && !defined(LWS_WITH_NO_LOGS)
 static const char *sn[] = {
 	"unset",
 

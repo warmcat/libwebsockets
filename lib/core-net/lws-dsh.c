@@ -473,7 +473,7 @@ lws_dsh_get_head(lws_dsh_t *dsh, int kind, void **obj, size_t *size)
 	return 0;	/* we returned the head */
 }
 
-#if defined(_DEBUG)
+#if defined(_DEBUG) && !defined(LWS_WITH_NO_LOGS)
 
 static int
 describe_kind(struct lws_dll2 *d, void *user)

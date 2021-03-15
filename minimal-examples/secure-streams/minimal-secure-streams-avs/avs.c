@@ -265,12 +265,13 @@ ss_avs_metadata_state(void *userobj, void *sh,
 static int
 ss_avs_event_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 {
+#if !defined(LWS_WITH_NO_LOGS)
 	ss_avs_event_t *m = (ss_avs_event_t *)userobj;
 	// struct lws_context *context = (struct lws_context *)m->opaque_data;
 
 	lwsl_notice("%s: rideshare %s, len %d, flags 0x%x\n", __func__,
 			lws_ss_rideshare(m->ss), (int)len, flags);
-
+#endif
 //	lwsl_hexdump_warn(buf, len);
 
 	bad = 0; /* for this demo, receiving something here == success */
@@ -282,9 +283,10 @@ static int
 ss_avs_event_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf,
 		      size_t *len, int *flags)
 {
+#if !defined(LWS_WITH_NO_LOGS)
 	ss_avs_event_t *m = (ss_avs_event_t *)userobj;
 	lwsl_notice("%s: rideshare %s\n", __func__, lws_ss_rideshare(m->ss));
-
+#endif
 	return 1; /* don't transmit anything */
 }
 

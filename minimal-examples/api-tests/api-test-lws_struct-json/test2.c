@@ -141,6 +141,7 @@ static const lws_struct_map_t lsm_schema[] = {
 static int
 t2_config_dump(struct lws_dll2 *d, void *user)
 {
+#if !defined(LWS_WITH_NO_LOGS)
 	t2_config_t *c = lws_container_of(d, t2_config_t, list);
 
 	lwsl_notice("%s:   id1 '%s'\n", __func__, c->id1);
@@ -153,6 +154,7 @@ t2_config_dump(struct lws_dll2 *d, void *user)
 
 	lwsl_notice("%s:      key1: %s, key2: %s\n", __func__,
 			     c->creds->key1, c->creds->key2);
+#endif
 
 	return 0;
 }
