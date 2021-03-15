@@ -29,7 +29,7 @@
 #include "private-lib-core.h"
 #include <unistd.h>
 
-#if defined(__OpenBSD__)
+#if defined(__OpenBSD__) || defined(__NetBSD__)
 #include <sys/resource.h>
 #include <sys/wait.h>
 #endif
@@ -151,7 +151,7 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	lsp_cb_t cb = lsp->info.reap_cb;
 	struct lws_spawn_piped temp;
 	struct tms tms;
-#if defined(__OpenBSD__)
+#if defined(__OpenBSD__) || defined(__NetBSD__)
 	struct rusage rusa;
 	int status;
 #endif
@@ -163,7 +163,7 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	/* check if exited, do not reap yet */
 
 	memset(&lsp->si, 0, sizeof(lsp->si));
-#if defined(__OpenBSD__)
+#if defined(__OpenBSD__) || defined(__NetBSD__)
 	n = wait4(lsp->child_pid, &status, WNOHANG, &rusa);
 	if (!n)
 		return 0;
@@ -228,12 +228,14 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	}
 
 	temp = *lsp;
-#if defined(__OpenBSD__)
+#if defined(__OpenBSD__) || defined(__NetBSD__)
 	n = wait4(lsp->child_pid, &status, WNOHANG, &rusa);
 	if (!n)
 		return 0;
 	lsp->si.si_code = WIFEXITED(status);
-	temp.si.si_status = status & 0xff;
+	if (lsp->si.si_code == CLD_EXITED)
+		temp.si.si_code = CLD_EXITED;
+	temp.si.si_status = WEXITSTATUS(status);
 #else
 	n = waitid(P_PID, (id_t)lsp->child_pid, &temp.si, WEXITED | WNOHANG);
 #endif
