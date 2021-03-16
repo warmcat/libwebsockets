@@ -174,7 +174,7 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
         case LWS_CALLBACK_RAW_CONNECTED:
-		if (!h)
+		if (!h || lws_fi(&h->fic, "sspc_fail_on_linkup"))
 			return -1;
 		lwsl_info("%s: CONNECTED (%s)\n", __func__, h->ssi.streamtype);
 
@@ -234,9 +234,18 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 			return -1;
 		}
 
-		n = lws_ss_deserialize_parse(&h->parser, lws_get_context(wsi),
-					     h->dsh, in, len, &h->state, h,
-					     (lws_ss_handle_t **)m, &h->ssi, 1);
+		if (lws_fi(&h->fic, "sspc_fake_rxparse_disconnect_me"))
+			n = LWSSSSRET_DISCONNECT_ME;
+		else
+			if (lws_fi(&h->fic, "sspc_fake_rxparse_destroy_me"))
+				n = LWSSSSRET_DESTROY_ME;
+			else
+				n = lws_ss_deserialize_parse(&h->parser,
+							     lws_get_context(wsi),
+							     h->dsh, in, len,
+							     &h->state, h,
+							     (lws_ss_handle_t **)m,
+							     &h->ssi, 1);
 		switch (n) {
 		case LWSSSSRET_OK:
 			break;
@@ -476,7 +485,10 @@ do_write_nz:
 			break;
 
 do_write:
-		n = lws_write(wsi, (uint8_t *)cp, (unsigned int)n, LWS_WRITE_RAW);
+		if (lws_fi(&h->fic, "sspc_link_write_fail"))
+			n = -1;
+		else
+			n = lws_write(wsi, (uint8_t *)cp, (unsigned int)n, LWS_WRITE_RAW);
 		if (n < 0) {
 			lwsl_notice("%s: WRITEABLE: %d\n", __func__, n);
 
@@ -530,19 +542,31 @@ lws_sspc_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 	 * and the streamname */
 
 	h = malloc(sizeof(lws_sspc_handle_t) + ssi->user_alloc +
-		   strlen(ssi->streamtype) + 1);
+				strlen(ssi->streamtype) + 1);
 	if (!h)
 		return 1;
 	memset(h, 0, sizeof(*h));
 
-	__lws_lc_tag(&context->lcg[LWSLCG_SSP_CLIENT], &h->lc, ssi->streamtype);
-
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
-	h->fi.name = "sspc";
-	h->fi.parent = &context->fi;
-	if (ssi->fi)
-		lws_fi_import(&h->fi, ssi->fi);
+	h->fic.name = "sspc";
+	lws_xos_init(&h->fic.xos, lws_xos(&context->fic.xos));
+	if (ssi->fic.fi_owner.count)
+		lws_fi_import(&h->fic, &ssi->fic);
+
+	lws_fi_inherit_copy(&h->fic, &context->fic, "ss", ssi->streamtype);
 #endif
+
+	if (lws_fi(&h->fic, "sspc_create_oom")) {
+		/*
+		 * We have to do this a litte later, so we can cleanly inherit
+		 * the OOM pieces and drain the info fic
+		 */
+		lws_fi_destroy(&h->fic);
+		free(h);
+		return 1;
+	}
+
+	__lws_lc_tag(&context->lcg[LWSLCG_SSP_CLIENT], &h->lc, ssi->streamtype);
 
 	memcpy(&h->ssi, ssi, sizeof(*ssi));
 	ua = (uint8_t *)&h[1];
@@ -633,7 +657,7 @@ lws_sspc_destroy(lws_sspc_handle_t **ph)
 	}
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
-	lws_fi_destroy(&h->fi);
+	lws_fi_destroy(&h->fic);
 #endif
 
 	lws_sul_cancel(&h->sul_retry);
@@ -823,7 +847,10 @@ _lws_sspc_set_metadata(struct lws_sspc_handle *h, const char *name,
 	 * We have to stash the metadata and pass it to the proxy
 	 */
 
-	md = lws_malloc(sizeof(*md) + len, "set metadata");
+	if (lws_fi(&h->fic, "sspc_fail_metadata_set"))
+		md = NULL;
+	else
+		md = lws_malloc(sizeof(*md) + len, "set metadata");
 	if (!md) {
 		lwsl_err("%s: OOM\n", __func__);
 

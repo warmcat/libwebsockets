@@ -240,6 +240,18 @@ __lws_wsi_create_with_role(struct lws_context *context, int tsi,
 //	lwsl_debug("%s: tsi %d: role: %s\n", __func__, tsi,
 //			ops ? ops->name : "none");
 
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	lws_xos_init(&wsi->fic.xos, lws_xos(&context->fic.xos));
+#endif
+
+	lws_fi_inherit_copy(&wsi->fic, &context->fic, "wsi", NULL);
+
+	if (lws_fi(&wsi->fic, "createfail")) {
+		lws_fi_destroy(&wsi->fic);
+		lws_free(wsi);
+		return NULL;
+	}
+
 	return wsi;
 }
 

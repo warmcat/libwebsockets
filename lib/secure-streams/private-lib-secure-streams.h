@@ -59,7 +59,7 @@ typedef struct lws_ss_handle {
 	struct lws_dll2		cli_list;  /**< same server clients list */
 #endif
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
-	lws_fi_ctx_t		fi;	/**< Fault Injection context */
+	lws_fi_ctx_t		fic;	/**< Fault Injection context */
 #endif
 
 	struct lws_dll2_owner	src_list; /**< sink's list of bound sources */
@@ -285,7 +285,7 @@ typedef struct lws_sspc_handle {
 	struct lws_ss_serialization_parser parser;
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
-	lws_fi_ctx_t		fi;	/**< Fault Injection context */
+	lws_fi_ctx_t		fic;	/**< Fault Injection context */
 #endif
 
 	lws_dll2_owner_t	metadata_owner;
@@ -402,7 +402,7 @@ lws_ss_deserialize_tx_payload(struct lws_dsh *dsh, struct lws *wsi,
 			      lws_ss_tx_ordinal_t ord, uint8_t *buf,
 			      size_t *len, int *flags);
 int
-lws_ss_serialize_state(struct lws_dsh *dsh, lws_ss_constate_t state,
+lws_ss_serialize_state(struct lws *wsi, struct lws_dsh *dsh, lws_ss_constate_t state,
 		       lws_ss_tx_ordinal_t ack);
 
 void

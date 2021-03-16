@@ -248,13 +248,18 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 	case LWSSSCS_ALL_RETRIES_FAILED:
 		/* if we're out of retries, we want to close the app and FAIL */
 		interrupted = 1;
+		bad = 2;
 		break;
+
 	case LWSSSCS_QOS_ACK_REMOTE:
 		lwsl_notice("%s: LWSSSCS_QOS_ACK_REMOTE\n", __func__);
 		break;
 
 	case LWSSSCS_TIMEOUT:
 		lwsl_notice("%s: LWSSSCS_TIMEOUT\n", __func__);
+		/* if we're out of time */
+		interrupted = 1;
+		bad = 3;
 		break;
 
 	case LWSSSCS_USER_BASE:
@@ -405,8 +410,8 @@ int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	struct lws_context *context;
+	int n = 0, expected = 0;
 	const char *p;
-	int n = 0;
 
 	signal(SIGINT, sigint_handler);
 
@@ -475,7 +480,7 @@ int main(int argc, const char **argv)
 	context = lws_create_context(&info);
 	if (!context) {
 		lwsl_err("lws init failed\n");
-		return 1;
+		goto bail;
 	}
 
 #if !defined(LWS_SS_USE_SSPC)
@@ -520,7 +525,15 @@ int main(int argc, const char **argv)
 
 	lws_context_destroy(context);
 
-	lwsl_user("Completed: %s\n", bad ? "failed" : "OK");
+bail:
+	if ((p = lws_cmdline_option(argc, argv, "--expected-exit")))
+		expected = atoi(p);
 
-	return bad;
+	if (bad == expected) {
+		lwsl_user("Completed: OK (seen expected %d)\n", expected);
+		return 0;
+	} else
+		lwsl_err("Completed: failed: exit %d, expected %d\n", bad, expected);
+
+	return 1;
 }
