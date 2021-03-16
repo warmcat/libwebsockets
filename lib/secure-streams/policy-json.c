@@ -1108,6 +1108,21 @@ int
 lws_ss_policy_parse_abandon(struct lws_context *context)
 {
 	struct policy_cb_args *args = (struct policy_cb_args *)context->pol_args;
+	lws_ss_x509_t *x;
+
+	x = args->heads[LTY_X509].x;
+	while (x) {
+		/*
+		 * Free all the client DER buffers now they have been parsed
+		 * into tls library X.509 objects
+		 */
+		if (!x->keep) { /* used for server */
+			lws_free((void *)x->ca_der);
+			x->ca_der = NULL;
+		}
+
+		x = x->next;
+	}
 
 	lejp_destruct(&args->jctx);
 	lwsac_free(&args->ac);

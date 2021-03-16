@@ -175,17 +175,23 @@ done_list:
 #endif
 
 	for (m = 0; m < limit; m++) {
+
+		if (lws_fi(&vhost->fic, "listenskt")) {
+			sockfd = LWS_SOCK_INVALID;
+		} else {
+
 #ifdef LWS_WITH_UNIX_SOCK
-		if (LWS_UNIX_SOCK_ENABLED(vhost))
-			sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
-		else
+			if (LWS_UNIX_SOCK_ENABLED(vhost))
+				sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
+			else
 #endif
 #ifdef LWS_WITH_IPV6
-		if (LWS_IPV6_ENABLED(vhost))
-			sockfd = socket(AF_INET6, SOCK_STREAM, 0);
-		else
+			if (LWS_IPV6_ENABLED(vhost))
+				sockfd = socket(AF_INET6, SOCK_STREAM, 0);
+			else
 #endif
-			sockfd = socket(AF_INET, SOCK_STREAM, 0);
+				sockfd = socket(AF_INET, SOCK_STREAM, 0);
+		}
 
 		if (sockfd == LWS_SOCK_INVALID) {
 			lwsl_err("ERROR opening socket\n");

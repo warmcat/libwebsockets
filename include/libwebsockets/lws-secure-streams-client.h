@@ -61,6 +61,7 @@
 #define lws_ss_change_handlers		lws_sspc_change_handlers
 #define lws_smd_ss_rx_forward		lws_smd_sspc_rx_forward
 #define lws_ss_tag			lws_sspc_tag
+#define _lws_fi_user_ss_fi		_lws_fi_user_sspc_fi
 #endif
 
 
