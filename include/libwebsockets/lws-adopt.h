@@ -152,6 +152,7 @@ typedef struct lws_adopt_desc {
 	const char *vh_prot_name;	/**< NULL or vh protocol name to bind raw connection to */
 	struct lws *parent;		/**< NULL or struct lws to attach new_wsi to as a child */
 	void *opaque;			/**< opaque pointer to set on created wsi */
+	const char *fi_wsi_name;	/**< NULL, or Fault Injection inheritence filter for wsi=string/ context faults */
 } lws_adopt_desc_t;
 
 /**
@@ -249,6 +250,11 @@ lws_adopt_socket_vhost_readbuf(struct lws_vhost *vhost,
  * \param parent_wsi:	 NULL or parent wsi new wsi will be a child of
  * \param opaque:	 set created wsi opaque ptr to this
  * \param retry_policy:	 NULL for vhost default policy else wsi specific policy
+ * \param fi_wsi_name:	 NULL, or string to inherit Fault Injection rules in
+ *			 form "wsi=string/rule".  "wsi/rule" faults will be
+ *			 automatically applied as well.  It's done at creation
+ *			 time so the rules can, eg, inject faults related to
+ *			 creation.
  *
  * Either returns new wsi bound to accept_fd, or closes accept_fd and
  * returns NULL, having cleaned up any new wsi pieces.
@@ -257,7 +263,7 @@ LWS_VISIBLE LWS_EXTERN struct lws *
 lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 		     int flags, const char *protocol_name, const char *ifname,
 		     struct lws *parent_wsi, void *opaque,
-		     const lws_retry_bo_t *retry_policy);
+		     const lws_retry_bo_t *retry_policy, const char *fi_wsi_name);
 #endif
 
 

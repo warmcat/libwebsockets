@@ -34,6 +34,7 @@
 static int interrupted, bad = 1, port = 0 /* unix domain socket */;
 static const char *ibind = NULL; /* default to unix domain skt "proxy.ss.lws" */
 static lws_state_notify_link_t nl;
+static struct lws_context *context;
 
 /*
  * We just define enough policy so it can fetch the latest one securely
@@ -233,41 +234,21 @@ static const lws_system_ops_t system_ops = {
 static void
 sigint_handler(int sig)
 {
+	lwsl_notice("%s\n", __func__);
 	interrupted = 1;
-}
-
-static void
-assert_bt(int sig)
-{
-#if defined(__APPLE__) || defined(__linux__)
-	  void *array[20];
-	  char **strings;
-	  int size, i;
-
-	  size = backtrace (array, 10);
-	  strings = backtrace_symbols (array, size);
-	  if (!strings)
-		  return;
-
-	    for (i = 0; i < size; i++)
-	      printf("%s\n", strings[i]);
-
-	  free (strings);
-#endif
+	lws_cancel_service(context);
 }
 
 int main(int argc, const char **argv)
 {
-	int n = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
 	struct lws_context_creation_info info;
-	struct lws_context *context;
 	const char *p;
+	int n = 0;
+
+	memset(&info, 0, sizeof info);
+	lws_cmdline_option_handle_builtin(argc, argv, &info);
 
 	signal(SIGINT, sigint_handler);
-	signal(SIGABRT, assert_bt);
-
-	if ((p = lws_cmdline_option(argc, argv, "-d")))
-		logs = atoi(p);
 
 	/* connect to ssproxy via UDS by default, else via tcp with this port */
 	if ((p = lws_cmdline_option(argc, argv, "-p")))
@@ -278,10 +259,7 @@ int main(int argc, const char **argv)
 	if ((p = lws_cmdline_option(argc, argv, "-i")))
 		ibind = p;
 
-	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS secure streams Proxy [-d<verb>]\n");
-
-	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 		       LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW |
@@ -311,8 +289,9 @@ int main(int argc, const char **argv)
 
 	/* the event loop */
 
-	while (n >= 0 && !interrupted)
+	do {
 		n = lws_service(context, 0);
+	} while (n >= 0 && !interrupted);
 
 	bad = 0;
 

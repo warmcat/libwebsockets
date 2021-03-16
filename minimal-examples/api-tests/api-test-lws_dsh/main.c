@@ -1,7 +1,7 @@
 /*
  * lws-api-test-lws_dsh
  *
- * Written in 2010-2019 by Andy Green <andy@warmcat.com>
+ * Written in 2010-2021 by Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
@@ -252,7 +252,7 @@ test4(void)
 	memset(blob, 0, sizeof(blob));
 
 	/*
-	 * test 1: use up whole free list, then recover and alloc something
+	 * test 4: use up whole free list, then recover and alloc something
 	 *	   else
 	 */
 
@@ -327,6 +327,92 @@ bail:
 	return 1;
 }
 
+int
+test5(void)
+{
+	struct lws_dsh *dsh;
+	unsigned int budget;
+	uint8_t blob[4096];
+	lws_xos_t xos;
+	size_t size;
+	void *a1;
+
+	memset(blob, 0, sizeof(blob));
+	lws_xos_init(&xos, 0x123456789abcdef0ull);
+
+	budget = (unsigned int)(lws_xos(&xos) % 4000) + 4000;
+
+	lwsl_notice("%s: budget %u\n", __func__, budget);
+
+
+	/*
+	 * test 5: PRNG-based spamming and erratic bidi draining
+	 */
+
+	dsh = lws_dsh_create(NULL, 409600, 2);
+	if (!dsh) {
+		lwsl_err("%s: Failed to create dsh\n", __func__);
+
+		return 1;
+	}
+
+	do {
+
+		if (lws_xos_percent(&xos, 60)) {
+			/* kind 0 is going to try to write */
+
+			size = (size_t)((lws_xos(&xos) & 127) + 1);
+
+			if (!lws_dsh_alloc_tail(dsh, 0, blob, size, NULL, 0))
+				lwsl_notice("%s: kind 0 alloc %d\n", __func__, (int)size);
+		}
+
+		if (lws_xos_percent(&xos, 80)) {
+			/* kind 1 is going to try to write */
+
+			size = (size_t)((lws_xos(&xos) & 127) + 1);
+
+			if (!lws_dsh_alloc_tail(dsh, 1, blob, size, NULL, 0))
+				lwsl_notice("%s: kind 1 alloc %d\n", __func__, (int)size);
+		}
+
+		if (lws_xos_percent(&xos, 40)) {
+			/* kind 0 is going to try to read */
+
+			while (!lws_dsh_get_head(dsh, 0, &a1, &size)) {
+				lwsl_notice("%s: kind 0 read %d\n", __func__, (int)size);
+				lws_dsh_free(&a1);
+			}
+		}
+
+		if (lws_xos_percent(&xos, 30)) {
+			/* kind 1 is going to try to read */
+
+			while (!lws_dsh_get_head(dsh, 1, &a1, &size)) {
+				lwsl_notice("%s: kind 1 read %d\n", __func__, (int)size);
+				lws_dsh_free(&a1);
+			}
+		}
+
+	} while (budget--);
+
+	while (!lws_dsh_get_head(dsh, 0, &a1, &size)) {
+		lwsl_notice("%s: kind 0 read %d\n", __func__, (int)size);
+		lws_dsh_free(&a1);
+	}
+
+	while (!lws_dsh_get_head(dsh, 1, &a1, &size)) {
+		lwsl_notice("%s: kind 1 read %d\n", __func__, (int)size);
+		lws_dsh_free(&a1);
+	}
+
+	lws_dsh_describe(dsh, "test dsh end state");
+
+	lws_dsh_destroy(&dsh);
+
+	return 0;
+}
+
 int main(int argc, const char **argv)
 {
 	int logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
@@ -353,6 +439,10 @@ int main(int argc, const char **argv)
 
 	n = test4();
 	lwsl_user("%s: test4: %d\n", __func__, n);
+	ret |= n;
+
+	n = test5();
+	lwsl_user("%s: test5: %d\n", __func__, n);
 	ret |= n;
 
 	lwsl_user("Completed: %s\n", ret ? "FAIL" : "PASS");

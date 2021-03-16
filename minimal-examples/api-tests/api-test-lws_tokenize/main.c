@@ -1,7 +1,7 @@
 /*
  * lws-api-test-lws_tokenize
  *
- * Written in 2010-2020 by Andy Green <andy@warmcat.com>
+ * Written in 2010-2021 by Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
@@ -173,6 +173,10 @@ struct expected expected1[] = {
 	expected17[] = {
 		{ LWS_TOKZE_TOKEN, "hello", 5 },
 		{ LWS_TOKZE_ENDED, "", 0 },
+	},
+	expected18[] = {
+		{ LWS_TOKZE_TOKEN, "x=y", 3 },
+		{ LWS_TOKZE_ENDED, "", 0 },
 	}
 ;
 
@@ -253,6 +257,10 @@ struct tests tests[] = {
 	{
 		"# comment1\r\nhello #comment2\r\n#comment3", expected17,
 		LWS_ARRAY_SIZE(expected17), LWS_TOKENIZE_F_HASH_COMMENT
+	},
+	{
+		"x=y", expected18,
+		LWS_ARRAY_SIZE(expected18), LWS_TOKENIZE_F_EQUALS_NONTERM
 	}
 };
 

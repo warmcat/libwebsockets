@@ -44,7 +44,7 @@ In the callback, it should simply call `lws_callback_on_writable()` for the udp 
 
 ## Simulating packetloss
 
-lws now allows you to set the amount of simulated packetloss on udp rx and tx in
-the context creation info struct, using `.udp_loss_sim_tx_pc` and `.udp_loss_sim_rx_pc`,
-the values are percentages between 0 and 100.  0, the default, means no packetloss.
-
+You can simulate udp packetloss at tx and rx by using the Fault Injection apis
+with the well-known fault names "udp_tx_loss" and "udp_rx_loss", typically
+with the probabilistic setting, in commandline format something like
+`--fault-injection "wsi/udp_tx_loss(10%)"`

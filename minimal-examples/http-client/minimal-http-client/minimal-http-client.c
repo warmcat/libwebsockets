@@ -73,6 +73,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_err("CLIENT_CONNECTION_ERROR: %s\n",
 			 in ? (char *)in : "(null)");
 		interrupted = 1;
+		bad = 3; /* connection failed before we could make connection */
 		lws_cancel_service(lws_get_context(wsi));
 
 #if defined(LWS_WITH_CONMON)
@@ -97,6 +98,10 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_h2_client_stream_long_poll_rxonly(wsi);
 		}
 #endif
+
+		if (lws_fi_user_wsi_fi(wsi, "user_reject_at_est"))
+			return -1;
+
 		break;
 
 #if defined(LWS_WITH_HTTP_BASIC_AUTH)
@@ -132,17 +137,10 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 					dotstar);
 		}
 #endif
-#if 0  /* enable to dump the html */
-		{
-			const char *p = in;
-
-			while (len--)
-				if (*p < 0x7f)
-					putchar(*p++);
-				else
-					putchar('.');
-		}
+#if 0
+		lwsl_hexdump_notice(in, len);
 #endif
+
 		return 0; /* don't passthru */
 
 	/* uninterpreted http content */
@@ -151,6 +149,9 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 			char buffer[1024 + LWS_PRE];
 			char *px = buffer + LWS_PRE;
 			int lenx = sizeof(buffer) - LWS_PRE;
+
+			if (lws_fi_user_wsi_fi(wsi, "user_reject_at_rx"))
+				return -1;
 
 			if (lws_http_client_read(wsi, &px, &lenx) < 0)
 				return -1;
@@ -304,8 +305,18 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 
 	i.protocol = protocols[0].name;
 	i.pwsi = &client_wsi;
+	i.fi_wsi_name = "user";
 
-	return !lws_client_connect_via_info(&i);
+	if (!lws_client_connect_via_info(&i)) {
+		lwsl_err("Client creation failed\n");
+		interrupted = 1;
+		bad = 2; /* could not even start client connection */
+		lws_cancel_service(context);
+
+		return 1;
+	}
+
+	return 0;
 }
 
 int main(int argc, const char **argv)
@@ -314,8 +325,9 @@ int main(int argc, const char **argv)
 	lws_state_notify_link_t *na[] = { &notifier, NULL };
 	struct lws_context_creation_info info;
 	struct lws_context *context;
+	int n = 0, expected = 0;
 	struct args args;
-	int n = 0;
+	const char *p;
 	// uint8_t memcert[4096];
 
 	args.argc = argc;
@@ -334,7 +346,7 @@ int main(int argc, const char **argv)
 	info.protocols = protocols;
 	info.user = &args;
 	info.register_notifier_list = na;
-       info.connect_timeout_secs = 30;
+	info.connect_timeout_secs = 30;
 
 	/*
 	 * since we know this lws context is only ever going to be used with
@@ -365,14 +377,24 @@ int main(int argc, const char **argv)
 	context = lws_create_context(&info);
 	if (!context) {
 		lwsl_err("lws init failed\n");
-		return 1;
+		bad = 5;
+		goto bail;
 	}
 
 	while (n >= 0 && !interrupted)
 		n = lws_service(context, 0);
 
 	lws_context_destroy(context);
-	lwsl_user("Completed: %s\n", bad ? "failed" : "OK");
 
-	return bad;
+bail:
+	if ((p = lws_cmdline_option(argc, argv, "--expected-exit")))
+		expected = atoi(p);
+
+	if (bad == expected) {
+		lwsl_user("Completed: OK (seen expected %d)\n", expected);
+		return 0;
+	} else
+		lwsl_err("Completed: failed: exit %d, expected %d\n", bad, expected);
+
+	return 1;
 }

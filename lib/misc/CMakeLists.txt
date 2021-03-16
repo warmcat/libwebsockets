@@ -33,6 +33,7 @@ include_directories(.)
 
 list(APPEND SOURCES
 	misc/base64-decode.c
+	misc/prng.c
 	misc/lws-ring.c)
 
 if (LWS_WITH_FTS)
