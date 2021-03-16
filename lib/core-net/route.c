@@ -153,9 +153,14 @@ _lws_route_remove(struct lws_context_per_thread *pt, lws_route_t *robj, int flag
 void
 _lws_route_table_empty(struct lws_context_per_thread *pt)
 {
+
+	if (!pt->context)
+		return;
+
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 				   lws_dll2_get_head(&pt->context->routing_table)) {
 		lws_route_t *rou = lws_container_of(d, lws_route_t, list);
+
 		lws_dll2_remove(&rou->list);
 		lws_free(rou);
 

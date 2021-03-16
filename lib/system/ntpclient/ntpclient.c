@@ -83,7 +83,7 @@ lws_ntpc_retry_conn(struct lws_sorted_usec_list *sul)
 	v->retry_count_write = 0;
 	v->wsi_udp = lws_create_adopt_udp(v->vhost, v->ntp_server_ads, 123, 0,
 					  v->protocol->name, NULL, NULL, NULL,
-					  &bo2);
+					  &bo2, "ntpclient");
 	lwsl_debug("%s: created wsi_udp: %s\n", __func__, lws_wsi_tag(v->wsi_udp));
 	if (!v->wsi_udp) {
 		lwsl_err("%s: unable to create udp skt\n", __func__);

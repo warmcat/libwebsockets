@@ -1459,6 +1459,9 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 			/* pass on the initial headers to SID 1 */
 			h2n->swsi->http.ah = wsi->http.ah;
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+			lws_fi_import(&h2n->swsi->fic, &wsi->fic);
+#endif
 			h2n->swsi->client_mux_substream = 1;
 			h2n->swsi->client_h2_alpn = 1;
 #if defined(LWS_WITH_CLIENT)

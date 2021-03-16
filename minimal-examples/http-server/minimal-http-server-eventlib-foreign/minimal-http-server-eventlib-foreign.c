@@ -150,6 +150,9 @@ do_client_conn(void)
 	i.origin		= i.address;
 	i.method		= "GET";
 	i.local_protocol_name	= protocols[0].name;
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	i.fi_wsi_name		= "user";
+#endif
 
 	if (!lws_client_connect_via_info(&i)) {
 		lwsl_err("Client creation failed\n");

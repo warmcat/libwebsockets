@@ -151,6 +151,9 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	lws_dns_sort_t *curr;
 	ssize_t plen = 0;
 	lws_dll2_t *d;
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	int cfail;
+#endif
 	int m;
 
 	/*
@@ -437,7 +440,14 @@ ads_known:
 #endif
 
 	wsi->socket_is_permanently_unusable = 0;
-	m = connect(wsi->desc.sockfd, (const struct sockaddr *)psa, (unsigned int)n);
+
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	cfail = lws_fi(&wsi->fic, "connfail");
+	if (cfail)
+		m = -1;
+	else
+#endif
+		m = connect(wsi->desc.sockfd, (const struct sockaddr *)psa, (unsigned int)n);
 
 #if defined(LWS_WITH_CONMON)
 	wsi->conmon_datum = lws_now_usecs();
@@ -453,6 +463,12 @@ ads_known:
 		 */
 
 		int errno_copy = LWS_ERRNO;
+
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+		if (cfail)
+			/* fake an abnormal, fatal situation */
+			errno_copy = 999;
+#endif
 
 		lwsl_debug("%s: connect: errno: %d\n", __func__, errno_copy);
 
@@ -485,10 +501,10 @@ ads_known:
 
 			lws_sa46_write_numeric_address(&wsi->sa46_peer, nads,
 						       sizeof(nads));
-			lwsl_info("%s: Connect failed: %s port %d\n", __func__,
-				  nads, port);
 
 			wsi->sa46_peer.sa4.sin_family = 0;
+			lwsl_info("%s: Connect failed: %s port %d (errno %d)\n",
+					__func__, nads, port, errno_copy);
 #if defined(LWS_WITH_UNIX_SOCK)
 			}
 #endif
