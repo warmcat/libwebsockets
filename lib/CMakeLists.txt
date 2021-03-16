@@ -199,6 +199,7 @@ if (LWS_WITH_SHARED)
 	if (UNIX AND LWS_WITH_PLUGINS_API)
 		set (CMAKE_POSITION_INDEPENDENT_CODE ON)
 		if (NOT((${CMAKE_SYSTEM_NAME} MATCHES "FreeBSD") OR
+		   (${CMAKE_SYSTEM_NAME} MATCHES "OpenBSD") OR
 		   (${CMAKE_SYSTEM_NAME} MATCHES "QNX")))
 		   if (LWS_WITH_SHARED)
 				target_link_libraries(websockets_shared dl)

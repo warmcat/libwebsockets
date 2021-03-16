@@ -233,11 +233,11 @@
 			"cmake":	"-DLWS_WITH_NETWORK=0"
 		},
 		"libev": {
-			"cmake":	"-DLWS_WITH_LIBEV=ON"
+			"cmake":	"-DLWS_WITH_LIBEV=ON",
+			"platforms":	"openbsd/x86_64-amd/llvm"
 		},
 		"libevent": {
-			"cmake":	"-DLWS_WITH_LIBEVENT=ON",
-			"platforms":	"openbsd/x86_64-amd/llvm"
+			"cmake":	"-DLWS_WITH_LIBEVENT=ON"
 		},
 		"libglib": {
 			"cmake":	"-DLWS_WITH_GLIB=ON"
