@@ -54,6 +54,7 @@ _lws_plat_service_forced_tsi(struct lws_context *context, int tsi)
 				 __func__, m);
 			return -1;
 		}
+
 		/* if something closed, retry this slot since may have been
 		 * swapped with end fd */
 		if (m && pt->fds[n].fd != fd)

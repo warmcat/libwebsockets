@@ -115,7 +115,7 @@ lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi, const char *de
 static struct lws *
 lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 			    const char *vh_prot_name, struct lws *parent,
-			    void *opaque)
+			    void *opaque, const char *fi_wsi_name)
 {
 	struct lws_context *context = vh->context;
 	struct lws_context_per_thread *pt;
@@ -135,6 +135,15 @@ lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 		n = parent->tsi;
 	new_wsi = lws_create_new_server_wsi(vh, n, "adopted");
 	if (!new_wsi) {
+		lws_context_unlock(vh->context);
+		return NULL;
+	}
+
+	/* bring in specific fault injection rules early */
+	lws_fi_inherit_copy(&new_wsi->fic, &context->fic, "wsi", fi_wsi_name);
+
+	if (lws_fi(&new_wsi->fic, "createfail")) {
+		lws_fi_destroy(&new_wsi->fic);
 		lws_context_unlock(vh->context);
 		return NULL;
 	}
@@ -200,6 +209,8 @@ bail:
 		parent->child_list = new_wsi->sibling_list;
 	if (new_wsi->user_space)
 		lws_free(new_wsi->user_space);
+
+	lws_fi_destroy(&new_wsi->fic);
 
 	lws_vhost_unbind_wsi(new_wsi);
 
@@ -509,7 +520,7 @@ lws_adopt_descriptor_vhost_via_info(const lws_adopt_desc_t *info)
 
 	new_wsi = lws_adopt_descriptor_vhost1(info->vh, info->type,
 					      info->vh_prot_name, info->parent,
-					      info->opaque);
+					      info->opaque, info->fi_wsi_name);
 	if (!new_wsi) {
 		if (info->type & LWS_ADOPT_SOCKET)
 			compatible_close(info->fd.sockfd);
@@ -772,7 +783,7 @@ struct lws *
 lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 		     int flags, const char *protocol_name, const char *ifname,
 		     struct lws *parent_wsi, void *opaque,
-		     const lws_retry_bo_t *retry_policy)
+		     const lws_retry_bo_t *retry_policy, const char *fi_wsi_name)
 {
 #if !defined(LWS_PLAT_OPTEE)
 	struct lws *wsi;
@@ -782,8 +793,10 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 
 	/* create the logical wsi without any valid fd */
 
-	wsi = lws_adopt_descriptor_vhost1(vhost, LWS_ADOPT_SOCKET | LWS_ADOPT_RAW_SOCKET_UDP,
-					  protocol_name, parent_wsi, opaque);
+	wsi = lws_adopt_descriptor_vhost1(vhost, LWS_ADOPT_SOCKET |
+						 LWS_ADOPT_RAW_SOCKET_UDP,
+					  protocol_name, parent_wsi, opaque,
+					  fi_wsi_name);
 	if (!wsi) {
 		lwsl_err("%s: udp wsi creation failed\n", __func__);
 		goto bail;

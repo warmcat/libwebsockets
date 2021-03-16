@@ -354,7 +354,7 @@ typedef struct lws_ss_info {
 #endif
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
-	lws_fi_ctx_t				*fi;
+	lws_fi_ctx_t				fic;
 	/**< Attach external Fault Injection context to the stream, hierarchy
 	 * is ss->context */
 #endif
