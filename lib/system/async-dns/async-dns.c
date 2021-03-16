@@ -28,7 +28,7 @@
 static const uint32_t botable[] = { 300, 500, 700, 1250, 5000
 				/* in case everything just dog slow */ };
 static const lws_retry_bo_t retry_policy = {
-	botable, LWS_ARRAY_SIZE(botable), LWS_ARRAY_SIZE(botable),
+	botable, LWS_ARRAY_SIZE(botable), LWS_RETRY_CONCEAL_ALWAYS,
 	/* don't conceal after the last table entry */ 0, 0, 20 };
 
 void
@@ -371,7 +371,7 @@ ok:
 
 	dns->wsi = lws_create_adopt_udp(context->vhost_list, ads, 53, 0,
 					lws_async_dns_protocol.name, NULL,
-				        NULL, NULL, &retry_policy);
+				        NULL, NULL, &retry_policy, "asyncdns");
 	if (!dns->wsi) {
 		lwsl_err("%s: foreign socket adoption failed\n", __func__);
 		return 1;

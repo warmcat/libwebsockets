@@ -794,8 +794,7 @@ done:
 	return 0;
 
 bail:
-if (test2())
-	return 1;
+
 	lwsl_user("Completed: FAIL\n");
 
 	return 1;
