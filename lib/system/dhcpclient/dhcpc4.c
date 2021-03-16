@@ -299,7 +299,7 @@ lws_dhcpc4_retry_conn(struct lws_sorted_usec_list *sul)
 					  68, LWS_CAUDP_PF_PACKET |
 					      LWS_CAUDP_BROADCAST,
 					  "lws-dhcp4client", (const char *)&r[1],
-					  NULL, NULL, &bo2);
+					  NULL, NULL, &bo2, "dhcpc");
 	lwsl_debug("%s: created wsi_raw: %s\n", __func__, lws_wsi_tag(r->wsi_raw));
 	if (!r->wsi_raw) {
 		lwsl_err("%s: unable to create udp skt\n", __func__);

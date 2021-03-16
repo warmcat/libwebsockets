@@ -62,7 +62,10 @@ lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
 #endif
 
 	wsi->dns_reachability = 0;
-	n = getaddrinfo(ads, NULL, &hints, result);
+	if (lws_fi(&wsi->fic, "dnsfail"))
+		n = EAI_FAIL;
+	else
+		n = getaddrinfo(ads, NULL, &hints, result);
 
 #if defined(LWS_WITH_CONMON)
 	wsi->conmon.ciu_dns = (lws_conmon_interval_us_t)
@@ -97,7 +100,7 @@ lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
 		lws_snprintf(buckname, sizeof(buckname), "dns=\"unreachable %d\"", n);
 		lws_metrics_hist_bump_priv_wsi(wsi, mth_conn_failures, buckname);
 #endif
-		lwsl_notice("%s: asking to recheck CPD in 1s\n", __func__);
+		lwsl_debug("%s: asking to recheck CPD in 1s\n", __func__);
 		lws_system_cpd_start_defer(wsi->a.context, LWS_US_PER_SEC);
 	}
 
@@ -338,7 +341,10 @@ solo:
 #else
 	/* this is either FAILED, CONTINUING, or already called connect_4 */
 
-	n = lws_async_dns_query(wsi->a.context, wsi->tsi, ads,
+	if (lws_fi(&wsi->fic, "dnsfail"))
+		return lws_client_connect_3_connect(wsi, NULL, NULL, -4, NULL);
+	else
+		n = lws_async_dns_query(wsi->a.context, wsi->tsi, ads,
 				LWS_ADNS_RECORD_A, lws_client_connect_3_connect,
 				wsi, NULL);
 

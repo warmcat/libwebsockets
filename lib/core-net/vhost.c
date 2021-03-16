@@ -556,14 +556,16 @@ lws_create_vhost(struct lws_context *context,
 #endif
 	int n;
 
-
-	vh = lws_zalloc(sizeof(*vh)
+	if (lws_fi(&info->fic, "vh_create_oom"))
+		vh = NULL;
+	else
+		vh = lws_zalloc(sizeof(*vh)
 #if defined(LWS_WITH_EVENT_LIBS)
 			+ context->event_loop_ops->evlib_size_vh
 #endif
 			, __func__);
 	if (!vh)
-		return NULL;
+		goto early_bail;
 
 #if defined(LWS_WITH_EVENT_LIBS)
 	vh->evlib_vh = (void *)&vh[1];
@@ -596,14 +598,17 @@ lws_create_vhost(struct lws_context *context,
 			info->iface ? info->iface : "", info->port);
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
-	vh->fi.name = "vh";
-	vh->fi.parent = &context->fi;
-	if (info->fi)
+	vh->fic.name = "vh";
+	if (info->fic.fi_owner.count)
 		/*
 		 * This moves all the lws_fi_t from info->fi to the vhost fi,
 		 * leaving it empty
 		 */
-		lws_fi_import(&vh->fi, info->fi);
+		lws_fi_import(&vh->fic, &info->fic);
+
+	lws_fi_inherit_copy(&vh->fic, &context->fic, "vh", vh->name);
+	if (lws_fi(&vh->fic, "vh_create_oom"))
+		goto bail;
 #endif
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
@@ -722,16 +727,19 @@ lws_create_vhost(struct lws_context *context,
 	 * - the ones that came from plugins
 	 * - his user protocols
 	 */
-	lwsp = lws_zalloc(sizeof(struct lws_protocols) *
+
+	if (lws_fi(&vh->fic, "vh_create_pcols_oom"))
+		lwsp = NULL;
+	else
+		lwsp = lws_zalloc(sizeof(struct lws_protocols) *
 				((unsigned int)vh->count_protocols +
 				   (unsigned int)abs_pcol_count +
 				   (unsigned int)sec_pcol_count +
 				   (unsigned int)context->plugin_protocol_count +
-				   (unsigned int)fx + 1),
-			  "vhost-specific plugin table");
+				   (unsigned int)fx + 1), "vh plugin table");
 	if (!lwsp) {
 		lwsl_err("OOM\n");
-		return NULL;
+		goto bail;
 	}
 
 	/*
@@ -919,7 +927,10 @@ lws_create_vhost(struct lws_context *context,
 
 #ifdef LWS_WITH_ACCESS_LOG
 	if (info->log_filepath) {
-		vh->log_fd = lws_open(info->log_filepath,
+		if (lws_fi(&vh->fic, "vh_create_access_log_open_fail"))
+			vh->log_fd = (int)LWS_INVALID_FILE;
+		else
+			vh->log_fd = lws_open(info->log_filepath,
 				  O_CREAT | O_APPEND | O_RDWR, 0600);
 		if (vh->log_fd == (int)LWS_INVALID_FILE) {
 			lwsl_err("unable to open log filepath %s\n",
@@ -936,17 +947,22 @@ lws_create_vhost(struct lws_context *context,
 	} else
 		vh->log_fd = (int)LWS_INVALID_FILE;
 #endif
-	if (lws_context_init_server_ssl(info, vh)) {
+	if (lws_fi(&vh->fic, "vh_create_ssl_srv") ||
+	    lws_context_init_server_ssl(info, vh)) {
 		lwsl_err("%s: lws_context_init_server_ssl failed\n", __func__);
 		goto bail1;
 	}
-	if (lws_context_init_client_ssl(info, vh)) {
+	if (lws_fi(&vh->fic, "vh_create_ssl_cli") ||
+	    lws_context_init_client_ssl(info, vh)) {
 		lwsl_err("%s: lws_context_init_client_ssl failed\n", __func__);
 		goto bail1;
 	}
 #if defined(LWS_WITH_SERVER)
 	lws_context_lock(context, __func__);
-	n = _lws_vhost_init_server(info, vh);
+	if (lws_fi(&vh->fic, "vh_create_srv_init"))
+		n = -1;
+	else
+		n = _lws_vhost_init_server(info, vh);
 	lws_context_unlock(context);
 	if (n < 0) {
 		lwsl_err("init server failed\n");
@@ -974,7 +990,8 @@ lws_create_vhost(struct lws_context *context,
 	/* for the case we are adding a vhost much later, after server init */
 
 	if (context->protocol_init_done)
-		if (lws_protocol_init(context)) {
+		if (lws_fi(&vh->fic, "vh_create_protocol_init") ||
+		    lws_protocol_init(context)) {
 			lwsl_err("%s: lws_protocol_init failed\n", __func__);
 			goto bail1;
 		}
@@ -986,10 +1003,13 @@ bail1:
 
 	return NULL;
 
-#ifdef LWS_WITH_ACCESS_LOG
 bail:
+	__lws_lc_untag(&vh->lc);
+	lws_fi_destroy(&vh->fic);
 	lws_free(vh);
-#endif
+
+early_bail:
+	lws_fi_destroy(&info->fic);
 
 	return NULL;
 }
@@ -1441,7 +1461,7 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 	lws_dll2_remove(&vh->vh_being_destroyed_list);
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
-	lws_fi_destroy(&vh->fi);
+	lws_fi_destroy(&vh->fic);
 #endif
 
 	__lws_lc_untag(&vh->lc);

@@ -464,7 +464,7 @@ struct lws_vhost {
 #endif
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
-	lws_fi_ctx_t				fi;
+	lws_fi_ctx_t				fic;
 	/**< Fault Injection ctx for the vhost, hierarchy vhost->context */
 #endif
 
@@ -684,7 +684,7 @@ struct lws {
 #endif
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
-	lws_fi_ctx_t				fi;
+	lws_fi_ctx_t				fic;
 	/**< Fault Injection ctx for the wsi, hierarchy wsi->vhost->context */
 #endif
 

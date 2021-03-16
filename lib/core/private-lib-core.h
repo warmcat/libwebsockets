@@ -524,7 +524,7 @@ struct lws_context {
 #endif
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
-	lws_fi_ctx_t			fi;
+	lws_fi_ctx_t			fic;
 	/**< Toplevel Fault Injection ctx */
 #endif
 
@@ -729,8 +729,6 @@ struct lws_context {
 	uint16_t us_wait_resolution;
 
 	uint8_t max_fi;
-	uint8_t udp_loss_sim_tx_pc;
-	uint8_t udp_loss_sim_rx_pc;
 	uint8_t captive_portal_detect;
 	uint8_t captive_portal_detect_type;
 

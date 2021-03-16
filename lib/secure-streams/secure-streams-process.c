@@ -91,6 +91,8 @@ __lws_ss_proxy_bind_ss_to_conn_wsi(void *parconn, size_t dsh_size)
 
 	pt = &conn->wsi->a.context->pt[(int)conn->wsi->tsi];
 
+	if (lws_fi(&conn->ss->fic, "ssproxy_dsh_create_oom"))
+		return -1;
 	conn->dsh = lws_dsh_create(&pt->ss_dsh_owner, dsh_size, 2);
 	if (!conn->dsh)
 		return -1;
@@ -100,7 +102,7 @@ __lws_ss_proxy_bind_ss_to_conn_wsi(void *parconn, size_t dsh_size)
 	return 0;
 }
 
-/* secure streams payload interface */
+/* Onward secure streams payload interface */
 
 static lws_ss_state_return_t
 ss_proxy_onward_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
@@ -120,9 +122,22 @@ ss_proxy_onward_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 		flags |= LWSSS_FLAG_RIDESHARE;
 	}
 
-	n = lws_ss_serialize_rx_payload(m->conn->dsh, buf, len, flags, rsp);
+	/*
+	 * Apply SSS framing around this chunk of RX and stash it in the dsh
+	 * in ss -> proxy [ -> client] direction.  This can fail...
+	 */
+
+	if (lws_fi(&m->ss->fic, "ssproxy_dsh_rx_queue_oom"))
+		n = 1;
+	else
+		n = lws_ss_serialize_rx_payload(m->conn->dsh, buf, len,
+						flags, rsp);
 	if (n)
-		return n;
+		/*
+		 * We couldn't buffer this rx, eg due to OOM, let's escalate it
+		 * to be a "loss of connection", which it basically is...
+		 */
+		return LWSSSSRET_DISCONNECT_ME;
 
 	/*
 	 * Manage rx flow on the SS (onward) side according to our situation
@@ -141,7 +156,7 @@ ss_proxy_onward_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	if (m->conn->wsi) /* if possible, request client conn write */
 		lws_callback_on_writable(m->conn->wsi);
 
-	return 0;
+	return LWSSSSRET_OK;
 }
 
 /*
@@ -221,6 +236,8 @@ ss_proxy_onward_state(void *userobj, void *sh,
 				__func__, lws_ss_tag(m->ss),
 				(unsigned long)dsh_size);
 
+		/* this includes ssproxy_dsh_create_oom fault generation */
+
 		if (__lws_ss_proxy_bind_ss_to_conn_wsi(m->conn, dsh_size)) {
 
 			/* failed to allocate the dsh */
@@ -257,7 +274,12 @@ ss_proxy_onward_state(void *userobj, void *sh,
 		return LWSSSSRET_OK;
 	}
 
-	lws_ss_serialize_state(m->conn->dsh, state, ack);
+	if (lws_ss_serialize_state(m->conn->wsi, m->conn->dsh, state, ack))
+		/*
+		 * Failed to alloc state packet that we want to send in dsh,
+		 * we will lose coherence and have to disconnect the link
+		 */
+		return LWSSSSRET_DISCONNECT_ME;
 
 	if (m->conn->wsi) /* if possible, request client conn write */
 		lws_callback_on_writable(m->conn->wsi);
@@ -280,7 +302,7 @@ ss_proxy_onward_txcr(void *userobj, int bump)
 }
 
 /*
- * Client - Proxy connection on unix domain socket
+ * Client <-> Proxy connection, usually on Unix Domain Socket
  */
 
 static int
@@ -315,9 +337,14 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_info("LWS_CALLBACK_RAW_ADOPT\n");
 		if (!pss)
 			return -1;
-		pss->conn = malloc(sizeof(struct conn));
+
+		if (lws_fi(&wsi->fic, "ssproxy_client_adopt_oom"))
+			pss->conn = NULL;
+		else
+			pss->conn = malloc(sizeof(struct conn));
 		if (!pss->conn)
 			return -1;
+
 		memset(pss->conn, 0, sizeof(*pss->conn));
 
 		/* dsh is allocated when the onward ss is done */
@@ -354,8 +381,8 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		assert(conn->wsi == wsi);
 		conn->wsi = NULL;
 
-		lwsl_notice("%s: cli->prox link %s closing\n",
-				__func__, lws_wsi_tag(wsi));
+		lwsl_notice("%s: cli->prox link %s closing\n", __func__,
+				lws_wsi_tag(wsi));
 
 		/* sever relationship with conn */
 		lws_set_opaque_user_data(wsi, NULL);
@@ -518,9 +545,11 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 			conn->state = LPCSPROX_OPERATIONAL;
 			lws_set_timeout(wsi, 0, 0);
 			break;
+
 		case LPCSPROX_OPERATIONAL:
 
 			/*
+			 * returning [onward -> ] proxy]-> client
 			 * rx metadata has priority
 			 */
 
@@ -546,7 +575,8 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 					p[3] = (uint8_t)naml;
 					memcpy(&p[4], md->name, naml);
 					p += 4 + naml;
-					memcpy(p, md->value__may_own_heap, md->length);
+					memcpy(p, md->value__may_own_heap,
+					       md->length);
 					p += md->length;
 
 					n = lws_ptr_diff(p, cp);
@@ -607,7 +637,10 @@ again:
 		if (!n)
 			break;
 
-		n = lws_write(wsi, (uint8_t *)cp, (unsigned int)n, LWS_WRITE_RAW);
+		if (lws_fi(&wsi->fic, "ssproxy_client_write_fail"))
+			n = -1;
+		else
+			n = lws_write(wsi, (uint8_t *)cp, (unsigned int)n, LWS_WRITE_RAW);
 		if (n < 0) {
 			lwsl_info("%s: WRITEABLE: %d\n", __func__, n);
 

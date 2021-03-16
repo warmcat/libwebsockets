@@ -798,17 +798,9 @@ struct lws_context_creation_info {
 	 */
 
 #endif /* PEER_LIMITS */
-#if defined(LWS_WITH_UDP)
-	uint8_t udp_loss_sim_tx_pc;
-	/**< CONTEXT: percentage of udp writes we could have performed
-	 * to instead not do, in order to simulate and test udp retry flow */
-	uint8_t udp_loss_sim_rx_pc;
-	/**< CONTEXT: percentage of udp reads we actually received
-	 * to make disappear, in order to simulate and test udp retry flow */
-#endif
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
-	lws_fi_ctx_t				*fi;
+	lws_fi_ctx_t				fic;
 	/**< CONTEXT | VHOST: attach external Fault Injection context to the
 	 * lws_context or vhost.  If creating the context + default vhost in
 	 * one step, only the context binds to \p fi.  When creating a vhost

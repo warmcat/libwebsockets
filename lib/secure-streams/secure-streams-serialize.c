@@ -262,7 +262,7 @@ lws_ss_deserialize_tx_payload(struct lws_dsh *dsh, struct lws *wsi,
  */
 
 int
-lws_ss_serialize_state(struct lws_dsh *dsh, lws_ss_constate_t state,
+lws_ss_serialize_state(struct lws *wsi, struct lws_dsh *dsh, lws_ss_constate_t state,
 		       lws_ss_tx_ordinal_t ack)
 {
 	uint8_t pre[12];
@@ -285,7 +285,8 @@ lws_ss_serialize_state(struct lws_dsh *dsh, lws_ss_constate_t state,
 
 	lws_ser_wu32be(&pre[n], ack);
 
-	if (lws_dsh_alloc_tail(dsh, KIND_SS_TO_P, pre, (unsigned int)n + 4, NULL, 0)) {
+	if (lws_dsh_alloc_tail(dsh, KIND_SS_TO_P, pre, (unsigned int)n + 4, NULL, 0) ||
+	    (wsi && lws_fi(&wsi->fic, "sspc_dsh_ss2p_oom"))) {
 		lwsl_err("%s: unable to alloc in dsh 2\n", __func__);
 
 		return 1;
@@ -428,7 +429,9 @@ lws_ss_deserialize_parse(struct lws_ss_serialization_parser *par,
 				 * We're going to try to do the onward connect
 				 */
 
-				if (_lws_ss_client_connect(proxy_pss_to_ss_h(pss),
+				if ((proxy_pss_to_ss_h(pss) &&
+				     lws_fi(&proxy_pss_to_ss_h(pss)->fic, "ssproxy_onward_conn_fail")) ||
+				    _lws_ss_client_connect(proxy_pss_to_ss_h(pss),
 							   0, parconn) ==
 							   LWSSSSRET_DESTROY_ME)
 					goto hangup;
@@ -685,7 +688,9 @@ payload_ff:
 				/* time used later to find proxy hold time */
 				lws_ser_wu64be(&p[15], (uint64_t)us);
 
-				if (lws_dsh_alloc_tail(dsh, KIND_C_TO_P, pre,
+				if ((proxy_pss_to_ss_h(pss) &&
+				     lws_fi(&proxy_pss_to_ss_h(pss)->fic, "ssproxy_dsh_c2p_pay_oom")) ||
+				    lws_dsh_alloc_tail(dsh, KIND_C_TO_P, pre,
 						       23, cp, (unsigned int)n)) {
 					lwsl_err("%s: unable to alloc in dsh 3\n",
 						 __func__);
@@ -715,6 +720,11 @@ payload_ff:
 					/* we still have an sspc handle */
 					int ret = ssi->rx(client_pss_to_userdata(pss),
 						(uint8_t *)cp, (unsigned int)n, (int)flags);
+
+					if (client_pss_to_sspc_h(pss, ssi) &&
+					    lws_fi(&client_pss_to_sspc_h(pss, ssi)->fic, "sspc_rx_fake_destroy_me"))
+						ret = LWSSSSRET_DESTROY_ME;
+
 					switch (ret) {
 					case LWSSSSRET_OK:
 						break;
@@ -1005,7 +1015,10 @@ payload_ff:
 				 * Create the client's rx metadata entry
 				 */
 
-				md = lws_malloc(sizeof(lws_sspc_metadata_t) +
+				if (h && lws_fi(&h->fic, "sspc_rx_metadata_oom"))
+					md = NULL;
+				else
+					md = lws_malloc(sizeof(lws_sspc_metadata_t) +
 						par->rem + 1, "rxmeta");
 				if (!md) {
 					lwsl_err("%s: OOM\n", __func__);
@@ -1057,7 +1070,13 @@ payload_ff:
 				lws_free_set_NULL(par->ssmd->value__may_own_heap);
 			par->ssmd->value_on_lws_heap = 0;
 
-			par->ssmd->value__may_own_heap = lws_malloc((unsigned int)par->rem + 1, "metadata");
+			if (proxy_pss_to_ss_h(pss) &&
+			    lws_fi(&proxy_pss_to_ss_h(pss)->fic, "ssproxy_rx_metadata_oom"))
+				par->ssmd->value__may_own_heap = NULL;
+			else
+				par->ssmd->value__may_own_heap =
+					lws_malloc((unsigned int)par->rem + 1, "metadata");
+
 			if (!par->ssmd->value__may_own_heap) {
 				lwsl_err("%s: OOM mdv\n", __func__);
 				goto hangup;

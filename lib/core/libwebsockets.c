@@ -1319,11 +1319,16 @@ lws_cmdline_option(int argc, const char **argv, const char *val)
 
 static const char * const builtins[] = {
 	"-d",
-#if defined(LWS_WITH_UDP)
-	"--udp-tx-loss",
-	"--udp-rx-loss",
-#endif
+	"--fault-injection",
+	"--fault-seed",
 	"--ignore-sigterm"
+};
+
+enum opts {
+	OPT_DEBUGLEVEL,
+	OPT_FAULTINJECTION,
+	OPT_FAULT_SEED,
+	OPT_IGNORE_SIGTERM,
 };
 
 #if !defined(LWS_PLAT_FREERTOS)
@@ -1339,6 +1344,9 @@ lws_cmdline_option_handle_builtin(int argc, const char **argv,
 {
 	const char *p;
 	int n, m, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	uint64_t seed = (uint64_t)lws_now_usecs();
+#endif
 
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(builtins); n++) {
 		p = lws_cmdline_option(argc, argv, builtins[n]);
@@ -1348,20 +1356,24 @@ lws_cmdline_option_handle_builtin(int argc, const char **argv,
 		m = atoi(p);
 
 		switch (n) {
-		case 0:
+		case OPT_DEBUGLEVEL:
 			logs = m;
 			break;
-#if defined(LWS_WITH_UDP)
-		case 1:
-			info->udp_loss_sim_tx_pc = (uint8_t)m;
-			break;
-		case 2:
-			info->udp_loss_sim_rx_pc = (uint8_t)m;
-			break;
-		case 3:
-#else
-		case 1:
+
+		case OPT_FAULTINJECTION:
+#if !defined(LWS_WITH_SYS_FAULT_INJECTION)
+			lwsl_err("%s: FAULT_INJECTION not built\n", __func__);
 #endif
+			lws_fi_deserialize(&info->fic, p);
+			break;
+
+		case OPT_FAULT_SEED:
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+			seed = (uint64_t)atoll(p);
+#endif
+			break;
+
+		case OPT_IGNORE_SIGTERM:
 #if !defined(LWS_PLAT_FREERTOS)
 			signal(SIGTERM, lws_sigterm_catch);
 #endif
@@ -1369,7 +1381,16 @@ lws_cmdline_option_handle_builtin(int argc, const char **argv,
 		}
 	}
 
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	lws_xos_init(&info->fic.xos, seed);
+#endif
 	lws_set_log_level(logs, NULL);
+
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	if (info->fic.fi_owner.count)
+		lwsl_notice("%s: Fault Injection seed %llu\n", __func__,
+				(unsigned long long)seed);
+#endif
 }
 
 

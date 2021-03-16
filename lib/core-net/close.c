@@ -831,7 +831,7 @@ __lws_close_free_wsi_final(struct lws *wsi)
 #endif
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
-	lws_fi_destroy(&wsi->fi);
+	lws_fi_destroy(&wsi->fic);
 #endif
 
 	__lws_wsi_remove_from_sul(wsi);
