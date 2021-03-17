@@ -455,6 +455,46 @@ lws_jwt_sign_compact(struct lws_context *ctx, struct lws_jwk *jwk,
 		     const char *alg, char *out, size_t *out_len, char *temp,
 		     int tl, const char *format, ...) LWS_FORMAT(8);
 
+struct lws_jwt_sign_info {
+	const char *alg;
+	/**< entry: signing alg name, like "RS256" */
+	const char *jose_hdr;
+	/**< entry: optional JOSE hdr; if present, alg field is ignored; instead the
+	 *          whole claim object has to be provided in this parameter */
+	size_t jose_hdr_len;
+	/**< entry: if jose_hdr is not NULL, JOSE header length without terminating '\0' */
+	char *out;
+	/**< exit: signed JWT in compact form*/
+	size_t *out_len;
+	/**< entry,exit: buffer size of out; actual size of JWT on exit */
+	char *temp;
+	/**< exit undefined content, used by the function as a temporary scratchpad; MUST
+	 * be large enogh to store various intermediate representations */
+	int tl;
+	/**< entry: size of temp buffer */
+};
+
+/**
+ * lws_jwt_sign_compact() - generate a compact JWT using a key and JOSE header
+ *
+ * \param ctx: the lws_context
+ * \param jwk: the signing key
+ * \param info: info describing the JWT's content and output/temp buffers
+ * \param format: a printf style format specification of the claims object
+ * \param ...: zero or more args for the format specification
+ *
+ * Creates a JWT in a single step, from the format string and args through to
+ * outputting a well-formed compact JWT representation in out. The provided
+ * JOSE header's syntax is checked before it is added to the JWT.
+ *
+ * Returns 0 if all is well and *out_len is the amount of data in out, else
+ * nonzero if failed.  Temp must be large enough to hold various intermediate
+ * representations.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_jwt_sign_via_info(struct lws_context *ctx, struct lws_jwk *jwk,
+         const struct lws_jwt_sign_info *info, const char *format, ...) LWS_FORMAT(4);
+
 /**
  * lws_jwt_token_sanity() - check a validated jwt payload for sanity
  *
