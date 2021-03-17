@@ -50,7 +50,7 @@ lws_plat_dlopen(struct lws_plugin **pplugin, const char *libpath,
 
 	l = dlopen(libpath, RTLD_NOW);
 	if (!l) {
-		lwsl_err("%s: Error loading DSO: %s\n", __func__, dlerror());
+		lwsl_info("%s: Error loading DSO: %s\n", __func__, dlerror());
 
 		return NULL;
 	}
@@ -64,7 +64,7 @@ lws_plat_dlopen(struct lws_plugin **pplugin, const char *libpath,
 
 	hdr = (const lws_plugin_header_t *)dlsym(l, sym);
 	if (!hdr) {
-		lwsl_warn("%s: Failed to get export '%s' from %s: %s\n",
+		lwsl_info("%s: Failed to get export '%s' from %s: %s\n",
 			 __func__, sym, libpath, dlerror());
 		goto bail;
 	}
