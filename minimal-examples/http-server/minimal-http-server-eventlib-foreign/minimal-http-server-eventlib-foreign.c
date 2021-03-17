@@ -74,6 +74,93 @@ signal_cb(int signum)
 	lws_context_destroy(context);
 }
 
+static int
+callback_http(struct lws *wsi, enum lws_callback_reasons reason,
+	      void *user, void *in, size_t len)
+{
+	switch (reason) {
+
+	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
+		lwsl_user("LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP: resp %u\n",
+				lws_http_client_http_response(wsi));
+		break;
+
+	/* because we are protocols[0] ... */
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+		lwsl_err("CLIENT_CONNECTION_ERROR: %s\n",
+			 in ? (char *)in : "(null)");
+		break;
+
+	/* chunks of chunked content, with header removed */
+	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
+		lwsl_user("RECEIVE_CLIENT_HTTP_READ: read %d\n", (int)len);
+		lwsl_hexdump_info(in, len);
+		return 0; /* don't passthru */
+
+	/* uninterpreted http content */
+	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
+		{
+			char buffer[1024 + LWS_PRE];
+			char *px = buffer + LWS_PRE;
+			int lenx = sizeof(buffer) - LWS_PRE;
+
+			if (lws_http_client_read(wsi, &px, &lenx) < 0)
+				return -1;
+		}
+		return 0; /* don't passthru */
+
+	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
+		lwsl_user("LWS_CALLBACK_COMPLETED_CLIENT_HTTP %s\n",
+			  lws_wsi_tag(wsi));
+		break;
+
+	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+		lwsl_info("%s: closed: %s\n", __func__, lws_wsi_tag(wsi));
+		break;
+
+	default:
+		break;
+	}
+
+	return lws_callback_http_dummy(wsi, reason, user, in, len);
+}
+
+static const struct lws_protocols protocols[] = {
+	{ "httptest", callback_http, 0, 0, },
+	{ NULL, NULL, 0, 0 }
+};
+
+static int
+do_client_conn(void)
+{
+	struct lws_client_connect_info i;
+
+	memset(&i, 0, sizeof i); /* otherwise uninitialized garbage */
+
+	i.context		= context;
+
+	i.ssl_connection	= LCCSCF_USE_SSL;
+	i.port			= 443;
+	i.address		= "warmcat.com";
+
+	i.ssl_connection	|= LCCSCF_H2_QUIRK_OVERFLOWS_TXCR |
+				   LCCSCF_H2_QUIRK_NGHTTP2_END_STREAM;
+	i.path			= "/";
+	i.host			= i.address;
+	i.origin		= i.address;
+	i.method		= "GET";
+	i.local_protocol_name	= protocols[0].name;
+
+	if (!lws_client_connect_via_info(&i)) {
+		lwsl_err("Client creation failed\n");
+
+		return 1;
+	}
+
+	return 0;
+}
+
+
 /* this is called at 1Hz using a foreign loop timer */
 
 void
@@ -107,6 +194,9 @@ foreign_timer_service(void *foreign_loop)
 			return;
 		}
 		lwsl_user("LWS Context created and will be active for 10s\n");
+
+		do_client_conn();
+
 		lifetime = 11;
 		break;
 
@@ -157,11 +247,11 @@ int main(int argc, const char **argv)
 	info.mounts = &mount;
 	info.error_document_404 = "/404.html";
 	info.pcontext = &context;
-	info.options =
+	info.protocols = protocols;
+	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
 		LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE;
 
 	if (lws_cmdline_option(argc, argv, "-s")) {
-		info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 		info.ssl_cert_filepath = "localhost-100y.cert";
 		info.ssl_private_key_filepath = "localhost-100y.key";
 	}
