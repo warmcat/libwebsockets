@@ -118,13 +118,22 @@ lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 			goto bail3;
 		}
 
+		/* sanity check what we were sent... */
+
 		pt->serv_buf[13] = '\0';
-		if (n < 13 || (strncmp(sb, "HTTP/1.0 200 ", 13) &&
-		    strncmp(sb, "HTTP/1.1 200 ", 13))) {
-			lwsl_err("%s: ERROR proxy did not reply with h1\n",
-					__func__);
+		if (n < 13 || strncmp(sb, "HTTP/1.", 7) ||
+			      (sb[7] != '0' && sb[7] != '1') || sb[8] != ' ') {
 			/* lwsl_hexdump_notice(sb, n); */
-			cce = "proxy not h1";
+			cce = "http_proxy fail";
+			goto bail3;
+		}
+
+		/* it's h1 alright... what's his logical response code? */
+		n = atoi(&sb[9]);
+		if (n != 200) {
+			lws_snprintf(sb, 20, "http_proxy -> %u",
+				     (unsigned int)n);
+			cce = sb;
 			goto bail3;
 		}
 
