@@ -416,10 +416,6 @@ spill:
 				    close_code == 1004 ||
 				    close_code == 1005 ||
 				    close_code == 1006 ||
-				    close_code == 1012 ||
-				    close_code == 1013 ||
-				    close_code == 1014 ||
-				    close_code == 1015 ||
 				    (close_code >= 1016 && close_code < 3000)
 				) {
 					pp[0] = (LWS_CLOSE_STATUS_PROTOCOL_ERR >> 8) & 0xff;
