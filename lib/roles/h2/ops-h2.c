@@ -809,6 +809,11 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 		const struct lws_protocols *pp;
 		const char *name = hit->origin;
 
+		if (hit->origin_protocol == LWSMPRO_CGI ||
+		    hit->origin_protocol == LWSMPRO_HTTP ||
+		    hit->origin_protocol == LWSMPRO_HTTPS)
+			return 0;
+
 		if (hit->protocol)
 			name = hit->protocol;
 
