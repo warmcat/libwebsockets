@@ -44,6 +44,11 @@
  * The /etc path is the only reason we have to run as root.
  */
 #define TEST_SERVER_KEY_PATH "/etc/lws-test-sshd-server-key"
+struct per_vhost_data__lws_sshd_demo {
+	const struct lws_protocols *ssh_base_protocol;
+	int privileged_fd;
+};
+
 
 /*
  *  This is a copy of the lws ssh test public key, you can find it in
@@ -644,6 +649,85 @@ void sighandler(int sig)
 	force_exit = 1;
 	lws_cancel_service(context);
 }
+
+static int
+callback_lws_sshd_demo(struct lws *wsi, enum lws_callback_reasons reason,
+		       void *user, void *in, size_t len)
+{
+	struct per_vhost_data__lws_sshd_demo *vhd =
+			(struct per_vhost_data__lws_sshd_demo *)
+			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
+						 lws_get_protocol(wsi));
+
+	switch (reason) {
+	case LWS_CALLBACK_PROTOCOL_INIT:
+		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
+						  lws_get_protocol(wsi),
+				sizeof(struct per_vhost_data__lws_sshd_demo));
+		if (!vhd)
+			return 0;
+		/*
+		 * During this we still have the privs / caps we were started
+		 * with.  So open an fd on the server key, either just for read
+		 * or for creat / trunc if doesn't exist.  This allows us to
+		 * deal with it down /etc/.. when just after this we will lose
+		 * the privileges needed to read / write /etc/...
+		 */
+		vhd->privileged_fd = lws_open(TEST_SERVER_KEY_PATH, O_RDONLY);
+		if (vhd->privileged_fd == -1)
+			vhd->privileged_fd = lws_open(TEST_SERVER_KEY_PATH,
+					O_CREAT | O_TRUNC | O_RDWR, 0600);
+		if (vhd->privileged_fd == -1) {
+			lwsl_warn("%s: Can't open %s\n", __func__,
+				 TEST_SERVER_KEY_PATH);
+			return 0;
+		}
+		break;
+
+	case LWS_CALLBACK_PROTOCOL_DESTROY:
+		if (vhd)
+			close(vhd->privileged_fd);
+		break;
+
+	case LWS_CALLBACK_VHOST_CERT_AGING:
+		break;
+
+	case LWS_CALLBACK_EVENT_WAIT_CANCELLED:
+		break;
+
+	default:
+		if (!vhd->ssh_base_protocol) {
+			vhd->ssh_base_protocol = lws_vhost_name_to_protocol(
+							lws_get_vhost(wsi),
+							"lws-ssh-base");
+			if (vhd->ssh_base_protocol)
+				user = lws_adjust_protocol_psds(wsi,
+				vhd->ssh_base_protocol->per_session_data_size);
+		}
+
+		if (vhd->ssh_base_protocol)
+			return vhd->ssh_base_protocol->callback(wsi, reason,
+								user, in, len);
+		else
+			lwsl_notice("can't find lws-ssh-base\n");
+		break;
+	}
+
+	return 0;
+}
+
+
+const struct lws_protocols lws_sshd_demo_protocols[] = {
+	{
+		"lws-sshd-demo",
+		callback_lws_sshd_demo,
+		0,
+		1024, /* rx buf size must be >= permessage-deflate rx size */
+		0, (void *)&ssh_ops, 0
+	}
+
+};
+
 
 int main()
 {
