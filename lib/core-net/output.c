@@ -283,8 +283,8 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, size_t len)
 	en = LWS_ERRNO;
 	if (n >= 0) {
 
-		//if (!n && wsi->unix_skt)
-		//	goto do_err;
+		if (!n && wsi->unix_skt)
+			goto do_err;
 
 		/*
 		 * See https://libwebsockets.org/
