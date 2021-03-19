@@ -57,14 +57,6 @@ int lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 	}
 #endif
 
-	/*
-	 * Peer may have closed, but that doesn't necessarily mean we should not
-	 * parse any rx we have from them.
-	 *
-	if (wsi->socket_is_permanently_unusable)
-		return -1;
-	*/
-
 	switch (wsi->lws_rx_parse_state) {
 	case LWS_RXPS_NEW:
 		/* control frames (PING) may interrupt checkable sequences */

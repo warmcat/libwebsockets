@@ -50,9 +50,6 @@ lws_ws_rx_sm(struct lws *wsi, char already_processed, unsigned char c)
 	pmdrx.eb_out.token = NULL;
 	pmdrx.eb_out.len = 0;
 
-	if (wsi->socket_is_permanently_unusable)
-		return -1;
-
 	switch (wsi->lws_rx_parse_state) {
 	case LWS_RXPS_NEW:
 #if !defined(LWS_WITHOUT_EXTENSIONS)
