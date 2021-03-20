@@ -309,6 +309,19 @@ lws_json_simple_strcmp(const char *buf, size_t len, const char *name, const char
 LWS_VISIBLE LWS_EXTERN int
 lws_hex_to_byte_array(const char *h, uint8_t *dest, int max);
 
+/**
+ * lws_hex_from_byte_array(): render byte array as hex char string
+ *
+ * \param src: incoming binary source array
+ * \param slen: length of src in bytes
+ * \param dest: array to fill with hex chars representing src
+ * \param len: max extent of dest
+ *
+ * This converts binary data of length slen at src, into a hex string at dest
+ * of maximum length len.  Even if truncated, the result will be NUL-terminated.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_hex_from_byte_array(const uint8_t *src, size_t slen, char *dest, size_t len);
 
 /**
  * lws_hex_random(): generate len - 1 or - 2 characters of random ascii hex

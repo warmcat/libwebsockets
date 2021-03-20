@@ -155,6 +155,22 @@ lws_hex_to_byte_array(const char *h, uint8_t *dest, int max)
 
 static char *hexch = "0123456789abcdef";
 
+void
+lws_hex_from_byte_array(const uint8_t *src, size_t slen, char *dest, size_t len)
+{
+	char *end = &dest[len - 1];
+
+	while (slen-- && dest != end) {
+		uint8_t b = *src++;
+		*dest++ = hexch[b >> 4];
+		if (dest == end)
+			break;
+		*dest++ = hexch[b & 0xf];
+	}
+
+	*dest = '\0';
+}
+
 int
 lws_hex_random(struct lws_context *context, char *dest, size_t len)
 {
