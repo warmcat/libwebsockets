@@ -1,7 +1,7 @@
 /*
  * libwebsockets - protocol - mqtt
  *
- * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2021 Andy Green <andy@warmcat.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -33,6 +33,7 @@ typedef struct lws_mqtt_str_st lws_mqtt_str_t;
 
 #define LWS_MQTT_FINAL_PART 1
 
+#define LWS_MQTT_MAX_TOPICLEN  256
 #define LWS_MQTT_MAX_CIDLEN    128
 #define LWS_MQTT_RANDOM_CIDLEN 23 /* 3.1.3.1-5: Server MUST... between
 				     1 and 23 chars... */

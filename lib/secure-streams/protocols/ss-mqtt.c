@@ -166,7 +166,7 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	{
 		size_t used_in, used_out;
 		lws_strexp_t exp;
-		char expbuf[128];
+		char expbuf[LWS_MQTT_MAX_TOPICLEN+1];
 
 		if (!h || !h->info.tx)
 			return 0;
@@ -183,8 +183,11 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 			if (lws_strexp_expand(&exp, h->policy->u.mqtt.subscribe,
 					      strlen(h->policy->u.mqtt.subscribe),
-					      &used_in, &used_out) != LSTRX_DONE)
+					      &used_in, &used_out) != LSTRX_DONE) {
+				lwsl_err("%s, faled to expand MQTT subscribe topic\n",
+					 __func__);
 				return 1;
+			}
 			lwsl_notice("%s, expbuf - %s\n", __func__, expbuf);
 			h->u.mqtt.sub_top.name = expbuf;
 
