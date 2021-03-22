@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2019 - 2020 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2019 - 2021 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -93,6 +93,16 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		h->wsi = wsi;
 		h->retry = 0;
 		h->seqstate = SSSEQ_CONNECTED;
+		/*
+		 * If a subscribe is pending on the stream, then make
+		 * sure the SUBSCRIBE is done before signaling the
+		 * user application.
+		 */
+		if (h->policy->u.mqtt.subscribe &&
+		    !wsi->mqtt->done_subscribe) {
+			lws_callback_on_writable(wsi);
+			break;
+		}
 		lws_sul_cancel(&h->sul);
 #if defined(LWS_WITH_SYS_METRICS)
 		/*
@@ -130,6 +140,17 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		return 0; /* don't passthru */
 
 	case LWS_CALLBACK_MQTT_SUBSCRIBED:
+		/*
+		 * Stream demanded a subscribe while connecting, once
+		 * done notify CONNECTED event to the application.
+		 */
+		if (wsi->mqtt->done_subscribe == 0) {
+			lws_sul_cancel(&h->sul);
+			r = lws_ss_event_helper(h, LWSSSCS_CONNECTED);
+			if (r != LWSSSSRET_OK)
+				return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r,
+									      wsi, &h);
+		}
 		wsi->mqtt->done_subscribe = 1;
 		lws_callback_on_writable(wsi);
 		break;
@@ -183,6 +204,11 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 			if (lws_mqtt_client_send_subcribe(wsi, &h->u.mqtt.sub_info)) {
 				lwsl_notice("%s: unable to subscribe", __func__);
+				return -1;
+			}
+			/* Expect a SUBACK */
+			if (lws_change_pollfd(wsi, 0, LWS_POLLIN)) {
+				lwsl_err("%s: Unable to set LWS_POLLIN\n", __func__);
 				return -1;
 			}
 
