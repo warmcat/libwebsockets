@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2021 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -287,10 +287,31 @@ typedef struct lws_mqtt_parser_st {
 
 } lws_mqtt_parser_t;
 
+typedef enum {
+	LMVTR_VALID				=  0,
+	LMVTR_VALID_WILDCARD			=  1,
+	LMVTR_VALID_SHADOW			=  2,
+
+	LMVTR_FAILED_OVERSIZE			= -1,
+	LMVTR_FAILED_WILDCARD_FORMAT		= -2,
+	LMVTR_FAILED_SHADOW_FORMAT		= -3,
+} lws_mqtt_validate_topic_return_t;
+
+typedef enum {
+	LMMTR_TOPIC_NOMATCH			= 0,
+	LMMTR_TOPIC_MATCH			= 1,
+
+	LMMTR_TOPIC_MATCH_ERROR			= -1
+} lws_mqtt_match_topic_return_t;
+
 typedef struct lws_mqtt_subs {
 	struct lws_mqtt_subs	*next;
 
 	uint8_t			ref_count; /* number of children referencing */
+
+	/* Flags */
+	uint8_t			wildcard:1;
+	uint8_t			shadow:1;
 
 	/* subscription name + NUL overallocated here */
 	char			topic[];

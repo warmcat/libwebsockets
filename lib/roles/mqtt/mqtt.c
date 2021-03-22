@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2021 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -277,28 +277,163 @@ lws_mqtt_set_client_established(struct lws *wsi)
 	return 0;
 }
 
-lws_mqtt_subs_t *
-lws_mqtt_find_sub(struct _lws_mqtt_related *mqtt, const char *topic)
+
+static lws_mqtt_match_topic_return_t
+lws_mqtt_is_topic_matched(const char* sub, const char* pub)
 {
+	const char *ppos = pub, *spos = sub;
+
+	if (!ppos || !spos) {
+		return LMMTR_TOPIC_MATCH_ERROR;
+	}
+
+	while (*spos) {
+		if (*ppos == '#' || *ppos == '+') {
+			lwsl_err("%s: PUBLISH to wildcard "
+				 "topic \"%s\" not supported\n",
+				 __func__, pub);
+			return LMMTR_TOPIC_MATCH_ERROR;
+		}
+		/* foo/+/bar == foo/xyz/bar ? */
+		if (*spos == '+') {
+			/* Skip ahead */
+			while (*ppos != '\0' && *ppos != '/') {
+				ppos++;
+			}
+		} else if (*spos == '#') {
+			return LMMTR_TOPIC_MATCH;
+		} else {
+			if (*ppos == '\0') {
+				/* foo/bar == foo/bar/# ? */
+				if (!strncmp(spos, "/#", 2))
+					return LMMTR_TOPIC_MATCH;
+				return LMMTR_TOPIC_NOMATCH;
+			/* Non-matching character */
+			} else if (*ppos != *spos) {
+				return LMMTR_TOPIC_NOMATCH;
+			}
+			ppos++;
+		}
+		spos++;
+	}
+
+	if (*spos == '\0' && *ppos == '\0')
+		return LMMTR_TOPIC_MATCH;
+
+	return LMMTR_TOPIC_NOMATCH;
+}
+
+lws_mqtt_subs_t* lws_mqtt_find_sub(struct _lws_mqtt_related* mqtt,
+				   const char* ptopic) {
 	lws_mqtt_subs_t *s = mqtt->subs_head;
 
 	while (s) {
-		if (!strcmp((const char *)s->topic, topic))
-			return s;
+		/*  SUB topic  ==   PUB topic  ? */
+		/* foo/bar/xyz ==  foo/bar/xyz ? */
+		if (!s->wildcard) {
+			if (!strcmp((const char*)s->topic, ptopic))
+				return s;
+		} else {
+			if (lws_mqtt_is_topic_matched(
+			    s->topic, ptopic) == LMMTR_TOPIC_MATCH)
+				return s;
+		}
+
 		s = s->next;
 	}
 
 	return NULL;
 }
 
+static lws_mqtt_validate_topic_return_t
+lws_mqtt_validate_topic(const char *topic, size_t topiclen)
+{
+	size_t spos = 0;
+	const char *sub = topic;
+	int8_t slashes = 0;
+	lws_mqtt_validate_topic_return_t ret = LMVTR_VALID;
+
+	if (topiclen > LWS_MQTT_MAX_TOPICLEN)
+		return LMVTR_FAILED_OVERSIZE;
+
+	if (topic[0] == '$') {
+		ret = LMVTR_VALID_SHADOW;
+		slashes = -3;
+	}
+
+	while (*sub != 0) {
+		if (sub[0] == '+') {
+			/* topic == "+foo" || "a/+foo" ? */
+			if (spos > 0 && sub[-1] != '/')
+				return LMVTR_FAILED_WILDCARD_FORMAT;
+
+			/* topic == "foo+" or "foo+/a" ? */
+			if (sub[1] != 0 && sub[1] != '/')
+				return LMVTR_FAILED_WILDCARD_FORMAT;
+
+			ret = LMVTR_VALID_WILDCARD;
+		} else if (sub[0] == '#') {
+			/* topic == "foo#" ? */
+			if (spos > 0 && sub[-1] != '/')
+				return LMVTR_FAILED_WILDCARD_FORMAT;
+
+			/* topic == "#foo" ? */
+			if (sub[1] != 0)
+				return LMVTR_FAILED_WILDCARD_FORMAT;
+
+			ret = LMVTR_VALID_WILDCARD;
+		} else if (sub[0] == '/') {
+			slashes++;
+		}
+		spos++;
+		sub++;
+	}
+
+	if (slashes < 0 || slashes > 7)
+		return LMVTR_FAILED_SHADOW_FORMAT;
+
+	return ret;
+}
+
 static lws_mqtt_subs_t *
 lws_mqtt_create_sub(struct _lws_mqtt_related *mqtt, const char *topic)
 {
 	lws_mqtt_subs_t *mysub;
+	size_t topiclen = strlen(topic);
+	lws_mqtt_validate_topic_return_t flag;
 
-	mysub = lws_malloc(sizeof(*mysub) + strlen(topic) + 1, "sub");
-	if (!mysub)
+	flag = lws_mqtt_validate_topic(topic, topiclen);
+	switch (flag) {
+	case LMVTR_FAILED_OVERSIZE:
+		lwsl_err("%s: Topic is too long\n",
+			 __func__);
 		return NULL;
+	case LMVTR_FAILED_SHADOW_FORMAT:
+	case LMVTR_FAILED_WILDCARD_FORMAT:
+		lwsl_err("%s: Invalid topic format \"%s\"\n",
+			 __func__, topic);
+		return NULL;
+
+	case LMVTR_VALID:
+	case LMVTR_VALID_WILDCARD:
+	case LMVTR_VALID_SHADOW:
+		mysub = lws_malloc(sizeof(*mysub) + topiclen + 1, "sub");
+		if (!mysub) {
+			lwsl_err("%s: Error allocating mysub\n",
+				 __func__);
+			return NULL;
+		}
+		if (flag == LMVTR_VALID_WILDCARD)
+			mysub->wildcard = 1;
+		else if (flag == LMVTR_VALID_SHADOW)
+			mysub->shadow = 1;
+		break;
+
+	default:
+		lwsl_err("%s: Unknown flag - %d\n",
+			 __func__, flag);
+		return NULL;
+	}
 
 	mysub->next = mqtt->subs_head;
 	mqtt->subs_head = mysub;
