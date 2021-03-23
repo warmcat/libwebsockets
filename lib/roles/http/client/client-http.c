@@ -286,7 +286,7 @@ hs2:
 			break;
 		}
 
-		if (wsi->client_http_body_pending) {
+		if (wsi->client_http_body_pending || lws_has_buffered_out(wsi)) {
 			lwsl_debug("body pending\n");
 			lwsi_set_state(wsi, LRS_ISSUE_HTTP_BODY);
 			lws_set_timeout(wsi,
@@ -332,7 +332,7 @@ hs2:
 				break;
 			}
 #endif
-		if (wsi->client_http_body_pending) {
+		if (wsi->client_http_body_pending || lws_has_buffered_out(wsi)) {
 			//lws_set_timeout(wsi,
 			//		PENDING_TIMEOUT_CLIENT_ISSUE_PAYLOAD,
 			//		context->timeout_secs);
@@ -1216,7 +1216,7 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 
 	p += lws_snprintf(p,  lws_ptr_diff_size_t(end, p), "\x0d\x0a");
 
-	if (wsi->client_http_body_pending)
+	if (wsi->client_http_body_pending || lws_has_buffered_out(wsi))
 		lws_callback_on_writable(wsi);
 
 	lws_metrics_caliper_bind(wsi->cal_conn, wsi->a.context->mt_http_txn);
