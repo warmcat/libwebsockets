@@ -2538,7 +2538,7 @@ lws_h2_client_handshake(struct lws *wsi)
 	/* below is not needed in spec, indeed it destroys the long poll
 	 * feature, but required by nghttp2 */
 	if ((wsi->flags & LCCSCF_H2_QUIRK_NGHTTP2_END_STREAM) &&
-	    !(wsi->client_http_body_pending))
+	    !(wsi->client_http_body_pending  || lws_has_buffered_out(wsi)))
 		m |= LWS_WRITE_H2_STREAM_END;
 #endif
 
