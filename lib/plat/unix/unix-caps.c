@@ -71,9 +71,9 @@ lws_plat_user_colon_group_to_ids(const char *u_colon_g, uid_t *puid, gid_t *pgid
 #if defined(LWS_HAVE_GETGRNAM_R)
 	{
 		struct group gr;
-		char strs[64];
+		char strs[1024];
 
-		if (getgrnam_r(colon, &gr, strs, sizeof(strs), &g)) {
+		if (getgrnam_r(colon, &gr, strs, sizeof(strs), &g) || !g) {
 #else
 	{
 		g = getgrnam(colon);
@@ -89,9 +89,9 @@ lws_plat_user_colon_group_to_ids(const char *u_colon_g, uid_t *puid, gid_t *pgid
 #if defined(LWS_HAVE_GETPWNAM_R)
 	{
 		struct passwd pr;
-		char strs[64];
+		char strs[1024];
 
-		if (getpwnam_r(u, &pr, strs, sizeof(strs), &p)) {
+		if (getpwnam_r(u, &pr, strs, sizeof(strs), &p) || !p) {
 #else
 	{
 		p = getpwnam(u);
@@ -118,9 +118,9 @@ lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop)
 	if (context->groupname) {
 #if defined(LWS_HAVE_GETGRNAM_R)
 		struct group gr;
-		char strs[64];
+		char strs[1024];
 
-		if (!getgrnam_r(context->groupname, &gr, strs, sizeof(strs), &g)) {
+		if (!getgrnam_r(context->groupname, &gr, strs, sizeof(strs), &g) && g) {
 #else
 		g = getgrnam(context->groupname);
 		if (g) {
@@ -141,9 +141,9 @@ lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop)
 	if (context->username) {
 #if defined(LWS_HAVE_GETPWNAM_R)
 		struct passwd pr;
-		char strs[64];
+		char strs[1024];
 
-		if (!getpwnam_r(context->username, &pr, strs, sizeof(strs), &p)) {
+		if (!getpwnam_r(context->username, &pr, strs, sizeof(strs), &p) && p) {
 #else
 		p = getpwnam(context->username);
 		if (p) {
@@ -168,9 +168,9 @@ lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop)
 	if (context->gid && context->gid != (gid_t)-1l) {
 #if defined(LWS_HAVE_GETGRGID_R)
 		struct group gr;
-		char strs[64];
+		char strs[1024];
 
-		if (getgrgid_r(context->gid, &gr, strs, sizeof(strs), &g)) {
+		if (getgrgid_r(context->gid, &gr, strs, sizeof(strs), &g) || !g) {
 #else
 		g = getgrgid(context->gid);
 		if (!g) {
@@ -199,9 +199,9 @@ lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop)
 	if (context->uid && context->uid != (uid_t)-1l) {
 #if defined(LWS_HAVE_GETPWUID_R)
 		struct passwd pr;
-		char strs[64];
+		char strs[1024];
 
-		if (getpwuid_r(context->uid, &pr, strs, sizeof(strs), &p)) {
+		if (getpwuid_r(context->uid, &pr, strs, sizeof(strs), &p) || !p) {
 #else
 		p = getpwuid(context->uid);
 		if (!p) {
