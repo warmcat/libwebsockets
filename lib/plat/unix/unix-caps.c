@@ -52,8 +52,8 @@ int
 lws_plat_user_colon_group_to_ids(const char *u_colon_g, uid_t *puid, gid_t *pgid)
 {
 	char *colon = strchr(u_colon_g, ':'), u[33];
-	struct passwd *p;
 	struct group *g;
+	struct passwd *p;
 	size_t ulen;
 
 	if (!colon)
@@ -68,21 +68,41 @@ lws_plat_user_colon_group_to_ids(const char *u_colon_g, uid_t *puid, gid_t *pgid
 
 	colon++;
 
-	g = getgrnam(colon);
-	if (!g) {
-		lwsl_err("%s: unknown group '%s'\n", __func__, colon);
+#if defined(LWS_HAVE_GETGRNAM_R)
+	{
+		struct group gr;
+		char strs[64];
 
-		return 1;
+		if (getgrnam_r(colon, &gr, strs, sizeof(strs), &g)) {
+#else
+	{
+		g = getgrnam(colon);
+		if (!g) {
+#endif
+			lwsl_err("%s: unknown group '%s'\n", __func__, colon);
+
+			return 1;
+		}
+		*pgid = g->gr_gid;
 	}
-	*pgid = g->gr_gid;
 
-	p = getpwnam(u);
-	if (!p) {
-		lwsl_err("%s: unknown user '%s'\n", __func__, u);
+#if defined(LWS_HAVE_GETPWNAM_R)
+	{
+		struct passwd pr;
+		char strs[64];
 
-		return 1;
+		if (getpwnam_r(u, &pr, strs, sizeof(strs), &p)) {
+#else
+	{
+		p = getpwnam(u);
+		if (!p) {
+#endif
+			lwsl_err("%s: unknown user '%s'\n", __func__, u);
+
+			return 1;
+		}
+		*puid = p->pw_uid;
 	}
-	*puid = p->pw_uid;
 
 	return 0;
 }
@@ -96,9 +116,15 @@ lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop)
 	/* if he gave us the groupname, align gid to match it */
 
 	if (context->groupname) {
-		g = getgrnam(context->groupname);
+#if defined(LWS_HAVE_GETGRNAM_R)
+		struct group gr;
+		char strs[64];
 
+		if (!getgrnam_r(context->groupname, &gr, strs, sizeof(strs), &g)) {
+#else
+		g = getgrnam(context->groupname);
 		if (g) {
+#endif
 			lwsl_info("%s: group %s -> gid %u\n", __func__,
 				  context->groupname, g->gr_gid);
 			context->gid = g->gr_gid;
@@ -113,9 +139,15 @@ lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop)
 	/* if he gave us the username, align uid to match it */
 
 	if (context->username) {
-		p = getpwnam(context->username);
+#if defined(LWS_HAVE_GETPWNAM_R)
+		struct passwd pr;
+		char strs[64];
 
+		if (!getpwnam_r(context->username, &pr, strs, sizeof(strs), &p)) {
+#else
+		p = getpwnam(context->username);
 		if (p) {
+#endif
 			context->uid = p->pw_uid;
 
 			lwsl_info("%s: username %s -> uid %u\n", __func__,
@@ -134,9 +166,15 @@ lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop)
 	/* if he gave us the gid or we have it from the groupname, set it */
 
 	if (context->gid && context->gid != (gid_t)-1l) {
-		g = getgrgid(context->gid);
+#if defined(LWS_HAVE_GETGRGID_R)
+		struct group gr;
+		char strs[64];
 
+		if (getgrgid_r(context->gid, &gr, strs, sizeof(strs), &g)) {
+#else
+		g = getgrgid(context->gid);
 		if (!g) {
+#endif
 			lwsl_err("%s: cannot find name for gid %d\n",
 				  __func__, context->gid);
 
@@ -159,9 +197,15 @@ lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop)
 	/* if he gave us the uid or we have it from the username, set it */
 
 	if (context->uid && context->uid != (uid_t)-1l) {
-		p = getpwuid(context->uid);
+#if defined(LWS_HAVE_GETPWUID_R)
+		struct passwd pr;
+		char strs[64];
 
+		if (getpwuid_r(context->uid, &pr, strs, sizeof(strs), &p)) {
+#else
+		p = getpwuid(context->uid);
 		if (!p) {
+#endif
 			lwsl_err("%s: getpwuid: unable to find uid %d\n",
 				 __func__, context->uid);
 			return 1;
