@@ -187,6 +187,28 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		return -1;
 	}
 
+#if defined(LWS_WITH_NETWORK) && defined(LWS_WITH_TLS) && defined(LWS_WITH_CLIENT)
+	if (wsi->a.context->client_ssl_reuse_sessions) {
+		/* attempt to set here the session to be reused; doing it just before
+		 * calling SSL_connect() triggered SIGABRT */
+
+		/* build a relevant name for the session */
+		char name[INET6_ADDRSTRLEN + 1 + 5 + 1]; /* IPv6 + ':' + port + \0 */
+		lws_get_peer_simple(wsi, name, sizeof(name));
+		if (name[0]) {
+			size_t ip_len = strlen(name);
+			uint16_t cport = wsi->c_port;
+			lws_snprintf(name + ip_len, sizeof(name) - ip_len, ":%d", cport);
+
+			/* reuse a cached session if it matched */
+			SSL_SESSION* sess = lws_context_get_cached_session(wsi->a.context, name);
+			if (sess) {
+				SSL_set_session(wsi->tls.ssl, sess);
+			}
+		}
+	}
+#endif
+
 #if defined (LWS_HAVE_SSL_SET_INFO_CALLBACK)
 	if (wsi->a.vhost->tls.ssl_info_event_mask)
 		SSL_set_info_callback(wsi->tls.ssl, lws_ssl_info_callback);
@@ -437,6 +459,12 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, int elen)
 
 		lws_role_call_alpn_negotiated(wsi, (const char *)a);
 #endif
+
+#if defined(LWS_WITH_NETWORK) && defined(LWS_WITH_TLS) && defined(LWS_WITH_CLIENT)
+		lwsl_info("%s: connected using %s session\n", __func__,
+				(SSL_session_reused(wsi->tls.ssl) ? "reused" : "new"));
+#endif
+
 		lwsl_info("client connect OK\n");
 		lws_openssl_describe_cipher(wsi);
 		return LWS_SSL_CAPABLE_DONE;
@@ -528,6 +556,36 @@ lws_tls_client_vhost_extra_cert_mem(struct lws_vhost *vh,
 
 	return n != 1;
 }
+
+#if defined(LWS_WITH_NETWORK) && defined(LWS_WITH_TLS) && defined(LWS_WITH_CLIENT)
+int
+lws_ssl_new_session_cb(SSL *ssl, SSL_SESSION *sess)
+{
+	struct lws* wsi = (struct lws*)SSL_get_ex_data(ssl, openssl_websocket_private_data_index);
+	if (!wsi) {
+		lwsl_err("%s: can't get wsi from ssl privdata\n", __func__);
+
+		return 0;
+	}
+
+	/* build a relevant name for the session */
+	char name[INET6_ADDRSTRLEN + 1 + 5 + 1]; /* IPv6 + ':' + port + \0 */
+	lws_get_peer_simple(wsi, name, sizeof(name));
+	if (!name[0]) {
+		lwsl_err("%s: can't get destination IP address\n", __func__);
+
+		return 0;
+	}
+
+	size_t ip_len = strlen(name);
+	uint16_t cport = wsi->c_port;
+	lws_snprintf(name + ip_len, sizeof(name) - ip_len, ":%d", cport);
+
+	lws_context_cache_session(wsi->a.context, sess, name);
+
+	return 1; /* to retain the SSL_SESSION reference, and call SSL_SESSION_free() for it ourselves */
+}
+#endif
 
 int
 lws_tls_client_create_vhost_context(struct lws_vhost *vh,
@@ -693,6 +751,18 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 	SSL_CTX_set_ex_data(vh->tls.ssl_client_ctx,
 			    openssl_SSL_CTX_private_data_index,
 			    (char *)tcr);
+
+#if defined(LWS_WITH_NETWORK) && defined(LWS_WITH_TLS) && defined(LWS_WITH_CLIENT)
+	if (info->client_ssl_reuse_sessions) {
+		long cache_mode = SSL_CTX_get_session_cache_mode(vh->tls.ssl_client_ctx);
+		cache_mode |= SSL_SESS_CACHE_CLIENT; /* Required for calling lws_ssl_new_session_cb() */
+		SSL_CTX_set_session_cache_mode(vh->tls.ssl_client_ctx, cache_mode);
+		SSL_CTX_sess_set_new_cb(vh->tls.ssl_client_ctx, lws_ssl_new_session_cb);
+
+		lwsl_info("%s: vh %s: reusing client sessions (cache) enabled\n",
+				__func__, vh->name);
+	}
+#endif
 
 #ifdef SSL_OP_NO_COMPRESSION
 	SSL_CTX_set_options(vh->tls.ssl_client_ctx, SSL_OP_NO_COMPRESSION);

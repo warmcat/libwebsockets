@@ -514,6 +514,9 @@ struct lws_context_creation_info {
 	/**< VHOST: Client SSL context init: length of client_ssl_key_mem in
 	 * bytes */
 
+	int client_ssl_reuse_sessions;
+	/**< VHOST: Client SSL context init: 0 = default, do not use session
+	 * cache; 1 = cache and attempt to reuse sessions */
 #endif
 
 #if !defined(LWS_WITH_MBEDTLS)

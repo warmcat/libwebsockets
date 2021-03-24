@@ -230,6 +230,44 @@ lws_context_creation_completion_cb(lws_sorted_usec_list_t *sul)
 }
 #endif /* WITH_SYS_STATE */
 
+#if defined(LWS_WITH_TLS) && defined(LWS_WITH_CLIENT)
+int
+lws_context_cache_session(struct lws_context* ctx, SSL_SESSION* sess, const char* name)
+{
+	/* update an existing item */
+	for (struct lws_session_cache* s = ctx->client_ssl_session_cache; s; s = s->next) {
+		if (!strcmp(name, s->name)) {
+		SSL_SESSION_free(s->session);
+		s->session = sess;
+		lwsl_info("Session cache: replaced session %s\n", name);
+		return 1;
+		}
+	}
+
+	/* add a new item */
+	struct lws_session_cache* cache_item = malloc(sizeof(struct lws_session_cache));
+	size_t name_len = strlen(name);
+	cache_item->name = malloc(name_len + 1);
+	lws_strncpy(cache_item->name, name, name_len + 1); /* include the trailing \0 */
+	cache_item->session = sess;
+	cache_item->next = ctx->client_ssl_session_cache;
+	ctx->client_ssl_session_cache = cache_item;
+	lwsl_info("Session cache: added session %s\n", name);
+	return 1;
+}
+
+SSL_SESSION*
+lws_context_get_cached_session(const struct lws_context* ctx, const char* name)
+{
+	for (struct lws_session_cache* s = ctx->client_ssl_session_cache; s; s = s->next) {
+		if (!strcmp(s->name, name))
+			return s->session;
+	}
+
+	return NULL;
+}
+#endif /* WITH_TLS && WITH_CLIENT */
+
 #if defined(LWS_WITH_SYS_SMD)
 static int
 lws_system_smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
@@ -613,6 +651,9 @@ lws_create_context(const struct lws_context_creation_info *info)
 		goto bail;
 
 #if defined(LWS_WITH_TLS) && defined(LWS_WITH_NETWORK)
+#if defined(LWS_WITH_CLIENT)
+	context->client_ssl_reuse_sessions = info->client_ssl_reuse_sessions;
+#endif
 #if defined(LWS_WITH_MBEDTLS)
 	context->tls_ops = &tls_ops_mbedtls;
 #else
@@ -1617,6 +1658,18 @@ lws_context_destroy(struct lws_context *context)
 	context->inside_context_destroy = 1;
 
 #if defined(LWS_WITH_NETWORK)
+#if defined(LWS_WITH_TLS) && defined(LWS_WITH_CLIENT)
+	/* release session cache */
+	for (struct lws_session_cache* s = context->client_ssl_session_cache; s;) {
+		free(s->name);
+		SSL_SESSION_free(s->session);
+		struct lws_session_cache* n = s->next;
+		free(s);
+		s = n;
+	}
+	context->client_ssl_session_cache = NULL;
+#endif /* WITH_TLS && WITH_CLIENT */
+
 	if (context->finalize_destroy_after_internal_loops_stopped) {
 		if (context->event_loop_ops->destroy_context2)
 			context->event_loop_ops->destroy_context2(context);

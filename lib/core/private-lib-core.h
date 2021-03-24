@@ -261,6 +261,14 @@ typedef struct lws_attach_item {
  *  - contextwide headers pool
  */
 
+#if defined(LWS_WITH_NETWORK) && defined(LWS_WITH_TLS) && defined(LWS_WITH_CLIENT)
+struct lws_session_cache {
+	char* name;
+	SSL_SESSION* session;
+	struct lws_session_cache* next;
+};
+#endif
+
 struct lws_context {
  #if defined(LWS_WITH_SERVER)
 	char canonical_hostname[96];
@@ -365,6 +373,10 @@ struct lws_context {
 
 #if defined(LWS_WITH_TLS)
 	const struct lws_tls_ops	*tls_ops;
+#if defined(LWS_WITH_CLIENT)
+	int				client_ssl_reuse_sessions;
+	struct lws_session_cache	*client_ssl_session_cache;
+#endif
 #endif
 
 #if defined(LWS_WITH_DETAILED_LATENCY)
@@ -543,6 +555,14 @@ signed char char_to_hex(const char c);
 #if defined(LWS_WITH_NETWORK)
 int
 lws_system_do_attach(struct lws_context_per_thread *pt);
+
+#if defined(LWS_WITH_TLS) && defined(LWS_WITH_CLIENT)
+int
+lws_context_cache_session(struct lws_context* ctx, SSL_SESSION* sess, const char* name);
+
+SSL_SESSION*
+lws_context_get_cached_session(const struct lws_context* ctx, const char* name);
+#endif
 #endif
 
 struct lws_buflist {
