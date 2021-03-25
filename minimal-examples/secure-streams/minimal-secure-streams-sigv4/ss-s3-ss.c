@@ -87,15 +87,15 @@ create_payload(uint8_t *buf, size_t s)
 static void set_time(char *t)
 {
 	/*20150830T123600Z*/
-	time_t rawtime;
-	struct tm *info;
-
-	time(&rawtime );
-	info = gmtime(&rawtime);
-
-	strftime(t ,20,"%Y%m%dT%H%M%SZ", info);
-
-	return;
+	time_t ti = time(NULL);
+#if defined(LWS_HAVE_GMTIME_R)
+	struct tm tmp;
+	struct tm *tm = gmtime_r(&ti, &tmp);
+#else
+	struct tm *tm = gmtime(&ti);
+#endif
+	assert(tm);
+	strftime(t, 20, "%Y%m%dT%H%M%SZ", tm);
 }
 
 static void bin2hex(uint8_t *in, size_t len, char *out)

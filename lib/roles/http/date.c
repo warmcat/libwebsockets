@@ -53,7 +53,14 @@ lws_http_date_render(char *buf, size_t len, const struct tm *tm)
 int
 lws_http_date_render_from_unix(char *buf, size_t len, const time_t *t)
 {
+#if defined(LWS_HAVE_GMTIME_R)
+	struct tm tmp;
+	struct tm *tm = gmtime_r(t, &tmp);
+#else
 	struct tm *tm = gmtime(t);
+#endif
+	if (!tm)
+		return -1;
 
 	if (lws_http_date_render(buf, len, tm))
 		return -1;
