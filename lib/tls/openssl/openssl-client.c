@@ -205,6 +205,11 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		return -1;
 	}
 
+#if defined(LWS_WITH_TLS_SESSIONS)
+	if (wsi->a.vhost->options & LWS_SERVER_OPTION_ENABLE_TLS_SESSION_CACHE)
+		lws_tls_reuse_session(wsi);
+#endif
+
 #if defined (LWS_HAVE_SSL_SET_INFO_CALLBACK)
 	if (wsi->a.vhost->tls.ssl_info_event_mask)
 		SSL_set_info_callback(wsi->tls.ssl, lws_ssl_info_callback);
@@ -776,6 +781,10 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 	/* bind the tcr to the client context */
 
 	vh->tls.tcr = tcr;
+
+#if defined(LWS_WITH_TLS_SESSIONS)
+	lws_tls_session_cache(vh);
+#endif
 
 #ifdef SSL_OP_NO_COMPRESSION
 	SSL_CTX_set_options(vh->tls.ssl_client_ctx, SSL_OP_NO_COMPRESSION);

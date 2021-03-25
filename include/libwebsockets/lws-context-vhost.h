@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2021 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -238,6 +238,9 @@
 
 #define LWS_SERVER_OPTION_ULOOP					 (1ll << 38)
 	/**< (CTX) Use libubox / uloop event loop */
+
+#define LWS_SERVER_OPTION_ENABLE_TLS_SESSION_CACHE		 (1ll << 39)
+	/**< (VHOST) Allow use of client tls caching */
 
 
 	/****** add new things just above ---^ ******/

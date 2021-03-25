@@ -455,6 +455,11 @@ struct lws_vhost {
 	char socks_user[96];
 	char socks_password[96];
 #endif
+
+#if defined(LWS_WITH_TLS_SESSIONS)
+	lws_dll2_owner_t	tls_sessions; /* vh lock */
+#endif
+
 #if defined(LWS_WITH_EVENT_LIBS)
 	void		*evlib_vh; /* overallocated */
 #endif
