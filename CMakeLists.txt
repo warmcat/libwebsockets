@@ -655,7 +655,10 @@ if ((CMAKE_C_COMPILER_ID MATCHES "Clang") OR
 endif()
 
 if (LWS_HAVE_PTHREAD_H AND NOT LWS_PLAT_FREERTOS)
-	CHECK_C_SOURCE_COMPILES("#define _GNU_SOURCE
+	CHECK_C_SOURCE_COMPILES("
+		#ifndef _GNU_SOURCE
+		#define _GNU_SOURCE
+		#endif
 		#include <pthread.h>
 		int main(void) {
 			pthread_t th = 0;
