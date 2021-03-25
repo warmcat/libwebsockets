@@ -395,6 +395,12 @@ if (LWS_WITH_PLUGINS AND NOT LWS_WITH_SHARED)
 	set(LWS_WITH_PLUGINS 0)
 endif()
 
+if (LWS_WITH_TLS_SESSIONS)
+	if (NOT LWS_WITH_NETWORK OR NOT LWS_WITH_CLIENT OR LWS_WITH_MBEDTLS)
+		message("TLS_SESSIONS support only covers client on openssl atm, disabling")
+		set(LWS_WITH_TLS_SESSIONS OFF)
+	endif()
+endif()
 
 # if we're only building static, we don't want event lib plugins
 #

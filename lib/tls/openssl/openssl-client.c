@@ -205,6 +205,11 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		return -1;
 	}
 
+#if defined(LWS_WITH_TLS_SESSIONS)
+	if (!(wsi->a.vhost->options & LWS_SERVER_OPTION_DISABLE_TLS_SESSION_CACHE))
+		lws_tls_reuse_session(wsi);
+#endif
+
 #if defined (LWS_HAVE_SSL_SET_INFO_CALLBACK)
 	if (wsi->a.vhost->tls.ssl_info_event_mask)
 		SSL_set_info_callback(wsi->tls.ssl, lws_ssl_info_callback);
@@ -429,7 +434,9 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 	unsigned int len;
 #endif
 	int m, n, en;
-
+#if defined(LWS_WITH_TLS_SESSIONS) && defined(LWS_HAVE_SSL_SESSION_set_time)
+	SSL_SESSION *sess;
+#endif
 	errno = 0;
 	ERR_clear_error();
 	n = SSL_connect(wsi->tls.ssl);
@@ -454,6 +461,20 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 		ERR_error_string_n((unsigned int)m, errbuf + n, (elen - (unsigned int)n));
 		return LWS_SSL_CAPABLE_ERROR;
 	}
+
+#if defined(LWS_WITH_TLS_SESSIONS)
+	if (SSL_session_reused(wsi->tls.ssl)) {
+#if defined(LWS_HAVE_SSL_SESSION_set_time)
+		sess = SSL_get_session(wsi->tls.ssl);
+		if (sess) /* should always be true */
+#if defined(OPENSSL_IS_BORINGSSL)
+			SSL_SESSION_set_time(sess, (uint64_t)time(NULL)); /* extend session lifetime */
+#else
+			SSL_SESSION_set_time(sess, (long)time(NULL)); /* extend session lifetime */
+#endif
+#endif
+	}
+#endif
 
 	if (m == SSL_ERROR_WANT_READ || SSL_want_read(wsi->tls.ssl))
 		return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
@@ -776,6 +797,12 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 	/* bind the tcr to the client context */
 
 	vh->tls.tcr = tcr;
+
+#if defined(LWS_WITH_TLS_SESSIONS)
+	vh->tls_session_cache_max = info->tls_session_cache_max ?
+				    info->tls_session_cache_max : 10;
+	lws_tls_session_cache(vh, info->tls_session_timeout);
+#endif
 
 #ifdef SSL_OP_NO_COMPRESSION
 	SSL_CTX_set_options(vh->tls.ssl_client_ctx, SSL_OP_NO_COMPRESSION);

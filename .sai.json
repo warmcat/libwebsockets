@@ -156,6 +156,10 @@
 			"cmake":	"-DLWS_WITH_MINIMAL_EXAMPLES=1",
 			"platforms":	"w10/x86_64-amd/msvc, w10/x86_64-amd/noptmsvc, linux-ubuntu-2004/aarch64-a72-bcm2711-rpi4/gcc, netbsd/aarch64BE-bcm2837-a53/gcc, openbsd/x86_64-amd/llvm, solaris/x86_64-amd/gcc"
 		},
+		"default-examples-tls-sess": {
+			"cmake":	"-DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_TLS_SESSIONS=1",
+			"platforms":	"w10/x86_64-amd/msvc, w10/x86_64-amd/noptmsvc, linux-ubuntu-2004/aarch64-a72-bcm2711-rpi4/gcc, netbsd/aarch64BE-bcm2837-a53/gcc, openbsd/x86_64-amd/llvm, solaris/x86_64-amd/gcc"
+		},
 		"h1only-examples": {
 			"cmake":	"cmake .. -DLWS_WITH_HTTP2=0 -DLWS_WITH_MINIMAL_EXAMPLES=1",
 			"platforms":	"none,linux-fedora-32/x86_64-amd/gcc"
