@@ -455,6 +455,11 @@ struct lws_vhost {
 	char socks_user[96];
 	char socks_password[96];
 #endif
+
+#if defined(LWS_WITH_TLS_SESSIONS)
+	lws_dll2_owner_t	tls_sessions; /* vh lock */
+#endif
+
 #if defined(LWS_WITH_EVENT_LIBS)
 	void		*evlib_vh; /* overallocated */
 #endif
@@ -531,6 +536,10 @@ struct lws_vhost {
 
 #ifdef LWS_WITH_ACCESS_LOG
 	int log_fd;
+#endif
+
+#if defined(LWS_WITH_TLS_SESSIONS)
+	uint32_t		tls_session_cache_max;
 #endif
 
 #if defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
@@ -825,6 +834,7 @@ struct lws {
 	unsigned int                    client_suppress_CONNECTION_ERROR:1;
 	/**< because the client connection creation api is still the parent of
 	 * this activity, and will report the failure */
+	unsigned int			tls_session_reused:1;
 #endif
 
 #ifdef _WIN32

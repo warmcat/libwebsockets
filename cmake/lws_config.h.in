@@ -90,6 +90,7 @@
 #cmakedefine LWS_HAVE_SSL_CTX_EVP_PKEY_new_raw_private_key
 #cmakedefine LWS_HAVE_SSL_set_alpn_protos
 #cmakedefine LWS_HAVE_SSL_SET_INFO_CALLBACK
+#cmakedefine LWS_HAVE_SSL_SESSION_set_time
 #cmakedefine LWS_HAVE__STAT32I64
 #cmakedefine LWS_HAVE_STDINT_H
 #cmakedefine LWS_HAVE_SYS_CAPABILITY_H
@@ -208,6 +209,7 @@
 #cmakedefine LWS_WITH_SYS_STATE
 #cmakedefine LWS_WITH_THREADPOOL
 #cmakedefine LWS_WITH_TLS
+#cmakedefine LWS_WITH_TLS_SESSIONS
 #cmakedefine LWS_WITH_UDP
 #cmakedefine LWS_WITH_ULOOP
 #cmakedefine LWS_WITH_UNIX_SOCK

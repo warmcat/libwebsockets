@@ -24,6 +24,9 @@
 
 #include "private-lib-core.h"
 
+void
+lws_tls_session_vh_destroy(struct lws_vhost *vh);
+
 const struct lws_role_ops *available_roles[] = {
 #if defined(LWS_ROLE_H2)
 	&role_ops_h2,
@@ -1197,6 +1200,10 @@ lws_vhost_destroy1(struct lws_vhost *vh)
 		goto out;
 
 	lws_vhost_lock(vh); /* -------------- vh { */
+
+#if defined(LWS_WITH_TLS_SESSIONS) && defined(LWS_WITH_TLS)
+	lws_tls_session_vh_destroy(vh);
+#endif
 
 	vh->being_destroyed = 1;
 	lws_dll2_add_tail(&vh->vh_being_destroyed_list,
