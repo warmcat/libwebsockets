@@ -1608,10 +1608,15 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 	const char *my_alpn = lws_wsi_client_stash_item(wsi, CIS_ALPN,
 							_WSI_TOKEN_CLIENT_ALPN);
 #endif
-	char newconn_cannot_use_h1 = 0;
 #if defined(LWS_WITH_TLS)
+	char newconn_cannot_use_h1 = 0;
+
 	if ((wsi->tls.use_ssl & LCCSCF_USE_SSL) &&
-	    (my_alpn && !strstr(my_alpn, "http/1.1")))
+	    my_alpn && !strstr(my_alpn, "http/1.1"))
+		/*
+		 * new guy wants to use tls, he specifies the alpn and he does
+		 * not list h1 as a choice ==> he can't bind to existing h1
+		 */
 		newconn_cannot_use_h1 = 1;
 #endif
 
@@ -1657,15 +1662,18 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 		     */
 		    (w->role_ops == wsi->role_ops ||
 		     (lwsi_role_http(w) && lwsi_role_http(wsi))) &&
-		    w->cli_hostname_copy &&
-		    !(newconn_cannot_use_h1 && w->role_ops != &role_ops_h1) &&
-		    !strcmp(adsin, w->cli_hostname_copy) &&
+		     /* ... same role, or at least both some kind of http */
+		    w->cli_hostname_copy && !strcmp(adsin, w->cli_hostname_copy) &&
+		    /* same endpoint hostname */
 #if defined(LWS_WITH_TLS)
-		   (!(wsi->tls.use_ssl & LCCSCF_USE_SSL) || !my_alpn || (my_alpn && strstr(my_alpn, "http/1.1"))) &&
+		   !(newconn_cannot_use_h1 && w->role_ops == &role_ops_h1) &&
+		   /* if we can't use h1, old guy must not be h1 */
 		    (wsi->tls.use_ssl & LCCSCF_USE_SSL) ==
 		     (w->tls.use_ssl & LCCSCF_USE_SSL) &&
+		     /* must both agree on tls use or not */
 #endif
 		    wsi->c_port == w->c_port) {
+			/* same endpoint port */
 
 			/*
 			 * There's already an active connection.
