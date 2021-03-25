@@ -200,7 +200,7 @@ lwsl_timestamp(int level, char *p, size_t len)
 	unsigned long long now;
 	struct timeval tv;
 	struct tm *ptm = NULL;
-#ifndef WIN32
+#if defined(LWS_HAVE_LOCALTIME_R)
 	struct tm tm;
 #endif
 	int n;
@@ -209,13 +209,10 @@ lwsl_timestamp(int level, char *p, size_t len)
 	o_now = tv.tv_sec;
 	now = ((unsigned long long)tv.tv_sec * 10000) + (unsigned int)(tv.tv_usec / 100);
 
-#ifndef _WIN32_WCE
-#ifdef WIN32
-	ptm = localtime(&o_now);
+#if defined(LWS_HAVE_LOCALTIME_R)
+	ptm = localtime_r(&o_now, &tm);
 #else
-	if (localtime_r(&o_now, &tm))
-		ptm = &tm;
-#endif
+	ptm = localtime(&o_now);
 #endif
 	p[0] = '\0';
 	for (n = 0; n < LLL_COUNT; n++) {
