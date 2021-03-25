@@ -1173,6 +1173,20 @@ lws_mux_mark_immortal(struct lws *wsi)
 		lws_set_timeout(nwsi, NO_PENDING_TIMEOUT, 0);
 }
 
+int
+lws_tls_session_is_reused(struct lws *wsi)
+{
+#if defined(LWS_WITH_CLIENT)
+	struct lws *nwsi = lws_get_network_wsi(wsi);
+
+	if (!nwsi)
+		return 0;
+
+	return nwsi->tls_session_reused;
+#else
+	return 0;
+#endif
+}
 
 int
 lws_http_mark_sse(struct lws *wsi)

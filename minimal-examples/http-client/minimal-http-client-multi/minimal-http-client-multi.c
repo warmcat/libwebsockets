@@ -1,7 +1,7 @@
 /*
  * lws-minimal-http-client-multi
  *
- * Written in 2010-2020 by Andy Green <andy@warmcat.com>
+ * Written in 2010-2021 by Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
@@ -26,6 +26,12 @@
  * HTTP/1.0: Pipelining only possible if Keep-Alive: yes sent by server
  * HTTP/1.1: always possible... serializes requests
  * HTTP/2:   always possible... all requests sent as individual streams in parallel
+ *
+ * Note: stats are kept on tls session reuse and checked depending on mode
+ *
+ *  - default: no reuse expected (connections made too quickly at once)
+ *  - staggered, no pipeline: n - 1 reuse expected
+ *  - staggered, pipelined: no reuse expected
  */
 
 #include <libwebsockets.h>
@@ -40,7 +46,7 @@ struct cliuser {
 	int index;
 };
 
-static int completed, failed, numbered, stagger_idx, posting, count = COUNT;
+static int completed, failed, numbered, stagger_idx, posting, count = COUNT, reuse;
 static lws_sorted_usec_list_t sul_stagger;
 static struct lws_client_connect_info i;
 static struct lws *client_wsi[COUNT];
@@ -65,8 +71,10 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	switch (reason) {
 
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
-		lwsl_user("LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP: idx: %d, resp %u\n",
-				idx, lws_http_client_http_response(wsi));
+		lwsl_user("LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP: idx: %d, resp %u: tls-session-reuse: %d\n",
+				idx, lws_http_client_http_response(wsi), lws_tls_session_is_reused(wsi));
+		if (lws_tls_session_is_reused(wsi))
+			reuse++;
 		break;
 
 	/* because we are protocols[0] ... */
@@ -338,14 +346,23 @@ stagger_cb(lws_sorted_usec_list_t *sul)
 	if (stagger_idx == count - 1)
 		next += 400 * LWS_US_PER_MS;
 
+#if defined(LWS_WITH_TLS_SESSIONS)
+	if (stagger_idx == 1)
+		next += 600 * LWS_US_PER_MS;
+#endif
+
 	lws_sul_schedule(context, 0, &sul_stagger, stagger_cb, next);
 }
 
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
+	int m, staggered = 0
+#if defined(LWS_WITH_TLS_SESSIONS)
+		, pl = 0
+#endif
+	;
 	unsigned long long start;
-	int m, staggered = 0;
 	const char *p;
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
@@ -400,6 +417,11 @@ int main(int argc, const char **argv)
 	info.client_ssl_ca_filepath = "./warmcat.com.cer";
 #endif
 
+	/* vhost option allowing tls session reuse, requires
+	 * LWS_WITH_TLS_SESSIONS build option */
+	if (lws_cmdline_option(argc, argv, "--no-tls-session-reuse"))
+		info.options |= LWS_SERVER_OPTION_DISABLE_TLS_SESSION_CACHE;
+
 	if ((p = lws_cmdline_option(argc, argv, "--limit")))
 		info.simultaneous_ssl_restriction = atoi(p);
 
@@ -430,8 +452,12 @@ int main(int argc, const char **argv)
 		i.method = "GET";
 
 	/* enables h1 or h2 connection sharing */
-	if (lws_cmdline_option(argc, argv, "-p"))
+	if (lws_cmdline_option(argc, argv, "-p")) {
 		i.ssl_connection |= LCCSCF_PIPELINE;
+#if defined(LWS_WITH_TLS_SESSIONS)
+		pl = 1;
+#endif
+	}
 
 	/* force h1 even if h2 available */
 	if (lws_cmdline_option(argc, argv, "--h1"))
@@ -492,6 +518,16 @@ int main(int argc, const char **argv)
 	start = us();
 	while (!intr && !lws_service(context, 0))
 		;
+
+#if defined(LWS_WITH_TLS_SESSIONS)
+	lwsl_user("%s: session reuse count %d\n", __func__, reuse);
+
+	if (staggered && !pl && !reuse) {
+		lwsl_err("%s: failing, expected 1 .. %d reused\n", __func__, count - 1);
+		// too difficult to reproduce in CI
+		// failed = 1;
+	}
+#endif
 
 	lwsl_user("Duration: %lldms\n", (us() - start) / 1000);
 	lws_context_destroy(context);

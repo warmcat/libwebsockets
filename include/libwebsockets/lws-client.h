@@ -374,4 +374,21 @@ lws_client_http_multipart(struct lws *wsi, const char *name,
 LWS_VISIBLE LWS_EXTERN int
 lws_http_basic_auth_gen(const char *user, const char *pw, char *buf, size_t len);
 
+/**
+ * lws_tls_session_is_reused() - returns nonzero if tls session was cached
+ *
+ * \param wsi: the wsi
+ *
+ * Returns zero if the tls session is fresh, else nonzero if the tls session was
+ * taken from the cache.  If lws is built with LWS_WITH_TLS_SESSIONS and the vhost
+ * was created with the option LWS_SERVER_OPTION_ENABLE_TLS_SESSION_CACHE, then
+ * on full tls session establishment of a client connection, the session is added
+ * to the tls cache.
+ *
+ * This lets you find out if your session was new (0) or from the cache (nonzero),
+ * it'a mainly useful for stats and testing.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_tls_session_is_reused(struct lws *wsi);
+
 ///@}

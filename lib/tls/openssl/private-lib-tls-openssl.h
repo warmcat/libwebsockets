@@ -58,5 +58,11 @@ lws_gencrypto_openssl_hash_to_EVP_MD(enum lws_genhash_types hash_type);
 int BN_bn2binpad(const BIGNUM *a, unsigned char *to, int tolen);
 #endif
 
+void
+lws_tls_reuse_session(struct lws *wsi);
+
+void
+lws_tls_session_cache(struct lws_vhost *vh, uint32_t ttl);
+
 #endif
 

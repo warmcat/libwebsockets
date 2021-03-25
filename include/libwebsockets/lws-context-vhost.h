@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2021 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -238,6 +238,9 @@
 
 #define LWS_SERVER_OPTION_ULOOP					 (1ll << 38)
 	/**< (CTX) Use libubox / uloop event loop */
+
+#define LWS_SERVER_OPTION_DISABLE_TLS_SESSION_CACHE		 (1ll << 39)
+	/**< (VHOST) Disallow use of client tls caching (on by default) */
 
 
 	/****** add new things just above ---^ ******/
@@ -570,6 +573,15 @@ struct lws_context_creation_info {
 	/**< VHOST: seconds to allow a client to hold an ah without using it.
 	 * 0 defaults to 10s. */
 #endif /* WITH_NETWORK */
+
+#if defined(LWS_WITH_TLS_SESSIONS)
+	uint32_t			tls_session_timeout;
+	/**< VHOST: seconds until timeout/ttl for newly created sessions.
+	 * 0 means default timeout (defined per protocol, usually 300s). */
+	uint32_t			tls_session_cache_max;
+	/**< VHOST: 0 for default limit of 10, or the maximum number of
+	 * client tls sessions we are willing to cache */
+#endif
 
 	gid_t gid;
 	/**< CONTEXT: group id to change to after setting listen socket,
