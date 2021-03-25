@@ -103,7 +103,15 @@ endif()
 
 # ideally we want to use pipe2()
 
-CHECK_C_SOURCE_COMPILES("#define _GNU_SOURCE\n#include <unistd.h>\nint main(void) {int fd[2];\n return pipe2(fd, 0);\n}\n" LWS_HAVE_PIPE2)
+CHECK_C_SOURCE_COMPILES("
+	#ifndef _GNU_SOURCE
+	#define _GNU_SOURCE
+	#endif
+	#include <unistd.h>
+	int main(void) {
+		int fd[2];
+		return pipe2(fd, 0);
+	}" LWS_HAVE_PIPE2)
 
 # tcp keepalive needs this on linux to work practically... but it only exists
 # after kernel 2.6.37
