@@ -45,6 +45,9 @@ callback_dynamic_http(struct lws *wsi, enum lws_callback_reasons reason,
 		*end = &buf[sizeof(buf) - LWS_PRE - 1];
 	time_t t;
 	int n;
+#if defined(LWS_HAVE_CTIME_R)
+	char date[32];
+#endif
 
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
@@ -152,7 +155,12 @@ callback_dynamic_http(struct lws *wsi, enum lws_callback_reasons reason,
 				"<img src=\"/libwebsockets.org-logo.svg\">"
 				"<br>Dynamic content for '%s' from mountpoint."
 				"<br>Time: %s<br><br>"
-				"</body></html>", pss->path, ctime(&t));
+				"</body></html>", pss->path,
+#if defined(LWS_HAVE_CTIME_R)
+				ctime_r(&t, date));
+#else
+				ctime(&t));
+#endif
 		} else {
 			/*
 			 * after the first time, we create bulk content.
