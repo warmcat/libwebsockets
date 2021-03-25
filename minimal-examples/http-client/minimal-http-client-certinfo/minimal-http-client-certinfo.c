@@ -26,6 +26,9 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	uint8_t buf[1280];
 	union lws_tls_cert_info_results *ci =
 		(union lws_tls_cert_info_results *)buf;
+#if defined(LWS_HAVE_CTIME_R)
+	char date[32];
+#endif
 
 	switch (reason) {
 
@@ -50,11 +53,22 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if (!lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_VALIDITY_FROM,
 					    ci, 0))
-			lwsl_notice(" Peer Cert Valid from: %s", ctime(&ci->time));
-
+#if defined(LWS_HAVE_CTIME_R)
+			lwsl_notice(" Peer Cert Valid from: %s", 
+						ctime_r(&ci->time, date));
+#else
+			lwsl_notice(" Peer Cert Valid from: %s", 
+						ctime(&ci->time));
+#endif
 		if (!lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_VALIDITY_TO,
 					    ci, 0))
-			lwsl_notice(" Peer Cert Valid to  : %s", ctime(&ci->time));
+#if defined(LWS_HAVE_CTIME_R)
+			lwsl_notice(" Peer Cert Valid to  : %s",
+						ctime_r(&ci->time, date));
+#else
+			lwsl_notice(" Peer Cert Valid to  : %s",
+						ctime(&ci->time));
+#endif
 		if (!lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_USAGE,
 					    ci, 0))
 			lwsl_notice(" Peer Cert usage bits: 0x%x\n", ci->usage);
