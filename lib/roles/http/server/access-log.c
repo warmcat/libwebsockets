@@ -48,7 +48,10 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int met
 	struct lws *nwsi;
 	const char *me;
 	int l = 256, m;
-	struct tm *tmp;
+	struct tm *ptm = NULL;
+#if defined(LWS_HAVE_LOCALTIME_R)
+	struct tm tm;
+#endif
 
 	if (!wsi->a.vhost)
 		return;
@@ -64,9 +67,13 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int met
 	if (!wsi->http.access_log.header_log)
 		return;
 
-	tmp = localtime(&t);
-	if (tmp)
-		strftime(da, sizeof(da), "%d/%b/%Y:%H:%M:%S %z", tmp);
+#if defined(LWS_HAVE_LOCALTIME_R)
+	ptm = localtime_r(&t, &tm);
+#else
+	ptm = localtime(&t);
+#endif
+	if (ptm)
+		strftime(da, sizeof(da), "%d/%b/%Y:%H:%M:%S %z", ptm);
 	else
 		strcpy(da, "01/Jan/1970:00:00:00 +0000");
 
