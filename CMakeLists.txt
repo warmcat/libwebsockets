@@ -276,6 +276,8 @@ option(LWS_WITH_SUL_DEBUGGING "Enable zombie lws_sul checking on object deletion
 option(LWS_WITH_PLUGINS_API "Build generic lws_plugins apis (see LWS_WITH_PLUGINS to also build protocol plugins)" OFF)
 option(LWS_WITH_CONMON "Collect introspectable connection latency stats on individual client connections" ON)
 
+option(LWS_WITH_LSQUIC "Integrate Lightspeed Quic" OFF)
+
 if (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
 	option(LWS_WITH_NETLINK "Monitor Netlink for Routing Table changes" ON)
 else()
@@ -301,6 +303,11 @@ set(LIB_LIST_AT_END)
 set(LWS_LIBRARIES)
 set(LWS_OPENSSL_SUPPORT 0)
 include(CMakeLists-implied-options.txt)
+
+if (LWS_WITH_LSQUIC)
+	find_path(LSQUIC_INC_DIR "lsquic/lsquic.h")
+	find_library(LSQUIC_LIBRARIES NAMES lsquic)
+endif()
 
 #
 # Structural helpers for cmake in subdirs
@@ -618,6 +625,11 @@ if (WIN32 OR MSVC)
 	endif()
 endif()
 
+CHECK_C_SOURCE_COMPILES("#include <linux/ipv6.h>
+			 #include <netdb.h>
+			 int main() { return 0; }" LWS_NEED_LINUX_IPV6)
+
+
 CHECK_LIBRARY_EXISTS(cap cap_set_flag "" LWS_HAVE_LIBCAP)
 
 
@@ -889,6 +901,14 @@ endif()
 # Append the "at end" pieces to the lib list
 #
 list(APPEND LIB_LIST ${LIB_LIST_AT_END})
+
+if (LWS_WITH_LSQUIC)
+	include_directories(${LSQUIC_INC_DIR} ${LSQUIC_INC_DIR}/lsquic)
+	#
+	# lsquic should have been linked against libm, but
+	# doesn't take care of it itself yet
+	list(APPEND LIB_LIST ${LSQUIC_LIBRARIES} m)
+endif()
 
 #
 # Second-level CMakeLists

@@ -93,6 +93,9 @@ enum lws_client_connect_ssl_connection_flags {
 	LCCSCF_CONMON				= (1 << 28),
 	/**< If LWS_WITH_CONMON enabled for build, keeps a copy of the
 	 * getaddrinfo results so they can be queried subsequently */
+	LCCSCF_LSQUIC		= (1 << 29),
+	/**< User code handles the read or revc on POLLIN, just skip straight
+	 * to the callback without trying to read.  Useful on UDP. */
 };
 
 /** struct lws_client_connect_info - parameters to connect with when using

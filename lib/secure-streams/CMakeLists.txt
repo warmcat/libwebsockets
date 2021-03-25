@@ -47,6 +47,11 @@ if (LWS_WITH_CLIENT)
 				secure-streams/protocols/ss-h2.c
 			)
 		endif()
+		if (LWS_WITH_LSQUIC)
+			list(APPEND SOURCES
+				secure-streams/protocols/ss-h3.c
+			)
+		endif()
 		if (LWS_ROLE_WS)
 			list(APPEND SOURCES
 				secure-streams/protocols/ss-ws.c

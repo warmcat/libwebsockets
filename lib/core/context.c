@@ -305,6 +305,9 @@ static const char * const opts_str =
 #if defined(LWS_ROLE_H2)
 			"H2 "
 #endif
+#if defined(LWS_WITH_LSQUIC)
+			"H3 "
+#endif
 #if defined(LWS_ROLE_WS)
 			"WS "
 #endif

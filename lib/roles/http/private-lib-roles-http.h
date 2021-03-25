@@ -34,7 +34,7 @@
 #include "private-lib-roles-http-compression.h"
 #endif
 
-#define lwsi_role_http(wsi) (lwsi_role_h1(wsi) || lwsi_role_h2(wsi))
+#define lwsi_role_http(wsi) (lwsi_role_h1(wsi) || lwsi_role_h2(wsi) || lwsi_role_lsq(wsi))
 
 enum http_version {
 	HTTP_VERSION_1_0,

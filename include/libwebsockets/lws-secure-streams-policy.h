@@ -171,9 +171,11 @@ typedef struct lws_ss_trust_store {
 enum {
 	LWSSSP_H1,
 	LWSSSP_H2,
+	LWSSSP_H3,
 	LWSSSP_WS,
 	LWSSSP_MQTT,
 	LWSSSP_RAW,
+
 
 
 	LWSSS_HBI_AUTH = 0,

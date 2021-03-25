@@ -630,6 +630,8 @@ struct lws_a {
 #define lws_fakewsi_prep_plwsa_ctx(_c) \
 		memset(plwsa, 0, sizeof(*plwsa)); plwsa->context = _c
 
+struct service_port;
+
 struct lws {
 
 	struct lws_a			a;
@@ -650,6 +652,10 @@ struct lws {
 #endif
 #if defined(LWS_ROLE_MQTT)
 	struct _lws_mqtt_related	*mqtt;
+#endif
+
+#if defined(LWS_WITH_LSQUIC)
+	struct service_port		*lsq_sport;
 #endif
 
 #if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT)

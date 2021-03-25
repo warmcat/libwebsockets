@@ -389,6 +389,9 @@ lws_buflist_aware_read(struct lws_context_per_thread *pt, struct lws *wsi,
 	if (!fr && bns)
 		goto buflist_material;
 
+	if (lwsi_role_lsq(wsi))
+		return 0;
+
 	/* we're going to read something */
 
 	ebuf->token = ep;

@@ -245,6 +245,7 @@ static uint16_t sizes[] = {
 static const char * const protonames[] = {
 	"h1",		/* LWSSSP_H1 */
 	"h2",		/* LWSSSP_H2 */
+	"h3",		/* LWSSSP_H3 */
 	"ws",		/* LWSSSP_WS */
 	"mqtt",		/* LWSSSP_MQTT */
 	"raw",		/* LWSSSP_RAW */

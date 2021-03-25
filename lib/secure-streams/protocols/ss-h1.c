@@ -758,8 +758,8 @@ malformed:
 	/* chunks of chunked content, with header removed */
 	case LWS_CALLBACK_HTTP_BODY:
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
-		lwsl_debug("%s: RECEIVE_CLIENT_HTTP_READ: read %d\n",
-				__func__, (int)len);
+		lwsl_debug("%s: RECEIVE_CLIENT_HTTP_READ: %s: read %d\n",
+				__func__, lws_wsi_tag(wsi), (int)len);
 		if (!h || !h->info.rx)
 			return 0;
 

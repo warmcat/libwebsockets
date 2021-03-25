@@ -70,6 +70,7 @@ typedef enum {
 	LWS_ADOPT_ALLOW_SSL		=  4,	/* flag: use tls */
 	LWS_ADOPT_FLAG_UDP		= 16,	/* flag: socket is UDP */
 	LWS_ADOPT_FLAG_RAW_PROXY	= 32,	/* flag: raw proxy */
+	LWS_ADOPT_FLAG_QUIC		= 64,	/* flag: socket is UDP */
 
 	LWS_ADOPT_RAW_SOCKET_UDP = LWS_ADOPT_SOCKET | LWS_ADOPT_FLAG_UDP,
 } lws_adoption_type;

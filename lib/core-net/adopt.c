@@ -376,6 +376,11 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 	    !(type & LWS_ADOPT_SOCKET))
 		type &= (unsigned int)~LWS_ADOPT_ALLOW_SSL;
 
+#if defined(LWS_WITH_CLIENT)
+	if (type & LWS_ADOPT_FLAG_QUIC)
+		new_wsi->flags |= LCCSCF_LSQUIC;
+#endif
+
 	/*
 	 * A new connection was accepted. Give the user a chance to
 	 * set properties of the newly created wsi. There's no protocol

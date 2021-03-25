@@ -559,12 +559,14 @@ struct conn {
 
 extern const struct ss_pcols ss_pcol_h1;
 extern const struct ss_pcols ss_pcol_h2;
+extern const struct ss_pcols ss_pcol_h3;
 extern const struct ss_pcols ss_pcol_ws;
 extern const struct ss_pcols ss_pcol_mqtt;
 extern const struct ss_pcols ss_pcol_raw;
 
 extern const struct lws_protocols protocol_secstream_h1;
 extern const struct lws_protocols protocol_secstream_h2;
+extern const struct lws_protocols protocol_secstream_h3;
 extern const struct lws_protocols protocol_secstream_ws;
 extern const struct lws_protocols protocol_secstream_mqtt;
 extern const struct lws_protocols protocol_secstream_raw;

@@ -46,8 +46,9 @@
 #define	LLL_LATENCY	(1 << 9)
 #define	LLL_USER	(1 << 10)
 #define	LLL_THREAD	(1 << 11)
+#define	LLL_LSQ		(1 << 12)
 
-#define	LLL_COUNT	(12) /* set to count of valid flags */
+#define	LLL_COUNT	(13) /* set to count of valid flags */
 
 /**
  * lwsl_timestamp: generate logging timestamp string
@@ -192,6 +193,11 @@ LWS_VISIBLE LWS_EXTERN void _lws_logv(int filter, const char *format, va_list vl
 #define lwsl_user(...) do {} while(0)
 #endif
 
+#if (_LWS_ENABLED_LOGS & LLL_LSQ)
+#define lwsl_lsq(...) _lws_log(LLL_LSQ, __VA_ARGS__)
+#else
+#define lwsl_lsq(...) do {} while(0)
+#endif
 
 #define lwsl_hexdump_err(...) lwsl_hexdump_level(LLL_ERR, __VA_ARGS__)
 #define lwsl_hexdump_warn(...) lwsl_hexdump_level(LLL_WARN, __VA_ARGS__)

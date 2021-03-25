@@ -134,7 +134,11 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 
 	/* PHASE 2: create a bare wsi */
 
-	wsi = __lws_wsi_create_with_role(i->context, tsi, NULL);
+	wsi = __lws_wsi_create_with_role(i->context, tsi,
+#if defined(LWS_WITH_LSQUIC)
+			(i->ssl_connection & LCCSCF_LSQUIC) ? &role_ops_lsq :
+#endif
+			NULL);
 	lws_context_unlock(i->context);
 	if (wsi == NULL)
 		goto bail;
@@ -248,6 +252,13 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	 * Note the initial role may not reflect the final role, eg,
 	 * we may want ws, but first we have to go through h1 to get that
 	 */
+
+#if defined(LWS_WITH_LSQUIC)
+	if (i->ssl_connection & LCCSCF_LSQUIC)
+		lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED,
+			    &role_ops_lsq);
+	else
+#endif
 
 	if (lws_role_call_client_bind(wsi, i) < 0) {
 		lwsl_err("%s: unable to bind to role\n", __func__);

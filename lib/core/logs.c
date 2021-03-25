@@ -41,7 +41,7 @@ static void (*lwsl_emit)(int level, const char *line)
 #endif
 	;
 #if !defined(LWS_PLAT_OPTEE) && !defined(LWS_WITH_NO_LOGS)
-static const char * log_level_names ="EWNIDPHXCLUT??";
+static const char * log_level_names ="EWNIDPHXCLUTQ??";
 #endif
 
 /*
@@ -257,6 +257,7 @@ static const char * const colours[] = {
 	"[33;1m", /* LLL_LATENCY */
         "[0;1m", /* LLL_USER */
 	"[31m", /* LLL_THREAD */
+	"[32m", /* LLL_LSQ */
 };
 
 static char tty;

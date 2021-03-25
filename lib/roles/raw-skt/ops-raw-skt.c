@@ -117,6 +117,10 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 			ebuf.token = NULL;
 			ebuf.len = 0;
 
+#if defined(LWS_WITH_LSQUIC)
+			if (!(wsi->flags & LCCSCF_LSQUIC)) {
+#endif
+
 			buffered = lws_buflist_aware_read(pt, wsi, &ebuf, 1, __func__);
 			switch (ebuf.len) {
 			case 0:
@@ -140,6 +144,9 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 			case LWS_SSL_CAPABLE_MORE_SERVICE:
 				goto try_pollout;
 			}
+#if defined(LWS_WITH_LSQUIC)
+			}
+#endif
 
 #if defined(LWS_WITH_UDP)
 			if (lws_fi(&wsi->fic, "udp_rx_loss")) {
@@ -266,9 +273,12 @@ rops_client_bind_raw_skt(struct lws *wsi,
 
 	/* we are a fallback if nothing else matched */
 
-	if (!i->local_protocol_name ||
-	    strcmp(i->local_protocol_name, "raw-proxy"))
-		lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED,
+#if defined(LWS_WITH_LSQUIC)
+	if (!(i->ssl_connection & LCCSCF_LSQUIC))
+#endif
+		if (!i->local_protocol_name ||
+			strcmp(i->local_protocol_name, "raw-proxy"))
+			lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED,
 			    &role_ops_raw_skt);
 
 	return 1; /* matched */

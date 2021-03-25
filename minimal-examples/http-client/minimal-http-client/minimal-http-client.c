@@ -166,6 +166,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+		lwsl_user("LWS_CALLBACK_CLOSED_CLIENT_HTTP\n");
 		interrupted = 1;
 		bad = status != 200;
 		lws_cancel_service(lws_get_context(wsi)); /* abort poll wait */
@@ -184,7 +185,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 
 static const struct lws_protocols protocols[] = {
 	{
-		"http",
+		"myhttp",
 		callback_http,
 		0,
 		0,
@@ -244,6 +245,11 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 
 	i.ssl_connection |= LCCSCF_H2_QUIRK_OVERFLOWS_TXCR |
 			    LCCSCF_H2_QUIRK_NGHTTP2_END_STREAM;
+
+	if (lws_cmdline_option(a->argc, a->argv, "--lsq")) {
+		lwsl_user("%s: selecting LSQUIC\n", __func__);
+		i.ssl_connection |= LCCSCF_LSQUIC;
+	}
 
 	i.alpn = "h2";
 	if (lws_cmdline_option(a->argc, a->argv, "--h1"))

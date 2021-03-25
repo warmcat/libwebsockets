@@ -562,6 +562,7 @@ lws_role_transition(struct lws *wsi, enum lwsi_role role, enum lwsi_state state,
 #if (_LWS_ENABLED_LOGS & LLL_DEBUG) 
 	const char *name = "(unset)";
 #endif
+
 	wsi->wsistate = (unsigned int)role | (unsigned int)state;
 	if (ops)
 		wsi->role_ops = ops;

@@ -297,6 +297,12 @@ typedef int suseconds_t;
 #endif /* not USE_WOLFSSL */
 #endif
 
+#if defined(LWS_WITH_LSQUIC)
+#include <lsquic/lsquic.h>
+#include <lsquic/lsquic_types.h>
+#include <lsquic/lsxpack_header.h>
+#endif
+
 /*
  * Helpers for pthread mutex in user code... if lws is built for
  * multiple service threads, these resolve to pthread mutex

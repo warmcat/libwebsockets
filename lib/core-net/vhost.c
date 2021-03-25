@@ -37,6 +37,9 @@ const struct lws_role_ops *available_roles[] = {
 #if defined(LWS_ROLE_WS)
 	&role_ops_ws,
 #endif
+#if defined(LWS_WITH_LSQUIC)
+	&role_ops_lsq,
+#endif
 #if defined(LWS_ROLE_DBUS)
 	&role_ops_dbus,
 #endif
@@ -68,6 +71,9 @@ const struct lws_protocols *available_secstream_protocols[] = {
 #endif
 #if defined(LWS_ROLE_H2)
 	&protocol_secstream_h2,
+#endif
+#if defined(LWS_WITH_LSQUIC)
+	&protocol_secstream_h3,
 #endif
 #if defined(LWS_ROLE_WS)
 	&protocol_secstream_ws,
@@ -187,7 +193,7 @@ lws_role_call_adoption_bind(struct lws *wsi, int type, const char *prot)
 					    adoption_bind(wsi, type, prot))
 			return 0;
 	LWS_FOR_EVERY_AVAILABLE_ROLE_END;
-
+lwsl_notice("%s: falling back\n", __func__);
 	/* fall back to raw socket role if, eg, h1 not configured */
 
 	if (lws_rops_fidx(&role_ops_raw_skt, LWS_ROPS_adoption_bind) &&

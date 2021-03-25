@@ -361,7 +361,7 @@ extern const struct lws_role_ops role_ops_raw_skt, role_ops_raw_file,
 
 /* bring in role private declarations */
 
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_WITH_LSQUIC)
  #include "private-lib-roles-http.h"
 #else
  #define lwsi_role_http(wsi) (0)
@@ -407,6 +407,12 @@ extern const struct lws_role_ops role_ops_raw_skt, role_ops_raw_file,
  #include "mqtt/private-lib-roles-mqtt.h"
 #else
  #define lwsi_role_mqtt(wsi) (0)
+#endif
+
+#if defined(LWS_WITH_LSQUIC)
+ #include "lsq/private-lib-roles-lsq.h"
+#else
+ #define lwsi_role_lsq(wsi) (0)
 #endif
 
 enum {

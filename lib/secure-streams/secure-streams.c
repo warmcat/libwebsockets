@@ -35,6 +35,11 @@ static const struct ss_pcols *ss_pcols[] = {
 #else
 	NULL,
 #endif
+#if defined(LWS_WITH_LSQUIC)
+	&ss_pcol_h3,		/* LWSSSP_H3 */
+#else
+	NULL,
+#endif
 #if defined(LWS_ROLE_WS)
 	&ss_pcol_ws,		/* LWSSSP_WS */
 #else

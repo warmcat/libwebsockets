@@ -598,7 +598,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 #endif
 		{
 #if defined(LWS_ROLE_H1)
-			{
+			if (!lwsi_role_lsq(wsi)) {
 			lwsl_debug("%s: %s: transitioning to h1 client\n",
 				   __func__, lws_wsi_tag(wsi));
 			lws_role_transition(wsi, LWSIFR_CLIENT,

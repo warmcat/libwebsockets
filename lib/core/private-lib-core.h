@@ -420,6 +420,10 @@ struct lws_context {
 	char canonical_hostname[96];
  #endif
 
+#if defined(LWS_WITH_LSQUIC)
+	struct lws_context_role_lsq	lsq;
+#endif
+
 #if defined(LWS_WITH_FILE_OPS)
 	struct lws_plat_file_ops fops_platform;
 #endif
