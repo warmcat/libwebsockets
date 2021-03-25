@@ -139,6 +139,10 @@ if (LWS_WITH_SSL)
 			list(APPEND SOURCES
 				tls/openssl/openssl-ssl.c)
 		endif()
+		if (LWS_WITH_TLS_SESSIONS)
+			list(APPEND SOURCES
+				tls/openssl/openssl-session.c)
+		endif()
 		if (LWS_WITH_GENCRYPTO)
 			list(APPEND SOURCES
 				tls/openssl/lws-genhash.c

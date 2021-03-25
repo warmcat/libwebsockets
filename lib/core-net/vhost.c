@@ -24,6 +24,9 @@
 
 #include "private-lib-core.h"
 
+void
+lws_tls_session_vh_destroy(struct lws_vhost *vh);
+
 const struct lws_role_ops *available_roles[] = {
 #if defined(LWS_ROLE_H2)
 	&role_ops_h2,
@@ -1485,6 +1488,10 @@ lws_vhost_destroy(struct lws_vhost *vh)
 
 	/* dispose of the listen socket one way or another */
 	lws_vhost_destroy1(vh);
+
+#if defined(LWS_WITH_TLS_SESSIONS)
+	lws_tls_session_vh_destroy(vh);
+#endif
 
 	/* start async closure of all wsi on this pt thread attached to vh */
 	__lws_vhost_destroy_pt_wsi_dieback_start(vh);
