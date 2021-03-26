@@ -814,6 +814,12 @@ malformed:
 
 		h->txn_ok = 1;
 
+#if defined(LWS_WITH_SYS_METRICS)
+		lws_metrics_tag_ss_add(h, "result",
+				       h->u.http.good_respcode ?
+				       "SS_ACK_REMOTE" : "SS_NACK_REMOTE");
+#endif
+
 		r = lws_ss_event_helper(h, h->u.http.good_respcode ?
 						LWSSSCS_QOS_ACK_REMOTE :
 						LWSSSCS_QOS_NACK_REMOTE);
