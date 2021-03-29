@@ -164,9 +164,9 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 	case LWS_CALLBACK_MQTT_CLIENT_WRITEABLE:
 	{
-		size_t used_in, used_out;
+		size_t used_in, used_out, topic_limit;
 		lws_strexp_t exp;
-		char expbuf[LWS_MQTT_MAX_TOPICLEN+1];
+		char *expbuf;
 
 		if (!h || !h->info.tx)
 			return 0;
@@ -176,16 +176,44 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			lwsl_warn("%s: seqstate %d\n", __func__, h->seqstate);
 			break;
 		}
+		if (h->policy->u.mqtt.aws_iot)
+			topic_limit = LWS_MQTT_MAX_AWSIOT_TOPICLEN;
+		else
+			topic_limit = LWS_MQTT_MAX_TOPICLEN;
 
 		if (h->policy->u.mqtt.subscribe &&
 		    !wsi->mqtt->done_subscribe) {
-			lws_strexp_init(&exp, (void *)h, lws_ss_exp_cb_metadata, expbuf, sizeof(expbuf));
+			lws_strexp_init(&exp, (void *)h, lws_ss_exp_cb_metadata,
+					NULL, topic_limit);
+			/*
+			 * Expand with no output first to calculate the size of
+			 * expanded string then, allocate new buffer and expand
+			 * again with the buffer
+			 */
+			if (lws_strexp_expand(&exp, h->policy->u.mqtt.subscribe,
+					      strlen(h->policy->u.mqtt.subscribe),
+					      &used_in, &used_out) != LSTRX_DONE) {
+				lwsl_err("%s, failed to expand MQTT subscribe"
+					 " topic with no output\n", __func__);
+				return 1;
+			}
+
+			expbuf = lws_malloc(used_out + 1, __func__);
+			if (!expbuf) {
+				lwsl_err("%s, failed to allocate MQTT subscribe"
+				         "topic", __func__);
+				return 1;
+			}
+
+			lws_strexp_init(&exp, (void *)h, lws_ss_exp_cb_metadata,
+					expbuf, used_out);
 
 			if (lws_strexp_expand(&exp, h->policy->u.mqtt.subscribe,
 					      strlen(h->policy->u.mqtt.subscribe),
 					      &used_in, &used_out) != LSTRX_DONE) {
-				lwsl_err("%s, faled to expand MQTT subscribe topic\n",
+				lwsl_err("%s, failed to expand MQTT subscribe topic\n",
 					 __func__);
+				lws_free(expbuf);
 				return 1;
 			}
 			lwsl_notice("%s, expbuf - %s\n", __func__, expbuf);
@@ -207,8 +235,12 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 			if (lws_mqtt_client_send_subcribe(wsi, &h->u.mqtt.sub_info)) {
 				lwsl_notice("%s: unable to subscribe", __func__);
+				lws_free(expbuf);
+				h->u.mqtt.sub_top.name = NULL;
 				return -1;
 			}
+			lws_free(expbuf);
+			h->u.mqtt.sub_top.name = NULL;
 			/* Expect a SUBACK */
 			if (lws_change_pollfd(wsi, 0, LWS_POLLIN)) {
 				lwsl_err("%s: Unable to set LWS_POLLIN\n", __func__);
@@ -231,12 +263,32 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		memset(&mqpp, 0, sizeof(mqpp));
 		/* this is the string-substituted h->policy->u.mqtt.topic */
 		mqpp.topic = (char *)h->u.mqtt.topic_qos.name;
-		lws_strexp_init(&exp, (void *)h, lws_ss_exp_cb_metadata, expbuf, sizeof(expbuf));
+		lws_strexp_init(&exp, h, lws_ss_exp_cb_metadata, NULL,
+				topic_limit);
 
 		if (lws_strexp_expand(&exp, h->policy->u.mqtt.topic,
 				      strlen(h->policy->u.mqtt.topic),
-				      &used_in, &used_out) != LSTRX_DONE)
+				      &used_in, &used_out) != LSTRX_DONE) {
+			lwsl_err("%s, failed to expand MQTT publish"
+				 " topic with no output\n", __func__);
 			return 1;
+		}
+		expbuf = lws_malloc(used_out + 1, __func__);
+		if (!expbuf) {
+			lwsl_err("%s, failed to allocate MQTT publish topic",
+				 __func__);
+			return 1;
+		}
+
+		lws_strexp_init(&exp, (void *)h, lws_ss_exp_cb_metadata, expbuf,
+				used_out);
+
+                if (lws_strexp_expand(&exp, h->policy->u.mqtt.topic,
+				      strlen(h->policy->u.mqtt.topic), &used_in,
+				      &used_out) != LSTRX_DONE) {
+			lws_free(expbuf);
+			return 1;
+		}
 		lwsl_notice("%s, expbuf - %s\n", __func__, expbuf);
 		mqpp.topic = (char *)expbuf;
 
@@ -258,9 +310,11 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 						 (uint32_t)buflen,
 						 f & LWSSS_FLAG_EOM)) {
 			lwsl_notice("%s: failed to publish\n", __func__);
+			lws_free(expbuf);
 
 			return -1;
 		}
+		lws_free(expbuf);
 
 		return 0;
 	}
@@ -376,6 +430,7 @@ secstream_connect_munge_mqtt(lws_ss_handle_t *h, char *buf, size_t len,
 	ct->ccp.clean_start		= h->policy->u.mqtt.clean_start;
 	ct->ccp.will_param.qos		= h->policy->u.mqtt.will_qos;
 	ct->ccp.will_param.retain	= h->policy->u.mqtt.will_retain;
+	ct->ccp.aws_iot			= h->policy->u.mqtt.aws_iot;
 	h->u.mqtt.topic_qos.qos		= h->policy->u.mqtt.qos;
 
 	/*

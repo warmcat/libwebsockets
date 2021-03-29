@@ -305,6 +305,7 @@ typedef struct lws_ss_policy {
 			uint8_t		clean_start;
 			uint8_t		will_qos;
 			uint8_t		will_retain;
+			uint8_t		aws_iot;
 
 		} mqtt;
 

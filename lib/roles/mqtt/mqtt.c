@@ -346,19 +346,25 @@ lws_mqtt_subs_t* lws_mqtt_find_sub(struct _lws_mqtt_related* mqtt,
 }
 
 static lws_mqtt_validate_topic_return_t
-lws_mqtt_validate_topic(const char *topic, size_t topiclen)
+lws_mqtt_validate_topic(const char *topic, size_t topiclen, uint8_t awsiot)
 {
 	size_t spos = 0;
 	const char *sub = topic;
 	int8_t slashes = 0;
 	lws_mqtt_validate_topic_return_t ret = LMVTR_VALID;
 
-	if (topiclen > LWS_MQTT_MAX_TOPICLEN)
-		return LMVTR_FAILED_OVERSIZE;
-
-	if (topic[0] == '$') {
-		ret = LMVTR_VALID_SHADOW;
-		slashes = -3;
+	if (awsiot) {
+		if (topiclen > LWS_MQTT_MAX_AWSIOT_TOPICLEN)
+			return LMVTR_FAILED_OVERSIZE;
+		if (topic[0] == '$') {
+			ret = LMVTR_VALID_SHADOW;
+			slashes = -3;
+		}
+	} else {
+		if (topiclen > LWS_MQTT_MAX_TOPICLEN)
+			return LMVTR_FAILED_OVERSIZE;
+		if (topic[0] == '$')
+			return LMVTR_FAILED_WILDCARD_FORMAT;
 	}
 
 	while (*sub != 0) {
@@ -389,7 +395,7 @@ lws_mqtt_validate_topic(const char *topic, size_t topiclen)
 		sub++;
 	}
 
-	if (slashes < 0 || slashes > 7)
+	if (awsiot && (slashes < 0 || slashes > 7))
 		return LMVTR_FAILED_SHADOW_FORMAT;
 
 	return ret;
@@ -402,7 +408,7 @@ lws_mqtt_create_sub(struct _lws_mqtt_related *mqtt, const char *topic)
 	size_t topiclen = strlen(topic);
 	lws_mqtt_validate_topic_return_t flag;
 
-	flag = lws_mqtt_validate_topic(topic, topiclen);
+	flag = lws_mqtt_validate_topic(topic, topiclen, mqtt->client.aws_iot);
 	switch (flag) {
 	case LMVTR_FAILED_OVERSIZE:
 		lwsl_err("%s: Topic is too long\n",
