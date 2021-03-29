@@ -114,6 +114,7 @@ static const char * const lejp_tokens_policy[] = {
 	"s[].*.mqtt_will_message",
 	"s[].*.mqtt_will_qos",
 	"s[].*.mqtt_will_retain",
+	"s[].*.aws_iot",
 	"s[].*.swake_validity",
 	"s[].*.use_auth",
 	"s[].*.aws_region",
@@ -212,6 +213,7 @@ typedef enum {
 	LSSPPT_MQTT_WILL_MESSAGE,
 	LSSPPT_MQTT_WILL_QOS,
 	LSSPPT_MQTT_WILL_RETAIN,
+	LSSPPT_MQTT_AWS_IOT,
 	LSSPPT_SWAKE_VALIDITY,
 	LSSPPT_USE_AUTH,
 	LSSPPT_AWS_REGION,
@@ -1008,6 +1010,11 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		break;
 	case LSSPPT_MQTT_WILL_RETAIN:
 		a->curr[LTY_POLICY].p->u.mqtt.will_retain =
+						reason == LEJPCB_VAL_TRUE;
+		break;
+	case LSSPPT_MQTT_AWS_IOT:
+		if (reason == LEJPCB_VAL_TRUE)
+			a->curr[LTY_POLICY].p->u.mqtt.aws_iot =
 						reason == LEJPCB_VAL_TRUE;
 		break;
 #endif

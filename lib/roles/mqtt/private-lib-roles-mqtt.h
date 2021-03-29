@@ -338,6 +338,7 @@ typedef struct lws_mqttc {
 	} will;
 	uint16_t		keep_alive_secs;
 	uint8_t			conn_flags;
+	uint8_t			aws_iot;
 } lws_mqttc_t;
 
 struct _lws_mqtt_related {

@@ -123,6 +123,7 @@ lws_create_client_mqtt_object(const struct lws_client_connect_info *i,
 	lws_free((void *)cp->client_id);
 
 	c->keep_alive_secs = cp->keep_alive;
+	c->aws_iot = cp->aws_iot;
 
 	if (cp->will_param.topic &&
 	    *cp->will_param.topic) {
