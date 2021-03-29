@@ -870,7 +870,8 @@ lws_create_vhost(struct lws_context *context,
 		(void)mount_protocols[0];
 		lwsl_info("   mounting %s%s to %s\n",
 			  mount_protocols[mounts->origin_protocol],
-			  mounts->origin, mounts->mountpoint);
+			  mounts->origin ? mounts->origin : "none",
+			  mounts->mountpoint);
 
 		mounts = mounts->mount_next;
 	}
