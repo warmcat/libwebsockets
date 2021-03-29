@@ -30,10 +30,6 @@ typedef struct lws_tls_session_cache_openssl {
 	SSL_SESSION			*session;
 	lws_sorted_usec_list_t		sul_ttl;
 
-	uint8_t				in_use:1;
-	uint8_t				expire_on_unused:1;
-					/* ttl over but in use */
-
 	/* name is overallocated here */
 } lws_tls_sco_t;
 
@@ -54,31 +50,10 @@ __lws_tls_session_destroy(lws_tls_sco_t *ts)
 
 	lwsl_notice("%s: %s.%s\n", __func__, vh->name, (const char *)&ts[1]);
 
-	assert(!ts->in_use);
-
-	lws_sul_cancel(&ts->sul_ttl);		/* pt lock */
 	SSL_SESSION_free(ts->session);
 	lws_dll2_remove(&ts->list);		/* vh lock */
 
 	lws_free(ts);
-}
-
-static void
-lws_tls_session_ttl_exp(lws_sorted_usec_list_t *sul)
-{
-	lws_tls_sco_t *ts = lws_container_of(sul, lws_tls_sco_t, sul_ttl);
-	struct lws_vhost *vh = lws_container_of(ts->list.owner, struct lws_vhost,
-						tls_sessions);
-
-	/* if it's in use, just mark as expired */
-	if (ts->in_use) {
-		ts->expire_on_unused = 1;
-		return;
-	}
-
-	lws_vhost_lock(vh); /* -------------- vh { */
-	__lws_tls_session_destroy(ts);
-	lws_vhost_unlock(vh); /* } vh --------------  */
 }
 
 static lws_tls_sco_t *
@@ -116,50 +91,11 @@ lws_tls_reuse_session(struct lws *wsi)
 	if (!ts)
 		return;
 
-	if (ts->in_use) {
-		assert(0);
-		return;
-	}
-
 	lwsl_notice("%s: %s.%s\n", __func__,
 		    wsi->a.vhost->name, (const char *)&ts[1]);
 
 	SSL_set_session(wsi->tls.ssl, ts->session);
 }
-
-void
-lws_tls_session_release(struct lws *wsi)
-{
-	SSL_SESSION *sess;
-
-	if (!wsi->a.vhost ||
-	    !(wsi->a.vhost->options & LWS_SERVER_OPTION_ENABLE_TLS_SESSION_CACHE))
-		return;
-
-	sess = SSL_get_session(wsi->tls.ssl);
-
-	lws_start_foreach_dll(struct lws_dll2 *, p,
-			      lws_dll2_get_head(&wsi->a.vhost->tls_sessions)) {
-		lws_tls_sco_t *ts = lws_container_of(p, lws_tls_sco_t, list);
-
-		if (ts->session == sess) {
-
-			assert(ts->in_use);
-
-			ts->in_use = 0;
-			if (ts->expire_on_unused) {
-				lwsl_notice("%s: expiring %s\n", __func__,
-							(const char *)&ts[1]);
-				__lws_tls_session_destroy(ts);
-			} else
-				lwsl_notice("%s: %s\n", __func__,
-							(const char *)&ts[1]);
-
-			return;
-		}
-	} lws_end_foreach_dll(p);
-}
-
 
 static int
 __lws_tls_session_create(struct lws_vhost *vh, int tsi, SSL_SESSION *session,
@@ -192,11 +128,6 @@ __lws_tls_session_create(struct lws_vhost *vh, int tsi, SSL_SESSION *session,
 	}
 
 	ts->session = session;
-	ts->expire_on_unused = 0;
-	ts->in_use = 1;
-
-	lws_sul_schedule(vh->context, tsi, &ts->sul_ttl,
-			 lws_tls_session_ttl_exp, ttl * LWS_US_PER_SEC);
 
 	return 0;
 }
@@ -206,10 +137,7 @@ lws_tls_session_destroy_dll(struct lws_dll2 *d, void *user)
 {
 	lws_tls_sco_t *ts = lws_container_of(d, lws_tls_sco_t, list);
 
-	/* the ones that are in use will be destroyed with their wsi */
-
-	if (!ts->in_use)
-		__lws_tls_session_destroy(ts);
+	__lws_tls_session_destroy(ts);
 
 	return 0;
 }

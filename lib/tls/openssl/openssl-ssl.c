@@ -454,10 +454,6 @@ lws_ssl_close(struct lws *wsi)
 		SSL_shutdown(wsi->tls.ssl);
 	compatible_close(n);
 
-#if defined(LWS_WITH_TLS_SESSIONS)
-	lws_tls_session_release(wsi);
-#endif
-
 	SSL_free(wsi->tls.ssl);
 	wsi->tls.ssl = NULL;
 
