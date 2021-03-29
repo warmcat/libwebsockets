@@ -783,7 +783,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 	vh->tls.tcr = tcr;
 
 #if defined(LWS_WITH_TLS_SESSIONS)
-	lws_tls_session_cache(vh);
+	lws_tls_session_cache(vh, info->tls_session_timeout);
 #endif
 
 #ifdef SSL_OP_NO_COMPRESSION

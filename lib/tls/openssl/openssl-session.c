@@ -94,19 +94,22 @@ lws_tls_reuse_session(struct lws *wsi)
 	lwsl_notice("%s: %s.%s\n", __func__,
 		    wsi->a.vhost->name, (const char *)&ts[1]);
 
+	SSL_SESSION_set_time(ts->session, (long)time(NULL)); /* extend session lifetime */
 	SSL_set_session(wsi->tls.ssl, ts->session);
 }
 
 static int
 __lws_tls_session_create(struct lws_vhost *vh, int tsi, SSL_SESSION *session,
-		       const char *name, unsigned int ttl)
+		       const char *name)
 {
 	size_t nl = strlen(name);
 	lws_tls_sco_t *ts;
+	long ttl;
 
 	if (!(vh->options & LWS_SERVER_OPTION_ENABLE_TLS_SESSION_CACHE))
 		return 0;
 
+	ttl = SSL_SESSION_get_timeout(session);
 	ts = __lws_tls_session_lookup_by_name(vh, name);
 	if (!ts) {
 		ts = lws_malloc(sizeof(*ts) + nl + 1, __func__);
@@ -121,10 +124,10 @@ __lws_tls_session_create(struct lws_vhost *vh, int tsi, SSL_SESSION *session,
 		lws_dll2_add_tail(&ts->list, &vh->tls_sessions);
 		lws_vhost_unlock(vh); /* } vh --------------  */
 
-		lwsl_notice("%s: new %s ttl %us\n", __func__,  name, ttl);
+		lwsl_notice("%s: new %s ttl %lds\n", __func__,  name, ttl);
 	} else {
 		SSL_SESSION_free(ts->session);
-		lwsl_notice("%s: update %s ttl %us\n", __func__,  name, ttl);
+		lwsl_notice("%s: update %s ttl %lds\n", __func__,  name, ttl);
 	}
 
 	ts->session = session;
@@ -164,7 +167,7 @@ lws_tls_session_new_cb(SSL *ssl, SSL_SESSION *sess)
 
 	lws_tls_session_name_from_wsi(wsi, buf, sizeof(buf));
 
-	if (__lws_tls_session_create(wsi->a.vhost, wsi->tsi, sess, buf, 300)) {
+	if (__lws_tls_session_create(wsi->a.vhost, wsi->tsi, sess, buf)) {
 		lwsl_warn("%s: unable to create session\n", __func__);
 
 		return 0;
@@ -179,7 +182,7 @@ lws_tls_session_new_cb(SSL *ssl, SSL_SESSION *sess)
 }
 
 void
-lws_tls_session_cache(struct lws_vhost *vh)
+lws_tls_session_cache(struct lws_vhost *vh, long ttl)
 {
 	long cmode;
 
@@ -192,4 +195,8 @@ lws_tls_session_cache(struct lws_vhost *vh)
 							SSL_SESS_CACHE_CLIENT));
 
 	SSL_CTX_sess_set_new_cb(vh->tls.ssl_client_ctx, lws_tls_session_new_cb);
+
+	if (ttl) {
+		SSL_CTX_set_timeout(vh->tls.ssl_client_ctx, ttl);
+	}
 }

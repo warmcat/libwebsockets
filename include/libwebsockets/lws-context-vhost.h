@@ -574,6 +574,12 @@ struct lws_context_creation_info {
 	 * 0 defaults to 10s. */
 #endif /* WITH_NETWORK */
 
+#if defined(LWS_WITH_TLS_SESSIONS)
+	long tls_session_timeout;
+	/**< VHOST: seconds until timeout/ttl for newly created sessions.
+	 * 0 means default timeout (defined per protocol, usually 300s). */
+#endif
+
 	gid_t gid;
 	/**< CONTEXT: group id to change to after setting listen socket,
 	 *   or -1. See also .username below. */

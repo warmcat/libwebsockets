@@ -62,7 +62,7 @@ void
 lws_tls_reuse_session(struct lws *wsi);
 
 void
-lws_tls_session_cache(struct lws_vhost *vh);
+lws_tls_session_cache(struct lws_vhost *vh, long ttl);
 
 void
 lws_tls_session_vh_destroy(struct lws_vhost *vh);
