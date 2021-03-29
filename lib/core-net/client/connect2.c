@@ -49,7 +49,9 @@ lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
 
 #if !defined(__ANDROID__)
 		hints.ai_family = AF_UNSPEC;
+#if !defined(__OpenBSD__) && !defined(__OPENBSD)
 		hints.ai_flags = AI_V4MAPPED;
+#endif
 #endif
 	} else
 #endif
