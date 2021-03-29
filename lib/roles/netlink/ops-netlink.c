@@ -68,7 +68,7 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 #endif
 			;
 	struct sockaddr_nl	nladdr;
-	lws_route_t		robj, *rou;
+	lws_route_t		robj, *rou, *rmat;
 	struct nlmsghdr		*h;
 	struct msghdr		msg;
 	struct iovec		iov;
@@ -374,6 +374,27 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 
 			lwsl_netlink("%s: NEWADDR\n", __func__);
 ana:
+
+			/*
+			 * Is robj a dupe in the routing table already?
+			 *
+			 * match on pri ignore == set pri and skip
+			 * no match == add
+			 */
+
+			lws_pt_lock(pt, __func__);
+
+			/* returns zero on match already in table */
+			rmat = _lws_route_remove(pt, &robj, LRR_MATCH_SRC |
+							    LRR_JUST_CHECK |
+							    LRR_IGNORE_PRI);
+			lws_pt_unlock(pt);
+
+			if (rmat) {
+				rmat->priority = robj.priority;
+				break;
+			}
+
 			rou = lws_malloc(sizeof(*rou), __func__);
 			if (!rou) {
 				lwsl_err("%s: oom\n", __func__);
@@ -391,6 +412,7 @@ ana:
 
 			rou->uidx = _lws_route_get_uidx(cx);
 			lws_dll2_add_tail(&rou->list, &cx->routing_table);
+			lwsl_notice("%s: route list size %u\n", __func__, cx->routing_table.count);
 
 			_lws_route_pt_close_unroutable(pt);
 

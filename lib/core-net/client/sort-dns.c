@@ -170,6 +170,8 @@ lws_sort_dns_classify(lws_sockaddr46 *sa46, lws_dns_score_t *score)
 	lws_sockaddr46 s;
 	int n, m;
 
+	memset(score, 0, sizeof(*score));
+
 	if (sa46->sa4.sin_family == AF_INET) {
 		memset(&s, 0, sizeof(s));
 		s.sa6.sin6_family = AF_INET6;

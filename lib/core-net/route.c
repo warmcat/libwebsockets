@@ -114,6 +114,10 @@ _lws_route_get_uidx(struct lws_context *cx)
 				cx->route_uidx++;
 				if (!cx->route_uidx)
 					cx->route_uidx++;
+				if (again) {
+					assert(0); /* we have filled up the 8-bit uidx space? */
+					return 0;
+				}
 				again = 1;
 			}
 		} lws_end_foreach_dll(d);
@@ -123,7 +127,7 @@ _lws_route_get_uidx(struct lws_context *cx)
 	}
 }
 
-int
+lws_route_t *
 _lws_route_remove(struct lws_context_per_thread *pt, lws_route_t *robj, int flags)
 {
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
@@ -139,6 +143,8 @@ _lws_route_remove(struct lws_context_per_thread *pt, lws_route_t *robj, int flag
 		    ((flags & LRR_IGNORE_PRI) ||
 		      robj->priority == rou->priority)
 		    ) {
+			if (flags & LRR_JUST_CHECK)
+				return rou;
 			lwsl_info("%s: deleting route\n", __func__);
 			_lws_route_pt_close_route_users(pt, robj->uidx);
 			lws_dll2_remove(&rou->list);
@@ -147,7 +153,7 @@ _lws_route_remove(struct lws_context_per_thread *pt, lws_route_t *robj, int flag
 
 	} lws_end_foreach_dll_safe(d, d1);
 
-	return 1;
+	return NULL;
 }
 
 void
