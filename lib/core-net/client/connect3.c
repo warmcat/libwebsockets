@@ -179,10 +179,6 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 		result = NULL;
 	}
 
-#if defined(LWS_WITH_IPV6) && defined(__ANDROID__)
-	ipv6only = 0;
-#endif
-
 	/*
 	 * async dns calls back here for everybody who cares when it gets a
 	 * result... but if we are piggybacking, we do not want to connect

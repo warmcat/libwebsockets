@@ -170,6 +170,8 @@ lws_sort_dns_classify(lws_sockaddr46 *sa46, lws_dns_score_t *score)
 	lws_sockaddr46 s;
 	int n, m;
 
+	memset(score, 0, sizeof(*score));
+
 	if (sa46->sa4.sin_family == AF_INET) {
 		memset(&s, 0, sizeof(s));
 		s.sa6.sin6_family = AF_INET6;
@@ -572,7 +574,7 @@ lws_sort_dns_dump(struct lws *wsi)
 		lws_sa46_write_numeric_address(&s->dest, dest, sizeof(dest));
 		lws_sa46_write_numeric_address(&s->gateway, gw, sizeof(gw));
 
-		lwsl_notice("%s: %d: (%d)%s, gw (%d)%s, idi: %d, "
+		lwsl_info("%s: %d: (%d)%s, gw (%d)%s, idi: %d, "
 				"lbl: %d, prec: %d\n",
 			    __func__, n++, s->dest.sa4.sin_family, dest,
 			    s->gateway.sa4.sin_family, gw,
