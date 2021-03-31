@@ -835,6 +835,7 @@ struct lws {
 	/**< because the client connection creation api is still the parent of
 	 * this activity, and will report the failure */
 	unsigned int			tls_session_reused:1;
+	unsigned int			perf_done:1;
 #endif
 
 #ifdef _WIN32

@@ -57,6 +57,8 @@ typedef enum {
 	RPAR_RIDESHARE_LEN,
 	RPAR_RIDESHARE,
 
+	RPAR_PERF,
+
 	RPAR_RESULT_CREATION_DSH,
 	RPAR_RESULT_CREATION_RIDESHARE,
 
@@ -532,6 +534,13 @@ lws_ss_deserialize_parse(struct lws_ss_serialization_parser *par,
 				par->ps = RPAR_RX_TXCR_UPDATE;
 				break;
 
+			case LWSSS_SER_RXPRE_PERF:
+				par->ctr = 0;
+				if (!par->rem)
+					goto hangup;
+				par->ps = RPAR_PERF;
+				break;
+
 			default:
 				lwsl_notice("%s: bad type 0x%x\n", __func__,
 					    par->type);
@@ -600,6 +609,44 @@ lws_ss_deserialize_parse(struct lws_ss_serialization_parser *par,
 			par->ps++;
 			if (par->rem-- < par->slen)
 				goto hangup;
+			break;
+
+		case RPAR_PERF:
+			n = (int)len + 1;
+			if (n > par->rem)
+				n = par->rem;
+
+			if (client &&
+			    client_pss_to_sspc_h(pss, ssi) &&
+			    ssi->rx) {
+				int ret;
+
+				/* we still have an sspc handle */
+				ret = ssi->rx(client_pss_to_userdata(pss),
+					(uint8_t *)cp, (unsigned int)n,
+					(int)(LWSSS_FLAG_SOM | LWSSS_FLAG_EOM |
+							LWSSS_FLAG_PERF_JSON));
+
+				if (lws_fi(&client_pss_to_sspc_h(pss, ssi)->fic,
+						    "sspc_perf_rx_fake_destroy_me"))
+					ret = LWSSSSRET_DESTROY_ME;
+
+				switch (ret) {
+				case LWSSSSRET_OK:
+					break;
+				case LWSSSSRET_DISCONNECT_ME:
+					goto hangup;
+				case LWSSSSRET_DESTROY_ME:
+					return LWSSSSRET_DESTROY_ME;
+				}
+			}
+			if (n) {
+				cp += n;
+				par->rem = (uint16_t)(par->rem - (uint16_t)(unsigned int)n);
+				len = (len + 1) - (unsigned int)n;
+			}
+			if (!par->rem)
+				par->ps = RPAR_TYPE;
 			break;
 
 		case RPAR_RIDESHARE:

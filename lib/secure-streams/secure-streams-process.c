@@ -80,6 +80,16 @@ lws_proxy_clean_conn_ss(struct lws *wsi)
 #endif
 }
 
+
+void
+ss_proxy_onward_link_req_writeable(lws_ss_handle_t *h_onward)
+{
+	ss_proxy_t *m = (ss_proxy_t *)&h_onward[1];
+
+	if (m->conn->wsi) /* if possible, request client conn write */
+		lws_callback_on_writable(m->conn->wsi);
+}
+
 int
 __lws_ss_proxy_bind_ss_to_conn_wsi(void *parconn, size_t dsh_size)
 {
@@ -315,7 +325,7 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 	lws_ss_metadata_t *md;
 	lws_ss_info_t ssi;
 	const uint8_t *cp;
-	char s[256];
+	char s[512];
 	uint8_t *p;
 	size_t si;
 	char pay;
@@ -550,7 +560,7 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 
 			/*
 			 * returning [onward -> ] proxy]-> client
-			 * rx metadata has priority
+			 * rx metadata has priority 1
 			 */
 
 			md = conn->ss->metadata;
@@ -584,6 +594,30 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 				}
 
 				md = md->next;
+			}
+
+			/*
+			 * If we have performance data, render it in JSON
+			 * and send that in LWSSS_SER_RXPRE_PERF has
+			 * priority 2
+			 */
+
+			if (conn->ss->conmon_json) {
+				unsigned int xlen = conn->ss->conmon_len;
+
+				if (xlen > sizeof(s) - 3)
+					xlen = sizeof(s) - 3;
+				cp = (uint8_t *)s;
+				p = (uint8_t *)s;
+				p[0] = LWSSS_SER_RXPRE_PERF;
+				lws_ser_wu16be(&p[1], (uint16_t)xlen);
+				memcpy(&p[3], conn->ss->conmon_json, xlen);
+
+				lws_free_set_NULL(conn->ss->conmon_json);
+				n = (int)(xlen + 3);
+
+				pay = 0;
+				goto again;
 			}
 
 			/*

@@ -78,6 +78,10 @@ typedef struct lws_ss_handle {
 	lws_ss_metadata_t	*metadata;
 	const lws_ss_policy_t	*rideshare;
 
+#if defined(LWS_WITH_CONMON)
+	char			*conmon_json;
+#endif
+
 	//struct lws_ss_handle	*h_sink;  /**< sink we are bound to, or NULL */
 	//void 			*sink_obj;/**< sink's private object representing us */
 
@@ -159,6 +163,9 @@ typedef struct lws_ss_handle {
 #endif
 
 	uint16_t		retry;	  /**< retry / backoff tracking */
+#if defined(LWS_WITH_CONMON)
+	uint16_t		conmon_len;
+#endif
 	int16_t			temp16;
 
 	uint8_t			tsi;	  /**< service thread idx, usually 0 */
@@ -534,8 +541,11 @@ struct ss_pcols {
  * The last one of the accepted side and the onward side to close frees it.
  */
 
+lws_ss_state_return_t
+lws_conmon_ss_json(lws_ss_handle_t *h);
 
-
+void
+ss_proxy_onward_link_req_writeable(lws_ss_handle_t *h_onward);
 
 struct conn {
 	struct lws_ss_serialization_parser parser;

@@ -38,6 +38,17 @@ typedef uint32_t lws_conmon_interval_us_t;
  * Connection latency information... note that not all wsi actually make
  * connections, for example h2 streams after the initial one will have 0
  * for everything except ciu_txn_resp.
+ *
+ * If represented in JSON, it should look like this
+ *
+ *     {
+ *        "peer": "46.105.127.147",
+ *        "dns_us": 1234,
+ *        "sockconn_us": 1234,
+ *        "tls_us": 1234,
+ *        "txn_resp_us": 1234,
+ *        "dns":["46.105.127.147", "2001:41d0:2:ee93::1"]
+ *      }
  */
 
 struct lws_conmon {
