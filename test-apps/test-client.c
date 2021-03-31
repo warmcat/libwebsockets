@@ -576,6 +576,9 @@ static struct option options[] = {
 #if defined(LWS_WITH_TLS) && defined(LWS_HAVE_SSL_CTX_set1_param)
 	{ "ssl-crl",  required_argument,		NULL, 'R' },
 #endif
+#if defined(LWS_WITH_TLS_SESSIONS)
+	{ "tls-session-reuse",  no_argument,		NULL, 'r' },
+#endif
 	{ NULL, 0, 0, 0 }
 };
 #endif
@@ -597,6 +600,9 @@ static int ratelimit_connects(unsigned int *last, unsigned int secs)
 int main(int argc, char **argv)
 {
 	int n = 0, m, ret = 0, port = 7681, use_ssl = 0, ietf_version = -1;
+#if defined(LWS_WITH_TLS_SESSIONS)
+	int reuse_tls_session = 0;
+#endif
 	unsigned int rl_dumb = 0, rl_mirror = 0, do_ws = 1, do_multi = 0;
 	struct lws_context_creation_info info;
 	struct lws_client_connect_info i;
@@ -682,6 +688,11 @@ int main(int argc, char **argv)
 			lws_strncpy(crl_path, optarg, sizeof(crl_path));
 			break;
 #endif
+#if defined(LWS_WITH_TLS_SESSIONS)
+		case 'r':
+			reuse_tls_session = 1;
+			break;
+#endif
 		case 'h':
 			goto usage;
 		}
@@ -764,6 +775,12 @@ int main(int argc, char **argv)
 #if defined(LWS_WITH_TLS) && defined(LWS_HAVE_SSL_CTX_set1_param)
 		else if (crl_path[0])
 			lwsl_notice("WARNING, providing a CRL requires a CA cert!\n");
+#endif
+#if defined(LWS_WITH_TLS_SESSIONS)
+		if (reuse_tls_session) {
+			info.options |= LWS_SERVER_OPTION_ENABLE_TLS_SESSION_CACHE;
+			lwsl_notice(" TLS session reuse enabled\n");
+		}
 #endif
 	}
 
