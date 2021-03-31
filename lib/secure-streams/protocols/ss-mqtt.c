@@ -43,6 +43,9 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			 in ? (char *)in : "(null)");
 		if (!h)
 			break;
+
+		lws_conmon_ss_json(h);
+
 		r = lws_ss_event_helper(h, LWSSSCS_UNREACHABLE);
 		h->wsi = NULL;
 
@@ -64,6 +67,8 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (!h)
 			break;
 		lws_sul_cancel(&h->sul_timeout);
+
+		lws_conmon_ss_json(h);
 		r= lws_ss_event_helper(h, LWSSSCS_DISCONNECTED);
 		if (h->wsi)
 			lws_set_opaque_user_data(h->wsi, NULL);

@@ -111,7 +111,7 @@ static const char * const default_ss_policy =
 			"\"port\":"		"443,"
 			"\"protocol\":"		"\"h1\","
 			"\"http_method\":"	"\"GET\","
-			"\"http_url\":"		"\"policy/minimal-proxy-v4.2.json\","
+			"\"http_url\":"		"\"policy/minimal-proxy-v4.2-v2.json\","
 			"\"tls\":"		"true,"
 			"\"opportunistic\":"	"true,"
 			"\"retry\":"		"\"default\","

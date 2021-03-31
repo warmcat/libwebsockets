@@ -320,8 +320,12 @@ static const char * const opts_str =
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
 			"SSPROX "
 #endif
+
 #if defined(LWS_WITH_MBEDTLS)
 			"MbedTLS "
+#endif
+#if defined(LWS_WITH_CONMON)
+			"ConMon "
 #endif
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 			"FLTINJ "

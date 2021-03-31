@@ -151,6 +151,11 @@
  *   -  3: 1 byte state index if state < 256, else 4-byte MSB-first state index
  *   -  4 or 7: 4-byte MSB-first ordinal
  *
+ * - Proxied performance information
+ *
+ *   -  0: LWSSS_SER_RXPRE_PERF
+ *   -  1: 2-byte MSB-first rest-of-frame length
+ *   -  3: ... performance JSON (for rest of packet)
  *
  * Proxied tx may be read by the proxy but rejected due to lack of buffer space
  * at the proxy.  For that reason, tx must be held at the sender until it has
@@ -236,6 +241,9 @@ enum {
 	LWSSS_FLAG_RIDESHARE					= (1 << 5),
 	/* Serialized payload starts with non-default rideshare name length and
 	 * name string without NUL, then payload */
+	LWSSS_FLAG_PERF_JSON					= (1 << 6),
+	/* This RX is JSON performance data, only on streams with "perf" flag
+	 * set */
 
 	/*
 	 * In the case the secure stream is proxied across a process or thread
@@ -255,6 +263,7 @@ enum {
 	LWSSS_SER_RXPRE_TXCR_UPDATE,
 	LWSSS_SER_RXPRE_METADATA,
 	LWSSS_SER_RXPRE_TLSNEG_ENCLAVE_SIGN,
+	LWSSS_SER_RXPRE_PERF,
 
 	/* tx (send by client) prepends for proxied connections */
 

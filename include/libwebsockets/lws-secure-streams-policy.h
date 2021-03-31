@@ -156,6 +156,8 @@ enum {
 	/**< stream requires high reliability */
 	LWSSSPOLF_ATTR_LOW_COST					= (1 << 21),
 	/**< stream is not critical and should be handled as cheap as poss */
+	LWSSSPOLF_PERF						= (1 << 22),
+	/**< capture and report performace information */
 };
 
 typedef struct lws_ss_trust_store {
