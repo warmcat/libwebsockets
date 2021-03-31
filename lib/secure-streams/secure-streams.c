@@ -138,7 +138,9 @@ static const uint32_t ss_state_txn_validity[] = {
 
 	[LWSSSCS_QOS_ACK_REMOTE]	= (1 << LWSSSCS_DISCONNECTED) |
 					  (1 << LWSSSCS_TIMEOUT) |
-					  (1 << LWSSSCS_QOS_ACK_REMOTE) | /* mqtt */
+#if defined(LWS_ROLE_MQTT)
+					  (1 << LWSSSCS_QOS_ACK_REMOTE) |
+#endif
 					  (1 << LWSSSCS_DESTROYING),
 
 	[LWSSSCS_QOS_NACK_REMOTE]	= (1 << LWSSSCS_DISCONNECTED) |
