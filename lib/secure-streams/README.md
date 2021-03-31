@@ -337,6 +337,30 @@ If user code applies the `lws_ss_start_timeout()` api on a stream with a
 timeout of LWSSS_TIMEOUT_FROM_POLICY, the `timeout_ms` entry given in the
 policy is applied.
 
+### `perf`
+
+If set to true, and lws was built with `LWS_WITH_CONMON`, causes this streamtype
+to receive additional rx payload with the `LWSSS_FLAG_PERF_JSON` flag set on it,
+that is JSON representing the onward connection performance information.
+
+These are based on the information captured in the struct defined in
+libwebsockets/lws-conmon.h, represented in JSON
+
+```
+	{
+	  "peer": "46.105.127.147",
+	  "dns_us": 1234,
+	  "sockconn_us": 1234,
+	  "tls_us": 1234,
+	  "txn_resp_us": 1234,
+	  "dns":["46.105.127.147", "2001:41d0:2:ee93::1"]
+	}
+```
+
+Streamtypes without "perf": true will never see the special rx payloads.
+Notice that the `LWSSS_FLAG_PERF_JSON` payloads must be handled out of band
+for the normal payloads, as they can appear inside normal payload messages.
+
 ### `tls_trust_store`
 
 The name of the trust store described in the `trust_stores` section to apply

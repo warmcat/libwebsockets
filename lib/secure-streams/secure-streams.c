@@ -175,6 +175,99 @@ static const uint32_t ss_state_txn_validity[] = {
 					  (1 << LWSSSCS_DESTROYING),
 };
 
+#if defined(LWS_WITH_CONMON)
+
+/*
+ * Convert any conmon data to JSON and attach to the ss handle.
+ */
+
+lws_ss_state_return_t
+lws_conmon_ss_json(lws_ss_handle_t *h)
+{
+	char ads[48], *end, *buf, *obuf;
+	const struct addrinfo *ai;
+	lws_ss_state_return_t ret = LWSSSSRET_OK;
+	struct lws_conmon cm;
+	size_t len = 500;
+
+	if (!h->policy || !(h->policy->flags & LWSSSPOLF_PERF) || !h->wsi ||
+	    h->wsi->perf_done)
+		return LWSSSSRET_OK;
+
+	if (h->conmon_json)
+		lws_free_set_NULL(h->conmon_json);
+
+	h->conmon_json = lws_malloc(len, __func__);
+	if (!h->conmon_json)
+		return LWSSSSRET_OK;
+
+	obuf = buf = h->conmon_json;
+	end = buf + len - 1;
+
+	lws_conmon_wsi_take(h->wsi, &cm);
+
+	lws_sa46_write_numeric_address(&cm.peer46, ads, sizeof(ads));
+	buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf),
+		     "{\"peer\":\"%s\","
+		      "\"dns_us\":%u,"
+		      "\"sockconn_us\":%u,"
+		      "\"tls_us\":%u,"
+		      "\"txn_resp_us:%u,"
+		      "\"dns\":[",
+		    ads,
+		    (unsigned int)cm.ciu_dns,
+		    (unsigned int)cm.ciu_sockconn,
+		    (unsigned int)cm.ciu_tls,
+		    (unsigned int)cm.ciu_txn_resp);
+
+	ai = cm.dns_results_copy;
+	while (ai) {
+		lws_sa46_write_numeric_address((lws_sockaddr46 *)ai->ai_addr, ads, sizeof(ads));
+		buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf), "\"%s\"", ads);
+		if (ai->ai_next && buf < end - 2)
+			*buf++ = ',';
+		ai = ai->ai_next;
+	}
+
+	buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf), "]}");
+
+	/*
+	 * This destroys the DNS list in the lws_conmon that we took
+	 * responsibility for when we used lws_conmon_wsi_take()
+	 */
+
+	lws_conmon_release(&cm);
+
+	h->conmon_len = (uint16_t)lws_ptr_diff(buf, obuf);
+
+#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
+	if (h->proxy_onward) {
+
+		/*
+		 * ask to forward it on the proxy link
+		 */
+
+		ss_proxy_onward_link_req_writeable(h);
+		return LWSSSSRET_OK;
+	}
+#endif
+
+	/*
+	 * We can deliver it directly
+	 */
+
+	if (h->info.rx)
+		ret = h->info.rx(h, (uint8_t *)h->conmon_json,
+				 (unsigned int)h->conmon_len,
+				 (int)(LWSSS_FLAG_SOM | LWSSS_FLAG_EOM |
+						 LWSSS_FLAG_PERF_JSON));
+
+	lws_free_set_NULL(h->conmon_json);
+
+	return ret;
+}
+#endif
+
 int
 lws_ss_check_next_state(lws_lifecycle_t *lc, uint8_t *prevstate,
 			lws_ss_constate_t cs)
@@ -529,7 +622,7 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 
 		if (lws_ss_event_helper(h, LWSSSCS_CONNECTING))
 			return LWSSSSRET_TX_DONT_SEND;
-		// lwsl_err("%s: registered SS SMD\n", __func__);
+
 		if (lws_ss_event_helper(h, LWSSSCS_CONNECTED))
 			return LWSSSSRET_TX_DONT_SEND;
 		return LWSSSSRET_OK;
@@ -607,14 +700,16 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 
 	/* translate policy attributes to IP ToS flags */
 
-	if (h->policy->flags & LCCSCF_IP_LOW_LATENCY)
-		i.ssl_connection |= LWSSSPOLF_ATTR_LOW_LATENCY;
-	if (h->policy->flags & LCCSCF_IP_HIGH_THROUGHPUT)
-		i.ssl_connection |= LWSSSPOLF_ATTR_HIGH_THROUGHPUT;
-	if (h->policy->flags & LCCSCF_IP_HIGH_RELIABILITY)
-		i.ssl_connection |= LWSSSPOLF_ATTR_HIGH_RELIABILITY;
-	if (h->policy->flags & LCCSCF_IP_LOW_COST)
-		i.ssl_connection |= LWSSSPOLF_ATTR_LOW_COST;
+	if (h->policy->flags & LWSSSPOLF_ATTR_LOW_LATENCY)
+		i.ssl_connection |= LCCSCF_IP_LOW_LATENCY;
+	if (h->policy->flags & LWSSSPOLF_ATTR_HIGH_THROUGHPUT)
+		i.ssl_connection |= LCCSCF_IP_HIGH_THROUGHPUT;
+	if (h->policy->flags & LWSSSPOLF_ATTR_HIGH_RELIABILITY)
+		i.ssl_connection |= LCCSCF_IP_HIGH_RELIABILITY;
+	if (h->policy->flags & LWSSSPOLF_ATTR_LOW_COST)
+		i.ssl_connection |= LCCSCF_IP_LOW_COST;
+	if (h->policy->flags & LWSSSPOLF_PERF) /* collect conmon stats on this */
+		i.ssl_connection |= LCCSCF_CONMON;
 
 	/* mark the connection with the streamtype priority from the policy */
 
@@ -1135,6 +1230,11 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 		return;
 	}
 	h->destroying = 1;
+
+#if defined(LWS_WITH_CONMON)
+	if (h->conmon_json)
+		lws_free_set_NULL(h->conmon_json);
+#endif
 
 	if (h->wsi) {
 		/*

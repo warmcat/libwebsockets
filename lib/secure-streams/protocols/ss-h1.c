@@ -416,6 +416,9 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			break;
 		}
 		assert(h->policy);
+
+		lws_conmon_ss_json(h);
+
 		lws_metrics_caliper_report_hist(h->cal_txn, wsi);
 		lwsl_info("%s: %s CLIENT_CONNECTION_ERROR: %s\n", __func__,
 			  h->lc.gutag, in ? (const char *)in : "none");
@@ -447,6 +450,8 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			break;
 
 		lws_sul_cancel(&h->sul_timeout);
+
+		lws_conmon_ss_json(h);
 
 		lws_metrics_caliper_report_hist(h->cal_txn, wsi);
 		//lwsl_notice("%s: %s LWS_CALLBACK_CLOSED_CLIENT_HTTP\n",
@@ -485,6 +490,8 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		if (!h)
 			return -1;
+
+		lws_conmon_ss_json(h);
 
 		status = (int)lws_http_client_http_response(wsi);
 		lwsl_info("%s: LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP: %d\n", __func__, status);

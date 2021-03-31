@@ -138,6 +138,7 @@ lws_conmon_wsi_take(struct lws *wsi, struct lws_conmon *dest)
 
 	/* wsi no longer has to free it... */
 	wsi->conmon.dns_results_copy = NULL;
+	wsi->perf_done = 1;
 }
 
 void

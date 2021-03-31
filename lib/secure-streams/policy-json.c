@@ -66,6 +66,7 @@ static const char * const lejp_tokens_policy[] = {
 	"s[].*.long_poll",
 	"s[].*.retry",
 	"s[].*.timeout_ms",
+	"s[].*.perf",
 	"s[].*.tls_trust_store",
 	"s[].*.proxy_buflen",
 	"s[].*.proxy_buflen_rxflow_on_above",
@@ -166,6 +167,7 @@ typedef enum {
 	LSSPPT_LONG_POLL,
 	LSSPPT_RETRYPTR,
 	LSSPPT_DEFAULT_TIMEOUT_MS,
+	LSSPPT_PERF,
 	LSSPPT_TRUST,
 	LSSPPT_PROXY_BUFLEN,
 	LSSPPT_PROXY_BUFLEN_RXFLOW_ON_ABOVE,
@@ -794,6 +796,11 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 	case LSSPPT_ATTR_LOW_COST:
 		if (reason == LEJPCB_VAL_TRUE)
 			a->curr[LTY_POLICY].p->flags |= LWSSSPOLF_ATTR_LOW_COST;
+		return 0;
+
+	case LSSPPT_PERF:
+		if (reason == LEJPCB_VAL_TRUE)
+			a->curr[LTY_POLICY].p->flags |= LWSSSPOLF_PERF;
 		return 0;
 
 	case LSSPPT_RETRYPTR:

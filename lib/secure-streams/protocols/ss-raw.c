@@ -47,6 +47,9 @@ secstream_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		assert(h->policy);
 		lwsl_info("%s: %s, %s CLIENT_CONNECTION_ERROR: %s\n", __func__,
 			  lws_ss_tag(h), h->policy->streamtype, in ? (char *)in : "(null)");
+
+		lws_conmon_ss_json(h);
+
 		r = lws_ss_event_helper(h, LWSSSCS_UNREACHABLE);
 		if (r == LWSSSSRET_DESTROY_ME)
 			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
@@ -60,6 +63,9 @@ secstream_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (!h)
 			break;
 		lws_sul_cancel(&h->sul_timeout);
+
+		lws_conmon_ss_json(h);
+
 		lwsl_info("%s: %s, %s RAW_CLOSE\n", __func__, lws_ss_tag(h),
 			  h->policy ? h->policy->streamtype : "no policy");
 		h->wsi = NULL;
