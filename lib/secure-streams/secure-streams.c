@@ -299,13 +299,15 @@ _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(lws_ss_state_return_t r, struct lws 
 static void
 lws_ss_timeout_sul_check_cb(lws_sorted_usec_list_t *sul)
 {
+	lws_ss_state_return_t r;
 	lws_ss_handle_t *h = lws_container_of(sul, lws_ss_handle_t, sul);
 
 	lwsl_info("%s: retrying %s after backoff\n", __func__, lws_ss_tag(h));
 	/* we want to retry... */
 	h->seqstate = SSSEQ_DO_RETRY;
 
-	lws_ss_request_tx(h);
+	r = lws_ss_request_tx(h);
+	_lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, NULL, &h);
 }
 
 int
@@ -1066,9 +1068,10 @@ late_bail:
 			break;
 		case LWSSSSRET_TX_DONT_SEND:
 		case LWSSSSRET_DISCONNECT_ME:
-			if (lws_ss_backoff(h))
-				/* has been destroyed */
+			if (lws_ss_backoff(h) == LWSSSSRET_DESTROY_ME) {
+				lws_ss_destroy(&h);
 				return 1;
+			}
 			break;
 		case LWSSSSRET_DESTROY_ME:
 			lws_ss_destroy(&h);
