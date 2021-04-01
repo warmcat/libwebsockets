@@ -577,7 +577,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	char *p = NULL, *q, *simp;
 	char new_path[300];
 
-	lws_free_set_NULL(wsi->stash);
+	// lws_free_set_NULL(wsi->stash);
 
 #if defined(LWS_WITH_CONMON)
 	wsi->conmon.ciu_txn_resp = (lws_conmon_interval_us_t)
