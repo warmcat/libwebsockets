@@ -122,6 +122,10 @@ if (LWS_WITH_SSL)
 			list(APPEND SOURCES
 				tls/mbedtls/mbedtls-ssl.c)
 		endif()
+		if (LWS_WITH_TLS_SESSIONS)
+			list(APPEND SOURCES
+				tls/mbedtls/mbedtls-session.c)
+		endif()
 		if (LWS_WITH_GENCRYPTO)
 			list(APPEND SOURCES
 				tls/mbedtls/lws-genhash.c

@@ -23,6 +23,7 @@
  */
 
 #include "private-lib-core.h"
+#include "private-lib-tls-mbedtls.h"
 
 static int
 OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
@@ -65,6 +66,11 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		lwsl_info("%s: SSL_new() failed\n", __func__);
 		return -1;
 	}
+
+#if defined(LWS_WITH_TLS_SESSIONS)
+	if (!(wsi->a.vhost->options & LWS_SERVER_OPTION_DISABLE_TLS_SESSION_CACHE))
+		lws_tls_reuse_session(wsi);
+#endif
 
 	if (wsi->a.vhost->tls.ssl_info_event_mask)
 		SSL_set_info_callback(wsi->tls.ssl, lws_ssl_info_callback);
@@ -195,6 +201,9 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 	if (n == 1) {
 		SSL_get0_alpn_selected(wsi->tls.ssl, &prot, &len);
 		lws_role_call_alpn_negotiated(wsi, (const char *)prot);
+#if defined(LWS_WITH_TLS_SESSIONS)
+		lws_tls_session_new_mbedtls(wsi);
+#endif
 		lwsl_info("client connect OK\n");
 		return LWS_SSL_CAPABLE_DONE;
 	}
@@ -316,6 +325,12 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 	SSL_METHOD *method = (SSL_METHOD *)TLS_client_method();
 	unsigned long error;
 	int n;
+
+#if defined(LWS_WITH_TLS_SESSIONS)
+	vh->tls_session_cache_max = info->tls_session_cache_max ?
+				    info->tls_session_cache_max : 10;
+	lws_tls_session_cache(vh, info->tls_session_timeout);
+#endif
 
 	if (!method) {
 		error = (unsigned long)ERR_get_error();
