@@ -66,6 +66,10 @@ struct lws_vhost_tls {
 	int allow_non_ssl_on_ssl_port;
 	int ssl_info_event_mask;
 
+#if defined(LWS_WITH_MBEDTLS)
+	uint32_t tls_session_cache_ttl;
+#endif
+
 	unsigned int user_supplied_ssl_ctx:1;
 	unsigned int skipped_certs:1;
 };
