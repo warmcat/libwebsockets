@@ -33,29 +33,9 @@ typedef struct lws_tls_session_cache_mbedtls {
 	/* name is overallocated here */
 } lws_tls_scm_t;
 
-#define lwsl_tlssess lwsl_notice
+#define lwsl_tlssess lwsl_info
 
-static int
-lws_tls_session_name_from_wsi(struct lws *wsi, char *buf, size_t len)
-{
-	size_t n;
 
-	/*
-	 * We have to include the vhost name in the session tag, since
-	 * different vhosts may make connections to the same endpoint using
-	 * different client certs.
-	 */
-
-	n = (size_t)lws_snprintf(buf, len, "%s.", wsi->a.vhost->name);
-
-	buf += n;
-	len = len - n;
-
-	lws_sa46_write_numeric_address(&wsi->sa46_peer, buf, len - 8);
-	lws_snprintf(buf + strlen(buf), 8, ":%u", wsi->c_port);
-
-	return 0;
-}
 
 static void
 __lws_tls_session_destroy(lws_tls_scm_t *ts)
@@ -93,7 +73,7 @@ __lws_tls_session_lookup_by_name(struct lws_vhost *vh, const char *name)
 void
 lws_tls_reuse_session(struct lws *wsi)
 {
-	char buf[16 + 48 + 1 + 8 + 1];
+	char buf[LWS_SESSION_TAG_LEN];
 	mbedtls_ssl_context *msc;
 	lws_tls_scm_t *ts;
 
@@ -104,7 +84,9 @@ lws_tls_reuse_session(struct lws *wsi)
 	lws_context_lock(wsi->a.context, __func__); /* -------------- cx { */
 	lws_vhost_lock(wsi->a.vhost); /* -------------- vh { */
 
-	lws_tls_session_name_from_wsi(wsi, buf, sizeof(buf));
+	if (lws_tls_session_tag_from_wsi(wsi, buf, sizeof(buf)))
+		goto bail;
+
 	ts = __lws_tls_session_lookup_by_name(wsi->a.vhost, buf);
 
 	if (!ts) {
@@ -166,7 +148,7 @@ lws_tls_session_expiry_cb(lws_sorted_usec_list_t *sul)
 int
 lws_tls_session_new_mbedtls(struct lws *wsi)
 {
-	char buf[16 + 48 + 1 + 8 + 1];
+	char buf[LWS_SESSION_TAG_LEN];
 	mbedtls_ssl_context *msc;
 	struct lws_vhost *vh;
 	lws_tls_scm_t *ts;
@@ -179,7 +161,9 @@ lws_tls_session_new_mbedtls(struct lws *wsi)
 	if (vh->options & LWS_SERVER_OPTION_DISABLE_TLS_SESSION_CACHE)
 		return 0;
 
-	lws_tls_session_name_from_wsi(wsi, buf, sizeof(buf));
+	if (lws_tls_session_tag_from_wsi(wsi, buf, sizeof(buf)))
+		return 0;
+
 	nl = strlen(buf);
 
 	msc = SSL_mbedtls_ssl_context_from_SSL(wsi->tls.ssl);
@@ -274,4 +258,24 @@ lws_tls_session_cache(struct lws_vhost *vh, uint32_t ttl)
 {
 	/* Default to 1hr max recommendation from RFC5246 F.1.4 */
 	vh->tls.tls_session_cache_ttl = !ttl ? 3600 : ttl;
+}
+
+int
+lws_tls_session_dump_save(struct lws_vhost *vh, const char *host, uint16_t port,
+			  lws_tls_sess_cb_t cb_save, void *opq)
+{
+	/* there seems no serialization / deserialization helper in mbedtls */
+	lwsl_warn("%s: only supported on openssl atm\n", __func__);
+
+	return 1;
+}
+
+int
+lws_tls_session_dump_load(struct lws_vhost *vh, const char *host, uint16_t port,
+			  lws_tls_sess_cb_t cb_load, void *opq)
+{
+	/* there seems no serialization / deserialization helper in mbedtls */
+	lwsl_warn("%s: only supported on openssl atm\n", __func__);
+
+	return 1;
 }

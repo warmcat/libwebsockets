@@ -39,6 +39,11 @@
 #include <signal.h>
 #include <assert.h>
 #include <time.h>
+#if !defined(WIN32)
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 
 #define COUNT 8
 
@@ -46,7 +51,8 @@ struct cliuser {
 	int index;
 };
 
-static int completed, failed, numbered, stagger_idx, posting, count = COUNT, reuse;
+static int completed, failed, numbered, stagger_idx, posting, count = COUNT,
+	   reuse;
 static lws_sorted_usec_list_t sul_stagger;
 static struct lws_client_connect_info i;
 static struct lws *client_wsi[COUNT];
@@ -58,6 +64,100 @@ static struct lws_context *context;
 struct pss {
 	char body_part;
 };
+
+#if defined(LWS_WITH_TLS_SESSIONS) && !defined(LWS_WITH_MBEDTLS) && !defined(WIN32)
+
+/* this should work OK on win32, but not adapted for non-posix file apis */
+
+static int
+sess_save_cb(struct lws_context *cx, struct lws_tls_session_dump *info)
+{
+	char path[128];
+	int fd, n;
+
+	lws_snprintf(path, sizeof(path), "%s/lws_tls_sess_%s", (const char *)info->opaque,
+			info->tag);
+	fd = open(path, LWS_O_WRONLY | O_CREAT | O_TRUNC, 0600);
+	if (fd < 0) {
+		lwsl_warn("%s: cannot open %s\n", __func__, path);
+		return 1;
+	}
+
+	n = (int)write(fd, info->blob, info->blob_len);
+
+	close(fd);
+
+	return n != (int)info->blob_len;
+}
+
+static int
+sess_load_cb(struct lws_context *cx, struct lws_tls_session_dump *info)
+{
+	struct stat sta;
+	char path[128];
+	int fd, n;
+
+	lws_snprintf(path, sizeof(path), "%s/lws_tls_sess_%s", (const char *)info->opaque,
+			info->tag);
+	fd = open(path, LWS_O_RDONLY);
+	if (fd < 0)
+		return 1;
+
+	if (fstat(fd, &sta) || !sta.st_size)
+		goto bail;
+
+	info->blob = malloc((size_t)sta.st_size);
+	/* caller will free this */
+	if (!info->blob)
+		goto bail;
+
+	info->blob_len = (size_t)sta.st_size;
+
+	n = (int)read(fd, info->blob, info->blob_len);
+	close(fd);
+
+	return n != (int)info->blob_len;
+
+bail:
+	close(fd);
+
+	return 1;
+}
+#endif
+
+#if defined(LWS_WITH_CONMON)
+void
+dump_conmon_data(struct lws *wsi)
+{
+	const struct addrinfo *ai;
+	struct lws_conmon cm;
+	char ads[48];
+
+	lws_conmon_wsi_take(wsi, &cm);
+
+	lws_sa46_write_numeric_address(&cm.peer46, ads, sizeof(ads));
+	lwsl_notice("%s: peer %s, dns: %uus, sockconn: %uus, tls: %uus, txn_resp: %uus\n",
+		    __func__, ads,
+		    (unsigned int)cm.ciu_dns,
+		    (unsigned int)cm.ciu_sockconn,
+		    (unsigned int)cm.ciu_tls,
+		    (unsigned int)cm.ciu_txn_resp);
+
+	ai = cm.dns_results_copy;
+	while (ai) {
+		lws_sa46_write_numeric_address((lws_sockaddr46 *)ai->ai_addr, ads, sizeof(ads));
+		lwsl_notice("%s: DNS %s\n", __func__, ads);
+		ai = ai->ai_next;
+	}
+
+	/*
+	 * This destroys the DNS list in the lws_conmon that we took
+	 * responsibility for when we used lws_conmon_wsi_take()
+	 */
+
+	lws_conmon_release(&cm);
+}
+#endif
 
 static int
 callback_http(struct lws *wsi, enum lws_callback_reasons reason,
@@ -73,8 +173,20 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
 		lwsl_user("LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP: idx: %d, resp %u: tls-session-reuse: %d\n",
 				idx, lws_http_client_http_response(wsi), lws_tls_session_is_reused(wsi));
+
 		if (lws_tls_session_is_reused(wsi))
 			reuse++;
+#if defined(LWS_WITH_TLS_SESSIONS) && !defined(LWS_WITH_MBEDTLS) && !defined(WIN32)
+		else
+			/*
+			 * Attempt to store any new session into
+			 * external storage
+			 */
+			if (lws_tls_session_dump_save(lws_get_vhost_by_name(context, "default"),
+					i.host, (uint16_t)i.port,
+					sess_save_cb, "/tmp"))
+		lwsl_warn("%s: session save failed\n", __func__);
+#endif
 		break;
 
 	/* because we are protocols[0] ... */
@@ -83,6 +195,11 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 			 in ? (char *)in : "(null)");
 		client_wsi[idx] = NULL;
 		failed++;
+
+#if defined(LWS_WITH_CONMON)
+		dump_conmon_data(wsi);
+#endif
+
 		goto finished;
 
 	/* chunks of chunked content, with header removed */
@@ -92,6 +209,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		return 0; /* don't passthru */
 
 	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
+
 		/*
 		 * Tell lws we are going to send the body next...
 		 */
@@ -123,6 +241,11 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
 		lwsl_info("%s: closed: %s\n", __func__, lws_wsi_tag(client_wsi[idx]));
+
+#if defined(LWS_WITH_CONMON)
+		dump_conmon_data(wsi);
+#endif
+
 		if (client_wsi[idx]) {
 			/*
 			 * If it completed normally, it will have been set to
@@ -459,6 +582,11 @@ int main(int argc, const char **argv)
 #endif
 	}
 
+#if defined(LWS_WITH_CONMON)
+	if (lws_cmdline_option(argc, argv, "--conmon"))
+		i.ssl_connection |= LCCSCF_CONMON;
+#endif
+
 	/* force h1 even if h2 available */
 	if (lws_cmdline_option(argc, argv, "--h1"))
 		i.alpn = "http/1.1";
@@ -500,6 +628,15 @@ int main(int argc, const char **argv)
 	i.host = i.address;
 	i.origin = i.address;
 	i.protocol = protocols[0].name;
+
+#if defined(LWS_WITH_TLS_SESSIONS) && !defined(LWS_WITH_MBEDTLS) && !defined(WIN32)
+	/*
+	 * Attempt to preload a session from external storage
+	 */
+	if (lws_tls_session_dump_load(lws_get_vhost_by_name(context, "default"),
+				  i.host, (uint16_t)i.port, sess_load_cb, "/tmp"))
+		lwsl_warn("%s: session load failed\n", __func__);
+#endif
 
 	if (!staggered)
 		/*

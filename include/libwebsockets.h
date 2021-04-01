@@ -629,6 +629,8 @@ struct lws;
 
 #if defined(LWS_WITH_TLS)
 
+#include <libwebsockets/lws-tls-sessions.h>
+
 #if defined(LWS_WITH_MBEDTLS)
 #include <mbedtls/md5.h>
 #include <mbedtls/sha1.h>
