@@ -91,6 +91,7 @@
 #cmakedefine LWS_HAVE_SSL_set_alpn_protos
 #cmakedefine LWS_HAVE_SSL_SET_INFO_CALLBACK
 #cmakedefine LWS_HAVE_SSL_SESSION_set_time
+#cmakedefine LWS_HAVE_SSL_SESSION_up_ref
 #cmakedefine LWS_HAVE__STAT32I64
 #cmakedefine LWS_HAVE_STDINT_H
 #cmakedefine LWS_HAVE_SYS_CAPABILITY_H

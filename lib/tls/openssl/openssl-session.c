@@ -35,28 +35,6 @@ typedef struct lws_tls_session_cache_openssl {
 
 #define lwsl_tlssess lwsl_info
 
-static int
-lws_tls_session_name_from_wsi(struct lws *wsi, char *buf, size_t len)
-{
-	size_t n;
-
-	/*
-	 * We have to include the vhost name in the session tag, since
-	 * different vhosts may make connections to the same endpoint using
-	 * different client certs.
-	 */
-
-	n = (size_t)lws_snprintf(buf, len, "%s.", wsi->a.vhost->name);
-
-	buf += n;
-	len = len - n;
-
-	lws_sa46_write_numeric_address(&wsi->sa46_peer, buf, len - 8);
-	lws_snprintf(buf + strlen(buf), 8, ":%u", wsi->c_port);
-
-	return 0;
-}
-
 static void
 __lws_tls_session_destroy(lws_tls_sco_t *ts)
 {
@@ -92,7 +70,7 @@ __lws_tls_session_lookup_by_name(struct lws_vhost *vh, const char *name)
 void
 lws_tls_reuse_session(struct lws *wsi)
 {
-	char buf[16 + INET6_ADDRSTRLEN + 1 + 8 + 1];
+	char tag[LWS_SESSION_TAG_LEN];
 	lws_tls_sco_t *ts;
 
 	if (!wsi->a.vhost ||
@@ -101,11 +79,12 @@ lws_tls_reuse_session(struct lws *wsi)
 
 	lws_vhost_lock(wsi->a.vhost); /* -------------- vh { */
 
-	lws_tls_session_name_from_wsi(wsi, buf, sizeof(buf));
-	ts = __lws_tls_session_lookup_by_name(wsi->a.vhost, buf);
+	if (lws_tls_session_tag_from_wsi(wsi, tag, sizeof(tag)))
+		goto bail;
+	ts = __lws_tls_session_lookup_by_name(wsi->a.vhost, tag);
 
 	if (!ts) {
-		lwsl_tlssess("%s: no existing session for %s\n", __func__, buf);
+		lwsl_tlssess("%s: no existing session for %s\n", __func__, tag);
 		goto bail;
 	}
 
@@ -140,15 +119,52 @@ lws_tls_session_vh_destroy(struct lws_vhost *vh)
 			      lws_tls_session_destroy_dll);
 }
 
+static lws_tls_sco_t *
+lws_tls_session_add_entry(struct lws_vhost *vh, const char *tag)
+{
+	lws_tls_sco_t *ts;
+	size_t nl = strlen(tag);
+
+	if (vh->tls_sessions.count == (vh->tls_session_cache_max ?
+				      vh->tls_session_cache_max : 10)) {
+
+		/*
+		 * We have reached the vhost's session cache limit,
+		 * prune the LRU / head
+		 */
+		ts = lws_container_of(vh->tls_sessions.head,
+				      lws_tls_sco_t, list);
+
+		if (ts) { /* centos 7 ... */
+			lwsl_tlssess("%s: pruning oldest session\n", __func__);
+
+			lws_vhost_lock(vh); /* -------------- vh { */
+			__lws_tls_session_destroy(ts);
+			lws_vhost_unlock(vh); /* } vh --------------  */
+		}
+	}
+
+	ts = lws_malloc(sizeof(*ts) + nl + 1, __func__);
+
+	if (!ts)
+		return NULL;
+
+	memset(ts, 0, sizeof(*ts));
+	memcpy(&ts[1], tag, nl + 1);
+
+	lws_dll2_add_tail(&ts->list, &vh->tls_sessions);
+
+	return ts;
+}
+
 static int
 lws_tls_session_new_cb(SSL *ssl, SSL_SESSION *sess)
 {
 	struct lws *wsi = (struct lws *)SSL_get_ex_data(ssl,
 					openssl_websocket_private_data_index);
-	char buf[16 + INET6_ADDRSTRLEN + 1 + 8 + 1];
+	char tag[LWS_SESSION_TAG_LEN];
 	struct lws_vhost *vh;
 	lws_tls_sco_t *ts;
-	size_t nl;
 #if !defined(LWS_WITH_NO_LOGS) && defined(_DEBUG)
 	const char *disposition = "reuse";
 	long ttl;
@@ -161,10 +177,10 @@ lws_tls_session_new_cb(SSL *ssl, SSL_SESSION *sess)
 	}
 
 	vh = wsi->a.vhost;
-	lws_tls_session_name_from_wsi(wsi, buf, sizeof(buf));
-	nl = strlen(buf);
-
 	if (vh->options & LWS_SERVER_OPTION_DISABLE_TLS_SESSION_CACHE)
+		return 0;
+
+	if (lws_tls_session_tag_from_wsi(wsi, tag, sizeof(tag)))
 		return 0;
 
 #if !defined(LWS_WITH_NO_LOGS) && defined(_DEBUG)
@@ -175,38 +191,12 @@ lws_tls_session_new_cb(SSL *ssl, SSL_SESSION *sess)
 
 	lws_vhost_lock(vh); /* -------------- vh { */
 
-	ts = __lws_tls_session_lookup_by_name(vh, buf);
+	ts = __lws_tls_session_lookup_by_name(vh, tag);
 
 	if (!ts) {
-		/*
-		 * We have to make our own, new session
-		 */
-
-		if (vh->tls_sessions.count == vh->tls_session_cache_max) {
-
-			/*
-			 * We have reached the vhost's session cache limit,
-			 * prune the LRU / head
-			 */
-			ts = lws_container_of(vh->tls_sessions.head,
-					      lws_tls_sco_t, list);
-
-			lwsl_tlssess("%s: pruning oldest session\n", __func__);
-
-			lws_vhost_lock(vh); /* -------------- vh { */
-			__lws_tls_session_destroy(ts);
-			lws_vhost_unlock(vh); /* } vh --------------  */
-		}
-
-		ts = lws_malloc(sizeof(*ts) + nl + 1, __func__);
-
+		ts = lws_tls_session_add_entry(vh, tag);
 		if (!ts)
 			goto bail;
-
-		memset(ts, 0, sizeof(*ts));
-		memcpy(&ts[1], buf, nl + 1);
-
-		lws_dll2_add_tail(&ts->list, &vh->tls_sessions);
 
 #if !defined(LWS_WITH_NO_LOGS) && defined(_DEBUG)
 		disposition = "new";
@@ -235,7 +225,7 @@ lws_tls_session_new_cb(SSL *ssl, SSL_SESSION *sess)
 	lws_vhost_unlock(vh); /* } vh --------------  */
 
 	lwsl_tlssess("%s: %p: %s: %s %s, ttl %lds (%s:%u)\n", __func__,
-		     sess, wsi->lc.gutag, disposition, buf, ttl, vh->name,
+		     sess, wsi->lc.gutag, disposition, tag, ttl, vh->name,
 		     vh->tls_sessions.count);
 
 	/*
@@ -274,4 +264,113 @@ lws_tls_session_cache(struct lws_vhost *vh, uint32_t ttl)
 #else
 	SSL_CTX_set_timeout(vh->tls.ssl_client_ctx, (long)ttl);
 #endif
+}
+
+int
+lws_tls_session_dump_save(struct lws_vhost *vh, const char *host, uint16_t port,
+			  lws_tls_sess_cb_t cb_save, void *opq)
+{
+	struct lws_tls_session_dump d;
+	lws_tls_sco_t *ts;
+	int ret = 1, bl;
+	void *v;
+
+	lws_tls_session_tag_discrete(vh->name, host, port, d.tag, sizeof(d.tag));
+
+	ts = __lws_tls_session_lookup_by_name(vh, d.tag);
+	if (!ts)
+		return 1;
+
+	/* We have a ref on the session, exit via bail to clean it... */
+
+	bl = i2d_SSL_SESSION(ts->session, NULL);
+	if (!bl)
+		return 1;
+
+	d.blob_len = (size_t)bl;
+	v = d.blob = lws_malloc(d.blob_len, __func__);
+
+	if (d.blob) {
+
+		/* this advances d.blob by the blob size ;-) */
+		i2d_SSL_SESSION(ts->session, (uint8_t **)&d.blob);
+
+		d.opaque = opq;
+		d.blob = v;
+		if (cb_save(vh->context, &d))
+			lwsl_notice("%s: save failed\n", __func__);
+		else
+			ret = 0;
+
+		lws_free(v);
+	}
+
+	return ret;
+}
+
+int
+lws_tls_session_dump_load(struct lws_vhost *vh, const char *host, uint16_t port,
+			  lws_tls_sess_cb_t cb_load, void *opq)
+{
+	struct lws_tls_session_dump d;
+	lws_tls_sco_t *ts;
+	SSL_SESSION *sess;
+	void *v;
+
+	d.opaque = opq;
+	lws_tls_session_tag_discrete(vh->name, host, port, d.tag, sizeof(d.tag));
+
+	lws_vhost_lock(vh); /* -------------- vh { */
+	ts = __lws_tls_session_lookup_by_name(vh, d.tag);
+	lws_vhost_unlock(vh); /* } vh --------------  */
+	if (ts) {
+		/*
+		 * Since we are getting this out of cold storage, we should
+		 * not replace any existing session since it is likely newer
+		 */
+		lwsl_notice("%s: session already exists for %s\n", __func__,
+				d.tag);
+		return 1;
+	}
+
+	if (cb_load(vh->context, &d)) {
+		lwsl_warn("%s: load failed\n", __func__);
+
+		return 1;
+	}
+
+	/* the callback has allocated the blob and set d.blob / d.blob_len */
+
+	v = d.blob;
+	/* this advances d.blob by the blob size ;-) */
+	sess = d2i_SSL_SESSION(NULL, (const uint8_t **)&d.blob,
+							(long)d.blob_len);
+	free(v); /* user code will have used malloc() */
+	if (!sess) {
+		lwsl_warn("%s: d2i_SSL_SESSION failed\n", __func__);
+		goto bail;
+	}
+
+	lws_vhost_lock(vh); /* -------------- vh { */
+	ts = lws_tls_session_add_entry(vh, d.tag);
+	lws_vhost_unlock(vh); /* } vh --------------  */
+
+	if (!ts) {
+		lwsl_warn("%s: unable to add cache entry\n", __func__);
+		goto bail;
+	}
+
+#if defined(LWS_HAVE_SSL_SESSION_up_ref)
+	SSL_SESSION_up_ref(sess);
+#else
+	lwsl_err("%s: openssl is too old\n", __func__);
+#endif
+	lwsl_tlssess("%s: session loaded OK\n", __func__);
+
+	return 0;
+
+bail:
+	SSL_SESSION_free(sess);
+
+	return 1;
 }

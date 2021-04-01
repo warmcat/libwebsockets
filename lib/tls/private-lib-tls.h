@@ -116,7 +116,6 @@ enum lws_tls_extant {
 	LWS_TLS_EXTANT_ALTERNATIVE
 };
 
-
 #if defined(LWS_WITH_TLS)
 
 int
@@ -195,6 +194,38 @@ lws_tls_reuse_session(struct lws *wsi);
 
 void
 lws_tls_session_cache(struct lws_vhost *vh, uint32_t ttl);
+
+int
+lws_tls_session_name_from_wsi(struct lws *wsi, char *buf, size_t len);
+
+/**
+ * lws_tls_session_name_discrete() - form an lws session tag name from pieces
+ *
+ * \param vhname: name of the vhost
+ * \param host: name of the host we are connecting to, like warmcat.com
+ * \param port: the port we connected to
+ * \param buf: the destination buffer for the tag
+ * \param len: the max available size of the destination buffer
+ *
+ * Creates a tag string representing a specific host, for use with serializing
+ * sessions made with the host.
+ */
+void
+lws_tls_session_tag_discrete(const char *vhname, const char *host,
+			     uint16_t port, char *buf, size_t len);
+
+/**
+ * lws_tls_session_name_from_wsi() - form an lws session tag name from a client wsi
+ *
+ * \param wsi: the wsi whose vhost, host and port we should use for the tag
+ * \param buf: the destination buffer for the tag
+ * \param len: the max available size of the destination buffer
+ *
+ * Creates a tag string representing a specific host, for use with serializing
+ * sessions made with the host.
+ */
+int
+lws_tls_session_tag_from_wsi(struct lws *wsi, char *buf, size_t len);
 
 #else /* ! WITH_TLS */
 
