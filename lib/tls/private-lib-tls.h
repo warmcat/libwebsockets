@@ -190,6 +190,11 @@ int
 lws_genec_confirm_curve_allowed_by_tls_id(const char *allowed, int id,
 					  struct lws_jwk *jwk);
 
+void
+lws_tls_reuse_session(struct lws *wsi);
+
+void
+lws_tls_session_cache(struct lws_vhost *vh, uint32_t ttl);
 
 #else /* ! WITH_TLS */
 

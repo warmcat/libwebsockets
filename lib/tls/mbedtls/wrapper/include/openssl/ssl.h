@@ -51,6 +51,8 @@
 
  SSL *SSL_SSL_from_mbedtls_ssl_context(mbedtls_ssl_context *msc);
 
+ mbedtls_ssl_context *SSL_mbedtls_ssl_context_from_SSL(SSL *ssl);
+
 /**
  * @brief create a SSL context
  *

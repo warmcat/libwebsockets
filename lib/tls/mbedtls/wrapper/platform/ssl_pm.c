@@ -885,6 +885,13 @@ SSL *SSL_SSL_from_mbedtls_ssl_context(mbedtls_ssl_context *msc)
 	return ssl_pm->owner;
 }
 
+mbedtls_ssl_context *SSL_mbedtls_ssl_context_from_SSL(SSL *ssl)
+{
+	struct ssl_pm *ssl_pm = (struct ssl_pm *)ssl->ssl_pm;
+
+	return &ssl_pm->ssl;
+}
+
 #include "ssl_cert.h"
 
 void SSL_set_SSL_CTX(SSL *ssl, SSL_CTX *ctx)
