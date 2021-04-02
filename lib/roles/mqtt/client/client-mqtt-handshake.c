@@ -111,7 +111,7 @@ lws_mqtt_client_send_connect(struct lws *wsi)
 				memcpy(p, c->will.topic->buf, c->will.topic->len);
 				p += c->will.topic->len;
 				if (lws_mqtt_str_is_not_empty(c->will.message)) {
-					lws_ser_wu16be(p, c->will.topic->len);
+					lws_ser_wu16be(p, c->will.message->len);
 					p += 2;
 					memcpy(p, c->will.message->buf,
 					       c->will.message->len);
