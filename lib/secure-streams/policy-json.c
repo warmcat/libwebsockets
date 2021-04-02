@@ -564,7 +564,7 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		goto string2;
 
 	case LSSPPT_METRICS_US_SCHEDULE:
-		a->curr[LTY_METRICS].m->us_schedule = (uint32_t)atol(ctx->buf);
+		a->curr[LTY_METRICS].m->us_schedule = (uint64_t)atol(ctx->buf);
 		break;
 
 	case LSSPPT_METRICS_US_HALFLIFE:
