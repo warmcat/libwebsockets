@@ -87,7 +87,7 @@ typedef struct lws_metric_policy {
 	const char			*report;
 
 	/**< the metrics policy name in the policy, used to bind to it */
-	uint32_t			us_schedule;
+	uint64_t			us_schedule;
 	/**< us interval between lws_system metrics api reports */
 
 	uint32_t			us_decay_unit;

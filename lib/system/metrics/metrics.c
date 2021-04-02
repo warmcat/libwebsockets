@@ -184,7 +184,7 @@ lws_metrics_periodic_cb(lws_sorted_usec_list_t *sul)
 	if (dmp->policy->us_schedule)
 		lws_sul_schedule(ctx, 0, &dmp->sul,
 				 lws_metrics_periodic_cb,
-				 dmp->policy->us_schedule);
+				 (lws_usec_t)dmp->policy->us_schedule);
 }
 
 /*
@@ -213,7 +213,7 @@ lws_metrics_policy_dyn_create(struct lws_context *ctx,
 	if (po->us_schedule)
 		lws_sul_schedule(ctx, 0, &dmet->sul,
 				 lws_metrics_periodic_cb,
-				 po->us_schedule);
+				 (lws_usec_t)po->us_schedule);
 
 	return dmet;
 }
