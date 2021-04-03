@@ -826,6 +826,15 @@ enum lws_callback_reasons {
 	 * destroyed.  in is the child wsi.
 	 */
 
+	LWS_CALLBACK_CONNECTING					= 105,
+	/**< Called before a socketfd is about to connect().  In is the
+	 * socketfd, cast to a (void *), if on a platform where the socketfd
+	 * is an int, recover portably using (lws_sockfd_type)(intptr_t)in.
+	 *
+	 * It's also called in SOCKS5 or http_proxy cases where the socketfd is
+	 * going to try to connect to its proxy.
+	 */
+
 	/* ---------------------------------------------------------------------
 	 * ----- Callbacks related to TLS certificate management -----
 	 */

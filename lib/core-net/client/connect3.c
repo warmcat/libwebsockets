@@ -437,13 +437,22 @@ ads_known:
 
 	wsi->socket_is_permanently_unusable = 0;
 
+	if (lws_fi(&wsi->fic, "conn_cb_rej") ||
+	    user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
+			LWS_CALLBACK_CONNECTING, wsi->user_space,
+			(void *)(intptr_t)wsi->desc.sockfd, 0)) {
+		lwsl_info("%s: CONNECTION CB closed\n", __func__);
+		goto failed1;
+	}
+
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	cfail = lws_fi(&wsi->fic, "connfail");
 	if (cfail)
 		m = -1;
 	else
 #endif
-		m = connect(wsi->desc.sockfd, (const struct sockaddr *)psa, (unsigned int)n);
+		m = connect(wsi->desc.sockfd, (const struct sockaddr *)psa,
+			    (unsigned int)n);
 
 #if defined(LWS_WITH_CONMON)
 	wsi->conmon_datum = lws_now_usecs();
