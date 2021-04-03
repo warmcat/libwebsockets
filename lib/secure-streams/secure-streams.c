@@ -1048,9 +1048,29 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 	if (h->policy->flags & LWSSSPOLF_SERVER) {
 		const struct lws_protocols *pprot[3], **ppp = &pprot[0];
 		struct lws_context_creation_info i;
-		struct lws_vhost *vho;
+		struct lws_vhost *vho = NULL;
 
 		lwsl_info("%s: creating server\n", __func__);
+
+		if (h->policy->endpoint &&
+		    h->policy->endpoint[0] == '!') {
+			/*
+			 * There's already a vhost existing that we want to
+			 * bind to, we don't have to specify and create one.
+			 *
+			 * The vhost must enable any protocols that we want.
+			 */
+
+			vho = lws_get_vhost_by_name(context,
+						    &h->policy->endpoint[1]);
+			if (!vho) {
+				lwsl_err("%s: no vhost %s\n", __func__,
+						&h->policy->endpoint[1]);
+				goto late_bail;
+			}
+
+			goto extant;
+		}
 
 		/*
 		 * This streamtype represents a server, we're being asked to
@@ -1099,14 +1119,15 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 		}
 #endif
 
-		if (lws_fi(&ssi->fic, "ss_srv_vh_fail"))
-			vho = NULL;
-		else
+
+		if (!lws_fi(&ssi->fic, "ss_srv_vh_fail"))
 			vho = lws_create_vhost(context, &i);
 		if (!vho) {
 			lwsl_err("%s: failed to create vh", __func__);
 			goto late_bail;
 		}
+
+extant:
 
 		/*
 		 * Mark this vhost as having to apply ss server semantics to

@@ -274,6 +274,11 @@ configured with `-DLWS_UNIX_SOCK=1`
 **SERVER**: If given, the network interface name or IP address the listen socket
 should bind to.
 
+**SERVER**: If begins with '!', the rest of the endpoint name is the
+vhost name of an existing vhost to bind to, instead of creating a new
+one.  This is useful when the vhost layout is already being managed by
+lejp-conf JSON and it's more convenient to put the details in there.
+
 ### `port`
 
 **CLIENT**: The port number as an integer on the endpoint to connect to
