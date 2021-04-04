@@ -110,10 +110,12 @@ lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi, const char *de
 }
 
 
-/* if not a socket, it's a raw, non-ssl file descriptor */
+/* if not a socket, it's a raw, non-ssl file descriptor
+ * req cx lock, acq pt lock, acq vh lock
+ */
 
 static struct lws *
-lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
+__lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 			    const char *vh_prot_name, struct lws *parent,
 			    void *opaque, const char *fi_wsi_name)
 {
@@ -128,23 +130,21 @@ lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 	 * we initialize it, it may become "live" concurrently unexpectedly...
 	 */
 
-	lws_context_lock(vh->context, __func__);
+	lws_context_assert_lock_held(vh->context);
 
 	n = -1;
 	if (parent)
 		n = parent->tsi;
 	new_wsi = lws_create_new_server_wsi(vh, n, "adopted");
-	if (!new_wsi) {
-		lws_context_unlock(vh->context);
+	if (!new_wsi)
 		return NULL;
-	}
 
 	/* bring in specific fault injection rules early */
 	lws_fi_inherit_copy(&new_wsi->fic, &context->fic, "wsi", fi_wsi_name);
 
 	if (lws_fi(&new_wsi->fic, "createfail")) {
 		lws_fi_destroy(&new_wsi->fic);
-		lws_context_unlock(vh->context);
+
 		return NULL;
 	}
 
@@ -199,8 +199,6 @@ lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 			  &new_wsi->a.vhost->vh_awaiting_socket_owner);
 	lws_vhost_unlock(new_wsi->a.vhost);
 
-	lws_context_unlock(vh->context);
-
 	return new_wsi;
 
 bail:
@@ -212,12 +210,10 @@ bail:
 
 	lws_fi_destroy(&new_wsi->fic);
 
-	lws_vhost_unbind_wsi(new_wsi);
+	lws_pt_unlock(pt);
+	__lws_vhost_unbind_wsi(new_wsi); /* req cx, acq vh lock */
 
 	lws_free(new_wsi);
-
-	lws_pt_unlock(pt);
-	lws_context_unlock(vh->context);
 
 	return NULL;
 }
@@ -442,7 +438,7 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 	 *
 	 * !!! For mux protocols, this will cause an additional inactive ss
 	 * representing the nwsi.  Doing that allows us to support both h1
-	 * (here) and h2 (at lws_wsi_server_new())
+	 * (here) and h2 (at __lws_wsi_server_new())
 	 */
 
 	lwsl_info("%s: %s, vhost %s\n", __func__, new_wsi->lc.gutag,
@@ -518,13 +514,15 @@ lws_adopt_descriptor_vhost_via_info(const lws_adopt_desc_t *info)
 	}
 #endif
 
-	new_wsi = lws_adopt_descriptor_vhost1(info->vh, info->type,
+	lws_context_lock(info->vh->context, __func__);
+
+	new_wsi = __lws_adopt_descriptor_vhost1(info->vh, info->type,
 					      info->vh_prot_name, info->parent,
 					      info->opaque, info->fi_wsi_name);
 	if (!new_wsi) {
 		if (info->type & LWS_ADOPT_SOCKET)
 			compatible_close(info->fd.sockfd);
-		return NULL;
+		goto bail;
 	}
 
 	if (info->type & LWS_ADOPT_SOCKET &&
@@ -537,7 +535,12 @@ lws_adopt_descriptor_vhost_via_info(const lws_adopt_desc_t *info)
 		lws_peer_add_wsi(info->vh->context, peer, new_wsi);
 #endif
 
-	return lws_adopt_descriptor_vhost2(new_wsi, info->type, info->fd);
+	new_wsi = lws_adopt_descriptor_vhost2(new_wsi, info->type, info->fd);
+
+bail:
+	lws_context_unlock(info->vh->context);
+
+	return new_wsi;
 }
 
 struct lws *
@@ -793,10 +796,14 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 
 	/* create the logical wsi without any valid fd */
 
-	wsi = lws_adopt_descriptor_vhost1(vhost, LWS_ADOPT_SOCKET |
+	lws_context_lock(vhost->context, __func__);
+
+	wsi = __lws_adopt_descriptor_vhost1(vhost, LWS_ADOPT_SOCKET |
 						 LWS_ADOPT_RAW_SOCKET_UDP,
 					  protocol_name, parent_wsi, opaque,
 					  fi_wsi_name);
+
+	lws_context_unlock(vhost->context);
 	if (!wsi) {
 		lwsl_err("%s: udp wsi creation failed\n", __func__);
 		goto bail;
@@ -888,6 +895,7 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 	/* dns lookup is happening asynchronously */
 
 	// lwsl_notice("%s: returning wsi %p\n", __func__, wsi);
+
 	return wsi;
 #endif
 #if !defined(LWS_WITH_SYS_ASYNC_DNS)

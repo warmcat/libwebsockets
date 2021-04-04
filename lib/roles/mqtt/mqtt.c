@@ -1209,7 +1209,7 @@ bail1:
 				w->a.vhost->protocols[0].callback(w,
 							LWS_CALLBACK_WSI_DESTROY,
 							NULL, NULL, 0);
-				lws_vhost_unbind_wsi(w);
+				__lws_vhost_unbind_wsi(w); /* cx + vh lock */
 				lws_free(w);
 
 				return 0;

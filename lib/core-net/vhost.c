@@ -575,7 +575,7 @@ lws_create_vhost(struct lws_context *context,
 #endif
 
 #if LWS_MAX_SMP > 1
-	pthread_mutex_init(&vh->lock, NULL);
+	lws_mutex_refcount_init(&vh->mr);
 #endif
 
 	if (!pcols && !info->pprotocols)
@@ -1268,7 +1268,8 @@ lws_vhost_destroy1(struct lws_vhost *vh)
 				v->lserv_wsi = vh->lserv_wsi;
 
 				if (v->lserv_wsi) {
-					lws_vhost_unbind_wsi(vh->lserv_wsi);
+					/* req cx + vh lock */
+					__lws_vhost_unbind_wsi(vh->lserv_wsi);
 					lws_vhost_bind_wsi(v, v->lserv_wsi);
 					vh->lserv_wsi = NULL;
 				}
@@ -1311,6 +1312,8 @@ destroy_ais(struct lws_dll2 *d, void *user)
 /*
  * Either start close or destroy any wsi on the vhost that belong to this pt,
  * if SMP mark the vh that we have done it for
+ *
+ * Must not have lock on vh
  */
 
 void
@@ -1433,7 +1436,7 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 #endif
 
 #if LWS_MAX_SMP > 1
-       pthread_mutex_destroy(&vh->lock);
+	lws_mutex_refcount_destroy(&context->mr);
 #endif
 
 #if defined(LWS_WITH_UNIX_SOCK)
@@ -1669,6 +1672,7 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 	}
 #endif
 
+	lws_context_lock(wsi->a.context, __func__); /* -------------- cx { */
 	lws_vhost_lock(wsi->a.vhost); /* ----------------------------------- { */
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
@@ -1738,6 +1742,7 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 				wsi->client_h2_alpn = 1;
 				lws_wsi_h2_adopt(w, wsi);
 				lws_vhost_unlock(wsi->a.vhost); /* } ---------- */
+				lws_context_unlock(wsi->a.context); /* -------------- cx { */
 
 				*nwsi = w;
 
@@ -1760,7 +1765,7 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 					wsi->client_mux_substream = 1;
 
 					lws_vhost_unlock(wsi->a.vhost); /* } ---------- */
-
+					lws_context_unlock(wsi->a.context); /* -------------- cx { */
 
 					return ACTIVE_CONNS_MUXED;
 				}
@@ -1794,6 +1799,7 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 			 * to take over parsing the rx.
 			 */
 			lws_vhost_unlock(wsi->a.vhost); /* } ---------- */
+			lws_context_unlock(wsi->a.context); /* -------------- cx { */
 
 			*nwsi = w;
 
@@ -1804,6 +1810,7 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 
 solo:
 	lws_vhost_unlock(wsi->a.vhost); /* } ---------------------------------- */
+	lws_context_unlock(wsi->a.context); /* -------------- cx { */
 
 	/* there is nobody already connected in the same way */
 

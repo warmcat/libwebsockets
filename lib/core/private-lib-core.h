@@ -806,18 +806,10 @@ void lwsl_emit_stderr(int level, const char *line);
 #define lws_context_lock(c, reason) lws_mutex_refcount_lock(&c->mr, reason)
 #define lws_context_unlock(c) lws_mutex_refcount_unlock(&c->mr)
 #define lws_context_assert_lock_held(c) lws_mutex_refcount_assert_held(&c->mr)
-
-static LWS_INLINE void
-lws_vhost_lock(struct lws_vhost *vhost)
-{
-	pthread_mutex_lock(&vhost->lock);
-}
-
-static LWS_INLINE void
-lws_vhost_unlock(struct lws_vhost *vhost)
-{
-	pthread_mutex_unlock(&vhost->lock);
-}
+#define lws_vhost_assert_lock_held(v) lws_mutex_refcount_assert_held(&v->mr)
+/* enforce context lock held */
+#define lws_vhost_lock(v) lws_mutex_refcount_lock(&v->mr, __func__)
+#define lws_vhost_unlock(v) lws_mutex_refcount_unlock(&v->mr)
 
 
 #else
@@ -829,6 +821,7 @@ lws_vhost_unlock(struct lws_vhost *vhost)
 #define lws_context_lock(_a, _b) (void)(_a)
 #define lws_context_unlock(_a) (void)(_a)
 #define lws_context_assert_lock_held(_a) (void)(_a)
+#define lws_vhost_assert_lock_held(_a) (void)(_a)
 #define lws_vhost_lock(_a) (void)(_a)
 #define lws_vhost_unlock(_a) (void)(_a)
 #define lws_pt_stats_lock(_a) (void)(_a)

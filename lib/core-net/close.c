@@ -168,11 +168,17 @@ __lws_reset_wsi(struct lws *wsi)
 #endif
 }
 
+/* req cx lock */
+
 void
 __lws_free_wsi(struct lws *wsi)
 {
+	struct lws_vhost *vh;
+
 	if (!wsi)
 		return;
+
+	lws_context_assert_lock_held(wsi->a.context);
 
 #if defined(LWS_WITH_SECURE_STREAMS)
 	if (wsi->for_ss) {
@@ -191,10 +197,13 @@ __lws_free_wsi(struct lws *wsi)
 	__lws_reset_wsi(wsi);
 	__lws_wsi_remove_from_sul(wsi);
 
+	vh = wsi->a.vhost;
+
 	if (wsi->a.context->event_loop_ops->destroy_wsi)
 		wsi->a.context->event_loop_ops->destroy_wsi(wsi);
 
-	lws_vhost_unbind_wsi(wsi);
+	if (vh)
+		__lws_vhost_unbind_wsi(wsi); /* req cx + vh lock */
 
 	lwsl_debug("%s: %s, tsi fds count %d\n", __func__,
 			lws_wsi_tag(wsi),
@@ -279,6 +288,8 @@ lws_addrinfo_clean(struct lws *wsi)
 	}
 #endif
 }
+
+/* requires cx lock */
 
 void
 __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
@@ -791,6 +802,9 @@ async_close:
 	__lws_close_free_wsi_final(wsi);
 }
 
+
+/* cx + vh lock */
+
 void
 __lws_close_free_wsi_final(struct lws *wsi)
 {
@@ -843,11 +857,17 @@ __lws_close_free_wsi_final(struct lws *wsi)
 void
 lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *caller)
 {
+	struct lws_context *cx = wsi->a.context;
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 
+	lws_context_lock(cx, __func__);
+
 	lws_pt_lock(pt, __func__);
+	/* may destroy vhost, cannot hold vhost lock outside it */
 	__lws_close_free_wsi(wsi, reason, caller);
 	lws_pt_unlock(pt);
+
+	lws_context_unlock(cx);
 }
 
 

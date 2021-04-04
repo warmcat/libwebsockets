@@ -433,8 +433,8 @@ struct lws_vhost {
 	char proxy_basic_auth_token[128];
 #endif
 #if LWS_MAX_SMP > 1
-	pthread_mutex_t lock;
-	char close_flow_vs_tsi[LWS_MAX_SMP];
+	struct lws_mutex_refcount		mr;
+	char					close_flow_vs_tsi[LWS_MAX_SMP];
 #endif
 
 #if defined(LWS_ROLE_H2)
@@ -1150,7 +1150,7 @@ lws_adopt_socket_vhost(struct lws_vhost *vh, lws_sockfd_type accept_fd);
 void
 lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi);
 void
-lws_vhost_unbind_wsi(struct lws *wsi);
+__lws_vhost_unbind_wsi(struct lws *wsi); /* req cx + vh lock */
 
 void
 __lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);

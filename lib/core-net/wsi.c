@@ -67,13 +67,17 @@ lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi)
 	assert(wsi->a.vhost->count_bound_wsi > 0);
 }
 
+
+/* req cx lock... acquires vh lock */
 void
-lws_vhost_unbind_wsi(struct lws *wsi)
+__lws_vhost_unbind_wsi(struct lws *wsi)
 {
 	if (!wsi->a.vhost)
 		return;
 
-	lws_context_lock(wsi->a.context, __func__); /* ---------- context { */
+	lws_context_assert_lock_held(wsi->a.context);
+
+	lws_vhost_lock(wsi->a.vhost);
 
 	assert(wsi->a.vhost->count_bound_wsi > 0);
 	wsi->a.vhost->count_bound_wsi--;
@@ -87,13 +91,16 @@ lws_vhost_unbind_wsi(struct lws *wsi)
 		 * by any pt: nothing can be servicing any wsi belonging
 		 * to it any more.
 		 *
-		 * Finalize the vh destruction
+		 * Finalize the vh destruction... must drop vh lock
 		 */
+		lws_vhost_unlock(wsi->a.vhost);
 		__lws_vhost_destroy2(wsi->a.vhost);
+		wsi->a.vhost = NULL;
+		return;
 	}
-	wsi->a.vhost = NULL;
 
-	lws_context_unlock(wsi->a.context); /* } context ---------- */
+	lws_vhost_unlock(wsi->a.vhost);
+	wsi->a.vhost = NULL;
 }
 
 struct lws *
@@ -1503,6 +1510,7 @@ lws_wsi_mux_apply_queue(struct lws *wsi)
 {
 	/* we have a transaction queue that wants to pipeline */
 
+	lws_context_lock(wsi->a.context, __func__); /* -------------- cx { */
 	lws_vhost_lock(wsi->a.vhost);
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
@@ -1543,6 +1551,7 @@ lws_wsi_mux_apply_queue(struct lws *wsi)
 	} lws_end_foreach_dll_safe(d, d1);
 
 	lws_vhost_unlock(wsi->a.vhost);
+	lws_context_unlock(wsi->a.context); /* } cx --------------  */
 
 	return 0;
 }

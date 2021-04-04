@@ -68,6 +68,9 @@ __lws_shadow_wsi(struct lws_dbus_ctx *ctx, DBusWatch *w, int fd, int create_ok)
 	if (!create_ok)
 		return NULL;
 
+	lws_context_assert_lock_held(wsi->a.context);
+	lws_vhost_assert_lock_held(wsi->a.vhost);
+
 	/* requires context lock */
 	wsi = __lws_wsi_create_with_role(ctx->vh->context, ctx->tsi, NULL);
 	if (wsi == NULL) {
@@ -89,7 +92,7 @@ __lws_shadow_wsi(struct lws_dbus_ctx *ctx, DBusWatch *w, int fd, int create_ok)
 	lws_vhost_bind_wsi(ctx->vh, wsi);
 	if (__insert_wsi_socket_into_fds(ctx->vh->context, wsi)) {
 		lwsl_err("inserting wsi socket into fds failed\n");
-		lws_vhost_unbind_wsi(wsi);
+		__lws_vhost_unbind_wsi(wsi); /* cx + vh lock */
 		lws_free(wsi);
 		return NULL;
 	}
@@ -98,13 +101,16 @@ __lws_shadow_wsi(struct lws_dbus_ctx *ctx, DBusWatch *w, int fd, int create_ok)
 }
 
 /*
- * Requires vhost lock
+ * Requires cx + vhost lock
  */
 
 static int
 __lws_shadow_wsi_destroy(struct lws_dbus_ctx *ctx, struct lws *wsi)
 {
 	lwsl_info("%s: destroying shadow wsi\n", __func__);
+
+	lws_context_assert_lock_held(wsi->a.context);
+	lws_vhost_assert_lock_held(wsi->a.vhost);
 
 	if (__remove_wsi_socket_from_fds(wsi)) {
 		lwsl_err("%s: unable to remove %d from fds\n", __func__,
@@ -113,7 +119,7 @@ __lws_shadow_wsi_destroy(struct lws_dbus_ctx *ctx, struct lws *wsi)
 		return 1;
 	}
 
-	lws_vhost_unbind_wsi(wsi);
+	__lws_vhost_unbind_wsi(wsi);
 
 	lws_free(wsi);
 
@@ -191,8 +197,9 @@ lws_dbus_add_watch(DBusWatch *w, void *data)
 	return TRUE;
 }
 
+/* cx + vh lock */
 static int
-check_destroy_shadow_wsi(struct lws_dbus_ctx *ctx, struct lws *wsi)
+__check_destroy_shadow_wsi(struct lws_dbus_ctx *ctx, struct lws *wsi)
 {
 	int n;
 
@@ -499,7 +506,7 @@ rops_handle_POLLIN_dbus(struct lws_context_per_thread *pt, struct lws *wsi,
 
 		handle_dispatch_status(NULL, DBUS_DISPATCH_DATA_REMAINS, NULL);
 
-		check_destroy_shadow_wsi(ctx, wsi);
+		__check_destroy_shadow_wsi(ctx, wsi);
 	} else
 		if (ctx->dbs)
 			/* ??? */

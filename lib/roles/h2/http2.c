@@ -210,9 +210,11 @@ lws_h2_update_peer_txcredit_thresh(struct lws *wsi, unsigned int sid, int thresh
 	return lws_h2_update_peer_txcredit(wsi, sid, bump);
 }
 
-struct lws *
-lws_wsi_server_new(struct lws_vhost *vh, struct lws *parent_wsi,
-			    unsigned int sid)
+/* cx + vh lock */
+
+static struct lws *
+__lws_wsi_server_new(struct lws_vhost *vh, struct lws *parent_wsi,
+		     unsigned int sid)
 {
 	struct lws *nwsi = lws_get_network_wsi(parent_wsi);
 	struct lws_h2_netconn *h2n = nwsi->h2.h2n;
@@ -220,6 +222,9 @@ lws_wsi_server_new(struct lws_vhost *vh, struct lws *parent_wsi,
 	unsigned int n, b = 0;
 	struct lws *wsi;
 	const char *p;
+
+	lws_context_assert_lock_held(vh->context);
+	lws_vhost_assert_lock_held(vh);
 
 	/*
 	 * The identifier of a newly established stream MUST be numerically
@@ -310,7 +315,7 @@ bail1:
 	if (wsi->user_space)
 		lws_free_set_NULL(wsi->user_space);
 	vh->protocols[0].callback(wsi, LWS_CALLBACK_WSI_DESTROY, NULL, NULL, 0);
-	lws_vhost_unbind_wsi(wsi);
+	__lws_vhost_unbind_wsi(wsi);
 	lws_free(wsi);
 
 	return NULL;
@@ -795,7 +800,15 @@ int lws_h2_do_pps_send(struct lws *wsi)
 			 * we need to treat the headers from the upgrade as the
 			 * first job.  So these need to get shifted to sid 1.
 			 */
-			h2n->swsi = lws_wsi_server_new(wsi->a.vhost, wsi, 1);
+
+			lws_context_lock(wsi->a.context, "h2 mig");
+			lws_vhost_lock(wsi->a.vhost);
+
+			h2n->swsi = __lws_wsi_server_new(wsi->a.vhost, wsi, 1);
+
+			lws_vhost_unlock(wsi->a.vhost);
+			lws_context_unlock(wsi->a.context);
+
 			if (!h2n->swsi)
 				goto bail;
 
@@ -1260,8 +1273,15 @@ lws_h2_parse_frame_header(struct lws *wsi)
 			 * of a new stream
 			 */
 
-			h2n->swsi = lws_wsi_server_new(wsi->a.vhost, wsi,
-						       h2n->sid);
+			lws_context_lock(wsi->a.context, "h2 new str");
+			lws_vhost_lock(wsi->a.vhost);
+
+			h2n->swsi = __lws_wsi_server_new(wsi->a.vhost, wsi,
+						         h2n->sid);
+
+			lws_vhost_unlock(wsi->a.vhost);
+			lws_context_unlock(wsi->a.context);
+
 			if (!h2n->swsi) {
 				lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
 					      "OOM");
@@ -1442,7 +1462,14 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			 * we need to treat the headers from the upgrade as the
 			 * first job.  So these need to get shifted to sid 1.
 			 */
-			h2n->swsi = lws_wsi_server_new(wsi->a.vhost, wsi, 1);
+			lws_context_lock(wsi->a.context, "h2 mig");
+			lws_vhost_lock(wsi->a.vhost);
+
+			h2n->swsi = __lws_wsi_server_new(wsi->a.vhost, wsi, 1);
+
+			lws_vhost_unlock(wsi->a.vhost);
+			lws_context_unlock(wsi->a.context);
+
 			if (!h2n->swsi)
 				return 1;
 			h2n->sid = 1;

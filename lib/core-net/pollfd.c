@@ -561,6 +561,7 @@ lws_callback_on_writable(struct lws *wsi)
 void
 lws_same_vh_protocol_insert(struct lws *wsi, int n)
 {
+	lws_context_lock(wsi->a.context, __func__);
 	lws_vhost_lock(wsi->a.vhost);
 
 	lws_dll2_remove(&wsi->same_vh_protocol);
@@ -570,6 +571,7 @@ lws_same_vh_protocol_insert(struct lws *wsi, int n)
 	wsi->bound_vhost_index = (uint8_t)n;
 
 	lws_vhost_unlock(wsi->a.vhost);
+	lws_context_unlock(wsi->a.context);
 }
 
 void
@@ -585,11 +587,13 @@ lws_same_vh_protocol_remove(struct lws *wsi)
 	if (!wsi->a.vhost)
 		return;
 
+	lws_context_lock(wsi->a.context, __func__);
 	lws_vhost_lock(wsi->a.vhost);
 
 	__lws_same_vh_protocol_remove(wsi);
 
 	lws_vhost_unlock(wsi->a.vhost);
+	lws_context_unlock(wsi->a.context);
 }
 
 

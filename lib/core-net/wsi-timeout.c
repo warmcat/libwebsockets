@@ -79,7 +79,8 @@ static void
 lws_sul_wsitimeout_cb(lws_sorted_usec_list_t *sul)
 {
 	struct lws *wsi = lws_container_of(sul, struct lws, sul_timeout);
-	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	struct lws_context *cx = wsi->a.context;
+	struct lws_context_per_thread *pt = &cx->pt[(int)wsi->tsi];
 
 	/* no need to log normal idle keepalive timeout */
 //		if (wsi->pending_timeout != PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE)
@@ -115,9 +116,11 @@ lws_sul_wsitimeout_cb(lws_sorted_usec_list_t *sul)
 			(void *)"Timed out waiting SSL", 21);
 #endif
 
+	lws_context_lock(cx, __func__);
 	lws_pt_lock(pt, __func__);
 	__lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "timeout");
 	lws_pt_unlock(pt);
+	lws_context_unlock(cx);
 }
 
 void
