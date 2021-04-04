@@ -452,7 +452,7 @@ struct lws_context {
 	struct lws				*netlink;
 #endif
 
-#if defined(LWS_PLAT_FREERTOS) || defined(WIN32)
+#if defined(LWS_PLAT_FREERTOS)
 	struct sockaddr_in			frt_pipe_si;
 #endif
 

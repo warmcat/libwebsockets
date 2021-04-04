@@ -344,6 +344,10 @@ struct lws_context_per_thread {
 	struct lws *fake_wsi;   /* used for callbacks where there's no wsi */
 #endif
 
+#if defined(WIN32)
+	struct sockaddr_in frt_pipe_si;
+#endif
+
 #if defined(LWS_WITH_TLS)
 	struct lws_pt_tls tls;
 #endif

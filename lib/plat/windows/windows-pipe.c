@@ -36,7 +36,7 @@ int
 lws_plat_pipe_create(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-	struct sockaddr_in *si = &wsi->a.context->frt_pipe_si;
+	struct sockaddr_in *si = &pt->frt_pipe_si;
 	lws_sockfd_type *fd = pt->dummy_pipe_fds;
 	socklen_t sl;
 
@@ -71,8 +71,8 @@ lws_plat_pipe_create(struct lws *wsi)
 		goto bail;
 
 	/*
-	 * Query the socket to set context->frt_pipe_si to the full sockaddr it
-	 * wants to be addressed by, including the port that lwip chose.
+	 * Query the socket to set pt->frt_pipe_si to the full sockaddr it
+	 * wants to be addressed by, including the port that the os chose.
 	 *
 	 * Afterwards, we can use this prepared sockaddr stashed in the context
 	 * to trigger the "pipe" without any other preliminaries.
@@ -97,7 +97,7 @@ int
 lws_plat_pipe_signal(struct lws_context *ctx, int tsi)
 {
 	struct lws_context_per_thread *pt = &ctx->pt[tsi];
-	struct sockaddr_in *si = &ctx->frt_pipe_si;
+	struct sockaddr_in *si = &pt->frt_pipe_si;
 	lws_sockfd_type *fd = pt->dummy_pipe_fds;
 	char u = 0;
 	int n;
@@ -105,7 +105,7 @@ lws_plat_pipe_signal(struct lws_context *ctx, int tsi)
 	/*
 	 * Send a single UDP byte payload to the listening socket fd[0], forcing
 	 * the event loop wait to wake.  fd[1] and context->frt_pipe_si are
-	 * set at context creation and are static.
+	 * set at pt creation and are static.
 	 */
 
 	n = sendto(fd[1], &u, 1, 0, (struct sockaddr *)si, sizeof(*si));
