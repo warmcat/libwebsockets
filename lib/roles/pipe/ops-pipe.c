@@ -148,5 +148,9 @@ const struct lws_role_ops role_ops_pipe = {
 	/* close cb clnt, srv */	{ 0, 0 },
 	/* protocol_bind_cb c,s */	{ 0, 0 },
 	/* protocol_unbind_cb c,s */	{ 0, 0 },
+#if defined(WIN32)
+	/* file_handle (no, UDP) */	0,
+#else
 	/* file_handle */		1,
+#endif
 };
