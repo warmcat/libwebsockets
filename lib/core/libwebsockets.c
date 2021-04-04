@@ -1250,7 +1250,13 @@ lws_mutex_refcount_init(struct lws_mutex_refcount *mr)
 	mr->last_lock_reason = NULL;
 	mr->lock_depth = 0;
 	mr->metadata = 0;
+#ifdef __PTW32_H
+	/* If we use implementation of PThreads for Win that is
+	 * distributed by VCPKG */
+	memset(&mr->lock_owner, 0, sizeof(pthread_t));
+#else
 	mr->lock_owner = 0;
+#endif
 }
 
 void
@@ -1272,7 +1278,14 @@ lws_mutex_refcount_lock(struct lws_mutex_refcount *mr, const char *reason)
 	 *
 	 *  - it can be false and change to a different tid that is also false
 	 */
-	if (mr->lock_owner == pthread_self()) {
+#ifdef __PTW32_H
+	/* If we use implementation of PThreads for Win that is
+	 * distributed by VCPKG */
+	if (pthread_equal(mr->lock_owner, pthread_self()))
+#else
+	if (mr->lock_owner == pthread_self())
+#endif
+	{
 		/* atomic because we only change it if we own the lock */
 		mr->lock_depth++;
 		return;
@@ -1294,15 +1307,27 @@ lws_mutex_refcount_unlock(struct lws_mutex_refcount *mr)
 		return;
 
 	mr->last_lock_reason = "free";
+#ifdef __PTW32_H
+	/* If we use implementation of PThreads for Win that is
+	 * distributed by VCPKG */
+	memset(&mr->lock_owner, 0, sizeof(pthread_t));
+#else
 	mr->lock_owner = 0;
-	//lwsl_notice("tid %d: unlock %s\n", mr->tid, mr->last_lock_reason);
+#endif
+	// lwsl_notice("tid %d: unlock %s\n", mr->tid, mr->last_lock_reason);
 	pthread_mutex_unlock(&mr->lock);
 }
 
 void
 lws_mutex_refcount_assert_held(struct lws_mutex_refcount *mr)
 {
+#ifdef __PTW32_H
+	/* If we use implementation of PThreads for Win that is
+	 * distributed by VCPKG */
+	assert(pthread_equal(mr->lock_owner, pthread_self()) && mr->lock_depth);
+#else
 	assert(mr->lock_owner == pthread_self() && mr->lock_depth);
+#endif
 }
 
 #endif /* SMP */

@@ -110,7 +110,11 @@ lws_openssl_lock_callback(int mode, int type, const char *file, int line)
 static unsigned long
 lws_openssl_thread_id(void)
 {
+#ifdef __PTW32_H
+	return (unsigned long)(intptr_t)(pthread_self()).p;
+#else
 	return (unsigned long)pthread_self();
+#endif
 }
 #endif
 

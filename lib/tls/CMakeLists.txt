@@ -421,11 +421,19 @@ if (GENCERTS)
 			message("OPENSSL_INPUT_WIN_PATH = ${OPENSSL_INPUT_WIN_PATH}")
 			message("cmd = \"${OPENSSL_EXECUTABLE}\" req -new -newkey rsa:2048 -days 10000 -nodes -x509 -keyout \"${TEST_SERVER_SSL_KEY}\" -out \"${TEST_SERVER_SSL_CERT}\"")
 
-			execute_process(
-				COMMAND cmd /c type "${OPENSSL_INPUT_WIN_PATH}"
-				COMMAND "${OPENSSL_EXECUTABLE}" req -new -newkey rsa:2048 -days 10000 -nodes -x509 -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
-				RESULT_VARIABLE OPENSSL_RETURN_CODE
-				OUTPUT_QUIET ERROR_QUIET)
+			if(OPENSSL_CONFIG_FILE)
+				execute_process(
+					COMMAND cmd /c type "${OPENSSL_INPUT_WIN_PATH}"
+					COMMAND "${OPENSSL_EXECUTABLE}" req -config ${OPENSSL_CONFIG_FILE} -new -newkey rsa:2048 -days 10000 -nodes -x509 -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
+					RESULT_VARIABLE OPENSSL_RETURN_CODE
+					OUTPUT_QUIET ERROR_QUIET)
+			else()
+				execute_process(
+					COMMAND cmd /c type "${OPENSSL_INPUT_WIN_PATH}"
+					COMMAND "${OPENSSL_EXECUTABLE}" req -new -newkey rsa:2048 -days 10000 -nodes -x509 -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
+					RESULT_VARIABLE OPENSSL_RETURN_CODE
+					OUTPUT_QUIET ERROR_QUIET)
+			endif()
 
 			message("\n")
 		endif()

@@ -845,7 +845,13 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 
 #if LWS_MAX_SMP > 1
 	case LWS_CALLBACK_GET_THREAD_ID:
+#ifdef __PTW32_H
+		/* If we use implementation of PThreads for Win that is
+		 * distributed by VCPKG */
+		return (int)(lws_intptr_t)(pthread_self()).p;
+#else
 		return (int)(lws_intptr_t)pthread_self();
+#endif // __PTW32_H
 #endif
 
 	default:

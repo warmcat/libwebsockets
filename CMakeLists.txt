@@ -659,7 +659,11 @@ if (LWS_HAVE_PTHREAD_H AND NOT LWS_PLAT_FREERTOS)
 		#endif
 		#include <pthread.h>
 		int main(void) {
+		#ifdef __PTW32_H
+			pthread_t th = {0,0};
+		#else
 			pthread_t th = 0;
+		#endif
 			pthread_setname_np(th, NULL);
 			return 0;
 		}" LWS_HAS_PTHREAD_SETNAME_NP)
