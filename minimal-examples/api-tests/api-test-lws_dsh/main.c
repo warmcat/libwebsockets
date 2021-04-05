@@ -406,7 +406,9 @@ test5(void)
 		lws_dsh_free(&a1);
 	}
 
+#if defined(_DEBUG)
 	lws_dsh_describe(dsh, "test dsh end state");
+#endif
 
 	lws_dsh_destroy(&dsh);
 
