@@ -119,6 +119,21 @@ lws_tls_session_vh_destroy(struct lws_vhost *vh)
 			      lws_tls_session_destroy_dll);
 }
 
+static void
+lws_tls_session_expiry_cb(lws_sorted_usec_list_t *sul)
+{
+	lws_tls_sco_t *ts = lws_container_of(sul, lws_tls_sco_t, sul_ttl);
+	struct lws_vhost *vh = lws_container_of(ts->list.owner,
+						struct lws_vhost, tls_sessions);
+
+	lws_sul_cancel(&ts->sul_ttl);
+	lws_context_lock(vh->context, __func__); /* -------------- cx { */
+	lws_vhost_lock(vh); /* -------------- vh { */
+	__lws_tls_session_destroy(ts);
+	lws_vhost_unlock(vh); /* } vh --------------  */
+	lws_context_unlock(vh->context); /* } cx --------------  */
+}
+
 static lws_tls_sco_t *
 lws_tls_session_add_entry(struct lws_vhost *vh, const char *tag)
 {
@@ -165,9 +180,9 @@ lws_tls_session_new_cb(SSL *ssl, SSL_SESSION *sess)
 	char tag[LWS_SESSION_TAG_LEN];
 	struct lws_vhost *vh;
 	lws_tls_sco_t *ts;
+	long ttl;
 #if !defined(LWS_WITH_NO_LOGS) && defined(_DEBUG)
 	const char *disposition = "reuse";
-	long ttl;
 #endif
 
 	if (!wsi) {
@@ -183,11 +198,9 @@ lws_tls_session_new_cb(SSL *ssl, SSL_SESSION *sess)
 	if (lws_tls_session_tag_from_wsi(wsi, tag, sizeof(tag)))
 		return 0;
 
-#if !defined(LWS_WITH_NO_LOGS) && defined(_DEBUG)
 	/* api return is long, although we only support setting
 	 * default (300s) or max uint32_t */
 	ttl = SSL_SESSION_get_timeout(sess);
-#endif
 
 	lws_vhost_lock(vh); /* -------------- vh { */
 
@@ -197,6 +210,10 @@ lws_tls_session_new_cb(SSL *ssl, SSL_SESSION *sess)
 		ts = lws_tls_session_add_entry(vh, tag);
 		if (!ts)
 			goto bail;
+
+		lws_sul_schedule(wsi->a.context, wsi->tsi, &ts->sul_ttl,
+				 lws_tls_session_expiry_cb,
+				 ttl * LWS_US_PER_SEC);
 
 #if !defined(LWS_WITH_NO_LOGS) && defined(_DEBUG)
 		disposition = "new";
