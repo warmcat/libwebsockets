@@ -17,7 +17,11 @@ Libwebsockets covers a lot of interesting features for people making embedded se
 Please note you just need in include libwebsockets.h.  It includes all the individual
 includes in /usr/include/libwebsockets/ itself.
 
-You can browse by api category <a href="modules.html">here</a>
+Browse by <a href="modules.html">API category (module)</a>
+
+Browse by <a href="files.html">file listing</a>
+
+Browse by <a href="annotated.html">data structures</a>
 
 A collection of READMEs for build, coding, lwsws etc are <a href="pages.html">here</a>
 
