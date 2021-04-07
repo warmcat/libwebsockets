@@ -555,6 +555,8 @@ struct conn {
 	lws_ss_handle_t		*ss;	/* the onward, ss side */
 
 	lws_ss_conn_states_t	state;
+
+	char			onward_in_flow_control;
 };
 
 extern const struct ss_pcols ss_pcol_h1;

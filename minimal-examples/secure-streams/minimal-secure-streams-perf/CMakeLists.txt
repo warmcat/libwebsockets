@@ -43,9 +43,9 @@ if (requirements)
 			message("testing via valgrind")
 			add_test(NAME ssperf-warmcat COMMAND
 				${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
-				$<TARGET_FILE:lws-minimal-secure-streams>)
+				$<TARGET_FILE:lws-minimal-secure-streams-perf>)
 		else()
-			add_test(NAME ssperf-warmcat COMMAND lws-minimal-secure-streams)
+			add_test(NAME ssperf-warmcat COMMAND lws-minimal-secure-streams-perf)
 		endif()
 
 		set_tests_properties(ssperf-warmcat
@@ -90,9 +90,9 @@ if (requirements)
 				message("testing via valgrind")
 				add_test(NAME ssperfpc-minimal COMMAND
 					${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
-					$<TARGET_FILE:lws-minimal-secure-streams-client> -i +${CTEST_SOCKET_PATH})
+					$<TARGET_FILE:lws-minimal-secure-streams-perf-client> -i +${CTEST_SOCKET_PATH})
 			else()
-				add_test(NAME ssperfpc-minimal COMMAND lws-minimal-secure-streams-client -i +${CTEST_SOCKET_PATH})
+				add_test(NAME ssperfpc-minimal COMMAND lws-minimal-secure-streams-perf-client -i +${CTEST_SOCKET_PATH})
 			endif()
 			
 			set(fixlist "ssperfproxy")
@@ -101,7 +101,7 @@ if (requirements)
 			endif()
 			
 			set_tests_properties(ssperfpc-minimal PROPERTIES
-				WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/secure-streams/minimal-secure-streams
+				WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/secure-streams/minimal-secure-streams-perf
 				FIXTURES_REQUIRED "${fixlist}"
 				TIMEOUT 40)
 

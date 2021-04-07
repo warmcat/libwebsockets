@@ -246,6 +246,15 @@ lws_dsh_destroy(lws_dsh_t **pdsh)
 	lws_free_set_NULL(*pdsh);
 }
 
+size_t
+lws_dsh_get_size(struct lws_dsh *dsh, int kind)
+{
+	kind++;
+	assert(kind < dsh->count_kinds);
+
+	return dsh->oha[kind].total_size;
+}
+
 static int
 _lws_dsh_alloc_tail(lws_dsh_t *dsh, int kind, const void *src1, size_t size1,
 		    const void *src2, size_t size2, lws_dll2_t *replace)

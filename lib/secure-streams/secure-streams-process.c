@@ -154,13 +154,21 @@ ss_proxy_onward_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	 * in the dsh holding proxy->client serialized forwarding rx
 	 */
 
-	if (m->ss->policy->proxy_buflen_rxflow_on_above && m->ss->wsi &&
-	    m->conn->dsh->oha[KIND_SS_TO_P].total_size >
+	if (!m->conn->onward_in_flow_control && m->ss->wsi &&
+	    m->ss->policy->proxy_buflen_rxflow_on_above &&
+	    lws_dsh_get_size(m->conn->dsh, KIND_SS_TO_P) >=
 				m->ss->policy->proxy_buflen_rxflow_on_above) {
-		lwsl_notice("%s: %s: rxflow disabling rx\n", __func__,
-				lws_wsi_tag(m->ss->wsi));
-		/* stop receiving taking in rx once above the threshold */
+		lwsl_info("%s: %s: rxflow disabling rx (%lu / %lu, hwm %lu)\n", __func__,
+				lws_wsi_tag(m->ss->wsi),
+				(unsigned long)lws_dsh_get_size(m->conn->dsh, KIND_SS_TO_P),
+				(unsigned long)m->ss->policy->proxy_buflen,
+				(unsigned long)m->ss->policy->proxy_buflen_rxflow_on_above);
+		/*
+		 * stop taking in rx once the onward wsi rx is above the
+		 * high water mark
+		 */
 		lws_rx_flow_control(m->ss->wsi, 0);
+		m->conn->onward_in_flow_control = 1;
 	}
 
 	if (m->conn->wsi) /* if possible, request client conn write */
@@ -369,8 +377,7 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		 * acceptance up rapidly with an initial tx containing the
 		 * streamtype name.  We can't create the stream until then.
 		 */
-		lws_set_timeout(wsi,
-				PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND, 3);
+		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND, 3);
                 break;
 
 	case LWS_CALLBACK_RAW_CLOSE:
@@ -660,7 +667,6 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 							lws_ser_ru32be(&p[7]);
 			}
 #endif
-
 			pay = 1;
 			n = (int)si;
 			break;
@@ -695,18 +701,23 @@ again:
 				 * this dsh?
 				 */
 
-				if (conn->ss->policy->proxy_buflen_rxflow_on_above &&
+				if (conn->onward_in_flow_control &&
+				    conn->ss->policy->proxy_buflen_rxflow_on_above &&
 				    conn->ss->wsi &&
-				    conn->dsh->oha[KIND_SS_TO_P].total_size <
+				    lws_dsh_get_size(conn->dsh, KIND_SS_TO_P) <
 				      conn->ss->policy->proxy_buflen_rxflow_off_below) {
-					lwsl_notice("%s: %s: rxflow re-enabling rx\n",
-						    __func__,
-						    lws_wsi_tag(conn->ss->wsi));
+					lwsl_info("%s: %s: rxflow enabling rx (%lu / %lu, lwm %lu)\n", __func__,
+							lws_wsi_tag(conn->ss->wsi),
+							(unsigned long)lws_dsh_get_size(conn->dsh, KIND_SS_TO_P),
+							(unsigned long)conn->ss->policy->proxy_buflen,
+							(unsigned long)conn->ss->policy->proxy_buflen_rxflow_off_below);
 					/*
 					 * Resume receiving taking in rx once
 					 * below the low threshold
 					 */
-					lws_rx_flow_control(conn->ss->wsi, 1);
+					lws_rx_flow_control(conn->ss->wsi,
+							    LWS_RXFLOW_ALLOW);
+					conn->onward_in_flow_control = 0;
 				}
 			}
 			if (!lws_dsh_get_head(conn->dsh, KIND_SS_TO_P,

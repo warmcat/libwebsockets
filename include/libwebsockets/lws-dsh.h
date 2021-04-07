@@ -115,6 +115,9 @@ lws_dsh_alloc_tail(struct lws_dsh *dsh, int kind, const void *src1,
 LWS_VISIBLE LWS_EXTERN void
 lws_dsh_free(void **obj);
 
+LWS_VISIBLE LWS_EXTERN size_t
+lws_dsh_get_size(struct lws_dsh *dsh, int kind);
+
 /**
  * lws_dsh_get_head() - get the head allocation inside the dsh
  *
