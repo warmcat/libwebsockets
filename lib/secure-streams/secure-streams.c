@@ -117,6 +117,7 @@ static const uint32_t ss_state_txn_validity[] = {
 					  (1 << LWSSSCS_QOS_NACK_LOCAL) |
 					  (1 << LWSSSCS_DISCONNECTED) |
 					  (1 << LWSSSCS_TIMEOUT) |
+					  (1 << LWSSSCS_POLL) | /* proxy retry */
 					  (1 << LWSSSCS_DESTROYING),
 
 	[LWSSSCS_CONNECTING]		= (1 << LWSSSCS_UNREACHABLE) |
@@ -124,6 +125,7 @@ static const uint32_t ss_state_txn_validity[] = {
 					  (1 << LWSSSCS_CONNECTING) |
 					  (1 << LWSSSCS_CONNECTED) |
 					  (1 << LWSSSCS_TIMEOUT) |
+					  (1 << LWSSSCS_DISCONNECTED) | /* proxy retry */
 					  (1 << LWSSSCS_DESTROYING),
 
 	[LWSSSCS_DESTROYING]		= 0,
