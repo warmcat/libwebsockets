@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2021 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -93,7 +93,7 @@ lws_tls_err_describe_clear(void)
 
 #if LWS_MAX_SMP != 1
 
-static pthread_mutex_t *openssl_mutexes;
+static pthread_mutex_t *openssl_mutexes = NULL;
 
 static void
 lws_openssl_lock_callback(int mode, int type, const char *file, int line)
@@ -203,9 +203,12 @@ lws_context_deinit_ssl_library(struct lws_context *context)
 
 	CRYPTO_set_locking_callback(NULL);
 
-	for (n = 0; n < CRYPTO_num_locks(); n++)
-		pthread_mutex_destroy(&openssl_mutexes[n]);
+	if (openssl_mutexes) {
+		for (n = 0; n < CRYPTO_num_locks(); n++)
+			pthread_mutex_destroy(&openssl_mutexes[n]);
 
-	OPENSSL_free(openssl_mutexes);
+		OPENSSL_free(openssl_mutexes);
+		openssl_mutexes = NULL;
+	}
 #endif
 }
