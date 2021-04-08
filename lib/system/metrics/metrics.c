@@ -885,7 +885,5 @@ lws_metrics_hist_bump_priv_tagged(lws_metric_pub_t *mt, lws_dll2_owner_t *tow,
 		lws_metrics_tags_serialize(tow2, qual + p,
 				sizeof(qual) - p);
 
-	lwsl_warn("%s: '%s'\n", __func__, qual);
-
 	lws_metrics_hist_bump(mt, qual);
 }

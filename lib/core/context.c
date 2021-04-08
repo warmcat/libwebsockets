@@ -1724,10 +1724,6 @@ lws_context_destroy(struct lws_context *context)
 
 #if defined(LWS_WITH_NETWORK)
 
-#if defined(LWS_WITH_SYS_METRICS)
-		lws_metrics_dump(context);
-#endif
-
 		/*
 		 * Close any vhost listen wsi
 		 *
@@ -2019,6 +2015,10 @@ next:
 #endif
 
 	case LWSCD_FINALIZATION:
+
+#if defined(LWS_WITH_SYS_METRICS)
+		lws_metrics_dump(context);
+#endif
 
 		context->evlib_finalize_destroy_after_int_loops_stop = 1;
 
