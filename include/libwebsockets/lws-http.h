@@ -495,7 +495,34 @@ lws_hdr_custom_copy(struct lws *wsi, char *dst, int len, const char *name,
 		    int nlen);
 
 /**
+ * lws_get_urlarg_by_name_safe() - get copy and return length of y for x=y urlargs
+ *
+ * \param wsi: the connection to check
+ * \param name: the arg name, like "token" or "token="
+ * \param buf: the buffer to receive the urlarg (including the name= part)
+ * \param len: the length of the buffer to receive the urlarg
+ *
+ * Returns -1 if not present, else the length of y in the urlarg name=y.  If
+ * zero or greater, then buf contains a copy of the string y.  Any = after the
+ * name match is trimmed off if the name does not end with = itself.
+ *
+ * This returns the explicit length and so can deal with binary blobs that are
+ * percent-encoded.  It also makes sure buf has a NUL just after the valid
+ * length so it can work with NUL-based apis if you don't care about truncation.
+ *
+ * buf may have been written even when -1 is returned indicating no match.
+ *
+ * Use this in place of lws_get_urlarg_by_name() that does not return an
+ * explicit length.
+ *
+ * Use lws_get_urlarg_by_name_safe() instead of this, which returns the length.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_get_urlarg_by_name_safe(struct lws *wsi, const char *name, char *buf, int len);
+
+/**
  * lws_get_urlarg_by_name() - return pointer to arg value if present
+ *
  * \param wsi: the connection to check
  * \param name: the arg name, like "token="
  * \param buf: the buffer to receive the urlarg (including the name= part)
@@ -503,9 +530,16 @@ lws_hdr_custom_copy(struct lws *wsi, char *dst, int len, const char *name,
  *
  *     Returns NULL if not found or a pointer inside buf to just after the
  *     name= part.
+ *
+ * This assumed the argument can be represented with a NUL-terminated string.
+ * It can't correctly deal with binary values encoded with %XX, eg. %00 will
+ * be understood to terminate the string.
+ *
+ * Use lws_get_urlarg_by_name_safe() instead of this, which returns the length.
  */
 LWS_VISIBLE LWS_EXTERN const char *
-lws_get_urlarg_by_name(struct lws *wsi, const char *name, char *buf, int len);
+lws_get_urlarg_by_name(struct lws *wsi, const char *name, char *buf, int len)
+/* LWS_WARN_DEPRECATED */;
 ///@}
 
 /*! \defgroup HTTP-headers-create HTTP headers: create

@@ -636,22 +636,49 @@ lws_parse_uri(char *p, const char **prot, const char **ads, int *port,
 
 /* ... */
 
+int
+lws_get_urlarg_by_name_safe(struct lws *wsi, const char *name, char *buf, int len)
+{
+	int n = 0, fraglen, sl = (int)strlen(name);
+
+	do {
+		fraglen = lws_hdr_copy_fragment(wsi, buf, len,
+						WSI_TOKEN_HTTP_URI_ARGS, n);
+
+		if (fraglen < 0)
+			break;
+
+		if (fraglen + 1 < len &&
+		    fraglen >= sl &&
+		    !strncmp(buf, name, (size_t)sl)) {
+			/*
+			 * If he left off the trailing =, trim it from the
+			 * result
+			 */
+
+			if (name[sl - 1] != '=' &&
+			    sl < fraglen &&
+			    buf[sl] == '=')
+				sl++;
+
+			memmove(buf, buf + sl, (size_t)(fraglen - sl));
+			buf[fraglen - sl] = '\0';
+
+			return fraglen - sl;
+		}
+
+		n++;
+	} while (1);
+
+	return -1;
+}
+
 const char *
 lws_get_urlarg_by_name(struct lws *wsi, const char *name, char *buf, int len)
 {
-	int n = 0;
-	size_t sl = strlen(name);
+	int n = lws_get_urlarg_by_name_safe(wsi, name, buf, len);
 
-	while (lws_hdr_copy_fragment(wsi, buf, len,
-			  WSI_TOKEN_HTTP_URI_ARGS, n) >= 0) {
-
-		if (!strncmp(buf, name, sl))
-			return buf + sl;
-
-		n++;
-	}
-
-	return NULL;
+	return n < 0 ? NULL : buf;
 }
 
 

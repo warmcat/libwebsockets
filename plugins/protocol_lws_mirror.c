@@ -224,12 +224,12 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		 * mirror instance name... defaults to "", but if URL includes
 		 * "?mirror=xxx", will be "xxx"
 		 */
-		name[0] = '\0';
-		if (!lws_get_urlarg_by_name(wsi, "mirror", name,
-					   sizeof(name) - 1))
+
+		if (lws_get_urlarg_by_name_safe(wsi, "mirror", name,
+					        sizeof(name) - 1) < 0) {
 			lwsl_debug("get urlarg failed\n");
-		if (strchr(name, '='))
-			pn = strchr(name, '=') + 1;
+			name[0] = '\0';
+		}
 
 		//lwsl_notice("%s: mirror name '%s'\n", __func__, pn);
 

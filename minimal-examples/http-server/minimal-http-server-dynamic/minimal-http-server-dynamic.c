@@ -75,6 +75,19 @@ callback_dynamic_http(struct lws *wsi, enum lws_callback_reasons reason,
 				(const char *)buf, pss->path);
 
 		/*
+		 * Demonstrates how to retreive a urlarg x=value
+		 */
+
+		{
+			char value[100];
+			int z = lws_get_urlarg_by_name_safe(wsi, "x", value,
+					   sizeof(value) - 1);
+
+			if (z >= 0)
+				lwsl_hexdump_notice(value, (size_t)z);
+		}
+
+		/*
 		 * prepare and write http headers... with regards to content-
 		 * length, there are three approaches:
 		 *

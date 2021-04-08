@@ -742,8 +742,7 @@ issue_char(struct lws *wsi, unsigned char c)
 	if (!wsi->http.ah->current_token_limit ||
 	    frag_len < wsi->http.ah->current_token_limit) {
 		wsi->http.ah->data[wsi->http.ah->pos++] = (char)c;
-		if (c)
-			wsi->http.ah->frags[wsi->http.ah->nfrag].len++;
+		wsi->http.ah->frags[wsi->http.ah->nfrag].len++;
 		return 0;
 	}
 
@@ -812,14 +811,29 @@ lws_parse_urldecode(struct lws *wsi, uint8_t *_c)
 	 *  leave /.dir or whatever alone
 	 */
 
+	if (!c && (!ah->frag_index[WSI_TOKEN_HTTP_URI_ARGS] ||
+		   !ah->post_literal_equal)) {
+		/*
+		 * Since user code is typically going to parse the path using
+		 * NUL-terminated apis, it's too dangerous to allow NUL
+		 * injection here.
+		 *
+		 * It's allowed in the urlargs, because the apis to access
+		 * those only allow retreival with explicit length.
+		 */
+		lwsl_warn("%s: saw NUL outside of uri args\n", __func__);
+		return -1;
+	}
+
 	switch (ah->ups) {
 	case URIPS_IDLE:
-		if (!c)
-			return -1;
+
 		/* genuine delimiter */
 		if ((c == '&' || c == ';') && !enc) {
 			if (issue_char(wsi, '\0') < 0)
 				return -1;
+			/* don't account for it */
+			wsi->http.ah->frags[wsi->http.ah->nfrag].len--;
 			/* link to next fragment */
 			ah->frags[ah->nfrag].nfrag = (uint8_t)(ah->nfrag + 1);
 			ah->nfrag++;
@@ -923,6 +937,9 @@ lws_parse_urldecode(struct lws *wsi, uint8_t *_c)
 		/* seal off uri header */
 		if (issue_char(wsi, '\0') < 0)
 			return -1;
+
+		/* don't account for it */
+		wsi->http.ah->frags[wsi->http.ah->nfrag].len--;
 
 		/* move to using WSI_TOKEN_HTTP_URI_ARGS */
 		ah->nfrag++;
@@ -1055,6 +1072,8 @@ lws_parse(struct lws *wsi, unsigned char *buf, int *len)
 				/* begin parsing HTTP version: */
 				if (issue_char(wsi, '\0') < 0)
 					return LPR_FAIL;
+				/* don't account for it */
+				wsi->http.ah->frags[wsi->http.ah->nfrag].len--;
 				ah->parser_state = WSI_TOKEN_HTTP;
 				goto start_fragment;
 			}
@@ -1096,6 +1115,17 @@ check_eol:
 				return LPR_FAIL;
 			if (n > 0)
 				ah->parser_state = WSI_TOKEN_SKIPPING;
+			else {
+				/*
+				 * Explicit zeroes are legal in URI ARGS.
+				 * They can only exist as a safety terminator
+				 * after the valid part of the token contents
+				 * for other types.
+				 */
+				if (!c && ah->parser_state != WSI_TOKEN_HTTP_URI_ARGS)
+					/* don't account for safety terminator */
+					wsi->http.ah->frags[wsi->http.ah->nfrag].len--;
+			}
 
 swallow:
 			/* per-protocol end of headers management */
