@@ -1525,6 +1525,7 @@ struct lws *
 lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 		 const char *path, const char *host, char weak)
 {
+	struct lws_context_per_thread *pt;
 #if defined(LWS_ROLE_WS)
 	struct _lws_websocket_related *ws;
 #endif
@@ -1537,6 +1538,7 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 		return NULL;
 
 	wsi = *pwsi;
+	pt = &wsi->a.context->pt[(int)wsi->tsi];
 
 	lwsl_debug("%s: %s: redir %d: %s\n", __func__, lws_wsi_tag(wsi),
 			wsi->redirects, address);
@@ -1608,7 +1610,10 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	lwsl_info("redirect ads='%s', port=%d, path='%s', ssl = %d, pifds %d\n",
 		   address, port, path, ssl, wsi->position_in_fds_table);
 
+	lws_pt_lock(pt, __func__);
 	__remove_wsi_socket_from_fds(wsi);
+	lws_pt_unlock(pt);
+
 #if defined(LWS_ROLE_WS)
 	if (weak) {
 		ws = wsi->ws;

@@ -351,6 +351,8 @@ __insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 	return ret;
 }
 
+/* requires pt lock */
+
 int
 __remove_wsi_socket_from_fds(struct lws *wsi)
 {
