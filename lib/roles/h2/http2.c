@@ -390,6 +390,11 @@ lws_h2_issue_preface(struct lws *wsi)
 	struct lws_h2_netconn *h2n = wsi->h2.h2n;
 	struct lws_h2_protocol_send *pps;
 
+	if (!h2n) {
+		lwsl_warn("%s: no valid h2n\n", __func__);
+		return 1;
+	}
+
 	lwsl_debug("%s: %s: fd %d\n", __func__, lws_wsi_tag(wsi), (int)wsi->desc.sockfd);
 
 	if (lws_issue_raw(wsi, (uint8_t *)preface, strlen(preface)) !=
