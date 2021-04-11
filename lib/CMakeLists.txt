@@ -161,6 +161,9 @@ if (LWS_WITH_STATIC)
 	add_library(websockets STATIC ${SOURCES})# ${HDR_PUBLIC})
 	set_target_properties(websockets PROPERTIES LINKER_LANGUAGE C)
 	list(APPEND LWS_LIBRARIES websockets)
+	target_include_directories(websockets INTERFACE
+		$<INSTALL_INTERFACE:${LWS_INSTALL_INCLUDE_DIR}>
+	)
 	target_include_directories(websockets PRIVATE ${LWS_LIB_BUILD_INC_PATHS})
 	target_compile_definitions(websockets PRIVATE LWS_BUILDING_STATIC)
 
@@ -182,6 +185,9 @@ if (LWS_WITH_SHARED)
 	add_library(websockets_shared SHARED ${SOURCES} ${RESOURCES})# ${HDR_PUBLIC})
 	set_target_properties(websockets_shared PROPERTIES LINKER_LANGUAGE C)
 	list(APPEND LWS_LIBRARIES websockets_shared)
+	target_include_directories(websockets_shared INTERFACE
+		$<INSTALL_INTERFACE:${LWS_INSTALL_INCLUDE_DIR}>
+	)
 	target_include_directories(websockets_shared PRIVATE ${LWS_LIB_BUILD_INC_PATHS})
 	target_compile_definitions(websockets_shared PRIVATE LWS_BUILDING_SHARED)
 
