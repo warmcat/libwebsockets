@@ -441,6 +441,7 @@ static const struct lws_mimetype {
 	{ ".txt", "text/plain" },
 	{ ".xml", "application/xml" },
 	{ ".json", "application/json" },
+	{ ".mjs", "text/javascript" },
 };
 
 const char *
