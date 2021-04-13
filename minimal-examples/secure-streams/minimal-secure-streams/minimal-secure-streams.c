@@ -24,6 +24,8 @@
 #include <string.h>
 #include <signal.h>
 
+// #define FORCE_OS_TRUST_STORE
+
 /*
  * uncomment to force network traffic through 127.0.0.1:1080
  *
@@ -38,7 +40,7 @@
 // #define VIA_LOCALHOST_SOCKS
 
 static int interrupted, bad = 1, force_cpd_fail_portal,
-	   force_cpd_fail_no_internet, test_respmap, test_blob;
+	   force_cpd_fail_no_internet, test_respmap, test_blob, test_ots;
 static unsigned int timeout_ms = 3000;
 static lws_state_notify_link_t nl;
 
@@ -82,6 +84,7 @@ static const char * const default_ss_policy =
 		 * We fetch the real policy from there using SS and switch to
 		 * using that.
 		 */
+#if !defined(FORCE_OS_TRUST_STORE)
 		"{\"dst_root_x3\": \""
 	"MIIDSjCCAjKgAwIBAgIQRK+wgNajJ7qJMDmGLvhAazANBgkqhkiG9w0BAQUFADA/"
 	"MSQwIgYDVQQKExtEaWdpdGFsIFNpZ25hdHVyZSBUcnVzdCBDby4xFzAVBgNVBAMT"
@@ -102,14 +105,17 @@ static const char * const default_ss_policy =
 	"JDGFoqgCWjBH4d1QB7wCCZAA62RjYJsWvIjJEubSfZGL+T0yjWW06XyxV3bqxbYo"
 	"Ob8VZRzI9neWagqNdwvYkQsEjgfbKbYK7p2CNTUQ"
 		"\"}"
+#endif
 	  "],"
 	  "\"trust_stores\": [" /* named cert chains */
+#if !defined(FORCE_OS_TRUST_STORE)
 		"{"
 			"\"name\": \"le_via_dst\","
 			"\"stack\": ["
 				"\"dst_root_x3\""
 			"]"
 		"}"
+#endif
 	  "],"
 	  "\"s\": ["
 	  	/*
@@ -129,8 +135,10 @@ static const char * const default_ss_policy =
 #endif
 			"\"tls\":"		"true,"
 			"\"opportunistic\":"	"true,"
-			"\"retry\":"		"\"default\","
-			"\"tls_trust_store\":"	"\"le_via_dst\""
+#if !defined(FORCE_OS_TRUST_STORE)
+			"\"tls_trust_store\":"	"\"le_via_dst\","
+#endif
+			"\"retry\":"		"\"default\""
 		"}},{"
 			/*
 			 * "captive_portal_detect" describes
@@ -413,8 +421,9 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 			ssi.tx = myss_tx;
 			ssi.state = myss_state;
 			ssi.user_alloc = sizeof(myss_t);
-			ssi.streamtype = test_blob ? "bulkproxflow" :
-					(test_respmap ? "respmap" : "mintest");
+			ssi.streamtype = test_ots ? "mintest-ots" :
+					(test_blob ? "bulkproxflow" :
+					 (test_respmap ? "respmap" : "mintest"));
 
 			if (lws_ss_create(context, 0, &ssi, NULL, NULL,
 					  NULL, NULL)) {
@@ -487,6 +496,13 @@ int main(int argc, const char **argv)
 
 	if (lws_cmdline_option(argc, argv, "--respmap"))
 		test_respmap = 1;
+
+	if (lws_cmdline_option(argc, argv, "--ots"))
+		/*
+		 * Use a streamtype that relies on the OS trust store for
+		 * validation
+		 */
+		test_ots = 1;
 
 	if ((p = lws_cmdline_option(argc, argv, "--timeout_ms")))
 		timeout_ms = (unsigned int)atoi(p);
