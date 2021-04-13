@@ -500,6 +500,12 @@ lws_ss_check_next_state(lws_lifecycle_t *lc, uint8_t *prevstate,
 void
 lws_proxy_clean_conn_ss(struct lws *wsi);
 
+int
+lws_ss_cancel_notify_dll(struct lws_dll2 *d, void *user);
+
+int
+lws_sspc_cancel_notify_dll(struct lws_dll2 *d, void *user);
+
 #if defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
 int
 lws_ss_policy_unref_trust_store(struct lws_context *context,

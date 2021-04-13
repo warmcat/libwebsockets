@@ -217,6 +217,8 @@ typedef enum {
 	LWSSSCS_SERVER_TXN,
 	LWSSSCS_SERVER_UPGRADE,		/* the server protocol upgraded */
 
+	LWSSSCS_EVENT_WAIT_CANCELLED, /* somebody called lws_cancel_service */
+
 	LWSSSCS_SINK_JOIN,		/* sinks get this when a new source
 					 * stream joins the sink */
 	LWSSSCS_SINK_PART,		/* sinks get this when a new source

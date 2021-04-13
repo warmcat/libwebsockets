@@ -270,6 +270,9 @@ lws_ss_serialize_state(struct lws *wsi, struct lws_dsh *dsh, lws_ss_constate_t s
 	uint8_t pre[12];
 	int n = 4;
 
+	if (state == LWSSSCS_EVENT_WAIT_CANCELLED)
+		return 0;
+
 	lwsl_info("%s: %s, ord 0x%x\n", __func__, lws_ss_state_name((int)state),
 		  (unsigned int)ack);
 
@@ -763,9 +766,11 @@ payload_ff:
 						     parser);
 				h->txc.peer_tx_cr_est -= n;
 
-				if (client_pss_to_sspc_h(pss, ssi)) {
+				if (ssi->rx && client_pss_to_sspc_h(pss, ssi)) {
 					/* we still have an sspc handle */
-					int ret = ssi->rx(client_pss_to_userdata(pss),
+					int ret;
+
+					ret = ssi->rx(client_pss_to_userdata(pss),
 						(uint8_t *)cp, (unsigned int)n, (int)flags);
 
 					if (client_pss_to_sspc_h(pss, ssi) &&

@@ -95,6 +95,13 @@ rops_handle_POLLIN_pipe(struct lws_context_per_thread *pt, struct lws *wsi,
 
 #endif
 
+#if defined(LWS_WITH_SECURE_STREAMS)
+	lws_dll2_foreach_safe(&pt->ss_owner, NULL, lws_ss_cancel_notify_dll);
+#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API) && defined(LWS_WITH_CLIENT)
+	lws_dll2_foreach_safe(&pt->ss_client_owner, NULL, lws_sspc_cancel_notify_dll);
+#endif
+#endif
+
 	/*
 	 * the poll() wait, or the event loop for libuv etc is a
 	 * process-wide resource that we interrupted.  So let every

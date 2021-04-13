@@ -67,6 +67,7 @@ static const char *state_names[] = {
 	"LWSSSCS_TIMEOUT",
 	"LWSSSCS_SERVER_TXN",
 	"LWSSSCS_SERVER_UPGRADE",
+	"LWSSSCS_EVENT_WAIT_CANCELLED",
 };
 
 /*
@@ -274,10 +275,10 @@ int
 lws_ss_check_next_state(lws_lifecycle_t *lc, uint8_t *prevstate,
 			lws_ss_constate_t cs)
 {
-	if (cs >= LWSSSCS_USER_BASE)
+	if (cs >= LWSSSCS_USER_BASE || cs == LWSSSCS_EVENT_WAIT_CANCELLED)
 		/*
-		 * we can't judge user states, leave the old state and
-		 * just wave them through
+		 * we can't judge user or transient states, leave the old state
+		 * and just wave them through
 		 */
 		return 0;
 
@@ -1477,6 +1478,17 @@ lws_ss_destroy_dll(struct lws_dll2 *d, void *user)
 	lws_ss_handle_t *h = lws_container_of(d, lws_ss_handle_t, list);
 
 	lws_ss_destroy(&h);
+
+	return 0;
+}
+
+int
+lws_ss_cancel_notify_dll(struct lws_dll2 *d, void *user)
+{
+	lws_ss_handle_t *h = lws_container_of(d, lws_ss_handle_t, list);
+
+	if (lws_ss_event_helper(h, LWSSSCS_EVENT_WAIT_CANCELLED))
+		lwsl_warn("%s: cancel event ignores return\n", __func__);
 
 	return 0;
 }
