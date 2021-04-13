@@ -546,6 +546,16 @@ int main(int argc, const char **argv)
 		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 #endif
 
+#if defined(LWS_WITH_MBEDTLS)
+
+	/* uncomment to force mbedtls to load a system trust store like
+	 * openssl does
+	 *
+	 * info.mbedtls_client_preload_filepath =
+	 *		"/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem";
+	 */
+#endif
+
 	/* integrate us with lws system state management when context created */
 
 	nl.name = "app";

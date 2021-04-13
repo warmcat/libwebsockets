@@ -179,6 +179,8 @@ OSSL_HANDSHAKE_STATE SSL_get_state(const SSL *ssl)
     return state;
 }
 
+const char *mbedtls_client_preload_filepath;
+
 /**
  * @brief create a SSL context
  */
@@ -187,6 +189,7 @@ SSL_CTX* SSL_CTX_new(const SSL_METHOD *method)
     SSL_CTX *ctx;
     CERT *cert;
     X509 *client_ca;
+    int n;
 
     if (!method) {
         SSL_DEBUG(SSL_LIB_ERROR_LEVEL, "no no_method");
@@ -216,6 +219,18 @@ SSL_CTX* SSL_CTX_new(const SSL_METHOD *method)
     ctx->cert = cert;
 
     ctx->version = method->version;
+
+    if (mbedtls_client_preload_filepath) {
+	mbedtls_x509_crt **px = (mbedtls_x509_crt **)ctx->client_CA->x509_pm;
+
+	*px = malloc(sizeof(**px));
+	mbedtls_x509_crt_init(*px);
+	n = mbedtls_x509_crt_parse_file(*px, mbedtls_client_preload_filepath);
+	if (n < 0)
+		lwsl_err("%s: unable to load cert bundle 0x%x\n", __func__, -n);
+	else
+		lwsl_info("%s: loaded cert bundle %d\n", __func__, n);
+    }
 
     return ctx;
 

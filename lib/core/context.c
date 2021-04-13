@@ -30,6 +30,10 @@
 
 static const char *library_version = LWS_LIBRARY_VERSION;
 
+#if defined(LWS_WITH_MBEDTLS)
+extern const char *mbedtls_client_preload_filepath;
+#endif
+
 #if defined(LWS_HAVE_SYS_RESOURCE_H)
 /* for setrlimit */
 #include <sys/resource.h>
@@ -811,6 +815,8 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if defined(LWS_WITH_TLS) && defined(LWS_WITH_NETWORK)
 #if defined(LWS_WITH_MBEDTLS)
 	context->tls_ops = &tls_ops_mbedtls;
+
+	mbedtls_client_preload_filepath = info->mbedtls_client_preload_filepath;
 #else
 	context->tls_ops = &tls_ops_openssl;
 #endif

@@ -363,6 +363,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		}
 		vh->tls.x509_client_CA = d2i_X509(NULL, buf, (long)len);
 		free(buf);
+
 		lwsl_info("Loading client CA for verification %s\n", ca_filepath);
 #endif
 	} else {

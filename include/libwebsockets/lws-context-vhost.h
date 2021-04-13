@@ -536,6 +536,14 @@ struct lws_context_creation_info {
 	  * implementation for the one provided by provided_ssl_ctx.
 	  * Libwebsockets no longer is responsible for freeing the context
 	  * if this option is selected. */
+#else /* WITH_MBEDTLS */
+	const char *mbedtls_client_preload_filepath;
+	/**< CONTEXT: If NULL, no effect.  Otherwise it should point to a
+	 * filepath where every created client SSL_CTX is preloaded from the
+	 * system trust bundle.
+	 *
+	 * This sets a processwide variable that affects all contexts.
+	 */
 #endif
 #endif
 
