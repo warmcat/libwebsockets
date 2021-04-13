@@ -359,6 +359,7 @@ if (LWS_WITH_MBEDTLS)
 	CHECK_FUNCTION_EXISTS(mbedtls_ssl_set_hs_own_cert LWS_HAVE_mbedtls_ssl_set_hs_own_cert PARENT_SCOPE)
 	CHECK_FUNCTION_EXISTS(mbedtls_ssl_set_hs_authmode LWS_HAVE_mbedtls_ssl_set_hs_authmode PARENT_SCOPE)
 	CHECK_FUNCTION_EXISTS(mbedtls_net_init LWS_HAVE_mbedtls_net_init PARENT_SCOPE)
+	CHECK_FUNCTION_EXISTS(mbedtls_x509_crt_parse_file LWS_HAVE_mbedtls_x509_crt_parse_file PARENT_SCOPE) # some embedded may lack filesystem
 	CHECK_FUNCTION_EXISTS(mbedtls_md_setup LWS_HAVE_mbedtls_md_setup PARENT_SCOPE) # not on xenial 2.2
 	CHECK_FUNCTION_EXISTS(mbedtls_rsa_complete LWS_HAVE_mbedtls_rsa_complete PARENT_SCOPE) # not on xenial 2.2
 	CHECK_FUNCTION_EXISTS(mbedtls_internal_aes_encrypt LWS_HAVE_mbedtls_internal_aes_encrypt PARENT_SCOPE) # not on xenial 2.2

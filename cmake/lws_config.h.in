@@ -72,6 +72,7 @@
 #cmakedefine LWS_HAVE_mbedtls_ssl_set_hs_ca_chain
 #cmakedefine LWS_HAVE_mbedtls_ssl_set_hs_own_cert
 #cmakedefine LWS_HAVE_mbedtls_ssl_set_hs_authmode
+#cmakedefine LWS_HAVE_mbedtls_x509_crt_parse_file
 #cmakedefine LWS_HAVE_MBEDTLS_NET_SOCKETS
 #cmakedefine LWS_HAVE_NEW_UV_VERSION_H
 #cmakedefine LWS_HAVE_OPENSSL_ECDH_H
