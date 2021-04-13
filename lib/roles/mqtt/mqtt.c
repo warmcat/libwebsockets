@@ -2004,9 +2004,9 @@ lws_mqtt_client_send_subcribe(struct lws *wsi, lws_mqtt_subscribe_param_t *sub)
 		p = lws_mqtt_str_next(&mqtt_vh_payload, NULL);
 
 		/* Packet ID */
-		wsi->mqtt->ack_pkt_id = ++nwsi->mqtt->pkt_id;
+		wsi->mqtt->ack_pkt_id = sub->packet_id = ++nwsi->mqtt->pkt_id;
 		lwsl_debug("%s: pkt_id = %d\n", __func__,
-			   (int)wsi->mqtt->ack_pkt_id);
+			   (int)sub->packet_id);
 		lws_ser_wu16be(p, wsi->mqtt->ack_pkt_id);
 
 		if (lws_mqtt_str_advance(&mqtt_vh_payload, 2))
