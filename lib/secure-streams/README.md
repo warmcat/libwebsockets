@@ -371,6 +371,9 @@ for the normal payloads, as they can appear inside normal payload messages.
 The name of the trust store described in the `trust_stores` section to apply
 to validate the remote server cert.
 
+If missing and tls is enabled on the streamtype, then validation is
+attempted using the OS trust store, otherwise the connection fails.
+
 ### `use_auth`
 
 Indicate that the streamtype should use the named auth type from the `auth`
