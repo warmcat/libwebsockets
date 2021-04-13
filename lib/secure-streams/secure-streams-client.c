@@ -978,3 +978,14 @@ lws_sspc_tag(struct lws_sspc_handle *h)
 		return "[null sspc]";
 	return lws_lc_tag(&h->lc);
 }
+
+int
+lws_sspc_cancel_notify_dll(struct lws_dll2 *d, void *user)
+{
+	lws_sspc_handle_t *h = lws_container_of(d, lws_sspc_handle_t, client_list);
+
+	lws_sspc_event_helper(h, LWSSSCS_EVENT_WAIT_CANCELLED, 0);
+
+	return 0;
+}
+
