@@ -24,6 +24,28 @@
 
 #include <private-lib-core.h>
 
+static void
+secstream_mqtt_cleanup(lws_ss_handle_t *h)
+{
+	uint32_t i;
+
+	if (h->u.mqtt.heap_baggage) {
+		lws_free(h->u.mqtt.heap_baggage);
+		h->u.mqtt.heap_baggage = NULL;
+	}
+
+	if (h->u.mqtt.sub_info.topic) {
+		for (i = 0; i < h->u.mqtt.sub_info.num_topics; i++) {
+			if (h->u.mqtt.sub_info.topic[i].name) {
+				lws_free((void*)h->u.mqtt.sub_info.topic[i].name);
+				h->u.mqtt.sub_info.topic[i].name = NULL;
+			}
+		}
+		lws_free(h->u.mqtt.sub_info.topic);
+		h->u.mqtt.sub_info.topic = NULL;
+	}
+}
+
 static int
 secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	     void *in, size_t len)
@@ -49,10 +71,7 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		r = lws_ss_event_helper(h, LWSSSCS_UNREACHABLE);
 		h->wsi = NULL;
 
-		if (h->u.mqtt.heap_baggage) {
-			lws_free(h->u.mqtt.heap_baggage);
-			h->u.mqtt.heap_baggage = NULL;
-		}
+		secstream_mqtt_cleanup(h);
 
 		if (r == LWSSSSRET_DESTROY_ME)
 			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
@@ -78,10 +97,7 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			lws_set_opaque_user_data(h->wsi, NULL);
 		h->wsi = NULL;
 
-		if (h->u.mqtt.heap_baggage) {
-			lws_free(h->u.mqtt.heap_baggage);
-			h->u.mqtt.heap_baggage = NULL;
-		}
+		secstream_mqtt_cleanup(h);
 
 		if (r)
 			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
@@ -215,7 +231,7 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			}
 
 			lws_strexp_init(&exp, (void *)h, lws_ss_exp_cb_metadata,
-					expbuf, used_out);
+					expbuf, used_out + 1);
 
 			if (lws_strexp_expand(&exp, h->policy->u.mqtt.subscribe,
 					      strlen(h->policy->u.mqtt.subscribe),
@@ -241,6 +257,10 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			memset(&h->u.mqtt.sub_info, 0, sizeof(h->u.mqtt.sub_info));
 			h->u.mqtt.sub_info.num_topics = 1;
 			h->u.mqtt.sub_info.topic = &h->u.mqtt.sub_top;
+			h->u.mqtt.sub_info.topic = lws_malloc(sizeof(lws_mqtt_topic_elem_t),
+							      __func__);
+			h->u.mqtt.sub_info.topic[0].name = lws_strdup(expbuf);
+			h->u.mqtt.sub_info.topic[0].qos = h->policy->u.mqtt.qos;
 
 			if (lws_mqtt_client_send_subcribe(wsi, &h->u.mqtt.sub_info)) {
 				lwsl_notice("%s: unable to subscribe", __func__);
@@ -266,6 +286,22 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (r == LWSSSSRET_TX_DONT_SEND)
 			return 0;
 
+		if (r == LWSSSSRET_DISCONNECT_ME) {
+			lws_mqtt_subscribe_param_t lmsp;
+			if (h->u.mqtt.sub_info.num_topics) {
+				lmsp.num_topics = h->u.mqtt.sub_info.num_topics;
+				lmsp.topic = h->u.mqtt.sub_info.topic;
+				lmsp.packet_id = (uint16_t)(h->txord - 1);
+				if (lws_mqtt_client_send_unsubcribe(wsi,
+								    &lmsp)) {
+					lwsl_err("%s, failed to send"
+					         " MQTT unsubsribe", __func__);
+					return -1;
+				}
+				return 0;
+			}
+		}
+
 		if (r < 0)
 			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 
@@ -290,7 +326,7 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		}
 
 		lws_strexp_init(&exp, (void *)h, lws_ss_exp_cb_metadata, expbuf,
-				used_out);
+				used_out + 1);
 
                 if (lws_strexp_expand(&exp, h->policy->u.mqtt.topic,
 				      strlen(h->policy->u.mqtt.topic), &used_in,
@@ -327,6 +363,23 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		return 0;
 	}
+
+	case LWS_CALLBACK_MQTT_UNSUBSCRIBED:
+	{
+		struct lws *nwsi = lws_get_network_wsi(wsi);
+		if (nwsi && (nwsi->mux.child_count == 1))
+			lws_mqtt_client_send_disconnect(nwsi);
+		return -1;
+	}
+
+	case LWS_CALLBACK_MQTT_UNSUBSCRIBE_TIMEOUT:
+		if (wsi->mqtt->inside_unsubscribe) {
+			lwsl_warn("%s: %s: Unsubscribe timout.\n", __func__,
+				  lws_ss_tag(h));
+			return -1;
+		}
+		break;
+
 	default:
 		break;
 	}

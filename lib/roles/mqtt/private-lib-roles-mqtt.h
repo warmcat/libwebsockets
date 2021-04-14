@@ -353,6 +353,9 @@ typedef struct lws_mqttc {
 struct _lws_mqtt_related {
 	lws_mqttc_t		client;
 	lws_sorted_usec_list_t	sul_qos_puback_pubrec_wait; /* QoS1 puback or QoS2 pubrec wait TO */
+	lws_sorted_usec_list_t	sul_qos1_puback_wait; /* QoS1 puback wait TO */
+	lws_sorted_usec_list_t	sul_unsuback_wait; /* QoS1 unsuback wait TO */
+	lws_sorted_usec_list_t	sul_qos2_pubrec_wait; /* QoS2 pubrec wait TO */
 	struct lws		*wsi; /**< so sul can use lws_container_of */
 	lws_mqtt_subs_t		*subs_head; /**< Linked-list of heap-allocated subscription objects */
 	void			*rx_cpkt_param;
@@ -415,6 +418,9 @@ lws_create_client_mqtt_object(const struct lws_client_connect_info *i,
 
 struct lws *
 lws_mqtt_client_send_connect(struct lws *wsi);
+
+struct lws *
+lws_mqtt_client_send_disconnect(struct lws *wsi);
 
 int
 lws_mqtt_fill_fixed_header(uint8_t *p, lws_mqtt_control_packet_t ctrl_pkt_type,

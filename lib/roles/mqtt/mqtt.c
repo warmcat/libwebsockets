@@ -1551,6 +1551,7 @@ bail1:
 						}
 						n = 1;
 
+						lws_sul_cancel(&w->mqtt->sul_unsuback_wait);
 						if (requested_close) {
 							__lws_close_free_wsi(w,
 									     0, "unsub ack cb");
@@ -1924,6 +1925,20 @@ lws_mqtt_publish_resend(struct lws_sorted_usec_list *sul)
 
 	if (mqtt->wsi->a.protocol->callback(mqtt->wsi, LWS_CALLBACK_MQTT_RESEND,
 				mqtt->wsi->user_space, NULL, 0))
+		lws_set_timeout(mqtt->wsi, 1, LWS_TO_KILL_ASYNC);
+}
+
+static void
+lws_mqtt_unsuback_timeout(struct lws_sorted_usec_list *sul)
+{
+	struct _lws_mqtt_related *mqtt = lws_container_of(sul,
+			struct _lws_mqtt_related, sul_unsuback_wait);
+
+	lwsl_debug("%s: %s\n", __func__, lws_wsi_tag(mqtt->wsi));
+
+	if (mqtt->wsi->a.protocol->callback(mqtt->wsi,
+					   LWS_CALLBACK_MQTT_UNSUBSCRIBE_TIMEOUT,
+					   mqtt->wsi->user_space, NULL, 0))
 		lws_set_timeout(mqtt->wsi, 1, LWS_TO_KILL_ASYNC);
 }
 
@@ -2411,6 +2426,11 @@ lws_mqtt_client_send_unsubcribe(struct lws *wsi,
 		return 1;
 
 	wsi->mqtt->inside_unsubscribe = 1;
+
+	wsi->mqtt->sul_unsuback_wait.cb = lws_mqtt_unsuback_timeout;
+	__lws_sul_insert_us(&pt->pt_sul_owner[wsi->conn_validity_wakesuspend],
+			    &wsi->mqtt->sul_unsuback_wait,
+			    3 * LWS_USEC_PER_SEC);
 
 	return 0;
 }
