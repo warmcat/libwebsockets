@@ -163,6 +163,8 @@ if (LWS_WITH_STATIC)
 	list(APPEND LWS_LIBRARIES websockets)
 	target_include_directories(websockets INTERFACE
 		$<INSTALL_INTERFACE:${LWS_INSTALL_INCLUDE_DIR}>
+		$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>
+		$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../include>
 	)
 	target_include_directories(websockets PRIVATE ${LWS_LIB_BUILD_INC_PATHS})
 	target_compile_definitions(websockets PRIVATE LWS_BUILDING_STATIC)
@@ -187,6 +189,8 @@ if (LWS_WITH_SHARED)
 	list(APPEND LWS_LIBRARIES websockets_shared)
 	target_include_directories(websockets_shared INTERFACE
 		$<INSTALL_INTERFACE:${LWS_INSTALL_INCLUDE_DIR}>
+		$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>
+		$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../include>
 	)
 	target_include_directories(websockets_shared PRIVATE ${LWS_LIB_BUILD_INC_PATHS})
 	target_compile_definitions(websockets_shared PRIVATE LWS_BUILDING_SHARED)
