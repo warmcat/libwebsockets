@@ -655,6 +655,114 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 			}
 			break;
 
+		/* PUBREC */
+		case LMQCPP_PUBREC_PACKET:
+			lwsl_debug("%s: received PUBREC pkt\n", __func__);
+			lws_mqtt_vbi_init(&par->vbit);
+			switch (lws_mqtt_vbi_r(&par->vbit, &buf, &len)) {
+			case LMSPR_NEED_MORE:
+				break;
+			case LMSPR_COMPLETED:
+				par->cpkt_remlen = par->vbit.value;
+				lwsl_debug("%s: PUBREC pkt len = %d\n",
+					   __func__, (int)par->cpkt_remlen);
+				if (par->cpkt_remlen < 2)
+					goto send_protocol_error_and_close;
+				par->state = LMQCPP_PUBREC_VH_PKT_ID;
+				break;
+			default:
+				lwsl_notice("%s: pubrec bad vbi\n", __func__);
+				goto send_protocol_error_and_close;
+			}
+			break;
+
+		case LMQCPP_PUBREC_VH_PKT_ID:
+			if (len < 2) {
+				lwsl_notice("%s: len breakage 3\n", __func__);
+				return -1;
+			}
+
+			par->cpkt_id = lws_ser_ru16be(buf);
+			wsi->mqtt->ack_pkt_id = par->cpkt_id;
+			buf += 2;
+			len -= 2;
+			par->cpkt_remlen -= 2;
+			par->n = 0;
+
+			goto cmd_completion;
+
+		/* PUBREL */
+		case LMQCPP_PUBREL_PACKET:
+			lwsl_debug("%s: received PUBREL pkt\n", __func__);
+			lws_mqtt_vbi_init(&par->vbit);
+			switch (lws_mqtt_vbi_r(&par->vbit, &buf, &len)) {
+			case LMSPR_NEED_MORE:
+				break;
+			case LMSPR_COMPLETED:
+				par->cpkt_remlen = par->vbit.value;
+				lwsl_debug("%s: PUBREL pkt len = %d\n",
+					   __func__, (int)par->cpkt_remlen);
+				if (par->cpkt_remlen < 2)
+					goto send_protocol_error_and_close;
+				par->state = LMQCPP_PUBREL_VH_PKT_ID;
+				break;
+			default:
+				lwsl_err("%s: pubrel bad vbi\n", __func__);
+				goto send_protocol_error_and_close;
+			}
+			break;
+
+		case LMQCPP_PUBREL_VH_PKT_ID:
+			if (len < 2) {
+				lwsl_notice("%s: len breakage 3\n", __func__);
+				return -1;
+			}
+
+			par->cpkt_id = lws_ser_ru16be(buf);
+			wsi->mqtt->ack_pkt_id = par->cpkt_id;
+			buf += 2;
+			len -= 2;
+			par->cpkt_remlen -= 2;
+			par->n = 0;
+
+			goto cmd_completion;
+
+		/* PUBCOMP */
+		case LMQCPP_PUBCOMP_PACKET:
+			lwsl_debug("%s: received PUBCOMP pkt\n", __func__);
+			lws_mqtt_vbi_init(&par->vbit);
+			switch (lws_mqtt_vbi_r(&par->vbit, &buf, &len)) {
+			case LMSPR_NEED_MORE:
+				break;
+			case LMSPR_COMPLETED:
+				par->cpkt_remlen = par->vbit.value;
+				lwsl_debug("%s: PUBCOMP pkt len = %d\n",
+					   __func__, (int)par->cpkt_remlen);
+				if (par->cpkt_remlen < 2)
+					goto send_protocol_error_and_close;
+				par->state = LMQCPP_PUBCOMP_VH_PKT_ID;
+				break;
+			default:
+				lwsl_err("%s: pubcmp bad vbi\n", __func__);
+				goto send_protocol_error_and_close;
+			}
+			break;
+
+		case LMQCPP_PUBCOMP_VH_PKT_ID:
+			if (len < 2) {
+				lwsl_notice("%s: len breakage 3\n", __func__);
+				return -1;
+			}
+
+			par->cpkt_id = lws_ser_ru16be(buf);
+			wsi->mqtt->ack_pkt_id = par->cpkt_id;
+			buf += 2;
+			len -= 2;
+			par->cpkt_remlen -= 2;
+			par->n = 0;
+
+			goto cmd_completion;
+
 		case LMQCPP_PUBLISH_PACKET:
 			if (lwsi_role_client(wsi) && wsi->mqtt->inside_subscribe) {
 				lwsl_notice("%s: Topic rx before subscribing\n",
@@ -1214,6 +1322,93 @@ bail1:
 
 				return 0;
 
+			case LMQCP_PUBREC:
+				lwsl_err("%s: cmd_completion: PUBREC\n",
+						__func__);
+				/*
+				 * Figure out which child asked for this
+				 */
+				n = 0;
+				lws_start_foreach_ll(struct lws *, w,
+						     wsi->mux.child_list) {
+					if (w->mqtt->unacked_publish &&
+					    w->mqtt->ack_pkt_id == par->cpkt_id) {
+						char requested_close = 0;
+
+						w->mqtt->unacked_publish = 0;
+						w->mqtt->unacked_pubrel = 1;
+
+						if (user_callback_handle_rxflow(
+							    w->a.protocol->callback,
+							    w, LWS_CALLBACK_MQTT_ACK,
+							    w->user_space, NULL, 0) < 0) {
+							lwsl_info("%s: MQTT_ACK requests close\n",
+								 __func__);
+							requested_close = 1;
+						}
+						n = 1;
+
+						/*
+						 * We got an assertive PUBREC,
+						 * no need for timeout wait
+						 * any more
+						 */
+						lws_sul_cancel(&w->mqtt->
+							  sul_qos_puback_pubrec_wait);
+
+						if (requested_close) {
+							__lws_close_free_wsi(w,
+								0, "ack cb");
+							break;
+						}
+
+						break;
+					}
+				} lws_end_foreach_ll(w, mux.sibling_list);
+
+				if (!n) {
+					lwsl_err("%s: unsolicited PUBREC\n",
+							__func__);
+					return -1;
+				}
+				wsi->mqtt->send_pubrel = 1;
+				lws_callback_on_writable(wsi);
+				break;
+
+			case LMQCP_PUBCOMP:
+				lwsl_err("%s: cmd_completion: PUBCOMP\n",
+						__func__);
+				n = 0;
+				lws_start_foreach_ll(struct lws *, w,
+						     wsi->mux.child_list) {
+					if (w->mqtt->unacked_pubrel > 0 &&
+					    w->mqtt->ack_pkt_id == par->cpkt_id) {
+						w->mqtt->unacked_pubrel = 0;
+						n = 1;
+					}
+				} lws_end_foreach_ll(w, mux.sibling_list);
+
+				if (!n) {
+					lwsl_err("%s: unsolicited PUBCOMP\n",
+							__func__);
+					return -1;
+				}
+
+				/*
+				 * If we published something and PUBCOMP arrived,
+				 * our connection is definitely working in both
+				 * directions at the moment.
+				 */
+				lws_validity_confirmed(wsi);
+				break;
+
+			case LMQCP_PUBREL:
+				lwsl_err("%s: cmd_completion: PUBREL\n",
+						__func__);
+				wsi->mqtt->send_pubcomp = 1;
+				lws_callback_on_writable(wsi);
+				break;
+
 			case LMQCP_PUBACK:
 				lwsl_info("%s: cmd_completion: PUBACK\n",
 						__func__);
@@ -1245,7 +1440,7 @@ bail1:
 						 * no need for ACK timeout wait
 						 * any more
 						 */
-						lws_sul_cancel(&w->mqtt->sul_qos1_puback_wait);
+						lws_sul_cancel(&w->mqtt->sul_qos_puback_pubrec_wait);
 
 						if (requested_close) {
 							__lws_close_free_wsi(w,
@@ -1440,9 +1635,13 @@ bail1:
 					break;
 				}
 
-				/* For QOS>0, send out PUBACK */
-				if (pub->qos) {
+				if (pub->qos == 1) {
+				/* For QOS = 1, send out PUBACK */
 					wsi->mqtt->send_puback = 1;
+					lws_callback_on_writable(wsi);
+				} else if (pub->qos == 2) {
+				/* For QOS = 2, send out PUBREC */
+					wsi->mqtt->send_pubrec = 1;
 					lws_callback_on_writable(wsi);
 				}
 
@@ -1711,15 +1910,15 @@ lws_mqtt_fill_fixed_header(uint8_t *p, lws_mqtt_control_packet_t ctrl_pkt_type,
 }
 
 /*
- * This fires if the wsi did a PUBLISH under QoS1, but no PUBACK came before
- * the timeout period
+ * This fires if the wsi did a PUBLISH under QoS1 or QoS2, but no PUBACK or
+ * PUBREC came before the timeout period
  */
 
 static void
 lws_mqtt_publish_resend(struct lws_sorted_usec_list *sul)
 {
 	struct _lws_mqtt_related *mqtt = lws_container_of(sul,
-			struct _lws_mqtt_related, sul_qos1_puback_wait);
+			struct _lws_mqtt_related, sul_qos_puback_pubrec_wait);
 
 	lwsl_notice("%s: %s\n", __func__, lws_wsi_tag(mqtt->wsi));
 
@@ -1874,16 +2073,15 @@ do_write:
 			lwsl_err("%s: ACK callback exited\n", __func__);
 			return 1;
 		}
-
-		return 0;
+	} else if (pub->qos == QOS1 || pub->qos == QOS2) {
+		/* For QoS1 or QoS2, if no PUBACK or PUBREC coming after 3s,
+		 * we must RETRY the publish
+		 */
+		wsi->mqtt->sul_qos_puback_pubrec_wait.cb = lws_mqtt_publish_resend;
+		__lws_sul_insert_us(&pt->pt_sul_owner[wsi->conn_validity_wakesuspend],
+				    &wsi->mqtt->sul_qos_puback_pubrec_wait,
+				    3 * LWS_USEC_PER_SEC);
 	}
-
-	/* For QoS1, if no PUBACK coming after 3s, we must RETRY the publish */
-
-	wsi->mqtt->sul_qos1_puback_wait.cb = lws_mqtt_publish_resend;
-	__lws_sul_insert_us(&pt->pt_sul_owner[wsi->conn_validity_wakesuspend],
-			    &wsi->mqtt->sul_qos1_puback_wait,
-			    3 * LWS_USEC_PER_SEC);
 
 	return 0;
 }

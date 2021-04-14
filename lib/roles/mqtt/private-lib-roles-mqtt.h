@@ -156,6 +156,15 @@ typedef enum {
 	LMQCPP_PUBACK_VH_PKT_ID,
 	LMQCPP_PUBACK_PROPERTIES_LEN_VBI,
 
+	LMQCPP_PUBREC_PACKET = LMQCP_PUBREC << 4,
+	LMQCPP_PUBREC_VH_PKT_ID,
+
+	LMQCPP_PUBREL_PACKET = LMQCP_PUBREL << 4,
+	LMQCPP_PUBREL_VH_PKT_ID,
+
+	LMQCPP_PUBCOMP_PACKET = LMQCP_PUBCOMP << 4,
+	LMQCPP_PUBCOMP_VH_PKT_ID,
+
 	LMQCPP_SUBACK_PACKET = LMQCP_STOC_SUBACK << 4,
 	LMQCPP_SUBACK_VH_PKT_ID,
 	LMQCPP_SUBACK_PAYLOAD,
@@ -343,7 +352,7 @@ typedef struct lws_mqttc {
 
 struct _lws_mqtt_related {
 	lws_mqttc_t		client;
-	lws_sorted_usec_list_t	sul_qos1_puback_wait; /* QoS1 puback wait TO */
+	lws_sorted_usec_list_t	sul_qos_puback_pubrec_wait; /* QoS1 puback or QoS2 pubrec wait TO */
 	struct lws		*wsi; /**< so sul can use lws_container_of */
 	lws_mqtt_subs_t		*subs_head; /**< Linked-list of heap-allocated subscription objects */
 	void			*rx_cpkt_param;
@@ -359,7 +368,11 @@ struct _lws_mqtt_related {
 	uint8_t			inside_subscribe:1;
 	uint8_t			inside_unsubscribe:1;
 	uint8_t 		send_puback:1;
+	uint8_t 		send_pubrel:1;
+	uint8_t 		send_pubrec:1;
+	uint8_t 		send_pubcomp:1;
 	uint8_t			unacked_publish:1;
+	uint8_t			unacked_pubrel:1;
 
 	uint8_t			done_subscribe:1;
 };

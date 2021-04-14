@@ -302,6 +302,37 @@ rops_handle_POLLOUT_mqtt(struct lws *wsi)
 		return LWS_HP_RET_BAIL_OK;
 	}
 #endif
+	if (wsi->mqtt && !wsi->mqtt->inside_payload &&
+	    (wsi->mqtt->send_pubrec || wsi->mqtt->send_pubrel ||
+	     wsi->mqtt->send_pubcomp)) {
+		uint8_t buf[LWS_PRE + 4];
+		if (wsi->mqtt->send_pubrec) {
+			lwsl_notice("%s: issuing PUBREC for pkt id: %d\n",
+				    __func__, wsi->mqtt->ack_pkt_id);
+			buf[LWS_PRE] = LMQCP_PUBREC << 4 | 0x2;
+			wsi->mqtt->send_pubrec = 0;
+		} else if (wsi->mqtt->send_pubrel) {
+			lwsl_notice("%s: issuing PUBREL for pkt id: %d\n",
+				    __func__, wsi->mqtt->ack_pkt_id);
+			buf[LWS_PRE] = LMQCP_PUBREL << 4 | 0x2;
+			wsi->mqtt->send_pubrel = 0;
+		} else {
+			lwsl_notice("%s: issuing PUBCOMP for pkt id: %d\n",
+				    __func__, wsi->mqtt->ack_pkt_id);
+			buf[LWS_PRE] = LMQCP_PUBCOMP << 4 | 0x2;
+			wsi->mqtt->send_pubcomp = 0;
+		}
+		/* Remaining len = 2 */
+		buf[LWS_PRE + 1] = 2;
+		/* Packet ID */
+		lws_ser_wu16be(&buf[LWS_PRE + 2],
+			       wsi->mqtt->ack_pkt_id);
+
+		if (lws_write(wsi, (uint8_t *)&buf[LWS_PRE], 4,
+			      LWS_WRITE_BINARY) != 4)
+			return LWS_HP_RET_BAIL_DIE;
+		return LWS_HP_RET_BAIL_OK;
+	}
 
 	wsi = lws_get_network_wsi(wsi);
 
@@ -424,7 +455,7 @@ rops_close_role_mqtt(struct lws_context_per_thread *pt, struct lws *wsi)
 
 	c = &wsi->mqtt->client;
 
-	lws_sul_cancel(&wsi->mqtt->sul_qos1_puback_wait);
+	lws_sul_cancel(&wsi->mqtt->sul_qos_puback_pubrec_wait);
 
 	lws_mqtt_str_free(&c->username);
 	lws_mqtt_str_free(&c->password);
