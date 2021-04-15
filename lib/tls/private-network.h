@@ -78,6 +78,7 @@ struct lws_lws_tls {
 	lws_tls_conn *ssl;
 	lws_tls_bio *client_bio;
 	struct lws_dll2 dll_pending_tls;
+	char err_helper[32];
 	unsigned int use_ssl;
 	unsigned int redirect_to_https:1;
 };
