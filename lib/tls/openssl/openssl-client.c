@@ -122,6 +122,9 @@ OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 			int depth = X509_STORE_CTX_get_error_depth(x509_ctx);
 			const char *msg = X509_verify_cert_error_string(err);
 
+			lws_strncpy(wsi->tls.err_helper, msg,
+				    sizeof(wsi->tls.err_helper));
+
 			lwsl_err("SSL error: %s (preverify_ok=%d;err=%d;"
 				 "depth=%d)\n", msg, preverify_ok, err, depth);
 
@@ -439,6 +442,7 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 #endif
 	errno = 0;
 	ERR_clear_error();
+	wsi->tls.err_helper[0] = '\0';
 	n = SSL_connect(wsi->tls.ssl);
 	en = errno;
 
@@ -457,8 +461,9 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 	}
 
 	if (m == SSL_ERROR_SSL) {
-		n = lws_snprintf(errbuf, elen, "connect SSL err %d: ", m);
-		ERR_error_string_n((unsigned int)m, errbuf + n, (elen - (unsigned int)n));
+		n = lws_snprintf(errbuf, elen, "tls: %s", wsi->tls.err_helper);
+		if (!wsi->tls.err_helper[0])
+			ERR_error_string_n((unsigned int)m, errbuf + n, (elen - (unsigned int)n));
 		return LWS_SSL_CAPABLE_ERROR;
 	}
 
