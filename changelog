@@ -1,6 +1,59 @@
 Changelog
 ---------
 
+v4.2.0
+======
+
+ - Sai coverage upgrades, 495 builds on 27 platforms, including OSX M1,
+   Xenial, Bionic and Focal Ubuntu, Debian Sid and Buster on both 32 and
+   64-bit OS, and NetBSD, Solaris, FreeBSD, Windows, ESP32.
+   Ctest run on more scenarios including all LWS_WITH_DISTRO_RECOMMENDED.
+   More tests use valgrind if available on platform.
+ - RFC7231 date and time parsing and retry-after wired up to lws_retry
+ - `LWS_WITH_SUL_DEBUGGING` checks that no sul belonging to Secure Streams
+   and wsi objects are left registered on destruction
+ - Netlink monitoring on Linux dynamically tracks interface address and
+   routing changes, and immediately closes connections on invalidated
+   routes.
+ - RFC6724 DNS results sorting over ipv4 + ipv6 results, according to
+   available dynamic route information
+ - Support new event library, sdevent (systemd native loop), via
+   `LWS_WITH_SDEVENT`
+ - Reduce .rodata cost of role structs by making them sparse
+ - Additional Secure Streams QA tests and runtime state transition
+   validation
+ - SMD-over-ss-proxy documentation and helpers to simplify forwarding
+ - SSPC stream buffering at proxy and client set from policy by streamtype
+ - Trigger Captive Portal Detection if DNS resolution fails
+ - Switch all logs related to wsi and Secure Streams to use unique,
+   descriptive tags instead of pointers (which may be reallocated)
+ - Use NOITCE logging for Secure Streams and wsi lifecycle logging using
+   tags
+ - Update SSPC serialization to include versioning on initial handshake,
+   and pass client pid to proxy so related objects are tagged with it
+ - Enable errors on -Wconversion pedantic type-related build issues
+   throughout the lws sources and upgrade every affected cast.
+ - Windows remove WSA event implementation and replace with WSAPoll, with
+   a pair of UDP sockets instead of pipe() for `lws_cancel_service()`
+ - `lws_strcmp_wildcard()` helper that understand "x*", "x*y", "x*y*" etc
+ - `LWS_WITH_PLUGINS_BUILTIN` cmake option just builds plugins into the main
+ library image directly
+ - Secure Streams proxy supports policy for flow control between proxy and
+ clients
+ - libressl also supported along with boringssl, wolfssl
+ - prepared for openssl v3 compatibility, for main function and GENCRYPTO
+ - Fault injection apis can confirm operation of 48 error paths and counting
+ - `LWS_WITH_SYS_METRICS` keeps stats and reports them to user-defined
+ function, compatible with openmetrics
+ - windows platform knows how to prepare openssl with system trust store certs
+ - `LWS_WITH_SYS_CONMON` allows selected client connections to make precise
+ measurements of connection performance and DNS results, and report them in a struct
+ - New native support for uloop event loop (OpenWRT loop)
+ - More options around JWT
+ - Support TLS session caching and reuse by default, on both OpenSSL and
+ mbedtls
+ - Many fixes and improvements...
+
 v4.1.0
 ======
 

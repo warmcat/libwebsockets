@@ -89,7 +89,7 @@ caution.  RFC5246 says
    write session IDs to stable storage.
 
 The issue is that while in process memory the session object is relatively
-secure compared to ensitive secrets and tls library data already in process
+secure compared to sensitive secrets and tls library data already in process
 memory.
 
 But when serialized to, eg, some external, unencrypted medium, the accessibility
