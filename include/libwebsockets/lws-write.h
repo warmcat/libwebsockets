@@ -137,12 +137,13 @@ struct lws_write_passthru {
  *		bytes before and after buf if LWS_WRITE_BINARY or LWS_WRITE_TEXT
  *		are used.
  *
- *	This function provides the way to issue data back to the client
- *	for both http and websocket protocols.
+ * This function provides the way to issue data back to the client, for any
+ * role (h1, h2, ws, raw, etc).  It can only be called from the WRITEABLE
+ * callback.
  *
  * IMPORTANT NOTICE!
  *
- * When sending with websocket protocol
+ * When sending with ws protocol
  *
  * LWS_WRITE_TEXT,
  * LWS_WRITE_BINARY,
@@ -150,12 +151,11 @@ struct lws_write_passthru {
  * LWS_WRITE_PING,
  * LWS_WRITE_PONG,
  *
- * or sending on http/2,
- *
- * the send buffer has to have LWS_PRE bytes valid BEFORE the buffer pointer you
- * pass to lws_write().  Since you'll probably want to use http/2 before too
- * long, it's wise to just always do this with lws_write buffers... LWS_PRE is
- * typically 16 bytes it's not going to hurt usually.
+ * or sending on http/2... the send buffer has to have LWS_PRE bytes valid
+ * BEFORE the buffer pointer you pass to lws_write().  Since you'll probably
+ * want to use http/2 before too long, it's wise to just always do this with
+ * lws_write buffers... LWS_PRE is typically 16 bytes it's not going to hurt
+ * usually.
  *
  * start of alloc       ptr passed to lws_write      end of allocation
  *       |                         |                         |
@@ -163,8 +163,8 @@ struct lws_write_passthru {
  *       [----------------  allocated memory  ---------------]
  *              (for lws use)      [====== user buffer ======]
  *
- * This allows us to add protocol info before and after the data, and send as
- * one packet on the network without payload copying, for maximum efficiency.
+ * This allows us to add protocol info before the data, and send as one packet
+ * on the network without payload copying, for maximum efficiency.
  *
  * So for example you need this kind of code to use lws_write with a
  * 128-byte payload
@@ -174,24 +174,23 @@ struct lws_write_passthru {
  *   // fill your part of the buffer... for example here it's all zeros
  *   memset(&buf[LWS_PRE], 0, 128);
  *
- *   lws_write(wsi, &buf[LWS_PRE], 128, LWS_WRITE_TEXT);
+ *   if (lws_write(wsi, &buf[LWS_PRE], 128, LWS_WRITE_TEXT) < 128) {
+ *   		... the connection is dead ...
+ *   		return -1;
+ *   }
  *
- * LWS_PRE is at least the frame nonce + 2 header + 8 length
- * LWS_SEND_BUFFER_POST_PADDING is deprecated, it's now 0 and can be left off.
- * The example apps no longer use it.
+ * LWS_PRE is currently 16, which covers ws and h2 frame headers, and is
+ * compatible with 32 and 64-bit alignment requirements.
  *
- * Pad LWS_PRE to the CPU word size, so that word references
- * to the address immediately after the padding won't cause an unaligned access
- * error. Sometimes for performance reasons the recommended padding is even
- * larger than sizeof(void *).
+ * (LWS_SEND_BUFFER_POST_PADDING is deprecated, it's now 0 and can be left off.)
  *
- *	In the case of sending using websocket protocol, be sure to allocate
- *	valid storage before and after buf as explained above.  This scheme
- *	allows maximum efficiency of sending data and protocol in a single
- *	packet while not burdening the user code with any protocol knowledge.
+ * Return may be -1 is the write failed in a way indicating that the connection
+ * has ended already, in which case you can close your side, or a positive
+ * number that is at least the number of bytes requested to send (under some
+ * encapsulation scenarios, it can indicate more than you asked was sent).
  *
- *	Return may be -1 for a fatal error needing connection close, or the
- *	number of bytes sent.
+ * The recommended test of the return is less than what you asked indicates
+ * the connection has failed.
  *
  * Truncated Writes
  * ================
@@ -204,11 +203,24 @@ struct lws_write_passthru {
  *
  * LWS will buffer the remainder automatically, and send it out autonomously.
  *
- * During that time, WRITABLE callbacks will be suppressed.
+ * During that time, WRITABLE callbacks to user code will be suppressed and
+ * instead used internally.  After it completes, it will send an extra WRITEABLE
+ * callback to the user code, in case any request was missed.  So it is possible
+ * to receive unasked-for WRITEABLE callbacks, the user code should have enough
+ * state to know if it wants to write anything and just return if not.
  *
  * This is to handle corner cases where unexpectedly the OS refuses what we
- * usually expect it to accept.  You should try to send in chunks that are
- * almost always accepted in order to avoid the inefficiency of the buffering.
+ * usually expect it to accept.  It's not recommended as the way to randomly
+ * send huge payloads, since it is being copied on to heap and is inefficient.
+ *
+ * Huge payloads should instead be sent in fragments that are around 2 x mtu,
+ * which is almost always directly accepted by the OS.  To simplify this for
+ * ws fragments, there is a helper lws_write_ws_flags() below that simplifies
+ * selecting the correct flags to give lws_write() for each fragment.
+ *
+ * In the case of RFC8441 ws-over-h2, you cannot send ws fragments larger than
+ * the max h2 frame size, typically 16KB, but should further restrict it to
+ * the same ~2 x mtu limit mentioned above.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_write(struct lws *wsi, unsigned char *buf, size_t len,
