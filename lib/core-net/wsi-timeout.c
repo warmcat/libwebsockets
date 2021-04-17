@@ -114,6 +114,9 @@ lws_sul_wsitimeout_cb(lws_sorted_usec_list_t *sul)
 	if (lwsi_state(wsi) == LRS_WAITING_SSL)
 		lws_inform_client_conn_fail(wsi,
 			(void *)"Timed out waiting SSL", 21);
+	if (lwsi_state(wsi) == LRS_WAITING_SERVER_REPLY)
+		lws_inform_client_conn_fail(wsi,
+			(void *)"Timed out waiting server reply", 30);
 #endif
 
 	lws_context_lock(cx, __func__);
