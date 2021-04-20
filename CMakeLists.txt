@@ -366,11 +366,11 @@ if(GIT_EXECUTABLE)
 		set(LWS_BUILD_HASH ${GIT_USER}@${GIT_HOST}-${GIT_HASH})
 	endif()
 
-	if ("${LWS_BUILD_HASH}" STREQUAL "")
-		set(LWS_BUILD_HASH "unknown")
-	endif()
-
 	message("Git commit hash: ${LWS_BUILD_HASH}")
+endif()
+
+if ("${LWS_BUILD_HASH}" STREQUAL "")
+	set(LWS_BUILD_HASH "unknown")
 endif()
 
 set(PACKAGE "libwebsockets")
