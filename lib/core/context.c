@@ -130,7 +130,9 @@ lws_state_notify_protocol_init(struct lws_state_manager *mgr,
 	 * us to OPERATIONAL
 	 */
 
-	if (target == LWS_SYSTATE_IFACE_COLDPLUG && !context->nl_initial_done) {
+	if (target == LWS_SYSTATE_IFACE_COLDPLUG &&
+	    context->netlink &&
+	    !context->nl_initial_done) {
 		lwsl_info("%s: waiting for netlink coldplug\n", __func__);
 
 		return 1;

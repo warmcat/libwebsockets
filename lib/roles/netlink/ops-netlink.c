@@ -480,7 +480,7 @@ rops_pt_init_destroy_netlink(struct lws_context *context,
 	struct msghdr msg;
 	struct iovec iov;
 	struct lws *wsi;
-	int n;
+	int n, ret = 1;
 
 	if (destroy) {
 
@@ -533,8 +533,10 @@ rops_pt_init_destroy_netlink(struct lws_context *context,
 #endif
 				 ;
 
-	if (bind(wsi->desc.sockfd, (struct sockaddr*)&sanl, sizeof(sanl)) < 0) {
-		lwsl_err("%s: netlink bind failed\n", __func__);
+	if (lws_fi(&context->fic, "netlink_bind") ||
+	    bind(wsi->desc.sockfd, (struct sockaddr*)&sanl, sizeof(sanl)) < 0) {
+		lwsl_warn("%s: netlink bind failed\n", __func__);
+		ret = 0; /* some systems deny access, just ignore */
 		goto bail2;
 	}
 
@@ -600,7 +602,7 @@ bail2:
 bail1:
 	lws_free(wsi);
 bail:
-	return 1;
+	return ret;
 }
 
 static const lws_rops_t rops_table_netlink[] = {
