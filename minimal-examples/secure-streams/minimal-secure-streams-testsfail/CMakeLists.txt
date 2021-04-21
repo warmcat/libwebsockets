@@ -53,11 +53,11 @@ if (requirements)
 				-i ${CTEST_SOCKET_PATH}  -d1039)
 			set_tests_properties(st_sstfproxy PROPERTIES WORKING_DIRECTORY . FIXTURES_SETUP sstfproxy TIMEOUT 800)
 
-			add_test(NAME ki_ssproxy COMMAND
+			add_test(NAME ki_sstfproxy COMMAND
 				${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh
 				sstfproxy $<TARGET_FILE:lws-minimal-secure-streams-proxy>
 				-i ${CTEST_SOCKET_PATH})
-			set_tests_properties(ki_ssproxy PROPERTIES FIXTURES_CLEANUP sstfproxy)
+			set_tests_properties(ki_sstfproxy PROPERTIES FIXTURES_CLEANUP sstfproxy)
 
 			#
 			# the client part that will connect to the proxy

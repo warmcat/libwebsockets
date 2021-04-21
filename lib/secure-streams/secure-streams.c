@@ -721,7 +721,7 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 
 	if (conn_if_sspc_onw) {
 		i.ssl_connection |= LCCSCF_SECSTREAM_PROXY_ONWARD;
-	//	i.opaque_user_data	= conn_if_sspc_onw;
+		h->conn_if_sspc_onw = conn_if_sspc_onw;
 	}
 
 
