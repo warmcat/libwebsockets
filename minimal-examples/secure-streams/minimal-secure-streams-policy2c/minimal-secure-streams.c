@@ -522,7 +522,7 @@ int main(int argc, const char **argv)
 					pol->u.http.auth_preamble);
 
 			if (pol->u.http.respmap) {
-				printf("\t\t\t.respmap = &%s_http_respmap,\n",
+				printf("\t\t\t.respmap = (void *)&%s_http_respmap,\n",
 						curr);
 				printf("\t\t\t.count_respmap = %d,\n",
 						pol->u.http.count_respmap);
