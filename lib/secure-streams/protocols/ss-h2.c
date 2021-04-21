@@ -66,8 +66,13 @@ secstream_h2(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		return n;
 
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
-		if (lws_get_network_wsi(wsi) == wsi)
+		/*
+		 * Only allow the wsi that the handle believes is representing
+		 * him to report closure up to h1
+		 */
+		if (!h || h->wsi != wsi)
 			return 0;
+
 		break;
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
