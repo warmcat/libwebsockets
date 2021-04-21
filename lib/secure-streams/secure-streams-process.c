@@ -68,12 +68,11 @@ void
 lws_proxy_clean_conn_ss(struct lws *wsi)
 {
 #if 0
-	struct conn *conn;
+	lws_ss_handle_t *h = (lws_ss_handle_t *)wsi->a.opaque_user_data;
+	struct conn *conn = h->conn_if_sspc_onw;
 
 	if (!wsi)
 		return;
-
-	conn = (struct conn *)wsi->a.opaque_user_data;
 
 	if (conn && conn->ss)
 		conn->ss->wsi = NULL;

@@ -39,6 +39,7 @@ typedef enum {
 	SSSEQ_CONNECTED,
 } lws_ss_seq_state_t;
 
+struct conn;
 
 /**
  * lws_ss_handle_t: publicly-opaque secure stream object implementation
@@ -69,6 +70,8 @@ typedef struct lws_ss_handle {
 
 	struct lws_sequencer	*seq;	  /**< owning sequencer if any */
 	struct lws		*wsi;	  /**< the stream wsi if any */
+
+	struct conn		*conn_if_sspc_onw;
 
 #if defined(LWS_WITH_SSPLUGINS)
 	void			*nauthi;  /**< the nauth plugin instance data */
