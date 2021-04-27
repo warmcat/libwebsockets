@@ -399,6 +399,7 @@ lws_tls_session_dump_load(struct lws_vhost *vh, const char *host, uint16_t port,
 		goto bail;
 	}
 
+        ts->session = sess;
 	lwsl_tlssess("%s: session loaded OK\n", __func__);
 
 	lws_vhost_unlock(vh); /* } vh --------------  */
