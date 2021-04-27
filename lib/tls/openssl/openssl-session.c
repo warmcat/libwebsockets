@@ -105,6 +105,14 @@ bail:
 	lws_context_unlock(wsi->a.context); /* } cx --------------  */
 }
 
+int
+lws_tls_session_is_reused(struct lws *wsi)
+{
+    int reused = SSL_session_reused(wsi->tls.ssl);
+
+    return reused;
+}
+
 static int
 lws_tls_session_destroy_dll(struct lws_dll2 *d, void *user)
 {
