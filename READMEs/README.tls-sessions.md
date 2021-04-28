@@ -59,6 +59,20 @@ be treated with caution.
 Filling, expiring and consulting the session cache for client connections is
 performed automatically.
 
+### tls library differences
+
+Mbedtls supports clientside session caching in lws, but it does not have a
+session message arrival callback to synchronize updating the client session
+cache like openssl does.
+
+Separately, the session cb in boringssl is reportedly nonfunctional at the
+moment.
+
+To solve both cases, lws will schedule a check for the session at +500ms after
+the tls negotiation completed, and for the case the connection doesn't last
+500ms or the server is slow issuing the message, also attempt to update the
+cache at the time the tls connection object is closing.
+
 ### Session namespacing in lws
 
 Internally sessions are referred to by a vhostname.hostname.port tuple.
