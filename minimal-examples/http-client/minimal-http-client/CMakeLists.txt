@@ -51,9 +51,6 @@ if (requirements)
 
 
 		add_test(NAME http-client-warmcat-h1 COMMAND lws-minimal-http-client  --h1)
-		set_tests_properties(${mytests} PROPERTIES
-				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/http-client/minimal-http-client
-				     TIMEOUT 20)
 				     
 		if (has_fault_injection)
 		
@@ -138,7 +135,10 @@ if (requirements)
 		
 			
 		endif()
-				     
+		
+		set_tests_properties(${mytests} PROPERTIES
+		     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/http-client/minimal-http-client
+		     TIMEOUT 20)
 				     
     		if (DEFINED ENV{SAI_OVN})
 			set_tests_properties(${mytests} PROPERTIES
