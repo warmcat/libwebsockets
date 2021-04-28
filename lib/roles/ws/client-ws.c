@@ -656,6 +656,14 @@ check_accept:
 
 	lwsl_debug("handshake OK for protocol %s\n", wsi->a.protocol->name);
 
+#if defined(OPENSSL_IS_BORINGSSL)
+	/*
+	 * Newer borringssl versions stopped calling lws_tls_session_new_cb(),
+	 * that is why this synthetic cb is used.
+	 */
+	lws_tls_client_established_cb(wsi);
+#endif
+
 	/* call him back to inform him he is up */
 
 	if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_CLIENT_ESTABLISHED,

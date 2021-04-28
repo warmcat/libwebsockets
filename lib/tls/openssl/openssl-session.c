@@ -91,9 +91,14 @@ lws_tls_reuse_session(struct lws *wsi)
 	}
 
 	lwsl_tlssess("%s: %s\n", __func__, (const char *)&ts[1]);
-	wsi->tls_session_reused = 1;
 
-	SSL_set_session(wsi->tls.ssl, ts->session);
+	if (!SSL_set_session(wsi->tls.ssl, ts->session)) {
+		lwsl_err("%s: session not set for %s\n", __func__, tag);
+		goto bail;
+	}
+
+	/* extend session lifetime */
+	SSL_SESSION_set_time(ts->session, (long unsigned)time(NULL));
 
 	/* keep our session list sorted in lru -> mru order */
 
@@ -279,6 +284,33 @@ bail:
 
 	return 0;
 }
+
+#if defined(OPENSSL_IS_BORINGSSL)
+int
+lws_tls_client_established_cb(struct lws *wsi)
+{
+	SSL *ssl;
+	SSL_SESSION *sess;
+	struct lws *nwsi = lws_get_network_wsi(wsi);
+
+	if (!nwsi->tls.use_ssl || lws_tls_session_is_reused(nwsi))
+		return 0;
+
+	ssl = lws_get_ssl(nwsi);
+	sess = SSL_get1_session(ssl);
+
+	if (SSL_SESSION_is_resumable(sess) &&
+	    lws_tls_session_new_cb(ssl, sess))
+	{
+		return 1;
+	}
+
+	SSL_SESSION_free(sess);
+
+	/* Possible improvement: schedule a new sul here, to check the session again later */
+	return 0;
+}
+#endif
 
 void
 lws_tls_session_cache(struct lws_vhost *vh, uint32_t ttl)

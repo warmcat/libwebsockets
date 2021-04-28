@@ -189,6 +189,11 @@ int
 lws_genec_confirm_curve_allowed_by_tls_id(const char *allowed, int id,
 					  struct lws_jwk *jwk);
 
+#if defined(OPENSSL_IS_BORINGSSL)
+int
+lws_tls_client_established_cb(struct lws *wsi);
+#endif
+
 void
 lws_tls_reuse_session(struct lws *wsi);
 
