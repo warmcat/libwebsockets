@@ -118,6 +118,11 @@ enum lws_tls_extant {
 
 #if defined(LWS_WITH_TLS)
 
+#if defined(LWS_WITH_TLS_SESSIONS) && defined(LWS_WITH_CLIENT) && \
+	(defined(LWS_WITH_MBEDTLS) || defined(OPENSSL_IS_BORINGSSL))
+#define LWS_TLS_SYNTHESIZE_CB 1
+#endif
+
 int
 lws_tls_restrict_borrow(struct lws_context *context);
 

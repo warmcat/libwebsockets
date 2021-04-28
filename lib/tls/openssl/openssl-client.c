@@ -499,6 +499,12 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 
 		lws_role_call_alpn_negotiated(wsi, (const char *)a);
 #endif
+#if defined(LWS_TLS_SYNTHESIZE_CB)
+		lws_sul_schedule(wsi->a.context, wsi->tsi,
+				 &wsi->tls.sul_cb_synth,
+				 lws_sess_cache_synth_cb, 500 * LWS_US_PER_MS);
+#endif
+
 		lwsl_info("client connect OK\n");
 		lws_openssl_describe_cipher(wsi);
 		return LWS_SSL_CAPABLE_DONE;

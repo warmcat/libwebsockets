@@ -255,6 +255,10 @@ lws_ssl_close(struct lws *wsi)
 		SSL_set_info_callback(wsi->tls.ssl, NULL);
 #endif
 
+#if defined(LWS_TLS_SYNTHESIZE_CB)
+	lws_sul_cancel(&wsi->tls.sul_cb_synth);
+#endif
+
 	n = SSL_get_fd(wsi->tls.ssl);
 	if (!wsi->socket_is_permanently_unusable)
 		SSL_shutdown(wsi->tls.ssl);

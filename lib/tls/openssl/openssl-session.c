@@ -93,7 +93,21 @@ lws_tls_reuse_session(struct lws *wsi)
 	lwsl_tlssess("%s: %s\n", __func__, (const char *)&ts[1]);
 	wsi->tls_session_reused = 1;
 
-	SSL_set_session(wsi->tls.ssl, ts->session);
+	if (!SSL_set_session(wsi->tls.ssl, ts->session)) {
+		lwsl_err("%s: session not set for %s\n", __func__, tag);
+		goto bail;
+	}
+
+#if !defined(USE_WOLFSSL)
+	/* extend session lifetime */
+	SSL_SESSION_set_time(ts->session,
+#if defined(OPENSSL_IS_BORINGSSL)
+			(unsigned long)
+#else
+			(long)
+#endif
+			time(NULL));
+#endif
 
 	/* keep our session list sorted in lru -> mru order */
 
@@ -279,6 +293,37 @@ bail:
 
 	return 0;
 }
+
+#if defined(LWS_TLS_SYNTHESIZE_CB)
+
+/*
+ * On openssl, there is an async cb coming when the server issues the session
+ * information on the link, so we can pick it up and update the cache at the
+ * right time.
+ *
+ * On mbedtls and some version at least of borning ssl, this cb is either not
+ * part of the tls library apis or fails to arrive.
+ *
+ *
+ */
+
+void
+lws_sess_cache_synth_cb(lws_sorted_usec_list_t *sul)
+{
+	struct lws_lws_tls *tls = lws_container_of(sul, struct lws_lws_tls,
+						   sul_cb_synth);
+	struct lws *wsi = lws_container_of(tls, struct lws, tls);
+	SSL_SESSION *sess;
+
+	if (lws_tls_session_is_reused(wsi))
+		return;
+
+	sess = SSL_get1_session(tls->ssl);
+
+	if (SSL_SESSION_is_resumable(sess))
+		lws_tls_session_new_cb(tls->ssl, sess);
+}
+#endif
 
 void
 lws_tls_session_cache(struct lws_vhost *vh, uint32_t ttl)
