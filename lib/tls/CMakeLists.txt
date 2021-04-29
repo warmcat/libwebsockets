@@ -261,22 +261,22 @@ if (LWS_WITH_SSL)
 
 		if (OPENSSL_INCLUDE_DIRS)
 			include_directories("${OPENSSL_INCLUDE_DIRS}")
-			if (NOT LWS_PLAT_FREERTOS)
-				list(INSERT LIB_LIST 0 ${OPENSSL_LIBRARIES})
-			endif()
-	
-			if (NOT LWS_WITH_MBEDTLS)
-				# older (0.98) Openssl lacks this
-				set(CMAKE_REQUIRED_INCLUDES ${CMAKE_REQUIRED_INCLUDES} ${OPENSSL_INCLUDE_DIRS} PARENT_SCOPE)
-				check_include_file(openssl/ecdh.h LWS_HAVE_OPENSSL_ECDH_H)
-		
-				if (LWS_SSL_SERVER_WITH_ECDH_CERT AND NOT LWS_HAVE_OPENSSL_ECDH_H)
-					message(FATAL_ERROR "Missing openssl/ecdh.h, so cannot use LWS_SSL_SERVER_WITH_ECDH_CERT")
-				endif()
-			else()
-				unset(LWS_HAVE_OPENSSL_ECDH_H PARENT_SCOPE)
-			endif(NOT LWS_WITH_MBEDTLS)
 		endif()
+		if (NOT LWS_PLAT_FREERTOS)
+			list(INSERT LIB_LIST 0 ${OPENSSL_LIBRARIES})
+		endif()
+
+		if (NOT LWS_WITH_MBEDTLS)
+			# older (0.98) Openssl lacks this
+			set(CMAKE_REQUIRED_INCLUDES ${CMAKE_REQUIRED_INCLUDES} ${OPENSSL_INCLUDE_DIRS} PARENT_SCOPE)
+			check_include_file(openssl/ecdh.h LWS_HAVE_OPENSSL_ECDH_H)
+
+			if (LWS_SSL_SERVER_WITH_ECDH_CERT AND NOT LWS_HAVE_OPENSSL_ECDH_H)
+				message(FATAL_ERROR "Missing openssl/ecdh.h, so cannot use LWS_SSL_SERVER_WITH_ECDH_CERT")
+			endif()
+		else()
+			unset(LWS_HAVE_OPENSSL_ECDH_H PARENT_SCOPE)
+		endif(NOT LWS_WITH_MBEDTLS)
 	endif()
 
 endif(LWS_WITH_SSL)
