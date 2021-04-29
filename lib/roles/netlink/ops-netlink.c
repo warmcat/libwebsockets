@@ -125,7 +125,6 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 
 		struct ifinfomsg *ifi;
 		struct rtattr *attribute;
-		lws_sockaddr46 *sa46;
 		unsigned int len;
 
 		lwsl_netlink("%s: RTM %d\n", __func__, h->nlmsg_type);
@@ -158,19 +157,6 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 					lwsl_netlink("NETLINK ifidx %d : %s\n",
 						     ifi->ifi_index,
 						     (char *)RTA_DATA(attribute));
-					break;
-				case RTA_SRC:
-					sa46 = (lws_sockaddr46 *)RTA_DATA(attribute);
-					if (sa46->sa4.sin_family == 0xffff) {
-						lwsl_netlink("%s: down %d\n",
-							     __func__,
-							     ifi->ifi_index);
-						lws_pt_lock(pt, __func__);
-						_lws_route_table_ifdown(pt,
-								ifi->ifi_index);
-						_lws_route_pt_close_unroutable(pt);
-						lws_pt_unlock(pt);
-					}
 					break;
 				default:
 					break;
