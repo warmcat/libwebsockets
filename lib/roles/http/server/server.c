@@ -55,9 +55,12 @@ _lws_vhost_init_server(const struct lws_context_creation_info *info,
 	struct lws_context_per_thread *pt;
 	int n, opt = 1, limit = 1;
 	lws_sockfd_type sockfd;
+	int m = 0, is;
+#if defined(LWS_WITH_IPV6)
+	int af = 0;
+#endif
 	struct lws_vhost *vh;
 	struct lws *wsi;
-	int m = 0, is;
 
 	(void)method_names;
 	(void)opt;
@@ -183,14 +186,36 @@ done_list:
 #ifdef LWS_WITH_UNIX_SOCK
 			if (LWS_UNIX_SOCK_ENABLED(vhost))
 				sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
-			else
+			else {
 #endif
-#ifdef LWS_WITH_IPV6
-			if (LWS_IPV6_ENABLED(vhost))
+
+#if defined(LWS_WITH_IPV6)
+			/*
+			 * We have to assess iface if it's around, to choose
+			 * ahead of time to create a socket with the right AF
+			 */
+
+			if (vhost->iface) {
+				uint8_t buf[16];
+				int q;
+
+				q = lws_parse_numeric_address(vhost->iface, buf, sizeof(buf));
+
+				if (q == 4)
+					af = AF_INET;
+				if (q == 16)
+					af = AF_INET6;
+			}
+
+			if (LWS_IPV6_ENABLED(vhost) && af != AF_INET)
 				sockfd = socket(AF_INET6, SOCK_STREAM, 0);
 			else
 #endif
 				sockfd = socket(AF_INET, SOCK_STREAM, 0);
+
+#ifdef LWS_WITH_UNIX_SOCK
+			}
+#endif
 		}
 
 		if (sockfd == LWS_SOCK_INVALID) {

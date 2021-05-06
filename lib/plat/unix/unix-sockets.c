@@ -335,16 +335,9 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 
 	freeifaddrs(ifr);
 
-	if (rc) {
-		/* check if bind to IP address */
-#ifdef LWS_WITH_IPV6
-		if (inet_pton(AF_INET6, ifname, &addr6->sin6_addr) == 1)
-			rc = LWS_ITOSA_USABLE;
-		else
-#endif
-		if (inet_pton(AF_INET, ifname, &addr->sin_addr) == 1)
-			rc = LWS_ITOSA_USABLE;
-	}
+	if (rc &&
+	    !lws_sa46_parse_numeric_address(ifname, (lws_sockaddr46 *)addr))
+		rc = LWS_ITOSA_USABLE;
 
 	return rc;
 }

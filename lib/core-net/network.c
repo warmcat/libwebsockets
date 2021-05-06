@@ -260,11 +260,15 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 					 __func__, iface);
 				return m;
 			}
-			serv_addr6.sin6_scope_id = (unsigned int)lws_get_addr_scope(iface);
-		}
+			if (serv_addr6.sin6_family == AF_INET6)
+				serv_addr6.sin6_scope_id = (unsigned int)lws_get_addr_scope(iface);
+		} else
+			serv_addr6.sin6_family = AF_INET6;
 
-		serv_addr6.sin6_family = AF_INET6;
-		serv_addr6.sin6_port = (uint16_t)htons((uint16_t)port);
+		if (serv_addr6.sin6_family == AF_INET6)
+			serv_addr6.sin6_port = (uint16_t)htons((uint16_t)port);
+		else
+			((struct sockaddr_in *)v)->sin_port = (uint16_t)htons((uint16_t)port);
 	} else
 #endif
 	{
