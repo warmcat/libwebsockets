@@ -102,8 +102,11 @@ lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
 		lws_snprintf(buckname, sizeof(buckname), "dns=\"unreachable %d\"", n);
 		lws_metrics_hist_bump_priv_wsi(wsi, mth_conn_failures, buckname);
 #endif
+
+#if 0
 		lwsl_debug("%s: asking to recheck CPD in 1s\n", __func__);
 		lws_system_cpd_start_defer(wsi->a.context, LWS_US_PER_SEC);
+#endif
 	}
 
 	lwsl_info("%s: getaddrinfo '%s' says %d\n", __func__, ads, n);
