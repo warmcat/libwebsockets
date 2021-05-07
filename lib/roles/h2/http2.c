@@ -1510,6 +1510,18 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 #endif
 #endif /* CLIENT */
 
+#if defined(LWS_WITH_SECURE_STREAMS)
+			if (wsi->for_ss) {
+				lws_ss_handle_t *h = (lws_ss_handle_t *)lws_get_opaque_user_data(wsi);
+
+				h2n->swsi->for_ss = 1;
+				wsi->for_ss = 0;
+
+				if (h->wsi == wsi)
+					h->wsi = h2n->swsi;
+			}
+#endif
+
 			h2n->swsi->a.protocol = wsi->a.protocol;
 			if (h2n->swsi->user_space &&
 			    !h2n->swsi->user_space_externally_allocated)
