@@ -220,8 +220,8 @@ ss_api_amazon_auth_state(void *userobj, void *sh, lws_ss_constate_t state,
 
 	switch (state) {
 	case LWSSSCS_CREATING:
-        	if (lws_ss_set_metadata(m->ss, "ctype", "application/json", 16))
-        		return LWSSSSRET_DESTROY_ME;
+		//if (lws_ss_set_metadata(m->ss, "ctype", "application/json", 16))
+		//	return LWSSSSRET_DESTROY_ME;
 		/* fallthru */
 	case LWSSSCS_CONNECTING:
 		s = lws_system_blob_get_size(ab);
