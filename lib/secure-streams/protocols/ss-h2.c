@@ -84,8 +84,7 @@ secstream_h2(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		r = 0;
 		if (h->hanging_som)
 			r = h->info.rx(ss_to_userobj(h), NULL, 0, LWSSS_FLAG_EOM);
-		/* decouple the fates of the wsi and the ss */
-		h->wsi = NULL;
+
 		h->txn_ok = 1;
 		lws_cancel_service(lws_get_context(wsi)); /* abort poll wait */
 		if (h->hanging_som && r == LWSSSSRET_DESTROY_ME)
