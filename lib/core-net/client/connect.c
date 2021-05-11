@@ -87,12 +87,8 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	const struct lws_protocols *p;
 	const char *cisin[CIS_COUNT];
 	struct lws_vhost *vh, *v;
-	int
-#if LWS_MAX_SMP > 1
-		tid = 0,
-#endif
-		n, tsi = 0;
 	size_t size;
+	int n, tsi;
 	char *pc;
 
 	if (i->context->requested_stop_internal_loops)
@@ -114,23 +110,8 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	 * PHASE 1: if SMP, find out the tsi related to current service thread
 	 */
 
-#if LWS_MAX_SMP > 1
-
-	for (n = 0; n < i->context->count_threads; n++)
-		if (i->context->pt[n].service_tid == tid) {
-			lwsl_info("%s: client binds to caller tsi %d\n",
-				  __func__, n);
-			tsi = n;
-
-			break;
-		}
-
-	/*
-	 * this binding is sort of provisional, since when we try to insert
-	 * into the pt fds, there may be no space and it will fail
-	 */
-
-#endif
+	tsi = lws_pthread_self_to_tsi(i->context);
+	assert(tsi >= 0);
 
 	/* PHASE 2: create a bare wsi */
 
@@ -236,11 +217,6 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 
 		goto bail;
 	}
-
-#if LWS_MAX_SMP > 1
-	tid = wsi->a.vhost->protocols[0].callback(wsi,
-				LWS_CALLBACK_GET_THREAD_ID, NULL, NULL, 0);
-#endif
 
 	/*
 	 * PHASE 3: Choose an initial role for the wsi and do role-specific init

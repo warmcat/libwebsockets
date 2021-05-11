@@ -234,6 +234,10 @@ lws_pthread_self_to_tsi(struct lws_context *context)
 	struct lws_context_per_thread *pt = &context->pt[0];
 	int n;
 
+	/* case that we have SMP build, but don't use it */
+	if (context->count_threads == 1)
+		return 0;
+
 	for (n = 0; n < context->count_threads; n++) {
 		if (pthread_equal(ps, pt->self))
 			return n;

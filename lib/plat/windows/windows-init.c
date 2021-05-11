@@ -117,7 +117,7 @@ lws_plat_context_late_destroy(struct lws_context *context)
 
 #ifdef LWS_WITH_PLUGINS
 	if (context->plugin_list)
-		lws_plugins_destroy(&context->plugin_list);
+		lws_plugins_destroy(&context->plugin_list, NULL, NULL);
 #endif
 
 	for (n = 0; n < FD_HASHTABLE_MODULUS; n++) {
