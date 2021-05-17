@@ -94,6 +94,7 @@ typedef SemaphoreHandle_t lws_mutex_t;
  #define LWS_ENOTCONN ENOTCONN
  #define LWS_EWOULDBLOCK EWOULDBLOCK
  #define LWS_EADDRINUSE EADDRINUSE
+ #define LWS_ECONNABORTED ECONNABORTED
 
  #define lws_set_blocking_send(wsi)
 

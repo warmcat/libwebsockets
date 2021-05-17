@@ -75,6 +75,11 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 			/* If the socket isn't connected anymore, bail out. */
 			goto do_err1;
 
+#if defined(LWS_PLAT_FREERTOS)
+		if (errno == LWS_ECONNABORTED)
+			goto do_err1;
+#endif
+
 		if (m == SSL_ERROR_ZERO_RETURN ||
 		    m == SSL_ERROR_SYSCALL)
 			goto do_err;
