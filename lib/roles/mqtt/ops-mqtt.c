@@ -313,6 +313,9 @@ rops_handle_POLLOUT_mqtt(struct lws *wsi)
 		return LWS_HP_RET_DROP_POLLOUT;
 	}
 
+	if (!wsi->mqtt)
+		return LWS_HP_RET_BAIL_DIE;
+
 	lws_wsi_mux_dump_waiting_children(wsi);
 
 	do {
