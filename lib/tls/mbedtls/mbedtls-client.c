@@ -400,9 +400,6 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 
 		buf[amount++] = '\0';
 
-		SSL_CTX_use_PrivateKey_ASN1(0, vh->tls.ssl_client_ctx,
-				buf, (long)amount);
-
 		n = SSL_CTX_use_certificate_ASN1(vh->tls.ssl_client_ctx,
 				(int)amount, buf);
 		lws_free(buf);
@@ -417,8 +414,6 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 #endif
 	} else if (cert_mem && cert_mem_len) {
 		/* lwsl_hexdump_notice(cert_mem, cert_mem_len - 1); */
-		SSL_CTX_use_PrivateKey_ASN1(0, vh->tls.ssl_client_ctx,
-				cert_mem, (long)cert_mem_len - 1);
 		n = SSL_CTX_use_certificate_ASN1(vh->tls.ssl_client_ctx,
 						 (int)cert_mem_len, cert_mem);
 		if (n < 1) {
@@ -431,6 +426,47 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 			    __func__, cert_mem_len);
 	}
 
+	if (private_key_filepath) {
+#if !defined(LWS_PLAT_OPTEE)
+
+		uint8_t *buf;
+		lws_filepos_t amount;
+
+		lwsl_notice("%s: doing private key filepath %s\n", __func__,
+				private_key_filepath);
+		if (alloc_file(vh->context, private_key_filepath, &buf, &amount))
+			return 1;
+
+		buf[amount++] = '\0';
+
+		n = SSL_CTX_use_PrivateKey_ASN1(0, vh->tls.ssl_client_ctx,
+				buf, (long)amount);
+
+		lws_free(buf);
+		if (n < 1) {
+			lwsl_err("problem %d getting private key '%s'\n", n,
+				 private_key_filepath);
+			lws_tls_err_describe_clear();
+			return 1;
+		}
+
+		lwsl_notice("Loaded private key %s\n", private_key_filepath);
+#endif
+	} else if (key_mem && key_mem_len) {
+		/* lwsl_hexdump_notice(cert_mem, cert_mem_len - 1); */
+		n = SSL_CTX_use_PrivateKey_ASN1(0, vh->tls.ssl_client_ctx,
+				key_mem, (long)key_mem_len - 1);
+
+		if (n < 1) {
+			lwsl_err("%s: (mbedtls) problem interpreting private key\n",
+				 __func__);
+			lws_tls_err_describe_clear();
+			return 1;
+		}
+		lwsl_info("%s: using mem private key %d\n",
+			    __func__, key_mem_len);
+
+	}
 	return 0;
 }
 
