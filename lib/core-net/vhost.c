@@ -368,17 +368,25 @@ int
 lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 {
 	const struct lws_protocol_vhost_options *pvo, *pvo1;
-	lws_fakewsi_def_plwsa(&vh->context->pt[0]);
 	int n;
+#if defined(LWS_PLAT_FREERTOS)
+	struct lws_a _lwsa, *lwsa = &_lwsa;
 
-	lws_fakewsi_prep_plwsa_ctx(vh->context);
+	memset(&_lwsa, 0, sizeof(_lwsa));
+#else
+	struct lws _lws;
+	struct lws_a *lwsa = &_lws.a;
 
-	plwsa->vhost = vh;
+	memset(&_lws, 0, sizeof(_lws));
+#endif
+
+	lwsa->context = vh->context;
+	lwsa->vhost = vh;
 
 	/* initialize supported protocols on this vhost */
 
 	for (n = 0; n < vh->count_protocols; n++) {
-		plwsa->protocol = &vh->protocols[n];
+		lwsa->protocol = &vh->protocols[n];
 		if (!vh->protocols[n].name)
 			continue;
 		pvo = lws_vhost_protocol_options(vh, vh->protocols[n].name);
@@ -424,9 +432,6 @@ lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 			*any |= !!vh->tls.ssl_ctx;
 #endif
 
-		plwsa->vhost = vh;
-		plwsa->protocol = &vh->protocols[n];
-
 		pvo = lws_vhost_protocol_options(vh, vh->protocols[n].name);
 
 		/*
@@ -440,7 +445,7 @@ lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 		if (pvo || !vh->pvo) {
 			lwsl_info("%s: init %s.%s\n", __func__, vh->name,
 					vh->protocols[n].name);
-			if (vh->protocols[n].callback((struct lws *)plwsa,
+			if (vh->protocols[n].callback((struct lws *)lwsa,
 				LWS_CALLBACK_PROTOCOL_INIT, NULL,
 				(void *)(pvo ? pvo->options : NULL), 0)) {
 				if (vh->protocol_vh_privs && vh->protocol_vh_privs[n]) {
