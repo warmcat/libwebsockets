@@ -198,22 +198,35 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 		 */
 		lwsl_info("%s: LWS_CALLBACK_RAW_CLOSE: %s proxy conn down, sspc h %s\n",
 			    __func__, lws_wsi_tag(wsi), lws_sspc_tag(h));
-		if (h) {
-			lws_dsh_destroy(&h->dsh);
-			if (h->ss_dangling_connected && h->ssi.state) {
-				lwsl_notice("%s: setting _DISCONNECTED\n", __func__);
-				h->ss_dangling_connected = 0;
-				h->prev_ss_state = LWSSSCS_DISCONNECTED;
-				h->ssi.state(ss_to_userobj(h), NULL, LWSSSCS_DISCONNECTED, 0);
-			}
-			h->cwsi = NULL;
-			/*
-			 * schedule a reconnect in 1s
-			 */
-			lws_sul_schedule(h->context, 0, &h->sul_retry,
-					 lws_sspc_sul_retry_cb, LWS_US_PER_SEC);
-		} else
+		if (!h) {
 			lwsl_info("%s: no sspc on client proxy link close\n", __func__);
+			break;
+		}
+
+		lws_dsh_destroy(&h->dsh);
+		if (h->ss_dangling_connected && h->ssi.state) {
+			lws_ss_state_return_t ret_state;
+
+			lwsl_notice("%s: setting _DISCONNECTED\n", __func__);
+			h->ss_dangling_connected = 0;
+			h->prev_ss_state = LWSSSCS_DISCONNECTED;
+			ret_state = h->ssi.state(ss_to_userobj(h), NULL,
+						 LWSSSCS_DISCONNECTED, 0);
+			if (ret_state == LWSSSSRET_DESTROY_ME) {
+				h->cwsi = NULL;
+				lws_set_opaque_user_data(wsi, NULL);
+				lws_sspc_destroy(&h);
+				break;
+			}
+		}
+
+		h->cwsi = NULL;
+		/*
+		 * schedule a reconnect in 1s
+		 */
+		lws_sul_schedule(h->context, 0, &h->sul_retry,
+				 lws_sspc_sul_retry_cb, LWS_US_PER_SEC);
+
 		break;
 
 	case LWS_CALLBACK_RAW_RX:
