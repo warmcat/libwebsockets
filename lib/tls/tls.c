@@ -208,7 +208,7 @@ int alloc_file(struct lws_context *context, const char *filename, uint8_t **buf,
 		goto bail;
 	}
 
-	*buf = lws_malloc(s, "alloc_file");
+	*buf = lws_malloc(s + 1, "alloc_file");
 	if (!*buf) {
 		n = 2;
 		goto bail;
