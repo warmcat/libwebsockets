@@ -88,12 +88,15 @@ lws_tls_mbedtls_get_x509_name(mbedtls_x509_name *name,
 	return -1;
 }
 
-static int
+int
 lws_tls_mbedtls_cert_info(mbedtls_x509_crt *x509, enum lws_tls_cert_info type,
 			  union lws_tls_cert_info_results *buf, size_t len)
 {
 	if (!x509)
 		return -1;
+
+	if (!len)
+		len = sizeof(buf->ns.name);
 
 	switch (type) {
 	case LWS_TLS_CERT_INFO_VALIDITY_FROM:
@@ -179,6 +182,56 @@ lws_tls_mbedtls_cert_info(mbedtls_x509_crt *x509, enum lws_tls_cert_info type,
 
 		memcpy(buf->ns.name, x509->raw.p, x509->raw.len);
 		break;
+
+#if defined(LWS_HAVE_MBEDTLS_AUTH_KEY_ID)
+
+	case LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID:
+		if (x509->authority_key_id.keyIdentifier.tag != MBEDTLS_ASN1_OCTET_STRING)
+			return 1;
+		buf->ns.len = (int)x509->authority_key_id.keyIdentifier.len;
+		if (len < (size_t)buf->ns.len)
+			return -1;
+		memcpy(buf->ns.name, x509->authority_key_id.keyIdentifier.p, (size_t)buf->ns.len);
+		break;
+	case LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID_ISSUER: {
+		mbedtls_x509_sequence * ip = &x509->authority_key_id.authorityCertIssuer;
+
+		buf->ns.len = 0;
+
+		if (!ip)
+			return 1;
+
+		while (ip) {
+			if (x509->authority_key_id.keyIdentifier.tag !=
+						MBEDTLS_ASN1_OCTET_STRING ||
+			    ip->buf.len < 9 || len < (size_t)ip->buf.len - 9u)
+			break;
+
+			memcpy(buf->ns.name + buf->ns.len, ip->buf.p,
+					(size_t)ip->buf.len - 9);
+			buf->ns.len = buf->ns.len + (int)ip->buf.len - 9;
+
+			ip = ip->next;
+		}
+		break;
+	}
+	case LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID_SERIAL:
+		if (x509->authority_key_id.authorityCertSerialNumber.tag != MBEDTLS_ASN1_OCTET_STRING)
+			return 1;
+		buf->ns.len = (int)x509->authority_key_id.authorityCertSerialNumber.len;
+		if (len < (size_t)buf->ns.len)
+			return -1;
+		memcpy(buf->ns.name, x509->authority_key_id.authorityCertSerialNumber.p, (size_t)buf->ns.len);
+		break;
+	case LWS_TLS_CERT_INFO_SUBJECT_KEY_ID:
+		if (x509->subject_key_id.tag != MBEDTLS_ASN1_OCTET_STRING)
+			return 1;;
+		buf->ns.len = (int)x509->subject_key_id.len;
+		if (len < (size_t)buf->ns.len)
+			return -1;
+		memcpy(buf->ns.name, x509->subject_key_id.p, (size_t)buf->ns.len);
+		break;
+#endif
 
 	default:
 		return -1;

@@ -1,7 +1,7 @@
  /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2021 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -21,25 +21,25 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
  *
- *  gencrypto mbedtls-specific helper declarations
+ *  This is included from private-lib-core.h if LWS_WITH_TLS
  */
 
-#include <mbedtls/x509_crl.h>
-#include <errno.h>
+#if !defined(__LWS_TLS_PRIVATE_JIT_TRUST_H__)
+#define __LWS_TLS_PRIVATE_JIT_TRUST_H__
 
-struct lws_x509_cert {
-	mbedtls_x509_crt cert; /* has a .next for linked-list / chain */
-};
+typedef struct {
+	uint8_t		kid[20];
+	uint8_t		kid_len;
+} lws_tls_kid_t;
 
-mbedtls_md_type_t
-lws_gencrypto_mbedtls_hash_to_MD_TYPE(enum lws_genhash_types hash_type);
-
-int
-lws_gencrypto_mbedtls_rngf(void *context, unsigned char *buf, size_t len);
-
-int
-lws_tls_session_new_mbedtls(struct lws *wsi);
+typedef struct {
+	lws_tls_kid_t	akid[4];
+	lws_tls_kid_t	skid[4];
+	uint8_t		count;
+} lws_tls_kid_chain_t;
 
 int
-lws_tls_mbedtls_cert_info(mbedtls_x509_crt *x509, enum lws_tls_cert_info type,
-			  union lws_tls_cert_info_results *buf, size_t len);
+lws_tls_jit_trust_sort_kids(lws_tls_kid_chain_t *ch);
+
+#endif
+

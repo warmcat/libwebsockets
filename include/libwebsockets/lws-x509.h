@@ -47,6 +47,14 @@ enum lws_tls_cert_info {
 	 * -1 is returned and the size will be returned in buf->ns.len.
 	 * If the certificate cannot be found -1 is returned and 0 in
 	 * buf->ns.len. */
+	LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID,
+	/**< If the cert has one, the key ID responsible for the signature */
+	LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID_ISSUER,
+	/**< If the cert has one, the issuer responsible for the signature */
+	LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID_SERIAL,
+	/**< If the cert has one, serial number responsible for the signature */
+	LWS_TLS_CERT_INFO_SUBJECT_KEY_ID,
+	/**< If the cert has one, the cert's subject key ID */
 };
 
 union lws_tls_cert_info_results {

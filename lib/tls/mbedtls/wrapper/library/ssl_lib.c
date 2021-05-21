@@ -1078,7 +1078,7 @@ void SSL_set_verify_depth(SSL *ssl, int depth)
 /**
  * @brief set the SSL context verifying of the SSL context
  */
-void SSL_CTX_set_verify(SSL_CTX *ctx, int mode, int (*verify_callback)(int, X509_STORE_CTX *))
+void SSL_CTX_set_verify(SSL_CTX *ctx, int mode, int (*verify_callback)(SSL *, mbedtls_x509_crt *))
 {
     SSL_ASSERT3(ctx);
 
@@ -1089,7 +1089,7 @@ void SSL_CTX_set_verify(SSL_CTX *ctx, int mode, int (*verify_callback)(int, X509
 /**
  * @brief set the SSL verifying of the SSL context
  */
-void SSL_set_verify(SSL *ssl, int mode, int (*verify_callback)(int, X509_STORE_CTX *))
+void SSL_set_verify(SSL *ssl, int mode, int (*verify_callback)(SSL *, mbedtls_x509_crt *))
 {
     SSL_ASSERT3(ssl);
 

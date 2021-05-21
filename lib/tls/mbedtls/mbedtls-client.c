@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2021 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -25,11 +25,65 @@
 #include "private-lib-core.h"
 #include "private-lib-tls-mbedtls.h"
 
-static int
-OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+
+static void
+lws_mbedtls_copy_kid(union lws_tls_cert_info_results *ci, lws_tls_kid_t *kid)
 {
+
+	/*
+	 * KIDs all seem to be 20 bytes / SHA1 or less.  If we get one that
+	 * is bigger, treat only the first 20 bytes as significant.
+	 */
+
+	if ((size_t)ci->ns.len > sizeof(kid->kid))
+		kid->kid_len = sizeof(kid->kid);
+	else
+		kid->kid_len = (uint8_t)ci->ns.len;
+
+	memcpy(kid->kid, ci->ns.name, kid->kid_len);
+}
+
+/*
+ * We get called for each peer certificate that was provided in turn.
+ *
+ * Our job is just to collect the AKID and SKIDs into ssl->kid_chain, and walk
+ * later at verification result time if it failed.
+ *
+ * None of these should be trusted, even if a misconfigured server sends us
+ * his root CA.
+ */
+
+static int
+lws_mbedtls_client_verify_callback(SSL *ssl, mbedtls_x509_crt *x509)
+{
+	union lws_tls_cert_info_results ci;
+
+	/* we reached the max we can hold? */
+
+	if (ssl->kid_chain.count == LWS_ARRAY_SIZE(ssl->kid_chain.akid))
+		return 0;
+
+	/* if not, stash the SKID and AKID into the next kid slot */
+
+	if (!lws_tls_mbedtls_cert_info(x509, LWS_TLS_CERT_INFO_SUBJECT_KEY_ID,
+				       &ci, 0))
+		lws_mbedtls_copy_kid(&ci,
+				     &ssl->kid_chain.skid[ssl->kid_chain.count]);
+
+	if (!lws_tls_mbedtls_cert_info(x509, LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID,
+				       &ci, 0))
+		lws_mbedtls_copy_kid(&ci,
+				     &ssl->kid_chain.akid[ssl->kid_chain.count]);
+
+	ssl->kid_chain.count++;
+
+	// lwsl_notice("%s: %u\n", __func__, ssl->kid_chain.count);
+
 	return 0;
 }
+
+#endif
 
 int
 lws_ssl_client_bio_create(struct lws *wsi)
@@ -108,8 +162,10 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	 * use server name indication (SNI), if supported,
 	 * when establishing connection
 	 */
+#if defined(LWS_WITH_TLS_JIT_TRUST)
 	SSL_set_verify(wsi->tls.ssl, SSL_VERIFY_PEER,
-		       OpenSSL_client_verify_callback);
+			lws_mbedtls_client_verify_callback);
+#endif
 
 	SSL_set_fd(wsi->tls.ssl, (int)wsi->desc.sockfd);
 
@@ -293,6 +349,33 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 
 		return 0;
 	}
+
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+	if (n == X509_V_ERR_INVALID_CA &&
+	    !lws_tls_jit_trust_sort_kids(&wsi->tls.ssl->kid_chain) &&
+	    wsi->a.context->system_ops &&
+	    wsi->a.context->system_ops->jit_trust_query) {
+
+		lws_tls_kid_t *kid;
+
+		/*
+		 * ...kid_chain[0] AKID should indicate the right CA
+		 * SKID that we want, if that is 0 length, then we
+		 * have been given the CA by the server and we want
+		 * ...kid_chain[0] SKID.
+		 */
+
+		if (wsi->tls.ssl->kid_chain.akid[0].kid_len)
+			kid = &wsi->tls.ssl->kid_chain.akid[0];
+		else
+			kid = &wsi->tls.ssl->kid_chain.skid[0];
+
+		wsi->a.context->system_ops->jit_trust_query(
+				wsi->a.context, kid->kid,
+				(size_t)kid->kid_len, (void *)wsi);
+
+	}
+#endif
 
 	lws_snprintf(ebuf, ebuf_len,
 		"server's cert didn't look good, %s (use_ssl 0x%x) X509_V_ERR = %d: %s\n",

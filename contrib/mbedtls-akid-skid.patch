@@ -1,0 +1,549 @@
+commit b3c47b33fba59d12933e03484346c86ab9ee3ea5
+Author: Gábor Tóth <toth92g@gmail.com>
+Date:   Fri May 21 11:54:11 2021 +0100
+
+        From https://github.com/ARMmbed/mbedtls/pull/4161
+
+diff --git a/ChangeLog.d/X509Parse_SignatureKeyId_AuthorityKeyId.txt b/ChangeLog.d/X509Parse_SignatureKeyId_AuthorityKeyId.txt
+new file mode 100644
+index 000000000..9aa3ff91d
+--- /dev/null
++++ b/ChangeLog.d/X509Parse_SignatureKeyId_AuthorityKeyId.txt
+@@ -0,0 +1,3 @@
++Features
++   * When parsing X.509 certificates, support the extensions
++     SignatureKeyIdentifier and AuthorityKeyIdentifier.
+diff --git a/include/mbedtls/x509.h b/include/mbedtls/x509.h
+index 3091de1d1..77333965e 100644
+--- a/include/mbedtls/x509.h
++++ b/include/mbedtls/x509.h
+@@ -226,6 +226,18 @@ typedef mbedtls_asn1_named_data mbedtls_x509_name;
+  */
+ typedef mbedtls_asn1_sequence mbedtls_x509_sequence;
+ 
++/*
++ * Container for the fields of the Authority Key Identifier object
++ */
++typedef struct mbedtls_x509_authority
++{
++    mbedtls_x509_buf keyIdentifier;
++    mbedtls_x509_sequence authorityCertIssuer;
++    mbedtls_x509_buf authorityCertSerialNumber;
++    mbedtls_x509_buf raw;
++}
++mbedtls_x509_authority;
++
+ /** Container for date and time (precision in seconds). */
+ typedef struct mbedtls_x509_time
+ {
+diff --git a/include/mbedtls/x509_crt.h b/include/mbedtls/x509_crt.h
+index 23a20d10b..9a9b9e220 100644
+--- a/include/mbedtls/x509_crt.h
++++ b/include/mbedtls/x509_crt.h
+@@ -75,6 +75,9 @@ typedef struct mbedtls_x509_crt
+     mbedtls_x509_buf issuer_id;         /**< Optional X.509 v2/v3 issuer unique identifier. */
+     mbedtls_x509_buf subject_id;        /**< Optional X.509 v2/v3 subject unique identifier. */
+     mbedtls_x509_buf v3_ext;            /**< Optional X.509 v3 extensions.  */
++    mbedtls_x509_buf subject_key_id;    /**< Optional X.509 v3 extension subject key identifier. */
++    mbedtls_x509_authority authority_key_id;    /**< Optional X.509 v3 extension authority key identifier. */
++
+     mbedtls_x509_sequence subject_alt_names;    /**< Optional list of raw entries of Subject Alternative Names extension (currently only dNSName and OtherName are listed). */
+ 
+     mbedtls_x509_sequence certificate_policies; /**< Optional list of certificate policies (Only anyPolicy is printed and enforced, however the rest of the policies are still listed). */
+@@ -557,7 +560,7 @@ int mbedtls_x509_crt_parse_path( mbedtls_x509_crt *chain, const char *path );
+  * \param san      The target structure to populate with the parsed presentation
+  *                 of the subject alternative name encoded in \p san_raw.
+  *
+- * \note           Only "dnsName" and "otherName" of type hardware_module_name
++ * \note           Only "dnsName" and "otherName" and "rfc822Name" of type hardware_module_name
+  *                 as defined in RFC 4180 is supported.
+  *
+  * \note           This function should be called on a single raw data of
+@@ -575,7 +578,7 @@ int mbedtls_x509_crt_parse_path( mbedtls_x509_crt *chain, const char *path );
+  *                 SAN type.
+  * \return         Another negative value for any other failure.
+  */
+-int mbedtls_x509_parse_subject_alt_name( const mbedtls_x509_buf *san_buf,
++int mbedtls_x509_parse_general_name( const mbedtls_x509_buf *san_buf,
+                                          mbedtls_x509_subject_alternative_name *san );
+ 
+ #if !defined(MBEDTLS_X509_REMOVE_INFO)
+diff --git a/library/oid.c b/library/oid.c
+index eb15a41b2..e74a31633 100644
+--- a/library/oid.c
++++ b/library/oid.c
+@@ -289,9 +289,14 @@ static const oid_x509_ext_t oid_x509_ext[] =
+         MBEDTLS_OID_X509_EXT_CERTIFICATE_POLICIES,
+     },
+     {
+-        NULL_OID_DESCRIPTOR,
+-        0,
++    { ADD_LEN( MBEDTLS_OID_SUBJECT_KEY_IDENTIFIER ), "id-ce-subjectKeyIdentifier",           "Subject Key Identifier" },
++        MBEDTLS_OID_X509_EXT_SUBJECT_KEY_IDENTIFIER,
++    },
++    {
++        { ADD_LEN( MBEDTLS_OID_AUTHORITY_KEY_IDENTIFIER ), "id-ce-authorityKeyIdentifier",       "Authority Key Identifier" },
++        MBEDTLS_OID_X509_EXT_AUTHORITY_KEY_IDENTIFIER,
+     },
++    { NULL_OID_DESCRIPTOR, 0 },
+ };
+ 
+ FN_OID_TYPED_FROM_ASN1(oid_x509_ext_t, x509_ext, oid_x509_ext)
+diff --git a/library/x509_crt.c b/library/x509_crt.c
+index b4fe8863a..79d0f62de 100644
+--- a/library/x509_crt.c
++++ b/library/x509_crt.c
+@@ -596,8 +596,38 @@ static int x509_get_ext_key_usage( unsigned char **p,
+ }
+ 
+ /*
+- * SubjectAltName ::= GeneralNames
+- *
++* SubjectKeyIdentifier ::= KeyIdentifier
++*
++* KeyIdentifier ::= OCTET STRING
++*/
++static int x509_get_subject_key_id( unsigned char** p,
++    const unsigned char* end,
++    mbedtls_x509_buf* subject_key_id )
++{
++    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
++    size_t len = 0u;
++
++    if ( ( ret = mbedtls_asn1_get_tag( p, end, &len,
++        MBEDTLS_ASN1_OCTET_STRING ) ) != 0 )
++    {
++        return( ret );
++    }
++    else
++    {
++        subject_key_id->len = len;
++        subject_key_id->tag = MBEDTLS_ASN1_OCTET_STRING;
++        subject_key_id->p = *p;
++        *p += len;
++    }
++
++    if( *p != end )
++        return( MBEDTLS_ERROR_ADD( MBEDTLS_ERR_X509_INVALID_EXTENSIONS,
++            MBEDTLS_ERR_ASN1_LENGTH_MISMATCH ) );
++
++    return( 0 );
++}
++
++/*
+  * GeneralNames ::= SEQUENCE SIZE (1..MAX) OF GeneralName
+  *
+  * GeneralName ::= CHOICE {
+@@ -622,7 +652,7 @@ static int x509_get_ext_key_usage( unsigned char **p,
+  * NOTE: we list all types, but only use dNSName and otherName
+  * of type HwModuleName, as defined in RFC 4108, at this point.
+  */
+-static int x509_get_subject_alt_name( unsigned char **p,
++static int x509_get_general_names( unsigned char **p,
+                                       const unsigned char *end,
+                                       mbedtls_x509_sequence *subject_alt_name )
+ {
+@@ -651,17 +681,19 @@ static int x509_get_subject_alt_name( unsigned char **p,
+         if( ( ret = mbedtls_asn1_get_len( p, end, &tag_len ) ) != 0 )
+             return( MBEDTLS_ERROR_ADD( MBEDTLS_ERR_X509_INVALID_EXTENSIONS, ret ) );
+ 
++        /* Tag shall be CONTEXT_SPECIFIC or SET */
+         if( ( tag & MBEDTLS_ASN1_TAG_CLASS_MASK ) !=
+                 MBEDTLS_ASN1_CONTEXT_SPECIFIC )
+         {
+-            return( MBEDTLS_ERROR_ADD( MBEDTLS_ERR_X509_INVALID_EXTENSIONS,
+-                    MBEDTLS_ERR_ASN1_UNEXPECTED_TAG ) );
++            if( ( tag & (MBEDTLS_ASN1_CONSTRUCTED | MBEDTLS_ASN1_SEQUENCE ) ) != ( MBEDTLS_ASN1_CONSTRUCTED | MBEDTLS_ASN1_SEQUENCE ) )
++                return( MBEDTLS_ERROR_ADD(MBEDTLS_ERR_X509_INVALID_EXTENSIONS,
++                        MBEDTLS_ERR_ASN1_UNEXPECTED_TAG ));
+         }
+ 
+         /*
+          * Check that the SAN is structured correctly.
+          */
+-        ret = mbedtls_x509_parse_subject_alt_name( &(cur->buf), &dummy_san_buf );
++        ret = mbedtls_x509_parse_general_name( &(cur->buf), &dummy_san_buf );
+         /*
+          * In case the extension is malformed, return an error,
+          * and clear the allocated sequences.
+@@ -714,6 +746,96 @@ static int x509_get_subject_alt_name( unsigned char **p,
+     return( 0 );
+ }
+ 
++/*
++ * AuthorityKeyIdentifier ::= SEQUENCE {
++ *        keyIdentifier [0] KeyIdentifier OPTIONAL,
++ *        authorityCertIssuer [1] GeneralNames OPTIONAL,
++ *        authorityCertSerialNumber [2] CertificateSerialNumber OPTIONAL }
++ *
++ *    KeyIdentifier ::= OCTET STRING
++ */
++static int x509_get_authority_key_id( unsigned char** p,
++    unsigned char* end,
++    mbedtls_x509_authority* authority_key_id )
++{
++    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
++    size_t len = 0u;
++
++    if ( ( ret = mbedtls_asn1_get_tag( p, end, &len,
++        MBEDTLS_ASN1_CONSTRUCTED | MBEDTLS_ASN1_SEQUENCE | 0 ) ) != 0 )
++    {
++        return( ret );
++    }
++
++    if ( (ret = mbedtls_asn1_get_tag( p, end, &len,
++        MBEDTLS_ASN1_CONTEXT_SPECIFIC ) ) != 0 )
++    {
++        /* KeyIdentifier is an OPTIONAL field */
++    }
++    else
++    {
++        authority_key_id->keyIdentifier.len = len;
++        authority_key_id->keyIdentifier.p = *p;
++        /* Setting tag of the keyIdentfier intentionally to 0x04.
++         * Although the .keyIdentfier field is CONTEXT_SPECIFIC ([0] OPTIONAL),
++         * its tag with the content is the payload of on OCTET STRING primitive   */
++        authority_key_id->keyIdentifier.tag = MBEDTLS_ASN1_OCTET_STRING;
++
++        *p += len;
++    }
++
++    if ( *p < end )
++    {
++        /* Getting authorityCertIssuer using the required specific class tag [1] */
++        if ((ret = mbedtls_asn1_get_tag(p, end, &len,
++            MBEDTLS_ASN1_CONTEXT_SPECIFIC | MBEDTLS_ASN1_CONSTRUCTED | 1 ) ) != 0)
++        {
++            /* authorityCertIssuer is an OPTIONAL field */
++        }
++        else
++        {
++            /* Getting directoryName using the required specific class tag [4] */
++            if ((ret = mbedtls_asn1_get_tag(p, end, &len,
++                MBEDTLS_ASN1_CONTEXT_SPECIFIC | MBEDTLS_ASN1_CONSTRUCTED | 4 ) ) != 0)
++            {
++                return(ret);
++            }
++            else
++            {
++                /* "end" also includes the CertSerialNumber field so "len" shall be used */
++                ret = x509_get_general_names( p,
++                    (*p+len),
++                    &authority_key_id->authorityCertIssuer );
++            }
++        }
++    }
++
++    if ( *p < end )
++    {
++        if ( ( ret = mbedtls_asn1_get_tag( p, end, &len,
++            MBEDTLS_ASN1_CONTEXT_SPECIFIC | MBEDTLS_ASN1_INTEGER ) ) != 0 )
++        {
++            /* authorityCertSerialNumber is an OPTIONAL field, but if there are still data it must be the serial number */
++            return( ret );
++        }
++        else
++        {
++            authority_key_id->authorityCertSerialNumber.len = len;
++            authority_key_id->authorityCertSerialNumber.p = *p;
++            authority_key_id->authorityCertSerialNumber.tag = MBEDTLS_ASN1_OCTET_STRING;
++            *p += len;
++        }
++    }
++
++    if ( *p != end )
++    {
++        return( MBEDTLS_ERROR_ADD( MBEDTLS_ERR_X509_INVALID_EXTENSIONS,
++            MBEDTLS_ERR_ASN1_LENGTH_MISMATCH ) );
++    }
++
++    return( 0 );
++}
++
+ /*
+  * id-ce-certificatePolicies OBJECT IDENTIFIER ::=  { id-ce 32 }
+  *
+@@ -1001,9 +1123,28 @@ static int x509_get_crt_ext( unsigned char **p,
+                 return( ret );
+             break;
+ 
++        case MBEDTLS_X509_EXT_SUBJECT_KEY_IDENTIFIER:
++            /* Parse subject key identifier */
++            if ( ( ret = x509_get_subject_key_id( p, end_ext_data,
++                    &crt->subject_key_id ) ) != 0 )
++            {
++                return ( ret );
++            }
++            break;
++
++        case MBEDTLS_X509_EXT_AUTHORITY_KEY_IDENTIFIER:
++            /* Parse authority key identifier */
++            if ( ( ret = x509_get_authority_key_id( p, end_ext_octet,
++                    &crt->authority_key_id ) ) != 0 )
++            {
++                return ( ret );
++            }
++            break;
+         case MBEDTLS_X509_EXT_SUBJECT_ALT_NAME:
+-            /* Parse subject alt name */
+-            if( ( ret = x509_get_subject_alt_name( p, end_ext_octet,
++            /* Parse subject alt name
++             * SubjectAltName ::= GeneralNames
++             */
++            if( ( ret = x509_get_general_names( p, end_ext_octet,
+                     &crt->subject_alt_names ) ) != 0 )
+                 return( ret );
+             break;
+@@ -1767,10 +1908,11 @@ static int x509_get_other_name( const mbedtls_x509_buf *subject_alt_name,
+     return( 0 );
+ }
+ 
+-int mbedtls_x509_parse_subject_alt_name( const mbedtls_x509_buf *san_buf,
++int mbedtls_x509_parse_general_name( const mbedtls_x509_buf *san_buf,
+                                          mbedtls_x509_subject_alternative_name *san )
+ {
+     int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
++
+     switch( san_buf->tag &
+             ( MBEDTLS_ASN1_TAG_CLASS_MASK |
+               MBEDTLS_ASN1_TAG_VALUE_MASK ) )
+@@ -1794,6 +1936,31 @@ int mbedtls_x509_parse_subject_alt_name( const mbedtls_x509_buf *san_buf,
+         }
+         break;
+ 
++	/*
++         * RFC822 Name
++         */
++        case( MBEDTLS_ASN1_SEQUENCE | MBEDTLS_X509_SAN_RFC822_NAME ):
++        {
++            mbedtls_x509_name rfc822Name;
++            unsigned char* bufferPointer = san_buf->p;
++            unsigned char** p = &bufferPointer;
++            const unsigned char* end = san_buf->p + san_buf->len;
++
++            /* The leading ASN1 tag and length has been processed. Stepping back with 2 bytes, because mbedtls_x509_get_name expects the beginning of the SET tag */
++            *p = *p - 2;
++
++            ret = mbedtls_x509_get_name( p, end, &rfc822Name );
++            if ( ret != 0 )
++                return( ret );
++
++            memset( san, 0, sizeof( mbedtls_x509_subject_alternative_name ) );
++            san->type = MBEDTLS_X509_SAN_OTHER_NAME;
++            memcpy( &san->san.unstructured_name,
++                &rfc822Name, sizeof( rfc822Name ) );
++        }
++        break;
++
++
+         /*
+          * dNSName
+          */
+@@ -1833,7 +2000,7 @@ static int x509_info_subject_alt_name( char **buf, size_t *size,
+     while( cur != NULL )
+     {
+         memset( &san, 0, sizeof( san ) );
+-        parse_ret = mbedtls_x509_parse_subject_alt_name( &cur->buf, &san );
++        parse_ret = mbedtls_x509_parse_general_name( &cur->buf, &san );
+         if( parse_ret != 0 )
+         {
+             if( parse_ret == MBEDTLS_ERR_X509_FEATURE_UNAVAILABLE )
+@@ -3329,6 +3496,16 @@ void mbedtls_x509_crt_free( mbedtls_x509_crt *crt )
+             mbedtls_free( seq_prv );
+         }
+ 
++        seq_cur = cert_cur->authority_key_id.authorityCertIssuer.next;
++        while ( seq_cur != NULL )
++        {
++            seq_prv = seq_cur;
++            seq_cur = seq_cur->next;
++            mbedtls_platform_zeroize( seq_prv,
++                sizeof( mbedtls_x509_sequence ) );
++            mbedtls_free( seq_prv );
++        }
++
+         if( cert_cur->raw.p != NULL && cert_cur->own_buffer )
+         {
+             mbedtls_platform_zeroize( cert_cur->raw.p, cert_cur->raw.len );
+diff --git a/programs/ssl/ssl_client2.c b/programs/ssl/ssl_client2.c
+index 2ce858837..bf29a3883 100644
+--- a/programs/ssl/ssl_client2.c
++++ b/programs/ssl/ssl_client2.c
+@@ -35,7 +35,7 @@ int main( void )
+ 
+ /* Size of memory to be allocated for the heap, when using the library's memory
+  * management and MBEDTLS_MEMORY_BUFFER_ALLOC_C is enabled. */
+-#define MEMORY_HEAP_SIZE      120000
++#define MEMORY_HEAP_SIZE      180000
+ 
+ #define MAX_REQUEST_SIZE      20000
+ #define MAX_REQUEST_SIZE_STR "20000"
+diff --git a/programs/ssl/ssl_server2.c b/programs/ssl/ssl_server2.c
+index 1ff27fb8b..2a44ded2a 100644
+--- a/programs/ssl/ssl_server2.c
++++ b/programs/ssl/ssl_server2.c
+@@ -65,7 +65,7 @@ int main( void )
+ 
+ /* Size of memory to be allocated for the heap, when using the library's memory
+  * management and MBEDTLS_MEMORY_BUFFER_ALLOC_C is enabled. */
+-#define MEMORY_HEAP_SIZE        120000
++#define MEMORY_HEAP_SIZE        180000
+ 
+ #define DFL_SERVER_ADDR         NULL
+ #define DFL_SERVER_PORT         "4433"
+diff --git a/tests/data_files/Makefile b/tests/data_files/Makefile
+index f3cba5acb..df156b588 100644
+--- a/tests/data_files/Makefile
++++ b/tests/data_files/Makefile
+@@ -315,6 +315,15 @@ rsa_pkcs8_2048_public.der: rsa_pkcs8_2048_public.pem
+ 	$(OPENSSL) rsa -pubin -in $< -outform DER -pubout -out $@
+ all_final += rsa_pkcs8_2048_public.der
+ 
++authorityKeyId_subjectKeyId.crt:
++	$(OPENSSL) req -x509 -nodes -days 7300 -newkey rsa:2048 -keyout authorityKeyId_subjectKeyId.crt -out authorityKeyId_subjectKeyId.crt -config authorityKeyId_subjectKeyId.conf -extensions 'v3_req'
++# The listed certificates are the copies of authorityKeyId_subjectKeyId.crt with error injections
++# authorityKeyId_subjectKeyId_wrong_SubjectKeyId.crt              The TAG marking the beginning of SubjectKeyId is set to 0x00
++# authorityKeyId_subjectKeyId_wrong_AuthorityKeyId_KeyId.crt      The TAG marking the beginning of AuthorityKeyId field is set to 0x00
++# authorityKeyId_subjectKeyId_wrong_AuthorityKeyId_Sequence.crt   The TAG marking that AuthorityKeyId is a sequence is set to 0x00
++# authorityKeyId_subjectKeyId_wrong_IssuerN.crt                   There are 5 different TAGs based on the x509 doc under AuthorityKeyId(keyId, Dir, Seqence of Dir, serial)
++#                                                                 Each test inject error to one of these
++
+ ################################################################
+ #### Generate various RSA keys
+ ################################################################
+diff --git a/tests/suites/test_suite_x509parse.data b/tests/suites/test_suite_x509parse.data
+index 8b7b09aad..1d29a96fc 100644
+--- a/tests/suites/test_suite_x509parse.data
++++ b/tests/suites/test_suite_x509parse.data
+@@ -2847,3 +2847,39 @@ x509_verify_restart:"data_files/server10_int3-bs.pem":"data_files/test-int-ca2.c
+ X509 CRT verify restart: one int, int badsign, max_ops=500
+ depends_on:MBEDTLS_PEM_PARSE_C:MBEDTLS_ECDSA_C:MBEDTLS_SHA256_C:MBEDTLS_ECP_DP_SECP256R1_ENABLED:MBEDTLS_ECP_DP_SECP384R1_ENABLED:MBEDTLS_RSA_C
+ x509_verify_restart:"data_files/server10_int3-bs.pem":"data_files/test-int-ca2.crt":MBEDTLS_ERR_X509_CERT_VERIFY_FAILED:MBEDTLS_X509_BADCERT_NOT_TRUSTED:500:25:100
++
++X509 CRT parse Subject Key Id - Correct Subject Key ID
++depends_on:MBEDTLS_FS_IO:MBEDTLS_X509_CRT_PARSE_C:MBEDTLS_CERTS_C:MBEDTLS_SHA1_C:MBEDTLS_RSA_C
++x509_crt_parse_subjectkeyid:"308203873082026fa003020102020100300d06092a864886f70d0101050500303b310b3009060355040613024e4c3111300f060355040a1308506f6c617253534c3119301706035504031310506f6c617253534c2054657374204341301e170d3131303231323134343430305a170d3231303231323134343430305a303b310b3009060355040613024e4c3111300f060355040a1308506f6c617253534c3119301706035504031310506f6c617253534c205465737420434130820122300d06092a864886f70d01010105000382010f003082010a0282010100c0df37fc17bbe0969d3f86de96327d44a516a0cd21f199d4eceacb7c18580894a5ec9bc58bdf1a1e993899871e7bc08d39df385d707807d39ed993e8b97251c5cea33052a9f2e7407014cb44a2720bc2e540f93ee5a60eb3f9ec4a63c0b82900749c573ba8a5049071f1bd83d93fd6a5e23c2a8fef2760c3c69fcbbaec607db7e68432be4ffb582622035bd4b4d5fbf5e3962e70c0e42ebdfc2eeee24155c0342e7d247269cb47b11440837d67f486f631abf179a4b2b52e12f98417f0626f273e1358b1540d219a7337a130cf6f92dcf6e9fcacdb2e28d17e024b23a015f238656409ea0c6e8e1b17a071c8b39bc9abe9c3f2cf87968f8002329e99586fa2d50203010001a38195308192300c0603551d13040530030101ff301d0603551d0e04160414b45ae4a5b3ded252f6b9d5a6950feb3ebcc7fdff30630603551d23045c305a8014b45ae4a5b3ded252f6b9d5a6950feb3ebcc7fdffa13fa43d303b310b3009060355040613024e4c3111300f060355040a1308506f6c617253534c3119301706035504031310506f6c617253534c2054657374204341820100300d06092a864886f70d01010505000382010100b8fd54d80054908b25b027dd95cda2f784071d87894ac47811d807b5d722508e48eb627a3289be634753ffb6bef12e8c54c0993fa0b93723725f0d46598fd847cd974c9f070c1262093a24e436d9e92cda38d0737561d7c16c268b9be0d5dc67ed8c6b33d774223c4cdbb58d2ace2c0d0859050905a6399fb3671be283e5e18f53f66793c7f96f76445812e83ad497e7e9c03ea87a723d87531fe52c8484e79a9e7f66d91f9bf51348b04d14d1deb224d9787df535cc5819d1d299ef4d73f81f89d45ad052ce09f5b146516a008e3bcc6f63010099ed9da60860cd3218d073e05871d9e5d253d78dd0cae95d2a0a0d5d55ec21501716e6064acd5edef7e0e954":20:0
++
++X509 CRT parse Subject Key Id - Wrong OCTET_STRING tag
++depends_on:MBEDTLS_FS_IO:MBEDTLS_X509_CRT_PARSE_C:MBEDTLS_CERTS_C:MBEDTLS_SHA1_C:MBEDTLS_RSA_C
++x509_crt_parse_subjectkeyid:"308203873082026fa003020102020100300d06092a864886f70d0101050500303b310b3009060355040613024e4c3111300f060355040a1308506f6c617253534c3119301706035504031310506f6c617253534c2054657374204341301e170d3131303231323134343430305a170d3231303231323134343430305a303b310b3009060355040613024e4c3111300f060355040a1308506f6c617253534c3119301706035504031310506f6c617253534c205465737420434130820122300d06092a864886f70d01010105000382010f003082010a0282010100c0df37fc17bbe0969d3f86de96327d44a516a0cd21f199d4eceacb7c18580894a5ec9bc58bdf1a1e993899871e7bc08d39df385d707807d39ed993e8b97251c5cea33052a9f2e7407014cb44a2720bc2e540f93ee5a60eb3f9ec4a63c0b82900749c573ba8a5049071f1bd83d93fd6a5e23c2a8fef2760c3c69fcbbaec607db7e68432be4ffb582622035bd4b4d5fbf5e3962e70c0e42ebdfc2eeee24155c0342e7d247269cb47b11440837d67f486f631abf179a4b2b52e12f98417f0626f273e1358b1540d219a7337a130cf6f92dcf6e9fcacdb2e28d17e024b23a015f238656409ea0c6e8e1b17a071c8b39bc9abe9c3f2cf87968f8002329e99586fa2d50203010001a38195308192300c0603551d13040530030101ff301d0603551d0e04160014b45ae4a5b3ded252f6b9d5a6950feb3ebcc7fdff30630603551d23045c305a8014b45ae4a5b3ded252f6b9d5a6950feb3ebcc7fdffa13fa43d303b310b3009060355040613024e4c3111300f060355040a1308506f6c617253534c3119301706035504031310506f6c617253534c2054657374204341820100300d06092a864886f70d01010505000382010100b8fd54d80054908b25b027dd95cda2f784071d87894ac47811d807b5d722508e48eb627a3289be634753ffb6bef12e8c54c0993fa0b93723725f0d46598fd847cd974c9f070c1262093a24e436d9e92cda38d0737561d7c16c268b9be0d5dc67ed8c6b33d774223c4cdbb58d2ace2c0d0859050905a6399fb3671be283e5e18f53f66793c7f96f76445812e83ad497e7e9c03ea87a723d87531fe52c8484e79a9e7f66d91f9bf51348b04d14d1deb224d9787df535cc5819d1d299ef4d73f81f89d45ad052ce09f5b146516a008e3bcc6f63010099ed9da60860cd3218d073e05871d9e5d253d78dd0cae95d2a0a0d5d55ec21501716e6064acd5edef7e0e954":0:MBEDTLS_ERR_ASN1_UNEXPECTED_TAG
++
++X509 CRT parse Authority Key Id - Correct Authority Key ID
++depends_on:MBEDTLS_FS_IO:MBEDTLS_X509_CRT_PARSE_C:MBEDTLS_CERTS_C:MBEDTLS_SHA1_C:MBEDTLS_RSA_C
++x509_crt_parse_authoritykeyid:"308203873082026fa003020102020100300d06092a864886f70d0101050500303b310b3009060355040613024e4c3111300f060355040a1308506f6c617253534c3119301706035504031310506f6c617253534c2054657374204341301e170d3131303231323134343430305a170d3231303231323134343430305a303b310b3009060355040613024e4c3111300f060355040a1308506f6c617253534c3119301706035504031310506f6c617253534c205465737420434130820122300d06092a864886f70d01010105000382010f003082010a0282010100c0df37fc17bbe0969d3f86de96327d44a516a0cd21f199d4eceacb7c18580894a5ec9bc58bdf1a1e993899871e7bc08d39df385d707807d39ed993e8b97251c5cea33052a9f2e7407014cb44a2720bc2e540f93ee5a60eb3f9ec4a63c0b82900749c573ba8a5049071f1bd83d93fd6a5e23c2a8fef2760c3c69fcbbaec607db7e68432be4ffb582622035bd4b4d5fbf5e3962e70c0e42ebdfc2eeee24155c0342e7d247269cb47b11440837d67f486f631abf179a4b2b52e12f98417f0626f273e1358b1540d219a7337a130cf6f92dcf6e9fcacdb2e28d17e024b23a015f238656409ea0c6e8e1b17a071c8b39bc9abe9c3f2cf87968f8002329e99586fa2d50203010001a38195308192300c0603551d13040530030101ff301d0603551d0e04160414b45ae4a5b3ded252f6b9d5a6950feb3ebcc7fdff30630603551d23045c305a8014b45ae4a5b3ded252f6b9d5a6950feb3ebcc7fdffa13fa43d303b310b3009060355040613024e4c3111300f060355040a1308506f6c617253534c3119301706035504031310506f6c617253534c2054657374204341820100300d06092a864886f70d01010505000382010100b8fd54d80054908b25b027dd95cda2f784071d87894ac47811d807b5d722508e48eb627a3289be634753ffb6bef12e8c54c0993fa0b93723725f0d46598fd847cd974c9f070c1262093a24e436d9e92cda38d0737561d7c16c268b9be0d5dc67ed8c6b33d774223c4cdbb58d2ace2c0d0859050905a6399fb3671be283e5e18f53f66793c7f96f76445812e83ad497e7e9c03ea87a723d87531fe52c8484e79a9e7f66d91f9bf51348b04d14d1deb224d9787df535cc5819d1d299ef4d73f81f89d45ad052ce09f5b146516a008e3bcc6f63010099ed9da60860cd3218d073e05871d9e5d253d78dd0cae95d2a0a0d5d55ec21501716e6064acd5edef7e0e954":20:"NL/PolarSSL/PolarSSL Test CA/":1:0
++
++X509 CRT parse Authority Key Id - Wrong Sequence tag
++depends_on:MBEDTLS_FS_IO:MBEDTLS_X509_CRT_PARSE_C:MBEDTLS_CERTS_C:MBEDTLS_SHA1_C:MBEDTLS_RSA_C
++x509_crt_parse_authoritykeyid:"308203873082026fa003020102020100300d06092a864886f70d0101050500303b310b3009060355040613024e4c3111300f060355040a1308506f6c617253534c3119301706035504031310506f6c617253534c2054657374204341301e170d3131303231323134343430305a170d3231303231323134343430305a303b310b3009060355040613024e4c3111300f060355040a1308506f6c617253534c3119301706035504031310506f6c617253534c205465737420434130820122300d06092a864886f70d01010105000382010f003082010a0282010100c0df37fc17bbe0969d3f86de96327d44a516a0cd21f199d4eceacb7c18580894a5ec9bc58bdf1a1e993899871e7bc08d39df385d707807d39ed993e8b97251c5cea33052a9f2e7407014cb44a2720bc2e540f93ee5a60eb3f9ec4a63c0b82900749c573ba8a5049071f1bd83d93fd6a5e23c2a8fef2760c3c69fcbbaec607db7e68432be4ffb582622035bd4b4d5fbf5e3962e70c0e42ebdfc2eeee24155c0342e7d247269cb47b11440837d67f486f631abf179a4b2b52e12f98417f0626f273e1358b1540d219a7337a130cf6f92dcf6e9fcacdb2e28d17e024b23a015f238656409ea0c6e8e1b17a071c8b39bc9abe9c3f2cf87968f8002329e99586fa2d50203010001a38195308192300c0603551d13040530030101ff301d0603551d0e04160414b45ae4a5b3ded252f6b9d5a6950feb3ebcc7fdff30630603551d23045c005a8014b45ae4a5b3ded252f6b9d5a6950feb3ebcc7fdffa13fa43d303b310b3009060355040613024e4c3111300f060355040a1308506f6c617253534c3119301706035504031310506f6c617253534c2054657374204341820100300d06092a864886f70d01010505000382010100b8fd54d80054908b25b027dd95cda2f784071d87894ac47811d807b5d722508e48eb627a3289be634753ffb6bef12e8c54c0993fa0b93723725f0d46598fd847cd974c9f070c1262093a24e436d9e92cda38d0737561d7c16c268b9be0d5dc67ed8c6b33d774223c4cdbb58d2ace2c0d0859050905a6399fb3671be283e5e18f53f66793c7f96f76445812e83ad497e7e9c03ea87a723d87531fe52c8484e79a9e7f66d91f9bf51348b04d14d1deb224d9787df535cc5819d1d299ef4d73f81f89d45ad052ce09f5b146516a008e3bcc6f63010099ed9da60860cd3218d073e05871d9e5d253d78dd0cae95d2a0a0d5d55ec21501716e6064acd5edef7e0e954":0:"":0:MBEDTLS_ERR_ASN1_UNEXPECTED_TAG
++
++X509 CRT parse Authority Key Id - Wrong KeyId Tag
++depends_on:MBEDTLS_FS_IO:MBEDTLS_X509_CRT_PARSE_C:MBEDTLS_CERTS_C:MBEDTLS_SHA1_C:MBEDTLS_RSA_C
++x509_crt_parse_authoritykeyid:"308203873082026fa003020102020100300d06092a864886f70d0101050500303b310b3009060355040613024e4c3111300f060355040a1308506f6c617253534c3119301706035504031310506f6c617253534c2054657374204341301e170d3131303231323134343430305a170d3231303231323134343430305a303b310b3009060355040613024e4c3111300f060355040a1308506f6c617253534c3119301706035504031310506f6c617253534c205465737420434130820122300d06092a864886f70d01010105000382010f003082010a0282010100c0df37fc17bbe0969d3f86de96327d44a516a0cd21f199d4eceacb7c18580894a5ec9bc58bdf1a1e993899871e7bc08d39df385d707807d39ed993e8b97251c5cea33052a9f2e7407014cb44a2720bc2e540f93ee5a60eb3f9ec4a63c0b82900749c573ba8a5049071f1bd83d93fd6a5e23c2a8fef2760c3c69fcbbaec607db7e68432be4ffb582622035bd4b4d5fbf5e3962e70c0e42ebdfc2eeee24155c0342e7d247269cb47b11440837d67f486f631abf179a4b2b52e12f98417f0626f273e1358b1540d219a7337a130cf6f92dcf6e9fcacdb2e28d17e024b23a015f238656409ea0c6e8e1b17a071c8b39bc9abe9c3f2cf87968f8002329e99586fa2d50203010001a38195308192300c0603551d13040530030101ff301d0603551d0e04160414b45ae4a5b3ded252f6b9d5a6950feb3ebcc7fdff30630603551d23045c305a0014b45ae4a5b3ded252f6b9d5a6950feb3ebcc7fdffa13fa43d303b310b3009060355040613024e4c3111300f060355040a1308506f6c617253534c3119301706035504031310506f6c617253534c2054657374204341820100300d06092a864886f70d01010505000382010100b8fd54d80054908b25b027dd95cda2f784071d87894ac47811d807b5d722508e48eb627a3289be634753ffb6bef12e8c54c0993fa0b93723725f0d46598fd847cd974c9f070c1262093a24e436d9e92cda38d0737561d7c16c268b9be0d5dc67ed8c6b33d774223c4cdbb58d2ace2c0d0859050905a6399fb3671be283e5e18f53f66793c7f96f76445812e83ad497e7e9c03ea87a723d87531fe52c8484e79a9e7f66d91f9bf51348b04d14d1deb224d9787df535cc5819d1d299ef4d73f81f89d45ad052ce09f5b146516a008e3bcc6f63010099ed9da60860cd3218d073e05871d9e5d253d78dd0cae95d2a0a0d5d55ec21501716e6064acd5edef7e0e954":0:"":0:MBEDTLS_ERR_ASN1_UNEXPECTED_TAG
++
++X509 CRT parse Authority Key Id - Wrong Issuer Tag 1
++depends_on:MBEDTLS_FS_IO:MBEDTLS_X509_CRT_PARSE_C:MBEDTLS_CERTS_C:MBEDTLS_SHA1_C:MBEDTLS_RSA_C
++x509_crt_parse_authoritykeyid:"308203873082026fa003020102020100300d06092a864886f70d0101050500303b310b3009060355040613024e4c3111300f060355040a1308506f6c617253534c3119301706035504031310506f6c617253534c2054657374204341301e170d3131303231323134343430305a170d3231303231323134343430305a303b310b3009060355040613024e4c3111300f060355040a1308506f6c617253534c3119301706035504031310506f6c617253534c205465737420434130820122300d06092a864886f70d01010105000382010f003082010a0282010100c0df37fc17bbe0969d3f86de96327d44a516a0cd21f199d4eceacb7c18580894a5ec9bc58bdf1a1e993899871e7bc08d39df385d707807d39ed993e8b97251c5cea33052a9f2e7407014cb44a2720bc2e540f93ee5a60eb3f9ec4a63c0b82900749c573ba8a5049071f1bd83d93fd6a5e23c2a8fef2760c3c69fcbbaec607db7e68432be4ffb582622035bd4b4d5fbf5e3962e70c0e42ebdfc2eeee24155c0342e7d247269cb47b11440837d67f486f631abf179a4b2b52e12f98417f0626f273e1358b1540d219a7337a130cf6f92dcf6e9fcacdb2e28d17e024b23a015f238656409ea0c6e8e1b17a071c8b39bc9abe9c3f2cf87968f8002329e99586fa2d50203010001a38195308192300c0603551d13040530030101ff301d0603551d0e04160414b45ae4a5b3ded252f6b9d5a6950feb3ebcc7fdff30630603551d23045c305a8014b45ae4a5b3ded252f6b9d5a6950feb3ebcc7fdff003fa43d303b310b3009060355040613024e4c3111300f060355040a1308506f6c617253534c3119301706035504031310506f6c617253534c2054657374204341820100300d06092a864886f70d01010505000382010100b8fd54d80054908b25b027dd95cda2f784071d87894ac47811d807b5d722508e48eb627a3289be634753ffb6bef12e8c54c0993fa0b93723725f0d46598fd847cd974c9f070c1262093a24e436d9e92cda38d0737561d7c16c268b9be0d5dc67ed8c6b33d774223c4cdbb58d2ace2c0d0859050905a6399fb3671be283e5e18f53f66793c7f96f76445812e83ad497e7e9c03ea87a723d87531fe52c8484e79a9e7f66d91f9bf51348b04d14d1deb224d9787df535cc5819d1d299ef4d73f81f89d45ad052ce09f5b146516a008e3bcc6f63010099ed9da60860cd3218d073e05871d9e5d253d78dd0cae95d2a0a0d5d55ec21501716e6064acd5edef7e0e954":0:"":0:MBEDTLS_ERR_ASN1_UNEXPECTED_TAG
++
++X509 CRT parse Authority Key Id - Wrong Issuer Tag 2
++depends_on:MBEDTLS_FS_IO:MBEDTLS_X509_CRT_PARSE_C:MBEDTLS_CERTS_C:MBEDTLS_SHA1_C:MBEDTLS_RSA_C
++x509_crt_parse_authoritykeyid:"308203873082026fa003020102020100300d06092a864886f70d0101050500303b310b3009060355040613024e4c3111300f060355040a1308506f6c617253534c3119301706035504031310506f6c617253534c2054657374204341301e170d3131303231323134343430305a170d3231303231323134343430305a303b310b3009060355040613024e4c3111300f060355040a1308506f6c617253534c3119301706035504031310506f6c617253534c205465737420434130820122300d06092a864886f70d01010105000382010f003082010a0282010100c0df37fc17bbe0969d3f86de96327d44a516a0cd21f199d4eceacb7c18580894a5ec9bc58bdf1a1e993899871e7bc08d39df385d707807d39ed993e8b97251c5cea33052a9f2e7407014cb44a2720bc2e540f93ee5a60eb3f9ec4a63c0b82900749c573ba8a5049071f1bd83d93fd6a5e23c2a8fef2760c3c69fcbbaec607db7e68432be4ffb582622035bd4b4d5fbf5e3962e70c0e42ebdfc2eeee24155c0342e7d247269cb47b11440837d67f486f631abf179a4b2b52e12f98417f0626f273e1358b1540d219a7337a130cf6f92dcf6e9fcacdb2e28d17e024b23a015f238656409ea0c6e8e1b17a071c8b39bc9abe9c3f2cf87968f8002329e99586fa2d50203010001a38195308192300c0603551d13040530030101ff301d0603551d0e04160414b45ae4a5b3ded252f6b9d5a6950feb3ebcc7fdff30630603551d23045c305a8014b45ae4a5b3ded252f6b9d5a6950feb3ebcc7fdffa13f003d303b310b3009060355040613024e4c3111300f060355040a1308506f6c617253534c3119301706035504031310506f6c617253534c2054657374204341820100300d06092a864886f70d01010505000382010100b8fd54d80054908b25b027dd95cda2f784071d87894ac47811d807b5d722508e48eb627a3289be634753ffb6bef12e8c54c0993fa0b93723725f0d46598fd847cd974c9f070c1262093a24e436d9e92cda38d0737561d7c16c268b9be0d5dc67ed8c6b33d774223c4cdbb58d2ace2c0d0859050905a6399fb3671be283e5e18f53f66793c7f96f76445812e83ad497e7e9c03ea87a723d87531fe52c8484e79a9e7f66d91f9bf51348b04d14d1deb224d9787df535cc5819d1d299ef4d73f81f89d45ad052ce09f5b146516a008e3bcc6f63010099ed9da60860cd3218d073e05871d9e5d253d78dd0cae95d2a0a0d5d55ec21501716e6064acd5edef7e0e954":0:"":0:MBEDTLS_ERR_ASN1_UNEXPECTED_TAG
++
++X509 CRT parse Authority Key Id - Wrong Issuer Tag 3
++depends_on:MBEDTLS_FS_IO:MBEDTLS_X509_CRT_PARSE_C:MBEDTLS_CERTS_C:MBEDTLS_SHA1_C:MBEDTLS_RSA_C
++x509_crt_parse_authoritykeyid:"308203873082026fa003020102020100300d06092a864886f70d0101050500303b310b3009060355040613024e4c3111300f060355040a1308506f6c617253534c3119301706035504031310506f6c617253534c2054657374204341301e170d3131303231323134343430305a170d3231303231323134343430305a303b310b3009060355040613024e4c3111300f060355040a1308506f6c617253534c3119301706035504031310506f6c617253534c205465737420434130820122300d06092a864886f70d01010105000382010f003082010a0282010100c0df37fc17bbe0969d3f86de96327d44a516a0cd21f199d4eceacb7c18580894a5ec9bc58bdf1a1e993899871e7bc08d39df385d707807d39ed993e8b97251c5cea33052a9f2e7407014cb44a2720bc2e540f93ee5a60eb3f9ec4a63c0b82900749c573ba8a5049071f1bd83d93fd6a5e23c2a8fef2760c3c69fcbbaec607db7e68432be4ffb582622035bd4b4d5fbf5e3962e70c0e42ebdfc2eeee24155c0342e7d247269cb47b11440837d67f486f631abf179a4b2b52e12f98417f0626f273e1358b1540d219a7337a130cf6f92dcf6e9fcacdb2e28d17e024b23a015f238656409ea0c6e8e1b17a071c8b39bc9abe9c3f2cf87968f8002329e99586fa2d50203010001a38195308192300c0603551d13040530030101ff301d0603551d0e04160414b45ae4a5b3ded252f6b9d5a6950feb3ebcc7fdff30630603551d23045c305a8014b45ae4a5b3ded252f6b9d5a6950feb3ebcc7fdffa13fa43d003b310b3009060355040613024e4c3111300f060355040a1308506f6c617253534c3119301706035504031310506f6c617253534c2054657374204341820100300d06092a864886f70d01010505000382010100b8fd54d80054908b25b027dd95cda2f784071d87894ac47811d807b5d722508e48eb627a3289be634753ffb6bef12e8c54c0993fa0b93723725f0d46598fd847cd974c9f070c1262093a24e436d9e92cda38d0737561d7c16c268b9be0d5dc67ed8c6b33d774223c4cdbb58d2ace2c0d0859050905a6399fb3671be283e5e18f53f66793c7f96f76445812e83ad497e7e9c03ea87a723d87531fe52c8484e79a9e7f66d91f9bf51348b04d14d1deb224d9787df535cc5819d1d299ef4d73f81f89d45ad052ce09f5b146516a008e3bcc6f63010099ed9da60860cd3218d073e05871d9e5d253d78dd0cae95d2a0a0d5d55ec21501716e6064acd5edef7e0e954":0:"":0:MBEDTLS_ERR_ASN1_UNEXPECTED_TAG
++
++X509 CRT parse Authority Key Id - Wrong Issuer Tag 4
++depends_on:MBEDTLS_FS_IO:MBEDTLS_X509_CRT_PARSE_C:MBEDTLS_CERTS_C:MBEDTLS_SHA1_C:MBEDTLS_RSA_C
++x509_crt_parse_authoritykeyid:"308203873082026fa003020102020100300d06092a864886f70d0101050500303b310b3009060355040613024e4c3111300f060355040a1308506f6c617253534c3119301706035504031310506f6c617253534c2054657374204341301e170d3131303231323134343430305a170d3231303231323134343430305a303b310b3009060355040613024e4c3111300f060355040a1308506f6c617253534c3119301706035504031310506f6c617253534c205465737420434130820122300d06092a864886f70d01010105000382010f003082010a0282010100c0df37fc17bbe0969d3f86de96327d44a516a0cd21f199d4eceacb7c18580894a5ec9bc58bdf1a1e993899871e7bc08d39df385d707807d39ed993e8b97251c5cea33052a9f2e7407014cb44a2720bc2e540f93ee5a60eb3f9ec4a63c0b82900749c573ba8a5049071f1bd83d93fd6a5e23c2a8fef2760c3c69fcbbaec607db7e68432be4ffb582622035bd4b4d5fbf5e3962e70c0e42ebdfc2eeee24155c0342e7d247269cb47b11440837d67f486f631abf179a4b2b52e12f98417f0626f273e1358b1540d219a7337a130cf6f92dcf6e9fcacdb2e28d17e024b23a015f238656409ea0c6e8e1b17a071c8b39bc9abe9c3f2cf87968f8002329e99586fa2d50203010001a38195308192300c0603551d13040530030101ff301d0603551d0e04160414b45ae4a5b3ded252f6b9d5a6950feb3ebcc7fdff30630603551d23045c305a8014b45ae4a5b3ded252f6b9d5a6950feb3ebcc7fdffa13fa43d303b000b3009060355040613024e4c3111300f060355040a1308506f6c617253534c3119301706035504031310506f6c617253534c2054657374204341820100300d06092a864886f70d01010505000382010100b8fd54d80054908b25b027dd95cda2f784071d87894ac47811d807b5d722508e48eb627a3289be634753ffb6bef12e8c54c0993fa0b93723725f0d46598fd847cd974c9f070c1262093a24e436d9e92cda38d0737561d7c16c268b9be0d5dc67ed8c6b33d774223c4cdbb58d2ace2c0d0859050905a6399fb3671be283e5e18f53f66793c7f96f76445812e83ad497e7e9c03ea87a723d87531fe52c8484e79a9e7f66d91f9bf51348b04d14d1deb224d9787df535cc5819d1d299ef4d73f81f89d45ad052ce09f5b146516a008e3bcc6f63010099ed9da60860cd3218d073e05871d9e5d253d78dd0cae95d2a0a0d5d55ec21501716e6064acd5edef7e0e954":0:"":0:MBEDTLS_ERR_ASN1_UNEXPECTED_TAG
+diff --git a/tests/suites/test_suite_x509parse.function b/tests/suites/test_suite_x509parse.function
+index a6361d83a..d1d446727 100644
+--- a/tests/suites/test_suite_x509parse.function
++++ b/tests/suites/test_suite_x509parse.function
+@@ -421,7 +421,7 @@ void x509_parse_san( char * crt_file, char * result_str )
+         cur = &crt.subject_alt_names;
+         while( cur != NULL )
+         {
+-            ret = mbedtls_x509_parse_subject_alt_name( &cur->buf, &san );
++            ret = mbedtls_x509_parse_general_name( &cur->buf, &san );
+             TEST_ASSERT( ret == 0 || ret == MBEDTLS_ERR_X509_FEATURE_UNAVAILABLE );
+             /*
+              * If san type not supported, ignore.
+@@ -1267,3 +1267,78 @@ exit:
+     ;;
+ }
+ /* END_CASE */
++
++/* BEGIN_CASE depends_on:MBEDTLS_FS_IO:MBEDTLS_X509_CRT_PARSE_C:MBEDTLS_CERTS_C:MBEDTLS_SHA1_C:MBEDTLS_RSA_C */
++void x509_crt_parse_subjectkeyid( data_t * buf, unsigned int subjectKeyIdLength, int ref_ret )
++{
++    mbedtls_x509_crt crt;
++
++    mbedtls_x509_crt_init( &crt );
++
++    TEST_ASSERT( mbedtls_x509_crt_parse_der( &crt, buf->x, buf->len ) == ref_ret );
++
++    if( ref_ret == 0 )
++    {
++        TEST_ASSERT( crt.subject_key_id.tag == MBEDTLS_ASN1_OCTET_STRING );
++        TEST_ASSERT( crt.subject_key_id.len == subjectKeyIdLength );
++    }
++    else
++    {
++        TEST_ASSERT( crt.subject_key_id.tag == 0 );
++        TEST_ASSERT( crt.subject_key_id.len == 0 );
++    }
++
++exit:
++    mbedtls_x509_crt_free( &crt );
++}
++/* END_CASE */
++
++/* BEGIN_CASE depends_on:MBEDTLS_FS_IO:MBEDTLS_X509_CRT_PARSE_C:MBEDTLS_CERTS_C:MBEDTLS_SHA1_C:MBEDTLS_RSA_C */
++void x509_crt_parse_authoritykeyid( data_t * buf, unsigned int keyIdLength, char *authorityKeyId_issuer, unsigned int serialLength , int ref_ret)
++{
++    mbedtls_x509_crt crt;
++    int bufferCounter = 0;
++    size_t issuerCounter = 0;
++    unsigned int result = 0;
++
++    mbedtls_x509_crt_init( &crt );
++
++    TEST_ASSERT( mbedtls_x509_crt_parse_der( &crt, buf->x, buf->len ) == ref_ret );
++
++    if( ref_ret == 0 )
++    {
++        /* KeyId test */
++        TEST_ASSERT( crt.authority_key_id.keyIdentifier.tag == MBEDTLS_ASN1_OCTET_STRING );
++        TEST_ASSERT( crt.authority_key_id.keyIdentifier.len == keyIdLength );
++
++        /* Issuer test */
++        mbedtls_x509_sequence* issuerPtr = &crt.authority_key_id.authorityCertIssuer;
++        while ( issuerPtr != NULL )
++        {
++            /* First 9 bytes are always ASN1 coding related information that does not matter right now. Only the values are asserted */
++            for ( issuerCounter = 9u; issuerCounter < issuerPtr->buf.len; issuerCounter++ )
++            {
++                result |= ( authorityKeyId_issuer[bufferCounter++] != issuerPtr->buf.p[issuerCounter] );
++            }
++            bufferCounter++; /* Skipping the slash */
++            issuerPtr = issuerPtr->next;
++        }
++        TEST_ASSERT( result == 0 );
++
++        /* Serial test */
++        TEST_ASSERT( crt.authority_key_id.authorityCertSerialNumber.tag == MBEDTLS_ASN1_OCTET_STRING );
++        TEST_ASSERT( crt.authority_key_id.authorityCertSerialNumber.len == serialLength );
++    }
++    else
++    {
++        TEST_ASSERT( crt.authority_key_id.keyIdentifier.tag == 0 );
++        TEST_ASSERT( crt.authority_key_id.keyIdentifier.len == 0 );
++
++        TEST_ASSERT( crt.authority_key_id.authorityCertSerialNumber.tag == 0 );
++        TEST_ASSERT( crt.authority_key_id.authorityCertSerialNumber.len == 0 );
++    }
++
++exit:
++    mbedtls_x509_crt_free( &crt );
++}
++/* END_CASE */

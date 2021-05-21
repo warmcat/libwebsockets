@@ -78,6 +78,28 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 			lwsl_notice(" Peer Cert public key:\n");
 			lwsl_hexdump_notice(ci->ns.name, (unsigned int)ci->ns.len);
 		}
+
+		if (!lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID,
+					    ci, 0)) {
+			lwsl_notice(" AUTHORITY_KEY_ID\n");
+			lwsl_hexdump_notice(ci->ns.name, (size_t)ci->ns.len);
+		}
+		if (!lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID_ISSUER,
+					    ci, 0)) {
+			lwsl_notice(" AUTHORITY_KEY_ID ISSUER\n");
+			lwsl_hexdump_notice(ci->ns.name, (size_t)ci->ns.len);
+		}
+		if (!lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID_SERIAL,
+					    ci, 0)) {
+			lwsl_notice(" AUTHORITY_KEY_ID SERIAL\n");
+			lwsl_hexdump_notice(ci->ns.name, (size_t)ci->ns.len);
+		}
+		if (!lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_SUBJECT_KEY_ID,
+					    ci, 0)) {
+			lwsl_notice(" AUTHORITY_KEY_ID SUBJECT_KEY_ID\n");
+			lwsl_hexdump_notice(ci->ns.name, (size_t)ci->ns.len);
+		}
+
 		break;
 
 	/* chunks of chunked content, with header removed */
@@ -207,6 +229,10 @@ int main(int argc, const char **argv)
 		i.port = 443;
 		i.address = "warmcat.com";
 	}
+
+	if ((p = lws_cmdline_option(argc, argv, "-s")))
+		i.address = p;
+
 	i.path = "/";
 	i.host = i.address;
 	i.origin = i.address;
