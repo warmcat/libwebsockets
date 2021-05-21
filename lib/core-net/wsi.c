@@ -58,6 +58,14 @@ lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi)
 		return;
 	lws_context_lock(vh->context, __func__); /* ---------- context { */
 	wsi->a.vhost = vh;
+
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+	if (!vh->count_bound_wsi && vh->grace_after_unref) {
+		lwsl_info("%s: %s: in use\n", __func__, vh->lc.gutag);
+		lws_sul_cancel(&vh->sul_unref);
+	}
+#endif
+
 	vh->count_bound_wsi++;
 	lws_context_unlock(vh->context); /* } context ---------- */
 	lwsl_debug("%s: vh %s: wsi %s/%s, count_bound_wsi %d\n", __func__,
@@ -72,20 +80,29 @@ lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi)
 void
 __lws_vhost_unbind_wsi(struct lws *wsi)
 {
-	if (!wsi->a.vhost)
-		return;
+        struct lws_vhost *vh = wsi->a.vhost;
+
+        if (!vh)
+                return;
 
 	lws_context_assert_lock_held(wsi->a.context);
 
-	lws_vhost_lock(wsi->a.vhost);
+	lws_vhost_lock(vh);
 
-	assert(wsi->a.vhost->count_bound_wsi > 0);
-	wsi->a.vhost->count_bound_wsi--;
+	assert(vh->count_bound_wsi > 0);
+	vh->count_bound_wsi--;
+
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+	if (!vh->count_bound_wsi && vh->grace_after_unref)
+		lws_tls_jit_trust_vh_start_grace(vh);
+#endif
+
 	lwsl_debug("%s: vh %s: count_bound_wsi %d\n", __func__,
-		   wsi->a.vhost->name, wsi->a.vhost->count_bound_wsi);
+		   vh->name, vh->count_bound_wsi);
 
-	if (!wsi->a.vhost->count_bound_wsi &&
-	    wsi->a.vhost->being_destroyed) {
+	lws_vhost_unlock(vh);
+
+	if (!vh->count_bound_wsi && vh->being_destroyed)
 		/*
 		 * We have closed all wsi that were bound to this vhost
 		 * by any pt: nothing can be servicing any wsi belonging
@@ -93,13 +110,8 @@ __lws_vhost_unbind_wsi(struct lws *wsi)
 		 *
 		 * Finalize the vh destruction... must drop vh lock
 		 */
-		lws_vhost_unlock(wsi->a.vhost);
-		__lws_vhost_destroy2(wsi->a.vhost);
-		wsi->a.vhost = NULL;
-		return;
-	}
+		__lws_vhost_destroy2(vh);
 
-	lws_vhost_unlock(wsi->a.vhost);
 	wsi->a.vhost = NULL;
 }
 

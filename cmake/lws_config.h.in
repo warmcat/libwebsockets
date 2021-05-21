@@ -72,10 +72,13 @@
 #cmakedefine LWS_HAVE_mbedtls_ssl_set_hs_ca_chain
 #cmakedefine LWS_HAVE_mbedtls_ssl_set_hs_own_cert
 #cmakedefine LWS_HAVE_mbedtls_ssl_set_hs_authmode
+#cmakedefine LWS_HAVE_mbedtls_ssl_set_verify
 #cmakedefine LWS_HAVE_mbedtls_x509_crt_parse_file
 #cmakedefine LWS_HAVE_MBEDTLS_NET_SOCKETS
+#cmakedefine LWS_HAVE_MBEDTLS_AUTH_KEY_ID
 #cmakedefine LWS_HAVE_NEW_UV_VERSION_H
 #cmakedefine LWS_HAVE_OPENSSL_ECDH_H
+#cmakedefine LWS_HAVE_OPENSSL_STACK
 #cmakedefine LWS_HAVE_PIPE2
 #cmakedefine LWS_HAVE_EVENTFD
 #cmakedefine LWS_HAVE_PTHREAD_H
@@ -214,6 +217,7 @@
 #cmakedefine LWS_WITH_SYS_STATE
 #cmakedefine LWS_WITH_THREADPOOL
 #cmakedefine LWS_WITH_TLS
+#cmakedefine LWS_WITH_TLS_JIT_TRUST
 #cmakedefine LWS_WITH_TLS_SESSIONS
 #cmakedefine LWS_WITH_UDP
 #cmakedefine LWS_WITH_ULOOP

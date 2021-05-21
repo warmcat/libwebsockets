@@ -6,10 +6,11 @@ them.
 
 Original liberal license retained:
 
-  - lib/misc/sha-1.c          - 3-clause BSD license retained, link to original [BSD3]
-  - win32port/zlib            - ZLIB license (see zlib.h) [ZLIB]
-  - lib/tls/mbedtls/wrapper   - Apache 2.0 (only built if linked against mbedtls) {APACHE2]
-  - lib/misc/base64-decode.c  - already MIT
+  - lib/misc/sha-1.c                     - 3-clause BSD license retained, link to original [BSD3]
+  - win32port/zlib                       - ZLIB license (see zlib.h) [ZLIB]
+  - lib/tls/mbedtls/wrapper              - Apache 2.0 (only built if linked against mbedtls) {APACHE2]
+    lib/tls/mbedtls/mbedtls-extensions.c
+  - lib/misc/base64-decode.c             - already MIT
 
 Relicensed to MIT:
 

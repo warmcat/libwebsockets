@@ -472,6 +472,10 @@ struct lws_vhost {
 
 	const lws_retry_bo_t *retry_policy;
 
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+	lws_sorted_usec_list_t		sul_unref; /* grace period after idle */
+#endif
+
 #if defined(LWS_WITH_SERVER) && defined(LWS_WITH_SECURE_STREAMS)
 	lws_ss_handle_t		*ss_handle; /* ss handle for the server obj */
 #endif
@@ -545,6 +549,10 @@ struct lws_vhost {
 	uint8_t created_vhost_protocols:1;
 	uint8_t being_destroyed:1;
 	uint8_t from_ss_policy:1;
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+	uint8_t 		grace_after_unref:1;
+	/* grace time / autodelete aoplies to us */
+#endif
 
 	unsigned char default_protocol_index;
 	unsigned char raw_protocol_index;

@@ -122,14 +122,20 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 
 	vh = i->vhost;
 	if (!vh) {
-		vh = i->context->vhost_list;
 
-		if (!vh) { /* coverity */
-			lwsl_err("%s: no vhost\n", __func__);
-			goto bail;
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+		if (lws_tls_jit_trust_vhost_bind(i->context, i->address, &vh))
+#endif
+		{
+			vh = i->context->vhost_list;
+
+			if (!vh) { /* coverity */
+				lwsl_err("%s: no vhost\n", __func__);
+				goto bail;
+			}
+			if (!strcmp(vh->name, "system"))
+				vh = vh->vhost_next;
 		}
-		if (!strcmp(vh->name, "system"))
-			vh = vh->vhost_next;
 	}
 
 #if defined(LWS_WITH_SECURE_STREAMS)

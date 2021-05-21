@@ -818,6 +818,25 @@ LWS_VISIBLE LWS_EXTERN int
 lws_is_cgi(struct lws *wsi);
 
 /**
+ * lws_tls_jit_trust_blob_queury_skid() - walk jit trust blob for skid
+ *
+ * \param _blob: the start of the blob in memory
+ * \param blen: the length of the blob in memory
+ * \param skid: the SKID we are looking for
+ * \param skid_len: the length of the SKID we are looking for
+ * \param prpder: result pointer to receive a pointer to the matching DER
+ * \param prder_len: result pointer to receive matching DER length
+ *
+ * Helper to scan a JIT Trust blob in memory for a trusted CA cert matching
+ * a given SKID.  Returns 0 if found and *prpder and *prder_len are set, else
+ * nonzero.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_tls_jit_trust_blob_queury_skid(const void *_blob, size_t blen,
+				   const uint8_t *skid, size_t skid_len,
+				   const uint8_t **prpder, size_t *prder_len);
+
+/**
  * lws_open() - platform-specific wrapper for open that prepares the fd
  *
  * \param __file: the filepath to open

@@ -166,6 +166,7 @@ option(LWS_SSL_CLIENT_USE_OS_CA_CERTS "SSL support should make use of the OS-ins
 option(LWS_TLS_LOG_PLAINTEXT_RX "For debugging log the received plaintext as soon as decrypted" OFF)
 option(LWS_TLS_LOG_PLAINTEXT_TX "For debugging log the transmitted plaintext just before encryption" OFF)
 option(LWS_WITH_TLS_SESSIONS "Enable persistent, resumable TLS sessions" ON)
+option(LWS_WITH_TLS_JIT_TRUST "Enable dynamically computing which trusted TLS CA is needed to be instantiated" OFF)
 
 #
 # Event library options (may select multiple, or none for default poll()

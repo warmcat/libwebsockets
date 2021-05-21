@@ -25,6 +25,49 @@
 #include "private-lib-core.h"
 #include "private-lib-tls-mbedtls.h"
 
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+
+/*
+ * We get called for each peer certificate that was provided in turn.
+ *
+ * Our job is just to collect the AKID and SKIDs into ssl->kid_chain, and walk
+ * later at verification result time if it failed.
+ *
+ * None of these should be trusted, even if a misconfigured server sends us
+ * his root CA.
+ */
+
+static int
+lws_mbedtls_client_verify_callback(SSL *ssl, mbedtls_x509_crt *x509)
+{
+	union lws_tls_cert_info_results ci;
+
+	/* we reached the max we can hold? */
+
+	if (ssl->kid_chain.count == LWS_ARRAY_SIZE(ssl->kid_chain.akid))
+		return 0;
+
+	/* if not, stash the SKID and AKID into the next kid slot */
+
+	if (!lws_tls_mbedtls_cert_info(x509, LWS_TLS_CERT_INFO_SUBJECT_KEY_ID,
+				       &ci, 0))
+		lws_tls_kid_copy(&ci,
+				 &ssl->kid_chain.skid[ssl->kid_chain.count]);
+
+	if (!lws_tls_mbedtls_cert_info(x509, LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID,
+				       &ci, 0))
+		lws_tls_kid_copy(&ci,
+				 &ssl->kid_chain.akid[ssl->kid_chain.count]);
+
+	ssl->kid_chain.count++;
+
+	// lwsl_notice("%s: %u\n", __func__, ssl->kid_chain.count);
+
+	return 0;
+}
+
+#endif
+
 int
 lws_ssl_client_bio_create(struct lws *wsi)
 {
@@ -104,6 +147,10 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	 * use server name indication (SNI), if supported,
 	 * when establishing connection
 	 */
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+	SSL_set_verify(wsi->tls.ssl, SSL_VERIFY_PEER,
+			lws_mbedtls_client_verify_callback);
+#endif
 
 	SSL_set_fd(wsi->tls.ssl, (int)wsi->desc.sockfd);
 
@@ -285,6 +332,10 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 		return 0;
 	}
 
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+	if (n == X509_V_ERR_INVALID_CA)
+	    lws_tls_jit_trust_sort_kids(wsi, &wsi->tls.ssl->kid_chain);
+#endif
 	lws_snprintf(ebuf, ebuf_len,
 		"server's cert didn't look good, %s (use_ssl 0x%x) X509_V_ERR = %d: %s\n",
 		type, (unsigned int)wsi->tls.use_ssl, n,

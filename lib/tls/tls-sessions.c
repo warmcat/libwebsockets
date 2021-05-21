@@ -46,7 +46,7 @@ lws_tls_session_tag_from_wsi(struct lws *wsi, char *buf, size_t len)
 		return 1;
 
 	if (!wsi->stash) {
-		lwsl_warn("%s: wsi has no stash\n", __func__);
+		lwsl_info("%s: wsi has no stash\n", __func__);
 		return 1;
 	}
 

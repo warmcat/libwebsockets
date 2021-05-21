@@ -282,6 +282,10 @@
 		"cookiejar": {
 			"cmake":	"-DLWS_WITH_CACHE_NSCOOKIEJAR=ON"
 		},
+		"jittrust": {
+			"cmake":	"-DLWS_WITH_TLS_JIT_TRUST=1",
+			"platforms":	"none, linux-fedora-32/x86_64-amd/gcc"
+		},
 		"smp": {
 			"cmake":	"-DLWS_MAX_SMP=32 -DLWS_WITH_MINIMAL_EXAMPLES=1"
 		},

@@ -117,6 +117,10 @@ if (LWS_WITH_SSL)
 		list(APPEND SOURCES
 			tls/tls-sessions.c)
 	endif()
+	if (LWS_WITH_TLS_JIT_TRUST)
+		list(APPEND SOURCES
+			tls/tls-jit-trust.c)
+	endif()
 	
 	if (LWS_WITH_MBEDTLS)
 		list(APPEND SOURCES
@@ -126,6 +130,10 @@ if (LWS_WITH_SSL)
 		if (LWS_WITH_NETWORK)
 			list(APPEND SOURCES
 				tls/mbedtls/mbedtls-ssl.c)
+		endif()
+		if (LWS_WITH_TLS_JIT_TRUST)
+			list(APPEND SOURCES
+				tls/mbedtls/mbedtls-extensions.c)
 		endif()
 		if (LWS_WITH_TLS_SESSIONS)
 			list(APPEND SOURCES

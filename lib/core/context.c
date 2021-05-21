@@ -613,6 +613,18 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if defined(LWS_WITH_NETWORK)
 	context->event_loop_ops = plev->ops;
 	context->us_wait_resolution = us_wait_resolution;
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+	{
+		struct lws_cache_creation_info ci;
+
+		memset(&ci, 0, sizeof(ci));
+		ci.cx = context;
+		ci.ops = &lws_cache_ops_heap;
+		ci.name = "jitt";
+		ci.max_footprint = info->jitt_cache_max_footprint;
+		context->trust_cache = lws_cache_create(&ci);
+	}
+#endif
 #endif
 #if defined(LWS_WITH_EVENT_LIBS)
 	/* at the very end */
@@ -631,6 +643,11 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 	context->system_ops = info->system_ops;
 	context->pt_serv_buf_size = (unsigned int)s1;
+	context->protocols_copy = info->protocols;
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+	context->vh_idle_grace_ms = info->vh_idle_grace_ms ?
+			info->vh_idle_grace_ms : 5000;
+#endif
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	context->fic.name = "ctx";
@@ -2071,6 +2088,11 @@ next:
 		 *
 		 * clean up the context and things hanging off it
 		 */
+
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+		lws_cache_destroy(&context->trust_cache);
+		lws_tls_jit_trust_inflight_destroy_all(context);
+#endif
 
 #if defined(LWS_WITH_SYS_SMD)
 		_lws_smd_destroy(context);

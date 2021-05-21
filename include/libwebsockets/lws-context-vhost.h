@@ -880,6 +880,15 @@ struct lws_context_creation_info {
 	 * the custom event loop natively as if it were an "event library".
 	 */
 
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+	size_t					jitt_cache_max_footprint;
+	/**< CONTEXT: 0 for no limit, else max bytes used by JIT Trust cache...
+	 * LRU items are evicted to keep under this limit */
+	int					vh_idle_grace_ms;
+	/**< CONTEXT: 0 for default of 5000ms, or number of ms JIT Trust vhosts
+	 * are allowed to live without active connections using them. */
+#endif
+
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
 	 *

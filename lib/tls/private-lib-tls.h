@@ -30,6 +30,8 @@
 
 #if defined(LWS_WITH_TLS)
 
+#include "private-jit-trust.h"
+
 #if defined(USE_WOLFSSL)
  #if defined(USE_OLD_CYASSL)
   #if defined(_WIN32)

@@ -44,16 +44,56 @@ extern int openssl_websocket_private_data_index,
 
 #if !defined(USE_WOLFSSL)
 
+#if 0
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+
+/*
+ * Completion of sync or async JIT trust lookup
+ */
+
+int
+lws_tls_jit_trust_got_cert_cb(void *got_opaque, const uint8_t *der,
+			      size_t der_len)
+{
+	X509 *x = d2i_X509(NULL, &der, (long)der_len);
+	/** !!! this is not safe for async atm */
+	struct lws *wsi = (struct lws *)got_opaque;
+	X509_STORE *xs;
+	int ret = 0;
+
+	if (!x) {
+		lwsl_err("%s: failed\n", __func__);
+		return 1;
+	}
+
+	xs = SSL_CTX_get_cert_store(SSL_get_SSL_CTX(wsi->tls.ssl));
+	if (xs) {
+		if (X509_STORE_add_cert(xs, x) != 1) {
+			lwsl_warn("%s: unable to set trusted CA\n", __func__);
+			ret = 1;
+		} else
+			lwsl_notice("%s: added trusted CA to CTX for next time\n",
+					__func__);
+	} else
+		lwsl_warn("%s: couldn't get cert store\n", __func__);
+
+	X509_free(x);
+
+	return ret;
+}
+#endif
+#endif
+
 static int
 OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 {
 	SSL *ssl;
-	int n;
+	int n, err = 0;
 	struct lws *wsi;
 
 	/* keep old behaviour accepting self-signed server certs */
 	if (!preverify_ok) {
-		int err = X509_STORE_CTX_get_error(x509_ctx);
+		err = X509_STORE_CTX_get_error(x509_ctx);
 
 		if (err != X509_V_OK) {
 			ssl = X509_STORE_CTX_get_ex_data(x509_ctx,
@@ -106,6 +146,43 @@ OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 		return 0;
 	}
 
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+	if (err == X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY) {
+		union lws_tls_cert_info_results ci;
+		STACK_OF(X509) *x509_stack;
+
+		x509_stack = X509_STORE_CTX_get1_chain(x509_ctx);
+		if (x509_stack) {
+
+			for (n = 0; n < OPENSSL_sk_num((const OPENSSL_STACK *)x509_stack) &&
+				    wsi->tls.kid_chain.count !=
+				     LWS_ARRAY_SIZE(wsi->tls.kid_chain.akid); n++) {
+				X509 *x509 = OPENSSL_sk_value((const OPENSSL_STACK *)x509_stack, n);
+
+				if (!lws_tls_openssl_cert_info(x509,
+					    LWS_TLS_CERT_INFO_SUBJECT_KEY_ID,
+					    &ci, 0))
+					lws_tls_kid_copy(&ci,
+						&wsi->tls.kid_chain.skid[
+						     wsi->tls.kid_chain.count]);
+
+				if (!lws_tls_openssl_cert_info(x509,
+					     LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID,
+					     &ci, 0))
+					lws_tls_kid_copy(&ci,
+						 &wsi->tls.kid_chain.akid[
+						     wsi->tls.kid_chain.count]);
+
+				wsi->tls.kid_chain.count++;
+			}
+
+			sk_X509_pop_free(x509_stack, X509_free);
+		}
+
+		lws_tls_jit_trust_sort_kids(wsi, &wsi->tls.kid_chain);
+	}
+#endif
+
 	n = lws_get_context_protocol(wsi->a.context, 0).callback(wsi,
 			LWS_CALLBACK_OPENSSL_PERFORM_SERVER_CERT_VERIFICATION,
 			x509_ctx, ssl, (unsigned int)preverify_ok);
@@ -150,7 +227,6 @@ OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 	return !n;
 }
 #endif
-
 
 int
 lws_ssl_client_bio_create(struct lws *wsi)

@@ -1296,6 +1296,9 @@ lws_vhost_destroy1(struct lws_vhost *vh)
 		}
 	}
 #endif
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+	lws_sul_cancel(&vh->sul_unref);
+#endif
 
 	lws_vhost_unlock(vh); /* } vh -------------- */
 
@@ -1479,6 +1482,9 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	lws_fi_destroy(&vh->fic);
+#endif
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+	lws_sul_cancel(&vh->sul_unref);
 #endif
 
 	__lws_lc_untag(&vh->lc);

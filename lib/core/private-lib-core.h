@@ -445,6 +445,8 @@ struct lws_context {
 
 	lws_lifecycle_group_t			lcg[LWSLCG_COUNT];
 
+	const struct lws_protocols		*protocols_copy;
+
 #if defined(LWS_WITH_NETLINK)
 	lws_sorted_usec_list_t			sul_nl_coldplug;
 	/* process can only have one netlink socket, have to do it in ctx */
@@ -514,6 +516,12 @@ struct lws_context {
 
 #if defined(LWS_WITH_TLS)
 	struct lws_context_tls		tls;
+#if defined (LWS_WITH_TLS_JIT_TRUST)
+	lws_dll2_owner_t		jit_inflight;
+	/* ongoing sync or async jit trust lookups */
+	struct lws_cache_ttl_lru	*trust_cache;
+	/* caches host -> truncated trust SKID mappings */
+#endif
 #endif
 #if defined(LWS_WITH_DRIVERS)
 	lws_netdevs_t			netdevs;
@@ -685,6 +693,9 @@ struct lws_context {
 	unsigned int max_http_header_pool;
 	int simultaneous_ssl_restriction;
 	int simultaneous_ssl;
+#if defined(LWS_WITH_TLS_JIT_TRUST)
+	int		vh_idle_grace_ms;
+#endif
 #if defined(LWS_WITH_PEER_LIMITS)
 	uint32_t pl_hash_elements;	/* protected by context->lock */
 	uint32_t count_peers;		/* protected by context->lock */
