@@ -646,12 +646,12 @@ lws_create_context(const struct lws_context_creation_info *info)
 #else
 			2000000;
 #endif
-	context->smd_queue_depth = info->smd_queue_depth ?
+	context->smd_queue_depth = (uint16_t)(info->smd_queue_depth ?
 						info->smd_queue_depth :
 #if defined(LWS_PLAT_FREERTOS)
-						20;
+						20);
 #else
-						40;
+						40);
 #endif
 #endif
 
