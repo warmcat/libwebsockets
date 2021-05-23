@@ -234,7 +234,7 @@ static int ssl_pm_reload_crt(SSL *ssl)
     if (ssl->verify_mode == SSL_VERIFY_PEER)
         mode = MBEDTLS_SSL_VERIFY_OPTIONAL;
     else if (ssl->verify_mode == SSL_VERIFY_FAIL_IF_NO_PEER_CERT)
-        mode = MBEDTLS_SSL_VERIFY_OPTIONAL;
+        mode = MBEDTLS_SSL_VERIFY_REQUIRED;
     else if (ssl->verify_mode == SSL_VERIFY_CLIENT_ONCE)
         mode = MBEDTLS_SSL_VERIFY_UNSET;
     else
@@ -935,10 +935,11 @@ void SSL_set_SSL_CTX(SSL *ssl, SSL_CTX *ctx)
 	ssl->cert = __ssl_cert_new(ctx->cert);
 
 #if defined(LWS_HAVE_mbedtls_ssl_set_hs_authmode)
+
 	if (ctx->verify_mode == SSL_VERIFY_PEER)
 		mode = MBEDTLS_SSL_VERIFY_OPTIONAL;
 	else if (ctx->verify_mode == SSL_VERIFY_FAIL_IF_NO_PEER_CERT)
-		mode = MBEDTLS_SSL_VERIFY_OPTIONAL;
+		mode = MBEDTLS_SSL_VERIFY_REQUIRED;
 	else if (ctx->verify_mode == SSL_VERIFY_CLIENT_ONCE)
 		mode = MBEDTLS_SSL_VERIFY_UNSET;
 	else

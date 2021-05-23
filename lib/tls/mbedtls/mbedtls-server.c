@@ -38,15 +38,7 @@ lws_tls_server_client_cert_verify_config(struct lws_vhost *vh)
 		return 0;
 	}
 
-	/*
-	 * The wrapper has this messed-up mapping:
-	 *
-	 * 	   else if (ctx->verify_mode == SSL_VERIFY_FAIL_IF_NO_PEER_CERT)
-	 *     mode = MBEDTLS_SSL_VERIFY_OPTIONAL;
-	 *
-	 * ie the meaning is inverted.  So where we should test for ! we don't
-	 */
-	if (lws_check_opt(vh->options, LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED))
+	if (!lws_check_opt(vh->options, LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED))
 		verify_options = SSL_VERIFY_FAIL_IF_NO_PEER_CERT;
 
 	lwsl_notice("%s: vh %s requires client cert %d\n", __func__, vh->name,
