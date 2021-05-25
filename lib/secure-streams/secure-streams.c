@@ -424,7 +424,14 @@ lws_ss_exp_cb_metadata(void *priv, const char *name, char *out, size_t *pos,
 		return LSTRX_FATAL_NAME_UNKNOWN;
 	}
 
+	if (!hmd)
+		return LSTRX_FILLED_OUT;
+
 	replace = hmd->value__may_own_heap;
+
+	if (!replace)
+		return LSTRX_FILLED_OUT;
+
 	total = hmd->length;
 
 	budget = olen - *pos;
