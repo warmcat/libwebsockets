@@ -220,6 +220,16 @@ lws_plat_set_socket_options_ip(lws_sockfd_type fd, uint8_t pri, int lws_flags)
 	int en;
 #endif
 
+#if 0
+#if defined(TCP_FASTOPEN_CONNECT)
+	optval = 1;
+	if (setsockopt(fd, IPPROTO_TCP, TCP_FASTOPEN_CONNECT, (void *)&optval,
+		       sizeof(optval)))
+		lwsl_warn("%s: FASTOPEN_CONNECT failed\n", __func__);
+	optval = (int)pri;
+#endif
+#endif
+
 #if !defined(__APPLE__) && \
       !defined(__FreeBSD__) && !defined(__FreeBSD_kernel__) &&        \
       !defined(__NetBSD__) && \

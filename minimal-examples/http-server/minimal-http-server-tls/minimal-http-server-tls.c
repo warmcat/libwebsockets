@@ -126,6 +126,7 @@ int main(int argc, const char **argv)
 		LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE;
 	info.ssl_cert_filepath = "localhost-100y.cert";
 	info.ssl_private_key_filepath = "localhost-100y.key";
+	info.fo_listen_queue = 32;
 
 #if defined(LWS_WITH_PLUGINS)
 	info.plugin_dirs = plugin_dirs;

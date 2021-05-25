@@ -24,6 +24,10 @@
 
 #include "private-lib-core.h"
 
+#if !defined(SOL_TCP) && defined(IPPROTO_TCP)
+#define SOL_TCP IPPROTO_TCP
+#endif
+
 const char * const method_names[] = {
 	"GET", "POST",
 #if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
@@ -344,6 +348,29 @@ done_list:
 
 		vhost->lserv_wsi = wsi;
 		lws_pt_unlock(pt);
+
+#if defined(WIN32) && defined(TCP_FASTOPEN)
+		if (vhost->fo_listen_queue) {
+			int optval = 1;
+			if (setsockopt(wsi->desc.sockfd, IPPROTO_TCP,
+				       TCP_FASTOPEN,
+				       (const char*)&optval, sizeof(optval)) < 0) {
+				int error = LWS_ERRNO;
+				lwsl_warn("%s: TCP_NODELAY failed with error %d\n",
+						__func__, error);
+			}
+		}
+#else
+#if defined(TCP_FASTOPEN)
+		if (vhost->fo_listen_queue) {
+			int qlen = vhost->fo_listen_queue;
+
+			if (setsockopt(wsi->desc.sockfd, SOL_TCP, TCP_FASTOPEN,
+				       &qlen, sizeof(qlen)))
+				lwsl_warn("%s: TCP_FASTOPEN failed\n", __func__);
+		}
+#endif
+#endif
 
 		n = listen(wsi->desc.sockfd, LWS_SOMAXCONN);
 		if (n < 0) {

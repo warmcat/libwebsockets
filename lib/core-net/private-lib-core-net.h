@@ -535,6 +535,7 @@ struct lws_vhost {
 	int keepalive_timeout;
 	int timeout_secs_ah_idle;
 	int connect_timeout_secs;
+	int fo_listen_queue;
 
 	int count_bound_wsi;
 

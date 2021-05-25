@@ -659,15 +659,16 @@ lws_create_vhost(struct lws_context *context,
 			vh->count_protocols++)
 				;
 
-	vh->options = info->options;
-	vh->pvo = info->pvo;
-	vh->headers = info->headers;
-	vh->user = info->user;
-	vh->finalize = info->finalize;
-	vh->finalize_arg = info->finalize_arg;
-	vh->listen_accept_role = info->listen_accept_role;
-	vh->listen_accept_protocol = info->listen_accept_protocol;
-	vh->unix_socket_perms = info->unix_socket_perms;
+	vh->options			= info->options;
+	vh->pvo				= info->pvo;
+	vh->headers			= info->headers;
+	vh->user			= info->user;
+	vh->finalize			= info->finalize;
+	vh->finalize_arg		= info->finalize_arg;
+	vh->listen_accept_role		= info->listen_accept_role;
+	vh->listen_accept_protocol	= info->listen_accept_protocol;
+	vh->unix_socket_perms		= info->unix_socket_perms;
+	vh->fo_listen_queue		= info->fo_listen_queue;
 
 	LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar)
 	if (lws_rops_fidx(ar, LWS_ROPS_init_vhost) &&

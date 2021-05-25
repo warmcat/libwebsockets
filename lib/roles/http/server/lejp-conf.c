@@ -119,6 +119,7 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].ignore-missing-cert",
 	"vhosts[].error-document-404",
 	"vhosts[].alpn",
+	"vhosts[].fo-listen-queue",
 	"vhosts[].ssl-client-option-set",
 	"vhosts[].ssl-client-option-clear",
 	"vhosts[].tls13-ciphers",
@@ -187,6 +188,7 @@ enum lejp_vhost_paths {
 	LEJPVP_IGNORE_MISSING_CERT,
 	LEJPVP_ERROR_DOCUMENT_404,
 	LEJPVP_ALPN,
+	LWJPVP_FO_LISTEN_QUEUE,
 	LEJPVP_SSL_CLIENT_OPTION_SET,
 	LEJPVP_SSL_CLIENT_OPTION_CLEAR,
 	LEJPVP_TLS13_CIPHERS,
@@ -692,6 +694,9 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		break;
 	case LEJPVP_CGI_TIMEOUT:
 		a->m.cgi_timeout = atoi(ctx->buf);
+		return 0;
+	case LWJPVP_FO_LISTEN_QUEUE:
+		a->info->fo_listen_queue = atoi(ctx->buf);
 		return 0;
 	case LEJPVP_KEEPALIVE_TIMEOUT:
 		a->info->keepalive_timeout = atoi(ctx->buf);

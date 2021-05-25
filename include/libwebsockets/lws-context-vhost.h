@@ -854,15 +854,21 @@ struct lws_context_creation_info {
 
 #if defined(LWS_WITH_SYS_METRICS)
 	const struct lws_metric_policy		*metrics_policies;
-	/**< non-SS policy metrics policies */
+	/**< CONTEXT: non-SS policy metrics policies */
 	const char				*metrics_prefix;
-	/**< prefix for this context's metrics, used to distinguish metrics
-	 * pooled from different processes / applications, so, eg what would
-	 * be "cpu.svc" if this is NULL becomes "myapp.cpu.svc" is this is
+	/**< CONTEXT: prefix for this context's metrics, used to distinguish
+	 * metrics pooled from different processes / applications, so, eg what
+	 * would be "cpu.svc" if this is NULL becomes "myapp.cpu.svc" is this is
 	 * set to "myapp".  Policies are applied using the name with the prefix,
 	 * if present.
 	 */
 #endif
+
+	int					fo_listen_queue;
+	/**< VHOST: 0 = no TCP_FASTOPEN, nonzero = enable TCP_FASTOPEN if the
+	 * platform supports it, with the given queue length for the listen
+	 * socket.
+	 */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
