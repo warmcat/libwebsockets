@@ -203,7 +203,12 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 			lwsl_netlink("%s: %s\n", __func__,
 				     h->nlmsg_type == RTM_NEWADDR ?
 						     "NEWADDR" : "DELADDR");
-			break;
+
+			/*
+			 * almost nothing interesting within IFA_* attributes:
+			 * so skip it and goto to the second half
+			 */
+			goto second_half;
 
 		case RTM_NEWROUTE:
 		case RTM_DELROUTE:
@@ -252,6 +257,7 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 
 		robj.proto = rm->rtm_protocol;
 
+		// iterate over route attributes
 		for ( ; RTA_OK(ra, ra_len); ra = RTA_NEXT(ra, ra_len)) {
 			// lwsl_netlink("%s: atr %d\n", __func__, ra->rta_type);
 			switch (ra->rta_type) {
@@ -280,11 +286,8 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 				break;
 			case RTA_IIF: /* int: input interface index */
 			case RTA_OIF: /* int: output interface index */
-				if (h->nlmsg_type != RTM_NEWADDR &&
-				    h->nlmsg_type != RTM_DELADDR) {
-					robj.if_idx = *(int *)RTA_DATA(ra);
-					lwsl_netlink("%s: ifidx %d\n", __func__, robj.if_idx);
-				}
+				robj.if_idx = *(int *)RTA_DATA(ra);
+				lwsl_netlink("%s: ifidx %d\n", __func__, robj.if_idx);
 				break;
 			case RTA_PRIORITY: /* int: priority of route */
 				p = RTA_DATA(ra);
@@ -310,8 +313,7 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 		/*
 		 * the second half, once all the attributes were collected
 		 */
-
-
+second_half:
 		switch (h->nlmsg_type) {
 
 		case RTM_DELROUTE:
