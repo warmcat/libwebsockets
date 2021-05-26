@@ -36,6 +36,11 @@ list(APPEND SOURCES
 	misc/prng.c
 	misc/lws-ring.c)
 
+if (LWS_WITH_NETWORK)
+	list(APPEND SOURCES
+		misc/lws-cache-ttl.c)
+endif()
+
 if (LWS_WITH_FTS)
 	list(APPEND SOURCES
 		misc/fts/trie.c

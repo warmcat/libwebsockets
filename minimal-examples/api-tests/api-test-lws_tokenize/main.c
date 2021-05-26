@@ -322,6 +322,8 @@ static const char *exp_inp1 = "this-is-a-${test}-for-strexp";
 
 int main(int argc, const char **argv)
 {
+	struct lws_context_creation_info info;
+	struct lws_context *cx;
 	struct lws_tokenize ts;
 	lws_tokenize_elem e;
 	const char *p;
@@ -343,6 +345,41 @@ int main(int argc, const char **argv)
 
 	if ((p = lws_cmdline_option(argc, argv, "-f")))
 		flags = atoi(p);
+
+
+	memset(&info, 0, sizeof info);
+	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
+		       LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW;
+
+	/*
+	 * since we know this lws context is only ever going to be used with
+	 * one client wsis / fds / sockets at a time, let lws know it doesn't
+	 * have to use the default allocations for fd tables up to ulimit -n.
+	 * It will just allocate for 1 internal and 1 (+ 1 http2 nwsi) that we
+	 * will use.
+	 */
+	info.fd_limit_per_thread = 1 + 1 + 1;
+
+#if 0
+#if defined(LWS_WITH_MBEDTLS) || defined(USE_WOLFSSL)
+	/*
+	 * OpenSSL uses the system trust store.  mbedTLS has to be told which
+	 * CA to trust explicitly.
+	 */
+	info.client_ssl_ca_filepath = "./warmcat.com.cer";
+#endif
+#endif
+#if 0
+	n = open("./warmcat.com.cer", O_RDONLY);
+	if (n >= 0) {
+		info.client_ssl_ca_mem_len = read(n, memcert, sizeof(memcert));
+		info.client_ssl_ca_mem = memcert;
+		close(n);
+		n = 0;
+		memcert[info.client_ssl_ca_mem_len++] = '\0';
+	}
+#endif
+	cx = lws_create_context(&info);
 
 	/* lws_strexp */
 
@@ -733,7 +770,85 @@ int main(int argc, const char **argv)
 		fail++;
 	}
 
+
+	/* lws_cache */
+
+	{
+		struct lws_cache_creation_info ci;
+		struct lws_cache_ttl_lru *cache;
+		size_t size;
+		char *po;
+
+		memset(&ci, 0, sizeof(ci));
+		ci.cx = cx;
+
+		cache = lws_cache_create(&ci);
+		if (!cache) {
+			fail++;
+			goto cdone;
+		}
+
+		po = lws_cache_item_alloc(cache, "a", 10,  lws_now_usecs() + LWS_US_PER_SEC);
+		if (!po) {
+			fail++;
+			goto cdone;
+		}
+
+		strcpy(po, "is_a");
+
+		po = lws_cache_item_alloc(cache, "b", 10,  lws_now_usecs() + (LWS_US_PER_SEC * 2));
+		if (!po) {
+			fail++;
+			goto cdone;
+		}
+
+		strcpy(po, "is_b");
+
+		po = lws_cache_item_find(cache, "a", &size);
+		if (!po || size != 10 || strcmp(po, "is_a")) {
+			fail++;
+			goto cdone;
+		}
+
+		po = lws_cache_item_find(cache, "b", &size);
+		if (!po || size != 10 || strcmp(po, "is_b")) {
+			fail++;
+			goto cdone;
+		}
+
+		lws_cancel_service(cx);
+		lws_service(cx, 0);
+#if defined(WIN32)
+		Sleep(1200);
+#else
+		/* netbsd cares about < 1M */
+		usleep(999999);
+		usleep(200001);
+#endif
+		lws_cancel_service(cx);
+		lws_service(cx, 0);
+		lws_cancel_service(cx);
+		lws_service(cx, 0);
+
+		/* a only had 1s lifetime, he should be gone */
+
+		po = lws_cache_item_find(cache, "a", &size);
+		if (po) {
+			lwsl_err("%s: cache: a still exists after expiry\n", __func__);
+			fail++;
+			goto cdone;
+		}
+
+		ok++;
+		lws_cache_item_destroy_by_key(cache, "a");
+
+cdone:
+		lws_cache_destroy(&cache);
+	}
+
 	lwsl_user("Completed: PASS: %d, FAIL: %d\n", ok, fail);
+
+	lws_context_destroy(cx);
 
 	return !(ok && !fail);
 }
