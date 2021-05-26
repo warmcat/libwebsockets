@@ -729,7 +729,7 @@ just_kill_connection:
 async_close:
 #endif
 
-#if defined(LWS_WITH_SECURE_STREAMS) && defined(LWS_WITH_SERVER)
+#if defined(LWS_WITH_SECURE_STREAMS)
 	if (wsi->for_ss) {
 		lwsl_debug("%s: for_ss\n", __func__);
 		/*
