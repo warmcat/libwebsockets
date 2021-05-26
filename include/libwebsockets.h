@@ -568,6 +568,7 @@ struct lws;
 #include <libwebsockets/lws-dll2.h>
 #include <libwebsockets/lws-fault-injection.h>
 #include <libwebsockets/lws-timeout-timer.h>
+#include <libwebsockets/lws-cache-ttl.h>
 #if defined(LWS_WITH_SYS_SMD)
 #include <libwebsockets/lws-smd.h>
 #endif

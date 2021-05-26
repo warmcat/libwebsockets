@@ -300,10 +300,16 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 	pt = &context->pt[tsi];
 
 	if (pt->evlib_pt) {
-		lws_usec_t u = __lws_sul_service_ripe(pt->pt_sul_owner,
+		lws_usec_t u;
+
+		lws_pt_lock(pt, __func__); /* -------------- pt { */
+
+		u = __lws_sul_service_ripe(pt->pt_sul_owner,
 				      LWS_COUNT_PT_SUL_OWNERS, lws_now_usecs());
 		if (u < (lws_usec_t)timeout_ms * (lws_usec_t)1000)
 			timeout_ms = (int)(u / 1000);
+
+		lws_pt_unlock(pt);
 	}
 
 	/*
