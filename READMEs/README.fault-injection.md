@@ -262,6 +262,9 @@ interpreted by your shell.
 |context||`ctx_createfail_ss_pol1`|Fail context creation due to ss policy parse start failed (if policy enabled)|
 |context||`ctx_createfail_ss_pol2`|Fail context creation due to ss policy parse failed (if policy enabled)|
 |context||`ctx_createfail_ss_pol3`|Fail context creation due to ss policy set failed (if policy enabled)|
+|context||`cache_createfail`|Fail `lws_cache` creation due to OOM|
+|context||`cache_lookup_oom`|Fail `lws_cache` lookup due to OOM|
+|vhost|`vh`|`vh_create_oom`|Fail vh creation on vh object alloc OOM|
 |vhost|`vh`|`vh_create_oom`|Fail vh creation on vh object alloc OOM|
 |vhost|`vh`|`vh_create_pcols_oom`|Fail vh creation at protocols alloc OOM|
 |vhost|`vh`|`vh_create_access_log_open_fail`|Fail vh creation due to unable to open access log (LWS_WITH_ACCESS_LOG)|
@@ -293,7 +296,6 @@ interpreted by your shell.
 |ssproxy|`wsi`|`sspc_dsh_ss2p_oom`|Cause ss->proxy dsh allocation to fail|
 |ssproxy|`ss`|`ssproxy_onward_conn_fail`|Act as if proxy onward client connection failed immediately|
 |ssproxy|`ss`|`ssproxy_dsh_c2p_pay_oom`|Cause proxy's DSH alloc for C->P payload to fail|
-
 
 ## Well-known namespace targets
 

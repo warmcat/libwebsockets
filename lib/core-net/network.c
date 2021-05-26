@@ -81,7 +81,7 @@ lws_get_addresses(struct lws_vhost *vh, void *ads, char *name,
 #if !defined(LWS_PLAT_FREERTOS)
 		if (getnameinfo((struct sockaddr *)ads,
 				sizeof(struct sockaddr_in),
-				name, (unsigned int)name_len, NULL, 0, 0))
+				name, (socklen_t)name_len, NULL, 0, 0))
 			return -1;
 #endif
 

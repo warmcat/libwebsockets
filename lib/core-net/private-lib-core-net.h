@@ -238,7 +238,6 @@ struct client_info_stash {
 
 #define LWS_H2_FRAME_HEADER_LENGTH 9
 
-
 lws_usec_t
 __lws_sul_service_ripe(lws_dll2_owner_t *own, int num_own, lws_usec_t usnow);
 

@@ -175,6 +175,7 @@
 #cmakedefine LWS_WITH_NETLINK
 #cmakedefine LWS_WITH_NETWORK
 #cmakedefine LWS_WITH_NO_LOGS
+#cmakedefine LWS_WITH_CACHE_NSCOOKIEJAR
 #cmakedefine LWS_WITH_CLIENT
 #cmakedefine LWS_WITHOUT_EXTENSIONS
 #cmakedefine LWS_WITH_SERVER
