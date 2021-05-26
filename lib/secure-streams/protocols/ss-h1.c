@@ -363,14 +363,16 @@ lws_extract_metadata(lws_ss_handle_t *h, struct lws *wsi)
 
 					omd = lws_ss_get_handle_metadata(h,
 								   polmd->name);
+					if (omd) {
 
-					_lws_ss_set_metadata(omd,
-						polmd->name, p, (size_t)n);
-					omd->value_on_lws_heap = 1;
+						_lws_ss_set_metadata(omd,
+							polmd->name, p, (size_t)n);
+						omd->value_on_lws_heap = 1;
 
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
-					omd->pending_onward = 1;
+						omd->pending_onward = 1;
 #endif
+					}
 				}
 			}
 #endif
