@@ -551,19 +551,22 @@ int
 lws_plat_mbedtls_net_send(void *ctx, const uint8_t *buf, size_t len)
 {
 	int fd = ((mbedtls_net_context *) ctx)->fd;
-	int ret;
+	int ret, en;
 
 	if (fd < 0)
 		return MBEDTLS_ERR_NET_INVALID_CONTEXT;
 
-	ret = write(fd, buf, (unsigned int)len);
+	ret = send(fd, buf, (unsigned int)len, 0);
 	if (ret >= 0)
 		return ret;
 
-	if (errno == EAGAIN || errno == EWOULDBLOCK)
+	en = LWS_ERRNO;
+	if (en == EAGAIN || en == EWOULDBLOCK)
 		return MBEDTLS_ERR_SSL_WANT_WRITE;
 
-        if (WSAGetLastError() == WSAECONNRESET )
+	ret = WSAGetLastError();
+	lwsl_notice("%s: errno %d, GLE %d\n", __func__, en, ret);
+	if (ret == WSAECONNRESET )
             return( MBEDTLS_ERR_NET_CONN_RESET );
 
 	return MBEDTLS_ERR_NET_SEND_FAILED;
@@ -573,19 +576,23 @@ int
 lws_plat_mbedtls_net_recv(void *ctx, unsigned char *buf, size_t len)
 {
 	int fd = ((mbedtls_net_context *) ctx)->fd;
-	int ret;
+	int ret, en;
 
 	if (fd < 0)
 		return MBEDTLS_ERR_NET_INVALID_CONTEXT;
 
-	ret = (int)read(fd, buf, (unsigned int)len);
+	ret = (int)recv(fd, buf, (unsigned int)len, 0);
 	if (ret >= 0)
 		return ret;
 
-	if (errno == EAGAIN || errno == EWOULDBLOCK)
+	en = LWS_ERRNO;
+	if (en == EAGAIN || en == EWOULDBLOCK)
 		return MBEDTLS_ERR_SSL_WANT_READ;
 
-        if (WSAGetLastError() == WSAECONNRESET)
+	ret = WSAGetLastError();
+	lwsl_notice("%s: errno %d, GLE %d\n", __func__, en, ret);
+
+        if (ret == WSAECONNRESET)
             return MBEDTLS_ERR_NET_CONN_RESET;
 
 	return MBEDTLS_ERR_NET_RECV_FAILED;
