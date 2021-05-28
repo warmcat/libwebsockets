@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2019 - 2020 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2019 - 2021 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -749,7 +749,7 @@ payload_ff:
 				}
 
 				if (proxy_pss_to_ss_h(pss))
-					lws_ss_request_tx(
+					_lws_ss_request_tx(
 						proxy_pss_to_ss_h(pss));
 			} else {
 
@@ -926,7 +926,7 @@ payload_ff:
 						 __func__, par->temp32,
 						 proxy_pss_to_ss_h(pss)->wsi->
 							 txc.peer_tx_cr_est);
-					lws_ss_request_tx(proxy_pss_to_ss_h(pss));
+					_lws_ss_request_tx(proxy_pss_to_ss_h(pss));
 				} else
 #endif
 					lwsl_info("%s: dropping TXCR\n", __func__);
