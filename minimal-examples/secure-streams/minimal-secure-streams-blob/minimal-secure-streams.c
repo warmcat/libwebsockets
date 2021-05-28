@@ -40,7 +40,7 @@
 // #define VIA_LOCALHOST_SOCKS
 
 static int interrupted, bad = 1, force_cpd_fail_portal,
-	   force_cpd_fail_no_internet, test_respmap, test_ots;
+	   force_cpd_fail_no_internet, test_respmap, test_blob, test_ots;
 static unsigned int timeout_ms = 3000;
 static lws_state_notify_link_t nl;
 
@@ -194,6 +194,13 @@ static const char *canned_root_token_payload =
 
 /* secure streams payload interface */
 
+static const uint8_t expected_blob_hash[] = {
+	0xed, 0x57, 0x20, 0xc1, 0x68, 0x30, 0x81, 0x0e,
+	0x58, 0x29, 0xdf, 0xb9, 0xb6, 0x6c, 0x96, 0xb2,
+	0xe2, 0x4e, 0xfc, 0x4f, 0x93, 0xaa, 0x5e, 0x38,
+	0xc7, 0xff, 0x41, 0x50, 0xd3, 0x1c, 0xfb, 0xbf
+};
+
 static lws_ss_state_return_t
 myss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 {
@@ -203,6 +210,46 @@ myss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 
 	if (flags & LWSSS_FLAG_PERF_JSON)
 		return LWSSSSRET_OK;
+
+	if (test_blob) {
+
+		if (flags & LWSSS_FLAG_SOM) {
+			if (lws_genhash_init(&m->hash_ctx, LWS_GENHASH_TYPE_SHA256))
+				lwsl_err("%s: hash init failed\n", __func__);
+			m->amt = 0;
+		}
+
+		if (lws_genhash_update(&m->hash_ctx, buf, len))
+			lwsl_err("%s: hash failed\n", __func__);
+
+		if ((m->amt + len) / 102400 != (m->amt / 102400)) {
+
+			lwsl_user("%s: blob test: rx %uKiB\n", __func__,
+					(unsigned int)((m->amt + len) / 1024));
+			/*
+			 * Let's make it hard for client to keep up with onward
+			 * server, delay 50ms after every 100K received, so we
+			 * are forcing the flow control action at the proxy
+			 */
+			usleep(50000);
+		}
+
+		m->amt += len;
+
+		if (flags & LWSSS_FLAG_EOM) {
+			uint8_t digest[32];
+			lws_genhash_destroy(&m->hash_ctx, digest);
+
+			if (!memcmp(expected_blob_hash, digest, 32)) {
+				lwsl_user("%s: SHA256 match\n", __func__);
+				bad = 0;
+			}
+
+			interrupted = 1;
+		}
+
+		return LWSSSSRET_OK;
+	}
 
 	lws_ss_get_metadata(m->ss, "srv", (const void **)&md_srv, &md_srv_len);
 	lws_ss_get_metadata(m->ss, "test", (const void **)&md_test, &md_test_len);
@@ -251,13 +298,15 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 	case LWSSSCS_CONNECTING:
 		lws_ss_start_timeout(m->ss, timeout_ms);
 
-		if (lws_ss_set_metadata(m->ss, "uptag", "myuptag123", 10))
-			/* can fail, eg due to OOM, retry later if so */
-			return LWSSSSRET_DISCONNECT_ME;
+		if (!test_blob) {
+			if (lws_ss_set_metadata(m->ss, "uptag", "myuptag123", 10))
+				/* can fail, eg due to OOM, retry later if so */
+				return LWSSSSRET_DISCONNECT_ME;
 
-		if (lws_ss_set_metadata(m->ss, "ctype", "myctype", 7))
-			/* can fail, eg due to OOM, retry later if so */
-			return LWSSSSRET_DISCONNECT_ME;
+			if (lws_ss_set_metadata(m->ss, "ctype", "myctype", 7))
+				/* can fail, eg due to OOM, retry later if so */
+				return LWSSSSRET_DISCONNECT_ME;
+		}
 		break;
 
 	case LWSSSCS_ALL_RETRIES_FAILED:
@@ -373,7 +422,8 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 			ssi.state = myss_state;
 			ssi.user_alloc = sizeof(myss_t);
 			ssi.streamtype = test_ots ? "mintest-ots" :
-					 (test_respmap ? "respmap" : "mintest");
+					(test_blob ? "bulkproxflow" :
+					 (test_respmap ? "respmap" : "mintest"));
 
 			if (lws_ss_create(context, 0, &ssi, NULL, NULL,
 					  NULL, NULL)) {
@@ -456,6 +506,16 @@ int main(int argc, const char **argv)
 
 	if ((p = lws_cmdline_option(argc, argv, "--timeout_ms")))
 		timeout_ms = (unsigned int)atoi(p);
+
+	if (lws_cmdline_option(argc, argv, "--blob")) {
+		test_blob = 1;
+		if (timeout_ms == 3000)
+			/*
+			 * Don't use default 3s, we're going to be a lot
+			 * slower
+			 */
+			timeout_ms = 60000;
+	}
 
 	info.fd_limit_per_thread = 1 + 6 + 1;
 	info.port = CONTEXT_PORT_NO_LISTEN;
