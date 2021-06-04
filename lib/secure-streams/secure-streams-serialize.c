@@ -1272,7 +1272,6 @@ payload_ff:
 			if (++par->ctr < 4)
 				break;
 
-
 			/*
 			 * Client (par->temp32 == dsh alloc)
 			 */
@@ -1339,8 +1338,7 @@ payload_ff:
 			if (!h->dsh)
 				goto hangup;
 
-			if (h->cwsi)
-				lws_callback_on_writable(h->cwsi);
+			lws_callback_on_writable(h->cwsi);
 
 			par->rsl_pos = 0;
 			par->rsl_idx = 0;
