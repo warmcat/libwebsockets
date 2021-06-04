@@ -1278,8 +1278,9 @@ rops_alpn_negotiated_h2(struct lws *wsi, const char *alpn)
 
 	/* HTTP2 union */
 
-	lws_hpack_dynamic_size(wsi,
-			   (int)wsi->h2.h2n->our_set.s[H2SET_HEADER_TABLE_SIZE]);
+	if (lws_hpack_dynamic_size(wsi,
+			   (int)wsi->h2.h2n->our_set.s[H2SET_HEADER_TABLE_SIZE]))
+		return 1;
 	wsi->txc.tx_cr = 65535;
 
 	lwsl_info("%s: %s: configured for h2\n", __func__, lws_wsi_tag(wsi));
