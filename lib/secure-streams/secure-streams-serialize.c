@@ -1118,25 +1118,28 @@ payload_ff:
 					proxy_pss_to_ss_h(pss),
 					par->metadata_name);
 
-			if (par->ssmd->value_on_lws_heap)
-				lws_free_set_NULL(par->ssmd->value__may_own_heap);
-			par->ssmd->value_on_lws_heap = 0;
+			if (par->ssmd) {
 
-			if (proxy_pss_to_ss_h(pss) &&
-			    lws_fi(&proxy_pss_to_ss_h(pss)->fic, "ssproxy_rx_metadata_oom"))
-				par->ssmd->value__may_own_heap = NULL;
-			else
-				par->ssmd->value__may_own_heap =
-					lws_malloc((unsigned int)par->rem + 1, "metadata");
+				if (par->ssmd->value_on_lws_heap)
+					lws_free_set_NULL(par->ssmd->value__may_own_heap);
+				par->ssmd->value_on_lws_heap = 0;
 
-			if (!par->ssmd->value__may_own_heap) {
-				lwsl_err("%s: OOM mdv\n", __func__);
-				goto hangup;
+				if (proxy_pss_to_ss_h(pss) &&
+				    lws_fi(&proxy_pss_to_ss_h(pss)->fic, "ssproxy_rx_metadata_oom"))
+					par->ssmd->value__may_own_heap = NULL;
+				else
+					par->ssmd->value__may_own_heap =
+						lws_malloc((unsigned int)par->rem + 1, "metadata");
+
+				if (!par->ssmd->value__may_own_heap) {
+					lwsl_err("%s: OOM mdv\n", __func__);
+					goto hangup;
+				}
+				par->ssmd->length = par->rem;
+				((uint8_t *)par->ssmd->value__may_own_heap)[par->rem] = '\0';
+				/* mark it as needing cleanup */
+				par->ssmd->value_on_lws_heap = 1;
 			}
-			par->ssmd->length = par->rem;
-			((uint8_t *)par->ssmd->value__may_own_heap)[par->rem] = '\0';
-			/* mark it as needing cleanup */
-			par->ssmd->value_on_lws_heap = 1;
 			par->ctr = 0;
 			break;
 
