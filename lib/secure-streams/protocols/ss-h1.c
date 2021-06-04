@@ -977,7 +977,7 @@ malformed:
 						     WSI_TOKEN_HTTP_COLON_METHOD), (unsigned int)m))
 					return -1;
 				m = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH);
-				if (lws_ss_alloc_set_metadata(h, "path",
+				if (m && lws_ss_alloc_set_metadata(h, "path",
 						    lws_hdr_simple_ptr(wsi,
 						     WSI_TOKEN_HTTP_COLON_PATH), (unsigned int)m))
 					return -1;
