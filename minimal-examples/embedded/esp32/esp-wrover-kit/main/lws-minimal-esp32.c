@@ -90,14 +90,14 @@ myss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 		 *
 		 * Howevere we want to record what happened after we received
 		 * the last bit so we can see anything unexpected coming.  So
-		 * wait a couple of seconds before sending the PASS magic.
+		 * wait 5s before sending the PASS magic.
 		 */
 
 		lwsl_notice("%s: received %u bytes, passing in 10s\n",
 			    __func__, (unsigned int)m->amount);
 
 		lws_sul_schedule(context, 0, &sul_pass, completion_sul_cb,
-				 10 * LWS_US_PER_SEC);
+				 5 * LWS_US_PER_SEC);
 
 		return LWSSSSRET_DESTROY_ME;
 	}
@@ -237,7 +237,8 @@ app_main(void)
 
 	do {
 		taskYIELD();
-	} while (lws_service(context, 0) >= 0);
+		lws_service(context, 0);
+	} while (1);
 
 	lwsl_notice("%s: exited event loop\n", __func__);
 
