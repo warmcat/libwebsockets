@@ -634,7 +634,7 @@ lws_sort_dns(struct lws *wsi, const struct addrinfo *result)
 		if (!ds)
 			return 1;
 
-		memcpy(&ds->dest, ai->ai_addr, ai->ai_addrlen);
+		memcpy(&ds->dest, ai->ai_addr, (size_t)ai->ai_addrlen);
 		ds->dest.sa4.sin_family = (sa_family_t)ai->ai_family;
 
 		lws_sa46_write_numeric_address(&ds->dest, afip, sizeof(afip));
