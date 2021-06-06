@@ -452,7 +452,7 @@ ads_known:
 	else
 #endif
 		m = connect(wsi->desc.sockfd, (const struct sockaddr *)psa,
-			    (unsigned int)n);
+			    (socklen_t)n);
 
 #if defined(LWS_WITH_CONMON)
 	wsi->conmon_datum = lws_now_usecs();

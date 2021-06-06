@@ -91,7 +91,7 @@ lws_conmon_append_copy_new_dns_results(struct lws *wsi,
 			 * No we don't already have a copy of this one, let's
 			 * allocate and append it then
 			 */
-			size_t al = sizeof(struct addrinfo) + cai->ai_addrlen;
+			size_t al = sizeof(struct addrinfo) + (size_t)cai->ai_addrlen;
 			size_t cl = cai->ai_canonname ?
 					strlen(cai->ai_canonname) + 1 : 0;
 
@@ -102,7 +102,7 @@ lws_conmon_append_copy_new_dns_results(struct lws *wsi,
 			}
 			*ai = *cai;
 			ai->ai_addr = (struct sockaddr *)&ai[1];
-			memcpy(ai->ai_addr, cai->ai_addr, cai->ai_addrlen);
+			memcpy(ai->ai_addr, cai->ai_addr, (size_t)cai->ai_addrlen);
 
 			if (cl) {
 				ai->ai_canonname = ((char *)ai->ai_addr) +
