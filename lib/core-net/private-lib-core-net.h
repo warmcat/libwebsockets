@@ -182,15 +182,6 @@ struct lws_peer {
 };
 #endif
 
-enum {
-	LWS_EV_READ = (1 << 0),
-	LWS_EV_WRITE = (1 << 1),
-	LWS_EV_START = (1 << 2),
-	LWS_EV_STOP = (1 << 3),
-
-	LWS_EV_PREPARE_DELETION = (1u << 31),
-};
-
 #ifdef LWS_WITH_IPV6
 #define LWS_IPV6_ENABLED(vh) \
 	(!lws_check_opt(vh->context->options, LWS_SERVER_OPTION_DISABLE_IPV6) && \
@@ -379,9 +370,7 @@ struct lws_context_per_thread {
 #endif
 	/* --- event library based members --- */
 
-#if defined(LWS_WITH_EVENT_LIBS)
 	void		*evlib_pt; /* overallocated */
-#endif
 
 	/* --- */
 

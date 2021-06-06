@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2021 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -299,14 +299,12 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 
 	pt = &context->pt[tsi];
 
-#if defined(LWS_WITH_EXTERNAL_POLL)
-	{
+	if (pt->evlib_pt) {
 		lws_usec_t u = __lws_sul_service_ripe(pt->pt_sul_owner,
 				      LWS_COUNT_PT_SUL_OWNERS, lws_now_usecs());
 		if (u < timeout_ms * 1000)
-			timeout_ms = u / 1000;
+			timeout_ms = (int)(u / 1000);
 	}
-#endif
 
 	/*
 	 * Figure out if we really want to wait in poll()... we only need to

@@ -870,6 +870,16 @@ struct lws_context_creation_info {
 	 * socket.
 	 */
 
+	const struct lws_plugin_evlib		*event_lib_custom;
+	/**< CONTEXT: If non-NULL, override event library selection so it uses
+	 * this custom event library implementation, instead of default internal
+	 * loop.  Don't set any other event lib context creation flags in that
+	 * case. it will be used automatically.  This is useful for integration
+	 * where an existing application is using its own handrolled event loop
+	 * instead of an event library, it provides a way to allow lws to use
+	 * the custom event loop natively as if it were an "event library".
+	 */
+
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
 	 *
