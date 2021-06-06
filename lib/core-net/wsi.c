@@ -161,6 +161,22 @@ lws_callback_all_protocol(struct lws_context *context,
 	return 0;
 }
 
+void *
+lws_evlib_wsi_to_evlib_pt(struct lws *wsi)
+{
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+
+	return pt->evlib_pt;
+}
+
+void *
+lws_evlib_tsi_to_evlib_pt(struct lws_context *cx, int tsi)
+{
+	struct lws_context_per_thread *pt = &cx->pt[tsi];
+
+	return pt->evlib_pt;
+}
+
 int
 lws_callback_all_protocol_vhost_args(struct lws_vhost *vh,
 			  const struct lws_protocols *protocol, int reason,

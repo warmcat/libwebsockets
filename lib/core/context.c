@@ -458,8 +458,12 @@ lws_create_context(const struct lws_context_creation_info *info)
 	size += (count_threads * sizeof(struct lws));
 #endif
 
+	if (info->event_lib_custom) {
+		plev = info->event_lib_custom;
+		us_wait_resolution = 0;
+	}
 #if defined(LWS_WITH_POLL)
-	{
+	else {
 		extern const lws_plugin_evlib_t evlib_poll;
 		plev = &evlib_poll;
 #if !defined(LWS_PLAT_FREERTOS)
@@ -1084,10 +1088,8 @@ lws_create_context(const struct lws_context_creation_info *info)
 		memset(context->pt[n].fake_wsi, 0, sizeof(struct lws));
 #endif
 
-#if defined(LWS_WITH_EVENT_LIBS)
 		context->pt[n].evlib_pt = u;
 		u += plev->ops->evlib_size_pt;
-#endif
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 		context->pt[n].http.ah_list = NULL;
