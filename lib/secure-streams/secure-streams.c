@@ -430,7 +430,7 @@ lws_ss_exp_cb_metadata(void *priv, const char *name, char *out, size_t *pos,
 	replace = hmd->value__may_own_heap;
 
 	if (!replace)
-		return LSTRX_FILLED_OUT;
+		return LSTRX_DONE;
 
 	total = hmd->length;
 
