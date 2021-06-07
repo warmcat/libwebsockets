@@ -263,7 +263,8 @@ lws_metrics_check_in_policy(const char *polstring, const char *name)
 		ts.e = (int8_t)lws_tokenize(&ts);
 
 		if (ts.e == LWS_TOKZE_TOKEN) {
-			if (!lws_strcmp_wildcard(ts.token, ts.token_len, name))
+			if (!lws_strcmp_wildcard(ts.token, ts.token_len, name,
+						 strlen(name)))
 				/* yes, we are mentioned in this guy's policy */
 				return 0;
 		}

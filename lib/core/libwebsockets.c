@@ -1169,9 +1169,11 @@ drain:
 }
 
 int
-lws_strcmp_wildcard(const char *wildcard, size_t len, const char *check)
+lws_strcmp_wildcard(const char *wildcard, size_t wlen, const char *check,
+		    size_t clen)
 {
-	const char *match[3], *wc[3], *wc_end = wildcard + len;
+	const char *match[3], *wc[3], *wc_end = wildcard + wlen,
+		   *cend = check + clen;
 	int sp = 0;
 
 	do {
@@ -1240,9 +1242,13 @@ lws_strcmp_wildcard(const char *wildcard, size_t len, const char *check)
 
 		/* we're looking for a post-* match... keep looking... */
 
-	} while (*check);
+	} while (check < cend);
 
-	return !!*wildcard;
+	/*
+	 * We reached the end of check, if also at end of wildcard we're OK
+	 */
+
+	return wildcard != wc_end;
 }
 
 #if LWS_MAX_SMP > 1
