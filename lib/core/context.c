@@ -1385,7 +1385,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 			lwsl_err("%s: policy set failed\n", __func__);
 			goto bail_libuv_aware;
 		}
-	} else
+	}
 #else
 	if (context->pss_policies) {
 		/* user code set the policy objects directly, no parsing step */
@@ -1395,9 +1395,8 @@ lws_create_context(const struct lws_context_creation_info *info)
 			lwsl_err("%s: policy set failed\n", __func__);
 			goto bail_libuv_aware;
 		}
-	} //else
+	}
 #endif
-	//	lws_create_vhost(context, info);
 #endif
 
 	lws_context_init_extensions(info, context);
