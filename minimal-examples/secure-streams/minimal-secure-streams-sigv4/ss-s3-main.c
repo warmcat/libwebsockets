@@ -1,7 +1,7 @@
 /*
  * S3 Put Object via Secure Streams minimal sigv4 example
  *
- * Written in 2010-2020 by Andy Green <andy@warmcat.com>
+ * Written in 2010-2021 by Andy Green <andy@warmcat.com>
  *			   Amit Pachore <apachor@amazon.com>
  *                         securestreams-dev@amazon.com
  *
@@ -15,6 +15,9 @@
 #include <signal.h>
 
 #include "ss-s3-put.h"
+#if defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
+#include "static_policy.h"
+#endif
 
 int interrupted, bad = 1;
 static lws_state_notify_link_t nl;
@@ -22,6 +25,7 @@ extern const lws_ss_info_t s3_ssi;
 
 #if !defined(LWS_SS_USE_SSPC)
 
+#if !defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
 static const char * const default_ss_policy =
 	"{"
 	  "\"release\":"			"\"01234567\","
@@ -110,6 +114,7 @@ static const char * const default_ss_policy =
 	   "]"
 	"}"
 ;
+#endif
 
 static char *aws_keyid, *aws_key;
 #endif
@@ -201,7 +206,11 @@ int main(int argc, const char **argv)
 			info.ss_proxy_address = p;
 	}
 #else
+#if defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
+	info.pss_policies = &_ss_static_policy_entry;
+#else
 	info.pss_policies_json = default_ss_policy;
+#endif
 
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
