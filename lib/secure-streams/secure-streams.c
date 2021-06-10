@@ -1332,6 +1332,23 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 		pmd = pmd->next;
 	}
 
+#if defined(LWS_WITH_SS_DIRECT_PROTOCOL_STR)
+	{
+
+		lws_ss_metadata_t *imd;
+		pmd = h->instant_metadata;
+		while (pmd) {
+			imd = pmd;
+			pmd = pmd->next;
+			lwsl_info("%s: instant md %p\n", __func__, imd);
+			lws_free(imd);
+		}
+		h->instant_metadata = NULL;
+		if (h->imd_ac)
+			lwsac_free(&h->imd_ac);
+	}
+#endif
+
 	lws_sul_cancel(&h->sul);
 
 #if defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)

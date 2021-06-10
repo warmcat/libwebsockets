@@ -120,6 +120,7 @@ static const char * const lejp_tokens_policy[] = {
 	"s[].*.use_auth",
 	"s[].*.aws_region",
 	"s[].*.aws_service",
+	"s[].*.direct_proto_str",
 	"s[].*",
 	"auth[].name",
 	"auth[].type",
@@ -220,6 +221,7 @@ typedef enum {
 	LSSPPT_USE_AUTH,
 	LSSPPT_AWS_REGION,
 	LSSPPT_AWS_SERVICE,
+	LSSPPT_DIRECT_PROTO_STR,
 	LSSPPT_STREAMTYPES,
 	LSSPPT_AUTH_NAME,
 	LSSPPT_AUTH_TYPE,
@@ -1025,6 +1027,12 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 						reason == LEJPCB_VAL_TRUE;
 		break;
 #endif
+	case LSSPPT_DIRECT_PROTO_STR:
+		if (reason == LEJPCB_VAL_TRUE)
+			a->curr[LTY_POLICY].p->flags |=
+					LWSSSPOLF_DIRECT_PROTO_STR;
+		break;
+
 
 	case LSSPPT_PROTOCOL:
 		a->curr[LTY_POLICY].p->protocol = 0xff;

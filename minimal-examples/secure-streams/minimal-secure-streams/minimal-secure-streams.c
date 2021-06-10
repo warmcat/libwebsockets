@@ -1,7 +1,7 @@
 /*
  * lws-minimal-secure-streams
  *
- * Written in 2010-2020 by Andy Green <andy@warmcat.com>
+ * Written in 2010-2021 by Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
@@ -118,7 +118,8 @@ static const char * const default_ss_policy =
 #endif
 	  "],"
 	  "\"s\": ["
-	  	/*
+#if !defined(LWS_WITH_SS_DIRECT_PROTOCOL_STR)
+		/*
 		 * "fetch_policy" decides from where the real policy
 		 * will be fetched, if present.  Otherwise the initial
 		 * policy is treated as the whole, hardcoded, policy.
@@ -139,6 +140,25 @@ static const char * const default_ss_policy =
 			"\"tls_trust_store\":"	"\"le_via_dst\","
 #endif
 			"\"retry\":"		"\"default\""
+#else
+	"{\"mintest\": {"
+			"\"endpoint\": \"warmcat.com\","
+			"\"port\": 443,"
+			"\"protocol\": \"h1\","
+			"\"http_method\": \"GET\","
+			"\"http_url\": \"index.html?uptag=${uptag}\","
+			"\"metadata\": [{"
+			"	\"uptag\": \"X-Upload-Tag:\""
+			"}, {"
+			"	\"xctype\": \"X-Content-Type:\""
+			"}],"
+			"\"tls\": true,"
+			"\"opportunistic\": true,"
+			"\"retry\": \"default\","
+			"\"timeout_ms\": 2000,"
+			"\"direct_proto_str\": true,"
+			"\"tls_trust_store\": \"le_via_dst\""
+#endif
 		"}},{"
 			/*
 			 * "captive_portal_detect" describes
@@ -197,20 +217,23 @@ static const char *canned_root_token_payload =
 static lws_ss_state_return_t
 myss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 {
-	myss_t *m = (myss_t *)userobj;
-	const char *md_srv = "not set", *md_test = "not set";
-	size_t md_srv_len = 7, md_test_len = 7;
 
 	if (flags & LWSSS_FLAG_PERF_JSON)
 		return LWSSSSRET_OK;
 
+#if !defined(LWS_WITH_SS_DIRECT_PROTOCOL_STR)
+	myss_t *m = (myss_t *)userobj;
+	const char *md_srv = "not set", *md_test = "not set";
+	size_t md_srv_len = 7, md_test_len = 7;
+
 	lws_ss_get_metadata(m->ss, "srv", (const void **)&md_srv, &md_srv_len);
 	lws_ss_get_metadata(m->ss, "test", (const void **)&md_test, &md_test_len);
-
 	lwsl_user("%s: len %d, flags: %d, srv: %.*s, test: %.*s\n", __func__,
 		  (int)len, flags, (int)md_srv_len, md_srv,
 		  (int)md_test_len, md_test);
+
 	lwsl_hexdump_info(buf, len);
+#endif
 
 	/*
 	 * If we received the whole message, for our example it means
@@ -240,6 +263,21 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 	   lws_ss_tx_ordinal_t ack)
 {
 	myss_t *m = (myss_t *)userobj;
+#if defined(LWS_WITH_SS_DIRECT_PROTOCOL_STR)
+	const char *md_test = "not set";
+	size_t md_test_len = 7;
+	int i;
+	static const char * imd_test_keys[8] = {
+		"server:",
+		"content-security-policy:",
+		"strict-transport-security:",
+		"test-custom-header:",
+		"x-xss-protection:",
+		"x-content-type-options:",
+		"x-frame-options:",
+		"x-non-exist:",
+		};
+#endif
 
 	lwsl_user("%s: %s (%d), ord 0x%x\n", __func__,
 		  lws_ss_state_name((int)state), state, (unsigned int)ack);
@@ -254,16 +292,37 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		if (lws_ss_set_metadata(m->ss, "uptag", "myuptag123", 10))
 			/* can fail, eg due to OOM, retry later if so */
 			return LWSSSSRET_DISCONNECT_ME;
-
+#if !defined(LWS_WITH_SS_DIRECT_PROTOCOL_STR)
 		if (lws_ss_set_metadata(m->ss, "ctype", "myctype", 7))
 			/* can fail, eg due to OOM, retry later if so */
 			return LWSSSSRET_DISCONNECT_ME;
+#else
+		if (lws_ss_set_metadata(m->ss, "X-Test-Type1:", "myctype1", 8))
+			/* can fail, eg due to OOM, retry later if so */
+			return LWSSSSRET_DISCONNECT_ME;
+		if (lws_ss_set_metadata(m->ss, "X-Test-Type2:", "myctype2", 8))
+			/* can fail, eg due to OOM, retry later if so */
+			return LWSSSSRET_DISCONNECT_ME;
+		if (lws_ss_set_metadata(m->ss, "Content-Type:", "myctype", 7))
+			/* can fail, eg due to OOM, retry later if so */
+			return LWSSSSRET_DISCONNECT_ME;
+#endif
 		break;
 
 	case LWSSSCS_ALL_RETRIES_FAILED:
 		/* if we're out of retries, we want to close the app and FAIL */
 		interrupted = 1;
 		bad = 2;
+		break;
+	case LWSSSCS_CONNECTED:
+#if defined(LWS_WITH_SS_DIRECT_PROTOCOL_STR)
+	lwsl_user("%s: get direct metadata\n", __func__);
+	for (i = 0; i < 8; i++) {
+		md_test = "not set";
+		lws_ss_get_metadata(m->ss, imd_test_keys[i], (const void **)&md_test, &md_test_len);
+		lwsl_user("%s test key:[%s], got [%s]\n", __func__, imd_test_keys[i], md_test);
+	}
+#endif
 		break;
 
 	case LWSSSCS_QOS_ACK_REMOTE:
@@ -288,6 +347,15 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 	return LWSSSSRET_OK;
 }
 
+#if defined(LWS_WITH_SECURE_STREAMS_BUFFER_DUMP)
+static void
+myss_headers_dump(void *userobj, const uint8_t *buf, size_t len, int done)
+{
+	lwsl_user("%s: %lu done: %s\n", __func__, len, done?"true":"false");
+
+	lwsl_hexdump_err(buf, len);
+}
+#endif
 static int
 app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 		    int current, int target)
@@ -371,6 +439,9 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 			ssi.rx = myss_rx;
 			ssi.tx = myss_tx;
 			ssi.state = myss_state;
+#if defined(LWS_WITH_SECURE_STREAMS_BUFFER_DUMP)
+			ssi.dump = myss_headers_dump;
+#endif
 			ssi.user_alloc = sizeof(myss_t);
 			ssi.streamtype = test_ots ? "mintest-ots" :
 					 (test_respmap ? "respmap" : "mintest");
@@ -433,6 +504,8 @@ int main(int argc, const char **argv)
 
 	memset(&info, 0, sizeof info);
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
+
+	//lws_set_log_level(LLL_USER | LLL_ERR | LLL_DEBUG | LLL_NOTICE | LLL_INFO, NULL);
 
 	lwsl_user("LWS secure streams test client [-d<verb>]\n");
 

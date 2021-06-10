@@ -347,6 +347,11 @@ typedef lws_ss_state_return_t (*lws_sscb_state)(void *userobj, void *h_src,
 						lws_ss_constate_t state,
 						lws_ss_tx_ordinal_t ack);
 
+#if defined(LWS_WITH_SECURE_STREAMS_BUFFER_DUMP)
+typedef void (*lws_ss_buffer_dump_cb)(void *userobj, const uint8_t *buf,
+		size_t len, int done);
+#endif
+
 struct lws_ss_policy;
 
 typedef struct lws_ss_info {
@@ -379,6 +384,10 @@ typedef struct lws_ss_info {
 	/**< advisory cb about state of stream and QoS status if applicable...
 	 * h_src is only used with sinks and LWSSSCS_SINK_JOIN/_PART events.
 	 * Return nonzero to indicate you want to destroy the stream. */
+#if defined(LWS_WITH_SECURE_STREAMS_BUFFER_DUMP)
+	lws_ss_buffer_dump_cb dump;
+	/**< cb to record needed protocol buffer data*/
+#endif
 	int	    manual_initial_tx_credit;
 	/**< 0 = manage any tx credit automatically, nonzero explicitly sets the
 	 * peer stream to have the given amount of tx credit, if the protocol

@@ -380,10 +380,16 @@ Indicate that the streamtype should use the named auth type from the `auth`
 array in the policy
 
 ### `aws_region`
+
 Indicate which metadata should be used to set aws region for certain streamtype
 
 ### `aws_service`
+
 Indicate which metadata should be used to set aws service for certain streamtype
+
+### `direct_proto_str`
+
+If set to `true`, application can use `lws_ss_set_metadata()` to directly set protocol related string and use `lws_ss_get_metadata` to fetch certain protocol related string.  Please note that currently HTTP header is the supported protocol string.  The `name` parameter is the name of HTTP header name (**with ':'**, e.g. `"Content-Type:"`) and `value` is the header's value. `LWS_WITH_SS_DIRECT_PROTOCOL_STR` flag needs to be configured during compilation for this.  Currently it's only work for non-proxy case.
 
 ### `server_cert`
 

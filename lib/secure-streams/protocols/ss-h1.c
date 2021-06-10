@@ -271,6 +271,39 @@ lws_apply_metadata(lws_ss_handle_t *h, struct lws *wsi, uint8_t *buf,
 }
 
 
+#if defined(LWS_WITH_SS_DIRECT_PROTOCOL_STR)
+static int
+lws_apply_instant_metadata(lws_ss_handle_t *h, struct lws *wsi, uint8_t *buf,
+		   uint8_t **pp, uint8_t *end)
+{
+	lws_ss_metadata_t *imd = h->instant_metadata;
+
+	while (imd) {
+		if (imd->name && imd->value__may_own_heap) {
+			lwsl_debug("%s add header %s %s %d\n", __func__,
+					           imd->name,
+			                           (char *)imd->value__may_own_heap,
+						   imd->value_length);
+			if (lws_add_http_header_by_name(wsi,
+					(const unsigned char *)imd->name,
+					(const unsigned char *)imd->value__may_own_heap,
+					imd->value_length, pp, end))
+			return -1;
+
+			/* it's possible user set content-length directly */
+			if (!strncmp(imd->name,
+				     "content-length", 14) &&
+			    atoi(imd->value__may_own_heap))
+				lws_client_http_body_pending(wsi, 1);
+
+		}
+
+		imd = imd->next;
+	}
+
+	return 0;
+}
+#endif
 /*
  * Check if any metadata headers present in the server headers, and record
  * them into the associated metadata item if so.
@@ -716,6 +749,13 @@ malformed:
 
 		if (lws_apply_metadata(h, wsi, buf, p, end))
 			return -1;
+
+#if defined(LWS_WITH_SS_DIRECT_PROTOCOL_STR)
+		if (h->policy->flags & LWSSSPOLF_DIRECT_PROTO_STR) {
+			if (lws_apply_instant_metadata(h, wsi, buf, p, end))
+				return -1;
+		}
+#endif
 
 #if defined(LWS_WITH_SECURE_STREAMS_AUTH_SIGV4)
 		if (h->policy->auth && h->policy->auth->type &&

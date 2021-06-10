@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2019 - 2020 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2019 - 2021 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -85,12 +85,31 @@ lws_ss_set_metadata(struct lws_ss_handle *h, const char *name,
 {
 	lws_ss_metadata_t *omd = lws_ss_get_handle_metadata(h, name);
 
-	if (!omd) {
-		lwsl_info("%s: unknown metadata %s\n", __func__, name);
-		return 1;
-	}
+	if (omd)
+		return _lws_ss_set_metadata(omd, name, value, len);
 
-	return _lws_ss_set_metadata(omd, name, value, len);
+#if defined(LWS_WITH_SS_DIRECT_PROTOCOL_STR)
+	if (h->policy->flags & LWSSSPOLF_DIRECT_PROTO_STR) {
+		omd = lws_ss_get_handle_instant_metadata(h, name);
+		if (!omd) {
+			omd = lws_zalloc(sizeof(*omd), "imetadata");
+			if (!omd) {
+				lwsl_err("%s OOM\n", __func__);
+				return 1;
+			}
+			omd->name = name;
+			omd->next = h->instant_metadata;
+			h->instant_metadata = omd;
+		}
+		omd->value__may_own_heap = (void *)value;
+		omd->value_length = (uint8_t)len;
+
+		return 0;
+	}
+#endif
+
+	lwsl_info("%s: unknown metadata %s\n", __func__, name);
+	return 1;
 }
 
 int
@@ -141,16 +160,56 @@ lws_ss_get_metadata(struct lws_ss_handle *h, const char *name,
 		    const void **value, size_t *len)
 {
 	lws_ss_metadata_t *omd = lws_ss_get_handle_metadata(h, name);
+#if defined(LWS_WITH_SS_DIRECT_PROTOCOL_STR)
+	int n;
+#endif
 
-	if (!omd) {
-		lwsl_info("%s: unknown metadata %s\n", __func__, name);
+	if (omd) {
+		*value = omd->value__may_own_heap;
+		*len = omd->length;
+
+		return 0;
+	}
+#if defined(LWS_WITH_SS_DIRECT_PROTOCOL_STR)
+	if (!(h->policy->flags & LWSSSPOLF_DIRECT_PROTO_STR))
+		goto bail;
+
+	n = lws_http_string_to_known_header(name, strlen(name));
+	if (n != LWS_HTTP_NO_KNOWN_HEADER) {
+		*len = (size_t)lws_hdr_total_length(h->wsi, n);
+		if (!*len)
+			goto bail;
+		*value = lws_hdr_simple_ptr(h->wsi, n);
+		if (!*value)
+			goto bail;
+
+		return 0;
+	}
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+	n = lws_hdr_custom_length(h->wsi, (const char *)name,
+				  (int)strlen(name));
+	if (n <= 0)
+		goto bail;
+	*value = lwsac_use(&h->imd_ac, (size_t)(n+1), (size_t)(n+1));
+	if (!*value) {
+		lwsl_err("%s ac OOM\n", __func__);
 		return 1;
 	}
-
-	*value = omd->value__may_own_heap;
-	*len = omd->length;
+	if (lws_hdr_custom_copy(h->wsi, (char *)(*value), n+1, name,
+				(int)strlen(name))) {
+		/* waste n+1 bytes until ss is destryed */
+		goto bail;
+	}
+	*len = (size_t)n;
 
 	return 0;
+#endif
+
+bail:
+#endif
+	lwsl_info("%s: unknown metadata %s\n", __func__, name);
+
+	return 1;
 }
 
 lws_ss_metadata_t *
@@ -164,6 +223,24 @@ lws_ss_get_handle_metadata(struct lws_ss_handle *h, const char *name)
 
 	return NULL;
 }
+
+#if defined(LWS_WITH_SS_DIRECT_PROTOCOL_STR)
+lws_ss_metadata_t *
+lws_ss_get_handle_instant_metadata(struct lws_ss_handle *h, const char *name)
+{
+	lws_ss_metadata_t *imd = h->instant_metadata;
+
+	while (imd) {
+		if (!strcmp(name, imd->name))
+			return imd;
+		imd = imd->next;
+	}
+
+	return NULL;
+}
+
+#endif
+
 
 lws_ss_metadata_t *
 lws_ss_policy_metadata(const lws_ss_policy_t *p, const char *name)

@@ -79,6 +79,10 @@ typedef struct lws_ss_handle {
 #endif
 
 	lws_ss_metadata_t	*metadata;
+#if defined(LWS_WITH_SS_DIRECT_PROTOCOL_STR)
+	lws_ss_metadata_t	*instant_metadata; /**< for set instant metadata */
+	struct lwsac            *imd_ac;           /**< for get custom header */
+#endif
 	const lws_ss_policy_t	*rideshare;
 
 #if defined(LWS_WITH_CONMON)
@@ -466,6 +470,11 @@ lws_ss_metadata_t *
 lws_ss_get_handle_metadata(struct lws_ss_handle *h, const char *name);
 lws_ss_metadata_t *
 lws_ss_policy_metadata_index(const lws_ss_policy_t *p, size_t index);
+
+#if defined(LWS_WITH_SS_DIRECT_PROTOCOL_STR)
+lws_ss_metadata_t *
+lws_ss_get_handle_instant_metadata(struct lws_ss_handle *h, const char *name);
+#endif
 
 lws_ss_metadata_t *
 lws_ss_policy_metadata(const lws_ss_policy_t *p, const char *name);

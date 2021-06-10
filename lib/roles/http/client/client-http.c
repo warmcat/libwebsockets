@@ -419,6 +419,21 @@ client_http_body_sent:
 			}
 
 			m = eb.len - n;
+#if defined(LWS_WITH_SECURE_STREAMS_BUFFER_DUMP)
+			do {
+				lws_ss_handle_t *h = (lws_ss_handle_t *)lws_get_opaque_user_data(wsi);
+				if (!h)
+					break;
+
+				if (h->info.dump) {
+					h->info.dump(ss_to_userobj(h),
+						(const uint8_t *)eb.token,
+						(size_t)m,
+						(wsi->http.ah->parser_state ==
+						 WSI_PARSING_COMPLETE) ? 1 : 0);
+				}
+			} while (0);
+#endif
 			if (lws_buflist_aware_finished_consuming(wsi, &eb, m,
 								 buffered,
 								 __func__))

@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2019 - 2020 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2019 - 2021 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -158,6 +158,9 @@ enum {
 	/**< stream is not critical and should be handled as cheap as poss */
 	LWSSSPOLF_PERF						= (1 << 22),
 	/**< capture and report performace information */
+	LWSSSPOLF_DIRECT_PROTO_STR				= (1 << 23),
+	/**< metadata as direct protocol string, e.g. http header */
+
 };
 
 typedef struct lws_ss_trust_store {
@@ -197,6 +200,9 @@ typedef struct lws_ss_metadata {
 
 	uint8_t			value_length; /* only valid if set by policy */
 	uint8_t			value_is_http_token; /* valid if set by policy */
+#if defined(LWS_WITH_SS_DIRECT_PROTOCOL_STR)
+	uint8_t			name_on_lws_heap:1;  /* proxy metatadata does this */
+#endif
 	uint8_t			value_on_lws_heap:1; /* proxy + rx metadata does this */
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
 	uint8_t			pending_onward:1;
