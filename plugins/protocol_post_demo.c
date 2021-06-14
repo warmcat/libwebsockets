@@ -132,6 +132,12 @@ format_result(struct per_session_data__post_demo *pss)
 	start = p;
 	end = p + sizeof(pss->result) - LWS_PRE - 1;
 
+	if (!pss->spa) {
+		p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
+				  "pss->spa already NULL");
+		goto bail;
+	}
+
 	p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
 			"<!DOCTYPE html><html lang=\"en\"><head>"
 			"<meta charset=utf-8 http-equiv=\"Content-Language\" "
@@ -162,6 +168,7 @@ format_result(struct per_session_data__post_demo *pss)
 
 	p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "</body></html>");
 
+bail:
 	return (int)lws_ptr_diff(p, start);
 }
 
