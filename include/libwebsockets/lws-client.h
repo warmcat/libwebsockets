@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2021 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -93,6 +93,9 @@ enum lws_client_connect_ssl_connection_flags {
 	LCCSCF_CONMON				= (1 << 28),
 	/**< If LWS_WITH_CONMON enabled for build, keeps a copy of the
 	 * getaddrinfo results so they can be queried subsequently */
+	LCCSCF_ACCEPT_TLS_DOWNGRADE_REDIRECTS	= (1 << 29),
+	/**< By default lws rejects https redirecting to http.  Set this
+	 * flag on the client connection to allow it. */
 };
 
 /** struct lws_client_connect_info - parameters to connect with when using
