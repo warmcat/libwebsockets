@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "private-lib-core.h"
+
 #include "ssl_pm.h"
 #include "ssl_port.h"
 #include "ssl_dbg.h"
@@ -27,9 +29,7 @@
 #include "mbedtls/entropy.h"
 #include "mbedtls/ctr_drbg.h"
 #include "mbedtls/error.h"
-//#include "mbedtls/certs.h"
 
-#include "private-lib-core.h"
 
 #define X509_INFO_STRING_LENGTH 8192
 
@@ -96,6 +96,19 @@ static void ssl_platform_debug(void *ctx, int level,
 }
 //#endif
 
+#if defined(LWS_HAVE_mbedtls_ssl_set_verify)
+static int
+lws_mbedtls_f_vrfy(void *opaque, mbedtls_x509_crt *x509, int state, uint32_t *pflags)
+{
+	struct ssl_pm *ssl_pm = (struct ssl_pm *)opaque;
+
+	if (ssl_pm->owner->verify_callback)
+		(ssl_pm->owner->verify_callback)(ssl_pm->owner, x509);
+
+	return 0;
+}
+#endif
+
 /**
  * @brief create SSL low-level object
  */
@@ -133,6 +146,10 @@ int ssl_pm_new(SSL *ssl)
     mbedtls_ctr_drbg_init(&ssl_pm->ctr_drbg);
     mbedtls_entropy_init(&ssl_pm->entropy);
     mbedtls_ssl_init(&ssl_pm->ssl);
+
+#if defined(LWS_HAVE_mbedtls_ssl_set_verify)
+    mbedtls_ssl_set_verify(&ssl_pm->ssl, lws_mbedtls_f_vrfy, ssl_pm);
+#endif
 
     ret = mbedtls_ctr_drbg_seed(&ssl_pm->ctr_drbg, mbedtls_entropy_func, &ssl_pm->entropy, pers, pers_len);
     if (ret) {

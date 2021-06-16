@@ -12,14 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+
+#include "private-lib-core.h"
+
 #include "ssl_lib.h"
 #include "ssl_pkey.h"
 #include "ssl_x509.h"
 #include "ssl_cert.h"
 #include "ssl_dbg.h"
 #include "ssl_port.h"
-
-#include "private-lib-core.h"
 
 char *
 lws_strncpy(char *dest, const char *src, size_t size);
@@ -1078,7 +1079,7 @@ void SSL_set_verify_depth(SSL *ssl, int depth)
 /**
  * @brief set the SSL context verifying of the SSL context
  */
-void SSL_CTX_set_verify(SSL_CTX *ctx, int mode, int (*verify_callback)(int, X509_STORE_CTX *))
+void SSL_CTX_set_verify(SSL_CTX *ctx, int mode, int (*verify_callback)(SSL *, mbedtls_x509_crt *))
 {
     SSL_ASSERT3(ctx);
 
@@ -1089,7 +1090,7 @@ void SSL_CTX_set_verify(SSL_CTX *ctx, int mode, int (*verify_callback)(int, X509
 /**
  * @brief set the SSL verifying of the SSL context
  */
-void SSL_set_verify(SSL *ssl, int mode, int (*verify_callback)(int, X509_STORE_CTX *))
+void SSL_set_verify(SSL *ssl, int mode, int (*verify_callback)(SSL *, mbedtls_x509_crt *))
 {
     SSL_ASSERT3(ssl);
 

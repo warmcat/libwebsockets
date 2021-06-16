@@ -31,6 +31,16 @@ struct lws_x509_cert {
 	mbedtls_x509_crt cert; /* has a .next for linked-list / chain */
 };
 
+typedef struct lws_mbedtls_x509_authority
+{
+	mbedtls_x509_buf	keyIdentifier;
+	mbedtls_x509_sequence 	authorityCertIssuer;
+	mbedtls_x509_buf	authorityCertSerialNumber;
+	mbedtls_x509_buf	raw;
+}
+lws_mbedtls_x509_authority;
+
+
 mbedtls_md_type_t
 lws_gencrypto_mbedtls_hash_to_MD_TYPE(enum lws_genhash_types hash_type);
 
@@ -39,3 +49,11 @@ lws_gencrypto_mbedtls_rngf(void *context, unsigned char *buf, size_t len);
 
 int
 lws_tls_session_new_mbedtls(struct lws *wsi);
+
+int
+lws_tls_mbedtls_cert_info(mbedtls_x509_crt *x509, enum lws_tls_cert_info type,
+			  union lws_tls_cert_info_results *buf, size_t len);
+
+int
+lws_x509_get_crt_ext(mbedtls_x509_crt *crt, mbedtls_x509_buf *skid,
+		     lws_mbedtls_x509_authority *akid);

@@ -31,6 +31,8 @@
 
 #include "ssl_code.h"
 
+#include <mbedtls/x509_crt.h>
+
 typedef void SSL_CIPHER;
 
 typedef void X509_STORE_CTX;
@@ -183,7 +185,7 @@ struct ssl_ctx_st
 
     int verify_mode;
 
-    int (*default_verify_callback) (int ok, X509_STORE_CTX *ctx);
+    int (*default_verify_callback) (SSL *, mbedtls_x509_crt *);
 
     long session_timeout;
 
@@ -223,7 +225,7 @@ struct ssl_st
 
     int verify_mode;
 
-    int (*verify_callback) (int ok, X509_STORE_CTX *ctx);
+    int (*verify_callback) (SSL *, mbedtls_x509_crt *);
 
     int rwstate;
     int interrupted_remaining_write;

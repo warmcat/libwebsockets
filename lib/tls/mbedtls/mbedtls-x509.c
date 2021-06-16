@@ -69,31 +69,42 @@ static int
 lws_tls_mbedtls_get_x509_name(mbedtls_x509_name *name,
 			      union lws_tls_cert_info_results *buf, size_t len)
 {
+	int r = -1;
+
+	buf->ns.len = 0;
+
 	while (name) {
-		if (MBEDTLS_OID_CMP(MBEDTLS_OID_AT_CN, &name->oid)) {
+		/*
+		if (MBEDTLS_OID_CMP(type, &name->oid)) {
 			name = name->next;
 			continue;
 		}
+*/
+		lws_strnncpy(&buf->ns.name[buf->ns.len],
+			     (const char *)name->val.p,
+			     name->val.len, len - (size_t)buf->ns.len);
+		buf->ns.len = (int)strlen(buf->ns.name);
 
-		if (len - 1 < name->val.len)
-			return -1;
-
-		memcpy(&buf->ns.name[0], name->val.p, name->val.len);
-		buf->ns.name[name->val.len] = '\0';
-		buf->ns.len = (int)name->val.len;
-
-		return 0;
+		r = 0;
+		name = name->next;
 	}
 
-	return -1;
+	return r;
 }
 
-static int
+
+int
 lws_tls_mbedtls_cert_info(mbedtls_x509_crt *x509, enum lws_tls_cert_info type,
 			  union lws_tls_cert_info_results *buf, size_t len)
 {
+	mbedtls_x509_buf skid;
+	lws_mbedtls_x509_authority akid;
+
 	if (!x509)
 		return -1;
+
+	if (!len)
+		len = sizeof(buf->ns.name);
 
 	switch (type) {
 	case LWS_TLS_CERT_INFO_VALIDITY_FROM:
@@ -180,6 +191,77 @@ lws_tls_mbedtls_cert_info(mbedtls_x509_crt *x509, enum lws_tls_cert_info type,
 		memcpy(buf->ns.name, x509->raw.p, x509->raw.len);
 		break;
 
+	case LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID:
+
+		memset(&akid, 0, sizeof(akid));
+		memset(&skid, 0, sizeof(skid));
+
+		lws_x509_get_crt_ext(x509, &skid, &akid);
+		if (akid.keyIdentifier.tag != MBEDTLS_ASN1_OCTET_STRING)
+			return 1;
+		buf->ns.len = (int)akid.keyIdentifier.len;
+		if (len < (size_t)buf->ns.len)
+			return -1;
+		memcpy(buf->ns.name, akid.keyIdentifier.p, (size_t)buf->ns.len);
+		break;
+
+	case LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID_ISSUER: {
+		mbedtls_x509_sequence * ip;
+
+		memset(&akid, 0, sizeof(akid));
+		memset(&skid, 0, sizeof(skid));
+
+		lws_x509_get_crt_ext(x509, &skid, &akid);
+
+		ip = &akid.authorityCertIssuer;
+
+		buf->ns.len = 0;
+
+		if (!ip)
+			return 1;
+
+		while (ip) {
+			if (akid.keyIdentifier.tag != MBEDTLS_ASN1_OCTET_STRING ||
+			    ip->buf.len < 9 || len < (size_t)ip->buf.len - 9u)
+			break;
+
+			memcpy(buf->ns.name + buf->ns.len, ip->buf.p,
+					(size_t)ip->buf.len - 9);
+			buf->ns.len = buf->ns.len + (int)ip->buf.len - 9;
+
+			ip = ip->next;
+		}
+		break;
+	}
+	case LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID_SERIAL:
+
+		memset(&akid, 0, sizeof(akid));
+		memset(&skid, 0, sizeof(skid));
+
+		lws_x509_get_crt_ext(x509, &skid, &akid);
+
+		if (akid.authorityCertSerialNumber.tag != MBEDTLS_ASN1_OCTET_STRING)
+			return 1;
+		buf->ns.len = (int)akid.authorityCertSerialNumber.len;
+		if (len < (size_t)buf->ns.len)
+			return -1;
+		memcpy(buf->ns.name, akid.authorityCertSerialNumber.p, (size_t)buf->ns.len);
+		break;
+
+	case LWS_TLS_CERT_INFO_SUBJECT_KEY_ID:
+
+		memset(&akid, 0, sizeof(akid));
+		memset(&skid, 0, sizeof(skid));
+
+		lws_x509_get_crt_ext(x509, &skid, &akid);
+
+		if (skid.tag != MBEDTLS_ASN1_OCTET_STRING)
+			return 1;;
+		buf->ns.len = (int)skid.len;
+		if (len < (size_t)buf->ns.len)
+			return -1;
+		memcpy(buf->ns.name, skid.p, (size_t)buf->ns.len);
+		break;
 	default:
 		return -1;
 	}

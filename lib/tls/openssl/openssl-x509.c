@@ -71,17 +71,33 @@ lws_tls_openssl_asn1time_to_unix(ASN1_TIME *as)
 #endif
 }
 
+#if defined(USE_WOLFSSL)
+#define AUTHORITY_KEYID WOLFSSL_AUTHORITY_KEYID
+#endif
+
 int
 lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 			  union lws_tls_cert_info_results *buf, size_t len)
 {
+#ifndef USE_WOLFSSL
+	const unsigned char *dp;
+	ASN1_OCTET_STRING *val;
+	AUTHORITY_KEYID *akid;
+	X509_EXTENSION *ext;
+	int tag, xclass, r = 1;
+	long xlen, loc;
+#endif
 	X509_NAME *xn;
 #if !defined(LWS_PLAT_OPTEE)
 	char *p;
 #endif
 
+	buf->ns.len = 0;
+
 	if (!x509)
 		return -1;
+	if (!len)
+		len = sizeof(buf->ns.name);
 
 #if OPENSSL_VERSION_NUMBER >= 0x10100000L && !defined(X509_get_notBefore)
 #define X509_get_notBefore(x)	X509_getm_notBefore(x)
@@ -180,6 +196,151 @@ lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 
 		return 0;
 	}
+
+#ifndef USE_WOLFSSL
+
+	case LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID:
+		loc = X509_get_ext_by_NID(x509, NID_authority_key_identifier, -1);
+		if (loc < 0)
+			return 1;
+
+		ext = X509_get_ext(x509, (int)loc);
+		if (!ext)
+			return 1;
+#ifndef USE_WOLFSSL
+		akid = (AUTHORITY_KEYID *)X509V3_EXT_d2i(ext);
+#else
+		akid = (AUTHORITY_KEYID *)wolfSSL_X509V3_EXT_d2i(ext);
+#endif
+		if (!akid || !akid->keyid)
+			return 1;
+		val = akid->keyid;
+		dp = (const unsigned char *)val->data;
+		xlen = val->length;
+
+		buf->ns.len = (int)xlen;
+		if (len < (size_t)buf->ns.len)
+			return -1;
+
+		memcpy(buf->ns.name, dp, (size_t)buf->ns.len);
+
+		AUTHORITY_KEYID_free(akid);
+		break;
+
+	case LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID_ISSUER:
+		loc = X509_get_ext_by_NID(x509, NID_authority_key_identifier, -1);
+		if (loc < 0)
+			return 1;
+
+		ext = X509_get_ext(x509, (int)loc);
+		if (!ext)
+			return 1;
+
+#ifndef USE_WOLFSSL
+		akid = (AUTHORITY_KEYID *)X509V3_EXT_d2i(ext);
+#else
+		akid = (AUTHORITY_KEYID *)wolfSSL_X509V3_EXT_d2i(ext);
+#endif
+		if (!akid || !akid->issuer)
+			return 1;
+
+#if defined(LWS_HAVE_OPENSSL_STACK)
+		{
+			const X509V3_EXT_METHOD* method = X509V3_EXT_get(ext);
+			STACK_OF(CONF_VALUE) *cv;
+			int j;
+
+			cv = i2v_GENERAL_NAMES((X509V3_EXT_METHOD*)method, akid->issuer, NULL);
+			if (!cv)
+				goto bail_ak;
+
+		        for (j = 0; j < OPENSSL_sk_num((const OPENSSL_STACK *)&cv); j++) {
+		            CONF_VALUE *nval = OPENSSL_sk_value((const OPENSSL_STACK *)&cv, j);
+		            size_t ln = (nval->name ? strlen(nval->name) : 0),
+		        	   lv = (nval->value ? strlen(nval->value) : 0),
+		        	   l = ln + lv;
+
+		            if (len > l) {
+		        	    if (nval->name)
+		        		    memcpy(buf->ns.name + buf->ns.len, nval->name, ln);
+		        	    if (nval->value)
+		        		    memcpy(buf->ns.name + buf->ns.len + ln, nval->value, lv);
+		        	    buf->ns.len = (int)((size_t)buf->ns.len + l);
+		        	    len -= l;
+		        	    buf->ns.name[buf->ns.len] = '\0';
+
+		        	    r = 0;
+		            }
+		        }
+		}
+
+bail_ak:
+#endif
+		AUTHORITY_KEYID_free(akid);
+
+		return r;
+
+	case LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID_SERIAL:
+		loc = X509_get_ext_by_NID(x509, NID_authority_key_identifier, -1);
+		if (loc < 0)
+			return 1;
+
+		ext = X509_get_ext(x509, (int)loc);
+		if (!ext)
+			return 1;
+		akid = (AUTHORITY_KEYID *)X509V3_EXT_d2i(ext);
+		if (!akid || !akid->serial)
+			return 1;
+
+#if 0
+		// need to handle blobs, and ASN1_INTEGER_get_uint64 not
+		// available on older openssl
+		{
+			uint64_t res;
+			if (ASN1_INTEGER_get_uint64(&res, akid->serial) != 1)
+				break;
+			buf->ns.len = lws_snprintf(buf->ns.name, len, "%llu",
+					(unsigned long long)res);
+		}
+#endif
+		break;
+
+	case LWS_TLS_CERT_INFO_SUBJECT_KEY_ID:
+
+		loc = X509_get_ext_by_NID(x509, NID_subject_key_identifier, -1);
+		if (loc < 0)
+			return 1;
+
+		ext = X509_get_ext(x509, (int)loc);
+		if (!ext)
+			return 1;
+
+		val = X509_EXTENSION_get_data(ext);
+		if (!val)
+			return 1;
+
+#if defined(USE_WOLFSSL)
+		return 1;
+#else
+		dp = (const unsigned char *)val->data;
+
+		if (ASN1_get_object(&dp, &xlen,
+				    &tag, &xclass, val->length) & 0x80)
+			return -1;
+
+		if (tag != V_ASN1_OCTET_STRING) {
+			lwsl_notice("not octet string %d\n", (int)tag);
+			return 1;
+		}
+#endif
+		buf->ns.len = (int)xlen;
+		if (len < (size_t)buf->ns.len)
+			return -1;
+
+		memcpy(buf->ns.name, dp, (size_t)buf->ns.len);
+		break;
+#endif
+
 	default:
 		return -1;
 	}

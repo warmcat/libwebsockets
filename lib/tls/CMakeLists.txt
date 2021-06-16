@@ -121,6 +121,7 @@ if (LWS_WITH_SSL)
 	if (LWS_WITH_MBEDTLS)
 		list(APPEND SOURCES
 			tls/mbedtls/mbedtls-tls.c
+			tls/mbedtls/mbedtls-extensions.c
 			tls/mbedtls/mbedtls-x509.c)
 		if (LWS_WITH_NETWORK)
 			list(APPEND SOURCES
@@ -335,6 +336,7 @@ if (LWS_WITH_SSL AND NOT LWS_WITH_MBEDTLS)
 	# what's in an openssl also installed on the build host
 CHECK_C_SOURCE_COMPILES("#include <openssl/ssl.h>\nint main(void) { STACK_OF(X509) *c = NULL; SSL_CTX *ctx = NULL; return (int)SSL_CTX_get_extra_chain_certs_only(ctx, &c); }\n" LWS_HAVE_SSL_EXTRA_CHAIN_CERTS)
 CHECK_C_SOURCE_COMPILES("#include <openssl/ssl.h>\nint main(void) { EVP_MD_CTX *md_ctx = NULL; EVP_MD_CTX_free(md_ctx); return 0; }\n" LWS_HAVE_EVP_MD_CTX_free)
+CHECK_C_SOURCE_COMPILES("#include <openssl/ssl.h>\nint main(void) { OPENSSL_STACK *x = NULL; return !x; } \n" LWS_HAVE_OPENSSL_STACK)
 set(LWS_HAVE_SSL_EXTRA_CHAIN_CERTS ${LWS_HAVE_SSL_EXTRA_CHAIN_CERTS} PARENT_SCOPE)
 set(LWS_HAVE_EVP_MD_CTX_free ${LWS_HAVE_EVP_MD_CTX_free} PARENT_SCOPE)
 CHECK_FUNCTION_EXISTS(${VARIA}ECDSA_SIG_set0 LWS_HAVE_ECDSA_SIG_set0 PARENT_SCOPE)
@@ -352,6 +354,8 @@ if (LWS_WITH_MBEDTLS)
 		set(LWS_HAVE_X509_VERIFY_PARAM_set1_host 1 PARENT_SCOPE)
 	endif()
 
+	CHECK_C_SOURCE_COMPILES("#include <mbedtls/x509_crt.h>\nint main(void) { struct mbedtls_x509_crt c; c.authority_key_id.keyIdentifier.tag = MBEDTLS_ASN1_OCTET_STRING; return c.authority_key_id.keyIdentifier.tag; }\n" LWS_HAVE_MBEDTLS_AUTH_KEY_ID)
+	CHECK_C_SOURCE_COMPILES("#include <mbedtls/ssl.h>\nint main(void) { void *v = (void *)mbedtls_ssl_set_verify; return !!v; }\n" LWS_HAVE_mbedtls_ssl_set_verify)
 	CHECK_FUNCTION_EXISTS(mbedtls_ssl_conf_alpn_protocols LWS_HAVE_mbedtls_ssl_conf_alpn_protocols PARENT_SCOPE)
 	CHECK_FUNCTION_EXISTS(mbedtls_ssl_get_alpn_protocol LWS_HAVE_mbedtls_ssl_get_alpn_protocol PARENT_SCOPE)
 	CHECK_FUNCTION_EXISTS(mbedtls_ssl_conf_sni LWS_HAVE_mbedtls_ssl_conf_sni PARENT_SCOPE)

@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2021 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -24,12 +24,6 @@
 
 #include "private-lib-core.h"
 #include "private-lib-tls-mbedtls.h"
-
-static int
-OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
-{
-	return 0;
-}
 
 int
 lws_ssl_client_bio_create(struct lws *wsi)
@@ -87,8 +81,10 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		alpn_comma = wsi->a.vhost->tls.alpn;
 
 	if (wsi->stash) {
-		lws_strncpy(hostname, wsi->stash->cis[CIS_HOST], sizeof(hostname));
-		alpn_comma = wsi->stash->cis[CIS_ALPN];
+		lws_strncpy(hostname, wsi->stash->cis[CIS_HOST],
+				sizeof(hostname));
+		if (wsi->stash->cis[CIS_ALPN])
+			alpn_comma = wsi->stash->cis[CIS_ALPN];
 	} else {
 		if (lws_hdr_copy(wsi, hostname, sizeof(hostname),
 				_WSI_TOKEN_CLIENT_ALPN) > 0)
@@ -108,8 +104,6 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	 * use server name indication (SNI), if supported,
 	 * when establishing connection
 	 */
-	SSL_set_verify(wsi->tls.ssl, SSL_VERIFY_PEER,
-		       OpenSSL_client_verify_callback);
 
 	SSL_set_fd(wsi->tls.ssl, (int)wsi->desc.sockfd);
 
@@ -195,16 +189,13 @@ enum lws_ssl_capable_status
 lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 {
 	int m, n = SSL_connect(wsi->tls.ssl), en;
-	const unsigned char *prot;
-	unsigned int len;
 
 	if (n == 1) {
-		SSL_get0_alpn_selected(wsi->tls.ssl, &prot, &len);
-		lws_role_call_alpn_negotiated(wsi, (const char *)prot);
+		lws_tls_server_conn_alpn(wsi);
 #if defined(LWS_WITH_TLS_SESSIONS)
 		lws_tls_session_new_mbedtls(wsi);
 #endif
-		lwsl_info("client connect OK\n");
+		lwsl_info("%s: client connect OK\n", __func__);
 		return LWS_SSL_CAPABLE_DONE;
 	}
 
