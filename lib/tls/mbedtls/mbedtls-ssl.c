@@ -113,7 +113,7 @@ do_err:
 	 * paths to dump what was received as decrypted data from the tls tunnel
 	 */
 	lwsl_notice("%s: len %d\n", __func__, n);
-	lwsl_hexdump_notice(buf, n);
+	lwsl_hexdump_notice(buf, (size_t)n);
 #endif
 
 #if defined(LWS_WITH_SYS_METRICS)
