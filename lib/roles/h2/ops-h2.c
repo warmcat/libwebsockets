@@ -113,8 +113,20 @@ rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 	}
 #endif
 
-	 lwsl_info("%s: wsistate 0x%x, pollout %d\n", __func__,
-		   (unsigned int)wsi->wsistate, pollfd->revents & LWS_POLLOUT);
+	 lwsl_info("%s: %s wsistate 0x%x, events %d, revents %d, pollout %d\n", __func__,
+		   wsi->lc.gutag, (unsigned int)wsi->wsistate,
+		   pollfd->events, pollfd->revents,
+		   pollfd->revents & LWS_POLLOUT);
+
+	 /* !!! */
+	 if (wsi->wsistate == 0x10000013) {
+		 wsi->bugcatcher++;
+		 if (wsi->bugcatcher == 250) {
+			 lwsl_err("%s: BUGCATCHER\n", __func__);
+			 return LWS_HPI_RET_PLEASE_CLOSE_ME;
+		 }
+	 } else
+		 wsi->bugcatcher = 0;
 
 	/*
 	 * something went wrong with parsing the handshake, and
@@ -170,7 +182,9 @@ rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 
 	if (wsi->mux_substream || wsi->upgraded_to_http2) {
 		wsi1 = lws_get_network_wsi(wsi);
-		if (wsi1 && lws_has_buffered_out(wsi1))
+		if (wsi1 && lws_has_buffered_out(wsi1)) {
+
+			lwsl_info("%s: has buffered out\n", __func__);
 			/*
 			 * We cannot deal with any kind of new RX
 			 * because we are dealing with a partial send
@@ -178,6 +192,7 @@ rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 			 * expect to be able to send)
 			 */
 			return LWS_HPI_RET_HANDLED;
+		}
 	}
 
 read:
@@ -205,8 +220,11 @@ read:
 	    !(pollfd->revents & pollfd->events & LWS_POLLIN))
 		return LWS_HPI_RET_HANDLED;
 
+	/* We have something to read... */
+
 	if (!(lwsi_role_client(wsi) &&
 	      (lwsi_state(wsi) != LRS_ESTABLISHED &&
+	       // lwsi_state(wsi) != LRS_H1C_ISSUE_HANDSHAKE2 &&
 	       lwsi_state(wsi) != LRS_H2_WAITING_TO_SEND_HEADERS))) {
 
 		ebuf.token = pt->serv_buf;
@@ -228,7 +246,8 @@ read:
 		// lwsl_notice("%s: Actual RX %d\n", __func__, ebuf.len);
 		// if (ebuf.len > 0)
 		//	lwsl_hexdump_notice(ebuf.token, ebuf.len);
-	}
+	} else
+		lwsl_info("%s: skipped read\n", __func__);
 
 	if (ebuf.len < 0)
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;
@@ -484,9 +503,9 @@ rops_write_role_protocol_h2(struct lws *wsi, unsigned char *buf, size_t len,
 	}
 
 	if (base == LWS_WRITE_HTTP_FINAL || ((*wp) & LWS_WRITE_H2_STREAM_END)) {
-		lwsl_info("%s: %s: setting END_STREAM\n", __func__,
-				lws_wsi_tag(wsi));
 		flags |= LWS_H2_FLAG_END_STREAM;
+		lwsl_info("%s: %s: setting END_STREAM, 0x%x\n", __func__,
+				lws_wsi_tag(wsi), flags);
 		wsi->h2.send_END_STREAM = 1;
 	}
 

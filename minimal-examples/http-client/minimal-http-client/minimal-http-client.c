@@ -259,7 +259,7 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 			    LCCSCF_ACCEPT_TLS_DOWNGRADE_REDIRECTS |
 			    LCCSCF_H2_QUIRK_NGHTTP2_END_STREAM;
 
-	i.alpn = "h2";
+	i.alpn = "h2,http/1.1";
 	if (lws_cmdline_option(a->argc, a->argv, "--h1"))
 		i.alpn = "http/1.1";
 

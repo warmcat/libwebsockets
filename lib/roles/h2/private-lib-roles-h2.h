@@ -272,6 +272,7 @@ struct lws_h2_netconn {
 	unsigned int is_first_header_char:1;
 	unsigned int zero_huff_padding:1;
 	unsigned int last_action_dyntable_resize:1;
+	unsigned int sent_preface:1;
 
 	uint32_t hdr_idx;
 	uint32_t hpack_len;

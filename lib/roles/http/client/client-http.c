@@ -217,7 +217,9 @@ start_ws_handshake:
 #endif
 
 #if defined (LWS_WITH_HTTP2)
-		if (wsi->client_h2_alpn && lwsi_state(wsi) != LRS_H1C_ISSUE_HANDSHAKE2) {
+		if (wsi->client_h2_alpn //&&
+		    //lwsi_state(wsi) != LRS_H1C_ISSUE_HANDSHAKE2
+		    ) {
 			/*
 			 * We connected to the server and set up tls and
 			 * negotiated "h2" or connected as clear text
@@ -227,16 +229,18 @@ start_ws_handshake:
 			 * now, not an h1 client connection.
 			 */
 
-#if defined(LWS_WITH_TLS)
-			if (wsi->tls.use_ssl & LCCSCF_USE_SSL)
-				lws_tls_server_conn_alpn(wsi);
-#endif
+			lwsl_info("%s: doing h2 hello path\n", __func__);
 
-			/* send the H2 preface to legitimize the connection */
-			if (lws_h2_issue_preface(wsi)) {
-				cce = "error sending h2 preface";
-				goto bail3;
-			}
+			/*
+			 * send the H2 preface to legitimize the connection
+			 *
+			 * transitions us to LRS_H2_WAITING_TO_SEND_HEADERS
+			 */
+			if (wsi->client_h2_alpn)
+				if (lws_h2_issue_preface(wsi)) {
+					cce = "error sending h2 preface";
+					goto bail3;
+				}
 
 		//	lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE2);
 			lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
@@ -800,7 +804,18 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			/* wsi has closed */
 			return 1;
 		}
-		return 0;
+
+		/*
+		 * We are redirecting, let's close in order to extricate
+		 * ourselves from the current wsi usage, eg, h2 mux cleanly.
+		 *
+		 * We will notice close_is_redirect and switch to redirect
+		 * flow late in the close action.
+		 */
+
+		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "redir");
+
+		return -1;
 	}
 
 	/* if h1 KA is allowed, enable the queued pipeline guys */
@@ -1094,7 +1109,7 @@ char *
 lws_generate_client_handshake(struct lws *wsi, char *pkt)
 {
 	const char *meth, *pp = lws_hdr_simple_ptr(wsi,
-				_WSI_TOKEN_CLIENT_SENT_PROTOCOLS);
+				_WSI_TOKEN_CLIENT_SENT_PROTOCOLS), *path;
 	char *p = pkt, *p1, *end = p + wsi->a.context->pt_serv_buf_size;
 
 	meth = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD);
@@ -1147,9 +1162,17 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 	 * Sec-WebSocket-Version: 4
 	 */
 
+	path = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI);
+	if (!path) {
+		if (wsi->stash && wsi->stash->cis[CIS_PATH] &&
+			wsi->stash->cis[CIS_PATH][0])
+			path = wsi->stash->cis[CIS_PATH];
+		else
+			path = "/";
+	}
+
 	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
-			  "%s %s HTTP/1.1\x0d\x0a", meth,
-		          lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI));
+			  "%s %s HTTP/1.1\x0d\x0a", meth, path);
 
 	p += lws_snprintf(p,  lws_ptr_diff_size_t(end, p),
 			  "Pragma: no-cache\x0d\x0a"
@@ -1168,7 +1191,9 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 						     _WSI_TOKEN_CLIENT_ORIGIN));
 		else
 			p += lws_snprintf(p,  lws_ptr_diff_size_t(end, p),
-					  "Origin: http://%s\x0d\x0a",
+					  "Origin: %s://%s\x0d\x0a",
+					  wsi->flags & LCCSCF_USE_SSL ?
+							 "https" : "http",
 					  lws_hdr_simple_ptr(wsi,
 						     _WSI_TOKEN_CLIENT_ORIGIN));
 	}
@@ -1523,8 +1548,7 @@ static uint8_t hnames2[] = {
 	_WSI_TOKEN_CLIENT_ORIGIN,
 	_WSI_TOKEN_CLIENT_SENT_PROTOCOLS,
 	_WSI_TOKEN_CLIENT_METHOD,
-	_WSI_TOKEN_CLIENT_IFACE,
-	_WSI_TOKEN_CLIENT_ALPN
+	_WSI_TOKEN_CLIENT_IFACE
 };
 
 /**
@@ -1545,9 +1569,9 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 #if defined(LWS_ROLE_WS)
 	struct _lws_websocket_related *ws;
 #endif
-	char *stash, *p;
+	const char *cisin[CIS_COUNT];
 	struct lws *wsi;
-	size_t size = 0;
+	size_t o;
 	int n;
 
 	if (!pwsi)
@@ -1559,7 +1583,7 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	lwsl_debug("%s: %s: redir %d: %s\n", __func__, lws_wsi_tag(wsi),
 			wsi->redirects, address);
 
-	if (wsi->redirects == 3) {
+	if (wsi->redirects == 4) {
 		lwsl_err("%s: Too many redirects\n", __func__);
 		return NULL;
 	}
@@ -1570,51 +1594,23 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	 * but leave our wsi extant and still bound to whatever vhost it was
 	 */
 
+	o = path[0] == '/' && path[1] == '/';
+
+	memset((char *)cisin, 0, sizeof(cisin));
+
+	cisin[CIS_ADDRESS]	= address;
+	cisin[CIS_PATH]		= path + o;
+	cisin[CIS_HOST]		= host;
+
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(hnames2); n++)
-		size += (unsigned int)lws_hdr_total_length(wsi, hnames2[n]) + 1u;
+		cisin[n + 3] = lws_hdr_simple_ptr(wsi, hnames2[n]);
 
-	if (size < (size_t)lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_URI) + 1)
-		size = (unsigned int)lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_URI) + 1u;
+#if defined(LWS_WITH_TLS)
+	cisin[CIS_ALPN]		= wsi->alpn;
+#endif
 
-	/*
-	 * The incoming address and host can be from inside the existing ah
-	 * we are going to detach and reattch
-	 */
-
-	size += strlen(path) + 1 + strlen(address) + 1 + strlen(host) + 1 + 1;
-
-	p = stash = lws_malloc(size, __func__);
-	if (!stash)
+	if (lws_client_stash_create(wsi, cisin))
 		return NULL;
-
-	/*
-	 * _WSI_TOKEN_CLIENT_ORIGIN,
-	 * _WSI_TOKEN_CLIENT_SENT_PROTOCOLS,
-	 * _WSI_TOKEN_CLIENT_METHOD,
-	 * _WSI_TOKEN_CLIENT_IFACE,
-	 * _WSI_TOKEN_CLIENT_ALPN
-	 * address
-	 * host
-	 * path
-	 */
-
-	for (n = 0; n < (int)LWS_ARRAY_SIZE(hnames2); n++)
-		if (lws_hdr_total_length(wsi, hnames2[n]) &&
-		    lws_hdr_simple_ptr(wsi, hnames2[n])) {
-			memcpy(p, lws_hdr_simple_ptr(wsi, hnames2[n]), (size_t)(
-			       lws_hdr_total_length(wsi, hnames2[n]) + 1));
-			p += (size_t)(lws_hdr_total_length(wsi, hnames2[n]) + 1);
-		} else
-			*p++ = '\0';
-
-	memcpy(p, address, strlen(address) + (size_t)1);
-	address = p;
-	p += strlen(address) + 1;
-	memcpy(p, host, strlen(host) + (size_t)1);
-	host = p;
-	p += strlen(host) + 1;
-	memcpy(p, path, strlen(path) + (size_t)1);
-	path = p;
 
 	if (!port) {
 		lwsl_info("%s: forcing port 443\n", __func__);
@@ -1623,8 +1619,16 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 		ssl = 1;
 	}
 
-	lwsl_info("redirect ads='%s', port=%d, path='%s', ssl = %d, pifds %d\n",
-		   address, port, path, ssl, wsi->position_in_fds_table);
+	wsi->c_port = (uint16_t)port;
+
+	wsi->flags = (wsi->flags & (~LCCSCF_USE_SSL)) |
+					(ssl ? LCCSCF_USE_SSL : 0);
+
+	lwsl_notice("%s: REDIRECT %s:%d, path='%s', ssl = %d, alpn='%s'\n",
+		    __func__, address, port, path, ssl, cisin[CIS_ALPN]);
+
+	if (!cisin[CIS_ALPN][0])
+		assert(0);
 
 	lws_pt_lock(pt, __func__);
 	__remove_wsi_socket_from_fds(wsi);
@@ -1636,6 +1640,14 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 		wsi->ws = NULL;
 	}
 #endif
+
+	/*
+	 * After this point we can't trust the incoming strings like address,
+	 * path any more, since they may have been pointing into the old ah.
+	 *
+	 * We must use the copies in the wsi->stash instead if we want them.
+	 */
+
 	__lws_reset_wsi(wsi); /* detaches ah here */
 #if defined(LWS_ROLE_WS)
 	if (weak)
@@ -1643,102 +1655,11 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 #endif
 	wsi->client_pipeline = 1;
 
-	/* close the connection by hand */
-
-#if defined(LWS_WITH_TLS)
-	lws_ssl_close(wsi);
-#endif
-
-	if (wsi->role_ops &&
-	    lws_rops_fidx(wsi->role_ops, LWS_ROPS_close_kill_connection))
-		lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_close_kill_connection).
-						close_kill_connection(wsi, 1);
-
-	if (wsi->a.context->event_loop_ops->close_handle_manually)
-		wsi->a.context->event_loop_ops->close_handle_manually(wsi);
-	else
-		if (wsi->desc.sockfd != LWS_SOCK_INVALID)
-			compatible_close(wsi->desc.sockfd);
-
-#if defined(LWS_WITH_TLS)
-	if (!ssl)
-		wsi->tls.use_ssl &= (unsigned int)~LCCSCF_USE_SSL;
-	else
-		wsi->tls.use_ssl |= LCCSCF_USE_SSL;
-#else
-	if (ssl) {
-		lwsl_err("%s: not configured for ssl\n", __func__);
-		goto bail;
-	}
-#endif
-
-	if (wsi->a.protocol && wsi->role_ops && wsi->protocol_bind_balance) {
-		wsi->a.protocol->callback(wsi,
-				wsi->role_ops->protocol_unbind_cb[
-				       !!lwsi_role_server(wsi)],
-				       wsi->user_space, (void *)__func__, 0);
-
-		wsi->protocol_bind_balance = 0;
-	}
-
-	wsi->desc.sockfd = LWS_SOCK_INVALID;
-	lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED, &role_ops_h1);
-//	wsi->a.protocol = NULL;
-	if (wsi->a.protocol)
-		lws_bind_protocol(wsi, wsi->a.protocol, "client_reset");
-	wsi->pending_timeout = NO_PENDING_TIMEOUT;
-	wsi->c_port = (uint16_t)port;
-	wsi->hdr_parsing_completed = 0;
-
-	if (lws_header_table_attach(wsi, 0)) {
-		lwsl_err("%s: failed to get ah\n", __func__);
-		goto bail;
-	}
-	//_lws_header_table_reset(wsi->http.ah);
-
-	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS, address))
-		goto bail;
-
-	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_HOST, host))
-		goto bail;
-
 	/*
-	 * _WSI_TOKEN_CLIENT_ORIGIN,
-	 * _WSI_TOKEN_CLIENT_SENT_PROTOCOLS,
-	 * _WSI_TOKEN_CLIENT_METHOD,
-	 * _WSI_TOKEN_CLIENT_IFACE,
-	 * _WSI_TOKEN_CLIENT_ALPN
-	 * address
-	 * host
-	 * path
+	 * Will complete at close flow
 	 */
 
-	p = stash;
-	for (n = 0; n < (int)LWS_ARRAY_SIZE(hnames2); n++) {
-		if (lws_hdr_simple_create(wsi, hnames2[n], p))
-			goto bail;
-		p += lws_hdr_total_length(wsi, hnames2[n]) + 1;
-	}
-
-	stash[0] = '/';
-	memmove(&stash[1], path, size - 1 < strlen(path) + 1 ?
-					size - 1 : strlen(path) + (size_t)1);
-	if (lws_hdr_simple_create(wsi, _WSI_TOKEN_CLIENT_URI, stash))
-		goto bail;
-
-	lws_free_set_NULL(stash);
-
-#if defined(LWS_WITH_HTTP2)
-	if (wsi->client_mux_substream)
-		wsi->h2.END_STREAM = wsi->h2.END_HEADERS = 0;
-#endif
-
-	*pwsi = lws_client_connect_2_dnsreq(wsi);
+	wsi->close_is_redirect = 1;
 
 	return *pwsi;
-
-bail:
-	lws_free_set_NULL(stash);
-
-	return NULL;
 }

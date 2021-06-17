@@ -116,8 +116,12 @@ lws_tls_server_conn_alpn(struct lws *wsi)
 	char cstr[10];
 	unsigned len;
 
-	if (!wsi->tls.ssl)
+	lwsl_info("%s\n", __func__);
+
+	if (!wsi->tls.ssl) {
+		lwsl_err("%s: non-ssl\n", __func__);
 		return 0;
+	}
 
 	SSL_get0_alpn_selected(wsi->tls.ssl, &name, &len);
 	if (!len) {
@@ -131,10 +135,12 @@ lws_tls_server_conn_alpn(struct lws *wsi)
 	memcpy(cstr, name, len);
 	cstr[len] = '\0';
 
-	lwsl_info("negotiated '%s' using ALPN\n", cstr);
+	lwsl_info("%s: negotiated '%s' using ALPN\n", __func__, cstr);
 	wsi->tls.use_ssl |= LCCSCF_USE_SSL;
 
 	return lws_role_call_alpn_negotiated(wsi, (const char *)cstr);
+#else
+	lwsl_err("%s: openssl too old\n", __func__);
 #endif // OPENSSL_VERSION_NUMBER >= 0x10002000L
 
 	return 0;

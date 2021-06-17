@@ -475,7 +475,7 @@ ads_known:
 			errno_copy = 999;
 #endif
 
-		lwsl_debug("%s: connect: errno: %d\n", __func__, errno_copy);
+		lwsl_debug("%s: connect: fd %d errno: %d\n", __func__, wsi->desc.sockfd, errno_copy);
 
 		if (errno_copy &&
 		    errno_copy != LWS_EALREADY &&

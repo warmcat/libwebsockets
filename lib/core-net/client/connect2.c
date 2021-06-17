@@ -145,6 +145,26 @@ lws_client_connect_2_dnsreq(struct lws *wsi)
 	}
 
 	/*
+	 * clients who will create their own fresh connection keep a copy of
+	 * the hostname they originally connected to, in case other connections
+	 * want to use it too
+	 */
+
+	if (!wsi->cli_hostname_copy) {
+		if (wsi->stash && wsi->stash->cis[CIS_HOST])
+			wsi->cli_hostname_copy =
+					lws_strdup(wsi->stash->cis[CIS_HOST]);
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+		else {
+			char *pa = lws_hdr_simple_ptr(wsi,
+					      _WSI_TOKEN_CLIENT_PEER_ADDRESS);
+			if (pa)
+				wsi->cli_hostname_copy = lws_strdup(pa);
+		}
+#endif
+	}
+
+	/*
 	 * The first job is figure out if we want to pipeline on or just join
 	 * an existing "active connection" to the same place
 	 */
@@ -212,26 +232,6 @@ lws_client_connect_2_dnsreq(struct lws *wsi)
 	}
 
 solo:
-
-	/*
-	 * clients who will create their own fresh connection keep a copy of
-	 * the hostname they originally connected to, in case other connections
-	 * want to use it too
-	 */
-
-	if (!wsi->cli_hostname_copy) {
-		if (wsi->stash && wsi->stash->cis[CIS_HOST])
-			wsi->cli_hostname_copy =
-					lws_strdup(wsi->stash->cis[CIS_HOST]);
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-		else {
-			char *pa = lws_hdr_simple_ptr(wsi,
-					      _WSI_TOKEN_CLIENT_PEER_ADDRESS);
-			if (pa)
-				wsi->cli_hostname_copy = lws_strdup(pa);
-		}
-#endif
-	}
 
 	/*
 	 * If we made our own connection, and we're doing a method that can

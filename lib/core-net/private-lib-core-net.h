@@ -540,7 +540,7 @@ struct lws_vhost {
 #endif
 
 #if defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
-	int8_t		ss_refcount;
+	int8_t			ss_refcount;
 	/**< refcount of number of ss connections with streamtypes using this
 	 * trust store */
 #endif
@@ -742,6 +742,7 @@ struct lws {
 
 #if defined(LWS_WITH_TLS)
 	struct lws_lws_tls		tls;
+	char				alpn[24];
 #endif
 
 	lws_sock_file_fd_type		desc; /* .filefd / .sockfd */
@@ -758,6 +759,8 @@ struct lws {
 	int				flags;
 #endif
 	unsigned int			cache_secs;
+
+	short				bugcatcher;
 
 	unsigned int			hdr_parsing_completed:1;
 	unsigned int			mux_substream:1;
@@ -837,6 +840,8 @@ struct lws {
 	 * this activity, and will report the failure */
 	unsigned int			tls_session_reused:1;
 	unsigned int			perf_done:1;
+	unsigned int			close_is_redirect:1;
+	unsigned int			client_mux_substream_was:1;
 #endif
 
 #ifdef _WIN32
@@ -1350,6 +1355,9 @@ void
 __lws_same_vh_protocol_remove(struct lws *wsi);
 void
 lws_same_vh_protocol_insert(struct lws *wsi, int n);
+
+int
+lws_client_stash_create(struct lws *wsi, const char **cisin);
 
 void
 lws_seq_destroy_all_on_pt(struct lws_context_per_thread *pt);

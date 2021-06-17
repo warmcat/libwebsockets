@@ -119,17 +119,17 @@ endif()
 	add_test(NAME http-client-multi-h1 COMMAND lws-minimal-http-client-multi
 			--h1 -l --port ${PORT_HCM_SRV} -d1151)
 	add_test(NAME http-client-multi-pipe COMMAND lws-minimal-http-client-multi
-			-p -l --port ${PORT_HCM_SRV})
+			-p -l --port ${PORT_HCM_SRV} -d1151)
 	add_test(NAME http-client-multi-h1-pipe COMMAND lws-minimal-http-client-multi
-			--h1 -p -l --port ${PORT_HCM_SRV})
+			--h1 -p -l --port ${PORT_HCM_SRV} -d1151)
 	add_test(NAME http-client-multi-stag COMMAND lws-minimal-http-client-multi
-			-s -l --port ${PORT_HCM_SRV})
+			-s -l --port ${PORT_HCM_SRV} -d1151)
 	add_test(NAME http-client-multi-stag-h1 COMMAND lws-minimal-http-client-multi
-			--h1 -s -l --port ${PORT_HCM_SRV})
+			--h1 -s -l --port ${PORT_HCM_SRV} -d1151)
 	add_test(NAME http-client-multi-stag-pipe COMMAND lws-minimal-http-client-multi
-			-p -s -l --port ${PORT_HCM_SRV})
+			-p -s -l --port ${PORT_HCM_SRV} -d1151)
 	add_test(NAME http-client-multi-stag-h1-pipe COMMAND lws-minimal-http-client-multi
-			--h1 -p -s -l --port ${PORT_HCM_SRV})
+			--h1 -p -s -l --port ${PORT_HCM_SRV} -d1151)
 
 	# confirm that the pipelined mode really is doing it in one connection
 	add_test(NAME http-client-multi-restrict-pipe COMMAND lws-minimal-http-client-multi -d1151 --limit 1 -p -l --port ${PORT_HCM_SRV})
@@ -137,9 +137,9 @@ endif()
 	add_test(NAME http-client-multi-restrict-stag-pipe COMMAND lws-minimal-http-client-multi -d1151 --limit 1 -p -s -l --port ${PORT_HCM_SRV})
 	add_test(NAME http-client-multi-restrict-stag-h1-pipe COMMAND lws-minimal-http-client-multi -d1151 --limit 1 --h1 -p -s -l --port ${PORT_HCM_SRV})
 	# confirm that we do fail with a one connection limit and no pipelining
-	add_test(NAME http-client-multi-restrict-nopipe-fail COMMAND lws-minimal-http-client-multi --limit 1 -l --port ${PORT_HCM_SRV})
+	add_test(NAME http-client-multi-restrict-nopipe-fail COMMAND lws-minimal-http-client-multi --limit 1 -l --port ${PORT_HCM_SRV} -d1151)
 	set_property(TEST http-client-multi-restrict-nopipe-fail PROPERTY WILL_FAIL TRUE)
-	add_test(NAME http-client-multi-restrict-h1-nopipe-fail COMMAND lws-minimal-http-client-multi --limit 1 --h1 -l --port ${PORT_HCM_SRV})
+	add_test(NAME http-client-multi-restrict-h1-nopipe-fail COMMAND lws-minimal-http-client-multi --limit 1 --h1 -l --port ${PORT_HCM_SRV} -d1151)
 	set_property(TEST http-client-multi-restrict-h1-nopipe-fail PROPERTY WILL_FAIL TRUE)
 
 	set_tests_properties(http-client-multi-restrict-pipe
@@ -163,21 +163,21 @@ endif()
 
 	# POSTs against local http-server-form-post
 	add_test(NAME http-client-multi-post COMMAND lws-minimal-http-client-multi
-			--post -l --port 1${PORT_HCM_SRV})
+			--post -l --port 1${PORT_HCM_SRV} -d1151)
 	add_test(NAME http-client-multi-post-h1 COMMAND lws-minimal-http-client-multi
-			--post --h1 -l --port 1${PORT_HCM_SRV})
+			--post --h1 -l --port 1${PORT_HCM_SRV} -d1151)
 	add_test(NAME http-client-multi-post-pipe COMMAND lws-minimal-http-client-multi
-			--post -p -l --port 1${PORT_HCM_SRV})
+			--post -p -l --port 1${PORT_HCM_SRV} -d1151)
 	add_test(NAME http-client-multi-post-h1-pipe COMMAND lws-minimal-http-client-multi
-			--post --h1 -p -l --port 1${PORT_HCM_SRV})
+			--post --h1 -p -l --port 1${PORT_HCM_SRV} -d1151)
 	add_test(NAME http-client-multi-post-stag COMMAND lws-minimal-http-client-multi
-			--post -s -l -d1151 --port 1${PORT_HCM_SRV})
+			--post -s -l -d1151 --port 1${PORT_HCM_SRV} -d1151)
 	add_test(NAME http-client-multi-post-stag-h1 COMMAND lws-minimal-http-client-multi
-			--post --h1 -d1151 -s -l --port 1${PORT_HCM_SRV})
+			--post --h1 -d1151 -s -l --port 1${PORT_HCM_SRV} -d1151)
 	add_test(NAME http-client-multi-post-stag-pipe COMMAND lws-minimal-http-client-multi
-			--post -p -s -l --port 1${PORT_HCM_SRV})
+			--post -p -s -l --port 1${PORT_HCM_SRV} -d1151)
 	add_test(NAME http-client-multi-post-stag-h1-pipe COMMAND lws-minimal-http-client-multi
-			--post --h1 -p -s -l --port 1${PORT_HCM_SRV})
+			--post --h1 -p -s -l --port 1${PORT_HCM_SRV} -d1151)
 	set_tests_properties(http-client-multi-post
 			     http-client-multi-post-h1
 			     http-client-multi-post-pipe

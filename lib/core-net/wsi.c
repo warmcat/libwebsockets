@@ -43,10 +43,12 @@ void lwsi_set_role(struct lws *wsi, lws_wsi_state_t role)
 
 void lwsi_set_state(struct lws *wsi, lws_wsi_state_t lrs)
 {
-	wsi->wsistate = (wsi->wsistate & (unsigned int)(~LRS_MASK)) | lrs;
+	lws_wsi_state_t old = wsi->wsistate;
 
-	lwsl_debug("lwsi_set_state(%s, 0x%lx)\n", lws_wsi_tag(wsi),
-					(unsigned long)wsi->wsistate);
+	wsi->wsistate = (old & (unsigned int)(~LRS_MASK)) | lrs;
+
+	lwsl_debug("lwsi_set_state(%s): 0x%lx -> 0x%lx)\n", lws_wsi_tag(wsi),
+			(unsigned long)old, (unsigned long)wsi->wsistate);
 }
 #endif
 
@@ -56,6 +58,7 @@ lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi)
 {
 	if (wsi->a.vhost == vh)
 		return;
+
 	lws_context_lock(vh->context, __func__); /* ---------- context { */
 	wsi->a.vhost = vh;
 
@@ -68,6 +71,7 @@ lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi)
 
 	vh->count_bound_wsi++;
 	lws_context_unlock(vh->context); /* } context ---------- */
+
 	lwsl_debug("%s: vh %s: wsi %s/%s, count_bound_wsi %d\n", __func__,
 		   vh->name, wsi->role_ops ? wsi->role_ops->name : "none",
 		   wsi->a.protocol ? wsi->a.protocol->name : "none",

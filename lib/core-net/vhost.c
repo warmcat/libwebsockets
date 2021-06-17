@@ -557,6 +557,7 @@ lws_create_vhost(struct lws_context *context,
 #endif
 	struct lws_protocols *lwsp;
 	int m, f = !info->pvo, fx = 0, abs_pcol_count = 0, sec_pcol_count = 0;
+	const char *name = "default";
 	char buf[96];
 	char *p;
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
@@ -564,10 +565,13 @@ lws_create_vhost(struct lws_context *context,
 #endif
 	int n;
 
+	if (info->vhost_name)
+		name = info->vhost_name;
+
 	if (lws_fi(&info->fic, "vh_create_oom"))
 		vh = NULL;
 	else
-		vh = lws_zalloc(sizeof(*vh)
+		vh = lws_zalloc(sizeof(*vh) + strlen(name) + 1
 #if defined(LWS_WITH_EVENT_LIBS)
 			+ context->event_loop_ops->evlib_size_vh
 #endif
@@ -577,7 +581,12 @@ lws_create_vhost(struct lws_context *context,
 
 #if defined(LWS_WITH_EVENT_LIBS)
 	vh->evlib_vh = (void *)&vh[1];
+	vh->name = (const char *)vh->evlib_vh +
+			context->event_loop_ops->evlib_size_vh;
+#else
+	vh->name = (const char *)&vh[1];
 #endif
+	memcpy((char *)vh->name, name, strlen(name) + 1);
 
 #if LWS_MAX_SMP > 1
 	lws_mutex_refcount_init(&vh->mr);
@@ -587,10 +596,6 @@ lws_create_vhost(struct lws_context *context,
 		pcols = &protocols_dummy[0];
 
 	vh->context = context;
-	if (!info->vhost_name)
-		vh->name = "default";
-	else
-		vh->name = info->vhost_name;
 	{
 		char *end = buf + sizeof(buf) - 1;
 		p = buf;

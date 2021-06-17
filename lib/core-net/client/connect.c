@@ -60,7 +60,7 @@ lws_http_client_connect_via_info2(struct lws *wsi)
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(hnames); n++)
 		if (hnames[n] && stash->cis[n] &&
 		    lws_hdr_simple_create(wsi, hnames[n], stash->cis[n]))
-			goto bail1;
+			goto bail;
 
 #if defined(LWS_WITH_SOCKS5)
 	if (!wsi->a.vhost->socks_proxy_port)
@@ -70,13 +70,56 @@ lws_http_client_connect_via_info2(struct lws *wsi)
 no_ah:
 	return lws_client_connect_2_dnsreq(wsi);
 
-bail1:
+bail:
 #if defined(LWS_WITH_SOCKS5)
 	if (!wsi->a.vhost->socks_proxy_port)
 		lws_free_set_NULL(wsi->stash);
 #endif
 
+	lws_free_set_NULL(wsi->stash);
+
 	return NULL;
+}
+
+int
+lws_client_stash_create(struct lws *wsi, const char **cisin)
+{
+	size_t size;
+	char *pc;
+	int n;
+
+	size = sizeof(*wsi->stash);
+
+	/*
+	 * Let's overallocate the stash object with space for all the args
+	 * in one hit.
+	 */
+	for (n = 0; n < CIS_COUNT; n++)
+		if (cisin[n])
+			size += strlen(cisin[n]) + 1;
+
+	if (wsi->stash)
+		lws_free_set_NULL(wsi->stash);
+
+	wsi->stash = lws_malloc(size, "client stash");
+	if (!wsi->stash)
+		return 1;
+
+	/* all the pointers default to NULL, but no need to zero the args */
+	memset(wsi->stash, 0, sizeof(*wsi->stash));
+
+	pc = (char *)&wsi->stash[1];
+
+	for (n = 0; n < CIS_COUNT; n++)
+		if (cisin[n]) {
+			size_t mm;
+			wsi->stash->cis[n] = pc;
+			mm = strlen(cisin[n]) + 1;
+			memcpy(pc, cisin[n], mm);
+			pc += mm;
+		}
+
+	return 0;
 }
 
 struct lws *
@@ -86,10 +129,8 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	struct lws *wsi, *safe = NULL;
 	const struct lws_protocols *p;
 	const char *cisin[CIS_COUNT];
-	struct lws_vhost *vh, *v;
-	size_t size;
-	int n, tsi;
-	char *pc;
+	struct lws_vhost *vh;
+	int tsi;
 
 	if (i->context->requested_stop_internal_loops)
 		return NULL;
@@ -118,11 +159,10 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	wsi = __lws_wsi_create_with_role(i->context, tsi, NULL);
 	lws_context_unlock(i->context);
 	if (wsi == NULL)
-		goto bail;
+		return NULL;
 
 	vh = i->vhost;
 	if (!vh) {
-
 #if defined(LWS_WITH_TLS_JIT_TRUST)
 		if (lws_tls_jit_trust_vhost_bind(i->context, i->address, &vh))
 #endif
@@ -199,23 +239,11 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	if (i->ssl_connection & LCCSCF_WAKE_SUSPEND__VALIDITY)
 		wsi->conn_validity_wakesuspend = 1;
 
-	if (!i->vhost) {
-		v = i->context->vhost_list;
-
-		if (!v) { /* coverity */
-			lwsl_err("%s: no vhost\n", __func__);
-			goto bail;
-		}
-		if (!strcmp(v->name, "system"))
-			v = v->vhost_next;
-	} else
-		v = i->vhost;
-
-	lws_vhost_bind_wsi(v, wsi);
+	lws_vhost_bind_wsi(vh, wsi);
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	/* additionally inerit from vhost we bound to */
-	lws_fi_inherit_copy(&wsi->fic, &v->fic, "wsi", i->fi_wsi_name);
+	lws_fi_inherit_copy(&wsi->fic, &vh->fic, "wsi", i->fi_wsi_name);
 #endif
 
 	if (!wsi->a.vhost) {
@@ -324,23 +352,13 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	cisin[CIS_IFACE]	= i->iface;
 	cisin[CIS_ALPN]		= i->alpn;
 
-	size = sizeof(*wsi->stash);
+	if (lws_client_stash_create(wsi, cisin))
+		goto bail;
 
-	/*
-	 * Let's overallocate the stash object with space for all the args
-	 * in one hit.
-	 */
-	for (n = 0; n < CIS_COUNT; n++)
-		if (cisin[n])
-			size += strlen(cisin[n]) + 1;
-
-	wsi->stash = lws_malloc(size, "client stash");
-	if (!wsi->stash) {
-		lwsl_err("%s: OOM\n", __func__);
-		goto bail1;
-	}
-	/* all the pointers default to NULL, but no need to zero the args */
-	memset(wsi->stash, 0, sizeof(*wsi->stash));
+#if defined(LWS_WITH_TLS)
+	if (i->alpn)
+		lws_strncpy(wsi->alpn, i->alpn, sizeof(wsi->alpn));
+#endif
 
 	wsi->a.opaque_user_data = wsi->stash->opaque_user_data =
 		i->opaque_user_data;
@@ -381,17 +399,6 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 			     wsi->role_ops->name, i->address);
 
 	lws_metrics_tag_wsi_add(wsi, "vh", wsi->a.vhost->name);
-
-	pc = (char *)&wsi->stash[1];
-
-	for (n = 0; n < CIS_COUNT; n++)
-		if (cisin[n]) {
-			size_t mm;
-			wsi->stash->cis[n] = pc;
-			mm = strlen(cisin[n]) + 1;
-			memcpy(pc, cisin[n], mm);
-			pc += mm;
-		}
 
 	/*
 	 * at this point user callbacks like
@@ -519,10 +526,8 @@ bail3:
 	return NULL;
 #endif
 
-bail1:
-	lws_free_set_NULL(wsi->stash);
-
 bail:
+	lws_free_set_NULL(wsi->stash);
 	lws_fi_destroy(&wsi->fic);
 	lws_free(wsi);
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
