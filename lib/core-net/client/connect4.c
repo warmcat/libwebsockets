@@ -62,7 +62,7 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 		if (!cpa)
 			goto failed;
 
-		lwsl_info("%s: going via proxy\n", __func__);
+		lwsl_wsi_info(wsi, "going via proxy");
 
 		plen = lws_snprintf((char *)pt->serv_buf, 256,
 			"CONNECT %s:%u HTTP/1.1\x0d\x0a"
@@ -99,7 +99,7 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 			      (unsigned int)plen,
 			 MSG_NOSIGNAL);
 		if (n < 0) {
-			lwsl_debug("ERROR writing to proxy socket\n");
+			lwsl_wsi_debug(wsi, "ERROR writing to proxy socket");
 			cce = "proxy write failed";
 			goto failed;
 		}
@@ -158,11 +158,11 @@ send_hs:
 		 */
 		lws_callback_on_writable(wsi_piggyback);
 
-		lwsl_info("%s: %s: waiting to send hdrs (par state 0x%x)\n",
-			    __func__, wsi->lc.gutag, lwsi_state(wsi_piggyback));
+		lwsl_wsi_info(wsi, "waiting to send hdrs (par state 0x%x)",
+			      lwsi_state(wsi_piggyback));
 	} else {
-		lwsl_info("%s: %s: %s %s client created own conn "
-			  "(raw %d) vh %sm st 0x%x\n", __func__, wsi->lc.gutag,
+		lwsl_wsi_info(wsi, "%s %s client created own conn "
+			  "(raw %d) vh %sm st 0x%x",
 			  wsi->role_ops->name, wsi->a.protocol->name, rawish,
 			  wsi->a.vhost->name, lwsi_state(wsi));
 
@@ -200,12 +200,10 @@ send_hs:
 				case CCTLS_RETURN_DONE:
 					break;
 				case CCTLS_RETURN_RETRY:
-					lwsl_debug("%s: create_tls RETRY\n",
-							__func__);
+					lwsl_wsi_debug(wsi, "create_tls RETRY");
 					return wsi;
 				default:
-					lwsl_debug("%s: create_tls FAIL\n",
-							__func__);
+					lwsl_wsi_debug(wsi, "create_tls FAIL");
 					goto failed;
 				}
 
@@ -216,9 +214,8 @@ send_hs:
 				 * LRS_H2_WAITING_TO_SEND_HEADERS already.
 				 */
 
-				lwsl_notice("%s: %s: tls established st 0x%x, "
-					    "client_h2_alpn %d\n", __func__,
-					    wsi->lc.gutag, lwsi_state(wsi),
+				lwsl_wsi_notice(wsi, "tls established st 0x%x, "
+					    "client_h2_alpn %d", lwsi_state(wsi),
 					    wsi->client_h2_alpn);
 
 				if (lwsi_state(wsi) !=
@@ -249,7 +246,7 @@ send_hs:
 						(enum lws_callback_reasons)m,
 						wsi->user_space, NULL, 0);
 				if (n < 0) {
-					lwsl_info("RAW_PROXY_CLI_ADOPT err\n");
+					lwsl_wsi_info(wsi, "RAW_PROXY_CLI_ADOPT err");
 					goto failed;
 				}
 			}
@@ -264,8 +261,7 @@ send_hs:
 					return wsi;
 				}
 #endif
-				lwsl_info("%s: settings LRS_MQTTC_IDLE\n",
-					  __func__);
+				lwsl_wsi_info(wsi, "settings LRS_MQTTC_IDLE");
 				lwsi_set_state(wsi, LRS_MQTTC_IDLE);
 
 				/*
@@ -282,8 +278,7 @@ send_hs:
 				pfd.events = LWS_POLLIN;
 				pfd.revents = LWS_POLLOUT;
 
-				lwsl_info("%s: going to service fd\n",
-						__func__);
+				lwsl_wsi_info(wsi, "going to service fd");
 				n = lws_service_fd(wsi->a.context, &pfd);
 				if (n < 0) {
 					cce = "first service failed";
@@ -295,7 +290,7 @@ send_hs:
 				return wsi;
 			}
 #endif
-			lwsl_info("%s: setting ESTABLISHED\n", __func__);
+			lwsl_wsi_info(wsi, "setting ESTABLISHED");
 			lwsi_set_state(wsi, LRS_ESTABLISHED);
 
 			return wsi;

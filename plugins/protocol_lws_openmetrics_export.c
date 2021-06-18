@@ -626,7 +626,7 @@ callback_lws_openmetrics_prox_agg(struct lws *wsi,
 			}
 		} else {
 			lwsl_warn("%s: proxy-side-bind-name required\n", __func__);
-			return 1;
+			return 0;
 		}
 
 		break;
@@ -802,7 +802,7 @@ callback_lws_openmetrics_prox_server(struct lws *wsi,
 			}
 		} else {
 			lwsl_warn("%s: proxy-side-bind-name required\n", __func__);
-			return 1;
+			return 0;
 		}
 
 		break;
@@ -972,9 +972,9 @@ callback_lws_openmetrics_prox_client(struct lws *wsi,
 		/* the proxy server uri */
 
 		if (lws_pvo_get_str(in, "ws-server-uri", &cp)) {
-			lwsl_err("%s: ws-server-uri pvo required\n", __func__);
+			lwsl_warn("%s: ws-server-uri pvo required\n", __func__);
 
-			return 1;
+			return 0;
 		}
 		lws_strncpy(vhd->ws_server_uri, cp, sizeof(vhd->ws_server_uri));
 

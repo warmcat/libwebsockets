@@ -131,12 +131,12 @@ lws_plat_init(struct lws_context *context,
 					 context->max_fds, "lws_lookup");
 
 	if (!context->lws_lookup) {
-		lwsl_err("%s: OOM on alloc lws_lookup array for %d conn\n",
-			 __func__, context->max_fds);
+		lwsl_cx_err(context, "OOM on alloc lws_lookup array for %d conn",
+			 context->max_fds);
 		return 1;
 	}
 
-	lwsl_info(" mem: platform fd map: %5lu B\n",
+	lwsl_cx_info(context, " mem: platform fd map: %5lu B",
 		    (unsigned long)(sizeof(struct lws *) * context->max_fds));
 #endif
 #if defined(LWS_WITH_FILE_OPS)

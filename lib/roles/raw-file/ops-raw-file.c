@@ -33,7 +33,7 @@ rops_handle_POLLIN_raw_file(struct lws_context_per_thread *pt, struct lws *wsi,
 	if (pollfd->revents & LWS_POLLOUT) {
 		n = lws_callback_as_writeable(wsi);
 		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
-			lwsl_info("failed at set pollfd\n");
+			lwsl_wsi_info(wsi, "failed at set pollfd");
 			return LWS_HPI_RET_WSI_ALREADY_DIED;
 		}
 		if (n)
@@ -44,7 +44,7 @@ rops_handle_POLLIN_raw_file(struct lws_context_per_thread *pt, struct lws *wsi,
 		if (user_callback_handle_rxflow(wsi->a.protocol->callback,
 						wsi, LWS_CALLBACK_RAW_RX_FILE,
 						wsi->user_space, NULL, 0)) {
-			lwsl_debug("raw rx callback closed it\n");
+			lwsl_wsi_debug(wsi, "raw rx callback closed it");
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}
 	}

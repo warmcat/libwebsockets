@@ -35,7 +35,7 @@ lws_client_conn_wait_timeout(lws_sorted_usec_list_t *sul)
 	 * connection before giving up on it and retrying.
 	 */
 
-	lwsl_info("%s: connect wait timeout has fired\n", __func__);
+	lwsl_wsi_info(wsi, "connect wait timeout has fired");
 	lws_client_connect_3_connect(wsi, NULL, NULL, 0, NULL);
 }
 
@@ -51,9 +51,9 @@ lws_client_dns_retry_timeout(lws_sorted_usec_list_t *sul)
 	 * isn't officially used until we connected somewhere.
 	 */
 
-	lwsl_info("%s: dns retry\n", __func__);
+	lwsl_wsi_info(wsi, "dns retry");
 	if (!lws_client_connect_2_dnsreq(wsi))
-		lwsl_notice("%s: DNS lookup failed\n", __func__);
+		lwsl_wsi_notice(wsi, "DNS lookup failed");
 }
 
 /*
@@ -87,18 +87,16 @@ lws_client_connect_check(struct lws *wsi)
 	 */
 
 #if !defined(WIN32)
-	if (!getsockopt(wsi->desc.sockfd, SOL_SOCKET, SO_ERROR,
-			&e, &sl)) {
+	if (!getsockopt(wsi->desc.sockfd, SOL_SOCKET, SO_ERROR, &e, &sl)) {
 		en = LWS_ERRNO;
 		if (!e) {
-			lwsl_debug("%s: getsockopt check: conn OK errno %d\n",
-				   __func__, en);
+			lwsl_wsi_debug(wsi, "getsockopt: conn OK errno %d", en);
 
 			return LCCCR_CONNECTED;
 		}
 
-		lwsl_notice("%s: getsockopt fd %d says err %d\n", __func__,
-			   wsi->desc.sockfd, e);
+		lwsl_wsi_notice(wsi, "getsockopt fd %d says err %d",
+							wsi->desc.sockfd, e);
 	}
 
 #else
@@ -114,18 +112,18 @@ lws_client_connect_check(struct lws *wsi)
 	if (en == WSAEALREADY) {
 		/* reset the POLLOUT wait */
 		if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
-			lwsl_notice("pollfd failed\n");
+			lwsl_wsi_notice(wsi, "pollfd failed");
 	}
 
 	if (!en || en == WSAEINVAL ||
 		   en == WSAEWOULDBLOCK ||
 		   en == WSAEALREADY) {
-		lwsl_debug("%s: errno %d\n", __func__, en);
+		lwsl_wsi_debug(wsi, "errno %d", en);
 		return LCCCR_CONTINUE;
 	}
 #endif
 
-	lwsl_notice("%s: connect check take as FAILED: errno %d\n", __func__, en);
+	lwsl_wsi_notice(wsi, "connect check take as FAILED: errno %d", en);
 
 	return LCCCR_FAILED;
 }
@@ -195,7 +193,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	    !wsi->dns_sorted_list.count && /* there's no results */
 	    !lws_socket_is_valid(wsi->desc.sockfd) && /* no attempt ongoing */
 	    !wsi->speculative_connect_owner.count /* no spec attempt */ ) {
-		lwsl_notice("%s: dns lookup failed %d\n", __func__, n);
+		lwsl_wsi_notice(wsi, "dns lookup failed %d", n);
 
 		/*
 		 * DNS lookup itself failed... let's try again until we
@@ -235,8 +233,8 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 		case LCCCR_CONTINUE:
 			return NULL;
 		default:
-			lwsl_debug("%s: getsockopt check: conn fail: errno %d\n",
-					__func__, LWS_ERRNO);
+			lwsl_wsi_debug(wsi, "getsockopt check: conn fail: errno %d",
+				       LWS_ERRNO);
 			lws_metrics_caliper_report(wsi->cal_conn, METRES_NOGO);
 			goto try_next_dns_result_fds;
 		}
@@ -251,7 +249,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 		strncpy(sau.sun_path, ads, sizeof(sau.sun_path));
 		sau.sun_path[sizeof(sau.sun_path) - 1] = '\0';
 
-		lwsl_info("%s: Unix skt: %s\n", __func__, ads);
+		lwsl_wsi_info(wsi, "Unix skt: %s", ads);
 
 		if (sau.sun_path[0] == '@')
 			sau.sun_path[0] = '\0';
@@ -262,7 +260,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 	if (n == LADNS_RET_FAILED) {
-		lwsl_notice("%s: adns failed %s\n", __func__, ads);
+		lwsl_wsi_notice(wsi, "adns failed %s", ads);
 		/*
 		 * Caller that is giving us LADNS_RET_FAILED will deal
 		 * with cleanup
@@ -295,7 +293,7 @@ next_dns_result:
 	wsi->sa46_peer = curr->dest;
 #if defined(LWS_WITH_NETLINK)
 	wsi->peer_route_uidx = curr->uidx;
-	lwsl_info("%s: peer_route_uidx %d\n", __func__, wsi->peer_route_uidx);
+	lwsl_wsi_info(wsi, "peer_route_uidx %d", wsi->peer_route_uidx);
 #endif
 
 	lws_free(curr);
@@ -338,7 +336,7 @@ ads_known:
 		}
 
 		if (!lws_socket_is_valid(wsi->desc.sockfd)) {
-			lwsl_warn("Unable to open socket\n");
+			lwsl_wsi_warn(wsi, "Unable to open socket");
 			goto try_next_dns_result;
 		}
 
@@ -348,17 +346,16 @@ ads_known:
 #else
 						0)) {
 #endif
-			lwsl_err("Failed to set wsi socket options\n");
+			lwsl_wsi_err(wsi, "Failed to set wsi socket options");
 			goto try_next_dns_result_closesock;
 		}
 
 		/* apply requested socket options */
 		if (lws_plat_set_socket_options_ip(wsi->desc.sockfd,
 						   wsi->c_pri, wsi->flags))
-			lwsl_warn("%s: %s: unable to set ip options\n",
-				  __func__, wsi->lc.gutag);
+			lwsl_wsi_warn(wsi, "unable to set ip options");
 
-		lwsl_debug("%s: %s: WAITING_CONNECT\n", __func__, wsi->lc.gutag);
+		lwsl_wsi_debug(wsi, "WAITING_CONNECT");
 		lwsi_set_state(wsi, LRS_WAITING_CONNECT);
 
 		if (wsi->a.context->event_loop_ops->sock_accept)
@@ -447,7 +444,7 @@ ads_known:
 	    user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
 			LWS_CALLBACK_CONNECTING, wsi->user_space,
 			(void *)(intptr_t)wsi->desc.sockfd, 0)) {
-		lwsl_info("%s: CONNECTION CB closed\n", __func__);
+		lwsl_wsi_info(wsi, "CONNECTION CB closed");
 		goto failed1;
 	}
 
@@ -481,7 +478,8 @@ ads_known:
 			errno_copy = 999;
 #endif
 
-		lwsl_debug("%s: connect: fd %d errno: %d\n", __func__, wsi->desc.sockfd, errno_copy);
+		lwsl_wsi_debug(wsi, "connect: fd %d errno: %d",
+				wsi->desc.sockfd, errno_copy);
 
 		if (errno_copy &&
 		    errno_copy != LWS_EALREADY &&
@@ -582,7 +580,7 @@ conn_good:
 #endif
 			lws_sa46_write_numeric_address(&wsi->sa46_local, buf, sizeof(buf));
 
-		lwsl_info("%s: %s: source ads %s\n", __func__, wsi->lc.gutag, buf);
+		lwsl_wsi_info(wsi, "source ads %s", buf);
 #endif
 	}
 #endif
@@ -596,7 +594,8 @@ conn_good:
 		wsi->a.protocol->callback(wsi, LWS_CALLBACK_WSI_CREATE,
 					  wsi->user_space, NULL, 0);
 
-	lwsl_debug("%s: going into connect_4\n", __func__);
+	lwsl_wsi_debug(wsi, "going into connect_4");
+
 	return lws_client_connect_4_established(wsi, NULL, plen);
 
 oom4:
@@ -641,7 +640,7 @@ connect_to:
 	/*
 	 * It looks like the sul_connect_timeout fired
 	 */
-	lwsl_info("%s: abandoning connect due to timeout\n", __func__);
+	lwsl_wsi_info(wsi, "abandoning connect due to timeout");
 
 try_next_dns_result_fds:
 	lws_pt_lock(pt, __func__);

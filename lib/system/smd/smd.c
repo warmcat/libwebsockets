@@ -43,8 +43,8 @@ lws_smd_msg_alloc(struct lws_context *ctx, lws_smd_class_t _class, size_t len)
 	/* only allow it if someone wants to consume this class of event */
 
 	if (!(ctx->smd._class_filter & _class)) {
-		lwsl_info("%s: rejecting class 0x%x as no participant wants it\n",
-			  __func__, (unsigned int)_class);
+		lwsl_cx_info(ctx, "rejecting class 0x%x as no participant wants",
+				(unsigned int)_class);
 		return NULL;
 	}
 
@@ -171,9 +171,8 @@ _lws_smd_msg_destroy(struct lws_context *cx, lws_smd_t *smd, lws_smd_msg_t *msg)
 		lws_smd_peer_t *xpr = lws_container_of(p, lws_smd_peer_t, list);
 
 		if (xpr->tail == msg) {
-			lwsl_err("%s: peer %p has msg %p "
-				 "we are about to destroy as tail\n",
-				 __func__, xpr, msg);
+			lwsl_cx_err(cx, "peer %p has msg %p "
+				 "we are about to destroy as tail", xpr, msg);
 #if !defined(LWS_PLAT_FREERTOS)
 			assert(0);
 #endif
@@ -185,7 +184,7 @@ _lws_smd_msg_destroy(struct lws_context *cx, lws_smd_t *smd, lws_smd_msg_t *msg)
 	 * We have fully delivered the message now, it
 	 * can be unlinked and destroyed
 	 */
-	lwsl_info("%s: destroy msg %p\n", __func__, msg);
+	lwsl_cx_info(cx, "destroy msg %p", msg);
 	lws_dll2_remove(&msg->list);
 	lws_free(msg);
 }
@@ -201,8 +200,8 @@ _lws_smd_msg_send(struct lws_context *ctx, void *pay, struct lws_smd_peer *exc)
 				LWS_SMD_SS_RX_HEADER_LEN_EFF - sizeof(*msg));
 
 	if (ctx->smd.owner_messages.count >= ctx->smd_queue_depth) {
-		lwsl_warn("%s: rejecting message on queue depth %d\n",
-				__func__, (int)ctx->smd.owner_messages.count);
+		lwsl_cx_warn(ctx, "rejecting message on queue depth %d",
+				  (int)ctx->smd.owner_messages.count);
 		/* reject the message due to max queue depth reached */
 		return 1;
 	}
@@ -528,8 +527,8 @@ _lws_smd_msg_deliver_peer(struct lws_context *ctx, lws_smd_peer_t *pr)
 	msg = lws_container_of(pr->tail, lws_smd_msg_t, list);
 
 
-	lwsl_smd("%s: deliver cl 0x%x, len %d, refc %d, to peer %p\n",
-		    __func__, (unsigned int)msg->_class, (int)msg->length,
+	lwsl_cx_info(ctx, "deliver cl 0x%x, len %d, refc %d, to peer %p",
+		    (unsigned int)msg->_class, (int)msg->length,
 		    (int)msg->refcount, pr);
 
 	pr->cb(pr->opaque, msg->_class, msg->timestamp,
@@ -640,7 +639,7 @@ lws_smd_register(struct lws_context *ctx, void *opaque, int flags,
 
 	lws_mutex_unlock(ctx->smd.lock_messages); /* messages ------- */
 
-	lwsl_info("%s: peer %p (count %u) registered\n", __func__, pr,
+	lwsl_cx_info(ctx, "peer %p (count %u) registered", pr,
 			(unsigned int)ctx->smd.owner_peers.count);
 
 	if (!ctx->smd.delivering)
@@ -655,7 +654,7 @@ lws_smd_unregister(struct lws_smd_peer *pr)
 	lws_smd_t *smd = lws_container_of(pr->list.owner, lws_smd_t, owner_peers);
 
 	lws_mutex_lock(smd->lock_peers); /* +++++++++++++++++++++++++++ peers */
-	lwsl_notice("%s: destroying peer %p\n", __func__, pr);
+	lwsl_cx_notice(pr->ctx, "destroying peer %p", pr);
 	_lws_smd_peer_destroy(pr);
 	lws_mutex_unlock(smd->lock_peers); /* ------------------------- peers */
 }
@@ -686,8 +685,8 @@ lws_smd_message_pending(struct lws_context *ctx)
 		lws_smd_msg_t *msg = lws_container_of(p, lws_smd_msg_t, list);
 
 		if ((lws_now_usecs() - msg->timestamp) > ctx->smd_ttl_us) {
-			lwsl_warn("%s: timing out queued message %p\n",
-					__func__, msg);
+			lwsl_cx_warn(ctx, "timing out queued message %p",
+					msg);
 
 			/*
 			 * We're forcibly yanking this guy, we can expect that

@@ -257,7 +257,7 @@ __lws_free_wsi(struct lws *wsi)
 	if (wsi->a.context->event_loop_ops->destroy_wsi)
 		wsi->a.context->event_loop_ops->destroy_wsi(wsi);
 
-	lwsl_debug("%s: tsi fds count %d\n", __func__,
+	lwsl_wsi_debug(wsi, "tsi fds count %d\n",
 			wsi->a.context->pt[(int)wsi->tsi].fds_count);
 
 	/* confirm no sul left scheduled in wsi itself */
@@ -281,8 +281,8 @@ lws_remove_child_from_any_parent(struct lws *wsi)
 	pwsi = &wsi->parent->child_list;
 	while (*pwsi) {
 		if (*pwsi == wsi) {
-			lwsl_info("%s: detach %s from parent %s\n", __func__,
-					lws_wsi_tag(wsi), lws_wsi_tag(wsi->parent));
+			lwsl_wsi_info(wsi, "detach from parent %s",
+					    lws_wsi_tag(wsi->parent));
 
 			if (wsi->parent->a.protocol)
 				wsi->parent->a.protocol->callback(wsi,
@@ -296,7 +296,7 @@ lws_remove_child_from_any_parent(struct lws *wsi)
 		pwsi = &(*pwsi)->sibling_list;
 	}
 	if (!seen)
-		lwsl_err("%s: failed to detach from parent\n", __func__);
+		lwsl_wsi_err(wsi, "failed to detach from parent");
 
 	wsi->parent = NULL;
 }
@@ -355,12 +355,12 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	if (!wsi)
 		return;
 
-	lwsl_info("%s: %s: caller: %s\n", __func__, lws_wsi_tag(wsi), caller);
+	lwsl_wsi_info(wsi, "caller: %s", caller);
 
 	lws_access_log(wsi);
 
 	if (!lws_dll2_is_detached(&wsi->dll_buflist))
-		lwsl_info("%s: going down with stuff in buflist\n", __func__);
+		lwsl_wsi_info(wsi, "going down with stuff in buflist");
 
 	context = wsi->a.context;
 	pt = &context->pt[(int)wsi->tsi];
@@ -500,7 +500,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 			lws_callback_on_writable(wsi);
 			return;
 		}
-		lwsl_info("%s: %s: end LRS_FLUSHING_BEFORE_CLOSE\n", __func__, lws_wsi_tag(wsi));
+		lwsl_wsi_info(wsi, " end LRS_FLUSHING_BEFORE_CLOSE");
 		goto just_kill_connection;
 	default:
 		if (lws_has_buffered_out(wsi)
@@ -509,7 +509,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 		    wsi->http.comp_ctx.may_have_more
 #endif
 		) {
-			lwsl_info("%s: %s: LRS_FLUSHING_BEFORE_CLOSE\n", __func__, lws_wsi_tag(wsi));
+			lwsl_wsi_info(wsi, "LRS_FLUSHING_BEFORE_CLOSE");
 			lwsi_set_state(wsi, LRS_FLUSHING_BEFORE_CLOSE);
 			__lws_set_timeout(wsi,
 				PENDING_FLUSH_STORED_SEND_BEFORE_CLOSE, 5);
@@ -547,15 +547,15 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_close_via_role_protocol) &&
 	    lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_close_via_role_protocol).
 					 close_via_role_protocol(wsi, reason)) {
-		lwsl_info("%s: clsoe_via_role took over: %s (sockfd %d)\n", __func__,
-				lws_wsi_tag(wsi), wsi->desc.sockfd);
+		lwsl_wsi_info(wsi, "close_via_role took over (sockfd %d)",
+			      wsi->desc.sockfd);
 		return;
 	}
 
 just_kill_connection:
 
-	lwsl_debug("%s: real just_kill_connection A: %s (sockfd %d)\n", __func__,
-		lws_wsi_tag(wsi), wsi->desc.sockfd);
+	lwsl_wsi_debug(wsi, "real just_kill_connection A: (sockfd %d)",
+			wsi->desc.sockfd);
 
 #if defined(LWS_WITH_THREADPOOL)
 	lws_threadpool_wsi_closing(wsi);
@@ -621,8 +621,8 @@ just_kill_connection:
 	     !wsi->close_is_redirect) {
 		static const char _reason[] = "closed before established";
 
-		lwsl_debug("%s: closing in unestablished state 0x%x\n",
-				__func__, lwsi_state(wsi));
+		lwsl_wsi_debug(wsi, "closing in unestablished state 0x%x",
+				lwsi_state(wsi));
 		wsi->socket_is_permanently_unusable = 1;
 
 		lws_inform_client_conn_fail(wsi,
@@ -667,7 +667,7 @@ just_kill_connection:
 			}
 		}
 		if (n)
-			lwsl_debug("closing: shutdown (state 0x%x) ret %d\n",
+			lwsl_wsi_debug(wsi, "closing: shutdown (state 0x%x) ret %d",
 				   lwsi_state(wsi), LWS_ERRNO);
 
 		/*
@@ -693,8 +693,8 @@ just_kill_connection:
 #endif
 	}
 
-	lwsl_info("%s: real just_kill_connection: %s (sockfd %d)\n", __func__,
-			lws_wsi_tag(wsi), wsi->desc.sockfd);
+	lwsl_wsi_info(wsi, "real just_kill_connection: sockfd %d\n",
+			wsi->desc.sockfd);
 
 #ifdef LWS_WITH_HUBBUB
 	if (wsi->http.rw) {
@@ -756,7 +756,7 @@ just_kill_connection:
 		 */
 		ccb = 1;
 
-	lwsl_info("%s: %s: cce=%d\n", __func__, lws_wsi_tag(wsi), ccb);
+	lwsl_wsi_info(wsi, "cce=%d", ccb);
 
 	pro = wsi->a.protocol;
 
@@ -796,7 +796,7 @@ async_close:
 
 #if defined(LWS_WITH_SECURE_STREAMS)
 	if (wsi->for_ss) {
-		lwsl_debug("%s: for_ss\n", __func__);
+		lwsl_wsi_debug(wsi, "for_ss");
 		/*
 		 * We were adopted for a particular ss, but, eg, we may not
 		 * have succeeded with the connection... we are closing which is
@@ -877,11 +877,10 @@ __lws_close_free_wsi_final(struct lws *wsi)
 
 	if (!wsi->shadow &&
 	    lws_socket_is_valid(wsi->desc.sockfd) && !lws_ssl_close(wsi)) {
-		lwsl_debug("%s: wsi %s: fd %d\n", __func__, lws_wsi_tag(wsi),
-				wsi->desc.sockfd);
+		lwsl_wsi_debug(wsi, "fd %d", wsi->desc.sockfd);
 		n = compatible_close(wsi->desc.sockfd);
 		if (n)
-			lwsl_debug("closing: close ret %d\n", LWS_ERRNO);
+			lwsl_wsi_debug(wsi, "closing: close ret %d", LWS_ERRNO);
 
 		__remove_wsi_socket_from_fds(wsi);
 		if (lws_socket_is_valid(wsi->desc.sockfd))
@@ -902,7 +901,7 @@ __lws_close_free_wsi_final(struct lws *wsi)
 
 		wsi->close_is_redirect = 0;
 
-		lwsl_info("%s: picking up redirection", __func__);
+		lwsl_wsi_info(wsi, "picking up redirection");
 
 		lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED,
 				    &role_ops_h1);
@@ -935,7 +934,7 @@ __lws_close_free_wsi_final(struct lws *wsi)
 #endif
 
 		if (lws_header_table_attach(wsi, 0)) {
-			lwsl_err("failed to get ah\n");
+			lwsl_wsi_err(wsi, "failed to get ah");
 			return;
 		}
 //		}
@@ -953,7 +952,8 @@ __lws_close_free_wsi_final(struct lws *wsi)
 						     &vh);
 			if (vh) {
 				if (!vh->count_bound_wsi && vh->grace_after_unref) {
-					lwsl_info("%s: %s: in use\n", __func__, vh->lc.gutag);
+					lwsl_wsi_info(wsi, "%s in use\n",
+								vh->lc.gutag);
 					lws_sul_cancel(&vh->sul_unref);
 				}
 				vh->count_bound_wsi++;

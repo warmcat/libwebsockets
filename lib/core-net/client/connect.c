@@ -41,7 +41,7 @@ lws_http_client_connect_via_info2(struct lws *wsi)
 	struct client_info_stash *stash = wsi->stash;
 	int n;
 
-	lwsl_debug("%s: %s (stash %p)\n", __func__, lws_lc_tag(&wsi->lc), stash);
+	lwsl_wsi_debug(wsi, "stash %p", stash);
 
 	if (!stash)
 		return wsi;
@@ -249,7 +249,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 #endif
 
 	if (!wsi->a.vhost) {
-		lwsl_err("%s: No vhost in the context\n", __func__);
+		lwsl_wsi_err(wsi, "No vhost in the context");
 
 		goto bail;
 	}
@@ -266,7 +266,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 
 		goto bail;
 	}
-	lwsl_info("%s: role binding to %s\n", __func__, wsi->role_ops->name);
+	lwsl_wsi_info(wsi, "role binding to %s", wsi->role_ops->name);
 
 	/*
 	 * PHASE 4: fill up the wsi with stuff from the connect_info as far as
@@ -302,16 +302,16 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	}
 
 	if (local) {
-		lwsl_info("%s: vh %s protocol binding to %s\n", __func__,
+		lwsl_wsi_info(wsi, "vh %s protocol binding to %s\n",
 				wsi->a.vhost->name, local);
 		p = lws_vhost_name_to_protocol(wsi->a.vhost, local);
 		if (p)
 			lws_bind_protocol(wsi, p, __func__);
 		else
-			lwsl_info("%s: unknown protocol %s\n", __func__, local);
+			lwsl_wsi_info(wsi, "unknown protocol %s", local);
 
-		lwsl_info("%s: %s: %s %s entry\n",
-			    __func__, lws_wsi_tag(wsi), wsi->role_ops->name,
+		lwsl_wsi_info(wsi, "%s: %s %s entry",
+			    lws_wsi_tag(wsi), wsi->role_ops->name,
 			    wsi->a.protocol ? wsi->a.protocol->name : "none");
 	}
 
@@ -329,7 +329,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	wsi->tls.use_ssl = (unsigned int)i->ssl_connection;
 #else
 	if (i->ssl_connection & LCCSCF_USE_SSL) {
-		lwsl_err("%s: lws not configured for tls\n", __func__);
+		lwsl_wsi_err(wsi, "lws not configured for tls");
 		goto bail;
 	}
 #endif

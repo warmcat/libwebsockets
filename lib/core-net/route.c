@@ -57,14 +57,14 @@ _lws_routing_entry_dump(struct lws_context *cx, lws_route_t *rou)
 				  "gw: %s, ", sa);
 	}
 
-	lwsl_info(" %s ifidx: %d, pri: %d, proto: %d\n", fin,
+	lwsl_cx_info(cx, " %s ifidx: %d, pri: %d, proto: %d\n", fin,
 		  rou->if_idx, rou->priority, rou->proto);
 }
 
 void
 _lws_routing_table_dump(struct lws_context *cx)
 {
-	lwsl_info("%s\n", __func__);
+	lwsl_cx_info(cx, "\n");
 	lws_start_foreach_dll(struct lws_dll2 *, d,
 			      lws_dll2_get_head(&cx->routing_table)) {
 		lws_route_t *rou = lws_container_of(d, lws_route_t, list);

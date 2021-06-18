@@ -104,12 +104,12 @@ lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
 #endif
 
 #if 0
-		lwsl_debug("%s: asking to recheck CPD in 1s\n", __func__);
+		lwsl_wsi_debug(wsi, "asking to recheck CPD in 1s");
 		lws_system_cpd_start_defer(wsi->a.context, LWS_US_PER_SEC);
 #endif
 	}
 
-	lwsl_info("%s: getaddrinfo '%s' says %d\n", __func__, ads, n);
+	lwsl_wsi_info(wsi, "getaddrinfo '%s' says %d", ads, n);
 
 #if defined(LWS_WITH_SYS_METRICS)
 	if (n < 0) {
@@ -177,7 +177,7 @@ lws_client_connect_2_dnsreq(struct lws *wsi)
 	/* we only pipeline connections that said it was okay */
 
 	if (!wsi->client_pipeline) {
-		lwsl_debug("%s: new conn on no pipeline flag\n", __func__);
+		lwsl_wsi_debug(wsi, "new conn on no pipeline flag");
 
 		goto solo;
 	}
@@ -200,7 +200,7 @@ lws_client_connect_2_dnsreq(struct lws *wsi)
 	case ACTIVE_CONNS_SOLO:
 		break;
 	case ACTIVE_CONNS_MUXED:
-		lwsl_notice("%s: ACTIVE_CONNS_MUXED\n", __func__);
+		lwsl_wsi_notice(wsi, "ACTIVE_CONNS_MUXED");
 		if (lwsi_role_h2(wsi)) {
 
 			if (wsi->a.protocol->callback(wsi,
@@ -215,8 +215,9 @@ lws_client_connect_2_dnsreq(struct lws *wsi)
 
 		return wsi;
 	case ACTIVE_CONNS_QUEUED:
-		lwsl_debug("%s: ACTIVE_CONNS_QUEUED st 0x%x: \n", __func__,
-			   lwsi_state(wsi));
+		lwsl_wsi_debug(wsi, "ACTIVE_CONNS_QUEUED st 0x%x: ",
+							lwsi_state(wsi));
+
 		if (lwsi_state(wsi) == LRS_UNCONNECTED) {
 			if (lwsi_role_h2(w))
 				lwsi_set_state(wsi,
@@ -245,7 +246,7 @@ solo:
 	    lws_dll2_is_detached(&wsi->dll_cli_active_conns)) {
 		lws_context_lock(wsi->a.context, __func__);
 		lws_vhost_lock(wsi->a.vhost);
-		lwsl_info("%s: adding active conn %s\n", __func__, lws_wsi_tag(wsi));
+		lwsl_wsi_info(wsi, "adding as active conn");
 		/* caution... we will have to unpick this on oom4 path */
 		lws_dll2_add_head(&wsi->dll_cli_active_conns,
 				 &wsi->a.vhost->dll_cli_active_conns_owner);
@@ -284,7 +285,7 @@ solo:
 
 	if (wsi->ipv6 && iface &&
 	    inet_pton(AF_INET, iface, &addr.sin_addr) == 1) {
-		lwsl_notice("%s: client connection forced to IPv4\n", __func__);
+		lwsl_wsi_notice(wsi, "client connection forced to IPv4");
 		wsi->ipv6 = 0;
 	}
 #endif
@@ -308,7 +309,7 @@ solo:
 	/* Priority 2: Connect to SOCK5 Proxy */
 
 	} else if (wsi->a.vhost->socks_proxy_port) {
-		lwsl_client("Sending SOCKS Greeting\n");
+		lwsl_wsi_client(wsi, "Sending SOCKS Greeting");
 		adsin = wsi->a.vhost->socks_proxy_address;
 		port = (int)wsi->a.vhost->socks_proxy_port;
 #endif
@@ -326,7 +327,7 @@ solo:
 	 */
 	lwsi_set_state(wsi, LRS_WAITING_DNS);
 
-	lwsl_info("%s: %s: lookup %s:%u\n", __func__, wsi->lc.gutag, adsin, port);
+	lwsl_wsi_info(wsi, "lookup %s:%u", adsin, port);
 	wsi->conn_port = (uint16_t)port;
 
 #if !defined(LWS_WITH_SYS_ASYNC_DNS)

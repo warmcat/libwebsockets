@@ -74,10 +74,10 @@ _report(lws_state_manager_t *mgr, int a, int b)
 			/* a dependency took responsibility for retry */
 
 #if (_LWS_ENABLED_LOGS & LLL_INFO)
-			lwsl_info("%s: %s: %s: rejected '%s' -> '%s'\n",
-				   __func__, mgr->name, l->name,
-				   _systnm(mgr, a, temp8),
-				   _systnm(mgr, b, temp8));
+			lwsl_cx_info(mgr->context, "%s: %s: rejected '%s' -> '%s'",
+				     mgr->name, l->name,
+				     _systnm(mgr, a, temp8),
+				     _systnm(mgr, b, temp8));
 #endif
 
 			return 1;
@@ -99,7 +99,8 @@ _lws_state_transition(lws_state_manager_t *mgr, int target)
 		return 1;
 
 #if (_LWS_ENABLED_LOGS & LLL_DEBUG)
-	lwsl_debug("%s: %s: changed %d '%s' -> %d '%s'\n", __func__, mgr->name,
+	if (mgr->context)
+	lwsl_cx_debug(mgr->context, "%s: changed %d '%s' -> %d '%s'", mgr->name,
 		   mgr->state, _systnm(mgr, mgr->state, temp8), target,
 		   _systnm(mgr, target, temp8));
 #endif
@@ -110,7 +111,7 @@ _lws_state_transition(lws_state_manager_t *mgr, int target)
 	_report(mgr, target, target);
 
 #if defined(LWS_WITH_SYS_SMD)
-	if (mgr->smd_class)
+	if (mgr->smd_class && mgr->context)
 		(void)lws_smd_msg_printf(mgr->context,
 				   mgr->smd_class, "{\"state\":\"%s\"}",
 				   mgr->state_names[target]);
@@ -135,7 +136,7 @@ lws_state_transition_steps(lws_state_manager_t *mgr, int target)
 		n = _lws_state_transition(mgr, mgr->state + 1);
 
 #if (_LWS_ENABLED_LOGS & LLL_INFO)
-	lwsl_info("%s: %s -> %s\n", __func__, _systnm(mgr, i, temp8),
+	lwsl_cx_info(mgr->context, "%s -> %s", _systnm(mgr, i, temp8),
 			_systnm(mgr, mgr->state, temp8));
 #endif
 

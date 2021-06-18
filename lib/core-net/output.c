@@ -119,7 +119,7 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	else
 		m = (unsigned int)lws_ssl_capable_write(wsi, buf, n);
 
-	lwsl_info("%s: ssl_capable_write (%d) says %d\n", __func__, n, m);
+	lwsl_wsi_info(wsi, "ssl_capable_write (%d) says %d", n, m);
 
 	/* something got written, it can have been truncated now */
 	wsi->could_have_pending = 1;

@@ -124,26 +124,26 @@ lws_context_init_ssl_library(struct lws_context *cx,
 {
 #ifdef USE_WOLFSSL
 #ifdef USE_OLD_CYASSL
-	lwsl_info(" Compiled with CyaSSL support\n");
+	lwsl_cx_info(cx, " Compiled with CyaSSL support");
 #else
-	lwsl_info(" Compiled with wolfSSL support\n");
+	lwsl_cx_info(cx, " Compiled with wolfSSL support");
 #endif
 #else
 #if defined(LWS_WITH_BORINGSSL)
-	lwsl_info(" Compiled with BoringSSL support\n");
+	lwsl_cx_info(cx, " Compiled with BoringSSL support");
 #else
-	lwsl_info(" Compiled with OpenSSL support\n");
+	lwsl_cx_info(cx, " Compiled with OpenSSL support");
 #endif
 #endif
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT)) {
-		lwsl_info(" SSL disabled: no "
-			  "LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT\n");
+		lwsl_cx_info(cx, " SSL disabled: no "
+			  "LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT");
 		return 0;
 	}
 
 	/* basic openssl init */
 
-	lwsl_info("Doing SSL library init\n");
+	lwsl_cx_info(cx, "Doing SSL library init");
 
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
 	SSL_library_init();

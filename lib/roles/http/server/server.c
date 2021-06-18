@@ -3276,7 +3276,8 @@ lws_server_get_canonical_hostname(struct lws_context *context,
 		lws_strncpy((char *)context->canonical_hostname, "unknown",
 			    sizeof(context->canonical_hostname));
 
-	lwsl_info(" canonical_hostname = %s\n", context->canonical_hostname);
+	lwsl_cx_info(context, " canonical_hostname = %s\n",
+					context->canonical_hostname);
 #else
 	(void)context;
 #endif

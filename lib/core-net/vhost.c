@@ -465,7 +465,7 @@ lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 				|| !vh->pvo
 #endif
 		) {
-			lwsl_info("init %s.%s", vh->name,
+			lwsl_vhost_info(vh, "init %s.%s", vh->name,
 					vh->protocols[n].name);
 			if (vh->protocols[n].callback((struct lws *)lwsa,
 				LWS_CALLBACK_PROTOCOL_INIT, NULL,
@@ -479,8 +479,8 @@ lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 					lws_free(vh->protocol_vh_privs[n]);
 					vh->protocol_vh_privs[n] = NULL;
 				}
-			lwsl_err("%s: protocol %s failed init\n",
-				 __func__, vh->protocols[n].name);
+			lwsl_vhost_err(vh, "protocol %s failed init",
+					vh->protocols[n].name);
 
 				return 1;
 			}
@@ -507,7 +507,7 @@ lws_protocol_init(struct lws_context *context)
 
 	context->doing_protocol_init = 1;
 
-	lwsl_info("%s\n", __func__);
+	lwsl_cx_info(context, "\n");
 
 	while (vh) {
 
@@ -517,7 +517,7 @@ lws_protocol_init(struct lws_context *context)
 			goto next;
 
 		if (lws_protocol_init_vhost(vh, &any)) {
-			lwsl_warn("%s: init vhost %s failed\n", __func__, vh->name);
+			lwsl_vhost_warn(vh, "init vhost %s failed", vh->name);
 			r = -1;
 		}
 next:
@@ -527,7 +527,7 @@ next:
 	context->doing_protocol_init = 0;
 
 	if (r)
-		lwsl_warn("%s: some protocols did not init\n", __func__);
+		lwsl_cx_warn(context, "some protocols did not init");
 
 	if (!context->protocol_init_done) {
 
@@ -896,7 +896,7 @@ lws_create_vhost(struct lws_context *context,
 
 #ifdef LWS_WITH_UNIX_SOCK
 	if (LWS_UNIX_SOCK_ENABLED(vh)) {
-		lwsl_info("Creating Vhost '%s' path \"%s\", %d protocols\n",
+		lwsl_vhost_info(vh, "Creating '%s' path \"%s\", %d protocols",
 				vh->name, vh->iface, vh->count_protocols);
 	} else
 #endif
@@ -912,14 +912,14 @@ lws_create_vhost(struct lws_context *context,
 			lws_snprintf(buf, sizeof(buf), "port %u", info->port);
 			break;
 		}
-		lwsl_info("Creating Vhost '%s' %s, %d protocols, IPv6 %s\n",
+		lwsl_vhost_info(vh, "Creating Vhost '%s' %s, %d protocols, IPv6 %s",
 			    vh->name, buf, vh->count_protocols,
 			    LWS_IPV6_ENABLED(vh) ? "on" : "off");
 	}
 	mounts = info->mounts;
 	while (mounts) {
 		(void)mount_protocols[0];
-		lwsl_info("   mounting %s%s to %s\n",
+		lwsl_vhost_info(vh, "   mounting %s%s to %s",
 			  mount_protocols[mounts->origin_protocol],
 			  mounts->origin ? mounts->origin : "none",
 			  mounts->mountpoint);
@@ -996,12 +996,12 @@ lws_create_vhost(struct lws_context *context,
 #endif
 	if (lws_fi(&vh->fic, "vh_create_ssl_srv") ||
 	    lws_context_init_server_ssl(info, vh)) {
-		lwsl_err("%s: lws_context_init_server_ssl failed\n", __func__);
+		lwsl_vhost_err(vh, "lws_context_init_server_ssl failed");
 		goto bail1;
 	}
 	if (lws_fi(&vh->fic, "vh_create_ssl_cli") ||
 	    lws_context_init_client_ssl(info, vh)) {
-		lwsl_err("%s: lws_context_init_client_ssl failed\n", __func__);
+		lwsl_vhost_err(vh, "lws_context_init_client_ssl failed");
 		goto bail1;
 	}
 #if defined(LWS_WITH_SERVER)
@@ -1012,7 +1012,7 @@ lws_create_vhost(struct lws_context *context,
 		n = _lws_vhost_init_server(info, vh);
 	lws_context_unlock(context);
 	if (n < 0) {
-		lwsl_err("init server failed\n");
+		lwsl_vhost_err(vh, "init server failed\n");
 		goto bail1;
 	}
 #endif
@@ -1039,7 +1039,7 @@ lws_create_vhost(struct lws_context *context,
 	if (context->protocol_init_done)
 		if (lws_fi(&vh->fic, "vh_create_protocol_init") ||
 		    lws_protocol_init(context)) {
-			lwsl_err("%s: lws_protocol_init failed\n", __func__);
+			lwsl_vhost_err(vh, "lws_protocol_init failed");
 			goto bail1;
 		}
 
@@ -1088,7 +1088,7 @@ lws_cancel_service(struct lws_context *context)
 	if (context->service_no_longer_possible)
 		return;
 
-	lwsl_debug("%s\n", __func__);
+	lwsl_cx_debug(context, "\n");
 
 	for (m = 0; m < context->count_threads; m++) {
 		if (pt->pipe_wsi)
@@ -1289,7 +1289,7 @@ lws_vhost_destroy1(struct lws_vhost *vh)
 {
 	struct lws_context *context = vh->context;
 
-	lwsl_info("%s\n", __func__);
+	lwsl_vhost_info(vh, "\n");
 
 	lws_context_lock(context, "vhost destroy 1"); /* ---------- context { */
 
@@ -1436,7 +1436,7 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 		while (n < vh->count_protocols) {
 			wsi.a.protocol = protocol;
 
-			lwsl_debug("%s: protocol destroy\n", __func__);
+			lwsl_vhost_debug(vh, "protocol destroy");
 
 			if (protocol->callback)
 				protocol->callback(&wsi, LWS_CALLBACK_PROTOCOL_DESTROY,
@@ -1530,7 +1530,7 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 	if (LWS_UNIX_SOCK_ENABLED(vh)) {
 		n = unlink(vh->iface);
 		if (n)
-			lwsl_info("Closing unix socket %s: errno %d\n",
+			lwsl_vhost_info(vh, "Closing unix socket %s: errno %d\n",
 				  vh->iface, errno);
 	}
 #endif

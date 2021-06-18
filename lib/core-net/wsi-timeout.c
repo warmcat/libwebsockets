@@ -136,8 +136,7 @@ __lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 			    &wsi->sul_timeout,
 			    ((lws_usec_t)secs) * LWS_US_PER_SEC);
 
-	lwsl_debug("%s: %s: %d secs, reason %d\n", __func__, lws_wsi_tag(wsi),
-			secs, reason);
+	lwsl_wsi_debug(wsi, "%d secs, reason %d\n", secs, reason);
 
 	wsi->pending_timeout = (char)reason;
 }
@@ -168,7 +167,7 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 
 	// assert(!secs || !wsi->mux_stream_immortal);
 	if (secs && wsi->mux_stream_immortal)
-		lwsl_err("%s: on immortal stream %d %d\n", __func__, reason, secs);
+		lwsl_wsi_err(wsi, "on immortal stream %d %d", reason, secs);
 
 	lws_pt_lock(pt, __func__);
 	__lws_set_timeout(wsi, reason, secs);

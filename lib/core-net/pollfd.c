@@ -61,7 +61,7 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 		 * to cancel service
 		 */
 
-		lwsl_debug("%s: using leave_pollout_active\n", __func__);
+		lwsl_wsi_debug(wsi, "using leave_pollout_active");
 
 		return 0;
 	}
@@ -147,8 +147,8 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 
 	pfd = &pt->fds[wsi->position_in_fds_table];
 	pa->fd = wsi->desc.sockfd;
-	lwsl_debug("%s: %s: fd %d events %d -> %d\n", __func__, lws_wsi_tag(wsi),
-		   pa->fd, pfd->events, (pfd->events & ~_and) | _or);
+	lwsl_wsi_debug(wsi, "fd %d events %d -> %d", pa->fd, pfd->events,
+						(pfd->events & ~_and) | _or);
 	pa->prev_events = pfd->events;
 	pa->events = pfd->events = (short)((pfd->events & ~_and) | _or);
 
@@ -250,12 +250,12 @@ __dump_fds(struct lws_context_per_thread *pt, const char *s)
 {
 	unsigned int n;
 
-	lwsl_warn("%s: fds_count %u, %s\n", __func__, pt->fds_count, s);
+	lwsl_cx_warn(pt->context, "fds_count %u, %s", pt->fds_count, s);
 
 	for (n = 0; n < pt->fds_count; n++) {
 		struct lws *wsi = wsi_from_fd(pt->context, pt->fds[n].fd);
 
-		lwsl_warn("  %d: fd %d, wsi %s, pos_in_fds: %d\n",
+		lwsl_cx_warn(pt->context, "  %d: fd %d, wsi %s, pos_in_fds: %d",
 			n + 1, pt->fds[n].fd, lws_wsi_tag(wsi),
 			wsi ? wsi->position_in_fds_table : -1);
 	}
@@ -277,19 +277,19 @@ __insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 
 	lws_pt_assert_lock_held(pt);
 
-	lwsl_debug("%s: %s: tsi=%d, sock=%d, pos-in-fds=%d\n",
-		  __func__, lws_wsi_tag(wsi), wsi->tsi, wsi->desc.sockfd, pt->fds_count);
+	lwsl_wsi_debug(wsi, "tsi=%d, sock=%d, pos-in-fds=%d",
+			wsi->tsi, wsi->desc.sockfd, pt->fds_count);
 
 	if ((unsigned int)pt->fds_count >= context->fd_limit_per_thread) {
-		lwsl_err("Too many fds (%d vs %d)\n", context->max_fds,
-				context->fd_limit_per_thread	);
+		lwsl_cx_err(context, "Too many fds (%d vs %d)", context->max_fds,
+				context->fd_limit_per_thread);
 		return 1;
 	}
 
 #if !defined(_WIN32)
 	if (!wsi->a.context->max_fds_unrelated_to_ulimit &&
 	    wsi->desc.sockfd - lws_plat_socket_offset() >= (int)context->max_fds) {
-		lwsl_err("Socket fd %d is too high (%d) offset %d\n",
+		lwsl_cx_err(context, "Socket fd %d is too high (%d) offset %d",
 			 wsi->desc.sockfd, context->max_fds,
 			 lws_plat_socket_offset());
 		return 1;

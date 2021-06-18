@@ -149,7 +149,7 @@ lws_sspc_sul_retry_cb(lws_sorted_usec_list_t *sul)
 		return;
 	}
 
-	lwsl_notice("%s\n", h->cwsi->lc.gutag);
+	lwsl_sspc_notice(h, "%s", h->cwsi->lc.gutag);
 }
 
 static int
@@ -171,7 +171,7 @@ lws_sspc_serialize_metadata(lws_sspc_handle_t *h, lws_sspc_metadata_t *md,
 
 	} else {
 
-		lwsl_info("%s: sending metadata\n", __func__);
+		lwsl_sspc_info(h, "sending metadata");
 
 		p[0] = LWSSS_SER_TXPRE_METADATA;
 		txc = (int)strlen(md->name);
@@ -216,7 +216,7 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
-		lwsl_warn("%s: CONNECTION_ERROR\n", __func__);
+		lwsl_wsi_warn(wsi, "CONNECTION_ERROR");
 #if defined(LWS_WITH_SYS_METRICS)
 		/*
 		 * If any hanging caliper measurement, dump it, and free any tags
@@ -232,7 +232,7 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
         case LWS_CALLBACK_RAW_CONNECTED:
 		if (!h || lws_fi(&h->fic, "sspc_fail_on_linkup"))
 			return -1;
-		lwsl_info("%s: CONNECTED (%s)\n", __func__, h->ssi.streamtype);
+		lwsl_sspc_info(h, "CONNECTED (%s)", h->ssi.streamtype);
 
 		h->state = LPCSCLI_SENDING_INITIAL_TX;
 		/*
@@ -252,18 +252,18 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 		/*
 		 * our ss proxy Unix Domain socket has closed...
 		 */
-		lwsl_info("%s: LWS_CALLBACK_RAW_CLOSE: %s proxy conn down, sspc h %s\n",
-			    __func__, lws_wsi_tag(wsi), lws_sspc_tag(h));
 		if (!h) {
-			lwsl_info("%s: no sspc on client proxy link close\n", __func__);
+			lwsl_info("%s: no sspc on client proxy link close", __func__);
 			break;
 		}
+		lwsl_sspc_info(h, "LWS_CALLBACK_RAW_CLOSE: proxy conn down, wsi %s",
+				lws_wsi_tag(wsi));
 
 		lws_dsh_destroy(&h->dsh);
 		if (h->ss_dangling_connected && h->ssi.state) {
 			lws_ss_state_return_t ret_state;
 
-			lwsl_notice("%s: setting _DISCONNECTED\n", __func__);
+			lwsl_sspc_notice(h, "setting _DISCONNECTED");
 			h->ss_dangling_connected = 0;
 			h->prev_ss_state = LWSSSCS_DISCONNECTED;
 			ret_state = h->ssi.state(ss_to_userobj(h), NULL,
@@ -289,7 +289,6 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 		/*
 		 * ie, the proxy has sent us something
 		 */
-		lwsl_info("%s: RAW_RX: rx %d\n", __func__, (int)len);
 
 		if (!h || !h->cwsi) {
 			lwsl_info("%s: rx when client ss destroyed\n", __func__);
@@ -297,8 +296,10 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 			return -1;
 		}
 
+		lwsl_sspc_info(h, "%s: RAW_RX: rx %d\n", __func__, (int)len);
+
 		if (!len) {
-			lwsl_notice("%s: RAW_RX: zero len\n", __func__);
+			lwsl_sspc_notice(h, "RAW_RX: zero len");
 
 			return -1;
 		}
@@ -345,8 +346,8 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!h)
 			break;
 
-		lwsl_debug("%s: WRITEABLE %s, state %d\n", __func__,
-			   wsi->lc.gutag, h->state);
+		lwsl_sspc_debug(h, "WRITEABLE %s, state %d",
+				wsi->lc.gutag, h->state);
 
 		/*
 		 * Management of ss timeout can happen any time and doesn't
@@ -422,13 +423,13 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 				if (n < 0)
 					goto metadata_hangup;
 
-				lwsl_debug("(local_conn) metadata\n");
+				lwsl_sspc_debug(h, "(local_conn) metadata");
 
 				goto req_write_and_issue;
 			}
 
 			if (h->pending_writeable_len) {
-				lwsl_debug("(local_conn) PAYLOAD_LENGTH_HINT %u",
+				lwsl_sspc_debug(h, "(local_conn) PAYLOAD_LENGTH_HINT %u",
 					   (unsigned int)h->writeable_len);
 				s[0] = LWSSS_SER_TXPRE_PAYLOAD_LENGTH_HINT;
 				lws_ser_wu16be(&s[1], 4);
@@ -439,12 +440,12 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 
 			if (h->conn_req_state >= LWSSSPC_ONW_ONGOING) {
-				lwsl_info("%s: conn_req_state %d\n", __func__,
+				lwsl_sspc_info(h, "conn_req_state %d",
 						h->conn_req_state);
 				break;
 			}
 
-			lwsl_info("%s: (local_conn) onward connect\n", __func__);
+			lwsl_sspc_info(h, "(local_conn) onward connect");
 
 			h->conn_req_state = LWSSSPC_ONW_ONGOING;
 
@@ -484,8 +485,8 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 
 			if (h->pending_writeable_len) {
-				lwsl_info("%s: PAYLOAD_LENGTH_HINT %u\n",
-					   __func__, (unsigned int)h->writeable_len);
+				lwsl_sspc_info(h, "PAYLOAD_LENGTH_HINT %u",
+					  (unsigned int)h->writeable_len);
 				s[0] = LWSSS_SER_TXPRE_PAYLOAD_LENGTH_HINT;
 				lws_ser_wu16be(&s[1], 4);
 				lws_ser_wu32be(&s[3], (uint32_t)h->writeable_len);
@@ -496,8 +497,8 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 			/* we can't write anything if we don't have credit */
 			if (!h->ignore_txc && h->txc.tx_cr <= 0) {
-				lwsl_info("%s: WRITEABLE / OPERATIONAL:"
-					    " lack credit (%d)\n", __func__,
+				lwsl_sspc_info(h, "WRITEABLE / OPERATIONAL:"
+					    " lack credit (%d)",
 					    h->txc.tx_cr);
 				// break;
 			}
@@ -559,7 +560,7 @@ do_write:
 		else
 			n = lws_write(wsi, (uint8_t *)cp, (unsigned int)n, LWS_WRITE_RAW);
 		if (n < 0) {
-			lwsl_notice("%s: WRITEABLE: %d\n", __func__, n);
+			lwsl_sspc_notice(h, "WRITEABLE: %d", n);
 
 			goto hangup;
 		}
@@ -574,7 +575,7 @@ do_write:
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
 
 metadata_hangup:
-	lwsl_err("%s: metadata too large\n", __func__);
+	lwsl_sspc_err(h, "metadata too large");
 
 hangup:
 	lws_free(pkt);
@@ -824,8 +825,7 @@ lws_sspc_request_tx_len(lws_sspc_handle_t *h, unsigned long len)
 	if (!h)
 		return LWSSSSRET_OK;
 
-	lwsl_notice("%s: setting %s writeable_len %u\n", __func__, h->lc.gutag,
-			(unsigned int)len);
+	lwsl_sspc_notice(h, "setting writeable_len %u", (unsigned int)len);
 	h->writeable_len = len;
 	h->pending_writeable_len = 1;
 
@@ -877,7 +877,8 @@ lws_sspc_rideshare(struct lws_sspc_handle *h)
 	 */
 
 	if (h->parser.rideshare[0]) {
-		lwsl_info("%s: parser %s\n", __func__, h->parser.rideshare);
+		lwsl_sspc_info(h, "parser %s", h->parser.rideshare);
+
 		return h->parser.rideshare;
 	}
 
@@ -886,7 +887,7 @@ lws_sspc_rideshare(struct lws_sspc_handle *h)
 	 */
 
 	if (h->rideshare_list[0]) {
-		lwsl_info("%s: tx list %s\n", __func__,
+		lwsl_sspc_info(h, "tx list %s",
 			  &h->rideshare_list[h->rideshare_ofs[h->rsidx]]);
 		return &h->rideshare_list[h->rideshare_ofs[h->rsidx]];
 	}
@@ -895,7 +896,7 @@ lws_sspc_rideshare(struct lws_sspc_handle *h)
 	 * ... otherwise default to our stream type name
 	 */
 
-	lwsl_info("%s: def %s\n", __func__, h->ssi.streamtype);
+	lwsl_sspc_info(h, "def %s\n", h->ssi.streamtype);
 
 	return h->ssi.streamtype;
 }
@@ -935,7 +936,7 @@ _lws_sspc_set_metadata(struct lws_sspc_handle *h, const char *name,
 	else
 		md = lws_malloc(sizeof(*md) + len, "set metadata");
 	if (!md) {
-		lwsl_err("%s: OOM\n", __func__);
+		lwsl_sspc_err(h, "OOM");
 
 		return 1;
 	}
@@ -953,10 +954,10 @@ _lws_sspc_set_metadata(struct lws_sspc_handle *h, const char *name,
 	lws_dll2_add_tail(&md->list, &h->metadata_owner);
 
 	if (len) {
-		lwsl_info("%s: set metadata %s\n", __func__, name);
-		lwsl_hexdump_info(value, len);
+		lwsl_sspc_info(h, "set metadata %s", name);
+		lwsl_hexdump_sspc_info(h, value, len);
 	} else
-		lwsl_info("%s: serializing tx cr adj %d\n", __func__,
+		lwsl_sspc_info(h, "serializing tx cr adj %d",
 			    (int)tx_cr_adjust);
 
 	if (h->cwsi)
@@ -1005,7 +1006,7 @@ lws_sspc_get_metadata(struct lws_sspc_handle *h, const char *name,
 int
 lws_sspc_add_peer_tx_credit(struct lws_sspc_handle *h, int32_t bump)
 {
-	lwsl_notice("%s: %d\n", __func__, bump);
+	lwsl_sspc_notice(h, "%d\n", bump);
 	return _lws_sspc_set_metadata(h, "", NULL, 0, (int)bump);
 }
 

@@ -125,11 +125,11 @@ lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop)
 		g = getgrnam(context->groupname);
 		if (g) {
 #endif
-			lwsl_info("%s: group %s -> gid %u\n", __func__,
+			lwsl_cx_info(context, "group %s -> gid %u",
 				  context->groupname, g->gr_gid);
 			context->gid = g->gr_gid;
 		} else {
-			lwsl_err("%s: unknown groupname '%s'\n", __func__,
+			lwsl_cx_err(context, "unknown groupname '%s'",
 				 context->groupname);
 
 			return 1;
@@ -150,10 +150,10 @@ lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop)
 #endif
 			context->uid = p->pw_uid;
 
-			lwsl_info("%s: username %s -> uid %u\n", __func__,
+			lwsl_cx_info(context, "username %s -> uid %u",
 				  context->username, (unsigned int)p->pw_uid);
 		} else {
-			lwsl_err("%s: unknown username %s\n", __func__,
+			lwsl_cx_err(context, "unknown username %s",
 				 context->username);
 
 			return 1;
@@ -175,23 +175,22 @@ lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop)
 		g = getgrgid(context->gid);
 		if (!g) {
 #endif
-			lwsl_err("%s: cannot find name for gid %d\n",
-				  __func__, context->gid);
+			lwsl_cx_err(context, "cannot find name for gid %d",
+					context->gid);
 
 			return 1;
 		}
 
 		if (setgid(context->gid)) {
-			lwsl_err("%s: setgid: %s failed\n", __func__,
-				 strerror(LWS_ERRNO));
+			lwsl_cx_err(context, "setgid: %s failed",
+				    strerror(LWS_ERRNO));
 
 			return 1;
 		}
 
-		lwsl_notice("%s: effective group '%s'\n", __func__,
-			    g->gr_name);
+		lwsl_cx_notice(context, "effective group '%s'", g->gr_name);
 	} else
-		lwsl_info("%s: not changing group\n", __func__);
+		lwsl_cx_info(context, "not changing group");
 
 
 	/* if he gave us the uid or we have it from the username, set it */
@@ -206,8 +205,8 @@ lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop)
 		p = getpwuid(context->uid);
 		if (!p) {
 #endif
-			lwsl_err("%s: getpwuid: unable to find uid %d\n",
-				 __func__, context->uid);
+			lwsl_cx_err(context, "getpwuid: unable to find uid %d",
+				 context->uid);
 			return 1;
 		}
 
@@ -224,13 +223,13 @@ lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop)
 			return 1;
 
 		if (setuid(context->uid)) {
-			lwsl_err("%s: setuid: %s failed\n", __func__,
-				  strerror(LWS_ERRNO));
+			lwsl_cx_err(context, "setuid: %s failed",
+				    strerror(LWS_ERRNO));
 
 			return 1;
 		} else
-			lwsl_notice("%s: effective user '%s'\n",
-				    __func__, p->pw_name);
+			lwsl_cx_notice(context, "effective user '%s'",
+					p->pw_name);
 
 #if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
 		_lws_plat_apply_caps(CAP_EFFECTIVE, context->caps,
@@ -239,12 +238,12 @@ lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop)
 		if (context->count_caps) {
 			int n;
 			for (n = 0; n < context->count_caps; n++)
-				lwsl_notice("   RETAINING CAP %d\n",
+				lwsl_cx_notice(context, "   RETAINING CAP %d",
 					    (int)context->caps[n]);
 		}
 #endif
 	} else
-		lwsl_info("%s: not changing user\n", __func__);
+		lwsl_cx_info(context, "not changing user");
 
 	return 0;
 }

@@ -331,14 +331,14 @@ lws_ss_check_next_state_ss(lws_ss_handle_t *ss, uint8_t *prevstate,
 
 	if (cs >= LWS_ARRAY_SIZE(ss_state_txn_validity)) {
 		/* we don't recognize this state as usable */
-		lwsl_err("bad new state %u", cs);
+		lwsl_ss_err(ss, "bad new state %u", cs);
 		assert(0);
 		return 1;
 	}
 
 	if (*prevstate >= LWS_ARRAY_SIZE(ss_state_txn_validity)) {
 		/* existing state is broken */
-		lwsl_err("bad existing state %u",
+		lwsl_ss_err(ss, "bad existing state %u",
 				(unsigned int)*prevstate);
 		assert(0);
 		return 1;
@@ -346,7 +346,7 @@ lws_ss_check_next_state_ss(lws_ss_handle_t *ss, uint8_t *prevstate,
 
 	if (ss_state_txn_validity[*prevstate] & (1u << cs)) {
 
-		lwsl_notice("%s -> %s",
+		lwsl_ss_notice(ss, "%s -> %s",
 			       lws_ss_state_name((int)*prevstate),
 			       lws_ss_state_name((int)cs));
 
@@ -356,7 +356,7 @@ lws_ss_check_next_state_ss(lws_ss_handle_t *ss, uint8_t *prevstate,
 		return 0;
 	}
 
-	lwsl_err("transition from %s -> %s is illegal",
+	lwsl_ss_err(ss, "transition from %s -> %s is illegal",
 		    lws_ss_state_name((int)*prevstate),
 		    lws_ss_state_name((int)cs));
 
@@ -935,7 +935,7 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 		pol = lws_ss_policy_lookup(context, ssi->streamtype);
 #endif
 		if (!pol) {
-			lwsl_info("%s: unknown stream type %s\n", __func__,
+			lwsl_cx_info(context, "unknown stream type %s",
 				  ssi->streamtype);
 			return 1;
 		}
@@ -1056,7 +1056,7 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 		h->metadata = (lws_ss_metadata_t *)p;
 		p += pol->metadata_count * sizeof(lws_ss_metadata_t);
 
-		lwsl_info("%s: %s metadata count %d\n", __func__,
+		lwsl_cx_info(context, "%s metadata count %d",
 			  pol->streamtype, pol->metadata_count);
 	}
 
@@ -1113,7 +1113,7 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 						     lws_smd_ss_cb);
 		if (!h->u.smd.smd_peer)
 			goto late_bail;
-		lwsl_info("%s: registered SS SMD\n", __func__);
+		lwsl_cx_info(context, "registered SS SMD");
 	}
 #endif
 
@@ -1123,7 +1123,7 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 		struct lws_context_creation_info i;
 		struct lws_vhost *vho = NULL;
 
-		lwsl_info("%s: creating server\n", __func__);
+		lwsl_cx_info(context, "creating server");
 
 		if (h->policy->endpoint &&
 		    h->policy->endpoint[0] == '!') {
@@ -1196,7 +1196,7 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 		if (!lws_fi(&ssi->fic, "ss_srv_vh_fail"))
 			vho = lws_create_vhost(context, &i);
 		if (!vho) {
-			lwsl_err("%s: failed to create vh", __func__);
+			lwsl_cx_err(context, "failed to create vh");
 			goto late_bail;
 		}
 
@@ -1209,11 +1209,11 @@ extant:
 		vho->ss_handle = h;
 
 		r = lws_ss_event_helper(h, LWSSSCS_CREATING);
-		lwsl_info("%s: CREATING returned status %d\n", __func__, (int)r);
+		lwsl_cx_info(context, "CREATING returned status %d", (int)r);
 		if (r == LWSSSSRET_DESTROY_ME)
 			goto late_bail;
 
-		lwsl_notice("%s: created server %s\n", __func__,
+		lwsl_cx_notice(context, "created server %s",
 				h->policy->streamtype);
 
 		return 0;
@@ -1239,7 +1239,7 @@ extant:
 #endif
 
 	r = lws_ss_event_helper(h, LWSSSCS_CREATING);
-	lwsl_info("%s: CREATING returned status %d\n", __func__, (int)r);
+	lwsl_ss_info(h, "CREATING returned status %d", (int)r);
 	if (r == LWSSSSRET_DESTROY_ME) {
 
 #if defined(LWS_WITH_SERVER) || defined(LWS_WITH_SYS_SMD)

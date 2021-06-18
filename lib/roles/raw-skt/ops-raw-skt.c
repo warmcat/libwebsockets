@@ -55,8 +55,7 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 #if defined(LWS_WITH_SERVER)
 	if (!lwsi_role_client(wsi) &&  lwsi_state(wsi) != LRS_ESTABLISHED) {
 
-		lwsl_debug("%s: %s: wsistate 0x%x\n", __func__, lws_wsi_tag(wsi),
-			   (int)wsi->wsistate);
+		lwsl_wsi_debug(wsi, "wsistate 0x%x\n", (int)wsi->wsistate);
 
 		if (lwsi_state(wsi) != LRS_SSL_INIT)
 			if (lws_server_socket_service_ssl(wsi,
@@ -72,8 +71,7 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 	    !(wsi->favoured_pollin &&
 	      (pollfd->revents & pollfd->events & LWS_POLLOUT))) {
 
-		lwsl_debug("%s: POLLIN: %s, state 0x%x\n", __func__,
-			   lws_wsi_tag(wsi), lwsi_state(wsi));
+		lwsl_wsi_debug(wsi, "POLLIN: state 0x%x", lwsi_state(wsi));
 
 		switch (lwsi_state(wsi)) {
 
@@ -122,7 +120,7 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 			case 0:
 				if (wsi->unix_skt)
 					break;
-				lwsl_info("%s: read 0 len\n", __func__);
+				lwsl_wsi_info(wsi, "read 0 len");
 				wsi->seen_zero_length_recv = 1;
 				if (lws_change_pollfd(wsi, LWS_POLLIN, 0))
 					goto fail;
@@ -156,7 +154,7 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 post_rx:
 #endif
 			if (n < 0) {
-				lwsl_info("LWS_CALLBACK_RAW_RX_fail\n");
+				lwsl_wsi_info(wsi, "LWS_CALLBACK_RAW_RX_fail");
 				goto fail;
 			}
 
