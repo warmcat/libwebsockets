@@ -1428,6 +1428,9 @@ int
 lws_threadpool_tsi_context(struct lws_context *context, int tsi);
 
 void
+lws_threadpool_wsi_closing(struct lws *wsi);
+
+void
 __lws_wsi_remove_from_sul(struct lws *wsi);
 
 void
