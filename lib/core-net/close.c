@@ -505,6 +505,10 @@ just_kill_connection:
 	lwsl_debug("%s: real just_kill_connection A: %s (sockfd %d)\n", __func__,
 		lws_wsi_tag(wsi), wsi->desc.sockfd);
 
+#if defined(LWS_WITH_THREADPOOL)
+	lws_threadpool_wsi_closing(wsi);
+#endif
+
 #if defined(LWS_WITH_FILE_OPS) && (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2))
 	if (lwsi_role_http(wsi) && lwsi_role_server(wsi) &&
 	    wsi->http.fop_fd != NULL)

@@ -1162,6 +1162,22 @@ lws_threadpool_foreach_task_ss(struct lws_ss_handle *ss, void *user,
 }
 #endif
 
+static int
+disassociate_wsi(struct lws_threadpool_task *task,
+		  void *user)
+{
+	task->args.wsi = NULL;
+	lws_dll2_remove(&task->list);
+
+	return 0;
+}
+
+void
+lws_threadpool_wsi_closing(struct lws *wsi)
+{
+	lws_threadpool_foreach_task_wsi(wsi, NULL, disassociate_wsi);
+}
+
 struct lws_threadpool_task *
 lws_threadpool_get_task_wsi(struct lws *wsi)
 {
