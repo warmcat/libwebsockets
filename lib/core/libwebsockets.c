@@ -209,8 +209,18 @@ int lws_open(const char *__file, int __oflag, ...)
 		|| ((__oflag & O_TMPFILE) == O_TMPFILE)
 #endif
 	)
+#if defined(WIN32)
 		/* last arg is really a mode_t.  But windows... */
 		n = open(__file, __oflag, va_arg(ap, uint32_t));
+#else
+		/* ... and some other toolchains...
+		 *
+		 * error: second argument to 'va_arg' is of promotable type 'mode_t'
+		 * (aka 'unsigned short'); this va_arg has undefined behavior because
+		 * arguments will be promoted to 'int'
+		 */
+		n = open(__file, __oflag, (mode_t)va_arg(ap, unsigned int));
+#endif
 	else
 		n = open(__file, __oflag);
 	va_end(ap);
