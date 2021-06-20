@@ -219,7 +219,7 @@ int lws_open(const char *__file, int __oflag, ...)
 		 * (aka 'unsigned short'); this va_arg has undefined behavior because
 		 * arguments will be promoted to 'int'
 		 */
-		n = open(__file, __oflag, va_arg(ap, unsigned int));
+		n = open(__file, __oflag, (mode_t)va_arg(ap, unsigned int));
 #endif
 	else
 		n = open(__file, __oflag);
