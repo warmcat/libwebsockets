@@ -480,7 +480,8 @@ struct lws_vhost {
 	lws_ss_handle_t		*ss_handle; /* ss handle for the server obj */
 #endif
 
-	struct lws *lserv_wsi;
+	lws_dll2_owner_t	listen_wsi;
+
 	const char *name;
 	const char *iface;
 	const char *listen_accept_role;
@@ -682,6 +683,9 @@ struct lws {
 	struct lws_dll2			dll_cli_active_conns;
 	struct lws_dll2			dll2_cli_txn_queue;
 	struct lws_dll2_owner		dll2_cli_txn_queue_owner;
+#if defined(LWS_WITH_SERVER)
+	struct lws_dll2			listen_list;
+#endif
 
 	/**< caliper is reused for tcp, tls and txn conn phases */
 
@@ -1531,6 +1535,9 @@ lws_sul_nonmonotonic_adjust(struct lws_context *ctx, int64_t step_us);
 
 void
 __lws_vhost_destroy_pt_wsi_dieback_start(struct lws_vhost *vh);
+
+int
+lws_vhost_compare_listen(struct lws_vhost *v1, struct lws_vhost *v2);
 
 void
 lws_netdev_instance_remove_destroy(struct lws_netdev_instance *ni);

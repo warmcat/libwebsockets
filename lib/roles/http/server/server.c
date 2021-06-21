@@ -80,18 +80,15 @@ _lws_vhost_init_server(const struct lws_context_creation_info *info,
 	    vhost->listen_port == CONTEXT_PORT_NO_LISTEN_SERVER)
 		return 0;
 
+
+
 	vh = vhost->context->vhost_list;
 	while (vh) {
-		if (vh->listen_port == vhost->listen_port) {
-			if (((!vhost->iface && !vh->iface) ||
-			    (vhost->iface && vh->iface &&
-			    !strcmp(vhost->iface, vh->iface))) &&
-			   vh->lserv_wsi
-			) {
-				lwsl_notice(" using listen skt from vhost %s\n",
-					    vh->name);
-				return 0;
-			}
+		if (vh->listen_wsi.count &&
+		    lws_vhost_compare_listen(vhost, vh)) {
+			lwsl_notice(" using listen skt from vhost %s\n",
+				    vh->name);
+			return 0;
 		}
 		vh = vh->vhost_next;
 	}
@@ -346,7 +343,7 @@ done_list:
 			goto bail;
 		}
 
-		vhost->lserv_wsi = wsi;
+		lws_dll2_add_tail(&wsi->listen_list, &vhost->listen_wsi);
 		lws_pt_unlock(pt);
 
 #if defined(WIN32) && defined(TCP_FASTOPEN)
@@ -375,7 +372,7 @@ done_list:
 		n = listen(wsi->desc.sockfd, LWS_SOMAXCONN);
 		if (n < 0) {
 			lwsl_err("listen failed with error %d\n", LWS_ERRNO);
-			vhost->lserv_wsi = NULL;
+			lws_dll2_remove(&wsi->listen_list);
 			__remove_wsi_socket_from_fds(wsi);
 			goto bail;
 		}

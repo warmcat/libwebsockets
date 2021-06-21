@@ -96,6 +96,10 @@ LWS_VISIBLE LWS_EXTERN void
 lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 		   const char *caller);
 
+LWS_VISIBLE LWS_EXTERN int
+lws_vhost_foreach_listen_wsi(struct lws_context *cx, void *arg,
+			     lws_dll2_foreach_cb_t cb);
+
 struct lws_context_per_thread;
 LWS_VISIBLE LWS_EXTERN void
 lws_service_do_ripe_rxflow(struct lws_context_per_thread *pt);

@@ -228,9 +228,11 @@ lws_dll2_add_tail(struct lws_dll2 *d, struct lws_dll2_owner *owner);
 LWS_VISIBLE LWS_EXTERN void
 lws_dll2_remove(struct lws_dll2 *d);
 
+typedef int (*lws_dll2_foreach_cb_t)(struct lws_dll2 *d, void *user);
+
 LWS_VISIBLE LWS_EXTERN int
 lws_dll2_foreach_safe(struct lws_dll2_owner *owner, void *user,
-		      int (*cb)(struct lws_dll2 *d, void *user));
+		      lws_dll2_foreach_cb_t cb);
 
 LWS_VISIBLE LWS_EXTERN void
 lws_dll2_clear(struct lws_dll2 *d);

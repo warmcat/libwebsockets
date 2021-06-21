@@ -677,6 +677,17 @@ elops_destroy_pt_uv(struct lws_context *context, int tsi)
 	uv_close((uv_handle_t *)&pt_to_priv_uv(pt)->idle, lws_uv_close_cb_sa);
 }
 
+static int
+elops_listen_init_uv(struct lws_dll2 *d, void *user)
+{
+	struct lws *wsi = lws_container_of(d, struct lws, listen_list);
+
+	if (elops_init_vhost_listen_wsi_uv(wsi) == -1)
+		return -1;
+
+	return 0;
+}
+
 /*
  * This needs to be called after vhosts have been defined.
  *
@@ -689,7 +700,6 @@ elops_init_pt_uv(struct lws_context *context, void *_loop, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	struct lws_pt_eventlibs_libuv *ptpriv = pt_to_priv_uv(pt);
-	struct lws_vhost *vh = context->vhost_list;
 	int status = 0, n, ns, first = 1;
 	uv_loop_t *loop = (uv_loop_t *)_loop;
 
@@ -745,11 +755,7 @@ elops_init_pt_uv(struct lws_context *context, void *_loop, int tsi)
 	 * We have to do it here because the uv loop(s) are not
 	 * initialized until after context creation.
 	 */
-	while (vh) {
-		if (elops_init_vhost_listen_wsi_uv(vh->lserv_wsi) == -1)
-			return -1;
-		vh = vh->vhost_next;
-	}
+	lws_vhost_foreach_listen_wsi(context, context, elops_listen_init_uv);
 
 	if (!first)
 		return status;

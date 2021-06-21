@@ -230,14 +230,15 @@ lws_accept_modulation(struct lws_context *context,
 	struct lws_pollargs pa1;
 
 	while (vh) {
-		if (vh->lserv_wsi) {
-			if (allow)
-				_lws_change_pollfd(vh->lserv_wsi,
-					   0, LWS_POLLIN, &pa1);
-			else
-				_lws_change_pollfd(vh->lserv_wsi,
-					   LWS_POLLIN, 0, &pa1);
-		}
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				      lws_dll2_get_head(&vh->listen_wsi)) {
+			struct lws *wsi = lws_container_of(d, struct lws,
+							   listen_list);
+
+			_lws_change_pollfd(wsi, allow ? 0 : LWS_POLLIN,
+						allow ? LWS_POLLIN : 0, &pa1);
+		} lws_end_foreach_dll(d);
+
 		vh = vh->vhost_next;
 	}
 }

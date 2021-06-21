@@ -134,13 +134,33 @@ lws_ev_sigint_cb(struct ev_loop *loop, struct ev_signal *watcher, int revents)
 }
 
 static int
+elops_listen_init_ev(struct lws_dll2 *d, void *user)
+{
+	struct lws *wsi = lws_container_of(d, struct lws, listen_list);
+	struct lws_context *context = (struct lws_context *)user;
+	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+	struct lws_pt_eventlibs_libev *ptpr = pt_to_priv_ev(pt);
+	struct lws_wsi_eventlibs_libev *w = wsi_to_priv_ev(wsi);
+	struct lws_vhost *vh = wsi->a.vhost;
+
+	w->w_read.context = context;
+	w->w_write.context = context;
+	vh_to_priv_ev(vh)->w_accept.context = context;
+
+	ev_io_init(&vh_to_priv_ev(vh)->w_accept.watcher,
+		   lws_accept_cb, wsi->desc.sockfd, EV_READ);
+	ev_io_start(ptpr->io_loop, &vh_to_priv_ev(vh)->w_accept.watcher);
+
+	return 0;
+}
+
+static int
 elops_init_pt_ev(struct lws_context *context, void *_loop, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	struct lws_pt_eventlibs_libev *ptpr = pt_to_priv_ev(pt);
 	struct ev_signal *w_sigint = &ptpr->w_sigint.watcher;
 	struct ev_loop *loop = (struct ev_loop *)_loop;
-	struct lws_vhost *vh = context->vhost_list;
 	const char *backend_name;
 	unsigned int backend;
 	int status = 0;
@@ -162,26 +182,7 @@ elops_init_pt_ev(struct lws_context *context, void *_loop, int tsi)
 
 	ptpr->io_loop = loop;
 
-	/*
-	 * Initialize the accept w_accept with all the listening sockets
-	 * and register a callback for read operations
-	 */
-	while (vh) {
-		if (vh->lserv_wsi) {
-			struct lws_wsi_eventlibs_libev *w =
-						wsi_to_priv_ev(vh->lserv_wsi);
-
-			w->w_read.context = context;
-			w->w_write.context = context;
-			vh_to_priv_ev(vh)->w_accept.context = context;
-
-			ev_io_init(&vh_to_priv_ev(vh)->w_accept.watcher,
-				   lws_accept_cb,
-				   vh->lserv_wsi->desc.sockfd, EV_READ);
-			ev_io_start(loop, &vh_to_priv_ev(vh)->w_accept.watcher);
-		}
-		vh = vh->vhost_next;
-	}
+	lws_vhost_foreach_listen_wsi(context, context, elops_listen_init_ev);
 
 	/* Register the signal watcher unless it's a foreign loop */
 	if (!context->pt[tsi].event_loop_foreign) {
@@ -236,19 +237,27 @@ elops_init_pt_ev(struct lws_context *context, void *_loop, int tsi)
 	return status;
 }
 
+static int
+elops_listen_destroy_ev(struct lws_dll2 *d, void *user)
+{
+	struct lws *wsi = lws_container_of(d, struct lws, listen_list);
+	struct lws_context *context = (struct lws_context *)user;
+	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+	struct lws_pt_eventlibs_libev *ptpr = pt_to_priv_ev(pt);
+	struct lws_vhost *vh = wsi->a.vhost;
+
+	ev_io_stop(ptpr->io_loop, &vh_to_priv_ev(vh)->w_accept.watcher);
+
+	return 0;
+}
+
 static void
 elops_destroy_pt_ev(struct lws_context *context, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	struct lws_pt_eventlibs_libev *ptpr = pt_to_priv_ev(pt);
-	struct lws_vhost *vh = context->vhost_list;
 
-	while (vh) {
-		if (vh->lserv_wsi)
-			ev_io_stop(ptpr->io_loop,
-				   &vh_to_priv_ev(vh)->w_accept.watcher);
-		vh = vh->vhost_next;
-	}
+	lws_vhost_foreach_listen_wsi(context, context, elops_listen_destroy_ev);
 
 	/* static assets */
 

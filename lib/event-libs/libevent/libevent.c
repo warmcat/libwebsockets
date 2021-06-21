@@ -176,6 +176,25 @@ lws_event_sigint_cb(evutil_socket_t sock_fd, short revents, void *ctx)
 }
 
 static int
+elops_listen_init_event(struct lws_dll2 *d, void *user)
+{
+	struct lws *wsi = lws_container_of(d, struct lws, listen_list);
+	struct lws_context *context = (struct lws_context *)user;
+	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+	struct lws_pt_eventlibs_libevent *ptpr = pt_to_priv_event(pt);
+	struct lws_io_watcher_libevent *w_read =
+					&(wsi_to_priv_event(wsi)->w_read);
+
+	w_read->context = context;
+	w_read->watcher = event_new(ptpr->io_loop, wsi->desc.sockfd,
+				(EV_READ | EV_PERSIST), lws_event_cb, w_read);
+	event_add(w_read->watcher, NULL);
+	w_read->set = 1;
+
+	return 0;
+}
+
+static int
 elops_init_pt_event(struct lws_context *context, void *_loop, int tsi)
 {
 	struct lws_vhost *vh = context->vhost_list;
@@ -198,26 +217,7 @@ elops_init_pt_event(struct lws_context *context, void *_loop, int tsi)
 
 	ptpr->io_loop = loop;
 
-	/*
-	* Initialize all events with the listening sockets
-	* and register a callback for read operations
-	*/
-
-	while (vh) {
-		if (vh->lserv_wsi) {
-			struct lws_io_watcher_libevent *w_read =
-				&(wsi_to_priv_event(vh->lserv_wsi)->w_read);
-
-			w_read->context = context;
-			w_read->watcher = event_new(
-					loop, vh->lserv_wsi->desc.sockfd,
-					(EV_READ | EV_PERSIST), lws_event_cb,
-					w_read);
-			event_add(w_read->watcher, NULL);
-			w_read->set = 1;
-		}
-		vh = vh->vhost_next;
-	}
+	lws_vhost_foreach_listen_wsi(context, context, elops_listen_init_event);
 
 	/* static event loop objects */
 
@@ -334,6 +334,23 @@ elops_run_pt_event(struct lws_context *context, int tsi)
 			pt_to_priv_event(&context->pt[tsi])->io_loop);
 }
 
+static int
+elops_listen_destroy_event(struct lws_dll2 *d, void *user)
+{
+	struct lws *wsi = lws_container_of(d, struct lws, listen_list);
+	struct lws_context *context = (struct lws_context *)user;
+	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+	struct lws_pt_eventlibs_libevent *ptpr = pt_to_priv_event(pt);
+	struct lws_wsi_eventlibs_libevent *w = wsi_to_priv_event(wsi);
+
+	event_free(w->w_read.watcher);
+	w->w_read.watcher = NULL;
+	event_free(w->w_write.watcher);
+	w->w_write.watcher = NULL;
+
+	return 0;
+}
+
 static void
 elops_destroy_pt_event(struct lws_context *context, int tsi)
 {
@@ -346,21 +363,7 @@ elops_destroy_pt_event(struct lws_context *context, int tsi)
 	if (!ptpr->io_loop)
 		return;
 
-	/*
-	 * Free all events with the listening sockets
-	 */
-	while (vh) {
-		if (vh->lserv_wsi) {
-			struct lws_wsi_eventlibs_libevent *w =
-				wsi_to_priv_event(vh->lserv_wsi);
-
-			event_free(w->w_read.watcher);
-			w->w_read.watcher = NULL;
-			event_free(w->w_write.watcher);
-			w->w_write.watcher = NULL;
-		}
-		vh = vh->vhost_next;
-	}
+	lws_vhost_foreach_listen_wsi(context, context, elops_listen_destroy_event);
 
 	event_free(ptpr->hrtimer);
 	event_free(ptpr->idle_timer);

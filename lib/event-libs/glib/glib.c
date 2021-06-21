@@ -294,11 +294,20 @@ elops_accept_glib(struct lws *wsi)
 }
 
 static int
+elops_listen_init_glib(struct lws_dll2 *d, void *user)
+{
+	struct lws *wsi = lws_container_of(d, struct lws, listen_list);
+
+	elops_accept_glib(wsi);
+
+	return 0;
+}
+
+static int
 elops_init_pt_glib(struct lws_context *context, void *_loop, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	struct lws_pt_eventlibs_glib *ptpr = pt_to_priv_glib(pt);
-	struct lws_vhost *vh = context->vhost_list;
 	GMainLoop *loop = (GMainLoop *)_loop;
 
 	if (!loop)
@@ -314,17 +323,7 @@ elops_init_pt_glib(struct lws_context *context, void *_loop, int tsi)
 
 	ptpr->loop = loop;
 
-	/*
-	* Initialize all events with the listening sockets
-	* and register a callback for read operations
-	*/
-
-	while (vh) {
-		if (vh->lserv_wsi)
-			elops_accept_glib(vh->lserv_wsi);
-
-		vh = vh->vhost_next;
-	}
+	lws_vhost_foreach_listen_wsi(context, NULL, elops_listen_init_glib);
 
 	lws_glib_set_idle(pt);
 
@@ -420,25 +419,26 @@ elops_destroy_wsi_glib(struct lws *wsi)
 	wsi_to_subclass(wsi) = NULL;
 }
 
+static int
+elops_listen_destroy_glib(struct lws_dll2 *d, void *user)
+{
+	struct lws *wsi = lws_container_of(d, struct lws, listen_list);
+
+	elops_destroy_wsi_glib(wsi);
+
+	return 0;
+}
+
 static void
 elops_destroy_pt_glib(struct lws_context *context, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	struct lws_pt_eventlibs_glib *ptpr = pt_to_priv_glib(pt);
-	struct lws_vhost *vh = context->vhost_list;
 
 	if (!pt_to_loop(pt))
 		return;
 
-	/*
-	 * Free all events with the listening sockets
-	 */
-	while (vh) {
-		if (vh->lserv_wsi)
-			elops_destroy_wsi_glib(vh->lserv_wsi);
-
-		vh = vh->vhost_next;
-	}
+	lws_vhost_foreach_listen_wsi(context, NULL, elops_listen_destroy_glib);
 
 	lws_gs_destroy(ptpr->idle);
 	lws_gs_destroy(ptpr->hrtimer);

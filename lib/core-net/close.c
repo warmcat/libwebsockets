@@ -136,8 +136,10 @@ __lws_reset_wsi(struct lws *wsi)
 		lws_buflist_destroy_all_segments(&wsi->http.buflist_post_body);
 #endif
 
-	if (wsi->a.vhost && wsi->a.vhost->lserv_wsi == wsi)
-		wsi->a.vhost->lserv_wsi = NULL;
+#if defined(LWS_WITH_SERVER)
+	lws_dll2_remove(&wsi->listen_list);
+#endif
+
 #if defined(LWS_WITH_CLIENT)
 	if (wsi->a.vhost)
 		lws_dll2_remove(&wsi->dll_cli_active_conns);

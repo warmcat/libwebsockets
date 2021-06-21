@@ -1211,6 +1211,35 @@ __lws_vhost_destroy_pt_wsi_dieback_start(struct lws_vhost *vh)
 #endif
 }
 
+#if defined(LWS_WITH_NETWORK)
+int
+lws_vhost_compare_listen(struct lws_vhost *v1, struct lws_vhost *v2)
+{
+	return ((!v1->iface && !v2->iface) ||
+		 (v1->iface && v2->iface && !strcmp(v1->iface, v2->iface))) &&
+		v1->listen_port == v2->listen_port;
+}
+
+int
+lws_vhost_foreach_listen_wsi(struct lws_context *cx, void *arg,
+			     lws_dll2_foreach_cb_t cb)
+{
+	struct lws_vhost *v = cx->vhost_list;
+	int n;
+
+	while (v) {
+
+		n = lws_dll2_foreach_safe(&v->listen_wsi, arg, cb);
+		if (n)
+			return n;
+
+		v = v->vhost_next;
+	}
+
+	return 0;
+}
+
+#endif
 
 /*
  * Mark the vhost as being destroyed, so things trying to use it abort.
@@ -1244,8 +1273,8 @@ lws_vhost_destroy1(struct lws_vhost *vh)
 	/*
 	 * PHASE 1: take down or reassign any listen wsi
 	 *
-	 * Are there other vhosts that are piggybacking on our listen socket?
-	 * If so we need to hand the listen socket off to one of the others
+	 * Are there other vhosts that are piggybacking on our listen sockets?
+	 * If so we need to hand each listen socket off to one of the others
 	 * so it will remain open.
 	 *
 	 * If not, close the listen socket now.
@@ -1254,15 +1283,21 @@ lws_vhost_destroy1(struct lws_vhost *vh)
 	 * immediately performed.
 	 */
 
-	if (vh->lserv_wsi) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+			      lws_dll2_get_head(&vh->listen_wsi)) {
+		struct lws *wsi = lws_container_of(d, struct lws, listen_list);
+
+		/*
+		 * For each of our listen sockets, check every other vhost to
+		 * see if another vhost should be given our listen socket.
+		 *
+		 * ipv4 and ipv6 sockets will both match and be migrated.
+		 */
+
 		lws_start_foreach_ll(struct lws_vhost *, v,
 				     context->vhost_list) {
-			if (v != vh &&
-			    !v->being_destroyed &&
-			    v->listen_port == vh->listen_port &&
-			    ((!v->iface && !vh->iface) ||
-			    (v->iface && vh->iface &&
-			    !strcmp(v->iface, vh->iface)))) {
+			if (v != vh && !v->being_destroyed &&
+			    lws_vhost_compare_listen(v, vh)) {
 				/*
 				 * this can only be a listen wsi, which is
 				 * restricted... it has no protocol or other
@@ -1275,31 +1310,32 @@ lws_vhost_destroy1(struct lws_vhost *vh)
 					    __func__, lws_vh_tag(vh),
 					    lws_vh_tag(v));
 
-				assert(v->lserv_wsi == NULL);
-				v->lserv_wsi = vh->lserv_wsi;
+				lws_dll2_remove(&wsi->listen_list);
+				lws_dll2_add_tail(&wsi->listen_list,
+						  &v->listen_wsi);
 
-				if (v->lserv_wsi) {
-					/* req cx + vh lock */
-					__lws_vhost_unbind_wsi(vh->lserv_wsi);
-					lws_vhost_bind_wsi(v, v->lserv_wsi);
-					vh->lserv_wsi = NULL;
-				}
-
+				/* req cx + vh lock */
+				__lws_vhost_unbind_wsi(wsi);
+				lws_vhost_bind_wsi(v, wsi);
 				break;
 			}
 		} lws_end_foreach_ll(v, vhost_next);
 
-		if (vh->lserv_wsi) {
-			/*
-			 * we didn't pass it off to another vhost on the same
-			 * listen port... let's close it next time around the
-			 * event loop without waiting for the logical destroy
-			 * of the vhost itself
-			 */
-			lws_set_timeout(vh->lserv_wsi, 1, LWS_TO_KILL_ASYNC);
-			vh->lserv_wsi = NULL;
-		}
-	}
+	} lws_end_foreach_dll_safe(d, d1);
+
+	/*
+	 * If any listen wsi left we couldn't pass to other vhosts, close them
+	 */
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+			           lws_dll2_get_head(&vh->listen_wsi)) {
+		struct lws *wsi = lws_container_of(d, struct lws, listen_list);
+
+		lws_dll2_remove(&wsi->listen_list);
+		lws_wsi_close(wsi, LWS_TO_KILL_ASYNC);
+
+	} lws_end_foreach_dll_safe(d, d1);
+
 #endif
 #if defined(LWS_WITH_TLS_JIT_TRUST)
 	lws_sul_cancel(&vh->sul_unref);
@@ -1578,44 +1614,40 @@ lws_get_vhost_listen_port(struct lws_vhost *vhost)
 
 #if defined(LWS_WITH_SERVER)
 void
-lws_context_deprecate(struct lws_context *context, lws_reload_func cb)
+lws_context_deprecate(struct lws_context *cx, lws_reload_func cb)
 {
-	struct lws_vhost *vh = context->vhost_list, *vh1;
+	struct lws_vhost *vh = cx->vhost_list;
 
 	/*
-	 * "deprecation" means disable the context from accepting any new
+	 * "deprecation" means disable the cx from accepting any new
 	 * connections and free up listen sockets to be used by a replacement
-	 * context.
+	 * cx.
 	 *
-	 * Otherwise the deprecated context remains operational, until its
+	 * Otherwise the deprecated cx remains operational, until its
 	 * number of connected sockets falls to zero, when it is deleted.
+	 *
+	 * So, for each vhost, close his listen sockets
 	 */
 
-	/* for each vhost, close his listen socket */
-
 	while (vh) {
-		struct lws *wsi = vh->lserv_wsi;
 
-		if (wsi) {
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+					   lws_dll2_get_head(&vh->listen_wsi)) {
+			struct lws *wsi = lws_container_of(d, struct lws,
+							   listen_list);
+
 			wsi->socket_is_permanently_unusable = 1;
-			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "ctx deprecate");
-			wsi->a.context->deprecation_pending_listen_close_count++;
-			/*
-			 * other vhosts can share the listen port, they
-			 * point to the same wsi.  So zap those too.
-			 */
-			vh1 = context->vhost_list;
-			while (vh1) {
-				if (vh1->lserv_wsi == wsi)
-					vh1->lserv_wsi = NULL;
-				vh1 = vh1->vhost_next;
-			}
-		}
+			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
+					   __func__);
+			cx->deprecation_pending_listen_close_count++;
+
+		} lws_end_foreach_dll_safe(d, d1);
+
 		vh = vh->vhost_next;
 	}
 
-	context->deprecated = 1;
-	context->deprecation_cb = cb;
+	cx->deprecated = 1;
+	cx->deprecation_cb = cb;
 }
 #endif
 
