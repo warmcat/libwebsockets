@@ -1212,6 +1212,8 @@ __lws_vhost_destroy_pt_wsi_dieback_start(struct lws_vhost *vh)
 }
 
 #if defined(LWS_WITH_NETWORK)
+
+/* returns nonzero if v1 and v2 can share listen sockets */
 int
 lws_vhost_compare_listen(struct lws_vhost *v1, struct lws_vhost *v2)
 {
@@ -1220,6 +1222,7 @@ lws_vhost_compare_listen(struct lws_vhost *v1, struct lws_vhost *v2)
 		v1->listen_port == v2->listen_port;
 }
 
+/* helper to interate every listen socket on any vhost and call cb on it */
 int
 lws_vhost_foreach_listen_wsi(struct lws_context *cx, void *arg,
 			     lws_dll2_foreach_cb_t cb)
@@ -1269,7 +1272,7 @@ lws_vhost_destroy1(struct lws_vhost *vh)
 	lws_dll2_add_tail(&vh->vh_being_destroyed_list,
 			  &context->owner_vh_being_destroyed);
 
-#if defined(LWS_WITH_NETWORK)
+#if defined(LWS_WITH_NETWORK) && defined(LWS_WITH_SERVER)
 	/*
 	 * PHASE 1: take down or reassign any listen wsi
 	 *

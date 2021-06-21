@@ -52,73 +52,85 @@ static const char * const intermediates[] = { "private", "public" };
  */
 
 #if defined(LWS_WITH_SERVER)
-int
-_lws_vhost_init_server(const struct lws_context_creation_info *info,
-		       struct lws_vhost *vhost)
+
+struct vh_sock_args {
+	const struct lws_context_creation_info	*info;
+	struct lws_vhost			*vhost;
+	int					af;
+};
+
+
+static int
+check_extant(struct lws_dll2 *d, void *user)
 {
+	struct lws *wsi = lws_container_of(d, struct lws, listen_list);
+	struct vh_sock_args *a = (struct vh_sock_args *)user;
+
+	if (!lws_vhost_compare_listen(wsi->a.vhost, a->vhost))
+		return 0;
+
+	if (wsi->af != a ->af)
+		return 0;
+
+	lwsl_notice(" using listen skt from vhost %s\n", wsi->a.vhost->name);
+
+	return 1;
+}
+
+/*
+ * Creates a single listen socket of a specific AF
+ */
+
+int
+_lws_vhost_init_server_af(struct vh_sock_args *a)
+{
+	struct lws_context *cx = a->vhost->context;
 	struct lws_context_per_thread *pt;
 	int n, opt = 1, limit = 1;
 	lws_sockfd_type sockfd;
+	struct lws *wsi;
 	int m = 0, is;
 #if defined(LWS_WITH_IPV6)
-	int af = 0;
+	int value = 1;
 #endif
-	struct lws_vhost *vh;
-	struct lws *wsi;
 
 	(void)method_names;
 	(void)opt;
 
-	if (info) {
-		vhost->iface = info->iface;
-		vhost->listen_port = info->port;
-	}
+	lwsl_info("%s: af %d\n", __func__, (int)a->af);
 
-	/* set up our external listening socket we serve on */
-
-	if (vhost->listen_port == CONTEXT_PORT_NO_LISTEN ||
-	    vhost->listen_port == CONTEXT_PORT_NO_LISTEN_SERVER)
+	if (lws_vhost_foreach_listen_wsi(a->vhost->context, a, check_extant))
 		return 0;
 
+deal:
 
+	if (a->vhost->iface) {
 
-	vh = vhost->context->vhost_list;
-	while (vh) {
-		if (vh->listen_wsi.count &&
-		    lws_vhost_compare_listen(vhost, vh)) {
-			lwsl_notice(" using listen skt from vhost %s\n",
-				    vh->name);
-			return 0;
-		}
-		vh = vh->vhost_next;
-	}
-
-	if (vhost->iface) {
+		lwsl_err("%s\n", a->vhost->iface);
 		/*
 		 * let's check before we do anything else about the disposition
 		 * of the interface he wants to bind to...
 		 */
-		is = lws_socket_bind(vhost, NULL, LWS_SOCK_INVALID,
-				     vhost->listen_port, vhost->iface, 1);
+		is = lws_socket_bind(a->vhost, NULL, LWS_SOCK_INVALID,
+				     a->vhost->listen_port, a->vhost->iface,
+				     a->af);
 		lwsl_debug("initial if check says %d\n", is);
 
 		if (is == LWS_ITOSA_BUSY)
 			/* treat as fatal */
 			return -1;
 
-deal:
-
 		lws_start_foreach_llp(struct lws_vhost **, pv,
-				      vhost->context->no_listener_vhost_list) {
-			if (is >= LWS_ITOSA_USABLE && *pv == vhost) {
+				      cx->no_listener_vhost_list) {
+			if (is >= LWS_ITOSA_USABLE && *pv == a->vhost) {
 				/* on the list and shouldn't be: remove it */
 				lwsl_debug("deferred iface: removing vh %s\n",
 						(*pv)->name);
-				*pv = vhost->no_listener_vhost_list;
-				vhost->no_listener_vhost_list = NULL;
+				*pv = a->vhost->no_listener_vhost_list;
+				a->vhost->no_listener_vhost_list = NULL;
 				goto done_list;
 			}
-			if (is < LWS_ITOSA_USABLE && *pv == vhost)
+			if (is < LWS_ITOSA_USABLE && *pv == a->vhost)
 				goto done_list;
 		} lws_end_foreach_llp(pv, no_listener_vhost_list);
 
@@ -128,10 +140,11 @@ deal:
 
 			/* ... but needs to be: so add it */
 
-			lwsl_debug("deferred iface: adding vh %s\n", vhost->name);
-			vhost->no_listener_vhost_list =
-					vhost->context->no_listener_vhost_list;
-			vhost->context->no_listener_vhost_list = vhost;
+			lwsl_debug("deferred iface: adding vh %s\n",
+					a->vhost->name);
+			a->vhost->no_listener_vhost_list =
+					cx->no_listener_vhost_list;
+			cx->no_listener_vhost_list = a->vhost;
 		}
 
 done_list:
@@ -141,88 +154,61 @@ done_list:
 			break;
 		case LWS_ITOSA_NOT_EXIST:
 			/* can't add it */
-			if (info) /* first time */
-				lwsl_err("VH %s: iface %s port %d DOESN'T EXIST\n",
-				 vhost->name, vhost->iface, vhost->listen_port);
-			else
+			if (!a->info)
 				return -1;
-			return (info->options & LWS_SERVER_OPTION_FAIL_UPON_UNABLE_TO_BIND) ==
-					LWS_SERVER_OPTION_FAIL_UPON_UNABLE_TO_BIND?
+
+			/* first time */
+			lwsl_err("%s: VH %s: iface %s port %d DOESN'T EXIST\n",
+				 __func__, a->vhost->name, a->vhost->iface,
+				 a->vhost->listen_port);
+
+			return (a->info->options &
+				LWS_SERVER_OPTION_FAIL_UPON_UNABLE_TO_BIND) ==
+				LWS_SERVER_OPTION_FAIL_UPON_UNABLE_TO_BIND ?
 				-1 : 1;
+
 		case LWS_ITOSA_NOT_USABLE:
 			/* can't add it */
-			if (info) /* first time */
-				lwsl_err("VH %s: iface %s port %d NOT USABLE\n",
-				 vhost->name, vhost->iface, vhost->listen_port);
-			else
+			if (!a->info) /* first time */
 				return -1;
-			return (info->options & LWS_SERVER_OPTION_FAIL_UPON_UNABLE_TO_BIND) ==
-					LWS_SERVER_OPTION_FAIL_UPON_UNABLE_TO_BIND?
+
+			lwsl_err("%s: VH %s: iface %s port %d NOT USABLE\n",
+				 __func__, a->vhost->name, a->vhost->iface,
+				 a->vhost->listen_port);
+
+			return (a->info->options &
+				LWS_SERVER_OPTION_FAIL_UPON_UNABLE_TO_BIND) ==
+				LWS_SERVER_OPTION_FAIL_UPON_UNABLE_TO_BIND ?
 				-1 : 1;
 		}
 	}
 
 	(void)n;
 #if defined(__linux__)
-#ifdef LWS_WITH_UNIX_SOCK
 	/*
-	 * A Unix domain sockets cannot be bound for several times, even if we set
-	 * the SO_REUSE* options on.
-	 * However, fortunately, each thread is able to independently listen when
-	 * running on a reasonably new Linux kernel. So we can safely assume
-	 * creating just one listening socket for a multi-threaded environment won't
-	 * fail in most cases.
+	 * A Unix domain sockets cannot be bound multiple times, even if we
+	 * set the SO_REUSE* options on.
+	 *
+	 * However on recent linux, each thread is able to independently listen.
+	 *
+	 * So we can assume creating just one listening socket for a multi-
+	 * threaded environment will typically work.
 	 */
-	if (!LWS_UNIX_SOCK_ENABLED(vhost))
-#endif
-	limit = vhost->context->count_threads;
+	if (a->af != AF_UNIX)
+		limit = cx->count_threads;
 #endif
 
 	for (m = 0; m < limit; m++) {
 
-		if (lws_fi(&vhost->fic, "listenskt")) {
-			sockfd = LWS_SOCK_INVALID;
-		} else {
-
-#ifdef LWS_WITH_UNIX_SOCK
-			if (LWS_UNIX_SOCK_ENABLED(vhost))
-				sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
-			else {
-#endif
-
-#if defined(LWS_WITH_IPV6)
-			/*
-			 * We have to assess iface if it's around, to choose
-			 * ahead of time to create a socket with the right AF
-			 */
-
-			if (vhost->iface) {
-				uint8_t buf[16];
-				int q;
-
-				q = lws_parse_numeric_address(vhost->iface, buf, sizeof(buf));
-
-				if (q == 4)
-					af = AF_INET;
-				if (q == 16)
-					af = AF_INET6;
-			}
-
-			if (LWS_IPV6_ENABLED(vhost) && af != AF_INET)
-				sockfd = socket(AF_INET6, SOCK_STREAM, 0);
-			else
-#endif
-				sockfd = socket(AF_INET, SOCK_STREAM, 0);
-
-#ifdef LWS_WITH_UNIX_SOCK
-			}
-#endif
-		}
+		sockfd = lws_fi(&a->vhost->fic, "listenskt") ?
+					LWS_SOCK_INVALID :
+					socket(a->af, SOCK_STREAM, 0);
 
 		if (sockfd == LWS_SOCK_INVALID) {
 			lwsl_err("ERROR opening socket\n");
 			return 1;
 		}
+
 #if !defined(LWS_PLAT_FREERTOS)
 #if (defined(WIN32) || defined(_WIN32)) && defined(SO_EXCLUSIVEADDRUSE)
 		/*
@@ -232,7 +218,7 @@ done_list:
 		 *
 		 * for lws, to match Linux, we default to exclusive listen
 		 */
-		if (!lws_check_opt(vhost->options,
+		if (!lws_check_opt(a->vhost->options,
 				LWS_SERVER_OPTION_ALLOW_LISTEN_SHARE)) {
 			if (setsockopt(sockfd, SOL_SOCKET, SO_EXCLUSIVEADDRUSE,
 				       (const void *)&opt, sizeof(opt)) < 0) {
@@ -254,15 +240,17 @@ done_list:
 		}
 
 #if defined(LWS_WITH_IPV6) && defined(IPV6_V6ONLY)
-		if (LWS_IPV6_ENABLED(vhost) &&
-		    vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY) {
-			int value = (vhost->options &
-				LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE) ? 1 : 0;
-			if (setsockopt(sockfd, IPPROTO_IPV6, IPV6_V6ONLY,
-				      (const void*)&value, sizeof(value)) < 0) {
-				compatible_close(sockfd);
-				return -1;
-			}
+		/*
+		 * If we have an ipv6 listen socket, it only accepts ipv6.
+		 *
+		 * There will be a separate ipv4 listen socket if that's
+		 * enabled.
+		 */
+		if (a->af == AF_INET6 &&
+		    setsockopt(sockfd, IPPROTO_IPV6, IPV6_V6ONLY,
+			       (const void*)&value, sizeof(value)) < 0) {
+			compatible_close(sockfd);
+			return -1;
 		}
 #endif
 
@@ -271,10 +259,10 @@ done_list:
 #if LWS_MAX_SMP > 1
 		n = 1;
 #else
-		n = lws_check_opt(vhost->options,
+		n = lws_check_opt(a->vhost->options,
 				  LWS_SERVER_OPTION_ALLOW_LISTEN_SHARE);
 #endif
-		if (n && vhost->context->count_threads > 1)
+		if (n && cx->count_threads > 1)
 			if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT,
 					(const void *)&opt, sizeof(opt)) < 0) {
 				compatible_close(sockfd);
@@ -282,10 +270,12 @@ done_list:
 			}
 #endif
 #endif
-		lws_plat_set_socket_options(vhost, sockfd, 0);
+		lws_plat_set_socket_options(a->vhost, sockfd, 0);
 
-		is = lws_socket_bind(vhost, NULL, sockfd, vhost->listen_port,
-				     vhost->iface, 1);
+		is = lws_socket_bind(a->vhost, NULL, sockfd,
+				     a->vhost->listen_port,
+				     a->vhost->iface, a->af);
+
 		if (is == LWS_ITOSA_BUSY) {
 			/* treat as fatal */
 			compatible_close(sockfd);
@@ -301,53 +291,56 @@ done_list:
 		if (is < 0) {
 			lwsl_info("%s: lws_socket_bind says %d\n", __func__, is);
 			compatible_close(sockfd);
-			goto deal;
+			if (a->vhost->iface)
+				goto deal;
+			return -1;
 		}
 
 		/*
 		 * Create the listen wsi and customize it
 		 */
 
-		lws_context_lock(vhost->context, __func__);
-		wsi = __lws_wsi_create_with_role(vhost->context, m, &role_ops_listen);
-		lws_context_unlock(vhost->context);
+		lws_context_lock(cx, __func__);
+		wsi = __lws_wsi_create_with_role(cx, m, &role_ops_listen);
+		lws_context_unlock(cx);
 		if (wsi == NULL) {
 			lwsl_err("Out of mem\n");
 			goto bail;
 		}
+		wsi->af = (uint8_t)a->af;
 
 #ifdef LWS_WITH_UNIX_SOCK
-		if (!LWS_UNIX_SOCK_ENABLED(vhost))
+		if (!LWS_UNIX_SOCK_ENABLED(a->vhost))
 #endif
 		{
 			wsi->unix_skt = 1;
-			vhost->listen_port = is;
+			a->vhost->listen_port = is;
 
 			lwsl_debug("%s: lws_socket_bind says %d\n", __func__, is);
 		}
 
 		wsi->desc.sockfd = sockfd;
-		wsi->a.protocol = vhost->protocols;
-		lws_vhost_bind_wsi(vhost, wsi);
+		wsi->a.protocol = a->vhost->protocols;
+		lws_vhost_bind_wsi(a->vhost, wsi);
 		wsi->listener = 1;
 
 		if (wsi->a.context->event_loop_ops->init_vhost_listen_wsi)
 			wsi->a.context->event_loop_ops->init_vhost_listen_wsi(wsi);
 
-		pt = &vhost->context->pt[m];
+		pt = &cx->pt[m];
 		lws_pt_lock(pt, __func__);
 
-		if (__insert_wsi_socket_into_fds(vhost->context, wsi)) {
+		if (__insert_wsi_socket_into_fds(cx, wsi)) {
 			lwsl_notice("inserting wsi socket into fds failed\n");
 			lws_pt_unlock(pt);
 			goto bail;
 		}
 
-		lws_dll2_add_tail(&wsi->listen_list, &vhost->listen_wsi);
+		lws_dll2_add_tail(&wsi->listen_list, &a->vhost->listen_wsi);
 		lws_pt_unlock(pt);
 
 #if defined(WIN32) && defined(TCP_FASTOPEN)
-		if (vhost->fo_listen_queue) {
+		if (a->vhost->fo_listen_queue) {
 			int optval = 1;
 			if (setsockopt(wsi->desc.sockfd, IPPROTO_TCP,
 				       TCP_FASTOPEN,
@@ -359,8 +352,8 @@ done_list:
 		}
 #else
 #if defined(TCP_FASTOPEN)
-		if (vhost->fo_listen_queue) {
-			int qlen = vhost->fo_listen_queue;
+		if (a->vhost->fo_listen_queue) {
+			int qlen = a->vhost->fo_listen_queue;
 
 			if (setsockopt(wsi->desc.sockfd, SOL_TCP, TCP_FASTOPEN,
 				       &qlen, sizeof(qlen)))
@@ -378,21 +371,23 @@ done_list:
 		}
 
 		if (wsi)
-			__lws_lc_tag(&vhost->context->lcg[LWSLCG_WSI],
-				     &wsi->lc, "listen|%s|%s|%d", vhost->name,
-				     vhost->iface ? vhost->iface : "",
-				     (int)vhost->listen_port);
+			__lws_lc_tag(&a->vhost->context->lcg[LWSLCG_WSI],
+				     &wsi->lc, "listen|%s|%s|%d",
+				     a->vhost->name,
+				     a->vhost->iface ? a->vhost->iface : "",
+				     (int)a->vhost->listen_port);
 
 	} /* for each thread able to independently listen */
 
-	if (!lws_check_opt(vhost->context->options,
-			   LWS_SERVER_OPTION_EXPLICIT_VHOSTS)) {
+	if (!lws_check_opt(cx->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS)) {
 #ifdef LWS_WITH_UNIX_SOCK
-		if (LWS_UNIX_SOCK_ENABLED(vhost))
-			lwsl_info(" Listening on \"%s\"\n", vhost->iface);
+		if (a->af == AF_UNIX)
+			lwsl_info(" Listening on \"%s\"\n", a->vhost->iface);
 		else
 #endif
-			lwsl_info(" Listening on port %d\n", vhost->listen_port);
+			lwsl_info(" Listening on %s:%d\n",
+					a->vhost->iface,
+					a->vhost->listen_port);
         }
 
 	// info->port = vhost->listen_port;
@@ -404,6 +399,102 @@ bail:
 
 	return -1;
 }
+
+
+int
+_lws_vhost_init_server(const struct lws_context_creation_info *info,
+		       struct lws_vhost *vhost)
+{
+	struct vh_sock_args a;
+
+	a.info = info;
+	a.vhost = vhost;
+
+	if (info) {
+		vhost->iface = info->iface;
+		vhost->listen_port = info->port;
+	}
+
+	/* set up our external listening socket we serve on */
+
+	if (vhost->listen_port == CONTEXT_PORT_NO_LISTEN ||
+	    vhost->listen_port == CONTEXT_PORT_NO_LISTEN_SERVER)
+		return 0;
+
+	/*
+	 * Let's figure out what AF(s) we want this vhost to listen on.
+	 *
+	 * We want AF_UNIX alone if that's what's told
+	 */
+
+#if defined(LWS_WITH_UNIX_SOCK)
+	/*
+	 * If unix socket, ask for that and we are done
+	 */
+	if (LWS_UNIX_SOCK_ENABLED(vhost)) {
+		a.af = AF_UNIX;
+		goto single;
+	}
+#endif
+
+	/*
+	 * We may support both ipv4 and ipv6, but get a numeric vhost listen
+	 * iface that is unambiguously ipv4 or ipv6, meaning we can only listen
+	 * for the related AF then.
+	 */
+
+	if (vhost->iface) {
+		uint8_t buf[16];
+		int q;
+
+		q = lws_parse_numeric_address(vhost->iface, buf, sizeof(buf));
+
+		if (q == 4) {
+			a.af = AF_INET;
+			goto single;
+		}
+
+		if (q == 16) {
+#if defined(LWS_WITH_IPV6)
+			if (LWS_IPV6_ENABLED(vhost)) {
+				a.af = AF_INET6;
+				goto single;
+			}
+#endif
+			lwsl_err("%s: ipv6 not supported on %s\n", __func__,
+					vhost->name);
+			return 1;
+		}
+	}
+
+	/*
+	 * ... if we make it here, we would want to listen on AF_INET and
+	 * AF_INET6 unless one or the other is forbidden
+	 */
+
+#if defined(LWS_WITH_IPV6)
+	if (!(LWS_IPV6_ENABLED(vhost) &&
+	      (vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY) &&
+	      (vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE))) {
+#endif
+		a.af = AF_INET;
+		if (_lws_vhost_init_server_af(&a))
+			return 1;
+
+#if defined(LWS_WITH_IPV6)
+	}
+	if (LWS_IPV6_ENABLED(vhost)) {
+		a.af = AF_INET6;
+		goto single;
+	}
+#endif
+
+	return 0;
+
+single:
+	return _lws_vhost_init_server_af(&a);
+}
+
 #endif
 
 struct lws_vhost *

@@ -679,13 +679,13 @@ struct lws {
 	struct lws_dll2			adns; /* on adns list of guys to tell result */
 	lws_async_dns_cb_t		adns_cb; /* callback with result */
 #endif
+#if defined(LWS_WITH_SERVER)
+	struct lws_dll2			listen_list;
+#endif
 #if defined(LWS_WITH_CLIENT)
 	struct lws_dll2			dll_cli_active_conns;
 	struct lws_dll2			dll2_cli_txn_queue;
 	struct lws_dll2_owner		dll2_cli_txn_queue_owner;
-#if defined(LWS_WITH_SERVER)
-	struct lws_dll2			listen_list;
-#endif
 
 	/**< caliper is reused for tcp, tls and txn conn phases */
 
@@ -878,6 +878,7 @@ struct lws {
 	uint8_t sys_tls_client_cert;
 	uint8_t c_pri;
 #endif
+	uint8_t		af;
 #if defined(LWS_WITH_CGI) || defined(LWS_WITH_CLIENT)
 	char reason_bf; /* internal writeable callback reason bitfield */
 #endif

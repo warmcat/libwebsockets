@@ -195,7 +195,6 @@ lws_tls_cert_updated(struct lws_context *context, const char *certpath,
 
 	return 0;
 }
-#endif
 
 int
 lws_gate_accepts(struct lws_context *context, int on)
@@ -222,6 +221,7 @@ lws_gate_accepts(struct lws_context *context, int on)
 
 	return 0;
 }
+#endif
 
 /* comma-separated alpn list, like "h2,http/1.1" to openssl alpn format */
 

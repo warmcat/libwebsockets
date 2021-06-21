@@ -154,7 +154,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	int cfail;
 #endif
-	int m;
+	int m, af = 0;
 
 	/*
 	 * If we come here with result set, we need to convert getaddrinfo
@@ -247,7 +247,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 		ads++;
 		memset(&wsi->sa46_peer, 0, sizeof(wsi->sa46_peer));
 		memset(&sau, 0, sizeof(sau));
-		sau.sun_family = AF_UNIX;
+		af = sau.sun_family = AF_UNIX;
 		strncpy(sau.sun_path, ads, sizeof(sau.sun_path));
 		sau.sun_path[sizeof(sau.sun_path) - 1] = '\0';
 
@@ -324,12 +324,18 @@ ads_known:
 		}
 
 #if defined(LWS_WITH_UNIX_SOCK)
-		if (wsi->unix_skt)
+		af = 0;
+		if (wsi->unix_skt) {
+			af = AF_UNIX;
 			wsi->desc.sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
+		}
 		else
 #endif
+		{
+			af = wsi->sa46_peer.sa4.sin_family;
 			wsi->desc.sockfd = socket(wsi->sa46_peer.sa4.sin_family,
 						  SOCK_STREAM, 0);
+		}
 
 		if (!lws_socket_is_valid(wsi->desc.sockfd)) {
 			lwsl_warn("Unable to open socket\n");
@@ -391,7 +397,7 @@ ads_known:
 
 		if (iface && *iface) {
 			m = lws_socket_bind(wsi->a.vhost, wsi, wsi->desc.sockfd,
-					    0, iface, wsi->ipv6);
+					    0, iface, af);
 			if (m < 0)
 				goto try_next_dns_result_fds;
 		}

@@ -206,7 +206,7 @@ bail:
 int
 lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 		lws_sockfd_type sockfd, int port, const char *iface,
-		int ipv6_allowed)
+		int af)
 {
 #ifdef LWS_WITH_UNIX_SOCK
 	struct sockaddr_un serv_unix;
@@ -218,7 +218,7 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 #ifndef LWS_PLAT_OPTEE
 	socklen_t len = sizeof(struct sockaddr_storage);
 #endif
-	int n;
+	int n = 0;
 #if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE)
 	int m;
 #endif
@@ -231,8 +231,9 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 	if (wsi)
 		psin = (struct sockaddr_storage *)&wsi->sa46_local;
 
+	switch (af) {
 #if defined(LWS_WITH_UNIX_SOCK)
-	if (!port && LWS_UNIX_SOCK_ENABLED(vhost)) {
+	case AF_UNIX:
 		v = (struct sockaddr *)&serv_unix;
 		memset(&serv_unix, 0, sizeof(serv_unix));
 		serv_unix.sun_family = AF_UNIX;
@@ -251,13 +252,13 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 			unlink(serv_unix.sun_path);
 
 		// lwsl_hexdump_notice(v, n);
-
-	} else
+		break;
 #endif
 #if defined(LWS_WITH_IPV6) && !defined(LWS_PLAT_FREERTOS)
-	if (ipv6_allowed && LWS_IPV6_ENABLED(vhost)) {
+	case AF_INET6:
 		v = (struct sockaddr *)&serv_addr6;
 		n = sizeof(struct sockaddr_in6);
+
 		memset(&serv_addr6, 0, sizeof(serv_addr6));
 		if (iface) {
 			m = interface_to_sa(vhost, iface,
@@ -281,9 +282,10 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 			serv_addr6.sin6_port = (uint16_t)htons((uint16_t)port);
 		else
 			((struct sockaddr_in *)v)->sin_port = (uint16_t)htons((uint16_t)port);
-	} else
+		break;
 #endif
-	{
+
+	case AF_INET:
 		v = (struct sockaddr *)&serv_addr4;
 		n = sizeof(serv_addr4);
 		memset(&serv_addr4, 0, sizeof(serv_addr4));
@@ -307,7 +309,10 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 		}
 #endif
 		serv_addr4.sin_port = htons((uint16_t)(unsigned int)port);
-	} /* ipv4 */
+		break;
+	default:
+		return -1;
+	} /* switch */
 
 	/* just checking for the interface extant */
 	if (sockfd == LWS_SOCK_INVALID)
@@ -315,7 +320,7 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 
 	n = bind(sockfd, v, (socklen_t)n);
 #ifdef LWS_WITH_UNIX_SOCK
-	if (n < 0 && LWS_UNIX_SOCK_ENABLED(vhost)) {
+	if (n < 0 && af == AF_UNIX) {
 		lwsl_err("ERROR on binding fd %d to \"%s\" (%d %d)\n",
 			 sockfd, iface, n, LWS_ERRNO);
 		return LWS_ITOSA_NOT_EXIST;
@@ -324,8 +329,8 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 	if (n < 0) {
 		int _lws_errno = LWS_ERRNO;
 
-		lwsl_err("ERROR on binding fd %d to port %d (%d %d)\n",
-			 sockfd, port, n, _lws_errno);
+		lwsl_err("%s: ERROR on binding fd %d to port %d (%d %d)\n",
+			 __func__, sockfd, port, n, _lws_errno);
 
 		/* if something already listening, tell caller to fail permanently */
 
@@ -338,7 +343,7 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 	}
 
 #if defined(LWS_WITH_UNIX_SOCK) && !defined(WIN32)
-	if (!port && LWS_UNIX_SOCK_ENABLED(vhost)) {
+	if (af == AF_UNIX) {
 		uid_t uid = vhost->context->uid;
 		gid_t gid = vhost->context->gid;
 

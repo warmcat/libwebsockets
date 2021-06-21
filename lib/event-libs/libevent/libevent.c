@@ -197,7 +197,6 @@ elops_listen_init_event(struct lws_dll2 *d, void *user)
 static int
 elops_init_pt_event(struct lws_context *context, void *_loop, int tsi)
 {
-	struct lws_vhost *vh = context->vhost_list;
 	struct event_base *loop = (struct event_base *)_loop;
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	struct lws_pt_eventlibs_libevent *ptpr = pt_to_priv_event(pt);
@@ -338,9 +337,6 @@ static int
 elops_listen_destroy_event(struct lws_dll2 *d, void *user)
 {
 	struct lws *wsi = lws_container_of(d, struct lws, listen_list);
-	struct lws_context *context = (struct lws_context *)user;
-	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	struct lws_pt_eventlibs_libevent *ptpr = pt_to_priv_event(pt);
 	struct lws_wsi_eventlibs_libevent *w = wsi_to_priv_event(wsi);
 
 	event_free(w->w_read.watcher);
@@ -356,9 +352,6 @@ elops_destroy_pt_event(struct lws_context *context, int tsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	struct lws_pt_eventlibs_libevent *ptpr = pt_to_priv_event(pt);
-	struct lws_vhost *vh = context->vhost_list;
-
-	lwsl_info("%s\n", __func__);
 
 	if (!ptpr->io_loop)
 		return;

@@ -57,9 +57,12 @@ lws_tls_restrict_borrow(struct lws_context *context)
 		return 1;
 	}
 
-	if (++context->simultaneous_ssl == context->simultaneous_ssl_restriction)
+	context->simultaneous_ssl++;
+#if defined(LWS_WITH_SERVER)
+	if (context->simultaneous_ssl == context->simultaneous_ssl_restriction)
 		/* that was the last allowed SSL connection */
 		lws_gate_accepts(context, 0);
+#endif
 
 	lwsl_info("%s: %d -> %d\n", __func__,
 		  context->simultaneous_ssl - 1,
@@ -72,12 +75,15 @@ void
 lws_tls_restrict_return(struct lws_context *context)
 {
 	if (context->simultaneous_ssl_restriction) {
-		if (context->simultaneous_ssl-- ==
-					context->simultaneous_ssl_restriction)
+		int n = context->simultaneous_ssl--;
+
+#if defined(LWS_WITH_SERVER)
+		if (n == context->simultaneous_ssl_restriction)
 			/* we made space and can do an accept */
 			lws_gate_accepts(context, 1);
-		lwsl_info("%s: %d -> %d\n", __func__,
-			  context->simultaneous_ssl + 1,
+#endif
+
+		lwsl_info("%s: %d -> %d\n", __func__, n,
 			  context->simultaneous_ssl);
 	}
 }
