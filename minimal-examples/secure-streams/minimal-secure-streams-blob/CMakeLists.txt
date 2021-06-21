@@ -66,10 +66,10 @@ if (requirements)
 
 			if (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
 				# uds abstract namespace for linux
-				set(CTEST_SOCKET_PATH "@ctest-ssp-$ENV{SAI_PROJECT}-$ENV{SAI_OVN}")
+				set(CTEST_SOCKET_PATH "@ctest-ssblobproxy-$ENV{SAI_PROJECT}-$ENV{SAI_OVN}")
 			else()
 				# filesystem socket for others
-				set(CTEST_SOCKET_PATH "/tmp/ctest-ssp-$ENV{SAI_PROJECT}-$ENV{SAI_OVN}")
+				set(CTEST_SOCKET_PATH "/tmp/ctest-ssblobproxy-$ENV{SAI_PROJECT}-$ENV{SAI_OVN}")
 			endif()
 			add_test(NAME st_ssblobproxy COMMAND
 				${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
