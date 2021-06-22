@@ -1480,7 +1480,7 @@ _lws_ss_request_tx(lws_ss_handle_t *h)
 lws_ss_state_return_t
 lws_ss_request_tx_len(lws_ss_handle_t *h, unsigned long len)
 {
-	if (h->wsi &&
+	if (h->wsi && h->policy &&
 	    (h->policy->protocol == LWSSSP_H1 ||
 	     h->policy->protocol == LWSSSP_H2 ||
 	     h->policy->protocol == LWSSSP_WS))
