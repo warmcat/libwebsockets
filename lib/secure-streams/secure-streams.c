@@ -1310,7 +1310,7 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 	 */
 
 #if defined(LWS_WITH_SERVER)
-	if (h->policy->flags & LWSSSPOLF_SERVER)
+	if (h->policy && (h->policy->flags & LWSSSPOLF_SERVER))
 		v = lws_get_vhost_by_name(h->context, h->policy->streamtype);
 #endif
 
@@ -1345,8 +1345,8 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 	 * to the ss connect code instead.
 	 */
 
-
-	lws_ss_policy_unref_trust_store(h->context, h->policy);
+	if (h->policy)
+		lws_ss_policy_unref_trust_store(h->context, h->policy);
 #endif
 
 #if defined(LWS_WITH_SERVER)
