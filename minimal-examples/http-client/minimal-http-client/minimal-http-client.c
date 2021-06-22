@@ -62,6 +62,11 @@ dump_conmon_data(struct lws *wsi)
 }
 #endif
 
+static const char *ua = "Mozilla/5.0 (X11; Linux x86_64) "
+			"AppleWebKit/537.36 (KHTML, like Gecko) "
+			"Chrome/51.0.2704.103 Safari/537.36",
+		  *acc = "*/*";
+
 static int
 callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	      void *user, void *in, size_t len)
@@ -104,12 +109,20 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 
 		break;
 
-#if defined(LWS_WITH_HTTP_BASIC_AUTH)
-
 	/* you only need this if you need to do Basic Auth */
 	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
 	{
 		unsigned char **p = (unsigned char **)in, *end = (*p) + len;
+
+		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_USER_AGENT,
+				(unsigned char *)ua, (int)strlen(ua), p, end))
+			return -1;
+
+		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_ACCEPT,
+				(unsigned char *)acc, (int)strlen(acc), p, end))
+			return -1;
+#if defined(LWS_WITH_HTTP_BASIC_AUTH)
+		{
 		char b[128];
 
 		if (!ba_user || !ba_password)
@@ -120,10 +133,10 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_AUTHORIZATION,
 				(unsigned char *)b, (int)strlen(b), p, end))
 			return -1;
-
+		}
+#endif
 		break;
 	}
-#endif
 
 	/* chunks of chunked content, with header removed */
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
