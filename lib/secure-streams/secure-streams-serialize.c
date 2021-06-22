@@ -1100,6 +1100,11 @@ payload_ff:
 			if (!proxy_pss_to_ss_h(pss))
 				goto hangup;
 
+			if (!proxy_pss_to_ss_h(pss)->policy) {
+				lwsl_err("%s: null policy\n", __func__);
+				goto hangup;
+			}
+
 			/*
 			 * This is the policy's metadata list for the given
 			 * name
