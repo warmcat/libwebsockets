@@ -869,7 +869,7 @@ malformed:
 	case LWS_CALLBACK_CLIENT_HTTP_WRITEABLE:
 
 		if (!h || !h->info.tx) {
-			lwsl_notice("%s: %s no handle / tx\n", __func__, h->lc.gutag);
+			lwsl_notice("%s: no handle / tx\n", __func__);
 			return 0;
 		}
 
