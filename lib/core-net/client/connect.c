@@ -88,7 +88,7 @@ lws_client_stash_create(struct lws *wsi, const char **cisin)
 	char *pc;
 	int n;
 
-	size = sizeof(*wsi->stash);
+	size = sizeof(*wsi->stash) + 1;
 
 	/*
 	 * Let's overallocate the stash object with space for all the args
@@ -114,6 +114,8 @@ lws_client_stash_create(struct lws *wsi, const char **cisin)
 		if (cisin[n]) {
 			size_t mm;
 			wsi->stash->cis[n] = pc;
+			if (n == CIS_PATH && cisin[n][0] != '/')
+				*pc++ = '/';
 			mm = strlen(cisin[n]) + 1;
 			memcpy(pc, cisin[n], mm);
 			pc += mm;
