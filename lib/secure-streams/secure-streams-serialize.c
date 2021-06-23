@@ -1487,8 +1487,10 @@ payload_ff:
 				if (cs < LWSSSCS_USER_BASE)
 					h->prev_ss_state = (uint8_t)cs;
 
+				h->h_in_svc = h;
 				n = ssi->state(client_pss_to_userdata(pss),
 					NULL, cs, par->flags);
+				h->h_in_svc = NULL;
 				switch (n) {
 				case LWSSSSRET_OK:
 					break;

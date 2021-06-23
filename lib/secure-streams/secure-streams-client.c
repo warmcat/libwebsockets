@@ -709,7 +709,6 @@ lws_sspc_destroy(lws_sspc_handle_t **ph)
 		return;
 
 	h = *ph;
-
 	if (h == h->h_in_svc) {
 		lwsl_err("%s: illegal destroy, return LWSSSSRET_DESTROY_ME instead\n",
 				__func__);

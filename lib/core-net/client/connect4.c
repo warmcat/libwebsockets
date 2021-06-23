@@ -162,7 +162,7 @@ send_hs:
 			      lwsi_state(wsi_piggyback));
 	} else {
 		lwsl_wsi_info(wsi, "%s %s client created own conn "
-			  "(raw %d) vh %sm st 0x%x",
+			  "(raw %d) vh %s st 0x%x",
 			  wsi->role_ops->name, wsi->a.protocol->name, rawish,
 			  wsi->a.vhost->name, lwsi_state(wsi));
 

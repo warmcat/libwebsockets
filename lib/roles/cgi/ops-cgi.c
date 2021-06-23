@@ -47,13 +47,13 @@ rops_handle_POLLIN_cgi(struct lws_context_per_thread *pt, struct lws *wsi,
 	}
 
 	if (!wsi->parent) {
-		lwsl_wsi_debug(wsi, "stdwsi content with parent\n", __func__);
+		lwsl_wsi_debug(wsi, "stdwsi content with parent");
 
 		return LWS_HPI_RET_HANDLED;
 	}
 
 	if (!wsi->parent->http.cgi) {
-		lwsl_wsi_notice("stdwsi content with deleted cgi object");
+		lwsl_wsi_notice(wsi, "stdwsi content with deleted cgi object");
 
 		return LWS_HPI_RET_HANDLED;
 	}
