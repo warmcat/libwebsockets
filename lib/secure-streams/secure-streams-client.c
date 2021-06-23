@@ -23,6 +23,8 @@ lws_ss_state_return_t
 lws_sspc_event_helper(lws_sspc_handle_t *h, lws_ss_constate_t cs,
 		      lws_ss_tx_ordinal_t flags)
 {
+	lws_ss_state_return_t ret;
+
 	if (!h)
 		return LWSSSSRET_OK;
 
@@ -32,7 +34,11 @@ lws_sspc_event_helper(lws_sspc_handle_t *h, lws_ss_constate_t cs,
 	if (!h->ssi.state)
 		return LWSSSSRET_OK;
 
-	return h->ssi.state((void *)((uint8_t *)&h[1]), NULL, cs, flags);
+	h->h_in_svc = h;
+	ret = h->ssi.state((void *)((uint8_t *)&h[1]), NULL, cs, flags);
+	h->h_in_svc = NULL;
+
+	return ret;
 }
 
 static void
@@ -651,6 +657,13 @@ lws_sspc_destroy(lws_sspc_handle_t **ph)
 		return;
 
 	h = *ph;
+
+	if (h == h->h_in_svc) {
+		lwsl_err("%s: illegal destroy, return LWSSSSRET_DESTROY_ME instead\n",
+				__func__);
+		assert(0);
+		return;
+	}
 
 	if (h->destroying)
 		return;

@@ -357,9 +357,11 @@ lws_ss_event_helper(lws_ss_handle_t *h, lws_ss_constate_t cs)
 #endif
 
 	if (h->info.state) {
+		h->h_in_svc = h;
 		r = h->info.state(ss_to_userobj(h), NULL, cs,
 			cs == LWSSSCS_UNREACHABLE &&
 			h->wsi && h->wsi->dns_reachability);
+		h->h_in_svc = NULL;
 #if defined(LWS_WITH_SERVER)
 		if ((h->info.flags & LWSSSINFLAGS_ACCEPTED) &&
 		    cs == LWSSSCS_DISCONNECTED)
@@ -1258,6 +1260,13 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 
 	if (!h)
 		return;
+
+	if (h == h->h_in_svc) {
+		lwsl_err("%s: illegal destroy, return LWSSSSRET_DESTROY_ME instead\n",
+				__func__);
+		assert(0);
+		return;
+	}
 
 	if (h->destroying) {
 		lwsl_info("%s: reentrant destroy\n", __func__);

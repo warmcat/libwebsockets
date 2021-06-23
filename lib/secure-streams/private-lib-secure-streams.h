@@ -84,6 +84,7 @@ typedef struct lws_ss_handle {
 	struct lwsac            *imd_ac;           /**< for get custom header */
 #endif
 	const lws_ss_policy_t	*rideshare;
+	struct lws_ss_handle	*h_in_svc;
 
 #if defined(LWS_WITH_CONMON)
 	char			*conmon_json;
@@ -316,6 +317,12 @@ typedef struct lws_sspc_handle {
 
 	struct lws_dsh		*dsh;
 	struct lws_context	*context;
+
+	struct lws_sspc_handle	*h_in_svc;
+	/*
+	 * Used to detect illegal lws_sspc_destroy() calls while still
+	 * being serviced
+	 */
 
 	lws_usec_t		us_earliest_write_req;
 
