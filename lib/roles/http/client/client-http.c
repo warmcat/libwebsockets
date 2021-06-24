@@ -143,10 +143,12 @@ lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 
 		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 
-               /* fallthrough */
+               /* fallthru */
 
 #endif
 
+               /* dummy fallthru to satisfy compiler */
+               /* fallthru */
 	case LRS_H1C_ISSUE_HANDSHAKE:
 
 		lwsl_debug("%s: LRS_H1C_ISSUE_HANDSHAKE\n", __func__);
