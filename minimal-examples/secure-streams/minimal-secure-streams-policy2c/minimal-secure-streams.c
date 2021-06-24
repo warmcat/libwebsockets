@@ -347,6 +347,7 @@ int main(int argc, const char **argv)
 							buf, sizeof(buf)));
 
 				printf("\t.name = \"%s\",\n", pol->trust.store->name);
+				printf("\t.count = %d,\n", pol->trust.store->count);
 				printf("\t.ssx509 = {\n");
 
 				for (n = pol->trust.store->count - 1; n >= 0 ; n--)
