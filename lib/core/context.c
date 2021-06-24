@@ -2014,6 +2014,7 @@ next:
 			goto bail;
 		}
 #endif
+		/* fallthru */
 
 	case LWSCD_FINALIZATION:
 
