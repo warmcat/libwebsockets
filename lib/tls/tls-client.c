@@ -182,10 +182,6 @@ lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1)
 		int n;
 
 		if (!wsi->tls.ssl) {
-			if (lws_ssl_client_bio_create(wsi) < 0) {
-				*pcce = "bio_create failed";
-				return CCTLS_RETURN_ERROR;
-			}
 
 #if defined(LWS_WITH_TLS)
 			if (!wsi->transaction_from_pipeline_queue &&
@@ -194,6 +190,11 @@ lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1)
 				return CCTLS_RETURN_ERROR;
 			}
 #endif
+
+			if (lws_ssl_client_bio_create(wsi) < 0) {
+				*pcce = "bio_create failed";
+				return CCTLS_RETURN_ERROR;
+			}
 		}
 
 		if (!do_c1)

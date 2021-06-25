@@ -58,15 +58,19 @@ lws_tls_restrict_borrow(struct lws_context *context)
 	}
 
 	context->simultaneous_ssl++;
+
+	lwsl_info("%s: %d -> %d\n", __func__,
+		  context->simultaneous_ssl - 1,
+		  context->simultaneous_ssl);
+
+	assert(context->simultaneous_ssl <=
+	       context->simultaneous_ssl_restriction);
+
 #if defined(LWS_WITH_SERVER)
 	if (context->simultaneous_ssl == context->simultaneous_ssl_restriction)
 		/* that was the last allowed SSL connection */
 		lws_gate_accepts(context, 0);
 #endif
-
-	lwsl_info("%s: %d -> %d\n", __func__,
-		  context->simultaneous_ssl - 1,
-		  context->simultaneous_ssl);
 
 	return 0;
 }
@@ -77,14 +81,16 @@ lws_tls_restrict_return(struct lws_context *context)
 	if (context->simultaneous_ssl_restriction) {
 		int n = context->simultaneous_ssl--;
 
+		lwsl_info("%s: %d -> %d\n", __func__, n,
+			  context->simultaneous_ssl);
+
+		assert(context->simultaneous_ssl >= 0);
+
 #if defined(LWS_WITH_SERVER)
 		if (n == context->simultaneous_ssl_restriction)
 			/* we made space and can do an accept */
 			lws_gate_accepts(context, 1);
 #endif
-
-		lwsl_info("%s: %d -> %d\n", __func__, n,
-			  context->simultaneous_ssl);
 	}
 }
 
@@ -100,6 +106,7 @@ lws_context_init_alpn(struct lws_vhost *vhost)
 
 	lwsl_info(" Server '%s' advertising ALPN: %s\n",
 		    vhost->name, alpn_comma);
+
 	vhost->tls.alpn_ctx.len = (uint8_t)lws_alpn_comma_to_openssl(alpn_comma,
 					vhost->tls.alpn_ctx.data,
 					sizeof(vhost->tls.alpn_ctx.data) - 1);
@@ -107,9 +114,9 @@ lws_context_init_alpn(struct lws_vhost *vhost)
 	SSL_CTX_set_alpn_select_cb(vhost->tls.ssl_ctx, alpn_cb,
 				   &vhost->tls.alpn_ctx);
 #else
-	lwsl_err(
-		" HTTP2 / ALPN configured but not supported by OpenSSL 0x%lx\n",
-		    OPENSSL_VERSION_NUMBER);
+	lwsl_err(" HTTP2 / ALPN configured "
+		 "but not supported by OpenSSL 0x%lx\n",
+		 OPENSSL_VERSION_NUMBER);
 #endif // OPENSSL_VERSION_NUMBER >= 0x10002000L
 }
 
