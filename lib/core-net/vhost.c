@@ -244,7 +244,7 @@ lws_protocol_vh_priv_zalloc(struct lws_vhost *vhost,
 {
 	int n = 0;
 
-	if (!vhost || !prot)
+	if (!vhost || !prot || !vhost->protocols || !prot->name)
 		return NULL;
 
 	/* allocate the vh priv array only on demand */
@@ -252,6 +252,7 @@ lws_protocol_vh_priv_zalloc(struct lws_vhost *vhost,
 		vhost->protocol_vh_privs = (void **)lws_zalloc(
 				(size_t)vhost->count_protocols * sizeof(void *),
 				"protocol_vh_privs");
+
 		if (!vhost->protocol_vh_privs)
 			return NULL;
 	}
@@ -261,12 +262,17 @@ lws_protocol_vh_priv_zalloc(struct lws_vhost *vhost,
 
 	if (n == vhost->count_protocols) {
 		n = 0;
-		while (n < vhost->count_protocols &&
-		       strcmp(vhost->protocols[n].name, prot->name))
+		while (n < vhost->count_protocols) {
+			if (vhost->protocols[n].name &&
+			    !strcmp(vhost->protocols[n].name, prot->name))
+				break;
 			n++;
+		}
 
-		if (n == vhost->count_protocols)
+		if (n == vhost->count_protocols) {
+			lwsl_err("%s: unknown protocol %p\n", __func__, prot);
 			return NULL;
+		}
 	}
 
 	vhost->protocol_vh_privs[n] = lws_zalloc((size_t)size, "vh priv");
@@ -279,7 +285,8 @@ lws_protocol_vh_priv_get(struct lws_vhost *vhost,
 {
 	int n = 0;
 
-	if (!vhost || !vhost->protocol_vh_privs || !prot)
+	if (!vhost || !vhost->protocols ||
+	    !vhost->protocol_vh_privs || !prot || !prot->name)
 		return NULL;
 
 	while (n < vhost->count_protocols && &vhost->protocols[n] != prot)
@@ -287,9 +294,12 @@ lws_protocol_vh_priv_get(struct lws_vhost *vhost,
 
 	if (n == vhost->count_protocols) {
 		n = 0;
-		while (n < vhost->count_protocols &&
-		       strcmp(vhost->protocols[n].name, prot->name))
+		while (n < vhost->count_protocols) {
+			if (vhost->protocols[n].name &&
+			    !strcmp(vhost->protocols[n].name, prot->name))
+				break;
 			n++;
+		}
 
 		if (n == vhost->count_protocols) {
 			lwsl_err("%s: unknown protocol %p\n", __func__, prot);
@@ -442,12 +452,25 @@ lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 		 * prepared in case the protocol handler wants to touch them
 		 */
 
-		if (pvo || !vh->pvo) {
+		if (pvo
+#if !defined(LWS_WITH_PLUGINS)
+				/*
+				 * with plugins, you have to explicitly
+				 * instantiate them with pvos
+				 */
+				|| !vh->pvo
+#endif
+		) {
 			lwsl_info("%s: init %s.%s\n", __func__, vh->name,
 					vh->protocols[n].name);
 			if (vh->protocols[n].callback((struct lws *)lwsa,
 				LWS_CALLBACK_PROTOCOL_INIT, NULL,
-				(void *)(pvo ? pvo->options : NULL), 0)) {
+#if !defined(LWS_WITH_PLUGINS)
+				(void *)(pvo ? pvo->options : NULL),
+#else
+				(void *)pvo->options,
+#endif
+				0)) {
 				if (vh->protocol_vh_privs && vh->protocol_vh_privs[n]) {
 					lws_free(vh->protocol_vh_privs[n]);
 					vh->protocol_vh_privs[n] = NULL;

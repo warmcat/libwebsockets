@@ -128,7 +128,7 @@ struct lws *
 lws_client_connect_2_dnsreq(struct lws *wsi)
 {
 	struct addrinfo *result = NULL;
-	const char *meth = NULL, *ads;
+	const char *meth = NULL;
 #if defined(LWS_WITH_IPV6)
 	struct sockaddr_in addr;
 	const char *iface;
@@ -151,17 +151,11 @@ lws_client_connect_2_dnsreq(struct lws *wsi)
 	 */
 
 	if (!wsi->cli_hostname_copy) {
-		if (wsi->stash && wsi->stash->cis[CIS_HOST])
-			wsi->cli_hostname_copy =
-					lws_strdup(wsi->stash->cis[CIS_HOST]);
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-		else {
-			char *pa = lws_hdr_simple_ptr(wsi,
-					      _WSI_TOKEN_CLIENT_PEER_ADDRESS);
-			if (pa)
-				wsi->cli_hostname_copy = lws_strdup(pa);
-		}
-#endif
+		const char *pa = lws_wsi_client_stash_item(wsi, CIS_HOST,
+					_WSI_TOKEN_CLIENT_PEER_ADDRESS);
+
+		if (pa)
+			wsi->cli_hostname_copy = lws_strdup(pa);
 	}
 
 	/*
@@ -171,6 +165,10 @@ lws_client_connect_2_dnsreq(struct lws *wsi)
 
 	meth = lws_wsi_client_stash_item(wsi, CIS_METHOD,
 					 _WSI_TOKEN_CLIENT_METHOD);
+	/* consult active connections to find out disposition */
+
+	adsin = lws_wsi_client_stash_item(wsi, CIS_ADDRESS,
+					  _WSI_TOKEN_CLIENT_PEER_ADDRESS);
 
 	/* we only pipeline connections that said it was okay */
 
@@ -186,11 +184,6 @@ lws_client_connect_2_dnsreq(struct lws *wsi)
 		    strcmp(meth, "POST") && strcmp(meth, "PUT") &&
 		    strcmp(meth, "UDP") && strcmp(meth, "MQTT"))
 		goto solo;
-
-	/* consult active connections to find out disposition */
-
-	adsin = lws_wsi_client_stash_item(wsi, CIS_ADDRESS,
-					  _WSI_TOKEN_CLIENT_PEER_ADDRESS);
 
 	if (!adsin)
 		/*
@@ -257,23 +250,18 @@ solo:
 	}
 
 	/*
-	 * unix socket destination?
-	 */
-
-	if (wsi->stash)
-		ads = wsi->stash->cis[CIS_ADDRESS];
-	else
-		ads = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS);
-
-	/*
 	 * Since address must be given at client creation, should not be
 	 * possible, but necessary to satisfy coverity
 	 */
-	if (!ads)
+	if (!adsin)
 		return NULL;
 
 #if defined(LWS_WITH_UNIX_SOCK)
-	if (*ads == '+') {
+	/*
+	 * unix socket destination?
+	 */
+
+	if (*adsin == '+') {
 		wsi->unix_skt = 1;
 		n = 0;
 		goto next_step;
@@ -305,7 +293,7 @@ solo:
 	 * Priority 1: connect to http proxy */
 
 	if (wsi->a.vhost->http.http_proxy_port) {
-		ads = wsi->a.vhost->http.http_proxy_address;
+		adsin = wsi->a.vhost->http.http_proxy_address;
 		port = (int)wsi->a.vhost->http.http_proxy_port;
 #else
 		if (0) {
@@ -317,7 +305,7 @@ solo:
 
 	} else if (wsi->a.vhost->socks_proxy_port) {
 		lwsl_client("Sending SOCKS Greeting\n");
-		ads = wsi->a.vhost->socks_proxy_address;
+		adsin = wsi->a.vhost->socks_proxy_address;
 		port = (int)wsi->a.vhost->socks_proxy_port;
 #endif
 	} else {
@@ -334,7 +322,7 @@ solo:
 	 */
 	lwsi_set_state(wsi, LRS_WAITING_DNS);
 
-	lwsl_info("%s: %s: lookup %s:%u\n", __func__, wsi->lc.gutag, ads, port);
+	lwsl_info("%s: %s: lookup %s:%u\n", __func__, wsi->lc.gutag, adsin, port);
 	wsi->conn_port = (uint16_t)port;
 
 #if !defined(LWS_WITH_SYS_ASYNC_DNS)
@@ -343,7 +331,7 @@ solo:
 		/*
 		 * blocking dns resolution
 		 */
-		n = lws_getaddrinfo46(wsi, ads, &result);
+		n = lws_getaddrinfo46(wsi, adsin, &result);
 	}
 #else
 	/* this is either FAILED, CONTINUING, or already called connect_4 */
@@ -351,7 +339,7 @@ solo:
 	if (lws_fi(&wsi->fic, "dnsfail"))
 		return lws_client_connect_3_connect(wsi, NULL, NULL, -4, NULL);
 	else
-		n = lws_async_dns_query(wsi->a.context, wsi->tsi, ads,
+		n = lws_async_dns_query(wsi->a.context, wsi->tsi, adsin,
 				LWS_ADNS_RECORD_A, lws_client_connect_3_connect,
 				wsi, NULL);
 
@@ -367,7 +355,7 @@ solo:
 #if defined(LWS_WITH_UNIX_SOCK)
 next_step:
 #endif
-	return lws_client_connect_3_connect(wsi, ads, result, n, NULL);
+	return lws_client_connect_3_connect(wsi, adsin, result, n, NULL);
 
 //#if defined(LWS_WITH_SYS_ASYNC_DNS)
 failed1:

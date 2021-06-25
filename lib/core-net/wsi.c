@@ -1065,8 +1065,10 @@ _lws_generic_transaction_completed_active_conn(struct lws **_wsi, char take_vh_l
 
 	/* take over his copy of his endpoint as an active connection */
 
-	wnew->cli_hostname_copy = wsi->cli_hostname_copy;
-	wsi->cli_hostname_copy = NULL;
+	if (!wnew->cli_hostname_copy && wsi->cli_hostname_copy) {
+		wnew->cli_hostname_copy = wsi->cli_hostname_copy;
+		wsi->cli_hostname_copy = NULL;
+	}
 	wnew->keep_warm_secs = wsi->keep_warm_secs;
 
 	/*
