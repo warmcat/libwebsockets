@@ -717,6 +717,11 @@ lws_sspc_destroy(lws_sspc_handle_t **ph)
 	lws_sul_cancel(&h->sul_retry);
 
 	__lws_lc_untag(&h->lc);
+
+	/* confirm no sul left scheduled in handle or user allocation object */
+	lws_sul_debug_zombies(h->context, h, sizeof(*h) + h->ssi.user_alloc,
+			      __func__);
+
 	free(h);
 }
 

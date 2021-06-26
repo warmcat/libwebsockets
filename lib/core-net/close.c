@@ -248,7 +248,7 @@ __lws_free_wsi(struct lws *wsi)
 			wsi->a.context->pt[(int)wsi->tsi].fds_count);
 
 	/* confirm no sul left scheduled in wsi itself */
-	lws_sul_debug_zombies(wsi->a.context, wsi, sizeof(wsi), __func__);
+	lws_sul_debug_zombies(wsi->a.context, wsi, sizeof(*wsi), __func__);
 
 	__lws_lc_untag(&wsi->lc);
 	lws_free(wsi);
