@@ -182,14 +182,28 @@ __lws_free_wsi(struct lws *wsi)
 
 #if defined(LWS_WITH_SECURE_STREAMS)
 	if (wsi->for_ss) {
-		/*
-		 * Make certain it is disconnected from the ss by now
-		 */
-		lws_ss_handle_t *h = (lws_ss_handle_t *)wsi->a.opaque_user_data;
 
-		if (h) {
-			h->wsi = NULL;
-			wsi->a.opaque_user_data = NULL;
+#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
+		if (wsi->client_bound_sspc) {
+			lws_sspc_handle_t *h = (lws_sspc_handle_t *)
+							wsi->a.opaque_user_data;
+			if (h) {
+				h->cwsi = NULL;
+				wsi->a.opaque_user_data = NULL;
+			}
+		} else
+#endif
+		{
+			/*
+			 * Make certain it is disconnected from the ss by now
+			 */
+			lws_ss_handle_t *h = (lws_ss_handle_t *)
+							wsi->a.opaque_user_data;
+
+			if (h) {
+				h->wsi = NULL;
+				wsi->a.opaque_user_data = NULL;
+			}
 		}
 	}
 #endif
