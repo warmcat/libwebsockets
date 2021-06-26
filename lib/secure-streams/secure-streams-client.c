@@ -19,6 +19,55 @@
  */
 #include <private-lib-core.h>
 
+extern const uint32_t ss_state_txn_validity[17];
+
+int
+lws_ss_check_next_state_sspc(lws_sspc_handle_t *ss, uint8_t *prevstate,
+			     lws_ss_constate_t cs)
+{
+	if (cs >= LWSSSCS_USER_BASE || cs == LWSSSCS_EVENT_WAIT_CANCELLED)
+		/*
+		 * we can't judge user or transient states, leave the old state
+		 * and just wave them through
+		 */
+		return 0;
+
+	if (cs >= LWS_ARRAY_SIZE(ss_state_txn_validity)) {
+		/* we don't recognize this state as usable */
+		lwsl_sspc_err(ss, "bad new state %u", cs);
+		assert(0);
+		return 1;
+	}
+
+	if (*prevstate >= LWS_ARRAY_SIZE(ss_state_txn_validity)) {
+		/* existing state is broken */
+		lwsl_sspc_err(ss, "bad existing state %u",
+				(unsigned int)*prevstate);
+		assert(0);
+		return 1;
+	}
+
+	if (ss_state_txn_validity[*prevstate] & (1u << cs)) {
+
+		lwsl_sspc_notice(ss, "%s -> %s",
+			       lws_ss_state_name((int)*prevstate),
+			       lws_ss_state_name((int)cs));
+
+		/* this is explicitly allowed, update old state to new */
+		*prevstate = (uint8_t)cs;
+
+		return 0;
+	}
+
+	lwsl_sspc_err(ss, "transition from %s -> %s is illegal",
+		    lws_ss_state_name((int)*prevstate),
+		    lws_ss_state_name((int)cs));
+
+	assert(0);
+
+	return 1;
+}
+
 lws_ss_state_return_t
 lws_sspc_event_helper(lws_sspc_handle_t *h, lws_ss_constate_t cs,
 		      lws_ss_tx_ordinal_t flags)
@@ -28,7 +77,7 @@ lws_sspc_event_helper(lws_sspc_handle_t *h, lws_ss_constate_t cs,
 	if (!h)
 		return LWSSSSRET_OK;
 
-	if (lws_ss_check_next_state(&h->lc, &h->prev_ss_state, cs))
+	if (lws_ss_check_next_state_sspc(h, &h->prev_ss_state, cs))
 		return LWSSSSRET_DESTROY_ME;
 
 	if (!h->ssi.state)
@@ -100,17 +149,18 @@ lws_sspc_sul_retry_cb(lws_sorted_usec_list_t *sul)
 		return;
 	}
 
-	lwsl_notice("%s: %s\n", __func__, h->cwsi->lc.gutag);
+	lwsl_notice("%s\n", h->cwsi->lc.gutag);
 }
 
 static int
-lws_sspc_serialize_metadata(lws_sspc_metadata_t *md, uint8_t *p, uint8_t *end)
+lws_sspc_serialize_metadata(lws_sspc_handle_t *h, lws_sspc_metadata_t *md,
+				uint8_t *p, uint8_t *end)
 {
 	int n, txc;
 
 	if (md->name[0] == '\0') {
 
-		lwsl_info("%s: sending tx credit update %d\n", __func__,
+		lwsl_info("sending tx credit update %d\n",
 				md->tx_cr_adjust);
 
 		p[0] = LWSSS_SER_TXPRE_TXCR_UPDATE;
@@ -368,18 +418,18 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 				cp = p = pkt + LWS_PRE;
 				end = p + pktsize;
 
-				n = lws_sspc_serialize_metadata(md, p, end);
+				n = lws_sspc_serialize_metadata(h, md, p, end);
 				if (n < 0)
 					goto metadata_hangup;
 
-				lwsl_debug("%s: (local_conn) metadata\n", __func__);
+				lwsl_debug("(local_conn) metadata\n");
 
 				goto req_write_and_issue;
 			}
 
 			if (h->pending_writeable_len) {
-				lwsl_debug("%s: (local_conn) PAYLOAD_LENGTH_HINT %u\n",
-					   __func__, (unsigned int)h->writeable_len);
+				lwsl_debug("(local_conn) PAYLOAD_LENGTH_HINT %u",
+					   (unsigned int)h->writeable_len);
 				s[0] = LWSSS_SER_TXPRE_PAYLOAD_LENGTH_HINT;
 				lws_ser_wu16be(&s[1], 4);
 				lws_ser_wu32be(&s[3], (uint32_t)h->writeable_len);
@@ -426,7 +476,7 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 					lws_dll2_get_tail(&h->metadata_owner),
 					lws_sspc_metadata_t, list);
 
-				n = lws_sspc_serialize_metadata(md, p, end);
+				n = lws_sspc_serialize_metadata(h, md, p, end);
 				if (n < 0)
 					goto metadata_hangup;
 
@@ -566,6 +616,8 @@ lws_sspc_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 		return 1;
 	memset(h, 0, sizeof(*h));
 
+	h->lc.log_cx = context->log_cx;
+
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	h->fic.name = "sspc";
 	lws_xos_init(&h->fic.xos, lws_xos(&context->fic.xos));
@@ -585,7 +637,8 @@ lws_sspc_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 		return 1;
 	}
 
-	__lws_lc_tag(&context->lcg[LWSLCG_SSP_CLIENT], &h->lc, ssi->streamtype);
+	__lws_lc_tag(context, &context->lcg[LWSLCG_SSP_CLIENT], &h->lc,
+			ssi->streamtype);
 
 	memcpy(&h->ssi, ssi, sizeof(*ssi));
 	ua = (uint8_t *)&h[1];
@@ -651,8 +704,6 @@ lws_sspc_destroy(lws_sspc_handle_t **ph)
 {
 	lws_sspc_handle_t *h;
 
-	lwsl_debug("%s\n", __func__);
-
 	if (!*ph)
 		return;
 
@@ -716,11 +767,12 @@ lws_sspc_destroy(lws_sspc_handle_t **ph)
 
 	lws_sul_cancel(&h->sul_retry);
 
-	__lws_lc_untag(&h->lc);
 
 	/* confirm no sul left scheduled in handle or user allocation object */
 	lws_sul_debug_zombies(h->context, h, sizeof(*h) + h->ssi.user_alloc,
 			      __func__);
+
+	__lws_lc_untag(h->context, &h->lc);
 
 	free(h);
 }

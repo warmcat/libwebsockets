@@ -168,8 +168,13 @@ endif()
 			--post --h1 -l --port 1${PORT_HCM_SRV} -d1151)
 	add_test(NAME http-client-multi-post-pipe COMMAND lws-minimal-http-client-multi
 			--post -p -l --port 1${PORT_HCM_SRV} -d1151)
-	add_test(NAME http-client-multi-post-h1-pipe COMMAND lws-minimal-http-client-multi
+	if (VALGRIND)
+		add_test(NAME http-client-multi-post-h1-pipe COMMAND ${VALGRIND} --tool=memcheck $<TARGET_FILE:lws-minimal-http-client-multi>
+			--post --h1 -p -l --port 1${PORT_HCM_SRV} -d1151)	
+	else()
+		add_test(NAME http-client-multi-post-h1-pipe COMMAND lws-minimal-http-client-multi
 			--post --h1 -p -l --port 1${PORT_HCM_SRV} -d1151)
+	endif()
 	add_test(NAME http-client-multi-post-stag COMMAND lws-minimal-http-client-multi
 			--post -s -l -d1151 --port 1${PORT_HCM_SRV} -d1151)
 	add_test(NAME http-client-multi-post-stag-h1 COMMAND lws-minimal-http-client-multi

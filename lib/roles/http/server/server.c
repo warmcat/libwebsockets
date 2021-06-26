@@ -301,7 +301,7 @@ done_list:
 		 */
 
 		lws_context_lock(cx, __func__);
-		wsi = __lws_wsi_create_with_role(cx, m, &role_ops_listen);
+		wsi = __lws_wsi_create_with_role(cx, m, &role_ops_listen, NULL);
 		lws_context_unlock(cx);
 		if (wsi == NULL) {
 			lwsl_err("Out of mem\n");
@@ -371,7 +371,8 @@ done_list:
 		}
 
 		if (wsi)
-			__lws_lc_tag(&a->vhost->context->lcg[LWSLCG_WSI],
+			__lws_lc_tag(a->vhost->context,
+				     &a->vhost->context->lcg[LWSLCG_WSI],
 				     &wsi->lc, "listen|%s|%s|%d",
 				     a->vhost->name,
 				     a->vhost->iface ? a->vhost->iface : "",

@@ -718,6 +718,8 @@ struct lws {
 	struct lws_sequencer		*seq;	/* associated sequencer if any */
 	const lws_retry_bo_t		*retry_policy;
 
+	lws_log_cx_t			*log_cx;
+
 #if defined(LWS_WITH_THREADPOOL)
 	lws_dll2_owner_t		tp_task_owner; /* struct lws_threadpool_task */
 #endif
@@ -1240,7 +1242,8 @@ lws_http_client_connect_via_info2(struct lws *wsi);
 
 struct lws *
 __lws_wsi_create_with_role(struct lws_context *context, int tsi,
-			 const struct lws_role_ops *ops);
+			 const struct lws_role_ops *ops,
+			 lws_log_cx_t *log_cx_template);
 int
 lws_wsi_inject_to_loop(struct lws_context_per_thread *pt, struct lws *wsi);
 
@@ -1374,7 +1377,7 @@ int
 _lws_route_pt_close_unroutable(struct lws_context_per_thread *pt);
 
 void
-_lws_routing_entry_dump(lws_route_t *rou);
+_lws_routing_entry_dump(struct lws_context *cx, lws_route_t *rou);
 
 void
 _lws_routing_table_dump(struct lws_context *cx);

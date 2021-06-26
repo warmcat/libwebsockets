@@ -16,9 +16,21 @@ require_lws_config(LWS_WITH_SYS_STATE 1 requirements)
 
 if (requirements)
 	add_executable(${SAMP} minimal-secure-streams-post.c)
+	
+	find_program(VALGRIND "valgrind")
 
 	if (LWS_CTEST_INTERNET_AVAILABLE)
-		add_test(NAME sspost-warmcat COMMAND lws-minimal-secure-streams-post)
+		if (VALGRIND)
+			add_test(NAME sspost-warmcat COMMAND
+				${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
+				post_hcm_srv
+				${VALGRIND} --tool=memcheck
+				$<TARGET_FILE:lws-minimal-secure-streams-post>
+			)
+		else()
+			add_test(NAME sspost-warmcat
+				COMMAND lws-minimal-secure-streams-post)
+		endif()
 		set_tests_properties(sspost-warmcat
 				     PROPERTIES
 				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/secure-streams/minimal-secure-streams-post

@@ -53,6 +53,7 @@ typedef struct lws_smd_peer {
 #endif
 
 	lws_smd_notification_cb_t	cb;   /* LSMDT_<other> */
+	struct lws_context		*ctx;
 	void				*opaque;
 
 	/* NULL, or next message we will handle */
@@ -91,5 +92,3 @@ lws_smd_msg_distribute(struct lws_context *ctx);
 int
 _lws_smd_destroy(struct lws_context *ctx);
 
-int
-_lws_smd_msg_send(struct lws_context *ctx, void *pay, struct lws_smd_peer *exc);

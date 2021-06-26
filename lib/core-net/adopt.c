@@ -59,14 +59,15 @@ lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi, const char *de
 	}
 
 	lws_context_lock(vhost->context, __func__);
-	new_wsi = __lws_wsi_create_with_role(vhost->context, n, NULL);
+	new_wsi = __lws_wsi_create_with_role(vhost->context, n, NULL,
+						vhost->lc.log_cx);
 	lws_context_unlock(vhost->context);
 	if (new_wsi == NULL) {
 		lwsl_err("Out of memory for new connection\n");
 		return NULL;
 	}
 
-	__lws_lc_tag(&vhost->context->lcg[
+	__lws_lc_tag(vhost->context, &vhost->context->lcg[
 #if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT)
 	strcmp(desc, "adopted") ? LWSLCG_WSI_MUX :
 #endif

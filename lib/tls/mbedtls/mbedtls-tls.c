@@ -31,13 +31,14 @@ lws_tls_err_describe_clear(void)
 }
 
 int
-lws_context_init_ssl_library(const struct lws_context_creation_info *info)
+lws_context_init_ssl_library(struct lws_context *cx,
+			     const struct lws_context_creation_info *info)
 {
-	lwsl_info(" Compiled with MbedTLS support\n");
+	lwsl_info(" Compiled with MbedTLS support");
 
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT))
 		lwsl_info(" SSL disabled: no "
-			  "LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT\n");
+			  "LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT");
 
 	return 0;
 }

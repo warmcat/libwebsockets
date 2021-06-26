@@ -118,9 +118,9 @@ lws_openssl_thread_id(void)
 }
 #endif
 
-
 int
-lws_context_init_ssl_library(const struct lws_context_creation_info *info)
+lws_context_init_ssl_library(struct lws_context *cx,
+                             const struct lws_context_creation_info *info)
 {
 #ifdef USE_WOLFSSL
 #ifdef USE_OLD_CYASSL

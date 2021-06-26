@@ -35,7 +35,7 @@
 
 
 void
-_lws_routing_entry_dump(lws_route_t *rou)
+_lws_routing_entry_dump(struct lws_context *cx, lws_route_t *rou)
 {
 	char sa[48], fin[192], *end = &fin[sizeof(fin)];
 
@@ -69,7 +69,7 @@ _lws_routing_table_dump(struct lws_context *cx)
 			      lws_dll2_get_head(&cx->routing_table)) {
 		lws_route_t *rou = lws_container_of(d, lws_route_t, list);
 
-		_lws_routing_entry_dump(rou);
+		_lws_routing_entry_dump(cx, rou);
 	} lws_end_foreach_dll(d);
 }
 #endif

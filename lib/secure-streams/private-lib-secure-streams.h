@@ -426,9 +426,6 @@ int
 lws_ss_serialize_state(struct lws *wsi, struct lws_dsh *dsh, lws_ss_constate_t state,
 		       lws_ss_tx_ordinal_t ack);
 
-void
-lws_ss_serialize_state_transition(lws_ss_conn_states_t *state, int new_state);
-
 const lws_ss_policy_t *
 lws_ss_policy_lookup(const struct lws_context *context, const char *streamtype);
 
@@ -518,6 +515,14 @@ lws_sspc_event_helper(lws_sspc_handle_t *h, lws_ss_constate_t cs,
 int
 lws_ss_check_next_state(lws_lifecycle_t *lc, uint8_t *prevstate,
 			lws_ss_constate_t cs);
+
+int
+lws_ss_check_next_state_ss(lws_ss_handle_t *ss, uint8_t *prevstate,
+			   lws_ss_constate_t cs);
+
+int
+lws_ss_check_next_state_sspc(lws_sspc_handle_t *ss, uint8_t *prevstate,
+			     lws_ss_constate_t cs);
 
 void
 lws_proxy_clean_conn_ss(struct lws *wsi);

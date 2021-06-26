@@ -72,7 +72,8 @@ __lws_shadow_wsi(struct lws_dbus_ctx *ctx, DBusWatch *w, int fd, int create_ok)
 	lws_vhost_assert_lock_held(wsi->a.vhost);
 
 	/* requires context lock */
-	wsi = __lws_wsi_create_with_role(ctx->vh->context, ctx->tsi, NULL);
+	wsi = __lws_wsi_create_with_role(ctx->vh->context, ctx->tsi, NULL,
+						ctx->vh->lc.log_cx);
 	if (wsi == NULL) {
 		lwsl_err("Out of mem\n");
 		return NULL;
@@ -87,7 +88,8 @@ __lws_shadow_wsi(struct lws_dbus_ctx *ctx, DBusWatch *w, int fd, int create_ok)
 	wsi->opaque_parent_data = ctx;
 	ctx->w[0] = w;
 
-	__lws_lc_tag(&ctx->vh->context->lcg[LWSLCG_WSI], &wsi->lc, "dbus|%s", ctx->vh->name);
+	__lws_lc_tag(ctx->vh->context, &ctx->vh->context->lcg[LWSLCG_WSI],
+		     &wsi->lc, "dbus|%s", ctx->vh->name);
 
 	lws_vhost_bind_wsi(ctx->vh, wsi);
 	if (__insert_wsi_socket_into_fds(ctx->vh->context, wsi)) {

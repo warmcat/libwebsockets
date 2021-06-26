@@ -511,7 +511,7 @@ lws_cache_heap_create(const struct lws_cache_creation_info *info)
 	if (info->parent)
 		info->parent->child = &cache->cache;
 
-	lwsl_cache("%s: create %s\n", __func__, info->name);
+	// lwsl_cache("%s: create %s\n", __func__, info->name);
 
 	return (struct lws_cache_ttl_lru *)cache;
 }
@@ -551,9 +551,6 @@ lws_cache_heap_destroy(struct lws_cache_ttl_lru **_cache)
 	lws_sul_cancel(&c->sul);
 
 	lws_dll2_foreach_safe(&cache->items_lru, cache, destroy_dll);
-
-	lwsl_cache("%s: destroy %s\n", __func__, c->info.name ?
-						  c->info.name : "?");
 
 	lws_free_set_NULL(*_cache);
 }

@@ -456,12 +456,16 @@ lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 #if !defined(LWS_WITH_PLUGINS)
 				/*
 				 * with plugins, you have to explicitly
-				 * instantiate them with pvos
+				 * instantiate them per-vhost with pvos.
+				 *
+				 * Without plugins, not setting the vhost pvo
+				 * list at creation enables all the protocols
+				 * by default, for backwards compatibility
 				 */
 				|| !vh->pvo
 #endif
 		) {
-			lwsl_info("%s: init %s.%s\n", __func__, vh->name,
+			lwsl_info("init %s.%s", vh->name,
 					vh->protocols[n].name);
 			if (vh->protocols[n].callback((struct lws *)lwsa,
 				LWS_CALLBACK_PROTOCOL_INIT, NULL,
@@ -602,6 +606,11 @@ lws_create_vhost(struct lws_context *context,
 	if (!vh)
 		goto early_bail;
 
+	if (info->log_cx)
+		vh->lc.log_cx = info->log_cx;
+	else
+		vh->lc.log_cx = &log_cx;
+
 #if defined(LWS_WITH_EVENT_LIBS)
 	vh->evlib_vh = (void *)&vh[1];
 	vh->name = (const char *)vh->evlib_vh +
@@ -630,8 +639,8 @@ lws_create_vhost(struct lws_context *context,
 			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "|%u", info->port);
 	}
 
-	__lws_lc_tag(&context->lcg[LWSLCG_VHOST], &vh->lc, "%s|%s|%d", buf,
-			info->iface ? info->iface : "", info->port);
+	__lws_lc_tag(context, &context->lcg[LWSLCG_VHOST], &vh->lc, "%s|%s|%d",
+		     buf, info->iface ? info->iface : "", info->port);
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	vh->fic.name = "vh";
@@ -1042,7 +1051,7 @@ bail1:
 	return NULL;
 
 bail:
-	__lws_lc_untag(&vh->lc);
+	__lws_lc_untag(vh->context, &vh->lc);
 	lws_fi_destroy(&vh->fic);
 	lws_free(vh);
 
@@ -1111,11 +1120,13 @@ __lws_create_event_pipes(struct lws_context *context)
 		if (pt->pipe_wsi)
 			return 0;
 
-		wsi = __lws_wsi_create_with_role(context, n, &role_ops_pipe);
+		wsi = __lws_wsi_create_with_role(context, n, &role_ops_pipe,
+							NULL);
 		if (!wsi)
 			return 1;
 
-		__lws_lc_tag(&context->lcg[LWSLCG_WSI], &wsi->lc, "pipe");
+		__lws_lc_tag(context, &context->lcg[LWSLCG_WSI], &wsi->lc,
+				"pipe");
 
 		wsi->event_pipe = 1;
 		pt->pipe_wsi = wsi;
@@ -1131,7 +1142,7 @@ __lws_create_event_pipes(struct lws_context *context)
 			 */
 
 			wsi->desc.sockfd = context->pt[n].dummy_pipe_fds[0];
-			lwsl_debug("event pipe fd %d\n", wsi->desc.sockfd);
+			// lwsl_debug("event pipe fd %d\n", wsi->desc.sockfd);
 
 			if (lws_wsi_inject_to_loop(pt, wsi))
 					goto bail;
@@ -1554,7 +1565,7 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 	lws_sul_cancel(&vh->sul_unref);
 #endif
 
-	__lws_lc_untag(&vh->lc);
+	__lws_lc_untag(vh->context, &vh->lc);
 
 	memset(vh, 0, sizeof(*vh));
 	lws_free(vh);
@@ -1898,4 +1909,22 @@ const char *
 lws_vh_tag(struct lws_vhost *vh)
 {
 	return lws_lc_tag(&vh->lc);
+}
+
+struct lws_log_cx *
+lwsl_vhost_get_cx(struct lws_vhost *vh)
+{
+	if (!vh)
+		return NULL;
+
+	return vh->lc.log_cx;
+}
+
+void
+lws_log_prepend_vhost(struct lws_log_cx *cx, void *obj, char **p, char *e)
+{
+	struct lws_vhost *vh = (struct lws_vhost *)obj;
+
+	*p += lws_snprintf(*p, lws_ptr_diff_size_t(e, (*p)), "%s: ",
+							lws_vh_tag(vh));
 }

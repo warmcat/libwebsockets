@@ -159,7 +159,7 @@ _lws_smd_class_mask_union(lws_smd_t *smd)
 /* Call with message lock held */
 
 static void
-_lws_smd_msg_destroy(lws_smd_t *smd, lws_smd_msg_t *msg)
+_lws_smd_msg_destroy(struct lws_context *cx, lws_smd_t *smd, lws_smd_msg_t *msg)
 {
 	/*
 	 * We think we gave the message to everyone and can destroy it.
@@ -472,7 +472,7 @@ _lws_smd_peer_destroy(lws_smd_peer_t *pr)
 
 		if (_lws_smd_msg_peer_interested_in_msg(pr, pr->tail)) {
 			if (!--pr->tail->refcount)
-				_lws_smd_msg_destroy(smd, pr->tail);
+				_lws_smd_msg_destroy(pr->ctx, smd, pr->tail);
 		}
 
 		pr->tail = m1;
@@ -549,7 +549,7 @@ _lws_smd_msg_deliver_peer(struct lws_context *ctx, lws_smd_peer_t *pr)
 
 	lws_mutex_lock(ctx->smd.lock_messages); /* +++++++++ messages */
 	if (!--msg->refcount)
-		_lws_smd_msg_destroy(&ctx->smd, msg);
+		_lws_smd_msg_destroy(ctx, &ctx->smd, msg);
 	lws_mutex_unlock(ctx->smd.lock_messages); /* messages ------- */
 
 	return !!pr->tail;
@@ -604,6 +604,7 @@ lws_smd_register(struct lws_context *ctx, void *opaque, int flags,
 	pr->cb = cb;
 	pr->opaque = opaque;
 	pr->_class_filter = _class_filter;
+	pr->ctx = ctx;
 
 	if (!ctx->smd.delivering)
 		lws_mutex_lock(ctx->smd.lock_peers); /* +++++++++++++++ peers */
@@ -711,7 +712,7 @@ lws_smd_message_pending(struct lws_context *ctx)
 			 * when destroying the message now.
 			 */
 
-			_lws_smd_msg_destroy(&ctx->smd, msg);
+			_lws_smd_msg_destroy(ctx, &ctx->smd, msg);
 		}
 	} lws_end_foreach_dll_safe(p, p1);
 

@@ -141,7 +141,8 @@ typedef X509 lws_tls_x509;
 #endif
 
 int
-lws_context_init_ssl_library(const struct lws_context_creation_info *info);
+lws_context_init_ssl_library(struct lws_context *cx,
+			     const struct lws_context_creation_info *info);
 void
 lws_context_deinit_ssl_library(struct lws_context *context);
 #define LWS_SSL_ENABLED(vh) (vh && vh->tls.use_ssl)

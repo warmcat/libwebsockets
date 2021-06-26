@@ -222,8 +222,6 @@ lws_dsh_destroy(lws_dsh_t **pdsh)
 	if (!dsh)
 		return;
 
-	lwsl_debug("%s: destroying dsh %p\n", __func__, dsh);
-
 	dsh->being_destroyed = 1;
 
 	/* we need to explicitly free any of our allocations in foreign dsh */

@@ -257,14 +257,13 @@ __lws_free_wsi(struct lws *wsi)
 	if (wsi->a.context->event_loop_ops->destroy_wsi)
 		wsi->a.context->event_loop_ops->destroy_wsi(wsi);
 
-	lwsl_debug("%s: %s, tsi fds count %d\n", __func__,
-			lws_wsi_tag(wsi),
+	lwsl_debug("%s: tsi fds count %d\n", __func__,
 			wsi->a.context->pt[(int)wsi->tsi].fds_count);
 
 	/* confirm no sul left scheduled in wsi itself */
 	lws_sul_debug_zombies(wsi->a.context, wsi, sizeof(*wsi), __func__);
 
-	__lws_lc_untag(&wsi->lc);
+	__lws_lc_untag(wsi->a.context, &wsi->lc);
 	lws_free(wsi);
 }
 
@@ -353,16 +352,15 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	struct lws *wsi1, *wsi2;
 	int n, ccb;
 
-	lwsl_info("%s: %s: caller: %s\n", __func__, lws_wsi_tag(wsi), caller);
-
 	if (!wsi)
 		return;
 
+	lwsl_info("%s: %s: caller: %s\n", __func__, lws_wsi_tag(wsi), caller);
+
 	lws_access_log(wsi);
 
-	if (!lws_dll2_is_detached(&wsi->dll_buflist)) {
-		lwsl_info("%s: %s: going down with stuff in buflist\n",
-				__func__, lws_wsi_tag(wsi)); }
+	if (!lws_dll2_is_detached(&wsi->dll_buflist))
+		lwsl_info("%s: going down with stuff in buflist\n", __func__);
 
 	context = wsi->a.context;
 	pt = &context->pt[(int)wsi->tsi];
@@ -899,12 +897,12 @@ __lws_close_free_wsi_final(struct lws *wsi)
 	wsi->desc.sockfd = LWS_SOCK_INVALID;
 
 #if defined(LWS_WITH_CLIENT)
+	lws_free_set_NULL(wsi->cli_hostname_copy);
 	if (wsi->close_is_redirect) {
 
 		wsi->close_is_redirect = 0;
 
-		lwsl_info("%s: picking up redirection %s\n", __func__,
-				wsi->lc.gutag);
+		lwsl_info("%s: picking up redirection", __func__);
 
 		lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED,
 				    &role_ops_h1);
@@ -937,7 +935,7 @@ __lws_close_free_wsi_final(struct lws *wsi)
 #endif
 
 		if (lws_header_table_attach(wsi, 0)) {
-			lwsl_err("%s: failed to get ah\n", __func__);
+			lwsl_err("failed to get ah\n");
 			return;
 		}
 //		}

@@ -554,7 +554,7 @@ lws_async_dns_deinit(lws_async_dns_t *dns)
 
 	if (dns->wsi && !dns->dns_server_connected) {
 		lwsl_notice("%s: late free of incomplete dns wsi\n", __func__);
-		__lws_lc_untag(&dns->wsi->lc);
+		__lws_lc_untag(dns->wsi->a.context, &dns->wsi->lc);
 #if defined(LWS_WITH_SYS_METRICS)
 		lws_metrics_tags_destroy(&dns->wsi->cal_conn.mtags_owner);
 #endif

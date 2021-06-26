@@ -83,7 +83,7 @@ lws_create_stdwsi(struct lws_context *context, int tsi,
 	}
 
 	lws_context_lock(context, __func__);
-	new_wsi = __lws_wsi_create_with_role(context, tsi, ops);
+	new_wsi = __lws_wsi_create_with_role(context, tsi, ops, NULL);
 	lws_context_unlock(context);
 	if (new_wsi == NULL) {
 		lwsl_err("Out of memory for new connection\n");
@@ -382,8 +382,8 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 			goto bail2;
 		}
 
-                __lws_lc_tag(&i->vh->context->lcg[LWSLCG_WSI], &lsp->stdwsi[n]->lc,
-                             "nspawn-stdwsi-%d", n);
+                __lws_lc_tag(i->vh->context, &i->vh->context->lcg[LWSLCG_WSI],
+                	     &lsp->stdwsi[n]->lc, "nspawn-stdwsi-%d", n);
 
 		lsp->stdwsi[n]->lsp_channel = (uint8_t)n;
 		lws_vhost_bind_wsi(i->vh, lsp->stdwsi[n]);

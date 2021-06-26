@@ -192,9 +192,7 @@ delete_from_fd(const struct lws_context *context, int fd)
 	while (p != done && (!*p || (*p)->desc.sockfd != fd))
 		p++;
 
-	if (p == done)
-		lwsl_debug("%s: fd %d not found\n", __func__, fd);
-	else
+	if (p != done)
 		*p = NULL;
 
 #if defined(_DEBUG)

@@ -68,7 +68,7 @@ lws_metrics_tag_add(lws_dll2_owner_t *owner, const char *name, const char *val)
 int
 lws_metrics_tag_wsi_add(struct lws *wsi, const char *name, const char *val)
 {
-	__lws_lc_tag(NULL, &wsi->lc, "|%s", val);
+	__lws_lc_tag(wsi->a.context, NULL, &wsi->lc, "|%s", val);
 
 	return lws_metrics_tag_add(&wsi->cal_conn.mtags_owner, name, val);
 }
@@ -77,15 +77,15 @@ lws_metrics_tag_wsi_add(struct lws *wsi, const char *name, const char *val)
 int
 lws_metrics_tag_ss_add(struct lws_ss_handle *ss, const char *name, const char *val)
 {
-	__lws_lc_tag(NULL, &ss->lc, "|%s", val);
+	__lws_lc_tag(ss->context, NULL, &ss->lc, "|%s", val);
 	return lws_metrics_tag_add(&ss->cal_txn.mtags_owner, name, val);
 }
-#if defined(LWS_WITH_SECURE_STREAMS)
+#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
 int
 lws_metrics_tag_sspc_add(struct lws_sspc_handle *sspc, const char *name,
 			 const char *val)
 {
-	__lws_lc_tag(NULL, &sspc->lc, "|%s", val);
+	__lws_lc_tag(sspc->context, NULL, &sspc->lc, "|%s", val);
 	return lws_metrics_tag_add(&sspc->cal_txn.mtags_owner, name, val);
 }
 #endif

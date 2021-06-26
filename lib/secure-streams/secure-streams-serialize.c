@@ -108,11 +108,31 @@ static const char *sn[] = {
 };
 #endif
 
+struct lws_log_cx *
+lwsl_sspc_get_cx(struct lws_sspc_handle *sspc)
+{
+	if (!sspc)
+		return NULL;
+
+	return sspc->lc.log_cx;
+}
+
+
 void
-lws_ss_serialize_state_transition(lws_ss_conn_states_t *state, int new_state)
+lws_log_prepend_sspc(struct lws_log_cx *cx, void *obj, char **p, char *e)
+{
+	struct lws_sspc_handle *h = (struct lws_sspc_handle *)obj;
+
+	*p += lws_snprintf(*p, lws_ptr_diff_size_t(e, (*p)), "%s: ",
+			lws_sspc_tag(h));
+}
+
+static void
+lws_ss_serialize_state_transition(lws_sspc_handle_t *h,
+				  lws_ss_conn_states_t *state, int new_state)
 {
 #if defined(_DEBUG)
-	lwsl_info("%s: %s -> %s\n", __func__, sn[*state], sn[new_state]);
+	lwsl_info("%s -> %s", sn[*state], sn[new_state]);
 #endif
 	*state = (lws_ss_conn_states_t)new_state;
 }
@@ -225,33 +245,6 @@ lws_ss_deserialize_tx_payload(struct lws_dsh *dsh, struct lws *wsi,
 	memcpy(buf, p + 23, si - 23);
 
 	*flags = (int)lws_ser_ru32be(&p[3]);
-
-#if 0
-	if (wsi && wsi->a.context->detailed_latency_cb) {
-		/*
-		 * use the proxied latency information to compute the client
-		 * and our delays, and apply to wsi.
-		 *
-		 * + 7 u32   us held at client before written
-		 * +11 u32   us taken for transit to proxy
-		 * +15 u64   ustime when proxy got packet from client
-		 */
-		lws_usec_t us = lws_now_usecs();
-
-		wsi->detlat.acc_size = wsi->detlat.req_size = si - 23;
-		wsi->detlat.latencies[LAT_DUR_PROXY_CLIENT_REQ_TO_WRITE] =
-						lws_ser_ru32be(&p[7]);
-		wsi->detlat.latencies[LAT_DUR_PROXY_CLIENT_WRITE_TO_PROXY_RX] =
-						lws_ser_ru32be(&p[11]);
-		wsi->detlat.latencies[LAT_DUR_PROXY_RX_TO_ONWARD_TX] =
-						us - lws_ser_ru64be(&p[15]);
-
-		wsi->detlat.latencies[LAT_DUR_USERCB] = 0;
-	}
-#endif
-
-	// lwsl_user("%s: len %d, flags: %d\n", __func__, (int)*len, *flags);
-	// lwsl_hexdump_info(buf, *len);
 
 	lws_dsh_free((void **)&p);
 
@@ -378,6 +371,7 @@ lws_ss_deserialize_parse(struct lws_ss_serialization_parser *par,
 	int n;
 
 	while (len--) {
+
 		switch (par->ps) {
 		case RPAR_TYPE:
 			par->type = *cp++;
@@ -714,6 +708,8 @@ payload_ff:
 			us = lws_now_usecs();
 
 			if (!client) {
+				lws_ss_handle_t *hss;
+
 				/*
 				 * Proxy - we received some serialized tx from
 				 * the client.
@@ -724,8 +720,9 @@ payload_ff:
 				 * additionally
 				 */
 
-				lwsl_info("%s: C2P RX: len %d\n", __func__,
-						(int)n);
+				hss = proxy_pss_to_ss_h(pss);
+				if (hss)
+					lwsl_info("C2P RX: len %d", (int)n);
 
 				p = pre;
 				pre[0] = LWSSS_SER_TXPRE_TX_PAYLOAD;
@@ -738,19 +735,17 @@ payload_ff:
 				/* time used later to find proxy hold time */
 				lws_ser_wu64be(&p[15], (uint64_t)us);
 
-				if ((proxy_pss_to_ss_h(pss) &&
-				     lws_fi(&proxy_pss_to_ss_h(pss)->fic, "ssproxy_dsh_c2p_pay_oom")) ||
+				if ((hss &&
+				    lws_fi(&hss->fic, "ssproxy_dsh_c2p_pay_oom")) ||
 				    lws_dsh_alloc_tail(dsh, KIND_C_TO_P, pre,
 						       23, cp, (unsigned int)n)) {
-					lwsl_err("%s: unable to alloc in dsh 3\n",
-						 __func__);
+					lwsl_err("unable to alloc in dsh 3\n");
 
 					return LWSSSSRET_DISCONNECT_ME;
 				}
 
-				if (proxy_pss_to_ss_h(pss))
-					_lws_ss_request_tx(
-						proxy_pss_to_ss_h(pss));
+				if (hss)
+					_lws_ss_request_tx(hss);
 			} else {
 
 				/*
@@ -1284,9 +1279,11 @@ payload_ff:
 			 * Client (par->temp32 == dsh alloc)
 			 */
 
-			lws_ss_serialize_state_transition(state,
-							  LPCSCLI_LOCAL_CONNECTED);
 			h = lws_container_of(par, lws_sspc_handle_t, parser);
+
+			lws_ss_serialize_state_transition(h, state,
+							  LPCSCLI_LOCAL_CONNECTED);
+
 			lws_set_timeout(h->cwsi, NO_PENDING_TIMEOUT, 0);
 
 			if (h->dsh)
@@ -1320,8 +1317,9 @@ payload_ff:
 #endif
 
 			if (!h->creating_cb_done) {
-				if (lws_ss_check_next_state(&h->lc, &h->prev_ss_state,
-							    LWSSSCS_CREATING))
+				if (lws_ss_check_next_state_sspc(h,
+							       &h->prev_ss_state,
+							       LWSSSCS_CREATING))
 					return LWSSSSRET_DESTROY_ME;
 				h->prev_ss_state = (uint8_t)LWSSSCS_CREATING;
 				h->creating_cb_done = 1;
@@ -1409,7 +1407,8 @@ payload_ff:
 			 * Client received a proxied state change
 			 */
 
-			if (!client_pss_to_sspc_h(pss, ssi))
+			h = client_pss_to_sspc_h(pss, ssi);
+			if (!h)
 				/*
 				 * Since we're being informed we need to have
 				 * a stream to inform.  Assume whatever set this
@@ -1421,25 +1420,25 @@ payload_ff:
 			case LWSSSCS_DISCONNECTED:
 			case LWSSSCS_UNREACHABLE:
 			case LWSSSCS_AUTH_FAILED:
-				lws_ss_serialize_state_transition(state,
+				lws_ss_serialize_state_transition(h, state,
 						LPCSCLI_LOCAL_CONNECTED);
-				client_pss_to_sspc_h(pss, ssi)->conn_req_state =
-							LWSSSPC_ONW_NONE;
+				h->conn_req_state = LWSSSPC_ONW_NONE;
 				break;
+
 			case LWSSSCS_CONNECTED:
-				lwsl_info("%s: CONNECTED %s\n", __func__,
-					    ssi->streamtype);
+				lwsl_info("CONNECTED %s",
+							ssi->streamtype);
 				if (*state == LPCSCLI_OPERATIONAL)
 					/*
 					 * Don't allow to see connected more
 					 * than once for one connection
 					 */
 					goto swallow;
-				lws_ss_serialize_state_transition(state,
-						LPCSCLI_OPERATIONAL);
 
-				client_pss_to_sspc_h(pss, ssi)->conn_req_state =
-						LWSSSPC_ONW_CONN;
+				lws_ss_serialize_state_transition(h, state,
+							LPCSCLI_OPERATIONAL);
+
+				h->conn_req_state = LWSSSPC_ONW_CONN;
 				break;
 			case LWSSSCS_TIMEOUT:
 				break;
@@ -1478,7 +1477,7 @@ payload_ff:
 				if (cs == LWSSSCS_DISCONNECTED)
 					h->ss_dangling_connected = 0;
 
-				if (lws_ss_check_next_state(&h->lc,
+				if (lws_ss_check_next_state_sspc(h,
 							    &h->prev_ss_state, cs))
 					return LWSSSSRET_DESTROY_ME;
 

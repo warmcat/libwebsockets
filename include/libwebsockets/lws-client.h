@@ -219,10 +219,16 @@ struct lws_client_connect_info {
 	 * connection, allows targeting by "wsi=XXX/..." if you give XXX here.
 	 */
 
-	uint16_t	keep_warm_secs;
+	uint16_t				keep_warm_secs;
 	/**< 0 means 5s.  If the client connection to the endpoint becomes idle,
 	 * defer closing it for this many seconds in case another outgoing
 	 * connection to the same endpoint turns up.
+	 */
+
+	lws_log_cx_t				*log_cx;
+	/**< NULL to use lws_context log context, else a pointer to a log
+	 * context template to take a copy of for this wsi.  Used to isolate
+	 * wsi-specific logs into their own stream or file.
 	 */
 
 	/* Add new things just above here ---^

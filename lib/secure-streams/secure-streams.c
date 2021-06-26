@@ -79,7 +79,7 @@ static const char *state_names[] = {
  * (because we will assert if we have bugs that do it)
  */
 
-static const uint32_t ss_state_txn_validity[] = {
+const uint32_t ss_state_txn_validity[] = {
 
 	/* if we was last in this state...  we can legally go to these states */
 
@@ -318,6 +318,53 @@ lws_ss_check_next_state(lws_lifecycle_t *lc, uint8_t *prevstate,
 	return 1;
 }
 
+int
+lws_ss_check_next_state_ss(lws_ss_handle_t *ss, uint8_t *prevstate,
+			   lws_ss_constate_t cs)
+{
+	if (cs >= LWSSSCS_USER_BASE || cs == LWSSSCS_EVENT_WAIT_CANCELLED)
+		/*
+		 * we can't judge user or transient states, leave the old state
+		 * and just wave them through
+		 */
+		return 0;
+
+	if (cs >= LWS_ARRAY_SIZE(ss_state_txn_validity)) {
+		/* we don't recognize this state as usable */
+		lwsl_err("bad new state %u", cs);
+		assert(0);
+		return 1;
+	}
+
+	if (*prevstate >= LWS_ARRAY_SIZE(ss_state_txn_validity)) {
+		/* existing state is broken */
+		lwsl_err("bad existing state %u",
+				(unsigned int)*prevstate);
+		assert(0);
+		return 1;
+	}
+
+	if (ss_state_txn_validity[*prevstate] & (1u << cs)) {
+
+		lwsl_notice("%s -> %s",
+			       lws_ss_state_name((int)*prevstate),
+			       lws_ss_state_name((int)cs));
+
+		/* this is explicitly allowed, update old state to new */
+		*prevstate = (uint8_t)cs;
+
+		return 0;
+	}
+
+	lwsl_err("transition from %s -> %s is illegal",
+		    lws_ss_state_name((int)*prevstate),
+		    lws_ss_state_name((int)cs));
+
+	assert(0);
+
+	return 1;
+}
+
 const char *
 lws_ss_state_name(int state)
 {
@@ -338,7 +385,7 @@ lws_ss_event_helper(lws_ss_handle_t *h, lws_ss_constate_t cs)
 	if (!h)
 		return LWSSSSRET_OK;
 
-	if (lws_ss_check_next_state(&h->lc, &h->prev_ss_state, cs))
+	if (lws_ss_check_next_state_ss(h, &h->prev_ss_state, cs))
 		return LWSSSSRET_DESTROY_ME;
 
 	if (cs == LWSSSCS_CONNECTED)
@@ -950,14 +997,18 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 	if (!h)
 		return 2;
 
+	h->lc.log_cx = context->log_cx;
+
 	if (ssi->sss_protocol_version)
-		__lws_lc_tag(&context->lcg[LWSLCG_WSI_SS_CLIENT], &h->lc, "%s|v%u|%u",
+		__lws_lc_tag(context, &context->lcg[LWSLCG_WSI_SS_CLIENT],
+			     &h->lc, "%s|v%u|%u",
 			     ssi->streamtype ? ssi->streamtype : "nostreamtype",
 			     (unsigned int)ssi->sss_protocol_version,
 			     (unsigned int)ssi->client_pid);
 	else
-		__lws_lc_tag(&context->lcg[LWSLCG_WSI_SS_CLIENT], &h->lc, "%s",
-				ssi->streamtype ? ssi->streamtype : "nostreamtype");
+		__lws_lc_tag(context, &context->lcg[LWSLCG_WSI_SS_CLIENT],
+			     &h->lc, "%s",
+			     ssi->streamtype ? ssi->streamtype : "nostreamtype");
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	h->fic.name = "ss";
@@ -1203,7 +1254,7 @@ late_bail:
 		lws_pt_unlock(pt);
 
 		lws_fi_destroy(&h->fic);
-		__lws_lc_untag(&h->lc);
+		__lws_lc_untag(context, &h->lc);
 		lws_free(h);
 
 		return 1;
@@ -1410,7 +1461,7 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 	lws_sul_debug_zombies(h->context, h, sizeof(*h) + h->info.user_alloc,
 			      __func__);
 
-	__lws_lc_untag(&h->lc);
+	__lws_lc_untag(h->context, &h->lc);
 	lws_free_set_NULL(h);
 }
 
@@ -1664,4 +1715,22 @@ lws_ss_tag(struct lws_ss_handle *h)
 	if (!h)
 		return "[null ss]";
 	return lws_lc_tag(&h->lc);
+}
+
+struct lws_log_cx *
+lwsl_ss_get_cx(struct lws_ss_handle *ss)
+{
+	if (!ss)
+		return NULL;
+
+	return ss->lc.log_cx;
+}
+
+void
+lws_log_prepend_ss(struct lws_log_cx *cx, void *obj, char **p, char *e)
+{
+	struct lws_ss_handle *h = (struct lws_ss_handle *)obj;
+
+	*p += lws_snprintf(*p, lws_ptr_diff_size_t(e, (*p)), "%s: ",
+			lws_ss_tag(h));
 }

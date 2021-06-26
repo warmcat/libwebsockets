@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2021 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -32,14 +32,15 @@
 void lwsl_emit_optee(int level, const char *line);
 #endif
 
-int log_level = LLL_ERR | LLL_WARN | LLL_NOTICE;
-static void (*lwsl_emit)(int level, const char *line)
-#ifndef LWS_PLAT_OPTEE
-	= lwsl_emit_stderr
+lws_log_cx_t log_cx = {
+#if !defined(LWS_PLAT_OPTEE)
+	.u.emit				= lwsl_emit_stderr,
 #else
-	= lwsl_emit_optee;
+	.u.emit				= lwsl_emit_optee,
 #endif
-	;
+	.lll_flags			= LLL_ERR | LLL_WARN | LLL_NOTICE,
+};
+
 #if !defined(LWS_PLAT_OPTEE) && !defined(LWS_WITH_NO_LOGS)
 static const char * log_level_names ="EWNIDPHXCLUT??";
 #endif
@@ -49,8 +50,8 @@ static const char * log_level_names ="EWNIDPHXCLUT??";
  */
 
 void
-__lws_lc_tag(lws_lifecycle_group_t *grp, lws_lifecycle_t *lc,
-	     const char *format, ...)
+__lws_lc_tag(struct lws_context *context, lws_lifecycle_group_t *grp,
+	     lws_lifecycle_t *lc, const char *format, ...)
 {
 	va_list ap;
 	int n = 1;
@@ -96,11 +97,13 @@ __lws_lc_tag(lws_lifecycle_group_t *grp, lws_lifecycle_t *lc,
 	lc->gutag[0] = '[';
 
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API) /* ie, will have getpid if set */
-	n += lws_snprintf(&lc->gutag[n], sizeof(lc->gutag) - (unsigned int)n - 1u,
-			"%u|", getpid());
+	n += lws_snprintf(&lc->gutag[n], sizeof(lc->gutag) -
+					 (unsigned int)n - 1u, "%u|", getpid());
 #endif
-	n += lws_snprintf(&lc->gutag[n], sizeof(lc->gutag) - (unsigned int)n - 1u,
-			"%s|%lx|", grp->tag_prefix, (unsigned long)grp->ordinal++);
+	n += lws_snprintf(&lc->gutag[n], sizeof(lc->gutag) -
+					 (unsigned int)n - 1u, "%s|%lx|",
+					 grp->tag_prefix,
+					 (unsigned long)grp->ordinal++);
 
 	va_start(ap, format);
 	n += vsnprintf(&lc->gutag[n], sizeof(lc->gutag) - (unsigned int)n -
@@ -117,6 +120,8 @@ __lws_lc_tag(lws_lifecycle_group_t *grp, lws_lifecycle_t *lc,
 
 	lc->us_creation = (uint64_t)lws_now_usecs();
 	lws_dll2_add_tail(&lc->list, &grp->owner);
+
+	lwsl_refcount_cx(lc->log_cx, 1);
 
 #if defined(LWS_LOG_TAG_LIFECYCLE)
 	lwsl_notice(" ++ %s (%d)\n", lc->gutag, (int)grp->owner.count);
@@ -141,8 +146,8 @@ __lws_lc_tag_append(lws_lifecycle_t *lc, const char *app)
 	if (n && lc->gutag[n - 1] == ']')
 		n--;
 
-	n += lws_snprintf(&lc->gutag[n], sizeof(lc->gutag) - 2u - (unsigned int)n,
-			"|%s]", app);
+	n += lws_snprintf(&lc->gutag[n], sizeof(lc->gutag) - 2u -
+					 (unsigned int)n, "|%s]", app);
 
 	if ((unsigned int)n >= sizeof(lc->gutag) - 2u) {
 		lc->gutag[sizeof(lc->gutag) - 2] = ']';
@@ -155,7 +160,7 @@ __lws_lc_tag_append(lws_lifecycle_t *lc, const char *app)
  */
 
 void
-__lws_lc_untag(lws_lifecycle_t *lc)
+__lws_lc_untag(struct lws_context *context, lws_lifecycle_t *lc)
 {
 	//lws_lifecycle_group_t *grp;
 	char buf[24];
@@ -174,14 +179,18 @@ __lws_lc_untag(lws_lifecycle_t *lc)
 
 	//grp = lws_container_of(lc->list.owner, lws_lifecycle_group_t, owner);
 
-	lws_humanize(buf, sizeof(buf), (uint64_t)lws_now_usecs() - lc->us_creation,
-			humanize_schema_us);
+	lws_humanize(buf, sizeof(buf),
+		     (uint64_t)lws_now_usecs() - lc->us_creation,
+		     humanize_schema_us);
 
 #if defined(LWS_LOG_TAG_LIFECYCLE)
-	lwsl_notice(" -- %s (%d) %s\n", lc->gutag, (int)lc->list.owner->count - 1, buf);
+	lwsl_notice(" -- %s (%d) %s", lc->gutag,
+		    (int)lc->list.owner->count - 1, buf);
 #endif
 
 	lws_dll2_remove(&lc->list);
+
+	lwsl_refcount_cx(lc->log_cx, -1);
 }
 
 const char *
@@ -207,7 +216,8 @@ lwsl_timestamp(int level, char *p, size_t len)
 
 	gettimeofday(&tv, NULL);
 	o_now = tv.tv_sec;
-	now = ((unsigned long long)tv.tv_sec * 10000) + (unsigned int)(tv.tv_usec / 100);
+	now = ((unsigned long long)tv.tv_sec * 10000) +
+				(unsigned int)(tv.tv_usec / 100);
 
 #if defined(LWS_HAVE_LOCALTIME_R)
 	ptm = localtime_r(&o_now, &tm);
@@ -262,19 +272,12 @@ static const char * const colours[] = {
 static char tty;
 
 static void
-_lwsl_emit_stderr(int level, const char *line, int ts)
+_lwsl_emit_stderr(int level, const char *line)
 {
-	char buf[50];
 	int n, m = LWS_ARRAY_SIZE(colours) - 1;
 
 	if (!tty)
 		tty = (char)(isatty(2) | 2);
-
-	buf[0] = '\0';
-#if defined(LWS_LOGS_TIMESTAMP)
-	if (ts)
-		lwsl_timestamp(level, buf, sizeof(buf));
-#endif
 
 	if (tty == 3) {
 		n = 1 << (LWS_ARRAY_SIZE(colours) - 1);
@@ -284,27 +287,76 @@ _lwsl_emit_stderr(int level, const char *line, int ts)
 			m--;
 			n >>= 1;
 		}
-		fprintf(stderr, "%c%s%s%s%c[0m", 27, colours[m], buf, line, 27);
+		fprintf(stderr, "%c%s%s%c[0m", 27, colours[m], line, 27);
 	} else
-		fprintf(stderr, "%s%s", buf, line);
+		fprintf(stderr, "%s", line);
 }
 
 void
 lwsl_emit_stderr(int level, const char *line)
 {
-	_lwsl_emit_stderr(level, line, 1);
+	_lwsl_emit_stderr(level, line);
 }
 
 void
 lwsl_emit_stderr_notimestamp(int level, const char *line)
 {
-	_lwsl_emit_stderr(level, line, 0);
+	_lwsl_emit_stderr(level, line);
+}
+
+#if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE)
+
+/*
+ * Helper to emit to a file
+ */
+
+void
+lws_log_emit_cx_file(struct lws_log_cx *cx, int level, const char *line,
+			size_t len)
+{
+	int fd = (int)(intptr_t)cx->stg;
+
+	if (fd >= 0)
+		if (write(fd, line, (unsigned int)len) != (ssize_t)len)
+			fprintf(stderr, "Unable to write log to file\n");
+}
+
+/*
+ * Helper to use a .refcount_cb to store logs in a file
+ */
+
+void
+lws_log_use_cx_file(struct lws_log_cx *cx, int _new)
+{
+	int fd;
+
+	if (_new > 0 && cx->refcount == 1) {
+		fd = open((const char *)cx->opaque,
+				LWS_O_CREAT | LWS_O_TRUNC | LWS_O_WRONLY, 0600);
+		if (fd < 0)
+			fprintf(stderr, "Unable to open log %s: errno %d\n",
+				(const char *)cx->opaque, errno);
+		cx->stg = (void *)(intptr_t)fd;
+
+		return;
+	}
+
+	fd = (int)(intptr_t)cx->stg;
+
+	if (_new <= 0 && cx->refcount == 0 && fd >= 0) {
+		close(fd);
+		cx->stg = (void *)(intptr_t)-1;
+	}
 }
 
 #endif
 
+#endif
+
 #if !(defined(LWS_PLAT_OPTEE) && !defined(LWS_WITH_NETWORK))
-void _lws_logv(int filter, const char *format, va_list vl)
+void
+__lws_logv(lws_log_cx_t *cx, lws_log_prepend_cx_t prep, void *obj,
+	   int filter, const char *_fun, const char *format, va_list vl)
 {
 #if LWS_MAX_SMP == 1 && !defined(LWS_WITH_THREADPOOL)
 	/* this is incompatible with multithreaded logging */
@@ -312,25 +364,103 @@ void _lws_logv(int filter, const char *format, va_list vl)
 #else
 	char buf[1024];
 #endif
-	int n;
+	char *p = buf, *end = p + sizeof(buf) - 1;
+	lws_log_cx_t *cxp;
+	int n, back = 0;
 
-	if (!(log_level & filter))
+	/*
+	 * We need to handle NULL wsi etc at the wrappers as gracefully as
+	 * possible
+	 */
+
+	if (!cx) {
+		lws_strncpy(p, "NULL log cx: ", sizeof(buf) - 1);
+		p += 13;
+		/* use the processwide one for lack of anything better */
+		cx = &log_cx;
+	}
+
+	cxp = cx;
+
+	if (!(cx->lll_flags & (uint32_t)filter))
+		/*
+		 * logs may be produced and built in to the code but disabled
+		 * at runtime
+		 */
 		return;
 
-	n = vsnprintf(buf, sizeof(buf) - 1, format, vl);
-	(void)n;
-	/* vnsprintf returns what it would have written, even if truncated */
-	if (n > (int)sizeof(buf) - 1) {
-		n = sizeof(buf) - 5;
-		buf[n++] = '.';
-		buf[n++] = '.';
-		buf[n++] = '.';
-		buf[n++] = '\n';
-		buf[n] = '\0';
+#if !defined(LWS_LOGS_TIMESTAMP)
+	if (cx->flags & LLLF_LOG_TIMESTAMP)
+#endif
+	{
+		buf[0] = '\0';
+		lwsl_timestamp(filter, buf, sizeof(buf));
+		p += strlen(buf);
 	}
-	if (n > 0)
-		buf[n] = '\0';
-	lwsl_emit(filter, buf);
+
+	/*
+	 * prepend parent log ctx content first
+	 * top level cx also gets an opportunity to prepend
+	 */
+
+	while (cxp->parent) {
+		cxp = cxp->parent;
+		back++;
+	}
+
+	do {
+		int b = back;
+
+		cxp = cx;
+		while (b--)
+			cxp = cxp->parent;
+		if (cxp->prepend)
+			cxp->prepend(cxp, NULL, &p, end);
+
+		back--;
+	} while (back > 0);
+
+	if (prep)
+		prep(cxp, obj, &p, end);
+
+	if (_fun)
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "%s: ", _fun);
+
+	/*
+	 * The actual log content
+	 */
+
+	n = vsnprintf(p, lws_ptr_diff_size_t(end, p), format, vl);
+
+	/* vnsprintf returns what it would have written, even if truncated */
+	if (p + n > end - 2) {
+		p = end - 5;
+		*p++ = '.';
+		*p++ = '.';
+		*p++ = '.';
+		*p++ = '\n';
+		*p++ = '\0';
+	} else
+		if (n > 0) {
+			p += n;
+			if (p[-1] != '\n')
+				*p++ = '\n';
+			*p = '\0';
+		}
+
+	/*
+	 * The actual emit
+	 */
+
+	if (cx->lll_flags & LLLF_LOG_CONTEXT_AWARE)
+		cx->u.emit_cx(cx, filter, buf, lws_ptr_diff_size_t(p, buf));
+	else
+		cx->u.emit(filter, buf);
+}
+
+void _lws_logv(int filter, const char *format, va_list vl)
+{
+	__lws_logv(&log_cx, NULL, NULL, filter, NULL, format, vl);
 }
 
 void _lws_log(int filter, const char *format, ...)
@@ -338,42 +468,83 @@ void _lws_log(int filter, const char *format, ...)
 	va_list ap;
 
 	va_start(ap, format);
-	_lws_logv(filter, format, ap);
+	__lws_logv(&log_cx, NULL, NULL, filter, NULL, format, ap);
+	va_end(ap);
+}
+
+void _lws_log_cx(lws_log_cx_t *cx, lws_log_prepend_cx_t prep, void *obj,
+		 int filter, const char *_fun, const char *format, ...)
+{
+	va_list ap;
+
+	if (!cx)
+		cx = &log_cx;
+
+	va_start(ap, format);
+	__lws_logv(cx, prep, obj, filter, _fun, format, ap);
 	va_end(ap);
 }
 #endif
-void lws_set_log_level(int level, void (*func)(int level, const char *line))
+
+void
+lws_set_log_level(int flags, lws_log_emit_t func)
 {
-	log_level = level;
+	log_cx.lll_flags = (uint32_t)(flags & (~LLLF_LOG_CONTEXT_AWARE));
+
 	if (func)
-		lwsl_emit = func;
+		log_cx.u.emit = func;
 }
 
 int lwsl_visible(int level)
 {
-	return log_level & level;
+	return !!(log_cx.lll_flags & (uint32_t)level);
+}
+
+int lwsl_visible_cx(lws_log_cx_t *cx, int level)
+{
+	return !!(cx->lll_flags & (uint32_t)level);
 }
 
 void
-lwsl_hexdump_level(int hexdump_level, const void *vbuf, size_t len)
+lwsl_refcount_cx(lws_log_cx_t *cx, int _new)
+{
+	if (!cx)
+		return;
+
+	if (_new > 0)
+		cx->refcount++;
+	else {
+		assert(cx->refcount);
+		cx->refcount--;
+	}
+
+	if (cx->refcount_cb)
+		cx->refcount_cb(cx, _new);
+}
+
+void
+lwsl_hexdump_level_cx(lws_log_cx_t *cx, lws_log_prepend_cx_t prep, void *obj,
+		      int hexdump_level, const void *vbuf, size_t len)
 {
 	unsigned char *buf = (unsigned char *)vbuf;
 	unsigned int n;
 
-	if (!lwsl_visible(hexdump_level))
+	if (!lwsl_visible_cx(cx, hexdump_level))
 		return;
 
 	if (!len) {
-		_lws_log(hexdump_level, "(hexdump: zero length)\n");
+		_lws_log_cx(cx, prep, obj, hexdump_level, NULL,
+					"(hexdump: zero length)\n");
 		return;
 	}
 
 	if (!vbuf) {
-		_lws_log(hexdump_level, "(hexdump: NULL ptr)\n");
+		_lws_log_cx(cx, prep, obj, hexdump_level, NULL,
+					"(hexdump: NULL ptr)\n");
 		return;
 	}
 
-	_lws_log(hexdump_level, "\n");
+	_lws_log_cx(cx, prep, obj, hexdump_level, NULL, "\n");
 
 	for (n = 0; n < len;) {
 		unsigned int start = n, m;
@@ -399,11 +570,17 @@ lwsl_hexdump_level(int hexdump_level, const void *vbuf, size_t len)
 
 		*p++ = '\n';
 		*p = '\0';
-		_lws_log(hexdump_level, "%s", line);
+		_lws_log_cx(cx, prep, obj, hexdump_level, NULL, "%s", line);
 		(void)line;
 	}
 
-	_lws_log(hexdump_level, "\n");
+	_lws_log_cx(cx, prep, obj, hexdump_level, NULL, "\n");
+}
+
+void
+lwsl_hexdump_level(int hexdump_level, const void *vbuf, size_t len)
+{
+	lwsl_hexdump_level_cx(&log_cx, NULL, NULL, hexdump_level, vbuf, len);
 }
 
 void

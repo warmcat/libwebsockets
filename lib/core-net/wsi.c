@@ -47,11 +47,20 @@ void lwsi_set_state(struct lws *wsi, lws_wsi_state_t lrs)
 
 	wsi->wsistate = (old & (unsigned int)(~LRS_MASK)) | lrs;
 
-	lwsl_debug("lwsi_set_state(%s): 0x%lx -> 0x%lx)\n", lws_wsi_tag(wsi),
+	lwsl_debug("lwsi_set_state 0x%lx -> 0x%lx)",
 			(unsigned long)old, (unsigned long)wsi->wsistate);
 }
 #endif
 
+
+void
+lws_log_prepend_wsi(struct lws_log_cx *cx, void *obj, char **p, char *e)
+{
+	struct lws *wsi = (struct lws *)obj;
+
+	*p += lws_snprintf(*p, lws_ptr_diff_size_t(e, (*p)), "%s: ",
+							lws_wsi_tag(wsi));
+}
 
 void
 lws_vhost_bind_wsi(struct lws_vhost *vh, struct lws *wsi)
@@ -244,7 +253,8 @@ lws_callback_vhost_protocols(struct lws *wsi, int reason, void *in, size_t len)
 
 struct lws *
 __lws_wsi_create_with_role(struct lws_context *context, int tsi,
-			   const struct lws_role_ops *ops)
+			   const struct lws_role_ops *ops,
+			   lws_log_cx_t *log_cx_template)
 {
 	size_t s = sizeof(struct lws);
 	struct lws *wsi;
@@ -263,6 +273,11 @@ __lws_wsi_create_with_role(struct lws_context *context, int tsi,
 		lwsl_err("%s: Out of mem\n", __func__);
 		return NULL;
 	}
+
+	if (log_cx_template)
+		wsi->lc.log_cx = log_cx_template;
+	else
+		wsi->lc.log_cx = context->log_cx;
 
 #if defined(LWS_WITH_EVENT_LIBS)
 	wsi->evlib_wsi = (uint8_t *)wsi + sizeof(*wsi);
@@ -951,6 +966,15 @@ struct lws_context *
 lws_get_context(const struct lws *wsi)
 {
 	return wsi->a.context;
+}
+
+struct lws_log_cx *
+lwsl_wsi_get_cx(struct lws *wsi)
+{
+	if (!wsi)
+		return NULL;
+
+	return wsi->lc.log_cx;
 }
 
 #if defined(LWS_WITH_CLIENT)

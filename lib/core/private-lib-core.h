@@ -195,20 +195,23 @@ typedef struct lws_lifecycle {
 #endif
 	lws_dll2_t			list; /* group list membership */
 	uint64_t			us_creation; /* creation timestamp */
+	lws_log_cx_t			*log_cx;
 } lws_lifecycle_t;
 
 void
-__lws_lc_tag(lws_lifecycle_group_t *grp, lws_lifecycle_t *lc,
-		    const char *format, ...);
+__lws_lc_tag(struct lws_context *cx, lws_lifecycle_group_t *grp,
+	     lws_lifecycle_t *lc, const char *format, ...);
 
 void
 __lws_lc_tag_append(lws_lifecycle_t *lc, const char *app);
 
 void
-__lws_lc_untag(lws_lifecycle_t *lc);
+__lws_lc_untag(struct lws_context *cx, lws_lifecycle_t *lc);
 
 const char *
 lws_lc_tag(lws_lifecycle_t *lc);
+
+extern lws_log_cx_t log_cx;
 
 /*
  * Generic bidi tx credit management
@@ -597,6 +600,9 @@ struct lws_context {
 
 #endif /* NETWORK */
 
+	lws_log_cx_t			*log_cx;
+	const char			*name;
+
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
 	const char	*ss_proxy_bind;
 	const char	*ss_proxy_address;
@@ -777,8 +783,6 @@ struct lws_buflist {
 char *
 lws_strdup(const char *s);
 
-extern int log_level;
-
 int
 lws_b64_selftest(void);
 
@@ -805,7 +809,7 @@ void lwsl_emit_stderr(int level, const char *line);
  #define lws_ssl_SSL_CTX_destroy(_a)
  #define lws_ssl_remove_wsi_from_buffered_list(_a)
  #define __lws_ssl_remove_wsi_from_buffered_list(_a)
- #define lws_context_init_ssl_library(_a)
+ #define lws_context_init_ssl_library(_a, _b)
  #define lws_context_deinit_ssl_library(_a)
  #define lws_tls_check_all_cert_lifetimes(_a)
  #define lws_tls_acme_sni_cert_destroy(_a)

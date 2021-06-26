@@ -428,16 +428,12 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 	}
 
-	lwsl_notice("LWS: %s, loglevel %d\n", library_version, log_level);
-
 #if defined(LWS_WITH_IPV6) && !defined(LWS_WITH_NO_LOGS)
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DISABLE_IPV6))
 		s = "IPV6-on";
 	else
 		s = "IPV6-off";
 #endif
-
-	lwsl_notice("%s%s\n", opts_str, s);
 
 	if (lws_plat_context_early_init())
 		goto early_bail;
@@ -597,8 +593,6 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if defined(LWS_WITH_NETWORK)
 	size += (size_t)plev->ops->evlib_size_ctx /* the ctx evlib priv */ +
 		(count_threads * (size_t)plev->ops->evlib_size_pt) /* the pt evlib priv */;
-
-	lwsl_info("Event loop: %s\n", plev->ops->name);
 #endif
 
 	context = lws_zalloc(size, "context");
@@ -606,7 +600,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 		lws_free(context);
 #endif
-		lwsl_err("No memory for lws_context\n");
+		lwsl_err("OOM");
 		goto early_bail;
 	}
 
@@ -641,6 +635,13 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->username = info->username;
 	context->groupname = info->groupname;
 #endif
+	context->name			= info->vhost_name;
+	if (info->log_cx)
+		context->log_cx = info->log_cx;
+	else
+		context->log_cx = &log_cx;
+	lwsl_refcount_cx(context->log_cx, 1);
+
 	context->system_ops = info->system_ops;
 	context->pt_serv_buf_size = (unsigned int)s1;
 	context->protocols_copy = info->protocols;
@@ -775,6 +776,11 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif /* network + metrics */
 
 #endif /* network */
+
+	lwsl_notice("LWS: %s, %s%s", library_version, opts_str, s);
+#if defined(LWS_WITH_NETWORK)
+	lwsl_info("Event loop: %s", plev->ops->name);
+#endif
 
 	/*
 	 * Proxy group
@@ -1243,7 +1249,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	}
 #endif
 
-	lws_context_init_ssl_library(info);
+	lws_context_init_ssl_library(context, info);
 
 	context->user_space = info->user;
 
@@ -1456,28 +1462,6 @@ early_bail:
 
 	return NULL;
 
-#if 0
-#if defined(LWS_WITH_NETWORK)
-fail_clean_pipes:
-
-#if defined(LWS_WITH_LIBUV)
-	if (fatal_exit_defer) {
-		lws_context_destroy(context);
-		return context;
-	}
-#endif
-
-	for (n = 0; n < context->count_threads; n++)
-		lws_destroy_event_pipe(context->pt[n].pipe_wsi);
-
-	lws_free_set_NULL(context->pt[0].fds);
-	lws_plat_context_late_destroy(context);
-	lws_free_set_NULL(context);
-
-	return NULL;
-#endif
-#endif
-
 #if defined(LWS_WITH_NETWORK)
 bail:
 	lws_fi_destroy(&info->fic);
@@ -1515,7 +1499,10 @@ free_context_fail2:
 		lws_fi_destroy(&context->fic);
 	}
 	lws_fi_destroy(&info->fic);
-	lws_free(context);
+	if (context) {
+		lwsl_refcount_cx(context->log_cx, -1);
+		lws_free(context);
+	}
 
 	return NULL;
 }
@@ -1967,8 +1954,6 @@ next:
 		while (context->vhost_pending_destruction_list)
 			/* removes itself from list */
 			__lws_vhost_destroy2(context->vhost_pending_destruction_list);
-
-		lwsl_debug("%p: post pdl\n", __func__);
 #endif
 
 #if defined(LWS_WITH_NETWORK)
@@ -2169,8 +2154,9 @@ next:
 		lws_fi_destroy(&context->fic);
 #endif
 
+		lwsl_refcount_cx(context->log_cx, -1);
+
 		lws_free(context);
-		lwsl_debug("%s: ctx %p freed\n", __func__, context);
 
 		if (pcontext_finalize)
 			*pcontext_finalize = NULL;
@@ -2203,3 +2189,22 @@ lws_system_context_from_system_mgr(lws_state_manager_t *mgr)
 #endif
 }
 #endif
+
+void
+lws_log_prepend_context(struct lws_log_cx *cx, void *obj, char **p, char *e)
+{
+	struct lws_context *lcx = (struct lws_context *)obj;
+
+	if (lcx->name)
+		*p += lws_snprintf(*p, lws_ptr_diff_size_t(e, (*p)), "%s: ",
+				   lcx->name);
+}
+
+struct lws_log_cx *
+lwsl_context_get_cx(struct lws_context *cx)
+{
+	if (!cx)
+		return NULL;
+
+	return cx->log_cx;
+}

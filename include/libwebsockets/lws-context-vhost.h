@@ -632,7 +632,10 @@ struct lws_context_creation_info {
 	const char *vhost_name;
 	/**< VHOST: name of vhost, must match external DNS name used to
 	 * access the site, like "warmcat.com" as it's used to match
-	 * Host: header and / or SNI name for SSL. */
+	 * Host: header and / or SNI name for SSL.
+	 * CONTEXT: NULL, or the name to associate with the context for
+	 * context-specific logging
+	 */
 #if defined(LWS_WITH_PLUGINS)
 	const char * const *plugin_dirs;
 	/**< CONTEXT: NULL, or NULL-terminated array of directories to
@@ -888,6 +891,10 @@ struct lws_context_creation_info {
 	/**< CONTEXT: 0 for default of 5000ms, or number of ms JIT Trust vhosts
 	 * are allowed to live without active connections using them. */
 #endif
+
+	lws_log_cx_t				*log_cx;
+	/**< CONTEXT: NULL to use the default, process-scope logging context,
+	 * else a specific logging context to associate with this context */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility

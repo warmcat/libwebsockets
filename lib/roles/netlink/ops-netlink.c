@@ -338,7 +338,7 @@ second_half:
 		case RTM_DELADDR:
 			lwsl_notice("%s: DELADDR\n", __func__);
 #if defined(_DEBUG)
-			_lws_routing_entry_dump(&robj);
+			_lws_routing_entry_dump(cx, &robj);
 #endif
 			lws_pt_lock(pt, __func__);
 			_lws_route_remove(pt, &robj, LRR_MATCH_SRC | LRR_IGNORE_PRI);
@@ -498,18 +498,19 @@ rops_pt_init_destroy_netlink(struct lws_context *context,
 
 	lws_context_lock(context, __func__);
 	wsi = __lws_wsi_create_with_role(context, (int)(pt - &context->pt[0]),
-				       &role_ops_netlink);
+				       &role_ops_netlink, NULL);
 	lws_context_unlock(context);
 	if (!wsi)
 		goto bail;
 
 	wsi->desc.sockfd = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
 	if (wsi->desc.sockfd == LWS_SOCK_INVALID) {
-		lwsl_err("%s: unable to open netlink\n", __func__);
+		lwsl_err("unable to open netlink\n");
 		goto bail1;
 	}
 
-	__lws_lc_tag(&context->lcg[LWSLCG_VHOST], &wsi->lc, "netlink");
+	__lws_lc_tag(context, &context->lcg[LWSLCG_VHOST], &wsi->lc,
+			"netlink");
 
 	memset(&sanl, 0, sizeof(sanl));
 	sanl.nl_family		= AF_NETLINK;
@@ -585,7 +586,7 @@ rops_pt_init_destroy_netlink(struct lws_context *context,
 	return 0;
 
 bail2:
-	__lws_lc_untag(&wsi->lc);
+	__lws_lc_untag(wsi->a.context, &wsi->lc);
 	compatible_close(wsi->desc.sockfd);
 bail1:
 	lws_free(wsi);
