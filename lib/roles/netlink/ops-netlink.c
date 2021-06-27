@@ -78,18 +78,6 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 	if (!(pollfd->revents & LWS_POLLIN))
 		return LWS_HPI_RET_HANDLED;
 
-	if (!cx->nl_initial_done && pt == &cx->pt[0]) {
-		/*
-		 * While netlink info still coming, keep moving the timer for
-		 * calling it "done" to +100ms until after it stops coming
-		 */
-		lws_context_lock(cx, __func__);
-		lws_sul_schedule(cx, 0, &cx->sul_nl_coldplug,
-				 lws_netlink_coldplug_done_cb,
-				 100 * LWS_US_PER_MS);
-		lws_context_unlock(cx);
-	}
-
 	memset(&msg, 0, sizeof(msg));
 
 	iov.iov_base		= (void *)s;
@@ -450,6 +438,20 @@ inform:
 	}
 #endif
 
+	if (!cx->nl_initial_done &&
+	    pt == &cx->pt[0] &&
+	    cx->routing_table.count) {
+		/*
+		 * While netlink info still coming, keep moving the timer for
+		 * calling it "done" to +100ms until after it stops coming
+		 */
+		lws_context_lock(cx, __func__);
+		lws_sul_schedule(cx, 0, &cx->sul_nl_coldplug,
+				 lws_netlink_coldplug_done_cb,
+				 100 * LWS_US_PER_MS);
+		lws_context_unlock(cx);
+	}
+
 	return LWS_HPI_RET_HANDLED;
 }
 
@@ -572,15 +574,13 @@ rops_pt_init_destroy_netlink(struct lws_context *context,
 	}
 
 	/*
-	 * Responses are going to come asynchronously, since we can't process
-	 * DNS lookups properly until we collected the initial netlink responses
-	 * let's set a timer that will let us advance from lws_system
-	 * LWS_SYSTATE_IFACE_COLDPLUG
+	 * Responses are going to come asynchronously, let's block moving
+	 * off state IFACE_COLDPLUG until we have had them.  This is important
+	 * since if we don't hold there, when we do get the responses we may
+	 * cull any ongoing connections as unroutable otherwise
 	 */
 
 	lwsl_debug("%s: starting netlink coldplug wait\n", __func__);
-	lws_sul_schedule(context, 0, &context->sul_nl_coldplug,
-			 lws_netlink_coldplug_done_cb, 450 * LWS_US_PER_MS);
 
 	return 0;
 
