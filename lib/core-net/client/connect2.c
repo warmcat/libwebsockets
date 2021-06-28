@@ -124,6 +124,10 @@ lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
 }
 #endif
 
+#if !defined(LWS_WITH_SYS_ASYNC_DNS) && defined(EAI_NONAME)
+static const char * const dns_nxdomain = "DNS NXDOMAIN";
+#endif
+
 struct lws *
 lws_client_connect_2_dnsreq(struct lws *wsi)
 {
@@ -332,6 +336,20 @@ solo:
 		 * blocking dns resolution
 		 */
 		n = lws_getaddrinfo46(wsi, adsin, &result);
+#if defined(EAI_NONAME)
+		if (n == EAI_NONAME) {
+			/*
+			 * The DNS server responded with NXDOMAIN... even
+			 * though this is still in the client creation call,
+			 * we need to make a CCE, otherwise there won't be
+			 * any user indication of what went wrong
+			 */
+			wsi->client_suppress_CONNECTION_ERROR = 0;
+			lws_inform_client_conn_fail(wsi, (void *)dns_nxdomain,
+						    sizeof(dns_nxdomain));
+			goto failed1;
+		}
+#endif
 	}
 #else
 	/* this is either FAILED, CONTINUING, or already called connect_4 */

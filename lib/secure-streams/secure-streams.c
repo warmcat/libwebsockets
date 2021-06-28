@@ -807,13 +807,20 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 		 * having to go around the event loop
 		 */
 
-		r = lws_ss_event_helper(h, LWSSSCS_UNREACHABLE);
-		if (r)
-			return r;
+		if (h->prev_ss_state != LWSSSCS_UNREACHABLE &&
+		    h->prev_ss_state != LWSSSCS_ALL_RETRIES_FAILED) {
+			/*
+			 * blocking DNS failure can get to unreachable via
+			 * CCE, and unreachable can get to ALL_RETRIES_FAILED
+			 */
+			r = lws_ss_event_helper(h, LWSSSCS_UNREACHABLE);
+			if (r)
+				return r;
 
-		r = lws_ss_backoff(h);
-		if (r)
-			return r;
+			r = lws_ss_backoff(h);
+			if (r)
+				return r;
+		}
 
 		return LWSSSSRET_TX_DONT_SEND;
 	}
