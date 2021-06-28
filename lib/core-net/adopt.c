@@ -31,7 +31,7 @@ lws_get_idlest_tsi(struct lws_context *context)
 	int n = 0, hit = -1;
 
 	for (; n < context->count_threads; n++) {
-		lwsl_debug("%s: %d %d\n", __func__, context->pt[n].fds_count,
+		lwsl_cx_debug(context, "%d %d\n", context->pt[n].fds_count,
 				context->fd_limit_per_thread - 1);
 		if ((unsigned int)context->pt[n].fds_count !=
 		    context->fd_limit_per_thread - 1 &&
@@ -54,16 +54,16 @@ lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi, const char *de
 		n = lws_get_idlest_tsi(vhost->context);
 
 	if (n < 0) {
-		lwsl_err("no space for new conn\n");
+		lwsl_vhost_err(vhost, "no space for new conn");
 		return NULL;
 	}
 
 	lws_context_lock(vhost->context, __func__);
 	new_wsi = __lws_wsi_create_with_role(vhost->context, n, NULL,
-						vhost->lc.log_cx);
+					     vhost->lc.log_cx);
 	lws_context_unlock(vhost->context);
 	if (new_wsi == NULL) {
-		lwsl_err("Out of memory for new connection\n");
+		lwsl_vhost_err(vhost, "OOM");
 		return NULL;
 	}
 
@@ -75,8 +75,8 @@ lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi, const char *de
 
 	new_wsi->wsistate |= LWSIFR_SERVER;
 	new_wsi->tsi = (char)n;
-	lwsl_debug("%s joining vhost %s, tsi %d\n", new_wsi->lc.gutag,
-		   vhost->name, new_wsi->tsi);
+	lwsl_wsi_debug(new_wsi, "joining vh %s, tsi %d",
+			vhost->name, new_wsi->tsi);
 
 	lws_vhost_bind_wsi(vhost, new_wsi);
 	new_wsi->rxflow_change_to = LWS_RXFLOW_ALLOW;
@@ -164,12 +164,12 @@ __lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 		new_wsi->a.protocol = lws_vhost_name_to_protocol(new_wsi->a.vhost,
 							       vh_prot_name);
 		if (!new_wsi->a.protocol) {
-			lwsl_err("Protocol %s not enabled on vhost %s\n",
-				 vh_prot_name, new_wsi->a.vhost->name);
+			lwsl_vhost_err(new_wsi->a.vhost, "Protocol %s not enabled",
+						      vh_prot_name);
 			goto bail;
 		}
 		if (lws_ensure_user_space(new_wsi)) {
-		       lwsl_notice("OOM trying to get user_space\n");
+			lwsl_wsi_notice(new_wsi, "OOM");
 			goto bail;
 		}
 	}
@@ -179,7 +179,7 @@ __lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 		type &= (unsigned int)~LWS_ADOPT_ALLOW_SSL;
 
 	if (lws_role_call_adoption_bind(new_wsi, (int)type, vh_prot_name)) {
-		lwsl_err("%s: no role for desc type 0x%x\n", __func__, type);
+		lwsl_wsi_err(new_wsi, "no role for desc type 0x%x", type);
 		goto bail;
 	}
 
@@ -203,7 +203,7 @@ __lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 	return new_wsi;
 
 bail:
-       lwsl_notice("%s: exiting on bail\n", __func__);
+	lwsl_wsi_notice(new_wsi, "exiting on bail");
 	if (parent)
 		parent->child_list = new_wsi->sibling_list;
 	if (new_wsi->user_space)
@@ -270,7 +270,7 @@ lws_adopt_ss_server_accept(struct lws *new_wsi)
 	if (lws_ss_create(new_wsi->a.context, new_wsi->tsi,
 			  &new_wsi->a.vhost->ss_handle->info,
 			  *ppv, &h, NULL, NULL)) {
-		lwsl_err("%s: accept ss creation failed\n", __func__);
+		lwsl_wsi_err(new_wsi, "accept ss creation failed");
 		goto fail1;
 	}
 
@@ -286,8 +286,9 @@ lws_adopt_ss_server_accept(struct lws *new_wsi)
 	/* indicate wsi should invalidate any ss link to it on close */
 	new_wsi->for_ss = 1;
 
-	// lwsl_notice("%s: opaq %p, role %s\n", __func__,
-	//		new_wsi->a.opaque_user_data, new_wsi->role_ops->name);
+	// lwsl_wsi_notice(new_wsi, "%s: opaq %p, role %s",
+	//			     new_wsi->a.opaque_user_data,
+	//			     new_wsi->role_ops->name);
 
 	h->policy = new_wsi->a.vhost->ss_handle->policy;
 
@@ -302,8 +303,7 @@ lws_adopt_ss_server_accept(struct lws *new_wsi)
 		       !!(h->policy->flags & LWSSSPOLF_ATTR_HIGH_RELIABILITY)) |
 		      (LCCSCF_IP_LOW_COST *
 		       !!(h->policy->flags & LWSSSPOLF_ATTR_LOW_COST))))
-		lwsl_warn("%s: %s: unable to set ip options\n",
-			  __func__, new_wsi->lc.gutag);
+		lwsl_wsi_warn(new_wsi, "unable to set ip options");
 
 	/*
 	 * add us to the list of clients that came in from the server
@@ -353,16 +353,15 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 
 	if (type & LWS_ADOPT_SOCKET) {
 		if (lws_plat_set_nonblocking(fd.sockfd)) {
-			lwsl_err("%s: unable to set sockfd %d nonblocking\n",
-				 __func__, fd.sockfd);
+			lwsl_wsi_err(new_wsi, "unable to set sockfd %d nonblocking",
+				     fd.sockfd);
 			goto fail;
 		}
 	}
 #if !defined(WIN32)
 	else
 		if (lws_plat_set_nonblocking(fd.filefd)) {
-			lwsl_err("%s: unable to set filefd nonblocking\n",
-				 __func__);
+			lwsl_wsi_err(new_wsi, "unable to set filefd nonblocking");
 			goto fail;
 		}
 #endif
@@ -401,7 +400,7 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 		lws_pt_lock(pt, __func__);
 		if (__insert_wsi_socket_into_fds(new_wsi->a.context, new_wsi)) {
 			lws_pt_unlock(pt);
-			lwsl_err("%s: fail inserting socket\n", __func__);
+			lwsl_wsi_err(new_wsi, "fail inserting socket");
 			goto fail;
 		}
 		lws_pt_unlock(pt);
@@ -409,7 +408,7 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 #if defined(LWS_WITH_SERVER)
 	 else
 		if (lws_server_socket_service_ssl(new_wsi, fd.sockfd, 0)) {
-			lwsl_info("%s: fail ssl negotiation\n", __func__);
+			lwsl_wsi_info(new_wsi, "fail ssl negotiation");
 
 			goto fail;
 		}
@@ -442,8 +441,7 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 	 * (here) and h2 (at __lws_wsi_server_new())
 	 */
 
-	lwsl_info("%s: %s, vhost %s\n", __func__, new_wsi->lc.gutag,
-			new_wsi->a.vhost->lc.gutag);
+	lwsl_wsi_info(new_wsi, "vhost %s", new_wsi->a.vhost->lc.gutag);
 
 	if (lws_adopt_ss_server_accept(new_wsi))
 		goto fail;

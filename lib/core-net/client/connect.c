@@ -172,7 +172,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 			vh = i->context->vhost_list;
 
 			if (!vh) { /* coverity */
-				lwsl_err("%s: no vhost\n", __func__);
+				lwsl_cx_err(i->context, "no vhost");
 				goto bail;
 			}
 			if (!strcmp(vh->name, "system"))
@@ -262,7 +262,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	 */
 
 	if (lws_role_call_client_bind(wsi, i) < 0) {
-		lwsl_err("%s: unable to bind to role\n", __func__);
+		lwsl_wsi_err(wsi, "unable to bind to role");
 
 		goto bail;
 	}
@@ -410,8 +410,8 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	 */
 
 	if (i->parent_wsi) {
-		lwsl_info("%s: created child %p of parent %p\n", __func__,
-			  wsi, i->parent_wsi);
+		lwsl_wsi_info(wsi, "created as child %s",
+			      lws_wsi_tag(i->parent_wsi));
 		wsi->parent = i->parent_wsi;
 		safe = wsi->sibling_list = i->parent_wsi->child_list;
 		i->parent_wsi->child_list = wsi;
@@ -427,11 +427,9 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 		int n = lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_client_bind).
 							client_bind(wsi, NULL);
 
-		if (n && i->parent_wsi) {
+		if (n && i->parent_wsi)
 			/* unpick from parent */
-
 			i->parent_wsi->child_list = safe;
-		}
 
 		if (n < 0)
 			/* we didn't survive, wsi is freed */
@@ -454,8 +452,8 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	if (wsi->role_ops != &role_ops_raw_skt ||
 	    (i->local_protocol_name &&
 	     !strcmp(i->local_protocol_name, "raw-proxy"))) {
-		lwsl_debug("%s: %s: adoption cb %d to %s %s\n", __func__,
-			   lws_wsi_tag(wsi), wsi->role_ops->adoption_cb[0],
+		lwsl_wsi_debug(wsi, "adoption cb %d to %s %s",
+			   wsi->role_ops->adoption_cb[0],
 			   wsi->role_ops->name, wsi->a.protocol->name);
 
 		wsi->a.protocol->callback(wsi, wsi->role_ops->adoption_cb[0],
@@ -519,7 +517,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 
 #if defined(LWS_WITH_TLS)
 bail3:
-	lwsl_info("%s: tls start fail\n", __func__);
+	lwsl_wsi_info(wsi, "tls start fail");
 	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "tls start fail");
 
 	if (i->pwsi)

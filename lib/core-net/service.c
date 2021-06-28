@@ -43,8 +43,6 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	volatile struct lws *vwsi = (volatile struct lws *)wsi;
 	int n;
 
-	// lwsl_notice("%s: %s\n", __func__, lws_wsi_tag(wsi));
-
 	if (wsi->socket_is_permanently_unusable)
 		return 0;
 
@@ -69,9 +67,8 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	 */
 
 	if (lws_has_buffered_out(wsi)) {
-		//lwsl_notice("%s: completing partial\n", __func__);
 		if (lws_issue_raw(wsi, NULL, 0) < 0) {
-			lwsl_info("%s signalling to close\n", __func__);
+			lwsl_wsi_info(wsi, "signalling to close");
 			goto bail_die;
 		}
 		/* leave POLLOUT active either way */
@@ -89,15 +86,14 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	    wsi->http.comp_ctx.may_have_more) {
 		enum lws_write_protocol wp = LWS_WRITE_HTTP;
 
-		lwsl_info("%s: completing comp partial (buflist_comp %p, may %d)\n",
-				__func__, wsi->http.comp_ctx.buflist_comp,
-				wsi->http.comp_ctx.may_have_more
-				);
+		lwsl_wsi_info(wsi, "compl comp partial (buflist_comp %p, may %d)",
+				   wsi->http.comp_ctx.buflist_comp,
+				   wsi->http.comp_ctx.may_have_more);
 
 		if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_write_role_protocol) &&
 		    lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_write_role_protocol).
 					write_role_protocol(wsi, NULL, 0, &wp) < 0) {
-			lwsl_info("%s signalling to close\n", __func__);
+			lwsl_wsi_info(wsi, "signalling to close");
 			goto bail_die;
 		}
 		lws_callback_on_writable(wsi);
@@ -115,7 +111,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 		/* also one shot */
 		if (pollfd)
 			if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
-				lwsl_info("failed at set pollfd\n");
+				lwsl_wsi_info(wsi, "failed at set pollfd");
 				return 1;
 			}
 		goto user_service_go_again;
@@ -149,7 +145,7 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 
 		if (!eff) {
 			if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
-				lwsl_info("failed at set pollfd\n");
+				lwsl_wsi_info(wsi, "failed at set pollfd");
 				goto bail_die;
 			}
 		}
@@ -162,9 +158,9 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 			 * got set inbetween sampling eff and clearing
 			 * handling_pollout, force POLLOUT on
 			 */
-			lwsl_debug("leave_pollout_active\n");
+			lwsl_wsi_debug(wsi, "leave_pollout_active");
 			if (lws_change_pollfd(wsi, 0, LWS_POLLOUT)) {
-				lwsl_info("failed at set pollfd\n");
+				lwsl_wsi_info(wsi, "failed at set pollfd");
 				goto bail_die;
 			}
 		}
@@ -194,9 +190,8 @@ user_service_go_again:
 			goto bail_ok;
 	}
 
-	lwsl_debug("%s: %s: non mux: wsistate 0x%lx, ops %s\n", __func__,
-		   lws_wsi_tag(wsi),
-		   (unsigned long)wsi->wsistate, wsi->role_ops->name);
+	lwsl_wsi_debug(wsi, "non mux: wsistate 0x%lx, ops %s",
+			    (unsigned long)wsi->wsistate, wsi->role_ops->name);
 
 	vwsi = (volatile struct lws *)wsi;
 	vwsi->leave_pollout_active = 0;
@@ -249,8 +244,8 @@ lws_rxflow_cache(struct lws *wsi, unsigned char *buf, size_t n, size_t len)
 			 */
 
 			lws_buflist_use_segment(&wsi->buflist, blen - len);
-			lwsl_debug("%s: trim existing rxflow %d -> %d\n",
-					__func__, (int)blen, (int)len);
+			lwsl_wsi_debug(wsi, "trim existing rxflow %d -> %d",
+					    (int)blen, (int)len);
 
 			return LWSRXFC_TRIMMED;
 		}
@@ -259,13 +254,13 @@ lws_rxflow_cache(struct lws *wsi, unsigned char *buf, size_t n, size_t len)
 
 	/* a new rxflow, buffer it and warn caller */
 
-	lwsl_debug("%s: rxflow append %d\n", __func__, (int)(len - n));
+	lwsl_wsi_debug(wsi, "rxflow append %d", (int)(len - n));
 	m = lws_buflist_append_segment(&wsi->buflist, buf + n, len - n);
 
 	if (m < 0)
 		return LWSRXFC_ERROR;
 	if (m) {
-		lwsl_debug("%s: added %s to rxflow list\n", __func__, lws_wsi_tag(wsi));
+		lwsl_wsi_debug(wsi, "added to rxflow list");;
 		if (lws_dll2_is_detached(&wsi->dll_buflist))
 			lws_dll2_add_head(&wsi->dll_buflist, &pt->dll_buflist_owner);
 	}
@@ -455,10 +450,6 @@ lws_buflist_aware_finished_consuming(struct lws *wsi, struct lws_tokens *ebuf,
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	int m;
 
-	//lwsl_debug("%s %s consuming buffered %d used %zu / %zu\n", __func__, hint,
-	//		buffered, (size_t)used, (size_t)ebuf->len);
-	// lws_buflist_describe(&wsi->buflist, wsi, __func__);
-
 	/* it's in the buflist; we didn't use any */
 
 	if (!used && buffered)
@@ -466,14 +457,13 @@ lws_buflist_aware_finished_consuming(struct lws *wsi, struct lws_tokens *ebuf,
 
 	if (used && buffered) {
 		if (wsi->buflist) {
-			m = (int)lws_buflist_use_segment(&wsi->buflist, (size_t)used);
-			// lwsl_notice("%s: used %d, next %d\n", __func__, used, m);
-			// lws_buflist_describe(&wsi->buflist, wsi, __func__);
+			m = (int)lws_buflist_use_segment(&wsi->buflist,
+							 (size_t)used);
 			if (m)
 				return 0;
 		}
 
-		lwsl_info("%s: removed %p from dll_buflist\n", __func__, wsi);
+		lwsl_wsi_info(wsi, "removed from dll_buflist");
 		lws_dll2_remove(&wsi->dll_buflist);
 
 		return 0;
@@ -482,21 +472,17 @@ lws_buflist_aware_finished_consuming(struct lws *wsi, struct lws_tokens *ebuf,
 	/* any remainder goes on the buflist */
 
 	if (used < ebuf->len && ebuf->len >= 0 && used >= 0) {
-		// lwsl_notice("%s %s bac appending %d\n", __func__, hint,
-		//		ebuf->len - used);
 		m = lws_buflist_append_segment(&wsi->buflist,
 					       ebuf->token + used,
 					       (unsigned int)(ebuf->len - used));
 		if (m < 0)
 			return 1; /* OOM */
 		if (m) {
-			lwsl_debug("%s: added %s to rxflow list\n",
-				   __func__, lws_wsi_tag(wsi));
+			lwsl_wsi_debug(wsi, "added to rxflow list");
 			if (lws_dll2_is_detached(&wsi->dll_buflist))
 				lws_dll2_add_head(&wsi->dll_buflist,
 					 &pt->dll_buflist_owner);
 		}
-		// lws_buflist_describe(&wsi->buflist, wsi, __func__);
 	}
 
 	return 0;
@@ -525,9 +511,9 @@ lws_service_do_ripe_rxflow(struct lws_context_per_thread *pt)
 		pfd.revents = LWS_POLLIN;
 		pfd.fd = -1;
 
-		lwsl_debug("%s: rxflow processing: %s fc=%d, 0x%lx\n", __func__,
-			   lws_wsi_tag(wsi), lws_is_flowcontrolled(wsi),
-			   (unsigned long)wsi->wsistate);
+		lwsl_wsi_debug(wsi, "rxflow processing: fc=%d, 0x%lx",
+				    lws_is_flowcontrolled(wsi),
+				    (unsigned long)wsi->wsistate);
 
 		if (!lws_is_flowcontrolled(wsi) &&
 		    lwsi_state(wsi) != LRS_DEFERRING_ACTION) {
@@ -689,8 +675,8 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 				 * so acknowledge the wsi is done
 				 */
 
-				lwsl_debug("Session Socket %s (fd=%d) dead\n",
-					   lws_wsi_tag(wsi), pollfd->fd);
+				lwsl_wsi_debug(wsi, "Session Socket %d dead",
+						    pollfd->fd);
 
 				goto close_and_handled;
 			}
@@ -746,7 +732,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		//lwsl_notice("%s: %s pollin says please close me\n", __func__,
 		//		wsi->role_ops->name);
 close_and_handled:
-		lwsl_debug("%s: %s: Close and handled\n", __func__, lws_wsi_tag(wsi));
+		lwsl_wsi_debug(wsi, "Close and handled");
 		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
 				   "close_and_handled");
 #if defined(_DEBUG) && defined(LWS_WITH_LIBUV)

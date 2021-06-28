@@ -121,7 +121,7 @@ lws_uloop_cb(struct uloop_fd *ufd, unsigned int revents)
 	lws_service_fd_tsi(context, &eventfd, wu->wsi->tsi);
 
 	if (pt->destroy_self) {
-		lwsl_notice("%s: pt destroy self coming true\n", __func__);
+		lwsl_cx_notice(context, "pt destroy self coming true");
 		lws_context_destroy(pt->context);
 		return;
 	}

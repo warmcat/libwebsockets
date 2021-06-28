@@ -228,8 +228,8 @@ send_hs:
 #if 0
 				/* ensure pollin enabled */
 				if (lws_change_pollfd(wsi, 0, LWS_POLLIN))
-					lwsl_notice("%s: unable to set POLLIN\n",
-							__func__);
+					lwsl_wsi_notice(wsi,
+							"unable to set POLLIN");
 #endif
 
 				goto provoke_service;

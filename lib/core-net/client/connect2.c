@@ -143,7 +143,7 @@ lws_client_connect_2_dnsreq(struct lws *wsi)
 
 	if (lwsi_state(wsi) == LRS_WAITING_DNS ||
 	    lwsi_state(wsi) == LRS_WAITING_CONNECT) {
-		lwsl_info("%s: LRS_WAITING_DNS / CONNECT\n", __func__);
+		lwsl_wsi_info(wsi, "LRS_WAITING_DNS / CONNECT");
 
 		return wsi;
 	}

@@ -161,10 +161,8 @@ bail:
 static void
 lws_libuv_stop(struct lws_context *context)
 {
-	lwsl_err("%s\n", __func__);
-
 	if (context->requested_stop_internal_loops) {
-		lwsl_err("%s: ignoring\n", __func__);
+		lwsl_cx_err(context, "ignoring");
 		return;
 	}
 
@@ -184,7 +182,8 @@ lws_uv_signal_handler(uv_signal_t *watcher, int signum)
 		return;
 	}
 
-	lwsl_err("internal signal handler caught signal %d\n", signum);
+	lwsl_cx_err(pt->context, "internal signal handler caught signal %d",
+				 signum);
 	lws_libuv_stop(pt->context);
 }
 
@@ -193,7 +192,7 @@ lws_uv_finalize_pt(struct lws_context_per_thread *pt)
 {
 	pt->event_loop_pt_unused = 1;
 
-	lwsl_info("%s: thr %d\n", __func__, (int)(pt - pt->context->pt));
+	lwsl_cx_info(pt->context, "thr %d", (int)(pt - pt->context->pt));
 
 	lws_context_lock(pt->context, __func__);
 
@@ -204,7 +203,7 @@ lws_uv_finalize_pt(struct lws_context_per_thread *pt)
 		 * eventually, we emptied all the pts...
 		 */
 
-		lwsl_debug("%s: all pts down now\n", __func__);
+		lwsl_cx_debug(pt->context, "all pts down now");
 
 		/* protocols may have initialized libuv objects */
 
@@ -215,8 +214,7 @@ lws_uv_finalize_pt(struct lws_context_per_thread *pt)
 
 		if (!pt->count_event_loop_static_asset_handles &&
 		    pt->event_loop_foreign) {
-			lwsl_info("%s: resuming context_destroy\n",
-					__func__);
+			lwsl_cx_info(pt->context, "resuming context_destroy");
 			lws_context_unlock(pt->context);
 			lws_context_destroy(pt->context);
 			/*
@@ -227,8 +225,8 @@ lws_uv_finalize_pt(struct lws_context_per_thread *pt)
 			return 1;
 		}
 	} else
-		lwsl_debug("%s: still %d undestroyed\n", __func__,
-				pt->context->undestroyed_threads);
+		lwsl_cx_debug(pt->context, "still %d undestroyed",
+					   pt->context->undestroyed_threads);
 
 	lws_context_unlock(pt->context);
 
@@ -259,11 +257,11 @@ lws_uv_close_cb_sa(uv_handle_t *handle)
 	int tsi = (int)(pt - &context->pt[0]);
 #endif
 
-	lwsl_info("%s: thr %d: sa left %d: dyn left: %d (rk %d)\n", __func__,
-		    tsi,
-		    pt->count_event_loop_static_asset_handles - 1,
-		    ptpriv->extant_handles,
-		    context->requested_stop_internal_loops);
+	lwsl_cx_info(context, "thr %d: sa left %d: dyn left: %d (rk %d)",
+			      tsi,
+			      pt->count_event_loop_static_asset_handles - 1,
+			      ptpriv->extant_handles,
+			      context->requested_stop_internal_loops);
 
 	/* any static assets left? */
 
@@ -285,16 +283,14 @@ lws_uv_close_cb_sa(uv_handle_t *handle)
 	 * Stop the loop so we can get out of here.
 	 */
 
-	lwsl_info("%s: thr %d: seen final static handle gone\n", __func__, tsi);
+	lwsl_cx_info(context, "thr %d: seen final static handle gone", tsi);
 
-	if (!pt->event_loop_foreign) {
-		lwsl_info("%s: calling lws_context_destroy2\n", __func__);
+	if (!pt->event_loop_foreign)
 		lws_context_destroy(context);
-	}
 
 	lws_uv_finalize_pt(pt);
 
-	lwsl_info("%s: all done\n", __func__);
+	lwsl_cx_info(context, "all done");
 }
 
 /*
@@ -381,8 +377,7 @@ elops_destroy_context1_uv(struct lws_context *context)
 						  UV_RUN_NOWAIT)))
 					;
 			if (m)
-				lwsl_info("%s: tsi %d: not all closed\n",
-					 __func__, n);
+				lwsl_cx_info(context, "tsi %d: unclosed", n);
 
 		}
 	}
@@ -426,12 +421,13 @@ elops_wsi_logical_close_uv(struct lws *wsi)
 		return 0;
 
 	if (wsi->listener || wsi->event_pipe) {
-		lwsl_debug("%s: %s: %d %d stop listener / pipe poll\n",
-			   __func__, lws_wsi_tag(wsi), wsi->listener, wsi->event_pipe);
+		lwsl_wsi_debug(wsi, "%d %d stop listener / pipe poll",
+				    wsi->listener,
+				    wsi->event_pipe);
 		if (wsi_to_priv_uv(wsi)->w_read.pwatcher)
 			uv_poll_stop(wsi_to_priv_uv(wsi)->w_read.pwatcher);
 	}
-	lwsl_debug("%s: lws_libuv_closehandle: %s\n", __func__, lws_wsi_tag(wsi));
+	lwsl_wsi_debug(wsi, "lws_libuv_closehandle");
 	/*
 	 * libuv has to do his own close handle processing asynchronously
 	 */
@@ -444,7 +440,7 @@ static int
 elops_check_client_connect_ok_uv(struct lws *wsi)
 {
 	if (lws_libuv_check_watcher_active(wsi)) {
-		lwsl_warn("Waiting for libuv watcher to close\n");
+		lwsl_wsi_warn(wsi, "Waiting for libuv watcher to close");
 		return 1;
 	}
 
@@ -455,6 +451,7 @@ static void
 lws_libuv_closewsi_m(uv_handle_t* handle)
 {
 	lws_sockfd_type sockfd = (lws_sockfd_type)(lws_intptr_t)handle->data;
+
 	lwsl_debug("%s: sockfd %d\n", __func__, sockfd);
 	compatible_close(sockfd);
 	lws_free(handle);
@@ -465,7 +462,7 @@ elops_close_handle_manually_uv(struct lws *wsi)
 {
 	uv_handle_t *h = (uv_handle_t *)wsi_to_priv_uv(wsi)->w_read.pwatcher;
 
-	lwsl_debug("%s: lws_libuv_closehandle: %s\n", __func__, lws_wsi_tag(wsi));
+	lwsl_wsi_debug(wsi, "lws_libuv_closehandle");
 
 	/*
 	 * the "manual" variant only closes the handle itself and the
@@ -510,11 +507,10 @@ elops_accept_uv(struct lws *wsi)
 
 	ptpriv->extant_handles++;
 
-	lwsl_debug("%s: thr %d: %s sa left %d: dyn left: %d\n", __func__,
-		    (int)(pt - &pt->context->pt[0]),
-		    lws_wsi_tag(wsi),
-		    pt->count_event_loop_static_asset_handles,
-		    ptpriv->extant_handles);
+	lwsl_wsi_debug(wsi, "thr %d: sa left %d: dyn left: %d",
+			    (int)(pt - &pt->context->pt[0]),
+			    pt->count_event_loop_static_asset_handles,
+			    ptpriv->extant_handles);
 
 	return 0;
 }
@@ -526,23 +522,23 @@ elops_io_uv(struct lws *wsi, unsigned int flags)
 	struct lws_io_watcher_libuv *w = &(wsi_to_priv_uv(wsi)->w_read);
 	int current_events = w->actual_events & (UV_READABLE | UV_WRITABLE);
 
-	lwsl_debug("%s: %s: %d\n", __func__, lws_wsi_tag(wsi), flags);
+	lwsl_wsi_debug(wsi, "%d", flags);
 
 	/* w->context is set after the loop is initialized */
 
 	if (!pt_to_priv_uv(pt)->io_loop || !w->context) {
-		lwsl_info("%s: no io loop yet\n", __func__);
+		lwsl_wsi_info(wsi, "no io loop yet");
 		return;
 	}
 
 	if (!((flags & (LWS_EV_START | LWS_EV_STOP)) &&
 	      (flags & (LWS_EV_READ | LWS_EV_WRITE)))) {
-		lwsl_err("%s: assert: flags %d", __func__, flags);
+		lwsl_wsi_err(wsi, "assert: flags %d", flags);
 		assert(0);
 	}
 
 	if (!w->pwatcher || wsi->told_event_loop_closed) {
-		lwsl_info("%s: no watcher\n", __func__);
+		lwsl_wsi_info(wsi, "no watcher");
 
 		return;
 	}
@@ -601,19 +597,18 @@ elops_init_vhost_listen_wsi_uv(struct lws *wsi)
 	n = uv_poll_init_socket(pt_to_priv_uv(pt)->io_loop,
 				w_read->pwatcher, wsi->desc.sockfd);
 	if (n) {
-		lwsl_err("uv_poll_init failed %d, sockfd=%p\n", n,
-				(void *)(lws_intptr_t)wsi->desc.sockfd);
+		lwsl_wsi_err(wsi, "uv_poll_init failed %d, sockfd=%p", n,
+				  (void *)(lws_intptr_t)wsi->desc.sockfd);
 
 		return -1;
 	}
 
 	ptpriv->extant_handles++;
 
-	lwsl_debug("%s: thr %d: %s sa left %d: dyn left: %d\n", __func__,
-		    (int)(pt - &pt->context->pt[0]),
-		    lws_wsi_tag(wsi),
-		    pt->count_event_loop_static_asset_handles,
-		    ptpriv->extant_handles);
+	lwsl_wsi_debug(wsi, "thr %d: sa left %d: dyn left: %d",
+			    (int)(pt - &pt->context->pt[0]),
+			    pt->count_event_loop_static_asset_handles,
+			    ptpriv->extant_handles);
 
 	((uv_handle_t *)w_read->pwatcher)->data = (void *)wsi;
 
@@ -651,7 +646,7 @@ elops_destroy_pt_uv(struct lws_context *context, int tsi)
 	}
 
 	pt->event_loop_destroy_processing_done = 1;
-	lwsl_debug("%s: %d\n", __func__, tsi);
+	// lwsl_cx_debug(context, "%d", tsi);
 
 	if (!pt->event_loop_foreign) {
 
@@ -668,7 +663,7 @@ elops_destroy_pt_uv(struct lws_context *context, int tsi)
 				 lws_uv_close_cb_sa);
 		}
 	} else
-		lwsl_debug("%s: not closing pt signals\n", __func__);
+		lwsl_cx_debug(context, "not closing pt signals");
 
 	uv_timer_stop(&pt_to_priv_uv(pt)->sultimer);
 	uv_close((uv_handle_t *)&pt_to_priv_uv(pt)->sultimer, lws_uv_close_cb_sa);
@@ -709,18 +704,18 @@ elops_init_pt_uv(struct lws_context *context, void *_loop, int tsi)
 		if (!loop) {
 			loop = lws_malloc(sizeof(*loop), "libuv loop");
 			if (!loop) {
-				lwsl_err("OOM\n");
+				lwsl_cx_err(context, "OOM");
 				return -1;
 			}
-	#if UV_VERSION_MAJOR > 0
+#if UV_VERSION_MAJOR > 0
 			uv_loop_init(loop);
-	#else
-			lwsl_err("This libuv is too old to work...\n");
+#else
+			lwsl_cx_err(context, "This libuv is too old to work...");
 			return 1;
-	#endif
+#endif
 			pt->event_loop_foreign = 0;
 		} else {
-			lwsl_notice(" Using foreign event loop...\n");
+			lwsl_cx_notice(context, " Using foreign event loop...");
 			pt->event_loop_foreign = 1;
 		}
 
@@ -777,7 +772,7 @@ lws_libuv_closewsi(uv_handle_t* handle)
 	int lspd = 0;
 #endif
 
-	lwsl_notice("%s: %s\n", __func__, lws_wsi_tag(wsi));
+	// lwsl_wsi_notice(wsi, "in");
 
 	lws_context_lock(context, __func__);
 
@@ -797,12 +792,11 @@ lws_libuv_closewsi(uv_handle_t* handle)
 
 	lws_pt_lock(pt, __func__);
 
-	lwsl_notice("%s: thr %d: %s sa left %d: dyn left: %d (rk %d)\n", __func__,
-		    (int)(pt - &pt->context->pt[0]),
-		    lws_wsi_tag(wsi),
-		    pt->count_event_loop_static_asset_handles,
-		    ptpriv->extant_handles - 1,
-		    context->requested_stop_internal_loops);
+	lwsl_wsi_info(wsi, "thr %d: sa left %d: dyn left: %d (rk %d)",
+			   (int)(pt - &pt->context->pt[0]),
+			   pt->count_event_loop_static_asset_handles,
+			   ptpriv->extant_handles - 1,
+			   context->requested_stop_internal_loops);
 
 	__lws_close_free_wsi_final(wsi);
 	assert(ptpriv->extant_handles);
@@ -814,7 +808,7 @@ lws_libuv_closewsi(uv_handle_t* handle)
 
 #if defined(LWS_WITH_SERVER)
 	if (lspd == 2 && context->deprecation_cb) {
-		lwsl_notice("calling deprecation callback\n");
+		lwsl_cx_notice(context, "calling deprecation callback");
 		context->deprecation_cb();
 	}
 #endif
@@ -849,12 +843,10 @@ lws_libuv_closehandle(struct lws *wsi)
 	if (!w_read->pwatcher)
 		return;
 
-	if (wsi->told_event_loop_closed) {
-	//	assert(0);
+	if (wsi->told_event_loop_closed)
 		return;
-	}
 
-	lwsl_debug("%s: %s\n", __func__, lws_wsi_tag(wsi));
+//	lwsl_wsi_debug(wsi, "in");
 
 	wsi->told_event_loop_closed = 1;
 

@@ -341,7 +341,8 @@ lws_sul_debug_zombies(struct lws_context *ctx, void *po, size_t len,
 						lws_sorted_usec_list_t, list);
 
 				if (!po) {
-					lwsl_err("%s: %s\n", __func__, destroy_description);
+					lwsl_cx_err(ctx, "%s",
+							 destroy_description);
 					/* just sanity check the list */
 					assert(sul->cb);
 				}
@@ -354,9 +355,8 @@ lws_sul_debug_zombies(struct lws_context *ctx, void *po, size_t len,
 				if (po &&
 				    (void *)sul >= po &&
 				    (size_t)lws_ptr_diff(sul, po) < len) {
-					lwsl_err("%s: ERROR: Zombie Sul "
-						 "(on list %d) %s, cb %p\n",
-						 __func__, m,
+					lwsl_cx_err(ctx, "ERROR: Zombie Sul "
+						 "(on list %d) %s, cb %p\n", m,
 						 destroy_description, sul->cb);
 					/*
 					 * This assert fires if you have left

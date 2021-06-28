@@ -37,8 +37,7 @@ void lwsi_set_role(struct lws *wsi, lws_wsi_state_t role)
 {
 	wsi->wsistate = (wsi->wsistate & (~LWSI_ROLE_MASK)) | role;
 
-	lwsl_debug("lwsi_set_role(%s, 0x%lx)\n", lws_wsi_tag(wsi),
-					(unsigned long)wsi->wsistate);
+	lwsl_wsi_debug(wsi, "state 0x%lx", (unsigned long)wsi->wsistate);
 }
 
 void lwsi_set_state(struct lws *wsi, lws_wsi_state_t lrs)
@@ -47,7 +46,7 @@ void lwsi_set_state(struct lws *wsi, lws_wsi_state_t lrs)
 
 	wsi->wsistate = (old & (unsigned int)(~LRS_MASK)) | lrs;
 
-	lwsl_wsi_debug(wsi, "lwsi_set_state 0x%lx -> 0x%lx)",
+	lwsl_wsi_debug(wsi, "lwsi_set_state 0x%lx -> 0x%lx",
 			(unsigned long)old, (unsigned long)wsi->wsistate);
 }
 #endif
@@ -270,7 +269,7 @@ __lws_wsi_create_with_role(struct lws_context *context, int tsi,
 	wsi = lws_zalloc(s, __func__);
 
 	if (!wsi) {
-		lwsl_err("%s: Out of mem\n", __func__);
+		lwsl_cx_err(context, "OOM");
 		return NULL;
 	}
 
@@ -290,9 +289,6 @@ __lws_wsi_create_with_role(struct lws_context *context, int tsi,
 	wsi->a.vhost = NULL;
 	wsi->desc.sockfd = LWS_SOCK_INVALID;
 	wsi->position_in_fds_table = LWS_NO_FDS_POS;
-
-//	lwsl_debug("%s: tsi %d: role: %s\n", __func__, tsi,
-//			ops ? ops->name : "none");
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	lws_xos_init(&wsi->fic.xos, lws_xos(&context->fic.xos));
@@ -419,9 +415,8 @@ lws_rx_flow_control(struct lws *wsi, int _enable)
 	wsi->rxflow_change_to = LWS_RXFLOW_PENDING_CHANGE |
 				(!wsi->rxflow_bitmap);
 
-	lwsl_info("%s: %s: bitmap 0x%x: en 0x%x, ch 0x%x\n", __func__,
-		  lws_wsi_tag(wsi),
-		  wsi->rxflow_bitmap, en, wsi->rxflow_change_to);
+	lwsl_wsi_info(wsi, "bitmap 0x%x: en 0x%x, ch 0x%x",
+			   wsi->rxflow_bitmap, en, wsi->rxflow_change_to);
 
 	if (_enable & LWS_RXFLOW_REASON_FLAG_PROCESS_NOW ||
 	    !wsi->rxflow_will_be_applied) {
@@ -515,7 +510,7 @@ __lws_rx_flow_control(struct lws *wsi)
 		lwsl_wsi_info(wsi, "reenable POLLIN");
 		// lws_buflist_describe(&wsi->buflist, NULL, __func__);
 		if (__lws_change_pollfd(wsi, 0, LWS_POLLIN)) {
-			lwsl_info("%s: fail\n", __func__);
+			lwsl_wsi_info(wsi, "fail");
 			return -1;
 		}
 	} else
@@ -545,13 +540,13 @@ lws_ensure_user_space(struct lws *wsi)
 		wsi->user_space = lws_zalloc(
 			    wsi->a.protocol->per_session_data_size, "user space");
 		if (wsi->user_space == NULL) {
-			lwsl_err("%s: OOM\n", __func__);
+			lwsl_wsi_err(wsi, "OOM");
 			return 1;
 		}
 	} else
 		lwsl_wsi_debug(wsi, "protocol pss %lu, user_space=%p",
-			   (long)wsi->a.protocol->per_session_data_size,
-			   wsi->user_space);
+				    (long)wsi->a.protocol->per_session_data_size,
+				    wsi->user_space);
 	return 0;
 }
 
@@ -622,7 +617,7 @@ lws_role_transition(struct lws *wsi, enum lwsi_role role, enum lwsi_state state,
 	if (wsi->role_ops)
 		name = wsi->role_ops->name;
 	lwsl_wsi_debug(wsi, "wsistate 0x%lx, ops %s",
-			(unsigned long)wsi->wsistate, name);
+			    (unsigned long)wsi->wsistate, name);
 #endif
 }
 
@@ -1352,9 +1347,9 @@ lws_wsi_mux_dump_children(struct lws *wsi)
 
 	lws_start_foreach_llp(struct lws **, w,
 			      wsi->mux.parent_wsi->mux.child_list) {
-		lwsl_info("   \\---- child %s %s\n",
-			  (*w)->role_ops ? (*w)->role_ops->name : "?",
-					  lws_wsi_tag(*w));
+		lwsl_wsi_info(wsi, "   \\---- child %s %s\n",
+				   (*w)->role_ops ? (*w)->role_ops->name : "?",
+							   lws_wsi_tag(*w));
 		assert(*w != (*w)->mux.sibling_list);
 	} lws_end_foreach_llp(w, mux.sibling_list);
 #endif
@@ -1397,7 +1392,7 @@ lws_wsi_mux_sibling_disconnect(struct lws *wsi)
 			(*w)->mux.sibling_list = NULL;
 			*w = wsi2;
 			lwsl_wsi_debug(wsi, " disentangled from sibling %s",
-							lws_wsi_tag(wsi2));
+					    lws_wsi_tag(wsi2));
 			break;
 		}
 	} lws_end_foreach_llp(w, mux.sibling_list);

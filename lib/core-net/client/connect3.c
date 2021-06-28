@@ -512,8 +512,8 @@ ads_known:
 						       sizeof(nads));
 
 			wsi->sa46_peer.sa4.sin_family = 0;
-			lwsl_info("%s: Connect failed: %s port %d (errno %d)\n",
-					__func__, nads, port, errno_copy);
+			lwsl_wsi_info(wsi, "Connect failed: %s port %d (errno %d)",
+					   nads, port, errno_copy);
 #if defined(LWS_WITH_UNIX_SOCK)
 			}
 #endif

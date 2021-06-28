@@ -196,7 +196,7 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 
 	if (pa_events) {
 		if (lws_plat_change_pollfd(context, wsi, pfd)) {
-			lwsl_info("%s failed\n", __func__);
+			lwsl_wsi_info(wsi, "failed");
 			ret = -1;
 			goto bail;
 		}
@@ -372,8 +372,9 @@ __remove_wsi_socket_from_fds(struct lws *wsi)
 #if !defined(_WIN32)
 	if (!wsi->a.context->max_fds_unrelated_to_ulimit &&
 	    wsi->desc.sockfd - lws_plat_socket_offset() > (int)context->max_fds) {
-		lwsl_err("fd %d too high (%d)\n", wsi->desc.sockfd,
-			 context->max_fds);
+		lwsl_wsi_err(wsi, "fd %d too high (%d)",
+				   wsi->desc.sockfd,
+				   context->max_fds);
 
 		return 1;
 	}
@@ -427,9 +428,10 @@ __remove_wsi_socket_from_fds(struct lws *wsi)
 			 * deletion guy's old one */
 			end_wsi = wsi_from_fd(context, v);
 			if (!end_wsi) {
-				lwsl_err("no wsi for fd %d pos %d, "
-					 "pt->fds_count=%d\n",
-					 (int)pt->fds[m].fd, m, pt->fds_count);
+				lwsl_wsi_err(wsi, "no wsi for fd %d pos %d, "
+						  "pt->fds_count=%d",
+						  (int)pt->fds[m].fd, m,
+						  pt->fds_count);
 				// assert(0);
 			} else
 				end_wsi->position_in_fds_table = m;
@@ -530,20 +532,15 @@ lws_callback_on_writable(struct lws *wsi)
 		int q = lws_rops_func_fidx(wsi->role_ops,
 					   LWS_ROPS_callback_on_writable).
 						      callback_on_writable(wsi);
-		//lwsl_notice("%s: rops_cow says %d\n", __func__, q);
 		if (q)
 			return 1;
 		w = lws_get_network_wsi(wsi);
 	} else
-
 		if (w->position_in_fds_table == LWS_NO_FDS_POS) {
-			lwsl_debug("%s: failed to find socket %d\n", __func__,
-				   wsi->desc.sockfd);
+			lwsl_wsi_debug(wsi, "failed to find socket %d",
+					    wsi->desc.sockfd);
 			return -1;
 		}
-
-	// lwsl_notice("%s: marking for POLLOUT %s (%s)\n", __func__,
-	// lws_wsi_tag(w), lws_wsi_tag(wsi));
 
 	if (__lws_change_pollfd(w, 0, LWS_POLLOUT))
 		return -1;
@@ -609,9 +606,10 @@ lws_callback_on_writable_all_protocol_vhost(const struct lws_vhost *vhost,
 
 	if (protocol < vhost->protocols ||
 	    protocol >= (vhost->protocols + vhost->count_protocols)) {
-		lwsl_err("%s: protocol %p is not from vhost %p (%p - %p)\n",
-			__func__, protocol, vhost->protocols, vhost,
-			(vhost->protocols + vhost->count_protocols));
+		lwsl_vhost_err((struct lws_vhost *)vhost,
+			       "protocol %p is not from vhost %p (%p - %p)",
+			       protocol, vhost->protocols, vhost,
+				  (vhost->protocols + vhost->count_protocols));
 
 		return -1;
 	}

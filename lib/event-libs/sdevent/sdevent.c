@@ -170,7 +170,7 @@ io_sd(struct lws *wsi, unsigned int flags)
 	// assert that the requested flags do not contain anything unexpected
 	if (!((flags & (LWS_EV_START | LWS_EV_STOP)) &&
 	    (flags & (LWS_EV_READ | LWS_EV_WRITE)))) {
-		lwsl_err("%s: assert: flags %d", __func__, flags);
+		lwsl_wsi_err(wsi, "assert: flags %d", flags);
 		assert(0);
 	}
 
@@ -256,7 +256,7 @@ init_pt_sd(struct lws_context *context, void *_loop, int tsi)
 	if (!ptpriv->io_loop) {
 		if (!loop) {
 			if (sd_event_default(&loop) < 0) {
-				lwsl_err("%s: sd_event_default failed\n", __func__);
+				lwsl_cx_err(context, "sd_event_default failed");
 
 				return -1;
 			}

@@ -963,7 +963,7 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 
 #if defined(LWS_WITH_IPV6)
 unsigned long
-lws_get_addr_scope(const char *ipaddr);
+lws_get_addr_scope(struct lws *wsi, const char *ipaddr);
 #endif
 
 void

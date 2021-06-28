@@ -91,13 +91,14 @@ lws_conmon_append_copy_new_dns_results(struct lws *wsi,
 			 * No we don't already have a copy of this one, let's
 			 * allocate and append it then
 			 */
-			size_t al = sizeof(struct addrinfo) + (size_t)cai->ai_addrlen;
+			size_t al = sizeof(struct addrinfo) +
+				    (size_t)cai->ai_addrlen;
 			size_t cl = cai->ai_canonname ?
 					strlen(cai->ai_canonname) + 1 : 0;
 
 			ai = lws_malloc(al + cl, __func__);
 			if (!ai) {
-				lwsl_warn("%s: OOM\n", __func__);
+				lwsl_wsi_warn(wsi, "OOM");
 				return 1;
 			}
 			*ai = *cai;
@@ -107,7 +108,8 @@ lws_conmon_append_copy_new_dns_results(struct lws *wsi,
 			if (cl) {
 				ai->ai_canonname = ((char *)ai->ai_addr) +
 							cai->ai_addrlen;
-				memcpy(ai->ai_canonname, cai->ai_canonname, cl + 1);
+				memcpy(ai->ai_canonname, cai->ai_canonname,
+				       cl + 1);
 			}
 			ai->ai_next = wsi->conmon.dns_results_copy;
 			wsi->conmon.dns_results_copy = ai;

@@ -117,7 +117,7 @@ lws_role_call_alpn_negotiated(struct lws *wsi, const char *alpn)
 		return 0;
 
 #if !defined(LWS_ESP_PLATFORM)
-	lwsl_info("%s: '%s'\n", __func__, alpn);
+	lwsl_wsi_info(wsi, "'%s'", alpn);
 #endif
 
 	LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar)
@@ -153,8 +153,8 @@ lws_role_call_adoption_bind(struct lws *wsi, int type, const char *prot)
 			prot = wsi->a.vhost->listen_accept_protocol;
 
 		if (!role)
-			lwsl_err("%s: can't find role '%s'\n", __func__,
-				  wsi->a.vhost->listen_accept_role);
+			lwsl_wsi_err(wsi, "can't find role '%s'",
+					  wsi->a.vhost->listen_accept_role);
 
 		if (role && lws_rops_fidx(role, LWS_ROPS_adoption_bind)) {
 			n = (lws_rops_func_fidx(role, LWS_ROPS_adoption_bind)).
@@ -166,13 +166,13 @@ lws_role_call_adoption_bind(struct lws *wsi, int type, const char *prot)
 		}
 
 		if (type & _LWS_ADOPT_FINISH) {
-			lwsl_debug("%s: leaving bound to role %s\n", __func__,
-				   wsi->role_ops->name);
+			lwsl_wsi_debug(wsi, "leaving bound to role %s",
+					    wsi->role_ops->name);
 			return 0;
 		}
 
-		lwsl_warn("%s: adoption bind to role '%s', "
-			  "protocol '%s', type 0x%x, failed\n", __func__,
+		lwsl_wsi_warn(wsi, "adoption bind to role '%s', "
+			  "protocol '%s', type 0x%x, failed",
 			  wsi->a.vhost->listen_accept_role, prot, type);
 	}
 
@@ -197,7 +197,7 @@ lws_role_call_adoption_bind(struct lws *wsi, int type, const char *prot)
 
 #if defined(LWS_ROLE_RAW_FILE)
 
-	lwsl_notice("%s: falling back to raw file role bind\n", __func__);
+	lwsl_wsi_notice(wsi, "falling back to raw file role bind");
 
 	/* fall back to raw file role if, eg, h1 not configured */
 
@@ -270,7 +270,7 @@ lws_protocol_vh_priv_zalloc(struct lws_vhost *vhost,
 		}
 
 		if (n == vhost->count_protocols) {
-			lwsl_err("%s: unknown protocol %p\n", __func__, prot);
+			lwsl_vhost_err(vhost, "unknown protocol %p", prot);
 			return NULL;
 		}
 	}
@@ -302,7 +302,7 @@ lws_protocol_vh_priv_get(struct lws_vhost *vhost,
 		}
 
 		if (n == vhost->count_protocols) {
-			lwsl_err("%s: unknown protocol %p\n", __func__, prot);
+			lwsl_vhost_err(vhost, "unknown protocol %p", prot);
 			return NULL;
 		}
 	}
@@ -350,7 +350,7 @@ lws_vhd_find_by_pvo(struct lws_context *cx, const char *protname,
 				return vh->protocol_vh_privs[n];
 		}
 		} else
-			lwsl_notice("%s: no privs yet on %s\n", __func__, lws_vh_tag(vh));
+			lwsl_vhost_notice(vh, "no privs yet");
 		vh = vh->vhost_next;
 	}
 
@@ -409,33 +409,28 @@ lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 			pvo = pvo1->options;
 
 			while (pvo) {
-				lwsl_debug(
-					"    vhost \"%s\", "
-					"protocol \"%s\", "
-					"option \"%s\"\n",
-						vh->name,
-						vh->protocols[n].name,
-						pvo->name);
+				lwsl_vhost_debug(vh, "protocol \"%s\", "
+						     "option \"%s\"",
+						     vh->protocols[n].name,
+						     pvo->name);
 
 				if (!strcmp(pvo->name, "default")) {
-					lwsl_info("Setting default "
-					   "protocol for vh %s to %s\n",
-					   vh->name,
-					   vh->protocols[n].name);
+					lwsl_vhost_info(vh, "Setting default "
+							     "protocol to %s",
+							     vh->protocols[n].name);
 					vh->default_protocol_index = (unsigned char)n;
 				}
 				if (!strcmp(pvo->name, "raw")) {
-					lwsl_info("Setting raw "
-					   "protocol for vh %s to %s\n",
-					   vh->name,
-					   vh->protocols[n].name);
+					lwsl_vhost_info(vh, "Setting raw "
+							     "protocol to %s",
+							     vh->protocols[n].name);
 					vh->raw_protocol_index = (unsigned char)n;
 				}
 				pvo = pvo->next;
 			}
 		} else
-			lwsl_debug("%s: not instantiating %s.%s\n",
-				   __func__, vh->name, vh->protocols[n].name);
+			lwsl_vhost_debug(vh, "not instantiating %s",
+					     vh->protocols[n].name);
 
 #if defined(LWS_WITH_TLS)
 		if (any)
@@ -661,7 +656,7 @@ lws_create_vhost(struct lws_context *context,
 #endif
 
 	if (lws_check_opt(info->options, LWS_SERVER_OPTION_ONLY_RAW))
-		lwsl_info("%s set to only support RAW\n", vh->name);
+		lwsl_vhost_info(vh, "set to only support RAW");
 
 	vh->iface = info->iface;
 #if !defined(LWS_PLAT_FREERTOS) && !defined(OPTEE_TA) && !defined(WIN32)
@@ -970,7 +965,7 @@ lws_create_vhost(struct lws_context *context,
 	vh->ka_probes = info->ka_probes;
 
 	if (vh->options & LWS_SERVER_OPTION_STS)
-		lwsl_notice("   STS enabled\n");
+		lwsl_vhost_notice(vh, "   STS enabled");
 
 #ifdef LWS_WITH_ACCESS_LOG
 	if (info->log_filepath) {
@@ -980,16 +975,16 @@ lws_create_vhost(struct lws_context *context,
 			vh->log_fd = lws_open(info->log_filepath,
 				  O_CREAT | O_APPEND | O_RDWR, 0600);
 		if (vh->log_fd == (int)LWS_INVALID_FILE) {
-			lwsl_err("unable to open log filepath %s\n",
-				 info->log_filepath);
+			lwsl_vhost_err(vh, "unable to open log filepath %s",
+					   info->log_filepath);
 			goto bail;
 		}
 #ifndef WIN32
 		if (context->uid != (uid_t)-1)
 			if (chown(info->log_filepath, context->uid,
 				  context->gid) == -1)
-				lwsl_err("unable to chown log file %s\n",
-						info->log_filepath);
+				lwsl_vhost_err(vh, "unable to chown log file %s",
+						   info->log_filepath);
 #endif
 	} else
 		vh->log_fd = (int)LWS_INVALID_FILE;
@@ -1161,7 +1156,7 @@ lws_destroy_event_pipe(struct lws *wsi)
 {
 	int n;
 
-	lwsl_info("%s\n", __func__);
+	lwsl_wsi_info(wsi, "in");
 
 	n = lws_wsi_extract_from_loop(wsi);
 	lws_plat_pipe_close(wsi);
@@ -1210,7 +1205,7 @@ __lws_vhost_destroy_pt_wsi_dieback_start(struct lws_vhost *vh)
 
 		if (w->tsi == tsi) {
 
-			lwsl_debug("%s: closing aso\n", __func__);
+			lwsl_vhost_debug(vh, "closing aso");
 			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 					   "awaiting skt");
 		}
@@ -1228,8 +1223,8 @@ __lws_vhost_destroy_pt_wsi_dieback_start(struct lws_vhost *vh)
 
 		if (wsi && wsi->tsi == tsi && wsi->a.vhost == vh) {
 
-			lwsl_debug("%s: pt %d: closing wsi %p: role %s\n",
-					__func__, tsi, wsi, wsi->role_ops->name);
+			lwsl_wsi_debug(wsi, "pt %d: closin, role %s", tsi,
+					    wsi->role_ops->name);
 
 			lws_wsi_close(wsi, LWS_TO_KILL_ASYNC);
 
@@ -1343,9 +1338,8 @@ lws_vhost_destroy1(struct lws_vhost *vh)
 				 * iface + port, but is not closing.
 				 */
 
-				lwsl_notice("%s: listen skt migrate %s -> %s\n",
-					    __func__, lws_vh_tag(vh),
-					    lws_vh_tag(v));
+				lwsl_vhost_notice(vh, "listen skt migrate -> %s",
+						      lws_vh_tag(v));
 
 				lws_dll2_remove(&wsi->listen_list);
 				lws_dll2_add_tail(&wsi->listen_list,
@@ -1610,7 +1604,7 @@ lws_vhost_destroy(struct lws_vhost *vh)
 	/* start async closure of all wsi on this pt thread attached to vh */
 	__lws_vhost_destroy_pt_wsi_dieback_start(vh);
 
-	lwsl_info("%s: count_bound_wsi %d\n", __func__, vh->count_bound_wsi);
+	lwsl_vhost_info(vh, "count_bound_wsi %d", vh->count_bound_wsi);
 
 	/* if there are none, finalize now since no further chance */
 	if (!vh->count_bound_wsi) {
@@ -1766,9 +1760,11 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 		struct lws *w = lws_container_of(d, struct lws,
 						 dll_cli_active_conns);
 
-		lwsl_debug("%s: check %s %s %s %s %d %d\n", __func__,
-				lws_wsi_tag(wsi), lws_wsi_tag(w),
-			    adsin, w->cli_hostname_copy, wsi->c_port, w->c_port);
+		lwsl_wsi_debug(wsi, "check %s %s %s %d %d",
+				    lws_wsi_tag(w), adsin,
+				    w->cli_hostname_copy ? w->cli_hostname_copy :
+							    "null",
+				    wsi->c_port, w->c_port);
 
 		if (w != wsi &&
 		    /*
@@ -1800,8 +1796,7 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 			 * connection that it doesn't support pipelining...
 			 */
 			if (w->keepalive_rejected) {
-				lwsl_notice("defeating pipelining due to no "
-					  "keepalive on server\n");
+				lwsl_wsi_notice(w, "defeating pipelining");
 				goto solo;
 			}
 
@@ -1815,13 +1810,11 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 			     lwsi_state(w) == LRS_ESTABLISHED ||
 			     lwsi_state(w) == LRS_IDLING)) {
 
-				lwsl_notice("%s: just join h2 directly 0x%x\n",
-						__func__, lwsi_state(w));
+				lwsl_wsi_notice(w, "just join h2 directly 0x%x",
+						   lwsi_state(w));
 
-				if (lwsi_state(w) == LRS_IDLING) {
-					// lwsi_set_state(w, LRS_ESTABLISHED);
+				if (lwsi_state(w) == LRS_IDLING)
 					_lws_generic_transaction_completed_active_conn(&w, 0);
-				}
 
 				//lwsi_set_state(w, LRS_H1C_ISSUE_HANDSHAKE2);
 
@@ -1846,7 +1839,7 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 			    lwsi_state(w) == LRS_ESTABLISHED) {
 
 				if (lws_wsi_mqtt_adopt(w, wsi)) {
-					lwsl_notice("%s: join mqtt directly\n", __func__);
+					lwsl_wsi_notice(w, "join mqtt directly");
 					lws_dll2_remove(&wsi->dll2_cli_txn_queue);
 					wsi->client_mux_substream = 1;
 
@@ -1864,9 +1857,9 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 			 * to get there or fail.
 			 */
 
-			lwsl_notice("%s: apply %s to txn queue on %s state 0x%lx\n",
-				  __func__, lws_wsi_tag(wsi), lws_wsi_tag(w),
-				  (unsigned long)w->wsistate);
+			lwsl_wsi_notice(wsi, "apply txn queue %s, state 0x%lx",
+					     lws_wsi_tag(w),
+					     (unsigned long)w->wsistate);
 			/*
 			 * ...let's add ourselves to his transaction queue...
 			 * we are adding ourselves at the TAIL
@@ -1874,10 +1867,8 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 			lws_dll2_add_tail(&wsi->dll2_cli_txn_queue,
 					  &w->dll2_cli_txn_queue_owner);
 
-			if (lwsi_state(w) == LRS_IDLING) {
-				// lwsi_set_state(w, LRS_ESTABLISHED);
+			if (lwsi_state(w) == LRS_IDLING)
 				_lws_generic_transaction_completed_active_conn(&w, 0);
-			}
 
 			/*
 			 * For eg, h1 next we'd pipeline our headers out on him,

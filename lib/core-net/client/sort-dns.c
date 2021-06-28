@@ -564,7 +564,7 @@ lws_sort_dns_dump(struct lws *wsi)
 	(void)n; /* nologs */
 
 	if (!lws_dll2_get_head(&wsi->dns_sorted_list))
-		lwsl_notice("%s: empty\n", __func__);
+		lwsl_wsi_notice(wsi, "empty");
 
 	lws_start_foreach_dll(struct lws_dll2 *, d,
 			      lws_dll2_get_head(&wsi->dns_sorted_list)) {
@@ -574,9 +574,9 @@ lws_sort_dns_dump(struct lws *wsi)
 		lws_sa46_write_numeric_address(&s->dest, dest, sizeof(dest));
 		lws_sa46_write_numeric_address(&s->gateway, gw, sizeof(gw));
 
-		lwsl_info("%s: %d: (%d)%s, gw (%d)%s, idi: %d, "
-				"lbl: %d, prec: %d\n",
-			    __func__, n++, s->dest.sa4.sin_family, dest,
+		lwsl_wsi_info(wsi, "%d: (%d)%s, gw (%d)%s, idi: %d, "
+				"lbl: %d, prec: %d", n++,
+			    s->dest.sa4.sin_family, dest,
 			    s->gateway.sa4.sin_family, gw,
 			    s->if_idx, s->score.label, s->score.precedence);
 
@@ -593,7 +593,7 @@ lws_sort_dns(struct lws *wsi, const struct addrinfo *result)
 #endif
 	const struct addrinfo *ai = result;
 
-	lwsl_info("%s: sort_dns: %p\n", __func__, result);
+	lwsl_wsi_info(wsi, "sort_dns: %p", result);
 
 	/*
 	 * We're going to take the dns results and produce our own linked-list
@@ -623,12 +623,8 @@ lws_sort_dns(struct lws *wsi, const struct addrinfo *result)
 		 * Only transfer address families we can cope with
 		 */
 		if ((int)ai->ai_addrlen > (int)sizeof(lws_sockaddr46) ||
-		    (ai->ai_family != AF_INET && ai->ai_family != AF_INET6)) {
-			lwsl_info("%s: skip %d %d %d\n", __func__,
-				  ai->ai_family, (int)ai->ai_addrlen,
-				  (int)sizeof(lws_sockaddr46));
+		    (ai->ai_family != AF_INET && ai->ai_family != AF_INET6))
 			goto next;
-		}
 
 		ds = lws_zalloc(sizeof(*ds), __func__);
 		if (!ds)
@@ -639,8 +635,8 @@ lws_sort_dns(struct lws *wsi, const struct addrinfo *result)
 
 		lws_sa46_write_numeric_address(&ds->dest, afip, sizeof(afip));
 
-		lwsl_info("%s: unsorted entry (af %d) %s\n", __func__,
-				ds->dest.sa4.sin_family, afip);
+		lwsl_wsi_info(wsi, "unsorted entry (af %d) %s",
+				   ds->dest.sa4.sin_family, afip);
 
 #if defined(LWS_WITH_NETLINK)
 
@@ -655,8 +651,8 @@ lws_sort_dns(struct lws *wsi, const struct addrinfo *result)
 			estr = _lws_route_est_outgoing(pt, &ds->dest);
 			if (!estr) {
 				lws_free(ds);
-				lwsl_notice("%s: %s has no route out\n",
-					  __func__, afip);
+				lwsl_wsi_notice(wsi, "%s has no route out\n",
+						afip);
 				/*
 				 * There's no outbound route for this, it's
 				 * unusable, so don't add it to the list
@@ -701,7 +697,7 @@ lws_sort_dns(struct lws *wsi, const struct addrinfo *result)
 			 * promote v4 -> v6 address using ::ffff:xx:yy
 			 */
 
-			lwsl_info("%s: promoting v4->v6\n", __func__);
+			lwsl_wsi_info(wsi, "promoting v4->v6");
 
 			lws_sa46_4to6(&ds->dest,
 				      (uint8_t *)&ds->dest.sa4.sin_addr, 0);

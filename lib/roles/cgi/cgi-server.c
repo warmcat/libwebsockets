@@ -78,8 +78,6 @@ lws_cgi_grace(lws_sorted_usec_list_t *sul)
 
 	/* act on the reap cb from earlier */
 
-	lwsl_info("%s: %s\n", __func__, lws_wsi_tag(cgi->wsi));
-
 	if (!cgi->wsi->http.cgi->post_in_expected)
 		cgi->wsi->http.cgi->cgi_transaction_over = 1;
 
@@ -97,8 +95,8 @@ lws_cgi_reap_cb(void *opaque, lws_usec_t *accounting, siginfo_t *si,
 	 * The cgi has come to an end, by itself or with a signal...
 	 */
 
-	lwsl_info("%s: %s post_in_expected %d\n", __func__, lws_wsi_tag(wsi),
-			(int)wsi->http.cgi->post_in_expected);
+	lwsl_wsi_info(wsi, "post_in_expected %d",
+			   (int)wsi->http.cgi->post_in_expected);
 
 	/*
 	 * Grace period to handle the incoming stdout
@@ -126,7 +124,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 
 	wsi->http.cgi = lws_zalloc(sizeof(*wsi->http.cgi), "new cgi");
 	if (!wsi->http.cgi) {
-		lwsl_err("%s: OOM\n", __func__);
+		lwsl_wsi_err(wsi, "OOM");
 		return -1;
 	}
 
@@ -144,7 +142,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 	wsi->hdr_state = LCHS_HEADER;
 
 	/* add us to the pt list of active cgis */
-	lwsl_debug("%s: adding cgi %p to list\n", __func__, wsi->http.cgi);
+	lwsl_wsi_debug(wsi, "adding cgi %p to list", wsi->http.cgi);
 	cgi->cgi_list = pt->http.cgi_list;
 	pt->http.cgi_list = cgi;
 
@@ -477,8 +475,8 @@ lws_cgi_write_split_stdout_headers(struct lws *wsi)
 		 */
 		switch (wsi->hdr_state) {
 		case LHCS_RESPONSE:
-			lwsl_debug("LHCS_RESPONSE: issuing response %d\n",
-				   wsi->http.cgi->response_code);
+			lwsl_wsi_debug(wsi, "LHCS_RESPONSE: iss response %d",
+					    wsi->http.cgi->response_code);
 			if (lws_add_http_header_status(wsi,
 						   (unsigned int)wsi->http.cgi->response_code,
 						       &p, end))
@@ -605,7 +603,7 @@ post_hpack_recode:
 			if (n > 512)
 				n = 512;
 
-			lwsl_debug("LHCS_DUMP_HEADERS: %d\n", n);
+			lwsl_wsi_debug(wsi, "LHCS_DUMP_HEADERS: %d", n);
 
 			cmd = LWS_WRITE_HTTP_HEADERS_CONTINUATION;
 			if (wsi->http.cgi->headers_dumped + n !=
@@ -618,7 +616,7 @@ post_hpack_recode:
 				 (unsigned char *)wsi->http.cgi->headers_dumped,
 				      (unsigned int)n, (enum lws_write_protocol)cmd);
 			if (m < 0) {
-				lwsl_debug("%s: write says %d\n", __func__, m);
+				lwsl_wsi_debug(wsi, "write says %d", m);
 				return -1;
 			}
 			wsi->http.cgi->headers_dumped += n;
@@ -626,12 +624,12 @@ post_hpack_recode:
 			    wsi->http.cgi->headers_pos) {
 				wsi->hdr_state = LHCS_PAYLOAD;
 				lws_free_set_NULL(wsi->http.cgi->headers_buf);
-				lwsl_debug("%s: freed cgi headers\n", __func__);
+				lwsl_wsi_debug(wsi, "freed cgi headers");
 
 				if (wsi->http.cgi->post_in_expected) {
-					lwsl_info("%s: post data still expected, "
-						  "asking for writeable\n",
-						  __func__);
+					lwsl_wsi_info(wsi, "post data still "
+							   "expected, asking "
+							   "for writeable");
 					lws_callback_on_writable(wsi);
 				}
 
@@ -656,11 +654,11 @@ post_hpack_recode:
 			wsi->http.cgi->headers_buf = lws_malloc((unsigned int)n + LWS_PRE,
 							   "cgi hdr buf");
 			if (!wsi->http.cgi->headers_buf) {
-				lwsl_err("OOM\n");
+				lwsl_wsi_err(wsi, "OOM");
 				return -1;
 			}
 
-			lwsl_debug("allocated cgi hdrs\n");
+			lwsl_wsi_debug(wsi, "allocated cgi hdrs");
 			wsi->http.cgi->headers_start =
 					wsi->http.cgi->headers_buf + LWS_PRE;
 			wsi->http.cgi->headers_pos = wsi->http.cgi->headers_start;
@@ -680,7 +678,7 @@ post_hpack_recode:
 		n = (int)read(n, &c, 1);
 		if (n < 0) {
 			if (errno != EAGAIN) {
-				lwsl_debug("%s: read says %d\n", __func__, n);
+				lwsl_wsi_debug(wsi, "read says %d", n);
 				return -1;
 			}
 			else
@@ -688,7 +686,7 @@ post_hpack_recode:
 
 			if (wsi->http.cgi->headers_pos >=
 					wsi->http.cgi->headers_end - 4) {
-				lwsl_notice("CGI hdrs > buf size\n");
+				lwsl_wsi_notice(wsi, "CGI hdrs > buf size");
 
 				return -1;
 			}
@@ -696,8 +694,8 @@ post_hpack_recode:
 		if (!n)
 			goto agin;
 
-		lwsl_debug("-- 0x%02X %c %d %d\n", (unsigned char)c, c,
-			   wsi->http.cgi->match[1], wsi->hdr_state);
+		lwsl_wsi_debug(wsi, "-- 0x%02X %c %d %d", (unsigned char)c, c,
+				    wsi->http.cgi->match[1], wsi->hdr_state);
 		if (!c)
 			return -1;
 		switch (wsi->hdr_state) {
@@ -721,8 +719,8 @@ post_hpack_recode:
 					case SIGNIFICANT_HDR_STATUS:
 						wsi->http.cgi->response_code =
 							atoi(wsi->http.cgi->l);
-						lwsl_debug("Status set to %d\n",
-						   wsi->http.cgi->response_code);
+						lwsl_wsi_debug(wsi, "Status set to %d",
+								wsi->http.cgi->response_code);
 						break;
 					default:
 						break;
@@ -751,7 +749,7 @@ post_hpack_recode:
 			    !significant_hdr[SIGNIFICANT_HDR_TRANSFER_ENCODING]
 				    [wsi->http.cgi->match[
 					 SIGNIFICANT_HDR_TRANSFER_ENCODING]]) {
-				lwsl_info("cgi produced chunked\n");
+				lwsl_wsi_info(wsi, "cgi produced chunked");
 				wsi->http.cgi->explicitly_chunked = 1;
 			}
 
@@ -759,7 +757,7 @@ post_hpack_recode:
 			if (wsi->hdr_state != LCHS_HEADER &&
 			    !significant_hdr[SIGNIFICANT_HDR_LOCATION][
 			      wsi->http.cgi->match[SIGNIFICANT_HDR_LOCATION]]) {
-				lwsl_debug("CGI: Location hdr seen\n");
+				lwsl_wsi_debug(wsi, "CGI: Location hdr seen");
 				wsi->http.cgi->response_code = 302;
 			}
 			break;
@@ -770,8 +768,8 @@ post_hpack_recode:
 				break;
 			}
 			/* we got \r[^\n]... it's unreasonable */
-			lwsl_debug("%s: funny CRLF 0x%02X\n", __func__,
-				   (unsigned char)c);
+			lwsl_wsi_debug(wsi, "funny CRLF 0x%02X",
+					    (unsigned char)c);
 			return -1;
 
 		case LCHS_CR2:
@@ -790,7 +788,7 @@ post_hpack_recode:
 		case LCHS_SINGLE_0A:
 			m = wsi->hdr_state;
 			if (c == '\x0a') {
-				lwsl_debug("Content-Length: %lld\n",
+				lwsl_wsi_debug(wsi, "Content-Length: %lld",
 					(unsigned long long)
 					wsi->http.cgi->content_length);
 				wsi->hdr_state = LHCS_RESPONSE;
@@ -831,7 +829,7 @@ agin:
 	n = (int)read(n, start, sizeof(buf) - LWS_PRE);
 
 	if (n < 0 && errno != EAGAIN) {
-		lwsl_debug("%s: stdout read says %d\n", __func__, n);
+		lwsl_wsi_debug(wsi, "stdout read says %d", n);
 		return -1;
 	}
 	if (n > 0) {
@@ -869,7 +867,7 @@ agin:
 		m = lws_write(wsi, (unsigned char *)start, (unsigned int)n, (enum lws_write_protocol)cmd);
 		//lwsl_notice("write %d\n", m);
 		if (m < 0) {
-			lwsl_debug("%s: stdout write says %d\n", __func__, m);
+			lwsl_wsi_debug(wsi, "stdout write says %d\n", m);
 			return -1;
 		}
 		wsi->http.cgi->content_length_seen += (unsigned int)n;
@@ -878,7 +876,7 @@ agin:
 		if (!wsi->mux_substream && m) {
 			uint8_t term[LWS_PRE + 6];
 
-			lwsl_info("%s: sent trailer\n", __func__);
+			lwsl_wsi_info(wsi, "sent trailer");
 			memcpy(term + LWS_PRE, (uint8_t *)"0\x0d\x0a\x0d\x0a", 5);
 
 			if (lws_write(wsi, term + LWS_PRE, 5,
@@ -891,7 +889,7 @@ agin:
 		}
 
 		if (wsi->cgi_stdout_zero_length) {
-			lwsl_debug("%s: stdout is POLLHUP'd\n", __func__);
+			lwsl_wsi_debug(wsi, "stdout is POLLHUP'd");
 			if (wsi->mux_substream)
 				m = lws_write(wsi, (unsigned char *)start, 0,
 					      LWS_WRITE_HTTP_FINAL);
@@ -910,8 +908,6 @@ lws_cgi_kill(struct lws *wsi)
 	struct lws_cgi_args args;
 	pid_t pid;
 	int n, m;
-
-	lwsl_debug("%s: %s\n", __func__, lws_wsi_tag(wsi));
 
 	if (!wsi->http.cgi || !wsi->http.cgi->lsp)
 		return 0;
@@ -946,7 +942,7 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 		n = waitpid(-1, &status, WNOHANG);
 		if (n <= 0)
 			continue;
-		lwsl_debug("%s: observed PID %d terminated\n", __func__, n);
+		lwsl_cx_debug(pt->context, "observed PID %d terminated", n);
 
 		pcgi = &pt->http.cgi_list;
 
@@ -968,9 +964,8 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 				continue;
 
 			if (cgi->content_length) {
-				lwsl_debug("%s: %s: expected content "
-					   "length seen: %lld\n", __func__,
-					   lws_wsi_tag(cgi->wsi),
+				lwsl_cx_debug(pt->context, "expected content "
+							   "length seen: %lld",
 				(unsigned long long)cgi->content_length_seen);
 			}
 
@@ -982,8 +977,6 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 			 * and close him if he's not already closing
 			 */
 			if (n == cgi->lsp->child_pid) {
-				lwsl_debug("%s: found PID %d on cgi list\n",
-					    __func__, n);
 
 				if (!cgi->content_length) {
 					/*
@@ -1004,11 +997,9 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 			cgi = NULL;
 		}
 		/* if not found on the cgi list, as he's one of ours, reap */
-		if (!cgi) {
-			lwsl_debug("%s: reading PID %d although no cgi match\n",
-					__func__, n);
+		if (!cgi)
 			waitpid(n, &status, WNOHANG);
-		}
+
 	}
 
 	pcgi = &pt->http.cgi_list;
@@ -1039,9 +1030,7 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 			continue;
 
 		if (cgi->content_length)
-			lwsl_debug("%s: %s: expected "
-				   "content len seen: %lld\n", __func__,
-				   lws_wsi_tag(cgi->wsi),
+			lwsl_wsi_debug(cgi->wsi, "expected cont len seen: %lld",
 				  (unsigned long long)cgi->content_length_seen);
 
 		/* reap it */
@@ -1057,8 +1046,8 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 				continue;
 			}
 finish_him:
-			lwsl_debug("%s: found PID %d on cgi list\n",
-				    __func__, cgi->lsp->child_pid);
+			lwsl_cx_debug(pt->context, "found PID %d on cgi list",
+						   cgi->lsp->child_pid);
 
 			/* defeat kill() */
 			cgi->lsp->child_pid = 0;
@@ -1087,7 +1076,7 @@ lws_cgi_remove_and_kill(struct lws *wsi)
 	struct lws_cgi **pcgi = &pt->http.cgi_list;
 
 	/* remove us from the cgi list */
-	lwsl_debug("%s: remove cgi %p from list\n", __func__, wsi->http.cgi);
+
 	while (*pcgi) {
 		if (*pcgi == wsi->http.cgi) {
 			/* drop us from the pt cgi list */
@@ -1096,10 +1085,9 @@ lws_cgi_remove_and_kill(struct lws *wsi)
 		}
 		pcgi = &(*pcgi)->cgi_list;
 	}
-	if (wsi->http.cgi->headers_buf) {
-		lwsl_debug("%s: close: freed cgi headers\n", __func__);
+	if (wsi->http.cgi->headers_buf)
 		lws_free_set_NULL(wsi->http.cgi->headers_buf);
-	}
+
 	/* we have a cgi going, we must kill it */
 	wsi->http.cgi->being_closed = 1;
 	lws_cgi_kill(wsi);

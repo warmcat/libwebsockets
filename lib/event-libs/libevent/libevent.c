@@ -83,8 +83,6 @@ lws_event_idle_timer_cb(evutil_socket_t fd, short event, void *p)
 		}
 	}
 
-	lwsl_debug("%s: wait\n", __func__);
-
 	/* account for hrtimer */
 
 	lws_pt_lock(pt, __func__);
@@ -147,7 +145,7 @@ lws_event_cb(evutil_socket_t sock_fd, short revents, void *ctx)
 	lws_service_fd_tsi(context, &eventfd, wsi->tsi);
 
 	if (pt->destroy_self) {
-		lwsl_notice("%s: pt destroy self coming true\n", __func__);
+		lwsl_cx_notice(context, "pt destroy self coming true");
 		lws_context_destroy(pt->context);
 		return;
 	}
@@ -201,7 +199,7 @@ elops_init_pt_event(struct lws_context *context, void *_loop, int tsi)
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	struct lws_pt_eventlibs_libevent *ptpr = pt_to_priv_event(pt);
 
-	lwsl_info("%s: loop %p\n", __func__, _loop);
+	lwsl_cx_info(context, "loop %p", _loop);
 
 	if (!loop)
 		loop = event_base_new();
@@ -209,7 +207,7 @@ elops_init_pt_event(struct lws_context *context, void *_loop, int tsi)
 		context->pt[tsi].event_loop_foreign = 1;
 
 	if (!loop) {
-		lwsl_err("%s: creating event base failed\n", __func__);
+		lwsl_cx_err(context, "creating event base failed");
 
 		return -1;
 	}
@@ -367,7 +365,7 @@ elops_destroy_pt_event(struct lws_context *context, int tsi)
 		event_base_loopexit(ptpr->io_loop, NULL);
 	//	event_base_free(pt->event.io_loop);
 	//	pt->event.io_loop = NULL;
-		lwsl_notice("%s: set to exit loop\n", __func__);
+		lwsl_cx_notice(context, "set to exit loop");
 	}
 }
 
@@ -449,8 +447,6 @@ elops_destroy_context2_event(struct lws_context *context)
 	struct lws_pt_eventlibs_libevent *ptpr;
 	int n, m;
 
-	lwsl_debug("%s: in\n", __func__);
-
 	for (n = 0; n < context->count_threads; n++) {
 		int budget = 1000;
 
@@ -469,20 +465,12 @@ elops_destroy_context2_event(struct lws_context *context)
 		while (budget-- &&
 		       (m = event_base_loop(ptpr->io_loop, EVLOOP_NONBLOCK)))
 			;
-#if 0
-		if (m) {
-			lwsl_err("%s: tsi %d: NOT everything closed\n",
-				 __func__, n);
-			event_base_dump_events(ptpr->io_loop, stderr);
-		} else
-			lwsl_debug("%s: %d: everything closed OK\n", __func__, n);
-#endif
-		lwsl_err("%s: event_base_free\n", __func__);
+
+		lwsl_cx_info(context, "event_base_free");
+
 		event_base_free(ptpr->io_loop);
 		ptpr->io_loop = NULL;
 	}
-
-	lwsl_debug("%s: out\n", __func__);
 
 	return 0;
 }

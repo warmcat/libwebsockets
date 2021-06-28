@@ -41,22 +41,22 @@ lws_set_socks(struct lws_vhost *vhost, const char *socks)
 
 	p_at = strrchr(socks, '@');
 	if (p_at) { /* auth is around */
-		if ((unsigned int)(p_at - socks) > (sizeof(user)
-			+ sizeof(password) - 2)) {
-			lwsl_err("Socks auth too long\n");
+		if (lws_ptr_diff_size_t(p_at, socks) > (sizeof(user) +
+							sizeof(password) - 2)) {
+			lwsl_vhost_err(vhost, "auth too long");
 			goto bail;
 		}
 
 		p_colon = strchr(socks, ':');
 		if (p_colon) {
-			if ((unsigned int)(p_colon - socks) > (sizeof(user)
-				- 1) ) {
-				lwsl_err("Socks user too long\n");
+			if (lws_ptr_diff_size_t(p_colon, socks) >
+							     sizeof(user) - 1) {
+				lwsl_vhost_err(vhost, "user too long");
 				goto bail;
 			}
-			if ((unsigned int)(p_at - p_colon) > (sizeof(password)
-				- 1) ) {
-				lwsl_err("Socks password too long\n");
+			if (lws_ptr_diff_size_t(p_at, p_colon) >
+						         sizeof(password) - 1) {
+				lwsl_vhost_err(vhost, "pw too long");
 				goto bail;
 			}
 
@@ -66,8 +66,9 @@ lws_set_socks(struct lws_vhost *vhost, const char *socks)
 				lws_ptr_diff_size_t(p_at, (p_colon + 1)) + 1);
 		}
 
-		lwsl_info(" Socks auth, user: %s, password: %s\n",
-			vhost->socks_user, vhost->socks_password );
+		lwsl_vhost_info(vhost, " Socks auth, user: %s, password: %s",
+				       vhost->socks_user,
+				       vhost->socks_password);
 
 		socks = p_at + 1;
 	}
@@ -77,17 +78,19 @@ lws_set_socks(struct lws_vhost *vhost, const char *socks)
 
 	p_colon = strchr(vhost->socks_proxy_address, ':');
 	if (!p_colon && !vhost->socks_proxy_port) {
-		lwsl_err("socks_proxy needs to be address:port\n");
+		lwsl_vhost_err(vhost, "socks_proxy needs to be address:port");
+
 		return -1;
-	} else {
-		if (p_colon) {
-			*p_colon = '\0';
-			vhost->socks_proxy_port = (unsigned int)atoi(p_colon + 1);
-		}
 	}
 
-	lwsl_debug("%s: Connections via Socks5 %s:%u\n", __func__,
-		    vhost->socks_proxy_address, vhost->socks_proxy_port);
+	if (p_colon) {
+		*p_colon = '\0';
+		vhost->socks_proxy_port = (unsigned int)atoi(p_colon + 1);
+	}
+
+	lwsl_vhost_debug(vhost, "Connections via Socks5 %s:%u",
+				vhost->socks_proxy_address,
+				vhost->socks_proxy_port);
 
 	return 0;
 
@@ -233,9 +236,9 @@ lws_socks5c_greet(struct lws *wsi, const char **pcce)
 	}
 	// lwsl_hexdump_notice(pt->serv_buf, plen);
 	n = (int)send(wsi->desc.sockfd, (char *)pt->serv_buf, (size_t)plen,
-		 MSG_NOSIGNAL);
+		      MSG_NOSIGNAL);
 	if (n < 0) {
-		lwsl_debug("ERROR writing socks greeting\n");
+		lwsl_wsi_debug(wsi, "ERROR writing socks greeting");
 		*pcce = "socks write failed";
 		return -1;
 	}
@@ -260,8 +263,7 @@ lws_socks5c_handle_state(struct lws *wsi, struct lws_pollfd *pollfd,
 	/* handle proxy hung up on us */
 
 	if (pollfd->revents & LWS_POLLHUP) {
-		lwsl_warn("SOCKS conn %s (fd=%d) dead\n",
-			  lws_wsi_tag(wsi), pollfd->fd);
+		lwsl_wsi_warn(wsi, "SOCKS fd=%d dead", pollfd->fd);
 		*pcce = "socks conn dead";
 		return LW5CHS_RET_BAIL3;
 	}
@@ -270,10 +272,10 @@ lws_socks5c_handle_state(struct lws *wsi, struct lws_pollfd *pollfd,
 		 wsi->a.context->pt_serv_buf_size, 0);
 	if (n < 0) {
 		if (LWS_ERRNO == LWS_EAGAIN) {
-			lwsl_debug("SOCKS read EAGAIN, retrying\n");
+			lwsl_wsi_debug(wsi, "SOCKS read EAGAIN, retrying");
 			return LW5CHS_RET_RET0;
 		}
-		lwsl_err("ERROR reading from SOCKS socket\n");
+		lwsl_wsi_err(wsi, "ERROR reading from SOCKS socket");
 		*pcce = "socks recv fail";
 		return LW5CHS_RET_BAIL3;
 	}
@@ -287,11 +289,10 @@ lws_socks5c_handle_state(struct lws *wsi, struct lws_pollfd *pollfd,
 			goto socks_reply_fail;
 
 		if (pt->serv_buf[1] == SOCKS_AUTH_NO_AUTH) {
-			lwsl_client("SOCKS GR: No Auth Method\n");
+			lwsl_wsi_client(wsi, "SOCKS GR: No Auth Method");
 			if (lws_socks5c_generate_msg(wsi, SOCKS_MSG_CONNECT,
 						     &len)) {
-				lwsl_err("%s: failed to generate connect msg\n",
-					 __func__);
+				lwsl_wsi_err(wsi, "generate connect msg fail");
 				goto socks_send_msg_fail;
 			}
 			conn_mode = LRS_WAITING_SOCKS_CONNECT_REPLY;
@@ -301,7 +302,7 @@ lws_socks5c_handle_state(struct lws *wsi, struct lws_pollfd *pollfd,
 		}
 
 		if (pt->serv_buf[1] == SOCKS_AUTH_USERNAME_PASSWORD) {
-			lwsl_client("SOCKS GR: User/Pw Method\n");
+			lwsl_wsi_client(wsi, "SOCKS GR: User/Pw Method");
 			if (lws_socks5c_generate_msg(wsi,
 					   SOCKS_MSG_USERNAME_PASSWORD,
 					   &len))
@@ -319,7 +320,7 @@ lws_socks5c_handle_state(struct lws *wsi, struct lws_pollfd *pollfd,
 				    SOCKS_SUBNEGOTIATION_STATUS_SUCCESS)
 			goto socks_reply_fail;
 
-		lwsl_client("SOCKS password OK, sending connect\n");
+		lwsl_wsi_client(wsi, "SOCKS password OK, sending connect");
 		if (lws_socks5c_generate_msg(wsi, SOCKS_MSG_CONNECT, &len)) {
 socks_send_msg_fail:
 			*pcce = "socks gen msg fail";
@@ -330,10 +331,10 @@ socks_send_msg_fail:
 			   PENDING_TIMEOUT_AWAITING_SOCKS_CONNECT_REPLY;
 socks_send:
 		// lwsl_hexdump_notice(pt->serv_buf, len);
-		n = (int)send(wsi->desc.sockfd, (char *)pt->serv_buf, (size_t)len,
-			 MSG_NOSIGNAL);
+		n = (int)send(wsi->desc.sockfd, (char *)pt->serv_buf,
+			      (size_t)len, MSG_NOSIGNAL);
 		if (n < 0) {
-			lwsl_debug("ERROR writing to socks proxy\n");
+			lwsl_wsi_debug(wsi, "ERROR writing to socks proxy");
 			*pcce = "socks write fail";
 			return LW5CHS_RET_BAIL3;
 		}
@@ -344,8 +345,8 @@ socks_send:
 		break;
 
 socks_reply_fail:
-		lwsl_err("%s: socks reply: v%d, err %d\n", __func__,
-			 pt->serv_buf[0], pt->serv_buf[1]);
+		lwsl_wsi_err(wsi, "socks reply: v%d, err %d",
+			     pt->serv_buf[0], pt->serv_buf[1]);
 		*pcce = "socks reply fail";
 		return LW5CHS_RET_BAIL3;
 
@@ -354,7 +355,7 @@ socks_reply_fail:
 		    pt->serv_buf[1] != SOCKS_REQUEST_REPLY_SUCCESS)
 			goto socks_reply_fail;
 
-		lwsl_client("%s: socks connect OK\n", __func__);
+		lwsl_wsi_client(wsi, "socks connect OK");
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 		if (lwsi_role_http(wsi) &&

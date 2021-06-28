@@ -132,8 +132,8 @@ lws_glib_dispatch(GSource *src, GSourceFunc x, gpointer userData)
 	eventfd.events = eventfd.revents;
 	eventfd.fd = sub->wsi->desc.sockfd;
 
-	lwsl_debug("%s: %s: fd %d, events %d\n", __func__, lws_wsi_tag(sub->wsi),
-			eventfd.fd, eventfd.revents);
+	lwsl_wsi_debug(sub->wsi, "fd %d, events %d",
+				 eventfd.fd, eventfd.revents);
 
 	pt = &sub->wsi->a.context->pt[(int)sub->wsi->tsi];
 	if (pt->is_destroyed)
@@ -316,7 +316,7 @@ elops_init_pt_glib(struct lws_context *context, void *_loop, int tsi)
 		context->pt[tsi].event_loop_foreign = 1;
 
 	if (!loop) {
-		lwsl_err("%s: creating glib loop failed\n", __func__);
+		lwsl_cx_err(context, "creating glib loop failed");
 
 		return -1;
 	}
@@ -377,8 +377,8 @@ elops_io_glib(struct lws *wsi, unsigned int flags)
 
 	wsipr->w_read.actual_events = (uint8_t)cond;
 
-	lwsl_debug("%s: %s, fd %d, 0x%x/0x%x\n", __func__, lws_wsi_tag(wsi),
-			wsi->desc.sockfd, flags, (int)cond);
+	lwsl_wsi_debug(wsi, "fd %d, 0x%x/0x%x", wsi->desc.sockfd,
+						flags, (int)cond);
 
 	g_source_modify_unix_fd(wsi_to_gsource(wsi), wsi_to_subclass(wsi)->tag,
 				cond);

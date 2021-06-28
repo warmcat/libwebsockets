@@ -165,7 +165,7 @@ elops_init_pt_ev(struct lws_context *context, void *_loop, int tsi)
 	unsigned int backend;
 	int status = 0;
 
-	lwsl_info("%s: loop %p\n", __func__, _loop);
+	lwsl_cx_info(context, "loop %p", _loop);
 
 	ptpr->pt = pt;
 
@@ -175,7 +175,7 @@ elops_init_pt_ev(struct lws_context *context, void *_loop, int tsi)
 		context->pt[tsi].event_loop_foreign = 1;
 
 	if (!loop) {
-		lwsl_err("%s: creating event base failed\n", __func__);
+		lwsl_cx_err(context, "creating event base failed");
 
 		return -1;
 	}
@@ -226,7 +226,7 @@ elops_init_pt_ev(struct lws_context *context, void *_loop, int tsi)
 		break;
 	}
 
-	lwsl_info(" libev backend: %s\n", backend_name);
+	lwsl_cx_info(context, " libev backend: %s", backend_name);
 	(void)backend_name;
 
 	ev_timer_init(&ptpr->hrtimer, lws_ev_hrtimer_cb, 0, 0);
@@ -288,8 +288,6 @@ elops_accept_ev(struct lws *wsi)
 	struct lws_wsi_eventlibs_libev *w = wsi_to_priv_ev(wsi);
 	int fd;
 
-	lwsl_notice("%s\n", __func__);
-
 	if (wsi->role_ops->file_handle)
 		fd = wsi->desc.filefd;
 	else
@@ -311,9 +309,9 @@ elops_io_ev(struct lws *wsi, unsigned int flags)
 	struct lws_pt_eventlibs_libev *ptpr = pt_to_priv_ev(pt);
 	struct lws_wsi_eventlibs_libev *w = wsi_to_priv_ev(wsi);
 
-	lwsl_debug("%s: %s %s flags 0x%x %p %d\n", __func__,
-				lws_wsi_tag(wsi), wsi->role_ops->name, flags,
-				ptpr->io_loop, pt->is_destroyed);
+	lwsl_wsi_debug(wsi, "%s flags 0x%x %p %d", wsi->role_ops->name, flags,
+						   ptpr->io_loop,
+						   pt->is_destroyed);
 
 	if (!ptpr->io_loop || pt->is_destroyed)
 		return;
@@ -350,8 +348,6 @@ elops_destroy_context2_ev(struct lws_context *context)
 	struct lws_context_per_thread *pt;
 	struct lws_pt_eventlibs_libev *ptpr;
 	int n, m;
-
-	lwsl_debug("%s\n", __func__);
 
 	for (n = 0; n < context->count_threads; n++) {
 		int budget = 1000;

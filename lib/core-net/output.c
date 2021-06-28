@@ -44,20 +44,6 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	 * read.
 	 */
 
-	/*
-	 * Detect if we got called twice without going through the
-	 * event loop to handle pending.  Since that guarantees extending any
-	 * existing buflist_out it's inefficient.
-	 */
-	if (0 && buf && wsi->could_have_pending) {
-		lwsl_hexdump_level(LLL_INFO, buf, len);
-		lwsl_info("** %s: vh: %s, prot: %s, role %s: "
-			  "Inefficient back-to-back write of %lu detected...\n",
-			  lws_wsi_tag(wsi), lws_vh_tag(wsi->a.vhost),
-			  wsi->a.protocol->name, wsi->role_ops->name,
-			  (unsigned long)len);
-	}
-
 	/* just ignore sends after we cleared the truncation buffer */
 	if (lwsi_state(wsi) == LRS_FLUSHING_BEFORE_CLOSE &&
 	    !lws_has_buffered_out(wsi)
@@ -68,9 +54,8 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 		return (int)len;
 
 	if (buf && lws_has_buffered_out(wsi)) {
-		lwsl_info("** %s: vh: %s, prot: %s, incr buflist_out by %lu\n",
-			  lws_wsi_tag(wsi), lws_vh_tag(wsi->a.vhost),
-			  wsi->a.protocol->name, (unsigned long)len);
+		lwsl_wsi_info(wsi, "** prot: %s, incr buflist_out by %lu",
+				   wsi->a.protocol->name, (unsigned long)len);
 
 		/*
 		 * already buflist ahead of this, add it on the tail of the
@@ -91,14 +76,14 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 		len = lws_buflist_next_segment_len(&wsi->buflist_out, &buf);
 		real_len = len;
 
-		lwsl_debug("%s: draining %d\n", __func__, (int)len);
+		lwsl_wsi_debug(wsi, "draining %d", (int)len);
 	}
 
 	if (!len || !buf)
 		return 0;
 
 	if (!wsi->mux_substream && !lws_socket_is_valid(wsi->desc.sockfd))
-		lwsl_err("%s: %s invalid sock\n", __func__, lws_wsi_tag(wsi));
+		lwsl_wsi_err(wsi, "invalid sock");
 
 	/* limit sending */
 	if (wsi->a.protocol->tx_packet_size)
@@ -149,19 +134,17 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	 */
 	if (lws_has_buffered_out(wsi)) {
 		if (m) {
-			lwsl_info("%s partial adv %d (vs %ld)\n",
-					lws_wsi_tag(wsi), m, (long)real_len);
+			lwsl_wsi_info(wsi, "partial adv %d (vs %ld)",
+					   m, (long)real_len);
 			lws_buflist_use_segment(&wsi->buflist_out, m);
 		}
 
 		if (!lws_has_buffered_out(wsi)) {
-			lwsl_info("%s: %s: buflist_out flushed\n",
-				  __func__, lws_wsi_tag(wsi));
+			lwsl_wsi_info(wsi, "buflist_out flushed");
 
 			m = (unsigned int)real_len;
 			if (lwsi_state(wsi) == LRS_FLUSHING_BEFORE_CLOSE) {
-				lwsl_info("*%s signalling to close now\n",
-						lws_wsi_tag(wsi));
+				lwsl_wsi_info(wsi, "*signalling to close now");
 				return -1; /* retry closing now */
 			}
 
@@ -173,9 +156,8 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 #if defined(LWS_WITH_SERVER)
 			if (wsi->http.deferred_transaction_completed) {
-				lwsl_notice("%s: partial completed, doing "
-					    "deferred transaction completed\n",
-					    __func__);
+				lwsl_wsi_notice(wsi, "partial completed, doing "
+					    "deferred transaction completed");
 				wsi->http.deferred_transaction_completed = 0;
 				return lws_http_transaction_completed(wsi) ?
 							-1 : (int)real_len;
@@ -209,8 +191,8 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	 * buffering the unsent remainder on it.
 	 * (it will get first priority next time the socket is writable).
 	 */
-	lwsl_debug("%s new partial sent %d from %lu total\n", lws_wsi_tag(wsi),
-			m, (unsigned long)real_len);
+	lwsl_wsi_debug(wsi, "new partial sent %d from %lu total",
+			    m, (unsigned long)real_len);
 
 	if (lws_buflist_append_segment(&wsi->buflist_out, buf + m,
 				       real_len - m) < 0)
@@ -235,8 +217,8 @@ lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 	int m;
 
 	if ((int)len < 0) {
-		lwsl_err("%s: suspicious len int %d, ulong %lu\n", __func__,
-				(int)len, (unsigned long)len);
+		lwsl_wsi_err(wsi, "suspicious len int %d, ulong %lu",
+				  (int)len, (unsigned long)len);
 		return -1;
 	}
 
@@ -317,8 +299,7 @@ do_err:
 		lws_metric_event(wsi->a.vhost->mt_traffic_rx, METRES_NOGO, 0u);
 #endif
 
-	lwsl_info("%s: error on reading from skt : %d, errno %d\n",
-			__func__, n, en);
+	lwsl_wsi_info(wsi, "error on reading from skt : %d, errno %d", n, en);
 
 	return LWS_SSL_CAPABLE_ERROR;
 }
@@ -386,8 +367,8 @@ post_send:
 		return LWS_SSL_CAPABLE_MORE_SERVICE;
 	}
 
-	lwsl_debug("ERROR writing len %d to skt fd %d err %d / errno %d\n",
-		   (int)(ssize_t)len, wsi->desc.sockfd, n, LWS_ERRNO);
+	lwsl_wsi_debug(wsi, "ERROR writing len %d to skt fd %d err %d / errno %d",
+			    (int)(ssize_t)len, wsi->desc.sockfd, n, LWS_ERRNO);
 
 	return LWS_SSL_CAPABLE_ERROR;
 }
