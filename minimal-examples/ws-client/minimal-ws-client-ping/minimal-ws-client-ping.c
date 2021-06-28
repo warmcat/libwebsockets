@@ -87,10 +87,9 @@ static const struct lws_protocols protocols[] = {
 	{
 		"lws-ping-test",
 		callback_minimal_pingtest,
-		0,
-		0,
+		0, 0, 0, NULL, 0
 	},
-	{ NULL, NULL, 0, 0 }
+	LWS_PROTOCOL_LIST_TERM
 };
 
 static void

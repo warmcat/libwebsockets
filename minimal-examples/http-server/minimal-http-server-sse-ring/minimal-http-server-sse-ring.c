@@ -306,9 +306,9 @@ callback_sse(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 }
 
 static struct lws_protocols protocols[] = {
-	{ "http", lws_callback_http_dummy, 0, 0 },
-	{ "sse", callback_sse, sizeof(struct pss), 0 },
-	{ NULL, NULL, 0, 0 } /* terminator */
+	{ "http", lws_callback_http_dummy, 0, 0, 0, NULL, 0 },
+	{ "sse", callback_sse, sizeof(struct pss), 0, 0, NULL, 0 },
+	LWS_PROTOCOL_LIST_TERM
 };
 
 /* override the default mount for /sse in the URL space */

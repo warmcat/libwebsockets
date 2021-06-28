@@ -86,6 +86,8 @@ struct lws_protocols {
 	 * This is part of the ABI, don't needlessly break compatibility */
 };
 
+#define LWS_PROTOCOL_LIST_TERM { NULL, NULL, 0, 0, 0, NULL, 0 }
+
 /**
  * lws_vhost_name_to_protocol() - get vhost's protocol object from its name
  *

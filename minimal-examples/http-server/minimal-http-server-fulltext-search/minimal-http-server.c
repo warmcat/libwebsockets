@@ -21,7 +21,7 @@ static int interrupted;
 
 static struct lws_protocols protocols[] = {
 	LWS_PLUGIN_PROTOCOL_FULLTEXT_DEMO,
-	{ NULL, NULL, 0, 0 } /* terminator */
+	LWS_PROTOCOL_LIST_TERM
 };
 
 static struct lws_protocol_vhost_options pvo_idx = {

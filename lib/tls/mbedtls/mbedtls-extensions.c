@@ -92,7 +92,7 @@ static const oid_x509_ext_t oid_x509_ext[] = {
         	"Authority Key Identifier" },
         LWS_MBEDTLS_OID_X509_EXT_AUTHORITY_KEY_IDENTIFIER,
     },
-    { { NULL, 0 }, 0 },
+    { { NULL, 0, NULL, NULL }, 0 },
 };
 
 #define FN_OID_TYPED_FROM_ASN1( TYPE_T, NAME, LIST )                    \

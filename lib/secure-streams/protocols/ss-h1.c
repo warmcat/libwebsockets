@@ -1074,8 +1074,7 @@ malformed:
 const struct lws_protocols protocol_secstream_h1 = {
 	"lws-secstream-h1",
 	secstream_h1,
-	0,
-	0,
+	0, 0, 0, NULL, 0
 };
 
 /*
@@ -1140,5 +1139,5 @@ const struct ss_pcols ss_pcol_h1 = {
 	"http/1.1",
 	&protocol_secstream_h1,
 	secstream_connect_munge_h1,
-	NULL
+	NULL, NULL
 };

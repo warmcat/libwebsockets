@@ -28,7 +28,7 @@
 
 static struct lws_protocols protocols[] = {
 	LWS_PLUGIN_PROTOCOL_RAW_PROXY,
-	{ NULL, NULL, 0, 0 } /* terminator */
+	LWS_PROTOCOL_LIST_TERM
 };
 
 static const struct lws_http_mount mount = {

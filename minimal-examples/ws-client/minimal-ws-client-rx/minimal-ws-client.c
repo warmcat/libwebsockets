@@ -60,10 +60,9 @@ static const struct lws_protocols protocols[] = {
 	{
 		"dumb-increment-protocol",
 		callback_dumb_increment,
-		0,
-		0,
+		0, 0, 0, NULL, 0
 	},
-	{ NULL, NULL, 0, 0 }
+	LWS_PROTOCOL_LIST_TERM
 };
 
 static void

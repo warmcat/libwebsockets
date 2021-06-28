@@ -48,9 +48,9 @@ callback_protocol(struct lws *wsi, enum lws_callback_reasons reason,
 }
 
 static struct lws_protocols protocols[] = {
-	{ "http", lws_callback_http_dummy, 0, 0 },
-	{ "timer", callback_protocol, 0, 0 },
-	{ NULL, NULL, 0, 0 } /* terminator */
+	{ "http", lws_callback_http_dummy, 0, 0, 0, NULL, 0 },
+	{ "timer", callback_protocol, 0, 0, 0, NULL, 0 },
+	LWS_PROTOCOL_LIST_TERM
 };
 
 static const lws_retry_bo_t retry = {

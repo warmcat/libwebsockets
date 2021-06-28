@@ -433,8 +433,9 @@ ads_known:
 	 */
 
 #if defined(LWS_WITH_SYS_METRICS)
-	if (wsi->cal_conn.mt)
+	if (wsi->cal_conn.mt) {
 		lws_metrics_caliper_report(wsi->cal_conn, METRES_NOGO);
+	}
 	lws_metrics_caliper_bind(wsi->cal_conn, wsi->a.context->mt_conn_tcp);
 #endif
 

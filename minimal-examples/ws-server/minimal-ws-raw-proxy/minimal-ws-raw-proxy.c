@@ -362,10 +362,10 @@ callback_proxy_raw_client(struct lws *wsi, enum lws_callback_reasons reason,
 }
 
 static struct lws_protocols protocols[] = {
-	{ "http", lws_callback_http_dummy, 0, 0 },
-	{ "lws-ws-raw-ws", callback_proxy_ws_server, 0, 1024 },
-	{ "lws-ws-raw-raw", callback_proxy_raw_client, 0, 1024 },
-	{ NULL, NULL, 0, 0 } /* terminator */
+	{ "http", lws_callback_http_dummy, 0, 0, 0, NULL, 0 },
+	{ "lws-ws-raw-ws", callback_proxy_ws_server, 0, 1024, 0, NULL, 0 },
+	{ "lws-ws-raw-raw", callback_proxy_raw_client, 0, 1024, 0, NULL, 0 },
+	LWS_PROTOCOL_LIST_TERM
 };
 
 static const lws_retry_bo_t retry = {

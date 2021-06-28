@@ -174,6 +174,7 @@ LWS_VISIBLE const struct lws_protocols client_loopback_test_protocols[] = {
 		callback_client_loopback_test,
 		sizeof(struct per_session_data__client_loopback_test),
 		1024, /* rx buf size must be >= permessage-deflate rx size */
+		0, NULL, 0
 	},
 };
 

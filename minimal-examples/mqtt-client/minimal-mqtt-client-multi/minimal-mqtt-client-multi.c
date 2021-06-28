@@ -374,12 +374,13 @@ static const struct lws_protocols protocols[] = {
 		.callback		= callback_mqtt,
 		.per_session_data_size	= sizeof(struct pss)
 	},
-	{ NULL, NULL, 0, 0 }
+	LWS_PROTOCOL_LIST_TERM
 };
 
 int main(int argc, const char **argv)
 {
-	lws_state_notify_link_t notifier = { {}, system_notify_cb, "app" };
+	lws_state_notify_link_t notifier = { { NULL, NULL, NULL },
+					     system_notify_cb, "app" };
 	lws_state_notify_link_t *na[] = { &notifier, NULL };
 	struct lws_context_creation_info info;
 	struct lws_context *context;

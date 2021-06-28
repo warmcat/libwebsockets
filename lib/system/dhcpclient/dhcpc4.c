@@ -282,7 +282,7 @@ retry_conn:
 }
 
 struct lws_protocols lws_system_protocol_dhcpc4 =
-	{ "lws-dhcp4client", callback_dhcpc4, 0, 128, };
+	{ "lws-dhcp4client", callback_dhcpc4, 0, 128, 0, NULL, 0 };
 
 void
 lws_dhcpc4_retry_conn(struct lws_sorted_usec_list *sul)

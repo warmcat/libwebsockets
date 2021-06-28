@@ -460,7 +460,7 @@ static const struct lws_jose_jwe_alg lws_gencrypto_jwe_alg_map[] = {
 	},
 
 	/* list terminator */
-	{ 0, 0, 0, 0, NULL, NULL }
+	{ 0, 0, 0, 0, NULL, NULL, 0, 0, 0 }
 };
 
 /*

@@ -327,7 +327,7 @@ callback_async_dns(struct lws *wsi, enum lws_callback_reasons reason,
 }
 
 struct lws_protocols lws_async_dns_protocol = {
-	"lws-async-dns", callback_async_dns, 0, 0
+	"lws-async-dns", callback_async_dns, 0, 0, 0, NULL, 0
 };
 
 int

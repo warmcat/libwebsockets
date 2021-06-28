@@ -126,8 +126,8 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 }
 
 static const struct lws_protocols protocols[] = {
-	{ "httptest", callback_http, 0, 0, },
-	{ NULL, NULL, 0, 0 }
+	{ "httptest", callback_http, 0, 0, 0, NULL, 0},
+	LWS_PROTOCOL_LIST_TERM
 };
 
 static int

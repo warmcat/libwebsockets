@@ -175,9 +175,9 @@ static const struct lws_protocols protocols[] = {
 		"lws-spam-test",
 		callback_minimal_spam,
 		sizeof(struct pss),
-		0,
+		0, 0, NULL, 0
 	},
-	{ NULL, NULL, 0, 0 }
+	LWS_PROTOCOL_LIST_TERM
 };
 
 static struct lws_protocol_vhost_options pvo = {

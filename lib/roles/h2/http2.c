@@ -267,8 +267,9 @@ __lws_wsi_server_new(struct lws_vhost *vh, struct lws *parent_wsi,
 	}
 
 #if defined(LWS_WITH_SERVER)
-	if (lwsi_role_server(parent_wsi))
+	if (lwsi_role_server(parent_wsi)) {
 		lws_metrics_caliper_bind(wsi->cal_conn, wsi->a.context->mth_srv);
+	}
 #endif
 
 	h2n->highest_sid_opened = sid;

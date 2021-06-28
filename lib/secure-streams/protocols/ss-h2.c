@@ -120,8 +120,7 @@ secstream_h2(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 const struct lws_protocols protocol_secstream_h2 = {
 	"lws-secstream-h2",
 	secstream_h2,
-	0,
-	0,
+	0, 0, 0, NULL, 0
 };
 
 /*

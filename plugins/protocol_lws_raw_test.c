@@ -278,7 +278,7 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		"protocol-lws-raw-test", \
 		callback_raw_test, \
 		sizeof(struct per_session_data__raw_test), \
-		1024, /* rx buf size must be >= permessage-deflate rx size */ \
+		1024, /* rx buf size must be >= permessage-deflate rx size */ 0, NULL, 0\
 	}
 
 #if !defined (LWS_PLUGIN_STATIC)

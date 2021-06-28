@@ -106,10 +106,9 @@ static const struct lws_protocols protocols[] = {
 	{
 		"http",
 		callback_http,
-		0,
-		0,
+		0, 0, 0, NULL, 0
 	},
-	{ NULL, NULL, 0, 0 }
+	LWS_PROTOCOL_LIST_TERM
 };
 
 void sigint_handler(int sig)

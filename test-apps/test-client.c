@@ -515,21 +515,18 @@ static const struct lws_protocols protocols[] = {
 	{
 		"dumb-increment-protocol",
 		callback_dumb_increment,
-		0,
-		20,
+		0, 20, 0, NULL, 0
 	},
 	{
 		"lws-mirror-protocol",
 		callback_lws_mirror,
-		0,
-		4096,
+		0, 4096, 0, NULL, 0
 	}, {
 		"lws-test-raw-client",
 		callback_test_raw_client,
-		0,
-		128
+		0, 128, 0, NULL, 0
 	},
-	{ NULL, NULL, 0, 0 } /* end */
+	LWS_PROTOCOL_LIST_TERM
 };
 
 #if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)

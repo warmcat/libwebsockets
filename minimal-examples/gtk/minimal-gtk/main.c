@@ -130,7 +130,8 @@ static const struct lws_protocols protocols[] = {
 static gpointer
 t1_main (gpointer user_data)
 {
-	lws_state_notify_link_t notifier = { {0}, system_notify_cb, "app" };
+	lws_state_notify_link_t notifier = { { NULL, NULL, NULL },
+						system_notify_cb, "app" };
 	lws_state_notify_link_t *na[] = { &notifier, NULL };
 	GMainContext *t1_mc = (GMainContext *)user_data;
 	struct lws_context_creation_info info;

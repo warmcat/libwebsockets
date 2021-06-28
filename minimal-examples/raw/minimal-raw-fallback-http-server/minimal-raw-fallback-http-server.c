@@ -83,8 +83,8 @@ callback_raw_echo(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 }
 
 static const struct lws_protocols protocols[] = {
-	{ "raw-echo", callback_raw_echo, sizeof(struct pss__raw_echo), 2048 },
-	{ NULL, NULL, 0, 0 }
+	{ "raw-echo", callback_raw_echo, sizeof(struct pss__raw_echo), 2048, 0, NULL, 0 },
+	LWS_PROTOCOL_LIST_TERM
 };
 
 void sigint_handler(int sig)

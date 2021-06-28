@@ -187,14 +187,14 @@ lws_callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 static struct lws_protocols protocols[] = {
 	/* first protocol must always be HTTP handler */
 
-	{ "http-only", lws_callback_http, 0, 0, },
+	{ "http-only", lws_callback_http, 0, 0, 0, NULL, 0 },
 #if defined(LWS_ROLE_WS)
 	LWS_PLUGIN_PROTOCOL_DUMB_INCREMENT,
 	LWS_PLUGIN_PROTOCOL_MIRROR,
 	LWS_PLUGIN_PROTOCOL_LWS_STATUS,
 #endif
 	LWS_PLUGIN_PROTOCOL_POST_DEMO,
-	{ NULL, NULL, 0, 0 } /* terminator */
+	LWS_PROTOCOL_LIST_TERM
 };
 
 
@@ -278,8 +278,6 @@ static const struct lws_http_mount mount_ziptest_uncomm = {
 	LWSMPRO_FILE,	/* origin points to a callback */
 	14,			/* strlen("/ziptest"), ie length of the mountpoint */
 	NULL,
-
-	{ NULL, NULL } // sentinel
 }, mount_ziptest = {
 	(struct lws_http_mount *)&mount_ziptest_uncomm,			/* linked-list pointer to next*/
 	"/ziptest",		/* mountpoint in URL namespace on this vhost */
@@ -298,8 +296,6 @@ static const struct lws_http_mount mount_ziptest_uncomm = {
 	LWSMPRO_FILE,	/* origin points to a callback */
 	8,			/* strlen("/ziptest"), ie length of the mountpoint */
 	NULL,
-
-	{ NULL, NULL } // sentinel
 }, mount_post = {
 	(struct lws_http_mount *)&mount_ziptest, /* linked-list pointer to next*/
 	"/formtest",		/* mountpoint in URL namespace on this vhost */
@@ -318,8 +314,6 @@ static const struct lws_http_mount mount_ziptest_uncomm = {
 	LWSMPRO_CALLBACK,	/* origin points to a callback */
 	9,			/* strlen("/formtest"), ie length of the mountpoint */
 	NULL,
-
-	{ NULL, NULL } // sentinel
 }, mount = {
 	/* .mount_next */		&mount_post,	/* linked-list "next" */
 	/* .mountpoint */		"/",		/* mountpoint URL */

@@ -306,5 +306,5 @@ lws_ntpc_trigger(struct lws_context *ctx)
 }
 
 struct lws_protocols lws_system_protocol_ntpc =
-	{ "lws-ntpclient", callback_ntpc, 0, 128, };
+	{ "lws-ntpclient", callback_ntpc, 0, 128, 0, NULL, 0 };
 

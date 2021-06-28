@@ -2067,7 +2067,7 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 		 *
 		 * The RECOMMENDED timeout period is 10 minutes.
 		 */
-		lws_set_timeout(wsi,
+		lws_set_timeout(wsi, (enum pending_timeout)
 		       SSH_PENDING_TIMEOUT_CONNECT_TO_SUCCESSFUL_AUTH, 10 * 60);
                 break;
 

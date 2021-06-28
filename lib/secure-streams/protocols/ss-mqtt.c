@@ -390,8 +390,7 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 const struct lws_protocols protocol_secstream_mqtt = {
 	"lws-secstream-mqtt",
 	secstream_mqtt,
-	0,
-	0,
+	0, 0, 0, NULL, 0
 };
 /*
  * Munge connect info according to protocol-specific considerations... this
@@ -575,5 +574,6 @@ const struct ss_pcols ss_pcol_mqtt = {
 	"MQTT",
 	"x-amzn-mqtt-ca", //"mqtt/3.1.1",
 	&protocol_secstream_mqtt,
-	secstream_connect_munge_mqtt
+	secstream_connect_munge_mqtt,
+	NULL, NULL
 };

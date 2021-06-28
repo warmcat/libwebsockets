@@ -433,19 +433,22 @@ struct tests_seq {
 		"h1:80 just get 200",
 		"t_h1", 5 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
-					 (1 << LWSSSCS_ALL_RETRIES_FAILED)
+					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
+		0
 	},
 	{
 		"h1:443 just get 200",
 		"t_h1_tls", 5 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
-					 (1 << LWSSSCS_ALL_RETRIES_FAILED)
+					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
+		0
 	},
 	{
 		"h2:443 just get 200",
 		"t_h2_tls", 5 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
-					 (1 << LWSSSCS_ALL_RETRIES_FAILED)
+					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
+		0
 	},
 
 	/*
@@ -458,19 +461,22 @@ struct tests_seq {
 		"h1:80 timeout after connection",
 		"d_h1", 5 * LWS_US_PER_SEC, LWSSSCS_TIMEOUT,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
-					 (1 << LWSSSCS_ALL_RETRIES_FAILED)
+					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
+		0
 	},
 	{
 		"h1:443 timeout after connection",
 		"d_h1_tls", 5 * LWS_US_PER_SEC, LWSSSCS_TIMEOUT,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
-					 (1 << LWSSSCS_ALL_RETRIES_FAILED)
+					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
+		0
 	},
 	{
 		"h2:443 timeout after connection",
 		"d_h2_tls", 5 * LWS_US_PER_SEC, LWSSSCS_TIMEOUT,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
-					 (1 << LWSSSCS_ALL_RETRIES_FAILED)
+					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
+		0
 	},
 
 	/*
@@ -482,19 +488,22 @@ struct tests_seq {
 		"h1:80 NXDOMAIN",
 		"nxd_h1", 65 * LWS_US_PER_SEC, LWSSSCS_UNREACHABLE,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
-		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_ALL_RETRIES_FAILED)
+		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_ALL_RETRIES_FAILED),
+		0
 	},
 	{
 		"h1:443 NXDOMAIN",
 		"nxd_h1_tls", 35 * LWS_US_PER_SEC, LWSSSCS_UNREACHABLE,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
-		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_ALL_RETRIES_FAILED)
+		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_ALL_RETRIES_FAILED),
+		0
 	},
 	{
 		"h2:443 NXDOMAIN",
 		"nxd_h2_tls", 35 * LWS_US_PER_SEC, LWSSSCS_UNREACHABLE,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
-		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_ALL_RETRIES_FAILED)
+		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_ALL_RETRIES_FAILED),
+		0
 	},
 
 	/*
@@ -507,17 +516,20 @@ struct tests_seq {
 	{
 		"h1:80 NXDOMAIN exhaust retries",
 		"nxd_h1", 65 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
-		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE)
+		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE),
+		0
 	},
 	{
 		"h1:443 NXDOMAIN exhaust retries",
 		"nxd_h1_tls", 65 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
-		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE)
+		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE),
+		0
 	},
 	{
 		"h2:443 NXDOMAIN exhaust retries",
 		"nxd_h2_tls", 65 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
-		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE)
+		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE),
+		0
 	},
 
 	/*
@@ -553,17 +565,20 @@ struct tests_seq {
 	{
 		"h1:badcert_hostname",
 		"badcert_hostname", 6 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
-		(1 << LWSSSCS_QOS_NACK_REMOTE)
+		(1 << LWSSSCS_QOS_NACK_REMOTE),
+		0
 	},
 	{
 		"h1:badcert_expired",
 		"badcert_expired", 6 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
-		(1 << LWSSSCS_QOS_NACK_REMOTE)
+		(1 << LWSSSCS_QOS_NACK_REMOTE),
+		0
 	},
 	{
 		"h1:badcert_selfsigned",
 		"badcert_selfsigned", 6 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
-		(1 << LWSSSCS_QOS_NACK_REMOTE)
+		(1 << LWSSSCS_QOS_NACK_REMOTE),
+		0
 	},
 
 };

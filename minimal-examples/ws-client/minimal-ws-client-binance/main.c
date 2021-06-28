@@ -326,8 +326,8 @@ do_retry:
 }
 
 static const struct lws_protocols protocols[] = {
-	{ "lws-minimal-client", callback_minimal, 0, 0, },
-	{ NULL, NULL, 0, 0 }
+	{ "lws-minimal-client", callback_minimal, 0, 0, 0, NULL, 0 },
+	LWS_PROTOCOL_LIST_TERM
 };
 
 static void

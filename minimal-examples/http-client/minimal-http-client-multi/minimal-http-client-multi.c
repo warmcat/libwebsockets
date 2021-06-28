@@ -344,8 +344,8 @@ finished:
 }
 
 static const struct lws_protocols protocols[] = {
-	{ "http", callback_http, sizeof(struct pss), 0, },
-	{ NULL, NULL, 0, 0 }
+	{ "http", callback_http, sizeof(struct pss), 0, 0, NULL, 0 },
+	LWS_PROTOCOL_LIST_TERM
 };
 
 #if defined(LWS_WITH_SYS_METRICS)
@@ -512,7 +512,8 @@ stagger_cb(lws_sorted_usec_list_t *sul)
 
 int main(int argc, const char **argv)
 {
-	lws_state_notify_link_t notifier = { {0}, system_notify_cb, "app" };
+	lws_state_notify_link_t notifier = { { NULL, NULL, NULL },
+						system_notify_cb, "app" };
 	lws_state_notify_link_t *na[] = { &notifier, NULL };
 	struct lws_context_creation_info info;
 	unsigned long long start;

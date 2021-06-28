@@ -1162,19 +1162,19 @@ LWS_VISIBLE const struct lws_protocols lws_openmetrics_export_protocols[] = {
 		"lws-openmetrics",
 		callback_lws_openmetrics_export,
 		sizeof(struct pss),
-		1024,
+		1024, 0, NULL, 0
 	},
 	{ /* for scraper via ws proxy: http export on listen socket */
 		"lws-openmetrics-prox-agg",
 		callback_lws_openmetrics_prox_agg,
 		sizeof(struct pss),
-		1024,
+		1024, 0, NULL, 0
 	},
 	{ /* metrics proxy server side: ws server for clients to connect to */
 		"lws-openmetrics-prox-server",
 		callback_lws_openmetrics_prox_server,
 		sizeof(struct pss),
-		1024,
+		1024, 0, NULL, 0
 	},
 #endif
 #if defined(LWS_WITH_CLIENT) && defined(LWS_ROLE_WS)
@@ -1182,7 +1182,7 @@ LWS_VISIBLE const struct lws_protocols lws_openmetrics_export_protocols[] = {
 		"lws-openmetrics-prox-client",
 		callback_lws_openmetrics_prox_client,
 		sizeof(struct pss),
-		1024,
+		1024, 0, NULL, 0
 	},
 #endif
 };

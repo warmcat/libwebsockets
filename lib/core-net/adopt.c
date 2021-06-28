@@ -184,8 +184,9 @@ __lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 	}
 
 #if defined(LWS_WITH_SERVER)
-	if (new_wsi->role_ops)
+	if (new_wsi->role_ops) {
 		lws_metrics_tag_wsi_add(new_wsi, "role", new_wsi->role_ops->name);
+	}
 #endif
 
 	lws_pt_unlock(pt);
