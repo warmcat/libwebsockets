@@ -361,6 +361,7 @@ struct _lws_mqtt_related {
 	void			*rx_cpkt_param;
 	uint16_t		pkt_id;
 	uint16_t		ack_pkt_id;
+	uint16_t		peer_ack_pkt_id;
 	uint16_t		sub_size;
 
 #if defined(LWS_WITH_CLIENT)

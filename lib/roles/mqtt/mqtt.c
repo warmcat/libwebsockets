@@ -877,7 +877,7 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 			par->cpkt_id = lws_ser_ru16be(buf);
 			buf += 2;
 			len -= 2;
-			wsi->mqtt->ack_pkt_id = par->cpkt_id;
+			wsi->mqtt->peer_ack_pkt_id = par->cpkt_id;
 			lwsl_debug("%s: Packet ID %d\n",
 					__func__, (int)par->cpkt_id);
 			par->state = LMQCPP_PAYLOAD;

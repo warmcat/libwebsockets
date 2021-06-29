@@ -306,28 +306,31 @@ rops_handle_POLLOUT_mqtt(struct lws *wsi)
 	    (wsi->mqtt->send_pubrec || wsi->mqtt->send_pubrel ||
 	     wsi->mqtt->send_pubcomp)) {
 		uint8_t buf[LWS_PRE + 4];
+		/* Remaining len = 2 */
+		buf[LWS_PRE + 1] = 2;
 		if (wsi->mqtt->send_pubrec) {
 			lwsl_notice("%s: issuing PUBREC for pkt id: %d\n",
-				    __func__, wsi->mqtt->ack_pkt_id);
+				    __func__, wsi->mqtt->peer_ack_pkt_id);
 			buf[LWS_PRE] = LMQCP_PUBREC << 4 | 0x2;
+			/* Packet ID */
+			lws_ser_wu16be(&buf[LWS_PRE + 2],
+				       wsi->mqtt->peer_ack_pkt_id);
 			wsi->mqtt->send_pubrec = 0;
 		} else if (wsi->mqtt->send_pubrel) {
 			lwsl_notice("%s: issuing PUBREL for pkt id: %d\n",
 				    __func__, wsi->mqtt->ack_pkt_id);
 			buf[LWS_PRE] = LMQCP_PUBREL << 4 | 0x2;
+			lws_ser_wu16be(&buf[LWS_PRE + 2],
+				       wsi->mqtt->ack_pkt_id);
 			wsi->mqtt->send_pubrel = 0;
 		} else {
 			lwsl_notice("%s: issuing PUBCOMP for pkt id: %d\n",
-				    __func__, wsi->mqtt->ack_pkt_id);
+				    __func__, wsi->mqtt->peer_ack_pkt_id);
 			buf[LWS_PRE] = LMQCP_PUBCOMP << 4 | 0x2;
+			lws_ser_wu16be(&buf[LWS_PRE + 2],
+				       wsi->mqtt->peer_ack_pkt_id);
 			wsi->mqtt->send_pubcomp = 0;
 		}
-		/* Remaining len = 2 */
-		buf[LWS_PRE + 1] = 2;
-		/* Packet ID */
-		lws_ser_wu16be(&buf[LWS_PRE + 2],
-			       wsi->mqtt->ack_pkt_id);
-
 		if (lws_write(wsi, (uint8_t *)&buf[LWS_PRE], 4,
 			      LWS_WRITE_BINARY) != 4)
 			return LWS_HP_RET_BAIL_DIE;
@@ -392,7 +395,7 @@ rops_handle_POLLOUT_mqtt(struct lws *wsi)
 			/* Remaining len = 2 */
 			buf[LWS_PRE + 1] = 2;
 			/* Packet ID */
-			lws_ser_wu16be(&buf[LWS_PRE + 2], wsi->mqtt->ack_pkt_id);
+			lws_ser_wu16be(&buf[LWS_PRE + 2], wsi->mqtt->peer_ack_pkt_id);
 
 			if (lws_write(wsi, (uint8_t *)&buf[LWS_PRE], 4,
 				      LWS_WRITE_BINARY) != 4)
