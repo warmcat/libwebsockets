@@ -27,9 +27,12 @@
 void
 __lws_wsi_remove_from_sul(struct lws *wsi)
 {
-	lws_dll2_remove(&wsi->sul_timeout.list);
-	lws_dll2_remove(&wsi->sul_hrtimer.list);
-	lws_dll2_remove(&wsi->sul_validity.list);
+	lws_sul_cancel(&wsi->sul_timeout);
+	lws_sul_cancel(&wsi->sul_hrtimer);
+	lws_sul_cancel(&wsi->sul_validity);
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	lws_sul_cancel(&wsi->sul_fault_timedclose);
+#endif
 }
 
 /*

@@ -246,6 +246,41 @@ lws_callback_vhost_protocols(struct lws *wsi, int reason, void *in, size_t len)
 	return 0;
 }
 
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+/*
+ * We want to inject a fault that makes it feel like the peer hung up on us,
+ * or we were otherwise cut off.
+ */
+void
+lws_wsi_fault_timedclose_cb(lws_sorted_usec_list_t *s)
+{
+	struct lws *wsi = lws_container_of(s, struct lws, sul_fault_timedclose);
+
+	lwsl_wsi_warn(wsi, "force-closing");
+	lws_wsi_close(wsi, LWS_TO_KILL_ASYNC);
+}
+#endif
+
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+void
+lws_wsi_fault_timedclose(struct lws *wsi)
+{
+	uint64_t u;
+
+	if (!lws_fi(&wsi->fic, "timedclose"))
+		return;
+
+	if (lws_fi_range(&wsi->fic, "timedclose_ms", &u))
+		return;
+
+	lwsl_wsi_warn(wsi, "injecting close in %ums", (unsigned int)u);
+	lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->sul_fault_timedclose,
+			 lws_wsi_fault_timedclose_cb,
+			 (lws_usec_t)(u * 1000ull));
+}
+#endif
+
+
 /*
  * We need the context lock
  */

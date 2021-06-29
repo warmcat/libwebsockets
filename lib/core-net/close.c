@@ -365,6 +365,9 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	context = wsi->a.context;
 	pt = &context->pt[(int)wsi->tsi];
 
+	if (pt->pipe_wsi == wsi)
+		pt->pipe_wsi = NULL;
+
 #if defined(LWS_WITH_SYS_METRICS) && \
     (defined(LWS_WITH_CLIENT) || defined(LWS_WITH_SERVER))
 	/* wsi level: only reports if dangling caliper */

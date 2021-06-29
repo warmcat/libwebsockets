@@ -67,6 +67,8 @@ lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi, const char *de
 		return NULL;
 	}
 
+	lws_wsi_fault_timedclose(new_wsi);
+
 	__lws_lc_tag(vhost->context, &vhost->context->lcg[
 #if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT)
 	strcmp(desc, "adopted") ? LWSLCG_WSI_MUX :

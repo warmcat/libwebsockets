@@ -217,6 +217,8 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 #endif
 #endif
 
+	lws_wsi_fault_timedclose(wsi);
+
 	/*
 	 * Until we exit, we can report connection failure directly to the
 	 * caller without needing to call through to protocol CONNECTION_ERROR.

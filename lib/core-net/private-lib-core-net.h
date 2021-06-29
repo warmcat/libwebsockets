@@ -698,8 +698,10 @@ struct lws {
 #endif
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
-	lws_fi_ctx_t				fic;
+	lws_fi_ctx_t			fic;
 	/**< Fault Injection ctx for the wsi, hierarchy wsi->vhost->context */
+	lws_sorted_usec_list_t		sul_fault_timedclose;
+	/**< used to inject a fault that closes the wsi after a random time */
 #endif
 
 #if defined(LWS_WITH_SYS_METRICS)
@@ -960,6 +962,13 @@ int
 lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 		lws_sockfd_type sockfd, int port, const char *iface,
 		int ipv6_allowed);
+
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+void
+lws_wsi_fault_timedclose(struct lws *wsi);
+#else
+#define lws_wsi_fault_timedclose(_w)
+#endif
 
 #if defined(LWS_WITH_IPV6)
 unsigned long

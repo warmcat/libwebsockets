@@ -106,7 +106,6 @@ deal:
 
 	if (a->vhost->iface) {
 
-		lwsl_err("%s\n", a->vhost->iface);
 		/*
 		 * let's check before we do anything else about the disposition
 		 * of the interface he wants to bind to...
@@ -307,6 +306,7 @@ done_list:
 			lwsl_err("Out of mem\n");
 			goto bail;
 		}
+
 		wsi->af = (uint8_t)a->af;
 
 #ifdef LWS_WITH_UNIX_SOCK

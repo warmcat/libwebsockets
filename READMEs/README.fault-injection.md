@@ -307,6 +307,8 @@ thing by giving, eg, `"myfault(10%),myfault_delay(123..456)"`
 |ssproxy|`wsi`|`sspc_dsh_ss2p_oom`|Cause ss->proxy dsh allocation to fail|
 |ssproxy|`ss`|`ssproxy_onward_conn_fail`|Act as if proxy onward client connection failed immediately|
 |ssproxy|`ss`|`ssproxy_dsh_c2p_pay_oom`|Cause proxy's DSH alloc for C->P payload to fail|
+|wsi|`wsi`|`timedclose`|(see next) Cause wsi to close after some time|
+|wsi|`wsi`|`timedclose_ms`|Range of ms for timedclose (eg, "timedclose_ms(10..250)"|
 
 ## Well-known namespace targets
 
