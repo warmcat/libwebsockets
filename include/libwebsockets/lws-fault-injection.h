@@ -72,6 +72,7 @@ enum {
 	LWSFI_PROBABILISTIC,	/* .pre % chance of injection */
 	LWSFI_PATTERN,		/* use .count bits in .pattern after .pre */
 	LWSFI_PATTERN_ALLOC,	/* as _PATTERN, but .pattern is malloc'd */
+	LWSFI_RANGE		/* pick a number between pre and count */
 };
 
 typedef struct lws_fi {
@@ -107,6 +108,27 @@ typedef struct lws_fi_ctx {
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_fi(const lws_fi_ctx_t *fic, const char *fi_name);
+
+/**
+ * lws_fi_range() - get a random number from a range
+ *
+ * \param fic: fault injection tracking context
+ * \param fi_name: name of fault injection
+ * \param result: points to uint64_t to be set to the result
+ *
+ * This lets you get a random number from an externally-set range, set using a
+ * fault injection syntax like "myfault(123..456)".  That will cause us to
+ * return a number between those two inclusive, from the seeded PRNG.
+ *
+ * This is useful when you used lws_fi() with its own fault name to decide
+ * whether to inject the fault, and then the code to cause the fault needs
+ * additional constrained pseudo-random fuzzing for, eg, delays before issuing
+ * the fault.
+ *
+ * Returns 0 if \p *result is set, else nonzero for failure.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_fi_range(const lws_fi_ctx_t *fic, const char *name, uint64_t *result);
 
 /**
  * lws_fi_add() - add an allocated copy of fault injection to a context

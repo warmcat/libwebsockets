@@ -232,14 +232,25 @@ matches an object, the fault will be injected every time.  It's also possible
 to make the fault inject itself at a random probability, or in a cyclic pattern,
 by giving additional information in brackets, eg
 
-|Syntax|Meaning|
-|---|---|
-|`wsi/thefault`|Inject the fault every time|
-|`wsi/thefault(10%)`|Randomly inject the fault at 10% probability|
-|`wsi/thefault(.............X.X)`|Inject the fault on the 14th and 16th try, every 16 tries|
+|Syntax|Used with|Meaning|
+|---|---|---|
+|`wsi/thefault`|lws_fi()|Inject the fault every time|
+|`wsi/thefault(10%)`|lws_fi()|Randomly inject the fault at 10% probability|
+|`wsi/thefault(.............X.X)`|lws_fi()|Inject the fault on the 14th and 16th try, every 16 tries|
+|`wsi/thefault2(123..456)`|lws_fi_range()|Pick a number between 123 and 456|
 
 You must quote the strings containing these symbols, since they may otherwise be
 interpreted by your shell.
+
+The last example above does not decide whether to inject the fault via `lws_fi()`
+like the others.  Instead you can use it via `lws_fi_range()` as part of the
+fault processing, on a secondary fault injection name.  For example you may have
+a fault `myfault` you use with `lws_fi()` to decide when to inject the fault,
+and then a second, related fault name `myfault_delay` to allow you to add code
+to delay the fault action by some random amount of ms within an externally-
+given range.  You can get a pseudo-random number within the externally-given
+range by calling `lws_fi_range()` on `myfault_delay`, and control the whole
+thing by giving, eg, `"myfault(10%),myfault_delay(123..456)"`
 
 ## Well-known fault names in lws
 

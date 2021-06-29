@@ -89,6 +89,30 @@ inject:
 }
 
 int
+lws_fi_range(const lws_fi_ctx_t *fic, const char *name, uint64_t *result)
+{
+	lws_fi_priv_t *pv;
+	uint64_t d;
+
+	pv = lws_fi_lookup(fic, name);
+
+	if (!pv)
+		return 1;
+
+	if (pv->fi.type != LWSFI_RANGE) {
+		lwsl_err("%s: fault %s is not a 123..456 range\n",
+			 __func__, name);
+		return 1;
+	}
+
+	d = pv->fi.count - pv->fi.pre;
+
+	*result = pv->fi.pre + (lws_xos((lws_xos_t *)&fic->xos) % d);
+
+	return 0;
+}
+
+int
 _lws_fi_user_wsi_fi(struct lws *wsi, const char *name)
 {
 	return lws_fi(&wsi->fic, name);
@@ -240,20 +264,30 @@ lws_fi_destroy(const lws_fi_ctx_t *fic)
 	} lws_end_foreach_dll_safe(p, p1);
 }
 
+/*
+ * We want to support these kinds of qualifier
+ *
+ * myfault            true always
+ * myfault(10%)       true 10% of the time
+ * myfault(....X X)   true when X
+ * myfault2(20..3000)  pick a number between 20 and 3000
+ */
+
 enum {
 	PARSE_NAME,
 	PARSE_WHEN,
 	PARSE_PC,
-	PARSE_ENDBR
+	PARSE_ENDBR,
+	PARSE_COMMA
 };
 
 void
 lws_fi_deserialize(lws_fi_ctx_t *fic, const char *sers)
 {
+	int state = PARSE_NAME, m;
 	struct lws_tokenize ts;
 	lws_fi_t fi;
 	char nm[64];
-	int state = PARSE_NAME;
 
 	/*
 	 * Go through the comma-separated list of faults
@@ -284,17 +318,20 @@ lws_fi_deserialize(lws_fi_ctx_t *fic, const char *sers)
 
 				memset(&fi, 0, sizeof(fi));
 
-				lws_strnncpy(nm, ts.token, ts.token_len, sizeof(nm));
+				lws_strnncpy(nm, ts.token, ts.token_len,
+					     sizeof(nm));
 				fi.name = nm;
 				fi.type = LWSFI_ALWAYS;
 
-				lwsl_notice("%s: name %.*s\n", __func__, (int)ts.token_len, ts.token);
+				lwsl_notice("%s: name %.*s\n", __func__,
+					    (int)ts.token_len, ts.token);
 
 				/* added later, potentially after (when) */
 				break;
 			}
 			if (state == PARSE_WHEN) {
-				/* it's either numeric or a pattern */
+				/* it's either numeric (then % or ..num2), or
+				 * .X pattern */
 
 				lwsl_notice("%s: when\n", __func__);
 
@@ -306,7 +343,8 @@ lws_fi_deserialize(lws_fi_ctx_t *fic, const char *sers)
 					 * pattern... we need to allocate it
 					 */
 					fi.type = LWSFI_PATTERN_ALLOC;
-					pat = lws_zalloc((ts.token_len >> 3) + 1, __func__);
+					pat = lws_zalloc((ts.token_len >> 3) + 1,
+							 __func__);
 					if (!pat)
 						return;
 					fi.pattern = pat;
@@ -315,16 +353,50 @@ lws_fi_deserialize(lws_fi_ctx_t *fic, const char *sers)
 					for (n = 0; n < ts.token_len; n++)
 						if (ts.token[n] == 'X')
 							pat[n >> 3] = (uint8_t)(
-								pat[n >> 3] | (1 << (n & 7)));
+								pat[n >> 3] |
+								(1 << (n & 7)));
 
-					lwsl_hexdump_notice(pat, (ts.token_len >> 3) + 1);
+					lwsl_hexdump_notice(pat,
+						       (ts.token_len >> 3) + 1);
 
 					state = PARSE_ENDBR;
 					break;
 				}
 
-				fi.pre = (uint64_t)atoi(ts.token);
-				lwsl_notice("%s: prob %d%%\n", __func__, (int)fi.pre);
+				fi.pre = (uint64_t)atoll(ts.token);
+
+				for (m = 0; m < (int)ts.token_len - 1; m++)
+					if (ts.token[m] < '0' ||
+					    ts.token[m] > '9')
+						break;
+
+				/*
+				 * We can understand num% or num..num
+				 */
+
+				if (m != (int)ts.token_len &&
+				    ts.token[m] == '.' &&
+				    ts.token[m + 1] == '.') {
+					fi.count = (uint64_t)atoll(
+						&ts.token[m + 2]);
+					fi.type = LWSFI_RANGE;
+					state = PARSE_ENDBR;
+
+					if (fi.pre >= fi.count) {
+						lwsl_err("%s: range must have "
+							 "smaller first!\n",
+							 __func__);
+					}
+
+					lwsl_notice("%s: range %llx .."
+						    "%llx\n", __func__,
+						    (unsigned long long)fi.pre,
+						    (unsigned long long)fi.count);
+					break;
+				}
+
+				lwsl_notice("%s: prob %d%%\n", __func__,
+					    (int)fi.pre);
 				fi.type = LWSFI_PROBABILISTIC;
 				state = PARSE_PC;
 				break;
