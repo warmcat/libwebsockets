@@ -617,6 +617,7 @@ struct lws;
 #include <libwebsockets/lws-vfs.h>
 #endif
 #include <libwebsockets/lws-lejp.h>
+#include <libwebsockets/lws-lecp.h>
 #include <libwebsockets/lws-struct.h>
 #include <libwebsockets/lws-threadpool.h>
 #include <libwebsockets/lws-tokenize.h>
