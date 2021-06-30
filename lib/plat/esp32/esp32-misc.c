@@ -91,6 +91,7 @@ void esp32_uvtimer_cb(TimerHandle_t t)
 {
 	struct timer_mapping *p = pvTimerGetTimerID(t);
 
-	p->cb(p->t);
+	if (p)
+		p->cb(p->t);
 }
 
