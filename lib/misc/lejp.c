@@ -468,6 +468,9 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 				/* push */
 				ctx->st[ctx->sp].s = LEJP_MP_ARRAY_END;
 				c = LEJP_MP_VALUE;
+				if (ctx->pst[ctx->pst_sp].ppos + 3u >=
+							sizeof(ctx->path))
+					goto reject;
 				ctx->path[ctx->pst[ctx->pst_sp].ppos++] = '[';
 				ctx->path[ctx->pst[ctx->pst_sp].ppos++] = ']';
 				ctx->path[ctx->pst[ctx->pst_sp].ppos] = '\0';
@@ -881,3 +884,4 @@ lejp_error_to_string(int e)
 
 	return parser_errs[e];
 }
+
