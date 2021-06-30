@@ -185,6 +185,19 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2))
 			target_compile_definitions(test-lejp PRIVATE LWS_BUILDING_STATIC)
 		endif()
 
+		if (LWS_WITH_LECP)
+			create_test_app(
+				test-lecp
+				"test-lecp.c"
+				""
+				""
+				""
+				""
+				"")
+			target_compile_definitions(test-lecp PRIVATE LWS_BUILDING_STATIC)
+		endif()
+
+
 		# Data files for running the test server.
 		list(APPEND TEST_SERVER_DATA
 			"${PROJECT_SOURCE_DIR}/test-apps/favicon.ico"

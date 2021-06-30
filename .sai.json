@@ -118,7 +118,7 @@
 			"platforms":	"w10/x86_64-amd/msvc, w10/x86_64-amd/noptmsvc, freertos-linkit/arm32-m4-mt7697-usi/gcc, linux-ubuntu-2004/aarch64-a72-bcm2711-rpi4/gcc, w10/x86_64-amd/mingw32, w10/x86_64-amd/mingw64, netbsd/aarch64BE-bcm2837-a53/gcc, w10/x86_64-amd/wmbedtlsmsvc"
 		},
 		"fault-injection": {
-			"cmake":	"-DLWS_WITH_SYS_FAULT_INJECTION=1 -DLWS_WITH_MINIMAL_EXAMPLES=1",
+			"cmake":	"-DLWS_WITH_SYS_FAULT_INJECTION=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_LECP=1",
 			"platforms":	"w10/x86_64-amd/msvc"
 		},
 		"esp32-heltec": {
@@ -127,7 +127,7 @@
 			"platforms":	"none, freertos-espidf/xl6-esp32/gcc"
 		},
 		"esp32-wrover": {
-			"cmake":	"-DLWS_IPV6=0",
+			"cmake":	"-DLWS_IPV6=0 -DLWS_WITH_LECP=1",
 			"cpack":	"esp-wrover-kit",
 			"platforms":	"none, freertos-espidf/xl6-esp32/gcc"
 		},
