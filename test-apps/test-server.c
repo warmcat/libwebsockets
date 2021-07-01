@@ -107,10 +107,10 @@ lws_callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				return -1;
 		}
 		pfd->fd = pa->fd;
-		pfd->events = pa->events;
+		pfd->events = (short)pa->events;
 		pfd->revents = 0;
 		/* high water mark... */
-		count_pollfds = (pfd - pollfds) + 1;
+		count_pollfds = (int)((pfd - pollfds) + 1);
 		break;
 	case LWS_CALLBACK_DEL_POLL_FD:
 		pa = (struct lws_pollargs *)in;
@@ -128,7 +128,7 @@ lws_callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			lwsl_err("%s: unknown fd %d\n", __func__, pa->fd);
 			return -1;
 		}
-		pfd->events = pa->events;
+		pfd->events = (short)pa->events;
 		break;
 #endif
 	case LWS_CALLBACK_HTTP:
@@ -570,8 +570,8 @@ int main(int argc, char **argv)
 #else
 	max_poll_elements = sysconf(_SC_OPEN_MAX);
 #endif
-	pollfds = malloc(max_poll_elements * sizeof (struct lws_pollfd));
-	fd_lookup = malloc(max_poll_elements * sizeof (int));
+	pollfds = malloc((unsigned int)max_poll_elements * sizeof (struct lws_pollfd));
+	fd_lookup = malloc((unsigned int)max_poll_elements * sizeof (int));
 	if (pollfds == NULL || fd_lookup == NULL) {
 		lwsl_err("Out of memory pollfds=%d\n", max_poll_elements);
 		return -1;
@@ -699,7 +699,7 @@ int main(int argc, char **argv)
 		/* if needed, force-service wsis that may not have read all input */
 		n = lws_service_adjust_timeout(context, 5000, 0);
 
-		n = poll(pollfds, count_pollfds, n);
+		n = poll(pollfds, (nfds_t)count_pollfds, n);
 		if (n < 0)
 			continue;
 
