@@ -453,6 +453,9 @@ struct lws_context_creation_info {
 	int simultaneous_ssl_restriction;
 	/**< CONTEXT: 0 (no limit) or limit of simultaneous SSL sessions
 	 * possible.*/
+	int ssl_handshake_serialize;
+	/**< CONTEXT: 0 disables ssl handshake serialization (default).
+	 *            1 enables ssl handshake serialization. */
 	int ssl_info_event_mask;
 	/**< VHOST: mask of ssl events to be reported on LWS_CALLBACK_SSL_INFO
 	 * callback for connections on this vhost.  The mask values are of

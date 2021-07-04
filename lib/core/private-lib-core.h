@@ -685,6 +685,7 @@ struct lws_context {
 	unsigned int max_http_header_pool;
 	int simultaneous_ssl_restriction;
 	int simultaneous_ssl;
+	int ssl_handshake_serialize;
 #if defined(LWS_WITH_PEER_LIMITS)
 	uint32_t pl_hash_elements;	/* protected by context->lock */
 	uint32_t count_peers;		/* protected by context->lock */

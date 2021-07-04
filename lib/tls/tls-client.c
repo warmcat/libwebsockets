@@ -25,6 +25,43 @@
 #include "private-lib-core.h"
 
 static int
+lws_ssl_handshake_serialize(struct lws_context *ctx, struct lws *wsi)
+{
+	struct lws_vhost *vh = ctx->vhost_list;
+#if LWS_MAX_SMP > 1
+	int tsi = lws_pthread_self_to_tsi(ctx);
+#else
+	int tsi = 0;
+#endif
+	struct lws_context_per_thread *pt = &ctx->pt[tsi];
+	unsigned int n;
+
+	while (vh) {
+		for (n = 0; n < pt->fds_count; n++) {
+			struct lws *w = wsi_from_fd(ctx, pt->fds[n].fd);
+
+			if (!w || w->tsi != tsi || w->a.vhost != vh || wsi == w)
+				continue;
+
+			/* Now we found other vhost's wsi in process */
+			if (lwsi_role_mqtt(w)) {
+				/* MQTT TLS connection not established yet.
+				 * Let it finish.
+				 */
+				if (lwsi_state(w) != LRS_ESTABLISHED)
+					return 1;
+			} else {
+				/* H1/H2 not finished yet. Let it finish. */
+				if (lwsi_state(w) != LRS_DEAD_SOCKET)
+					return 1;
+			}
+		}
+		vh = vh->vhost_next;
+	}
+	return 0;
+}
+
+static int
 lws_ssl_client_connect1(struct lws *wsi, char *errbuf, size_t len)
 {
 	int n;
@@ -195,6 +232,14 @@ lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1)
 					return CCTLS_RETURN_ERROR;
 				}
 				wsi->tls_borrowed = 1;
+				if (wsi->a.context->ssl_handshake_serialize) {
+					if (lws_ssl_handshake_serialize(wsi->a.context, wsi)) {
+						lws_tls_restrict_return(wsi->a.context);
+						wsi->tls_borrowed = 0;
+						*pcce = "ssl handshake serialization";
+						return CCTLS_RETURN_ERROR;
+					}
+				}
 			}
 #endif
 		}
