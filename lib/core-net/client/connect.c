@@ -529,16 +529,16 @@ bail3:
 #endif
 
 bail:
+#if defined(LWS_WITH_TLS)
+	if (wsi->tls.ssl && wsi->tls_borrowed)
+		lws_tls_restrict_return(i->context);
+#endif
+
 	lws_free_set_NULL(wsi->stash);
 	lws_fi_destroy(&wsi->fic);
 	lws_free(wsi);
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 bail2:
-#endif
-
-#if defined(LWS_WITH_TLS)
-	if (wsi->tls.ssl)
-		lws_tls_restrict_return(i->context);
 #endif
 
 	if (i->pwsi)
