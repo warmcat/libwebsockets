@@ -699,6 +699,7 @@ struct lws_context {
 	unsigned int max_http_header_pool;
 	int simultaneous_ssl_restriction;
 	int simultaneous_ssl;
+	int ssl_handshake_serialize;
 #if defined(LWS_WITH_TLS_JIT_TRUST)
 	int		vh_idle_grace_ms;
 #endif
