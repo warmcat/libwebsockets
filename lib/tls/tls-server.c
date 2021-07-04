@@ -148,12 +148,14 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 			lwsl_err("%s: failed on ssl restriction\n", __func__);
 			return 1;
 		}
+		wsi->tls_borrowed = 1;
 
 		if (lws_tls_server_new_nonblocking(wsi, accept_fd)) {
 			lwsl_err("%s: failed on lws_tls_server_new_nonblocking\n", __func__);
 			if (accept_fd != LWS_SOCK_INVALID)
 				compatible_close(accept_fd);
-			lws_tls_restrict_return(context);
+			if (wsi->tls_borrowed)
+				lws_tls_restrict_return(context);
 			goto fail;
 		}
 

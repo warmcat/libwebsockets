@@ -465,7 +465,8 @@ lws_ssl_close(struct lws *wsi)
 	SSL_free(wsi->tls.ssl);
 	wsi->tls.ssl = NULL;
 
-	lws_tls_restrict_return(wsi->a.context);
+	if (wsi->tls_borrowed)
+		lws_tls_restrict_return(wsi->a.context);
 
 	// lwsl_notice("%s: ssl restr %d, simul %d\n", __func__,
 	//		wsi->a.context->simultaneous_ssl_restriction,
