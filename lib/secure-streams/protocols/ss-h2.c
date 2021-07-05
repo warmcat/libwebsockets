@@ -158,6 +158,9 @@ secstream_connect_munge_h2(lws_ss_handle_t *h, char *buf, size_t len,
 	if (h->policy->flags & LWSSSPOLF_HTTP_X_WWW_FORM_URLENCODED)
 		i->ssl_connection |= LCCSCF_HTTP_X_WWW_FORM_URLENCODED;
 
+	if (h->policy->flags & LWSSSPOLF_HTTP_CACHE_COOKIES)
+		i->ssl_connection |= LCCSCF_CACHE_COOKIES;
+
 	i->ssl_connection |= LCCSCF_PIPELINE;
 
 	i->alpn = "h2";

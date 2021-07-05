@@ -539,6 +539,9 @@ struct lws_context {
 	/**< Toplevel Fault Injection ctx */
 #endif
 
+#if defined(LWS_WITH_CACHE_NSCOOKIEJAR) && defined(LWS_WITH_CLIENT)
+	struct lws_cache_ttl_lru *l1, *nsc;
+#endif
 
 #if defined(LWS_WITH_SYS_NTPCLIENT)
 	void				*ntpclient_priv;
@@ -762,6 +765,13 @@ lws_jws_base64_enc(const char *in, size_t in_len, char *out, size_t out_max);
 void
 lws_vhost_destroy1(struct lws_vhost *vh);
 
+#if defined(LWS_WITH_CACHE_NSCOOKIEJAR) && defined(LWS_WITH_CLIENT)
+int
+lws_parse_set_cookie(struct lws *wsi);
+
+int
+lws_cookie_send_cookies(struct lws *wsi, char **pp, char *end);
+#endif
 
 #if defined(LWS_PLAT_FREERTOS)
 int
@@ -872,6 +882,9 @@ lws_vhost_protocol_options(struct lws_vhost *vh, const char *name);
 const struct lws_http_mount *
 lws_find_mount(struct lws *wsi, const char *uri_ptr, int uri_len);
 
+#ifdef LWS_WITH_HTTP2
+int lws_wsi_is_h2(struct lws *wsi);
+#endif
 /*
  * custom allocator
  */

@@ -634,6 +634,13 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		ah->http_response = 0;
 	}
 
+#if defined(LWS_WITH_CACHE_NSCOOKIEJAR) && defined(LWS_WITH_CLIENT)
+
+	if ((wsi->flags & LCCSCF_CACHE_COOKIES) &&
+	    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_SET_COOKIE))
+		lws_parse_set_cookie(wsi);
+
+#endif
 	/*
 	 * well, what the server sent looked reasonable for syntax.
 	 * Now let's confirm it sent all the necessary headers
@@ -1244,6 +1251,11 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 	}
 
 	/* give userland a chance to append, eg, cookies */
+
+#if defined(LWS_WITH_CACHE_NSCOOKIEJAR) && defined(LWS_WITH_CLIENT)
+	if (wsi->flags & LCCSCF_CACHE_COOKIES)
+		lws_cookie_send_cookies(wsi, &p, end);
+#endif
 
 	if (wsi->a.protocol->callback(wsi,
 			LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER,

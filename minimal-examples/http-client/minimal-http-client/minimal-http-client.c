@@ -279,6 +279,9 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 	if (lws_cmdline_option(a->argc, a->argv, "-k"))
 		i.ssl_connection |= LCCSCF_ALLOW_INSECURE;
 
+	if (lws_cmdline_option(a->argc, a->argv, "-b"))
+		i.ssl_connection |= LCCSCF_CACHE_COOKIES;
+
 	if (lws_cmdline_option(a->argc, a->argv, "-m"))
 		i.ssl_connection |= LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
 
@@ -361,6 +364,12 @@ int main(int argc, const char **argv)
 	info.user = &args;
 	info.register_notifier_list = na;
 	info.connect_timeout_secs = 30;
+
+#if defined(LWS_WITH_CACHE_NSCOOKIEJAR)
+	info.http_nsc_filepath = "./cookies.txt";
+	if ((p = lws_cmdline_option(argc, argv, "-c")))
+		info.http_nsc_filepath = p;
+#endif
 
 	/*
 	 * since we know this lws context is only ever going to be used with
