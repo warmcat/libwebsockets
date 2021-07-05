@@ -96,6 +96,9 @@ enum lws_client_connect_ssl_connection_flags {
 	LCCSCF_ACCEPT_TLS_DOWNGRADE_REDIRECTS	= (1 << 29),
 	/**< By default lws rejects https redirecting to http.  Set this
 	 * flag on the client connection to allow it. */
+	LCCSCF_CACHE_COOKIES			= (1 << 30),
+	/**< If built with -DLWS_WITH_CACHE_NSCOOKIEJAR, store and reapply
+	 * http cookies in a Netscape Cookie Jar on this connection */
 };
 
 /** struct lws_client_connect_info - parameters to connect with when using

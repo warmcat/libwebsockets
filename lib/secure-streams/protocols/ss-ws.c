@@ -218,6 +218,9 @@ secstream_connect_munge_ws(lws_ss_handle_t *h, char *buf, size_t len,
 	if (!pbasis)
 		return 0;
 
+	if (h->policy->flags & LWSSSPOLF_HTTP_CACHE_COOKIES)
+		i->ssl_connection |= LCCSCF_CACHE_COOKIES;
+
 	/* protocol aux is the path part ; ws subprotocol name */
 
 	i->path = buf;

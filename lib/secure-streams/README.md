@@ -621,6 +621,10 @@ The `content-type` to mark up the multipart mime section with if present
 
 Indicate the data is sent in `x-www-form-urlencoded` form
 
+### `http_cookies`
+
+This streamtype should store and bring out http cookies from the peer.
+
 ### `rideshare`
 
 For special cases where one logically separate stream travels with another when using this

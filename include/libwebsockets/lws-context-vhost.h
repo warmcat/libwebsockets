@@ -899,6 +899,21 @@ struct lws_context_creation_info {
 	/**< CONTEXT: NULL to use the default, process-scope logging context,
 	 * else a specific logging context to associate with this context */
 
+#if defined(LWS_WITH_CACHE_NSCOOKIEJAR) && defined(LWS_WITH_CLIENT)
+	const char				*http_nsc_filepath;
+	/**< CONTEXT: Filepath to use for http netscape cookiejar file */
+
+	size_t					http_nsc_heap_max_footprint;
+	/**< CONTEXT: 0, or limit in bytes for heap usage of memory cookie
+	 * cache */
+	size_t					http_nsc_heap_max_items;
+	/**< CONTEXT: 0, or the max number of items allowed in the cookie cache
+	 * before destroying lru items to keep it under the limit */
+	size_t					http_nsc_heap_max_payload;
+	/**< CONTEXT: 0, or the maximum size of a single cookie we are able to
+	 * handle */
+#endif
+
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
 	 *

@@ -356,8 +356,7 @@ lws_cache_heap_write(struct lws_cache_ttl_lru *_c, const char *specific_key,
 			 * matching rules at the backing store level
 			 */
 
-			if (!backing->info.ops->tag_match(backing, iname + 1,
-							  specific_key, 1))
+			if (!strcmp(iname + 1, specific_key))
 				_lws_cache_heap_item_destroy(cache, i);
 		}
 

@@ -386,6 +386,9 @@ lws_create_context(const struct lws_context_creation_info *info)
 	unsigned short count_threads = 1;
 	uint8_t *u;
 	uint16_t us_wait_resolution = 0;
+#if defined(LWS_WITH_CACHE_NSCOOKIEJAR) && defined(LWS_WITH_CLIENT)
+	struct lws_cache_creation_info ci;
+#endif
 
 #if defined(__ANDROID__)
 	struct rlimit rt;
@@ -411,6 +414,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if defined(LWS_WITH_LIBUV)
 	char fatal_exit_defer = 0;
 #endif
+
 
 	if (lws_fi(&info->fic, "ctx_createfail1"))
 		goto early_bail;
@@ -1374,6 +1378,34 @@ lws_create_context(const struct lws_context_creation_info *info)
 		}
 	}
 
+#if defined(LWS_WITH_CACHE_NSCOOKIEJAR) && defined(LWS_WITH_CLIENT)
+	if (info->http_nsc_filepath) {
+		memset(&ci, 0, sizeof(ci));
+
+		ci.cx			   = context;
+		ci.ops			   = &lws_cache_ops_nscookiejar;
+		ci.name			   = "NSC";
+		ci.u.nscookiejar.filepath  = info->http_nsc_filepath;
+
+		context->nsc = lws_cache_create(&ci);
+		if (!context->nsc)
+			goto bail;
+
+		ci.ops			  = &lws_cache_ops_heap;
+		ci.name			  = "L1";
+		ci.parent		  = context->nsc;
+		ci.max_footprint	  = info->http_nsc_heap_max_footprint;
+		ci.max_items		  = info->http_nsc_heap_max_items;
+		ci.max_payload		  = info->http_nsc_heap_max_payload;
+
+		context->l1 = lws_cache_create(&ci);
+		if (!context->l1) {
+			lwsl_err("Failed to init cookiejar");
+			goto bail;
+		}
+	}
+#endif
+
 #if defined(LWS_WITH_SECURE_STREAMS)
 
 #if !defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
@@ -2078,6 +2110,11 @@ next:
 #if defined(LWS_WITH_TLS_JIT_TRUST)
 		lws_cache_destroy(&context->trust_cache);
 		lws_tls_jit_trust_inflight_destroy_all(context);
+#endif
+
+#if defined(LWS_WITH_CACHE_NSCOOKIEJAR) && defined(LWS_WITH_CLIENT)
+		lws_cache_destroy(&context->nsc);
+		lws_cache_destroy(&context->l1);
 #endif
 
 #if defined(LWS_WITH_SYS_SMD)
