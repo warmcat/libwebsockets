@@ -85,7 +85,7 @@ nsc_backing_open_lock(lws_cache_nscookiejar_t *cache, int mode, const char *par)
 
 	do {
 		fd_lock = open(lock, LWS_O_CREAT | O_EXCL, 0600);
-		if (fd_lock != LWS_INVALID_FILE) {
+		if (fd_lock >= 0) {
 			close(fd_lock);
 			break;
 		}
@@ -93,16 +93,20 @@ nsc_backing_open_lock(lws_cache_nscookiejar_t *cache, int mode, const char *par)
 		if (!sanity--) {
 			lwsl_warn("%s: unable to lock %s: errno %d\n", __func__,
 					lock, errno);
-			return LWS_INVALID_FILE;
+			return -1;
 		}
 
+#if defined(WIN32)
+		Sleep(100);
+#else
 		usleep(100000);
+#endif
 	} while (1);
 
 	fd = open(cache->cache.info.u.nscookiejar.filepath,
 		      LWS_O_CREAT | mode, 0600);
 
-	if (fd == LWS_INVALID_FILE) {
+	if (fd == -1) {
 		lwsl_warn("%s: unable to open or create %s\n", __func__,
 				cache->cache.info.u.nscookiejar.filepath);
 		unlink(lock);
@@ -120,7 +124,8 @@ nsc_backing_close_unlock(lws_cache_nscookiejar_t *cache, int fd)
 
 	lws_snprintf(lock, sizeof(lock), "%s.LCK",
 			cache->cache.info.u.nscookiejar.filepath);
-	close(fd);
+	if (fd >= 0)
+		close(fd);
 	unlink(lock);
 }
 
@@ -148,7 +153,8 @@ nscookiejar_iterate(lws_cache_nscookiejar_t *cache, int fd,
 	int m = 0, n = 0, e, r = LCN_SOL, ignore = 0, ret = 0;
 	char temp[256], eof = 0;
 
-	lseek(fd, 0, SEEK_SET);
+	if (lseek(fd, 0, SEEK_SET) == (off_t)-1)
+		return -1;
 
 	do { /* for as many buffers in the file */
 
@@ -156,6 +162,7 @@ nscookiejar_iterate(lws_cache_nscookiejar_t *cache, int fd,
 
 		lwsl_debug("%s: n %d, m %d\n", __func__, n, m);
 
+read:
 		n1 = (int)read(fd, temp + m, sizeof(temp) - (size_t)m);
 
 		lwsl_debug("%s: n1 %d\n", __func__, n1);
@@ -198,6 +205,8 @@ nscookiejar_iterate(lws_cache_nscookiejar_t *cache, int fd,
 				ret = e;
 				goto bail;
 			}
+
+			goto read;
 		}
 
 		if (m) {
@@ -480,12 +489,13 @@ lws_cache_nscookiejar_lookup(struct lws_cache_ttl_lru *_c,
 	int ret, fd;
 
 	fd = nsc_backing_open_lock(cache, LWS_O_RDONLY, __func__);
-	if (fd == LWS_INVALID_FILE)
+	if (fd < 0)
 		return 1;
 
 	ctx.wildcard_key = wildcard_key;
 	ctx.results_owner = results_owner;
 	ctx.wklen = strlen(wildcard_key);
+	ctx.match = 0;
 
 	ret = nscookiejar_iterate(cache, fd, nsc_lookup_cb, &ctx);
 		/*
@@ -548,7 +558,7 @@ nsc_regen_cb(lws_cache_nscookiejar_t *cache, void *opaque, int flags,
 		    (expiry && cache->earliest_expiry > expiry))
 			cache->earliest_expiry = expiry;
 
-		if (expiry < ctx->curr)
+		if (expiry && expiry < ctx->curr)
 			/* routinely strip anything beyond its expiry */
 			goto drop;
 
@@ -570,7 +580,7 @@ nsc_regen_cb(lws_cache_nscookiejar_t *cache, void *opaque, int flags,
 
 	cache->cache.current_footprint += (uint64_t)size;
 
-	if ((size_t)write(ctx->fdt, buf, size) != size)
+	if (write(ctx->fdt, buf, /*msvc*/(unsigned int)size) != (ssize_t)size)
 		return NIR_FINISH_ERROR;
 
 	if (flags & LCN_EOL)
@@ -594,7 +604,7 @@ nsc_regen(lws_cache_nscookiejar_t *cache, const char *wc_delete,
 	int fd, ret = 1;
 
 	fd = nsc_backing_open_lock(cache, LWS_O_RDONLY, __func__);
-	if (fd == LWS_INVALID_FILE)
+	if (fd < 0)
 		return 1;
 
 	lws_snprintf(filepath, sizeof(filepath), "%s.tmp",
@@ -605,7 +615,7 @@ nsc_regen(lws_cache_nscookiejar_t *cache, const char *wc_delete,
 		goto bail;
 
 	ctx.fdt = open(filepath, LWS_O_CREAT | LWS_O_WRONLY, 0600);
-	if (ctx.fdt == LWS_INVALID_FILE)
+	if (ctx.fdt < 0)
 		goto bail;
 
 	/* magic header */
@@ -617,9 +627,11 @@ nsc_regen(lws_cache_nscookiejar_t *cache, const char *wc_delete,
 
 	/* if we are adding something, put it first */
 
-	if (pay && (size_t)write(ctx.fdt, pay, pay_size) != pay_size)
+	if (pay &&
+	    write(ctx.fdt, pay, /*msvc*/(unsigned int)pay_size) !=
+						    (ssize_t)pay_size)
 		goto bail1;
-	if (pay && (size_t)write(ctx.fdt, "\n", 1) != 1)
+	if (pay && write(ctx.fdt, "\n", 1u) != (ssize_t)1)
 		goto bail1;
 
 	cache->cache.current_footprint = 0;
@@ -637,19 +649,25 @@ nsc_regen(lws_cache_nscookiejar_t *cache, const char *wc_delete,
 		goto bail1;
 
 	close(ctx.fdt);
+	ctx.fdt = -1;
 
-	unlink(cache->cache.info.u.nscookiejar.filepath);
-	rename(filepath, cache->cache.info.u.nscookiejar.filepath);
+	if (unlink(cache->cache.info.u.nscookiejar.filepath) == -1)
+		lwsl_info("%s: unlink %s failed\n", __func__,
+			  cache->cache.info.u.nscookiejar.filepath);
+	if (rename(filepath, cache->cache.info.u.nscookiejar.filepath) == -1)
+		lwsl_info("%s: rename %s failed\n", __func__,
+			  cache->cache.info.u.nscookiejar.filepath);
 
 	if (cache->earliest_expiry)
 		lws_cache_schedule(&cache->cache, expiry_cb,
 				   cache->earliest_expiry);
 
 	ret = 0;
-	goto bail1;
+	goto bail;
 
 bail1:
-	close(ctx.fdt);
+	if (ctx.fdt >= 0)
+		close(ctx.fdt);
 bail:
 	unlink(filepath);
 
@@ -815,7 +833,7 @@ lws_cache_nscookiejar_get(struct lws_cache_ttl_lru *_c,
 	int ret, fd;
 
 	fd = nsc_backing_open_lock(cache, LWS_O_RDONLY, __func__);
-	if (fd == LWS_INVALID_FILE)
+	if (fd < 0)
 		return 1;
 
 	/* get a pointer to l1 */
@@ -915,7 +933,7 @@ lws_cache_nscookiejar_debug_dump(struct lws_cache_ttl_lru *_c)
 	lws_cache_nscookiejar_t *cache = (lws_cache_nscookiejar_t *)_c;
 	int fd = nsc_backing_open_lock(cache, LWS_O_RDONLY, __func__);
 
-	if (fd == LWS_INVALID_FILE)
+	if (fd < 0)
 		return;
 
 	lwsl_cache("%s: %s\n", __func__, _c->info.name);

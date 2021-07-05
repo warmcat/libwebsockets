@@ -170,7 +170,7 @@ static int
 test_nsc1(void)
 {
 	struct lws_cache_creation_info ci;
-	struct lws_cache_ttl_lru *l1, *nsc;
+	struct lws_cache_ttl_lru *l1 = NULL, *nsc;
 	lws_cache_results_t cr;
 	int n, ret = 1;
 	size_t size;

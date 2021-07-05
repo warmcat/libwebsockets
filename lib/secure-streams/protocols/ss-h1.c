@@ -1114,6 +1114,9 @@ secstream_connect_munge_h1(lws_ss_handle_t *h, char *buf, size_t len,
 		i->ssl_connection |= LCCSCF_HTTP_X_WWW_FORM_URLENCODED;
 #endif
 
+	if (h->policy->flags & LWSSSPOLF_HTTP_CACHE_COOKIES)
+		i->ssl_connection |= LCCSCF_CACHE_COOKIES;
+
 	/* protocol aux is the path part */
 
 	i->path = buf;
