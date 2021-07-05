@@ -279,7 +279,11 @@ option(LWS_WITH_SUL_DEBUGGING "Enable zombie lws_sul checking on object deletion
 option(LWS_WITH_PLUGINS_API "Build generic lws_plugins apis (see LWS_WITH_PLUGINS to also build protocol plugins)" OFF)
 option(LWS_WITH_CONMON "Collect introspectable connection latency stats on individual client connections" ON)
 option(LWS_WITHOUT_EVENTFD "Force using pipe instead of eventfd" OFF)
-option(LWS_WITH_CACHE_NSCOOKIEJAR "Build file-backed lws-cache-ttl that uses netscape cookie jar format (linux-only)" OFF)
+if (UNIX OR WIN32)
+	option(LWS_WITH_CACHE_NSCOOKIEJAR "Build file-backed lws-cache-ttl that uses netscape cookie jar format (linux-only)" ON)
+else()
+	option(LWS_WITH_CACHE_NSCOOKIEJAR "Build file-backed lws-cache-ttl that uses netscape cookie jar format (linux-only)" OFF)
+endif()
 
 if (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
 	option(LWS_WITH_NETLINK "Monitor Netlink for Routing Table changes" ON)

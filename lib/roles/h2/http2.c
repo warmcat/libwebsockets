@@ -2619,6 +2619,11 @@ lws_h2_client_handshake(struct lws *wsi)
 
 	/* give userland a chance to append, eg, cookies */
 
+#if defined(LWS_WITH_CACHE_NSCOOKIEJAR) && defined(LWS_WITH_CLIENT)
+	if (wsi->flags & LCCSCF_CACHE_COOKIES)
+		lws_cookie_send_cookies(wsi, (char **)&p, (char *)end);
+#endif
+
 	if (wsi->a.protocol->callback(wsi,
 				LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER,
 				wsi->user_space, &p, lws_ptr_diff_size_t(end, p) - 12))
