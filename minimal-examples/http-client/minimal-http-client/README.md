@@ -21,6 +21,8 @@ Commandline option|Meaning
 -j|Apply tls option LCCSCF_ALLOW_SELFSIGNED
 -m|Apply tls option LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK
 -e|Apply tls option LCCSCF_ALLOW_EXPIRED
+-b|Apply tls option LCCSCF_CACHE_COOKIES
+-c <cookie jar file>|Set filepath used for cookie jar
 -v|Connection validity use 3s / 10s instead of default 5m / 5m10s
 --nossl| disable ssl connection
 --user <username>| Set Basic Auth username

@@ -160,6 +160,8 @@ enum {
 	/**< capture and report performace information */
 	LWSSSPOLF_DIRECT_PROTO_STR				= (1 << 23),
 	/**< metadata as direct protocol string, e.g. http header */
+	LWSSSPOLF_HTTP_CACHE_COOKIES				= (1 << 24),
+	/**< Record http cookies and pass them back on future requests */
 
 };
 

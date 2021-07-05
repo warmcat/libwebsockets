@@ -98,6 +98,7 @@ static const char * const lejp_tokens_policy[] = {
 	"s[].*.http_mime_content_type",
 	"s[].*.http_www_form_urlencoded",
 	"s[].*.http_expect",
+	"s[].*.http_cookies",
 	"s[].*.http_fail_redirect",
 	"s[].*.http_multipart_ss_in",
 	"s[].*.ws_subprotocol",
@@ -199,6 +200,7 @@ typedef enum {
 	LSSPPT_HTTP_MULTIPART_CONTENT_TYPE,
 	LSSPPT_HTTP_WWW_FORM_URLENCODED,
 	LSSPPT_HTTP_EXPECT,
+	LSSPPT_HTTP_COOKIES,
 	LSSPPT_HTTP_FAIL_REDIRECT,
 	LSSPPT_HTTP_MULTIPART_SS_IN,
 	LSSPPT_WS_SUBPROTOCOL,
@@ -770,6 +772,11 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		if (reason == LEJPCB_VAL_TRUE)
 			a->curr[LTY_POLICY].p->flags |=
 						LWSSSPOLF_ALLOW_REDIRECTS;
+		break;
+	case LSSPPT_HTTP_COOKIES:
+		if (reason == LEJPCB_VAL_TRUE)
+			a->curr[LTY_POLICY].p->flags |=
+						LWSSSPOLF_HTTP_CACHE_COOKIES;
 		break;
 	case LSSPPT_HTTP_MULTIPART_SS_IN:
 		if (reason == LEJPCB_VAL_TRUE)

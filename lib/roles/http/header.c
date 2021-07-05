@@ -52,7 +52,7 @@ lws_http_string_to_known_header(const char *s, size_t slen)
 }
 
 #ifdef LWS_WITH_HTTP2
-static int
+int
 lws_wsi_is_h2(struct lws *wsi)
 {
 	return wsi->upgraded_to_http2 ||
@@ -87,7 +87,8 @@ lws_add_http_header_by_name(struct lws *wsi, const unsigned char *name,
 	if (*p + length + 3 >= end)
 		return 1;
 
-	memcpy(*p, value, (unsigned int)length);
+	if (value)
+		memcpy(*p, value, (unsigned int)length);
 	*p += length;
 	*((*p)++) = '\x0d';
 	*((*p)++) = '\x0a';

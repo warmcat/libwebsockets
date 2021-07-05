@@ -1398,11 +1398,15 @@ int lws_add_http2_header_by_name(struct lws *wsi, const unsigned char *name,
 #if defined(_DEBUG)
 	/* value does not have to be NUL-terminated... %.*s not available on
 	 * all platforms */
-	lws_strnncpy((char *)*p, (const char *)value, length,
-			lws_ptr_diff(end, (*p)));
+	if (value) {
+		lws_strnncpy((char *)*p, (const char *)value, length,
+				lws_ptr_diff(end, (*p)));
 
-	lwsl_header("%s: %p  %s:%s (len %d)\n", __func__, *p, name,
-			(const char *)*p, length);
+		lwsl_header("%s: %p  %s:%s (len %d)\n", __func__, *p, name,
+				(const char *)*p, length);
+	} else {
+		lwsl_err("%s: %p dummy copy %s (len %d)\n", __func__, *p, name, length);
+	}
 #endif
 
 	len = (int)strlen((char *)name);
@@ -1436,7 +1440,8 @@ int lws_add_http2_header_by_name(struct lws *wsi, const unsigned char *name,
 	if (lws_h2_num(7, (unsigned long)length, p, end))
 		return 1;
 
-	memcpy(*p, value, (unsigned int)length);
+	if (value)
+		memcpy(*p, value, (unsigned int)length);
 	*p += length;
 
 	return 0;
