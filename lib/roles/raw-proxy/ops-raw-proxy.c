@@ -48,6 +48,9 @@ rops_handle_POLLIN_raw_proxy(struct lws_context_per_thread *pt, struct lws *wsi,
 		return LWS_HPI_RET_HANDLED;
 	}
 
+	if (lwsi_state(wsi) == LRS_WAITING_CONNECT)
+		goto try_pollout;
+
 	if ((pollfd->revents & pollfd->events & LWS_POLLIN) &&
 	    /* any tunnel has to have been established... */
 	    lwsi_state(wsi) != LRS_SSL_ACK_PENDING &&
