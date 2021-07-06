@@ -156,6 +156,9 @@ lws_role_call_adoption_bind(struct lws *wsi, int type, const char *prot)
 			lwsl_err("%s: can't find role '%s'\n", __func__,
 				  wsi->a.vhost->listen_accept_role);
 
+		if (!strcmp(wsi->a.vhost->listen_accept_role, "raw-proxy"))
+			type |= LWS_ADOPT_FLAG_RAW_PROXY;
+
 		if (role && lws_rops_fidx(role, LWS_ROPS_adoption_bind)) {
 			n = (lws_rops_func_fidx(role, LWS_ROPS_adoption_bind)).
 						adoption_bind(wsi, type, prot);
