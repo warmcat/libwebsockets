@@ -25,7 +25,9 @@
 #include "lws_config.h"
 #ifdef LWS_HAVE_X509_VERIFY_PARAM_set1_host
 /* Before glibc 2.10, strnlen required _GNU_SOURCE */
+#if !defined(_GNU_SOURCE)
 #define _GNU_SOURCE
+#endif
 #endif
 #include <string.h>
 
