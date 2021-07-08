@@ -540,6 +540,10 @@ secstream_connect_munge_mqtt(lws_ss_handle_t *h, char *buf, size_t len,
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(sources); n++) {
 		lws_strexp_init(&exp, (void *)h, lws_ss_exp_cb_metadata,
 				(char *)p, (size_t)-1);
+		if (!sources[n]) {
+			ps[n] = NULL;
+			continue;
+		}
 		ps[n] = (char *)p;
 		if (lws_strexp_expand(&exp, sources[n], strlen(sources[n]),
 				      &used_in, &olen[n]) != LSTRX_DONE)
