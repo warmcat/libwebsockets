@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2021 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -22,13 +22,7 @@
  * IN THE SOFTWARE.
  */
 
-#if defined(LWS_WITH_GLIB)
-#if defined(__APPLE__)
 #include <glib.h>
-#else
-#include <glib-2.0/glib.h>
-#endif
-#endif /* LWS_WITH_GLIB */
 
 typedef struct lws_glib_tag {
 	GSource			*gs;
