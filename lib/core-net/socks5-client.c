@@ -266,7 +266,7 @@ lws_socks5c_handle_state(struct lws *wsi, struct lws_pollfd *pollfd,
 		return LW5CHS_RET_BAIL3;
 	}
 
-	n = (int)recv(wsi->desc.sockfd, pt->serv_buf,
+	n = (int)recv(wsi->desc.sockfd, (void *)pt->serv_buf,
 		 wsi->a.context->pt_serv_buf_size, 0);
 	if (n < 0) {
 		if (LWS_ERRNO == LWS_EAGAIN) {
