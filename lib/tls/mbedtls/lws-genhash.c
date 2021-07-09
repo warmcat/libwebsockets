@@ -27,7 +27,22 @@
 #include "libwebsockets.h"
 #include <mbedtls/version.h>
 
-#if (MBEDTLS_VERSION_NUMBER >= 0x02070000)
+#if defined(MBEDTLS_VERSION_NUMBER) && (MBEDTLS_VERSION_NUMBER >= 0x03000000)
+#define mbedtls_md5_starts_ret mbedtls_md5_starts
+#define mbedtls_md5_update_ret mbedtls_md5_update
+#define mbedtls_md5_finish_ret mbedtls_md5_finish
+#define mbedtls_sha1_finish_ret mbedtls_sha1_finish
+#define mbedtls_sha1_update_ret mbedtls_sha1_update
+#define mbedtls_sha1_starts_ret mbedtls_sha1_starts
+#define mbedtls_sha256_starts_ret mbedtls_sha256_starts
+#define mbedtls_sha256_update_ret mbedtls_sha256_update
+#define mbedtls_sha256_finish_ret mbedtls_sha256_finish
+#define mbedtls_sha512_starts_ret mbedtls_sha512_starts
+#define mbedtls_sha512_update_ret mbedtls_sha512_update
+#define mbedtls_sha512_finish_ret mbedtls_sha512_finish
+#endif
+
+#if defined(MBEDTLS_VERSION_NUMBER) && (MBEDTLS_VERSION_NUMBER >= 0x02070000)
 
 /*
  * We have the _ret variants available, check the return codes on everything

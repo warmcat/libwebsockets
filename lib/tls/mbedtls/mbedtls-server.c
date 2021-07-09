@@ -190,7 +190,7 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 	lws_filepos_t flen;
 	int n;
 
-	vhost->tls.ssl_ctx = SSL_CTX_new(method);	/* create context */
+	vhost->tls.ssl_ctx = SSL_CTX_new(method, &vhost->context->mcdc);	/* create context */
 	if (!vhost->tls.ssl_ctx) {
 		lwsl_err("problem creating ssl context\n");
 		return 1;

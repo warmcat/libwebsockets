@@ -663,8 +663,8 @@ lws_x509_jwk_privkey_pem_pp_cb(char *buf, int size, int rwflag, void *u)
 }
 
 int
-lws_x509_jwk_privkey_pem(struct lws_jwk *jwk, void *pem, size_t len,
-			 const char *passphrase)
+lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
+			 void *pem, size_t len, const char *passphrase)
 {
 	BIO* bio = BIO_new(BIO_s_mem());
 	BIGNUM *mpi, *dummy[6];

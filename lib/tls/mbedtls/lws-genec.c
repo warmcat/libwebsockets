@@ -27,6 +27,15 @@
 #include "private-lib-core.h"
 #include "private-lib-tls-mbedtls.h"
 
+#if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000
+#define ECDHCTX(_c, _ins) _c->u.ctx_ecdh->MBEDTLS_PRIVATE(ctx).\
+			MBEDTLS_PRIVATE(mbed_ecdh).MBEDTLS_PRIVATE(_ins)
+#define ECDSACTX(_c, _ins) _c->u.ctx_ecdsa->MBEDTLS_PRIVATE(_ins)
+#else
+#define ECDHCTX(_c, _ins) _c->u.ctx_ecdh->_ins
+#define ECDSACTX(_c, _ins) _c->u.ctx_ecdsa->_ins
+#endif
+
 const struct lws_ec_curves lws_ec_curves[] = {
 	/*
 	 * These are the curves we are willing to use by default...
@@ -76,7 +85,8 @@ lws_genec_keypair_import(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 		return -23;
 
 	mbedtls_ecp_keypair_init(&kp);
-	if (mbedtls_ecp_group_load(&kp.grp, (mbedtls_ecp_group_id)curve->tls_lib_nid))
+	if (mbedtls_ecp_group_load(&kp.MBEDTLS_PRIVATE(grp),
+				   (mbedtls_ecp_group_id)curve->tls_lib_nid))
 		goto bail1;
 
 	ctx->has_private = !!el[LWS_GENCRYPTO_EC_KEYEL_D].len;
@@ -84,21 +94,24 @@ lws_genec_keypair_import(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 	/* d (the private key) is directly an mpi */
 
 	if (ctx->has_private &&
-	    mbedtls_mpi_read_binary(&kp.d, el[LWS_GENCRYPTO_EC_KEYEL_D].buf,
+	    mbedtls_mpi_read_binary(&kp.MBEDTLS_PRIVATE(d),
+				    el[LWS_GENCRYPTO_EC_KEYEL_D].buf,
 				    el[LWS_GENCRYPTO_EC_KEYEL_D].len))
 		goto bail1;
 
-	mbedtls_ecp_set_zero(&kp.Q);
+	mbedtls_ecp_set_zero(&kp.MBEDTLS_PRIVATE(Q));
 
-	if (mbedtls_mpi_read_binary(&kp.Q.X, el[LWS_GENCRYPTO_EC_KEYEL_X].buf,
+	if (mbedtls_mpi_read_binary(&kp.MBEDTLS_PRIVATE(Q).MBEDTLS_PRIVATE(X),
+				    el[LWS_GENCRYPTO_EC_KEYEL_X].buf,
 				    el[LWS_GENCRYPTO_EC_KEYEL_X].len))
 		goto bail1;
 
-	if (mbedtls_mpi_read_binary(&kp.Q.Y, el[LWS_GENCRYPTO_EC_KEYEL_Y].buf,
+	if (mbedtls_mpi_read_binary(&kp.MBEDTLS_PRIVATE(Q).MBEDTLS_PRIVATE(Y),
+				    el[LWS_GENCRYPTO_EC_KEYEL_Y].buf,
 				    el[LWS_GENCRYPTO_EC_KEYEL_Y].len))
 		goto bail1;
 
-	mbedtls_mpi_lset(&kp.Q.Z, 1);
+	mbedtls_mpi_lset(&kp.MBEDTLS_PRIVATE(Q).MBEDTLS_PRIVATE(Z), 1);
 
 	switch (ctx->genec_alg) {
 	case LEGENEC_ECDH:
@@ -107,11 +120,11 @@ lws_genec_keypair_import(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 			goto bail1;
 		/* verify the key is consistent with the claimed curve */
 		if (ctx->has_private &&
-		    mbedtls_ecp_check_privkey(&ctx->u.ctx_ecdh->grp,
-					      &ctx->u.ctx_ecdh->d))
+		    mbedtls_ecp_check_privkey(&ECDHCTX(ctx, grp),
+					      &ECDHCTX(ctx, d)))
 			goto bail1;
-		if (mbedtls_ecp_check_pubkey(&ctx->u.ctx_ecdh->grp,
-					     &ctx->u.ctx_ecdh->Q))
+		if (mbedtls_ecp_check_pubkey(&ECDHCTX(ctx, grp),
+					     &ECDHCTX(ctx, Q)))
 			goto bail1;
 		break;
 	case LEGENEC_ECDSA:
@@ -119,11 +132,11 @@ lws_genec_keypair_import(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 			goto bail1;
 		/* verify the key is consistent with the claimed curve */
 		if (ctx->has_private &&
-		    mbedtls_ecp_check_privkey(&ctx->u.ctx_ecdsa->grp,
-					      &ctx->u.ctx_ecdsa->d))
+		    mbedtls_ecp_check_privkey(&ECDSACTX(ctx, grp),
+					      &ECDSACTX(ctx, d)))
 			goto bail1;
-		if (mbedtls_ecp_check_pubkey(&ctx->u.ctx_ecdsa->grp,
-					     &ctx->u.ctx_ecdsa->Q))
+		if (mbedtls_ecp_check_pubkey(&ECDSACTX(ctx, grp),
+					     &ECDSACTX(ctx, Q)))
 			goto bail1;
 		break;
 	default:
@@ -265,9 +278,9 @@ lws_genecdh_new_keypair(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 	 * lws_gencrypto_keyelem, so they can be serialized, used in jwk etc
 	 */
 
-	mpi[0] = &kp->Q.X;
-	mpi[1] = &kp->d;
-	mpi[2] = &kp->Q.Y;
+	mpi[0] = &kp->MBEDTLS_PRIVATE(Q).MBEDTLS_PRIVATE(X);
+	mpi[1] = &kp->MBEDTLS_PRIVATE(d);
+	mpi[2] = &kp->MBEDTLS_PRIVATE(Q).MBEDTLS_PRIVATE(Y);
 
 	el[LWS_GENCRYPTO_EC_KEYEL_CRV].len = (uint32_t)strlen(curve_name) + 1;
 	el[LWS_GENCRYPTO_EC_KEYEL_CRV].buf =
@@ -339,9 +352,9 @@ lws_genecdsa_new_keypair(struct lws_genec_ctx *ctx, const char *curve_name,
 
 	kp = (mbedtls_ecp_keypair *)ctx->u.ctx_ecdsa;
 
-	mpi[0] = &kp->Q.X;
-	mpi[1] = &kp->d;
-	mpi[2] = &kp->Q.Y;
+	mpi[0] = &kp->MBEDTLS_PRIVATE(Q).MBEDTLS_PRIVATE(X);
+	mpi[1] = &kp->MBEDTLS_PRIVATE(d);
+	mpi[2] = &kp->MBEDTLS_PRIVATE(Q).MBEDTLS_PRIVATE(Y);
 
 	el[LWS_GENCRYPTO_EC_KEYEL_CRV].len = (uint32_t)strlen(curve_name) + 1;
 	el[LWS_GENCRYPTO_EC_KEYEL_CRV].buf =
@@ -412,8 +425,8 @@ lws_genecdsa_hash_sign_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
 	mbedtls_mpi_init(&mpi_r);
 	mbedtls_mpi_init(&mpi_s);
 
-	n = mbedtls_ecdsa_sign(&ctx->u.ctx_ecdsa->grp, &mpi_r, &mpi_s,
-			       &ctx->u.ctx_ecdsa->d, in, hlen,
+	n = mbedtls_ecdsa_sign(&ECDSACTX(ctx, grp), &mpi_r, &mpi_s,
+			       &ECDSACTX(ctx, d), in, hlen,
 			lws_gencrypto_mbedtls_rngf, ctx->context);
 	if (n) {
 		lwsl_err("%s: mbedtls_ecdsa_sign failed: -0x%x\n",
@@ -476,8 +489,8 @@ lws_genecdsa_hash_sig_verify_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
 	if (mbedtls_mpi_read_binary(&mpi_s, sig + keybytes, (unsigned int)keybytes))
 		goto bail1;
 
-	n = mbedtls_ecdsa_verify(&ctx->u.ctx_ecdsa->grp, in, hlen,
-				 &ctx->u.ctx_ecdsa->Q, &mpi_r, &mpi_s);
+	n = mbedtls_ecdsa_verify(&ECDSACTX(ctx, grp), in, hlen,
+				 &ECDSACTX(ctx, Q), &mpi_r, &mpi_s);
 
 	mbedtls_mpi_free(&mpi_s);
 	mbedtls_mpi_free(&mpi_r);
@@ -504,8 +517,8 @@ lws_genecdh_compute_shared_secret(struct lws_genec_ctx *ctx, uint8_t *ss,
 {
 	int n;
 	size_t st;
-	if (mbedtls_ecp_check_pubkey(&ctx->u.ctx_ecdh->grp, &ctx->u.ctx_ecdh->Q) ||
-	    mbedtls_ecp_check_pubkey(&ctx->u.ctx_ecdh->grp, &ctx->u.ctx_ecdh->Qp)) {
+	if (mbedtls_ecp_check_pubkey(&ECDHCTX(ctx, grp), &ECDHCTX(ctx, Q)) ||
+	    mbedtls_ecp_check_pubkey(&ECDHCTX(ctx, grp), &ECDHCTX(ctx, Qp))) {
 		lwsl_err("%s: both sides must be set up\n", __func__);
 
 		return -1;

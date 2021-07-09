@@ -185,7 +185,7 @@ const char *mbedtls_client_preload_filepath;
 /**
  * @brief create a SSL context
  */
-SSL_CTX* SSL_CTX_new(const SSL_METHOD *method)
+SSL_CTX* SSL_CTX_new(const SSL_METHOD *method, void *rngctx)
 {
     SSL_CTX *ctx;
     CERT *cert;
@@ -205,7 +205,7 @@ SSL_CTX* SSL_CTX_new(const SSL_METHOD *method)
         goto failed1;
     }
 
-    cert = ssl_cert_new();
+    cert = ssl_cert_new(rngctx);
     if (!cert) {
         SSL_DEBUG(SSL_LIB_ERROR_LEVEL, "ssl_cert_new() return NULL");
         goto failed2;
@@ -220,6 +220,7 @@ SSL_CTX* SSL_CTX_new(const SSL_METHOD *method)
     ctx->method = method;
     ctx->client_CA = client_ca;
     ctx->cert = cert;
+    ctx->rngctx = rngctx;
 
     ctx->version = method->version;
 
@@ -316,7 +317,7 @@ SSL *SSL_new(SSL_CTX *ctx)
         goto failed2;
     }
 
-    ssl->cert = __ssl_cert_new(ctx->cert);
+    ssl->cert = __ssl_cert_new(ctx->cert, ctx->rngctx);
     if (!ssl->cert) {
         SSL_DEBUG(SSL_LIB_ERROR_LEVEL, "__ssl_cert_new() return NULL");
         goto failed3;

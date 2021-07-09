@@ -166,7 +166,8 @@ int main(int argc, const char **argv)
 
 			goto bail3;
 		}
-		if (lws_x509_jwk_privkey_pem(&jwk, pembuf, (unsigned int)n, NULL)) {
+		if (lws_x509_jwk_privkey_pem(context, &jwk, pembuf,
+						(unsigned int)n, NULL)) {
 			lwsl_err("%s: unable to parse privkey %s\n",
 					__func__, p);
 
