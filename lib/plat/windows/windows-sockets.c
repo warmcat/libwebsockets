@@ -200,6 +200,9 @@ lws_plat_insert_socket_into_fds(struct lws_context *context, struct lws *wsi)
 	}
 #endif
 
+	if (context->event_loop_ops->io)
+		context->event_loop_ops->io(wsi, LWS_EV_START | LWS_EV_READ);
+
 	pt->fds[pt->fds_count++].revents = 0;
 
 	lws_plat_change_pollfd(context, wsi, &pt->fds[pt->fds_count - 1]);
