@@ -60,7 +60,7 @@
  *
  * @return the context point
  */
-SSL_CTX* SSL_CTX_new(const SSL_METHOD *method);
+SSL_CTX* SSL_CTX_new(const SSL_METHOD *method, void *rngctx);
 
 /**
  * @brief free a SSL context

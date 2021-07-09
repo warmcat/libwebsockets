@@ -617,7 +617,7 @@ struct lws_context {
 	const char *username, *groupname;
 #endif
 
-#if defined(LWS_AMAZON_RTOS) && defined(LWS_WITH_MBEDTLS)
+#if defined(LWS_WITH_MBEDTLS)
 	mbedtls_entropy_context mec;
 	mbedtls_ctr_drbg_context mcdc;
 #endif

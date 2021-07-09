@@ -28,7 +28,7 @@
  *
  * @return certification object point
  */
-CERT *__ssl_cert_new(CERT *ic);
+CERT *__ssl_cert_new(CERT *ic, void *rngctx);
 
 /**
  * @brief create a certification object include private key object
@@ -37,7 +37,7 @@ CERT *__ssl_cert_new(CERT *ic);
  *
  * @return certification object point
  */
-CERT* ssl_cert_new(void);
+CERT* ssl_cert_new(void *rngctx);
 
 /**
  * @brief free a certification object
