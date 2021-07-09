@@ -49,17 +49,17 @@ lws_tls_mbedtls_time_to_unix(mbedtls_x509_time *xtime)
 {
 	struct tm t;
 
-	if (!xtime || !xtime->year || xtime->year < 0)
+	if (!xtime || !xtime->MBEDTLS_PRIVATE(year) || xtime->MBEDTLS_PRIVATE(year) < 0)
 		return (time_t)(long long)-1;
 
 	memset(&t, 0, sizeof(t));
 
-	t.tm_year = xtime->year - 1900;
-	t.tm_mon = xtime->mon - 1; /* mbedtls months are 1+, tm are 0+ */
-	t.tm_mday = xtime->day - 1; /* mbedtls days are 1+, tm are 0+ */
-	t.tm_hour = xtime->hour;
-	t.tm_min = xtime->min;
-	t.tm_sec = xtime->sec;
+	t.tm_year = xtime->MBEDTLS_PRIVATE(year) - 1900;
+	t.tm_mon = xtime->MBEDTLS_PRIVATE(mon) - 1; /* mbedtls months are 1+, tm are 0+ */
+	t.tm_mday = xtime->MBEDTLS_PRIVATE(day) - 1; /* mbedtls days are 1+, tm are 0+ */
+	t.tm_hour = xtime->MBEDTLS_PRIVATE(hour);
+	t.tm_min = xtime->MBEDTLS_PRIVATE(min);
+	t.tm_sec = xtime->MBEDTLS_PRIVATE(sec);
 	t.tm_isdst = -1;
 
 	return mktime(&t);
@@ -81,12 +81,13 @@ lws_tls_mbedtls_get_x509_name(mbedtls_x509_name *name,
 		}
 */
 		lws_strnncpy(&buf->ns.name[buf->ns.len],
-			     (const char *)name->val.p,
-			     name->val.len, len - (size_t)buf->ns.len);
+			     (const char *)name->MBEDTLS_PRIVATE(val).MBEDTLS_PRIVATE(p),
+			     name->MBEDTLS_PRIVATE(val).MBEDTLS_PRIVATE(len),
+			     len - (size_t)buf->ns.len);
 		buf->ns.len = (int)strlen(buf->ns.name);
 
 		r = 0;
-		name = name->next;
+		name = name->MBEDTLS_PRIVATE(next);
 	}
 
 	return r;
@@ -108,25 +109,25 @@ lws_tls_mbedtls_cert_info(mbedtls_x509_crt *x509, enum lws_tls_cert_info type,
 
 	switch (type) {
 	case LWS_TLS_CERT_INFO_VALIDITY_FROM:
-		buf->time = lws_tls_mbedtls_time_to_unix(&x509->valid_from);
+		buf->time = lws_tls_mbedtls_time_to_unix(&x509->MBEDTLS_PRIVATE(valid_from));
 		if (buf->time == (time_t)(long long)-1)
 			return -1;
 		break;
 
 	case LWS_TLS_CERT_INFO_VALIDITY_TO:
-		buf->time = lws_tls_mbedtls_time_to_unix(&x509->valid_to);
+		buf->time = lws_tls_mbedtls_time_to_unix(&x509->MBEDTLS_PRIVATE(valid_to));
 		if (buf->time == (time_t)(long long)-1)
 			return -1;
 		break;
 
 	case LWS_TLS_CERT_INFO_COMMON_NAME:
-		return lws_tls_mbedtls_get_x509_name(&x509->subject, buf, len);
+		return lws_tls_mbedtls_get_x509_name(&x509->MBEDTLS_PRIVATE(subject), buf, len);
 
 	case LWS_TLS_CERT_INFO_ISSUER_NAME:
-		return lws_tls_mbedtls_get_x509_name(&x509->issuer, buf, len);
+		return lws_tls_mbedtls_get_x509_name(&x509->MBEDTLS_PRIVATE(issuer), buf, len);
 
 	case LWS_TLS_CERT_INFO_USAGE:
-		buf->usage = x509->key_usage;
+		buf->usage = x509->MBEDTLS_PRIVATE(key_usage);
 		break;
 
 	case LWS_TLS_CERT_INFO_OPAQUE_PUBLIC_KEY:
@@ -134,16 +135,16 @@ lws_tls_mbedtls_cert_info(mbedtls_x509_crt *x509, enum lws_tls_cert_info type,
 		char *p = buf->ns.name;
 		size_t r = len, u;
 
-		switch (mbedtls_pk_get_type(&x509->pk)) {
+		switch (mbedtls_pk_get_type(&x509->MBEDTLS_PRIVATE(pk))) {
 		case MBEDTLS_PK_RSA:
 		{
-			mbedtls_rsa_context *rsa = mbedtls_pk_rsa(x509->pk);
+			mbedtls_rsa_context *rsa = mbedtls_pk_rsa(x509->MBEDTLS_PRIVATE(pk));
 
-			if (mbedtls_mpi_write_string(&rsa->N, 16, p, r, &u))
+			if (mbedtls_mpi_write_string(&rsa->MBEDTLS_PRIVATE(N), 16, p, r, &u))
 				return -1;
 			r -= u;
 			p += u;
-			if (mbedtls_mpi_write_string(&rsa->E, 16, p, r, &u))
+			if (mbedtls_mpi_write_string(&rsa->MBEDTLS_PRIVATE(E), 16, p, r, &u))
 				return -1;
 
 			p += u;
@@ -152,17 +153,17 @@ lws_tls_mbedtls_cert_info(mbedtls_x509_crt *x509, enum lws_tls_cert_info type,
 		}
 		case MBEDTLS_PK_ECKEY:
 		{
-			mbedtls_ecp_keypair *ecp = mbedtls_pk_ec(x509->pk);
+			mbedtls_ecp_keypair *ecp = mbedtls_pk_ec(x509->MBEDTLS_PRIVATE(pk));
 
-			if (mbedtls_mpi_write_string(&ecp->Q.X, 16, p, r, &u))
+			if (mbedtls_mpi_write_string(&ecp->MBEDTLS_PRIVATE(Q).MBEDTLS_PRIVATE(X), 16, p, r, &u))
 				 return -1;
 			r -= u;
 			p += u;
-			if (mbedtls_mpi_write_string(&ecp->Q.Y, 16, p, r, &u))
+			if (mbedtls_mpi_write_string(&ecp->MBEDTLS_PRIVATE(Q).MBEDTLS_PRIVATE(Y), 16, p, r, &u))
 				 return -1;
 			r -= u;
 			p += u;
-			if (mbedtls_mpi_write_string(&ecp->Q.Z, 16, p, r, &u))
+			if (mbedtls_mpi_write_string(&ecp->MBEDTLS_PRIVATE(Q).MBEDTLS_PRIVATE(Z), 16, p, r, &u))
 				 return -1;
 			p += u;
 			buf->ns.len = lws_ptr_diff(p, buf->ns.name);
@@ -171,7 +172,7 @@ lws_tls_mbedtls_cert_info(mbedtls_x509_crt *x509, enum lws_tls_cert_info type,
 		default:
 			lwsl_notice("%s: x509 has unsupported pubkey type %d\n",
 				    __func__,
-				    mbedtls_pk_get_type(&x509->pk));
+				    mbedtls_pk_get_type(&x509->MBEDTLS_PRIVATE(pk)));
 
 			return -1;
 		}
@@ -179,16 +180,17 @@ lws_tls_mbedtls_cert_info(mbedtls_x509_crt *x509, enum lws_tls_cert_info type,
 	}
 	case LWS_TLS_CERT_INFO_DER_RAW:
 
-		buf->ns.len = (int)x509->raw.len;
+		buf->ns.len = (int)x509->MBEDTLS_PRIVATE(raw).MBEDTLS_PRIVATE(len);
 
-		if (len < x509->raw.len)
+		if (len < x509->MBEDTLS_PRIVATE(raw).MBEDTLS_PRIVATE(len))
 			/*
 			 * The buffer is too small and the attempt failed, but
 			 * the required object length is in buf->ns.len
 			 */
 			return -1;
 
-		memcpy(buf->ns.name, x509->raw.p, x509->raw.len);
+		memcpy(buf->ns.name, x509->MBEDTLS_PRIVATE(raw).MBEDTLS_PRIVATE(p),
+				x509->MBEDTLS_PRIVATE(raw).MBEDTLS_PRIVATE(len));
 		break;
 
 	case LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID:
@@ -197,12 +199,12 @@ lws_tls_mbedtls_cert_info(mbedtls_x509_crt *x509, enum lws_tls_cert_info type,
 		memset(&skid, 0, sizeof(skid));
 
 		lws_x509_get_crt_ext(x509, &skid, &akid);
-		if (akid.keyIdentifier.tag != MBEDTLS_ASN1_OCTET_STRING)
+		if (akid.keyIdentifier.MBEDTLS_PRIVATE(tag) != MBEDTLS_ASN1_OCTET_STRING)
 			return 1;
-		buf->ns.len = (int)akid.keyIdentifier.len;
+		buf->ns.len = (int)akid.keyIdentifier.MBEDTLS_PRIVATE(len);
 		if (len < (size_t)buf->ns.len)
 			return -1;
-		memcpy(buf->ns.name, akid.keyIdentifier.p, (size_t)buf->ns.len);
+		memcpy(buf->ns.name, akid.keyIdentifier.MBEDTLS_PRIVATE(p), (size_t)buf->ns.len);
 		break;
 
 	case LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID_ISSUER: {
@@ -221,15 +223,16 @@ lws_tls_mbedtls_cert_info(mbedtls_x509_crt *x509, enum lws_tls_cert_info type,
 			return 1;
 
 		while (ip) {
-			if (akid.keyIdentifier.tag != MBEDTLS_ASN1_OCTET_STRING ||
-			    ip->buf.len < 9 || len < (size_t)ip->buf.len - 9u)
+			if (akid.keyIdentifier.MBEDTLS_PRIVATE(tag) != MBEDTLS_ASN1_OCTET_STRING ||
+			    ip->MBEDTLS_PRIVATE(buf).MBEDTLS_PRIVATE(len) < 9 ||
+			    len < (size_t)ip->MBEDTLS_PRIVATE(buf).MBEDTLS_PRIVATE(len) - 9u)
 			break;
 
-			memcpy(buf->ns.name + buf->ns.len, ip->buf.p,
-					(size_t)ip->buf.len - 9);
-			buf->ns.len = buf->ns.len + (int)ip->buf.len - 9;
+			memcpy(buf->ns.name + buf->ns.len, ip->MBEDTLS_PRIVATE(buf).MBEDTLS_PRIVATE(p),
+					(size_t)ip->MBEDTLS_PRIVATE(buf).MBEDTLS_PRIVATE(len) - 9);
+			buf->ns.len = buf->ns.len + (int)ip->MBEDTLS_PRIVATE(buf).MBEDTLS_PRIVATE(len) - 9;
 
-			ip = ip->next;
+			ip = ip->MBEDTLS_PRIVATE(next);
 		}
 		break;
 	}
@@ -240,12 +243,13 @@ lws_tls_mbedtls_cert_info(mbedtls_x509_crt *x509, enum lws_tls_cert_info type,
 
 		lws_x509_get_crt_ext(x509, &skid, &akid);
 
-		if (akid.authorityCertSerialNumber.tag != MBEDTLS_ASN1_OCTET_STRING)
+		if (akid.authorityCertSerialNumber.MBEDTLS_PRIVATE(tag) != MBEDTLS_ASN1_OCTET_STRING)
 			return 1;
-		buf->ns.len = (int)akid.authorityCertSerialNumber.len;
+		buf->ns.len = (int)akid.authorityCertSerialNumber.MBEDTLS_PRIVATE(len);
 		if (len < (size_t)buf->ns.len)
 			return -1;
-		memcpy(buf->ns.name, akid.authorityCertSerialNumber.p, (size_t)buf->ns.len);
+		memcpy(buf->ns.name, akid.authorityCertSerialNumber.
+					MBEDTLS_PRIVATE(p), (size_t)buf->ns.len);
 		break;
 
 	case LWS_TLS_CERT_INFO_SUBJECT_KEY_ID:
@@ -255,12 +259,12 @@ lws_tls_mbedtls_cert_info(mbedtls_x509_crt *x509, enum lws_tls_cert_info type,
 
 		lws_x509_get_crt_ext(x509, &skid, &akid);
 
-		if (skid.tag != MBEDTLS_ASN1_OCTET_STRING)
-			return 1;;
-		buf->ns.len = (int)skid.len;
+		if (skid.MBEDTLS_PRIVATE(tag) != MBEDTLS_ASN1_OCTET_STRING)
+			return 1;
+		buf->ns.len = (int)skid.MBEDTLS_PRIVATE(len);
 		if (len < (size_t)buf->ns.len)
 			return -1;
-		memcpy(buf->ns.name, skid.p, (size_t)buf->ns.len);
+		memcpy(buf->ns.name, skid.MBEDTLS_PRIVATE(p), (size_t)buf->ns.len);
 		break;
 	default:
 		return -1;
@@ -375,7 +379,8 @@ int
 lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
 		       const char *curves, int rsa_min_bits)
 {
-	int kt = (int)mbedtls_pk_get_type(&x509->cert.pk), n, count = 0, ret = -1;
+	int kt = (int)mbedtls_pk_get_type(&x509->cert.MBEDTLS_PRIVATE(pk)),
+			n, count = 0, ret = -1;
 	mbedtls_rsa_context *rsactx;
 	mbedtls_ecp_keypair *ecpctx;
 	mbedtls_mpi *mpi[LWS_GENCRYPTO_RSA_KEYEL_COUNT];
@@ -386,16 +391,16 @@ lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
 	case MBEDTLS_PK_RSA:
 		lwsl_notice("%s: RSA key\n", __func__);
 		jwk->kty = LWS_GENCRYPTO_KTY_RSA;
-		rsactx = mbedtls_pk_rsa(x509->cert.pk);
+		rsactx = mbedtls_pk_rsa(x509->cert.MBEDTLS_PRIVATE(pk));
 
-		mpi[LWS_GENCRYPTO_RSA_KEYEL_E] = &rsactx->E;
-		mpi[LWS_GENCRYPTO_RSA_KEYEL_N] = &rsactx->N;
-		mpi[LWS_GENCRYPTO_RSA_KEYEL_D] = &rsactx->D;
-		mpi[LWS_GENCRYPTO_RSA_KEYEL_P] = &rsactx->P;
-		mpi[LWS_GENCRYPTO_RSA_KEYEL_Q] = &rsactx->Q;
-		mpi[LWS_GENCRYPTO_RSA_KEYEL_DP] = &rsactx->DP;
-		mpi[LWS_GENCRYPTO_RSA_KEYEL_DQ] = &rsactx->DQ;
-		mpi[LWS_GENCRYPTO_RSA_KEYEL_QI] = &rsactx->QP;
+		mpi[LWS_GENCRYPTO_RSA_KEYEL_E] = &rsactx->MBEDTLS_PRIVATE(E);
+		mpi[LWS_GENCRYPTO_RSA_KEYEL_N] = &rsactx->MBEDTLS_PRIVATE(N);
+		mpi[LWS_GENCRYPTO_RSA_KEYEL_D] = &rsactx->MBEDTLS_PRIVATE(D);
+		mpi[LWS_GENCRYPTO_RSA_KEYEL_P] = &rsactx->MBEDTLS_PRIVATE(P);
+		mpi[LWS_GENCRYPTO_RSA_KEYEL_Q] = &rsactx->MBEDTLS_PRIVATE(Q);
+		mpi[LWS_GENCRYPTO_RSA_KEYEL_DP] = &rsactx->MBEDTLS_PRIVATE(DP);
+		mpi[LWS_GENCRYPTO_RSA_KEYEL_DQ] = &rsactx->MBEDTLS_PRIVATE(DQ);
+		mpi[LWS_GENCRYPTO_RSA_KEYEL_QI] = &rsactx->MBEDTLS_PRIVATE(QP);
 
 		count = LWS_GENCRYPTO_RSA_KEYEL_COUNT;
 		n = LWS_GENCRYPTO_RSA_KEYEL_E;
@@ -404,13 +409,13 @@ lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
 	case MBEDTLS_PK_ECKEY:
 		lwsl_notice("%s: EC key\n", __func__);
 		jwk->kty = LWS_GENCRYPTO_KTY_EC;
-		ecpctx = mbedtls_pk_ec(x509->cert.pk);
-		mpi[LWS_GENCRYPTO_EC_KEYEL_X] = &ecpctx->Q.X;
-		mpi[LWS_GENCRYPTO_EC_KEYEL_D] = &ecpctx->d;
-		mpi[LWS_GENCRYPTO_EC_KEYEL_Y] = &ecpctx->Q.Y;
+		ecpctx = mbedtls_pk_ec(x509->cert.MBEDTLS_PRIVATE(pk));
+		mpi[LWS_GENCRYPTO_EC_KEYEL_X] = &ecpctx->MBEDTLS_PRIVATE(Q).MBEDTLS_PRIVATE(X);
+		mpi[LWS_GENCRYPTO_EC_KEYEL_D] = &ecpctx->MBEDTLS_PRIVATE(d);
+		mpi[LWS_GENCRYPTO_EC_KEYEL_Y] = &ecpctx->MBEDTLS_PRIVATE(Q).MBEDTLS_PRIVATE(Y);
 
 		if (lws_genec_confirm_curve_allowed_by_tls_id(curves,
-				(int)ecpctx->grp.id, jwk))
+				(int)ecpctx->MBEDTLS_PRIVATE(grp).id, jwk))
 			/* already logged */
 			goto bail;
 
@@ -445,8 +450,8 @@ bail:
 }
 
 int
-lws_x509_jwk_privkey_pem(struct lws_jwk *jwk, void *pem, size_t len,
-			 const char *passphrase)
+lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
+			 void *pem, size_t len, const char *passphrase)
 {
 	mbedtls_rsa_context *rsactx;
 	mbedtls_ecp_keypair *ecpctx;
@@ -459,7 +464,11 @@ lws_x509_jwk_privkey_pem(struct lws_jwk *jwk, void *pem, size_t len,
 	n = 0;
 	if (passphrase)
 		n = (int)strlen(passphrase);
-	n = mbedtls_pk_parse_key(&pk, pem, len, (uint8_t *)passphrase, (unsigned int)n);
+	n = mbedtls_pk_parse_key(&pk, pem, len, (uint8_t *)passphrase, (unsigned int)n
+#if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000
+					, mbedtls_ctr_drbg_random, &cx->mcdc
+#endif
+			);
 	if (n) {
 		lwsl_err("%s: parse PEM key failed: -0x%x\n", __func__, -n);
 
@@ -474,9 +483,9 @@ lws_x509_jwk_privkey_pem(struct lws_jwk *jwk, void *pem, size_t len,
 			goto bail;
 		}
 		rsactx = mbedtls_pk_rsa(pk);
-		mpi[LWS_GENCRYPTO_RSA_KEYEL_D] = &rsactx->D;
-		mpi[LWS_GENCRYPTO_RSA_KEYEL_P] = &rsactx->P;
-		mpi[LWS_GENCRYPTO_RSA_KEYEL_Q] = &rsactx->Q;
+		mpi[LWS_GENCRYPTO_RSA_KEYEL_D] = &rsactx->MBEDTLS_PRIVATE(D);
+		mpi[LWS_GENCRYPTO_RSA_KEYEL_P] = &rsactx->MBEDTLS_PRIVATE(P);
+		mpi[LWS_GENCRYPTO_RSA_KEYEL_Q] = &rsactx->MBEDTLS_PRIVATE(Q);
 		n = LWS_GENCRYPTO_RSA_KEYEL_D;
 		count = LWS_GENCRYPTO_RSA_KEYEL_Q + 1;
 		break;
@@ -486,7 +495,7 @@ lws_x509_jwk_privkey_pem(struct lws_jwk *jwk, void *pem, size_t len,
 			goto bail;
 		}
 		ecpctx = mbedtls_pk_ec(pk);
-		mpi[LWS_GENCRYPTO_EC_KEYEL_D] = &ecpctx->d;
+		mpi[LWS_GENCRYPTO_EC_KEYEL_D] = &ecpctx->MBEDTLS_PRIVATE(d);
 		n = LWS_GENCRYPTO_EC_KEYEL_D;
 		count = n + 1;
 		break;

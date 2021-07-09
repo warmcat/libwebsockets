@@ -196,6 +196,8 @@ struct ssl_ctx_st
     int read_buffer_len;
 
     X509_VERIFY_PARAM param;
+
+    void *rngctx;
 };
 
 struct ssl_st
@@ -300,7 +302,7 @@ struct x509_method_st {
 
 struct pkey_method_st {
 
-    int (*pkey_new)(EVP_PKEY *pkey, EVP_PKEY *m_pkey);
+    int (*pkey_new)(EVP_PKEY *pkey, EVP_PKEY *m_pkey, void *rngctx);
 
     void (*pkey_free)(EVP_PKEY *pkey);
 

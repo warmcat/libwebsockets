@@ -22,7 +22,7 @@
 /**
  * @brief create a private key object according to input private key
  */
-EVP_PKEY* __EVP_PKEY_new(EVP_PKEY *ipk)
+EVP_PKEY* __EVP_PKEY_new(EVP_PKEY *ipk, void *rngctx)
 {
     int ret;
     EVP_PKEY *pkey;
@@ -39,7 +39,7 @@ EVP_PKEY* __EVP_PKEY_new(EVP_PKEY *ipk)
         pkey->method = EVP_PKEY_method();
     }
 
-    ret = EVP_PKEY_METHOD_CALL(new, pkey, ipk);
+    ret = EVP_PKEY_METHOD_CALL(new, pkey, ipk, rngctx);
     if (ret) {
         SSL_DEBUG(SSL_PKEY_ERROR_LEVEL, "EVP_PKEY_METHOD_CALL(new) return %d", ret);
         goto failed;
@@ -56,9 +56,9 @@ no_mem:
 /**
  * @brief create a private key object
  */
-EVP_PKEY* EVP_PKEY_new(void)
+EVP_PKEY* EVP_PKEY_new(void *rngctx)
 {
-    return __EVP_PKEY_new(NULL);
+    return __EVP_PKEY_new(NULL, rngctx);
 }
 
 /**
@@ -80,7 +80,7 @@ void EVP_PKEY_free(EVP_PKEY *pkey)
 EVP_PKEY *d2i_PrivateKey(int type,
                          EVP_PKEY **a,
                          const unsigned char **pp,
-                         long length)
+                         long length, void *rngctx)
 {
     int m = 0;
     int ret;
@@ -93,7 +93,7 @@ EVP_PKEY *d2i_PrivateKey(int type,
     if (a && *a) {
         pkey = *a;
     } else {
-        pkey = EVP_PKEY_new();;
+        pkey = EVP_PKEY_new(rngctx);
         if (!pkey) {
             SSL_DEBUG(SSL_PKEY_ERROR_LEVEL, "EVP_PKEY_new() return NULL");
             goto failed1;
@@ -167,7 +167,7 @@ int SSL_CTX_use_PrivateKey_ASN1(int type, SSL_CTX *ctx,
     int ret;
     EVP_PKEY *pk;
 
-    pk = d2i_PrivateKey(0, NULL, &d, len);
+    pk = d2i_PrivateKey(0, NULL, &d, len, ctx->rngctx);
     if (!pk) {
         SSL_DEBUG(SSL_PKEY_ERROR_LEVEL, "d2i_PrivateKey() return NULL");
         goto failed1;
@@ -196,7 +196,7 @@ int SSL_use_PrivateKey_ASN1(int type, SSL *ssl,
     int ret;
     EVP_PKEY *pk;
 
-    pk = d2i_PrivateKey(0, NULL, &d, len);
+    pk = d2i_PrivateKey(0, NULL, &d, len, ssl->ctx->rngctx);
     if (!pk) {
         SSL_DEBUG(SSL_PKEY_ERROR_LEVEL, "d2i_PrivateKey() return NULL");
         goto failed1;

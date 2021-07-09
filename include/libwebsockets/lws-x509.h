@@ -148,6 +148,7 @@ lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
  * lws_x509_jwk_privkey_pem() - Copy a private key PEM into a jwk that has the
  *				public part already
  *
+ * \param cx: lws_context (for random)
  * \param jwk: pointer to the jwk to initialize and set to the public key
  * \param pem: pointer to PEM private key in memory
  * \param len: length of PEM private key in memory
@@ -163,8 +164,8 @@ lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
  * The caller should take care to zero down passphrase if used.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_x509_jwk_privkey_pem(struct lws_jwk *jwk, void *pem, size_t len,
-			 const char *passphrase);
+lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
+			 void *pem, size_t len, const char *passphrase);
 
 /**
  * lws_x509_destroy() - Destroy a previously allocated lws_x509_cert object

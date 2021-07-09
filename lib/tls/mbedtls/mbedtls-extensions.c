@@ -103,9 +103,9 @@ static const oid_x509_ext_t oid_x509_ext[] = {
         const mbedtls_oid_descriptor_t *cur =                           \
             (const mbedtls_oid_descriptor_t *) p;                       \
         if( p == NULL || oid == NULL ) return( NULL );                  \
-        while( cur->asn1 != NULL ) {                                    \
-            if( cur->asn1_len == oid->len &&                            \
-                memcmp( cur->asn1, oid->p, oid->len ) == 0 ) {          \
+        while( cur->MBEDTLS_PRIVATE(asn1) != NULL ) {                          \
+            if( cur->MBEDTLS_PRIVATE(asn1_len) == oid->MBEDTLS_PRIVATE(len) && \
+                memcmp( cur->MBEDTLS_PRIVATE(asn1), oid->MBEDTLS_PRIVATE(p), oid->MBEDTLS_PRIVATE(len) ) == 0 ) {          \
                 return( p );                                            \
             }                                                           \
             p++;                                                        \
@@ -177,9 +177,9 @@ x509_get_skid(uint8_t **p, const uint8_t *end, mbedtls_x509_buf *skid)
 	if (ret)
 		return ret;
 
-	skid->len	= len;
-	skid->tag	= MBEDTLS_ASN1_OCTET_STRING;
-	skid->p		= *p;
+	skid->MBEDTLS_PRIVATE(len)	= len;
+	skid->MBEDTLS_PRIVATE(tag)	= MBEDTLS_ASN1_OCTET_STRING;
+	skid->MBEDTLS_PRIVATE(p)	= *p;
 	*p		+= len;
 
 	return *p != end;
@@ -194,7 +194,8 @@ lws_mbedtls_x509_parse_general_name(const mbedtls_x509_buf *name_buf,
 	mbedtls_x509_name rfc822Name;
 	int ret;
 
-	switch (name_buf->tag & (LWS_MBEDTLS_ASN1_TAG_CLASS_MASK |
+	switch (name_buf->MBEDTLS_PRIVATE(tag) &
+				(LWS_MBEDTLS_ASN1_TAG_CLASS_MASK |
 				 LWS_MBEDTLS_ASN1_TAG_VALUE_MASK)) {
 
 #if 0
@@ -210,9 +211,10 @@ lws_mbedtls_x509_parse_general_name(const mbedtls_x509_buf *name_buf,
 #endif
 	case MBEDTLS_ASN1_SEQUENCE | LWS_MBEDTLS_X509_SAN_RFC822_NAME:
 
-		bufferPointer = name_buf->p;
+		bufferPointer = name_buf->MBEDTLS_PRIVATE(p);
 		p = &bufferPointer;
-		end = name_buf->p + name_buf->len;
+		end = name_buf->MBEDTLS_PRIVATE(p) +
+		      name_buf->MBEDTLS_PRIVATE(len);
 
 		/* The leading ASN1 tag and length has been processed.
 		 * Stepping back with 2 bytes, because mbedtls_x509_get_name
@@ -284,50 +286,52 @@ lws_x509_get_general_names(uint8_t **p, const uint8_t *end,
 		/*
 		 * Check that the name is structured correctly.
 		 */
-		r = lws_mbedtls_x509_parse_general_name(&cur->buf, &dnb);
+		r = lws_mbedtls_x509_parse_general_name(
+					&cur->MBEDTLS_PRIVATE(buf), &dnb);
 		/*
 		 * In case the extension is malformed, return an error,
 		 * and clear the allocated sequences.
 		 */
 		if (r && r != MBEDTLS_ERR_X509_FEATURE_UNAVAILABLE) {
-		    mbedtls_x509_sequence *seq_cur = name->next;
+		    mbedtls_x509_sequence *seq_cur = name->MBEDTLS_PRIVATE(next);
 		    mbedtls_x509_sequence *seq_prv;
 
 			while( seq_cur != NULL ) {
 				seq_prv = seq_cur;
-				seq_cur = seq_cur->next;
+				seq_cur = seq_cur->MBEDTLS_PRIVATE(next);
 				lws_explicit_bzero(seq_prv, sizeof(*seq_cur));
 				lws_free(seq_prv);
 			}
 
-			name->next = NULL;
+			name->MBEDTLS_PRIVATE(next) = NULL;
 
 			return r;
 		}
 
 		/* Allocate and assign next pointer */
-		if (cur->buf.p) {
-			if (cur->next)
+		if (cur->MBEDTLS_PRIVATE(buf).MBEDTLS_PRIVATE(p)) {
+			if (cur->MBEDTLS_PRIVATE(next))
 				return 1;
 
-			cur->next = lws_zalloc(sizeof(*cur), __func__);
+			cur->MBEDTLS_PRIVATE(next) =
+					lws_zalloc(sizeof(*cur), __func__);
 
-			if (!cur->next)
+			if (!cur->MBEDTLS_PRIVATE(next))
 				return 1;
 
-			cur = cur->next;
+			cur = cur->MBEDTLS_PRIVATE(next);
 		}
 
-		buf = &(cur->buf);
-		buf->tag = tag;
-		buf->p = *p;
-		buf->len = tag_len;
+		buf = &(cur->MBEDTLS_PRIVATE(buf));
+		buf->MBEDTLS_PRIVATE(tag) = tag;
+		buf->MBEDTLS_PRIVATE(p) = *p;
+		buf->MBEDTLS_PRIVATE(len) = tag_len;
 
-		*p += buf->len;
+		*p += buf->MBEDTLS_PRIVATE(len);
 	}
 
 	/* Set final sequence entry's next pointer to NULL */
-	cur->next = NULL;
+	cur->MBEDTLS_PRIVATE(next) = NULL;
 
 	return *p != end;
 }
@@ -345,9 +349,9 @@ x509_get_akid(uint8_t **p, uint8_t *end, lws_mbedtls_x509_authority *akid)
 
 	r = mbedtls_asn1_get_tag(p, end, &len, MBEDTLS_ASN1_CONTEXT_SPECIFIC);
 	if (!r) {
-		akid->keyIdentifier.len = len;
-		akid->keyIdentifier.p = *p;
-		akid->keyIdentifier.tag = MBEDTLS_ASN1_OCTET_STRING;
+		akid->keyIdentifier.MBEDTLS_PRIVATE(len) = len;
+		akid->keyIdentifier.MBEDTLS_PRIVATE(p) = *p;
+		akid->keyIdentifier.MBEDTLS_PRIVATE(tag) = MBEDTLS_ASN1_OCTET_STRING;
 
 		*p += len;
 	}
@@ -381,9 +385,9 @@ x509_get_akid(uint8_t **p, uint8_t *end, lws_mbedtls_x509_authority *akid)
 		if (r)
 			return r;
 
-		akid->authorityCertSerialNumber.len = len;
-		akid->authorityCertSerialNumber.p = *p;
-		akid->authorityCertSerialNumber.tag = MBEDTLS_ASN1_OCTET_STRING;
+		akid->authorityCertSerialNumber.MBEDTLS_PRIVATE(len) = len;
+		akid->authorityCertSerialNumber.MBEDTLS_PRIVATE(p) = *p;
+		akid->authorityCertSerialNumber.MBEDTLS_PRIVATE(tag) = MBEDTLS_ASN1_OCTET_STRING;
 		*p += len;
 	}
 
@@ -399,8 +403,9 @@ int
 lws_x509_get_crt_ext(mbedtls_x509_crt *crt, mbedtls_x509_buf *skid,
 		     lws_mbedtls_x509_authority *akid)
 {
-	uint8_t *p = crt->v3_ext.p, *end_ext_data, *end_ext_octet;
-	const uint8_t *end = p + crt->v3_ext.len;
+	uint8_t *p = crt->MBEDTLS_PRIVATE(v3_ext).MBEDTLS_PRIVATE(p),
+					*end_ext_data, *end_ext_octet;
+	const uint8_t *end = p + crt->MBEDTLS_PRIVATE(v3_ext).MBEDTLS_PRIVATE(len);
 	size_t len;
 	int r = mbedtls_asn1_get_tag(&p, end, &len, MBEDTLS_ASN1_CONSTRUCTED |
 						      MBEDTLS_ASN1_SEQUENCE);
@@ -421,14 +426,14 @@ lws_x509_get_crt_ext(mbedtls_x509_crt *crt, mbedtls_x509_buf *skid,
 		end_ext_data = p + len;
 
 		/* Get extension ID */
-		r = mbedtls_asn1_get_tag(&p, end_ext_data, &extn_oid.len,
+		r = mbedtls_asn1_get_tag(&p, end_ext_data, &extn_oid.MBEDTLS_PRIVATE(len),
 					   MBEDTLS_ASN1_OID);
 		if (r)
 			return r;
 
-		extn_oid.tag = MBEDTLS_ASN1_OID;
-		extn_oid.p = p;
-		p += extn_oid.len;
+		extn_oid.MBEDTLS_PRIVATE(tag) = MBEDTLS_ASN1_OID;
+		extn_oid.MBEDTLS_PRIVATE(p) = p;
+		p += extn_oid.MBEDTLS_PRIVATE(len);
 
 		/* Get optional critical */
 		r = mbedtls_asn1_get_bool(&p, end_ext_data, &is_critical);

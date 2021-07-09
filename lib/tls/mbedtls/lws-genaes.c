@@ -131,10 +131,20 @@ lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 int
 lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 {
+#if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000
+	size_t last_len = 0;
+	uint8_t last[16];
+#endif
 	int n;
 
 	if (ctx->mode == LWS_GAESM_GCM) {
+#if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000
+		n = mbedtls_gcm_finish(&ctx->u.ctx_gcm, last, sizeof(last),
+					&last_len, tag, tlen);
+#else
 		n = mbedtls_gcm_finish(&ctx->u.ctx_gcm, tag, tlen);
+#endif
+
 		if (n)
 			lwsl_notice("%s: mbedtls_gcm_finish: -0x%x\n",
 				    __func__, -n);
@@ -388,9 +398,18 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			 * additional data len:  len
 			 */
 
+#if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000
+			n = mbedtls_gcm_starts(&ctx->u.ctx_gcm, (int)ctx->op,
+					       iv_or_nonce_ctr_or_data_unit_16,
+					       *nc_or_iv_off);
+			if (!n)
+				n = mbedtls_gcm_update_ad(&ctx->u.ctx_gcm,
+							  in, len);
+#else
 			n = mbedtls_gcm_starts(&ctx->u.ctx_gcm, (int)ctx->op,
 					       iv_or_nonce_ctr_or_data_unit_16,
 					       *nc_or_iv_off, in, len);
+#endif
 			if (n) {
 				lwsl_notice("%s: mbedtls_gcm_starts: -0x%x\n",
 					    __func__, -n);
@@ -400,7 +419,15 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			break;
 		}
 
+#if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000
+		{
+			size_t al;
+
+			n = mbedtls_gcm_update(&ctx->u.ctx_gcm, in, len, out, len, &al);
+		}
+#else
 		n = mbedtls_gcm_update(&ctx->u.ctx_gcm, len, in, out);
+#endif
 		if (n) {
 			lwsl_notice("%s: mbedtls_gcm_update: -0x%x\n",
 				    __func__, -n);

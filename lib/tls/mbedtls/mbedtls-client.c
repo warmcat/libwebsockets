@@ -382,7 +382,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		return 1;
 	}
 	/* create context */
-	vh->tls.ssl_client_ctx = SSL_CTX_new(method);
+	vh->tls.ssl_client_ctx = SSL_CTX_new(method, &vh->context->mcdc);
 	if (!vh->tls.ssl_client_ctx) {
 		error = (unsigned long)ERR_get_error();
 		lwsl_err("problem creating ssl context %lu: %s\n",
