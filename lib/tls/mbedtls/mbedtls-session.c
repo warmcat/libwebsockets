@@ -219,9 +219,11 @@ lws_tls_session_new_mbedtls(struct lws *wsi)
 		memset(ts, 0, sizeof(*ts));
 		memcpy(&ts[1], buf, nl + 1);
 
-		if (mbedtls_ssl_get_session(msc, &ts->session))
+		if (mbedtls_ssl_get_session(msc, &ts->session)) {
+			lws_free(ts);
 			/* no joy for whatever reason */
 			goto bail;
+		}
 
 		lws_dll2_add_tail(&ts->list, &vh->tls_sessions);
 
