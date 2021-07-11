@@ -510,6 +510,8 @@ rops_pt_init_destroy_netlink(struct lws_context *context,
 		goto bail1;
 	}
 
+	lws_plat_set_nonblocking(wsi->desc.sockfd);
+
 	__lws_lc_tag(context, &context->lcg[LWSLCG_VHOST], &wsi->lc,
 			"netlink");
 
