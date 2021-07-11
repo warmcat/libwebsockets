@@ -29,6 +29,7 @@ list(APPEND SOURCES
 	core/buflist.c
 	core/context.c
 	core/lws_dll2.c
+	core/lws_map.c
 	core/libwebsockets.c
 	core/logs.c
 )
