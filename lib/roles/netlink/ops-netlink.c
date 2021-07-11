@@ -510,6 +510,7 @@ rops_pt_init_destroy_netlink(struct lws_context *context,
 	}
 
 	__lws_lc_tag(&context->lcg[LWSLCG_VHOST], &wsi->lc, "netlink");
+	lws_plat_set_nonblocking(wsi->desc.sockfd);
 
 	memset(&sanl, 0, sizeof(sanl));
 	sanl.nl_family		= AF_NETLINK;

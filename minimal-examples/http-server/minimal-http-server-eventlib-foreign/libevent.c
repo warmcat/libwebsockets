@@ -43,9 +43,9 @@ foreign_event_loop_init_and_run_libevent(void)
 
 	tv.tv_sec = 1;
 	tv.tv_usec = 0;
+	event_enable_debug_mode();
 
 	loop_event = event_base_new();
-
 	sighandler_event = evsignal_new((struct event_base *)loop_event, SIGINT, signal_cb_event,
                                        (void*)SIGINT);
 
