@@ -362,6 +362,7 @@ if (LWS_WITH_MBEDTLS)
 		set(LWS_HAVE_X509_VERIFY_PARAM_set1_host 1 PARENT_SCOPE)
 	endif()
 
+	set(CMAKE_REQUIRED_INCLUDES ${CMAKE_REQUIRED_INCLUDES} ${MBEDTLS_INCLUDE_DIRS})
 	CHECK_C_SOURCE_COMPILES("#include <mbedtls/x509_crt.h>\nint main(void) { struct mbedtls_x509_crt c; c.authority_key_id.keyIdentifier.tag = MBEDTLS_ASN1_OCTET_STRING; return c.authority_key_id.keyIdentifier.tag; }\n" LWS_HAVE_MBEDTLS_AUTH_KEY_ID)
 	CHECK_C_SOURCE_COMPILES("#include <mbedtls/ssl.h>\nint main(void) { void *v = (void *)mbedtls_ssl_set_verify; return !!v; }\n" LWS_HAVE_mbedtls_ssl_set_verify)
 	CHECK_FUNCTION_EXISTS(mbedtls_ssl_conf_alpn_protocols LWS_HAVE_mbedtls_ssl_conf_alpn_protocols PARENT_SCOPE)
