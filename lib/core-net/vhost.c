@@ -1349,8 +1349,21 @@ lws_vhost_destroy1(struct lws_vhost *vh)
 						  &v->listen_wsi);
 
 				/* req cx + vh lock */
+				/*
+				 * If the vhost sees it's being destroyed and
+				 * in the unbind the number of wsis bound to
+				 * it falls to zero, it will destroy the
+				 * vhost opportunistically before we can
+				 * complete the transfer.  Add a fake wsi
+				 * bind temporarily to disallow this...
+				 */
+				v->count_bound_wsi++;
 				__lws_vhost_unbind_wsi(wsi);
 				lws_vhost_bind_wsi(v, wsi);
+				/*
+				 * ... remove the fake wsi bind
+				 */
+				v->count_bound_wsi--;
 				break;
 			}
 		} lws_end_foreach_ll(v, vhost_next);
