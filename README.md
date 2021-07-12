@@ -22,24 +22,9 @@ topics.
 News
 ----
 
-## Request for help on mp4 / h.264 / libav*
-
-If you're interested in ws + h.264, there's a 80-90% complete minimal example that needs
-help with the mp4 container part, the lws v4l2 integration, MPJPG->h.264 transcoding and
-ws transport to MediaSource parts already work.
-
-Take a look at the top two patches on `_v4l2` branch and post on the mailing list or
-github to discuss if you can help.
-
 ## v4.2 is released
 
 See the [changelog](https://libwebsockets.org/git/libwebsockets/tree/changelog)
-
-## Transition from master branch to main branch
-
-The master->main branch transition happened several months ago, currently master is
-still around as a mirror of main.  master branch will go away some time before the
-next release.
 
 ## Support
 
@@ -56,5 +41,5 @@ You can get the latest version of the library from git:
 
 - https://libwebsockets.org/git
 
-Doxygen API docs for development: https://libwebsockets.org/lws-api-doc-master/html/index.html
+Doxygen API docs for development: https://libwebsockets.org/lws-api-doc-main/html/index.html
 
