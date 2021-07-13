@@ -402,7 +402,7 @@ lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
 		mpi[LWS_GENCRYPTO_RSA_KEYEL_DQ] = &rsactx->MBEDTLS_PRIVATE(DQ);
 		mpi[LWS_GENCRYPTO_RSA_KEYEL_QI] = &rsactx->MBEDTLS_PRIVATE(QP);
 
-		count = LWS_GENCRYPTO_RSA_KEYEL_COUNT;
+		count = LWS_GENCRYPTO_RSA_KEYEL_QI + 1;
 		n = LWS_GENCRYPTO_RSA_KEYEL_E;
 		break;
 

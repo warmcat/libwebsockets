@@ -101,6 +101,8 @@ if(LWS_WITH_DISTRO_RECOMMENDED)
 	set(LWS_WITH_PLUGINS_BUILTIN 1)			# selfcontained
 	set(LWS_ROLE_RAW_PROXY 1)			# selfcontained
 	set(LWS_WITH_GENCRYPTO 1)			# selfcontained / tls
+	set(LWS_WITH_CBOR 1)				# selfcontained
+	set(LWS_WITH_COSE 1)				# selfcontained
 	set(LWS_WITH_JOSE 1)				# selfcontained
 	set(LWS_WITH_STRUCT_JSON 1)			# selfcontained
 	set(LWS_WITH_STRUCT_SQLITE3 1)			# sqlite3
