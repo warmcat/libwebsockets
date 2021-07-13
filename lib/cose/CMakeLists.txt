@@ -22,21 +22,13 @@
 # IN THE SOFTWARE.
 #
 
-include_directories(. ./jwe ./jws ./jwk)
-
-if (LWS_WITH_JOSE)
+if (LWS_WITH_COSE)
 	list(APPEND SOURCES
-		jose/jws/jose.c
-		jose/jwk/jwk.c
-		jose/jwk/jose_key.c
-		jose/jws/jws.c
-		jose/jwe/jwe.c
-		jose/jwe/enc/aescbc.c
-		jose/jwe/enc/aesgcm.c
-		jose/jwe/enc/aeskw.c
-		jose/jwe/jwe-rsa-aescbc.c
-		jose/jwe/jwe-rsa-aesgcm.c
-		jose/jwe/jwe-ecdh-es-aeskw.c
+		cose/cose_key.c
+		cose/cose_validate.c
+		cose/cose_validate_alg.c
+		cose/cose_sign.c
+		cose/cose_sign_alg.c
 		)
 endif()
 

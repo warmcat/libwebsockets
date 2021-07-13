@@ -77,7 +77,8 @@ bail:
 }
 
 int
-lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_gencrypto_keyelem *el,
+lws_genrsa_create(struct lws_genrsa_ctx *ctx,
+		  const struct lws_gencrypto_keyelem *el,
 		  struct lws_context *context, enum enum_genrsa_mode mode,
 		  enum lws_genhash_types oaep_hashid)
 {
@@ -293,7 +294,8 @@ lws_genrsa_hash_sig_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 
 	switch(ctx->mode) {
 	case LGRSAM_PKCS1_1_5:
-		n = RSA_verify(n, in, (unsigned int)h, (uint8_t *)sig, (unsigned int)sig_len, ctx->rsa);
+		n = RSA_verify(n, in, (unsigned int)h, (uint8_t *)sig,
+			       (unsigned int)sig_len, ctx->rsa);
 		break;
 	case LGRSAM_PKCS1_OAEP_PSS:
 		md = lws_gencrypto_openssl_hash_to_EVP_MD(hash_type);

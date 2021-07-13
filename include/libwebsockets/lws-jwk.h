@@ -52,7 +52,7 @@ struct lws_jwk {
 	struct lws_gencrypto_keyelem e[LWS_GENCRYPTO_MAX_KEYEL_COUNT];
 	/* generic meta key elements, like KID */
 	struct lws_gencrypto_keyelem meta[LWS_COUNT_JWK_ELEMENTS];
-	int kty;			/**< one of LWS_JWK_ */
+	int kty;			/**< one of LWS_GENCRYPTO_KTY_ */
 	char private_key; /* nonzero = has private key elements */
 };
 
@@ -64,6 +64,8 @@ struct lws_jwk_parse_state {
 	lws_jwk_key_import_callback per_key_cb;
 	void *user;
 	int pos;
+	int cose_state;
+	int seen;
 	unsigned short possible;
 };
 

@@ -22,14 +22,32 @@
  * IN THE SOFTWARE.
  */
 
-void
-lws_jwk_destroy_elements(struct lws_gencrypto_keyelem *el, int m);
+/* information about each token declared above */
+
+#define F_M	(1 <<  9)	/* Mandatory for key type */
+#define F_B64	(1 << 10)	/* Base64 coded octets */
+#define F_B64U	(1 << 11)	/* Base64 Url coded octets */
+#define F_META	(1 << 12)	/* JWK key metainformation */
+#define F_RSA	(1 << 13)	/* RSA key */
+#define F_EC	(1 << 14)	/* Elliptic curve key */
+#define F_OCT	(1 << 15)	/* octet key */
 
 void
-lws_jwk_init_jps(struct lejp_ctx *jctx, struct lws_jwk_parse_state *jps,
-		 struct lws_jwk *jwk, lws_jwk_key_import_callback cb,
-		 void *user);
+lws_jwk_destroy_elements(struct lws_gencrypto_keyelem *el, int m);
 
 int
 lws_jose_render(struct lws_jose *jose, struct lws_jwk *aux_jwk,
 		char *out, size_t out_len);
+
+int
+_lws_jwk_set_el_jwk(struct lws_gencrypto_keyelem *e, char *in, size_t len);
+
+void
+lws_jwk_init_jps(struct lws_jwk_parse_state *jps,
+		 struct lws_jwk *jwk, lws_jwk_key_import_callback cb,
+		 void *user);
+
+signed char
+cb_jwk(struct lejp_ctx *ctx, char reason);
+
+extern const char * const jwk_tok[19], * const jwk_outer_tok[19];

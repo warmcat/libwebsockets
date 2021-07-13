@@ -146,6 +146,10 @@ endif()
 if (LWS_WITH_JOSE)
 	add_subdir_include_dirs(jose)
 endif()
+if (LWS_WITH_COSE)
+	add_subdir_include_dirs(cose)
+endif()
+
 
 if (LWS_WITH_SECURE_STREAMS)
 	add_subdir_include_dirs(secure-streams)
