@@ -241,19 +241,6 @@ struct client_info_stash {
 lws_usec_t
 __lws_sul_service_ripe(lws_dll2_owner_t *own, int num_own, lws_usec_t usnow);
 
-#if defined(LWS_WITH_DEPRECATED_THINGS)
-
-struct lws_timed_vh_protocol {
-	struct lws_timed_vh_protocol	*next;
-	lws_sorted_usec_list_t		sul;
-	const struct lws_protocols	*protocol;
-	struct lws_vhost *vhost; /* only used for pending processing */
-	int				reason;
-	int				tsi_req;
-};
-
-#endif
-
 /*
  * lws_async_dns
  */
@@ -508,9 +495,6 @@ struct lws_vhost {
 	struct lws_vhost_tls tls;
 #endif
 
-#if defined(LWS_WITH_DEPRECATED_THINGS)
-	struct lws_timed_vh_protocol *timed_vh_protocol_list;
-#endif
 	void *user;
 
 	int listen_port;
@@ -1212,11 +1196,6 @@ lws_destroy_event_pipe(struct lws *wsi);
 /* socks */
 int
 lws_socks5c_generate_msg(struct lws *wsi, enum socks_msg_type type, ssize_t *msg_len);
-
-#if defined(LWS_WITH_DEPRECATED_THINGS)
-int
-__lws_timed_callback_remove(struct lws_vhost *vh, struct lws_timed_vh_protocol *p);
-#endif
 
 int LWS_WARN_UNUSED_RESULT
 __insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi);

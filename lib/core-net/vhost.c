@@ -1425,14 +1425,6 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 
 	// lwsl_info("%s: %s\n", __func__, vh->name);
 
-#if defined(LWS_WITH_DEPRECATED_THINGS)
-	/*
-	 * destroy any pending timed events
-	 */
-
-	while (vh->timed_vh_protocol_list)
-		__lws_timed_callback_remove(vh, vh->timed_vh_protocol_list);
-#endif
 	/*
 	 * let the protocols destroy the per-vhost protocol objects
 	 */

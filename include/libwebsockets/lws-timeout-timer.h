@@ -150,64 +150,6 @@ lws_set_timeout_us(struct lws *wsi, enum pending_timeout reason, lws_usec_t us);
 LWS_VISIBLE LWS_EXTERN void
 lws_set_timer_usecs(struct lws *wsi, lws_usec_t usecs);
 
-#if defined(LWS_WITH_DEPRECATED_THINGS)
-
-/*
- * lws_timed_callback_vh_protocol() - calls back a protocol on a vhost after
- * 					the specified delay in seconds
- *
- * \param vh:	 the vhost to call back
- * \param protocol: the protocol to call back
- * \param reason: callback reason
- * \param secs:	how many seconds in the future to do the callback.
- *
- * DEPRECATED since v4.1
- *
- * Callback the specified protocol with a fake wsi pointing to the specified
- * vhost and protocol, with the specified reason, at the specified time in the
- * future.
- *
- * Returns 0 if OK or 1 on OOM.
- *
- * In the multithreaded service case, the callback will occur in the same
- * service thread context as the call to this api that requested it.  If it is
- * called from a non-service thread, tsi 0 will handle it.
- */
-LWS_VISIBLE LWS_EXTERN int
-lws_timed_callback_vh_protocol(struct lws_vhost *vh,
-			       const struct lws_protocols *prot,
-			       int reason, int secs)
-LWS_WARN_DEPRECATED;
-
-/*
- * lws_timed_callback_vh_protocol_us() - calls back a protocol on a vhost after
- * 					 the specified delay in us
- *
- * \param vh:	 the vhost to call back
- * \param protocol: the protocol to call back
- * \param reason: callback reason
- * \param us:	how many us in the future to do the callback.
- *
- * DEPRECATED since v4.1
- *
- * Callback the specified protocol with a fake wsi pointing to the specified
- * vhost and protocol, with the specified reason, at the specified time in the
- * future.
- *
- * Returns 0 if OK or 1 on OOM.
- *
- * In the multithreaded service case, the callback will occur in the same
- * service thread context as the call to this api that requested it.  If it is
- * called from a non-service thread, tsi 0 will handle it.
- */
-LWS_VISIBLE LWS_EXTERN int
-lws_timed_callback_vh_protocol_us(struct lws_vhost *vh,
-				  const struct lws_protocols *prot, int reason,
-				  lws_usec_t us)
-LWS_WARN_DEPRECATED;
-
-#endif
-
 struct lws_sorted_usec_list;
 
 typedef void (*sul_cb_t)(struct lws_sorted_usec_list *sul);
