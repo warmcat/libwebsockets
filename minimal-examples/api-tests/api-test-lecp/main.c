@@ -50,6 +50,7 @@ static const char * const reason_names[] = {
 	"LECPCB_VAL_BLOB_END",
 	"LECPCB_ARRAY_ITEM_START",
 	"LECPCB_ARRAY_ITEM_END",
+	"LECPCB_LITERAL_CBOR"
 };
 #endif
 

@@ -5,8 +5,9 @@ if [ -z "$1" ] ; then
 	exit 1
 fi
 
+mkdir -p certs
 openssl genrsa -out $1.key 4096 && \
-printf "\\n\\n\\n\\n\\nlocalhost\\n\\n1234\\n\\n" | \
+printf "\\n\\n\\n\\n\\n$1\\n\\n1234\\n\\n" | \
  openssl req -config tmp.cnf -new -key $1.key -out $1.csr && \
 openssl ca -config tmp.cnf \
  	-keyfile ca.key \

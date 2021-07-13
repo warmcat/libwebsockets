@@ -404,7 +404,6 @@ lws_jose_destroy(struct lws_jose *jose)
 		lws_jose_recip_destroy(&jose->recipient[n]);
 }
 
-
 static int
 lws_jose_parse(struct lws_jose *jose, const uint8_t *buf, int n,
 	       char *temp, int *temp_len, int is_jwe)
@@ -413,11 +412,14 @@ lws_jose_parse(struct lws_jose *jose, const uint8_t *buf, int n,
 	struct jose_cb_args args;
 	int m;
 
-	if (is_jwe)
+	if (is_jwe) {
 		/* prepare a context for JOSE epk ephemeral jwk parsing */
-		lws_jwk_init_jps(&args.jwk_jctx, &args.jps,
+		lws_jwk_init_jps(&args.jps,
 				 &jose->recipient[jose->recipients].jwk_ephemeral,
 				 NULL, NULL);
+		lejp_construct(&args.jwk_jctx, cb_jwk, &args.jps,
+				jwk_tok, LWS_ARRAY_SIZE(jwk_tok));
+	}
 
 	args.is_jwe		= (unsigned int)is_jwe;
 	args.temp		= temp;

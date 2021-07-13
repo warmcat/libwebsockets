@@ -616,8 +616,11 @@ struct lws;
 #if defined(LWS_WITH_FILE_OPS)
 #include <libwebsockets/lws-vfs.h>
 #endif
+#include <libwebsockets/lws-gencrypto.h>
+
 #include <libwebsockets/lws-lejp.h>
 #include <libwebsockets/lws-lecp.h>
+#include <libwebsockets/lws-cose.h>
 #include <libwebsockets/lws-struct.h>
 #include <libwebsockets/lws-threadpool.h>
 #include <libwebsockets/lws-tokenize.h>
@@ -647,7 +650,6 @@ struct lws;
 #include <mbedtls/sha512.h>
 #endif
 
-#include <libwebsockets/lws-gencrypto.h>
 #include <libwebsockets/lws-genhash.h>
 #include <libwebsockets/lws-genrsa.h>
 #include <libwebsockets/lws-genaes.h>

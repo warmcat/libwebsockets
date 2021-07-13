@@ -53,7 +53,7 @@ const struct lws_ec_curves lws_ec_curves[] = {
 
 static int
 lws_genec_keypair_import(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
-			 struct lws_gencrypto_keyelem *el)
+			 const struct lws_gencrypto_keyelem *el)
 {
 	const struct lws_ec_curves *curve;
 	mbedtls_ecp_keypair kp;
@@ -202,7 +202,7 @@ lws_genecdh_set_key(struct lws_genec_ctx *ctx, struct lws_gencrypto_keyelem *el,
 
 int
 lws_genecdsa_set_key(struct lws_genec_ctx *ctx,
-		     struct lws_gencrypto_keyelem *el)
+		     const struct lws_gencrypto_keyelem *el)
 {
 	if (ctx->genec_alg != LEGENEC_ECDSA)
 		return -1;

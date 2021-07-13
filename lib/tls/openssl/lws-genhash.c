@@ -83,12 +83,16 @@ lws_genhash_destroy(struct lws_genhash_ctx *ctx, void *result)
 	unsigned int len;
 	int ret = 0;
 
+	if (!ctx->mdctx)
+		return 0;
+
 	if (result)
 		ret = EVP_DigestFinal_ex(ctx->mdctx, result, &len) != 1;
 
 	(void)len;
 
 	EVP_MD_CTX_destroy(ctx->mdctx);
+	ctx->mdctx = NULL;
 
 	return ret;
 }

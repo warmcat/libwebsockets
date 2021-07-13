@@ -41,7 +41,8 @@ lws_genrsa_destroy_elements(struct lws_gencrypto_keyelem *el)
 static int mode_map[] = { MBEDTLS_RSA_PKCS_V15, MBEDTLS_RSA_PKCS_V21 };
 
 int
-lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_gencrypto_keyelem *el,
+lws_genrsa_create(struct lws_genrsa_ctx *ctx,
+		  const struct lws_gencrypto_keyelem *el,
 		  struct lws_context *context, enum enum_genrsa_mode mode,
 		  enum lws_genhash_types oaep_hashid)
 {
@@ -169,7 +170,7 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 		};
 
 		for (n = 0; n < LWS_GENCRYPTO_RSA_KEYEL_COUNT; n++)
-			if (mbedtls_mpi_size(mpi[n])) {
+			if (mpi[n] && mbedtls_mpi_size(mpi[n])) {
 				el[n].buf = lws_malloc(
 					mbedtls_mpi_size(mpi[n]), "genrsakey");
 				if (!el[n].buf)
