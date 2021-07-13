@@ -947,6 +947,17 @@ lws_check_utf8(unsigned char *state, unsigned char *buf, size_t len);
 int alloc_file(struct lws_context *context, const char *filename,
 			  uint8_t **buf, lws_filepos_t *amount);
 
+void
+lws_lec_int(lws_lec_pctx_t *ctx, uint8_t opcode, uint8_t indet, uint64_t num);
+int
+lws_lec_scratch(lws_lec_pctx_t *ctx);
+void
+lws_lec_signed(lws_lec_pctx_t *ctx, int64_t num);
+
+int
+lws_cose_key_checks(const lws_cose_key_t *key, int64_t kty, int64_t alg,
+		    int key_op, const char *crv);
+
 void lws_msleep(unsigned int);
 
 void

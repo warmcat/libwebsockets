@@ -59,6 +59,13 @@ enum lws_gencrypto_rsa_tok {
 	LWS_GENCRYPTO_RSA_KEYEL_DQ,
 	LWS_GENCRYPTO_RSA_KEYEL_QI,
 
+	/* we don't actively use these if given, but may come from COSE */
+
+	LWS_GENCRYPTO_RSA_KEYEL_OTHER,
+	LWS_GENCRYPTO_RSA_KEYEL_RI,
+	LWS_GENCRYPTO_RSA_KEYEL_DI,
+	LWS_GENCRYPTO_RSA_KEYEL_TI,
+
 	LWS_GENCRYPTO_RSA_KEYEL_COUNT
 };
 
@@ -89,10 +96,10 @@ enum lws_gencrypto_aes_tok {
  * type.
  */
 
-struct lws_gencrypto_keyelem {
+typedef struct lws_gencrypto_keyelem {
 	uint8_t *buf;
 	uint32_t len;
-};
+} lws_gc_elem_t;
 
 
 /**
