@@ -943,7 +943,7 @@ rops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
 	unsigned int pending = 0;
 	struct lws_tokens ebuf;
 	char buffered = 0;
-	int n = 0, m;
+	int n = 0, m, sanity = 10;
 #if defined(LWS_WITH_HTTP2)
 	struct lws *wsi1;
 #endif
@@ -1223,7 +1223,14 @@ drain:
 		else
 			pending = pending > wsi->a.context->pt_serv_buf_size ?
 				wsi->a.context->pt_serv_buf_size : pending;
-		goto read;
+		if (--sanity)
+			goto read;
+		else
+			/*
+			 * Something has gone wrong, we are spinning...
+			 * let's bail on this connection
+			 */
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
 
 	if (buffered && /* were draining, now nothing left */
