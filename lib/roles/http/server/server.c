@@ -2871,6 +2871,9 @@ int lws_serve_http_file_fragment(struct lws *wsi)
 #if defined(LWS_WITH_RANGES)
 	unsigned char finished = 0;
 #endif
+#if defined(LWS_ROLE_H2)
+	struct lws *nwsi;
+#endif
 	int n, m;
 
 	lwsl_debug("wsi->mux_substream %d\n", wsi->mux_substream);
@@ -3013,6 +3016,18 @@ int lws_serve_http_file_fragment(struct lws *wsi)
 			n = (int)amount;
 		else
 			n = lws_ptr_diff(p, pstart) + (int)amount;
+
+#if defined(LWS_ROLE_H2)
+		/*
+		 * If it's h2, restrict any lump that we are sending to the
+		 * max h2 frame size the peer indicated he could handle in
+		 * his SETTINGS
+		 */
+		nwsi = lws_get_network_wsi(wsi);
+		if (nwsi->h2.h2n &&
+		    n > (int)nwsi->h2.h2n->peer_set.s[H2SET_MAX_FRAME_SIZE])
+			n = (int)nwsi->h2.h2n->peer_set.s[H2SET_MAX_FRAME_SIZE];
+#endif
 
 		lwsl_debug("%s: sending %d\n", __func__, n);
 
