@@ -24,7 +24,6 @@
 
 #include "private-lib-core.h"
 #include "private-lib-tls-openssl.h"
-#include <errno.h>
 
 int openssl_websocket_private_data_index,
 	   openssl_SSL_CTX_private_data_index;
@@ -57,12 +56,11 @@ int lws_ssl_get_error(struct lws *wsi, int n)
 		return 99;
 
 	m = SSL_get_error(wsi->tls.ssl, n);
-	lwsl_debug("%s: %p %d -> %d (errno %d)\n", __func__, wsi->tls.ssl, n, m,
-		   errno);
+       lwsl_debug("%s: %p %d -> %d (errno %d)\n", __func__, wsi->tls.ssl, n, m, LWS_ERRNO);
 	if (m == SSL_ERROR_SSL)
 		lws_tls_err_describe_clear();
 
-	// assert (errno != 9);
+       // assert (LWS_ERRNO != 9);
 
 	return m;
 }
@@ -207,7 +205,11 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 	if (!wsi->tls.ssl)
 		return lws_ssl_capable_read_no_ssl(wsi, buf, len);
 
+#ifndef WIN32
 	errno = 0;
+#else
+  WSASetLastError(0);
+#endif
 	ERR_clear_error();
 	n = SSL_read(wsi->tls.ssl, buf, (int)(ssize_t)len);
 #if defined(LWS_PLAT_FREERTOS)
@@ -244,14 +246,14 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 	 */
 	if (n <= 0) {
 		m = lws_ssl_get_error(wsi, n);
-		lwsl_debug("%s: ssl err %d errno %d\n", lws_wsi_tag(wsi), m, errno);
+               lwsl_debug("%s: ssl err %d errno %d\n", lws_wsi_tag(wsi), m, LWS_ERRNO);
 		if (m == SSL_ERROR_ZERO_RETURN) /* cleanly shut down */
 			goto do_err;
 
 		/* hm not retryable.. could be 0 size pkt or error  */
 
 		if (m == SSL_ERROR_SSL || m == SSL_ERROR_SYSCALL ||
-		    errno == LWS_ENOTCONN) {
+        LWS_ERRNO == LWS_ENOTCONN) {
 
 			/* unclean, eg closed conn */
 
@@ -531,7 +533,11 @@ __lws_tls_shutdown(struct lws *wsi)
 {
 	int n;
 
+#ifndef WIN32
 	errno = 0;
+#else
+  WSASetLastError(0);
+#endif
 	ERR_clear_error();
 	n = SSL_shutdown(wsi->tls.ssl);
 	lwsl_debug("SSL_shutdown=%d for fd %d\n", n, wsi->desc.sockfd);
