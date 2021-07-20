@@ -277,6 +277,14 @@ lws_plat_set_socket_options_ip(lws_sockfd_type fd, uint8_t pri, int lws_flags)
 
 /* cast a struct sockaddr_in6 * into addr for ipv6 */
 
+enum {
+	IP_SCORE_NONE,
+	IP_SCORE_NONNATIVE,
+	IP_SCORE_IPV6_SCOPE_BASE,
+	/* ipv6 scopes */
+	IP_SCORE_GLOBAL_NATIVE = 18
+};
+
 int
 lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 		    size_t addrlen)
@@ -285,8 +293,11 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 
 	struct ifaddrs *ifr;
 	struct ifaddrs *ifc;
-#ifdef LWS_WITH_IPV6
+#if defined(LWS_WITH_IPV6)
 	struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)addr;
+	unsigned long sco = IP_SCORE_NONE;
+	unsigned long ts;
+	const uint8_t *p;
 #endif
 
 	if (getifaddrs(&ifr)) {
@@ -294,7 +305,7 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 
 		return LWS_ITOSA_USABLE;
 	}
-	for (ifc = ifr; ifc != NULL && rc; ifc = ifc->ifa_next) {
+	for (ifc = ifr; ifc != NULL; ifc = ifc->ifa_next) {
 		if (!ifc->ifa_addr || !ifc->ifa_name)
 			continue;
 
@@ -309,13 +320,19 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 #if defined(AF_PACKET)
 		case AF_PACKET:
 			/* interface exists but is not usable */
-			rc = LWS_ITOSA_NOT_USABLE;
+			if (rc == LWS_ITOSA_NOT_EXIST)
+				rc = LWS_ITOSA_NOT_USABLE;
 			continue;
 #endif
 
 		case AF_INET:
-#ifdef LWS_WITH_IPV6
+#if defined(LWS_WITH_IPV6)
 			if (ipv6) {
+				/* any existing solution is better than this */
+				if (sco != IP_SCORE_NONE)
+					break;
+				sco = IP_SCORE_NONNATIVE;
+				rc = LWS_ITOSA_USABLE;
 				/* map IPv4 to IPv6 */
 				memset((char *)&addr6->sin6_addr, 0,
 						sizeof(struct in6_addr));
@@ -325,23 +342,37 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 				       &((struct sockaddr_in *)ifc->ifa_addr)->sin_addr,
 							sizeof(struct in_addr));
 				lwsl_debug("%s: uplevelling ipv4 bind to ipv6\n", __func__);
-			} else
+				break;
+			}
+
+			sco = IP_SCORE_GLOBAL_NATIVE;
 #endif
-				memcpy(addr,
-					(struct sockaddr_in *)ifc->ifa_addr,
+			rc = LWS_ITOSA_USABLE;
+			memcpy(addr, (struct sockaddr_in *)ifc->ifa_addr,
 						    sizeof(struct sockaddr_in));
 			break;
-#ifdef LWS_WITH_IPV6
+#if defined(LWS_WITH_IPV6)
 		case AF_INET6:
+			p = (const uint8_t *)
+				&((struct sockaddr_in6 *)ifc->ifa_addr)->sin6_addr;
+			ts = IP_SCORE_IPV6_SCOPE_BASE;
+			if (p[0] == 0xff)
+				ts = (unsigned long)(IP_SCORE_IPV6_SCOPE_BASE + (p[1] & 0xf));
+
+			if (sco >= ts)
+				break;
+
+			sco = ts;
+			rc = LWS_ITOSA_USABLE;
+
 			memcpy(&addr6->sin6_addr,
-			  &((struct sockaddr_in6 *)ifc->ifa_addr)->sin6_addr,
+			     &((struct sockaddr_in6 *)ifc->ifa_addr)->sin6_addr,
 						       sizeof(struct in6_addr));
 			break;
 #endif
 		default:
 			continue;
 		}
-		rc = LWS_ITOSA_USABLE;
 	}
 
 	freeifaddrs(ifr);

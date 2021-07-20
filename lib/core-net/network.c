@@ -260,6 +260,7 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 		n = sizeof(struct sockaddr_in6);
 
 		memset(&serv_addr6, 0, sizeof(serv_addr6));
+		serv_addr6.sin6_family = AF_INET6;
 		if (iface) {
 			m = interface_to_sa(vhost, iface,
 				    (struct sockaddr_in *)v, (unsigned int)n, 1);
@@ -273,16 +274,11 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 						   iface);
 				return m;
 			}
-			if (serv_addr6.sin6_family == AF_INET6)
-				serv_addr6.sin6_scope_id = (unsigned int)
-					lws_get_addr_scope(wsi, iface);
-		} else
-			serv_addr6.sin6_family = AF_INET6;
+			serv_addr6.sin6_scope_id = (unsigned int)htonl((uint32_t)
+					lws_get_addr_scope(wsi, iface));
+		}
 
-		if (serv_addr6.sin6_family == AF_INET6)
-			serv_addr6.sin6_port = (uint16_t)htons((uint16_t)port);
-		else
-			((struct sockaddr_in *)v)->sin_port = (uint16_t)htons((uint16_t)port);
+		serv_addr6.sin6_port = (uint16_t)htons((uint16_t)port);
 		break;
 #endif
 
