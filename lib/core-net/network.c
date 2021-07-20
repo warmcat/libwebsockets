@@ -273,7 +273,8 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 				return m;
 			}
 			if (serv_addr6.sin6_family == AF_INET6)
-				serv_addr6.sin6_scope_id = (unsigned int)lws_get_addr_scope(iface);
+				serv_addr6.sin6_scope_id = (unsigned int)htonl((uint32_t)
+						lws_get_addr_scope(iface));
 		} else
 			serv_addr6.sin6_family = AF_INET6;
 
