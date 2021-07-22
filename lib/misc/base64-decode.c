@@ -72,9 +72,9 @@ _lws_b64_encode_string(const char *encode, const char *in, int in_len,
 		*out++ = encode[triple[0] >> 2];
 		*out++ = encode[(((triple[0] & 0x03) << 4) & 0x30) |
 					     (((triple[1] & 0xf0) >> 4) & 0x0f)];
-		*out++ = (len > 1 ? encode[(((triple[1] & 0x0f) << 2) & 0x3c) |
+		*out++ = (char)(len > 1 ? encode[(((triple[1] & 0x0f) << 2) & 0x3c) |
 					(((triple[2] & 0xc0) >> 6) & 3)] : '=');
-		*out++ = (len > 2 ? encode[triple[2] & 0x3f] : '=');
+		*out++ = (char)(len > 2 ? encode[triple[2] & 0x3f] : '=');
 
 		done += 4;
 	}
