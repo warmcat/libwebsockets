@@ -2966,9 +2966,8 @@ int lws_serve_http_file_fragment(struct lws *wsi)
                if (nwsi->h2.h2n &&
                    poss > (lws_filepos_t)nwsi->h2.h2n->peer_set.s[H2SET_MAX_FRAME_SIZE])
                        poss = (lws_filepos_t)nwsi->h2.h2n->peer_set.s[H2SET_MAX_FRAME_SIZE];
-
-               poss = poss - (lws_filepos_t)(n - LWS_H2_FRAME_HEADER_LENGTH);
 #endif
+		poss = poss - (lws_filepos_t)(n + LWS_H2_FRAME_HEADER_LENGTH);
 
 		if (wsi->http.tx_content_length)
 			if (poss > wsi->http.tx_content_remain)
