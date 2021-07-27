@@ -1626,11 +1626,15 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	wsi->flags = (wsi->flags & (~LCCSCF_USE_SSL)) |
 					(ssl ? LCCSCF_USE_SSL : 0);
 
+	if (!cisin[CIS_ALPN] || !cisin[CIS_ALPN][0])
+#if defined(LWS_ROLE_H2)
+		cisin[CIS_ALPN] = "h2,http/1.1";
+#else
+		cisin[CIS_ALPN] = "http/1.1";
+#endif
+
 	lwsl_notice("%s: REDIRECT %s:%d, path='%s', ssl = %d, alpn='%s'\n",
 		    __func__, address, port, path, ssl, cisin[CIS_ALPN]);
-
-	if (!cisin[CIS_ALPN][0])
-		assert(0);
 
 	lws_pt_lock(pt, __func__);
 	__remove_wsi_socket_from_fds(wsi);
