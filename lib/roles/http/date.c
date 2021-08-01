@@ -139,7 +139,16 @@ lws_http_date_parse_unix(const char *b, size_t len, time_t *t)
 	if (lws_http_date_parse(b, len, &tm))
 		return -1;
 
+#if defined(WIN32)
+	*t = _mkgmtime(&tm);
+#else
+#if defined(LWS_HAVE_TIMEGM)
+	*t = timegm(&tm);
+#else
+	/* this is a poor fallback since it uses localtime zone */
 	*t = mktime(&tm);
+#endif
+#endif
 
 	return (int)*t == -1 ? -1 : 0;
 }

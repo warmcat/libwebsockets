@@ -99,6 +99,7 @@
 #cmakedefine LWS_HAVE__STAT32I64
 #cmakedefine LWS_HAVE_STDINT_H
 #cmakedefine LWS_HAVE_SYS_CAPABILITY_H
+#cmakedefine LWS_HAVE_TIMEGM
 #cmakedefine LWS_HAVE_TLS_CLIENT_METHOD
 #cmakedefine LWS_HAVE_TLSV1_2_CLIENT_METHOD
 #cmakedefine LWS_HAVE_SUSECONDS_T
