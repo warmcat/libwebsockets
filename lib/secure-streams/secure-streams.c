@@ -1463,6 +1463,9 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 			      __func__);
 
 	__lws_lc_untag(h->context, &h->lc);
+
+	lws_explicit_bzero((void *)h, sizeof(*h));
+
 	lws_free_set_NULL(h);
 }
 
