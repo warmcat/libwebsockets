@@ -1,6 +1,51 @@
 Changelog
 ---------
 
+ - Add full CBOR stream parsing and writing support, with huge
+   amount of test vectors and resumable printf type write apis
+   See ./READMEs/README.cbor-lecp.md
+ - Add COSE key and signing / validation support with huge amount of
+   test vectors
+    cose_sign[1] ES256/384/512, RS256/384/512
+    cose_mac0    HS256/384/512
+   See ./READMEs/README.cbor-cose.md
+ - JIT Trust: for constrained devices, provides a way to determine the
+   trusted CA certs the peer requires, and instantiate just those.
+   This allows generic client browsing without the overhead of ~130
+   x.509 CA certs in memory permanently.
+   See ./READMEs/README.jit-trust.md
+ - Add support for client Netscape cookie jar with caching
+ - Secure Streams: issue LWSSSCS_EVENT_WAIT_CANCELLED state() when
+   lws_cancel_service() called, so cross-thread events can be handled
+   in SS
+ - Actively assert() on attempt to destroy SS handles still active in
+   the call stack, use DESTROY_ME returns instead so caller can choose
+   how to handle it.
+ - Improved Client Connection Error report strings for tls errors
+ - SMP: Use a private fakewsi for PROTOCOL_INIT so pts cannot try to
+   use the same one concurrently
+ - MbedTLS v3 support for all release changes, as well as retaining
+   support for v2.x
+ - MQTT client: support QoS2
+ - Event lib ops can now be set at context creation time directly,
+   bringing full event lib hooking to custom event loops.  See
+   minimal-http-server-eventlib-custom
+ - Extra APIs to recover AKID and SKID from x.509 in mbedtls and openssl
+ - Improve http redirect to handle h2-> h2 cleanly
+ - IPv4+6 listen sockets on vhosts are now done with two separate
+   sockets bound individually to AF_INET and AF_INET6 addresses,
+   handled by the same vhost listen flow.
+ - Improved tls restriction handling
+ - Log contexts: allow objects to log into local logging contexts, by
+   lws_context, vhost, wsi and ss handle.  Each context has its own
+   emit function and log level. See ./READMEs/README.logging.md
+ - Upgrade compiler checking to default to -Werror -Wall -Wextra
+ - Fault injection apis now also support pseudo-random number binding
+   within a specified range, eg,
+   --fault-injection "f1(10%),f1_delay(123..456)"
+ - Remove LWS_WITH_DEPRECATED_THINGS, remove master branch
+ - Interface binding now uses ipv6 scoring to select bind address
+
 v4.2.0
 ======
 
