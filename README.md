@@ -8,14 +8,17 @@ lightweight, configurable, scalable and flexible way.  It's easy to build and
 cross-build via cmake and is suitable for tasks from embedded RTOS through mass
 cloud serving.
 
-[80+ independent minimal examples](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples) for
-various scenarios, CC0-licensed (public domain) for cut-and-paste, allow you to get started quickly.
+It supports a lot of lightweight ancilliary implementations for things like JSON,
+CBOR, JOSE, COSE, and supports OpenSSL and MbedTLS v2 and v3 out of the box for everything.
+It's very gregarious when it comes to event loop sharing, supporting libuv, libevent, libev,
+sdevent, glib and uloop, as well as custom event libs.
 
-[There are a lot of READMEs](https://libwebsockets.org/git/libwebsockets/tree/READMEs) on a variety of
-topics.
+[100+ independent minimal examples](https://libwebsockets.org/git/libwebsockets/tree/minimal-examples) for various scenarios, CC0-licensed
+(public domain) for cut-and-paste, allow you to get started quickly.
 
-[We do a huge amount of CI testing per push](https://libwebsockets.org/sai/), currently 495 builds on
-27 platforms.
+[There are a lot of READMEs](https://libwebsockets.org/git/libwebsockets/tree/READMEs) on a variety of topics.
+
+[We do a huge amount of CI testing per push](https://libwebsockets.org/sai/), currently 510 builds on 27 platforms.
 
 ![overview](./doc-assets/lws-overview.png)
 
