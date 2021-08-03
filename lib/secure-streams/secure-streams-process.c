@@ -608,6 +608,7 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 			 * priority 2
 			 */
 
+#if defined(LWS_WITH_CONMON)
 			if (conn->ss->conmon_json) {
 				unsigned int xlen = conn->ss->conmon_len;
 
@@ -625,7 +626,7 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 				pay = 0;
 				goto again;
 			}
-
+#endif
 			/*
 			 * if no fresh rx metadata, just pass through incoming
 			 * dsh

@@ -46,7 +46,9 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (!h)
 			break;
 
+#if defined(LWS_WITH_CONMON)
 		lws_conmon_ss_json(h);
+#endif
 
 		r = lws_ss_event_helper(h, LWSSSCS_UNREACHABLE);
 		if (r == LWSSSSRET_DESTROY_ME)
@@ -64,7 +66,9 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			break;
 		lws_sul_cancel(&h->sul_timeout);
 
+#if defined(LWS_WITH_CONMON)
 		lws_conmon_ss_json(h);
+#endif
 
 		r = lws_ss_event_helper(h, LWSSSCS_DISCONNECTED);
 		if (r == LWSSSSRET_DESTROY_ME)
