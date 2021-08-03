@@ -40,7 +40,7 @@
 // #define VIA_LOCALHOST_SOCKS
 
 static int interrupted, bad = 1, force_cpd_fail_portal,
-	   force_cpd_fail_no_internet, test_respmap, test_ots;
+	   force_cpd_fail_no_internet, test_respmap, test_ots, test_local;
 static unsigned int timeout_ms = 3000;
 static lws_state_notify_link_t nl;
 
@@ -142,7 +142,7 @@ static const char * const default_ss_policy =
 			"\"retry\":"		"\"default\""
 #else
 	"{\"mintest\": {"
-			"\"endpoint\": \"warmcat.com\","
+			"\"endpoint\":  \"warmcat.com\","
 			"\"port\": 443,"
 			"\"protocol\": \"h1\","
 			"\"http_method\": \"GET\","
@@ -158,6 +158,17 @@ static const char * const default_ss_policy =
 			"\"timeout_ms\": 2000,"
 			"\"direct_proto_str\": true,"
 			"\"tls_trust_store\": \"le_via_dst\""
+		"}},"
+	"{\"mintest_local\": {"
+			"\"endpoint\":  \"localhost\","
+			"\"port\": 8000,"
+			"\"protocol\": \"h1\","
+			"\"http_method\": \"GET\","
+			"\"tls\": false,"
+			"\"opportunistic\": true,"
+			"\"retry\": \"default\","
+			"\"timeout_ms\": 2000,"
+			"\"direct_proto_str\": true"
 #endif
 		"}},{"
 			/*
@@ -185,7 +196,7 @@ static const char * const default_ss_policy =
 #endif
 
 typedef struct myss {
-	struct lws_ss_handle 		*ss;
+	struct lws_ss_handle		*ss;
 	void				*opaque_data;
 	/* ... application specific state ... */
 	lws_sorted_usec_list_t		sul;
@@ -258,6 +269,10 @@ myss_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf, size_t *len,
 	return LWSSSSRET_TX_DONT_SEND;
 }
 
+#if defined(LWS_WITH_SS_DIRECT_PROTOCOL_STR)
+static const char * long_token_str = "{xxx:AWlKJMMISWJBQpAFqU0UqKNsnSY5usx2YtjOZJUQALNtapRxu/9VJqMk5IFVhxrNvMTj+RCGN6B5OlUK80lbbC8fAmQi7SoFB8DHN9UCRHkENriC62FjMNiBVfgkjMWx+60GioZy4bI2kCcyisd2CujQuSVllUmQFXhVq291cJhFfcKR4c3CUCuhouUfK2e1BY5InDMnzUXozOh+vhjJSeBIfp4HRUAgMpV7FXlHy8D5tgbmPbHs9X81MEsHTcERd3pG10B5fu1PzH+dJbr5F2WTK+VFWZI99B89ijEZWsPg447IK3F+0HHGseZfpRjKw2bY94id/TmncTxS0cqchDJlYg+Jt33U4HkUPqLdRiGIfJb6wSATx4S9ZKUumeJAgXpC6ytlUeqPpxzgnD7Tle5CDVb+eVzRk2FJfjiZdjbYxXhWYntPusLP/PGrorkqLw0ZKw+OJ+fhbkwF+0SCUelWEc8WPtfxCDAIdEQ7X5P4vUlBNEfuHprgHbZry680syFetY2q3ZtCmWemLHhqdDGu4lFgcQPCbb9b8eOE8oAbUQPm9AeV84RXSLevBG44JST/W2JuYguOk8SFlsRkfHb3dvxfB15Lg+mtH0tGRoumSMT0CFJL4ClTiKdpJo1LPgEd2/f13GcukEWirjqDRxpepJYWaVAMbxbaPBNfRHw9S8Fn8qU9/9eAxmbEqOopep5I/Zd99CT2PdE0Qyami1p05/BEc5dgvjg3SNDmAc/8kWC0AcvoSfApXI1TaVzbNh68b79h6IaIvXXorY5274u0lVB357JIRiYo29QbJgNn4bDbIr5ScM8GnFHQdKy29/TZoq4zbGMPX2X2t41vXRVeoZteu7vNWsMQD6eIomVq9qFWnoEEaR30woGF+8ZSIEu9JH5LKVZVFx46lipnjE8CDt5qrYCjwiGIswdLLMmIltxRmDt4aefTFpre7lhgUChv7ndJARvsn8rvtg2Hg1qKyfCAHa/LBblM29cRjLFqp7tWLJO7N27SWiqEhai6pmSmSYzqoPL+rnLS69rkdIuUwkA==}{yyy:jG8akvr66AXK+W1KSUyGIN3Yk4WNRLSIZHWTu8rsvQAuKwv9a/ZxrxIa+R1xW7cwmPSgINcJ4Jo7kGK9n7aDnsSDt3uMSHsu2iNg+UtIaJcO0XO6fPaLmOPLpOIU5AfG9HnbWUjeniNRrUGN8+26JH/9EB1h/X++Ow61CCHm8mKrgR1lXsKuNyqDYIrjoI3KCCVKZkdWygyFAXQ6l0sr+pUyNpv6H5w1xlC8dtI88091b/njuRlHsnoCa1zRtgqH0L4igLNu0zzOkH/ATsVS3Pyn4nsoRiGVFgzJZ0e2jT2McmDTxNeEHcafQSxeN7pztDFHT3ukUU9QFFtFDdzlug==}{vvv:VGbzgaVrLrJ+92ACJ0TEtQ==}{eeee:QURQVG9rZW6FbmNyeXB0aW6uS2v5}{sssss:mG+}";
+#endif
+
 static lws_ss_state_return_t
 myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 	   lws_ss_tx_ordinal_t ack)
@@ -306,6 +321,11 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		if (lws_ss_set_metadata(m->ss, "Content-Type:", "myctype", 7))
 			/* can fail, eg due to OOM, retry later if so */
 			return LWSSSSRET_DISCONNECT_ME;
+		if (lws_ss_set_metadata(m->ss, "X-ADP-Authentication-Token:",
+					long_token_str, strlen(long_token_str)))
+			/* can fail, eg due to OOM, retry later if so */
+			return LWSSSSRET_DISCONNECT_ME;
+
 #endif
 		break;
 
@@ -444,7 +464,9 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 #endif
 			ssi.user_alloc = sizeof(myss_t);
 			ssi.streamtype = test_ots ? "mintest-ots" :
-					 (test_respmap ? "respmap" : "mintest");
+					 (test_respmap ? "respmap" :
+					  (test_local ? "mintest_local" :
+					  "mintest"));
 
 			if (lws_ss_create(context, 0, &ssi, NULL, NULL,
 					  NULL, NULL)) {
@@ -526,6 +548,9 @@ int main(int argc, const char **argv)
 		 * validation
 		 */
 		test_ots = 1;
+
+	if (lws_cmdline_option(argc, argv, "--local"))
+		test_local = 1;
 
 	if ((p = lws_cmdline_option(argc, argv, "--timeout_ms")))
 		timeout_ms = (unsigned int)atoi(p);

@@ -283,11 +283,11 @@ lws_apply_instant_metadata(lws_ss_handle_t *h, struct lws *wsi, uint8_t *buf,
 			lwsl_debug("%s add header %s %s %d\n", __func__,
 					           imd->name,
 			                           (char *)imd->value__may_own_heap,
-						   imd->value_length);
+						   imd->length);
 			if (lws_add_http_header_by_name(wsi,
 					(const unsigned char *)imd->name,
 					(const unsigned char *)imd->value__may_own_heap,
-					imd->value_length, pp, end))
+					(int)imd->length, pp, end))
 			return -1;
 
 			/* it's possible user set content-length directly */

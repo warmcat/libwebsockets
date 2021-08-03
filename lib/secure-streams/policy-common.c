@@ -102,7 +102,7 @@ lws_ss_set_metadata(struct lws_ss_handle *h, const char *name,
 			h->instant_metadata = omd;
 		}
 		omd->value__may_own_heap = (void *)value;
-		omd->value_length = (uint8_t)len;
+		omd->length = len;
 
 		return 0;
 	}
