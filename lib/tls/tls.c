@@ -215,7 +215,7 @@ int alloc_file(struct lws_context *context, const char *filename, uint8_t **buf,
 		goto bail;
 	}
 
-	m = ftell(f);
+	m = (ssize_t)ftell(f);
 	if (m == -1l) {
 		n = 1;
 		goto bail;
