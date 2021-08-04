@@ -155,11 +155,11 @@ _lws_plat_file_read(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 		*amount = 0;
 		return -1;
 	}
-	fop_fd->pos += (size_t)n;
+	fop_fd->pos = (lws_filepos_t)(fop_fd->pos + (lws_filepos_t)n);
 	lwsl_debug("%s: read %ld of req %ld, pos %ld, len %ld\n", __func__,
 			(long)n, (long)len, (long)fop_fd->pos,
 			(long)fop_fd->len);
-	*amount = (size_t)n;
+	*amount = (lws_filepos_t)n;
 
 	return 0;
 }
@@ -176,8 +176,8 @@ _lws_plat_file_write(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 		return -1;
 	}
 
-	fop_fd->pos += (size_t)n;
-	*amount = (size_t)n;
+	fop_fd->pos = (lws_filepos_t)(fop_fd->pos + (lws_filepos_t)n);
+	*amount = (lws_filepos_t)n;
 
 	return 0;
 }
