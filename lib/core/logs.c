@@ -200,7 +200,6 @@ lws_lc_tag(lws_lifecycle_t *lc)
 }
 
 
-#if defined(LWS_LOGS_TIMESTAMP)
 int
 lwsl_timestamp(int level, char *p, size_t len)
 {
@@ -251,7 +250,6 @@ lwsl_timestamp(int level, char *p, size_t len)
 
 	return 0;
 }
-#endif
 
 #ifndef LWS_PLAT_OPTEE
 static const char * const colours[] = {
@@ -390,7 +388,7 @@ __lws_logv(lws_log_cx_t *cx, lws_log_prepend_cx_t prep, void *obj,
 		return;
 
 #if !defined(LWS_LOGS_TIMESTAMP)
-	if (cx->flags & LLLF_LOG_TIMESTAMP)
+	if (cx->lll_flags & LLLF_LOG_TIMESTAMP)
 #endif
 	{
 		buf[0] = '\0';
