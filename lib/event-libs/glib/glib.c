@@ -490,6 +490,7 @@ static const struct lws_event_loop_ops event_loop_ops_glib = {
 	/* run_pt */			elops_run_pt_glib,
 	/* destroy_pt */		elops_destroy_pt_glib,
 	/* destroy wsi */		elops_destroy_wsi_glib,
+	/* foreign_thread */		NULL,
 
 	/* flags */			LELOF_DESTROY_FINAL,
 

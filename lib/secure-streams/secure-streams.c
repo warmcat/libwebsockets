@@ -518,6 +518,8 @@ _lws_ss_backoff(lws_ss_handle_t *h, lws_usec_t us_override)
 	uint64_t ms;
 	char conceal;
 
+	lws_service_assert_loop_thread(h->context, h->tsi);
+
 	if (h->seqstate == SSSEQ_RECONNECT_WAIT)
 		return LWSSSSRET_OK;
 
@@ -577,6 +579,8 @@ lws_smd_ss_cb(void *opaque, lws_smd_class_t _class,
 	lws_ss_handle_t *h = (lws_ss_handle_t *)opaque;
 	uint8_t *p = (uint8_t *)buf - LWS_SMD_SS_RX_HEADER_LEN;
 
+	lws_service_assert_loop_thread(h->context, h->tsi);
+
 	/*
 	 * When configured with SS enabled, lws over-allocates
 	 * LWS_SMD_SS_RX_HEADER_LEN bytes behind the payload of the queued
@@ -602,6 +606,8 @@ lws_ss_smd_tx_cb(lws_sorted_usec_list_t *sul)
 	size_t len = sizeof(buf);
 	lws_smd_class_t _class;
 	int flags = 0, n;
+
+	lws_service_assert_loop_thread(h->context, h->tsi);
 
 	if (!h->info.tx)
 		return;
@@ -645,6 +651,8 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 	char *path, ep[96];
 	lws_strexp_t exp;
 	struct lws *wsi;
+
+	lws_service_assert_loop_thread(h->context, h->tsi);
 
 	if (!h->policy) {
 		lwsl_err("%s: ss with no policy\n", __func__);
@@ -880,6 +888,9 @@ lws_ss_state_return_t
 lws_ss_client_connect(lws_ss_handle_t *h)
 {
 	lws_ss_state_return_t r;
+
+	lws_service_assert_loop_thread(h->context, h->tsi);
+
 	r = _lws_ss_client_connect(h, 0, 0);
 	_lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, h->wsi, &h);
 	return r;
@@ -907,6 +918,8 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 	void **v;
 	char *p;
 	int n;
+
+	lws_service_assert_loop_thread(context, tsi);
 
 #if defined(LWS_WITH_SECURE_STREAMS_CPP)
 	pol = ssi->policy;
@@ -1320,6 +1333,8 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 	if (!h)
 		return;
 
+	lws_service_assert_loop_thread(h->context, h->tsi);
+
 	if (h == h->h_in_svc) {
 		lwsl_err("%s: illegal destroy, return LWSSSSRET_DESTROY_ME instead\n",
 				__func__);
@@ -1508,6 +1523,8 @@ _lws_ss_request_tx(lws_ss_handle_t *h)
 
 	// lwsl_notice("%s: h %p, wsi %p\n", __func__, h, h->wsi);
 
+	lws_service_assert_loop_thread(h->context, h->tsi);
+
 	if (h->wsi) {
 		lws_callback_on_writable(h->wsi);
 
@@ -1569,6 +1586,8 @@ _lws_ss_request_tx(lws_ss_handle_t *h)
 lws_ss_state_return_t
 lws_ss_request_tx_len(lws_ss_handle_t *h, unsigned long len)
 {
+	lws_service_assert_loop_thread(h->context, h->tsi);
+
 	if (h->wsi && h->policy &&
 	    (h->policy->protocol == LWSSSP_H1 ||
 	     h->policy->protocol == LWSSSP_H2 ||
@@ -1633,6 +1652,8 @@ lws_ss_add_peer_tx_credit(struct lws_ss_handle *h, int32_t bump)
 {
 	const struct ss_pcols *ssp;
 
+	lws_service_assert_loop_thread(h->context, h->tsi);
+
 	ssp = ss_pcols[(int)h->policy->protocol];
 
 	if (h->wsi && ssp && ssp->tx_cr_add)
@@ -1645,6 +1666,8 @@ int
 lws_ss_get_est_peer_tx_credit(struct lws_ss_handle *h)
 {
 	const struct ss_pcols *ssp;
+
+	lws_service_assert_loop_thread(h->context, h->tsi);
 
 	ssp = ss_pcols[(int)h->policy->protocol];
 
@@ -1681,6 +1704,8 @@ lws_ss_to_cb(lws_sorted_usec_list_t *sul)
 void
 lws_ss_start_timeout(struct lws_ss_handle *h, unsigned int timeout_ms)
 {
+	lws_service_assert_loop_thread(h->context, h->tsi);
+
 	if (!timeout_ms && !h->policy->timeout_ms)
 		return;
 
@@ -1692,6 +1717,7 @@ lws_ss_start_timeout(struct lws_ss_handle *h, unsigned int timeout_ms)
 void
 lws_ss_cancel_timeout(struct lws_ss_handle *h)
 {
+	lws_service_assert_loop_thread(h->context, h->tsi);
 	lws_sul_cancel(&h->sul_timeout);
 }
 

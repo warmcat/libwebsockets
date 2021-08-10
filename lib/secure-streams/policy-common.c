@@ -85,6 +85,8 @@ lws_ss_set_metadata(struct lws_ss_handle *h, const char *name,
 {
 	lws_ss_metadata_t *omd = lws_ss_get_handle_metadata(h, name);
 
+	lws_service_assert_loop_thread(h->context, h->tsi);
+
 	if (omd)
 		return _lws_ss_set_metadata(omd, name, value, len);
 
@@ -147,6 +149,8 @@ lws_ss_alloc_set_metadata(struct lws_ss_handle *h, const char *name,
 {
 	lws_ss_metadata_t *omd = lws_ss_get_handle_metadata(h, name);
 
+	lws_service_assert_loop_thread(h->context, h->tsi);
+
 	if (!omd) {
 		lwsl_info("%s: unknown metadata %s\n", __func__, name);
 		return 1;
@@ -163,6 +167,8 @@ lws_ss_get_metadata(struct lws_ss_handle *h, const char *name,
 #if defined(LWS_WITH_SS_DIRECT_PROTOCOL_STR)
 	int n;
 #endif
+
+	lws_service_assert_loop_thread(h->context, h->tsi);
 
 	if (omd) {
 		*value = omd->value__may_own_heap;
@@ -216,6 +222,8 @@ lws_ss_metadata_t *
 lws_ss_get_handle_metadata(struct lws_ss_handle *h, const char *name)
 {
 	int n;
+
+	lws_service_assert_loop_thread(h->context, h->tsi);
 
 	for (n = 0; n < h->policy->metadata_count; n++)
 		if (!strcmp(name, h->metadata[n].name))

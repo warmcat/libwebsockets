@@ -1426,6 +1426,13 @@ hubbub_error
 html_parser_cb(const hubbub_token *token, void *pw);
 #endif
 
+#if defined(_DEBUG)
+void
+lws_service_assert_loop_thread(struct lws_context *cx, int tsi);
+#else
+#define lws_service_assert_loop_thread(_cx, _tsi)
+#endif
+
 int
 lws_threadpool_tsi_context(struct lws_context *context, int tsi);
 

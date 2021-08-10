@@ -608,6 +608,8 @@ lws_sspc_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 	uint8_t *ua;
 	char *p;
 
+	lws_service_assert_loop_thread(context, tsi);
+
 	/* allocate the handle (including ssi), the user alloc,
 	 * and the streamname */
 
@@ -716,6 +718,8 @@ lws_sspc_destroy(lws_sspc_handle_t **ph)
 		return;
 	}
 
+	lws_service_assert_loop_thread(h->context, 0);
+
 	if (h->destroying)
 		return;
 
@@ -783,6 +787,8 @@ lws_sspc_request_tx(lws_sspc_handle_t *h)
 	if (!h || !h->cwsi)
 		return LWSSSSRET_OK;
 
+	lws_service_assert_loop_thread(h->context, 0);
+
 	if (!h->us_earliest_write_req)
 		h->us_earliest_write_req = lws_now_usecs();
 
@@ -824,6 +830,8 @@ lws_sspc_request_tx_len(lws_sspc_handle_t *h, unsigned long len)
 	if (!h)
 		return LWSSSSRET_OK;
 
+	lws_service_assert_loop_thread(h->context, 0);
+
 	lwsl_sspc_notice(h, "setting writeable_len %u", (unsigned int)len);
 	h->writeable_len = len;
 	h->pending_writeable_len = 1;
@@ -851,6 +859,8 @@ lws_sspc_client_connect(lws_sspc_handle_t *h)
 {
 	if (!h || h->state == LPCSCLI_OPERATIONAL)
 		return 0;
+
+	lws_service_assert_loop_thread(h->context, 0);
 
 	assert(h->state == LPCSCLI_LOCAL_CONNECTED);
 	if (h->state == LPCSCLI_LOCAL_CONNECTED &&
@@ -905,6 +915,8 @@ _lws_sspc_set_metadata(struct lws_sspc_handle *h, const char *name,
 		       const void *value, size_t len, int tx_cr_adjust)
 {
 	lws_sspc_metadata_t *md;
+
+	lws_service_assert_loop_thread(h->context, 0);
 
 	/*
 	 * Are we replacing a pending metadata of the same name?  It's not
@@ -985,6 +997,8 @@ lws_sspc_get_metadata(struct lws_sspc_handle *h, const char *name,
 	 * the same name first
 	 */
 
+	lws_service_assert_loop_thread(h->context, 0);
+
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 			lws_dll2_get_head(&h->metadata_owner_rx)) {
 		md = lws_container_of(d,
@@ -1005,6 +1019,7 @@ lws_sspc_get_metadata(struct lws_sspc_handle *h, const char *name,
 int
 lws_sspc_add_peer_tx_credit(struct lws_sspc_handle *h, int32_t bump)
 {
+	lws_service_assert_loop_thread(h->context, 0);
 	lwsl_sspc_notice(h, "%d\n", bump);
 	return _lws_sspc_set_metadata(h, "", NULL, 0, (int)bump);
 }
@@ -1012,12 +1027,14 @@ lws_sspc_add_peer_tx_credit(struct lws_sspc_handle *h, int32_t bump)
 int
 lws_sspc_get_est_peer_tx_credit(struct lws_sspc_handle *h)
 {
+	lws_service_assert_loop_thread(h->context, 0);
 	return h->txc.peer_tx_cr_est;
 }
 
 void
 lws_sspc_start_timeout(struct lws_sspc_handle *h, unsigned int timeout_ms)
 {
+	lws_service_assert_loop_thread(h->context, 0);
 	if (!h->cwsi)
 		/* we can't fulfil it */
 		return;

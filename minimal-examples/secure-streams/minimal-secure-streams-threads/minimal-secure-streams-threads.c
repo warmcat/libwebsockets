@@ -28,11 +28,21 @@
 
 #include <pthread.h>
 
+/*
+ * Define this to cause an ss api access from a foreign thread, it will
+ * assert.  This is for testing lws, don't do this in your code.
+ */
+// #define DO_ILLEGAL_API_THREAD
+
 static int interrupted, bad = 1, finished;
 static lws_sorted_usec_list_t sul_timeout;
 static struct lws_context *context;
 static pthread_t pthread_spam;
 static int wakes, started_thread;
+
+#if defined(DO_ILLEGAL_API_THREAD)
+static struct lws_ss_handle *ss; /* only needed for DO_ILLEGAL_API_THREAD */
+#endif
 
 /* the data shared between the spam thread and the lws event loop */
 
@@ -88,6 +98,16 @@ thread_spam(void *d)
 		lwsl_notice("%s: cancelling wait from spam thread: %d\n",
 				__func__, shared_counter);
 		lws_cancel_service(context);
+
+#if defined(DO_ILLEGAL_API_THREAD)
+		/*
+		 * ILLEGAL...
+		 * We cannot call any other lws api from a foreign thread
+		 */
+
+		if (ss)
+			lws_ss_request_tx(ss);
+#endif
 
 		pthread_mutex_unlock(&lock_shared); /* } shared lock ------- */
 
@@ -171,7 +191,13 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 	 * messages are coming
 	 */
 
-	if (lws_ss_create(context, 0, &ssi_lws_threads, NULL, NULL, NULL, NULL)) {
+	if (lws_ss_create(context, 0, &ssi_lws_threads, NULL,
+#if defined(DO_ILLEGAL_API_THREAD)
+			&ss,
+#else
+			NULL,
+#endif
+			NULL, NULL)) {
 		lwsl_err("%s: failed to create secure stream\n",
 			 __func__);
 

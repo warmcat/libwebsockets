@@ -67,6 +67,8 @@ struct lws_event_loop_ops {
 	void (*destroy_pt)(struct lws_context *context, int tsi);
 	/* called just before wsi is freed  */
 	void (*destroy_wsi)(struct lws *wsi);
+	/* return nonzero if caller thread is not loop service thread  */
+	int (*foreign_thread)(struct lws_context *context, int tsi);
 
 	uint8_t	flags;
 

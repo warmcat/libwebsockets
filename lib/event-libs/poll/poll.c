@@ -1,7 +1,7 @@
  /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2021 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -25,28 +25,29 @@
 #include <private-lib-core.h>
 #include "private-lib-event-libs-poll.h"
 
+static int
+elops_foreign_thread_poll(struct lws_context *cx, int tsi)
+{
+	struct lws_context_per_thread *pt = &cx->pt[tsi];
+	volatile struct lws_context_per_thread *vpt =
+				(volatile struct lws_context_per_thread *)pt;
+
+	/*
+	 * To avoid mandating a specific threading library, we can check
+	 * probabilistically by seeing if the lws default wait is still asleep
+	 * at the time we are checking, if it is then we cannot be being called
+	 * by the event loop loop thread.
+	 */
+
+	return vpt->inside_poll;
+}
+
 struct lws_event_loop_ops event_loop_ops_poll = {
-	/* name */			"poll",
-	/* init_context */		NULL,
-	/* destroy_context1 */		NULL,
-	/* destroy_context2 */		NULL,
-	/* init_vhost_listen_wsi */	NULL,
-	/* init_pt */			NULL,
-	/* wsi_logical_close */		NULL,
-	/* check_client_connect_ok */	NULL,
-	/* close_handle_manually */	NULL,
-	/* accept */			NULL,
-	/* io */			NULL,
-	/* run */			NULL,
-	/* destroy_pt */		NULL,
-	/* destroy wsi */		NULL,
+	.name				= "poll",
 
-	/* flags */			LELOF_ISPOLL,
+	.foreign_thread			= elops_foreign_thread_poll,
 
-	/* evlib_size_ctx */	0,
-	/* evlib_size_pt */	0,
-	/* evlib_size_vh */	0,
-	/* evlib_size_wsi */	0,
+	.flags				= LELOF_ISPOLL,
 };
 
 const lws_plugin_evlib_t evlib_poll = {

@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2021 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -95,6 +95,7 @@ lws_io_cb(uv_poll_t *watcher, int status, int revents)
 	struct lws *wsi = (struct lws *)((uv_handle_t *)watcher)->data;
 	struct lws_context *context = wsi->a.context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+	struct lws_pt_eventlibs_libuv *ptpriv = pt_to_priv_uv(pt);
 	struct lws_pollfd eventfd;
 
 	lws_context_lock(pt->context, __func__);
@@ -102,6 +103,12 @@ lws_io_cb(uv_poll_t *watcher, int status, int revents)
 
 	if (pt->is_destroyed)
 		goto bail;
+
+	if (!ptpriv->thread_valid) {
+		/* record the thread id that gave us our first event */
+		ptpriv->uv_thread = uv_thread_self();
+		ptpriv->thread_valid = 1;
+	}
 
 #if defined(WIN32) || defined(_WIN32)
 	eventfd.fd = watcher->socket;
@@ -144,7 +151,7 @@ lws_io_cb(uv_poll_t *watcher, int status, int revents)
 		return;
 	}
 
-	uv_idle_start(&pt_to_priv_uv(pt)->idle, lws_uv_idle);
+	uv_idle_start(&ptpriv->idle, lws_uv_idle);
 	return;
 
 bail:
@@ -489,6 +496,11 @@ elops_accept_uv(struct lws *wsi)
 	struct lws_pt_eventlibs_libuv *ptpriv = pt_to_priv_uv(pt);
 	struct lws_io_watcher_libuv *w_read = &wsi_to_priv_uv(wsi)->w_read;
 
+	if (!ptpriv->thread_valid) {
+		/* record the thread id that gave us our first event */
+		ptpriv->uv_thread = uv_thread_self();
+		ptpriv->thread_valid = 1;
+	}
 
 	w_read->context = wsi->a.context;
 
@@ -864,6 +876,27 @@ lws_libuv_closehandle(struct lws *wsi)
 	uv_close(handle, lws_libuv_closewsi);
 }
 
+static int
+elops_foreign_thread_uv(struct lws_context *cx, int tsi)
+{
+	struct lws_context_per_thread *pt = &cx->pt[tsi];
+	struct lws_pt_eventlibs_libuv *ptpriv = pt_to_priv_uv(pt);
+	uv_thread_t th = uv_thread_self();
+
+	if (!ptpriv->thread_valid)
+		/*
+		 * We can't judge it until we get the first event from the loop
+		 */
+		return 0;
+
+	/*
+	 * This is the same thread that gave us the first event on this loop?
+	 * Return 0 if so.
+	 */
+
+	return !uv_thread_equal(&th, &ptpriv->uv_thread);
+}
+
 static const struct lws_event_loop_ops event_loop_ops_uv = {
 	/* name */			"libuv",
 	/* init_context */		elops_init_context_uv,
@@ -879,6 +912,7 @@ static const struct lws_event_loop_ops event_loop_ops_uv = {
 	/* run_pt */			elops_run_pt_uv,
 	/* destroy_pt */		elops_destroy_pt_uv,
 	/* destroy wsi */		NULL,
+	/* foreign_thread */		elops_foreign_thread_uv,
 
 	/* flags */			0,
 

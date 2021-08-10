@@ -52,27 +52,32 @@ struct lws_signal_watcher_libuv {
 };
 
 struct lws_pt_eventlibs_libuv {
-	uv_loop_t *io_loop;
-	struct lws_context_per_thread *pt;
-	uv_signal_t signals[8];
-	uv_timer_t sultimer;
-	uv_idle_t idle;
+	uv_loop_t			*io_loop;
+	struct lws_context_per_thread	*pt;
+	uv_signal_t			signals[8];
+	uv_timer_t			sultimer;
+	uv_idle_t			idle;
+
+	uv_thread_t			uv_thread;
+
 	struct lws_signal_watcher_libuv w_sigint;
-	int extant_handles;
+	int				extant_handles;
+
+	char				thread_valid;
 };
 
 struct lws_context_eventlibs_libuv {
-	uv_loop_t loop;
+	uv_loop_t			loop;
 };
 
 struct lws_io_watcher_libuv {
-	uv_poll_t *pwatcher;
-	struct lws_context *context;
-	uint8_t actual_events;
+	uv_poll_t			*pwatcher;
+	struct lws_context		*context;
+	uint8_t				actual_events;
 };
 
 struct lws_wsi_eventlibs_libuv {
-	struct lws_io_watcher_libuv w_read;
+	struct lws_io_watcher_libuv	w_read;
 };
 
 uv_loop_t *

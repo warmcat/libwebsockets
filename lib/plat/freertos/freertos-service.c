@@ -40,6 +40,7 @@ lws_plat_service(struct lws_context *context, int timeout_ms)
 int
 _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
+	volatile struct lws_context_per_thread *vpt;
 	struct lws_context_per_thread *pt;
 	lws_usec_t timeout_us;
 	int n = -1, m, c, a = 0;
@@ -50,6 +51,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		return 1;
 
 	pt = &context->pt[tsi];
+	vpt = (volatile struct lws_context_per_thread *)pt;
 
 	{
 		unsigned long m = lws_now_secs();
@@ -138,7 +140,11 @@ again:
 				FD_SET(pt->fds[n].fd, &errfds);
 			}
 
+			vpt->inside_poll = 1;
+			lws_memory_barrier();
 			n = select(max_fd + 1, &readfds, &writefds, &errfds, ptv);
+			vpt->inside_poll = 0;
+			lws_memory_barrier();
 			n = 0;
 
 			for (m = 0; m < (int)pt->fds_count; m++) {

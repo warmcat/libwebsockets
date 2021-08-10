@@ -24,6 +24,27 @@
 
 #include "private-lib-core.h"
 
+#if defined(_DEBUG)
+void
+lws_service_assert_loop_thread(struct lws_context *cx, int tsi)
+{
+	if (!cx->event_loop_ops->foreign_thread)
+		/* we can't judge it */
+		return;
+
+	if (!cx->event_loop_ops->foreign_thread(cx, tsi))
+		/* OK */
+		return;
+
+	/*
+	 * Lws apis are NOT THREADSAFE with the sole exception of
+	 * lws_cancel_service().  If you look at the assert backtrace, you
+	 * should see you're illegally calling an lws api from another thread.
+	 */
+	assert(0);
+}
+#endif
+
 int
 lws_callback_as_writeable(struct lws *wsi)
 {
