@@ -187,7 +187,7 @@ ss_avs_metadata_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf,
 			lwsl_info("%s: tx done\n", __func__);
 			m->pos = (size_t)-1l; /* ban subsequent until new stream */
 		} else
-			lws_ss_request_tx(m->ss);
+			return lws_ss_request_tx(m->ss);
 
 		lwsl_hexdump_info(buf, *len);
 
@@ -211,7 +211,7 @@ ss_avs_metadata_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf,
 	if (m->pos == tot) {
 		*flags |= LWSSS_FLAG_EOM;
 		m->pos = 0; /* for next time */
-		lws_ss_request_tx(m->ss);
+		return lws_ss_request_tx(m->ss);
 	}
 
 	lwsl_hexdump_info(buf, *len);

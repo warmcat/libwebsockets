@@ -362,6 +362,7 @@ lws_ss_deserialize_parse(struct lws_ss_serialization_parser *par,
 			 lws_ss_conn_states_t *state, void *parconn,
 			 lws_ss_handle_t **pss, lws_ss_info_t *ssi, char client)
 {
+	lws_ss_state_return_t r;
 	lws_ss_metadata_t *pm;
 	lws_sspc_handle_t *h;
 	uint8_t pre[23];
@@ -1003,11 +1004,14 @@ payload_ff:
 			lwsl_notice("%s: set payload len %u\n", __func__,
 				    par->temp32);
 
-			if (proxy_pss_to_ss_h(pss))
-				lws_ss_request_tx_len(proxy_pss_to_ss_h(pss),
-							(unsigned long)par->temp32);
-
 			par->ps = RPAR_TYPE;
+
+			if (proxy_pss_to_ss_h(pss)) {
+				r = lws_ss_request_tx_len(proxy_pss_to_ss_h(pss),
+							(unsigned long)par->temp32);
+				if (r == LWSSSSRET_DESTROY_ME)
+					goto hangup;
+			}
 			break;
 
 		case RPAR_METADATA_NAMELEN:

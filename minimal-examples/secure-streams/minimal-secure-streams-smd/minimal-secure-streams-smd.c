@@ -94,7 +94,8 @@ sul_tx_periodic_cb(lws_sorted_usec_list_t *sul)
 	myss_t *m = lws_container_of(sul, myss_t, sul);
 
 	lwsl_info("%s: requesting TX\n", __func__);
-	lws_ss_request_tx(m->ss);
+	if (lws_ss_request_tx(m->ss))
+		lwsl_info("%s: req failed\n", __func__);
 }
 
 static lws_ss_state_return_t

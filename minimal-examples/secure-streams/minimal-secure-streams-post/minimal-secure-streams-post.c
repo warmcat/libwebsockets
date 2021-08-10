@@ -318,12 +318,14 @@ myss_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf, size_t *len,
 	memcpy(buf, postbody + m->pos, *len);
 
 	m->pos += *len;
+
 	if (m->pos == m->len)
 		*flags |= LWSSS_FLAG_EOM;
-	else
-		lws_ss_request_tx(m->ss);
 
 	lwsl_notice("%s: write %d flags %d\n", __func__, (int)*len, (int)*flags);
+
+	if (m->pos != m->len)
+		return lws_ss_request_tx(m->ss);
 
 	return 0;
 }
@@ -353,11 +355,12 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		/* provide a hint about the payload size */
 		m->pos = 0;
 		m->len = strlen(postbody);
-		lws_ss_request_tx_len(m->ss, (unsigned long)strlen(postbody));
-		break;
+
+		return lws_ss_request_tx_len(m->ss, (unsigned long)strlen(postbody));
+
 	case LWSSSCS_CONNECTED:
-		lws_ss_request_tx(m->ss);
-		break;
+		return lws_ss_request_tx(m->ss);
+
 	case LWSSSCS_ALL_RETRIES_FAILED:
 		/* if we're out of retries, we want to close the app and FAIL */
 		interrupted = 1;

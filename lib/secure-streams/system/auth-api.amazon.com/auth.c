@@ -227,9 +227,8 @@ ss_api_amazon_auth_state(void *userobj, void *sh, lws_ss_constate_t state,
 		s = lws_system_blob_get_size(ab);
 		if (!s)
 			lwsl_debug("%s: no auth blob\n", __func__);
-		lws_ss_request_tx_len(m->ss, (unsigned long)s);
 		m->pos = 0;
-		break;
+		return lws_ss_request_tx_len(m->ss, (unsigned long)s);
 
 	case LWSSSCS_DISCONNECTED:
 		/*

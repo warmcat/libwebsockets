@@ -183,11 +183,11 @@ myss_tx_post(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf, size_t *len,
 	*len = budget;
 	m->sent += budget;
 	if (m->sent != next_test->send)
-		lws_ss_request_tx(m->ss);
-	else
-		*flags |= LWSSS_FLAG_EOM;
+		return lws_ss_request_tx(m->ss);
 
-	return 0;
+	*flags |= LWSSS_FLAG_EOM;
+
+	return LWSSSSRET_OK;
 }
 
 static lws_ss_state_return_t
@@ -195,15 +195,18 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 	   lws_ss_tx_ordinal_t ack)
 {
 	myss_t *m = (myss_t *)userobj;
+	lws_ss_state_return_t r;
 
 	lwsl_notice("%s: %s, ord 0x%x\n", __func__, lws_ss_state_name((int)state),
 		  (unsigned int)ack);
 
 	switch (state) {
 	case LWSSSCS_CREATING:
-		lws_ss_client_connect(m->ss);
+		r = lws_ss_client_connect(m->ss);
+		if (r)
+			return r;
 		if (next_test->send)
-			lws_ss_request_tx_len(m->ss, (unsigned long)next_test->send);
+			return lws_ss_request_tx_len(m->ss, (unsigned long)next_test->send);
 		break;
 	case LWSSSCS_ALL_RETRIES_FAILED:
 		lwsl_notice("%s: Connection failed\n", __func__);
@@ -258,7 +261,7 @@ happy:
 		break;
 	}
 
-	return 0;
+	return LWSSSSRET_OK;
 }
 
 static const lws_ss_info_t ssi_get = {

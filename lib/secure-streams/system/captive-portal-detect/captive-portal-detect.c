@@ -47,8 +47,7 @@ ss_cpd_state(void *userobj, void *sh, lws_ss_constate_t state,
 	switch (state) {
 	case LWSSSCS_CREATING:
 		lws_ss_start_timeout(m->ss, 3 * LWS_US_PER_SEC);
-		lws_ss_request_tx(m->ss);
-		break;
+		return lws_ss_request_tx(m->ss);
 
 	case LWSSSCS_QOS_ACK_REMOTE:
 		lws_system_cpd_set(cx, LWS_CPD_INTERNET_OK);

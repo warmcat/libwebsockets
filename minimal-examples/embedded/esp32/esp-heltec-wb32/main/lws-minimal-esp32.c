@@ -86,7 +86,7 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 
 	switch (state) {
 	case LWSSSCS_CREATING:
-		lws_ss_client_connect(m->ss);
+		return lws_ss_client_connect(m->ss);
 		break;
 	default:
 		break;

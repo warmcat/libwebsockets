@@ -134,9 +134,8 @@ spam_sul_cb(struct lws_sorted_usec_list *sul)
 {
 	myss_srv_t *m = lws_container_of(sul, myss_srv_t, sul);
 
-	lws_ss_request_tx(m->ss);
-
-	lws_sul_schedule(lws_ss_get_context(m->ss), 0, &m->sul, spam_sul_cb,
+	if (!lws_ss_request_tx(m->ss))
+		lws_sul_schedule(lws_ss_get_context(m->ss), 0, &m->sul, spam_sul_cb,
 			 100 * LWS_US_PER_MS);
 }
 
@@ -170,8 +169,8 @@ myss_srv_state(void *userobj, void *sh, lws_ss_constate_t state,
 		lws_sul_cancel(&m->sul);
 		break;
 	case LWSSSCS_CREATING:
-		lws_ss_request_tx(m->ss);
-		break;
+		return lws_ss_request_tx(m->ss);
+
 	case LWSSSCS_ALL_RETRIES_FAILED:
 		/* if we're out of retries, we want to close the app and FAIL */
 		interrupted = 1;
@@ -201,10 +200,9 @@ myss_srv_state(void *userobj, void *sh, lws_ss_constate_t state,
 		/*
 		 * ...it's going to be whatever size it is (and request tx)
 		 */
-		lws_ss_request_tx_len(m->ss, (unsigned long)
+		return lws_ss_request_tx_len(m->ss, (unsigned long)
 				(multipart ? strlen(multipart_html) :
 							 strlen(html)));
-		break;
 
 	case LWSSSCS_SERVER_UPGRADE:
 
@@ -217,8 +215,8 @@ myss_srv_state(void *userobj, void *sh, lws_ss_constate_t state,
 
 		m->upgraded = 1;
 		lws_ss_change_handlers(m->ss, myss_ws_rx, myss_ws_tx, NULL);
-		lws_ss_request_tx(m->ss); /* we want to start sending numbers */
-		break;
+		return lws_ss_request_tx(m->ss); /* we want to start sending numbers */
+
 	default:
 		break;
 	}

@@ -102,8 +102,8 @@ ss_fetch_policy_state(void *userobj, void *sh, lws_ss_constate_t state,
 
 	switch (state) {
 	case LWSSSCS_CREATING:
-		lws_ss_request_tx(m->ss);
-		break;
+		return lws_ss_request_tx(m->ss);
+
 	case LWSSSCS_CONNECTING:
 		break;
 

@@ -182,8 +182,8 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 
 	switch (state) {
 	case LWSSSCS_CREATING:
-		lws_ss_request_tx(m->ss);
-		break;
+		return lws_ss_request_tx(m->ss);
+
 	case LWSSSCS_ALL_RETRIES_FAILED:
 		/* if we're out of retries, we want to close the app and FAIL */
 		interrupted = 1;
@@ -266,7 +266,7 @@ min_sec_str_sequencer_cb(struct lws_sequencer *seq, void *user, int event,
 
 	case LWSSEQ_TIMED_OUT: /* current step timed out */
 		if (s->state == SEQ_RECONNECT_WAIT)
-			lws_ss_request_tx(s->ss);
+			return lws_ss_request_tx(s->ss);
 		break;
 
 	/*
@@ -277,8 +277,8 @@ min_sec_str_sequencer_cb(struct lws_sequencer *seq, void *user, int event,
 
 	case LWSSEQ_SS_STATE_BASE + LWSSSCS_CREATING:
 		lwsl_info("%s: seq LWSSSCS_CREATING\n", __func__);
-		lws_ss_request_tx(s->ss);
-		break;
+		return lws_ss_request_tx(s->ss);
+
 	case LWSSEQ_SS_STATE_BASE + LWSSSCS_DISCONNECTED:
 		lwsl_info("%s: seq LWSSSCS_DISCONNECTED\n", __func__);
 		break;

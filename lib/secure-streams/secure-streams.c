@@ -1512,7 +1512,7 @@ lws_ss_request_tx(lws_ss_handle_t *h)
 	lws_ss_state_return_t r;
 
 	r = _lws_ss_request_tx(h);
-	_lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, NULL, &h);
+
 	return r;
 }
 

@@ -57,7 +57,7 @@ ss_s3_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf, size_t *len,
 		*flags |= LWSSS_FLAG_EOM;
 		// m->pos = 0; /* we only want to send once */
 	} else
-		lws_ss_request_tx(m->ss);
+		return lws_ss_request_tx(m->ss);
 
 	return LWSSSSRET_OK;
 }
@@ -173,12 +173,10 @@ ss_s3_state(void *userobj, void *sh, lws_ss_constate_t state,
 				    timestamp, strlen(timestamp)))
 			return LWSSSSRET_DESTROY_ME;
 
-		lws_ss_request_tx_len(m->ss, m->total);
-		break;
+		return lws_ss_request_tx_len(m->ss, m->total);
 
 	case LWSSSCS_CONNECTED:
-		lws_ss_request_tx(m->ss);
-		break;
+		return lws_ss_request_tx(m->ss);
 
 	case LWSSSCS_DISCONNECTED:
 		return LWSSSSRET_DESTROY_ME;

@@ -54,9 +54,8 @@ spam_sul_cb(struct lws_sorted_usec_list *sul)
 {
 	myss_srv_t *m = lws_container_of(sul, myss_srv_t, sul);
 
-	lws_ss_request_tx(m->ss);
-
-	lws_sul_schedule(lws_ss_get_context(m->ss), 0, &m->sul, spam_sul_cb,
+	if (!lws_ss_request_tx(m->ss))
+		lws_sul_schedule(lws_ss_get_context(m->ss), 0, &m->sul, spam_sul_cb,
 			 100 * LWS_US_PER_MS);
 }
 
@@ -90,8 +89,7 @@ myss_raw_state(void *userobj, void *sh, lws_ss_constate_t state,
 		lws_sul_cancel(&m->sul);
 		break;
 	case LWSSSCS_CONNECTED:
-		lws_ss_request_tx(m->ss);
-		break;
+		return lws_ss_request_tx(m->ss);
 
 	default:
 		break;

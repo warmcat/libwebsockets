@@ -169,8 +169,8 @@ notify:
 }
 
 static const struct lws_protocols protocols[] = {
-	{ "seq-test-http", callback_http, 0, 0, },
-	{ NULL, NULL, 0, 0 }
+	{ "seq-test-http", callback_http, 0, 0, 0, NULL, 0 },
+	LWS_PROTOCOL_LIST_TERM
 };
 
 

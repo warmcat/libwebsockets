@@ -447,7 +447,7 @@ typedef struct lws_ss_info {
  * formats, \p ppayload_fmt is set to point to the name of the needed payload
  * format from the policy database if non-NULL.
  */
-LWS_VISIBLE LWS_EXTERN int
+LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 	      void *opaque_user_data, struct lws_ss_handle **ppss,
 	      struct lws_sequencer *seq_owner, const char **ppayload_fmt);
@@ -471,9 +471,9 @@ lws_ss_destroy(struct lws_ss_handle **ppss);
  * write on this stream, the \p *tx callback will occur with an empty buffer for
  * the stream owner to fill in.
  *
- * Returns 0 or LWSSSSRET_SS_HANDLE_DESTROYED
+ * Returns 0 or LWSSSSRET_DESTROY_ME
  */
-LWS_VISIBLE LWS_EXTERN lws_ss_state_return_t
+LWS_VISIBLE LWS_EXTERN lws_ss_state_return_t LWS_WARN_UNUSED_RESULT
 lws_ss_request_tx(struct lws_ss_handle *pss);
 
 /**
@@ -489,7 +489,7 @@ lws_ss_request_tx(struct lws_ss_handle *pss);
  * This api variant should be used when it's possible the payload will go out
  * over h1 with x-web-form-urlencoded or similar Content-Type.
  */
-LWS_VISIBLE LWS_EXTERN lws_ss_state_return_t
+LWS_VISIBLE LWS_EXTERN lws_ss_state_return_t LWS_WARN_UNUSED_RESULT
 lws_ss_request_tx_len(struct lws_ss_handle *pss, unsigned long len);
 
 /**
@@ -505,7 +505,7 @@ lws_ss_request_tx_len(struct lws_ss_handle *pss, unsigned long len);
  * LWSSSSRET_OK means the connection is ongoing.
  *
  */
-LWS_VISIBLE LWS_EXTERN lws_ss_state_return_t
+LWS_VISIBLE LWS_EXTERN lws_ss_state_return_t LWS_WARN_UNUSED_RESULT
 lws_ss_client_connect(struct lws_ss_handle *h);
 
 /**
