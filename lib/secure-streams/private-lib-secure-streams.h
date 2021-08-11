@@ -165,6 +165,8 @@ typedef struct lws_ss_handle {
 
 	lws_ss_constate_t	connstate;/**< public connection state */
 	lws_ss_seq_state_t	seqstate; /**< private connection state */
+	lws_ss_state_return_t	pending_ret; /**< holds desired disposition
+						* for ss during CCE */
 
 #if defined(LWS_WITH_SERVER)
 	int			txn_resp;
@@ -189,6 +191,9 @@ typedef struct lws_ss_handle {
 	uint8_t			destroying:1;
 	uint8_t			ss_dangling_connected:1;
 	uint8_t			proxy_onward:1; /* opaque is conn */
+	uint8_t			inside_connect:1; /* set if we are currently
+						   * creating the onward
+						   * connect */
 } lws_ss_handle_t;
 
 /* connection helper that doesn't need to hang around after connection starts */
