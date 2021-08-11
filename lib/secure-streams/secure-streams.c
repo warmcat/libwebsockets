@@ -796,13 +796,19 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 		return r;
 	}
 
+	h->inside_connect = 1;
+	h->pending_ret = LWSSSSRET_OK;
 	wsi = lws_client_connect_via_info(&i);
+	h->inside_connect = 0;
 	lws_free(path);
 	if (!wsi) {
 		/*
 		 * We already found that we could not connect, without even
 		 * having to go around the event loop
 		 */
+
+		if (h->pending_ret)
+			return h->pending_ret;
 
 		if (h->prev_ss_state != LWSSSCS_UNREACHABLE &&
 		    h->prev_ss_state != LWSSSCS_ALL_RETRIES_FAILED) {
