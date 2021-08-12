@@ -15,7 +15,7 @@
 #include <string.h>
 #include <signal.h>
 
-static int interrupted, bad = 1, count_p1, count_p2, count_tx;
+static int interrupted, bad = 1, count_p1, count_p2, count_tx, expected = 0;
 static unsigned int how_many_msg = 100, usec_interval = 1000;
 static lws_sorted_usec_list_t sul_timeout;
 
@@ -225,7 +225,8 @@ direct_smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
 		if (lws_ss_create(*pctx, 0, &ssi_lws_smd, NULL, NULL, NULL, NULL)) {
 			lwsl_err("%s: failed to create secure stream\n",
 				 __func__);
-
+			interrupted = 1;
+			lws_cancel_service(*pctx);
 			return -1;
 		}
 	}
@@ -359,7 +360,15 @@ bail:
 #endif
 	lws_context_destroy(context);
 
-	lwsl_user("Completed: %s\n", bad ? "failed" : "OK");
+	if ((p = lws_cmdline_option(argc, argv, "--expected-exit")))
+		expected = atoi(p);
 
-	return bad;
+	if (bad == expected) {
+		lwsl_user("Completed: OK (seen expected %d)\n", expected);
+		return 0;
+	}
+
+	lwsl_err("Completed: failed: exit %d, expected %d\n", bad, expected);
+
+	return 1;
 }

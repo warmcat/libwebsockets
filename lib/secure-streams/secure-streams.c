@@ -1131,7 +1131,7 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 		h->u.smd.smd_peer = lws_smd_register(context, h, 0,
 						     (lws_smd_class_t)ssi->manual_initial_tx_credit,
 						     lws_smd_ss_cb);
-		if (!h->u.smd.smd_peer)
+		if (!h->u.smd.smd_peer || lws_fi(&h->fic, "ss_create_smd"))
 			goto fail_creation;
 		lwsl_cx_info(context, "registered SS SMD");
 	}
@@ -1156,7 +1156,7 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 
 			vho = lws_get_vhost_by_name(context,
 						    &h->policy->endpoint[1]);
-			if (!vho) {
+			if (!vho || lws_fi(&h->fic, "ss_create_vhost")) {
 				lwsl_err("%s: no vhost %s\n", __func__,
 						&h->policy->endpoint[1]);
 				goto fail_creation;
@@ -1181,7 +1181,8 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 			i.options |= LWS_SERVER_OPTION_UNIX_SOCK;
 		}
 
-		if (!ss_pcols[h->policy->protocol]) {
+		if (!ss_pcols[h->policy->protocol] ||
+		    lws_fi(&h->fic, "ss_create_pcol")) {
 			lwsl_err("%s: unsupp protocol", __func__);
 			goto fail_creation;
 		}
@@ -1212,9 +1213,10 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 		}
 #endif
 
-
-		if (!lws_fi(&ssi->fic, "ss_srv_vh_fail"))
+		if (!lws_fi(&h->fic, "ss_srv_vh_fail"))
 			vho = lws_create_vhost(context, &i);
+		else
+			vho = NULL;
 		if (!vho) {
 			lwsl_cx_err(context, "failed to create vh");
 			goto fail_creation;
@@ -1230,7 +1232,8 @@ extant:
 
 		r = lws_ss_event_helper(h, LWSSSCS_CREATING);
 		lwsl_cx_info(context, "CREATING returned status %d", (int)r);
-		if (r == LWSSSSRET_DESTROY_ME)
+		if (r == LWSSSSRET_DESTROY_ME ||
+		    lws_fi(&h->fic, "ss_create_destroy_me"))
 			goto fail_creation;
 
 		lwsl_cx_notice(context, "created server %s",
@@ -1252,7 +1255,8 @@ extant:
 	 * to the ss connect code instead.
 	 */
 
-	if (!lws_ss_policy_ref_trust_store(context, h->policy, 1 /* do the ref */)) {
+	if (!lws_ss_policy_ref_trust_store(context, h->policy, 1 /* do the ref */) ||
+	    lws_fi(&h->fic, "ss_create_no_ts")) {
 		lwsl_err("%s: unable to get vhost / trust store\n", __func__);
 		goto fail_creation;
 	}
@@ -1260,20 +1264,19 @@ extant:
 
 	r = lws_ss_event_helper(h, LWSSSCS_CREATING);
 	lwsl_ss_info(h, "CREATING returned status %d", (int)r);
-	if (r == LWSSSSRET_DESTROY_ME)
+	if (r == LWSSSSRET_DESTROY_ME ||
+	    lws_fi(&h->fic, "ss_create_destroy_me"))
 		goto fail_creation;
 
 #if defined(LWS_WITH_SYS_SMD)
 	if (!(ssi->flags & LWSSSINFLAGS_PROXIED) &&
 	    pol == &pol_smd) {
-		lws_ss_state_return_t r;
-
 		r = lws_ss_event_helper(h, LWSSSCS_CONNECTING);
-		if (r)
-			return r;
+		if (r || lws_fi(&h->fic, "ss_create_smd_1"))
+			goto fail_creation;
 		r = lws_ss_event_helper(h, LWSSSCS_CONNECTED);
-		if (r)
-			return r;
+		if (r || lws_fi(&h->fic, "ss_create_smd_2"))
+			goto fail_creation;
 	}
 #endif
 
@@ -1284,8 +1287,11 @@ extant:
 		    //(ssi->flags & LWSSSINFLAGS_PROXIED))
 				)
 #endif
-			    ))
-		switch (_lws_ss_client_connect(h, 0, 0)) {
+			    )) {
+		r = _lws_ss_client_connect(h, 0, 0);
+		if (lws_fi(&h->fic, "ss_create_conn"))
+			r = LWSSSSRET_DESTROY_ME;
+		switch (r) {
 		case LWSSSSRET_OK:
 			break;
 		case LWSSSSRET_TX_DONT_SEND:
@@ -1296,6 +1302,7 @@ extant:
 		case LWSSSSRET_DESTROY_ME:
 			goto fail_creation;
 		}
+	}
 
 	return 0;
 

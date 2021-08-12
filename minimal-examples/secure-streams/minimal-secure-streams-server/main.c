@@ -226,6 +226,9 @@ smd_cb(void *opaque, lws_smd_class_t c, lws_usec_t ts, void *buf, size_t len)
 				  NULL, NULL)) {
 			lwsl_err("%s: failed to create secure stream\n",
 				 __func__);
+			bad = 1;
+			interrupted = 1;
+			lws_cancel_service(context);
 			return -1;
 		}
 #if 0

@@ -13,6 +13,8 @@ require_lws_config(LWS_WITH_SYS_SMD 1 requirements)
 require_lws_config(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY 0 requirements)
 require_lws_config(LWS_WITH_SYS_STATE 1 requirements)
 
+require_lws_config(LWS_WITH_SYS_FAULT_INJECTION 1 has_fault_injection)
+
 if (requirements)
 	add_executable(${PROJECT_NAME} minimal-secure-streams-smd.c)
 	
@@ -32,7 +34,47 @@ if (requirements)
 				     PROPERTIES
 				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/secure-streams/minimal-secure-streams-smd
 				     TIMEOUT 10)
-	endif()
+
+               if (has_fault_injection)
+                       if (VALGRIND)
+                               add_test(NAME ss-smd-fi1 COMMAND
+                                       ${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
+                                       $<TARGET_FILE:lws-minimal-secure-streams-smd>
+                                       --fault-injection "ss/ss_create_smd"
+                                       --expected-exit 1)
+                               add_test(NAME ss-smd-fi2 COMMAND
+                                       ${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
+                                       $<TARGET_FILE:lws-minimal-secure-streams-smd>
+                                       --fault-injection "ss/ss_create_smd_1"
+                                       --expected-exit 1)
+                               add_test(NAME ss-smd-fi3 COMMAND
+                                       ${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
+                                       $<TARGET_FILE:lws-minimal-secure-streams-smd>
+                                       --fault-injection "ss/ss_create_smd_2"
+                                       --expected-exit 1)
+		       else()
+                               add_test(NAME ss-smd-fi1 COMMAND lws-minimal-secure-streams-smd
+                                        --fault-injection "ss/ss_create_smd"
+                                        --expected-exit 1)
+                               add_test(NAME ss-smd-fi2 COMMAND lws-minimal-secure-streams-smd
+                                        --fault-injection "ss/ss_create_smd_1"
+                                        --expected-exit 1)
+                                add_test(NAME ss-smd-fi3 COMMAND lws-minimal-secure-streams-smd
+                                        --fault-injection "ss/ss_create_smd_2"
+                                        --expected-exit 1) 
+ 			endif()
+
+                       set_tests_properties(ss-smd-fi1
+			       		    ss-smd-fi2
+					    ss-smd-fi3
+                                    PROPERTIES
+                                    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/secure-streams/minimal-secure-streams-smd
+                                    TIMEOUT 5)
+               endif()
+     
+	
+	
+        endif()
 
 	if (websockets_shared)
 		target_link_libraries(${PROJECT_NAME} websockets_shared ${LIBWEBSOCKETS_DEP_LIBS})

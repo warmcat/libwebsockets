@@ -472,6 +472,8 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 					  NULL, NULL)) {
 				lwsl_err("%s: failed to create secure stream\n",
 					 __func__);
+				interrupted = 1;
+				lws_cancel_service(context);
 				return -1;
 			}
 		}

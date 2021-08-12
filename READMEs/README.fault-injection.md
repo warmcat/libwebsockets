@@ -307,6 +307,15 @@ thing by giving, eg, `"myfault(10%),myfault_delay(123..456)"`
 |ssproxy|`wsi`|`sspc_dsh_ss2p_oom`|Cause ss->proxy dsh allocation to fail|
 |ssproxy|`ss`|`ssproxy_onward_conn_fail`|Act as if proxy onward client connection failed immediately|
 |ssproxy|`ss`|`ssproxy_dsh_c2p_pay_oom`|Cause proxy's DSH alloc for C->P payload to fail|
+|ss|`ss`|`ss_create_smd`|SMD: ss creation smd registration fail|
+|ss|`ss`|`ss_create_vhost`|Server: ss creation acts like no vhost matching typename (only for `!vhost`)|
+|ss|`ss`|`ss_create_pcol`|Server: ss creation acts like no protocol given in policy|
+|ss|`ss`|`ss_srv_vh_fail`|Server: ss creation acts like unable to create vhost|
+|ss|`ss`|`ss_create_destroy_me`|ss creation acts like CREATING state returned DESTROY_ME|
+|ss|`ss`|`ss_create_no_ts`|Static Policy: ss creation acts like no trust store|
+|ss|`ss`|`ss_create_smd_1`|SMD: ss creation acts like CONNECTING said DESTROY_ME|
+|ss|`ss`|`ss_create_smd_2`|SMD: ss creation acts like CONNECTED said DESTROY_ME|
+|ss|`ss`|`ss_create_conn`|Nailed up: ss creation client connection fails with DESTROY_ME|
 |wsi|`wsi`|`timedclose`|(see next) Cause wsi to close after some time|
 |wsi|`wsi`|`timedclose_ms`|Range of ms for timedclose (eg, "timedclose_ms(10..250)"|
 
