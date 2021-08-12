@@ -653,10 +653,12 @@ lws_smd_unregister(struct lws_smd_peer *pr)
 {
 	lws_smd_t *smd = lws_container_of(pr->list.owner, lws_smd_t, owner_peers);
 
-	lws_mutex_lock(smd->lock_peers); /* +++++++++++++++++++++++++++ peers */
+	if (!smd->delivering)
+		lws_mutex_lock(smd->lock_peers); /* +++++++++++++++++++ peers */
 	lwsl_notice("%s: destroying peer %p\n", __func__, pr);
 	_lws_smd_peer_destroy(pr);
-	lws_mutex_unlock(smd->lock_peers); /* ------------------------- peers */
+	if (!smd->delivering)
+		lws_mutex_unlock(smd->lock_peers); /* ----------------- peers */
 }
 
 int
