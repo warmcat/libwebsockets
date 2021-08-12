@@ -260,7 +260,7 @@ lws_conmon_ss_json(lws_ss_handle_t *h)
 	 */
 
 	if (h->info.rx)
-		ret = h->info.rx(h, (uint8_t *)h->conmon_json,
+		ret = h->info.rx(ss_to_userobj(h), (uint8_t *)h->conmon_json,
 				 (unsigned int)h->conmon_len,
 				 (int)(LWSSS_FLAG_SOM | LWSSS_FLAG_EOM |
 						 LWSSS_FLAG_PERF_JSON));
