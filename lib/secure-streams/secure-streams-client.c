@@ -215,8 +215,15 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
 		break;
 
+	case LWS_CALLBACK_CONNECTING:
+		/*
+		 * In our particular case, we want CCEs even inside the
+		 * initial connect loop time
+		 */
+		wsi->client_suppress_CONNECTION_ERROR = 0;
+		break;
+
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
-		lwsl_wsi_warn(wsi, "CONNECTION_ERROR");
 #if defined(LWS_WITH_SYS_METRICS)
 		/*
 		 * If any hanging caliper measurement, dump it, and free any tags
