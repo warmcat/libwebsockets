@@ -450,6 +450,9 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			lwsl_err("%s: CCE with no ss handle %s\n", __func__, lws_wsi_tag(wsi));
 			break;
 		}
+
+		lws_ss_assert_extant(wsi->a.context, wsi->tsi, h);
+
 		assert(h->policy);
 
 #if defined(LWS_WITH_CONMON)
@@ -499,6 +502,8 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		lws_sul_cancel(&h->sul_timeout);
 
+		lws_ss_assert_extant(wsi->a.context, wsi->tsi, h);
+
 #if defined(LWS_WITH_CONMON)
 		lws_conmon_ss_json(h);
 #endif
@@ -535,11 +540,12 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		}
 		break;
 
-
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
 
 		if (!h)
 			return -1;
+
+		lws_ss_assert_extant(wsi->a.context, wsi->tsi, h);
 
 #if defined(LWS_WITH_CONMON)
 		lws_conmon_ss_json(h);

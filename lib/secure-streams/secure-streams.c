@@ -1780,3 +1780,26 @@ lws_log_prepend_ss(struct lws_log_cx *cx, void *obj, char **p, char *e)
 	*p += lws_snprintf(*p, lws_ptr_diff_size_t(e, (*p)), "%s: ",
 			lws_ss_tag(h));
 }
+
+#if defined(_DEBUG)
+void
+lws_ss_assert_extant(struct lws_context *cx, int tsi, struct lws_ss_handle *h)
+{
+	struct lws_context_per_thread *pt = &cx->pt[tsi];
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, pt->ss_owner.head) {
+		struct lws_ss_handle *h1 = lws_container_of(d,
+						struct lws_ss_handle, list);
+
+		if (h == h1)
+			return; /* okay */
+
+	} lws_end_foreach_dll_safe(d, d1);
+
+	/*
+	 * The ss handle is not listed in the pt ss handle owner...
+	 */
+
+	assert(0);
+}
+#endif

@@ -552,6 +552,13 @@ int lws_ss_apply_sigv4(struct lws *wsi, struct lws_ss_handle *h,
 		       unsigned char **p, unsigned char *end);
 #endif
 
+#if defined(_DEBUG)
+void
+lws_ss_assert_extant(struct lws_context *cx, int tsi, struct lws_ss_handle *h);
+#else
+#define lws_ss_assert_extant(_a, _b, _c)
+#endif
+
 typedef int (* const secstream_protocol_connect_munge_t)(lws_ss_handle_t *h,
 		char *buf, size_t len, struct lws_client_connect_info *i,
 		union lws_ss_contemp *ct);
