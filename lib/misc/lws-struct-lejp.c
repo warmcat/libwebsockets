@@ -270,12 +270,20 @@ lws_struct_default_lejp_cb(struct lejp_ctx *ctx, char reason)
 		lwsl_info("%s: created '%s' object size %d\n", __func__,
 				pmap->colname, (int)pmap->aux);
 
-		if (pmap->type == LSMT_LIST) {
+		switch (pmap->type) {
+		case LSMT_LIST:
 			list = (struct lws_dll2 *)
 				 ((char *)ctx->pst[ctx->pst_sp].user +
 				 pmap->ofs_clist);
 
 			lws_dll2_add_tail(list, owner);
+			break;
+		case LSMT_CHILD_PTR:
+			*((void **)owner) = ctx->pst[ctx->pst_sp].user;
+			break;
+		default:
+			assert(0);
+			break;
 		}
 	}
 
