@@ -1064,7 +1064,8 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 						     (lws_smd_class_t)ssi->manual_initial_tx_credit,
 						     lws_smd_ss_cb);
 		if (!h->u.smd.smd_peer)
-			goto late_bail;
+			goto fail_creation;
+
 		lwsl_info("%s: registered SS SMD\n", __func__);
 	}
 #endif
@@ -1091,7 +1092,7 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 			if (!vho) {
 				lwsl_err("%s: no vhost %s\n", __func__,
 						&h->policy->endpoint[1]);
-				goto late_bail;
+				goto fail_creation;
 			}
 
 			goto extant;
@@ -1115,7 +1116,7 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 
 		if (!ss_pcols[h->policy->protocol]) {
 			lwsl_err("%s: unsupp protocol", __func__);
-			goto late_bail;
+			goto fail_creation;
 		}
 
 		*ppp++ = ss_pcols[h->policy->protocol]->protocol;
@@ -1149,7 +1150,7 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 			vho = lws_create_vhost(context, &i);
 		if (!vho) {
 			lwsl_err("%s: failed to create vh", __func__);
-			goto late_bail;
+			goto fail_creation;
 		}
 
 extant:
@@ -1163,7 +1164,7 @@ extant:
 		r = lws_ss_event_helper(h, LWSSSCS_CREATING);
 		lwsl_info("%s: CREATING returned status %d\n", __func__, (int)r);
 		if (r == LWSSSSRET_DESTROY_ME)
-			goto late_bail;
+			goto fail_creation;
 
 		lwsl_notice("%s: created server %s\n", __func__,
 				h->policy->streamtype);
@@ -1186,31 +1187,14 @@ extant:
 
 	if (!lws_ss_policy_ref_trust_store(context, h->policy, 1 /* do the ref */)) {
 		lwsl_err("%s: unable to get vhost / trust store\n", __func__);
-		goto late_bail;
+		goto fail_creation;
 	}
 #endif
 
 	r = lws_ss_event_helper(h, LWSSSCS_CREATING);
 	lwsl_info("%s: CREATING returned status %d\n", __func__, (int)r);
-	if (r == LWSSSSRET_DESTROY_ME) {
-
-#if defined(LWS_WITH_SERVER) || defined(LWS_WITH_SYS_SMD)
-late_bail:
-#endif
-
-		if (ppss)
-			*ppss = NULL;
-
-		lws_pt_lock(pt, __func__);
-		lws_dll2_remove(&h->list);
-		lws_pt_unlock(pt);
-
-		lws_fi_destroy(&h->fic);
-		__lws_lc_untag(&h->lc);
-		lws_free(h);
-
-		return 1;
-	}
+	if (r == LWSSSSRET_DESTROY_ME)
+		goto fail_creation;
 
 #if defined(LWS_WITH_SYS_SMD)
 	if (!(ssi->flags & LWSSSINFLAGS_PROXIED) &&
@@ -1239,17 +1223,23 @@ late_bail:
 			break;
 		case LWSSSSRET_TX_DONT_SEND:
 		case LWSSSSRET_DISCONNECT_ME:
-			if (lws_ss_backoff(h) == LWSSSSRET_DESTROY_ME) {
-				lws_ss_destroy(&h);
-				return 1;
-			}
+			if (lws_ss_backoff(h) == LWSSSSRET_DESTROY_ME)
+				goto fail_creation;
 			break;
 		case LWSSSSRET_DESTROY_ME:
-			lws_ss_destroy(&h);
-			return 1;
+			goto fail_creation;
 		}
 
 	return 0;
+
+fail_creation:
+
+	if (ppss)
+		*ppss = NULL;
+
+	lws_ss_destroy(&h);
+
+	return 1;
 }
 
 void *
@@ -1327,10 +1317,19 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 		v = lws_get_vhost_by_name(h->context, h->policy->streamtype);
 #endif
 
-	if (h->ss_dangling_connected)
-		(void)lws_ss_event_helper(h, LWSSSCS_DISCONNECTED);
+	/*
+	 * Since we also come here to unpick create, it's possible we failed
+	 * the creation before issuing any states, even CREATING.  We should
+	 * only issue cleanup states on destroy if we previously got as far as
+	 * issuing CREATING.
+	 */
 
-	(void)lws_ss_event_helper(h, LWSSSCS_DESTROYING);
+	if (h->prev_ss_state) {
+		if (h->ss_dangling_connected)
+			(void)lws_ss_event_helper(h, LWSSSCS_DISCONNECTED);
+
+		(void)lws_ss_event_helper(h, LWSSSCS_DESTROYING);
+	}
 
 	lws_pt_unlock(pt);
 
@@ -1341,6 +1340,7 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 		lwsl_info("%s: pmd %p\n", __func__, pmd);
 		if (pmd->value_on_lws_heap)
 			lws_free_set_NULL(pmd->value__may_own_heap);
+
 		pmd = pmd->next;
 	}
 
@@ -1390,6 +1390,9 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 			      __func__);
 
 	__lws_lc_untag(&h->lc);
+
+	lws_explicit_bzero((void *)h, sizeof(*h) + h->info.user_alloc);
+
 	lws_free_set_NULL(h);
 }
 
