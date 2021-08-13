@@ -185,7 +185,7 @@ An array of ms delays for each retry in turn
 
 The number of retries to conceal from higher layers before giving errors.  If
 this is larger than the number of times in the backoff array, then the last time
-is used for the extra delays
+is used for the extra delays.  65535 means never stop trying.
 
 ### `jitterpc`
 
@@ -641,6 +641,11 @@ protocol.  Eg, a single multipart mime transaction carries content from two or m
 ### `ws_binary`
 
 Use if the ws messages are binary
+
+### `ws_prioritize_reads`
+
+Set `true` if the event loop should prioritize keeping up with input at the
+potential expense of output latency.
 
 ## MQTT transport
 
