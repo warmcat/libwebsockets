@@ -31,7 +31,7 @@
  */
 ///@{
 
-/* enough for 4191us, or just over an hour */
+/* enough for 4191s, or just over an hour */
 typedef uint32_t lws_conmon_interval_us_t;
 
 /*
@@ -44,17 +44,55 @@ typedef uint32_t lws_conmon_interval_us_t;
  *     {
  *        "peer": "46.105.127.147",
  *        "dns_us": 1234,
+ *        "dns_disp": 1,
  *        "sockconn_us": 1234,
  *        "tls_us": 1234,
  *        "txn_resp_us": 1234,
- *        "dns":["46.105.127.147", "2001:41d0:2:ee93::1"]
+ *        "dns":["46.105.127.147", "2001:41d0:2:ee93::1"],
+ *        "prot_specific": {
+ *        	"protocol": "http",
+ *        	"resp": 200
+ *        }
  *      }
+ *
+ * The indexes in "dns_disp" are declared in lws_conmon_dns_disposition_t
+ * below.
+ *
+ * "prot_specific" may not be present if the protocol doesn't have anything
+ * to report or is not supported.
  */
+
+typedef enum lws_conmon_pcol {
+	LWSCONMON_PCOL_NONE,
+	LWSCONMON_PCOL_HTTP, /* .protocol_specific.http is valid */
+} lws_conmon_pcol_t;
+
+typedef enum lws_conmon_dns_disposition {
+	LWSCONMON_DNS_NONE,
+	/**< did not attempt DNS */
+	LWSCONMON_DNS_OK				= 1,
+	/**< DNS lookup did give results */
+	LWSCONMON_DNS_SERVER_UNREACHABLE		= 2,
+	/**< DNS server was not reachable */
+	LWSCONMON_DNS_NO_RESULT				= 3
+	/**< DNS server replied but nothing usable */
+} lws_conmon_dns_disposition_t;
 
 struct lws_conmon {
 	lws_sockaddr46				peer46;
 	/**< The peer we actually connected to, if any.  .peer46.sa4.sa_family
 	 * is either 0 if invalid, or the AF_ */
+
+	union {
+		struct {
+			int	response;
+			/**< h1 http response code */
+		} http;
+	} protocol_specific;
+	/**< possibly-present protocol-specific additional information.  This
+	 * is only valid for the first transaction after connection and does
+	 * not capture results for persistent or muxed connections like ws
+	 * messages, mqtt messages, or h2 streams */
 
 	struct addrinfo				*dns_results_copy;
 	/**< NULL, or Allocated copy of dns results, owned by this object and
@@ -72,7 +110,15 @@ struct lws_conmon {
 	/**< 0 if no tls, or us taken to establish the tls tunnel */
 	lws_conmon_interval_us_t		ciu_txn_resp;
 	/**< 0, or if the protocol supports transactions, the interval between
-	 * sending the transaction request and starting to receive the resp */
+	 * sending the initial transaction request and starting to receive the
+	 * response */
+
+	lws_conmon_pcol_t			pcol;
+	/**< indicates which extra protocol_specific info member is valid,
+	 *   if any */
+
+	lws_conmon_dns_disposition_t		dns_disposition;
+	/**< indicates general disposition of DNS request */
 };
 
 /**

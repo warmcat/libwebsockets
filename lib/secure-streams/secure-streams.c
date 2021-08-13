@@ -213,12 +213,14 @@ lws_conmon_ss_json(lws_ss_handle_t *h)
 	buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf),
 		     "{\"peer\":\"%s\","
 		      "\"dns_us\":%u,"
+		      "\"dns_disp\":%u,"
 		      "\"sockconn_us\":%u,"
 		      "\"tls_us\":%u,"
 		      "\"txn_resp_us:%u,"
 		      "\"dns\":[",
 		    ads,
 		    (unsigned int)cm.ciu_dns,
+		    (unsigned int)cm.dns_disposition,
 		    (unsigned int)cm.ciu_sockconn,
 		    (unsigned int)cm.ciu_tls,
 		    (unsigned int)cm.ciu_txn_resp);
@@ -232,7 +234,19 @@ lws_conmon_ss_json(lws_ss_handle_t *h)
 		ai = ai->ai_next;
 	}
 
-	buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf), "]}");
+	buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf), "]");
+
+	switch (cm.pcol) {
+	case LWSCONMON_PCOL_HTTP:
+		buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf),
+			   ",\"prot_specific\":{\"protocol\":\"http\",\"resp\":%u}",
+			   (unsigned int)cm.protocol_specific.http.response);
+		break;
+	default:
+		break;
+	}
+
+	buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf), "}");
 
 	/*
 	 * This destroys the DNS list in the lws_conmon that we took

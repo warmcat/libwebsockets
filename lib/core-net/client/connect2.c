@@ -93,14 +93,15 @@ lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
 			|| n == EAI_AGAIN
 #endif
 			) {
-#if defined(LWS_WITH_SECURE_STREAMS)
-
-#endif
 		wsi->dns_reachability = 1;
 		lws_metrics_caliper_report(cal, METRES_NOGO);
 #if defined(LWS_WITH_SYS_METRICS)
 		lws_snprintf(buckname, sizeof(buckname), "dns=\"unreachable %d\"", n);
 		lws_metrics_hist_bump_priv_wsi(wsi, mth_conn_failures, buckname);
+#endif
+
+#if defined(LWS_WITH_CONMON)
+		wsi->conmon.dns_disposition = LWSCONMON_DNS_SERVER_UNREACHABLE;
 #endif
 
 #if 0
@@ -116,6 +117,10 @@ lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
 		lws_snprintf(buckname, sizeof(buckname), "dns=\"nores %d\"", n);
 		lws_metrics_hist_bump_priv_wsi(wsi, mth_conn_failures, buckname);
 	}
+#endif
+#if defined(LWS_WITH_CONMON)
+	wsi->conmon.dns_disposition = n < 0 ? LWSCONMON_DNS_NO_RESULT :
+					      LWSCONMON_DNS_OK;
 #endif
 
 	lws_metrics_caliper_report(cal, n >= 0 ? METRES_GO : METRES_NOGO);
