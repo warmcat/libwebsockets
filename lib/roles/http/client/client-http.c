@@ -298,7 +298,8 @@ hs2:
 			if (wsi->flags & LCCSCF_HTTP_X_WWW_FORM_URLENCODED)
 				lws_callback_on_writable(wsi);
 #if defined(LWS_WITH_HTTP_PROXY)
-			if (wsi->http.proxy_clientside)
+			if (wsi->http.proxy_clientside && wsi->parent &&
+			    wsi->parent->http.buflist_post_body)
 				lws_callback_on_writable(wsi);
 #endif
 			/* user code must ask for writable callback */
@@ -329,10 +330,9 @@ hs2:
 
 	case LRS_ISSUE_HTTP_BODY:
 #if defined(LWS_WITH_HTTP_PROXY)
-			if (wsi->http.proxy_clientside) {
+			if (wsi->http.proxy_clientside && wsi->parent &&
+			    wsi->parent->http.buflist_post_body)
 				lws_callback_on_writable(wsi);
-				break;
-			}
 #endif
 		if (wsi->client_http_body_pending || lws_has_buffered_out(wsi)) {
 			//lws_set_timeout(wsi,
