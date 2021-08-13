@@ -781,7 +781,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 
 #endif /* network */
 
-	lwsl_cx_notice(context, "LWS: %s, %s%s", library_version, opts_str, s);
+	lwsl_notice("LWS: %s, %s%s\n", library_version, opts_str, s);
 #if defined(LWS_WITH_NETWORK)
 	lwsl_cx_info(context, "Event loop: %s", plev->ops->name);
 #endif
