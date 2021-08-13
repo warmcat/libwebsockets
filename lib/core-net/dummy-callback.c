@@ -296,6 +296,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		if (wsi->child_list) {
 			lwsl_wsi_info(wsi, "HTTP_BODY_COMPLETION: %d",
 					   (int)len);
+			lws_callback_on_writable(wsi->child_list);
 			break;
 		}
 #endif
@@ -317,6 +318,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			if (lws_buflist_append_segment(
 				     &wsi->http.buflist_post_body, in, len) < 0)
 				return -1;
+			lws_client_http_body_pending(wsi->child_list, 1);
 			lws_callback_on_writable(wsi->child_list);
 		}
 		break;
