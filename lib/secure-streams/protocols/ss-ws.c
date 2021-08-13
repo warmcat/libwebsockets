@@ -212,8 +212,6 @@ secstream_connect_munge_ws(lws_ss_handle_t *h, char *buf, size_t len,
 	size_t used_in, used_out;
 	lws_strexp_t exp;
 
-	lwsl_notice("%s\n", __func__);
-
 	/* i.path on entry is used to override the policy urlpath if not "" */
 
 	if (i->path[0])
@@ -224,6 +222,9 @@ secstream_connect_munge_ws(lws_ss_handle_t *h, char *buf, size_t len,
 
 	if (h->policy->flags & LWSSSPOLF_HTTP_CACHE_COOKIES)
 		i->ssl_connection |= LCCSCF_CACHE_COOKIES;
+
+	if (h->policy->flags & LWSSSPOLF_PRIORITIZE_READS)
+		i->ssl_connection |= LCCSCF_PRIORITIZE_READS;
 
 	/* protocol aux is the path part ; ws subprotocol name */
 
@@ -238,7 +239,7 @@ secstream_connect_munge_ws(lws_ss_handle_t *h, char *buf, size_t len,
 
 	i->protocol = h->policy->u.http.u.ws.subprotocol;
 
-	lwsl_notice("%s: url %s, ws subprotocol %s\n", __func__, buf, i->protocol);
+	lwsl_ss_info(h, "url %s, ws subprotocol %s", buf, i->protocol);
 
 	return 0;
 }

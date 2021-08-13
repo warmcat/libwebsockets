@@ -64,6 +64,7 @@ static const char * const lejp_tokens_policy[] = {
 	"s[].*.attr_high_reliability",
 	"s[].*.attr_low_cost",
 	"s[].*.long_poll",
+	"s[].*.ws_prioritize_reads",
 	"s[].*.retry",
 	"s[].*.timeout_ms",
 	"s[].*.perf",
@@ -167,6 +168,7 @@ typedef enum {
 	LSSPPT_ATTR_HIGH_RELIABILITY,
 	LSSPPT_ATTR_LOW_COST,
 	LSSPPT_LONG_POLL,
+	LSSPPT_PRIORITIZE_READS,
 	LSSPPT_RETRYPTR,
 	LSSPPT_DEFAULT_TIMEOUT_MS,
 	LSSPPT_PERF,
@@ -758,6 +760,11 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		if (reason == LEJPCB_VAL_TRUE)
 			a->curr[LTY_POLICY].p->flags |= LWSSSPOLF_LONG_POLL;
 		break;
+	case LSSPPT_PRIORITIZE_READS:
+		if (reason == LEJPCB_VAL_TRUE)
+			a->curr[LTY_POLICY].p->flags |= LWSSSPOLF_PRIORITIZE_READS;
+		break;
+
 	case LSSPPT_HTTP_WWW_FORM_URLENCODED:
 		if (reason == LEJPCB_VAL_TRUE)
 			a->curr[LTY_POLICY].p->flags |=
@@ -1169,7 +1176,7 @@ lws_ss_policy_parse_file(struct lws_context *cx, const char *filepath)
 	int n, m, fd = lws_open(filepath, LWS_O_RDONLY);
 
 	if (fd < 0)
-		return -1;
+		return LEJP_REJECT_UNKNOWN;
 
 	do {
 		n = (int)read(fd, buf, sizeof(buf));
@@ -1208,10 +1215,8 @@ lws_ss_policy_parse(struct lws_context *context, const uint8_t *buf, size_t len)
 	int m;
 
 #if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE)
-	if (!args->jctx.line && buf[0] != '{') {
-		puts((const char *)buf);
+	if (args->jctx.line < 2 && buf[0] != '{')
 		return lws_ss_policy_parse_file(context, (const char *)buf);
-	}
 #endif
 
 	m = lejp_parse(&args->jctx, buf, (int)len);

@@ -162,6 +162,8 @@ enum {
 	/**< metadata as direct protocol string, e.g. http header */
 	LWSSSPOLF_HTTP_CACHE_COOKIES				= (1 << 24),
 	/**< Record http cookies and pass them back on future requests */
+	LWSSSPOLF_PRIORITIZE_READS				= (1 << 25),
+	/**< prioritize clearing reads at expense of writes */
 
 };
 
