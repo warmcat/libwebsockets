@@ -68,6 +68,7 @@ static const char *state_names[] = {
 	"LWSSSCS_SERVER_TXN",
 	"LWSSSCS_SERVER_UPGRADE",
 	"LWSSSCS_EVENT_WAIT_CANCELLED",
+	"LWSSSCS_UPSTREAM_LINK_RETRY",
 };
 
 /*
@@ -289,7 +290,9 @@ int
 lws_ss_check_next_state(lws_lifecycle_t *lc, uint8_t *prevstate,
 			lws_ss_constate_t cs)
 {
-	if (cs >= LWSSSCS_USER_BASE || cs == LWSSSCS_EVENT_WAIT_CANCELLED)
+	if (cs >= LWSSSCS_USER_BASE ||
+	    cs == LWSSSCS_EVENT_WAIT_CANCELLED ||
+	    cs == LWSSSCS_UPSTREAM_LINK_RETRY)
 		/*
 		 * we can't judge user or transient states, leave the old state
 		 * and just wave them through
@@ -336,7 +339,9 @@ int
 lws_ss_check_next_state_ss(lws_ss_handle_t *ss, uint8_t *prevstate,
 			   lws_ss_constate_t cs)
 {
-	if (cs >= LWSSSCS_USER_BASE || cs == LWSSSCS_EVENT_WAIT_CANCELLED)
+	if (cs >= LWSSSCS_USER_BASE ||
+	    cs == LWSSSCS_EVENT_WAIT_CANCELLED ||
+	    cs == LWSSSCS_UPSTREAM_LINK_RETRY)
 		/*
 		 * we can't judge user or transient states, leave the old state
 		 * and just wave them through

@@ -219,6 +219,13 @@ typedef enum {
 
 	LWSSSCS_EVENT_WAIT_CANCELLED, /* somebody called lws_cancel_service */
 
+	LWSSSCS_UPSTREAM_LINK_RETRY,	/* if we are being proxied over some
+					 * intermediate link, this transient
+					 * state may be sent to indicate we are
+					 * waiting to establish that link before
+					 * creation can proceed.. ack is the
+					 * number of ms we have been trying */
+
 	LWSSSCS_SINK_JOIN,		/* sinks get this when a new source
 					 * stream joins the sink */
 	LWSSSCS_SINK_PART,		/* sinks get this when a new source

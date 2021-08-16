@@ -203,17 +203,14 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 	size_t pktsize = wsi->a.context->max_http_header_data;
 	void *m = (void *)((uint8_t *)&h[1]);
 	uint8_t *pkt = NULL, *p = NULL, *end = NULL;
+	lws_ss_state_return_t r;
+	uint64_t interval;
 	const uint8_t *cp;
 	uint8_t s[64];
 	lws_usec_t us;
 	int flags, n;
 
 	switch (reason) {
-	case LWS_CALLBACK_PROTOCOL_INIT:
-		break;
-
-	case LWS_CALLBACK_PROTOCOL_DESTROY:
-		break;
 
 	case LWS_CALLBACK_CONNECTING:
 		/*
@@ -224,6 +221,8 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+		lwsl_warn("%s: CCE: %s\n", __func__,
+			  in ? (const char *)in : "null");
 #if defined(LWS_WITH_SYS_METRICS)
 		/*
 		 * If any hanging caliper measurement, dump it, and free any tags
@@ -234,6 +233,17 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 		h->cwsi = NULL;
 		lws_sul_schedule(h->context, 0, &h->sul_retry,
 				 lws_sspc_sul_retry_cb, LWS_US_PER_SEC);
+		if (h->ssi.state) {
+			interval = (uint64_t)(lws_now_usecs() - h->us_start_upstream) /
+								LWS_US_PER_MS;
+			if (interval > 0xffffffffull)
+				interval = 0xffffffffull;
+			r = h->ssi.state(lws_sspc_to_user_object(h), NULL,
+					  LWSSSCS_UPSTREAM_LINK_RETRY,
+					  (uint32_t)interval);
+			if (r == LWSSSSRET_DESTROY_ME)
+				lws_sspc_destroy(&h);
+		}
 		break;
 
         case LWS_CALLBACK_RAW_CONNECTED:
@@ -253,6 +263,7 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 		 */
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND, 3);
 		lws_callback_on_writable(wsi);
+		h->us_start_upstream = 0;
                 break;
 
 	case LWS_CALLBACK_RAW_CLOSE:
@@ -268,14 +279,13 @@ callback_sspc_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 		lws_dsh_destroy(&h->dsh);
 		if (h->ss_dangling_connected && h->ssi.state) {
-			lws_ss_state_return_t ret_state;
 
 			lwsl_sspc_notice(h, "setting _DISCONNECTED");
 			h->ss_dangling_connected = 0;
 			h->prev_ss_state = LWSSSCS_DISCONNECTED;
-			ret_state = h->ssi.state(ss_to_userobj(h), NULL,
+			r = h->ssi.state(ss_to_userobj(h), NULL,
 						 LWSSSCS_DISCONNECTED, 0);
-			if (ret_state == LWSSSSRET_DESTROY_ME) {
+			if (r == LWSSSSRET_DESTROY_ME) {
 				h->cwsi = NULL;
 				lws_set_opaque_user_data(wsi, NULL);
 				lws_sspc_destroy(&h);
@@ -657,6 +667,7 @@ lws_sspc_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 	memcpy(p, ssi->streamtype, strlen(ssi->streamtype) + 1);
 	h->ssi.streamtype = (const char *)p;
 	h->context = context;
+	h->us_start_upstream = lws_now_usecs();
 
 	if (!ssi->manual_initial_tx_credit)
 		h->txc.peer_tx_cr_est = 500000000;
