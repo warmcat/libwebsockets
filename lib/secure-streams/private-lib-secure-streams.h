@@ -330,6 +330,7 @@ typedef struct lws_sspc_handle {
 	 */
 
 	lws_usec_t		us_earliest_write_req;
+	lws_usec_t		us_start_upstream;
 
 	unsigned long		writeable_len;
 
