@@ -143,12 +143,13 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	struct sockaddr_un sau;
 #endif
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	const char *cce = "Unable to connect", *iface;
 	const struct sockaddr *psa = NULL;
 	uint16_t port = wsi->conn_port;
-	const char *cce, *iface;
 	lws_dns_sort_t *curr;
 	ssize_t plen = 0;
 	lws_dll2_t *d;
+	char dcce[48];
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	int cfail;
 #endif
@@ -233,8 +234,10 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 		case LCCCR_CONTINUE:
 			return NULL;
 		default:
-			lwsl_wsi_debug(wsi, "getsockopt check: conn fail: errno %d",
-				       LWS_ERRNO);
+			lws_snprintf(dcce, sizeof(dcce), "conn fail: errno %d",
+								LWS_ERRNO);
+			cce = dcce;
+			lwsl_wsi_debug(wsi, "%s", dcce);
 			lws_metrics_caliper_report(wsi->cal_conn, METRES_NOGO);
 			goto try_next_dns_result_fds;
 		}
@@ -277,6 +280,8 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	 */
 
 next_dns_result:
+
+	cce = "Unable to connect";
 
 	if (!wsi->dns_sorted_list.count)
 		goto failed1;
@@ -336,7 +341,11 @@ ads_known:
 		}
 
 		if (!lws_socket_is_valid(wsi->desc.sockfd)) {
-			lwsl_wsi_warn(wsi, "Unable to open socket");
+			lws_snprintf(dcce, sizeof(dcce),
+				     "conn fail: skt creation: errno %d",
+								LWS_ERRNO);
+			cce = dcce;
+			lwsl_wsi_warn(wsi, "%s", dcce);
 			goto try_next_dns_result;
 		}
 
@@ -346,7 +355,11 @@ ads_known:
 #else
 						0)) {
 #endif
-			lwsl_wsi_err(wsi, "Failed to set wsi socket options");
+			lws_snprintf(dcce, sizeof(dcce),
+				     "conn fail: skt options: errno %d",
+								LWS_ERRNO);
+			cce = dcce;
+			lwsl_wsi_warn(wsi, "%s", dcce);
 			goto try_next_dns_result_closesock;
 		}
 
@@ -359,11 +372,19 @@ ads_known:
 		lwsi_set_state(wsi, LRS_WAITING_CONNECT);
 
 		if (wsi->a.context->event_loop_ops->sock_accept)
-			if (wsi->a.context->event_loop_ops->sock_accept(wsi))
+			if (wsi->a.context->event_loop_ops->sock_accept(wsi)) {
+				lws_snprintf(dcce, sizeof(dcce),
+					     "conn fail: sock accept");
+				cce = dcce;
+				lwsl_wsi_warn(wsi, "%s", dcce);
 				goto try_next_dns_result_closesock;
+			}
 
 		lws_pt_lock(pt, __func__);
 		if (__insert_wsi_socket_into_fds(wsi->a.context, wsi)) {
+			lws_snprintf(dcce, sizeof(dcce),
+				     "conn fail: insert fd");
+			cce = dcce;
 			lws_pt_unlock(pt);
 			goto try_next_dns_result_closesock;
 		}
@@ -380,8 +401,12 @@ ads_known:
 		 * and anything else we have done.
 		 */
 
-		if (lws_change_pollfd(wsi, 0, LWS_POLLIN))
+		if (lws_change_pollfd(wsi, 0, LWS_POLLIN)) {
+			lws_snprintf(dcce, sizeof(dcce),
+				     "conn fail: change pollfd");
+			cce = dcce;
 			goto try_next_dns_result_fds;
+		}
 
 		if (!wsi->a.protocol)
 			wsi->a.protocol = &wsi->a.vhost->protocols[0];
@@ -395,8 +420,12 @@ ads_known:
 		if (iface && *iface) {
 			m = lws_socket_bind(wsi->a.vhost, wsi, wsi->desc.sockfd,
 					    0, iface, af);
-			if (m < 0)
+			if (m < 0) {
+				lws_snprintf(dcce, sizeof(dcce),
+					     "conn fail: socket bind");
+				cce = dcce;
 				goto try_next_dns_result_fds;
+			}
 		}
 	}
 
@@ -512,10 +541,19 @@ ads_known:
 			lws_sa46_write_numeric_address(&wsi->sa46_peer, nads,
 						       sizeof(nads));
 
+			lws_snprintf(dcce, sizeof(dcce),
+				     "conn fail: errno %d: %s:%d",
+						errno_copy, nads, port);
+			cce = dcce;
+
 			wsi->sa46_peer.sa4.sin_family = 0;
-			lwsl_wsi_info(wsi, "Connect failed: %s port %d (errno %d)",
-					   nads, port, errno_copy);
+			lwsl_wsi_info(wsi, "%s", cce);
 #if defined(LWS_WITH_UNIX_SOCK)
+			} else {
+				lws_snprintf(dcce, sizeof(dcce),
+					     "conn fail: errno %d: UDS %s",
+							       errno_copy, ads);
+				cce = dcce;
 			}
 #endif
 #endif
@@ -661,7 +699,6 @@ try_next_dns_result:
 		goto next_dns_result;
 
 	lws_addrinfo_clean(wsi);
-	cce = "Unable to connect";
 	lws_inform_client_conn_fail(wsi, (void *)cce, strlen(cce));
 
 failed1:
