@@ -432,7 +432,8 @@ identify_protocol:
 		}
 	}
 
-	lwsl_debug("Selected protocol %s\n", wsi->a.protocol->name);
+	lwsl_debug("Selected protocol %s\n", wsi->a.protocol ?
+					     wsi->a.protocol->name : "no pcol");
 
 check_extensions:
 	/*
