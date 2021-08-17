@@ -578,7 +578,9 @@ rops_pt_init_destroy_h2(struct lws_context *context,
 		    const struct lws_context_creation_info *info,
 		    struct lws_context_per_thread *pt, int destroy)
 {
-	context->set = lws_h2_stock_settings;
+	/* if not already set by plat, use lws default SETTINGS */
+	if (!context->set.s[0])
+		context->set = lws_h2_stock_settings;
 
 	/*
 	 * We only want to do this once... we will do it if we are built
