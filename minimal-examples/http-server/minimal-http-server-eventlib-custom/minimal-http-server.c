@@ -288,6 +288,108 @@ static const struct lws_http_mount mount = {
 	/* .basic_auth_login_file */	NULL,
 };
 
+/*
+ * This demonstrates a client connection operating on the same loop
+ * It's optional...
+ */
+
+static int
+callback_http(struct lws *wsi, enum lws_callback_reasons reason,
+	      void *user, void *in, size_t len)
+{
+	switch (reason) {
+
+	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
+		lwsl_user("LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP: resp %u\n",
+				lws_http_client_http_response(wsi));
+		break;
+
+	/* because we are protocols[0] ... */
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+		lwsl_err("CLIENT_CONNECTION_ERROR: %s\n",
+			 in ? (char *)in : "(null)");
+		break;
+
+	/* chunks of chunked content, with header removed */
+	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
+		lwsl_user("RECEIVE_CLIENT_HTTP_READ: read %d\n", (int)len);
+		lwsl_hexdump_info(in, len);
+		return 0; /* don't passthru */
+
+	/* uninterpreted http content */
+	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
+		{
+			char buffer[1024 + LWS_PRE];
+			char *px = buffer + LWS_PRE;
+			int lenx = sizeof(buffer) - LWS_PRE;
+
+			if (lws_http_client_read(wsi, &px, &lenx) < 0)
+				return -1;
+		}
+		return 0; /* don't passthru */
+
+	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
+		lwsl_user("LWS_CALLBACK_COMPLETED_CLIENT_HTTP %s\n",
+			  lws_wsi_tag(wsi));
+		break;
+
+	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+		lwsl_info("%s: closed: %s\n", __func__, lws_wsi_tag(wsi));
+		break;
+
+	default:
+		break;
+	}
+
+	return lws_callback_http_dummy(wsi, reason, user, in, len);
+}
+
+static const struct lws_protocols protocols[] = {
+	{ "httptest", callback_http, 0, 0, 0, NULL, 0},
+	LWS_PROTOCOL_LIST_TERM
+};
+
+static int
+do_client_conn(void)
+{
+	struct lws_client_connect_info i;
+
+	memset(&i, 0, sizeof i); /* otherwise uninitialized garbage */
+
+	i.context		= context;
+
+	i.ssl_connection	= LCCSCF_USE_SSL;
+	i.port			= 443;
+	i.address		= "warmcat.com";
+
+	i.ssl_connection	|= LCCSCF_H2_QUIRK_OVERFLOWS_TXCR |
+				   LCCSCF_H2_QUIRK_NGHTTP2_END_STREAM;
+	i.path			= "/";
+	i.host			= i.address;
+	i.origin		= i.address;
+	i.method		= "GET";
+	i.protocol	= protocols[0].name;
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	i.fi_wsi_name		= "user";
+#endif
+
+	if (!lws_client_connect_via_info(&i)) {
+		lwsl_err("Client creation failed\n");
+
+		return 1;
+	}
+
+	lwsl_notice("Client creation OK\n");
+
+	return 0;
+}
+
+/*
+ * End of client part
+ *
+ * Initialization part -->
+ */
+
 void sigint_handler(int sig)
 {
 	interrupted = 1;
@@ -317,7 +419,7 @@ int main(int argc, const char **argv)
 	info.port = 7681;
 	info.mounts = &mount;
 	info.error_document_404 = "/404.html";
-	info.options =
+	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
 		LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE;
 
 	info.event_lib_custom = &evlib_custom; /* bind lws to our custom event
@@ -326,11 +428,17 @@ int main(int argc, const char **argv)
 				     * foreign loop object we will bind to */
 	info.foreign_loops = foreign_loops;
 
+	/* optional to demonstrate client connection */
+	info.protocols = protocols;
+
 	context = lws_create_context(&info);
 	if (!context) {
 		lwsl_err("lws init failed\n");
 		return 1;
 	}
+
+	/* optional to demonstrate client connection */
+	do_client_conn();
 
 	/*
 	 * We're going to run the custom loop now, instead of the lws loop.
