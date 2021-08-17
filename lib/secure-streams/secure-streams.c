@@ -917,7 +917,7 @@ lws_ss_client_connect(lws_ss_handle_t *h)
 	lws_service_assert_loop_thread(h->context, h->tsi);
 
 	r = _lws_ss_client_connect(h, 0, 0);
-	_lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, h->wsi, &h);
+
 	return r;
 }
 
