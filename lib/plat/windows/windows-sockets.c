@@ -244,6 +244,8 @@ lws_plat_change_pollfd(struct lws_context *context, struct lws *wsi,
 	return 0;
 }
 
+#if defined(LWS_WITH_TLS)
+
 int
 lws_plat_vhost_tls_client_ctx_init(struct lws_vhost *vhost)
 {
@@ -400,6 +402,8 @@ lws_plat_vhost_tls_client_ctx_init(struct lws_vhost *vhost)
 
 	return 0;
 }
+
+#endif
 
 const char *
 lws_plat_inet_ntop(int af, const void *src, char *dst, socklen_t cnt)
