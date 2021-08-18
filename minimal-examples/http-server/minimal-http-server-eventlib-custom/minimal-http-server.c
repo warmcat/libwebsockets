@@ -144,12 +144,19 @@ custom_poll_run(custom_poll_ctx_t *cpcx)
 			continue;
 
 		for (n = 0; n < cpcx->count_pollfds; n++) {
+			lws_sockfd_type fd = cpcx->pollfds[n].fd;
 			int m;
 
 			if (!cpcx->pollfds[n].revents)
 				continue;
 
 			m = lws_service_fd(context, &cpcx->pollfds[n]);
+
+			/* if something closed, retry this slot since may have been
+			 * swapped with end fd */
+			if (m && cpcx->pollfds[n].fd != fd)
+				n--;
+
 			if (m < 0)
 				/* lws feels something bad happened, but
 				 * the outer application may not care */
