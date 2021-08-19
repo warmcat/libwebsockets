@@ -597,6 +597,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	struct lws *nwsi = lws_get_network_wsi(wsi);
 	char *p = NULL, *q, *simp;
 	char new_path[300];
+	void *opaque;
 
 	// lws_free_set_NULL(wsi->stash);
 
@@ -697,6 +698,27 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			cce = "HS: Redirect code but no Location";
 			goto bail3;
 		}
+
+#if defined(LWS_WITH_CONMON)
+		if (wsi->conmon.pcol == LWSCONMON_PCOL_NONE) {
+			wsi->conmon.pcol = LWSCONMON_PCOL_HTTP;
+			wsi->conmon.protocol_specific.http.response = n;
+		}
+
+#if defined(LWS_WITH_SECURE_STREAMS)
+		if (wsi->for_ss
+#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
+		    && !wsi->client_bound_sspc
+#endif
+		   ) {
+	
+			lws_ss_handle_t *h = (lws_ss_handle_t *)lws_get_opaque_user_data(wsi);
+
+			if (h)
+				lws_conmon_ss_json(h);
+		}
+#endif
+#endif
 
 		/* let's let the user code know, if he cares */
 
@@ -815,7 +837,9 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		 * flow late in the close action.
 		 */
 
+		opaque = wsi->a.opaque_user_data;
 		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "redir");
+		wsi->a.opaque_user_data = opaque;
 
 		return -1;
 	}
