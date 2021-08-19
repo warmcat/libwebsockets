@@ -39,6 +39,7 @@
 
 static int interrupted, bad = 1, force_cpd_fail_portal,
 	   force_cpd_fail_no_internet, test_respmap;
+static const char *streamtype = "mintest";
 static unsigned int timeout_ms = 3000;
 static lws_state_notify_link_t nl;
 
@@ -363,7 +364,7 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 			ssi.tx = myss_tx;
 			ssi.state = myss_state;
 			ssi.user_alloc = sizeof(myss_t);
-			ssi.streamtype = test_respmap ? "respmap" : "mintest";
+			ssi.streamtype = test_respmap ? "respmap" : streamtype;
 
 			if (lws_ss_create(context, 0, &ssi, NULL, NULL,
 					  NULL, NULL)) {
@@ -436,6 +437,15 @@ int main(int argc, const char **argv)
 
 	if (lws_cmdline_option(argc, argv, "--respmap"))
 		test_respmap = 1;
+
+	if (lws_cmdline_option(argc, argv, "--test404"))
+		streamtype = "mintest404";
+
+	if (lws_cmdline_option(argc, argv, "--test404red"))
+		streamtype = "mintest404red";
+
+	if (lws_cmdline_option(argc, argv, "--test404redref"))
+		streamtype = "mintest404redref";
 
 	if ((p = lws_cmdline_option(argc, argv, "--timeout_ms")))
 		timeout_ms = (unsigned int)atoi(p);
