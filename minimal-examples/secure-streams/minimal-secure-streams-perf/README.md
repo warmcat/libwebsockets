@@ -46,7 +46,7 @@ Commandline option|Meaning
 [2021/03/31 15:29:49:0716] N: lws_ss_deserialize_parse: RX METADATA srv
 [2021/03/31 15:29:49:0882] U: myss_rx: len 1380, flags: 1, srv: lwsws, test: hello
 [2021/03/31 15:29:49:0907] U: myss_rx: len 140, flags: 0, srv: lwsws, test: hello
-[2021/03/31 15:29:49:0926] U: {"peer":"46.105.127.147","dns_us":536,"sockconn_us":30183,"tls_us":29343,"txn_resp_us:25990,"dns":["2001:41d0:2:ee93::1","46.105.127.147"]}
+[2021/03/31 15:29:49:0926] U: {"peer":"46.105.127.147","dns_us":536,"sockconn_us":30183,"tls_us":29343,"txn_resp_us":25990,"dns":["2001:41d0:2:ee93::1","46.105.127.147"]}
 [2021/03/31 15:29:49:0937] U: myss_rx: len 1380, flags: 0, srv: lwsws, test: hello
 [2021/03/31 15:29:49:0938] U: myss_rx: len 140, flags: 0, srv: lwsws, test: hello
 [2021/03/31 15:29:49:0940] U: myss_rx: len 829, flags: 0, srv: lwsws, test: hello

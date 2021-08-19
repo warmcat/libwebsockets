@@ -215,7 +215,7 @@ lws_conmon_ss_json(lws_ss_handle_t *h)
 		      "\"dns_us\":%u,"
 		      "\"sockconn_us\":%u,"
 		      "\"tls_us\":%u,"
-		      "\"txn_resp_us:%u,"
+		      "\"txn_resp_us\":%u,"
 		      "\"dns\":[",
 		    ads,
 		    (unsigned int)cm.ciu_dns,
