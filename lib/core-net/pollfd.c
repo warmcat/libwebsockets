@@ -395,9 +395,8 @@ __remove_wsi_socket_from_fds(struct lws *wsi)
 	assert(m == LWS_NO_FDS_POS || (m >= 0 && (unsigned int)m < pt->fds_count));
 
 	if (context->event_loop_ops->io)
-		context->event_loop_ops->io(wsi,
-				  LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE |
-				  LWS_EV_PREPARE_DELETION);
+		context->event_loop_ops->io(wsi, LWS_EV_STOP | LWS_EV_READ |
+							       LWS_EV_WRITE);
 /*
 	lwsl_notice("%s: wsi=%s, skt=%d, fds pos=%d, end guy pos=%d, endfd=%d\n",
 		  __func__, lws_wsi_tag(wsi), wsi->desc.sockfd, wsi->position_in_fds_table,

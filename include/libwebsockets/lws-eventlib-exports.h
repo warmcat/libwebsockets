@@ -34,8 +34,6 @@ enum {
 	LWS_EV_WRITE				= (1 << 1),
 	LWS_EV_START				= (1 << 2),
 	LWS_EV_STOP				= (1 << 3),
-
-	LWS_EV_PREPARE_DELETION			= (1u << 31),
 };
 
 struct lws_event_loop_ops {
