@@ -342,7 +342,10 @@ build_auth_string(struct lws *wsi, char * buf, size_t bufsz,
 		struct lws_ss_handle *h, struct sigv4 *s,
 		uint8_t *signature_bin)
 {
-	char *start = buf, *end = &buf[bufsz - 1];
+#if defined(_DEBUG)
+	char *start = buf;
+#endif
+	char *end = &buf[bufsz - 1];
 	char *c;
 	lws_system_blob_t *ab;
 	size_t keyidlen = 128; // max keyid len is 128
@@ -381,9 +384,11 @@ build_auth_string(struct lws *wsi, char * buf, size_t bufsz,
 			    "%s", " Signature=");
 	bin2hex(signature_bin, 32, buf);
 
-	assert(buf+65 <= start + bufsz);
+#if defined(_DEBUG)
+	assert(buf + 65 <= start + bufsz);
 
 	lwsl_debug("%s %s\n", __func__, start);
+#endif
 
 	return 0;
 

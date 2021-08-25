@@ -60,14 +60,17 @@ if (LWS_WITH_CLIENT)
 
 		if (LWS_WITH_SECURE_STREAMS_PROXY_API)
 			list(APPEND SOURCES
-				secure-streams/secure-streams-serialize.c
-				secure-streams/secure-streams-client.c
-			)
-		endif()
-
-		if (LWS_WITH_SECURE_STREAMS_PROXY_API)
-			list(APPEND SOURCES
-				secure-streams/secure-streams-process.c
+				secure-streams/serialized/proxy/proxy.c
+				secure-streams/serialized/proxy/proxy-transport.c
+				secure-streams/serialized/proxy/proxy-transport-wsi.c
+				secure-streams/serialized/proxy/proxy-deserialize.c
+				secure-streams/serialized/client/sspc.c
+				secure-streams/serialized/client/sspc-transport.c
+				secure-streams/serialized/client/sspc-transport-wsi.c
+				secure-streams/serialized/client/sspc-deserialize.c
+				core-net/transport-mux-client.c
+				core-net/transport-mux-common.c
+				core-net/transport-mux-proxy.c
 			)
 		endif()
 

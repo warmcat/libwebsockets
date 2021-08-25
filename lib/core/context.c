@@ -403,7 +403,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 		size = sizeof(struct lws_context);
 #endif
-#if !defined(LWS_PLAT_BAREMETAL)
+#if !defined(LWS_PLAT_BAREMETAL) && defined(LWS_WITH_NETWORK)
 	int n;
 #endif
 	unsigned int lpf = info->fd_limit_per_thread;
@@ -817,6 +817,18 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->ss_proxy_bind = info->ss_proxy_bind;
 	context->ss_proxy_port = info->ss_proxy_port;
 	context->ss_proxy_address = info->ss_proxy_address;
+
+	if (info->txp_ops_ssproxy)
+		context->txp_ppath.ops_onw = info->txp_ops_ssproxy;
+	else
+		context->txp_ppath.ops_onw = &txp_ops_ssproxy_wsi;
+	if (info->txp_ops_sspc)
+		context->txp_cpath.ops_onw = info->txp_ops_sspc;
+	else
+		context->txp_cpath.ops_onw = &txp_ops_sspc_wsi;
+
+	context->txp_ssproxy_info = info->txp_ssproxy_info;
+
 	if (context->ss_proxy_bind && context->ss_proxy_address)
 		lwsl_cx_notice(context, "ss proxy bind '%s', port %d, ads '%s'",
 			context->ss_proxy_bind, context->ss_proxy_port,
@@ -1073,7 +1085,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	}
 #endif
 
-#if !defined(LWS_PLAT_BAREMETAL)
+#if !defined(LWS_PLAT_BAREMETAL) && defined(LWS_WITH_NETWORK)
 	n = 0;
 #endif
 #if defined(LWS_WITH_NETWORK)
@@ -1179,13 +1191,13 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 
 	lwsl_cx_info(context, "ctx: %5luB (%ld ctx + pt(%ld thr x %d)), "
-		  "pt-fds: %d, fdmap: %d",
+		  "pt-fds: %d",
 		  (long)sizeof(struct lws_context) +
 		  (context->count_threads * context->pt_serv_buf_size),
 		  (long)sizeof(struct lws_context),
 		  (long)context->count_threads,
 		  context->pt_serv_buf_size,
-		  context->fd_limit_per_thread, n);
+		  context->fd_limit_per_thread);
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	lwsl_cx_info(context, " http: ah_data: %u, ah: %lu, max count %u",
@@ -1371,7 +1383,8 @@ lws_create_context(const struct lws_context_creation_info *info)
 	 * if he's not saying he'll make his own vhosts later then act
 	 * compatibly and make a default vhost using the data in the info
 	 */
-	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS)) {
+	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS)
+			|| info->pprotocols) {
 		if (!lws_create_vhost(context, info) ||
 		    lws_fi(&context->fic, "ctx_createfail_def_vh")) {
 			lwsl_cx_err(context, "Failed to create default vhost");
@@ -1919,6 +1932,11 @@ next:
 		 */
 
 #if defined(LWS_WITH_NETWORK)
+
+#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
+		lws_ss_proxy_destroy(context);
+#endif
+
 		if (context->event_loop_ops->destroy_context1) {
 			lwsl_cx_info(context, "do evlib destroy_context1 and wait");
 			context->event_loop_ops->destroy_context1(context);
