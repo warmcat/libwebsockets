@@ -220,7 +220,7 @@ __lws_free_wsi(struct lws *wsi)
 			lws_sspc_handle_t *h = (lws_sspc_handle_t *)
 							wsi->a.opaque_user_data;
 			if (h) {
-				h->cwsi = NULL;
+				h->txp_path.priv_onw = NULL;
 				wsi->a.opaque_user_data = NULL;
 			}
 		} else
@@ -786,7 +786,7 @@ just_kill_connection:
 		if (!wsi->a.protocol && wsi->a.vhost && wsi->a.vhost->protocols)
 			pro = &wsi->a.vhost->protocols[0];
 
-		if (pro)
+		if (pro && pro->callback && wsi->role_ops)
 			pro->callback(wsi,
 				wsi->role_ops->close_cb[lwsi_role_server(wsi)],
 				wsi->user_space, NULL, 0);
@@ -829,7 +829,7 @@ async_close:
 					lws_metrics_caliper_report_hist(h->cal_txn, (struct lws *)NULL);
 #endif
 
-					h->cwsi = NULL;
+					h->txp_path.priv_onw = NULL;
 					//wsi->a.opaque_user_data = NULL;
 				}
 			} else

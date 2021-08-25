@@ -266,7 +266,9 @@ lws_conmon_ss_json(lws_ss_handle_t *h)
 		 * ask to forward it on the proxy link
 		 */
 
-		ss_proxy_onward_link_req_writeable(h);
+		h->conn_if_sspc_onw->txp_path.ops_onw->proxy_req_write(
+				h->conn_if_sspc_onw->txp_path.priv_onw);
+
 		return LWSSSSRET_OK;
 	}
 #endif

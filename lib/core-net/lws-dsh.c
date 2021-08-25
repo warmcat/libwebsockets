@@ -24,6 +24,16 @@
 
 #include "private-lib-core.h"
 
+#if defined(STANDALONE)
+#undef lws_malloc
+#define lws_malloc(a, b) malloc(a)
+#undef lws_free
+#define lws_free(a) free(a)
+#undef lws_free_set_NULL
+#define lws_free_set_NULL(a) { if (a) { free(a); a = NULL; }}
+#endif
+
+
 struct lws_dsh_search {
 	size_t		required;
 	ssize_t		natural_required;
@@ -175,7 +185,7 @@ try_foreign(struct lws_dll2 *d, void *user)
 		return 0;
 
 	lwsl_debug("%s: actual try_foreign: dsh %p (free list size %d)\n",
-			__func__, dsh1, dsh1->oha[0].owner.count);
+			__func__, dsh1, (int)dsh1->oha[0].owner.count);
 
 	s->this_dsh = dsh1;
 	if (lws_dll2_foreach_safe(&dsh1->oha[0].owner, s, search_best_free))
@@ -440,7 +450,7 @@ _lws_dsh_alloc_tail(lws_dsh_t *dsh, int kind, const void *src1, size_t size1,
 	}
 
 	/* anything coming out of here must be aligned */
-	assert(!(((unsigned long)s.best) & (sizeof(int *) - 1)));
+	assert(!(((size_t)(intptr_t)s.best) & (sizeof(int *) - 1)));
 
 	if (s.best->asize < asize + (2 * sizeof(*s.best))) {
 
@@ -617,7 +627,7 @@ lws_dsh_free(void **pobj)
 	lws_dsh_t *dsh = _o->dsh;
 
 	/* anything coming out of here must be aligned */
-	assert(!(((unsigned long)_o) & (sizeof(int *) - 1)));
+	assert(!(((size_t)(intptr_t)_o) & (sizeof(int *) - 1)));
 
 	/*
 	 * Remove the object from its list and place on the free list of the
