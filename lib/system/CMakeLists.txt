@@ -31,8 +31,10 @@
 
 include_directories(./async-dns)
 
-list(APPEND SOURCES
-	system/system.c)
+if (NOT LWS_ONLY_SSPC)
+	list(APPEND SOURCES
+		system/system.c)
+endif()
 	
 if (LWS_WITH_NETWORK)
 

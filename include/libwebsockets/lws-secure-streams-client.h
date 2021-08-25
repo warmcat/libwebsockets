@@ -29,6 +29,9 @@
  * lws_sspc_        when client is in a different process to the event loop
  *
  * The client api is almost the same except the slightly diffent names.
+ *
+ * This header is included as part of libwebsockets.h, for link against the
+ * libwebsockets library.
  */
 
 /*
@@ -39,6 +42,7 @@
  * Helper translation so user code written to lws_ss_ can be built for
  * lws_sspc_ in one step by #define LWS_SS_USE_SSPC before including
  */
+
 
 struct lws_sspc_handle;
 
@@ -66,18 +70,18 @@ struct lws_sspc_handle;
 #define _lws_fi_user_ss_fi		_lws_fi_user_sspc_fi
 #define lwsl_ss_get_cx			lwsl_sspc_get_cx
 
-LWS_VISIBLE LWS_EXTERN void
-lws_log_prepend_sspc(struct lws_log_cx *cx, void *obj, char **p, char *e);
-
-LWS_VISIBLE LWS_EXTERN struct lws_log_cx *
-lwsl_sspc_get_cx(struct lws_sspc_handle *ss);
-
 #undef lwsl_ss
 #define lwsl_ss lwsl_sspc
 
 #undef lwsl_hexdump_ss
 #define lwsl_hexdump_ss lwsl_hexdump_sspc
 #endif
+
+LWS_VISIBLE LWS_EXTERN void
+lws_log_prepend_sspc(struct lws_log_cx *cx, void *obj, char **p, char *e);
+
+LWS_VISIBLE LWS_EXTERN struct lws_log_cx *
+lwsl_sspc_get_cx(struct lws_sspc_handle *ss);
 
 #define lwsl_sspc(_h, _fil, ...) \
 		 _lws_log_cx(lwsl_sspc_get_cx(_h), lws_log_prepend_sspc, _h, \
@@ -170,6 +174,28 @@ lwsl_sspc_get_cx(struct lws_sspc_handle *ss);
 #define lwsl_hexdump_sspc_info(_v, ...)   lwsl_hexdump_sspc(_v, LLL_INFO, __VA_ARGS__)
 #define lwsl_hexdump_sspc_debug(_v, ...)  lwsl_hexdump_sspc(_v, LLL_DEBUG, __VA_ARGS__)
 
+/*
+ * How lws refers to your per-proxy-link private data... not allocated or freed
+ * by lws, nor used except to pass a pointer to it through to ops callbacks
+ * below.  Should be set to your transport private instance object, it's set to
+ * the wsi for the wsi transport.  Notice it is provided as a ** (ptr-to-ptr) in
+ * most apis.
+ */
+
+/*
+ * Stub context when using LWS_ONLY_SSPC
+ */
+
+struct lws_context_standalone {
+	lws_txp_path_client_t			txp_cpath;
+	lws_dll2_owner_t			ss_client_owner;
+	uint32_t				ssidx;
+};
+
+#if defined(STANDALONE)
+#define lws_context lws_context_standalone
+struct lws_context_standalone;
+#endif
 
 LWS_VISIBLE LWS_EXTERN int
 lws_sspc_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
@@ -321,14 +347,26 @@ lws_sspc_to_user_object(struct lws_sspc_handle *h);
 
 LWS_VISIBLE LWS_EXTERN void
 lws_sspc_change_handlers(struct lws_sspc_handle *h,
-	lws_ss_state_return_t (*rx)(void *userobj, const uint8_t *buf,
-				    size_t len, int flags),
-	lws_ss_state_return_t (*tx)(void *userobj, lws_ss_tx_ordinal_t ord,
-				    uint8_t *buf, size_t *len, int *flags),
-	lws_ss_state_return_t (*state)(void *userobj, void *h_src
-					/* ss handle type */,
-				       lws_ss_constate_t state,
-				       lws_ss_tx_ordinal_t ack));
+			 lws_sscb_rx rx,lws_sscb_tx tx, lws_sscb_state state);
 
-const char *
+
+/*
+ * Helpers offered by lws to handle transport SSPC-side proxy link events
+ */
+
+/**
+ * lws_sspc_tag() - get the sspc log tag
+ *
+ * \param h: the sspc handle
+ *
+ * Returns the sspc log tag, to assist in logging traceability
+ */
+LWS_VISIBLE LWS_EXTERN const char *
 lws_sspc_tag(struct lws_sspc_handle *h);
+
+
+#if defined(STANDALONE)
+#undef lws_context
+#endif
+
+

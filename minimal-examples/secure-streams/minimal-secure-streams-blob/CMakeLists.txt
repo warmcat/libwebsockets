@@ -91,9 +91,9 @@ if (requirements)
 				message("testing via valgrind")
 				add_test(NAME sspcblob-minimal COMMAND
 					${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
-					$<TARGET_FILE:lws-minimal-secure-streams-client> -i +${CTEST_SOCKET_PATH})
+					$<TARGET_FILE:lws-minimal-secure-streams-blob-client> -i +${CTEST_SOCKET_PATH} --timeout_ms 65000)
 			else()
-				add_test(NAME sspcblob-minimal COMMAND lws-minimal-secure-streams-client -i +${CTEST_SOCKET_PATH})
+				add_test(NAME sspcblob-minimal COMMAND lws-minimal-secure-streams-blob-client -i +${CTEST_SOCKET_PATH} --timeout_ms 65000)
 			endif()
 			
 			set(fixlist "ssblobproxy")
@@ -102,9 +102,9 @@ if (requirements)
 			endif()
 			
 			set_tests_properties(sspcblob-minimal PROPERTIES
-				WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/secure-streams/minimal-secure-streams
+				WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/secure-streams/minimal-secure-streams-blob
 				FIXTURES_REQUIRED "${fixlist}"
-				TIMEOUT 40)
+				TIMEOUT 70)
 
 		endif()
 
