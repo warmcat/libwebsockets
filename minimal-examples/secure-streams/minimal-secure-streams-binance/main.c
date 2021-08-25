@@ -28,6 +28,7 @@
 #include <ctype.h>
 
 static int interrupted;
+extern const struct lws_protocols lws_sspc_protocols[2];
 
 typedef struct range {
 	uint64_t		sum;
@@ -243,6 +244,9 @@ int main(int argc, const char **argv)
 	info.fd_limit_per_thread = 1 + 1 + 1;
 	info.extensions = extensions;
 	info.pss_policies_json = "policy.json"; /* literal JSON, or path */
+#if defined(LWS_SS_USE_SSPC)
+	info.protocols = lws_sspc_protocols;
+#endif
 
 	cx = lws_create_context(&info);
 	if (!cx) {

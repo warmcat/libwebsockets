@@ -882,6 +882,13 @@ LWS_VISIBLE extern const lws_humanize_unit_t humanize_schema_si[7];
 LWS_VISIBLE extern const lws_humanize_unit_t humanize_schema_si_bytes[7];
 LWS_VISIBLE extern const lws_humanize_unit_t humanize_schema_us[8];
 
+#if defined(_DEBUG)
+void
+lws_assert_fourcc(uint32_t fourcc, uint32_t expected);
+#else
+#define lws_assert_fourcc(_a, _b)
+#endif
+
 /**
  * lws_humanize() - Convert possibly large number to human-readable uints
  *

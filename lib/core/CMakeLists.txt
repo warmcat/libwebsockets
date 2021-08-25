@@ -25,18 +25,39 @@
 include_directories(.)
 
 list(APPEND SOURCES
-	core/alloc.c
-	core/buflist.c
-	core/context.c
 	core/lws_dll2.c
-	core/lws_map.c
-	core/libwebsockets.c
-	core/logs.c
 )
 
-if (LWS_WITH_FILE_OPS)
-	list(APPEND SOURCES core/vfs.c)
+if (NOT LWS_ONLY_SSPC)
+
+	list(APPEND SOURCES
+		core/alloc.c
+		core/buflist.c
+		core/context.c
+		core/lws_map.c
+		core/libwebsockets.c
+		core/logs.c
+	)
+	
+	if (LWS_WITH_FILE_OPS)
+		list(APPEND SOURCES core/vfs.c)
+	endif()
+
+else()
+
+	#
+	# libwebsockets.a with only SSPC pieces in
+	#
+	
+	list(APPEND SOURCES
+		secure-streams/serialized/client/sspc.c
+		secure-streams/serialized/client/sspc-transport.c
+		secure-streams/serialized/client/sspc-deserialize.c
+		core-net/lws-dsh.c
+		core-net/transport-mux-client.c
+		core-net/transport-mux-common.c
+	)
+	
 endif()
 
 exports_to_parent_scope()
-

@@ -159,7 +159,7 @@ option(LWS_WITH_SYS_METRICS "Lws Metrics API" OFF)
 #
 # Secure Streams
 #
-option(LWS_WITH_SECURE_STREAMS "Secure Streams protocol-agnostic API" OFF)
+option(LWS_WITH_SECURE_STREAMS "Secure Streams protocol-agnostic API" OM)
 option(LWS_WITH_SECURE_STREAMS_CPP "Secure Streams C++ classes" OFF)
 option(LWS_WITH_SECURE_STREAMS_PROXY_API "Secure Streams support to work across processes" OFF)
 option(LWS_WITH_SECURE_STREAMS_SYS_AUTH_API_AMAZON_COM "Auth support for api.amazon.com" OFF)
@@ -167,6 +167,7 @@ option(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY "Secure Streams Policy is hard
 option(LWS_WITH_SECURE_STREAMS_AUTH_SIGV4 "Secure Streams Auth support for AWS Sigv4" OFF)
 option(LWS_WITH_SECURE_STREAMS_BUFFER_DUMP "Secure Streams protocol buffer dump" OFF)
 option(LWS_WITH_SS_DIRECT_PROTOCOL_STR "Secure Streams directly set/get metadata w/o policy" OFF)
+option(LWS_ONLY_SSPC "Remove everything from library except standalone SSPC client support" OFF)
 
 #
 # CTest options
@@ -620,6 +621,9 @@ CHECK_C_SOURCE_COMPILES("#include <pthread.h>\nvoid main(void) { while(1) ; } vo
 CHECK_C_SOURCE_COMPILES("#include <inttypes.h>\nvoid main(void) { while(1) ; } void xxexit(void){}" LWS_HAVE_INTTYPES_H)
 CHECK_C_SOURCE_COMPILES("#include <sys/resource.h>\nvoid main(void) { while(1) ; } void xxexit(void){}" LWS_HAVE_SYS_RESOURCE_H)
 
+if (LWS_EXT_PTHREAD_INCLUDE_DIR)
+	set(LWS_HAVE_PTHREAD_H 1)
+endif()
 
 if(CMAKE_SYSTEM_NAME MATCHES "Darwin")
 	if(CMAKE_OSX_DEPLOYMENT_TARGET LESS "10.12")
@@ -1053,6 +1057,9 @@ if (LWS_WITH_SHARED)
 	add_dependencies(websockets_shared GENHDR)
 endif()
 
+if (LWS_ONLY_SSPC)
+		target_compile_definitions(websockets PUBLIC STANDALONE)
+endif()
 
 
 #

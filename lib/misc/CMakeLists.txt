@@ -30,7 +30,7 @@
 # and keep everything else private
 
 include_directories(.)
-
+if (NOT LWS_ONLY_SSPC)
 list(APPEND SOURCES
 	misc/base64-decode.c
 	misc/prng.c
@@ -129,6 +129,7 @@ if (NOT WIN32 AND NOT LWS_WITHOUT_DAEMONIZE)
 		misc/daemonize.c)
 endif()
 
+endif()
 #
 # Keep explicit parent scope exports at end
 #
