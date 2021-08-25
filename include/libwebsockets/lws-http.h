@@ -496,7 +496,7 @@ lws_hdr_custom_copy(struct lws *wsi, char *dst, int len, const char *name,
 
 typedef void (*lws_hdr_custom_fe)(const char *name, int nlen, void *custom);
 /**
- * lws_hdr_custom_name_foreach() - Itterate the custom header names
+ * lws_hdr_custom_name_foreach() - Iterate the custom header names
  *
  * \param wsi: websocket connection
  * \param cb: callback for each custom header name
