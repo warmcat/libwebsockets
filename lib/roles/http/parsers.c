@@ -658,20 +658,13 @@ lws_hdr_custom_name_foreach(struct lws *wsi, lws_hdr_custom_fe cb,
 
 	ll = wsi->http.ah->unk_ll_head;
 	while (ll) {
-		char *name;
-		int len;
 		if (ll >= wsi->http.ah->data_length)
 			return -1;
-		len = lws_ser_ru16be((uint8_t *)&wsi->http.ah->data[ll + UHO_NLEN]);
-		name = lws_malloc(len + 1, __func__);
-		if (!name) {
-			lwsl_err("%s: OOM\n", __func__);
-			return -1;
-		}
-		strncpy(&name, &wsi->http.ah->data[ll + UHO_NAME], len);
-		name[len] = '\0';
-		cb(name, len, custom);
-		lws_free(name);
+		cb(
+			&wsi->http.ah->data[ll + UHO_NAME],
+			lws_ser_ru16be((uint8_t *)&wsi->http.ah->data[ll + UHO_NLEN]),
+			custom
+		);
 		ll = lws_ser_ru32be((uint8_t *)&wsi->http.ah->data[ll + UHO_LL]);
 	}
 
