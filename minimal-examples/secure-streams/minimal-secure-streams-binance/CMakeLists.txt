@@ -24,4 +24,19 @@ if (requirements)
 	else()
 		target_link_libraries(${SAMP} websockets ${LIBWEBSOCKETS_DEP_LIBS})
 	endif()
+
+	if (HAS_LWS_WITH_SECURE_STREAMS_PROXY_API OR LWS_WITH_SECURE_STREAMS_PROXY_API)
+
+		add_compile_options(-DLWS_SS_USE_SSPC)
+		add_executable(${SAMP}-client ${SRCS})
+
+		if (websockets_shared)
+			target_link_libraries(${SAMP}-client websockets_shared ${LIBWEBSOCKETS_DEP_LIBS})
+			add_dependencies(${SAMP}-client websockets_shared)
+		else()
+			target_link_libraries(${SAMP}-client websockets ${LIBWEBSOCKETS_DEP_LIBS})
+		endif()
+	endif()
+
+
 endif()

@@ -75,7 +75,7 @@ if (LWS_PLAT_FREERTOS)
 	
 else()
 	if (LWS_PLAT_BAREMETAL)
-		add_subdir_include_dirs(plat/baremetal)
+		#		add_subdir_include_dirs(plat/baremetal)
 	else()
 		if (LWS_PLAT_OPTEE)
 			add_subdir_include_dirs(plat/optee)
@@ -152,12 +152,13 @@ if (LWS_WITH_COSE)
 	add_subdir_include_dirs(cose)
 endif()
 
+include_directories(secure-streams)
+add_subdir_include_dirs(event-libs)
 
 if (LWS_WITH_SECURE_STREAMS)
 	add_subdir_include_dirs(secure-streams)
 endif()
-
-add_subdir_include_dirs(event-libs)
+add_subdir_include_dirs(secure-streams/serialized/client)
 
 if (LWS_WITH_STATIC)
     if (LWS_STATIC_PIC)

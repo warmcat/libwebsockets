@@ -114,7 +114,7 @@ int main(int argc, const char **argv)
 
 		m = lws_ss_policy_parse(context, (uint8_t *)buf, (size_t)n);
 
-		printf("%.*s", n, buf);
+		// printf("%.*s", n, buf);
 		json_size += (unsigned int)n;
 
 		if (m < 0 && m != LEJP_CONTINUE) {
