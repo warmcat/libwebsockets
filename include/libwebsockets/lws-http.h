@@ -494,6 +494,26 @@ LWS_VISIBLE LWS_EXTERN int
 lws_hdr_custom_copy(struct lws *wsi, char *dst, int len, const char *name,
 		    int nlen);
 
+typedef void (*lws_hdr_custom_fe)(const char *name, int nlen, void *custom);
+/**
+ * lws_hdr_custom_name_foreach() - Itterate the custom header names
+ *
+ * \param wsi: websocket connection
+ * \param cb: callback for each custom header name
+ * \param custom: optional custom pointer for passing data to callback
+ *
+ * Lws knows about 100 common http headers, and parses them into indexes when
+ * it recognizes them.  When it meets a header that it doesn't know, it stores
+ * the name and value directly, and you can look them up using
+ * lws_hdr_custom_length() and lws_hdr_custom_copy().
+ * 
+ * This api returns -1 on error else 0. Use lws_hdr_custom_copy() to get the
+ * values of headers. Lws must be built with LWS_WITH_CUSTOM_HEADERS (on by
+ * default) to use this api.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_hdr_custom_name_foreach(struct lws *wsi, lws_hdr_custom_fe cb, void *custom);
+
 /**
  * lws_get_urlarg_by_name_safe() - get copy and return length of y for x=y urlargs
  *
