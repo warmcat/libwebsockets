@@ -659,7 +659,6 @@ lws_hdr_custom_name_foreach(struct lws *wsi, lws_hdr_custom_fe cb,
 	ll = wsi->http.ah->unk_ll_head;
 	while (ll) {
 		int name_length;
-		int value_length;
 		char name[256];
 		char value[256];
 		if (ll >= wsi->http.ah->data_length)
