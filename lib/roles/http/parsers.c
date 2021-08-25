@@ -660,7 +660,6 @@ lws_hdr_custom_name_foreach(struct lws *wsi, lws_hdr_custom_fe cb,
 	while (ll) {
 		int name_length;
 		char name[256];
-		char value[256];
 		if (ll >= wsi->http.ah->data_length)
 			return -1;
 		name_length = lws_ser_ru16be((uint8_t *)&wsi->http.ah->data[ll + UHO_NLEN]);
