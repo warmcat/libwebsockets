@@ -60,15 +60,16 @@ if (LWS_WITH_CLIENT)
 
 		if (LWS_WITH_SECURE_STREAMS_PROXY_API)
 			list(APPEND SOURCES
-				secure-streams/secure-streams-serialize.c
-				secure-streams/secure-streams-client.c
+				secure-streams/serialized/proxy/proxy.c
+				secure-streams/serialized/proxy/proxy-transport.c
+				secure-streams/serialized/proxy/proxy-transport-wsi.c
+				secure-streams/serialized/proxy/proxy-deserialize.c
+				secure-streams/serialized/client/sspc.c
+				secure-streams/serialized/client/sspc-transport.c
+				secure-streams/serialized/client/sspc-transport-wsi.c
+				secure-streams/serialized/client/sspc-deserialize.c
 			)
-		endif()
-
-		if (LWS_WITH_SECURE_STREAMS_PROXY_API)
-			list(APPEND SOURCES
-				secure-streams/secure-streams-process.c
-			)
+			add_subdirectory(serialized/client)
 		endif()
 
 		if (LWS_WITH_SECURE_STREAMS_SYS_AUTH_API_AMAZON_COM AND

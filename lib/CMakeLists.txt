@@ -148,12 +148,13 @@ if (LWS_WITH_COSE)
 	add_subdir_include_dirs(cose)
 endif()
 
+include_directories(secure-streams)
+add_subdir_include_dirs(event-libs)
 
 if (LWS_WITH_SECURE_STREAMS)
 	add_subdir_include_dirs(secure-streams)
 endif()
 
-add_subdir_include_dirs(event-libs)
 
 if (LWS_WITH_STATIC)
     if (LWS_STATIC_PIC)

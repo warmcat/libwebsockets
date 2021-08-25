@@ -99,6 +99,7 @@ lws_buflist_destroy_all_segments(struct lws_buflist **head)
 	struct lws_buflist *p = *head, *p1;
 
 	while (p) {
+		lwsl_user("%s: %p\n", __func__, p);
 		p1 = p->next;
 		p->next = NULL;
 		lws_free(p);

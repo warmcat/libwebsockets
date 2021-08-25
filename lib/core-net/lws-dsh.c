@@ -24,6 +24,16 @@
 
 #include "private-lib-core.h"
 
+#if defined(STANDALONE)
+#undef lws_malloc
+#define lws_malloc(a, b) malloc(a)
+#undef lws_free
+#define lws_free(a) free(a)
+#undef lws_free_set_NULL
+#define lws_free_set_NULL(a) { if (a) { free(a); a = NULL; }}
+#endif
+
+
 struct lws_dsh_search {
 	size_t		required;
 	int		kind;
@@ -287,7 +297,7 @@ _lws_dsh_alloc_tail(lws_dsh_t *dsh, int kind, const void *src1, size_t size1,
 			lws_dll2_foreach_safe(dsh->list.owner, &s, try_foreign);
 
 		if (!s.best) {
-			lwsl_notice("%s: no buffer has space\n", __func__);
+			lwsl_notice("%s: no buffer has space for %lu\n", __func__, (unsigned long)asize);
 
 			return 1;
 		}

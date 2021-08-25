@@ -631,6 +631,7 @@ struct lws;
 #include <libwebsockets/lws-secure-streams.h>
 #include <libwebsockets/lws-secure-streams-policy.h>
 #include <libwebsockets/lws-secure-streams-client.h>
+#include <libwebsockets/lws-secure-streams-transport-proxy.h>
 
 #if !defined(LWS_PLAT_FREERTOS)
 #include <libwebsockets/abstract/abstract.h>

@@ -607,8 +607,10 @@ struct lws_context {
 	const char			*name;
 
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
-	const char	*ss_proxy_bind;
-	const char	*ss_proxy_address;
+	const char			*ss_proxy_bind;
+	const char			*ss_proxy_address;
+	const lws_sss_ops_proxy_t	*sss_ops_proxy;
+	const lws_sss_ops_client_t	*sss_ops_client;
 #endif
 
 #if defined(LWS_WITH_FILE_OPS)

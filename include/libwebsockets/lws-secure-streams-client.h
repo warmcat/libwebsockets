@@ -29,6 +29,14 @@
  * lws_sspc_        when client is in a different process to the event loop
  *
  * The client api is almost the same except the slightly diffent names.
+ *
+ * This header is included as part of libwebsockets.h, for link against the
+ * libwebsockets library.
+ *
+ * Lws also produces a tiny sub-library you can also target, "liblws-sspc".
+ * This specific header file alone contains the whole ABI for the sub-library,
+ * so if linking against that rather than full libwebsockets, you can just
+ * include this header.
  */
 
 /*
@@ -170,6 +178,44 @@ lwsl_sspc_get_cx(struct lws_sspc_handle *ss);
 #define lwsl_hexdump_sspc_info(_v, ...)   lwsl_hexdump_sspc(_v, LLL_INFO, __VA_ARGS__)
 #define lwsl_hexdump_sspc_debug(_v, ...)  lwsl_hexdump_sspc(_v, LLL_DEBUG, __VA_ARGS__)
 
+/*
+ * How lws refers to your per-proxy-link private data... not allocated or freed
+ * by lws, nor used except to pass a pointer to it through to ops callbacks
+ * below.  Should be set to your transport private instance object, it's set to
+ * the wsi for the wsi transport.  Notice it is provided as a ** in most apis.
+ */
+typedef void * lws_sss_priv_t;
+
+/*
+ * Operations that transports must offer... so ss clients can connect to proxy
+ */
+
+typedef struct lws_sss_ops_client {
+	int (*retry_connect)(struct lws_sspc_handle *h);
+	/**< Attempt to create a new connection / channel to the proxy */
+	void (*req_write)(lws_sss_priv_t *priv);
+	/**< Request a write to the proxy on this channel */
+	int (*write)(lws_sss_priv_t *priv, uint8_t *buf, size_t len);
+	/**< Write the requested data on the channel to the proxy */
+	void (*close)(lws_sss_priv_t *priv);
+	/**< Close the channel to the proxy */
+	void (*stream_up)(lws_sss_priv_t *priv);
+	/**< Called when a new channel to the proxy is acknowledged as up */
+} lws_sss_ops_client_t;
+
+/*
+ * Stub context when using liblws_sspc
+ */
+
+struct lws_context_standalone {
+	const lws_sss_ops_client_t	*sss_ops_client;
+	lws_dll2_owner_t		ss_client_owner;
+};
+
+#if defined(STANDALONE)
+#define lws_context lws_context_standalone
+struct lws_context_standalone;
+#endif
 
 LWS_VISIBLE LWS_EXTERN int
 lws_sspc_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
@@ -265,7 +311,7 @@ lws_sspc_proxy_create(struct lws_context *context);
 LWS_VISIBLE LWS_EXTERN struct lws_context *
 lws_sspc_get_context(struct lws_sspc_handle *h);
 
-LWS_VISIBLE extern const struct lws_protocols lws_sspc_protocols[2];
+extern const struct lws_protocols lws_sspc_protocols[2];
 
 LWS_VISIBLE LWS_EXTERN const char *
 lws_sspc_rideshare(struct lws_sspc_handle *h);
@@ -319,14 +365,82 @@ lws_sspc_to_user_object(struct lws_sspc_handle *h);
 
 LWS_VISIBLE LWS_EXTERN void
 lws_sspc_change_handlers(struct lws_sspc_handle *h,
-	lws_ss_state_return_t (*rx)(void *userobj, const uint8_t *buf,
-				    size_t len, int flags),
-	lws_ss_state_return_t (*tx)(void *userobj, lws_ss_tx_ordinal_t ord,
-				    uint8_t *buf, size_t *len, int *flags),
-	lws_ss_state_return_t (*state)(void *userobj, void *h_src
-					/* ss handle type */,
-				       lws_ss_constate_t state,
-				       lws_ss_tx_ordinal_t ack));
+			 lws_sscb_rx rx,lws_sscb_tx tx, lws_sscb_state state);
 
-const char *
+
+/*
+ * Helpers offered by lws to handle transport SSPC-side proxy link events
+ */
+
+/**
+ * lws_sspc_tag() - get the sspc log tag
+ *
+ * \param h: the sspc handle
+ *
+ * Returns the sspc log tag, to assist in logging traceability
+ */
+LWS_VISIBLE LWS_EXTERN const char *
 lws_sspc_tag(struct lws_sspc_handle *h);
+
+/**
+ * lws_sspc_transport_connect_failed() - clean up after connect attempt fail
+ *
+ * \param h: the sspc handle
+ *
+ * Client transport should call this to handle connection attempt to proxy
+ * failure.  Eg for wsi transport, it's called in LWS_CALLBACK_CLIENT_CONNECTION_ERROR
+ */
+LWS_VISIBLE LWS_EXTERN lws_ss_state_return_t
+lws_sspc_transport_connect_failed(struct lws_sspc_handle *h);
+
+/**
+ * lws_sspc_transport_connected() - take care of successful connect to proxy
+ *
+ * \param h: the sspc handle
+ *
+ * Client transport should call this to handle connection attempt to proxy
+ * success.  Eg for wsi transport, it's called in LWS_CALLBACK_RAW_CONNECTED
+ */
+LWS_VISIBLE LWS_EXTERN lws_ss_state_return_t
+lws_sspc_transport_connected(struct lws_sspc_handle *h);
+
+/**
+ * lws_sspc_transport_closed() - handle closure of proxy connection
+ *
+ * \param h: the sspc handle
+ *
+ * Client transport should call this to handle connection to proxy closure.
+ * Eg for wsi transport, it's called in LWS_CALLBACK_RAW_CLOSE
+ */
+LWS_VISIBLE LWS_EXTERN lws_ss_state_return_t
+lws_sspc_transport_closed(struct lws_sspc_handle *h);
+
+/**
+ * lws_sspc_transport_rx_from_proxy() - handle rx from proxy
+ *
+ * \param h: the sspc handle
+ * \param in: the incoming data
+ * \param len: the number of bytes at in
+ *
+ * Client transport should call this to handle serialized data received from
+ * the proxy.  Eg for wsi transport, it's called in LWS_CALLBACK_RAW_RX
+ */
+LWS_VISIBLE LWS_EXTERN lws_ss_state_return_t
+lws_sspc_transport_rx_from_proxy(struct lws_sspc_handle *h,
+				 const void *in, size_t len);
+
+/**
+ * lws_sspc_transport_tx() - handle tx to proxy
+ *
+ * \param h: the sspc handle
+ * \param metadata_limit: largest metadata we can handle
+ *
+ * Client transport should call this to produce serialized data to send to the
+ * proxy.  Eg for wsi transport, it's called in LWS_CALLBACK_RAW_WRITEABLE
+ */
+LWS_VISIBLE LWS_EXTERN lws_ss_state_return_t
+lws_sspc_transport_tx(struct lws_sspc_handle *h, size_t metadata_limit);
+
+#if defined(STANDALONE)
+#undef lws_context
+#endif

@@ -190,6 +190,11 @@
 struct lws_ss_handle;
 typedef uint32_t lws_ss_tx_ordinal_t;
 
+#if defined(STANDALONE)
+#define lws_context lws_context_standalone
+struct lws_context_standalone;
+#endif
+
 /*
  * connection state events
  *
@@ -840,6 +845,10 @@ lws_aws_filesystem_credentials_helper(const char *path, const char *kid,
 				      const char *ak, char **aws_keyid,
 				      char **aws_key);
 
+#endif
+
+#if defined(STANDALONE)
+#undef lws_context
 #endif
 
 ///@}

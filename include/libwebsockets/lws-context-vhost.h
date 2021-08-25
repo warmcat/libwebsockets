@@ -252,6 +252,7 @@ struct lws_plat_file_ops;
 struct lws_ss_policy;
 struct lws_ss_plugin;
 struct lws_metric_policy;
+struct lws_sss_ops;
 
 typedef int (*lws_context_ready_cb_t)(struct lws_context *context);
 
@@ -796,6 +797,12 @@ struct lws_context_creation_info {
 	 * the socket path given in ss_proxy_bind (start it with a + or +@);
 	 * nonzero means connect via a tcp socket to the tcp address in
 	 * ss_proxy_bind and the given port */
+	const struct lws_sss_ops_proxy *sss_ops_proxy; /**< CONTEXT: NULL, or
+	 * custom sss transport ops used for ss proxy communication.  NULL means
+	 * to use the default wsi-based proxy server */
+	const struct lws_sss_ops_client *sss_ops_client; /**< CONTEXT: NULL, or
+	 * custom sss transport ops used for ss client communication to the ss
+	 * proxy.  NULL means to use the default wsi-based client support */
 #endif
 
 	int rlimit_nofile;

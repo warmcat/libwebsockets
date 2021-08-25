@@ -815,6 +815,15 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->ss_proxy_bind = info->ss_proxy_bind;
 	context->ss_proxy_port = info->ss_proxy_port;
 	context->ss_proxy_address = info->ss_proxy_address;
+	if (info->sss_ops_proxy)
+		context->sss_ops_proxy = info->sss_ops_proxy;
+	else
+		context->sss_ops_proxy = &lws_sss_ops_proxy_wsi;
+	if (info->sss_ops_client)
+		context->sss_ops_client = info->sss_ops_client;
+	else
+		context->sss_ops_client = &lws_sss_ops_client_wsi;
+
 	if (context->ss_proxy_bind && context->ss_proxy_address)
 		lwsl_cx_notice(context, "ss proxy bind '%s', port %d, ads '%s'",
 			context->ss_proxy_bind, context->ss_proxy_port,

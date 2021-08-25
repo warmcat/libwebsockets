@@ -402,6 +402,7 @@ lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 		lwsa->protocol = &vh->protocols[n];
 		if (!vh->protocols[n].name)
 			continue;
+
 		pvo = lws_vhost_protocol_options(vh, vh->protocols[n].name);
 		if (pvo) {
 			/*
@@ -589,6 +590,9 @@ lws_create_vhost(struct lws_context *context,
 	extern struct lws_protocols lws_async_dns_protocol;
 #endif
 	int n;
+
+	if (!pcols && context->protocols_copy)
+		pcols = context->protocols_copy;
 
 	if (info->vhost_name)
 		name = info->vhost_name;

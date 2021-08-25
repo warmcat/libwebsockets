@@ -220,7 +220,7 @@ __lws_free_wsi(struct lws *wsi)
 			lws_sspc_handle_t *h = (lws_sspc_handle_t *)
 							wsi->a.opaque_user_data;
 			if (h) {
-				h->cwsi = NULL;
+				h->sss_priv = NULL;
 				wsi->a.opaque_user_data = NULL;
 			}
 		} else
@@ -829,7 +829,7 @@ async_close:
 					lws_metrics_caliper_report_hist(h->cal_txn, (struct lws *)NULL);
 #endif
 
-					h->cwsi = NULL;
+					h->sss_priv = NULL;
 					//wsi->a.opaque_user_data = NULL;
 				}
 			} else

@@ -147,7 +147,7 @@ option(LWS_WITH_SYS_METRICS "Lws Metrics API" OFF)
 #
 # Secure Streams
 #
-option(LWS_WITH_SECURE_STREAMS "Secure Streams protocol-agnostic API" OFF)
+option(LWS_WITH_SECURE_STREAMS "Secure Streams protocol-agnostic API" OM)
 option(LWS_WITH_SECURE_STREAMS_CPP "Secure Streams C++ classes" OFF)
 option(LWS_WITH_SECURE_STREAMS_PROXY_API "Secure Streams support to work across processes" OFF)
 option(LWS_WITH_SECURE_STREAMS_SYS_AUTH_API_AMAZON_COM "Auth support for api.amazon.com" OFF)
