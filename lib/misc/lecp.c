@@ -1242,7 +1242,7 @@ enum lws_lec_pctx_ret
 lws_lec_vsprintf(lws_lec_pctx_t *ctx, const char *fmt, va_list args)
 {
 	size_t fl = strlen(fmt);
-	uint64_t u64;
+	uint64_t u64 = 0;
 	int64_t i64;
 #if defined(LWS_WITH_CBOR_FLOAT)
 	double dbl;
@@ -1450,6 +1450,9 @@ lws_lec_vsprintf(lws_lec_pctx_t *ctx, const char *fmt, va_list args)
 					i64 = (int64_t)va_arg(args, long long);
 					ctx->vaa[ctx->vaa_pos++] = NATTYPE_LONG_LONG;
 					break;
+				default:
+					i64 = 0;
+					break;
 				}
 				if (i64 < 0)
 					lws_lec_int(ctx,
@@ -1473,6 +1476,9 @@ lws_lec_vsprintf(lws_lec_pctx_t *ctx, const char *fmt, va_list args)
 				case 2:
 					u64 = (uint64_t)va_arg(args, unsigned long long);
 					ctx->vaa[ctx->vaa_pos++] = NATTYPE_LONG_LONG;
+					break;
+				default:
+					i64 = 0;
 					break;
 				}
 				lws_lec_int(ctx, LWS_CBOR_MAJTYP_UINT, 0, u64);
@@ -1517,6 +1523,9 @@ lws_lec_vsprintf(lws_lec_pctx_t *ctx, const char *fmt, va_list args)
 				case 2:
 					ctx->item.u.u64 = (uint64_t)va_arg(args, long long);
 					ctx->vaa[ctx->vaa_pos++] = NATTYPE_LONG_LONG;
+					break;
+				default:
+					i64 = 0;
 					break;
 				}
 				ctx->item.opcode = LWS_CBOR_MAJTYP_UINT;

@@ -608,7 +608,7 @@ lws_metrics_hist_bump_describe_wsi(struct lws *wsi, lws_metric_pub_t *pub,
 	} else
 		if (wsi->client_proxy_onward) {
 			lws_ss_handle_t *h = (lws_ss_handle_t *)wsi->a.opaque_user_data;
-			struct conn *conn = h->conn_if_sspc_onw;
+			struct lws_sss_proxy_conn *conn = h->conn_if_sspc_onw;
 
 			if (conn && conn->ss)
 				p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),

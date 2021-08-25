@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2019 - 2020 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2019 - 2021 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -48,134 +48,6 @@
  * In the second, IPC, case, all packets are prepended by one or more bytes
  * indicating the packet type and serializing any associated data, known as
  * Serialized Secure Streams or SSS.
- *
- * Serialized Secure Streams
- * -------------------------
- *
- * On the transport, adjacent packets may be coalesced, that is, the original
- * packet sizes are lost and two or more packets are combined.  For that reason
- * the serialization format always contains a 1-byte type and then a 2-byte
- * frame length.
- *
- * Client to proxy
- *
- * - Proxied connection setup
- *
- *   -  0: LWSSS_SER_TXPRE_STREAMTYPE
- *   -  1: 2-byte MSB-first rest-of-frame length
- *   -  3: 1-byte Client SSS protocol version (introduced in SSSv1)
- *   -  4: 4-byte Client PID (introduced in SSSv1)
- *   -  8: 4-byte MSB-first initial tx credit
- *   - 12: the streamtype name with no NUL
- *
- * - Proxied tx
- *
- *   -  0: LWSSS_SER_TXPRE_TX_PAYLOAD
- *   -  1: 2 byte MSB-first rest-of-frame length
- *   -  3: 4-byte MSB-first flags
- *   -  7: 4-byte MSB-first us between client requested write and wrote to proxy
- *   - 11: 8-byte MSB-first us resolution unix time client wrote to proxy
- *   - 19: payload
- *
- * - Proxied secure stream destroy
- *
- *   -  0: LWSSS_SER_TXPRE_DESTROYING
- *   -  1: 00, 00
- *
- * - Proxied metadata - sent when one metadata item set clientside
- *
- *   -  0: LWSSS_SER_TXPRE_METADATA
- *   -  1: 2-byte MSB-first rest-of-frame length
- *   -  3: 1-byte metadata name length
- *   -  4: metadata name
- *   -  ...: metadata value (for rest of packet)
- *
- * - TX credit management - sent when using tx credit apis, cf METADATA
- *
- *   - 0: LWSSS_SER_TXPRE_TXCR_UPDATE
- *   - 1: 2-byte MSB-first rest-of-frame length 00, 04
- *   - 3: 4-byte additional tx credit adjust value
- *
- * - Stream timeout management - forwarded when user applying or cancelling t.o.
- *
- *   -  0: LWSSS_SER_TXPRE_TIMEOUT_UPDATE
- *   -  1: 2-byte MSB-first rest-of-frame length 00, 04
- *   -  3: 4-byte MSB-first unsigned 32-bit timeout, 0 = use policy, -1 = cancel
- *
- * - Passing up payload length hint
- *
- *   -  0: LWSSS_SER_TXPRE_PAYLOAD_LENGTH_HINT
- *   -  1: 2-byte MSB-first rest-of-frame length 00, 04
- *   -  3: 4-byte MSB-first unsigned 32-bit payload length hint
- *
- * Proxy to client
- *
- * - Proxied connection setup result
- *
- *   -  0: LWSSS_SER_RXPRE_CREATE_RESULT
- *   -  1: 2 byte MSB-first rest-of-frame length (usually 00, 03)
- *   -  3: 1 byte result, 0 = success.  On failure, proxy will close connection.
- *   -  4: 4 byte client dsh allocation recommended for stream type, from policy
- *         (introduced in SSSv1)
- *   -  8: 2 byte MSB-first initial tx credit
- *   - 10: if present, comma-sep list of rideshare types from policy
- *
- * - Proxied rx
- *
- *   -  0: LWSSS_SER_RXPRE_RX_PAYLOAD
- *   -  1: 2 byte MSB-first rest-of-frame length
- *   -  3: 4-byte MSB-first flags
- *   -  7: 4-byte MSB-first us between inbound read and wrote to client
- *   - 11: 8-byte MSB-first us resolution unix time proxy wrote to client
- *   - 17: (rideshare name len + rideshare name if flags & LWSSS_FLAG_RIDESHARE)
- *          payload
- *
- * - Proxied tx credit
- *
- *   -  0: LWSSS_SER_RXPRE_TXCR_UPDATE
- *   -  1: 00, 04
- *   -  3: 4-byte MSB-first addition tx credit bytes
- *
- * - Proxied rx metadata
- *
- *   -  0: LWSSS_SER_RXPRE_METADATA
- *   -  1: 2-byte MSB-first rest-of-frame length
- *   -  3: 1-byte metadata name length
- *   -  4: metadata name
- *   -  ...: metadata value (for rest of packet)
- *
- * - Proxied state (8 or 11 byte packet)
- *
- *   -  0: LWSSS_SER_RXPRE_CONNSTATE
- *   -  1: 00, 05 if state < 256, else 00, 08
- *   -  3: 1 byte state index if state < 256, else 4-byte MSB-first state index
- *   -  4 or 7: 4-byte MSB-first ordinal
- *
- * - Proxied performance information
- *
- *   -  0: LWSSS_SER_RXPRE_PERF
- *   -  1: 2-byte MSB-first rest-of-frame length
- *   -  3: ... performance JSON (for rest of packet)
- *
- * Proxied tx may be read by the proxy but rejected due to lack of buffer space
- * at the proxy.  For that reason, tx must be held at the sender until it has
- * been acknowledged or denied.
- *
- * Sinks
- * -----
- *
- * Sinks are logical "servers", you can register as a sink for a particular
- * streamtype by using the lws_ss_create() api with ssi->register_sink set to 1.
- *
- * For directly fulfilled Secure Streams, new streams of that streamtype bind
- * to the rx, tx and state handlers given when it was registered.
- *
- *  - When new streams are created the registered sink handler for (*state) is
- *    called with event LWSSSCS_SINK_JOIN and the new client stream handle in
- *    the h_src parameter.
- *
- *  - When the client stream sends something to the sink, it calls the sink's
- *    (*rx) with the client stream's
  */
 
 /** \defgroup secstr Secure Streams
@@ -189,6 +61,11 @@
 
 struct lws_ss_handle;
 typedef uint32_t lws_ss_tx_ordinal_t;
+
+#if defined(STANDALONE)
+#define lws_context lws_context_standalone
+struct lws_context_standalone;
+#endif
 
 /*
  * connection state events
@@ -253,54 +130,7 @@ enum {
 	LWSSS_FLAG_PERF_JSON					= (1 << 6),
 	/* This RX is JSON performance data, only on streams with "perf" flag
 	 * set */
-
-	/*
-	 * In the case the secure stream is proxied across a process or thread
-	 * boundary, eg by proxying through a socket for IPC, metadata must be
-	 * carried in-band.  A byte is prepended to each rx payload to
-	 * differentiate what it is.
-	 *
-	 * Secure streams where the user is called back directly does not need
-	 * any of this and only pure payloads are passed.
-	 *
-	 * rx (received by client) prepends for proxied connections
-	 */
-
-	LWSSS_SER_RXPRE_RX_PAYLOAD				= 0x55,
-	LWSSS_SER_RXPRE_CREATE_RESULT,
-	LWSSS_SER_RXPRE_CONNSTATE,
-	LWSSS_SER_RXPRE_TXCR_UPDATE,
-	LWSSS_SER_RXPRE_METADATA,
-	LWSSS_SER_RXPRE_TLSNEG_ENCLAVE_SIGN,
-	LWSSS_SER_RXPRE_PERF,
-
-	/* tx (send by client) prepends for proxied connections */
-
-	LWSSS_SER_TXPRE_STREAMTYPE				= 0xaa,
-	LWSSS_SER_TXPRE_ONWARD_CONNECT,
-	LWSSS_SER_TXPRE_DESTROYING,
-	LWSSS_SER_TXPRE_TX_PAYLOAD,
-	LWSSS_SER_TXPRE_METADATA,
-	LWSSS_SER_TXPRE_TXCR_UPDATE,
-	LWSSS_SER_TXPRE_TIMEOUT_UPDATE,
-	LWSSS_SER_TXPRE_PAYLOAD_LENGTH_HINT,
-	LWSSS_SER_TXPRE_TLSNEG_ENCLAVE_SIGNED,
 };
-
-typedef enum {
-	LPCSPROX_WAIT_INITIAL_TX = 1, /* after connect, must send streamtype */
-	LPCSPROX_REPORTING_FAIL, /* stream creation failed, wait to to tell */
-	LPCSPROX_REPORTING_OK, /* stream creation succeeded, wait to to tell */
-	LPCSPROX_OPERATIONAL, /* ready for payloads */
-	LPCSPROX_DESTROYED,
-
-	LPCSCLI_SENDING_INITIAL_TX,  /* after connect, must send streamtype */
-	LPCSCLI_WAITING_CREATE_RESULT,   /* wait to hear if proxy ss create OK */
-	LPCSCLI_LOCAL_CONNECTED,	      /* we are in touch with the proxy */
-	LPCSCLI_ONWARD_CONNECT,	      /* request onward ss connection */
-	LPCSCLI_OPERATIONAL, /* ready for payloads */
-
-} lws_ss_conn_states_t;
 
 /*
  * Returns from state() callback can tell the caller what the user code
@@ -840,6 +670,10 @@ lws_aws_filesystem_credentials_helper(const char *path, const char *kid,
 				      const char *ak, char **aws_keyid,
 				      char **aws_key);
 
+#endif
+
+#if defined(STANDALONE)
+#undef lws_context
 #endif
 
 ///@}

@@ -195,6 +195,23 @@ lws_hex_random(struct lws_context *context, char *dest, size_t len)
 	return 0;
 }
 
+#if defined(_DEBUG)
+void
+lws_assert_fourcc(uint32_t fourcc, uint32_t expected)
+{
+	if (fourcc == expected)
+		return;
+
+	lwsl_err("%s: fourcc mismatch, expected %c%c%c%c, saw %c%c%c%c\n",
+			__func__, (int)(expected >> 24), (int)((expected >> 16) & 0xff),
+			(int)((expected >> 8) & 0xff),(int)( expected & 0xff),
+			(int)(fourcc >> 24), (int)((fourcc >> 16) & 0xff),
+			(int)((fourcc >> 8) & 0xff), (int)(fourcc & 0xff));
+
+	assert(0);
+}
+#endif
+
 #if !defined(LWS_PLAT_OPTEE) && !defined(LWS_PLAT_BAREMETAL)
 
 #if defined(LWS_WITH_FILE_OPS)

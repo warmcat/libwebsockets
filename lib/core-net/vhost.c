@@ -200,7 +200,7 @@ lws_role_call_adoption_bind(struct lws *wsi, int type, const char *prot)
 
 #if defined(LWS_ROLE_RAW_FILE)
 
-	lwsl_wsi_notice(wsi, "falling back to raw file role bind");
+	lwsl_wsi_info(wsi, "falling back to raw file role bind");
 
 	/* fall back to raw file role if, eg, h1 not configured */
 
@@ -402,6 +402,7 @@ lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 		lwsa->protocol = &vh->protocols[n];
 		if (!vh->protocols[n].name)
 			continue;
+
 		pvo = lws_vhost_protocol_options(vh, vh->protocols[n].name);
 		if (pvo) {
 			/*
@@ -590,6 +591,9 @@ lws_create_vhost(struct lws_context *context,
 #endif
 	int n;
 
+	if (!pcols && context->protocols_copy)
+		pcols = context->protocols_copy;
+
 	if (info->vhost_name)
 		name = info->vhost_name;
 
@@ -683,12 +687,14 @@ lws_create_vhost(struct lws_context *context,
 	 * old or new way depending on what he gave us
 	 */
 
-	if (!pcols)
+	if (!pcols) {
 		for (vh->count_protocols = 0;
 			info->pprotocols[vh->count_protocols];
-			vh->count_protocols++)
-			;
-	else
+			vh->count_protocols++) {
+				lwsl_user("%s: ppcols: %s\n", __func__,
+						info->pprotocols[vh->count_protocols]->name);
+		}
+	} else
 		for (vh->count_protocols = 0;
 			pcols[vh->count_protocols].callback;
 			vh->count_protocols++)

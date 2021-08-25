@@ -91,13 +91,6 @@ callback_minimal_spam(struct lws *wsi, enum lws_callback_reasons reason,
 
 	switch (reason) {
 
-	case LWS_CALLBACK_PROTOCOL_INIT:
-		for (n = 0; n < concurrent; n++) {
-			clients[n].index = n;
-			connect_client(n);
-		}
-		break;
-
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		errors++;
 		lwsl_err("CLIENT_CONNECTION_ERROR: %s (try %d, est %d, closed %d, err %d)\n",
@@ -266,6 +259,11 @@ int main(int argc, const char **argv)
 	if (!context) {
 		lwsl_err("lws init failed\n");
 		return 1;
+	}
+
+	for (n = 0; n < concurrent; n++) {
+		clients[n].index = n;
+		connect_client(n);
 	}
 
 	while (n >= 0 && !interrupted)

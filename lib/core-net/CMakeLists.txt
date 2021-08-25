@@ -69,7 +69,7 @@ if (LWS_WITH_CLIENT)
 		core-net/client/connect3.c
 		core-net/client/connect4.c
 		core-net/client/sort-dns.c
-	)
+		)
 	if (LWS_WITH_CONMON)
 		list(APPEND SOURCES
 			core-net/client/conmon.c
