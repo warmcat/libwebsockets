@@ -120,22 +120,22 @@
   *
   */
 
-#if defined(LWS_PLAT_BAREMETAL)
-#else
  #if defined(LWS_PLAT_FREERTOS)
   #include "private-lib-plat-freertos.h"
  #else
   #if defined(WIN32) || defined(_WIN32)
    #include "private-lib-plat-windows.h"
   #else
-   #if defined(LWS_PLAT_OPTEE)
-    #include "private-lib-plat.h"
+   #if defined(LWS_PLAT_BAREMETAL)
    #else
-    #include "private-lib-plat-unix.h"
+    #if defined(LWS_PLAT_OPTEE)
+     #include "private-lib-plat.h"
+    #else
+     #include "private-lib-plat-unix.h"
+    #endif
    #endif
   #endif
  #endif
-#endif
 
  /*
   *
@@ -317,16 +317,10 @@ struct lws_ring {
 struct lws_protocols;
 struct lws;
 
-#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
 #include "private-lib-secure-streams.h"
-#endif
 
 #if defined(LWS_WITH_NETWORK) /* network */
 #include "private-lib-event-libs.h"
-
-#if defined(LWS_WITH_SECURE_STREAMS) || defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
-#include "private-lib-secure-streams.h"
-#endif
 
 #if defined(LWS_WITH_SYS_SMD)
 #include "private-lib-system-smd.h"
@@ -338,18 +332,15 @@ struct lws;
 
 #include "private-lib-system-metrics.h"
 
-
 struct lws_foreign_thread_pollfd {
 	struct lws_foreign_thread_pollfd *next;
 	int fd_index;
 	int _and;
 	int _or;
 };
-#endif /* network */
 
-#if defined(LWS_WITH_NETWORK)
 #include "private-lib-core-net.h"
-#endif
+#endif /* network */
 
 struct lws_system_blob {
 	union {
@@ -616,12 +607,18 @@ struct lws_context {
 
 #endif /* NETWORK */
 
-	lws_log_cx_t			*log_cx;
-	const char			*name;
+	lws_log_cx_t				*log_cx;
+	const char				*name;
 
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
-	const char	*ss_proxy_bind;
-	const char	*ss_proxy_address;
+	const char				*ss_proxy_bind;
+	const char				*ss_proxy_address;
+
+	lws_txp_path_proxy_t			txp_ppath;
+	lws_txp_path_client_t			txp_cpath;
+
+	const void				*txp_ssproxy_info;
+
 #endif
 
 #if defined(LWS_WITH_FILE_OPS)
@@ -731,7 +728,7 @@ struct lws_context {
 	uint16_t smd_queue_depth;
 #endif
 
-#if defined(LWS_WITH_NETLINK)
+#if defined(LWS_WITH_NETLINK) && defined(LWS_WITH_NETWORK)
 	lws_route_uidx_t			route_uidx;
 #endif
 
@@ -979,6 +976,27 @@ void lws_msleep(unsigned int);
 
 void
 lws_context_destroy2(struct lws_context *context);
+
+/* it's public extern const lws_transport_client_ops_t lws_txp_inside_sspc; */
+
+lws_transport_mux_ch_t *
+lws_transport_mux_create_channel(lws_transport_mux_t *tm, lws_mux_ch_idx_t i);
+
+lws_transport_mux_ch_t *
+lws_transport_mux_add_channel(lws_transport_mux_t *tm, lws_transport_priv_t priv);
+
+void
+lws_transport_mux_destroy_channel(lws_transport_mux_ch_t **_mc);
+
+lws_transport_mux_ch_t *
+lws_transport_mux_get_channel(lws_transport_mux_t *tm, lws_mux_ch_idx_t i);
+
+int
+lws_transport_mux_next_free(lws_transport_mux_t *tm, lws_mux_ch_idx_t *result);
+
+
+void
+sul_ping_cb(lws_sorted_usec_list_t *sul);
 
 #if !defined(PRIu64)
 #define PRIu64 "llu"

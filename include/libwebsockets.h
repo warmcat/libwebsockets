@@ -74,6 +74,8 @@ struct lws_dsh;
 
 #define LWS_US_TO_MS(x) ((x + (LWS_US_PER_MS / 2)) / LWS_US_PER_MS)
 
+#define LWS_FOURCC(a, b, c, d) ((a << 24) | (b << 16) | (c << 8) | d)
+
 #if defined(LWS_HAS_INTPTR_T)
 #include <stdint.h>
 #define lws_intptr_t intptr_t
@@ -664,8 +666,10 @@ struct lws;
 #include <libwebsockets/lws-diskcache.h>
 #include <libwebsockets/lws-sequencer.h>
 #include <libwebsockets/lws-secure-streams.h>
+#include <libwebsockets/lws-secure-streams-serialization.h>
 #include <libwebsockets/lws-secure-streams-policy.h>
 #include <libwebsockets/lws-secure-streams-client.h>
+#include <libwebsockets/lws-secure-streams-transport-proxy.h>
 
 #if !defined(LWS_PLAT_FREERTOS)
 #include <libwebsockets/abstract/abstract.h>

@@ -109,7 +109,8 @@ lws_conmon_append_copy_new_dns_results(struct lws *wsi,
 				ai->ai_canonname = ((char *)ai->ai_addr) +
 							cai->ai_addrlen;
 				memcpy(ai->ai_canonname, cai->ai_canonname,
-				       cl + 1);
+				       cl);
+				ai->ai_canonname[cl] = '\0';
 			}
 			ai->ai_next = wsi->conmon.dns_results_copy;
 			wsi->conmon.dns_results_copy = ai;

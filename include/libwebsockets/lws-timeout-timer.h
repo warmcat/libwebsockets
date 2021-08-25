@@ -28,6 +28,11 @@
 */
 //@{
 
+#if defined(STANDALONE)
+struct lws_context_standalone;
+#define lws_context lws_context_standalone
+#endif
+
 /*
  * NOTE: These public enums are part of the abi.  If you want to add one,
  * add it at where specified so existing users are unaffected.
@@ -300,5 +305,9 @@ __lws_sul_insert(lws_dll2_owner_t *own, lws_sorted_usec_list_t *sul);
 
 LWS_VISIBLE LWS_EXTERN lws_usec_t
 __lws_sul_service_ripe(lws_dll2_owner_t *own, int own_len, lws_usec_t usnow);
+
+#if defined(STANDALONE)
+#undef lws_context
+#endif
 
 ///@}
