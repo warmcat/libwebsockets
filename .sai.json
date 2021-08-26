@@ -91,6 +91,11 @@
 			"build":	"rm -rf ebuild ; mkdir ebuild; cd ebuild; cp -rp ../minimal-examples/embedded/esp32/${cpack} . ;  cd ${cpack} ; . /opt/esp/esp-idf/export.sh ; ln -sf ../.. libwebsockets ; idf.py set-target esp32 && cp libwebsockets/minimal-examples/embedded/esp32/${cpack}/sdkconfig . && cp sdkconfig.h build && idf.py ${cmake} build size size-components size-files && cd build && /usr/local/bin/sai-device ${cpack} ESPPORT=0 ctest --output-on-failure",
 			"default":	false
 		},
+		"freertos-espidf/riscv-esp32c3/gcc": {
+			"build":	"rm -rf ebuild ; mkdir ebuild; cd ebuild; cp -rp ../minimal-examples/embedded/esp32/${cpack} . ;  cd ${cpack} ; . /opt/esp/esp-idf/export.sh ; ln -sf ../.. libwebsockets ; idf.py set-target esp32c3 && cp libwebsockets/minimal-examples/embedded/esp32/${cpack}/sdkconfig . && cp sdkconfig.h build && idf.py ${cmake} build size size-components size-files && cd build && /usr/local/bin/sai-device ${cpack} ESPPORT=0 ctest --output-on-failure",
+			"default":	false
+		},
+
 		"linux-fedora-32/riscv64-virt/gcc": {
 			"build":	"mkdir build destdir;cd build;export LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib;export CCACHE_DISABLE=1;export SAI_CPACK=\"-G RPM\";cmake .. ${cmake} && make -j4 && rm -rf ../destdir && make -j12 DESTDIR=../destdir install && ctest -j3 --output-on-failure ${cpack}",
 			"default":	false
@@ -120,6 +125,11 @@
 		"fault-injection": {
 			"cmake":	"-DLWS_WITH_SYS_FAULT_INJECTION=1 -DLWS_WITH_MINIMAL_EXAMPLES=1",
 			"platforms":	"w10/x86_64-amd/msvc"
+		},
+		"esp32-c3": {
+			"cmake":	"-DLWS_IPV6=0",
+			"cpack":	"esp-c3dev",
+			"platforms":	"none, freertos-espidf/riscv-esp32c3/gcc"
 		},
 		"esp32-heltec": {
 			"cmake":	"-DLWS_IPV6=0",

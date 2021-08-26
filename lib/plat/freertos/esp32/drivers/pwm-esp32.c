@@ -26,8 +26,10 @@
 #include "soc/ledc_reg.h"
 #include "driver/ledc.h"
 
+#define _LEDC_HIGH_SPEED_MODE 0
+
 static const ledc_timer_config_t tc = {
-	.speed_mode             	= LEDC_HIGH_SPEED_MODE,
+	.speed_mode             	= _LEDC_HIGH_SPEED_MODE,
 	.duty_resolution        	= LEDC_TIMER_13_BIT,
 	.timer_num              	= LEDC_TIMER_0,
 	.freq_hz                	= 5000,
@@ -40,7 +42,7 @@ lws_pwm_plat_init(const struct lws_pwm_ops *lo)
 	ledc_channel_config_t lc = {
 		.duty			= 8191,
 		.intr_type		= LEDC_INTR_FADE_END,
-		.speed_mode		= LEDC_HIGH_SPEED_MODE,
+		.speed_mode		= _LEDC_HIGH_SPEED_MODE,
 		.timer_sel		= LEDC_TIMER_0,
 	};
 	size_t n;
@@ -51,8 +53,8 @@ lws_pwm_plat_init(const struct lws_pwm_ops *lo)
         	lc.channel = LEDC_CHANNEL_0 + lo->pwm_map[n].index;
         	lc.gpio_num = lo->pwm_map[n].gpio;
         	ledc_channel_config(&lc);
-                ledc_set_duty(LEDC_HIGH_SPEED_MODE, lc.channel, 0);
-                ledc_update_duty(LEDC_HIGH_SPEED_MODE, lc.channel);
+                ledc_set_duty(_LEDC_HIGH_SPEED_MODE, lc.channel, 0);
+                ledc_update_duty(_LEDC_HIGH_SPEED_MODE, lc.channel);
         }
 
 	return 0;
@@ -68,9 +70,9 @@ lws_pwm_plat_intensity(const struct lws_pwm_ops *lo, _lws_plat_gpio_t gpio,
 		if (lo->pwm_map[n].gpio == gpio) {
 			if (!lo->pwm_map[n].active_level)
 				inten = 65535 - inten;
-			ledc_set_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0 +
+			ledc_set_duty(_LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0 +
 					lo->pwm_map[n].index, inten >> 3);
-			ledc_update_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0 +
+			ledc_update_duty(_LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0 +
 					lo->pwm_map[n].index);
 			return;
 		}
