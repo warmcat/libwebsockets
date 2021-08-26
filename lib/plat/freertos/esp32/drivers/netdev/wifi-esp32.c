@@ -309,7 +309,7 @@ _event_handler_wifi(void *arg, esp_event_base_t event_base, int32_t event_id,
 
 		lws_smd_msg_printf(ctx, LWSSMDCL_NETWORK,
 				   "{\"type\":\"priv\",\"if\":\"%s\",\"ev\":%d}",
-				   wnd->inst.name, event_id);
+				   wnd->inst.name, (int)event_id);
 		break;
 	default:
 		return;

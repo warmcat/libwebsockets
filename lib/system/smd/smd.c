@@ -346,7 +346,7 @@ lws_smd_ss_msg_printf(const char *tag, uint8_t *buf, size_t *len,
 
 	*len = LWS_SMD_SS_RX_HEADER_LEN + (unsigned int)n;
 
-	lwsl_info("%s: %s send cl 0x%x, len %u\n", __func__, tag, _class,
+	lwsl_info("%s: %s send cl 0x%x, len %u\n", __func__, tag, (unsigned int)_class,
 			(unsigned int)n);
 
 	return 0;
@@ -414,7 +414,7 @@ _lws_smd_ss_rx_forward(struct lws_context *ctx, const char *tag,
 	}
 
 	lwsl_info("%s: %s send cl 0x%x, len %u, ts %llu\n", __func__,
-		    tag, _class, msg->length,
+		    tag, (unsigned int)_class, msg->length,
 		    (unsigned long long)msg->timestamp);
 
 	return 0;
