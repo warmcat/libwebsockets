@@ -68,13 +68,27 @@ include(CTest)
 
 if (ESP_PLATFORM)
        include_directories(
-       ${IDF_PATH}/components/freertos/port/xtensa/include/
-       ${IDF_PATH}/components/hal/include
-       ${IDF_PATH}/components/soc/${CONFIG_IDF_TARGET}/include/ 
-       ${IDF_PATH}/components/soc/include/ 
-       ${IDF_PATH}/components/esp_hw_support/include
-       ${IDF_PATH}/components/hal/${CONFIG_IDF_TARGET}/include/
-       )
+		$ENV{IDF_PATH}/components/esp_hw_support/include/soc/
+		$ENV{IDF_PATH}/components/freertos/include/
+		$ENV{IDF_PATH}/components/xtensa/${CONFIG_IDF_TARGET}/include/
+		$ENV{IDF_PATH}/components/freertos/include/esp_additions
+		$ENV{IDF_PATH}/components/hal/include
+		$ENV{IDF_PATH}/components/soc/${CONFIG_IDF_TARGET}/include/
+		$ENV{IDF_PATH}/components/soc/include/
+		$ENV{IDF_PATH}/components/esp_hw_support/include
+		$ENV{IDF_PATH}/components/hal/${CONFIG_IDF_TARGET}/include/
+	)
+
+	if (CONFIG_IDF_TARGET_ARCH_RISCV)
+                include_directories(
+                       $ENV{IDF_PATH}/components/freertos/port/riscv/include
+                       $ENV{IDF_PATH}/components/riscv/include)
+        else()
+                include_directories(
+                       $ENV{IDF_PATH}/components/freertos/port/xtensa/include
+                       $ENV{IDF_PATH}/components/xtensa/include)
+        endif()
+
 endif()
 
 
