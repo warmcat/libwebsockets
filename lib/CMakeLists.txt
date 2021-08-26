@@ -39,40 +39,38 @@ if (LWS_PLAT_FREERTOS)
 	add_subdir_include_dirs(plat/freertos)
 	if (ESP_PLATFORM)
 		include_directories($ENV{IDF_PATH}/components/freertos/include
-			    $ENV{IDF_PATH}/components/freertos/xtensa/include
-			    $ENV{IDF_PATH}/components/xtensa/include
-			    $ENV{IDF_PATH}/components/xtensa/esp32/include
-			    $ENV{IDF_PATH}/components/esp_common/include
-			    $ENV{IDF_PATH}/components/esp_timer/include
-			    $ENV{IDF_PATH}/components/soc/include
-			    $ENV{IDF_PATH}/components/soc/src/esp32/include
-			    $ENV{IDF_PATH}/components/lwip/port/esp32/include
-			    $ENV{IDF_PATH}/components/lwip/lwip/src/include
-			    $ENV{IDF_PATH}/components/lwip/port/esp32/include
-			    ${CMAKE_BINARY_DIR}/config
-			    $ENV{IDF_PATH}/components/esp_rom/include
-			    $ENV{IDF_PATH}/components/esp_system/include
-			    $ENV{IDF_PATH}/components/lwip/include/apps/sntp
-			    $ENV{IDF_PATH}/components/soc/soc/esp32/include
-			    $ENV{IDF_PATH}/components/heap/include
-			    $ENV{IDF_PATH}/components/mbedtls/mbedtls/include
-			    $ENV{IDF_PATH}/components/mbedtls/port/include
-			    $ENV{IDF_PATH}/components/esp_wifi/include
-			    $ENV{IDF_PATH}/components/esp_event/include
-			    $ENV{IDF_PATH}/components/esp_netif/include
-			    $ENV{IDF_PATH}/components/esp_eth/include
-			    $ENV{IDF_PATH}/components/driver/include
-			    $ENV{IDF_PATH}/components/soc/soc/include
-			    $ENV{IDF_PATH}/components/tcpip_adapter/include
-			    $ENV{IDF_PATH}/components/lwip/include/apps
-			    $ENV{IDF_PATH}/components/nvs_flash/include
-			    $ENV{IDF_PATH}/components/esp32/include
-			    $ENV{IDF_PATH}/components/spi_flash/include
-			    $ENV{IDF_PATH}/components/mdns/include
-			    $ENV{IDF_PATH}/components/lwip/lwip/src/include/lwip
-			    $ENV{IDF_PATH}/components/lwip/lwip/src/include
-			    $ENV{IDF_PATH}/components/lwip/lwip/src/include/lwip
-			    $ENV{IDF_PATH}/components/newlib/platform_include )
+		    $ENV{IDF_PATH}/components/esp_hw_support/include/soc/
+		    $ENV{IDF_PATH}/components/esp_common/include
+		    $ENV{IDF_PATH}/components/esp_timer/include
+		    $ENV{IDF_PATH}/components/soc/include
+		    $ENV{IDF_PATH}/components/soc/src/esp32/include
+		    $ENV{IDF_PATH}/components/lwip/port/esp32/include
+		    $ENV{IDF_PATH}/components/lwip/lwip/src/include
+		    $ENV{IDF_PATH}/components/lwip/port/esp32/include
+		    ${CMAKE_BINARY_DIR}/config
+		    $ENV{IDF_PATH}/components/esp_rom/include
+		    $ENV{IDF_PATH}/components/esp_system/include
+		    $ENV{IDF_PATH}/components/lwip/include/apps/sntp
+		    $ENV{IDF_PATH}/components/soc/soc/esp32/include
+		    $ENV{IDF_PATH}/components/heap/include
+		    $ENV{IDF_PATH}/components/mbedtls/mbedtls/include
+		    $ENV{IDF_PATH}/components/mbedtls/port/include
+		    $ENV{IDF_PATH}/components/esp_wifi/include
+		    $ENV{IDF_PATH}/components/esp_event/include
+		    $ENV{IDF_PATH}/components/esp_netif/include
+		    $ENV{IDF_PATH}/components/esp_eth/include
+		    $ENV{IDF_PATH}/components/driver/include
+		    $ENV{IDF_PATH}/components/soc/soc/include
+		    $ENV{IDF_PATH}/components/tcpip_adapter/include
+		    $ENV{IDF_PATH}/components/lwip/include/apps
+		    $ENV{IDF_PATH}/components/nvs_flash/include
+		    $ENV{IDF_PATH}/components/esp32/include
+		    $ENV{IDF_PATH}/components/spi_flash/include
+		    $ENV{IDF_PATH}/components/mdns/include
+		    $ENV{IDF_PATH}/components/lwip/lwip/src/include/lwip
+		    $ENV{IDF_PATH}/components/lwip/lwip/src/include
+		    $ENV{IDF_PATH}/components/lwip/lwip/src/include/lwip
+		    $ENV{IDF_PATH}/components/newlib/platform_include )
 	endif()
 	
 else()
