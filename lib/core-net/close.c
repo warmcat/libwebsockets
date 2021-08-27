@@ -340,7 +340,7 @@ lws_addrinfo_clean(struct lws *wsi)
 #endif
 }
 
-/* requires cx lock */
+/* requires cx and pt lock */
 
 void
 __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
