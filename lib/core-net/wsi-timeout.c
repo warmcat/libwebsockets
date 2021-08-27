@@ -206,8 +206,14 @@ lws_validity_cb(lws_sorted_usec_list_t *sul)
 
 	if (wsi->validity_hup) {
 		lwsl_wsi_info(wsi, "validity too old");
+		struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+
+		lws_context_lock(wsi->a.context, __func__);
+		lws_pt_lock(pt, __func__);
 		__lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
 				     "validity timeout");
+		lws_pt_unlock(pt);
+		lws_context_unlock(wsi->a.context);
 		return;
 	}
 
