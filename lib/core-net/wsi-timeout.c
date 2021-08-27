@@ -302,9 +302,16 @@ lws_validity_cb(lws_sorted_usec_list_t *sul)
 	/* one of either the ping or hangup validity threshold was crossed */
 
 	if (wsi->validity_hup) {
+		struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+
 		lwsl_info("%s: %s: validity too old\n", __func__, lws_wsi_tag(wsi));
+
+		lws_context_lock(wsi->a.context, __func__);
+		lws_pt_lock(pt, __func__);
 		__lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
 				     "validity timeout");
+		lws_pt_unlock(pt);
+		lws_context_unlock(wsi->a.context);
 		return;
 	}
 
