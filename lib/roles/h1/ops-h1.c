@@ -750,7 +750,7 @@ rops_handle_POLLOUT_h1(struct lws *wsi)
 				return LWS_HP_RET_DROP_POLLOUT;
 			}
 
-			lwsl_wsi_err(wsi, "nothing to send");
+			lwsl_err("%s: nothing to send\n", __func__);
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 			/* prepare ourselves to do the parsing */
 			wsi->http.ah->parser_state = WSI_TOKEN_NAME_PART;
