@@ -656,6 +656,31 @@ lws_hdr_custom_copy(struct lws *wsi, char *dst, int len, const char *name,
 
 	return -1;
 }
+
+int
+lws_hdr_custom_name_foreach(struct lws *wsi, lws_hdr_custom_fe_cb_t cb,
+			    void *custom)
+{
+	ah_data_idx_t ll;
+
+	if (!wsi->http.ah || wsi->mux_substream)
+		return -1;
+
+	ll = wsi->http.ah->unk_ll_head;
+
+	while (ll) {
+		if (ll >= wsi->http.ah->data_length)
+			return -1;
+
+		cb(&wsi->http.ah->data[ll + UHO_NAME],
+		   lws_ser_ru16be((uint8_t *)&wsi->http.ah->data[ll + UHO_NLEN]),
+		   custom);
+
+		ll = lws_ser_ru32be((uint8_t *)&wsi->http.ah->data[ll + UHO_LL]);
+	}
+
+	return 0;
+}
 #endif
 
 char *lws_hdr_simple_ptr(struct lws *wsi, enum lws_token_indexes h)
