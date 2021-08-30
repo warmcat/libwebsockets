@@ -255,9 +255,11 @@ struct lws_metric_policy;
 
 typedef int (*lws_context_ready_cb_t)(struct lws_context *context);
 
+#if defined(LWS_WITH_NETWORK)
 typedef int (*lws_peer_limits_notify_t)(struct lws_context *ctx,
 					lws_sockfd_type sockfd,
 					lws_sockaddr46 *sa46);
+#endif
 
 /** struct lws_context_creation_info - parameters to create context and /or vhost with
  *
