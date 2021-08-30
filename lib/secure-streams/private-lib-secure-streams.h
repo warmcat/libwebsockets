@@ -22,6 +22,9 @@
  * IN THE SOFTWARE.
  */
 
+#if !defined(__LWS_PRIVATE_SS_H__)
+#define __LWS_PRIVATE_SS_H__
+
 /* current SS Serialization protocol version */
 #define LWS_SSS_CLIENT_PROTOCOL_VERSION 1
 
@@ -560,13 +563,17 @@ lws_ss_assert_extant(struct lws_context *cx, int tsi, struct lws_ss_handle *h);
 #define lws_ss_assert_extant(_a, _b, _c)
 #endif
 
+#if defined(LWS_WITH_SECURE_STREAMS)
 typedef int (* const secstream_protocol_connect_munge_t)(lws_ss_handle_t *h,
 		char *buf, size_t len, struct lws_client_connect_info *i,
 		union lws_ss_contemp *ct);
+#endif
 
 typedef int (* const secstream_protocol_add_txcr_t)(lws_ss_handle_t *h, int add);
 
 typedef int (* const secstream_protocol_get_txcr_t)(lws_ss_handle_t *h);
+
+#if defined(LWS_WITH_SECURE_STREAMS)
 
 struct ss_pcols {
 	const char					*name;
@@ -576,6 +583,7 @@ struct ss_pcols {
 	secstream_protocol_add_txcr_t			tx_cr_add;
 	secstream_protocol_get_txcr_t			tx_cr_est;
 };
+#endif
 
 /*
  * Because both sides of the connection share the conn, we allocate it

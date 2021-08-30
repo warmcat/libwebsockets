@@ -40,6 +40,16 @@
 #endif
 */
 
+#ifdef LWS_HAVE_SYS_TYPES_H
+#include <sys/types.h>
+#endif
+#if !defined(PICO_SDK_PATH)
+#ifdef LWS_HAVE_INTTYPES_H
+#include <inttypes.h>
+#endif
+#endif
+
+//#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -49,15 +59,8 @@
 #include <stdarg.h>
 #include <errno.h>
 
-#ifdef LWS_HAVE_INTTYPES_H
-#include <inttypes.h>
-#endif
-
 #include <assert.h>
 
-#ifdef LWS_HAVE_SYS_TYPES_H
- #include <sys/types.h>
-#endif
 #if defined(LWS_HAVE_SYS_STAT_H) && !defined(LWS_PLAT_OPTEE)
  #include <sys/stat.h>
 #endif
@@ -117,16 +120,19 @@
   *
   */
 
-#if defined(LWS_PLAT_FREERTOS)
- #include "private-lib-plat-freertos.h"
+#if defined(LWS_PLAT_BAREMETAL)
 #else
- #if defined(WIN32) || defined(_WIN32)
-  #include "private-lib-plat-windows.h"
+ #if defined(LWS_PLAT_FREERTOS)
+  #include "private-lib-plat-freertos.h"
  #else
-  #if defined(LWS_PLAT_OPTEE)
-   #include "private-lib-plat.h"
+  #if defined(WIN32) || defined(_WIN32)
+   #include "private-lib-plat-windows.h"
   #else
-   #include "private-lib-plat-unix.h"
+   #if defined(LWS_PLAT_OPTEE)
+    #include "private-lib-plat.h"
+   #else
+    #include "private-lib-plat-unix.h"
+   #endif
   #endif
  #endif
 #endif
@@ -311,10 +317,14 @@ struct lws_ring {
 struct lws_protocols;
 struct lws;
 
+#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
+#include "private-lib-secure-streams.h"
+#endif
+
 #if defined(LWS_WITH_NETWORK) /* network */
 #include "private-lib-event-libs.h"
 
-#if defined(LWS_WITH_SECURE_STREAMS)
+#if defined(LWS_WITH_SECURE_STREAMS) || defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
 #include "private-lib-secure-streams.h"
 #endif
 

@@ -22,7 +22,11 @@
 # IN THE SOFTWARE.
 #
 
-cmake_minimum_required(VERSION 2.8.12)
+if (PICO_SDK_PATH)
+	cmake_minimum_required(VERSION 3.13)
+else()
+	cmake_minimum_required(VERSION 2.8.12)
+endif()
 include(CheckFunctionExists)
 include(CheckSymbolExists)
 include(CheckIncludeFile)
@@ -30,6 +34,10 @@ include(CheckIncludeFiles)
 include(CheckLibraryExists)
 include(CheckTypeSize)
 include(CheckCSourceCompiles)
+if (PICO_SDK_PATH)
+	include(cmake/pico_sdk_import.cmake)
+endif()
+
 
 if (POLICY CMP0048)
 	cmake_policy(SET CMP0048 NEW)
@@ -65,6 +73,10 @@ endif()
 # it's at this point any toolchain file is brought in
 project(libwebsockets C CXX)
 include(CTest)
+
+if (PICO_SDK_PATH)
+	pico_sdk_init()
+endif()
 
 if (ESP_PLATFORM)
        include_directories(
@@ -221,6 +233,7 @@ option(LWS_WITH_ESP32 "Build for ESP32" OFF)
 option(LWS_PLAT_OPTEE "Build for OPTEE" OFF)
 option(LWS_PLAT_FREERTOS "Build for FreeRTOS" OFF)
 option(LWS_PLAT_ANDROID "Android flavour of unix platform" OFF)
+option(LWS_PLAT_BAREMETAL "Build for deeply embedded baremetal" OFF)
 
 #
 # Client / Server / Test Apps build control
@@ -557,6 +570,10 @@ CHECK_C_SOURCE_COMPILES(
 	int main(int argc, char **argv) { return (int)malloc_usable_size((void *)0); }
 	" LWS_HAVE_MALLOC_USABLE_SIZE)
 
+if (PICO_SDK_PATH)
+	set(CMAKE_REQUIRED_DEFINITIONS "-Dxxexit=exit")
+endif()
+
 CHECK_FUNCTION_EXISTS(fork LWS_HAVE_FORK)
 CHECK_FUNCTION_EXISTS(getenv LWS_HAVE_GETENV)
 CHECK_FUNCTION_EXISTS(malloc LWS_HAVE_MALLOC)
@@ -583,6 +600,26 @@ CHECK_FUNCTION_EXISTS(getgrnam_r LWS_HAVE_GETGRNAM_R)
 CHECK_FUNCTION_EXISTS(getpwuid_r LWS_HAVE_GETPWUID_R)
 CHECK_FUNCTION_EXISTS(getpwnam_r LWS_HAVE_GETPWNAM_R)
 CHECK_FUNCTION_EXISTS(timegm LWS_HAVE_TIMEGM)
+CHECK_C_SOURCE_COMPILES("#include <malloc.h>\nvoid main(void) { while(1) ; } void xxexit(void){}" LWS_HAVE_IN6ADDR_H)
+CHECK_C_SOURCE_COMPILES("#include <memory.h>\nvoid main(void) { while(1) ; } void xxexit(void){}" LWS_HAVE_MEMORY_H)
+CHECK_C_SOURCE_COMPILES("#include <netinet/in.h>\nvoid main(void) { while(1) ; } void xxexit(void){}" LWS_HAVE_NETINET_IN_H)
+CHECK_C_SOURCE_COMPILES("#include <stdint.h>\nvoid main(void) { while(1) ; } void xxexit(void){}" LWS_HAVE_STDINT_H)
+CHECK_C_SOURCE_COMPILES("#include <stdlib.h>\nvoid main(void) { while(1) ; } void xxexit(void){}" LWS_HAVE_STDLIB_H)
+CHECK_C_SOURCE_COMPILES("#include <strings.h>\nvoid main(void) { while(1) ; } void xxexit(void){}" LWS_HAVE_STRINGS_H)
+CHECK_C_SOURCE_COMPILES("#include <string.h>\nvoid main(void) { while(1) ; } void xxexit(void){}" LWS_HAVE_STRING_H)
+CHECK_C_SOURCE_COMPILES("#include <sys/prctl.h>\nvoid main(void) { while(1) ; } void xxexit(void){}" LWS_HAVE_SYS_PRCTL_H)
+CHECK_C_SOURCE_COMPILES("#include <sys/socket.h>\nvoid main(void) { while(1) ; } void xxexit(void){}" LWS_HAVE_SYS_SOCKET_H)
+CHECK_C_SOURCE_COMPILES("#include <sys/sockio.h>\nvoid main(void) { while(1) ; } void xxexit(void){}" LWS_HAVE_SYS_SOCKIO_H)
+CHECK_C_SOURCE_COMPILES("#include <sys/stat.h>\nvoid main(void) { while(1) ; } void xxexit(void){}" LWS_HAVE_SYS_STAT_H)
+CHECK_C_SOURCE_COMPILES("#include <sys/types.h>\nvoid main(void) { while(1) ; } void xxexit(void){}" LWS_HAVE_SYS_TYPES_H)
+CHECK_C_SOURCE_COMPILES("#include <unistd.h>\nvoid main(void) { while(1) ; } void xxexit(void){}" LWS_HAVE_UNISTD_H)
+CHECK_C_SOURCE_COMPILES("#include <vfork.h>\nvoid main(void) { while(1) ; } void xxexit(void){}" LWS_HAVE_VFORK_H)
+CHECK_C_SOURCE_COMPILES("#include <sys/capability.h>\nvoid main(void) { while(1) ; } void xxexit(void){}" LWS_HAVE_SYS_CAPABILITY_H)
+CHECK_C_SOURCE_COMPILES("#include <malloc.h>\nvoid main(void) { while(1) ; } void xxexit(void){}" LWS_HAVE_MALLOC_H)
+CHECK_C_SOURCE_COMPILES("#include <pthread.h>\nvoid main(void) { while(1) ; } void xxexit(void){}" LWS_HAVE_PTHREAD_H)
+CHECK_C_SOURCE_COMPILES("#include <inttypes.h>\nvoid main(void) { while(1) ; } void xxexit(void){}" LWS_HAVE_INTTYPES_H)
+CHECK_C_SOURCE_COMPILES("#include <sys/resource.h>\nvoid main(void) { while(1) ; } void xxexit(void){}" LWS_HAVE_SYS_RESOURCE_H)
+
 
 if(CMAKE_SYSTEM_NAME MATCHES "Darwin")
 	if(CMAKE_OSX_DEPLOYMENT_TARGET LESS "10.12")
@@ -622,26 +659,6 @@ if (LWS_WITH_PLUGINS_API AND UNIX AND CMAKE_DL_LIBS AND NOT (${CMAKE_SYSTEM_NAME
 	list(APPEND LIB_LIST_AT_END ${CMAKE_DL_LIBS})
 endif()
 
-
-CHECK_INCLUDE_FILE(in6addr.h LWS_HAVE_IN6ADDR_H)
-CHECK_INCLUDE_FILE(memory.h LWS_HAVE_MEMORY_H)
-CHECK_INCLUDE_FILE(netinet/in.h LWS_HAVE_NETINET_IN_H)
-CHECK_INCLUDE_FILE(stdint.h LWS_HAVE_STDINT_H)
-CHECK_INCLUDE_FILE(stdlib.h LWS_HAVE_STDLIB_H)
-CHECK_INCLUDE_FILE(strings.h LWS_HAVE_STRINGS_H)
-CHECK_INCLUDE_FILE(string.h LWS_HAVE_STRING_H)
-CHECK_INCLUDE_FILE(sys/prctl.h LWS_HAVE_SYS_PRCTL_H)
-CHECK_INCLUDE_FILE(sys/socket.h LWS_HAVE_SYS_SOCKET_H)
-CHECK_INCLUDE_FILE(sys/sockio.h LWS_HAVE_SYS_SOCKIO_H)
-CHECK_INCLUDE_FILE(sys/stat.h LWS_HAVE_SYS_STAT_H)
-CHECK_INCLUDE_FILE(sys/types.h LWS_HAVE_SYS_TYPES_H)
-CHECK_INCLUDE_FILE(unistd.h LWS_HAVE_UNISTD_H)
-CHECK_INCLUDE_FILE(vfork.h LWS_HAVE_VFORK_H)
-CHECK_INCLUDE_FILE(sys/capability.h LWS_HAVE_SYS_CAPABILITY_H)
-CHECK_INCLUDE_FILE(malloc.h LWS_HAVE_MALLOC_H)
-CHECK_INCLUDE_FILE(pthread.h LWS_HAVE_PTHREAD_H)
-CHECK_INCLUDE_FILE(inttypes.h LWS_HAVE_INTTYPES_H)
-CHECK_INCLUDE_FILE(sys/resource.h LWS_HAVE_SYS_RESOURCE_H)
 
 if (WIN32 OR MSVC)
 	CHECK_C_SOURCE_COMPILES("#include <winsock2.h>
@@ -793,6 +810,10 @@ if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX OR COMPILER_IS_CLANG)
 		set(CMAKE_C_FLAGS "-Wall -Wextra -Wno-unused-parameter -Wconversion -Wsign-compare -Wstrict-aliasing ${VISIBILITY_FLAG} -Wundef ${GCOV_FLAGS} ${CMAKE_C_FLAGS} ${ASAN_FLAGS}" )
 	else()
 		set(CMAKE_C_FLAGS "-Wall -Wsign-compare ${VISIBILITY_FLAG} ${GCOV_FLAGS} ${CMAKE_C_FLAGS}" )
+	endif()
+
+	if (PICO_SDK_PATH)
+		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Wno-unused-parameter -Wconversion -Wsign-compare -Wstrict-aliasing -Wundef -nolibc")
 	endif()
 
 	if ("${DISABLE_WERROR}" STREQUAL "OFF")
@@ -992,6 +1013,10 @@ if (NOT LWS_WITH_PLUGINS_BUILTIN)
 add_subdirectory(plugins)
 endif()
 add_subdirectory(lwsws)
+if (PICO_SDK_PATH)
+	link_libraries(pico_stdlib PRIVATE)
+endif()
+
 
 # Generate the lws_config.h that includes all the public compilation settings.
 configure_file(

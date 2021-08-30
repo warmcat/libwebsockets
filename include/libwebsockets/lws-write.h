@@ -27,23 +27,6 @@
     APIs related to writing data on a connection
 */
 //@{
-#if !defined(LWS_SIZEOFPTR)
-#define LWS_SIZEOFPTR ((int)sizeof (void *))
-#endif
-
-#if defined(__x86_64__)
-#define _LWS_PAD_SIZE 16	/* Intel recommended for best performance */
-#else
-#define _LWS_PAD_SIZE LWS_SIZEOFPTR   /* Size of a pointer on the target arch */
-#endif
-#define _LWS_PAD(n) (((n) % _LWS_PAD_SIZE) ? \
-		((n) + (_LWS_PAD_SIZE - ((n) % _LWS_PAD_SIZE))) : (n))
-/* last 2 is for lws-meta */
-#define LWS_PRE _LWS_PAD(4 + 10 + 2)
-/* used prior to 1.7 and retained for backward compatibility */
-#define LWS_SEND_BUFFER_PRE_PADDING LWS_PRE
-#define LWS_SEND_BUFFER_POST_PADDING 0
-
 #define LWS_WRITE_RAW LWS_WRITE_HTTP
 
 /*
