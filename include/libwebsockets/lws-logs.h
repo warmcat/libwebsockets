@@ -133,12 +133,15 @@ LWS_VISIBLE LWS_EXTERN struct lws_log_cx *
 lwsl_wsi_get_cx(struct lws *wsi);
 #if defined(LWS_WITH_SECURE_STREAMS)
 struct lws_ss_handle;
-struct lws_sspc_handle;
 LWS_VISIBLE LWS_EXTERN struct lws_log_cx *
 lwsl_ss_get_cx(struct lws_ss_handle *ss);
+#endif
+#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
+struct lws_sspc_handle;
 LWS_VISIBLE LWS_EXTERN struct lws_log_cx *
 lwsl_sspc_get_cx(struct lws_sspc_handle *ss);
 #endif
+
 
 LWS_VISIBLE LWS_EXTERN void
 lws_log_emit_cx_file(struct lws_log_cx *cx, int level, const char *line,
@@ -156,6 +159,8 @@ lws_log_prepend_wsi(struct lws_log_cx *cx, void *obj, char **p, char *e);
 #if defined(LWS_WITH_SECURE_STREAMS)
 LWS_VISIBLE LWS_EXTERN void
 lws_log_prepend_ss(struct lws_log_cx *cx, void *obj, char **p, char *e);
+#endif
+#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
 LWS_VISIBLE LWS_EXTERN void
 lws_log_prepend_sspc(struct lws_log_cx *cx, void *obj, char **p, char *e);
 #endif
