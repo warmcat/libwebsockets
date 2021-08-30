@@ -195,7 +195,7 @@ lws_hex_random(struct lws_context *context, char *dest, size_t len)
 	return 0;
 }
 
-#if !defined(LWS_PLAT_OPTEE)
+#if !defined(LWS_PLAT_OPTEE) && !defined(LWS_PLAT_BAREMETAL)
 
 #if defined(LWS_WITH_FILE_OPS)
 int lws_open(const char *__file, int __oflag, ...)

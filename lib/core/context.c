@@ -402,8 +402,9 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 		size = sizeof(struct lws_context);
 #endif
-
+#if !defined(LWS_PLAT_BAREMETAL)
 	int n;
+#endif
 	unsigned int lpf = info->fd_limit_per_thread;
 #if defined(LWS_WITH_EVLIB_PLUGINS) && defined(LWS_WITH_EVENT_LIBS)
 	struct lws_plugin		*evlib_plugin_list = NULL;
@@ -920,7 +921,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 
 	context->options = info->options;
 
-#if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE) && !defined(WIN32)
+#if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE) && !defined(WIN32) && !defined(LWS_PLAT_BAREMETAL)
 	/*
 	 * If asked, try to set the rlimit / ulimit for process sockets / files.
 	 * We read the effective limit in a moment, so we will find out the
@@ -1071,7 +1072,9 @@ lws_create_context(const struct lws_context_creation_info *info)
 	}
 #endif
 
+#if !defined(LWS_PLAT_BAREMETAL)
 	n = 0;
+#endif
 #if defined(LWS_WITH_NETWORK)
 
 	context->default_retry.retry_ms_table = default_backoff_table;

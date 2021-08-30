@@ -76,7 +76,7 @@ if (LWS_WITH_FSMOUNT AND ${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
 	list(APPEND SOURCES misc/fsmount.c)
 endif()
 
-if (LWS_WITH_DIR)
+if (LWS_WITH_DIR AND NOT LWS_PLAT_BAREMETAL)
 	list(APPEND SOURCES misc/dir.c)
 endif()
 
@@ -92,7 +92,7 @@ endif()
 if (LWS_WITH_LWSAC)
 	list(APPEND SOURCES
 		misc/lwsac/lwsac.c)
-	if (NOT LWS_PLAT_FREERTOS)
+	if (NOT LWS_PLAT_FREERTOS AND NOT LWS_PLAT_BAREMETAL)
 		list(APPEND SOURCES
 			misc/lwsac/cached-file.c)
 	endif()
