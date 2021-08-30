@@ -36,10 +36,16 @@ extern "C" {
 #include <stdarg.h>
 #endif
 
+#include "lws_config.h"
+
+#ifdef LWS_HAVE_SYS_TYPES_H
+#include <sys/types.h>
+#endif
+
+#include <stddef.h>
 #include <string.h>
 #include <stdlib.h>
 
-#include "lws_config.h"
 
 #if defined(LWS_SUPPRESS_DEPRECATED_API_WARNINGS)
 #define OPENSSL_USE_DEPRECATED
@@ -153,7 +159,7 @@ typedef int suseconds_t;
 #define LWS_O_CREAT O_CREAT
 #define LWS_O_TRUNC O_TRUNC
 
-#if !defined(LWS_PLAT_OPTEE) && !defined(OPTEE_TA) && !defined(LWS_PLAT_FREERTOS)
+#if !defined(LWS_PLAT_OPTEE) && !defined(OPTEE_TA) && !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_BAREMETAL)
 #include <poll.h>
 #include <netdb.h>
 #define LWS_INVALID_FILE -1
@@ -562,6 +568,25 @@ struct lws_pollargs {
 	int prev_events;	/**< the previous event mask */
 };
 
+#if !defined(LWS_SIZEOFPTR)
+#define LWS_SIZEOFPTR ((int)sizeof (void *))
+#endif
+
+#if defined(__x86_64__)
+#define _LWS_PAD_SIZE 16	/* Intel recommended for best performance */
+#else
+#define _LWS_PAD_SIZE LWS_SIZEOFPTR   /* Size of a pointer on the target arch */
+#endif
+#define _LWS_PAD(n) (((n) % _LWS_PAD_SIZE) ? \
+		((n) + (_LWS_PAD_SIZE - ((n) % _LWS_PAD_SIZE))) : (n))
+/* last 2 is for lws-meta */
+#define LWS_PRE _LWS_PAD(4 + 10 + 2)
+/* used prior to 1.7 and retained for backward compatibility */
+#define LWS_SEND_BUFFER_PRE_PADDING LWS_PRE
+#define LWS_SEND_BUFFER_POST_PADDING 0
+
+
+
 struct lws_extension; /* needed even with ws exts disabled for create context */
 struct lws_token_limits;
 struct lws_protocols;
@@ -581,18 +606,23 @@ struct lws;
 #endif
 #include <libwebsockets/lws-state.h>
 #include <libwebsockets/lws-retry.h>
+#if defined(LWS_WITH_NETWORK)
 #include <libwebsockets/lws-adopt.h>
 #include <libwebsockets/lws-network-helper.h>
 #include <libwebsockets/lws-metrics.h>
+#endif
+
 #include <libwebsockets/lws-system.h>
+#if defined(LWS_WITH_NETWORK)
 #include <libwebsockets/lws-ws-close.h>
 #include <libwebsockets/lws-callbacks.h>
 #include <libwebsockets/lws-ws-state.h>
 #include <libwebsockets/lws-ws-ext.h>
 #include <libwebsockets/lws-protocols-plugins.h>
-
+#endif
 #include <libwebsockets/lws-context-vhost.h>
 
+#if defined(LWS_WITH_NETWORK)
 #if defined(LWS_WITH_CONMON)
 #include <libwebsockets/lws-conmon.h>
 #endif
@@ -603,16 +633,21 @@ struct lws;
 #include <libwebsockets/lws-client.h>
 #include <libwebsockets/lws-http.h>
 #include <libwebsockets/lws-spa.h>
+#endif
 #include <libwebsockets/lws-purify.h>
 #include <libwebsockets/lws-misc.h>
 #include <libwebsockets/lws-dsh.h>
+#if defined(LWS_WITH_NETWORK)
 #include <libwebsockets/lws-service.h>
 #include <libwebsockets/lws-write.h>
 #include <libwebsockets/lws-writeable.h>
+#endif
 #include <libwebsockets/lws-ring.h>
 #include <libwebsockets/lws-sha1-base64.h>
 #include <libwebsockets/lws-x509.h>
+#if defined(LWS_WITH_NETWORK)
 #include <libwebsockets/lws-cgi.h>
+#endif
 #if defined(LWS_WITH_FILE_OPS)
 #include <libwebsockets/lws-vfs.h>
 #endif
@@ -662,7 +697,9 @@ struct lws;
 
 #endif
 
+#if defined(LWS_WITH_NETWORK)
 #include <libwebsockets/lws-eventlib-exports.h>
+#endif
 #include <libwebsockets/lws-i2c.h>
 #include <libwebsockets/lws-spi.h>
 #include <libwebsockets/lws-gpio.h>
@@ -675,8 +712,9 @@ struct lws;
 #include <libwebsockets/lws-ssd1306-i2c.h>
 #include <libwebsockets/lws-ili9341-spi.h>
 #include <libwebsockets/lws-settings.h>
+#if defined(LWS_WITH_NETWORK)
 #include <libwebsockets/lws-netdev.h>
-
+#endif
 #ifdef __cplusplus
 }
 #endif
