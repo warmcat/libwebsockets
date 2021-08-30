@@ -2255,10 +2255,9 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 						goto close_swsi_and_return;
 					}
 
-					break;
+					goto do_windows;
 				}
 #endif
-
 				if (lwsi_state(h2n->swsi) == LRS_DEFERRING_ACTION) {
 					m = lws_buflist_append_segment(
 						&h2n->swsi->buflist, in - 1, (unsigned int)n);
@@ -2337,7 +2336,7 @@ do_windows:
 					 * fast as we can take it
 					 */
 
-					m = n; //(2 * h2n->length) + 65536;
+					m = n  + 65536;
 
 					/* update both the stream and nwsi */
 
