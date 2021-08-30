@@ -302,7 +302,7 @@ lwsl_emit_stderr_notimestamp(int level, const char *line)
 	_lwsl_emit_stderr(level, line);
 }
 
-#if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE)
+#if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE) && !defined(LWS_PLAT_BAREMETAL)
 
 /*
  * Helper to emit to a file
