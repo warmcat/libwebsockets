@@ -186,11 +186,12 @@ typedef struct lws_system_ops {
 	 * by calling lws_captive_portal_detect_result() api
 	 */
 
+#if defined(LWS_WITH_NETWORK)
 	int (*metric_report)(lws_metric_pub_t *mdata);
 	/**< metric \p item is reporting an event of kind \p rpt,
 	 * held in \p mdata... return 0 to leave the metric object as it is,
 	 * or nonzero to reset it. */
-
+#endif
 	int (*jit_trust_query)(struct lws_context *cx, const uint8_t *skid,
 			       size_t skid_len, void *got_opaque);
 	/**< user defined trust store search, if we do trust a cert with SKID
@@ -308,6 +309,7 @@ enum {
 	_LWSDH_SA46_COUNT,
 };
 
+#if defined(LWS_WITH_NETWORK)
 typedef struct lws_dhcpc_ifstate {
 	char				ifname[16];
 	char				domain[64];
@@ -396,3 +398,6 @@ lws_system_cpd_set(struct lws_context *context, lws_cpd_result_t result);
  */
 LWS_EXTERN LWS_VISIBLE lws_cpd_result_t
 lws_system_cpd_state_get(struct lws_context *context);
+
+#endif
+

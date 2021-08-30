@@ -265,7 +265,9 @@ lws_sspc_proxy_create(struct lws_context *context);
 LWS_VISIBLE LWS_EXTERN struct lws_context *
 lws_sspc_get_context(struct lws_sspc_handle *h);
 
-LWS_VISIBLE extern const struct lws_protocols lws_sspc_protocols[2];
+#if defined(LWS_WITH_NETWORK)
+extern const struct lws_protocols lws_sspc_protocols[2];
+#endif
 
 LWS_VISIBLE LWS_EXTERN const char *
 lws_sspc_rideshare(struct lws_sspc_handle *h);
