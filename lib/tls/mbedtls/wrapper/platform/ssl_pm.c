@@ -353,6 +353,7 @@ int ssl_pm_handshake(SSL *ssl)
     }
 
     if (errno == 11) {
+	    lwsl_info("%s: ambiguous EAGAIN taken as WANT_READ\n", __func__);
 	    ssl->err = ret == MBEDTLS_ERR_SSL_WANT_READ;
 
 	    return 0;

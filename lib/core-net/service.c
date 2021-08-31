@@ -636,6 +636,7 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 {
 	struct lws_context_per_thread *pt;
 	struct lws *wsi;
+	char cow = 0;
 
 	if (!context || context->service_no_longer_possible)
 		return -1;
@@ -731,6 +732,22 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		}
 	}
 #endif
+
+	if ((pollfd->revents & LWS_POLLOUT) == LWS_POLLOUT &&
+	    wsi->tls_read_wanted_write) {
+		/*
+		 * If this wsi has a pending WANT_WRITE from SSL_read(), it has
+		 * asked for a callback on writeable so it can retry the read.
+		 *
+		 *  Let's consume the POLLOUT by turning it into a POLLIIN, and
+		 *  setting a flag to request a new writeable
+		 */
+		wsi->tls_read_wanted_write = 0;
+		pollfd->revents &= ~(LWS_POLLOUT);
+		pollfd->revents |= LWS_POLLIN;
+		cow = 1;
+	}
+
 	wsi->could_have_pending = 0; /* clear back-to-back write detection */
 	pt->inside_lws_service = 1;
 
@@ -781,6 +798,8 @@ close_and_handled:
 handled:
 #endif
 	pollfd->revents = 0;
+	if (cow)
+		lws_callback_on_writable(wsi);
 	pt->inside_lws_service = 0;
 
 	return 0;

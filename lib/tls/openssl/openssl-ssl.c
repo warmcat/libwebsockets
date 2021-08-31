@@ -275,8 +275,10 @@ do_err:
 			return LWS_SSL_CAPABLE_MORE_SERVICE;
 		}
 		if (SSL_want_write(wsi->tls.ssl)) {
-			lwsl_debug("%s: WANT_WRITE\n", __func__);
+			lwsl_info("%s: WANT_WRITE\n", __func__);
 			lwsl_debug("%s: LWS_SSL_CAPABLE_MORE_SERVICE\n", lws_wsi_tag(wsi));
+			wsi->tls_read_wanted_write = 1;
+			lws_callback_on_writable(wsi);
 			return LWS_SSL_CAPABLE_MORE_SERVICE;
 		}
 
