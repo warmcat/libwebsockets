@@ -74,10 +74,8 @@ static lcccr_t
 lws_client_connect_check(struct lws *wsi)
 {
 	int en = 0;
-#if !defined(WIN32)
 	int e;
 	socklen_t sl = sizeof(e);
-#endif
 
 	(void)en;
 
@@ -86,7 +84,6 @@ lws_client_connect_check(struct lws *wsi)
 	 * condition, the connect definitively failed.
 	 */
 
-#if !defined(WIN32)
 	if (!getsockopt(wsi->desc.sockfd, SOL_SOCKET, SO_ERROR, &e, &sl)) {
 		en = LWS_ERRNO;
 		if (!e) {
@@ -98,30 +95,6 @@ lws_client_connect_check(struct lws *wsi)
 		lwsl_wsi_notice(wsi, "getsockopt fd %d says err %d",
 							wsi->desc.sockfd, e);
 	}
-
-#else
-
-	if (!connect(wsi->desc.sockfd, NULL, 0))
-		return LCCCR_CONNECTED;
-
-	en = LWS_ERRNO;
-
-	if (en == WSAEISCONN) /* already connected */
-		return LCCCR_CONNECTED;
-
-	if (en == WSAEALREADY) {
-		/* reset the POLLOUT wait */
-		if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
-			lwsl_wsi_notice(wsi, "pollfd failed");
-	}
-
-	if (!en || en == WSAEINVAL ||
-		   en == WSAEWOULDBLOCK ||
-		   en == WSAEALREADY) {
-		lwsl_wsi_debug(wsi, "errno %d", en);
-		return LCCCR_CONTINUE;
-	}
-#endif
 
 	lwsl_wsi_notice(wsi, "connect check take as FAILED: errno %d", en);
 
