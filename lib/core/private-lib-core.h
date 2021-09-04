@@ -153,6 +153,7 @@ typedef struct lws_dsh_obj {
 	lws_dll2_t			list;	/* must be first */
 	struct lws_dsh	  		*dsh;	/* invalid when on free list */
 	size_t				size;	/* invalid when on free list */
+	size_t				pos;    /* invalid when on free list */
 	size_t				asize;
 	int				kind; /* so we can account at free */
 } lws_dsh_obj_t;
@@ -161,10 +162,12 @@ typedef struct lws_dsh {
 	lws_dll2_t			list;
 	uint8_t				*buf;
 	lws_dsh_obj_head_t		*oha;	/* array of object heads/kind */
+	size_t				splitat;
 	size_t				buffer_size;
 	size_t				locally_in_use;
 	size_t				locally_free;
 	int				count_kinds;
+	uint32_t			flags;
 	uint8_t				being_destroyed;
 	/*
 	 * Overallocations at create:
