@@ -42,12 +42,18 @@
  * All management structures exist inside the allocated buffer.
  */
 
+enum {
+	LWS_DSHFLAG_ENABLE_COALESCE			= (1u << 24),
+	LWS_DSHFLAG_ENABLE_SPLIT			= (1u << 25),
+};
+
 /**
  * lws_dsh_create() - Allocate a DSH buffer
  *
  * \param owner: the owning list this dsh belongs on, or NULL if standalone
  * \param buffer_size: the allocation in bytes
- * \param count_kinds: how many separately-tracked fifos use the buffer
+ * \param count_kinds: how many separately-tracked fifos use the buffer, or-ed
+ *			with optional LWS_DSHFLAGs
  *
  * This makes a single heap allocation that includes internal tracking objects
  * in the buffer.  Sub-allocated objects are bound to a "kind" index and
@@ -114,6 +120,18 @@ lws_dsh_alloc_tail(struct lws_dsh *dsh, int kind, const void *src1,
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_dsh_free(void **obj);
+
+/**
+ * lws_dsh_consume() - partially consume a dsh
+ *
+ * \param dsh: the dsh
+ * \param kind: the kind of allocation (0 +)
+ * \param len: length to consume
+ *
+ * Consume part of a dsh object.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_dsh_consume(struct lws_dsh *dsh, int kind, size_t len);
 
 LWS_VISIBLE LWS_EXTERN size_t
 lws_dsh_get_size(struct lws_dsh *dsh, int kind);
