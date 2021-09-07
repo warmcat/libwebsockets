@@ -579,7 +579,7 @@ lws_x509_jwk_privkey_pem(struct lws_jwk *jwk, void *pem, size_t len,
 			goto bail;
 		}
 
-#if defined(LWS_HAVE_RSA_SET0_KEY)
+#if defined(LWS_HAVE_RSA_SET0_KEY) && !defined(USE_WOLFSSL)
 		RSA_get0_key(rsapriv, (const BIGNUM **)&dummy[0], /* n */
 				      (const BIGNUM **)&dummy[1], /* e */
 				      (const BIGNUM **)&mpi);	  /* d */
