@@ -47,7 +47,10 @@
 #cmakedefine LWS_HAVE_EVP_aes_192_cfb128
 #cmakedefine LWS_HAVE_EVP_aes_256_cfb8
 #cmakedefine LWS_HAVE_EVP_aes_256_cfb128
+#cmakedefine LWS_HAVE_EVP_aes_128_ofb
 #cmakedefine LWS_HAVE_EVP_aes_128_xts
+#cmakedefine LWS_HAVE_EVP_aes_128_ctr
+#cmakedefine LWS_HAVE_EVP_aes_128_ecb
 #cmakedefine LWS_HAVE_EVP_PKEY_new_raw_private_key
 #cmakedefine LWS_HAVE_EXECVPE
 #cmakedefine LWS_HAVE_LOCALTIME_R

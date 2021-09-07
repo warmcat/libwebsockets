@@ -9,6 +9,10 @@
 
 #include <libwebsockets.h>
 
+
+#if (defined(LWS_WITH_MBEDTLS) && (!defined(MBEDTLS_CONFIG_H) || defined(MBEDTLS_CIPHER_MODE_CBC))) || \
+    (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_cbc))
+
 static const uint8_t
 	/*
 	 * produced with (plaintext.txt contains "test plaintext\0\0")
@@ -101,7 +105,10 @@ bail:
 
 	return -1;
 }
+#endif
 
+#if (defined(LWS_WITH_MBEDTLS) && (!defined(MBEDTLS_CONFIG_H) || defined(MBEDTLS_CIPHER_MODE_CFB))) || \
+    (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_cfb128))
 static const uint8_t
 /*
  * produced with (plaintext.txt contains "test plaintext\0\0")
@@ -188,6 +195,10 @@ bail:
 
 	return -1;
 }
+#endif
+
+#if (defined(LWS_WITH_MBEDTLS) && (!defined(MBEDTLS_CONFIG_H) || defined(MBEDTLS_CIPHER_MODE_CFB))) || \
+    (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_cfb8))
 
 static const uint8_t
 /*
@@ -272,7 +283,10 @@ bail:
 
 	return -1;
 }
+#endif
 
+#if (defined(LWS_WITH_MBEDTLS) && (!defined(MBEDTLS_CONFIG_H) || defined(MBEDTLS_CIPHER_MODE_CTR))) || \
+    (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_ctr))
 static const uint8_t
 /*
  * produced with (plaintext.txt contains "test plaintext\0\0")
@@ -365,7 +379,10 @@ bail:
 
 	return -1;
 }
+#endif
 
+#if (defined(LWS_WITH_MBEDTLS)) || \
+    (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_ecb))
 static const uint8_t
 /*
  * produced with (plaintext.txt contains "test plaintext\0\0")
@@ -449,10 +466,10 @@ bail:
 
 	return -1;
 }
+#endif
 
-#if defined(MBEDTLS_CONFIG_H) && !defined(MBEDTLS_CIPHER_MODE_OFB)
-#else
-
+#if (defined(LWS_WITH_MBEDTLS) && (!defined(MBEDTLS_CONFIG_H) || defined(MBEDTLS_CIPHER_MODE_OFB))) || \
+    (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_ofb))
 static const uint8_t
 	/*
 	 * produced with (plaintext.txt contains "test plaintext\0\0")
@@ -481,7 +498,6 @@ static const uint8_t
 		0xfe, 0xdc, 0xba, 0x98, 0x76, 0x54, 0x32, 0x10,
 	}
 ;
-
 static int
 test_genaes_ofb(void)
 {
@@ -549,8 +565,8 @@ bail:
 
 #endif
 
-#if defined(MBEDTLS_CONFIG_H) && !defined(MBEDTLS_CIPHER_MODE_XTS)
-#else
+#if (defined(LWS_WITH_MBEDTLS) && (!defined(MBEDTLS_CONFIG_H) || defined(MBEDTLS_CIPHER_MODE_XTS))) || \
+    (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_xts))
 
 static const uint8_t
 	/*
@@ -575,10 +591,10 @@ static const uint8_t
 		0x5f, 0x31, 0x9e, 0xcd, 0x33, 0x08, 0xa0, 0x44
 	}
 ;
-
 static int
 test_genaes_xts(void)
 {
+
 	struct lws_genaes_ctx ctx;
 	struct lws_gencrypto_keyelem e;
 	uint8_t res[32], res1[32], data_unit[16];
@@ -757,30 +773,38 @@ bail:
 int
 test_genaes(struct lws_context *context)
 {
-
+#if (defined(LWS_WITH_MBEDTLS) && (!defined(MBEDTLS_CONFIG_H) || defined(MBEDTLS_CIPHER_MODE_CBC))) || \
+    (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_cbc))
 	if (test_genaes_cbc())
 		goto bail;
-
+#endif
+#if (defined(LWS_WITH_MBEDTLS) && (!defined(MBEDTLS_CONFIG_H) || defined(MBEDTLS_CIPHER_MODE_CFB))) || \
+    (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_cfb128))
 	if (test_genaes_cfb128())
 		goto bail;
-
+#endif
+#if (defined(LWS_WITH_MBEDTLS) && (!defined(MBEDTLS_CONFIG_H) || defined(MBEDTLS_CIPHER_MODE_CFB))) || \
+    (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_cfb8))
 	if (test_genaes_cfb8())
 		goto bail;
-
+#endif
+#if (defined(LWS_WITH_MBEDTLS) && (!defined(MBEDTLS_CONFIG_H) || defined(MBEDTLS_CIPHER_MODE_CTR))) || \
+    (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_ctr))
 	if (test_genaes_ctr())
 		goto bail;
-
+#endif
+#if (defined(LWS_WITH_MBEDTLS)) || \
+    (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_ecb))
 	if (test_genaes_ecb())
 		goto bail;
-
-#if defined(MBEDTLS_CONFIG_H) && !defined(MBEDTLS_CIPHER_MODE_OFB)
-#else
+#endif
+#if (defined(LWS_WITH_MBEDTLS) && (!defined(MBEDTLS_CONFIG_H) || defined(MBEDTLS_CIPHER_MODE_OFB))) || \
+    (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_ofb))
 	if (test_genaes_ofb())
 		goto bail;
 #endif
-
-#if defined(MBEDTLS_CONFIG_H) && !defined(MBEDTLS_CIPHER_MODE_XTS)
-#else
+#if (defined(LWS_WITH_MBEDTLS) && (!defined(MBEDTLS_CONFIG_H) || defined(MBEDTLS_CIPHER_MODE_XTS))) || \
+    (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_xts))
 	if (test_genaes_xts())
 		goto bail;
 #endif

@@ -112,7 +112,7 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 		goto bail;
 	}
 
-#if defined(LWS_HAVE_RSA_SET0_KEY)
+#if defined(LWS_HAVE_RSA_SET0_KEY) && !defined(USE_WOLFSSL) 
 	if (RSA_set0_key(ctx->rsa, ctx->bn[LWS_GENCRYPTO_RSA_KEYEL_N],
 			 ctx->bn[LWS_GENCRYPTO_RSA_KEYEL_E],
 			 ctx->bn[LWS_GENCRYPTO_RSA_KEYEL_D]) != 1) {
@@ -178,7 +178,7 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 	if (n != 1)
 		goto cleanup_1;
 
-#if defined(LWS_HAVE_RSA_SET0_KEY)
+#if defined(LWS_HAVE_RSA_SET0_KEY) && !defined(USE_WOLFSSL)
 	{
 		const BIGNUM *mpi[5];
 
@@ -365,7 +365,11 @@ lws_genrsa_hash_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			goto bail;
 
 		if (EVP_DigestSignInit(mdctx, NULL, md, NULL,
+#if defined(USE_WOLFSSL)
+					ctx->ctx->pkey)) {
+#else
 				       EVP_PKEY_CTX_get0_pkey(ctx->ctx))) {
+#endif
 			lwsl_err("%s: EVP_DigestSignInit failed\n", __func__);
 
 			goto bail;
