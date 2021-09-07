@@ -34,10 +34,21 @@
 #error "You probably need LWS_SUPPRESS_DEPRECATED_API_WARNINGS"
 #endif
 
+#if defined(USE_WOLFSSL)
+#include "openssl/ecdh.h"
+#endif
+
 /*
  * Care: many openssl apis return 1 for success.  These are translated to the
  * lws convention of 0 for success.
  */
+
+#if defined(USE_WOLFSSL)
+EVP_PKEY * EVP_PKEY_CTX_get0_pkey(EVP_PKEY_CTX *p)
+{
+	return p->pkey;
+}
+#endif
 
 #if !defined(LWS_HAVE_ECDSA_SIG_set0)
 static void
@@ -66,9 +77,11 @@ ECDSA_SIG_set0(ECDSA_SIG *sig, BIGNUM *r, BIGNUM *s)
 int BN_bn2binpad(const BIGNUM *a, unsigned char *to, int tolen)
 {
     int i;
+#if !defined(USE_WOLFSSL)
     BN_ULONG l;
+#endif
 
-#if !defined(LIBRESSL_VERSION_NUMBER)
+#if !defined(LIBRESSL_VERSION_NUMBER) && !defined(USE_WOLFSSL)
     bn_check_top(a);
 #endif
     i = BN_num_bytes(a);
@@ -78,10 +91,14 @@ int BN_bn2binpad(const BIGNUM *a, unsigned char *to, int tolen)
         memset(to, 0, (size_t)(tolen - i));
         to += tolen - i;
     }
+#if defined(USE_WOLFSSL)
+    BN_bn2bin(a, to);
+#else
     while (i--) {
         l = a->d[i / BN_BYTES];
         *(to++) = (unsigned char)(l >> (8 * (i % BN_BYTES))) & 0xff;
     }
+#endif
     return tolen;
 }
 #endif
@@ -132,7 +149,22 @@ lws_genec_eckey_import(int nid, EVP_PKEY *pkey, struct lws_gencrypto_keyelem *el
 		goto bail1;
 	}
 
+	/*
+	 * EC_KEY_set_public_key_affine_coordinates sets the public key for
+	 * key based on its affine co-ordinates, i.e. it constructs an
+	 * EC_POINT object based on the supplied x and y values and sets
+	 * the public key to be this EC_POINT. It will also performs
+	 * certain sanity checks on the key to confirm that it is valid.
+	 */
+
+#if defined(USE_WOLFSSL)
+	n = wolfSSL_EC_POINT_set_affine_coordinates_GFp(ec->group,
+                                                ec->pub_key,
+                                                bn_x, bn_y,
+                                                NULL);
+#else
 	n = EC_KEY_set_public_key_affine_coordinates(ec, bn_x, bn_y);
+#endif
 	BN_free(bn_x);
 	BN_free(bn_y);
 	if (n != 1) {
@@ -160,10 +192,12 @@ lws_genec_eckey_import(int nid, EVP_PKEY *pkey, struct lws_gencrypto_keyelem *el
 
 	/* explicitly confirm the key pieces are consistent */
 
+#if !defined(USE_WOLFSSL)
 	if (EC_KEY_check_key(ec) != 1) {
 		lwsl_err("%s: EC_KEY_set_private_key fail\n", __func__);
 		goto bail;
 	}
+#endif
 
 	n = EVP_PKEY_assign_EC_KEY(pkey, ec);
 	if (n != 1) {
@@ -660,7 +694,12 @@ lws_genecdh_compute_shared_secret(struct lws_genec_ctx *ctx, uint8_t *ss,
 
 	len = (EC_GROUP_get_degree(EC_KEY_get0_group(eckey[LDHS_OURS])) + 7) / 8;
 	if (len <= *ss_len) {
-		*ss_len = ECDH_compute_key(ss, (unsigned int)len,
+#if defined(USE_WOLFSSL)
+		*ss_len = wolfSSL_ECDH_compute_key(
+#else
+		*ss_len = ECDH_compute_key(
+#endif
+				ss, (unsigned int)len,
 				EC_KEY_get0_public_key(eckey[LDHS_THEIRS]),
 				eckey[LDHS_OURS], NULL);
 		ret = -(*ss_len < 0);

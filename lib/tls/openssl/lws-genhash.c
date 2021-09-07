@@ -217,9 +217,9 @@ int
 lws_genhmac_update(struct lws_genhmac_ctx *ctx, const void *in, size_t len)
 {
 #if defined(LWS_HAVE_HMAC_CTX_new)
-	if (HMAC_Update(ctx->ctx, in, len) != 1)
+	if (HMAC_Update(ctx->ctx, in, (int)len) != 1)
 #else
-	if (HMAC_Update(&ctx->ctx, in, len) != 1)
+	if (HMAC_Update(&ctx->ctx, in, (int)len) != 1)
 #endif
 		return -1;
 
