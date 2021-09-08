@@ -278,7 +278,7 @@ install(TARGETS ${LWS_LIBRARIES}
 set(CPACK_COMPONENT_DEV_DISPLAY_NAME "Development files" PARENT_SCOPE)
 
 
-if (UNIX)
+if (UNIX OR MINGW)
 
 # figure out pkfcfg required libs here
 
@@ -340,7 +340,7 @@ endif()
 	install(FILES "${PROJECT_BINARY_DIR}/libwebsockets_static.pc"
 		DESTINATION lib${LIB_SUFFIX}/pkgconfig)
 
-endif(UNIX)
+endif(UNIX OR MINGW)
 
 
 # Keep explicit parent scope exports at end
