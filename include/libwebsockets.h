@@ -357,7 +357,7 @@ lws_pthread_mutex_unlock(pthread_mutex_t *lock)
 #include <stddef.h>
 
 #ifndef lws_container_of
-#define lws_container_of(P,T,M)	((T *)((char *)(P) - offsetof(T, M)))
+#define lws_container_of(P,T,M)	((T *)(void *)((char *)(P) - offsetof(T, M)))
 #endif
 #define LWS_ALIGN_TO(x, bou) x += ((bou) - ((x) % (bou))) % (bou)
 

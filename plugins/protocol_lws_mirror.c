@@ -374,9 +374,9 @@ bail1:
 				break;
 
 			if (!msg->payload) {
-				lwsl_err("%s: NULL payload: worst = %d,"
-					 " pss->tail = %d\n", __func__,
-					 oldest_tail, pss->tail);
+				lwsl_err("%s: NULL payload: worst = %u,"
+					 " pss->tail = %u\n", __func__,
+					 (unsigned int)oldest_tail, (unsigned int)pss->tail);
 				if (lws_ring_consume(pss->mi->ring, &pss->tail,
 						     NULL, 1))
 					continue;

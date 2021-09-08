@@ -35,7 +35,7 @@ lws_wsi_tag(struct lws *wsi)
 #if defined (_DEBUG)
 void lwsi_set_role(struct lws *wsi, lws_wsi_state_t role)
 {
-	wsi->wsistate = (wsi->wsistate & (~LWSI_ROLE_MASK)) | role;
+	wsi->wsistate = (wsi->wsistate & (unsigned int)((~LWSI_ROLE_MASK))) | role;
 
 	lwsl_wsi_debug(wsi, "state 0x%lx", (unsigned long)wsi->wsistate);
 }
@@ -235,12 +235,12 @@ lws_callback_all_protocol_vhost(struct lws_vhost *vh,
 }
 
 int
-lws_callback_vhost_protocols(struct lws *wsi, int reason, void *in, size_t len)
+lws_callback_vhost_protocols(struct lws *wsi, int reason, const void *in, size_t len)
 {
 	int n;
 
 	for (n = 0; n < wsi->a.vhost->count_protocols; n++)
-		if (wsi->a.vhost->protocols[n].callback(wsi, (enum lws_callback_reasons)reason, NULL, in, len))
+		if (wsi->a.vhost->protocols[n].callback(wsi, (enum lws_callback_reasons)reason, NULL, (void *)in, len))
 			return 1;
 
 	return 0;
@@ -386,7 +386,7 @@ lws_wsi_extract_from_loop(struct lws *wsi)
 }
 
 int
-lws_callback_vhost_protocols_vhost(struct lws_vhost *vh, int reason, void *in,
+lws_callback_vhost_protocols_vhost(struct lws_vhost *vh, int reason, const void *in,
 				   size_t len)
 {
 	int n;
@@ -400,7 +400,7 @@ lws_callback_vhost_protocols_vhost(struct lws_vhost *vh, int reason, void *in,
 
 	for (n = 0; n < wsi->a.vhost->count_protocols; n++) {
 		wsi->a.protocol = &vh->protocols[n];
-		if (wsi->a.protocol->callback(wsi, (enum lws_callback_reasons)reason, NULL, in, len)) {
+		if (wsi->a.protocol->callback(wsi, (enum lws_callback_reasons)reason, NULL, (void *)in, len)) {
 			lws_free(wsi);
 			return 1;
 		}

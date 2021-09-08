@@ -176,7 +176,7 @@ lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop)
 		if (!g) {
 #endif
 			lwsl_cx_err(context, "cannot find name for gid %d",
-					context->gid);
+					(int)context->gid);
 
 			return 1;
 		}
@@ -206,7 +206,7 @@ lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop)
 		if (!p) {
 #endif
 			lwsl_cx_err(context, "getpwuid: unable to find uid %d",
-				 context->uid);
+				 (int)context->uid);
 			return 1;
 		}
 

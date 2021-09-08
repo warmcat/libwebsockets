@@ -229,8 +229,8 @@ lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 	break;
 
 	default:
-		lwsl_err("%s: unsupported AES size %d bits\n", __func__,
-			 ctx->k->len * 8);
+		lwsl_err("%s: unsupported AES size %u bits\n", __func__,
+			 (unsigned int)ctx->k->len * 8);
 		goto bail;
 	}
 

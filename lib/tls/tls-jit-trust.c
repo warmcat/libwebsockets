@@ -386,7 +386,7 @@ lws_tls_jit_trust_cert_info(const uint8_t *der, size_t der_len)
 
 	if (!lws_x509_parse_from_pem(x, der, der_len)) {
 
-		u = (union lws_tls_cert_info_results *)buf;
+		u = (union lws_tls_cert_info_results *)(void *)buf;
 
 		if (!lws_x509_info(x, LWS_TLS_CERT_INFO_ISSUER_NAME, u, 192)) {
 			lwsl_info("ISS: %s\n", u->ns.name);
@@ -450,7 +450,7 @@ lws_tls_jit_trust_got_cert_cb(struct lws_context *cx, void *got_opaque,
 	inf->refcount--;
 
 	if (skid_len >= 4)
-		inf->tag ^= *((uint32_t *)skid);
+		inf->tag ^= *((uint32_t *)(void *)skid);
 
 	if (der && inf->ders < (int)LWS_ARRAY_SIZE(inf->der) && inf->refcount) {
 		/*
@@ -649,7 +649,7 @@ lws_tls_jit_trust_blob_queury_skid(const void *_blob, size_t blen,
 
 	certs		= (int)lws_ser_ru16be(blob + LJT_OFS_32_COUNT_CERTS);
 
-	pderlen		= (uint16_t *)(blob + lws_ser_ru32be(blob +
+	pderlen		= (uint16_t *)(void *)(blob + lws_ser_ru32be(blob +
 							LJT_OFS_32_DERLEN));
 	pskidlen	= blob + lws_ser_ru32be(blob + LJT_OFS_32_SKIDLEN);
 	pskids		= blob + lws_ser_ru32be(blob + LJT_OFS_32_SKID);

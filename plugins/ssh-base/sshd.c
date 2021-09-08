@@ -584,7 +584,7 @@ again:
 			} else
 				pss->ssh_sequence_ctr_cts++;
 
-			lwsl_info("msg len %d\n", pss->msg_len);
+			lwsl_info("msg len %d\n", (int)pss->msg_len);
 
 			pss->parser_state = SSHS_MSG_PADDING;
 			pss->ctr = 0;
@@ -851,7 +851,7 @@ again:
 			pss->npos = 0;
 			if (pss->msg_len - pss->pos < pss->len) {
 				lwsl_notice("sanity: length  %d - %d < %d\n",
-					    pss->msg_len, pss->pos, pss->len);
+					    (int)pss->msg_len, (int)pss->pos, (int)pss->len);
 				goto bail;
 			}
 			break;
@@ -920,7 +920,7 @@ again:
 				break;
 			}
 			lwsl_debug("skip done pos %d, msg_len %d len=%ld, \n",
-				       pss->pos, pss->msg_len, (long)len);
+				       (int)pss->pos, (int)pss->msg_len, (long)len);
 			pss->parser_state = SSHS_MSG_LEN;
 			pss->ctr = 0;
 			break;
@@ -931,7 +931,7 @@ again:
 				break;
 			if (pss->msg_len + 4 != pss->pos) {
 				lwsl_notice("sanity: kex end mismatch %d %d\n",
-						pss->pos, pss->msg_len);
+						(int)pss->pos, (int)pss->msg_len);
 				goto bail;
 			}
 
@@ -1296,7 +1296,7 @@ again:
 			 * if no good, m is nonzero and inform peer
 			 */
 			if (n <= 0) {
-				lwsl_notice("hash sig verify fail: %d\n", m);
+				lwsl_notice("hash sig verify fail: %d\n", (int)m);
 				goto ua_fail;
 			}
 
@@ -1379,7 +1379,7 @@ again:
 			state_get_u32(pss, SSHS_NVC_CHOPEN_WINSIZE);
 			break;
 		case SSHS_NVC_CHOPEN_WINSIZE:
-			lwsl_info("Initial window set to %d\n", pss->len);
+			lwsl_info("Initial window set to %d\n", (int)pss->len);
 			pss->ch_temp->window = (int32_t)pss->len;
 			state_get_u32(pss, SSHS_NVC_CHOPEN_PKTSIZE);
 			break;
@@ -1731,7 +1731,7 @@ again:
 			if (ch) {
 				ch->window += (int32_t)pss->len;
 				lwsl_notice("got additional window %d (now %d)\n",
-						pss->len, ch->window);
+						(int)pss->len, (int)ch->window);
 			}
 			pss->parser_state = SSHS_MSG_EAT_PADDING;
 			break;
@@ -1751,10 +1751,10 @@ again:
 			 * does not consume window space and can be sent
 			 * even if no window space is available.
 			 */
-			lwsl_notice("SSH_MSG_CHANNEL_EOF: %d\n", pss->ch_recip);
+			lwsl_notice("SSH_MSG_CHANNEL_EOF: %d\n", (int)pss->ch_recip);
 			ch = ssh_get_server_ch(pss, pss->ch_recip);
 			if (!ch) {
-				lwsl_notice("unknown ch %d\n", pss->ch_recip);
+				lwsl_notice("unknown ch %d\n", (int)pss->ch_recip);
 				return -1;
 			}
 
@@ -1782,7 +1782,7 @@ again:
 			 * SSH_MSG_CHANNEL_EOF.
 			 */
 			lwsl_notice("SSH_MSG_CHANNEL_CLOSE ch %d\n",
-				    pss->ch_recip);
+				    (int)pss->ch_recip);
 			ch = ssh_get_server_ch(pss, pss->ch_recip);
 			if (!ch)
 				goto bail;
@@ -1909,7 +1909,7 @@ parse(struct per_session_data__sshd *pss, uint8_t *p, size_t len)
 					        pss->packet_assembly,
 					        pss->pa_pos, pt);
 			if (cp) {
-				lwsl_notice("Decryption failed: %d\n", cp);
+				lwsl_notice("Decryption failed: %d\n", (int)cp);
 				goto bail;
 			}
 
@@ -2010,7 +2010,7 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 			 * using a pvo (per-vhost option)
 			 */
 			if (!strcmp(pvo->name, "ops"))
-				vhd->ops = (const struct lws_ssh_ops *)pvo->value;
+				vhd->ops = (const struct lws_ssh_ops *)(const void *)pvo->value;
 
 			/*
 			 * the user code is telling us to get the ops struct
@@ -2518,7 +2518,7 @@ bail:
 		if (ch) {
 			ch->spawn_pid = (uint32_t)len; /* child process PID */
 			lwsl_notice("associated PID %d to ch %d\n", (int)len,
-				    pss->channel_doing_spawn);
+				    (int)pss->channel_doing_spawn);
 		}
 		break;
 

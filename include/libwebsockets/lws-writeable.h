@@ -166,7 +166,7 @@ lws_callback_all_protocol_vhost_args(struct lws_vhost *vh,
  * wsi.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_callback_vhost_protocols(struct lws *wsi, int reason, void *in, size_t len)
+lws_callback_vhost_protocols(struct lws *wsi, int reason, const void *in, size_t len)
 LWS_WARN_DEPRECATED;
 
 /**
@@ -183,7 +183,7 @@ LWS_WARN_DEPRECATED;
  * - What:   reason
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_callback_vhost_protocols_vhost(struct lws_vhost *vh, int reason, void *in,
+lws_callback_vhost_protocols_vhost(struct lws_vhost *vh, int reason, const void *in,
 				   size_t len);
 
 LWS_VISIBLE LWS_EXTERN int

@@ -132,7 +132,7 @@ lws_plat_init(struct lws_context *context,
 
 	if (!context->lws_lookup) {
 		lwsl_cx_err(context, "OOM on alloc lws_lookup array for %d conn",
-			 context->max_fds);
+			 (int)context->max_fds);
 		return 1;
 	}
 

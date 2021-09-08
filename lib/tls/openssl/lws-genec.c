@@ -528,7 +528,7 @@ lws_genecdsa_hash_sign_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
 	EC_KEY *eckey;
 
 	if (ctx->genec_alg != LEGENEC_ECDSA) {
-		lwsl_notice("%s: ctx alg %d\n", __func__, ctx->genec_alg);
+		lwsl_notice("%s: ctx alg %u\n", __func__, ctx->genec_alg);
 		return -1;
 	}
 

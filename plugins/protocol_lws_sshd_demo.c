@@ -361,7 +361,7 @@ ssh_ops_disconnect_reason(uint32_t reason, const char *desc,
 }
 
 
-static const struct lws_ssh_ops ssh_ops = {
+static /* const */ struct lws_ssh_ops ssh_ops = {
 	.channel_create			= ssh_ops_channel_create,
 	.channel_destroy		= ssh_ops_channel_destroy,
 	.tx_waiting			= ssh_ops_tx_waiting,

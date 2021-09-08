@@ -51,7 +51,7 @@ struct lwsac;
 typedef unsigned char * lwsac_cached_file_t;
 
 
-#define lws_list_ptr_container(P,T,M) ((T *)((char *)(P) - offsetof(T, M)))
+#define lws_list_ptr_container(P,T,M) ((T *)(void *)((char *)(P) - offsetof(T, M)))
 
 /*
  * linked-list helper that's commonly useful to manage lists of things

@@ -194,18 +194,18 @@ OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 	 * X509_STORE_CTX_set_error(x509_ctx, X509_V_OK); must be set and
 	 * return value is 0 from callback */
 	if (!preverify_ok) {
-		int err = X509_STORE_CTX_get_error(x509_ctx);
+		int _err = X509_STORE_CTX_get_error(x509_ctx);
 
-		if (err != X509_V_OK) {
+		if (_err != X509_V_OK) {
 			/* cert validation error was not handled in callback */
 			int depth = X509_STORE_CTX_get_error_depth(x509_ctx);
-			const char *msg = X509_verify_cert_error_string(err);
+			const char *msg = X509_verify_cert_error_string(_err);
 
 			lws_strncpy(wsi->tls.err_helper, msg,
 				    sizeof(wsi->tls.err_helper));
 
 			lwsl_err("SSL error: %s (preverify_ok=%d;err=%d;"
-				 "depth=%d)\n", msg, preverify_ok, err, depth);
+				 "depth=%d)\n", msg, preverify_ok, _err, depth);
 
 #if defined(LWS_WITH_SYS_METRICS)
 			{
@@ -492,7 +492,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 			return 1;
 		}
 
-		lwsl_notice("%s: set system client cert %u\n", __func__,
+		lwsl_notice("%s: set system client cert %d\n", __func__,
 				wsi->sys_tls_client_cert - 1);
 	}
 

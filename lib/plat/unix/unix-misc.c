@@ -88,6 +88,8 @@ void lwsl_emit_syslog(int level, const char *line)
 	case LLL_INFO:
 		syslog_level = LOG_INFO;
 		break;
+	default:
+		break;
 	}
 	syslog(syslog_level, "%s", line);
 }

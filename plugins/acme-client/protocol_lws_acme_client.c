@@ -577,7 +577,7 @@ static int
 lws_acme_report_status(struct lws_vhost *v, int state, const char *json)
 {
 	lws_callback_vhost_protocols_vhost(v, LWS_CALLBACK_VHOST_CERT_UPDATE,
-					   (void *)json, (unsigned int)state);
+					   (const void *)json, (unsigned int)state);
 
 	return 0;
 }
@@ -947,7 +947,7 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
 		lwsl_notice("%s: ESTABLISHED_CLIENT_HTTP:"
-				"%p, state:%d, status:%d\n", __func__, wsi,
+				"%p, state:%u, status:%u\n", __func__, wsi,
 				ac->state, lws_http_client_http_response(wsi));
 		if (!ac)
 			break;
@@ -1094,7 +1094,7 @@ pkt_add_hdrs:
 
 			if (lws_add_http_header_by_token(wsi,
 						WSI_TOKEN_HTTP_CONTENT_TYPE,
-						(uint8_t *)content_type, 21, pp,
+						(const uint8_t *)content_type, 21, pp,
 						pend)) {
 				lwsl_notice("could not add content type\n");
 				goto failed;

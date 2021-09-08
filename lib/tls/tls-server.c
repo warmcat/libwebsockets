@@ -324,7 +324,7 @@ punt:
 		case LWS_SSL_CAPABLE_DONE:
 			break;
 		case LWS_SSL_CAPABLE_ERROR:
-	                lwsl_info("%s: SSL_accept failed socket %u: %d\n",
+	                lwsl_info("%s: SSL_accept failed socket %d: %d\n",
 	                		__func__, wsi->desc.sockfd, n);
 			wsi->socket_is_permanently_unusable = 1;
 			goto fail;

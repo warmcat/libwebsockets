@@ -71,8 +71,8 @@ lws_plat_dlopen(struct lws_plugin **pplugin, const char *libpath,
 
 	if (hdr->api_magic != LWS_PLUGIN_API_MAGIC) {
 		lwsl_info("%s: plugin %s has outdated api %d (vs %d)\n",
-			 __func__, libpath, hdr->api_magic,
-			 LWS_PLUGIN_API_MAGIC);
+			 __func__, libpath, (int)hdr->api_magic,
+			 (int)LWS_PLUGIN_API_MAGIC);
 		goto bail;
 	}
 

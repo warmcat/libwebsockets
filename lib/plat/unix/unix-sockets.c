@@ -339,7 +339,7 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 				addr6->sin6_addr.s6_addr[10] = 0xff;
 				addr6->sin6_addr.s6_addr[11] = 0xff;
 				memcpy(&addr6->sin6_addr.s6_addr[12],
-				       &((struct sockaddr_in *)ifc->ifa_addr)->sin_addr,
+				       &((struct sockaddr_in *)(void *)ifc->ifa_addr)->sin_addr,
 							sizeof(struct in_addr));
 				lwsl_debug("%s: uplevelling ipv4 bind to ipv6\n", __func__);
 				break;
@@ -348,13 +348,13 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 			sco = IP_SCORE_GLOBAL_NATIVE;
 #endif
 			rc = LWS_ITOSA_USABLE;
-			memcpy(addr, (struct sockaddr_in *)ifc->ifa_addr,
+			memcpy(addr, (struct sockaddr_in *)(void *)ifc->ifa_addr,
 						    sizeof(struct sockaddr_in));
 			break;
 #if defined(LWS_WITH_IPV6)
 		case AF_INET6:
 			p = (const uint8_t *)
-				&((struct sockaddr_in6 *)ifc->ifa_addr)->sin6_addr;
+				&((struct sockaddr_in6 *)(void *)ifc->ifa_addr)->sin6_addr;
 			ts = IP_SCORE_IPV6_SCOPE_BASE;
 			if (p[0] == 0xff)
 				ts = (unsigned long)(IP_SCORE_IPV6_SCOPE_BASE + (p[1] & 0xf));
@@ -366,7 +366,7 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 			rc = LWS_ITOSA_USABLE;
 
 			memcpy(&addr6->sin6_addr,
-			     &((struct sockaddr_in6 *)ifc->ifa_addr)->sin6_addr,
+			     &((struct sockaddr_in6 *)(void *)ifc->ifa_addr)->sin6_addr,
 						       sizeof(struct in6_addr));
 			break;
 #endif
@@ -425,7 +425,7 @@ lws_plat_rawudp_broadcast(uint8_t *p, const uint8_t *canned, size_t canned_len,
 {
 #if defined(__linux__)
 	struct sockaddr_ll sll;
-	uint16_t *p16 = (uint16_t *)p;
+	uint16_t *p16 = (uint16_t *)(void *)p;
 	uint32_t ucs = 0;
 
 	memcpy(p, canned, canned_len);
@@ -433,7 +433,7 @@ lws_plat_rawudp_broadcast(uint8_t *p, const uint8_t *canned, size_t canned_len,
 	p[2] = (uint8_t)(n >> 8);
 	p[3] = (uint8_t)(n);
 
-	while (p16 < (uint16_t *)(p + 20))
+	while (p16 < (uint16_t *)(void *)(p + 20))
 		ucs += ntohs(*p16++);
 
 	ucs += ucs >> 16;

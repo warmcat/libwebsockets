@@ -180,7 +180,7 @@ callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
 			strcpy(ip, "unknown");
 			lws_get_peer_simple(pss->walk_next->wsi, ip, sizeof(ip));
 			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
-					"{\"peer\":\"%s\",\"time\":\"%ld\","
+					"{\"peer\":\"%s\",\"time\":\"%lu\","
 					"\"ua\":\"%s\"}",
 					ip, (unsigned long)pss->walk_next->time_est,
 					pss->walk_next->user_agent);

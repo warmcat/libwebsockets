@@ -122,7 +122,7 @@ lws_genhmac_init(struct lws_genhmac_ctx *ctx, enum lws_genhmac_types type,
 		ctx->evp_type = EVP_sha512();
 		break;
 	default:
-		lwsl_err("%s: unknown HMAC type %d\n", __func__, type);
+		lwsl_err("%s: unknown HMAC type %u\n", __func__, type);
 		goto bail;
 	}
 

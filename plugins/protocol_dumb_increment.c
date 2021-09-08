@@ -63,7 +63,7 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 		if ((opt = lws_pvo_search(
 				(const struct lws_protocol_vhost_options *)in,
 				"options")))
-			vhd->options = (unsigned int *)opt->value;
+			vhd->options = (const unsigned int *)(const void *)opt->value;
 		break;
 
 	case LWS_CALLBACK_ESTABLISHED:

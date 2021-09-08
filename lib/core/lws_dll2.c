@@ -267,7 +267,7 @@ _lws_dll2_search_sz_pl(lws_dll2_owner_t *own, const char *name, size_t namelen,
 		 * We have to read the const char * at the computed place and
 		 * the string is where that points
 		 */
-		const char *str = *((const char **)(ref + ptr_ofs));
+		const char *str = *((const char **)(void *)(ref + ptr_ofs));
 
 		if (str && !strncmp(str, name, namelen) && !str[namelen])
 			return (void *)ref;

@@ -138,7 +138,7 @@ lws_callback_raw_telnet(struct lws *wsi, enum lws_callback_reasons reason,
 
 		while (pvo) {
 			if (!strcmp(pvo->name, "ops"))
-				vhd->ops = (const struct lws_ssh_ops *)pvo->value;
+				vhd->ops = (const struct lws_ssh_ops *)(const void *)pvo->value;
 
 			pvo = pvo->next;
 		}

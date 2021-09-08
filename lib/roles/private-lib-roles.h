@@ -60,14 +60,14 @@ typedef uint32_t lws_wsi_state_t;
 #define LWSIFR_P_ENCAP_H2	(0x0100 << _RS) /* we are encapsulated by h2 */
 
 enum lwsi_role {
-	LWSI_ROLE_MASK		=			     (0xffff << _RS),
+	LWSI_ROLE_MASK		=			     (0x7fff << _RS),
 	LWSI_ROLE_ENCAP_MASK	=			     (0x0f00 << _RS),
 };
 
 #define lwsi_role(wsi) (wsi->wsistate & (unsigned int)LWSI_ROLE_MASK)
 #if !defined (_DEBUG)
 #define lwsi_set_role(wsi, role) wsi->wsistate = \
-				(wsi->wsistate & (~LWSI_ROLE_MASK)) | role
+				(wsi->wsistate & (unsigned int)(~LWSI_ROLE_MASK)) | role
 #else
 void lwsi_set_role(struct lws *wsi, lws_wsi_state_t role);
 #endif
