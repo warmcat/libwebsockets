@@ -107,6 +107,7 @@ else()
 endif()
 
 if (LWS_WITH_SSL)
+
 	list(APPEND SOURCES
 		tls/tls.c)
 	if (LWS_WITH_NETWORK)
