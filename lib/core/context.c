@@ -1668,9 +1668,23 @@ lws_pt_destroy(struct lws_context_per_thread *pt)
 	vpt->foreign_pfd_list = NULL;
 
 	lws_pt_lock(pt, __func__);
+
 	if (pt->pipe_wsi) {
 		lws_destroy_event_pipe(pt->pipe_wsi);
 		pt->pipe_wsi = NULL;
+	}
+
+	if (pt->dummy_pipe_fds[0]
+#if !defined(WIN32)
+	    && (int)pt->dummy_pipe_fds[0] != -1
+#endif
+	) {
+		struct lws wsi;
+
+		memset(&wsi, 0, sizeof(wsi));
+		wsi.a.context = pt->context;
+		wsi.tsi = (char)pt->tid;
+		lws_plat_pipe_close(&wsi);
 	}
 
 #if defined(LWS_WITH_SECURE_STREAMS)
