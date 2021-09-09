@@ -720,7 +720,9 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 		}
 #else
 #if defined(LWS_HAVE__STAT32I64)
-		if (_stat32i64(path, &st)) {
+		WCHAR buf[MAX_PATH];
+		MultiByteToWideChar(CP_UTF8, 0, path, -1, buf, LWS_ARRAY_SIZE(buf));
+		if (_wstat32i64(buf, &st)) {
 			lwsl_info("unable to stat %s\n", path);
 			goto notfound;
 		}
