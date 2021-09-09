@@ -2047,15 +2047,15 @@ lws_confirm_host_header(struct lws *wsi)
 		port = 443;
 #endif
 
-	lws_tokenize_init(&ts, buf, LWS_TOKENIZE_F_DOT_NONTERM /* server.com */|
-				    LWS_TOKENIZE_F_NO_FLOATS /* 1.server.com */|
-				    LWS_TOKENIZE_F_MINUS_NONTERM /* a-b.com */);
 	n = lws_hdr_copy(wsi, buf, sizeof(buf) - 1, WSI_TOKEN_HOST);
 	if (n <= 0) {
 		lwsl_info("%s: missing or oversize host header\n", __func__);
 		return 1;
 	}
 	ts.len = (size_t)n;
+	lws_tokenize_init(&ts, buf, LWS_TOKENIZE_F_DOT_NONTERM /* server.com */|
+				    LWS_TOKENIZE_F_NO_FLOATS /* 1.server.com */|
+				    LWS_TOKENIZE_F_MINUS_NONTERM /* a-b.com */);
 
 	if (lws_tokenize(&ts) != LWS_TOKZE_TOKEN)
 		goto bad_format;
