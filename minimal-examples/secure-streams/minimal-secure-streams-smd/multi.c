@@ -200,11 +200,11 @@ multi_myss_state(void *userobj, void *h_src, lws_ss_constate_t state,
 		/*
 		 * Because in this test everybody is watching and counting
 		 * everybody else's messages from different forks, we have to
-		 * hold off starting sending for 1s so all forks can join the
+		 * hold off starting sending for 2s so all forks can join the
 		 * proxy first and not miss anything
 		 */
 		lws_sul_schedule(lws_ss_get_context(m->ss), 0, &m->sul,
-				sul_multi_tx_periodic_cb, 1 * LWS_US_PER_SEC);
+				sul_multi_tx_periodic_cb, 2 * LWS_US_PER_SEC);
 		m->starting = 0;
 		return 0;
 	case LWSSSCS_DISCONNECTED:

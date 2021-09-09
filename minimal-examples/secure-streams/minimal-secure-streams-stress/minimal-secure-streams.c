@@ -42,7 +42,7 @@
 static int interrupted, bad = 1, force_cpd_fail_portal,
 	   force_cpd_fail_no_internet, test_respmap, test_ots,
 	   budget = 1, predicted_good = 1, good, orig_budget;
-static unsigned int timeout_ms = 3000;
+static unsigned int timeout_ms = 8000;
 static lws_state_notify_link_t nl;
 struct lws_context *context;
 static lws_sorted_usec_list_t sul_timeout; /* for each process to complete */

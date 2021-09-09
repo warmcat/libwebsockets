@@ -325,7 +325,7 @@ int main(int argc, const char **argv)
 	/* set up the test timeout */
 
 	lws_sul_schedule(context, 0, &sul_timeout, sul_timeout_cb,
-			 (how_many_msg * (usec_interval + 1000)) + LWS_US_PER_SEC);
+			 (how_many_msg * (usec_interval + 50000)) + LWS_US_PER_SEC);
 
 	/* the event loop */
 
