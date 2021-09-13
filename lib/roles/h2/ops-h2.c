@@ -1156,7 +1156,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 		 * then logically close ourself
 		 */
 
-		if ((lwsi_role_ws(w) && w->ws->ping_pending_flag) ||
+		if ((lwsi_role_ws(w) && w->ws->pong_pending_flag) ||
 		    (lwsi_state(w) == LRS_RETURNED_CLOSE &&
 		     w->ws->payload_is_close)) {
 
@@ -1164,13 +1164,13 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 				write_type = LWS_WRITE_CLOSE |
 					     LWS_WRITE_H2_STREAM_END;
 
-			n = lws_write(w, &w->ws->ping_payload_buf[LWS_PRE],
-				      w->ws->ping_payload_len, (enum lws_write_protocol)write_type);
+			n = lws_write(w, &w->ws->pong_payload_buf[LWS_PRE],
+				      w->ws->pong_payload_len, (enum lws_write_protocol)write_type);
 			if (n < 0)
 				return -1;
 
 			/* well he is sent, mark him done */
-			w->ws->ping_pending_flag = 0;
+			w->ws->pong_pending_flag = 0;
 			if (w->ws->payload_is_close) {
 				/* oh... a close frame... then we are done */
 				lwsl_debug("Ack'd peer's close packet\n");

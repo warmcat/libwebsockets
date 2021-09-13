@@ -512,9 +512,9 @@ spill:
 			lwsl_info("received %d byte ping, sending pong\n",
 						 (int)wsi->ws->rx_ubuf_head);
 
-			if (wsi->ws->ping_pending_flag) {
+			if (wsi->ws->pong_pending_flag) {
 				/*
-				 * there is already a pending ping payload
+				 * there is already a pending pong payload
 				 * we should just log and drop
 				 */
 				lwsl_parser("DROP PING since one pending\n");
@@ -528,12 +528,12 @@ process_as_ping:
 			}
 
 			/* stash the pong payload */
-			memcpy(wsi->ws->ping_payload_buf + LWS_PRE,
+			memcpy(wsi->ws->pong_payload_buf + LWS_PRE,
 			       &wsi->ws->rx_ubuf[LWS_PRE],
 				wsi->ws->rx_ubuf_head);
 
-			wsi->ws->ping_payload_len = (uint8_t)wsi->ws->rx_ubuf_head;
-			wsi->ws->ping_pending_flag = 1;
+			wsi->ws->pong_payload_len = (uint8_t)wsi->ws->rx_ubuf_head;
+			wsi->ws->pong_pending_flag = 1;
 
 			/* get it sent as soon as possible */
 			lws_callback_on_writable(wsi);
@@ -1287,7 +1287,7 @@ int rops_handle_POLLOUT_ws(struct lws *wsi)
 
 	/* else, the send failed and we should just hang up */
 
-	if ((lwsi_role_ws(wsi) && wsi->ws->ping_pending_flag) ||
+	if ((lwsi_role_ws(wsi) && wsi->ws->pong_pending_flag) ||
 	    (lwsi_state(wsi) == LRS_RETURNED_CLOSE &&
 	     wsi->ws->payload_is_close)) {
 
@@ -1296,20 +1296,20 @@ int rops_handle_POLLOUT_ws(struct lws *wsi)
 		else {
 			if (wsi->wsistate_pre_close) {
 				/* we started close flow, forget pong */
-				wsi->ws->ping_pending_flag = 0;
+				wsi->ws->pong_pending_flag = 0;
 				return LWS_HP_RET_BAIL_OK;
 			}
 			lwsl_info("issuing pong %d on %s\n",
-				  wsi->ws->ping_payload_len, lws_wsi_tag(wsi));
+				  wsi->ws->pong_payload_len, lws_wsi_tag(wsi));
 		}
 
-		n = lws_write(wsi, &wsi->ws->ping_payload_buf[LWS_PRE],
-			      wsi->ws->ping_payload_len, (enum lws_write_protocol)write_type);
+		n = lws_write(wsi, &wsi->ws->pong_payload_buf[LWS_PRE],
+			      wsi->ws->pong_payload_len, (enum lws_write_protocol)write_type);
 		if (n < 0)
 			return LWS_HP_RET_BAIL_DIE;
 
 		/* well he is sent, mark him done */
-		wsi->ws->ping_pending_flag = 0;
+		wsi->ws->pong_pending_flag = 0;
 		if (wsi->ws->payload_is_close) {
 			// assert(0);
 			/* oh... a close frame was it... then we are done */
@@ -1558,8 +1558,8 @@ rops_close_role_ws(struct lws_context_per_thread *pt, struct lws *wsi)
 #endif
 	lws_free_set_NULL(wsi->ws->rx_ubuf);
 
-	wsi->ws->ping_payload_len = 0;
-	wsi->ws->ping_pending_flag = 0;
+	wsi->ws->pong_payload_len = 0;
+	wsi->ws->pong_pending_flag = 0;
 
 	/* deallocate any active extension contexts */
 
