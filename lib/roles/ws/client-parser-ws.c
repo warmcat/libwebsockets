@@ -445,9 +445,9 @@ spill:
 			if (wsi->ws->close_in_ping_buffer_len)
 				goto ping_drop;
 
-			if (wsi->ws->ping_pending_flag) {
+			if (wsi->ws->pong_pending_flag) {
 				/*
-				 * there is already a pending ping payload
+				 * there is already a pending pong payload
 				 * we should just log and drop
 				 */
 				lwsl_parser("DROP PING since one pending\n");
@@ -461,12 +461,12 @@ spill:
 			}
 
 			/* stash the pong payload */
-			memcpy(wsi->ws->ping_payload_buf + LWS_PRE,
+			memcpy(wsi->ws->pong_payload_buf + LWS_PRE,
 			       &wsi->ws->rx_ubuf[LWS_PRE],
 			       wsi->ws->rx_ubuf_head);
 
-			wsi->ws->ping_payload_len = (uint8_t)wsi->ws->rx_ubuf_head;
-			wsi->ws->ping_pending_flag = 1;
+			wsi->ws->pong_payload_len = (uint8_t)wsi->ws->rx_ubuf_head;
+			wsi->ws->pong_pending_flag = 1;
 
 			/* get it sent as soon as possible */
 			lws_callback_on_writable(wsi);
