@@ -64,14 +64,41 @@ lws_dsh_align(size_t length)
 	return length;
 }
 
+void
+lws_dsh_empty(struct lws_dsh *dsh)
+{
+	lws_dsh_obj_t *obj;
+	size_t oha_len;
+	int n;
+
+	oha_len = sizeof(lws_dsh_obj_head_t) * (unsigned int)dsh->count_kinds;
+
+	/* clear down the obj heads array */
+
+	memset(dsh->oha, 0, oha_len);
+	for (n = 0; n < dsh->count_kinds; n++) {
+		dsh->oha[n].kind = n;
+		dsh->oha[n].total_size = 0;
+	}
+
+	/* initially the whole buffer is on the free kind (0) list */
+
+	obj = (lws_dsh_obj_t *)dsh->buf;
+	memset(obj, 0, sizeof(*obj));
+	obj->asize = dsh->buffer_size - sizeof(*obj);
+
+	lws_dll2_add_head(&obj->list, &dsh->oha[0].owner);
+
+	dsh->locally_free = obj->asize;
+	dsh->locally_in_use = 0;
+}
+
 lws_dsh_t *
 lws_dsh_create(lws_dll2_owner_t *owner, size_t buf_len, int _count_kinds)
 {
 	int count_kinds = _count_kinds & 0xff;
-	lws_dsh_obj_t *obj;
 	lws_dsh_t *dsh;
 	size_t oha_len;
-	int n;
 
 	oha_len = sizeof(lws_dsh_obj_head_t) * (unsigned int)(++count_kinds);
 
@@ -86,6 +113,7 @@ lws_dsh_create(lws_dll2_owner_t *owner, size_t buf_len, int _count_kinds)
 
 	/* set convenience pointers to the overallocated parts */
 
+	lws_dll2_clear(&dsh->list);
 	dsh->oha = (lws_dsh_obj_head_t *)&dsh[1];
 	dsh->buf = ((uint8_t *)dsh->oha) + oha_len;
 	dsh->count_kinds = count_kinds;
@@ -94,26 +122,8 @@ lws_dsh_create(lws_dll2_owner_t *owner, size_t buf_len, int _count_kinds)
 	dsh->splitat = 0;
 	dsh->flags = (unsigned int)_count_kinds & 0xff000000u;
 
-	/* clear down the obj heads array */
+	lws_dsh_empty(dsh);
 
-	memset(dsh->oha, 0, oha_len);
-	for (n = 0; n < count_kinds; n++) {
-		dsh->oha[n].kind = n;
-		dsh->oha[n].total_size = 0;
-	}
-
-	/* initially the whole buffer is on the free kind (0) list */
-
-	obj = (lws_dsh_obj_t *)dsh->buf;
-	memset(obj, 0, sizeof(*obj));
-	obj->asize = buf_len - sizeof(*obj);
-
-	lws_dll2_add_head(&obj->list, &dsh->oha[0].owner);
-
-	dsh->locally_free = obj->asize;
-	dsh->locally_in_use = 0;
-
-	lws_dll2_clear(&dsh->list);
 	if (owner)
 		lws_dll2_add_head(&dsh->list, owner);
 
@@ -294,6 +304,7 @@ lws_dsh_destroy(lws_dsh_t **pdsh)
 		lws_dll2_foreach_safe(dsh->list.owner, dsh, evict1);
 
 	lws_dll2_remove(&dsh->list);
+	lws_dsh_empty(dsh);
 
 	/* everything else is in one heap allocation */
 

@@ -1930,6 +1930,11 @@ next:
 		 */
 
 #if defined(LWS_WITH_NETWORK)
+
+#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
+		lws_ss_proxy_destroy(context);
+#endif
+
 		if (context->event_loop_ops->destroy_context1) {
 			lwsl_cx_info(context, "do evlib destroy_context1 and wait");
 			context->event_loop_ops->destroy_context1(context);

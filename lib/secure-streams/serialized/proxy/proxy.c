@@ -191,19 +191,29 @@ lws_sss_proxy_onward_rx(void *userobj, const uint8_t *buf, size_t len, int flags
 	 * in ss -> proxy [ -> client] direction.  This can fail...
 	 */
 
-	if (lws_fi(&m->ss->fic, "ssproxy_dsh_rx_queue_oom"))
-		n = 1;
-	else
+	n = 1;
+	if (m->conn->dsh && !lws_fi(&m->ss->fic, "ssproxy_dsh_rx_queue_oom"))
 		n = lws_ss_serialize_rx_payload(m->conn->dsh, buf, len,
 						flags, rsp);
 	if (n) {
+		if (m->conn->dsh) {
 #if defined(_DEBUG)
-		lws_dsh_describe(m->conn->dsh, __func__);
+			lws_dsh_describe(m->conn->dsh, __func__);
 #endif
-		/*
-		 * We couldn't buffer this rx, eg due to OOM, let's escalate it
-		 * to be a "loss of connection", which it basically is...
-		 */
+			/*
+			 * We couldn't buffer this rx, eg due to OOM, let's
+			 * escalate it to be a "loss of connection", which it
+			 * basically is... as part of that, drop the dshes.
+			 *
+			 * This just affects the one stream that owns the
+			 * dsh, caller should enter stream close flow and not
+			 * send any further payload.
+			 */
+
+			lwsl_warn("%s: dropping SS dsh due to OOM\n", __func__);
+			lws_dsh_empty(m->conn->dsh);
+		}
+
 		return LWSSSSRET_DISCONNECT_ME;
 	}
 
@@ -299,6 +309,12 @@ lws_ss_serialize_state(struct lws_sss_proxy_conn *conn, lws_ss_constate_t state,
 
 	lwsl_info("%s: %s, ord 0x%x\n", __func__, lws_ss_state_name((int)state),
 		  (unsigned int)ack);
+
+	if (!dsh) {
+		/* he can't store anything further on the link */
+		lwsl_notice("%s: dsh for conn was destroyed\n", __func__);
+		return 0;
+	}
 
 	pre[0] = LWSSS_SER_RXPRE_CONNSTATE;
 	pre[1] = 0;
@@ -452,10 +468,22 @@ ss_proxy_onward_txcr(void *userobj, int bump)
 int
 lws_ss_proxy_create(struct lws_context *cx, const char *bind, int port)
 {
+	assert(cx->txp_ppath.ops_onw);
 	return cx->txp_ppath.ops_onw->init_proxy_server(cx,
 						&lws_txp_inside_proxy,
 						NULL,
 						&cx->txp_ppath,
 						cx->txp_ssproxy_info,
 						bind, port);
+}
+
+lws_ss_state_return_t
+lws_ss_proxy_destroy(struct lws_context *cx)
+{
+	if (!cx->txp_ppath.ops_onw)
+		return 0;
+
+	if (!cx->txp_ppath.ops_onw->destroy_proxy_server)
+		return 0;
+	return cx->txp_ppath.ops_onw->destroy_proxy_server(cx);
 }

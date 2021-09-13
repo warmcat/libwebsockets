@@ -94,6 +94,9 @@ lws_sss_proxy_transport_wsi_cb(struct lws *wsi, enum lws_callback_reasons reason
 
 		assert(conn->txp_path.priv_onw == wsi);
 
+		if (conn->ss)
+			conn->ss = NULL;
+
 		/* sever relationship with conn */
 		lws_set_opaque_user_data(wsi, NULL);
 

@@ -101,6 +101,8 @@ lws_sspc_deserialize_parse(lws_sspc_handle_t *hh, const uint8_t *cp, size_t len,
 	uint32_t flags;
 	int n;
 
+//	lwsl_notice("%s: len %u, par->ps %d, par->rem %d\n", __func__, (unsigned int)len, (int)par->ps, (int)par->rem);
+
 	while (len--) {
 
 		switch (par->ps) {
@@ -362,14 +364,14 @@ payload_ff:
 			/*
 			 * Client receives some RX from proxy
 			 *
-			 * Pass whatever payload we have to ss user
+			 * Pass whatever payload we have to ss user.
 			 */
 
 			h = lws_container_of(par, lws_sspc_handle_t,
 					     parser);
 			h->txc.peer_tx_cr_est -= n;
 
-			lwsl_sspc_info(h, "P2C RX: len %d", (int)n);
+			// lwsl_sspc_info(h, "P2C RX: len %d", (int)n);
 
 			if (ssi->rx && client_pss_to_sspc_h(pss, ssi)) {
 				/* we still have an sspc handle */

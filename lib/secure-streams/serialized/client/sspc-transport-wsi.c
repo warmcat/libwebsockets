@@ -283,5 +283,5 @@ const lws_transport_client_ops_t txp_ops_sspc_wsi = {
 	.req_write		= lws_sss_transport_wsi_req_write,
 	._write			= lws_sss_transport_wsi_write,
 	._close			= lws_sss_transport_wsi_close,
-	.event_stream_up	= lws_sss_transport_wsi_stream_up
+	.event_stream_up	= lws_sss_transport_wsi_stream_up,
 };

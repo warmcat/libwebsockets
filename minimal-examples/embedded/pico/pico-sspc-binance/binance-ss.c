@@ -10,8 +10,6 @@
  *
  * This is a version of minimal-secure-streams-binance that uses a custom
  * SS Serialization transport.
- *
- * Because this links against the cut-down liblws-sspc instead of libwebsockets,
  */
 
 #define LWS_SS_USE_SSPC

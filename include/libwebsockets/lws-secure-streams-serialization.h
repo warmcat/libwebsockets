@@ -284,7 +284,7 @@ typedef enum {
 	  */
 	 LWSSSS_LLM_PONG,
 	 /**<
-	  * Either side responds to peer's PING
+	  * Either side responds to peer's PING.
 	  *
 	  *  - 0: LWSSSS_LLM_PONG
 	  *  - 1: 8-byte MSB-first us resolution unix time from PING
@@ -307,7 +307,7 @@ typedef enum {
 	 /**<
 	  * Either side can issue this to indicate they no longer trust the
 	  * transport link.  They should close all their channels and enter a
-	  * state waiting for
+	  * state trying to resync using 3-way PINGs
 	  */
 };
 
@@ -368,7 +368,9 @@ typedef struct lws_transport_client_ops {
  	 * LWS_PRE usable behind buf */
  	lws_ss_state_return_t (*event_read)(lws_transport_priv_t priv,
  					    const uint8_t *buf, size_t len);
- 	/**< lwn bytes at buf have been received */
+ 	/**< len bytes at buf have been received */
+ 	void (*lost_coherence)(lws_transport_priv_t priv);
+ 	/**< report that the framing inside the mux channel is broken */
  	void (*_close)(lws_transport_priv_t priv);
  	/**< Close the channel to the proxy */
  	void (*event_stream_up)(lws_transport_priv_t priv);
@@ -378,7 +380,7 @@ typedef struct lws_transport_client_ops {
 	lws_ss_state_return_t (*event_can_write)(struct lws_sspc_handle *h,
 						 size_t metadata_limit);
 	/**< Called when possible to write on the transport, after req_write */
-	lws_ss_state_return_t (*event_closed)(struct lws_sspc_handle *h);
+	lws_ss_state_return_t (*event_closed)(lws_transport_priv_t priv /*struct lws_sspc_handle *h */);
 	/**< we notice an onward proxy connection had closed */
 	uint32_t			flags;
 	/**< Used for DSH creation flags */
@@ -397,6 +399,7 @@ typedef struct lws_transport_proxy_ops {
 			   const char *bind, int port);
 	/**< Instantiate a proxy transport... bind/port are as shown for wsi
 	 * transport, but may be overloaded to provide transport-specific init */
+	int (*destroy_proxy_server)(struct lws_context *context);
 	lws_ss_state_return_t (*event_new_conn)(struct lws_context *cx,
 				const struct lws_transport_proxy_ops *txp_ops_inward,
 				lws_transport_priv_t txp_priv_inward,
@@ -534,7 +537,7 @@ typedef struct lws_transport_mux {
 	uint32_t				fin[LWS_MUCH_RANGE / 32];
 	lws_dll2_owner_t			pending_tx;
 	lws_dll2_owner_t			owner; /* lws_mux_ch_t */
-	uint8_t					state;
+	uint8_t					link_state;
 	uint8_t					issue_ping:1;
 	uint8_t					issue_pong:1;
 	uint8_t					issue_pongack:1;

@@ -100,7 +100,7 @@ go_on:
 void
 lws_transport_set_link(lws_transport_mux_t *tm, int link_state)
 {
-	if (tm->state && !link_state) {
+	if (tm->link_state && !link_state) {
 		lws_transport_mux_ch_t *mc;
 
 		lwsl_user("%s: ******* transport mux link is DOWN\n", __func__);
@@ -111,10 +111,14 @@ lws_transport_set_link(lws_transport_mux_t *tm, int link_state)
 			lws_transport_mux_destroy_channel(&mc);
 		}
 		memset(tm->_open, 0, sizeof(tm->_open));
-	} else if (!tm->state && link_state) {
+		tm->issue_ping = 1;
+		tm->awaiting_pong = 0;
+		lws_sul_schedule((struct lws_context *)tm->cx, 0, &tm->sul_ping,
+				 sul_ping_cb, 2 * LWS_US_PER_SEC);
+	} else if (!tm->link_state && link_state) {
 		lwsl_user("%s: ******* transport mux link is UP\n", __func__);
 	}
-	tm->state = (uint8_t)link_state;
+	tm->link_state = (uint8_t)link_state;
 }
 
 void
@@ -222,6 +226,10 @@ lws_transport_mux_pending(lws_transport_mux_t *tm, uint8_t *buf, size_t *len,
 	/* pings and pongs go first */
 
 	if (tm->issue_ping) {
+		if (tm->link_state == LWSTM_TRANSPORT_DOWN) {
+			lwsl_info("%s: send RESET_TRANSPORT\n", __func__);
+			*p++ = LWSSSS_LLM_RESET_TRANSPORT;
+		}
 		lwsl_info("%s: issuing PING\n", __func__);
 		*p++ = LWSSSS_LLM_PING;
 		tm->us_ping_out = (uint64_t)lws_now_usecs();
@@ -255,6 +263,10 @@ lws_transport_mux_pending(lws_transport_mux_t *tm, uint8_t *buf, size_t *len,
 		p += 8;
 		tm->issue_pongack = 0;
 		lws_sul_cancel(&tm->sul_ping);
+		tm->awaiting_pong = 0;
+		lws_sul_schedule((struct lws_context *)tm->cx, 0, &tm->sul_ping,
+				  sul_ping_cb, tm->info.ping_interval_us);
+
 		lws_transport_set_link(tm, LWSTM_OPERATIONAL);
 		cbs->txp_req_write(tm);
 	}
@@ -276,7 +288,7 @@ lws_transport_mux_pending(lws_transport_mux_t *tm, uint8_t *buf, size_t *len,
 		goto issue;
 
 
-	if (tm->state == LWSTM_TRANSPORT_DOWN)
+	if (tm->link_state == LWSTM_TRANSPORT_DOWN)
 		/*
 		 * We can't do anything except PING / PONG probes if the
 		 * transport state is down
@@ -357,7 +369,7 @@ lws_transport_mux_pending(lws_transport_mux_t *tm, uint8_t *buf, size_t *len,
 
 			if (mc->state == LWSTMC_OPERATIONAL) {
 				lws_dll2_remove(&mc->list_pending_tx);
-				//lwsl_notice("%s: passing up  event_can_write\n",
+				// lwsl_notice("%s: passing up  event_can_write\n",
 				//		__func__);
 
 				if (cbs->txp_can_write(mc))
@@ -412,11 +424,19 @@ lws_transport_mux_rx_parse(lws_transport_mux_t *tm,
 				tm->mp_ctr = 8;
 				tm->mp_state = LWSTMCPAR_T64_1;
 				break;
+			case LWSSSS_LLM_RESET_TRANSPORT:
+				/*
+				 * The other side is telling us he lost
+				 * framing coherence, the transport must be
+				 * reset
+				 */
+				lws_transport_set_link(tm, LWSTM_TRANSPORT_DOWN);
+				break;
 			default:
 				/* uhhh... */
 				lwsl_warn("%s: unknown mux cmd 0x%x\n",
 						__func__, tm->mp_cmd);
-				assert(0); /* temp */
+				// assert(0); /* temp */
 				goto fail_transport;
 			}
 			break;
@@ -449,9 +469,9 @@ lws_transport_mux_rx_parse(lws_transport_mux_t *tm,
 				 * we ask to open it? */
 				mc = lws_transport_mux_get_channel(tm, tm->mp_idx);
 				if (!mc) {
-					lwsl_warn("%s: (N)ACK for open we don't "
+					lwsl_warn("%s: (N)ACK for open %u we don't "
 						  "remember asking for\n",
-						  __func__);
+						  __func__, tm->mp_idx);
 					break;
 				}
 				if (tm->_open[tm->mp_idx >> 5] &
@@ -569,8 +589,16 @@ lws_transport_mux_rx_parse(lws_transport_mux_t *tm,
 			if (av > tm->mp_pay)
 				av = tm->mp_pay;
 			mc = lws_transport_mux_get_channel(tm, tm->mp_idx);
-			if (mc)
-				cbs->payload(mc, buf, av);
+			if (mc) {
+				if (cbs->payload(mc, buf, av)) {
+					/*
+					 * indication of broken framing...
+					 * other outcomes handled at SSPC layer
+					 */
+
+					goto fail_transport;
+				}
+			}
 			buf += av;
 			// lwsl_notice("%s: mp_pay %d -> %d\n", __func__,
 			//   (int)tm->mp_pay, (int)(tm->mp_pay - av));
@@ -586,6 +614,7 @@ lws_transport_mux_rx_parse(lws_transport_mux_t *tm,
 				if (tm->mp_cmd == LWSSSS_LLM_PING) {
 					lwsl_user("%s: got PING\n", __func__);
 					tm->mp_state = LWSTMCPAR_CMD;
+					tm->us_ping_in = tm->mp_time;
 					tm->issue_pong = 1;
 					cbs->txp_req_write(tm);
 					break;
@@ -596,8 +625,8 @@ lws_transport_mux_rx_parse(lws_transport_mux_t *tm,
 							(unsigned long long)tm->mp_time);
 					tm->us_unixtime_peer = tm->mp_time - get_us_timeofday();
 					tm->mp_state = LWSTMCPAR_CMD;
-					lws_sul_cancel(&tm->sul_ping);
 					lws_transport_set_link(tm, LWSTM_OPERATIONAL);
+					lws_sul_cancel(&tm->sul_ping);
 					tm->awaiting_pong = 0;
 					lws_sul_schedule((struct lws_context *)tm->cx, 0, &tm->sul_ping,
 							  sul_ping_cb, tm->info.ping_interval_us);
@@ -611,6 +640,16 @@ lws_transport_mux_rx_parse(lws_transport_mux_t *tm,
 			tm->mp_time1 = (tm->mp_time1 << 8) | *buf++;
 			if (--tm->mp_ctr)
 					break;
+
+			tm->mp_state = LWSTMCPAR_CMD;
+
+			if (tm->mp_time != tm->us_ping_out) {
+				lwsl_warn("%s: PONG payload mismatch 0x%llx 0x%llx\n",
+					  __func__, (unsigned long long)tm->mp_time,
+					  (unsigned long long)tm->us_ping_out);
+				break;
+			}
+
 			lwsl_user("%s: got PONG\n", __func__);
 			tm->awaiting_pong = 0;
 			lws_sul_cancel(&tm->sul_ping);
@@ -618,14 +657,13 @@ lws_transport_mux_rx_parse(lws_transport_mux_t *tm,
 					  sul_ping_cb, tm->info.ping_interval_us);
 			tm->issue_pongack = 1;
 			cbs->txp_req_write(tm);
-			tm->mp_state = LWSTMCPAR_CMD;
 			break;
 		}
 
 		continue;
 
 ask_to_send:
-		if (mc)
+		if (mc && lws_dll2_is_detached(&mc->list_pending_tx))
 			lws_dll2_add_tail(&mc->list_pending_tx, &tm->pending_tx);
 
 		cbs->txp_req_write(tm);
@@ -634,6 +672,9 @@ ask_to_send:
 	return 0;
 
 fail_transport:
+
+	lws_transport_set_link(tm, LWSTM_TRANSPORT_DOWN);
+
 	return -1;
 }
 
@@ -689,9 +730,35 @@ lws_transport_mux_destroy_channel(lws_transport_mux_ch_t **_mc)
 	lws_transport_mux_t *tm = lws_container_of(mc->list.owner,
 						lws_transport_mux_t, owner);
 
+	lwsl_notice("%s: mux ch %u\n", __func__, mc->ch_idx);
+
 	if (mc->state >= LWSTMC_PENDING_CREATE_CHANNEL_ACK)
 		/* he only sets the open bit on receipt of the ACK */
-		tm->_open[mc->ch_idx >> 5] &= (lws_mux_ch_idx_t)~(1 << (mc->ch_idx & 31));
+		tm->_open[mc->ch_idx >> 5] &= (lws_mux_ch_idx_t)
+						~(1 << (mc->ch_idx & 31));
+
+	/*
+	 * We must report channel closure... client side
+	 */
+
+	if (tm->info.txp_cpath.ops_in &&
+	    tm->info.txp_cpath.ops_in->event_closed) {
+		lwsl_notice("%s: calling %s event closed\n", __func__,
+				tm->info.txp_cpath.ops_in->name);
+		tm->info.txp_cpath.ops_in->event_closed((lws_transport_priv_t)mc);
+	}
+
+	/*
+	 * We must report channel closure... proxy side
+	 */
+
+	if (tm->info.txp_ppath.ops_in &&
+	    tm->info.txp_ppath.ops_in->event_close_conn) {
+		lwsl_notice("%s: calling %s event_close_conn\n", __func__,
+				tm->info.txp_ppath.ops_in->name);
+		tm->info.txp_ppath.ops_in->event_close_conn(
+				(lws_transport_priv_t)mc->priv);
+	}
 
 	lws_sul_cancel(&mc->sul);
 	lws_dll2_remove(&mc->list_pending_tx);
@@ -717,7 +784,7 @@ lws_transport_mux_create(struct lws_context *cx, lws_transport_info_t *info,
 		tm->cx		= cx;
 		tm->info	= *info;
 		tm->txp_handle	= txp_handle;
-		tm->state	= LWSTM_TRANSPORT_DOWN;
+		tm->link_state	= LWSTM_TRANSPORT_DOWN;
 
 		assert_is_tm(tm);
 

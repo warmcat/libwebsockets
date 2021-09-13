@@ -498,6 +498,10 @@ lws_sspc_request_tx(lws_sspc_handle_t *h)
 	if (!h->us_earliest_write_req)
 		h->us_earliest_write_req = lws_now_usecs();
 
+	lwsl_notice("%s: state %u, conn_req_state %u\n", __func__,
+			(unsigned int)h->state,
+			(unsigned int)h->conn_req_state);
+
 	if (h->state == LPCSCLI_LOCAL_CONNECTED &&
 	    h->conn_req_state == LWSSSPC_ONW_NONE)
 		h->conn_req_state = LWSSSPC_ONW_REQ;

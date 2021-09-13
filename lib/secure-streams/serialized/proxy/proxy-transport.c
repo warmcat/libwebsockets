@@ -75,9 +75,7 @@ lws_ssproxy_txp_close_conn(struct lws_sss_proxy_conn *conn)
 	lws_transport_priv_t epriv;
 
 	conn->txp_path.priv_onw = NULL;
-	lwsl_notice("y\n");
 	epriv = conn->txp_path.priv_onw;
-	lwsl_ss_notice(conn->ss, "cli->prox link closing");
 
 	/*
 	 * If there's an outgoing, proxied SS conn on our behalf, we
@@ -89,7 +87,10 @@ lws_ssproxy_txp_close_conn(struct lws_sss_proxy_conn *conn)
 	 */
 
 	if (conn->ss) {
-		struct lws *cw = conn->ss->wsi;
+		struct lws *cw;
+
+		cw = conn->ss->wsi;
+
 		/*
 		 * conn->ss is the onward connection SS
 		 */
@@ -98,7 +99,7 @@ lws_ssproxy_txp_close_conn(struct lws_sss_proxy_conn *conn)
 				__func__, lws_ss_tag(conn->ss),
 				lws_wsi_tag(conn->ss->wsi));
 
-		/* sever conn relationship with ss about to be deleted */
+		/* sever conn relationship with onward ss about to be deleted */
 
 		conn->ss->wsi = NULL;
 
@@ -117,6 +118,7 @@ lws_ssproxy_txp_close_conn(struct lws_sss_proxy_conn *conn)
 			lws_wsi_close(cw, LWS_TO_KILL_ASYNC);
 		}
 
+		/* destroy the onward ss (setting conn->ss NULL) */
 		lws_ss_destroy(&conn->ss);
 
 		/*
@@ -163,9 +165,9 @@ lws_ssproxy_txp_rx(lws_transport_priv_t txp_priv, const uint8_t *in, size_t len)
 	ssi.state = lws_sss_proxy_onward_state;
 	ssi.flags = 0;
 
-	r = lws_ss_proxy_deserialize_parse(&conn->parser,
-			conn->cx, conn->dsh, in, len,
-			&conn->state, conn, &conn->ss, &ssi);
+	r = lws_ss_proxy_deserialize_parse(&conn->parser, conn->cx, conn->dsh,
+					   in, len, &conn->state, conn,
+					   &conn->ss, &ssi);
 	switch (r) {
 	default:
 		break;

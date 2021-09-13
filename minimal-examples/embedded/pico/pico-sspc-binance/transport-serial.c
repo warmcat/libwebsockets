@@ -142,8 +142,18 @@ serial_handle_events(lws_transport_mux_t *tm)
 		if (cl > rbudget)
 			cl = rbudget;
 		//lwsl_hexdump_level(LLL_NOTICE, rxbuf + rxt, cl);
-		tm->info.txp_cpath.ops_in->event_read(
-				tm->info.txp_cpath.priv_in, rxbuf + rxt, cl);
+		if (tm->info.txp_cpath.ops_in->event_read(
+				tm->info.txp_cpath.priv_in, rxbuf + rxt, cl)) {
+			/*
+			 * The SSS parser can identify the framing is broken,
+			 * in that case the transport needs to re-link up
+			 */
+			tm->info.txp_cpath.ops_in->lost_coherence(
+					tm->info.txp_cpath.priv_in);
+			rxt = rxh;
+			txt = txh;
+			return;
+		}
 		rbudget -= cl;
 		rxt = (rxt + cl) & (sizeof(rxbuf) - 1);
 	}
@@ -153,8 +163,21 @@ serial_handle_events(lws_transport_mux_t *tm)
 		if (cl > rbudget)
 			cl = rbudget;
 		//lwsl_hexdump_level(LLL_NOTICE, rxbuf + rxt, cl);
-		tm->info.txp_cpath.ops_in->event_read(
-				tm->info.txp_cpath.priv_in, rxbuf + rxt, cl);
+		if (tm->info.txp_cpath.priv_in) {
+			/* may have been zapped by lost_coherence already */
+			if (tm->info.txp_cpath.ops_in->event_read(
+				tm->info.txp_cpath.priv_in, rxbuf + rxt, cl)) {
+				/*
+				 * The SSS parser can identify the framing is broken,
+				 * in that case the transport needs to re-link up
+				 */
+				tm->info.txp_cpath.ops_in->lost_coherence(
+						tm->info.txp_cpath.priv_in);
+				rxt = rxh;
+				txt = txh;
+				return;
+			}
+		}
 		rxt = (rxt + cl) & (sizeof(rxbuf) - 1);
 	}
 
@@ -195,8 +218,11 @@ txp_serial_retry_connect(lws_txp_path_client_t *path,
 {
 	lwsl_user("%s\n", __func__);
 
+	if (!path)
+		return 0;
+
 	if (path->ops_onw->event_connect_disposition(h,
-				path->mux->state != LWSTM_OPERATIONAL))
+				path->mux->link_state != LWSTM_OPERATIONAL))
 	        return -1;
 
 	return 0;

@@ -291,7 +291,7 @@ txp_serial_retry_connect(lws_txp_path_client_t *path,
 	lwsl_user("%s\n", __func__);
 
 	if (path->ops_onw->event_connect_disposition(h,
-				a_cpcx.tm->state != LWSTM_OPERATIONAL))
+				a_cpcx.tm->link_state != LWSTM_OPERATIONAL))
 	        return -1;
 
 	return 0;

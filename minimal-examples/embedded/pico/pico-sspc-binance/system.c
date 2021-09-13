@@ -7,8 +7,8 @@
  * Universal Public Domain Dedication.
  *
  *
- * These are apis used inside liblws-sspc that must be wired up to the client
- * host platform.
+ * These are apis used inside libwebsockets.a in LWS_ONLY_SSPC mode, that must
+ * be wired up to the client host platform.
  *
  *   lws_sul_schedule() - use system event loop to schedule event in the future
  *   lws_sul_cancel() - rescind a scheduled event
@@ -23,7 +23,7 @@
 #include <sys/types.h>
 #include <errno.h>
 
-int log_level = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
+int log_level = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE | LLL_INFO;
 
 static const char * const colours[] = {
 	"[31;1m", /* LLL_ERR */
@@ -92,8 +92,8 @@ lws_now_usecs(void)
 }
 
 /*
- * wire up lws-sspc logs to native application logs, we just wire it up to
- * the device console
+ * wire up libwebsockets.a logs to native application logs, we just wire it up
+ * to the device console in our case.  We add the lws loglevel colour scheme.
  */
 
 void
@@ -119,7 +119,8 @@ __lws_logv(lws_log_cx_t *cx, lws_log_prepend_cx_t prep, void *obj,
 		logbuf[n++] = '\n';
 		logbuf[n] = '\0';
 	}
-	printf("%llu: %c%s%s%c[0m", (unsigned long long)lws_now_usecs(), 27, colours[m], logbuf, 27);
+	printf("%llu: %c%s%s: %s%c[0m", (unsigned long long)lws_now_usecs(), 27,
+			colours[m], _fun, logbuf, 27);
 }
 
 

@@ -5,13 +5,13 @@
 #include "hardware/uart.h"
 #include "hardware/irq.h"
 
-/* boilerplate for liblws-sspc Secure Streams */
+/* boilerplate for LWS_ONLY_SSPC Secure Streams */
 #define LWS_SS_USE_SSPC
 #undef STANDALONE
 #define STANDALONE
 #include <libwebsockets.h>
 
-#define RXBUF_SIZE 32768
+#define RXBUF_SIZE 2048
 
 extern lws_dll2_owner_t scheduler;
 extern uint16_t rxh, rxt;

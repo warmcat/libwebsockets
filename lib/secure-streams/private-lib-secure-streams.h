@@ -711,6 +711,9 @@ lws_sss_proxy_onward_rx(void *userobj, const uint8_t *buf, size_t len, int flags
 void
 lws_transport_set_link(lws_transport_mux_t *tm, int link_state);
 
+lws_ss_state_return_t
+lws_ss_proxy_destroy(struct lws_context *cx);
+
 extern const struct ss_pcols ss_pcol_h1;
 extern const struct ss_pcols ss_pcol_h2;
 extern const struct ss_pcols ss_pcol_ws;

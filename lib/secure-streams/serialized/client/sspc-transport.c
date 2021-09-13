@@ -170,16 +170,22 @@ lws_sspc_sul_retry_cb(lws_sorted_usec_list_t *sul)
  */
 
 lws_ss_state_return_t
-lws_sspc_txp_event_closed(lws_sspc_handle_t *h)
+lws_sspc_txp_event_closed(lws_transport_priv_t priv)
 {
 	lws_ss_state_return_t r = LWSSSSRET_OK;
+	lws_sspc_handle_t *h = (lws_sspc_handle_t *)priv;
+
+	lwsl_notice("%s: %p\n", __func__, h);
 
 	if (!h) {
 		lwsl_info("%s: no sspc on client proxy link close", __func__);
 		return LWSSSSRET_OK;
 	}
 
-	lws_dsh_destroy(&h->dsh);
+	h->parser.ps = RPAR_TYPE;
+
+	lws_dsh_empty(h->dsh);
+	h->txp_path.priv_onw = NULL;
 	if (h->ss_dangling_connected && h->ssi.state) {
 
 		lwsl_sspc_notice(h, "setting _DISCONNECTED");
@@ -475,6 +481,18 @@ hangup:
 	return LWSSSSRET_DISCONNECT_ME;
 }
 
+void
+lws_sspc_txp_lost_coherence(lws_transport_priv_t txp_priv)
+{
+	lws_sspc_handle_t *h = (lws_sspc_handle_t *)txp_priv;
+
+	lwsl_err("%s\n", __func__);
+
+	/* pass thru to lower layer, eg, mux */
+
+	h->txp_path.ops_onw->lost_coherence(h->txp_path.priv_onw);
+}
+
 /*
  * The actual client transports bind to this transport ops for "inside sspc".
  * It's like this so we can transparently interpose the mux.
@@ -489,4 +507,5 @@ const lws_transport_client_ops_t lws_txp_inside_sspc = {
 	.event_read			= lws_sspc_txp_rx_from_proxy,
 	.event_can_write		= lws_sspc_txp_tx,
 	.event_closed			= lws_sspc_txp_event_closed,
+	.lost_coherence			= lws_sspc_txp_lost_coherence,
 };

@@ -1378,6 +1378,17 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 #endif
 
 	if (h->wsi) {
+
+		lwsl_warn("%s: conn->ss->wsi %d %d\n", __func__,
+				h->wsi->bound_ss_proxy_conn, h->wsi->client_proxy_onward);
+
+		if (h->wsi->bound_ss_proxy_conn) {
+			struct lws_sss_proxy_conn *conn = (struct lws_sss_proxy_conn *)
+				lws_get_opaque_user_data(h->wsi);
+
+			conn->ss = NULL;
+		}
+
 		/*
 		 * Don't let the wsi point to us any more,
 		 * we (the ss object bound to the wsi) are going away now

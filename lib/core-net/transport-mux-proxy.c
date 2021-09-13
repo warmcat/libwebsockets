@@ -90,7 +90,6 @@ lws_transport_mux_init_proxy_server(struct lws_context *cx,
 	assert(info);
 	assert(info->txp_ppath.ops_onw);
 
-
 	/* let's create the mux... */
 
 	tm = malloc(sizeof(*tm));
@@ -135,6 +134,17 @@ lws_transport_mux_init_proxy_server(struct lws_context *cx,
 			 sul_ping_cb, 1);
 
 	lwsl_user("%s: OK\n", __func__);
+
+	return 0;
+}
+
+static int
+lws_transport_mux_destroy_proxy_server(struct lws_context *cx)
+{
+	if (!cx->txp_ppath.mux)
+		return 0;
+
+	lws_transport_mux_destroy(&cx->txp_ppath.mux);
 
 	return 0;
 }
@@ -225,7 +235,8 @@ static void
 ltm_txp_req_write(lws_transport_mux_t *tm)
 {
 //	lws_transport_mux_proxy_request_tx(tm);
-	tm->info.txp_ppath.ops_onw->proxy_req_write(tm->info.txp_ppath.priv_onw);
+	if (tm->info.txp_ppath.priv_onw)
+		tm->info.txp_ppath.ops_onw->proxy_req_write(tm->info.txp_ppath.priv_onw);
 }
 
 static int
@@ -376,6 +387,7 @@ lws_transport_mux_proxy_read(lws_transport_priv_t priv,
 const lws_transport_proxy_ops_t lws_transport_mux_proxy_ops = {
 	.name			= "txpmuxp",
 	.init_proxy_server	= lws_transport_mux_init_proxy_server,
+	.destroy_proxy_server	= lws_transport_mux_destroy_proxy_server,
 	.proxy_read		= lws_transport_mux_proxy_read,
  	.proxy_req_write	= lws_transport_mux_proxy_req_write,
  	.proxy_write		= lws_transport_mux_proxy_write,

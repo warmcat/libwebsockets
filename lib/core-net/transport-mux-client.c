@@ -99,7 +99,7 @@ lws_transport_mux_retry_connect(lws_txp_path_client_t *path,
 
 	lws_transport_path_client_dump(path, __func__);
 
-	if (path->mux->state != LWSTM_OPERATIONAL) {
+	if (path->mux->link_state != LWSTM_OPERATIONAL) {
 		lwsl_user("%s: transport not operational\n", __func__);
 		goto fail;
 	}
@@ -131,10 +131,17 @@ lws_transport_mux_ch_req_write(lws_transport_priv_t priv)
 	lws_transport_mux_t *tm;
 
 	assert_is_tmch(tmc);
+	if (!tmc->list.owner) {
+		lwsl_err("%s: unlisted tmc %p\n", __func__, tmc);
+		return;
+	}
 	tm = lws_container_of(tmc->list.owner, lws_transport_mux_t, owner);
 	assert_is_tm(tm);
 
 	lws_transport_mux_client_request_tx(tm);
+	/* we want to write inside the channel, so register ch as pending */
+	if (lws_dll2_is_detached(&tmc->list_pending_tx))
+		lws_dll2_add_tail(&tmc->list_pending_tx, &tm->pending_tx);
 }
 #if 0
 static void
@@ -163,7 +170,8 @@ lws_transport_mux_write(lws_transport_priv_t priv, uint8_t *buf, size_t len)
 	buf[-2] = (len >> 8) & 0xff;
 	buf[-1] = len & 0xff;
 
-	tm->info.txp_cpath.ops_onw->_write(tm->info.txp_cpath.priv_onw, buf - 4, len + 4);
+	tm->info.txp_cpath.ops_onw->_write(tm->info.txp_cpath.priv_onw,
+					   buf - 4, len + 4);
 
 	return 0;
 }
@@ -192,8 +200,16 @@ ltm_ch_payload(lws_transport_mux_ch_t *tmc, const uint8_t *buf, size_t len)
 //	lwsl_hexdump_notice(buf, len);
 
 	r = lws_txp_inside_sspc.event_read(tmc->priv, buf, len);
-	if (r)
+	if (r) {
+		/*
+		 * Basically the sspc parser rejected it as malformed... we
+		 * lost something somewhere
+		 *
+		 */
 		lwsl_notice("%s: r %d\n", __func__, r);
+
+		return 1;
+	}
 
 //	return tm->info.txp_cpath.ops_in->event_read(tm->info.txp_cpath.priv_in,
 //							buf, len);
@@ -233,11 +249,12 @@ static int
 ltm_txp_can_write(lws_transport_mux_ch_t *tmc)
 {
 	assert_is_tmch(tmc);
-	return lws_txp_inside_sspc.event_can_write((struct lws_sspc_handle *)tmc->priv, 2048);
+	return lws_txp_inside_sspc.event_can_write(
+			(struct lws_sspc_handle *)tmc->priv, 2048);
 }
 
 static const lws_txp_mux_parse_cbs_t cbs = {
-	.payload		= ltm_ch_payload ,
+	.payload		= ltm_ch_payload,
 	.ch_opens		= ltm_ch_opens,
 	.ch_closes		= ltm_ch_closes,
 	.txp_req_write		= ltm_txp_req_write,
@@ -265,6 +282,39 @@ lws_transport_mux_event_can_write(struct lws_sspc_handle *h,
 	return lws_txp_inside_sspc.event_can_write(h, metadata_limit);
 }
 
+void
+lws_transport_mux_lost_coherence(lws_transport_priv_t priv)
+{
+	lws_transport_mux_t *tm = (lws_transport_mux_t *)priv;
+
+	if (!tm)
+		return;
+	assert_is_tm(tm);
+
+	lwsl_warn("%s: entering link LOST_SYNC\n", __func__);
+
+	lws_transport_set_link(tm, LWSTM_TRANSPORT_DOWN);
+}
+
+lws_ss_state_return_t
+lws_transport_mux_event_closed(lws_transport_priv_t priv)
+{
+	lws_transport_mux_ch_t *tmc = (lws_transport_mux_ch_t *)priv;
+	lws_transport_mux_t *tm = lws_container_of(tmc->list.owner,
+				   lws_transport_mux_t, owner);
+
+	if (!tmc)
+		return 0;
+	assert_is_tmch(tmc);
+	assert_is_tm(tm);
+
+	if (tmc->priv) {
+		lwsl_notice("%s: calling sspc event closed\n", __func__);
+		lws_txp_inside_sspc.event_closed(tmc->priv);
+	}
+
+	return 0;
+}
 
 const lws_transport_client_ops_t lws_transport_mux_client_ops = {
 	.name			= "txpmuxc",
@@ -274,7 +324,9 @@ const lws_transport_client_ops_t lws_transport_mux_client_ops = {
  	._close			= lws_transport_mux_close,
  	.event_stream_up	= lws_transport_mux_stream_up,
 	.event_read		= lws_transport_mux_event_read,
+	.lost_coherence		= lws_transport_mux_lost_coherence,
 	.event_can_write	= lws_transport_mux_event_can_write,
+	.event_closed		= lws_transport_mux_event_closed,
 	.flags			= LWS_DSHFLAG_ENABLE_COALESCE |
 				  LWS_DSHFLAG_ENABLE_SPLIT
 };

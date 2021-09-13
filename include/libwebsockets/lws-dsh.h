@@ -71,6 +71,9 @@ enum {
 LWS_VISIBLE LWS_EXTERN struct lws_dsh *
 lws_dsh_create(lws_dll2_owner_t *owner, size_t buffer_size, int count_kinds);
 
+LWS_VISIBLE LWS_EXTERN void
+lws_dsh_empty(struct lws_dsh *dsh);
+
 /**
  * lws_dsh_destroy() - Destroy a DSH buffer
  *

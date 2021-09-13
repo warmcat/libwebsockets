@@ -509,6 +509,7 @@ struct lws_context {
 	lws_metric_t			*mt_ss_cliprox_conn; /* SS cli->prox conn */
 	lws_metric_t			*mt_ss_cliprox_paylat; /* cli->prox payload latency */
 	lws_metric_t			*mt_ss_proxcli_paylat; /* prox->cli payload latency */
+	lws_dll2_owner_t		ss_proxies;
 #endif
 #endif /* client */
 

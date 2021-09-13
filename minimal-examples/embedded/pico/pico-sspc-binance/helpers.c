@@ -6,8 +6,9 @@
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
  *
- * Since we don't link to libwebsockets library, we need to bring in our own
- * copies of any lws apis we use in the user Binance SS code
+ * Since LWS_ONLY_SSPC chops down libwebsockets.a to have just the pieces needed
+ * for SSPC, we need to bring in our own copies of any other lws apis we use in
+ * the user Binance SS code
  */
 
 #include "private.h"
@@ -137,24 +138,6 @@ lwsl_hexdump_level(int hexdump_level, const void *vbuf, size_t len)
 
 	_lws_log(hexdump_level, "\n");
 }
-
-#if 0
-struct stv {
-	uint32_t tv_sec;
-	uint32_t tv_usec;
-};
-
-uint64_t
-get_us_timeofday(void)
-{
-	struct stv tv;
-
-	gettimeofday((struct timeval *)&tv, NULL);
-
-	return ((uint64_t)((uint64_t)tv.tv_sec * (uint64_t)LWS_US_PER_SEC) +
-			  (uint64_t)tv.tv_usec) + tm->us_unixtime_peer;
-}
-#endif
 
 uint64_t
 get_us_timeofday(void)
