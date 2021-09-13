@@ -1114,8 +1114,8 @@ lws_rxflow_cache(struct lws *wsi, unsigned char *buf, size_t n, size_t len);
 int
 lws_service_flag_pending(struct lws_context *context, int tsi);
 
-static LWS_INLINE int
-lws_has_buffered_out(struct lws *wsi) { return !!wsi->buflist_out; }
+int
+lws_has_buffered_out(struct lws *wsi);
 
 int LWS_WARN_UNUSED_RESULT
 lws_ws_client_rx_sm(struct lws *wsi, unsigned char c);
