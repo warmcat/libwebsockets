@@ -96,11 +96,15 @@ _lws_routing_table_dump(struct lws_context *cx)
 lws_route_uidx_t
 _lws_route_get_uidx(struct lws_context *cx)
 {
+	uint8_t ou;
+
 	if (!cx->route_uidx)
 		cx->route_uidx++;
 
-	while (1) {
-		char again = 0;
+	ou = cx->route_uidx;
+
+	do {
+		uint8_t again = 0;
 
 		/* Anybody in the table already uses the pt's next uidx? */
 
@@ -113,17 +117,18 @@ _lws_route_get_uidx(struct lws_context *cx)
 				cx->route_uidx++;
 				if (!cx->route_uidx)
 					cx->route_uidx++;
-				if (again) {
+				if (cx->route_uidx == ou) {
 					assert(0); /* we have filled up the 8-bit uidx space? */
 					return 0;
 				}
 				again = 1;
+				break;
 			}
 		} lws_end_foreach_dll(d);
 
 		if (!again)
 			return cx->route_uidx++;
-	}
+	} while (1);
 }
 
 lws_route_t *
