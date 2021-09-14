@@ -475,6 +475,8 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		//		__func__, wsi->lc.gutag);
 
 		h->wsi = NULL;
+		h->hanging_som = 0;
+		h->subseq = 0;
 
 #if defined(LWS_WITH_SERVER)
 		lws_pt_lock(pt, __func__);
@@ -820,6 +822,7 @@ malformed:
 		if (h->hanging_som) {
 			h->info.rx(ss_to_userobj(h), NULL, 0, LWSSS_FLAG_EOM);
 			h->hanging_som = 0;
+			h->subseq = 0;
 		}
 
 		wsi->http.writeable_len = h->writeable_len = 0;
