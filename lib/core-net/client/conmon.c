@@ -95,7 +95,7 @@ lws_conmon_append_copy_new_dns_results(struct lws *wsi,
 			size_t cl = cai->ai_canonname ?
 					strlen(cai->ai_canonname) + 1 : 0;
 
-			ai = lws_malloc(al + cl, __func__);
+			ai = lws_malloc(al + cl + 1, __func__);
 			if (!ai) {
 				lwsl_warn("%s: OOM\n", __func__);
 				return 1;
