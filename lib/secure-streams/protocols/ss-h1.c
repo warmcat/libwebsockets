@@ -462,6 +462,12 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		lws_metrics_caliper_report_hist(h->cal_txn, wsi);
 		lwsl_info("%s: %s CLIENT_CONNECTION_ERROR: %s\n", __func__,
 			  h->lc.gutag, in ? (const char *)in : "none");
+		if (h->ss_dangling_connected) {
+			/* already disconnected, no action for DISCONNECT_ME */
+			r = lws_ss_event_helper(h, LWSSSCS_DISCONNECTED);
+			if (r != LWSSSSRET_OK)
+				return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
+		}
 		/* already disconnected, no action for DISCONNECT_ME */
 		r = lws_ss_event_helper(h, LWSSSCS_UNREACHABLE);
 		if (r) {
