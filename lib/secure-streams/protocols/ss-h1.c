@@ -649,6 +649,7 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		lws_sul_cancel(&h->sul);
 
 		if (h->prev_ss_state != LWSSSCS_CONNECTED) {
+			wsi->client_suppress_CONNECTION_ERROR = 1;
 			r = lws_ss_event_helper(h, LWSSSCS_CONNECTED);
 			if (r != LWSSSSRET_OK)
 				return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
@@ -827,6 +828,7 @@ malformed:
 				!strcmp(h->policy->u.http.method, "PUT") ||
 				!strcmp(h->policy->u.http.method, "POST"))) {
 
+			wsi->client_suppress_CONNECTION_ERROR = 1;
 			r = lws_ss_event_helper(h, LWSSSCS_CONNECTED);
 			if (r)
 				return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
@@ -1097,6 +1099,7 @@ malformed:
 			 */
 			lws_metrics_caliper_report_hist(h->cal_txn, (struct lws *)NULL);
 #endif
+			wsi->client_suppress_CONNECTION_ERROR = 1;
 			r = lws_ss_event_helper(h, LWSSSCS_CONNECTED);
 			if (r)
 				return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
