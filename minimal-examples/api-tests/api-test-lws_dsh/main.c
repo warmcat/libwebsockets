@@ -92,85 +92,6 @@ bail:
 }
 
 int
-test2(void)
-{
-	struct lws_dsh *dsh, *dsh2;
-	lws_dll2_owner_t owner;
-	uint8_t blob[4096];
-
-	memset(blob, 0, sizeof(blob));
-
-	/*
-	 * test 2: multiple dsh, overflow allocation and dynamic destroy
-	 */
-
-	lws_dll2_owner_clear(&owner);
-
-	dsh = lws_dsh_create(&owner, 4096, 2);
-	if (!dsh) {
-		lwsl_err("%s: Failed to create dsh1\n", __func__);
-
-		return 1;
-	}
-
-	dsh2 = lws_dsh_create(&owner, 4096, 2);
-	if (!dsh2) {
-		lwsl_err("%s: Failed to create dsh2\n", __func__);
-
-		goto bail;
-	}
-
-	if (lws_dsh_alloc_tail(dsh, 0, blob, 4000, NULL, 0)) {
-		lwsl_err("%s: Failed to alloc 1\n", __func__);
-
-		goto bail2;
-	}
-
-	if (lws_dsh_alloc_tail(dsh2, 0, "hello", 5, NULL, 0)) {
-		lwsl_err("%s: Failed to alloc 2\n", __func__);
-
-		goto bail2;
-	}
-
-	/*
-	 * We create this logically on dsh.  But there's no room for the body.
-	 * It should figure out it can use space on dsh2.
-	 */
-
-	if (lws_dsh_alloc_tail(dsh, 0, blob, 2000, NULL, 0)) {
-		lwsl_err("%s: Failed to alloc 3\n", __func__);
-
-		goto bail2;
-	}
-
-	if (lws_dsh_alloc_tail(dsh2, 0, "hello again", 11, NULL, 0)) {
-		lwsl_err("%s: Failed to alloc 4\n", __func__);
-
-		goto bail2;
-	}
-
-	/*
-	 * When we destroy dsh2 it will try to migrate out the 2000 allocation
-	 * from there but find there is no space in dsh1.  It should handle it
-	 * by logicalling dropping the object.
-	 */
-
-	lws_dsh_destroy(&dsh2);
-	lws_dsh_destroy(&dsh);
-
-	return 0;
-
-bail2:
-	lws_dsh_destroy(&dsh2);
-
-bail:
-	lws_dsh_destroy(&dsh);
-
-	return 1;
-
-}
-
-int
 test3(void)
 {
 	struct lws_dsh *dsh, *dsh2;
@@ -429,10 +350,6 @@ int main(int argc, const char **argv)
 
 	n = test1();
 	lwsl_user("%s: test1: %d\n", __func__, n);
-	ret |= n;
-
-	n = test2();
-	lwsl_user("%s: test2: %d\n", __func__, n);
 	ret |= n;
 
 	n = test3();
