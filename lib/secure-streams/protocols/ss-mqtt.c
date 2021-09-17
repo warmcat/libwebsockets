@@ -490,7 +490,7 @@ secstream_connect_munge_mqtt(lws_ss_handle_t *h, char *buf, size_t len,
 	}
 
 	ct->ccp.keep_alive		= h->policy->u.mqtt.keep_alive;
-	ct->ccp.clean_start		= h->policy->u.mqtt.clean_start;
+	ct->ccp.clean_start		= (h->policy->u.mqtt.clean_start & 1u);
 	ct->ccp.will_param.qos		= h->policy->u.mqtt.will_qos;
 	ct->ccp.will_param.retain	= h->policy->u.mqtt.will_retain;
 	ct->ccp.aws_iot			= h->policy->u.mqtt.aws_iot;

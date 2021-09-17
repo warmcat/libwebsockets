@@ -70,8 +70,10 @@ typedef struct lws_mqtt_client_connect_param_s {
 	uint16_t 			keep_alive;	/* MQTT keep alive
 							   interval in
 							   seconds */
-	uint8_t 			clean_start;	/* MQTT clean
+	uint8_t 			clean_start:1;	/* MQTT clean
 							   session */
+	uint8_t				client_id_nofree:1;
+	/**< do not free the client id */
 	struct {
 		const char 		*topic;
 		const char 		*message;
@@ -143,6 +145,8 @@ typedef enum {
 
 /* flags from byte 8 of C_TO_S CONNECT */
 typedef enum {
+	LMQCFT_CLIENT_ID_NOFREE					= (1 << 8),
+	/* only the low 8 are standardized and go out in the protocol */
 	LMQCFT_USERNAME						= (1 << 7),
 	LMQCFT_PASSWORD						= (1 << 6),
 	LMQCFT_WILL_RETAIN					= (1 << 5),

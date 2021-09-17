@@ -77,7 +77,7 @@ lws_mqtt_client_send_connect(struct lws *wsi)
 		*p++ = 'T';
 		*p++ = 'T';
 		*p++ = MQTT_VER_3_1_1;
-		*p++ = c->conn_flags;
+		*p++ = (uint8_t)c->conn_flags;
 		lws_ser_wu16be(p, c->keep_alive_secs);
 		p += 2;
 

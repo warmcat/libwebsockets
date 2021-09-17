@@ -41,6 +41,7 @@ static const lws_mqtt_client_connect_param_t client_connect_param = {
 	.client_id			= "lwsMqttClient",
 	.keep_alive			= 60,
 	.clean_start			= 1,
+	.client_id_nofree		= 1,
 	.will_param = {
 		.topic			= "good/bye",
 		.message		= "sign-off",
