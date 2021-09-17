@@ -120,122 +120,15 @@ search_best_free(struct lws_dll2 *d, void *user)
 	return 0;
 }
 
-static int
-try_foreign(struct lws_dll2 *d, void *user)
-{
-	struct lws_dsh_search *s = (struct lws_dsh_search *)user;
-	lws_dsh_t *dsh1 = lws_container_of(d, lws_dsh_t, list);
-
-	if (dsh1 == s->already_checked)
-		return 0;
-
-	if (dsh1->being_destroyed)
-		return 0;
-
-	if (dsh1->count_kinds < s->kind + 1)
-		return 0;
-
-	lwsl_debug("%s: actual try_foreign: dsh %p (free list size %d)\n",
-			__func__, dsh1, dsh1->oha[0].owner.count);
-
-	s->this_dsh = dsh1;
-	if (lws_dll2_foreach_safe(&dsh1->oha[0].owner, s, search_best_free))
-		return 1;
-
-	return 0;
-}
-
-static int
-free_foreign(struct lws_dll2 *d, void *user)
-{
-	lws_dsh_obj_t *obj = lws_container_of(d, lws_dsh_obj_t, list);
-	lws_dsh_t *dsh = (lws_dsh_t *)user;
-	void *p = (void *)&obj[1];
-
-	if (obj->dsh != dsh)
-		lws_dsh_free(&p);
-
-	return 0;
-}
-
-static int
-evict2(struct lws_dll2 *d, void *user)
-{
-	lws_dsh_obj_t *obj = lws_container_of(d, lws_dsh_obj_t, list);
-	lws_dsh_t *dsh = (lws_dsh_t *)user;
-	void *p;
-
-	if (obj->dsh != dsh)
-		return 0;
-
-	/*
-	 * If we are here, it means obj is a live object that is allocated on
-	 * the dsh being destroyed, from a different dsh.  We need to migrate
-	 * the object to a dsh that isn't being destroyed.
-	 */
-
-	lwsl_debug("%s: migrating object size %zu\n", __func__, obj->size);
-
-	if (_lws_dsh_alloc_tail(dsh, 0, (void *)&obj[1], obj->size, NULL, 0, &obj->list)) {
-		lwsl_notice("%s: failed to migrate object\n", __func__);
-		/*
-		 * only thing we can do is drop the logical object
-		 */
-		p = (uint8_t *)&obj[1];
-		lws_dsh_free(&p);
-	}
-
-	return 0;
-}
-
-static int
-evict1(struct lws_dll2 *d, void *user)
-{
-	lws_dsh_t *dsh1 = lws_container_of(d, lws_dsh_t, list);
-	lws_dsh_t *dsh = (lws_dsh_t *)user;
-	int n;
-
-	if (dsh1->being_destroyed)
-		return 0;
-
-	/*
-	 * For every dsh that's not being destroyed, send every object to
-	 * evict2 for checking.
-	 */
-
-	lwsl_debug("%s: checking dsh %p\n", __func__, dsh1);
-
-	for (n = 1; n < dsh1->count_kinds; n++) {
-		lws_dll2_describe(&dsh1->oha[n].owner, "check dsh1");
-		lws_dll2_foreach_safe(&dsh1->oha[n].owner, dsh, evict2);
-	}
-
-	return 0;
-}
-
 void
 lws_dsh_destroy(lws_dsh_t **pdsh)
 {
 	lws_dsh_t *dsh = *pdsh;
-	int n;
 
 	if (!dsh)
 		return;
 
 	dsh->being_destroyed = 1;
-
-	/* we need to explicitly free any of our allocations in foreign dsh */
-
-	for (n = 1; n < dsh->count_kinds; n++)
-		lws_dll2_foreach_safe(&dsh->oha[n].owner, dsh, free_foreign);
-
-	/*
-	 * We need to have anybody else with allocations in us evict them
-	 * and make a copy in a buffer that isn't being destroyed
-	 */
-
-	if (dsh->list.owner)
-		lws_dll2_foreach_safe(dsh->list.owner, dsh, evict1);
 
 	lws_dll2_remove(&dsh->list);
 
@@ -278,19 +171,9 @@ _lws_dsh_alloc_tail(lws_dsh_t *dsh, int kind, const void *src1, size_t size1,
 		lws_dll2_foreach_safe(&dsh->oha[0].owner, &s, search_best_free);
 
 	if (!s.best) {
-		/*
-		 * Let's see if any other buffer has room
-		 */
-		s.already_checked = dsh;
+		lwsl_notice("%s: no buffer has space\n", __func__);
 
-		if (dsh && dsh->list.owner)
-			lws_dll2_foreach_safe(dsh->list.owner, &s, try_foreign);
-
-		if (!s.best) {
-			lwsl_notice("%s: no buffer has space\n", __func__);
-
-			return 1;
-		}
+		return 1;
 	}
 
 	/* anything coming out of here must be aligned */
