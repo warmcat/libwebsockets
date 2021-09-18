@@ -942,7 +942,7 @@ endif()
 
 if (LWS_HAVE_LIBCAP)
 	find_library(LIBCAP_LIBRARIES NAMES cap)
-	list(APPEND LIB_LIST ${LIBCAP_LIBRARIES} )
+	list(APPEND LIB_LIST_AT_END ${LIBCAP_LIBRARIES} )
 endif()
 
 if (LWS_WITH_PLUGINS_BUILTIN)
@@ -1006,7 +1006,10 @@ set(CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 message("DIR ${libwebsockets_DIR} CMP ${CMAKE_MODULE_PATH}")
 
 if (LWS_WITH_MINIMAL_EXAMPLES)
-	add_subdirectory(minimal-examples)
+	if (LWS_WITH_SECURE_STREAMS)
+		add_subdirectory(minimal-examples)
+	endif()
+	add_subdirectory(minimal-examples-lowlevel)
 endif()
 
 if (NOT LWS_WITHOUT_TESTAPPS)

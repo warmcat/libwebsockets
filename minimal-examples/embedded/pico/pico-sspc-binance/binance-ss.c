@@ -28,10 +28,7 @@ typedef struct range {
 	unsigned int		samples;
 } range_t;
 
-typedef struct binance {
-	struct lws_ss_handle 	*ss;
-	void			*opaque_data;
-
+LWS_SS_USER_TYPEDEF
 	uint64_t		data_in;
 	uint64_t		data_in_last_sec;
 
@@ -99,7 +96,8 @@ sul_hz_cb(lws_sorted_usec_list_t *sul)
 			    (unsigned long)((bin->e_lat_range.sum /
 					   bin->e_lat_range.samples) / 1000),
 			    bin->e_lat_range.samples,
-			    (unsigned long)((bin->data_in - bin->data_in_last_sec) / 1024));
+			    (unsigned long)((bin->data_in -
+					     bin->data_in_last_sec) / 1024));
 
 	range_reset(&bin->e_lat_range);
 	range_reset(&bin->price_range);
@@ -217,11 +215,7 @@ binance_state(void *userobj, void *h_src, lws_ss_constate_t state,
 	return LWSSSSRET_OK;
 }
 
-const lws_ss_info_t ssi_binance = {
-	.handle_offset		  = offsetof(binance_t, ss),
-	.opaque_user_data_offset  = offsetof(binance_t, opaque_data),
+LWS_SS_INFO("binance", binance_t)
 	.rx			  = binance_rx,
 	.state			  = binance_state,
-	.user_alloc		  = sizeof(binance_t),
-	.streamtype		  = "binance", /* bind to corresponding policy */
 };
