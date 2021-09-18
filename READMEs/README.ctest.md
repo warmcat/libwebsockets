@@ -282,7 +282,7 @@ named fixture "hcm_srv", itself with an 800s timeout
 
 ```
 	set_tests_properties(st_hcm_srv PROPERTIES
-       		WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/http-server/minimal-http-server-tls
+       		WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-server/minimal-http-server-tls
 		FIXTURES_SETUP hcm_srv
 		TIMEOUT 800)
 	set_tests_properties(ki_hcm_srv PROPERTIES
@@ -296,7 +296,7 @@ test (http-client-multi) we are testing
 	set_tests_properties(http-client-multi
 			     PROPERTIES
 			     FIXTURES_REQUIRED "hcm_srv"
-			     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/http-client/minimal-http-client-multi
+			     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-client/minimal-http-client-multi
 			     TIMEOUT 50)
 ```
 

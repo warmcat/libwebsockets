@@ -433,6 +433,7 @@ lws_ss_event_helper(lws_ss_handle_t *h, lws_ss_constate_t cs)
 			cs == LWSSSCS_UNREACHABLE &&
 			h->wsi && h->wsi->dns_reachability);
 		h->h_in_svc = NULL;
+
 #if defined(LWS_WITH_SERVER)
 		if ((h->info.flags & LWSSSINFLAGS_ACCEPTED) &&
 		    cs == LWSSSCS_DISCONNECTED)
@@ -1502,7 +1503,7 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 #endif
 
 #if defined(LWS_WITH_SERVER)
-	if (v)
+	if (v && (h->info.flags & LWSSSINFLAGS_SERVER))
 		/*
 		 * For server, the policy describes a vhost that implements the
 		 * server, when we take down the ss, we take down the related

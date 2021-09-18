@@ -549,7 +549,7 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (h->ss_dangling_connected) {
 			/* already disconnected, no action for DISCONNECT_ME */
 			r = lws_ss_event_helper(h, LWSSSCS_DISCONNECTED);
-			if (r != LWSSSSRET_OK)
+			if (r == LWSSSSRET_DESTROY_ME)
 				return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 		}
 		break;
@@ -919,7 +919,7 @@ malformed:
 	case LWS_CALLBACK_CLIENT_HTTP_WRITEABLE:
 
 		if (!h || !h->info.tx) {
-			lwsl_notice("%s: no handle / tx\n", __func__);
+			lwsl_debug("%s: no handle / tx\n", __func__);
 			return 0;
 		}
 

@@ -395,6 +395,7 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		 * The struct *x is in the lwsac... the ca_der it points to
 		 * is individually allocated from the heap
 		 */
+
 		a->curr[LTY_X509].x->ca_der = lws_malloc((unsigned int)a->count, "ssx509");
 		if (!a->curr[LTY_X509].x->ca_der)
 			goto oom;
@@ -1168,7 +1169,7 @@ lws_ss_policy_parse_abandon(struct lws_context *context)
 {
 	struct policy_cb_args *args = (struct policy_cb_args *)context->pol_args;
 	lws_ss_x509_t *x;
-
+lwsl_notice("%s\n", __func__);
 	x = args->heads[LTY_X509].x;
 	while (x) {
 		/*
@@ -1206,8 +1207,10 @@ lws_ss_policy_parse_file(struct lws_context *cx, const char *filepath)
 	uint8_t buf[512];
 	int n, m, fd = lws_open(filepath, LWS_O_RDONLY);
 
-	if (fd < 0)
+	if (fd < 0) {
+		lwsl_cx_err(cx, "Unable to open policy '%s'", filepath);
 		return LEJP_REJECT_UNKNOWN;
+	}
 
 	do {
 		n = (int)read(fd, buf, sizeof(buf));

@@ -66,6 +66,7 @@ struct lws_sspc_handle;
 #define lws_ss_to_user_object		lws_sspc_to_user_object
 #define lws_ss_change_handlers		lws_sspc_change_handlers
 #define lws_smd_ss_rx_forward		lws_smd_sspc_rx_forward
+#define lws_ss_server_ack		lws_sspc_server_ack
 #define lws_ss_tag			lws_sspc_tag
 #define _lws_fi_user_ss_fi		_lws_fi_user_sspc_fi
 #define lwsl_ss_get_cx			lwsl_sspc_get_cx
@@ -348,6 +349,9 @@ lws_sspc_to_user_object(struct lws_sspc_handle *h);
 LWS_VISIBLE LWS_EXTERN void
 lws_sspc_change_handlers(struct lws_sspc_handle *h,
 			 lws_sscb_rx rx,lws_sscb_tx tx, lws_sscb_state state);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_sspc_server_ack(struct lws_sspc_handle *h, int nack);
 
 
 /*

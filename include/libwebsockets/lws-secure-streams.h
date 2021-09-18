@@ -248,6 +248,28 @@ typedef struct lws_ss_info {
 
 } lws_ss_info_t;
 
+#define LWS_SS_USER_TYPEDEF \
+	typedef struct { \
+		struct lws_ss_handle 	*ss; \
+		void			*opaque_data;
+
+#define LWS_SS_INFO(_streamtype, _type) \
+	const lws_ss_info_t ssi_##_type = { \
+		.handle_offset = offsetof(_type, ss), \
+		.opaque_user_data_offset = offsetof(_type, opaque_data), \
+		.user_alloc = sizeof(_type), \
+		.streamtype = _streamtype,
+
+#define lws_ss_from_user(_u)		(_u)->ss
+#define lws_ss_opaque_from_user(_u)	(_u)->opaque_data
+#define lws_ss_cx_from_user(_u)		lws_ss_get_context((_u)->ss)
+
+#if defined(LWS_SS_USE_SSPC)
+#define lws_context_info_defaults(_x, _y) _lws_context_info_defaults(_x, NULL)
+#else
+#define lws_context_info_defaults(_x, _y) _lws_context_info_defaults(_x, _y)
+#endif
+
 /**
  * lws_ss_create() - Create secure stream
  *

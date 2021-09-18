@@ -55,7 +55,7 @@ keep up.
 ## Build
 
 This builds as a toplevel project using the pcio sdk, it builds
-lws via a symlink, and links with liblws-sspc.a rather than libwebsockets.a
+lws via a symlink, and links with libwebsockets.a built with `-DLWS_ONLY_SSPC`
 
 Adapt `PICO_SDK_PATH` below to where your pico sdk is installed
 
@@ -70,8 +70,9 @@ unmount it.
 
 ## Running
 
-On the PC, you need to build lws-minimal-secure-streams-custom-proxy-transport,
-which needs lws built with `LWS_WITHOUT_EXTENSIONS=0`.  This connects to
+On the PC, you need to build `lws-minimal-ssproxy-custom-transport-uart`, from
+`./minimal-examples/ssproxy/ssproxy-custom-transport-uart`,
+which needs lws built with `-DLWS_WITHOUT_EXTENSIONS=0`.  This connects to
 `/dev/ttyUSB0` and starts the mux + SS Proxy.
 
 On the Pico, you can monitor the serial console over USB to see logs via
