@@ -1,0 +1,42 @@
+{
+	"release":		"1",
+	"product":		"sx-http-post",
+	"schema-version":	1,
+	"retry": [{
+		"default": {
+			"backoff":	[1000, 2000, 3000, 5000, 10000],
+			"conceal":	5,
+			"jitterpc":	20,
+			"svalidping":	30,
+			"svalidhup":	35
+		}
+	}],
+	"certs": [{
+		"dst_root_x3": "MIIDSjCCAjKgAwIBAgIQRK+wgNajJ7qJMDmGLvhAazANBgkqhkiG9w0BAQUFADA/MSQwIgYDVQQKExtEaWdpdGFsIFNpZ25hdHVyZSBUcnVzdCBDby4xFzAVBgNVBAMTDkRTVCBSb290IENBIFgzMB4XDTAwMDkzMDIxMTIxOVoXDTIxMDkzMDE0MDExNVowPzEkMCIGA1UEChMbRGlnaXRhbCBTaWduYXR1cmUgVHJ1c3QgQ28uMRcwFQYDVQQDEw5EU1QgUm9vdCBDQSBYMzCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAN+v6ZdQCINXtMxiZfaQguzH0yxrMMpb7NnDfcdAwRgUi+DoM3ZJKuM/IUmTrE4Orz5Iy2Xu/NMhD2XSKtkyj4zl93ewEnu1lcCJo6m67XMuegwGMoOifooUMM0RoOEqOLl5CjH9UL2AZd+3UWODyOKIYepLYYHsUmu5ouJLGiifSKOeDNoJjj4XLh7dIN9bxiqKqy69cK3FCxolkHRyxXtqqzTWMIn/5WgTe1QLyNau7Fqckh49ZLOMxt+/yUFw7BZy1SbsOFU5Q9D8/RhcQPGX69Wam40dutolucbY38EVAjqr2m7xPi71XAicPNaDaeQQmxkqtilX4+U9m5/wAl0CAwEAAaNCMEAwDwYDVR0TAQH/BAUwAwEB/zAOBgNVHQ8BAf8EBAMCAQYwHQYDVR0OBBYEFMSnsaR7LHH62+FLkHX/xBVghYkQMA0GCSqGSIb3DQEBBQUAA4IBAQCjGiybFwBcqR7uKGY3Or+Dxz9LwwmglSBd49lZRNI+DT69ikugdB/OEIKcdBodfpga3csTS7MgROSR6cz8faXbauX+5v3gTt23ADq1cEmv8uXrAvHRAosZy5Q6XkjEGB5YGV8eAlrwDPGxrancWYaLbumR9YbK+rlmM6pZW87ipxZzR8srzJmwN0jP41ZL9c8PDHIyh8bwRLtTcm1D9SZImlJnt1ir/md2cXjbDaJWFBM5JDGFoqgCWjBH4d1QB7wCCZAA62RjYJsWvIjJEubSfZGL+T0yjWW06XyxV3bqxbYoOb8VZRzI9neWagqNdwvYkQsEjgfbKbYK7p2CNTUQ"
+	}
+	],
+	"trust_stores": [{
+		"name": "le_via_dst",
+		"stack": [ "dst_root_x3" ]
+	}],
+	"s": [
+		{
+                "minpost": {
+                        "endpoint":		"libwebsockets.org",
+                        "port":			443,
+                        "protocol":		"h1",
+                        "http_method":		"POST",
+                        "http_url":		"testserver/formtest",
+                        "metadata": [
+                                { "ctype":		"Content-Type:" }
+                        ],
+                        "tls":			true,
+                        "opportunistic":	true,
+                        "allow_redirects":	true,
+                        "retry":		"default",
+                        "tls_trust_store":	"le_via_dst"
+			}
+		}	
+	]
+}
+

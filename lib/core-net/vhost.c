@@ -690,10 +690,10 @@ lws_create_vhost(struct lws_context *context,
 	if (!pcols) {
 		for (vh->count_protocols = 0;
 			info->pprotocols[vh->count_protocols];
-			vh->count_protocols++) {
-				lwsl_user("%s: ppcols: %s\n", __func__,
-						info->pprotocols[vh->count_protocols]->name);
-		}
+			vh->count_protocols++)
+				;
+			//lwsl_user("%s: ppcols: %s\n", __func__,
+			// info->pprotocols[vh->count_protocols]->name);
 	} else
 		for (vh->count_protocols = 0;
 			pcols[vh->count_protocols].callback;

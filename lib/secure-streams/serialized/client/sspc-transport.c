@@ -173,9 +173,6 @@ lws_sspc_txp_event_closed(lws_transport_priv_t priv)
 	lws_sspc_handle_t *h = (lws_sspc_handle_t *)priv;
 	lws_ss_state_return_t r = LWSSSSRET_OK;
 
-
-	lwsl_sspc_notice(h, "entry");
-
 	if (!h) {
 		lwsl_sspc_info(h, "No sspc on client proxy link close");
 		return LWSSSSRET_OK;
@@ -275,7 +272,7 @@ lws_sspc_txp_tx(lws_sspc_handle_t *h, size_t metadata_limit)
 		 * We are negotating the opening of a particular
 		 * streamtype
 		 */
-		lwsl_sspc_notice(h, "LPCSCLI_SENDING_INITIAL_TX");
+		// lwsl_sspc_notice(h, "LPCSCLI_SENDING_INITIAL_TX");
 		txl = strlen(h->ssi.streamtype) + 1 + 4 + 4;
 
 		cp = s;
@@ -297,7 +294,7 @@ lws_sspc_txp_tx(lws_sspc_handle_t *h, size_t metadata_limit)
 
 	case LPCSCLI_LOCAL_CONNECTED:
 
-		lwsl_sspc_notice(h, "LPCSCLI_LOCAL_CONNECTED");
+		// lwsl_sspc_notice(h, "LPCSCLI_LOCAL_CONNECTED");
 
 		/*
 		 * Do we need to prioritize sending any metadata

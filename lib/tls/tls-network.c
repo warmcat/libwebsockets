@@ -201,10 +201,10 @@ lws_gate_accepts(struct lws_context *context, int on)
 {
 	struct lws_vhost *v = context->vhost_list;
 
-	lwsl_notice("%s: on = %d\n", __func__, on);
-
 	if (context->tls_gate_accepts == (char)on)
 		return 0;
+
+	lwsl_notice("%s: on = %d\n", __func__, on);
 
 	context->tls_gate_accepts = (char)on;
 

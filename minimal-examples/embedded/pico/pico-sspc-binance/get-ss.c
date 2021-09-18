@@ -1,7 +1,7 @@
 /*
  * pico-sspc-binance
  *
- * Written in 2010-2021 by Andy Green <andy@warmcat.com>
+ * Written in 2010 - 2021 by Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
@@ -12,10 +12,7 @@
 
 #include "private.h"
 
-typedef struct {
-	struct lws_ss_handle 	*ss;
-	void			*opaque_data;
-
+LWS_SS_USER_TYPEDEF
 	lws_sorted_usec_list_t	sul5;
 } get_t;
 
@@ -24,9 +21,8 @@ sul_start_get(lws_sorted_usec_list_t *sul)
 {
 	get_t *g = lws_container_of(sul, get_t, sul5);
 
-	lwsl_ss_notice(g->ss, "conn");
-	lws_ss_request_tx(g->ss);
-	lws_sul_schedule(lws_ss_get_context(g->ss), 0, sul, sul_start_get,
+	lws_ss_request_tx(lws_ss_from_user(g));
+	lws_sul_schedule(lws_ss_cx_from_user(g), 0, sul, sul_start_get,
 			 5 * LWS_US_PER_SEC);
 }
 
@@ -35,7 +31,7 @@ get_rx(void *userobj, const uint8_t *in, size_t len, int flags)
 {
 	get_t *g = (get_t *)userobj;
 
-	lwsl_ss_notice(g->ss, "RX %u, flags 0x%x",
+	lwsl_ss_notice(lws_ss_from_user(g), "RX %u, flags 0x%x",
 		       (unsigned int)len, (unsigned int)flags);
 
 	if (len) {
@@ -53,18 +49,12 @@ get_state(void *userobj, void *h_src, lws_ss_constate_t state,
 {
 	get_t *g = (get_t *)userobj;
 
-	lwsl_ss_notice(g->ss, "%s (%d), ord 0x%x",
+	lwsl_ss_notice(lws_ss_from_user(g), "%s (%d), ord 0x%x",
 		       lws_ss_state_name((int)state), state, (unsigned int)ack);
 
 	switch (state) {
 	case LWSSSCS_CREATING:
-		/*
-		 * ... also let's start a sul that creates a second stream to
-		 * GET from libwebsockets.org every 5s, showing we are running
-		 * multiple SS on the transport successfully.
-		 */
-
-		lws_sul_schedule(lws_ss_get_context(g->ss), 0, &g->sul5,
+		lws_sul_schedule(lws_ss_cx_from_user(g), 0, &g->sul5,
 				 sul_start_get, 5 * LWS_US_PER_SEC);
 		break;
 	case LWSSSCS_DESTROYING:
@@ -75,11 +65,7 @@ get_state(void *userobj, void *h_src, lws_ss_constate_t state,
 	return LWSSSSRET_OK;
 }
 
-const lws_ss_info_t ssi_get = {
-	.handle_offset		  = offsetof(get_t, ss),
-	.opaque_user_data_offset  = offsetof(get_t, opaque_data),
+LWS_SS_INFO("mintest-lws", get_t)
 	.rx			  = get_rx,
 	.state			  = get_state,
-	.user_alloc		  = sizeof(get_t),
-	.streamtype		  = "mintest-lws", /* bind to this policy */
 };

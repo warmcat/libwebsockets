@@ -1229,6 +1229,19 @@ lws_context_user(struct lws_context *context);
 LWS_VISIBLE LWS_EXTERN const char *
 lws_vh_tag(struct lws_vhost *vh);
 
+LWS_VISIBLE LWS_EXTERN void
+_lws_context_info_defaults(struct lws_context_creation_info *info,
+			   const char *sspol);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_default_loop_exit(struct lws_context *cx);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_context_default_loop_run_destroy(struct lws_context *cx);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_cmdline_passfail(int argc, const char **argv, int actual);
+
 /**
  * lws_context_is_being_destroyed() - find out if context is being destroyed
  *

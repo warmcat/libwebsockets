@@ -1399,7 +1399,10 @@ static const char * const builtins[] = {
 	"-d",
 	"--fault-injection",
 	"--fault-seed",
-	"--ignore-sigterm"
+	"--ignore-sigterm",
+	"--ssproxy-port",
+	"--ssproxy-iface",
+	"--ssproxy-ads",
 };
 
 enum opts {
@@ -1407,6 +1410,9 @@ enum opts {
 	OPT_FAULTINJECTION,
 	OPT_FAULT_SEED,
 	OPT_IGNORE_SIGTERM,
+	OPT_SSPROXY_PORT,
+	OPT_SSPROXY_IFACE,
+	OPT_SSPROXY_ADS,
 };
 
 #if !defined(LWS_PLAT_FREERTOS)
@@ -1415,6 +1421,72 @@ lws_sigterm_catch(int sig)
 {
 }
 #endif
+
+void
+_lws_context_info_defaults(struct lws_context_creation_info *info,
+			  const char *sspol)
+{
+	memset(info, 0, sizeof *info);
+        info->fd_limit_per_thread = 1 + 6 + 1;
+#if defined(LWS_WITH_NETWORK)
+        info->port = CONTEXT_PORT_NO_LISTEN;
+#endif
+#if defined(LWS_WITH_SECURE_STREAMS) && !defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
+        info->pss_policies_json = sspol;
+#endif
+#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
+        if (!sspol)
+        	info->protocols = lws_sspc_protocols;
+        else
+#endif
+        	info->options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
+        		LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW |
+        		LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+}
+
+void
+lws_default_loop_exit(struct lws_context *cx)
+{
+	if (cx) {
+		cx->interrupted = 1;
+#if defined(LWS_WITH_NETWORK)
+		lws_cancel_service(cx);
+#endif
+	}
+}
+
+#if defined(LWS_WITH_NETWORK)
+void
+lws_context_default_loop_run_destroy(struct lws_context *cx)
+{
+        /* the default event loop, since we didn't provide an alternative one */
+
+        while (!cx->interrupted && lws_service(cx, 0) >= 0)
+        	;
+
+        lws_context_destroy(cx);
+}
+#endif
+
+int
+lws_cmdline_passfail(int argc, const char **argv, int actual)
+{
+	int expected = 0;
+	const char *p;
+
+	if ((p = lws_cmdline_option(argc, argv, "--expected-exit")))
+		expected = atoi(p);
+
+	if (actual == expected) {
+		lwsl_user("Completed: OK (seen expected %d)\n", actual);
+
+		return 0;
+	}
+
+	lwsl_err("Completed: failed: exit %d, expected %d\n", actual, expected);
+
+	return 1;
+}
 
 void
 lws_cmdline_option_handle_builtin(int argc, const char **argv,
@@ -1437,6 +1509,25 @@ lws_cmdline_option_handle_builtin(int argc, const char **argv,
 		case OPT_DEBUGLEVEL:
 			logs = m;
 			break;
+
+#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
+		case OPT_SSPROXY_PORT:
+			/* connect to ssproxy via UDS by default, else via
+			 * tcp connection to this port */
+			info->ss_proxy_port = (uint16_t)atoi(p);
+			break;
+
+		case OPT_SSPROXY_IFACE:
+			/* UDS "proxy.ss.lws" in abstract namespace, else this socket
+			 * path; when -p given this can specify the network interface
+			 * to bind to */
+			info->ss_proxy_bind = p;
+			break;
+
+		case OPT_SSPROXY_ADS:
+			info->ss_proxy_address = p;
+			break;
+#endif
 
 		case OPT_FAULTINJECTION:
 #if !defined(LWS_WITH_SYS_FAULT_INJECTION)
