@@ -358,7 +358,7 @@ solo:
 			 */
 			wsi->client_suppress_CONNECTION_ERROR = 0;
 			lws_inform_client_conn_fail(wsi, (void *)dns_nxdomain,
-						    sizeof(dns_nxdomain));
+						    sizeof(*dns_nxdomain));
 			goto failed1;
 		}
 #endif
