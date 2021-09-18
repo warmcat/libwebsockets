@@ -339,8 +339,8 @@ lws_sspc_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 
 	/* priv_onw filled in by onw transport */
 
-	lwsl_sspc_notice(h, "txp path %s -> %s", h->txp_path.ops_in->name,
-						 h->txp_path.ops_onw->name);
+	lwsl_sspc_info(h, "txp path %s -> %s", h->txp_path.ops_in->name,
+					       h->txp_path.ops_onw->name);
 
 	memcpy(&h->ssi, ssi, sizeof(*ssi));
 	ua = (uint8_t *)&h[1];
@@ -502,7 +502,7 @@ lws_sspc_request_tx(lws_sspc_handle_t *h)
 	if (!h->us_earliest_write_req)
 		h->us_earliest_write_req = lws_now_usecs();
 
-	lwsl_notice("%s: state %u, conn_req_state %u\n", __func__,
+	lwsl_info("%s: state %u, conn_req_state %u\n", __func__,
 			(unsigned int)h->state,
 			(unsigned int)h->conn_req_state);
 
@@ -695,6 +695,14 @@ _lws_sspc_set_metadata(struct lws_sspc_handle *h, const char *name,
 	h->txp_path.ops_onw->req_write(h->txp_path.priv_onw);
 
 	return 0;
+}
+
+void
+lws_sspc_server_ack(struct lws_sspc_handle *h, int nack)
+{
+	//h->txn_resp = nack;
+	//h->txn_resp_set = 1;
+
 }
 
 int

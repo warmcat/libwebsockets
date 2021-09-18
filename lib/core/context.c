@@ -75,7 +75,8 @@ static const char * system_state_names[] = {
 	"AUTH1",
 	"AUTH2",
 	"OPERATIONAL",
-	"POLICY_INVALID"
+	"POLICY_INVALID",
+	"LWS_SYSTATE_CONTEXT_DESTROYING"
 };
 
 

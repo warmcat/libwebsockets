@@ -886,7 +886,7 @@ LWS_VISIBLE extern const lws_humanize_unit_t humanize_schema_us[8];
 void
 lws_assert_fourcc(uint32_t fourcc, uint32_t expected);
 #else
-#define lws_assert_fourcc(_a, _b)
+#define lws_assert_fourcc(_a, _b) do { } while (0);
 #endif
 
 /**

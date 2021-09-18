@@ -79,12 +79,12 @@ main(void)
 	 * mux -> transport -> proxy -> binance wss
 	 */
 
-	if (lws_ss_create(&cx, 0, &ssi_binance, NULL, NULL, NULL, NULL)) {
+	if (lws_ss_create(&cx, 0, &ssi_binance_t, NULL, NULL, NULL, NULL)) {
 		printf("failed to create binance secure stream\n");
 		return 1;
 	}
 
-	if (lws_ss_create(&cx, 0, &ssi_get, NULL, NULL, NULL, NULL)) {
+	if (lws_ss_create(&cx, 0, &ssi_get_t, NULL, NULL, NULL, NULL)) {
 		printf("failed to create get secure stream\n");
 		return 1;
 	}

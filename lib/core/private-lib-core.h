@@ -735,6 +735,7 @@ struct lws_context {
 	char		tls_gate_accepts;
 
 	unsigned int deprecated:1;
+	unsigned int interrupted:1;
 	unsigned int inside_context_destroy:1;
 	unsigned int being_destroyed:1;
 	unsigned int service_no_longer_possible:1;

@@ -40,5 +40,5 @@ void serial_handle_events(lws_transport_mux_t *tm);
 
 /* our SS bindings */
 
-extern const lws_ss_info_t ssi_binance;  /* binance-ss.c */
-extern const lws_ss_info_t ssi_get;	 /* get-ss.c */
+extern const lws_ss_info_t ssi_binance_t,  /* binance-ss.c */
+			   ssi_get_t;	 /* get-ss.c */
