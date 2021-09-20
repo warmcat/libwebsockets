@@ -2084,6 +2084,9 @@ next:
 		if (context->event_loop_ops->destroy_context2)
 			context->event_loop_ops->destroy_context2(context);
 
+		lws_state_transition_steps(&context->mgr_system,
+					   LWS_SYSTATE_CONTEXT_DESTROYING);
+
 		/*
 		 * finalize destroy of pt and things hanging off it
 		 */

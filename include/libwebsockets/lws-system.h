@@ -139,6 +139,7 @@ typedef enum { /* keep system_state_names[] in sync in context.c */
 					  * drop everything done with old
 					  * policy, switch to new then enter
 					  * LWS_SYSTATE_POLICY_VALID */
+	LWS_SYSTATE_CONTEXT_DESTROYING,	 /* Context is being destroyed */
 } lws_system_states_t;
 
 /* Captive Portal Detect -related */
