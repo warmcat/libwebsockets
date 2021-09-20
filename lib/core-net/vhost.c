@@ -1286,6 +1286,7 @@ void
 lws_vhost_destroy1(struct lws_vhost *vh)
 {
 	struct lws_context *context = vh->context;
+	int n;
 
 	lwsl_vhost_info(vh, "\n");
 
@@ -1293,6 +1294,14 @@ lws_vhost_destroy1(struct lws_vhost *vh)
 
 	if (vh->being_destroyed)
 		goto out;
+
+	/*
+	 * let's lock all the pts, to enforce pt->vh order... pt is refcounted
+	 * so it's OK if we acquire it later inside this
+	 */
+
+	for (n = 0; n < context->count_threads; n++)
+		lws_pt_lock((&context->pt[n]), __func__);
 
 	lws_vhost_lock(vh); /* -------------- vh { */
 
@@ -1389,6 +1398,9 @@ lws_vhost_destroy1(struct lws_vhost *vh)
 #endif
 
 	lws_vhost_unlock(vh); /* } vh -------------- */
+
+	for (n = 0; n < context->count_threads; n++)
+		lws_pt_unlock((&context->pt[n]));
 
 out:
 	lws_context_unlock(context); /* --------------------------- context { */
@@ -1525,7 +1537,7 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 #endif
 
 #if LWS_MAX_SMP > 1
-	lws_mutex_refcount_destroy(&context->mr);
+	lws_mutex_refcount_destroy(&vh->mr);
 #endif
 
 #if defined(LWS_WITH_UNIX_SOCK)

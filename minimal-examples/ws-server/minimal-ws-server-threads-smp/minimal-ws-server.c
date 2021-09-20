@@ -41,7 +41,8 @@ static struct lws_protocols protocols[] = {
 };
 
 static struct lws_context *context;
-static int interrupted;
+static int interrupted, started;
+static pthread_t pthread_service[COUNT_THREADS];
 
 static const struct lws_http_mount mount = {
 	/* .mount_next */		NULL,		/* linked-list "next" */
@@ -98,18 +99,58 @@ void *thread_service(void *threadid)
 	return NULL;
 }
 
+static int
+system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
+		   int current, int target)
+{
+	struct lws_context *context = mgr->parent;
+	void *retval;
+
+	if (current != target)
+		return 0;
+
+	switch (current) {
+	case LWS_SYSTATE_OPERATIONAL:
+		lwsl_notice("  Service threads: %d\n",
+			    lws_get_count_threads(context));
+
+		/* start all the service threads */
+
+		for (started = 1; started < lws_get_count_threads(context);
+		     started++)
+			if (pthread_create(&pthread_service[started], NULL,
+					   thread_service,
+					   (void *)(lws_intptr_t)started))
+				lwsl_err("Failed to start service thread\n");
+		break;
+	case LWS_SYSTATE_CONTEXT_DESTROYING:
+		/* wait for all the service threads to exit */
+
+		while ((--started) >= 1)
+			pthread_join(pthread_service[started], &retval);
+
+		break;
+	}
+
+	return 0;
+}
+
+lws_state_notify_link_t notifier = { { NULL, NULL, NULL },
+				     system_notify_cb, "app" };
+lws_state_notify_link_t *na[] = { &notifier, NULL };
+
 void sigint_handler(int sig)
 {
 	interrupted = 1;
+	lws_cancel_service(context);
 }
 
 int main(int argc, const char **argv)
 {
-	int n, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
-	pthread_t pthread_service[COUNT_THREADS];
+	int logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
 	struct lws_context_creation_info info;
 	const char *p;
-	void *retval;
+	int n = 0;
 
 	signal(SIGINT, sigint_handler);
 
@@ -125,6 +166,7 @@ int main(int argc, const char **argv)
 	info.protocols = protocols;
 	info.pvo = &pvo; /* per-vhost options */
 	info.count_threads = COUNT_THREADS;
+	info.register_notifier_list = na;
 	info.options =
 		LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE;
 
@@ -134,19 +176,8 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
-	lwsl_notice("  Service threads: %d\n", lws_get_count_threads(context));
-
-	/* start all the service threads */
-
-	for (n = 0; n < lws_get_count_threads(context); n++)
-		if (pthread_create(&pthread_service[n], NULL, thread_service,
-				   (void *)(lws_intptr_t)n))
-			lwsl_err("Failed to start service thread\n");
-
-	/* wait for all the service threads to exit */
-
-	while ((--n) >= 0)
-		pthread_join(pthread_service[n], &retval);
+	while (n >= 0 && !interrupted)
+		n = lws_service(context, 0);
 
 	lws_context_destroy(context);
 

@@ -207,6 +207,7 @@ The generic states defined are:
 |`LWS_SYSTATE_AUTH2`|Optional second access token for different services|
 |`LWS_SYSTATE_OPERATIONAL`|The system is ready for user code to work normally|
 |`LWS_SYSTATE_POLICY_INVALID`|All connections are being dropped because policy information is changing.  It will transition back to `LWS_SYSTATE_INITIALIZED` and onward to `OPERATIONAL` again afterwards with the new policy|
+|`LWS_SYSTATE_CONTEXT_DESTROYING`|Context is going down and smd with it|
 
 ### Inserting a notifier
 
