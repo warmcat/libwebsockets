@@ -426,13 +426,13 @@ lws_threadpool_worker_sync(struct lws_pool *pool,
 		}
 
 		/*
-		 * So tries times this is the maximum time between SYNC asking
+		 * So "tries" times this is the maximum time between SYNC asking
 		 * for a callback on writable and actually getting it we are
 		 * willing to sit still for.
 		 *
 		 * If it is exceeded, we will stop the task.
 		 */
-		abstime.tv_sec = time(NULL) + 2;
+		abstime.tv_sec = time(NULL) + 3;
 		abstime.tv_nsec = 0;
 
 		task->wanted_writeable_cb = 1;
@@ -462,8 +462,9 @@ lws_threadpool_worker_sync(struct lws_pool *pool,
 					 __func__, pool->tp->name, task,
 					 task->name, lws_wsi_tag(task_to_wsi(task)));
 
-				state_transition(task, LWS_TP_STATUS_STOPPING);
-				goto done;
+				pthread_mutex_unlock(&pool->lock); /* ----------------- - pool unlock */
+				lws_threadpool_dequeue_task(task);
+				return 1; /* destroyed task */
 			}
 
 			continue;
@@ -605,7 +606,10 @@ lws_threadpool_worker(void *d)
 				}
 				/* block until writable acknowledges */
 				then = lws_now_usecs();
-				lws_threadpool_worker_sync(pool, task);
+				if (lws_threadpool_worker_sync(pool, task)) {
+					lwsl_notice("%s: Sync failed\n", __func__);
+					goto doneski;
+				}
 				us_accrue(&task->acc_syncing, then);
 				break;
 			case LWS_TP_RETURN_FINISHED:
