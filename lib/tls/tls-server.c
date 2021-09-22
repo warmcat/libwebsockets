@@ -144,18 +144,16 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 		if (accept_fd == LWS_SOCK_INVALID)
 			assert(0);
 
-		if (lws_tls_restrict_borrow(context)) {
+		if (lws_tls_restrict_borrow(wsi)) {
 			lwsl_err("%s: failed on ssl restriction\n", __func__);
 			return 1;
 		}
-		wsi->tls_borrowed = 1;
 
 		if (lws_tls_server_new_nonblocking(wsi, accept_fd)) {
 			lwsl_err("%s: failed on lws_tls_server_new_nonblocking\n", __func__);
 			if (accept_fd != LWS_SOCK_INVALID)
 				compatible_close(accept_fd);
-			if (wsi->tls_borrowed)
-				lws_tls_restrict_return(context);
+			lws_tls_restrict_return(wsi);
 			goto fail;
 		}
 
@@ -322,8 +320,10 @@ punt:
 		lwsl_info("SSL_accept says %d\n", n);
 		switch (n) {
 		case LWS_SSL_CAPABLE_DONE:
+			lws_tls_restrict_return_handshake(wsi);
 			break;
 		case LWS_SSL_CAPABLE_ERROR:
+			lws_tls_restrict_return_handshake(wsi);
 	                lwsl_info("%s: SSL_accept failed socket %u: %d\n",
 	                		__func__, wsi->desc.sockfd, n);
 			wsi->socket_is_permanently_unusable = 1;

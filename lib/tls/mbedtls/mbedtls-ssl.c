@@ -278,8 +278,7 @@ lws_ssl_close(struct lws *wsi)
 	SSL_free(wsi->tls.ssl);
 	wsi->tls.ssl = NULL;
 
-	if (wsi->tls_borrowed)
-		lws_tls_restrict_return(wsi->a.context);
+	lws_tls_restrict_return(wsi);
 
 	return 1; /* handled */
 }

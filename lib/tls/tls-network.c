@@ -203,6 +203,11 @@ lws_gate_accepts(struct lws_context *context, int on)
 
 	lwsl_notice("%s: on = %d\n", __func__, on);
 
+	if (context->tls_gate_accepts == (char)on)
+		return 0;
+
+	context->tls_gate_accepts = (char)on;
+
 	while (v) {
 		lws_start_foreach_dll(struct lws_dll2 *, d,
 				      lws_dll2_get_head(&v->listen_wsi)) {
@@ -210,8 +215,8 @@ lws_gate_accepts(struct lws_context *context, int on)
 							   listen_list);
 
 			if (v->tls.use_ssl &&
-			    lws_change_pollfd(wsi, on ? 0 : LWS_POLLIN,
-						   on ? LWS_POLLIN : 0))
+			    lws_change_pollfd(wsi, on ? LWS_POLLIN : 0,
+						   on ? 0 : LWS_POLLIN))
 				lwsl_notice("%s: Unable to set POLLIN %d\n",
 					    __func__, on);
 		} lws_end_foreach_dll(d);

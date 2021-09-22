@@ -702,7 +702,8 @@ struct lws_context {
 	unsigned int max_http_header_pool;
 	int simultaneous_ssl_restriction;
 	int simultaneous_ssl;
-	int ssl_handshake_serialize;
+	int simultaneous_ssl_handshake_restriction;
+	int simultaneous_ssl_handshake;
 #if defined(LWS_WITH_TLS_JIT_TRUST)
 	int		vh_idle_grace_ms;
 #endif
@@ -720,6 +721,8 @@ struct lws_context {
 #if defined(LWS_WITH_NETLINK)
 	lws_route_uidx_t			route_uidx;
 #endif
+
+	char		tls_gate_accepts;
 
 	unsigned int deprecated:1;
 	unsigned int inside_context_destroy:1;
