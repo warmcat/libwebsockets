@@ -107,7 +107,7 @@ void
 lejp_destruct(struct lejp_ctx *ctx)
 {
 	/* no allocations... just let callback know what it happening */
-	if (ctx->pst[0].callback)
+	if (ctx && ctx->pst[0].callback)
 		ctx->pst[0].callback(ctx, LEJPCB_DESTRUCTED);
 }
 
