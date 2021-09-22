@@ -583,12 +583,11 @@ int main(int argc, const char **argv)
 	if ((p = lws_cmdline_option(argc, argv, "--limit")))
 		info.simultaneous_ssl_restriction = atoi(p);
 
-	if (lws_cmdline_option(argc, argv, "--ssl-handshake-serialize"))
+	if ((p = lws_cmdline_option(argc, argv, "--ssl-handshake-serialize")))
 		/* We only consider simultaneous_ssl_restriction > 1 use cases.
 		 * If ssl isn't limited or only 1 is allowed, we don't care.
 		 */
-		if (info.simultaneous_ssl_restriction > 1)
-			info.ssl_handshake_serialize = 1;
+		info.simultaneous_ssl_handshake_restriction = atoi(p);
 
 	context = lws_create_context(&info);
 	if (!context) {

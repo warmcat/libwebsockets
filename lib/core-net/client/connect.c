@@ -530,8 +530,8 @@ bail3:
 
 bail:
 #if defined(LWS_WITH_TLS)
-	if (wsi->tls.ssl && wsi->tls_borrowed)
-		lws_tls_restrict_return(i->context);
+	if (wsi->tls.ssl)
+		lws_tls_restrict_return(wsi);
 #endif
 
 	lws_free_set_NULL(wsi->stash);

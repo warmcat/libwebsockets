@@ -126,10 +126,13 @@ enum lws_tls_extant {
 #endif
 
 int
-lws_tls_restrict_borrow(struct lws_context *context);
+lws_tls_restrict_borrow(struct lws *wsi);
 
 void
-lws_tls_restrict_return(struct lws_context *context);
+lws_tls_restrict_return(struct lws *wsi);
+
+void
+lws_tls_restrict_return_handshake(struct lws *wsi);
 
 typedef SSL lws_tls_conn;
 typedef SSL_CTX lws_tls_ctx;

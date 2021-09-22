@@ -25,43 +25,6 @@
 #include "private-lib-core.h"
 
 static int
-lws_ssl_handshake_serialize(struct lws_context *ctx, struct lws *wsi)
-{
-	struct lws_vhost *vh = ctx->vhost_list;
-#if LWS_MAX_SMP > 1
-	int tsi = lws_pthread_self_to_tsi(ctx);
-#else
-	int tsi = 0;
-#endif
-	struct lws_context_per_thread *pt = &ctx->pt[tsi];
-	unsigned int n;
-
-	while (vh) {
-		for (n = 0; n < pt->fds_count; n++) {
-			struct lws *w = wsi_from_fd(ctx, pt->fds[n].fd);
-
-			if (!w || w->tsi != tsi || w->a.vhost != vh || wsi == w)
-				continue;
-
-			/* Now we found other vhost's wsi in process */
-			if (lwsi_role_mqtt(w)) {
-				/* MQTT TLS connection not established yet.
-				 * Let it finish.
-				 */
-				if (lwsi_state(w) != LRS_ESTABLISHED)
-					return 1;
-			} else {
-				/* H1/H2 not finished yet. Let it finish. */
-				if (lwsi_state(w) != LRS_DEAD_SOCKET)
-					return 1;
-			}
-		}
-		vh = vh->vhost_next;
-	}
-	return 0;
-}
-
-static int
 lws_ssl_client_connect1(struct lws *wsi, char *errbuf, size_t len)
 {
 	int n;
@@ -69,8 +32,10 @@ lws_ssl_client_connect1(struct lws *wsi, char *errbuf, size_t len)
 	n = lws_tls_client_connect(wsi, errbuf, len);
 	switch (n) {
 	case LWS_SSL_CAPABLE_ERROR:
+		lws_tls_restrict_return_handshake(wsi);
 		return -1;
 	case LWS_SSL_CAPABLE_DONE:
+		lws_tls_restrict_return_handshake(wsi);
 		lws_metrics_caliper_report(wsi->cal_conn, METRES_GO);
 #if defined(LWS_WITH_CONMON)
 	wsi->conmon.ciu_tls = (lws_conmon_interval_us_t)
@@ -100,6 +65,7 @@ lws_ssl_client_connect2(struct lws *wsi, char *errbuf, size_t len)
 
 		switch (n) {
 		case LWS_SSL_CAPABLE_ERROR:
+			lws_tls_restrict_return_handshake(wsi);
 			// lws_snprintf(errbuf, len, "client connect failed");
 			return -1;
 		case LWS_SSL_CAPABLE_DONE:
@@ -114,6 +80,8 @@ lws_ssl_client_connect2(struct lws *wsi, char *errbuf, size_t len)
 			return 0; /* retry */
 		}
 	}
+
+	lws_tls_restrict_return_handshake(wsi);
 
 	if (lws_tls_client_confirm_peer_cert(wsi, errbuf, len)) {
 		lws_metrics_caliper_report(wsi->cal_conn, METRES_NOGO);
@@ -221,23 +189,12 @@ lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1)
 		if (!wsi->tls.ssl) {
 
 #if defined(LWS_WITH_TLS)
-			if (!wsi->transaction_from_pipeline_queue) {
-				if (lws_tls_restrict_borrow(wsi->a.context)) {
-					*pcce = "tls restriction limit";
-					return CCTLS_RETURN_ERROR;
-				}
-				wsi->tls_borrowed = 1;
-				if (wsi->a.context->ssl_handshake_serialize) {
-					if (lws_ssl_handshake_serialize(wsi->a.context, wsi)) {
-						lws_tls_restrict_return(wsi->a.context);
-						wsi->tls_borrowed = 0;
-						*pcce = "ssl handshake serialization";
-						return CCTLS_RETURN_ERROR;
-					}
-				}
+			if (!wsi->transaction_from_pipeline_queue &&
+			    lws_tls_restrict_borrow(wsi)) {
+				*pcce = "tls restriction limit";
+				return CCTLS_RETURN_ERROR;
 			}
 #endif
-
 			if (lws_ssl_client_bio_create(wsi) < 0) {
 				*pcce = "bio_create failed";
 				return CCTLS_RETURN_ERROR;

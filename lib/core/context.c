@@ -914,7 +914,8 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if defined(LWS_WITH_TLS) && defined(LWS_WITH_NETWORK)
 	context->simultaneous_ssl_restriction =
 			info->simultaneous_ssl_restriction;
-	context->ssl_handshake_serialize = info->ssl_handshake_serialize;
+	context->simultaneous_ssl_handshake_restriction =
+			info->simultaneous_ssl_handshake_restriction;
 #endif
 
 	context->options = info->options;

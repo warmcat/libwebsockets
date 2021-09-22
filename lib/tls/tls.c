@@ -46,52 +46,110 @@ alpn_cb(SSL *s, const unsigned char **out, unsigned char *outlen,
 #endif
 
 int
-lws_tls_restrict_borrow(struct lws_context *context)
+lws_tls_restrict_borrow(struct lws *wsi)
 {
-	if (!context->simultaneous_ssl_restriction)
-		return 0;
+	struct lws_context *cx = wsi->a.context;
 
-	if (context->simultaneous_ssl >= context->simultaneous_ssl_restriction) {
+	if (cx->simultaneous_ssl_restriction &&
+	    cx->simultaneous_ssl >= cx->simultaneous_ssl_restriction) {
 		lwsl_notice("%s: tls connection limit %d\n", __func__,
-			    context->simultaneous_ssl);
+			    cx->simultaneous_ssl);
 		return 1;
 	}
 
-	context->simultaneous_ssl++;
+	if (cx->simultaneous_ssl_handshake_restriction &&
+	    cx->simultaneous_ssl_handshake >=
+			    cx->simultaneous_ssl_handshake_restriction) {
+		lwsl_notice("%s: tls handshake limit %d\n", __func__,
+			    cx->simultaneous_ssl);
+		return 1;
+	}
+
+	cx->simultaneous_ssl++;
+	cx->simultaneous_ssl_handshake++;
+	wsi->tls_borrowed_hs = 1;
+	wsi->tls_borrowed = 1;
 
 	lwsl_info("%s: %d -> %d\n", __func__,
-		  context->simultaneous_ssl - 1,
-		  context->simultaneous_ssl);
+		  cx->simultaneous_ssl - 1,
+		  cx->simultaneous_ssl);
 
-	assert(context->simultaneous_ssl <=
-	       context->simultaneous_ssl_restriction);
+	assert(!cx->simultaneous_ssl_restriction ||
+			cx->simultaneous_ssl <=
+				cx->simultaneous_ssl_restriction);
+	assert(!cx->simultaneous_ssl_handshake_restriction ||
+			cx->simultaneous_ssl_handshake <=
+				cx->simultaneous_ssl_handshake_restriction);
 
 #if defined(LWS_WITH_SERVER)
-	if (context->simultaneous_ssl == context->simultaneous_ssl_restriction)
-		/* that was the last allowed SSL connection */
-		lws_gate_accepts(context, 0);
+	lws_gate_accepts(cx,
+			(cx->simultaneous_ssl_restriction &&
+			 cx->simultaneous_ssl == cx->simultaneous_ssl_restriction) ||
+			(cx->simultaneous_ssl_handshake_restriction &&
+			 cx->simultaneous_ssl_handshake == cx->simultaneous_ssl_handshake_restriction));
 #endif
 
 	return 0;
 }
 
-void
-lws_tls_restrict_return(struct lws_context *context)
+static void
+_lws_tls_restrict_return(struct lws *wsi)
 {
-	if (context->simultaneous_ssl_restriction) {
-		int n = context->simultaneous_ssl--;
+	struct lws_context *cx = wsi->a.context;
 
-		lwsl_info("%s: %d -> %d\n", __func__, n,
-			  context->simultaneous_ssl);
-
-		assert(context->simultaneous_ssl >= 0);
+	assert(cx->simultaneous_ssl_handshake >= 0);
+	assert(cx->simultaneous_ssl >= 0);
 
 #if defined(LWS_WITH_SERVER)
-		if (n == context->simultaneous_ssl_restriction)
-			/* we made space and can do an accept */
-			lws_gate_accepts(context, 1);
+	lws_gate_accepts(cx,
+			(cx->simultaneous_ssl_restriction &&
+			 cx->simultaneous_ssl == cx->simultaneous_ssl_restriction) ||
+			(cx->simultaneous_ssl_handshake_restriction &&
+			 cx->simultaneous_ssl_handshake == cx->simultaneous_ssl_handshake_restriction));
 #endif
-	}
+}
+
+void
+lws_tls_restrict_return_handshake(struct lws *wsi)
+{
+	struct lws_context *cx = wsi->a.context;
+
+	/* we're just returning the hs part */
+
+	if (!wsi->tls_borrowed_hs)
+		return;
+
+	wsi->tls_borrowed_hs = 0; /* return it one time per wsi */
+	cx->simultaneous_ssl_handshake--;
+
+	lwsl_info("%s:  %d -> %d\n", __func__,
+		  cx->simultaneous_ssl_handshake + 1,
+		  cx->simultaneous_ssl_handshake);
+
+	_lws_tls_restrict_return(wsi);
+}
+
+void
+lws_tls_restrict_return(struct lws *wsi)
+{
+	struct lws_context *cx = wsi->a.context;
+
+	if (!wsi->tls_borrowed)
+		return;
+
+	wsi->tls_borrowed = 0;
+	cx->simultaneous_ssl--;
+
+	lwsl_info("%s: %d -> %d\n", __func__,
+		  cx->simultaneous_ssl + 1,
+		  cx->simultaneous_ssl);
+
+	/* We're returning everything, even if hs didn't complete */
+
+	if (wsi->tls_borrowed_hs)
+		lws_tls_restrict_return_handshake(wsi);
+	else
+		_lws_tls_restrict_return(wsi);
 }
 
 void
