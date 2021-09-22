@@ -92,7 +92,23 @@ _lws_plat_file_seek_cur(lws_fop_fd_t fop_fd, lws_fileofs_t offset)
 	LARGE_INTEGER l;
 
 	l.QuadPart = offset;
-	return SetFilePointerEx((HANDLE)fop_fd->fd, l, NULL, FILE_CURRENT);
+	if (!SetFilePointerEx((HANDLE)fop_fd->fd, l, NULL, FILE_CURRENT))
+	{
+		lwsl_err("error seeking from cur %ld, offset %ld\n", (long)fop_fd->pos, (long)offset);
+		return -1;
+	}
+
+	LARGE_INTEGER zero;
+	zero.QuadPart = 0;
+	LARGE_INTEGER newPos;
+	if (!SetFilePointerEx((HANDLE)fop_fd->fd, zero, &newPos, FILE_CURRENT))
+	{
+		lwsl_err("error seeking from cur %ld, offset %ld\n", (long)fop_fd->pos, (long)offset);
+		return -1;
+	}
+	fop_fd->pos = newPos.QuadPart;
+
+	return newPos.QuadPart;
 }
 
 int
