@@ -1152,10 +1152,16 @@ lws_ss_policy_parse_abandon(struct lws_context *context)
 		 * Free all the client DER buffers now they have been parsed
 		 * into tls library X.509 objects
 		 */
-		if (!x->keep) { /* used for server */
-			lws_free((void *)x->ca_der);
-			x->ca_der = NULL;
-		}
+		lws_free((void *)x->ca_der);
+		x->ca_der = NULL;
+
+		x = x->next;
+	}
+
+	x = context->server_der_list;
+	while (x) {
+		lws_free((void *)x->ca_der);
+		x->ca_der = NULL;
 
 		x = x->next;
 	}
@@ -1163,6 +1169,8 @@ lws_ss_policy_parse_abandon(struct lws_context *context)
 	lejp_destruct(&args->jctx);
 	lwsac_free(&args->ac);
 	lws_free_set_NULL(context->pol_args);
+
+	context->server_der_list = NULL;
 
 	return 0;
 }

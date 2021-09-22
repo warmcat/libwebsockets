@@ -1052,7 +1052,7 @@ malformed:
 		if (!h)
 			return -1;
 
-		lwsl_notice("%s: LWS_CALLBACK_HTTP\n", __func__);
+		lwsl_info("%s: LWS_CALLBACK_HTTP\n", __func__);
 		{
 
 			h->txn_resp_set = 0;
@@ -1113,7 +1113,9 @@ malformed:
 
 		r = lws_ss_event_helper(h, LWSSSCS_SERVER_TXN);
 		if (r)
-			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
+			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r,
+								wsi, &h);
+
 		return 0;
 #endif
 

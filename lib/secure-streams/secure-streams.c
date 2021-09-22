@@ -293,6 +293,7 @@ lws_ss_check_next_state(lws_lifecycle_t *lc, uint8_t *prevstate,
 {
 	if (cs >= LWSSSCS_USER_BASE ||
 	    cs == LWSSSCS_EVENT_WAIT_CANCELLED ||
+	    cs == LWSSSCS_SERVER_TXN ||
 	    cs == LWSSSCS_UPSTREAM_LINK_RETRY)
 		/*
 		 * we can't judge user or transient states, leave the old state

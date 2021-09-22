@@ -420,6 +420,9 @@ lws_ss_policy_set(struct lws_context *context, const char *name)
 	 * policy that's laid out in args->ac
 	 */
 
+	if (!args)
+		return 1;
+
 	lejp_destruct(&args->jctx);
 
 	if (context->ac_policy) {
