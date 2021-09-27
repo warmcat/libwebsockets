@@ -8,6 +8,7 @@ include(LwsCheckRequirements)
 set(requirements 1)
 require_pthreads(requirements)
 require_lws_config(LWS_WITH_SYS_SMD 1 requirements)
+require_lws_config(LWS_WITH_SYS_STATE 1 requirements)
 
 if (requirements)
 	add_executable(${PROJECT_NAME} main.c)

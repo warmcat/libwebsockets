@@ -49,9 +49,10 @@ lws_netlink_coldplug_done_cb(lws_sorted_usec_list_t *sul)
 	struct lws_context *ctx = lws_container_of(sul, struct lws_context,
 						   sul_nl_coldplug);
 	ctx->nl_initial_done = 1;
-
+#if defined(LWS_WITH_SYS_STATE)
 	/* if nothing is there to intercept anything, go all the way */
 	lws_state_transition_steps(&ctx->mgr_system, LWS_SYSTATE_OPERATIONAL);
+#endif
 }
 
 static int

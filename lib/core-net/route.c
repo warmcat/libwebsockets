@@ -341,8 +341,12 @@ _lws_route_pt_close_unroutable(struct lws_context_per_thread *pt)
 	struct lws *wsi;
 	unsigned int n;
 
-	if (!pt->context->nl_initial_done ||
-	    pt->context->mgr_system.state < LWS_SYSTATE_IFACE_COLDPLUG)
+	if (!pt->context->nl_initial_done
+#if defined(LWS_WITH_SYS_STATE)
+		       	||
+	    pt->context->mgr_system.state < LWS_SYSTATE_IFACE_COLDPLUG
+#endif
+	)
 		return 0;
 
 	lwsl_cx_debug(pt->context, "in");
