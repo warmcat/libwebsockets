@@ -2085,10 +2085,10 @@ next:
 #if defined(LWS_WITH_NETWORK)
 		if (context->event_loop_ops->destroy_context2)
 			context->event_loop_ops->destroy_context2(context);
-
+#if defined(LWS_WITH_SYS_STATE)
 		lws_state_transition_steps(&context->mgr_system,
 					   LWS_SYSTATE_CONTEXT_DESTROYING);
-
+#endif
 		/*
 		 * finalize destroy of pt and things hanging off it
 		 */
