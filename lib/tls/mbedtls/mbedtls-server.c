@@ -271,7 +271,9 @@ int
 #endif
 lws_tls_server_abort_connection(struct lws *wsi)
 {
-	__lws_tls_shutdown(wsi);
+	if (wsi->tls.use_ssl)
+		__lws_tls_shutdown(wsi);
+	
 	SSL_free(wsi->tls.ssl);
 
 	return 0;
