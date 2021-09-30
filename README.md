@@ -18,12 +18,28 @@ sdevent, glib and uloop, as well as custom event libs.
 
 [There are a lot of READMEs](https://libwebsockets.org/git/libwebsockets/tree/READMEs) on a variety of topics.
 
-[We do a huge amount of CI testing per push](https://libwebsockets.org/sai/), currently 510 builds on 27 platforms.
+[We do a huge amount of CI testing per push](https://libwebsockets.org/sai/), currently 582 builds on 30 platforms.
+[You can see the lws CI rack and read about how lws-based Sai is used to coordinate all the testing](https://warmcat.com/2021/08/21/Sai-CI.html).
 
 ![overview](./doc-assets/lws-overview.png)
 
 News
 ----
+
+## Lws work retrospective
+
+The initial commit for lws will have been 11 years ago come Oct 28 2021, it's been a lot of work.
+There are a total of 4.3K patches, touching 800KLOC cumulatively (this is not the size in the
+repo, but over the years, how many source lines were changed by patches).
+
+![overview](./doc-assets/work.png)
+
+Gratifyingly, it turns out over the years, ~15% of that was contributed by 404 contributors: that's not so bad.
+Thanks a lot to everyone who has provided patches.
+
+Today at least tens of millions of devices and product features rely on lws to
+handle their communications including several from FAANG; Google now include lws
+as part of Android sources.
 
 ## v4.2 is released
 
