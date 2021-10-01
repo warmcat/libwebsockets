@@ -860,7 +860,7 @@ test_jwt_RS256(struct lws_context *context)
 	}
 
 	if (lws_x509_info(pub, LWS_TLS_CERT_INFO_DER_RAW, der_info,
-			  LWS_ARRAY_SIZE(der_buf) - sizeof(der_info) +
+			  LWS_ARRAY_SIZE(der_buf) - sizeof(*der_info) +
 			  sizeof(der_info->ns.name)) ||
 	    der_info->ns.len <= 0) {
 		lwsl_err("%s: failed to parse x509 public key\n", __func__);
