@@ -168,7 +168,7 @@ static const char * const default_ss_policy =
 			"\"retry\": \"default\","
 			"\"timeout_ms\": 2000,"
 			"\"direct_proto_str\": true,"
-			"\"tls_trust_store\": \"le_via_dst\""
+			"\"tls_trust_store\": \"le_via_isrg\""
 		"}},"
 	"{\"mintest_local\": {"
 			"\"endpoint\":  \"localhost\","

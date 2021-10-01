@@ -223,8 +223,8 @@ metrics at the end of execution, eg
 [2021/01/13 11:47:19:9145] U: my_metric_report: n.http.txn: Go: 4, mean: 63.089ms, min: 20.184ms, max: 125.474ms
 [2021/01/13 11:47:19:9145] U: my_metric_report: n.ss.conn: Go: 4, mean: 161.740ms, min: 42.937ms, max: 429.510ms
 [2021/01/13 11:47:19:9145] U: my_metric_report: vh._ss_default.rx: Go: (1) 102, NoGo: (1) 0
-[2021/01/13 11:47:19:9145] U: my_metric_report: vh.le_via_dst.rx: Go: (22) 28.165Ki
-[2021/01/13 11:47:19:9145] U: my_metric_report: vh.le_via_dst.tx: Go: (1) 267
+[2021/01/13 11:47:19:9145] U: my_metric_report: vh.le_via_isrg.rx: Go: (22) 28.165Ki
+[2021/01/13 11:47:19:9145] U: my_metric_report: vh.le_via_isrg.tx: Go: (1) 267
 [2021/01/13 11:47:19:9145] U: my_metric_report: vh.api_amazon_com.rx: Go: (1) 1.611Ki, NoGo: (1) 0
 [2021/01/13 11:47:19:9145] U: my_metric_report: vh.api_amazon_com.tx: Go: (3) 1.505Ki
 ```
