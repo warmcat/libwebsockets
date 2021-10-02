@@ -74,6 +74,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	char hostname[128], *p;
 	const char *alpn_comma = wsi->a.context->tls.alpn_default;
 	struct alpn_ctx protos;
+	int fl = SSL_VERIFY_PEER;
 
 	if (wsi->stash)
 		lws_strncpy(hostname, wsi->stash->cis[CIS_HOST], sizeof(hostname));
@@ -117,7 +118,9 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		/* Enable automatic hostname checks */
 	//	X509_VERIFY_PARAM_set_hostflags(param,
 	//				X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
-		X509_VERIFY_PARAM_set1_host(param, hostname, 0);
+		lwsl_info("%s: setting hostname %s\n", __func__, hostname);
+		if (X509_VERIFY_PARAM_set1_host(param, hostname, 0) != 1)
+			return -1;
 	}
 
 	if (wsi->a.vhost->tls.alpn)
@@ -143,6 +146,14 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	/* with mbedtls, protos is not pointed to after exit from this call */
 	SSL_set_alpn_select_cb(wsi->tls.ssl, &protos);
 
+	if (wsi->flags & LCCSCF_ALLOW_SELFSIGNED) {
+		lwsl_notice("%s: allowing selfsigned\n", __func__);
+		fl = SSL_VERIFY_FAIL_IF_NO_PEER_CERT;
+	}
+
+	if (wsi->flags & LCCSCF_ALLOW_INSECURE)
+		fl = SSL_VERIFY_NONE;
+
 	/*
 	 * use server name indication (SNI), if supported,
 	 * when establishing connection
@@ -150,6 +161,8 @@ lws_ssl_client_bio_create(struct lws *wsi)
 #if defined(LWS_WITH_TLS_JIT_TRUST)
 	SSL_set_verify(wsi->tls.ssl, SSL_VERIFY_PEER,
 			lws_mbedtls_client_verify_callback);
+#else
+	SSL_set_verify(wsi->tls.ssl, fl, NULL);
 #endif
 
 	SSL_set_fd(wsi->tls.ssl, (int)wsi->desc.sockfd);
@@ -406,7 +419,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		vh->tls.x509_client_CA = d2i_X509(NULL, buf, (long)len);
 		free(buf);
 
-		lwsl_info("Loading client CA for verification %s\n", ca_filepath);
+		lwsl_info("Loading vh %s client CA for verification %s\n", vh->name, ca_filepath);
 #endif
 	} else {
 		vh->tls.x509_client_CA = d2i_X509(NULL, (uint8_t*)ca_mem, (long)ca_mem_len);

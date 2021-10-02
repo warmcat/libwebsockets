@@ -242,18 +242,18 @@ void ssl_pm_free(SSL *ssl)
  */
 static int ssl_pm_reload_crt(SSL *ssl)
 {
-    int ret;
-    int mode;
-    struct ssl_pm *ssl_pm = ssl->ssl_pm;
     struct x509_pm *ca_pm = (struct x509_pm *)ssl->client_CA->x509_pm;
+    struct ssl_pm *ssl_pm = ssl->ssl_pm;
+    int ret = 0;
+    int mode;
 
     struct pkey_pm *pkey_pm = (struct pkey_pm *)ssl->cert->pkey->pkey_pm;
     struct x509_pm *crt_pm = (struct x509_pm *)ssl->cert->x509->x509_pm;
 
     if (ssl->verify_mode == SSL_VERIFY_PEER)
-        mode = MBEDTLS_SSL_VERIFY_OPTIONAL;
-    else if (ssl->verify_mode == SSL_VERIFY_FAIL_IF_NO_PEER_CERT)
         mode = MBEDTLS_SSL_VERIFY_REQUIRED;
+    else if (ssl->verify_mode == SSL_VERIFY_FAIL_IF_NO_PEER_CERT)
+        mode = MBEDTLS_SSL_VERIFY_OPTIONAL;
     else if (ssl->verify_mode == SSL_VERIFY_CLIENT_ONCE)
         mode = MBEDTLS_SSL_VERIFY_UNSET;
     else
@@ -261,19 +261,15 @@ static int ssl_pm_reload_crt(SSL *ssl)
 
     mbedtls_ssl_conf_authmode(&ssl_pm->conf, mode);
 
-    if (ca_pm->x509_crt) {
+    if (ca_pm->x509_crt)
         mbedtls_ssl_conf_ca_chain(&ssl_pm->conf, ca_pm->x509_crt, NULL);
-    } else if (ca_pm->ex_crt) {
+    else if (ca_pm->ex_crt)
         mbedtls_ssl_conf_ca_chain(&ssl_pm->conf, ca_pm->ex_crt, NULL);
-    }
 
-    if (crt_pm->x509_crt && pkey_pm->pkey) {
+    if (crt_pm->x509_crt && pkey_pm->pkey)
         ret = mbedtls_ssl_conf_own_cert(&ssl_pm->conf, crt_pm->x509_crt, pkey_pm->pkey);
-    } else if (crt_pm->ex_crt && pkey_pm->ex_pkey) {
+    else if (crt_pm->ex_crt && pkey_pm->ex_pkey)
         ret = mbedtls_ssl_conf_own_cert(&ssl_pm->conf, crt_pm->ex_crt, pkey_pm->ex_pkey);
-    } else {
-        ret = 0;
-    }
 
     if (ret) {
         SSL_DEBUG(SSL_PLATFORM_ERROR_LEVEL, "mbedtls_ssl_conf_own_cert() return -0x%x", -ret);
@@ -967,7 +963,7 @@ void SSL_set_SSL_CTX(SSL *ssl, SSL_CTX *ctx)
 #if defined(LWS_HAVE_mbedtls_ssl_set_hs_authmode)
 
 	if (ctx->verify_mode == SSL_VERIFY_PEER)
-		mode = MBEDTLS_SSL_VERIFY_OPTIONAL;
+		mode = MBEDTLS_SSL_VERIFY_REQUIRED;
 	else if (ctx->verify_mode == SSL_VERIFY_FAIL_IF_NO_PEER_CERT)
 		mode = MBEDTLS_SSL_VERIFY_REQUIRED;
 	else if (ctx->verify_mode == SSL_VERIFY_CLIENT_ONCE)

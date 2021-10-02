@@ -14,6 +14,7 @@ set(has_plugins 1)
 set(has_ss_policy_parse 1)
 set(has_no_system_vhost 1)
 set(has_async_dns 1)
+set(has_mbedtls 1)
 
 set(requirements 1)
 
@@ -34,6 +35,7 @@ require_lws_config(LWS_WITH_SYS_NTPCLIENT 0 has_no_system_vhost)
 require_lws_config(LWS_WITH_SYS_DHCP_CLIENT 0 has_no_system_vhost)
 
 require_lws_config(LWS_WITH_SYS_ASYNC_DNS 1 has_async_dns)
+require_lws_config(LWS_WITH_MBEDTLS 1 has_mbedtls)
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
@@ -124,7 +126,7 @@ if (requirements)
 			
 			if (has_async_dns)
 				list(APPEND mytests http-client-fi-connfail)
-				add_test(NAME http-client-fi-connfail COMMAND lws-minimal-http-client --expected-exit 3 --fault-injection "wsi=user/connfail")
+				add_test(NAME http-client-fi-connfail COMMAND lws-minimal-http-client --expected-exit 2 --fault-injection "wsi=user/connfail")
 			else()
 				list(APPEND mytests http-client-fi-connfail)
 				add_test(NAME http-client-fi-connfail COMMAND lws-minimal-http-client --expected-exit 2 --fault-injection "wsi=user/connfail")
@@ -132,10 +134,16 @@ if (requirements)
 			
 			list(APPEND mytests http-client-fi-user-est-fail)
 			add_test(NAME http-client-fi-user-est-fail COMMAND lws-minimal-http-client --expected-exit 3 --fault-injection "wsi/user_reject_at_est")	
-		
 			
 		endif()
-		
+		if (has_mbedtls)
+			list(APPEND mytests http-client-mbedtls-wrong-ca)
+			add_test(NAME http-client-mbedtls-wrong-ca COMMAND lws-minimal-http-client -w --expected-exit 3)
+			message("... adding mbedtls wrong CA test")
+		else()
+			message("... skipping mbedtls wrong CA test")
+		endif()
+	
 		set_tests_properties(${mytests} PROPERTIES
 		     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/http-client/minimal-http-client
 		     TIMEOUT 20)

@@ -1,7 +1,7 @@
 /*
  * lws-minimal-http-client
  *
- * Written in 2010-2019 by Andy Green <andy@warmcat.com>
+ * Written in 2010-2021 by Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
@@ -385,7 +385,11 @@ int main(int argc, const char **argv)
 	 * OpenSSL uses the system trust store.  mbedTLS has to be told which
 	 * CA to trust explicitly.
 	 */
-	info.client_ssl_ca_filepath = "./warmcat.com.cer";
+	if (lws_cmdline_option(argc, argv, "-w"))
+		/* option to confirm we are validating against the right cert */
+		info.client_ssl_ca_filepath = "./wrong.cer";
+	else
+		info.client_ssl_ca_filepath = "./warmcat.com.cer";
 #endif
 #if 0
 	n = open("./warmcat.com.cer", O_RDONLY);
