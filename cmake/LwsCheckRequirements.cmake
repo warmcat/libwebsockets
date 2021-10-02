@@ -22,6 +22,9 @@ MACRO(require_lws_config reqconfig _val result)
 		set(SAME 0)
 	endif()
 
+	string(COMPARE EQUAL "${result}" requirements _cmp)
+
+	# we go in the first clause if in-tree
 	if (LWS_WITH_MINIMAL_EXAMPLES AND NOT ${SAME})
 		if (${_val})
 			message("${SAMP}: skipping as lws being built without ${reqconfig}")
@@ -45,7 +48,7 @@ MACRO(require_lws_config reqconfig _val result)
 				set(MET 0)
 			endif()
 		endif()
-		if (NOT MET)
+		if (NOT MET AND _cmp)
 			if (${_val})
 				message(FATAL_ERROR "This project requires lws must have been configured with ${reqconfig}")
 			else()

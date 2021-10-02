@@ -18,7 +18,7 @@ if (requirements)
 	
 	find_program(VALGRIND "valgrind")
 
-	if (LWS_CTEST_INTERNET_AVAILABLE AND NOT WIN32)
+	if (LWS_CTEST_INTERNET_AVAILABLE AND NOT WIN32 AND 0)
 		if (VALGRIND)
 			message("testing via valgrind")
 			add_test(NAME ss-sigv4 COMMAND

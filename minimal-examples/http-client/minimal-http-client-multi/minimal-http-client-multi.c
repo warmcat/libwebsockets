@@ -52,7 +52,10 @@ struct cliuser {
 };
 
 static int completed, failed, numbered, stagger_idx, posting, count = COUNT,
-	   reuse, staggered;
+#if defined(LWS_WITH_TLS_SESSIONS)
+	   reuse,
+#endif
+	   staggered;
 static lws_sorted_usec_list_t sul_stagger;
 static struct lws_client_connect_info i;
 static struct lws *client_wsi[COUNT];
@@ -171,12 +174,12 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	switch (reason) {
 
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
-		lwsl_user("LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP: idx: %d, resp %u: tls-session-reuse: %d\n",
-				idx, lws_http_client_http_response(wsi), lws_tls_session_is_reused(wsi));
+		lwsl_user("LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP: idx: %d, resp %u\n",
+				idx, lws_http_client_http_response(wsi));
 
+#if defined(LWS_WITH_TLS_SESSIONS) && !defined(LWS_WITH_MBEDTLS) && !defined(WIN32)
 		if (lws_tls_session_is_reused(wsi))
 			reuse++;
-#if defined(LWS_WITH_TLS_SESSIONS) && !defined(LWS_WITH_MBEDTLS) && !defined(WIN32)
 		else
 			/*
 			 * Attempt to store any new session into
@@ -582,13 +585,6 @@ int main(int argc, const char **argv)
 
 	if ((p = lws_cmdline_option(argc, argv, "--limit")))
 		info.simultaneous_ssl_restriction = atoi(p);
-
-	if (lws_cmdline_option(argc, argv, "--ssl-handshake-serialize"))
-		/* We only consider simultaneous_ssl_restriction > 1 use cases.
-		 * If ssl isn't limited or only 1 is allowed, we don't care.
-		 */
-		if (info.simultaneous_ssl_restriction > 1)
-			info.ssl_handshake_serialize = 1;
 
 	context = lws_create_context(&info);
 	if (!context) {
