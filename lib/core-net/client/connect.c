@@ -169,14 +169,18 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 		if (lws_tls_jit_trust_vhost_bind(i->context, i->address, &vh))
 #endif
 		{
-			vh = i->context->vhost_list;
+			vh = lws_get_vhost_by_name(i->context, "default");
+			if (!vh) {
 
-			if (!vh) { /* coverity */
-				lwsl_cx_err(i->context, "no vhost");
-				goto bail;
+				vh = i->context->vhost_list;
+
+				if (!vh) { /* coverity */
+					lwsl_cx_err(i->context, "no vhost");
+					goto bail;
+				}
+				if (!strcmp(vh->name, "system"))
+					vh = vh->vhost_next;
 			}
-			if (!strcmp(vh->name, "system"))
-				vh = vh->vhost_next;
 		}
 	}
 
@@ -399,8 +403,8 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	} else
 #endif
 		__lws_lc_tag(i->context, &i->context->lcg[LWSLCG_WSI_CLIENT], &wsi->lc,
-			     "%s/%s/%s", i->method ? i->method : "WS",
-			     wsi->role_ops->name, i->address);
+			     "%s/%s/%s/%s", i->method ? i->method : "WS",
+			     wsi->role_ops->name ? wsi->role_ops->name : "novh", vh->name, i->address);
 
 	lws_metrics_tag_wsi_add(wsi, "vh", wsi->a.vhost->name);
 
