@@ -13,6 +13,7 @@ require_lws_config(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY 0 requirements)
 
 require_lws_config(LWS_WITH_SYS_FAULT_INJECTION 1 has_fault_injection)
 require_lws_config(LWS_WITH_SECURE_STREAMS_PROXY_API 1 has_ss_proxy)
+require_lws_config(LWS_WITH_SYS_STATE 1 has_sys_state)
 
 CHECK_C_SOURCE_COMPILES("#include <libwebsockets.h>\nint main(void) {\ni#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)\n return 0;\n #else\n fail\n #endif\n return 0;\n}\n" HAS_LWS_WITH_SECURE_STREAMS_PROXY_API)
 
@@ -132,7 +133,8 @@ if (requirements)
 		endif()
 
 
-		if (HAS_LWS_WITH_SECURE_STREAMS_PROXY_API OR LWS_WITH_SECURE_STREAMS_PROXY_API)
+		if (has_sys_state AND
+		    (HAS_LWS_WITH_SECURE_STREAMS_PROXY_API OR LWS_WITH_SECURE_STREAMS_PROXY_API))
 
 			#
 			# Define test dep to bring up and take down the test
