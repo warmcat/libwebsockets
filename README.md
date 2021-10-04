@@ -26,6 +26,11 @@ sdevent, glib and uloop, as well as custom event libs.
 News
 ----
 
+## v4.3 is released
+
+See the [changelog](https://libwebsockets.org/git/libwebsockets/tree/changelog)
+
+
 ## Lws work retrospective
 
 The initial commit for lws will have been 11 years ago come Oct 28 2021, it's been a lot of work.
@@ -40,10 +45,6 @@ Thanks a lot to everyone who has provided patches.
 Today at least tens of millions of devices and product features rely on lws to
 handle their communications including several from FAANG; Google now include lws
 as part of Android sources.
-
-## v4.2 is released
-
-See the [changelog](https://libwebsockets.org/git/libwebsockets/tree/changelog)
 
 ## Support
 

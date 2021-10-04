@@ -1,6 +1,9 @@
 Changelog
 ---------
 
+v4.3.0
+======
+
  - Add full CBOR stream parsing and writing support, with huge
    amount of test vectors and resumable printf type write apis
    See ./READMEs/README.cbor-lecp.md
