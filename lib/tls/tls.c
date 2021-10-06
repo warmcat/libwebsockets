@@ -95,12 +95,12 @@ lws_tls_restrict_borrow(struct lws *wsi)
 static void
 _lws_tls_restrict_return(struct lws *wsi)
 {
+#if defined(LWS_WITH_SERVER)
 	struct lws_context *cx = wsi->a.context;
 
 	assert(cx->simultaneous_ssl_handshake >= 0);
 	assert(cx->simultaneous_ssl >= 0);
 
-#if defined(LWS_WITH_SERVER)
 	lws_gate_accepts(cx,
 			(cx->simultaneous_ssl_restriction &&
 			 cx->simultaneous_ssl == cx->simultaneous_ssl_restriction) ||
