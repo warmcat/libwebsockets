@@ -267,9 +267,9 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		      strlen(hostname));
 #endif
 #else
-#ifdef WOLFSSL_SNI_HOST_NAME
+#if defined(WOLFSSL_SNI_HOST_NAME) || defined(HAVE_SNI)
 	wolfSSL_UseSNI(wsi->tls.ssl, WOLFSSL_SNI_HOST_NAME, hostname,
-		       strlen(hostname));
+		       (unsigned short)strlen(hostname));
 #endif
 #endif
 #else
