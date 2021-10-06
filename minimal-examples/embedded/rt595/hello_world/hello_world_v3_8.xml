@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ksdk:examples xmlns:ksdk="http://nxp.com/ksdk/2.0/ksdk_manifest_v3.0.xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://nxp.com/ksdk/2.0/ksdk_manifest_v3.0.xsd manifest.xsd">
+  <externalDefinitions>
+    <definition extID="cm33_MIMXRT595S"/>
+    <definition extID="platform.drivers.common.MIMXRT595S"/>
+    <definition extID="platform.drivers.clock.MIMXRT595S"/>
+    <definition extID="platform.drivers.power.MIMXRT595S"/>
+    <definition extID="platform.drivers.reset.MIMXRT595S"/>
+    <definition extID="device.MIMXRT595S_CMSIS.MIMXRT595S"/>
+    <definition extID="utility.debug_console.MIMXRT595S"/>
+    <definition extID="platform.utilities.assert.MIMXRT595S"/>
+    <definition extID="component.usart_adapter.MIMXRT595S"/>
+    <definition extID="platform.drivers.flexspi.MIMXRT595S"/>
+    <definition extID="platform.drivers.cache_cache64.MIMXRT595S"/>
+    <definition extID="component.serial_manager.MIMXRT595S"/>
+    <definition extID="component.lists.MIMXRT595S"/>
+    <definition extID="component.serial_manager_uart.MIMXRT595S"/>
+    <definition extID="platform.drivers.flexcomm_usart.MIMXRT595S"/>
+    <definition extID="platform.drivers.flash_config.MIMXRT595S"/>
+    <definition extID="device.MIMXRT595S_startup.MIMXRT595S"/>
+    <definition extID="platform.drivers.flexcomm.MIMXRT595S"/>
+    <definition extID="platform.drivers.lpc_iopctl.MIMXRT595S"/>
+    <definition extID="platform.drivers.lpc_gpio.MIMXRT595S"/>
+    <definition extID="CMSIS_Include_core_cm.MIMXRT595S"/>
+    <definition extID="platform.utilities.misc_utilities.MIMXRT595S"/>
+    <definition extID="platform.drivers.iap.MIMXRT595S"/>
+    <definition extID="iar"/>
+    <definition extID="mdk"/>
+    <definition extID="armgcc"/>
+    <definition extID="mcuxpresso"/>
+    <definition extID="com.nxp.mcuxpresso"/>
+    <definition extID="com.crt.advproject.config.exe.debug"/>
+    <definition extID="com.crt.advproject.config.exe.release"/>
+  </externalDefinitions>
+  <example id="evkmimxrt595_hello_world" name="hello_world" device_core="cm33_MIMXRT595S" dependency="platform.drivers.common.MIMXRT595S platform.drivers.clock.MIMXRT595S platform.drivers.power.MIMXRT595S platform.drivers.reset.MIMXRT595S device.MIMXRT595S_CMSIS.MIMXRT595S utility.debug_console.MIMXRT595S platform.utilities.assert.MIMXRT595S component.usart_adapter.MIMXRT595S platform.drivers.flexspi.MIMXRT595S platform.drivers.cache_cache64.MIMXRT595S component.serial_manager.MIMXRT595S component.lists.MIMXRT595S component.serial_manager_uart.MIMXRT595S platform.drivers.flexcomm_usart.MIMXRT595S platform.drivers.flash_config.MIMXRT595S device.MIMXRT595S_startup.MIMXRT595S platform.drivers.flexcomm.MIMXRT595S platform.drivers.lpc_iopctl.MIMXRT595S platform.drivers.lpc_gpio.MIMXRT595S CMSIS_Include_core_cm.MIMXRT595S platform.utilities.misc_utilities.MIMXRT595S platform.drivers.iap.MIMXRT595S" category="demo_apps">
+    <projects>
+      <project type="com.crt.advproject.projecttype.exe" nature="org.eclipse.cdt.core.cnature"/>
+    </projects>
+    <memory>
+      <memoryBlock id="QSPI_FLASH_MIMXRT595S" name="QSPI_FLASH" addr="08000000" size="04000000" type="ExtFlash" access="RO"/>
+      <memoryBlock id="SRAM_MIMXRT595S" name="SRAM" addr="20080000" size="00280000" type="RAM" access="RW"/>
+      <memoryBlock id="USB_RAM_MIMXRT595S" name="USB_RAM" addr="40140000" size="00004000" type="RAM" access="RW"/>
+    </memory>
+    <toolchainSettings>
+      <toolchainSetting id_refs="com.nxp.mcuxpresso">
+        <option id="gnu.c.compiler.option.preprocessor.def.symbols" type="stringList">
+          <value>CPU_MIMXRT595SFFOC_cm33</value>
+          <value>BOOT_HEADER_ENABLE=1</value>
+          <value>FSL_SDK_DRIVER_QUICK_ACCESS_ENABLE=1</value>
+          <value>SERIAL_PORT_TYPE_UART=1</value>
+          <value>MCUXPRESSO_SDK</value>
+        </option>
+        <option id="com.crt.advproject.gas.fpu" type="enum">
+          <value>com.crt.advproject.gas.fpu.fpv5sp.hard</value>
+        </option>
+        <option id="com.crt.advproject.gcc.fpu" type="enum">
+          <value>com.crt.advproject.gcc.fpu.fpv5sp.hard</value>
+        </option>
+        <option id="gnu.c.compiler.option.optimization.flags" type="string">
+          <value>-fno-common</value>
+        </option>
+        <option id="com.crt.advproject.c.misc.dialect" type="enum">
+          <value>com.crt.advproject.misc.dialect.gnu99</value>
+        </option>
+        <option id="gnu.c.compiler.option.misc.other" type="string">
+          <value>-mcpu=cortex-m33 -c -ffunction-sections -fdata-sections -ffreestanding -fno-builtin</value>
+        </option>
+        <option id="gnu.c.compiler.option.warnings.allwarn" type="boolean">
+          <value>false</value>
+        </option>
+        <option id="com.crt.advproject.link.fpu" type="enum">
+          <value>com.crt.advproject.link.fpu.fpv5sp.hard</value>
+        </option>
+        <option id="gnu.c.link.option.nostdlibs" type="boolean">
+          <value>true</value>
+        </option>
+      </toolchainSetting>
+    </toolchainSettings>
+    <debug_configurations>
+      <debug_configuration id_refs="com.crt.advproject.config.exe.debug com.crt.advproject.config.exe.release">
+        <drivers>
+          <driver id_refs="QSPI_FLASH_MIMXRT595S">
+            <driverBinary path="devices/MIMXRT595S/mcuxpresso" project_relative_path="binary" type="binary">
+              <files mask="MIMXRT500_SFDP_MXIC_OSPI.cfx"/>
+            </driverBinary>
+          </driver>
+        </drivers>
+      </debug_configuration>
+    </debug_configurations>
+    <include_paths>
+      <include_path path="boards/evkmimxrt595/demo_apps/hello_world" project_relative_path="board" type="c_include"/>
+      <include_path path="boards/evkmimxrt595/demo_apps/hello_world" project_relative_path="evkmimxrt595/demo_apps/hello_world" type="c_include"/>
+    </include_paths>
+    <source path="boards/evkmimxrt595/demo_apps/hello_world/iar" project_relative_path="./" type="workspace" toolchain="iar">
+      <files mask="hello_world.ewd"/>
+      <files mask="hello_world.ewp"/>
+      <files mask="hello_world.eww"/>
+    </source>
+    <source path="boards/evkmimxrt595/demo_apps/hello_world/mdk" project_relative_path="./" type="workspace" toolchain="mdk">
+      <files mask="hello_world.uvoptx"/>
+      <files mask="hello_world.uvprojx"/>
+      <files mask="JLinkSettings.ini"/>
+      <files mask="hello_world.uvmpw"/>
+    </source>
+    <source path="boards/evkmimxrt595/demo_apps/hello_world/armgcc" project_relative_path="./" type="workspace" toolchain="armgcc">
+      <files mask="build_all.bat"/>
+      <files mask="build_all.sh"/>
+      <files mask="clean.bat"/>
+      <files mask="clean.sh"/>
+      <files mask="CMakeLists.txt"/>
+      <files mask="flags.cmake"/>
+      <files mask="config.cmake"/>
+      <files mask="build_debug.bat"/>
+      <files mask="build_debug.sh"/>
+      <files mask="build_release.bat"/>
+      <files mask="build_release.sh"/>
+      <files mask="build_flash_debug.bat"/>
+      <files mask="build_flash_debug.sh"/>
+      <files mask="build_flash_release.bat"/>
+      <files mask="build_flash_release.sh"/>
+    </source>
+    <source path="boards/evkmimxrt595/demo_apps/hello_world" project_relative_path="source" type="src">
+      <files mask="hello_world.c"/>
+    </source>
+    <source path="boards/evkmimxrt595/demo_apps/hello_world" project_relative_path="board" type="src">
+      <files mask="pin_mux.c"/>
+    </source>
+    <source path="boards/evkmimxrt595/demo_apps/hello_world" project_relative_path="board" type="c_include">
+      <files mask="pin_mux.h"/>
+    </source>
+    <source path="boards/evkmimxrt595/demo_apps/hello_world" project_relative_path="." type="other">
+      <files mask="hello_world.mex" hidden="true"/>
+    </source>
+    <source path="boards/evkmimxrt595/demo_apps/hello_world" project_relative_path="evkmimxrt595/demo_apps/hello_world" type="binary">
+      <files mask="hello_world.bin" hidden="true"/>
+    </source>
+    <source path="boards/evkmimxrt595/demo_apps/hello_world" project_relative_path="board" type="src">
+      <files mask="board.c"/>
+      <files mask="clock_config.c"/>
+    </source>
+    <source path="boards/evkmimxrt595/demo_apps/hello_world" project_relative_path="board" type="c_include">
+      <files mask="board.h"/>
+      <files mask="clock_config.h"/>
+    </source>
+    <source path="boards/evkmimxrt595/demo_apps/hello_world" project_relative_path="doc" type="doc" toolchain="iar mdk mcuxpresso armgcc">
+      <files mask="readme.txt"/>
+    </source>
+    <source path="boards/evkmimxrt595/demo_apps/hello_world/iar" project_relative_path="MIMXRT595S/iar" type="linker" toolchain="iar">
+      <files mask="MIMXRT595Sxxxx_cm33_ram.icf"/>
+      <files mask="MIMXRT595Sxxxx_cm33_flash.icf"/>
+    </source>
+    <source path="boards/evkmimxrt595/demo_apps/hello_world/mdk" project_relative_path="MIMXRT595S/arm" type="linker" toolchain="mdk">
+      <files mask="MIMXRT595Sxxxx_cm33_ram.scf"/>
+      <files mask="MIMXRT595Sxxxx_cm33_flash.scf"/>
+    </source>
+    <source path="boards/evkmimxrt595/demo_apps/hello_world/armgcc" project_relative_path="MIMXRT595S/gcc" type="linker" toolchain="armgcc">
+      <files mask="MIMXRT595Sxxxx_cm33_ram.ld"/>
+      <files mask="MIMXRT595Sxxxx_cm33_flash.ld"/>
+    </source>
+    <source path="boards/evkmimxrt595/demo_apps/hello_world/mdk" project_relative_path="generator/templates/mdk/app_evkmimxrt595" type="configuration" toolchain="mdk">
+      <files mask="flashdebug.ini"/>
+    </source>
+  </example>
+</ksdk:examples>

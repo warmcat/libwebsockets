@@ -527,6 +527,7 @@ typedef struct lws_transport_mux {
 	uint64_t				us_ping_in;
 	uint64_t				us_ping_out;
 	uint64_t				us_unixtime_peer;
+	uint64_t				us_unixtime_peer_loc;
 	uint64_t				mp_time;
 	uint64_t				mp_time1;
 	enum lwstmc_parser			mp_state;

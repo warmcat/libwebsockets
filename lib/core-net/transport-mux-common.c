@@ -167,7 +167,7 @@ sul_ping_cb(lws_sorted_usec_list_t *sul)
 			 sul_ping_cb, 2 * LWS_US_PER_SEC);
 }
 
-#if defined(PICO_SDK_PATH)
+#if defined(PICO_SDK_PATH) || defined(LWS_PLAT_BAREMETAL)
 #if 0
 struct stv {
 	uint32_t tv_sec;
@@ -623,7 +623,8 @@ lws_transport_mux_rx_parse(lws_transport_mux_t *tm,
 					lwsl_user("%s: got PONGACK: ustime %llu\n",
 							__func__,
 							(unsigned long long)tm->mp_time);
-					tm->us_unixtime_peer = tm->mp_time - get_us_timeofday();
+					tm->us_unixtime_peer = tm->mp_time;
+					tm->us_unixtime_peer_loc = (uint64_t)lws_now_usecs();
 					tm->mp_state = LWSTMCPAR_CMD;
 					lws_transport_set_link(tm, LWSTM_OPERATIONAL);
 					lws_sul_cancel(&tm->sul_ping);

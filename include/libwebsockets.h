@@ -38,7 +38,7 @@ extern "C" {
 
 #include "lws_config.h"
 
-#ifdef LWS_HAVE_SYS_TYPES_H
+#if defined(LWS_HAVE_SYS_TYPES_H) && !defined(LWS_PLAT_BAREMETAL)
 #include <sys/types.h>
 #endif
 
@@ -145,6 +145,7 @@ typedef int suseconds_t;
 
 #else /* NOT WIN32 */
 #include <unistd.h>
+
 #if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
 #include <sys/capability.h>
 #endif
@@ -209,6 +210,7 @@ typedef int suseconds_t;
 #endif /* not shared */
 
 #define LWS_WARN_DEPRECATED __attribute__ ((deprecated))
+#undef printf
 #define LWS_FORMAT(string_index) __attribute__ ((format(printf, string_index, string_index+1)))
 #else /* not GNUC */
 

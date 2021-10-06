@@ -1,0 +1,279 @@
+<!-- DTD file for infoList/info blocks. These define boards, chips,
+     and RTOSes/app-structures. Note that the files themselves may
+     use many includes to build up the information, but only one
+     DTD is used for all of it.					-->
+<!ELEMENT infoList (info*)><!ATTLIST infoList
+		vendor		CDATA	#IMPLIED>
+  <!-- An info is defined as a container for a whole debuggable
+       target. This can be a board+chip, chip only, or one of those
+       with an rtos or app structure. The info has a name, which
+       is the name the user will use to select it when running
+       tools (e.g. stub, targ, etc); normally, this is a compacted
+       form of the chip name or board name (e.g. LPC2124, LMEV811,
+       etc.) The chip name must be specified and uses the standard
+       naming convention established by CRT. The proc is optional
+       and is the processor family (e.g. ARM7 or Cortex-M). The
+       match_ID is a number that has a local meaning. It is used
+       to auto-detect chips and boards when a register can be
+       looked up based on some knowledge (e.g. vendor, family of
+       chips, etc). match_ID may be a comma-separated list where 
+       a chip may have multiple IDs			-->
+  <!ELEMENT info (chip?,link*,processor?,emulator?)> <!ATTLIST info
+		name		ID	#REQUIRED
+		chip		CDATA	#REQUIRED
+		proc		CDATA	#IMPLIED
+		stub		CDATA	#IMPLIED
+		match_ID	CDATA	#IMPLIED>
+    <!-- Chip defines the details of the chip itself, including
+	 memory, reset rules, vendor information, peripheral
+	 information, and programming for flash. The determined
+	 attribute is not used in the file, but is used when this
+	 data is emitted by a tool live.		-->
+    <!ELEMENT chip (vendor?|name?|reset?|clock?|memory*|
+	memoryInstance*|prog_flash*|peripheralInstance*)> <!ATTLIST chip 
+               	determined      (detected|specified|installation) #IMPLIED>
+      <!-- Vendor provides the vendor name for the chip. This is the
+	   full name and not the 3 letter short name.	-->
+      <!ELEMENT vendor (#PCDATA)>
+      <!-- Name provides a more accurate version of the chip name
+	   for display to a user. Version is the internal version
+	   number if known.				-->
+      <!ELEMENT name (#PCDATA)> <!ATTLIST name
+               ver             NMTOKENS #IMPLIED>
+      <!-- Family is the chip family this belongs to. This usually
+	   means "x" used for the last few digits/characters of the
+	   name. How broad a family is depends on the vendor. So,
+	   "2xxx" may be used for a big family in some cases and
+	   "21xx" may be for medium sized family, and "213x" may be
+           used for a narrow family. The notion of family is usually
+	   based on mostly shared peripherals and style (but not
+	   size) of memory.				-->
+      <!ELEMENT family (#PCDATA)>
+      <!-- Reset provides information on what happens when 
+	   the user requests a reset of the target (including
+	   after a full load of a target app). This includes
+	   board level reset, system reset (peripherals), and
+	   core/cpu reset. Fake means that the tool will 
+	   write the correct values into registers. Real
+	   means that the device will truly reset itself (within
+	   any limits of debuggability.			-->
+      <!ELEMENT reset EMPTY>   <!ATTLIST reset
+               board           (none|real|fake) "none"
+               sys             (none|real|fake) "none"
+               core            (none|real|fake) "fake">
+      <!-- Clock provides information on the chip's clocking
+	   mechanism, including external osc/crystal and
+	   PLL mechanism. The freq attr is not normally
+	   provided in the file form (but may be pushed down
+	   from a board definition), and so is used when a
+	   tool provides this information. The freqency is
+	   expressed in MHz and may have a "." in it as well
+	   as end with MHz. Is_accurate is true when the 
+ 	   clock speed can be accurately determined; if not, 
+	   it must come from the board definition or the user 
+	   if needed for flash. Changeable indicates if the 
+    	   clock speed can be changed dynamically, such as 
+	   programming a PLL 				-->
+      <!ELEMENT clock EMPTY>   <!ATTLIST clock
+               freq            NMTOKENS #IMPLIED
+               is_accurate     (true|false) #IMPLIED
+               changeable      (true|false) #IMPLIED>
+      <!-- Memory is used to define all memory types on the chip.
+	   This includes ROM, Flash, RAM, external memory
+	   (if known or knowable), and peripheral memory.
+	   Note that the file may contain a subset of information.
+	   The output from a tool will include all dynamic
+	   information (determined at connect time). The
+	   memory is defined with type, default size, and 
+	   access rules. The instances of such memory is then 
+	   derived from the template. This definition and
+	   instance model makes it easier to define common
+	   memory types, and then have instances per chip.
+	   The instances provide the location and an optional 
+	   size override. Note that programmable Flash's 
+	   programming information is defined using the
+	   prog_flash element.				-->
+      <!ELEMENT memory (#PCDATA)> <!ATTLIST memory
+               id              ID       #REQUIRED
+               type            (Unknown|ROM|Flash|EEPROM|ExtFlash|
+                                RAM|ExtRAM|Peripheral|ExtPeripheral) 
+                                        #REQUIRED
+               size            NMTOKEN  #IMPLIED
+               is_ro           (true|false) #IMPLIED
+               is_wo           (true|false) #IMPLIED
+               is_volatile     (true|false) #IMPLIED
+               can_program     (true|false) #IMPLIED>
+      <!-- MemoryInstance is an instantiation of a memory
+	   type previously defined. It provides location,
+	   an optional size override (required if the 
+	   size is not provided by the memory definition).
+	   The enable indicates a test for the memory being
+   	   enabled (an expression from memory reads). -->
+      <!ELEMENT memoryInstance EMPTY> <!ATTLIST memoryInstance
+               id              ID       #REQUIRED
+               derived_from    IDREF    #REQUIRED
+               location        NMTOKENS #REQUIRED
+               size            NMTOKEN  #IMPLIED
+               enable          CDATA    #IMPLIED>
+      <!-- Prog_flash is used to define the programming
+	   rules for flash which can be programmed by the
+	   tools. The flash must also be defined via the
+	   memory and memoryInstance elements. The location
+	   must be within a memoryInstance. For flashes
+	   with variable sized blocks (sectors), there will
+	   be more than one prog_flash element. For example,
+	   if there are 8 2K blocks and then 2 32K blocks,
+	   the 1st prog_flash will have a blocksz of 2K,
+	   a size of 16K, and a location at the memoryInstance 
+	   start. The 2nd prog_flash will have a blocksz of 32K,
+	   a size of 64K, and a location at 16K beyond the
+	   memoryInstance start. The prog_flash elements must
+	   be in address order.
+           The locked attr is true if the area is not writable
+	   by programming. This is for pre-locked rather than
+	   detectable dynamically locked.
+	   The rules for self_erase, readwhileprog, and
+	   progwithcode are not normally in the file, since
+	   this information is understood by the flash algo
+	   code (which is code). The algoName attr is an optional
+	   algorithm name for chip families and boards with
+	   more than one flash type. The maxPrgBuff attr is
+           optional and only used when RAM is needed for the
+           flash programming. It gives a reduced RAM buff size if 
+           this device has a smaller max copy size than normal.	-->
+      <!ELEMENT prog_flash (#PCDATA)> <!ATTLIST prog_flash
+               location        NMTOKENS #REQUIRED
+	       size	       NMTOKEN	#REQUIRED
+               blocksz         NMTOKEN  #REQUIRED
+               wordsz          NMTOKEN  #REQUIRED
+	       locked          (true|false) #IMPLIED
+               self_erase      (true|false) #IMPLIED
+               readwhileprog   (true|false) #IMPLIED
+               progwithcode    (true|false) #IMPLIED
+	       algoName	       NMTOKEN  #IMPLIED
+	       maxPrgBuff      NMTOKEN  #IMPLIED>
+      <!-- PeripheralInstance defines the instantiation of 
+	   peripherals defined in a separate file (see link
+	   element). Instances define the location and what
+	   the instance is derived from. The tool output form
+	   may also include enables for cases where the
+	   peripheral can be validated as enabled or disabled
+	   on the chip using a register; this is the same form
+           as peripheral enable in crt_peripheral_defs.dtd. 
+           The determined attribute is not normally set in a file, 
+	   but is used for output. It indicates where the 
+	   peripheralInstance came from (what file, if any) and 
+	   if a static conclusion (vs. determined after
+	   a connect).					-->
+      <!ELEMENT peripheralInstance EMPTY> <!ATTLIST peripheralInstance
+               id              ID      #REQUIRED
+               derived_from    IDREF   #REQUIRED
+               location        CDATA   #REQUIRED
+               enable          CDATA   #IMPLIED
+	       determined      (defFile|infoFile|Dynamic) "infoFile">
+
+    <!-- The link element is used to point to a peripheral definition
+	 file (or a set of them). It contains a file reference,
+	 which may be relative to this file or a full URI. The
+	 type reference may currently only be "simple". The show
+	 reference may currently only be "embed".	-->
+    <!ELEMENT link EMPTY> <!ATTLIST link
+		href		CDATA	#REQUIRED
+		type		(simple) "simple"
+		show		(embed)  "embed">
+    <!-- The processor element is an output only element. That is,
+	 it is not in a file, but emitted by tools. The determined
+	 attribute indicates how the tool knows details about
+	 the processor (such as version).		-->
+    <!ELEMENT processor (name,family,regFormat*)> <!ATTLIST processor
+               determined      (detected|specified|installation) #IMPLIED>
+      <!-- Name is the processors specific name (within a family)
+	   and attributes define extra information of known. The
+  	   meaning of revision and ID is specific to each processor. 
+	   But, ARM processors use the r1p1 style format for rev. -->
+      <!ELEMENT name   (#PCDATA)> <!ATTLIST name
+               rev             NMTOKENS #IMPLIED
+               ID              CDATA    #IMPLIED
+               gcc_name        CDATA    #IMPLIED>
+      <!-- Family defines the processor family that the processor
+	   is a member of.					-->
+      <!ELEMENT family (#PCDATA)>
+      <!-- regFormat is used for processor specific registers that use
+	   an unsual format. If not specified here, it is assumed that
+	   the format will be hex and 32-bits. This allows for regs with
+	   their own enumeration as well as bit-packed, such as flags.
+	   Note that id is the name of the register when accessing
+	   as a register (if missing, then cannot be written through
+	   this interface), and name is the name it will show as when
+	   formatted. Special is a marker for special registers or display
+	   lines, such as PSR, PSR as text (bits expanded), Fault info,
+	   and Cycle counter.					-->
+      <!ELEMENT regFormat (field)> <!ATTLIST regFormat
+		id		CDATA #IMPLIED
+		name		CDATA #IMPLIED
+		gdb_name	CDATA #IMPLIED
+		special		(PSR|PSR_TEXT|FAULT|FAULT_TEXT|CYCLE) #IMPLIED
+		description	CDATA #IMPLIED>
+	<!-- fieldFormat is used to give the bit breakout of the
+	     register. If type is toggle, then it has two value
+	     states. If the type is enum, then it is only given
+	     as an enum. If the type is mixed, then it is given as
+	     a value and an enum. If toggle, then on and off are
+	     defined with the strings that represent them. Offset
+	     is a bit in [] or a range in []. Optionally, enumList is 
+	     given as a comma separated list of enum constants, if
+	     enum or mixed.					-->
+	<!ELEMENT fieldFormat EMPTY>	<!ATTLIST fieldFormat
+		id		CDATA #IMPLIED
+		type		(toggle|enum|mixed|value) #IMPLIED
+		offset		CDATA #REQUIRED
+		on		CDATA #IMPLIED
+		off		CDATA #IMPLIED
+		enumList	CDATA #IMPLIED
+		description	CDATA #IMPLIED>
+
+    <!-- The emulator element is an output only element. That is,
+	 it is not in a file, but emitted by tools. The attribute
+	 indicates what "wire type" it uses (including simulator
+	 or software connection). The rest of the details are in
+	 sub-elements.					-->
+    <!ELEMENT emulator (vendor,name,description,instance,speed)><!ATTLIST emulator
+               type            (SWD|JTAG|Monitor|Simulator|Agent) #IMPLIED>
+      <!-- vendor may be inaccurate if more than one emulator 
+	   uses the same protocol, for example. The vendor name
+	   may reflect on the software driver and not the emulator
+	   probe vendor. It may be "Unknown" if not determined.	-->
+      <!ELEMENT vendor (#PCDATA)>
+      <!-- name is normally the name of the software package that
+	   supports the emulator. It may be a fully descriptive
+	   name, rather than a trade name.			-->
+      <!ELEMENT name   (#PCDATA)>
+      <!-- description is normally info on the target if known, else
+	   not provided. For example, name of emulator or board. -->
+      <!ELEMENT description   (#PCDATA)>
+      <!-- instance reflects the choice from a list, if more
+	   than one emulator is available. For USB emulators,
+	   it will give the selected one and its USB name. A
+	   TCP/IP one would give the port and hostname.		-->
+      <!ELEMENT instance (#PCDATA)><!ATTLIST instance
+               index           CDATA   #IMPLIED>
+      <!-- Speed provides the current wire speed (if meaningful)
+	   for the emulator. It also indicates the fastest and
+	   slowest speeds possible, all in KHz. Note that speed
+	   may be a bit misleading if the emulator driver uses
+	   wire delays to get speeds between two wire rates. Run
+	   speed is used when the target memory can be accessed
+	   while the target runs (it often has to be slower).
+           Determined indicates how the speed was selected.-->
+      <!ELEMENT speed  (#PCDATA)><!ATTLIST speed
+               fastestKHz      CDATA   #REQUIRED
+               slowestKHz      CDATA   #REQUIRED
+               step            CDATA   #IMPLIED
+               speed           CDATA   #REQUIRED
+               delay           NMTOKEN #IMPLIED
+               run_speed       CDATA   #IMPLIED
+               run_delay       NMTOKEN #IMPLIED
+               run_speedKHz    NMTOKEN #IMPLIED
+               determined      (test|setting|stored) "test">
+
+

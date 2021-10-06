@@ -280,7 +280,7 @@ lws_sspc_txp_tx(lws_sspc_handle_t *h, size_t metadata_limit)
 		lws_ser_wu16be(s + 1, (uint16_t)txl);
 		/* SSSv1: add protocol version byte (initially 1) */
 		*(s + 3) = (uint8_t)LWS_SSS_CLIENT_PROTOCOL_VERSION;
-#if defined(WIN32)
+#if defined(WIN32) || defined(LWS_PLAT_BAREMETAL)
 		lws_ser_wu32be(s + 4, (uint32_t)0);
 #else
 		lws_ser_wu32be(s + 4, (uint32_t)getpid());
