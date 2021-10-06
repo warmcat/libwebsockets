@@ -153,7 +153,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	int cfail;
 #endif
-	int m, af = 0;
+	int m, af = 0, sock_accepted = 0;
 
 	/*
 	 * If we come here with result set, we need to convert getaddrinfo
@@ -371,7 +371,7 @@ ads_known:
 		lwsl_wsi_debug(wsi, "WAITING_CONNECT");
 		lwsi_set_state(wsi, LRS_WAITING_CONNECT);
 
-		if (wsi->a.context->event_loop_ops->sock_accept)
+		if (wsi->a.context->event_loop_ops->sock_accept) {
 			if (wsi->a.context->event_loop_ops->sock_accept(wsi)) {
 				lws_snprintf(dcce, sizeof(dcce),
 					     "conn fail: sock accept");
@@ -379,6 +379,8 @@ ads_known:
 				lwsl_wsi_warn(wsi, "%s", dcce);
 				goto try_next_dns_result_closesock;
 			}
+			sock_accepted = 1;
+		}
 
 		lws_pt_lock(pt, __func__);
 		if (__insert_wsi_socket_into_fds(wsi->a.context, wsi)) {
@@ -690,8 +692,10 @@ try_next_dns_result_closesock:
 	/*
 	 * We are killing the socket but leaving
 	 */
-	compatible_close(wsi->desc.sockfd);
-	wsi->desc.sockfd = LWS_SOCK_INVALID;
+	if (!sock_accepted) {
+		compatible_close(wsi->desc.sockfd);
+		wsi->desc.sockfd = LWS_SOCK_INVALID;
+	}
 
 try_next_dns_result:
 	lws_sul_cancel(&wsi->sul_connect_timeout);
