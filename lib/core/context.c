@@ -688,7 +688,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->lcg[LWSLCG_WSI_SERVER].tag_prefix = "wsisrv"; /* adopted */
 
 #if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT)
-	context->lcg[LWSLCG_WSI_MUX].tag_prefix = "mux", /* a mux child wsi */
+	context->lcg[LWSLCG_WSI_MUX].tag_prefix = "mux"; /* a mux child wsi */
 #endif
 
 #if defined(LWS_WITH_CLIENT)
