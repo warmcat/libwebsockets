@@ -2272,6 +2272,9 @@ lws_mqtt_client_send_subcribe(struct lws *wsi, lws_mqtt_subscribe_param_t *sub)
 		return 1;
 	}
 
+	if (wsi->mqtt->inside_resume_session)
+		return 0;
+
 	if (lws_write(nwsi, start, lws_ptr_diff_size_t(p, start), LWS_WRITE_BINARY) !=
 					lws_ptr_diff(p, start))
 		return 1;
