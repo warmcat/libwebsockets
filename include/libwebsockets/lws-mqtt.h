@@ -81,6 +81,13 @@ typedef struct lws_mqtt_client_connect_param_s {
 		uint8_t 		retain;
 	} will_param;				/* MQTT LWT
 						   parameters */
+	struct {
+		const char 		*topic;
+		const char 		*message;
+		lws_mqtt_qos_levels_t	qos;
+		uint8_t 		retain;
+	} birth_param;				/* MQTT Birth
+						   parameters */
 	const char 			*username;
 	const char 			*password;
 	uint8_t				aws_iot;

@@ -2038,17 +2038,12 @@ lws_mqtt_client_send_publish(struct lws *wsi, lws_mqtt_publish_param_t *pub,
 			return 1;
 		}
 	}
-	/*
-	 * A non-empty Payload is expected and a chunk
-	 * is present
-	 */
-	if (pub->payload_len && len) {
-		p = lws_mqtt_str_next(&mqtt_vh_payload, NULL);
-		memcpy(p, buf, len);
-		if (lws_mqtt_str_advance(&mqtt_vh_payload, (int)len))
-			return 1;
-		p = lws_mqtt_str_next(&mqtt_vh_payload, NULL);
-	}
+
+	p = lws_mqtt_str_next(&mqtt_vh_payload, NULL);
+	memcpy(p, buf, len);
+	if (lws_mqtt_str_advance(&mqtt_vh_payload, (int)len))
+		return 1;
+	p = lws_mqtt_str_next(&mqtt_vh_payload, NULL);
 
 	if (!is_complete)
 		nwsi->mqtt->inside_payload = wsi->mqtt->inside_payload = 1;
