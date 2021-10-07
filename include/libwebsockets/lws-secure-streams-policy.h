@@ -312,11 +312,16 @@ typedef struct lws_ss_policy {
 			const char	*will_topic;
 			const char	*will_message;
 
+			const char	*birth_topic;
+			const char	*birth_message;
+
 			uint16_t	keep_alive;
 			uint8_t		qos;
 			uint8_t		clean_start;
 			uint8_t		will_qos;
 			uint8_t		will_retain;
+			uint8_t		birth_qos;
+			uint8_t		birth_retain;
 			uint8_t		aws_iot;
 
 		} mqtt;

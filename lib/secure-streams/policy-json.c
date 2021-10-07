@@ -117,6 +117,10 @@ static const char * const lejp_tokens_policy[] = {
 	"s[].*.mqtt_will_message",
 	"s[].*.mqtt_will_qos",
 	"s[].*.mqtt_will_retain",
+	"s[].*.mqtt_birth_topic",
+	"s[].*.mqtt_birth_message",
+	"s[].*.mqtt_birth_qos",
+	"s[].*.mqtt_birth_retain",
 	"s[].*.aws_iot",
 	"s[].*.swake_validity",
 	"s[].*.use_auth",
@@ -220,6 +224,10 @@ typedef enum {
 	LSSPPT_MQTT_WILL_MESSAGE,
 	LSSPPT_MQTT_WILL_QOS,
 	LSSPPT_MQTT_WILL_RETAIN,
+	LSSPPT_MQTT_BIRTH_TOPIC,
+	LSSPPT_MQTT_BIRTH_MESSAGE,
+	LSSPPT_MQTT_BIRTH_QOS,
+	LSSPPT_MQTT_BIRTH_RETAIN,
 	LSSPPT_MQTT_AWS_IOT,
 	LSSPPT_SWAKE_VALIDITY,
 	LSSPPT_USE_AUTH,
@@ -1033,6 +1041,21 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		break;
 	case LSSPPT_MQTT_WILL_RETAIN:
 		a->curr[LTY_POLICY].p->u.mqtt.will_retain =
+						reason == LEJPCB_VAL_TRUE;
+		break;
+	case LSSPPT_MQTT_BIRTH_TOPIC:
+		pp = (char **)&a->curr[LTY_POLICY].p->u.mqtt.birth_topic;
+		goto string2;
+
+	case LSSPPT_MQTT_BIRTH_MESSAGE:
+		pp = (char **)&a->curr[LTY_POLICY].p->u.mqtt.birth_message;
+		goto string2;
+
+	case LSSPPT_MQTT_BIRTH_QOS:
+		a->curr[LTY_POLICY].p->u.mqtt.birth_qos = (uint8_t)atoi(ctx->buf);
+		break;
+	case LSSPPT_MQTT_BIRTH_RETAIN:
+		a->curr[LTY_POLICY].p->u.mqtt.birth_retain =
 						reason == LEJPCB_VAL_TRUE;
 		break;
 	case LSSPPT_MQTT_AWS_IOT:

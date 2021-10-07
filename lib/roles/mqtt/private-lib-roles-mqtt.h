@@ -371,6 +371,7 @@ struct _lws_mqtt_related {
 	uint8_t			inside_payload:1;
 	uint8_t			inside_subscribe:1;
 	uint8_t			inside_unsubscribe:1;
+	uint8_t			inside_birth:1;
 	uint8_t			inside_resume_session:1;
 	uint8_t 		send_puback:1;
 	uint8_t 		send_pubrel:1;
@@ -380,6 +381,7 @@ struct _lws_mqtt_related {
 	uint8_t			unacked_pubrel:1;
 
 	uint8_t			done_subscribe:1;
+	uint8_t			done_birth:1;
 };
 
 /*
