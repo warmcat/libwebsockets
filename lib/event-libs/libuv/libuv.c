@@ -424,7 +424,8 @@ static int
 elops_wsi_logical_close_uv(struct lws *wsi)
 {
 	if (!lws_socket_is_valid(wsi->desc.sockfd) &&
-	    wsi->role_ops && strcmp(wsi->role_ops->name, "raw-file"))
+	    wsi->role_ops && strcmp(wsi->role_ops->name, "raw-file") &&
+	    !wsi_to_priv_uv(wsi)->w_read.pwatcher)
 		return 0;
 
 	if (wsi->listener || wsi->event_pipe) {
@@ -495,6 +496,7 @@ elops_accept_uv(struct lws *wsi)
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	struct lws_pt_eventlibs_libuv *ptpriv = pt_to_priv_uv(pt);
 	struct lws_io_watcher_libuv *w_read = &wsi_to_priv_uv(wsi)->w_read;
+	int n;
 
 	if (!ptpriv->thread_valid) {
 		/* record the thread id that gave us our first event */
@@ -509,11 +511,19 @@ elops_accept_uv(struct lws *wsi)
 		return -1;
 
 	if (wsi->role_ops->file_handle)
-		uv_poll_init(pt_to_priv_uv(pt)->io_loop, w_read->pwatcher,
+		n = uv_poll_init(pt_to_priv_uv(pt)->io_loop, w_read->pwatcher,
 			     (int)(lws_intptr_t)wsi->desc.filefd);
 	else
-		uv_poll_init_socket(pt_to_priv_uv(pt)->io_loop,
+		n = uv_poll_init_socket(pt_to_priv_uv(pt)->io_loop,
 				    w_read->pwatcher, wsi->desc.sockfd);
+
+	if (n) {
+		lwsl_wsi_err(wsi, "uv_poll_init failed %d, sockfd=%p", n,
+				  (void *)(lws_intptr_t)wsi->desc.sockfd);
+		lws_free(w_read->pwatcher);
+		w_read->pwatcher = NULL;
+		return -1;
+	}
 
 	((uv_handle_t *)w_read->pwatcher)->data = (void *)wsi;
 
