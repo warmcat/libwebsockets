@@ -76,7 +76,7 @@ gai_strerror(int);
 typedef SemaphoreHandle_t lws_mutex_t;
 #define lws_mutex_init(x)	x = xSemaphoreCreateMutex()
 #define lws_mutex_destroy(x)	vSemaphoreDelete(x)
-#define lws_mutex_lock(x)	xSemaphoreTake(x, portMAX_DELAY)
+#define lws_mutex_lock(x)	(!xSemaphoreTake(x, portMAX_DELAY)) /*0 = OK */
 #define lws_mutex_unlock(x)	xSemaphoreGive(x)
 
 #include <lwip/sockets.h>
