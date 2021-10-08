@@ -206,8 +206,9 @@ _lws_smd_msg_send(struct lws_context *ctx, void *pay, struct lws_smd_peer *exc)
 		return 1;
 	}
 
-	if (!ctx->smd.delivering)
-		lws_mutex_lock(ctx->smd.lock_peers); /* +++++++++++++++ peers */
+	if (!ctx->smd.delivering &&
+	    lws_mutex_lock(ctx->smd.lock_peers)) /* +++++++++++++++ peers */
+		return 1; /* For Coverity */
 
 	msg->refcount = (uint16_t)_lws_smd_msg_assess_peers_interested(
 							&ctx->smd, msg, exc);
@@ -224,7 +225,8 @@ _lws_smd_msg_send(struct lws_context *ctx, void *pay, struct lws_smd_peer *exc)
 
 	/* let's add him on the queue... */
 
-	lws_mutex_lock(ctx->smd.lock_messages); /* +++++++++++++++++ messages */
+	if (lws_mutex_lock(ctx->smd.lock_messages)) /* +++++++++++++++++ messages */
+		goto bail;
 	lws_dll2_add_tail(&msg->list, &ctx->smd.owner_messages);
 
 	/*
@@ -252,6 +254,7 @@ _lws_smd_msg_send(struct lws_context *ctx, void *pay, struct lws_smd_peer *exc)
 
 	lws_mutex_unlock(ctx->smd.lock_messages); /* --------------- messages */
 
+bail:
 	if (!ctx->smd.delivering)
 		lws_mutex_unlock(ctx->smd.lock_peers); /* ------------- peers */
 
@@ -455,7 +458,8 @@ _lws_smd_peer_destroy(lws_smd_peer_t *pr)
 	lws_smd_t *smd = lws_container_of(pr->list.owner, lws_smd_t,
 					  owner_peers);
 
-	lws_mutex_lock(smd->lock_messages); /* +++++++++ messages */
+	if (lws_mutex_lock(smd->lock_messages)) /* +++++++++ messages */
+		return; /* For Coverity */
 
 	lws_dll2_remove(&pr->list);
 
@@ -546,7 +550,9 @@ _lws_smd_msg_deliver_peer(struct lws_context *ctx, lws_smd_peer_t *pr)
 	/* tail message has to actually be of interest to the peer */
 	assert(!pr->tail || (pr->tail->_class & pr->_class_filter));
 
-	lws_mutex_lock(ctx->smd.lock_messages); /* +++++++++ messages */
+	if (lws_mutex_lock(ctx->smd.lock_messages)) /* +++++++++ messages */
+		return 1; /* For Coverity */
+
 	if (!--msg->refcount)
 		_lws_smd_msg_destroy(ctx, &ctx->smd, msg);
 	lws_mutex_unlock(ctx->smd.lock_messages); /* messages ------- */
@@ -573,7 +579,8 @@ lws_smd_msg_distribute(struct lws_context *ctx)
 
 	do {
 		more = 0;
-		lws_mutex_lock(ctx->smd.lock_peers); /* +++++++++++++++ peers */
+		if (lws_mutex_lock(ctx->smd.lock_peers)) /* +++++++++++++++ peers */
+			return 1; /* For Coverity */
 
 		lws_start_foreach_dll_safe(struct lws_dll2 *, p, p1,
 					   ctx->smd.owner_peers.head) {
@@ -605,14 +612,21 @@ lws_smd_register(struct lws_context *ctx, void *opaque, int flags,
 	pr->_class_filter = _class_filter;
 	pr->ctx = ctx;
 
-	if (!ctx->smd.delivering)
-		lws_mutex_lock(ctx->smd.lock_peers); /* +++++++++++++++ peers */
+	if (!ctx->smd.delivering &&
+	    lws_mutex_lock(ctx->smd.lock_peers)) { /* +++++++++++++++ peers */
+			lws_free(pr);
+			return NULL; /* For Coverity */
+		}
 
 	/*
 	 * Let's lock the message list before adding this peer... because...
 	 */
 
-	lws_mutex_lock(ctx->smd.lock_messages); /* +++++++++ messages */
+	if (lws_mutex_lock(ctx->smd.lock_messages)) { /* +++++++++ messages */
+		lws_free(pr);
+		pr = NULL;
+		goto bail1; /* For Coverity */
+	}
 
 	lws_dll2_add_tail(&pr->list, &ctx->smd.owner_peers);
 
@@ -642,6 +656,7 @@ lws_smd_register(struct lws_context *ctx, void *opaque, int flags,
 	lwsl_cx_info(ctx, "peer %p (count %u) registered", pr,
 			(unsigned int)ctx->smd.owner_peers.count);
 
+bail1:
 	if (!ctx->smd.delivering)
 		lws_mutex_unlock(ctx->smd.lock_peers); /* ------------- peers */
 
@@ -653,8 +668,9 @@ lws_smd_unregister(struct lws_smd_peer *pr)
 {
 	lws_smd_t *smd = lws_container_of(pr->list.owner, lws_smd_t, owner_peers);
 
-	if (!smd->delivering)
-		lws_mutex_lock(smd->lock_peers); /* +++++++++++++++++++ peers */
+	if (!smd->delivering &&
+	    lws_mutex_lock(smd->lock_peers)) /* +++++++++++++++++++ peers */
+		return; /* For Coverity */
 	lwsl_cx_notice(pr->ctx, "destroying peer %p", pr);
 	_lws_smd_peer_destroy(pr);
 	if (!smd->delivering)
@@ -679,8 +695,10 @@ lws_smd_message_pending(struct lws_context *ctx)
 	 * have been hanging around too long
 	 */
 
-	lws_mutex_lock(ctx->smd.lock_peers); /* +++++++++++++++++++++++ peers */
-	lws_mutex_lock(ctx->smd.lock_messages); /* +++++++++++++++++ messages */
+	if (lws_mutex_lock(ctx->smd.lock_peers)) /* +++++++++++++++++++++++ peers */
+		return 1; /* For Coverity */
+	if (lws_mutex_lock(ctx->smd.lock_messages)) /* +++++++++++++++++ messages */
+		goto bail; /* For Coverity */
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, p, p1,
 				   ctx->smd.owner_messages.head) {
