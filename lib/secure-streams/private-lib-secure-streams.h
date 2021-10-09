@@ -71,7 +71,7 @@ typedef struct lws_ss_handle {
 	lws_fi_ctx_t		fic;	/**< Fault Injection context */
 #endif
 
-	struct lws_dll2_owner	src_list; /**< sink's list of bound sources */
+	struct lws_dll2_owner   src_list; /**< server's list of bound sources */
 
 	struct lws_context      *context; /**< lws context we are created on */
 	const lws_ss_policy_t	*policy;  /**< system policy for stream */
@@ -91,9 +91,11 @@ typedef struct lws_ss_handle {
 #if defined(LWS_WITH_CONMON)
 	char			*conmon_json;
 #endif
-
-	//struct lws_ss_handle	*h_sink;  /**< sink we are bound to, or NULL */
-	//void 			*sink_obj;/**< sink's private object representing us */
+#if defined(LWS_WITH_SERVER)
+	lws_dll2_t		sink_bind; /* if bound to / owned by a sink */
+	lws_sorted_usec_list_t	sul_txreq; /* pending tx req to peer */
+	struct lws_ss_handle	*sink_local_bind; /* nonproxy sink peer */
+#endif
 
 	lws_sorted_usec_list_t	sul_timeout;
 	lws_sorted_usec_list_t	sul;
@@ -468,12 +470,15 @@ struct policy_cb_args {
 
 	lws_ss_http_respmap_t respmap[16];
 
+	struct lws_protocol_vhost_options *pvostack[4];
+
 	union u heads[_LTY_COUNT];
 	union u curr[_LTY_COUNT];
 
 	uint8_t *p;
 
 	int count;
+	int pvosp;
 	char pending_respmap;
 
 	uint8_t parse_data:1;

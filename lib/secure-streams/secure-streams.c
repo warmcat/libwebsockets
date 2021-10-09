@@ -711,12 +711,14 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 		return LWSSSSRET_OK;
 	}
 
+#if defined(LWS_WITH_SERVER)
 	/*
 	 * We are already bound to a sink?
 	 */
 
-//	if (h->h_sink)
-//		return 0;
+	if (h->sink_local_bind)
+		return 0;
+#endif
 
 	if (!is_retry)
 		h->retry = 0;
@@ -1001,6 +1003,9 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 	const lws_ss_policy_t *pol;
 	lws_ss_state_return_t r;
 	lws_ss_metadata_t *smd;
+#if defined(LWS_WITH_SERVER)
+	lws_ss_sinks_t *sn;
+#endif
 	lws_ss_handle_t *h;
 	size_t size;
 	void **v;
@@ -1045,8 +1050,9 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 	}
 #endif
 
-#if 0
+#if defined(LWS_WITH_SERVER)
 	if (ssi->flags & LWSSSINFLAGS_REGISTER_SINK) {
+
 		/*
 		 * This can register a secure streams sink as well as normal
 		 * secure streams connections.  If that's what's happening,
@@ -1064,12 +1070,20 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 
 			return 1;
 		}
-	} else {
 
-		if (!(pol->flags & LWSSSPOLF_LOCAL_SINK)) {
+		sn = lws_zalloc(sizeof(*sn), __func__);
+		if (!sn)
+			return 1;
 
-		}
-//		lws_dll2_foreach_safe(&pt->ss_owner, NULL, lws_ss_destroy_dll);
+		sn->info = *ssi;
+		sn->info.flags = (uint8_t)((sn->info.flags &
+						~(LWSSSINFLAGS_REGISTER_SINK)) |
+				LWSSSINFLAGS_ACCEPTED_SINK);
+		lws_dll2_add_tail(&sn->list, &context->sinks);
+
+		lwsl_cx_notice(context, "registered sink %s", ssi->streamtype);
+
+		return 0;
 	}
 #endif
 
@@ -1093,15 +1107,23 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 
 	h->lc.log_cx = context->log_cx;
 
+	n = LWSLCG_WSI_SS_CLIENT;
+#if defined(LWS_WITH_SERVER)
+	if (pol->flags & LWSSSPOLF_LOCAL_SINK) {
+		if (ssi->flags & LWSSSINFLAGS_ACCEPTED_SINK)
+			n = LWSLCG_WSI_SSP_SINK;
+		else
+			n = LWSLCG_WSI_SSP_SOURCE;
+	}
+#endif
+
 	if (ssi->sss_protocol_version)
-		__lws_lc_tag(context, &context->lcg[LWSLCG_WSI_SS_CLIENT],
-			     &h->lc, "%s|v%u|%u",
+		__lws_lc_tag(context, &context->lcg[n], &h->lc, "%s|v%u|%u",
 			     ssi->streamtype ? ssi->streamtype : "nostreamtype",
 			     (unsigned int)ssi->sss_protocol_version,
 			     (unsigned int)ssi->client_pid);
 	else
-		__lws_lc_tag(context, &context->lcg[LWSLCG_WSI_SS_CLIENT],
-			     &h->lc, "%s",
+		__lws_lc_tag(context, &context->lcg[n], &h->lc, "%s",
 			     ssi->streamtype ? ssi->streamtype : "nostreamtype");
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
@@ -1111,6 +1133,67 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 		lws_fi_import(&h->fic, &ssi->fic);
 
 	lws_fi_inherit_copy(&h->fic, &context->fic, "ss", ssi->streamtype);
+#endif
+
+#if defined(LWS_WITH_SERVER)
+	if (pol->flags & LWSSSPOLF_LOCAL_SINK) {
+
+		if (ssi->flags & LWSSSINFLAGS_ACCEPTED_SINK) {
+			/*
+			 * We are recursing to create the accepted sink, do
+			 * the binding while still in create so any downstream
+			 * actions understand our situation from the start
+			 */
+			h->sink_local_bind = (struct lws_ss_handle *)
+							opaque_user_data;
+			h->sink_local_bind->sink_local_bind = h;
+		} else {
+
+			/* we are creating an ss connected to a sink... find the sink */
+
+			lws_start_foreach_dll(struct lws_dll2 *, d,
+					      lws_dll2_get_head(&context->sinks)) {
+				sn = lws_container_of(d, lws_ss_sinks_t, list);
+
+				if (!strcmp(sn->info.streamtype, ssi->streamtype)) {
+					lws_ss_handle_t *has;
+
+					/*
+					 * How does the sink feel about us joining?
+					 */
+
+					if (sn->info.state(h + 1, h, LWSSSCS_SINK_JOIN,
+							    sn->accepts.count)) {
+						lwsl_ss_notice(h, "sink rejected");
+						goto fail_creation;
+					}
+
+					/*
+					 * Recurse to instantiate an accepted sink SS
+					 * for us to bind to... pass bind source handle
+					 * in as opaque data
+					 */
+
+					if (lws_ss_create(context, tsi, &sn->info,
+							  h, &has, NULL, NULL)) {
+						lwsl_ss_err(h, "sink accept failed");
+						goto fail_creation;
+					}
+
+					lws_dll2_add_tail(&has->sink_bind, &sn->accepts);
+
+					lwsl_ss_notice(h, "bound to sink");
+					break;
+				}
+
+			} lws_end_foreach_dll(d);
+
+			if (!h->sink_local_bind) {
+				lwsl_cx_err(context, "no sink %s", ssi->streamtype);
+				goto fail_creation;
+			}
+		}
+	}
 #endif
 
 	h->info = *ssi;
@@ -1338,9 +1421,18 @@ extant:
 	    lws_fi(&h->fic, "ss_create_destroy_me"))
 		goto fail_creation;
 
+	n = 0;
 #if defined(LWS_WITH_SYS_SMD)
 	if (!(ssi->flags & LWSSSINFLAGS_PROXIED) &&
-	    pol == &pol_smd) {
+	    pol == &pol_smd)
+		n = 1;
+#endif
+#if defined(LWS_WITH_SERVER)
+	if (h->sink_local_bind)
+		n = 1;
+#endif
+
+	if (n) {
 		r = lws_ss_event_helper(h, LWSSSCS_CONNECTING);
 		if (r || lws_fi(&h->fic, "ss_create_smd_1"))
 			goto fail_creation;
@@ -1348,9 +1440,11 @@ extant:
 		if (r || lws_fi(&h->fic, "ss_create_smd_2"))
 			goto fail_creation;
 	}
-#endif
 
-	if (!(ssi->flags & LWSSSINFLAGS_REGISTER_SINK) &&
+	if (
+#if defined(LWS_WITH_SERVER)
+			!h->sink_local_bind &&
+#endif
 	    ((h->policy->flags & LWSSSPOLF_NAILED_UP)
 #if defined(LWS_WITH_SYS_SMD)
 		|| ((h->policy == &pol_smd) //&&
@@ -1381,6 +1475,9 @@ fail_creation:
 	if (ppss)
 		*ppss = NULL;
 
+#if defined(LWS_WITH_SERVER)
+	lws_dll2_remove(&h->sink_bind);
+#endif
 	lws_ss_destroy(&h);
 
 	return 1;
@@ -1398,6 +1495,7 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 	struct lws_context_per_thread *pt;
 #if defined(LWS_WITH_SERVER)
 	struct lws_vhost *v = NULL;
+	lws_ss_handle_t *hlb;
 #endif
 	lws_ss_handle_t *h = *ppss;
 	lws_ss_metadata_t *pmd;
@@ -1445,6 +1543,10 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 		lws_set_timeout(h->wsi, 1, LWS_TO_KILL_SYNC);
 	}
 
+#if defined(LWS_WITH_SERVER)
+	lws_dll2_remove(&h->sink_bind);
+#endif
+
 	/*
 	 * if we bound an smd registration to the SS, unregister it
 	 */
@@ -1471,9 +1573,17 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 		lws_vfs_file_close(&h->fop_fd);
 #endif
 #if defined(LWS_WITH_SERVER)
-		lws_dll2_remove(&h->cli_list);
+	lws_dll2_remove(&h->cli_list);
+	lws_dll2_remove(&h->sink_bind);
+	lws_sul_cancel(&h->sul_txreq);
+	hlb = h->sink_local_bind;
+	if (hlb) {
+		h->sink_local_bind = NULL;
+		lws_ss_destroy(&hlb);
+	}
 #endif
 	lws_dll2_remove(&h->to_list);
+
 	lws_sul_cancel(&h->sul_timeout);
 
 	/*
@@ -1611,6 +1721,46 @@ lws_ss_server_foreach_client(struct lws_ss_handle *h, lws_sssfec_cb cb,
 
 	} lws_end_foreach_dll_safe(d, d1);
 }
+
+/*
+ * Deal with tx requests between source and accepted sink... h is the guy who
+ * requested the write
+ */
+
+static void
+lws_ss_sink_txreq_cb(lws_sorted_usec_list_t *sul)
+{
+	struct lws_ss_handle *h = lws_container_of(sul, struct lws_ss_handle,
+						   sul_txreq);
+	uint8_t buf[1380 + LWS_PRE];
+	size_t size = sizeof(buf) - LWS_PRE;
+	lws_ss_state_return_t r;
+	int flags = 0;
+
+	/* !!! just let writes happen for now */
+
+	assert(h->sink_local_bind);
+
+	/* collect the source tx */
+	r = h->info.tx(h + 1, 0, buf + LWS_PRE, &size, &flags);
+	switch (r) {
+	case LWSSSSRET_OK:
+		if (!h->sink_local_bind->info.rx) {
+			lwsl_ss_warn(h->sink_local_bind, "No RX cb");
+			break;
+		}
+		r = h->sink_local_bind->info.rx(&h->sink_local_bind[1],
+						 buf + LWS_PRE, size, flags);
+		_lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, NULL,
+							    &h->sink_local_bind);
+		break;
+	case LWSSSSRET_TX_DONT_SEND:
+		break;
+	default:
+		_lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, NULL, &h);
+		break;
+	}
+}
 #endif
 
 lws_ss_state_return_t
@@ -1646,6 +1796,21 @@ _lws_ss_request_tx(lws_ss_handle_t *h)
 
 	if (h->policy->flags & LWSSSPOLF_SERVER)
 		return LWSSSSRET_OK;
+
+#if defined(LWS_WITH_SERVER)
+	if (h->sink_local_bind) {
+		/*
+		 * We are bound to a local sink / source
+		 */
+
+		lwsl_ss_notice(h->sink_local_bind, "Req tx");
+
+		lws_sul_schedule(h->context, 0, &h->sink_local_bind->sul_txreq,
+				 lws_ss_sink_txreq_cb, 1);
+
+		return LWSSSSRET_OK;
+	}
+#endif
 
 	/*
 	 * there's currently no wsi / connection associated with the ss handle
