@@ -105,6 +105,7 @@ static const char * const lejp_tokens_policy[] = {
 	"s[].*.ws_subprotocol",
 	"s[].*.ws_binary",
 	"s[].*.local_sink",
+	"s[].*.options[].*",
 	"s[].*.server",
 	"s[].*.server_cert",
 	"s[].*.server_key",
@@ -213,6 +214,7 @@ typedef enum {
 	LSSPPT_WS_SUBPROTOCOL,
 	LSSPPT_WS_BINARY,
 	LSSPPT_LOCAL_SINK,
+	LSSPPT_OPTIONS,
 	LSSPPT_SERVER,
 	LSSPPT_SERVER_CERT,
 	LSSPPT_SERVER_KEY,
@@ -311,6 +313,10 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 	lws_ss_trust_store_t *ts;
 	lws_ss_metadata_t *pmd;
 	lws_ss_x509_t *x, **py;
+#if defined(LWS_WITH_SERVER)
+	struct lws_protocol_vhost_options *pvo;
+	const char *pvo_name;
+#endif
 	lws_ss_policy_t *p2;
 	lws_retry_bo_t *b;
 	size_t inl, outl;
@@ -318,8 +324,8 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 	backoff_t *bot;
 	int n = -1;
 
-//	lwsl_debug("%s: %d %d %s\n", __func__, reason, ctx->path_match - 1,
-//		   ctx->path);
+	// lwsl_notice("%s: %d %d %s %s\n", __func__, reason, ctx->path_match - 1,
+	//	   ctx->path, ctx->buf);
 
 	switch (ctx->path_match - 1) {
 	case LSSPPT_RETRY:
@@ -384,6 +390,11 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 
 		return 0;
 	}
+
+	if (reason == LEJPCB_ARRAY_END &&
+	    ctx->path_match - 1 == LSSPPT_OPTIONS &&
+	    a->pvosp)
+		a->pvosp--;
 
 	if (reason == LEJPCB_OBJECT_END && a->p) {
 		/*
@@ -595,6 +606,36 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		pp = (char **)&a->curr[LTY_METRICS].m->report;
 		goto string2;
 #endif
+
+	case LSSPPT_OPTIONS:
+#if defined(LWS_WITH_SERVER)
+		pvo_name = ctx->path + ctx->st[ctx->sp - 2].p + 1;
+		pvo = lwsac_use(&a->ac, sizeof(*pvo) + strlen(pvo_name) + 1 +
+				 ctx->npos + 1, POL_AC_GRAIN);
+		if (!pvo)
+			goto oom;
+
+		pvo->name = (const char *)&pvo[1];
+		pvo->value = pvo->name + strlen(pvo_name) + 1;
+		memcpy((char *)pvo->name, pvo_name, strlen(pvo_name) + 1);
+		memcpy((char *)pvo->value, ctx->buf, ctx->npos);
+		*((char *)&pvo->value[ctx->npos]) = '\0';
+		pvo->next = NULL;
+		pvo->options = NULL;
+
+		if (!a->curr[LTY_POLICY].p->pvo)
+			a->curr[LTY_POLICY].p->pvo = pvo;
+
+		/* for now we just support one level of options */
+
+		// lwsl_notice("%s: lv %d, %s=%s\n", __func__, a->pvosp,
+		//		pvo->name, pvo->value);
+
+		if (a->pvostack[a->pvosp])
+			a->pvostack[a->pvosp]->next = pvo;
+		a->pvostack[a->pvosp] = pvo;
+#endif
+		break;
 
 	case LSSPPT_SERVER_CERT:
 	case LSSPPT_SERVER_KEY:

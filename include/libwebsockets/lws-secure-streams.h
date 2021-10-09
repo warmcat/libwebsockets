@@ -172,6 +172,9 @@ enum {
 	LWSSSINFLAGS_ACCEPTED				=	(1 << 3),
 	/**< Set on the accepted object copy of the ssi / info to indicate that
 	 * we are an accepted connection from a server's listening socket */
+	LWSSSINFLAGS_ACCEPTED_SINK			=	(1 << 4),
+	/**< Set on the accepted object copy of the ssi / info to indicate that
+	 * we are an accepted connection from a local sink */
 };
 
 typedef lws_ss_state_return_t (*lws_sscb_rx)(void *userobj, const uint8_t *buf,
