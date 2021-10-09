@@ -209,6 +209,7 @@ app_main(void)
 	info->early_smd_class_filter	= LWSSMDCL_INTERACTION |
 					  LWSSMDCL_SYSTEM_STATE |
 					  LWSSMDCL_NETWORK;
+	info->smd_ttl_us		= 20 * LWS_USEC_PER_SEC; /* we can spend a long time in display */
 
 	context = lws_create_context(info);
 	if (!context) {
