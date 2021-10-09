@@ -234,6 +234,10 @@ typedef struct lws_ss_policy {
 	const lws_metric_policy_t *metrics; /* linked-list of metric policies */
 	const lws_ss_auth_t	*auth; /* NULL or auth object we bind to */
 
+#if defined(LWS_WITH_SERVER)
+	const struct lws_protocol_vhost_options *pvo;
+#endif
+
 	/* protocol-specific connection policy details */
 
 	union {
@@ -330,6 +334,9 @@ typedef struct lws_ss_policy {
 
 	const lws_retry_bo_t	*retry_bo;   /**< retry policy to use */
 
+	int32_t			txc;
+	int32_t			txc_peer;
+
 	uint32_t		proxy_buflen; /**< max dsh alloc for proxy */
 	uint32_t		proxy_buflen_rxflow_on_above;
 	uint32_t		proxy_buflen_rxflow_off_below;
@@ -337,7 +344,6 @@ typedef struct lws_ss_policy {
 	uint32_t		client_buflen; /**< max dsh alloc for client */
 	uint32_t		client_buflen_rxflow_on_above;
 	uint32_t		client_buflen_rxflow_off_below;
-
 
 	uint32_t		timeout_ms;  /**< default message response
 					      * timeout in ms */
