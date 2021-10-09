@@ -807,6 +807,11 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 #endif
 
+#if defined(LWS_WITH_SERVER)
+	context->lcg[LWSLCG_WSI_SSP_SINK].tag_prefix = "SSsink";
+	context->lcg[LWSLCG_WSI_SSP_SOURCE].tag_prefix = "SSsrc";
+#endif
+
 
 #if defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
 	/* directly use the user-provided policy object list */
@@ -1700,7 +1705,8 @@ lws_pt_destroy(struct lws_context_per_thread *pt)
 	}
 
 #if defined(LWS_WITH_SECURE_STREAMS)
-	lws_dll2_foreach_safe(&pt->ss_owner, NULL, lws_ss_destroy_dll);
+	while (pt->ss_owner.head)
+		lws_ss_destroy_dll(pt->ss_owner.head, NULL);
 
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API) && defined(LWS_WITH_CLIENT)
 	lws_dll2_foreach_safe(&pt->ss_client_owner, NULL, lws_sspc_destroy_dll);
@@ -2181,6 +2187,21 @@ next:
 
 		if (context->ac_policy)
 			lwsac_free(&context->ac_policy);
+
+#if defined(LWS_WITH_SERVER)
+		/* ... for every sink... */
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				      lws_dll2_get_head(&context->sinks)) {
+			lws_ss_sinks_t *sn = lws_container_of(d, lws_ss_sinks_t,
+							      list);
+
+			assert(!sn->accepts.count);
+
+			lws_dll2_remove(&sn->list);
+			lws_free(sn);
+
+		} lws_end_foreach_dll_safe(d, d1);
+#endif
 #endif
 
 		/*
