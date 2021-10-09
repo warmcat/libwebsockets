@@ -411,9 +411,22 @@ enum {
 #endif
 #endif
 
+#if defined(LWS_WITH_SERVER)
+	LWSLCG_WSI_SSP_SINK,		/* accepted sink conn */
+	LWSLCG_WSI_SSP_SOURCE,		/* accepted source conn */
+#endif
+
 	/* always last */
 	LWSLCG_COUNT
 };
+
+#if defined(LWS_WITH_SECURE_STREAMS) && defined(LWS_WITH_SERVER)
+typedef struct lws_ss_sinks {
+	lws_dll2_t				list;
+	lws_ss_info_t				info;
+	lws_dll2_owner_t			accepts;
+} lws_ss_sinks_t;
+#endif
 
 /*
  * the rest is managed per-context, that includes
@@ -668,6 +681,9 @@ struct lws_context {
 #endif
 	const lws_ss_policy_t		*pss_policies;
 	const lws_ss_auth_t		*pss_auths;
+#if defined(LWS_WITH_SERVER)
+	lws_dll2_owner_t		sinks;
+#endif
 #if defined(LWS_WITH_SSPLUGINS)
 	const lws_ss_plugin_t		**pss_plugins;
 #endif
