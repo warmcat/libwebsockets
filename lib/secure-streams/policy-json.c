@@ -305,9 +305,6 @@ static signed char
 lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 {
 	struct policy_cb_args *a = (struct policy_cb_args *)ctx->user;
-#if defined(LWS_WITH_SSPLUGINS)
-	const lws_ss_plugin_t **pin;
-#endif
 	char **pp, dotstar[32], *q;
 	lws_ss_trust_store_t *ts;
 	lws_ss_metadata_t *pmd;
@@ -701,29 +698,8 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 		pp = (char **)&a->curr[LTY_POLICY].p->payload_fmt;
 		goto string2;
 
-	case LSSPPT_PLUGINS:
-#if defined(LWS_WITH_SSPLUGINS)
-		pin = a->context->pss_plugins;
-		if (a->count ==
-			  (int)LWS_ARRAY_SIZE(a->curr[LTY_POLICY].p->plugins)) {
-			lwsl_err("%s: too many plugins\n", __func__);
-
-			goto oom;
-		}
-		if (!pin)
-			break;
-		while (*pin) {
-			if (!strncmp((*pin)->name, ctx->buf, ctx->npos)) {
-				a->curr[LTY_POLICY].p->plugins[a->count++] = *pin;
-				return 0;
-			}
-			pin++;
-		}
-		lwsl_err("%s: unknown plugin\n", __func__);
-		goto oom;
-#else
+	case LSSPPT_PLUGINS: /* deprecated */
 		break;
-#endif
 
 	case LSSPPT_TLS:
 		if (reason == LEJPCB_VAL_TRUE)

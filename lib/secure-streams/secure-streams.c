@@ -845,11 +845,6 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 
 	i.pwsi = &h->wsi;
 
-#if defined(LWS_WITH_SSPLUGINS)
-	if (h->policy->plugins[0] && h->policy->plugins[0]->munge)
-		h->policy->plugins[0]->munge(h, path, h->context->max_http_header_data);
-#endif
-
 	lwsl_info("%s: connecting %s, '%s' '%s' %s\n", __func__, i.method,
 			i.alpn, i.address, i.path);
 
@@ -1009,22 +1004,14 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 	 * We overallocate and point to things in the overallocation...
 	 *
 	 * 1) the user_alloc from the stream info
-	 * 2) network auth plugin instantiation data
-	 * 3) stream auth plugin instantiation data
-	 * 4) as many metadata pointer structs as the policy tells
-	 * 5) the streamtype name (length is not aligned)
+	 * 2) as many metadata pointer structs as the policy tells
+	 * 3) the streamtype name (length is not aligned)
 	 *
 	 * ... when we come to destroy it, just one free to do.
 	 */
 
 	size = sizeof(*h) + ssi->user_alloc +
 			(ssi->streamtype ? strlen(ssi->streamtype): 0) + 1;
-#if defined(LWS_WITH_SSPLUGINS)
-	if (pol->plugins[0])
-		size += pol->plugins[0]->alloc;
-	if (pol->plugins[1])
-		size += pol->plugins[1]->alloc;
-#endif
 	size += pol->metadata_count * sizeof(lws_ss_metadata_t);
 
 	h = lws_zalloc(size, __func__);
@@ -1073,17 +1060,6 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 	*v = opaque_user_data;
 
 	p += ssi->user_alloc;
-
-#if defined(LWS_WITH_SSPLUGINS)
-	if (pol->plugins[0]) {
-		h->nauthi = p;
-		p += pol->plugins[0]->alloc;
-	}
-	if (pol->plugins[1]) {
-		h->sauthi = p;
-		p += pol->plugins[1]->alloc;
-	}
-#endif
 
 	if (pol->metadata_count) {
 		h->metadata = (lws_ss_metadata_t *)p;

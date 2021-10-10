@@ -51,32 +51,6 @@ typedef int (*plugin_auth_status_cb)(struct lws_ss_handle *ss, int status);
  * has the LWSSSPOLF_NAILED_UP flag.
  */
 
-#if defined(LWS_WITH_SSPLUGINS)
-typedef struct lws_ss_plugin {
-	struct lws_ss_plugin	*next;
-	const char		*name;	/**< auth plugin name */
-	size_t			alloc;	/**< size of private allocation */
-
-	int			(*create)(struct lws_ss_handle *ss, void *info,
-					  plugin_auth_status_cb status);
-				/**< called when the auth plugin is instantiated
-				     and bound to the secure stream.  status is
-				     called back with advisory information about
-				     the authenticated stream state as it
-				     proceeds */
-	int			(*destroy)(struct lws_ss_handle *ss);
-				/**< called when the related secure stream is
-				     being destroyed, and anything the auth
-				     plugin is doing should also be destroyed */
-	int			(*munge)(struct lws_ss_handle *ss, char *path,
-					 size_t path_len);
-				/**< if the plugin needs to munge transactions
-				     that have metadata outside the payload (eg,
-				     add http headers) this callback will give
-				     it the opportunity to do so */
-} lws_ss_plugin_t;
-#endif
-
 /* the public, const metrics policy definition */
 
 typedef struct lws_metric_policy {
@@ -330,12 +304,6 @@ typedef struct lws_ss_policy {
 
 		/* details for non-http related protocols... */
 	} u;
-
-#if defined(LWS_WITH_SSPLUGINS)
-	const
-	struct lws_ss_plugin	*plugins[2]; /**< NULL or auth plugin */
-	const void		*plugins_info[2];   /**< plugin-specific data */
-#endif
 
 #if defined(LWS_WITH_SECURE_STREAMS_AUTH_SIGV4)
 	/* directly point to the metadata name, no need to expand */

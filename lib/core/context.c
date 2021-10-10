@@ -849,9 +849,6 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if !defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
 	context->pss_policies_json = info->pss_policies_json;
 #endif
-#if defined(LWS_WITH_SSPLUGINS)
-	context->pss_plugins = info->pss_plugins;
-#endif
 #endif
 
 	/* if he gave us names, set the uid / gid */
