@@ -80,11 +80,6 @@ typedef struct lws_ss_handle {
 
 	struct lws_sss_proxy_conn *conn_if_sspc_onw;
 
-#if defined(LWS_WITH_SSPLUGINS)
-	void			*nauthi;  /**< the nauth plugin instance data */
-	void			*sauthi;  /**< the sauth plugin instance data */
-#endif
-
 	lws_ss_metadata_t	*metadata;
 #if defined(LWS_WITH_SS_DIRECT_PROTOCOL_STR)
 	lws_ss_metadata_t	*instant_metadata; /**< for set instant metadata */
