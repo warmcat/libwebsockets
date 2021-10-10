@@ -284,7 +284,6 @@ struct lws_context_per_thread {
 	pthread_t self;
 #endif
 	struct lws_dll2_owner dll_buflist_owner;  /* guys with pending rxflow */
-	struct lws_dll2_owner seq_owner;	   /* list of lws_sequencer-s */
 	lws_dll2_owner_t      attach_owner;	/* pending lws_attach */
 
 #if defined(LWS_WITH_SECURE_STREAMS)
@@ -701,7 +700,6 @@ struct lws {
 	struct lws			*child_list; /* points to first child */
 	struct lws			*sibling_list; /* subsequent children at same level */
 	const struct lws_role_ops	*role_ops;
-	struct lws_sequencer		*seq;	/* associated sequencer if any */
 	const lws_retry_bo_t		*retry_policy;
 
 	lws_log_cx_t			*log_cx;

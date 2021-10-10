@@ -76,7 +76,6 @@ typedef struct lws_ss_handle {
 	struct lws_context      *context; /**< lws context we are created on */
 	const lws_ss_policy_t	*policy;  /**< system policy for stream */
 
-	struct lws_sequencer	*seq;	  /**< owning sequencer if any */
 	struct lws		*wsi;	  /**< the stream wsi if any */
 
 	struct lws_sss_proxy_conn *conn_if_sspc_onw;

@@ -88,7 +88,7 @@ typedef void lws_abs_protocol_inst_t;
 LWS_VISIBLE LWS_EXTERN lws_abs_t *
 lws_abstract_alloc(struct lws_vhost *vhost, void *user,
 		   const char *abstract_path, const lws_token_map_t *ap_tokens,
-		   const lws_token_map_t *at_tokens, struct lws_sequencer *seq,
+		   const lws_token_map_t *at_tokens, void *reserved,
 		   void *opaque_user_data);
 
 /**

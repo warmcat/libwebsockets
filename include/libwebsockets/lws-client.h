@@ -171,11 +171,6 @@ struct lws_client_connect_info {
 	 *           tokens
 	 */
 
-	struct lws_sequencer *seq;
-	/**< NULL, or an lws_seq_t that wants to be given messages about
-	 * this wsi's lifecycle as it connects, errors or closes.
-	 */
-
 	void *opaque_user_data;
 	/**< This data has no meaning to lws but is applied to the client wsi
 	 *   and can be retrieved by user code with lws_get_opaque_user_data().

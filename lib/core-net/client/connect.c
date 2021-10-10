@@ -234,7 +234,6 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	else
 		wsi->keep_warm_secs = 5;
 
-	wsi->seq = i->seq;
 	wsi->flags = i->ssl_connection;
 
 	wsi->c_pri = i->priority;
