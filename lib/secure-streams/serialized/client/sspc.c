@@ -282,7 +282,7 @@ lws_sspc_event_helper(lws_sspc_handle_t *h, lws_ss_constate_t cs,
 int
 lws_sspc_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 	        void *opaque_user_data, lws_sspc_handle_t **ppss,
-	        struct lws_sequencer *seq_owner, const char **ppayload_fmt)
+	        void *reserved, const char **ppayload_fmt)
 {
 	lws_sspc_handle_t *h;
 	uint8_t *ua;

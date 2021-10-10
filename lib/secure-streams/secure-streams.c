@@ -417,16 +417,6 @@ lws_ss_event_helper(lws_ss_handle_t *h, lws_ss_constate_t cs)
 	if (cs == LWSSSCS_DISCONNECTED)
 		h->ss_dangling_connected = 0;
 
-#if defined(LWS_WITH_SEQUENCER)
-	/*
-	 * A parent sequencer for the ss is optional, if we have one, keep it
-	 * informed of state changes on the ss connection
-	 */
-	if (h->seq && cs != LWSSSCS_DESTROYING)
-		lws_seq_queue_event(h->seq, LWSSEQ_SS_STATE_BASE + cs,
-				    (void *)h, NULL);
-#endif
-
 	if (h->info.state) {
 		h->h_in_svc = h;
 		r = h->info.state(ss_to_userobj(h), NULL, cs,
@@ -820,7 +810,6 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 	i.host			= i.address;
 	i.origin		= i.address;
 	i.opaque_user_data	= h;
-	i.seq			= h->seq;
 	i.retry_and_idle_policy	= h->policy->retry_bo;
 	i.sys_tls_client_cert	= h->policy->client_cert;
 
@@ -938,7 +927,7 @@ lws_ss_client_connect(lws_ss_handle_t *h)
 int
 lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 	      void *opaque_user_data, lws_ss_handle_t **ppss,
-	      struct lws_sequencer *seq_owner, const char **ppayload_fmt)
+	      void *reserved, const char **ppayload_fmt)
 {
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	const lws_ss_policy_t *pol;
@@ -1068,7 +1057,6 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 	h->policy = pol;
 	h->context = context;
 	h->tsi = (uint8_t)tsi;
-	h->seq = seq_owner;
 
 	if (h->info.flags & LWSSSINFLAGS_PROXIED)
 		h->proxy_onward = 1;
@@ -1676,12 +1664,6 @@ lws_ss_cancel_notify_dll(struct lws_dll2 *d, void *user)
 		lwsl_warn("%s: cancel event ignores return\n", __func__);
 
 	return 0;
-}
-
-struct lws_sequencer *
-lws_ss_get_sequencer(lws_ss_handle_t *h)
-{
-	return h->seq;
 }
 
 struct lws_context *

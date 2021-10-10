@@ -54,7 +54,6 @@ extern "C" {
 /* place for one-shot opaque forward references */
 
 typedef struct lws_context * lws_ctx_t;
-struct lws_sequencer;
 struct lws_dsh;
 
 /*
@@ -664,7 +663,6 @@ struct lws;
 #include <libwebsockets/lws-lwsac.h>
 #include <libwebsockets/lws-fts.h>
 #include <libwebsockets/lws-diskcache.h>
-#include <libwebsockets/lws-sequencer.h>
 #include <libwebsockets/lws-secure-streams.h>
 #include <libwebsockets/lws-secure-streams-serialization.h>
 #include <libwebsockets/lws-secure-streams-policy.h>
@@ -672,11 +670,6 @@ struct lws;
 #include <libwebsockets/lws-secure-streams-transport-proxy.h>
 #include <libwebsockets/lws-jrpc.h>
 
-#if !defined(LWS_PLAT_FREERTOS)
-#include <libwebsockets/abstract/abstract.h>
-
-#include <libwebsockets/lws-test-sequencer.h>
-#endif
 #include <libwebsockets/lws-async-dns.h>
 
 #if defined(LWS_WITH_TLS)

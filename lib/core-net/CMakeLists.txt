@@ -56,11 +56,6 @@ if (LWS_WITH_LWS_DSH)
 		core-net/lws-dsh.c)
 endif()
 
-if (LWS_WITH_SEQUENCER)
-	list(APPEND SOURCES
-		core-net/sequencer.c)
-endif()
-
 if (LWS_WITH_CLIENT)
 	list(APPEND SOURCES
 		core-net/client/client.c

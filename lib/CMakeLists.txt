@@ -139,9 +139,6 @@ endif()
 
 if (LWS_WITH_NETWORK)
 	add_subdir_include_dirs(core-net)
-	if (LWS_WITH_ABSTRACT)
-		add_subdir_include_dirs(abstract)
-	endif()
 	add_subdir_include_dirs(roles)
 endif()
 

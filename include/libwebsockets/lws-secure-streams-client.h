@@ -201,7 +201,7 @@ struct lws_context_standalone;
 LWS_VISIBLE LWS_EXTERN int
 lws_sspc_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 		void *opaque_user_data, struct lws_sspc_handle **ppss,
-		struct lws_sequencer *seq_owner, const char **ppayload_fmt);
+		void *reserved, const char **ppayload_fmt);
 
 /**
  * lws_sspc_destroy() - Destroy secure stream
@@ -255,19 +255,6 @@ lws_sspc_request_tx_len(struct lws_sspc_handle *h, unsigned long len);
  */
 LWS_VISIBLE LWS_EXTERN lws_ss_state_return_t
 lws_sspc_client_connect(struct lws_sspc_handle *h);
-
-/**
- * lws_sspc_get_sequencer() - Return parent sequencer pointer if any
- *
- * \param h: secure streams handle
- *
- * Returns NULL if the secure stream is not associated with a sequencer.
- * Otherwise returns a pointer to the owning sequencer.  You can use this to
- * identify which sequencer to direct messages to, from the secure stream
- * callback.
- */
-LWS_VISIBLE LWS_EXTERN struct lws_sequencer *
-lws_sspc_get_sequencer(struct lws_sspc_handle *h);
 
 /**
  * lws_sspc_proxy_create() - Start a unix domain socket proxy for Secure Streams
