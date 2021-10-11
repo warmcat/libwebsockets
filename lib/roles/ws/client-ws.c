@@ -51,7 +51,7 @@ lws_create_client_ws_object(const struct lws_client_connect_info *i,
 	/* allocate the ws struct for the wsi */
 	wsi->ws = lws_zalloc(sizeof(*wsi->ws), "client ws struct");
 	if (!wsi->ws) {
-		lwsl_notice("OOM\n");
+		lwsl_wsi_notice(wsi, "OOM\n");
 		return 1;
 	}
 
@@ -77,14 +77,14 @@ lws_ws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 	    !lwsi_role_client(wsi))
 		return 0;
 
-	lwsl_debug("%s: hs client feels it has %d in\n", __func__, (int)len);
+	lwsl_wsi_debug(wsi, "%s: hs client feels it has %d in\n", __func__, (int)len);
 
 	while (len) {
 		/*
 		 * we were accepting input but now we stopped doing so
 		 */
 		if (lws_is_flowcontrolled(wsi)) {
-			lwsl_debug("%s: caching %ld\n", __func__, (long)len);
+			lwsl_wsi_debug(wsi, "%s: caching %ld\n", __func__, (long)len);
 			/*
 			 * Since we cached the remaining available input, we
 			 * can say we "consumed" it.
@@ -103,7 +103,7 @@ lws_ws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 				 * indicate we didn't use anything to the caller
 				 * so he doesn't do any consumed processing
 				 */
-				lwsl_info("%s: trimming inside rxflow cache\n",
+				lwsl_wsi_info(wsi, "%s: trimming inside rxflow cache\n",
 						__func__);
 				*buf = bufin;
 			} else
@@ -115,7 +115,7 @@ lws_ws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 		if (wsi->ws->rx_draining_ext) {
 			int m;
 
-			lwsl_info("%s: draining ext\n", __func__);
+			lwsl_wsi_info(wsi, "%s: draining ext\n", __func__);
 			if (lwsi_role_client(wsi))
 				m = lws_ws_client_rx_sm(wsi, 0);
 			else
@@ -131,13 +131,13 @@ lws_ws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 		 */
 
 		if (lws_ws_client_rx_sm(wsi, *(*buf)++)) {
-			lwsl_info("%s: client_rx_sm exited, DROPPING %d\n",
+			lwsl_wsi_info(wsi, "%s: client_rx_sm exited, DROPPING %d\n",
 				    __func__, (int)len);
 			return -1;
 		}
 		len--;
 	}
-	// lwsl_notice("%s: finished with %ld\n", __func__, (long)len);
+	// lwsl_wsi_notice(wsi, "%s: finished with %ld\n", __func__, (long)len);
 
 	return 0;
 }
@@ -157,7 +157,7 @@ lws_generate_client_ws_handshake(struct lws *wsi, char *p, const char *conn1)
 	 * create the random key
 	 */
 	if (lws_get_random(wsi->a.context, hash, 16) != 16) {
-		lwsl_err("Unable to read from random dev %s\n",
+		lwsl_wsi_err(wsi, "Unable to read from random dev %s\n",
 			 SYSTEM_RANDOM_FILEPATH);
 		return NULL;
 	}
@@ -252,14 +252,15 @@ lws_client_ws_upgrade(struct lws *wsi, const char **cce)
 #endif
 
 	if (wsi->client_mux_substream) {/* !!! client ws-over-h2 not there yet */
-		lwsl_warn("%s: client ws-over-h2 upgrade not supported yet\n",
+		lwsl_wsi_warn(wsi, "%s: client ws-over-h2 upgrade not supported yet\n",
 			  __func__);
 		*cce = "HS: h2 / ws upgrade unsupported";
 		goto bail3;
 	}
 
 	if (wsi->http.ah->http_response == 401) {
-		lwsl_warn(
+		lwsl_wsi_warn(
+		       wsi,
 		       "lws_client_handshake: got bad HTTP response '%d'\n",
 		       wsi->http.ah->http_response);
 		*cce = "HS: ws upgrade unauthorized";
@@ -267,7 +268,8 @@ lws_client_ws_upgrade(struct lws *wsi, const char **cce)
 	}
 
 	if (wsi->http.ah->http_response != 101) {
-		lwsl_warn(
+		lwsl_wsi_warn(
+		       wsi,
 		       "lws_client_handshake: got bad HTTP response '%d'\n",
 		       wsi->http.ah->http_response);
 		*cce = "HS: ws upgrade response not 101";
@@ -275,20 +277,21 @@ lws_client_ws_upgrade(struct lws *wsi, const char **cce)
 	}
 
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_ACCEPT) == 0) {
-		lwsl_info("no ACCEPT\n");
+		lwsl_wsi_info(wsi, "no ACCEPT\n");
 		*cce = "HS: ACCEPT missing";
 		goto bail3;
 	}
 
 	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_UPGRADE);
 	if (!p) {
-		lwsl_info("no UPGRADE\n");
+		lwsl_wsi_info(wsi, "no UPGRADE\n");
 		*cce = "HS: UPGRADE missing";
 		goto bail3;
 	}
 	strtolower(p);
 	if (strcmp(p, "websocket")) {
-		lwsl_warn(
+		lwsl_wsi_warn(
+		      wsi,
 		      "lws_client_handshake: got bad Upgrade header '%s'\n", p);
 		*cce = "HS: Upgrade to something other than websocket";
 		goto bail3;
@@ -316,7 +319,7 @@ lws_client_ws_upgrade(struct lws *wsi, const char **cce)
 
 		default: /* includes ENDED found by the tokenizer itself */
 bad_conn_format:
-			lwsl_info("%s: malfored connection '%s'\n",
+			lwsl_wsi_info(wsi, "%s: malfored connection '%s'\n",
 				  __func__, buf);
 			*cce = "HS: UPGRADE malformed";
 			goto bail3;
@@ -326,9 +329,9 @@ bad_conn_format:
 	pc = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_SENT_PROTOCOLS);
 #if defined(_DEBUG)
 	if (!pc) {
-		lwsl_parser("lws_client_int_s_hs: no protocol list\n");
+		lwsl_wsi_parser(wsi, "lws_client_int_s_hs: no protocol list\n");
 	} else
-		lwsl_parser("lws_client_int_s_hs: protocol list '%s'\n", pc);
+		lwsl_wsi_parser(wsi, "lws_client_int_s_hs: protocol list '%s'\n", pc);
 #endif
 
 	/*
@@ -338,7 +341,7 @@ bad_conn_format:
 
 	len = lws_hdr_total_length(wsi, WSI_TOKEN_PROTOCOL);
 	if (!len) {
-		lwsl_info("%s: WSI_TOKEN_PROTOCOL is null\n", __func__);
+		lwsl_wsi_info(wsi, "%s: WSI_TOKEN_PROTOCOL is null\n", __func__);
 		/*
 		 * no protocol name to work from, if we don't already have one
 		 * default to first protocol
@@ -372,7 +375,7 @@ bad_conn_format:
 	}
 
 	if (!okay) {
-		lwsl_info("%s: got bad protocol %s\n", __func__, p);
+		lwsl_wsi_info(wsi, "%s: got bad protocol %s\n", __func__, p);
 		*cce = "HS: PROTOCOL malformed";
 		goto bail2;
 	}
@@ -404,7 +407,7 @@ identify_protocol:
 	if (n == wsi->a.vhost->count_protocols) { /* no match */
 		/* if server, that's already fatal */
 		if (!lwsi_role_client(wsi)) {
-			lwsl_info("%s: fail protocol %s\n", __func__, p);
+			lwsl_wsi_info(wsi, "%s: fail protocol %s\n", __func__, p);
 			*cce = "HS: Cannot match protocol";
 			goto bail2;
 		}
@@ -423,16 +426,16 @@ identify_protocol:
 
 		if (!wsi->a.vhost->protocols[n].callback) {
 			if (wsi->a.protocol)
-				lwsl_err("Failed to match protocol %s\n",
+				lwsl_wsi_err(wsi, "Failed to match protocol %s\n",
 						wsi->a.protocol->name);
 			else
-				lwsl_err("No protocol on client\n");
+				lwsl_wsi_err(wsi, "No protocol on client\n");
 			*cce = "ws protocol no match";
 			goto bail2;
 		}
 	}
 
-	lwsl_debug("Selected protocol %s\n", wsi->a.protocol ?
+	lwsl_wsi_debug(wsi, "Selected protocol %s\n", wsi->a.protocol ?
 					     wsi->a.protocol->name : "no pcol");
 
 check_extensions:
@@ -450,7 +453,7 @@ check_extensions:
 	/* instantiate the accepted extensions */
 
 	if (!lws_hdr_total_length(wsi, WSI_TOKEN_EXTENSIONS)) {
-		lwsl_ext("no client extensions allowed by server\n");
+		lwsl_wsi_ext(wsi, "no client extensions allowed by server\n");
 		goto check_accept;
 	}
 
@@ -461,7 +464,7 @@ check_extensions:
 
 	if (lws_hdr_copy(wsi, sb, (int)context->pt_serv_buf_size,
 			 WSI_TOKEN_EXTENSIONS) < 0) {
-		lwsl_warn("ext list from server failed to copy\n");
+		lwsl_wsi_warn(wsi, "ext list from server failed to copy\n");
 		*cce = "HS: EXT: list too big";
 		goto bail2;
 	}
@@ -500,7 +503,7 @@ check_extensions:
 
 		/* check we actually support it */
 
-		lwsl_notice("checking client ext %s\n", ext_name);
+		lwsl_wsi_notice(wsi, "checking client ext %s\n", ext_name);
 
 		n = 0;
 		ext = wsi->a.vhost->ws.extensions;
@@ -511,7 +514,7 @@ check_extensions:
 			}
 
 			n = 1;
-			lwsl_notice("instantiating client ext %s\n", ext_name);
+			lwsl_wsi_notice(wsi, "instantiating client ext %s\n", ext_name);
 
 			/* instantiate the extension on this conn */
 
@@ -524,7 +527,7 @@ check_extensions:
 				   (void *)&wsi->ws->act_ext_user[
 				                        wsi->ws->count_act_ext],
 				   (void *)&opts, 0)) {
-				lwsl_info(" ext %s failed construction\n",
+				lwsl_wsi_info(wsi, " ext %s failed construction\n",
 					  ext_name);
 				ext++;
 				continue;
@@ -549,7 +552,7 @@ check_extensions:
 						        wsi->ws->count_act_ext],
 					          opts, ext_name,
 						  (int)strlen(ext_name))) {
-				lwsl_err("%s: unable to parse user defaults '%s'",
+				lwsl_wsi_err(wsi, "%s: unable to parse user defaults '%s'",
 					 __func__, ext_name);
 				*cce = "HS: EXT: failed parsing defaults";
 				goto bail2;
@@ -562,7 +565,7 @@ check_extensions:
 					wsi->ws->act_ext_user[
 					                wsi->ws->count_act_ext],
 					opts, a, lws_ptr_diff(c, a))) {
-				lwsl_err("%s: unable to parse remote def '%s'",
+				lwsl_wsi_err(wsi, "%s: unable to parse remote def '%s'",
 					 __func__, a);
 				*cce = "HS: EXT: failed parsing options";
 				goto bail2;
@@ -572,7 +575,7 @@ check_extensions:
 					LWS_EXT_CB_OPTION_CONFIRM,
 				      wsi->ws->act_ext_user[wsi->ws->count_act_ext],
 				      NULL, 0)) {
-				lwsl_err("%s: ext %s rejects server options %s",
+				lwsl_wsi_err(wsi, "%s: ext %s rejects server options %s",
 					 __func__, ext->name, a);
 				*cce = "HS: EXT: Rejects server options";
 				goto bail2;
@@ -584,7 +587,7 @@ check_extensions:
 		}
 
 		if (n == 0) {
-			lwsl_warn("Unknown ext '%s'!\n", ext_name);
+			lwsl_wsi_warn(wsi, "Unknown ext '%s'!\n", ext_name);
 			*cce = "HS: EXT: unknown ext";
 			goto bail2;
 		}
@@ -602,7 +605,7 @@ check_accept:
 
 	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_ACCEPT);
 	if (strcmp(p, wsi->http.ah->initial_handshake_hash_base64)) {
-		lwsl_warn("lws_client_int_s_hs: accept '%s' wrong vs '%s'\n", p,
+		lwsl_wsi_warn(wsi, "lws_client_int_s_hs: accept '%s' wrong vs '%s'\n", p,
 				  wsi->http.ah->initial_handshake_hash_base64);
 		*cce = "HS: Accept hash wrong";
 		goto bail2;
@@ -610,7 +613,7 @@ check_accept:
 
 	/* allocate the per-connection user memory (if any) */
 	if (lws_ensure_user_space(wsi)) {
-		lwsl_err("Problem allocating wsi user mem\n");
+		lwsl_wsi_err(wsi, "Problem allocating wsi user mem\n");
 		*cce = "HS: OOM";
 		goto bail2;
 	}
@@ -649,13 +652,13 @@ check_accept:
 	wsi->ws->rx_ubuf = lws_malloc((unsigned int)n + 4 /* 0x0000ffff zlib */,
 				"client frame buffer");
 	if (!wsi->ws->rx_ubuf) {
-		lwsl_err("Out of Mem allocating rx buffer %d\n", n);
+		lwsl_wsi_err(wsi, "Out of Mem allocating rx buffer %d\n", n);
 		*cce = "HS: OOM";
 		goto bail2;
 	}
 	wsi->ws->rx_ubuf_alloc = (unsigned int)n;
 
-	lwsl_debug("handshake OK for protocol %s\n", wsi->a.protocol->name);
+	lwsl_wsi_debug(wsi, "handshake OK for protocol %s\n", wsi->a.protocol->name);
 
 	/* call him back to inform him he is up */
 
