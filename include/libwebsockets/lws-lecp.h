@@ -300,9 +300,6 @@ struct lecp_ctx {
 	char buf[LECP_STRING_CHUNK + 1];
 };
 
-struct lws_lec_pctx;
-typedef struct lws_lec_pctx lws_lec_pctx_t;
-
 enum lws_lec_pctx_ret {
 	LWS_LECPCTX_RET_FINISHED		= 0,
 	LWS_LECPCTX_RET_AGAIN, /* call again to continue writing buffer */
