@@ -25,6 +25,7 @@
 #ifndef _WINSOCK_DEPRECATED_NO_WARNINGS
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 #endif
+#define MBEDTLS_ALLOW_PRIVATE_ACCESS
 #include "private-lib-core.h"
 
 #if defined(LWS_WITH_MBEDTLS)
