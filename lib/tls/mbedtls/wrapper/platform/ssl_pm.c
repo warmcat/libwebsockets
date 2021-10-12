@@ -888,6 +888,8 @@ void SSL_get0_alpn_selected(const SSL *ssl, const unsigned char **data,
 		*len = (unsigned int)strlen(alp);
 	else
 		*len = 0;
+#else
+    *len = 0;
 #endif
 }
 
