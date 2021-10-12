@@ -297,9 +297,6 @@ struct lws_context_per_thread {
 
 	struct lws_dll2_owner pt_sul_owner[LWS_COUNT_PT_SUL_OWNERS];
 
-#if defined (LWS_WITH_SEQUENCER)
-	lws_sorted_usec_list_t sul_seq_heartbeat;
-#endif
 #if (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)) && defined(LWS_WITH_SERVER)
 	lws_sorted_usec_list_t sul_ah_lifecheck;
 #endif

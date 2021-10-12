@@ -670,10 +670,6 @@ struct lws;
 #include <libwebsockets/lws-secure-streams-transport-proxy.h>
 #include <libwebsockets/lws-jrpc.h>
 
-#if !defined(LWS_PLAT_FREERTOS)
-#include <libwebsockets/abstract/abstract.h>
-
-#endif
 #include <libwebsockets/lws-async-dns.h>
 
 #if defined(LWS_WITH_TLS)

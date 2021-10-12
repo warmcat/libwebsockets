@@ -1142,9 +1142,6 @@ lws_create_context(const struct lws_context_creation_info *info)
 		context->pt[n].http.ah_pool_length = 0;
 #endif
 		lws_pt_mutex_init(&context->pt[n]);
-#if defined(LWS_WITH_SEQUENCER)
-		lws_seq_pt_init(&context->pt[n]);
-#endif
 
 #if defined(LWS_WITH_CGI)
 		if (lws_rops_fidx(&role_ops_cgi, LWS_ROPS_pt_init_destroy))
@@ -1715,11 +1712,6 @@ lws_pt_destroy(struct lws_context_per_thread *pt)
 	lws_dll2_foreach_safe(&pt->ss_client_owner, NULL, lws_sspc_destroy_dll);
 #endif
 
-#if defined(LWS_WITH_SEQUENCER)
-	lws_seq_destroy_all_on_pt(pt);
-#endif
-
-
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 		while (pt->http.ah_list)
 			_lws_destroy_ah(pt, pt->http.ah_list);
@@ -2051,9 +2043,7 @@ next:
 			struct lws_context_per_thread *pt = &context->pt[n];
 
 			(void)pt;
-#if defined(LWS_WITH_SEQUENCER)
-			lws_seq_destroy_all_on_pt(pt);
-#endif
+
 			LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar) {
 				if (lws_rops_fidx(ar, LWS_ROPS_pt_init_destroy))
 					(lws_rops_func_fidx(ar, LWS_ROPS_pt_init_destroy)).

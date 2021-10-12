@@ -210,10 +210,15 @@ _lws_smd_msg_send(struct lws_context *ctx, void *pay, struct lws_smd_peer *exc)
 	    lws_mutex_lock(ctx->smd.lock_peers)) /* +++++++++++++++ peers */
 		return 1; /* For Coverity */
 
+	if (lws_mutex_lock(ctx->smd.lock_messages)) /* +++++++++++++++++ messages */
+		goto bail;
+
 	msg->refcount = (uint16_t)_lws_smd_msg_assess_peers_interested(
 							&ctx->smd, msg, exc);
 	if (!msg->refcount) {
 		/* possible, condsidering exc and no other participants */
+		lws_mutex_unlock(ctx->smd.lock_messages); /* --------------- messages */
+
 		lws_free(msg);
 		if (!ctx->smd.delivering)
 			lws_mutex_unlock(ctx->smd.lock_peers); /* ------------- peers */
@@ -225,8 +230,6 @@ _lws_smd_msg_send(struct lws_context *ctx, void *pay, struct lws_smd_peer *exc)
 
 	/* let's add him on the queue... */
 
-	if (lws_mutex_lock(ctx->smd.lock_messages)) /* +++++++++++++++++ messages */
-		goto bail;
 	lws_dll2_add_tail(&msg->list, &ctx->smd.owner_messages);
 
 	/*
