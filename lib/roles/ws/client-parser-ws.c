@@ -51,7 +51,7 @@ int lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 
 		lws_remove_wsi_from_draining_ext_list(wsi);
 		rx_draining_ext = 1;
-		lwsl_debug("%s: doing draining flow\n", __func__);
+		lwsl_wsi_debug(wsi, "doing draining flow");
 
 		goto drain_extension;
 	}
@@ -100,7 +100,7 @@ int lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 				break;
 			case LWSWSOPC_CONTINUATION:
 				if (!wsi->ws->continuation_possible) {
-					lwsl_info("disordered continuation\n");
+					lwsl_wsi_info(wsi, "disordered continuation");
 					return -1;
 				}
 				wsi->ws->first_fragment = 0;
@@ -119,7 +119,7 @@ int lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 			case 0xd:
 			case 0xe:
 			case 0xf:
-				lwsl_info("illegal opcode\n");
+				lwsl_wsi_info(wsi, "illegal opcode");
 				return -1;
 			default:
 				wsi->ws->defeat_check_utf8 = 1;
@@ -132,17 +132,17 @@ int lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 				!wsi->ws->count_act_ext &&
 #endif
 				wsi->ws->rsv) {
-				lwsl_info("illegal rsv bits set\n");
+				lwsl_wsi_info(wsi, "illegal rsv bits set");
 				return -1;
 			}
 			wsi->ws->final = !!((c >> 7) & 1);
-			lwsl_ext("%s:    This RX frame Final %d\n", __func__,
+			lwsl_wsi_ext(wsi, "    This RX frame Final %d",
 				 wsi->ws->final);
 
 			if (wsi->ws->owed_a_fin &&
 			    (wsi->ws->opcode == LWSWSOPC_TEXT_FRAME ||
 			     wsi->ws->opcode == LWSWSOPC_BINARY_FRAME)) {
-				lwsl_info("hey you owed us a FIN\n");
+				lwsl_wsi_info(wsi, "hey you owed us a FIN");
 				return -1;
 			}
 			if ((!(wsi->ws->opcode & 8)) && wsi->ws->final) {
@@ -151,7 +151,7 @@ int lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 			}
 
 			if ((wsi->ws->opcode & 8) && !wsi->ws->final) {
-				lwsl_info("control msg can't be fragmented\n");
+				lwsl_wsi_info(wsi, "control msg can't be fragmented");
 				return -1;
 			}
 			if (!wsi->ws->final)
@@ -168,7 +168,7 @@ int lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 			break;
 
 		default:
-			lwsl_err("unknown spec version %02d\n",
+			lwsl_wsi_err(wsi, "unknown spec version %02d",
 				 wsi->ws->ietf_spec_revision);
 			break;
 		}
@@ -231,7 +231,7 @@ int lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 
 	case LWS_RXPS_04_FRAME_HDR_LEN64_8:
 		if (c & 0x80) {
-			lwsl_warn("b63 of length must be zero\n");
+			lwsl_wsi_warn(wsi, "b63 of length must be zero");
 			/* kill the connection */
 			return -1;
 		}
@@ -350,8 +350,7 @@ int lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 		if (--wsi->ws->rx_packet_length == 0) {
 			/* spill because we have the whole frame */
 			wsi->lws_rx_parse_state = LWS_RXPS_NEW;
-			lwsl_debug("%s: spilling as we have the whole frame\n",
-					__func__);
+			lwsl_wsi_debug(wsi, "spilling as we have the whole frame");
 			goto spill;
 		}
 
@@ -369,8 +368,7 @@ int lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 
 		/* spill because we filled our rx buffer */
 
-		lwsl_debug("%s: spilling as we filled our rx buffer\n",
-				__func__);
+		lwsl_wsi_debug(wsi, "spilling as we filled our rx buffer");
 spill:
 
 		handled = 0;
@@ -396,11 +394,11 @@ spill:
 				 * fine he has told us he is closing too, let's
 				 * finish our close
 				 */
-				lwsl_parser("seen server's close ack\n");
+				lwsl_wsi_parser(wsi, "seen server's close ack");
 				return -1;
 			}
 
-			lwsl_parser("client sees server close len = %d\n",
+			lwsl_wsi_parser(wsi, "client sees server close len = %d",
 						 (int)wsi->ws->rx_ubuf_head);
 			if (wsi->ws->rx_ubuf_head >= 2) {
 				close_code = (unsigned short)((pp[0] << 8) | pp[1]);
@@ -426,8 +424,7 @@ spill:
 			wsi->ws->close_in_ping_buffer_len =
 					(uint8_t)wsi->ws->rx_ubuf_head;
 
-			lwsl_info("%s: scheduling return close as ack\n",
-				  __func__);
+			lwsl_wsi_info(wsi, "scheduling return close as ack");
 			__lws_change_pollfd(wsi, LWS_POLLIN, 0);
 			lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_SEND, 3);
 			wsi->waiting_to_send_close_frame = 1;
@@ -438,7 +435,7 @@ spill:
 			break;
 
 		case LWSWSOPC_PING:
-			lwsl_info("received %d byte ping, sending pong\n",
+			lwsl_wsi_info(wsi, "received %d byte ping, sending pong",
 				  (int)wsi->ws->rx_ubuf_head);
 
 			/* he set a close reason on this guy, ignore PING */
@@ -450,13 +447,13 @@ spill:
 				 * there is already a pending pong payload
 				 * we should just log and drop
 				 */
-				lwsl_parser("DROP PING since one pending\n");
+				lwsl_wsi_parser(wsi, "DROP PING since one pending");
 				goto ping_drop;
 			}
 
 			/* control packets can only be < 128 bytes long */
 			if (wsi->ws->rx_ubuf_head > 128 - 3) {
-				lwsl_parser("DROP PING payload too large\n");
+				lwsl_wsi_parser(wsi, "DROP PING payload too large");
 				goto ping_drop;
 			}
 
@@ -476,8 +473,8 @@ ping_drop:
 			break;
 
 		case LWSWSOPC_PONG:
-			lwsl_info("%s: %s received pong\n", __func__, lws_wsi_tag(wsi));
-			lwsl_hexdump(&wsi->ws->rx_ubuf[LWS_PRE],
+			lwsl_wsi_info(wsi, "Received pong");
+			lwsl_hexdump_wsi_debug(wsi, &wsi->ws->rx_ubuf[LWS_PRE],
 				     wsi->ws->rx_ubuf_head);
 
 			lws_validity_confirmed(wsi);
@@ -492,7 +489,7 @@ ping_drop:
 
 		default:
 			/* not handled or failed */
-			lwsl_ext("Unhandled ext opc 0x%x\n", wsi->ws->opcode);
+			lwsl_wsi_ext(wsi, "Unhandled ext opc 0x%x", wsi->ws->opcode);
 			wsi->ws->rx_ubuf_head = 0;
 
 			return -1;
@@ -522,26 +519,26 @@ ping_drop:
 
 		pmdrx.eb_out = pmdrx.eb_in;
 
-		lwsl_debug("%s: starting disbursal of %d deframed rx\n",
-				__func__, (int)wsi->ws->rx_ubuf_head);
+		lwsl_wsi_debug(wsi, "starting disbursal of %d deframed rx",
+				(int)wsi->ws->rx_ubuf_head);
 
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 drain_extension:
 #endif
 		do {
 
-		//	lwsl_notice("%s: pmdrx.eb_in.len: %d\n", __func__,
+		//	lwsl_wsi_notice("pmdrx.eb_in.len: %d",
 		//		    (int)pmdrx.eb_in.len);
 
 			n = PMDR_DID_NOTHING;
 
 #if !defined(LWS_WITHOUT_EXTENSIONS)
-			lwsl_ext("%s: +++ passing %d %p to ext\n", __func__,
+			lwsl_wsi_ext(wsi, "+++ passing %d %p to ext",
 				 pmdrx.eb_in.len, pmdrx.eb_in.token);
 
 			n = lws_ext_cb_active(wsi, LWS_EXT_CB_PAYLOAD_RX,
 					      &pmdrx, 0);
-			lwsl_ext("Ext RX returned %d\n", n);
+			lwsl_wsi_ext(wsi, "Ext RX returned %d", n);
 			if (n < 0) {
 				wsi->socket_is_permanently_unusable = 1;
 				return -1;
@@ -550,23 +547,21 @@ drain_extension:
 				/* ie, not PMDR_NOTHING_WE_SHOULD_DO */
 				break;
 #endif
-			lwsl_ext("%s: post inflate ebuf in len %d / out len %d\n",
-				    __func__, pmdrx.eb_in.len, pmdrx.eb_out.len);
+			lwsl_wsi_ext(wsi, "post inflate ebuf in len %d / out len %d",
+				    pmdrx.eb_in.len, pmdrx.eb_out.len);
 
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 			if (rx_draining_ext && !pmdrx.eb_out.len) {
-				lwsl_debug("   --- ending drain on 0 read result\n");
+				lwsl_wsi_debug(wsi, "   --- ending drain on 0 read result");
 				goto already_done;
 			}
 
 			if (n == PMDR_HAS_PENDING) {	/* 1 means stuff to drain */
 				/* extension had more... main loop will come back */
-				lwsl_ext("%s: adding to draining ext list\n",
-					    __func__);
+				lwsl_wsi_ext(wsi, "adding to draining ext list");
 				lws_add_wsi_to_draining_ext_list(wsi);
 			} else {
-				lwsl_ext("%s: removing from draining ext list\n",
-					    __func__);
+				lwsl_wsi_ext(wsi, "removing from draining ext list");
 				lws_remove_wsi_from_draining_ext_list(wsi);
 			}
 			rx_draining_ext = wsi->ws->rx_draining_ext;
@@ -591,13 +586,13 @@ drain_extension:
 				    && (n == PMDR_EMPTY_FINAL || n == PMDR_UNKNOWN)
 #endif
 				    ) {
-					lwsl_info("FINAL utf8 error\n");
+					lwsl_wsi_info(wsi, "FINAL utf8 error");
 					lws_close_reason(wsi,
 						LWS_CLOSE_STATUS_INVALID_PAYLOAD,
 						(uint8_t *)"partial utf8", 12);
 utf8_fail:
-					lwsl_info("utf8 error\n");
-					lwsl_hexdump_info(pmdrx.eb_out.token,
+					lwsl_wsi_info(wsi, "utf8 error");
+					lwsl_hexdump_wsi_info(wsi, pmdrx.eb_out.token,
 							  (unsigned int)pmdrx.eb_out.len);
 
 					return -1;
@@ -617,7 +612,7 @@ utf8_fail:
 				goto already_done;
 
 			if (callback_action == LWS_CALLBACK_CLIENT_RECEIVE_PONG)
-				lwsl_info("Client doing pong callback\n");
+				lwsl_wsi_info(wsi, "Client doing pong callback");
 
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 			if (n == PMDR_HAS_PENDING)
@@ -652,8 +647,8 @@ utf8_fail:
 
 			wsi->ws->first_fragment = 0;
 
-			lwsl_debug("%s: bulk ws rx: inp used %d, output %d\n",
-				    __func__, (int)wsi->ws->rx_ubuf_head,
+			lwsl_wsi_debug(wsi, "bulk ws rx: inp used %d, output %d",
+				    (int)wsi->ws->rx_ubuf_head,
 				    (int)pmdrx.eb_out.len);
 
 			/* if user code wants to close, let caller know */
@@ -670,14 +665,14 @@ already_done:
 		wsi->ws->rx_ubuf_head = 0;
 		break;
 	default:
-		lwsl_err("client rx illegal state\n");
+		lwsl_wsi_err(wsi, "client rx illegal state");
 		return 1;
 	}
 
 	return 0;
 
 illegal_ctl_length:
-	lwsl_warn("Control frame asking for extended length is illegal\n");
+	lwsl_wsi_warn(wsi, "Control frame asking for extended length is illegal");
 
 	/* kill the connection */
 	return -1;
