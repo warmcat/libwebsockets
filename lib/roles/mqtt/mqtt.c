@@ -2362,8 +2362,10 @@ lws_mqtt_client_send_unsubcribe(struct lws *wsi,
 
 		wsi->mqtt->sub_size = (uint16_t)rem_len;
 
+#if defined(_DEBUG)
 		lwsl_debug("%s: Number of topics = %d, Remaining len = %d\n",
 			   __func__, (int)tops, (int)rem_len);
+#endif
 
 		p += lws_mqtt_vbi_encode(rem_len, p);
 
