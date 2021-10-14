@@ -27,9 +27,13 @@ struct pss {
 
 static int interrupted;
 
-static const char * const param_names[] = {
+/* get 2 parameters at predefined pos and up to 3 unknown parameters */
+static const char * param_names[] = {
 	"text1",
 	"send",
+	NULL,
+	NULL,
+	NULL
 };
 
 enum enum_param_names {
@@ -98,6 +102,8 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		/* we just dump the decoded things to the log */
 
 		for (n = 0; n < (int)LWS_ARRAY_SIZE(param_names); n++) {
+			if (!param_names[n])
+				break;
 			if (!lws_spa_get_string(pss->spa, n))
 				lwsl_user("%s: undefined\n", param_names[n]);
 			else
@@ -106,8 +112,6 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				    lws_spa_get_length(pss->spa, n),
 				    lws_spa_get_string(pss->spa, n));
 		}
-
-		lwsac_free(&pss->ac);
 
 		/*
 		 * Our response is to redirect to a static page.  We could
@@ -123,10 +127,9 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	case LWS_CALLBACK_HTTP_DROP_PROTOCOL:
 		/* called when our wsi user_space is going to be destroyed */
 		if (pss->spa) {
-			lws_spa_destroy(pss->spa);
+			lws_spa_destroy(pss->spa); /* lwsac_free called this */
 			pss->spa = NULL;
 		}
-		lwsac_free(&pss->ac);
 		break;
 
 	default:
