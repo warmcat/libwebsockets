@@ -482,6 +482,17 @@ lws_urldecode_spa_lookup(struct lws_spa *spa, const char *name)
 	int n;
 
 	for (n = 0; n < spa->i.count_params; n++) {
+		if (!*pp && !spa->i.param_names_stride && spa->i.ac) {
+			unsigned int len = strlen(name);
+			char **ptr = (char**)spa->i.param_names;
+			ptr[n] = lwsac_use(spa->i.ac, len + 1, spa->i.ac_chunk_size);
+			if (!ptr[n])
+				return -1;
+
+			memcpy(ptr[n], name, len);
+			ptr[n][len] = '\0';
+			return n;
+		}
 		if (!strcmp(*pp, name))
 			return n;
 
