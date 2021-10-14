@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2021 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -482,7 +482,23 @@ lws_urldecode_spa_lookup(struct lws_spa *spa, const char *name)
 	int n;
 
 	for (n = 0; n < spa->i.count_params; n++) {
-		if (!strcmp(*pp, name))
+		if (!*pp && !spa->i.param_names_stride && spa->i.ac) {
+			unsigned int len = (unsigned int)strlen(name);
+			char **ptr = (char**)spa->i.param_names;
+
+			/* Use NULLs at end of list to dynamically create
+			 * unknown entries */
+
+			ptr[n] = lwsac_use(spa->i.ac, len + 1, spa->i.ac_chunk_size);
+			if (!ptr[n])
+				return -1;
+
+			memcpy(ptr[n], name, len);
+			ptr[n][len] = '\0';
+
+			return n;
+		}
+		if (*pp && !strcmp(*pp, name))
 			return n;
 
 		if (spa->i.param_names_stride)

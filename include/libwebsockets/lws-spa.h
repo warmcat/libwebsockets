@@ -102,7 +102,8 @@ lws_spa_create(struct lws *wsi, const char * const *param_names,
 	       void *opt_data);
 
 typedef struct lws_spa_create_info {
-	const char * const *param_names; /* array of form parameter names, like "username" */
+	const char * const *param_names; /**< array of form parameter names, like "username"
+			These may be NULL, to make space for arbitrary POST items */
 	int count_params; /* count of param_names */
 	int max_storage; /* total amount of form parameter values we can store */
 	lws_spa_fileupload_cb opt_cb; /* NULL, or callback to receive file upload data. */
