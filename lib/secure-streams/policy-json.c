@@ -1266,10 +1266,11 @@ lws_ss_policy_parse(struct lws_context *context, const uint8_t *buf, size_t len)
 	int m;
 
 #if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE)
-	if (args->jctx.line < 2 && buf[0] != '{')
+	if (args->jctx.line < 2 && buf[0] != '{' && !args->parse_data)
 		return lws_ss_policy_parse_file(context, (const char *)buf);
 #endif
 
+	args->parse_data = 1;
 	m = lejp_parse(&args->jctx, buf, (int)len);
 	if (m == LEJP_CONTINUE || m >= 0)
 		return m;

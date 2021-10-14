@@ -476,6 +476,8 @@ struct policy_cb_args {
 	int count;
 	int pvosp;
 	char pending_respmap;
+
+	uint8_t parse_data:1;
 };
 
 #if defined(LWS_WITH_SYS_SMD)
