@@ -783,7 +783,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 
 #endif /* network */
 
-	lwsl_notice("LWS: %s, %s%s\n", library_version, opts_str, s);
+	lwsl_cx_notice(context, "LWS: %s, %s%s", library_version, opts_str, s);
 #if defined(LWS_WITH_NETWORK)
 	lwsl_cx_info(context, "Event loop: %s", plev->ops->name);
 #endif
@@ -1417,7 +1417,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 
 		context->l1 = lws_cache_create(&ci);
 		if (!context->l1) {
-			lwsl_err("Failed to init cookiejar");
+			lwsl_cx_err(context, "Failed to init cookiejar");
 			goto bail;
 		}
 	}
@@ -2007,7 +2007,7 @@ next:
 		vh = context->vhost_list;
 		while (vh) {
 			vh1 = vh->vhost_next;
-		//	lwsl_debug("%s: vh %s destroy2\n", __func__, vh->name);
+		//	lwsl_vhost_debug(vh, "vh %s destroy2", vh->name);
 			__lws_vhost_destroy2(vh);
 			vh = vh1;
 		}
@@ -2252,7 +2252,7 @@ next:
 #if defined(LWS_WITH_NETWORK)
 bail:
 #endif
-	lwsl_info("%s: leaving\n", __func__);
+	lwsl_cx_info(context, "leaving");
 	context->inside_context_destroy = 0;
 	lws_context_unlock(context);
 }

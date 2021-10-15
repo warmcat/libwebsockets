@@ -90,10 +90,10 @@ lws_tls_check_cert_lifetime(struct lws_vhost *v)
 			return 1;
 
 		life = (ir.time - now) / (24 * 3600);
-		lwsl_notice("   vhost %s: cert expiry: %dd\n", v->name,
+		lwsl_vhost_notice(v, "   vhost %s: cert expiry: %dd", v->name,
 			    (int)life);
 	} else
-		lwsl_info("   vhost %s: no cert\n", v->name);
+		lwsl_vhost_info(v, "   vhost %s: no cert", v->name);
 
 	memset(&caa, 0, sizeof(caa));
 	caa.vh = v;
@@ -151,7 +151,7 @@ lws_tls_generic_cert_checks(struct lws_vhost *vhost, const char *cert,
 
 	if ((n == LWS_TLS_EXTANT_NO || m == LWS_TLS_EXTANT_NO) &&
 	    (vhost->options & LWS_SERVER_OPTION_IGNORE_MISSING_CERT)) {
-		lwsl_notice("Ignoring missing %s or %s\n", cert, private_key);
+		lwsl_vhost_notice(vhost, "Ignoring missing %s or %s", cert, private_key);
 		vhost->tls.skipped_certs = 1;
 
 		return LWS_TLS_EXTANT_NO;
@@ -188,8 +188,7 @@ lws_tls_cert_updated(struct lws_context *context, const char *certpath,
 						  mem_privkey, len_mem_privkey);
 
 			if (v->tls.skipped_certs)
-				lwsl_notice("%s: vhost %s: cert unset\n",
-					    __func__, v->name);
+				lwsl_vhost_notice(v, "vhost %s: cert unset", v->name);
 		}
 	} lws_end_foreach_ll(v, vhost_next);
 
@@ -204,7 +203,7 @@ lws_gate_accepts(struct lws_context *context, int on)
 	if (context->tls_gate_accepts == (char)on)
 		return 0;
 
-	lwsl_notice("%s: on = %d\n", __func__, on);
+	lwsl_cx_notice(context, "on = %d", on);
 
 	context->tls_gate_accepts = (char)on;
 
@@ -217,8 +216,7 @@ lws_gate_accepts(struct lws_context *context, int on)
 			if (v->tls.use_ssl &&
 			    lws_change_pollfd(wsi, on ? LWS_POLLIN : 0,
 						   on ? 0 : LWS_POLLIN))
-				lwsl_notice("%s: Unable to set POLLIN %d\n",
-					    __func__, on);
+				lwsl_cx_notice(context, "Unable to set POLLIN %d", on);
 		} lws_end_foreach_dll(d);
 
 		v = v->vhost_next;
