@@ -92,8 +92,8 @@ lws_async_dns_complete(lws_adns_q_t *q, lws_adns_cache_t *c)
 
 		lws_dll2_remove(d);
 		if (c && c->results) {
-			lwsl_debug("%s: q: %p, c: %p, refcount %d -> %d\n",
-				    __func__, q, c, c->refcount, c->refcount + 1);
+			lwsl_wsi_debug(w, "q: %p, c: %p, refcount %d -> %d",
+				    q, c, c->refcount, c->refcount + 1);
 			c->refcount++;
 		}
 		lws_set_timeout(w, NO_PENDING_TIMEOUT, 0);
@@ -111,8 +111,8 @@ lws_async_dns_complete(lws_adns_q_t *q, lws_adns_cache_t *c)
 
 	if (q->standalone_cb) {
 		if (c && c->results) {
-			lwsl_debug("%s: q: %p, c: %p, refcount %d -> %d\n",
-				    __func__, q, c, c->refcount, c->refcount + 1);
+			lwsl_wsi_debug(q->dns ? q->dns->wsi : NULL, "q: %p, c: %p, refcount %d -> %d",
+				    q, c, c->refcount, c->refcount + 1);
 			c->refcount++;
 		}
 
@@ -130,7 +130,7 @@ lws_async_dns_sul_cb_retry(struct lws_sorted_usec_list *sul)
 {
 	lws_adns_q_t *q = lws_container_of(sul, lws_adns_q_t, sul);
 
-	lwsl_info("%s\n", __func__);
+	lwsl_wsi_info(q->dns ? q->dns->wsi : NULL, "in");
 	lws_adns_dump(q->dns);
 
 	if (q->dns && q->dns->wsi) {
@@ -177,7 +177,7 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 	    lws_retry_sul_schedule_retry_wsi(wsi, &q->sul,
 				       lws_async_dns_sul_cb_retry, &q->retry)) {
 		/* we have reached the end of our concealed retries */
-		lwsl_info("%s: failing query\n", __func__);
+		lwsl_wsi_info(wsi, "failing query");
 		/*
 		 * our policy is to force reloading the dns server info
 		 * if our connection ever timed out, in case it or the
@@ -206,7 +206,7 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 	q->asked = 1;
 #endif
 
-	lwsl_info("%s: %s, which %d\n", __func__, name, which);
+	lwsl_wsi_info(wsi, "%s, which %d", name, which);
 
 	/* we hack b0 of the tid to be 0 = A, 1 = AAAA */
 
@@ -237,7 +237,7 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 
 	if (p + 6 >= e) {
 		assert(0);
-		lwsl_err("%s: name too big\n", __func__);
+		lwsl_wsi_err(wsi, "name too big");
 		goto qfail;
 	}
 
@@ -252,14 +252,14 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 
 	m = lws_write(wsi, pkt + LWS_PRE, (unsigned int)n, 0);
 	if (m != n) {
-		lwsl_notice("%s: dns write failed %d %d errno %d\n", __func__,
+		lwsl_wsi_notice(wsi, "dns write failed %d %d errno %d",
 			    m, n, errno);
 		goto qfail;
 	}
 
 #if defined(LWS_WITH_IPV6)
 	if (!q->responded && q->sent[0] != q->sent[1]) {
-		lwsl_debug("%s: request writeable for ipv6\n", __func__);
+		lwsl_wsi_debug(wsi, "request writeable for ipv6");
 		lws_callback_on_writable(wsi);
 	}
 #endif
@@ -267,14 +267,14 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 	return;
 
 qfail:
-	lwsl_warn("%s: failing query doing NULL completion\n", __func__);
+	lwsl_wsi_warn(wsi, "failing query doing NULL completion");
 	/*
 	 * in ipv6 case, we made a cache entry for the first response but
 	 * evidently the second response didn't come in time, purge the
 	 * incomplete cache entry
 	 */
 	if (q->firstcache) {
-		lwsl_debug("%s: destroy firstcache\n", __func__);
+		lwsl_wsi_debug(wsi, "destroy firstcache");
 		lws_adns_cache_destroy(q->firstcache);
 		q->firstcache = NULL;
 	}
@@ -293,21 +293,21 @@ callback_async_dns(struct lws *wsi, enum lws_callback_reasons reason,
 	/* callbacks related to raw socket descriptor */
 
         case LWS_CALLBACK_RAW_ADOPT:
-		//lwsl_user("LWS_CALLBACK_RAW_ADOPT\n");
+		//lwsl_wsi_user(wsi, "LWS_CALLBACK_RAW_ADOPT");
                 break;
 
 	case LWS_CALLBACK_RAW_CLOSE:
-		//lwsl_user("LWS_CALLBACK_RAW_CLOSE\n");
+		//lwsl_wsi_user(wsi, "LWS_CALLBACK_RAW_CLOSE");
 		break;
 
 	case LWS_CALLBACK_RAW_RX:
-		//lwsl_user("LWS_CALLBACK_RAW_RX (%d)\n", (int)len);
-		// lwsl_hexdump_level(LLL_NOTICE, in, len);
+		//lwsl_wsi_user(wsi, "LWS_CALLBACK_RAW_RX (%d)", (int)len);
+		// lwsl_hexdump_wsi_notice(wsi, in, len);
 		lws_adns_parse_udp(dns, in, len);
 		break;
 
 	case LWS_CALLBACK_RAW_WRITEABLE:
-		//lwsl_user("LWS_CALLBACK_RAW_WRITEABLE\n");
+		//lwsl_wsi_user(wsi, "LWS_CALLBACK_RAW_WRITEABLE");
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 					   dns->waiting.head) {
 			lws_adns_q_t *q = lws_container_of(d, lws_adns_q_t,
@@ -341,7 +341,7 @@ lws_async_dns_init(struct lws_context *context)
 		return 0;
 
 	if (!context->vhost_list) { /* coverity... system vhost always present */
-		lwsl_err("%s: no system vhost\n", __func__);
+		lwsl_cx_err(context, "no system vhost");
 		return 1;
 	}
 
@@ -354,7 +354,7 @@ lws_async_dns_init(struct lws_context *context)
 
 	n = lws_plat_asyncdns_init(context, &dns->sa46);
 	if (n < 0) {
-		lwsl_warn("%s: no valid dns server, retry\n", __func__);
+		lwsl_cx_warn(context, "no valid dns server, retry");
 
 		return 1;
 	}
@@ -373,7 +373,7 @@ ok:
 					lws_async_dns_protocol.name, NULL,
 				        NULL, NULL, &retry_policy, "asyncdns");
 	if (!dns->wsi) {
-		lwsl_err("%s: foreign socket adoption failed\n", __func__);
+		lwsl_cx_err(context, "foreign socket adoption failed");
 		return 1;
 	}
 
@@ -398,7 +398,7 @@ lws_adns_get_cache(lws_async_dns_t *dns, const char *name)
 				   lws_dll2_get_head(&dns->cached)) {
 		c = lws_container_of(d, lws_adns_cache_t, list);
 
-		// lwsl_notice("%s vs %s (inc %d)\n", name, c->name, c->incomplete);
+		// lwsl_wsi_notice(dns->wsi, "%s vs %s (inc %d)", name, c->name, c->incomplete);
 
 		if (!c->incomplete && !strcasecmp(name, c->name)) {
 			/* Keep sorted by LRU: move to the head */
@@ -421,15 +421,15 @@ lws_adns_dump(lws_async_dns_t *dns)
 	if (!dns)
 		return;
 
-	lwsl_info("%s: ADNS cache %u entries\n", __func__,
+	lwsl_wsi_info(dns->wsi, "ADNS cache %u entries",
 			(unsigned int)dns->cached.count);
 
 	lws_start_foreach_dll(struct lws_dll2 *, d,
 			      lws_dll2_get_head(&dns->cached)) {
 		c = lws_container_of(d, lws_adns_cache_t, list);
 
-		lwsl_info("%s: cache: '%s', exp: %lldus, incomp %d, "
-			  "fl 0x%x, refc %d, res %p\n", __func__, c->name,
+		lwsl_wsi_info(dns->wsi, "cache: '%s', exp: %lldus, incomp %d, "
+			  "fl 0x%x, refc %d, res %p\n", c->name,
 			  (long long)(c->sul.us - lws_now_usecs()),
 			  c->incomplete, c->flags, c->refcount, c->results);
 	} lws_end_foreach_dll(d);
@@ -438,8 +438,8 @@ lws_adns_dump(lws_async_dns_t *dns)
 				   lws_dll2_get_head(&dns->waiting)) {
 		lws_adns_q_t *q = lws_container_of(d, lws_adns_q_t, list);
 
-		lwsl_info("%s: q: '%s', sent %d, resp %d\n",
-			    __func__, (const char *)&q[1], q->sent[0],
+		lwsl_wsi_info(dns->wsi, "q: '%s', sent %d, resp %d",
+			    (const char *)&q[1], q->sent[0],
 			    q->responded);
 	} lws_end_foreach_dll(d);
 }
@@ -482,7 +482,7 @@ sul_cb_write(struct lws_sorted_usec_list *sul)
 	 * the query and everyone riding on it...
 	 */
 
-	lwsl_info("%s: failing\n", __func__);
+	lwsl_wsi_info(q->dns ? q->dns->wsi : NULL, "failing");
 	lws_adns_dump(q->dns);
 
 	lws_async_dns_complete(q, NULL); /* no cache to relate to */
@@ -531,8 +531,8 @@ lws_async_dns_trim_cache(lws_async_dns_t *dns)
 	c1 = lws_container_of(lws_dll2_get_tail(&dns->cached),
 						lws_adns_cache_t, list);
 	if (c1->refcount)
-		lwsl_info("%s: acache %p: refcount %d on purge\n",
-				__func__, c1, c1->refcount);
+		lwsl_wsi_info(dns->wsi, "acache %p: refcount %d on purge",
+				c1, c1->refcount);
 	else
 		lws_adns_cache_destroy(c1);
 }
@@ -553,7 +553,7 @@ lws_async_dns_deinit(lws_async_dns_t *dns)
 	lws_dll2_foreach_safe(&dns->cached, NULL, cache_clean);
 
 	if (dns->wsi && !dns->dns_server_connected) {
-		lwsl_notice("%s: late free of incomplete dns wsi\n", __func__);
+		lwsl_wsi_notice(dns->wsi, "late free of incomplete dns wsi");
 		__lws_lc_untag(dns->wsi->a.context, &dns->wsi->lc);
 #if defined(LWS_WITH_SYS_METRICS)
 		lws_metrics_tags_destroy(&dns->wsi->cal_conn.mtags_owner);
@@ -634,7 +634,7 @@ lws_async_dns_get_new_tid(struct lws_context *context, lws_adns_q_t *q)
 
 	} while (budget--);
 
-	lwsl_err("%s: unable to get unique tid\n", __func__);
+	lwsl_cx_err(context, "unable to get unique tid");
 
 	return -1;
 }
@@ -660,12 +660,12 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	char *p;
 	int m;
 
-	lwsl_info("%s: entry %s\n", __func__, name);
+	lwsl_cx_info(context, "entry %s", name);
 	lws_adns_dump(dns);
 
 #if !defined(LWS_WITH_IPV6)
 	if (qtype == LWS_ADNS_RECORD_AAAA) {
-		lwsl_err("%s: ipv6 not enabled\n", __func__);
+		lwsl_cx_err(context, "ipv6 not enabled");
 		goto failed;
 	}
 #endif
@@ -688,7 +688,7 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 
 	if (wsi) {
 		if (!lws_dll2_is_detached(&wsi->adns)) {
-			lwsl_err("%s: %s already bound to query %p\n", __func__,
+			lwsl_cx_err(context, "%s already bound to query %p",
 					lws_wsi_tag(wsi), wsi->adns.owner);
 			goto failed;
 		}
@@ -699,7 +699,7 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 
 	c = lws_adns_get_cache(dns, name);
 	if (c) {
-		lwsl_info("%s: %s: using cached, c->results %p\n", __func__,
+		lwsl_cx_info(context, "%s: using cached, c->results %p",
 			  name, c->results);
 		m = c->results ? LADNS_RET_FOUND : LADNS_RET_FAILED;
 		if (c->results)
@@ -714,7 +714,7 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 
 		return m;
 	} else
-		lwsl_info("%s: %s uncached\n", __func__, name);
+		lwsl_cx_info(context, "%s uncached", name);
 
 #if defined(LWS_WITH_SYS_METRICS)
 	lws_metric_event(context->mt_adns_cache, METRES_NOGO, 0);
@@ -799,7 +799,7 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 
 	if (!context->async_dns.dns_server_set &&
 	    lws_async_dns_init(context)) {
-		lwsl_notice("%s: init failed\n", __func__);
+		lwsl_cx_notice(context, "init failed");
 		goto failed;
 	}
 
@@ -807,7 +807,7 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 
 	q = lws_adns_get_query(dns, qtype, &dns->waiting, 0, name);
 	if (q) {
-		lwsl_debug("%s: dns piggybacking: %d:%s\n", __func__,
+		lwsl_cx_debug(context, "dns piggybacking: %d:%s",
 				qtype, name);
 		if (wsi)
 			lws_dll2_add_head(&wsi->adns, &q->wsi_adns);
@@ -847,7 +847,7 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	q->qtype = (uint16_t)qtype;
 
 	if (lws_async_dns_get_new_tid(context, q)) {
-		lwsl_err("%s: tid fail\n", __func__);
+		lwsl_cx_err(context, "tid fail");
 		goto failed;
 	}
 
@@ -890,13 +890,13 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	q->go_nogo = METRES_NOGO;
 	/* caliper is reported in lws_adns_q_destroy */
 
-	lwsl_info("%s: created new query: %s\n", __func__, name);
+	lwsl_cx_info(context, "created new query: %s", name);
 	lws_adns_dump(dns);
 
 	return LADNS_RET_CONTINUING;
 
 failed:
-	lwsl_notice("%s: failed\n", __func__);
+	lwsl_cx_notice(context, "failed");
 	if (!cb(wsi, NULL, NULL, LADNS_RET_FAILED, opaque))
 		return LADNS_RET_FAILED_WSI_CLOSED;
 
