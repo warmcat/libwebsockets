@@ -124,7 +124,7 @@ __lws_lc_tag(struct lws_context *context, lws_lifecycle_group_t *grp,
 	lwsl_refcount_cx(lc->log_cx, 1);
 
 #if defined(LWS_LOG_TAG_LIFECYCLE)
-	lwsl_notice(" ++ %s (%d)\n", lc->gutag, (int)grp->owner.count);
+	lwsl_cx_notice(context, " ++ %s (%d)", lc->gutag, (int)grp->owner.count);
 #endif
 }
 
@@ -166,13 +166,13 @@ __lws_lc_untag(struct lws_context *context, lws_lifecycle_t *lc)
 	char buf[24];
 
 	if (!lc->gutag[0]) { /* we never tagged this object... */
-		lwsl_err("%s: %s never tagged\n", __func__, lc->gutag);
+		lwsl_cx_err(context, "%s never tagged", lc->gutag);
 		assert(0);
 		return;
 	}
 
 	if (!lc->list.owner) { /* we already untagged this object... */
-		lwsl_err("%s: %s untagged twice\n", __func__, lc->gutag);
+		lwsl_cx_err(context, "%s untagged twice", lc->gutag);
 		assert(0);
 		return;
 	}
@@ -184,7 +184,7 @@ __lws_lc_untag(struct lws_context *context, lws_lifecycle_t *lc)
 		     humanize_schema_us);
 
 #if defined(LWS_LOG_TAG_LIFECYCLE)
-	lwsl_notice(" -- %s (%d) %s", lc->gutag,
+	lwsl_cx_notice(context, " -- %s (%d) %s", lc->gutag,
 		    (int)lc->list.owner->count - 1, buf);
 #endif
 
