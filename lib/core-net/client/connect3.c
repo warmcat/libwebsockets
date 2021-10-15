@@ -71,7 +71,7 @@ typedef enum {
 } lcccr_t;
 
 static lcccr_t
-lws_client_connect_check(struct lws *wsi)
+lws_client_connect_check(struct lws *wsi, int *real_errno)
 {
 	int en = 0;
 #if !defined(WIN32)
@@ -97,6 +97,8 @@ lws_client_connect_check(struct lws *wsi)
 
 		lwsl_wsi_notice(wsi, "getsockopt fd %d says e %d",
 							wsi->desc.sockfd, e);
+
+		*real_errno = e;
 
 		return LCCCR_FAILED;
 	}
@@ -125,7 +127,8 @@ lws_client_connect_check(struct lws *wsi)
 	}
 #endif
 
-	lwsl_wsi_notice(wsi, "connect check take as FAILED: errno %d", en);
+	lwsl_wsi_notice(wsi, "connect check FAILED: %d",
+			*real_errno || en);
 
 	return LCCCR_FAILED;
 }
@@ -231,7 +234,15 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 			/* no dns results and no ongoing timeout for one */
 			goto connect_to;
 
-		switch (lws_client_connect_check(wsi)) {
+		/*
+		 * If the connection failed, the OS-level errno may be
+		 * something like EINPROGRESS rather than the actual problem
+		 * that prevented a connection. This value will represent the
+		 * “real” problem that we should report to the caller.
+		 */
+		int real_errno = 0;
+
+		switch (lws_client_connect_check(wsi, &real_errno)) {
 		case LCCCR_CONNECTED:
 			/*
 			 * Oh, it has happened...
@@ -240,8 +251,11 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 		case LCCCR_CONTINUE:
 			return NULL;
 		default:
-			lws_snprintf(dcce, sizeof(dcce), "conn fail: errno %d",
-								LWS_ERRNO);
+			if (!real_errno)
+				real_errno = LWS_ERRNO;
+			lws_snprintf(dcce, sizeof(dcce), "conn fail: %d",
+				     real_errno);
+
 			cce = dcce;
 			lwsl_wsi_debug(wsi, "%s", dcce);
 			lws_metrics_caliper_report(wsi->cal_conn, METRES_NOGO);
