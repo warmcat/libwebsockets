@@ -81,7 +81,8 @@ again1:
 
 		return -1;
 	}
-	if (ll > budget) {
+
+	if (ll > lws_ptr_diff_size_t(ls, ols) + (size_t)budget) {
 		lwsl_notice("%s: label too long %d vs %d\n", __func__, ll, budget);
 
 		return -1;
