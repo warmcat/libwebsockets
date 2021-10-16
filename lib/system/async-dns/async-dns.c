@@ -130,7 +130,7 @@ lws_async_dns_sul_cb_retry(struct lws_sorted_usec_list *sul)
 {
 	lws_adns_q_t *q = lws_container_of(sul, lws_adns_q_t, sul);
 
-	lwsl_wsi_info(q->dns ? q->dns->wsi : NULL, "");
+	lwsl_wsi_info(q->dns ? q->dns->wsi : NULL, "in");
 	lws_adns_dump(q->dns);
 
 	if (q->dns && q->dns->wsi) {
