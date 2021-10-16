@@ -397,7 +397,7 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 			lws_sa46_write_numeric_address((lws_sockaddr46 *)psin,
 							buf, sizeof(buf));
 
-			lwsl_wsi_notice(wsi, "source ads %s", buf);
+			lwsl_vhost_notice(vhost, "source ads %s", buf);
 		}
 
 	return port;
