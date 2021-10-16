@@ -367,6 +367,7 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 	if ((lwsi_state(wsi) == LRS_ESTABLISHED ||
 	     lwsi_state(wsi) == LRS_ISSUING_FILE ||
 	     lwsi_state(wsi) == LRS_HEADERS ||
+	     lwsi_state(wsi) == LRS_DOING_TRANSACTION || /* at least, SSE */
 	     lwsi_state(wsi) == LRS_DISCARD_BODY ||
 	     lwsi_state(wsi) == LRS_BODY)) {
 
