@@ -81,7 +81,8 @@ again1:
 
 		return -1;
 	}
-	if (ll > budget) {
+
+	if (ls + ll > ols + budget) {
 		lwsl_notice("%s: label too long %d vs %d\n", __func__, ll, budget);
 
 		return -1;
