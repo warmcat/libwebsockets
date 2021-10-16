@@ -102,7 +102,7 @@ lws_async_dns_complete(lws_adns_q_t *q, lws_adns_cache_t *c)
 		 */
 		if (w->adns_cb(w, (const char *)&q[1], c ? c->results : NULL, 0,
 				q->opaque) == NULL)
-			lwsl_wsi_info(w, "failed");
+			lwsl_info("%s: failed\n", __func__);
 	//		lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 	//				   "adopt udp2 fail");
 
