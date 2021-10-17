@@ -365,7 +365,7 @@ solo:
 	else
 		n = lws_async_dns_query(wsi->a.context, wsi->tsi, adsin,
 				LWS_ADNS_RECORD_A, lws_client_connect_3_connect,
-				wsi, NULL);
+				wsi, NULL, NULL);
 
 	if (n == LADNS_RET_FAILED_WSI_CLOSED)
 		return NULL;

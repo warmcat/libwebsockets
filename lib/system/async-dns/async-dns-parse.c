@@ -399,6 +399,7 @@ skip:
 	q->sent[1] = 0;
 #endif
 	q->sent[0] = 0;
+	q->is_synthetic = 0;
 	q->recursion++;
 	if (q->recursion == DNS_RECURSION_LIMIT) {
 		lwsl_err("%s: recursion overflow\n", __func__);
