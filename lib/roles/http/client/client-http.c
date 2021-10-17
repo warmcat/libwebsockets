@@ -819,21 +819,9 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		}
 
 		if (!lws_client_reset(&wsi, ssl, ads, port, path, ads, 1)) {
-			/*
-			 * There are two ways to fail out with NULL return...
-			 * simple, early problem where the wsi is intact, or
-			 * we went through with the reconnect attempt and the
-			 * wsi is already closed.  In the latter case, the wsi
-			 * has been set to NULL additionally.
-			 */
 			lwsl_err("Redirect failed\n");
 			cce = "HS: Redirect failed";
-			/* coverity[reverse_inull] */
-			if (wsi)
-				goto bail3;
-
-			/* wsi has closed */
-			return 1;
+			goto bail3;
 		}
 
 		/*
