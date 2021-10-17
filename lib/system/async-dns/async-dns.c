@@ -314,6 +314,7 @@ callback_async_dns(struct lws *wsi, enum lws_callback_reasons reason,
 							   list);
 
 			if (//lws_dll2_is_detached(&q->sul.list) &&
+			    !q->is_synthetic &&
 			    (!q->asked || q->responded != q->asked))
 				lws_async_dns_writeable(wsi, q);
 		} lws_end_foreach_dll_safe(d, d1);
@@ -563,6 +564,11 @@ lws_async_dns_deinit(lws_async_dns_t *dns)
 	}
 }
 
+void
+lws_async_dns_detach_query_wsi(struct lws *wsi)
+{
+
+}
 
 static int
 cancel(struct lws_dll2 *d, void *user)
@@ -574,6 +580,14 @@ cancel(struct lws_dll2 *d, void *user)
 		struct lws *w = lws_container_of(d3, struct lws, adns);
 
 		if (user == w) {
+			/*
+			 * This is an ongoing query that our wsi was involved
+			 * in... detach it from the query, and if nothing left
+			 * interested in the query, destroy it.
+			 *
+			 * Since the wsi can only be running one query at a time
+			 * currently, we can bail if we got a hit.
+			 */
 			lws_dll2_remove(d3);
 			if (!q->wsi_adns.count)
 				lws_adns_q_destroy(q);
@@ -583,6 +597,11 @@ cancel(struct lws_dll2 *d, void *user)
 
 	return 0;
 }
+
+/*
+ * Let's go through all ongoing async dns queries, detaching wsi from any it
+ * is involved in, and destroying the query if that was the only consumer.
+ */
 
 void
 lws_async_dns_cancel(struct lws *wsi)
@@ -639,6 +658,19 @@ lws_async_dns_get_new_tid(struct lws_context *context, lws_adns_q_t *q)
 	return -1;
 }
 
+
+uint16_t
+lws_adns_get_tid(struct lws_adns_q *q)
+{
+	return LADNS_MOST_RECENT_TID(q);
+}
+
+struct lws_async_dns *
+lws_adns_get_async_dns(struct lws_adns_q *q)
+{
+	return q->dns;
+}
+
 struct temp_q {
 	lws_adns_q_t tq;
 	char name[48];
@@ -647,7 +679,7 @@ struct temp_q {
 lws_async_dns_retcode_t
 lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 		    adns_query_type_t qtype, lws_async_dns_cb_t cb,
-		    struct lws *wsi, void *opaque)
+		    struct lws *wsi, void *opaque, struct lws_adns_q **pq)
 {
 	lws_async_dns_t *dns = &context->async_dns;
 	size_t nlen = strlen(name);
@@ -845,6 +877,8 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 		lws_dll2_add_head(&wsi->adns, &q->wsi_adns);
 
 	q->qtype = (uint16_t)qtype;
+	if (qtype & LWS_ADNS_SYNTHETIC)
+		q->is_synthetic = 1;
 
 	if (lws_async_dns_get_new_tid(context, q)) {
 		lwsl_cx_err(context, "tid fail");
@@ -852,6 +886,10 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	}
 
 	LADNS_MOST_RECENT_TID(q) &= 0xfffe;
+
+	if (pq)
+		*pq = q;
+
 	q->context = context;
 	q->tsi = (uint8_t)tsi;
 	q->opaque = opaque;

@@ -12,7 +12,7 @@
 #include <libwebsockets.h>
 #include <signal.h>
 
-static int interrupted, dtest, ok, fail, _exp = 26;
+static int interrupted, dtest, ok, fail, _exp = 33;
 struct lws_context *context;
 
 /*
@@ -67,12 +67,17 @@ static const struct ipparser_tests {
 	{ "1.2.3.4", 4, "1.2.3.4", 7, { 1, 2, 3, 4 } },
 };
 
+#define TEST_FLAG_NOCHECK_RESULT_IP 0x100000
+
 static const struct async_dns_tests {
 	const char *dns_name;
 	int recordtype;
 	int addrlen;
 	uint8_t ads[16];
 } adt[] = {
+	{ "warmcat.com", LWS_ADNS_RECORD_A, 4,
+		{ 46, 105, 127, 147, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
+		/* test coming from cache */
 	{ "warmcat.com", LWS_ADNS_RECORD_A, 4,
 		{ 46, 105, 127, 147, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
 	{ "libwebsockets.org", LWS_ADNS_RECORD_A, 4,
@@ -93,17 +98,97 @@ static const struct async_dns_tests {
 		{ 0x20, 0x01, 0x41, 0xd0, 0x00, 0x02, 0xee, 0x93,
 				0, 0, 0, 0, 0, 0, 0, 1, } },
 #endif
+	{ "c.msn.com", TEST_FLAG_NOCHECK_RESULT_IP |
+		       LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A, 4,
+		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
+	{ "assets.msn.com", TEST_FLAG_NOCHECK_RESULT_IP |
+		       LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A, 4,
+		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
+	{ "e28578.d.akamaiedge.net", TEST_FLAG_NOCHECK_RESULT_IP |
+		       LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A, 0,
+		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
+	{ "a-0003.a-msedge.net", TEST_FLAG_NOCHECK_RESULT_IP |
+		       LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A, 0,
+		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
+	{ "c-msn-com-europe-vip.trafficmanager.net", TEST_FLAG_NOCHECK_RESULT_IP |
+		       LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A, 0,
+		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
+	{ "c-msn-com-europe-vip.trafficmanager.net", TEST_FLAG_NOCHECK_RESULT_IP |
+		       LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A, 0,
+		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
 };
 
-static lws_sorted_usec_list_t sul;
+static uint8_t canned_c_msn_com[] = {
+	0x12, 0x34, 0x81, 0x80, 0x00, 0x01, 0x00, 0x02,
+	0x00, 0x01, 0x00, 0x00, 0x01, 0x63, 0x03, 0x6D,
+	0x73, 0x6E, 0x03, 0x63, 0x6F, 0x6D, 0x00, 0x00,
+	0x1C, 0x00, 0x01, 0xC0, 0x0C, 0x00, 0x05, 0x00,
+	0x01, 0x00, 0x00, 0x54, 0x5E, 0x00, 0x24, 0x0F,
+	0x63, 0x2D, 0x6D, 0x73, 0x6E, 0x2D, 0x63, 0x6F,
+	0x6D, 0x2D, 0x6E, 0x73, 0x61, 0x74, 0x63, 0x0E,
+	0x74, 0x72, 0x61, 0x66, 0x66, 0x69, 0x63, 0x6D,
+	0x61, 0x6E, 0x61, 0x67, 0x65, 0x72, 0x03, 0x6E,
+	0x65, 0x74, 0x00, 0xC0, 0x27, 0x00, 0x05, 0x00,
+	0x01, 0x00, 0x00, 0x00, 0x3A, 0x00, 0x17, 0x14,
+	0x63, 0x2D, 0x6D, 0x73, 0x6E, 0x2D, 0x63, 0x6F,
+	0x6D, 0x2D, 0x65, 0x75, 0x72, 0x6F, 0x70, 0x65,
+	0x2D, 0x76, 0x69, 0x70, 0xC0, 0x37, 0xC0, 0x37,
+	0x00, 0x06, 0x00, 0x01, 0x00, 0x00, 0x00, 0x1C,
+	0x00, 0x2E, 0x03, 0x74, 0x6D, 0x31, 0x06, 0x64,
+	0x6E, 0x73, 0x2D, 0x74, 0x6D, 0xC0, 0x12, 0x0A,
+	0x68, 0x6F, 0x73, 0x74, 0x6D, 0x61, 0x73, 0x74,
+	0x65, 0x72, 0xC0, 0x37, 0x77, 0x64, 0x96, 0x60,
+	0x00, 0x00, 0x03, 0x84, 0x00, 0x00, 0x01, 0x2C,
+	0x00, 0x24, 0xEA, 0x00, 0x00, 0x00, 0x00, 0x1E,
+}, canned_assets_msn_com[] = {
+	219,29,129,128,0,1,0,2,0,1,0,0,6,97,115,115,101,116,115,3,109,115,
+	110,3,99,111,109,0,0,28,0,1,192,12,0,5,0,1,0,0,81,199,0,28,6,97,115,
+	115,101,116,115,3,109,115,110,3,99,111,109,7,101,100,103,101,107,101,
+	121,3,110,101,116,0,192,44,0,5,0,1,0,0,0,235,0,22,6,101,50,56,53,55,
+	56,1,100,10,97,107,97,109,97,105,101,100,103,101,192,67,192,91,0,6,
+	0,1,0,0,1,79,0,46,3,110,48,100,192,93,10,104,111,115,116,109,97,115,
+	116,101,114,6,97,107,97,109,97,105,192,23,97,106,246,231,0,0,3,232,0,
+	0,3,232,0,0,3,232,0,0,7,8,
+}, canned_e28578_d_akamaiedge_net[] = {
+	20,191,129,128,0,1,0,0,0,1,0,0,6,101,50,56,53,55,56,1,100,10,97,107,97,
+	109,97,105,101,100,103,101,3,110,101,116,0,0,28,0,1,192,19,0,6,0,1,0,0,
+	1,17,0,49,3,110,48,100,192,21,10,104,111,115,116,109,97,115,116,101,114,
+	6,97,107,97,109,97,105,3,99,111,109,0,97,107,217,31,0,0,3,232,0,0,3,232,
+	0,0,3,232,0,0,7,8
+}, canned_a_0003_a_msedge_net[] = {
+	126,215,129,128,0,1,0,0,0,1,0,0,6,97,45,48,48,48,51,8,97,45,109,115,101,
+	100,103,101,3,110,101,116,0,0,28,0,1,192,19,0,6,0,1,0,0,0,172,0,48,3,
+	110,115,49,192,19,6,109,115,110,104,115,116,9,109,105,99,114,111,115,
+	111,102,116,3,99,111,109,0,120,43,34,229,0,0,7,8,0,0,3,132,0,36,234,0,
+	0,0,0,240
+}, canned_c_msn_com_europe_vip_trafficmanager_net[] = {
+	73,87,129,128,0,1,0,0,0,1,0,0,20,99,45,109,115,110,45,99,111,109,45,101,
+	117,114,111,112,101,45,118,105,112,14,116,114,97,102,102,105,99,109,97,
+	110,97,103,101,114,3,110,101,116,0,0,28,0,1,192,33,0,6,0,1,0,0,0,30,0,
+	49,3,116,109,49,6,100,110,115,45,116,109,3,99,111,109,0,10,104,111,115,
+	116,109,97,115,116,101,114,192,33,7,11,234,133,0,0,3,132,0,0,1,44,0,36,
+	234,0,0,0,0,30,
+};
+
+static lws_sorted_usec_list_t sul, sul_timeout;
 
 struct lws *
 cb1(struct lws *wsi_unused, const char *ads, const struct addrinfo *a, int n,
     void *opaque);
 
+static int first = 1;
+
+static void
+timeout_cb(lws_sorted_usec_list_t *sul)
+{
+	interrupted = 1;
+	lws_cancel_service(context);
+}
+
 static void
 next_test_cb(lws_sorted_usec_list_t *sul)
 {
+	struct lws_adns_q *q;
 	int m;
 
 	lwsl_notice("%s: querying %s\n", __func__, adt[dtest].dns_name);
@@ -111,10 +196,57 @@ next_test_cb(lws_sorted_usec_list_t *sul)
 	m = lws_async_dns_query(context, 0,
 				adt[dtest].dns_name,
 				(adns_query_type_t)adt[dtest].recordtype, cb1, NULL,
-				context);
+				context, &q);
 	if (m != LADNS_RET_CONTINUING && m != LADNS_RET_FOUND && m != LADNS_RET_FAILED_WSI_CLOSED) {
 		lwsl_err("%s: adns 1: %s failed: %d\n", __func__, adt[dtest].dns_name, m);
 		interrupted = 1;
+	}
+
+	if (adt[dtest].recordtype & LWS_ADNS_SYNTHETIC) {
+
+		lwsl_notice("%s: injecting result\n", __func__);
+
+		if (!strcmp(adt[dtest].dns_name, "c.msn.com")) {
+			canned_c_msn_com[0] = (uint8_t)(lws_adns_get_tid(q) >> 8);
+			canned_c_msn_com[1] = (uint8_t)lws_adns_get_tid(q);
+			lws_adns_parse_udp(lws_adns_get_async_dns(q),
+					   canned_c_msn_com,
+					   sizeof(canned_c_msn_com));
+		}
+
+		if (!strcmp(adt[dtest].dns_name, "assets.msn.com")) {
+			canned_assets_msn_com[0] = (uint8_t)(lws_adns_get_tid(q) >> 8);
+			canned_assets_msn_com[1] = (uint8_t)lws_adns_get_tid(q);
+			lws_adns_parse_udp(lws_adns_get_async_dns(q),
+					   canned_assets_msn_com,
+					   sizeof(canned_assets_msn_com));
+		}
+
+		if (!strcmp(adt[dtest].dns_name, "e28578.d.akamaiedge.net")) {
+			canned_e28578_d_akamaiedge_net[0] = (uint8_t)(lws_adns_get_tid(q) >> 8);
+			canned_e28578_d_akamaiedge_net[1] = (uint8_t)lws_adns_get_tid(q);
+			lws_adns_parse_udp(lws_adns_get_async_dns(q),
+					canned_e28578_d_akamaiedge_net,
+					   sizeof(canned_e28578_d_akamaiedge_net));
+		}
+		if (!strcmp(adt[dtest].dns_name, "a-0003.a-msedge.net")) {
+			canned_a_0003_a_msedge_net[0] = (uint8_t)(lws_adns_get_tid(q) >> 8);
+			canned_a_0003_a_msedge_net[1] = (uint8_t)lws_adns_get_tid(q);
+			lws_adns_parse_udp(lws_adns_get_async_dns(q),
+					canned_a_0003_a_msedge_net,
+					   sizeof(canned_a_0003_a_msedge_net));
+		}
+		if (first &&
+		    !strcmp(adt[dtest].dns_name, "c-msn-com-europe-vip.trafficmanager.net")) {
+			first = 0;
+			canned_c_msn_com_europe_vip_trafficmanager_net[0] =
+					(uint8_t)(lws_adns_get_tid(q) >> 8);
+			canned_c_msn_com_europe_vip_trafficmanager_net[1] =
+					(uint8_t)lws_adns_get_tid(q);
+			lws_adns_parse_udp(lws_adns_get_async_dns(q),
+				canned_c_msn_com_europe_vip_trafficmanager_net,
+				sizeof(canned_c_msn_com_europe_vip_trafficmanager_net));
+		}
 	}
 }
 
@@ -167,8 +299,9 @@ cb1(struct lws *wsi_unused, const char *ads, const struct addrinfo *a, int n,
 			goto again;
 #endif
 		}
-		if (alen == adt[dtest - 1].addrlen &&
-		    !memcmp(adt[dtest - 1].ads, addr, (unsigned int)alen)) {
+		if ((adt[dtest - 1].recordtype & TEST_FLAG_NOCHECK_RESULT_IP) ||
+		    (alen == adt[dtest - 1].addrlen &&
+		    !memcmp(adt[dtest - 1].ads, addr, (unsigned int)alen))) {
 			ok++;
 			goto next;
 		}
@@ -190,9 +323,10 @@ again:
 
 next:
 	lws_async_dns_freeaddrinfo(&a);
-	if (dtest == (int)LWS_ARRAY_SIZE(adt))
+	if (dtest == (int)LWS_ARRAY_SIZE(adt)) {
 		interrupted = 1;
-	else
+		lws_cancel_service(context);
+	} else
 		lws_sul_schedule(context, 0, &sul, next_test_cb, 1);
 
 	return NULL;
@@ -225,7 +359,7 @@ sul_retry_l(struct lws_sorted_usec_list *sul)
 
 	m = lws_async_dns_query(context, 0, "warmcat.com",
 				    (adns_query_type_t)LWS_ADNS_RECORD_A,
-				    cb_loop, NULL, context);
+				    cb_loop, NULL, context, NULL);
 	switch (m) {
 	case LADNS_RET_FAILED_WSI_CLOSED:
 		lwsl_warn("%s: LADNS_RET_FAILED_WSI_CLOSED "
@@ -352,6 +486,7 @@ main(int argc, const char **argv)
 	/* kick off the async dns tests */
 
 	lws_sul_schedule(context, 0, &sul, next_test_cb, 1);
+	lws_sul_schedule(context, 0, &sul_timeout, timeout_cb, 45 * LWS_USEC_PER_SEC);
 
 evloop:
 	/* the usual lws event loop */
