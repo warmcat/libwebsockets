@@ -37,6 +37,9 @@ lws_adns_parse_label(const uint8_t *pkt, int len, const uint8_t *ls, int budget,
 	uint8_t ll;
 	int n;
 
+	if (len < DHO_SIZEOF || len > 1500)
+		return -1;
+
 	if (budget < 1)
 		return 0;
 
@@ -159,6 +162,9 @@ lws_adns_iterate(lws_adns_q_t *q, const uint8_t *pkt, int len,
 	uint16_t rrtype, rrpaylen;
 	char *sp, inq;
 	uint32_t ttl;
+
+	if (len < DHO_SIZEOF || len > 1500)
+		return -1;
 
 	lws_strncpy(stack[0].name, expname, sizeof(stack[0].name));
 	stack[0].enl = (int)strlen(expname);
@@ -542,7 +548,7 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 
 	/* we have to at least have the header */
 
-	if (len < DHO_SIZEOF)
+	if (len < DHO_SIZEOF || len > 1500)
 		return;
 
 	/* we asked with one query, so anything else is bogus */
