@@ -533,7 +533,10 @@ lws_ssh_parse_plaintext(struct per_session_data__sshd *pss, uint8_t *p, size_t l
 	struct lws_genrsa_ctx ctx;
 	struct lws_ssh_channel *ch;
 	struct lws_subprotocol_scp *scp;
-	uint8_t *pp, *ps, hash[64], *otmp;
+	uint8_t *pp, *ps, hash[64];
+#if !defined(MBEDTLS_VERSION_NUMBER) || MBEDTLS_VERSION_NUMBER < 0x03000000
+	uint8_t *otmp = NULL;
+#endif
 	uint32_t m;
 	int n;
 
@@ -1256,6 +1259,7 @@ again:
 			m = lws_g32(&pp);
 			pp += m;
 			m = lws_g32(&pp);
+#if !defined(MBEDTLS_VERSION_NUMBER) || MBEDTLS_VERSION_NUMBER < 0x03000000
 
 			/*
 			 * decrypt it, resulting in an error, or some ASN1
@@ -1290,6 +1294,12 @@ again:
 			}
 
 			free(otmp);
+		#else
+			ctx.ctx->MBEDTLS_PRIVATE(len) = m;
+			n = lws_genrsa_hash_sig_verify(&ctx, hash,
+				(enum lws_genhash_types)rsa_hash_alg_from_ident(pss->ua->alg),
+				pp, m) == 0 ? 1 : 0;
+		#endif
 			lws_genrsa_destroy(&ctx);
 
 			/*
@@ -1822,7 +1832,9 @@ ch_fail:
 			pss->parser_state = SSH_KEX_STATE_SKIP;
 			break;
 
+#if !defined(MBEDTLS_VERSION_NUMBER) || MBEDTLS_VERSION_NUMBER < 0x03000000
 ua_fail1:
+#endif
 			lws_genrsa_destroy(&ctx);
 ua_fail:
 			write_task(pss, NULL, SSH_WT_UA_FAILURE);
