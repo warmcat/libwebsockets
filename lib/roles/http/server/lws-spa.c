@@ -498,7 +498,7 @@ lws_urldecode_spa_lookup(struct lws_spa *spa, const char *name)
 
 			return n;
 		}
-		if (!strcmp(*pp, name))
+		if (*pp && !strcmp(*pp, name))
 			return n;
 
 		if (spa->i.param_names_stride)

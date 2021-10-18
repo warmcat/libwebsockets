@@ -53,7 +53,7 @@ typedef struct lws_adns_cache {
  * these objects are used while a query is ongoing...
  */
 
-typedef struct {
+typedef struct lws_adns_q {
 	lws_sorted_usec_list_t	sul;	/* per-query write retry timer */
 	lws_sorted_usec_list_t	write_sul;	/* fail if unable to write by this time */
 	lws_dll2_t		list;
@@ -88,6 +88,7 @@ typedef struct {
 	uint8_t			go_nogo;
 
 	uint8_t			is_retry:1;
+	uint8_t			is_synthetic:1; /* test will deliver canned */
 
 	/* name overallocated here */
 } lws_adns_q_t;
@@ -120,9 +121,6 @@ lws_async_dns_complete(lws_adns_q_t *q, lws_adns_cache_t *c);
 
 lws_adns_cache_t *
 lws_adns_get_cache(lws_async_dns_t *dns, const char *name);
-
-void
-lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len);
 
 lws_adns_q_t *
 lws_adns_get_query(lws_async_dns_t *dns, adns_query_type_t qtype,

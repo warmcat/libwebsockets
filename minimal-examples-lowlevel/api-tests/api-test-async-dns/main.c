@@ -12,7 +12,7 @@
 #include <libwebsockets.h>
 #include <signal.h>
 
-static int interrupted, dtest, ok, fail, _exp = 26;
+static int interrupted, dtest, ok, fail, _exp = 28;
 struct lws_context *context;
 
 /*
@@ -67,6 +67,8 @@ static const struct ipparser_tests {
 	{ "1.2.3.4", 4, "1.2.3.4", 7, { 1, 2, 3, 4 } },
 };
 
+#define TEST_FLAG_NOCHECK_RESULT_IP 0x100000
+
 static const struct async_dns_tests {
 	const char *dns_name;
 	int recordtype;
@@ -93,6 +95,45 @@ static const struct async_dns_tests {
 		{ 0x20, 0x01, 0x41, 0xd0, 0x00, 0x02, 0xee, 0x93,
 				0, 0, 0, 0, 0, 0, 0, 1, } },
 #endif
+	{ "c.msn.com", TEST_FLAG_NOCHECK_RESULT_IP |
+		       LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A, 4,
+		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
+	{ "assets.msn.com", TEST_FLAG_NOCHECK_RESULT_IP |
+		       LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A, 4,
+		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
+};
+
+static uint8_t canned_c_msn_com[] = {
+	0x12, 0x34, 0x81, 0x80, 0x00, 0x01, 0x00, 0x02,
+	0x00, 0x01, 0x00, 0x00, 0x01, 0x63, 0x03, 0x6D,
+	0x73, 0x6E, 0x03, 0x63, 0x6F, 0x6D, 0x00, 0x00,
+	0x1C, 0x00, 0x01, 0xC0, 0x0C, 0x00, 0x05, 0x00,
+	0x01, 0x00, 0x00, 0x54, 0x5E, 0x00, 0x24, 0x0F,
+	0x63, 0x2D, 0x6D, 0x73, 0x6E, 0x2D, 0x63, 0x6F,
+	0x6D, 0x2D, 0x6E, 0x73, 0x61, 0x74, 0x63, 0x0E,
+	0x74, 0x72, 0x61, 0x66, 0x66, 0x69, 0x63, 0x6D,
+	0x61, 0x6E, 0x61, 0x67, 0x65, 0x72, 0x03, 0x6E,
+	0x65, 0x74, 0x00, 0xC0, 0x27, 0x00, 0x05, 0x00,
+	0x01, 0x00, 0x00, 0x00, 0x3A, 0x00, 0x17, 0x14,
+	0x63, 0x2D, 0x6D, 0x73, 0x6E, 0x2D, 0x63, 0x6F,
+	0x6D, 0x2D, 0x65, 0x75, 0x72, 0x6F, 0x70, 0x65,
+	0x2D, 0x76, 0x69, 0x70, 0xC0, 0x37, 0xC0, 0x37,
+	0x00, 0x06, 0x00, 0x01, 0x00, 0x00, 0x00, 0x1C,
+	0x00, 0x2E, 0x03, 0x74, 0x6D, 0x31, 0x06, 0x64,
+	0x6E, 0x73, 0x2D, 0x74, 0x6D, 0xC0, 0x12, 0x0A,
+	0x68, 0x6F, 0x73, 0x74, 0x6D, 0x61, 0x73, 0x74,
+	0x65, 0x72, 0xC0, 0x37, 0x77, 0x64, 0x96, 0x60,
+	0x00, 0x00, 0x03, 0x84, 0x00, 0x00, 0x01, 0x2C,
+	0x00, 0x24, 0xEA, 0x00, 0x00, 0x00, 0x00, 0x1E,
+}, canned_assets_msn_com[] = {
+	219,29,129,128,0,1,0,2,0,1,0,0,6,97,115,115,101,116,115,3,109,115,
+	110,3,99,111,109,0,0,28,0,1,192,12,0,5,0,1,0,0,81,199,0,28,6,97,115,
+	115,101,116,115,3,109,115,110,3,99,111,109,7,101,100,103,101,107,101,
+	121,3,110,101,116,0,192,44,0,5,0,1,0,0,0,235,0,22,6,101,50,56,53,55,
+	56,1,100,10,97,107,97,109,97,105,101,100,103,101,192,67,192,91,0,6,
+	0,1,0,0,1,79,0,46,3,110,48,100,192,93,10,104,111,115,116,109,97,115,
+	116,101,114,6,97,107,97,109,97,105,192,23,97,106,246,231,0,0,3,232,0,
+	0,3,232,0,0,3,232,0,0,7,8,
 };
 
 static lws_sorted_usec_list_t sul;
@@ -104,6 +145,7 @@ cb1(struct lws *wsi_unused, const char *ads, const struct addrinfo *a, int n,
 static void
 next_test_cb(lws_sorted_usec_list_t *sul)
 {
+	struct lws_adns_q *q;
 	int m;
 
 	lwsl_notice("%s: querying %s\n", __func__, adt[dtest].dns_name);
@@ -111,10 +153,31 @@ next_test_cb(lws_sorted_usec_list_t *sul)
 	m = lws_async_dns_query(context, 0,
 				adt[dtest].dns_name,
 				(adns_query_type_t)adt[dtest].recordtype, cb1, NULL,
-				context);
+				context, &q);
 	if (m != LADNS_RET_CONTINUING && m != LADNS_RET_FOUND && m != LADNS_RET_FAILED_WSI_CLOSED) {
 		lwsl_err("%s: adns 1: %s failed: %d\n", __func__, adt[dtest].dns_name, m);
 		interrupted = 1;
+	}
+
+	if (adt[dtest].recordtype & LWS_ADNS_SYNTHETIC) {
+
+		lwsl_notice("%s: injecting result\n", __func__);
+
+		if (!strcmp(adt[dtest].dns_name, "c.msn.com")) {
+			canned_c_msn_com[0] = (uint8_t)(lws_adns_get_tid(q) >> 8);
+			canned_c_msn_com[1] = (uint8_t)lws_adns_get_tid(q);
+			lws_adns_parse_udp(lws_adns_get_async_dns(q),
+					   canned_c_msn_com,
+					   sizeof(canned_c_msn_com));
+		}
+
+		if (!strcmp(adt[dtest].dns_name, "assets.msn.com")) {
+			canned_assets_msn_com[0] = (uint8_t)(lws_adns_get_tid(q) >> 8);
+			canned_assets_msn_com[1] = (uint8_t)lws_adns_get_tid(q);
+			lws_adns_parse_udp(lws_adns_get_async_dns(q),
+					   canned_assets_msn_com,
+					   sizeof(canned_assets_msn_com));
+		}
 	}
 }
 
@@ -167,8 +230,9 @@ cb1(struct lws *wsi_unused, const char *ads, const struct addrinfo *a, int n,
 			goto again;
 #endif
 		}
-		if (alen == adt[dtest - 1].addrlen &&
-		    !memcmp(adt[dtest - 1].ads, addr, (unsigned int)alen)) {
+		if ((adt[dtest - 1].recordtype & TEST_FLAG_NOCHECK_RESULT_IP) ||
+		    (alen == adt[dtest - 1].addrlen &&
+		    !memcmp(adt[dtest - 1].ads, addr, (unsigned int)alen))) {
 			ok++;
 			goto next;
 		}
@@ -225,7 +289,7 @@ sul_retry_l(struct lws_sorted_usec_list *sul)
 
 	m = lws_async_dns_query(context, 0, "warmcat.com",
 				    (adns_query_type_t)LWS_ADNS_RECORD_A,
-				    cb_loop, NULL, context);
+				    cb_loop, NULL, context, NULL);
 	switch (m) {
 	case LADNS_RET_FAILED_WSI_CLOSED:
 		lwsl_warn("%s: LADNS_RET_FAILED_WSI_CLOSED "

@@ -352,7 +352,7 @@ solo:
 			 */
 			wsi->client_suppress_CONNECTION_ERROR = 0;
 			lws_inform_client_conn_fail(wsi, (void *)dns_nxdomain,
-						    sizeof(*dns_nxdomain));
+						    strlen(dns_nxdomain));
 			goto failed1;
 		}
 #endif
@@ -365,7 +365,7 @@ solo:
 	else
 		n = lws_async_dns_query(wsi->a.context, wsi->tsi, adsin,
 				LWS_ADNS_RECORD_A, lws_client_connect_3_connect,
-				wsi, NULL);
+				wsi, NULL, NULL);
 
 	if (n == LADNS_RET_FAILED_WSI_CLOSED)
 		return NULL;

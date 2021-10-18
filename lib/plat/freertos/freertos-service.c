@@ -102,6 +102,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	 * is there anybody with pending stuff that needs service forcing?
 	 */
 again:
+	n = 0;
 	if (lws_service_adjust_timeout(context, 1, tsi)) {
 
 		a = 0;

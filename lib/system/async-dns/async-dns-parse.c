@@ -81,7 +81,8 @@ again1:
 
 		return -1;
 	}
-	if (ll > budget) {
+
+	if (ls + ll > ols + budget) {
 		lwsl_notice("%s: label too long %d vs %d\n", __func__, ll, budget);
 
 		return -1;
@@ -398,6 +399,7 @@ skip:
 	q->sent[1] = 0;
 #endif
 	q->sent[0] = 0;
+	q->is_synthetic = 0;
 	q->recursion++;
 	if (q->recursion == DNS_RECURSION_LIMIT) {
 		lwsl_err("%s: recursion overflow\n", __func__);

@@ -878,7 +878,7 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 		n = lws_async_dns_query(vhost->context, 0, ads,
 					LWS_ADNS_RECORD_A,
 					lws_create_adopt_udp2, wsi,
-					(void *)ifname);
+					(void *)ifname, NULL);
 		// lwsl_notice("%s: dns query returned %d\n", __func__, n);
 		if (n == LADNS_RET_FAILED) {
 			lwsl_err("%s: async dns failed\n", __func__);

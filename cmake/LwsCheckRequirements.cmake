@@ -4,6 +4,9 @@
 # If we are being built externally, confirm installed lws was configured to
 # support reqconfig, else error out with a helpful message about the problem.
 #
+
+include(CheckIncludeFile)
+
 MACRO(require_lws_config reqconfig _val result)
 
 	if (DEFINED ${reqconfig})
