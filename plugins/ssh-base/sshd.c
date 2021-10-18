@@ -1250,7 +1250,6 @@ again:
 					      LGRSAM_PKCS1_1_5,
 					      LWS_GENHASH_TYPE_UNKNOWN))
 				goto ua_fail;
-
 			/*
 			 * point to the encrypted signature payload we
 			 * were sent
@@ -2269,9 +2268,9 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 		case SSH_WT_CH_OPEN_CONF:
 			pp = ps + 5;
 			*pp++ = SSH_MSG_CHANNEL_OPEN_CONFIRMATION;
-			lws_p32(pp, pss->ch_temp->server_ch);
-			pp += 4;
 			lws_p32(pp, pss->ch_temp->sender_ch);
+			pp += 4;
+			lws_p32(pp, pss->ch_temp->server_ch);
 			pp += 4;
 			/* tx initial window size towards us */
 			lws_p32(pp, LWS_SSH_INITIAL_WINDOW);
@@ -2287,9 +2286,9 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 		case SSH_WT_CH_FAILURE:
 			pp = ps + 5;
 			*pp++ = SSH_MSG_CHANNEL_OPEN_FAILURE;
-			lws_p32(pp, ch->server_ch);
-			pp += 4;
 			lws_p32(pp, ch->sender_ch);
+			pp += 4;
+			lws_p32(pp, ch->server_ch);
 			pp += 4;
 			lws_cstr(&pp, "reason", 64);
 			lws_cstr(&pp, "en/US", 64);
@@ -2299,7 +2298,7 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 		case SSH_WT_CHRQ_SUCC:
 			pp = ps + 5;
 			*pp++ = SSH_MSG_CHANNEL_SUCCESS;
-			lws_p32(pp, ch->server_ch);
+			lws_p32(pp, ch->sender_ch);
 			lwsl_info("SSH_WT_CHRQ_SUCC\n");
 			pp += 4;
 			goto pac;
@@ -2307,7 +2306,7 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 		case SSH_WT_CHRQ_FAILURE:
 			pp = ps + 5;
 			*pp++ = SSH_MSG_CHANNEL_FAILURE;
-			lws_p32(pp, ch->server_ch);
+			lws_p32(pp, ch->sender_ch);
 			pp += 4;
 			lwsl_info("SSH_WT_CHRQ_FAILURE\n");
 			goto pac;
@@ -2315,7 +2314,7 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 		case SSH_WT_CH_CLOSE:
 			pp = ps + 5;
 			*pp++ = SSH_MSG_CHANNEL_CLOSE;
-			lws_p32(pp, ch->server_ch);
+			lws_p32(pp, ch->sender_ch);
 			lwsl_info("SSH_WT_CH_CLOSE\n");
 			pp += 4;
 			goto pac;
@@ -2323,7 +2322,7 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 		case SSH_WT_CH_EOF:
 			pp = ps + 5;
 			*pp++ = SSH_MSG_CHANNEL_EOF;
-			lws_p32(pp, ch->server_ch);
+			lws_p32(pp, ch->sender_ch);
 			lwsl_info("SSH_WT_CH_EOF\n");
 			pp += 4;
 			goto pac;
@@ -2405,7 +2404,7 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 			else
 				*pp++ = SSH_MSG_CHANNEL_EXTENDED_DATA;
 			/* ps + 6 */
-			lws_p32(pp, pss->ch_list->server_ch);
+			lws_p32(pp, pss->ch_list->sender_ch);
 			m = 14;
 			if (n == LWS_STDERR) {
 				pp += 4;
