@@ -12,7 +12,7 @@
 #include <libwebsockets.h>
 #include <signal.h>
 
-static int interrupted, dtest, ok, fail, _exp = 28;
+static int interrupted, dtest, ok, fail, _exp = 33;
 struct lws_context *context;
 
 /*
@@ -77,6 +77,9 @@ static const struct async_dns_tests {
 } adt[] = {
 	{ "warmcat.com", LWS_ADNS_RECORD_A, 4,
 		{ 46, 105, 127, 147, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
+		/* test coming from cache */
+	{ "warmcat.com", LWS_ADNS_RECORD_A, 4,
+		{ 46, 105, 127, 147, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
 	{ "libwebsockets.org", LWS_ADNS_RECORD_A, 4,
 		{ 46, 105, 127, 147, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
 	{ "doesntexist", LWS_ADNS_RECORD_A, 0,
@@ -100,6 +103,18 @@ static const struct async_dns_tests {
 		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
 	{ "assets.msn.com", TEST_FLAG_NOCHECK_RESULT_IP |
 		       LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A, 4,
+		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
+	{ "e28578.d.akamaiedge.net", TEST_FLAG_NOCHECK_RESULT_IP |
+		       LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A, 0,
+		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
+	{ "a-0003.a-msedge.net", TEST_FLAG_NOCHECK_RESULT_IP |
+		       LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A, 0,
+		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
+	{ "c-msn-com-europe-vip.trafficmanager.net", TEST_FLAG_NOCHECK_RESULT_IP |
+		       LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A, 0,
+		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
+	{ "c-msn-com-europe-vip.trafficmanager.net", TEST_FLAG_NOCHECK_RESULT_IP |
+		       LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A, 0,
 		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
 };
 
@@ -134,13 +149,41 @@ static uint8_t canned_c_msn_com[] = {
 	0,1,0,0,1,79,0,46,3,110,48,100,192,93,10,104,111,115,116,109,97,115,
 	116,101,114,6,97,107,97,109,97,105,192,23,97,106,246,231,0,0,3,232,0,
 	0,3,232,0,0,3,232,0,0,7,8,
+}, canned_e28578_d_akamaiedge_net[] = {
+	20,191,129,128,0,1,0,0,0,1,0,0,6,101,50,56,53,55,56,1,100,10,97,107,97,
+	109,97,105,101,100,103,101,3,110,101,116,0,0,28,0,1,192,19,0,6,0,1,0,0,
+	1,17,0,49,3,110,48,100,192,21,10,104,111,115,116,109,97,115,116,101,114,
+	6,97,107,97,109,97,105,3,99,111,109,0,97,107,217,31,0,0,3,232,0,0,3,232,
+	0,0,3,232,0,0,7,8
+}, canned_a_0003_a_msedge_net[] = {
+	126,215,129,128,0,1,0,0,0,1,0,0,6,97,45,48,48,48,51,8,97,45,109,115,101,
+	100,103,101,3,110,101,116,0,0,28,0,1,192,19,0,6,0,1,0,0,0,172,0,48,3,
+	110,115,49,192,19,6,109,115,110,104,115,116,9,109,105,99,114,111,115,
+	111,102,116,3,99,111,109,0,120,43,34,229,0,0,7,8,0,0,3,132,0,36,234,0,
+	0,0,0,240
+}, canned_c_msn_com_europe_vip_trafficmanager_net[] = {
+	73,87,129,128,0,1,0,0,0,1,0,0,20,99,45,109,115,110,45,99,111,109,45,101,
+	117,114,111,112,101,45,118,105,112,14,116,114,97,102,102,105,99,109,97,
+	110,97,103,101,114,3,110,101,116,0,0,28,0,1,192,33,0,6,0,1,0,0,0,30,0,
+	49,3,116,109,49,6,100,110,115,45,116,109,3,99,111,109,0,10,104,111,115,
+	116,109,97,115,116,101,114,192,33,7,11,234,133,0,0,3,132,0,0,1,44,0,36,
+	234,0,0,0,0,30,
 };
 
-static lws_sorted_usec_list_t sul;
+static lws_sorted_usec_list_t sul, sul_timeout;
 
 struct lws *
 cb1(struct lws *wsi_unused, const char *ads, const struct addrinfo *a, int n,
     void *opaque);
+
+static int first = 1;
+
+static void
+timeout_cb(lws_sorted_usec_list_t *sul)
+{
+	interrupted = 1;
+	lws_cancel_service(context);
+}
 
 static void
 next_test_cb(lws_sorted_usec_list_t *sul)
@@ -177,6 +220,32 @@ next_test_cb(lws_sorted_usec_list_t *sul)
 			lws_adns_parse_udp(lws_adns_get_async_dns(q),
 					   canned_assets_msn_com,
 					   sizeof(canned_assets_msn_com));
+		}
+
+		if (!strcmp(adt[dtest].dns_name, "e28578.d.akamaiedge.net")) {
+			canned_e28578_d_akamaiedge_net[0] = (uint8_t)(lws_adns_get_tid(q) >> 8);
+			canned_e28578_d_akamaiedge_net[1] = (uint8_t)lws_adns_get_tid(q);
+			lws_adns_parse_udp(lws_adns_get_async_dns(q),
+					canned_e28578_d_akamaiedge_net,
+					   sizeof(canned_e28578_d_akamaiedge_net));
+		}
+		if (!strcmp(adt[dtest].dns_name, "a-0003.a-msedge.net")) {
+			canned_a_0003_a_msedge_net[0] = (uint8_t)(lws_adns_get_tid(q) >> 8);
+			canned_a_0003_a_msedge_net[1] = (uint8_t)lws_adns_get_tid(q);
+			lws_adns_parse_udp(lws_adns_get_async_dns(q),
+					canned_a_0003_a_msedge_net,
+					   sizeof(canned_a_0003_a_msedge_net));
+		}
+		if (first &&
+		    !strcmp(adt[dtest].dns_name, "c-msn-com-europe-vip.trafficmanager.net")) {
+			first = 0;
+			canned_c_msn_com_europe_vip_trafficmanager_net[0] =
+					(uint8_t)(lws_adns_get_tid(q) >> 8);
+			canned_c_msn_com_europe_vip_trafficmanager_net[1] =
+					(uint8_t)lws_adns_get_tid(q);
+			lws_adns_parse_udp(lws_adns_get_async_dns(q),
+				canned_c_msn_com_europe_vip_trafficmanager_net,
+				sizeof(canned_c_msn_com_europe_vip_trafficmanager_net));
 		}
 	}
 }
@@ -254,9 +323,10 @@ again:
 
 next:
 	lws_async_dns_freeaddrinfo(&a);
-	if (dtest == (int)LWS_ARRAY_SIZE(adt))
+	if (dtest == (int)LWS_ARRAY_SIZE(adt)) {
 		interrupted = 1;
-	else
+		lws_cancel_service(context);
+	} else
 		lws_sul_schedule(context, 0, &sul, next_test_cb, 1);
 
 	return NULL;
@@ -416,6 +486,7 @@ main(int argc, const char **argv)
 	/* kick off the async dns tests */
 
 	lws_sul_schedule(context, 0, &sul, next_test_cb, 1);
+	lws_sul_schedule(context, 0, &sul_timeout, timeout_cb, 45 * LWS_USEC_PER_SEC);
 
 evloop:
 	/* the usual lws event loop */

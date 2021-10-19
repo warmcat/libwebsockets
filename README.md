@@ -26,6 +26,11 @@ sdevent, glib and uloop, as well as custom event libs.
 News
 ----
 
+## Perl binding for lws available
+
+Thanks to Felipe Gasper, there's now a [perl binding for lws available at metacpan](https://metacpan.org/pod/Net::Libwebsockets),
+this uses the recent generic event loop support in lws to have lws as a guest on an existing perl event loop.
+
 ## Lws examples switching to Secure Streams
 
 ![Secure Streams direct](./doc-assets/ss-api1.png)

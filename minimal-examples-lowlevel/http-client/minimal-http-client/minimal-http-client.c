@@ -16,7 +16,7 @@
 #include <string.h>
 #include <signal.h>
 
-static int interrupted, bad = 1, status, conmon;
+static int interrupted, bad = 1, status, conmon, close_after_start;
 #if defined(LWS_WITH_HTTP2)
 static int long_poll;
 #endif
@@ -332,6 +332,9 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 		return 1;
 	}
 
+	if (close_after_start)
+		lws_wsi_close(client_wsi, LWS_TO_KILL_SYNC);
+
 	return 0;
 }
 
@@ -379,6 +382,9 @@ int main(int argc, const char **argv)
 	 * will use.
 	 */
 	info.fd_limit_per_thread = 1 + 1 + 1;
+
+	if (lws_cmdline_option(argc, argv, "--cos"))
+		close_after_start = 1;
 
 #if defined(LWS_WITH_MBEDTLS) || defined(USE_WOLFSSL)
 	/*

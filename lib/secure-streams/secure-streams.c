@@ -852,11 +852,12 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 
 #if defined(LWS_WITH_SYS_METRICS)
 	/* possibly already hanging connect retry... */
-	if (!h->cal_txn.mt) {
+	if (!h->cal_txn.mt)
 		lws_metrics_caliper_bind(h->cal_txn, h->context->mth_ss_conn);
-	}
 
-	lws_metrics_tag_add(&h->cal_txn.mtags_owner, "ss", h->policy->streamtype);
+	if (h->policy->streamtype)
+		lws_metrics_tag_add(&h->cal_txn.mtags_owner, "ss",
+				    h->policy->streamtype);
 #endif
 
 	h->txn_ok = 0;

@@ -564,6 +564,11 @@ lws_async_dns_deinit(lws_async_dns_t *dns)
 	}
 }
 
+void
+lws_async_dns_detach_query_wsi(struct lws *wsi)
+{
+
+}
 
 static int
 cancel(struct lws_dll2 *d, void *user)
@@ -575,6 +580,14 @@ cancel(struct lws_dll2 *d, void *user)
 		struct lws *w = lws_container_of(d3, struct lws, adns);
 
 		if (user == w) {
+			/*
+			 * This is an ongoing query that our wsi was involved
+			 * in... detach it from the query, and if nothing left
+			 * interested in the query, destroy it.
+			 *
+			 * Since the wsi can only be running one query at a time
+			 * currently, we can bail if we got a hit.
+			 */
 			lws_dll2_remove(d3);
 			if (!q->wsi_adns.count)
 				lws_adns_q_destroy(q);
@@ -584,6 +597,11 @@ cancel(struct lws_dll2 *d, void *user)
 
 	return 0;
 }
+
+/*
+ * Let's go through all ongoing async dns queries, detaching wsi from any it
+ * is involved in, and destroying the query if that was the only consumer.
+ */
 
 void
 lws_async_dns_cancel(struct lws *wsi)
