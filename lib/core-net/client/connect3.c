@@ -95,8 +95,10 @@ lws_client_connect_check(struct lws *wsi)
 			return LCCCR_CONNECTED;
 		}
 
-		lwsl_wsi_notice(wsi, "getsockopt fd %d says err %d",
+		lwsl_wsi_notice(wsi, "getsockopt fd %d says e %d",
 							wsi->desc.sockfd, e);
+
+		return LCCCR_FAILED;
 	}
 
 #else
