@@ -1483,6 +1483,12 @@ again:
 						       SSHS_NVC_CHRQ_SUBSYSTEM);
 				break;
 			}
+			if (!strcmp(pss->name, "window-change")) {
+				lwsl_info("%s: window-change\n", __func__);
+				state_get_u32(pss,
+					      SSHS_NVC_CHRQ_WNDCHANGE_TW);
+				break;
+			}
 
 			if (pss->rq_want_reply)
 				goto chrq_fail;
@@ -1637,6 +1643,34 @@ again:
 			pss->parser_state = SSHS_MSG_EAT_PADDING;
 			break;
 #endif
+
+		/* CHRQ window-change */
+
+	case SSHS_NVC_CHRQ_WNDCHANGE_TW:
+		pss->args.pty.width_ch = pss->len;
+		state_get_u32(pss, SSHS_NVC_CHRQ_WNDCHANGE_TH);
+		break;
+        case SSHS_NVC_CHRQ_WNDCHANGE_TH:
+		pss->args.pty.height_ch = pss->len;
+		state_get_u32(pss, SSHS_NVC_CHRQ_WNDCHANGE_TWP);
+		break;
+        case SSHS_NVC_CHRQ_WNDCHANGE_TWP:
+		pss->args.pty.width_px = pss->len;
+		state_get_u32(pss, SSHS_NVC_CHRQ_WNDCHANGE_THP);
+		break;
+        case SSHS_NVC_CHRQ_WNDCHANGE_THP:
+		pss->args.pty.height_px = pss->len;
+		pss->args.pty.term[0] = 0;
+		pss->args.pty.modes = NULL;
+		pss->args.pty.modes_len = 0;
+		n = 0;
+		if (pss->vhd->ops && pss->vhd->ops->pty_req)
+			n = pss->vhd->ops->pty_req(pss->ch_temp->priv,
+						   &pss->args.pty);
+		if (n)
+			goto chrq_fail;
+		pss->parser_state = SSHS_MSG_EAT_PADDING;
+		break;
 
 		/* SSH_MSG_CHANNEL_DATA */
 
