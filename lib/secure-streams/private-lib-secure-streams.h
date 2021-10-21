@@ -541,7 +541,7 @@ lws_ss_cancel_notify_dll(struct lws_dll2 *d, void *user);
 int
 lws_sspc_cancel_notify_dll(struct lws_dll2 *d, void *user);
 
-#if defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
+#if defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY) || defined(LWS_WITH_SECURE_STREAMS_CPP)
 int
 lws_ss_policy_unref_trust_store(struct lws_context *context,
 				const lws_ss_policy_t *pol);
