@@ -367,7 +367,7 @@ lws_ss_policy_ref_trust_store(struct lws_context *context,
 	}
 
 accepted:
-#if defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
+#if defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY) || defined(LWS_WITH_SECURE_STREAMS_CPP)
 	if (doref)
 		v->ss_refcount++;
 #endif
@@ -375,7 +375,7 @@ accepted:
 	return v;
 }
 
-#if defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
+#if defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY) || defined(LWS_WITH_SECURE_STREAMS_CPP)
 int
 lws_ss_policy_unref_trust_store(struct lws_context *context,
 				const lws_ss_policy_t *pol)

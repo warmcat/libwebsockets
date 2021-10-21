@@ -520,7 +520,7 @@ struct lws_vhost {
 	uint32_t		tls_session_cache_max;
 #endif
 
-#if defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
+#if defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY) || defined(LWS_WITH_SECURE_STREAMS_CPP)
 	int8_t			ss_refcount;
 	/**< refcount of number of ss connections with streamtypes using this
 	 * trust store */

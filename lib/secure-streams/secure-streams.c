@@ -1250,6 +1250,14 @@ extant:
 		lwsl_err("%s: unable to get vhost / trust store\n", __func__);
 		goto fail_creation;
 	}
+#else
+#if defined(LWS_WITH_SECURE_STREAMS_CPP)
+        if (!ssi->streamtype &&
+	    !lws_ss_policy_ref_trust_store(context, h->policy, 1 /* do the ref */)) {
+		lwsl_err("%s: unable to get vhost / trust store\n", __func__);
+		goto fail_creation;
+	}
+#endif
 #endif
 
 	r = lws_ss_event_helper(h, LWSSSCS_CREATING);
@@ -1465,6 +1473,11 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 
 	if (h->policy)
 		lws_ss_policy_unref_trust_store(h->context, h->policy);
+#else
+#if defined(LWS_WITH_SECURE_STREAMS_CPP)
+	if (!h->info.streamtype || !*(h->info.streamtype))
+		lws_ss_policy_unref_trust_store(h->context, h->policy);
+#endif
 #endif
 
 #if defined(LWS_WITH_SERVER)
