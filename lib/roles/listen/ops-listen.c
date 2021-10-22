@@ -31,6 +31,7 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 	struct lws_context *context = wsi->a.context;
 	struct lws_filter_network_conn_args filt;
 	lws_sock_file_fd_type fd;
+	int only_raw_protocol;
 
 	memset(&filt, 0, sizeof(filt));
 
@@ -44,6 +45,14 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 	 * pollout is a hack on esp32 for background accepts signalling
 	 * they completed
 	 */
+
+	if (wsi->a.vhost->count_protocols == 1 &&
+		wsi->a.vhost->listen_accept_protocol &&
+		!strcmp(wsi->a.vhost->protocols[0].name,
+			wsi->a.vhost->listen_accept_protocol))
+        only_raw_protocol = 1;
+	else
+        only_raw_protocol = 0;
 
 	do {
 		struct lws *cwsi;
@@ -134,12 +143,12 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 			return LWS_HPI_RET_HANDLED;
 		}
 
-		if (!(wsi->a.vhost->options &
+		if (!only_raw_protocol && !(wsi->a.vhost->options &
 			LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG))
 			opts |= LWS_ADOPT_HTTP;
 
 #if defined(LWS_WITH_TLS)
-		if (!wsi->a.vhost->tls.use_ssl)
+		if (only_raw_protocol || !wsi->a.vhost->tls.use_ssl)
 #endif
 			opts &= ~LWS_ADOPT_ALLOW_SSL;
 
