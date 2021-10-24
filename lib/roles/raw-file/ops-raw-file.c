@@ -31,11 +31,11 @@ rops_handle_POLLIN_raw_file(struct lws_context_per_thread *pt, struct lws *wsi,
 	int n;
 
 	if (pollfd->revents & LWS_POLLOUT) {
-		n = lws_callback_as_writeable(wsi);
 		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
 			lwsl_wsi_info(wsi, "failed at set pollfd");
 			return LWS_HPI_RET_WSI_ALREADY_DIED;
 		}
+		n = lws_callback_as_writeable(wsi);
 		if (n)
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
