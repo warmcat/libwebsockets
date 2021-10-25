@@ -114,7 +114,8 @@ struct lws_client_connect_info {
 	int ssl_connection;
 	/**< 0, or a combination of LCCSCF_ flags */
 	const char *path;
-	/**< uri path */
+	/**< URI path. Prefix with + for a UNIX socket. (+@ for
+     * a Linux abstract-namespace socket) */
 	const char *host;
 	/**< content of host header */
 	const char *origin;
