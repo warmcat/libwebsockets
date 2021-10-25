@@ -101,9 +101,14 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	/*
 	 * is there anybody with pending stuff that needs service forcing?
 	 */
+#if !defined(LWS_AMAZON_RTOS)
 again:
+#endif
 	n = 0;
 	if (lws_service_adjust_timeout(context, 1, tsi)) {
+#if defined(LWS_AMAZON_RTOS)
+again:
+#endif /* LWS_AMAZON_RTOS */
 
 		a = 0;
 		if (timeout_us) {
