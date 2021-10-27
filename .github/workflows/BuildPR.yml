@@ -1,0 +1,63 @@
+name: PullRequest
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+jobs:
+  buildMac:
+    name: Build macOS
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ macos-10.15, macos-11 ]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2.3.4
+        with:
+          fetch-depth: 0
+          submodules: true
+      - name: Prepare OS with ssl
+        run: |
+          brew install openssl
+          brew link --force openssl
+          export PATH="/usr/local/opt/openssl@3/bin:$PATH"
+          export LDFLAGS="-L/usr/local/opt/openssl@3/lib"
+          export CPPFLAGS="-I/usr/local/opt/openssl@3/include"
+          export PKG_CONFIG_PATH="/usr/local/opt/openssl@3/lib/pkgconfig"
+          pkg-config --modversion openssl
+      - name: Build
+        run: |
+          mkdir build
+          cd build
+          cmake .. -DLWS_WITH_SECURE_STREAMS=1 -DLWS_WITH_MINIMAL_EXAMPLES=1
+          sudo make install
+          cd ../minimal-examples/client/hello_world/
+          cmake .
+          make
+
+  buildLinux:
+    name: Build Linux
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-18.04, ubuntu-20.04 ]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2.3.4
+        with:
+          fetch-depth: 0
+          submodules: true
+      - name: Build
+        run: |
+          mkdir build
+          cd build
+          cmake .. -DLWS_WITH_SECURE_STREAMS=1
+          sudo make install
+          cd ../minimal-examples/client/hello_world/
+          cmake .
+          make
