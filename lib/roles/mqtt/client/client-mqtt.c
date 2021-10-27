@@ -122,6 +122,10 @@ lws_create_client_mqtt_object(const struct lws_client_connect_info *i,
 		c->conn_flags = LMQCFT_CLEAN_START;
 	if (cp->client_id_nofree)
 		c->conn_flags |= LMQCFT_CLIENT_ID_NOFREE;
+	if (cp->username_nofree)
+		c->conn_flags |= LMQCFT_USERNAME_NOFREE;
+	if (cp->password_nofree)
+		c->conn_flags |= LMQCFT_PASSWORD_NOFREE;
 
 	if (!(c->conn_flags & LMQCFT_CLIENT_ID_NOFREE))
 		lws_free((void *)cp->client_id);
@@ -152,14 +156,16 @@ lws_create_client_mqtt_object(const struct lws_client_connect_info *i,
 		if (!c->username)
 			goto oom3;
 		c->conn_flags |= LMQCFT_USERNAME;
-		lws_free((void *)cp->username);
+		if (!(c->conn_flags & LMQCFT_USERNAME_NOFREE))
+			lws_free((void *)cp->username);
 		if (cp->password) {
 			c->password =
 				lws_mqtt_str_create_cstr_dup(cp->password, 0);
 			if (!c->password)
 				goto oom4;
 			c->conn_flags |= LMQCFT_PASSWORD;
-			lws_free((void *)cp->password);
+			if (!(c->conn_flags & LMQCFT_PASSWORD_NOFREE))
+				lws_free((void *)cp->password);
 		}
 	}
 

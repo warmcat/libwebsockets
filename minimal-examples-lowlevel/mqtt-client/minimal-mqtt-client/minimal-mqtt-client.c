@@ -42,6 +42,8 @@ static const lws_mqtt_client_connect_param_t client_connect_param = {
 	.keep_alive			= 60,
 	.clean_start			= 1,
 	.client_id_nofree		= 1,
+	.username_nofree		= 1,
+	.password_nofree		= 1,
 	.will_param = {
 		.topic			= "good/bye",
 		.message		= "sign-off",
@@ -184,6 +186,7 @@ callback_mqtt(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_MQTT_SUBSCRIBED:
 		lwsl_user("%s: MQTT_SUBSCRIBED\n", __func__);
+		lws_callback_on_writable(wsi);
 		break;
 
 	case LWS_CALLBACK_MQTT_CLIENT_WRITEABLE:
@@ -250,8 +253,10 @@ callback_mqtt(struct lws *wsi, enum lws_callback_reasons reason,
 		 */
 
 		pss->state++;
-		if (pss->state != STATE_TEST_FINISH)
+		if (pss->state != STATE_TEST_FINISH) {
+			lws_callback_on_writable(wsi);
 			break;
+		}
 
 		/* Oh we are done then */
 
