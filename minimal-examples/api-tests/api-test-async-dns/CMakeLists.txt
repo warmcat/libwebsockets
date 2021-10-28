@@ -1,14 +1,10 @@
 project(lws-api-test-async-dns C)
 cmake_minimum_required(VERSION 2.8.12)
 find_package(libwebsockets CONFIG REQUIRED)
-list(APPEND CMAKE_MODULE_PATH ${LWS_CMAKE_DIR})
-include(CheckCSourceCompiles)
-include(LwsCheckRequirements)
 
 set(SAMP lws-api-test-async-dns)
 set(SRCS main.c)
 
-set(requirements 1)
 require_lws_config(LWS_ROLE_H1 1 requirements)
 require_lws_config(LWS_WITH_CLIENT 1 requirements)
 require_lws_config(LWS_WITH_SYS_ASYNC_DNS 1 requirements)
