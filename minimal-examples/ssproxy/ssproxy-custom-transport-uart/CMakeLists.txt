@@ -1,13 +1,9 @@
 project(lws-minimal-ssproxy-custom-transport-uart C)
 cmake_minimum_required(VERSION 2.8.12)
 find_package(libwebsockets CONFIG REQUIRED)
-list(APPEND CMAKE_MODULE_PATH ${LWS_CMAKE_DIR})
-include(CheckCSourceCompiles)
-include(LwsCheckRequirements)
 
 set(SRCS main.c transport-serial.c)
 
-set(requirements 1)
 require_lws_config(LWS_ROLE_H1 1 requirements)
 require_lws_config(LWS_WITHOUT_CLIENT 0 requirements)
 require_lws_config(LWS_WITH_SECURE_STREAMS 1 requirements)

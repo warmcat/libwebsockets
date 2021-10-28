@@ -119,7 +119,7 @@ CHECK_C_SOURCE_COMPILES("
 # after kernel 2.6.37
 
 CHECK_C_SOURCE_COMPILES("#include <netinet/tcp.h>\nint main(void) { return TCP_USER_TIMEOUT; }\n" LWS_HAVE_TCP_USER_TIMEOUT)
-
+set(LWS_PUBLIC_INCLUDES "")
 if (LWS_WITH_TLS)
 	add_subdir_include_dirs(tls)
 endif()
@@ -173,6 +173,8 @@ if (LWS_WITH_STATIC)
 	)
 	target_include_directories(websockets PRIVATE ${LWS_LIB_BUILD_INC_PATHS})
 	target_compile_definitions(websockets PRIVATE LWS_BUILDING_STATIC)
+	target_include_directories(websockets PUBLIC ${LWS_PUBLIC_INCLUDES})
+	set(LWS_PUBLIC_INCLUDES ${LWS_PUBLIC_INCLUDES} PARENT_SCOPE)
 
 	if (WIN32)
 		# Windows uses the same .lib ending for static libraries and shared
@@ -199,6 +201,8 @@ if (LWS_WITH_SHARED)
 	)
 	target_include_directories(websockets_shared PRIVATE ${LWS_LIB_BUILD_INC_PATHS})
 	target_compile_definitions(websockets_shared PRIVATE LWS_BUILDING_SHARED)
+	target_include_directories(websockets_shared PUBLIC ${LWS_PUBLIC_INCLUDES})
+	set(LWS_PUBLIC_INCLUDES ${LWS_PUBLIC_INCLUDES} PARENT_SCOPE)
 
 	# We want the shared lib to be named "libwebsockets"
 	# not "libwebsocket_shared".
