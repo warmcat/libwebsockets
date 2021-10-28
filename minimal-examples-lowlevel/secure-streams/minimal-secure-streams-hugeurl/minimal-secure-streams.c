@@ -14,7 +14,7 @@
 #include <string.h>
 #include <signal.h>
 
-static unsigned int timeout_ms = 3000;
+static unsigned int timeout_ms = 6000;
 static int interrupted, bad = 1, h1;
 static lws_state_notify_link_t nl;
 static size_t hugeurl_size = 4000;

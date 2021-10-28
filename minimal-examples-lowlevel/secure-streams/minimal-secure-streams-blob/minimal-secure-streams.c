@@ -203,6 +203,10 @@ static const char *canned_root_token_payload =
 
 #endif
 
+#if defined(WIN32)
+static void usleep(unsigned long l) { Sleep(l / 1000); }
+#endif
+
 /* secure streams payload interface */
 
 static const uint8_t expected_blob_hash[] = {

@@ -24,7 +24,7 @@
 			"sx-hello_world": {
 				"endpoint": "warmcat.com",
 				"port": 443,
-				"protocol": "h2",
+				"protocol": "h1",
 				"http_method": "GET",
 				"http_url": "index.html",
 				"tls": true,

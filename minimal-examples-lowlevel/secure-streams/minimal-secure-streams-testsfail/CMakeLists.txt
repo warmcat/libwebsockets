@@ -9,6 +9,7 @@ set(SAMP lws-minimal-secure-streams-testsfail)
 
 set(requirements 1)
 require_lws_config(LWS_ROLE_H1 1 requirements)
+require_lws_config(LWS_ROLE_H2 1 requirements)
 require_lws_config(LWS_WITHOUT_CLIENT 0 requirements)
 require_lws_config(LWS_WITH_SECURE_STREAMS 1 requirements)
 require_lws_config(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY 0 requirements)
@@ -31,7 +32,7 @@ if (requirements)
 		set_tests_properties(ss-tf
 				     PROPERTIES
 				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/secure-streams/minimal-secure-streams-testsfail
-				     TIMEOUT 440)
+				     TIMEOUT 640)
 
 		if (HAS_LWS_WITH_SECURE_STREAMS_PROXY_API OR LWS_WITH_SECURE_STREAMS_PROXY_API)
 
@@ -74,7 +75,7 @@ if (requirements)
 			set_tests_properties(sspc-minimaltf PROPERTIES
 				WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/secure-streams/minimal-secure-streams-testsfail
 				FIXTURES_REQUIRED "sstfproxy"
-				TIMEOUT 440)
+				TIMEOUT 640)
 
 		endif()
 
