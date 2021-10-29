@@ -26,18 +26,17 @@ static lws_ss_state_return_t
 hello_world_rx(void *userobj, const uint8_t *in, size_t len, int flags)
 {
 	hello_world_t *g = (hello_world_t *)userobj;
+	struct lws_ss_handle *h = lws_ss_from_user(g);
 
-	lwsl_ss_user(lws_ss_from_user(g), "RX %zu, flags 0x%x", len,
-					  (unsigned int)flags);
+	lwsl_ss_user(h, "RX %zu, flags 0x%x", len, (unsigned int)flags);
 
 	if (len) { /* log the first 16 and last 16 bytes of the chunk */
-		lwsl_hexdump_notice(in, len >= 16 ? 16 : len);
+		lwsl_hexdump_ss_info(h, in, len >= 16 ? 16 : len);
 		if (len >= 16)
-			lwsl_hexdump_notice(in + len - 16, 16);
+			lwsl_hexdump_ss_info(h, in + len - 16, 16);
 	}
 
-	if ((flags & LWSSS_FLAG_EOM) == LWSSS_FLAG_EOM)
-		/* We received the whole message */
+	if ((flags & LWSSS_FLAG_EOM) == LWSSS_FLAG_EOM) /* had whole message */
 		test_result &= ~2;
 
 	return LWSSSSRET_OK;
