@@ -1241,7 +1241,9 @@ cmd_completion:
 				lws_set_timeout(wsi, 0, 0);
 
 				w = lws_create_new_server_wsi(wsi->a.vhost,
-							      wsi->tsi, "mqtt_sid1");
+							      wsi->tsi,
+							      LWSLCG_WSI_MUX,
+							      "mqtt_sid1");
 				if (!w) {
 					lwsl_notice("%s: sid 1 migrate failed\n",
 							__func__);

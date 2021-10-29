@@ -45,7 +45,8 @@ lws_get_idlest_tsi(struct lws_context *context)
 }
 
 struct lws *
-lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi, const char *desc)
+lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi, int group,
+			  const char *desc)
 {
 	struct lws *new_wsi;
 	int n = fixed_tsi;
@@ -69,11 +70,8 @@ lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi, const char *de
 
 	lws_wsi_fault_timedclose(new_wsi);
 
-	__lws_lc_tag(vhost->context, &vhost->context->lcg[
-#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT)
-	strcmp(desc, "adopted") ? LWSLCG_WSI_MUX :
-#endif
-	LWSLCG_WSI_SERVER], &new_wsi->lc, desc);
+	__lws_lc_tag(vhost->context, &vhost->context->lcg[group],
+			&new_wsi->lc, "%s|%s", vhost->name, desc);
 
 	new_wsi->wsistate |= LWSIFR_SERVER;
 	new_wsi->tsi = (char)n;
@@ -138,7 +136,7 @@ __lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 	n = -1;
 	if (parent)
 		n = parent->tsi;
-	new_wsi = lws_create_new_server_wsi(vh, n, "adopted");
+	new_wsi = lws_create_new_server_wsi(vh, n, LWSLCG_WSI_SERVER, fi_wsi_name);
 	if (!new_wsi)
 		return NULL;
 

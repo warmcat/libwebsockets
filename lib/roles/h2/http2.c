@@ -260,7 +260,7 @@ __lws_wsi_server_new(struct lws_vhost *vh, struct lws *parent_wsi,
 	} while (b < 3 && n < sizeof(tmp1) - 2);
 	tmp1[n] = '\0';
 	lws_snprintf(tmp, sizeof(tmp), "h2_sid%u_(%s)", sid, tmp1);
-	wsi = lws_create_new_server_wsi(vh, parent_wsi->tsi, tmp);
+	wsi = lws_create_new_server_wsi(vh, parent_wsi->tsi, LWSLCG_WSI_MUX, tmp);
 	if (!wsi) {
 		lwsl_notice("new server wsi failed (%s)\n", lws_vh_tag(vh));
 		return NULL;
