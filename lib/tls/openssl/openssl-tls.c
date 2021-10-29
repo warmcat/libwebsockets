@@ -31,7 +31,11 @@ extern int openssl_websocket_private_data_index,
 static char openssl_ex_indexes_acquired;
 #endif
 
-char* lws_ssl_get_error_string(int status, int ret, char *buf, size_t len) {
+char *
+lws_ssl_get_error_string(int status, int ret, char *buf, size_t len)
+{
+	char t16[16];
+
 	switch (status) {
 	case SSL_ERROR_NONE:
 		return lws_strncpy(buf, "SSL_ERROR_NONE", len);
@@ -53,12 +57,8 @@ char* lws_ssl_get_error_string(int status, int ret, char *buf, size_t len) {
                         lws_snprintf(buf, len, "SSL_ERROR_SYSCALL: EOF");
                         return buf;
                 case -1:
-#ifndef LWS_PLAT_OPTEE
 			lws_snprintf(buf, len, "SSL_ERROR_SYSCALL: %s",
-				     strerror(errno));
-#else
-			lws_snprintf(buf, len, "SSL_ERROR_SYSCALL: %d", errno);
-#endif
+				lws_errno_describe(LWS_ERRNO, t16, sizeof(t16)));
 			return buf;
                 default:
                         return strncpy(buf, "SSL_ERROR_SYSCALL", len);

@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2021 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -73,6 +73,9 @@ typedef enum {
 static lcccr_t
 lws_client_connect_check(struct lws *wsi)
 {
+#if !defined(LWS_WITH_NO_LOGS)
+	char t16[16];
+#endif
 	int en = 0;
 #if !defined(WIN32)
 	int e;
@@ -88,15 +91,17 @@ lws_client_connect_check(struct lws *wsi)
 
 #if !defined(WIN32)
 	if (!getsockopt(wsi->desc.sockfd, SOL_SOCKET, SO_ERROR, &e, &sl)) {
+
 		en = LWS_ERRNO;
 		if (!e) {
-			lwsl_wsi_debug(wsi, "getsockopt: conn OK errno %d", en);
+			lwsl_wsi_debug(wsi, "getsockopt: conn OK errno %s",
+					lws_errno_describe(en, t16, sizeof(t16)));
 
 			return LCCCR_CONNECTED;
 		}
 
-		lwsl_wsi_notice(wsi, "getsockopt fd %d says e %d",
-							wsi->desc.sockfd, e);
+		lwsl_wsi_notice(wsi, "getsockopt fd %d says %s", wsi->desc.sockfd,
+				lws_errno_describe(e, t16, sizeof(t16)));
 
 		return LCCCR_FAILED;
 	}
@@ -120,12 +125,15 @@ lws_client_connect_check(struct lws *wsi)
 	if (!en || en == WSAEINVAL ||
 		   en == WSAEWOULDBLOCK ||
 		   en == WSAEALREADY) {
-		lwsl_wsi_debug(wsi, "errno %d", en);
+		lwsl_wsi_debug(wsi, "%s",
+				lws_errno_describe(en, t16, sizeof(t16)));
+
 		return LCCCR_CONTINUE;
 	}
 #endif
 
-	lwsl_wsi_notice(wsi, "connect check take as FAILED: errno %d", en);
+	lwsl_wsi_notice(wsi, "connect check FAILED: %s",
+			lws_errno_describe(en, t16, sizeof(t16)));
 
 	return LCCCR_FAILED;
 }
@@ -148,14 +156,14 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	const char *cce = "Unable to connect", *iface;
 	const struct sockaddr *psa = NULL;
 	uint16_t port = wsi->conn_port;
+	char dcce[48], t16[16];
 	lws_dns_sort_t *curr;
 	ssize_t plen = 0;
 	lws_dll2_t *d;
-	char dcce[48];
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	int cfail;
 #endif
-	int m, af = 0;
+	int m, af = 0, en;
 
 	/*
 	 * If we come here with result set, we need to convert getaddrinfo
@@ -221,7 +229,6 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 
 	if (lwsi_state(wsi) == LRS_WAITING_CONNECT &&
 	    lws_socket_is_valid(wsi->desc.sockfd)) {
-
 		if (!wsi->dns_sorted_list.count &&
 		    !wsi->sul_connect_timeout.list.owner)
 			/* no dns results and no ongoing timeout for one */
@@ -236,8 +243,9 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 		case LCCCR_CONTINUE:
 			return NULL;
 		default:
-			lws_snprintf(dcce, sizeof(dcce), "conn fail: errno %d",
-								LWS_ERRNO);
+			en = LWS_ERRNO;
+			lws_snprintf(dcce, sizeof(dcce), "conn fail: %s",
+				     lws_errno_describe(en, t16, sizeof(t16)));
 			cce = dcce;
 			lwsl_wsi_debug(wsi, "%s", dcce);
 			lws_metrics_caliper_report(wsi->cal_conn, METRES_NOGO);
@@ -343,9 +351,11 @@ ads_known:
 		}
 
 		if (!lws_socket_is_valid(wsi->desc.sockfd)) {
+			en = LWS_ERRNO;
+
 			lws_snprintf(dcce, sizeof(dcce),
-				     "conn fail: skt creation: errno %d",
-								LWS_ERRNO);
+				     "conn fail: skt creation: %s",
+				     lws_errno_describe(en, t16, sizeof(t16)));
 			cce = dcce;
 			lwsl_wsi_warn(wsi, "%s", dcce);
 			goto try_next_dns_result;
@@ -357,9 +367,11 @@ ads_known:
 #else
 						0)) {
 #endif
+			en = LWS_ERRNO;
+
 			lws_snprintf(dcce, sizeof(dcce),
-				     "conn fail: skt options: errno %d",
-								LWS_ERRNO);
+				     "conn fail: skt options: %s",
+				     lws_errno_describe(en, t16, sizeof(t16)));
 			cce = dcce;
 			lwsl_wsi_warn(wsi, "%s", dcce);
 			goto try_next_dns_result_closesock;
@@ -517,8 +529,9 @@ ads_known:
 			errno_copy = 999;
 #endif
 
-		lwsl_wsi_debug(wsi, "connect: fd %d errno: %d",
-				wsi->desc.sockfd, errno_copy);
+		lwsl_wsi_debug(wsi, "connect: fd %d, %s",
+				wsi->desc.sockfd,
+				lws_errno_describe(errno_copy, t16, sizeof(t16)));
 
 		if (errno_copy &&
 		    errno_copy != LWS_EALREADY &&
@@ -551,8 +564,9 @@ ads_known:
 						       sizeof(nads));
 
 			lws_snprintf(dcce, sizeof(dcce),
-				     "conn fail: errno %d: %s:%d",
-						errno_copy, nads, port);
+				     "conn fail: %s: %s:%d",
+				     lws_errno_describe(errno_copy, t16, sizeof(t16)),
+				     nads, port);
 			cce = dcce;
 
 			wsi->sa46_peer.sa4.sin_family = 0;
@@ -560,8 +574,8 @@ ads_known:
 #if defined(LWS_WITH_UNIX_SOCK)
 			} else {
 				lws_snprintf(dcce, sizeof(dcce),
-					     "conn fail: errno %d: UDS %s",
-							       errno_copy, ads);
+					     "conn fail: %s: UDS %s",
+					     lws_errno_describe(errno_copy, t16, sizeof(t16)), ads);
 				cce = dcce;
 			}
 #endif
@@ -618,8 +632,10 @@ conn_good:
 #endif
 		if (getsockname((int)wsi->desc.sockfd,
 				(struct sockaddr *)&wsi->sa46_local,
-				&salen) == -1)
-			lwsl_warn("getsockname: %s\n", strerror(LWS_ERRNO));
+				&salen) == -1) {
+			en = LWS_ERRNO;
+			lwsl_warn("getsockname: %s\n", lws_errno_describe(en, t16, sizeof(t16)));
+		}
 #if defined(_DEBUG)
 #if defined(LWS_WITH_UNIX_SOCK)
 		if (wsi->unix_skt)

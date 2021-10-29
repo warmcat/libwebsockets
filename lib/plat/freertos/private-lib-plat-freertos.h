@@ -46,10 +46,7 @@
   #include <errno.h>
  #endif
  #include <signal.h>
-#if defined(LWS_AMAZON_RTOS)
-const char *
-gai_strerror(int);
-#else
+#if !defined(LWS_AMAZON_RTOS)
  #include <sys/socket.h>
 #endif
 

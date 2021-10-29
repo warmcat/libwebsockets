@@ -841,11 +841,13 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 		n = getaddrinfo(ads, buf, &h, &r);
 		if (n) {
 #if !defined(LWS_PLAT_FREERTOS)
-			lwsl_info("%s: getaddrinfo error: %s\n", __func__,
-				  gai_strerror(n));
+			lwsl_cx_info(vhost->context, "getaddrinfo error: %d", n);
 #else
-			lwsl_info("%s: getaddrinfo error: %s\n", __func__,
-					strerror(n));
+#if !defined(LWS_WITH_NO_LOGS)
+			char t16[16];
+			lwsl_cx_info(vhost->context, "getaddrinfo error: %s",
+				lws_errno_describe(LWS_ERRNO, t16, sizeof(t16)));
+#endif
 #endif
 			//freeaddrinfo(r);
 			goto bail1;
