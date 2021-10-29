@@ -174,8 +174,6 @@ int
 lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
 			      const char *inbuf, lws_filepos_t inlen,
 			      uint8_t **buf, lws_filepos_t *amount);
-char *
-lws_ssl_get_error_string(int status, int ret, char *buf, size_t len);
 
 int
 lws_gencrypto_bits_to_bytes(int bits);
