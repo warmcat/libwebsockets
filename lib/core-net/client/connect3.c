@@ -480,6 +480,13 @@ ads_known:
 		goto failed1;
 	}
 
+	{
+		char buf[64];
+
+		lws_sa46_write_numeric_address((lws_sockaddr46 *)psa, buf, sizeof(buf));
+		lwsl_wsi_notice(wsi, "trying %s", buf);
+	}
+
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	cfail = lws_fi(&wsi->fic, "connfail");
 	if (cfail)
