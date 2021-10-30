@@ -261,7 +261,7 @@ done_list:
 		n = lws_check_opt(a->vhost->options,
 				  LWS_SERVER_OPTION_ALLOW_LISTEN_SHARE);
 #endif
-		if (n && cx->count_threads > 1)
+		if (n || cx->count_threads > 1) /* ... also implied by threads > 1 */
 			if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT,
 					(const void *)&opt, sizeof(opt)) < 0) {
 				compatible_close(sockfd);
