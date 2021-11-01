@@ -20,6 +20,7 @@ Option|Meaning
 -j|Allow selfsigned tls cert
 -k|Allow insecure certs
 -m|Skip server hostname check
+-n|Skip tls usage
 -e|Allow expired certs
 --protocol|Use a specific ws subprotocol rather than dumb-increment-protocol, eg, `--protocol myprotocol`
 
