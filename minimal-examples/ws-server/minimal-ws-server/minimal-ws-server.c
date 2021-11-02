@@ -54,6 +54,11 @@ static const struct lws_http_mount mount = {
 	/* .basic_auth_login_file */	NULL,
 };
 
+#if defined(LWS_WITH_PLUGINS)
+/* if plugins enabled, only protocols explicitly named in pvo bind to vhost */
+static struct lws_protocol_vhost_options pvo = { NULL, NULL, "lws-minimal", "" };
+#endif
+
 void sigint_handler(int sig)
 {
 	interrupted = 1;
@@ -85,6 +90,9 @@ int main(int argc, const char **argv)
 	info.mounts = &mount;
 	info.protocols = protocols;
 	info.vhost_name = "localhost";
+#if defined(LWS_WITH_PLUGINS)
+	info.pvo = &pvo;
+#endif
 	info.options =
 		LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE;
 
