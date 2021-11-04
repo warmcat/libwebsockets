@@ -25,6 +25,10 @@
 #if !defined(__LWS_SSH_H__)
 #define __LWS_SSH_H__
 
+#if defined(LWS_HAVE_SYS_TYPES_H)
+#include <sys/types.h>
+#endif
+
 #if defined(LWS_WITH_MBEDTLS)
 #include "mbedtls/sha1.h"
 #include "mbedtls/sha256.h"
