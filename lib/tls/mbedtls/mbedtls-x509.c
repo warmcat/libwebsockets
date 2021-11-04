@@ -425,7 +425,7 @@ lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
 	default:
 		lwsl_err("%s: key type %d not supported\n", __func__, kt);
 
-		return -1;
+		goto bail;	
 	}
 
 	for (; n < count; n++) {
