@@ -37,6 +37,7 @@ newer options
 |lejp flags|Meaning|
 |---|---|
 |LEJP_FLAG_FEAT_OBJECT_INDEXES|Provide indexes for { x, y, x } lists same as for arrays|
+|LEJP_FLAG_FEAT_LEADING_WC|Allow path matches involving leading wildcards, like `*[]`|
 |LEJP_FLAG_LATEST|Alias indicating you want the "best" current options, even if incompatible with old behaviours|
 
 ## Type handling
@@ -99,8 +100,7 @@ or the match index from your path array starting from 1 for the first entry.
 |JSON Array|`[]`|
 |JSON Map|`.`|
 |JSON Map entry key string|`keystring`|
-
-
+|Wildcard|`*[]`, or `abc.*[]` etc (depends on `ctx.flags` with `LEJP_FLAG_FEAT_LEADING_WC`)|
 
 ## Details of object and array indexes
 

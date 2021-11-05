@@ -155,7 +155,7 @@ lejp_check_path_match(struct lejp_ctx *ctx)
 		s = ctx->path_stride;
 
 	/* we only need to check if a match is not active */
-	for (n = 0; !ctx->path_match &&
+	for (n = 0; //!ctx->path_match &&
 	     n < ctx->pst[ctx->pst_sp].count_paths; n++) {
 		ctx->wildcount = 0;
 		p = ctx->path;
@@ -180,7 +180,7 @@ lejp_check_path_match(struct lejp_ctx *ctx)
 			 *  x.*
 			 * if both options are possible
 			 */
-			while (*p && (*p != '.' || !*q))
+			while (*p && ((*p != '.' && *p != '[') || !*q))
 				p++;
 		}
 		if (*p || *q)
@@ -275,9 +275,14 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 				ctx->path[ctx->pst[ctx->pst_sp].ppos++] = '[';
 				ctx->path[ctx->pst[ctx->pst_sp].ppos++] = ']';
 				ctx->path[ctx->pst[ctx->pst_sp].ppos] = '\0';
+
+				if (ctx->flags & LEJP_FLAG_FEAT_LEADING_WC)
+					lejp_check_path_match(ctx);
 				if (ctx->pst[ctx->pst_sp].callback(ctx, LEJPCB_ARRAY_START))
 					goto reject_callback;
 				ctx->i[ctx->ipos++] = 0;
+				if (ctx->flags & LEJP_FLAG_FEAT_LEADING_WC)
+					lejp_check_path_match(ctx);
 				if (ctx->ipos > LWS_ARRAY_SIZE(ctx->i)) {
 					ret = LEJP_REJECT_MP_DELIM_ISTACK;
 					goto reject;
@@ -496,8 +501,12 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 				ctx->path[ctx->pst[ctx->pst_sp].ppos++] = '[';
 				ctx->path[ctx->pst[ctx->pst_sp].ppos++] = ']';
 				ctx->path[ctx->pst[ctx->pst_sp].ppos] = '\0';
+				if (ctx->flags & LEJP_FLAG_FEAT_LEADING_WC)
+					lejp_check_path_match(ctx);
 				if (ctx->pst[ctx->pst_sp].callback(ctx, LEJPCB_ARRAY_START))
 					goto reject_callback;
+				if (ctx->flags & LEJP_FLAG_FEAT_LEADING_WC)
+					lejp_check_path_match(ctx);
 				ctx->i[ctx->ipos++] = 0;
 				if (ctx->ipos > LWS_ARRAY_SIZE(ctx->i)) {
 					ret = LEJP_REJECT_MP_DELIM_ISTACK;
@@ -534,6 +543,8 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 					ctx->path_match = 0;
 				if (ctx->pst_sp && !ctx->sp)
 					lejp_parser_pop(ctx);
+				if (ctx->flags & LEJP_FLAG_FEAT_LEADING_WC)
+					lejp_check_path_match(ctx);
 				if (ctx->outer_array && !ctx->sp) { /* ended on ] */
 					n = LEJPCB_ARRAY_END;
 					goto completed;
@@ -751,7 +762,8 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 			if (!ctx->sp) {
 				n = LEJPCB_OBJECT_END;
 completed:
-				lejp_check_path_match(ctx);
+				ctx->path_match = 0;
+				//lejp_check_path_match(ctx);
 				if (ctx->pst[ctx->pst_sp].callback(ctx, (char)n) ||
 				    ctx->pst[ctx->pst_sp].callback(ctx,
 							    LEJPCB_COMPLETE))

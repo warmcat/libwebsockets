@@ -464,8 +464,10 @@ struct lejp_results_pkg {
 	{ r8, LWS_ARRAY_SIZE(r8), tok, LWS_ARRAY_SIZE(tok), 0 },
 	{ r9, LWS_ARRAY_SIZE(r9), tok, LWS_ARRAY_SIZE(tok), 0 },
 	{ r10, LWS_ARRAY_SIZE(r10), tok, LWS_ARRAY_SIZE(tok), 0 },
-	{ r11, LWS_ARRAY_SIZE(r11), tok_test11, LWS_ARRAY_SIZE(tok_test11), 0 },
+	{ r11, LWS_ARRAY_SIZE(r11), tok_test11, LWS_ARRAY_SIZE(tok_test11),
+			LEJP_FLAG_FEAT_LEADING_WC},
 	{ r12, LWS_ARRAY_SIZE(r12), tok_test11, LWS_ARRAY_SIZE(tok_test11),
+			LEJP_FLAG_FEAT_LEADING_WC |
 			LEJP_FLAG_FEAT_OBJECT_INDEXES },
 };
 
