@@ -82,6 +82,7 @@ lejp_construct(struct lejp_ctx *ctx,
 	ctx->path[0] = '\0';
 	ctx->user = user;
 	ctx->line = 1;
+	ctx->flags = 0; /* user may set after construction */
 
 	ctx->pst_sp = 0;
 	ctx->pst[0].callback = callback;
@@ -287,6 +288,17 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 				ret = LEJP_REJECT_IDLE_NO_BRACE;
 				goto reject;
 			}
+
+			if (ctx->flags & LEJP_FLAG_FEAT_OBJECT_INDEXES) {
+				/* since insides of {} can have ',', we should
+				 * add an index level so we can count them
+				 */
+				ctx->i[ctx->ipos++] = 0;
+				if (ctx->ipos > LWS_ARRAY_SIZE(ctx->i)) {
+					ret = LEJP_REJECT_MP_DELIM_ISTACK;
+					goto reject;
+				}
+			}
 			if (ctx->pst[ctx->pst_sp].callback(ctx,
 							   LEJPCB_OBJECT_START))
 				goto reject_callback;
@@ -458,6 +470,16 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 				ctx->st[ctx->sp].s = LEJP_MP_COMMA_OR_END;
 				c = LEJP_MEMBERS;
 				lejp_check_path_match(ctx);
+				if (ctx->flags & LEJP_FLAG_FEAT_OBJECT_INDEXES) {
+					/* since insides of {} can have ',', we should
+					 * add an index level so we can count them
+					 */
+					ctx->i[ctx->ipos++] = 0;
+					if (ctx->ipos > LWS_ARRAY_SIZE(ctx->i)) {
+						ret = LEJP_REJECT_MP_DELIM_ISTACK;
+						goto reject;
+					}
+				}
 				if (ctx->pst[ctx->pst_sp].callback(ctx,
 							LEJPCB_OBJECT_START))
 					goto reject_callback;
@@ -499,7 +521,9 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 					ctx->pst[ctx->pst_sp].ppos = (unsigned char)
 							ctx->st[ctx->sp - 1].p;
 					ctx->ipos = (unsigned char)ctx->st[ctx->sp - 1].i;
-				}
+				} else
+					if (ctx->flags & LEJP_FLAG_FEAT_OBJECT_INDEXES)
+						ctx->ipos--;
 				ctx->path[ctx->pst[ctx->pst_sp].ppos] = '\0';
 				if (ctx->path_match &&
 				    ctx->pst[ctx->pst_sp].ppos <= ctx->path_match_len)
@@ -643,6 +667,11 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 			if (c == ',') {
 				/* increment this stack level's index */
 				ctx->st[ctx->sp].s = LEJP_M_P;
+
+				if (ctx->flags & LEJP_FLAG_FEAT_OBJECT_INDEXES)
+					if (ctx->ipos)
+						ctx->i[ctx->ipos - 1]++;
+
 				if (!ctx->sp) {
 					ctx->pst[ctx->pst_sp].ppos = 0;
 					/*
@@ -662,11 +691,15 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 					 */
 					ctx->path_match = 0;
 
+				lejp_check_path_match(ctx);
+
 				if (ctx->st[ctx->sp - 1].s != LEJP_MP_ARRAY_END)
 					break;
 				/* top level is definitely an array... */
-				if (ctx->ipos)
-					ctx->i[ctx->ipos - 1]++;
+				if (!(ctx->flags & LEJP_FLAG_FEAT_OBJECT_INDEXES))
+					if (ctx->ipos)
+						ctx->i[ctx->ipos - 1]++;
+
 				ctx->st[ctx->sp].s = LEJP_MP_VALUE;
 				break;
 			}
@@ -687,7 +720,10 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 					ctx->pst[ctx->pst_sp].ppos = (unsigned char)
 							ctx->st[ctx->sp - 1].p;
 					ctx->ipos = (unsigned char)ctx->st[ctx->sp - 1].i;
-				}
+				} else
+					if (ctx->flags & LEJP_FLAG_FEAT_OBJECT_INDEXES)
+						ctx->ipos--;
+
 				ctx->path[ctx->pst[ctx->pst_sp].ppos] = '\0';
 				if (ctx->path_match &&
 				    ctx->pst[ctx->pst_sp].ppos <= ctx->path_match_len)
@@ -731,8 +767,11 @@ pop_level:
 			if (ctx->sp) {
 				ctx->pst[ctx->pst_sp].ppos = (unsigned char)ctx->st[ctx->sp].p;
 				ctx->ipos = (unsigned char)ctx->st[ctx->sp].i;
-			}
+			} else
+				if (ctx->flags & LEJP_FLAG_FEAT_OBJECT_INDEXES)
+					ctx->ipos--;
 			ctx->path[ctx->pst[ctx->pst_sp].ppos] = '\0';
+
 			if (ctx->path_match &&
 			    ctx->pst[ctx->pst_sp].ppos <= ctx->path_match_len)
 				/*
@@ -761,13 +800,14 @@ array_end:
 					ctx->pst[ctx->pst_sp].ppos = (unsigned char)
 							ctx->st[ctx->sp - 1].p;
 				ctx->path[ctx->pst[ctx->pst_sp].ppos] = '\0';
+				lejp_check_path_match(ctx);
 				break;
 			}
 			if (c != ']') {
 				ret = LEJP_REJECT_MP_ARRAY_END_MISSING;
 				goto reject;
 			}
-
+			lejp_check_path_match(ctx);
 			ctx->st[ctx->sp].s = LEJP_MP_COMMA_OR_END;
 			ctx->pst[ctx->pst_sp].callback(ctx, LEJPCB_ARRAY_END);
 			if (defer) {

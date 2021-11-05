@@ -245,6 +245,10 @@ struct lejp_ctx {
 	/* short */
 
 	uint16_t uni;
+#define LEJP_FLAG_FEAT_OBJECT_INDEXES				(1 << 0)
+#define LEJP_FLAG_LATEST \
+					(LEJP_FLAG_FEAT_OBJECT_INDEXES)
+	uint16_t flags;
 
 	/* char */
 

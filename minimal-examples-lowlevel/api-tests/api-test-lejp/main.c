@@ -132,6 +132,11 @@ static const char * const json_tests[] = {
 	"{" /* test 11: array of arrays */
 		"\"array1\": [[\"a\", \"b\", \"b1\"], [\"c\", \"d\", \"d1\"]],"
 		"\"array2\": [[\"e\", \"f\", \"f1\"], [\"g\", \"h\", \"h1\"]]"
+	"}",
+
+	"{" /* test 12: test 11 but done with LEJP_FLAG_FEAT_OBJECT_INDEXES  */
+		"\"array1\": [[\"a\", \"b\", \"b1\"], [\"c\", \"d\", \"d1\"]],"
+		"\"array2\": [[\"e\", \"f\", \"f1\"], [\"g\", \"h\", \"h1\"]]"
 	"}"
 };
 
@@ -350,69 +355,118 @@ struct lejp_results {
 	{ 2, 0, 0, { 0 }, "", "123" },
 	{ 16, 0, 0, { 0 }, "", "123" },
 	{ 5, 0, 0, { 0 }, "array1", "123" },
-	{ 14, 0, 0, { 0 }, "array1[]", "123" },
-	{ 14, 1, 0, { 0,  }, "array1[][]", "123" },
-	{ 11, 2, 0, { 0, 0,  }, "array1[][]", "" },
-	{ 77, 2, 0, { 0, 0,  }, "array1[][]", "a" },
-	{ 11, 2, 0, { 0, 1,  }, "array1[][]", "" },
-	{ 77, 2, 0, { 0, 1,  }, "array1[][]", "b" },
-	{ 11, 2, 0, { 0, 2,  }, "array1[][]", "" },
-	{ 77, 2, 0, { 0, 2,  }, "array1[][]", "b1" },
-	{ 15, 1, 0, { 0,  }, "array1[]", "b1" },
-	{ 14, 1, 0, { 1,  }, "array1[][]", "b1" },
-	{ 11, 2, 0, { 1, 0,  }, "array1[][]", "" },
-	{ 77, 2, 0, { 1, 0,  }, "array1[][]", "c" },
-	{ 11, 2, 0, { 1, 1,  }, "array1[][]", "" },
-	{ 77, 2, 0, { 1, 1,  }, "array1[][]", "d" },
-	{ 11, 2, 0, { 1, 2,  }, "array1[][]", "" },
-	{ 77, 2, 0, { 1, 2,  }, "array1[][]", "d1" },
-	{ 15, 1, 0, { 1,  }, "array1[]", "d1" },
-	{ 15, 1, 0, { 1,  }, "array1[]", "d1" },
+	{ 14, 0, 2, { 0 }, "array1[]", "123" },
+	{ 14, 1, 1, { 0,  }, "array1[][]", "123" },
+	{ 11, 2, 1, { 0, 0,  }, "array1[][]", "" },
+	{ 77, 2, 1, { 0, 0,  }, "array1[][]", "a" },
+	{ 11, 2, 1, { 0, 1,  }, "array1[][]", "" },
+	{ 77, 2, 1, { 0, 1,  }, "array1[][]", "b" },
+	{ 11, 2, 1, { 0, 2,  }, "array1[][]", "" },
+	{ 77, 2, 1, { 0, 2,  }, "array1[][]", "b1" },
+	{ 15, 1, 2, { 0,  }, "array1[]", "b1" },
+	{ 14, 1, 1, { 1,  }, "array1[][]", "b1" },
+	{ 11, 2, 1, { 1, 0,  }, "array1[][]", "" },
+	{ 77, 2, 1, { 1, 0,  }, "array1[][]", "c" },
+	{ 11, 2, 1, { 1, 1,  }, "array1[][]", "" },
+	{ 77, 2, 1, { 1, 1,  }, "array1[][]", "d" },
+	{ 11, 2, 1, { 1, 2,  }, "array1[][]", "" },
+	{ 77, 2, 1, { 1, 2,  }, "array1[][]", "d1" },
+	{ 15, 1, 2, { 1,  }, "array1[]", "d1" },
+	{ 15, 1, 2, { 1,  }, "array1[]", "d1" },
 	{ 5, 1, 0, { 1,  }, "array2", "d1" },
-	{ 14, 1, 0, { 1,  }, "array2[]", "d1" },
-	{ 14, 2, 0, { 1, 0,  }, "array2[][]", "d1" },
-	{ 11, 3, 0, { 1, 0, 0,  }, "array2[][]", "" },
-	{ 77, 3, 0, { 1, 0, 0,  }, "array2[][]", "e" },
-	{ 11, 3, 0, { 1, 0, 1,  }, "array2[][]", "" },
-	{ 77, 3, 0, { 1, 0, 1,  }, "array2[][]", "f" },
-	{ 11, 3, 0, { 1, 0, 2,  }, "array2[][]", "" },
-	{ 77, 3, 0, { 1, 0, 2,  }, "array2[][]", "f1" },
-	{ 15, 2, 0, { 1, 0,  }, "array2[]", "f1" },
-	{ 14, 2, 0, { 1, 1,  }, "array2[][]", "f1" },
-	{ 11, 3, 0, { 1, 1, 0,  }, "array2[][]", "" },
-	{ 77, 3, 0, { 1, 1, 0,  }, "array2[][]", "g" },
-	{ 11, 3, 0, { 1, 1, 1,  }, "array2[][]", "" },
-	{ 77, 3, 0, { 1, 1, 1,  }, "array2[][]", "h" },
-	{ 11, 3, 0, { 1, 1, 2,  }, "array2[][]", "" },
-	{ 77, 3, 0, { 1, 1, 2,  }, "array2[][]", "h1" },
-	{ 15, 2, 0, { 1, 1,  }, "array2[]", "h1" },
-	{ 15, 2, 0, { 1, 1,  }, "array2[]", "h1" },
+	{ 14, 1, 2, { 1,  }, "array2[]", "d1" },
+	{ 14, 2, 1, { 1, 0,  }, "array2[][]", "d1" },
+	{ 11, 3, 1, { 1, 0, 0,  }, "array2[][]", "" },
+	{ 77, 3, 1, { 1, 0, 0,  }, "array2[][]", "e" },
+	{ 11, 3, 1, { 1, 0, 1,  }, "array2[][]", "" },
+	{ 77, 3, 1, { 1, 0, 1,  }, "array2[][]", "f" },
+	{ 11, 3, 1, { 1, 0, 2,  }, "array2[][]", "" },
+	{ 77, 3, 1, { 1, 0, 2,  }, "array2[][]", "f1" },
+	{ 15, 2, 2, { 1, 0,  }, "array2[]", "f1" },
+	{ 14, 2, 1, { 1, 1,  }, "array2[][]", "f1" },
+	{ 11, 3, 1, { 1, 1, 0,  }, "array2[][]", "" },
+	{ 77, 3, 1, { 1, 1, 0,  }, "array2[][]", "g" },
+	{ 11, 3, 1, { 1, 1, 1,  }, "array2[][]", "" },
+	{ 77, 3, 1, { 1, 1, 1,  }, "array2[][]", "h" },
+	{ 11, 3, 1, { 1, 1, 2,  }, "array2[][]", "" },
+	{ 77, 3, 1, { 1, 1, 2,  }, "array2[][]", "h1" },
+	{ 15, 2, 2, { 1, 1,  }, "array2[]", "h1" },
+	{ 15, 2, 2, { 1, 1,  }, "array2[]", "h1" },
 	{ 17, 2, 0, { 1, 1,  }, "array2[]", "h1" },
 	{ 3, 2, 0, { 1, 1,  }, "array2[]", "h1" },
+}, r12[] = { /* test 11 but done with LEJP_FLAG_FEAT_OBJECT_INDEXES */
+	{ 0, 0, 0, { 0 }, "", "h1" },
+	{ 2, 0, 0, { 0 }, "", "h1" },
+	{ 16, 1, 0, { 0, }, "", "h1" },
+	{ 5, 1, 0, { 0, }, "array1", "h1" },
+	{ 14, 1, 2, { 0, }, "array1[]", "h1" },
+	{ 14, 2, 1, { 0, 0, }, "array1[][]", "h1" },
+	{ 11, 3, 1, { 0, 0, 0,  }, "array1[][]", "" },
+	{ 77, 3, 1, { 0, 0, 0,  }, "array1[][]", "a" },
+	{ 11, 3, 1, { 0, 0, 1,  }, "array1[][]", "" },
+	{ 77, 3, 1, { 0, 0, 1,  }, "array1[][]", "b" },
+	{ 11, 3, 1, { 0, 0, 2,  }, "array1[][]", "" },
+	{ 77, 3, 1, { 0, 0, 2,  }, "array1[][]", "b1" },
+	{ 15, 2, 2, { 0, 0,  }, "array1[]", "b1" },
+	{ 14, 2, 1, { 0, 1,  }, "array1[][]", "b1" },
+	{ 11, 3, 1, { 0, 1, 0,  }, "array1[][]", "" },
+	{ 77, 3, 1, { 0, 1, 0,  }, "array1[][]", "c" },
+	{ 11, 3, 1, { 0, 1, 1,  }, "array1[][]", "" },
+	{ 77, 3, 1, { 0, 1, 1,  }, "array1[][]", "d" },
+	{ 11, 3, 1, { 0, 1, 2,  }, "array1[][]", "" },
+	{ 77, 3, 1, { 0, 1, 2,  }, "array1[][]", "d1" },
+	{ 15, 2, 2, { 0, 1,  }, "array1[]", "d1" },
+	{ 15, 1, 2, { 0, 1,  }, "array1[]", "d1" },
+	{ 5, 1, 0, { 1,  }, "array2", "d1" },
+	{ 14, 1, 2, { 1,  }, "array2[]", "d1" },
+	{ 14, 2, 1, { 1, 0,  }, "array2[][]", "d1" },
+	{ 11, 3, 1, { 1, 0, 0,  }, "array2[][]", "" },
+	{ 77, 3, 1, { 1, 0, 0,  }, "array2[][]", "e" },
+	{ 11, 3, 1, { 1, 0, 1,  }, "array2[][]", "" },
+	{ 77, 3, 1, { 1, 0, 1,  }, "array2[][]", "f" },
+	{ 11, 3, 1, { 1, 0, 2,  }, "array2[][]", "" },
+	{ 77, 3, 1, { 1, 0, 2,  }, "array2[][]", "f1" },
+	{ 15, 2, 2, { 1, 0,  }, "array2[]", "f1" },
+	{ 14, 2, 1, { 1, 1,  }, "array2[][]", "f1" },
+	{ 11, 3, 1, { 1, 1, 0,  }, "array2[][]", "" },
+	{ 77, 3, 1, { 1, 1, 0,  }, "array2[][]", "g" },
+	{ 11, 3, 1, { 1, 1, 1,  }, "array2[][]", "" },
+	{ 77, 3, 1, { 1, 1, 1,  }, "array2[][]", "h" },
+	{ 11, 3, 1, { 1, 1, 2,  }, "array2[][]", "" },
+	{ 77, 3, 1, { 1, 1, 2,  }, "array2[][]", "h1" },
+	{ 15, 2, 2, { 1, 1,  }, "array2[]", "h1" },
+	{ 15, 1, 2, { 1,  }, "array2[]", "h1" },
+	{ 17, 1, 0, { 1, }, "array2[]", "h1" },
+	{ 3, 1, 0, { 1,  }, "array2[]", "h1" },
 };
 
-
+static const char * const tok[] = {
+	"something",
+}, * const tok_test11[] = { /* matches for test 11, 12 */
+	"*[][]",
+	"*[]",
+};
 
 struct lejp_results_pkg {
 	const struct lejp_results *r;
 	size_t			  len;
+	const char		  * const *tokens;
+	size_t			  tokens_len;
+	uint16_t		  ctx_flags;
 } rpkg[] = {
-	{ r1, LWS_ARRAY_SIZE(r1) },
-	{ r2, LWS_ARRAY_SIZE(r2) },
-	{ r3, LWS_ARRAY_SIZE(r3) },
-	{ r4, LWS_ARRAY_SIZE(r4) },
-	{ r5, LWS_ARRAY_SIZE(r5) },
-	{ r6, LWS_ARRAY_SIZE(r6) },
-	{ r7, LWS_ARRAY_SIZE(r7) },
-	{ r8, LWS_ARRAY_SIZE(r8) },
-	{ r9, LWS_ARRAY_SIZE(r9) },
-	{ r10, LWS_ARRAY_SIZE(r10) },
-	{ r11, LWS_ARRAY_SIZE(r11) },
-};
-
-
-static const char * const tok[] = {
-	"something",
+	{ r1, LWS_ARRAY_SIZE(r1), tok, LWS_ARRAY_SIZE(tok), 0 },
+	{ r2, LWS_ARRAY_SIZE(r2), tok, LWS_ARRAY_SIZE(tok), 0 },
+	{ r3, LWS_ARRAY_SIZE(r3), tok, LWS_ARRAY_SIZE(tok), 0 },
+	{ r4, LWS_ARRAY_SIZE(r4), tok, LWS_ARRAY_SIZE(tok), 0 },
+	{ r5, LWS_ARRAY_SIZE(r5), tok, LWS_ARRAY_SIZE(tok), 0 },
+	{ r6, LWS_ARRAY_SIZE(r6), tok, LWS_ARRAY_SIZE(tok), 0 },
+	{ r7, LWS_ARRAY_SIZE(r7), tok, LWS_ARRAY_SIZE(tok), 0 },
+	{ r8, LWS_ARRAY_SIZE(r8), tok, LWS_ARRAY_SIZE(tok), 0 },
+	{ r9, LWS_ARRAY_SIZE(r9), tok, LWS_ARRAY_SIZE(tok), 0 },
+	{ r10, LWS_ARRAY_SIZE(r10), tok, LWS_ARRAY_SIZE(tok), 0 },
+	{ r11, LWS_ARRAY_SIZE(r11), tok_test11, LWS_ARRAY_SIZE(tok_test11), 0 },
+	{ r12, LWS_ARRAY_SIZE(r12), tok_test11, LWS_ARRAY_SIZE(tok_test11),
+			LEJP_FLAG_FEAT_OBJECT_INDEXES },
 };
 
 
@@ -491,7 +545,8 @@ int main(int argc, const char **argv)
 		lwsl_user("%s: ++++++++++++++++ test %d\n", __func__, m + 1);
 		step = 0;
 
-		lejp_construct(&ctx, test_cb, NULL, tok, LWS_ARRAY_SIZE(tok));
+		lejp_construct(&ctx, test_cb, NULL, rpkg[m].tokens, (uint8_t)rpkg[m].tokens_len);
+		ctx.flags = rpkg[m].ctx_flags;
 
 		lwsl_hexdump_info(json_tests[m], strlen(json_tests[m]));
 
