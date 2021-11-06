@@ -417,11 +417,13 @@ lws_retry_get_delay_ms(struct lws_context *context,
 		*conceal = 0;
 
 	if (retry) {
-		if (*ctry < retry->retry_ms_table_count)
-			ms = retry->retry_ms_table[*ctry];
-		else
-			ms = retry->retry_ms_table[
-				retry->retry_ms_table_count - 1];
+		if (retry->retry_ms_table_count) {
+			if (*ctry < retry->retry_ms_table_count)
+				ms = retry->retry_ms_table[*ctry];
+			else
+				ms = retry->retry_ms_table[
+					retry->retry_ms_table_count - 1];
+		}
 
 		/* if no percent given, use the default 30% */
 		if (retry->jitter_percent)
