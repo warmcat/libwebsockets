@@ -83,6 +83,8 @@ if ((LWS_WITH_PLUGINS AND LWS_WITH_SHARED) OR LWS_WITH_PLUGINS_BUILTIN)
 			# let's just build the things into the lib
 
 			message("Building in plugin ${PLUGIN_NAME}")
+			list(APPEND LWS_BUILTIN_PLUGIN_NAMES "${PLUGIN_NAME}")
+			set(LWS_BUILTIN_PLUGIN_NAMES ${LWS_BUILTIN_PLUGIN_NAMES} PARENT_SCOPE)
 
 			if ("${PLUGIN_INCLUDE}" STREQUAL "")
 			else()

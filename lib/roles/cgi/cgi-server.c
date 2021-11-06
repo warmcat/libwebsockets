@@ -1063,7 +1063,7 @@ finish_him:
 struct lws *
 lws_cgi_get_stdwsi(struct lws *wsi, enum lws_enum_stdinouterr ch)
 {
-	if (!wsi->http.cgi)
+	if (!wsi->http.cgi || !wsi->http.cgi->lsp)
 		return NULL;
 
 	return wsi->http.cgi->lsp->stdwsi[ch];

@@ -34,11 +34,11 @@ rops_handle_POLLIN_cgi(struct lws_context_per_thread *pt, struct lws *wsi,
 
 	if (wsi->lsp_channel >= LWS_STDOUT &&
 	    !(pollfd->revents & pollfd->events & LWS_POLLIN))
-		return LWS_HPI_RET_HANDLED;
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
 	if (wsi->lsp_channel == LWS_STDIN &&
 	    !(pollfd->revents & pollfd->events & LWS_POLLOUT))
-		return LWS_HPI_RET_HANDLED;
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
 	if (wsi->lsp_channel == LWS_STDIN &&
 	    lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {

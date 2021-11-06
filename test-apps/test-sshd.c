@@ -1,7 +1,7 @@
 /*
  * Example embedded sshd server using libwebsockets sshd plugin
  *
- * Written in 2010-2019 by Andy Green <andy@warmcat.com>
+ * Written in 2010-2021 by Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
@@ -18,14 +18,20 @@
  * Public Domain.
  *
  *
- * This test app listens on port 2200 for authorized ssh connections.  Run it
- * using
+ * This test app listens on port 2200 for authorized ssh connections, for which
+ * it spawns a shell similar to normal sshd.  Run it using
  *
  * $ sudo libwebsockets-test-sshd
  *
  * Connect to it using the test private key with:
  *
  * $ ssh -p 2200 -i /usr/local/share/libwebsockets-test-server/lws-ssh-test-keys anyuser@127.0.0.1
+ *
+ * If your OS doesn't allow rsa key connections any more, you can add
+ *
+ *     -o 'PubkeyAcceptedKeyTypes +ssh-rsa'
+ *
+ * to the above to enable it for that connection.
  */
 
 #include <sys/types.h>
@@ -34,8 +40,16 @@
 #include <unistd.h>
 #include <signal.h>
 #include <errno.h>
+
+#include <libwebsockets.h>
+
+#if !defined(LWS_WITH_PLUGINS_BUILTIN)
 /* import the whole of lws-plugin-sshd-base statically */
 #include <lws-plugin-sshd-static-build-includes.h>
+#else
+/* if it's built-in, we can just use it from the library copy */
+#include <lws-ssh.h>
+#endif
 
 /*
  * We store the test server's own key here (will be created with a new
@@ -589,7 +603,7 @@ ssh_ops_banner(char *buf, size_t max_len, char *lang, size_t max_lang_len)
 	int n = lws_snprintf(buf, max_len, "\n"
 		      " |\\---/|  lws-ssh Test Server\n"
 		      " | o_o |  SSH Terminal Server\n"
-		      "  \\_^_/   Copyright (C) 2017-2020 Crash Barrier Ltd\n\n");
+		      "  \\_^_/   Copyright (C) 2017-2021 Crash Barrier Ltd\n\n");
 
 	lws_snprintf(lang, max_lang_len, "en/US");
 
@@ -635,12 +649,15 @@ static const struct lws_protocol_vhost_options pvo_ssh_ops = {
 	NULL,
 	"ops",
 	(void *)&ssh_ops
-};
-
-static const struct lws_protocol_vhost_options pvo_ssh = {
+}, pvo_ssh_base = {
 	NULL,
 	&pvo_ssh_ops,
 	"lws-ssh-base",
+	"" /* ignored, just matches the protocol name above */
+}, pvo_ssh = {
+	&pvo_ssh_base,
+	NULL,
+	"lws-sshd-demo1",
 	"" /* ignored, just matches the protocol name above */
 };
 
@@ -651,7 +668,7 @@ void sighandler(int sig)
 }
 
 static int
-callback_lws_sshd_demo(struct lws *wsi, enum lws_callback_reasons reason,
+callback_lws_sshd_demo1(struct lws *wsi, enum lws_callback_reasons reason,
 		       void *user, void *in, size_t len)
 {
 	struct per_vhost_data__lws_sshd_demo *vhd =
@@ -696,6 +713,8 @@ callback_lws_sshd_demo(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	default:
+		if (!vhd)
+			break;
 		if (!vhd->ssh_base_protocol) {
 			vhd->ssh_base_protocol = lws_vhost_name_to_protocol(
 							lws_get_vhost(wsi),
@@ -717,33 +736,45 @@ callback_lws_sshd_demo(struct lws *wsi, enum lws_callback_reasons reason,
 }
 
 
-const struct lws_protocols lws_sshd_demo_protocols[] = {
+const struct lws_protocols lws_sshd_demo_protocols1[] = {
 	{
-		"lws-sshd-demo",
-		callback_lws_sshd_demo,
+		"lws-sshd-demo1",
+		callback_lws_sshd_demo1,
 		0,
 		1024, /* rx buf size must be >= permessage-deflate rx size */
 		0, (void *)&ssh_ops, 0
-	}
-
+	},
+#if !defined(LWS_WITH_PLUGINS_BUILTIN)
+	/*
+	 * If we get ssh-base as a plugin, lws takes care of registering the
+	 * protocol(s) in the plugin.  If we statically built it ourselves, it's
+	 * our job
+	 */
+	LWS_PLUGIN_PROTOCOL_LWS_RAW_SSHD,
+#endif
+	LWS_PROTOCOL_LIST_TERM
 };
 
 
-int main()
+int
+main(int argc, const char **argv)
 {
+	int ret = 1, n, logs = LLL_ERR | LLL_WARN | LLL_NOTICE;
 	static struct lws_context_creation_info info;
 	struct lws_vhost *vh_sshd;
-	int ret = 1, n;
+	const char *p;
 
 	/* info is on the stack, it must be cleared down before use */
 	memset(&info, 0, sizeof(info));
 
-	signal(SIGINT, sighandler);
-	lws_set_log_level(LLL_ERR | LLL_WARN | LLL_NOTICE
-			/*| LLL_INFO */
-			/* | LLL_DEBUG */, NULL);
+	if ((p = lws_cmdline_option(argc, argv, "-d")))
+		logs = atoi(p);
 
-	lwsl_notice("lws test-sshd -- Copyright (C) 2017 <andy@warmcat.com>\n");
+	lws_set_log_level(logs, NULL);
+
+	signal(SIGINT, sighandler);
+
+	lwsl_notice("lws test-sshd -- Copyright (C) 2017-2021 <andy@warmcat.com>\n");
 
 	/* create the lws context */
 
@@ -761,7 +792,7 @@ int main()
 	info.port = 2200;
 	info.options = LWS_SERVER_OPTION_ONLY_RAW;
 	info.vhost_name = "sshd";
-	info.protocols = lws_sshd_demo_protocols;
+	info.protocols = lws_sshd_demo_protocols1;
 	info.pvo = &pvo_ssh;
 
 	vh_sshd = lws_create_vhost(context, &info);

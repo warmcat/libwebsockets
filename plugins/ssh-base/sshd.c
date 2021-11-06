@@ -2246,12 +2246,12 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 			pp = ps + 5;
 			*pp++ = SSH_MSG_USERAUTH_BANNER;
 			if (pss->vhd && pss->vhd->ops->banner)
-				n = (int)pss->vhd->ops->banner((char *)&buf[650],
+				n = (int)pss->vhd->ops->banner((char *)&buf[750],
 							  150 - 1,
 							  lang, (int)sizeof(lang));
 			lws_p32(pp, (uint32_t)n);
 			pp += 4;
-			strcpy((char *)pp, (char *)&buf[650]);
+			strcpy((char *)pp, (char *)&buf[750]);
 			pp += n;
 			if (lws_cstr(&pp, lang, sizeof(lang)))
 				goto bail;
@@ -2622,7 +2622,7 @@ LWS_VISIBLE const lws_plugin_protocol_t lws_ssh_base = {
 	},
 
 	.protocols = lws_ssh_base_protocols,
-	.count_protocols = LWS_ARRAY_SIZE(lws_ssh_base_protocols),
+	.count_protocols = LWS_ARRAY_SIZE(lws_ssh_base_protocols) - 1,
 	.extensions = NULL,
 	.count_extensions = 0,
 };
