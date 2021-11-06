@@ -78,9 +78,9 @@ cb(struct lejp_ctx *ctx, char reason)
 		break;
 	}
 
-	lwsl_notice("%s%s: path %s match %d statckp %d\r\n", buf, reason_names[(unsigned int)
+	lwsl_notice("%s%s: path %s match '%s' statckp %d, ipos %d\r\n", buf, reason_names[(unsigned int)
 		(reason) & (LEJP_FLAG_CB_IS_VALUE - 1)], ctx->path,
-		ctx->path_match, ctx->pst[ctx->pst_sp].ppos);
+		ctx->path_match ? tok[ctx->path_match - 1] : "(none)", ctx->pst[ctx->pst_sp].ppos, ctx->ipos);
 
 	return 0;
 }
