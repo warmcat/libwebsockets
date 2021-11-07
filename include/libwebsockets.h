@@ -125,7 +125,11 @@ typedef int suseconds_t;
 #define LWS_EXTERN
 #endif
 
+#if defined(__MINGW32__)
+#define LWS_INVALID_FILE -1
+#else
 #define LWS_INVALID_FILE INVALID_HANDLE_VALUE
+#endif
 #define LWS_SOCK_INVALID (INVALID_SOCKET)
 #define LWS_O_RDONLY _O_RDONLY
 #define LWS_O_WRONLY _O_WRONLY
@@ -383,7 +387,11 @@ struct lws;
 #if defined(_WIN32)
 #if !defined(LWS_WIN32_HANDLE_TYPES)
 typedef SOCKET lws_sockfd_type;
+#if defined(__MINGW32__)
 typedef int lws_filefd_type;
+#else
+typedef HANDLE lws_filefd_type;
+#endif
 #endif
 
 
