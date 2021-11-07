@@ -1349,7 +1349,6 @@ again:
 
 		case SSHS_NVC_DISCONNECT_DESC:
 			pss->disconnect_desc = (char *)pss->last_alloc;
-			pss->last_alloc = NULL; /* it was adopted */
 			state_get_string(pss, SSHS_NVC_DISCONNECT_LANG);
 			break;
 
