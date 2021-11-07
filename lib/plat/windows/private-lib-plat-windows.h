@@ -155,7 +155,7 @@ struct lws_fd_hashtable {
 #endif
 
 typedef SOCKET lws_sockfd_type;
-typedef HANDLE lws_filefd_type;
+typedef int lws_filefd_type;
 #define LWS_WIN32_HANDLE_TYPES
 
 LWS_EXTERN struct lws *
