@@ -189,7 +189,8 @@ lws_gencrypto_jwe_enc_to_definition(const char *enc,
  * \param temp: parent-owned buffer to "allocate" elements into
  * \param temp_len: amount of space available in temp
  *
- * returns the amount of temp used, or -1 for error
+ * returns 0 for success, or -1 for error
+ * *\p temp_len is updated to reflect the amount of \p temp used if successful.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_jws_parse_jose(struct lws_jose *jose,
@@ -204,7 +205,8 @@ lws_jws_parse_jose(struct lws_jose *jose,
  * \param temp: parent-owned buffer to "allocate" elements into
  * \param temp_len: amount of space available in temp
  *
- * returns the amount of temp used, or -1 for error
+ * returns 0 for success, or -1 for error
+ * *\p temp_len is updated to reflect the amount of \p temp used if successful.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_jwe_parse_jose(struct lws_jose *jose,

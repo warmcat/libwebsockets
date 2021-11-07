@@ -111,7 +111,7 @@ lws_jws_destroy(struct lws_jws *jws);
  * in a map... it'll make a temp b64 version needed for comparison.  See below
  * for other variants.
  *
- * Returns 0 on match.
+ * Returns 0 on match, else nonzero.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_jws_sig_confirm_compact(struct lws_jws_map *map, struct lws_jwk *jwk,
@@ -139,7 +139,7 @@ lws_jws_sig_confirm_compact_b64_map(struct lws_jws_map *map_b64,
  * (jose.payload.hdr.sig) as an aggregated string... it'll make a temp plain
  * version needed for comparison.
  *
- * Returns 0 on match.
+ * Returns 0 on match, else nonzero.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_jws_sig_confirm_compact_b64(const char *in, size_t len,
@@ -163,7 +163,7 @@ lws_jws_sig_confirm_compact_b64(const char *in, size_t len,
  * will end up with both maps, and can use this api version, saving needlessly
  * regenerating any temp map.
  *
- * Returns 0 on match.
+ * Returns 0 on match, else nonzero.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_jws_sig_confirm(struct lws_jws_map *map_b64, /* b64-encoded */
@@ -187,7 +187,9 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, /* b64-encoded */
  * case \p b64_hdr may be NULL, and only the payload will be hashed before
  * signing.
  *
- * Returns the length of the encoded signature written to \p b64_sig, or -1.
+ * If successful, returns the length of the encoded signature written to
+ * \p b64_sig.  If the jose signing type is unknown, 0 is returned.  Otherwise
+ * -1 indicates failure.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_jws_sign_from_b64(struct lws_jose *jose, struct lws_jws *jws, char *b64_sig,
@@ -556,7 +558,7 @@ struct lws_jwt_sign_set_cookie {
 };
 
 /**
- * lws_jwt_sign_token_set_cookie() - creates sets a JWT in a wsi cookie
+ * lws_jwt_sign_token_set_http_cookie() - creates sets a JWT in a wsi cookie
  *
  * \param wsi: the wsi to create the cookie header on
  * \param i: structure describing what should be in the JWT
