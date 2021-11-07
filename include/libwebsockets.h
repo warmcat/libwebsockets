@@ -392,7 +392,11 @@ struct lws;
 #if defined(_WIN32)
 #if !defined(LWS_WIN32_HANDLE_TYPES)
 typedef SOCKET lws_sockfd_type;
+#if defined(__MINGW32__)
+typedef int lws_filefd_type;
+#else
 typedef HANDLE lws_filefd_type;
+#endif
 #endif
 
 
