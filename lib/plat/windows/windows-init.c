@@ -121,12 +121,17 @@ lws_plat_init(struct lws_context *context,
 
 	context->fd_random = 0;
 
-#if defined(LWS_WITH_PLUGINS)
+#if defined(LWS_WITH_PLUGINS) && !defined(LWS_WITH_PLUGINS_BUILTIN)
 	if (info->plugin_dirs)
 		lws_plat_plugins_init(&context->plugin_list, info->plugin_dirs,
 				      "lws_protocol_plugin",
 				      protocol_plugin_cb, context);
 #endif
+#if defined(LWS_BUILTIN_PLUGIN_NAMES)
+	lws_plugins_handle_builtin(&context->plugin_list,
+				   protocol_plugin_cb, context);
+#endif
+
 
 	return 0;
 }

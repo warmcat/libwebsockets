@@ -178,7 +178,7 @@ lws_plat_init(struct lws_context *context,
 		return 1;
 	}
 
-#if defined(LWS_WITH_PLUGINS)
+#if defined(LWS_WITH_PLUGINS) && !defined(LWS_WITH_PLUGINS_BUILTIN)
 	{
 		char *ld_env = getenv("LD_LIBRARY_PATH");
 
@@ -196,6 +196,11 @@ lws_plat_init(struct lws_context *context,
 					 "lws_protocol_plugin", NULL,
 					 protocol_plugin_cb, context);
 	}
+
+#endif
+#if defined(LWS_BUILTIN_PLUGIN_NAMES)
+	lws_plugins_handle_builtin(&context->plugin_list,
+				   protocol_plugin_cb, context);
 #endif
 
 

@@ -286,6 +286,52 @@ lws_dir_rm_rf_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 
 #if defined(LWS_WITH_PLUGINS_API)
 
+struct lws_plugin *
+lws_plugin_alloc(struct lws_plugin **pplugin)
+{
+	struct lws_plugin *pin = lws_malloc(sizeof(*pin), __func__);
+
+	if (!pin)
+		return NULL;
+
+	pin->list = *pplugin;
+	*pplugin = pin;
+
+	return pin;
+}
+
+#if defined(LWS_BUILTIN_PLUGIN_NAMES)
+
+extern lws_plugin_protocol_t lws_sshd_demo, lws_ssh_base;
+
+lws_plugin_protocol_t *builtin_pcols[] = {
+	&lws_sshd_demo, &lws_ssh_base
+};
+
+int
+lws_plugins_handle_builtin(struct lws_plugin **pplugin,
+			   each_plugin_cb_t each, void *each_user)
+{
+	size_t n = 0;
+
+	while (n < LWS_ARRAY_SIZE(builtin_pcols)) {
+		struct lws_plugin *pin = lws_plugin_alloc(pplugin);
+		if (!pin)
+			return 1;
+
+		pin->u.l = NULL;
+		pin->hdr = &builtin_pcols[n]->hdr;
+
+		if (each)
+			each(pin, each_user);
+
+		n++;
+	}
+
+	return 0;
+}
+#endif
+
 struct lws_plugins_args {
 	struct lws_plugin	**pplugin;
 	const char		*_class;
@@ -411,7 +457,8 @@ lws_plugins_destroy(struct lws_plugin **pplugin, each_plugin_cb_t each,
 	while (p) {
 		if (each)
 			each(p, each_user);
-		lws_plat_destroy_dl(p);
+		if (p->u.l)
+			lws_plat_destroy_dl(p);
 		p1 = p->list;
 		p->list = NULL;
 		lws_free(p);

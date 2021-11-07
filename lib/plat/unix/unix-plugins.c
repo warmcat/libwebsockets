@@ -97,12 +97,9 @@ lws_plat_dlopen(struct lws_plugin **pplugin, const char *libpath,
 	 * OK let's bring it in
 	 */
 
-	pin = lws_malloc(sizeof(*pin), __func__);
+	pin = lws_plugin_alloc(pplugin);
 	if (!pin)
 		goto bail;
-
-	pin->list = *pplugin;
-	*pplugin = pin;
 
 	pin->u.l = l;
 	pin->hdr = hdr;
