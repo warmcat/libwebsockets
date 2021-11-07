@@ -184,7 +184,7 @@ lws_genecdsa_hash_sig_verify_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
  * \param sig: pointer to buffer to take signature
  * \param sig_len: length of the buffer (must be >= length of key N)
  *
- * Returns <0 for error, or 0 for success.
+ * Returns <0 for error, or >=0 for success.
  *
  * This creates a JWS ECDSA signature for a hash you already computed and provide.
  *

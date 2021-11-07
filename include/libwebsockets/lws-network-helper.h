@@ -223,8 +223,9 @@ lws_sa46_parse_numeric_address(const char *ads, lws_sockaddr46 *sa46);
  * \param len: max size of text buffer
  *
  * Converts an array of network-ordered byte address elements to a textual
- * representation of the numeric address, like "1.2.3.4" or "::1".  Return 0
- * if OK else < 0.  ipv6 only supported with LWS_IPV6=1 at cmake.
+ * representation of the numeric address, like "1.2.3.4" or "::1".  Returns the
+ * number of chars written into buf, else < 0.  ipv6 only supported with
+ * LWS_IPV6=1 at cmake.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_write_numeric_address(const uint8_t *ads, int size, char *buf, size_t len);
@@ -237,8 +238,9 @@ lws_write_numeric_address(const uint8_t *ads, int size, char *buf, size_t len);
  * \param len: max size of text buffer
  *
  * Converts the ipv4 or ipv6 address in an lws_sockaddr46 to a textual
- * representation of the numeric address, like "1.2.3.4" or "::1".  Return 0
- * if OK else < 0.  ipv6 only supported with LWS_IPV6=1 at cmake.
+ * representation of the numeric address, like "1.2.3.4" or "::1".  Returns the
+ * number of chars written into buf, else < 0.  ipv6 only supported with
+ * LWS_IPV6=1 at cmake.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_sa46_write_numeric_address(lws_sockaddr46 *sa46, char *buf, size_t len);

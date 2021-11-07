@@ -866,7 +866,7 @@ lws_http_redirect(struct lws *wsi, int code, const unsigned char *loc, int len,
  * lws_http_transaction_completed() - wait for new http transaction or close
  * \param wsi:	websocket connection
  *
- *	Returns 1 if the HTTP connection must close now
+ *	Returns nonzero if the HTTP connection must close now
  *	Returns 0 and resets connection to wait for new HTTP header /
  *	  transaction if possible
  */

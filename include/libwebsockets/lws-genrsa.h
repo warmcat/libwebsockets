@@ -216,7 +216,7 @@ lws_genrsa_hash_sig_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
  * \param sig: pointer to buffer to take signature
  * \param sig_len: length of the buffer (must be >= length of key N)
  *
- * Returns <0 for error, or 0 for success.
+ * Returns <0 for error, or \p sig_len for success.
  *
  * This creates an RSA signature for a hash you already computed and provide.
  * You should have created the hash before calling this by iterating over the

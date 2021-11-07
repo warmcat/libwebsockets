@@ -308,6 +308,7 @@ lws_http_client_read(struct lws *wsi, char **buf, int *len);
  * \param wsi: client connection
  *
  * Returns the last server response code, eg, 200 for client http connections.
+ * If there is no valid response, it will return 0.
  *
  * You should capture this during the LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP
  * callback, because after that the memory reserved for storing the related

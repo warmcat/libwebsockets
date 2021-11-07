@@ -106,7 +106,7 @@ lws_x509_create(struct lws_x509_cert **x509);
  * IMPORTANT for compatibility with mbedtls, the last used byte of \p pem
  * must be '\0' and the \p len must include it.
  *
- * Returns 0 if all went OK.
+ * Returns 0 if all went OK, or nonzero for failure.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_x509_parse_from_pem(struct lws_x509_cert *x509, const void *pem, size_t len);
@@ -192,8 +192,8 @@ lws_x509_info(struct lws_x509_cert *x509, enum lws_tls_cert_info type,
  * lws_tls_peer_cert_info() lets you get hold of information from the peer
  * certificate.
  *
- * Return 0 if there is a result in \p buf, or -1 indicating there was no cert
- * or another problem.
+ * Return 0 if there is a result in \p buf, or nonzero indicating there was no
+ * cert, or another problem.
  *
  * This function works the same no matter if the TLS backend is OpenSSL or
  * mbedTLS.
@@ -213,8 +213,8 @@ lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
  * lws_tls_vhost_cert_info() lets you get hold of information from the vhost
  * certificate.
  *
- * Return 0 if there is a result in \p buf, or -1 indicating there was no cert
- * or another problem.
+ * Return 0 if there is a result in \p buf, or nonzero indicating there was no
+ * cert, or another problem.
  *
  * This function works the same no matter if the TLS backend is OpenSSL or
  * mbedTLS.
@@ -232,8 +232,8 @@ lws_tls_vhost_cert_info(struct lws_vhost *vhost, enum lws_tls_cert_info type,
  * \param san_b: second SAN written into the certificate
  *
  *
- * Returns 0 if created and attached to the vhost.  Returns -1 if problems and
- * frees all allocations before returning.
+ * Returns 0 if created and attached to the vhost.  Returns nonzero if problems,
+ * and frees all allocations before returning.
  *
  * On success, any allocations are destroyed at vhost destruction automatically.
  */

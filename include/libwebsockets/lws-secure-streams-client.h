@@ -250,8 +250,7 @@ lws_sspc_request_tx_len(struct lws_sspc_handle *h, unsigned long len);
  *
  * \param h: secure streams handle
  *
- * Starts the connection process for the secure stream.  Returns 0 if OK or
- * nonzero if we have already failed.
+ * Starts the connection process for the secure stream.  Returns 0.
  */
 LWS_VISIBLE LWS_EXTERN lws_ss_state_return_t
 lws_sspc_client_connect(struct lws_sspc_handle *h);
@@ -308,7 +307,7 @@ lws_sspc_rideshare(struct lws_sspc_handle *h);
  * when the policy is using h1 is interpreted to add h1 headers of the given
  * name with the value of the metadata on the left.
  *
- * Return 0 if OK.
+ * Return 0 if OK, or nonzero if failed.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_sspc_set_metadata(struct lws_sspc_handle *h, const char *name,

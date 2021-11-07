@@ -302,7 +302,7 @@ lws_jrpc_obj_parse(lws_jrpc_t *jrpc, int type, void *opaque,
 		 */
 		r = *_r = malloc(sizeof(*r));
 		if (!r)
-			return 1; /* OOM */
+			return LEJP_REJECT_UNKNOWN; /* OOM */
 
 		memset(r, 0, sizeof *r);
 

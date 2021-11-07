@@ -160,7 +160,7 @@ enum {
  *
  * Return code is >= 0 if completed, representing the amount of unused data in
  * the input buffer.  -1 indicates more input data needed, <-1 indicates an
- * error from the LWSJRPCWKE_ set above
+ * error from the LWSJRPCWKE_ set above, or LEJP_REJECT_UNKNOWN for OOM
  */
 
 LWS_VISIBLE LWS_EXTERN int
