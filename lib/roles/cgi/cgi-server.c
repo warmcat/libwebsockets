@@ -90,6 +90,14 @@ lws_cgi_reap_cb(void *opaque, lws_usec_t *accounting, siginfo_t *si,
 		 int we_killed_him)
 {
 	struct lws *wsi = (struct lws *)opaque;
+	struct lws_cgi_args args;
+
+	if (wsi->http.cgi &&
+	    user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
+					LWS_CALLBACK_CGI_TERMINATED,
+					wsi->user_space, (void *)&args,
+					(unsigned int)wsi->http.cgi->pi))
+		lwsl_notice("\n");
 
 	/*
 	 * The cgi has come to an end, by itself or with a signal...
@@ -417,6 +425,8 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 		lwsl_err("%s: spawn failed\n", __func__);
 		goto bail;
 	}
+
+	wsi->http.cgi->pi = wsi->http.cgi->lsp->child_pid;
 
 	/* we are the parent process */
 

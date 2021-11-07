@@ -75,6 +75,8 @@ struct lws_cgi {
 	lws_filepos_t content_length;
 	lws_filepos_t content_length_seen;
 
+	pid_t	pi;
+
 	int match[SIGNIFICANT_HDR_COUNT];
 	char l[12];
 	int response_code;
