@@ -1074,6 +1074,11 @@ payload_ff:
 					lwsl_err("%s: OOM\n", __func__);
 					goto hangup;
 				}
+
+				if (!h)
+					/* coverity */
+					goto hangup;
+
 				memset(md, 0, sizeof(lws_sspc_metadata_t));
 
 				lws_strncpy(md->name, par->metadata_name,
