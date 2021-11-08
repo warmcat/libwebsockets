@@ -450,6 +450,10 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	if (i->pwsi)
 		*i->pwsi = wsi;
 
+	if (!wsi->a.protocol)
+		/* we must have one protocol or another bound by this point */
+		goto bail;
+
 	/* PHASE 8: notify protocol with role-specific connected callback */
 
 	/* raw socket per se doesn't want this... raw socket proxy wants it... */
