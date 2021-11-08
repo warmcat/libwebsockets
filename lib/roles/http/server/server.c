@@ -2437,8 +2437,9 @@ upgrade_h2c:
 
 		lws_h2_settings(wsi, &wsi->h2.h2n->peer_set, (uint8_t *)tbuf, n);
 
-		lws_hpack_dynamic_size(wsi, (int)wsi->h2.h2n->peer_set.s[
-		                                      H2SET_HEADER_TABLE_SIZE]);
+		if (lws_hpack_dynamic_size(wsi, (int)wsi->h2.h2n->peer_set.s[
+		                                      H2SET_HEADER_TABLE_SIZE]))
+			return 1;
 
 		strcpy(tbuf, "HTTP/1.1 101 Switching Protocols\x0d\x0a"
 			      "Connection: Upgrade\x0d\x0a"
