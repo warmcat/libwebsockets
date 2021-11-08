@@ -133,6 +133,9 @@ __lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 	 * we initialize it, it may become "live" concurrently unexpectedly...
 	 */
 
+	if (!vh)
+		return NULL;
+
 	lws_context_assert_lock_held(vh->context);
 
 	n = -1;
