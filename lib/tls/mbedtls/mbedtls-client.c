@@ -161,6 +161,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 #if defined(LWS_WITH_TLS_JIT_TRUST)
 	SSL_set_verify(wsi->tls.ssl, SSL_VERIFY_PEER,
 			lws_mbedtls_client_verify_callback);
+	(void)fl;
 #else
 	SSL_set_verify(wsi->tls.ssl, fl, NULL);
 #endif
