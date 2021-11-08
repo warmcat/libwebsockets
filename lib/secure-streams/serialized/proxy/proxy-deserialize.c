@@ -714,6 +714,18 @@ payload_ff:
 		case RPAR_METADATA_VALUE:
 			/* both client and proxy */
 
+			if (!par->ssmd) {
+				/* we don't recognize the name */
+
+				cp++;
+
+				if (--par->rem)
+					break;
+
+				par->ps = RPAR_TYPE;
+				break;
+			}
+
 			((uint8_t *)(par->ssmd->value__may_own_heap))[par->ctr++] = *cp++;
 
 			if (--par->rem)
