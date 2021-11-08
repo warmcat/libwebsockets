@@ -220,9 +220,6 @@ lws_tls_mbedtls_cert_info(mbedtls_x509_crt *x509, enum lws_tls_cert_info type,
 
 		buf->ns.len = 0;
 
-		if (!ip)
-			return 1;
-
 		while (ip) {
 			if (akid.keyIdentifier.MBEDTLS_PRIVATE(tag) != MBEDTLS_ASN1_OCTET_STRING ||
 			    !ip->MBEDTLS_PRIVATE(buf).MBEDTLS_PRIVATE(p) ||
