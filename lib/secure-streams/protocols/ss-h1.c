@@ -326,7 +326,7 @@ lws_extract_metadata(lws_ss_handle_t *h, struct lws *wsi)
 				const char *cp = lws_hdr_simple_ptr(wsi,
 						polmd->value_is_http_token);
 				omd = lws_ss_get_handle_metadata(h, polmd->name);
-				if (!omd)
+				if (!omd || !cp)
 					return 1;
 
 				assert(!strcmp(omd->name, polmd->name));
