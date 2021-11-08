@@ -185,6 +185,34 @@ x509_get_skid(uint8_t **p, const uint8_t *end, mbedtls_x509_buf *skid)
 	return *p != end;
 }
 
+/*
+ * Names may have multiple allocated segments in a linked-list, when the mbedtls
+ * api mbedtls_x509_get_name() fails, it doesn't clean up any already-allocated
+ * segments, wrongly leaving it to the caller to handle.  This helper takes care
+ * of the missing cleaning for allocation error path.
+ *
+ * name.next must be set to NULL by user code before calling ...get_name(...,
+ * &name), since not every error exit sets it and it will contain garbage if
+ * defined on stack as is usual.
+ */
+
+static void
+lws_x509_clean_name(mbedtls_x509_name *name)
+{
+	mbedtls_x509_name *n1;
+
+	if (!name)
+		return;
+
+	n1 = name->MBEDTLS_PRIVATE(next);
+
+	while (n1) {
+		name = n1->MBEDTLS_PRIVATE(next);
+		free(n1);
+		n1 = name;
+	}
+}
+
 static int
 lws_mbedtls_x509_parse_general_name(const mbedtls_x509_buf *name_buf,
 				    lws_mbedtls_x509_subject_alternative_name *name)
@@ -221,9 +249,12 @@ lws_mbedtls_x509_parse_general_name(const mbedtls_x509_buf *name_buf,
 		 * expects the beginning of the SET tag */
 		*p = *p - 2;
 
+		rfc822Name.MBEDTLS_PRIVATE(next) = NULL;
 		ret = mbedtls_x509_get_name( p, end, &rfc822Name );
-		if (ret)
+		if (ret) {
+			lws_x509_clean_name(&rfc822Name);
 			return ret;
+		}
 
 		memset(name, 0, sizeof(*name));
 		name->type = LWS_MBEDTLS_X509_SAN_OTHER_NAME;
