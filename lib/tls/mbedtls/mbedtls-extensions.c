@@ -258,7 +258,7 @@ lws_mbedtls_x509_parse_general_name(const mbedtls_x509_buf *name_buf,
 
 		memset(name, 0, sizeof(*name));
 		name->type = LWS_MBEDTLS_X509_SAN_OTHER_NAME;
-		memcpy(&name->san.unstructured_name,
+		memcpy(&name->san.other_name,
 		       &rfc822Name, sizeof(rfc822Name));
 		return 0;
 
