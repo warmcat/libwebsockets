@@ -1305,9 +1305,13 @@ lws_mux_mark_immortal(struct lws *wsi)
 			&& !wsi->client_mux_substream
 #endif
 	) {
-		lwsl_wsi_err(wsi, "not h2 substream");
+		lwsl_wsi_err(wsi, "not mux substream");
 		return;
 	}
+
+	if (wsi->mux_stream_immortal)
+		/* only need to handle it once per child wsi */
+		return;
 
 	nwsi = lws_get_network_wsi(wsi);
 	if (!nwsi)
