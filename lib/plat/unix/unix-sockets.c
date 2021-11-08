@@ -371,7 +371,7 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 			break;
 #endif
 		default:
-			continue;
+			break;
 		}
 	}
 
