@@ -191,15 +191,7 @@ again:
 		a = 1;
 
 	m = lws_service_flag_pending(context, tsi);
-	if (m)
-		c = -1; /* unknown limit */
-	else
-		if (n < 0) {
-			if (LWS_ERRNO != LWS_EINTR)
-				return -1;
-			return 0;
-		} else
-			c = n;
+	c = m ? -1 : n;
 
 	/* any socket with events to service? */
 	for (n = 0; n < (int)pt->fds_count && c; n++) {
