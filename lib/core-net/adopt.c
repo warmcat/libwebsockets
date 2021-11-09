@@ -122,7 +122,7 @@ __lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 			    const char *vh_prot_name, struct lws *parent,
 			    void *opaque, const char *fi_wsi_name)
 {
-	struct lws_context *context = vh->context;
+	struct lws_context *context;
 	struct lws_context_per_thread *pt;
 	struct lws *new_wsi;
 	int n;
@@ -135,6 +135,8 @@ __lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 
 	if (!vh)
 		return NULL;
+
+	context = vh->context;
 
 	lws_context_assert_lock_held(vh->context);
 
