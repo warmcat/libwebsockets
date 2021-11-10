@@ -177,6 +177,8 @@ int lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 	case LWS_RXPS_04_FRAME_HDR_LEN:
 
 		wsi->ws->this_frame_masked = !!(c & 0x80);
+		if (wsi->ws->this_frame_masked)
+			goto server_cannot_mask;
 
 		switch (c & 0x7f) {
 		case 126:
@@ -673,6 +675,16 @@ already_done:
 
 illegal_ctl_length:
 	lwsl_wsi_warn(wsi, "Control frame asking for extended length is illegal");
+
+	/* kill the connection */
+	return -1;
+
+server_cannot_mask:
+	lws_close_reason(wsi,
+			LWS_CLOSE_STATUS_PROTOCOL_ERR,
+			(uint8_t *)"srv mask", 8);
+
+	lwsl_wsi_warn(wsi, "Server must not mask");
 
 	/* kill the connection */
 	return -1;
