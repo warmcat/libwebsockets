@@ -38,13 +38,13 @@ lws_plat_asyncdns_init(struct lws_context *context, lws_sockaddr46 *sa46)
 		return LADNS_CONF_SERVER_UNKNOWN;
 
 	for (n = 0; n < 4; n++) {
-		i[n] = atoi(d);
+		i[n] = (uint8_t)atoi(d);
 		p = strchr(d, '.');
 		if (n != 3 && !p)
 			return LADNS_CONF_SERVER_UNKNOWN;
 	}
 
-	ip32 = (i[0] << 24) | (i[1] << 16) | (i[2] << 8) | i[3];
+	ip32 = (uint32_t) ((i[0] << 24) | (i[1] << 16) | (i[2] << 8) | i[3]);
 	n = ip32 == sa46->sa4.sin_addr.s_addr;
 	sa46->sa4.sin_family = AF_INET;
 	sa46->sa4.sin_addr.s_addr = ip32;
