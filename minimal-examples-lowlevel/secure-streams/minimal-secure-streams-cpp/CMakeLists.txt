@@ -14,6 +14,7 @@ require_lws_config(LWS_WITH_MBEDTLS 0 requirements)
 require_lws_config(LWS_WITH_SECURE_STREAMS 1 requirements)
 require_lws_config(LWS_WITH_SECURE_STREAMS_CPP 1 requirements)
 require_lws_config(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY 0 requirements)
+require_lws_config(USE_WOLFSSL 0 requirements)
 
 if (requirements)
 	add_executable(${SAMP} main.cxx)

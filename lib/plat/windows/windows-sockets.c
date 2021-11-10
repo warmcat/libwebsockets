@@ -594,7 +594,7 @@ lws_plat_mbedtls_net_recv(void *ctx, unsigned char *buf, size_t len)
 		return ret;
 
 	en = LWS_ERRNO;
-	if (en == EAGAIN || en == EWOULDBLOCK)
+	if (en == EAGAIN || en == EWOULDBLOCK || en == WSAEWOULDBLOCK)
 		return MBEDTLS_ERR_SSL_WANT_READ;
 
 	ret = WSAGetLastError();

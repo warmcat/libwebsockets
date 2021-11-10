@@ -346,7 +346,7 @@ int main(int argc, const char **argv)
 	nl.notify_cb = app_system_state_nf;
 	info.register_notifier_list = app_notifier_list;
 
-	puts(default_ss_policy);
+//	puts(default_ss_policy);
 
 	context = lws_create_context(&info);
 	if (!context) {

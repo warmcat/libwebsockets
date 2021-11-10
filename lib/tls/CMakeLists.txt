@@ -394,7 +394,7 @@ endif()
 
 # Generate self-signed SSL certs for the test-server.
 
-if (LWS_WITH_SSL AND NOT LWS_WITH_WOLFSSL)
+if (LWS_WITH_SSL) # AND NOT LWS_WITH_WOLFSSL)
 	message("Searching for OpenSSL executable and dlls")
 	find_package(OpenSSLbins)
 	if (DEFINED OPENSSL_EXECUTABLE)

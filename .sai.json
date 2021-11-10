@@ -175,7 +175,7 @@
 			"platforms":	"none,linux-fedora-32/x86_64-amd/gcc"
 		},
 		"default-wolfssl": {
-			"cmake":	"-DLWS_WITH_WOLFSSL=1 -DLWS_WOLFSSL_INCLUDE_DIRS=/usr/local/include -DLWS_WOLFSSL_LIBRARIES=/usr/local/lib/libwolfssl.so",
+			"cmake":	"-DLWS_WITH_WOLFSSL=1 -DLWS_WOLFSSL_INCLUDE_DIRS=/usr/local/include -DLWS_WOLFSSL_LIBRARIES=/usr/local/lib/libwolfssl.so -DLWS_WITH_MINIMAL_EXAMPLES=0",
 			"platforms":	"none,linux-fedora-32/x86_64-amd/gcc"
 		},
 		"default-examples": {

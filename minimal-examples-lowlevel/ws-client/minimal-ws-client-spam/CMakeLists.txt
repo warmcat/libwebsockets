@@ -14,6 +14,10 @@ require_pthreads(requirements)
 require_lws_config(LWS_ROLE_WS 1 requirements)
 require_lws_config(LWS_WITH_CLIENT 1 requirements)
 require_lws_config(LWS_WITH_TLS 1 requirements)
+# ctest for this requires server
+require_lws_config(LWS_WITH_SERVER 1 requirements)
+require_lws_config(LWS_WITHOUT_TEST_SERVER 0 requirements)
+require_lws_config(LWS_WITHOUT_TESTAPPS 0 requirements)
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})

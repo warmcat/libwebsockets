@@ -198,7 +198,7 @@ lws_plat_init(struct lws_context *context,
 	}
 
 #endif
-#if defined(LWS_BUILTIN_PLUGIN_NAMES)
+#if defined(LWS_BUILTIN_PLUGIN_NAMES) && defined(LWS_WITH_PLUGINS)
 	lws_plugins_handle_builtin(&context->plugin_list,
 				   protocol_plugin_cb, context);
 #endif

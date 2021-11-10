@@ -108,7 +108,11 @@ file_upload_cb(void *data, const char *name, const char *filename,
 			break;
 #if !defined(LWS_WITH_ESP32)
 		close((int)(lws_intptr_t)pss->fd);
+#if defined(__MINGW32__)
+		pss->fd = -1;
+#else
 		pss->fd = LWS_INVALID_FILE;
+#endif
 #endif
 		break;
 	case LWS_UFS_CLOSE:

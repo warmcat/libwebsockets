@@ -486,7 +486,7 @@ test_cb(struct lejp_ctx *ctx, char reason)
 	for (n = 0; n < ctx->ipos; n++)
 		t += lws_snprintf(i + t, sizeof(i) - (size_t)t - 1ul, "%d, ", ctx->i[n]);
 
-	printf("{ %d, %d, %d, { %s }, \"%s\", \"%s\" },\n", reason, ctx->ipos, ctx->path_match, i, ctx->path, ctx->buf);
+	lwsl_notice("{ %d, %d, %d, { %s }, \"%s\", \"%s\" },\n", reason, ctx->ipos, ctx->path_match, i, ctx->path, ctx->buf);
 
 	if (m < LWS_ARRAY_SIZE(rpkg)) {
 		if (step < rpkg[m].len) {

@@ -14,6 +14,8 @@ require_lws_config(LWS_WITHOUT_CLIENT 0 requirements)
 require_lws_config(LWS_WITH_SECURE_STREAMS 1 requirements)
 require_lws_config(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY 0 requirements)
 require_lws_config(LWS_WITH_SYS_STATE 1 requirements)
+require_lws_config(USE_WOLFSSL 0 requirements)
+require_lws_config(LWS_WITH_TLS 1 requirements)
 
 if (requirements)
 	add_executable(${SAMP} minimal-secure-streams.c)
@@ -51,7 +53,7 @@ if (requirements)
 
 		set_tests_properties(ss-warmcat-hurl
 				     PROPERTIES
-				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/secure-streams/minimal-secure-streams
+				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/secure-streams/minimal-secure-streams-hugeurl
 				     TIMEOUT 20)
 		if (DEFINED ENV{SAI_OVN})
 			set_tests_properties(ss-warmcat-hurl PROPERTIES FIXTURES_REQUIRED "res_sspcmin_hurl")		     

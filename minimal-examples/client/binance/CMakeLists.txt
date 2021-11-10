@@ -8,6 +8,7 @@ require_lws_config(LWS_ROLE_WS 1 requirements)
 require_lws_config(LWS_WITH_CLIENT 1 requirements)
 require_lws_config(LWS_WITHOUT_EXTENSIONS 0 requirements)
 require_lws_config(LWS_WITH_SECURE_STREAMS 1 requirements)
+require_lws_config(LWS_WITH_TLS 1 requirements)
 
 require_lws_config(LWS_WITH_SECURE_STREAMS_PROXY_API 1 has_ss_proxy)
 

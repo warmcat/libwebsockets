@@ -8,6 +8,12 @@ include(LwsCheckRequirements)
 set(SAMP lws-api-test-lws_tokenize)
 set(SRCS main.c)
 
+set(requirements 1)
+require_lws_config(LWS_ROLE_H1 1 requirements)
+require_lws_config(LWS_WITH_NETWORK 1 requirements)
+
+if (requirements)
+
 	add_executable(${SAMP} ${SRCS})
 	add_test(NAME api-test-lws_tokenize COMMAND lws-api-test-lws_tokenize)
 
@@ -17,3 +23,5 @@ set(SRCS main.c)
 	else()
 		target_link_libraries(${SAMP} websockets ${LIBWEBSOCKETS_DEP_LIBS})
 	endif()
+
+endif()

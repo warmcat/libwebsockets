@@ -12,6 +12,7 @@ require_lws_config(LWS_ROLE_H1 1 requirements)
 require_lws_config(LWS_WITHOUT_CLIENT 0 requirements)
 require_lws_config(LWS_WITH_SECURE_STREAMS 1 requirements)
 require_lws_config(LWS_WITH_SECURE_STREAMS_AUTH_SIGV4 1 requirements)
+require_lws_config(USE_WOLFSSL 0 requirements)
 
 if (requirements)
 	add_executable(${SAMP} ss-s3-main.c ss-s3-ss.c)

@@ -21,6 +21,7 @@ set(requirements 1)
 require_lws_config(LWS_ROLE_H1 1 requirements)
 require_lws_config(LWS_WITH_CLIENT 1 requirements)
 require_lws_config(LWS_WITH_SYS_STATE 1 requirements)
+require_lws_config(LWS_WITH_TLS 1 requirements)
 
 require_lws_config(LWS_ROLE_H2 1 has_h2)
 require_lws_config(LWS_WITH_SYS_FAULT_INJECTION 1 has_fault_injection)
@@ -149,9 +150,11 @@ if (requirements)
 			message("... skipping mbedtls wrong CA test")
 		endif()
 	
-		set_tests_properties(${mytests} PROPERTIES
-		     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-client/minimal-http-client
-		     TIMEOUT 20)
+		foreach(N IN LISTS mytests)
+			set_tests_properties(${N} PROPERTIES
+			     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-client/minimal-http-client
+			     TIMEOUT 20)
+		endforeach()
 				     
     		if (DEFINED ENV{SAI_OVN})
 			set_tests_properties(${mytests} PROPERTIES
