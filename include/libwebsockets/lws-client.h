@@ -48,6 +48,7 @@ enum lws_client_connect_ssl_connection_flags {
 	LCCSCF_HTTP_MULTIPART_MIME		= (1 << 10),
 	LCCSCF_HTTP_X_WWW_FORM_URLENCODED	= (1 << 11),
 	LCCSCF_HTTP_NO_FOLLOW_REDIRECT		= (1 << 12),
+	LCCSCF_HTTP_NO_CACHE_CONTROL		= (1 << 13),
 
 	LCCSCF_PIPELINE				= (1 << 16),
 		/**< Serialize / pipeline multiple client connections

@@ -1195,9 +1195,10 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
 			  "%s %s HTTP/1.1\x0d\x0a", meth, path);
 
-	p += lws_snprintf(p,  lws_ptr_diff_size_t(end, p),
-			  "Pragma: no-cache\x0d\x0a"
-			  "Cache-Control: no-cache\x0d\x0a");
+	if (!(wsi->flags & LCCSCF_HTTP_NO_CACHE_CONTROL))
+		p += lws_snprintf(p,  lws_ptr_diff_size_t(end, p),
+				  "Pragma: no-cache\x0d\x0a"
+				  "Cache-Control: no-cache\x0d\x0a");
 
 	p += lws_snprintf(p,  lws_ptr_diff_size_t(end, p),
 			  "Host: %s\x0d\x0a",
