@@ -23,11 +23,13 @@
  */
 
 #include "private-lib-core.h"
+#include "private-lib-async-dns.h"
 
 lws_async_dns_server_check_t
-lws_plat_asyncdns_init(struct lws_context *context, lws_sockaddr46 *sa46)
+lws_plat_asyncdns_init(struct lws_context *context, lws_async_dns_t *dns)
 {
-	lws_async_dns_server_check_t s = LADNS_CONF_SERVER_CHANGED;
+	lws_async_dns_server_check_t s = LADNS_CONF_SERVER_SAME;
+	lws_async_dns_server_t *dsrv;
 	lws_sockaddr46 sa46t;
 	lws_tokenize_t ts;
 	char ads[48], *r;
@@ -78,14 +80,13 @@ lws_plat_asyncdns_init(struct lws_context *context, lws_sockaddr46 *sa46)
 		if (lws_sa46_parse_numeric_address(ads, &sa46t) < 0)
 			continue;
 
-		if (!lws_sa46_compare_ads(sa46, &sa46t))
-			s = LADNS_CONF_SERVER_SAME;
-
-		*sa46 = sa46t;
-
-		return s;
+		dsrv = __lws_async_dns_server_find(dns, &sa46t);
+		if (!dsrv) {
+			__lws_async_dns_server_add(dns, &sa46t);
+			s = LADNS_CONF_SERVER_CHANGED;
+		}
 
 	} while (ts.e > 0);
 
-	return LADNS_CONF_SERVER_UNKNOWN;
+	return s;
 }

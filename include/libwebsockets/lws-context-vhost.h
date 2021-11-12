@@ -924,6 +924,15 @@ struct lws_context_creation_info {
 	 * handle */
 #endif
 
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+	const char				**async_dns_servers;
+	/**< CONTEXT: NULL, or a pointer to an array of strings containing the
+	 * numeric IP like "8.8.8.8" or "2001:4860:4860::8888" for a list of DNS
+	 * server to forcibly add.  If given, the list of strings must be
+	 * terminated with a NULL.
+	 */
+#endif
+
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
 	 *

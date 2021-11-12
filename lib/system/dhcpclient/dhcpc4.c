@@ -425,9 +425,12 @@ lws_dhcpc4_parse(lws_dhcpc_req_t *r, void *in, size_t len)
 					break;
 				m = LWSDH_SA46_DNS_SRV_1;
 				while (l && m - LWSDH_SA46_DNS_SRV_1 < 4) {
-					lws_sa46_set_ipv4(r, (unsigned int)m++, p);
+					lws_sa46_set_ipv4(r, (unsigned int)m, p);
+					lws_async_dns_server_add(r->context,
+								&r->is.sa46[m]);
 					l = (uint8_t)(l - 4);
 					p += 4;
+					m++;
 				}
 				break;
 

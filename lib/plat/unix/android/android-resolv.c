@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2021 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -23,32 +23,37 @@
  */
 
 #include "private-lib-core.h"
+#include "private-lib-async-dns.h"
 #include <sys/system_properties.h>
 
 lws_async_dns_server_check_t
-lws_plat_asyncdns_init(struct lws_context *context, lws_sockaddr46 *sa46)
+lws_plat_asyncdns_init(struct lws_context *context, lws_async_dns_t *dns)
 {
-	char d[PROP_VALUE_MAX], *p;
-	uint32_t ip32;
-	uint8_t i[4];
+	lws_async_dns_server_check_t s = LADNS_CONF_SERVER_SAME;
+	char prop[PROP_VALUE_MAX], netdns[9];
+	lws_async_dns_server_t *dsrv;
+	lws_sockaddr46 sa46t;
 	int n;
 
-	d[0] = '\0';
-	if (__system_property_get("net.dns1", d) <= 0)
-		return LADNS_CONF_SERVER_UNKNOWN;
-
+	strcpy(netdns, "net.dns1");
 	for (n = 0; n < 4; n++) {
-		i[n] = (uint8_t)atoi(d);
-		p = strchr(d, '.');
-		if (n != 3 && !p)
-			return LADNS_CONF_SERVER_UNKNOWN;
+
+		prop[0] = '\0';
+		if (__system_property_get(netdns, prop) <= 0)
+			continue;
+
+		netdns[7]++; /* net.dns2... etc */
+
+		memset(&sa46t, 0, sizeof(sa46t));
+		if (lws_sa46_parse_numeric_address(prop, &sa46t) < 0)
+			continue;
+
+		dsrv = __lws_async_dns_server_find(dns, &sa46t);
+		if (!dsrv) {
+			__lws_async_dns_server_add(dns, &sa46t);
+			s = LADNS_CONF_SERVER_CHANGED;
+		}
 	}
 
-	ip32 = (uint32_t) ((i[0] << 24) | (i[1] << 16) | (i[2] << 8) | i[3]);
-	n = ip32 == sa46->sa4.sin_addr.s_addr;
-	sa46->sa4.sin_family = AF_INET;
-	sa46->sa4.sin_addr.s_addr = ip32;
-
-	return n ? LADNS_CONF_SERVER_SAME : LADNS_CONF_SERVER_CHANGED;
+	return s;
 }
-

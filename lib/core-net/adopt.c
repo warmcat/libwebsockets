@@ -23,6 +23,7 @@
  */
 
 #include "private-lib-core.h"
+#include "private-lib-async-dns.h"
 
 static int
 lws_get_idlest_tsi(struct lws_context *context)
@@ -759,8 +760,13 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 		/* we connected: complete the udp socket adoption flow */
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
-	if (wsi->a.context->async_dns.wsi == wsi)
-		wsi->a.context->async_dns.dns_server_connected = 1;
+		{
+			lws_async_dns_server_t *asds =
+					__lws_async_dns_server_find_wsi(
+						&wsi->a.context->async_dns, wsi);
+			if (asds)
+				asds->dns_server_connected = 1;
+		}
 #endif
 
 		lws_free(s);
@@ -776,8 +782,12 @@ resume:
 	lws_addrinfo_clean(wsi);
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
-	if (wsi->a.context->async_dns.wsi == wsi)
-		lws_async_dns_drop_server(wsi->a.context);
+	{
+		lws_async_dns_server_t *asds = __lws_async_dns_server_find_wsi(
+					&wsi->a.context->async_dns, wsi);
+		if (asds)
+			lws_async_dns_drop_server(asds);
+	}
 #endif
 
 bail:

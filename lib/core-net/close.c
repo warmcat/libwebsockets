@@ -23,6 +23,7 @@
  */
 
 #include "private-lib-core.h"
+#include "private-lib-async-dns.h"
 
 #if defined(LWS_WITH_CLIENT)
 static int
@@ -383,8 +384,14 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 #endif
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
-	if (wsi == context->async_dns.wsi)
-		context->async_dns.wsi = NULL;
+	/* is this wsi handling the interface to a dns server? */
+	{
+		lws_async_dns_server_t *dsrv =
+			__lws_async_dns_server_find_wsi(&context->async_dns, wsi);
+
+		if (dsrv)
+			dsrv->wsi = NULL;
+	}
 #endif
 
 	lws_pt_assert_lock_held(pt);

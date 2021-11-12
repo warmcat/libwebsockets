@@ -431,7 +431,8 @@ skip:
 		*cp = '\0';
 	}
 
-	lws_callback_on_writable(q->dns->wsi);
+	if (q->dsrv && q->dsrv->wsi)
+		lws_callback_on_writable(q->dsrv->wsi);
 
 	return 2;
 }
@@ -559,8 +560,7 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 
 	/* match both A and AAAA queries if any */
 
-	q = lws_adns_get_query(dns, 0, &dns->waiting,
-			       lws_ser_ru16be(pkt + DHO_TID), NULL);
+	q = lws_adns_get_query(dns, 0, lws_ser_ru16be(pkt + DHO_TID), NULL);
 	if (!q) {
 		lwsl_info("%s: dropping unknown query tid 0x%x\n",
 			    __func__, lws_ser_ru16be(pkt + DHO_TID));

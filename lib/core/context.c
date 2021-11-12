@@ -1418,6 +1418,20 @@ lws_create_context(const struct lws_context_creation_info *info)
 	}
 #endif
 
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+	if (info->async_dns_servers) {
+		const char **dsrv = info->async_dns_servers;
+		while (*dsrv) {
+			lws_sockaddr46 sa46;
+			if (!lws_sa46_parse_numeric_address(*dsrv, &sa46)) {
+				lwsl_cx_info(context, "Adding DNS %s", *dsrv);
+				lws_async_dns_server_add(context, &sa46);
+			}
+			dsrv++;
+		}
+	}
+#endif
+
 #if defined(LWS_WITH_SECURE_STREAMS)
 
 #if !defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)

@@ -245,15 +245,28 @@ __lws_sul_service_ripe(lws_dll2_owner_t *own, int num_own, lws_usec_t usnow);
  * lws_async_dns
  */
 
-typedef struct lws_async_dns {
+typedef struct lws_async_dns_server {
+	lws_dll2_t		list;
 	lws_sockaddr46 		sa46; /* nameserver */
+
 	lws_dll2_owner_t	waiting;
-	lws_dll2_owner_t	cached;
+
+	int			refcount;
+
 	struct lws		*wsi;
 	time_t			time_set_server;
 	uint8_t			dns_server_set:1;
 	uint8_t			dns_server_connected:1;
+} lws_async_dns_server_t;
+
+typedef struct lws_async_dns {
+	lws_dll2_owner_t	nameservers; /* lws_async_dns_server_t */
+	lws_dll2_owner_t	cached;
+
+	struct lws_context	*cx;
 } lws_async_dns_t;
+
+#define lws_async_dns_from_server(_s) ((lws_async_dns_t *)_s->list.owner)
 
 typedef enum {
 	LADNS_CONF_SERVER_UNKNOWN				= -1,
@@ -270,7 +283,7 @@ void
 lws_async_dns_cancel(struct lws *wsi);
 
 void
-lws_async_dns_drop_server(struct lws_context *context);
+lws_async_dns_drop_server(lws_async_dns_server_t *dsrv);
 
 /*
  * so we can have n connections being serviced simultaneously,
@@ -1478,7 +1491,7 @@ lws_inform_client_conn_fail(struct lws *wsi, void *arg, size_t len);
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 lws_async_dns_server_check_t
-lws_plat_asyncdns_init(struct lws_context *context, lws_sockaddr46 *sa);
+lws_plat_asyncdns_init(struct lws_context *context, lws_async_dns_t *dns);
 int
 lws_async_dns_init(struct lws_context *context);
 void

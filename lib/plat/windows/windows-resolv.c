@@ -23,11 +23,15 @@
  */
 
 #include "private-lib-core.h"
+#include "private-lib-async-dns.h"
 #include <iphlpapi.h>
 
 lws_async_dns_server_check_t
-lws_plat_asyncdns_init(struct lws_context *context, lws_sockaddr46 *sa46)
+lws_plat_asyncdns_init(struct lws_context *context, lws_async_dns_t *dns)
 {
+	lws_async_dns_server_check_t s = LADNS_CONF_SERVER_SAME;
+	lws_async_dns_server_t *dsrv;
+	lws_sockaddr46 sa46t;
 	unsigned long ul;
 	FIXED_INFO *fi;
 	int n = 0;
@@ -62,12 +66,19 @@ lws_plat_asyncdns_init(struct lws_context *context, lws_sockaddr46 *sa46)
 	lwsl_info("%s: trying %s\n", __func__,
 			fi->DnsServerList.IpAddress.String);
 	n = lws_sa46_parse_numeric_address(
-			fi->DnsServerList.IpAddress.String, sa46);
+			fi->DnsServerList.IpAddress.String, &sa46t);
 
 	lws_free(fi);
 
-	return n == 0 ? LADNS_CONF_SERVER_CHANGED :
-			LADNS_CONF_SERVER_UNKNOWN;
+	if (!n) {
+		dsrv = __lws_async_dns_server_find(dns, &sa46t);
+		if (!dsrv) {
+			__lws_async_dns_server_add(dns, &sa46t);
+			s = LADNS_CONF_SERVER_CHANGED;
+		}
+	}
+
+	return s;
 
 oom:
 	lwsl_err("%s: OOM\n", __func__);
