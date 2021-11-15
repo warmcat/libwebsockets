@@ -429,10 +429,8 @@ lws_mqtt_create_sub(struct _lws_mqtt_related *mqtt, const char *topic)
 				 __func__);
 			return NULL;
 		}
-		if (flag == LMVTR_VALID_WILDCARD)
-			mysub->wildcard = 1;
-		else if (flag == LMVTR_VALID_SHADOW)
-			mysub->shadow = 1;
+		mysub->wildcard = (flag == LMVTR_VALID_WILDCARD);
+		mysub->shadow = (flag == LMVTR_VALID_SHADOW);
 		break;
 
 	default:
