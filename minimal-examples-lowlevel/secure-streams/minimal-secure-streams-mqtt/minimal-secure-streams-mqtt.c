@@ -1,50 +1,28 @@
 /*
- * lws-minimal-secure-streams-proxy
+ * lws-minimal-secure-streams-mqtt
  *
- * Written in 2010-2020 by Andy Green <andy@warmcat.com>
+ * Written in 2021 by Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
  *
  *
- * This is the proxy part for examples built to use it to connect to... it has
- * the policy and the core SS function, but it doesn't contain any of the user
- * code "business logic"... that's in the clients.
+ * This demonstrates a minimal mqtt client using secure streams api.
  *
- * The proxy side has the policy and performs the onward connection proxying
- * fulfilment.  The clients state the streamtype name they want and ask for the
- * client to do the connection part.
+ * It connects test.mosquitto.org and exchange MQTT messages.
  *
- * Rideshare information is being parsed out at the proxy side; the SSS RX part
- * also brings with it rideshare names.
- *
- * Metadata is passed back over SSS from the client in the TX messages for the
- * proxy to use per the policy.
  */
 
 #include <libwebsockets.h>
 #include <string.h>
 #include <signal.h>
 
-#if defined(__APPLE__) || defined(__linux__)
-#include <execinfo.h>
-#include <assert.h>
-#endif
-
 #define TEST_CLIENT_ID "SN12345678"
 
-static int interrupted, bad = 1, port = 0 /* unix domain socket */;
-static const char *ibind = NULL; /* default to unix domain skt "proxy.ss.lws" */
+static int interrupted, bad = 1, test_nontls;
 static lws_state_notify_link_t nl;
-static struct lws_context *context;
 
-/*
- * We just define enough policy so it can fetch the latest one securely.
- *
- * If using SSPC, we use the proxy's policy, not this
- */
-
-
+#if !defined(LWS_SS_USE_SSPC)
 static const char * const default_ss_policy =
 	"{"
 	  "\"release\":"			"\"01234567\","
@@ -60,100 +38,94 @@ static const char * const default_ss_policy =
 				"],"
 			"\"conceal\":"		"5,"
 			"\"jitterpc\":"		"20,"
-			"\"svalidping\":"	"30,"
-			"\"svalidhup\":"	"35"
+			"\"svalidping\":"	"300,"
+			"\"svalidhup\":"	"310"
 		"}}"
 	  "],"
 	  "\"certs\": [" /* named individual certificates in BASE64 DER */
-		/*
-		 * Let's Encrypt certs for warmcat.com / libwebsockets.org
-		 *
-		 * We fetch the real policy from there using SS and switch to
-		 * using that.
-		 */
-		"{\"isrg_root_x1\": \""
-	"MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw"
-	"TzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh"
-	"cmNoIEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMTUwNjA0MTEwNDM4"
-	"WhcNMzUwNjA0MTEwNDM4WjBPMQswCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJu"
-	"ZXQgU2VjdXJpdHkgUmVzZWFyY2ggR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBY"
-	"MTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAK3oJHP0FDfzm54rVygc"
-	"h77ct984kIxuPOZXoHj3dcKi/vVqbvYATyjb3miGbESTtrFj/RQSa78f0uoxmyF+"
-	"0TM8ukj13Xnfs7j/EvEhmkvBioZxaUpmZmyPfjxwv60pIgbz5MDmgK7iS4+3mX6U"
-	"A5/TR5d8mUgjU+g4rk8Kb4Mu0UlXjIB0ttov0DiNewNwIRt18jA8+o+u3dpjq+sW"
-	"T8KOEUt+zwvo/7V3LvSye0rgTBIlDHCNAymg4VMk7BPZ7hm/ELNKjD+Jo2FR3qyH"
-	"B5T0Y3HsLuJvW5iB4YlcNHlsdu87kGJ55tukmi8mxdAQ4Q7e2RCOFvu396j3x+UC"
-	"B5iPNgiV5+I3lg02dZ77DnKxHZu8A/lJBdiB3QW0KtZB6awBdpUKD9jf1b0SHzUv"
-	"KBds0pjBqAlkd25HN7rOrFleaJ1/ctaJxQZBKT5ZPt0m9STJEadao0xAH0ahmbWn"
-	"OlFuhjuefXKnEgV4We0+UXgVCwOPjdAvBbI+e0ocS3MFEvzG6uBQE3xDk3SzynTn"
-	"jh8BCNAw1FtxNrQHusEwMFxIt4I7mKZ9YIqioymCzLq9gwQbooMDQaHWBfEbwrbw"
-	"qHyGO0aoSCqI3Haadr8faqU9GY/rOPNk3sgrDQoo//fb4hVC1CLQJ13hef4Y53CI"
-	"rU7m2Ys6xt0nUW7/vGT1M0NPAgMBAAGjQjBAMA4GA1UdDwEB/wQEAwIBBjAPBgNV"
-	"HRMBAf8EBTADAQH/MB0GA1UdDgQWBBR5tFnme7bl5AFzgAiIyBpY9umbbjANBgkq"
-	"hkiG9w0BAQsFAAOCAgEAVR9YqbyyqFDQDLHYGmkgJykIrGF1XIpu+ILlaS/V9lZL"
-	"ubhzEFnTIZd+50xx+7LSYK05qAvqFyFWhfFQDlnrzuBZ6brJFe+GnY+EgPbk6ZGQ"
-	"3BebYhtF8GaV0nxvwuo77x/Py9auJ/GpsMiu/X1+mvoiBOv/2X/qkSsisRcOj/KK"
-	"NFtY2PwByVS5uCbMiogziUwthDyC3+6WVwW6LLv3xLfHTjuCvjHIInNzktHCgKQ5"
-	"ORAzI4JMPJ+GslWYHb4phowim57iaztXOoJwTdwJx4nLCgdNbOhdjsnvzqvHu7Ur"
-	"TkXWStAmzOVyyghqpZXjFaH3pO3JLF+l+/+sKAIuvtd7u+Nxe5AW0wdeRlN8NwdC"
-	"jNPElpzVmbUq4JUagEiuTDkHzsxHpFKVK7q4+63SM1N95R1NbdWhscdCb+ZAJzVc"
-	"oyi3B43njTOQ5yOf+1CceWxG1bQVs5ZufpsMljq4Ui0/1lvh+wjChP4kqKOJ2qxq"
-	"4RgqsahDYVvTH9w7jXbyLeiNdd8XM2w9U/t7y0Ff/9yi0GE44Za4rF2LN9d11TPA"
-	"mRGunUHBcnWEvgJBQl9nJEiU0Zsnvgc/ubhPgXRR4Xq37Z0j4r7g1SgEEzwxA57d"
-	"emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc="
+		"{\"test_mosq_org\": \""
+		"MIIEAzCCAuugAwIBAgIUBY1hlCGvdj4NhBXkZ/uLUZNILAwwDQYJKoZIhvcNAQEL"
+		"BQAwgZAxCzAJBgNVBAYTAkdCMRcwFQYDVQQIDA5Vbml0ZWQgS2luZ2RvbTEOMAwG"
+		"A1UEBwwFRGVyYnkxEjAQBgNVBAoMCU1vc3F1aXR0bzELMAkGA1UECwwCQ0ExFjAU"
+		"BgNVBAMMDW1vc3F1aXR0by5vcmcxHzAdBgkqhkiG9w0BCQEWEHJvZ2VyQGF0Y2hv"
+		"by5vcmcwHhcNMjAwNjA5MTEwNjM5WhcNMzAwNjA3MTEwNjM5WjCBkDELMAkGA1UE"
+		"BhMCR0IxFzAVBgNVBAgMDlVuaXRlZCBLaW5nZG9tMQ4wDAYDVQQHDAVEZXJieTES"
+		"MBAGA1UECgwJTW9zcXVpdHRvMQswCQYDVQQLDAJDQTEWMBQGA1UEAwwNbW9zcXVp"
+		"dHRvLm9yZzEfMB0GCSqGSIb3DQEJARYQcm9nZXJAYXRjaG9vLm9yZzCCASIwDQYJ"
+		"KoZIhvcNAQEBBQADggEPADCCAQoCggEBAME0HKmIzfTOwkKLT3THHe+ObdizamPg"
+		"UZmD64Tf3zJdNeYGYn4CEXbyP6fy3tWc8S2boW6dzrH8SdFf9uo320GJA9B7U1FW"
+		"Te3xda/Lm3JFfaHjkWw7jBwcauQZjpGINHapHRlpiCZsquAthOgxW9SgDgYlGzEA"
+		"s06pkEFiMw+qDfLo/sxFKB6vQlFekMeCymjLCbNwPJyqyhFmPWwio/PDMruBTzPH"
+		"3cioBnrJWKXc3OjXdLGFJOfj7pP0j/dr2LH72eSvv3PQQFl90CZPFhrCUcRHSSxo"
+		"E6yjGOdnz7f6PveLIB574kQORwt8ePn0yidrTC1ictikED3nHYhMUOUCAwEAAaNT"
+		"MFEwHQYDVR0OBBYEFPVV6xBUFPiGKDyo5V3+Hbh4N9YSMB8GA1UdIwQYMBaAFPVV"
+		"6xBUFPiGKDyo5V3+Hbh4N9YSMA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQEL"
+		"BQADggEBAGa9kS21N70ThM6/Hj9D7mbVxKLBjVWe2TPsGfbl3rEDfZ+OKRZ2j6AC"
+		"6r7jb4TZO3dzF2p6dgbrlU71Y/4K0TdzIjRj3cQ3KSm41JvUQ0hZ/c04iGDg/xWf"
+		"+pp58nfPAYwuerruPNWmlStWAXf0UTqRtg4hQDWBuUFDJTuWuuBvEXudz74eh/wK"
+		"sMwfu1HFvjy5Z0iMDU8PUDepjVolOCue9ashlS4EB5IECdSR2TItnAIiIwimx839"
+		"LdUdRudafMu5T5Xma182OC0/u/xRlEm+tvKGGmfFcN0piqVl8OrSPBgIlb+1IKJE"
+		"m/XriWr/Cq4h/JfB7NTsezVslgkBaoU="
 		"\"}"
 	  "],"
 	  "\"trust_stores\": [" /* named cert chains */
 		"{"
-			"\"name\": \"le_via_isrg\","
+			"\"name\": \"mosq_org\","
 			"\"stack\": ["
-				"\"isrg_root_x1\""
+				"\"test_mosq_org\""
 			"]"
 		"}"
 	  "],"
-	  "\"s\": [{"
-		"\"captive_portal_detect\": {"
-			"\"endpoint\": \"connectivitycheck.android.com\","
-			"\"http_url\": \"generate_204\","
-			"\"port\": 80,"
-			"\"protocol\": \"h1\","
-			"\"http_method\": \"GET\","
-			"\"opportunistic\": true,"
-			"\"http_expect\": 204,"
-			"\"http_fail_redirect\": true"
-		"},"
-		"\"fetch_policy\": {"
-			"\"endpoint\":"		"\"warmcat.com\","
-			"\"port\":"		"443,"
-			"\"protocol\":"		"\"h1\","
-			"\"http_method\":"	"\"GET\","
-			"\"http_url\":"		"\"policy/minimal-proxy-v4.2-v2.json\","
-			"\"tls\":"		"true,"
-			"\"opportunistic\":"	"true,"
-			"\"retry\":"		"\"default\","
-			"\"tls_trust_store\":"	"\"le_via_isrg\""
+	  "\"s\": [" /* the supported stream types */
+		"{\"mosq_nontls\": {"
+			"\"endpoint\":"		"\"test.mosquitto.org\","
+			"\"port\":"		"1883,"
+			"\"protocol\":"		"\"mqtt\","
+			"\"mqtt_topic\":"	"\"test/topic1\","
+			"\"mqtt_subscribe\":"	"\"test/topic1\","
+			"\"mqtt_qos\":"         "0,"
+			"\"retry\":"            "\"default\","
+	        	"\"mqtt_keep_alive\":"  "60,"
+			"\"mqtt_clean_start\":" "true,"
+			"\"mqtt_will_topic\":"  "\"good/bye\","
+			"\"mqtt_will_message\":" "\"sign-off\","
+			"\"mqtt_will_qos\":"    "0,"
+			"\"mqtt_will_retain\":" "0,"
+			"\"aws_iot\":" "false"
+		"}},"
+		"{\"mosq_tls\": {"
+			"\"endpoint\":"		"\"test.mosquitto.org\","
+			"\"port\":"		"8884,"
+			"\"tls\":"              "true,"
+			"\"client_cert\":"      "0,"
+			"\"tls_trust_store\":"  "\"mosq_org\","
+			"\"protocol\":"		"\"mqtt\","
+			"\"mqtt_topic\":"	"\"test/topic1\","
+			"\"mqtt_subscribe\":"	"\"test/topic1\","
+			"\"mqtt_qos\":"         "0,"
+			"\"retry\":"            "\"default\","
+	        	"\"mqtt_keep_alive\":"  "60,"
+			"\"mqtt_clean_start\":" "true,"
+			"\"mqtt_will_topic\":"  "\"good/bye\","
+			"\"mqtt_will_message\":" "\"sign-off\","
+			"\"mqtt_will_qos\":"    "0,"
+			"\"mqtt_will_retain\":" "0,"
+			"\"aws_iot\":" "false"
 		"}}"
+
+		"]"
 	"}"
 ;
-
-static const char *canned_root_token_payload =
-	"grant_type=refresh_token"
-	"&refresh_token=Atzr|IwEBIJedGXjDqsU_vMxykqOMg"
-	"SHfYe3CPcedueWEMWSDMaDnEmiW8RlR1Kns7Cb4B-TOSnqp7ifVsY4BMY2B8tpHfO39XP"
-	"zfu9HapGjTR458IyHX44FE71pWJkGZ79uVBpljP4sazJuk8XS3Oe_yLnm_DIO6fU1nU3Y"
-	"0flYmsOiOAQE_gRk_pdlmEtHnpMA-9rLw3mkY5L89Ty9kUygBsiFaYatouROhbsTn8-jW"
-	"k1zZLUDpT6ICtBXSnrCIg0pUbZevPFhTwdXd6eX-u4rq0W-XaDvPWFO7au-iPb4Zk5eZE"
-	"iX6sissYrtNmuEXc2uHu7MnQO1hHCaTdIO2CANVumf-PHSD8xseamyh04sLV5JgFzY45S"
-	"KvKMajiUZuLkMokOx86rjC2Hdkx5DO7G-dbG1ufBDG-N79pFMSs7Ck5pc283IdLoJkCQc"
-	"AGvTX8o8I29QqkcGou-9TKhOJmpX8As94T61ok0UqqEKPJ7RhfQHHYdCtsdwxgvfVr9qI"
-	"xL_hDCcTho8opCVX-6QhJHl6SQFlTw13"
-	"&client_id="
-		"amzn1.application-oa2-client.4823334c434b4190a2b5a42c07938a2d";
-
-#if defined(LWS_WITH_SECURE_STREAMS_AUTH_SIGV4)
-static char *aws_keyid = NULL,
-	    *aws_key = NULL;
 #endif
+
+typedef struct myss {
+	struct lws_ss_handle 	*ss;
+	void			*opaque_data;
+	/* ... application specific state ... */
+	lws_sorted_usec_list_t sul;
+	size_t size;
+	int tx_count;
+} myss_t;
 
 static const uint8_t client_key[] = {
 	0x30, 0x82, 0x04, 0xa4, 0x02, 0x01, 0x00, 0x02, 0x82, 0x01, 0x01, 0x00,
@@ -339,77 +311,143 @@ static const uint8_t client_cert_der[] = {
 	0x9a, 0x9b, 0x7f
 };
 
+static void sul_cb(lws_sorted_usec_list_t* sul) {
+	myss_t* m = (myss_t*)lws_container_of(sul, myss_t, sul);
+	lws_ss_state_return_t ret;
+
+	ret = lws_ss_request_tx(m->ss);
+        if (ret != LWSSSSRET_OK || interrupted) {
+            return;
+        }
+
+	lws_sul_schedule(lws_ss_get_context(m->ss), 0, &m->sul, sul_cb,
+			 3 * LWS_USEC_PER_SEC);
+}
+
+/* secure streams payload interface */
+
+static lws_ss_state_return_t
+myss_rx(void *userobj, const uint8_t *buf, size_t len, int flags) {
+	lwsl_user("%s: len %d, flags: %d\n", __func__, (int)len, flags);
+	lwsl_hexdump_info(buf, len);
+
+	if (flags & LWSSS_FLAG_EOM) {
+		bad = 0;
+		interrupted = 1;
+	}
+
+	return LWSSSSRET_OK;
+}
+
+static lws_ss_state_return_t
+myss_tx(void *userobj, lws_ss_tx_ordinal_t ord, uint8_t *buf, size_t *len,
+	int *flags) {
+	myss_t* m = (myss_t*)userobj;
+	size_t os = m->size;
+	*flags = 0;
+
+	if (!m->size) {
+		lwsl_user("Start of message\n");
+ 		*flags |= LWSSS_FLAG_SOM;
+	}
+
+	*len = (size_t) lws_snprintf((char*)buf, *len, "{\"unixtime\":%lu}",
+				     (unsigned long)lws_now_secs());
+	*flags |= LWSSS_FLAG_EOM;
+	m->size = 0;
+
+	lwsl_user("%s: h: %p, [%d]sending %u - %u flags 0x%x\n", __func__, m->ss,
+		  m->tx_count, (unsigned int)os, (unsigned int)(os + *len),
+		  *flags);
+
+	return LWSSSSRET_OK;
+}
+
+static lws_ss_state_return_t
+myss_state(void *userobj, void *sh, lws_ss_constate_t state,
+		lws_ss_tx_ordinal_t ack) {
+	myss_t *m = (myss_t *)userobj;
+
+	lwsl_user("%s: %s, ord 0x%x\n", __func__, lws_ss_state_name((int)state),
+		  (unsigned int)ack);
+
+	switch (state) {
+	case LWSSSCS_CREATING:
+		return lws_ss_request_tx(m->ss);
+	case LWSSSCS_CONNECTED:
+		lws_sul_schedule(lws_ss_get_context(m->ss), 0, &m->sul, sul_cb,
+ 				 1 * LWS_USEC_PER_SEC);
+		break;
+	case LWSSSCS_DESTROYING:
+		lws_sul_schedule(lws_ss_get_context(m->ss), 0, &m->sul, sul_cb,
+ 				 LWS_SET_TIMER_USEC_CANCEL);
+		break;
+
+	case LWSSSCS_ALL_RETRIES_FAILED:
+		/* if we're out of retries, we want to close the app and FAIL */
+		interrupted = 1;
+		break;
+	default:
+		break;
+	}
+
+	return 0;
+}
+
 static int
 app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 		    int current, int target)
 {
 	struct lws_context *context = lws_system_context_from_system_mgr(mgr);
-	lws_system_blob_t *ab = lws_system_get_blob(context,
-				LWS_SYSBLOB_TYPE_AUTH, 1 /* AUTH_IDX_ROOT */);
-	size_t size;
-
 	/*
 	 * For the things we care about, let's notice if we are trying to get
 	 * past them when we haven't solved them yet, and make the system
 	 * state wait while we trigger the dependent action.
 	 */
 	switch (target) {
-	case LWS_SYSTATE_REGISTERED:
-		size = lws_system_blob_get_size(ab);
-		if (size)
+
+#if !defined(LWS_SS_USE_SSPC)
+
+	/*
+	 * The proxy takes responsibility for this stuff if we get things
+	 * done through that
+	 */
+
+	case LWS_SYSTATE_INITIALIZED: /* overlay on the hardcoded policy */
+	case LWS_SYSTATE_POLICY_VALID: /* overlay on the loaded policy */
+
+		if (target != current)
 			break;
 
-		/* let's register our canned root token so auth can use it */
-		lws_system_blob_direct_set(ab,
-				(const uint8_t *)canned_root_token_payload,
-				strlen(canned_root_token_payload));
+	case LWS_SYSTATE_REGISTERED:
 		break;
-	case LWS_SYSTATE_OPERATIONAL:
-		if (current == LWS_SYSTATE_OPERATIONAL) {
-#if defined(LWS_WITH_SECURE_STREAMS_AUTH_SIGV4)
-
-			if (lws_aws_filesystem_credentials_helper(
-						  "~/.aws/credentials",
-						  "aws_access_key_id",
-						  "aws_secret_access_key",
-						  &aws_keyid, &aws_key))
-				return -1;
-
-			lws_ss_sigv4_set_aws_key(context, 0, aws_keyid, aws_key);
 #endif
 
-			lws_system_blob_direct_set(
-				lws_system_get_blob(context, LWS_SYSBLOB_TYPE_MQTT_CLIENT_ID, 0),
-				(const uint8_t*)TEST_CLIENT_ID, strlen(TEST_CLIENT_ID));
+	case LWS_SYSTATE_OPERATIONAL:
+		if (current == LWS_SYSTATE_OPERATIONAL) {
+			lws_ss_info_t ssi;
 
-			lws_system_blob_direct_set(
-				lws_system_get_blob(context, LWS_SYSBLOB_TYPE_CLIENT_CERT_DER, 0),
-				client_cert_der, sizeof(client_cert_der));
+			/* We're making an outgoing secure stream ourselves */
 
-			lws_system_blob_direct_set(
-				lws_system_get_blob(context, LWS_SYSBLOB_TYPE_CLIENT_KEY_DER, 0),
-				client_key, sizeof(client_key));
+			memset(&ssi, 0, sizeof(ssi));
+			ssi.handle_offset = offsetof(myss_t, ss);
+			ssi.opaque_user_data_offset = offsetof(myss_t,
+							       opaque_data);
+			ssi.rx = myss_rx;
+			ssi.tx = myss_tx;
+			ssi.state = myss_state;
+			ssi.user_alloc = sizeof(myss_t);
+			ssi.streamtype = test_nontls ? "mosq_nontls" : "mosq_tls";
 
-			/*
-			 * At this point we have DHCP, ntp, system auth token
-			 * and we can reasonably create the proxy
-			 */
-			if (lws_ss_proxy_create(context, ibind, port)) {
-				lwsl_err("%s: failed to create ss proxy\n",
-						__func__);
+			if (lws_ss_create(context, 0, &ssi, NULL, NULL,
+					  NULL, NULL)) {
+				lwsl_err("%s: failed to create secure stream\n",
+					 __func__);
+				interrupted = 1;
+				lws_cancel_service(context);
 				return -1;
 			}
 		}
-		break;
-	case LWS_SYSTATE_POLICY_INVALID:
-		/*
-		 * This is a NOP since we used direct set... but in a real
-		 * system this could easily change to be done on the heap, then
-		 * this would be important
-		 */
-		lws_system_blob_destroy(lws_system_get_blob(context,
-					LWS_SYSBLOB_TYPE_AUTH,
-					1 /* AUTH_IDX_ROOT */));
 		break;
 	}
 
@@ -420,103 +458,88 @@ static lws_state_notify_link_t * const app_notifier_list[] = {
 	&nl, NULL
 };
 
-#if defined(LWS_WITH_SYS_METRICS)
-
-static int
-my_metric_report(lws_metric_pub_t *mp)
-{
-	lws_metric_bucket_t *sub = mp->u.hist.head;
-	char buf[192];
-
-	do {
-		if (lws_metrics_format(mp, &sub, buf, sizeof(buf)))
-			lwsl_user("%s: %s\n", __func__, buf);
-	} while ((mp->flags & LWSMTFL_REPORT_HIST) && sub);
-
-	/* 0 = leave metric to accumulate, 1 = reset the metric */
-
-	return 1;
-}
-
-static const lws_system_ops_t system_ops = {
-	.metric_report = my_metric_report,
-};
-
-#endif
-
 static void
 sigint_handler(int sig)
 {
-	lwsl_notice("%s\n", __func__);
 	interrupted = 1;
-	lws_cancel_service(context);
 }
 
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
+	struct lws_context *context;
+	int n = 0, expected = 0;
 	const char *p;
-	int n = 0;
+
+	signal(SIGINT, sigint_handler);
 
 	memset(&info, 0, sizeof info);
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 
-	signal(SIGINT, sigint_handler);
+	lwsl_user("LWS secure streams mqtt test client [-d<verb>]\n");
 
-	/* connect to ssproxy via UDS by default, else via tcp with this port */
-	if ((p = lws_cmdline_option(argc, argv, "-p")))
-		port = atoi(p);
+	/* these options are mutually exclusive if given */
+	if (lws_cmdline_option(argc, argv, "--nontls"))
+		test_nontls = 1;
 
-	/* UDS "proxy.ss.lws" in abstract namespace, else this socket path;
-	 * when -p given this can specify the network interface to bind to */
-	if ((p = lws_cmdline_option(argc, argv, "-i")))
-		ibind = p;
-
-	lwsl_user("LWS secure streams Proxy [-d<verb>]\n");
-
-	info.fd_limit_per_thread = 1 + 26 + 1;
+	info.fd_limit_per_thread = 1 + 6 + 1;
 	info.port = CONTEXT_PORT_NO_LISTEN;
+#if defined(LWS_SS_USE_SSPC)
+	info.protocols = lws_sspc_protocols;
+#else
 	info.pss_policies_json = default_ss_policy;
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 		       LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW |
 		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+#endif
 
 	/* integrate us with lws system state management when context created */
 	nl.name = "app";
 	nl.notify_cb = app_system_state_nf;
 	info.register_notifier_list = app_notifier_list;
 
-	info.pt_serv_buf_size = (unsigned int)((6144 * 2) + 2048);
-	info.max_http_header_data = (unsigned short)(6144 + 2048);
-
-#if defined(LWS_WITH_SYS_METRICS)
-	info.system_ops = &system_ops;
-	info.metrics_prefix = "ssproxy";
-#endif
-
+	/* create the context */
 	context = lws_create_context(&info);
 	if (!context) {
 		lwsl_err("lws init failed\n");
-		return 1;
+		goto bail;
 	}
 
+	/*
+	 * Set the related lws_system blobs
+	 *
+	 * ...direct_set() sets a pointer, so the thing pointed to has to have
+	 * a suitable lifetime, eg, something that already exists on the heap or
+	 * a const string in .rodata like this
+	 */
+
+	lws_system_blob_direct_set(
+			lws_system_get_blob(context, LWS_SYSBLOB_TYPE_MQTT_CLIENT_ID, 0),
+			(const uint8_t*)TEST_CLIENT_ID, strlen(TEST_CLIENT_ID));
+
+	lws_system_blob_direct_set(
+			lws_system_get_blob(context, LWS_SYSBLOB_TYPE_CLIENT_CERT_DER, 0),
+			client_cert_der, sizeof(client_cert_der));
+
+	lws_system_blob_direct_set(
+			lws_system_get_blob(context, LWS_SYSBLOB_TYPE_CLIENT_KEY_DER, 0),
+			client_key, sizeof(client_key));
+
 	/* the event loop */
-
-	do {
+	while (n >= 0 && !interrupted)
 		n = lws_service(context, 0);
-	} while (n >= 0 && !interrupted);
-
-	bad = 0;
-
-#if defined(LWS_WITH_SECURE_STREAMS_AUTH_SIGV4)
-	if (aws_keyid)
-		free(aws_keyid);
-	if (aws_key)
-		free(aws_key);
-#endif
 
 	lws_context_destroy(context);
-	lwsl_user("Completed: %s\n", bad ? "failed" : "OK");
 
-	return bad;
+bail:
+	if ((p = lws_cmdline_option(argc, argv, "--expected-exit")))
+		expected = atoi(p);
+
+	if (bad == expected) {
+		lwsl_user("Completed: OK (seen expected %d)\n", expected);
+		return 0;
+	} else
+		lwsl_err("Completed: failed: exit %d, expected %d\n", bad, expected);
+
+	return 1;
 }
