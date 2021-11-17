@@ -837,6 +837,9 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 
 		if (hit->protocol)
 			name = hit->protocol;
+		else
+			if (hit->origin_protocol == LWSMPRO_FILE)
+				return 0;
 
 		pp = lws_vhost_name_to_protocol(wsi->a.vhost, name);
 		if (!pp) {
