@@ -438,15 +438,17 @@ __remove_wsi_socket_from_fds(struct lws *wsi)
 
 		/* removed wsi has no position any more */
 		wsi->position_in_fds_table = LWS_NO_FDS_POS;
-	}
 
 #if defined(LWS_WITH_EXTERNAL_POLL)
-	/* remove also from external POLL support via protocol 0 */
-	if (lws_socket_is_valid(wsi->desc.sockfd) && wsi->a.vhost &&
-	    wsi->a.vhost->protocols[0].callback(wsi, LWS_CALLBACK_DEL_POLL_FD,
-					      wsi->user_space, (void *) &pa, 0))
-		ret = -1;
+		/* remove also from external POLL support via protocol 0 */
+		if (lws_socket_is_valid(wsi->desc.sockfd) && wsi->a.vhost &&
+		    wsi->a.vhost->protocols[0].callback(wsi,
+						        LWS_CALLBACK_DEL_POLL_FD,
+						        wsi->user_space,
+						        (void *) &pa, 0))
+			ret = -1;
 #endif
+	}
 
 #if defined(LWS_WITH_SERVER)
 	if (!context->being_destroyed &&
