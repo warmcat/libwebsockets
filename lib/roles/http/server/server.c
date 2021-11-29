@@ -1393,6 +1393,36 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 #endif
 		)
 			i.method = "POST";
+		else if (lws_hdr_simple_ptr(wsi, WSI_TOKEN_PUT_URI)
+#if defined(LWS_WITH_HTTP2)
+								|| (
+			lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_METHOD) &&
+			!strcmp(lws_hdr_simple_ptr(wsi,
+					WSI_TOKEN_HTTP_COLON_METHOD), "put")
+			)
+#endif
+		)
+			i.method = "PUT";
+		else if (lws_hdr_simple_ptr(wsi, WSI_TOKEN_PATCH_URI)
+#if defined(LWS_WITH_HTTP2)
+								|| (
+			lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_METHOD) &&
+			!strcmp(lws_hdr_simple_ptr(wsi,
+					WSI_TOKEN_HTTP_COLON_METHOD), "patch")
+			)
+#endif
+		)
+			i.method = "PATCH";
+		else if (lws_hdr_simple_ptr(wsi, WSI_TOKEN_DELETE_URI)
+#if defined(LWS_WITH_HTTP2)
+								|| (
+			lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_METHOD) &&
+			!strcmp(lws_hdr_simple_ptr(wsi,
+					WSI_TOKEN_HTTP_COLON_METHOD), "delete")
+			)
+#endif
+		)
+			i.method = "DELETE";
 		else
 			i.method = "GET";
 	}
