@@ -379,20 +379,20 @@ static void
 stagger_cb(lws_sorted_usec_list_t *sul);
 
 static void
-lws_try_client_connection(struct lws_client_connect_info *i, int m)
+lws_try_client_connection(struct lws_client_connect_info *ii, int m)
 {
 	char path[128];
 
 	if (numbered) {
 		lws_snprintf(path, sizeof(path), "/%d.png", m + 1);
-		i->path = path;
+		ii->path = path;
 	} else
-		i->path = urlpath;
+		ii->path = urlpath;
 
-	i->pwsi = &client_wsi[m];
-	i->opaque_user_data = (void *)(intptr_t)m;
+	ii->pwsi = &client_wsi[m];
+	ii->opaque_user_data = (void *)(intptr_t)m;
 
-	if (!lws_client_connect_via_info(i)) {
+	if (!lws_client_connect_via_info(ii)) {
 		failed++;
 		lwsl_user("%s: failed: conn idx %d\n", __func__, m);
 		if (++completed == count) {
@@ -401,7 +401,7 @@ lws_try_client_connection(struct lws_client_connect_info *i, int m)
 		}
 	} else
 		lwsl_user("started connection %s: idx %d (%s)\n",
-			  lws_wsi_tag(client_wsi[m]), m, i->path);
+			  lws_wsi_tag(client_wsi[m]), m, ii->path);
 }
 
 
@@ -409,7 +409,7 @@ static int
 system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 		   int current, int target)
 {
-	struct lws_context *context = mgr->parent;
+	struct lws_context *cx = mgr->parent;
 	int m;
 
 	if (current != LWS_SYSTATE_OPERATIONAL || target != LWS_SYSTATE_OPERATIONAL)
@@ -428,7 +428,7 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 		/*
 		 * delay the connections slightly
 		 */
-		lws_sul_schedule(context, 0, &sul_stagger, stagger_cb,
+		lws_sul_schedule(cx, 0, &sul_stagger, stagger_cb,
 				 50 * LWS_US_PER_MS);
 
 	return 0;

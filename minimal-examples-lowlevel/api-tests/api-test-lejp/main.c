@@ -140,7 +140,7 @@ static const char * const json_tests[] = {
 	"}"
 };
 
-struct lejp_results {
+static struct lejp_results {
 	int		reason;
 	int		ipos;
 	int		path_match;

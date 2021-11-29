@@ -14,7 +14,7 @@
 extern int
 avs_example_start(struct lws_context *context);
 
-int interrupted, bad = 1;
+int interrupted, tests_bad = 1;
 static lws_state_notify_link_t nl;
 static const char * const default_ss_policy =
 	"{"
@@ -360,7 +360,7 @@ int main(int argc, const char **argv)
 		n = lws_service(context, 0);
 
 	lws_context_destroy(context);
-	lwsl_user("Completed: %s\n", bad ? "failed" : "OK");
+	lwsl_user("Completed: %s\n", tests_bad ? "failed" : "OK");
 
-	return bad;
+	return tests_bad;
 }

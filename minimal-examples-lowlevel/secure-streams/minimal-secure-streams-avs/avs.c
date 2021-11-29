@@ -23,7 +23,7 @@
 #include <assert.h>
 #include <fcntl.h>
 
-extern int interrupted, bad;
+extern int interrupted, tests_bad;
 static struct lws_ss_handle *hss_avs_event, *hss_avs_sync;
 static uint8_t *wav;
 static size_t wav_len;
@@ -129,7 +129,7 @@ ss_avs_metadata_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 		    (int)len, (int)m->head, (int)m->tail, (int)n);
 	lws_ss_get_est_peer_tx_credit(m->ss);
 	if (len > n) {
-		lwsl_err("%s: bad len: len %d, n %d\n", __func__, (int)len, (int)n);
+		lwsl_err("%s: tests_bad len: len %d, n %d\n", __func__, (int)len, (int)n);
 		assert(0);
 
 		return 1;
@@ -274,7 +274,7 @@ ss_avs_event_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 #endif
 //	lwsl_hexdump_warn(buf, len);
 
-	bad = 0; /* for this demo, receiving something here == success */
+	tests_bad = 0; /* for this demo, receiving something here == success */
 
 	return 0;
 }

@@ -382,9 +382,9 @@ _lws_smd_ss_rx_forward(struct lws_context *ctx, const char *tag,
 
 	_class = (lws_smd_class_t)lws_ser_ru64be(buf);
 
-	if (_class == LWSSMDCL_METRICS) {
+	//if (_class == LWSSMDCL_METRICS) {
 
-	}
+	//}
 
 	/* only locally forward messages that we care about in this process */
 
