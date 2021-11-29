@@ -183,28 +183,17 @@ loop wait (sleeping in `poll()` or `epoll()` or whatever).  The rules above
 mean directly sending data on the connection from another thread is out of the
 question.
 
-Therefore the two apis mentioned above that may be used from another thread are
+The only lws api that's safe to call from other thread contexts is `lws_cancel_service()`.
+This will take a platform-specific action to wake the lws event loop thread wait,
+either put a byte into a pipe2() the event loop is waiting on, or send a packet on
+a UDP socket pair that the event loop waits on.  When the wake is handled by the
+lws event loop thread, it will broadcast a `LWS_CALLBACK_EVENT_WAIT_CANCELLED`
+message to every vhost-protocol instantiation, so you can handle this callback,
+usually lock a shared data region, and if you see you need to write, call
+`lws_callback_on_writeable()` for the wsi(s) that need to write.
 
- - For LWS using the default poll() event loop, `lws_callback_on_writable()`
-
- - For LWS using libuv/libev/libevent event loop, `lws_cancel_service()`
-
-If you are using the default poll() event loop, one "foreign thread" at a time may
-call `lws_callback_on_writable()` directly for a wsi.  You need to use your own
-locking around that to serialize multiple thread access to it.
-
-If you implement LWS_CALLBACK_GET_THREAD_ID in protocols[0], then LWS will detect
-when it has been called from a foreign thread and automatically use
-`lws_cancel_service()` to additionally wake the service loop from its wait.
-
-For libuv/libev/libevent event loop, they cannot handle being called from other
-threads.  So there is a slightly different scheme, you may call `lws_cancel_service()` 
-to force the event loop to end immediately.  This then broadcasts a callback (in the
-service thread context) `LWS_CALLBACK_EVENT_WAIT_CANCELLED`, to all protocols on all
-vhosts, where you can perform your own locking and walk a list of wsi that need
-`lws_callback_on_writable()` calling on them.
-
-`lws_cancel_service()` is very cheap to call.
+There's no restriction on multiple threads calling `lws_cancel_service()`, it's
+unconditionally safe due to how it is implemented underneath.
 
 5) The obverse of this truism about the receiver being the boss is the case where
 we are receiving.  If we get into a situation we actually can't usefully
