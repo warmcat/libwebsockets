@@ -10,7 +10,7 @@
 #endif
 
 static int nclients = 11;
-unsigned char msg[LWS_PRE+128];
+static unsigned char msg[LWS_PRE+128];
 static int message_delay = 500000; // microseconds
 static int connection_delay = 100000; // microseconds
 static struct lws_context *context;

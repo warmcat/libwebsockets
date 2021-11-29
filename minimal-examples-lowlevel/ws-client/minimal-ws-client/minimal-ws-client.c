@@ -54,7 +54,7 @@ static const lws_retry_bo_t retry = {
 static void
 connect_client(lws_sorted_usec_list_t *sul)
 {
-	struct my_conn *mco = lws_container_of(sul, struct my_conn, sul);
+	struct my_conn *m = lws_container_of(sul, struct my_conn, sul);
 	struct lws_client_connect_info i;
 
 	memset(&i, 0, sizeof(i));
@@ -68,9 +68,9 @@ connect_client(lws_sorted_usec_list_t *sul)
 	i.ssl_connection = ssl_connection;
 	i.protocol = pro;
 	i.local_protocol_name = "lws-minimal-client";
-	i.pwsi = &mco->wsi;
+	i.pwsi = &m->wsi;
 	i.retry_and_idle_policy = &retry;
-	i.userdata = mco;
+	i.userdata = m;
 
 	if (!lws_client_connect_via_info(&i))
 		/*
@@ -79,7 +79,7 @@ connect_client(lws_sorted_usec_list_t *sul)
 		 * point.
 		 */
 		if (lws_retry_sul_schedule(context, 0, sul, &retry,
-					   connect_client, &mco->retry_count)) {
+					   connect_client, &m->retry_count)) {
 			lwsl_err("%s: connection attempts exhausted\n", __func__);
 			interrupted = 1;
 		}
@@ -89,7 +89,7 @@ static int
 callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 		 void *user, void *in, size_t len)
 {
-	struct my_conn *mco = (struct my_conn *)user;
+	struct my_conn *m = (struct my_conn *)user;
 
 	switch (reason) {
 
@@ -127,8 +127,8 @@ do_retry:
 	 * elements in the backoff table, it will never give up and keep
 	 * retrying at the last backoff delay plus the random jitter amount.
 	 */
-	if (lws_retry_sul_schedule_retry_wsi(wsi, &mco->sul, connect_client,
-					     &mco->retry_count)) {
+	if (lws_retry_sul_schedule_retry_wsi(wsi, &m->sul, connect_client,
+					     &m->retry_count)) {
 		lwsl_err("%s: connection attempts exhausted\n", __func__);
 		interrupted = 1;
 	}

@@ -184,12 +184,12 @@ void sigint_handler(int sig)
  */
 
 static int
-captive_portal_detect_request(struct lws_context *context)
+captive_portal_detect_request(struct lws_context *cx)
 {
 	struct lws_client_connect_info i;
 
 	memset(&i, 0, sizeof i);
-	i.context = context;
+	i.context = cx;
 	i.port = 80;
 	i.address = "connectivitycheck.android.com";
 	i.path = "/generate_204";
@@ -203,7 +203,7 @@ captive_portal_detect_request(struct lws_context *context)
 }
 
 
-lws_system_ops_t ops = {
+static lws_system_ops_t ops = {
 	.captive_portal_detect_request = captive_portal_detect_request
 };
 

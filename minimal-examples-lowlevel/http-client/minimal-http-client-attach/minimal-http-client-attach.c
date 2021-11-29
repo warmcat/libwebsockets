@@ -117,7 +117,7 @@ void sigint_handler(int sig)
 }
 
 static void
-attach_callback(struct lws_context *context, int tsi, void *opaque)
+attach_callback(struct lws_context *cx, int tsi, void *opaque)
 {
 	struct lws_client_connect_info i;
 
@@ -130,7 +130,7 @@ attach_callback(struct lws_context *context, int tsi, void *opaque)
 	 */
 
 	memset(&i, 0, sizeof i); /* otherwise uninitialized garbage */
-	i.context = context;
+	i.context = cx;
 	i.ssl_connection = LCCSCF_USE_SSL;
 	i.ssl_connection |= LCCSCF_H2_QUIRK_OVERFLOWS_TXCR |
 			    LCCSCF_H2_QUIRK_NGHTTP2_END_STREAM;
@@ -148,7 +148,7 @@ attach_callback(struct lws_context *context, int tsi, void *opaque)
 
 
 static int
-lws_attach_with_pthreads_locking(struct lws_context *context, int tsi,
+lws_attach_with_pthreads_locking(struct lws_context *cx, int tsi,
 				 lws_attach_cb_t cb, lws_system_states_t state,
 				 void *opaque, struct lws_attach_item **get)
 {
@@ -159,14 +159,14 @@ lws_attach_with_pthreads_locking(struct lws_context *context, int tsi,
 	 * We just provide system-specific locking around the lws non-threadsafe
 	 * helper that adds and removes things from the pt list
 	 */
-	n = __lws_system_attach(context, tsi, cb, state, opaque, get);
+	n = __lws_system_attach(cx, tsi, cb, state, opaque, get);
 	pthread_mutex_unlock(&lock);
 
 	return n;
 }
 
 
-lws_system_ops_t ops = {
+static lws_system_ops_t ops = {
 	.attach = lws_attach_with_pthreads_locking
 };
 

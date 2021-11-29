@@ -35,7 +35,7 @@
 
 static uint8_t sendbuf[4096];
 static size_t sendlen;
-struct lws_udp udp;
+static struct lws_udp udp;
 
 static int
 callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,

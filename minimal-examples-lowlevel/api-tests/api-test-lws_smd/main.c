@@ -16,7 +16,7 @@
 
 static int interrupted, ok, fail, _exp = 111;
 static unsigned int how_many_msg = 100, usec_interval = 1000;
-static lws_sorted_usec_list_t sul, sul_initial_drain;
+static lws_sorted_usec_list_t sul_timeout, sul_initial_drain;
 struct lws_context *context;
 static pthread_t thread_spam;
 
@@ -220,7 +220,7 @@ main(int argc, const char **argv)
 
 	/* game over after this long */
 
-	lws_sul_schedule(context, 0, &sul, timeout_cb,
+	lws_sul_schedule(context, 0, &sul_timeout, timeout_cb,
 			 (how_many_msg * (usec_interval + 1000)) + (4 * LWS_US_PER_SEC));
 
 	/* register a messaging participant to hear INTERACTION class */

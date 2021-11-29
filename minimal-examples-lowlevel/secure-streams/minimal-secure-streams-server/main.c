@@ -14,7 +14,7 @@
 extern const lws_ss_info_t ssi_client, ssi_server;
 
 static struct lws_context *context;
-int interrupted, bad = 1, multipart;
+int interrupted, tests_bad = 1, multipart;
 static const char * const default_ss_policy =
 	"{"
 	  "\"release\":"			"\"01234567\","
@@ -237,7 +237,7 @@ smd_cb(void *opaque, lws_smd_class_t c, lws_usec_t ts, void *buf, size_t len)
 				  NULL, NULL)) {
 			lwsl_err("%s: failed to create secure stream\n",
 				 __func__);
-			bad = 1;
+			tests_bad = 1;
 			interrupted = 1;
 			lws_cancel_service(context);
 			return -1;
@@ -297,10 +297,10 @@ int main(int argc, const char **argv)
 	while (n >= 0 && !interrupted)
 		n = lws_service(context, 0);
 
-	bad = 0;
+	tests_bad = 0;
 
 	lws_context_destroy(context);
-	lwsl_user("Completed: %s\n", bad ? "failed" : "OK");
+	lwsl_user("Completed: %s\n", tests_bad ? "failed" : "OK");
 
-	return bad;
+	return tests_bad;
 }

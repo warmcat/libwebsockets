@@ -103,7 +103,7 @@ static int
 system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 		   int current, int target)
 {
-	struct lws_context *context = mgr->parent;
+	struct lws_context *cx = mgr->parent;
 	void *retval;
 
 	if (current != target)
@@ -112,11 +112,11 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 	switch (current) {
 	case LWS_SYSTATE_OPERATIONAL:
 		lwsl_notice("  Service threads: %d\n",
-			    lws_get_count_threads(context));
+			    lws_get_count_threads(cx));
 
 		/* start all the service threads */
 
-		for (started = 1; started < lws_get_count_threads(context);
+		for (started = 1; started < lws_get_count_threads(cx);
 		     started++)
 			if (pthread_create(&pthread_service[started], NULL,
 					   thread_service,
@@ -135,9 +135,9 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 	return 0;
 }
 
-lws_state_notify_link_t notifier = { { NULL, NULL, NULL },
+static lws_state_notify_link_t notifier = { { NULL, NULL, NULL },
 				     system_notify_cb, "app" };
-lws_state_notify_link_t *na[] = { &notifier, NULL };
+static lws_state_notify_link_t *na[] = { &notifier, NULL };
 
 void sigint_handler(int sig)
 {

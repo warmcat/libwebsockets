@@ -10,7 +10,7 @@
 #include <libwebsockets.h>
 #include <assert.h>
 
-extern int interrupted, bad, multipart;
+extern int interrupted, tests_bad, multipart;
 
 static const char *html =
 		/* normally we serve this... */
@@ -73,7 +73,7 @@ myss_srv_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	 * we are done.
 	 */
 	if (flags & LWSSS_FLAG_EOM) {
-		bad = 0;
+		tests_bad = 0;
 		interrupted = 1;
 	}
 
@@ -120,7 +120,7 @@ myss_ws_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	 * we are done.
 	 */
 	if (flags & LWSSS_FLAG_EOM) {
-		bad = 0;
+		tests_bad = 0;
 		interrupted = 1;
 	}
 
