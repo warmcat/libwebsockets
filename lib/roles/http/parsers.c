@@ -1592,7 +1592,7 @@ lws_http_cookie_get(struct lws *wsi, const char *name, char *buf,
 
 	p += bl;
 	n -= (int)bl;
-	while (n-- > (int)bl) {
+	while (n-- > 0) {
 		if (*p == '=' && !memcmp(p - bl, name, (unsigned int)bl)) {
 			p++;
 			while (*p != ';' && n-- && max) {
