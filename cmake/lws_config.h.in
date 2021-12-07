@@ -93,6 +93,7 @@
 #cmakedefine LWS_HAVE_SSL_CTX_load_verify_dir
 #cmakedefine LWS_HAVE_SSL_CTX_set1_param
 #cmakedefine LWS_HAVE_SSL_CTX_set_ciphersuites
+#cmakedefine LWS_HAVE_SSL_CTX_set_keylog_callback
 #cmakedefine LWS_HAVE_SSL_EXTRA_CHAIN_CERTS
 #cmakedefine LWS_HAVE_SSL_get0_alpn_selected
 #cmakedefine LWS_HAVE_SSL_CTX_EVP_PKEY_new_raw_private_key

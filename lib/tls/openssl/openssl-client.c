@@ -705,6 +705,56 @@ lws_tls_client_vhost_extra_cert_mem(struct lws_vhost *vh,
 	return n != 1;
 }
 
+#if defined(LWS_HAVE_SSL_CTX_set_keylog_callback) && \
+	defined(LWS_WITH_TLS) && defined(LWS_WITH_CLIENT)
+static void
+lws_klog_dump(const SSL *ssl, const char *line)
+{
+	struct lws *wsi = SSL_get_ex_data(ssl,
+					  openssl_websocket_private_data_index);
+	char path[128], hdr[128], ts[64];
+	size_t w = 0, wx = 0;
+	int fd, t;
+
+	if (!wsi || !wsi->a.context->keylog_file[0] || !wsi->a.vhost)
+		return;
+
+	lws_snprintf(path, sizeof(path), "%s.%s", wsi->a.context->keylog_file,
+			wsi->a.vhost->name);
+
+	fd = open(path, O_CREAT | O_RDWR | O_APPEND, 0600);
+	if (fd == -1) {
+		lwsl_vhost_warn(wsi->a.vhost, "Failed to append %s", path);
+		return;
+	}
+
+	/* the first item in the chunk */
+	if (!strncmp(line, "SERVER_HANDSHAKE_TRAFFIC_SECRET", 31)) {
+		w += (size_t)write(fd, "\n# ", 3);
+		wx += 3;
+		t = lwsl_timestamp(LLL_WARN, ts, sizeof(ts));
+		wx += (size_t)t;
+		w += (size_t)write(fd, ts, (size_t)t);
+
+		t = lws_snprintf(hdr, sizeof(hdr), "%s\n", wsi->lc.gutag);
+		w += (size_t)write(fd, hdr, (size_t)t);
+		wx += (size_t)t;
+
+		lwsl_vhost_warn(wsi->a.vhost, "appended ssl keylog: %s", path);
+	}
+
+	wx += strlen(line) + 1;
+	w += (size_t)write(fd, line, strlen(line));
+	w += (size_t)write(fd, "\n", 1);
+	close(fd);
+
+	if (w != wx) {
+		lwsl_vhost_warn(wsi->a.vhost, "Failed to write %s", path);
+		return;
+	}
+}
+#endif
+
 int
 lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 				    const struct lws_context_creation_info *info,
@@ -886,6 +936,12 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 	/* bind the tcr to the client context */
 
 	vh->tls.tcr = tcr;
+
+#if defined(LWS_HAVE_SSL_CTX_set_keylog_callback) && \
+		defined(LWS_WITH_TLS) && defined(LWS_WITH_CLIENT)
+	if (vh->context->keylog_file[0])
+		SSL_CTX_set_keylog_callback(vh->tls.ssl_client_ctx, lws_klog_dump);
+#endif
 
 #if defined(LWS_WITH_TLS_SESSIONS)
 	vh->tls_session_cache_max = info->tls_session_cache_max ?

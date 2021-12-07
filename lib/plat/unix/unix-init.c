@@ -178,6 +178,17 @@ lws_plat_init(struct lws_context *context,
 		return 1;
 	}
 
+#if defined(LWS_HAVE_SSL_CTX_set_keylog_callback) && \
+		defined(LWS_WITH_TLS) && defined(LWS_WITH_CLIENT)
+	{
+		char *klf_env = getenv("SSLKEYLOGFILE");
+
+		if (klf_env)
+			lws_strncpy(context->keylog_file, klf_env,
+				sizeof(context->keylog_file));
+	}
+#endif
+
 #if defined(LWS_WITH_PLUGINS) && !defined(LWS_WITH_PLUGINS_BUILTIN)
 	{
 		char *ld_env = getenv("LD_LIBRARY_PATH");
