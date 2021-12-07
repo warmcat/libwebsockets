@@ -10,7 +10,7 @@
  * with three extra lines giving it tls (ssl) capabilities, which in
  * turn allow operation with HTTP/2 if lws was configured for it.
  *
- * To keep it simple, it serves stuff from the subdirectory 
+ * To keep it simple, it serves stuff from the subdirectory
  * "./mount-origin" of the directory it was started in.
  *
  * You can change that by changing mount.origin below.
@@ -37,6 +37,7 @@ static const struct lws_http_mount mount = {
 	/* .cache_reusable */		0,
 	/* .cache_revalidate */		0,
 	/* .cache_intermediaries */	0,
+	/* .cache_no */			0,
 	/* .origin_protocol */		LWSMPRO_FILE,	/* files in a dir */
 	/* .mountpoint_len */		1,		/* char count */
 	/* .basic_auth_login_file */	NULL,

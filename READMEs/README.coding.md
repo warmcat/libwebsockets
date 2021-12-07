@@ -45,7 +45,7 @@ If you want to send something, do NOT just send it but request a callback
 when the socket is writeable using
 
  - `lws_callback_on_writable(wsi)` for a specific `wsi`, or
- 
+
  - `lws_callback_on_writable_all_protocol(protocol)` for all connections
 using that protocol to get a callback when next writeable.
 
@@ -66,7 +66,7 @@ Libwebsockets' concept is that the downstream peer is truly the boss, if he,
 or our connection to him, cannot handle anything new, we should not generate
 anything new for him.  This is how unix shell piping works, you may have
 `cat a.txt | grep xyz > remote", but actually that does not cat anything from
-a.txt while remote cannot accept anything new. 
+a.txt while remote cannot accept anything new.
 
 @section oneper Only one lws_write per WRITEABLE callback
 
@@ -225,7 +225,7 @@ in that case by default it will bind to the first protocol in your
 vhost protocols[] array.
 
 You can tell the vhost to use a different protocol by attaching a
-pvo (per-vhost option) to the 
+pvo (per-vhost option) to the
 
 ```
 /*
@@ -318,14 +318,14 @@ to gather the whole contents of a message, eg:
 	    {
 	        Client * const client = (Client *)user;
 	        const size_t remaining = lws_remaining_packet_payload(wsi);
-	
+
 	        if (!remaining && lws_is_final_fragment(wsi)) {
 	            if (client->HasFragments()) {
 	                client->AppendMessageFragment(in, len, 0);
 	                in = (void *)client->GetMessage();
 	                len = client->GetMessageLength();
 	            }
-	
+
 	            client->ProcessMessage((char *)in, len, wsi);
 	            client->ResetMessage();
 	        } else
@@ -383,7 +383,7 @@ reflecting the real event:
 
  - check the built-in support for the event loop if possible (eg, ./lib/libuv.c)
    to see how it interfaces to lws
-   
+
  - use LWS_POLLHUP / LWS_POLLIN / LWS_POLLOUT from libwebsockets.h to avoid
    losing windows compatibility
 
@@ -467,18 +467,18 @@ header access apis are already made compatible for incoming headers,
 for outgoing headers you must:
 
  - observe the LWS_PRE buffer requirement mentioned above
- 
+
  - Use `lws_add_http_header_status()` to add the transaction status (200 etc)
- 
+
  - use lws apis `lws_add_http_header_by_name()` and `lws_add_http_header_by_token()`
    to put the headers into the buffer (these will translate what is actually
    written to the buffer depending on if the connection is in http/2 mode or not)
-   
+
  - use the `lws api lws_finalize_http_header()` api after adding the last
    response header
-   
+
  - write the header using lws_write(..., `LWS_WRITE_HTTP_HEADERS`);
- 
+
  3) http/2 introduces per-stream transmit credit... how much more you can send
  on a stream is decided by the peer.  You start off with some amount, as the
  stream sends stuff lws will reduce your credit accordingly, when it reaches
@@ -489,7 +489,7 @@ for outgoing headers you must:
  you write your own code that wants to send http data, you must consult the
  `lws_get_peer_write_allowance()` api to find out the state of your tx credit.
  For http/1, it will always return (size_t)-1, ie, no limit.
- 
+
  This is orthogonal to the question of how much space your local side's kernel
  will make to buffer your send data on that connection.  So although the result
  from `lws_get_peer_write_allowance()` is "how much you can send" logically,
@@ -499,15 +499,15 @@ for outgoing headers you must:
  something smaller.  If it returns 0, you should not consume or send anything
  and return having asked for callback on writable, it will only come back when
  more tx credit has arrived for your stream.
- 
+
  4) Header names with captital letters are illegal in http/2.  Header names in
  http/1 are case insensitive.  So if you generate headers by name, change all
  your header name strings to lower-case to be compatible both ways.
- 
+
  5) Chunked Transfer-encoding is illegal in http/2, http/2 peers will actively
  reject it.  Lws takes care of removing the header and converting CGIs that
  emit chunked into unchunked automatically for http/2 connections.
- 
+
 If you follow these rules, your code will automatically work with both http/1.x
 and http/2.
 
@@ -769,7 +769,7 @@ Run libwebsockets-test-server-v2.0 and connect to it by telnet, eg
 type something that isn't a valid HTTP method and enter, before the
 connection times out.  The connection will switch to RAW mode using this
 protocol, and pass the unused rx as a raw RX callback.
-    
+
 The test protocol echos back what was typed on telnet to telnet.
 
 @section rawclientsocket RAW client socket descriptor polling
@@ -841,7 +841,7 @@ the remainder depending on what you are doing).
 
 ECDH Certs are now supported.  Enable the CMake option
 
-	cmake .. -DLWS_SSL_SERVER_WITH_ECDH_CERT=1 
+	cmake .. -DLWS_SSL_SERVER_WITH_ECDH_CERT=1
 
 **and** the info->options flag
 
@@ -885,7 +885,7 @@ Two new members are added to the info struct
 
 	unsigned int count_threads;
 	unsigned int fd_limit_per_thread;
-	
+
 leave them at the default 0 to get the normal singlethreaded service loop.
 
 Set count_threads to n to tell lws you will have n simultaneous service threads
@@ -1146,7 +1146,7 @@ match, it will have been chosen in preference to this.
 
 Connections with SSL will still have the client go on to check the
 certificate allows wildcards and error out if not.
- 
+
 
 
 @section mounts Using lws mounts on a vhost
@@ -1162,16 +1162,17 @@ filesystem how you like and deal with the contents transparently.
 		const char *mountpoint; /* mountpoint in http pathspace, eg, "/" */
 		const char *origin; /* path to be mounted, eg, "/var/www/warmcat.com" */
 		const char *def; /* default target, eg, "index.html" */
-	
+
 		struct lws_protocol_vhost_options *cgienv;
-	
+
 		int cgi_timeout;
 		int cache_max_age;
-	
+
 		unsigned int cache_reusable:1;
 		unsigned int cache_revalidate:1;
 		unsigned int cache_intermediaries:1;
-	
+      unsigned int cache_no:1;
+
 		unsigned char origin_protocol;
 		unsigned char mountpoint_len;
 	};
@@ -1304,19 +1305,19 @@ is still connected to the server, by greying out the page if not.  You can
 also add this to your own html easily
 
  - include lws-common.js from your HEAD section
- 
+
    \<script src="/lws-common.js">\</script>
-   
+
  - dim the page during initialization, in a script section on your page
- 
+
    lws_gray_out(true,{'zindex':'499'});
-   
+
  - in your ws onOpen(), remove the dimming
- 
+
    lws_gray_out(false);
-   
+
  - in your ws onClose(), reapply the dimming
- 
+
    lws_gray_out(true,{'zindex':'499'});
 
 @section errstyle Styling http error pages
@@ -1331,7 +1332,6 @@ context / vhost info struct (`struct lws_context_creation_info`) member
 If it wasn't redirected, then the response code html is synthesized containing
 the user-selected text message and attempts to pull in `/error.css` for styling.
 
-If this file exists, it can be used to style the error page.  See 
+If this file exists, it can be used to style the error page.  See
 https://libwebsockets.org/git/badrepo for an example of what can be done (
 and https://libwebsockets.org/error.css for the corresponding css).
-

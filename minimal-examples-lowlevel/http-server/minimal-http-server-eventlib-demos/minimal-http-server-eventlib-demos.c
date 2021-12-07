@@ -9,7 +9,7 @@
  * This demonstrates a minimal http[s] server that can work with any of the
  * supported event loop backends, or the default poll() one.
  *
- * To keep it simple, it serves stuff from the subdirectory 
+ * To keep it simple, it serves stuff from the subdirectory
  * "./mount-origin" of the directory it was started in.
  * You can change that by changing mount.origin below.
  */
@@ -56,6 +56,7 @@ static const struct lws_http_mount mount_ziptest_uncomm = {
 	0,
 	0,
 	0,
+	0,
 	LWSMPRO_FILE,	/* origin points to a callback */
 	14,			/* strlen("/ziptest"), ie length of the mountpoint */
 	NULL,
@@ -68,6 +69,7 @@ static const struct lws_http_mount mount_ziptest_uncomm = {
 	NULL,
 	NULL,
 	NULL,
+	0,
 	0,
 	0,
 	0,
@@ -93,6 +95,7 @@ static const struct lws_http_mount mount_ziptest_uncomm = {
 	0,
 	0,
 	0,
+	0,
 	LWSMPRO_CALLBACK,	/* origin points to a callback */
 	9,			/* strlen("/formtest"), ie length of the mountpoint */
 	NULL,
@@ -112,6 +115,7 @@ static const struct lws_http_mount mount_ziptest_uncomm = {
 	/* .cache_reusable */		0,
 	/* .cache_revalidate */		0,
 	/* .cache_intermediaries */	0,
+	/* .cache_no */			0,
 	/* .origin_protocol */		LWSMPRO_FILE,	/* files in a dir */
 	/* .mountpoint_len */		1,		/* char count */
 	/* .basic_auth_login_file */	NULL,

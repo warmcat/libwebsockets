@@ -388,6 +388,9 @@ struct lws;
 /* File operations stuff exists */
 #define LWS_FEATURE_FOPS
 
+/* Mounts have extra no_cache member */
+#define LWS_FEATURE_MOUNT_NO_CACHE
+
 
 #if defined(_WIN32)
 #if !defined(LWS_WIN32_HANDLE_TYPES)
