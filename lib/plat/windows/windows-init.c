@@ -104,6 +104,17 @@ lws_plat_init(struct lws_context *context,
 	}
 #endif
 
+#if defined(LWS_HAVE_SSL_CTX_set_keylog_callback) && \
+		defined(LWS_WITH_TLS) && defined(LWS_WITH_CLIENT)
+	{
+		char *klf_env = getenv("SSLKEYLOGFILE");
+
+		if (klf_env)
+			lws_strncpy(context->keylog_file, klf_env,
+				sizeof(context->keylog_file));
+	}
+#endif
+
 	for (i = 0; i < FD_HASHTABLE_MODULUS; i++) {
 		context->fd_hashtable[i].wsi =
 			lws_zalloc(sizeof(struct lws*) * context->max_fds,
