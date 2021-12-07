@@ -1923,6 +1923,7 @@ lws_http_action(struct lws *wsi)
 	wsi->cache_secs = (unsigned int)hit->cache_max_age;
 	wsi->cache_reuse = hit->cache_reusable;
 	wsi->cache_revalidate = hit->cache_revalidate;
+	wsi->cache_no = hit->cache_no;
 	wsi->cache_intermediaries = hit->cache_intermediaries;
 
 #if defined(LWS_WITH_FILE_OPS)
@@ -2944,19 +2945,22 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 		}
 	}
 
-	if (wsi->cache_secs && wsi->cache_reuse) {
+	if (wsi->cache_no) {
+		cc = cache_control;
+		cclen = sprintf(cache_control, "no-cache");
+	}
+	else if (wsi->cache_secs && wsi->cache_reuse) {
 		if (!wsi->cache_revalidate) {
 			cc = cache_control;
 			cclen = sprintf(cache_control, "%s, max-age=%u",
-				    intermediates[wsi->cache_intermediaries],
-				    wsi->cache_secs);
+                         intermediates[wsi->cache_intermediaries],
+                         wsi->cache_secs);
 		} else {
 			cc = cache_control;
 			cclen = sprintf(cache_control,
-					"must-revalidate, %s, max-age=%u",
-                                intermediates[wsi->cache_intermediaries],
-                                                    wsi->cache_secs);
-
+                         "must-revalidate, %s, max-age=%u",
+                         intermediates[wsi->cache_intermediaries],
+                         wsi->cache_secs);
 		}
 	}
 

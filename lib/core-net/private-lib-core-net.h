@@ -780,6 +780,7 @@ struct lws {
 	unsigned int			cache_reuse:1;
 	unsigned int			cache_revalidate:1;
 	unsigned int			cache_intermediaries:1;
+	unsigned int			cache_no:1;
 	unsigned int			favoured_pollin:1;
 	unsigned int			sending_chunked:1;
 	unsigned int			interpreting:1;

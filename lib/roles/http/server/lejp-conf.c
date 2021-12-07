@@ -92,6 +92,7 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].mounts[].cache-max-age",
 	"vhosts[].mounts[].cache-reuse",
 	"vhosts[].mounts[].cache-revalidate",
+	"vhosts[].mounts[].cache-no",
 	"vhosts[].mounts[].basic-auth",
 	"vhosts[].mounts[].cache-intermediaries",
 	"vhosts[].mounts[].extra-mimetypes.*",
@@ -161,6 +162,7 @@ enum lejp_vhost_paths {
 	LEJPVP_MOUNT_CACHE_MAX_AGE,
 	LEJPVP_MOUNT_CACHE_REUSE,
 	LEJPVP_MOUNT_CACHE_REVALIDATE,
+	LEJPVP_MOUNT_CACHE_NO,
 	LEJPVP_MOUNT_BASIC_AUTH,
 	LEJPVP_MOUNT_CACHE_INTERMEDIARIES,
 	LEJPVP_MOUNT_EXTRA_MIMETYPES,
@@ -683,6 +685,9 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		return 0;
 	case LEJPVP_MOUNT_CACHE_REVALIDATE:
 		a->m.cache_revalidate = !!arg_to_bool(ctx->buf);
+		return 0;
+	case LEJPVP_MOUNT_CACHE_NO:
+		a->m.cache_no = !!arg_to_bool(ctx->buf);
 		return 0;
 	case LEJPVP_MOUNT_CACHE_INTERMEDIARIES:
 		a->m.cache_intermediaries = !!arg_to_bool(ctx->buf);;

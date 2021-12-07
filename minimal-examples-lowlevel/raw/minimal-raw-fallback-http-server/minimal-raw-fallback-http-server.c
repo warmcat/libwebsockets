@@ -8,7 +8,7 @@
  *
  * This demonstrates the most minimal http server you can make with lws.
  *
- * To keep it simple, it serves stuff from the subdirectory 
+ * To keep it simple, it serves stuff from the subdirectory
  * "./mount-origin" of the directory it was started in.
  * You can change that by changing mount.origin below.
  *
@@ -42,6 +42,7 @@ static const struct lws_http_mount mount = {
 	/* .cache_reusable */		0,
 	/* .cache_revalidate */		0,
 	/* .cache_intermediaries */	0,
+	/* .cache_no */			0,
 	/* .origin_protocol */		LWSMPRO_FILE,	/* files in a dir */
 	/* .mountpoint_len */		1,		/* char count */
 	/* .basic_auth_login_file */	NULL,

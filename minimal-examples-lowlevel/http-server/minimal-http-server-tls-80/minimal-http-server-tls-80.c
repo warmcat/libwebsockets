@@ -13,7 +13,7 @@
  * In addition, it runs a vhost on port 80 with the job of redirecting
  * and upgrading http clients that came in on port 80 to https on port 443.
  *
- * To keep it simple, it serves stuff from the subdirectory 
+ * To keep it simple, it serves stuff from the subdirectory
  * "./mount-origin" of the directory it was started in.
  *
  * You can change that by changing mount.origin below.
@@ -40,6 +40,7 @@ static const struct lws_http_mount mount80 = {
 	/* .cache_reusable */		0,
 	/* .cache_revalidate */		0,
 	/* .cache_intermediaries */	0,
+	/* .cache_no */			0,
 	/* .origin_protocol */		LWSMPRO_REDIR_HTTPS, /* https redir */
 	/* .mountpoint_len */		1,		/* char count */
 	/* .basic_auth_login_file */	NULL,
@@ -60,6 +61,7 @@ static const struct lws_http_mount mount = {
 	/* .cache_reusable */		0,
 	/* .cache_revalidate */		0,
 	/* .cache_intermediaries */	0,
+	/* .cache_no */			0,
 	/* .origin_protocol */		LWSMPRO_FILE,	/* files in a dir */
 	/* .mountpoint_len */		1,		/* char count */
 	/* .basic_auth_login_file */	NULL,
