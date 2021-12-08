@@ -903,6 +903,18 @@ __lws_close_free_wsi_final(struct lws *wsi)
 		sanity_assert_no_sockfd_traces(wsi->a.context, wsi->desc.sockfd);
 	}
 
+	/* ... if we're closing the cancel pipe, account for it */
+
+	{
+		struct lws_context_per_thread *pt =
+				&wsi->a.context->pt[(int)wsi->tsi];
+
+		if (pt->pipe_wsi == wsi)
+			pt->pipe_wsi = NULL;
+		if (pt->dummy_pipe_fds[0] == wsi->desc.sockfd)
+			pt->dummy_pipe_fds[0] = LWS_SOCK_INVALID;
+	}
+
 	wsi->desc.sockfd = LWS_SOCK_INVALID;
 
 #if defined(LWS_WITH_CLIENT)
