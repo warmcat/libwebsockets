@@ -203,7 +203,7 @@ lws_gate_accepts(struct lws_context *context, int on)
 	if (context->tls_gate_accepts == (char)on)
 		return 0;
 
-	lwsl_cx_notice(context, "on = %d", on);
+	lwsl_cx_info(context, "on = %d", on);
 
 	context->tls_gate_accepts = (char)on;
 
