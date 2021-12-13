@@ -59,7 +59,7 @@ lws_service(struct lws_context *context, int timeout_ms);
  * \param tsi:		Thread service index, starting at 0
  *
  * Same as lws_service(), but for a specific thread service index.  Only needed
- * if you are spawning multiple service threads.
+ * if you are spawning multiple service threads that operate on the same lws_context.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_service_tsi(struct lws_context *context, int timeout_ms, int tsi);
