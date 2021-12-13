@@ -1248,10 +1248,12 @@ int
 lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 		     char *uri_ptr, char ws)
 {
-	char ads[96], rpath[256], host[96], *pcolon, *pslash, unix_skt = 0;
+	char ads[96], host[96], *pcolon, *pslash, unix_skt = 0;
 	struct lws_client_connect_info i;
 	struct lws *cwsi;
 	int n, na;
+	unsigned int max_http_header_data = wsi->a.context->max_http_header_data > 256 ? wsi->a.context->max_http_header_data : 256;
+	char rpath[max_http_header_data];
 
 #if defined(LWS_ROLE_WS)
 	if (ws)
@@ -1318,7 +1320,7 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 	if (pcolon)
 		i.port = atoi(pcolon + 1);
 
-	n = lws_snprintf(rpath, sizeof(rpath) - 1, "/%s/%s",
+	n = lws_snprintf(rpath, max_http_header_data - 1, "/%s/%s",
 			 pslash + 1, uri_ptr + hit->mountpoint_len) - 1;
 	lws_clean_url(rpath);
 	n = (int)strlen(rpath);
@@ -1335,7 +1337,7 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 
 		p = rpath + n;
 
-		if (na >= (int)sizeof(rpath) - n - 2) {
+		if (na >= (int)max_http_header_data - n - 2) {
 			lwsl_info("%s: query string %d longer "
 				  "than we can handle\n", __func__,
 				  na);
@@ -1345,7 +1347,7 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 
 		*p++ = '?';
 		budg = lws_hdr_copy(wsi, p,
-			     (int)(&rpath[sizeof(rpath) - 1] - p),
+			     (int)(&rpath[max_http_header_data - 1] - p),
 			     WSI_TOKEN_HTTP_URI_ARGS);
 	       if (budg > 0)
 		       p += budg;
