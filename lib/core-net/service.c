@@ -322,7 +322,11 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 
 		u = __lws_sul_service_ripe(pt->pt_sul_owner,
 				      LWS_COUNT_PT_SUL_OWNERS, lws_now_usecs());
-		if (u < (lws_usec_t)timeout_ms * (lws_usec_t)1000)
+		/*
+		 * We will come back with 0 if nothing to do at the moment, or
+		 * the number of us until something to do
+		 */
+		if (u && u < (lws_usec_t)timeout_ms * (lws_usec_t)1000)
 			timeout_ms = (int)(u / 1000);
 
 		lws_pt_unlock(pt);
