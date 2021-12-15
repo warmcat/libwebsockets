@@ -109,7 +109,11 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 #if defined(__linux__)
 				CBAUD |
 #endif
-				CSIZE | CSTOPB | PARENB | CRTSCTS);
+				CSIZE | CSTOPB | PARENB
+#if !defined(__QNX__)
+				| CRTSCTS
+#endif
+		);
 		tio.c_cflag |= 0x1412 | CS8 | CREAD | CLOCAL;
 
 		tcsetattr(vhd->filefd, TCSANOW, &tio);
