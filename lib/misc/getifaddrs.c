@@ -90,7 +90,11 @@ getifaddrs2(struct ifaddrs **ifap, int af, int siocgifconf, int siocgifflags,
 			ret = ENOMEM;
 			goto error_out;
 		}
+#if defined(__QNX__)
+		ifconf.ifc_len = (short)(int)buf_size;
+#else
 		ifconf.ifc_len = (int)buf_size;
+#endif
 		ifconf.ifc_buf = buf;
 
 		/*
