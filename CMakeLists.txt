@@ -82,6 +82,10 @@ if (ESP_PLATFORM)
        include_directories(
 		$ENV{IDF_PATH}/components/esp_hw_support/include/soc/
 		$ENV{IDF_PATH}/components/freertos/include/
+		$ENV{IDF_PATH}/components/freertos/esp_additions/include/
+		$ENV{IDF_PATH}/components/freertos/esp_additions/include/freertos/
+		$ENV{IDF_PATH}/components/freertos/FreeRTOS-Kernel/include/
+		$ENV{IDF_PATH}/components/freertos/FreeRTOS-Kernel/portable/linux/include/
 		$ENV{IDF_PATH}/components/xtensa/${CONFIG_IDF_TARGET}/include/
 		$ENV{IDF_PATH}/components/freertos/include/esp_additions
 		$ENV{IDF_PATH}/components/hal/include
@@ -822,6 +826,10 @@ if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX OR COMPILER_IS_CLANG)
 
 	if (PICO_SDK_PATH)
 		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Wno-unused-parameter -Wconversion -Wsign-compare -Wstrict-aliasing -Wundef -nolibc")
+	endif()
+
+	if (ESP_PLATFORM AND (CONFIG_IDF_TARGET_ESP32 OR CONFIG_IDF_TARGET_ESP32S2 OR CONFIG_IDF_TARGET_ESP32S3))
+		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mlongcalls")
 	endif()
 
 	if ("${DISABLE_WERROR}" STREQUAL "OFF")

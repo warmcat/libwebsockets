@@ -471,8 +471,8 @@ lws_button_controller_destroy(struct lws_button_state *bcs)
 	lws_button_enable(bcs, 0, 0);
 
 #if defined(LWS_PLAT_TIMER_DELETE)
-	LWS_PLAT_TIMER_DELETE(&bcs->timer);
-	LWS_PLAT_TIMER_DELETE(&bcs->timer_mon);
+	LWS_PLAT_TIMER_DELETE(bcs->timer);
+	LWS_PLAT_TIMER_DELETE(bcs->timer_mon);
 #endif
 
 	lws_free(bcs);
