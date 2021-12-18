@@ -81,7 +81,7 @@ void
 lws_led_gpio_destroy(struct lws_led_state *lcs)
 {
 #if defined(LWS_PLAT_TIMER_DELETE)
-	LWS_PLAT_TIMER_DELETE(&lcs->timer);
+	LWS_PLAT_TIMER_DELETE(lcs->timer);
 #endif
 	lws_free(lcs);
 }
