@@ -49,6 +49,11 @@ struct lws_dlo;
 /* stores Y in RGBY */
 #define PALETTE_RGBY(_r, _g, _b) LWSDC_RGBA(_r, _g, _b, (RGB_TO_Y(_r, _g, _b)))
 
+typedef struct {
+	lws_fx_t	w;
+	lws_fx_t	h;
+} lws_dlo_dim_t;
+
 /*
  * When using RGBA to describe native greyscale, R is Y and A is A, GB is ignored
  */
@@ -98,12 +103,28 @@ typedef struct lws_display_id {
 typedef struct lws_dlo {
 	lws_dll2_t			list;
 
+	lws_dll2_t			col_list; /* lws_dlo_t: column-mates */
+	lws_dll2_t			row_list; /* lws_dlo_t: row-mates */
+
 	/* children are rendered "inside" the parent DLO box after allowing
 	 * for parent padding */
 	lws_dll2_owner_t		children;
 
+	/* only used for dlo rect representing whole table */
+
+	lws_dll2_owner_t		table_cols; /* lhp_table_col_t */
+	lws_dll2_owner_t		table_rows; /* lhp_table_row_t */
+
+	/* may point to dlo whose width or height decides our x or y */
+
+	struct lws_dlo			*abut_x;
+	struct lws_dlo			*abut_y;
+
 	lws_dlo_destroy_t		_destroy; /* dlo-type specific cb */
 	lws_dlo_renderer_t		render;   /* dlo-type specific cb */
+
+	lws_fx_t			margin[4];
+	lws_fx_t			padding[4]; /* child origin */
 
 	lws_display_id_t		*id; /* only valid until ids destroyed */
 
@@ -111,7 +132,8 @@ typedef struct lws_dlo {
 	lws_display_colour_t		dc;
 
 	uint8_t				flag_runon:1; /* continues same line */
-	uint8_t				flag_done_align:1; /* continues same line */
+	uint8_t				flag_done_align:1;
+	uint8_t				flag_toplevel:1; /* don't scan up with me (different owner) */
 
 	/* render-specific members ... */
 } lws_dlo_t;
@@ -232,7 +254,8 @@ typedef struct lws_dlo_jpeg {
 
 typedef enum {
 	LWSDLOSS_TYPE_JPEG,
-	LWSDLOSS_TYPE_PNG
+	LWSDLOSS_TYPE_PNG,
+	LWSDLOSS_TYPE_CSS,
 } lws_dlo_image_type_t;
 
 typedef struct {
@@ -296,6 +319,12 @@ lws_display_render_get_id(lws_display_render_state_t *rs, const char *id);
 
 LWS_VISIBLE LWS_EXTERN void
 lws_display_render_dump_ids(lws_dll2_owner_t *ids);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_dlo_contents(lws_dlo_t *parent, lws_dlo_dim_t *dim);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_display_dlo_adjust_dims(lws_dlo_t *dlo, lws_dlo_dim_t *dim);
 
 /**
  * lws_display_dl_init() - init display list object
@@ -424,17 +453,19 @@ typedef struct {
 	struct lhp_ctx			*lhp;
 	lws_dlo_image_t			*u;
 	int32_t				window;
+
+	uint8_t				type;
 } lws_dlo_ss_create_info_t;
 
-LWS_VISIBLE LWS_EXTERN lws_dlo_t *
-lws_dlo_ss_create(lws_dlo_ss_create_info_t *i);
+LWS_VISIBLE LWS_EXTERN int
+lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo);
 
 typedef struct lhp_ctx lhp_ctx_t;
 
 LWS_VISIBLE LWS_EXTERN int
 lws_dlo_ss_find(struct lws_context *cx, const char *url, lws_dlo_image_t *u);
 
-LWS_VISIBLE LWS_EXTERN signed char
+LWS_VISIBLE LWS_EXTERN lws_stateful_ret_t
 lhp_displaylist_layout(lhp_ctx_t *ctx, char reason);
 
 #define lws_dlo_image_width(_u) ((_u)->failed ? -1 : \
@@ -471,7 +502,7 @@ lws_fonts_destroy(struct lws_context *cx);
  * Static blob registry (built-in, name-accessible blobs)
  */
 
-LWS_VISIBLE LWS_EXTERN int
+LWS_VISIBLE LWS_EXTERN lws_dlo_filesystem_t *
 lws_dlo_file_register(struct lws_context *cx, const lws_dlo_filesystem_t *f);
 
 /* only needed if f dynamically heap-allocated... doesn't free data; data
@@ -480,6 +511,9 @@ lws_dlo_file_register(struct lws_context *cx, const lws_dlo_filesystem_t *f);
 
 LWS_VISIBLE LWS_EXTERN void
 lws_dlo_file_unregister(lws_dlo_filesystem_t **f);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_dlo_file_unregister_by_name(struct lws_context *cx, const char *name);
 
 LWS_VISIBLE LWS_EXTERN const lws_dlo_filesystem_t *
 lws_dlo_file_choose(struct lws_context *cx, const char *name);
