@@ -534,8 +534,8 @@ lws_display_render_dump_ids(lws_dll2_owner_t *ids)
 			lwsl_notice("  id: '%s' (not present)\n", id->id);
 		else
 			lwsl_notice("  id: '%s', (%d,%d), %dx%d\n", id->id,
-					id->box.x.whole, id->box.y.whole,
-					id->box.w.whole, id->box.h.whole);
+					(int)id->box.x.whole, (int)id->box.y.whole,
+					(int)id->box.w.whole, (int)id->box.h.whole);
 	} lws_end_foreach_dll(d);
 }
 

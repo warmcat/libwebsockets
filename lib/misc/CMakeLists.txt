@@ -165,6 +165,16 @@ if (LWS_WITH_CBOR)
 		misc/lecp.c
 		misc/ieeehalfprecision.c)
 endif()
+if (LWS_WITH_LHP)
+	list(APPEND SOURCES
+		misc/lhp.c)
+
+	if (LWS_WITH_SECURE_STREAMS)
+		list(APPEND SOURCES
+			misc/lhp-ss.c)
+	endif()
+
+endif()
 
 if (UNIX)
 	if (NOT LWS_HAVE_GETIFADDRS)

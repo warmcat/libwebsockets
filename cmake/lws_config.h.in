@@ -188,6 +188,7 @@
 #cmakedefine LWS_WITH_CBOR_FLOAT
 #cmakedefine LWS_WITH_JSONRPC
 #cmakedefine LWS_WITH_LEJP
+#cmakedefine LWS_WITH_LHP
 #cmakedefine LWS_WITH_LIBEV
 #cmakedefine LWS_WITH_LIBEVENT
 #cmakedefine LWS_WITH_LIBUV
