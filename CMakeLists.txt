@@ -272,6 +272,7 @@ option(LWS_WITH_LEJP "With the Lightweight JSON Parser" ON)
 option(LWS_WITH_CBOR "With the Lightweight LECP CBOR Parser" OFF)
 option(LWS_WITH_CBOR_FLOAT "Build floating point types if building CBOR LECP" ON)
 option(LWS_WITH_SQLITE3 "Require SQLITE3 support" OFF)
+option(LWS_WITH_LHP "With the Lightweight HTML5 parser" ON)
 option(LWS_WITH_STRUCT_JSON "Generic struct serialization to and from JSON" OFF)
 option(LWS_WITH_STRUCT_SQLITE3 "Generic struct serialization to and from SQLITE3" OFF)
 option(LWS_WITH_JSONRPC "JSON RPC support" ON)
@@ -349,7 +350,10 @@ option(LWS_WITH_ALLOC_METADATA_LWS "Build lws_*alloc() with compressed backtrace
 #
 option(LWS_WITH_OTA "Build with support for Over The Air update download and validation" OFF)
 set(LWS_OTA_VARIANT "set-LWS_OTA_VARIANT" CACHE STRING "Build Variant ID for OTA filtering")
-set(LWS_OTA_PUBLIC_JWK "set-LWS_OTA_PUBLIC_JWK" CACHE STRING "Filepath to public JWK used for OTA validation")
+set(LWS_OTA_PUBLIC_JWK_FILE "$ENV{HOME}/.lws_ota/libwebsockets.org-ota-v1.public.jwk" CACHE STRING "Filepath of public JWK used to validate packages")
+if (LWS_WITH_OTA)
+	file(READ ${LWS_OTA_PUBLIC_JWK_FILE} LWS_OTA_PUBLIC_JWK)
+endif()
 
 
 if (${CMAKE_SYSTEM_NAME} MATCHES "SunOS")

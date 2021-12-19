@@ -798,6 +798,8 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size);
 #include <libwebsockets/lws-netdev.h>
 #endif
 
+#include <libwebsockets/lws-html.h>
+
 #ifdef __cplusplus
 }
 #endif
