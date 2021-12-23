@@ -490,8 +490,8 @@ lws_dsh_alloc_tail(lws_dsh_t *dsh, int kind, const void *src1, size_t size1,
 		r =  _lws_dsh_alloc_tail(dsh, kind, src1, s1, src2, s2, NULL);
 		if (r)
 			return r;
-		src1 += s1;
-		src2 += s2;
+		src1 = (void *)((uint8_t *)src1 + s1);
+		src2 = (void *)((uint8_t *)src2 + s2);
 		size1 -= s1;
 		size2 -= s2;
 	} while (size1 + size2);
