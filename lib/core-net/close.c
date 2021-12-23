@@ -963,7 +963,7 @@ __lws_close_free_wsi_final(struct lws *wsi)
 		//_lws_header_table_reset(wsi->http.ah);
 
 #if defined(LWS_WITH_TLS)
-		wsi->tls.use_ssl = wsi->flags & LCCSCF_USE_SSL;
+		wsi->tls.use_ssl = (unsigned int)wsi->flags;
 #endif
 
 #if defined(LWS_WITH_TLS_JIT_TRUST)
