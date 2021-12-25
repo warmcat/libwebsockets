@@ -1645,3 +1645,62 @@ lws_humanize(char *p, size_t len, uint64_t v, const lws_humanize_unit_t *schema)
 
 	return 0;
 }
+
+/*
+ * -1 = fail
+ *  0 = continue
+ *  1 = hit
+ */
+
+#define LWS_MINILEX_FAIL_CODING 8
+
+int
+lws_minilex_parse(const uint8_t *lex, int16_t *ps, const uint8_t c, int *match)
+{
+	if (*ps == (int16_t)-1)
+		return LWS_MINILEX_FAIL;
+
+	while (1) {
+		if (lex[*ps] & (1 << 7)) {
+			/* 1-byte, fail on mismatch */
+			if ((lex[*ps] & 0x7f) != c)
+				goto nope;
+
+			/* go forward */
+			if (lex[++(*ps)] == LWS_MINILEX_FAIL_CODING)
+				goto nope;
+
+			if (lex[*ps] < LWS_MINILEX_FAIL_CODING) {
+				/* this is a terminal marker */
+				*match = (int)lex[++(*ps)];
+				return LWS_MINILEX_MATCH;
+			}
+
+			return LWS_MINILEX_CONTINUE;
+		}
+
+		if (lex[*ps] == LWS_MINILEX_FAIL_CODING)
+			goto nope;
+
+		/* b7 = 0, end or 3-byte */
+		if (lex[*ps] < LWS_MINILEX_FAIL_CODING) {
+			/* this is a terminal marker */
+			*match = (int)lex[++(*ps)];
+			return LWS_MINILEX_MATCH;
+		}
+
+		if (lex[*ps] == c) { /* goto-on-match */
+			*ps = (int16_t)(*ps + (lex[(*ps) + 1]) +
+					      (lex[(*ps) + 2] << 8));
+			return LWS_MINILEX_CONTINUE;
+		}
+
+		/* fall thru to next */
+		*ps = (int16_t)((*ps) + 3);
+	}
+
+nope:
+	*ps = (int16_t)-1;
+
+	return LWS_MINILEX_FAIL;
+}

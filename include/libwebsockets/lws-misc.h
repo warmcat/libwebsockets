@@ -1127,3 +1127,37 @@ lws_fsmount_mount(struct lws_fsmount *fsm);
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_fsmount_unmount(struct lws_fsmount *fsm);
+
+#define LWS_MINILEX_FAIL -1
+#define LWS_MINILEX_CONTINUE 0
+#define LWS_MINILEX_MATCH 1
+
+/**
+ * lws_minilex_parse() - stateful matching vs lws minilex tables
+ *
+ * \p lex: the start of the precomputed minilex table
+ * \p ps: pointer to the int16_t that holds the parsing state (init to 0)
+ * \p c: the next incoming character to parse
+ * \p match: pointer to take the match
+ *
+ * Returns either
+ *
+ *  - LWS_MINILEX_FAIL if there is no way to match the characters seen,
+ * this is sticky for additional characters until the *ps is reset to 0.
+ *
+ *  - LWS_MINILEX_CONTINUE if the character could be part of a match but more
+ *    are required to see if it can match
+ *
+ *  - LWS_MINILEX_MATCH and *match is set to the match index if there is a
+ *    valid match.
+ *
+ * In cases where the match is ambiguous, eg, we saw "right" and the possible
+ * matches are "right" or "right-on", LWS_MINILEX_CONTINUE is returned.  To
+ * allow it to match on the complete-but-ambiguous token, if the caller sees
+ * a delimiter it can call lws_minilex_parse() again with c == 0.  This will
+ * either return LWS_MINILEX_MATCH and set *match to the smaller ambiguous
+ * match, or return LWS_MINILEX_FAIL.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_minilex_parse(const uint8_t *lex, int16_t *ps, const uint8_t c,
+			int *match);
