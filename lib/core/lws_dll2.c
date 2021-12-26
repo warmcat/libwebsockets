@@ -136,6 +136,42 @@ lws_dll2_add_before(struct lws_dll2 *d, struct lws_dll2 *after)
 	owner->count++;
 }
 
+/* add us to the list that prev is in, just after him
+ *
+ *  (Prev) [ <-> (Next) ]
+ *  (Prev) <-> (ins) [ <-> (Next) ]
+ *
+ * use lws_dll2_add_head() instead if prev would be NULL
+ * */
+void
+lws_dll2_add_insert(struct lws_dll2 *d, struct lws_dll2 *prev)
+{
+	lws_dll2_owner_t *owner = prev->owner;
+
+	if (!lws_dll2_is_detached(d)) {
+		assert(0); /* only wholly detached things can be added */
+		return;
+	}
+
+	if (lws_dll2_is_detached(prev)) {
+		assert(0); /* can't add after something detached */
+		return;
+	}
+
+	d->owner = owner;
+
+	d->next = prev->next;
+	d->prev = prev;
+	if (prev->next)
+		(prev->next)->prev = d;
+	prev->next = d;
+
+	if (!d->next)
+		owner->tail = d;
+
+	owner->count++;
+}
+
 void
 lws_dll2_add_tail(struct lws_dll2 *d, struct lws_dll2_owner *owner)
 {
