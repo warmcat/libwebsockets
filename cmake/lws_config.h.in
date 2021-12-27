@@ -237,6 +237,7 @@
 #cmakedefine LWS_WITH_UDP
 #cmakedefine LWS_WITH_ULOOP
 #cmakedefine LWS_WITH_UNIX_SOCK
+#cmakedefine LWS_WITH_UPNG
 #cmakedefine LWS_WITH_ZIP_FOPS
 #cmakedefine USE_OLD_CYASSL
 #cmakedefine USE_WOLFSSL
