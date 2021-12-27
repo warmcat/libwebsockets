@@ -159,6 +159,7 @@ option(LWS_WITH_SYS_STATE "lws_system state support" ON)
 option(LWS_WITH_SYS_SMD "Lws System Message Distribution" ON)
 option(LWS_WITH_SYS_FAULT_INJECTION "Enable fault injection support" OFF)
 option(LWS_WITH_SYS_METRICS "Lws Metrics API" OFF)
+option(LWS_WITH_UPNG "Enable stateful PNG stream decoder" ON)
 
 #
 # Secure Streams
