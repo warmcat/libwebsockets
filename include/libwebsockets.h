@@ -605,6 +605,15 @@ struct lws_tokens;
 struct lws_vhost;
 struct lws;
 
+/* Generic stateful operation return codes */
+
+typedef enum {
+	LWS_SRET_OK,
+	LWS_SRET_WANT_INPUT,
+	LWS_SRET_WANT_OUTPUT,
+	LWS_SRET_FATAL
+} lws_stateful_ret_t;
+
 typedef struct lws_fixed3232 {
 	int32_t		whole;	/* signed 32-bit int */
 	int32_t		frac;	/* signed frac proportion from 0 to (100M - 1) */
@@ -759,6 +768,7 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size);
 #include <libwebsockets/lws-button.h>
 #include <libwebsockets/lws-led.h>
 #include <libwebsockets/lws-pwm.h>
+#include <libwebsockets/lws-upng.h>
 #include <libwebsockets/lws-display.h>
 #include <libwebsockets/lws-ssd1306-i2c.h>
 #include <libwebsockets/lws-ili9341-spi.h>

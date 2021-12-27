@@ -55,6 +55,11 @@ if (LWS_WITH_FTS)
 		misc/fts/trie-fd.c)
 endif()
 
+if (LWS_WITH_UPNG)
+	list(APPEND SOURCES
+		misc/upng.c)
+endif()
+
 # this is an older, standalone hashed disk cache
 # implementation unrelated to lws-cache-ttl
 if (LWS_WITH_DISKCACHE)
