@@ -808,6 +808,9 @@ struct lws_context_creation_info {
 	 * proxy.  NULL means to use the default wsi-based client support */
 #endif
 
+#if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
+#endif
+
 	int rlimit_nofile;
 	/**< 0 = inherit the initial ulimit for files / sockets from the startup
 	 * environment.  Nonzero = try to set the limit for this process.
