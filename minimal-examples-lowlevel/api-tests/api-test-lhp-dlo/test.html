@@ -1,0 +1,113 @@
+<!doctype html>
+<html>
+<head>
+<title>Test html</title>
+<meta charset="utf-8" />
+</head>
+<style>
+body { font-family: sun; font-size: 12px;
+		background-image: "bluecat.jpg" }
+	h1 { font-family: sans; font-size: 32px; text-align: right; margin-bottom: 12px; color:#000; }
+	b { font-weight:700 }
+	.mydiv { position: absolute; 
+		width: 200px; top:360px; left: 16px; border-radius: 8px;
+		background-color: #ff0;
+		padding-top:4px; padding-bottom:4px;
+		margin-top:8px; margin-bottom:8px;
+		color: #000; text-align: center;
+		font-family: sans; font-size: 10px }
+	.rundiv { position: relative; border-radius: 8px;
+		background-color: #0000ffff;
+		padding-top:4px; padding-bottom:4px;
+		padding-left:8px; padding-right:8px;
+		margin-top:9px; margin-bottom:9px;
+		margin-left:18px; margin-right:18px;
+		color: #fff; text-align: left;
+		font-family: sans; font-size: 16px;
+		border-top-left-radius: 16px;
+		border-top-right-radius: 16px;
+		border-bottom-left-radius: 16px;
+		border-bottom-right-radius: 16px;
+	}
+	.cdiv { display: inline; width: 33.3%; color: #ff0;
+		padding-top:4px; padding-bottom:4px;
+		margin-top:8px; margin-bottom:8px;
+		margin-left: auto; margin-right:auto;
+		background-color: #cc0000a0;
+		text-align: center;
+		font-family: sans; font-size: 14px }
+
+	.circ {
+		position: absolute; top: 60px; left: 500px;
+		background-color: #404000;
+		width: 48px; height: 48px;
+		padding-top:0px; padding-bottom:0px;
+		padding-right:0px; padding-left:0px;
+
+		margin-top:0px; margin-bottom:0px;
+		margin-left:0px; margin-right:0px;
+
+		border-top-left-radius: 24px;
+		border-top-right-radius: 24px;
+		border-bottom-left-radius: 24px;
+		border-bottom-right-radius: 24px;
+	}
+
+	.cov {
+		top: 130px;
+		border-top-left-radius: 0px;
+		border-top-right-radius: 12px;
+		border-bottom-left-radius: 24px;
+		border-bottom-right-radius: 6px;
+	}
+
+	.icon { position: absolute; top:340px; left: 500px; }
+	.icon2 { position: absolute; top:250px; left: 500px; }
+
+	.contain { margin-left: 12px }
+
+	.x { display: block; padding-left: 6px; padding-right: 6px; padding-top: 6px; padding-bottom: 6px; color: #000}
+	.a { background-color: #ff0000; }
+	.b { background-color: #ffa500; }
+	.c { background-color: #ffff00; }
+	.d { background-color: #008000; }
+	.e { background-color: #0000ff; }
+	.f { background-color: #00ff00; }
+	.g { background-color: #ff00ff; }
+	.row {  }
+	.m { width=33% }
+</style>
+<body>
+<h1>libwebsockets.org</h1>
+<div class="rundiv">This is some text flowing in an auto width div on body.<br>
+Mixed CSS types in a line: <b>bold</b>, normal</div>
+<div class="rundiv">Another div like the one before.</div>
+<div><div class="cdiv">First</div><div class="cdiv">Second</div></div>
+<div class="icon"><img src="exclaim.png"></div>
+<div class="icon2"><img src="no-right.png"></div>
+
+<div class="mydiv">Well, some text in an abs div that is <b>too long</b> to comfortably fit on one line, even with the smallest font.</div>
+<div class="circ"></div>
+<div class="circ cov"></div>
+Something after the div<br>
+<div class="contain">
+<div class="x a">
+<div class="x b">
+<div class="x c">
+<div class="x d">
+<div class="x e">
+<div class="x f">
+<div class="x g">
+hello
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="cdiv">cdiv 33% width<br>blah blah</div>
+<!--<div class="mydiv">a<b>b</b></div> -->
+</body>
+</html>

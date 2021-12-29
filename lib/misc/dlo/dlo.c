@@ -44,9 +44,22 @@ lws_display_dl_init(lws_displaylist_t *dl, lws_display_state_t *ds)
 int
 lws_display_dlo_add(lws_displaylist_t *dl, lws_dlo_t *dlo_parent, lws_dlo_t *dlo)
 {
-	lws_dll2_add_tail(&dlo->list, dlo_parent ? &dlo_parent->children : &dl->dl);
+	if (!dlo_parent && !dl->dl.head) {
+		lws_dll2_add_tail(&dlo->list, &dl->dl);
 
-	return 9;
+		return 0;
+	}
+
+	if (!dlo_parent) {
+		if (!dl->dl.head)
+			return 0;
+
+		dlo_parent = lws_container_of(dl->dl.head, lws_dlo_t, list);
+	}
+
+	lws_dll2_add_tail(&dlo->list, &dlo_parent->children);
+
+	return 0;
 }
 
 void
@@ -99,6 +112,185 @@ lws_surface_set_px(const lws_surface_info_t *ic, uint8_t *line, int x,
 	*line = rgb[2];
 }
 
+/*
+ * Recursively find out the total width and height of the contents of a DLO
+ */
+
+void
+lws_dlo_contents(lws_dlo_t *parent, lws_dlo_dim_t *dim)
+{
+	lws_display_render_stack_t st[12]; /* DLO child stack */
+	lws_dll2_t *d;
+	lws_fx_t t1;
+	int sp = 0;
+
+	dim->w.whole = 0;
+	dim->w.frac = 0;
+	dim->h.whole = 0;
+	dim->h.frac = 0;
+
+	if (!parent)
+		return;
+
+	d = lws_dll2_get_head(&parent->children);
+	if (!d)
+		return;
+
+	memset(&st, 0, sizeof(st));
+	st[0].dlo = lws_container_of(d, lws_dlo_t, list);
+	st[0].co.w.whole = 0;
+	st[0].co.w.frac = 0;
+	st[0].co.h.whole = 0;
+	st[0].co.h.frac = 0;
+
+	/* We are collecting worst dlo->box.x + dlo->box.w and .y + .h */
+
+	while (sp || st[0].dlo) {
+		lws_dlo_t *dlo = st[sp].dlo;
+
+		if (!dlo) {
+			if (!sp) {
+				lwsl_err("%s: underflow\n", __func__);
+				return;
+			}
+
+			if (lws_fx_comp(&st[sp].co.w, &st[sp - 1].co.w) > 0)
+				st[sp - 1].co.w = st[sp].co.w;
+
+			if (lws_fx_comp(&st[sp].co.h, &st[sp - 1].co.h) > 0)
+				st[sp - 1].co.h = st[sp].co.h;
+
+			// lwsl_notice("sp %d: passing back w: %d, h: %d\n", sp, st[sp - 1].co.w.whole, st[sp - 1].co.h.whole);
+
+			sp--;
+
+			continue;
+		}
+
+		lws_fx_add(&t1, &dlo->box.w, &dlo->box.x);
+//		lws_fx_add(&t1, &t1, &dlo->margin[CCPAS_LEFT]);
+		lws_fx_add(&t1, &t1, &dlo->padding[CCPAS_LEFT]);
+//		lws_fx_add(&t1, &t1, &dlo->padding[CCPAS_RIGHT]);
+//		lws_fx_add(&t1, &t1, &dlo->margin[CCPAS_RIGHT]);
+		if (lws_fx_comp(&t1, &st[sp].co.w) > 0)
+			st[sp].co.w = t1;
+
+		lws_fx_add(&t1, &dlo->box.h, &dlo->box.y);
+//		lws_fx_add(&t1, &t1, &dlo->margin[CCPAS_TOP]);
+		lws_fx_add(&t1, &t1, &dlo->padding[CCPAS_TOP]);
+//		lws_fx_add(&t1, &t1, &dlo->padding[CCPAS_BOTTOM]);
+//		lws_fx_add(&t1, &t1, &dlo->margin[CCPAS_BOTTOM]);
+		if (lws_fx_comp(&t1, &st[sp].co.h) > 0)
+			st[sp].co.h = t1;
+
+		d = dlo->list.next;
+		if (d)
+			st[sp].dlo = lws_container_of(d, lws_dlo_t, list);
+		else
+			st[sp].dlo = NULL;
+
+		/* go into any children */
+
+		if (dlo->children.head) {
+			if (++sp == LWS_ARRAY_SIZE(st)) {
+				lwsl_err("%s: DLO stack overflow\n", __func__);
+				return;
+			}
+			st[sp].dlo = lws_container_of(
+				dlo->children.head, lws_dlo_t, list);
+			st[sp].co.w.whole = 0;
+			st[sp].co.h.whole = 0;
+			st[sp].co.w.frac = 0;
+			st[sp].co.h.frac = 0;
+		}
+	}
+
+	dim->w = st[0].co.w;
+	dim->h = st[0].co.h;
+
+	if (parent->col_list.owner) {
+		lhp_table_col_t *tc = lws_container_of(parent->col_list.owner,
+					lhp_table_col_t, col_dlos);
+
+		if (lws_fx_comp(&dim->w, &tc->width) < 0) {
+	//		lws_fx_add(&t1, &tc->width, &parent->padding[CCPAS_LEFT]);
+	//		lws_fx_add(&dim->w, &tc->width, &parent->padding[CCPAS_RIGHT]);
+			dim->w = tc->width;
+		}
+	}
+
+	if (parent->row_list.owner) {
+		lhp_table_row_t *tr = lws_container_of(parent->row_list.owner,
+					lhp_table_row_t, row_dlos);
+
+		if (lws_fx_comp(&dim->h, &tr->height) < 0) {
+	//		lws_fx_add(&t1, &tr->height, &parent->padding[CCPAS_TOP]);
+			lws_fx_add(&dim->h, &tr->height, &parent->padding[CCPAS_BOTTOM]);
+//			dim->h = tr->height;
+		}
+	}
+
+/*
+	lwsl_user("%s: dlo %p: FINAL w:%d -> %d h:%d -> %d\n", __func__, parent,
+		  parent->box.w.whole, dim->w.whole,
+		  parent->box.h.whole, dim->h.whole);
+*/
+}
+
+/*
+ * Some DLO is changing height, adjust its height, and that of everybody below.
+ */
+
+void
+lws_display_dlo_adjust_dims(lws_dlo_t *dlo, lws_dlo_dim_t *dim)
+{
+	lws_dlo_dim_t delta;
+
+	if (!dim->w.whole && !dim->h.whole)
+		return;
+
+	/* adjust the target's width / height */
+
+	lws_fx_sub(&delta.w, &dim->w, &dlo->box.w);
+	lws_fx_sub(&delta.h, &dim->h, &dlo->box.h);
+
+	dlo->box.w = dim->w;
+	dlo->box.h = dim->h;
+
+	// lwsl_notice("%s: dlo %p: delta w:%d h:%d\n", __func__, dlo, delta.w.whole, delta.h.whole);
+
+	/* move peers below him accordingly */
+
+	do {
+		lws_dlo_t *dp = lws_container_of(dlo->list.owner, lws_dlo_t, children);
+
+		if (!dlo->list.owner)
+			break;
+
+		/*
+		 * Adjust y pos of siblings below us
+		 */
+
+		do {
+			dlo = lws_container_of(dlo->list.next, lws_dlo_t, list);
+			if (dlo) {
+				//lwsl_notice("%s: dlo %p: adj y %d -> %d\n", __func__, dlo, dlo->box.y.whole, dlo->box.y.whole + delta.h.whole);
+				lws_fx_add(&dlo->box.y, &dlo->box.y, &delta.h);
+			}
+		} while (dlo);
+
+
+		/* go up parent chain until toplevel adjusting height of
+		 * parent siblings below parent */
+
+		if (dp->flag_toplevel)
+			break;
+
+		dlo = dp;
+		//lwsl_notice("%s: dlo %p: adj h by %d\n", __func__, dlo, delta.h.whole);
+		lws_fx_add(&dlo->box.h, &dlo->box.h, &delta.h);
+	} while (1);
+}
 
 //#if defined(_DEBUG)
 void
@@ -149,10 +341,14 @@ lws_display_dl_dump(lws_displaylist_t *dl)
 					(unsigned int)dlo->dc, (unsigned int)text->text_len,
 					(int)text->text_len, text->text ? text->text : "(empty)");
 		}
+#if defined(LWS_WITH_NETWORK) && defined(LWS_WITH_UPNG) && defined(LWS_WITH_CLIENT)
 		else if (dlo->_destroy == lws_display_dlo_png_destroy)
 			lws_snprintf(dt, sizeof(dt), "png");
+#endif
+#if defined(LWS_WITH_NETWORK) && defined(LWS_WITH_JPEG) && defined(LWS_WITH_CLIENT)
 		else if (dlo->_destroy == lws_display_dlo_jpeg_destroy)
 			lws_snprintf(dt, sizeof(dt), "jpeg");
+#endif
 
 		lws_fx_string(&dlo->box.x, b[0], sizeof(b[0]));
 		lws_fx_string(&dlo->box.y, b[1], sizeof(b[1]));
@@ -163,8 +359,15 @@ lws_display_dl_dump(lws_displaylist_t *dl)
 		lws_fx_string(&co.w, b1[2], sizeof(b1[2]));
 		lws_fx_string(&co.h, b1[3], sizeof(b1[3]));
 
-		lwsl_dlodump("%.*s box: (%s, %s) [%s x %s], co: (%s, %s) [%s x %s], %s\n",
-				sp, ind, b[0], b[1], b[2], b[3], b1[0], b1[1], b1[2], b1[3], dt);
+		lwsl_dlodump("%.*s %p box: (%s, %s) [%s x %s], co: (%s, %s) [%s x %s], %s\n",
+				sp, ind, dlo, b[0], b[1], b[2], b[3],
+				b1[0], b1[1], b1[2], b1[3], dt);
+
+		d = dlo->list.next;
+		if (d)
+			st[sp].dlo = lws_container_of(d, lws_dlo_t, list);
+		else
+			st[sp].dlo = NULL;
 
 		/* go into any children */
 
@@ -173,17 +376,11 @@ lws_display_dl_dump(lws_displaylist_t *dl)
 				lwsl_err("%s: DLO stack overflow\n", __func__);
 				return;
 			}
-			st[sp++].dlo = lws_container_of(
+			st[++sp].dlo = lws_container_of(
 				dlo->children.head, lws_dlo_t, list);
 			st[sp].co = co;
-			continue;
 		}
 
-		d = dlo->list.next;
-		if (d)
-			st[sp].dlo = lws_container_of(d, lws_dlo_t, list);
-		else
-			st[sp].dlo = NULL;
 	}
 }
 //#endif
@@ -370,6 +567,28 @@ lws_display_list_render_line(lws_display_render_state_t *rs)
 	return LWS_SRET_OK;
 }
 
+static int
+dlo_clean_table_rows(lws_dll2_t *d, void *user)
+{
+	lhp_table_row_t *r = lws_container_of(d, lhp_table_row_t, list);
+
+	lws_dll2_remove(d);
+	lws_free(r);
+
+	return 0;
+}
+
+static int
+dlo_clean_table_cols(lws_dll2_t *d, void *user)
+{
+	lhp_table_col_t *c = lws_container_of(d, lhp_table_col_t, list);
+
+	lws_dll2_remove(d);
+	lws_free(c);
+
+	return 0;
+}
+
 void
 lws_display_dlo_destroy(lws_dlo_t **r)
 {
@@ -377,6 +596,8 @@ lws_display_dlo_destroy(lws_dlo_t **r)
 		return;
 
 	lws_dll2_remove(&(*r)->list);
+	lws_dll2_remove(&(*r)->col_list);
+	lws_dll2_remove(&(*r)->row_list);
 
 	while ((*r)->children.head) {
 		lws_dlo_t *d = lws_container_of((*r)->children.head,
@@ -384,6 +605,9 @@ lws_display_dlo_destroy(lws_dlo_t **r)
 
 		lws_display_dlo_destroy(&d);
 	}
+
+	lws_dll2_foreach_safe(&(*r)->table_cols, NULL, dlo_clean_table_cols);
+	lws_dll2_foreach_safe(&(*r)->table_rows, NULL, dlo_clean_table_rows);
 
 	if ((*r)->_destroy)
 		(*r)->_destroy(*r);
@@ -405,7 +629,7 @@ lws_display_list_destroy(lws_displaylist_t *dl)
 	}
 }
 
-int
+lws_dlo_filesystem_t *
 lws_dlo_file_register(struct lws_context *cx, const lws_dlo_filesystem_t *f)
 {
 	const lws_dlo_filesystem_t *b;
@@ -414,19 +638,21 @@ lws_dlo_file_register(struct lws_context *cx, const lws_dlo_filesystem_t *f)
 	b = lws_dlo_file_choose(cx, f->name);
 
 	if (b) {
-		lwsl_err("%s: dlo file %s already exists\n", __func__, b->name);
+		lwsl_err("%s: dlo file %s already exists %p\n", __func__, b->name, b);
 		lws_dlo_file_unregister((lws_dlo_filesystem_t **)&b);
 	}
 
 	a = lws_malloc(sizeof(*a), __func__);
 	if (!a)
-		return 1;
+		return NULL;
 
 	*a = *f;
 	lws_dll2_clear(&a->list);
 	lws_dll2_add_tail(&a->list, &cx->dlo_file);
 
-	return 0;
+	lwsl_err("%s: dlo file %s registered at %p\n", __func__, a->name, a);
+
+	return a;
 }
 
 /*
@@ -441,6 +667,19 @@ lws_dlo_file_unregister(lws_dlo_filesystem_t **f)
 
 	lws_dll2_remove(&(*f)->list);
 	lws_free_set_NULL(*f);
+}
+
+void
+lws_dlo_file_unregister_by_name(struct lws_context *cx, const char *name)
+{
+	lws_dlo_filesystem_t *a;
+
+	a = (lws_dlo_filesystem_t *)lws_dlo_file_choose(cx, name);
+	if (!a)
+		return;
+
+	lws_dll2_remove(&a->list);
+	lws_free_set_NULL(a);
 }
 
 static int

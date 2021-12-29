@@ -34,6 +34,7 @@ LWS_SS_USER_TYPEDEF
 	lws_sorted_usec_list_t		sul; /* used for initial metadata cb */
 	lws_dlo_image_t			u; /* we use the lws_flow_t in here */
 	lws_dll2_t			active_asset_list; /*cx->active_assets*/
+	uint8_t				type; /* LWSDLOSS_TYPE_ */
 	char				url[96];
 } dloss_t;
 
@@ -47,24 +48,40 @@ lws_lhp_image_dimensions_cb(lws_sorted_usec_list_t *sul)
 	dloss_t *m = lws_container_of(sul, dloss_t, sul);
 	lws_display_render_state_t *rs = lws_container_of(m->ssevsul,
 				lws_display_render_state_t, sul);
+	lws_dlo_dim_t dim;
+	lws_dlo_t *dlo = &m->u.u.dlo_png->dlo;
 
 	if (m->u.failed) {
-		m->u.u.dlo_png->dlo.box.w.whole = -1;
-		m->u.u.dlo_png->dlo.box.h.whole = -1;
+		dlo->box.w.whole = -1;
+		dlo->box.h.whole = -1;
 		lwsl_notice("%s: Failing %s\n", __func__, m->url);
 	} else {
 
-		m->u.u.dlo_png->dlo.box.w.whole = (int32_t)lws_dlo_image_width(&m->u);
-		m->u.u.dlo_png->dlo.box.h.whole = (int32_t)lws_dlo_image_height(&m->u);
+		dlo->box.w.whole = (int32_t)lws_dlo_image_width(&m->u);
+		dlo->box.h.whole = (int32_t)lws_dlo_image_height(&m->u);
 
-		lwsl_notice("%s: setting dlo box %d x %d\n", __func__,
-			(int)m->u.u.dlo_png->dlo.box.w.whole, (int)m->u.u.dlo_png->dlo.box.h.whole);
+		lwsl_err("%s: setting dlo box %d x %d\n", __func__,
+			(int)dlo->box.w.whole, (int)dlo->box.h.whole);
+#if 1
+		lws_dlo_contents(dlo, &dim);
+		lws_display_dlo_adjust_dims(dlo, &dim);
+
+		if (dlo->list.owner) {
+			dlo = lws_container_of(dlo->list.owner, lws_dlo_t, children);
+
+			lws_dlo_contents(dlo, &dim);
+			lws_display_dlo_adjust_dims(dlo, &dim);
+		}
+#endif
 	}
 
 	if (rs->html != 1) {
 		lws_sul_schedule(lws_ss_get_context(m->ss), 0, m->ssevsul, m->on_rx, 1);
 		return;
 	}
+
+	/* we are resuming the html parsing */
+	lws_lhp_ss_html_parse_from_lhp(m->lhp);
 }
 
 /* secure streams payload interface */
@@ -76,6 +93,28 @@ dloss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	lws_stateful_ret_t r;
 
 	lwsl_info("%s: %u\n", __func__, (unsigned int)len);
+
+	if (m->type == LWSDLOSS_TYPE_CSS) {
+		m->lhp->finish_css = !!(flags & LWSSS_FLAG_EOM);
+		m->lhp->is_css = 1;
+		r = lws_lhp_parse(m->lhp, &buf, &len);
+		m->lhp->is_css = 0;
+
+		if (flags & LWSSS_FLAG_EOM)
+			lws_dll2_remove(&m->active_asset_list);
+
+		if (r & LWS_SRET_FATAL)
+			return LWSSSSRET_DISCONNECT_ME;
+
+		if (r & LWS_SRET_AWAIT_RETRY) {
+			lwsl_warn("%s: returning to await retry\n", __func__);
+			if (!m->lhp->await_css_done)
+				lws_sul_schedule(lws_ss_get_context(m->ss), 0,
+						 m->lhp->sshtmlevsul,
+						 m->lhp->sshtmlevcb, 1);
+		}
+		goto okie;
+	}
 
 	/* .flow is at the same offset in both dlo_jpeg and dlo_png */
 
@@ -116,7 +155,7 @@ dloss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 
 		return LWSSSSRET_OK;
 	}
-
+okie:
 	lws_sul_schedule(lws_ss_get_context(m->ss), 0, m->ssevsul, m->on_rx, 1);
 
 	return LWSSSSRET_OK;
@@ -133,6 +172,7 @@ dloss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		break;
 
 	case LWSSSCS_DESTROYING:
+		lws_sul_cancel(&m->sul);
 		lws_dll2_remove(&m->active_asset_list);
 		break;
 
@@ -143,7 +183,7 @@ dloss_state(void *userobj, void *sh, lws_ss_constate_t state,
 	return LWSSSSRET_OK;
 }
 
-static LWS_SS_INFO("default", dloss_t)
+static LWS_SS_INFO("__default", dloss_t)
 	.rx				= dloss_rx,
 	.state				= dloss_state
 };
@@ -171,20 +211,20 @@ lws_dlo_ss_find(struct lws_context *cx, const char *url, lws_dlo_image_t *u)
 	return 1; /* not found */
 }
 
-lws_dlo_t *
-lws_dlo_ss_create(lws_dlo_ss_create_info_t *i)
+int
+lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 {
 	lws_dlo_jpeg_t *dlo_jpeg = NULL;
 	lws_dlo_png_t *dlo_png = NULL;
 	size_t ul = strlen(i->url);
 	struct lws_ss_handle *h;
+	lws_dlo_t *dlo = NULL;
 	lws_ss_info_t ssi;
 	dloss_t *dloss;
-	lws_dlo_t *dlo;
-	char type;
+	uint8_t type;
 
 	if (ul < 5)
-		return NULL;
+		return 1;
 
 	if (!strcmp(i->url + ul - 4, ".png"))
 		type = LWSDLOSS_TYPE_PNG;
@@ -193,13 +233,18 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i)
 		    !strcmp(i->url + ul - 5, ".jpeg"))
 			type = LWSDLOSS_TYPE_JPEG;
 		else
-			return NULL;
+			if (!strcmp(i->url + ul - 4, ".css"))
+				type = LWSDLOSS_TYPE_CSS;
+			else {
+				lwsl_err("%s: unknown file type %s\n", __func__, i->url);
+				return 1;
+			}
 
 	switch (type) {
 	case LWSDLOSS_TYPE_PNG:
 		dlo_png = lws_display_dlo_png_new(i->dl, i->dlo_parent, i->box);
 		if (!dlo_png)
-			return NULL;
+			return 1;
 
 		i->u->u.dlo_png = dlo_png;
 
@@ -216,7 +261,7 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i)
 	case LWSDLOSS_TYPE_JPEG:
 		dlo_jpeg = lws_display_dlo_jpeg_new(i->dl, i->dlo_parent, i->box);
 		if (!dlo_jpeg)
-			return NULL;
+			return 1;
 
 		i->u->u.dlo_jpeg = dlo_jpeg;
 
@@ -238,7 +283,7 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i)
 
 	if (lws_ss_create(i->cx, 0, &ssi, (void *)dlo, &h, NULL, NULL)) {
 		lwsl_notice("%s: unable to create ss\n", __func__);
-		return NULL;
+		return 1;
 	}
 
 	dloss = (dloss_t *)lws_ss_to_user_object(h);
@@ -246,6 +291,8 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i)
 	dloss->on_rx = i->on_rx;
 	dloss->ssevsul = i->on_rx_sul;
 	dloss->lhp = i->lhp;
+	dloss->type = type;
+
 	lws_strncpy(dloss->url, i->url, sizeof(dloss->url));
 
 	switch (type) {
@@ -261,17 +308,23 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i)
 		break;
 	}
 
-	if (lws_ss_alloc_set_metadata(h, "endpoint", i->url, ul))
+	if (lws_ss_alloc_set_metadata(h, "endpoint", i->url, ul)) {
+		lwsl_err("%s: unable to set endpoint\n", __func__);
 		goto fail;
+	}
 
-	if (lws_ss_client_connect(dloss->ss))
+	if (lws_ss_client_connect(dloss->ss)) {
+		lwsl_err("%s: unable to do client connection\n", __func__);
 		goto fail;
+	}
 
 	lws_dll2_add_tail(&dloss->active_asset_list, &i->cx->active_assets);
 
 	lwsl_notice("%s: starting %s (dlo %p)\n", __func__, i->url, dlo);
 
-	return dlo;
+	*pdlo = dlo;
+
+	return 0;
 
 fail:
 	lws_ss_destroy(&h);
@@ -285,5 +338,5 @@ fail:
 		break;
 	}
 
-	return NULL;
+	return 1;
 }

@@ -1003,11 +1003,13 @@ lws_create_vhost(struct lws_context *context,
 		lwsl_vhost_err(vh, "lws_context_init_server_ssl failed");
 		goto bail1;
 	}
+#if defined(LWS_WITH_CLIENT)
 	if (lws_fi(&vh->fic, "vh_create_ssl_cli") ||
 	    lws_context_init_client_ssl(info, vh)) {
 		lwsl_vhost_err(vh, "lws_context_init_client_ssl failed");
 		goto bail1;
 	}
+#endif
 #if defined(LWS_WITH_SERVER)
 	lws_context_lock(context, __func__);
 	if (lws_fi(&vh->fic, "vh_create_srv_init"))
