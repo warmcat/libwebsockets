@@ -2171,6 +2171,7 @@ next:
 
 #if defined(LWS_WITH_DRIVERS)
 		lws_fonts_destroy(context);
+		lws_pngs_destroy(context);
 #endif
 
 		if (context->pt[0].fds)

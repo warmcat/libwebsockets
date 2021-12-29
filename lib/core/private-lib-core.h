@@ -537,6 +537,7 @@ struct lws_context {
 #if defined(LWS_WITH_DRIVERS)
 	lws_netdevs_t			netdevs;
 	lws_dll2_owner_t		fonts;
+	lws_dll2_owner_t		pngs;
 #endif
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
