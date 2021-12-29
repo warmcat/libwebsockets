@@ -539,6 +539,7 @@ struct lws_context {
 #endif
 #if defined(LWS_WITH_DLO)
 	lws_dll2_owner_t		fonts;
+	lws_dll2_owner_t		pngs;
 #endif
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS)

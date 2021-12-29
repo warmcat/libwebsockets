@@ -145,3 +145,45 @@ bail:
 	return NULL;
 }
 
+int
+lws_pngs_register(struct lws_context *cx, const lws_display_png_t *f)
+{
+	lws_display_png_t *a = lws_malloc(sizeof(*a), __func__);
+	if (!a)
+		return 1;
+
+	*a = *f;
+	lws_dll2_clear(&a->list);
+	lws_dll2_add_tail(&a->list, &cx->pngs);
+
+	return 0;
+}
+
+static int
+lws_png_destroy(struct lws_dll2 *d, void *user)
+{
+	lws_free(d);
+	return 0;
+}
+
+void
+lws_pngs_destroy(struct lws_context *cx)
+{
+	lws_dll2_foreach_safe(&cx->pngs, NULL, lws_png_destroy);
+}
+
+const lws_display_png_t *
+lws_pngs_choose(struct lws_context *cx, const char *name)
+{
+	lws_start_foreach_dll(struct lws_dll2 *, p,
+			      lws_dll2_get_head(&cx->pngs)) {
+		const lws_display_png_t *pn = lws_container_of(p,
+						lws_display_png_t, list);
+
+		if (!strcmp(name, pn->name))
+			return pn;
+
+	} lws_end_foreach_dll(p);
+
+	return NULL;
+}

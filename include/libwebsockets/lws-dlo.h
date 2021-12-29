@@ -306,3 +306,15 @@ lws_font_choose(struct lws_context *cx, const lws_font_choice_t *hints);
 LWS_VISIBLE LWS_EXTERN void
 lws_fonts_destroy(struct lws_context *cx);
 
+/*
+ * Static PNG registry (built-in, name-accessible PNGs)
+ */
+
+LWS_VISIBLE LWS_EXTERN int
+lws_pngs_register(struct lws_context *cx, const lws_display_png_t *f);
+
+LWS_VISIBLE LWS_EXTERN const lws_display_png_t *
+lws_pngs_choose(struct lws_context *cx, const char *name);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_pngs_destroy(struct lws_context *cx);
