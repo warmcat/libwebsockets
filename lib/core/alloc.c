@@ -178,6 +178,14 @@ _realloc(void *ptr, size_t size, const char *reason)
 		allocated -= malloc_usable_size(ptr);
 #endif
 		free(ptr);
+#if defined(LWS_PLAT_FREERTOS)
+		lwsl_debug("%s: free heap %d\n", __func__,
+#if defined(LWS_AMAZON_RTOS)
+			    (unsigned int)xPortGetFreeHeapSize() - (int)size);
+#else
+			    (unsigned int)esp_get_free_heap_size() - (int)size);
+#endif
+#endif
 	}
 
 	return NULL;
