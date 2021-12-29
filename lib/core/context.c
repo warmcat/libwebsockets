@@ -2169,6 +2169,10 @@ next:
 		lws_dhcpc_remove(context, NULL);
 #endif
 
+#if defined(LWS_WITH_DLO)
+		lws_fonts_destroy(context);
+#endif
+
 		if (context->pt[0].fds)
 			lws_free_set_NULL(context->pt[0].fds);
 #endif

@@ -290,3 +290,19 @@ typedef struct lhp_ctx lhp_ctx_t;
 LWS_VISIBLE LWS_EXTERN signed char
 lhp_dl_render(lhp_ctx_t *ctx, char reason);
 
+/*
+ * Font registry
+ *
+ * Register fonts (currently, psfu) to the lws_context, and select the closest
+ * matching.  Used to pick fonts from whatever CSS information is available.
+ */
+
+LWS_VISIBLE LWS_EXTERN int
+lws_font_register(struct lws_context *cx, const lws_display_font_t *f);
+
+LWS_VISIBLE LWS_EXTERN const lws_display_font_t *
+lws_font_choose(struct lws_context *cx, const lws_font_choice_t *hints);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_fonts_destroy(struct lws_context *cx);
+

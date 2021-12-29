@@ -420,3 +420,106 @@ lws_display_font_psfu_render(const lws_surface_info_t *ic, struct lws_dlo *dlo,
 	}
 }
 
+int
+lws_font_register(struct lws_context *cx, const lws_display_font_t *f)
+{
+	lws_display_font_t *a = lws_malloc(sizeof(*a), __func__);
+	if (!a)
+		return 1;
+
+	*a = *f;
+	lws_dll2_clear(&a->list);
+	lws_dll2_add_tail(&a->list, &cx->fonts);
+
+	return 0;
+}
+
+static int
+lws_font_destroy(struct lws_dll2 *d, void *user)
+{
+	lws_free(d);
+	return 0;
+}
+
+void
+lws_fonts_destroy(struct lws_context *cx)
+{
+	lws_dll2_foreach_safe(&cx->fonts, NULL, lws_font_destroy);
+}
+
+struct track {
+	const lws_font_choice_t 	*hints;
+	const lws_display_font_t	*best;
+	int				best_score;
+};
+
+static int
+lws_fonts_score(struct lws_dll2 *d, void *user)
+{
+	const lws_display_font_t *f = lws_container_of(d,
+						lws_display_font_t, list);
+	struct track *t = (struct track *)user;
+	struct lws_tokenize ts;
+	int score = 1000;
+
+	if (t->hints->family_name) {
+		memset(&ts, 0, sizeof(ts));
+		ts.start = t->hints->family_name;
+		ts.len = strlen(ts.start);
+		ts.flags = LWS_TOKENIZE_F_COMMA_SEP_LIST;
+
+		do {
+			ts.e = (int8_t)lws_tokenize(&ts);
+			if (ts.e == LWS_TOKZE_TOKEN) {
+				if (!strncmp(f->choice.family_name, ts.token,
+					     ts.token_len)) {
+					score = 0;
+					break;
+				}
+
+				if (f->choice.generic_name &&
+				    !strncmp(f->choice.generic_name, ts.token,
+							     ts.token_len)) {
+					score -= 500;
+					break;
+				}
+			}
+
+		} while (ts.e > 0);
+	}
+
+	if (t->hints->weight)
+		score += 5 * (t->hints->weight > f->choice.weight ?
+			(t->hints->weight - f->choice.weight) :
+			(f->choice.weight - t->hints->weight));
+
+	if (t->hints->style != f->choice.style)
+		score += 100;
+
+	if (t->hints->fixed_height)
+		score += 10 * (100 - (t->hints->fixed_height > f->choice.fixed_height ?
+				(t->hints->fixed_height - f->choice.fixed_height) :
+				(f->choice.fixed_height - t->hints->fixed_height)));
+
+	if (score < t->best_score) {
+		t->best_score = score;
+		t->best = f;
+	}
+
+	return 0;
+}
+
+const lws_display_font_t *
+lws_font_choose(struct lws_context *cx, const lws_font_choice_t *hints)
+{
+	struct track t;
+
+	t.hints			= hints;
+	t.best			= (const lws_display_font_t *)cx->fonts.head;
+	t.best_score		= 99999999;
+
+	if (t.hints)
+		lws_dll2_foreach_safe(&cx->fonts, &t, lws_fonts_score);
+
+	return t.best;
+}
