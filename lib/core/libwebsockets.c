@@ -1704,3 +1704,91 @@ nope:
 
 	return LWS_MINILEX_FAIL;
 }
+
+const lws_fixed3232_t *
+lws_fixed3232_add(lws_fixed3232_t *r, const lws_fixed3232_t *a, const lws_fixed3232_t *b)
+{
+	int64_t _a = lws_fix64(a), _b = lws_fix64(b);
+
+	_a = _a + _b;
+
+	lws_fix3232(r, _a);
+
+	return r;
+}
+
+const lws_fixed3232_t *
+lws_fixed3232_sub(lws_fixed3232_t *r, const lws_fixed3232_t *a, const lws_fixed3232_t *b)
+{
+	int64_t _a = lws_fix64(a), _b = lws_fix64(b);
+
+	_a = _a - _b;
+
+	lws_fix3232(r, _a);
+
+	return r;
+}
+
+const lws_fixed3232_t *
+lws_fixed3232_mul(lws_fixed3232_t *r, const lws_fixed3232_t *a, const lws_fixed3232_t *b)
+{
+	int64_t _c1, _c2;
+	int32_t t;
+
+	assert(a->frac < LWS_F3232_FRACTION_MSD);
+	assert(b->frac < LWS_F3232_FRACTION_MSD);
+
+	r->whole = a->whole * b->whole;
+	_c2 = (((int64_t)((int64_t)a->frac) * (int64_t)b->frac) / LWS_F3232_FRACTION_MSD);
+
+	if (a->whole >= 0 && b->whole >= 0) {
+		_c1 = ((int64_t)a->frac * ((int64_t)b->whole)) + (((int64_t)a->whole) * (int64_t)b->frac) + _c2;
+		r->whole += (int32_t)(_c1 / LWS_F3232_FRACTION_MSD);
+	} else
+		if (a->whole < 0 && b->whole >= 0) {
+			_c1 = ((int64_t)a->frac * (-(int64_t)b->whole)) + (((int64_t)a->whole) * (int64_t)b->frac) - _c2;
+			r->whole += (int32_t)(_c1 / LWS_F3232_FRACTION_MSD);
+		} else
+			if (a->whole >= 0 && b->whole < 0) {
+				_c1 = ((int64_t)a->frac * ((int64_t)b->whole)) - (((int64_t)a->whole) * (int64_t)b->frac) - _c2;
+				r->whole += (int32_t)(_c1 / LWS_F3232_FRACTION_MSD);
+			} else {
+				_c1 = ((int64_t)a->frac * ((int64_t)b->whole)) + (((int64_t)a->whole) * (int64_t)b->frac) - _c2;
+				r->whole -= (int32_t)(_c1 / LWS_F3232_FRACTION_MSD);
+			}
+
+	t = (int32_t)(_c1 % LWS_F3232_FRACTION_MSD);
+	r->frac = (uint32_t)(t < 0 ? -t : t);
+
+	return r;
+}
+
+const lws_fixed3232_t *
+lws_fixed3232_div(lws_fixed3232_t *r, const lws_fixed3232_t *a, const lws_fixed3232_t *b)
+{
+	int64_t _a = lws_fix64_abs(a), _b = lws_fix64_abs(b), q = 0, d, m;
+
+	if (!_b)
+		_a = 0;
+	else {
+		int c = 64 / 2 + 1;
+
+		while (_a && c >= 0) {
+			d = _a / _b;
+			m = (_a % _b);
+			if (m < 0)
+				m = -m;
+			_a = m << 1;
+			q += d << (c--);
+		}
+		_a = q >> 1;
+	}
+
+	lws_fix3232(r, _a);
+
+	if ((a->whole < 0) ^ (b->whole < 0))
+		r->whole = -r->whole;
+
+	return r;
+}
+
