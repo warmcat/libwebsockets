@@ -82,7 +82,8 @@ lws_display_state_init(lws_display_state_t *lds, struct lws_context *ctx,
 	lds->bl_lcs = bl_lcs;
 	lds->state = LWSDISPS_OFF;
 
-	lws_led_transition(lds->bl_lcs, "backlight", &lws_pwmseq_static_off,
+	if (lds->bl_lcs)
+		lws_led_transition(lds->bl_lcs, "backlight", &lws_pwmseq_static_off,
 						     &lws_pwmseq_static_on);
 
 	disp->init(lds);
@@ -92,7 +93,8 @@ void
 lws_display_state_set_brightness(lws_display_state_t *lds,
 				 const lws_led_sequence_def_t *pwmseq)
 {
-	lws_led_transition(lds->bl_lcs, "backlight", pwmseq,
+	if (lds->bl_lcs)
+		lws_led_transition(lds->bl_lcs, "backlight", pwmseq,
 			   lds->disp->bl_transition);
 }
 
@@ -108,7 +110,7 @@ lws_display_state_active(lws_display_state_t *lds)
 		waiting_ms = lds->disp->latency_wake_ms;
 	} else {
 
-		if (lds->state != LWSDISPS_ACTIVE)
+		if (lds->state != LWSDISPS_ACTIVE && lds->bl_lcs)
 			lws_display_state_set_brightness(lds,
 						lds->disp->bl_active);
 
@@ -125,7 +127,10 @@ lws_display_state_active(lws_display_state_t *lds)
 void
 lws_display_state_off(lws_display_state_t *lds)
 {
-	lds->disp->power(lds, 0);
+	/* if no control over backlight, don't bother power down display
+	 * since it would continue to emit, just show all-white or whatever */
+	if (lds->bl_lcs)
+		lds->disp->power(lds, 0);
 	lws_sul_cancel(&lds->sul_autodim);
 	lds->state = LWSDISPS_OFF;
 }
@@ -134,7 +139,7 @@ int
 lws_display_alloc_diffusion(const lws_surface_info_t *ic, lws_surface_error_t **se)
 {
 	size_t size, gsize = ic->greyscale ? sizeof(lws_greyscale_error_t) :
-					     sizeof(lws_colour_error_t);
+					     sizeof(lws_colour_error_t), by;
 
 	if (*se)
 		return 0;
@@ -142,7 +147,8 @@ lws_display_alloc_diffusion(const lws_surface_info_t *ic, lws_surface_error_t **
 	/* defer creation of dlo's 2px-high dlo-width, 2 bytespp or 6 bytespp
 	 * error diffusion buffer */
 
-	size = gsize * 2u * (unsigned int)(ic->wh_px[0].whole);
+	by = ((ic->wh_px[0].whole + 15) / 8) * 8;
+	size = gsize * 2u * (unsigned int)by;
 
 	lwsl_info("%s: alloc'd %u for width %d\n", __func__, (unsigned int)size,
 			(int)ic->wh_px[0].whole);
@@ -151,8 +157,7 @@ lws_display_alloc_diffusion(const lws_surface_info_t *ic, lws_surface_error_t **
 	if (!se[0])
 		return 1;
 
-	se[1] = (lws_surface_error_t *)(((uint8_t *)se[0]) +
-			((size_t)ic->wh_px[0].whole * gsize));
+	se[1] = (lws_surface_error_t *)(((uint8_t *)se[0]) + (size / 2));
 
 	return 0;
 }
@@ -181,7 +186,7 @@ void
 dist_err_floyd_steinberg_grey(int n, int width, lws_greyscale_error_t *gedl_this,
 			      lws_greyscale_error_t *gedl_next)
 {
-	if (n != width - 1) {
+	if (n < width - 1) {
 	        dist_err_grey(&gedl_this[n], &gedl_this[n + 1], 7);
 	        dist_err_grey(&gedl_this[n], &gedl_next[n + 1], 1);
 	}
@@ -197,7 +202,7 @@ void
 dist_err_floyd_steinberg_col(int n, int width, lws_colour_error_t *edl_this,
 			     lws_colour_error_t *edl_next)
 {
-	if (n != width - 1) {
+	if (n < width - 1) {
 	        dist_err_col(&edl_this[n], &edl_this[n + 1], 7);
 	        dist_err_col(&edl_this[n], &edl_next[n + 1], 1);
 	}
@@ -265,33 +270,42 @@ static const uint8_t gamma2_2[] = {
 };
 
 lws_display_palette_idx_t
-lws_display_palettize_grey(const lws_surface_info_t *ic, lws_display_colour_t c,
-						lws_greyscale_error_t *ectx)
+lws_display_palettize_grey(const lws_surface_info_t *ic,
+			   const lws_display_colour_t *palette, size_t pdepth,
+			   lws_display_colour_t c, lws_greyscale_error_t *ectx)
 {
-	int best = 0x7fffffff, best_idx = 0, yd;
-	lws_colour_error_t da, d;
+	int best = 0x7fffffff, best_idx = 0;
+	lws_colour_error_t da, d, ea;
+	int sum, y;
 	size_t n;
 
 	/* put the most desirable colour (adjusted for existing error) in d */
 
 	d.rgb[0] = (int)gamma2_2[LWSDC_R(c)];
 	da.rgb[0] = d.rgb[0] + ectx->rgb[0];
-	yd = da.rgb[0];
+	if (da.rgb[0] < 0)
+		da.rgb[0] = 0;
+	if (da.rgb[0] > 255)
+		da.rgb[0] = 255;
+
+	if (ic->type == LWSSURF_565) {
+		y = d.rgb[0] >> 3;
+		ectx->rgb[0] = (int16_t)((int)da.rgb[0] - y);
+
+		return (lws_display_palette_idx_t)y;
+	}
 
 	/*
 	 * Choose a palette colour considering the error diffusion adjustments
 	 */
 
-	for (n = 0; n < ic->palette_depth; n++) {
-		lws_colour_error_t ea;
-		int sum, y;
+	for (n = 0; n < pdepth; n++) {
 
-		y = LWSDC_ALPHA(ic->palette[n]);
+		y = LWSDC_ALPHA(palette[n]);
 
-		ea.rgb[0] = (int16_t)((int)da.rgb[0] - (int)(LWSDC_R(ic->palette[n])));
+		ea.rgb[0] = (int16_t)((int)da.rgb[0] - (int)(LWSDC_R(palette[n])));
 
-		sum = (ea.rgb[0] < 0 ? -ea.rgb[0] : ea.rgb[0]) +
-				((yd > y ? (yd - y) * 1 : (y - yd) * 1));
+		sum = ea.rgb[0] < 0 ? -ea.rgb[0] : ea.rgb[0];
 
 		if (sum < best) {
 			best_idx = (int)n;
@@ -301,7 +315,7 @@ lws_display_palettize_grey(const lws_surface_info_t *ic, lws_display_colour_t c,
 
 	/* report the error between the unadjusted colour and what we chose */
 
-	ectx->rgb[0] = (int16_t)((int)da.rgb[0] - (int)(LWSDC_R(ic->palette[best_idx])));
+	ectx->rgb[0] = (int16_t)((int)da.rgb[0] - (int)(LWSDC_R(palette[best_idx])));
 
 	return (lws_display_palette_idx_t)best_idx;
 }
@@ -338,43 +352,77 @@ yuv_to_rgb(uint8_t *rgb, const uint8_t *_yuv)
 #endif
 
 lws_display_palette_idx_t
-lws_display_palettize_col(const lws_surface_info_t *ic, lws_display_colour_t c,
-						lws_colour_error_t *ectx)
+lws_display_palettize_col(const lws_surface_info_t *ic,
+			  const lws_display_colour_t *palette, size_t pdepth,
+			  lws_display_colour_t c, lws_colour_error_t *ectx)
 {
 	int best = 0x7fffffff, best_idx = 0, yd;
 	lws_colour_error_t da, d;
+	uint8_t ya[3];
 	size_t n;
+	int y, ch;
 
 	/* put the most desirable colour (adjusted for existing error) in d */
 
 	d.rgb[0] = (int)gamma2_2[LWSDC_R(c)];
 	da.rgb[0] = d.rgb[0] + ectx->rgb[0];
+	if (da.rgb[0] < 0)
+		da.rgb[0] = 0;
+	if (da.rgb[0] > 255)
+		da.rgb[0] = 255;
 	yd = da.rgb[0];
 	d.rgb[1] = (int)gamma2_2[LWSDC_G(c)];
 	d.rgb[2] = (int)gamma2_2[LWSDC_B(c)];
 	da.rgb[1] = d.rgb[1] + ectx->rgb[1];
+	if (da.rgb[1] < 0)
+		da.rgb[1] = 0;
+	if (da.rgb[1] > 255)
+		da.rgb[1] = 255;
 	da.rgb[2] = d.rgb[2] + ectx->rgb[2];
+	if (da.rgb[2] < 0)
+		da.rgb[2] = 0;
+	if (da.rgb[2] > 255)
+		da.rgb[2] = 255;
 
 	yd = RGB_TO_Y(da.rgb[0], da.rgb[1], da.rgb[2]);
 
+	if (ic->type == LWSSURF_565) {
+		ya[0] = d.rgb[0] >> 3;
+		ectx->rgb[0] = (int16_t)((int)da.rgb[0] - (ya[0] << 3));
+		ya[1] = d.rgb[1] >> 2;
+		ectx->rgb[1] = (int16_t)((int)da.rgb[1] - (ya[1] << 2));
+		ya[2] = d.rgb[2] >> 3;
+		ectx->rgb[2] = (int16_t)((int)da.rgb[2] - (ya[2] << 3));
+
+		return (lws_display_palette_idx_t)((ya[0] << 11) | (ya[1] << 5) | (ya[2]));
+	}
+
 	/*
-	 * Choose a palette colour considering the error diffusion adjustments
+	 * Choose a palette colour considering the error diffusion adjustments,
+	 * separately choose the best Y match and the best RGB match
 	 */
 
-	for (n = 0; n < ic->palette_depth; n++) {
+	for (n = 0; n < pdepth; n++) {
 		lws_colour_error_t ea;
-		int sum, y;
+		int sum;
 
-		y = LWSDC_ALPHA(ic->palette[n]);
+		y = LWSDC_ALPHA(palette[n]);
 
-		ea.rgb[0] = (int16_t)((int)da.rgb[0] - (int)(LWSDC_R(ic->palette[n])));
-		ea.rgb[1] = (int16_t)(da.rgb[1] - (int)(LWSDC_G(ic->palette[n])));
-		ea.rgb[2] = (int16_t)(da.rgb[2] - (int)(LWSDC_B(ic->palette[n])));
+		ea.rgb[0] = (int16_t)((int)da.rgb[0] - (int)(LWSDC_R(palette[n])));
+		ea.rgb[1] = (int16_t)((int)da.rgb[1] - (int)(LWSDC_G(palette[n])));
+		ea.rgb[2] = (int16_t)((int)da.rgb[2] - (int)(LWSDC_B(palette[n])));
 
-		sum = (ea.rgb[0] < 0 ? -ea.rgb[0] : ea.rgb[0]) +
-		      (ea.rgb[1] < 0 ? -ea.rgb[1] : ea.rgb[1]) +
-		      (ea.rgb[2] < 0 ? -ea.rgb[2] : ea.rgb[2]) +
-		      (yd > y ? (yd - y) * 1 : (y - yd) * 1);
+		/* Best considering luma match */
+
+		sum = (yd > y ? (yd - y) : (y - yd));
+
+		/*
+		 * Best considering RGB matching
+		 */
+
+		sum += ((ea.rgb[0] < 0 ? -ea.rgb[0] : ea.rgb[0]) +
+		       (ea.rgb[1] < 0 ? -ea.rgb[1] : ea.rgb[1]) +
+		       (ea.rgb[2] < 0 ? -ea.rgb[2] : ea.rgb[2]));
 
 		if (sum < best) {
 			best_idx = (int)n;
@@ -382,12 +430,14 @@ lws_display_palettize_col(const lws_surface_info_t *ic, lws_display_colour_t c,
 		}
 	}
 
+	ch = best_idx;
+
 	/* report the error between the adjusted colour and what we chose */
 
-	ectx->rgb[0] = (int16_t)((int)da.rgb[0] - (int)(LWSDC_R(ic->palette[best_idx])));
-	ectx->rgb[1] = (int16_t)((int)da.rgb[1] - (int)(LWSDC_G(ic->palette[best_idx])));
-	ectx->rgb[2] = (int16_t)((int)da.rgb[2] - (int)(LWSDC_B(ic->palette[best_idx])));
+	ectx->rgb[0] = (int16_t)((int)da.rgb[0] - (int)(LWSDC_R(palette[ch])));
+	ectx->rgb[1] = (int16_t)((int)da.rgb[1] - (int)(LWSDC_G(palette[ch])));
+	ectx->rgb[2] = (int16_t)((int)da.rgb[2] - (int)(LWSDC_B(palette[ch])));
 
-	return (lws_display_palette_idx_t)best_idx;
+	return (lws_display_palette_idx_t)ch;
 }
 

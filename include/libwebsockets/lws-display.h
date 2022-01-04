@@ -45,6 +45,7 @@ typedef enum {
 	LWSSURF_TRUECOLOR32,
 	LWSSURF_565,
 	LWSSURF_PALETTE,
+	LWSSURF_QUANTIZED_4BPP
 } lws_surface_type_t;
 
 typedef struct lws_surface_info {
@@ -53,7 +54,8 @@ typedef struct lws_surface_info {
 	const lws_display_colour_t	*palette;
 	size_t				palette_depth;
 	lws_surface_type_t		type;
-	char				greyscale; /* line: 0 = RGBA, 1 = YA */
+	uint8_t				greyscale:1; /* line: 0 = RGBA, 1 = YA */
+	uint8_t				partial:1; /* can handle partial */
 } lws_surface_info_t;
 
 typedef struct lws_greyscale_error {
@@ -74,12 +76,14 @@ lws_surface_set_px(const lws_surface_info_t *ic, uint8_t *line, int x,
 		   const lws_display_colour_t *c);
 
 LWS_VISIBLE LWS_EXTERN lws_display_palette_idx_t
-lws_display_palettize_grey(const struct lws_surface_info *ic, lws_display_colour_t c,
-						lws_greyscale_error_t *ectx);
+lws_display_palettize_grey(const lws_surface_info_t *ic,
+			   const lws_display_colour_t *palette, size_t pdepth,
+			   lws_display_colour_t c, lws_greyscale_error_t *ectx);
 
 LWS_VISIBLE LWS_EXTERN lws_display_palette_idx_t
-lws_display_palettize_col(const struct lws_surface_info *ic, lws_display_colour_t c,
-						lws_colour_error_t *ectx);
+lws_display_palettize_col(const lws_surface_info_t *ic,
+			  const lws_display_colour_t *palette, size_t pdepth,
+			  lws_display_colour_t c, lws_colour_error_t *ectx);
 
 /*
  * This is embedded in the actual display implementation object at the top,
@@ -97,7 +101,7 @@ typedef struct lws_display {
 	const lws_pwm_ops_t		*bl_pwm_ops;
 	int (*contrast)(struct lws_display_state *lds, uint8_t contrast);
 	int (*blit)(struct lws_display_state *lds, const uint8_t *src,
-		    lws_box_t *box);
+		    lws_box_t *box, lws_dll2_owner_t *ids);
 	int (*power)(struct lws_display_state *lds, int state);
 
 	const lws_led_sequence_def_t	*bl_active;
@@ -111,10 +115,12 @@ typedef struct lws_display {
 
 	lws_surface_info_t		ic;
 
-	uint8_t				latency_wake_ms;
+	uint16_t			latency_wake_ms;
 	/**< ms required after wake from sleep before display usable again...
 	 * delay bringing up the backlight for this amount of time on wake.
 	 * This is managed via a sul on the event loop, not blocking. */
+	uint16_t			latency_update_ms;
+	/**< nominal update latency in ms */
 } lws_display_t;
 
 /*
@@ -132,6 +138,9 @@ enum lws_display_controller_state {
 typedef struct lws_display_state {
 
 	lws_sorted_usec_list_t		sul_autodim;
+
+	char				current_url[96];
+
 	const lws_display_t		*disp;
 	struct lws_context		*ctx;
 
@@ -147,7 +156,12 @@ typedef struct lws_display_state {
 
 	enum lws_display_controller_state state;
 
+	char				display_busy;
+
 } lws_display_state_t;
+
+/* Used for async display driver events, eg, EPD refresh completion */
+typedef int (*lws_display_completion_t)(lws_display_state_t *lds, int a);
 
 /**
  * lws_display_state_init() - initialize display states
