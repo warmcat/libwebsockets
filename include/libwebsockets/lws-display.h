@@ -73,7 +73,7 @@ typedef struct lws_display {
 
 	int				bl_index;
 
-	lws_surface_info_t			ic;
+	lws_surface_info_t		ic;
 
 	uint8_t				latency_wake_ms;
 	/**< ms required after wake from sleep before display usable again...
