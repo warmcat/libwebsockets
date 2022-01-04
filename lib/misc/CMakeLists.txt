@@ -60,6 +60,18 @@ if (LWS_WITH_UPNG)
 		misc/upng.c)
 endif()
 
+if (LWS_WITH_DLO)
+	list(APPEND SOURCES
+		misc/dlo/dlo.c
+		misc/dlo/dlo-rect.c
+		misc/dlo/dlo-text.c)
+
+if (LWS_WITH_UPNG)
+	list(APPEND SOURCES
+		misc/dlo/dlo-png.c)
+endif()
+endif()
+
 # this is an older, standalone hashed disk cache
 # implementation unrelated to lws-cache-ttl
 if (LWS_WITH_DISKCACHE)

@@ -28,6 +28,24 @@
 struct lws_display_state;
 struct lws_display;
 
+typedef enum {
+	LWSSURF_TRUECOLOR32,
+	LWSSURF_565,
+	LWSSURF_PALETTE_4BB,
+} lws_surface_type_t;
+
+typedef struct lws_surface_info {
+	lws_fixed3232_t			wh_px[2];
+	lws_fixed3232_t			wh_mm[2];
+	const lws_display_colour_t	*palette;
+	size_t				palette_depth;
+	lws_surface_type_t		type;
+} lws_surface_info_t;
+
+LWS_VISIBLE LWS_EXTERN void
+lws_surface_set_px(const lws_surface_info_t *ic, uint8_t *line, int x,
+		   const lws_display_colour_t *c, lws_colour_error_t *ce);
+
 /*
  * This is embedded in the actual display implementation object at the top,
  * so a pointer to this can be cast to a pointer to the implementation object
@@ -38,11 +56,6 @@ struct lws_display;
  * way like set oled contrast.  Either way, the pwm level is arrived at via a
  * full set of lws_led_sequences capable of generic lws transitions
  */
-
-typedef struct lhp_init_ctx {
-	lws_fixed3232_t		wh_px[2];
-	lws_fixed3232_t		wh_mm[2];
-} lhp_init_ctx_t;
 
 typedef struct lws_display {
 	int (*init)(struct lws_display_state *lds);
@@ -56,15 +69,11 @@ typedef struct lws_display {
 	const lws_led_sequence_def_t	*bl_dim;
 	const lws_led_sequence_def_t	*bl_transition;
 
-
-	const lws_display_colour_t	*palette;
-	size_t				palette_depth;
-
 	void				*variant;
 
 	int				bl_index;
 
-	lhp_init_ctx_t			ic;
+	lws_surface_info_t			ic;
 
 	uint8_t				latency_wake_ms;
 	/**< ms required after wake from sleep before display usable again...

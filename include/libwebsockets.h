@@ -752,6 +752,7 @@ lws_fixed3232_roundup(const lws_fixed3232_t *a);
 #include <libwebsockets/lws-led.h>
 #include <libwebsockets/lws-pwm.h>
 #include <libwebsockets/lws-upng.h>
+#include <libwebsockets/lws-dlo.h>
 #include <libwebsockets/lws-display.h>
 #include <libwebsockets/lws-ssd1306-i2c.h>
 #include <libwebsockets/lws-ili9341-spi.h>
