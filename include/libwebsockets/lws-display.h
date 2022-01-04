@@ -149,6 +149,9 @@ typedef struct lws_display_state {
 
 } lws_display_state_t;
 
+/* Used for async display driver events, eg, EPD refresh completion */
+typedef int (*lws_display_completion_t)(lws_display_state_t *lds, int a);
+
 /**
  * lws_display_state_init() - initialize display states
  *
