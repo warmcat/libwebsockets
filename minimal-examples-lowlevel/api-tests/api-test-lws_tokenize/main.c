@@ -379,6 +379,266 @@ int main(int argc, const char **argv)
 		memcert[info.client_ssl_ca_mem_len++] = '\0';
 	}
 #endif
+	{
+		/* lws_fixed3232_t */
+
+		lws_fixed3232_t r, a, b;
+
+		a.whole = 1;
+		a.frac = 0;
+
+		b.whole = 5;
+		b.frac = 50000000;
+
+		lws_fixed3232_add(&r, &a, &b);
+
+		if (r.whole != 6 || r.frac != 50000000) {
+			lwsl_err("%s: fixed3232: test1 fail\n", __func__);
+			return 1;
+		}
+
+
+		lws_fixed3232_sub(&r, &b, &a);
+
+		if (r.whole != 4 || r.frac != 50000000) {
+			lwsl_err("%s: fixed3232: test2 fail\n", __func__);
+			return 1;
+		}
+
+
+		a.whole = -1;
+		a.frac = 0;
+
+		b.whole = 5;
+		b.frac = 50000000;
+
+		lws_fixed3232_add(&r, &a, &b);
+
+		if (r.whole != 4 || r.frac != 50000000) {
+			lwsl_err("%s: fixed3232: test3 fail\n", __func__);
+			return 1;
+		}
+
+
+		a.whole = -1;
+		a.frac = 0;
+
+		b.whole = -1;
+		b.frac = 50000000;
+
+		lws_fixed3232_add(&r, &a, &b);
+
+		if (r.whole != -2 || r.frac != 50000000) {
+			lwsl_err("%s: fixed3232: test4 fail\n", __func__);
+			return 1;
+		}
+
+		a.whole = 3;
+		a.frac = 0;
+
+		b.whole = 5;
+		b.frac = 10000000;
+
+		lws_fixed3232_mul(&r, &a, &b);
+
+		if (r.whole != 15 || r.frac != 30000000) {
+			lwsl_err("%s: fixed3232: test5 fail: %d.%08u\n", __func__, r.whole, r.frac);
+			return 1;
+		}
+
+		a.whole = -3;
+		a.frac = 0;
+
+		b.whole = 5;
+		b.frac = 10000000;
+
+		lws_fixed3232_mul(&r, &a, &b);
+
+		if (r.whole != -15 || r.frac != 30000000) {
+			lwsl_err("%s: fixed3232: test6 fail: %d.%08u\n", __func__, r.whole, r.frac);
+			return 1;
+		}
+
+		a.whole = 3;
+		a.frac = 0;
+
+		b.whole = -5;
+		b.frac = 10000000;
+
+		lws_fixed3232_mul(&r, &a, &b);
+
+		if (r.whole != -15 || r.frac != 30000000) {
+			lwsl_err("%s: fixed3232: test7 fail: %d.%08u\n", __func__, r.whole, r.frac);
+			return 1;
+		}
+
+
+		a.whole = -3;
+		a.frac = 0;
+
+		b.whole = -5;
+		b.frac = 10000000;
+
+		lws_fixed3232_mul(&r, &a, &b);
+
+		if (r.whole != 15 || r.frac != 30000000) {
+			lwsl_err("%s: fixed3232: test8 fail: %d.%08u\n", __func__, r.whole, r.frac);
+			return 1;
+		}
+
+		a.whole = 3;
+		a.frac = 50000000;
+
+		b.whole = 5;
+		b.frac = 10000000;
+
+		lws_fixed3232_mul(&r, &a, &b);
+
+		if (r.whole != 17 || r.frac != 85000000) {
+			lwsl_err("%s: fixed3232: test9 fail: %d.%08u\n", __func__, r.whole, r.frac);
+			return 1;
+		}
+
+		a.whole = -3;
+		a.frac = 50000000;
+
+		b.whole = 5;
+		b.frac = 10000000;
+
+		lws_fixed3232_mul(&r, &a, &b);
+
+		if (r.whole != -17 || r.frac != 85000000) {
+			lwsl_err("%s: fixed3232: test10 fail: %d.%08u\n", __func__, r.whole, r.frac);
+			return 1;
+		}
+
+		a.whole = 3;
+		a.frac = 50000000;
+
+		b.whole = -5;
+		b.frac = 10000000;
+
+		lws_fixed3232_mul(&r, &a, &b);
+
+		if (r.whole != -17 || r.frac != 85000000) {
+			lwsl_err("%s: fixed3232: test11 fail: %d.%08u\n", __func__, r.whole, r.frac);
+			return 1;
+		}
+
+		a.whole = -3;
+		a.frac = 50000000;
+
+		b.whole = -5;
+		b.frac = 10000000;
+
+		lws_fixed3232_mul(&r, &a, &b);
+
+		if (r.whole != 17 || r.frac != 85000000) {
+			lwsl_err("%s: fixed3232: test12 fail: %d.%08u\n", __func__, r.whole, r.frac);
+			return 1;
+		}
+
+		a.whole = 27;
+		a.frac = 0;
+
+		b.whole = 9;
+		b.frac = 0;
+
+		lws_fixed3232_div(&r, &a, &b);
+
+		if (r.whole != 3 || r.frac != 0) {
+			lwsl_err("%s: fixed3232: test13 fail: %d.%08u\n", __func__, r.whole, r.frac);
+			return 1;
+		}
+
+		a.whole = 33;
+		a.frac = 33333333;
+
+		b.whole = 11;
+		b.frac = 0;
+
+		lws_fixed3232_div(&r, &a, &b);
+
+		if (r.whole != 3 || r.frac != 3030302) {
+			lwsl_err("%s: fixed3232: test14 fail: %d.%08u\n", __func__, r.whole, r.frac);
+			return 1;
+		}
+
+		a.whole = 33;
+		a.frac = 33333333;
+
+		b.whole = 1;
+		b.frac = 10000000;
+
+		lws_fixed3232_div(&r, &a, &b);
+
+		if (r.whole != 30 || r.frac != 30303030) {
+			lwsl_err("%s: fixed3232: test15 fail: %d.%08u\n", __func__, r.whole, r.frac);
+			return 1;
+		}
+
+		a.whole = -33;
+		a.frac = 33333333;
+
+		b.whole = 1;
+		b.frac = 10000000;
+
+		lws_fixed3232_div(&r, &a, &b);
+
+		if (r.whole != -30 || r.frac != 30303030) {
+			lwsl_err("%s: fixed3232: test16 fail: %d.%08u\n", __func__, r.whole, r.frac);
+			return 1;
+		}
+
+		a.whole = 33;
+		a.frac = 33333333;
+
+		b.whole = -1;
+		b.frac = 10000000;
+
+		lws_fixed3232_div(&r, &a, &b);
+
+		if (r.whole != -30 || r.frac != 30303030) {
+			lwsl_err("%s: fixed3232: test17 fail: %d.%08u\n", __func__, r.whole, r.frac);
+			return 1;
+		}
+
+		a.whole = -33;
+		a.frac = 33333333;
+
+		b.whole = -1;
+		b.frac = 10000000;
+
+		lws_fixed3232_div(&r, &a, &b);
+
+		if (r.whole != 30 || r.frac != 30303030) {
+			lwsl_err("%s: fixed3232: test18 fail: %d.%08u\n", __func__, r.whole, r.frac);
+			return 1;
+		}
+
+
+		a.whole = 64;
+		a.frac = 0;
+
+		lws_fixed3232_sqrt(&r, &a);
+
+		if (r.whole != 8 || r.frac != 0) {
+			lwsl_err("%s: fixed3232: test19 fail: %d.%08u\n", __func__, r.whole, r.frac);
+			return 1;
+		}
+
+		a.whole = 16512;
+		a.frac = 25000000;
+
+		lws_fixed3232_sqrt(&r, &a);
+
+		if (r.whole != 128 || r.frac != 50000000) {
+			lwsl_err("%s: fixed3232: test20 fail: %d.%08u\n", __func__, r.whole, r.frac);
+			return 1;
+		}
+	}
+
+
 	cx = lws_create_context(&info);
 
 	/* lws_strexp */

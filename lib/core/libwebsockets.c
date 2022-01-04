@@ -1704,3 +1704,143 @@ nope:
 
 	return LWS_MINILEX_FAIL;
 }
+
+const lws_fixed3232_t *
+lws_fixed3232_add(lws_fixed3232_t *r, const lws_fixed3232_t *a, const lws_fixed3232_t *b)
+{
+	int64_t _a = lws_fix64(a), _b = lws_fix64(b);
+
+	_a = _a + _b;
+
+	lws_fix3232(r, _a);
+
+	return r;
+}
+
+const lws_fixed3232_t *
+lws_fixed3232_sub(lws_fixed3232_t *r, const lws_fixed3232_t *a, const lws_fixed3232_t *b)
+{
+	int64_t _a = lws_fix64(a), _b = lws_fix64(b);
+
+	_a = _a - _b;
+
+	lws_fix3232(r, _a);
+
+	return r;
+}
+
+const lws_fixed3232_t *
+lws_fixed3232_mul(lws_fixed3232_t *r, const lws_fixed3232_t *a, const lws_fixed3232_t *b)
+{
+	int64_t _c1, _c2;
+	int32_t t;
+
+	assert(a->frac < LWS_F3232_FRACTION_MSD);
+	assert(b->frac < LWS_F3232_FRACTION_MSD);
+
+	r->whole = a->whole * b->whole;
+	_c2 = (((int64_t)((int64_t)a->frac) * (int64_t)b->frac) / LWS_F3232_FRACTION_MSD);
+
+	if (a->whole >= 0 && b->whole >= 0) {
+		_c1 = ((int64_t)a->frac * ((int64_t)b->whole)) + (((int64_t)a->whole) * (int64_t)b->frac) + _c2;
+		r->whole += (int32_t)(_c1 / LWS_F3232_FRACTION_MSD);
+	} else
+		if (a->whole < 0 && b->whole >= 0) {
+			_c1 = ((int64_t)a->frac * (-(int64_t)b->whole)) + (((int64_t)a->whole) * (int64_t)b->frac) - _c2;
+			r->whole += (int32_t)(_c1 / LWS_F3232_FRACTION_MSD);
+		} else
+			if (a->whole >= 0 && b->whole < 0) {
+				_c1 = ((int64_t)a->frac * ((int64_t)b->whole)) - (((int64_t)a->whole) * (int64_t)b->frac) - _c2;
+				r->whole += (int32_t)(_c1 / LWS_F3232_FRACTION_MSD);
+			} else {
+				_c1 = ((int64_t)a->frac * ((int64_t)b->whole)) + (((int64_t)a->whole) * (int64_t)b->frac) - _c2;
+				r->whole -= (int32_t)(_c1 / LWS_F3232_FRACTION_MSD);
+			}
+
+	t = (int32_t)(_c1 % LWS_F3232_FRACTION_MSD);
+	r->frac = (uint32_t)(t < 0 ? -t : t);
+
+	return r;
+}
+
+const lws_fixed3232_t *
+lws_fixed3232_div(lws_fixed3232_t *r, const lws_fixed3232_t *a, const lws_fixed3232_t *b)
+{
+	int64_t _a = lws_fix64_abs(a), _b = lws_fix64_abs(b), q = 0, d, m;
+
+	if (!_b)
+		_a = 0;
+	else {
+		int c = 64 / 2 + 1;
+
+		while (_a && c >= 0) {
+			d = _a / _b;
+			m = (_a % _b);
+			if (m < 0)
+				m = -m;
+			_a = m << 1;
+			q += d << (c--);
+		}
+		_a = q >> 1;
+	}
+
+	lws_fix3232(r, _a);
+
+	if ((a->whole < 0) ^ (b->whole < 0))
+		r->whole = -r->whole;
+
+	return r;
+}
+
+const lws_fixed3232_t *
+lws_fixed3232_sqrt(lws_fixed3232_t *r, const lws_fixed3232_t *a)
+{
+	uint64_t t, q = 0, b = 1ull << 62, v = ((uint64_t)a->whole << 32) +
+	    	 (((uint64_t)a->frac << 32) / LWS_F3232_FRACTION_MSD);
+
+	while (b > 0x40) {
+		t = q + b;
+		if (v >= t) {
+			v -= t;
+			q = t + b;
+		}
+		v <<= 1;
+		b >>= 1;
+	}
+
+	r->whole = (int32_t)(q >> 48);
+	r->frac = (uint32_t)((((q >> 16) & 0xffffffff) *
+					LWS_F3232_FRACTION_MSD) >> 32);
+
+	return r;
+}
+
+/* returns < 0 if a < b, >0 if a > b, or 0 if exactly equal */
+
+int
+lws_fixed3232_comp(const lws_fixed3232_t *a, const lws_fixed3232_t *b)
+{
+	if (a->whole < b->whole)
+		return -1;
+	if (a->whole > b->whole)
+                return 1;
+
+	if (a->frac < b->frac)
+		return -1;
+
+	if (a->frac > b->frac)
+		return 1;
+
+	return 0;
+}
+
+int
+lws_fixed3232_roundup(const lws_fixed3232_t *a)
+{
+	if (a->frac)
+		return a->whole + 1;
+
+	return a->whole;
+}
+
+
