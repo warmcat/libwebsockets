@@ -449,6 +449,14 @@ struct lws_context {
 #endif
 	lws_sorted_usec_list_t			sul_cpd_defer;
 
+#if defined(LWS_WITH_DLO)
+	lws_dll2_owner_t			fonts;
+	lws_dll2_owner_t			dlo_file;
+#if defined(LWS_WITH_SECURE_STREAMS)
+	lws_dll2_owner_t			active_assets; /* dloss_t */
+#endif
+#endif
+
 #if defined(LWS_WITH_NETWORK)
 	struct lws_context_per_thread		pt[LWS_MAX_SMP];
 	lws_retry_bo_t				default_retry;
