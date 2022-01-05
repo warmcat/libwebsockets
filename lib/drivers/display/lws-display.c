@@ -1,7 +1,7 @@
 /*
  * lws abstract display
  *
- * Copyright (C) 2019 - 2020 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2019 - 2022 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -22,7 +22,7 @@
  * IN THE SOFTWARE.
  */
 
-#include <libwebsockets.h>
+#include <private-lib-core.h>
 
 static void
 sul_autodim_cb(lws_sorted_usec_list_t *sul)
@@ -85,7 +85,7 @@ lws_display_state_init(lws_display_state_t *lds, struct lws_context *ctx,
 	lws_led_transition(lds->bl_lcs, "backlight", &lws_pwmseq_static_off,
 						     &lws_pwmseq_static_on);
 
-	disp->init(disp);
+	disp->init(lds);
 }
 
 void
@@ -103,7 +103,7 @@ lws_display_state_active(lws_display_state_t *lds)
 
 	if (lds->state == LWSDISPS_OFF) {
 		/* power us up */
-		lds->disp->power(lds->disp, 1);
+		lds->disp->power(lds, 1);
 		lds->state = LWSDISPS_BECOMING_ACTIVE;
 		waiting_ms = lds->disp->latency_wake_ms;
 	} else {
@@ -120,13 +120,12 @@ lws_display_state_active(lws_display_state_t *lds)
 	if (waiting_ms >= 0)
 		lws_sul_schedule(lds->ctx, 0, &lds->sul_autodim, sul_autodim_cb,
 				 waiting_ms * LWS_US_PER_MS);
-
 }
 
 void
 lws_display_state_off(lws_display_state_t *lds)
 {
-	lds->disp->power(lds->disp, 0);
+	lds->disp->power(lds, 0);
 	lws_sul_cancel(&lds->sul_autodim);
 	lds->state = LWSDISPS_OFF;
 }

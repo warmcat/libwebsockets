@@ -1,7 +1,7 @@
 /*
  * lws-minimal-esp32
  *
- * Written in 2010-2020 by Andy Green <andy@warmcat.com>
+ * Written in 2010-2022 by Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
@@ -153,6 +153,7 @@ void
 app_main(void)
 {
 	struct lws_context_creation_info *info;
+	lws_box_t box = { {0,0}, {0,0}, {128,0}, {64,0} };
 
 	lws_set_log_level(1024 | 15, NULL);
 
@@ -196,7 +197,7 @@ app_main(void)
 
 	/* put the logo on the OLED display */
 
-	lds.disp->blit(lds.disp, img, 0, 0, 128, 64);
+	lds.disp->blit(&lds, img, &box);
 	lws_display_state_active(&lds);
 
 	/* the lws event loop */

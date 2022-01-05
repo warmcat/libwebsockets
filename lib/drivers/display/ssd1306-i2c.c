@@ -46,9 +46,9 @@ static uint8_t ssd1306_128x64_init[] = {
 };
 
 int
-lws_display_ssd1306_i2c_init(const struct lws_display *disp)
+lws_display_ssd1306_i2c_init(lws_display_state_t *lds)
 {
-	const lws_display_ssd1306_t *si = (const lws_display_ssd1306_t *)disp;
+	const lws_display_ssd1306_t *si = (const lws_display_ssd1306_t *)lds->disp;
 
 	si->i2c->init(si->i2c);
 
@@ -72,9 +72,9 @@ lws_display_ssd1306_i2c_init(const struct lws_display *disp)
 }
 
 int
-lws_display_ssd1306_i2c_contrast(const struct lws_display *disp, uint8_t b)
+lws_display_ssd1306_i2c_contrast(lws_display_state_t *lds, uint8_t b)
 {
-	const lws_display_ssd1306_t *si = (const lws_display_ssd1306_t *)disp;
+	const lws_display_ssd1306_t *si = (const lws_display_ssd1306_t *)lds->disp;
 	uint8_t ba[2];
 
 	ba[0] = SSD1306_SETCONTRAST;
@@ -85,11 +85,11 @@ lws_display_ssd1306_i2c_contrast(const struct lws_display *disp, uint8_t b)
 }
 
 int
-lws_display_ssd1306_i2c_blit(const struct lws_display *disp, const uint8_t *src,
-			     lws_display_scalar x, lws_display_scalar y,
-			     lws_display_scalar w, lws_display_scalar h)
+lws_display_ssd1306_i2c_blit(lws_display_state_t *lds, const uint8_t *src,
+			     lws_box_t *box)
 {
-	const lws_display_ssd1306_t *si = (const lws_display_ssd1306_t *)disp;
+	const lws_display_ssd1306_t *si = (const lws_display_ssd1306_t *)lds->disp;
+	lws_display_list_coord_t y = box->y.whole, h = box->h.whole;
 	uint8_t ba[6];
 	int n, m;
 
@@ -102,8 +102,8 @@ lws_display_ssd1306_i2c_blit(const struct lws_display *disp, const uint8_t *src,
 		h = 8;
 
 	ba[0] = SSD1306_COLUMNADDR;
-	ba[1] = x;
-	ba[2] = x + w - 1;
+	ba[1] = box->x.whole;
+	ba[2] = box->x.whole + box->w.whole - 1;
 	ba[3] = SSD1306_PAGEADDR;
 	ba[4] = y / 8;
 	ba[5] = ba[4] + (h / 8) - 1;
@@ -114,12 +114,12 @@ lws_display_ssd1306_i2c_blit(const struct lws_display *disp, const uint8_t *src,
 		return 1;
 	}
 
-        for (n = 0; n < (w * h) / 8;) {
+        for (n = 0; n < (box->w.whole * h) / 8;) {
                 lws_bb_i2c_start(si->i2c);
                 lws_bb_i2c_write(si->i2c, si->i2c7_address << 1);
                 lws_bb_i2c_write(si->i2c, SSD1306_SETSTARTLINE | y);
 
-                for (m = 0; m < w; m++)
+                for (m = 0; m < box->w.whole; m++)
                         lws_bb_i2c_write(si->i2c, src[n++]);
 
                 lws_bb_i2c_stop(si->i2c);
@@ -130,13 +130,13 @@ lws_display_ssd1306_i2c_blit(const struct lws_display *disp, const uint8_t *src,
 }
 
 int
-lws_display_ssd1306_i2c_power(const struct lws_display *disp, int state)
+lws_display_ssd1306_i2c_power(lws_display_state_t *lds, int state)
 {
-	const lws_display_ssd1306_t *si = (const lws_display_ssd1306_t *)disp;
+	const lws_display_ssd1306_t *si = (const lws_display_ssd1306_t *)lds->disp;
 
 	if (!state)
 		return lws_i2c_command(si->i2c, si->i2c7_address,
 				       SSD1306_DISPLAYOFF | !!state);
 
-	return lws_display_ssd1306_i2c_init(disp);
+	return lws_display_ssd1306_i2c_init(lds);
 }
