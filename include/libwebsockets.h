@@ -790,6 +790,7 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size);
 #include <libwebsockets/lws-dlo.h>
 #include <libwebsockets/lws-ssd1306-i2c.h>
 #include <libwebsockets/lws-ili9341-spi.h>
+#include <libwebsockets/lws-spd1656-spi.h>
 #include <libwebsockets/lws-settings.h>
 #if defined(LWS_WITH_NETWORK)
 #include <libwebsockets/lws-netdev.h>
