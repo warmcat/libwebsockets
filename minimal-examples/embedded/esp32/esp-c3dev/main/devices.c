@@ -1,7 +1,7 @@
 /*
  * devices for ESP32 C3 dev board
  *
- * Written in 2010-2021 by Andy Green <andy@warmcat.com>
+ * Written in 2010-2022 by Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
@@ -61,8 +61,10 @@ static const lws_pwm_ops_t pwm_ops = {
 static const lws_display_ssd1306_t disp = {
 	.disp = {
 		lws_display_ssd1306_ops,
-		.w			= 128,
-		.h			= 64
+			.ic = {
+			.wh_px = { { 128,0 },      { 64,0 } },
+			.wh_mm = { { 22,00000000 },  { 10,00000000 } },
+               },
 	},
 	.i2c				= (lws_i2c_ops_t *)&li2c,
 	.gpio				= &lws_gpio_plat,
