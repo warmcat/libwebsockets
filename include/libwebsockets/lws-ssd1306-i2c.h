@@ -46,15 +46,14 @@ typedef struct lws_display_ssd1306 {
 } lws_display_ssd1306_t;
 
 int
-lws_display_ssd1306_i2c_init(const struct lws_display *disp);
+lws_display_ssd1306_i2c_init(lws_display_state_t *lds);
 int
-lws_display_ssd1306_i2c_contrast(const struct lws_display *disp, uint8_t b);
+lws_display_ssd1306_i2c_contrast(lws_display_state_t *lds, uint8_t b);
 int
-lws_display_ssd1306_i2c_blit(const struct lws_display *disp, const uint8_t *src,
-                             lws_display_scalar x, lws_display_scalar y,
-                             lws_display_scalar w, lws_display_scalar h);
+lws_display_ssd1306_i2c_blit(lws_display_state_t *lds, const uint8_t *src,
+                             lws_box_t *box);
 int
-lws_display_ssd1306_i2c_power(const struct lws_display *disp, int state);
+lws_display_ssd1306_i2c_power(lws_display_state_t *lds, int state);
 
 #define lws_display_ssd1306_ops \
 	.init = lws_display_ssd1306_i2c_init, \
