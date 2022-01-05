@@ -1,7 +1,7 @@
 /*
  * lws abstract display implementation for ili9341 on spi
  *
- * Copyright (C) 2019 - 2020 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2019 - 2022 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -39,13 +39,12 @@ typedef struct lws_display_ili9341 {
 } lws_display_ili9341_t;
 
 int
-lws_display_ili9341_spi_init(const struct lws_display *disp);
+lws_display_ili9341_spi_init(lws_display_state_t *lds);
 int
-lws_display_ili9341_spi_blit(const struct lws_display *disp, const uint8_t *src,
-                             lws_display_scalar x, lws_display_scalar y,
-                             lws_display_scalar w, lws_display_scalar h);
+lws_display_ili9341_spi_blit(lws_display_state_t *lds, const uint8_t *src,
+                             lws_box_t *box);
 int
-lws_display_ili9341_spi_power(const struct lws_display *disp, int state);
+lws_display_ili9341_spi_power(lws_display_state_t *lds, int state);
 
 #define lws_display_ili9341_ops \
 	.init = lws_display_ili9341_spi_init, \
