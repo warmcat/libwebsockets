@@ -395,7 +395,7 @@ lws_threadpool_worker_sync(struct lws_pool *pool,
 	enum lws_threadpool_task_status temp;
 	struct timespec abstime;
 	struct lws *wsi;
-	int tries = 15;
+	int tries = 100;
 
 	/* block until writable acknowledges */
 	lwsl_debug("%s: %p: LWS_TP_RETURN_SYNC in\n", __func__, task);
