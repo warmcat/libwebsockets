@@ -1,7 +1,7 @@
 /*
  * lws abstract display
  *
- * Copyright (C) 2019 - 2020 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2019 - 2022 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -25,9 +25,61 @@
 #if !defined(__LWS_DISPLAY_H__)
 #define __LWS_DISPLAY_H__
 
-#include <stdint.h>
-
+typedef int16_t lws_display_list_coord_t;
 typedef uint16_t lws_display_scalar;
+typedef uint16_t lws_display_rotation_t;
+typedef uint32_t lws_display_colour_t;
+typedef uint16_t lws_display_palette_idx_t;
+
+typedef struct lws_box {
+	lws_fx_t		x;
+	lws_fx_t		y;
+	lws_fx_t		w;
+	lws_fx_t		h;
+} lws_box_t;
+
+struct lws_display_state;
+struct lws_display;
+
+typedef enum {
+	LWSSURF_TRUECOLOR32,
+	LWSSURF_565,
+	LWSSURF_PALETTE,
+} lws_surface_type_t;
+
+typedef struct lws_surface_info {
+	lws_fx_t			wh_px[2];
+	lws_fx_t			wh_mm[2];
+	const lws_display_colour_t	*palette;
+	size_t				palette_depth;
+	lws_surface_type_t		type;
+	char				greyscale; /* line: 0 = RGBA, 1 = YA */
+} lws_surface_info_t;
+
+typedef struct lws_greyscale_error {
+	int16_t				rgb[1];
+} lws_greyscale_error_t;
+
+typedef struct lws_colour_error {
+	int16_t				rgb[3];
+} lws_colour_error_t;
+
+typedef union {
+	lws_greyscale_error_t		grey;	/* when ic->greyscale set */
+	lws_colour_error_t		colour; /* when ic->greyscale == 0 */
+} lws_surface_error_t;
+
+LWS_VISIBLE LWS_EXTERN void
+lws_surface_set_px(const lws_surface_info_t *ic, uint8_t *line, int x,
+		   const lws_display_colour_t *c);
+
+LWS_VISIBLE LWS_EXTERN lws_display_palette_idx_t
+lws_display_palettize_grey(const struct lws_surface_info *ic, lws_display_colour_t c,
+						lws_greyscale_error_t *ectx);
+
+LWS_VISIBLE LWS_EXTERN lws_display_palette_idx_t
+lws_display_palettize_col(const struct lws_surface_info *ic, lws_display_colour_t c,
+						lws_colour_error_t *ectx);
 
 /*
  * This is embedded in the actual display implementation object at the top,
@@ -41,26 +93,23 @@ typedef uint16_t lws_display_scalar;
  */
 
 typedef struct lws_display {
-	int (*init)(const struct lws_display *disp);
+	int (*init)(struct lws_display_state *lds);
 	const lws_pwm_ops_t		*bl_pwm_ops;
-	int (*contrast)(const struct lws_display *disp, uint8_t contrast);
-	int (*blit)(const struct lws_display *disp, const uint8_t *src,
-		    lws_display_scalar x, lws_display_scalar y,
-		    lws_display_scalar w, lws_display_scalar h);
-	int (*power)(const struct lws_display *disp, int state);
+	int (*contrast)(struct lws_display_state *lds, uint8_t contrast);
+	int (*blit)(struct lws_display_state *lds, const uint8_t *src,
+		    lws_box_t *box);
+	int (*power)(struct lws_display_state *lds, int state);
 
 	const lws_led_sequence_def_t	*bl_active;
 	const lws_led_sequence_def_t	*bl_dim;
 	const lws_led_sequence_def_t	*bl_transition;
 
+	const char			*name;
 	void				*variant;
 
 	int				bl_index;
 
-	lws_display_scalar		w;
-	/**< display surface width in pixels */
-	lws_display_scalar		h;
-	/**< display surface height in pixels */
+	lws_surface_info_t		ic;
 
 	uint8_t				latency_wake_ms;
 	/**< ms required after wake from sleep before display usable again...
@@ -85,6 +134,8 @@ typedef struct lws_display_state {
 	lws_sorted_usec_list_t		sul_autodim;
 	const lws_display_t		*disp;
 	struct lws_context		*ctx;
+
+	void				*priv; /* subclass driver alloc'd priv */
 
 	int				autodim_ms;
 	int				off_ms;

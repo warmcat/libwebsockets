@@ -1,7 +1,7 @@
 /*
  * lws abstract display
  *
- * Copyright (C) 2019 - 2020 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2019 - 2022 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -22,7 +22,7 @@
  * IN THE SOFTWARE.
  */
 
-#include <libwebsockets.h>
+#include <private-lib-core.h>
 
 static void
 sul_autodim_cb(lws_sorted_usec_list_t *sul)
@@ -85,7 +85,7 @@ lws_display_state_init(lws_display_state_t *lds, struct lws_context *ctx,
 	lws_led_transition(lds->bl_lcs, "backlight", &lws_pwmseq_static_off,
 						     &lws_pwmseq_static_on);
 
-	disp->init(disp);
+	disp->init(lds);
 }
 
 void
@@ -103,7 +103,7 @@ lws_display_state_active(lws_display_state_t *lds)
 
 	if (lds->state == LWSDISPS_OFF) {
 		/* power us up */
-		lds->disp->power(lds->disp, 1);
+		lds->disp->power(lds, 1);
 		lds->state = LWSDISPS_BECOMING_ACTIVE;
 		waiting_ms = lds->disp->latency_wake_ms;
 	} else {
@@ -120,13 +120,274 @@ lws_display_state_active(lws_display_state_t *lds)
 	if (waiting_ms >= 0)
 		lws_sul_schedule(lds->ctx, 0, &lds->sul_autodim, sul_autodim_cb,
 				 waiting_ms * LWS_US_PER_MS);
-
 }
 
 void
 lws_display_state_off(lws_display_state_t *lds)
 {
-	lds->disp->power(lds->disp, 0);
+	lds->disp->power(lds, 0);
 	lws_sul_cancel(&lds->sul_autodim);
 	lds->state = LWSDISPS_OFF;
 }
+
+int
+lws_display_alloc_diffusion(const lws_surface_info_t *ic, lws_surface_error_t **se)
+{
+	size_t size, gsize = ic->greyscale ? sizeof(lws_greyscale_error_t) :
+					     sizeof(lws_colour_error_t);
+
+	if (*se)
+		return 0;
+
+	/* defer creation of dlo's 2px-high dlo-width, 2 bytespp or 6 bytespp
+	 * error diffusion buffer */
+
+	size = gsize * 2u * (unsigned int)(ic->wh_px[0].whole);
+
+	lwsl_info("%s: alloc'd %u for width %d\n", __func__, (unsigned int)size,
+			(int)ic->wh_px[0].whole);
+
+	se[0] = lws_zalloc(size, __func__);
+	if (!se[0])
+		return 1;
+
+	se[1] = (lws_surface_error_t *)(((uint8_t *)se[0]) +
+			((size_t)ic->wh_px[0].whole * gsize));
+
+	return 0;
+}
+
+static void
+dist_err_grey(const lws_greyscale_error_t *in, lws_greyscale_error_t *out,
+							int sixteenths)
+{
+	out->rgb[0] = (int16_t)(out->rgb[0] +
+				(int16_t)((sixteenths * in->rgb[0]) / 16));
+}
+
+static void
+dist_err_col(const lws_colour_error_t *in, lws_colour_error_t *out,
+							int sixteenths)
+{
+	out->rgb[0] = (int16_t)(out->rgb[0] +
+			(int16_t)((sixteenths * in->rgb[0]) / 16));
+	out->rgb[1] = (int16_t)(out->rgb[1] +
+			(int16_t)((sixteenths * in->rgb[1]) / 16));
+	out->rgb[2] = (int16_t)(out->rgb[2] +
+			(int16_t)((sixteenths * in->rgb[2]) / 16));
+}
+
+void
+dist_err_floyd_steinberg_grey(int n, int width, lws_greyscale_error_t *gedl_this,
+			      lws_greyscale_error_t *gedl_next)
+{
+	if (n != width - 1) {
+	        dist_err_grey(&gedl_this[n], &gedl_this[n + 1], 7);
+	        dist_err_grey(&gedl_this[n], &gedl_next[n + 1], 1);
+	}
+	if (n)
+		dist_err_grey(&gedl_this[n], &gedl_next[n - 1], 3);
+
+	dist_err_grey(&gedl_this[n], &gedl_next[n], 5);
+
+	gedl_this[n].rgb[0] = 0;
+}
+
+void
+dist_err_floyd_steinberg_col(int n, int width, lws_colour_error_t *edl_this,
+			     lws_colour_error_t *edl_next)
+{
+	if (n != width - 1) {
+	        dist_err_col(&edl_this[n], &edl_this[n + 1], 7);
+	        dist_err_col(&edl_this[n], &edl_next[n + 1], 1);
+	}
+	if (n)
+	        dist_err_col(&edl_this[n], &edl_next[n - 1], 3);
+
+	dist_err_col(&edl_this[n], &edl_next[n], 5);
+
+	edl_this[n].rgb[0] = 0;
+	edl_this[n].rgb[1] = 0;
+	edl_this[n].rgb[2] = 0;
+}
+
+/*
+ * #include <stdio.h>
+ * #include <math.h>
+ *
+ * void
+ * main(void)
+ * {
+ *       int n;
+ *
+ *       for (n = 0; n < 256; n++) {
+ *               double d = (double)n / 255.0;
+ *
+ *               printf("0x%02X, ", (unsigned int)(pow(d,  (2.2)) * 255));
+ *       }
+ *
+ * }
+ */
+
+static const uint8_t gamma2_2[] = {
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x01,
+	0x01, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02,
+	0x02, 0x02, 0x03, 0x03, 0x03, 0x03, 0x03, 0x04,
+	0x04, 0x04, 0x04, 0x05, 0x05, 0x05, 0x05, 0x06,
+	0x06, 0x06, 0x07, 0x07, 0x07, 0x08, 0x08, 0x08,
+	0x09, 0x09, 0x09, 0x0A, 0x0A, 0x0A, 0x0B, 0x0B,
+	0x0C, 0x0C, 0x0D, 0x0D, 0x0D, 0x0E, 0x0E, 0x0F,
+	0x0F, 0x10, 0x10, 0x11, 0x11, 0x12, 0x12, 0x13,
+	0x13, 0x14, 0x15, 0x15, 0x16, 0x16, 0x17, 0x17,
+	0x18, 0x19, 0x19, 0x1A, 0x1B, 0x1B, 0x1C, 0x1D,
+	0x1D, 0x1E, 0x1F, 0x1F, 0x20, 0x21, 0x21, 0x22,
+	0x23, 0x24, 0x24, 0x25, 0x26, 0x27, 0x28, 0x28,
+	0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2D, 0x2E, 0x2F,
+	0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
+	0x37, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E,
+	0x3F, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47,
+	0x48, 0x49, 0x4A, 0x4B, 0x4D, 0x4E, 0x4F, 0x50,
+	0x51, 0x52, 0x54, 0x55, 0x56, 0x57, 0x58, 0x5A,
+	0x5B, 0x5C, 0x5D, 0x5F, 0x60, 0x61, 0x63, 0x64,
+	0x65, 0x67, 0x68, 0x69, 0x6B, 0x6C, 0x6D, 0x6F,
+	0x70, 0x72, 0x73, 0x75, 0x76, 0x77, 0x79, 0x7A,
+	0x7C, 0x7D, 0x7F, 0x80, 0x82, 0x83, 0x85, 0x87,
+	0x88, 0x8A, 0x8B, 0x8D, 0x8E, 0x90, 0x92, 0x93,
+	0x95, 0x97, 0x98, 0x9A, 0x9C, 0x9D, 0x9F, 0xA1,
+	0xA2, 0xA4, 0xA6, 0xA8, 0xA9, 0xAB, 0xAD, 0xAF,
+	0xB0, 0xB2, 0xB4, 0xB6, 0xB8, 0xBA, 0xBB, 0xBD,
+	0xBF, 0xC1, 0xC3, 0xC5, 0xC7, 0xC9, 0xCB, 0xCD,
+	0xCF, 0xD1, 0xD3, 0xD5, 0xD7, 0xD9, 0xDB, 0xDD,
+	0xDF, 0xE1, 0xE3, 0xE5, 0xE7, 0xE9, 0xEB, 0xED,
+	0xEF, 0xF1, 0xF4, 0xF6, 0xF8, 0xFA, 0xFC, 0xFF
+};
+
+lws_display_palette_idx_t
+lws_display_palettize_grey(const lws_surface_info_t *ic, lws_display_colour_t c,
+						lws_greyscale_error_t *ectx)
+{
+	int best = 0x7fffffff, best_idx = 0, yd;
+	lws_colour_error_t da, d;
+	size_t n;
+
+	/* put the most desirable colour (adjusted for existing error) in d */
+
+	d.rgb[0] = (int)gamma2_2[LWSDC_R(c)];
+	da.rgb[0] = d.rgb[0] + ectx->rgb[0];
+	yd = da.rgb[0];
+
+	/*
+	 * Choose a palette colour considering the error diffusion adjustments
+	 */
+
+	for (n = 0; n < ic->palette_depth; n++) {
+		lws_colour_error_t ea;
+		int sum, y;
+
+		y = LWSDC_ALPHA(ic->palette[n]);
+
+		ea.rgb[0] = (int16_t)((int)da.rgb[0] - (int)(LWSDC_R(ic->palette[n])));
+
+		sum = (ea.rgb[0] < 0 ? -ea.rgb[0] : ea.rgb[0]) +
+				((yd > y ? (yd - y) * 1 : (y - yd) * 1));
+
+		if (sum < best) {
+			best_idx = (int)n;
+			best = sum;
+		}
+	}
+
+	/* report the error between the unadjusted colour and what we chose */
+
+	ectx->rgb[0] = (int16_t)((int)da.rgb[0] - (int)(LWSDC_R(ic->palette[best_idx])));
+
+	return (lws_display_palette_idx_t)best_idx;
+}
+/*
+ * For error disffusion, it's better to use YUV and prioritize reducing error
+ * in Y (lumience)
+ */
+#if 0
+static void
+rgb_to_yuv(uint8_t *yuv, const uint8_t *rgb)
+{
+	yuv[0] =  16 + ((257 * rgb[0]) / 1000) + ((504 * rgb[1]) / 1000) +
+						  ((98 * rgb[2]) / 1000);
+	yuv[1] = 128 - ((148 * rgb[0]) / 1000) - ((291 * rgb[1]) / 1000) +
+						 ((439 * rgb[2]) / 1000);
+	yuv[2] = 128 + ((439 * rgb[0]) / 1000) - ((368 * rgb[1]) / 1000) -
+						  ((71 * rgb[2]) / 1000);
+}
+
+static void
+yuv_to_rgb(uint8_t *rgb, const uint8_t *_yuv)
+{
+	unsigned int yuv[3];
+
+	yuv[0] = _yuv[0] - 16;
+	yuv[1] = _yuv[1] - 128;
+	yuv[2] = _yuv[2] - 128;
+
+	rgb[0] = ((1164 * yuv[0]) / 1000) + ((1596 * yuv[2]) / 1000);
+	rgb[1] = ((1164 * yuv[0]) / 1090) -  ((392 * yuv[1]) / 1000) -
+					     ((813 * yuv[2]) / 1000);
+	rgb[2] = ((1164 * yuv[0]) / 1000) + ((2017 * yuv[1]) / 1000);
+}
+#endif
+
+lws_display_palette_idx_t
+lws_display_palettize_col(const lws_surface_info_t *ic, lws_display_colour_t c,
+						lws_colour_error_t *ectx)
+{
+	int best = 0x7fffffff, best_idx = 0, yd;
+	lws_colour_error_t da, d;
+	size_t n;
+
+	/* put the most desirable colour (adjusted for existing error) in d */
+
+	d.rgb[0] = (int)gamma2_2[LWSDC_R(c)];
+	da.rgb[0] = d.rgb[0] + ectx->rgb[0];
+	yd = da.rgb[0];
+	d.rgb[1] = (int)gamma2_2[LWSDC_G(c)];
+	d.rgb[2] = (int)gamma2_2[LWSDC_B(c)];
+	da.rgb[1] = d.rgb[1] + ectx->rgb[1];
+	da.rgb[2] = d.rgb[2] + ectx->rgb[2];
+
+	yd = RGB_TO_Y(da.rgb[0], da.rgb[1], da.rgb[2]);
+
+	/*
+	 * Choose a palette colour considering the error diffusion adjustments
+	 */
+
+	for (n = 0; n < ic->palette_depth; n++) {
+		lws_colour_error_t ea;
+		int sum, y;
+
+		y = LWSDC_ALPHA(ic->palette[n]);
+
+		ea.rgb[0] = (int16_t)((int)da.rgb[0] - (int)(LWSDC_R(ic->palette[n])));
+		ea.rgb[1] = (int16_t)(da.rgb[1] - (int)(LWSDC_G(ic->palette[n])));
+		ea.rgb[2] = (int16_t)(da.rgb[2] - (int)(LWSDC_B(ic->palette[n])));
+
+		sum = (ea.rgb[0] < 0 ? -ea.rgb[0] : ea.rgb[0]) +
+		      (ea.rgb[1] < 0 ? -ea.rgb[1] : ea.rgb[1]) +
+		      (ea.rgb[2] < 0 ? -ea.rgb[2] : ea.rgb[2]) +
+		      (yd > y ? (yd - y) * 1 : (y - yd) * 1);
+
+		if (sum < best) {
+			best_idx = (int)n;
+			best = sum;
+		}
+	}
+
+	/* report the error between the adjusted colour and what we chose */
+
+	ectx->rgb[0] = (int16_t)((int)da.rgb[0] - (int)(LWSDC_R(ic->palette[best_idx])));
+	ectx->rgb[1] = (int16_t)((int)da.rgb[1] - (int)(LWSDC_G(ic->palette[best_idx])));
+	ectx->rgb[2] = (int16_t)((int)da.rgb[2] - (int)(LWSDC_B(ic->palette[best_idx])));
+
+	return (lws_display_palette_idx_t)best_idx;
+}
+

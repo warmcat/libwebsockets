@@ -59,9 +59,9 @@ static uint8_t ili9341_320x240_init[] = {
 };
 
 int
-lws_display_ili9341_spi_init(const struct lws_display *disp)
+lws_display_ili9341_spi_init(lws_display_state_t *lds)
 {
-	const lws_display_ili9341_t *ili = (const lws_display_ili9341_t *)disp;
+	const lws_display_ili9341_t *ili = (const lws_display_ili9341_t *)lds->disp;
 	lws_spi_desc_t desc;
 	size_t pos = 0;
 	uint8_t u[8];
@@ -114,17 +114,17 @@ lws_display_ili9341_spi_init(const struct lws_display *disp)
 /* backlight handled by PWM */
 
 int
-lws_display_ili9341_spi_brightness(const struct lws_display *disp, uint8_t b)
+lws_display_ili9341_spi_brightness(lws_display_state_t *lds, uint8_t b)
 {
 	return 0;
 }
 
 int
-lws_display_ili9341_spi_blit(const struct lws_display *disp, const uint8_t *src,
-			     lws_display_scalar x, lws_display_scalar y,
-			     lws_display_scalar w, lws_display_scalar h)
+lws_display_ili9341_spi_blit(lws_display_state_t *lds, const uint8_t *src,
+			     lws_box_t *box)
 {
-	const lws_display_ili9341_t *ili = (const lws_display_ili9341_t *)disp;
+	const lws_display_ili9341_t *ili = (const lws_display_ili9341_t *)lds->disp;
+	lws_display_list_coord_t h, y;
 	lws_spi_desc_t desc;
 	uint8_t u[5];
 
@@ -137,14 +137,17 @@ lws_display_ili9341_spi_blit(const struct lws_display *disp, const uint8_t *src,
 	 * Blit a line at a time
 	 */
 
+	h = box->h.whole;
+	y = box->y.whole;
+
 	while (h--) {
 
 		u[0] = ILI9341_CASET;
 		desc.data = &u[1];
-		u[1] = x;
-		u[2] = x;
-		u[3] = w >> 8;
-		u[4] = w & 0xff;
+		u[1] = box->x.whole;
+		u[2] = box->x.whole;
+		u[3] = box->w.whole >> 8;
+		u[4] = box->w.whole & 0xff;
 		desc.count_write = 4;
 		ili->spi->queue(ili->spi, &desc);
 
@@ -158,9 +161,9 @@ lws_display_ili9341_spi_blit(const struct lws_display *disp, const uint8_t *src,
 
 		u[0] = ILI9341_RAMWR;
 		desc.data = src;
-		desc.count_write = w * 2;
+		desc.count_write = box->w.whole * 2;
 		ili->spi->queue(ili->spi, &desc);
-		src += w * 2;
+		src += box->w.whole * 2;
 		y++;
 	}
 
@@ -168,10 +171,10 @@ lws_display_ili9341_spi_blit(const struct lws_display *disp, const uint8_t *src,
 }
 
 int
-lws_display_ili9341_spi_power(const struct lws_display *disp, int state)
+lws_display_ili9341_spi_power(lws_display_state_t *lds, int state)
 {
 
-	const lws_display_ili9341_t *ili = (const lws_display_ili9341_t *)disp;
+	const lws_display_ili9341_t *ili = (const lws_display_ili9341_t *)lds->disp;
 	lws_spi_desc_t desc;
 	uint8_t u[1];
 
