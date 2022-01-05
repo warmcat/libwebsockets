@@ -1,7 +1,7 @@
 /*
  * lws-minimal-esp32
  *
- * Written in 2010-2020 by Andy Green <andy@warmcat.com>
+ * Written in 2010-2022 by Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
@@ -116,7 +116,7 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 
 	switch (state) {
 	case LWSSSCS_CREATING:
-		lws_ss_client_connect(m->ss);
+		return lws_ss_client_connect(m->ss);
 		break;
 	default:
 		break;
@@ -183,6 +183,7 @@ void
 app_main(void)
 {
 	struct lws_context_creation_info *info;
+	lws_box_t box = { {0,0}, {0,0}, {320,0}, {240,0} };
 
 	lws_set_log_level(1024 | 15, NULL);
 
@@ -231,7 +232,7 @@ app_main(void)
 
 	/* put the cat picture up there and enable the backlight */
 
-	lds.disp->blit(lds.disp, logo, 0, 0, 320, 240);
+	lds.disp->blit(&lds, logo, &box);
 	lws_display_state_active(&lds);
 
 	/* the lws event loop */
