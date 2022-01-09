@@ -75,6 +75,8 @@ lws_b64_encode_string_url(const char *in, int in_len, char *out, int out_size);
  * \param out_size: length of result buffer
  *
  * Decodes a NUL-terminated string using b64
+ *
+ * Returns used length of output buffer
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_b64_decode_string(const char *in, char *out, int out_size);
@@ -87,6 +89,8 @@ lws_b64_decode_string(const char *in, char *out, int out_size);
  * \param out_size: length of result buffer
  *
  * Decodes a range of chars using b64
+ *
+ * Returns used length of output buffer
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_b64_decode_string_len(const char *in, int in_len, char *out, int out_size);
