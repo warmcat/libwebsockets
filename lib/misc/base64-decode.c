@@ -164,7 +164,9 @@ lws_b64_decode_stateful(struct lws_b64state *s, const char *in, size_t *in_len,
 		s->len = 0;
 	}
 
-	*out = '\0';
+	if (out < end_out)
+		*out = '\0';
+
 	*in_len = (unsigned int)(in - orig_in);
 	*out_size = (unsigned int)(out - orig_out);
 
