@@ -180,13 +180,18 @@ int main(int argc, const char **argv)
 				LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
 	}
 
-	if ((p = lws_cmdline_option(argc, argv, "-p")))
+	if ((p = lws_cmdline_option(argc, argv, "-p"))) {
 		port = atoi(p);
+		if (port > 65535 || port < 0)
+			return 1;
+	}
 
 	if ((p = lws_cmdline_option(argc, argv, "-n"))) {
 		n = atoi(p);
 		if (n < 1)
 			n = 1;
+		if (n > LWS_MAX_SMP)
+			n = LWS_MAX_SMP;
 		if (n < nclients)
 			nclients = n;
 		lwsl_notice("Start test clients: %d\n", nclients);
