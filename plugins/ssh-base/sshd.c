@@ -2089,7 +2089,7 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 
         case LWS_CALLBACK_RAW_ADOPT:
 		lwsl_info("LWS_CALLBACK_RAW_ADOPT\n");
-		if (!vhd)
+		if (!vhd || !pss)
 			return -1;
 		pss->next = vhd->live_pss_list;
 		vhd->live_pss_list = pss;

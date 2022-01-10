@@ -377,7 +377,6 @@ lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
 		p++;
 
 	if (*p != '-') {
-		lwsl_err("b\n");
 		goto bail;
 	}
 
@@ -385,7 +384,6 @@ lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
 		p++;
 
 	if (p >= end) {
-		lwsl_err("c\n");
 		goto bail;
 	}
 
@@ -398,10 +396,8 @@ lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
 	while (q > opem && *q != '\n')
 		q--;
 
-	if (*q != '\n') {
-		lwsl_err("d\n");
+	if (*q != '\n')
 		goto bail;
-	}
 
 	/* we can't write into the input buffer for mem, since it may be in RO
 	 * const segment
