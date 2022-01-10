@@ -52,7 +52,9 @@ int
 main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
+#if !defined(__COVERITY__)
 	const char *p;
+#endif
 	int n = 1;
 
 	signal(SIGINT, sigint_handler);
@@ -64,8 +66,10 @@ main(int argc, const char **argv)
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 
+#if !defined(__COVERITY__)
 	if ((p = lws_cmdline_option(argc, argv, "-i")))
 		nif = p;
+#endif
 
 	context = lws_create_context(&info);
 	if (!context) {

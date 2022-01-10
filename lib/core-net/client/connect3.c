@@ -183,6 +183,10 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 		result = NULL;
 	}
 
+#if defined(LWS_WITH_UNIX_SOCK)
+	memset(&sau, 0, sizeof(sau));
+#endif
+
 	/*
 	 * async dns calls back here for everybody who cares when it gets a
 	 * result... but if we are piggybacking, we do not want to connect
@@ -246,10 +250,10 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	}
 
 #if defined(LWS_WITH_UNIX_SOCK)
+
 	if (ads && *ads == '+') {
 		ads++;
 		memset(&wsi->sa46_peer, 0, sizeof(wsi->sa46_peer));
-		memset(&sau, 0, sizeof(sau));
 		af = sau.sun_family = AF_UNIX;
 		strncpy(sau.sun_path, ads, sizeof(sau.sun_path));
 		sau.sun_path[sizeof(sau.sun_path) - 1] = '\0';
