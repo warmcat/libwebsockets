@@ -254,7 +254,7 @@ if (LWS_WITH_SSL)
 	endif()
 
 	if (NOT chose_ssl)
-		if (OPENSSL_FOUND)
+		if (OPENSSL_FOUND AND "${OPENSSL_INCLUDE_DIRS}" STREQUAL "")
 			set(OPENSSL_INCLUDE_DIRS "${OPENSSL_INCLUDE_DIR}")
 		endif()
 
