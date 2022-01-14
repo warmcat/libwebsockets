@@ -153,7 +153,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	struct sockaddr_un sau;
 #endif
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-	const char *cce = "Unable to connect", *iface;
+	const char *cce = "Unable to connect", *iface, *local_port;
 	const struct sockaddr *psa = NULL;
 	uint16_t port = wsi->conn_port;
 	char dcce[48], t16[16];
@@ -435,9 +435,12 @@ ads_known:
 		iface = lws_wsi_client_stash_item(wsi, CIS_IFACE,
 						  _WSI_TOKEN_CLIENT_IFACE);
 
-		if (iface && *iface) {
+		local_port = lws_wsi_client_stash_item(wsi, CIS_LOCALPORT,
+						  _WSI_TOKEN_CLIENT_LOCALPORT);
+
+		if ((iface && *iface) || (local_port && atoi(local_port))) {
 			m = lws_socket_bind(wsi->a.vhost, wsi, wsi->desc.sockfd,
-					    0, iface, af);
+					    (local_port ? atoi(local_port) : 0), iface, af);
 			if (m < 0) {
 				lws_snprintf(dcce, sizeof(dcce),
 					     "conn fail: socket bind");

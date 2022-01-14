@@ -131,6 +131,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	struct lws *wsi, *safe = NULL;
 	const struct lws_protocols *p;
 	const char *cisin[CIS_COUNT];
+	char buf_localport[8];
 	struct lws_vhost *vh;
 	int tsi;
 
@@ -357,6 +358,8 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	cisin[CIS_PROTOCOL]	= i->protocol;
 	cisin[CIS_METHOD]	= i->method;
 	cisin[CIS_IFACE]	= i->iface;
+	lws_snprintf(buf_localport, sizeof(buf_localport), "%u", i->local_port);
+	cisin[CIS_LOCALPORT]	= buf_localport;
 	cisin[CIS_ALPN]		= i->alpn;
 
 	if (lws_client_stash_create(wsi, cisin))

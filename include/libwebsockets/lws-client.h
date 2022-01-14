@@ -165,6 +165,9 @@ struct lws_client_connect_info {
 	const char *iface;
 	/**< NULL to allow routing on any interface, or interface name or IP
 	 * to bind the socket to */
+	int local_port;
+	/**< 0 to pick an ephemeral port, or a specific local port
+	 * to bind the socket to */
 	const char *local_protocol_name;
 	/**< NULL: .protocol is used both to select the local protocol handler
 	 *         to bind to and as the list of remote ws protocols we could

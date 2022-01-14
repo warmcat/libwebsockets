@@ -350,6 +350,7 @@ enum lws_token_indexes {
 	_WSI_TOKEN_CLIENT_ORIGIN,
 	_WSI_TOKEN_CLIENT_METHOD,
 	_WSI_TOKEN_CLIENT_IFACE,
+	_WSI_TOKEN_CLIENT_LOCALPORT,
 	_WSI_TOKEN_CLIENT_ALPN,
 
 	/* always last real token index*/
