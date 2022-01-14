@@ -146,16 +146,56 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd,
 
 int
 lws_plat_set_socket_options_ip(lws_sockfd_type fd, uint8_t pri, int lws_flags)
-{
+{	
+	int optval = 1, ret = 0;
+	socklen_t optlen = sizeof(optval);
+#if !defined(LWS_WITH_NO_LOGS)
+	int en;
+#endif
+
 	/*
 	 * Seems to require "differeniated services" but no docs
 	 *
 	 * https://docs.microsoft.com/en-us/windows/win32/winsock/ipproto-ip-socket-options
 	 * https://docs.microsoft.com/en-us/previous-versions/windows/desktop/qos/differentiated-services
 	 */
-	lwsl_warn("%s: not implemented on windows platform\n", __func__);
+	lwsl_warn("%s: priority and ip sockets options not implemented on windows platform\n", __func__);
+	
 
-	return 0;
+	/*
+	* only accept that we are the only listener on the port
+	* https://msdn.microsoft.com/zh-tw/library/
+	*    windows/desktop/ms740621(v=vs.85).aspx
+	*
+	* for lws, to match Linux, we default to exclusive listen
+	*/
+	if (lws_flags & LCCSCF_ALLOW_REUSE_ADDR) {
+		if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR,
+					(const void *)&optval, optlen) < 0) { 
+#if !defined(LWS_WITH_NO_LOGS)
+			en = errno;
+			lwsl_warn("%s: unable to reuse local addresses: errno %d\n",
+				__func__, en);
+#endif
+			ret = 1;
+		} else
+			lwsl_notice("%s: set reuse addresses\n", __func__);
+
+	} else {
+		if (setsockopt(fd, SOL_SOCKET, SO_EXCLUSIVEADDRUSE,
+				       (const void *)&optval, optlen) < 0) {
+#if !defined(LWS_WITH_NO_LOGS)
+			en = errno;
+			lwsl_warn("%s: unable to use exclusive addresses: errno %d\n",
+				__func__, en);
+#endif
+			ret = 1;
+		} else
+			lwsl_notice("%s: set use exclusive addresses\n", __func__);
+	}
+	
+
+	return ret;
 }
 
 int
