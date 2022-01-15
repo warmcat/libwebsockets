@@ -96,7 +96,7 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int uri_len, int met
 
 	nwsi = lws_get_network_wsi(wsi);
 
-	if (wsi->sa46_peer.sa4.sin_family)
+	if (nwsi->sa46_peer.sa4.sin_family)
 		lws_sa46_write_numeric_address(&nwsi->sa46_peer, ta, sizeof(ta));
 	else
 		strncpy(ta, "unknown", sizeof(ta));
