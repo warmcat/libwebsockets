@@ -406,7 +406,7 @@ lws_sort_dns_dcomp(const lws_dns_sort_t *da, const lws_dns_sort_t *db)
 	 */
 
 	scopea = lws_ipv6_unicast_scope(to_v6_sa(&da->dest));
-	scopeb = lws_ipv6_unicast_scope(to_v6_sa(&db));
+	scopeb = lws_ipv6_unicast_scope(to_v6_sa(&db->dest));
 	scope_srca = lws_ipv6_unicast_scope(to_v6_sa(&da->source));
 	scope_srcb = lws_ipv6_unicast_scope(to_v6_sa(&db->source));
 
