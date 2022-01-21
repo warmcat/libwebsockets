@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2021 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2022 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -33,7 +33,12 @@ typedef struct lws_tls_session_cache_openssl {
 	/* name is overallocated here */
 } lws_tls_sco_t;
 
-#define lwsl_tlssess lwsl_info
+#define tlssess_loglevel		LLL_INFO
+#if (_LWS_ENABLED_LOGS & tlssess_loglevel)
+#define lwsl_tlssess(...)		_lws_log(tlssess_loglevel, __VA_ARGS__)
+#else
+#define lwsl_tlssess(...)
+#endif
 
 static void
 __lws_tls_session_destroy(lws_tls_sco_t *ts)
@@ -211,7 +216,7 @@ lws_tls_session_new_cb(SSL *ssl, SSL_SESSION *sess)
 	struct lws_vhost *vh;
 	lws_tls_sco_t *ts;
 	long ttl;
-#if !defined(LWS_WITH_NO_LOGS) && defined(_DEBUG)
+#if (_LWS_ENABLED_LOGS & tlssess_loglevel)
 	const char *disposition = "reuse";
 #endif
 
@@ -247,7 +252,7 @@ lws_tls_session_new_cb(SSL *ssl, SSL_SESSION *sess)
 				 lws_tls_session_expiry_cb,
 				 ttl * LWS_US_PER_SEC);
 
-#if !defined(LWS_WITH_NO_LOGS) && defined(_DEBUG)
+#if (_LWS_ENABLED_LOGS & tlssess_loglevel)
 		disposition = "new";
 #endif
 
