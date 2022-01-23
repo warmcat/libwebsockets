@@ -1,7 +1,7 @@
 #
 # libwebsockets - small server side websockets and web server implementation
 #
-# Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
+# Copyright (C) 2010 - 2022 Andy Green <andy@warmcat.com>
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to
@@ -69,6 +69,7 @@ if (LWS_WITH_DLO)
 	list(APPEND SOURCES
 		misc/dlo/dlo.c
 		misc/dlo/dlo-rect.c
+		misc/dlo/dlo-font-mcufont.c
 		misc/dlo/dlo-text.c)
 
 if (LWS_WITH_UPNG)
@@ -80,7 +81,6 @@ if (LWS_WITH_JPEG)
 	list(APPEND SOURCES
 		misc/dlo/dlo-jpeg.c)
 endif()
-
 
 endif()
 
@@ -150,7 +150,6 @@ if (LWS_WITH_CBOR)
 		misc/lecp.c
 		misc/ieeehalfprecision.c)
 endif()
-
 
 if (UNIX)
 	if (NOT LWS_HAVE_GETIFADDRS)

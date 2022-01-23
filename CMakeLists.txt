@@ -1,7 +1,7 @@
 #
 # libwebsockets - small server side websockets and web server implementation
 #
-# Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
+# Copyright (C) 2010 - 2022 Andy Green <andy@warmcat.com>
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to
@@ -331,6 +331,7 @@ if (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
 else()
 	set(LWS_WITH_NETLINK 0)
 endif()
+option(LWS_WITH_MCUFONT_ENCODER "Build the ttf to mcufont encoder" OFF)
 
 if (${CMAKE_SYSTEM_NAME} MATCHES "SunOS")
        # its openssl has md5 deprecated
@@ -1040,6 +1041,9 @@ if (PICO_SDK_PATH)
 	link_libraries(pico_stdlib PRIVATE)
 endif()
 
+if (LWS_WITH_MCUFONT_ENCODER)
+	add_subdirectory(contrib/mcufont/encoder)
+endif()
 
 # Generate the lws_config.h that includes all the public compilation settings.
 configure_file(

@@ -36,19 +36,20 @@ typedef uint32_t lws_display_gline_t; /* type for 1 line of glyph px */
 struct lws_surface_info;
 struct lws_display_state;
 struct lws_display_font;
+struct lws_dlo_text;
 struct lws_display;
 struct lws_dlo_text;
 struct lws_dlo;
 
-#define LWSDC_RGBA(_r, _g, _b, _a) \
-		(((uint32_t)(_r) & 0xff) | (((uint32_t)(_g) & 0xff) << 8) | (((uint32_t)(_b) & 0xff) << 16) | (((uint32_t)(_a) & 0xff) << 24))
+#define LWSDC_RGBA(_r, _g, _b, _a) (((uint32_t)(_r) & 0xff) | \
+				   (((uint32_t)(_g) & 0xff) << 8) | \
+				   (((uint32_t)(_b) & 0xff) << 16) | \
+				   (((uint32_t)(_a) & 0xff) << 24))
 
-#define LWSDC_R(_c) ((_c) & 0xff)
-#define LWSDC_G(_c) ((_c >> 8) & 0xff)
-#define LWSDC_B(_c) ((_c >> 16) & 0xff)
-#define LWSDC_ALPHA(_c) ((_c >> 24) & 0xff)
-
-#define MAX_FONT_HEIGHT 32
+#define LWSDC_R(_c)		((_c) & 0xff)
+#define LWSDC_G(_c)		((_c >> 8) & 0xff)
+#define LWSDC_B(_c)		((_c >> 16) & 0xff)
+#define LWSDC_ALPHA(_c)		((_c >> 24) & 0xff)
 
 typedef struct lws_box {
 	lws_fx_t		x;
@@ -58,14 +59,30 @@ typedef struct lws_box {
 } lws_box_t;
 
 typedef struct lws_colour_error {
-	int16_t		rgb[3];
+	int16_t			rgb[3];
 } lws_colour_error_t;
+
+/* composed at start of larger, font-specific glyph struct */
+
+typedef struct lws_font_glyph {
+	lws_dll2_t		list;
+
+	lws_fx_t		xorg;
+	lws_fx_t		xpx;
+	lws_fx_t		height;
+	int8_t			x;	/* x offset inside the glyph */
+
+	lws_fx_t		cwidth;
+} lws_font_glyph_t;
 
 typedef void (*lws_dlo_renderer_t)(const struct lws_surface_info *ic,
 				   struct lws_dlo *dlo, const lws_box_t *origin,
 				   lws_display_scalar curr,
 				   uint8_t *line,
 				   lws_colour_error_t **nle);
+typedef lws_font_glyph_t * (*lws_dlo_image_glyph_t)(
+				struct lws_dlo_text *text,
+				uint32_t unicode, char attach);
 typedef void (*lws_dlo_destroy_t)(struct lws_dlo *dlo);
 
 /*
@@ -137,10 +154,11 @@ typedef struct lws_display_font {
 
 	lws_font_choice_t		choice;
 
-	const uint8_t			*data;
+	const uint8_t			*data; /* may be cast to imp struct */
 	uint8_t				*priv; /* only used by implementation */
 	size_t				data_len;
 	lws_dlo_renderer_t		renderer;
+	lws_dlo_image_glyph_t		image_glyph;
 
 	lws_fx_t			em;	/* 1 em in pixels */
 	lws_fx_t			ex;	/* 1 ex in pixels */
@@ -159,16 +177,34 @@ typedef struct lws_dlo_filesystem {
 typedef struct lws_dlo_text {
 	lws_dlo_t			dlo;
 	const lws_display_font_t	*font;
+	lws_dll2_owner_t		glyphs;
 	lws_box_t			bounding_box; /* { 0, 0, w, h } relative
 						       * to and subject to
 						       * clipping by .dlo.box */
+
+	/* referred to by glyphs */
+	const struct lws_surface_info	*ic;
+	uint8_t				*line;
+	lws_colour_error_t		**nle;
+	uint16_t			curr;
+
 	char				*text;
 	uint8_t				*kern;
 	size_t				text_len;
 	lws_display_list_coord_t	clkernpx;
 	lws_display_list_coord_t	cwidth;
 
+	lws_fx_t			indent;
+
 	uint32_t			flags;
+	int16_t				font_y_baseline;
+	int16_t				font_height;
+	int16_t				font_line_height;
+
+	int16_t				group_height;
+	int16_t				group_y_baseline;
+
+	lws_fx_t			_cwidth;
 } lws_dlo_text_t;
 
 typedef struct lws_dlo_png {
@@ -278,7 +314,7 @@ lws_display_render_rect(const struct lws_surface_info *ic, struct lws_dlo *dlo,
 			uint8_t *line, lws_colour_error_t **nle);
 
 /*
- * PSFU (unicode bitmap terminal) fonts + text
+ * dlo text
  */
 
 LWS_VISIBLE LWS_EXTERN lws_dlo_text_t *
@@ -290,15 +326,6 @@ lws_display_dlo_text_update(lws_dlo_text_t *text, lws_display_colour_t dc,
 		lws_fx_t indent, const char *utf8, size_t text_len);
 
 LWS_VISIBLE LWS_EXTERN void
-lws_display_font_psfu_bounding(struct lws_dlo *dlo, const char *txt,
-			       lws_box_t *box);
-
-LWS_VISIBLE LWS_EXTERN void
-lws_display_font_psfu_render(const struct lws_surface_info *ic, struct lws_dlo *dlo,
-			     const lws_box_t *origin, lws_display_scalar curr,
-			     uint8_t *line, lws_colour_error_t **nle);
-
-void
 lws_display_dlo_text_destroy(struct lws_dlo *dlo);
 
 /*
@@ -341,7 +368,7 @@ lhp_dl_render(lhp_ctx_t *ctx, char reason);
  */
 
 LWS_VISIBLE LWS_EXTERN int
-lws_font_register(struct lws_context *cx, const lws_display_font_t *f);
+lws_font_register(struct lws_context *cx, const uint8_t *data, size_t data_len);
 
 LWS_VISIBLE LWS_EXTERN const lws_display_font_t *
 lws_font_choose(struct lws_context *cx, const lws_font_choice_t *hints);
