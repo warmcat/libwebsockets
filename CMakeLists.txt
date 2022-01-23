@@ -161,6 +161,7 @@ option(LWS_WITH_SYS_FAULT_INJECTION "Enable fault injection support" OFF)
 option(LWS_WITH_SYS_METRICS "Lws Metrics API" OFF)
 option(LWS_WITH_UPNG "Enable stateful PNG stream decoder" ON)
 option(LWS_WITH_GZINFLATE "Enable internal minimal gzip inflator" ON)
+option(LWS_WITH_JPEG "Enable stateful JPEG stream decoder" ON)
 
 #
 # Secure Streams

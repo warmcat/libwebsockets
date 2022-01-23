@@ -69,6 +69,11 @@ if (LWS_WITH_UPNG)
 	list(APPEND SOURCES
 		misc/upng.c)
 endif()
+if (LWS_WITH_JPEG)
+	list(APPEND SOURCES
+		misc/jpeg.c)
+endif()
+
 
 # this is an older, standalone hashed disk cache
 # implementation unrelated to lws-cache-ttl

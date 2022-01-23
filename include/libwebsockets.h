@@ -781,6 +781,7 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size);
 #include <libwebsockets/lws-led.h>
 #include <libwebsockets/lws-pwm.h>
 #include <libwebsockets/lws-upng.h>
+#include <libwebsockets/lws-jpeg.h>
 #include <libwebsockets/lws-display.h>
 #include <libwebsockets/lws-ssd1306-i2c.h>
 #include <libwebsockets/lws-ili9341-spi.h>
