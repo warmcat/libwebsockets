@@ -24,6 +24,57 @@
 
 #include <private-lib-core.h>
 
+#if defined(LWS_WITH_CLIENT)
+static int
+lws_raw_skt_connect(struct lws *wsi)
+{
+	int n;
+#if defined(LWS_WITH_TLS)
+	const char *cce = NULL;
+	char ccebuf[128];
+
+#if !defined(LWS_WITH_SYS_ASYNC_DNS)
+	switch (lws_client_create_tls(wsi, &cce, 1)) {
+#else
+	switch (lws_client_create_tls(wsi, &cce, 0)) {
+#endif
+	case CCTLS_RETURN_ERROR:
+		lws_inform_client_conn_fail(wsi, (void *)cce, strlen(cce));
+		return -1;
+	case CCTLS_RETURN_RETRY:
+		return 0;
+	case CCTLS_RETURN_DONE:
+		break;
+	}
+
+	if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
+		n = lws_ssl_client_connect2(wsi, ccebuf, sizeof(ccebuf));
+		if (n < 0) {
+			lws_inform_client_conn_fail(wsi, (void *)ccebuf,
+						    strlen(ccebuf));
+
+			return -1;
+		}
+		if (n != 1)
+			return 0; /* wait */
+	}
+#endif
+
+	n = user_callback_handle_rxflow(wsi->a.protocol->callback,
+					wsi, wsi->role_ops->adoption_cb[lwsi_role_server(wsi)],
+					wsi->user_space, NULL, 0);
+	if (n) {
+		lws_inform_client_conn_fail(wsi, (void *)"user", 4);
+		return 1;
+	}
+
+	lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+	lwsi_set_state(wsi, LRS_ESTABLISHED);
+
+	return 1; /* success */
+}
+#endif
+
 static int
 rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 			   struct lws_pollfd *pollfd)
@@ -81,6 +132,14 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 		    /* we are actually connected */
 		case LRS_WAITING_CONNECT:
 			goto nope;
+
+		case LRS_WAITING_SSL:
+#if defined(LWS_WITH_CLIENT)
+			n = lws_raw_skt_connect(wsi);
+			if (n < 0)
+				goto fail;
+#endif
+			break;
 
 #if defined(LWS_WITH_SOCKS5)
 
@@ -177,16 +236,21 @@ try_pollout:
 		return LWS_HPI_RET_HANDLED;
 
 #if defined(LWS_WITH_CLIENT)
-	if (lwsi_state(wsi) == LRS_WAITING_CONNECT &&
-	    !lws_client_connect_3_connect(wsi, NULL, NULL, 0, NULL))
+	if (lwsi_state(wsi) == LRS_WAITING_CONNECT) {
+	    if (!lws_client_connect_3_connect(wsi, NULL, NULL, 0, NULL))
 		return LWS_HPI_RET_WSI_ALREADY_DIED;
+
+	    if (lws_raw_skt_connect(wsi) < 0)
+		    goto fail;
+	}
 #endif
 
+	if (lwsi_state(wsi) == LRS_WAITING_SSL)
+		return LWS_HPI_RET_HANDLED;
+
 	/* one shot */
-	if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
-		lwsl_notice("%s a\n", __func__);
+	if (lws_change_pollfd(wsi, LWS_POLLOUT, 0))
 		goto fail;
-	}
 
 	/* clear back-to-back write detection */
 	wsi->could_have_pending = 0;
