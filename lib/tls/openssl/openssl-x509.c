@@ -89,7 +89,8 @@ lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 #endif
 	X509_NAME *xn;
 #if !defined(LWS_PLAT_OPTEE)
-	char *p;
+	char *p, *p1;
+	size_t rl;
 #endif
 
 	buf->ns.len = 0;
@@ -128,8 +129,16 @@ lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 			return -1;
 		X509_NAME_oneline(xn, buf->ns.name, (int)len - 2);
 		p = strstr(buf->ns.name, "/CN=");
-		if (p)
-			memmove(buf->ns.name, p + 4, strlen(p + 4) + 1);
+		if (p) {
+			p += 4;
+			p1 = strchr(p, '/');
+			if (p1)
+				rl = lws_ptr_diff_size_t(p1, p);
+			else
+				rl = strlen(p);
+			memmove(buf->ns.name, p, rl);
+			buf->ns.name[rl] = '\0';
+		}
 		buf->ns.len = (int)strlen(buf->ns.name);
 		return 0;
 #endif
