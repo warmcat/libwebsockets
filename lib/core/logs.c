@@ -506,8 +506,23 @@ int lwsl_visible_cx(lws_log_cx_t *cx, int level)
 void
 lwsl_refcount_cx(lws_log_cx_t *cx, int _new)
 {
+#if LWS_MAX_SMP > 1
+	volatile lws_log_cx_t *vcx = (volatile lws_log_cx_t *)cx;
+#endif
+
 	if (!cx)
 		return;
+
+#if LWS_MAX_SMP > 1
+	if (!vcx->inited) {
+		vcx->inited = 1;
+		lws_pthread_mutex_init(&cx->refcount_lock);
+		vcx->inited = 2;
+	}
+	while (vcx->inited != 2)
+		;
+	lws_pthread_mutex_lock(&cx->refcount_lock);
+#endif
 
 	if (_new > 0)
 		cx->refcount++;
@@ -518,6 +533,10 @@ lwsl_refcount_cx(lws_log_cx_t *cx, int _new)
 
 	if (cx->refcount_cb)
 		cx->refcount_cb(cx, _new);
+
+#if LWS_MAX_SMP > 1
+	lws_pthread_mutex_unlock(&cx->refcount_lock);
+#endif
 }
 
 void

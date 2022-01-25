@@ -82,6 +82,11 @@ typedef struct lws_log_cx {
 		lws_log_emit_t		emit; /* legacy emit function */
 		lws_log_emit_cx_t	emit_cx; /* LLLF_LOG_CONTEXT_AWARE */
 	} u;
+
+#if LWS_MAX_SMP > 1
+	pthread_mutex_t			refcount_lock;
+#endif
+
 	lws_log_use_cx_t		refcount_cb;
 	/**< NULL, or a function called after each change to .refcount below,
 	 * this enables implementing side-effects like opening and closing
@@ -99,6 +104,9 @@ typedef struct lws_log_cx {
 	/**< mask of log levels we want to emit in this context */
 	int32_t				refcount;
 	/**< refcount of objects bound to this log context */
+#if LWS_MAX_SMP > 1
+	char				inited;
+#endif
 } lws_log_cx_t;
 
 /**
