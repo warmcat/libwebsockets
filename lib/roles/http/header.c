@@ -78,10 +78,15 @@ lws_add_http_header_by_name(struct lws *wsi, const unsigned char *name,
 	(void)wsi;
 #endif
 	if (name) {
-		while (*p < end && *name)
+		char has_colon = 0;
+		while (*p < end && *name) {
+			has_colon = has_colon || *name == ':';
 			*((*p)++) = *name++;
-		if (*p == end)
+		}
+		if (*p + (has_colon ? 1 : 2) >= end)
 			return 1;
+		if (!has_colon)
+			*((*p)++) = ':';
 		*((*p)++) = ' ';
 	}
 	if (*p + length + 3 >= end)
