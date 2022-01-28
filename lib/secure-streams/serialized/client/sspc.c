@@ -273,7 +273,7 @@ lws_sspc_event_helper(lws_sspc_handle_t *h, lws_ss_constate_t cs,
 		return LWSSSSRET_OK;
 
 	h->h_in_svc = h;
-	ret = h->ssi.state((void *)((uint8_t *)&h[1]), NULL, cs, flags);
+	ret = h->ssi.state((void *)((uint8_t *)(h + 1)), NULL, cs, flags);
 	h->h_in_svc = NULL;
 
 	return ret;
@@ -343,7 +343,7 @@ lws_sspc_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 					       h->txp_path.ops_onw->name);
 
 	memcpy(&h->ssi, ssi, sizeof(*ssi));
-	ua = (uint8_t *)&h[1];
+	ua = (uint8_t *)(h + 1);
 	memset(ua, 0, ssi->user_alloc);
 	p = (char *)ua + ssi->user_alloc;
 	memcpy(p, ssi->streamtype, strlen(ssi->streamtype) + 1);
@@ -788,7 +788,7 @@ lws_sspc_cancel_timeout(struct lws_sspc_handle *h)
 void *
 lws_sspc_to_user_object(struct lws_sspc_handle *h)
 {
-	return (void *)&h[1];
+	return (void *)(h + 1);
 }
 
 struct lws_log_cx *

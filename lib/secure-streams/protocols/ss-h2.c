@@ -52,7 +52,7 @@ secstream_h2(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			 */
 			lwsl_info("%s: reporting initial tx cr from server %d\n",
 				  __func__, wsi->txc.tx_cr);
-			ss_proxy_onward_txcr((void *)&h[1], wsi->txc.tx_cr);
+			ss_proxy_onward_txcr((void *)(h + 1), wsi->txc.tx_cr);
 		}
 #endif
 
@@ -106,7 +106,7 @@ secstream_h2(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
 		if (h->being_serialized)
 			/* we are the proxy-side SS for a remote client */
-			ss_proxy_onward_txcr((void *)&h[1], (int)len);
+			ss_proxy_onward_txcr((void *)(h + 1), (int)len);
 #endif
 		break;
 
