@@ -1437,11 +1437,10 @@ _lws_context_info_defaults(struct lws_context_creation_info *info,
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
         if (!sspol)
         	info->protocols = lws_sspc_protocols;
-        else
 #endif
-        	info->options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
-        		LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW |
-        		LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+       	info->options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
+       		LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW |
+       		LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 }
 
 void

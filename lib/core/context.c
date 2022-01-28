@@ -807,6 +807,11 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 #endif
 
+#if defined(LWS_WITH_SERVER)
+	context->lcg[LWSLCG_WSI_SSP_SINK].tag_prefix = "SSsink";
+	context->lcg[LWSLCG_WSI_SSP_SOURCE].tag_prefix = "SSsrc";
+#endif
+
 
 #if defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
 	/* directly use the user-provided policy object list */
@@ -1435,13 +1440,68 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if defined(LWS_WITH_SECURE_STREAMS)
 
 #if !defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
-	if (context->pss_policies_json) {
+
 		/*
 		 * You must create your context with the explicit vhosts flag
 		 * in order to use secure streams
 		 */
-		assert(lws_check_opt(info->options,
-		       LWS_SERVER_OPTION_EXPLICIT_VHOSTS));
+	if (lws_check_opt(info->options,
+		       LWS_SERVER_OPTION_EXPLICIT_VHOSTS)) {
+
+		if (!context->pss_policies_json)
+			context->pss_policies_json =
+	"{\n"
+		"\"release\": \"1\",\n"
+		"\"product\": \"lws_default\",\n"
+		"\"schema-version\": 1,\n"
+		"\"retry\": [{\n"
+			"\"default\": {\n"
+				"\"backoff\": [1000, 2000, 3000, 5000, 10000],\n"
+				"\"conceal\": 5,\n"
+				"\"jitterpc\": 20,\n"
+				"\"svalidping\": 30,\n"
+				"\"svalidhup\": 35\n"
+			"}\n"
+		"}],\n"
+		"\"s\": [\n"
+			"{\n"
+				"\"default\": {\n"
+					"\"endpoint\": \"${endpoint}\",\n"
+					"\"port\": 443,\n"
+#if defined(LWS_WITH_HTTP2)
+					"\"protocol\": \"h2\",\n"
+#else
+					"\"protocol\": \"h1\",\n"
+#endif
+					"\"http_method\": \"GET\",\n"
+					"\"http_url\": \"\",\n"
+					"\"metadata\": [{\n"
+						"\"endpoint\":"      "\"\",\n"
+						"\"acc\":"      "\"accept\",\n"
+						"\"ua\":"	"\"user-agent\"\n"
+					"}],\n"
+					"\"tls\": true,\n"
+					"\"allow_redirects\": true,\n"
+					"\"nghttp2_quirk_end_stream\": true,\n"
+					"\"h2q_oflow_txcr\": true,\n"
+					"\"direct_proto_str\": true,\n"
+					"\"opportunistic\": true,\n"
+					"\"retry\": \"default\",\n"
+					"\"timeout_ms\": 2000\n"
+				"},\n"
+		                    "\"captive_portal_detect\": {"
+		                        "\"endpoint\":"         "\"connectivitycheck.android.com\","
+		                        "\"http_url\":"         "\"generate_204\","
+		                        "\"port\":"             "80,"
+		                        "\"protocol\":"         "\"h1\","
+		                        "\"http_method\":"      "\"GET\","
+		                        "\"opportunistic\":"    "true,"
+		                        "\"http_expect\":"      "204,"
+		                        "\"http_fail_redirect\": true\n"
+				"}\n"
+			"}\n"
+		"]\n"
+	"}\n";
 
 		if (lws_ss_policy_parse_begin(context, 0) ||
 		    lws_fi(&context->fic, "ctx_createfail_ss_pol1")) {
@@ -1469,6 +1529,10 @@ lws_create_context(const struct lws_context_creation_info *info)
 #else
 	if (context->pss_policies) {
 		/* user code set the policy objects directly, no parsing step */
+
+		/* you must set this content option to use SS */
+		assert(lws_check_opt(info->options,
+				       LWS_SERVER_OPTION_EXPLICIT_VHOSTS));
 
 		if (lws_ss_policy_set(context, "hardcoded") ||
 		    lws_fi(&context->fic, "ctx_createfail_ss_pol3")) {
@@ -1714,7 +1778,8 @@ lws_pt_destroy(struct lws_context_per_thread *pt)
 	}
 
 #if defined(LWS_WITH_SECURE_STREAMS)
-	lws_dll2_foreach_safe(&pt->ss_owner, NULL, lws_ss_destroy_dll);
+	while (pt->ss_owner.head)
+		lws_ss_destroy_dll(pt->ss_owner.head, NULL);
 
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API) && defined(LWS_WITH_CLIENT)
 	lws_dll2_foreach_safe(&pt->ss_client_owner, NULL, lws_sspc_destroy_dll);
@@ -2169,6 +2234,11 @@ next:
 		lws_dhcpc_remove(context, NULL);
 #endif
 
+#if defined(LWS_WITH_DLO)
+		lws_fonts_destroy(context);
+		lws_dlo_file_destroy(context);
+#endif
+
 		if (context->pt[0].fds)
 			lws_free_set_NULL(context->pt[0].fds);
 #endif
@@ -2195,6 +2265,21 @@ next:
 
 		if (context->ac_policy)
 			lwsac_free(&context->ac_policy);
+
+#if defined(LWS_WITH_SERVER)
+		/* ... for every sink... */
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				      lws_dll2_get_head(&context->sinks)) {
+			lws_ss_sinks_t *sn = lws_container_of(d, lws_ss_sinks_t,
+							      list);
+
+			assert(!sn->accepts.count);
+
+			lws_dll2_remove(&sn->list);
+			lws_free(sn);
+
+		} lws_end_foreach_dll_safe(d, d1);
+#endif
 #endif
 
 		/*
