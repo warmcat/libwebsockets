@@ -487,6 +487,7 @@ callback_ss_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		ssi.state = ss_proxy_onward_state;
 		ssi.flags = 0;
 
+		// coverity[uninit_use_in_call]
 		n = lws_ss_deserialize_parse(&conn->parser,
 				lws_get_context(wsi), conn->dsh, in, len,
 				&conn->state, conn, &conn->ss, &ssi, 0);
