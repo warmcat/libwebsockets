@@ -210,7 +210,7 @@ lws_sspc_txp_rx_from_proxy(lws_transport_priv_t txp_priv, const uint8_t *in,
 				 size_t len)
 {
 	lws_sspc_handle_t *h = (lws_sspc_handle_t *)txp_priv;
-	void *m = (void *)((uint8_t *)&h[1]);
+	void *m = (void *)((uint8_t *)(h + 1));
 
 	assert(h);
 
@@ -229,7 +229,7 @@ lws_ss_state_return_t
 lws_sspc_txp_tx(lws_sspc_handle_t *h, size_t metadata_limit)
 {
 	uint8_t *pkt = NULL, *p = NULL, *end = NULL;
-	void *m = (void *)((uint8_t *)&h[1]);
+	void *m = (void *)((uint8_t *)(h + 1));
 	lws_ss_state_return_t r;
 	uint8_t _s[64 + LWS_PRE], *s = _s + LWS_PRE, *cp = s;
 	size_t txl, len;
