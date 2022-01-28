@@ -165,6 +165,7 @@ lws_ssproxy_txp_rx(lws_transport_priv_t txp_priv, const uint8_t *in, size_t len)
 	ssi.state = lws_sss_proxy_onward_state;
 	ssi.flags = 0;
 
+	// coverity[uninit_use_in_call]
 	r = lws_ss_proxy_deserialize_parse(&conn->parser, conn->cx, conn->dsh,
 					   in, len, &conn->state, conn,
 					   &conn->ss, &ssi);
