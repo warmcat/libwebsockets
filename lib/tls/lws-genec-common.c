@@ -52,7 +52,7 @@ lws_genec_confirm_curve_allowed_by_tls_id(const char *allowed, int id,
 	struct lws_tokenize ts;
 	lws_tokenize_elem e;
 	size_t len;
-	int n;
+	int n = -1;
 
 	lws_tokenize_init(&ts, allowed, LWS_TOKENIZE_F_COMMA_SEP_LIST |
 				       LWS_TOKENIZE_F_MINUS_NONTERM);
@@ -96,7 +96,7 @@ lws_genec_confirm_curve_allowed_by_tls_id(const char *allowed, int id,
 
 	lwsl_err("%s: unsupported curve group nid %d\n", __func__, n);
 
-	return -1;
+	return n;
 }
 
 void
