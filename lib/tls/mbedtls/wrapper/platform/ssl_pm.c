@@ -872,8 +872,11 @@ void _ssl_set_alpn_list(const SSL *ssl)
 	}
 	if (!ssl->ctx->alpn_protos)
 		return;
+	// lwsl_hexdump_notice(ssl->ctx->alpn_protos, 128);
 	if (mbedtls_ssl_conf_alpn_protocols(&((struct ssl_pm *)(ssl->ssl_pm))->conf, ssl->ctx->alpn_protos))
 		fprintf(stderr, "mbedtls_ssl_conf_alpn_protocols failed\n");
+#else
+	fprintf(stderr, "mbedtls_ssl_conf_alpn_protocols absent\n");
 #endif
 }
 
@@ -889,6 +892,7 @@ void SSL_get0_alpn_selected(const SSL *ssl, const unsigned char **data,
 	else
 		*len = 0;
 #else
+	fprintf(stderr, "mbedtls_ssl_conf_alpn_protocols absent\n");
 	*len = 0;
 #endif
 }

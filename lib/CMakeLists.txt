@@ -38,7 +38,8 @@ set(LWS_LIB_INCLUDES "")
 if (LWS_PLAT_FREERTOS)
 	add_subdir_include_dirs(plat/freertos)
 	if (ESP_PLATFORM)
-		include_directories($ENV{IDF_PATH}/components/freertos/include
+		list(APPEND LWS_ESP_IDF_DIRS
+		    $ENV{IDF_PATH}/components/freertos/include
 		    $ENV{IDF_PATH}/components/esp_hw_support/include/soc/
 		    $ENV{IDF_PATH}/components/esp_common/include
 		    $ENV{IDF_PATH}/components/esp_timer/include
@@ -71,7 +72,12 @@ if (LWS_PLAT_FREERTOS)
 		    $ENV{IDF_PATH}/components/lwip/lwip/src/include
 		    $ENV{IDF_PATH}/components/lwip/lwip/src/include/lwip
 		    $ENV{IDF_PATH}/components/newlib/platform_include )
+
+		    include_directories(${LWS_ESP_IDF_DIRS})
+
+		    list(APPEND CMAKE_REQUIRED_INCLUDES ${LWS_ESP_IDF_DIRS})
 	endif()
+
 	
 else()
 	if (LWS_PLAT_BAREMETAL)

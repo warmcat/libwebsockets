@@ -858,7 +858,7 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 #if !defined(LWS_PLAT_FREERTOS)
 			lwsl_cx_info(vhost->context, "getaddrinfo error: %d", n);
 #else
-#if !defined(LWS_WITH_NO_LOGS)
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
 			char t16[16];
 			lwsl_cx_info(vhost->context, "getaddrinfo error: %s",
 				lws_errno_describe(LWS_ERRNO, t16, sizeof(t16)));
