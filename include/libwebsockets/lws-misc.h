@@ -178,6 +178,66 @@ lws_buflist_destroy_all_segments(struct lws_buflist **head);
 LWS_VISIBLE LWS_EXTERN void
 lws_buflist_describe(struct lws_buflist **head, void *id, const char *reason);
 
+
+/*
+ * Optional helpers for closely-managed stream flow control.  These are useful
+ * when there is no memory for large rx buffers and instead tx credit is being
+ * used to regulate the server sending data.
+ *
+ * When combined with stateful consumption-on-demand, this can be very effective
+ * at managing data flows through restricted circumstances.  These helpers
+ * implement a golden implementation that can be bound to a stream in its priv
+ * data.
+ *
+ * The helper is sophisticated enough to contain a buflist to manage overflows
+ * on heap and preferentially drain it.  RX goes through heap to guarantee the
+ * consumer can exit cleanly at any time.
+ */
+
+enum {
+	LWSDLOFLOW_STATE_READ, /* default, we want input */
+	LWSDLOFLOW_STATE_READ_COMPLETED, /* we do not need further rx, every-
+					  * thing is locally buffered or used */
+	LWSDLOFLOW_STATE_READ_FAILED, /* operation has fatal error */
+};
+
+struct lws_ss_handle;
+
+typedef struct lws_flow {
+	lws_dll2_t			list;
+
+	struct lws_ss_handle		*h;
+	struct lws_buflist		*bl;
+
+	const uint8_t			*data;
+	size_t				len;		/* bytes left in data */
+	uint32_t			blseglen;	/* bytes issued */
+	int32_t				window;
+
+	uint8_t				state;
+} lws_flow_t;
+
+/**
+ * lws_flow_feed() - consume waiting data if ready for it
+ *
+ * \param flow: pointer to the flow struct managing waiting data
+ *
+ * This will bring out waiting data from the flow buflist when it is needed.
+ */
+LWS_VISIBLE LWS_EXTERN lws_stateful_ret_t
+lws_flow_feed(lws_flow_t *flow);
+
+/**
+ * lws_flow_req() - request remote data if we have run low
+ *
+ * \param flow: pointer to the flow struct managing waiting data
+ *
+ * When the estimated remote tx credit is below flow->window, accounting for
+ * what is in the buflist, add to the peer tx credit so it can send us more.
+ */
+LWS_VISIBLE LWS_EXTERN lws_stateful_ret_t
+lws_flow_req(lws_flow_t *flow);
+
 /**
  * lws_ptr_diff(): helper to report distance between pointers as an int
  *
