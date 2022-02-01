@@ -335,6 +335,28 @@ typedef struct lhp_atr {
 	/* name+NUL then value+NUL follow */
 } lhp_atr_t;
 
+/*
+ * In order to lay out the table, we have to incrementally adjust all foregoing
+ * DLOs as newer cells change the situation.  So we have to keep track of all
+ * cell DLOs in a stack of tables until it's all done.
+ */
+
+typedef struct {
+	lws_dll2_t			list; /* ps->table_cols */
+
+	lws_dll2_owner_t		row_dlos; /* lws_dlo_t in column */
+
+	lws_fx_t			height; /* currently computed row height */
+} lhp_table_row_t;
+
+typedef struct {
+	lws_dll2_t			list; /* ps->table_cols */
+
+	lws_dll2_owner_t		col_dlos; /* lws_dlo_t in column */
+
+	lws_fx_t			width; /* currently computed column width */
+} lhp_table_col_t;
+
 struct lcsp_atr;
 
 #define CCPAS_TOP 0
@@ -354,6 +376,10 @@ typedef struct lhp_pstack {
 	lws_fx_t			curx;
 	lws_fx_t			cury;
 	lws_fx_t			widest;
+	lws_fx_t			deepest;
+
+	lws_dlo_t			*dlo_set_curx;
+	lws_dlo_t			*dlo_set_cury;
 
 	lws_dll2_owner_t		atr; /* lhp_atr_t */
 
@@ -373,12 +399,16 @@ typedef struct lhp_pstack {
 	const struct lcsp_atr		*css_margin[4];
 	const struct lcsp_atr		*css_padding[4];
 
-	uint8_t				is_block; /* children use space in our drt */
+	uint16_t			tr_idx; /* in table */
+	uint16_t			td_idx; /* in current tr */
+
+	uint8_t				is_block:1; /* children use space in our drt */
+	uint8_t				is_table:1;
 
 	/* user layout owns these after initial values set */
 
-	void				*opaque1;
-	const void			*opaque2;
+	lws_dlo_t			*dlo;
+	const lws_display_font_t	*font;
 	int				oi[4];
 	int				positioned[4];
 	int				rel_layout_cursor[4];
@@ -504,6 +534,8 @@ typedef struct lhp_ctx {
 	const char		*base_url; /* strdup of https://x.com/y.html */
 	sul_cb_t		ssevcb; /* callback for ss events */
 	lws_sorted_usec_list_t	*ssevsul; /* sul to use to resume rz */
+	sul_cb_t		sshtmlevcb; /* callback for more html parse */
+	lws_sorted_usec_list_t	*sshtmlevsul; /* sul for more html parse */
 
 	void			*user;
 	void			*user1;
@@ -545,6 +577,9 @@ typedef struct lhp_ctx {
 	int16_t			cssval_state; /* private */
 
 	uint8_t			in_body:1;
+	uint8_t			finish_css:1;
+	uint8_t			is_css:1;
+	uint8_t			await_css_done:1;
 
 	/* at end so we can memset members above it in one go */
 
@@ -636,6 +671,26 @@ lws_lhp_parse(lhp_ctx_t *ctx, const uint8_t **buf, size_t *len);
 LWS_VISIBLE LWS_EXTERN const lcsp_atr_t *
 lws_css_cascade_get_prop_atr(lhp_ctx_t *ctx, lcsp_props_t prop);
 
+/**
+ * lws_http_rel_to_url() - make absolute url from base and relative
+ *
+ * \param dest: place to store the result
+ * \param len: max length of result including NUL
+ * \param base: a reference url including a file part
+ * \param rel: the absolute or relative url or path to apply to base
+ *
+ * Copy the url formof rel into dest, using base to fill in missing context
+ *
+ * If base is https://x.com/y/z.html
+ *
+ *   a.html               -> https://x.com/y/a/html
+ *   ../b.html            -> https://x.com/b.html
+ *   /c.html              -> https://x.com/c.html
+ *   https://y.com/a.html -> https://y.com/a.html
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_http_rel_to_url(char *dest, size_t len, const char *base, const char *rel);
+
 LWS_VISIBLE LWS_EXTERN lhp_pstack_t *
 lws_css_get_parent_block(lhp_ctx_t *ctx, lhp_pstack_t *ps);
 
@@ -650,6 +705,9 @@ lws_csp_px(const lcsp_atr_t *a, lhp_pstack_t *ps);
 
 LWS_VISIBLE LWS_EXTERN void
 lws_lhp_tag_dlo_id(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dlo_t *dlo);
+
+void
+lhp_set_dlo_padding_margin(lhp_pstack_t *ps, lws_dlo_t *dlo);
 
 #define LWS_LHPREF_WIDTH		0
 #define LWS_LHPREF_HEIGHT		1

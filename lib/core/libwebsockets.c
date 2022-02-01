@@ -754,6 +754,94 @@ lws_urldecode(char *string, const char *escaped, int len)
 	return 0;
 }
 
+/*
+ * Copy the url formof rel into dest, using base to fill in missing context
+ *
+ * If base is https://x.com/y/z.html
+ *
+ *   a.html               -> https://x.com/y/a/html
+ *   ../b.html            -> https://x.com/b.html
+ *   /c.html              -> https://x.com/c.html
+ *   https://y.com/a.html -> https://y.com/a.html
+ */
+
+int
+lws_http_rel_to_url(char *dest, size_t len, const char *base, const char *rel)
+{
+	size_t n = 0, ps = 0;
+	char d = 0;
+
+	// lwsl_err("%s: base %s, rel %s\n", __func__, base, rel);
+
+	if (!strncmp(rel, "https://", 8) ||
+	    !strncmp(rel, "http://", 7) ||
+	    !strncmp(rel, "file://", 7)) {
+		/* rel is already a full url, just copy it */
+		lws_strncpy(dest, rel, len);
+		return 0;
+	}
+
+	/* we're going to be using the first part of base at least */
+
+	while (n < len - 2 && base[n]) {
+		dest[n] = base[n];
+		if (d && base[n] == '/') {
+			n++;
+			ps = n;
+			//if (rel[0] == '/') {
+				break;
+			//}
+		}
+		if (n && base[n] == '/' && base[n - 1] == '/')
+			d = 1;
+		n++;
+	}
+
+	if (!n || n >= len - 2)
+		return 1;
+
+	/* if we did not have a '/' after the hostname, add one */
+	if (dest[n - 1] != '/') {
+		ps = n;
+		dest[n++] = '/';
+	}
+
+	/* is rel an absolute path we should just use with the hostname? */
+	if (rel[0] != '/') {
+
+		/*
+		 * Apply the rest of the basename, without the file part,
+		 * end with last / if any
+		 */
+
+		ps = n;
+		while (n < len - 2 && base[n]) {
+			dest[n] = base[n];
+			n++;
+			if (base[n] == '/')
+				ps = n;
+		}
+
+		n = ps;
+
+		if (n >= len - 2)
+			return 1;
+
+		/* if we did not have a '/' after the base path, add one */
+		if (dest[n - 1] != '/')
+			dest[n++] = '/';
+	}
+
+	/* append rel */
+
+	if (len - n < strlen(rel) + 2)
+		return 1;
+
+	lws_strncpy(dest + n, rel, len - n);
+
+	return 0;
+}
+
 int
 lws_finalize_startup(struct lws_context *context)
 {
