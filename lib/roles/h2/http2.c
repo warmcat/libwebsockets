@@ -431,6 +431,12 @@ lws_pps_schedule(struct lws *wsi, struct lws_h2_protocol_send *pps)
 	struct lws *nwsi = lws_get_network_wsi(wsi);
 	struct lws_h2_netconn *h2n = nwsi->h2.h2n;
 
+	if (!h2n) {
+		lwsl_warn("%s: null h2n\n", __func__);
+		lws_free(pps);
+		return;
+	}
+
 	pps->next = h2n->pps;
 	h2n->pps = pps;
 	lws_rx_flow_control(wsi, LWS_RXFLOW_REASON_APPLIES_DISABLE |
