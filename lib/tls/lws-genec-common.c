@@ -94,7 +94,7 @@ lws_genec_confirm_curve_allowed_by_tls_id(const char *allowed, int id,
 		}
 	} while (e > 0);
 
-	lwsl_err("%s: unsupported curve group nid %d\n", __func__, n);
+	lwsl_err("%s: unsupported curve group nid %d\n", __func__, id);
 
 	return -1;
 }
