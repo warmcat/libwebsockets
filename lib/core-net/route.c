@@ -38,25 +38,30 @@ void
 _lws_routing_entry_dump(struct lws_context *cx, lws_route_t *rou)
 {
 	char sa[48], fin[192], *end = &fin[sizeof(fin)];
+	char *it = fin;
+	int n;
 
 	fin[0] = '\0';
 
 	if (rou->dest.sa4.sin_family) {
 		lws_sa46_write_numeric_address(&rou->dest, sa, sizeof(sa));
-		lws_snprintf(fin, lws_ptr_diff_size_t(end, fin),
+		n = lws_snprintf(it, lws_ptr_diff_size_t(end, it),
 				  "dst: %s/%d, ", sa, rou->dest_len);
+		it = it + n;
 	}
 
 	if (rou->src.sa4.sin_family) {
 		lws_sa46_write_numeric_address(&rou->src, sa, sizeof(sa));
-		lws_snprintf(fin, lws_ptr_diff_size_t(end, fin),
+		n = lws_snprintf(it, lws_ptr_diff_size_t(end, it),
 				  "src: %s/%d, ", sa, rou->src_len);
+		it = it + n;
 	}
 
 	if (rou->gateway.sa4.sin_family) {
 		lws_sa46_write_numeric_address(&rou->gateway, sa, sizeof(sa));
-		lws_snprintf(fin, lws_ptr_diff_size_t(end, fin),
+		n = lws_snprintf(it, lws_ptr_diff_size_t(end, it),
 				  "gw: %s, ", sa);
+		it = it + n;
 	}
 
 	lwsl_cx_info(cx, " %s ifidx: %d, pri: %d, proto: %d\n", fin,

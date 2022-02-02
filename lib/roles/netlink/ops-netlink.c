@@ -259,6 +259,15 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 				lwsl_cx_netlink(cx, "RTA_SRC: %s", buf);
 				break;
 			case RTA_DST:
+				/* check if is local addr -> considering it as src addr too */
+				if (rm->rtm_type == RTN_LOCAL &&
+				    ((rm->rtm_family == AF_INET && rm->rtm_dst_len == 32) ||
+				     (rm->rtm_family == AF_INET6 && rm->rtm_dst_len == 128))) {
+					lws_sa46_copy_address(&robj.src, RTA_DATA(ra),
+							rm->rtm_family);
+					lwsl_cx_netlink(cx, "Local addr: RTA_DST -> added to RTA_SRC");
+				}
+
 				lws_sa46_copy_address(&robj.dest, RTA_DATA(ra),
 							rm->rtm_family);
 				robj.dest_len = rm->rtm_dst_len;
@@ -519,12 +528,9 @@ rops_pt_init_destroy_netlink(struct lws_context *context,
 	memset(&sanl, 0, sizeof(sanl));
 	sanl.nl_family		= AF_NETLINK;
 	sanl.nl_pid		= (uint32_t)getpid();
-	sanl.nl_groups		= (1 << (RTNLGRP_LINK - 1)) |
-				  (1 << (RTNLGRP_IPV4_ROUTE - 1)) |
-				  (1 << (RTNLGRP_IPV4_IFADDR - 1))
+	sanl.nl_groups		= RTMGRP_LINK | RTMGRP_IPV4_ROUTE | RTMGRP_IPV4_IFADDR
 #if defined(LWS_WITH_IPV6)
-				  | (1 << (RTNLGRP_IPV6_ROUTE - 1)) |
-				    (1 << (RTNLGRP_IPV6_IFADDR - 1))
+				  | RTMGRP_IPV6_ROUTE | RTMGRP_IPV6_IFADDR
 #endif
 				 ;
 
