@@ -574,6 +574,12 @@ int main(int argc, const char **argv)
 				printf("\t\t\t.will_message = \"%s\",\n",
 					pol->u.mqtt.will_message);
 
+			if (pol->u.mqtt.birth_topic)
+				printf("\t\t\t.birth_topic = \"%s\",\n",
+					pol->u.mqtt.birth_topic);
+			if (pol->u.mqtt.birth_message)
+				printf("\t\t\t.birth_message = \"%s\",\n",
+					pol->u.mqtt.birth_message);
 			if (pol->u.mqtt.keep_alive)
 				printf("\t\t\t.keep_alive = %u,\n",
 					pol->u.mqtt.keep_alive);
@@ -589,6 +595,9 @@ int main(int argc, const char **argv)
 			if (pol->u.mqtt.will_retain)
 				printf("\t\t\t.will_retain = %u,\n",
 					pol->u.mqtt.will_retain);
+			if (pol->u.mqtt.aws_iot)
+				printf("\t\t\t.aws_iot = %u,\n",
+					pol->u.mqtt.aws_iot);
 
 			printf("\t\t}\n\t},\n");
 
