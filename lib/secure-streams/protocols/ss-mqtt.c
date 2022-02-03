@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2019 - 2021 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2019 - 2022 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -187,6 +187,7 @@ secstream_mqtt_publish(struct lws *wsi, uint8_t *buf, size_t buflen,
 
 	mqpp.topic_len = (uint16_t)strlen(mqpp.topic);
 	mqpp.packet_id = (uint16_t)(h->txord - 1);
+	mqpp.qos = qos;
 	mqpp.payload = buf;
 	if (h->writeable_len)
 		mqpp.payload_len = (uint32_t)h->writeable_len;
@@ -195,8 +196,6 @@ secstream_mqtt_publish(struct lws *wsi, uint8_t *buf, size_t buflen,
 
 	lwsl_notice("%s: payload len %d\n", __func__,
 		    (int)mqpp.payload_len);
-
-	mqpp.qos = h->policy->u.mqtt.qos;
 
 	if (lws_mqtt_client_send_publish(wsi, &mqpp,
 					 (const char *)buf,
