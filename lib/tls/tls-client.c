@@ -66,6 +66,12 @@ lws_ssl_client_connect2(struct lws *wsi, char *errbuf, size_t len)
 		switch (n) {
 		case LWS_SSL_CAPABLE_ERROR:
 			lws_tls_restrict_return_handshake(wsi);
+
+			if (lws_tls_client_confirm_peer_cert(wsi, errbuf, len)) {
+				lws_metrics_caliper_report(wsi->cal_conn, METRES_NOGO);
+				return -1;
+			}
+
 			// lws_snprintf(errbuf, len, "client connect failed");
 			return -1;
 		case LWS_SSL_CAPABLE_DONE:

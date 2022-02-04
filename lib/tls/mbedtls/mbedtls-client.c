@@ -272,7 +272,8 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 	if (!n) /* we don't know what he wants, but he says to retry */
 		return LWS_SSL_CAPABLE_MORE_SERVICE;
 
-	if (m == SSL_ERROR_SYSCALL && !en)
+	if (m == SSL_ERROR_SYSCALL && !en && n >= 0) /* otherwise we miss explicit failures and spin
+						      * in hs state 17 until timeout... */
 		return LWS_SSL_CAPABLE_MORE_SERVICE;
 
 	lws_snprintf(errbuf, elen, "mbedtls connect %d %d %d", n, m, en);
