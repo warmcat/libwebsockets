@@ -243,11 +243,11 @@
 		"mbedtls": {
 			"cmake":	"-DLWS_WITH_MBEDTLS=1 -DLWS_WITH_HTTP2=1 -DLWS_WITH_LWSWS=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_JOSE=1 -DCMAKE_BUILD_TYPE=DEBUG",
 			# no distro -devel package for mbedtls
-			"platforms":	"not linux-centos-7/x86_64-amd/gcc, not linux-centos-8/x86_64-amd/gcc"
+			"platforms":	"not linux-centos-7/x86_64-amd/gcc, not linux-centos-8/x86_64-amd/gcc, not linux-ubuntu-xenial/x86_64-amd/gcc"
 		},
 		"mbedtls-metrics": {
 			"cmake":	"-DLWS_WITH_MBEDTLS=1 -DLWS_WITH_HTTP2=1 -DLWS_WITH_LWSWS=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_JOSE=1 -DCMAKE_BUILD_TYPE=DEBUG -DLWS_WITH_SYS_METRICS=1",
-			"platforms":	"not linux-centos-7/x86_64-amd/gcc, not linux-centos-8/x86_64-amd/gcc"
+			"platforms":	"not linux-centos-7/x86_64-amd/gcc, not linux-centos-8/x86_64-amd/gcc, not linux-ubuntu-xenial/x86_64-amd/gcc"
 		},
 		"noserver": {
 			"cmake":	"-DLWS_WITHOUT_SERVER=ON -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_SECURE_STREAMS=1",
