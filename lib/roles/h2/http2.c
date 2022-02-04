@@ -1035,10 +1035,15 @@ lws_h2_parse_frame_header(struct lws *wsi)
 					&& wsi->client_h2_alpn
 #endif
 			) {
-				lwsl_notice("ignoring straggling data fl 0x%x\n",
-						h2n->flags);
-				/* ie, IGNORE */
-				h2n->type = LWS_H2_FRAME_TYPE_COUNT;
+				if (h2n->flags & LWS_H2_FLAG_END_STREAM)
+					lwsl_notice("%s: stragging EOS\n", __func__);
+				else {
+					lwsl_wsi_notice(wsi, "ignoring straggling "
+						"DATA (flags 0x%x, length %d)",
+							h2n->flags, (int)h2n->length);
+					/* ie, IGNORE */
+					h2n->type = LWS_H2_FRAME_TYPE_COUNT;
+				}
 			} else {
 				lwsl_info("%s: received %d bytes data for unknown sid %d, highest known %d\n",
 						__func__, (int)h2n->length, (int)h2n->sid, (int)h2n->highest_sid_opened);
@@ -2357,7 +2362,7 @@ do_windows:
 					 * stream credit to run down until the
 					 * user code deals with it
 					 */
-					lws_h2_update_peer_txcredit(wsi, (unsigned int)LWS_H2_STREAM_SID, n);
+					lws_h2_update_peer_txcredit(wsi, (unsigned int)0, n);
 					h2n->swsi->txc.manual = 1;
 				}
 #endif
