@@ -467,16 +467,17 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			r = lws_ss_event_helper(h, LWSSSCS_DISCONNECTED);
 			if (r != LWSSSSRET_OK)
 				return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
-		}
-		/* already disconnected, no action for DISCONNECT_ME */
-		r = lws_ss_event_helper(h, LWSSSCS_UNREACHABLE);
-		if (r) {
-			if (h->inside_connect) {
-				h->pending_ret = r;
-				break;
-			}
+		} else {
+			/* already disconnected, no action for DISCONNECT_ME */
+			r = lws_ss_event_helper(h, LWSSSCS_UNREACHABLE);
+			if (r) {
+				if (h->inside_connect) {
+					h->pending_ret = r;
+					break;
+				}
 
-			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
+				return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
+			}
 		}
 
 		h->wsi = NULL;
