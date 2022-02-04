@@ -98,7 +98,6 @@ static void ssl_platform_debug(void *ctx, int level,
 }
 //#endif
 
-#if defined(LWS_HAVE_mbedtls_ssl_set_verify)
 static int
 lws_mbedtls_f_vrfy(void *opaque, mbedtls_x509_crt *x509, int state, uint32_t *pflags)
 {
@@ -109,7 +108,6 @@ lws_mbedtls_f_vrfy(void *opaque, mbedtls_x509_crt *x509, int state, uint32_t *pf
 
 	return 0;
 }
-#endif
 
 /**
  * @brief create SSL low-level object
@@ -151,6 +149,8 @@ int ssl_pm_new(SSL *ssl)
 
 #if defined(LWS_HAVE_mbedtls_ssl_set_verify)
     mbedtls_ssl_set_verify(&ssl_pm->ssl, lws_mbedtls_f_vrfy, ssl_pm);
+#else
+    mbedtls_ssl_conf_verify(&ssl_pm->conf, lws_mbedtls_f_vrfy, ssl_pm);
 #endif
 
     ret = mbedtls_ctr_drbg_seed(&ssl_pm->ctr_drbg, mbedtls_entropy_func, &ssl_pm->entropy, pers, pers_len);
