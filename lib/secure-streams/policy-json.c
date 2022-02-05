@@ -111,6 +111,7 @@ static const char * const lejp_tokens_policy[] = {
 	"s[].*.mqtt_topic",
 	"s[].*.mqtt_subscribe",
 	"s[].*.mqtt_qos",
+	"s[].*.mqtt_retain",
 	"s[].*.mqtt_keep_alive",
 	"s[].*.mqtt_clean_start",
 	"s[].*.mqtt_will_topic",
@@ -218,6 +219,7 @@ typedef enum {
 	LSSPPT_MQTT_TOPIC,
 	LSSPPT_MQTT_SUBSCRIBE,
 	LSSPPT_MQTT_QOS,
+	LSSPPT_MQTT_RETAIN,
 	LSSPPT_MQTT_KEEPALIVE,
 	LSSPPT_MQTT_CLEAN_START,
 	LSSPPT_MQTT_WILL_TOPIC,
@@ -1018,6 +1020,11 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 
 	case LSSPPT_MQTT_QOS:
 		a->curr[LTY_POLICY].p->u.mqtt.qos = (uint8_t)atoi(ctx->buf);
+		break;
+
+	case LSSPPT_MQTT_RETAIN:
+		a->curr[LTY_POLICY].p->u.mqtt.retain =
+						reason == LEJPCB_VAL_TRUE;
 		break;
 
 	case LSSPPT_MQTT_KEEPALIVE:

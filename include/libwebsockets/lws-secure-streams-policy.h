@@ -323,6 +323,7 @@ typedef struct lws_ss_policy {
 			uint8_t		birth_qos;
 			uint8_t		birth_retain;
 			uint8_t		aws_iot;
+			uint8_t		retain;
 
 		} mqtt;
 

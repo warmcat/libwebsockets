@@ -143,7 +143,7 @@ secstream_mqtt_subscribe(struct lws *wsi)
 static int
 secstream_mqtt_publish(struct lws *wsi, uint8_t *buf, size_t buflen,
 			const char* topic,
-			lws_mqtt_qos_levels_t qos,  int f)
+			lws_mqtt_qos_levels_t qos,  uint8_t retain, int f)
 {
 	lws_ss_handle_t *h = (lws_ss_handle_t *)lws_get_opaque_user_data(wsi);
 	size_t used_in, used_out, topic_limit;
@@ -188,6 +188,7 @@ secstream_mqtt_publish(struct lws *wsi, uint8_t *buf, size_t buflen,
 	mqpp.topic_len = (uint16_t)strlen(mqpp.topic);
 	mqpp.packet_id = (uint16_t)(h->txord - 1);
 	mqpp.qos = qos;
+	mqpp.retain = !!retain;
 	mqpp.payload = buf;
 	if (h->writeable_len)
 		mqpp.payload_len = (uint32_t)h->writeable_len;
@@ -407,7 +408,9 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			wsi->mqtt->inside_birth = 1;
 			return secstream_mqtt_publish(wsi, buf + LWS_PRE,
 					used_out, h->policy->u.mqtt.birth_topic,
-					h->policy->u.mqtt.birth_qos, LWSSS_FLAG_EOM);
+					h->policy->u.mqtt.birth_qos,
+					h->policy->u.mqtt.birth_retain,
+					LWSSS_FLAG_EOM);
 		}
 		r = h->info.tx(ss_to_userobj(h),  h->txord++,  buf + LWS_PRE,
 			       &buflen, &f);
@@ -435,7 +438,8 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		return secstream_mqtt_publish(wsi, buf + LWS_PRE, buflen,
 					      h->policy->u.mqtt.topic,
-					      h->policy->u.mqtt.qos, f);
+					      h->policy->u.mqtt.qos,
+					      h->policy->u.mqtt.retain, f);
 	}
 
 	case LWS_CALLBACK_MQTT_UNSUBSCRIBED:
