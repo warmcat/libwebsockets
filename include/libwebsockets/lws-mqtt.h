@@ -114,6 +114,7 @@ typedef struct lws_mqtt_publish_param_s {
 						   0 */
 	uint8_t 		dup:1;		/* Retried PUBLISH,
 						   for QoS > 0 */
+	uint8_t			retain:1;	/* Retained message */
 } lws_mqtt_publish_param_t;
 
 typedef struct topic_elem {

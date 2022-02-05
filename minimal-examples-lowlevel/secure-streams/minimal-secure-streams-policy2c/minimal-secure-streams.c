@@ -598,6 +598,9 @@ int main(int argc, const char **argv)
 			if (pol->u.mqtt.aws_iot)
 				printf("\t\t\t.aws_iot = %u,\n",
 					pol->u.mqtt.aws_iot);
+			if (pol->u.mqtt.retain)
+				printf("\t\t\t.retain = %u,\n",
+					pol->u.mqtt.retain);
 
 			printf("\t\t}\n\t},\n");
 

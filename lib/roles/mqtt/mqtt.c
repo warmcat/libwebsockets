@@ -1984,7 +1984,7 @@ lws_mqtt_client_send_publish(struct lws *wsi, lws_mqtt_publish_param_t *pub,
 	 * payload (if any)
 	 */
 	if (lws_mqtt_fill_fixed_header(p++, LMQCP_PUBLISH,
-				       0, pub->qos, 0)) {
+				       pub->dup, pub->qos, pub->retain)) {
 		lwsl_err("%s: Failed to fill fixed header\n", __func__);
 		return 1;
 	}

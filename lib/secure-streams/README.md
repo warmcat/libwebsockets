@@ -661,6 +661,10 @@ Set the topic this streamtype subscribes to
 
 Set the QOS level for this streamtype
 
+### `mqtt_retain`
+
+Set to true if this streamtype should use MQTT's "retain" feature.
+
 ### `mqtt_keep_alive`
 
 16-bit number representing MQTT keep alive for the stream.
