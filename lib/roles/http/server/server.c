@@ -1252,8 +1252,9 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 	struct lws_client_connect_info i;
 	struct lws *cwsi;
 	int n, na;
-	unsigned int max_http_header_data = wsi->a.context->max_http_header_data > 256 ? wsi->a.context->max_http_header_data : 256;
-	char rpath[max_http_header_data];
+	unsigned int max_http_header_data = wsi->a.context->max_http_header_data > 256 ?
+					    wsi->a.context->max_http_header_data : 256;
+	char *rpath = NULL;
 
 #if defined(LWS_ROLE_WS)
 	if (ws)
@@ -1320,6 +1321,12 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 	if (pcolon)
 		i.port = atoi(pcolon + 1);
 
+	rpath = lws_malloc(max_http_header_data, __func__);
+	if (!rpath)
+		return -1;
+
+	/* rpath needs cleaning after this... ---> */
+
 	n = lws_snprintf(rpath, max_http_header_data - 1, "/%s/%s",
 			 pslash + 1, uri_ptr + hit->mountpoint_len) - 1;
 	lws_clean_url(rpath);
@@ -1341,7 +1348,7 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 			lwsl_info("%s: query string %d longer "
 				  "than we can handle\n", __func__,
 				  na);
-
+			lws_free(rpath);
 			return -1;
 		}
 
@@ -1371,9 +1378,8 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 #endif
 	{
 		n = lws_hdr_total_length(wsi, WSI_TOKEN_HOST);
-		if (n > 0) {
+		if (n > 0)
 			i.host = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST);
-		}
 	}
 
 #if 0
@@ -1467,9 +1473,10 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 			"The server is temporarily unable to service "
 			"your request due to maintenance downtime or "
 			"capacity problems. Please try again later.");
-
+		lws_free(rpath);
 		return 1;
 	}
+	lws_free(rpath);
 
 	lwsl_info("%s: setting proxy clientside on %s (parent %s)\n",
 		  __func__, lws_wsi_tag(cwsi), lws_wsi_tag(lws_get_parent(cwsi)));
