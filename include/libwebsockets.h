@@ -792,6 +792,7 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size);
 #include <libwebsockets/lws-ili9341-spi.h>
 #include <libwebsockets/lws-spd1656-spi.h>
 #include <libwebsockets/lws-uc8176-spi.h>
+#include <libwebsockets/lws-ssd1675b-spi.h>
 #include <libwebsockets/lws-settings.h>
 #if defined(LWS_WITH_NETWORK)
 #include <libwebsockets/lws-netdev.h>

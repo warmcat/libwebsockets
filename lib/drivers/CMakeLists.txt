@@ -4,6 +4,7 @@ list(APPEND SOURCES
 	drivers/display/ili9341-spi.c
 	drivers/display/spd1656-spi.c
 	drivers/display/uc8176-spi.c
+	drivers/display/ssd1675b-spi.c
 	drivers/i2c/lws-i2c.c
 	drivers/i2c/bitbang/lws-bb-i2c.c
 	drivers/spi/lws-spi.c
