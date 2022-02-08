@@ -23,8 +23,8 @@
  */
 
 
-#define DNS_MAX			96	/* Maximum host name		*/
-#define DNS_RECURSION_LIMIT	3
+#define DNS_MAX			128	/* Maximum host name		*/
+#define DNS_RECURSION_LIMIT	4
 #define DNS_PACKET_LEN		1400	/* Buffer size for DNS packet	*/
 #define MAX_CACHE_ENTRIES	10	/* Dont cache more than that	*/
 #define DNS_QUERY_TIMEOUT	30	/* Query timeout, seconds	*/
