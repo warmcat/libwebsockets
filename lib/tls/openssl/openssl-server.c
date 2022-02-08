@@ -579,8 +579,20 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 			 __func__);
 	}
 
-	if (info->ssl_options_set)
-		SSL_CTX_set_options(vhost->tls.ssl_ctx,
+#if defined(USE_WOLFSSL)
+		long
+#else
+#if defined(LWS_WITH_BORINGSSL)
+		uint32_t
+#else
+#if (OPENSSL_VERSION_NUMBER >= 0x10003000l) && !defined(LIBRESSL_VERSION_NUMBER) /* not documented by openssl */
+		unsigned long
+#else
+		long
+#endif
+#endif
+#endif
+			ssl_options_set_value =
 #if defined(USE_WOLFSSL)
 				(long)
 #else
@@ -588,32 +600,50 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 				(uint32_t)
 #else
 #if (OPENSSL_VERSION_NUMBER >= 0x10003000l) && !defined(LIBRESSL_VERSION_NUMBER) /* not documented by openssl */
-				    (unsigned long)
+				(unsigned long)
 #else
-				    (long)
+				(long)
 #endif
 #endif
 #endif
-				info->ssl_options_set);
+					info->ssl_options_set;
+
+	if (info->ssl_options_set)
+		SSL_CTX_set_options(vhost->tls.ssl_ctx, ssl_options_set_value);
+
+#if (OPENSSL_VERSION_NUMBER >= 0x009080df) && !defined(USE_WOLFSSL)
 
 /* SSL_clear_options introduced in 0.9.8m */
-#if (OPENSSL_VERSION_NUMBER >= 0x009080df) && !defined(USE_WOLFSSL)
-	if (info->ssl_options_clear)
-		SSL_CTX_clear_options(vhost->tls.ssl_ctx,
+#if defined(LWS_WITH_BORINGSSL)
+	uint32_t
+#else
+#if (OPENSSL_VERSION_NUMBER >= 0x10003000l)  && !defined(LIBRESSL_VERSION_NUMBER)/* not documented by openssl */
+	unsigned long
+#else
+	long
+#endif
+#endif
+
+	ssl_options_clear_value =
 #if defined(LWS_WITH_BORINGSSL)
 				(uint32_t)
 #else
 #if (OPENSSL_VERSION_NUMBER >= 0x10003000l)  && !defined(LIBRESSL_VERSION_NUMBER)/* not documented by openssl */
-				    (unsigned long)
+				(unsigned long)
 #else
-				    (long)
+				(long)
 #endif
 #endif
-				      info->ssl_options_clear);
-#endif
+					info->ssl_options_clear;
+
+	if (info->ssl_options_clear) {
+		SSL_CTX_clear_options(vhost->tls.ssl_ctx, ssl_options_clear_value);
+	}
 
 	lwsl_info(" SSL options 0x%lX\n",
 			(unsigned long)SSL_CTX_get_options(vhost->tls.ssl_ctx));
+#endif
+
 	if (!vhost->tls.use_ssl ||
 	    (!info->ssl_cert_filepath && !info->server_ssl_cert_mem))
 		return 0;
