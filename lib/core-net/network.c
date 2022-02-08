@@ -440,7 +440,7 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 					      (unsigned int)uid,
 					      (unsigned int)gid);
 
-			if (chmod(iface, 0660)) {
+			if (chmod(iface, 0660)) { /* lgtm [cpp/toctou-race-condition] */
 				lwsl_wsi_err(wsi, "0600 mode on %s fail", iface);
 
 				return LWS_ITOSA_NOT_EXIST;
