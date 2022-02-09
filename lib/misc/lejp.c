@@ -160,7 +160,7 @@ lejp_check_path_match(struct lejp_ctx *ctx)
 		p = ctx->path;
 
 		q = *((char **)(((char *)ctx->pst[ctx->pst_sp].paths) + ((unsigned int)n * s)));
-
+//lwsl_notice("%s: %s %s\n", __func__, p, q);
 		while (*p && *q) {
 			if (*q != '*') {
 				if (*p != *q)
