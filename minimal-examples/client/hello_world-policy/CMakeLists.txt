@@ -1,4 +1,4 @@
-project(lws-minimal-ss-hello_world C)
+project(lws-minimal-ss-hello_world-policy C)
 cmake_minimum_required(VERSION 2.8.12)
 find_package(libwebsockets CONFIG REQUIRED)
 
@@ -7,12 +7,6 @@ require_lws_config(LWS_WITHOUT_CLIENT 0 requirements)
 require_lws_config(LWS_WITH_SECURE_STREAMS 1 requirements)
 require_lws_config(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY 0 requirements)
 require_lws_config(LWS_WITH_TLS 1 requirements)
-require_lws_config(LWS_WITH_SECURE_STREAMS_AUTH_SIGV4 0 requirements)
-
-# uses system trust store
-require_lws_config(LWS_WITH_MBEDTLS 0 requirements)
-require_lws_config(LWS_WITH_WOLFSSL 0 requirements)
-require_lws_config(LWS_WITH_CYASSL 0 requirements)
 
 require_lws_config(LWS_WITH_SYS_FAULT_INJECTION 1 has_fault_injection)
 require_lws_config(LWS_WITH_SECURE_STREAMS_PROXY_API 1 has_ss_proxy)
@@ -88,44 +82,44 @@ if (requirements)
 	
 		if (VALGRIND)
 			message("testing via valgrind")
-			add_test(NAME mss-${PROJECT_NAME} COMMAND
+			add_test(NAME mss-${PROJECT_NAME}-warmcat COMMAND
 				${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
 				$<TARGET_FILE:${PROJECT_NAME}>)
 		else()
-			add_test(NAME mss-${PROJECT_NAME} COMMAND ${PROJECT_NAME})
+			add_test(NAME mss-${PROJECT_NAME}-warmcat COMMAND ${PROJECT_NAME})
 		endif()
 
-		set_tests_properties(mss-${PROJECT_NAME}
+		set_tests_properties(mss-${PROJECT_NAME}-warmcat
 				     PROPERTIES
-				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/client/hello_world
+				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/client/hello_world-policy
 				     TIMEOUT 40)
 		if (DEFINED ENV{SAI_OVN})
-			set_tests_properties(mss-${PROJECT_NAME} PROPERTIES FIXTURES_REQUIRED "resmsspc-${PROJECT_NAME}")
+			set_tests_properties(mss-${PROJECT_NAME}-warmcat PROPERTIES FIXTURES_REQUIRED "res_sspc-${PROJECT_NAME}")
 		endif()
 
 		if (has_fault_injection)
 			if (VALGRIND)
-				add_test(NAME mss-${PROJECT_NAME}-fi1 COMMAND
+				add_test(NAME mss-#{PROJECT_NAME}-warmcat-fi1 COMMAND
 					${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
 					$<TARGET_FILE:${PROJECT_NAME}>
 					--fault-injection "ss/ss_create_destroy_me"
 					--expected-exit 1)
-				add_test(NAME mss-${PROJECT_NAME}-fi2 COMMAND
+				add_test(NAME mss-#{PROJECT_NAME}-warmcat-fi2 COMMAND
 					${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
 					$<TARGET_FILE:${PROJECT_NAME}>
 					--fault-injection "ss/ss_no_streamtype_policy"
 					--expected-exit 1)
 			else()
-				add_test(NAME mss-${PROJECT_NAME}-fi1 COMMAND lws-minimal-secure-streams
+				add_test(NAME mss-${PROJECT_NAME}-warmcat-fi1 COMMAND lws-minimal-secure-streams
 					 --fault-injection "ss/ss_create_destroy_me"
 					 --expected-exit 1)
-				add_test(NAME mss-${PROJECT_NAME}-fi2 COMMAND lws-minimal-secure-streams
+				 add_test(NAME mss-${PROJECT_NAME}-warmcat-fi2 COMMAND lws-minimal-secure-streams
 					 --fault-injection "ss/ss_no_streamtype_policy"
 					 --expected-exit 1)
  			 endif()
 
-			set_tests_properties(mss-${PROJECT_NAME}-fi1
-					     mss-${PROJECT_NAME}-fi2
+			 set_tests_properties(mss-${PROJECT_NAME}-warmcat-fi1
+					      mss-${PROJECT_NAME}-warmcat-fi2
 				     PROPERTIES
 				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/client/hello_world
 				     TIMEOUT 5)
@@ -175,7 +169,7 @@ if (requirements)
 			
 			set(fixlist "mss-${PROJECT_NAME}-proxy")
 			if (DEFINED ENV{SAI_OVN})
-				list(APPEND fixlist "res_mss-${PROJECT_NAME}-proxy")
+				list(APPEND fixlist "res_sspc-${PROJECT_NAME}-proxy")
 			endif()
 			
 			set_tests_properties(msspc-${PROJECT_NAME} PROPERTIES
