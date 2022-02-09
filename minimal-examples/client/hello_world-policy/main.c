@@ -1,21 +1,21 @@
 /*
- * hello_world example
+ * hello_world-policy example
  *
- * Written in 2010-2022 by Andy Green <andy@warmcat.com>
+ * Written in 2010-2021 by Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
  *
  * Demonstrates the simplest example using the LWS high-level SS apis, doing
- * an h2 GET from warmcat.com.
+ * an h1 GET from warmcat.com.
  *
- * It uses the default SS policy and relies on the tls library to know what
- * CAs are trusted.  See hello_world-policy for a version with its own defined
- * policy which specifies the CA to trust.
+ * It specifies its own policy and restricts the tls library to validating the
+ * certificate through a single trusted CA cert defined in the policy.
  *
  *  - main.c:              (this file) boilerplate to create the lws_context
  *			   and event loop
  *  - hello_world-ss.c:    the secure stream user code
+ *  - example-policy.json: the example policy
  *
  * Configure lws with -DCMAKE_BUILD_TYPE=DEBUG to build verbose logs, enable at
  * runtime by giving -d 1039 or -d 1151 on this example commandline.
@@ -37,17 +37,11 @@ sigint_handler(int sig)
 int
 main(int argc, const char **argv)
 {
-	const char *url = "https://warmcat.com/index.html", *p;
 	struct lws_context_creation_info info;
-	struct lws_ss_handle *h;
 
-	lws_context_info_defaults(&info, NULL /* default policy */);
+	lws_context_info_defaults(&info, "example-policy.json");
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 	signal(SIGINT, sigint_handler);
-
-	p = lws_cmdline_option(argc, argv, "--url");
-	if (p)
-		url = p;
 
 	cx = lws_create_context(&info);
 	if (!cx) {
@@ -57,14 +51,10 @@ main(int argc, const char **argv)
 
 	lwsl_cx_user(cx, "LWS hello_world example [-d<verb>]\n");
 
-	if (lws_ss_create(cx, 0, &ssi_hello_world_t, NULL, &h, NULL, NULL)) {
+	if (lws_ss_create(cx, 0, &ssi_hello_world_t, NULL, NULL, NULL, NULL)) {
 		lwsl_cx_err(cx, "failed to create SS");
-		goto bail;
-	}
-
-	if (lws_ss_set_metadata(h, "endpoint", url, strlen(url))) {
-		lwsl_err("%s: failed to use metadata %s\n", __func__, url);
-		goto bail;
+		lws_context_destroy(cx);
+		return 1;
 	}
 
 	lws_context_default_loop_run_destroy(cx);
@@ -72,10 +62,4 @@ main(int argc, const char **argv)
 	/* process ret 0 if result is as expected (0, or --expected-exit 123) */
 
 	return lws_cmdline_passfail(argc, argv, test_result);
-
-bail:
-	lws_context_destroy(cx);
-
-	return 1;
 }
-

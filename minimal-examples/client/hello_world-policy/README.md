@@ -1,10 +1,7 @@
 # SS Example "hello_world"
 
-This is the simplest example, showing how to do an https transaction using Secure
-Streams (SS) and the default policy.  Because it doesn't specify a CA for the
-tls library to trust, it only works on systems where the tls library has its own
-trust store, like openssl typically.  See hello_world-policy for a similar example
-that specifies the CA to trust for the connection in the policy.
+This is the simplest example, showing how to do an https
+transaction using Secure Streams (SS).
 
 SS' approach is to segregate "policy" (where and how to connect and authenticate
 for particular kinds of connection) from payloads that are transferred on the

@@ -1,7 +1,7 @@
 /*
  * hello_world example
  *
- * Written in 2010-2022 by Andy Green <andy@warmcat.com>
+ * Written in 2010-2021 by Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
@@ -10,6 +10,7 @@
  *
  *  - main.c:              boilerplate to create the lws_context and event loop
  *  - hello_world-ss.c:    (this file) the secure stream user code
+ *  - example-policy.json: the example policy
  */
 
 #include <libwebsockets.h>
@@ -28,18 +29,6 @@ hello_world_rx(void *userobj, const uint8_t *in, size_t len, int flags)
 	struct lws_ss_handle *h = lws_ss_from_user(g);
 
 	lwsl_ss_user(h, "RX %zu, flags 0x%x", len, (unsigned int)flags);
-
-#if defined(LWS_WITH_SS_DIRECT_PROTOCOL_STR)
-	if ((flags & LWSSS_FLAG_SOM) == LWSSS_FLAG_SOM) {
-		char *md;
-		size_t md_len;
-
-		if (!lws_ss_get_metadata(g->ss, "content-length:", (const void **)&md, &md_len))
-			lwsl_ss_user(g->ss, "clen %s", md);
-		else
-			lwsl_ss_user(g->ss, "Unable to get content length");
-	}
-#endif
 
 	if (len) { /* log the first 16 and last 16 bytes of the chunk */
 		lwsl_hexdump_ss_info(h, in, len >= 16 ? 16 : len);
@@ -75,7 +64,7 @@ hello_world_state(void *userobj, void *h_src, lws_ss_constate_t state,
 	return LWSSSSRET_OK;
 }
 
-LWS_SS_INFO("__default", hello_world_t)
+LWS_SS_INFO("sx-hello_world", hello_world_t)
 	.rx		= hello_world_rx,
 	.state		= hello_world_state,
 };
