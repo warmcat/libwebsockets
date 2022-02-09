@@ -283,7 +283,7 @@ lws_apply_instant_metadata(lws_ss_handle_t *h, struct lws *wsi, uint8_t *buf,
 			lwsl_debug("%s add header %s %s %d\n", __func__,
 					           imd->name,
 			                           (char *)imd->value__may_own_heap,
-						   imd->length);
+						   (int)imd->length);
 			if (lws_add_http_header_by_name(wsi,
 					(const unsigned char *)imd->name,
 					(const unsigned char *)imd->value__may_own_heap,
@@ -560,6 +560,8 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			return -1;
 
 		lws_ss_assert_extant(wsi->a.context, wsi->tsi, h);
+		h->wsi = wsi; /* since we accept the wsi is bound to the SS,
+			       * ensure the SS feels the same way about the wsi */
 
 #if defined(LWS_WITH_CONMON)
 		if (wsi->conmon.pcol == LWSCONMON_PCOL_NONE) {
@@ -863,6 +865,8 @@ malformed:
 	//	lwsl_notice("%s: HTTP_READ: client side sent len %d fl 0x%x\n",
 	//		    __func__, (int)len, (int)f);
 
+		h->wsi = wsi; /* since we accept the wsi is bound to the SS,
+			       * ensure the SS feels the same way about the wsi */
 		r = h->info.rx(ss_to_userobj(h), (const uint8_t *)in, len, f);
 		if (r != LWSSSSRET_OK)
 			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
