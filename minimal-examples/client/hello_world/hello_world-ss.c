@@ -29,18 +29,6 @@ hello_world_rx(void *userobj, const uint8_t *in, size_t len, int flags)
 
 	lwsl_ss_user(h, "RX %zu, flags 0x%x", len, (unsigned int)flags);
 
-#if defined(LWS_WITH_SS_DIRECT_PROTOCOL_STR)
-	if ((flags & LWSSS_FLAG_SOM) == LWSSS_FLAG_SOM) {
-		char *md;
-		size_t md_len;
-
-		if (!lws_ss_get_metadata(g->ss, "content-length:", (const void **)&md, &md_len))
-			lwsl_ss_user(g->ss, "clen %s", md);
-		else
-			lwsl_ss_user(g->ss, "Unable to get content length");
-	}
-#endif
-
 	if (len) { /* log the first 16 and last 16 bytes of the chunk */
 		lwsl_hexdump_ss_info(h, in, len >= 16 ? 16 : len);
 		if (len >= 16)

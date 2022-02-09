@@ -177,7 +177,7 @@ lws_ss_get_metadata(struct lws_ss_handle *h, const char *name,
 		return 0;
 	}
 #if defined(LWS_WITH_SS_DIRECT_PROTOCOL_STR)
-	if (!(h->policy->flags & LWSSSPOLF_DIRECT_PROTO_STR))
+	if (!(h->policy->flags & LWSSSPOLF_DIRECT_PROTO_STR) || !h->wsi)
 		goto bail;
 
 	n = lws_http_string_to_known_header(name, strlen(name));
