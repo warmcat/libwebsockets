@@ -136,6 +136,7 @@ const uint32_t ss_state_txn_validity[] = {
 
 	[LWSSSCS_POLL]			= (1 << LWSSSCS_CONNECTING) |
 					  (1 << LWSSSCS_TIMEOUT) |
+					  (1 << LWSSSCS_ALL_RETRIES_FAILED) |
 					  (1 << LWSSSCS_DESTROYING),
 
 	[LWSSSCS_ALL_RETRIES_FAILED]	= (1 << LWSSSCS_CONNECTING) |
