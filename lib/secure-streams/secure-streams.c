@@ -1595,9 +1595,12 @@ _lws_ss_request_tx(lws_ss_handle_t *h)
 		return LWSSSSRET_OK;
 
 	h->seqstate = SSSEQ_TRY_CONNECT;
-	r = lws_ss_event_helper(h, LWSSSCS_POLL);
-	if (r)
-		return r;
+	if (h->prev_ss_state != LWSSSCS_POLL) { /* possible if we were created
+						 * before we could action it */
+		r = lws_ss_event_helper(h, LWSSSCS_POLL);
+		if (r)
+			return r;
+	}
 
 	/*
 	 * Retries operate via lws_ss_request_tx(), explicitly ask for a
