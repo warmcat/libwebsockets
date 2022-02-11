@@ -686,21 +686,23 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CGI_TERMINATED:
-		lwsl_wsi_debug(wsi, "CGI_TERMINATED: %d %" PRIu64,
+		if (wsi->http.cgi) {
+			lwsl_wsi_debug(wsi, "CGI_TERMINATED: %d %" PRIu64,
 				wsi->http.cgi->explicitly_chunked,
 				(uint64_t)wsi->http.cgi->content_length);
-		if (!(wsi->http.cgi->explicitly_chunked && wsi->mux_substream) &&
-		    !wsi->http.cgi->content_length) {
-			/* send terminating chunk */
-			lwsl_wsi_debug(wsi, "LWS_CALLBACK_CGI_TERMINATED: ending");
-			wsi->reason_bf |= LWS_CB_REASON_AUX_BF__CGI_CHUNK_END;
-			lws_callback_on_writable(wsi);
-			lws_set_timeout(wsi, PENDING_TIMEOUT_CGI, 3);
-			break;
-		}
-		if (wsi->mux_substream && !wsi->cgi_stdout_zero_length)
-			lws_write(wsi, (unsigned char *)buf + LWS_PRE, 0,
+			if (!(wsi->http.cgi->explicitly_chunked && wsi->mux_substream) &&
+			    !wsi->http.cgi->content_length) {
+				/* send terminating chunk */
+				lwsl_wsi_debug(wsi, "LWS_CALLBACK_CGI_TERMINATED: ending");
+				wsi->reason_bf |= LWS_CB_REASON_AUX_BF__CGI_CHUNK_END;
+				lws_callback_on_writable(wsi);
+				lws_set_timeout(wsi, PENDING_TIMEOUT_CGI, 3);
+				break;
+			}
+			if (wsi->mux_substream && !wsi->cgi_stdout_zero_length)
+				lws_write(wsi, (unsigned char *)buf + LWS_PRE, 0,
 						      LWS_WRITE_HTTP_FINAL);
+		}
 #if defined(LWS_WITH_SERVER)
 		if (lws_http_transaction_completed(wsi))
 			return -1;
