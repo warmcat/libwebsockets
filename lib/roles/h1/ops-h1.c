@@ -292,6 +292,9 @@ ws_mode:
 		// assert(0);
 		/* fallthru */
 
+	case LRS_WAITING_CONNECT: /* observed on warmcat.com */
+		break;
+
 	default:
 		lwsl_err("%s: Unhandled state %d\n", __func__, lwsi_state(wsi));
 		assert(0);
