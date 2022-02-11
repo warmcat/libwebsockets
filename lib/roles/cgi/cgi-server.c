@@ -95,14 +95,16 @@ lws_cgi_reap_cb(void *opaque, lws_usec_t *accounting, siginfo_t *si,
 	 * The cgi has come to an end, by itself or with a signal...
 	 */
 
-	lwsl_wsi_info(wsi, "post_in_expected %d",
+	if (wsi->http.cgi)
+		lwsl_wsi_info(wsi, "post_in_expected %d",
 			   (int)wsi->http.cgi->post_in_expected);
 
 	/*
 	 * Grace period to handle the incoming stdout
 	 */
 
-	lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->http.cgi->sul_grace,
+	if (wsi->http.cgi)
+		lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->http.cgi->sul_grace,
 			 lws_cgi_grace, 1 * LWS_US_PER_SEC);
 }
 
@@ -907,7 +909,7 @@ lws_cgi_kill(struct lws *wsi)
 {
 	struct lws_cgi_args args;
 	pid_t pid;
-	int n, m;
+	int n, m = 0;
 
 	if (!wsi->http.cgi || !wsi->http.cgi->lsp)
 		return 0;
@@ -919,7 +921,8 @@ lws_cgi_kill(struct lws *wsi)
 	/* that has invalidated and NULL'd wsi->http.cgi->lsp */
 
 	if (pid != -1) {
-		m = wsi->http.cgi->being_closed;
+		if (wsi->http.cgi)
+			m = wsi->http.cgi->being_closed;
 		n = user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
 						LWS_CALLBACK_CGI_TERMINATED,
 						wsi->user_space, (void *)&args,
