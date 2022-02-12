@@ -29,10 +29,18 @@
 #define _LEDC_HIGH_SPEED_MODE 0
 
 static const ledc_timer_config_t tc = {
+#if defined(CONFIG_IDF_TARGET_ESP32S2)
+	.speed_mode             	= LEDC_LOW_SPEED_MODE,
+#else
 	.speed_mode             	= _LEDC_HIGH_SPEED_MODE,
+#endif
 	.duty_resolution        	= LEDC_TIMER_13_BIT,
 	.timer_num              	= LEDC_TIMER_0,
+#if defined(CONFIG_IDF_TARGET_ESP32S2)
+	.freq_hz                	= 1000,
+#else
 	.freq_hz                	= 5000,
+#endif
 	.clk_cfg                	= LEDC_AUTO_CLK
 };
 
@@ -40,9 +48,14 @@ int
 lws_pwm_plat_init(const struct lws_pwm_ops *lo)
 {
 	ledc_channel_config_t lc = {
+#if defined(CONFIG_IDF_TARGET_ESP32S2)
+		.speed_mode		= LEDC_LOW_SPEED_MODE,
 		.duty			= 8191,
-		.intr_type		= LEDC_INTR_FADE_END,
+#else
 		.speed_mode		= _LEDC_HIGH_SPEED_MODE,
+		.duty			= 8191,
+#endif
+		.intr_type		= LEDC_INTR_FADE_END,
 		.timer_sel		= LEDC_TIMER_0,
 	};
 	size_t n;
