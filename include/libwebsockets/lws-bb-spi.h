@@ -48,6 +48,8 @@ typedef struct lws_bb_spi {
 	_lws_plat_gpio_t	mosi;
 	_lws_plat_gpio_t	miso;
 
+	uint8_t			unit;
+
 	uint8_t			flags;
 } lws_bb_spi_t;
 

@@ -49,6 +49,13 @@ enum {
 	LWS_SPI_TXN_HALF_DUPLEX_DISCRETE	= 0,
 	/**< separate MISO and MOSI, but only either MISO or MOSI has data at
 	 * one time... i2c style in SPI */
+
+	LWS_SPI_FLAG_DATA_CONTINUE			= (1 << 0),
+	/**< leave without finalizing the SPI transaction */
+	LWS_SPI_FLAG_DC_CMD_IS_HIGH			= (1 << 1),
+	/**< It's normally 0 for cmd phase, invert with this flag */
+	LWS_SPI_FLAG_DMA_BOUNCE_NOT_NEEDED		= (1 << 2),
+	/**< It's normally 0 for cmd phase, invert with this flag */
 };
 
 typedef struct lws_spi_desc {
@@ -62,12 +69,21 @@ typedef struct lws_spi_desc {
 	uint16_t		count_read;
 	uint8_t			txn_type;
 	uint8_t			channel;
+
+	uint8_t			flags;
 } lws_spi_desc_t;
 
 typedef struct lws_spi_ops {
 	int  (*init)(const struct lws_spi_ops *ctx);
 	int  (*queue)(const struct lws_spi_ops *ctx, const lws_spi_desc_t *desc);
-	uint8_t	bus_mode;
+	void * (*alloc_dma)(const struct lws_spi_ops *ctx, size_t size);
+	void (*free_dma)(const struct lws_spi_ops *ctx, void **p);
+	int (*in_flight)(const struct lws_spi_ops *ctx);
+	uint32_t	spi_clk_hz;
+	uint8_t		bus_mode;
 } lws_spi_ops_t;
+
+LWS_VISIBLE LWS_EXTERN int
+lws_spi_table_issue(const lws_spi_ops_t *spi_ops, uint32_t flags, const uint8_t *p, size_t len);
 
 #endif

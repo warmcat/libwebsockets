@@ -1,7 +1,7 @@
 /*
- * Generic SPI
+ * SPI - esp32 esp-idf api implementation
  *
- * Copyright (C) 2019 - 2022 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2019 - 2020 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -20,38 +20,33 @@
  * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
+ *
+ * This is like an abstract class for gpio, a real implementation provides
+ * functions for the ops that use the underlying OS gpio arrangements.
  */
 
-#include <libwebsockets.h>
-	
-int
-lws_spi_table_issue(const lws_spi_ops_t *spi_ops, uint32_t flags,
-		    const uint8_t *p, size_t len)
-{
-	lws_spi_desc_t desc;
-	size_t pos = 0;
+#if defined(ESP_PLATFORM)
 
-	memset(&desc, 0, sizeof(desc));
-	desc.count_cmd = 1;
-	desc.flags = flags;
+#define lws_esp32_spi_ops \
+		.init		= lws_esp32_spi_init, \
+		.queue		= lws_esp32_spi_queue, \
+		.alloc_dma	= lws_esp32_spi_alloc_dma, \
+		.free_dma	= lws_esp32_spi_free_dma, \
+		.in_flight	= lws_esp32_spi_in_flight
 
-	while (pos < len) {
+LWS_VISIBLE LWS_EXTERN int
+lws_esp32_spi_init(const lws_spi_ops_t *spi_ops);
 
-		desc.count_write = p[pos++];
+LWS_VISIBLE LWS_EXTERN int
+lws_esp32_spi_queue(const lws_spi_ops_t *spi_ops, const lws_spi_desc_t *desc);
 
-		desc.src = (uint8_t *)&p[pos++];
-		if (desc.count_write)
-			desc.data = (uint8_t *)&p[pos];
-		else
-			desc.data = NULL;
+LWS_VISIBLE LWS_EXTERN void *
+lws_esp32_spi_alloc_dma(const struct lws_spi_ops *ctx, size_t size);
 
-		if (spi_ops->queue(spi_ops, &desc) != ESP_OK) {
-			lwsl_err("%s: unable to queue\n", __func__);
-			return 1;
-		}
+LWS_VISIBLE LWS_EXTERN void
+lws_esp32_spi_free_dma(const struct lws_spi_ops *ctx, void **p);
 
-		pos += desc.count_write;
-	}
+LWS_VISIBLE LWS_EXTERN int
+lws_esp32_spi_in_flight(const struct lws_spi_ops *ctx);
 
-	return 0;
-}
+#endif

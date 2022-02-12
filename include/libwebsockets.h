@@ -775,6 +775,9 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size);
 #endif
 #include <libwebsockets/lws-i2c.h>
 #include <libwebsockets/lws-spi.h>
+#if defined(LWS_ESP_PLATFORM)
+#include <libwebsockets/lws-esp32-spi.h>
+#endif
 #include <libwebsockets/lws-gpio.h>
 #include <libwebsockets/lws-bb-i2c.h>
 #include <libwebsockets/lws-bb-spi.h>
