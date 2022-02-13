@@ -17,6 +17,7 @@ require_lws_config(LWS_ROLE_H1 1 requirements)
 require_lws_config(LWS_ROLE_WS 1 requirements)
 require_lws_config(LWS_WITH_SERVER 1 requirements)
 require_lws_config(LWS_WITH_HTTP_BASIC_AUTH 1 requirements)
+require_lws_config(LWS_WITH_FILE_OPS 1 requirements)
 
 if (requirements AND UNIX)
 	add_executable(${SAMP} ${SRCS})

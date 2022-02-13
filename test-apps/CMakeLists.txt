@@ -121,7 +121,7 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2))
 		list(APPEND TEST_APP_LIST ${TEST_NAME})
 	endmacro()
 
-	if (NOT LWS_WITHOUT_SERVER)
+	if (NOT LWS_WITHOUT_SERVER AND LWS_WITH_FILE_OPS)
 		#
 		# test-server
 		#
@@ -225,7 +225,7 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2))
 							COMMAND "${CMAKE_COMMAND}" -E copy "${TEST_FILE}" "$<TARGET_FILE_DIR:test-server>/../share/libwebsockets-test-server" VERBATIM)
 			endif()
 		endforeach()
-	endif(NOT LWS_WITHOUT_SERVER)
+	endif(NOT LWS_WITHOUT_SERVER AND LWS_WITH_FILE_OPS)
 
 	if (NOT LWS_WITHOUT_CLIENT)
 		#
