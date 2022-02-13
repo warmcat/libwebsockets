@@ -1232,6 +1232,8 @@ lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file,
 
 	return LCBA_CONTINUE;
 #else
+	if (!basic_auth_login_file && auth_mode == LWSAUTHM_DEFAULT)
+		return LCBA_CONTINUE;
 	return LCBA_FAILED_AUTH;
 #endif
 }
