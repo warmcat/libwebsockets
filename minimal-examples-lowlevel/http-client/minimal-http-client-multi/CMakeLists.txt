@@ -18,6 +18,7 @@ require_lws_config(LWS_WITH_SYS_STATE 1 requirements)
 require_lws_config(LWS_WITH_SERVER 1 requirements)
 require_lws_config(LWS_WITHOUT_TEST_SERVER 0 requirements)
 require_lws_config(LWS_WITHOUT_TESTAPPS 0 requirements)
+require_lws_config(LWS_WITH_FILE_OPS 1 requirements)
 
 require_lws_config(LWS_WITH_MBEDTLS 1 MBEDTLS)
 

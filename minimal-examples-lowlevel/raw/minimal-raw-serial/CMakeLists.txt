@@ -10,6 +10,7 @@ set(SRCS minimal-raw-file.c)
 
 set(requirements 1)
 require_lws_config(LWS_WITH_SERVER 1 requirements)
+require_lws_config(LWS_WITH_FILE_OPS 1 requirements)
 
 if (requirements AND UNIX)
 	add_executable(${SAMP} ${SRCS})
