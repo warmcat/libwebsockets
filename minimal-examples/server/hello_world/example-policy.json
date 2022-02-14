@@ -28,7 +28,25 @@
 			"server_cert":"self_localhost",
 			"server_key":"self_localhost_key"
 			}
-		}
+		},
+		{"ota": {
+				"endpoint": "libwebsockets.org",
+				"port":		443,
+				"protocol":		"h2",
+				"http_method":	"GET",
+				"http_url":	"firmware/examples/${ota_variant}/${file}",
+				"metadata": [{
+					"ota_variant":	"",
+					"file":		""
+				}],
+				"tls": true,
+				"allow_redirects": true,
+				"nghttp2_quirk_end_stream": true,
+				"h2q_oflow_txcr":    true,
+				"opportunistic":	true,
+				"retry":		"default"
+
+			}}
 	]
 }
 
