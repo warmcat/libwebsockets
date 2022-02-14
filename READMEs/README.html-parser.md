@@ -3,19 +3,10 @@
 ## Please note this is working end-end, but some parts incomplete and generally pre-alpha... looking for interested parties to help
 
 ![overview](../doc-assets/lhp-overview.png)
-<figcaption>*LHP Stream-parses HTML and CSS into a DOM and then into DLOs (lws
-Display List Objects).  Multiple, antialiased, proportional fonts, JPEG and PNGs
-are supported.  A linewise rasterizer is provided well-suited to resource-
-constrained devices with SPI based displays.*</figcaption>
+<figcaption>*LHP Stream-parses HTML and CSS into a DOM and then into DLOs (lws Display List Objects).  Multiple, antialiased, proportional fonts, JPEG and PNGs are supported.  A linewise rasterizer is provided well-suited to resource-constrained devices with SPI based displays.*</figcaption>
 
 ![example](../doc-assets/lhp-acep7.jpg)
-<figcaption>*Page fetched from `https://libwebsockets.org/lhp-tests/t1.html` by
-an ESP32, and rendered by lws on a 600x448 ACEP 7-colour EPD with 24-bit
-composition.  The warning symbol at the bottom right is a .png `<img>` in an
-absolutely positioned `<div>`.  The yellow shapes at the top right are divs with
-css-styled rounded corners.  The red div is partly transparent.  Display only
-has a 7 colour palette.  Server only sends CSS/HTML/JPEG/PNG, all parsing and
-rendering done on the ESP32.*</figcaption>
+<figcaption>*Page fetched from `https://libwebsockets.org/lhp-tests/t1.html` by an ESP32, and rendered by lws on a 600x448 ACEP 7-colour EPD with 24-bit composition.  The warning symbol at the bottom right is a .png img in an absolutely positioned `<div>`.  The yellow shapes at the top right are divs with css-styled rounded corners.  The red div is partly transparent.  Display only has a 7 colour palette.  Server only sends CSS/HTML/JPEG/PNG, all parsing and rendering done on the ESP32.*</figcaption>
 
 ## Overview
 
@@ -264,6 +255,25 @@ display pipline using native 565.
 
 ![overview](https://libwebsockets.org/wrover-boot.gif)
 <figcaption>*ESP32 WROVER KIT running the example carousel on a 320x200 565 RGB SPI display.  10s delay between tests snipped for brevity, otherwise shown realtime.  Moire is artifact of camera.  As composition is linewise, the JPEG and other data from libwebsockets.org is arriving and being completely parsed / composed in the time taken to update the display.  Interleaved SPI DMA used to send line to display while rendering the next.*</figcaption>
+
+## Implications of stream-parsing HTML
+
+To maximize the scalability, HTML is parsed into an element stack, consisting
+of a set of nested parent-child elements.  As an element goes out of scope and
+the parsing moves on to the next, its parents also go out of scope and are
+destroyed... new parsents are kept in the stack again only while they have
+children in scope.  This keeps a strict pressure against large instantaneous
+heap allocations for HTML parsing, but it has some implications.
+
+This "goldfish memory" "keyhole parsing" scheme by itself is inadequate when the
+dimensions of future elements will affect the dimensions of the current one, eg,
+a table where we don't find out until later how many rows it has, and so how
+high it is.  There's also a class of retrospective dimension acquisition, eg,
+where a JPEG `img` is in a table, but we don't find out its dimensions until we
+parse its header much later, long after the whole http parser stack related to
+it has been destroyed, and possibly many other things laid out after it.
+
+
 
 ## Top level API
 

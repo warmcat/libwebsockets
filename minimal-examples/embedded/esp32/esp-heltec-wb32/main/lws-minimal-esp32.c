@@ -197,7 +197,7 @@ app_main(void)
 
 	/* put the logo on the OLED display */
 
-	lds.disp->blit(&lds, img, &box);
+	lds.disp->blit(&lds, img, &box, NULL);
 	lws_display_state_active(&lds);
 
 	/* the lws event loop */

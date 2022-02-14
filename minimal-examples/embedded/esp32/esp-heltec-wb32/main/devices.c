@@ -98,7 +98,7 @@ static const lws_display_ssd1306_t disp = {
 
 static const lws_led_gpio_map_t lgm[] = {
 	{
-		.name			= "alert",
+		.name			= "red",
 		.gpio			= GPIO_NUM_25,
 		.pwm_ops		= &pwm_ops, /* managed by pwm */
 		.active_level		= 1,
@@ -205,7 +205,7 @@ init_plat_devices(struct lws_context *ctx)
 	lws_display_state_init(&lds, ctx, 10000, 20000, lls, &disp.disp);
 
 	lws_button_enable(bcs, 0, lws_button_get_bit(bcs, "user"));
-	lws_led_transition(lls, "alert", &lws_pwmseq_static_off,
+	lws_led_transition(lls, "red", &lws_pwmseq_static_off,
 					 &lws_pwmseq_static_on);
 
 	return 0;
