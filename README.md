@@ -26,6 +26,16 @@ sdevent, glib and uloop, as well as custom event libs.
 News
 ----
 
+## HTML + CSS + JPEG + PNG display stack in lws
+
+Want to drive your EPD or TFT / OLED display using HTML + CSS?  Only got an ESP32?
+
+Want remote JPEGs, PNGs, HTML, RGBA composition, gamma, error diffusion if needed?
+
+Realtime render into a line buffer because you don't have enough heap for a framebuffer?
+
+[Take a look here...](https://libwebsockets.org/git/libwebsockets/tree/READMEs/README.html-parser.md)
+
 ## Perl binding for lws available
 
 Thanks to Felipe Gasper, there's now a [perl binding for lws available at metacpan](https://metacpan.org/pod/Net::Libwebsockets),

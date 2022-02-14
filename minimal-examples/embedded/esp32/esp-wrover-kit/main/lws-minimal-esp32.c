@@ -232,7 +232,7 @@ app_main(void)
 
 	/* put the cat picture up there and enable the backlight */
 
-	lds.disp->blit(&lds, logo, &box);
+	lds.disp->blit(&lds, logo, &box, NULL);
 	lws_display_state_active(&lds);
 
 	/* the lws event loop */
