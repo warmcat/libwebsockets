@@ -44,7 +44,6 @@ int lws_openssl_describe_cipher(struct lws *wsi);
 extern int openssl_websocket_private_data_index,
     openssl_SSL_CTX_private_data_index;
 
-#if !defined(USE_WOLFSSL)
 
 #if 0
 #if defined(LWS_WITH_TLS_JIT_TRUST)
@@ -228,7 +227,6 @@ OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 	 */
 	return !n;
 }
-#endif
 
 int
 lws_ssl_client_bio_create(struct lws *wsi)
@@ -368,6 +366,8 @@ lws_ssl_client_bio_create(struct lws *wsi)
 #else
 	if (wsi->tls.use_ssl & LCCSCF_ALLOW_SELFSIGNED)
 		wolfSSL_set_verify(wsi->tls.ssl, SSL_VERIFY_NONE, NULL);
+	else if (wsi->tls.use_ssl & LCCSCF_USE_SSL)
+		wolfSSL_set_verify(wsi->tls.ssl, SSL_VERIFY_PEER, OpenSSL_client_verify_callback);
 #endif
 #endif /* USE_WOLFSSL */
 
