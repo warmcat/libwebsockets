@@ -33,7 +33,8 @@ int lws_plat_apply_FD_CLOEXEC(int n)
 }
 
 lws_fop_fd_t
-_lws_plat_file_open(const struct lws_plat_file_ops *fops, const char *filename,
+_lws_plat_file_open(const struct lws_plat_file_ops *fops_own,
+		    const struct lws_plat_file_ops *fops, const char *filename,
 		    const char *vpath, lws_fop_flags_t *flags)
 {
 	HANDLE ret;

@@ -562,7 +562,7 @@ int main(int argc, const char **argv)
 	 * It will just allocate for 1 internal and COUNT + 1 (allowing for h2
 	 * network wsi) that we will use.
 	 */
-	info.fd_limit_per_thread = 1 + COUNT + 1;
+	info.fd_limit_per_thread = 1 + COUNT + 8 + 1;
 	info.register_notifier_list = na;
 	info.pcontext = &context;
 

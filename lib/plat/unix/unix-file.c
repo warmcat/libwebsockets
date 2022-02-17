@@ -79,7 +79,8 @@ lws_plat_read_file(const char *filename, void *buf, size_t len)
 }
 
 lws_fop_fd_t
-_lws_plat_file_open(const struct lws_plat_file_ops *fops, const char *filename,
+_lws_plat_file_open(const struct lws_plat_file_ops *fops_own,
+		    const struct lws_plat_file_ops *fops, const char *filename,
 		    const char *vpath, lws_fop_flags_t *flags)
 {
 	struct stat stat_buf;

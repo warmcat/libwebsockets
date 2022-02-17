@@ -892,6 +892,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->fops_platform.LWS_FOP_READ	= _lws_plat_file_read;
 	context->fops_platform.LWS_FOP_WRITE	= _lws_plat_file_write;
 	context->fops_platform.fi[0].sig	= NULL;
+	context->fops_platform.cx		= context;
 
 	/*
 	 *  arrange a linear linked-list of fops starting from context->fops
@@ -908,6 +909,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	/* make a soft copy so we can set .next */
 	context->fops_zip = fops_zip;
 	prev->next = &context->fops_zip;
+	context->fops_zip.cx = context;
 	prev = (struct lws_plat_file_ops *)prev->next;
 #endif
 

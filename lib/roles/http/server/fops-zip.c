@@ -315,7 +315,8 @@ lws_fops_zip_reset_inflate(lws_fops_zip_t priv)
 }
 
 static lws_fop_fd_t
-lws_fops_zip_open(const struct lws_plat_file_ops *fops, const char *vfs_path,
+lws_fops_zip_open(const struct lws_plat_file_ops *fops_own,
+		  const struct lws_plat_file_ops *fops, const char *vfs_path,
 		  const char *vpath, lws_fop_flags_t *flags)
 {
 	lws_fop_flags_t local_flags = 0;
@@ -342,7 +343,7 @@ lws_fops_zip_open(const struct lws_plat_file_ops *fops, const char *vfs_path,
 
 	/* open the zip file itself using the incoming fops, not fops_zip */
 
-	priv->zip_fop_fd = fops->LWS_FOP_OPEN(fops, rp, NULL, &local_flags);
+	priv->zip_fop_fd = fops->LWS_FOP_OPEN(fops_own, fops, rp, NULL, &local_flags);
 	if (!priv->zip_fop_fd) {
 		lwsl_err("%s: unable to open zip %s\n", __func__, rp);
 		goto bail1;
@@ -651,5 +652,6 @@ struct lws_plat_file_ops fops_zip = {
 	lws_fops_zip_read,
 	NULL,
 	{ { ".zip/", 5 }, { ".jar/", 5 }, { ".war/", 5 } },
+	NULL,
 	NULL,
 };
