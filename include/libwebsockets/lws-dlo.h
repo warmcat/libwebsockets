@@ -272,10 +272,10 @@ typedef struct lws_display_render_state {
 LWS_VISIBLE LWS_EXTERN void
 lws_display_dl_init(lws_displaylist_t *dl, struct lws_display_state  *ds);
 
-#if defined(_DEBUG)
+//#if defined(_DEBUG)
 LWS_VISIBLE LWS_EXTERN void
 lws_display_dl_dump(lws_displaylist_t *dl);
-#endif
+//#endif
 
 /**
  * lws_display_list_destroy() - destroys display list and objects on it
@@ -441,3 +441,4 @@ lws_dlo_file_choose(struct lws_context *cx, const char *name);
 LWS_VISIBLE LWS_EXTERN void
 lws_dlo_file_destroy(struct lws_context *cx);
 
+LWS_VISIBLE extern const struct lws_plat_file_ops lws_dlo_fops;

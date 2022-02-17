@@ -97,7 +97,7 @@ lws_surface_set_px(const lws_surface_info_t *ic, uint8_t *line, int x,
 }
 
 
-#if defined(_DEBUG)
+//#if defined(_DEBUG)
 void
 lws_display_dl_dump(lws_displaylist_t *dl)
 {
@@ -182,7 +182,7 @@ lws_display_dl_dump(lws_displaylist_t *dl)
 			st[sp].dlo = NULL;
 	}
 }
-#endif
+//#endif
 
 lws_stateful_ret_t
 lws_display_list_render_line(lws_display_render_state_t *rs)
@@ -363,3 +363,104 @@ lws_dlo_file_choose(struct lws_context *cx, const char *name)
 
 	return NULL;
 }
+
+#if defined (LWS_WITH_FILE_OPS)
+
+int
+dlo_filesystem_fops_close(lws_fop_fd_t *fop_fd)
+{
+	lws_free_set_NULL(*fop_fd);
+	return 0;
+}
+
+lws_fileofs_t
+dlo_filesystem_fops_seek_cur(lws_fop_fd_t fop_fd,
+			     lws_fileofs_t pos)
+{
+	if (pos < 0)
+		fop_fd->pos = 0;
+	else
+		if (pos >= (long long)fop_fd->len)
+			fop_fd->pos = fop_fd->len;
+		else
+			fop_fd->pos = (lws_filepos_t)pos;
+
+	return (lws_fileofs_t)fop_fd->pos;
+}
+
+int
+dlo_filesystem_fops_write(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
+			  uint8_t *buf, lws_filepos_t len)
+{
+	*amount = 0;
+
+	return -1;
+}
+
+int
+dlo_filesystem_fops_read(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
+		    uint8_t *buf, lws_filepos_t len)
+{
+	const uint8_t *p = (uint8_t *)fop_fd->filesystem_priv;
+	lws_filepos_t amt = *amount;
+
+	*amount = 0;
+	if (fop_fd->len <= fop_fd->pos)
+		return 0;
+
+	if (amt > fop_fd->len - fop_fd->pos)
+		amt = fop_fd->len - fop_fd->pos;
+
+	if (amt > len)
+		amt = len;
+
+	memcpy(buf, p + fop_fd->pos, (size_t)amt);
+	fop_fd->pos += amt;
+
+	*amount = amt;
+
+	return 0;
+}
+
+lws_fop_fd_t
+lws_dlo_filesystem_fops_open(const struct lws_plat_file_ops *fops_own,
+			     const struct lws_plat_file_ops *fops,
+			     const char *vfs_path, const char *vpath,
+			     lws_fop_flags_t *flags)
+{
+	const lws_dlo_filesystem_t *f = NULL;
+	lws_fop_fd_t fop_fd;
+
+	// lwsl_err("%s: %s\n", __func__, vpath);
+
+	f = lws_dlo_file_choose(fops->cx, vpath);
+	if (f) {
+		/* we will handle it then */
+		fop_fd = lws_zalloc(sizeof(*fop_fd), __func__);
+		if (!fop_fd)
+			return NULL;
+
+		fop_fd->fops = fops_own;
+		fop_fd->filesystem_priv = (void *)f->data;
+		fop_fd->pos = 0;
+		fop_fd->len = f->len;
+
+		// lwsl_notice("%s: Opened %s\n", __func__, vpath);
+
+		return fop_fd;
+	} else
+		lwsl_err("%s: failed to open %s\n", __func__, vpath);
+
+	return NULL;
+}
+
+const struct lws_plat_file_ops lws_dlo_fops = {
+	.LWS_FOP_OPEN		= lws_dlo_filesystem_fops_open,
+	.LWS_FOP_CLOSE		= dlo_filesystem_fops_close,
+	.LWS_FOP_SEEK_CUR	= dlo_filesystem_fops_seek_cur,
+	.LWS_FOP_READ		= dlo_filesystem_fops_read,
+	.LWS_FOP_WRITE		= dlo_filesystem_fops_write,
+	.fi = { { "dlofs/", 6 } },
+};
+
+#endif
