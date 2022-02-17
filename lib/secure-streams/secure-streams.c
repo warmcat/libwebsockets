@@ -654,6 +654,41 @@ lws_ss_smd_tx_cb(lws_sorted_usec_list_t *sul)
 
 #endif
 
+#if defined(LWS_WITH_FILE_OPS)
+static void
+lws_ss_fops_sul_cb(lws_sorted_usec_list_t *sul)
+{
+	lws_ss_handle_t *h = lws_container_of(sul, lws_ss_handle_t, fops_sul);
+	lws_ss_state_return_t r = LWSSSSRET_DISCONNECT_ME;
+	lws_filepos_t amount;
+	uint8_t lump[1400];
+
+	amount = sizeof(lump);
+	if (lws_vfs_file_read(h->fop_fd, &amount, lump, sizeof(lump)))
+		goto disconn;
+
+	r = h->info.rx(h + 1, lump, (size_t)amount,
+			(!h->fop_fd->pos ? LWSSS_FLAG_SOM : 0) |
+			(h->fop_fd->pos == h->fop_fd->len ?
+					LWSSS_FLAG_EOM : 0));
+	if (!r) {
+		if (h->fop_fd->pos != h->fop_fd->len)
+			lws_sul_schedule(h->context, 0, &h->fops_sul,
+					 lws_ss_fops_sul_cb, 1);
+		return;
+	}
+
+disconn:
+	lws_vfs_file_close(&h->fop_fd);
+
+	if (lws_ss_event_helper(h, LWSSSCS_DISCONNECTED))
+		return;
+
+	if (r == LWSSSSRET_DESTROY_ME)
+		lws_ss_destroy(&h);
+}
+#endif
+
 lws_ss_state_return_t
 _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 {
@@ -739,6 +774,39 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 	_prot = prot = NULL;
 	_ipath = ipath = "";
 	_ads = ads = ep;
+
+#if defined(LWS_WITH_FILE_OPS)
+	if (!strncmp(ep, "file://", 7)) {
+		lws_fop_flags_t fl = 0;
+		h->fop_fd = lws_vfs_file_open(h->context->fops, ep + 7, &fl);
+
+		/* we opened the file */
+
+		r = lws_ss_event_helper(h, LWSSSCS_CONNECTING);
+		if (r) {
+			lws_vfs_file_close(&h->fop_fd);
+			return r;
+		}
+
+		if (!h->fop_fd) {
+			lws_vfs_file_close(&h->fop_fd);
+			lwsl_ss_warn(h, "Unable to find %s", ep);
+			goto fail_out;
+		}
+
+		r = lws_ss_event_helper(h, LWSSSCS_CONNECTED);
+		if (r) {
+			lws_vfs_file_close(&h->fop_fd);
+			return r;
+		}
+
+		/* start issuing the file as rx next time around the event loop */
+		lws_sul_schedule(h->context, 0, &h->fops_sul,
+				 lws_ss_fops_sul_cb, 1);
+
+		return LWSSSSRET_OK;
+	}
+#endif
 
 	if (strchr(ep, ':') &&
 	    !lws_parse_uri(ep, &_prot, &_ads, &_port, &_ipath)) {
@@ -880,6 +948,9 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 		if (h->pending_ret)
 			return h->pending_ret;
 
+#if defined(LWS_WITH_FILE_OPS)
+fail_out:
+#endif
 		if (h->prev_ss_state != LWSSSCS_UNREACHABLE &&
 		    h->prev_ss_state != LWSSSCS_ALL_RETRIES_FAILED) {
 			/*
@@ -1394,6 +1465,11 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 	lws_pt_lock(pt, __func__);
 	*ppss = NULL;
 	lws_dll2_remove(&h->list);
+#if defined(LWS_WITH_FILE_OPS)
+	lws_sul_cancel(&h->fops_sul);
+	if (h->fop_fd)
+		lws_vfs_file_close(&h->fop_fd);
+#endif
 #if defined(LWS_WITH_SERVER)
 		lws_dll2_remove(&h->cli_list);
 #endif

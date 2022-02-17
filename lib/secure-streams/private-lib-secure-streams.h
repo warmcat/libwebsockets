@@ -97,6 +97,10 @@ typedef struct lws_ss_handle {
 
 	lws_sorted_usec_list_t	sul_timeout;
 	lws_sorted_usec_list_t	sul;
+#if defined(LWS_WITH_FILE_OPS)
+	lws_sorted_usec_list_t	fops_sul;
+	lws_fop_fd_t		fop_fd;
+#endif
 	lws_ss_tx_ordinal_t	txord;
 
 	/* protocol-specific connection helpers */
