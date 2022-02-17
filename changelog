@@ -1,6 +1,17 @@
 Changelog
 ---------
 
+v4.4.0
+======
+
+ - API CHANGE: VFS open() has an extra file_ops pointer at the beginning.
+ The other args shift along one and are otherwise unchanged.  The new
+ file_ops is the active file_ops the callback belongs to, the original
+ file_ops that's the second arg now remains the platform file_ops ptr.  If you
+ don't define your own VFS implementation, you don't need to care.
+
+
+
 v4.3.0
 ======
 

@@ -203,14 +203,15 @@ static struct lws_protocols protocols[] = {
  * compressed files without decompressing the whole archive)
  */
 static lws_fop_fd_t
-test_server_fops_open(const struct lws_plat_file_ops *fops,
+test_server_fops_open(const struct lws_plat_file_ops *this_fops,
+		      const struct lws_plat_file_ops *fops,
 		     const char *vfs_path, const char *vpath,
 		     lws_fop_flags_t *flags)
 {
 	lws_fop_fd_t fop_fd;
 
 	/* call through to original platform implementation */
-	fop_fd = fops_plat.open(fops, vfs_path, vpath, flags);
+	fop_fd = fops_plat.open(fops, fops, vfs_path, vpath, flags);
 
 	if (fop_fd)
 		lwsl_info("%s: opening %s, ret %p, len %lu\n", __func__,

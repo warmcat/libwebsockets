@@ -73,6 +73,23 @@ typedef lws_font_glyph_t * (*lws_dlo_image_glyph_t)(
 				uint32_t unicode, char attach);
 typedef void (*lws_dlo_destroy_t)(struct lws_dlo *dlo);
 
+typedef struct lws_display_id {
+	lws_dll2_t			list;
+
+	char				id[16];
+	lws_box_t			box; /* taken from DLO after layout */
+
+	void				*priv_user;
+	void				*priv_driver;
+
+	char				exists;
+	char				iframe; /* 1 = render html as if partial
+						 * is the origin, otherwise
+						 * render html with surface
+						 * (0,0) as origin and rs->box
+						 * is a viewport on to that */
+} lws_display_id_t;
+
 /*
  * Common dlo object that joins the display list, composed into a subclass
  * object like lws_dlo_rect_t etc
@@ -87,6 +104,8 @@ typedef struct lws_dlo {
 
 	lws_dlo_destroy_t		_destroy; /* dlo-type specific cb */
 	lws_dlo_renderer_t		render;   /* dlo-type specific cb */
+
+	lws_display_id_t		*id; /* only valid until ids destroyed */
 
 	lws_box_t			box;
 	lws_display_colour_t		dc;
@@ -247,6 +266,8 @@ typedef struct lws_display_render_state {
 	lws_sorted_usec_list_t		sul; /* return to event loop statefully */
 	lws_display_state_t		*lds; /* optional, if using lws_display */
 
+	lws_dll2_owner_t		ids;
+
 	const struct lws_surface_info	*ic; /* display dimensions, palette */
 
 	lws_display_render_stack_t	st[12]; /* DLO child stack */
@@ -255,11 +276,26 @@ typedef struct lws_display_render_state {
 	uint8_t				*line; /* Y or RGB line comp buffer */
 
 	lws_displaylist_t		displaylist;
-	lws_box_t			box;
+
 	lws_display_scalar		curr;
+	lws_display_scalar		lowest_id_y;
+
 	char				html;
+
 } lws_display_render_state_t;
 
+
+LWS_VISIBLE LWS_EXTERN void
+lws_display_render_free_ids(lws_display_render_state_t *rs);
+
+LWS_VISIBLE LWS_EXTERN lws_display_id_t *
+lws_display_render_add_id(lws_display_render_state_t *rs, const char *id, void *priv);
+
+LWS_VISIBLE LWS_EXTERN lws_display_id_t *
+lws_display_render_get_id(lws_display_render_state_t *rs, const char *id);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_display_render_dump_ids(lws_dll2_owner_t *ids);
 
 /**
  * lws_display_dl_init() - init display list object
@@ -272,10 +308,10 @@ typedef struct lws_display_render_state {
 LWS_VISIBLE LWS_EXTERN void
 lws_display_dl_init(lws_displaylist_t *dl, struct lws_display_state  *ds);
 
-#if defined(_DEBUG)
+//#if defined(_DEBUG)
 LWS_VISIBLE LWS_EXTERN void
 lws_display_dl_dump(lws_displaylist_t *dl);
-#endif
+//#endif
 
 /**
  * lws_display_list_destroy() - destroys display list and objects on it
@@ -306,6 +342,9 @@ lws_dlo_ensure_err_diff(lws_dlo_t *dlo);
  */
 LWS_VISIBLE LWS_EXTERN lws_stateful_ret_t
 lws_display_list_render_line(lws_display_render_state_t *rs);
+
+LWS_VISIBLE LWS_EXTERN lws_stateful_ret_t
+lws_display_get_ids_boxes(lws_display_render_state_t *rs);
 
 /*
  * rect
@@ -396,7 +435,7 @@ LWS_VISIBLE LWS_EXTERN int
 lws_dlo_ss_find(struct lws_context *cx, const char *url, lws_dlo_image_t *u);
 
 LWS_VISIBLE LWS_EXTERN signed char
-lhp_dl_render(lhp_ctx_t *ctx, char reason);
+lhp_displaylist_layout(lhp_ctx_t *ctx, char reason);
 
 #define lws_dlo_image_width(_u) ((_u)->failed ? -1 : \
 		((_u)->type == LWSDLOSS_TYPE_JPEG ? \
@@ -435,9 +474,17 @@ lws_fonts_destroy(struct lws_context *cx);
 LWS_VISIBLE LWS_EXTERN int
 lws_dlo_file_register(struct lws_context *cx, const lws_dlo_filesystem_t *f);
 
+/* only needed if f dynamically heap-allocated... doesn't free data; data
+ * is typically overallocated after the lws_dlo_filesystem_t and freed when
+ * that is freed by this. */
+
+LWS_VISIBLE LWS_EXTERN void
+lws_dlo_file_unregister(lws_dlo_filesystem_t **f);
+
 LWS_VISIBLE LWS_EXTERN const lws_dlo_filesystem_t *
 lws_dlo_file_choose(struct lws_context *cx, const char *name);
 
 LWS_VISIBLE LWS_EXTERN void
 lws_dlo_file_destroy(struct lws_context *cx);
 
+LWS_VISIBLE extern const struct lws_plat_file_ops lws_dlo_fops;

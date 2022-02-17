@@ -55,6 +55,7 @@ lws_surface_set_px(const lws_surface_info_t *ic, uint8_t *line, int x,
 {
 	unsigned int alpha, ialpha;
 	lws_display_colour_t oc;
+	lws_display_colour_t y;
 	uint8_t rgb[3];
 
 	if (x < 0 || x >= ic->wh_px[0].whole)
@@ -72,7 +73,9 @@ lws_surface_set_px(const lws_surface_info_t *ic, uint8_t *line, int x,
 		alpha = LWSDC_ALPHA(*c);
 		ialpha = 255 - alpha;
 
-		line[x] = (uint8_t)(((LWSDC_R(*c) * alpha) / 255) +
+		y = RGB_TO_Y(LWSDC_R(*c), LWSDC_G(*c), LWSDC_B(*c));
+
+		line[x] = (uint8_t)(((y * alpha) / 255) +
 			   ((LWSDC_R(oc) * ialpha) / 255));
 		return;
 	}
@@ -97,7 +100,7 @@ lws_surface_set_px(const lws_surface_info_t *ic, uint8_t *line, int x,
 }
 
 
-#if defined(_DEBUG)
+//#if defined(_DEBUG)
 void
 lws_display_dl_dump(lws_displaylist_t *dl)
 {
@@ -142,8 +145,9 @@ lws_display_dl_dump(lws_displaylist_t *dl)
 		lws_snprintf(dt, sizeof(dt), "rect: RGBA 0x%08X", (unsigned int)dlo->dc);
 		if (dlo->_destroy == lws_display_dlo_text_destroy) {
 			lws_dlo_text_t *text = lws_container_of(dlo, lws_dlo_text_t, dlo);
-			lws_snprintf(dt, sizeof(dt), "text: RGBA 0x%08X, chars: %u, %s",
-					(unsigned int)dlo->dc, (unsigned int)text->text_len, text->text);
+			lws_snprintf(dt, sizeof(dt), "text: RGBA 0x%08X, chars: %u, %.*s",
+					(unsigned int)dlo->dc, (unsigned int)text->text_len,
+					(int)text->text_len, text->text ? text->text : "(empty)");
 		}
 		else if (dlo->_destroy == lws_display_dlo_png_destroy)
 			lws_snprintf(dt, sizeof(dt), "png");
@@ -182,7 +186,87 @@ lws_display_dl_dump(lws_displaylist_t *dl)
 			st[sp].dlo = NULL;
 	}
 }
-#endif
+//#endif
+
+/*
+ * Go through every DLO once, setting its id->box to the final layout for the
+ * related dlo, if any
+ */
+
+lws_stateful_ret_t
+lws_display_get_ids_boxes(lws_display_render_state_t *rs)
+{
+	lws_dll2_t *d;
+
+	rs->lowest_id_y = 0;
+
+	d = lws_dll2_get_head(&rs->displaylist.dl);
+	if (!d)
+		/* nothing in dlo */
+		return LWS_SRET_OK;
+
+	memset(&rs->st[0].co, 0, sizeof(rs->st[0].co));
+	rs->st[0].dlo = lws_container_of(d, lws_dlo_t, list);
+
+	while (rs->sp || rs->st[0].dlo) {
+		lws_dlo_t *dlo = rs->st[rs->sp].dlo;
+		lws_box_t co;
+		lws_fx_t t2;
+
+		if (!dlo) {
+			rs->sp--;
+			continue;
+		}
+
+		lws_fx_add(&co.x, &rs->st[rs->sp].co.x, &dlo->box.x);
+		lws_fx_add(&co.y, &rs->st[rs->sp].co.y, &dlo->box.y);
+		co.w = dlo->box.w;
+		co.h = dlo->box.h;
+
+		lws_fx_add(&t2, &co.y, &dlo->box.h);
+
+		if (dlo->id) {
+			lws_display_id_t *id = dlo->id;
+
+			lwsl_debug("%s: set id box %s\n", __func__, id->id);
+			id->box = co;
+			dlo->id = NULL; /* decouple us */
+		}
+
+		if (co.y.whole + co.h.whole > rs->lowest_id_y) {
+			rs->lowest_id_y = (lws_display_scalar)(co.y.whole + co.h.whole);
+			if (rs->lowest_id_y > rs->ic->wh_px[1].whole)
+				rs->lowest_id_y = (lws_display_scalar)rs->ic->wh_px[1].whole;
+		}
+
+		/* next sibling at this level if any */
+
+		d = dlo->list.next;
+		if (d)
+			rs->st[rs->sp].dlo = lws_container_of(d,
+						lws_dlo_t, list);
+		else
+			rs->st[rs->sp].dlo = NULL;
+
+		/* go into any children */
+
+		if (dlo->children.head) {
+			if (rs->sp + 1 == LWS_ARRAY_SIZE(rs->st)) {
+				lwsl_err("%s: DLO stack overflow\n",
+						__func__);
+				return LWS_SRET_FATAL;
+			}
+			rs->st[++rs->sp].dlo = lws_container_of(
+				dlo->children.head, lws_dlo_t, list);
+			rs->st[rs->sp].co = co;
+			continue;
+		}
+	}
+
+	lws_display_render_dump_ids(&rs->ids);
+
+	return LWS_SRET_OK;
+}
 
 lws_stateful_ret_t
 lws_display_list_render_line(lws_display_render_state_t *rs)
@@ -324,7 +408,17 @@ lws_display_list_destroy(lws_displaylist_t *dl)
 int
 lws_dlo_file_register(struct lws_context *cx, const lws_dlo_filesystem_t *f)
 {
-	lws_dlo_filesystem_t *a = lws_malloc(sizeof(*a), __func__);
+	const lws_dlo_filesystem_t *b;
+	lws_dlo_filesystem_t *a;
+
+	b = lws_dlo_file_choose(cx, f->name);
+
+	if (b) {
+		lwsl_err("%s: dlo file %s already exists\n", __func__, b->name);
+		lws_dlo_file_unregister((lws_dlo_filesystem_t **)&b);
+	}
+
+	a = lws_malloc(sizeof(*a), __func__);
 	if (!a)
 		return 1;
 
@@ -333,6 +427,20 @@ lws_dlo_file_register(struct lws_context *cx, const lws_dlo_filesystem_t *f)
 	lws_dll2_add_tail(&a->list, &cx->dlo_file);
 
 	return 0;
+}
+
+/*
+ * Only needed with heap-alloc'd lws_dlo_filesystem_t
+ */
+
+void
+lws_dlo_file_unregister(lws_dlo_filesystem_t **f)
+{
+	if (!*f)
+		return;
+
+	lws_dll2_remove(&(*f)->list);
+	lws_free_set_NULL(*f);
 }
 
 static int
@@ -363,3 +471,171 @@ lws_dlo_file_choose(struct lws_context *cx, const char *name)
 
 	return NULL;
 }
+
+static int
+lws_display_id_destroy(struct lws_dll2 *d, void *user)
+{
+	lws_display_id_t *id = lws_container_of(d, lws_display_id_t, list);
+
+	lws_dll2_remove(&id->list);
+	lws_free(id);
+	return 0;
+}
+
+void
+lws_display_render_free_ids(lws_display_render_state_t *rs)
+{
+	lws_dll2_foreach_safe(&rs->ids, NULL, lws_display_id_destroy);
+}
+
+lws_display_id_t *
+lws_display_render_get_id(lws_display_render_state_t *rs, const char *_id)
+{
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&rs->ids)) {
+		lws_display_id_t *id = lws_container_of(d, lws_display_id_t, list);
+
+		if (!strcmp(_id, id->id))
+			return id;
+
+	} lws_end_foreach_dll(d);
+
+	return NULL;
+}
+
+lws_display_id_t *
+lws_display_render_add_id(lws_display_render_state_t *rs, const char *_id, void *priv)
+{
+	lws_display_id_t *id;
+
+	id = lws_display_render_get_id(rs, _id);
+	if (id) {
+		id->priv_user = priv;
+		return id;
+	}
+
+	id = lws_zalloc(sizeof(*id), __func__);
+
+	if (id) {
+		lws_strncpy(id->id, _id, sizeof(id->id));
+		id->priv_user = priv;
+		lws_dll2_add_tail(&id->list, &rs->ids);
+	}
+
+	return id;
+}
+
+void
+lws_display_render_dump_ids(lws_dll2_owner_t *ids)
+{
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(ids)) {
+		lws_display_id_t *id = lws_container_of(d, lws_display_id_t, list);
+
+		if (!id->exists)
+			lwsl_notice("  id: '%s' (not present)\n", id->id);
+		else
+			lwsl_notice("  id: '%s', (%d,%d), %dx%d\n", id->id,
+					id->box.x.whole, id->box.y.whole,
+					id->box.w.whole, id->box.h.whole);
+	} lws_end_foreach_dll(d);
+}
+
+#if defined (LWS_WITH_FILE_OPS)
+
+int
+dlo_filesystem_fops_close(lws_fop_fd_t *fop_fd)
+{
+	lws_free_set_NULL(*fop_fd);
+	return 0;
+}
+
+lws_fileofs_t
+dlo_filesystem_fops_seek_cur(lws_fop_fd_t fop_fd,
+			     lws_fileofs_t pos)
+{
+	if (pos < 0)
+		fop_fd->pos = 0;
+	else
+		if (pos >= (long long)fop_fd->len)
+			fop_fd->pos = fop_fd->len;
+		else
+			fop_fd->pos = (lws_filepos_t)pos;
+
+	return (lws_fileofs_t)fop_fd->pos;
+}
+
+int
+dlo_filesystem_fops_write(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
+			  uint8_t *buf, lws_filepos_t len)
+{
+	*amount = 0;
+
+	return -1;
+}
+
+int
+dlo_filesystem_fops_read(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
+		    uint8_t *buf, lws_filepos_t len)
+{
+	const uint8_t *p = (uint8_t *)fop_fd->filesystem_priv;
+	lws_filepos_t amt = *amount;
+
+	*amount = 0;
+	if (fop_fd->len <= fop_fd->pos)
+		return 0;
+
+	if (amt > fop_fd->len - fop_fd->pos)
+		amt = fop_fd->len - fop_fd->pos;
+
+	if (amt > len)
+		amt = len;
+
+	memcpy(buf, p + fop_fd->pos, (size_t)amt);
+	fop_fd->pos += amt;
+
+	*amount = amt;
+
+	return 0;
+}
+
+lws_fop_fd_t
+lws_dlo_filesystem_fops_open(const struct lws_plat_file_ops *fops_own,
+			     const struct lws_plat_file_ops *fops,
+			     const char *vfs_path, const char *vpath,
+			     lws_fop_flags_t *flags)
+{
+	const lws_dlo_filesystem_t *f = NULL;
+	lws_fop_fd_t fop_fd;
+
+	// lwsl_err("%s: %s\n", __func__, vpath);
+
+	f = lws_dlo_file_choose(fops->cx, vpath);
+	if (f) {
+		/* we will handle it then */
+		fop_fd = lws_zalloc(sizeof(*fop_fd), __func__);
+		if (!fop_fd)
+			return NULL;
+
+		fop_fd->fops = fops_own;
+		fop_fd->filesystem_priv = (void *)f->data;
+		fop_fd->pos = 0;
+		fop_fd->len = f->len;
+
+		// lwsl_notice("%s: Opened %s\n", __func__, vpath);
+
+		return fop_fd;
+	} else
+		lwsl_err("%s: failed to open %s\n", __func__, vpath);
+
+	return NULL;
+}
+
+const struct lws_plat_file_ops lws_dlo_fops = {
+	.LWS_FOP_OPEN		= lws_dlo_filesystem_fops_open,
+	.LWS_FOP_CLOSE		= dlo_filesystem_fops_close,
+	.LWS_FOP_SEEK_CUR	= dlo_filesystem_fops_seek_cur,
+	.LWS_FOP_READ		= dlo_filesystem_fops_read,
+	.LWS_FOP_WRITE		= dlo_filesystem_fops_write,
+	.fi = { { "dlofs/", 6 } },
+};
+
+#endif
