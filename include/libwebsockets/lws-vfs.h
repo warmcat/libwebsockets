@@ -93,10 +93,15 @@ struct lws_fops_index {
 };
 
 struct lws_plat_file_ops {
-	lws_fop_fd_t (*LWS_FOP_OPEN)(const struct lws_plat_file_ops *fops,
+	lws_fop_fd_t (*LWS_FOP_OPEN)(const struct lws_plat_file_ops *fops_own,
+				     const struct lws_plat_file_ops *fops,
 				     const char *filename, const char *vpath,
 				     lws_fop_flags_t *flags);
 	/**< Open file (always binary access if plat supports it)
+	 * fops_own is the fops this was called through.  fops is the base
+	 * fops the open can use to find files to process as present as its own,
+	 * like the zip fops does.
+	 *
 	 * vpath may be NULL, or if the fops understands it, the point at which
 	 * the filename's virtual part starts.
 	 * *flags & LWS_FOP_FLAGS_MASK should be set to O_RDONLY or O_RDWR.
@@ -121,7 +126,12 @@ struct lws_plat_file_ops {
 	/**< vfs path signatures implying use of this fops */
 
 	const struct lws_plat_file_ops *next;
-	/**< NULL or next fops in list */
+	/**< NULL or next fops in list... eg copy static fops def to heap
+	 * and modify copy at runtime */
+
+	struct lws_context		*cx;
+	/**< the lws_context...  eg copy static fops def to heap
+	 * and modify copy at runtime */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility */
@@ -254,7 +264,8 @@ lws_vfs_file_write(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
  */
 
 LWS_VISIBLE LWS_EXTERN lws_fop_fd_t
-_lws_plat_file_open(const struct lws_plat_file_ops *fops, const char *filename,
+_lws_plat_file_open(const struct lws_plat_file_ops *fops_own,
+		    const struct lws_plat_file_ops *fops, const char *filename,
 		    const char *vpath, lws_fop_flags_t *flags);
 LWS_VISIBLE LWS_EXTERN int
 _lws_plat_file_close(lws_fop_fd_t *fop_fd);

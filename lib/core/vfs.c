@@ -88,20 +88,41 @@ lws_vfs_select_fops(const struct lws_plat_file_ops *fops, const char *vfs_path,
 	 * handled by a specific fops
 	 */
 
+	pf = fops->next; /* the first one is always platform fops, so skip */
+	while (pf) {
+		n = 0;
+		while (pf && n < (int)LWS_ARRAY_SIZE(pf->fi) && pf->fi[n].sig) {
+			if (!strncmp(p, pf->fi[n].sig, pf->fi[n].len)) {
+				*vpath = p + pf->fi[n].len;
+				//lwsl_notice("%s: hit, vpath '%s'\n",
+				//		__func__, *vpath);
+				return pf;
+			}
+			pf = pf->next;
+			n++;
+		}
+	}
+
 	while (p && *p) {
 		if (*p != '/') {
 			p++;
 			continue;
 		}
-		/* the first one is always platform fops, so skip */
-		pf = fops->next;
+
+		pf = fops->next; /* the first one is always platform fops, so skip */
 		while (pf) {
 			n = 0;
 			while (n < (int)LWS_ARRAY_SIZE(pf->fi) && pf->fi[n].sig) {
+				lwsl_warn("%s %s\n", p, pf->fi[n].sig);
 				if (p >= vfs_path + pf->fi[n].len)
+					/*
+					 * Accept sigs like .... .zip or
+					 * mysig...
+					 */
 					if (!strncmp(p - (pf->fi[n].len - 1),
 						     pf->fi[n].sig,
-						     (unsigned int)(pf->fi[n].len - 1))) {
+						     (unsigned int)(pf->fi[n].len - 1)) ||
+					    !strncmp(p, pf->fi[n].sig, pf->fi[n].len)) {
 						*vpath = p + 1;
 						return pf;
 					}
@@ -125,7 +146,7 @@ lws_vfs_file_open(const struct lws_plat_file_ops *fops, const char *vfs_path,
 
 	selected = lws_vfs_select_fops(fops, vfs_path, &vpath);
 
-	return selected->LWS_FOP_OPEN(fops, vfs_path, vpath, flags);
+	return selected->LWS_FOP_OPEN(selected, fops, vfs_path, vpath, flags);
 }
 
 
