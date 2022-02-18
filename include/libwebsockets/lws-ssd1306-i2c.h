@@ -1,7 +1,7 @@
 /*
  * lws abstract display implementation for ssd1306 on i2c
  *
- * Copyright (C) 2019 - 2020 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2019 - 2022 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -38,6 +38,7 @@ typedef struct lws_display_ssd1306 {
 	lws_display_t		disp; /* use lws_display_ssd1306_ops to set ops */
 	const lws_i2c_ops_t	*i2c;	      /* i2c ops */
 
+	lws_display_completion_t	cb;
 	const lws_gpio_ops_t	*gpio;	      /* NULL or gpio ops */
 	_lws_plat_gpio_t	reset_gpio;   /* if gpio ops, nReset gpio # */
 
@@ -51,7 +52,7 @@ int
 lws_display_ssd1306_i2c_contrast(lws_display_state_t *lds, uint8_t b);
 int
 lws_display_ssd1306_i2c_blit(lws_display_state_t *lds, const uint8_t *src,
-                             lws_box_t *box);
+			     lws_box_t *box, lws_dll2_owner_t *ids);
 int
 lws_display_ssd1306_i2c_power(lws_display_state_t *lds, int state);
 
