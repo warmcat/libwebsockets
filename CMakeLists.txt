@@ -329,6 +329,14 @@ else()
 	set(LWS_WITH_NETLINK 0)
 endif()
 
+
+option(LWS_WITH_COMPRESSED_BACKTRACES "Build with support for compressed backtraces" OFF)
+set(LWS_COMPRESSED_BACKTRACES_SNIP_PRE 2 CACHE STRING "Amount of callstack to snip from top")
+set(LWS_COMPRESSED_BACKTRACES_SNIP_POST 1 CACHE STRING "Amount of callstack to snip from bottom")
+option(LWS_WITH_ALLOC_METADATA_LWS "Build lws_*alloc() with compressed backtraces (requires WITH_COMPRESSED_BACKTRACES)" OFF)
+
+
+
 if (${CMAKE_SYSTEM_NAME} MATCHES "SunOS")
        # its openssl has md5 deprecated
        set(LWS_SUPPRESS_DEPRECATED_API_WARNINGS 1)

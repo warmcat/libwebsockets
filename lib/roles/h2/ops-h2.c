@@ -722,7 +722,7 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 
 		while (w) {
 			w1 = w->next;
-			free(w);
+			lws_free(w);
 			w = w1;
 		}
 		wsi->h2.h2n->pps = NULL;

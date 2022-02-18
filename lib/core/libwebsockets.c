@@ -1703,3 +1703,28 @@ nope:
 
 	return LWS_MINILEX_FAIL;
 }
+
+unsigned int
+lws_sigbits(uintptr_t u)
+{
+	uintptr_t mask = (uintptr_t)(0xffllu << ((sizeof(u) - 1) * 8)),
+		  m1   = (uintptr_t)(0x80llu << ((sizeof(u) - 1) * 8));
+	unsigned int n;
+
+	for (n = sizeof(u) * 8; n > 0; n -= 8) {
+		if (u & mask)
+			break;
+		mask >>= 8;
+		m1 >>= 8;
+	}
+
+	if (!n)
+		return 1; /* not bits are set, we need at least 1 to represent */
+
+	while (!(u & m1)) {
+		n--;
+		m1 >>= 1;
+	}
+
+	return n;
+}

@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2022 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -30,6 +30,10 @@
 
 /* the heap is processwide */
 static size_t allocated;
+#endif
+
+#if defined(LWS_WITH_ALLOC_METADATA_LWS)
+static lws_dll2_owner_t active;
 #endif
 
 #if defined(LWS_PLAT_OPTEE)
@@ -107,9 +111,19 @@ void lws_set_allocator(void *(*cb)(void *ptr, size_t size, const char *reason))
 static void *
 _realloc(void *ptr, size_t size, const char *reason)
 {
+#if defined(LWS_WITH_ALLOC_METADATA_LWS)
+	uint8_t comp[16 * LWS_ARRAY_SIZE(((lws_backtrace_info_t *)NULL)->st)];
+	size_t complen;
+	size_t adj = 0;
+#endif
 	void *v;
 
 	if (size) {
+#if defined(LWS_WITH_ALLOC_METADATA_LWS)
+		lws_alloc_metadata_gen(size, comp, sizeof(comp), &adj, &complen);
+		size += adj;
+#endif
+
 #if defined(LWS_PLAT_FREERTOS)
 		lwsl_debug("%s: size %lu: %s (free heap %d)\n", __func__,
 #if defined(LWS_AMAZON_RTOS)
@@ -127,17 +141,39 @@ _realloc(void *ptr, size_t size, const char *reason)
 			allocated -= malloc_usable_size(ptr);
 #endif
 
+#if defined(LWS_WITH_ALLOC_METADATA_LWS)
+		size += adj;
+#endif
+
 #if defined(LWS_PLAT_OPTEE)
 		v = (void *)TEE_Realloc(ptr, size);
 #else
 		v = (void *)realloc(ptr, size);
 #endif
+
+		if (!v)
+			return v;
+
 #if defined(LWS_HAVE_MALLOC_USABLE_SIZE)
 		allocated += malloc_usable_size(v);
 #endif
+
+#if defined(LWS_WITH_ALLOC_METADATA_LWS)
+		_lws_alloc_metadata_adjust(&active, &v, adj, comp, (unsigned int)complen);
+#endif
+
 		return v;
 	}
+
+	/*
+	 * We are freeing it then...
+	 */
+
 	if (ptr) {
+#if defined(LWS_WITH_ALLOC_METADATA_LWS)
+		_lws_alloc_metadata_trim(&ptr, NULL, NULL);
+#endif
+
 #if defined(LWS_HAVE_MALLOC_USABLE_SIZE)
 		allocated -= malloc_usable_size(ptr);
 #endif
@@ -146,6 +182,15 @@ _realloc(void *ptr, size_t size, const char *reason)
 
 	return NULL;
 }
+
+#if defined(LWS_WITH_ALLOC_METADATA_LWS)
+void
+_lws_alloc_metadata_dump_lws(lws_dll2_foreach_cb_t cb, void *arg)
+{
+	lwsl_err("%s\n", __func__);
+	_lws_alloc_metadata_dump(&active, cb, arg);
+}
+#endif
 
 void *(*_lws_realloc)(void *ptr, size_t size, const char *reason) = _realloc;
 
