@@ -1221,3 +1221,11 @@ lws_fsmount_unmount(struct lws_fsmount *fsm);
 LWS_VISIBLE LWS_EXTERN int
 lws_minilex_parse(const uint8_t *lex, int16_t *ps, const uint8_t c,
 			int *match);
+
+/*
+ * Reports the number of significant bits (from the left) that is needed to
+ * represent u.  So if u is 0x80, result is 8.
+ */
+
+LWS_VISIBLE LWS_EXTERN unsigned int
+lws_sigbits(uintptr_t u);

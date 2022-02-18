@@ -49,6 +49,11 @@ if (LWS_WITH_NETWORK)
 
 endif()
 
+if (LWS_WITH_COMPRESSED_BACKTRACES)
+	list(APPEND SOURCES
+		misc/backtrace.c)
+endif()
+
 if (LWS_WITH_FTS)
 	list(APPEND SOURCES
 		misc/fts/trie.c

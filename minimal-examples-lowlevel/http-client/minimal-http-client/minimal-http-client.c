@@ -94,6 +94,10 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_get_peer_simple(wsi, buf, sizeof(buf));
 			status = (int)lws_http_client_http_response(wsi);
 
+#if defined(LWS_WITH_ALLOC_METADATA_LWS)
+			_lws_alloc_metadata_dump_lws(lws_alloc_metadata_dump_stdout, NULL);
+#endif
+
 			lwsl_user("Connected to %s, http response: %d\n",
 					buf, status);
 		}
