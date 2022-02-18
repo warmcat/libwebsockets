@@ -11,6 +11,8 @@
 
 #include <libwebsockets.h>
 
+typedef struct lws_map_item lws_map_item_t;
+
 /* custom key and comparator for test 3 */
 
 typedef struct mykey {

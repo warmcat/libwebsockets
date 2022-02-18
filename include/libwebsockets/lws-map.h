@@ -43,7 +43,7 @@
 //@{
 
 typedef struct lws_map lws_map_t;
-typedef struct lws_map_item lws_map_item_t;
+struct lws_map_item;
 
 typedef void * lws_map_key_t;
 typedef void * lws_map_value_t;
@@ -76,13 +76,13 @@ typedef struct lws_map_info {
 } lws_map_info_t;
 
 LWS_VISIBLE LWS_EXTERN const void *
-lws_map_item_key(lws_map_item_t *_item);
+lws_map_item_key(struct lws_map_item *_item);
 LWS_VISIBLE LWS_EXTERN const void *
-lws_map_item_value(lws_map_item_t *_item);
+lws_map_item_value(struct lws_map_item *_item);
 LWS_VISIBLE LWS_EXTERN size_t
-lws_map_item_key_len(lws_map_item_t *_item);
+lws_map_item_key_len(struct lws_map_item *_item);
 LWS_VISIBLE LWS_EXTERN size_t
-lws_map_item_value_len(lws_map_item_t *_item);
+lws_map_item_value_len(struct lws_map_item *_item);
 
 /*
  * Helpers for C string keys case
@@ -158,7 +158,7 @@ lws_map_destroy(lws_map_t **pmap);
  * creating and adding the new one.
  */
 
-LWS_VISIBLE LWS_EXTERN lws_map_item_t *
+LWS_VISIBLE LWS_EXTERN struct lws_map_item *
 lws_map_item_create(lws_map_t *map,
 		    const lws_map_key_t key, size_t keylen,
 		    const lws_map_value_t value, size_t valuelen);
@@ -169,7 +169,7 @@ lws_map_item_create(lws_map_t *map,
  * \param item: the item in the map to remove and free
  */
 LWS_VISIBLE LWS_EXTERN void
-lws_map_item_destroy(lws_map_item_t *item);
+lws_map_item_destroy(struct lws_map_item *item);
 
 /**
  * lws_map_item_lookup() - look for a item with the given key in the map
@@ -182,7 +182,7 @@ lws_map_item_destroy(lws_map_item_t *item);
  * functions.
  */
 
-LWS_VISIBLE LWS_EXTERN lws_map_item_t *
+LWS_VISIBLE LWS_EXTERN struct lws_map_item *
 lws_map_item_lookup(lws_map_t *map, const lws_map_key_t key, size_t keylen);
 
 //@}
