@@ -372,7 +372,6 @@ ana:
 
 			/* returns zero on match already in table */
 			rmat = _lws_route_remove(pt, &robj, LRR_MATCH_SRC |
-							    LRR_JUST_CHECK |
 							    LRR_IGNORE_PRI);
 			lws_pt_unlock(pt);
 

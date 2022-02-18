@@ -154,8 +154,6 @@ _lws_route_remove(struct lws_context_per_thread *pt, lws_route_t *robj, int flag
 		    ((flags & LRR_IGNORE_PRI) ||
 		      robj->priority == rou->priority)
 		    ) {
-			if (flags & LRR_JUST_CHECK)
-				return rou;
 			lwsl_cx_info(pt->context, "deleting route");
 			_lws_route_pt_close_route_users(pt, robj->uidx);
 			lws_dll2_remove(&rou->list);
