@@ -971,7 +971,7 @@ callback_lws_openmetrics_prox_client(struct lws *wsi,
 
 		/* the proxy server uri */
 
-		if (lws_pvo_get_str(in, "ws-server-uri", &cp)) {
+		if (lws_pvo_get_str(in, "ws-server-uri", &cp) || !cp) {
 			lwsl_warn("%s: ws-server-uri pvo required\n", __func__);
 
 			return 0;
