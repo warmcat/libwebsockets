@@ -103,7 +103,7 @@ _lws_routing_table_dump(struct lws_context *cx)
 lws_route_uidx_t
 _lws_route_get_uidx(struct lws_context *cx)
 {
-	uint8_t ou;
+	lws_route_uidx_t ou;
 
 	if (!cx->route_uidx)
 		cx->route_uidx++;

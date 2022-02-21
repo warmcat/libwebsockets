@@ -33,7 +33,8 @@
 #include <lwip/sockets.h>
 #endif
 
-typedef uint8_t lws_route_uidx_t;
+/* cope with large amounts of route information */
+typedef uint16_t lws_route_uidx_t;
 
 typedef struct lws_dns_score {
 	uint8_t precedence;
