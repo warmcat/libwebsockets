@@ -2009,15 +2009,18 @@ next:
 		lws_plat_context_late_destroy(context);
 
 #if defined(LWS_WITH_PEER_LIMITS)
-		for (nu = 0; nu < context->pl_hash_elements; nu++)	{
-			lws_start_foreach_llp(struct lws_peer **, peer,
-					      context->pl_hash_table[nu]) {
-				struct lws_peer *df = *peer;
-				*peer = df->next;
-				lws_free(df);
-				continue;
-			} lws_end_foreach_llp(peer, next);
-		}
+		if (context->pl_hash_table)
+			for (nu = 0; nu < context->pl_hash_elements; nu++)	{
+				if (!context->pl_hash_table[nu])
+					continue;
+				lws_start_foreach_llp(struct lws_peer **, peer,
+						      context->pl_hash_table[nu]) {
+					struct lws_peer *df = *peer;
+					*peer = df->next;
+					lws_free(df);
+					continue;
+				} lws_end_foreach_llp(peer, next);
+			}
 		lws_free(context->pl_hash_table);
 #endif
 
