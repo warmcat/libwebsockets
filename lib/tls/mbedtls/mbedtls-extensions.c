@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2021 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2022 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -104,8 +104,8 @@ static const oid_x509_ext_t oid_x509_ext[] = {
             (const mbedtls_oid_descriptor_t *) p;                       \
         if( p == NULL || oid == NULL ) return( NULL );                  \
         while( cur->MBEDTLS_PRIVATE(asn1) != NULL ) {                          \
-            if( cur->MBEDTLS_PRIVATE(asn1_len) == oid->MBEDTLS_PRIVATE(len) && \
-                memcmp( cur->MBEDTLS_PRIVATE(asn1), oid->MBEDTLS_PRIVATE(p), oid->MBEDTLS_PRIVATE(len) ) == 0 ) {          \
+            if( cur->MBEDTLS_PRIVATE(asn1_len) == oid->MBEDTLS_PRIVATE_V30_ONLY(len) && \
+                memcmp( cur->MBEDTLS_PRIVATE(asn1), oid->MBEDTLS_PRIVATE_V30_ONLY(p), oid->MBEDTLS_PRIVATE_V30_ONLY(len) ) == 0 ) {          \
                 return( p );                                            \
             }                                                           \
             p++;                                                        \
@@ -177,10 +177,10 @@ x509_get_skid(uint8_t **p, const uint8_t *end, mbedtls_x509_buf *skid)
 	if (ret)
 		return ret;
 
-	skid->MBEDTLS_PRIVATE(len)	= len;
-	skid->MBEDTLS_PRIVATE(tag)	= MBEDTLS_ASN1_OCTET_STRING;
-	skid->MBEDTLS_PRIVATE(p)	= *p;
-	*p		+= len;
+	skid->MBEDTLS_PRIVATE_V30_ONLY(len)	= len;
+	skid->MBEDTLS_PRIVATE_V30_ONLY(tag)	= MBEDTLS_ASN1_OCTET_STRING;
+	skid->MBEDTLS_PRIVATE_V30_ONLY(p)	= *p;
+	*p					+= len;
 
 	return *p != end;
 }
@@ -204,10 +204,10 @@ lws_x509_clean_name(mbedtls_x509_name *name)
 	if (!name)
 		return;
 
-	n1 = name->MBEDTLS_PRIVATE(next);
+	n1 = name->MBEDTLS_PRIVATE_V30_ONLY(next);
 
 	while (n1) {
-		name = n1->MBEDTLS_PRIVATE(next);
+		name = n1->MBEDTLS_PRIVATE_V30_ONLY(next);
 		free(n1);
 		n1 = name;
 	}
@@ -222,7 +222,7 @@ lws_mbedtls_x509_parse_general_name(const mbedtls_x509_buf *name_buf,
 	mbedtls_x509_name rfc822Name;
 	int ret;
 
-	switch (name_buf->MBEDTLS_PRIVATE(tag) &
+	switch (name_buf->MBEDTLS_PRIVATE_V30_ONLY(tag) &
 				(LWS_MBEDTLS_ASN1_TAG_CLASS_MASK |
 				 LWS_MBEDTLS_ASN1_TAG_VALUE_MASK)) {
 
@@ -239,17 +239,17 @@ lws_mbedtls_x509_parse_general_name(const mbedtls_x509_buf *name_buf,
 #endif
 	case MBEDTLS_ASN1_SEQUENCE | LWS_MBEDTLS_X509_SAN_RFC822_NAME:
 
-		bufferPointer = name_buf->MBEDTLS_PRIVATE(p);
+		bufferPointer = name_buf->MBEDTLS_PRIVATE_V30_ONLY(p);
 		p = &bufferPointer;
-		end = name_buf->MBEDTLS_PRIVATE(p) +
-		      name_buf->MBEDTLS_PRIVATE(len);
+		end = name_buf->MBEDTLS_PRIVATE_V30_ONLY(p) +
+		      name_buf->MBEDTLS_PRIVATE_V30_ONLY(len);
 
 		/* The leading ASN1 tag and length has been processed.
 		 * Stepping back with 2 bytes, because mbedtls_x509_get_name
 		 * expects the beginning of the SET tag */
 		*p = *p - 2;
 
-		rfc822Name.MBEDTLS_PRIVATE(next) = NULL;
+		rfc822Name.MBEDTLS_PRIVATE_V30_ONLY(next) = NULL;
 		ret = mbedtls_x509_get_name( p, end, &rfc822Name );
 		if (ret) {
 			lws_x509_clean_name(&rfc822Name);
@@ -318,51 +318,51 @@ lws_x509_get_general_names(uint8_t **p, const uint8_t *end,
 		 * Check that the name is structured correctly.
 		 */
 		r = lws_mbedtls_x509_parse_general_name(
-					&cur->MBEDTLS_PRIVATE(buf), &dnb);
+					&cur->MBEDTLS_PRIVATE_V30_ONLY(buf), &dnb);
 		/*
 		 * In case the extension is malformed, return an error,
 		 * and clear the allocated sequences.
 		 */
 		if (r && r != MBEDTLS_ERR_X509_FEATURE_UNAVAILABLE) {
-		    mbedtls_x509_sequence *seq_cur = name->MBEDTLS_PRIVATE(next);
+		    mbedtls_x509_sequence *seq_cur = name->MBEDTLS_PRIVATE_V30_ONLY(next);
 		    mbedtls_x509_sequence *seq_prv;
 
 			while( seq_cur != NULL ) {
 				seq_prv = seq_cur;
-				seq_cur = seq_cur->MBEDTLS_PRIVATE(next);
+				seq_cur = seq_cur->MBEDTLS_PRIVATE_V30_ONLY(next);
 				lws_explicit_bzero(seq_prv, sizeof(*seq_cur));
 				lws_free(seq_prv);
 			}
 
-			name->MBEDTLS_PRIVATE(next) = NULL;
+			name->MBEDTLS_PRIVATE_V30_ONLY(next) = NULL;
 
 			return r;
 		}
 
 		/* Allocate and assign next pointer */
-		if (cur->MBEDTLS_PRIVATE(buf).MBEDTLS_PRIVATE(p)) {
-			if (cur->MBEDTLS_PRIVATE(next))
+		if (cur->MBEDTLS_PRIVATE_V30_ONLY(buf).MBEDTLS_PRIVATE_V30_ONLY(p)) {
+			if (cur->MBEDTLS_PRIVATE_V30_ONLY(next))
 				return 1;
 
-			cur->MBEDTLS_PRIVATE(next) =
+			cur->MBEDTLS_PRIVATE_V30_ONLY(next) =
 					lws_zalloc(sizeof(*cur), __func__);
 
-			if (!cur->MBEDTLS_PRIVATE(next))
+			if (!cur->MBEDTLS_PRIVATE_V30_ONLY(next))
 				return 1;
 
-			cur = cur->MBEDTLS_PRIVATE(next);
+			cur = cur->MBEDTLS_PRIVATE_V30_ONLY(next);
 		}
 
-		buf = &(cur->MBEDTLS_PRIVATE(buf));
-		buf->MBEDTLS_PRIVATE(tag) = tag;
-		buf->MBEDTLS_PRIVATE(p) = *p;
-		buf->MBEDTLS_PRIVATE(len) = tag_len;
+		buf = &(cur->MBEDTLS_PRIVATE_V30_ONLY(buf));
+		buf->MBEDTLS_PRIVATE_V30_ONLY(tag) = tag;
+		buf->MBEDTLS_PRIVATE_V30_ONLY(p) = *p;
+		buf->MBEDTLS_PRIVATE_V30_ONLY(len) = tag_len;
 
-		*p += buf->MBEDTLS_PRIVATE(len);
+		*p += buf->MBEDTLS_PRIVATE_V30_ONLY(len);
 	}
 
 	/* Set final sequence entry's next pointer to NULL */
-	cur->MBEDTLS_PRIVATE(next) = NULL;
+	cur->MBEDTLS_PRIVATE_V30_ONLY(next) = NULL;
 
 	return *p != end;
 }
@@ -380,9 +380,9 @@ x509_get_akid(uint8_t **p, uint8_t *end, lws_mbedtls_x509_authority *akid)
 
 	r = mbedtls_asn1_get_tag(p, end, &len, MBEDTLS_ASN1_CONTEXT_SPECIFIC);
 	if (!r) {
-		akid->keyIdentifier.MBEDTLS_PRIVATE(len) = len;
-		akid->keyIdentifier.MBEDTLS_PRIVATE(p) = *p;
-		akid->keyIdentifier.MBEDTLS_PRIVATE(tag) = MBEDTLS_ASN1_OCTET_STRING;
+		akid->keyIdentifier.MBEDTLS_PRIVATE_V30_ONLY(len) = len;
+		akid->keyIdentifier.MBEDTLS_PRIVATE_V30_ONLY(p) = *p;
+		akid->keyIdentifier.MBEDTLS_PRIVATE_V30_ONLY(tag) = MBEDTLS_ASN1_OCTET_STRING;
 
 		*p += len;
 	}
@@ -416,9 +416,9 @@ x509_get_akid(uint8_t **p, uint8_t *end, lws_mbedtls_x509_authority *akid)
 		if (r)
 			return r;
 
-		akid->authorityCertSerialNumber.MBEDTLS_PRIVATE(len) = len;
-		akid->authorityCertSerialNumber.MBEDTLS_PRIVATE(p) = *p;
-		akid->authorityCertSerialNumber.MBEDTLS_PRIVATE(tag) = MBEDTLS_ASN1_OCTET_STRING;
+		akid->authorityCertSerialNumber.MBEDTLS_PRIVATE_V30_ONLY(len) = len;
+		akid->authorityCertSerialNumber.MBEDTLS_PRIVATE_V30_ONLY(p) = *p;
+		akid->authorityCertSerialNumber.MBEDTLS_PRIVATE_V30_ONLY(tag) = MBEDTLS_ASN1_OCTET_STRING;
 		*p += len;
 	}
 
@@ -434,9 +434,9 @@ int
 lws_x509_get_crt_ext(mbedtls_x509_crt *crt, mbedtls_x509_buf *skid,
 		     lws_mbedtls_x509_authority *akid)
 {
-	uint8_t *p = crt->MBEDTLS_PRIVATE(v3_ext).MBEDTLS_PRIVATE(p),
+	uint8_t *p = crt->MBEDTLS_PRIVATE_V30_ONLY(v3_ext).MBEDTLS_PRIVATE_V30_ONLY(p),
 					*end_ext_data, *end_ext_octet;
-	const uint8_t *end = p + crt->MBEDTLS_PRIVATE(v3_ext).MBEDTLS_PRIVATE(len);
+	const uint8_t *end = p + crt->MBEDTLS_PRIVATE_V30_ONLY(v3_ext).MBEDTLS_PRIVATE_V30_ONLY(len);
 	size_t len;
 	int r = mbedtls_asn1_get_tag(&p, end, &len, MBEDTLS_ASN1_CONSTRUCTED |
 						      MBEDTLS_ASN1_SEQUENCE);
@@ -457,14 +457,14 @@ lws_x509_get_crt_ext(mbedtls_x509_crt *crt, mbedtls_x509_buf *skid,
 		end_ext_data = p + len;
 
 		/* Get extension ID */
-		r = mbedtls_asn1_get_tag(&p, end_ext_data, &extn_oid.MBEDTLS_PRIVATE(len),
+		r = mbedtls_asn1_get_tag(&p, end_ext_data, &extn_oid.MBEDTLS_PRIVATE_V30_ONLY(len),
 					   MBEDTLS_ASN1_OID);
 		if (r)
 			return r;
 
-		extn_oid.MBEDTLS_PRIVATE(tag) = MBEDTLS_ASN1_OID;
-		extn_oid.MBEDTLS_PRIVATE(p) = p;
-		p += extn_oid.MBEDTLS_PRIVATE(len);
+		extn_oid.MBEDTLS_PRIVATE_V30_ONLY(tag) = MBEDTLS_ASN1_OID;
+		extn_oid.MBEDTLS_PRIVATE_V30_ONLY(p) = p;
+		p += extn_oid.MBEDTLS_PRIVATE_V30_ONLY(len);
 
 		/* Get optional critical */
 		r = mbedtls_asn1_get_bool(&p, end_ext_data, &is_critical);

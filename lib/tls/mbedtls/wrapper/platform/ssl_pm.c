@@ -499,14 +499,13 @@ void ssl_pm_set_fd(SSL *ssl, int fd, int mode)
 {
     struct ssl_pm *ssl_pm = (struct ssl_pm *)ssl->ssl_pm;
 
-    ssl_pm->fd.MBEDTLS_PRIVATE(fd) = fd;
+    ssl_pm->fd.MBEDTLS_PRIVATE_V30_ONLY(fd) = fd;
 }
 
 int ssl_pm_get_fd(const SSL *ssl, int mode)
 {
     struct ssl_pm *ssl_pm = (struct ssl_pm *)ssl->ssl_pm;
-
-    return ssl_pm->fd.MBEDTLS_PRIVATE(fd);
+    return ssl_pm->fd.MBEDTLS_PRIVATE_V30_ONLY(fd);
 }
 
 OSSL_HANDSHAKE_STATE ssl_pm_get_state(const SSL *ssl)

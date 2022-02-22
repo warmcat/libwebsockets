@@ -604,7 +604,7 @@ lws_plat_vhost_tls_client_ctx_init(struct lws_vhost *vhost)
 int
 lws_plat_mbedtls_net_send(void *ctx, const uint8_t *buf, size_t len)
 {
-	int fd = ((mbedtls_net_context *) ctx)->MBEDTLS_PRIVATE(fd);
+	int fd = ((mbedtls_net_context *) ctx)->MBEDTLS_PRIVATE_V30_ONLY(fd);
 	int ret;
 
 	if (fd < 0)
@@ -629,7 +629,7 @@ lws_plat_mbedtls_net_send(void *ctx, const uint8_t *buf, size_t len)
 int
 lws_plat_mbedtls_net_recv(void *ctx, unsigned char *buf, size_t len)
 {
-	int fd = ((mbedtls_net_context *) ctx)->MBEDTLS_PRIVATE(fd);
+	int fd = ((mbedtls_net_context *) ctx)->MBEDTLS_PRIVATE_V30_ONLY(fd);
 	int ret;
 
 	if (fd < 0)
