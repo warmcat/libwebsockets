@@ -183,9 +183,10 @@ lws_plat_init(struct lws_context *context,
 	{
 		char *klf_env = getenv("SSLKEYLOGFILE");
 
-		if (klf_env)
+		if (klf_env && strlen(klf_env) && strlen(klf_env) < sizeof(context->keylog_file)) {
 			lws_strncpy(context->keylog_file, klf_env,
 				sizeof(context->keylog_file));
+		}
 	}
 #endif
 
