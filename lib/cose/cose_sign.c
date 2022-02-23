@@ -209,9 +209,12 @@ lws_cose_sign_payload_chunk(struct lws_cose_sign_context *csc,
 
 			lws_lec_init(&lec, lbuf, sizeof(lbuf));
 
-			/* we know it will fit */
-			lws_lec_printf(&lec, "{1:%lld}",
+			/* we know it will fit... but coverity doesn't */
+			ret = lws_lec_printf(&lec, "{1:%lld}",
 					     (long long)alg->cose_alg);
+		       if (ret != LWS_LECPCTX_RET_FINISHED)
+			       return ret;
+
 			lws_lec_scratch(&lec);
 
 			if (!csc->subsequent) {
@@ -293,9 +296,11 @@ lws_cose_sign_payload_chunk(struct lws_cose_sign_context *csc,
 
 				lws_lec_init(&lec, lbuf, sizeof(lbuf));
 
-				/* we know it will fit */
-				lws_lec_printf(&lec, "{1:%lld}",
+				/* we know it will fit... but coverity doesn't... */
+				ret = lws_lec_printf(&lec, "{1:%lld}",
 						     (long long)alg->cose_alg);
+			       if (ret != LWS_LECPCTX_RET_FINISHED)
+				       return ret;
 
 				lws_lec_init(&lec1, lb, sizeof(lb));
 				lws_lec_int(&lec1, LWS_CBOR_MAJTYP_BSTR, 0,
@@ -454,8 +459,10 @@ inner_protected:
 			lws_lec_init(&lec1, lb, sizeof(lb));
 			lws_lec_int(&lec1, LWS_CBOR_MAJTYP_BSTR, 0,
 					lec.used);
-			lws_lec_printf(csc->info.lec, "{1:%lld}",
-					     (long long)csc->alg->cose_alg);
+			if (lws_lec_printf(csc->info.lec, "{1:%lld}",
+					     (long long)csc->alg->cose_alg) != LWS_LECPCTX_RET_FINISHED)
+				/* coverity */
+				return 0;
 			break;
 		default:
 			lec.used = 0;

@@ -2014,7 +2014,7 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 	const struct lws_protocol_vhost_options *pvo;
 	const struct lws_protocols *prot;
 	struct lws_ssh_channel *ch;
-	char lang[10];
+	char lang[10] = "";
 	int n, m, o;
 
 	/*
