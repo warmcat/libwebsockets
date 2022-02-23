@@ -123,6 +123,8 @@
 #cmakedefine LWS_ONLY_SSPC
 #cmakedefine LWS_OPENSSL_CLIENT_CERTS "${LWS_OPENSSL_CLIENT_CERTS}"
 #cmakedefine LWS_OPENSSL_SUPPORT
+#cmakedefine LWS_OTA_PUBLIC_JWK "${LWS_OTA_PUBLIC_JWK}"
+#cmakedefine LWS_OTA_VARIANT "${LWS_OTA_VARIANT}"
 #cmakedefine LWS_PLAT_OPTEE
 #cmakedefine LWS_PLAT_UNIX
 #cmakedefine LWS_PLAT_FREERTOS
@@ -197,6 +199,7 @@
 #cmakedefine LWS_WITH_NETLINK
 #cmakedefine LWS_WITH_NETWORK
 #cmakedefine LWS_WITH_NO_LOGS
+#cmakedefine LWS_WITH_OTA
 #cmakedefine LWS_WITH_CACHE_NSCOOKIEJAR
 #cmakedefine LWS_WITH_CLIENT
 #cmakedefine LWS_WITHOUT_EXTENSIONS

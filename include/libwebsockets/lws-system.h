@@ -133,6 +133,11 @@ typedef enum { /* keep system_state_names[] in sync in context.c */
 	LWS_SYSTATE_AUTH1,		 /* identity used for main auth token */
 	LWS_SYSTATE_AUTH2,		 /* identity used for optional auth */
 
+	LWS_SYSTATE_ONE_TIME_UPDATES,	 /* pre-OPERATIONAL one-time updates,
+					  * when a firmware needs to perform
+					  * one-time upgrades to state before
+					  * OPERATIONAL */
+
 	LWS_SYSTATE_OPERATIONAL,	 /* user code can operate normally */
 
 	LWS_SYSTATE_POLICY_INVALID,	 /* user code is changing its policies
@@ -140,6 +145,9 @@ typedef enum { /* keep system_state_names[] in sync in context.c */
 					  * policy, switch to new then enter
 					  * LWS_SYSTATE_POLICY_VALID */
 	LWS_SYSTATE_CONTEXT_DESTROYING,	 /* Context is being destroyed */
+	LWS_SYSTATE_AWAITING_MODAL_UPDATING,	 /* We're negotiating with the
+						  * user code for update mode */
+	LWS_SYSTATE_MODAL_UPDATING,	 /* We're updating the firmware */
 } lws_system_states_t;
 
 /* Captive Portal Detect -related */
@@ -202,7 +210,12 @@ typedef struct lws_system_ops {
 	 * returning.  The DER should be destroyed if in heap before returning.
 	 */
 
-	uint32_t	wake_latency_us;
+#if defined(LWS_WITH_OTA)
+	lws_ota_ops_t		ota_ops;
+	/**< Platform OTA interface to lws_ota, see lws-ota.h */
+#endif
+
+	uint32_t		wake_latency_us;
 	/**< time taken for this device to wake from suspend, in us
 	 */
 } lws_system_ops_t;

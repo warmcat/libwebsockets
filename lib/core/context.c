@@ -74,9 +74,12 @@ static const char * system_state_names[] = {
 	"REGISTERED",
 	"AUTH1",
 	"AUTH2",
+	"ONE_TIME_UPDATES",
 	"OPERATIONAL",
 	"POLICY_INVALID",
-	"DESTROYING"
+	"DESTROYING",
+	"AWAITING_MODAL_UPDATING",
+	"MODAL_UPDATING"
 };
 
 
@@ -123,6 +126,23 @@ lws_state_notify_protocol_init(struct lws_state_manager *mgr,
 		lws_ntpc_trigger(context);
 
 		return 1;
+	}
+#endif
+
+#if defined(LWS_WITH_OTA)
+	if (target == LWS_SYSTATE_OPERATIONAL) {
+		uint16_t b;
+
+		/*
+		 * We add jitter, so possibly large numbers of devices don't
+		 * all wake up and check for updates at the same moment after a
+		 * power outage
+		 */
+
+		lws_get_random(context, &b, 2);
+		lws_sul_schedule(context, 0, &context->sul_ota_periodic,
+				 lws_ota_periodic_cb, (/* 30 + */ (b % 1000) *
+							LWS_US_PER_MS));
 	}
 #endif
 

@@ -18,6 +18,10 @@ typedef struct lws_system_ops {
 	int (*attach)(struct lws_context *context, int tsi, lws_attach_cb_t cb,
 		      lws_system_states_t state, void *opaque,
 		      struct lws_attach_item **get);
+	int (*jit_trust_query)(struct lws_context *cx, const uint8_t *skid,
+		       size_t skid_len, void *got_opaque);
+	lws_ota_ops_t ota_ops;
+	uint32_t wake_latency_us;
 } lws_system_ops_t;
 ```
 
@@ -26,6 +30,8 @@ typedef struct lws_system_ops {
 |`(*reboot)()`|Reboot the system|
 |`(*set_clock)()`|Set the system clock|
 |`(*attach)()`|Request an event loop callback from another thread context|
+|`(*jit_trust_query)()`|Method for providing a trusted X.509 cert by ID (see JIT_TRUST)`
+|`ota_ops`|Set of OTA-related operation implementations for platform|
 
 ### `reboot`
 
@@ -41,6 +47,18 @@ Request a callback from the event loop from a foreign thread.  This is used, for
 example, for foreign threads to set up their event loop activity in their
 callback, and eg, exit once it is done, with their event loop activity able to
 continue wholly from the lws event loop thread and stack context.
+
+### `jit_trust_query`
+
+JIT_TRUST handles most of the generic work in lws, but how the platform stores
+and retrieves its trusted CA certs is platform-specific, and handled by the
+user code for this.
+
+### `ota_ops`
+
+Device-specific operations to perform OTA flashing.
+
+See README.lws_ota.md / include/libwebsockets/lws_ota.h
 
 ## Foreign thread `attach` architecture
 
@@ -188,6 +206,8 @@ for various steps leading up to normal operation.  By default it acts in a
 backwards-compatible way and directly reaches the OPERATIONAL state just after
 the context is created.
 
+![overview](../doc-assets/lws_system_states.png)
+
 However other pieces of lws, and user, code may define notification handlers
 that get called back when the state changes incrementally, and may veto or delay
 the changes until work necessary for the new state has completed asynchronously.
@@ -205,9 +225,12 @@ The generic states defined are:
 |`LWS_SYSTATE_REGISTERED`|The device has a registered identity|
 |`LWS_SYSTATE_AUTH1`|The device identity has produced a time-limited access token|
 |`LWS_SYSTATE_AUTH2`|Optional second access token for different services|
+|`LWS_SYSTATE_ONE_TIME_UPDATES`|If firmware updates need to do one-time operations on data, they should do it at this point before OPERATIONAL|
 |`LWS_SYSTATE_OPERATIONAL`|The system is ready for user code to work normally|
 |`LWS_SYSTATE_POLICY_INVALID`|All connections are being dropped because policy information is changing.  It will transition back to `LWS_SYSTATE_INITIALIZED` and onward to `OPERATIONAL` again afterwards with the new policy|
 |`LWS_SYSTATE_CONTEXT_DESTROYING`|Context is going down and smd with it|
+|`LWS_SYSTATE_AWAITING_MODAL_UPDATING`|We are trying to get agreement to enter MODAL_UPDATING state|
+|`LWS_SYSTATE_MODAL_UPDATING`|We are in modal update state|
 
 ### Inserting a notifier
 

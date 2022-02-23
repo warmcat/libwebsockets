@@ -93,6 +93,8 @@ if (ESP_PLATFORM)
 		$ENV{IDF_PATH}/components/soc/include/
 		$ENV{IDF_PATH}/components/esp_hw_support/include
 		$ENV{IDF_PATH}/components/hal/${CONFIG_IDF_TARGET}/include/
+		$ENV{IDF_PATH}/components/app_update/include/
+		$ENV{IDF_PATH}/components/bootloader_support/include
 	)
 
 	if (CONFIG_IDF_TARGET_ARCH_RISCV)
@@ -342,6 +344,12 @@ set(LWS_COMPRESSED_BACKTRACES_SNIP_PRE 2 CACHE STRING "Amount of callstack to sn
 set(LWS_COMPRESSED_BACKTRACES_SNIP_POST 1 CACHE STRING "Amount of callstack to snip from bottom")
 option(LWS_WITH_ALLOC_METADATA_LWS "Build lws_*alloc() with compressed backtraces (requires WITH_COMPRESSED_BACKTRACES)" OFF)
 
+#
+# Over The Air updates
+#
+option(LWS_WITH_OTA "Build with support for Over The Air update download and validation" OFF)
+set(LWS_OTA_VARIANT "set-LWS_OTA_VARIANT" CACHE STRING "Build Variant ID for OTA filtering")
+set(LWS_OTA_PUBLIC_JWK "set-LWS_OTA_PUBLIC_JWK" CACHE STRING "Filepath to public JWK used for OTA validation")
 
 
 if (${CMAKE_SYSTEM_NAME} MATCHES "SunOS")

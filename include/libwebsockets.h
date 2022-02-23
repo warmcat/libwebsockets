@@ -687,6 +687,7 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size);
 #include <libwebsockets/lws-metrics.h>
 #endif
 
+#include <libwebsockets/lws-ota.h>
 #include <libwebsockets/lws-system.h>
 #if defined(LWS_WITH_NETWORK)
 #include <libwebsockets/lws-ws-close.h>

@@ -55,6 +55,12 @@ if (LWS_WITH_NETWORK)
 			system/dhcpclient/dhcpc4.c)
 	endif()
 
+	if (LWS_WITH_OTA)
+		list(APPEND SOURCES
+			system/ota/ota.c)
+	endif()
+
+
 	if (LWS_WITH_SYS_SMD)
 		add_subdir_include_dirs(smd)
 	endif()

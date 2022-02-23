@@ -949,6 +949,69 @@ lws_spawn_reap(struct lws_spawn_piped *lsp);
 
 #endif
 
+#if defined(LWS_WITH_OTA)
+
+typedef enum {
+	LWSOS_IDLE,
+	LWSOS_CHECKING, /* we are looking at the manifest, if any */
+	LWSOS_AWAITING_MODAL, /* we would like to fetch the update, but we have
+			       * to wait for the user code to agree it's entered
+			       * an update "mode" where it's not using the heap
+			       * for anything else */
+	LWSOS_FETCHING,	      /* if we did enter the lws_system MODAL state, we
+			       * can proceed with fetching the update we like */
+	LWSOS_FETCHING_INITED_GZ,
+	LWSOS_FETCHING_INITED_GZ_HASH,
+	LWSOS_STARTED,
+	LWSOS_WRITING,
+	LWSOS_FINALIZING,
+	LWSOS_REPORTED,
+	LWSOS_FAILED
+} lws_ota_state_t;
+
+typedef struct lws_ota {
+	char				buf[2048];
+	struct lws_ss_handle 		*ss;
+	void				*opaque_data;
+	char				file[128];
+	uint8_t				sha512[64];
+
+	lws_flow_t			flow;
+
+	lws_sorted_usec_list_t		sul_drain;
+
+	lws_ota_state_t			state;
+	lws_ota_process_t		op;
+
+	struct lws_genhash_ctx		ctx;
+	struct inflator_ctx		*inflate;
+	const uint8_t			*outring;
+	struct lws_context		*cx;
+
+	uint64_t			unixtime;
+
+	lws_ota_async_t			async_last;
+	lws_ota_ret_t			async_r;
+
+	size_t				pos;
+	size_t				expected_size;
+	size_t				seen;
+	size_t				written;
+	size_t				buf_len;
+
+	size_t				outringlen;
+	size_t				*opl;
+	size_t				old_op;
+	size_t				*cl;
+
+	uint8_t				last_pc;
+	uint8_t				ota_start_done;
+
+
+	uint8_t				async_completed;
+} lws_ota_t;
+#endif
+
 void
 lws_service_do_ripe_rxflow(struct lws_context_per_thread *pt);
 

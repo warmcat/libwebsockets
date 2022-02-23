@@ -53,6 +53,11 @@ if (LWS_WITH_SYS_ASYNC_DNS OR LWS_WITH_SYS_NTPCLIENT)
 	list(APPEND SOURCES plat/freertos/freertos-resolv.c)
 endif()
 
+if (LWS_ESP_PLATFORM AND LWS_WITH_OTA)
+	list(APPEND SOURCES plat/freertos/esp32/esp32-lws_ota.c)
+endif()
+
+
 #
 # Keep explicit parent scope exports at end
 #

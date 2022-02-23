@@ -626,6 +626,11 @@ struct lws_context {
 
 #endif
 
+#if defined(LWS_WITH_OTA)
+	lws_sorted_usec_list_t		sul_ota_periodic;
+	lws_ss_handle_t			* ota_ss;	/* opaque to platform */
+#endif
+
 /*
  * <====== LWS_WITH_NETWORK end
  */
@@ -938,6 +943,7 @@ typedef struct inflator_ctx {
 	size_t			bp;
 	size_t			inpos;
 	size_t			inlen;
+	size_t			archive_pos;
 	size_t			outpos;
 	size_t			outpos_linear;
 	size_t			consumed_linear;
@@ -1038,6 +1044,9 @@ void lwsl_emit_stderr(int level, const char *line);
 #define lws_pt_stats_lock(_a) (void)(_a)
 #define lws_pt_stats_unlock(_a) (void)(_a)
 #endif
+
+void
+lws_ota_periodic_cb(lws_sorted_usec_list_t *sul);
 
 int LWS_WARN_UNUSED_RESULT
 lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, size_t len);
@@ -1165,7 +1174,6 @@ lws_transport_mux_get_channel(lws_transport_mux_t *tm, lws_mux_ch_idx_t i);
 
 int
 lws_transport_mux_next_free(lws_transport_mux_t *tm, lws_mux_ch_idx_t *result);
-
 
 void
 sul_ping_cb(lws_sorted_usec_list_t *sul);
