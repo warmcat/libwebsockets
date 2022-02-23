@@ -125,7 +125,7 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 #endif
 #endif
 	const char *which = "http";
-	char which_wsi[10], buf[50 + LWS_PRE];
+       char which_wsi[20], buf[50 + LWS_PRE];
 	int n;
 
 	switch (reason) {
