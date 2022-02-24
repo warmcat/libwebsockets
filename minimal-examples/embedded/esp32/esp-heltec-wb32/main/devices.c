@@ -31,7 +31,10 @@ lws_netdev_instance_wifi_t *wnd;
 static void
 esp32_i2c_delay(void)
 {
-	ets_delay_us(1);
+	volatile int n = 0;
+
+	while (n < 20)
+		n++;
 }
 
 static const lws_bb_i2c_t li2c = {
