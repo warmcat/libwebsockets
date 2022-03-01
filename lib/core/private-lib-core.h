@@ -815,6 +815,149 @@ lws_strdup(const char *s);
 int
 lws_b64_selftest(void);
 
+#define FIRST_LENGTH_CODE_INDEX		257
+#define LAST_LENGTH_CODE_INDEX		285
+
+/*256 literals, the end code, some length codes, and 2 unused codes */
+#define NUM_DEFLATE_CODE_SYMBOLS	288
+/*the distance codes have their own symbols, 30 used, 2 unused */
+#define NUM_DISTANCE_SYMBOLS		32
+/* The code length codes. 0-15: code lengths, 16: copy previous 3-6 times,
+ * 17: 3-10 zeros, 18: 11-138 zeros */
+#define NUM_CODE_LENGTH_CODES		19
+/* largest number of symbols used by any tree type */
+#define MAX_SYMBOLS			288
+
+#define DEFLATE_CODE_BITLEN		15
+#define DISTANCE_BITLEN			15
+#define CODE_LENGTH_BITLEN		7
+/* largest bitlen used by any tree type */
+#define MAX_BIT_LENGTH			15
+
+#define DEFLATE_CODE_BUFFER_SIZE	(NUM_DEFLATE_CODE_SYMBOLS * 2)
+#define DISTANCE_BUFFER_SIZE		(NUM_DISTANCE_SYMBOLS * 2)
+#define CODE_LENGTH_BUFFER_SIZE		(NUM_DISTANCE_SYMBOLS * 2)
+
+typedef uint16_t huff_t;
+
+typedef enum {
+	UPNS_ID_BL_GB_DONE,
+	UPNS_ID_BL_GB_BTYPEb0,
+	UPNS_ID_BL_GB_BTYPEb1,
+
+	UPNS_ID_BL_GB_BTYPE_0,
+	UPNS_ID_BL_GB_BTYPE_1,
+	UPNS_ID_BL_GB_BTYPE_2,
+
+	UPNS_ID_BL_GB_BTYPE_0a,
+	UPNS_ID_BL_GB_BTYPE_0b,
+	UPNS_ID_BL_GB_BTYPE_0c,
+	UPNS_ID_BL_GB_BTYPE_0d,
+
+	UPNS_ID_BL_GB_BTYPE_2a,
+	UPNS_ID_BL_GB_BTYPE_2b,
+	UPNS_ID_BL_GB_BTYPE_2c,
+	UPNS_ID_BL_GB_BTYPE_2d,
+	UPNS_ID_BL_GB_BTYPE_2e,
+
+	UPNS_ID_BL_GB_BTYPE_2_16,
+	UPNS_ID_BL_GB_BTYPE_2_17,
+	UPNS_ID_BL_GB_BTYPE_2_18,
+
+	UPNS_ID_BL_GB_SPIN,
+
+	UPNS_ID_BL_GB_SPINa,
+	UPNS_ID_BL_GB_SPINb,
+	UPNS_ID_BL_GB_SPINc,
+	UPNS_ID_BL_GB_SPINd,
+	UPNS_ID_BL_GB_SPINe,
+
+	UPNS_ID_BL_GB_GZIP_ID1,
+	UPNS_ID_BL_GB_GZIP_ID2,
+	UPNS_ID_BL_GB_GZIP_METHOD,
+	UPNS_ID_BL_GB_GZIP_FLAGS,
+	UPNS_ID_BL_GB_GZIP_EOH,
+	UPNS_ID_BL_GB_GZIP_SKIP_EXTRA_C1,
+	UPNS_ID_BL_GB_GZIP_SKIP_EXTRA_C2,
+	UPNS_ID_BL_GB_GZIP_SKIP_EXTRA,
+	UPNS_ID_BL_GB_GZIP_SKIP_FILENAME,
+	UPNS_ID_BL_GB_GZIP_SKIP_COMMENT,
+	UPNS_ID_BL_GB_GZIP_SKIP_CRC,
+
+} upng_inflate_states_t;
+
+typedef struct htree {
+	huff_t			*tree2d;
+	/*maximum number of bits a single code can get */
+	uint16_t		maxbitlen;
+	/*number of symbols in the alphabet = number of codes */
+	uint16_t		numcodes;
+} htree_t;
+
+typedef struct inflator_ctx {
+	unsigned int		clenc[NUM_CODE_LENGTH_CODES];
+	unsigned int		bitlen[NUM_DEFLATE_CODE_SYMBOLS];
+	unsigned int		bitlenD[NUM_DISTANCE_SYMBOLS];
+	huff_t			clct_buffer[CODE_LENGTH_BUFFER_SIZE];
+	huff_t			ct_buffer[DEFLATE_CODE_BUFFER_SIZE];
+	huff_t			ctD_buffer[DISTANCE_BUFFER_SIZE];
+
+	lws_upng_t		*upng;
+
+	const uint8_t		*in;
+	uint8_t			*out;
+
+	htree_t			clct;
+	htree_t			ct;
+	htree_t			ctD;
+
+	size_t			bp;
+	size_t			inpos;
+	size_t			inlen;
+	size_t			outpos;
+	size_t			outpos_linear;
+	size_t			consumed_linear;
+	size_t			outlen;
+	size_t			length;
+	size_t			start;
+	size_t			forward;
+	size_t			backward;
+	size_t			exbits;
+	size_t			bypl;
+
+	upng_inflate_states_t	state;
+
+	unsigned int		len;
+	unsigned int		nlen;
+	unsigned int		n;
+	unsigned int		hlit;
+	unsigned int		hdist;
+	unsigned int		hclen;
+	unsigned int		i;
+	unsigned int		t;
+	unsigned int		codeD;
+	unsigned int		distance;
+	unsigned int		exbitsD;
+	unsigned int		code;
+	unsigned int		treepos;
+
+	unsigned int		read_bits_shifter;
+	unsigned int		read_bits_limit;
+	unsigned int 		read_bits_i;
+
+	unsigned int		info_size;
+
+	uint16_t		ctr;
+	uint8_t			subsequent;
+	uint8_t			btype;
+	uint8_t			done;
+	uint8_t			gz_flags;
+
+	char			read_bits_ongoing;
+} inflator_ctx_t;
+
+lws_stateful_ret_t
+_lws_upng_inflate_data(inflator_ctx_t *inf);
 
 #ifndef LWS_NO_DAEMONIZE
  pid_t get_daemonize_pid();

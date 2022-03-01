@@ -47,6 +47,7 @@ typedef enum lws_upng_format_t {
 	LWS_UPNG_LUMINANCE_ALPHA8
 } lws_upng_format_t;
 
+struct inflator_ctx;
 typedef struct lws_upng_t lws_upng_t;
 
 /**
@@ -116,3 +117,44 @@ lws_upng_get_pixelsize(const lws_upng_t *upng);
 LWS_VISIBLE LWS_EXTERN lws_upng_format_t
 lws_upng_get_format(const lws_upng_t *upng);
 
+/**
+ * lws_upng_inflator_create() - create a gzip inflator context
+ *
+ * \param outring: pointer set to the output ringbuffer on exit
+ * \param outringlen: size of the output ringbuffer set on exit
+ * \param opl: pointer to set to point to ctx outpos_linear
+ * \param cl: pointer to set to point to ctx consumed_linear
+ *
+ * Creates an opaque gzip inflator object.
+ */
+LWS_VISIBLE LWS_EXTERN struct inflator_ctx *
+lws_upng_inflator_create(const uint8_t **outring, size_t *outringlen,
+			 size_t **opl, size_t **cl);
+
+/**
+ * lws_upng_inflate_data() - inflate compressed data statefully
+ *
+ * \param inf: inflator context created with lws_upng_inflator_create()
+ * \param buf: NULL to continue consumption of existing input, or new input
+ * \param len: ignored if \p buf is NULL, else amount of new input at \p buf
+ *
+ * Tries to progress the inflation.  If output is available, \p *opl will be
+ * further along than before it was called.  \p *cl should be set to \p opl
+ * to consume the available output data.
+ *
+ * Output is into a ringfuffer, typically sized at 32KB.  \p opl and \p cl
+ * are "linear", that is extend beyond the ringbuffer.  They should be modulo
+ * outringlen (given when the inflator was created) when accessing outring.
+ */
+LWS_VISIBLE LWS_EXTERN lws_stateful_ret_t
+lws_upng_inflate_data(struct inflator_ctx *inf, const void *buf, size_t len);
+
+/**
+ * lws_upng_inflator_destroy() - destroys the inflation context and ringbuffer
+ *
+ * \p inf: pointer to pointer to inflation context
+ *
+ * Frees the inflation context and its allocations, and sets \p *inf to NULL.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_upng_inflator_destroy(struct inflator_ctx **inf);

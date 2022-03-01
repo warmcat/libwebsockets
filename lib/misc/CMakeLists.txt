@@ -60,6 +60,11 @@ if (LWS_WITH_FTS)
 		misc/fts/trie-fd.c)
 endif()
 
+if (LWS_WITH_GZINFLATE)
+	list(APPEND SOURCES
+		misc/upng-gzip.c)
+endif()
+
 if (LWS_WITH_UPNG)
 	list(APPEND SOURCES
 		misc/upng.c)

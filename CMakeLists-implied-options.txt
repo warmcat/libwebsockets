@@ -371,6 +371,10 @@ if (LWS_WITHOUT_SERVER)
 	set(LWS_WITH_SERVER)
 endif()
 
+if (LWS_WITH_UPNG)
+	set(LWS_WITH_GZINFLATE 1)
+endif()
+
 # using any abstract protocol enables LWS_WITH_ABSTRACT
 
 #if (LWS_WITH_SMTP)
