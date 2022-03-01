@@ -130,11 +130,11 @@ signed char char_to_hex(const char c)
 }
 
 int
-lws_hex_to_byte_array(const char *h, uint8_t *dest, int max)
+lws_hex_len_to_byte_array(const char *h, size_t hlen, uint8_t *dest, int max)
 {
 	uint8_t *odest = dest;
 
-	while (max-- && *h) {
+	while (max-- && hlen > 1) {
 		int t = char_to_hex(*h++), t1;
 
 		if (!*h || t < 0)
@@ -145,12 +145,19 @@ lws_hex_to_byte_array(const char *h, uint8_t *dest, int max)
 			return -1;
 
 		*dest++ = (uint8_t)((t << 4) | t1);
+		hlen -= 2;
 	}
 
-	if (max < 0)
+	if (max < -1)
 		return -1;
 
 	return lws_ptr_diff(dest, odest);
+}
+
+int
+lws_hex_to_byte_array(const char *h, uint8_t *dest, int max)
+{
+	return lws_hex_len_to_byte_array(h, strlen(h), dest, max);
 }
 
 static char *hexch = "0123456789abcdef";

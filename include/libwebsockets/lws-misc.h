@@ -349,6 +349,25 @@ lws_json_simple_find(const char *buf, size_t len, const char *name, size_t *alen
 LWS_VISIBLE LWS_EXTERN int
 lws_json_simple_strcmp(const char *buf, size_t len, const char *name, const char *comp);
 
+/**
+ * lws_hex_len_to_byte_array(): convert hex string like 0123456789ab into byte data
+ *
+ * \param h: incoming hex string
+ * \param hlen: number of chars to process at \p h
+ * \param dest: array to fill with binary decodes of hex pairs from h
+ * \param max: maximum number of bytes dest can hold, must be at least half
+ *		the size of strlen(h)
+ *
+ * This converts hex strings into an array of 8-bit representations, ie the
+ * input "abcd" produces two bytes of value 0xab and 0xcd.
+ *
+ * Returns number of bytes produced into \p dest, or -1 on error.
+ *
+ * Errors include non-hex chars and an odd count of hex chars in the input
+ * string.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_hex_len_to_byte_array(const char *h, size_t hlen, uint8_t *dest, int max);
 
 /**
  * lws_hex_to_byte_array(): convert hex string like 0123456789ab into byte data
