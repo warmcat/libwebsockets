@@ -281,6 +281,7 @@ static int
 lws_cookie_write_nsc(struct lws *wsi, struct lws_cookie *c)
 {
 	char cache_name[LWS_COOKIE_MAX_CACHE_NAME_LEN];
+	const char *ads, *path;
 	struct lws_cache_ttl_lru *l1;
 	struct client_info_stash *stash;
 	char *cookie_string = NULL, *dl;
@@ -297,10 +298,15 @@ lws_cookie_write_nsc(struct lws *wsi, struct lws_cookie *c)
 		return -1;
 
 	stash = wsi->stash ? wsi->stash : lws_get_network_wsi(wsi)->stash;
-	if (!stash || !stash->cis[CIS_ADDRESS] ||
-			   !stash->cis[CIS_PATH])
+	if (stash) {
+		ads = stash->cis[CIS_ADDRESS];
+		path = stash->cis[CIS_PATH];
+	} else {
+		ads = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS);
+		path = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI);
+	}
+	if (!ads || !path)
 		return -1;
-
 
 	if (!c->f[CE_NAME] || !c->f[CE_VALUE]) {
 		lwsl_err("%s: malformed c\n", __func__);
@@ -320,13 +326,13 @@ lws_cookie_write_nsc(struct lws *wsi, struct lws_cookie *c)
 	if (!c->f[CE_DOMAIN]) {
 		c->f[CE_HOSTONLY] = "T";
 		c->l[CE_HOSTONLY] = 1;
-		c->f[CE_DOMAIN] = stash->cis[CIS_ADDRESS];
-		c->l[CE_DOMAIN] = strlen(c->f[CE_DOMAIN]);
+		c->f[CE_DOMAIN] = ads;
+		c->l[CE_DOMAIN] = strlen(ads);
 	}
 
 	if (!c->f[CE_PATH]) {
-		c->f[CE_PATH] = stash->cis[CIS_PATH];
-		c->l[CE_PATH] = strlen(c->f[CE_PATH]);
+		c->f[CE_PATH] = path;
+		c->l[CE_PATH] = strlen(path);
 		dl = memchr(c->f[CE_PATH], '?', c->l[CE_PATH]);
 		if (dl)
 			c->l[CE_PATH] = (size_t)(dl - c->f[CE_PATH]);
