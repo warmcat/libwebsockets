@@ -556,9 +556,6 @@ lws_transport_mux_destroy(lws_transport_mux_t **tm);
 void
 lws_transport_mux_request_tx(lws_transport_mux_t *tm);
 
-void
-lws_transport_mux_destroy(lws_transport_mux_t **tm);
-
 #if defined(_DEBUG)
 void
 lws_transport_path_client_dump(lws_txp_path_client_t *path, const char *ctx);
