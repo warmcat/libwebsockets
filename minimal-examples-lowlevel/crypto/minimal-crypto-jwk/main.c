@@ -86,6 +86,9 @@ int main(int argc, const char **argv)
 	if ((p = lws_cmdline_option(argc, argv, "-b")))
 		bits = atoi(p);
 
+	if ((p = lws_cmdline_option(argc, argv, "--curve")))
+		curve = p;
+
 	if ((p = lws_cmdline_option(argc, argv, "-t"))) {
 		if (!strcmp(p, "RSA"))
 			kty = LWS_GENCRYPTO_KTY_RSA;
@@ -143,7 +146,7 @@ int main(int argc, const char **argv)
 
 		/* public version */
 
-		if (lws_jwk_export(&jwk, 0, key, &vl) < 0) {
+		if (lws_jwk_export(&jwk, LWSJWKF_EXPORT_NOCRLF, key, &vl) < 0) {
 			lwsl_err("lws_jwk_export failed\n");
 
 			return 1;
@@ -173,7 +176,7 @@ int main(int argc, const char **argv)
 
 	/* private version */
 
-	if (lws_jwk_export(&jwk, LWSJWKF_EXPORT_PRIVATE, key, &vl) < 0) {
+	if (lws_jwk_export(&jwk, LWSJWKF_EXPORT_NOCRLF | LWSJWKF_EXPORT_PRIVATE, key, &vl) < 0) {
 		lwsl_err("lws_jwk_export failed\n");
 
 		return 1;

@@ -20,4 +20,9 @@ if (requirements)
 	else()
 		target_link_libraries(${SAMP} websockets ${LIBWEBSOCKETS_DEP_LIBS})
 	endif()
+
+	install(TARGETS ${SAMP}
+		RUNTIME DESTINATION ${LWS_INSTALL_EXAMPLES_DIR}
+		COMPONENT examples)
+
 endif()
