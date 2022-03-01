@@ -349,6 +349,9 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 {
 	struct lws_context_per_thread *pt;
 	const struct lws_protocols *pro;
+#if defined(LWS_WITH_SECURE_STREAMS)
+	lws_ss_handle_t *hh = NULL;
+#endif
 	struct lws_context *context;
 	struct lws *wsi1, *wsi2;
 	int n, ccb;
@@ -842,25 +845,18 @@ async_close:
 			} else
 #endif
 		{
-			lws_ss_handle_t *h = (lws_ss_handle_t *)wsi->a.opaque_user_data;
+			hh = (lws_ss_handle_t *)wsi->a.opaque_user_data;
 
-			if (h) { // && (h->info.flags & LWSSSINFLAGS_ACCEPTED)) {
+			if (hh) { // && (h->info.flags & LWSSSINFLAGS_ACCEPTED)) {
 
 				/*
 				 * ss level: only reports if dangling caliper
 				 * not already reported
 				 */
-				lws_metrics_caliper_report_hist(h->cal_txn, wsi);
+				lws_metrics_caliper_report_hist(hh->cal_txn, wsi);
 
-				h->wsi = NULL;
+				hh->wsi = NULL;
 				wsi->a.opaque_user_data = NULL;
-
-				if (h->ss_dangling_connected &&
-				    lws_ss_event_helper(h, LWSSSCS_DISCONNECTED) ==
-						    LWSSSSRET_DESTROY_ME) {
-
-					lws_ss_destroy(&h);
-				}
 			}
 		}
 	}
@@ -875,6 +871,12 @@ async_close:
 			return;
 
 	__lws_close_free_wsi_final(wsi);
+
+#if defined(LWS_WITH_SECURE_STREAMS)
+	if (hh && hh->ss_dangling_connected &&
+	    lws_ss_event_helper(hh, LWSSSCS_DISCONNECTED) == LWSSSSRET_DESTROY_ME)
+		lws_ss_destroy(&hh);
+#endif
 }
 
 

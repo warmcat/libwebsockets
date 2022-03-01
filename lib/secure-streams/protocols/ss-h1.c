@@ -653,6 +653,16 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		if (h->prev_ss_state != LWSSSCS_CONNECTED) {
 			wsi->client_suppress_CONNECTION_ERROR = 1;
+			/*
+			 * back-to-back http transactions otherwise go
+			 * DISCONNECTED -> CONNECTED, we should insert
+			 * CONNECTING inbetween
+			 */
+			if (h->prev_ss_state == LWSSSCS_DISCONNECTED) {
+				r = lws_ss_event_helper(h, LWSSSCS_CONNECTING);
+				if (r != LWSSSSRET_OK)
+					return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
+			}
 			if (h->prev_ss_state != LWSSSCS_CONNECTED) {
 				r = lws_ss_event_helper(h, LWSSSCS_CONNECTED);
 				if (r != LWSSSSRET_OK)

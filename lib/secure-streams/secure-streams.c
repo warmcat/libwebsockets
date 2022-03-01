@@ -415,8 +415,21 @@ lws_ss_event_helper(lws_ss_handle_t *h, lws_ss_constate_t cs)
 
 	if (cs == LWSSSCS_CONNECTED)
 		h->ss_dangling_connected = 1;
-	if (cs == LWSSSCS_DISCONNECTED)
+	if (cs == LWSSSCS_DISCONNECTED) {
 		h->ss_dangling_connected = 0;
+
+		h->subseq = 0;
+		h->txn_ok = 0;
+		h->txn_resp_set = 0;
+		h->txn_resp_pending = 0;
+		h->hanging_som = 0;
+		h->inside_msg = 0;
+		h->inside_connect = 0;
+		h->proxy_onward = 0;
+		h->wsi = NULL;
+		h->u.http.good_respcode = 0;
+		h->seqstate = SSSEQ_IDLE;
+	}
 
 	if (h->info.state) {
 		h->h_in_svc = h;
