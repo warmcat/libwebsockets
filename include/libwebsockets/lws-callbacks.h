@@ -211,6 +211,13 @@ enum lws_callback_reasons {
 	 * callback being implemented.
 	 */
 
+	LWS_CALLBACK_CLIENT_CONFIGURE_TLS					= 68,
+	/**< Right after lws created and configured the SSL pointer, this
+	 * callback is invoked. It allows the user to add further settings
+	 * and configurations to the SSL pointer. "in" points to e.g. SSL*,
+	 * WOLFSSL*, etc. "len" is 0 always.
+	 */
+
 	/* ---------------------------------------------------------------------
 	 * ----- Callbacks related to HTTP Server  -----
 	 */

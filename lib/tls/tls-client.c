@@ -205,6 +205,14 @@ lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1)
 				*pcce = "bio_create failed";
 				return CCTLS_RETURN_ERROR;
 			}
+
+			if (wsi->tls.ssl) {
+				if (lws_get_context_protocol(wsi->a.context, 0)
+						.callback(wsi, LWS_CALLBACK_CLIENT_CONFIGURE_TLS, wsi->user_space, wsi->tls.ssl, 0)) {
+					*pcce = "user aborted in LWS_CALLBACK_CLIENT_CONFIGURE_TLS";
+					return CCTLS_RETURN_ERROR;
+				}
+			}
 		}
 
 		if (!do_c1)
