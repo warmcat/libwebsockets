@@ -120,6 +120,7 @@ struct lws_jose {
 	struct lws_jws_recpient recipient[LWS_JWS_MAX_RECIPIENTS];
 
 	char typ[32];
+	char edone[LWS_COUNT_JOSE_HDR_ELEMENTS];
 
 	/* information from the protected header part */
 	const struct lws_jose_jwe_alg *alg;

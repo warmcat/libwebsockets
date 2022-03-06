@@ -112,6 +112,7 @@ lws_b64_decode_stateful(struct lws_b64state *s, const char *in, size_t *in_len,
 {
 	const char *orig_in = in, *end_in = in + *in_len;
 	uint8_t *orig_out = out, *end_out = out + *out_size;
+	int equals = 0;
 
 	while (in < end_in && *in && out + 4 < end_out) {
 
@@ -122,12 +123,39 @@ lws_b64_decode_stateful(struct lws_b64state *s, const char *in, size_t *in_len,
 			s->c = 0;
 			while (in < end_in && *in && !v) {
 				s->c = v = (unsigned char)*in++;
+
+				if (v == '\x0a') {
+					v = 0;
+					continue;
+				}
+
+				if (v == '=') {
+					equals++;
+					v = 0;
+					continue;
+				}
+
+				/* Sanity check this is part of the charset */
+
+				if ((v < '0' || v > '9') &&
+				    (v < 'A' || v > 'Z') &&
+				    (v < 'a' || v > 'z') &&
+				    v != '-' && v != '+' && v != '_' && v != '/') {
+					lwsl_err("%s: bad base64 0x%02X '%c' @+%d\n", __func__, v, v, lws_ptr_diff(in, orig_in));
+					return -1;
+				}
+
+				if (equals) {
+					lwsl_err("%s: non = after =\n", __func__);
+					return -1;
+				}
+
 				/* support the url base64 variant too */
 				if (v == '-')
 					s->c = v = '+';
 				if (v == '_')
 					s->c = v = '/';
-				v = (uint8_t)((v < 43 || v > 122) ? 0 : decode[v - 43]);
+				v = (uint8_t)decode[v - 43];
 				if (v)
 					v = (uint8_t)((v == '$') ? 0 : v - 61);
 			}
@@ -150,14 +178,11 @@ lws_b64_decode_stateful(struct lws_b64state *s, const char *in, size_t *in_len,
 		 * bytes." (wikipedia)
 		 */
 
-		if ((in >= end_in || !*in) && s->c == '=')
-			s->len--;
-
-		if (s->len >= 2)
+		if (s->len >= 2 || equals > 1)
 			*out++ = (uint8_t)(s->quad[0] << 2 | s->quad[1] >> 4);
-		if (s->len >= 3)
+		if (s->len >= 3 || equals)
 			*out++ = (uint8_t)(s->quad[1] << 4 | s->quad[2] >> 2);
-		if (s->len >= 4)
+		if (s->len >= 4 && !equals)
 			*out++ = (uint8_t)(((s->quad[2] << 6) & 0xc0) | s->quad[3]);
 
 		s->done += s->len - 1;
@@ -192,10 +217,14 @@ _lws_b64_decode_string(const char *in, int in_len, char *out, size_t out_size)
 		il = strlen(in);
 
 	lws_b64_decode_state_init(&state);
-	lws_b64_decode_stateful(&state, in, &il, (uint8_t *)out, &ol, 1);
-
-	if (!il)
+	if (lws_b64_decode_stateful(&state, in, &il, (uint8_t *)out, &ol, 1) < 0)
+		/* pass on the failure */
 		return 0;
+
+	if ((int)il != in_len) {
+		lwsl_err("%s: base64 must end at end of input\n", __func__);
+		return 0;
+	}
 
 	return ol;
 }
@@ -209,7 +238,9 @@ lws_b64_decode_string(const char *in, char *out, int out_size)
 int
 lws_b64_decode_string_len(const char *in, int in_len, char *out, int out_size)
 {
-	return (int)_lws_b64_decode_string(in, in_len, out, (unsigned int)out_size);
+	size_t s = _lws_b64_decode_string(in, in_len, out, (unsigned int)out_size);
+
+	return !s ? -1 : (int)s;
 }
 
 #if 0

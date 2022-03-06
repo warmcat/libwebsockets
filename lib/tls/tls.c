@@ -361,7 +361,7 @@ lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
 
 	if (!filename) {
 		/* we don't know if it's in const memory... alloc the output */
-		pem = lws_malloc(((size_t)inlen * 3) / 4, "alloc_der");
+		pem = lws_malloc(((size_t)(inlen + 3) * 3) / 4, "alloc_der");
 		if (!pem) {
 			lwsl_err("a\n");
 			return 1;
@@ -408,8 +408,15 @@ lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
 	n = lws_ptr_diff(q, p);
 	if (n == -1) /* coverity */
 		goto bail;
-	*amount = (unsigned int)lws_b64_decode_string_len((char *)p, n,
-					    (char *)pem, (int)(long long)len);
+
+	n = lws_b64_decode_string_len((char *)p, n,
+				      (char *)pem, (int)(long long)len);
+	if (n < 0) {
+		lwsl_err("%s: base64 pem decode failed\n", __func__);
+		goto bail;
+	}
+
+	*amount = (unsigned int)n;
 	*buf = (uint8_t *)pem;
 
 	return 0;

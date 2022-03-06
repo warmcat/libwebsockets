@@ -148,7 +148,7 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 	}
 	if (lws_tls_alloc_pem_to_der_file(vhost->context, cert, mem_cert,
 					  mem_cert_len, &p, &flen)) {
-		lwsl_err("couldn't find cert file %s\n", cert);
+		lwsl_err("couldn't load cert file %s\n", cert);
 
 		return 1;
 	}

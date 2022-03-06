@@ -302,7 +302,6 @@ lws_jws_jose_cb(struct lejp_ctx *ctx, char reason)
 		if (!args->is_jwe)
 			return -1;
 		/* Ephemeral key... this JSON subsection is actually a JWK */
-		lwsl_err("LJJHI_EPK\n");
 		break;
 
 	case LJJHI_APU:	/* Additional arg for JWE ECDH */
@@ -361,17 +360,22 @@ append_string:
 	*args->temp_len -= ctx->npos;
 	args->jose->e[ctx->path_match - 1].len += ctx->npos;
 
-	if (reason == LEJPCB_VAL_STR_END) {
+	if (reason == LEJPCB_VAL_STR_END &&
+	    (int)args->jose->e[ctx->path_match - 1].len &&
+	    !args->jose->edone[ctx->path_match - 1]) {
 		n = lws_b64_decode_string_len(
 			(const char *)args->jose->e[ctx->path_match - 1].buf,
 			(int)args->jose->e[ctx->path_match - 1].len,
 			(char *)args->jose->e[ctx->path_match - 1].buf,
 			(int)args->jose->e[ctx->path_match - 1].len + 1);
 		if (n < 0) {
-			lwsl_err("%s: b64 decode failed\n", __func__);
+			lwsl_err("%s: b64 decode failed len %d\n", __func__,
+					(int)args->jose->e[ctx->path_match - 1].len);
+
 			return -1;
 		}
 
+		args->jose->edone[ctx->path_match - 1] = 1;
 		args->temp -= (int)args->jose->e[ctx->path_match - 1].len - n - 1;
 		*args->temp_len +=
 			(int)args->jose->e[ctx->path_match - 1].len - n - 1;
