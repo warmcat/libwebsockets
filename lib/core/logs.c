@@ -242,6 +242,16 @@ lwsl_timestamp(int level, char *p, size_t len)
 			n = lws_snprintf(p, len, "[%llu:%04d] %c: ",
 					(unsigned long long) now / 10000,
 					(int)(now % 10000), log_level_names[n]);
+
+#if defined(LWS_PLAT_FREERTOS)
+		n += lws_snprintf(p + n, len - n, "%6u: ",
+#if defined(LWS_AMAZON_RTOS)
+				  (unsigned int)xPortGetFreeHeapSize());
+#else
+				  (unsigned int)esp_get_free_heap_size());
+#endif
+#endif
+
 		return n;
 	}
 #else
