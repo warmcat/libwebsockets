@@ -1151,7 +1151,8 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 #if defined(LWS_WITH_SERVER)
 	if (pol->flags & LWSSSPOLF_LOCAL_SINK) {
 
-		if (ssi->flags & LWSSSINFLAGS_ACCEPTED_SINK) {
+		if ((ssi->flags & LWSSSINFLAGS_ACCEPTED_SINK) &&
+		    opaque_user_data /* coverity */) {
 			/*
 			 * We are recursing to create the accepted sink, do
 			 * the binding while still in create so any downstream
@@ -1699,6 +1700,7 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 	 * If any hanging caliper measurement, dump it, and free any tags
 	 */
 	lws_metrics_caliper_report_hist(h->cal_txn, (struct lws *)NULL);
+	lws_metrics_tags_destroy(&h->cal_txn.mtags_owner);
 #endif
 
 	lws_sul_cancel(&h->sul_timeout);
