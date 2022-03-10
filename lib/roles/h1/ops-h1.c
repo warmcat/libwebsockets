@@ -297,7 +297,6 @@ ws_mode:
 
 	default:
 		lwsl_err("%s: Unhandled state %d\n", __func__, lwsi_state(wsi));
-		assert(0);
 		goto bail;
 	}
 
