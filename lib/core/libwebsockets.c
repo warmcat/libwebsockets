@@ -1936,7 +1936,8 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size)
 	int n, m = 7;
 
 	if (lws_neg(a))
-		n = lws_snprintf(buf, size - 1, "-%d.%08d", (int)-a->whole,
+		n = lws_snprintf(buf, size - 1, "-%d.%08d",
+				 (int)(a->whole < 0 ? -a->whole : a->whole),
 				 (int)(a->frac < 0 ? -a->frac : a->frac));
 	else
 		n = lws_snprintf(buf, size - 1, "%d.%08d", (int)a->whole,

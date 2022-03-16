@@ -178,15 +178,20 @@ lws_plat_init(struct lws_context *context,
 		return 1;
 	}
 
-#if defined(LWS_HAVE_SSL_CTX_set_keylog_callback) && \
+#if defined(LWS_HAVE_SSL_CTX_set_keylog_callback) && !defined(__COVERITY__) && \
 		defined(LWS_WITH_TLS) && defined(LWS_WITH_CLIENT)
 	{
 		char *klf_env = getenv("SSLKEYLOGFILE");
+		size_t n = 0;
 
-		if (klf_env && strlen(klf_env) && strlen(klf_env) < sizeof(context->keylog_file)) {
-			lws_strncpy(context->keylog_file, klf_env,
-				sizeof(context->keylog_file));
+		/* ... coverity taint with lws_strncpy()... */
+
+		while (klf_env && klf_env[n] &&
+		       n < sizeof(context->keylog_file) - 1) {
+			context->keylog_file[n] = klf_env[n];
+			n++;
 		}
+		context->keylog_file[n] = '\0';
 	}
 #endif
 
