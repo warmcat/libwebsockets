@@ -1438,6 +1438,20 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 	// lwsl_info("%s: %s\n", __func__, vh->name);
 
 	/*
+	 * remove ourselves from the defer binding list
+	 */
+	lws_start_foreach_llp(struct lws_vhost **, pv,
+			      vh->context->no_listener_vhost_list) {
+		if (*pv == vh) {
+			lwsl_debug("deferred iface: removing vh %s\n",
+					(*pv)->name);
+			*pv = vh->no_listener_vhost_list;
+			vh->no_listener_vhost_list = NULL;
+			break;
+		}
+	} lws_end_foreach_llp(pv, no_listener_vhost_list);
+
+	/*
 	 * let the protocols destroy the per-vhost protocol objects
 	 */
 
