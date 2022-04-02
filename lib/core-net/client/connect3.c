@@ -103,7 +103,7 @@ lws_client_connect_check(struct lws *wsi)
 
 #else
 
-	if (!connect(wsi->desc.sockfd, NULL, 0))
+	if (!connect(wsi->desc.sockfd, (const struct sockaddr *)&wsi->sa46_peer.sa4, 0))
 		return LCCCR_CONNECTED;
 
 	en = LWS_ERRNO;
