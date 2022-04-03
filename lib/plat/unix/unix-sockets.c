@@ -216,7 +216,7 @@ lws_plat_set_socket_options_ip(lws_sockfd_type fd, uint8_t pri, int lws_flags)
 {
 	int optval = (int)pri, ret = 0, n;
 	socklen_t optlen = sizeof(optval);
-#if !defined(LWS_WITH_NO_LOGS)
+#if (_LWS_ENABLED_LOGS & LLL_WARN)
 	int en;
 #endif
 
@@ -244,7 +244,7 @@ lws_plat_set_socket_options_ip(lws_sockfd_type fd, uint8_t pri, int lws_flags)
 	if (pri) { /* 0 is the default already */
 		if (setsockopt(fd, SOL_SOCKET, SO_PRIORITY,
 				(const void *)&optval, optlen) < 0) {
-#if !defined(LWS_WITH_NO_LOGS)
+#if (_LWS_ENABLED_LOGS & LLL_WARN)
 			en = errno;
 			lwsl_warn("%s: unable to set socket pri %d: errno %d\n",
 				  __func__, (int)pri, en);
@@ -259,7 +259,7 @@ lws_plat_set_socket_options_ip(lws_sockfd_type fd, uint8_t pri, int lws_flags)
 		optval = 1;
 		if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR,
 					(const void *)&optval, optlen) < 0) { 
-#if !defined(LWS_WITH_NO_LOGS)
+#if (_LWS_ENABLED_LOGS & LLL_WARN)
 			en = errno;
 			lwsl_warn("%s: unable to reuse local addresses: errno %d\n",
 				__func__, en);
