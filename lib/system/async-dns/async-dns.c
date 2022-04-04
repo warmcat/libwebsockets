@@ -838,6 +838,91 @@ lws_async_dns_get_new_tid(struct lws_context *context, lws_adns_q_t *q)
 	return -1;
 }
 
+#if !defined(LWS_PLAT_OPTEE) && !defined(LWS_PLAT_FREERTOS)
+
+/*
+ * Search /etc/hosts or similar for the DNS name
+ */
+
+int
+lws_adns_scan_hostsfile(const char *name, uint8_t *ads, size_t adslen)
+{
+	char had_ads = 0, buf[128], finalized = 0;
+	int fd, ret = 0, l = 0, ol = -1;
+	size_t nl = strlen(name);
+	struct lws_tokenize ts;
+
+#if defined(WIN32)
+	int s;
+
+	fd = _open("C:\\Windows\\System32\\Drivers\\etc\\hosts", LWS_O_RDONLY);
+#else
+	ssize_t s;
+
+	fd = open("/etc/hosts", LWS_O_RDONLY);
+#endif
+
+	if (fd < 0)
+		return 0;
+
+	memset(&ts, 0, sizeof(ts));
+	ts.flags = LWS_TOKENIZE_F_EXPECT_MORE | LWS_TOKENIZE_F_MINUS_NONTERM |
+		   LWS_TOKENIZE_F_DOT_NONTERM | LWS_TOKENIZE_F_NO_FLOATS |
+		   LWS_TOKENIZE_F_NO_INTEGERS | LWS_TOKENIZE_F_HASH_COMMENT |
+		   LWS_TOKENIZE_F_COLON_NONTERM;
+
+	do {
+
+#if defined(WIN32)
+		s = _read(fd, buf, sizeof(buf) - 1);
+#else
+		s = read(fd, buf, sizeof(buf) - 1);
+#endif
+		if (s <= 0) {
+			finalized = 1;
+			ts.flags = (uint16_t)(ts.flags & (~LWS_TOKENIZE_F_EXPECT_MORE));
+			s = 0;
+		}
+
+		ts.start = (char *)buf;
+		ts.len = (size_t)s;
+
+		do {
+			ts.e = (int8_t)lws_tokenize(&ts);
+			if (ts.e == LWS_TOKZE_WANT_READ)
+				break;
+
+			if (ts.effline != ol) {
+				had_ads = 0;
+				ol = ts.effline;
+			}
+
+			if (ts.e == LWS_TOKZE_TOKEN && had_ads && l &&
+			    nl == ts.token_len &&
+			    !memcmp(name, ts.token, ts.token_len)) {
+				/* it's a hit */
+				ret = (int)l;
+				break;
+			}
+			if (ts.e == LWS_TOKZE_TOKEN && !had_ads && ts.token_len < 50) {
+				/* we're getting an ipv4 or ipv6 numads */
+				l = lws_parse_numeric_address(ts.token, ads, adslen);
+				had_ads = 1;
+			}
+
+		} while (ts.e > 0); /* no error yet */
+
+	} while (!ret && !finalized); /* no match yet */
+
+#if defined(WIN32)
+	_close(fd);
+#else
+	close(fd);
+#endif
+
+	return ret;
+}
+#endif
 
 uint16_t
 lws_adns_get_tid(struct lws_adns_q *q)
@@ -886,19 +971,6 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	if (nlen >= DNS_MAX - 1)
 		goto failed;
 
-	/*
-	 * we magically know 'localhost' and 'localhost6' if IPv6, this is a
-	 * sort of canned /etc/hosts
-	 */
-
-	if (!strcmp(name, "localhost"))
-		name = "127.0.0.1";
-
-#if defined(LWS_WITH_IPV6)
-	if (!strcmp(name, "localhost6"))
-		name = "::1";
-#endif
-
 	if (wsi) {
 		if (!lws_dll2_is_detached(&wsi->adns)) {
 			lwsl_cx_err(context, "%s already bound to query %p",
@@ -942,6 +1014,15 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	 */
 
 	m = lws_parse_numeric_address(name, ads, sizeof(ads));
+
+#if !defined(LWS_PLAT_OPTEE) && !defined(LWS_PLAT_FREERTOS)
+	if (m < 4)
+		/*
+		 * Not directly numeric... look through /etc/hosts
+		 */
+		m = lws_adns_scan_hostsfile(name, ads, sizeof(ads));
+#endif
+
 	if (m == 4
 #if defined(LWS_WITH_IPV6)
 		|| m == 16
