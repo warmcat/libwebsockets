@@ -270,6 +270,8 @@ struct tests tests[] = {
  */
 
 static const char *element_names[] = {
+	"LWS_TOKZE_ERR_BROKEN_TOO_LONG",
+	"LWS_TOKZE_ERR_BROKEN_WANT_READ",
 	"LWS_TOKZE_ERR_BROKEN_UTF8",
 	"LWS_TOKZE_ERR_UNTERM_STRING",
 	"LWS_TOKZE_ERR_MALFORMED_FLOAT",
