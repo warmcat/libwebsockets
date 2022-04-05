@@ -208,7 +208,7 @@ const char *
 lws_get_peer_simple(struct lws *wsi, char *name, size_t namelen)
 {
 	wsi = lws_get_network_wsi(wsi);
-	return lws_get_peer_simple_fd(wsi->desc.sockfd, name, namelen);
+	return lws_get_peer_simple_fd(wsi->desc.u.sockfd, name, namelen);
 }
 #endif
 

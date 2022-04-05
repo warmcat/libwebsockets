@@ -396,7 +396,7 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 
 		/* read side is 0, stdin we want the write side, others read */
 
-		lsp->stdwsi[n]->desc.sockfd = lsp->pipe_fds[n][n == 0];
+		lsp->stdwsi[n]->desc.u.sockfd = lsp->pipe_fds[n][n == 0];
 		if (fcntl(lsp->pipe_fds[n][n == 0], F_SETFL, O_NONBLOCK) < 0) {
 			lwsl_err("%s: setting NONBLOCK failed\n", __func__);
 			goto bail2;
@@ -438,9 +438,9 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		goto bail3;
 
 	lwsl_info("%s: fds in %d, out %d, err %d\n", __func__,
-		   lsp->stdwsi[LWS_STDIN]->desc.sockfd,
-		   lsp->stdwsi[LWS_STDOUT]->desc.sockfd,
-		   lsp->stdwsi[LWS_STDERR]->desc.sockfd);
+		   lsp->stdwsi[LWS_STDIN]->desc.u.sockfd,
+		   lsp->stdwsi[LWS_STDOUT]->desc.u.sockfd,
+		   lsp->stdwsi[LWS_STDERR]->desc.u.sockfd);
 
 	/* we are ready with the redirection pipes... do the (v)fork */
 #if defined(__sun) || !defined(LWS_HAVE_VFORK) || !defined(LWS_HAVE_EXECVPE)

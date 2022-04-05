@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2022 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -40,12 +40,12 @@ lws_tls_fake_POLLIN_for_buffered(struct lws_context_per_thread *pt)
 		struct lws *wsi = lws_container_of(p, struct lws,
 						   tls.dll_pending_tls);
 
-		if (wsi->position_in_fds_table >= 0) {
+		if (wsi->desc.pos_in_fds_table >= 0) {
 
-			pt->fds[wsi->position_in_fds_table].revents = (short)
-				(pt->fds[wsi->position_in_fds_table].revents |
-				 (pt->fds[wsi->position_in_fds_table].events & LWS_POLLIN));
-			ret |= pt->fds[wsi->position_in_fds_table].revents & LWS_POLLIN;
+			pt->fds[wsi->desc.pos_in_fds_table].revents = (short)
+				(pt->fds[wsi->desc.pos_in_fds_table].revents |
+				 (pt->fds[wsi->desc.pos_in_fds_table].events & LWS_POLLIN));
+			ret |= pt->fds[wsi->desc.pos_in_fds_table].revents & LWS_POLLIN;
 		}
 
 	} lws_end_foreach_dll_safe(p, p1);

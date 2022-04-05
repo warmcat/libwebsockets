@@ -90,7 +90,7 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 	msg.msg_iov		= &iov;
 	msg.msg_iovlen		= 1;
 
-	n = (unsigned int)recvmsg(wsi->desc.sockfd, &msg, 0);
+	n = (unsigned int)recvmsg(wsi->desc.u.sockfd, &msg, 0);
 	if ((int)n < 0) {
 		lwsl_cx_notice(cx, "recvmsg failed");
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;
@@ -513,13 +513,13 @@ rops_pt_init_destroy_netlink(struct lws_context *context,
 	if (!wsi)
 		goto bail;
 
-	wsi->desc.sockfd = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
-	if (wsi->desc.sockfd == LWS_SOCK_INVALID) {
+	wsi->desc.u.sockfd = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
+	if (wsi->desc.u.sockfd == LWS_SOCK_INVALID) {
 		lwsl_cx_err(context, "unable to open netlink");
 		goto bail1;
 	}
 
-	lws_plat_set_nonblocking(wsi->desc.sockfd);
+	lws_plat_set_nonblocking(wsi->desc.u.sockfd);
 
 	__lws_lc_tag(context, &context->lcg[LWSLCG_VHOST], &wsi->lc,
 			"netlink");
@@ -534,7 +534,7 @@ rops_pt_init_destroy_netlink(struct lws_context *context,
 				 ;
 
 	if (lws_fi(&context->fic, "netlink_bind") ||
-	    bind(wsi->desc.sockfd, (struct sockaddr*)&sanl, sizeof(sanl)) < 0) {
+	    bind(wsi->desc.u.sockfd, (struct sockaddr*)&sanl, sizeof(sanl)) < 0) {
 		lwsl_cx_warn(context, "netlink bind failed");
 		ret = 0; /* some systems deny access, just ignore */
 		goto bail2;
@@ -577,7 +577,7 @@ rops_pt_init_destroy_netlink(struct lws_context *context,
 	msg.msg_name		= &sanl;
 	msg.msg_namelen		= sizeof(sanl);
 
-	n = (int)sendmsg(wsi->desc.sockfd, (struct msghdr *)&msg, 0);
+	n = (int)sendmsg(wsi->desc.u.sockfd, (struct msghdr *)&msg, 0);
 	if (n < 0) {
 		lwsl_cx_notice(context, "rt dump req failed... permissions? errno %d",
 				LWS_ERRNO);
@@ -596,7 +596,7 @@ rops_pt_init_destroy_netlink(struct lws_context *context,
 
 bail2:
 	__lws_lc_untag(wsi->a.context, &wsi->lc);
-	compatible_close(wsi->desc.sockfd);
+	compatible_close(wsi->desc.u.sockfd);
 bail1:
 	lws_free(wsi);
 bail:

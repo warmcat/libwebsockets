@@ -32,10 +32,10 @@ rops_handle_POLLIN_pipe(struct lws_context_per_thread *pt, struct lws *wsi,
 	eventfd_t value;
 	int n;
 
-	n = eventfd_read(wsi->desc.sockfd, &value);
+	n = eventfd_read(wsi->desc.u.sockfd, &value);
 	if (n < 0) {
 		lwsl_notice("%s: eventfd read %d bailed errno %d\n", __func__,
-				wsi->desc.sockfd, LWS_ERRNO);
+				wsi->desc.u.sockfd, LWS_ERRNO);
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
 #elif !defined(WIN32) && !defined(_WIN32)
@@ -47,7 +47,7 @@ rops_handle_POLLIN_pipe(struct lws_context_per_thread *pt, struct lws *wsi,
 	 * We really don't care about the number of bytes, but coverity
 	 * thinks we should.
 	 */
-	n = (int)read(wsi->desc.sockfd, s, sizeof(s));
+	n = (int)read(wsi->desc.u.sockfd, s, sizeof(s));
 	(void)n;
 	if (n < 0)
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;
@@ -55,7 +55,7 @@ rops_handle_POLLIN_pipe(struct lws_context_per_thread *pt, struct lws *wsi,
 	char s[100];
 	int n;
 
-	n = recv(wsi->desc.sockfd, s, sizeof(s), 0);
+	n = recv(wsi->desc.u.sockfd, s, sizeof(s), 0);
 	if (n == SOCKET_ERROR)
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 #endif

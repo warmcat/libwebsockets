@@ -300,7 +300,7 @@ lws_adopt_ss_server_accept(struct lws *new_wsi)
 	h->policy = new_wsi->a.vhost->ss_handle->policy;
 
 	/* apply requested socket options */
-	if (lws_plat_set_socket_options_ip(new_wsi->desc.sockfd,
+	if (lws_plat_set_socket_options_ip(new_wsi->desc.u.sockfd,
 					   h->policy->priority,
 		      (LCCSCF_IP_LOW_LATENCY *
 		       !!(h->policy->flags & LWSSSPOLF_ATTR_LOW_LATENCY)) |
@@ -373,7 +373,7 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 		}
 #endif
 
-	new_wsi->desc = fd;
+	new_wsi->desc.u = fd;
 
 	if (!LWS_SSL_ENABLED(new_wsi->a.vhost) ||
 	    !(type & LWS_ADOPT_SOCKET))
@@ -579,7 +579,7 @@ adopt_socket_readbuf(struct lws *wsi, const char *readbuf, size_t len)
 	if (!readbuf || len == 0)
 		return wsi;
 
-	if (wsi->position_in_fds_table == LWS_NO_FDS_POS)
+	if (wsi->desc.pos_in_fds_table == LWS_NO_FDS_POS)
 		return wsi;
 
 	pt = &wsi->a.context->pt[(int)wsi->tsi];
@@ -611,7 +611,7 @@ adopt_socket_readbuf(struct lws *wsi, const char *readbuf, size_t len)
 		 * libuv won't come back and service us without a network
 		 * event, so we need to do the header service right here.
 		 */
-		pfd = &pt->fds[wsi->position_in_fds_table];
+		pfd = &pt->fds[wsi->desc.pos_in_fds_table];
 		pfd->revents |= LWS_POLLIN;
 		lwsl_err("%s: calling service\n", __func__);
 		if (lws_service_fd_tsi(wsi->a.context, pfd, wsi->tsi))

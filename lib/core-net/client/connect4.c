@@ -95,7 +95,7 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 			goto failed;
 		wsi->c_port = (uint16_t)wsi->a.vhost->http.http_proxy_port;
 
-		n = (int)send(wsi->desc.sockfd, (char *)pt->serv_buf,
+		n = (int)send(wsi->desc.u.sockfd, (char *)pt->serv_buf,
 			      (unsigned int)plen,
 			 MSG_NOSIGNAL);
 		if (n < 0) {
@@ -272,9 +272,9 @@ send_hs:
 					PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE,
 						(int)wsi->a.context->timeout_secs);
 
-				assert(lws_socket_is_valid(wsi->desc.sockfd));
+				assert(lws_socket_is_valid(wsi->desc.u.sockfd));
 
-				pfd.fd = wsi->desc.sockfd;
+				pfd.fd = wsi->desc.u.sockfd;
 				pfd.events = LWS_POLLIN;
 				pfd.revents = LWS_POLLOUT;
 
@@ -312,9 +312,9 @@ provoke_service:
 		lws_set_timeout(wsi, PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE,
 				(int)wsi->a.context->timeout_secs);
 
-		assert(lws_socket_is_valid(wsi->desc.sockfd));
+		assert(lws_socket_is_valid(wsi->desc.u.sockfd));
 
-		pfd.fd = wsi->desc.sockfd;
+		pfd.fd = wsi->desc.u.sockfd;
 		pfd.events = LWS_POLLIN;
 		pfd.revents = LWS_POLLIN;
 

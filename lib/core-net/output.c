@@ -82,7 +82,7 @@ lws_issue_raw(struct lws *wsi, unsigned char *buf, size_t len)
 	if (!len || !buf)
 		return 0;
 
-	if (!wsi->mux_substream && !lws_socket_is_valid(wsi->desc.sockfd))
+	if (!wsi->mux_substream && !lws_socket_is_valid(wsi->desc.u.sockfd))
 		lwsl_wsi_err(wsi, "invalid sock");
 
 	/* limit sending */
@@ -253,7 +253,7 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, size_t len)
 	if (lws_wsi_is_udp(wsi)) {
 		socklen_t slt = sizeof(wsi->udp->sa46);
 
-		n = (int)recvfrom(wsi->desc.sockfd, (char *)buf,
+		n = (int)recvfrom(wsi->desc.u.sockfd, (char *)buf,
 #if defined(WIN32)
 				(int)
 #endif
@@ -261,7 +261,7 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, size_t len)
 				sa46_sockaddr(&wsi->udp->sa46), &slt);
 	} else
 #endif
-		n = (int)recv(wsi->desc.sockfd, (char *)buf,
+		n = (int)recv(wsi->desc.u.sockfd, (char *)buf,
 #if defined(WIN32)
 				(int)
 #endif
@@ -322,14 +322,14 @@ lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, size_t len)
 		}
 
 		if (lws_has_buffered_out(wsi))
-			n = (int)sendto(wsi->desc.sockfd, (const char *)buf,
+			n = (int)sendto(wsi->desc.u.sockfd, (const char *)buf,
 #if defined(WIN32)
 				(int)
 #endif
 				   len, 0, sa46_sockaddr(&wsi->udp->sa46_pending),
 				   sa46_socklen(&wsi->udp->sa46_pending));
 		else
-			n = (int)sendto(wsi->desc.sockfd, (const char *)buf,
+			n = (int)sendto(wsi->desc.u.sockfd, (const char *)buf,
 #if defined(WIN32)
 				(int)
 #endif
@@ -338,13 +338,13 @@ lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, size_t len)
 	} else
 #endif
 		if (wsi->role_ops->file_handle)
-			n = (int)write((int)(lws_intptr_t)wsi->desc.filefd, buf,
+			n = (int)write((int)(lws_intptr_t)wsi->desc.u.filefd, buf,
 #if defined(WIN32)
 				(int)
 #endif
 					len);
 		else
-			n = (int)send(wsi->desc.sockfd, (char *)buf,
+			n = (int)send(wsi->desc.u.sockfd, (char *)buf,
 #if defined(WIN32)
 				(int)
 #endif
@@ -368,7 +368,7 @@ post_send:
 	}
 
 	lwsl_wsi_debug(wsi, "ERROR writing len %d to skt fd %d err %d / errno %d",
-			    (int)(ssize_t)len, wsi->desc.sockfd, n, LWS_ERRNO);
+			    (int)(ssize_t)len, wsi->desc.u.sockfd, n, LWS_ERRNO);
 
 	return LWS_SSL_CAPABLE_ERROR;
 }

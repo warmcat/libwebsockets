@@ -305,7 +305,7 @@ _lws_route_check_wsi(struct lws *wsi)
 	     wsi->unix_skt ||
 	     wsi->sa46_peer.sa4.sin_family == AF_UNIX ||
 #endif
-	    wsi->desc.sockfd == LWS_SOCK_INVALID)
+	    wsi->desc.u.sockfd == LWS_SOCK_INVALID)
 		/* not a socket, cannot judge by route, or not connected,
 		 * leave it alone */
 		return 0; /* OK */
@@ -390,7 +390,7 @@ _lws_route_pt_close_route_users(struct lws_context_per_thread *pt,
 		if (!wsi)
 			continue;
 
-		if (wsi->desc.sockfd != LWS_SOCK_INVALID &&
+		if (wsi->desc.u.sockfd != LWS_SOCK_INVALID &&
 #if defined(LWS_WITH_UNIX_SOCK)
 		    !wsi->unix_skt &&
 		    wsi->sa46_peer.sa4.sin_family != AF_UNIX &&
