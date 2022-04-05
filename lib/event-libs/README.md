@@ -133,14 +133,14 @@ being created to point at the over-allocation.  For example for the wsi
 
 ```
 #if defined(LWS_WITH_EVENT_LIBS)
-	void				*evlib_wsi; /* overallocated */
+	void				*evlib_desc; /* overallocated */
 #endif
 ```
 
 and similarly there are `evlib_pt` and so on for those objects, usable by the
 event lib and opaque to everyone else.  Once the event lib is selected at
 runtime, all of these objects are guaranteed to have the right size object at
-`wsi->evlib_wsi` initialized to zeroes.
+`wsi->evlib_desc` initialized to zeroes.
 
 ### Enabling event lib adoption
 

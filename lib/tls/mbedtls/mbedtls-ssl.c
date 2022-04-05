@@ -315,11 +315,11 @@ __lws_tls_shutdown(struct lws *wsi)
 {
 	int n = SSL_shutdown(wsi->tls.ssl);
 
-	lwsl_debug("SSL_shutdown=%d for fd %d\n", n, wsi->desc.sockfd);
+	lwsl_debug("SSL_shutdown=%d for fd %d\n", n, wsi->desc.u.sockfd);
 
 	switch (n) {
 	case 1: /* successful completion */
-		(void)shutdown(wsi->desc.sockfd, SHUT_WR);
+		(void)shutdown(wsi->desc.u.sockfd, SHUT_WR);
 		return LWS_SSL_CAPABLE_DONE;
 
 	case 0: /* needs a retry */

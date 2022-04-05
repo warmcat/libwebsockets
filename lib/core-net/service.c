@@ -610,13 +610,13 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 		struct lws *wsi = lws_container_of(p, struct lws,
 						   tls.dll_pending_tls);
 
-		if (wsi->position_in_fds_table >= 0) {
+		if (wsi->desc.pos_in_fds_table >= 0) {
 
-			pt->fds[wsi->position_in_fds_table].revents = (short)(
-					pt->fds[wsi->position_in_fds_table].revents |
-				(pt->fds[wsi->position_in_fds_table].events &
+			pt->fds[wsi->desc.pos_in_fds_table].revents = (short)(
+					pt->fds[wsi->desc.pos_in_fds_table].revents |
+				(pt->fds[wsi->desc.pos_in_fds_table].events &
 								LWS_POLLIN));
-			if (pt->fds[wsi->position_in_fds_table].revents &
+			if (pt->fds[wsi->desc.pos_in_fds_table].revents &
 								LWS_POLLIN)
 				/*
 				 * We're not going to remove the wsi from the

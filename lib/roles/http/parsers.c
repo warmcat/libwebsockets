@@ -128,7 +128,7 @@ __lws_header_table_reset(struct lws *wsi, int autoservice)
 
 	time(&ah->assigned);
 
-	if (wsi->position_in_fds_table != LWS_NO_FDS_POS &&
+	if (wsi->desc.pos_in_fds_table != LWS_NO_FDS_POS &&
 	    lws_buflist_next_segment_len(&wsi->buflist, NULL) &&
 	    autoservice) {
 		lwsl_debug("%s: service on readbuf ah\n", __func__);
@@ -138,7 +138,7 @@ __lws_header_table_reset(struct lws *wsi, int autoservice)
 		 * Unlike a normal connect, we have the headers already
 		 * (or the first part of them anyway)
 		 */
-		pfd = &pt->fds[wsi->position_in_fds_table];
+		pfd = &pt->fds[wsi->desc.pos_in_fds_table];
 		pfd->revents |= LWS_POLLIN;
 		lwsl_err("%s: calling service\n", __func__);
 		lws_service_fd_tsi(wsi->a.context, pfd, wsi->tsi);
@@ -396,7 +396,7 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 #endif
 
 	/* clients acquire the ah and then insert themselves in fds table... */
-	if (wsi->position_in_fds_table != LWS_NO_FDS_POS) {
+	if (wsi->desc.pos_in_fds_table != LWS_NO_FDS_POS) {
 		lwsl_info("%s: Enabling %s POLLIN\n", __func__, lws_wsi_tag(wsi));
 
 		/* he has been stuck waiting for an ah, but now his wait is
