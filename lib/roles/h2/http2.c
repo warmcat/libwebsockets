@@ -399,7 +399,7 @@ lws_h2_issue_preface(struct lws *wsi)
 	if (h2n->sent_preface)
 		return 1;
 
-	lwsl_debug("%s: %s: fd %d\n", __func__, lws_wsi_tag(wsi), (int)wsi->desc.sockfd);
+	lwsl_debug("%s: %s: fd %d\n", __func__, lws_wsi_tag(wsi), (int)wsi->desc.u.sockfd);
 
 	if (lws_issue_raw(wsi, (uint8_t *)preface, strlen(preface)) !=
 		(int)strlen(preface))

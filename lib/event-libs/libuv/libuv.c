@@ -26,7 +26,7 @@
 #include "private-lib-event-libs-libuv.h"
 
 #define pt_to_priv_uv(_pt) ((struct lws_pt_eventlibs_libuv *)(_pt)->evlib_pt)
-#define wsi_to_priv_uv(_w) ((struct lws_wsi_eventlibs_libuv *)(_w)->evlib_wsi)
+#define wsi_to_priv_uv(_w) ((struct lws_wsi_eventlibs_libuv *)(_w)->desc.evlib_desc)
 
 static void
 lws_uv_sultimer_cb(uv_timer_t *timer
@@ -423,7 +423,7 @@ elops_destroy_context2_uv(struct lws_context *context)
 static int
 elops_wsi_logical_close_uv(struct lws *wsi)
 {
-	if (!lws_socket_is_valid(wsi->desc.sockfd) &&
+	if (!lws_socket_is_valid(wsi->desc.u.sockfd) &&
 	    wsi->role_ops && strcmp(wsi->role_ops->name, "raw-file") &&
 	    !wsi_to_priv_uv(wsi)->w_read.pwatcher)
 		return 0;
@@ -476,14 +476,14 @@ elops_close_handle_manually_uv(struct lws *wsi)
 	 * the "manual" variant only closes the handle itself and the
 	 * related fd.  handle->data is the fd.
 	 */
-	h->data = (void *)(lws_intptr_t)wsi->desc.sockfd;
+	h->data = (void *)(lws_intptr_t)wsi->desc.u.sockfd;
 
 	/*
 	 * We take responsibility to close / destroy these now.
 	 * Remove any trace from the wsi.
 	 */
 
-	wsi->desc.sockfd = LWS_SOCK_INVALID;
+	wsi->desc.u.sockfd = LWS_SOCK_INVALID;
 	wsi_to_priv_uv(wsi)->w_read.pwatcher = NULL;
 	wsi->told_event_loop_closed = 1;
 
@@ -512,14 +512,14 @@ elops_accept_uv(struct lws *wsi)
 
 	if (wsi->role_ops->file_handle)
 		n = uv_poll_init(pt_to_priv_uv(pt)->io_loop, w_read->pwatcher,
-			     (int)(lws_intptr_t)wsi->desc.filefd);
+			     (int)(lws_intptr_t)wsi->desc.u.filefd);
 	else
 		n = uv_poll_init_socket(pt_to_priv_uv(pt)->io_loop,
-				    w_read->pwatcher, wsi->desc.sockfd);
+				    w_read->pwatcher, wsi->desc.u.sockfd);
 
 	if (n) {
 		lwsl_wsi_err(wsi, "uv_poll_init failed %d, sockfd=%p", n,
-				  (void *)(lws_intptr_t)wsi->desc.sockfd);
+				  (void *)(lws_intptr_t)wsi->desc.u.sockfd);
 		lws_free(w_read->pwatcher);
 		w_read->pwatcher = NULL;
 		return -1;
@@ -617,10 +617,10 @@ elops_init_vhost_listen_wsi_uv(struct lws *wsi)
 		return -1;
 
 	n = uv_poll_init_socket(pt_to_priv_uv(pt)->io_loop,
-				w_read->pwatcher, wsi->desc.sockfd);
+				w_read->pwatcher, wsi->desc.u.sockfd);
 	if (n) {
 		lwsl_wsi_err(wsi, "uv_poll_init failed %d, sockfd=%p", n,
-				  (void *)(lws_intptr_t)wsi->desc.sockfd);
+				  (void *)(lws_intptr_t)wsi->desc.u.sockfd);
 
 		return -1;
 	}

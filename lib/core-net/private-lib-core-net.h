@@ -657,10 +657,6 @@ struct lws {
 
 	/* lifetime members */
 
-#if defined(LWS_WITH_EVENT_LIBS)
-	void				*evlib_wsi; /* overallocated */
-#endif
-
 	lws_sorted_usec_list_t		sul_timeout;
 	lws_sorted_usec_list_t		sul_hrtimer;
 	lws_sorted_usec_list_t		sul_validity;
@@ -746,14 +742,12 @@ struct lws {
 	char				alpn[24];
 #endif
 
-	lws_sock_file_fd_type		desc; /* .filefd / .sockfd */
+	lws_desc_t			desc; /* .filefd / .sockfd */
 
 	lws_wsi_state_t			wsistate;
 	lws_wsi_state_t			wsistate_pre_close;
 
 	/* ints */
-#define LWS_NO_FDS_POS (-1)
-	int				position_in_fds_table;
 
 #if defined(LWS_WITH_CLIENT)
 	int				chunk_remaining;

@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2022 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -92,7 +92,7 @@ lws_create_basic_wsi(struct lws_context *context, int tsi,
 	lws_role_transition(new_wsi, 0, LRS_ESTABLISHED, ops);
 
 	new_wsi->hdr_parsing_completed = 0;
-	new_wsi->position_in_fds_table = LWS_NO_FDS_POS;
+	new_wsi->desc.pos_in_fds_table = LWS_NO_FDS_POS;
 
 	/*
 	 * these can only be set once the protocol is known
@@ -102,7 +102,7 @@ lws_create_basic_wsi(struct lws_context *context, int tsi,
 	 */
 
 	new_wsi->user_space = NULL;
-	new_wsi->desc.sockfd = LWS_SOCK_INVALID;
+	new_wsi->desc.u.sockfd = LWS_SOCK_INVALID;
 
 	return new_wsi;
 }
@@ -127,7 +127,7 @@ lws_spawn_piped_destroy(struct lws_spawn_piped **_lsp)
 			if (lsp->stdwsi[n]) {
 				lwsl_notice("%s: closing stdwsi %d\n", __func__, n);
 				wsi = lsp->stdwsi[n];
-				lsp->stdwsi[n]->desc.filefd = NULL;
+				lsp->stdwsi[n]->desc.u.filefd = NULL;
 				lsp->stdwsi[n] = NULL;
 				lws_set_timeout(wsi, 1, LWS_TO_KILL_SYNC);
 			}
@@ -270,18 +270,18 @@ windows_pipe_poll_hack(lws_sorted_usec_list_t *sul)
 				   NULL, NULL)) {
 
 			lwsl_notice("%s: stdout pipe errored\n", __func__);
-			CloseHandle(lsp->stdwsi[LWS_STDOUT]->desc.filefd);
+			CloseHandle(lsp->stdwsi[LWS_STDOUT]->desc.u.filefd);
 			lsp->pipe_fds[LWS_STDOUT][0] = NULL;
-			lsp->stdwsi[LWS_STDOUT]->desc.filefd = NULL;
+			lsp->stdwsi[LWS_STDOUT]->desc.u.filefd = NULL;
 			lsp->stdwsi[LWS_STDOUT] = NULL;
 			lws_set_timeout(wsi, 1, LWS_TO_KILL_SYNC);
 
 			if (lsp->stdwsi[LWS_STDIN]) {
 				lwsl_notice("%s: closing stdin from stdout close\n",
 						__func__);
-				CloseHandle(lsp->stdwsi[LWS_STDIN]->desc.filefd);
+				CloseHandle(lsp->stdwsi[LWS_STDIN]->desc.u.filefd);
 				wsi = lsp->stdwsi[LWS_STDIN];
-				lsp->stdwsi[LWS_STDIN]->desc.filefd = NULL;
+				lsp->stdwsi[LWS_STDIN]->desc.u.filefd = NULL;
 				lsp->stdwsi[LWS_STDIN] = NULL;
 				lsp->pipe_fds[LWS_STDIN][1] = NULL;
 				lws_set_timeout(wsi, 1, LWS_TO_KILL_SYNC);
@@ -309,12 +309,12 @@ windows_pipe_poll_hack(lws_sorted_usec_list_t *sul)
 				   NULL, NULL)) {
 
 			lwsl_notice("%s: stderr pipe errored\n", __func__);
-			CloseHandle(wsi1->desc.filefd);
+			CloseHandle(wsi1->desc.u.filefd);
 			/*
 			 * Assume is stderr still extant on entry, lsp can't
 			 * have been destroyed by stdout/stdin processing
 			 */
-			lsp->stdwsi[LWS_STDERR]->desc.filefd = NULL;
+			lsp->stdwsi[LWS_STDERR]->desc.u.filefd = NULL;
 			lsp->stdwsi[LWS_STDERR] = NULL;
 			lsp->pipe_fds[LWS_STDERR][0] = NULL;
 			lws_set_timeout(wsi1, 1, LWS_TO_KILL_SYNC);
@@ -423,7 +423,7 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		lsp->stdwsi[n]->a.protocol = pcol;
 		lsp->stdwsi[n]->a.opaque_user_data = i->opaque;
 
-		lsp->stdwsi[n]->desc.filefd = lsp->pipe_fds[n][!n];
+		lsp->stdwsi[n]->desc.u.filefd = lsp->pipe_fds[n][!n];
 		lsp->stdwsi[n]->file_desc = 1;
 
 		lwsl_debug("%s: lsp stdwsi %p: pipe idx %d -> fd %d / %d\n",
@@ -435,7 +435,7 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 
 		/* read side is 0, stdin we want the write side, others read */
 
-		lsp->stdwsi[n]->desc.filefd = lsp->pipe_fds[n][!!(n == 0)];
+		lsp->stdwsi[n]->desc.u.filefd = lsp->pipe_fds[n][!!(n == 0)];
 		if (fcntl(lsp->pipe_fds[n][!!(n == 0)], F_SETFL, O_NONBLOCK) < 0) {
 			lwsl_err("%s: setting NONBLOCK failed\n", __func__);
 			goto bail2;
@@ -451,9 +451,9 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		}
 
 	lwsl_notice("%s: pipe handles in %p, out %p, err %p\n", __func__,
-		   lsp->stdwsi[LWS_STDIN]->desc.sockfd,
-		   lsp->stdwsi[LWS_STDOUT]->desc.sockfd,
-		   lsp->stdwsi[LWS_STDERR]->desc.sockfd);
+		   lsp->stdwsi[LWS_STDIN]->desc.u.sockfd,
+		   lsp->stdwsi[LWS_STDOUT]->desc.u.sockfd,
+		   lsp->stdwsi[LWS_STDERR]->desc.u.sockfd);
 
 	/*
 	 * Windows nonblocking pipe handling is a mess that is unable

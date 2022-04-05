@@ -283,7 +283,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 
 	wsi->user_space = NULL;
 	wsi->pending_timeout = NO_PENDING_TIMEOUT;
-	wsi->position_in_fds_table = LWS_NO_FDS_POS;
+	wsi->desc.pos_in_fds_table = LWS_NO_FDS_POS;
 	wsi->ocport = wsi->c_port = (uint16_t)(unsigned int)i->port;
 	wsi->sys_tls_client_cert = i->sys_tls_client_cert;
 

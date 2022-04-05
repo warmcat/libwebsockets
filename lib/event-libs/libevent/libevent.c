@@ -26,7 +26,7 @@
 #include "private-lib-event-libs-libevent.h"
 
 #define pt_to_priv_event(_pt) ((struct lws_pt_eventlibs_libevent *)(_pt)->evlib_pt)
-#define wsi_to_priv_event(_w) ((struct lws_wsi_eventlibs_libevent *)(_w)->evlib_wsi)
+#define wsi_to_priv_event(_w) ((struct lws_wsi_eventlibs_libevent *)(_w)->desc.evlib_desc)
 
 static void
 lws_event_hrtimer_cb(evutil_socket_t fd, short event, void *p)
@@ -184,7 +184,7 @@ elops_listen_init_event(struct lws_dll2 *d, void *user)
 					&(wsi_to_priv_event(wsi)->w_read);
 
 	w_read->context = context;
-	w_read->watcher = event_new(ptpr->io_loop, wsi->desc.sockfd,
+	w_read->watcher = event_new(ptpr->io_loop, wsi->desc.u.sockfd,
 				(EV_READ | EV_PERSIST), lws_event_cb, w_read);
 	event_add(w_read->watcher, NULL);
 	w_read->set = 1;
@@ -273,9 +273,9 @@ elops_accept_event(struct lws *wsi)
 	ptpr = pt_to_priv_event(pt);
 
 	if (wsi->role_ops->file_handle)
-               fd = (evutil_socket_t)(ev_intptr_t) wsi->desc.filefd;
+               fd = (evutil_socket_t)(ev_intptr_t) wsi->desc.u.filefd;
 	else
-		fd = wsi->desc.sockfd;
+		fd = wsi->desc.u.sockfd;
 
 	wpr->w_read.watcher = event_new(ptpr->io_loop, fd,
 			(EV_READ | EV_PERSIST), lws_event_cb, &wpr->w_read);
@@ -425,9 +425,9 @@ elops_init_vhost_listen_wsi_event(struct lws *wsi)
 	ptpr = pt_to_priv_event(pt);
 
 	if (wsi->role_ops->file_handle)
-               fd = (evutil_socket_t) wsi->desc.filefd;
+               fd = (evutil_socket_t) wsi->desc.u.filefd;
 	else
-		fd = wsi->desc.sockfd;
+		fd = wsi->desc.u.sockfd;
 
 	w->w_read.watcher = event_new(ptpr->io_loop, fd, (EV_READ | EV_PERSIST),
 				      lws_event_cb, &w->w_read);

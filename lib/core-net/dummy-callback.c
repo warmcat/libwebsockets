@@ -765,7 +765,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 					   sizeof(wsi->http.cgi->inflate_buf)) {
 					int written;
 
-					written = (int)write(args->stdwsi[LWS_STDIN]->desc.filefd,
+					written = (int)write(args->stdwsi[LWS_STDIN]->desc.u.filefd,
 						wsi->http.cgi->inflate_buf,
 						sizeof(wsi->http.cgi->inflate_buf) -
 						wsi->http.cgi->inflate.avail_out);
@@ -808,7 +808,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_wsi_info(wsi, "proxied %d bytes", n);
 
 		if (wsi->http.cgi->post_in_expected && args->stdwsi[LWS_STDIN] &&
-		    args->stdwsi[LWS_STDIN]->desc.filefd > 0) {
+		    args->stdwsi[LWS_STDIN]->desc.u.filefd > 0) {
 			wsi->http.cgi->post_in_expected -= (unsigned int)n;
 
 			if (!wsi->http.cgi->post_in_expected) {
@@ -824,7 +824,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 
 				lwsl_wsi_info(siwsi, "expected POST in end: "
 						     "closing stdin fd %d",
-						     siwsi->desc.sockfd);
+						     siwsi->desc.u.sockfd);
 
 				/*
 				 * We don't want the child / parent relationship

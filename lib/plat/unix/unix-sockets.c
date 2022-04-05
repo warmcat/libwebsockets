@@ -77,7 +77,7 @@ lws_send_pipe_choked(struct lws *wsi)
 	    )
 		return 1;
 
-	fds.fd = wsi_eff->desc.sockfd;
+	fds.fd = wsi_eff->desc.u.sockfd;
 	fds.events = POLLOUT;
 	fds.revents = 0;
 
