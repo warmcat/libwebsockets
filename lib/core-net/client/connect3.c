@@ -90,7 +90,7 @@ lws_client_connect_check(struct lws *wsi, int *real_errno)
 	 */
 
 #if !defined(WIN32)
-	if (!getsockopt(wsi->desc.sockfd, SOL_SOCKET, SO_ERROR, &e, &sl)) {
+	if (!getsockopt(wsi->desc.u.sockfd, SOL_SOCKET, SO_ERROR, &e, &sl)) {
 
 		en = LWS_ERRNO;
 		if (!e) {
@@ -100,7 +100,7 @@ lws_client_connect_check(struct lws *wsi, int *real_errno)
 			return LCCCR_CONNECTED;
 		}
 
-		lwsl_wsi_notice(wsi, "getsockopt fd %d says %s", wsi->desc.sockfd,
+		lwsl_wsi_notice(wsi, "getsockopt fd %d says %s", wsi->desc.u.sockfd,
 				lws_errno_describe(e, t16, sizeof(t16)));
 
 		*real_errno = e;
@@ -110,7 +110,7 @@ lws_client_connect_check(struct lws *wsi, int *real_errno)
 
 #else
 
-	if (!connect(wsi->desc.sockfd, (const struct sockaddr *)&wsi->sa46_peer.sa4, 0))
+	if (!connect(wsi->desc.u.sockfd, (const struct sockaddr *)&wsi->sa46_peer.sa4, 0))
 		return LCCCR_CONNECTED;
 
 	en = LWS_ERRNO;
@@ -208,8 +208,8 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 
 	if (n &&  /* calling back with a problem */
 	    !wsi->dns_sorted_list.count && /* there's no results */
-	    !lws_socket_is_valid(wsi->desc.sockfd) && /* no attempt ongoing */
-	    !wsi->speculative_connect_owner.count /* no spec attempt */ ) {
+	    !lws_socket_is_valid(wsi->desc.u.sockfd) /* no attempt ongoing */
+	) {
 		lwsl_wsi_notice(wsi, "dns lookup failed %d", n);
 
 		/*
@@ -234,7 +234,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	 */
 
 	if (lwsi_state(wsi) == LRS_WAITING_CONNECT &&
-	    lws_socket_is_valid(wsi->desc.sockfd)) {
+	    lws_socket_is_valid(wsi->desc.u.sockfd)) {
 		if (!wsi->dns_sorted_list.count &&
 		    !wsi->sul_connect_timeout.list.owner)
 			/* no dns results and no ongoing timeout for one */
@@ -343,7 +343,7 @@ ads_known:
 	 * socket and add to the fds
 	 */
 
-	if (!lws_socket_is_valid(wsi->desc.sockfd)) {
+	if (!lws_socket_is_valid(wsi->desc.u.sockfd)) {
 
 		if (wsi->a.context->event_loop_ops->check_client_connect_ok &&
 		    wsi->a.context->event_loop_ops->check_client_connect_ok(wsi)
@@ -356,17 +356,17 @@ ads_known:
 		af = 0;
 		if (wsi->unix_skt) {
 			af = AF_UNIX;
-			wsi->desc.sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
+			wsi->desc.u.sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
 		}
 		else
 #endif
 		{
 			af = wsi->sa46_peer.sa4.sin_family;
-			wsi->desc.sockfd = socket(wsi->sa46_peer.sa4.sin_family,
+			wsi->desc.u.sockfd = socket(wsi->sa46_peer.sa4.sin_family,
 						  SOCK_STREAM, 0);
 		}
 
-		if (!lws_socket_is_valid(wsi->desc.sockfd)) {
+		if (!lws_socket_is_valid(wsi->desc.u.sockfd)) {
 			en = LWS_ERRNO;
 
 			lws_snprintf(dcce, sizeof(dcce),
@@ -377,7 +377,7 @@ ads_known:
 			goto try_next_dns_result;
 		}
 
-		if (lws_plat_set_socket_options(wsi->a.vhost, wsi->desc.sockfd,
+		if (lws_plat_set_socket_options(wsi->a.vhost, wsi->desc.u.sockfd,
 #if defined(LWS_WITH_UNIX_SOCK)
 						wsi->unix_skt)) {
 #else
@@ -394,7 +394,7 @@ ads_known:
 		}
 
 		/* apply requested socket options */
-		if (lws_plat_set_socket_options_ip(wsi->desc.sockfd,
+		if (lws_plat_set_socket_options_ip(wsi->desc.u.sockfd,
 						   wsi->c_pri, wsi->flags))
 			lwsl_wsi_warn(wsi, "unable to set ip options");
 
@@ -451,7 +451,7 @@ ads_known:
 						  _WSI_TOKEN_CLIENT_LOCALPORT);
 
 		if ((iface && *iface) || (local_port && atoi(local_port))) {
-			m = lws_socket_bind(wsi->a.vhost, wsi, wsi->desc.sockfd,
+			m = lws_socket_bind(wsi->a.vhost, wsi, wsi->desc.u.sockfd,
 					    (local_port ? atoi(local_port) : 0), iface, af);
 			if (m < 0) {
 				lws_snprintf(dcce, sizeof(dcce),
@@ -506,7 +506,7 @@ ads_known:
 	if (lws_fi(&wsi->fic, "conn_cb_rej") ||
 	    user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
 			LWS_CALLBACK_CONNECTING, wsi->user_space,
-			(void *)(intptr_t)wsi->desc.sockfd, 0)) {
+			(void *)(intptr_t)wsi->desc.u.sockfd, 0)) {
 		lwsl_wsi_info(wsi, "CONNECTION CB closed");
 		goto failed1;
 	}
@@ -524,7 +524,7 @@ ads_known:
 		m = -1;
 	else
 #endif
-		m = connect(wsi->desc.sockfd, (const struct sockaddr *)psa,
+		m = connect(wsi->desc.u.sockfd, (const struct sockaddr *)psa,
 			    (socklen_t)n);
 
 #if defined(LWS_WITH_CONMON)
@@ -549,7 +549,7 @@ ads_known:
 #endif
 
 		lwsl_wsi_debug(wsi, "connect: fd %d, %s",
-				wsi->desc.sockfd,
+				wsi->desc.u.sockfd,
 				lws_errno_describe(errno_copy, t16, sizeof(t16)));
 
 		if (errno_copy &&
@@ -649,7 +649,7 @@ conn_good:
 #if defined(_DEBUG)
 		char buf[64];
 #endif
-		if (getsockname((int)wsi->desc.sockfd,
+		if (getsockname((int)wsi->desc.u.sockfd,
 				(struct sockaddr *)&wsi->sa46_local,
 				&salen) == -1) {
 			en = LWS_ERRNO;
@@ -692,7 +692,7 @@ oom4:
 		lws_inform_client_conn_fail(wsi,(void *)cce, strlen(cce));
 
 	/* take care that we might be inserted in fds already */
-	if (wsi->position_in_fds_table != LWS_NO_FDS_POS)
+	if (wsi->desc.pos_in_fds_table != LWS_NO_FDS_POS)
 		/* do the full wsi close flow */
 		goto failed1;
 
@@ -707,7 +707,7 @@ oom4:
 	 */
 	{
 		struct lws_vhost *vhost = wsi->a.vhost;
-		lws_sockfd_type sfd = wsi->desc.sockfd;
+		lws_sockfd_type sfd = wsi->desc.u.sockfd;
 
 		//lws_vhost_lock(vhost);
 		__lws_free_wsi(wsi); /* acquires vhost lock in wsi reset */
@@ -734,8 +734,8 @@ try_next_dns_result_closesock:
 	/*
 	 * We are killing the socket but leaving
 	 */
-	compatible_close(wsi->desc.sockfd);
-	wsi->desc.sockfd = LWS_SOCK_INVALID;
+	compatible_close(wsi->desc.u.sockfd);
+	wsi->desc.u.sockfd = LWS_SOCK_INVALID;
 
 try_next_dns_result:
 	lws_sul_cancel(&wsi->sul_connect_timeout);

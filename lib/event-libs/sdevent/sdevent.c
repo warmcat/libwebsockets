@@ -4,7 +4,7 @@
 #include "private-lib-event-libs-sdevent.h"
 
 #define pt_to_priv_sd(_pt) ((struct lws_pt_eventlibs_sdevent *)(_pt)->evlib_pt)
-#define wsi_to_priv_sd(_w) ((struct lws_wsi_watcher_sdevent *)(_w)->evlib_wsi)
+#define wsi_to_priv_sd(_w) ((struct lws_wsi_watcher_sdevent *)(_w)->desc.evlib_desc)
 
 struct lws_pt_eventlibs_sdevent {
 	struct lws_context_per_thread *pt;
@@ -221,7 +221,7 @@ init_vhost_listen_wsi_sd(struct lws *wsi)
 
 	sd_event_add_io(pt_to_priv_sd(pt)->io_loop,
 			&wsi_to_priv_sd(wsi)->source,
-			wsi->desc.sockfd,
+			wsi->desc.u.sockfd,
 			wsi_to_priv_sd(wsi)->events,
 			sock_accept_handler,
 			wsi);
@@ -340,14 +340,14 @@ sock_accept_sd(struct lws *wsi)
 	if (wsi->role_ops->file_handle)
 		sd_event_add_io(pt_to_priv_sd(pt)->io_loop,
 				&wsi_to_priv_sd(wsi)->source,
-				wsi->desc.filefd,
+				wsi->desc.u.filefd,
 				wsi_to_priv_sd(wsi)->events,
 				sock_accept_handler,
 				wsi);
 	else
 		sd_event_add_io(pt_to_priv_sd(pt)->io_loop,
 				&wsi_to_priv_sd(wsi)->source,
-				wsi->desc.sockfd,
+				wsi->desc.u.sockfd,
 				wsi_to_priv_sd(wsi)->events,
 				sock_accept_handler,
 				wsi);

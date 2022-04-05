@@ -75,10 +75,20 @@ typedef enum {
 	LWS_ADOPT_RAW_SOCKET_UDP = LWS_ADOPT_SOCKET | LWS_ADOPT_FLAG_UDP,
 } lws_adoption_type;
 
+#define LWS_NO_FDS_POS ((int32_t)-1)
+
 typedef union {
 	lws_sockfd_type sockfd;
 	lws_filefd_type filefd;
 } lws_sock_file_fd_type;
+
+typedef struct {
+	lws_sock_file_fd_type		u;
+#if defined(LWS_WITH_EVENT_LIBS)
+	void				*evlib_desc; /* overallocated */
+#endif
+	int32_t				pos_in_fds_table;
+} lws_desc_t;
 
 #if defined(LWS_ESP_PLATFORM)
 #include <lwip/sockets.h>

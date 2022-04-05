@@ -265,7 +265,7 @@ lws_plat_check_connection_error(struct lws *wsi)
 	int optVal;
 	int optLen = sizeof(int);
 
-	if (getsockopt(wsi->desc.sockfd, SOL_SOCKET, SO_ERROR,
+	if (getsockopt(wsi->desc.u.sockfd, SOL_SOCKET, SO_ERROR,
 			   (char*)&optVal, &optLen) != SOCKET_ERROR && optVal &&
 		optVal != LWS_EALREADY && optVal != LWS_EINPROGRESS &&
 		optVal != LWS_EWOULDBLOCK && optVal != WSAEINVAL) {

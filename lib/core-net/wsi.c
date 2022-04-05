@@ -314,7 +314,7 @@ __lws_wsi_create_with_role(struct lws_context *context, int tsi,
 		wsi->lc.log_cx = context->log_cx;
 
 #if defined(LWS_WITH_EVENT_LIBS)
-	wsi->evlib_wsi = (uint8_t *)wsi + sizeof(*wsi);
+	wsi->desc.evlib_desc = (uint8_t *)wsi + sizeof(*wsi);
 #endif
 	wsi->a.context = context;
 	lws_role_transition(wsi, 0, LRS_UNCONNECTED, ops);
@@ -322,8 +322,8 @@ __lws_wsi_create_with_role(struct lws_context *context, int tsi,
 	wsi->a.protocol = NULL;
 	wsi->tsi = (char)tsi;
 	wsi->a.vhost = NULL;
-	wsi->desc.sockfd = LWS_SOCK_INVALID;
-	wsi->position_in_fds_table = LWS_NO_FDS_POS;
+	wsi->desc.u.sockfd = LWS_SOCK_INVALID;
+	wsi->desc.pos_in_fds_table = LWS_NO_FDS_POS;
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	lws_xos_init(&wsi->fic.xos, lws_xos(&context->fic.xos));
@@ -363,14 +363,14 @@ bail:
 }
 
 /*
- * Take a copy of wsi->desc.sockfd before calling this, then close it
+ * Take a copy of wsi->desc.u.sockfd before calling this, then close it
  * afterwards
  */
 
 int
 lws_wsi_extract_from_loop(struct lws *wsi)
 {
-	if (lws_socket_is_valid(wsi->desc.sockfd))
+	if (lws_socket_is_valid(wsi->desc.u.sockfd))
 		__remove_wsi_socket_from_fds(wsi);
 
 	if (!wsi->a.context->event_loop_ops->destroy_wsi &&
@@ -979,7 +979,7 @@ lws_get_socket_fd(struct lws *wsi)
 {
 	if (!wsi)
 		return -1;
-	return wsi->desc.sockfd;
+	return wsi->desc.u.sockfd;
 }
 
 
@@ -1084,14 +1084,14 @@ _lws_generic_transaction_completed_active_conn(struct lws **_wsi, char take_vh_l
 
 	lws_dll2_remove(&wnew->dll2_cli_txn_queue);
 
-	assert(lws_socket_is_valid(wsi->desc.sockfd));
+	assert(lws_socket_is_valid(wsi->desc.u.sockfd));
 
 	__lws_change_pollfd(wsi, LWS_POLLOUT | LWS_POLLIN, 0);
 
 	/* copy the fd */
 	wnew->desc = wsi->desc;
 
-	assert(lws_socket_is_valid(wnew->desc.sockfd));
+	assert(lws_socket_is_valid(wnew->desc.u.sockfd));
 
 	/* disconnect the fd from association with old wsi */
 
@@ -1099,8 +1099,8 @@ _lws_generic_transaction_completed_active_conn(struct lws **_wsi, char take_vh_l
 		return -1;
 
 	sanity_assert_no_wsi_traces(wsi->a.context, wsi);
-	sanity_assert_no_sockfd_traces(wsi->a.context, wsi->desc.sockfd);
-	wsi->desc.sockfd = LWS_SOCK_INVALID;
+	sanity_assert_no_sockfd_traces(wsi->a.context, wsi->desc.u.sockfd);
+	wsi->desc.u.sockfd = LWS_SOCK_INVALID;
 
 	__lws_wsi_remove_from_sul(wsi);
 
@@ -1120,7 +1120,7 @@ _lws_generic_transaction_completed_active_conn(struct lws **_wsi, char take_vh_l
 
 	/* point the fd table entry to new guy */
 
-	assert(lws_socket_is_valid(wnew->desc.sockfd));
+	assert(lws_socket_is_valid(wnew->desc.u.sockfd));
 
 	if (__insert_wsi_socket_into_fds(wsi->a.context, wnew))
 		return -1;

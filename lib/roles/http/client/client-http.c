@@ -107,7 +107,7 @@ lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 			goto bail3;
 		}
 
-		n = (int)recv(wsi->desc.sockfd, sb, context->pt_serv_buf_size, 0);
+		n = (int)recv(wsi->desc.u.sockfd, sb, context->pt_serv_buf_size, 0);
 		if (n < 0) {
 			if (LWS_ERRNO == LWS_EAGAIN) {
 				lwsl_debug("Proxy read EAGAIN... retrying\n");
@@ -278,7 +278,7 @@ hs2:
 		lwsl_info("%s: HANDSHAKE2: %s: sending headers "
 			  "(wsistate 0x%lx), w sock %d\n",
 			  __func__, lws_wsi_tag(wsi),
-			  (unsigned long)wsi->wsistate, wsi->desc.sockfd);
+			  (unsigned long)wsi->wsistate, wsi->desc.u.sockfd);
 
 		n = lws_ssl_capable_write(wsi, (unsigned char *)sb, lws_ptr_diff_size_t(p, sb));
 		switch (n) {

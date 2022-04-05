@@ -166,8 +166,8 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 */
 
 	} while (pt->fds_count < context->fd_limit_per_thread - 1 &&
-		 wsi->position_in_fds_table != LWS_NO_FDS_POS &&
-		 lws_poll_listen_fd(&pt->fds[wsi->position_in_fds_table]) > 0);
+		 wsi->desc.pos_in_fds_table != LWS_NO_FDS_POS &&
+		 lws_poll_listen_fd(&pt->fds[wsi->desc.pos_in_fds_table]) > 0);
 
 	return LWS_HPI_RET_HANDLED;
 }
