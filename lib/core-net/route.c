@@ -146,7 +146,7 @@ _lws_route_remove(struct lws_context_per_thread *pt, lws_route_t *robj, int flag
 		lws_route_t *rou = lws_container_of(d, lws_route_t, list);
 
 		if ((!(flags & LRR_MATCH_SRC) || !lws_sa46_compare_ads(&robj->src, &rou->src)) &&
-		    ((flags & LRR_MATCH_SRC) || !lws_sa46_compare_ads(&robj->dest, &rou->dest)) &&
+		    (!(flags & LRR_MATCH_DST) || !lws_sa46_compare_ads(&robj->dest, &rou->dest)) &&
 		    (!robj->gateway.sa4.sin_family ||
 		     !lws_sa46_compare_ads(&robj->gateway, &rou->gateway)) &&
 		    robj->dest_len <= rou->dest_len &&
