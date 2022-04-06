@@ -371,8 +371,8 @@ ana:
 			lws_pt_lock(pt, __func__);
 
 			/* returns zero on match already in table */
-			rmat = _lws_route_remove(pt, &robj, LRR_MATCH_SRC |
-							    LRR_IGNORE_PRI);
+			rmat = _lws_route_remove(pt, &robj, h->nlmsg_type == RTM_NEWROUTE ?
+					LRR_MATCH_DST : LRR_MATCH_SRC | LRR_IGNORE_PRI);
 			lws_pt_unlock(pt);
 
 			if (rmat) {
