@@ -1189,30 +1189,6 @@ LWS_VISIBLE LWS_EXTERN const char *
 lws_get_vhost_iface(struct lws_vhost *vhost);
 
 /**
- * lws_json_dump_vhost() - describe vhost state and stats in JSON
- *
- * \param vh: the vhost
- * \param buf: buffer to fill with JSON
- * \param len: max length of buf
- */
-LWS_VISIBLE LWS_EXTERN int
-lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len);
-
-/**
- * lws_json_dump_context() - describe context state and stats in JSON
- *
- * \param context: the context
- * \param buf: buffer to fill with JSON
- * \param len: max length of buf
- * \param hide_vhosts: nonzero to not provide per-vhost mount etc information
- *
- * Generates a JSON description of vhost state into buf
- */
-LWS_VISIBLE LWS_EXTERN int
-lws_json_dump_context(const struct lws_context *context, char *buf, int len,
-		      int hide_vhosts);
-
-/**
  * lws_vhost_user() - get the user data associated with the vhost
  * \param vhost: Websocket vhost
  *
