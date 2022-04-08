@@ -2217,6 +2217,8 @@ lws_mqtt_client_send_subcribe(struct lws *wsi, lws_mqtt_subscribe_param_t *sub)
 			   (int)sub->packet_id);
 		lws_ser_wu16be(p, wsi->mqtt->ack_pkt_id);
 
+		nwsi->mqtt->client.aws_iot = wsi->mqtt->client.aws_iot;
+
 		if (lws_mqtt_str_advance(&mqtt_vh_payload, 2))
 			return 1;
 
@@ -2384,6 +2386,8 @@ lws_mqtt_client_send_unsubcribe(struct lws *wsi,
 		lwsl_debug("%s: pkt_id = %d\n", __func__,
 			   (int)wsi->mqtt->ack_pkt_id);
 		lws_ser_wu16be(p, wsi->mqtt->ack_pkt_id);
+
+		nwsi->mqtt->client.aws_iot = wsi->mqtt->client.aws_iot;
 
 		if (lws_mqtt_str_advance(&mqtt_vh_payload, 2))
 			return 1;
