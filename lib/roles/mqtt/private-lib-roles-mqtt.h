@@ -45,6 +45,7 @@ extern struct lws_role_ops role_ops_mqtt;
 
 #define LWS_MQTT_RESPONSE_TIMEOUT      (3 * LWS_US_PER_SEC)
 #define LWS_MQTT_RETRY_CEILING         (60 * LWS_US_PER_SEC)
+#define LWS_MQTT_MAX_PUBLISH_RETRY 	   (3)
 
 typedef enum {
 	LMSPR_COMPLETED			=  0,
@@ -354,7 +355,7 @@ struct _lws_mqtt_related {
 	lws_mqttc_t		client;
 	lws_sorted_usec_list_t	sul_qos_puback_pubrec_wait; /* QoS1 puback or QoS2 pubrec wait TO */
 	lws_sorted_usec_list_t	sul_qos1_puback_wait; /* QoS1 puback wait TO */
-	lws_sorted_usec_list_t	sul_unsuback_wait; /* QoS1 unsuback wait TO */
+	lws_sorted_usec_list_t	sul_unsuback_wait; /* unsuback wait TO */
 	lws_sorted_usec_list_t	sul_qos2_pubrec_wait; /* QoS2 pubrec wait TO */
 	struct lws		*wsi; /**< so sul can use lws_container_of */
 	lws_mqtt_subs_t		*subs_head; /**< Linked-list of heap-allocated subscription objects */
