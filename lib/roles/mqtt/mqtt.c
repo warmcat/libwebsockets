@@ -2029,7 +2029,9 @@ lws_mqtt_client_send_publish(struct lws *wsi, lws_mqtt_publish_param_t *pub,
 	/* Packet ID */
 	if (pub->qos != QOS0) {
 		p = lws_mqtt_str_next(&mqtt_vh_payload, NULL);
-		wsi->mqtt->ack_pkt_id = pub->packet_id = ++nwsi->mqtt->pkt_id;
+		if (!pub->dup)
+			nwsi->mqtt->pkt_id++;
+		wsi->mqtt->ack_pkt_id = pub->packet_id = nwsi->mqtt->pkt_id;
 		lwsl_debug("%s: pkt_id = %d\n", __func__,
 			   (int)wsi->mqtt->ack_pkt_id);
 		lws_ser_wu16be(p, pub->packet_id);

@@ -159,6 +159,10 @@ typedef struct lws_ss_handle {
 			void				*heap_baggage;
 			const char			*subscribe_to;
 			size_t				subscribe_to_len;
+			struct lws_buflist		*buflist_unacked;
+			uint32_t			unacked_size;
+			uint8_t				retry_count;
+			uint8_t				send_unacked:1;
 		} mqtt;
 #endif
 #if defined(LWS_WITH_SYS_SMD)
