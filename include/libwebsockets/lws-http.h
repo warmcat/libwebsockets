@@ -534,8 +534,6 @@ lws_hdr_custom_name_foreach(struct lws *wsi, lws_hdr_custom_fe_cb_t cb, void *op
  *
  * Use this in place of lws_get_urlarg_by_name() that does not return an
  * explicit length.
- *
- * Use lws_get_urlarg_by_name_safe() instead of this, which returns the length.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_get_urlarg_by_name_safe(struct lws *wsi, const char *name, char *buf, int len);
