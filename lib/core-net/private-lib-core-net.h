@@ -706,7 +706,7 @@ struct lws {
 
 	lws_log_cx_t			*log_cx;
 
-#if defined(LWS_WITH_THREADPOOL)
+#if defined(LWS_WITH_THREADPOOL) && defined(LWS_HAVE_PTHREAD_H)
 	lws_dll2_owner_t		tp_task_owner; /* struct lws_threadpool_task */
 #endif
 

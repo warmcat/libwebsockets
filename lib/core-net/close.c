@@ -560,7 +560,7 @@ just_kill_connection:
 	lwsl_wsi_debug(wsi, "real just_kill_connection A: (sockfd %d)",
 			wsi->desc.sockfd);
 
-#if defined(LWS_WITH_THREADPOOL)
+#if defined(LWS_WITH_THREADPOOL) && defined(LWS_HAVE_PTHREAD_H)
 	lws_threadpool_wsi_closing(wsi);
 #endif
 
