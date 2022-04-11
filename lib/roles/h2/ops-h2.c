@@ -797,9 +797,9 @@ static int
 lws_h2_bind_for_post_before_action(struct lws *wsi)
 {
 	const struct lws_http_mount *hit;
+	int uri_len = 0, methidx;
 	char *uri_ptr = NULL;
 	uint8_t *buffered;
-	int uri_len = 0;
 	const char *p;
 	size_t blen;
 
@@ -850,7 +850,10 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 		if (lws_bind_protocol(wsi, pp, __func__))
 			return 1;
 	}
-	if (lws_http_get_uri_and_method(wsi, &uri_ptr, &uri_len) >= 0)
+
+	methidx = lws_http_get_uri_and_method(wsi, &uri_ptr, &uri_len);
+
+	if (methidx >= 0)
 		if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_HTTP,
 					      wsi->user_space,
 					      hit ? uri_ptr +
@@ -859,6 +862,10 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 							  hit->mountpoint_len :
 							  uri_len)))
 			return 1;
+
+#if defined(LWS_WITH_ACCESS_LOG)
+	lws_prepare_access_log_info(wsi, uri_ptr, uri_len, methidx);
+#endif
 
 	lwsl_info("%s: setting LRS_BODY from 0x%x (%s)\n", __func__,
 		    (int)wsi->wsistate, wsi->a.protocol->name);
