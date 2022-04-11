@@ -665,7 +665,7 @@ struct lws_context {
 	mbedtls_ctr_drbg_context mcdc;
 #endif
 
-#if defined(LWS_WITH_THREADPOOL)
+#if defined(LWS_WITH_THREADPOOL) && defined(LWS_HAVE_PTHREAD_H)
 	struct lws_threadpool *tp_list_head;
 #endif
 
