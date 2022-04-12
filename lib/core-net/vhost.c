@@ -818,9 +818,20 @@ lws_create_vhost(struct lws_context *context,
 	 */
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 	if (!context->vhost_list) {
-		memcpy(&lwsp[m++], &lws_async_dns_protocol,
-		       sizeof(struct lws_protocols));
-		vh->count_protocols++;
+		uint8_t seen = 0;
+
+		for (n = 0; n < m; n++)
+			if (!memcmp(&lwsp[n], &lws_async_dns_protocol, sizeof(struct lws_protocols))) {
+				/* Already defined */
+				seen = 1;
+				break;
+			}
+
+		if (!seen) {
+			memcpy(&lwsp[m++], &lws_async_dns_protocol,
+			       sizeof(struct lws_protocols));
+			vh->count_protocols++;
+		}
 	}
 #endif
 
