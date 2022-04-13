@@ -71,7 +71,10 @@ if (ESP_PLATFORM)
 endif()
 
 # it's at this point any toolchain file is brought in
-project(libwebsockets C CXX)
+project(libwebsockets C)
+if (LWS_WITH_SECURE_STREAMS_CPP)
+	enable_language(CXX)
+endif()
 include(CTest)
 
 if (PICO_SDK_PATH)
