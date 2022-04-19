@@ -66,7 +66,7 @@ lws_plat_dlopen(struct lws_plugin **pplugin, const char *libpath,
 	if (uv_dlsym(&lib, sym, &v)) {
 		uv_dlerror(&lib);
 		lwsl_err("%s: Failed to get '%s' on %s: %s\n",
-			 __func__, path, dent.name, lib.errmsg);
+			 __func__, path, libpath, lib.errmsg);
 		goto bail;
 	}
 
@@ -123,7 +123,9 @@ bail:
 int
 lws_plat_destroy_dl(struct lws_plugin *p)
 {
-	return uv_dlclose(&p->u.lib);
+	uv_dlclose(&p->u.lib);
+
+	return 0;
 }
 
 #endif
