@@ -659,7 +659,7 @@ int x509_pm_load(X509 *x, const unsigned char *buffer, int len)
     struct x509_pm *x509_pm = (struct x509_pm *)x->x509_pm;
 
     if (!x509_pm->x509_crt) {
-        x509_pm->x509_crt = ssl_mem_malloc(sizeof(mbedtls_x509_crt));
+        x509_pm->x509_crt = ssl_mem_malloc(sizeof(mbedtls_x509_crt) + 80);
         if (!x509_pm->x509_crt) {
             SSL_DEBUG(SSL_PLATFORM_ERROR_LEVEL, "no enough memory > (x509_pm->x509_crt)");
             goto no_mem;
