@@ -59,11 +59,15 @@ gai_strerror(int);
  #include "FreeRTOS_IP.h"
 #endif
  #include "timers.h"
+#if defined(LWS_ESP_PLATFORM)
  #include <esp_attr.h>
+#endif
  #include <semphr.h>
 #else
  #include "freertos/timers.h"
+#if defined(LWS_ESP_PLATFORM)
  #include <esp_attr.h>
+#endif
  #include <esp_system.h>
  #include <esp_task_wdt.h>
 #endif
