@@ -1097,6 +1097,12 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 		goto failed;
 	}
 
+	/* make sure we have the remote server UDP enabled, it's cheap if we
+	 * already do.  This is for the case we came up before the network and
+	 * couldn't succeed to open the socket / wsi initially */
+
+	lws_async_dns_create_server_wsi(context);
+
 	/* there's an ongoing query we can share the result of? */
 
 	q = lws_adns_get_query(dns, qtype, 0, name);
