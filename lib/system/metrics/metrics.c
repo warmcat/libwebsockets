@@ -437,10 +437,12 @@ int
 lws_metric_destroy(lws_metric_t **pmt, int keep)
 {
 	lws_metric_t *mt = *pmt;
-	lws_metric_pub_t *pub = lws_metrics_priv_to_pub(mt);
+	lws_metric_pub_t *pub;
 
 	if (!mt)
 		return 0;
+
+	pub = lws_metrics_priv_to_pub(mt);
 
 	lws_dll2_remove(&mt->list);
 
