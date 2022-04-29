@@ -47,12 +47,20 @@ hello_world_state(void *userobj, void *h_src, lws_ss_constate_t state,
 		  lws_ss_tx_ordinal_t ack)
 {
 	hello_world_t *g = (hello_world_t *)userobj;
+	const char *ct;
+	size_t ctl;
 
 	switch ((int)state) {
 	case LWSSSCS_CREATING: /* start the transaction as soon as we exist */
 		return lws_ss_request_tx(lws_ss_from_user(g));
 
 	case LWSSSCS_QOS_ACK_REMOTE: /* server liked our request */
+
+		if (!lws_ss_get_metadata(g->ss, "ctype", (const void **)&ct, &ctl))
+			lwsl_ss_user(g->ss, "get_metadata ctype '%.*s'", (int)ctl, ct);
+		else
+			lwsl_ss_user(g->ss, "get_metadata ctype missing");
+
 		test_result &= ~1;
 		break;
 

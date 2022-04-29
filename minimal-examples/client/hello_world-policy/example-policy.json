@@ -27,6 +27,7 @@
 				"protocol": "h1",
 				"http_method": "GET",
 				"http_url": "index.html",
+				"metadata": [ { "ctype": "content-type:" } ],
 				"tls": true,
 				"opportunistic": true,
 				"retry": "default",
