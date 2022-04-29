@@ -887,6 +887,11 @@ enum lws_callback_reasons {
 	 * the _UNSUBSCRIBED one if we timed out waiting for a UNSUBACK.
 	 * Return nonzero to close the wsi.
 	 */
+	LWS_CALLBACK_MQTT_SHADOW_TIMEOUT			= 212,
+	/**< When a Device Shadow is sent, this callback is generated if we
+	 * timed out waiting for a response from AWS IoT.
+	 * Return nonzero to close the wsi.
+	 */
 
 	/****** add new things just above ---^ ******/
 

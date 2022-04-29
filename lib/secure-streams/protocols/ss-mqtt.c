@@ -298,16 +298,189 @@ secstream_mqtt_resend(struct lws *wsi, uint8_t *buf) {
 	return 0;
 }
 
+static char *
+expand_metadata(lws_ss_handle_t *h, const char* str, const char* post, size_t max_len)
+{
+	lws_strexp_t exp = {0};
+	char* expbuf = NULL;
+	size_t used_in = 0, used_out = 0, post_len = 0;
+
+	if (post)
+		post_len = strlen(post);
+
+	if (post_len > max_len)
+		return NULL;
+
+	lws_strexp_init(&exp, (void*)h, lws_ss_exp_cb_metadata, NULL,
+			max_len - post_len);
+
+	if (lws_strexp_expand(&exp, str, strlen(str), &used_in,
+			      &used_out) != LSTRX_DONE) {
+		lwsl_err("%s, failed to expand %s", __func__, str);
+		return NULL;
+	}
+
+	expbuf = lws_malloc(used_out + 1 + post_len, __func__);
+	if (!expbuf) {
+		lwsl_err("%s, failed to allocate str_exp for %s", __func__, str);
+		return NULL;
+	}
+	lws_strexp_init(&exp, (void*)h, lws_ss_exp_cb_metadata, expbuf,
+			used_out + 1 + post_len);
+
+	if (lws_strexp_expand(&exp, str, strlen(str), &used_in,
+			      &used_out) != LSTRX_DONE) {
+		lwsl_err("%s, failed to expand str_exp %s\n", __func__, str);
+		lws_free(expbuf);
+		return NULL;
+	}
+	if (post) {
+		strcat(expbuf, post);
+	}
+
+	return expbuf;
+}
+
+static lws_mqtt_match_topic_return_t
+secstream_mqtt_is_shadow_matched(struct lws *wsi, const char *topic)
+{
+	lws_ss_handle_t *h = (lws_ss_handle_t *)lws_get_opaque_user_data(wsi);
+	const char *match[] = { LWS_MQTT_SHADOW_UNNAMED_TOPIC_MATCH,
+				LWS_MQTT_SHADOW_NAMED_TOPIC_MATCH };
+	char *expbuf = NULL;
+	unsigned int i = 0;
+	lws_mqtt_match_topic_return_t ret = LMMTR_TOPIC_NOMATCH;
+
+	if (!topic)
+		return LMMTR_TOPIC_MATCH_ERROR;
+
+	expbuf = expand_metadata(h, topic, NULL, LWS_MQTT_MAX_AWSIOT_TOPICLEN);
+	if (!expbuf) {
+		lwsl_warn("%s, failed to expand Shadow topic", __func__);
+		return LMMTR_TOPIC_MATCH_ERROR;
+	}
+	for (i = 0; i < (sizeof(match) / sizeof(match[0])); i++) {
+		if (lws_mqtt_is_topic_matched(
+				match[i], expbuf) == LMMTR_TOPIC_MATCH) {
+			ret = LMMTR_TOPIC_MATCH;
+			break;
+		}
+	}
+	lws_free(expbuf);
+
+	return ret;
+}
+
+static void
+secstream_mqtt_shadow_cleanup(struct lws *wsi)
+{
+	lws_ss_handle_t *h = (lws_ss_handle_t *)lws_get_opaque_user_data(wsi);
+	uint32_t i = 0;
+
+	for (i = 0; i < h->u.mqtt.shadow_sub.num_topics; i++) {
+		lws_free((void *)h->u.mqtt.shadow_sub.topic[i].name);
+	}
+
+	h->u.mqtt.shadow_sub.num_topics = 0;
+
+	if (h->u.mqtt.shadow_sub.topic) {
+		lws_free(h->u.mqtt.shadow_sub.topic);
+		h->u.mqtt.shadow_sub.topic = NULL;
+	}
+}
+
+static lws_ss_state_return_t
+secstream_mqtt_shadow_unsubscribe(struct lws *wsi)
+{
+	lws_ss_handle_t *h = (lws_ss_handle_t *)lws_get_opaque_user_data(wsi);
+
+	if (h->u.mqtt.shadow_sub.num_topics == 0) {
+		wsi->mqtt->send_shadow_unsubscribe = 0;
+		wsi->mqtt->inside_shadow = 0;
+		wsi->mqtt->done_shadow_subscribe = 0;
+		return LWSSSSRET_OK;
+	}
+
+	if (lws_mqtt_client_send_unsubcribe(wsi, &h->u.mqtt.shadow_sub)) {
+		lwsl_err("%s, failed to send MQTT unsubsribe", __func__);
+		return LWSSSSRET_DISCONNECT_ME;
+	}
+	/* Expect a UNSUBACK */
+	if (lws_change_pollfd(wsi, 0, LWS_POLLIN)) {
+		lwsl_err("%s: Unable to set LWS_POLLIN\n", __func__);
+		return LWSSSSRET_DISCONNECT_ME;
+	}
+	wsi->mqtt->send_shadow_unsubscribe = 0;
+
+	return LWSSSSRET_OK;
+}
+
+static int
+secstream_mqtt_shadow_subscribe(struct lws *wsi)
+{
+	lws_ss_handle_t *h = (lws_ss_handle_t *)lws_get_opaque_user_data(wsi);
+	char* expbuf = NULL;
+	const char *suffixes[] = { LWS_MQTT_SHADOW_RESP_ACCEPTED_STR,
+				   LWS_MQTT_SHADOW_RESP_REJECTED_STR };
+	unsigned int suffixes_len = sizeof(suffixes) / sizeof(suffixes[0]);
+
+	if (!h->policy->u.mqtt.topic || wsi->mqtt->inside_shadow)
+		return 0;
+
+	if (h->u.mqtt.shadow_sub.num_topics > 0)
+		secstream_mqtt_shadow_cleanup(wsi);
+
+	memset(&h->u.mqtt.shadow_sub, 0, sizeof(lws_mqtt_subscribe_param_t));
+	h->u.mqtt.shadow_sub.topic = lws_malloc(
+			sizeof(lws_mqtt_topic_elem_t) * suffixes_len, __func__);
+	if (!h->u.mqtt.shadow_sub.topic) {
+		lwsl_err("%s, failed to allocate Shadow topics", __func__);
+		return -1;
+	}
+	h->u.mqtt.shadow_sub.num_topics = suffixes_len;
+	for (unsigned int i = 0; i < suffixes_len; i++) {
+		expbuf = expand_metadata(h, h->policy->u.mqtt.topic, suffixes[i],
+					 LWS_MQTT_MAX_AWSIOT_TOPICLEN);
+		if (!expbuf) {
+			lwsl_err("%s, failed to allocate Shadow topic",
+				  __func__);
+			secstream_mqtt_shadow_cleanup(wsi);
+			return -1;
+		}
+		h->u.mqtt.shadow_sub.topic[i].name = expbuf;
+		h->u.mqtt.shadow_sub.topic[i].qos = h->policy->u.mqtt.qos;
+	}
+	h->u.mqtt.shadow_sub.packet_id = (uint16_t)(h->txord - 1);
+
+	if (lws_mqtt_client_send_subcribe(wsi, &h->u.mqtt.shadow_sub)) {
+		lwsl_notice("%s: unable to subscribe Shadow topics", __func__);
+		return 0;
+	}
+
+	/* Expect a SUBACK */
+	if (lws_change_pollfd(wsi, 0, LWS_POLLIN)) {
+		lwsl_err("%s: Unable to set LWS_POLLIN\n", __func__);
+		return -1;
+	}
+	wsi->mqtt->inside_shadow = 1;
+
+	return 0;
+}
+
 static int
 secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	     void *in, size_t len)
 {
 	lws_ss_handle_t *h = (lws_ss_handle_t *)lws_get_opaque_user_data(wsi);
-	lws_mqtt_publish_param_t *pmqpp;
-	uint8_t buf[LWS_PRE + 1400];
-	lws_ss_state_return_t r;
+	lws_mqtt_publish_param_t *pmqpp = NULL;
+	lws_ss_metadata_t *omd = NULL;
+	uint8_t buf[LWS_PRE + 1400] = {0};
+	lws_ss_state_return_t r = LWSSSSRET_OK;
 	size_t buflen = sizeof(buf) - LWS_PRE;
 	int f = 0;
+	lws_strexp_t exp = {0};
+	size_t used_in = 0, used_out = 0, topic_len = 0;
+	char* sub_topic = NULL;
 
 	switch (reason) {
 
@@ -458,14 +631,85 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		h->subseq = 1;
 
+		if (wsi->mqtt->inside_shadow) {
+			/*
+			 * When Shadow is used, the stream receives multiple
+			 * topics including Shadow response, set received
+			 * topic on the metadata
+			 */
+			lws_strexp_init(&exp, (void*)h, lws_ss_exp_cb_metadata,
+					NULL, (size_t)-1);
+
+			if (lws_strexp_expand(&exp, h->policy->u.mqtt.subscribe,
+					strlen(h->policy->u.mqtt.subscribe),
+					&used_in, &used_out) != LSTRX_DONE) {
+				lwsl_err("%s, failed to expand subscribe topic",
+					 __func__);
+				return -1;
+			}
+			omd = lws_ss_get_handle_metadata(h, exp.name);
+
+			if (!omd) {
+				lwsl_err("%s, failed to find metadata for subscribe",
+					 __func__);
+				return -1;
+			}
+			sub_topic = omd->value__may_own_heap;
+			topic_len = omd->length;
+
+			_lws_ss_set_metadata(omd, exp.name,
+					     (const void *)pmqpp->topic,
+					     pmqpp->topic_len);
+		}
+
 		r = h->info.rx(ss_to_userobj(h), (const uint8_t *)pmqpp->payload,
 			   len, f);
+
+		if (wsi->mqtt->inside_shadow) {
+			_lws_ss_set_metadata(omd, exp.name, &sub_topic,
+					     topic_len);
+		}
+
 		if (r != LWSSSSRET_OK)
 			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 
+		if (wsi->mqtt->inside_shadow) {
+			uint32_t acc_n = strlen(LWS_MQTT_SHADOW_RESP_ACCEPTED_STR);
+			uint32_t rej_n = strlen(LWS_MQTT_SHADOW_RESP_REJECTED_STR);
+
+			for (uint32_t i = 0; i < h->u.mqtt.shadow_sub.num_topics; i++) {
+				/*
+				 * received response ('/accepted' or 'rejected')
+				 * and clean up Shadow operation
+				 */
+				if (strncmp(h->u.mqtt.shadow_sub.topic[i].name,
+					    pmqpp->topic, pmqpp->topic_len) ||
+				    (strlen(pmqpp->topic) < acc_n ||
+				     strlen(pmqpp->topic) < rej_n))
+					continue;
+
+				if (!strcmp(pmqpp->topic +
+					(strlen(pmqpp->topic) - acc_n),
+					 LWS_MQTT_SHADOW_RESP_ACCEPTED_STR) ||
+				    !strcmp(pmqpp->topic +
+					(strlen(pmqpp->topic) - rej_n),
+					 LWS_MQTT_SHADOW_RESP_REJECTED_STR)) {
+					lws_sul_cancel(
+						&wsi->mqtt->sul_shadow_wait);
+					wsi->mqtt->send_shadow_unsubscribe = 1;
+					lws_callback_on_writable(wsi);
+					return 0;
+				}
+			}
+		}
 		return 0; /* don't passthru */
 
 	case LWS_CALLBACK_MQTT_SUBSCRIBED:
+		if (wsi->mqtt->inside_shadow) {
+			wsi->mqtt->done_shadow_subscribe = 1;
+			lws_callback_on_writable(wsi);
+			return 0;
+		}
 		/*
 		 * Stream demanded a subscribe without a Birth while connecting, once
 		 * done notify CONNECTED event to the application.
@@ -555,11 +799,25 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (!wsi->mqtt->done_birth && h->policy->u.mqtt.birth_topic)
 			return secstream_mqtt_birth(wsi, buf + LWS_PRE, buflen);
 
+		if (h->policy->u.mqtt.aws_iot) {
+			if (secstream_mqtt_is_shadow_matched(wsi,
+			    h->policy->u.mqtt.topic) == LMMTR_TOPIC_MATCH) {
+				if (!wsi->mqtt->done_shadow_subscribe)
+					return secstream_mqtt_shadow_subscribe(wsi);
+				if (wsi->mqtt->send_shadow_unsubscribe)
+					return secstream_mqtt_shadow_unsubscribe(wsi);
+			}
+		}
+
 		r = h->info.tx(ss_to_userobj(h),  h->txord++,  buf + LWS_PRE,
 			       &buflen, &f);
 
-		if (r == LWSSSSRET_TX_DONT_SEND)
+		if (r == LWSSSSRET_TX_DONT_SEND) {
+			if (wsi->mqtt->done_shadow_subscribe) {
+				return secstream_mqtt_shadow_unsubscribe(wsi);
+			}
 			return 0;
+		}
 
 		if (r == LWSSSSRET_DISCONNECT_ME) {
 			lws_mqtt_subscribe_param_t lmsp;
@@ -595,16 +853,47 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	case LWS_CALLBACK_MQTT_UNSUBSCRIBED:
 	{
 		struct lws *nwsi = lws_get_network_wsi(wsi);
+
+		if (wsi->mqtt->inside_shadow) {
+			secstream_mqtt_shadow_cleanup(wsi);
+			wsi->mqtt->inside_shadow = 0;
+			wsi->mqtt->done_shadow_subscribe = 0;
+			break;
+		}
 		if (nwsi && (nwsi->mux.child_count == 1))
 			lws_mqtt_client_send_disconnect(nwsi);
 		return -1;
 	}
 
 	case LWS_CALLBACK_MQTT_UNSUBSCRIBE_TIMEOUT:
+		if (!wsi || !wsi->mqtt)
+			return -1;
+
+		if (wsi->mqtt->inside_shadow) {
+			secstream_mqtt_shadow_cleanup(wsi);
+			wsi->mqtt->inside_shadow = 0;
+			wsi->mqtt->done_shadow_subscribe = 0;
+			lwsl_warn("%s: %s: Unsubscribe (Shadow) timeout.\n",
+				  __func__, lws_ss_tag(h));
+			break;
+		}
+
 		if (wsi->mqtt->inside_unsubscribe) {
-			lwsl_warn("%s: %s: Unsubscribe timout.\n", __func__,
+			lwsl_warn("%s: %s: Unsubscribe timeout.\n", __func__,
 				  lws_ss_tag(h));
 			return -1;
+		}
+		break;
+
+	case LWS_CALLBACK_MQTT_SHADOW_TIMEOUT:
+		if (!wsi || !wsi->mqtt)
+			return -1;
+
+		if (wsi->mqtt->inside_shadow) {
+			lwsl_warn("%s: %s: Shadow timeout.\n", __func__,
+				  lws_ss_tag(h));
+			wsi->mqtt->send_shadow_unsubscribe = 1;
+			lws_callback_on_writable(wsi);
 		}
 		break;
 

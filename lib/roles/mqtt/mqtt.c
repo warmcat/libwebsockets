@@ -214,13 +214,6 @@ static const uint8_t map_flags[] = {
 					  LMQCP_LUT_FLAG_PACKET_ID_NONE | 0x00,
 };
 
-void
-lws_mqttc_state_transition(lws_mqttc_t *c, lwsgs_mqtt_states_t s)
-{
-	lwsl_debug("%s: ep %p: state %d -> %d\n", __func__, c, c->estate, s);
-	c->estate = s;
-}
-
 static int
 lws_mqtt_pconsume(lws_mqtt_parser_t *par, int consumed)
 {
@@ -275,74 +268,6 @@ lws_mqtt_set_client_established(struct lws *wsi)
 	lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 
 	return 0;
-}
-
-
-static lws_mqtt_match_topic_return_t
-lws_mqtt_is_topic_matched(const char* sub, const char* pub)
-{
-	const char *ppos = pub, *spos = sub;
-
-	if (!ppos || !spos) {
-		return LMMTR_TOPIC_MATCH_ERROR;
-	}
-
-	while (*spos) {
-		if (*ppos == '#' || *ppos == '+') {
-			lwsl_err("%s: PUBLISH to wildcard "
-				 "topic \"%s\" not supported\n",
-				 __func__, pub);
-			return LMMTR_TOPIC_MATCH_ERROR;
-		}
-		/* foo/+/bar == foo/xyz/bar ? */
-		if (*spos == '+') {
-			/* Skip ahead */
-			while (*ppos != '\0' && *ppos != '/') {
-				ppos++;
-			}
-		} else if (*spos == '#') {
-			return LMMTR_TOPIC_MATCH;
-		} else {
-			if (*ppos == '\0') {
-				/* foo/bar == foo/bar/# ? */
-				if (!strncmp(spos, "/#", 2))
-					return LMMTR_TOPIC_MATCH;
-				return LMMTR_TOPIC_NOMATCH;
-			/* Non-matching character */
-			} else if (*ppos != *spos) {
-				return LMMTR_TOPIC_NOMATCH;
-			}
-			ppos++;
-		}
-		spos++;
-	}
-
-	if (*spos == '\0' && *ppos == '\0')
-		return LMMTR_TOPIC_MATCH;
-
-	return LMMTR_TOPIC_NOMATCH;
-}
-
-lws_mqtt_subs_t* lws_mqtt_find_sub(struct _lws_mqtt_related* mqtt,
-				   const char* ptopic) {
-	lws_mqtt_subs_t *s = mqtt->subs_head;
-
-	while (s) {
-		/*  SUB topic  ==   PUB topic  ? */
-		/* foo/bar/xyz ==  foo/bar/xyz ? */
-		if (!s->wildcard) {
-			if (!strcmp((const char*)s->topic, ptopic))
-				return s;
-		} else {
-			if (lws_mqtt_is_topic_matched(
-			    s->topic, ptopic) == LMMTR_TOPIC_MATCH)
-				return s;
-		}
-
-		s = s->next;
-	}
-
-	return NULL;
 }
 
 static lws_mqtt_validate_topic_return_t
@@ -475,6 +400,126 @@ lws_mqtt_client_remove_subs(struct _lws_mqtt_related *mqtt)
 		return 0;
 	}
 	return 1;
+}
+
+/*
+ * This fires if the wsi did a PUBLISH under QoS1 or QoS2, but no PUBACK or
+ * PUBREC came before the timeout period
+ */
+
+static void
+lws_mqtt_publish_resend(struct lws_sorted_usec_list *sul)
+{
+	struct _lws_mqtt_related *mqtt = lws_container_of(sul,
+			struct _lws_mqtt_related, sul_qos_puback_pubrec_wait);
+
+	lwsl_notice("%s: %s\n", __func__, lws_wsi_tag(mqtt->wsi));
+
+	if (mqtt->wsi->a.protocol->callback(mqtt->wsi, LWS_CALLBACK_MQTT_RESEND,
+				mqtt->wsi->user_space, NULL, 0))
+		lws_set_timeout(mqtt->wsi, 1, LWS_TO_KILL_ASYNC);
+}
+
+static void
+lws_mqtt_unsuback_timeout(struct lws_sorted_usec_list *sul)
+{
+	struct _lws_mqtt_related *mqtt = lws_container_of(sul,
+			struct _lws_mqtt_related, sul_unsuback_wait);
+
+	lwsl_debug("%s: %s\n", __func__, lws_wsi_tag(mqtt->wsi));
+
+	if (mqtt->wsi->a.protocol->callback(mqtt->wsi,
+					   LWS_CALLBACK_MQTT_UNSUBSCRIBE_TIMEOUT,
+					   mqtt->wsi->user_space, NULL, 0))
+		lws_set_timeout(mqtt->wsi, 1, LWS_TO_KILL_ASYNC);
+}
+
+static void
+lws_mqtt_shadow_timeout(struct lws_sorted_usec_list *sul)
+{
+	struct _lws_mqtt_related *mqtt = lws_container_of(sul,
+			struct _lws_mqtt_related, sul_shadow_wait);
+
+	lwsl_debug("%s: %s\n", __func__, lws_wsi_tag(mqtt->wsi));
+
+	if (mqtt->wsi->a.protocol->callback(mqtt->wsi,
+					    LWS_CALLBACK_MQTT_SHADOW_TIMEOUT,
+					    mqtt->wsi->user_space, NULL, 0))
+		lws_set_timeout(mqtt->wsi, 1, LWS_TO_KILL_ASYNC);
+}
+
+void
+lws_mqttc_state_transition(lws_mqttc_t *c, lwsgs_mqtt_states_t s)
+{
+	lwsl_debug("%s: ep %p: state %d -> %d\n", __func__, c, c->estate, s);
+	c->estate = s;
+}
+
+lws_mqtt_match_topic_return_t
+lws_mqtt_is_topic_matched(const char* sub, const char* pub)
+{
+	const char *ppos = pub, *spos = sub;
+
+	if (!ppos || !spos) {
+		return LMMTR_TOPIC_MATCH_ERROR;
+	}
+
+	while (*spos) {
+		if (*ppos == '#' || *ppos == '+') {
+			lwsl_err("%s: PUBLISH to wildcard "
+				 "topic \"%s\" not supported\n",
+				 __func__, pub);
+			return LMMTR_TOPIC_MATCH_ERROR;
+		}
+		/* foo/+/bar == foo/xyz/bar ? */
+		if (*spos == '+') {
+			/* Skip ahead */
+			while (*ppos != '\0' && *ppos != '/') {
+				ppos++;
+			}
+		} else if (*spos == '#') {
+			return LMMTR_TOPIC_MATCH;
+		} else {
+			if (*ppos == '\0') {
+				/* foo/bar == foo/bar/# ? */
+				if (!strncmp(spos, "/#", 2))
+					return LMMTR_TOPIC_MATCH;
+				return LMMTR_TOPIC_NOMATCH;
+			/* Non-matching character */
+			} else if (*ppos != *spos) {
+				return LMMTR_TOPIC_NOMATCH;
+			}
+			ppos++;
+		}
+		spos++;
+	}
+
+	if (*spos == '\0' && *ppos == '\0')
+		return LMMTR_TOPIC_MATCH;
+
+	return LMMTR_TOPIC_NOMATCH;
+}
+
+lws_mqtt_subs_t* lws_mqtt_find_sub(struct _lws_mqtt_related* mqtt,
+				   const char* ptopic) {
+	lws_mqtt_subs_t *s = mqtt->subs_head;
+
+	while (s) {
+		/*  SUB topic  ==   PUB topic  ? */
+		/* foo/bar/xyz ==  foo/bar/xyz ? */
+		if (!s->wildcard) {
+			if (!strcmp((const char*)s->topic, ptopic))
+				return s;
+		} else {
+			if (lws_mqtt_is_topic_matched(
+			    s->topic, ptopic) == LMMTR_TOPIC_MATCH)
+				return s;
+		}
+
+		s = s->next;
+	}
+
+	return NULL;
 }
 
 int
@@ -1910,38 +1955,6 @@ lws_mqtt_fill_fixed_header(uint8_t *p, lws_mqtt_control_packet_t ctrl_pkt_type,
 	return 0;
 }
 
-/*
- * This fires if the wsi did a PUBLISH under QoS1 or QoS2, but no PUBACK or
- * PUBREC came before the timeout period
- */
-
-static void
-lws_mqtt_publish_resend(struct lws_sorted_usec_list *sul)
-{
-	struct _lws_mqtt_related *mqtt = lws_container_of(sul,
-			struct _lws_mqtt_related, sul_qos_puback_pubrec_wait);
-
-	lwsl_notice("%s: %s\n", __func__, lws_wsi_tag(mqtt->wsi));
-
-	if (mqtt->wsi->a.protocol->callback(mqtt->wsi, LWS_CALLBACK_MQTT_RESEND,
-				mqtt->wsi->user_space, NULL, 0))
-		lws_set_timeout(mqtt->wsi, 1, LWS_TO_KILL_ASYNC);
-}
-
-static void
-lws_mqtt_unsuback_timeout(struct lws_sorted_usec_list *sul)
-{
-	struct _lws_mqtt_related *mqtt = lws_container_of(sul,
-			struct _lws_mqtt_related, sul_unsuback_wait);
-
-	lwsl_debug("%s: %s\n", __func__, lws_wsi_tag(mqtt->wsi));
-
-	if (mqtt->wsi->a.protocol->callback(mqtt->wsi,
-					   LWS_CALLBACK_MQTT_UNSUBSCRIBE_TIMEOUT,
-					   mqtt->wsi->user_space, NULL, 0))
-		lws_set_timeout(mqtt->wsi, 1, LWS_TO_KILL_ASYNC);
-}
-
 int
 lws_mqtt_client_send_publish(struct lws *wsi, lws_mqtt_publish_param_t *pub,
 			     const void *buf, uint32_t len, int is_complete)
@@ -2093,6 +2106,13 @@ do_write:
 		__lws_sul_insert_us(&pt->pt_sul_owner[wsi->conn_validity_wakesuspend],
 				    &wsi->mqtt->sul_qos_puback_pubrec_wait,
 				    3 * LWS_USEC_PER_SEC);
+	}
+
+	if (wsi->mqtt->inside_shadow) {
+		wsi->mqtt->sul_shadow_wait.cb = lws_mqtt_shadow_timeout;
+		__lws_sul_insert_us(&pt->pt_sul_owner[wsi->conn_validity_wakesuspend],
+				    &wsi->mqtt->sul_shadow_wait,
+				    60 * LWS_USEC_PER_SEC);
 	}
 
 	return 0;

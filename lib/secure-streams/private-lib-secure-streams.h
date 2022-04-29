@@ -155,6 +155,7 @@ typedef struct lws_ss_handle {
 			lws_mqtt_topic_elem_t		topic_qos;
 			lws_mqtt_topic_elem_t		sub_top;
 			lws_mqtt_subscribe_param_t 	sub_info;
+			lws_mqtt_subscribe_param_t 	shadow_sub;
 			/* allocation that must be destroyed with conn */
 			void				*heap_baggage;
 			const char			*subscribe_to;
