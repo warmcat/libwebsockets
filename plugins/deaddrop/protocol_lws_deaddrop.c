@@ -383,7 +383,7 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 	struct pss_deaddrop *pss = (struct pss_deaddrop *)user;
 	uint8_t buf[LWS_PRE + LWS_RECOMMENDED_MIN_HEADER_SPACE],
 		*start = &buf[LWS_PRE], *p = start,
-		*end = &buf[sizeof(buf) - LWS_PRE - 1];
+		*end = &buf[sizeof(buf) - 1];
 	char fname[256], *wp;
 	const char *cp;
 	int n, m, was;

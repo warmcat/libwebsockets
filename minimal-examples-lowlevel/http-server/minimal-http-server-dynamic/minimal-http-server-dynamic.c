@@ -42,7 +42,7 @@ callback_dynamic_http(struct lws *wsi, enum lws_callback_reasons reason,
 {
 	struct pss *pss = (struct pss *)user;
 	uint8_t buf[LWS_PRE + 2048], *start = &buf[LWS_PRE], *p = start,
-		*end = &buf[sizeof(buf) - LWS_PRE - 1];
+		*end = &buf[sizeof(buf) - 1];
 	time_t t;
 	int n;
 #if defined(LWS_HAVE_CTIME_R)

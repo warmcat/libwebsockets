@@ -136,7 +136,7 @@ callback_chall_http01(struct lws *wsi, enum lws_callback_reasons reason,
 	struct lws_vhost *vhost = lws_get_vhost(wsi);
 	struct acme_connection *ac = lws_vhost_user(vhost);
 	uint8_t buf[LWS_PRE + 2048], *start = &buf[LWS_PRE], *p = start,
-		*end = &buf[sizeof(buf) - LWS_PRE - 1];
+		*end = &buf[sizeof(buf) - 1];
 	int n;
 
 	switch (reason) {

@@ -65,7 +65,7 @@ callback_fts(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 					 lws_get_protocol(wsi));
 	struct pss_fts_demo *pss = (struct pss_fts_demo *)user;
 	uint8_t buf[LWS_PRE + 2048], *start = &buf[LWS_PRE], *p = start,
-		*end = &buf[sizeof(buf) - LWS_PRE - 1];
+		*end = &buf[sizeof(buf) - 1];
 	struct lws_fts_search_params params;
 	const char *ccp = (const char *)in;
 	struct lws_fts_result *result;
