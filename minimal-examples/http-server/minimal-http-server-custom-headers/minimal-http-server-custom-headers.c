@@ -37,7 +37,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	      void *user, void *in, size_t len)
 {
 	uint8_t buf[LWS_PRE + 2048], *start = &buf[LWS_PRE], *p = start,
-		*end = &buf[sizeof(buf) - LWS_PRE - 1];
+		*end = &buf[sizeof(buf) - 1];
 	struct pss *pss = (struct pss *)user;
 	char value[32], *pr = &pss->result[LWS_PRE];
 	size_t e = sizeof(pss->result) - LWS_PRE;

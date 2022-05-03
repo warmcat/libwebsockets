@@ -167,7 +167,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	      void *user, void *in, size_t len)
 {
 	char buf[LWS_PRE + 1024], *start = &buf[LWS_PRE], *p = start,
-	     *end = &buf[sizeof(buf) - LWS_PRE - 1];
+	     *end = &buf[sizeof(buf) - 1];
 	int n, idx = (int)(intptr_t)lws_get_opaque_user_data(wsi);
 	struct pss *pss = (struct pss *)user;
 

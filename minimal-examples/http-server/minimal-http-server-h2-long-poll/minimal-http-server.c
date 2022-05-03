@@ -57,7 +57,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	struct pss * pss = (struct pss *)user;
 	uint8_t buf[LWS_PRE + LWS_RECOMMENDED_MIN_HEADER_SPACE],
 		*start = &buf[LWS_PRE], *p = start,
-		*end = p + sizeof(buf) - LWS_PRE;
+		*end = buf + sizeof(buf) - 1;
 	int m, n;
 
 	switch (reason) {

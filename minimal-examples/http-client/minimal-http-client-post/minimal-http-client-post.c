@@ -30,7 +30,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 {
 	struct pss *pss = (struct pss *)user;
 	char buf[LWS_PRE + 1024], *start = &buf[LWS_PRE], *p = start,
-		*end = &buf[sizeof(buf) - LWS_PRE - 1];
+		*end = &buf[sizeof(buf) - 1];
 	int n;
 
 	switch (reason) {
