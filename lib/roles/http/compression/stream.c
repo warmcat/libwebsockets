@@ -65,7 +65,7 @@ lws_http_compression_apply(struct lws *wsi, const char *name,
 
 	for (n = 0; n < LWS_ARRAY_SIZE(lcs_available); n++) {
 		/* if name is non-NULL, choose only that compression method */
-		if (name && !strcmp(lcs_available[n]->encoding_name, name))
+		if (name && strcmp(lcs_available[n]->encoding_name, name))
 			continue;
 		/*
 		 * If we're the server, confirm that the client told us he could
