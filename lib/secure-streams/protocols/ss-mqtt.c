@@ -879,7 +879,7 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	}
 
 	case LWS_CALLBACK_MQTT_UNSUBSCRIBE_TIMEOUT:
-		if (!wsi || !wsi->mqtt)
+		if (!wsi->mqtt)
 			return -1;
 
 		if (wsi->mqtt->inside_shadow) {
@@ -899,7 +899,7 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		break;
 
 	case LWS_CALLBACK_MQTT_SHADOW_TIMEOUT:
-		if (!wsi || !wsi->mqtt)
+		if (!wsi->mqtt)
 			return -1;
 
 		if (wsi->mqtt->inside_shadow) {
