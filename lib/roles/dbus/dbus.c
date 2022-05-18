@@ -68,8 +68,8 @@ __lws_shadow_wsi(struct lws_dbus_ctx *ctx, DBusWatch *w, int fd, int create_ok)
 	if (!create_ok)
 		return NULL;
 
-	lws_context_assert_lock_held(wsi->a.context);
-	lws_vhost_assert_lock_held(wsi->a.vhost);
+	lws_context_assert_lock_held(ctx->vh->context);
+	lws_vhost_assert_lock_held(ctx->vh);
 
 	/* requires context lock */
 	wsi = __lws_wsi_create_with_role(ctx->vh->context, ctx->tsi, NULL,
@@ -155,11 +155,11 @@ lws_dbus_add_watch(DBusWatch *w, void *data)
 	int n;
 
 	lws_context_lock(pt->context, __func__);
-	lws_pt_lock(pt, __func__);
+	lws_vhost_lock(ctx->vh);
 
 	wsi = __lws_shadow_wsi(ctx, w, dbus_watch_get_unix_fd(w), 1);
+	lws_vhost_unlock(ctx->vh);
 	if (!wsi) {
-		lws_pt_unlock(pt);
 		lws_context_unlock(pt->context);
 		lwsl_err("%s: unable to get wsi\n", __func__);
 
@@ -191,9 +191,9 @@ lws_dbus_add_watch(DBusWatch *w, void *data)
 		  data, lws_flags);
 
 	if (lws_flags)
+		/* does its own pt lock */
 		__lws_change_pollfd(wsi, 0, (int)lws_flags);
 
-	lws_pt_unlock(pt);
 	lws_context_unlock(pt->context);
 
 	return TRUE;
@@ -237,9 +237,10 @@ lws_dbus_remove_watch(DBusWatch *w, void *data)
 	int n;
 
 	lws_context_lock(pt->context, __func__);
-	lws_pt_lock(pt, __func__);
+	lws_vhost_lock(ctx->vh);
 
 	wsi = __lws_shadow_wsi(ctx, w, dbus_watch_get_unix_fd(w), 0);
+	lws_vhost_unlock(ctx->vh);
 	if (!wsi)
 		goto bail;
 
@@ -262,10 +263,10 @@ lws_dbus_remove_watch(DBusWatch *w, void *data)
 		  __func__, w, dbus_watch_get_unix_fd(w),
 		  data, lws_flags);
 
+	/* does its own pt lock */
 	__lws_change_pollfd(wsi, (int)lws_flags, 0);
 
 bail:
-	lws_pt_unlock(pt);
 	lws_context_unlock(pt->context);
 }
 
