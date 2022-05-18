@@ -665,6 +665,10 @@ just_kill_connection:
 			case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
 			case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
 			case LWS_SSL_CAPABLE_MORE_SERVICE:
+				if (wsi->lsp_channel++ == 8) {
+					lwsl_wsi_info(wsi, "avoiding shutdown spin");
+					lwsi_set_state(wsi, LRS_SHUTDOWN);
+				}
 				break;
 			}
 		} else
