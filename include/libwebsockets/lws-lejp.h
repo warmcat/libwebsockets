@@ -178,16 +178,16 @@ LWS_EXTERN signed char _lejp_callback(struct lejp_ctx *ctx, char reason);
 typedef signed char (*lejp_callback)(struct lejp_ctx *ctx, char reason);
 
 #ifndef LEJP_MAX_PARSING_STACK_DEPTH
-#define LEJP_MAX_PARSING_STACK_DEPTH 5
+#define LEJP_MAX_PARSING_STACK_DEPTH 8
 #endif
 #ifndef LEJP_MAX_DEPTH
-#define LEJP_MAX_DEPTH 12
+#define LEJP_MAX_DEPTH 16
 #endif
 #ifndef LEJP_MAX_INDEX_DEPTH
-#define LEJP_MAX_INDEX_DEPTH 8
+#define LEJP_MAX_INDEX_DEPTH 12
 #endif
 #ifndef LEJP_MAX_PATH
-#define LEJP_MAX_PATH 128
+#define LEJP_MAX_PATH 192
 #endif
 #ifndef LEJP_STRING_CHUNK
 /* must be >= 30 to assemble floats */
