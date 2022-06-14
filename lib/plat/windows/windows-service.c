@@ -41,11 +41,12 @@ _lws_plat_service_forced_tsi(struct lws_context *context, int tsi)
 		if (!pt->fds[n].revents)
 			continue;
 
+               unsigned int fds_count = pt->fds_count;
 		m = lws_service_fd_tsi(context, &pt->fds[n], tsi);
 		if (m < 0)
 			return -1;
-		/* if something closed, retry this slot */
-		if (m)
+               /* if something closed, fds_count will change, retry this slot */
+               if (pt->fds_count != fds_count)
 			n--;
 	}
 
