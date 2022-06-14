@@ -1856,7 +1856,7 @@ lws_http_action(struct lws *wsi)
 		pp = lws_vhost_name_to_protocol(wsi->a.vhost, name);
 		if (!pp) {
 			lwsl_err("Unable to find plugin '%s'\n",
-				 hit->origin);
+				 name);
 			return 1;
 		}
 
