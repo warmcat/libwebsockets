@@ -163,7 +163,7 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2))
 			set_property(
 				TARGET test-server-extpoll
 				PROPERTY COMPILE_DEFINITIONS 
-					EXTERNAL_POLL 
+					LWS_WITH_EXTERNAL_POLL
 					INSTALL_DATADIR="${CMAKE_INSTALL_PREFIX}/share"
 				)
 
