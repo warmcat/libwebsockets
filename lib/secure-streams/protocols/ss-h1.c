@@ -313,7 +313,7 @@ static int
 lws_extract_metadata(lws_ss_handle_t *h, struct lws *wsi)
 {
 	lws_ss_metadata_t *polmd = h->policy->metadata, *omd;
-	int n, m = 0;
+	int n;
 
 	while (polmd) {
 
@@ -410,7 +410,6 @@ lws_extract_metadata(lws_ss_handle_t *h, struct lws *wsi)
 			}
 #endif
 
-		m++;
 		polmd = polmd->next;
 	}
 
