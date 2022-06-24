@@ -899,8 +899,9 @@ __lws_close_free_wsi_final(struct lws *wsi)
 			lwsl_wsi_debug(wsi, "closing: close ret %d", LWS_ERRNO);
 
 		__remove_wsi_socket_from_fds(wsi);
-		if (lws_socket_is_valid(wsi->desc.sockfd))
+		if (lws_socket_is_valid(wsi->desc.sockfd)) {
 			delete_from_fd(wsi->a.context, wsi->desc.sockfd);
+		}
 
 #if !defined(LWS_PLAT_FREERTOS) && !defined(WIN32) && !defined(LWS_PLAT_OPTEE)
 		delete_from_fdwsi(wsi->a.context, wsi);
