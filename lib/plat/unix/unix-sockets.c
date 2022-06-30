@@ -198,7 +198,7 @@ static const int ip_opt_lws_flags[] = {
 #endif
 }, ip_opt_val[] = {
 	IPTOS_LOWDELAY, IPTOS_THROUGHPUT, IPTOS_RELIABILITY
-#if !defined(__OpenBSD__) && !defined(__sun)
+#if !defined(__OpenBSD__) && !defined(__sun) && !defined(__QNX__)
 	, IPTOS_MINCOST
 #endif
 };
