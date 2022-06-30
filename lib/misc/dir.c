@@ -131,7 +131,7 @@ lws_dir(const char *dirpath, void *user, lws_dir_callback_function cb)
 	}
 
 	for (i = 0; i < n; i++) {
-#if !defined(__sun)
+#if !defined(__sun) && !defined(__QNX__)
 		unsigned int type = namelist[i]->d_type;
 #endif
 		if (strchr(namelist[i]->d_name, '~'))
@@ -143,7 +143,7 @@ lws_dir(const char *dirpath, void *user, lws_dir_callback_function cb)
 		 * files are LDOT_UNKNOWN
 		 */
 
-#if defined(__sun)
+#if defined(__sun) || defined(__QNX__)
 		lws_dir_via_stat(combo, l, namelist[i]->d_name, &lde);
 #else
 		/*
