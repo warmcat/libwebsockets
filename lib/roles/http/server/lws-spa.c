@@ -438,12 +438,12 @@ done:
 
 		case MT_IGNORE3:
 			if (*in == '\x0d')
-				s->state = MT_IGNORE1;
-			else if (*in == '-') {
+				s->state = MT_IGNORE2;
+			if (*in == '-') {
 				s->state = MT_COMPLETED;
 				s->wsi->http.rx_content_remain = 0;
 			}
-			else in++;
+			in++;
 			break;
 		case MT_COMPLETED:
 			break;
