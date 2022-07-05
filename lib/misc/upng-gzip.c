@@ -586,7 +586,10 @@ _lws_upng_inflate_data(inflator_ctx_t *inf)
 				return r;
 			count = tu + 3;
 
-			if ((inf->i - 1) < inf->hlit)
+			if (!inf->i) /* from google fuzzer */
+				return LWS_SRET_FATAL + 29;
+
+			if (inf->i - 1 < inf->hlit)
 				val = inf->bitlen[inf->i - 1];
 			else
 				val = inf->bitlenD[inf->i - inf->hlit - 1];
