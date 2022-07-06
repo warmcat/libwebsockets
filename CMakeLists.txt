@@ -882,7 +882,7 @@ endif()
 #
 # ZLIB (needed for deflate extension and if LWS_WITH_HTTP_STREAM_COMPRESSION)
 #
-if (LWS_WITH_ZLIB)
+if (LWS_WITH_ZLIB AND NOT LWS_WITH_BUNDLED_ZLIB)
 	if (NOT ZLIB_FOUND)
 		if (LWS_WITH_MINIZ)
 			find_package(Miniz REQUIRED)
