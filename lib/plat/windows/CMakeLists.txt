@@ -82,7 +82,7 @@ endif()
 set(WIN32_HELPERS_PATH ../win32port/win32helpers)
 
 # from our perspective in ./lib/plat/windows
-include_directories(../../${WIN32_HELPERS_PATH})
+include_directories(../../${WIN32_HELPERS_PATH}../../${WIN32_HELPERS_PATH}/zlib)
 
 list(APPEND SOURCES
 	${WIN32_HELPERS_PATH}/gettimeofday.c
