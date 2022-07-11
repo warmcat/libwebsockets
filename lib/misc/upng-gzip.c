@@ -242,18 +242,31 @@ huffman_tree_init(htree_t *tree, huff_t *buffer, uint16_t numcodes,
 static lws_stateful_ret_t
 huffman_tree_create_lengths(htree_t *tree, const unsigned *bitlen)
 {
-	unsigned int tree1d[MAX_SYMBOLS], blcount[MAX_BIT_LENGTH],
-		     nextcode[MAX_BIT_LENGTH + 1];
-	unsigned int bits, n, i, nodefilled = 0, treepos = 0;
+	unsigned int tree1d[NUM_DEFLATE_CODE_SYMBOLS], /* sized to worst */
+		     blcount[NUM_DEFLATE_CODE_SYMBOLS], /* sized to worst */
+		     nextcode[MAX_BIT_LENGTH + 1], bits, n, i,
+		     nodefilled = 0, treepos = 0;
 
 	memset(blcount, 0, sizeof(blcount));
 	memset(nextcode, 0, sizeof(nextcode));
 
-	for (bits = 0; bits < tree->numcodes; bits++)
+	assert(tree->numcodes <= LWS_ARRAY_SIZE(blcount));
+
+	for (bits = 0; bits < tree->numcodes; bits++) {
+		/* any counts exceeding our private buffer length are fatal */
+		if (bitlen[bits] >= LWS_ARRAY_SIZE(blcount))
+			return LWS_SRET_FATAL + 1;
+
 		blcount[bitlen[bits]]++;
+	}
+
+	assert(tree->maxbitlen && tree->maxbitlen - 1u <= LWS_ARRAY_SIZE(blcount));
+	assert(tree->maxbitlen - 1u <= LWS_ARRAY_SIZE(nextcode));
 
 	for (bits = 1; bits <= (unsigned int)tree->maxbitlen; bits++)
 		nextcode[bits] = (nextcode[bits - 1] + blcount[bits - 1]) << 1;
+
+	assert(tree->numcodes <= LWS_ARRAY_SIZE(tree1d));
 
 	for (n = 0; n < tree->numcodes; n++)
 		if (bitlen[n])
