@@ -664,6 +664,8 @@ ZEXTERN int ZEXPORT deflateParams OF((z_streamp strm,
    strm->avail_out was zero.
 */
 
+ZEXTERN int ZEXPORT deflatePending OF((z_streamp strm, unsigned *pending, int *bits));
+
 ZEXTERN int ZEXPORT deflateTune OF((z_streamp strm,
                                     int good_length,
                                     int max_lazy,
