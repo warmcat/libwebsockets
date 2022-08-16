@@ -160,15 +160,6 @@ enum lws_callback_reasons {
 	 * the default callback action of returning 0 allows the client
 	 * certificates. */
 
-	LWS_CALLBACK_OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY	= 37,
-	/**< if configured for including OpenSSL support but no private key
-	 * file has been specified (ssl_private_key_filepath is NULL), this is
-	 * called to allow the user to set the private key directly via
-	 * libopenssl and perform further operations if required; this might be
-	 * useful in situations where the private key is not directly accessible
-	 * by the OS, for example if it is stored on a smartcard.
-	 * user is the server's OpenSSL SSL_CTX* */
-
 	LWS_CALLBACK_SSL_INFO					= 67,
 	/**< SSL connections only.  An event you registered an
 	 * interest in at the vhost has occurred on a connection
