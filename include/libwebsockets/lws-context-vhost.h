@@ -390,10 +390,15 @@ struct lws_context_creation_info {
 	 */
 	const char *ssl_private_key_filepath;
 	/**<  VHOST: filepath to private key if wanting SSL mode;
-	 * if this is set to NULL but ssl_cert_filepath is set, the
-	 * OPENSSL_CONTEXT_REQUIRES_PRIVATE_KEY callback is called
-	 * to allow setting of the private key directly via openSSL
-	 * library calls.   (For backwards compatibility, this can also be used
+	 * this should not be set to NULL when ssl_cert_filepath is set.
+	 *
+	 * Alteratively, the certificate and private key can both be set in
+	 * the OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS callback directly via
+	 * openSSL library calls.  This requires that
+	 * LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX is set in the vhost info options
+	 * to force initializtion of the SSL_CTX context.
+	 *
+	 * (For backwards compatibility, this can also be used
 	 * to pass the client cert private key filepath when setting up a
 	 * vhost client SSL context, but it is preferred to use
 	 * .client_ssl_private_key_filepath for that.)
