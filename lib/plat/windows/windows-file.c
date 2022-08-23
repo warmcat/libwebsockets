@@ -42,13 +42,12 @@ _lws_plat_file_open(const struct lws_plat_file_ops *fops, const char *filename,
 	LARGE_INTEGER llFileSize = {0};
 
 	MultiByteToWideChar(CP_UTF8, 0, filename, -1, buf, LWS_ARRAY_SIZE(buf));
-	if (((*flags) & 7) == _O_RDONLY) {
-		ret = CreateFileW(buf, GENERIC_READ, FILE_SHARE_READ,
-			  NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-	} else {
+	if (((*flags) & 7) == _O_RDONLY)
+		ret = CreateFileW(buf, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+				  NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	else
 		ret = CreateFileW(buf, GENERIC_WRITE, 0, NULL,
-			  CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-	}
+				  CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 
 	if (ret == NULL)
 		goto bail;
