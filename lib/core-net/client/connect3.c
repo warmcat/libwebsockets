@@ -109,38 +109,33 @@ lws_client_connect_check(struct lws *wsi, int *real_errno)
 	}
 
 #else
+	fd_set write_set;
+	struct timeval tv;
+	int ret;
 
-	if (!connect(wsi->desc.sockfd, (const struct sockaddr *)&wsi->sa46_peer.sa4,
-#if defined(WIN32)
-				sizeof(struct sockaddr)))
-#else
-				0))
-#endif
+	FD_ZERO(&write_set);
+	FD_SET(wsi->desc.sockfd, &write_set);
+
+	tv.tv_sec = 0;
+	tv.tv_usec = 1;
+
+	ret = select(wsi->desc.sockfd + 1, NULL, &write_set, NULL, &tv);
+	if (ret > 0) {
+		lwsl_wsi_debug(wsi, "conn OK");
 
 		return LCCCR_CONNECTED;
-
-	en = LWS_ERRNO;
-
-	if (en == WSAEISCONN) /* already connected */
-		return LCCCR_CONNECTED;
-
-	if (en == WSAEALREADY) {
-		/* reset the POLLOUT wait */
-		if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
-			lwsl_wsi_notice(wsi, "pollfd failed");
 	}
 
-	if (!en || en == WSAEINVAL ||
-		   en == WSAEWOULDBLOCK ||
-		   en == WSAEALREADY) {
-		lwsl_wsi_debug(wsi, "%s",
-				lws_errno_describe(en, t16, sizeof(t16)));
+	if (!ret) {
+	    lwsl_wsi_debug(wsi, "select timeout");
 
 		return LCCCR_CONTINUE;
 	}
+
+	en = LWS_ERRNO;
 #endif
 
-	lwsl_wsi_notice(wsi, "connect check FAILED: %s",
+	lwsl_wsi_notice(wsi, "connection check FAILED: %s",
 			lws_errno_describe(*real_errno || en, t16, sizeof(t16)));
 
 	return LCCCR_FAILED;
