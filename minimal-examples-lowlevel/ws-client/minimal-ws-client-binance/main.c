@@ -312,9 +312,9 @@ do_retry:
 	 * For this example, we try to conceal any problem for one set of
 	 * backoff retries and then exit the app.
 	 *
-	 * If you set retry.conceal_count to be larger than the number of
-	 * elements in the backoff table, it will never give up and keep
-	 * retrying at the last backoff delay plus the random jitter amount.
+	 * If you set retry.conceal_count to be LWS_RETRY_CONCEAL_ALWAYS,
+	 * it will never give up and keep retrying at the last backoff
+	 * delay plus the random jitter amount.
 	 */
 	if (lws_retry_sul_schedule_retry_wsi(wsi, &mco->sul, connect_client,
 					     &mco->retry_count)) {
