@@ -581,6 +581,9 @@ just_kill_connection:
 #endif
 
 	lws_sul_cancel(&wsi->sul_connect_timeout);
+#if defined(WIN32)
+	lws_sul_cancel(&wsi->win32_sul_connect_async_check);
+#endif
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 	lws_async_dns_cancel(wsi);
 #endif

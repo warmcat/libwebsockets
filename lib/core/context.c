@@ -1059,12 +1059,20 @@ lws_create_context(const struct lws_context_creation_info *info)
 	}
 
 #endif
+
+	context->timeout_secs = 15;
+
 #if defined(LWS_WITH_NETWORK)
+#if defined(WIN32)
+	if (!info->win32_connect_check_interval_usec)
+		context->win32_connect_check_interval_usec = 1000;
+	else
+		context->win32_connect_check_interval_usec =
+				info->win32_connect_check_interval_usec;
+#endif
 	if (info->timeout_secs)
 		context->timeout_secs = info->timeout_secs;
-	else
-#endif
-		context->timeout_secs = 15;
+#endif /* WITH_NETWORK */
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	if (info->max_http_header_data)

@@ -24,6 +24,30 @@
 
 #include "private-lib-core.h"
 
+#if defined(WIN32)
+
+/*
+ * Windows doesn't offer a Posix connect() event... we use a sul
+ * to check the connection status periodically while a connection
+ * is ongoing.
+ *
+ * Leaving this to POLLOUT to retry which is the way for Posix
+ * platforms instead on win32 causes event-loop busywaiting
+ * so for win32 we manage the retry interval directly with the sul.
+ */
+
+void
+lws_client_win32_conn_async_check(lws_sorted_usec_list_t *sul)
+{
+	struct lws *wsi = lws_container_of(sul, struct lws,
+					   win32_sul_connect_async_check);
+
+	lwsl_wsi_debug(wsi, "checking ongoing connection attempt");
+	lws_client_connect_3_connect(wsi, NULL, NULL, 0, NULL);
+}
+
+#endif
+
 void
 lws_client_conn_wait_timeout(lws_sorted_usec_list_t *sul)
 {
@@ -107,40 +131,41 @@ lws_client_connect_check(struct lws *wsi, int *real_errno)
 
 		return LCCCR_FAILED;
 	}
-
 #else
+	fd_set write_set, except_set;
+	struct timeval tv;
+	int ret;
 
-	if (!connect(wsi->desc.sockfd, (const struct sockaddr *)&wsi->sa46_peer.sa4,
-#if defined(WIN32)
-				sizeof(struct sockaddr)))
-#else
-				0))
-#endif
+	FD_ZERO(&write_set);
+	FD_ZERO(&except_set);
+	FD_SET(wsi->desc.sockfd, &write_set);
+	FD_SET(wsi->desc.sockfd, &except_set);
 
+	tv.tv_sec = 0;
+	tv.tv_usec = 0;
+
+	ret = select((int)wsi->desc.sockfd + 1, NULL, &write_set, &except_set, &tv);
+	if (FD_ISSET(wsi->desc.sockfd, &write_set)) {
+		/* actually connected */
+		lwsl_wsi_debug(wsi, "select write fd set, conn OK");
 		return LCCCR_CONNECTED;
-
-	en = LWS_ERRNO;
-
-	if (en == WSAEISCONN) /* already connected */
-		return LCCCR_CONNECTED;
-
-	if (en == WSAEALREADY) {
-		/* reset the POLLOUT wait */
-		if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
-			lwsl_wsi_notice(wsi, "pollfd failed");
 	}
 
-	if (!en || en == WSAEINVAL ||
-		   en == WSAEWOULDBLOCK ||
-		   en == WSAEALREADY) {
-		lwsl_wsi_debug(wsi, "%s",
-				lws_errno_describe(en, t16, sizeof(t16)));
+	if (FD_ISSET(wsi->desc.sockfd, &except_set)) {
+		/* Failed to connect */
+		lwsl_wsi_notice(wsi, "connect failed, select exception fd set");
+		return LCCCR_FAILED;
+	}
 
+	if (!ret) {
+		lwsl_wsi_debug(wsi, "select timeout");
 		return LCCCR_CONTINUE;
 	}
+
+	en = LWS_ERRNO;
 #endif
 
-	lwsl_wsi_notice(wsi, "connect check FAILED: %s",
+	lwsl_wsi_notice(wsi, "connection check FAILED: %s",
 			lws_errno_describe(*real_errno || en, t16, sizeof(t16)));
 
 	return LCCCR_FAILED;
@@ -261,7 +286,14 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 			 */
 			goto conn_good;
 		case LCCCR_CONTINUE:
+#if defined(WIN32)
+			lws_sul_schedule(wsi->a.context, 0, &wsi->win32_sul_connect_async_check,
+				lws_client_win32_conn_async_check,
+				wsi->a.context->win32_connect_check_interval_usec);
+#endif
+
 			return NULL;
+
 		default:
 			if (!real_errno)
 				real_errno = LWS_ERRNO;
@@ -627,13 +659,25 @@ ads_known:
 				 lws_client_conn_wait_timeout,
 				 wsi->a.context->timeout_secs *
 						 LWS_USEC_PER_SEC);
-
+#if defined(WIN32)
 		/*
-		 * must do specifically a POLLOUT poll to hear
-		 * about the connect completion
+		 * Windows is not properly POSIX, we have to manually schedule a
+		 * callback to poll checking its status
 		 */
+
+		lws_sul_schedule(wsi->a.context, 0, &wsi->win32_sul_connect_async_check,
+				 lws_client_win32_conn_async_check,
+				 wsi->a.context->win32_connect_check_interval_usec
+		);
+#else
+		/*
+		 * POSIX platforms must do specifically a POLLOUT poll to hear
+		 * about the connect completion as a POLLOUT event
+		 */
+
 		if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
 			goto try_next_dns_result_fds;
+#endif
 
 		return wsi;
 	}
@@ -673,8 +717,10 @@ conn_good:
 #endif
 	}
 #endif
-
 	lws_sul_cancel(&wsi->sul_connect_timeout);
+#if defined(WIN32)
+	lws_sul_cancel(&wsi->win32_sul_connect_async_check);
+#endif
 	lws_metrics_caliper_report(wsi->cal_conn, METRES_GO);
 
 	lws_addrinfo_clean(wsi);
@@ -745,6 +791,9 @@ try_next_dns_result_closesock:
 
 try_next_dns_result:
 	lws_sul_cancel(&wsi->sul_connect_timeout);
+#if defined(WIN32)
+	lws_sul_cancel(&wsi->win32_sul_connect_async_check);
+#endif
 	if (lws_dll2_get_head(&wsi->dns_sorted_list))
 		goto next_dns_result;
 
