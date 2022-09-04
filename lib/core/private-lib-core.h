@@ -737,6 +737,9 @@ struct lws_context {
 	int fd_random;
 	int count_cgi_spawned;
 #endif
+#if defined(WIN32)
+	unsigned int win32_connect_check_interval_usec;
+#endif
 
 	unsigned int fd_limit_per_thread;
 	unsigned int timeout_secs;

@@ -941,6 +941,14 @@ struct lws_context_creation_info {
 	 */
 #endif
 
+#if defined(WIN32)
+	unsigned int win32_connect_check_interval_usec;
+	/**< CONTEXT: win32 needs client connection status checking at intervals
+	 * to work reliably.  This sets the interval in us, up to 999999.  By
+	 * default, it's 500us.
+	 */
+#endif
+
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
 	 *
