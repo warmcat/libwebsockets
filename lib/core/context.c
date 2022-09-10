@@ -1065,7 +1065,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if defined(LWS_WITH_NETWORK)
 #if defined(WIN32)
 	if (!info->win32_connect_check_interval_usec)
-		context->win32_connect_check_interval_usec = 500;
+		context->win32_connect_check_interval_usec = 1000;
 	else
 		context->win32_connect_check_interval_usec =
 				info->win32_connect_check_interval_usec;
