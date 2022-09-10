@@ -142,7 +142,7 @@ lws_client_connect_check(struct lws *wsi, int *real_errno)
 	FD_SET(wsi->desc.sockfd, &except_set);
 
 	tv.tv_sec = 0;
-	tv.tv_usec = 1;
+	tv.tv_usec = 0;
 
 	ret = select((int)wsi->desc.sockfd + 1, NULL, &write_set, &except_set, &tv);
 	if (FD_ISSET(wsi->desc.sockfd, &write_set)) {
