@@ -47,10 +47,6 @@ extern "C" {
 #include <stdlib.h>
 
 
-#if defined(LWS_SUPPRESS_DEPRECATED_API_WARNINGS)
-#define OPENSSL_USE_DEPRECATED
-#endif
-
 /* place for one-shot opaque forward references */
 
 typedef struct lws_context * lws_ctx_t;

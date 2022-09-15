@@ -34,6 +34,10 @@
  #define  _GNU_SOURCE
 #endif
 
+#if defined(LWS_SUPPRESS_DEPRECATED_API_WARNINGS)
+#define OPENSSL_SUPPRESS_DEPRECATED
+#endif
+
 /*
 #if !defined(_POSIX_C_SOURCE)
 #define _POSIX_C_SOURCE 200112L
