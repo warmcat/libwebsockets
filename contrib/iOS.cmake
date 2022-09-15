@@ -17,8 +17,6 @@
 #   By default this location is automatcially chosen based on the CMAKE_IOS_DEVELOPER_ROOT value.
 #   In this case it will always be the most up-to-date SDK found in the CMAKE_IOS_DEVELOPER_ROOT path.
 #   If set manually, this will force the use of a specific SDK version
-#
-# IOS_BITCODE = 1/0: Enable bitcode or not. Only iOS >= 6.0 device build can enable bitcode. Default is enabled.
 
 # Macros:
 #
@@ -37,11 +35,6 @@ set(CMAKE_CROSSCOMPILING TRUE)
 set (UNIX TRUE)
 set (APPLE TRUE)
 set (IOS TRUE)
-
-if(NOT DEFINED IOS_BITCODE) # check xcode/clang version? since xcode 7
-  set(IOS_BITCODE 1)
-endif()
-set(IOS_BITCODE_MARKER 0)
 
 # Required as of cmake 2.8.10
 set (CMAKE_OSX_DEPLOYMENT_TARGET "" CACHE STRING "Force unset of the deployment target for iOS" FORCE)
@@ -71,20 +64,14 @@ set (CMAKE_SHARED_MODULE_SUFFIX ".so")
 set (CMAKE_MODULE_EXISTS 1)
 set (CMAKE_DL_LIBS "")
 
-if(IOS_BITCODE)
-    set(BITCODE_FLAGS "-fembed-bitcode")
-  elseif(IOS_BITCODE_MARKER)
-    set(BITCODE_FLAGS "-fembed-bitcode-marker")
-  endif()
-
 set (CMAKE_C_OSX_COMPATIBILITY_VERSION_FLAG "-compatibility_version ")
 set (CMAKE_C_OSX_CURRENT_VERSION_FLAG "-current_version ")
 set (CMAKE_CXX_OSX_COMPATIBILITY_VERSION_FLAG "${CMAKE_C_OSX_COMPATIBILITY_VERSION_FLAG}")
 set (CMAKE_CXX_OSX_CURRENT_VERSION_FLAG "${CMAKE_C_OSX_CURRENT_VERSION_FLAG}")
 
 # Hidden visibilty is required for cxx on iOS 
-set (CMAKE_C_FLAGS_INIT "${BITCODE_FLAGS}")
-set (CMAKE_CXX_FLAGS_INIT "-fvisibility=hidden -fvisibility-inlines-hidden ${BITCODE_FLAGS}")
+set (CMAKE_C_FLAGS_INIT)
+set (CMAKE_CXX_FLAGS_INIT "-fvisibility=hidden -fvisibility-inlines-hidden")
 
 set (CMAKE_C_LINK_FLAGS "-Wl,-search_paths_first ${CMAKE_C_LINK_FLAGS}")
 set (CMAKE_CXX_LINK_FLAGS "-Wl,-search_paths_first ${CMAKE_CXX_LINK_FLAGS}")
