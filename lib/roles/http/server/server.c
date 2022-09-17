@@ -1564,8 +1564,6 @@ lws_http_redirect_hit(struct lws_context_per_thread *pt, struct lws *wsi,
 				    lws_hdr_simple_ptr(wsi,
 						WSI_TOKEN_HTTP_COLON_AUTHORITY),
 				    uri_ptr);
-#else
-				;
 #endif
 			} else
 				n = lws_snprintf((char *)end, 256,
