@@ -19,7 +19,7 @@ if (requirements)
 	
 	find_program(VALGRIND "valgrind")
 
-	if (LWS_CTEST_INTERNET_AVAILABLE)
+	if (LWS_CTEST_INTERNET_AVAILABLE AND DISABLE_IT_DUE_TO_JIG_ROT)
 		if (VALGRIND)
 			add_test(NAME sspost-warmcat COMMAND
 				${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
