@@ -1371,6 +1371,7 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 	 * directly, otherwise we must convert h2 :authority to h1
 	 * host */
 
+#if 0
 	i.host = NULL;
 #if defined(LWS_ROLE_H2)
 	n = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_AUTHORITY);
@@ -1383,6 +1384,8 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 		if (n > 0)
 			i.host = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST);
 	}
+#endif
+	i.host = i.address;
 
 #if 0
 	if (i.address[0] != '+' ||
