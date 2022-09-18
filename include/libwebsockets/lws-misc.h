@@ -763,8 +763,10 @@ lws_rx_flow_allow_all_protocol(const struct lws_context *context,
  * ws, it is legal to not know the length of the message before it completes.
  *
  * Additionally if the message is sent via the negotiated permessage-deflate
- * extension, this number only tells the amount of **compressed** data left to
- * be read, since that is the only information available at the ws layer.
+ * extension, zero is always reported.  You should use lws_is_final_fragment()
+ * to find out if you have completed the message... in compressed case, it holds
+ * back reporting the final fragment until it's also the final decompressed
+ * block issued.
  */
 LWS_VISIBLE LWS_EXTERN size_t
 lws_remaining_packet_payload(struct lws *wsi);
