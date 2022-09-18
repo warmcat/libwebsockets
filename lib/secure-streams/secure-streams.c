@@ -181,7 +181,8 @@ const uint32_t ss_state_txn_validity[] = {
 					  (1 << LWSSSCS_TIMEOUT) |
 					  (1 << LWSSSCS_DESTROYING),
 
-	[LWSSSCS_SERVER_UPGRADE]	= (1 << LWSSSCS_SERVER_TXN) |
+	[LWSSSCS_SERVER_UPGRADE]	= (1 << LWSSSCS_SERVER_UPGRADE) |
+                      (1 << LWSSSCS_SERVER_TXN) |
 					  (1 << LWSSSCS_TIMEOUT) |
 					  (1 << LWSSSCS_DISCONNECTED) |
 					  (1 << LWSSSCS_DESTROYING),
