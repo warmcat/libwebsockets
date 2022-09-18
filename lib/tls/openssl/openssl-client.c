@@ -389,13 +389,15 @@ lws_ssl_client_bio_create(struct lws *wsi)
     defined(LWS_HAVE_SSL_get0_alpn_selected)
 	if (wsi->a.vhost->tls.alpn)
 		alpn_comma = wsi->a.vhost->tls.alpn;
-	if (wsi->stash)
+	if (wsi->stash) {
 		alpn_comma = wsi->stash->cis[CIS_ALPN];
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-	if (lws_hdr_copy(wsi, hostname, sizeof(hostname),
-			 _WSI_TOKEN_CLIENT_ALPN) > 0)
-		alpn_comma = hostname;
+	} else {
+		if (lws_hdr_copy(wsi, hostname, sizeof(hostname),
+				 _WSI_TOKEN_CLIENT_ALPN) > 0)
+			alpn_comma = hostname;
 #endif
+	}
 
 	lwsl_info("%s client conn using alpn list '%s'\n", wsi->role_ops->name, alpn_comma);
 
