@@ -39,7 +39,7 @@ if (requirements)
 
 	# ctest
 
-	if (LWS_CTEST_INTERNET_AVAILABLE AND NOT WIN32)
+	if (LWS_CTEST_INTERNET_AVAILABLE AND NOT WIN32 AND DISABLE_IT_DUE_TO_JIG_ROT)
 
 		# the direct selftest
 
