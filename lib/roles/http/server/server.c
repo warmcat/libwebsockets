@@ -479,8 +479,9 @@ _lws_vhost_init_server(const struct lws_context_creation_info *info,
 	      (vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE))) {
 #endif
 		a.af = AF_INET;
-		if (_lws_vhost_init_server_af(&a))
-			return 1;
+		int n = _lws_vhost_init_server_af(&a);
+		if (n)
+			return n;
 
 #if defined(LWS_WITH_IPV6)
 	}
