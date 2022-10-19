@@ -1805,9 +1805,9 @@ lws_pt_destroy(struct lws_context_per_thread *pt)
 		pt->pipe_wsi = NULL;
 	}
 
-	if (pt->dummy_pipe_fds[0]
+	if ((pt->dummy_pipe_fds[0] || pt->dummy_pipe_fds[1])
 #if !defined(WIN32)
-	    && (int)pt->dummy_pipe_fds[0] != -1
+	    && ((int)pt->dummy_pipe_fds[0] != -1 || (int)pt->dummy_pipe_fds[1] != -1)
 #endif
 	) {
 		struct lws wsi;
