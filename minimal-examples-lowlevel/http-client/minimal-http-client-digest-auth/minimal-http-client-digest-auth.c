@@ -1,12 +1,12 @@
 /*
- * lws-minimal-http-client
+ * lws-minimal-http-client-digest-auth
  *
- * Written in 2010-2021 by Andy Green <andy@warmcat.com>
+ * Written in 2010-2022 by Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
  *
- * This demonstrates the a minimal http client using lws.
+ * This demonstrates the a minimal http client using lws with digest authentification.
  *
  * It visits https://warmcat.com/ and receives the html page there.  You
  * can dump the page data by changing the #if 0 below.
@@ -24,7 +24,7 @@ static int interrupted, bad = 1, status;
 int last_try = 0;
 
 static struct lws *client_wsi;
-struct lws_client_connect_info i;
+struct lws_client_connect_info connect_info;
 char *www_authenticate_buffer = NULL;
 int auth_type = 0;
 char path[512];
@@ -549,7 +549,7 @@ int output_digest(struct lws *wsi, char *http_req, char *uri, char *user,
 static void lws_try_client_connection(struct lws_client_connect_info *ii) {
 
 	ii->pwsi = &client_wsi;
-	i.ssl_connection |= LCCSCF_PIPELINE;
+	connect_info.ssl_connection |= LCCSCF_PIPELINE;
 	if (!lws_client_connect_via_info(ii)) {
 		lwsl_user("%s: failed: conn\n", __func__);
 	} else
@@ -652,8 +652,9 @@ static int callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
 		lwsl_user("LWS_CALLBACK_COMPLETED_CLIENT_HTTP\n");
 		if (last_try == 0) {
+		    printf("Retry with server challenge response\r\n");
 			last_try = 1;
-			lws_try_client_connection(&i);
+			lws_try_client_connection(&connect_info);
 		}
 
 		break;
@@ -700,52 +701,52 @@ static int system_notify_cb(lws_state_manager_t *mgr,
 
 	lwsl_info("%s: operational\n", __func__);
 
-	memset(&i, 0, sizeof i); /* otherwise uninitialized garbage */
-	i.context = context;
+	memset(&connect_info, 0, sizeof connect_info); /* otherwise uninitialized garbage */
+	connect_info.context = context;
 	if (!lws_cmdline_option(a->argc, a->argv, "-n")) {
-		i.ssl_connection = LCCSCF_USE_SSL;
+		connect_info.ssl_connection = LCCSCF_USE_SSL;
 
 	}
 
-	i.port = 80;
-	i.address = "localhost";
+	connect_info.port = 80;
+	connect_info.address = "localhost";
 
-	i.ssl_connection = 0;
+	connect_info.ssl_connection = 0;
 
-	i.ssl_connection |= LCCSCF_H2_QUIRK_OVERFLOWS_TXCR
+	connect_info.ssl_connection |= LCCSCF_H2_QUIRK_OVERFLOWS_TXCR
 			| LCCSCF_ACCEPT_TLS_DOWNGRADE_REDIRECTS
 			| LCCSCF_H2_QUIRK_NGHTTP2_END_STREAM;
 
-	i.alpn = "h2,http/1.1";
+	connect_info.alpn = "h2,http/1.1";
 
 	if ((p = lws_cmdline_option(a->argc, a->argv, "-p")))
-		i.port = atoi(p);
+		connect_info.port = atoi(p);
 
 	if ((p = lws_cmdline_option(a->argc, a->argv, "--user")))
 		ba_user = p;
 	if ((p = lws_cmdline_option(a->argc, a->argv, "--password")))
 		ba_password = p;
 
-	i.ssl_connection |= LCCSCF_PIPELINE;
+	connect_info.ssl_connection |= LCCSCF_PIPELINE;
 	/* the default validity check is 5m / 5m10s... -v = 3s / 10s */
 
 	if ((p = lws_cmdline_option(a->argc, a->argv, "--server")))
-		i.address = p;
+		connect_info.address = p;
 
 	if ((p = lws_cmdline_option(a->argc, a->argv, "--path")))
-		i.path = p;
+		connect_info.path = p;
 	else
-		i.path = "/";
+		connect_info.path = "/";
 
 	strcpy(path, p);
-	i.host = i.address;
-	i.origin = i.address;
-	i.method = "GET";
+	connect_info.host = connect_info.address;
+	connect_info.origin = connect_info.address;
+	connect_info.method = "GET";
 
-	i.protocol = protocols[0].name;
-	i.fi_wsi_name = "user";
+	connect_info.protocol = protocols[0].name;
+	connect_info.fi_wsi_name = "user";
 
-	lws_try_client_connection(&i);
+	lws_try_client_connection(&connect_info);
 
 	return 0;
 }
