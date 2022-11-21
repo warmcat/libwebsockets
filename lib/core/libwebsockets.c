@@ -130,11 +130,14 @@ signed char char_to_hex(const char c)
 }
 
 int
-lws_hex_to_byte_array(const char *h, uint8_t *dest, int max)
+lws_hex_to_byte_array(const char *h, int hlen_or_minus1, uint8_t *dest, int max)
 {
 	uint8_t *odest = dest;
 
-	while (max-- && *h) {
+	if (hlen_or_minus1 != -1 && (hlen_or_minus1 & 1))
+		return -1;
+
+	while ((hlen_or_minus1 == -1 || hlen_or_minus1 > 1) && max-- && *h) {
 		int t = char_to_hex(*h++), t1;
 
 		if (!*h || t < 0)
@@ -150,7 +153,7 @@ lws_hex_to_byte_array(const char *h, uint8_t *dest, int max)
 	if (max < 0)
 		return -1;
 
-	return lws_ptr_diff(dest, odest);
+	return (int)(dest - odest);
 }
 
 static char *hexch = "0123456789abcdef";
@@ -169,6 +172,25 @@ lws_hex_from_byte_array(const uint8_t *src, size_t slen, char *dest, size_t len)
 	}
 
 	*dest = '\0';
+}
+
+int
+lws_byte_array_to_hex(const uint8_t *src, size_t len, char *dest, size_t dlen)
+{
+	char *odest = dest;
+
+	if (dlen < (2 * len) + 1)
+		return -1;
+
+	while (len--) {
+		*dest++ = hexch[(*src) >> 4];
+		*dest++ = hexch[(*src) & 15];
+		src++;
+	}
+
+	*dest = '\0';
+
+	return (int)(dest - odest);
 }
 
 int

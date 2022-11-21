@@ -187,6 +187,12 @@ lws_client_connect_2_dnsreq(struct lws *wsi)
 		goto solo;
 	}
 
+	if (wsi->keepalive_rejected) {
+		lwsl_notice("defeating pipelining due to no "
+				"keepalive on server\n");
+		goto solo;
+	}
+
 	/* only pipeline things we associate with being a stream */
 
 	if (meth && strcmp(meth, "RAW") && strcmp(meth, "GET") &&
