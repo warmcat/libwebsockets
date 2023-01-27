@@ -264,11 +264,7 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 	return 0;
 }
 
-#if defined(LWS_AMAZON_RTOS)
 enum lws_ssl_capable_status
-#else
-int
-#endif
 lws_tls_server_abort_connection(struct lws *wsi)
 {
 	if (wsi->tls.use_ssl)
