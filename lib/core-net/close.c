@@ -921,7 +921,10 @@ __lws_close_free_wsi_final(struct lws *wsi)
 		if (pt->pipe_wsi == wsi)
 			pt->pipe_wsi = NULL;
 		if (pt->dummy_pipe_fds[0] == wsi->desc.sockfd)
+		{
 			pt->dummy_pipe_fds[0] = LWS_SOCK_INVALID;
+			compatible_close(pt->dummy_pipe_fds[1]);
+		}
 	}
 
 	wsi->desc.sockfd = LWS_SOCK_INVALID;
