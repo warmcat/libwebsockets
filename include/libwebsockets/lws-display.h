@@ -56,6 +56,7 @@ typedef struct lws_surface_info {
 	lws_surface_type_t		type;
 	uint8_t				greyscale:1; /* line: 0 = RGBA, 1 = YA */
 	uint8_t				partial:1; /* can handle partial */
+	uint8_t				render_to_rgba:1; /* render to 32-bit RGBA, not 24-bit RGB */
 } lws_surface_info_t;
 
 typedef struct lws_greyscale_error {

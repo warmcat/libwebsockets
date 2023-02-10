@@ -95,7 +95,7 @@ lws_surface_set_px(const lws_surface_info_t *ic, uint8_t *line, int x,
 
 	/* line composition buffer is 24-bit RGB per pixel */
 
-	line += 3 * x;
+	line += (ic->render_to_rgba ? 4 : 3) * x;
 
 	alpha = LWSDC_ALPHA(*c);
 	ialpha = 255 - alpha;
@@ -109,7 +109,10 @@ lws_surface_set_px(const lws_surface_info_t *ic, uint8_t *line, int x,
 
 	*line++ = rgb[0];
 	*line++ = rgb[1];
-	*line = rgb[2];
+	*line++ = rgb[2];
+
+	if (ic->render_to_rgba)
+		*line = 0xff;
 }
 
 /*
