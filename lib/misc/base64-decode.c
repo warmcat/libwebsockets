@@ -114,7 +114,7 @@ lws_b64_decode_stateful(struct lws_b64state *s, const char *in, size_t *in_len,
 	uint8_t *orig_out = out, *end_out = out + *out_size;
 	int equals = 0;
 
-	while (in < end_in && *in && out + 4 < end_out) {
+	while (in < end_in && *in && out + 3 <= end_out) {
 
 		for (; s->i < 4 && in < end_in && *in; s->i++) {
 			uint8_t v;
