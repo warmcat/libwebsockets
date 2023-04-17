@@ -293,8 +293,6 @@ lws_dbus_sul_cb(lws_sorted_usec_list_t *sul)
 		if (time(NULL) > r->fire) {
 			lwsl_notice("%s: firing timer\n", __func__);
 			dbus_timeout_handle(r->data);
-			lws_dll2_remove(rdt);
-			lws_free(rdt);
 		}
 	} lws_end_foreach_dll_safe(rdt, nx);
 
