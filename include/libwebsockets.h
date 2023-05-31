@@ -91,8 +91,8 @@ typedef unsigned long long lws_intptr_t;
 #ifndef _WIN32_WCE
 #include <fcntl.h>
 #else
-#define _O_RDONLY	0x0000
-#define O_RDONLY	_O_RDONLY
+#define _O_RDONLY   0x0000
+#define O_RDONLY    _O_RDONLY
 #endif
 
 typedef int uid_t;
@@ -330,25 +330,25 @@ typedef int suseconds_t;
 static LWS_INLINE void
 lws_pthread_mutex_init(pthread_mutex_t *lock)
 {
-	pthread_mutex_init(lock, NULL);
+    pthread_mutex_init(lock, NULL);
 }
 
 static LWS_INLINE void
 lws_pthread_mutex_destroy(pthread_mutex_t *lock)
 {
-	pthread_mutex_destroy(lock);
+    pthread_mutex_destroy(lock);
 }
 
 static LWS_INLINE void
 lws_pthread_mutex_lock(pthread_mutex_t *lock)
 {
-	pthread_mutex_lock(lock);
+    pthread_mutex_lock(lock);
 }
 
 static LWS_INLINE void
 lws_pthread_mutex_unlock(pthread_mutex_t *lock)
 {
-	pthread_mutex_unlock(lock);
+    pthread_mutex_unlock(lock);
 }
 
 #else
@@ -369,7 +369,7 @@ lws_pthread_mutex_unlock(pthread_mutex_t *lock)
 #include <stddef.h>
 
 #ifndef lws_container_of
-#define lws_container_of(P,T,M)	((T *)((char *)(P) - offsetof(T, M)))
+#define lws_container_of(P,T,M) ((T *)((char *)(P) - offsetof(T, M)))
 #endif
 #define LWS_ALIGN_TO(x, bou) x += ((bou) - ((x) % (bou))) % (bou)
 
@@ -407,9 +407,9 @@ typedef HANDLE lws_filefd_type;
 
 
 #define lws_pollfd pollfd
-#define LWS_POLLHUP	(POLLHUP)
-#define LWS_POLLIN	(POLLRDNORM | POLLRDBAND)
-#define LWS_POLLOUT	(POLLWRNORM)
+#define LWS_POLLHUP (POLLHUP)
+#define LWS_POLLIN  (POLLRDNORM | POLLRDBAND)
+#define LWS_POLLOUT (POLLWRNORM)
 
 #else
 
@@ -424,8 +424,8 @@ typedef int lws_filefd_type;
 #if defined(LWS_PLAT_OPTEE)
 #include <time.h>
 struct timeval {
-	time_t         	tv_sec;
-	unsigned int    tv_usec;
+    time_t          tv_sec;
+    unsigned int    tv_usec;
 };
 #if defined(LWS_WITH_NETWORK)
 // #include <poll.h>
@@ -479,24 +479,24 @@ int bind(int sockfd, const struct sockaddr *addr,
 
 
 #define  MSG_NOSIGNAL 0x4000
-#define	EAGAIN		11
-#define EINTR		4
-#define EWOULDBLOCK	EAGAIN
-#define	EADDRINUSE	98	
-#define INADDR_ANY	0
-#define AF_INET		2
+#define EAGAIN      11
+#define EINTR       4
+#define EWOULDBLOCK EAGAIN
+#define EADDRINUSE  98  
+#define INADDR_ANY  0
+#define AF_INET     2
 #define SHUT_WR 1
-#define AF_UNSPEC	0
-#define PF_UNSPEC	0
-#define SOCK_STREAM	1
-#define SOCK_DGRAM	2
-# define AI_PASSIVE	0x0001
-#define IPPROTO_UDP	17
-#define SOL_SOCKET	1
-#define SO_SNDBUF	7
-#define	EISCONN		106	
-#define	EALREADY	114
-#define	EINPROGRESS	115
+#define AF_UNSPEC   0
+#define PF_UNSPEC   0
+#define SOCK_STREAM 1
+#define SOCK_DGRAM  2
+# define AI_PASSIVE 0x0001
+#define IPPROTO_UDP 17
+#define SOL_SOCKET  1
+#define SO_SNDBUF   7
+#define EISCONN     106 
+#define EALREADY    114
+#define EINPROGRESS 115
 int shutdown(int sockfd, int how);
 int close(int fd);
 int atoi(const char *nptr);
@@ -576,9 +576,9 @@ typedef uint32_t lws_fop_flags_t;
 /** struct lws_pollargs - argument structure for all external poll related calls
  * passed in via 'in' */
 struct lws_pollargs {
-	lws_sockfd_type fd;	/**< applicable socket descriptor */
-	int events;		/**< the new event mask */
-	int prev_events;	/**< the previous event mask */
+    lws_sockfd_type fd; /**< applicable socket descriptor */
+    int events;     /**< the new event mask */
+    int prev_events;    /**< the previous event mask */
 };
 
 #if !defined(LWS_SIZEOFPTR)
@@ -586,12 +586,12 @@ struct lws_pollargs {
 #endif
 
 #if defined(__x86_64__)
-#define _LWS_PAD_SIZE 16	/* Intel recommended for best performance */
+#define _LWS_PAD_SIZE 16    /* Intel recommended for best performance */
 #else
 #define _LWS_PAD_SIZE LWS_SIZEOFPTR   /* Size of a pointer on the target arch */
 #endif
 #define _LWS_PAD(n) (((n) % _LWS_PAD_SIZE) ? \
-		((n) + (_LWS_PAD_SIZE - ((n) % _LWS_PAD_SIZE))) : (n))
+        ((n) + (_LWS_PAD_SIZE - ((n) % _LWS_PAD_SIZE))) : (n))
 /* last 2 is for lws-meta */
 #define LWS_PRE _LWS_PAD(4 + 10 + 2)
 /* used prior to 1.7 and retained for backward compatibility */
@@ -611,32 +611,32 @@ struct lws;
 /* Generic stateful operation return codes */
 
 typedef enum {
-	LWS_SRET_OK		= 0,
-	LWS_SRET_WANT_INPUT     = (1 << 16),
-	LWS_SRET_WANT_OUTPUT    = (1 << 17),
-	LWS_SRET_FATAL          = (1 << 18),
-	LWS_SRET_NO_FURTHER_IN  = (1 << 19),
-	LWS_SRET_NO_FURTHER_OUT = (1 << 20),
-	LWS_SRET_AWAIT_RETRY    = (1 << 21),
-	LWS_SRET_YIELD          = (1 << 22), /* return to the event loop and continue */
+    LWS_SRET_OK     = 0,
+    LWS_SRET_WANT_INPUT     = (1 << 16),
+    LWS_SRET_WANT_OUTPUT    = (1 << 17),
+    LWS_SRET_FATAL          = (1 << 18),
+    LWS_SRET_NO_FURTHER_IN  = (1 << 19),
+    LWS_SRET_NO_FURTHER_OUT = (1 << 20),
+    LWS_SRET_AWAIT_RETRY    = (1 << 21),
+    LWS_SRET_YIELD          = (1 << 22), /* return to the event loop and continue */
 } lws_stateful_ret_t;
 
 typedef struct lws_fixed3232 {
-	int32_t		whole;	/* signed 32-bit int */
-	int32_t		frac;	/* signed frac proportion from 0 to (100M - 1) */
+    int32_t     whole;  /* signed 32-bit int */
+    int32_t     frac;   /* signed frac proportion from 0 to (100M - 1) */
 } lws_fx_t;
 
 #define LWS_FX_FRACTION_MSD 100000000
 #define lws_neg(a) (a->whole < 0 || a->frac < 0)
 #define lws_fx_set(a, x, y) { a.whole = x; a.frac = x < 0 ? -y : y; }
 #define lws_fix64(a) (((int64_t)a->whole << 32) + \
-		(((1ll << 32) * (a->frac < 0 ? -a->frac : a->frac)) / LWS_FX_FRACTION_MSD))
+        (((1ll << 32) * (a->frac < 0 ? -a->frac : a->frac)) / LWS_FX_FRACTION_MSD))
 #define lws_fix64_abs(a) \
-	((((int64_t)(a->whole < 0 ? (-a->whole) : a->whole) << 32) + \
-			(((1ll << 32) * (a->frac < 0 ? -a->frac : a->frac)) / LWS_FX_FRACTION_MSD)))
+    ((((int64_t)(a->whole < 0 ? (-a->whole) : a->whole) << 32) + \
+            (((1ll << 32) * (a->frac < 0 ? -a->frac : a->frac)) / LWS_FX_FRACTION_MSD)))
 
 #define lws_fix3232(a, a64) { a->whole = (int32_t)(a64 >> 32); \
-			      a->frac = (int32_t)((100000000 * (a64 & 0xffffffff)) >> 32); }
+                  a->frac = (int32_t)((100000000 * (a64 & 0xffffffff)) >> 32); }
 
 LWS_VISIBLE LWS_EXTERN const lws_fx_t *
 lws_fx_add(lws_fx_t *r, const lws_fx_t *a, const lws_fx_t *b);
@@ -702,6 +702,7 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size);
 #if defined(LWS_ROLE_MQTT)
 #include <libwebsockets/lws-mqtt.h>
 #endif
+#include <libwebsockets/lws-assert.h>
 #include <libwebsockets/lws-client.h>
 #include <libwebsockets/lws-http.h>
 #include <libwebsockets/lws-spa.h>

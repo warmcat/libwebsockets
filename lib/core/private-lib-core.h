@@ -147,6 +147,7 @@
   *
   */
 
+#define LWS_ENABLE_CUSTOM_ASSERT
 #include "libwebsockets.h"
 
 /*
@@ -1184,19 +1185,6 @@ lws_transport_mux_next_free(lws_transport_mux_t *tm, lws_mux_ch_idx_t *result);
 
 void
 sul_ping_cb(lws_sorted_usec_list_t *sul);
-
-#define LWS_ENABLE_CUSTOM_ASSERT
-#ifdef  LWS_ENABLE_CUSTOM_ASSERT
-
-typedef void (*lws_assert_cb)(const char *file, int line, const char *expression);
-void lws_set_assert_cb(lws_assert_cb cb);
-void lws_assert(const char *file, int line, const char *expression);
-#   ifdef assert
-#       undef assert
-#   endif
-#define assert(expression) (void)((expression) || (lws_assert(__FILE__, __LINE__, #expression), 0))
-
-#endif
 
 #if !defined(PRIu64)
 #define PRIu64 "llu"
