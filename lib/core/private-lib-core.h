@@ -154,37 +154,37 @@
 */
 
 typedef struct lws_dsh_obj_head {
-	lws_dll2_owner_t		owner;
-	size_t				total_size; /* for this kind in dsh */
-	int				kind;
+    lws_dll2_owner_t        owner;
+    size_t              total_size; /* for this kind in dsh */
+    int             kind;
 } lws_dsh_obj_head_t;
 
 typedef struct lws_dsh_obj {
-	lws_dll2_t			list;	/* must be first */
-	struct lws_dsh	  		*dsh;	/* invalid when on free list */
-	size_t				size;	/* invalid when on free list */
-	size_t				pos;    /* invalid when on free list */
-	size_t				asize;
-	int				kind; /* so we can account at free */
+    lws_dll2_t          list;   /* must be first */
+    struct lws_dsh          *dsh;   /* invalid when on free list */
+    size_t              size;   /* invalid when on free list */
+    size_t              pos;    /* invalid when on free list */
+    size_t              asize;
+    int             kind; /* so we can account at free */
 } lws_dsh_obj_t;
 
 typedef struct lws_dsh {
-	lws_dll2_t			list;
-	uint8_t				*buf;
-	lws_dsh_obj_head_t		*oha;	/* array of object heads/kind */
-	size_t				splitat;
-	size_t				buffer_size;
-	size_t				locally_in_use;
-	size_t				locally_free;
-	int				count_kinds;
-	uint32_t			flags;
-	uint8_t				being_destroyed;
-	/*
-	 * Overallocations at create:
-	 *
-	 *  - the buffer itself
-	 *  - the object heads array
-	 */
+    lws_dll2_t          list;
+    uint8_t             *buf;
+    lws_dsh_obj_head_t      *oha;   /* array of object heads/kind */
+    size_t              splitat;
+    size_t              buffer_size;
+    size_t              locally_in_use;
+    size_t              locally_free;
+    int             count_kinds;
+    uint32_t            flags;
+    uint8_t             being_destroyed;
+    /*
+     * Overallocations at create:
+     *
+     *  - the buffer itself
+     *  - the object heads array
+     */
 } lws_dsh_t;
 
  /*
@@ -194,26 +194,26 @@ typedef struct lws_dsh {
   */
 
 typedef struct lws_lifecycle_group {
-	lws_dll2_owner_t		owner; /* active count / list */
-	uint64_t			ordinal; /* monotonic uid count */
-	const char			*tag_prefix; /* eg, "wsi" */
+    lws_dll2_owner_t        owner; /* active count / list */
+    uint64_t            ordinal; /* monotonic uid count */
+    const char          *tag_prefix; /* eg, "wsi" */
 } lws_lifecycle_group_t;
 
 typedef struct lws_lifecycle {
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
-	/* we append parent streams on the tag */
-	char				gutag[96]; /* object unique tag + relationship info */
+    /* we append parent streams on the tag */
+    char                gutag[96]; /* object unique tag + relationship info */
 #else
-	char				gutag[64];
+    char                gutag[64];
 #endif
-	lws_dll2_t			list; /* group list membership */
-	uint64_t			us_creation; /* creation timestamp */
-	lws_log_cx_t			*log_cx;
+    lws_dll2_t          list; /* group list membership */
+    uint64_t            us_creation; /* creation timestamp */
+    lws_log_cx_t            *log_cx;
 } lws_lifecycle_t;
 
 void
 __lws_lc_tag(struct lws_context *cx, lws_lifecycle_group_t *grp,
-	     lws_lifecycle_t *lc, const char *format, ...);
+         lws_lifecycle_t *lc, const char *format, ...);
 
 void
 __lws_lc_tag_append(lws_lifecycle_t *lc, const char *app);
@@ -231,13 +231,13 @@ extern lws_log_cx_t log_cx;
  */
 
 struct lws_tx_credit {
-	int32_t			tx_cr;		/* our credit to write peer */
-	int32_t			peer_tx_cr_est; /* peer's credit to write us */
+    int32_t         tx_cr;      /* our credit to write peer */
+    int32_t         peer_tx_cr_est; /* peer's credit to write us */
 
-	int32_t			manual_initial_tx_credit;
+    int32_t         manual_initial_tx_credit;
 
-	uint8_t			skint; /* unable to write anything */
-	uint8_t			manual;
+    uint8_t         skint; /* unable to write anything */
+    uint8_t         manual;
 };
 
 #ifdef LWS_WITH_IPV6
@@ -260,18 +260,18 @@ struct lws_tx_credit {
  * Non-SSL mode also uses these types.
  */
 enum lws_ssl_capable_status {
-	LWS_SSL_CAPABLE_ERROR			= -1, /* it failed */
-	LWS_SSL_CAPABLE_DONE			= 0,  /* it succeeded */
-	LWS_SSL_CAPABLE_MORE_SERVICE_READ	= -2, /* retry WANT_READ */
-	LWS_SSL_CAPABLE_MORE_SERVICE_WRITE	= -3, /* retry WANT_WRITE */
-	LWS_SSL_CAPABLE_MORE_SERVICE		= -4, /* general retry */
+    LWS_SSL_CAPABLE_ERROR           = -1, /* it failed */
+    LWS_SSL_CAPABLE_DONE            = 0,  /* it succeeded */
+    LWS_SSL_CAPABLE_MORE_SERVICE_READ   = -2, /* retry WANT_READ */
+    LWS_SSL_CAPABLE_MORE_SERVICE_WRITE  = -3, /* retry WANT_WRITE */
+    LWS_SSL_CAPABLE_MORE_SERVICE        = -4, /* general retry */
 };
 
 enum lws_context_destroy {
-	LWSCD_NO_DESTROY,		/* running */
-	LWSCD_PT_WAS_DEFERRED,		/* destroy from inside service */
-	LWSCD_PT_WAIT_ALL_DESTROYED,	/* libuv ends up here later */
-	LWSCD_FINALIZATION		/* the final destruction of context */
+    LWSCD_NO_DESTROY,       /* running */
+    LWSCD_PT_WAS_DEFERRED,      /* destroy from inside service */
+    LWSCD_PT_WAIT_ALL_DESTROYED,    /* libuv ends up here later */
+    LWSCD_FINALIZATION      /* the final destruction of context */
 };
 
 #if defined(LWS_WITH_TLS)
@@ -279,15 +279,15 @@ enum lws_context_destroy {
 #endif
 
 #if defined(WIN32) || defined(_WIN32)
-	 // Visual studio older than 2015 and WIN_CE has only _stricmp
-	#if (defined(_MSC_VER) && _MSC_VER < 1900) || defined(_WIN32_WCE)
-	#define strcasecmp _stricmp
-	#define strncasecmp _strnicmp
-	#elif !defined(__MINGW32__)
-	#define strcasecmp stricmp
-	#define strncasecmp strnicmp
-	#endif
-	#define getdtablesize() 30000
+     // Visual studio older than 2015 and WIN_CE has only _stricmp
+    #if (defined(_MSC_VER) && _MSC_VER < 1900) || defined(_WIN32_WCE)
+    #define strcasecmp _stricmp
+    #define strncasecmp _strnicmp
+    #elif !defined(__MINGW32__)
+    #define strcasecmp stricmp
+    #define strncasecmp strnicmp
+    #endif
+    #define getdtablesize() 30000
 #endif
 
 #ifndef LWS_ARRAY_SIZE
@@ -310,12 +310,12 @@ extern "C" {
 
 
 struct lws_ring {
-	void *buf;
-	void (*destroy_element)(void *element);
-	uint32_t buflen;
-	uint32_t element_len;
-	uint32_t head;
-	uint32_t oldest_tail;
+    void *buf;
+    void (*destroy_element)(void *element);
+    uint32_t buflen;
+    uint32_t element_len;
+    uint32_t head;
+    uint32_t oldest_tail;
 };
 
 struct lws_protocols;
@@ -337,32 +337,32 @@ struct lws;
 #include "private-lib-system-metrics.h"
 
 struct lws_foreign_thread_pollfd {
-	struct lws_foreign_thread_pollfd *next;
-	int fd_index;
-	int _and;
-	int _or;
+    struct lws_foreign_thread_pollfd *next;
+    int fd_index;
+    int _and;
+    int _or;
 };
 
 #include "private-lib-core-net.h"
 #endif /* network */
 
 struct lws_system_blob {
-	union {
-		struct lws_buflist *bl;
-		struct {
-			const uint8_t *ptr;
-			size_t len;
-		} direct;
-	} u;
-	char	is_direct;
+    union {
+        struct lws_buflist *bl;
+        struct {
+            const uint8_t *ptr;
+            size_t len;
+        } direct;
+    } u;
+    char    is_direct;
 };
 
 
 typedef struct lws_attach_item {
-	lws_dll2_t			list;
-	lws_attach_cb_t			cb;
-	void				*opaque;
-	lws_system_states_t		state;
+    lws_dll2_t          list;
+    lws_attach_cb_t         cb;
+    void                *opaque;
+    lws_system_states_t     state;
 } lws_attach_item_t;
 
 /*
@@ -372,63 +372,63 @@ typedef struct lws_attach_item {
  */
 
 enum {
-	LWSLCG_WSI,			/* generic wsi, eg, pipe, listen */
-	LWSLCG_VHOST,
+    LWSLCG_WSI,         /* generic wsi, eg, pipe, listen */
+    LWSLCG_VHOST,
 
-	LWSLCG_WSI_SERVER,		/* server wsi */
+    LWSLCG_WSI_SERVER,      /* server wsi */
 
 #if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT)
-	LWSLCG_WSI_MUX,			/* a mux child wsi */
+    LWSLCG_WSI_MUX,         /* a mux child wsi */
 #endif
 
 #if defined(LWS_WITH_CLIENT)
-	LWSLCG_WSI_CLIENT,		/* client wsi */
+    LWSLCG_WSI_CLIENT,      /* client wsi */
 #endif
 
 #if defined(LWS_WITH_SECURE_STREAMS)
 #if defined(LWS_WITH_CLIENT)
-	LWSLCG_SS_CLIENT,		/* secstream client handle */
+    LWSLCG_SS_CLIENT,       /* secstream client handle */
 #endif
 #if defined(LWS_WITH_SERVER)
-	LWSLCG_SS_SERVER,		/* secstream server handle */
+    LWSLCG_SS_SERVER,       /* secstream server handle */
 #endif
 #if defined(LWS_WITH_CLIENT)
-	LWSLCG_WSI_SS_CLIENT,		/* wsi bound to ss client handle */
+    LWSLCG_WSI_SS_CLIENT,       /* wsi bound to ss client handle */
 #endif
 #if defined(LWS_WITH_SERVER)
-	LWSLCG_WSI_SS_SERVER,		/* wsi bound to ss server handle */
+    LWSLCG_WSI_SS_SERVER,       /* wsi bound to ss server handle */
 #endif
 #endif
 
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
 #if defined(LWS_WITH_CLIENT)
-	LWSLCG_SSP_CLIENT,		/* SSPC handle client connection to proxy */
+    LWSLCG_SSP_CLIENT,      /* SSPC handle client connection to proxy */
 #endif
 #if defined(LWS_WITH_SERVER)
-	LWSLCG_SSP_ONWARD,		/* SS handle at proxy for onward conn */
+    LWSLCG_SSP_ONWARD,      /* SS handle at proxy for onward conn */
 #endif
 #if defined(LWS_WITH_CLIENT)
-	LWSLCG_WSI_SSP_CLIENT,		/* wsi bound to SSPC cli conn to proxy */
+    LWSLCG_WSI_SSP_CLIENT,      /* wsi bound to SSPC cli conn to proxy */
 #endif
 #if defined(LWS_WITH_SERVER)
-	LWSLCG_WSI_SSP_ONWARD,		/* wsi bound to Proxy onward connection */
+    LWSLCG_WSI_SSP_ONWARD,      /* wsi bound to Proxy onward connection */
 #endif
 #endif
 
 #if defined(LWS_WITH_SERVER)
-	LWSLCG_WSI_SSP_SINK,		/* accepted sink conn */
-	LWSLCG_WSI_SSP_SOURCE,		/* accepted source conn */
+    LWSLCG_WSI_SSP_SINK,        /* accepted sink conn */
+    LWSLCG_WSI_SSP_SOURCE,      /* accepted source conn */
 #endif
 
-	/* always last */
-	LWSLCG_COUNT
+    /* always last */
+    LWSLCG_COUNT
 };
 
 #if defined(LWS_WITH_SECURE_STREAMS) && defined(LWS_WITH_SERVER)
 typedef struct lws_ss_sinks {
-	lws_dll2_t				list;
-	lws_ss_info_t				info;
-	lws_dll2_owner_t			accepts;
+    lws_dll2_t              list;
+    lws_ss_info_t               info;
+    lws_dll2_owner_t            accepts;
 } lws_ss_sinks_t;
 #endif
 
@@ -441,72 +441,72 @@ typedef struct lws_ss_sinks {
 
 struct lws_context {
  #if defined(LWS_WITH_SERVER)
-	char canonical_hostname[96];
+    char canonical_hostname[96];
  #endif
 #if defined(LWS_HAVE_SSL_CTX_set_keylog_callback) && \
-	defined(LWS_WITH_TLS) && defined(LWS_WITH_CLIENT)
-	char					keylog_file[96];
+    defined(LWS_WITH_TLS) && defined(LWS_WITH_CLIENT)
+    char                    keylog_file[96];
 #endif
 
 #if defined(LWS_WITH_FILE_OPS)
-	struct lws_plat_file_ops fops_platform;
+    struct lws_plat_file_ops fops_platform;
 #endif
 
 #if defined(LWS_WITH_ZIP_FOPS)
-	struct lws_plat_file_ops fops_zip;
+    struct lws_plat_file_ops fops_zip;
 #endif
 
-	lws_system_blob_t system_blobs[LWS_SYSBLOB_TYPE_COUNT];
+    lws_system_blob_t system_blobs[LWS_SYSBLOB_TYPE_COUNT];
 
 #if defined(LWS_WITH_SYS_SMD)
-	lws_smd_t				smd;
+    lws_smd_t               smd;
 #endif
 #if defined(LWS_WITH_SECURE_STREAMS)
-	struct lws_ss_handle			*ss_cpd;
+    struct lws_ss_handle            *ss_cpd;
 #endif
-	lws_sorted_usec_list_t			sul_cpd_defer;
+    lws_sorted_usec_list_t          sul_cpd_defer;
 
 #if defined(LWS_WITH_DLO)
-	lws_dll2_owner_t			fonts;
-	lws_dll2_owner_t			dlo_file;
+    lws_dll2_owner_t            fonts;
+    lws_dll2_owner_t            dlo_file;
 #if defined(LWS_WITH_SECURE_STREAMS)
-	lws_dll2_owner_t			active_assets; /* dloss_t */
+    lws_dll2_owner_t            active_assets; /* dloss_t */
 #endif
 #endif
 
 #if defined(LWS_WITH_NETWORK)
-	struct lws_context_per_thread		pt[LWS_MAX_SMP];
-	lws_retry_bo_t				default_retry;
-	lws_sorted_usec_list_t			sul_system_state;
+    struct lws_context_per_thread       pt[LWS_MAX_SMP];
+    lws_retry_bo_t              default_retry;
+    lws_sorted_usec_list_t          sul_system_state;
 
-	lws_lifecycle_group_t			lcg[LWSLCG_COUNT];
+    lws_lifecycle_group_t           lcg[LWSLCG_COUNT];
 
-	const struct lws_protocols		*protocols_copy;
+    const struct lws_protocols      *protocols_copy;
 
 #if defined(LWS_WITH_NETLINK)
-	lws_sorted_usec_list_t			sul_nl_coldplug;
-	/* process can only have one netlink socket, have to do it in ctx */
-	lws_dll2_owner_t			routing_table;
-	struct lws				*netlink;
+    lws_sorted_usec_list_t          sul_nl_coldplug;
+    /* process can only have one netlink socket, have to do it in ctx */
+    lws_dll2_owner_t            routing_table;
+    struct lws              *netlink;
 #endif
 
 #if defined(LWS_PLAT_FREERTOS)
-	struct sockaddr_in			frt_pipe_si;
+    struct sockaddr_in          frt_pipe_si;
 #endif
 
 #if defined(LWS_WITH_HTTP2)
-	struct http2_settings			set;
+    struct http2_settings           set;
 #endif
 
 #if LWS_MAX_SMP > 1
-	struct lws_mutex_refcount		mr;
+    struct lws_mutex_refcount       mr;
 #endif
 
 #if defined(LWS_WITH_SYS_METRICS)
-	lws_dll2_owner_t			owner_mtr_dynpol;
-	/**< owner for lws_metric_policy_dyn_t (dynamic part of metric pols) */
-	lws_dll2_owner_t			owner_mtr_no_pol;
-	/**< owner for lws_metric_pub_t with no policy to bind to */
+    lws_dll2_owner_t            owner_mtr_dynpol;
+    /**< owner for lws_metric_policy_dyn_t (dynamic part of metric pols) */
+    lws_dll2_owner_t            owner_mtr_no_pol;
+    /**< owner for lws_metric_pub_t with no policy to bind to */
 #endif
 
 #if defined(LWS_WITH_NETWORK)
@@ -514,125 +514,125 @@ struct lws_context {
  * LWS_WITH_NETWORK =====>
  */
 
-	lws_dll2_owner_t		owner_vh_being_destroyed;
+    lws_dll2_owner_t        owner_vh_being_destroyed;
 
-	lws_metric_t			*mt_service; /* doing service */
-	const lws_metric_policy_t	*metrics_policies;
-	const char			*metrics_prefix;
+    lws_metric_t            *mt_service; /* doing service */
+    const lws_metric_policy_t   *metrics_policies;
+    const char          *metrics_prefix;
 
 #if defined(LWS_WITH_SYS_METRICS) && defined(LWS_WITH_CLIENT)
-	lws_metric_t			*mt_conn_tcp; /* client tcp conns */
-	lws_metric_t			*mt_conn_tls; /* client tcp conns */
-	lws_metric_t			*mt_conn_dns; /* client dns external lookups */
-	lws_metric_t			*mth_conn_failures; /* histogram of conn failure reasons */
+    lws_metric_t            *mt_conn_tcp; /* client tcp conns */
+    lws_metric_t            *mt_conn_tls; /* client tcp conns */
+    lws_metric_t            *mt_conn_dns; /* client dns external lookups */
+    lws_metric_t            *mth_conn_failures; /* histogram of conn failure reasons */
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-	lws_metric_t			*mt_http_txn; /* client http transaction */
+    lws_metric_t            *mt_http_txn; /* client http transaction */
 #endif
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
-	lws_metric_t			*mt_adns_cache; /* async dns lookup lat */
+    lws_metric_t            *mt_adns_cache; /* async dns lookup lat */
 #endif
 #if defined(LWS_WITH_SECURE_STREAMS)
-	lws_metric_t			*mth_ss_conn; /* SS connection outcomes */
+    lws_metric_t            *mth_ss_conn; /* SS connection outcomes */
 #endif
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
-	lws_metric_t			*mt_ss_cliprox_conn; /* SS cli->prox conn */
-	lws_metric_t			*mt_ss_cliprox_paylat; /* cli->prox payload latency */
-	lws_metric_t			*mt_ss_proxcli_paylat; /* prox->cli payload latency */
+    lws_metric_t            *mt_ss_cliprox_conn; /* SS cli->prox conn */
+    lws_metric_t            *mt_ss_cliprox_paylat; /* cli->prox payload latency */
+    lws_metric_t            *mt_ss_proxcli_paylat; /* prox->cli payload latency */
 #endif
 #endif /* client */
 
 #if defined(LWS_WITH_SERVER)
-	lws_metric_t			*mth_srv;
+    lws_metric_t            *mth_srv;
 #endif
 
 #if defined(LWS_WITH_EVENT_LIBS)
-	struct lws_plugin		*evlib_plugin_list;
-	void				*evlib_ctx; /* overallocated */
+    struct lws_plugin       *evlib_plugin_list;
+    void                *evlib_ctx; /* overallocated */
 #endif
 
 #if defined(LWS_WITH_TLS)
-	struct lws_context_tls		tls;
+    struct lws_context_tls      tls;
 #if defined (LWS_WITH_TLS_JIT_TRUST)
-	lws_dll2_owner_t		jit_inflight;
-	/* ongoing sync or async jit trust lookups */
-	struct lws_cache_ttl_lru	*trust_cache;
-	/* caches host -> truncated trust SKID mappings */
+    lws_dll2_owner_t        jit_inflight;
+    /* ongoing sync or async jit trust lookups */
+    struct lws_cache_ttl_lru    *trust_cache;
+    /* caches host -> truncated trust SKID mappings */
 #endif
 #endif
 #if defined(LWS_WITH_DRIVERS)
-	lws_netdevs_t			netdevs;
+    lws_netdevs_t           netdevs;
 #endif
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
-	lws_async_dns_t			async_dns;
+    lws_async_dns_t         async_dns;
 #endif
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
-	lws_fi_ctx_t			fic;
-	/**< Toplevel Fault Injection ctx */
+    lws_fi_ctx_t            fic;
+    /**< Toplevel Fault Injection ctx */
 #endif
 
 #if defined(LWS_WITH_CACHE_NSCOOKIEJAR) && defined(LWS_WITH_CLIENT)
-	struct lws_cache_ttl_lru *l1, *nsc;
+    struct lws_cache_ttl_lru *l1, *nsc;
 #endif
 
 #if defined(LWS_WITH_SYS_NTPCLIENT)
-	void				*ntpclient_priv;
+    void                *ntpclient_priv;
 #endif
 
 #if defined(LWS_WITH_SECURE_STREAMS)
-	struct lws_ss_handle		*hss_fetch_policy;
+    struct lws_ss_handle        *hss_fetch_policy;
 #if defined(LWS_WITH_SECURE_STREAMS_SYS_AUTH_API_AMAZON_COM)
-	struct lws_ss_handle		*hss_auth;
-	lws_sorted_usec_list_t		sul_api_amazon_com;
-	lws_sorted_usec_list_t		sul_api_amazon_com_kick;
+    struct lws_ss_handle        *hss_auth;
+    lws_sorted_usec_list_t      sul_api_amazon_com;
+    lws_sorted_usec_list_t      sul_api_amazon_com_kick;
 #endif
 #if !defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
-	struct lws_ss_x509		*server_der_list;
+    struct lws_ss_x509      *server_der_list;
 #endif
 #endif
 
 #if defined(LWS_WITH_SYS_STATE)
-	lws_state_manager_t		mgr_system;
-	lws_state_notify_link_t		protocols_notify;
+    lws_state_manager_t     mgr_system;
+    lws_state_notify_link_t     protocols_notify;
 #endif
 #if defined (LWS_WITH_SYS_DHCP_CLIENT)
-	lws_dll2_owner_t		dhcpc_owner;
-					/**< list of ifaces with dhcpc */
+    lws_dll2_owner_t        dhcpc_owner;
+                    /**< list of ifaces with dhcpc */
 #endif
 
-	/* pointers */
+    /* pointers */
 
-	struct lws_vhost		*vhost_list;
-	struct lws_vhost		*no_listener_vhost_list;
-	struct lws_vhost		*vhost_pending_destruction_list;
-	struct lws_vhost		*vhost_system;
+    struct lws_vhost        *vhost_list;
+    struct lws_vhost        *no_listener_vhost_list;
+    struct lws_vhost        *vhost_pending_destruction_list;
+    struct lws_vhost        *vhost_system;
 
 #if defined(LWS_WITH_SERVER)
-	const char			*server_string;
+    const char          *server_string;
 #endif
 
-	const struct lws_event_loop_ops	*event_loop_ops;
+    const struct lws_event_loop_ops *event_loop_ops;
 #endif
 
 #if defined(LWS_WITH_TLS)
-	const struct lws_tls_ops	*tls_ops;
+    const struct lws_tls_ops    *tls_ops;
 #endif
 
 #if defined(LWS_WITH_PLUGINS)
-	struct lws_plugin		*plugin_list;
+    struct lws_plugin       *plugin_list;
 #endif
 #ifdef _WIN32
 /* different implementation between unix and windows */
-	struct lws_fd_hashtable fd_hashtable[FD_HASHTABLE_MODULUS];
+    struct lws_fd_hashtable fd_hashtable[FD_HASHTABLE_MODULUS];
 #else
-	struct lws **lws_lookup;
+    struct lws **lws_lookup;
 
 #endif
 
 #if defined(LWS_WITH_OTA)
-	lws_sorted_usec_list_t		sul_ota_periodic;
-	lws_ss_handle_t			* ota_ss;	/* opaque to platform */
+    lws_sorted_usec_list_t      sul_ota_periodic;
+    lws_ss_handle_t         * ota_ss;   /* opaque to platform */
 #endif
 
 /*
@@ -641,173 +641,173 @@ struct lws_context {
 
 #endif /* NETWORK */
 
-	lws_log_cx_t				*log_cx;
-	const char				*name;
+    lws_log_cx_t                *log_cx;
+    const char              *name;
 
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
-	const char				*ss_proxy_bind;
-	const char				*ss_proxy_address;
+    const char              *ss_proxy_bind;
+    const char              *ss_proxy_address;
 
-	lws_txp_path_proxy_t			txp_ppath;
-	lws_txp_path_client_t			txp_cpath;
+    lws_txp_path_proxy_t            txp_ppath;
+    lws_txp_path_client_t           txp_cpath;
 
-	const void				*txp_ssproxy_info;
+    const void              *txp_ssproxy_info;
 
 #endif
 
 #if defined(LWS_WITH_FILE_OPS)
-	const struct lws_plat_file_ops *fops;
+    const struct lws_plat_file_ops *fops;
 #endif
 
-	struct lws_context **pcontext_finalize;
+    struct lws_context **pcontext_finalize;
 #if !defined(LWS_PLAT_FREERTOS)
-	const char *username, *groupname;
+    const char *username, *groupname;
 #endif
 
 #if defined(LWS_WITH_MBEDTLS)
-	mbedtls_entropy_context mec;
-	mbedtls_ctr_drbg_context mcdc;
+    mbedtls_entropy_context mec;
+    mbedtls_ctr_drbg_context mcdc;
 #endif
 
 #if defined(LWS_WITH_THREADPOOL) && defined(LWS_HAVE_PTHREAD_H)
-	struct lws_threadpool *tp_list_head;
+    struct lws_threadpool *tp_list_head;
 #endif
 
 #if defined(LWS_WITH_PEER_LIMITS)
-	struct lws_peer			**pl_hash_table;
-	struct lws_peer			*peer_wait_list;
-	lws_peer_limits_notify_t	pl_notify_cb;
-	time_t				next_cull;
+    struct lws_peer         **pl_hash_table;
+    struct lws_peer         *peer_wait_list;
+    lws_peer_limits_notify_t    pl_notify_cb;
+    time_t              next_cull;
 #endif
 
-	const lws_system_ops_t		*system_ops;
+    const lws_system_ops_t      *system_ops;
 
 #if defined(LWS_WITH_SECURE_STREAMS)
 #if !defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY)
-	const char			*pss_policies_json;
-	struct lwsac			*ac_policy;
-	void				*pol_args;
+    const char          *pss_policies_json;
+    struct lwsac            *ac_policy;
+    void                *pol_args;
 #endif
-	const lws_ss_policy_t		*pss_policies;
-	const lws_ss_auth_t		*pss_auths;
+    const lws_ss_policy_t       *pss_policies;
+    const lws_ss_auth_t     *pss_auths;
 #if defined(LWS_WITH_SERVER)
-	lws_dll2_owner_t		sinks;
+    lws_dll2_owner_t        sinks;
 #endif
 #if defined(LWS_WITH_SSPLUGINS)
-	const lws_ss_plugin_t		**pss_plugins;
+    const lws_ss_plugin_t       **pss_plugins;
 #endif
 #endif
 
-	void *external_baggage_free_on_destroy;
-	const struct lws_token_limits *token_limits;
-	void *user_space;
+    void *external_baggage_free_on_destroy;
+    const struct lws_token_limits *token_limits;
+    void *user_space;
 #if defined(LWS_WITH_SERVER)
-	const struct lws_protocol_vhost_options *reject_service_keywords;
-	lws_reload_func deprecation_cb;
+    const struct lws_protocol_vhost_options *reject_service_keywords;
+    lws_reload_func deprecation_cb;
 #endif
 #if !defined(LWS_PLAT_FREERTOS)
-	void (*eventlib_signal_cb)(void *event_lib_handle, int signum);
+    void (*eventlib_signal_cb)(void *event_lib_handle, int signum);
 #endif
 
 #if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
-	cap_value_t caps[4];
-	char count_caps;
+    cap_value_t caps[4];
+    char count_caps;
 #endif
 
-	lws_usec_t time_up; /* monotonic */
+    lws_usec_t time_up; /* monotonic */
 #if defined(LWS_WITH_SYS_SMD)
-	lws_usec_t smd_ttl_us;
+    lws_usec_t smd_ttl_us;
 #endif
-	uint64_t options;
+    uint64_t options;
 
-	time_t last_ws_ping_pong_check_s;
+    time_t last_ws_ping_pong_check_s;
 #if defined(LWS_WITH_SECURE_STREAMS)
-	time_t					last_policy;
+    time_t                  last_policy;
 #endif
 
 #if defined(LWS_PLAT_FREERTOS)
-	unsigned long time_last_state_dump;
-	uint32_t last_free_heap;
+    unsigned long time_last_state_dump;
+    uint32_t last_free_heap;
 #endif
 
-	unsigned int max_fds;
+    unsigned int max_fds;
 #if !defined(LWS_NO_DAEMONIZE)
-	pid_t started_with_parent;
+    pid_t started_with_parent;
 #endif
 
 #if !defined(LWS_PLAT_FREERTOS)
-	uid_t uid;
-	gid_t gid;
-	int fd_random;
-	int count_cgi_spawned;
+    uid_t uid;
+    gid_t gid;
+    int fd_random;
+    int count_cgi_spawned;
 #endif
 #if defined(WIN32)
-	unsigned int win32_connect_check_interval_usec;
+    unsigned int win32_connect_check_interval_usec;
 #endif
 
-	unsigned int fd_limit_per_thread;
-	unsigned int timeout_secs;
-	unsigned int pt_serv_buf_size;
-	unsigned int max_http_header_data;
-	unsigned int max_http_header_pool;
-	int simultaneous_ssl_restriction;
-	int simultaneous_ssl;
-	int simultaneous_ssl_handshake_restriction;
-	int simultaneous_ssl_handshake;
+    unsigned int fd_limit_per_thread;
+    unsigned int timeout_secs;
+    unsigned int pt_serv_buf_size;
+    unsigned int max_http_header_data;
+    unsigned int max_http_header_pool;
+    int simultaneous_ssl_restriction;
+    int simultaneous_ssl;
+    int simultaneous_ssl_handshake_restriction;
+    int simultaneous_ssl_handshake;
 #if defined(LWS_WITH_TLS_JIT_TRUST)
-	int		vh_idle_grace_ms;
+    int     vh_idle_grace_ms;
 #endif
 #if defined(LWS_WITH_PEER_LIMITS)
-	uint32_t pl_hash_elements;	/* protected by context->lock */
-	uint32_t count_peers;		/* protected by context->lock */
-	unsigned short ip_limit_ah;
-	unsigned short ip_limit_wsi;
+    uint32_t pl_hash_elements;  /* protected by context->lock */
+    uint32_t count_peers;       /* protected by context->lock */
+    unsigned short ip_limit_ah;
+    unsigned short ip_limit_wsi;
 #endif
 
 #if defined(LWS_WITH_SYS_SMD)
-	uint16_t smd_queue_depth;
+    uint16_t smd_queue_depth;
 #endif
 
 #if defined(LWS_WITH_NETLINK) && defined(LWS_WITH_NETWORK)
-	lws_route_uidx_t			route_uidx;
+    lws_route_uidx_t            route_uidx;
 #endif
 
-	char		tls_gate_accepts;
+    char        tls_gate_accepts;
 
-	unsigned int deprecated:1;
-	unsigned int interrupted:1;
-	unsigned int inside_context_destroy:1;
-	unsigned int being_destroyed:1;
-	unsigned int service_no_longer_possible:1;
-	unsigned int being_destroyed2:1;
-	unsigned int requested_stop_internal_loops:1;
-	unsigned int protocol_init_done:1;
-	unsigned int doing_protocol_init:1;
-	unsigned int done_protocol_destroy_cb:1;
-	unsigned int evlib_finalize_destroy_after_int_loops_stop:1;
-	unsigned int max_fds_unrelated_to_ulimit:1;
-	unsigned int policy_updated:1;
+    unsigned int deprecated:1;
+    unsigned int interrupted:1;
+    unsigned int inside_context_destroy:1;
+    unsigned int being_destroyed:1;
+    unsigned int service_no_longer_possible:1;
+    unsigned int being_destroyed2:1;
+    unsigned int requested_stop_internal_loops:1;
+    unsigned int protocol_init_done:1;
+    unsigned int doing_protocol_init:1;
+    unsigned int done_protocol_destroy_cb:1;
+    unsigned int evlib_finalize_destroy_after_int_loops_stop:1;
+    unsigned int max_fds_unrelated_to_ulimit:1;
+    unsigned int policy_updated:1;
 #if defined(LWS_WITH_NETLINK)
-	unsigned int nl_initial_done:1;
+    unsigned int nl_initial_done:1;
 #endif
 
-	unsigned short count_threads;
-	unsigned short undestroyed_threads;
-	short plugin_protocol_count;
-	short plugin_extension_count;
-	short server_string_len;
-	unsigned short deprecation_pending_listen_close_count;
+    unsigned short count_threads;
+    unsigned short undestroyed_threads;
+    short plugin_protocol_count;
+    short plugin_extension_count;
+    short server_string_len;
+    unsigned short deprecation_pending_listen_close_count;
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
-	uint16_t	ss_proxy_port;
+    uint16_t    ss_proxy_port;
 #endif
-	/* 0 if not known, else us resolution of the poll wait */
-	uint16_t us_wait_resolution;
+    /* 0 if not known, else us resolution of the poll wait */
+    uint16_t us_wait_resolution;
 
-	uint8_t max_fi;
-	uint8_t captive_portal_detect;
-	uint8_t captive_portal_detect_type;
+    uint8_t max_fi;
+    uint8_t captive_portal_detect;
+    uint8_t captive_portal_detect_type;
 
-	uint8_t		destroy_state; /* enum lws_context_destroy */
+    uint8_t     destroy_state; /* enum lws_context_destroy */
 };
 
 #define lws_get_context_protocol(ctx, x) ctx->vhost_list->protocols[x]
@@ -840,9 +840,9 @@ lws_system_do_attach(struct lws_context_per_thread *pt);
 #endif
 
 struct lws_buflist {
-	struct lws_buflist *next;
-	size_t len;
-	size_t pos;
+    struct lws_buflist *next;
+    size_t len;
+    size_t pos;
 };
 
 char *
@@ -851,146 +851,146 @@ lws_strdup(const char *s);
 int
 lws_b64_selftest(void);
 
-#define FIRST_LENGTH_CODE_INDEX		257
-#define LAST_LENGTH_CODE_INDEX		285
+#define FIRST_LENGTH_CODE_INDEX     257
+#define LAST_LENGTH_CODE_INDEX      285
 
 /*256 literals, the end code, some length codes, and 2 unused codes */
-#define NUM_DEFLATE_CODE_SYMBOLS	288
+#define NUM_DEFLATE_CODE_SYMBOLS    288
 /*the distance codes have their own symbols, 30 used, 2 unused */
-#define NUM_DISTANCE_SYMBOLS		32
+#define NUM_DISTANCE_SYMBOLS        32
 /* The code length codes. 0-15: code lengths, 16: copy previous 3-6 times,
  * 17: 3-10 zeros, 18: 11-138 zeros */
-#define NUM_CODE_LENGTH_CODES		19
+#define NUM_CODE_LENGTH_CODES       19
 /* largest number of symbols used by any tree type */
-#define MAX_SYMBOLS			288
+#define MAX_SYMBOLS         288
 
-#define DEFLATE_CODE_BITLEN		15
-#define DISTANCE_BITLEN			15
-#define CODE_LENGTH_BITLEN		7
+#define DEFLATE_CODE_BITLEN     15
+#define DISTANCE_BITLEN         15
+#define CODE_LENGTH_BITLEN      7
 /* largest bitlen used by any tree type */
-#define MAX_BIT_LENGTH			15
+#define MAX_BIT_LENGTH          15
 
-#define DEFLATE_CODE_BUFFER_SIZE	(NUM_DEFLATE_CODE_SYMBOLS * 2)
-#define DISTANCE_BUFFER_SIZE		(NUM_DISTANCE_SYMBOLS * 2)
-#define CODE_LENGTH_BUFFER_SIZE		(NUM_DISTANCE_SYMBOLS * 2)
+#define DEFLATE_CODE_BUFFER_SIZE    (NUM_DEFLATE_CODE_SYMBOLS * 2)
+#define DISTANCE_BUFFER_SIZE        (NUM_DISTANCE_SYMBOLS * 2)
+#define CODE_LENGTH_BUFFER_SIZE     (NUM_DISTANCE_SYMBOLS * 2)
 
 typedef uint16_t huff_t;
 
 typedef enum {
-	UPNS_ID_BL_GB_DONE,
-	UPNS_ID_BL_GB_BTYPEb0,
-	UPNS_ID_BL_GB_BTYPEb1,
+    UPNS_ID_BL_GB_DONE,
+    UPNS_ID_BL_GB_BTYPEb0,
+    UPNS_ID_BL_GB_BTYPEb1,
 
-	UPNS_ID_BL_GB_BTYPE_0,
-	UPNS_ID_BL_GB_BTYPE_1,
-	UPNS_ID_BL_GB_BTYPE_2,
+    UPNS_ID_BL_GB_BTYPE_0,
+    UPNS_ID_BL_GB_BTYPE_1,
+    UPNS_ID_BL_GB_BTYPE_2,
 
-	UPNS_ID_BL_GB_BTYPE_0a,
-	UPNS_ID_BL_GB_BTYPE_0b,
-	UPNS_ID_BL_GB_BTYPE_0c,
-	UPNS_ID_BL_GB_BTYPE_0d,
+    UPNS_ID_BL_GB_BTYPE_0a,
+    UPNS_ID_BL_GB_BTYPE_0b,
+    UPNS_ID_BL_GB_BTYPE_0c,
+    UPNS_ID_BL_GB_BTYPE_0d,
 
-	UPNS_ID_BL_GB_BTYPE_2a,
-	UPNS_ID_BL_GB_BTYPE_2b,
-	UPNS_ID_BL_GB_BTYPE_2c,
-	UPNS_ID_BL_GB_BTYPE_2d,
-	UPNS_ID_BL_GB_BTYPE_2e,
+    UPNS_ID_BL_GB_BTYPE_2a,
+    UPNS_ID_BL_GB_BTYPE_2b,
+    UPNS_ID_BL_GB_BTYPE_2c,
+    UPNS_ID_BL_GB_BTYPE_2d,
+    UPNS_ID_BL_GB_BTYPE_2e,
 
-	UPNS_ID_BL_GB_BTYPE_2_16,
-	UPNS_ID_BL_GB_BTYPE_2_17,
-	UPNS_ID_BL_GB_BTYPE_2_18,
+    UPNS_ID_BL_GB_BTYPE_2_16,
+    UPNS_ID_BL_GB_BTYPE_2_17,
+    UPNS_ID_BL_GB_BTYPE_2_18,
 
-	UPNS_ID_BL_GB_SPIN,
+    UPNS_ID_BL_GB_SPIN,
 
-	UPNS_ID_BL_GB_SPINa,
-	UPNS_ID_BL_GB_SPINb,
-	UPNS_ID_BL_GB_SPINc,
-	UPNS_ID_BL_GB_SPINd,
-	UPNS_ID_BL_GB_SPINe,
+    UPNS_ID_BL_GB_SPINa,
+    UPNS_ID_BL_GB_SPINb,
+    UPNS_ID_BL_GB_SPINc,
+    UPNS_ID_BL_GB_SPINd,
+    UPNS_ID_BL_GB_SPINe,
 
-	UPNS_ID_BL_GB_GZIP_ID1,
-	UPNS_ID_BL_GB_GZIP_ID2,
-	UPNS_ID_BL_GB_GZIP_METHOD,
-	UPNS_ID_BL_GB_GZIP_FLAGS,
-	UPNS_ID_BL_GB_GZIP_EOH,
-	UPNS_ID_BL_GB_GZIP_SKIP_EXTRA_C1,
-	UPNS_ID_BL_GB_GZIP_SKIP_EXTRA_C2,
-	UPNS_ID_BL_GB_GZIP_SKIP_EXTRA,
-	UPNS_ID_BL_GB_GZIP_SKIP_FILENAME,
-	UPNS_ID_BL_GB_GZIP_SKIP_COMMENT,
-	UPNS_ID_BL_GB_GZIP_SKIP_CRC,
+    UPNS_ID_BL_GB_GZIP_ID1,
+    UPNS_ID_BL_GB_GZIP_ID2,
+    UPNS_ID_BL_GB_GZIP_METHOD,
+    UPNS_ID_BL_GB_GZIP_FLAGS,
+    UPNS_ID_BL_GB_GZIP_EOH,
+    UPNS_ID_BL_GB_GZIP_SKIP_EXTRA_C1,
+    UPNS_ID_BL_GB_GZIP_SKIP_EXTRA_C2,
+    UPNS_ID_BL_GB_GZIP_SKIP_EXTRA,
+    UPNS_ID_BL_GB_GZIP_SKIP_FILENAME,
+    UPNS_ID_BL_GB_GZIP_SKIP_COMMENT,
+    UPNS_ID_BL_GB_GZIP_SKIP_CRC,
 
 } upng_inflate_states_t;
 
 typedef struct htree {
-	huff_t			*tree2d;
-	/*maximum number of bits a single code can get */
-	uint16_t		maxbitlen;
-	/*number of symbols in the alphabet = number of codes */
-	uint16_t		numcodes;
+    huff_t          *tree2d;
+    /*maximum number of bits a single code can get */
+    uint16_t        maxbitlen;
+    /*number of symbols in the alphabet = number of codes */
+    uint16_t        numcodes;
 } htree_t;
 
 typedef struct inflator_ctx {
-	unsigned int		clenc[NUM_CODE_LENGTH_CODES];
-	unsigned int		bitlen[NUM_DEFLATE_CODE_SYMBOLS];
-	unsigned int		bitlenD[NUM_DISTANCE_SYMBOLS];
-	huff_t			clct_buffer[CODE_LENGTH_BUFFER_SIZE];
-	huff_t			ct_buffer[DEFLATE_CODE_BUFFER_SIZE];
-	huff_t			ctD_buffer[DISTANCE_BUFFER_SIZE];
+    unsigned int        clenc[NUM_CODE_LENGTH_CODES];
+    unsigned int        bitlen[NUM_DEFLATE_CODE_SYMBOLS];
+    unsigned int        bitlenD[NUM_DISTANCE_SYMBOLS];
+    huff_t          clct_buffer[CODE_LENGTH_BUFFER_SIZE];
+    huff_t          ct_buffer[DEFLATE_CODE_BUFFER_SIZE];
+    huff_t          ctD_buffer[DISTANCE_BUFFER_SIZE];
 
-	lws_upng_t		*upng;
+    lws_upng_t      *upng;
 
-	const uint8_t		*in;
-	uint8_t			*out;
+    const uint8_t       *in;
+    uint8_t         *out;
 
-	htree_t			clct;
-	htree_t			ct;
-	htree_t			ctD;
+    htree_t         clct;
+    htree_t         ct;
+    htree_t         ctD;
 
-	size_t			bp;
-	size_t			inpos;
-	size_t			inlen;
-	size_t			archive_pos;
-	size_t			outpos;
-	size_t			outpos_linear;
-	size_t			consumed_linear;
-	size_t			outlen;
-	size_t			length;
-	size_t			start;
-	size_t			forward;
-	size_t			backward;
-	size_t			exbits;
-	size_t			bypl;
+    size_t          bp;
+    size_t          inpos;
+    size_t          inlen;
+    size_t          archive_pos;
+    size_t          outpos;
+    size_t          outpos_linear;
+    size_t          consumed_linear;
+    size_t          outlen;
+    size_t          length;
+    size_t          start;
+    size_t          forward;
+    size_t          backward;
+    size_t          exbits;
+    size_t          bypl;
 
-	upng_inflate_states_t	state;
+    upng_inflate_states_t   state;
 
-	unsigned int		len;
-	unsigned int		nlen;
-	unsigned int		n;
-	unsigned int		hlit;
-	unsigned int		hdist;
-	unsigned int		hclen;
-	unsigned int		i;
-	unsigned int		t;
-	unsigned int		codeD;
-	unsigned int		distance;
-	unsigned int		exbitsD;
-	unsigned int		code;
-	unsigned int		treepos;
+    unsigned int        len;
+    unsigned int        nlen;
+    unsigned int        n;
+    unsigned int        hlit;
+    unsigned int        hdist;
+    unsigned int        hclen;
+    unsigned int        i;
+    unsigned int        t;
+    unsigned int        codeD;
+    unsigned int        distance;
+    unsigned int        exbitsD;
+    unsigned int        code;
+    unsigned int        treepos;
 
-	unsigned int		read_bits_shifter;
-	unsigned int		read_bits_limit;
-	unsigned int 		read_bits_i;
+    unsigned int        read_bits_shifter;
+    unsigned int        read_bits_limit;
+    unsigned int        read_bits_i;
 
-	unsigned int		info_size;
+    unsigned int        info_size;
 
-	uint16_t		ctr;
-	uint8_t			subsequent;
-	uint8_t			btype;
-	uint8_t			done;
-	uint8_t			gz_flags;
+    uint16_t        ctr;
+    uint8_t         subsequent;
+    uint8_t         btype;
+    uint8_t         done;
+    uint8_t         gz_flags;
 
-	char			read_bits_ongoing;
+    char            read_bits_ongoing;
 } inflator_ctx_t;
 
 lws_stateful_ret_t
@@ -1075,7 +1075,7 @@ lws_protocol_init(struct lws_context *context);
 
 int
 lws_bind_protocol(struct lws *wsi, const struct lws_protocols *p,
-		  const char *reason);
+          const char *reason);
 
 const struct lws_protocol_vhost_options *
 lws_vhost_protocol_options(struct lws_vhost *vh, const char *name);
@@ -1100,9 +1100,9 @@ void *lws_malloc(size_t size, const char *reason);
 void lws_free(void *p);
 #define lws_free_set_NULL(P)    do { lws_free(P); (P) = NULL; } while(0)
 #else
-#define lws_malloc(S, R)	lws_realloc(NULL, S, R)
-#define lws_free(P)	lws_realloc(P, 0, "lws_free")
-#define lws_free_set_NULL(P)	do { lws_realloc(P, 0, "free"); (P) = NULL; } while(0)
+#define lws_malloc(S, R)    lws_realloc(NULL, S, R)
+#define lws_free(P) lws_realloc(P, 0, "lws_free")
+#define lws_free_set_NULL(P)    do { lws_realloc(P, 0, "free"); (P) = NULL; } while(0)
 #endif
 
 int
@@ -1113,7 +1113,7 @@ lws_plat_apply_FD_CLOEXEC(int n);
 
 const struct lws_plat_file_ops *
 lws_vfs_select_fops(const struct lws_plat_file_ops *fops, const char *vfs_path,
-		    const char **vpath);
+            const char **vpath);
 
 /* lws_plat_ */
 
@@ -1126,7 +1126,7 @@ lws_plat_context_late_destroy(struct lws_context *context);
 
 int
 lws_plat_init(struct lws_context *context,
-	      const struct lws_context_creation_info *info);
+          const struct lws_context_creation_info *info);
 int
 lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop);
 
@@ -1149,7 +1149,7 @@ lws_check_byte_utf8(unsigned char state, unsigned char c);
 int LWS_WARN_UNUSED_RESULT
 lws_check_utf8(unsigned char *state, unsigned char *buf, size_t len);
 int alloc_file(struct lws_context *context, const char *filename,
-			  uint8_t **buf, lws_filepos_t *amount);
+              uint8_t **buf, lws_filepos_t *amount);
 
 int
 lws_lec_scratch(lws_lec_pctx_t *ctx);
@@ -1158,7 +1158,7 @@ lws_lec_signed(lws_lec_pctx_t *ctx, int64_t num);
 
 int
 lws_cose_key_checks(const lws_cose_key_t *key, int64_t kty, int64_t alg,
-		    int key_op, const char *crv);
+            int key_op, const char *crv);
 
 void lws_msleep(unsigned int);
 
@@ -1184,6 +1184,19 @@ lws_transport_mux_next_free(lws_transport_mux_t *tm, lws_mux_ch_idx_t *result);
 
 void
 sul_ping_cb(lws_sorted_usec_list_t *sul);
+
+#define LWS_ENABLE_CUSTOM_ASSERT
+#ifdef  LWS_ENABLE_CUSTOM_ASSERT
+
+typedef void (*lws_assert_cb)(const char *file, int line, const char *expression);
+void lws_set_assert_cb(lws_assert_cb cb);
+void lws_assert(const char *file, int line, const char *expression);
+#   ifdef assert
+#       undef assert
+#   endif
+#define assert(expression) (void)((expression) || (lws_assert(__FILE__, __LINE__, #expression), 0))
+
+#endif
 
 #if !defined(PRIu64)
 #define PRIu64 "llu"
