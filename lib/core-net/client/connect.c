@@ -492,7 +492,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 
 		wsi->tls.ssl = NULL;
 
-		if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
+		if (wsi->role_ops != &role_ops_raw_skt && (wsi->tls.use_ssl & LCCSCF_USE_SSL)) {
 			const char *cce = NULL;
 
 			switch (
