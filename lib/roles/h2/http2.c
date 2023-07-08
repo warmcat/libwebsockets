@@ -534,7 +534,7 @@ lws_h2_settings(struct lws *wsi, struct http2_settings *settings,
 		case H2SET_INITIAL_WINDOW_SIZE:
 			if (b > 0x7fffffff) {
 				lws_h2_goaway(nwsi, H2_ERR_FLOW_CONTROL_ERROR,
-					      "Inital Window beyond max");
+					      "Initial Window beyond max");
 				return 1;
 			}
 
@@ -1618,7 +1618,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 		if (!h2n->swsi->h2.END_HEADERS) {
 			/* we are not finished yet */
-			lwsl_info("witholding http action for continuation\n");
+			lwsl_info("withholding http action for continuation\n");
 			h2n->cont_exp_sid = h2n->sid;
 			h2n->cont_exp = 1;
 			break;
