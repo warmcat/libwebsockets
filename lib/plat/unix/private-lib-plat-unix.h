@@ -123,7 +123,7 @@ typedef pthread_mutex_t lws_mutex_t;
 
 #endif
 
-#if defined (__sun) || defined(__HAIKU__) || defined(__QNX__) || defined(__ANDROID__)
+#if defined (__sun) || defined(__HAIKU__) || defined(__QNX__) || defined(__ANDROID__) || defined(__NuttX__)
 #include <syslog.h>
 
 #if defined(__ANDROID__)

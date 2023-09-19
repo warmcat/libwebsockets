@@ -171,7 +171,7 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, int fd, int unix_skt)
 
 	/* Disable Nagle */
 	optval = 1;
-#if defined (__sun) || defined(__QNX__)
+#if defined (__sun) || defined(__QNX__) || defined(__NuttX__)
 	if (!unix_skt && setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (const void *)&optval, optlen) < 0)
 		return 1;
 #elif !defined(__APPLE__) && \
@@ -190,6 +190,7 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, int fd, int unix_skt)
 	return lws_plat_set_nonblocking(fd);
 }
 
+#if !defined(__NuttX__)
 static const int ip_opt_lws_flags[] = {
 	LCCSCF_IP_LOW_LATENCY, LCCSCF_IP_HIGH_THROUGHPUT,
 	LCCSCF_IP_HIGH_RELIABILITY
@@ -209,6 +210,7 @@ static const char *ip_opt_names[] = {
 	, "MINCOST"
 #endif
 };
+#endif
 #endif
 
 int
@@ -237,7 +239,8 @@ lws_plat_set_socket_options_ip(lws_sockfd_type fd, uint8_t pri, int lws_flags)
       !defined(__sun) && \
       !defined(__HAIKU__) && \
       !defined(__CYGWIN__) && \
-      !defined(__QNX__)
+      !defined(__QNX__) && \
+      !defined(__NuttX__)
 
 	/* the BSDs don't have SO_PRIORITY */
 
@@ -270,6 +273,7 @@ lws_plat_set_socket_options_ip(lws_sockfd_type fd, uint8_t pri, int lws_flags)
 	}
 
 
+#if !defined(__NuttX__)
 	for (n = 0; n < 4; n++) {
 		if (!(lws_flags & ip_opt_lws_flags[n]))
 			continue;
@@ -287,6 +291,7 @@ lws_plat_set_socket_options_ip(lws_sockfd_type fd, uint8_t pri, int lws_flags)
 			lwsl_notice("%s: set ip flag %s\n", __func__,
 				    ip_opt_names[n]);
 	}
+#endif
 
 	return ret;
 }
