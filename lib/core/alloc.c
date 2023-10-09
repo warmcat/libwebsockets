@@ -24,14 +24,6 @@
 
 #include "private-lib-core.h"
 
-#if defined(LWS_HAVE_MALLOC_USABLE_SIZE)
-
-#include <malloc.h>
-
-/* the heap is processwide */
-static size_t allocated;
-#endif
-
 #if defined(LWS_WITH_ALLOC_METADATA_LWS)
 static lws_dll2_owner_t active;
 #endif
@@ -136,11 +128,6 @@ _realloc(void *ptr, size_t size, const char *reason)
 			   (unsigned long)size, reason);
 #endif
 
-#if defined(LWS_HAVE_MALLOC_USABLE_SIZE)
-		if (ptr)
-			allocated -= malloc_usable_size(ptr);
-#endif
-
 #if defined(LWS_WITH_ALLOC_METADATA_LWS)
 		size += adj;
 #endif
@@ -153,10 +140,6 @@ _realloc(void *ptr, size_t size, const char *reason)
 
 		if (!v)
 			return v;
-
-#if defined(LWS_HAVE_MALLOC_USABLE_SIZE)
-		allocated += malloc_usable_size(v);
-#endif
 
 #if defined(LWS_WITH_ALLOC_METADATA_LWS)
 		_lws_alloc_metadata_adjust(&active, &v, adj, comp, (unsigned int)complen);
@@ -174,9 +157,6 @@ _realloc(void *ptr, size_t size, const char *reason)
 		_lws_alloc_metadata_trim(&ptr, NULL, NULL);
 #endif
 
-#if defined(LWS_HAVE_MALLOC_USABLE_SIZE)
-		allocated -= malloc_usable_size(ptr);
-#endif
 		free(ptr);
 #if defined(LWS_PLAT_FREERTOS)
 		lwsl_debug("%s: free heap %d\n", __func__,
@@ -224,10 +204,6 @@ void lws_set_allocator(void *(*cb)(void *ptr, size_t size, const char *reason))
 
 size_t lws_get_allocated_heap(void)
 {
-#if defined(LWS_HAVE_MALLOC_USABLE_SIZE)
-	return allocated;
-#else
 	return 0;
-#endif
 }
 #endif

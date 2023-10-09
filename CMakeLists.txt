@@ -604,10 +604,6 @@ CHECK_C_SOURCE_COMPILES(
 	"#include <malloc.h>
 	int main(int argc, char **argv) { return malloc_trim(0); }
 	" LWS_HAVE_MALLOC_TRIM)
-CHECK_C_SOURCE_COMPILES(
-	"#include <malloc.h>
-	int main(int argc, char **argv) { return (int)malloc_usable_size((void *)0); }
-	" LWS_HAVE_MALLOC_USABLE_SIZE)
 
 if (PICO_SDK_PATH)
 	set(CMAKE_REQUIRED_DEFINITIONS "-Dxxexit=exit")

@@ -65,7 +65,6 @@
 #cmakedefine LWS_HAVE_HMAC_CTX_new
 #cmakedefine LWS_HAVE_MALLOC_H
 #cmakedefine LWS_HAVE_MALLOC_TRIM
-#cmakedefine LWS_HAVE_MALLOC_USABLE_SIZE
 #cmakedefine LWS_HAVE_mbedtls_md_setup
 #cmakedefine LWS_HAVE_mbedtls_net_init
 #cmakedefine LWS_HAVE_mbedtls_rsa_complete
