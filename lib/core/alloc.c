@@ -201,9 +201,4 @@ void lws_set_allocator(void *(*cb)(void *ptr, size_t size, const char *reason))
 {
 	_lws_realloc = cb;
 }
-
-size_t lws_get_allocated_heap(void)
-{
-	return 0;
-}
 #endif
