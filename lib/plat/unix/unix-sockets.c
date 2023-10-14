@@ -273,6 +273,31 @@ lws_plat_set_socket_options_ip(lws_sockfd_type fd, uint8_t pri, int lws_flags)
 	}
 
 
+/*This is tested on Linux, BSD users, feel free to test*/
+
+#if defined(LWS_WITH_IPV6)
+	if (lws_flags & LCCSCF_IPV6_PREFER_PUBLIC_ADDR) {
+		#if defined(__linux__) 
+			//avoid creating a dependency on having kernel src
+			optval = 0x0002; //include/linux/in6.h IPV6_PREFER_SRC_PUBLIC
+			
+			if (setsockopt(fd, IPPROTO_IPV6, IPV6_ADDR_PREFERENCES,
+						(const void *)&optval, optlen) < 0) { 
+					#if (_LWS_ENABLED_LOGS & LLL_WARN)
+						en = errno;
+						lwsl_warn("%s: unable to set addr PREF: errno %d\n",
+							__func__, en);
+					#endif
+					ret = 1;
+			} else
+				lwsl_notice("%s: set ADDR PREF\n", __func__);
+		#else
+			lwsl_err("%s: UNIMPLEMENTED on this platform\n", __func__);
+		#endif
+	}
+#endif
+
+
 #if !defined(__NuttX__)
 	for (n = 0; n < 4; n++) {
 		if (!(lws_flags & ip_opt_lws_flags[n]))
