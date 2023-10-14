@@ -658,6 +658,7 @@ CHECK_C_SOURCE_COMPILES("#include <malloc.h>\nvoid main(void) { while(1) ; } voi
 CHECK_C_SOURCE_COMPILES("#include <pthread.h>\nvoid main(void) { while(1) ; } void xxexit(void){}" LWS_HAVE_PTHREAD_H)
 CHECK_C_SOURCE_COMPILES("#include <inttypes.h>\nvoid main(void) { while(1) ; } void xxexit(void){}" LWS_HAVE_INTTYPES_H)
 CHECK_C_SOURCE_COMPILES("#include <sys/resource.h>\nvoid main(void) { while(1) ; } void xxexit(void){}" LWS_HAVE_SYS_RESOURCE_H)
+CHECK_C_SOURCE_COMPILES("#include <linux/ipv6.h>\nvoid main(void) { while(1) ; } void xxexit(void){}" LWS_HAVE_LINUX_IPV6_H)
 
 if (LWS_EXT_PTHREAD_INCLUDE_DIR)
 	set(LWS_HAVE_PTHREAD_H 1)
