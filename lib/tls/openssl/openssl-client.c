@@ -868,6 +868,10 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		return 1;
 	}
 
+	SSL_CTX_set_ex_data(vh->tls.ssl_client_ctx,
+				openssl_SSL_CTX_private_data_index,
+				(char *)vh->context);
+
 	lws_plat_vhost_tls_client_ctx_init(vh);
 
 	tcr = lws_zalloc(sizeof(*tcr), "client ctx tcr");
