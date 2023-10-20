@@ -515,6 +515,7 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 	unsigned int len;
 #endif
 	int m, n, en;
+	unsigned long l;
 #if defined(LWS_WITH_TLS_SESSIONS) && defined(LWS_HAVE_SSL_SESSION_set_time)
 	SSL_SESSION *sess;
 #endif
@@ -539,9 +540,10 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 	}
 
 	if (m == SSL_ERROR_SSL) {
+		l = ERR_get_error();
 		n = lws_snprintf(errbuf, elen, "tls: %s", wsi->tls.err_helper);
 		if (!wsi->tls.err_helper[0])
-			ERR_error_string_n((unsigned int)m, errbuf + n, (elen - (unsigned int)n));
+			ERR_error_string_n((unsigned int)l, errbuf + n, (elen - (unsigned int)n));
 		return LWS_SSL_CAPABLE_ERROR;
 	}
 

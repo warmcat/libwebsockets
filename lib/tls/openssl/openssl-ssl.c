@@ -57,8 +57,6 @@ int lws_ssl_get_error(struct lws *wsi, int n)
 
 	m = SSL_get_error(wsi->tls.ssl, n);
        lwsl_debug("%s: %p %d -> %d (errno %d)\n", __func__, wsi->tls.ssl, n, m, LWS_ERRNO);
-	if (m == SSL_ERROR_SSL)
-		lws_tls_err_describe_clear();
 
        // assert (LWS_ERRNO != 9);
 
@@ -249,6 +247,9 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
                lwsl_debug("%s: ssl err %d errno %d\n", lws_wsi_tag(wsi), m, LWS_ERRNO);
 		if (m == SSL_ERROR_ZERO_RETURN) /* cleanly shut down */
 			goto do_err;
+
+		if (m == SSL_ERROR_SSL)
+		    lws_tls_err_describe_clear();
 
 		/* hm not retryable.. could be 0 size pkt or error  */
 
