@@ -124,6 +124,7 @@ include_directories(wrapper/include wrapper/include/internal)
 # old mbedtls has everything in mbedtls/net.h
 
 CHECK_C_SOURCE_COMPILES("#include <mbedtls/net_sockets.h>\nint main(void) { return 0;}\n" LWS_HAVE_MBEDTLS_NET_SOCKETS)
+CHECK_C_SOURCE_COMPILES("#include <mbedtls/ssl.h>\nint main(void) { return MBEDTLS_SSL_NEW_SESSION_TICKET;}\n" LWS_HAVE_MBEDTLS_SSL_NEW_SESSION_TICKET)
 
 #
 # Keep explicit parent scope exports at end
@@ -131,3 +132,4 @@ CHECK_C_SOURCE_COMPILES("#include <mbedtls/net_sockets.h>\nint main(void) { retu
 
 exports_to_parent_scope()
 set(LWS_HAVE_MBEDTLS_NET_SOCKETS ${LWS_HAVE_MBEDTLS_NET_SOCKETS} PARENT_SCOPE)
+set(LWS_HAVE_MBEDTLS_SSL_NEW_SESSION_TICKET ${LWS_HAVE_MBEDTLS_SSL_NEW_SESSION_TICKET} PARENT_SCOPE)

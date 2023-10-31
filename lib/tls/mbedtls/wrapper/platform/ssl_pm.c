@@ -549,7 +549,11 @@ OSSL_HANDSHAKE_STATE ssl_pm_get_state(const SSL *ssl)
         case MBEDTLS_SSL_SERVER_KEY_EXCHANGE:
             state = TLS_ST_SR_KEY_EXCH;
             break;
+#if defined(LWS_HAVE_MBEDTLS_SSL_NEW_SESSION_TICKET)
+        case MBEDTLS_SSL_NEW_SESSION_TICKET:
+#else
         case MBEDTLS_SSL_SERVER_NEW_SESSION_TICKET:
+#endif
             state = TLS_ST_SW_SESSION_TICKET;
             break;
         case MBEDTLS_SSL_SERVER_HELLO_VERIFY_REQUEST_SENT:
