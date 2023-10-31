@@ -78,6 +78,7 @@
 #cmakedefine LWS_HAVE_mbedtls_ssl_set_verify
 #cmakedefine LWS_HAVE_mbedtls_x509_crt_parse_file
 #cmakedefine LWS_HAVE_MBEDTLS_NET_SOCKETS
+#cmakedefine LWS_HAVE_MBEDTLS_SSL_NEW_SESSION_TICKET
 #cmakedefine LWS_HAVE_MBEDTLS_AUTH_KEY_ID
 #cmakedefine LWS_HAVE_NEW_UV_VERSION_H
 #cmakedefine LWS_HAVE_OPENSSL_ECDH_H
