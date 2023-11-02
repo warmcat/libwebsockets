@@ -327,10 +327,6 @@ static const char * const opts_str =
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
 			"SSPROX "
 #endif
-
-#if defined(LWS_WITH_MBEDTLS)
-			"MbedTLS "
-#endif
 #if defined(LWS_WITH_CONMON)
 			"ConMon "
 #endif
@@ -389,6 +385,9 @@ lws_create_context(const struct lws_context_creation_info *info)
 	uint16_t us_wait_resolution = 0;
 #if defined(LWS_WITH_CACHE_NSCOOKIEJAR) && defined(LWS_WITH_CLIENT)
 	struct lws_cache_creation_info ci;
+#endif
+#if defined(LWS_WITH_MBEDTLS)
+	char mbedtls_version[32];
 #endif
 
 #if defined(__ANDROID__)
@@ -788,7 +787,17 @@ lws_create_context(const struct lws_context_creation_info *info)
 
 #endif /* network */
 
-	lwsl_cx_notice(context, "LWS: %s, %s%s", library_version, opts_str, s);
+#if defined(LWS_WITH_MBEDTLS)
+	mbedtls_version_get_string(mbedtls_version);
+#endif
+
+	lwsl_cx_notice(context,
+#if defined(LWS_WITH_MBEDTLS)
+			"LWS: %s, MbedTLS-%s %s%s", library_version, mbedtls_version, opts_str, s);
+#else
+			"LWS: %s, %s%s", library_version, opts_str, s);
+#endif
+
 #if defined(LWS_WITH_NETWORK)
 	lwsl_cx_info(context, "Event loop: %s", plev->ops->name);
 #endif
