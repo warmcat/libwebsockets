@@ -761,8 +761,13 @@ int pkey_pm_load(EVP_PKEY *pk, const unsigned char *buffer, int len)
     mbedtls_pk_init(pkey_pm->pkey);
 
 #if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000
+#if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03050000
+    ret = mbedtls_pk_parse_key(pkey_pm->pkey, load_buf, (unsigned int)len, NULL, 0,
+		    mbedtls_ctr_drbg_random, pkey_pm->rngctx);
+#else
     ret = mbedtls_pk_parse_key(pkey_pm->pkey, load_buf, (unsigned int)len + 1, NULL, 0,
 		    mbedtls_ctr_drbg_random, pkey_pm->rngctx);
+#endif
 #else
     ret = mbedtls_pk_parse_key(pkey_pm->pkey, load_buf, (unsigned int)len + 1, NULL, 0);
 #endif
