@@ -44,7 +44,7 @@ enum lws_threadpool_task_status {
 	LWS_TP_STATUS_SYNCING,
 	LWS_TP_STATUS_STOPPING,
 	LWS_TP_STATUS_FINISHED, /* lws_threadpool_task_status() frees task */
-	LWS_TP_STATUS_STOPPED, /* lws_threadpool_task_status() frees task */
+	LWS_TP_STATUS_STOPPED   /* lws_threadpool_task_status() frees task */
 };
 
 enum lws_threadpool_task_return {

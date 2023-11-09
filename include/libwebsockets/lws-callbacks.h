@@ -53,7 +53,7 @@ enum lws_cert_update_state {
 	LWS_CUS_CREATE_REQ,
 	LWS_CUS_REQ,
 	LWS_CUS_CONFIRM,
-	LWS_CUS_ISSUE,
+	LWS_CUS_ISSUE
 };
 
 enum {
@@ -886,7 +886,7 @@ enum lws_callback_reasons {
 
 	/****** add new things just above ---^ ******/
 
-	LWS_CALLBACK_USER = 1000,
+	LWS_CALLBACK_USER = 1000
 	/**<  user code can use any including above without fear of clashes */
 };
 

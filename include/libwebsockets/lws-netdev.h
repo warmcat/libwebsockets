@@ -32,7 +32,7 @@ struct lws_netdev_instance;
 typedef enum {
 	LWSNDTYP_UNKNOWN,
 	LWSNDTYP_WIFI,
-	LWSNDTYP_ETH,
+	LWSNDTYP_ETH
 } lws_netdev_type_t;
 
 /*
@@ -111,7 +111,7 @@ enum {
 	LNDIW_UP			= (1 << 7),
 
 	LNDIW_ACQ_IPv4			= (1 << 0),
-	LNDIW_ACQ_IPv6			= (1 << 1),
+	LNDIW_ACQ_IPv6			= (1 << 1)
 };
 
 /*
@@ -161,7 +161,7 @@ typedef enum {
 		 * trying to connect to another non-group AP. If we don't get an
 		 * IP within a timeout and retries, mark it as unusable it and go back
 		 */
-	LWSNDVWIFI_STATE_STAT_HAPPY,
+	LWSNDVWIFI_STATE_STAT_HAPPY
 } lws_netdev_wifi_state_t;
 
 /*

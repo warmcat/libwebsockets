@@ -53,7 +53,7 @@ enum lejp_states {
 	LEJP_MP_VALUE_NUM_EXP = LEJP_FLAG_WS_KEEP | 12,
 	LEJP_MP_VALUE_TOK = LEJP_FLAG_WS_KEEP | 13,
 	LEJP_MP_COMMA_OR_END = 14,
-	LEJP_MP_ARRAY_END = 15,
+	LEJP_MP_ARRAY_END = 15
 };
 
 enum lejp_reasons {
@@ -109,7 +109,7 @@ enum lejp_callbacks {
 	LEJPCB_OBJECT_START	= 16,
 	LEJPCB_OBJECT_END	= 17,
 
-	LEJPCB_USER_START	= 32,
+	LEJPCB_USER_START	= 32
 };
 
 /**

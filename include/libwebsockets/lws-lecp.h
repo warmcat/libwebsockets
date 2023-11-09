@@ -183,7 +183,7 @@ enum lecp_callbacks {
 	LECPCB_ARRAY_ITEM_START		= 29,
 	LECPCB_ARRAY_ITEM_END		= 30,
 
-	LECPCB_LITERAL_CBOR		= 31,
+	LECPCB_LITERAL_CBOR		= 31
 };
 
 enum lecp_reasons {
@@ -191,7 +191,7 @@ enum lecp_reasons {
 	LECP_REJECT_BAD_CODING		= -2,
 	LECP_REJECT_UNKNOWN		= -3,
 	LECP_REJECT_CALLBACK		= -4,
-	LECP_STACK_OVERFLOW		= -5,
+	LECP_STACK_OVERFLOW		= -5
 };
 
 
@@ -318,7 +318,7 @@ enum cbp_state {
 
 	CBPS_STRING_LIT,
 
-	CBPS_CONTYPE,
+	CBPS_CONTYPE
 };
 
 typedef struct lws_lec_pctx {

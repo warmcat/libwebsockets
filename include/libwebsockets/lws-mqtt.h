@@ -192,12 +192,12 @@ typedef enum {
 	LMQCFT_CLEAN_START					= (1 << 1),
 	LMQCFT_RESERVED						= (1 << 0),
 
-	LMQCFT_WILL_QOS_MASK					= (3 << 3),
+	LMQCFT_WILL_QOS_MASK					= (3 << 3)
 } lws_mqtt_connect_flags_t;
 
 /* flags for S_TO_C CONNACK */
 typedef enum {
-	LMQCFT_SESSION_PRESENT					= (1 << 0),
+	LMQCFT_SESSION_PRESENT					= (1 << 0)
 } lws_mqtt_connack_flags_t;
 
 typedef enum {
@@ -250,7 +250,7 @@ typedef enum {
 	LMQCP_REASON_CONNECTION_RATE_EXCEEDED			= 0x9f,
 	LMQCP_REASON_MAXIMUM_CONNECT_TIME			= 0xa0,
 	LMQCP_REASON_SUBSCRIPTION_IDS_NOT_SUPPORTED		= 0xa1,
-	LMQCP_REASON_WILDCARD_SUBSCRIPTIONS_NOT_SUPPORTED	= 0xa2,
+	LMQCP_REASON_WILDCARD_SUBSCRIPTIONS_NOT_SUPPORTED	= 0xa2
 } lws_mqtt_reason_t;
 
 typedef enum {

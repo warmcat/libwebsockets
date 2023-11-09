@@ -53,7 +53,7 @@ enum lws_tls_cert_info {
 	/**< If the cert has one, the issuer responsible for the signature */
 	LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID_SERIAL,
 	/**< If the cert has one, serial number responsible for the signature */
-	LWS_TLS_CERT_INFO_SUBJECT_KEY_ID,
+	LWS_TLS_CERT_INFO_SUBJECT_KEY_ID
 	/**< If the cert has one, the cert's subject key ID */
 };
 

@@ -129,7 +129,7 @@ enum {
 	LWSJRPCWKE__SERVER_ERROR_FIRST	= -32000, /* implementation-defined...*/
 	LWSJRPCWKE__SERVER_ERROR_LAST	= -32099, /* ... server errors range */
 
-	LWSJRPCE__INVALID_MEMBERS	= -31000, /* reponse membs in req, vv */
+	LWSJRPCE__INVALID_MEMBERS	= -31000 /* reponse membs in req, vv */
 };
 
 enum {

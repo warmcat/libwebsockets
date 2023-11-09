@@ -1291,7 +1291,7 @@ enum lws_mount_protocols {
 	LWSMPRO_CGI		= 3, /**< pass to CGI to handle */
 	LWSMPRO_REDIR_HTTP	= 4, /**< redirect to http:// url */
 	LWSMPRO_REDIR_HTTPS	= 5, /**< redirect to https:// url */
-	LWSMPRO_CALLBACK	= 6, /**< hand by named protocol's callback */
+	LWSMPRO_CALLBACK	= 6  /**< hand by named protocol's callback */
 };
 
 /** enum lws_authentication_mode

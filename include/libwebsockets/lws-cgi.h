@@ -35,7 +35,7 @@
 enum lws_enum_stdinouterr {
 	LWS_STDIN = 0,
 	LWS_STDOUT = 1,
-	LWS_STDERR = 2,
+	LWS_STDERR = 2
 };
 
 enum lws_cgi_hdr_state {
@@ -47,7 +47,7 @@ enum lws_cgi_hdr_state {
 	LHCS_RESPONSE,
 	LHCS_DUMP_HEADERS,
 	LHCS_PAYLOAD,
-	LCHS_SINGLE_0A,
+	LCHS_SINGLE_0A
 };
 
 struct lws_cgi_args {

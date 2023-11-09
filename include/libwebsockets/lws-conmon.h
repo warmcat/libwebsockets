@@ -64,7 +64,7 @@ typedef uint32_t lws_conmon_interval_us_t;
 
 typedef enum lws_conmon_pcol {
 	LWSCONMON_PCOL_NONE,
-	LWSCONMON_PCOL_HTTP, /* .protocol_specific.http is valid */
+	LWSCONMON_PCOL_HTTP  /* .protocol_specific.http is valid */
 } lws_conmon_pcol_t;
 
 typedef enum lws_conmon_dns_disposition {

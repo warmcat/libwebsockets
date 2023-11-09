@@ -44,7 +44,7 @@
 
 enum {
 	LWS_DSHFLAG_ENABLE_COALESCE			= (1u << 24),
-	LWS_DSHFLAG_ENABLE_SPLIT			= (1u << 25),
+	LWS_DSHFLAG_ENABLE_SPLIT			= (1u << 25)
 };
 
 /**

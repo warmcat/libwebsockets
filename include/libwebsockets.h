@@ -618,7 +618,7 @@ typedef enum {
 	LWS_SRET_NO_FURTHER_IN  = (1 << 19),
 	LWS_SRET_NO_FURTHER_OUT = (1 << 20),
 	LWS_SRET_AWAIT_RETRY    = (1 << 21),
-	LWS_SRET_YIELD          = (1 << 22), /* return to the event loop and continue */
+	LWS_SRET_YIELD          = (1 << 22)  /* return to the event loop and continue */
 } lws_stateful_ret_t;
 
 typedef struct lws_fixed3232 {

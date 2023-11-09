@@ -46,7 +46,7 @@ enum lws_extension_callback_reasons {
 	LWS_EXT_CB_OPTION_DEFAULT			= 23,
 	LWS_EXT_CB_OPTION_SET				= 24,
 	LWS_EXT_CB_OPTION_CONFIRM			= 25,
-	LWS_EXT_CB_NAMED_OPTION_SET			= 26,
+	LWS_EXT_CB_NAMED_OPTION_SET			= 26
 
 	/****** add new things just above ---^ ******/
 };

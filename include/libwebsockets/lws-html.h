@@ -54,7 +54,7 @@ enum lhp_callbacks {
 
 	LHPCB_CONTENT			= 6,
 
-	LHPCB_COMMENT			= 7,
+	LHPCB_COMMENT			= 7
 };
 
 /*
@@ -440,7 +440,7 @@ typedef enum lcsp_css_units {
 
 	LCSP_UNIT_URL,			/* string at end of atr */
 	LCSP_UNIT_STRING,		/* string at end of atr */
-	LCSP_UNIT_DATA,			/* binary data at end of atr */
+	LCSP_UNIT_DATA			/* binary data at end of atr */
 
 } lcsp_css_units_t;
 

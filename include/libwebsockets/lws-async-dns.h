@@ -28,7 +28,7 @@ typedef enum dns_query_type {
 	LWS_ADNS_RECORD_A					= 0x01,
 	LWS_ADNS_RECORD_CNAME					= 0x05,
 	LWS_ADNS_RECORD_MX					= 0x0f,
-	LWS_ADNS_RECORD_AAAA					= 0x1c,
+	LWS_ADNS_RECORD_AAAA					= 0x1c
 } adns_query_type_t;
 
 typedef enum {

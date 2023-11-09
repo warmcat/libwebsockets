@@ -76,7 +76,7 @@ typedef enum {
 	LWS_TOKZE_TOKEN_NAME_EQUALS,	/* token [whitespace] = */
 	LWS_TOKZE_TOKEN_NAME_COLON,	/* token [whitespace] : (only with
 					   LWS_TOKENIZE_F_AGG_COLON flag) */
-	LWS_TOKZE_QUOTED_STRING,	/* "*", where * may have any char */
+	LWS_TOKZE_QUOTED_STRING		/* "*", where * may have any char */
 
 } lws_tokenize_elem;
 
@@ -88,7 +88,7 @@ typedef enum {
 enum lws_tokenize_delimiter_tracking {
 	LWSTZ_DT_NEED_FIRST_CONTENT,
 	LWSTZ_DT_NEED_DELIM,
-	LWSTZ_DT_NEED_NEXT_CONTENT,
+	LWSTZ_DT_NEED_NEXT_CONTENT
 };
 
 typedef enum {
@@ -209,7 +209,7 @@ enum {
 	LSTRX_DONE,			/* it completed OK */
 	LSTRX_FILLED_OUT,		/* out buf filled and needs resetting */
 	LSTRX_FATAL_NAME_TOO_LONG = -1,	/* fatal */
-	LSTRX_FATAL_NAME_UNKNOWN  = -2,
+	LSTRX_FATAL_NAME_UNKNOWN  = -2
 };
 
 

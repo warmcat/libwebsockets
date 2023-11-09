@@ -198,7 +198,7 @@ enum {
 	LWSDLOFLOW_STATE_READ, /* default, we want input */
 	LWSDLOFLOW_STATE_READ_COMPLETED, /* we do not need further rx, every-
 					  * thing is locally buffered or used */
-	LWSDLOFLOW_STATE_READ_FAILED, /* operation has fatal error */
+	LWSDLOFLOW_STATE_READ_FAILED  /* operation has fatal error */
 };
 
 struct lws_ss_handle;
@@ -708,7 +708,7 @@ enum {
 	LWS_RXFLOW_REASON_APPLIES_ENABLE	= LWS_RXFLOW_REASON_APPLIES |
 						  LWS_RXFLOW_REASON_APPLIES_ENABLE_BIT,
 	LWS_RXFLOW_REASON_APPLIES_DISABLE	= LWS_RXFLOW_REASON_APPLIES,
-	LWS_RXFLOW_REASON_FLAG_PROCESS_NOW	= (1 << 12),
+	LWS_RXFLOW_REASON_FLAG_PROCESS_NOW	= (1 << 12)
 
 };
 

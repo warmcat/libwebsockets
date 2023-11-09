@@ -35,7 +35,7 @@ typedef enum {
 	LSMT_LIST,
 	LSMT_CHILD_PTR,
 	LSMT_SCHEMA,
-	LSMT_BLOB_PTR,
+	LSMT_BLOB_PTR
 
 } lws_struct_map_type_eum;
 

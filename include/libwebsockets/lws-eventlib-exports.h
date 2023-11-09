@@ -26,14 +26,14 @@
 
 enum lws_event_lib_ops_flags {
 	LELOF_ISPOLL				= (1 >> 0),
-	LELOF_DESTROY_FINAL			= (1 >> 1),
+	LELOF_DESTROY_FINAL			= (1 >> 1)
 };
 
 enum {
 	LWS_EV_READ				= (1 << 0),
 	LWS_EV_WRITE				= (1 << 1),
 	LWS_EV_START				= (1 << 2),
-	LWS_EV_STOP				= (1 << 3),
+	LWS_EV_STOP				= (1 << 3)
 };
 
 struct lws_event_loop_ops {

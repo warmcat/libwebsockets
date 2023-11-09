@@ -42,7 +42,7 @@ enum {
 	/**< no-go pieces invalid */
 	LWSMTFL_REPORT_DUTY_WALLCLOCK_US		= (1 << 5),
 	/**< aggregate compares to wallclock us for duty cycle */
-	LWSMTFL_REPORT_HIST				= (1 << 6),
+	LWSMTFL_REPORT_HIST				= (1 << 6)
 	/**< our type is histogram (otherwise, sum / mean aggregation) */
 };
 
@@ -315,12 +315,12 @@ enum {
 
 	LMT_FAIL,	/* related to failed events */
 
-	LMT_COUNT,
+	LMT_COUNT
 };
 
 typedef enum lws_metric_rpt {
 	LMR_PERIODIC = 0,	/* we are reporting on a schedule */
-	LMR_OUTLIER,		/* we are reporting the last outlier */
+	LMR_OUTLIER			/* we are reporting the last outlier */
 } lws_metric_rpt_kind_t;
 
 #define METRES_GO	0

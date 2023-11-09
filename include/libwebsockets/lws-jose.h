@@ -72,7 +72,7 @@ enum lws_jose_algtype {
 	LWS_JOSE_ENCTYPE_AES_ECB,
 	LWS_JOSE_ENCTYPE_AES_OFB,
 	LWS_JOSE_ENCTYPE_AES_XTS,	/* care: requires double-length key */
-	LWS_JOSE_ENCTYPE_AES_GCM,
+	LWS_JOSE_ENCTYPE_AES_GCM
 };
 
 /* there's a table of these defined in lws-gencrypto-common.c */

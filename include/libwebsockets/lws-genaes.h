@@ -47,7 +47,7 @@ enum enum_aes_modes {
 	LWS_GAESM_OFB,
 	LWS_GAESM_XTS,		/* care... requires double-length key */
 	LWS_GAESM_GCM,
-	LWS_GAESM_KW,
+	LWS_GAESM_KW
 };
 
 enum enum_aes_operation {

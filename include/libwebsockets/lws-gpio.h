@@ -44,7 +44,7 @@ enum {
 	LWSGGPIO_FL_WRITE			= (1 << 1),
 	LWSGGPIO_FL_PULLUP			= (1 << 2),
 	LWSGGPIO_FL_PULLDOWN			= (1 << 3),
-	LWSGGPIO_FL_START_LOW			= (1 << 4),
+	LWSGGPIO_FL_START_LOW			= (1 << 4)
 };
 
 typedef void (*lws_gpio_irq_cb_t)(void *arg);

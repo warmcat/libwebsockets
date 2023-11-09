@@ -243,7 +243,7 @@ enum {
 
 	LWSCOSE_WKARSA_ALG_RS256		= -257, /* + SHA-256 */
 	LWSCOSE_WKARSA_ALG_RS384		= -258, /* + SHA-384 */
-	LWSCOSE_WKARSA_ALG_RS512		= -259, /* + SHA-512 */
+	LWSCOSE_WKARSA_ALG_RS512		= -259  /* + SHA-512 */
 };
 
 enum enum_cose_key_meta_tok {
@@ -358,7 +358,7 @@ enum lws_cose_sig_types {
 	SIGTYPE_SINGLE,
 	SIGTYPE_COUNTERSIGNED, /* not yet supported */
 	SIGTYPE_MAC, /* only supported for validation */
-	SIGTYPE_MAC0,
+	SIGTYPE_MAC0
 };
 
 /* a list of these result objects is the output of the validation process */

@@ -127,7 +127,7 @@ enum {
 	LWSSS_FLAG_RIDESHARE					= (1 << 5),
 	/* Serialized payload starts with non-default rideshare name length and
 	 * name string without NUL, then payload */
-	LWSSS_FLAG_PERF_JSON					= (1 << 6),
+	LWSSS_FLAG_PERF_JSON					= (1 << 6)
 	/* This RX is JSON performance data, only on streams with "perf" flag
 	 * set */
 };
@@ -142,7 +142,7 @@ typedef enum lws_ss_state_return {
 
 	LWSSSSRET_OK			=  0, /* no error */
 	LWSSSSRET_DISCONNECT_ME		= -1, /* caller should disconnect us */
-	LWSSSSRET_DESTROY_ME		= -2, /* caller should destroy us */
+	LWSSSSRET_DESTROY_ME		= -2  /* caller should destroy us */
 } lws_ss_state_return_t;
 
 /**
@@ -172,7 +172,7 @@ enum {
 	LWSSSINFLAGS_ACCEPTED				=	(1 << 3),
 	/**< Set on the accepted object copy of the ssi / info to indicate that
 	 * we are an accepted connection from a server's listening socket */
-	LWSSSINFLAGS_ACCEPTED_SINK			=	(1 << 4),
+	LWSSSINFLAGS_ACCEPTED_SINK			=	(1 << 4)
 	/**< Set on the accepted object copy of the ssi / info to indicate that
 	 * we are an accepted connection from a local sink */
 };

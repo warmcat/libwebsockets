@@ -54,7 +54,7 @@ enum {
 	/**< leave without finalizing the SPI transaction */
 	LWS_SPI_FLAG_DC_CMD_IS_HIGH			= (1 << 1),
 	/**< It's normally 0 for cmd phase, invert with this flag */
-	LWS_SPI_FLAG_DMA_BOUNCE_NOT_NEEDED		= (1 << 2),
+	LWS_SPI_FLAG_DMA_BOUNCE_NOT_NEEDED		= (1 << 2)
 	/**< It's normally 0 for cmd phase, invert with this flag */
 };
 

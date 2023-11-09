@@ -258,7 +258,7 @@ typedef struct lws_dlo_jpeg {
 typedef enum {
 	LWSDLOSS_TYPE_JPEG,
 	LWSDLOSS_TYPE_PNG,
-	LWSDLOSS_TYPE_CSS,
+	LWSDLOSS_TYPE_CSS
 } lws_dlo_image_type_t;
 
 typedef struct {

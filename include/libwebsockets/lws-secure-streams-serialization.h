@@ -194,7 +194,7 @@ typedef enum {
 	 */
 	LWSSS_SER_TXPRE_TLSNEG_ENCLAVE_SIGNED,
 	/* reserved */
-	LWSSS_SER_TXPRE_LINK_VALIDITY_PROBE,
+	LWSSS_SER_TXPRE_LINK_VALIDITY_PROBE
 } lws_sss_cmds_t;
 
 /* SSPC serialization states */
@@ -210,7 +210,7 @@ typedef enum {
  	LPCSCLI_WAITING_CREATE_RESULT,   /* wait to hear if proxy ss create OK */
  	LPCSCLI_LOCAL_CONNECTED,	      /* we are in touch with the proxy */
  	LPCSCLI_ONWARD_CONNECT,	      /* request onward ss connection */
- 	LPCSCLI_OPERATIONAL, /* ready for payloads */
+ 	LPCSCLI_OPERATIONAL  /* ready for payloads */
 
  } lws_ss_conn_states_t;
 
@@ -303,7 +303,7 @@ typedef enum {
 	  *  - 0: LWSSSS_LLM_PONGACK
 	  *  - 1: 8-byte MSB-first us resolution unix time from PING
 	  */
-	 LWSSSS_LLM_RESET_TRANSPORT,
+	 LWSSSS_LLM_RESET_TRANSPORT
 	 /**<
 	  * Either side can issue this to indicate they no longer trust the
 	  * transport link.  They should close all their channels and enter a
@@ -473,7 +473,7 @@ enum {
 	LWSTMC_OPERATIONAL,		    /* had ack, we are operational */
 	LWSTMC_PENDING_CLOSE_CHANNEL,	    /* waiting to send close channel */
 	LWSTMC_AWAITING_CLOSE_CHANNEL_ACK,  /* sent close ch, awaiting ack */
-	LWSTMC_PENDING_CLOSE_CHANNEL_ACK,   /* waiting to send close ch ack */
+	LWSTMC_PENDING_CLOSE_CHANNEL_ACK    /* waiting to send close ch ack */
 	/* lws_transport_mux_ch_t destroyed */
 };
 
@@ -496,7 +496,7 @@ typedef struct lws_transport_mux_ch {
 
 enum { /* states of the transport */
 	LWSTM_TRANSPORT_DOWN,
-	LWSTM_OPERATIONAL,
+	LWSTM_OPERATIONAL
 };
 
 #define LWSTMINFO_SERVER			(1 << 0)

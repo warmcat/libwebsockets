@@ -103,7 +103,7 @@ enum lws_close_status {
 
 	/****** add new things just above ---^ ******/
 
-	LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY		= 9999,
+	LWS_CLOSE_STATUS_NOSTATUS_CONTEXT_DESTROY		= 9999
 };
 
 /**
