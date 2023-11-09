@@ -320,7 +320,7 @@ enum {
 
 typedef enum lws_metric_rpt {
 	LMR_PERIODIC = 0,	/* we are reporting on a schedule */
-	LMR_OUTLIER			/* we are reporting the last outlier */
+	LMR_OUTLIER		/* we are reporting the last outlier */
 } lws_metric_rpt_kind_t;
 
 #define METRES_GO	0

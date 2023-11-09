@@ -157,7 +157,7 @@ typedef enum {
 	LWS_CPD_INTERNET_OK,	/* no captive portal: our CPD test passed OK,
 				 * we can go out on the internet */
 	LWS_CPD_CAPTIVE_PORTAL,	/* we inferred we're behind a captive portal */
-	LWS_CPD_NO_INTERNET		/* we couldn't touch anything */
+	LWS_CPD_NO_INTERNET	/* we couldn't touch anything */
 } lws_cpd_result_t;
 
 typedef void (*lws_attach_cb_t)(struct lws_context *context, int tsi, void *opaque);
