@@ -1104,3 +1104,62 @@ lws_system_get_state_manager(struct lws_context *context)
 	return &context->mgr_system;
 }
 #endif
+
+int
+lws_parse_mac(const char *ads, uint8_t *result_6_bytes)
+{
+	uint8_t *p = result_6_bytes;
+	struct lws_tokenize ts;
+	char t[3];
+	size_t n;
+	long u;
+
+	lws_tokenize_init(&ts, ads, LWS_TOKENIZE_F_NO_INTEGERS |
+				    LWS_TOKENIZE_F_MINUS_NONTERM);
+	ts.len = strlen(ads);
+
+	do {
+		ts.e = (int8_t)lws_tokenize(&ts);
+		switch (ts.e) {
+		case LWS_TOKZE_TOKEN:
+			if (ts.token_len != 2)
+				return -1;
+			if (p - result_6_bytes == 6)
+				return -2;
+			t[0] = ts.token[0];
+			t[1] = ts.token[1];
+			t[2] = '\0';
+			for (n = 0; n < 2; n++)
+				if (t[n] < '0' || t[n] > 'f' ||
+				    (t[n] > '9' && t[n] < 'A') ||
+				    (t[n] > 'F' && t[n] < 'a'))
+					return -1;
+			u = strtol(t, NULL, 16);
+			if (u > 0xff)
+				return -5;
+			*p++ = (uint8_t)u;
+			break;
+
+		case LWS_TOKZE_DELIMITER:
+			if (*ts.token != ':')
+				return -10;
+			if (p - result_6_bytes > 5)
+				return -11;
+			break;
+
+		case LWS_TOKZE_ENDED:
+			if (p - result_6_bytes != 6)
+				return -12;
+			return 0;
+
+		default:
+			lwsl_err("%s: malformed mac\n", __func__);
+
+			return -13;
+		}
+	} while (ts.e > 0);
+
+	lwsl_err("%s: ended on e %d\n", __func__, ts.e);
+
+	return -14;
+}

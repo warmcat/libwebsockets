@@ -56,6 +56,11 @@ if (LWS_WITH_LWS_DSH)
 		core-net/lws-dsh.c)
 endif()
 
+if (LWS_WITH_WOL)
+	list(APPEND SOURCES
+		core-net/wol.c)
+endif()
+
 if (LWS_WITH_CLIENT)
 	list(APPEND SOURCES
 		core-net/client/client.c

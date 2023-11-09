@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2023 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -245,5 +245,17 @@ lws_write_numeric_address(const uint8_t *ads, int size, char *buf, size_t len);
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_sa46_write_numeric_address(lws_sockaddr46 *sa46, char *buf, size_t len);
+
+/**
+ * lws_parse_mac() - convert XX:XX:XX:XX:XX:XX to 6-byte MAC address
+ *
+ * \param ads: mac address as XX:XX:XX:XX:XX:XX string
+ * \param result_6_bytes: result buffer to take 6 bytes
+ *
+ * Converts a string representation of a 6-byte hex mac address to a 6-byte
+ * array.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_parse_mac(const char *ads, uint8_t *result_6_bytes);
 
 ///@}

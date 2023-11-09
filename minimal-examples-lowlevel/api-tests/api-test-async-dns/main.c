@@ -425,6 +425,7 @@ main(int argc, const char **argv)
 {
 	int n = 1, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
 	struct lws_context_creation_info info;
+	uint8_t mac[6];
 	const char *p;
 
 	/* fixup dynamic target addresses we're testing against */
@@ -515,6 +516,40 @@ main(int argc, const char **argv)
 			}
 		}
 		ok++;
+	}
+
+	/* mac address parser tests */
+
+	if (lws_parse_mac("11:ff:ce:CE:22:33", mac)) {
+		lwsl_err("%s: mac fail 1\n", __func__);
+		lwsl_hexdump_notice(mac, 6);
+		fail++;
+	} else
+		if (mac[0] != 0x11 || mac[1] != 0xff || mac[2] != 0xce ||
+		    mac[3] != 0xce || mac[4] != 0x22 || mac[5] != 0x33) {
+			lwsl_err("%s: mac fail 2\n", __func__);
+			lwsl_hexdump_notice(mac, 6);
+			fail++;
+		}
+	if (!lws_parse_mac("11:ff:ce:CE:22:3", mac)) {
+		lwsl_err("%s: mac fail 3\n", __func__);
+		lwsl_hexdump_notice(mac, 6);
+		fail++;
+	}
+	if (!lws_parse_mac("11:ff:ce:CE:22", mac)) {
+		lwsl_err("%s: mac fail 4\n", __func__);
+		lwsl_hexdump_notice(mac, 6);
+		fail++;
+	}
+	if (!lws_parse_mac("11:ff:ce:CE:22:", mac)) {
+		lwsl_err("%s: mac fail 5\n", __func__);
+		lwsl_hexdump_notice(mac, 6);
+		fail++;
+	}
+	if (!lws_parse_mac("11:ff:ce:CE22", mac)) {
+		lwsl_err("%s: mac fail 6\n", __func__);
+		lwsl_hexdump_notice(mac, 6);
+		fail++;
 	}
 
 #if !defined(LWS_WITH_IPV6)
