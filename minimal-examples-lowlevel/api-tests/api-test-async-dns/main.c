@@ -69,7 +69,7 @@ static const struct ipparser_tests {
 
 #define TEST_FLAG_NOCHECK_RESULT_IP 0x100000
 
-static const struct async_dns_tests {
+static struct async_dns_tests {
 	const char *dns_name;
 	int recordtype;
 	int addrlen;
@@ -391,11 +391,49 @@ void sigint_handler(int sig)
 }
 
 int
+fixup(int idx)
+{
+	struct addrinfo hints, *ai;
+	int m;
+
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_INET;
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_flags = AI_PASSIVE;
+
+	m = getaddrinfo(adt[idx].dns_name, "80", &hints, &ai);
+	if (m) {
+		lwsl_err("Unable to look up %s: %s", adt[0].dns_name,
+				gai_strerror(m));
+		return 1;
+	}
+	adt[idx].ads[0] = (uint8_t)((struct sockaddr *)ai->ai_addr)->sa_data[2];
+	adt[idx].ads[1] = (uint8_t)((struct sockaddr *)ai->ai_addr)->sa_data[3];
+	adt[idx].ads[2] = (uint8_t)((struct sockaddr *)ai->ai_addr)->sa_data[4];
+	adt[idx].ads[3] = (uint8_t)((struct sockaddr *)ai->ai_addr)->sa_data[5];
+
+	freeaddrinfo(ai);
+
+	lwsl_notice("%s: %u.%u.%u.%u\n", __func__,
+		adt[idx].ads[0], adt[idx].ads[1], adt[idx].ads[2], adt[idx].ads[3]);
+
+	return 0;
+}
+
+int
 main(int argc, const char **argv)
 {
 	int n = 1, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
 	struct lws_context_creation_info info;
 	const char *p;
+
+	/* fixup dynamic target addresses we're testing against */
+
+	fixup(0);
+	fixup(1);
+	fixup(2);
+	fixup(5);
+	fixup(6);
 
 	/* the normal lws init */
 
