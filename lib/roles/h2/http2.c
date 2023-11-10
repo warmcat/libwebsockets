@@ -2811,7 +2811,6 @@ int
 lws_read_h2(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 {
 	unsigned char *oldbuf = buf;
-	lws_filepos_t body_chunk_len;
 
 	// lwsl_notice("%s: h2 path: wsistate 0x%x len %d\n", __func__,
 	//		wsi->wsistate, (int)len);
@@ -2827,6 +2826,7 @@ lws_read_h2(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 	 * case.
 	 */
 	while (len) {
+		lws_filepos_t body_chunk_len = 0;
 		int m;
 
 		/*
