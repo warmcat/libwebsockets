@@ -24,6 +24,9 @@
  * lws display_list and display_list objects (dlo)
  */
 
+#if !defined(__LWS_DLO_H__)
+#define __LWS_DLO_H__
+
 #include <stdint.h>
 
 struct lws_display_render_state;
@@ -267,8 +270,6 @@ typedef struct {
 	char				failed;
 } lws_dlo_image_t;
 
-typedef struct lws_display_state lws_display_state_t;
-
 typedef struct lws_displaylist {
 	lws_dll2_owner_t		dl;
 	struct lws_display_state 	*ds;
@@ -287,7 +288,7 @@ typedef struct lws_display_render_stack {
 
 typedef struct lws_display_render_state {
 	lws_sorted_usec_list_t		sul; /* return to event loop statefully */
-	lws_display_state_t		*lds; /* optional, if using lws_display */
+	struct lws_display_state	*lds; /* optional, if using lws_display */
 
 	lws_dll2_owner_t		ids;
 
@@ -460,13 +461,11 @@ typedef struct {
 LWS_VISIBLE LWS_EXTERN int
 lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo);
 
-typedef struct lhp_ctx lhp_ctx_t;
-
 LWS_VISIBLE LWS_EXTERN int
 lws_dlo_ss_find(struct lws_context *cx, const char *url, lws_dlo_image_t *u);
 
 LWS_VISIBLE LWS_EXTERN lws_stateful_ret_t
-lhp_displaylist_layout(lhp_ctx_t *ctx, char reason);
+lhp_displaylist_layout(struct lhp_ctx *ctx, char reason);
 
 #define lws_dlo_image_width(_u) ((_u)->failed ? -1 : \
 		((_u)->type == LWSDLOSS_TYPE_JPEG ? \
@@ -522,3 +521,4 @@ LWS_VISIBLE LWS_EXTERN void
 lws_dlo_file_destroy(struct lws_context *cx);
 
 LWS_VISIBLE extern const struct lws_plat_file_ops lws_dlo_fops;
+#endif

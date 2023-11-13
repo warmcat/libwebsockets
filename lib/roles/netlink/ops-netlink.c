@@ -41,7 +41,8 @@
 #define RTA_ALIGNTO 4U
 
 //#define lwsl_netlink lwsl_notice
-#define lwsl_cx_netlink lwsl_cx_info
+#define lwsl_cx_netlink		lwsl_cx_info
+#define lwsl_cx_netlink_debug	lwsl_cx_debug
 
 static void
 lws_netlink_coldplug_done_cb(lws_sorted_usec_list_t *sul)
@@ -69,11 +70,11 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 #endif
 			;
 	struct sockaddr_nl	nladdr;
-	lws_route_t		robj, *rou, *rmat;
+	lws_route_t		robj, *rou;
 	struct nlmsghdr		*h;
 	struct msghdr		msg;
 	struct iovec		iov;
-	unsigned int		n;
+	unsigned int		n, removed;
 	char			buf[72];
 
 	if (!(pollfd->revents & LWS_POLLIN))
@@ -190,8 +191,50 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 			ra_len = (unsigned int)IFA_PAYLOAD(h);
 
 			lwsl_cx_netlink(cx, "%s",
-				     h->nlmsg_type == RTM_NEWADDR ?
-						     "NEWADDR" : "DELADDR");
+				h->nlmsg_type == RTM_NEWADDR ? "NEWADDR" : "DELADDR");
+
+			// Parse attributes.
+			for ( ; RTA_OK(ra, ra_len); ra = RTA_NEXT(ra, ra_len)) {
+				//lwsl_cx_netlink_debug(cx, "%s: IFA %d\n", __func__, ra->rta_type);
+				switch (ra->rta_type) {
+				case IFA_LOCAL:
+					// Local address
+					lws_sa46_copy_address(&robj.src, RTA_DATA(ra), rm->rtm_family);
+					robj.src_len = rm->rtm_src_len;
+					lws_sa46_write_numeric_address(&robj.src, buf, sizeof(buf));
+					lwsl_cx_netlink_debug(cx, "IFA_LOCAL: %s/%d", buf, robj.src_len);
+					break;
+				case IFA_ADDRESS:
+					// Prefix address, not local interface.
+					lws_sa46_copy_address(&robj.dest, RTA_DATA(ra),	rm->rtm_family);
+					robj.dest_len = rm->rtm_dst_len;
+					lws_sa46_write_numeric_address(&robj.dest, buf, sizeof(buf));
+					lwsl_cx_netlink_debug(cx, "IFA_ADDRESS: %s/%d", buf, robj.dest_len);
+					break;
+				case IFA_FLAGS:
+					lwsl_cx_netlink_debug(cx, "IFA_FLAGS: 0x%x (not handled)",
+							*(unsigned int*)RTA_DATA(ra));
+					break;
+				case IFA_BROADCAST:
+					lwsl_cx_netlink_debug(cx, "IFA_BROADCAST (not handled)");
+					break;
+				case IFA_ANYCAST:
+					lwsl_cx_netlink_debug(cx, "IFA_ANYCAST (not handled)");
+					break;
+				case IFA_CACHEINFO:
+					lwsl_cx_netlink_debug(cx, "IFA_CACHEINFO (not handled)");
+					break;
+				case IFA_LABEL:
+					strncpy(buf, RTA_DATA(ra), sizeof(buf));
+					buf[sizeof(buf)-1] = '\0';
+					lwsl_cx_netlink_debug(cx, "IFA_LABEL: %s (not used)", buf);
+					break;
+				default:
+					lwsl_cx_netlink_debug(cx, "unknown IFA attr type %d", ra->rta_type);
+					break;
+				}
+				//lwsl_cx_debug(cx, "rta payload length: %ld", RTA_PAYLOAD(ra));
+			} /* for */
 
 			/*
 			 * almost nothing interesting within IFA_* attributes:
@@ -256,7 +299,10 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 							rm->rtm_family);
 				robj.src_len = rm->rtm_src_len;
 				lws_sa46_write_numeric_address(&robj.src, buf, sizeof(buf));
-				lwsl_cx_netlink(cx, "RTA_SRC: %s", buf);
+				if (ra->rta_type == RTA_SRC)
+					lwsl_cx_netlink_debug(cx, "RTA_SRC: %s/%d", buf, robj.src_len);
+				else
+					lwsl_cx_netlink_debug(cx, "RTA_PREFSRC: %s/%d", buf, robj.src_len);
 				break;
 			case RTA_DST:
 				/* check if is local addr -> considering it as src addr too */
@@ -265,19 +311,21 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 				     (rm->rtm_family == AF_INET6 && rm->rtm_dst_len == 128))) {
 					lws_sa46_copy_address(&robj.src, RTA_DATA(ra),
 							rm->rtm_family);
-					lwsl_cx_netlink(cx, "Local addr: RTA_DST -> added to RTA_SRC");
+					lwsl_cx_netlink_debug(cx, "Local addr: RTA_DST -> added to RTA_SRC");
 				}
 
 				lws_sa46_copy_address(&robj.dest, RTA_DATA(ra),
-							rm->rtm_family);
+						      rm->rtm_family);
 				robj.dest_len = rm->rtm_dst_len;
 				lws_sa46_write_numeric_address(&robj.dest, buf, sizeof(buf));
-				lwsl_cx_netlink(cx, "RTA_DST: %s", buf);
+				lwsl_cx_netlink_debug(cx, "RTA_DST: %s/%d", buf, robj.dest_len);
 				break;
 			case RTA_GATEWAY:
-				lws_sa46_copy_address(&robj.gateway,
-						      RTA_DATA(ra),
+				lws_sa46_copy_address(&robj.gateway, RTA_DATA(ra),
 						      rm->rtm_family);
+
+				lws_sa46_write_numeric_address(&robj.gateway, buf, sizeof(buf));
+				lwsl_cx_netlink_debug(cx, "RTA_GATEWAY: %s", buf);
 #if defined(LWS_WITH_SYS_SMD)
 				gateway_change = 1;
 #endif
@@ -285,27 +333,31 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 			case RTA_IIF: /* int: input interface index */
 			case RTA_OIF: /* int: output interface index */
 				robj.if_idx = *(int *)RTA_DATA(ra);
-				lwsl_cx_netlink(cx, "ifidx %d", robj.if_idx);
+				lwsl_cx_netlink_debug(cx, "RTA_IIF/RTA_OIF: %d", robj.if_idx);
 				break;
 			case RTA_PRIORITY: /* int: priority of route */
 				p = RTA_DATA(ra);
 				robj.priority = p[3] << 24 | p[2] << 16 |
 						 p[1] << 8  | p[0];
+				lwsl_cx_netlink_debug(cx, "RTA_PRIORITY: %d", robj.priority);
 				break;
 			case RTA_CACHEINFO: /* struct rta_cacheinfo */
+				lwsl_cx_netlink_debug(cx, "RTA_CACHEINFO (not handled)");
 				break;
 #if defined(LWS_HAVE_RTA_PREF)
 			case RTA_PREF: /* char: RFC4191 v6 router preference */
+				lwsl_cx_netlink_debug(cx, "RTA_PREF (not handled)");
 				break;
 #endif
 			case RTA_TABLE: /* int */
+				lwsl_cx_netlink_debug(cx, "RTA_TABLE (not handled)");
 				break;
 
 			default:
-				lwsl_cx_info(cx, "unknown attr type %d",
-					     ra->rta_type);
+				lwsl_cx_netlink_debug(cx, "unknown attr type %d", ra->rta_type);
 				break;
 			}
+			//lwsl_cx_debug(cx, "rta payload length: %ld", RTA_PAYLOAD(ra));
 		} /* for */
 
 		/*
@@ -327,82 +379,79 @@ second_half:
 
 		case RTM_NEWROUTE:
 
-			lwsl_cx_netlink(cx, "NEWROUTE rtm_type %d",
-					rm->rtm_type);
-
 			/*
 			 * We don't want any routing debris like /32 or broadcast
 			 * in our routing table... we will collect source addresses
 			 * bound to interfaces via NEWADDR
 			 */
-
-			if (rm->rtm_type != RTN_UNICAST &&
-			    rm->rtm_type != RTN_LOCAL)
+			if (rm->rtm_type != RTN_UNICAST
+			    && rm->rtm_type != RTN_LOCAL) {
+				lwsl_cx_netlink(cx, "NEWROUTE: IGNORED (%s)",
+				    rm->rtm_type == RTN_BROADCAST 	? "broadcast" :
+				    rm->rtm_type == RTN_ANYCAST   	? "anycast" :
+				    rm->rtm_type == RTN_MULTICAST 	? "multicast" :
+				    rm->rtm_type == RTN_UNREACHABLE 	? "unreachable" :
+				    rm->rtm_type == RTN_NAT		? "nat" :
+				    rm->rtm_type == RTN_UNSPEC    	? "unspecified" :
+									  "other");
 				break;
+			}
 
-			if (rm->rtm_flags & RTM_F_CLONED)
+			if (rm->rtm_flags & RTM_F_CLONED) {
+				lwsl_cx_netlink(cx, "NEWROUTE: IGNORED (cloned)");
 				break;
+			}
 
-			goto ana;
+			lwsl_cx_netlink(cx, "NEWROUTE: ACCEPTED (if_idx %d)",
+					robj.if_idx);
 
-		case RTM_DELADDR:
-			lwsl_cx_notice(cx, "DELADDR");
 #if defined(_DEBUG)
 			_lws_routing_entry_dump(cx, &robj);
 #endif
+
+			/*
+			 * 1. Allocate new route for linked-list.
+			 *    (robj is on stack, do NOT use)
+			 */    
+			rou = lws_malloc(sizeof(*rou), __func__);
+			if (!rou) {
+				lwsl_cx_err(cx, "oom");
+				return LWS_HPI_RET_HANDLED;
+			}
+			*rou = robj;
+
+			// 2. Remove duplicates and add route (both under a lock).
 			lws_pt_lock(pt, __func__);
-			_lws_route_remove(pt, &robj, LRR_MATCH_SRC | LRR_IGNORE_PRI);
-			_lws_route_pt_close_unroutable(pt);
-			lws_pt_unlock(pt);
-			break;
-
-		case RTM_NEWADDR:
-
-			lwsl_cx_netlink(cx, "NEWADDR");
-ana:
 
 			/*
 			 * Is robj a dupe in the routing table already?
 			 *
 			 * match on pri ignore == set pri and skip
 			 * no match == add
+			 *
+			 * returns zero ALWAYS
+			 *
+			 * We could be adding a route to the same destination with
+			 * a higher or lower priority from a different source, so why
+			 * all existing routes? Only remove if its the same source and
+			 * destination, effectively a change in priority.
 			 */
+			_lws_route_remove(pt, &robj,
+					LRR_MATCH_DST | LRR_MATCH_SRC | LRR_IGNORE_PRI);
 
-			lws_pt_lock(pt, __func__);
-
-			/* returns zero on match already in table */
-			rmat = _lws_route_remove(pt, &robj, h->nlmsg_type == RTM_NEWROUTE ?
-					LRR_MATCH_DST : LRR_MATCH_SRC | LRR_IGNORE_PRI);
-			lws_pt_unlock(pt);
-
-			if (rmat) {
-				rmat->priority = robj.priority;
-				break;
-			}
-
-			rou = lws_malloc(sizeof(*rou), __func__);
-			if (!rou) {
-				lwsl_cx_err(cx, "oom");
-				return LWS_HPI_RET_HANDLED;
-			}
-
-			*rou = robj;
-
-			lws_pt_lock(pt, __func__);
-
-			/*
-			 * We lock the pt before getting the uidx, so it
-			 * cannot race
-			 */
-
+			/* add route to linked-list */
 			rou->uidx = _lws_route_get_uidx(cx);
 			lws_dll2_add_tail(&rou->list, &cx->routing_table);
-			lwsl_cx_info(cx, "route list size %u",
-					cx->routing_table.count);
-
-			_lws_route_pt_close_unroutable(pt);
-
 			lws_pt_unlock(pt);
+
+			lwsl_cx_netlink_debug(cx, "route list size %u",
+				cx->routing_table.count);
+
+			/*
+			 * 3. Close anyything we cant reach anymore due to the removal.
+			 *    (don't need to or want to do this under lock)
+			 */
+			_lws_route_pt_close_unroutable(pt);
 
 inform:
 #if defined(_DEBUG)
@@ -416,10 +465,37 @@ inform:
 			 */
 			(void)lws_smd_msg_printf(cx, LWSSMDCL_NETWORK,
 				   "{\"rt\":\"%s\"}\n",
-				   (h->nlmsg_type == RTM_DELROUTE) ?
-						"del" : "add");
+				   (h->nlmsg_type == RTM_NEWROUTE) ?
+						"add" : "del");
 #endif
 
+			break;
+
+		case RTM_DELADDR:
+			lwsl_cx_notice(cx, "DELADDR");
+#if defined(_DEBUG)
+			_lws_routing_entry_dump(cx, &robj);
+#endif
+			lws_pt_lock(pt, __func__);
+			removed = cx->routing_table.count;
+			_lws_route_remove(pt, &robj, LRR_MATCH_SRC | LRR_IGNORE_PRI);
+			removed -= cx->routing_table.count;
+			lws_pt_unlock(pt);
+			_lws_route_pt_close_unroutable(pt);
+			if (removed > 0)
+				goto inform;
+			break;
+
+		case RTM_NEWADDR:
+			lwsl_cx_netlink(cx, "NEWADDR (nothing to do)");
+#if defined(_DEBUG)
+			_lws_routing_entry_dump(cx, &robj);
+#endif
+			/*
+			 * An address alone does not provide new routes.
+			 * NEWADDR will happen when the DHCP lease is being
+			 * renewed, and will likely not change any routes.
+			 */
 			break;
 
 		default:

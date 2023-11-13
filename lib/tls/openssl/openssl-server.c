@@ -706,7 +706,7 @@ lws_tls_server_abort_connection(struct lws *wsi)
 		SSL_shutdown(wsi->tls.ssl);
 	SSL_free(wsi->tls.ssl);
 
-	return 0;
+	return LWS_SSL_CAPABLE_DONE;
 }
 
 enum lws_ssl_capable_status

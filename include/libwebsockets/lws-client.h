@@ -56,6 +56,11 @@ enum lws_client_connect_ssl_connection_flags {
 	 * then it is not possible to bind to this port for any local address
 	 */
 
+	LCCSCF_IPV6_PREFER_PUBLIC_ADDR				= (1 << 15),
+	/**< RFC5014 - For IPv6 systems with SLAAC config, allow for preference
+	 * to bind a socket to public address vs temporary private address
+	 */
+
 	LCCSCF_PIPELINE				= (1 << 16),
 		/**< Serialize / pipeline multiple client connections
 		 * on a single connection where possible.

@@ -534,7 +534,7 @@ lws_h2_settings(struct lws *wsi, struct http2_settings *settings,
 		case H2SET_INITIAL_WINDOW_SIZE:
 			if (b > 0x7fffffff) {
 				lws_h2_goaway(nwsi, H2_ERR_FLOW_CONTROL_ERROR,
-					      "Inital Window beyond max");
+					      "Initial Window beyond max");
 				return 1;
 			}
 
@@ -1618,7 +1618,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 		if (!h2n->swsi->h2.END_HEADERS) {
 			/* we are not finished yet */
-			lwsl_info("witholding http action for continuation\n");
+			lwsl_info("withholding http action for continuation\n");
 			h2n->cont_exp_sid = h2n->sid;
 			h2n->cont_exp = 1;
 			break;
@@ -2816,7 +2816,6 @@ int
 lws_read_h2(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 {
 	unsigned char *oldbuf = buf;
-	lws_filepos_t body_chunk_len;
 
 	// lwsl_notice("%s: h2 path: wsistate 0x%x len %d\n", __func__,
 	//		wsi->wsistate, (int)len);
@@ -2832,6 +2831,7 @@ lws_read_h2(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 	 * case.
 	 */
 	while (len) {
+		lws_filepos_t body_chunk_len = 0;
 		int m;
 
 		/*

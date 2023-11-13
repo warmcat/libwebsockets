@@ -257,15 +257,15 @@ lws_client_ws_upgrade(struct lws *wsi, const char **cce)
 	}
 
 	if (wsi->http.ah->http_response == 401) {
-		lwsl_wsi_warn(wsi, "got bad HTTP response '%d'",
-			      wsi->http.ah->http_response);
+		lwsl_wsi_warn(wsi, "got bad HTTP response '%ld'",
+			      (long)wsi->http.ah->http_response);
 		*cce = "HS: ws upgrade unauthorized";
 		goto bail3;
 	}
 
 	if (wsi->http.ah->http_response != 101) {
-		lwsl_wsi_warn(wsi, "got bad HTTP response '%d'",
-			      wsi->http.ah->http_response);
+		lwsl_wsi_warn(wsi, "got bad HTTP response '%ld'",
+			      (long)wsi->http.ah->http_response);
 		*cce = "HS: ws upgrade response not 101";
 		goto bail3;
 	}

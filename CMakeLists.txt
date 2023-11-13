@@ -326,6 +326,7 @@ option(LWS_HTTP_HEADERS_ALL "Override header reduction optimization and include 
 option(LWS_WITH_SUL_DEBUGGING "Enable zombie lws_sul checking on object deletion" OFF)
 option(LWS_WITH_PLUGINS_API "Build generic lws_plugins apis (see LWS_WITH_PLUGINS to also build protocol plugins)" OFF)
 option(LWS_WITH_CONMON "Collect introspectable connection latency stats on individual client connections" ON)
+option(LWS_WITH_WOL "Wake On Lan support" ON)
 option(LWS_WITHOUT_EVENTFD "Force using pipe instead of eventfd" OFF)
 if (UNIX OR WIN32)
 	option(LWS_WITH_CACHE_NSCOOKIEJAR "Build file-backed lws-cache-ttl that uses netscape cookie jar format (linux-only)" ON)
@@ -658,6 +659,7 @@ CHECK_C_SOURCE_COMPILES("#include <malloc.h>\nvoid main(void) { while(1) ; } voi
 CHECK_C_SOURCE_COMPILES("#include <pthread.h>\nvoid main(void) { while(1) ; } void xxexit(void){}" LWS_HAVE_PTHREAD_H)
 CHECK_C_SOURCE_COMPILES("#include <inttypes.h>\nvoid main(void) { while(1) ; } void xxexit(void){}" LWS_HAVE_INTTYPES_H)
 CHECK_C_SOURCE_COMPILES("#include <sys/resource.h>\nvoid main(void) { while(1) ; } void xxexit(void){}" LWS_HAVE_SYS_RESOURCE_H)
+CHECK_C_SOURCE_COMPILES("#include <linux/ipv6.h>\nvoid main(void) { while(1) ; } void xxexit(void){}" LWS_HAVE_LINUX_IPV6_H)
 
 if (LWS_EXT_PTHREAD_INCLUDE_DIR)
 	set(LWS_HAVE_PTHREAD_H 1)

@@ -39,7 +39,9 @@ lws_buflist_append_segment(struct lws_buflist **head, const uint8_t *buf,
 	void *p = *head;
 	int sanity = 1024;
 
-	assert(buf);
+	if (!buf)
+		return -1;
+
 	assert(len);
 
 	/* append at the tail */

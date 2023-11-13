@@ -193,6 +193,16 @@ lws_plat_set_socket_options_ip(lws_sockfd_type fd, uint8_t pri, int lws_flags)
 		} else
 			lwsl_notice("%s: set use exclusive addresses\n", __func__);
 	}
+
+
+#if defined(LWS_WITH_IPV6)
+	/* I do not believe Microsoft supports RFC5014
+	 * Instead, you must set lws_client_connect_info::iface */
+	if (lws_flags & LCCSCF_IPV6_PREFER_PUBLIC_ADDR) {
+		lwsl_err("%s: UNIMPLEMENTED on this platform\n", __func__);
+	}
+#endif
+
 	
 
 	return ret;
