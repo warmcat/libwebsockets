@@ -82,8 +82,9 @@ lws_uv_idle(uv_idle_t *handle
 		uv_timer_start(&pt_to_priv_uv(pt)->sultimer, lws_uv_sultimer_cb,
 			       LWS_US_TO_MS((uint64_t)us), 0);
 
-	/* there is nobody who needs service forcing, shut down idle */
-	uv_idle_stop(handle);
+	/* if there is nobody who needs service forcing, shut down idle */
+	if (lws_service_adjust_timeout(pt->context, 1, pt->tid))
+		uv_idle_stop(handle);
 
 	lws_pt_unlock(pt);
 	lws_context_unlock(pt->context);
