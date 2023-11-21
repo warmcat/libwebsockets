@@ -723,7 +723,7 @@ utf8_fail:
 			}
 
 #if !defined(LWS_WITHOUT_EXTENSIONS)
-			if (!lin)
+			if (!lin && !(already_processed & ALREADY_PROCESSED_FULL_DRAINING))
 				break;
 #endif
 
