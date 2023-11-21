@@ -386,9 +386,6 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if defined(LWS_WITH_CACHE_NSCOOKIEJAR) && defined(LWS_WITH_CLIENT)
 	struct lws_cache_creation_info ci;
 #endif
-#if defined(LWS_WITH_MBEDTLS)
-	char mbedtls_version[32];
-#endif
 
 #if defined(__ANDROID__)
 	struct rlimit rt;
@@ -788,11 +785,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif /* network */
 
 #if defined(LWS_WITH_MBEDTLS)
-	mbedtls_version_get_string(mbedtls_version);
-#endif
-
-#if defined(LWS_WITH_MBEDTLS)
-	lwsl_cx_notice(context, "LWS: %s, MbedTLS-%s %s%s", library_version, mbedtls_version, opts_str, s);
+	lwsl_cx_notice(context, "LWS: %s, MbedTLS-%s %s%s", library_version, MBEDTLS_VERSION_STRING, opts_str, s);
 #else
 	lwsl_cx_notice(context, "LWS: %s, %s%s", library_version, opts_str, s);
 #endif
