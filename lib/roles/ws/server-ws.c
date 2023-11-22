@@ -27,7 +27,7 @@
 #define LWS_CPYAPP(ptr, str) { strcpy(ptr, str); ptr += strlen(str); }
 
 #if !defined(LWS_WITHOUT_EXTENSIONS)
-static int
+int
 lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 {
 	struct lws_context *context = wsi->a.context;

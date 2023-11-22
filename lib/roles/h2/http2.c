@@ -2777,6 +2777,17 @@ lws_h2_ws_handshake(struct lws *wsi)
 		}
 	}
 
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+        /*
+         * Figure out which extensions the client has that we want to
+         * enable on this connection, and give him back the list.
+         *
+         * Give him a limited write bugdet
+         */
+        if (lws_extension_server_handshake(wsi, (char **)&p, 192))
+               return -1;
+#endif
+
 	if (lws_finalize_http_header(wsi, &p, end))
 		return -1;
 
