@@ -30,33 +30,44 @@ scheduler from your own code; it uses it to spread out connection
 attempts so they are staggered in time.  You must create an
 `lws_sorted_usec_list_t` object somewhere, eg, in you own existing object.
 
-```
+```c
 static lws_sorted_usec_list_t sul_stagger;
 ```
 
 Create your own callback for the event... the argument points to the sul object
 used when the callback was scheduled.  You can use pointer arithmetic to translate
-that to your own struct when the `lws_sorted_usec_list_t` was a member of the
-same struct.
+that to your own struct (when the `lws_sorted_usec_list_t` was a member of the
+some struct) by using `lws_container_of(sul, container_struct_type, field_name)`.
 
-```
+```c
+typedef struct my_connection_data {
+	...
+	lws_sorted_usec_list_t sul_stagger;
+	...
+} my_connection_data_t;
+
 static void
 stagger_cb(lws_sorted_usec_list_t *sul)
 {
-...
+	my_connection_data_t* my_data = lws_container_of(sul, my_connection_data_t, sul_stagger);
+	...
 }
 ```
+
+**Important note**: make sure, that `lws_sorted_usec_list_t` data initiallized by 
+zeros (`memset(&sul_stagger, 0, sizeof(lws_sorted_usec_list_t)`). This struct 
+contains pointers, so them must initially pointing to `NULL`!
 
 When you want to schedule the callback, use `lws_sul_schedule()`... this will call
 it 10ms in the future
 
-```
+```c
 	lws_sul_schedule(context, 0, &sul_stagger, stagger_cb, 10 * LWS_US_PER_MS);
 ```
 
 In the case you destroy your object and need to cancel the scheduled callback, use
 
-```
+```c
 	lws_sul_schedule(context, 0, &sul_stagger, NULL, LWS_SET_TIMER_USEC_CANCEL);
 ```
 
