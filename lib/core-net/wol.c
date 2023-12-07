@@ -24,15 +24,11 @@
 
 #include "private-lib-core.h"
 
-#if defined(_WIN32) && !defined(IFHWADDRLEN)
-#define IFHWADDRLEN 6
-#endif
-
 int
 lws_wol(struct lws_context *ctx, const char *ip_or_NULL, uint8_t *mac_6_bytes)
 {
         int n, m, ofs = 0, fd, optval = 1, ret = 1;
-        uint8_t pkt[17 * IFHWADDRLEN];
+        uint8_t pkt[17 * ETHER_ADDR_LEN];
         struct sockaddr_in addr;
 
         fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -51,10 +47,10 @@ lws_wol(struct lws_context *ctx, const char *ip_or_NULL, uint8_t *mac_6_bytes)
          * Lay out the magic packet
          */
 
-        for (n = 0; n < IFHWADDRLEN; n++)
+        for (n = 0; n < ETHER_ADDR_LEN; n++)
                 pkt[ofs++] = 0xff;
         for (m = 0; m < 16; m++)
-                for (n = 0; n < IFHWADDRLEN; n++)
+                for (n = 0; n < ETHER_ADDR_LEN; n++)
                         pkt[ofs++] = mac_6_bytes[n];
 
         memset(&addr, 0, sizeof(addr));

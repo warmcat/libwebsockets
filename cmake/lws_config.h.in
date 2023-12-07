@@ -165,6 +165,7 @@
 #cmakedefine LWS_WITH_DLO
 #cmakedefine LWS_WITH_DRIVERS
 #cmakedefine LWS_WITH_ESP32
+#cmakedefine LWS_HAVE_NET_ETHERNET_H
 #cmakedefine LWS_HAVE_EVBACKEND_LINUXAIO
 #cmakedefine LWS_HAVE_EVBACKEND_IOURING
 #cmakedefine LWS_WITH_EXTERNAL_POLL

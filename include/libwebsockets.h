@@ -41,6 +41,12 @@ extern "C" {
 #if defined(LWS_HAVE_SYS_TYPES_H) && !defined(LWS_PLAT_BAREMETAL)
 #include <sys/types.h>
 #endif
+#if defined(LWS_HAVE_NET_ETHERNET_H)
+#include <net/ethernet.h>
+#endif
+#if defined(_WIN32) && !defined(ETHER_ADDR_LEN)
+#define ETHER_ADDR_LEN 6
+#endif
 
 #include <stddef.h>
 #include <string.h>
@@ -288,6 +294,7 @@ typedef int suseconds_t;
 #define MBEDTLS_CONFIG_FILE <mbedtls/esp_config.h>
 #endif
 #endif
+
 #if defined(LWS_WITH_TLS)
 #include <mbedtls/ssl.h>
 #include <mbedtls/entropy.h>
