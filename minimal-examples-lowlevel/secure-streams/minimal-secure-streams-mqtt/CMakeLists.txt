@@ -1,5 +1,5 @@
 project(lws-minimal-secure-streams-mqtt C)
-cmake_minimum_required(VERSION 2.8.12)
+cmake_minimum_required(VERSION 3.5)
 find_package(libwebsockets CONFIG REQUIRED)
 
 set(requirements 1)
