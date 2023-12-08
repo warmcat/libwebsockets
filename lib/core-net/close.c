@@ -137,6 +137,13 @@ __lws_reset_wsi(struct lws *wsi)
 		lws_buflist_destroy_all_segments(&wsi->http.buflist_post_body);
 #endif
 
+#if defined(LWS_WITH_HTTP_DIGEST_AUTH)
+	if (wsi->http.digest_auth_hdr) {
+		lws_free(wsi->http.digest_auth_hdr);
+		wsi->http.digest_auth_hdr = NULL;
+	}
+#endif
+
 #if defined(LWS_WITH_SERVER)
 	lws_dll2_remove(&wsi->listen_list);
 #endif

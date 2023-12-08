@@ -244,6 +244,8 @@ struct lws_client_connect_info {
 	 * context template to take a copy of for this wsi.  Used to isolate
 	 * wsi-specific logs into their own stream or file.
 	 */
+	const char *auth_username;
+	const char *auth_password;
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility

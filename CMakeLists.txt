@@ -159,6 +159,7 @@ option(LWS_WITH_SYS_ASYNC_DNS "Nonblocking internal IPv4 + IPv6 DNS resolver" OF
 option(LWS_WITH_SYS_NTPCLIENT "Build in tiny ntpclient good for tls date validation and run via lws_system" OFF)
 option(LWS_WITH_SYS_DHCP_CLIENT "Build in tiny DHCP client" OFF)
 option(LWS_WITH_HTTP_BASIC_AUTH "Support Basic Auth" ON)
+option(LWS_WITH_HTTP_DIGEST_AUTH "Support Digest Auth (caution deprecated crypto)" ON)
 option(LWS_WITH_HTTP_UNCOMMON_HEADERS "Include less common http header support" ON)
 option(LWS_WITH_SYS_STATE "lws_system state support" ON)
 option(LWS_WITH_SYS_SMD "Lws System Message Distribution" ON)
