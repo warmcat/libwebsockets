@@ -1933,6 +1933,15 @@ lws_ss_get_context(struct lws_ss_handle *h)
 	return h->context;
 }
 
+struct lws_vhost *
+lws_ss_get_vhost(struct lws_ss_handle *h)
+{
+	if (!h->wsi)
+		return NULL;
+	return h->wsi->a.vhost;
+}
+
+
 const char *
 lws_ss_rideshare(struct lws_ss_handle *h)
 {

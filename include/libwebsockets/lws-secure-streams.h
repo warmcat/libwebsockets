@@ -410,6 +410,17 @@ lws_ss_state_name(int state);
 LWS_VISIBLE LWS_EXTERN struct lws_context *
 lws_ss_get_context(struct lws_ss_handle *h);
 
+/**
+ * lws_ss_get_vhost() - convenience helper to get the vhost the ss is bound to
+ *
+ * \param h: secure streams handle
+ *
+ * Returns NULL if disconnected, or the the lws_vhost of the ss' wsi connection. 
+ */
+LWS_VISIBLE LWS_EXTERN struct lws_vhost *
+lws_ss_get_vhost(struct lws_ss_handle *h);
+
+
 #define LWSSS_TIMEOUT_FROM_POLICY				0
 
 /**
