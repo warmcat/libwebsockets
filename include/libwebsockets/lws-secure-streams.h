@@ -653,6 +653,17 @@ lws_ss_get_est_peer_tx_credit(struct lws_ss_handle *h);
 LWS_VISIBLE LWS_EXTERN const char *
 lws_ss_tag(struct lws_ss_handle *h);
 
+/**
+ * lws_ss_adopt_raw() - bind ss to existing fd
+ *
+ * \param ss: pointer to lws_ss_t to adopt the fd
+ * \param fd: the existing fd
+ *
+ * "connects" the existing ss to a wsi adoption of fd, it's useful for cases
+ * like local representation of eg a pipe() fd using ss.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_ss_adopt_raw(struct lws_ss_handle *ss, lws_sock_file_fd_type fd);
 
 #if defined(LWS_WITH_SECURE_STREAMS_AUTH_SIGV4)
 /**
@@ -692,7 +703,6 @@ LWS_VISIBLE LWS_EXTERN int
 lws_aws_filesystem_credentials_helper(const char *path, const char *kid,
 				      const char *ak, char **aws_keyid,
 				      char **aws_key);
-
 #endif
 
 #if defined(STANDALONE)

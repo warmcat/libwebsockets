@@ -1006,6 +1006,65 @@ lws_ss_client_connect(lws_ss_handle_t *h)
 	return r;
 }
 
+int
+lws_ss_adopt_raw(struct lws_ss_handle *h, lws_sock_file_fd_type fd)
+{
+	const struct ss_pcols *ssp;
+	lws_ss_state_return_t r;
+        lws_adopt_desc_t desc;
+        struct lws *wsi;
+
+        if (!h->policy || !h->policy->protocol)
+		return 1;
+
+        ssp = ss_pcols[(int)h->policy->protocol];
+        if (!ssp)
+		return 1;
+
+	memset(&desc, 0, sizeof(desc));
+
+	desc.vh = lws_ss_get_vhost(h) ? lws_ss_get_vhost(h) :
+				lws_get_vhost_by_name(h->context, "_ss_default");
+	desc.vh_prot_name = ssp->protocol->name;
+	desc.type = LWS_ADOPT_RAW_FILE_DESC;
+	desc.fd = fd;
+	desc.opaque = h;
+
+	wsi = lws_adopt_descriptor_vhost_via_info(&desc);
+	if (!wsi) {
+		lwsl_ss_warn(h, "Failed to adopt pipe\n");
+		return 1;
+	}
+
+	lwsl_wsi_notice(wsi, "Adopted fd %d\n", fd.filefd);
+
+	h->wsi = wsi;
+	wsi->for_ss = 1;
+	h->txn_ok = 0;
+
+	r = lws_ss_event_helper(h, LWSSSCS_CONNECTING);
+	if (r)
+		goto bail;
+	r = lws_ss_event_helper(h, LWSSSCS_CONNECTED);
+	if (r)
+		goto bail;
+
+	if (lws_change_pollfd(wsi, 0, LWS_POLLIN))
+		lwsl_ss_warn(h, "Failed to set POLLIN\n");
+
+	return 0;
+
+bail:
+	r = lws_ss_event_helper(h, LWSSSCS_DISCONNECTED);
+	if (r)
+		goto bail;
+
+	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
+					   "ss adopt skt fail");
+
+	return 1;
+}
+
 /*
  * Public API
  */

@@ -130,7 +130,6 @@ secstream_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
                /* fallthru */
 
-	/* chunks of chunked content, with header removed */
 	case LWS_CALLBACK_RAW_RX:
 		if (!h || !h->info.rx)
 			return 0;
