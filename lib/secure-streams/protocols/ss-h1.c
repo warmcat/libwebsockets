@@ -1071,6 +1071,9 @@ malformed:
 		if (!h)
 			return -1;
 
+		if (h->wsi && h->wsi->mount_hit)
+			break;
+
 		lwsl_info("%s: LWS_CALLBACK_HTTP\n", __func__);
 		{
 

@@ -120,6 +120,7 @@ __lws_reset_wsi(struct lws *wsi)
 	}
 #endif
 	wsi->retry = 0;
+	wsi->mount_hit = 0;
 
 #if defined(LWS_WITH_CLIENT)
 	lws_dll2_remove(&wsi->dll2_cli_txn_queue);
