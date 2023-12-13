@@ -86,7 +86,7 @@ _lws_vhost_init_server_af(struct vh_sock_args *a)
 {
 	struct lws_context *cx = a->vhost->context;
 	struct lws_context_per_thread *pt;
-	int n, opt = 1, limit = 1;
+	int n, opt = 1, limit = 1, san = 2;
 	lws_sockfd_type sockfd;
 	struct lws *wsi;
 	int m = 0, is;
@@ -103,6 +103,9 @@ _lws_vhost_init_server_af(struct vh_sock_args *a)
 		return 0;
 
 deal:
+
+	if (!san--)
+		return -1;
 
 	if (a->vhost->iface) {
 
