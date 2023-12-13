@@ -952,6 +952,13 @@ struct lws_context_creation_info {
 	 */
 #endif
 
+	int default_loglevel;
+	/**< CONTEXT: 0 for LLL_USER, LLL_ERR, LLL_WARN, LLL_NOTICE enabled by default when
+	 * using lws_cmdline_option_handle_builtin(), else set to the LLL_ flags you want
+	 * to be the default before calling lws_cmdline_option_handle_builtin().  Your
+	 * selected default loglevel can then be cleanly overridden using -d 1039 etc
+	 * commandline switch */
+
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
 	 *

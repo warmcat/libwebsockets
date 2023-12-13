@@ -1632,7 +1632,8 @@ lws_cmdline_option_handle_builtin(int argc, const char **argv,
 				  struct lws_context_creation_info *info)
 {
 	const char *p;
-	int n, m, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
+	int n, m, logs = info->default_loglevel ? info->default_loglevel :
+				LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	uint64_t seed = (uint64_t)lws_now_usecs();
 #endif
