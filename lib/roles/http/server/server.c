@@ -86,7 +86,7 @@ _lws_vhost_init_server_af(struct vh_sock_args *a)
 {
 	struct lws_context *cx = a->vhost->context;
 	struct lws_context_per_thread *pt;
-	int n, opt = 1, limit = 1;
+	int n, opt = 1, limit = 1, san = 2;
 	lws_sockfd_type sockfd;
 	struct lws *wsi;
 	int m = 0, is;
@@ -103,6 +103,9 @@ _lws_vhost_init_server_af(struct vh_sock_args *a)
 		return 0;
 
 deal:
+
+	if (!san--)
+		return -1;
 
 	if (a->vhost->iface) {
 
@@ -407,6 +410,7 @@ _lws_vhost_init_server(const struct lws_context_creation_info *info,
 		       struct lws_vhost *vhost)
 {
 	struct vh_sock_args a;
+	int n;
 
 	a.info = info;
 	a.vhost = vhost;
@@ -479,8 +483,9 @@ _lws_vhost_init_server(const struct lws_context_creation_info *info,
 	      (vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE))) {
 #endif
 		a.af = AF_INET;
-		if (_lws_vhost_init_server_af(&a))
-			return 1;
+		n = _lws_vhost_init_server_af(&a);
+		if (n)
+			return n;
 
 #if defined(LWS_WITH_IPV6)
 	}
@@ -952,6 +957,9 @@ lws_find_mount(struct lws *wsi, const char *uri_ptr, int uri_len)
 #if defined(LWS_WITH_SYS_METRICS)
 			lws_metrics_tag_wsi_add(wsi, "mnt", hm->mountpoint);
 #endif
+
+			if (hm->origin_protocol == LWSMPRO_NO_MOUNT)
+				return NULL;
 
 			if (hm->origin_protocol == LWSMPRO_CALLBACK ||
 			    ((hm->origin_protocol == LWSMPRO_CGI ||
@@ -1780,6 +1788,7 @@ lws_http_action(struct lws *wsi)
 
 	/* can we serve it from the mount list? */
 
+	wsi->mount_hit = 0;
 	hit = lws_find_mount(wsi, uri_ptr, uri_len);
 	if (!hit) {
 		/* deferred cleanup and reset to protocols[0] */
@@ -1797,6 +1806,8 @@ lws_http_action(struct lws *wsi)
 
 		goto after;
 	}
+
+	wsi->mount_hit = 1;
 
 #if defined(LWS_WITH_FILE_OPS)
 	s = uri_ptr + hit->mountpoint_len;

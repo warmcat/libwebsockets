@@ -1250,3 +1250,15 @@ lws_minilex_parse(const uint8_t *lex, int16_t *ps, const uint8_t c,
 
 LWS_VISIBLE LWS_EXTERN unsigned int
 lws_sigbits(uintptr_t u);
+
+/**
+ * lws_wol() - broadcast a magic WOL packet to MAC, optionally binding to if IP
+ *
+ * \p ctx: The lws context
+ * \p ip_or_NULL: The IP address to bind to at the client side, to send the
+ *                magic packet on.  If NULL, the system chooses, probably the
+ *                interface with the default route.
+ * \p mac_6_bytes: Points to a 6-byte MAC address to direct the magic packet to
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_wol(struct lws_context *ctx, const char *ip_or_NULL, uint8_t *mac_6_bytes);

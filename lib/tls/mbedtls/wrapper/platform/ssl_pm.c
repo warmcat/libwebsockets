@@ -183,7 +183,12 @@ int ssl_pm_new(SSL *ssl)
         mbedtls_ssl_conf_min_version(&ssl_pm->conf, MBEDTLS_SSL_MAJOR_VERSION_3, version);
     } else {
         mbedtls_ssl_conf_max_version(&ssl_pm->conf, MBEDTLS_SSL_MAJOR_VERSION_3, MBEDTLS_SSL_MINOR_VERSION_3);
+
+#if defined(MBEDTLS_SSL_PROTO_TLS1_2)
+        mbedtls_ssl_conf_min_version(&ssl_pm->conf, MBEDTLS_SSL_MAJOR_VERSION_3, MBEDTLS_SSL_MINOR_VERSION_3);
+#else
         mbedtls_ssl_conf_min_version(&ssl_pm->conf, MBEDTLS_SSL_MAJOR_VERSION_3, 1);
+#endif
     }
 
     mbedtls_ssl_conf_rng(&ssl_pm->conf, mbedtls_ctr_drbg_random, &ssl_pm->ctr_drbg);
@@ -251,9 +256,9 @@ static int ssl_pm_reload_crt(SSL *ssl)
     struct x509_pm *crt_pm = (struct x509_pm *)ssl->cert->x509->x509_pm;
 
     if (ssl->verify_mode == SSL_VERIFY_PEER)
-        mode = MBEDTLS_SSL_VERIFY_REQUIRED;
-    else if (ssl->verify_mode == SSL_VERIFY_FAIL_IF_NO_PEER_CERT)
         mode = MBEDTLS_SSL_VERIFY_OPTIONAL;
+    else if (ssl->verify_mode == SSL_VERIFY_FAIL_IF_NO_PEER_CERT)
+        mode = MBEDTLS_SSL_VERIFY_REQUIRED;
     else if (ssl->verify_mode == SSL_VERIFY_CLIENT_ONCE)
         mode = MBEDTLS_SSL_VERIFY_UNSET;
     else
@@ -549,7 +554,11 @@ OSSL_HANDSHAKE_STATE ssl_pm_get_state(const SSL *ssl)
         case MBEDTLS_SSL_SERVER_KEY_EXCHANGE:
             state = TLS_ST_SR_KEY_EXCH;
             break;
+#if defined(LWS_HAVE_MBEDTLS_SSL_NEW_SESSION_TICKET)
+        case MBEDTLS_SSL_NEW_SESSION_TICKET:
+#else
         case MBEDTLS_SSL_SERVER_NEW_SESSION_TICKET:
+#endif
             state = TLS_ST_SW_SESSION_TICKET;
             break;
         case MBEDTLS_SSL_SERVER_HELLO_VERIFY_REQUEST_SENT:
@@ -761,8 +770,13 @@ int pkey_pm_load(EVP_PKEY *pk, const unsigned char *buffer, int len)
     mbedtls_pk_init(pkey_pm->pkey);
 
 #if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000
+#if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03050000
+    ret = mbedtls_pk_parse_key(pkey_pm->pkey, load_buf, (unsigned int)len, NULL, 0,
+		    mbedtls_ctr_drbg_random, pkey_pm->rngctx);
+#else
     ret = mbedtls_pk_parse_key(pkey_pm->pkey, load_buf, (unsigned int)len + 1, NULL, 0,
 		    mbedtls_ctr_drbg_random, pkey_pm->rngctx);
+#endif
 #else
     ret = mbedtls_pk_parse_key(pkey_pm->pkey, load_buf, (unsigned int)len + 1, NULL, 0);
 #endif

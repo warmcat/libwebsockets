@@ -1078,6 +1078,14 @@ early_bail:
 	return NULL;
 }
 
+void
+lws_vhost_set_mounts(struct lws_vhost *vh, const struct lws_http_mount *mounts)
+{
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+        vh->http.mount_list = mounts;
+#endif
+}
+
 int
 lws_init_vhost_client_ssl(const struct lws_context_creation_info *info,
 			  struct lws_vhost *vhost)

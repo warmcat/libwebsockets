@@ -347,10 +347,6 @@ static const char * const opts_str =
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
 			"SSPROX "
 #endif
-
-#if defined(LWS_WITH_MBEDTLS)
-			"MbedTLS "
-#endif
 #if defined(LWS_WITH_CONMON)
 			"ConMon "
 #endif
@@ -809,7 +805,12 @@ lws_create_context(const struct lws_context_creation_info *info)
 
 #endif /* network */
 
+#if defined(LWS_WITH_MBEDTLS)
+	lwsl_cx_notice(context, "LWS: %s, MbedTLS-%s %s%s", library_version, MBEDTLS_VERSION_STRING, opts_str, s);
+#else
 	lwsl_cx_notice(context, "LWS: %s, %s%s", library_version, opts_str, s);
+#endif
+
 #if defined(LWS_WITH_NETWORK)
 	lwsl_cx_info(context, "Event loop: %s", plev->ops->name);
 #endif
@@ -963,7 +964,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 
 	context->options = info->options;
 
-#if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE) && !defined(WIN32) && !defined(LWS_PLAT_BAREMETAL)
+#if defined(LWS_HAVE_SYS_RESOURCE_H) && !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE) && !defined(WIN32) && !defined(LWS_PLAT_BAREMETAL)
 	/*
 	 * If asked, try to set the rlimit / ulimit for process sockets / files.
 	 * We read the effective limit in a moment, so we will find out the
@@ -1797,9 +1798,9 @@ lws_pt_destroy(struct lws_context_per_thread *pt)
 		pt->pipe_wsi = NULL;
 	}
 
-	if (pt->dummy_pipe_fds[0]
+	if ((pt->dummy_pipe_fds[0] || pt->dummy_pipe_fds[1])
 #if !defined(WIN32)
-	    && (int)pt->dummy_pipe_fds[0] != -1
+	    && ((int)pt->dummy_pipe_fds[0] != -1 || (int)pt->dummy_pipe_fds[1] != -1)
 #endif
 	) {
 		struct lws wsi;

@@ -222,7 +222,8 @@ enum {
 	CIS_IFACE,
 	CIS_ALPN,
 	CIS_LOCALPORT,
-
+	CIS_USERNAME,
+	CIS_PASSWORD,
 
 	CIS_COUNT
 };
@@ -811,6 +812,7 @@ struct lws {
 	unsigned int			file_desc:1;
 	unsigned int			conn_validity_wakesuspend:1;
 	unsigned int			dns_reachability:1;
+	unsigned int			mount_hit:1;
 
 	unsigned int			could_have_pending:1; /* detect back-to-back writes */
 	unsigned int			outer_will_close:1;

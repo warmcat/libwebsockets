@@ -56,6 +56,11 @@ enum lws_client_connect_ssl_connection_flags {
 	 * then it is not possible to bind to this port for any local address
 	 */
 
+	LCCSCF_IPV6_PREFER_PUBLIC_ADDR				= (1 << 15),
+	/**< RFC5014 - For IPv6 systems with SLAAC config, allow for preference
+	 * to bind a socket to public address vs temporary private address
+	 */
+
 	LCCSCF_PIPELINE				= (1 << 16),
 		/**< Serialize / pipeline multiple client connections
 		 * on a single connection where possible.
@@ -239,6 +244,8 @@ struct lws_client_connect_info {
 	 * context template to take a copy of for this wsi.  Used to isolate
 	 * wsi-specific logs into their own stream or file.
 	 */
+	const char *auth_username;
+	const char *auth_password;
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility

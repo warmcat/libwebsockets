@@ -279,6 +279,10 @@ struct _lws_http_mode_related {
 	unsigned int multipart:1;
 	unsigned int cgi_transaction_complete:1;
 	unsigned int multipart_issue_boundary:1;
+
+	char auth_username[64];
+	char auth_password[64];
+	char *digest_auth_hdr;
 };
 
 

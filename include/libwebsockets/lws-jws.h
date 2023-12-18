@@ -477,7 +477,7 @@ struct lws_jwt_sign_info {
 };
 
 /**
- * lws_jwt_sign_compact() - generate a compact JWT using a key and JOSE header
+ * lws_jwt_sign_via_info() - generate a compact JWT using a key and JOSE header
  *
  * \param ctx: the lws_context
  * \param jwk: the signing key

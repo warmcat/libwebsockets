@@ -248,12 +248,13 @@ lws_apply_metadata(lws_ss_handle_t *h, struct lws *wsi, uint8_t *buf,
 	}
 
 	/*
-	 * Content-length on POST / PUT if we have the length information
+	 * Content-length on POST / PUT / PATCH if we have the length information
 	 */
 
 	if (h->policy->u.http.method && (
 		(!strcmp(h->policy->u.http.method, "POST") ||
-	         !strcmp(h->policy->u.http.method, "PUT"))) &&
+		 !strcmp(h->policy->u.http.method, "PATCH") ||
+		 !strcmp(h->policy->u.http.method, "PUT"))) &&
 	    wsi->http.writeable_len) {
 		if (!(h->policy->flags &
 			LWSSSPOLF_HTTP_NO_CONTENT_LENGTH)) {
@@ -840,6 +841,7 @@ malformed:
 		     h->policy->protocol == LWSSSP_H2) &&
 		     h->being_serialized && (
 				!strcmp(h->policy->u.http.method, "PUT") ||
+				!strcmp(h->policy->u.http.method, "PATCH") ||
 				!strcmp(h->policy->u.http.method, "POST"))) {
 
 			wsi->client_suppress_CONNECTION_ERROR = 1;
@@ -949,7 +951,10 @@ malformed:
 					(unsigned int)(h->txn_resp_set ?
 						(h->txn_resp ? h->txn_resp : 200) :
 						HTTP_STATUS_NOT_FOUND),
-					NULL, h->wsi->http.writeable_len,
+					NULL,
+					h->policy->flags & LWSSSPOLF_HTTP_NO_CONTENT_LENGTH ?
+						LWS_ILLEGAL_HTTP_CONTENT_LEN :
+						h->wsi->http.writeable_len,
 					&p, end))
 				return 1;
 
@@ -1066,6 +1071,9 @@ malformed:
 		if (!h)
 			return -1;
 
+		if (h->wsi && h->wsi->mount_hit)
+			break;
+
 		lwsl_info("%s: LWS_CALLBACK_HTTP\n", __func__);
 		{
 
@@ -1105,6 +1113,16 @@ malformed:
 							return -1;
 						if (lws_ss_alloc_set_metadata(h, "method", "POST", 4))
 							return -1;
+					} else {
+						m = lws_hdr_total_length(wsi, WSI_TOKEN_PATCH_URI);
+						if (m) {
+							if (lws_ss_alloc_set_metadata(h, "path",
+									lws_hdr_simple_ptr(wsi,
+										WSI_TOKEN_PATCH_URI), (unsigned int)m))
+								return -1;
+							if (lws_ss_alloc_set_metadata(h, "method", "PATCH", 5))
+								return -1;
+						}
 					}
 				}
 			}

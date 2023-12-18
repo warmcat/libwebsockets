@@ -120,6 +120,7 @@ __lws_reset_wsi(struct lws *wsi)
 	}
 #endif
 	wsi->retry = 0;
+	wsi->mount_hit = 0;
 
 #if defined(LWS_WITH_CLIENT)
 	lws_dll2_remove(&wsi->dll2_cli_txn_queue);
@@ -135,6 +136,13 @@ __lws_reset_wsi(struct lws *wsi)
 #if defined(LWS_WITH_HTTP_PROXY)
 	if (wsi->http.buflist_post_body)
 		lws_buflist_destroy_all_segments(&wsi->http.buflist_post_body);
+#endif
+
+#if defined(LWS_WITH_HTTP_DIGEST_AUTH)
+	if (wsi->http.digest_auth_hdr) {
+		lws_free(wsi->http.digest_auth_hdr);
+		wsi->http.digest_auth_hdr = NULL;
+	}
 #endif
 
 #if defined(LWS_WITH_SERVER)

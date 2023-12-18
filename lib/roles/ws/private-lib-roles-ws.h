@@ -179,6 +179,8 @@ lws_ext_cb_active(struct lws *wsi, int reason, void *buf, int len);
 LWS_EXTERN int
 lws_ext_cb_all_exts(struct lws_context *context, struct lws *wsi, int reason,
 		    void *arg, int len);
+LWS_EXTERN int
+lws_extension_server_handshake(struct lws *wsi, char **p, int budget);
 #endif
 
 int
