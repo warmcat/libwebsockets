@@ -3311,11 +3311,16 @@ all_sent:
 					 * state, not the root connection at the
 					 * network level
 					 */
+
 					if (wsi->mux_substream)
 						return 1;
 					else
 						return -1;
 				}
+
+			if (wsi->http.ah)
+				lws_header_table_reset(wsi, 0);
+
 
 			return 1;  /* >0 indicates completed */
 		}
