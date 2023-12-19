@@ -818,25 +818,23 @@ lws_http_digest_auth(struct lws* wsi)
 		struct lws *nwsi;
 		char cnonce[128];
 		size_t l;
+		char *tmp_digest = NULL;
 
-		if (!wsi->http.digest_auth_hdr) {
-			l = sizeof(a1) + sizeof(a2) + sizeof(nonce) +
-			    (sizeof(ncount) *2) + sizeof(response) +
-			    sizeof(cnonce) + sizeof(qop) + strlen(uri) +
-			    strlen(username) + strlen(password) +
-			    strlen(realm) + 111;
+		l = sizeof(a1) + sizeof(a2) + sizeof(nonce) +
+			(sizeof(ncount) *2) + sizeof(response) +
+			sizeof(cnonce) + sizeof(qop) + strlen(uri) +
+			strlen(username) + strlen(password) +
+			strlen(realm) + 111;
+		tmp_digest = lws_malloc(l, __func__);
+		if (!tmp_digest)
+			return -1;
 
-			wsi->http.digest_auth_hdr = lws_malloc(l, __func__);
-			if (!wsi->http.digest_auth_hdr)
-				return -1;
-		}
-
-		n = lws_snprintf(wsi->http.digest_auth_hdr, l, "%s:%s:%s",
+		n = lws_snprintf(tmp_digest, l, "%s:%s:%s",
 				 username, realm, password);
 
 		if (lws_genhash_init(&hc, LWS_GENHASH_TYPE_MD5) ||
 				lws_genhash_update(&hc,
-						   wsi->http.digest_auth_hdr,
+						   tmp_digest,
 								(size_t)n) ||
 				lws_genhash_destroy(&hc, digest)) {
 			lws_genhash_destroy(&hc, NULL);
@@ -849,12 +847,12 @@ lws_http_digest_auth(struct lws* wsi)
 					a1, sizeof(a1));
 		lwsl_debug("A1: %s:%s:%s = %s\n", username, realm, password, a1);
 
-		n = lws_snprintf(wsi->http.digest_auth_hdr, l, "%s:%s",
+		n = lws_snprintf(tmp_digest, l, "%s:%s",
 				wsi->stash->cis[CIS_METHOD], uri);
 
 		if (lws_genhash_init(&hc, LWS_GENHASH_TYPE_MD5) ||
 				     lws_genhash_update(&hc,
-						    wsi->http.digest_auth_hdr,
+						    tmp_digest,
 						    (size_t)n) ||
 				     lws_genhash_destroy(&hc, digest)) {
 			lws_genhash_destroy(&hc, NULL);
@@ -872,14 +870,14 @@ lws_http_digest_auth(struct lws* wsi)
 		lws_hex_from_byte_array((const uint8_t *)&ncount,
 					sizeof(ncount), nc, sizeof(nc));
 
-		n = lws_snprintf(wsi->http.digest_auth_hdr, l, "%s:%s:%08x:%s:%s:%s", a1,
+		n = lws_snprintf(tmp_digest, l, "%s:%s:%08x:%s:%s:%s", a1,
 				nonce, ncount, cnonce, qop, a2);
 
-		lwsl_wsi_debug(wsi, "digest response: %s\n", wsi->http.digest_auth_hdr);
+		lwsl_wsi_debug(wsi, "digest response: %s\n", tmp_digest);
 
 
 		if (lws_genhash_init(&hc, LWS_GENHASH_TYPE_MD5) ||
-				lws_genhash_update(&hc, wsi->http.digest_auth_hdr, (size_t)n) ||
+				lws_genhash_update(&hc, tmp_digest, (size_t)n) ||
 				lws_genhash_destroy(&hc, digest)) {
 			lws_genhash_destroy(&hc, NULL);
 			lwsl_wsi_err(wsi, "hash failed\n");
@@ -891,7 +889,7 @@ lws_http_digest_auth(struct lws* wsi)
 					(char *)response,
 					lws_genhash_size(LWS_GENHASH_TYPE_MD5) * 2 + 1);
 
-		n = lws_snprintf(wsi->http.digest_auth_hdr, l,
+		n = lws_snprintf(tmp_digest, l,
 				"Digest username=\"%s\", realm=\"%s\", "
 				"nonce=\"%s\", uri=\"%s\", qop=%s, nc=%08x, "
 				"cnonce=\"%s\", response=\"%s\", "
@@ -899,10 +897,10 @@ lws_http_digest_auth(struct lws* wsi)
 				username, realm, nonce, uri, qop, ncount,
 				cnonce, response);
 
-		lwsl_hexdump(wsi->http.digest_auth_hdr, l);
+		lwsl_hexdump(tmp_digest, l);
 
 		if (lws_hdr_simple_create(wsi, WSI_TOKEN_HTTP_AUTHORIZATION,
-				wsi->http.digest_auth_hdr)) {
+				tmp_digest)) {
 			lwsl_wsi_err(wsi, "Failed to add Digest auth header");
 			goto bail;
 		}
@@ -924,7 +922,10 @@ lws_http_digest_auth(struct lws* wsi)
 
 			goto bail;
 		}
-
+		/**
+		 * Keep track of digest auth to send it at next attempt, lws_client_reset will free it
+		*/
+		wsi->http.digest_auth_hdr = tmp_digest;
 		wsi->client_pipeline = 0;
 	}
 
