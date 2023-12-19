@@ -611,6 +611,7 @@ lws_http_digest_auth(struct lws* wsi)
 	char realm[64];
 	char b64[512];
 	int m, ml, fi;
+	char *tmp_digest = NULL;
 
 	/* Did he send auth? */
 	ml = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_WWW_AUTHENTICATE);
@@ -818,7 +819,6 @@ lws_http_digest_auth(struct lws* wsi)
 		struct lws *nwsi;
 		char cnonce[128];
 		size_t l;
-		char *tmp_digest = NULL;
 
 		l = sizeof(a1) + sizeof(a2) + sizeof(nonce) +
 			(sizeof(ncount) *2) + sizeof(response) +
@@ -932,8 +932,7 @@ lws_http_digest_auth(struct lws* wsi)
 	return 0;
 
 bail:
-	lws_free(wsi->http.digest_auth_hdr);
-	wsi->http.digest_auth_hdr = NULL;
+	lws_free(tmp_digest);
 
 	return -1;
 }
