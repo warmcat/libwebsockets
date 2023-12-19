@@ -644,11 +644,9 @@ lws_http_digest_auth(struct lws* wsi)
 	 *
 	 * but the order, whitespace etc is quite open.  uri is optional
 	 */
-
-	ts.start = b64;
-	ts.len = (size_t)m;
-	ts.flags = LWS_TOKENIZE_F_MINUS_NONTERM | LWS_TOKENIZE_F_NO_INTEGERS |
-		   LWS_TOKENIZE_F_RFC7230_DELIMS;
+	lws_tokenize_init(&ts,b64,LWS_TOKENIZE_F_MINUS_NONTERM |
+			LWS_TOKENIZE_F_NO_INTEGERS |
+			LWS_TOKENIZE_F_RFC7230_DELIMS);
 
 	do {
 		e = lws_tokenize(&ts);
@@ -657,7 +655,7 @@ lws_http_digest_auth(struct lws* wsi)
 			if (pend == 8) {
 				/* algorithm name */
 
-				if (strncasecmp(ts.token, "MD5", ts.token_len)) {
+				if (!strncasecmp(ts.token, "MD5", ts.token_len)) {
 					lwsl_wsi_err(wsi, "wrong alg %.*s\n",
 							(int)ts.token_len,
 							ts.token);
@@ -666,8 +664,7 @@ lws_http_digest_auth(struct lws* wsi)
 				pend = PEND_DELIM;
 				break;
 			}
-			if (strncasecmp(ts.token, "Digest", ts.token_len)) {
-				skipping = 1;
+			if (!strncasecmp(ts.token, "Digest", ts.token_len)) {
 				seen |= 1 << 0;
 				break;
 			}
@@ -681,7 +678,7 @@ lws_http_digest_auth(struct lws* wsi)
 		case LWS_TOKZE_TOKEN_NAME_EQUALS:
 			if (skipping)
 				break;
-			if (!(seen & (1 << 15)) || pend != -1)
+			if ((seen & (1 << 15)) == (1 << 15) || pend != -1)
 				/* no auth type token or disordered */
 				return LCBA_END_TRANSACTION;
 
@@ -697,7 +694,7 @@ lws_http_digest_auth(struct lws* wsi)
 				return LCBA_END_TRANSACTION;
 			}
 
-			if (seen & (1 << n) || !(seen & (1 << 15)))
+			if (seen & (1 << n) || (seen & (1 << 15)) == (1 << 15))
 				/* dup or no auth type token */
 				return LCBA_END_TRANSACTION;
 
