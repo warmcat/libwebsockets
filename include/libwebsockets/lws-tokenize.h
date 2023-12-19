@@ -99,7 +99,7 @@ typedef enum {
 } lws_tokenize_state;
 
 typedef struct lws_tokenize {
-	char collect[128]; /* token length limit */
+	char collect[256]; /* token length limit */
 	const char *start; /**< set to the start of the string to tokenize */
 	const char *token; /**< the start of an identified token or delimiter */
 	size_t len;	/**< set to the length of the string to tokenize */

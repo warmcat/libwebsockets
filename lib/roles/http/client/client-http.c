@@ -603,7 +603,7 @@ static const char *digest_toks[] = {
 enum lws_check_basic_auth_results
 lws_http_digest_auth(struct lws* wsi)
 {
-	uint8_t nonce[128], response[LWS_GENHASH_LARGEST], qop[32];
+	uint8_t nonce[256], response[LWS_GENHASH_LARGEST], qop[32];
 	int seen = 0, n, pend = -1, skipping = 0;
 	struct lws_tokenize ts;
 	char resp_username[32];
@@ -804,7 +804,7 @@ lws_http_digest_auth(struct lws* wsi)
 
 	lwsl_wsi_info(wsi, "HTTP digest auth realm %s nonce %s\n", realm, nonce);
 
-	if (wsi->stash && wsi->stash->cis[CIS_METHOD] &&
+	if (wsi->stash &&
 	    wsi->stash->cis[CIS_PATH]) {
 		char *username =  wsi->stash->cis[CIS_USERNAME];
 		char *password = wsi->stash->cis[CIS_PASSWORD];
@@ -817,7 +817,7 @@ lws_http_digest_auth(struct lws* wsi)
 		int ncount = 1, ssl;
 		const char *a, *p;
 		struct lws *nwsi;
-		char cnonce[128];
+		char cnonce[256];
 		size_t l;
 
 		l = sizeof(a1) + sizeof(a2) + sizeof(nonce) +
