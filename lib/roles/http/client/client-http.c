@@ -846,9 +846,15 @@ lws_http_digest_auth(struct lws* wsi)
 					lws_genhash_size(LWS_GENHASH_TYPE_MD5),
 					a1, sizeof(a1));
 		lwsl_debug("A1: %s:%s:%s = %s\n", username, realm, password, a1);
-
-		n = lws_snprintf(tmp_digest, l, "%s:%s",
-				wsi->stash->cis[CIS_METHOD], uri);
+		/**
+		 * In case of Websocket upgrade, method is NULL
+		 * we assume it is a GET
+		*/
+		if(wsi->stash->cis[CIS_METHOD] == NULL)
+			n = lws_snprintf(tmp_digest, l, "GET:%s", uri);
+		else
+			n = lws_snprintf(tmp_digest, l, "%s:%s",
+					wsi->stash->cis[CIS_METHOD], uri);
 
 		if (lws_genhash_init(&hc, LWS_GENHASH_TYPE_MD5) ||
 				     lws_genhash_update(&hc,
