@@ -72,6 +72,10 @@ check_extant(struct lws_dll2 *d, void *user)
 	if (wsi->af != a ->af)
 		return 0;
 
+	if (a->info && a->info->vh_listen_sockfd &&
+	    wsi->desc.sockfd != a->info->vh_listen_sockfd)
+		return 0;
+
 	lwsl_notice(" using listen skt from vhost %s\n", wsi->a.vhost->name);
 
 	return 1;
@@ -107,7 +111,7 @@ deal:
 	if (!san--)
 		return -1;
 
-	if (a->vhost->iface) {
+	if (a->vhost->iface && (!a->info || !a->info->vh_listen_sockfd)) {
 
 		/*
 		 * let's check before we do anything else about the disposition
@@ -183,6 +187,11 @@ done_list:
 				LWS_SERVER_OPTION_FAIL_UPON_UNABLE_TO_BIND ?
 				-1 : 1;
 		}
+	} else {
+		if (a->info && a->info->vh_listen_sockfd) {
+			a->vhost->iface = "inherited";
+			a->vhost->listen_port = a->info->port;
+		}
 	}
 
 	(void)n;
@@ -202,7 +211,10 @@ done_list:
 
 	for (m = 0; m < limit; m++) {
 
-		sockfd = lws_fi(&a->vhost->fic, "listenskt") ?
+		if (a->info && a->info->vh_listen_sockfd)
+			sockfd = dup(a->info->vh_listen_sockfd);
+		else
+			sockfd = lws_fi(&a->vhost->fic, "listenskt") ?
 					LWS_SOCK_INVALID :
 					socket(a->af, SOCK_STREAM, 0);
 
@@ -248,9 +260,11 @@ done_list:
 		 * There will be a separate ipv4 listen socket if that's
 		 * enabled.
 		 */
-		if (a->af == AF_INET6 &&
+		if (a->af == AF_INET6 && (!a->info || !a->info->vh_listen_sockfd) &&
 		    setsockopt(sockfd, IPPROTO_IPV6, IPV6_V6ONLY,
 			       (const void*)&value, sizeof(value)) < 0) {
+			lwsl_err("ipv6 only failed\n");
+
 			compatible_close(sockfd);
 			return -1;
 		}
@@ -267,6 +281,7 @@ done_list:
 		if (n || cx->count_threads > 1) /* ... also implied by threads > 1 */
 			if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT,
 					(const void *)&opt, sizeof(opt)) < 0) {
+				lwsl_err("reuseport failed\n");
 				compatible_close(sockfd);
 				return -1;
 			}
@@ -274,28 +289,30 @@ done_list:
 #endif
 		lws_plat_set_socket_options(a->vhost, sockfd, 0);
 
-		is = lws_socket_bind(a->vhost, NULL, sockfd,
-				     a->vhost->listen_port,
-				     a->vhost->iface, a->af);
+		if (!a->info || !a->info->vh_listen_sockfd) {
+			is = lws_socket_bind(a->vhost, NULL, sockfd,
+					     a->vhost->listen_port,
+					     a->vhost->iface, a->af);
 
-		if (is == LWS_ITOSA_BUSY) {
-			/* treat as fatal */
-			compatible_close(sockfd);
+			if (is == LWS_ITOSA_BUSY) {
+				/* treat as fatal */
+				compatible_close(sockfd);
 
-			return -1;
-		}
+				return -1;
+			}
 
-		/*
-		 * There is a race where the network device may come up and then
-		 * go away and fail here.  So correctly handle unexpected failure
-		 * here despite we earlier confirmed it.
-		 */
-		if (is < 0) {
-			lwsl_info("%s: lws_socket_bind says %d\n", __func__, is);
-			compatible_close(sockfd);
-			if (a->vhost->iface)
-				goto deal;
-			return -1;
+			/*
+			 * There is a race where the network device may come up and then
+			 * go away and fail here.  So correctly handle unexpected failure
+			 * here despite we earlier confirmed it.
+			 */
+			if (is < 0) {
+				lwsl_info("%s: lws_socket_bind says %d\n", __func__, is);
+				compatible_close(sockfd);
+				if (a->vhost->iface)
+					goto deal;
+				return -1;
+			}
 		}
 
 		/*
@@ -373,13 +390,17 @@ done_list:
 			goto bail;
 		}
 
-		if (wsi)
+		if (wsi) {
+			if (a->info && a->info->vh_listen_sockfd)
+				a->vhost->listen_port = a->info->port;
+
 			__lws_lc_tag(a->vhost->context,
 				     &a->vhost->context->lcg[LWSLCG_WSI],
 				     &wsi->lc, "listen|%s|%s|%d",
 				     a->vhost->name,
 				     a->vhost->iface ? a->vhost->iface : "",
 				     (int)a->vhost->listen_port);
+		}
 
 	} /* for each thread able to independently listen */
 
@@ -399,6 +420,7 @@ done_list:
 	return 0;
 
 bail:
+	lwsl_err("%s: bailing\n", __func__);
 	compatible_close(sockfd);
 
 	return -1;

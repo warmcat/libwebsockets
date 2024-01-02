@@ -959,6 +959,14 @@ struct lws_context_creation_info {
 	 * selected default loglevel can then be cleanly overridden using -d 1039 etc
 	 * commandline switch */
 
+	lws_sockfd_type		vh_listen_sockfd;
+	/**< VHOST: 0 for normal vhost listen socket fd creation, if any.
+	 * Nonzero to force the selection of an already-existing fd for the
+	 * vhost's listen socket, which is already prepared.  This is intended
+	 * for an external process having chosen the fd, which cannot then be
+	 * zero.
+	 */
+
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
 	 *
@@ -1252,6 +1260,20 @@ lws_context_default_loop_run_destroy(struct lws_context *cx);
 
 LWS_VISIBLE LWS_EXTERN int
 lws_cmdline_passfail(int argc, const char **argv, int actual);
+
+/**
+ * lws_systemd_inherited_fd() - prepare vhost creation info for systemd exported fd if any
+ *
+ * \param index: 0+ index of exported fd
+ * \param info: info struct to be prepared with related info, if any
+ *
+ * Returns 0 and points info to the related fd, aligning the other information
+ * to the type of fd and port it is bound to, or returns nonzero if no such
+ * inherited fd.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_systemd_inherited_fd(unsigned int index,
+			 struct lws_context_creation_info *info);
 
 /**
  * lws_context_is_being_destroyed() - find out if context is being destroyed
