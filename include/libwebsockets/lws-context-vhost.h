@@ -959,6 +959,14 @@ struct lws_context_creation_info {
 	 * selected default loglevel can then be cleanly overridden using -d 1039 etc
 	 * commandline switch */
 
+	lws_sockfd_type		vh_listen_sockfd;
+	/**< VHOST: 0 for normal vhost listen socket fd creation, if any.
+	 * Nonzero to force the selection of an already-existing fd for the
+	 * vhost's listen socket, which is already prepared.  This is intended
+	 * for an external process having chosen the fd, which cannot then be
+	 * zero.
+	 */
+
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
 	 *

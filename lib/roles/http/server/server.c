@@ -72,6 +72,10 @@ check_extant(struct lws_dll2 *d, void *user)
 	if (wsi->af != a ->af)
 		return 0;
 
+	if (a->info && a->info->vh_listen_sockfd &&
+	    wsi->desc.sockfd != a->info->vh_listen_sockfd)
+		return 0;
+
 	lwsl_notice(" using listen skt from vhost %s\n", wsi->a.vhost->name);
 
 	return 1;
@@ -107,7 +111,7 @@ deal:
 	if (!san--)
 		return -1;
 
-	if (a->vhost->iface) {
+	if (a->vhost->iface && (!a->info || !a->info->vh_listen_sockfd)) {
 
 		/*
 		 * let's check before we do anything else about the disposition
@@ -202,7 +206,10 @@ done_list:
 
 	for (m = 0; m < limit; m++) {
 
-		sockfd = lws_fi(&a->vhost->fic, "listenskt") ?
+		if (a->info && a->info->vh_listen_sockfd)
+			sockfd = a->info->vh_listen_sockfd;
+		else
+			sockfd = lws_fi(&a->vhost->fic, "listenskt") ?
 					LWS_SOCK_INVALID :
 					socket(a->af, SOCK_STREAM, 0);
 
@@ -274,28 +281,30 @@ done_list:
 #endif
 		lws_plat_set_socket_options(a->vhost, sockfd, 0);
 
-		is = lws_socket_bind(a->vhost, NULL, sockfd,
-				     a->vhost->listen_port,
-				     a->vhost->iface, a->af);
+		if (!a->info || !a->info->vh_listen_sockfd) {
+			is = lws_socket_bind(a->vhost, NULL, sockfd,
+					     a->vhost->listen_port,
+					     a->vhost->iface, a->af);
 
-		if (is == LWS_ITOSA_BUSY) {
-			/* treat as fatal */
-			compatible_close(sockfd);
+			if (is == LWS_ITOSA_BUSY) {
+				/* treat as fatal */
+				compatible_close(sockfd);
 
-			return -1;
-		}
+				return -1;
+			}
 
-		/*
-		 * There is a race where the network device may come up and then
-		 * go away and fail here.  So correctly handle unexpected failure
-		 * here despite we earlier confirmed it.
-		 */
-		if (is < 0) {
-			lwsl_info("%s: lws_socket_bind says %d\n", __func__, is);
-			compatible_close(sockfd);
-			if (a->vhost->iface)
-				goto deal;
-			return -1;
+			/*
+			 * There is a race where the network device may come up and then
+			 * go away and fail here.  So correctly handle unexpected failure
+			 * here despite we earlier confirmed it.
+			 */
+			if (is < 0) {
+				lwsl_info("%s: lws_socket_bind says %d\n", __func__, is);
+				compatible_close(sockfd);
+				if (a->vhost->iface)
+					goto deal;
+				return -1;
+			}
 		}
 
 		/*
