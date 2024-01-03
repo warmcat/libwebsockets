@@ -60,6 +60,8 @@ int main(int argc, const char **argv)
 	info.options =
 		LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE;
 
+	info.vh_listen_sockfd = 3;
+
 	if (lws_cmdline_option(argc, argv, "--h2-prior-knowledge"))
 		info.options |= LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE;
 

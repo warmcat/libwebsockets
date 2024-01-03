@@ -1,0 +1,6 @@
+[Unit]
+Description=LWS socket-activation test service
+
+[Service]
+WorkingDirectory=/path/to/minimal-examples-lowlevel/http-server/minimal-http-server/
+ExecStart=/path/to/lws-minimal-http-server
