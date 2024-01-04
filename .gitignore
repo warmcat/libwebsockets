@@ -3,7 +3,7 @@ CMakeCache.txt
 CMakeFiles
 build
 cmake_install.cmake
-lws-minimal*
+build/lws-minimal*
 Makefile
 .cproject
 .project
