@@ -123,7 +123,7 @@ secstream_raw(struct lws *wsi, enum lws_callback_reasons reason, void *user,
        /* chunks of chunked content, with header removed */
        case LWS_CALLBACK_RAW_RX_FILE:
                in = p;
-               f = (int)read(wsi->desc.filefd, p, sizeof(buf) - LWS_PRE);
+               f = (int)read((int)(intptr_t)wsi->desc.filefd, p, sizeof(buf) - LWS_PRE);
                if (f < 0)
                        return 0;
                len = (unsigned int)f;
