@@ -4477,7 +4477,11 @@ static const uint8_t
 	w26[] = { 0xF9, 0x3E, 0x00 },
 	w27[] = { 0xFB, 0x3F, 0xF1, 0xF7, 0xCE, 0xD9, 0x16, 0x87, 0x2B },
 	w28[] = { 0xA2, 0x61, 0x61, 0x01, 0x61, 0x62, 0x82, 0x02, 0x03 },
-	w29[] = { 0x7F, 0x65, 0x68, 0x65, 0x6C, 0x6C, 0x6F, 0xFF
+	w29[] = { 0x7F, 0x65, 0x68, 0x65, 0x6C, 0x6C, 0x6F, 0xFF },
+	w30[] = { 0xA2, 0x63, 0x67, 0x68, 0x69, 0x18, 0x7B, 0x63, 0x6A, 0x6B, 0x6C, 0x02 },
+	w31[] = { 0x82, 0x18, 0x81, 0x19, 0x04, 0x00 },
+	w32[] = { 0xA2, 0x63, 0x67, 0x68, 0x69, 0x38, 0x7A, 0x63, 0x6A, 0x6B, 0x6C, 0x02 },
+	w33[] = { 0x82, 0x38, 0x80, 0x39, 0x03, 0xFF
 }
 ;
 
@@ -4604,7 +4608,7 @@ int main(int argc, const char **argv)
 {
 	int n, m, e = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE,
 			expected = (int)LWS_ARRAY_SIZE(cbor_tests) +
-					29 /* <-- how many write tests */;
+					33 /* <-- how many write tests */;
 	struct lecp_ctx ctx;
 	const char *p;
 
@@ -4996,6 +5000,50 @@ int main(int argc, const char **argv)
 		if (lws_lec_printf(&ctx, "<t'hello'>") !=
 				LWS_LECPCTX_RET_FINISHED ||
 		    ctx.used != sizeof(w29) || memcmp(w29, buf, ctx.used)) {
+			lwsl_hexdump_notice(ctx.start, ctx.used);
+			e++;
+		} else
+			pass++;
+
+		lwsl_user("%s: test30\n", __func__);
+		lws_lec_setbuf(&ctx, buf, sizeof(buf));
+
+		if (lws_lec_printf(&ctx, "{'ghi':123,'jkl':2}") !=
+				LWS_LECPCTX_RET_FINISHED ||
+		    ctx.used != sizeof(w30) || memcmp(w30, buf, ctx.used)) {
+			lwsl_hexdump_notice(ctx.start, ctx.used);
+			e++;
+		} else
+			pass++;
+
+		lwsl_user("%s: test31\n", __func__);
+		lws_lec_setbuf(&ctx, buf, sizeof(buf));
+
+		if (lws_lec_printf(&ctx, "[129,1024]") !=
+				LWS_LECPCTX_RET_FINISHED ||
+		    ctx.used != sizeof(w31) || memcmp(w31, buf, ctx.used)) {
+			lwsl_hexdump_notice(ctx.start, ctx.used);
+			e++;
+		} else
+			pass++;
+
+		lwsl_user("%s: test32\n", __func__);
+		lws_lec_setbuf(&ctx, buf, sizeof(buf));
+
+		if (lws_lec_printf(&ctx, "{'ghi':-123,'jkl':2}") !=
+				LWS_LECPCTX_RET_FINISHED ||
+		    ctx.used != sizeof(w32) || memcmp(w32, buf, ctx.used)) {
+			lwsl_hexdump_notice(ctx.start, ctx.used);
+			e++;
+		} else
+			pass++;
+
+		lwsl_user("%s: test33\n", __func__);
+		lws_lec_setbuf(&ctx, buf, sizeof(buf));
+
+		if (lws_lec_printf(&ctx, "[-129,-1024]") !=
+				LWS_LECPCTX_RET_FINISHED ||
+		    ctx.used != sizeof(w33) || memcmp(w33, buf, ctx.used)) {
 			lwsl_hexdump_notice(ctx.start, ctx.used);
 			e++;
 		} else

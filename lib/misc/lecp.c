@@ -985,7 +985,7 @@ format_scan(const char *fmt)
 		}
 
 		if (numeric) {
-			if (*fmt >= '0' && *fmt <= '9')
+			while (*fmt >= '0' && *fmt <= '9')
 				fmt++;
 			numeric = 0;
 			if (*fmt != '(')
@@ -1119,6 +1119,7 @@ pop:
 
 			return count[0];
 
+		case '-':
 		case '0':
 		case '1':
 		case '2':
