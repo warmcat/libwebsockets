@@ -2153,7 +2153,8 @@ lws_confirm_host_header(struct lws *wsi)
 		if (e != LWS_TOKZE_ENDED)
 			goto bad_format;
 
-	if (wsi->a.vhost->listen_port != port) {
+	if (wsi->a.vhost->listen_port != port &&
+		wsi->a.vhost->listen_port != CONTEXT_PORT_NO_LISTEN_SERVER) {
 		lwsl_info("%s: host port %d mismatches vhost port %d\n",
 			  __func__, port, wsi->a.vhost->listen_port);
 		return 1;
