@@ -47,6 +47,7 @@ extern "C" {
 #if defined(_WIN32) && !defined(ETHER_ADDR_LEN)
 #define ETHER_ADDR_LEN 6
 #endif
+#define LWS_ETHER_ADDR_LEN ETHER_ADDR_LEN
 
 #include <stddef.h>
 #include <string.h>
