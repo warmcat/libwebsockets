@@ -43,8 +43,10 @@ lws_systemd_inherited_fd(unsigned int index,
 
 	info->vh_listen_sockfd = (int)(SD_LISTEN_FDS_START + index);
 
-	if (sd_is_socket_unix(info->vh_listen_sockfd, 0, 0, NULL, 0))
+	if (sd_is_socket_unix(info->vh_listen_sockfd, 0, 0, NULL, 0)) {
 		info->options |= LWS_SERVER_OPTION_UNIX_SOCK;
+		info->port = 0;
+	}
 
 	if (sd_is_socket_inet(info->vh_listen_sockfd, AF_UNSPEC, 0, 1, 0)) {
 		struct sockaddr_storage addr;
