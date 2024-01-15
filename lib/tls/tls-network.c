@@ -90,8 +90,8 @@ lws_tls_check_cert_lifetime(struct lws_vhost *v)
 			return 1;
 
 		life = (ir.time - now) / (24 * 3600);
-		lwsl_vhost_notice(v, "   vhost %s: cert expiry: %dd", v->name,
-			    (int)life);
+		lwsl_vhost_notice(v, "   vhost %s: cert expiry: %lldd", v->name,
+			    (long long)life);
 	} else
 		lwsl_vhost_info(v, "   vhost %s: no cert", v->name);
 

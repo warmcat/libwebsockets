@@ -79,7 +79,8 @@ lws_wol(struct lws_context *ctx, const char *ip_or_NULL, uint8_t *mac_6_bytes)
         ret = 0;
 
 bail:
-        close(fd);
+	if (fd >= 0) /* coverity */
+		close(fd);
 
         return ret;
 }

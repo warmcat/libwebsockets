@@ -93,7 +93,7 @@ _lws_vhost_init_server_af(struct vh_sock_args *a)
 	int n, opt = 1, limit = 1, san = 2;
 	lws_sockfd_type sockfd;
 	struct lws *wsi;
-	int m = 0, is;
+	int m = 0, is = 0;
 #if defined(LWS_WITH_IPV6)
 	int value = 1;
 #endif

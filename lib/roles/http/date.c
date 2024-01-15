@@ -150,7 +150,7 @@ lws_http_date_parse_unix(const char *b, size_t len, time_t *t)
 #endif
 #endif
 
-	return (int)*t == -1 ? -1 : 0;
+	return (int)(*t == -1 ? -1 : 0);
 }
 
 #if defined(LWS_WITH_CLIENT)

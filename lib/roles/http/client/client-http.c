@@ -591,7 +591,7 @@ static const char *digest_toks[] = {
 	"response",	// 1 <<  5
 	"opaque",	// 1 <<  6
 	"qop",		// 1 <<  7
-	"algorithm"	// 1 <<  8
+	"algorithm",	// 1 <<  8
 	"nc",		// 1 <<  9
 	"cnonce",	// 1 << 10
 	"domain",	// 1 << 11
@@ -604,7 +604,7 @@ enum lws_check_basic_auth_results
 lws_http_digest_auth(struct lws* wsi)
 {
 	uint8_t nonce[256], response[LWS_GENHASH_LARGEST], qop[32];
-	int seen = 0, n, pend = -1, skipping = 0;
+	int seen = 0, n, pend = -1;
 	char *tmp_digest = NULL;
 	struct lws_tokenize ts;
 	char resp_username[32];
@@ -677,8 +677,6 @@ lws_http_digest_auth(struct lws* wsi)
 			break;
 
 		case LWS_TOKZE_TOKEN_NAME_EQUALS:
-			if (skipping)
-				break;
 			if ((seen & (1 << 15)) == (1 << 15) || pend != -1)
 				/* no auth type token or disordered */
 				return LCBA_END_TRANSACTION;
@@ -704,8 +702,6 @@ lws_http_digest_auth(struct lws* wsi)
 			break;
 
 		case LWS_TOKZE_QUOTED_STRING:
-			if (skipping)
-				break;
 			if (pend < 0)
 				return LCBA_END_TRANSACTION;
 
@@ -757,8 +753,6 @@ lws_http_digest_auth(struct lws* wsi)
 
 			case LWS_TOKZE_DELIMITER:
 				if (*ts.token == ',') {
-					if (skipping)
-						break;
 					if (pend != PEND_DELIM)
 						return LCBA_END_TRANSACTION;
 
@@ -766,11 +760,6 @@ lws_http_digest_auth(struct lws* wsi)
 					break;
 				}
 				if (*ts.token == ';') {
-					if (skipping) {
-						/* try again with this one */
-						skipping = 0;
-						break;
-					}
 					/* it's the end */
 					e = LWS_TOKZE_ENDED;
 					break;
@@ -1062,27 +1051,23 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	n = atoi(p);
 
 #if defined(LWS_WITH_HTTP_DIGEST_AUTH)
-    if (n == 401 && lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_WWW_AUTHENTICATE)) {
-        if (!(wsi->stash && wsi->stash->cis[CIS_USERNAME] &&
-                wsi->stash->cis[CIS_PASSWORD])) {
-            lwsl_err(
-                "Digest auth requested by server but no credentials provided "
-                "by user\n");
-            return LCBA_FAILED_AUTH;
-        }
+	if (n == 401 && lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_WWW_AUTHENTICATE)) {
+		if (!(wsi->stash && wsi->stash->cis[CIS_USERNAME] &&
+                		    wsi->stash->cis[CIS_PASSWORD])) {
+			lwsl_err("Digest auth requested by server but no credentials provided by user\n");
+			
+			return LCBA_FAILED_AUTH;
+		}
 
-        if (0 != lws_http_digest_auth(wsi)) {
-            if (wsi)
-                goto bail3;
-            return 1;
-        }
+		if (lws_http_digest_auth(wsi))
+			goto bail3;
 
 		opaque = wsi->a.opaque_user_data;
 		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "digest_auth_step2");
 		wsi->a.opaque_user_data = opaque;
 
 		return -1;
-    }
+	}
 
     ah = wsi->http.ah;
 #endif

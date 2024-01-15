@@ -179,11 +179,11 @@ __lws_lc_untag(struct lws_context *context, lws_lifecycle_t *lc)
 
 	//grp = lws_container_of(lc->list.owner, lws_lifecycle_group_t, owner);
 
-	lws_humanize(buf, sizeof(buf),
-		     (uint64_t)lws_now_usecs() - lc->us_creation,
-		     humanize_schema_us);
-
 #if defined(LWS_LOG_TAG_LIFECYCLE)
+	if (lws_humanize(buf, sizeof(buf),
+		     (uint64_t)lws_now_usecs() - lc->us_creation,
+		     humanize_schema_us) > 0)
+
 	lwsl_cx_notice(context, " -- %s (%d) %s", lc->gutag,
 		    (int)lc->list.owner->count - 1, buf);
 #endif

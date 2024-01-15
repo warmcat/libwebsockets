@@ -533,17 +533,16 @@ _lws_smd_msg_deliver_peer(struct lws_context *ctx, lws_smd_peer_t *pr)
 
 	msg = lws_container_of(pr->tail, lws_smd_msg_t, list);
 
-
-	lwsl_cx_info(ctx, "deliver cl 0x%x, len %d, refc %d, to peer %p",
+	lwsl_cx_info(ctx, "deliver cl 0x%x, len %d, to peer %p",
 		    (unsigned int)msg->_class, (int)msg->length,
-		    (int)msg->refcount, pr);
+		    pr);
 
 	pr->cb(pr->opaque, msg->_class, msg->timestamp,
 	       ((uint8_t *)&msg[1]) + LWS_SMD_SS_RX_HEADER_LEN_EFF,
 	       (size_t)msg->length);
-
+#if !defined(__COVERITY__)
 	assert(msg->refcount);
-
+#endif
 	/*
 	 * If there is one, move forward to the next queued
 	 * message that meets the filters of this peer
