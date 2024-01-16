@@ -15,6 +15,7 @@ require_lws_config(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY 0 requirements)
 require_lws_config(LWS_WITH_SYS_STATE 1 requirements)
 require_lws_config(LWS_WITH_GENCRYPTO 1 requirements)
 require_lws_config(USE_WOLFSSL 0 requirements)
+require_lws_config(LWS_WITH_SSL 1 requirements)
 
 if (requirements)
 	add_executable(${SAMP} minimal-secure-streams.c)
