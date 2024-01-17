@@ -776,9 +776,6 @@ lws_http_digest_auth(struct lws* wsi)
 
 	} while (e > 0);
 
-	if (e != LWS_TOKZE_ENDED)
-		return LCBA_END_TRANSACTION;
-
 	/* we got all the parts we care about? Realm + Nonce... */
 
 	if ((seen & 0xc) != 0xc) {
