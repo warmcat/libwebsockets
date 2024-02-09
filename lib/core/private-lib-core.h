@@ -1185,6 +1185,13 @@ lws_transport_mux_next_free(lws_transport_mux_t *tm, lws_mux_ch_idx_t *result);
 void
 sul_ping_cb(lws_sorted_usec_list_t *sul);
 
+/* Added Declaration of this function to make common for openssl-server */
+#if defined(LWS_HAVE_SSL_CTX_set_keylog_callback) && \
+	defined(LWS_WITH_TLS)
+void
+lws_klog_dump(const SSL *ssl, const char *line);
+#endif
+
 #if !defined(PRIu64)
 #define PRIu64 "llu"
 #endif

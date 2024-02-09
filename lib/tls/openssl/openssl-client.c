@@ -711,7 +711,7 @@ lws_tls_client_vhost_extra_cert_mem(struct lws_vhost *vh,
 
 #if defined(LWS_HAVE_SSL_CTX_set_keylog_callback) && \
 	defined(LWS_WITH_TLS) && defined(LWS_WITH_CLIENT)
-static void
+void
 lws_klog_dump(const SSL *ssl, const char *line)
 {
 	struct lws *wsi = SSL_get_ex_data(ssl,
