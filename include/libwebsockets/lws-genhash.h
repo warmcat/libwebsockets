@@ -51,6 +51,8 @@ enum lws_genhmac_types {
 
 #define LWS_GENHASH_LARGEST 64
 
+#if defined(LWS_WITH_TLS) && defined(LWS_WITH_GENCRYPTO)
+
 struct lws_genhash_ctx {
         uint8_t type;
 #if defined(LWS_WITH_MBEDTLS)
@@ -186,4 +188,6 @@ lws_genhmac_update(struct lws_genhmac_ctx *ctx, const void *in, size_t len);
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_genhmac_destroy(struct lws_genhmac_ctx *ctx, void *result);
+
+#endif
 ///@}

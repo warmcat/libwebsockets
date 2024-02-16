@@ -580,7 +580,7 @@ lws_http_client_http_response(struct lws *wsi)
 #endif
 
 
-#if defined(LWS_WITH_HTTP_DIGEST_AUTH)
+#if defined(LWS_WITH_HTTP_DIGEST_AUTH) && defined(LWS_WITH_TLS)
 
 static const char *digest_toks[] = {
 	"Digest",	// 1 <<  0
@@ -1047,7 +1047,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 #endif
 	n = atoi(p);
 
-#if defined(LWS_WITH_HTTP_DIGEST_AUTH)
+#if defined(LWS_WITH_HTTP_DIGEST_AUTH) && defined(LWS_WITH_TLS)
 	if (n == 401 && lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_WWW_AUTHENTICATE)) {
 		if (!(wsi->stash && wsi->stash->cis[CIS_USERNAME] &&
                 		    wsi->stash->cis[CIS_PASSWORD])) {
