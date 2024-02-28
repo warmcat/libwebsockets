@@ -61,6 +61,13 @@ LWS_VISIBLE LWS_EXTERN unsigned char
 lws_get_reserved_bits(struct lws *wsi);
 
 /**
+ * lws_get_opcode() - access opcode of ws frame
+ * \param wsi: lws connection
+ */
+LWS_VISIBLE LWS_EXTERN uint8_t
+lws_get_opcode(struct lws *wsi);
+
+/**
  * lws_partial_buffered() - find out if lws buffered the last write
  * \param wsi:	websocket connection to check
  *

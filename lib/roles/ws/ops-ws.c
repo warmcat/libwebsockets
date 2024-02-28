@@ -893,6 +893,12 @@ lws_get_reserved_bits(struct lws *wsi)
 	return wsi->ws->rsv;
 }
 
+uint8_t
+lws_get_opcode(struct lws *wsi)
+{
+	return wsi->ws->opcode;
+}
+
 int
 lws_get_close_length(struct lws *wsi)
 {

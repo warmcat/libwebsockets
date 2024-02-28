@@ -62,6 +62,12 @@ lws_create_client_ws_object(const struct lws_client_connect_info *i,
 
 	wsi->ws->ietf_spec_revision = (uint8_t)v;
 
+	if (i->allow_reserved_bits)
+		wsi->ws->allow_reserved_bits = 1;
+
+	if (i->allow_unknown_opcode)
+		wsi->ws->allow_unknown_opcode = 1;
+
 	return 0;
 }
 

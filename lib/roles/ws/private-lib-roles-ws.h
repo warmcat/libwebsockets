@@ -148,6 +148,8 @@ struct _lws_websocket_related {
 	uint8_t stashed_write_type;
 	uint8_t tx_draining_stashed_wp;
 	uint8_t ietf_spec_revision;
+	uint8_t allow_reserved_bits;
+	uint8_t allow_unknown_opcode;
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	uint8_t count_act_ext;
 #endif
