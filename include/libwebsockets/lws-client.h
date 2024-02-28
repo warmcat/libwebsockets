@@ -235,6 +235,18 @@ struct lws_client_connect_info {
 	 * wsi-specific logs into their own stream or file.
 	 */
 
+#if defined(LWS_ROLE_WS)
+	uint8_t		allow_reserved_bits;
+	/**< non-zero to allow reserved bits. You can get it by `lws_get_reserved_bits`.
+	 * Note: default zero means close the websocket connection for non-zero rsv.
+	 */
+
+	uint8_t		allow_unknown_opcode;
+	/**< non-zeo to allow unknown opcode. You can get it by `lws_get_opcode`.
+	 * None: default zero means close the websocket connection for unknown opcode.
+	 */
+#endif
+
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
 	 *

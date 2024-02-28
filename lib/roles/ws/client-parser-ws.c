@@ -119,6 +119,8 @@ int lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 			case 0xd:
 			case 0xe:
 			case 0xf:
+				if (wsi->ws->allow_unknown_opcode)
+					break;
 				lwsl_wsi_info(wsi, "illegal opcode");
 				return -1;
 			default:
@@ -131,7 +133,7 @@ int lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 				!wsi->ws->count_act_ext &&
 #endif
-				wsi->ws->rsv) {
+				wsi->ws->rsv && !wsi->ws->allow_reserved_bits) {
 				lwsl_wsi_info(wsi, "illegal rsv bits set");
 				return -1;
 			}
