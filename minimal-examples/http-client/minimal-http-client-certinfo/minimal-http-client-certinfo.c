@@ -26,7 +26,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	uint8_t buf[1280];
 	union lws_tls_cert_info_results *ci =
 		(union lws_tls_cert_info_results *)buf;
-#if defined(LWS_HAVE_CTIME_R)
+#if defined(LWS_HAVE_CTIME_R) && !defined(LWS_WITH_NO_LOGS)
 	char date[32];
 #endif
 
