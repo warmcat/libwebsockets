@@ -31,7 +31,7 @@ lws_wol(struct lws_context *ctx, const char *ip_or_NULL, uint8_t *mac_6_bytes)
         uint8_t pkt[17 * ETHER_ADDR_LEN];
         struct sockaddr_in addr;
 
-        fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+        fd = (int)(intptr_t)socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
         if (fd < 0) {
                 lwsl_cx_err(ctx, "failed to open UDP, errno %d\n", errno);
                 goto bail;
