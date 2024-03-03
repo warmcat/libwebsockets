@@ -308,7 +308,7 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 						  flen);
 	}
 #else
-	ret = wolfSSL_CTX_use_PrivateKey_buffer(vhost->tls.ssl_ctx, p, flen,
+	ret = wolfSSL_CTX_use_PrivateKey_buffer(vhost->tls.ssl_ctx, p, (long) flen,
 						WOLFSSL_FILETYPE_ASN1);
 #endif
 	lws_free_set_NULL(p);
@@ -439,7 +439,7 @@ check_key:
 		lwsl_notice(" Using ECDH certificate support\n");
 
 	/* Get X509 certificate from ssl context */
-#if !defined(LWS_WITH_BORINGSSL)
+#if !defined(LWS_WITH_BORINGSSL) && !defined(USE_WOLFSSL)
 #if !defined(LWS_HAVE_SSL_EXTRA_CHAIN_CERTS)
 	x = sk_X509_value(vhost->tls.ssl_ctx->extra_certs, 0);
 #else
@@ -482,7 +482,7 @@ check_key:
 
 	EC_KEY_free(EC_key);
 
-#if !defined(OPENSSL_NO_EC) && !defined(LWS_WITH_BORINGSSL)
+#if !defined(OPENSSL_NO_EC) && !defined(LWS_WITH_BORINGSSL) && !defined(USE_WOLFSSL)
 post_ecdh:
 #endif
 	vhost->tls.skipped_certs = 0;
