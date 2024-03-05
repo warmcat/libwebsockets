@@ -174,7 +174,7 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 #endif
 		default:
 			ebuf.token = NULL;
-			ebuf.len = 0;
+			ebuf.len = (int) wsi->a.protocol->rx_buffer_size;
 
 			buffered = lws_buflist_aware_read(pt, wsi, &ebuf, 1, __func__);
 			switch (ebuf.len) {
