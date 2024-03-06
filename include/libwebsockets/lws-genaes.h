@@ -89,7 +89,7 @@ struct lws_genaes_ctx {
 	char underway;
 };
 
-/** lws_genaes_create() - Create RSA public decrypt context
+/** lws_genaes_create() - Create genaes AES context
  *
  * \param ctx: your struct lws_genaes_ctx
  * \param op: LWS_GAESO_ENC or LWS_GAESO_DEC
@@ -98,7 +98,7 @@ struct lws_genaes_ctx {
  * \param padding: 0 = no padding, 1 = padding
  * \param engine: if openssl engine used, pass the pointer here
  *
- * Creates an RSA context with a public key associated with it, formed from
+ * Creates an AES context with a key associated with it, formed from
  * the key elements in \p el.
  *
  * Returns 0 for OK or nonzero for error.
