@@ -60,12 +60,14 @@ lws_raw_skt_connect(struct lws *wsi)
 	}
 #endif
 
-	n = user_callback_handle_rxflow(wsi->a.protocol->callback,
-					wsi, wsi->role_ops->adoption_cb[lwsi_role_server(wsi)],
-					wsi->user_space, NULL, 0);
-	if (n) {
-		lws_inform_client_conn_fail(wsi, (void *)"user", 4);
-		return 1;
+	if (!wsi->hdr_parsing_completed) {
+		n = user_callback_handle_rxflow(wsi->a.protocol->callback,
+				wsi, wsi->role_ops->adoption_cb[lwsi_role_server(wsi)],
+				wsi->user_space, NULL, 0);
+		if (n) {
+			lws_inform_client_conn_fail(wsi, (void *)"user", 4);
+			return 1;
+		}
 	}
 
 	lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
