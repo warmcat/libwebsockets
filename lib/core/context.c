@@ -806,7 +806,16 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif /* network */
 
 #if defined(LWS_WITH_MBEDTLS)
-	lwsl_cx_notice(context, "LWS: %s, MbedTLS-%s %s%s", library_version, MBEDTLS_VERSION_STRING, opts_str, s);
+	{
+		char mbedtls_version[32];
+
+#if defined(MBEDTLS_VERSION_C)
+		mbedtls_version_get_string(mbedtls_version);
+#else
+		lws_snprintf(mbedtls_version, sizeof(mbedtls_version), "%s", MBEDTLS_VERSION_STRING);
+#endif
+		lwsl_cx_notice(context, "LWS: %s, MbedTLS-%s %s%s", library_version, mbedtls_version, opts_str, s);
+	}
 #else
 	lwsl_cx_notice(context, "LWS: %s, %s%s", library_version, opts_str, s);
 #endif
