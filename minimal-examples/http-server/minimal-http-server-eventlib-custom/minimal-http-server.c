@@ -244,6 +244,10 @@ wsi_logical_close_custom(struct lws *wsi)
 {
 	struct pt_eventlibs_custom *priv = (struct pt_eventlibs_custom *)
 						lws_evlib_wsi_to_evlib_pt(wsi);
+
+	if (lws_get_socket_fd(wsi) == LWS_SOCK_INVALID)
+	       return 0;
+
 	return custom_poll_del_fd(priv->io_loop, lws_get_socket_fd(wsi));
 }
 
