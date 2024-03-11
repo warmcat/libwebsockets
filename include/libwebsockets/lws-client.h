@@ -418,6 +418,26 @@ LWS_VISIBLE LWS_EXTERN int
 lws_http_basic_auth_gen(const char *user, const char *pw, char *buf, size_t len);
 
 /**
+ * lws_http_basic_auth_gen2() - helper to encode client basic auth string
+ *
+ * \param user: user name
+ * \param pw: password
+ * \param pwd_len: count of bytes in password
+ * \param buf: where to store base64 result
+ * \param len: max usable size of buf
+ *
+ * Encodes a username and password in Basic Auth format for use with the
+ * Authorization header.  On return, buf is filled with something like
+ * "Basic QWxhZGRpbjpPcGVuU2VzYW1l".
+ *
+ * This differs from lws_http_baic_auth_gen() in that NUL bytes can
+ * appear in the password due to an explicit password length argument.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_http_basic_auth_gen2(const char *user, const void *pw, size_t pwd_len,
+                         char *buf, size_t len);
+
+/**
  * lws_tls_session_is_reused() - returns nonzero if tls session was cached
  *
  * \param wsi: the wsi

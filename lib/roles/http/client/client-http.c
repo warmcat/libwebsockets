@@ -1686,9 +1686,10 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 #if defined(LWS_WITH_HTTP_BASIC_AUTH)
 
 int
-lws_http_basic_auth_gen(const char *user, const char *pw, char *buf, size_t len)
+lws_http_basic_auth_gen2(const char *user, const void *pw, size_t pwd_len,
+			 char *buf, size_t len)
 {
-	size_t n = strlen(user), m = strlen(pw);
+	size_t n = strlen(user), m = pwd_len;
 	char b[128];
 
 	if (len < 6 + ((4 * (n + m + 1)) / 3) + 1)
@@ -1696,14 +1697,22 @@ lws_http_basic_auth_gen(const char *user, const char *pw, char *buf, size_t len)
 
 	memcpy(buf, "Basic ", 6);
 
-	n = (unsigned int)lws_snprintf(b, sizeof(b), "%s:%s", user, pw);
-	if (n >= sizeof(b) - 2)
+	n = (unsigned int)lws_snprintf(b, sizeof(b), "%s:", user);
+	if ((n + pwd_len) >= sizeof(b) - 2)
 		return 2;
+
+	memcpy(&b[n], pw, pwd_len);
+	n += pwd_len;
 
 	lws_b64_encode_string(b, (int)n, buf + 6, (int)len - 6);
 	buf[len - 1] = '\0';
 
 	return 0;
+}
+
+int lws_http_basic_auth_gen(const char *user, const char *pw, char *buf, size_t len)
+{
+	return lws_http_basic_auth_gen2(user, pw, strlen(pw), buf, len);
 }
 
 #endif
