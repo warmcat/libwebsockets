@@ -52,7 +52,7 @@ X509* X509_new(void);
  *
  * @return X509 certification object point
  */
-X509* d2i_X509(X509 **cert, const unsigned char *buffer, long len);
+X509* d2i_X509(X509 **cert, const unsigned char **buffer, long len);
 
 /**
  * @brief free a X509 certification object
