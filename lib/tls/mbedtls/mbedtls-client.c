@@ -378,7 +378,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 					unsigned int key_mem_len
 					)
 {
-	X509 *d2i_X509(X509 **cert, const unsigned char *buffer, long len);
+	X509 *d2i_X509(X509 **cert, const unsigned char **buffer, long len);
 	SSL_METHOD *method = (SSL_METHOD *)TLS_client_method();
 	unsigned long error;
 	int n;
@@ -418,13 +418,13 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 			lwsl_err("Load CA cert file %s failed\n", ca_filepath);
 			return 1;
 		}
-		vh->tls.x509_client_CA = d2i_X509(NULL, buf, (long)len);
+		vh->tls.x509_client_CA = d2i_X509(NULL, (const uint8_t **)&buf, (long)len);
 		free(buf);
 
 		lwsl_info("Loading vh %s client CA for verification %s\n", vh->name, ca_filepath);
 #endif
 	} else {
-		vh->tls.x509_client_CA = d2i_X509(NULL, (uint8_t*)ca_mem, (long)ca_mem_len);
+		vh->tls.x509_client_CA = d2i_X509(NULL, (const uint8_t **)&ca_mem, (long)ca_mem_len);
 		lwsl_info("%s: using mem client CA cert %d\n",
 			    __func__, ca_mem_len);
 	}

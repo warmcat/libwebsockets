@@ -86,7 +86,7 @@ void X509_free(X509 *x)
  * @brief load a character certification context into system context. If '*cert' is pointed to the
  *        certification, then load certification into it. Or create a new X509 certification object
  */
-X509* d2i_X509(X509 **cert, const unsigned char *buffer, long len)
+X509* d2i_X509(X509 **cert, const unsigned char **buffer, long len)
 {
     int m = 0;
     int ret;
@@ -106,7 +106,7 @@ X509* d2i_X509(X509 **cert, const unsigned char *buffer, long len)
         m = 1;
     }
 
-    ret = X509_METHOD_CALL(load, x, buffer, (int)len);
+    ret = X509_METHOD_CALL(load, x, *buffer, (int)len);
     if (ret) {
         SSL_DEBUG(SSL_PKEY_ERROR_LEVEL, "X509_METHOD_CALL(load) return %d", ret);
         goto failed2;
@@ -178,7 +178,7 @@ int SSL_CTX_add_client_CA_ASN1(SSL_CTX *ctx, int len,
 {
 	SSL_ASSERT1(ctx);
 
-	if (!d2i_X509(&ctx->client_CA, d, len)) {
+	if (!d2i_X509(&ctx->client_CA, &d, len)) {
 		SSL_DEBUG(SSL_PKEY_ERROR_LEVEL, "d2i_X509() return NULL");
 		return 0;
 	}
@@ -259,7 +259,7 @@ int SSL_CTX_use_certificate_ASN1(SSL_CTX *ctx, int len,
     int ret;
     X509 *x;
 
-    x = d2i_X509(NULL, d, len);
+    x = d2i_X509(NULL, &d, len);
     if (!x) {
         SSL_DEBUG(SSL_PKEY_ERROR_LEVEL, "d2i_X509() return NULL");
         goto failed1;
@@ -287,7 +287,7 @@ int SSL_use_certificate_ASN1(SSL *ssl, const unsigned char *d, int len)
     int ret;
     X509 *x;
 
-    x = d2i_X509(NULL, d, len);
+    x = d2i_X509(NULL, &d, len);
     if (!x) {
         SSL_DEBUG(SSL_PKEY_ERROR_LEVEL, "d2i_X509() return NULL");
         goto failed1;
