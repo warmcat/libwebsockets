@@ -602,7 +602,6 @@ rops_pt_init_destroy_netlink(struct lws_context *context,
 
 	memset(&sanl, 0, sizeof(sanl));
 	sanl.nl_family		= AF_NETLINK;
-	sanl.nl_pid		= (uint32_t)getpid();
 	sanl.nl_groups		= RTMGRP_LINK | RTMGRP_IPV4_ROUTE | RTMGRP_IPV4_IFADDR
 #if defined(LWS_WITH_IPV6)
 				  | RTMGRP_IPV6_ROUTE | RTMGRP_IPV6_IFADDR
