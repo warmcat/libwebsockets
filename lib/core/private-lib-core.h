@@ -147,6 +147,7 @@
   *
   */
 
+#define LWS_ENABLE_CUSTOM_ASSERT
 #include "libwebsockets.h"
 
 /*

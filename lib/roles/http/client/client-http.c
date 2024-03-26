@@ -286,7 +286,7 @@ hs2:
 			lwsl_debug("ERROR writing to client socket\n");
 			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
 					   "cws");
-			return 0;
+			return -1;	// closed wsi so let callers know
 		case LWS_SSL_CAPABLE_MORE_SERVICE:
 			lws_callback_on_writable(wsi);
 			break;
