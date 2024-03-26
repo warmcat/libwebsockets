@@ -172,9 +172,10 @@ lws_callback_all_protocol(struct lws_context *context,
 	while (m--) {
 		for (n = 0; n < pt->fds_count; n++) {
 			wsi = wsi_from_fd(context, pt->fds[n].fd);
-			if (!wsi)
+			if (!wsi || !wsi->a.protocol)
 				continue;
-			if (wsi->a.protocol == protocol)
+			if (wsi->a.protocol->callback == protocol->callback &&
+			     !strcmp(protocol->name, wsi->a.protocol->name))
 				protocol->callback(wsi,
 					(enum lws_callback_reasons)reason,
 					wsi->user_space, NULL, 0);
