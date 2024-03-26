@@ -218,8 +218,8 @@ lws_callback_all_protocol_vhost_args(struct lws_vhost *vh,
 			if (!wsi || !wsi->a.protocol)
 				continue;
 			if (wsi->a.vhost == vh && (
-				 wsi->a.protocol->callback == protocol->callback &&
-			     !strcmp(protocol->name, wsi->a.protocol->name) ||
+				 (wsi->a.protocol->callback == protocol->callback &&
+			     !strcmp(protocol->name, wsi->a.protocol->name)) ||
 				 !protocol))
 				wsi->a.protocol->callback(wsi, (enum lws_callback_reasons)reason,
 						wsi->user_space, argp, len);
