@@ -579,6 +579,372 @@ lws_http_client_http_response(struct lws *wsi)
 }
 #endif
 
+
+#if defined(LWS_WITH_HTTP_DIGEST_AUTH)
+
+static const char *digest_toks[] = {
+	"Digest",	// 1 <<  0
+	"username",	// 1 <<  1
+	"realm",	// 1 <<  2
+	"nonce",	// 1 <<  3
+	"uri",		// 1 <<  4 optional
+	"response",	// 1 <<  5
+	"opaque",	// 1 <<  6
+	"qop",		// 1 <<  7
+	"algorithm"	// 1 <<  8
+	"nc",		// 1 <<  9
+	"cnonce",	// 1 << 10
+	"domain",	// 1 << 11
+};
+
+#define PEND_NAME_EQ -1
+#define PEND_DELIM -2
+
+enum lws_check_basic_auth_results
+lws_http_digest_auth(struct lws* wsi) {
+    char b64[512];
+    int m, ml, fi;
+    uint8_t nonce[128], response[LWS_GENHASH_LARGEST], qop[32];
+    int seen = 0, n, pend = -1, skipping = 0, urilen;
+    struct lws_tokenize ts;
+    lws_tokenize_elem e;
+    char realm[64];
+    time_t t;
+	char resp_username[32];
+
+    /* Did he send auth? */
+    ml = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_WWW_AUTHENTICATE);
+    if (!ml)
+        return LCBA_FAILED_AUTH;
+
+    /* Disallow fragmentation monkey business */
+
+    fi = wsi->http.ah->frag_index[WSI_TOKEN_HTTP_WWW_AUTHENTICATE];
+    if (wsi->http.ah->frags[fi].nfrag) {
+        lwsl_err("fragmented http auth header not allowed\n");
+        return LCBA_FAILED_AUTH;
+    }
+
+    m = lws_hdr_copy(wsi, b64, sizeof(b64), WSI_TOKEN_HTTP_WWW_AUTHENTICATE);
+    if (m < 7) {
+        lwsl_err("%s: HTTP auth length bad\n", __func__);
+        return LCBA_END_TRANSACTION;
+    }
+
+    /*
+     * We are expecting AUTHORIZATION to have something like this
+     *
+     * Authorization: Digest
+     *   username="Mufasa",
+     *   realm="testrealm@host.com",
+     *   nonce="dcd98b7102dd2f0e8b11d0f600bfb0c093",
+     *   uri="/dir/index.html",
+     *   response="e966c932a9242554e42c8ee200cec7f6",
+     *   opaque="5ccc069c403ebaf9f0171e9517f40e41"
+     *
+     * but the order, whitespace etc is quite open.  uri is optional
+     */
+
+    ts.start = b64;
+    ts.len = m;
+    ts.flags = LWS_TOKENIZE_F_MINUS_NONTERM | LWS_TOKENIZE_F_NO_INTEGERS |
+               LWS_TOKENIZE_F_RFC7230_DELIMS;
+
+    do {
+        e = lws_tokenize(&ts);
+        switch (e) {
+            case LWS_TOKZE_TOKEN:
+                if (pend == 8) {
+                    /* algorithm name */
+
+                    if (strncasecmp(ts.token, "MD5", ts.token_len)) {
+                        lwsl_err("wrong alg %.*s\n", ts.token_len, ts.token);
+                        return LCBA_END_TRANSACTION;
+                    }
+                    pend = PEND_DELIM;
+                    break;
+                }
+                if (strncasecmp(ts.token, "Digest", ts.token_len)) {
+                    skipping = 1;
+                    seen |= 1 << 0;
+                    break;
+                }
+                if (seen) { /* we must be first and one time */
+                    lwsl_notice("%s: repeated auth type\n", __func__);
+                    return LCBA_END_TRANSACTION;
+                }
+
+                seen |= 1 << 15;
+                pend = PEND_NAME_EQ;
+                break;
+
+            case LWS_TOKZE_TOKEN_NAME_EQUALS:
+                if (skipping)
+                    break;
+                if (!(seen & (1 << 15)) || pend != -1) {
+                    lwsl_notice("%s: b\n", __func__);
+
+                    /* no auth type token or disordered */
+                    return LCBA_END_TRANSACTION;
+                }
+
+                for (n = 0; n < (int)LWS_ARRAY_SIZE(digest_toks); n++)
+                    if (!strncmp(ts.token, digest_toks[n], ts.token_len))
+                        break;
+
+                if (n == LWS_ARRAY_SIZE(digest_toks)) {
+                    lwsl_notice("%s: c: '%.*s'\n", __func__, ts.token_len,
+                                ts.token);
+
+                    return LCBA_END_TRANSACTION;
+                }
+
+                if (seen & (1 << n) || !(seen & (1 << 15))) {
+                    lwsl_notice("%s: d\n", __func__);
+                    /* dup or no auth type token */
+                    return LCBA_END_TRANSACTION;
+                }
+
+                seen |= 1 << n;
+                pend = n;
+                break;
+
+            case LWS_TOKZE_QUOTED_STRING:
+                if (skipping)
+                    break;
+                if (pend < 0) {
+                    lwsl_notice("%s: e\n", __func__);
+
+                    return LCBA_END_TRANSACTION;
+                }
+
+                switch (pend) {
+                    case 1: /* username */
+                        if (ts.token_len >= (int)sizeof(resp_username)) {
+                            lwsl_notice("%s: f\n", __func__);
+
+                            return LCBA_END_TRANSACTION;
+                        }
+                        strncpy(resp_username, ts.token, ts.token_len);
+                        break;
+                    case 2: /* realm */
+                        if (ts.token_len >= (int)sizeof(realm)) {
+                            lwsl_notice("%s: f1\n", __func__);
+
+                            return LCBA_END_TRANSACTION;
+                        }
+                        strncpy(realm, ts.token, ts.token_len);
+                        realm[ts.token_len] = 0;
+                        break;
+                    case 3: /* nonce */
+                        if (ts.token_len >= (int)sizeof(nonce)) {
+                            lwsl_notice("%s: g\n", __func__);
+
+                            return LCBA_END_TRANSACTION;
+                        }
+                        strncpy(nonce, ts.token, ts.token_len);
+                        nonce[ts.token_len] = 0;
+                        break;
+                    case 4: /* uri */
+                        break;
+                    case 5: /* response */
+                        if (ts.token_len !=
+                            (int)lws_genhash_size(LWS_GENHASH_TYPE_MD5) * 2) {
+                            lwsl_notice("%s: h\n", __func__);
+
+                            return LCBA_END_TRANSACTION;
+                        }
+                        if (lws_hex_to_byte_array(ts.token, ts.token_len,
+                                                  response,
+                                                  sizeof(response)) < 0) {
+                            lwsl_notice("%s: i\n", __func__);
+
+                            return LCBA_END_TRANSACTION;
+                        }
+                        break;
+                    case 6: /* opaque */
+                        break;
+                    case 7: /* qop */
+                        if (strncmp(ts.token, "auth", ts.token_len)) {
+                            lwsl_notice("%s: j\n", __func__);
+
+                            return LCBA_END_TRANSACTION;
+                        }
+                        strncpy(qop, ts.token, ts.token_len);
+                        qop[ts.token_len] = 0;
+                        break;
+                }
+                pend = PEND_DELIM;
+                break;
+
+            case LWS_TOKZE_DELIMITER:
+                if (*ts.token == ',') {
+                    if (skipping)
+                        break;
+                    if (pend != PEND_DELIM) {
+                        lwsl_notice("%s: k\n", __func__);
+                        return LCBA_END_TRANSACTION;
+                    }
+                    pend = PEND_NAME_EQ;
+                    break;
+                }
+                if (*ts.token == ';') {
+                    if (skipping) {
+                        /* try again with this one */
+                        skipping = 0;
+                        break;
+                    }
+                    /* it's the end */
+                    e = LWS_TOKZE_ENDED;
+                    break;
+                }
+                break;
+
+            case LWS_TOKZE_ENDED:
+                break;
+
+            default:
+                lwsl_notice("%s: unexpected token %d\n", __func__, e);
+                return LCBA_END_TRANSACTION;
+        }
+
+    } while (e > 0);
+
+    if (e != LWS_TOKZE_ENDED) {
+        lwsl_notice("%s: l\n", __func__);
+        return LCBA_END_TRANSACTION;
+    }
+
+    /* we got all the parts we care about? */
+
+    // Realm, nonce
+    if ((seen & 0xc) != 0xc) {
+#if LWS_LIBRARY_VERSION_NUMBER >= 4003000
+        lwsl_wsi_err(wsi,
+            "%s: Not all digest auth tokens found! m: 0x%x\nServer sent: %s",
+            __func__, seen & 0x81ef, b64);
+#else
+        lwsl_err(
+            "%s: Not all digest auth tokens found! m: 0x%x\nServer sent: %s",
+            __func__, seen & 0x81ef, b64);
+#endif
+        return LCBA_END_TRANSACTION;
+    }
+
+    lwsl_notice("HTTP digest auth realm %s nonce %s\n", realm, nonce);
+
+    if (wsi->stash && wsi->stash->cis[CIS_METHOD] && wsi->stash->cis[CIS_PATH]) {
+        uint8_t digest[LWS_GENHASH_LARGEST * 2 + 1];
+        char a1[LWS_GENHASH_LARGEST * 2 + 1];
+        char a2[LWS_GENHASH_LARGEST * 2 + 1];
+        char cnonce[128];
+        char nc[sizeof(int) * 2 + 1];
+        int ncount = 1;
+        char response[512];
+        struct lws_genhash_ctx hc;
+        char* username =  wsi->stash->cis[CIS_USERNAME];
+        char* password = wsi->stash->cis[CIS_PASSWORD];
+        char* uri = wsi->stash->cis[CIS_PATH];
+        char* nbuf[strlen(uri) + 256];
+
+        // A1
+        n = lws_snprintf(nbuf, sizeof(nbuf), "%s:%s:%s", username,
+                        realm, password);
+
+        if (lws_genhash_init(&hc, LWS_GENHASH_TYPE_MD5) ||
+            lws_genhash_update(&hc, nbuf, n) || lws_genhash_destroy(&hc, digest)) {
+            lws_genhash_destroy(&hc, NULL);
+            lwsl_err("%s: hash failed\n", __func__);
+
+            return -1;
+        }
+        lws_byte_array_to_hex(digest, lws_genhash_size(LWS_GENHASH_TYPE_MD5),
+                              a1, sizeof(a1));
+        lwsl_debug("A1: %s:%s:%s = %s\n", username, realm, password, a1);
+
+        n = lws_snprintf(nbuf, sizeof(nbuf), "%s:%s",
+                         wsi->stash->cis[CIS_METHOD],
+                         uri);
+
+        if (lws_genhash_init(&hc, LWS_GENHASH_TYPE_MD5) ||
+            lws_genhash_update(&hc, nbuf, n) || lws_genhash_destroy(&hc, digest)) {
+            lws_genhash_destroy(&hc, NULL);
+            lwsl_err("%s: hash failed\n", __func__);
+
+            return -1;
+        }
+        lws_byte_array_to_hex(digest, lws_genhash_size(LWS_GENHASH_TYPE_MD5),
+                              a2, sizeof(a2));
+        lwsl_debug("A2: %s:%s = %s\n", wsi->stash->cis[CIS_METHOD],
+                   uri, a2);
+
+        // cnonce
+        lws_hex_random(lws_get_context(wsi), cnonce, sizeof(cnonce));
+
+        // nc
+        lws_byte_array_to_hex(&ncount, sizeof(ncount), nc, sizeof(nc));
+
+        // response
+        n = lws_snprintf(nbuf, sizeof(nbuf), "%s:%s:%08x:%s:%s:%s", a1,
+                         nonce, ncount, cnonce, qop, a2);
+        if (lws_genhash_init(&hc, LWS_GENHASH_TYPE_MD5) ||
+            lws_genhash_update(&hc, nbuf, n) || lws_genhash_destroy(&hc, digest)) {
+            lws_genhash_destroy(&hc, NULL);
+            lwsl_err("%s: hash failed\n", __func__);
+
+            return -1;
+        }
+
+        lwsl_debug("digest response: %s\n", nbuf);
+
+        lws_byte_array_to_hex(digest, lws_genhash_size(LWS_GENHASH_TYPE_MD5),
+                              response, lws_genhash_size(LWS_GENHASH_TYPE_MD5) * 2 + 1);
+
+        // Authorization header
+        n = lws_snprintf(
+            nbuf, sizeof(nbuf),
+            "Digest username=\"%s\", realm=\"%s\", nonce=\"%s\", uri=\"%s\", "
+            "qop=%s, nc=%08x, cnonce=\"%s\", response=\"%s\", "
+            "algorithm=\"MD5\"",
+            username, realm, nonce, uri, qop, ncount,
+            cnonce, response);
+
+        lwsl_hexdump(nbuf, n);
+
+        wsi->http.pending_digest_auth_hdr = 1;
+        strncpy(wsi->http.digest_auth_hdr, nbuf, n);
+
+        if (lws_hdr_simple_create(wsi, WSI_TOKEN_HTTP_AUTHORIZATION, nbuf)) {
+            lwsl_err("Failed to add Auth header to WSI for Digest auth");
+            return -1;
+        }
+
+        struct lws* nwsi = lws_get_network_wsi(wsi);
+        int ssl = nwsi->tls.use_ssl & LCCSCF_USE_SSL;
+        void* stash = wsi->stash;
+        const char *a, *p;
+        a = wsi->stash->cis[CIS_ADDRESS];
+        p = &wsi->stash->cis[CIS_PATH][1];
+        // wsi->stash = NULL;
+        // This prevents connection pipelining when two HTTP connection use same
+        // tcp socket.
+        wsi->keepalive_rejected = 1;
+        if (!lws_client_reset(&wsi, ssl, a, wsi->c_port, p, a, 1)) {
+#if LWS_LIBRARY_VERSION_NUMBER >= 4003000
+            lwsl_wsi_err(wsi, "Failed to reset WSI for Digest auth");
+#else
+            lwsl_err("Failed to reset WSI for Digest auth");
+#endif
+            return -1;
+        }
+        // wsi->stash = stash;
+        wsi->client_pipeline = 0;
+    }
+
+    return 0;
+}
+#endif
+
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 
 int
@@ -605,6 +971,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	wsi->conmon.ciu_txn_resp = (lws_conmon_interval_us_t)
 					(lws_now_usecs() - wsi->conmon_datum);
 #endif
+	// lws_free_set_NULL(wsi->stash);
 
 	ah = wsi->http.ah;
 	if (!wsi->do_ws) {
@@ -692,6 +1059,32 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	}
 #endif
 	n = atoi(p);
+
+#if defined(LWS_WITH_HTTP_DIGEST_AUTH)
+    if (n == 401 && lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_WWW_AUTHENTICATE)) {
+        if (!(wsi->stash && wsi->stash->cis[CIS_USERNAME] &&
+                wsi->stash->cis[CIS_PASSWORD])) {
+            lwsl_err(
+                "Digest auth requested by server but no credentials provided "
+                "by user\n");
+            return LCBA_FAILED_AUTH;
+        }
+
+        if (0 != lws_http_digest_auth(wsi)) {
+            if (wsi)
+                goto bail3;
+            return 1;
+        }
+
+		opaque = wsi->a.opaque_user_data;
+		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "digest_auth_step2");
+		wsi->a.opaque_user_data = opaque;
+
+		return -1;
+    }
+
+    ah = wsi->http.ah;
+#endif
 	if (ah)
 		ah->http_response = (unsigned int)n;
 
@@ -1249,6 +1642,13 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 	}
 #endif
 
+#if defined(LWS_WITH_HTTP_DIGEST_AUTH)
+    if (wsi->http.pending_digest_auth_hdr) {
+        p += lws_snprintf(p, 1024, "Authorization: %s\x0d\x0a",
+                          wsi->http.digest_auth_hdr);
+    }
+#endif
+
 #if defined(LWS_ROLE_WS)
 	if (wsi->do_ws) {
 		const char *conn1 = "";
@@ -1635,7 +2035,7 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	cisin[CIS_ALPN]		= wsi->alpn;
 #endif
 
-	if (lws_client_stash_create(wsi, cisin))
+	if (!wsi->stash && lws_client_stash_create(wsi, cisin))
 		return NULL;
 
 	if (!port) {
