@@ -172,9 +172,10 @@ lws_callback_all_protocol(struct lws_context *context,
 	while (m--) {
 		for (n = 0; n < pt->fds_count; n++) {
 			wsi = wsi_from_fd(context, pt->fds[n].fd);
-			if (!wsi)
+			if (!wsi || !wsi->a.protocol)
 				continue;
-			if (wsi->a.protocol == protocol)
+			if (wsi->a.protocol->callback == protocol->callback &&
+			     !strcmp(protocol->name, wsi->a.protocol->name))
 				protocol->callback(wsi,
 					(enum lws_callback_reasons)reason,
 					wsi->user_space, NULL, 0);
@@ -214,10 +215,12 @@ lws_callback_all_protocol_vhost_args(struct lws_vhost *vh,
 	while (m--) {
 		for (n = 0; n < pt->fds_count; n++) {
 			wsi = wsi_from_fd(context, pt->fds[n].fd);
-			if (!wsi)
+			if (!wsi || !wsi->a.protocol)
 				continue;
-			if (wsi->a.vhost == vh && (wsi->a.protocol == protocol ||
-						 !protocol))
+			if (wsi->a.vhost == vh && (
+				 (wsi->a.protocol->callback == protocol->callback &&
+			     !strcmp(protocol->name, wsi->a.protocol->name)) ||
+				 !protocol))
 				wsi->a.protocol->callback(wsi, (enum lws_callback_reasons)reason,
 						wsi->user_space, argp, len);
 		}
@@ -478,9 +481,10 @@ lws_rx_flow_allow_all_protocol(const struct lws_context *context,
 	while (m--) {
 		for (n = 0; n < pt->fds_count; n++) {
 			wsi = wsi_from_fd(context, pt->fds[n].fd);
-			if (!wsi)
+			if (!wsi || !wsi->a.protocol)
 				continue;
-			if (wsi->a.protocol == protocol)
+			if (wsi->a.protocol->callback == protocol->callback &&
+			     !strcmp(protocol->name, wsi->a.protocol->name))
 				lws_rx_flow_control(wsi, LWS_RXFLOW_ALLOW);
 		}
 		pt++;
