@@ -279,7 +279,7 @@ send_hs:
 				pfd.revents = LWS_POLLOUT;
 
 				lwsl_wsi_info(wsi, "going to service fd");
-				n = lws_service_fd(wsi->a.context, &pfd);
+				n = lws_service_fd_tsi(wsi->a.context, &pfd, wsi->tsi);
 				if (n < 0) {
 					cce = "first service failed";
 					goto failed;
@@ -318,7 +318,7 @@ provoke_service:
 		pfd.events = LWS_POLLIN;
 		pfd.revents = LWS_POLLIN;
 
-		n = lws_service_fd(wsi->a.context, &pfd);
+		n = lws_service_fd_tsi(wsi->a.context, &pfd, wsi->tsi);
 		if (n < 0) {
 			cce = "first service failed";
 			goto failed;

@@ -119,7 +119,9 @@ __lws_lc_tag(struct lws_context *context, lws_lifecycle_group_t *grp,
 	}
 
 	lc->us_creation = (uint64_t)lws_now_usecs();
+	lws_context_lock(context, __func__);
 	lws_dll2_add_tail(&lc->list, &grp->owner);
+	lws_context_unlock(context);
 
 	lwsl_refcount_cx(lc->log_cx, 1);
 
@@ -188,7 +190,9 @@ __lws_lc_untag(struct lws_context *context, lws_lifecycle_t *lc)
 		    (int)lc->list.owner->count - 1, buf);
 #endif
 
+	lws_context_lock(context, __func__);
 	lws_dll2_remove(&lc->list);
+	lws_context_unlock(context);
 
 	lwsl_refcount_cx(lc->log_cx, -1);
 }

@@ -543,7 +543,7 @@ lws_callback_on_writable(struct lws *wsi)
 			return -1;
 		}
 
-	if (__lws_change_pollfd(w, 0, LWS_POLLOUT))
+	if (lws_change_pollfd(w, 0, LWS_POLLOUT))
 		return -1;
 
 	return 1;
