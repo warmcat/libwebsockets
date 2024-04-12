@@ -249,7 +249,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 		 */
 
 		lwsi_set_state(wsi, LRS_UNCONNECTED);
-		lws_sul_schedule(wsi->a.context, 0, &wsi->sul_connect_timeout,
+		lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->sul_connect_timeout,
 				 lws_client_dns_retry_timeout,
 						 LWS_USEC_PER_SEC);
 		return wsi;
@@ -655,7 +655,7 @@ ads_known:
 		 * uses wsi->sul_connect_timeout just for this purpose
 		 */
 
-		lws_sul_schedule(wsi->a.context, 0, &wsi->sul_connect_timeout,
+		lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->sul_connect_timeout,
 				 lws_client_conn_wait_timeout,
 				 wsi->a.context->timeout_secs *
 						 LWS_USEC_PER_SEC);
@@ -801,6 +801,7 @@ try_next_dns_result:
 	lws_inform_client_conn_fail(wsi, (void *)cce, strlen(cce));
 
 failed1:
+	lws_sul_cancel(&wsi->sul_connect_timeout);
 	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "client_connect3");
 
 	return NULL;
