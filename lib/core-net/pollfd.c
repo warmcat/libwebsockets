@@ -69,8 +69,6 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 	context = wsi->a.context;
 	pt = &context->pt[(int)wsi->tsi];
 
-	assert(wsi->position_in_fds_table < (int)pt->fds_count);
-
 #if !defined(LWS_WITH_EVENT_LIBS)
 	/*
 	 * This only applies when we use the default poll() event loop.
@@ -112,10 +110,11 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 
 		ftp->_and = _and;
 		ftp->_or = _or;
-		ftp->fd_index = wsi->position_in_fds_table;
 		ftp->next = NULL;
 
 		lws_pt_lock(pt, __func__);
+		assert(wsi->position_in_fds_table < (int)pt->fds_count);
+		ftp->fd_index = wsi->position_in_fds_table;
 
 		/* place at END of list to maintain order */
 		ftp1 = (struct lws_foreign_thread_pollfd **)
@@ -144,13 +143,16 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 	 */
 	_or |= LWS_POLLHUP;
 #endif
-
+	lws_pt_lock(pt, __func__);
+	assert(wsi->position_in_fds_table < (int)pt->fds_count);
 	pfd = &pt->fds[wsi->position_in_fds_table];
-	pa->fd = wsi->desc.sockfd;
-	lwsl_wsi_debug(wsi, "fd %d events %d -> %d", pa->fd, pfd->events,
-						(pfd->events & ~_and) | _or);
 	pa->prev_events = pfd->events;
 	pa->events = pfd->events = (short)((pfd->events & ~_and) | _or);
+	lws_pt_unlock(pt);
+
+	pa->fd = wsi->desc.sockfd;
+	lwsl_wsi_debug(wsi, "fd %d events %d -> %d", pa->fd, pa->prev_events,
+		pa->events);
 
 	if (wsi->mux_substream)
 		return 0;
@@ -621,10 +623,7 @@ lws_callback_on_writable_all_protocol_vhost(const struct lws_vhost *vhost,
 			lws_dll2_get_head(&vhost->same_vh_protocol_owner[n])) {
 		wsi = lws_container_of(d, struct lws, same_vh_protocol);
 
-		assert(wsi->a.protocol &&
-		       wsi->a.protocol->callback == protocol->callback &&
-		       !strcmp(protocol->name, wsi->a.protocol->name));
-
+		assert(wsi->a.protocol == protocol);
 		lws_callback_on_writable(wsi);
 
 	} lws_end_foreach_dll_safe(d, d1);
