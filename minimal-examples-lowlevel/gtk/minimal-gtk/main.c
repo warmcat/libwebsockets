@@ -1,7 +1,7 @@
 #include <gtk/gtk.h>
 #include <libwebsockets.h>
 
-static int status = 0;
+static unsigned int status = 0;
 
 static void
 print_hello(GtkWidget *widget, gpointer data)
@@ -79,7 +79,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_get_peer_simple(wsi, buf, sizeof(buf));
 			status = lws_http_client_http_response(wsi);
 
-			lwsl_user("Connected to %s, http response: %d\n",
+			lwsl_user("Connected to %s, http response: %u\n",
 					buf, status);
 		}
 		break;
@@ -124,7 +124,7 @@ static const struct lws_protocols protocols[] = {
 		0,
 		0,
 	},
-	{ NULL, NULL, 0, 0 }
+	LWS_PROTOCOL_LIST_TERM
 };
 
 static gpointer
