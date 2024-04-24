@@ -379,7 +379,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 					)
 {
 	X509 *d2i_X509(X509 **cert, const unsigned char **buffer, long len);
-	SSL_METHOD *method = (SSL_METHOD *)TLS_client_method();
+	SSL_METHOD *method;
 	unsigned long error;
 	int n;
 
@@ -387,6 +387,16 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 	vh->tls_session_cache_max = info->tls_session_cache_max ?
 				    info->tls_session_cache_max : 10;
 	lws_tls_session_cache(vh, info->tls_session_timeout);
+#endif
+
+#if defined(MBEDTLS_SSL_PROTO_TLS1_2)
+	method = (SSL_METHOD *)TLSv1_2_client_method();
+#elif defined(MBEDTLS_SSL_PROTO_TLS1_1)
+	method = (SSL_METHOD *)TLSv1_1_client_method();
+#elif defined(MBEDTLS_SSL_PROTO_TLS1)
+	method = (SSL_METHOD *)TLSv1_client_method();
+#else
+	method = (SSL_METHOD *)TLS_client_method();
 #endif
 
 	if (!method) {
