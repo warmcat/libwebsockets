@@ -337,8 +337,10 @@ endif()
 
 if (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
 	option(LWS_WITH_NETLINK "Monitor Netlink for Routing Table changes" ON)
+	option(LWS_WITH_BINDTODEVICE "Use bind to interface socket option" ON)
 else()
 	set(LWS_WITH_NETLINK 0)
+	set(LWS_WITH_BINDTODEVICE 0)
 endif()
 option(LWS_WITH_MCUFONT_ENCODER "Build the ttf to mcufont encoder" OFF)
 
