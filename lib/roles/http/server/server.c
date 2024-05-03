@@ -458,6 +458,11 @@ _lws_vhost_init_server(const struct lws_context_creation_info *info,
 	    vhost->listen_port == CONTEXT_PORT_NO_LISTEN_SERVER)
 		return 0;
 
+	if (info && info->vh_listen_sockfd) {
+		a.af = AF_UNSPEC;
+		goto single;
+	}
+
 	/*
 	 * Let's figure out what AF(s) we want this vhost to listen on.
 	 *
