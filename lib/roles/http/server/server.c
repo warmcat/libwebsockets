@@ -212,7 +212,17 @@ done_list:
 	for (m = 0; m < limit; m++) {
 
 		if (a->info && a->info->vh_listen_sockfd)
-			sockfd = dup((int)a->info->vh_listen_sockfd);
+		{
+#if defined(_WIN32)
+			if (!DuplicateHandle(GetCurrentProcess(),
+					(HANDLE)a->info->vh_listen_sockfd,
+					GetCurrentProcess(), (HANDLE*)&sockfd, 0,
+					FALSE, DUPLICATE_SAME_ACCESS))
+				sockfd = LWS_SOCK_INVALID;
+#else
+			sockfd = dup(a->info->vh_listen_sockfd);
+#endif
+		}
 		else
 			sockfd = lws_fi(&a->vhost->fic, "listenskt") ?
 					LWS_SOCK_INVALID :
