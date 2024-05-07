@@ -250,7 +250,11 @@ lws_mbedtls_x509_parse_general_name(const mbedtls_x509_buf *name_buf,
 		*p = *p - 2;
 
 		rfc822Name.MBEDTLS_PRIVATE_V30_ONLY(next) = NULL;
-		ret = mbedtls_x509_get_name( p, end, &rfc822Name );
+#if (MBEDTLS_VERSION_MAJOR == 3) && (MBEDTLS_VERSION_MINOR >= 6)
+               ret = MBEDTLS_PRIVATE(mbedtls_x509_get_name( p, end, &rfc822Name ));
+#else
+                ret = mbedtls_x509_get_name( p, end, &rfc822Name );
+#endif
 		if (ret) {
 			lws_x509_clean_name(&rfc822Name);
 			return ret;
