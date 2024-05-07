@@ -57,3 +57,9 @@ lws_tls_mbedtls_cert_info(mbedtls_x509_crt *x509, enum lws_tls_cert_info type,
 int
 lws_x509_get_crt_ext(mbedtls_x509_crt *crt, mbedtls_x509_buf *skid,
 		     lws_mbedtls_x509_authority *akid);
+
+#if (MBEDTLS_VERSION_MAJOR == 3) && (MBEDTLS_VERSION_MINOR >= 6)
+	int mbedtls_x509_get_name(unsigned char **p, const unsigned char *end,
+						  mbedtls_x509_name *cur);
+#endif
+
