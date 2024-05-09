@@ -484,6 +484,12 @@ lws_upng_decode(lws_upng_t* u, const uint8_t **_pos, size_t *_size)
 			if (!u->inf.out) {
 				size_t ims = (u->u.bypl * 2) + u->inf.info_size;
 
+				if (u->inf.info_size > ims) {
+					lwsl_err("%s: integer overflow occur in ims %llu",
+						 __func__, (unsigned long long)ims);
+					return LWS_SRET_FATAL + 27;
+				}
+
 				if (u->hold_at_metadata)
 					return LWS_SRET_AWAIT_RETRY;
 
