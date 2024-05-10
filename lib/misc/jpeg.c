@@ -2466,11 +2466,7 @@ lws_jpeg_mcu_next(lws_jpeg_t *j)
 			}
 		} /* x */
 
-		/* keep it inside allocated MCU buffer area */
-
 		dr += (row_pitch * 8);
-		if (dr >= j->lines + (row_pitch * j->mcu_max_size_y))
-			dr -= j->mcu_max_size_y * row_pitch;
 	} /* y */
 
 	if (j->mcu_ofs_x++ == j->mcu_max_row - 1) {
@@ -2639,9 +2635,25 @@ lws_jpeg_emit_next_line(lws_jpeg_t *j, const uint8_t **ppix,
 			/*
 			 * 8, or 16 lines of 24-bpp according to MCU height
 			 */
-
-			mcu_buf_len = (size_t)(j->image_width * j->frame_comps *
-					       j->mcu_max_size_y);
+			/*
+			 * row_pitch = (size_t)j->image_witdh * j->frame_comps
+			 *
+			 * max dr
+			 * j->lines + (size_t)(j->mcu_max_row * j->mcu_max_size_x * j->frame_comps) + (size_t)(row_pitch * j->mcu_max_size_y)
+			 *
+			 * max db
+			 * max dr + (size_t)(j->mcu_max_size_x * j->frame_comps) + (size_t)(by_limit * row_pitch)
+			 *
+			 * max pDst
+			 * max db + (size_t)(bx_limit * 3)
+			 *
+			 * max by_limit and bx_limit = 8
+			*/
+			mcu_buf_len = (size_t)(j->mcu_max_row * j->mcu_max_size_x * j->frame_comps)
+				+ (size_t)(j->image_width * j->frame_comps * j->mcu_max_size_y)
+				+ (size_t)(j->mcu_max_size_x * j->frame_comps)
+				+ (size_t)(8 * j->frame_comps * j->image_width)
+				+ (size_t)(8 * 3);
 
 			j->lines = lws_zalloc(mcu_buf_len, __func__);
 			if (!j->lines) {
