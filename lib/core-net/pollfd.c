@@ -623,7 +623,10 @@ lws_callback_on_writable_all_protocol_vhost(const struct lws_vhost *vhost,
 			lws_dll2_get_head(&vhost->same_vh_protocol_owner[n])) {
 		wsi = lws_container_of(d, struct lws, same_vh_protocol);
 
-		assert(wsi->a.protocol == protocol);
+		assert(wsi->a.protocol &&
+		       wsi->a.protocol->callback == protocol->callback &&
+		       !strcmp(protocol->name, wsi->a.protocol->name));
+
 		lws_callback_on_writable(wsi);
 
 	} lws_end_foreach_dll_safe(d, d1);
