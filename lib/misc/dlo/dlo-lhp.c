@@ -219,8 +219,14 @@ lhp_set_dlo_padding_margin(lhp_pstack_t *ps, lws_dlo_t *dlo)
 	int n;
 
 	for (n = 0; n < 4; n ++) {
-		dlo->margin[n] = *lws_csp_px(ps->css_margin[n], ps);
-		dlo->padding[n] = *lws_csp_px(ps->css_padding[n], ps);
+		if (ps->css_margin[n])
+			dlo->margin[n] = *lws_csp_px(ps->css_margin[n], ps);
+		else
+			lws_fx_set(dlo->margin[n], 0, 0);
+		if (ps->css_padding[n])
+			dlo->padding[n] = *lws_csp_px(ps->css_padding[n], ps);
+		else
+			lws_fx_set(dlo->padding[n], 0, 0);
 	}
 }
 
