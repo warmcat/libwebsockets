@@ -312,13 +312,18 @@ lws_css_compute_cascaded_length(lhp_ctx_t *ctx, int ref, lhp_pstack_t *ps,
 const lws_fx_t *
 lws_csp_px(const lcsp_atr_t *a, lhp_pstack_t *ps)
 {
-	lhp_ctx_t *ctx = lws_container_of(ps->list.owner, lhp_ctx_t, stack);
-	const lws_display_font_t *f = ps->font;
+	lhp_ctx_t *ctx;
+	const lws_display_font_t *f;
 	lws_fx_t t1, t2, t3;
 	int ref;
 
+	assert(ps);
+
 	if (!a)
 		return NULL;
+
+	ctx = lws_container_of(ps->list.owner, lhp_ctx_t, stack);
+	f = ps->font;
 
 	ref = lhp_prop_axis(a);
 
