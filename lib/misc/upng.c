@@ -405,6 +405,8 @@ lws_upng_decode(lws_upng_t* u, const uint8_t **_pos, size_t *_size)
 			u->acc = (u->acc << 8) | *pos++;
 			if (++u->sctr == 4) {
 				u->width = u->acc;
+				if (!u->acc)
+					return LWS_SRET_FATAL + 18;
 				u->of++;
 				u->sctr = 0;
 			}
@@ -462,7 +464,7 @@ lws_upng_decode(lws_upng_t* u, const uint8_t **_pos, size_t *_size)
 			u->u.y		= 0;
 			u->u.ibp	= 0;
 			u->u.bypp	= (u->u.bpp + 7) / 8;
-			u->inf.bypl = u->u.bypl	= u->width * u->u.bypp;
+			u->inf.bypl	= u->u.bypl = u->width * u->u.bypp;
 
 			u->inf.outlen	= u->inf.info_size;
 			u->inf.outpos	= 0;
