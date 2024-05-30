@@ -673,10 +673,21 @@ push_m:
 		 * We're collecting int / float pieces
 		 */
 		case LECP_COLLECT:
-			if (ctx->be)
-				*ctx->collect_tgt++ = c;
-			else
-				*ctx->collect_tgt-- = c;
+			if (ctx->be) {
+
+				if (ctx->collect_tgt + 1 >= &ctx->item.opcode)
+					*ctx->collect_tgt = c;
+				else
+					*ctx->collect_tgt++ = c;
+
+			} else {
+
+				if (ctx->collect_tgt <= (uint8_t *)&ctx->item.u)
+					*ctx->collect_tgt = c;
+				else
+					*ctx->collect_tgt-- = c;
+
+			}
 
 			if (--st->collect_rem)
 				break;
