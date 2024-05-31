@@ -813,7 +813,7 @@ lws_http_digest_auth(struct lws* wsi)
 
 		tmp_digest = lws_malloc(l, __func__);
 		if (!tmp_digest)
-			return -1;
+			return LCBA_FAILED_AUTH;
 
 		n = lws_snprintf(tmp_digest, l, "%s:%s:%s",
 				 username, realm, password);
@@ -928,7 +928,7 @@ lws_http_digest_auth(struct lws* wsi)
 bail:
 	lws_free(tmp_digest);
 
-	return -1;
+	return LCBA_FAILED_AUTH;
 }
 #endif
 
