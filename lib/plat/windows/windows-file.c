@@ -49,7 +49,7 @@ _lws_plat_file_open(const struct lws_plat_file_ops *fops, const char *filename,
 		ret = CreateFileW(buf, GENERIC_WRITE, 0, NULL,
 				  CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 
-	if (ret == NULL)
+	if (ret == LWS_INVALID_FILE)
 		goto bail;
 
 	fop_fd = malloc(sizeof(*fop_fd));
