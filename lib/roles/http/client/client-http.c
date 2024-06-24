@@ -1641,6 +1641,8 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 	//	if (!wsi->client_pipeline)
 	//		conn1 = "close, ";
 		p = lws_generate_client_ws_handshake(wsi, p, conn1);
+                if (!p)
+                    return NULL;
 	} else
 #endif
 	{
