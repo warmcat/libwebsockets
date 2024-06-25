@@ -335,7 +335,7 @@ else()
 	option(LWS_WITH_CACHE_NSCOOKIEJAR "Build file-backed lws-cache-ttl that uses netscape cookie jar format (linux-only)" OFF)
 endif()
 
-if (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+if (${CMAKE_SYSTEM_NAME} MATCHES "Linux" AND NOT LWS_WITH_EXTERNAL_POLL)
 	option(LWS_WITH_NETLINK "Monitor Netlink for Routing Table changes" ON)
 else()
 	set(LWS_WITH_NETLINK 0)
