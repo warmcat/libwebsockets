@@ -207,6 +207,7 @@ again:
 		if (m)
 			n--;
 	}
+	lws_service_do_ripe_rxflow(pt);
 
 	if (a)
 		goto again;
