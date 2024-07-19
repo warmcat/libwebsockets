@@ -942,6 +942,7 @@ lws_is_ws_with_ext(struct lws *wsi)
 #endif
 }
 
+#define SANITY_READS (10)
 static int
 rops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
 		       struct lws_pollfd *pollfd)
@@ -949,7 +950,7 @@ rops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
 	unsigned int pending = 0;
 	struct lws_tokens ebuf;
 	char buffered = 0;
-	int n = 0, m, sanity = 10;
+	int n = 0, m, sanity = SANITY_READS, zero_len_reads = 0;
 #if defined(LWS_WITH_HTTP2)
 	struct lws *wsi1;
 #endif
@@ -1193,6 +1194,7 @@ drain:
 				/* we closed wsi */
 				return LWS_HPI_RET_WSI_ALREADY_DIED;
 			}
+      if (n == 0) zero_len_reads++;
 			//lws_buflist_describe(&wsi->buflist, wsi, __func__);
 			//lwsl_notice("%s: consuming %d / %d\n", __func__, n, ebuf.len);
 			if (ebuf.len < 0 ||
@@ -1235,7 +1237,7 @@ drain:
 				// RX Extension needs to be drained before next read
 				n = lws_ws_rx_sm(wsi, ALREADY_PROCESSED_IGNORE_CHAR, 0);
 				if (n < 0) {
-					return LWS_HPI_RET_PLEASE_CLOSE_ME;
+					return zero_len_reads == SANITY_READS ? LWS_HPI_RET_PLEASE_CLOSE_ME : LWS_HPI_RET_HANDLED;
 				}
 			}
 #endif
