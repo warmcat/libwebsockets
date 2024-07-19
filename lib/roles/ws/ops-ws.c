@@ -1237,7 +1237,7 @@ drain:
 				// RX Extension needs to be drained before next read
 				n = lws_ws_rx_sm(wsi, ALREADY_PROCESSED_IGNORE_CHAR, 0);
 				if (n < 0) {
-					return zero_len_reads == SANITY_READS ? LWS_HPI_RET_PLEASE_CLOSE_ME : LWS_HPI_RET_HANDLED;
+					return LWS_HPI_RET_PLEASE_CLOSE_ME;
 				}
 			}
 #endif
@@ -1248,7 +1248,7 @@ drain:
 			 * Something has gone wrong, we are spinning...
 			 * let's bail on this connection
 			 */
-			return LWS_HPI_RET_PLEASE_CLOSE_ME;
+			return zero_len_reads == SANITY_READS ? LWS_HPI_RET_PLEASE_CLOSE_ME : LWS_HPI_RET_HANDLED;
 	}
 
 	if (buffered && /* were draining, now nothing left */
