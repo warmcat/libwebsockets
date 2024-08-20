@@ -767,7 +767,11 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 					       handle_POLLIN(pt, wsi, pollfd)) {
 	case LWS_HPI_RET_WSI_ALREADY_DIED:
 		pt->inside_lws_service = 0;
+#if defined (_WIN32)
+		break;
+#else
 		return 1;
+#endif
 	case LWS_HPI_RET_HANDLED:
 		break;
 	case LWS_HPI_RET_PLEASE_CLOSE_ME:
