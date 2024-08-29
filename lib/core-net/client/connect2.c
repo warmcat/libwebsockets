@@ -28,6 +28,10 @@
 #include <netdb.h>
 #endif
 
+#ifndef AI_V4MAPPED
+#define AI_V4MAPPED 0
+#endif
+
 #if !defined(LWS_WITH_SYS_ASYNC_DNS)
 static int
 lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
@@ -49,9 +53,7 @@ lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
 
 #if !defined(__ANDROID__)
 		hints.ai_family = AF_UNSPEC;
-#if !defined(__OpenBSD__) && !defined(__OPENBSD)
 		hints.ai_flags = AI_V4MAPPED;
-#endif
 #endif
 	} else
 #endif
