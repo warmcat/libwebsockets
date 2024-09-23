@@ -1102,6 +1102,11 @@ add_custom_command(
 )
 
 add_custom_target(GENHDR DEPENDS  ${PROJECT_BINARY_DIR}/include/lws_config.h)
+if (CMAKE_VERSION VERSION_GREATER_EQUAL 3.15)
+    set_property(TARGET GENHDR APPEND PROPERTY ADDITIONAL_CLEAN_FILES
+	    "${PROJECT_BINARY_DIR}/include/libwebsockets")
+endif()
+
 
 file(GLOB HDR_PUBLIC1 RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} include/libwebsockets/*.h)
 file(GLOB HDR_PUBLIC2 RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} include/libwebsockets.h)
