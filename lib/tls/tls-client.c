@@ -138,9 +138,6 @@ int lws_context_init_client_ssl(const struct lws_context_creation_info *info,
 	if (info->client_ssl_ca_filepath)
 		ca_filepath = info->client_ssl_ca_filepath;
 
-	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT))
-		return 0;
-
 	if (vhost->tls.ssl_client_ctx)
 		return 0;
 
@@ -154,6 +151,9 @@ int lws_context_init_client_ssl(const struct lws_context_creation_info *info,
 		return 0;
 	}
 #endif
+
+	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT))
+		return 0;
 
 	if (lws_tls_client_create_vhost_context(vhost, info, cipher_list,
 						ca_filepath,
