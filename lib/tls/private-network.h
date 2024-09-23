@@ -85,7 +85,7 @@ struct lws_lws_tls {
 	lws_tls_kid_chain_t	kid_chain;
 #endif
 	struct lws_dll2		dll_pending_tls;
-	char			err_helper[32];
+	char			err_helper[64];
 	unsigned int		use_ssl;
 	unsigned int		redirect_to_https:1;
 };
