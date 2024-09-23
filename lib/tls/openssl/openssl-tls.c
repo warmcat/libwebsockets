@@ -97,8 +97,9 @@ lws_context_init_ssl_library(struct lws_context *cx,
 #endif
 #endif
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT)) {
-		lwsl_cx_info(cx, " SSL disabled: no "
-			  "LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT");
+		if (!info->provided_client_ssl_ctx)
+			lwsl_cx_info(cx, " SSL disabled: no "
+				"LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT");
 		return 0;
 	}
 
