@@ -29,11 +29,11 @@ typedef struct lws_map_hashtable {
 	lws_dll2_owner_t		ho;
 } lws_map_hashtable_t;
 
-typedef struct lws_map {
+struct lws_map {
 	lws_map_info_t			info;
 
 	/* array of info.modulo x lws_map_hashtable_t overallocated */
-} lws_map_t;
+};
 
 typedef struct lws_map_item {
 	lws_dll2_t			list; /* owned by hashtable */
