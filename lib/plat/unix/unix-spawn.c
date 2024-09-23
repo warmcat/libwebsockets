@@ -549,8 +549,10 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		int naml = lws_ptr_diff(p, i->env_array[m]);
 		char enam[32];
 
-		lws_strnncpy(enam, i->env_array[m], naml, sizeof(enam));
-		setenv(enam, p, 1);
+		if (p) {
+			lws_strnncpy(enam, i->env_array[m], naml, sizeof(enam));
+			setenv(enam, p + 1, 1);
+		}
 		m++;
 	}
 #endif
