@@ -1236,8 +1236,7 @@ __lws_vhost_destroy_pt_wsi_dieback_start(struct lws_vhost *vh)
 		if (w->tsi == tsi) {
 
 			lwsl_vhost_debug(vh, "closing aso");
-			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
-					   "awaiting skt");
+			lws_wsi_close(w, LWS_TO_KILL_ASYNC);
 		}
 
 	} lws_end_foreach_dll_safe(d, d1);
