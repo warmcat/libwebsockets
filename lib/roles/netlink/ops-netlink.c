@@ -36,10 +36,6 @@
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
 
-/* work around CentOS 7 -Wconversion problem */
-#undef RTA_ALIGNTO
-#define RTA_ALIGNTO 4U
-
 //#define lwsl_netlink lwsl_notice
 #define lwsl_cx_netlink		lwsl_cx_info
 #define lwsl_cx_netlink_debug	lwsl_cx_debug
