@@ -949,7 +949,7 @@ rops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
 	unsigned int pending = 0;
 	struct lws_tokens ebuf;
 	char buffered = 0;
-	int n = 0, m, sanity = 10;
+	int n = 0, m, sanity = 100;
 #if defined(LWS_WITH_HTTP2)
 	struct lws *wsi1;
 #endif
