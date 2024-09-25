@@ -177,6 +177,11 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 //			lwsl_notice("%s: idx %d, revents 0x%x\n", __func__, n, pt->fds[n].revents);
 			lws_service_fd_tsi(context, &pt->fds[n], tsi);
 		}
+		
+	if (pt->destroy_self) {
+		lws_context_destroy(pt->context);
+		return -1;
+	}
 
 	return 0;
 }
