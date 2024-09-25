@@ -1405,6 +1405,8 @@ int
 lws_plat_pipe_signal(struct lws_context *ctx, int tsi);
 void
 lws_plat_pipe_close(struct lws *wsi);
+int
+lws_plat_pipe_is_fd_assocated(struct lws_context *cx, int tsi, lws_sockfd_type fd);
 
 void
 lws_addrinfo_clean(struct lws *wsi);
