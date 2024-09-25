@@ -84,10 +84,20 @@ lws_plat_pipe_close(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 
-	if (pt->dummy_pipe_fds[0] && pt->dummy_pipe_fds[0] != -1)
+	if (pt->dummy_pipe_fds[0] && pt->dummy_pipe_fds[0] != -1) {
 		close(pt->dummy_pipe_fds[0]);
-	if (pt->dummy_pipe_fds[1] && pt->dummy_pipe_fds[1] != -1)
+		pt->dummy_pipe_fds[0] = -1;
+	}
+	if (pt->dummy_pipe_fds[1] && pt->dummy_pipe_fds[1] != -1) {
 		close(pt->dummy_pipe_fds[1]);
+		pt->dummy_pipe_fds[1] = -1;
+	}
+}
 
-	pt->dummy_pipe_fds[0] = pt->dummy_pipe_fds[1] = -1;
+int
+lws_plat_pipe_is_fd_assocated(struct lws_context *cx, int tsi, lws_sockfd_type fd)
+{
+	struct lws_context_per_thread *pt = &cx->pt[tsi];
+
+	return fd == pt->dummy_pipe_fds[0] || fd == pt->dummy_pipe_fds[1];
 }

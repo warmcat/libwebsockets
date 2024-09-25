@@ -50,6 +50,12 @@ lws_plat_pipe_close(struct lws *wsi)
 }
 
 int
+lws_plat_pipe_is_fd_assocated(struct lws_context *cx, int tsi, lws_sockfd_type fd)
+{
+	return 0;
+}
+
+int
 lws_send_pipe_choked(struct lws *wsi)
 {
 	struct lws *wsi_eff;

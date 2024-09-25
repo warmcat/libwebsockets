@@ -124,3 +124,11 @@ lws_plat_pipe_close(struct lws *wsi)
 
 	fd[0] = fd[1] = -1;
 }
+
+int
+lws_plat_pipe_is_fd_assocated(struct lws_context *cx, int tsi, lws_sockfd_type fd)
+{
+	struct lws_context_per_thread *pt = &cx->pt[tsi];
+
+	return fd == pt->dummy_pipe_fds[0] || fd == pt->dummy_pipe_fds[1];
+}
