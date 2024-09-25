@@ -43,8 +43,10 @@ valid session object.
 ### Difference from Session Tickets
 
 TLS also supports sessions as bearer tokens, but these are generally considered
-as degrading security.  Lws doesn't support Session Tickets, just reuse by
-Session IDs.
+as degrading security.  Lws doesn't do anything special for Session Tickets, but
+it's possible your TLS library will support them by default, as is reportedly the
+case with mbedtls 2.28.1.  Either way, it's expected Session IDs should work with
+lws if enabled and your tls library supports them.
 
 ## Support in lws
 
