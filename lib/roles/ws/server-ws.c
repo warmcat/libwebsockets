@@ -32,11 +32,11 @@ lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 {
 	struct lws_context *context = wsi->a.context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	char ext_name[64], *args, *end = (*p) + budget - 1;
+	char ext_name[64], ev[64], *args, *end = (*p) + budget - 1;
 	const struct lws_ext_options *opts, *po;
 	const struct lws_extension *ext;
 	struct lws_ext_option_arg oa;
-	int n, m, more = 1;
+	int n, m, more = 1, ep = 0;
 	int ext_count = 0;
 	char ignore;
 	char *c;
@@ -123,7 +123,7 @@ lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 
 			/*
 			 * oh, we do support this one he asked for... but let's
-			 * confirm he only gave it once
+			 * go on to confirm he only gave it once
 			 */
 			for (m = 0; m < wsi->ws->count_act_ext; m++)
 				if (wsi->ws->active_extensions[m] == ext) {
@@ -173,11 +173,9 @@ lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 			}
 
 			if (ext_count > 1)
-				*(*p)++ = ',';
-			else
-				LWS_CPYAPP(*p,
-					  "\x0d\x0aSec-WebSocket-Extensions: ");
-			*p += lws_snprintf(*p, lws_ptr_diff_size_t(end, *p), "%s", ext_name);
+				ev[ep++] = ',';
+
+			ep += lws_snprintf(ev + ep, (size_t)((int)sizeof(ev) - 1 - ep), "%s", ext_name);
 
 			/*
 			 * The client may send a bunch of different option
@@ -216,10 +214,10 @@ lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 						LWS_EXT_CB_OPTION_SET,
 						wsi->ws->act_ext_user[
 							wsi->ws->count_act_ext],
-							  &oa, lws_ptr_diff_size_t(end, *p))) {
+							  &oa, (size_t)((int)sizeof(ev) - 1 - ep))) {
 
-						*p += lws_snprintf(*p,
-								   lws_ptr_diff_size_t(end, *p),
+						ep += lws_snprintf(ev + ep,
+								   (size_t)((int)sizeof(ev) - 1 - ep),
 							      "; %s", po->name);
 						lwsl_debug("adding option %s\n",
 							   po->name);
@@ -245,6 +243,17 @@ lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 
 		n = 0;
 		args = NULL;
+	}
+
+	if (ep) {
+		int mm = lws_add_http_header_by_name(wsi,
+						     (const unsigned char *)"sec-websocket-extensions",
+						     (unsigned char *)ev, ep, (unsigned char **)p, (unsigned char *)end);
+
+		if (mm < 0) {
+			lwsl_wsi_err(wsi, "Failed to add s-w-e");
+			return 1;
+		}
 	}
 
 	return 0;
