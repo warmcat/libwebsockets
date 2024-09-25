@@ -142,7 +142,7 @@ typedef int suseconds_t;
 #define LWS_O_CREAT _O_CREAT
 #define LWS_O_TRUNC _O_TRUNC
 
-#ifndef __func__
+#if (__STDC_VERSION__ < 199901L) && !defined(__func__)
 #define __func__ __FUNCTION__
 #endif
 
