@@ -50,7 +50,7 @@ _lws_plat_file_open(const struct lws_plat_file_ops *fops_own,
 		ret = CreateFileW(buf, GENERIC_WRITE, 0, NULL,
 				  CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 
-	if (ret == LWS_INVALID_FILE)
+	if (ret == INVALID_HANDLE_VALUE)
 		goto bail;
 
 	fop_fd = malloc(sizeof(*fop_fd));
