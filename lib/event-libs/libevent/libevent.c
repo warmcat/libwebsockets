@@ -176,6 +176,7 @@ lws_event_sigint_cb(evutil_socket_t sock_fd, short revents, void *ctx)
 static int
 elops_listen_init_event(struct lws_dll2 *d, void *user)
 {
+#if defined(LWS_WITH_SERVER)
 	struct lws *wsi = lws_container_of(d, struct lws, listen_list);
 	struct lws_context *context = (struct lws_context *)user;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
@@ -188,6 +189,7 @@ elops_listen_init_event(struct lws_dll2 *d, void *user)
 				(EV_READ | EV_PERSIST), lws_event_cb, w_read);
 	event_add(w_read->watcher, NULL);
 	w_read->set = 1;
+#endif
 
 	return 0;
 }
@@ -334,6 +336,7 @@ elops_run_pt_event(struct lws_context *context, int tsi)
 static int
 elops_listen_destroy_event(struct lws_dll2 *d, void *user)
 {
+#if defined(LWS_WITH_SERVER)
 	struct lws *wsi = lws_container_of(d, struct lws, listen_list);
 	struct lws_wsi_eventlibs_libevent *w = wsi_to_priv_event(wsi);
 
@@ -341,6 +344,7 @@ elops_listen_destroy_event(struct lws_dll2 *d, void *user)
 	w->w_read.watcher = NULL;
 	event_free(w->w_write.watcher);
 	w->w_write.watcher = NULL;
+#endif
 
 	return 0;
 }

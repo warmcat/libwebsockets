@@ -379,6 +379,12 @@ if (LWS_WITHOUT_SERVER)
 	set(LWS_WITH_SERVER)
 endif()
 
+if (LWS_WITH_SERVER)
+else()
+	set(LWS_WITH_CGI 0)
+	set(LWS_ROLE_CGI 0)
+endif()
+
 if (LWS_WITH_UPNG)
 	set(LWS_WITH_GZINFLATE 1)
 endif()
