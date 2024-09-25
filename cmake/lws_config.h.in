@@ -201,6 +201,7 @@
 #cmakedefine LWS_WITH_MBEDTLS
 #cmakedefine LWS_WITH_MINIZ
 #cmakedefine LWS_WITH_NETLINK
+#cmakedefine LWS_WITH_BINDTODEVICE
 #cmakedefine LWS_WITH_NETWORK
 #cmakedefine LWS_WITH_NO_LOGS
 #cmakedefine LWS_WITH_OTA
