@@ -698,10 +698,12 @@ elops_destroy_pt_uv(struct lws_context *context, int tsi)
 static int
 elops_listen_init_uv(struct lws_dll2 *d, void *user)
 {
+#if defined(LWS_WITH_SERVER)
 	struct lws *wsi = lws_container_of(d, struct lws, listen_list);
 
 	if (elops_init_vhost_listen_wsi_uv(wsi) == -1)
 		return -1;
+#endif
 
 	return 0;
 }

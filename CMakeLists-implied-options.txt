@@ -368,6 +368,12 @@ if (LWS_WITHOUT_SERVER)
 	set(LWS_WITH_SERVER)
 endif()
 
+if (LWS_WITH_SERVER)
+else()
+	set(LWS_WITH_CGI 0)
+	set(LWS_ROLE_CGI 0)
+endif()
+
 # using any abstract protocol enables LWS_WITH_ABSTRACT
 
 #if (LWS_WITH_SMTP)
