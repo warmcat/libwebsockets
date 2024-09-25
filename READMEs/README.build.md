@@ -353,7 +353,7 @@ https://www.wolfssl.com/wolfSSL/Products-wolfssl.html
 It contains a OpenSSL compatibility layer which makes it possible to pretty
 much link to it instead of OpenSSL, giving a much smaller footprint.
 
-**NOTE**: wolfssl needs to be compiled using the `--enable-opensslextra` flag for
+**NOTE**: wolfssl needs to be compiled using the `--enable-libwebsockets` flag for
 this to work.
 
 @section wolf1 Compiling libwebsockets with wolfSSL
