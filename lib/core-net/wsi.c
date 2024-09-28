@@ -746,10 +746,11 @@ lws_get_urlarg_by_name_safe(struct lws *wsi, const char *name, char *buf, int le
 		fraglen = lws_hdr_copy_fragment(wsi, buf, len,
 						WSI_TOKEN_HTTP_URI_ARGS, n);
 
-		if (fraglen < 0)
+		if (fraglen == -1) /* no fragment or basic problem */
 			break;
 
-		if (fraglen + 1 < len &&
+		if (fraglen > 0 && /* fragment could fit */
+		    fraglen + 1 < len &&
 		    fraglen >= sl &&
 		    !strncmp(buf, name, (size_t)sl)) {
 			/*

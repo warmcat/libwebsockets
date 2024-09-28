@@ -520,7 +520,7 @@ int lws_hdr_copy_fragment(struct lws *wsi, char *dst, int len,
 	}
 
 	if (wsi->http.ah->frags[f].len >= len)
-		return -1;
+		return -2;
 
 	memcpy(dst, wsi->http.ah->data + wsi->http.ah->frags[f].offset,
 	       wsi->http.ah->frags[f].len);
