@@ -58,7 +58,7 @@ int
 lws_x509_get_crt_ext(mbedtls_x509_crt *crt, mbedtls_x509_buf *skid,
 		     lws_mbedtls_x509_authority *akid);
 
-#if (MBEDTLS_VERSION_MAJOR == 3) && (MBEDTLS_VERSION_MINOR >= 6)
+#if (MBEDTLS_VERSION_MAJOR == 3) && (MBEDTLS_VERSION_MINOR >= 5)
 	int mbedtls_x509_get_name(unsigned char **p, const unsigned char *end,
 						  mbedtls_x509_name *cur);
 #endif
