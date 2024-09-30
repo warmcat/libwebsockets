@@ -443,6 +443,7 @@ static const struct lws_event_loop_ops event_loop_ops_ev = {
 	/* destroy_pt */		elops_destroy_pt_ev,
 	/* destroy wsi */		elops_destroy_wsi_ev,
 	/* foreign_thread */		NULL,
+	/* fake_POLLIN */		NULL,
 
 	/* flags */			0,
 

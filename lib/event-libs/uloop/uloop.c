@@ -301,6 +301,7 @@ static const struct lws_event_loop_ops event_loop_ops_uloop = {
 	/* destroy_pt */		elops_destroy_pt_uloop,
 	/* destroy wsi */		elops_destroy_wsi_uloop,
 	/* foreign_thread */		NULL,
+	/* fake_POLLIN */		NULL,
 
 	/* flags */			0,
 

@@ -40,12 +40,23 @@ lws_tls_fake_POLLIN_for_buffered(struct lws_context_per_thread *pt)
 		struct lws *wsi = lws_container_of(p, struct lws,
 						   tls.dll_pending_tls);
 
-		if (wsi->position_in_fds_table >= 0) {
+		/*
+		 * ... allow custom event loop to override our POLLIN-setting
+		 * implementation if it knows how to do it better for its case
+		 */
+					   
+		if (pt->context->event_loop_ops &&
+		    pt->context->event_loop_ops->fake_POLLIN_override)
+			pt->context->event_loop_ops->fake_POLLIN_override(
+							pt->context, pt->tid);
+		else {					
+			if (wsi->position_in_fds_table >= 0) {
 
-			pt->fds[wsi->position_in_fds_table].revents = (short)
-				(pt->fds[wsi->position_in_fds_table].revents |
-				 (pt->fds[wsi->position_in_fds_table].events & LWS_POLLIN));
-			ret |= pt->fds[wsi->position_in_fds_table].revents & LWS_POLLIN;
+				pt->fds[wsi->position_in_fds_table].revents = (short)
+					(pt->fds[wsi->position_in_fds_table].revents |
+					 (pt->fds[wsi->position_in_fds_table].events & LWS_POLLIN));
+				ret |= pt->fds[wsi->position_in_fds_table].revents & LWS_POLLIN;
+			}
 		}
 
 	} lws_end_foreach_dll_safe(p, p1);

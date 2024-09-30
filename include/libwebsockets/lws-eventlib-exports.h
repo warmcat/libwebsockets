@@ -67,6 +67,9 @@ struct lws_event_loop_ops {
 	void (*destroy_wsi)(struct lws *wsi);
 	/* return nonzero if caller thread is not loop service thread  */
 	int (*foreign_thread)(struct lws_context *context, int tsi);
+	/* optional: custom implementation for faking POLLIN for buffered.
+	 *           return nonzero if any wsi faked */
+	int (*fake_POLLIN_override)(struct lws_context *context, int tsi);
 
 	uint8_t	flags;
 
