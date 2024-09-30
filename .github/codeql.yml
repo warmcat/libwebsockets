@@ -1,0 +1,5 @@
+query-filters:
+  - exclude:
+      id: cpp/short-global-name
+  - exclude:
+      id: cpp/useless-expression
