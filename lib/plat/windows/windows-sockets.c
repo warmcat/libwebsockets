@@ -81,10 +81,7 @@ lws_plat_set_nonblocking(lws_sockfd_type fd)
 	int result = !!ioctlsocket(fd, FIONBIO, &optl);
 #if (_LWS_ENABLED_LOGS & LLL_ERR)
 	if (result)
-	{
-		int error = LWS_ERRNO;
-		lwsl_err("ioctlsocket FIONBIO 1 failed with error %d\n", error);
-	}
+		lwsl_err("ioctlsocket FIONBIO 1 failed with error %d\n", LWS_ERRNO);
 #endif
 	return result;
 }
@@ -108,8 +105,7 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd,
 		if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE,
 			       (const char *)&optval, optlen) < 0) {
 #if (_LWS_ENABLED_LOGS & LLL_ERR)
-			int error = LWS_ERRNO;
-			lwsl_err("setsockopt SO_KEEPALIVE 1 failed with error %d\n", error);
+			lwsl_err("setsockopt SO_KEEPALIVE 1 failed with error %d\n", LWS_ERRNO);
 #endif
 			return 1;
 		}
@@ -121,8 +117,7 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd,
 		if (WSAIoctl(fd, SIO_KEEPALIVE_VALS, &alive, sizeof(alive),
 			     NULL, 0, &dwBytesRet, NULL, NULL)) {
 #if (_LWS_ENABLED_LOGS & LLL_ERR)
-			int error = LWS_ERRNO;
-			lwsl_err("WSAIoctl SIO_KEEPALIVE_VALS 1 %lu %lu failed with error %d\n", alive.keepalivetime, alive.keepaliveinterval, error);
+			lwsl_err("WSAIoctl SIO_KEEPALIVE_VALS 1 %lu %lu failed with error %d\n", alive.keepalivetime, alive.keepaliveinterval, LWS_ERRNO);
 #endif
 			return 1;
 		}
@@ -134,8 +129,7 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd,
 	tcp_proto = getprotobyname("TCP");
 	if (!tcp_proto) {
 #if (_LWS_ENABLED_LOGS & LLL_WARN)
-		int error = LWS_ERRNO;
-		lwsl_warn("getprotobyname(\"TCP\") failed with error, falling back to 6 %d\n", error);
+		lwsl_warn("getprotobyname(\"TCP\") failed with error, falling back to 6 %d\n", LWS_ERRNO);
 #endif
 		protonbr = 6;  /* IPPROTO_TCP */
 	} else
@@ -146,8 +140,7 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd,
 
 	if (setsockopt(fd, protonbr, TCP_NODELAY, (const char *)&optval, optlen) ) {
 #if (_LWS_ENABLED_LOGS & LLL_WARN)
-		int error = LWS_ERRNO;
-		lwsl_warn("setsockopt TCP_NODELAY 1 failed with error %d\n", error);
+		lwsl_warn("setsockopt TCP_NODELAY 1 failed with error %d\n", LWS_ERRNO);
 #endif
 	}
 
