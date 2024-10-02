@@ -83,7 +83,7 @@ _lws_plat_file_open(const struct lws_plat_file_ops *fops, const char *filename,
 		    const char *vpath, lws_fop_flags_t *flags)
 {
 	struct stat stat_buf;
-	int ret = lws_open(filename, (*flags) & LWS_FOP_FLAGS_MASK, 0664);
+	int ret = lws_open(filename, (int)((*flags) & LWS_FOP_FLAGS_MASK), 0664);
 	lws_fop_fd_t fop_fd;
 
 	if (ret < 0)
