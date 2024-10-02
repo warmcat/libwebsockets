@@ -42,6 +42,8 @@
  */
 //@{
 
+#include "../libwebsockets.h"
+
 typedef struct lws_map lws_map_t;
 struct lws_map_item;
 
