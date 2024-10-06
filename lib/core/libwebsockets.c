@@ -867,7 +867,7 @@ lws_snprintf(char *str, size_t size, const char *format, ...)
 	va_list ap;
 	int n;
 
-	if (!size)
+	if (!str || !size)
 		return 0;
 
 	va_start(ap, format);
@@ -883,6 +883,9 @@ lws_snprintf(char *str, size_t size, const char *format, ...)
 char *
 lws_strncpy(char *dest, const char *src, size_t size)
 {
+	if (!dest || !src)
+		return NULL;
+
 	strncpy(dest, src, size - 1);
 	dest[size - 1] = '\0';
 
