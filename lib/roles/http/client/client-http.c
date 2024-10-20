@@ -1376,7 +1376,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		 */
 		if (!wsi->mux_substream && !wsi->client_mux_substream &&
 		    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
-		    !wsi->http.rx_content_length)
+		    (!wsi->http.rx_content_length || !strcmp(lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD),"HEAD")))
 		        return !!lws_http_transaction_completed_client(wsi);
 
 		/*
