@@ -196,10 +196,8 @@ lws_client_connect_2_dnsreq(struct lws *wsi)
 	}
 
 	/* only pipeline things we associate with being a stream */
-
-	if (meth && strcmp(meth, "RAW") && strcmp(meth, "GET") &&
-		    strcmp(meth, "POST") && strcmp(meth, "PUT") &&
-		    strcmp(meth, "UDP") && strcmp(meth, "MQTT"))
+	if (meth && !_lws_is_http_method(meth) && strcmp(meth, "RAW")  &&
+		strcmp(meth, "UDP") && strcmp(meth, "MQTT"))
 		goto solo;
 
 	if (!adsin)
@@ -252,8 +250,7 @@ solo:
 	 * piggyback on our transaction queue
 	 */
 
-	if (meth && (!strcmp(meth, "RAW") || !strcmp(meth, "GET") ||
-		     !strcmp(meth, "POST") || !strcmp(meth, "PUT") ||
+	if (meth && (!strcmp(meth, "RAW") || _lws_is_http_method(meth) ||
 		     !strcmp(meth, "MQTT")) &&
 	    lws_dll2_is_detached(&wsi->dll2_cli_txn_queue) &&
 	    lws_dll2_is_detached(&wsi->dll_cli_active_conns)) {
