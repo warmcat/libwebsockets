@@ -971,11 +971,24 @@ static const char * const http_methods[] = {
 	"GET", "POST", "OPTIONS", "HEAD", "PUT", "PATCH", "DELETE", "CONNECT"
 };
 
+int
+is_http_method(const char *method)
+{
+	int n = 0;
+
+	if(NULL == method)
+		return 0;
+
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(http_methods); n++)
+		if (!strcmp(method, http_methods[n]))
+			return 1;
+
+	return 0;
+}
+
 static int
 rops_client_bind_h1(struct lws *wsi, const struct lws_client_connect_info *i)
 {
-	int n;
-
 	if (!i) {
 		/* we are finalizing an already-selected role */
 
@@ -1046,10 +1059,8 @@ rops_client_bind_h1(struct lws *wsi, const struct lws_client_connect_info *i)
 	}
 
 	/* if a recognized http method, bind to it */
-
-	for (n = 0; n < (int)LWS_ARRAY_SIZE(http_methods); n++)
-		if (!strcmp(i->method, http_methods[n]))
-			goto bind_h1;
+	if(is_http_method(i->method))
+		goto bind_h1;
 
 	/* other roles may bind to it */
 
