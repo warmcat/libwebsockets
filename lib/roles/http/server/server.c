@@ -375,9 +375,11 @@ done_list:
 			if (setsockopt(wsi->desc.sockfd, IPPROTO_TCP,
 				       TCP_FASTOPEN,
 				       (const char*)&optval, sizeof(optval)) < 0) {
+#if (_LWS_ENABLED_LOGS & LLL_WARN)
 				int error = LWS_ERRNO;
 				lwsl_warn("%s: TCP_NODELAY failed with error %d\n",
 						__func__, error);
+#endif
 			}
 		}
 #else
