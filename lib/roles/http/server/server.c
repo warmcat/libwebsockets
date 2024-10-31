@@ -1994,6 +1994,7 @@ lws_http_action(struct lws *wsi)
 	if (m > 0)
 #endif
 	{
+lwsl_notice("%s: hit->protocol %s\n", __func__, hit->protocol);
 		/*
 		 * lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, NULL);
 		 */
@@ -2001,7 +2002,7 @@ lws_http_action(struct lws *wsi)
 			const struct lws_protocols *pp =
 					lws_vhost_name_to_protocol(
 						wsi->a.vhost, hit->protocol);
-
+lwsl_notice("%s: pp %p\n", __func__, pp);
 			/* coverity */
 			if (!pp)
 				return 1;
