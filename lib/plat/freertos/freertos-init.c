@@ -60,7 +60,7 @@ const struct http2_settings lws_h2_defaults_esp32 = { {
 	1,
 	/* H2SET_HEADER_TABLE_SIZE */			 512,
 	/* H2SET_ENABLE_PUSH */				   0,
-	/* H2SET_MAX_CONCURRENT_STREAMS */		   8,
+	/* H2SET_MAX_CONCURRENT_STREAMS */		   16,
 	/* H2SET_INITIAL_WINDOW_SIZE */		           0,
 	/* H2SET_MAX_FRAME_SIZE */		       16384,
 	/* H2SET_MAX_HEADER_LIST_SIZE */	 	 512,

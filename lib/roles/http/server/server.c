@@ -220,7 +220,11 @@ done_list:
 					FALSE, DUPLICATE_SAME_ACCESS))
 				sockfd = LWS_SOCK_INVALID;
 #else
+#if defined(LWS_PLAT_FREERTOS)
+			sockfd = a->info->vh_listen_sockfd;
+#else
 			sockfd = dup(a->info->vh_listen_sockfd);
+#endif
 #endif
 		}
 		else

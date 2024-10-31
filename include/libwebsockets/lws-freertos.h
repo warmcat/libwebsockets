@@ -68,7 +68,7 @@ struct pollfd {
 //#include "esp_event_loop.h"
 #include "nvs.h"
 #include "driver/gpio.h"
-#include "esp_spi_flash.h"
+#include "spi_flash_mmap.h"
 #include "freertos/timers.h"
 
 #if defined(LWS_ESP_PLATFORM)

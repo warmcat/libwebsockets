@@ -85,6 +85,7 @@ if (ESP_PLATFORM)
        include_directories(
 		$ENV{IDF_PATH}/components/esp_hw_support/include/soc/
 		$ENV{IDF_PATH}/components/freertos/include/
+		$ENV{IDF_PATH}/components/lwip/include/
 		$ENV{IDF_PATH}/components/freertos/esp_additions/include/
 		$ENV{IDF_PATH}/components/freertos/esp_additions/include/freertos/
 		$ENV{IDF_PATH}/components/freertos/FreeRTOS-Kernel/include/
@@ -98,6 +99,22 @@ if (ESP_PLATFORM)
 		$ENV{IDF_PATH}/components/hal/${CONFIG_IDF_TARGET}/include/
 		$ENV{IDF_PATH}/components/app_update/include/
 		$ENV{IDF_PATH}/components/bootloader_support/include
+		$ENV{IDF_PATH}/components/lwip/port/include
+		$ENV{IDF_PATH}/components/lwip/port/freertos/include
+		$ENV{IDF_PATH}/components/lwip/port/esp32xx/include
+		$ENV{IDF_PATH}/components/freertos/config/include/freertos/
+		$ENV{IDF_PATH}/components/freertos/config/${CONFIG_IDF_TARGET_ARCH}/include
+		$ENV{IDF_PATH}/components/freertos/FreeRTOS-Kernel/portable/${CONFIG_IDF_TARGET_ARCH}/include
+		$ENV{IDF_PATH}/components/freertos/FreeRTOS-Kernel/portable/${CONFIG_IDF_TARGET_ARCH}/include/freertos
+		$ENV{IDF_PATH}/components/freertos/config/include
+		$ENV{IDF_PATH}/components/esp_driver_gpio/include
+		$ENV{IDF_PATH}/components/esp_driver_spi/include
+		$ENV{IDF_PATH}/components/esp_driver_ledc/include
+		$ENV{IDF_PATH}/components/esp_partition/include
+		$ENV{IDF_PATH}/components/spi_flash/include
+		$ENV{IDF_PATH}/components/esp_app_format/include
+		$ENV{IDF_PATH}/components/esp_bootloader_format/include
+		$ENV{IDF_PATH}/components/esp_system/include/
 	)
 
 	if (CONFIG_IDF_TARGET_ARCH_RISCV)

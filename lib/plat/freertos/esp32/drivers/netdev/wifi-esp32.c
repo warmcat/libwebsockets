@@ -42,7 +42,7 @@
 #include "private-lib-core.h"
 
 #include "esp_system.h"
-#include "esp_spi_flash.h"
+#include "spi_flash_mmap.h"
 #include "esp_wifi.h"
 #include <nvs_flash.h>
 #include <esp_netif.h>

@@ -64,6 +64,9 @@
  #include "freertos/timers.h"
 #if defined(LWS_ESP_PLATFORM)
  #include <esp_attr.h>
+#if !defined(ETHER_ADDR_LEN)
+#define ETHER_ADDR_LEN 6
+#endif
 #endif
  #include <esp_system.h>
  #include <esp_task_wdt.h>

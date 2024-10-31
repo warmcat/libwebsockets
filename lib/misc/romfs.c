@@ -37,7 +37,8 @@
 #include <stdio.h>
 #include "romfs.h"
 #if defined(LWS_WITH_ESP32)
-#include "esp_spi_flash.h"
+#include <esp_flash.h>
+#include "spi_flash_mmap.h"
 #endif
 
 #define RFS_STRING_MAX 96
@@ -50,7 +51,10 @@ static void
 set_cache(romfs_inode_t inode, size_t len)
 {
 #if defined(LWS_WITH_ESP32)
-	spi_flash_read((uint32_t)inode, cache, len);
+//	spi_flash_read((uint32_t)inode, cache, len);
+	// esp_err_t esp_flash_read(esp_flash_t *chip, void *buffer, uint32_t address, uint32_t length);
+
+	esp_flash_read(NULL, (void *)inode, (uint32_t)cache, len);
 #endif
 }
 
