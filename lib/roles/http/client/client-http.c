@@ -1373,11 +1373,16 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		 * content-length of zero?  If so, and it's not H2 which will
 		 * notice it via END_STREAM, this transaction is already
 		 * completed at the end of the header processing...
+		 * We also completed it if the request method is HEAD which as
+		 * no content leftover.
 		 */
+		simp = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD);
 		if (!wsi->mux_substream && !wsi->client_mux_substream &&
-		    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
-		    (!wsi->http.rx_content_length || !strcmp(lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD),"HEAD")))
+			lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
+			(!wsi->http.rx_content_length || (NULL != simp &&
+			!strcmp(simp,"HEAD"))))
 		        return !!lws_http_transaction_completed_client(wsi);
+
 
 		/*
 		 * We can also get a case where it's http/1 and there's no
