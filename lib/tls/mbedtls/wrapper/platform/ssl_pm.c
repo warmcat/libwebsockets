@@ -981,9 +981,9 @@ void SSL_set_SSL_CTX(SSL *ssl, SSL_CTX *ctx)
 
 #if defined(LWS_HAVE_mbedtls_ssl_set_hs_authmode)
 
-	if (ctx->verify_mode == SSL_VERIFY_PEER)
+	if ((ctx->verify_mode & SSL_VERIFY_PEER) > 0)
 		mode = MBEDTLS_SSL_VERIFY_REQUIRED;
-	else if (ctx->verify_mode == SSL_VERIFY_FAIL_IF_NO_PEER_CERT)
+	else if ((ctx->verify_mode & SSL_VERIFY_FAIL_IF_NO_PEER_CERT) > 0)
 		mode = MBEDTLS_SSL_VERIFY_REQUIRED;
 	else if (ctx->verify_mode == SSL_VERIFY_CLIENT_ONCE)
 		mode = MBEDTLS_SSL_VERIFY_UNSET;
