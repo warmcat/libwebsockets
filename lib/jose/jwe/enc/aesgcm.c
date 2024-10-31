@@ -63,13 +63,13 @@ lws_jwe_encrypt_gcm(struct lws_jwe *jwe,
 	/* MUST be 128-bit for all sizes */
 	if (jwe->jws.map.len[LJWE_ATAG] != LWS_AESGCM_TAG) {
 		lwsl_notice("%s: AESGCM tag size must be 128b, got %d\n",
-				__func__, jwe->jws.map.len[LJWE_ATAG]);
+				__func__, (int)jwe->jws.map.len[LJWE_ATAG]);
 		return -1;
 	}
 
 	if (jwe->jws.map.len[LJWE_IV] != LWS_AESGCM_IV) { /* MUST be 96-bit */
 		lwsl_notice("%s: AESGCM IV must be 128b, got %d\n", __func__,
-				jwe->jws.map.len[LJWE_IV]);
+				(int)jwe->jws.map.len[LJWE_IV]);
 		return -1;
 	}
 
@@ -128,13 +128,13 @@ lws_jwe_auth_and_decrypt_gcm(struct lws_jwe *jwe,
 	/* Tag MUST be 128-bit for all sizes */
 	if (jwe->jws.map.len[LJWE_ATAG] != LWS_AESGCM_TAG) {
 		lwsl_notice("%s: AESGCM tag size must be 128b, got %d\n",
-				__func__, jwe->jws.map.len[LJWE_ATAG]);
+				__func__, (int)jwe->jws.map.len[LJWE_ATAG]);
 		return -1;
 	}
 
 	if (jwe->jws.map.len[LJWE_IV] != LWS_AESGCM_IV) { /* MUST be 96-bit */
 		lwsl_notice("%s: AESGCM IV must be 128b, got %d\n", __func__,
-				jwe->jws.map.len[LJWE_IV]);
+				(int)jwe->jws.map.len[LJWE_IV]);
 		return -1;
 	}
 

@@ -232,7 +232,7 @@ lws_tls_jit_trust_sort_kids(struct lws *wsi, lws_tls_kid_chain_t *ch)
 static void
 tag_to_vh_name(char *result, size_t max, uint32_t tag)
 {
-	lws_snprintf(result, max, "jitt-%08X", tag);
+	lws_snprintf(result, max, "jitt-%08X", (unsigned int)tag);
 }
 
 int
