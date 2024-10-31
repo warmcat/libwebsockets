@@ -86,4 +86,8 @@ typedef struct lws_spi_ops {
 LWS_VISIBLE LWS_EXTERN int
 lws_spi_table_issue(const lws_spi_ops_t *spi_ops, uint32_t flags, const uint8_t *p, size_t len);
 
+LWS_VISIBLE LWS_EXTERN int
+lws_spi_readback(const lws_spi_ops_t *spi_ops, uint32_t flags,
+                 const uint8_t *p, size_t len, uint8_t *rb, size_t rb_len);
+
 #endif
