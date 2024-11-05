@@ -552,6 +552,16 @@ rops_callback_on_writable_mqtt(struct lws *wsi)
 			)
 		return 1;
 
+	if (lws_check_opt(wsi->a.context->options, LWS_SERVER_OPTION_LIBUV)) {
+		if (network_wsi->mux_substream)
+			network_wsi->mux_substream = 0;
+
+		lws_start_foreach_ll(struct lws *, w, network_wsi->mux.child_list) {
+			if (!w->mux.requested_POLLOUT)
+				w->mux.requested_POLLOUT = 1;
+		} lws_end_foreach_ll(w, mux.sibling_list);
+	}
+
 	return 0;
 }
 
@@ -562,6 +572,11 @@ rops_close_kill_connection_mqtt(struct lws *wsi, enum lws_close_status reason)
 			lws_wsi_tag(wsi),
 			lws_wsi_tag(wsi->mux.parent_wsi), wsi->mux.child_list);
 	//lws_wsi_mux_dump_children(wsi);
+	if (lws_check_opt(wsi->a.context->options, LWS_SERVER_OPTION_LIBUV)) {
+		struct lws *nwsi = lws_get_network_wsi(wsi);
+		if (!nwsi->mux_substream)
+			nwsi->mux_substream = 1;
+	}
 
 	if (wsi->mux_substream
 #if defined(LWS_WITH_CLIENT)
