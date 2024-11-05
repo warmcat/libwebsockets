@@ -262,4 +262,9 @@ lws_plat_context_late_destroy(struct lws_context *context)
 		lwsl_err("ZERO RANDOM FD\n");
 	if (context->fd_random != LWS_INVALID_FILE)
 		close(context->fd_random);
+
+#if defined(LWS_WITH_MBEDTLS)
+	mbedtls_entropy_free(&context->mec);
+	mbedtls_ctr_drbg_free(&context->mcdc);
+#endif
 }
