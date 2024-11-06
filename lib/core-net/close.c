@@ -25,6 +25,14 @@
 #include "private-lib-core.h"
 #include "private-lib-async-dns.h"
 
+// structure for user info
+typedef struct VhostUsrInfo {
+	void *usr_ctx;
+} VhostUsrInfo;
+
+// to store key log file path
+char *klfl_env = NULL;
+
 #if defined(LWS_WITH_CLIENT)
 static int
 lws_close_trans_q_leader(struct lws_dll2 *d, void *user)
@@ -1043,6 +1051,31 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *ca
 {
 	struct lws_context *cx = wsi->a.context;
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+
+	struct lws_vhost *pVhost;
+	VhostUsrInfo *pUsrInfo;
+
+	pVhost = lws_get_vhost(wsi);
+	if(pVhost){
+		pUsrInfo = (VhostUsrInfo *)lws_vhost_user(pVhost);
+		bool fStartStopSniffig = *((bool *)pUsrInfo->usr_ctx);
+
+		/* User input boolean flag to start or stop logging SSL keys */
+		if(fStartStopSniffig)
+		{
+			if (klfl_env == NULL || *klfl_env == '\0'){
+				klfl_env = getenv("SSLKEYLOGFILE");
+			}
+			/* Fill key log file in lws_context */
+			if (klfl_env)
+				lws_strncpy(wsi->a.context->keylog_file, klfl_env,
+						sizeof(wsi->a.context->keylog_file));
+		}
+		else{
+			klfl_env = NULL;
+			wsi->a.context->keylog_file[0] = '\0';
+		}
+	}
 
 	lws_context_lock(cx, __func__);
 
