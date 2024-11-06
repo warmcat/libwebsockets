@@ -1055,6 +1055,7 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *ca
 	struct lws_vhost *pVhost;
 	VhostUsrInfo *pUsrInfo;
 
+	/* To get user data from usr_ctx to logg ssl keys without restart application */
 	pVhost = lws_get_vhost(wsi);
 	if(pVhost){
 		pUsrInfo = (VhostUsrInfo *)lws_vhost_user(pVhost);
