@@ -440,6 +440,11 @@ rops_issue_keepalive_mqtt(struct lws *wsi, int isvalid)
 	}
 
 	nwsi->mqtt->send_pingreq = 1;
+
+#if defined (LWS_WITH_LIBUV)
+	nwsi->mux_substream = 0;
+#endif
+
 	lws_callback_on_writable(nwsi);
 
 	return 0;
@@ -562,6 +567,11 @@ rops_close_kill_connection_mqtt(struct lws *wsi, enum lws_close_status reason)
 			lws_wsi_tag(wsi),
 			lws_wsi_tag(wsi->mux.parent_wsi), wsi->mux.child_list);
 	//lws_wsi_mux_dump_children(wsi);
+#if defined(LWS_WITH_LIBUV)
+	struct lws *nwsi = lws_get_network_wsi(wsi);
+	if (nwsi->mux_substream == 0)
+		nwsi->mux_substream = 1;
+#endif
 
 	if (wsi->mux_substream
 #if defined(LWS_WITH_CLIENT)
