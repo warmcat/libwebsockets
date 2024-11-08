@@ -107,11 +107,16 @@ lws_plat_init(struct lws_context *context,
 #if defined(LWS_HAVE_SSL_CTX_set_keylog_callback) && \
 		defined(LWS_WITH_TLS) && defined(LWS_WITH_CLIENT)
 	{
+		/* The LWS_SSLKEYLOGFILE or SSLKEYLOGFILE are the environment variables which is used
+		 * to specify a file where SSL/TLS keys are logged. */
 		char *klf_env = getenv("SSLKEYLOGFILE");
+		char *lws_env = getenv("LWS_SSLKEYLOGFILE");
 
-		if (klf_env)
-			lws_strncpy(context->keylog_file, klf_env,
-				sizeof(context->keylog_file));
+		/* SSLKEYLOGFILE will be deprecated in future so first preference to LWS_SSLKEYLOGFILE */
+		if (lws_env)
+			lws_strncpy(context->keylog_file, lws_env, sizeof(context->keylog_file));
+		else if(klf_env)
+			lws_strncpy(context->keylog_file, klf_env, sizeof(context->keylog_file));
 	}
 #endif
 
