@@ -25,10 +25,10 @@
 #include "private-lib-core.h"
 #include "private-lib-async-dns.h"
 
-// structure for user info
-typedef struct VhostUsrInfo {
-	void *usr_ctx;
-} VhostUsrInfo;
+// structure for user input flag
+typedef struct lws_usrdata {
+	void *fSniffingFlag;
+}lws_usrdata;
 
 // to store key log file path
 char *klfl_env = NULL;
@@ -1045,6 +1045,38 @@ __lws_close_free_wsi_final(struct lws *wsi)
 	__lws_free_wsi(wsi);
 }
 
+void lws_set_keylog_file(struct lws *wsi)
+{
+	struct lws_vhost *pVhost = NULL;
+	lws_usrdata *pUsrInfo = NULL;
+
+	pVhost = lws_get_vhost(wsi);
+	if(pVhost){
+		pUsrInfo = (lws_usrdata *)lws_vhost_user(pVhost);
+		/* extract the flag from user input to determine whether to start or stop sniffing. */
+		bool fSetSniffingFlag = *((bool *)pUsrInfo->fSniffingFlag);
+
+		/* to start logging SSL keys, the user must set this flag to true. If the flag is set 
+		and klfl_env is empty, getenv will be called once to retrieve the log file path*/
+		if(fSetSniffingFlag){
+			/* call getenv only once if klfl_env is empty */
+			if (klfl_env == NULL || *klfl_env == '\0'){
+				klfl_env = getenv("SSLKEYLOGFILE");
+			}
+			/* to begin logging SSL keys, the key log file will be set in lws_context */
+			if (klfl_env)
+				lws_strncpy(wsi->a.context->keylog_file, klfl_env,
+						sizeof(wsi->a.context->keylog_file));
+		}
+		/* to stop sniffing, reset both keylog_file and klfl_en */
+		else{
+			klfl_env = NULL;
+			wsi->a.context->keylog_file[0] = '\0';
+		}
+	}
+
+}
+
 
 void
 lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *caller)
@@ -1052,31 +1084,9 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *ca
 	struct lws_context *cx = wsi->a.context;
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 
-	struct lws_vhost *pVhost;
-	VhostUsrInfo *pUsrInfo;
 
-	/* To get user data from usr_ctx to logg ssl keys without restart application */
-	pVhost = lws_get_vhost(wsi);
-	if(pVhost){
-		pUsrInfo = (VhostUsrInfo *)lws_vhost_user(pVhost);
-		bool fStartStopSniffig = *((bool *)pUsrInfo->usr_ctx);
-
-		/* User input boolean flag to start or stop logging SSL keys */
-		if(fStartStopSniffig)
-		{
-			if (klfl_env == NULL || *klfl_env == '\0'){
-				klfl_env = getenv("SSLKEYLOGFILE");
-			}
-			/* Fill key log file in lws_context */
-			if (klfl_env)
-				lws_strncpy(wsi->a.context->keylog_file, klfl_env,
-						sizeof(wsi->a.context->keylog_file));
-		}
-		else{
-			klfl_env = NULL;
-			wsi->a.context->keylog_file[0] = '\0';
-		}
-	}
+	/* if the user sets the sniffing flag, populate the key log file */
+	lws_set_keylog_file(wsi);
 
 	lws_context_lock(cx, __func__);
 
