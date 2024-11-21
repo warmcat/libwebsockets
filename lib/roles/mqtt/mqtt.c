@@ -2327,7 +2327,7 @@ lws_mqtt_client_send_unsubcribe(struct lws *wsi,
 		for (n = 0; n < unsub->num_topics; n++) {
 			mysub = lws_mqtt_find_sub(nwsi->mqtt,
 						  unsub->topic[n].name);
-			assert(mysub);
+			//assert(mysub);
 
 			if (mysub && --mysub->ref_count == 0) {
 				lwsl_notice("%s: Need to send UNSUB\n", __func__);
