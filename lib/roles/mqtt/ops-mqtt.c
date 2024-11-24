@@ -440,11 +440,6 @@ rops_issue_keepalive_mqtt(struct lws *wsi, int isvalid)
 	}
 
 	nwsi->mqtt->send_pingreq = 1;
-
-	if (lws_check_opt(wsi->a.context->options, LWS_SERVER_OPTION_LIBUV)) {
-		nwsi->mux_substream = 0;
-	}
-
 	lws_callback_on_writable(nwsi);
 
 	return 0;
@@ -556,6 +551,16 @@ rops_callback_on_writable_mqtt(struct lws *wsi)
 #endif
 			)
 		return 1;
+
+	if (lws_check_opt(wsi->a.context->options, LWS_SERVER_OPTION_LIBUV)) {
+		if (network_wsi->mux_substream != 0)
+			network_wsi->mux_substream = 0;
+
+		lws_start_foreach_ll(struct lws *, w, network_wsi->mux.child_list) {
+			if (w->mux.requested_POLLOUT == 0)
+				w->mux.requested_POLLOUT = 1;
+		} lws_end_foreach_ll(w, mux.sibling_list);
+	}
 
 	return 0;
 }
