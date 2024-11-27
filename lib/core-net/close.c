@@ -1080,6 +1080,10 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *ca
 	/* if the user sets the sniffing flag, populate the key log file */
 	lws_set_keylog_file(wsi);
 
+
+	/* if the user sets the sniffing flag, populate the key log file */
+	lws_set_keylog_file(wsi);
+
 	lws_context_lock(cx, __func__);
 
 	lws_pt_lock(pt, __func__);
