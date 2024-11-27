@@ -106,7 +106,7 @@ lws_plat_init(struct lws_context *context,
 
 #if defined(LWS_HAVE_SSL_CTX_set_keylog_callback) && \
 		defined(LWS_WITH_TLS) && defined(LWS_WITH_CLIENT)
-		{
+	{
 		char *klf_env = getenv("SSLKEYLOGFILE");
 
 		if (klf_env)
