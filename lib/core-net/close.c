@@ -1076,10 +1076,6 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *ca
 {
 	struct lws_context *cx = wsi->a.context;
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-	
-	/* if the user sets the sniffing flag, populate the key log file */
-	lws_set_keylog_file(wsi);
-
 
 	/* if the user sets the sniffing flag, populate the key log file */
 	lws_set_keylog_file(wsi);
