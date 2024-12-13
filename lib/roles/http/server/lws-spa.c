@@ -570,7 +570,7 @@ lws_spa_create_via_info(struct lws *wsi, const lws_spa_create_info_t *i)
 	if (!spa->storage)
 		goto bail2;
 
-	spa->end = spa->storage + i->max_storage - 1;
+	spa->end = spa->storage + spa->i.max_storage - 1;
 
 	if (i->count_params) {
 		if (i->ac)
@@ -583,7 +583,7 @@ lws_spa_create_via_info(struct lws *wsi, const lws_spa_create_info_t *i)
 			goto bail3;
 	}
 
-	spa->s = lws_urldecode_s_create(spa, wsi, spa->storage, i->max_storage,
+	spa->s = lws_urldecode_s_create(spa, wsi, spa->storage, spa->i.max_storage,
 					lws_urldecode_spa_cb);
 	if (!spa->s)
 		goto bail4;
