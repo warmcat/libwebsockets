@@ -127,6 +127,10 @@ static const char * const json_tests[] = {
 
 	"{" /* SHOULD_FAIL: test 10, missing open */
 		"\"a\":123,\"b\":}"
+	"}",
+
+	"{" /* test 13: float vs int */
+		"\"a\": 1, \"b\": 1.0, \"c\": 1e-3, \"d\": 1e3"
 	"}"
 };
 
