@@ -2322,12 +2322,14 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 						(unsigned int)h2n->count,
 						(unsigned int)h2n->length);
 
-				in += (unsigned int)n - 1;
-				h2n->inside += (unsigned int)n;
-				h2n->count += (unsigned int)n - 1;
+				if (n) {
+					in += (unsigned int)n - 1;
+					h2n->inside += (unsigned int)n;
+					h2n->count += (unsigned int)n - 1;
 
-				h2n->swsi->txc.peer_tx_cr_est -= n;
-				wsi->txc.peer_tx_cr_est -= n;
+					h2n->swsi->txc.peer_tx_cr_est -= n;
+					wsi->txc.peer_tx_cr_est -= n;
+				}
 
 do_windows:
 
