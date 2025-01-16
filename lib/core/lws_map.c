@@ -88,7 +88,10 @@ lws_map_hash_from_key_default(const lws_map_key_t key, size_t kl)
 	const uint8_t *u = (const uint8_t *)key;
 
 	while (kl--)
-		h = ((((h << 7) | (h >> 25)) + 0xa1b2c3d4) ^ (*u++)) ^ h;
+		h = ((
+			(((h & 0x1fffffff /* coverity */ ) << 7) |
+			 (h >> 25)) +
+		       0xa1b2c3d4) ^ (*u++)) ^ h;
 
 	return h;
 }
