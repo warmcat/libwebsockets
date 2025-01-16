@@ -163,7 +163,11 @@ nscookiejar_iterate(lws_cache_nscookiejar_t *cache, int fd,
 		lwsl_debug("%s: n %d, m %d\n", __func__, n, m);
 
 read:
-		n1 = (int)read(fd, temp + n, sizeof(temp) - (size_t)n);
+		if ((size_t)n >= sizeof(temp) - 1)
+			/* there's no space left in temp */
+			n1 = 0;
+		else
+			n1 = (int)read(fd, temp + n, sizeof(temp) - (size_t)n);
 
 		lwsl_debug("%s: n1 %d\n", __func__, n1);
 
@@ -171,12 +175,18 @@ read:
 			eof = 1;
 			if (m == n)
 				continue;
-		} else
+		} else {
 			n += n1;
+
+			if ((size_t)n > sizeof(temp)) { /* coverity */
+				ret = -1;
+				goto bail;
+			}
+		}
 
 		while (m < n) {
 
-			m++;
+			m++; /* m can == n nw then */
 
 			if (temp[m - 1] != '\n')
 				continue;
@@ -197,6 +207,13 @@ read:
 			 * cb can classify it even if it can't get all the
 			 * value part in one go
 			 */
+
+			/* coverity: we will blow up if m > n */
+			if (m > n) {
+				ret = -1;
+				goto bail;
+			}
+
 			memmove(temp, temp + m, (size_t)(n - m));
 			n -= m;
 			m = 0;
