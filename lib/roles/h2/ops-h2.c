@@ -227,11 +227,13 @@ read:
 	       // lwsi_state(wsi) != LRS_H1C_ISSUE_HANDSHAKE2 &&
 	       lwsi_state(wsi) != LRS_H2_WAITING_TO_SEND_HEADERS))) {
 
+		int scr_ret;
+
 		ebuf.token = pt->serv_buf;
-		ebuf.len = lws_ssl_capable_read(wsi,
+		scr_ret = lws_ssl_capable_read(wsi,
 					ebuf.token,
 					wsi->a.context->pt_serv_buf_size);
-		switch (ebuf.len) {
+		switch (scr_ret) {
 		case 0:
 			lwsl_info("%s: zero length read\n", __func__);
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
@@ -240,6 +242,19 @@ read:
 			return LWS_HPI_RET_HANDLED;
 		case LWS_SSL_CAPABLE_ERROR:
 			lwsl_info("%s: LWS_SSL_CAPABLE_ERROR\n", __func__);
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
+		}
+
+		/*
+		 * coverity is confused: it knows lws_ssl_capable_read may
+		 * return < 0 and assigning that to ebuf.len is bad, but it
+		 * doesn't understand this check below on scr_ret < 0
+		 * removes that possibility
+		 */
+
+		ebuf.len = scr_ret;
+		if (ebuf.len < 0) /* ie, not usable data */ {
+			lwsl_info("%s: other error\n", __func__);
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}
 
@@ -313,7 +328,8 @@ drain:
 				lws_dll2_remove(&wsi->dll_buflist);
 			}
 		} else
-			if (n && n < ebuf.len && ebuf.len > 0) {
+			/* cov: both n and ebuf.len are int */
+			if (n > 0 && n < ebuf.len && ebuf.len > 0) {
 				// lwsl_notice("%s: h2 append seg %d\n", __func__, ebuf.len - n);
 				m = lws_buflist_append_segment(&wsi->buflist,
 						ebuf.token + n,
