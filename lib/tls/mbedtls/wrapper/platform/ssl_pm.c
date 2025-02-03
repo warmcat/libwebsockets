@@ -423,24 +423,38 @@ int ssl_pm_clear(SSL *ssl)
 
 int ssl_pm_read(SSL *ssl, void *buffer, int len)
 {
-    int ret;
-    struct ssl_pm *ssl_pm = (struct ssl_pm *)ssl->ssl_pm;
+	int ret;
+	struct ssl_pm *ssl_pm = (struct ssl_pm *)ssl->ssl_pm;
 
-    ret = mbedtls_ssl_read(&ssl_pm->ssl, buffer, (size_t)len);
-    if (ret < 0) {
-	 //   lwsl_notice("%s: mbedtls_ssl_read says -0x%x\n", __func__, -ret);
-        SSL_DEBUG(SSL_PLATFORM_ERROR_LEVEL, "mbedtls_ssl_read() return -0x%x", -ret);
-        if (ret == MBEDTLS_ERR_NET_CONN_RESET ||
+	ret = mbedtls_ssl_read(&ssl_pm->ssl, buffer, (size_t)len);
+	if (ret < 0) {
+//		lwsl_notice("%s: mbedtls_ssl_read says -0x%x\n", __func__, -ret);
+		SSL_DEBUG(SSL_PLATFORM_ERROR_LEVEL, "mbedtls_ssl_read() return -0x%x", -ret);
+		if (ret == MBEDTLS_ERR_NET_CONN_RESET ||
 #if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000
-	    ret <= MBEDTLS_ERR_SSL_HANDSHAKE_FAILURE) /* fatal errors */
+		    ret <= MBEDTLS_ERR_SSL_HANDSHAKE_FAILURE) /* fatal errors */
 #else
-            ret <= MBEDTLS_ERR_SSL_NO_USABLE_CIPHERSUITE) /* fatal errors */
+		    ret <= MBEDTLS_ERR_SSL_NO_USABLE_CIPHERSUITE) /* fatal errors */
 #endif
 		ssl->err = SSL_ERROR_SYSCALL;
-        ret = -1;
-    }
 
-    return ret;
+		switch (ret) {
+		case MBEDTLS_ERR_NET_CONN_RESET:
+			ssl->err = SSL_ERROR_SYSCALL;
+			break;
+		case MBEDTLS_ERR_SSL_WANT_WRITE:
+			ssl->err = SSL_ERROR_WANT_WRITE;
+			break;
+		case MBEDTLS_ERR_SSL_WANT_READ:
+			ssl->err = SSL_ERROR_WANT_READ;
+			break;
+		default:
+			break;
+		}
+		ret = -1;
+	}
+
+	return ret;
 }
 
 /*

@@ -617,7 +617,8 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 			}
 
 			ctx->buf[ctx->npos] = '\0';
-			if (ctx->f & LEJP_SEEN_POINT) {
+			if (ctx->f & (LEJP_SEEN_POINT | LEJP_SEEN_EXP)) {
+				/* 0.001 or 1E-3 are both floats, take 1E3 as float too */
 				if (ctx->pst[ctx->pst_sp].callback(ctx,
 							LEJPCB_VAL_NUM_FLOAT))
 					goto reject_callback;

@@ -2252,8 +2252,8 @@ lws_jpeg_mcu_next(lws_jpeg_t *j)
 				r = interval_restart(j);
 				if (r)
 					return r;
-			}
-			j->restarts_left--;
+			} else
+				j->restarts_left--;
 		}
 		
 		j->fs_mcu_mb = 0;

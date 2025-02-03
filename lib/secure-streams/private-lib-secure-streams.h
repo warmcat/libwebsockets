@@ -132,17 +132,17 @@ typedef struct lws_ss_handle {
 
 			union {
 				struct { /* LWSSSP_H1 */
-#if defined(WIN32)
+#if defined(WIN32) || defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
 					uint8_t dummy;
 #endif
 				} h1;
 				struct { /* LWSSSP_H2 */
-#if defined(WIN32)
+#if defined(WIN32) || defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
 					uint8_t dummy;
 #endif
 				} h2;
 				struct { /* LWSSSP_WS */
-#if defined(WIN32)
+#if defined(WIN32) || defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
 					uint8_t dummy;
 #endif
 				} ws;
