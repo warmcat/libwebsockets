@@ -27,15 +27,8 @@
 int
 lws_plat_service(struct lws_context *context, int timeout_ms)
 {
-	int n = _lws_plat_service_tsi(context, timeout_ms, 0);
-
-#if !defined(LWS_AMAZON_RTOS) && defined(LWS_ESP_PLATFORM) && defined(CONFIG_ESP_INT_WDT)
-	esp_task_wdt_reset();
-#endif
-
-	return n;
+	return _lws_plat_service_tsi(context, timeout_ms, 0);
 }
-
 
 int
 _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
