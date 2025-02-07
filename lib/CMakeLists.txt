@@ -307,6 +307,13 @@ if (LWS_HAVE_LIBCAP)
 		set(lws_requires "libcap")
 	endif()
 endif()
+if (LWS_HAVE_SYSTEMD_H)
+	if (NOT lws_requires STREQUAL "")
+		set(lws_requires "${lws_requires},libsystemd")
+	else()
+		set(lws_requires "libsystemd")
+	endif()
+endif()
 
 
 # Generate and install pkgconfig.
