@@ -307,7 +307,7 @@ lws_json_simple_strcmp(const char *buf, size_t len, const char *name, const char
  * string.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_hex_to_byte_array(const char *h, uint8_t *dest, int max);
+lws_hex_to_byte_array(const char *h, int hlen_or_minus1, uint8_t *dest, int max);
 
 /**
  * lws_hex_from_byte_array(): render byte array as hex char string
