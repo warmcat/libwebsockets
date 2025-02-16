@@ -27,7 +27,8 @@
 
 #include "lws_config.h"
 #include "lws_config_private.h"
-
+#include <stdbool.h>
+#include <stdio.h>
 
 #if defined(LWS_WITH_CGI) && defined(LWS_HAVE_VFORK) && \
     !defined(NO_GNU_SOURCE_THIS_TIME) && !defined(_GNU_SOURCE)
