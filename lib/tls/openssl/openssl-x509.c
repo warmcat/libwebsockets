@@ -47,11 +47,13 @@ lws_tls_openssl_asn1time_to_unix(ASN1_TIME *as)
 	memset(&t, 0, sizeof(t));
 
 	if (strlen(p) == 13) {
-		t.tm_year = (dec(p[0]) * 10) + dec(p[1]) + 100;
+		t.tm_year = (dec(p[0]) * 10) + dec(p[1]);
+		if (t.tm_year < 50) /* RFC5280: 13 char dates will break after 2049 */
+			t.tm_year += 100; /* struct tm year is -1900, this gives 2000..2049 */
 		p += 2;
 	} else {
-		t.tm_year = (dec(p[0]) * 1000) + (dec(p[1]) * 100) +
-			    (dec(p[2]) * 10) + dec(p[3]);
+		t.tm_year = ((dec(p[0]) * 1000) + (dec(p[1]) * 100) +
+			    (dec(p[2]) * 10) + dec(p[3])) - 1900; /* struct tm year is -1900 */
 		p += 4;
 	}
 	t.tm_mon = (dec(p[0]) * 10) + dec(p[1]) - 1;
