@@ -1313,7 +1313,7 @@ lws_mux_mark_immortal(struct lws *wsi)
 			&& !wsi->client_mux_substream
 #endif
 	) {
-		lwsl_wsi_err(wsi, "not mux substream");
+		// lwsl_wsi_err(wsi, "not mux substream");
 		return;
 	}
 
