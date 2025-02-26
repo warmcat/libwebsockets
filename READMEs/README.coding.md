@@ -190,7 +190,7 @@ a UDP socket pair that the event loop waits on.  When the wake is handled by the
 lws event loop thread, it will broadcast a `LWS_CALLBACK_EVENT_WAIT_CANCELLED`
 message to every vhost-protocol instantiation, so you can handle this callback,
 usually lock a shared data region, and if you see you need to write, call
-`lws_callback_on_writeable()` for the wsi(s) that need to write.
+`lws_callback_on_writable()` for the wsi(s) that need to write.
 
 There's no restriction on multiple threads calling `lws_cancel_service()`, it's
 unconditionally safe due to how it is implemented underneath.
