@@ -157,7 +157,7 @@ lws_adns_iterate(lws_adns_q_t *q, const uint8_t *pkt, int len,
 		 const char *expname, lws_async_dns_find_t cb, void *opaque)
 {
 	const uint8_t *e = pkt + len, *p, *pay;
-	struct label_stack stack[4];
+	struct label_stack stack[8];
 	int n = 0, stp = 0, ansc, m;
 	uint16_t rrtype, rrpaylen;
 	char *sp, inq;
