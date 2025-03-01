@@ -1781,6 +1781,7 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 #endif
 #if defined(LWS_WITH_TLS)
 	char newconn_cannot_use_h1 = 0;
+	const char *w_adsin;
 
 	if ((wsi->tls.use_ssl & LCCSCF_USE_SSL) &&
 	    my_alpn && !strstr(my_alpn, "http/1.1"))
@@ -1820,10 +1821,11 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 		struct lws *w = lws_container_of(d, struct lws,
 						 dll_cli_active_conns);
 
+		w_adsin = lws_wsi_client_stash_item(w, CIS_ADDRESS,
+			_WSI_TOKEN_CLIENT_PEER_ADDRESS);
 		lwsl_wsi_debug(wsi, "check %s %s %s %d %d",
 				    lws_wsi_tag(w), adsin,
-				    w->cli_hostname_copy ? w->cli_hostname_copy :
-							    "null",
+				    w_adsin ? w_adsin : "null",
 				    wsi->c_port, w->c_port);
 
 		if (w != wsi &&
@@ -1837,7 +1839,7 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 		    (w->role_ops == wsi->role_ops ||
 		     (lwsi_role_http(w) && lwsi_role_http(wsi))) &&
 		     /* ... same role, or at least both some kind of http */
-		    w->cli_hostname_copy && !strcmp(adsin, w->cli_hostname_copy) &&
+		    w_adsin && !strcmp(adsin, w_adsin) &&
 		    /* same endpoint hostname */
 #if defined(LWS_WITH_TLS)
 		   !(newconn_cannot_use_h1 && w->role_ops == &role_ops_h1) &&
