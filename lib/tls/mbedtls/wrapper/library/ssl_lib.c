@@ -226,15 +226,18 @@ SSL_CTX* SSL_CTX_new(const SSL_METHOD *method, void *rngctx)
 
 #if defined(LWS_HAVE_mbedtls_x509_crt_parse_file)
     if (mbedtls_client_preload_filepath) {
-	mbedtls_x509_crt **px = (mbedtls_x509_crt **)ctx->client_CA->x509_pm;
+        mbedtls_x509_crt **px = (mbedtls_x509_crt **)ctx->client_CA->x509_pm;
 
-	*px = malloc(sizeof(**px));
-	mbedtls_x509_crt_init(*px);
-	n = mbedtls_x509_crt_parse_file(*px, mbedtls_client_preload_filepath);
-	if (n < 0)
-		lwsl_err("%s: unable to load cert bundle 0x%x\n", __func__, -n);
-	else
-		lwsl_info("%s: loaded cert bundle %d\n", __func__, n);
+        *px = malloc(sizeof(**px));
+        mbedtls_x509_crt_init(*px);
+        n = mbedtls_x509_crt_parse_file(*px, mbedtls_client_preload_filepath);
+        if (n < 0) {
+            lwsl_err("%s: unable to load cert bundle 0x%x\n", __func__, -n);
+            mbedtls_x509_crt_free(*px);
+            free(*px);
+        } else {
+            lwsl_info("%s: loaded cert bundle %d\n", __func__, n);
+        }
     }
 #endif
 
@@ -256,6 +259,17 @@ void SSL_CTX_free(SSL_CTX* ctx)
     SSL_ASSERT3(ctx);
 
     ssl_cert_free(ctx->cert);
+
+#if defined(LWS_HAVE_mbedtls_x509_crt_parse_file)
+    if (mbedtls_client_preload_filepath) {
+        mbedtls_x509_crt **px = (mbedtls_x509_crt **)ctx->client_CA->x509_pm;
+
+        if (*px) {
+            mbedtls_x509_crt_free(*px);
+            free(*px);
+        }
+    }
+#endif
 
     X509_free(ctx->client_CA);
 
