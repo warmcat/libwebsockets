@@ -1390,5 +1390,9 @@ struct lws_http_mount {
 LWS_VISIBLE LWS_EXTERN void
 lws_vhost_set_mounts(struct lws_vhost *v, const struct lws_http_mount *mounts);
 
+/* Using this API, the user can enable or disable SSL key logging for a specific wsi based on the flag value */
+LWS_VISIBLE LWS_EXTERN void
+lws_set_sniffing_flag(bool boolVal, struct lws *wsi);
+
 ///@}
 ///@}
