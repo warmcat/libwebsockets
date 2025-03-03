@@ -746,7 +746,8 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 	 *
 	 * Give him a limited write bugdet
 	 */
-	if (lws_extension_server_handshake(wsi, &p, 192))
+	LWS_CPYAPP(p, "\x0d\x0a");
+	if (lws_extension_server_handshake(wsi, &p, 190))
 		goto bail;
 #endif
 	LWS_CPYAPP(p, "\x0d\x0a");
