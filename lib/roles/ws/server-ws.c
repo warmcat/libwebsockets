@@ -737,6 +737,7 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 
 		LWS_CPYAPP(p, "\x0d\x0aSec-WebSocket-Protocol: ");
 		p += lws_snprintf(p, 128, "%s", prot);
+		LWS_CPYAPP(p, "\x0d\x0a");
 	}
 
 #if !defined(LWS_WITHOUT_EXTENSIONS)
@@ -744,13 +745,13 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 	 * Figure out which extensions the client has that we want to
 	 * enable on this connection, and give him back the list.
 	 *
-	 * Give him a limited write bugdet
+	 * Give him a limited write bugdet.
+	 *
+	 * This appends a closing CRLF before returning, if h1
 	 */
-	LWS_CPYAPP(p, "\x0d\x0a");
 	if (lws_extension_server_handshake(wsi, &p, 190))
 		goto bail;
 #endif
-	LWS_CPYAPP(p, "\x0d\x0a");
 
 	args.p = p;
 	args.max_len = lws_ptr_diff((char *)pt->serv_buf +
