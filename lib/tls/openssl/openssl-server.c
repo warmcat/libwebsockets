@@ -141,6 +141,17 @@ lws_ssl_server_name_cb(SSL *ssl, int *ad, void *arg)
 	/* select the ssl ctx from the selected vhost for this conn */
 	SSL_set_SSL_CTX(ssl, vhost->tls.ssl_ctx);
 
+	/* also, adjust other things we care about */
+	SSL_set_verify(ssl, SSL_CTX_get_verify_mode(vhost->tls.ssl_ctx),
+		SSL_CTX_get_verify_callback(vhost->tls.ssl_ctx));
+	SSL_set_verify_depth(ssl, SSL_CTX_get_verify_depth(vhost->tls.ssl_ctx));
+
+#if OPENSSL_VERSION_NUMBER >= 0x009080dfL
+	SSL_clear_options(ssl, SSL_get_options(ssl) &
+		~SSL_CTX_get_options(vhost->tls.ssl_ctx));
+#endif
+	SSL_set_options(ssl, SSL_CTX_get_options(vhost->tls.ssl_ctx));
+
 	return SSL_TLSEXT_ERR_OK;
 }
 #endif
