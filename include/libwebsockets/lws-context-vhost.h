@@ -1293,6 +1293,15 @@ lws_systemd_inherited_fd(unsigned int index,
 LWS_VISIBLE LWS_EXTERN int
 lws_context_is_being_destroyed(struct lws_context *context);
 
+/* This API allows the user to disable SSL key logging. */
+LWS_VISIBLE LWS_EXTERN void
+lws_reset_keylog_file(struct lws *wsi);
+
+/* This API allows the user to enable SSL key logging. 
+sslkeyfilepath : user can provide file name along with path in which ssl keys will get logged */
+LWS_VISIBLE LWS_EXTERN void
+lws_set_keylog_file(struct lws *wsi, char *sslkeyfilepath);
+
 /*! \defgroup vhost-mounts Vhost mounts and options
  * \ingroup context-and-vhost-creation
  *
@@ -1389,10 +1398,6 @@ struct lws_http_mount {
 
 LWS_VISIBLE LWS_EXTERN void
 lws_vhost_set_mounts(struct lws_vhost *v, const struct lws_http_mount *mounts);
-
-/* Using this API, the user can enable or disable SSL key logging for a specific wsi based on the flag value */
-LWS_VISIBLE LWS_EXTERN void
-lws_set_sniffing_flag(bool boolVal, struct lws *wsi);
 
 ///@}
 ///@}

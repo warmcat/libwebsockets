@@ -26,7 +26,7 @@
 #include "private-lib-async-dns.h"
 
 // to store key log file path
-char *klfl_env = NULL;
+static char *klfl_env = NULL;
 
 #if defined(LWS_WITH_CLIENT)
 static int
@@ -1039,36 +1039,28 @@ __lws_close_free_wsi_final(struct lws *wsi)
 	sanity_assert_no_wsi_traces(wsi->a.context, wsi);
 	__lws_free_wsi(wsi);
 }
-/* User will set boolean flag value true to start logging ssl keys for specific wsi and false
-to stop sniffing */
-void lws_set_sniffing_flag(bool boolVal, struct lws *wsi)
+
+/* To stop logging SSL keys, reset the `keylog_file` data */
+void lws_reset_keylog_file(struct lws *wsi)
 {
-	// to logg ssl keys for respective wsi set user input flag value to the same wsi
-	wsi->fSniffingFlag = boolVal;
+	klfl_env = NULL;
+	wsi->a.context->keylog_file[0] = '\0';
 }
 
-/* on disconnection of client as per user input flag value keylog_file will be set or reset which will start or
-stop logging ssl keys */
-void lws_set_keylog_file(struct lws *wsi)
+/* The file path, either from user input or the environment variable, will be assigned to the LWS context to initiate SSL key logging. */
+void lws_set_keylog_file(struct lws *wsi, char *sslkeyfilepath)
 {
-		/* to start logging SSL keys, the user must set this flag to true. If the flag is set 
-		and klfl_env is empty, getenv will be called once to retrieve the log file path*/
-		if(wsi->fSniffingFlag){
-			/* call getenv only once if klfl_env is empty */
-			if (klfl_env == NULL || *klfl_env == '\0'){
-				klfl_env = getenv("SSLKEYLOGFILE");
-			}
-			/* to begin logging SSL keys, the key log file will be set in lws_context */
-			if (klfl_env)
-				lws_strncpy(wsi->a.context->keylog_file, klfl_env,
-						sizeof(wsi->a.context->keylog_file));
-		}
-		/* to stop sniffing, reset both keylog_file and klfl_en */
-		else{
-			klfl_env = NULL;
-			wsi->a.context->keylog_file[0] = '\0';
-		}
+	/* The user input file path takes priority over the environment variable. */
+	if('\0' != sslkeyfilepath[0])
+		klfl_env = sslkeyfilepath;
+	else
+		klfl_env = getenv("SSLKEYLOGFILE");
 
+	/* To begin logging SSL keys, the key log file will be set in lws_context */
+	if (NULL != klfl_env && strlen(klfl_env) > 1){
+		lws_strncpy(wsi->a.context->keylog_file, klfl_env,
+			strlen(klfl_env)+1);
+	}
 }
 
 void
@@ -1076,9 +1068,6 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *ca
 {
 	struct lws_context *cx = wsi->a.context;
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-
-	/* if the user sets the sniffing flag, populate the key log file */
-	lws_set_keylog_file(wsi);
 
 	lws_context_lock(cx, __func__);
 
@@ -1089,5 +1078,3 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *ca
 
 	lws_context_unlock(cx);
 }
-
-
