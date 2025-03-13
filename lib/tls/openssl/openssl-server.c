@@ -329,19 +329,19 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 		 * The passed memory-buffer cert image is in DER, and the
 		 * memory-buffer private key image is PEM.
 		 */
-#ifndef USE_WOLFSSL
 		if (lws_tls_alloc_pem_to_der_file(vhost->context, cert, mem_cert,
 						  mem_cert_len, &p, &flen)) {
 			lwsl_err("%s: couldn't convert pem to der\n", __func__);
 			return 1;
 		}
+#ifndef USE_WOLFSSL
 		if (SSL_CTX_use_certificate_ASN1(vhost->tls.ssl_ctx,
 						 (int)flen,
 						 (uint8_t *)p) != 1) {
 #else
 		if (wolfSSL_CTX_use_certificate_buffer(vhost->tls.ssl_ctx,
-						 (uint8_t *)mem_cert,
-						 (int)mem_cert_len,
+						 (uint8_t *)p,
+						 (int)flen,
 						 WOLFSSL_FILETYPE_ASN1) != 1) {
 
 #endif
