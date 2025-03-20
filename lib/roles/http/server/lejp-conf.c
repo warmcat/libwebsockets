@@ -461,11 +461,13 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 				       "!DES:!MD5:!PSK:!RC4:!HMAC_SHA1:"
 				       "!SHA1:!DHE-RSA-AES128-GCM-SHA256:"
 				       "!DHE-RSA-AES128-SHA256:"
+                                      "!ECDHE-RSA-AES128-GCM-SHA256:"
 				       "!AES128-GCM-SHA256:"
 				       "!AES128-SHA256:"
 				       "!DHE-RSA-AES256-SHA256:"
 				       "!AES256-GCM-SHA384:"
-				       "!AES256-SHA256";
+                                      "!AES256-SHA256:"
+                                      "!CAMELLIA128:!CAMELLIA256";
 #endif
 #endif
 		a->info->keepalive_timeout = 5;
