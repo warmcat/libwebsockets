@@ -2881,6 +2881,9 @@ lws_read_h2(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 		 */
 
 		m = lws_h2_parser(wsi, buf, len, &body_chunk_len);
+
+               body_chunk_len &= 0xffffffff; /* attempt workaround for finding len=7167 --> len = 0xffffffff00001bff on lws.org */
+
 		if (m && m != 2) {
 			lwsl_debug("%s: http2_parser bail: %d\n", __func__, m);
 			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
