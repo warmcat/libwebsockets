@@ -124,19 +124,13 @@ typedef struct lws_ss_handle {
 
 			union {
 				struct { /* LWSSSP_H1 */
-#if defined(WIN32)
 					uint8_t dummy;
-#endif
 				} h1;
 				struct { /* LWSSSP_H2 */
-#if defined(WIN32)
 					uint8_t dummy;
-#endif
 				} h2;
 				struct { /* LWSSSP_WS */
-#if defined(WIN32)
 					uint8_t dummy;
-#endif
 				} ws;
 			} u;
 		} http;
@@ -207,9 +201,7 @@ union lws_ss_contemp {
 #if defined(LWS_ROLE_MQTT)
 	lws_mqtt_client_connect_param_t ccp;
 #else
-#if defined(WIN32)
 	uint8_t	dummy;
-#endif
 #endif
 };
 
