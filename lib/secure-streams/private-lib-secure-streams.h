@@ -215,7 +215,7 @@ union lws_ss_contemp {
 #if defined(LWS_ROLE_MQTT)
 	lws_mqtt_client_connect_param_t ccp;
 #else
-#if defined(WIN32)
+#if defined(WIN32) || defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
 	uint8_t	dummy;
 #endif
 #endif
