@@ -51,6 +51,10 @@ if (POLICY CMP0075)
 	cmake_policy(SET CMP0075 NEW)
 endif()
 
+if(POLICY CMP0091)
+	cmake_policy(SET CMP0091 NEW)
+endif()
+
 # General Advice
 #
 # For selecting between DEBUG / RELEASE, use -DCMAKE_BUILD_TYPE=DEBUG or =RELEASE
@@ -387,6 +391,9 @@ if (${CMAKE_SYSTEM_NAME} MATCHES "SunOS")
        set(LWS_SUPPRESS_DEPRECATED_API_WARNINGS 1)
 endif()
 
+if (MSVC)
+	option(LWS_MSVC_STATIC_RUNTIME "Link to static MSVC runtime" OFF)
+endif()
 
 #
 # to use miniz, enable both LWS_WITH_ZLIB and LWS_WITH_MINIZ
@@ -944,6 +951,31 @@ if (MSVC)
 		add_compile_options(/Zc:preprocessor /wd5105)
 	else()
 		add_compile_options(/experimental:preprocessor /wd5105)
+	endif()
+	if (LWS_MSVC_STATIC_RUNTIME AND NOT LWS_WITH_STATIC)
+		message(FATAL_ERROR "Incompatible options: when LWS_MSVC_STATIC_RUNTIME=ON, must also set LWS_WITH_STATIC=ON")
+	endif()
+	if (LWS_MSVC_STATIC_RUNTIME)
+		if (LWS_WITH_SHARED)
+			message(FATAL_ERROR "Incompatible options: when LWS_MSVC_STATIC_RUNTIME=ON, must also set LWS_WITH_SHARED=OFF")
+		endif()
+		if (${CMAKE_VERSION} VERSION_GREATER 3.15 OR ${CMAKE_VERSION} VERSION_EQUAL 3.15)
+			set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreaded$<$<CONFIG:Debug>:Debug>)
+		else()
+			# Link the runtime library statically so that MSVCR*.DLL is not required at runtime.
+			# https://msdn.microsoft.com/en-us/library/2kzt1wy3.aspx
+			# This is achieved by replacing msvc option /MD with /MT and /MDd with /MTd
+			# http://www.cmake.org/Wiki/CMake_FAQ#How_can_I_build_my_MSVC_application_with_a_static_runtime.3F
+			foreach (flag_var
+					CMAKE_CXX_FLAGS CMAKE_CXX_FLAGS_DEBUG CMAKE_CXX_FLAGS_RELEASE
+					CMAKE_CXX_FLAGS_MINSIZEREL CMAKE_CXX_FLAGS_RELWITHDEBINFO)
+				if(${flag_var} MATCHES "/MD")
+					string(REGEX REPLACE "/MD" "/MT" ${flag_var} "${${flag_var}}")
+				endif()
+			endforeach()
+		endif()
+	else()
+		set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreaded$<$<CONFIG:Debug>:Debug>DLL)
 	endif()
 endif(MSVC)
 
