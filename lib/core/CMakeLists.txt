@@ -32,6 +32,7 @@ if (NOT LWS_ONLY_SSPC)
 
 	list(APPEND SOURCES
 		core/alloc.c
+		core/assert.c
 		core/buflist.c
 		core/context.c
 		core/lws_map.c

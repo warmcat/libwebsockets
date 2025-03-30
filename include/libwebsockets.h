@@ -710,6 +710,7 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size);
 #if defined(LWS_ROLE_MQTT)
 #include <libwebsockets/lws-mqtt.h>
 #endif
+#include <libwebsockets/lws-assert.h>
 #include <libwebsockets/lws-client.h>
 #include <libwebsockets/lws-http.h>
 #include <libwebsockets/lws-spa.h>
