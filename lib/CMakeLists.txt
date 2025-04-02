@@ -164,6 +164,10 @@ if (LWS_WITH_SECURE_STREAMS)
 endif()
 add_subdir_include_dirs(secure-streams/serialized/client)
 
+if (WIN32)
+    set_target_properties(websockets PROPERTIES DEBUG_POSTFIX d)
+endif()
+
 if (LWS_WITH_STATIC)
     if (LWS_STATIC_PIC)
         set(CMAKE_POSITION_INDEPENDENT_CODE ON)
