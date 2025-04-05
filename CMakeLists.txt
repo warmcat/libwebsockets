@@ -696,6 +696,9 @@ else()
 endif()
 CHECK_C_SOURCE_COMPILES("#include <systemd/sd-daemon.h>\nvoid main(void) { while(1) ; } void xxexit(void){}" LWS_HAVE_SYSTEMD_H)
 
+if (${CMAKE_SYSTEM_NAME} MATCHES "SunOS")
+	unset(LWS_HAVE_CTIME_R CACHE)
+endif()
 
 
 if (LWS_EXT_PTHREAD_INCLUDE_DIR)
@@ -933,6 +936,13 @@ if (COMPILER_IS_CLANG)
 	if (UNIX AND LWS_HAVE_PTHREAD_H)
 		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -pthread -Wno-error=unused-command-line-argument" )
 	endif()
+endif()
+
+if (${CMAKE_SYSTEM_NAME} MATCHES "SunOS")
+		list(APPEND LIB_LIST_AT_END -lsocket)
+		if ((CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX))
+			set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-conversion")
+		endif()
 endif()
 
 if (WINCE)
