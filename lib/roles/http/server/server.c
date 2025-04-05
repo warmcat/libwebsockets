@@ -1959,6 +1959,7 @@ lws_http_action(struct lws *wsi)
 			NULL, /* replace with cgi path */
 			NULL
 		};
+		struct lws_cgi_info cgiinfo;
 
 		lwsl_debug("%s: cgi\n", __func__);
 		cmd[0] = hit->origin;
@@ -1967,8 +1968,14 @@ lws_http_action(struct lws *wsi)
 		if (hit->cgi_timeout)
 			n = (unsigned int)hit->cgi_timeout;
 
-		n = (unsigned int)lws_cgi(wsi, cmd, hit->mountpoint_len, (int)n,
-			    hit->cgienv);
+		memset (&cgiinfo, 0, sizeof (cgiinfo));
+		cgiinfo.wsi = wsi;
+		cgiinfo.exec_array = cmd;
+		cgiinfo.script_uri_path_len = hit->mountpoint_len;
+		cgiinfo.timeout_secs = (int)n;
+		cgiinfo.mp_cgienv = hit->cgienv;
+
+		n = (unsigned int)lws_cgi_via_info(&cgiinfo);
 		if (n) {
 			lwsl_err("%s: cgi failed\n", __func__);
 			return -1;
