@@ -141,6 +141,13 @@ typedef pthread_mutex_t lws_mutex_t;
 # define TCP_KEEPCNT   TCPCTL_KEEPCNT
 #endif
 
+#if defined (__sun)
+	#include <sys/ethernet.h>
+	#if !defined(ETHER_ADDR_LEN) && defined(ETHERADDRL)
+		#define ETHER_ADDR_LEN ETHERADDRL
+	#endif
+#endif
+
 #define LWS_ERRNO errno
 #define LWS_EAGAIN EAGAIN
 #define LWS_EALREADY EALREADY

@@ -47,6 +47,12 @@ extern "C" {
 #if defined(_WIN32) && !defined(ETHER_ADDR_LEN)
 #define ETHER_ADDR_LEN 6
 #endif
+#if defined (__sun)
+	#include <sys/ethernet.h>
+	#if !defined(ETHER_ADDR_LEN) && defined(ETHERADDRL)
+		#define ETHER_ADDR_LEN ETHERADDRL
+	#endif
+#endif
 #define LWS_ETHER_ADDR_LEN ETHER_ADDR_LEN
 
 #include <stddef.h>
