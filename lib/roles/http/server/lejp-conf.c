@@ -99,6 +99,8 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].mounts[].extra-mimetypes",
 	"vhosts[].mounts[].interpret.*",
 	"vhosts[].mounts[].interpret",
+	"vhosts[].mounts[].cgi-chroot",
+	"vhosts[].mounts[].cgi-chdir",
 	"vhosts[].mounts[]",
 	"vhosts[].ws-protocols[].*.*",
 	"vhosts[].ws-protocols[].*",
@@ -173,6 +175,8 @@ enum lejp_vhost_paths {
 	LEJPVP_MOUNT_EXTRA_MIMETYPES_base,
 	LEJPVP_MOUNT_INTERPRET,
 	LEJPVP_MOUNT_INTERPRET_base,
+	LEJPVP_CGI_CHROOT,
+	LEJPVP_CGI_CHDIR,
 
 	LEJPVP_MOUNTS,
 
@@ -802,6 +806,14 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->p += n;
 		a->pvo_int->value = a->p;
 		a->pvo_int->options = NULL;
+		break;
+
+	case LEJPVP_CGI_CHROOT:
+		a->m.cgi_chroot_path = a->p;
+		break;
+
+	case LEJPVP_CGI_CHDIR:
+		a->m.cgi_wd = a->p;
 		break;
 
 	case LEJPVP_ENABLE_CLIENT_SSL:
