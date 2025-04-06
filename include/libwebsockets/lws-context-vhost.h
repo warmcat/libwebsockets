@@ -1382,6 +1382,14 @@ struct lws_http_mount {
 	const char *basic_auth_login_file;
 	/**<NULL, or filepath to use to check basic auth logins against. (requires LWSAUTHM_DEFAULT) */
 
+	const char *cgi_chroot_path;
+	/**< NULL, or chroot patch for child cgi process */
+
+	const char *cgi_wd;
+	/**< working directory to cd to after fork of a cgi process,
+	 * NULL defaults to /tmp
+	 */
+
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
 	 */

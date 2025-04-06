@@ -1974,6 +1974,8 @@ lws_http_action(struct lws *wsi)
 		cgiinfo.script_uri_path_len = hit->mountpoint_len;
 		cgiinfo.timeout_secs = (int)n;
 		cgiinfo.mp_cgienv = hit->cgienv;
+		cgiinfo.chroot_path = hit->cgi_chroot_path;
+		cgiinfo.wd = hit->cgi_wd;
 
 		n = (unsigned int)lws_cgi_via_info(&cgiinfo);
 		if (n) {

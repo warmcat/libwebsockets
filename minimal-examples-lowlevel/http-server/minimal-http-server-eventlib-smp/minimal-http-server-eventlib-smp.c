@@ -51,6 +51,8 @@ static const struct lws_http_mount mount = {
 	/* .origin_protocol */		LWSMPRO_FILE,	/* files in a dir */
 	/* .mountpoint_len */		1,		/* char count */
 	/* .basic_auth_login_file */	NULL,
+	/* .cgi_chroot_path */		NULL,
+	/* .cgi_wd */			NULL,
 };
 
 void *thread_service(void *threadid)

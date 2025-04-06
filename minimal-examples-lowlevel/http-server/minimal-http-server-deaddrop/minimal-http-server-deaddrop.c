@@ -64,6 +64,8 @@ static const struct lws_http_mount mount_upload = {
 	/* .origin_protocol */		LWSMPRO_CALLBACK,
 	/* .mountpoint_len */		7,		/* char count */
 	/* .basic_auth_login_file */	"./ba-passwords",
+	/* .cgi_chroot_path */		NULL,
+	/* .cgi_wd */			NULL,
 };
 
 /* wire up /get URLs to the upload directory (protected by basic auth) */
@@ -87,6 +89,8 @@ static const struct lws_http_mount mount_get = {
 	/* .origin_protocol */		LWSMPRO_FILE, /* dynamic */
 	/* .mountpoint_len */		4,		/* char count */
 	/* .basic_auth_login_file */	"./ba-passwords",
+	/* .cgi_chroot_path */		NULL,
+	/* .cgi_wd */			NULL,
 };
 
 /* wire up / to serve from ./mount-origin (protected by basic auth) */
@@ -110,6 +114,8 @@ static const struct lws_http_mount mount = {
 	/* .origin_protocol */		LWSMPRO_FILE,	/* files in a dir */
 	/* .mountpoint_len */		1,		/* char count */
 	/* .basic_auth_login_file */	"./ba-passwords",
+	/* .cgi_chroot_path */		NULL,
+	/* .cgi_wd */			NULL,
 };
 
 /* pass config options to the deaddrop plugin using pvos */
