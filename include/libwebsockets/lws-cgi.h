@@ -72,6 +72,10 @@ struct lws_cgi_info {
 	/**< seconds script should be allowed to run */
 	const struct lws_protocol_vhost_options *mp_cgienv;
 	/**< pvo list with per-vhost cgi options to put in env */
+	const char *chroot_path;
+	/**< NULL, or chroot patch for child process */
+	const char *wd;
+	/**< working directory to cd to after fork, NULL defaults to /tmp */
 };
 
 #ifdef LWS_WITH_CGI
