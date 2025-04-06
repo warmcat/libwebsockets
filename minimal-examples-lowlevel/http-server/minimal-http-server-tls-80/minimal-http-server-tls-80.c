@@ -44,6 +44,8 @@ static const struct lws_http_mount mount80 = {
 	/* .origin_protocol */		LWSMPRO_REDIR_HTTPS, /* https redir */
 	/* .mountpoint_len */		1,		/* char count */
 	/* .basic_auth_login_file */	NULL,
+	/* .cgi_chroot_path */		NULL,
+	/* .cgi_wd */			NULL,
 };
 
 static const struct lws_http_mount mount = {
@@ -65,6 +67,8 @@ static const struct lws_http_mount mount = {
 	/* .origin_protocol */		LWSMPRO_FILE,	/* files in a dir */
 	/* .mountpoint_len */		1,		/* char count */
 	/* .basic_auth_login_file */	NULL,
+	/* .cgi_chroot_path */		NULL,
+	/* .cgi_wd */			NULL,
 };
 
 void sigint_handler(int sig)

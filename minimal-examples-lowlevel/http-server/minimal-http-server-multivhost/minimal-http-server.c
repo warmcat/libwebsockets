@@ -38,6 +38,8 @@ static const struct lws_http_mount mount_localhost1 = {
 	/* .origin_protocol */		LWSMPRO_FILE,	/* files in a dir */
 	/* .mountpoint_len */		1,		/* char count */
 	/* .basic_auth_login_file */	NULL,
+	/* .cgi_chroot_path */		NULL,
+	/* .cgi_wd */			NULL,
 }, mount_localhost2 = {
 	/* .mount_next */		NULL,		/* linked-list "next" */
 	/* .mountpoint */		"/",		/* mountpoint URL */
@@ -57,6 +59,8 @@ static const struct lws_http_mount mount_localhost1 = {
 	/* .origin_protocol */		LWSMPRO_FILE,	/* files in a dir */
 	/* .mountpoint_len */		1,		/* char count */
 	/* .basic_auth_login_file */	NULL,
+	/* .cgi_chroot_path */		NULL,
+	/* .cgi_wd */			NULL,
 }, mount_localhost3 = {
 	/* .mount_next */		NULL,		/* linked-list "next" */
 	/* .mountpoint */		"/",		/* mountpoint URL */
@@ -76,6 +80,8 @@ static const struct lws_http_mount mount_localhost1 = {
 	/* .origin_protocol */		LWSMPRO_FILE,	/* files in a dir */
 	/* .mountpoint_len */		1,		/* char count */
 	/* .basic_auth_login_file */	NULL,
+	/* .cgi_chroot_path */		NULL,
+	/* .cgi_wd */			NULL,
 };
 
 void sigint_handler(int sig)

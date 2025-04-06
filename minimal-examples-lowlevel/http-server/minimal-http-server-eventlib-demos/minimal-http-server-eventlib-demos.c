@@ -60,6 +60,8 @@ static const struct lws_http_mount mount_ziptest_uncomm = {
 	LWSMPRO_FILE,	/* origin points to a callback */
 	14,			/* strlen("/ziptest"), ie length of the mountpoint */
 	NULL,
+	NULL,
+	NULL,
 }, mount_ziptest = {
 	(struct lws_http_mount *)&mount_ziptest_uncomm,			/* linked-list pointer to next*/
 	"/ziptest",		/* mountpoint in URL namespace on this vhost */
@@ -78,6 +80,8 @@ static const struct lws_http_mount mount_ziptest_uncomm = {
 	0,
 	LWSMPRO_FILE,	/* origin points to a callback */
 	8,			/* strlen("/ziptest"), ie length of the mountpoint */
+	NULL,
+	NULL,
 	NULL,
 
 }, mount_post = {
@@ -99,6 +103,8 @@ static const struct lws_http_mount mount_ziptest_uncomm = {
 	LWSMPRO_CALLBACK,	/* origin points to a callback */
 	9,			/* strlen("/formtest"), ie length of the mountpoint */
 	NULL,
+	NULL,
+	NULL,
 
 }, mount = {
 	/* .mount_next */		&mount_post,	/* linked-list "next" */
@@ -119,6 +125,8 @@ static const struct lws_http_mount mount_ziptest_uncomm = {
 	/* .origin_protocol */		LWSMPRO_FILE,	/* files in a dir */
 	/* .mountpoint_len */		1,		/* char count */
 	/* .basic_auth_login_file */	NULL,
+	/* .cgi_chroot_path */		NULL,
+	/* .cgi_wd */			NULL,
 };
 
 void signal_cb(void *handle, int signum)
