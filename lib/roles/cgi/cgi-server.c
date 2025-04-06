@@ -411,6 +411,8 @@ lws_cgi_via_info(struct lws_cgi_info * cgiinfo)
 	info.plsp = &cgiinfo->wsi->http.cgi->lsp;
 	info.opaque = cgiinfo->wsi;
 	info.reap_cb = lws_cgi_reap_cb;
+	info.chroot_path = cgiinfo->chroot_path;
+	info.wd = cgiinfo->wd;
 
 	/*
 	 * Actually having made the env, as a cgi we don't need the ah
