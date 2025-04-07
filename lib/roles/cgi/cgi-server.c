@@ -250,7 +250,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 			if (*t == '=')
 				*p++ = *t++;
 			i = urlencode(t, i - lws_ptr_diff(t, tok), p, lws_ptr_diff(end, p));
-			if (i > 0) {
+			if (i >= 0) {
 				p += i;
 				*p++ = '&';
 			}
