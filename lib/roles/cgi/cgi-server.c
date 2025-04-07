@@ -257,7 +257,7 @@ lws_cgi_via_info(struct lws_cgi_info * cgiinfo)
 			if (*t == '=')
 				*p++ = *t++;
 			i = urlencode(t, i - lws_ptr_diff(t, tok), p, lws_ptr_diff(end, p));
-			if (i > 0) {
+			if (i >= 0) {
 				p += i;
 				*p++ = '&';
 			}
