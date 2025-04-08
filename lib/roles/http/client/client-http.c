@@ -30,6 +30,11 @@ lws_client_http_body_pending(struct lws *wsi, int something_left_to_send)
 	wsi->client_http_body_pending = !!something_left_to_send;
 }
 
+/*
+ * Returns 0 for wsi survived OK, or LWS_HPI_RET_WSI_ALREADY_DIED
+ * meaning the wsi was destroyed by us before return.
+ */
+	
 int
 lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 {
@@ -54,7 +59,7 @@ lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 		if (!lws_client_connect_2_dnsreq(wsi)) {
 			/* closed */
 			lwsl_client("closed\n");
-			return -1;
+			return LWS_HPI_RET_WSI_ALREADY_DIED;
 		}
 
 		/* either still pending connection, or changed mode */
@@ -69,7 +74,7 @@ lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 		if (pollfd->revents & LWS_POLLOUT)
 			if (lws_client_connect_3_connect(wsi, NULL, NULL, 0, NULL) == NULL) {
 				lwsl_client("closed\n");
-				return -1;
+				return LWS_HPI_RET_WSI_ALREADY_DIED;
 			}
 		break;
 
@@ -137,7 +142,7 @@ lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 			goto bail3;
 		}
 
-		lwsl_info("%s: proxy connection extablished\n", __func__);
+		lwsl_info("%s: proxy connection established\n", __func__);
 
 		/* clear his proxy connection timeout */
 
@@ -163,8 +168,11 @@ lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 #if defined(LWS_WITH_SOCKS5)
 start_ws_handshake:
 #endif
-		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0))
-			return -1;
+		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
+			cce = "unable to clear POLLOUT";
+			/* turn whatever went wrong into a clean close */
+			goto bail3;
+		}
 
 #if defined(LWS_ROLE_H2) || defined(LWS_WITH_TLS)
 		if (
@@ -286,7 +294,7 @@ hs2:
 			lwsl_debug("ERROR writing to client socket\n");
 			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
 					   "cws");
-			return -1;
+			return LWS_HPI_RET_WSI_ALREADY_DIED;
 		case LWS_SSL_CAPABLE_MORE_SERVICE:
 			lws_callback_on_writable(wsi);
 			break;
@@ -376,8 +384,10 @@ client_http_body_sent:
 		}
 
 		if (pollfd->revents & LWS_POLLOUT)
-			if (lws_change_pollfd(wsi, LWS_POLLOUT, 0))
-				return -1;
+			if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
+				cce = "Unable to clear POLLOUT";
+				goto bail3;
+			}
 
 		if (!(pollfd->revents & LWS_POLLIN))
 			break;
@@ -443,7 +453,7 @@ client_http_body_sent:
 			if (lws_buflist_aware_finished_consuming(wsi, &eb, m,
 								 buffered,
 								 __func__))
-			        return -1;
+			        goto bail3;
 
 			/*
 			 * coverity: uncomment if extended
@@ -486,7 +496,7 @@ bail3:
 		lws_inform_client_conn_fail(wsi, (void *)cce, strlen(cce));
 
 		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "cbail3");
-		return -1;
+		return LWS_HPI_RET_WSI_ALREADY_DIED;
 
 	default:
 		break;
@@ -627,7 +637,8 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 					    LRS_ESTABLISHED, &role_ops_h1);
 			}
 #else
-			return -1;
+			cce = "h1 not built";
+			goto bail3;
 #endif
 		}
 
@@ -836,7 +847,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "redir");
 		wsi->a.opaque_user_data = opaque;
 
-		return -1;
+		return LWS_HPI_RET_WSI_ALREADY_DIED;
 	}
 
 	/* if h1 KA is allowed, enable the queued pipeline guys */
@@ -1051,7 +1062,7 @@ bail2:
 	/* closing will free up his parsing allocations */
 	lws_close_free_wsi(wsi, (enum lws_close_status)close_reason, "c hs interp");
 
-	return 1;
+	return LWS_HPI_RET_WSI_ALREADY_DIED;
 }
 #endif
 
