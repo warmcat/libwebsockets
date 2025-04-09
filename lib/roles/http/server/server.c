@@ -295,9 +295,9 @@ done_list:
 		if (n || cx->count_threads > 1) /* ... also implied by threads > 1 */
 			if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT,
 					(const void *)&opt, sizeof(opt)) < 0) {
-				lwsl_err("reuseport failed\n");
-				compatible_close(sockfd);
-				return -1;
+				lwsl_info("reuseport failed\n");
+//				compatible_close(sockfd);
+//				return -1;
 			}
 #endif
 #endif
