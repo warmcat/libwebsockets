@@ -173,7 +173,7 @@ if (requirements)
 			     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-server/minimal-http-server-eventlib-foreign
 			     TIMEOUT 50)
 	endif()
-	if (LWS_WITH_SDEVENT)
+	if (LWS_WITH_ULOOP)
 		add_test(NAME hs_evlib_foreign_uloop COMMAND lws-minimal-http-server-eventlib-foreign --uloop -p ${PORT_HSEF_SRV}5)
 		set_tests_properties(hs_evlib_foreign_uloop
 			     PROPERTIES
