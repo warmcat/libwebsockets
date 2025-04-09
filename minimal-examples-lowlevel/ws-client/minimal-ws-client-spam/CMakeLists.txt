@@ -54,7 +54,7 @@ else()
 		add_test(NAME st_wcs_srv COMMAND
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
 			wcs_srv ${VALGRIND} --tool=memcheck $<TARGET_FILE:test-server>
-				-r ${CMAKE_SOURCE_DIR}/destdir/usr/local/share/libwebsockets-test-server/
+				-r ${CMAKE_BINARY_DIR}/share/libwebsockets-test-server/
 				-s --port ${PORT_WCS_SRV} )
 		add_test(NAME ki_wcs_srv COMMAND
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh
@@ -63,7 +63,7 @@ else()
 		add_test(NAME st_wcs_srv COMMAND
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
 			wcs_srv $<TARGET_FILE:test-server>
-				-r ${CMAKE_SOURCE_DIR}/destdir/usr/local/share/libwebsockets-test-server/
+				-r ${CMAKE_BINARY_DIR}/share/libwebsockets-test-server/
 				-s --port ${PORT_WCS_SRV} )
 		add_test(NAME ki_wcs_srv COMMAND
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh

@@ -61,7 +61,7 @@ else()
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
 					hcp_srv ${VALGRIND} --tool=memcheck 
 					$<TARGET_FILE:test-server>
-					-r ${CMAKE_SOURCE_DIR}/destdir/usr/local/share/libwebsockets-test-server/
+					-r ${CMAKE_BINARY_DIR}/share/libwebsockets-test-server/
 					-s --port ${PORT_HCP_SRV} -d1151)
 		add_test(NAME ki_hcp_srv COMMAND
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh hcp_srv ${VALGRIND}
@@ -71,7 +71,7 @@ else()
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
 					hcp_srv
 					$<TARGET_FILE:test-server>
-					-r ${CMAKE_SOURCE_DIR}/destdir/usr/local/share/libwebsockets-test-server/
+					-r ${CMAKE_BINARY_DIR}/share/libwebsockets-test-server/
 					-s --port ${PORT_HCP_SRV} )
 		add_test(NAME ki_hcp_srv COMMAND
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh hcp_srv
