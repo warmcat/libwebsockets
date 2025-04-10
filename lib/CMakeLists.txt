@@ -188,8 +188,12 @@ if (LWS_WITH_STATIC)
 		set_target_properties(websockets
 			PROPERTIES
 			OUTPUT_NAME websockets_static)
-	endif()
 	
+		if (LWS_APPEND_DEBUG_SUFFIX_D)
+			set_target_properties(websockets PROPERTIES DEBUG_POSTFIX d)
+		endif()
+	endif()
+
 endif()
 
 if (LWS_WITH_SHARED)
@@ -223,6 +227,12 @@ if (LWS_WITH_SHARED)
 			PROPERTY COMPILE_DEFINITIONS
 			LWS_DLL
 			LWS_INTERNAL)
+
+		if (LWS_APPEND_DEBUG_SUFFIX_D)
+			set_target_properties(websockets_shared PROPERTIES DEBUG_POSTFIX d)
+		endif()
+		install(FILES $<TARGET_PDB_FILE:websockets_shared>
+			DESTINATION bin OPTIONAL)
 	endif()
 
 	if (APPLE)
