@@ -77,7 +77,7 @@ and am starting to port more cases from there into SS-based examples.
 |Loop support, sul scheduler|default, event libs|same|
 |Supports comms mode|Client, Server, Raw|same|
 |Supports protocols|h1, h2, ws, mqtt (client)|same|
-|TLS support|mbedtls (including v3), openssl (including v3), wolfssl, boringssl, libressl|same|
+|TLS support|mbedtls (including v3), openssl (including v3), wolfssl, boringssl, aws-lc, libressl|same|
 |Serializable, proxiable, muxable, transportable|No|Yes|
 |Auto-allocated per-connection user object|pss specified in lws_protocols|Specified in ss info struct|
 |Connection User API|Protocol-specific lws_protocols cbs (> 100)|SS API (rx, tx, state callbacks only)|

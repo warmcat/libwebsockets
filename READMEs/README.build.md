@@ -162,6 +162,43 @@ Build and test lws against it
     $ make
  ```
 
+**NOTE8**
+
+Build and test flow against AWS-LC.  Notice `LWS_WITH_GENHASH` is currently
+unavailable with awslc due to their removing the necessary apis.
+
+Build current HEAD AWS-LC
+
+```
+ $ cd /projects
+ $ git clone https://github.com/aws/aws-lc.git
+ $ cd aws-lc
+ $ mkdir build
+ $ cd build
+ $ cmake ..  -DBUILD_SHARED_LIBS=1
+ $ make -j8
+```
+
+Build and test lws against it
+
+```
+ $ cd /projects/libwebsockets/build
+ $ cmake .. -DOPENSSL_LIBRARIES="/projects/aws-lc/build/ssl/libssl.so;\
+   /projects/aws-lc/build/crypto/libcrypto.so" \
+   -DOPENSSL_INCLUDE_DIRS=/projects/aws-lc/include \
+   -DLWS_WITH_AWSLC=1 -DCMAKE_BUILD_TYPE=DEBUG
+ $ make -j8 && sudo make install
+ $ LD_PRELOAD="/projects/aws-lc/build/ssl/libssl.so \
+   /projects/aws-lc/build/crypto/libcrypto.so" \
+   /usr/local/bin/libwebsockets-test-server -s
+```
+
+4. Finally you can build using the generated Makefile:
+
+```bash
+    $ make
+ ```
+
 @section lcap Linux Capabilities
 
 On Linux, lws now lets you retain selected root capabilities when dropping
