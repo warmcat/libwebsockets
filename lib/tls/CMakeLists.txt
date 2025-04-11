@@ -51,8 +51,8 @@ set(LWS_WOLFSSL_LIBRARIES CACHE PATH "Path to the wolfSSL library" )
 set(LWS_WOLFSSL_INCLUDE_DIRS CACHE PATH "Path to the wolfSSL include directory" )
 
 
-if (LWS_WITH_BORINGSSL)
-	# boringssl deprecated EVP_PKEY
+if (LWS_WITH_BORINGSSL OR LWS_WITH_AWSLC)
+	# boringssl and aws-lc deprecated EVP_PKEY
 	set (LWS_WITH_GENHASH OFF PARENT_SCOPE)
 endif()
 
@@ -265,7 +265,7 @@ if (LWS_WITH_SSL)
 			set(OPENSSL_INCLUDE_DIRS "${OPENSSL_INCLUDE_DIR}")
 		endif()
 
-		if (NOT OPENSSL_FOUND AND NOT LWS_WITH_BORINGSSL)
+		if (NOT OPENSSL_FOUND AND NOT LWS_WITH_BORINGSSL AND NOT LWS_WITH_AWSLC)
 			# TODO: Add support for STATIC also.
 			if (NOT LWS_PLAT_FREERTOS)
 				find_package(PkgConfig QUIET)

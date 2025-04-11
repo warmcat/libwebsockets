@@ -121,7 +121,7 @@ enum lws_tls_extant {
 #if defined(LWS_WITH_TLS)
 
 #if defined(LWS_WITH_TLS_SESSIONS) && defined(LWS_WITH_CLIENT) && \
-	(defined(LWS_WITH_MBEDTLS) || defined(OPENSSL_IS_BORINGSSL))
+	(defined(LWS_WITH_MBEDTLS) || defined(OPENSSL_IS_BORINGSSL)) || defined(OPENSSL_IS_AWSLC)
 #define LWS_TLS_SYNTHESIZE_CB 1
 #endif
 

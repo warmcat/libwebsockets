@@ -309,14 +309,8 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 				char errbuf[256];
 				const char *es;
 
-				n = (int)ERR_get_error();
-				es = ERR_error_string(
-#if defined(LWS_WITH_BORINGSSL)
-							 (uint32_t)
-#else
-							 (unsigned long)
-#endif
-							 n, errbuf);
+				n = (int)ERR_peek_error();
+				es = ERR_error_string(ERR_get_error(), errbuf);
 				lwsl_err("EXTRA_CLIENT_VERIFY_CERTS: "
 					 "SSL error: %s (%d)\n", es, n);
 				return 1;
