@@ -27,6 +27,43 @@
 #if !defined(__LWS_PRIVATE_LIB_TLS_OPENSSL_H__)
 #define __LWS_PRIVATE_LIB_TLS_OPENSSL_H__
 
+
+/*
+* SSL library compatibility layer:
+*
+* Different SSL implementations (OpenSSL, BoringSSL, wolfSSL, etc.) require
+* different type signatures for their APIs. These macros provide the appropriate
+* type definitions and cast operations to ensure correct function signatures
+* across all supported SSL backends.
+*
+* SSL_OPT_TYPE    - Defines the correct type for SSL options based on library
+* SSL_SIZE_CAST   - Performs appropriate cast for buffer size parameters
+* SSL_DATA_CAST   - Handles buffer pointer type differences between implementations
+*/
+#if defined(USE_WOLFSSL)
+    #define SSL_OPT_TYPE long
+#elif defined(LWS_WITH_BORINGSSL) || defined(LWS_WITH_AWSLC)
+    #define SSL_OPT_TYPE uint32_t
+#elif (OPENSSL_VERSION_NUMBER >= 0x10003000l) && !defined(LIBRESSL_VERSION_NUMBER)
+    #define SSL_OPT_TYPE unsigned long
+#else
+    #define SSL_OPT_TYPE long
+#endif
+
+/* Define macro for appropriate size cast by SSL implementation */
+#if defined(LWS_WITH_BORINGSSL) || defined(LWS_WITH_AWSLC)
+    #define SSL_SIZE_CAST(x) ((size_t)(x))
+#else
+    #define SSL_SIZE_CAST(x) ((int)(x))
+#endif
+
+#if defined(USE_WOLFSSL)
+	#define SSL_DATA_CAST(x) ((unsigned char *)(x))
+#else
+	#define SSL_DATA_CAST(x) (x)
+#endif
+
+
 /*
  * one of these per different client context
  * cc_owner is in lws_context.lws_context_tls

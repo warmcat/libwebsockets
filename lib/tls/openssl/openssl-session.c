@@ -105,7 +105,7 @@ lws_tls_reuse_session(struct lws *wsi)
 #if !defined(USE_WOLFSSL)
 	/* extend session lifetime */
 	SSL_SESSION_set_time(ts->session,
-#if defined(OPENSSL_IS_BORINGSSL)
+#if defined(OPENSSL_IS_BORINGSSL) || defined(OPENSSL_IS_AWSLC)
 			(unsigned long)
 #else
 			(long)
@@ -356,7 +356,7 @@ lws_tls_session_cache(struct lws_vhost *vh, uint32_t ttl)
 	if (!ttl)
 		return;
 
-#if defined(OPENSSL_IS_BORINGSSL)
+#if defined(OPENSSL_IS_BORINGSSL) || defined(OPENSSL_IS_AWSLC)
 	SSL_CTX_set_timeout(vh->tls.ssl_client_ctx, ttl);
 #else
 	SSL_CTX_set_timeout(vh->tls.ssl_client_ctx, (long)ttl);

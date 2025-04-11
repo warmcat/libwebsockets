@@ -138,13 +138,13 @@ lws_genec_eckey_import(int nid, EVP_PKEY *pkey,
 	 */
 
 	bn_x = BN_bin2bn(el[LWS_GENCRYPTO_EC_KEYEL_X].buf,
-			 (int)el[LWS_GENCRYPTO_EC_KEYEL_X].len, NULL);
+					SSL_SIZE_CAST(el[LWS_GENCRYPTO_EC_KEYEL_X].len), NULL);
 	if (!bn_x) {
 		lwsl_err("%s: BN_bin2bn (x) fail\n", __func__);
 		goto bail;
 	}
 	bn_y = BN_bin2bn(el[LWS_GENCRYPTO_EC_KEYEL_Y].buf,
-			(int)el[LWS_GENCRYPTO_EC_KEYEL_Y].len, NULL);
+					SSL_SIZE_CAST(el[LWS_GENCRYPTO_EC_KEYEL_Y].len), NULL);
 	if (!bn_y) {
 		lwsl_err("%s: BN_bin2bn (y) fail\n", __func__);
 		goto bail1;
@@ -177,7 +177,7 @@ lws_genec_eckey_import(int nid, EVP_PKEY *pkey,
 
 	if (el[LWS_GENCRYPTO_EC_KEYEL_D].len) {
 		bn_d = BN_bin2bn(el[LWS_GENCRYPTO_EC_KEYEL_D].buf,
-				(int)el[LWS_GENCRYPTO_EC_KEYEL_D].len, NULL);
+					SSL_SIZE_CAST(el[LWS_GENCRYPTO_EC_KEYEL_D].len), NULL);
 		if (!bn_d) {
 			lwsl_err("%s: BN_bin2bn (d) fail\n", __func__);
 			goto bail;
@@ -562,7 +562,7 @@ lws_genecdsa_hash_sign_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
 	 * 4.  The resulting 64-octet sequence is the JWS Signature value.
 	 */
 
-	ecdsasig = ECDSA_do_sign(in, (int)hs, eckey);
+	ecdsasig = ECDSA_do_sign(in, SSL_SIZE_CAST(hs), eckey);
 	EC_KEY_free(eckey);
 	if (!ecdsasig) {
 		lwsl_notice("%s: ECDSA_do_sign fail\n", __func__);
@@ -635,13 +635,13 @@ lws_genecdsa_hash_sig_verify_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
 	 *     the ECDSA P-256 SHA-256 validator.
 	 */
 
-	r = BN_bin2bn(sig, keybytes, NULL);
+	r = BN_bin2bn(sig, SSL_SIZE_CAST(keybytes), NULL);
 	if (!r) {
 		lwsl_err("%s: BN_bin2bn (r) fail\n", __func__);
 		goto bail;
 	}
 
-	s = BN_bin2bn(sig + keybytes, keybytes, NULL);
+	s = BN_bin2bn(sig + keybytes, SSL_SIZE_CAST(keybytes), NULL);
 	if (!s) {
 		lwsl_err("%s: BN_bin2bn (s) fail\n", __func__);
 		goto bail1;
@@ -654,7 +654,7 @@ lws_genecdsa_hash_sig_verify_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
 
 	eckey = EVP_PKEY_get1_EC_KEY(EVP_PKEY_CTX_get0_pkey(ctx->ctx[0]));
 
-	n = ECDSA_do_verify(in, hlen, ecsig, eckey);
+	n = ECDSA_do_verify(in, SSL_SIZE_CAST(hlen), ecsig, eckey);
 	EC_KEY_free(eckey);
 	if (n != 1) {
 		lwsl_err("%s: ECDSA_do_verify fail, hlen %d\n", __func__, (int)hlen);
@@ -695,7 +695,12 @@ lws_genecdh_compute_shared_secret(struct lws_genec_ctx *ctx, uint8_t *ss,
 	eckey[LDHS_THEIRS] = EVP_PKEY_get1_EC_KEY(
 				EVP_PKEY_CTX_get0_pkey(ctx->ctx[LDHS_THEIRS]));
 
-	len = (EC_GROUP_get_degree(EC_KEY_get0_group(eckey[LDHS_OURS])) + 7) / 8;
+	len =
+#if defined(LWS_WITH_BORINGSSL) || defined(LWS_WITH_AWSLC)
+		(int)
+#endif
+		(EC_GROUP_get_degree(EC_KEY_get0_group(eckey[LDHS_OURS])) + 7) / 8;
+
 	if (len <= *ss_len) {
 #if defined(USE_WOLFSSL)
 		*ss_len = wolfSSL_ECDH_compute_key(
