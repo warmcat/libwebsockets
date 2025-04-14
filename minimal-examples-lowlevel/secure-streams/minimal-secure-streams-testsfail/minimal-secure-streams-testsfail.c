@@ -181,7 +181,6 @@ static const char * const default_ss_policy =
 			"\"http_method\": \"POST\","
 			"\"http_url\": \"auth/o2/token\","
 			"\"plugins\": [],"
-			"\"opportunistic\": true,"
 			"\"tls\": true,"
 			"\"h2q_oflow_txcr\": true,"
 			"\"http_www_form_urlencoded\": true,"
@@ -203,7 +202,7 @@ static const char * const default_ss_policy =
 			"\"protocol\": \"h1\","
 			"\"http_method\": \"GET\","
 			"\"http_url\": \"/status/200\","
-			"\"opportunistic\": true,"
+			"\"timeout_ms\": 10000,"
 			"\"retry\": \"default\""
 		"}},{"
 		    "\"t_h1_tls\": {"
@@ -213,8 +212,8 @@ static const char * const default_ss_policy =
 			"\"http_method\": \"GET\","
 			"\"http_url\": \"/status/200\","
 			"\"tls\": true,"
-			"\"opportunistic\": true,"
 			"\"retry\": \"default\","
+			"\"timeout_ms\": 10000,"
 			"\"tls_trust_store\": \"arca1\""
 		"}},{"
 		    "\"t_h2_tls\": {"
@@ -226,7 +225,7 @@ static const char * const default_ss_policy =
 			"\"tls\": true,"
 			"\"nghttp2_quirk_end_stream\": true,"
 			"\"h2q_oflow_txcr\": true,"
-			"\"opportunistic\": true,"
+			"\"timeout_ms\": 10000,"
 			"\"retry\": \"default\","
 			"\"tls_trust_store\": \"arca1\""
 		"}},{"
@@ -244,7 +243,7 @@ static const char * const default_ss_policy =
 			"\"protocol\": \"h1\","
 			"\"http_method\": \"GET\","
 			"\"http_url\": \"/delay/10\","
-			"\"opportunistic\": true,"
+			"\"timeout_ms\": 8000,"
 			"\"retry\": \"default\""
 		"}},{"
 		    "\"d_h1_tls\": {"
@@ -254,7 +253,7 @@ static const char * const default_ss_policy =
 			"\"http_method\": \"GET\","
 			"\"http_url\": \"/delay/10\","
 			"\"tls\": true,"
-			"\"opportunistic\": true,"
+			"\"timeout_ms\": 8000,"
 			"\"retry\": \"default\","
 			"\"tls_trust_store\": \"arca1\""
 		"}},{"
@@ -267,7 +266,7 @@ static const char * const default_ss_policy =
 			"\"tls\": true,"
 			"\"nghttp2_quirk_end_stream\": true,"
 			"\"h2q_oflow_txcr\": true,"
-			"\"opportunistic\": true,"
+			"\"timeout_ms\": 8000,"
 			"\"retry\": \"default\","
 			"\"tls_trust_store\": \"arca1\""
 		"}},{"
@@ -285,7 +284,7 @@ static const char * const default_ss_policy =
 			"\"protocol\": \"h1\","
 			"\"http_method\": \"GET\","
 			"\"http_url\": \"/status/200\","
-			"\"opportunistic\": true,"
+			"\"timeout_ms\": 10000,"
 			"\"retry\": \"default\""
 		"}},{"
 		    "\"nxd_h1_tls\": {"
@@ -295,7 +294,7 @@ static const char * const default_ss_policy =
 			"\"http_method\": \"GET\","
 			"\"http_url\": \"/status/200\","
 			"\"tls\": true,"
-			"\"opportunistic\": true,"
+			"\"timeout_ms\": 10000,"
 			"\"retry\": \"default\","
 			"\"tls_trust_store\": \"arca1\""
 		"}},{"
@@ -308,7 +307,7 @@ static const char * const default_ss_policy =
 			"\"tls\": true,"
 			"\"nghttp2_quirk_end_stream\": true,"
 			"\"h2q_oflow_txcr\": true,"
-			"\"opportunistic\": true,"
+			"\"timeout_ms\": 10000,"
 			"\"retry\": \"default\","
 			"\"tls_trust_store\": \"arca1\""
 		"}},{"
@@ -329,7 +328,7 @@ static const char * const default_ss_policy =
 			"\"metadata\": [{"
 					"\"amount\": \"\""
 				"}],"
-			"\"opportunistic\": true,"
+			"\"timeout_ms\": 10000,"
 			"\"retry\": \"default\""
 		"}},{"
 		    "\"bulk_h1_tls\": {"
@@ -342,7 +341,7 @@ static const char * const default_ss_policy =
 					"\"amount\": \"\""
 				"}],"
 			"\"tls\": true,"
-			"\"opportunistic\": true,"
+			"\"timeout_ms\": 10000,"
 			"\"retry\": \"default\","
 			"\"tls_trust_store\": \"arca1\""
 		"}},{"
@@ -358,7 +357,7 @@ static const char * const default_ss_policy =
 			"\"tls\": true,"
 			"\"nghttp2_quirk_end_stream\": true,"
 			"\"h2q_oflow_txcr\": true,"
-			"\"opportunistic\": true,"
+			"\"timeout_ms\": 10000,"
 			"\"retry\": \"default\","
 			"\"tls_trust_store\": \"arca1\""
 
@@ -386,7 +385,7 @@ static const char * const default_ss_policy =
 			"\"http_method\": \"GET\","
 			"\"http_url\": \"/\","
 			"\"tls\": true,"
-			"\"opportunistic\": true,"
+			"\"timeout_ms\": 10000,"
 			"\"retry\": \"default\","
 			"\"tls_trust_store\": \"le_via_isrg\""
 		"}},{"
@@ -397,8 +396,8 @@ static const char * const default_ss_policy =
 			"\"http_method\": \"GET\","
 			"\"http_url\": \"/\","
 			"\"tls\": true,"
-			"\"opportunistic\": true,"
 			"\"retry\": \"default\","
+			"\"timeout_ms\": 10000,"
 			"\"tls_trust_store\": \"le_via_isrg\""
 		"}},{"
 		    "\"badcert_selfsigned\": {"
@@ -410,7 +409,7 @@ static const char * const default_ss_policy =
 			"\"tls\": true,"
 			"\"nghttp2_quirk_end_stream\": true,"
 			"\"h2q_oflow_txcr\": true,"
-			"\"opportunistic\": true,"
+			"\"timeout_ms\": 10000,"
 			"\"retry\": \"default\","
 			"\"tls_trust_store\": \"le_via_isrg\""
                 "}}"
@@ -442,21 +441,21 @@ struct tests_seq {
 
 	{
 		"h1:80 just get 200",
-		"t_h1", 5 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
+		"t_h1", 15 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
 		0
 	},
 	{
 		"h1:443 just get 200",
-		"t_h1_tls", 5 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
+		"t_h1_tls", 15 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
 		0
 	},
 	{
 		"h2:443 just get 200",
-		"t_h2_tls", 5 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
+		"t_h2_tls", 15 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
 		0
@@ -470,23 +469,22 @@ struct tests_seq {
 
 	{
 		"h1:80 timeout after connection",
-		"d_h1", 5 * LWS_US_PER_SEC, LWSSSCS_TIMEOUT,
+		"d_h1", 8 * LWS_US_PER_SEC, LWSSSCS_TIMEOUT,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
 		0
 	},
 	{
 		"h1:443 timeout after connection",
-		"d_h1_tls", 5 * LWS_US_PER_SEC, LWSSSCS_TIMEOUT,
+		"d_h1_tls", 8 * LWS_US_PER_SEC, LWSSSCS_TIMEOUT,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
 		0
 	},
 	{
 		"h2:443 timeout after connection",
-		"d_h2_tls", 5 * LWS_US_PER_SEC, LWSSSCS_TIMEOUT,
-		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
-					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
+		"d_h2_tls", 8 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
+		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE),
 		0
 	},
 
@@ -549,21 +547,21 @@ struct tests_seq {
 
 	{
 		"h1:80 read bulk",
-		"bulk_h1", 5 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
+		"bulk_h1", 15 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 		(1 << LWSSSCS_ALL_RETRIES_FAILED),
 		12345
 	},
 	{
 		"h1:443 read bulk",
-		"bulk_h1_tls", 5 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
+		"bulk_h1_tls", 15 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 		(1 << LWSSSCS_ALL_RETRIES_FAILED),
 		12345
 	},
 	{
 		"h2:443 read bulk",
-		"bulk_h2_tls", 5 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
+		"bulk_h2_tls", 15 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 		(1 << LWSSSCS_ALL_RETRIES_FAILED),
 		12345
@@ -575,19 +573,19 @@ struct tests_seq {
 
 	{
 		"h1:badcert_hostname",
-		"badcert_hostname", 6 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
+		"badcert_hostname", 16 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
 		(1 << LWSSSCS_QOS_NACK_REMOTE),
 		0
 	},
 	{
 		"h1:badcert_expired",
-		"badcert_expired", 6 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
+		"badcert_expired", 16 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
 		(1 << LWSSSCS_QOS_NACK_REMOTE),
 		0
 	},
 	{
 		"h1:badcert_selfsigned",
-		"badcert_selfsigned", 6 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
+		"badcert_selfsigned", 16 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
 		(1 << LWSSSCS_QOS_NACK_REMOTE),
 		0
 	},
@@ -828,6 +826,8 @@ main(int argc, const char **argv)
 
 	info.fd_limit_per_thread = 1 + 16 + 1;
 	info.port = CONTEXT_PORT_NO_LISTEN;
+	info.connect_timeout_secs = 15; /* httpbin.org seems to need this depending on time of day */
+	info.timeout_secs = 10;
 #if defined(LWS_SS_USE_SSPC)
 	info.protocols = lws_sspc_protocols;
 	{

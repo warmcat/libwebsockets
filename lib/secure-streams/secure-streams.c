@@ -129,6 +129,7 @@ const uint32_t ss_state_txn_validity[] = {
 					  (1 << LWSSSCS_CONNECTED) |
 					  (1 << LWSSSCS_TIMEOUT) |
 					  (1 << LWSSSCS_POLL) |
+					  (1 << LWSSSCS_ALL_RETRIES_FAILED) | /* via timeout in this state */
 					  (1 << LWSSSCS_DISCONNECTED) | /* proxy retry */
 					  (1 << LWSSSCS_DESTROYING),
 
