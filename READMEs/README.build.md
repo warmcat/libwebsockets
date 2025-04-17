@@ -188,9 +188,7 @@ Build and test lws against it
    -DOPENSSL_INCLUDE_DIRS=/projects/aws-lc/include \
    -DLWS_WITH_AWSLC=1 -DCMAKE_BUILD_TYPE=DEBUG
  $ make -j8 && sudo make install
- $ LD_PRELOAD="/projects/aws-lc/build/ssl/libssl.so \
-   /projects/aws-lc/build/crypto/libcrypto.so" \
-   /usr/local/bin/libwebsockets-test-server -s
+ $ /usr/local/bin/libwebsockets-test-server -s
 ```
 
 4. Finally you can build using the generated Makefile:
