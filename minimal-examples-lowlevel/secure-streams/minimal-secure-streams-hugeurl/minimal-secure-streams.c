@@ -215,6 +215,8 @@ myss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 				 (unsigned int)m->ctx.line, pr,
 				 lejp_error_to_string(pr));
 
+			write(2, buf, len);
+
 			return LWSSSSRET_DESTROY_ME;
 		}
 	}
