@@ -2594,6 +2594,8 @@ lws_h2_client_handshake(struct lws *wsi)
 		n--;
 	}
 
+	lwsl_hexdump_notice(path, (size_t)n);
+
 	if (n && lws_add_http_header_by_token(wsi,
 				WSI_TOKEN_HTTP_COLON_PATH,
 				(unsigned char *)path, n, &p, end))

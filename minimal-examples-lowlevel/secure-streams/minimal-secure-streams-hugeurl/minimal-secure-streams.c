@@ -95,7 +95,7 @@ static const char * const default_ss_policy =
 				"\"hugearg\":"		"\"\""
 			"}],"
 			"\"tls\":"			"true,"
-			"\"opportunistic\":"		"true,"
+			// "\"opportunistic\":"		"true,"
 			"\"retry\":"			"\"default\","
 			"\"tls_trust_store\":"		"\"arca1\""
 		"}},{"
@@ -111,7 +111,7 @@ static const char * const default_ss_policy =
 				"\"hugearg\":"		"\"\""
 			"}],"
 			"\"tls\":"			"true,"
-			"\"opportunistic\":"		"true,"
+			// "\"opportunistic\":"		"true,"
 			"\"retry\":"			"\"default\","
 			"\"tls_trust_store\":"		"\"arca1\""
 		"}},{"
@@ -395,6 +395,8 @@ int main(int argc, const char **argv)
 		       LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW |
 		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 #endif
+	info.connect_timeout_secs = 15; /* httpbin.org seems to need this depending on time of day */
+	info.timeout_secs = 10;
 
 	if (lws_cmdline_option(argc, argv, "--h1"))
 		h1 = 1;

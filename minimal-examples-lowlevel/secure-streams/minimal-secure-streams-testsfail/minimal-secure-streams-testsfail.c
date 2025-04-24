@@ -18,7 +18,7 @@
 #include <string.h>
 #include <signal.h>
 
-static int interrupted, tests, tests_pass, tests_fail;
+static int interrupted, tests, tests_pass, tests_fail, doing_a_retry;
 static lws_sorted_usec_list_t sul_next_test;
 static lws_state_notify_link_t nl;
 struct lws_context *context;
@@ -642,6 +642,18 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		  lws_ss_state_name((int)state), state, (unsigned int)ack);
 
 	if (curr_test->mask_unexpected & (1u << state)) {
+
+		if (state == LWSSSCS_QOS_NACK_REMOTE) {
+
+			lwsl_user("%s: retrying it due to getting NACK\n", __func__);
+
+			doing_a_retry = 1;
+			/* Since this can be the remote server denying it, retry it */
+			lws_sul_schedule(context, 0, &sul_next_test, tests_start_next, 1000);
+
+			return LWSSSSRET_OK;
+		}
+
 		/*
 		 * We have definitively failed on an unexpected state received
 		 */
@@ -690,7 +702,7 @@ fail:
 		return lws_ss_client_connect(m->ss);
 
 	case LWSSSCS_DESTROYING:
-		if (!m->result_reported) {
+		if (!m->result_reported && !doing_a_retry) {
 			lwsl_user("%s: failing on unexpected destruction\n",
 					__func__);
 
@@ -720,6 +732,8 @@ tests_start_next(lws_sorted_usec_list_t *sul)
 		lwsl_info("%s: destroying previous stream\n", __func__);
 		lws_ss_destroy(&h);
 	}
+
+	doing_a_retry = 0;
 
 	if ((unsigned int)tests >= LWS_ARRAY_SIZE(tests_seq)) {
 		lwsl_notice("Completed all tests\n");
