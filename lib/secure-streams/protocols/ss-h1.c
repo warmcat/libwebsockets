@@ -252,9 +252,11 @@ lws_apply_metadata(lws_ss_handle_t *h, struct lws *wsi, uint8_t *buf,
 	 */
 
 	if (h->policy->u.http.method && (
-		(!strcmp(h->policy->u.http.method, "POST") ||
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_HTTP_HEADERS_ALL)
 		 !strcmp(h->policy->u.http.method, "PATCH") ||
-		 !strcmp(h->policy->u.http.method, "PUT"))) &&
+		 !strcmp(h->policy->u.http.method, "PUT") ||
+#endif
+		(!strcmp(h->policy->u.http.method, "POST"))) &&
 	    wsi->http.writeable_len) {
 		if (!(h->policy->flags &
 			LWSSSPOLF_HTTP_NO_CONTENT_LENGTH)) {
@@ -840,8 +842,10 @@ malformed:
 		if ((h->policy->protocol == LWSSSP_H1 ||
 		     h->policy->protocol == LWSSSP_H2) &&
 		     h->being_serialized && (
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_HTTP_HEADERS_ALL)
 				!strcmp(h->policy->u.http.method, "PUT") ||
 				!strcmp(h->policy->u.http.method, "PATCH") ||
+#endif
 				!strcmp(h->policy->u.http.method, "POST"))) {
 
 			wsi->client_suppress_CONNECTION_ERROR = 1;
@@ -1114,6 +1118,7 @@ malformed:
 						if (lws_ss_alloc_set_metadata(h, "method", "POST", 4))
 							return -1;
 					} else {
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_HTTP_HEADERS_ALL)
 						m = lws_hdr_total_length(wsi, WSI_TOKEN_PATCH_URI);
 						if (m) {
 							if (lws_ss_alloc_set_metadata(h, "path",
@@ -1123,6 +1128,7 @@ malformed:
 							if (lws_ss_alloc_set_metadata(h, "method", "PATCH", 5))
 								return -1;
 						}
+#endif
 					}
 				}
 			}
