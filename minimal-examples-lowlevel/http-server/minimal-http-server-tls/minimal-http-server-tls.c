@@ -51,6 +51,8 @@ static const struct lws_http_mount
 	/* .origin_protocol */		LWSMPRO_CALLBACK, /* bind to callback */
 	/* .mountpoint_len */		8,		/* char count */
 	/* .basic_auth_login_file */	NULL,
+	/* .cgi_chroot_path */		NULL,
+	/* .cgi_wd */			NULL,
 	},
 #endif
 	mount = {
