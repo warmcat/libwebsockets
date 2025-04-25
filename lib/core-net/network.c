@@ -384,10 +384,12 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 #if defined(LWS_WITH_BINDTODEVICE)
 	if (af != AF_UNIX && iface) {
 		if (setsockopt(sockfd, SOL_SOCKET, SO_BINDTODEVICE, iface, (socklen_t)strlen(iface)) < 0) {
+#if !defined(LWS_WITH_NO_LOGS)
 			int _lws_errno = LWS_ERRNO;
 			lwsl_wsi_warn(wsi, "setsockopt bind to device %s error fd %d (%d)",
 					  iface, sockfd, _lws_errno);
-			/* Root only, non-fatal, continue here. */
+#endif
+	/* Root only, non-fatal, continue here. */
 		}
 	}
 #endif
