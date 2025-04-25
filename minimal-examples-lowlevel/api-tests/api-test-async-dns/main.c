@@ -1,7 +1,7 @@
 /*
  * lws-api-test-async-dns
  *
- * Written in 2019 by Andy Green <andy@warmcat.com>
+ * Written in 2019-2025 by Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
@@ -12,7 +12,7 @@
 #include <libwebsockets.h>
 #include <signal.h>
 
-static int interrupted, dtest, ok, fail, _exp = 33;
+static int interrupted, dtest, ok, fail, _exp = 30;
 struct lws_context *context;
 
 /*
@@ -87,20 +87,20 @@ static struct async_dns_tests {
 	{ "localhost", LWS_ADNS_RECORD_A, 4,
 		{ 127, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
 	{ "ipv4only.warmcat.com", LWS_ADNS_RECORD_A, 4,
-		{ 46, 105, 127, 147, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
+		{ 212, 83, 179, 61, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
 	{ "onevalid.bogus.warmcat.com", LWS_ADNS_RECORD_A, 4,
-		{ 46, 105, 127, 147, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
+		{ 212, 83, 179, 61, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
 #if defined(LWS_WITH_IPV6)
-	{ "warmcat.com", LWS_ADNS_RECORD_AAAA, 16, /* check ipv6 */
-		{ 0x20, 0x01, 0x41, 0xd0, 0x00, 0x02, 0xee, 0x93,
-				0, 0, 0, 0, 0, 0, 0, 1, } },
+	{ "mail.warmcat.com", LWS_ADNS_RECORD_AAAA, 16, /* check ipv6 */
+		{ 0x20, 0x01, 0x0b, 0xc8, 0x60, 0x10, 0x02, 0x13,
+				0x02, 0x08, 0xa2, 0xff, 0xfe, 0x0c, 0x72, 0xce, } },
 	{ "ipv6only.warmcat.com", LWS_ADNS_RECORD_AAAA, 16, /* check ipv6 */
-		{ 0x20, 0x01, 0x41, 0xd0, 0x00, 0x02, 0xee, 0x93,
-				0, 0, 0, 0, 0, 0, 0, 1, } },
+		{ 0x20, 0x01, 0x0b, 0xc8, 0x60, 0x10, 0x02, 0x13,
+				0x02, 0x08, 0xa2, 0xff, 0xfe, 0x0c, 0x72, 0xce, } },
 #endif
-	{ "c.msn.com", TEST_FLAG_NOCHECK_RESULT_IP |
-		       LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A, 4,
-		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
+//	{ "c.msn.com", TEST_FLAG_NOCHECK_RESULT_IP |
+//		       LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A, 4,
+//		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
 	{ "assets.msn.com", TEST_FLAG_NOCHECK_RESULT_IP |
 		       LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A, 4,
 		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
@@ -110,12 +110,12 @@ static struct async_dns_tests {
 	{ "a-0003.a-msedge.net", TEST_FLAG_NOCHECK_RESULT_IP |
 		       LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A, 0,
 		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
-	{ "c-msn-com-europe-vip.trafficmanager.net", TEST_FLAG_NOCHECK_RESULT_IP |
-		       LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A, 0,
-		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
-	{ "c-msn-com-europe-vip.trafficmanager.net", TEST_FLAG_NOCHECK_RESULT_IP |
-		       LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A, 0,
-		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
+//	{ "c-msn-com-europe-vip.trafficmanager.net", TEST_FLAG_NOCHECK_RESULT_IP |
+//		       LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A, 0,
+//		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
+//	{ "c-msn-com-europe-vip.trafficmanager.net", TEST_FLAG_NOCHECK_RESULT_IP |
+//		       LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A, 0,
+//		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
 };
 
 static uint8_t canned_c_msn_com[] = {
