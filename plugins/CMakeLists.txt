@@ -168,6 +168,12 @@ if (LWS_ROLE_WS)
 
 endif(LWS_ROLE_WS)
 
+	create_plugin(protocol_urlarg ""
+		      "protocol_urlarg.c" "" "")
+	if (NOT LWS_WITH_PLUGINS_BUILTIN)
+		target_compile_definitions(protocol_urlarg PRIVATE LWS_BUILDING_SHARED)
+	endif()
+
 	create_plugin(protocol_post_demo ""
 		      "protocol_post_demo.c" "" "")
 	if (NOT LWS_WITH_PLUGINS_BUILTIN)
