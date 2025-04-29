@@ -114,7 +114,8 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		pt->service_tid = context->vhost_list->protocols[0].callback(
 					(struct lws *)plwsa,
 					LWS_CALLBACK_GET_THREAD_ID,
-					NULL, NULL, 0);
+					context->vhost_list->protocols[0].user,
+					NULL, 0);
 		pt->service_tid_detected = 1;
 	}
 
