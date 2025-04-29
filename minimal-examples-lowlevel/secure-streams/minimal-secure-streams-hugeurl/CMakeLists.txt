@@ -46,9 +46,9 @@ if (requirements)
 			message("testing via valgrind")
 			add_test(NAME ss-warmcat-hurl COMMAND
 				${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
-				$<TARGET_FILE:lws-minimal-secure-streams-hugeurl>)
+				$<TARGET_FILE:lws-minimal-secure-streams-hugeurl> -h 1024 --h1)
 		else()
-			add_test(NAME ss-warmcat-hurl COMMAND lws-minimal-secure-streams-hugeurl)
+			add_test(NAME ss-warmcat-hurl COMMAND lws-minimal-secure-streams-hugeurl -h 1024 --h1)
 		endif()
 
 		set_tests_properties(ss-warmcat-hurl

@@ -926,6 +926,12 @@ malformed:
 				       "SS_ACK_REMOTE" : "SS_NACK_REMOTE");
 #endif
 
+		if (!h->ss_dangling_connected) {
+			r = lws_ss_event_helper(h, LWSSSCS_CONNECTED);
+			if (r != LWSSSSRET_OK)
+				return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
+		}
+
 		r = lws_ss_event_helper(h, h->u.http.good_respcode ?
 						LWSSSCS_QOS_ACK_REMOTE :
 						LWSSSCS_QOS_NACK_REMOTE);

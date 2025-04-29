@@ -7,7 +7,7 @@
  * Universal Public Domain Dedication.
  *
  *
- * This checks huge url operations via httpbin.org
+ * This checks huge url operations via libwebsockets.org
  */
 
 #include <libwebsockets.h>
@@ -71,49 +71,85 @@ static const char * const default_ss_policy =
 		  "XFvKWlJbYK8U90vvo/ufQJVtMVT8QtPHRh8jrdkPSHCa2XV4cdFyQzR1bld"
 		  "ZwgJcJmApzyMZFo6IQ6XU5MsI+yMRQ+hDKXJioaldXgjUkK642M4UwtBV8o"
 		  "b2xJNDd2ZhwLnoQdeXeGADbkpyrqXRfboQnoZsG4q5WTP468SQvvG5"
-		"\"}"
+		"\"},"
+		"{\"isrg_root_x1\": \""
+	"MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw"
+	"TzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh"
+	"cmNoIEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMTUwNjA0MTEwNDM4"
+	"WhcNMzUwNjA0MTEwNDM4WjBPMQswCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJu"
+	"ZXQgU2VjdXJpdHkgUmVzZWFyY2ggR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBY"
+	"MTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAK3oJHP0FDfzm54rVygc"
+	"h77ct984kIxuPOZXoHj3dcKi/vVqbvYATyjb3miGbESTtrFj/RQSa78f0uoxmyF+"
+	"0TM8ukj13Xnfs7j/EvEhmkvBioZxaUpmZmyPfjxwv60pIgbz5MDmgK7iS4+3mX6U"
+	"A5/TR5d8mUgjU+g4rk8Kb4Mu0UlXjIB0ttov0DiNewNwIRt18jA8+o+u3dpjq+sW"
+	"T8KOEUt+zwvo/7V3LvSye0rgTBIlDHCNAymg4VMk7BPZ7hm/ELNKjD+Jo2FR3qyH"
+	"B5T0Y3HsLuJvW5iB4YlcNHlsdu87kGJ55tukmi8mxdAQ4Q7e2RCOFvu396j3x+UC"
+	"B5iPNgiV5+I3lg02dZ77DnKxHZu8A/lJBdiB3QW0KtZB6awBdpUKD9jf1b0SHzUv"
+	"KBds0pjBqAlkd25HN7rOrFleaJ1/ctaJxQZBKT5ZPt0m9STJEadao0xAH0ahmbWn"
+	"OlFuhjuefXKnEgV4We0+UXgVCwOPjdAvBbI+e0ocS3MFEvzG6uBQE3xDk3SzynTn"
+	"jh8BCNAw1FtxNrQHusEwMFxIt4I7mKZ9YIqioymCzLq9gwQbooMDQaHWBfEbwrbw"
+	"qHyGO0aoSCqI3Haadr8faqU9GY/rOPNk3sgrDQoo//fb4hVC1CLQJ13hef4Y53CI"
+	"rU7m2Ys6xt0nUW7/vGT1M0NPAgMBAAGjQjBAMA4GA1UdDwEB/wQEAwIBBjAPBgNV"
+	"HRMBAf8EBTADAQH/MB0GA1UdDgQWBBR5tFnme7bl5AFzgAiIyBpY9umbbjANBgkq"
+	"hkiG9w0BAQsFAAOCAgEAVR9YqbyyqFDQDLHYGmkgJykIrGF1XIpu+ILlaS/V9lZL"
+	"ubhzEFnTIZd+50xx+7LSYK05qAvqFyFWhfFQDlnrzuBZ6brJFe+GnY+EgPbk6ZGQ"
+	"3BebYhtF8GaV0nxvwuo77x/Py9auJ/GpsMiu/X1+mvoiBOv/2X/qkSsisRcOj/KK"
+	"NFtY2PwByVS5uCbMiogziUwthDyC3+6WVwW6LLv3xLfHTjuCvjHIInNzktHCgKQ5"
+	"ORAzI4JMPJ+GslWYHb4phowim57iaztXOoJwTdwJx4nLCgdNbOhdjsnvzqvHu7Ur"
+	"TkXWStAmzOVyyghqpZXjFaH3pO3JLF+l+/+sKAIuvtd7u+Nxe5AW0wdeRlN8NwdC"
+	"jNPElpzVmbUq4JUagEiuTDkHzsxHpFKVK7q4+63SM1N95R1NbdWhscdCb+ZAJzVc"
+	"oyi3B43njTOQ5yOf+1CceWxG1bQVs5ZufpsMljq4Ui0/1lvh+wjChP4kqKOJ2qxq"
+	"4RgqsahDYVvTH9w7jXbyLeiNdd8XM2w9U/t7y0Ff/9yi0GE44Za4rF2LN9d11TPA"
+	"mRGunUHBcnWEvgJBQl9nJEiU0Zsnvgc/ubhPgXRR4Xq37Z0j4r7g1SgEEzwxA57d"
+	"emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc="
+	  "\"}"
 	  "],"
 	  "\"trust_stores\": [" /* named cert chains */
 		"{"
 			"\"name\": \"arca1\","
 			"\"stack\": ["
 				"\"amazon_root_ca_1\""
+			"]},"
+		"{"
+			"\"name\": \"le_via_isrg\","
+			"\"stack\": ["
+				"\"isrg_root_x1\""
 			"]"
 		"}"
 	  "],"
 	  "\"s\": [{"
 
-		"\"httpbin_anything_h1\": {"
-			"\"endpoint\":"			"\"httpbin.org\","
+		"\"lws_anything_h1\": {"
+			"\"endpoint\":"			"\"libwebsockets.org\","
 			"\"port\":"			"443,"
 			"\"protocol\":"			"\"h1\","
 			"\"http_method\":"		"\"GET\","
-			"\"http_url\":"			"\"anything?x=${hugearg}\","
+			"\"http_url\":"			"\"urlarg/?x=${hugearg}\","
 			"\"nghttp2_quirk_end_stream\":" "true,"
 			"\"h2q_oflow_txcr\":"		"true,"
 			"\"metadata\": [{"
 				"\"hugearg\":"		"\"\""
 			"}],"
 			"\"tls\":"			"true,"
-			// "\"opportunistic\":"		"true,"
+			"\"timeout\":"			"4000,"
 			"\"retry\":"			"\"default\","
-			"\"tls_trust_store\":"		"\"arca1\""
+			"\"tls_trust_store\":"		"\"le_via_isrg\""
 		"}},{"
-			"\"httpbin_anything_h2\": {"
-			"\"endpoint\":"			"\"httpbin.org\","
+		"\"lws_anything_h2\": {"
+			"\"endpoint\":"			"\"libwebsockets.org\","
 			"\"port\":"			"443,"
 			"\"protocol\":"			"\"h2\","
 			"\"http_method\":"		"\"GET\","
-			"\"http_url\":"			"\"anything?x=${hugearg}\","
-			"\"nghttp2_quirk_end_stream\":" "true,"
-			"\"h2q_oflow_txcr\":"		"true,"
+			"\"http_url\":"			"\"urlarg/?x=${hugearg}\","
+//			"\"nghttp2_quirk_end_stream\":" "true,"
+//			"\"h2q_oflow_txcr\":"		"true,"
 			"\"metadata\": [{"
 				"\"hugearg\":"		"\"\""
 			"}],"
+			"\"timeout\":"			"4000,"
 			"\"tls\":"			"true,"
-			// "\"opportunistic\":"		"true,"
 			"\"retry\":"			"\"default\","
-			"\"tls_trust_store\":"		"\"arca1\""
+			"\"tls_trust_store\":"		"\"le_via_isrg\""
 		"}},{"
 			/*
 			 * "captive_portal_detect" describes
@@ -146,55 +182,13 @@ typedef struct myss {
 	lws_sorted_usec_list_t		sul;
 	struct lejp_ctx			ctx;
 	size_t				comp;
+	size_t				cr;
 
+	unsigned char			check[16384];
 	char				started;
+
 } myss_t;
 
-
-static const char * const lejp_tokens[] = {
-	"url"
-};
-
-/*
- * Parse the "url" member of the JSON, and collect the part after the first '='
- * into the prepared buffer "check".
- */
-
-static signed char
-lws_httpbin_json_cb(struct lejp_ctx *ctx, char reason)
-{
-	myss_t *m = (myss_t *)ctx->user;
-	const char *p = ctx->buf;
-	size_t l = ctx->npos;
-
-	if (!(reason & LEJP_FLAG_CB_IS_VALUE))
-		return 0;
-
-	if (ctx->path_match - 1)
-		return 0;
-
-	if (!m->started)
-		while (l--)
-			if (*p++ == '=') {
-				m->started = 1;
-				break;
-			}
-
-	if (!m->started)
-		return 0;
-
-	if (m->comp + l > hugeurl_size) {
-		lwsl_err("%s: returned url string too large %u, %u\n",
-			 __func__, (unsigned int)m->comp, (unsigned int)l);
-
-		return -1;
-	}
-
-	memcpy(check + m->comp, p, l);
-	m->comp += l;
-
-	return 0;
-}
 
 /* secure streams payload interface */
 
@@ -203,23 +197,13 @@ myss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 {
 	myss_t *m = (myss_t *)userobj;
 
-	if (flags & LWSSS_FLAG_SOM)
-		lejp_construct(&m->ctx, lws_httpbin_json_cb, m,
-				lejp_tokens, LWS_ARRAY_SIZE(lejp_tokens));
-
-	if (len) {
-		int pr = lejp_parse(&m->ctx, buf, (int)len);
-
-		if (pr != LEJP_CONTINUE && pr < 0) {
-			lwsl_err("%s: parse failed line %u: %d: %s\n", __func__,
-				 (unsigned int)m->ctx.line, pr,
-				 lejp_error_to_string(pr));
-
-			write(2, buf, len);
-
-			return LWSSSSRET_DESTROY_ME;
-		}
+	if (m->cr + len > sizeof(m->check)) {
+		lwsl_err("%s: oversize receive\n", __func__);
+		return LWSSSSRET_DISCONNECT_ME;
 	}
+
+	memcpy(m->check + m->cr, buf, len);
+	m->cr += len;
 
 	if (flags & LWSSS_FLAG_EOM) {
 
@@ -227,15 +211,15 @@ myss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 
 		/* confirm that what we collected is the expected size */
 
-		if (m->comp != hugeurl_size) {
+		if (m->cr != hugeurl_size) {
 			lwsl_err("%s: wrong urlarg size recovered %d %d\n",
-				 __func__, (int)m->comp, (int)hugeurl_size);
+				 __func__, (int)m->cr, (int)hugeurl_size);
 			return LWSSSSRET_OK;
 		}
 
 		/* confirm what we sent is the same as what we collected */
 
-		if (memcmp(hugeurl, check, hugeurl_size)) {
+		if (memcmp(hugeurl, m->check, hugeurl_size)) {
 			lwsl_err("%s: huge url content mismatch\n", __func__);
 
 			return LWSSSSRET_OK;
@@ -291,13 +275,21 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 	case LWSSSCS_ALL_RETRIES_FAILED:
 		/* if we're out of retries, we want to close the app and FAIL */
 		interrupted = 1;
+		lws_cancel_service(lws_ss_get_context(m->ss));
 		break;
+
 	case LWSSSCS_QOS_ACK_REMOTE:
 		lwsl_notice("%s: LWSSSCS_QOS_ACK_REMOTE\n", __func__);
 		break;
 
+	case LWSSSCS_QOS_NACK_REMOTE:
+		lwsl_notice("%s: LWSSSCS_QOS_NACK_REMOTE\n", __func__);
+		break;
+
 	case LWSSSCS_TIMEOUT:
 		lwsl_notice("%s: LWSSSCS_TIMEOUT\n", __func__);
+		interrupted = 1;
+		lws_cancel_service(lws_ss_get_context(m->ss));
 		break;
 
 	case LWSSSCS_USER_BASE:
@@ -317,7 +309,7 @@ static lws_ss_info_t ssi = {
 	.rx				= myss_rx,
 	.state				= myss_state,
 	.user_alloc			= sizeof(myss_t),
-	.streamtype			= "httpbin_anything_h2"
+	.streamtype			= "lws_anything_h2"
 };
 
 static int
@@ -338,7 +330,7 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 		return 0;
 
 	if (h1)
-		ssi.streamtype = "httpbin_anything_h1";
+		ssi.streamtype = "lws_anything_h1";
 
 	if (!lws_ss_create(context, 0, &ssi, NULL, NULL, NULL, NULL))
 		return 0;
@@ -397,7 +389,7 @@ int main(int argc, const char **argv)
 		       LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW |
 		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 #endif
-	info.connect_timeout_secs = 15; /* httpbin.org seems to need this depending on time of day */
+	info.connect_timeout_secs = 15;
 	info.timeout_secs = 10;
 
 	if (lws_cmdline_option(argc, argv, "--h1"))
