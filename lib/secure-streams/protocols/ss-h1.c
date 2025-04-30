@@ -509,6 +509,7 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (!h)
 			break;
 
+		h->txn_n_acked = 0;
 		lws_sul_cancel(&h->sul_timeout);
 
 		lws_ss_assert_extant(wsi->a.context, wsi->tsi, h);
@@ -932,12 +933,14 @@ malformed:
 				return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 		}
 
-		r = lws_ss_event_helper(h, h->u.http.good_respcode ?
+		if (!h->txn_n_acked) {
+			h->txn_n_acked = 1;
+			r = lws_ss_event_helper(h, h->u.http.good_respcode ?
 						LWSSSCS_QOS_ACK_REMOTE :
 						LWSSSCS_QOS_NACK_REMOTE);
-		if (r != LWSSSSRET_OK)
-			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
-
+			if (r != LWSSSSRET_OK)
+				return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
+		}
 		lws_cancel_service(lws_get_context(wsi)); /* abort poll wait */
 		break;
 

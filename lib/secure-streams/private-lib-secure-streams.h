@@ -198,6 +198,7 @@ typedef struct lws_ss_handle {
 
 	uint8_t			txn_resp_set:1; /**< user code set one */
 	uint8_t			txn_resp_pending:1; /**< we have yet to send */
+	uint8_t			txn_n_acked:1; /** < set if we did NACK or ACK */
 	uint8_t			hanging_som:1;
 	uint8_t			inside_msg:1;
 	uint8_t			being_serialized:1; /* we are not the consumer */
