@@ -10,6 +10,7 @@ set(SRCS minimal-raw-wol.c)
 
 set(requirements 1)
 require_lws_config(LWS_WITH_WOL 1 requirements)
+require_lws_config(LWS_WITH_NETWORK 1 requirements)
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
