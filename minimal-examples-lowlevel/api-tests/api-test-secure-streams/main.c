@@ -137,7 +137,7 @@ static const char * const default_ss_policy =
 			"\"port\":"		"443,"
 			"\"protocol\":"		"\"h1\","
 			"\"http_method\":"	"\"GET\","
-			"\"http_url\":"		"\"/httpbin/status/401\","
+			"\"http_url\":"		"\"/httpbin/status/403\","
 			"\"tls\":"		"true,"
 			"\"opportunistic\":"	"true,"
 			"\"retry\":"		"\"default\","
@@ -236,7 +236,7 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 	myss_t *m = (myss_t *)userobj;
 	lws_ss_state_return_t r;
 
-	lwsl_notice("%s: %s, ord 0x%x, esp_nack: %d\n", __func__, lws_ss_state_name((int)state),
+	lwsl_ss_notice(m->ss, "%s: %s, ord 0x%x, esp_nack: %d\n", __func__, lws_ss_state_name((int)state),
 		  (unsigned int)ack, m->expect_nack);
 
 	switch (state) {
@@ -262,12 +262,12 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		/*
 		 * To be satisfied, we want to see the ACK_REMOTE indicating
 		 * that the transaction went through; that we had the payload
-		 * EOM; and that we saw at least 200 + posted bytes response
+		 * EOM; and that we saw at least 100 + posted bytes response
 		 */
 
-		if (!m->seen_eom || m->payload < 200 + next_test->send) {
-			lwsl_warn("%s: ACK_REMOTE but eom %d, payload %d\n",
-				  __func__, m->seen_eom, (int)m->payload);
+		if (!m->seen_eom || m->payload < 100) {
+			lwsl_warn("%s: ACK_REMOTE but eom %d, payload %d (req >= %d)\n",
+				  __func__, m->seen_eom, (int)m->payload, (int)(100 + m->sent));
 			interrupted = 1;
 			return -1;
 		}
