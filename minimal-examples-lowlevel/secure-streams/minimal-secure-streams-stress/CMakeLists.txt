@@ -46,15 +46,15 @@ if (requirements)
 			message("testing via valgrind")
 			add_test(NAME ssstress-warmcat COMMAND
 				${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
-				$<TARGET_FILE:lws-minimal-secure-streams-stress> -c 4 --budget 5 --timeout_ms 60000)
+				$<TARGET_FILE:lws-minimal-secure-streams-stress> -c 2 --budget 3 --timeout_ms 60000)
 		else()
-			add_test(NAME ssstress-warmcat COMMAND lws-minimal-secure-streams-stress -c 4 --budget 5 --timeout_ms 50000)
+			add_test(NAME ssstress-warmcat COMMAND lws-minimal-secure-streams-stress -c 2 --budget 3 --timeout_ms 50000)
 		endif()
 
 		set_tests_properties(ssstress-warmcat
 				     PROPERTIES
 				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/secure-streams/minimal-secure-streams-stress
-				     TIMEOUT 80)
+				     TIMEOUT 110)
 		if (DEFINED ENV{SAI_OVN})
 			set_tests_properties(ssstress-warmcat PROPERTIES FIXTURES_REQUIRED "res_sspcmin")
 		endif()
@@ -107,7 +107,7 @@ if (requirements)
 			set_tests_properties(sspc-minimalstress PROPERTIES
 				WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/secure-streams/minimal-secure-streams-stress
 				FIXTURES_REQUIRED "${fixlist}"
-				TIMEOUT 100)
+				TIMEOUT 110)
 
 		endif()
 

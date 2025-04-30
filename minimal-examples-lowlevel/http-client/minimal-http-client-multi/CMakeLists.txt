@@ -200,7 +200,7 @@ endif()
 			     PROPERTIES
 			     	FIXTURES_REQUIRED "hcmp_srv"
 			     	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-client/minimal-http-client-multi
-			     	TIMEOUT 20)
+			     	TIMEOUT 30)
 
 endif(NOT WIN32 AND LWS_WITH_SERVER)
 

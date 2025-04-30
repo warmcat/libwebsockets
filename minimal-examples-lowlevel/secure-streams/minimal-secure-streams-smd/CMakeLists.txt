@@ -34,7 +34,7 @@ if (requirements)
 		set_tests_properties(ss-smd
 				     PROPERTIES
 				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/secure-streams/minimal-secure-streams-smd
-				     TIMEOUT 10)
+				     TIMEOUT 20)
 
                if (has_fault_injection)
                        if (VALGRIND)

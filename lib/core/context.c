@@ -1589,6 +1589,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 					strlen(context->pss_policies_json));
 		if ((n != LEJP_CONTINUE && n < 0) ||
 		    lws_fi(&context->fic, "ctx_createfail_ss_pol2")) {
+			lwsl_err("%s: policy_parse came back with %d\n", __func__, n);
 			lws_ss_policy_parse_abandon(context);
 			goto bail_libuv_aware;
 		}
