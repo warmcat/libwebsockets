@@ -752,6 +752,7 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 	if (lws_extension_server_handshake(wsi, &p, 190))
 		goto bail;
 #endif
+	LWS_CPYAPP(p, "\x0d\x0a");
 
 	args.p = p;
 	args.max_len = lws_ptr_diff((char *)pt->serv_buf +
