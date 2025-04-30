@@ -284,8 +284,6 @@ lws_dir_rm_rf_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 
 #endif
 
-#if defined(LWS_WITH_PLUGINS_API)
-
 struct lws_plugin *
 lws_plugin_alloc(struct lws_plugin **pplugin)
 {
@@ -299,6 +297,8 @@ lws_plugin_alloc(struct lws_plugin **pplugin)
 
 	return pin;
 }
+
+#if defined(LWS_WITH_PLUGINS_API)
 
 #if defined(LWS_BUILTIN_PLUGIN_NAMES)
 
@@ -332,6 +332,7 @@ lws_plugins_handle_builtin(struct lws_plugin **pplugin,
 }
 #endif
 
+#if defined(LWS_WITH_NETWORK) && defined(LWS_WITH_PLUGINS_API)
 struct lws_plugins_args {
 	struct lws_plugin	**pplugin;
 	const char		*_class;
@@ -469,4 +470,5 @@ lws_plugins_destroy(struct lws_plugin **pplugin, each_plugin_cb_t each,
 
 	return 0;
 }
+#endif
 #endif

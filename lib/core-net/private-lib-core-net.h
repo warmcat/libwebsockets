@@ -1487,13 +1487,6 @@ lws_broadcast(struct lws_context_per_thread *pt, int reason, void *in, size_t le
 const char *
 lws_errno_describe(int en, char *result, size_t len);
 
-struct lws_plugin *
-lws_plugin_alloc(struct lws_plugin **pplugin);
-
-int
-lws_plugins_handle_builtin(struct lws_plugin **pplugin,
-			   each_plugin_cb_t each, void *each_user);
-
 #if defined(LWS_WITH_PEER_LIMITS)
 void
 lws_peer_track_wsi_close(struct lws_context *context, struct lws_peer *peer);

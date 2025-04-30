@@ -72,31 +72,31 @@ if (LWS_WITH_POLL)
 	add_subdir_include_directories(poll)
 endif()
 
-if (LWS_WITH_LIBUV OR LWS_WITH_LIBUV_INTERNAL)
+if (LWS_WITH_NETWORK AND (LWS_WITH_LIBUV OR LWS_WITH_LIBUV_INTERNAL))
 	add_subdir_include_directories(libuv)
 	set(LWS_HAVE_UV_VERSION_H ${LWS_HAVE_UV_VERSION_H} PARENT_SCOPE)
 	set(LWS_HAVE_NEW_UV_VERSION_H ${LWS_HAVE_NEW_UV_VERSION_H} PARENT_SCOPE)
 endif()
 
-if (LWS_WITH_LIBEVENT)
+if (LWS_WITH_NETWORK AND LWS_WITH_LIBEVENT)
 	add_subdir_include_directories(libevent)
 endif()
 
-if (LWS_WITH_GLIB)
+if (LWS_WITH_NETWORK AND LWS_WITH_GLIB)
 	add_subdir_include_directories(glib)
 endif()
 
-if (LWS_WITH_LIBEV)
+if (LWS_WITH_NETWORK AND LWS_WITH_LIBEV)
 	add_subdir_include_directories(libev)
 	set(LWS_HAVE_EVBACKEND_LINUXAIO ${LWS_HAVE_EVBACKEND_LINUXAIO} PARENT_SCOPE)
 	set(LWS_HAVE_EVBACKEND_IOURING ${LWS_HAVE_EVBACKEND_IOURING} PARENT_SCOPE)
 endif()
 
-if (LWS_WITH_SDEVENT)
+if (LWS_WITH_NETWORK AND LWS_WITH_SDEVENT)
 	add_subdir_include_directories(sdevent)
 endif()
 
-if (LWS_WITH_ULOOP)
+if (LWS_WITH_NETWORK AND LWS_WITH_ULOOP)
 	add_subdir_include_directories(uloop)
 endif()
 

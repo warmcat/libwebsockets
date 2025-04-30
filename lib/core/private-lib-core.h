@@ -444,7 +444,7 @@ struct lws_context {
 	char canonical_hostname[96];
  #endif
 #if defined(LWS_HAVE_SSL_CTX_set_keylog_callback) && \
-	defined(LWS_WITH_TLS) && defined(LWS_WITH_CLIENT)
+	defined(LWS_WITH_TLS) && (!defined(LWS_WITHOUT_CLIENT) || !defined(LWS_WITHOUT_SERVER))
 	char					keylog_file[96];
 #endif
 
@@ -1026,7 +1026,7 @@ void lwsl_emit_stderr(int level, const char *line);
 
 
 
-#if LWS_MAX_SMP > 1
+#if defined(LWS_WITH_NETWORK) && LWS_MAX_SMP > 1
 #define lws_context_lock(c, reason) lws_mutex_refcount_lock(&c->mr, reason)
 #define lws_context_unlock(c) lws_mutex_refcount_unlock(&c->mr)
 #define lws_context_assert_lock_held(c) lws_mutex_refcount_assert_held(&c->mr)
@@ -1191,6 +1191,14 @@ sul_ping_cb(lws_sorted_usec_list_t *sul);
 void
 lws_klog_dump(const SSL *ssl, const char *line);
 #endif
+
+struct lws_plugin *
+lws_plugin_alloc(struct lws_plugin **pplugin);
+
+int
+lws_plugins_handle_builtin(struct lws_plugin **pplugin,
+			   each_plugin_cb_t each, void *each_user);
+
 
 #if !defined(PRIu64)
 #define PRIu64 "llu"

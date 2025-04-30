@@ -699,13 +699,16 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size);
 
 #include <libwebsockets/lws-ota.h>
 #include <libwebsockets/lws-system.h>
+#include <libwebsockets/lws-callbacks.h>
+
 #if defined(LWS_WITH_NETWORK)
 #include <libwebsockets/lws-ws-close.h>
-#include <libwebsockets/lws-callbacks.h>
 #include <libwebsockets/lws-ws-state.h>
 #include <libwebsockets/lws-ws-ext.h>
-#include <libwebsockets/lws-protocols-plugins.h>
 #endif
+
+#include <libwebsockets/lws-protocols-plugins.h>
+
 #include <libwebsockets/lws-context-vhost.h>
 
 #if defined(LWS_WITH_NETWORK)

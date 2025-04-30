@@ -263,7 +263,7 @@ int lws_open(const char *__file, int __oflag, ...)
 int
 lws_pthread_self_to_tsi(struct lws_context *context)
 {
-#if LWS_MAX_SMP > 1
+#if defined(LWS_WITH_NETWORK) && LWS_MAX_SMP > 1
 	pthread_t ps = pthread_self();
 	struct lws_context_per_thread *pt = &context->pt[0];
 	int n;
@@ -1418,7 +1418,7 @@ lws_strcmp_wildcard(const char *wildcard, size_t wlen, const char *check,
 	return wildcard != wc_end;
 }
 
-#if LWS_MAX_SMP > 1
+#if defined(LWS_WITH_NETWORK) && LWS_MAX_SMP > 1
 
 void
 lws_mutex_refcount_init(struct lws_mutex_refcount *mr)
