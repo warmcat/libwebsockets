@@ -534,7 +534,7 @@ struct lws_vhost {
 #if defined(LWS_WITH_TLS_SESSIONS)
 	uint32_t		tls_session_cache_max;
 #endif
-
+	uint32_t		protocol_init; /* bitmap indicating if protocol initialized */
 #if defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY) || defined(LWS_WITH_SECURE_STREAMS_CPP)
 	int8_t			ss_refcount;
 	/**< refcount of number of ss connections with streamtypes using this
