@@ -26,11 +26,12 @@
 #include "private-lib-tls.h"
 
 #if defined(LWS_HAVE_SSL_CTX_set_keylog_callback) && defined(LWS_WITH_NETWORK) && \
-	defined(LWS_WITH_TLS) && (!defined(LWS_WITHOUT_CLIENT) || !defined(LWS_WITHOUT_SERVER))
+	defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS) && \
+	(!defined(LWS_WITHOUT_CLIENT) || !defined(LWS_WITHOUT_SERVER))
 void
 lws_klog_dump(const SSL *ssl, const char *line)
 {
-	struct lws *wsi = SSL_get_ex_data(ssl,
+	struct lws *wsi = (struct lws *)SSL_get_ex_data(ssl,
 					  openssl_websocket_private_data_index);
 	char path[128], hdr[128], ts[64];
 	size_t w = 0, wx = 0;
