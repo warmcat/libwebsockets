@@ -513,14 +513,13 @@ if (GENCERTS)
                else()
 	
 		# Unix.
-		execute_process(
-			COMMAND printf "GB\\nErewhon\\nAll around\\nlibwebsockets-test\\n\\nlocalhost\\nnone@invalid.org\\n"
-			COMMAND "${OPENSSL_EXECUTABLE}"
-				req -new -newkey rsa:2048 -days 10000 -nodes -x509 -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
-			RESULT_VARIABLE OPENSSL_RETURN_CODE
-			#		OUTPUT_QUIET ERROR_QUIET
-			)
-			
+               execute_process(
+                       COMMAND printf "GB\\nErewhon\\nAll around\\nlibwebsockets-test\\n\\nlocalhost\\nnone@invalid.org\\n"
+                       COMMAND "${OPENSSL_EXECUTABLE}"
+                               req -config /etc/ssl/openssl.cnf -new -newkey rsa:2048 -days 10000 -nodes -x509 -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
+                       RESULT_VARIABLE OPENSSL_RETURN_CODE
+                       #               OUTPUT_QUIET ERROR_QUIET
+                       )
 		endif()
 
 		if (OPENSSL_RETURN_CODE)
