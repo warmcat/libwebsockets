@@ -259,7 +259,7 @@ lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 		{
 			const X509V3_EXT_METHOD* method = X509V3_EXT_get(ext);
 			STACK_OF(CONF_VALUE) *cv;
-		#if defined(LWS_WITH_AWSLC)
+		#if defined(LWS_WITH_BORINGSSL) || defined(LWS_WITH_AWSLC)
 			size_t j;
 		#else
 			int j;
