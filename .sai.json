@@ -27,15 +27,15 @@
 			"cmake":	"-DLWS_WITH_SYS_FAULT_INJECTION=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_CBOR=1"
 		},
 		"default-examples-awslc": {
-			"cmake":	"cmake .. -DLWS_WITH_AWSLC=1 -DLWS_OPENSSL_INCLUDE_DIRS=\"/usr/local/include\" -DLWS_OPENSSL_LIBRARIES=\"/usr/local/lib64/libssl.so;/usr/local/lib64/libcrypto.so\" -DLWS_WITH_MINIMAL_EXAMPLES=1",
+			"cmake":	"cmake .. -DLWS_WITH_AWSLC=1 -DLWS_OPENSSL_INCLUDE_DIRS=\"/usr/aws-lc/include\" -DLWS_OPENSSL_LIBRARIES=\"/usr/aws-lc/lib64/libssl.so;/usr/aws-lc/lib64/libcrypto.so\" -DLWS_WITH_MINIMAL_EXAMPLES=1",
 			"platforms":	"none, rocky9/aarch64-a72a55-rk3588/gcc"
 		},
 		"default-examples-boringssl": {
-			"cmake":	"cmake .. -DLWS_WITH_BORINGSSL=1 -DLWS_OPENSSL_INCLUDE_DIRS=\"/usr/local/src/boringssl/include\" -DLWS_OPENSSL_LIBRARIES=\"/usr/local/src/boringssl/build/ssl/libssl.so;/usr/local/src/boringssl/build/crypto/libcrypto.so\" -DLWS_WITH_MINIMAL_EXAMPLES=1",
+			"cmake":	"cmake .. -DLWS_WITH_BORINGSSL=1 -DLWS_OPENSSL_INCLUDE_DIRS=\"/usr/boringssl/include\" -DLWS_OPENSSL_LIBRARIES=\"/usr/boringssl/lib64/libssl.so;/usr/boringssl/lib64/libcrypto.so\" -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_GENHASH=0",
 			"platforms":	"none, rocky9/aarch64-a72a55-rk3588/gcc"
 		},
 		"default-examples-libressl": {
-			"cmake":	"cmake .. -DLWS_OPENSSL_LIBRARIES='/usr/local/lib64/libtls.a;/usr/local/lib64/libssl.a;/usr/local/lib64/libcrypto.a' -DLWS_OPENSSL_INCLUDE_DIRS=/usr/local/include -DLWS_WITH_MINIMAL_EXAMPLES=1",
+			"cmake":	"cmake .. -DLWS_OPENSSL_LIBRARIES='/usr/libressl/lib64/libtls.a;/usr/libressl/lib64/libssl.a;/usr/libressl/lib64/libcrypto.a' -DLWS_OPENSSL_INCLUDE_DIRS=/usr/libressl/include -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_GENHASH=0",
 			"platforms":	"none, rocky9/aarch64-a72a55-rk3588/gcc"
 		},
 		"default-wolfssl": {

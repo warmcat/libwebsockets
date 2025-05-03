@@ -167,6 +167,11 @@ Build and test lws against it
 Build and test flow against AWS-LC.  Notice `LWS_WITH_GENHASH` is currently
 unavailable with awslc due to their removing the necessary apis.
 
+Notice since aws-lc is based on openssl, it cannot coexist with openssl or
+other projects based directly on openssl, since they all share, eg,
+`/usr/include/openssl/*`.  For that reason, aws-lc build is shown as installed
+into `/usr/aws-lc/` here so it cannot conflict with other tls libraries.
+
 Build current HEAD AWS-LC
 
 ```
@@ -175,7 +180,7 @@ Build current HEAD AWS-LC
  $ cd aws-lc
  $ mkdir build
  $ cd build
- $ cmake ..  -DBUILD_SHARED_LIBS=1
+ $ cmake ..  -DBUILD_SHARED_LIBS=1 -DBUILD_TESTING=0 -DCMAKE_INSTALL_PREFIX=/usr/aws-lc
  $ make -j8
 ```
 
@@ -183,14 +188,12 @@ Build and test lws against it
 
 ```
  $ cd /projects/libwebsockets/build
- $ cmake .. -DOPENSSL_LIBRARIES="/projects/aws-lc/build/ssl/libssl.so;\
-   /projects/aws-lc/build/crypto/libcrypto.so" \
-   -DOPENSSL_INCLUDE_DIRS=/projects/aws-lc/include \
+ $ cmake .. -DOPENSSL_LIBRARIES="/usr/aws-lc/lib64/libssl.so;\
+   /usr/aws-lc/lib64/libcrypto.so" \
+   -DOPENSSL_INCLUDE_DIRS=/usr/aws-lc/include \
    -DLWS_WITH_AWSLC=1 -DCMAKE_BUILD_TYPE=DEBUG
  $ make -j8 && sudo make install
- $ LD_PRELOAD="/projects/aws-lc/build/ssl/libssl.so \
-   /projects/aws-lc/build/crypto/libcrypto.so" \
-   /usr/local/bin/libwebsockets-test-server -s
+ $ /usr/local/bin/libwebsockets-test-server -s
 ```
 
 4. Finally you can build using the generated Makefile:
