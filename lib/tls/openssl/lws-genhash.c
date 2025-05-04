@@ -98,7 +98,8 @@ lws_genhash_destroy(struct lws_genhash_ctx *ctx, void *result)
 	return ret;
 }
 
-#if defined(LWS_HAVE_EVP_PKEY_new_raw_private_key)
+#if !defined(LWS_WITH_BORINGSSL) &&\
+    defined(LWS_HAVE_EVP_PKEY_new_raw_private_key)
 
 int
 lws_genhmac_init(struct lws_genhmac_ctx *ctx, enum lws_genhmac_types type,
@@ -202,7 +203,13 @@ lws_genhmac_init(struct lws_genhmac_ctx *ctx, enum lws_genhmac_types type,
 	}
 
 #if defined(LWS_HAVE_HMAC_CTX_new)
-        if (HMAC_Init_ex(ctx->ctx, key, (int)key_len, ctx->evp_type, NULL) != 1)
+        if (HMAC_Init_ex(ctx->ctx, key, 
+#if defined(LWS_WITH_BORINGSSL)
+				(size_t)
+#else
+				(int)
+#endif
+				key_len, ctx->evp_type, NULL) != 1)
 #else
         if (HMAC_Init_ex(&ctx->ctx, key, (int)key_len, ctx->evp_type, NULL) != 1)
 #endif
@@ -225,7 +232,13 @@ lws_genhmac_update(struct lws_genhmac_ctx *ctx, const void *in, size_t len)
 #if defined(LIBRESSL_VERSION_NUMBER)
 	if (HMAC_Update(ctx->ctx, in, len) != 1)
 #else
-	if (HMAC_Update(ctx->ctx, in, (int)len) != 1)
+	if (HMAC_Update(ctx->ctx, in,
+	#if defined(LWS_WITH_BORINGSSL)
+				(size_t)
+#else
+				(int)
+#endif
+				len) != 1)
 #endif
 #else /* HMAC_CTX_new */
 	if (HMAC_Update(&ctx->ctx, in, len) != 1)

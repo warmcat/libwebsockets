@@ -82,7 +82,8 @@ struct lws_genhmac_ctx {
 #else
 	const EVP_MD *evp_type;
 
-#if defined(LWS_HAVE_EVP_PKEY_new_raw_private_key)
+#if !defined(LWS_WITH_BORINGSSL) &&\
+    defined(LWS_HAVE_EVP_PKEY_new_raw_private_key)
 	EVP_MD_CTX *ctx;
 	EVP_PKEY *key;
 #else
