@@ -31,11 +31,11 @@
 			"platforms":	"none, rocky9/aarch64-a72a55-rk3588/gcc"
 		},
 		"default-examples-boringssl": {
-			"cmake":	"-DLWS_WITH_BORINGSSL=1 -DLWS_OPENSSL_INCLUDE_DIRS=\"/usr/boringssl/include\" -DLWS_OPENSSL_LIBRARIES=\"/usr/boringssl/lib64/libssl.so;/usr/boringssl/lib64/libcrypto.so\" -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_GENHASH=0",
+			"cmake":	"-DLWS_WITH_BORINGSSL=1 -DLWS_OPENSSL_INCLUDE_DIRS=\"/usr/boringssl/include\" -DLWS_OPENSSL_LIBRARIES=\"/usr/boringssl/lib64/libssl.so;/usr/boringssl/lib64/libcrypto.so\" -DLWS_WITH_MINIMAL_EXAMPLES=1",
 			"platforms":	"none, rocky9/aarch64-a72a55-rk3588/gcc"
 		},
 		"default-examples-libressl": {
-			"cmake":	"-DLWS_OPENSSL_LIBRARIES='/usr/libressl/lib64/libtls.a;/usr/libressl/lib64/libssl.a;/usr/libressl/lib64/libcrypto.a' -DLWS_OPENSSL_INCLUDE_DIRS=/usr/libressl/include -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_GENHASH=0",
+			"cmake":	"-DLWS_OPENSSL_LIBRARIES='/usr/libressl/lib64/libtls.so;/usr/libressl/lib64/libssl.so;/usr/libressl/lib64/libcrypto.so' -DLWS_OPENSSL_INCLUDE_DIRS=/usr/libressl/include -DLWS_WITH_MINIMAL_EXAMPLES=1",
 			"platforms":	"none, rocky9/aarch64-a72a55-rk3588/gcc"
 		},
 		"default-wolfssl": {
