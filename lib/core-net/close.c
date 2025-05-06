@@ -629,7 +629,7 @@ just_kill_connection:
 		wsi->socket_is_permanently_unusable = 1;
 
 		lws_inform_client_conn_fail(wsi,
-			(void *)_reason, sizeof(_reason));
+			(void *)_reason, sizeof(_reason) - 1);
 	}
 #endif
 
