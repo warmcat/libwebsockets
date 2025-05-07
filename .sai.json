@@ -13,9 +13,11 @@
 		},
 		"ubuntu-noble/riscv64/gcc": {
 			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib;export SAI_CPACK=\"-G DEB\";cmake .. ${cmake} && make -j4 && rm -rf ../destdir && make -j DESTDIR=../destdir install && ctest -j2 --output-on-failure ${cpack}"
+		},
+		"rocky9/x86_64-amd/gcc": {
+                        "build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib;export SAI_CPACK=\"-G RPM\";cmake .. ${cmake} && make -j4 && rm -rf ../destdir && make -j DESTDIR=../destdir install && ctest -j2 --output-on-failure ${cpack}"
 		}
 	},
-
 	"configurations": {
 		"default": {
 			"cmake":	""
