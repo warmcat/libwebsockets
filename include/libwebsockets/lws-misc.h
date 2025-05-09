@@ -1143,6 +1143,17 @@ lws_spawn_stdwsi_closed(struct lws_spawn_piped *lsp, struct lws *wsi);
 LWS_VISIBLE LWS_EXTERN int
 lws_spawn_get_stdfd(struct lws *wsi);
 
+/**
+ * lws_spawn_get_fd_stdxxx() - return fd belonging to lws side of spawn stdxxx
+ *
+ * \p lsp: the opaque pointer returned from lws_spawn()
+ * \p std_idx: 0 (stdin write side), 1 (stdout read side), 2 (stderr read side)
+ *
+ * Lets you get the fd for writing to the spawned process stdin, or reading from
+ * the spawned process stdout and stderr.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_spawn_get_fd_stdxxx(struct lws_spawn_piped *lsp, int std_idx);
 #endif
 
 struct lws_fsmount {

@@ -573,3 +573,11 @@ lws_spawn_get_stdfd(struct lws *wsi)
 {
 	return wsi->lsp_channel;
 }
+
+int
+lws_spawn_get_fd_stdxxx(struct lws_spawn_piped *lsp, int std_idx)
+{
+	assert(std_idx >= 0 && std_idx < 3);
+
+	return lsp->pipe_fds[std_idx][!!(n == 0)];
+}

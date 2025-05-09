@@ -484,9 +484,9 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		lwsl_info("%s: lsp %p spawned PID %d\n", __func__, lsp,
 			  lsp->child_pid);
 
-		lws_sul_schedule(context, i->tsi, &lsp->sul, lws_spawn_timeout,
-				 i->timeout_us ? i->timeout_us :
-						   300 * LWS_US_PER_SEC);
+		if (i->timeout_us)
+			lws_sul_schedule(context, i->tsi, &lsp->sul, lws_spawn_timeout,
+					 i->timeout_us);
 
 		if (i->owner)
 			lws_dll2_add_head(&lsp->dll, i->owner);
@@ -612,4 +612,12 @@ int
 lws_spawn_get_stdfd(struct lws *wsi)
 {
 	return wsi->lsp_channel;
+}
+
+int
+lws_spawn_get_fd_stdxxx(struct lws_spawn_piped *lsp, int std_idx)
+{
+	assert(std_idx >= 0 && std_idx < 3);
+
+	return lsp->pipe_fds[std_idx][!!(std_idx == 0)];
 }
