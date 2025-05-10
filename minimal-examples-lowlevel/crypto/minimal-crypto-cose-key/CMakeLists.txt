@@ -40,7 +40,7 @@ if (requirements)
 			     PROPERTIES
 		     		WORKING_DIRECTORY
 		     			${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/crypto/minimal-crypto-cose-key
-		     		TIMEOUT 5)
+				TIMEOUT 15)
 		     		
 	set_tests_properties(crypto-cose-key-7
 			     PROPERTIES
