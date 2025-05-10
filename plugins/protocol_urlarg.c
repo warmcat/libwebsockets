@@ -1,5 +1,5 @@
 /*
- * test server for hugeurl - libwebsockets test implementation
+ * libwebsockets-test-server - libwebsockets test implementation
  *
  * Written in 2010-2019 by Andy Green <andy@warmcat.com>
  *
@@ -67,30 +67,28 @@ callback_lws_urlarg(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_notice("%s: CALLBACK_HTTP_WRITEABLE\n", __func__);
 
 		if (!pss->h) {
-			unsigned char headers[2048], *p = headers + LWS_PRE,
-				      *start = p, *end = p + sizeof(headers) - LWS_PRE - 1;
+			unsigned char headers[2048], *p = headers + LWS_PRE, *start = p, *end = p + sizeof(headers) - LWS_PRE - 1;
 			int n;
 
 			if (lws_add_http_header_status(wsi, HTTP_STATUS_OK,
-						&p, end))
-				goto bail;
+                                                       &p, end))
+                                goto bail;
 
-			if (lws_add_http_header_by_token(wsi,
-					WSI_TOKEN_HTTP_CONTENT_TYPE,
-					(unsigned char *)"text/html", 9,
-					&p, end))
-				goto bail;
-			if (lws_add_http_header_content_length(wsi,
-					(unsigned int)pss->alen, &p, end))
-				goto bail;
-			if (lws_finalize_http_header(wsi, &p, end))
-				goto bail;
+                        if (lws_add_http_header_by_token(wsi,
+                                        WSI_TOKEN_HTTP_CONTENT_TYPE,
+                                        (unsigned char *)"text/html", 9,
+                                        &p, end))
+                                goto bail;
+                        if (lws_add_http_header_content_length(wsi, (unsigned int)pss->alen, &p, end))
+                                goto bail;
+                        if (lws_finalize_http_header(wsi, &p, end))
+                                goto bail;
 
-			/* first send the headers ... */
-			n = lws_write(wsi, start, lws_ptr_diff_size_t(p, start),
-				LWS_WRITE_HTTP_HEADERS);
-			if (n < 0)
-				goto bail;
+                        /* first send the headers ... */
+                        n = lws_write(wsi, start, lws_ptr_diff_size_t(p, start),
+                                      LWS_WRITE_HTTP_HEADERS);
+                        if (n < 0)
+                                goto bail;
 
 			pss->h = 1;
 
@@ -99,10 +97,10 @@ callback_lws_urlarg(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		if (pss->alen >= 0 && pss->alen != pss->wlen) {
-			lws_write(wsi, (unsigned char *)(pss->urlarg + LWS_PRE),
-					(size_t)pss->alen, LWS_WRITE_HTTP);
+			lws_write(wsi, (unsigned char *)(pss->urlarg + LWS_PRE), (size_t)pss->alen, LWS_WRITE_HTTP);
 
 			pss->wlen = pss->alen;
+
 
 bail:
 			if (lws_http_transaction_completed(wsi))
@@ -133,7 +131,6 @@ LWS_VISIBLE const struct lws_protocols lws_urlarg_protocols[] = {
 	LWS_PLUGIN_PROTOCOL_URLARG
 };
 
-/* this must be named the plugin basename */
 LWS_VISIBLE const lws_plugin_protocol_t urlarg = {
 	.hdr = {
 		"lws urlarg",

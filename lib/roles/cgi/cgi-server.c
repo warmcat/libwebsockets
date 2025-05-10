@@ -999,6 +999,8 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 				(unsigned long long)cgi->content_length_seen);
 			}
 
+			lwsl_cx_info(pt->context, "reaping cgi pid %d (content len %d, clen seen %d)", (int)n, (int)cgi->content_length, (int)cgi->content_length_seen);
+
 			/* reap it */
 			waitpid(n, &status, WNOHANG);
 			/*
@@ -1046,7 +1048,7 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 		/* we deferred killing him after reaping his PID */
 		if (cgi->chunked_grace) {
 			cgi->chunked_grace++;
-			if (cgi->chunked_grace < 2)
+			if (cgi->chunked_grace < 5)
 				continue;
 			goto finish_him;
 		}
@@ -1072,7 +1074,7 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 				 * give him 2s after the
 				 * cgi terminated to send buffered
 				 */
-				cgi->chunked_grace++;
+				cgi->chunked_grace += 4;
 				continue;
 			}
 finish_him:
