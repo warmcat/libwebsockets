@@ -119,7 +119,7 @@ sul_cb_expire(struct lws_sorted_usec_list *sul);
 void
 lws_adns_cache_destroy(lws_adns_cache_t *c);
 
-int
+lws_async_dns_retcode_t
 lws_async_dns_complete(lws_adns_q_t *q, lws_adns_cache_t *c);
 
 lws_adns_cache_t *
