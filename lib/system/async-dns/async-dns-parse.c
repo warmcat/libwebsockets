@@ -86,7 +86,9 @@ again1:
 	}
 
 	if (ll > lws_ptr_diff_size_t(ls, ols) + (size_t)budget) {
-		lwsl_notice("%s: label too long %d vs %d\n", __func__, ll, budget);
+		lwsl_notice("%s: label too long %d vs %d (rem budget %d)\n",
+				__func__, ll, budget,
+				(int)(lws_ptr_diff_size_t(ls, ols) + (size_t)budget));
 
 		return -1;
 	}
@@ -209,7 +211,7 @@ start:
 
 		/* while we have more labels */
 
-		n = lws_adns_parse_label(pkt, len, p, len, &sp,
+		n = lws_adns_parse_label(pkt, len, p, len - DHO_SIZEOF, &sp,
 					 sizeof(stack[0].name) -
 					 lws_ptr_diff_size_t(sp, stack[0].name));
 		/* includes case name won't fit */
