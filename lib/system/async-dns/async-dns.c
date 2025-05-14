@@ -82,9 +82,10 @@ lws_async_dns_drop_server(struct lws_context *context)
 	context->async_dns.dns_server_connected = 0;
 }
 
-int
+lws_async_dns_retcode_t
 lws_async_dns_complete(lws_adns_q_t *q, lws_adns_cache_t *c)
 {
+	lws_async_dns_retcode_t ret = LADNS_RET_FOUND;
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 				   lws_dll2_get_head(&q->wsi_adns)) {
@@ -101,11 +102,10 @@ lws_async_dns_complete(lws_adns_q_t *q, lws_adns_cache_t *c)
 		 * This may decide to close / delete w
 		 */
 		if (w->adns_cb(w, (const char *)&q[1], c ? c->results : NULL, 0,
-				q->opaque) == NULL)
+				q->opaque) == NULL) {
 			lwsl_info("%s: failed\n", __func__);
-	//		lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
-	//				   "adopt udp2 fail");
-
+			ret = LADNS_RET_FAILED_WSI_CLOSED;
+		}
 
 	} lws_end_foreach_dll_safe(d, d1);
 
@@ -116,13 +116,14 @@ lws_async_dns_complete(lws_adns_q_t *q, lws_adns_cache_t *c)
 			c->refcount++;
 		}
 
-		q->standalone_cb(NULL, (const char *)&q[1],
-				 c ? c->results : NULL, 0, q->opaque);
+		if (q->standalone_cb(NULL, (const char *)&q[1],
+				 c ? c->results : NULL, 0, q->opaque) == NULL)
+			ret = LADNS_RET_FAILED_WSI_CLOSED;
 	}
 
 	lws_adns_dump(q->dns);
 
-	return 0;
+	return ret;
 }
 
 static void
@@ -775,9 +776,7 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 		ai->ai_addr = (struct sockaddr *)&sa46->sa4;
 		memcpy(&sa46->sa4.sin_addr, ads, (unsigned int)m);
 
-		lws_async_dns_complete(&tmq.tq, c);
-
-		return LADNS_RET_FOUND;
+		return lws_async_dns_complete(&tmq.tq, c);
 	}
 
 #if defined(LWS_WITH_IPV6)
@@ -787,9 +786,7 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 		ai->ai_addr = (struct sockaddr *)&sa46->sa6;
 		memcpy(&sa46->sa6.sin6_addr, ads, (unsigned int)m);
 
-		lws_async_dns_complete(&tmq.tq, c);
-
-		return LADNS_RET_FOUND;
+		return lws_async_dns_complete(&tmq.tq, c);
 	}
 #endif
 
