@@ -69,7 +69,8 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 	context = wsi->a.context;
 	pt = &context->pt[(int)wsi->tsi];
 
-#if !defined(LWS_WITH_EVENT_LIBS)
+#if !defined(LWS_WITH_EVENT_LIBS) && !defined(LWS_PLAT_FREERTOS) && \
+    !defined(WIN32) && !defined(_WIN32)
 	/*
 	 * This only applies when we use the default poll() event loop.
 	 *
