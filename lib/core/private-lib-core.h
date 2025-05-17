@@ -635,6 +635,8 @@ struct lws_context {
 	lws_ss_handle_t			* ota_ss;	/* opaque to platform */
 #endif
 
+	const char			*wol_if;
+
 /*
  * <====== LWS_WITH_NETWORK end
  */

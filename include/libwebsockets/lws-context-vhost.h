@@ -967,6 +967,11 @@ struct lws_context_creation_info {
 	 * zero.
 	 */
 
+#if defined(LWS_WITH_NETWORK)
+	const char		*wol_if;
+	/**< CONTEXT: NULL, or interface name to bind outgoing WOL packet to */
+#endif
+
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
 	 *
