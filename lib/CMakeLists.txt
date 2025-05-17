@@ -190,6 +190,10 @@ if (LWS_WITH_STATIC)
 			OUTPUT_NAME websockets_static)
 	endif()
 	
+	if (LWS_APPEND_DEBUG_SUFFIX_D)
+		set_target_properties(websockets PROPERTIES DEBUG_POSTFIX d)
+	endif()
+
 endif()
 
 if (LWS_WITH_SHARED)
@@ -238,6 +242,10 @@ if (LWS_WITH_SHARED)
 				target_link_libraries(websockets_shared dl)
 			endif()
 		endif()
+	endif()
+
+	if (LWS_APPEND_DEBUG_SUFFIX_D)
+		set_target_properties(websockets_shared PROPERTIES DEBUG_POSTFIX d)
 	endif()
 
 endif()
