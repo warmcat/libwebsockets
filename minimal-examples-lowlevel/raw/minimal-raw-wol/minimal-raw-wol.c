@@ -15,7 +15,7 @@ int main(int argc, const char **argv)
 {
        struct lws_context_creation_info info;
        struct lws_context *ctx;
-       const char *p, *ip = NULL;
+       const char *p, *ip = NULL, *wol_if = NULL;
        uint8_t mac[LWS_ETHER_ADDR_LEN];
        int ret = 1;
 
@@ -25,8 +25,12 @@ int main(int argc, const char **argv)
 	if ((p = lws_cmdline_option(argc, argv, "-ip")))
 		ip = p;
 
+	if ((p = lws_cmdline_option(argc, argv, "-i")))
+		wol_if = p;
+
+
 	if (argc < 2) {
-		lwsl_user("lws-minimal-raw-wol XX:XX:XX:XX:XX:XX [-ip interface IP]\n");
+		lwsl_user("lws-minimal-raw-wol XX:XX:XX:XX:XX:XX [-ip interface IP] [-i interface name]\n");
 		goto bail1;
 	}
 
@@ -34,6 +38,8 @@ int main(int argc, const char **argv)
 		lwsl_user("Failed to parse mac '%s'\n", argv[1]);
 		goto bail1;
 	}
+
+	info.wol_if = wol_if;
 
 	ctx = lws_create_context(&info);
 	if (!ctx) {
