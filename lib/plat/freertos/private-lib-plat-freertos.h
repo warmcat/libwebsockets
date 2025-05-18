@@ -69,7 +69,6 @@
 #endif
 #endif
  #include <esp_system.h>
- #include <esp_task_wdt.h>
 #endif
 
 #if defined(LWS_WITH_ESP32)
