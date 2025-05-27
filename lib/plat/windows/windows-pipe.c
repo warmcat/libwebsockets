@@ -67,6 +67,11 @@ lws_plat_pipe_create(struct lws *wsi)
 	si->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 	si->sin_port = 0;
 
+	if (bind(fd[1], (const struct sockaddr *)si, sizeof(*si)) < 0)
+		goto bail;
+
+	si->sin_port = 0;
+
 	if (bind(fd[0], (const struct sockaddr *)si, sizeof(*si)) < 0)
 		goto bail;
 
