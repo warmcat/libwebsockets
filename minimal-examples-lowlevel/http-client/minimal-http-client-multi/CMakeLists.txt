@@ -106,6 +106,9 @@ endif()
        		WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-server/minimal-http-server-tls
 		FIXTURES_SETUP hcm_srv
 		TIMEOUT 800)
+	set_property(TEST st_hcm_srv PROPERTY ENVIRONMENT SAI_LIST_PORT=${PORT_HCM_SRV} )
+	set_property(TEST st_hcm_srv PROPERTY ENVIRONMENT VENDOR=$ENV{VENDOR} )
+
 	set_tests_properties(ki_hcm_srv PROPERTIES
 		FIXTURES_CLEANUP hcm_srv)
 
@@ -113,6 +116,9 @@ endif()
        		WORKING_DIRECTORY .
 		FIXTURES_SETUP hcmp_srv
 		TIMEOUT 800)
+	set_property(TEST st_hcmp_srv PROPERTY ENVIRONMENT SAI_LIST_PORT=1${PORT_HCM_SRV} )
+	set_property(TEST st_hcmp_srv PROPERTY ENVIRONMENT VENDOR=$ENV{VENDOR} )
+
 	set_tests_properties(ki_hcmp_srv PROPERTIES
 		FIXTURES_CLEANUP hcmp_srv)
 
