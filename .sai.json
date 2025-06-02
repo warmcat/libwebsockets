@@ -19,11 +19,16 @@
 		},
 		"linux-ubuntu-2404/aarch64-a72-bcm2711-rpi4/gcc": {
                         "build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib;export SAI_CPACK=\"-G DEB\";cmake .. ${cmake} && make -j4 && rm -rf ../destdir && make -j DESTDIR=../destdir install && ctest -j2 --output-on-failure ${cpack}"
-		}
+		},
+                "netbsd/aarch64BE-bcm2837-a53/gcc": {
+                        "build": "mkdir build destdir;cd build;export LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib;export CCACHE_DISABLE=1;cmake .. ${cmake};make -j6 && rm -rf ../destdir && make -j6 DESTDIR=../destdir install && /usr/pkg/bin/ctest -j3 --output-on-failure",
+                        "default": false
+                }
 	},
 	"configurations": {
 		"default": {
-			"cmake":	""
+			"cmake":	"",
+			"platforms":	"netbsd/aarch64BE-bcm2837-a53/gcc"
 		},
 		"default-noudp": {
 			"cmake":	"-DLWS_WITH_UDP=0"
@@ -48,7 +53,8 @@
 			"platforms":	"none, rocky9/aarch64-a72a55-rk3588/gcc"
 		},
 		"default-examples": {
-			"cmake":	"-DLWS_WITH_MINIMAL_EXAMPLES=1"
+			"cmake":	"-DLWS_WITH_MINIMAL_EXAMPLES=1",
+			"platforms":	"netbsd/aarch64BE-bcm2837-a53/gcc"
 		},
 		"default-examples-tls-sess": {
 			"cmake":	"-DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_TLS_SESSIONS=1"
@@ -67,7 +73,8 @@
 			"cmake":	"-DLWS_SUPPRESS_DEPRECATED_API_WARNINGS=1 -DLWS_WITH_ACME=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DCMAKE_BUILD_TYPE=RELEASE -DLWS_WITH_GENCRYPTO=1 -DLWS_WITH_JOSE=1 -DLWS_WITH_SYS_ASYNC_DNS=1 -DLWS_WITH_SYS_NTPCLIENT=1"
 		},
 		"secure-streams": {
-			"cmake":	"-DLWS_WITH_SECURE_STREAMS=1 -DLWS_WITH_MINIMAL_EXAMPLES=1"
+			"cmake":	"-DLWS_WITH_SECURE_STREAMS=1 -DLWS_WITH_MINIMAL_EXAMPLES=1",
+			"platforms":	"netbsd/aarch64BE-bcm2837-a53/gcc"
 		},
 		"secure-streams-proxy": {
 			"cmake":	"-DLWS_WITH_SECURE_STREAMS=1 -DLWS_WITH_SECURE_STREAMS_PROXY_API=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_SECURE_STREAMS_AUTH_SIGV4=1"
