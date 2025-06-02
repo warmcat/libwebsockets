@@ -28,7 +28,7 @@ int
 lws_wol(struct lws_context *cx, const char *ip_or_NULL, uint8_t *mac_6_bytes)
 {
         int n, m, ofs = 0, fd, optval = 1, ret = 1;
-        uint8_t pkt[17 * ETHER_ADDR_LEN];
+        uint8_t pkt[17 * LWS_ETHER_ADDR_LEN];
         struct sockaddr_in addr;
 
         fd = (int)(intptr_t)socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);

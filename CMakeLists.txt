@@ -689,6 +689,7 @@ CHECK_C_SOURCE_COMPILES("#include <pthread.h>\nvoid main(void) { while(1) ; } vo
 CHECK_C_SOURCE_COMPILES("#include <inttypes.h>\nvoid main(void) { while(1) ; } void xxexit(void){}" LWS_HAVE_INTTYPES_H)
 CHECK_C_SOURCE_COMPILES("#include <sys/resource.h>\nvoid main(void) { while(1) ; } void xxexit(void){}" LWS_HAVE_SYS_RESOURCE_H)
 CHECK_C_SOURCE_COMPILES("#include <linux/ipv6.h>\nvoid main(void) { while(1) ; } void xxexit(void){}" LWS_HAVE_LINUX_IPV6_H)
+CHECK_C_SOURCE_COMPILES("#include <sys/types.h>\n#include <net/if_ether.h>\n void main(void) { while (1) ; } void xxexit(void){}" LWS_HAVE_NET_IF_ETHER_H)
 if (LWS_HAVE_SYS_TYPES_H)
 	CHECK_C_SOURCE_COMPILES("#include <sys/types.h>\n#include <net/ethernet.h>\n void main(void) { while (1) ; } void xxexit(void){}" LWS_HAVE_NET_ETHERNET_H)
 else()

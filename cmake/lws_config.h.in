@@ -266,4 +266,5 @@
 #cmakedefine PICO_SDK_PATH
 #cmakedefine LWS_HAVE_LINUX_IPV6_H
 #cmakedefine LWS_WITH_WOL
+#cmakedefine LWS_HAVE_NET_IF_ETHER_H
 
