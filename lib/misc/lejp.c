@@ -238,7 +238,7 @@ static const char tokens[] = "rue alse ull ";
 int
 lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 {
-	unsigned char c, n, s, defer = 0;
+	unsigned char c, n, s, defer = 0, comp = 0;
 	int ret = LEJP_REJECT_UNKNOWN;
 
 	if (!ctx->sp && !ctx->pst[ctx->pst_sp].ppos)
@@ -310,14 +310,8 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 			ctx->st[ctx->sp].s = LEJP_MEMBERS;
 			break;
 		case LEJP_MEMBERS:
-			if (c == '}') {
-				if (ctx->sp >= 1)
-					goto pop_level;
-
-				ctx->st[ctx->sp].s = LEJP_IDLE;
-				ret = LEJP_REJECT_MEMBERS_NO_CLOSE;
-				goto reject;
-			}
+			if (c == '}')
+				goto pop_level;
 			ctx->st[ctx->sp].s = LEJP_M_P;
 			goto redo_character;
 		case LEJP_M_P:
@@ -765,7 +759,7 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 completed:
 				ctx->path_match = 0;
 				//lejp_check_path_match(ctx);
-				if (ctx->pst[ctx->pst_sp].callback(ctx, (char)n) ||
+				if ((n && ctx->pst[ctx->pst_sp].callback(ctx, (char)n)) ||
 				    ctx->pst[ctx->pst_sp].callback(ctx,
 							    LEJPCB_COMPLETE))
 					goto reject_callback;
@@ -776,6 +770,11 @@ completed:
 
 			/* pop */
 pop_level:
+			comp = 0;
+			if (!ctx->sp) {
+				comp = 1;
+				goto def_end;
+			}
 			ctx->sp--;
 			if (ctx->sp) {
 				ctx->pst[ctx->pst_sp].ppos = (unsigned char)ctx->st[ctx->sp].p;
@@ -792,11 +791,15 @@ pop_level:
 				 * smaller than the matching point
 				 */
 				ctx->path_match = 0;
-
+def_end:
 			lejp_check_path_match(ctx);
 			if (ctx->pst[ctx->pst_sp].callback(ctx,
 							   LEJPCB_OBJECT_END))
 				goto reject_callback;
+			if (comp) {
+				n = 0;
+				goto completed;
+			}
 			if (ctx->pst_sp && !ctx->sp)
 				lejp_parser_pop(ctx);
 			break;

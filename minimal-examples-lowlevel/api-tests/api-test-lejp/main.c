@@ -141,7 +141,8 @@ static const char * const json_tests[] = {
 
 	"{" /* test 13: float vs int */
 		"\"a\": 1, \"b\": 1.0, \"c\": 1e-3, \"d\": 1e3"
-	"}"
+	"}",
+	"{}" /* test 14: empty body */
 };
 
 static struct lejp_results {
@@ -456,6 +457,12 @@ static struct lejp_results {
 	{ 74, 0, 0, { 3,  }, "d", "1e3" },
 	{ 17, 0, 0, { 3,  }, "d", "1e3" },
 	{ 3, 0, 0, { 3,  }, "d", "1e3" },
+}, r14[] = {
+	{ 0, 0, 0, {  }, "", "1e3" },
+	{ 2, 0, 0, {  }, "", "1e3" },
+	{ 16, 0, 0, {  }, "", "1e3" },
+	{ 17, 0, 0, {  }, "", "1e3" },
+	{ 3, 0, 0, {  }, "", "1e3" },
 };
 
 static const char * const tok[] = {
@@ -488,6 +495,7 @@ struct lejp_results_pkg {
 			LEJP_FLAG_FEAT_LEADING_WC |
 			LEJP_FLAG_FEAT_OBJECT_INDEXES },
 	{ r13, LWS_ARRAY_SIZE(r13), tok, LWS_ARRAY_SIZE(tok), 0 },
+	{ r14, LWS_ARRAY_SIZE(r14), tok, LWS_ARRAY_SIZE(tok), 0 },
 };
 
 
