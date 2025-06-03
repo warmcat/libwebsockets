@@ -64,7 +64,10 @@ __lws_set_timer_usecs(struct lws *wsi, lws_usec_t us)
 void
 lws_set_timer_usecs(struct lws *wsi, lws_usec_t usecs)
 {
-	__lws_set_timer_usecs(wsi, usecs);
+	if ((int64_t)usecs == (int64_t)LWS_SET_TIMER_USEC_CANCEL)
+		lws_sul_cancel(&wsi->sul_hrtimer);
+	else
+		__lws_set_timer_usecs(wsi, usecs);
 }
 
 /*
