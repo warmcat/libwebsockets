@@ -666,7 +666,10 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				if (r != LWSSSSRET_OK)
 					return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 			}
-			if (h->prev_ss_state != LWSSSCS_CONNECTED) {
+                       if (h->prev_ss_state != LWSSSCS_CONNECTED && 
+                           h->prev_ss_state != LWSSSCS_QOS_ACK_REMOTE &&
+                           h->prev_ss_state != LWSSSCS_QOS_NACK_REMOTE) {
+                               // lwsl_ss_notice(h, "HTTP_ESTABLISHED");
 				r = lws_ss_event_helper(h, LWSSSCS_CONNECTED);
 				if (r != LWSSSSRET_OK)
 					return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
