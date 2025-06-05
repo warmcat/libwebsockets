@@ -1,4 +1,4 @@
-[![CI status](https://libwebsockets.org/sai/status/libwebsockets)](https://libwebsockets.org/git/libwebsockets) [![Coverity Scan Build Status](https://scan.coverity.com/projects/3576/badge.svg)](https://scan.coverity.com/projects/3576) [![CII Best Practices](https://bestpractices.coreinfrastructure.org/projects/2266/badge)](https://bestpractices.coreinfrastructure.org/projects/2266) [![Codacy Badge](https://api.codacy.com/project/badge/Grade/144fb195a83046e484a75c8b4c6cfc99)](https://www.codacy.com/app/lws-team/libwebsockets?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=warmcat/libwebsockets&amp;utm_campaign=Badge_Grade) [![Total alerts](https://img.shields.io/lgtm/alerts/g/warmcat/libwebsockets.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/warmcat/libwebsockets/alerts/) [![Language grade: C/C++](https://img.shields.io/lgtm/grade/cpp/g/warmcat/libwebsockets.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/warmcat/libwebsockets/context:cpp) [![Language grade: JavaScript](https://img.shields.io/lgtm/grade/javascript/g/warmcat/libwebsockets.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/warmcat/libwebsockets/context:javascript)
+[![CI status](https://libwebsockets.org/sai/status/libwebsockets)](https://libwebsockets.org/git/libwebsockets) [![Coverity Scan Build Status](https://scan.coverity.com/projects/3576/badge.svg)](https://scan.coverity.com/projects/3576) [![CII Best Practices](https://bestpractices.coreinfrastructure.org/projects/2266/badge)](https://bestpractices.coreinfrastructure.org/projects/2266) 
 
 # Libwebsockets
 
@@ -124,31 +124,12 @@ The user SS code is identical however it is transported, muxed and fulfilled.
 See the [changelog](https://libwebsockets.org/git/libwebsockets/tree/changelog)
 
 
-## Lws work retrospective
-
-The initial commit for lws will have been 11 years ago come Oct 28 2021, it's been a lot of work.
-There are a total of 4.3K patches, touching 800KLOC cumulatively (this is not the size in the
-repo, but over the years, how many source lines were changed by patches).
-
-![overview](./doc-assets/work.png)
-
-Gratifyingly, it turns out over the years, ~15% of that was contributed by 404 contributors: that's not so bad.
-Thanks a lot to everyone who has provided patches.
-
-Today at least tens of millions of devices and product features rely on lws to
-handle their communications including several from FAANG; Google now include lws
-as part of Android sources.
-
 ## Support
 
 This is the libwebsockets C library for lightweight websocket clients and
 servers.  For support, visit
 
  https://libwebsockets.org
-
-and consider joining the project mailing list at
-
- https://libwebsockets.org/mailman/listinfo/libwebsockets
 
 You can get the latest version of the library from git:
 
