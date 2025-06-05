@@ -246,6 +246,8 @@ struct jpargs {
 	unsigned int fresh_mount:1;
 	unsigned int any_vhosts:1;
 	unsigned int chunk:1;
+
+       void *user;
 };
 
 static void *
@@ -440,6 +442,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 #if defined(LWS_ROLE_WS)
 		a->info->extensions = a->extensions;
 #endif
+               a->info->user = a->user;
 #if defined(LWS_WITH_TLS)
 #if defined(LWS_WITH_CLIENT)
 		a->info->client_ssl_cipher_list = "ECDHE-ECDSA-AES256-GCM-SHA384:"
@@ -1093,6 +1096,7 @@ lwsws_get_config_vhosts(struct lws_context *context,
 	a.valid = 0;
 	a.context = context;
 	a.protocols = info->protocols;
+       a.user = info->user;
 	a.pprotocols = info->pprotocols;
 #if defined(LWS_ROLE_WS)
 	a.extensions = info->extensions;
