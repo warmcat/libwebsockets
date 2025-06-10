@@ -828,7 +828,7 @@ agin:
 	n = lws_get_socket_fd(wsi->http.cgi->lsp->stdwsi[LWS_STDOUT]);
 	if (n < 0)
 		return -1;
-	n = (int)read(n, start, sizeof(buf) - LWS_PRE);
+	n = (int)read(n, start, sizeof(buf) - LWS_PRE - 16);
 
 	if (n < 0 && errno != EAGAIN) {
 		lwsl_wsi_debug(wsi, "stdout read says %d", n);
