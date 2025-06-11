@@ -881,7 +881,7 @@ test_jwt_RS256(struct lws_context *context)
 		goto bail;
 	}
 
-	while (sha1_fingerprint[--ret_encode] == '=')
+	while (ret_encode >= 1 /* cov */ && sha1_fingerprint[--ret_encode] == '=')
 		sha1_fingerprint[ret_encode] = '\0';
 
 	lwsl_notice("%s: cert fingerprint '%s'\n", __func__, sha1_fingerprint);
