@@ -524,7 +524,8 @@ i2:
 						goto reject_callback;
 					pst->ppos = st->p;
 					ctx->path[pst->ppos] = '\0';
-					ctx->ipos--;
+					if (ctx->ipos) /* cov */
+						ctx->ipos--;
 					lecp_check_path_match(ctx);
 					lwcp_completed(ctx, 0);
 					break;
