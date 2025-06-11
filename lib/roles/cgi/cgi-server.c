@@ -217,9 +217,9 @@ lws_cgi_via_info(struct lws_cgi_info * cgiinfo)
 //		if (cgiinfo->script_uri_path_len < 0)
 //			uritok = 0;
 
-		if (m >= 0) {
+		if (m < (int)LWS_ARRAY_SIZE(meths)) {
 			env_array[n++] = p;
-			if (m < (int)LWS_ARRAY_SIZE(meths) - 1) {
+			if (m < (int)LWS_ARRAY_SIZE(meths) - 1) { /* not the final, PATH one */
 				p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
 						  "REQUEST_METHOD=%s",
 						  meth_names[m]);
@@ -229,7 +229,7 @@ lws_cgi_via_info(struct lws_cgi_info * cgiinfo)
 			} else {
 				p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
 						  "REQUEST_METHOD=%s",
-			  lws_hdr_simple_ptr(cgiinfo->wsi, WSI_TOKEN_HTTP_COLON_METHOD));
+				lws_hdr_simple_ptr(cgiinfo->wsi, WSI_TOKEN_HTTP_COLON_METHOD));
 				sum += lws_snprintf(sum, lws_ptr_diff_size_t(sumend, sum), "%s ",
 					lws_hdr_simple_ptr(cgiinfo->wsi,
 						  WSI_TOKEN_HTTP_COLON_METHOD));
