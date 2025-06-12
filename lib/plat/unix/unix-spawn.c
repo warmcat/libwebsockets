@@ -364,7 +364,8 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	for (n = 0; n < 3; n++) {
 		if (pipe(lsp->pipe_fds[n]) == -1)
 			goto bail1;
-		lws_plat_apply_FD_CLOEXEC(lsp->pipe_fds[n][n == 0]);
+		if (lws_plat_apply_FD_CLOEXEC(lsp->pipe_fds[n][n == 0]))
+			lwsl_info("%s: FD_CLOEXEC didn't stick\n", __func__);
 	}
 
 	/*
