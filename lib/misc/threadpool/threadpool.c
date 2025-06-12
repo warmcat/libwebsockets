@@ -355,6 +355,8 @@ lws_threadpool_tsi_context(struct lws_context *context, int tsi)
 
 		/* for the done tasks... */
 
+		pthread_mutex_lock(&tp->lock); /* ======================== tpool lock */
+
 		c = &tp->task_done_head;
 
 		while (*c) {
@@ -379,6 +381,8 @@ lws_threadpool_tsi_context(struct lws_context *context, int tsi)
 
 			c = &task->task_queue_next;
 		}
+
+		pthread_mutex_unlock(&tp->lock); /* -------------------- tpool unlock */
 
 		tp = tp->tp_list;
 	}
