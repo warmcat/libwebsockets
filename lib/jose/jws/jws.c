@@ -1267,12 +1267,12 @@ lws_jwt_token_sanity(const char *in, size_t in_len,
 	 * ... and not too late for it?
 	 */
 	cp = lws_json_simple_find(in, in_len, "\"exp\":", &len);
-	exp = (unsigned long)atol(cp);
 	if (!cp || (unsigned long)atol(cp) < now) {
 		lwsl_notice("%s: exp fail %lu vs %lu\n", __func__,
 				cp ? (unsigned long)atol(cp) : 0, now);
 		return 1;
 	}
+	exp = (unsigned long)atol(cp);
 
 	/*
 	 * Caller cares about subject?  Then we must have it, and it can't be
