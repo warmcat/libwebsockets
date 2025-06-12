@@ -497,14 +497,20 @@ lws_threadpool_worker(void *d)
 	struct lws_threadpool_task **c, **c2, *task;
 	struct lws_pool *pool = d;
 	struct lws_threadpool *tp = pool->tp;
-	char buf[160];
+	char buf[160], tpd = 0;
 
-	while (!tp->destroying) {
+	while (!tpd) {
 
 		/* we have no running task... wait and get one from the queue */
 
 		pthread_mutex_lock(&tp->lock); /* =================== tp lock */
 
+		tpd = tp->destroying;
+		if (tpd) {
+			pthread_mutex_unlock(&tp->lock); /* --------------- tp unlock */
+
+			continue;
+		}
 		/*
 		 * if there's no task already waiting in the queue, wait for
 		 * the wake_idle condition to signal us that might have changed
