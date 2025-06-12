@@ -972,14 +972,14 @@ lws_threadpool_enqueue(struct lws_threadpool *tp,
 	struct lws_threadpool_task *task = NULL;
 	va_list ap;
 
-	if (tp->destroying)
-		return NULL;
-
 #if defined(LWS_WITH_SECURE_STREAMS)
 	assert(args->ss || args->wsi);
 #endif
 
 	pthread_mutex_lock(&tp->lock); /* ======================== tpool lock */
+
+	if (tp->destroying)
+		goto bail;
 
 	/*
 	 * if there's room on the queue, the job always goes on the queue
