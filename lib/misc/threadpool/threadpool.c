@@ -591,10 +591,14 @@ lws_threadpool_worker(void *d)
 			lws_usec_t then;
 			int n;
 
-			if (tp->destroying || !task_to_wsi(task)) {
+			pthread_mutex_lock(&tp->lock); /* =================== tp lock */
+
+			if (tp->destroying || !task_to_wsi(task)) { /* cov */
 				lwsl_info("%s: stopping on wsi gone\n", __func__);
 				state_transition(task, LWS_TP_STATUS_STOPPING);
 			}
+
+			pthread_mutex_unlock(&tp->lock); /* --------------- tp unlock */
 
 			then = lws_now_usecs();
 			n = (int)task->args.task(task->args.user, task->status);
