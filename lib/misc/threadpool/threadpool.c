@@ -826,6 +826,7 @@ lws_threadpool_destroy(struct lws_threadpool *tp)
 #if defined(WIN32)
 	Sleep(1000);
 #endif
+	pthread_mutex_lock(&tp->lock); /* ======================== tpool lock */
 
 	task = tp->task_done_head;
 	while (task) {
@@ -834,6 +835,8 @@ lws_threadpool_destroy(struct lws_threadpool *tp)
 		tp->done_queue_depth--;
 		task = next;
 	}
+
+	pthread_mutex_unlock(&tp->lock); /* -------------------- tpool unlock */
 
 	pthread_mutex_destroy(&tp->lock);
 
