@@ -985,11 +985,11 @@ lws_threadpool_enqueue(struct lws_threadpool *tp,
 	struct lws_threadpool_task *task = NULL;
 	va_list ap;
 
+	pthread_mutex_lock(&tp->lock); /* ======================== tpool lock */
+
 #if defined(LWS_WITH_SECURE_STREAMS)
 	assert(args->ss || args->wsi);
 #endif
-
-	pthread_mutex_lock(&tp->lock); /* ======================== tpool lock */
 
 	if (tp->destroying)
 		goto bail;
