@@ -189,7 +189,7 @@ typedef struct huff_table {
 	uint8_t			value[16];
 } huff_table_t;
 
-typedef struct lws_jpeg {
+struct lws_jpeg {
 
 	pjpeg_scan_type_t	scan_type;
 	
@@ -301,7 +301,7 @@ typedef struct lws_jpeg {
 	uint8_t			fs_ir_phase;
 	uint8_t			fs_is_phase;
 
-} lws_jpeg_t;
+};
 
 static const int8_t ZAG[] = { 0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18,
 			      11, 4, 5, 12, 19, 26, 33, 40, 48, 41, 34, 27,
