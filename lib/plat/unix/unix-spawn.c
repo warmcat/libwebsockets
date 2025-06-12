@@ -514,6 +514,9 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		exit(2);
 	}
 
+	if (chdir("/")) /* cov */
+		lwsl_notice("%s: Failed to cd to /\n", __func__);
+
 	/* cwd: somewhere we can at least read things and enter it */
 
 	wd = i->wd;
