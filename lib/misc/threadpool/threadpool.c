@@ -809,8 +809,6 @@ lws_threadpool_destroy(struct lws_threadpool *tp)
 #endif
 
 	for (n = 0; n < tp->threads_in_pool; n++) {
-		task = tp->pool_list[n].task;
-
 		pthread_join(tp->pool_list[n].thread, &retval);
 		pthread_mutex_destroy(&tp->pool_list[n].lock);
 	}
