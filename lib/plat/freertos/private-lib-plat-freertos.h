@@ -83,6 +83,11 @@ typedef SemaphoreHandle_t lws_mutex_t;
 #define lws_mutex_lock(x)	(!xSemaphoreTake(x, portMAX_DELAY)) /*0 = OK */
 #define lws_mutex_unlock(x)	xSemaphoreGive(x)
 
+#define lws_tid_t		TaskHandle_t
+#define lws_thread_is(x)	(x == xTaskGetCurrentTaskHandle())
+#define lws_thread_id()		xTaskGetCurrentTaskHandle()
+
+
 #include <lwip/sockets.h>
 
  #if defined(LWS_BUILTIN_GETIFADDRS)
