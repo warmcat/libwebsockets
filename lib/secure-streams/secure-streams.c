@@ -1415,6 +1415,7 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 		}
 
 		*ppp++ = ss_pcols[h->policy->protocol]->protocol;
+
 #if defined(LWS_ROLE_WS)
 		if (h->policy->u.http.u.ws.subprotocol)
 			/*
@@ -1422,7 +1423,10 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 			 * ss-ws protocol in this vhost
 			 */
 			*ppp++ = &protocol_secstream_ws;
+
+		i.extensions = context->extensions;
 #endif
+
 		*ppp = NULL;
 		i.pprotocols = pprot;
 

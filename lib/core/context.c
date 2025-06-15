@@ -914,6 +914,10 @@ lws_create_context(const struct lws_context_creation_info *info)
         if (info->extensions)
                 lwsl_cx_warn(context, "WITHOUT_EXTENSIONS but exts ptr set");
 #endif
+#if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
+        context->extensions = info->extensions;
+#endif
+
 #endif /* network */
 
 #if defined(LWS_WITH_SECURE_STREAMS)

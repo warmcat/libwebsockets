@@ -482,6 +482,9 @@ struct lws_context {
 	lws_lifecycle_group_t			lcg[LWSLCG_COUNT];
 
 	const struct lws_protocols		*protocols_copy;
+#if defined(LWS_ROLE_WS)
+        const struct lws_extension		*extensions;
+#endif
 
 #if defined(LWS_WITH_NETLINK)
 	lws_sorted_usec_list_t			sul_nl_coldplug;
