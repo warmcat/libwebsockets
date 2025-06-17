@@ -23,12 +23,16 @@
                 "netbsd/aarch64BE-bcm2837-a53/gcc": {
                         "build": "mkdir build destdir;cd build;export LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib;export CCACHE_DISABLE=1;cmake .. ${cmake};make -j6 && rm -rf ../destdir && make -j6 DESTDIR=../destdir install && /usr/pkg/bin/ctest -j3 --output-on-failure",
                         "default": false
-                }
+                },
+		"w11/x86_64-amd/msvc": {
+			"build": "mkdir build && cd build && set SAI_CPACK=\"-G ZIP\" && cmake .. -DOPENSSL_ROOT_DIR=\"C:\\Users\\andy\\vcpkg\\packages\\openssl_x64-windows\" -DLWS_EXT_PTHREAD_INCLUDE_DIR=\"C:\\Program Files (x86)\\pthreads\\include\" -DLWS_EXT_PTHREAD_LIBRARIES=\"C:\\Program Files (x86)\\pthreads\\lib\\x64\\libpthreadGC2.a\" ${cmake} && cmake --build . --config DEBUG && set CTEST_OUTPUT_ON_FAILURE=1 && ctest . -C DEBUG -j1 --output-on-failure",
+			"default": false
+		}
 	},
 	"configurations": {
 		"default": {
 			"cmake":	"",
-			"platforms":	"netbsd/aarch64BE-bcm2837-a53/gcc"
+			"platforms":	"w11/x86_64-amd/msvc,netbsd/aarch64BE-bcm2837-a53/gcc"
 		},
 		"default-noudp": {
 			"cmake":	"-DLWS_WITH_UDP=0"
@@ -74,7 +78,7 @@
 		},
 		"secure-streams": {
 			"cmake":	"-DLWS_WITH_SECURE_STREAMS=1 -DLWS_WITH_MINIMAL_EXAMPLES=1",
-			"platforms":	"netbsd/aarch64BE-bcm2837-a53/gcc"
+			"platforms":	"w11/x86_64-amd/msvc,netbsd/aarch64BE-bcm2837-a53/gcc"
 		},
 		"secure-streams-proxy": {
 			"cmake":	"-DLWS_WITH_SECURE_STREAMS=1 -DLWS_WITH_SECURE_STREAMS_PROXY_API=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_SECURE_STREAMS_AUTH_SIGV4=1"
@@ -149,7 +153,8 @@
 			"cmake":	"-DLWS_WITH_CGI=ON"
 		},
 		"nologs": {
-			"cmake":	"-DLWS_WITH_NO_LOGS=ON"
+			"cmake":	"-DLWS_WITH_NO_LOGS=ON",
+			"platforms":	"w11/x86_64-amd/msvc"
 		},
 		"cookiejar": {
 			"cmake":	"-DLWS_WITH_CACHE_NSCOOKIEJAR=ON"
