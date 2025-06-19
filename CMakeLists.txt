@@ -25,7 +25,7 @@
 if (PICO_SDK_PATH)
 	cmake_minimum_required(VERSION 3.13)
 else()
-	cmake_minimum_required(VERSION 3.5)
+	cmake_minimum_required(VERSION 3.10)
 endif()
 include(CheckFunctionExists)
 include(CheckSymbolExists)

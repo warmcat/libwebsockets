@@ -1,5 +1,5 @@
 project(lws-minimal-ss-binance C)
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.10)
 find_package(libwebsockets CONFIG REQUIRED)
 
 set(SRCS main.c binance-ss.c)

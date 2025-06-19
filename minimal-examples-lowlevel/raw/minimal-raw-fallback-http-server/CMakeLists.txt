@@ -1,5 +1,5 @@
 project(lws-minimal-raw-fallback-http-server C)
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.10)
 find_package(libwebsockets CONFIG REQUIRED)
 list(APPEND CMAKE_MODULE_PATH ${LWS_CMAKE_DIR})
 include(CheckCSourceCompiles)

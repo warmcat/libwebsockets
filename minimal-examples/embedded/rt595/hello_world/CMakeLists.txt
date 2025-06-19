@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.10)
 
 set(TOOLCHAIN_PATH "/usr/local/mcuxpressoide-11.4.1_6260/ide/plugins/com.nxp.mcuxpresso.tools.linux_11.4.0.202103011116/tools/bin/arm-none-eabi")
 

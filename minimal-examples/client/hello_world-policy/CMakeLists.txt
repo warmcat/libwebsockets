@@ -1,5 +1,5 @@
 project(lws-minimal-ss-hello_world-policy C)
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.10)
 find_package(libwebsockets CONFIG REQUIRED)
 
 require_lws_config(LWS_ROLE_H1 1 requirements)
