@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2025 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -101,6 +101,9 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].mounts[].interpret",
 	"vhosts[].mounts[].cgi-chroot",
 	"vhosts[].mounts[].cgi-chdir",
+	"vhosts[].mounts[].headers[].*",
+	"vhosts[].mounts[].headers[]",
+	"vhosts[].mounts[].keepalive-timeout",
 	"vhosts[].mounts[]",
 	"vhosts[].ws-protocols[].*.*",
 	"vhosts[].ws-protocols[].*",
@@ -177,6 +180,9 @@ enum lejp_vhost_paths {
 	LEJPVP_MOUNT_INTERPRET_base,
 	LEJPVP_CGI_CHROOT,
 	LEJPVP_CGI_CHDIR,
+	LEJPVP_MOUNTPOINT_HEADERS_NAME,
+	LEJPVP_MOUNTPOINT_HEADERS,
+	LEJPVP_MOUNTPOINT_KEEPALIVE_TIMEOUT,
 
 	LEJPVP_MOUNTS,
 
@@ -237,6 +243,9 @@ struct jpargs {
 	struct lws_protocol_vhost_options *pvo;
 	struct lws_protocol_vhost_options *pvo_em;
 	struct lws_protocol_vhost_options *pvo_int;
+
+	struct lws_protocol_vhost_options *pvo_mp;
+
 	struct lws_http_mount m;
 	const char **plugin_dirs;
 	int count_plugin_dirs;
@@ -533,6 +542,37 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		goto dostring;
 	}
 
+	/* this catches, eg, vhosts[].mount[].headers[].xxx */
+	if ((reason == LEJPCB_VAL_STR_END || reason == LEJPCB_VAL_STR_CHUNK) &&
+	    ctx->path_match == LEJPVP_MOUNTPOINT_HEADERS_NAME + 1) {
+
+		if (!a->chunk) {
+			headers = lwsws_align(a);
+			a->p += sizeof(*headers);
+
+			n = lejp_get_wildcard(ctx, 0, a->p,
+					lws_ptr_diff(a->end, a->p));
+			/* ie, add this header */
+			/* linked-list of pvos start held in a->pvo_mp */
+			headers->next = a->pvo_mp;
+			a->pvo_mp = headers;
+			headers->name = a->p;
+
+			lwsl_notice("  adding header %s=%s\n", a->p, ctx->buf);
+			a->p += n - 1;
+			*(a->p++) = ':';
+			if (a->p < a->end)
+				*(a->p++) = '\0';
+			else
+				*(a->p - 1) = '\0';
+			headers->value = a->p;
+			headers->options = NULL;
+		}
+		a->chunk = reason == LEJPCB_VAL_STR_CHUNK;
+		goto dostring;
+	}
+
+
 	if (reason == LEJPCB_OBJECT_END &&
 	    (ctx->path_match == LEJPVP + 1 || !ctx->path[0]) &&
 	    a->valid) {
@@ -627,6 +667,9 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 			lwsl_err("unsupported protocol:// %s\n", a->m.origin);
 			return 1;
 		}
+
+		/* attach the tree of mountpoint headers, if any */
+		m->headers = a->pvo_mp;
 
 		a->p += sizeof(*m);
 		if (!a->head)
@@ -724,6 +767,9 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		return 0;
 	case LEJPVP_KEEPALIVE_TIMEOUT:
 		a->info->keepalive_timeout = atoi(ctx->buf);
+		return 0;
+	case LEJPVP_MOUNTPOINT_KEEPALIVE_TIMEOUT:
+		a->m.keepalive_timeout = (unsigned int)atoi(ctx->buf);
 		return 0;
 #if defined(LWS_WITH_TLS)
 #if defined(LWS_WITH_CLIENT)

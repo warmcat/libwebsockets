@@ -985,11 +985,23 @@ lws_h2_parse_frame_header(struct lws *wsi)
 
 	/* let the network wsi live a bit longer if subs are active */
 
-	if (!wsi->immortal_substream_count)
-		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE,
-				wsi->a.vhost->keepalive_timeout ?
-					wsi->a.vhost->keepalive_timeout : 31);
+	if (!wsi->immortal_substream_count) {
+		int ds = wsi->a.vhost->keepalive_timeout;
 
+		if (wsi->http.mount_specific_keepalive_timeout_secs)
+			ds = (int)wsi->http.mount_specific_keepalive_timeout_secs;
+
+		if (!ds)
+			ds = 31;
+		/*
+		 * A short (5s) timeout here affects the reverse proxy if
+		 * the onward box takes a long time to respond, eg to a POST.
+		 * The mount can override the keepalive timeout, eg, to give
+		 * the right behaviour depending on reverse proxy for a particular
+		 * server.
+		 */
+		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE, ds);
+	}
 	if (h2n->sid)
 		h2n->swsi = lws_wsi_mux_from_id(wsi, h2n->sid);
 

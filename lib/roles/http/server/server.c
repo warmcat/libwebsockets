@@ -1833,6 +1833,9 @@ lws_http_action(struct lws *wsi)
 	/* can we serve it from the mount list? */
 
 	wsi->mount_hit = 0;
+	wsi->http.mount_specific_headers = NULL;
+	wsi->http.mount_specific_keepalive_timeout_secs = 0;
+
 	hit = lws_find_mount(wsi, uri_ptr, uri_len);
 	if (!hit) {
 		/* deferred cleanup and reset to protocols[0] */
@@ -1852,6 +1855,8 @@ lws_http_action(struct lws *wsi)
 	}
 
 	wsi->mount_hit = 1;
+	wsi->http.mount_specific_headers = hit->headers;
+	wsi->http.mount_specific_keepalive_timeout_secs = hit->keepalive_timeout;
 
 #if defined(LWS_WITH_FILE_OPS)
 	s = uri_ptr + hit->mountpoint_len;
