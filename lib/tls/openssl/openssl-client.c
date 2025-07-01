@@ -92,6 +92,7 @@ OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 	SSL *ssl;
 	int n, err = 0;
 	struct lws *wsi;
+	const struct lws_protocols *lp;
 
 	/* keep old behaviour accepting self-signed server certs */
 	if (!preverify_ok) {
@@ -184,8 +185,11 @@ OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 		lws_tls_jit_trust_sort_kids(wsi, &wsi->tls.kid_chain);
 	}
 #endif
+	lp = &(lws_get_context_protocol(wsi->a.context, 0));
+	if (wsi->a.protocol)
+		lp = wsi->a.protocol;
 
-	n = lws_get_context_protocol(wsi->a.context, 0).callback(wsi,
+	n = lp->callback(wsi,
 			LWS_CALLBACK_OPENSSL_PERFORM_SERVER_CERT_VERIFICATION,
 			x509_ctx, ssl, (unsigned int)preverify_ok);
 
