@@ -72,6 +72,11 @@ lws_create_client_ws_object(const struct lws_client_connect_info *i,
 }
 
 #if defined(LWS_WITH_CLIENT)
+
+/*
+ * Returns either LWS_HPI_RET_PLEASE_CLOSE_ME or LWS_HPI_RET_HANDLED
+ */
+
 int
 lws_ws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 {
@@ -81,7 +86,7 @@ lws_ws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 	    (lwsi_state(wsi) != LRS_H1C_ISSUE_HANDSHAKE) &&
 	    (lwsi_state(wsi) != LRS_WAITING_SERVER_REPLY) &&
 	    !lwsi_role_client(wsi))
-		return 0;
+		return LWS_HPI_RET_HANDLED;
 
 	lwsl_wsi_debug(wsi, "hs client feels it has %d in", (int)len);
 
@@ -114,19 +119,22 @@ lws_ws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 			} else
 				*buf += len;
 
-			return 0;
+			return LWS_HPI_RET_HANDLED;
 		}
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 		if (wsi->ws->rx_draining_ext) {
 			int m;
 
 			lwsl_wsi_info(wsi, "draining ext");
-			if (lwsi_role_client(wsi))
+			if (lwsi_role_client(wsi)) {
 				m = lws_ws_client_rx_sm(wsi, 0);
-			else
+				if (m == LWS_HPI_RET_PLEASE_CLOSE_ME)
+					return LWS_HPI_RET_PLEASE_CLOSE_ME;
+			} else {
 				m = lws_ws_rx_sm(wsi, 0, 0);
-			if (m < 0)
-				return -1;
+				if (m < 0)
+					return LWS_HPI_RET_PLEASE_CLOSE_ME;
+			}
 			continue;
 		}
 #endif
@@ -135,16 +143,17 @@ lws_ws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 		 * happened to *buf
 		 */
 
-		if (lws_ws_client_rx_sm(wsi, *(*buf)++)) {
+		if (lws_ws_client_rx_sm(wsi, *(*buf)++) ==
+					LWS_HPI_RET_PLEASE_CLOSE_ME) {
 			lwsl_wsi_info(wsi, "client_rx_sm exited, DROPPING %d",
 				      (int)len);
-			return -1;
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}
 		len--;
 	}
 	// lwsl_wsi_notice(wsi, "finished with %ld", (long)len);
 
-	return 0;
+	return LWS_HPI_RET_HANDLED;
 }
 #endif
 

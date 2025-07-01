@@ -1069,7 +1069,7 @@ rops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
 #if defined(LWS_WITH_CLIENT)
 		if (lwsi_role_client(wsi)) {
 			n = lws_ws_client_rx_sm(wsi, 0);
-			if (n < 0)
+			if (n == LWS_HPI_RET_PLEASE_CLOSE_ME)
 				/* we closed wsi */
 				return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		} else
