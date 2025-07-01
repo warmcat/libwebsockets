@@ -71,7 +71,7 @@ lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 		}
 		lwsl_parser("issuing %d bytes to parser\n", (int)len);
 #if defined(LWS_ROLE_WS) && defined(LWS_WITH_CLIENT)
-		if (lws_ws_handshake_client(wsi, &buf, (size_t)len))
+		if (lws_ws_handshake_client(wsi, &buf, (size_t)len) == LWS_HPI_RET_PLEASE_CLOSE_ME)
 			goto bail;
 #endif
 		last_char = buf;
@@ -259,7 +259,7 @@ postbody_completion:
 ws_mode:
 #if defined(LWS_WITH_CLIENT) && defined(LWS_ROLE_WS)
 		// lwsl_notice("%s: ws_mode\n", __func__);
-		if (lws_ws_handshake_client(wsi, &buf, (size_t)len))
+		if (lws_ws_handshake_client(wsi, &buf, (size_t)len) == LWS_HPI_RET_PLEASE_CLOSE_ME)
 			goto bail;
 #endif
 #if defined(LWS_ROLE_WS)

@@ -27,6 +27,11 @@
 /*
  * parsers.c: lws_ws_rx_sm() needs to be roughly kept in
  *   sync with changes here, esp related to ext draining
+ *
+ *
+ * We return eithe LWS_HPI_RET_PLEASE_CLOSE_ME if we identified
+ * a situation that requires the stream to close now, or
+ * LWS_HPI_RET_HANDLED if we can continue okay.
  */
 
 int lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
@@ -101,7 +106,7 @@ int lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 			case LWSWSOPC_CONTINUATION:
 				if (!wsi->ws->continuation_possible) {
 					lwsl_wsi_info(wsi, "disordered continuation");
-					return -1;
+					return LWS_HPI_RET_PLEASE_CLOSE_ME;
 				}
 				wsi->ws->first_fragment = 0;
 				break;
@@ -120,7 +125,7 @@ int lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 			case 0xe:
 			case 0xf:
 				lwsl_wsi_info(wsi, "illegal opcode");
-				return -1;
+				return LWS_HPI_RET_PLEASE_CLOSE_ME;
 			default:
 				wsi->ws->defeat_check_utf8 = 1;
 				break;
@@ -133,7 +138,7 @@ int lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 #endif
 				wsi->ws->rsv) {
 				lwsl_wsi_info(wsi, "illegal rsv bits set");
-				return -1;
+				return LWS_HPI_RET_PLEASE_CLOSE_ME;
 			}
 			wsi->ws->final = !!((c >> 7) & 1);
 			lwsl_wsi_ext(wsi, "    This RX frame Final %d",
@@ -143,7 +148,7 @@ int lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 			    (wsi->ws->opcode == LWSWSOPC_TEXT_FRAME ||
 			     wsi->ws->opcode == LWSWSOPC_BINARY_FRAME)) {
 				lwsl_wsi_info(wsi, "hey you owed us a FIN");
-				return -1;
+				return LWS_HPI_RET_PLEASE_CLOSE_ME;
 			}
 			if ((!(wsi->ws->opcode & 8)) && wsi->ws->final) {
 				wsi->ws->continuation_possible = 0;
@@ -152,7 +157,7 @@ int lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 
 			if ((wsi->ws->opcode & 8) && !wsi->ws->final) {
 				lwsl_wsi_info(wsi, "control msg can't be fragmented");
-				return -1;
+				return LWS_HPI_RET_PLEASE_CLOSE_ME;
 			}
 			if (!wsi->ws->final)
 				wsi->ws->owed_a_fin = 1;
@@ -235,7 +240,7 @@ int lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 		if (c & 0x80) {
 			lwsl_wsi_warn(wsi, "b63 of length must be zero");
 			/* kill the connection */
-			return -1;
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}
 #if defined __LP64__
 		wsi->ws->rx_packet_length = ((size_t)c) << 56;
@@ -397,7 +402,7 @@ spill:
 				 * finish our close
 				 */
 				lwsl_wsi_parser(wsi, "seen server's close ack");
-				return -1;
+				return LWS_HPI_RET_PLEASE_CLOSE_ME;
 			}
 
 			lwsl_wsi_parser(wsi, "client sees server close len = %d",
@@ -419,7 +424,7 @@ spill:
 					LWS_CALLBACK_WS_PEER_INITIATED_CLOSE,
 					wsi->user_space, pp,
 					wsi->ws->rx_ubuf_head))
-				return -1;
+				return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
 			memcpy(wsi->ws->ping_payload_buf + LWS_PRE, pp,
 			       wsi->ws->rx_ubuf_head);
@@ -494,7 +499,7 @@ ping_drop:
 			lwsl_wsi_ext(wsi, "Unhandled ext opc 0x%x", wsi->ws->opcode);
 			wsi->ws->rx_ubuf_head = 0;
 
-			return -1;
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}
 
 		/*
@@ -543,7 +548,7 @@ drain_extension:
 			lwsl_wsi_ext(wsi, "Ext RX returned %d", n);
 			if (n < 0) {
 				wsi->socket_is_permanently_unusable = 1;
-				return -1;
+				return LWS_HPI_RET_PLEASE_CLOSE_ME;
 			}
 			if (n == PMDR_DID_NOTHING)
 				/* ie, not PMDR_NOTHING_WE_SHOULD_DO */
@@ -597,7 +602,7 @@ utf8_fail:
 					lwsl_hexdump_wsi_info(wsi, pmdrx.eb_out.token,
 							  (unsigned int)pmdrx.eb_out.len);
 
-					return -1;
+					return LWS_HPI_RET_PLEASE_CLOSE_ME;
 				}
 			}
 
@@ -656,7 +661,7 @@ utf8_fail:
 
 			/* if user code wants to close, let caller know */
 			if (m)
-				return 1;
+				return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
 		} while (pmdrx.eb_in.len
 #if !defined(LWS_WITHOUT_EXTENSIONS)
@@ -669,16 +674,16 @@ already_done:
 		break;
 	default:
 		lwsl_wsi_err(wsi, "client rx illegal state");
-		return 1;
+		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
 
-	return 0;
+	return LWS_HPI_RET_HANDLED;
 
 illegal_ctl_length:
 	lwsl_wsi_warn(wsi, "Control frame asking for extended length is illegal");
 
 	/* kill the connection */
-	return -1;
+	return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
 server_cannot_mask:
 	lws_close_reason(wsi,
@@ -688,7 +693,7 @@ server_cannot_mask:
 	lwsl_wsi_warn(wsi, "Server must not mask");
 
 	/* kill the connection */
-	return -1;
+	return LWS_HPI_RET_PLEASE_CLOSE_ME;
 }
 
 
